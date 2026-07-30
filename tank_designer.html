@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>坦克设计器 · Tank Designer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
+  :root{
+    --bg:#12140f;
+    --panel:#1a1d15;
+    --line:#3a3f2c;
+    --amber:#ffb454;
+    --text:#d9dcc9;
+  }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'Rajdhani',sans-serif; display:grid;
+    grid-template-columns: 1fr 350px; height:100vh;
+  }
+  #editor-canvas{ background:#0c0d09; cursor:crosshair; width:100%; height:100%; }
+  #sidebar{
+    background:var(--panel); border-left:1px solid var(--line);
+    padding:20px; overflow-y:auto; display:flex; flex-direction:column; gap:15px;
+  }
+  .section{ border:1px solid var(--line); padding:10px; background:rgba(255,255,255,0.02); }
+  h3{ margin:0 0 10px; font-size:12px; text-transform:uppercase; color:var(--amber); font-family:'JetBrains Mono'; }
+  .prop-row{ display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; font-size:12px; }
+  input[type="number"], input[type="text"]{
+    background:#000; border:1px solid var(--line); color:#fff;
+    padding:3px; width:60px; font-family:'JetBrains Mono';
+  }
+  button{
+    background:transparent; border:1px solid var(--amber); color:var(--amber);
+    padding:5px 10px; cursor:pointer; font-family:'JetBrains Mono'; font-size:11px;
+  }
+  button:hover{ background:rgba(255,180,84,0.1); }
+  #json-out{
+    width:100%; height:150px; background:#000; color:var(--amber);
+    font-family:'JetBrains Mono'; font-size:10px; border:1px solid var(--line);
+    margin-top:10px; white-space: pre; overflow: auto;
+  }
+</style>
+</head>
+<body>
+  <canvas id="editor-canvas"></canvas>
+  <div id="sidebar">
+    <div class="title" style="font-size:18px; font-weight:700; border-bottom:2px solid var(--amber); padding-bottom:10px;">坦克设计器 v0.1</div>
+    
+    <div class="section">
+      <h3>基础参数 Base</h3>
+      <div class="prop-row"><span>名称 ID</span><input type="text" id="t-id" value="new_tank" style="width:120px;"></div>
+      <div class="prop-row"><span>有炮塔 Has Turret</span><input type="checkbox" id="t-hasTurret" checked></div>
+      <div class="prop-row"><span>左右射界 Traverse Limit (°)</span><input type="number" id="t-traverse" value="15"></div>
+    </div>
+
+    <div class="section">
+      <h3>尺寸 Dimensions</h3>
+      <div class="prop-row"><span>车体长度 Hull Len</span><input type="number" id="t-hullLen" value="64"></div>
+      <div class="prop-row"><span>车体宽度 Hull Wid</span><input type="number" id="t-hullWid" value="38"></div>
+      <div class="prop-row"><span>炮塔长度 Tur Len</span><input type="number" id="t-turLen" value="34"></div>
+      <div class="prop-row"><span>炮塔宽度 Tur Wid</span><input type="number" id="t-turWid" value="36"></div>
+    </div>
+
+    <div class="section">
+      <h3>机动 Mobility</h3>
+      <div class="prop-row"><span>最大速度 Max Speed</span><input type="number" id="t-maxSpeed" value="120"></div>
+      <div class="prop-row"><span>转向速率 Turn Rate</span><input type="number" id="t-turnRate" value="2.0" step="0.1"></div>
+    </div>
+
+    <button id="export-btn">导出配置 EXPORT JSON</button>
+    <div id="json-out"></div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('editor-canvas');
+    const ctx = canvas.getContext('2d');
+    let config = {
+      id: 'new_tank',
+      hasTurret: true,
+      traverseLimit: 15,
+      hullLen: 64, hullWid: 38,
+      turLen: 34, turWid: 36,
+      maxSpeed: 120, turnRate: 2.0
+    };
+
+    function updateConfig() {
+      config.id = document.getElementById('t-id').value;
+      config.hasTurret = document.getElementById('t-hasTurret').checked;
+      config.traverseLimit = parseFloat(document.getElementById('t-traverse').value);
+      config.hullLen = parseFloat(document.getElementById('t-hullLen').value);
+      config.hullWid = parseFloat(document.getElementById('t-hullWid').value);
+      config.turLen = parseFloat(document.getElementById('t-turLen').value);
+      config.turWid = parseFloat(document.getElementById('t-turWid').value);
+      config.maxSpeed = parseFloat(document.getElementById('t-maxSpeed').value);
+      config.turnRate = parseFloat(document.getElementById('t-turnRate').value);
+      render();
+    }
+
+    document.querySelectorAll('input').forEach(el => el.addEventListener('input', updateConfig));
+
+    function render() {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+
+      // Draw Grid
+      ctx.strokeStyle = '#222';
+      for(let i=0; i<canvas.width; i+=40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke(); }
+      for(let i=0; i<canvas.height; i+=40) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(canvas.width,i); ctx.stroke(); }
+
+      // Hull (Simplified Rect for Designer v0.1)
+      ctx.strokeStyle = '#7ed957'; ctx.lineWidth = 2;
+      ctx.strokeRect(cx - config.hullLen/2, cy - config.hullWid/2, config.hullLen, config.hullWid);
+      
+      // Turret
+      if (config.hasTurret) {
+        ctx.strokeStyle = '#ffb454';
+        ctx.strokeRect(cx - config.turLen/2 + 8, cy - config.turWid/2, config.turLen, config.turWid);
+        // Gun
+        ctx.beginPath();
+        ctx.moveTo(cx + 8 + config.turLen/2, cy);
+        ctx.lineTo(cx + 8 + config.turLen/2 + 25, cy);
+        ctx.stroke();
+      } else {
+        // Casemate / Fixed Gun
+        ctx.strokeStyle = '#ffb454';
+        ctx.beginPath();
+        ctx.moveTo(cx + 8, cy);
+        ctx.lineTo(cx + 8 + config.turLen/2 + 25, cy);
+        ctx.stroke();
+        // Traverse Limit
+        ctx.setLineDash([5, 5]);
+        const ang = config.traverseLimit * Math.PI / 180;
+        ctx.beginPath();
+        ctx.moveTo(cx + 8, cy);
+        ctx.lineTo(cx + 8 + Math.cos(ang)*80, cy + Math.sin(ang)*80);
+        ctx.moveTo(cx + 8, cy);
+        ctx.lineTo(cx + 8 + Math.cos(-ang)*80, cy + Math.sin(-ang)*80);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    document.getElementById('export-btn').onclick = () => {
+      document.getElementById('json-out').textContent = JSON.stringify(config, null, 2);
+    };
+
+    window.onresize = render;
+    render();
+  </script>
+</body>
+</html>
