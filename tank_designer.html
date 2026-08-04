@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>坦克设计器 · Tank Designer</title>
+<title>坦克设计器 · Tank Designer v0.3</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
   :root{
@@ -10,145 +10,818 @@
     --panel:#1a1d15;
     --line:#3a3f2c;
     --amber:#ffb454;
+    --amber-dim:#8a6a35;
     --text:#d9dcc9;
+    --text-dim:#7a8065;
+    --front:#ff5c4d;
+    --side:#5cc8ff;
+    --rear:#b98aff;
+    --green:#7ed957;
+    --mirror:#5a5f4a;
   }
-  body{
-    margin:0; background:var(--bg); color:var(--text);
-    font-family:'Rajdhani',sans-serif; display:grid;
-    grid-template-columns: 1fr 350px; height:100vh;
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;overflow:hidden;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  #app{display:grid;grid-template-columns:1fr 380px;height:100vh;}
+  #stage-wrap{position:relative;background:radial-gradient(ellipse at 30% 20%, rgba(126,217,87,0.04), transparent 60%), var(--bg);}
+  #editor-canvas{background:#0c0d09;cursor:crosshair;width:100%;height:100%;display:block;}
+  #coordReadout{
+    position:absolute; left:12px; bottom:12px; font-family:'JetBrains Mono',monospace;
+    font-size:11px; color:var(--text-dim); background:rgba(0,0,0,0.4); padding:4px 8px; border:1px solid var(--line);
+    pointer-events:none;
   }
-  #editor-canvas{ background:#0c0d09; cursor:crosshair; width:100%; height:100%; }
-  #sidebar{
-    background:var(--panel); border-left:1px solid var(--line);
-    padding:20px; overflow-y:auto; display:flex; flex-direction:column; gap:15px;
+  #zoomReadout{
+    position:absolute; right:12px; bottom:12px; font-family:'JetBrains Mono',monospace;
+    font-size:11px; color:var(--amber-dim); background:rgba(0,0,0,0.4); padding:4px 8px; border:1px solid var(--line);
+    pointer-events:none;
   }
-  .section{ border:1px solid var(--line); padding:10px; background:rgba(255,255,255,0.02); }
-  h3{ margin:0 0 10px; font-size:12px; text-transform:uppercase; color:var(--amber); font-family:'JetBrains Mono'; }
-  .prop-row{ display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; font-size:12px; }
-  input[type="number"], input[type="text"]{
-    background:#000; border:1px solid var(--line); color:#fff;
-    padding:3px; width:60px; font-family:'JetBrains Mono';
+  #hint{
+    position:absolute; left:12px; top:12px; right:12px; font-family:'JetBrains Mono',monospace;
+    font-size:11px; color:var(--amber-dim); background:rgba(0,0,0,0.45); padding:6px 10px; border:1px solid var(--line);
+    line-height:1.6; pointer-events:none;
   }
+  #sidebar{background:var(--panel);border-left:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
+  .title{font-size:16px;font-weight:700;border-bottom:2px solid var(--amber);padding-bottom:8px;letter-spacing:1px;}
+  .title b{color:var(--amber);}
+  .section{border:1px solid var(--line);padding:10px 12px;background:rgba(255,255,255,0.02);}
+  .section h3{margin:0 0 8px;font-size:11px;text-transform:uppercase;color:var(--amber);font-family:'JetBrains Mono',monospace;letter-spacing:1px;}
+  .prop-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px;gap:6px;}
+  .prop-row span.lbl{color:var(--text-dim);}
+  input[type="number"],input[type="text"]{
+    background:#000;border:1px solid var(--line);color:#fff;padding:3px 5px;width:64px;font-family:'JetBrains Mono',monospace;font-size:11px;
+  }
+  input[type="text"].wide{width:140px;}
+  input:disabled{opacity:.35;}
+  select{background:#000;border:1px solid var(--line);color:#fff;font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 3px;}
   button{
-    background:transparent; border:1px solid var(--amber); color:var(--amber);
-    padding:5px 10px; cursor:pointer; font-family:'JetBrains Mono'; font-size:11px;
+    background:transparent;border:1px solid var(--amber-dim);color:var(--amber);
+    padding:6px 9px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.5px;
   }
-  button:hover{ background:rgba(255,180,84,0.1); }
-  #json-out{
-    width:100%; height:150px; background:#000; color:var(--amber);
-    font-family:'JetBrains Mono'; font-size:10px; border:1px solid var(--line);
-    margin-top:10px; white-space: pre; overflow: auto;
+  button:hover{background:rgba(255,180,84,0.1);border-color:var(--amber);}
+  button:disabled{opacity:.35;cursor:default;}
+  button:disabled:hover{background:transparent;border-color:var(--amber-dim);}
+  button.active{background:rgba(126,217,87,0.15);border-color:var(--green);color:var(--green);}
+  button.danger:hover{background:rgba(255,92,77,0.12);border-color:var(--front);color:var(--front);}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap;}
+  .armor-row{display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:11px;}
+  .armor-row .swatch{width:10px;height:10px;display:inline-block;border:1px solid rgba(255,255,255,0.3);}
+  .edge-list{max-height:120px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:10px;display:flex;flex-direction:column;gap:3px;}
+  .edge-row{display:flex;justify-content:space-between;align-items:center;padding:2px 4px;background:rgba(255,255,255,0.02);}
+  .edge-row.seam{background:rgba(255,180,84,0.05);}
+  .edge-row .ename{color:var(--text-dim);}
+  #json-out,#json-in{
+    width:100%;height:130px;background:#000;color:var(--amber);
+    font-family:'JetBrains Mono',monospace;font-size:10px;border:1px solid var(--line);
+    margin-top:8px;white-space:pre;overflow:auto;padding:6px;
   }
+  #json-in{color:var(--text);white-space:pre-wrap;}
+  .legend{display:flex;flex-direction:column;gap:4px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);margin-top:4px;}
+  .legend span.sw{display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px;border:1px solid rgba(255,255,255,0.3);}
+  #selInfo{font-size:11px;color:var(--text-dim);margin-bottom:6px;}
+  #selInfo b{color:var(--amber);}
 </style>
 </head>
 <body>
-  <canvas id="editor-canvas"></canvas>
+<div id="app">
+  <div id="stage-wrap">
+    <canvas id="editor-canvas"></canvas>
+    <div id="hint"></div>
+    <div id="coordReadout">局部坐标: --</div>
+    <div id="zoomReadout">缩放: 100%</div>
+  </div>
   <div id="sidebar">
-    <div class="title" style="font-size:18px; font-weight:700; border-bottom:2px solid var(--amber); padding-bottom:10px;">坦克设计器 v0.1</div>
-    
+    <div class="title">坦克设计器 <b>TANK DESIGNER v0.3</b></div>
+
     <div class="section">
       <h3>基础参数 Base</h3>
-      <div class="prop-row"><span>名称 ID</span><input type="text" id="t-id" value="new_tank" style="width:120px;"></div>
-      <div class="prop-row"><span>有炮塔 Has Turret</span><input type="checkbox" id="t-hasTurret" checked></div>
-      <div class="prop-row"><span>左右射界 Traverse Limit (°)</span><input type="number" id="t-traverse" value="15"></div>
+      <div class="prop-row"><span class="lbl">名称 ID</span><input type="text" id="t-id" class="wide" value="new_tank"></div>
+      <div class="prop-row"><span class="lbl">有炮塔 Has Turret</span><input type="checkbox" id="t-hasTurret" checked></div>
+      <div class="prop-row"><span class="lbl">左右射界 (°)</span><input type="number" id="t-traverse" value="15"></div>
+      <div class="prop-row"><span class="lbl">最大速度</span><input type="number" id="t-maxSpeed" value="120"></div>
+      <div class="prop-row"><span class="lbl">车体转速 rad/s</span><input type="number" id="t-turnRate" value="2.0" step="0.1"></div>
+      <div class="prop-row"><span class="lbl">炮塔转速 rad/s</span><input type="number" id="t-turretTurnRate" value="2.2" step="0.1"></div>
     </div>
 
     <div class="section">
-      <h3>尺寸 Dimensions</h3>
-      <div class="prop-row"><span>车体长度 Hull Len</span><input type="number" id="t-hullLen" value="64"></div>
-      <div class="prop-row"><span>车体宽度 Hull Wid</span><input type="number" id="t-hullWid" value="38"></div>
-      <div class="prop-row"><span>炮塔长度 Tur Len</span><input type="number" id="t-turLen" value="34"></div>
-      <div class="prop-row"><span>炮塔宽度 Tur Wid</span><input type="number" id="t-turWid" value="36"></div>
+      <h3>视图 View</h3>
+      <div class="btnrow">
+        <button id="zoomOutBtn">－ 缩小</button>
+        <button id="zoomInBtn">＋ 放大</button>
+        <button id="zoomResetBtn">重置视图 100%</button>
+      </div>
+      <div class="hint-text" style="margin-top:6px; font-size:10px; color:var(--text-dim);">画布上滚动鼠标滚轮也可缩放（以画布中心为基准）</div>
     </div>
 
     <div class="section">
-      <h3>机动 Mobility</h3>
-      <div class="prop-row"><span>最大速度 Max Speed</span><input type="number" id="t-maxSpeed" value="120"></div>
-      <div class="prop-row"><span>转向速率 Turn Rate</span><input type="number" id="t-turnRate" value="2.0" step="0.1"></div>
+      <h3>编辑模式 Mode</h3>
+      <div class="btnrow">
+        <button id="modeHull" class="mode-btn active">车体 Hull</button>
+        <button id="modeTurret" class="mode-btn">炮塔 Turret</button>
+        <button id="modePivot" class="mode-btn">旋转中心 Pivot</button>
+        <button id="modePreview" class="mode-btn">预览瞄准 Preview</button>
+      </div>
+      <div class="btnrow" style="margin-top:8px;">
+        <button id="undoVertBtn">撤销末尾顶点</button>
+        <button id="clearPolyBtn" class="danger">清空当前多边形</button>
+        <button id="resetDefaultBtn">重置默认形状</button>
+      </div>
     </div>
 
-    <button id="export-btn">导出配置 EXPORT JSON</button>
-    <div id="json-out"></div>
+    <div class="section">
+      <h3>选中顶点 Selected Vertex</h3>
+      <div id="selInfo">未选中顶点 — 点击画布上一个顶点即可选中并精确编辑坐标</div>
+      <div class="prop-row"><span class="lbl">X</span><input type="number" id="v-x" disabled></div>
+      <div class="prop-row"><span class="lbl">Y (≤ 0)</span><input type="number" id="v-y" disabled max="0"></div>
+      <div class="btnrow">
+        <button id="deleteVertBtn" class="danger" disabled>删除选中顶点</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>装甲厚度 Armor (mm)</h3>
+      <div class="armor-row"><span class="swatch" style="background:var(--front);"></span>车体正面 <input type="number" id="a-hull-front" value="110"></div>
+      <div class="armor-row"><span class="swatch" style="background:var(--side);"></span>车体侧面 <input type="number" id="a-hull-side" value="38"></div>
+      <div class="armor-row"><span class="swatch" style="background:var(--rear);"></span>车体后部 <input type="number" id="a-hull-rear" value="26"></div>
+      <div style="height:6px;"></div>
+      <div class="armor-row"><span class="swatch" style="background:var(--front);"></span>炮塔正面 <input type="number" id="a-turret-front" value="140"></div>
+      <div class="armor-row"><span class="swatch" style="background:var(--side);"></span>炮塔侧面 <input type="number" id="a-turret-side" value="50"></div>
+      <div class="armor-row"><span class="swatch" style="background:var(--rear);"></span>炮塔后部 <input type="number" id="a-turret-rear" value="24"></div>
+      <div class="legend">
+        <div><span class="sw" style="background:var(--front);"></span>front</div>
+        <div><span class="sw" style="background:var(--side);"></span>side</div>
+        <div><span class="sw" style="background:var(--rear);"></span>rear</div>
+        <div><span class="sw" style="background:var(--mirror);"></span>镜像侧（只读，自动生成）</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>车体边（仅编辑侧，另一侧自动镜像） Hull Edges</h3>
+      <div class="edge-list" id="hullEdgeList"></div>
+    </div>
+
+    <div class="section">
+      <h3>炮塔边（仅编辑侧） Turret Edges</h3>
+      <div class="edge-list" id="turretEdgeList"></div>
+      <div class="prop-row" style="margin-top:8px;">
+        <span class="lbl">旋转中心偏移 dx,dy</span>
+        <span class="mono" id="pivotReadout" style="font-size:11px; color:var(--amber);">8, 0</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>导出 Export</h3>
+      <div class="btnrow">
+        <button id="exportBtn">导出 JSON</button>
+        <button id="copyBtn">复制</button>
+      </div>
+      <div id="json-out" class="mono"></div>
+    </div>
+
+    <div class="section">
+      <h3>导入 Import</h3>
+      <textarea id="json-in" placeholder="粘贴之前导出的 JSON..."></textarea>
+      <div class="btnrow" style="margin-top:6px;">
+        <button id="loadBtn">载入 Load</button>
+      </div>
+    </div>
   </div>
+</div>
 
-  <script>
-    const canvas = document.getElementById('editor-canvas');
-    const ctx = canvas.getContext('2d');
-    let config = {
-      id: 'new_tank',
-      hasTurret: true,
-      traverseLimit: 15,
-      hullLen: 64, hullWid: 38,
-      turLen: 34, turWid: 36,
-      maxSpeed: 120, turnRate: 2.0
-    };
+<script>
+(() => {
+const canvas = document.getElementById('editor-canvas');
+const ctx = canvas.getContext('2d');
+function resize(){ canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; render(); }
+window.addEventListener('resize', resize);
 
-    function updateConfig() {
-      config.id = document.getElementById('t-id').value;
-      config.hasTurret = document.getElementById('t-hasTurret').checked;
-      config.traverseLimit = parseFloat(document.getElementById('t-traverse').value);
-      config.hullLen = parseFloat(document.getElementById('t-hullLen').value);
-      config.hullWid = parseFloat(document.getElementById('t-hullWid').value);
-      config.turLen = parseFloat(document.getElementById('t-turLen').value);
-      config.turWid = parseFloat(document.getElementById('t-turWid').value);
-      config.maxSpeed = parseFloat(document.getElementById('t-maxSpeed').value);
-      config.turnRate = parseFloat(document.getElementById('t-turnRate').value);
-      render();
+// ================= geometry / mirror helpers =================
+// Local convention matches tank_mvp.html: +x = forward, +y = left. We only ever let the user edit
+// the y<=0 ("right") half of a polygon; the y>0 half is generated automatically by mirroring across
+// the x-axis (the hull/turret centerline). This guarantees every shape is left-right symmetric,
+// which is true of every real tank silhouette and removes a whole class of "oops the two sides don't
+// match" bugs from hand-authored JSON.
+function rotate(dx,dy,theta){
+  return { x: dx*Math.cos(theta) - dy*Math.sin(theta), y: dx*Math.sin(theta) + dy*Math.cos(theta) };
+}
+function distToSegment(px,py,ax,ay,bx,by){
+  const abx=bx-ax, aby=by-ay;
+  const t = Math.max(0, Math.min(1, ((px-ax)*abx+(py-ay)*aby)/((abx*abx+aby*aby)||1)));
+  const cx=ax+abx*t, cy=ay+aby*t;
+  return Math.hypot(px-cx, py-cy);
+}
+const CENTER_EPS = 1e-4;
+function onCenterline(p){ return Math.abs(p[1]) < CENTER_EPS; }
+function mirrorPt(p){ return [p[0], -p[1]]; }
+function pointsEqual(a,b){ return Math.abs(a[0]-b[0])<CENTER_EPS && Math.abs(a[1]-b[1])<CENTER_EPS; }
+
+// half -> full closed polygon vertex list (mirrors the half across y=0, dropping duplicate seam verts)
+function buildFullVerts(half){
+  if(half.length===0) return [];
+  const full = half.map(p=>p.slice());
+  const revMirror = half.slice().reverse().map(mirrorPt);
+  if(revMirror.length && pointsEqual(revMirror[0], full[full.length-1])) revMirror.shift();
+  if(revMirror.length && pointsEqual(revMirror[revMirror.length-1], full[0])) revMirror.pop();
+  return full.concat(revMirror);
+}
+// half + halfFaces (n-1 internal edges) + seam faces -> full faces array, index-aligned with buildFullVerts().
+// Also returns a parallel `primary` boolean array: true for edges the user actually controls (the
+// half-chain edges, clickable on canvas, plus the two seam edges, editable from the sidebar list);
+// false for the mirrored-chain edges, which just copy their counterpart's value and aren't independently editable.
+function buildFullFacesWithFlags(half, getHalfFace, frontSeamFace, rearSeamFace){
+  const n = half.length;
+  if(n===0) return { faces:[], primary:[] };
+  const touchesFront = onCenterline(half[0]);
+  const touchesRear = onCenterline(half[n-1]);
+  const chain = []; for(let i=0;i<n-1;i++) chain.push(getHalfFace(i));
+  const faces = chain.slice();
+  const primary = chain.map(()=>true);
+  if(!touchesRear){ faces.push(rearSeamFace); primary.push(true); }
+  const mchain = chain.slice().reverse();
+  faces.push(...mchain); primary.push(...mchain.map(()=>false));
+  if(!touchesFront){ faces.push(frontSeamFace); primary.push(true); }
+  return { faces, primary };
+}
+function buildFullFaces(half, getHalfFace, frontSeamFace, rearSeamFace){
+  return buildFullFacesWithFlags(half, getHalfFace, frontSeamFace, rearSeamFace).faces;
+}
+
+// ================= default shapes (half-form, right side y<=0) =================
+// Reconstructed from tank_mvp.html's hullPoly()/turretPoly() at hullLen=64/hullWid=38/turLen=34/turWid=36 —
+// mirroring these halves reproduces the exact same full polygons the prototype currently hardcodes.
+function defaultHull(){
+  return {
+    half: [[41.5,0], [32,-19], [-32,-19]],        // tip -> front-right -> rear-right
+    halfFaces: ['front','side'],                   // tip-FR, FR-RR
+    frontSeamFace: 'front', rearSeamFace: 'rear',   // rear seam is the flat rear plate
+    armor: { front:110, side:38, rear:26 }
+  };
+}
+function defaultTurret(){
+  return {
+    half: [[16.15,-14.76], [0.85,-17.28], [-16.15,-16.56]], // front-right -> mid-right -> rear-right
+    halfFaces: ['front','side'],
+    frontSeamFace: 'front', rearSeamFace: 'rear',
+    armor: { front:140, side:50, rear:24 },
+    pivot: { dx:8, dy:0 }
+  };
+}
+
+// ================= state =================
+let state = {
+  id:'new_tank', hasTurret:true, traverseLimit:15,
+  maxSpeed:120, turnRate:2.0, turretTurnRate:2.2,
+  hull: defaultHull(),
+  turret: defaultTurret()
+};
+let mode = 'hull'; // 'hull' | 'turret' | 'pivot' | 'preview'
+let viewScale = 1;
+let drag = null;
+let selected = null; // { poly:'hull'|'turret', index }
+let previewAngle = 0;
+const HIT_R = 9, EDGE_HIT_R = 8;
+const ZOOM_MIN = 0.3, ZOOM_MAX = 4;
+
+function hullCenter(){ return { x: canvas.width/2, y: canvas.height/2 }; }
+function turretCenter(){ const c = hullCenter(); return { x: c.x + state.turret.pivot.dx*viewScale, y: c.y + state.turret.pivot.dy*viewScale }; }
+function getCanvasPos(e){ const r = canvas.getBoundingClientRect(); return { x: e.clientX-r.left, y: e.clientY-r.top }; }
+function toScreen(center, local, angle){
+  const p = angle ? rotate(local[0],local[1],angle) : { x:local[0], y:local[1] };
+  return { x: center.x + p.x*viewScale, y: center.y + p.y*viewScale };
+}
+function toLocal(center, sx, sy){ return [ (sx-center.x)/viewScale, (sy-center.y)/viewScale ]; }
+
+// ================= face helpers =================
+function getFace(faces, i){ return faces[i] || 'side'; }
+function setFace(faces, i, val){ faces[i] = val; }
+function nextFace(f){ return f==='front' ? 'side' : f==='side' ? 'rear' : 'front'; }
+const FACE_COLOR = { front:'#ff5c4d', side:'#5cc8ff', rear:'#b98aff' };
+
+// ================= hit testing (only against the editable half) =================
+function findVertexHit(poly, center, sx, sy){
+  for(let i=0;i<poly.half.length;i++){
+    const w = toScreen(center, poly.half[i]);
+    if(Math.hypot(sx-w.x, sy-w.y) <= HIT_R) return i;
+  }
+  return -1;
+}
+function findEdgeHit(poly, center, sx, sy){
+  const n = poly.half.length;
+  if(n<2) return -1;
+  for(let i=0;i<n-1;i++){
+    const a = toScreen(center, poly.half[i]), b = toScreen(center, poly.half[i+1]);
+    if(distToSegment(sx,sy,a.x,a.y,b.x,b.y) <= EDGE_HIT_R) return i;
+  }
+  return -1;
+}
+
+// ================= mouse interaction =================
+canvas.addEventListener('mousedown', e=>{
+  const {x:sx,y:sy} = getCanvasPos(e);
+  if(mode==='hull' || mode==='turret'){
+    const poly = state[mode];
+    const center = mode==='hull' ? hullCenter() : turretCenter();
+    const vi = findVertexHit(poly, center, sx, sy);
+    if(vi>=0){
+      drag = { poly:mode, index:vi, moved:false, downX:sx, downY:sy };
+      selectVertex(mode, vi);
+      return;
     }
-
-    document.querySelectorAll('input').forEach(el => el.addEventListener('input', updateConfig));
-
-    function render() {
-      canvas.width = canvas.clientWidth;
-      canvas.height = canvas.clientHeight;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2;
-
-      // Draw Grid
-      ctx.strokeStyle = '#222';
-      for(let i=0; i<canvas.width; i+=40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke(); }
-      for(let i=0; i<canvas.height; i+=40) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(canvas.width,i); ctx.stroke(); }
-
-      // Hull (Simplified Rect for Designer v0.1)
-      ctx.strokeStyle = '#7ed957'; ctx.lineWidth = 2;
-      ctx.strokeRect(cx - config.hullLen/2, cy - config.hullWid/2, config.hullLen, config.hullWid);
-      
-      // Turret
-      if (config.hasTurret) {
-        ctx.strokeStyle = '#ffb454';
-        ctx.strokeRect(cx - config.turLen/2 + 8, cy - config.turWid/2, config.turLen, config.turWid);
-        // Gun
-        ctx.beginPath();
-        ctx.moveTo(cx + 8 + config.turLen/2, cy);
-        ctx.lineTo(cx + 8 + config.turLen/2 + 25, cy);
-        ctx.stroke();
+    drag = { poly:mode, index:-1, moved:false, downX:sx, downY:sy, isNew:true };
+  } else if(mode==='pivot'){
+    drag = { poly:'pivot', moved:false, downX:sx, downY:sy };
+  }
+});
+window.addEventListener('mousemove', e=>{
+  const {x:sx,y:sy} = getCanvasPos(e);
+  updateReadout(sx,sy);
+  if(mode==='preview' && !drag){ updatePreviewAim(sx,sy); render(); return; }
+  if(!drag) return;
+  if(Math.hypot(sx-drag.downX, sy-drag.downY) > 3) drag.moved = true;
+  if(!drag.moved) return;
+  if(drag.poly==='pivot'){
+    const c = hullCenter();
+    const [lx,ly] = toLocal(c, sx, sy);
+    state.turret.pivot.dx = Math.round(lx); state.turret.pivot.dy = Math.round(ly);
+    document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, ${state.turret.pivot.dy}`;
+  } else if(drag.index>=0){
+    const center = drag.poly==='hull' ? hullCenter() : turretCenter();
+    const [lx,ly] = toLocal(center, sx, sy);
+    state[drag.poly].half[drag.index] = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
+    syncSelectedInputs();
+  }
+  render();
+});
+window.addEventListener('mouseup', e=>{
+  if(!drag) return;
+  const {x:sx,y:sy} = getCanvasPos(e);
+  if(!drag.moved){
+    if(drag.poly==='pivot'){
+      const c = hullCenter();
+      const [lx,ly] = toLocal(c, sx, sy);
+      state.turret.pivot.dx = Math.round(lx); state.turret.pivot.dy = Math.round(ly);
+      document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, ${state.turret.pivot.dy}`;
+    } else if(drag.index>=0){
+      // plain click on an existing vertex: select it for precise editing (no longer deletes on click —
+      // use the "删除选中顶点" button instead, so a mis-click doesn't destroy work).
+      selectVertex(drag.poly, drag.index);
+    } else if(drag.isNew){
+      const poly = state[drag.poly];
+      const center = drag.poly==='hull' ? hullCenter() : turretCenter();
+      const ei = poly.half.length>=2 ? findEdgeHit(poly, center, sx, sy) : -1;
+      if(ei>=0){
+        setFace(poly.halfFaces, ei, nextFace(getFace(poly.halfFaces, ei)));
       } else {
-        // Casemate / Fixed Gun
-        ctx.strokeStyle = '#ffb454';
-        ctx.beginPath();
-        ctx.moveTo(cx + 8, cy);
-        ctx.lineTo(cx + 8 + config.turLen/2 + 25, cy);
-        ctx.stroke();
-        // Traverse Limit
-        ctx.setLineDash([5, 5]);
-        const ang = config.traverseLimit * Math.PI / 180;
-        ctx.beginPath();
-        ctx.moveTo(cx + 8, cy);
-        ctx.lineTo(cx + 8 + Math.cos(ang)*80, cy + Math.sin(ang)*80);
-        ctx.moveTo(cx + 8, cy);
-        ctx.lineTo(cx + 8 + Math.cos(-ang)*80, cy + Math.sin(-ang)*80);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        const [lx,ly] = toLocal(center, sx, sy);
+        if(ly > 2/viewScale){
+          pushHint('请在中心线一侧 (y ≤ 0) 绘制，另一侧会自动镜像生成');
+        } else {
+          poly.half.push([ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ]);
+          selectVertex(drag.poly, poly.half.length-1);
+        }
       }
     }
+  }
+  drag = null;
+  render();
+  renderEdgeLists();
+});
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 1/1.1;
+  viewScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, viewScale*factor));
+  updateZoomReadout();
+  render();
+}, { passive:false });
 
-    document.getElementById('export-btn').onclick = () => {
-      document.getElementById('json-out').textContent = JSON.stringify(config, null, 2);
-    };
+function updatePreviewAim(sx,sy){
+  const tc = turretCenter();
+  let ang = Math.atan2(sy-tc.y, sx-tc.x);
+  if(!state.hasTurret){
+    const limit = state.traverseLimit * Math.PI/180;
+    let rel = Math.atan2(Math.sin(ang), Math.cos(ang));
+    rel = Math.max(-limit, Math.min(limit, rel));
+    ang = rel;
+  }
+  previewAngle = ang;
+}
 
-    window.onresize = render;
-    render();
-  </script>
+let hintTimer=null;
+function pushHint(msg){
+  const el = document.getElementById('hint');
+  const base = el.dataset.base || '';
+  el.textContent = msg;
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(()=>{ el.textContent = base; }, 1600);
+}
+function updateReadout(sx,sy){
+  const el = document.getElementById('coordReadout');
+  const center = mode==='turret' ? turretCenter() : hullCenter();
+  const [lx,ly] = toLocal(center, sx, sy);
+  el.textContent = `局部坐标 (${mode==='pivot'?'相对车体中心':mode}): ${lx.toFixed(1)}, ${ly.toFixed(1)}`;
+}
+function updateZoomReadout(){ document.getElementById('zoomReadout').textContent = `缩放: ${Math.round(viewScale*100)}%`; }
+
+// ================= selected-vertex numeric editor =================
+function selectVertex(poly, index){
+  selected = { poly, index };
+  syncSelectedInputs();
+}
+function clearSelection(){
+  selected = null;
+  syncSelectedInputs();
+}
+function syncSelectedInputs(){
+  const xEl = document.getElementById('v-x'), yEl = document.getElementById('v-y');
+  const delBtn = document.getElementById('deleteVertBtn');
+  const info = document.getElementById('selInfo');
+  if(!selected || !state[selected.poly] || !state[selected.poly].half[selected.index]){
+    selected = null;
+    xEl.disabled = true; yEl.disabled = true; delBtn.disabled = true;
+    xEl.value=''; yEl.value='';
+    info.innerHTML = '未选中顶点 — 点击画布上一个顶点即可选中并精确编辑坐标';
+    return;
+  }
+  const p = state[selected.poly].half[selected.index];
+  xEl.disabled = false; yEl.disabled = false; delBtn.disabled = false;
+  xEl.value = p[0]; yEl.value = p[1];
+  info.innerHTML = `已选中：<b>${selected.poly==='hull'?'车体':'炮塔'}</b> 顶点 #${selected.index}`;
+}
+document.getElementById('v-x').addEventListener('input', ()=>{
+  if(!selected) return;
+  const v = parseFloat(document.getElementById('v-x').value);
+  if(Number.isNaN(v)) return;
+  state[selected.poly].half[selected.index][0] = v;
+  render();
+});
+document.getElementById('v-y').addEventListener('input', ()=>{
+  if(!selected) return;
+  let v = parseFloat(document.getElementById('v-y').value);
+  if(Number.isNaN(v)) return;
+  if(v>0){ v=0; document.getElementById('v-y').value = 0; pushHint('Y 已钳制为 0（不能越过中心线到镜像侧）'); }
+  state[selected.poly].half[selected.index][1] = v;
+  render();
+});
+document.getElementById('deleteVertBtn').addEventListener('click', ()=>{
+  if(!selected) return;
+  const poly = state[selected.poly];
+  if(poly.half.length<=2){ pushHint('每侧至少保留 2 个顶点'); return; }
+  poly.half.splice(selected.index,1);
+  // halfFaces has length half.length-1 (one entry per internal edge); drop the entry that most
+  // directly corresponded to the deleted vertex, if one exists. Any resulting misalignment is
+  // harmless — getFace() falls back to 'side' and the sidebar edge list lets the user re-check
+  // classifications immediately after a deletion.
+  if(selected.index < poly.halfFaces.length) poly.halfFaces.splice(selected.index,1);
+  else if(poly.halfFaces.length>0) poly.halfFaces.pop();
+  clearSelection();
+  render(); renderEdgeLists();
+});
+
+// ================= mode switching =================
+const HINTS = {
+  hull: '点击空白处依次添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击顶点选中后可在左侧精确输入坐标或删除 · 点击边线中点循环装甲类型',
+  turret: '同车体操作，坐标以炮塔旋转中心为原点，仅编辑 y≤0 一侧，另一侧自动镜像',
+  pivot: '点击或拖动设置炮塔旋转中心（相对车体中心的偏移量 dx, dy）',
+  preview: '移动鼠标预览炮塔瞄准方向；若未勾选"有炮塔"，炮管将被限制在左右射界范围内（战斗室随车体固定不转）'
+};
+function setMode(m){
+  mode = m;
+  clearSelection();
+  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('mode'+m[0].toUpperCase()+m.slice(1)).classList.add('active');
+  const hintEl = document.getElementById('hint');
+  hintEl.textContent = HINTS[m];
+  hintEl.dataset.base = HINTS[m];
+  render();
+}
+document.getElementById('modeHull').addEventListener('click', ()=>setMode('hull'));
+document.getElementById('modeTurret').addEventListener('click', ()=>setMode('turret'));
+document.getElementById('modePivot').addEventListener('click', ()=>setMode('pivot'));
+document.getElementById('modePreview').addEventListener('click', ()=>setMode('preview'));
+
+// ================= zoom controls =================
+document.getElementById('zoomInBtn').addEventListener('click', ()=>{ viewScale=Math.min(ZOOM_MAX,viewScale*1.2); updateZoomReadout(); render(); });
+document.getElementById('zoomOutBtn').addEventListener('click', ()=>{ viewScale=Math.max(ZOOM_MIN,viewScale/1.2); updateZoomReadout(); render(); });
+document.getElementById('zoomResetBtn').addEventListener('click', ()=>{ viewScale=1; updateZoomReadout(); render(); });
+
+// ================= vertex/polygon bulk ops =================
+document.getElementById('undoVertBtn').addEventListener('click', ()=>{
+  const target = (mode==='hull'||mode==='turret') ? mode : 'hull';
+  const poly = state[target];
+  if(poly.half.length<=2){ pushHint('每侧至少保留 2 个顶点'); return; }
+  poly.half.pop(); poly.halfFaces.pop();
+  clearSelection();
+  render(); renderEdgeLists();
+});
+document.getElementById('clearPolyBtn').addEventListener('click', ()=>{
+  const target = (mode==='hull'||mode==='turret') ? mode : 'hull';
+  if(!confirm(`清空当前「${target==='hull'?'车体':'炮塔'}」多边形，重新绘制？`)) return;
+  state[target].half = [];
+  state[target].halfFaces = [];
+  clearSelection();
+  render(); renderEdgeLists();
+});
+document.getElementById('resetDefaultBtn').addEventListener('click', ()=>{
+  if(!confirm('重置车体与炮塔为默认形状？（会丢失当前编辑内容）')) return;
+  state.hull = defaultHull();
+  state.turret = defaultTurret();
+  clearSelection();
+  syncArmorInputsFromState();
+  render(); renderEdgeLists();
+});
+
+// ================= armor inputs =================
+function syncArmorInputsFromState(){
+  document.getElementById('a-hull-front').value = state.hull.armor.front;
+  document.getElementById('a-hull-side').value = state.hull.armor.side;
+  document.getElementById('a-hull-rear').value = state.hull.armor.rear;
+  document.getElementById('a-turret-front').value = state.turret.armor.front;
+  document.getElementById('a-turret-side').value = state.turret.armor.side;
+  document.getElementById('a-turret-rear').value = state.turret.armor.rear;
+  document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, ${state.turret.pivot.dy}`;
+}
+['a-hull-front','a-hull-side','a-hull-rear','a-turret-front','a-turret-side','a-turret-rear'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', ()=>{
+    state.hull.armor.front = parseFloat(document.getElementById('a-hull-front').value)||0;
+    state.hull.armor.side  = parseFloat(document.getElementById('a-hull-side').value)||0;
+    state.hull.armor.rear  = parseFloat(document.getElementById('a-hull-rear').value)||0;
+    state.turret.armor.front = parseFloat(document.getElementById('a-turret-front').value)||0;
+    state.turret.armor.side  = parseFloat(document.getElementById('a-turret-side').value)||0;
+    state.turret.armor.rear  = parseFloat(document.getElementById('a-turret-rear').value)||0;
+  });
+});
+
+// ================= base params =================
+function syncBaseFromInputs(){
+  state.id = document.getElementById('t-id').value;
+  state.hasTurret = document.getElementById('t-hasTurret').checked;
+  state.traverseLimit = parseFloat(document.getElementById('t-traverse').value)||0;
+  state.maxSpeed = parseFloat(document.getElementById('t-maxSpeed').value)||0;
+  state.turnRate = parseFloat(document.getElementById('t-turnRate').value)||0;
+  state.turretTurnRate = parseFloat(document.getElementById('t-turretTurnRate').value)||0;
+  render();
+}
+['t-id','t-hasTurret','t-traverse','t-maxSpeed','t-turnRate','t-turretTurnRate'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', syncBaseFromInputs);
+});
+
+// ================= edge list panel (only the editable half + seams — mirrored edges are implicit) =================
+function renderEdgeLists(){
+  renderEdgeListFor('hull', document.getElementById('hullEdgeList'));
+  renderEdgeListFor('turret', document.getElementById('turretEdgeList'));
+}
+function renderEdgeListFor(key, container){
+  const poly = state[key];
+  container.innerHTML = '';
+  const n = poly.half.length;
+  if(n<2){ container.innerHTML = '<div class="ename">（顶点不足，无边）</div>'; return; }
+
+  const addRow = (label, faceVal, onChange, isSeam)=>{
+    const row = document.createElement('div');
+    row.className = 'edge-row' + (isSeam?' seam':'');
+    const lab = document.createElement('span'); lab.className='ename'; lab.textContent = label;
+    const sel = document.createElement('select');
+    ['front','side','rear'].forEach(f=>{
+      const opt=document.createElement('option'); opt.value=f; opt.textContent=f;
+      if(faceVal===f) opt.selected=true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', ()=>{ onChange(sel.value); render(); });
+    row.appendChild(lab); row.appendChild(sel);
+    container.appendChild(row);
+  };
+
+  for(let i=0;i<n-1;i++){
+    addRow(`边 v${i}→v${i+1}`, getFace(poly.halfFaces,i), v=>setFace(poly.halfFaces,i,v), false);
+  }
+  if(!onCenterline(poly.half[n-1])){
+    addRow('接缝(后) rear seam', poly.rearSeamFace, v=>{ poly.rearSeamFace=v; }, true);
+  }
+  if(!onCenterline(poly.half[0])){
+    addRow('接缝(前) front seam', poly.frontSeamFace, v=>{ poly.frontSeamFace=v; }, true);
+  }
+  const note = document.createElement('div');
+  note.className='ename'; note.style.opacity='.6'; note.style.marginTop='2px';
+  note.textContent = '(镜像侧边线自动沿用以上分类，无需单独设置)';
+  container.appendChild(note);
+}
+
+// ================= render =================
+function drawGrid(){
+  ctx.strokeStyle = 'rgba(255,255,255,0.035)'; ctx.lineWidth = 1;
+  const step = 40*viewScale;
+  if(step>4){
+    for(let x=canvas.width/2 % step; x<canvas.width; x+=step){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
+    for(let y=canvas.height/2 % step; y<canvas.height; y+=step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+  }
+}
+function drawPolygon(poly, center, angle, opts){
+  const active = opts.active;
+  const fullVerts = buildFullVerts(poly.half);
+  const { faces: fullFaces, primary } = buildFullFacesWithFlags(poly.half, i=>getFace(poly.halfFaces,i), poly.frontSeamFace, poly.rearSeamFace);
+  const n = fullVerts.length;
+  const world = fullVerts.map(p=>toScreen(center, p, angle));
+  if(n>=3){
+    ctx.beginPath();
+    ctx.moveTo(world[0].x, world[0].y);
+    for(let i=1;i<n;i++) ctx.lineTo(world[i].x, world[i].y);
+    ctx.closePath();
+    ctx.fillStyle = active ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.02)';
+    ctx.fill();
+    for(let i=0;i<n;i++){
+      const a = world[i], b = world[(i+1)%n];
+      const editable = primary[i]; // half-chain + seam edges are user-controlled; mirrored-chain edges just copy them
+      ctx.strokeStyle = active ? (editable ? FACE_COLOR[fullFaces[i]] : '#5a5f4a') : 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = active ? (editable?3:2) : 1.5;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+      if(active && editable){
+        const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+        ctx.fillStyle = FACE_COLOR[fullFaces[i]];
+        ctx.font = '9px "JetBrains Mono", monospace';
+        ctx.fillText(fullFaces[i], mx+4, my-4);
+      }
+    }
+  } else if(n===2){
+    ctx.strokeStyle = active ? '#5cc8ff' : 'rgba(255,255,255,0.15)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(world[0].x,world[0].y); ctx.lineTo(world[1].x,world[1].y); ctx.stroke();
+  }
+  // vertex handles: interactive (bright) only for the editable half; mirrored side shown as small read-only dots
+  poly.half.forEach((p,i)=>{
+    const w = toScreen(center, p, angle);
+    const isSel = active && selected && selected.poly===(poly===state.hull?'hull':'turret') && selected.index===i;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, active ? (isSel?7:5) : 3, 0, Math.PI*2);
+    ctx.fillStyle = isSel ? '#7ed957' : (active ? '#fff' : 'rgba(255,255,255,0.3)');
+    ctx.fill();
+    ctx.strokeStyle = active ? '#000' : 'transparent'; ctx.lineWidth = 1; ctx.stroke();
+  });
+  if(active){
+    const mirroredHalf = poly.half.filter(p=>!onCenterline(p)).map(mirrorPt);
+    mirroredHalf.forEach(p=>{
+      const w = toScreen(center, p, angle);
+      ctx.beginPath(); ctx.arc(w.x, w.y, 3, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fill();
+    });
+  }
+}
+function render(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawGrid();
+
+  const hc = hullCenter();
+  const tc = turretCenter();
+
+  // centerline (mirror axis) reference
+  ctx.strokeStyle = 'rgba(126,217,87,0.35)'; ctx.setLineDash([4,4]); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(hc.x, hc.y); ctx.lineTo(hc.x+120*viewScale, hc.y); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(126,217,87,0.6)'; ctx.font='10px "JetBrains Mono", monospace';
+  ctx.fillText('FRONT →', hc.x+124*viewScale, hc.y+4);
+
+  const turretAngle = (mode==='preview' && state.hasTurret) ? previewAngle : 0;
+  drawPolygon(state.turret, tc, turretAngle, { active: mode==='turret' || mode==='pivot' });
+  drawPolygon(state.hull, hc, 0, { active: mode==='hull' });
+
+  // pivot marker
+  ctx.beginPath(); ctx.arc(tc.x, tc.y, mode==='pivot'?7:4, 0, Math.PI*2);
+  ctx.strokeStyle = '#ffb454'; ctx.lineWidth=2; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(tc.x-9,tc.y); ctx.lineTo(tc.x+9,tc.y);
+  ctx.moveTo(tc.x,tc.y-9); ctx.lineTo(tc.x,tc.y+9); ctx.stroke();
+  ctx.fillStyle = '#ffb454'; ctx.font='10px "JetBrains Mono", monospace';
+  ctx.fillText('炮塔旋转中心', tc.x+10, tc.y-10);
+
+  if(!state.hasTurret){
+    const limit = state.traverseLimit * Math.PI/180;
+    ctx.strokeStyle = 'rgba(255,180,84,0.35)'; ctx.setLineDash([5,5]); ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(tc.x,tc.y); ctx.lineTo(tc.x+Math.cos(limit)*90*viewScale, tc.y+Math.sin(limit)*90*viewScale);
+    ctx.moveTo(tc.x,tc.y); ctx.lineTo(tc.x+Math.cos(-limit)*90*viewScale, tc.y+Math.sin(-limit)*90*viewScale);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  if(mode==='preview'){
+    ctx.strokeStyle = '#ff5c4d'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(tc.x,tc.y);
+    ctx.lineTo(tc.x+Math.cos(previewAngle)*70*viewScale, tc.y+Math.sin(previewAngle)*70*viewScale);
+    ctx.stroke();
+  }
+}
+
+// ================= export / import =================
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const out = {
+    id: state.id,
+    hasTurret: state.hasTurret,
+    traverseLimit: state.traverseLimit,
+    maxSpeed: state.maxSpeed,
+    turnRate: state.turnRate,
+    turretTurnRate: state.turretTurnRate,
+    hull: {
+      verts: buildFullVerts(state.hull.half),
+      faces: buildFullFaces(state.hull.half, i=>getFace(state.hull.halfFaces,i), state.hull.frontSeamFace, state.hull.rearSeamFace),
+      armor: state.hull.armor
+    },
+    turret: {
+      verts: buildFullVerts(state.turret.half),
+      faces: buildFullFaces(state.turret.half, i=>getFace(state.turret.halfFaces,i), state.turret.frontSeamFace, state.turret.rearSeamFace),
+      armor: state.turret.armor,
+      pivot: state.turret.pivot
+    }
+  };
+  document.getElementById('json-out').textContent = JSON.stringify(out, null, 2);
+});
+document.getElementById('copyBtn').addEventListener('click', ()=>{
+  const txt = document.getElementById('json-out').textContent;
+  if(!txt) return;
+  navigator.clipboard && navigator.clipboard.writeText(txt).catch(()=>{});
+});
+// Import accepts either the full-polygon export format above, OR a half-form save (verts/faces
+// already expressed as {half, halfFaces, frontSeamFace, rearSeamFace}) so re-loading a previous
+// export round-trips losslessly. Full-form import derives a half by taking every vertex with y<=0
+// in order — this is a best-effort reconstruction and assumes the source was actually symmetric.
+function halfFromFull(verts, faces){
+  const half = [];
+  const halfFaces = [];
+  for(let i=0;i<verts.length;i++){
+    if(verts[i][1] <= CENTER_EPS){
+      half.push(verts[i].slice());
+    }
+  }
+  for(let i=0;i<half.length-1;i++) halfFaces.push('side');
+  // best-effort: try to recover edge classifications for consecutive half vertices from the source
+  // faces array by matching endpoints; falls back to 'side' if not found.
+  for(let i=0;i<half.length-1;i++){
+    for(let j=0;j<verts.length;j++){
+      const a=verts[j], b=verts[(j+1)%verts.length];
+      if((pointsEqual(a,half[i])&&pointsEqual(b,half[i+1])) || (pointsEqual(b,half[i])&&pointsEqual(a,half[i+1]))){
+        halfFaces[i] = faces[j]; break;
+      }
+    }
+  }
+  let frontSeamFace='front', rearSeamFace='rear';
+  if(half.length){
+    const first=half[0], last=half[half.length-1];
+    for(let j=0;j<verts.length;j++){
+      const a=verts[j], b=verts[(j+1)%verts.length];
+      if(!onCenterline(first) && ((pointsEqual(a,first)&&pointsEqual(b,mirrorPt(first)))||(pointsEqual(b,first)&&pointsEqual(a,mirrorPt(first))))) frontSeamFace = faces[j];
+      if(!onCenterline(last) && ((pointsEqual(a,last)&&pointsEqual(b,mirrorPt(last)))||(pointsEqual(b,last)&&pointsEqual(a,mirrorPt(last))))) rearSeamFace = faces[j];
+    }
+  }
+  return { half, halfFaces, frontSeamFace, rearSeamFace };
+}
+document.getElementById('loadBtn').addEventListener('click', ()=>{
+  let data;
+  try{ data = JSON.parse(document.getElementById('json-in').value); }
+  catch(err){ alert('JSON 解析失败: '+err.message); return; }
+  try{
+    state.id = data.id ?? state.id;
+    state.hasTurret = data.hasTurret ?? state.hasTurret;
+    state.traverseLimit = data.traverseLimit ?? state.traverseLimit;
+    state.maxSpeed = data.maxSpeed ?? state.maxSpeed;
+    state.turnRate = data.turnRate ?? state.turnRate;
+    state.turretTurnRate = data.turretTurnRate ?? state.turretTurnRate;
+    if(data.hull){
+      if(data.hull.half){
+        state.hull = { half:data.hull.half, halfFaces:data.hull.halfFaces.slice(),
+          frontSeamFace:data.hull.frontSeamFace||'front', rearSeamFace:data.hull.rearSeamFace||'rear',
+          armor: Object.assign({front:110,side:38,rear:26}, data.hull.armor) };
+      } else {
+        const h = halfFromFull(data.hull.verts, data.hull.faces);
+        state.hull = Object.assign(h, { armor: Object.assign({front:110,side:38,rear:26}, data.hull.armor) });
+      }
+    }
+    if(data.turret){
+      if(data.turret.half){
+        state.turret = { half:data.turret.half, halfFaces:data.turret.halfFaces.slice(),
+          frontSeamFace:data.turret.frontSeamFace||'front', rearSeamFace:data.turret.rearSeamFace||'rear',
+          armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
+          pivot: Object.assign({dx:8,dy:0}, data.turret.pivot) };
+      } else {
+        const h = halfFromFull(data.turret.verts, data.turret.faces);
+        state.turret = Object.assign(h, { armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
+          pivot: Object.assign({dx:8,dy:0}, data.turret.pivot) });
+      }
+    }
+    document.getElementById('t-id').value = state.id;
+    document.getElementById('t-hasTurret').checked = state.hasTurret;
+    document.getElementById('t-traverse').value = state.traverseLimit;
+    document.getElementById('t-maxSpeed').value = state.maxSpeed;
+    document.getElementById('t-turnRate').value = state.turnRate;
+    document.getElementById('t-turretTurnRate').value = state.turretTurnRate;
+    clearSelection();
+    syncArmorInputsFromState();
+    render(); renderEdgeLists();
+  } catch(err){
+    alert('载入失败，JSON 结构不符合预期: '+err.message);
+  }
+});
+
+// ================= init =================
+syncArmorInputsFromState();
+setMode('hull');
+updateZoomReadout();
+resize();
+renderEdgeLists();
+})();
+</script>
 </body>
 </html>

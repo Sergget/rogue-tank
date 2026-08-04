@@ -219,14 +219,14 @@ function segRayIntersect(ox,oy,dx,dy, ax,ay,bx,by){
 
 // ---------- tank model ----------
 function makeTank(opts){
-  return Object.assign({
+  const tank = Object.assign({
     id:null, team:'enemy', // 'player' | 'ally' | 'enemy' — drives targeting, HUD slot, and future AI
     x:0,y:0,hullAngle:0,turretAngle:0,
     hullLen:64, hullWid:38,
     turLen:34, turWid:36,
     speed:0, maxSpeed:120, turnRate:2.0, turretTurnRate:2.2,
     hasTurret: true,
-    traverseLimit: 15 * Math.PI / 180, // 左右射界，仅对无炮塔坦克有效
+    traverseLimit: 15 * Math.PI / 180, // 左右射界，仅对固定战斗室坦克的炮管有效
     hp:100, maxHp:100,
     penetration:120,
     damage:34,
@@ -247,6 +247,70 @@ function makeTank(opts){
     // turret-traverse) bloom. Only `player` actually drives this; here for uniformity.
     sigma:0, prevHullAngle:0, prevTurretAngle:0
   }, opts);
+
+  if (opts.traverseLimitInDeg !== undefined) {
+    tank.traverseLimit = opts.traverseLimitInDeg * Math.PI / 180;
+  }
+  return tank;
+}
+
+function applyTankConfig(tank, spec){
+  if (!spec) return;
+  if (spec.hasTurret !== undefined) tank.hasTurret = spec.hasTurret;
+  if (spec.traverseLimit !== undefined) tank.traverseLimit = spec.traverseLimit * Math.PI / 180;
+  if (spec.maxSpeed !== undefined) tank.maxSpeed = spec.maxSpeed;
+  if (spec.turnRate !== undefined) tank.turnRate = spec.turnRate;
+  if (spec.turretTurnRate !== undefined) tank.turretTurnRate = spec.turretTurnRate;
+  if (spec.hp !== undefined) { tank.hp = spec.hp; tank.maxHp = spec.hp; }
+  if (spec.penetration !== undefined) tank.penetration = spec.penetration;
+  if (spec.damage !== undefined) tank.damage = spec.damage;
+  if (spec.reload !== undefined) tank.reload = spec.reload;
+  if (spec.heightClass !== undefined) tank.heightClass = spec.heightClass;
+  if (spec.color !== undefined) tank.color = spec.color;
+  if (spec.anchors !== undefined) Object.assign(tank.anchors, spec.anchors);
+  if (spec.armor !== undefined) tank.customArmor = spec.armor;
+
+  if (spec.hull) {
+    if (spec.hull.verts && spec.hull.faces) {
+      tank.hullSpec = { verts: spec.hull.verts, faces: spec.hull.faces };
+      // compute bounding box for hullLen / hullWid
+      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+      for (const [vx, vy] of spec.hull.verts) {
+        if (vx < minX) minX = vx;
+        if (vx > maxX) maxX = vx;
+        if (vy < minY) minY = vy;
+        if (vy > maxY) maxY = vy;
+      }
+      tank.hullLen = maxX - minX;
+      tank.hullWid = maxY - minY;
+    }
+    if (spec.hull.armor) {
+      if (!tank.customArmor) tank.customArmor = {};
+      tank.customArmor.hull = spec.hull.armor;
+    }
+  }
+
+  if (spec.turret) {
+    if (spec.turret.verts && spec.turret.faces) {
+      tank.turretSpec = { verts: spec.turret.verts, faces: spec.turret.faces };
+      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+      for (const [vx, vy] of spec.turret.verts) {
+        if (vx < minX) minX = vx;
+        if (vx > maxX) maxX = vx;
+        if (vy < minY) minY = vy;
+        if (vy > maxY) maxY = vy;
+      }
+      tank.turLen = maxX - minX;
+      tank.turWid = maxY - minY;
+    }
+    if (spec.turret.armor) {
+      if (!tank.customArmor) tank.customArmor = {};
+      tank.customArmor.turret = spec.turret.armor;
+    }
+    if (spec.turret.pivot) {
+      tank.turretPivotOffset = spec.turret.pivot;
+    }
+  }
 }
 
 // ---------- dynamic spread (bloom / shrink) ----------
@@ -352,6 +416,7 @@ function partEdges(corners, angle){
 // that both count as front armor. (verts go front-right -> tip -> front-left -> rear-left -> rear-right)
 const HULL_PROTRUSION = 0.5; // tip pokes forward by this fraction of hull half-width
 function hullPoly(t){
+  if (t.hullSpec) return t.hullSpec;
   const L = t.hullLen/2, W = t.hullWid/2, tip = W*HULL_PROTRUSION;
   return {
     verts: [ [L,-W], [L+tip,0], [L,W], [-L,W], [-L,-W] ],
@@ -359,8 +424,9 @@ function hullPoly(t){
     faces: ['front','front','side','rear','side']
   };
 }
-// Turret — Leopard 2A6-style wedge (top-down): narrow front cheeks, widening to mid, tapered rear.
+// Turret/fighting room — Leopard 2A6-style wedge (top-down): narrow front cheeks, widening to mid, tapered rear.
 function turretPoly(t){
+  if (t.turretSpec) return t.turretSpec;
   const L = t.turLen/2, W = t.turWid/2;
   return {
     verts: [ [L*0.95,-W*0.82], [L*0.95,W*0.82], [L*0.05,W*0.96], [-L*0.95,W*0.92], [-L*0.95,-W*0.92], [L*0.05,-W*0.96] ],
@@ -368,6 +434,8 @@ function turretPoly(t){
     faces: ['front','front','side','rear','side','front']
   };
 }
+function superstructureAngle(t){ return t.hasTurret ? t.turretAngle : t.hullAngle; }
+function superstructureLabel(t){ return t.hasTurret ? '炮塔' : '战斗室'; }
 // world-space corners of a polygon part
 function polyCorners(cx,cy,angle, poly){
   return poly.verts.map(([dx,dy])=>{ const r = rotate(dx,dy,angle); return { x: cx+r.x, y: cy+r.y }; });
@@ -396,10 +464,11 @@ function polyEdges(corners, poly){
   return edges;
 }
 function raycastTank(ox,oy,dx,dy, tank){
-  const turCx = tank.x + Math.cos(tank.hullAngle)*8;
-  const turCy = tank.y + Math.sin(tank.hullAngle)*8;
+  const pOff = turretPivot(tank);
+  const turCx = pOff.x;
+  const turCy = pOff.y;
   const parts = [
-    { key:'turret', cx:turCx, cy:turCy, angle:tank.turretAngle, poly:turretPoly(tank) },
+    { key:'turret', cx:turCx, cy:turCy, angle:superstructureAngle(tank), poly:turretPoly(tank) },
     { key:'hull',   cx:tank.x, cy:tank.y, angle:tank.hullAngle, poly:hullPoly(tank) }
   ];
   
@@ -426,9 +495,9 @@ function moduleFromHit(hit){
   if(hit.part==='turret'){
     if(hit.faceKey==='side'){
       if(hit.s>0.3 && hit.s<0.7) return {key:'crew', label:'乘员(炮手)'};
-      return {key:'turretHull', label:'炮塔装甲'};
+      return {key:'turretHull', label:'上部结构装甲'};
     }
-    return {key:'turretHull', label:'炮塔装甲'};
+    return {key:'turretHull', label:'上部结构装甲'};
   }
   if(hit.faceKey==='side'){
     if(hit.s<0.22 || hit.s>0.78) return {key:'track', label:'履带/负重轮'};
@@ -440,7 +509,11 @@ function moduleFromHit(hit){
 function faceLabel(k){ return {front:'正面',side:'侧面',rear:'后部'}[k]||k; }
 
 // turret pivot / gun root
-function turretPivot(t){ return { x: t.x + Math.cos(t.hullAngle)*8, y: t.y + Math.sin(t.hullAngle)*8 }; }
+function turretPivot(t){
+  const off = t.turretPivotOffset || { dx: 8, dy: 0 };
+  const r = rotate(off.dx, off.dy, t.hullAngle);
+  return { x: t.x + r.x, y: t.y + r.y };
+}
 function gunRoot(t){
   const p = turretPivot(t);
   return { x: p.x + Math.cos(t.turretAngle)*(t.turLen/2), y: p.y + Math.sin(t.turretAngle)*(t.turLen/2) };
@@ -482,6 +555,115 @@ const covers = [
   { x:470, y:340, w:80, h:34, angle:0, tier:'half' },
   { x:660, y:340, w:70, h:34, angle:0, tier:'full' }
 ];
+
+// ---------- tank–cover physical interaction (OBB overlap via SAT) ----------
+// Returns the first cover object whose footprint overlaps the tank's hull OBB, or null.
+// For movement physics only — ballistic raycasts use findCoversOnPath() instead.
+function getCoverUnderTank(tank) {
+  const tankCorners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
+  for (const cov of covers) {
+    const covCorners = partCorners(cov.x, cov.y, cov.angle, cov.w/2, cov.h/2);
+    if (obbOverlap(tankCorners, covCorners)) return cov;
+  }
+  return null;
+}
+
+// SAT (Separating Axis Theorem) overlap test for two convex quads.
+// Returns true if the two OBBs overlap.
+function obbOverlap(cornersA, cornersB) {
+  function getAxes(corners) {
+    const axes = [];
+    for (let i = 0; i < corners.length; i++) {
+      const j = (i + 1) % corners.length;
+      const ex = corners[j].x - corners[i].x;
+      const ey = corners[j].y - corners[i].y;
+      const len = Math.hypot(ex, ey) || 1;
+      axes.push({ x: -ey / len, y: ex / len }); // perpendicular (outward normal)
+    }
+    return axes;
+  }
+  function project(corners, axis) {
+    let min = Infinity, max = -Infinity;
+    for (const c of corners) {
+      const d = c.x * axis.x + c.y * axis.y;
+      if (d < min) min = d;
+      if (d > max) max = d;
+    }
+    return { min, max };
+  }
+  const axes = getAxes(cornersA).concat(getAxes(cornersB));
+  for (const axis of axes) {
+    const pA = project(cornersA, axis);
+    const pB = project(cornersB, axis);
+    if (pA.max < pB.min || pB.max < pA.min) return false; // separating axis found
+  }
+  return true; // no separating axis → overlap
+}
+
+// SAT-based MTV (Minimum Translation Vector) for collision resolution.
+// Returns { dx, dy, depth } to push the tank OUT of the cover, or null if no overlap.
+function obbMTV(tankCorners, covCorners) {
+  function getAxes(corners) {
+    const axes = [];
+    for (let i = 0; i < corners.length; i++) {
+      const j = (i + 1) % corners.length;
+      const ex = corners[j].x - corners[i].x;
+      const ey = corners[j].y - corners[i].y;
+      const len = Math.hypot(ex, ey) || 1;
+      axes.push({ x: -ey / len, y: ex / len });
+    }
+    return axes;
+  }
+  function project(corners, axis) {
+    let min = Infinity, max = -Infinity;
+    for (const c of corners) {
+      const d = c.x * axis.x + c.y * axis.y;
+      if (d < min) min = d;
+      if (d > max) max = d;
+    }
+    return { min, max };
+  }
+  const axes = getAxes(tankCorners).concat(getAxes(covCorners));
+  let minDepth = Infinity;
+  let mtvAxis = null;
+  for (const axis of axes) {
+    const pA = project(tankCorners, axis);
+    const pB = project(covCorners, axis);
+    if (pA.max < pB.min || pB.max < pA.min) return null; // no overlap
+    // overlap depth on this axis
+    const overlap = Math.min(pA.max - pB.min, pB.max - pA.min);
+    if (overlap < minDepth) {
+      minDepth = overlap;
+      mtvAxis = axis;
+    }
+  }
+  if (!mtvAxis) return null;
+  // Ensure the MTV pushes tank AWAY from cover center
+  let tcx = 0, tcy = 0;
+  for (const c of tankCorners) { tcx += c.x; tcy += c.y; }
+  tcx /= tankCorners.length; tcy /= tankCorners.length;
+  let ccx = 0, ccy = 0;
+  for (const c of covCorners) { ccx += c.x; ccy += c.y; }
+  ccx /= covCorners.length; ccy /= covCorners.length;
+  const dot = (tcx - ccx) * mtvAxis.x + (tcy - ccy) * mtvAxis.y;
+  if (dot < 0) { mtvAxis.x = -mtvAxis.x; mtvAxis.y = -mtvAxis.y; }
+  return { dx: mtvAxis.x * minDepth, dy: mtvAxis.y * minDepth, depth: minDepth };
+}
+
+// Resolve all full-cover collisions for a tank (push it out of any overlapping solid covers).
+function resolveFullCoverCollisions(tank) {
+  const tankCorners = () => partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
+  for (const cov of covers) {
+    if (COVER_TIERS[cov.tier].mode !== 'solid') continue;
+    const covCorners = partCorners(cov.x, cov.y, cov.angle, cov.w/2, cov.h/2);
+    const mtv = obbMTV(tankCorners(), covCorners);
+    if (mtv) {
+      tank.x += mtv.dx;
+      tank.y += mtv.dy;
+    }
+  }
+}
+
 
 // every cover whose footprint the shot's line crosses between shooter and target, with each
 // side's edge-to-edge distance to that specific cover (entry point used as the reference point)
@@ -554,7 +736,8 @@ function isBlockedBySolidCover(ox,oy,tx,ty){
 }
 function resolveShot(ox,oy,dx,dy, shooter, target, solidBlock){
   if(solidBlock){
-    const label = COVER_TIERS[solidBlock.tier].label;
+    const tier = solidBlock.cover.tier;
+    const label = COVER_TIERS[tier].label;
     return {
       outcome:'COVER', cls:'COVER',
       text:`被${label}挡住 — 炮弹被掩体截停`,
@@ -601,13 +784,16 @@ function resolveShot(ox,oy,dx,dy, shooter, target, solidBlock){
 
   const cosT = Math.abs(dx*hit.nx + dy*hit.ny);
   const theta = Math.acos(Math.min(1,Math.max(-1,cosT)));
-  const thickness = ARMOR[hit.part][hit.faceKey];
+  const armorTable = target.customArmor || ARMOR;
+  const thickness = (armorTable[hit.part] && armorTable[hit.part][hit.faceKey] !== undefined)
+    ? armorTable[hit.part][hit.faceKey]
+    : ARMOR[hit.part][hit.faceKey];
   const mod = moduleFromHit(hit);
 
   let outcome, text, cls;
   if(theta > BOUNCE_ANGLE){
     outcome='BOUNCE'; cls='BOUNCE';
-    text = `跳弹！${hit.part==='turret'?'炮塔':'车体'} ${faceLabel(hit.faceKey)} 入射角 ${(theta*180/Math.PI).toFixed(0)}° 超过跳弹角`;
+    text = `跳弹！${hit.part==='turret'?superstructureLabel(target):'车体'} ${faceLabel(hit.faceKey)} 入射角 ${(theta*180/Math.PI).toFixed(0)}° 超过跳弹角`;
   } else {
     const eff = thickness/Math.cos(theta);
     if(eff > shooter.penetration){
@@ -676,6 +862,21 @@ dummy.invuln = false;       // when true: hp is locked, dummy never takes damage
 dummy.autoRevive = true;    // when true: dummy respawns full 1.5s after being destroyed
 dummy.reviveT = 0;          // countdown to auto-revive
 
+// 从 tank_list.json 加载坦克配置数据
+fetch('tank_list.json')
+  .then(res => res.json())
+  .then(data => {
+    if (data["T-90M1"]) {
+      applyTankConfig(player, data["T-90M1"]);
+    }
+    if (data["dummy"]) {
+      applyTankConfig(dummy, data["dummy"]);
+      document.getElementById('dummyHpInput').value = dummy.maxHp;
+      document.getElementById('eHeightClass').textContent = dummy.heightClass==='heavy' ? '重坦(高车体)' : '中坦(矮车体)';
+    }
+  })
+  .catch(err => console.error('加载 tank_list.json 失败:', err));
+
 const keys = {};
 // NOTE: keys 1/2/0 used to force turret/hull target-lock; removed per design — this slot is
 // reserved for a future ammo-type switch (AP/APCR/HE etc) instead of a part-lock command.
@@ -738,8 +939,12 @@ document.getElementById('autoReviveBtn').addEventListener('click', (e)=>{
 // ---------- extension test controls ----------
 document.getElementById('toggleTurretBtn').addEventListener('click', (e) => {
   player.hasTurret = !player.hasTurret;
+  if(!player.hasTurret){
+    const relative = Math.max(-player.traverseLimit, Math.min(player.traverseLimit, angDiff(player.turretAngle, player.hullAngle)));
+    player.turretAngle = norm(player.hullAngle + relative);
+  }
   e.currentTarget.classList.toggle('active', !player.hasTurret);
-  pushLog(`玩家坦克模式：${player.hasTurret ? '有炮塔' : '无炮塔(固定射界)'}`, 'COVER');
+  pushLog(`玩家坦克模式：${player.hasTurret ? '旋转炮塔' : '固定战斗室 + 有限射界炮管'}`, 'COVER');
 });
 document.getElementById('addShieldBtn').addEventListener('click', () => {
   player.attachments.push({ type: 'shield', bindTo: 'gun_root', size: 25, relativeAngle: 0 });
@@ -832,7 +1037,7 @@ function updateSolution(){
   const theta = Math.acos(Math.min(1,Math.max(-1,cosT)));
   const thickness = ARMOR[hit.part][hit.faceKey];
   const mod = moduleFromHit(hit);
-  elPart.textContent = `${hit.part==='turret'?'炮塔':'车体'}·${faceLabel(hit.faceKey)}(${mod.label})`;
+  elPart.textContent = `${hit.part==='turret'?superstructureLabel(target):'车体'}·${faceLabel(hit.faceKey)}(${mod.label})`;
   elAngle.textContent = (theta*180/Math.PI).toFixed(1)+'°';
   elThick.textContent = thickness+' mm';
   if(theta>BOUNCE_ANGLE){
@@ -850,12 +1055,25 @@ function updateSolution(){
 let last = performance.now();
 function update(dt){
   if(player.immobT>0) player.immobT -= dt; else {
-    if(keys['a']) player.hullAngle -= player.turnRate*dt;
-    if(keys['d']) player.hullAngle += player.turnRate*dt;
+    // Half-cover slows movement & rotation; full-cover is physically impassable (resolved below)
+    const currentCover = getCoverUnderTank(player);
+    let speedModifier = 1.0;
+    let turnModifier = 1.0;
+
+    if (currentCover && COVER_TIERS[currentCover.tier].mode === 'graduated') {
+      // Half cover: tank can traverse but with heavy penalties
+      speedModifier = 0.4;
+      turnModifier = 0.4;
+    }
+
+    if(keys["a"]) player.hullAngle -= player.turnRate*dt*turnModifier;
+    if(keys["d"]) player.hullAngle += player.turnRate*dt*turnModifier;
     let mv=0;
-    if(keys['w']) mv=1; else if(keys['s']) mv=-1;
-    player.x += Math.cos(player.hullAngle)*mv*player.maxSpeed*dt;
-    player.y += Math.sin(player.hullAngle)*mv*player.maxSpeed*dt;
+    if(keys["w"]) mv=1; else if(keys["s"]) mv=-1;
+    player.x += Math.cos(player.hullAngle)*mv*player.maxSpeed*dt*speedModifier;
+    player.y += Math.sin(player.hullAngle)*mv*player.maxSpeed*dt*speedModifier;
+    // Full-cover collision resolution: push tank out of any solid cover it overlaps
+    resolveFullCoverCollisions(player);
   }
   player.x = Math.max(40, Math.min(canvas.width-40, player.x));
   player.y = Math.max(40, Math.min(canvas.height-40, player.y));
@@ -881,12 +1099,21 @@ function update(dt){
   if(keys[' ']) tryFire();
 
   if(dummy.immobT>0) dummy.immobT -= dt; else {
-    if(keys['arrowleft']) dummy.hullAngle -= 1.6*dt;
-    if(keys['arrowright']) dummy.hullAngle += 1.6*dt;
+    // Apply same cover physics to dummy tank
+    const dummyCover = getCoverUnderTank(dummy);
+    let dSpeedMod = 1.0;
+    let dTurnMod = 1.0;
+    if (dummyCover && COVER_TIERS[dummyCover.tier].mode === 'graduated') {
+      dSpeedMod = 0.4;
+      dTurnMod = 0.4;
+    }
+    if(keys['arrowleft']) dummy.hullAngle -= 1.6*dt*dTurnMod;
+    if(keys['arrowright']) dummy.hullAngle += 1.6*dt*dTurnMod;
     let mv=0;
     if(keys['arrowup']) mv=1; else if(keys['arrowdown']) mv=-1;
-    dummy.x += Math.cos(dummy.hullAngle)*mv*90*dt;
-    dummy.y += Math.sin(dummy.hullAngle)*mv*90*dt;
+    dummy.x += Math.cos(dummy.hullAngle)*mv*90*dt*dSpeedMod;
+    dummy.y += Math.sin(dummy.hullAngle)*mv*90*dt*dSpeedMod;
+    resolveFullCoverCollisions(dummy);
   }
   dummy.x = Math.max(40, Math.min(canvas.width-40, dummy.x));
   dummy.y = Math.max(40, Math.min(canvas.height-40, dummy.y));
@@ -941,8 +1168,9 @@ function drawCover(cov){
   ctx.fillText(tier.label, cov.x-24, cov.y-cov.h/2-6);
 }
 function drawTank(t){
-  const turCx = t.x + Math.cos(t.hullAngle)*8;
-  const turCy = t.y + Math.sin(t.hullAngle)*8;
+  const pOff = turretPivot(t);
+  const turCx = pOff.x;
+  const turCy = pOff.y;
 
   // hull — arrowhead polygon (verts: FR, tip, FL, RL, RR)
   const hPoly = hullPoly(t);
@@ -958,47 +1186,46 @@ function drawTank(t){
   ctx.strokeStyle = t.color; ctx.lineWidth=4;
   ctx.beginPath(); ctx.moveTo(hc[0].x,hc[0].y); ctx.lineTo(hc[1].x,hc[1].y); ctx.lineTo(hc[2].x,hc[2].y); ctx.stroke();
 
-  if (t.hasTurret) {
-    // turret — Leopard-style wedge polygon
-    const tPoly = turretPoly(t);
-    const tc = polyCorners(turCx,turCy,t.turretAngle, tPoly);
-    ctx.beginPath();
-    ctx.moveTo(tc[0].x,tc[0].y);
-    for(let i=1;i<tc.length;i++) ctx.lineTo(tc[i].x,tc[i].y);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fill();
-    ctx.strokeStyle = t.color; ctx.lineWidth=1.5; ctx.stroke();
-    // bold front cheeks (front edge of the wedge)
-    ctx.strokeStyle = t.color; ctx.lineWidth=3;
-    ctx.beginPath(); ctx.moveTo(tc[0].x,tc[0].y); ctx.lineTo(tc[1].x,tc[1].y); ctx.stroke();
+  const structureAngle = superstructureAngle(t);
+  const tPoly = turretPoly(t);
+  const tc = polyCorners(turCx,turCy,structureAngle, tPoly);
+  ctx.beginPath();
+  ctx.moveTo(tc[0].x,tc[0].y);
+  for(let i=1;i<tc.length;i++) ctx.lineTo(tc[i].x,tc[i].y);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fill();
+  ctx.strokeStyle = t.color; ctx.lineWidth=1.5; ctx.stroke();
+  // bold front cheeks (front edge of the turret/fighting room)
+  ctx.strokeStyle = t.color; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(tc[0].x,tc[0].y); ctx.lineTo(tc[1].x,tc[1].y); ctx.stroke();
 
-    ctx.strokeStyle = t.color; ctx.lineWidth=3;
+  if (!t.hasTurret) {
+    ctx.strokeStyle = 'rgba(255,180,84,0.32)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4,4]);
     ctx.beginPath();
     ctx.moveTo(turCx,turCy);
-    ctx.lineTo(turCx+Math.cos(t.turretAngle)*(t.turLen*0.9), turCy+Math.sin(t.turretAngle)*(t.turLen*0.9));
-    ctx.stroke();
-  } else {
-    // 无炮塔：炮管直接从车体伸出（通常有一个战斗室，但这里简化为直接从原炮塔中心伸出）
-    ctx.strokeStyle = t.color; ctx.lineWidth=3;
-    ctx.beginPath();
+    ctx.lineTo(turCx+Math.cos(t.hullAngle-t.traverseLimit)*80, turCy+Math.sin(t.hullAngle-t.traverseLimit)*80);
     ctx.moveTo(turCx,turCy);
-    ctx.lineTo(turCx+Math.cos(t.turretAngle)*(t.turLen*0.9), turCy+Math.sin(t.turretAngle)*(t.turLen*0.9));
+    ctx.lineTo(turCx+Math.cos(t.hullAngle+t.traverseLimit)*80, turCy+Math.sin(t.hullAngle+t.traverseLimit)*80);
     ctx.stroke();
-    
-    // 给无炮塔坦克画一个简单的战斗室标记
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';
-    ctx.beginPath();
-    ctx.arc(turCx, turCy, t.hullWid*0.35, 0, TAU);
-    ctx.fill();
-    ctx.strokeStyle = t.color; ctx.lineWidth=1;
-    ctx.stroke();
+    ctx.setLineDash([]);
   }
+
+  ctx.strokeStyle = t.color; ctx.lineWidth=3;
+  ctx.beginPath();
+  ctx.moveTo(turCx,turCy);
+  ctx.lineTo(turCx+Math.cos(t.turretAngle)*(t.turLen*0.9), turCy+Math.sin(t.turretAngle)*(t.turLen*0.9));
+  ctx.stroke();
 
   // ---- draw attachments ----
   t.attachments.forEach(att => {
     let basePos = { x: t.x, y: t.y }, baseAngle = t.hullAngle;
-    if (att.bindTo.startsWith('turret') || att.bindTo === 'gun_root') {
+    if (att.bindTo.startsWith('turret')) {
+      basePos = { x: turCx, y: turCy };
+      baseAngle = superstructureAngle(t);
+    } else if (att.bindTo === 'gun_root') {
       basePos = { x: turCx, y: turCy };
       baseAngle = t.turretAngle;
     }
