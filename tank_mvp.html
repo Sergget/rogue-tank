@@ -1657,6 +1657,7 @@ function drawTank(t){
   }
 
    // Barrel: extends from front edge of the turret out to the muzzle length.
+   // Rendered with the same detail as the designer (tube + highlight + bore evacuator + muzzle brake).
    const barrelRayDx = Math.cos(t.turretAngle), barrelRayDy = Math.sin(t.turretAngle);
    const tPolyEdges = polyEdges(tc, tPoly);
    let barrelStartT = 0;
@@ -1671,14 +1672,73 @@ function drawTank(t){
      if(s > barrelStartT) barrelStartT = s;
    }
    barrelStartT = Math.max(0, barrelStartT - 0.5); // start right at turret front edge
-   const bSpec = t.barrel || { len: 120, width: 18 };
+   const bSpec = t.barrel || { len: 120, width: 18, muzzle: 'none', evacPos: 55 };
    const barrelLen = t.turLen * ((bSpec.len || 120) / 100);
-   const barrelEnd = barrelStartT + barrelLen;
-   ctx.strokeStyle = t.color; ctx.lineWidth=3;
-   ctx.beginPath();
-   ctx.moveTo(turCx + barrelRayDx*barrelStartT, turCy + barrelRayDy*barrelStartT);
-   ctx.lineTo(turCx + barrelRayDx*barrelEnd, turCy + barrelRayDy*barrelEnd);
-   ctx.stroke();
+   const baseX = turCx + barrelRayDx*barrelStartT, baseY = turCy + barrelRayDy*barrelStartT;
+   const endX = baseX + barrelRayDx*barrelLen, endY = baseY + barrelRayDy*barrelLen;
+   const barrelWid = Math.max(3, t.turWid * ((bSpec.width || 18)/100) * 0.5);
+   const perpX = -barrelRayDy, perpY = barrelRayDx;
+
+   // main barrel tube
+   ctx.strokeStyle = t.color; ctx.lineWidth = barrelWid;
+   ctx.lineCap = 'round';
+   ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(endX, endY); ctx.stroke();
+   // barrel highlight
+   ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = Math.max(1, barrelWid*0.4);
+   ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(endX, endY); ctx.stroke();
+
+   // bore evacuator bulge at configured position
+   if(bSpec.evacPos > 0){
+      const ex = baseX + barrelRayDx*(bSpec.evacPos/100)*barrelLen;
+      const ey = baseY + barrelRayDy*(bSpec.evacPos/100)*barrelLen;
+      const evacR = barrelWid*0.9;
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = Math.max(2, barrelWid*0.35);
+      ctx.beginPath();
+      ctx.moveTo(ex + perpX*evacR, ey + perpY*evacR);
+      ctx.lineTo(ex - perpX*evacR, ey - perpY*evacR);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = Math.max(1, barrelWid*0.2);
+      ctx.beginPath();
+      ctx.moveTo(ex + perpX*evacR*0.7, ey + perpY*evacR*0.7);
+      ctx.lineTo(ex - perpX*evacR*0.7, ey - perpY*evacR*0.7);
+      ctx.stroke();
+   }
+
+   // muzzle brake at the end
+   if(bSpec.muzzle && bSpec.muzzle !== 'none'){
+      const mx = endX, my = endY;
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      if(bSpec.muzzle === 'single'){
+         ctx.lineWidth = barrelWid*1.3;
+         ctx.beginPath();
+         ctx.moveTo(mx + perpX*barrelWid*0.8, my + perpY*barrelWid*0.8);
+         ctx.lineTo(mx - perpX*barrelWid*0.8, my - perpY*barrelWid*0.8);
+         ctx.stroke();
+      } else if(bSpec.muzzle === 'double'){
+         const bw = barrelWid*1.2;
+         for(const off of [-0.5, 0.5]){
+            const bx = mx + barrelRayDx*barrelWid*off;
+            const by = my + barrelRayDy*barrelWid*off;
+            ctx.lineWidth = barrelWid*0.7;
+            ctx.beginPath();
+            ctx.moveTo(bx + perpX*bw, by + perpY*bw);
+            ctx.lineTo(bx - perpX*bw, by - perpY*bw);
+            ctx.stroke();
+         }
+      } else if(bSpec.muzzle === 'slug'){
+         ctx.lineWidth = barrelWid*1.1;
+         ctx.beginPath(); ctx.arc(mx, my, barrelWid*0.7, t.turretAngle-Math.PI*0.4, t.turretAngle+Math.PI*0.4); ctx.stroke();
+         ctx.lineWidth = Math.max(1, barrelWid*0.3);
+         for(let i=0;i<3;i++){
+            const a = t.turretAngle - Math.PI*0.3 + i*(Math.PI*0.6/2);
+            ctx.beginPath();
+            ctx.moveTo(mx, my);
+            ctx.lineTo(mx + Math.cos(a)*barrelWid*0.7, my + Math.sin(a)*barrelWid*0.7);
+            ctx.stroke();
+         }
+      }
+   }
+   ctx.lineCap = 'butt';
 
   // ---- draw attachments ----
   t.attachments.forEach(att => {
