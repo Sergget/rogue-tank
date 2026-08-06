@@ -681,15 +681,30 @@ function moduleFromHit(hit){
 }
 function faceLabel(k){ return {front:'正面',side:'侧面',rear:'后部'}[k]||k; }
 
-// turret pivot / gun root
+// turret pivot / gun root (firing origin sits at muzzle tip: front center + barrel length)
 function turretPivot(t){
   const off = t.turretPivotOffset || { dx: 8, dy: 0 };
   const r = rotate(off.dx, off.dy, t.hullAngle);
   return { x: t.x + r.x, y: t.y + r.y };
 }
+function turretFrontDist(t){
+  const poly = turretPoly(t);
+  let maxF = -Infinity;
+  for(const [vx, vy] of poly.verts){
+    if(vx > maxF) maxF = vx;
+  }
+  return maxF > -Infinity ? maxF : (t.turLen/2);
+}
 function gunRoot(t){
   const p = turretPivot(t);
-  return { x: p.x + Math.cos(t.turretAngle)*(t.turLen/2), y: p.y + Math.sin(t.turretAngle)*(t.turLen/2) };
+  const frontDist = turretFrontDist(t);
+  const b = t.barrel || { len: 120 };
+  const barrelLen = t.turLen * ((b.len || 120) / 100);
+  const totalDist = frontDist + barrelLen;
+  return {
+    x: p.x + Math.cos(t.turretAngle) * totalDist,
+    y: p.y + Math.sin(t.turretAngle) * totalDist
+  };
 }
 
 // ---------- cover system ----------
@@ -1641,13 +1656,12 @@ function drawTank(t){
     ctx.setLineDash([]);
   }
 
-   // Barrel: clip to outside the turret polygon so the root inside the turret is not visible.
-   // Find where the barrel ray exits the turret polygon, then draw from there to the muzzle.
+   // Barrel: extends from front edge of the turret out to the muzzle length.
    const barrelRayDx = Math.cos(t.turretAngle), barrelRayDy = Math.sin(t.turretAngle);
    const tPolyEdges = polyEdges(tc, tPoly);
    let barrelStartT = 0;
    for(const e of tPolyEdges){
-     // ray from turret center (0,0 in local) along barrel dir; edge endpoints in world
+     // ray from turret center along barrel dir; edge endpoints in world
      const ax = e.a.x - turCx, ay = e.a.y - turCy;
      const bx = e.b.x - turCx, by = e.b.y - turCy;
      const ex = bx-ax, ey = by-ay;
@@ -1656,8 +1670,10 @@ function drawTank(t){
      const s = (ax*ey - ay*ex) / denom;
      if(s > barrelStartT) barrelStartT = s;
    }
-   barrelStartT = Math.max(0, barrelStartT - 1); // start just outside the edge
-   const barrelEnd = t.turLen*0.9;
+   barrelStartT = Math.max(0, barrelStartT - 0.5); // start right at turret front edge
+   const bSpec = t.barrel || { len: 120, width: 18 };
+   const barrelLen = t.turLen * ((bSpec.len || 120) / 100);
+   const barrelEnd = barrelStartT + barrelLen;
    ctx.strokeStyle = t.color; ctx.lineWidth=3;
    ctx.beginPath();
    ctx.moveTo(turCx + barrelRayDx*barrelStartT, turCy + barrelRayDy*barrelStartT);
