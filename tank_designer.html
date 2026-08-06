@@ -880,7 +880,6 @@ function render(){
   const partOpts = { active:false, detail: fullDetail, faded: !fullDetail };
   drawPolygon(state.turret, tc, turretAngle, Object.assign({ active: mode==='turret' || mode==='pivot' }, partOpts));
   drawPolygon(state.hull, hc, 0, Object.assign({ active: mode==='hull' }, partOpts));
-
   // pivot marker
   ctx.beginPath(); ctx.arc(tc.x, tc.y, mode==='pivot'?7:4, 0, Math.PI*2);
   ctx.strokeStyle = '#ffb454'; ctx.lineWidth=2; ctx.stroke();
@@ -898,9 +897,9 @@ function render(){
     ctx.stroke(); ctx.setLineDash([]);
   }
 
-   if(mode==='preview'){
-     drawDesignerBarrel(tc, previewAngle, viewScale);
-   }
+   // barrel is always drawn so the preset edits are visible in every mode; the pointer aim angle
+   // is used in preview, otherwise the barrel points along the hull forward (+x, angle 0).
+   drawDesignerBarrel(tc, turretAngle, viewScale);
 }
 
 // ================= export / import =================

@@ -352,13 +352,13 @@ function makeTank(opts){
     hullLen:64, hullWid:38,
     turLen:34, turWid:36,
     speed:0,
-    hasTurret: true,
+    hasTurret:true,
     traverseLimit: 15 * Math.PI / 180, // 左右射界，仅对固定战斗室坦克的炮管有效
     reloadT:0,
     immobT:0, fireDebuffT:0, dotT:0,
     heightClass:'medium', // 'heavy' (tall silhouette) | 'medium' (short silhouette, hides better)
     color:'#7ed957',
-    trackPhase:0, // scrolling offset for the rolling track texture (driven by movement in update())
+    trackPhase:0, // scrolling offset for rolling track texture (driven by movement in update())
     attachments: [],
     anchors: {
       hull_top: { dx: 0, dy: 0 },
@@ -390,6 +390,8 @@ function makeTank(opts){
   refreshStats(tank);
   tank.hp = tank.stats.maxHp;
   tank.maxHp = tank.stats.maxHp; // legacy alias used by a few test-rig/HUD paths
+  // faction drives paint — a tank's spec/color never overrides team color
+  tank.color = teamColor(tank);
   if (opts.traverseLimitInDeg !== undefined) {
     tank.traverseLimit = opts.traverseLimitInDeg * Math.PI / 180;
   }
@@ -397,11 +399,18 @@ function makeTank(opts){
 }
 
 // ---------- world scale ----------
-// A tank's maxSpeed (config value) is treated as px/s on screen. Real tanks top out ~60-70 km/h,
-// so map the stored number to a display km/h and slow on-screen motion so 120 → 60 feels concrete.
+// A tank's maxSpeed (config value) is treated as a game-scaled speed. The stored number maps to a
+// real-ish km/h for HUD display AND to on-screen px/s for motion:
+//   display (km/h) = maxSpeed * SPEED_KMH_FACTOR   (120 → 60 km/h)
+//   on-screen      = maxSpeed * SPEED_PX_FACTOR    (120 → px/s)
 const SPEED_KMH_FACTOR = 0.5;   // maxSpeed value → real km/h (120 → 60)
-const SPEED_PX_FACTOR  = 0.55;  // maxSpeed value → screen px/s (120 → ~66 px/s)
+const SPEED_PX_FACTOR  = 1.6;   // maxSpeed value → screen px/s (120 → ~192 px/s)
 function tankKmh(t){ return Math.round((t.stats?.maxSpeed ?? t.maxSpeed) * SPEED_KMH_FACTOR); }
+
+// ---------- team colors ----------
+// Color follows FACTION, never the tank spec — friendly green / player blue / enemy pale red.
+const TEAM_COLORS = { player: '#5c8cff', ally: '#7ed957', enemy: '#ff8a8a' };
+function teamColor(t){ return TEAM_COLORS[t.team] || TEAM_COLORS.enemy; }
 
 function applyTankConfig(tank, spec){
   if (!spec) return;
@@ -417,7 +426,6 @@ function applyTankConfig(tank, spec){
   if (spec.damage !== undefined) b.damage = spec.damage;
   if (spec.reload !== undefined) b.reload = spec.reload;
   if (spec.heightClass !== undefined) tank.heightClass = spec.heightClass;
-  if (spec.color !== undefined) tank.color = spec.color;
   if (spec.anchors !== undefined) Object.assign(tank.anchors, spec.anchors);
   if (spec.armor !== undefined){
     tank.customArmor = spec.armor;
@@ -428,8 +436,8 @@ function applyTankConfig(tank, spec){
 
   if (spec.hull) {
     if (spec.hull.verts && spec.hull.faces) {
-      tank.hullSpec = { verts: spec.hull.verts, faces: spec.hull.faces };
-      // compute bounding box for hullLen / hullWid
+      // Recenter the verts so the local origin sits at the track-rectangle's geometric center:
+      // the hull then rotates around its own geometric center, not an offset (turret-pivot) point.
       let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
       for (const [vx, vy] of spec.hull.verts) {
         if (vx < minX) minX = vx;
@@ -437,6 +445,8 @@ function applyTankConfig(tank, spec){
         if (vy < minY) minY = vy;
         if (vy > maxY) maxY = vy;
       }
+      const cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+      tank.hullSpec = { verts: spec.hull.verts.map(([vx,vy])=>[vx-cx, vy-cy]), faces: spec.hull.faces };
       tank.hullLen = maxX - minX;
       tank.hullWid = maxY - minY;
     }
@@ -974,23 +984,57 @@ function resolveImpact(ox,oy,dx,dy, shooter, target, hit, allowBounce){
   const hitPoint = { x:hit.x, y:hit.y };
   const seg = [{ x1:ox, y1:oy, x2:hit.x, y2:hit.y }];
 
-  // ---- ricochet: reflect off the surface; the shell then flies a SHORT reflected tracer that
-  // fades out. No re-resolution, no second impact, no damage after the bounce.
+  // ---- ricochet: reflect off the surface; the shell continues flying along the reflected direction,
+  // potentially causing a secondary hit (and damage) against a nearby tank, but CANNOT bounce a second time.
   if(allowBounce && theta > BOUNCE_ANGLE){
     const r = reflectDir(dx,dy,hit.nx,hit.ny);
     const ex = hit.x + r.x*1.5, ey = hit.y + r.y*1.5; // start just beyond the bounce point
-    const bounceLen = 90; // short reflected flight, then the tracer fades away
-    const bx = ex + r.x*bounceLen, by = ey + r.y*bounceLen;
+
+    // Raycast reflected shell against all living entities to see if it secondary-hits anything
+    let secHit = null, secTarget = null;
+    let secBestT = Infinity;
+    for(const e of entities){
+      if(e.hp <= 0) continue;
+      const hits = raycastTank(ex, ey, r.x, r.y, e);
+      if(hits){
+        for(const h of hits){
+          if(h.t > 0.001 && h.t < secBestT){
+            secBestT = h.t;
+            secHit = h;
+            secTarget = e;
+          }
+        }
+      }
+    }
+
     const head = `${hit.part==='turret'?superstructureLabel(target):'车体'} ${faceLabel(hit.faceKey)} 入射角 ${(theta*180/Math.PI).toFixed(0)}° 超过跳弹角，炮弹被装甲弹飞`;
-    return {
-      outcome: 'BOUNCE', cls: 'BOUNCE',
-      text: `跳弹！${head} — 炮弹沿反射方向飞离，未造成穿透`,
-      part: hit.part, faceKey: hit.faceKey,
-      hitPoint,
-      segments: seg.concat([{ x1:ex, y1:ey, x2:bx, y2:by }]),
-      bouncePoint: hitPoint,
-      bounced: true
-    };
+    if(secHit && secTarget){
+      // Resolve secondary impact with allowBounce=false so no tertiary bounce occurs
+      const secRes = resolveImpact(ex, ey, r.x, r.y, shooter, secTarget, secHit, false);
+      const endX = secRes.hitPoint ? secRes.hitPoint.x : ex + r.x * secBestT;
+      const endY = secRes.hitPoint ? secRes.hitPoint.y : ey + r.y * secBestT;
+      return {
+        outcome: 'BOUNCE', cls: 'BOUNCE',
+        text: `跳弹二次命中！${head} → 反射二次命中 ${secTarget.id==='player'?'玩家':'目标'} (${secRes.text})`,
+        part: hit.part, faceKey: hit.faceKey,
+        hitPoint: secRes.hitPoint || hitPoint,
+        segments: seg.concat([{ x1:ex, y1:ey, x2:endX, y2:endY }]),
+        bouncePoint: hitPoint,
+        bounced: true
+      };
+    } else {
+      const bounceLen = 220; // reflected flight path when hitting open space
+      const bx = ex + r.x*bounceLen, by = ey + r.y*bounceLen;
+      return {
+        outcome: 'BOUNCE', cls: 'BOUNCE',
+        text: `跳弹！${head} — 炮弹沿反射方向飞离`,
+        part: hit.part, faceKey: hit.faceKey,
+        hitPoint,
+        segments: seg.concat([{ x1:ex, y1:ey, x2:bx, y2:by }]),
+        bouncePoint: hitPoint,
+        bounced: true
+      };
+    }
   }
 
   let outcome, text, cls;
@@ -1458,8 +1502,8 @@ function update(dt){
     if(keys['arrowright']) dummy.hullAngle += 1.6*dt*dTurnMod;
     let mv=0;
     if(keys['arrowup']) mv=1; else if(keys['arrowdown']) mv=-1;
-    dummy.x += Math.cos(dummy.hullAngle)*mv*90*SPEED_PX_FACTOR*dt*dSpeedMod;
-    dummy.y += Math.sin(dummy.hullAngle)*mv*90*SPEED_PX_FACTOR*dt*dSpeedMod;
+    dummy.x += Math.cos(dummy.hullAngle)*mv*dummy.stats.maxSpeed*SPEED_PX_FACTOR*dt*dSpeedMod;
+    dummy.y += Math.sin(dummy.hullAngle)*mv*dummy.stats.maxSpeed*SPEED_PX_FACTOR*dt*dSpeedMod;
     resolveFullCoverCollisions(dummy);
     advanceTracks(dummy, dummy.x-d0x, dummy.y-d0y, norm(dummy.hullAngle-d0a));
   }
