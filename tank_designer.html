@@ -103,6 +103,20 @@
     </div>
 
     <div class="section">
+      <h3>战斗参数 Combat</h3>
+      <div class="prop-row"><span class="lbl">满血 HP</span><input type="number" id="t-hp" value="100"></div>
+      <div class="prop-row"><span class="lbl">穿深 mm</span><input type="number" id="t-penetration" value="120"></div>
+      <div class="prop-row"><span class="lbl">单发伤害</span><input type="number" id="t-damage" value="34"></div>
+      <div class="prop-row"><span class="lbl">装填 s</span><input type="number" id="t-reload" value="1.3" step="0.1"></div>
+      <div class="prop-row"><span class="lbl">车高等级</span>
+        <select id="t-heightClass">
+          <option value="medium">中坦 (矮车体)</option>
+          <option value="heavy">重坦 (高车体)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="section">
       <h3>视图 View</h3>
       <div class="btnrow">
         <button id="zoomOutBtn">－ 缩小</button>
@@ -119,6 +133,7 @@
         <button id="modeTurret" class="mode-btn">炮塔 Turret</button>
         <button id="modePivot" class="mode-btn">旋转中心 Pivot</button>
         <button id="modePreview" class="mode-btn">预览瞄准 Preview</button>
+        <button id="modeTest" class="mode-btn">甲弹对抗 Combat</button>
       </div>
       <div class="btnrow" style="margin-top:8px;">
         <button id="undoVertBtn">撤销末尾顶点</button>
@@ -169,10 +184,62 @@
     </div>
 
     <div class="section">
+      <h3>甲弹对抗测试 Armor Combat</h3>
+      <div class="prop-row"><span class="lbl">测试类型</span>
+        <select id="test-kind">
+          <option value="armor">固定炮 · 测装甲</option>
+          <option value="plate">固定靶 · 测穿深+散布</option>
+        </select>
+      </div>
+      <div class="prop-row"><span class="lbl">炮穿深 mm</span><input type="number" id="test-pen" value="120" min="1" step="5"></div>
+
+      <div id="test-armor-fields">
+        <div class="prop-row"><span class="lbl">命中部位</span>
+          <select id="test-part">
+            <option value="hull">车体</option>
+            <option value="turret">炮塔/战斗室</option>
+          </select>
+        </div>
+        <div class="prop-row"><span class="lbl">装甲面</span>
+          <select id="test-face">
+            <option value="front">正面</option>
+            <option value="side">侧面</option>
+            <option value="rear">后部</option>
+          </select>
+        </div>
+        <div class="prop-row"><span class="lbl">入射角 θ (°)</span><input type="number" id="test-theta" value="0" min="0" max="85"></div>
+      </div>
+
+      <div id="test-plate-fields" style="display:none;">
+        <div class="prop-row"><span class="lbl">靶板厚度 mm</span><input type="number" id="test-plate-thick" value="80" min="1"></div>
+        <div class="prop-row"><span class="lbl">靶板入射角 α (°)</span><input type="number" id="test-alpha" value="30" min="0" max="78"></div>
+        <div class="prop-row"><span class="lbl">靶板半张角 (°)</span><input type="number" id="test-window" value="10" min="1"></div>
+        <div class="prop-row"><span class="lbl">散布 σ (°)</span><input type="number" id="test-sigma" value="2" min="0" step="0.1"></div>
+        <div class="prop-row"><span class="lbl">射击次数 N</span><input type="number" id="test-n" value="200" min="1"></div>
+      </div>
+
+      <div class="btnrow" style="margin-top:8px;">
+        <button id="runTestBtn" class="active">执行测试 RUN</button>
+      </div>
+      <div id="test-result" style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:11px; line-height:1.7; color:var(--text-dim);"></div>
+    </div>
+
+    <div class="section">
+      <h3>tank_list 交互</h3>
+      <div class="prop-row"><span class="lbl">从 tank_list 载入</span>
+        <select id="tankListSelect"></select>
+      </div>
+      <div class="btnrow" style="margin-top:6px;">
+        <button id="tankListLoadBtn">载入所选条目</button>
+        <button id="tankListSaveBtn">保存到 tank_list</button>
+      </div>
+      <div class="hint-text" style="margin-top:6px; font-size:10px; color:var(--text-dim);">「保存到 tank_list」会读取当前 tank_list.json、合并当前设计后下载更新后的文件，请覆盖回项目根目录；tank_mvp.html 即从该文件载入坦克。</div>
+    </div>
+
+    <div class="section">
       <h3>导出 Export</h3>
       <div class="btnrow">
         <button id="exportBtn">导出 JSON</button>
-        <button id="copyBtn">复制</button>
       </div>
       <div id="json-out" class="mono"></div>
     </div>
@@ -187,6 +254,7 @@
   </div>
 </div>
 
+<script src="js/tank_paint.js"></script>
 <script>
 (() => {
 const canvas = document.getElementById('editor-canvas');
@@ -270,6 +338,7 @@ function defaultTurret(){
 let state = {
   id:'new_tank', hasTurret:true, traverseLimit:15,
   maxSpeed:120, turnRate:2.0, turretTurnRate:2.2,
+  hp:100, penetration:120, damage:34, reload:1.3, heightClass:'medium',
   hull: defaultHull(),
   turret: defaultTurret()
 };
@@ -278,6 +347,7 @@ let viewScale = 1;
 let drag = null;
 let selected = null; // { poly:'hull'|'turret', index }
 let previewAngle = 0;
+let trackPhase = 0; // scrolling track animation phase for edit modes (driven at fixed rate)
 const HIT_R = 9, EDGE_HIT_R = 8;
 const ZOOM_MIN = 0.3, ZOOM_MAX = 4;
 
@@ -481,7 +551,8 @@ const HINTS = {
   hull: '点击空白处依次添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击顶点选中后可在左侧精确输入坐标或删除 · 点击边线中点循环装甲类型',
   turret: '同车体操作，坐标以炮塔旋转中心为原点，仅编辑 y≤0 一侧，另一侧自动镜像',
   pivot: '点击或拖动设置炮塔旋转中心（相对车体中心的偏移量 dx, dy）',
-  preview: '移动鼠标预览炮塔瞄准方向；若未勾选"有炮塔"，炮管将被限制在左右射界范围内（战斗室随车体固定不转）'
+  preview: '移动鼠标预览炮塔瞄准方向；若未勾选"有炮塔"，炮管将被限制在左右射界范围内（战斗室随车体固定不转）',
+  test: '在侧栏设置穿深/命中部位/入射角后点击「执行测试」：固定炮模式绝对精准地对当前设计的装甲判定；靶板模式对固定钢板做 N 发射击统计穿深与散布'
 };
 function setMode(m){
   mode = m;
@@ -497,6 +568,7 @@ document.getElementById('modeHull').addEventListener('click', ()=>setMode('hull'
 document.getElementById('modeTurret').addEventListener('click', ()=>setMode('turret'));
 document.getElementById('modePivot').addEventListener('click', ()=>setMode('pivot'));
 document.getElementById('modePreview').addEventListener('click', ()=>setMode('preview'));
+document.getElementById('modeTest').addEventListener('click', ()=>setMode('test'));
 
 // ================= zoom controls =================
 document.getElementById('zoomInBtn').addEventListener('click', ()=>{ viewScale=Math.min(ZOOM_MAX,viewScale*1.2); updateZoomReadout(); render(); });
@@ -558,11 +630,107 @@ function syncBaseFromInputs(){
   state.maxSpeed = parseFloat(document.getElementById('t-maxSpeed').value)||0;
   state.turnRate = parseFloat(document.getElementById('t-turnRate').value)||0;
   state.turretTurnRate = parseFloat(document.getElementById('t-turretTurnRate').value)||0;
+  state.hp = parseFloat(document.getElementById('t-hp').value)||100;
+  state.penetration = parseFloat(document.getElementById('t-penetration').value)||0;
+  state.damage = parseFloat(document.getElementById('t-damage').value)||0;
+  state.reload = parseFloat(document.getElementById('t-reload').value)||0;
+  state.heightClass = document.getElementById('t-heightClass').value || 'medium';
   render();
 }
-['t-id','t-hasTurret','t-traverse','t-maxSpeed','t-turnRate','t-turretTurnRate'].forEach(id=>{
+['t-id','t-hasTurret','t-traverse','t-maxSpeed','t-turnRate','t-turretTurnRate',
+ 't-hp','t-penetration','t-damage','t-reload','t-heightClass'].forEach(id=>{
   document.getElementById(id).addEventListener('input', syncBaseFromInputs);
+  document.getElementById(id).addEventListener('change', syncBaseFromInputs);
 });
+
+// ================= combat test (armor & spread) =================
+// Reuses the same 2D projectile model as tank_mvp.html: incident angle theta vs the hit edge normal,
+// effective thickness = nominal / cos(theta), bounce when theta > 78°. The "armor" test fires a single
+// absolutely-precise round at a chosen part+face of the designed tank; the "plate" test rolls N rounds
+// against a fixed reference plate with gaussian spread.
+const BOUNCE_ANGLE_DEG = 78;
+function gaussDeg(sigma){ // Box–Muller, result in degrees
+  const TAU = Math.PI*2;
+  let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random();
+  return sigma * Math.sqrt(-2*Math.log(u)) * Math.cos(TAU*v);
+}
+function resolveHit(pen, thickness, thetaDeg){
+  if(thetaDeg > BOUNCE_ANGLE_DEG) return { tag:'跳弹', color:'#5cc8ff', eff:null };
+  const eff = thickness / Math.cos(thetaDeg*Math.PI/180);
+  if(eff > pen) return { tag:'未击穿', color:'#b98aff', eff };
+  return { tag:'击穿', color:'#7ed957', eff };
+}
+function armorThickness(part, face){
+  const a = part==='turret' ? state.turret.armor : state.hull.armor;
+  return a[face] !== undefined ? a[face] : 0;
+}
+document.getElementById('test-kind').addEventListener('change', ()=>{
+  const isArmor = document.getElementById('test-kind').value==='armor';
+  document.getElementById('test-armor-fields').style.display = isArmor ? '' : 'none';
+  document.getElementById('test-plate-fields').style.display = isArmor ? 'none' : '';
+});
+function fmtTestResult(html){ document.getElementById('test-result').innerHTML = html; }
+document.getElementById('runTestBtn').addEventListener('click', ()=>{
+  const pen = parseFloat(document.getElementById('test-pen').value)||0;
+  const kind = document.getElementById('test-kind').value;
+  if(kind==='armor'){
+    runArmorTest(pen);
+  } else {
+    runPlateTest(pen);
+  }
+  render();
+});
+
+// ---- mode A: armor test against the designed tank (accurate, part/face/theta settable) ----
+let lastArmorTest = null; // snapshot for canvas overlay {part,face,theta,anchor,gunDir,pen,result}
+function runArmorTest(pen){
+  const part = document.getElementById('test-part').value;
+  const face = document.getElementById('test-face').value;
+  const theta = Math.max(0, Math.min(85, parseFloat(document.getElementById('test-theta').value)||0));
+  const thickness = armorThickness(part, face);
+  const res = resolveHit(pen, thickness, theta);
+  lastArmorTest = { part, face, theta, pen, thickness, res, anchor:null, gunDir:null };
+  fmtTestResult(
+    `<div>命中：<b style="color:var(--text)">${part==='turret'?'炮塔/战斗室':'车体'}·${({front:'正面',side:'侧面',rear:'后部'})[face]}</b></div>`+
+    `<div>名义厚度：<b style="color:var(--text)">${thickness} mm</b>　入射角 θ：${theta.toFixed(1)}°</div>`+
+    (res.eff===null
+      ? `<div style="color:${res.color}">等效：—　结果：${res.tag}（θ 超过 ${BOUNCE_ANGLE_DEG}° 跳弹角）</div>`
+      : `<div style="color:${res.color}">等效厚度：${res.eff.toFixed(0)} mm　vs 穿深 ${pen} mm</div>`+
+        `<div style="color:${res.color}">结果：${res.tag}</div>`)
+  );
+}
+
+// ---- mode B: fixed-plate penetration & spread test ----
+let lastPlateTest = null; // {plateThick,alpha,sigma,window,shots:{miss,bounce,block,pen}}
+function runPlateTest(pen){
+  const plateThick = parseFloat(document.getElementById('test-plate-thick').value)||0;
+  const alpha = Math.max(0, Math.min(78, parseFloat(document.getElementById('test-alpha').value)||0));
+  const sigma = Math.max(0, parseFloat(document.getElementById('test-sigma').value)||0);
+  const windowHalf = Math.max(1, parseFloat(document.getElementById('test-window').value)||1);
+  const N = Math.max(1, Math.floor(parseFloat(document.getElementById('test-n').value)||1));
+
+  let miss=0, bounce=0, block=0, penHit=0;
+  for(let i=0;i<N;i++){
+    const off = gaussDeg(sigma);
+    if(Math.abs(off) > windowHalf){ miss++; continue; }
+    const total = alpha + off;
+    if(total > BOUNCE_ANGLE_DEG){ bounce++; continue; }
+    const eff = plateThick / Math.cos(total*Math.PI/180);
+    if(eff > pen){ block++; }
+    else { penHit++; }
+  }
+  const hit = N - miss;
+  lastPlateTest = { plateThick, alpha, sigma, window:windowHalf, counts:{miss,bounce,block,pen:penHit,N} };
+  const penRate = hit>0 ? (penHit/hit*100).toFixed(1) : '0.0';
+  const hitRate = (1 - miss/N)*100;
+  fmtTestResult(
+    `<div>靶板：${plateThick} mm @ ${alpha.toFixed(0)}°（半张角 ±${windowHalf.toFixed(0)}°）　穿深 ${pen} mm</div>`+
+    `<div>散布 σ=${sigma.toFixed(1)}°　射击 ${N} 发</div>`+
+    `<div style="color:var(--text)">命中率 ${hitRate.toFixed(1)}%　（命中 ${hit} / 脱靶 ${miss}）</div>`+
+    `<div style="color:#5cc8ff">跳弹 ${bounce}　<span style="color:#b98aff">未击穿 ${block}</span>　<span style="color:#7ed957">击穿 ${penHit}</span></div>`+
+    `<div style="color:#7ed957">命中击穿率：${penRate}%</div>`
+  );
+}
 
 // ================= edge list panel (only the editable half + seams — mirrored edges are implicit) =================
 function renderEdgeLists(){
@@ -614,6 +782,27 @@ function drawGrid(){
     for(let y=canvas.height/2 % step; y<canvas.height; y+=step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
   }
 }
+// neutral base tone for the designer's procedural paint (no per-tank color exists here)
+const DESIGN_PAINT = '#9aa48a';
+// The paint/track code below delegates to the shared tank_paint.js module (single source of
+// truth for tracks & top-down textures), keeping names the designer already uses.
+function shade(hex, pct){ return paintShade(hex, pct); }
+// full closed vertex list of a part, in LOCAL coords (helper retained for the designer's call sites)
+function fullVertsBounds(poly){
+  return { fullVerts: buildFullVerts(poly.half) };
+}
+// rolling track strips under the hull. `phase` scrolls the links; a slowly-changing phase animates it.
+function drawDesignerTracks(phase, scale){
+  const { fullVerts } = fullVertsBounds(state.hull);
+  const hc = hullCenter();
+  paintTracks(ctx, fullVerts, hc.x, hc.y, 0, scale, DESIGN_PAINT, phase);
+}
+// faded base paint for edit modes; full texture for preview/test. Delegates to shared module.
+function paintPart(poly, center, angle, scale, opts){
+  const fullVerts = buildFullVerts(poly.half);
+  paintPartTexture(ctx, fullVerts, center.x, center.y, angle, scale, DESIGN_PAINT,
+    poly===state.hull ? 'hull' : 'turret', opts);
+}
 function drawPolygon(poly, center, angle, opts){
   const active = opts.active;
   const fullVerts = buildFullVerts(poly.half);
@@ -621,12 +810,11 @@ function drawPolygon(poly, center, angle, opts){
   const n = fullVerts.length;
   const world = fullVerts.map(p=>toScreen(center, p, angle));
   if(n>=3){
-    ctx.beginPath();
-    ctx.moveTo(world[0].x, world[0].y);
-    for(let i=1;i<n;i++) ctx.lineTo(world[i].x, world[i].y);
-    ctx.closePath();
-    ctx.fillStyle = active ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.02)';
-    ctx.fill();
+    // procedural paint (see paintPart): filler/details driven by opts.detail / opts.faded
+    const partOpts = {};
+    if (opts.detail) partOpts.detail = true;
+    if (opts.faded) partOpts.faded = true;
+    paintPart(poly, center, angle, viewScale, partOpts);
     for(let i=0;i<n;i++){
       const a = world[i], b = world[(i+1)%n];
       const editable = primary[i]; // half-chain + seam edges are user-controlled; mirrored-chain edges just copy them
@@ -666,6 +854,7 @@ function drawPolygon(poly, center, angle, opts){
 function render(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   drawGrid();
+  trackPhase = (trackPhase + 0.6) % 1000; // steady rolling-track scroll across static re-renders
 
   const hc = hullCenter();
   const tc = turretCenter();
@@ -678,8 +867,12 @@ function render(){
   ctx.fillText('FRONT →', hc.x+124*viewScale, hc.y+4);
 
   const turretAngle = (mode==='preview' && state.hasTurret) ? previewAngle : 0;
-  drawPolygon(state.turret, tc, turretAngle, { active: mode==='turret' || mode==='pivot' });
-  drawPolygon(state.hull, hc, 0, { active: mode==='hull' });
+  // tracks under everything (animated scroll in preview/test via wall-clock time)
+  const fullDetail = (mode==='preview' || mode==='test');
+  drawDesignerTracks(fullDetail ? performance.now()*0.02 : trackPhase, viewScale);
+  const partOpts = { active:false, detail: fullDetail, faded: !fullDetail };
+  drawPolygon(state.turret, tc, turretAngle, Object.assign({ active: mode==='turret' || mode==='pivot' }, partOpts));
+  drawPolygon(state.hull, hc, 0, Object.assign({ active: mode==='hull' }, partOpts));
 
   // pivot marker
   ctx.beginPath(); ctx.arc(tc.x, tc.y, mode==='pivot'?7:4, 0, Math.PI*2);
@@ -704,17 +897,145 @@ function render(){
     ctx.lineTo(tc.x+Math.cos(previewAngle)*70*viewScale, tc.y+Math.sin(previewAngle)*70*viewScale);
     ctx.stroke();
   }
+
+  if(mode==='test') drawTestOverlay(hc, tc);
+}
+
+// ---------- combat-test canvas overlay ----------
+// anchor on a chosen face of a designed part (hull/turret), and its inward unit normal
+function armorFaceAnchor(partName, face, center){
+  const poly = partName==='turret' ? state.turret : state.hull;
+  const fullVerts = buildFullVerts(poly.half);
+  const { faces: fullFaces } = buildFullFacesWithFlags(poly.half, i=>getFace(poly.halfFaces,i), poly.frontSeamFace, poly.rearSeamFace);
+  const n = fullVerts.length;
+  if(n<3) return null;
+  const world = fullVerts.map(p=>toScreen(center, p)).map(p=>({x:p.x,y:p.y}));
+  // polygon centroid for outward-normal oracle
+  let gx=0, gy=0; world.forEach(p=>{ gx+=p.x; gy+=p.y; }); gx/=n; gy/=n;
+  let best=null;
+  for(let i=0;i<n;i++){
+    if(fullFaces[i] !== face) continue;
+    const a=world[i], b=world[(i+1)%n];
+    const ex=b.x-a.x, ey=b.y-a.y;
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    // both perpendiculars; pick pointing away from centroid (outward normal)
+    const c1x=ey,c1y=-ex, c2x=-ey,c2y=ex;
+    let nx,ny; const o1=c1x*(mx-gx)+c1y*(my-gy);
+    if(o1>=0){ nx=c1x;ny=c1y; } else { nx=c2x;ny=c2y; }
+    const len=Math.hypot(nx,ny)||1; nx/=len; ny/=len;
+    const segLen=Math.hypot(ex,ey);
+    if(!best || segLen>best.len) best={ ax:mx, ay:my, nx, ny, len:segLen };
+  }
+  return best;
+}
+function drawTestOverlay(hc, tc){
+  const kind = document.getElementById('test-kind').value;
+  if(kind==='armor'){
+    const part = document.getElementById('test-part').value;
+    const face = document.getElementById('test-face').value;
+    const theta = Math.max(0, Math.min(85, parseFloat(document.getElementById('test-theta').value)||0));
+    const center = part==='turret' ? tc : hc;
+    const a = armorFaceAnchor(part, face, center);
+    if(!a) return;
+    const dist = 120*viewScale;
+    const rad = theta*Math.PI/180;
+    // shell approaches from the outward side, rotated by theta toward grazing
+    const dirX = a.nx*Math.cos(rad) - a.ny*Math.sin(rad);
+    const dirY = a.nx*Math.sin(rad) + a.ny*Math.cos(rad);
+    const gx = a.ax - dirX*dist, gy = a.ay - dirY*dist;
+    const resColor = lastArmorTest && lastArmorTest.res ? lastArmorTest.res.color : '#ffb454';
+
+    // gun barrel
+    ctx.strokeStyle = 'rgba(255,180,84,0.9)'; ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy);
+    ctx.lineTo(gx+dirX*40, gy+dirY*40);
+    ctx.stroke();
+    // gun breech block
+    ctx.strokeStyle = 'rgba(255,180,84,0.7)'; ctx.lineWidth = 2;
+    ctx.strokeRect(gx-6, gy-6, 12, 12);
+
+    // aim ray + normal reference
+    ctx.strokeStyle = 'rgba(255,180,84,0.5)'; ctx.setLineDash([6,5]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(gx,gy); ctx.lineTo(a.ax,a.ay); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.setLineDash([2,4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(a.ax,a.ay); ctx.lineTo(a.ax+a.nx*50, a.ay+a.ny*50); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font='10px "JetBrains Mono", monospace';
+    ctx.fillText('入射 θ='+theta.toFixed(0)+'°', a.ax+10*viewScale, a.ay-10*viewScale);
+
+    // impact marker (colored by result)
+    ctx.strokeStyle = resColor; ctx.lineWidth = 2; ctx.globalAlpha = 0.9;
+    ctx.beginPath(); ctx.arc(a.ax, a.ay, 8, 0, Math.PI*2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    const tag = lastArmorTest && lastArmorTest.res ? lastArmorTest.res.tag : '';
+    if(tag){ ctx.fillStyle = resColor; ctx.font='12px "JetBrains Mono", monospace'; ctx.fillText(tag, a.ax+12*viewScale, a.ay+4*viewScale); }
+  } else {
+    // plate test: fixed plate + spread cone
+    const alpha = Math.max(0, Math.min(78, parseFloat(document.getElementById('test-alpha').value)||0));
+    const sigma = Math.max(0, parseFloat(document.getElementById('test-sigma').value)||0);
+    const windowHalf = Math.max(1, parseFloat(document.getElementById('test-window').value)||1);
+    const plateThick = parseFloat(document.getElementById('test-plate-thick').value)||0;
+    const pen = parseFloat(document.getElementById('test-pen').value)||0;
+
+    const plateX = hc.x + 150*viewScale;
+    const steady = plateThick/2; // apparent plate offset behind the surface for the alpha view (visual only)
+    const plateSlope = plateThick*0.35;
+    // represent the angled plate as an oblique slab
+    ctx.strokeStyle = 'rgba(185,138,255,0.9)'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(plateX, hc.y+plateSlope);
+    ctx.lineTo(plateX+steady, hc.y+plateSlope);
+    ctx.lineTo(plateX+steady, hc.y-plateSlope);
+    ctx.lineTo(plateX, hc.y-plateSlope);
+    ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = 'rgba(185,138,255,0.12)'; ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font='10px "JetBrains Mono", monospace';
+    ctx.fillText(`${plateThick}mm @ ${alpha.toFixed(0)}°`, plateX+6, hc.y-plateSlope-6);
+
+    // gun on the left firing toward the plate
+    const gx = hc.x - 150*viewScale, gy = hc.y;
+    ctx.strokeStyle = 'rgba(255,180,84,0.9)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(gx,gy); ctx.lineTo(gx+40,gy); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,180,84,0.7)'; ctx.lineWidth = 2;
+    ctx.strokeRect(gx-6, gy-6, 12, 12);
+
+    // aim line
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.setLineDash([6,5]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(gx+40,gy); ctx.lineTo(plateX,gy); ctx.stroke(); ctx.setLineDash([]);
+    // spread cone (sigma) + acceptance window
+    function drawCone(deg, color, dash){
+      ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash(dash);
+      ctx.beginPath();
+      ctx.moveTo(gx+40,gy);
+      ctx.lineTo(gx+40+Math.cos(deg*Math.PI/180)*160, gy+Math.sin(deg*Math.PI/180)*160);
+      ctx.moveTo(gx+40,gy);
+      ctx.lineTo(gx+40+Math.cos(-deg*Math.PI/180)*160, gy-Math.sin(-deg*Math.PI/180)*160);
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.setLineDash([]);
+    drawCone(windowHalf, 'rgba(185,138,255,0.4)', [3,5]); // acceptance window (命中范围)
+    drawCone(sigma, 'rgba(255,180,84,0.5)', [2,4]);       // dispersion sigma (散布)
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font='10px "JetBrains Mono", monospace';
+    ctx.fillText(`σ=${sigma.toFixed(1)}°`, gx+16, gy+26*viewScale);
+  }
 }
 
 // ================= export / import =================
-document.getElementById('exportBtn').addEventListener('click', ()=>{
-  const out = {
+function buildExport(){
+  return {
     id: state.id,
     hasTurret: state.hasTurret,
     traverseLimit: state.traverseLimit,
     maxSpeed: state.maxSpeed,
     turnRate: state.turnRate,
     turretTurnRate: state.turretTurnRate,
+    hp: state.hp,
+    penetration: state.penetration,
+    damage: state.damage,
+    reload: state.reload,
+    heightClass: state.heightClass,
     hull: {
       verts: buildFullVerts(state.hull.half),
       faces: buildFullFaces(state.hull.half, i=>getFace(state.hull.halfFaces,i), state.hull.frontSeamFace, state.hull.rearSeamFace),
@@ -727,12 +1048,12 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
       pivot: state.turret.pivot
     }
   };
-  document.getElementById('json-out').textContent = JSON.stringify(out, null, 2);
+}
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  document.getElementById('json-out').textContent = JSON.stringify(buildExport(), null, 2);
 });
-document.getElementById('copyBtn').addEventListener('click', ()=>{
-  const txt = document.getElementById('json-out').textContent;
-  if(!txt) return;
-  navigator.clipboard && navigator.clipboard.writeText(txt).catch(()=>{});
+document.getElementById('tankListSaveBtn').addEventListener('click', ()=>{
+  saveToTankList();
 });
 // Import accepts either the full-polygon export format above, OR a half-form save (verts/faces
 // already expressed as {half, halfFaces, frontSeamFace, rearSeamFace}) so re-loading a previous
@@ -768,52 +1089,117 @@ function halfFromFull(verts, faces){
   }
   return { half, halfFaces, frontSeamFace, rearSeamFace };
 }
+function applyTankData(data){
+  state.id = data.id ?? state.id;
+  state.hasTurret = data.hasTurret ?? state.hasTurret;
+  state.traverseLimit = data.traverseLimit ?? state.traverseLimit;
+  state.maxSpeed = data.maxSpeed ?? state.maxSpeed;
+  state.turnRate = data.turnRate ?? state.turnRate;
+  state.turretTurnRate = data.turretTurnRate ?? state.turretTurnRate;
+  state.hp = data.hp ?? state.hp;
+  state.penetration = data.penetration ?? state.penetration;
+  state.damage = data.damage ?? state.damage;
+  state.reload = data.reload ?? state.reload;
+  state.heightClass = data.heightClass ?? state.heightClass;
+  if(data.hull){
+    if(data.hull.half){
+      state.hull = { half:data.hull.half, halfFaces:data.hull.halfFaces.slice(),
+        frontSeamFace:data.hull.frontSeamFace||'front', rearSeamFace:data.hull.rearSeamFace||'rear',
+        armor: Object.assign({front:110,side:38,rear:26}, data.hull.armor) };
+    } else {
+      const h = halfFromFull(data.hull.verts, data.hull.faces);
+      state.hull = Object.assign(h, { armor: Object.assign({front:110,side:38,rear:26}, data.hull.armor) });
+    }
+  }
+  if(data.turret){
+    if(data.turret.half){
+      state.turret = { half:data.turret.half, halfFaces:data.turret.halfFaces.slice(),
+        frontSeamFace:data.turret.frontSeamFace||'front', rearSeamFace:data.turret.rearSeamFace||'rear',
+        armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
+        pivot: Object.assign({dx:8,dy:0}, data.turret.pivot) };
+    } else {
+      const h = halfFromFull(data.turret.verts, data.turret.faces);
+      state.turret = Object.assign(h, { armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
+        pivot: Object.assign({dx:8,dy:0}, data.turret.pivot) });
+    }
+  }
+  document.getElementById('t-id').value = state.id;
+  document.getElementById('t-hasTurret').checked = state.hasTurret;
+  document.getElementById('t-traverse').value = state.traverseLimit;
+  document.getElementById('t-maxSpeed').value = state.maxSpeed;
+  document.getElementById('t-turnRate').value = state.turnRate;
+  document.getElementById('t-turretTurnRate').value = state.turretTurnRate;
+  document.getElementById('t-hp').value = state.hp;
+  document.getElementById('t-penetration').value = state.penetration;
+  document.getElementById('t-damage').value = state.damage;
+  document.getElementById('t-reload').value = state.reload;
+  document.getElementById('t-heightClass').value = state.heightClass;
+  clearSelection();
+  syncArmorInputsFromState();
+  render(); renderEdgeLists();
+}
 document.getElementById('loadBtn').addEventListener('click', ()=>{
   let data;
   try{ data = JSON.parse(document.getElementById('json-in').value); }
   catch(err){ alert('JSON 解析失败: '+err.message); return; }
   try{
-    state.id = data.id ?? state.id;
-    state.hasTurret = data.hasTurret ?? state.hasTurret;
-    state.traverseLimit = data.traverseLimit ?? state.traverseLimit;
-    state.maxSpeed = data.maxSpeed ?? state.maxSpeed;
-    state.turnRate = data.turnRate ?? state.turnRate;
-    state.turretTurnRate = data.turretTurnRate ?? state.turretTurnRate;
-    if(data.hull){
-      if(data.hull.half){
-        state.hull = { half:data.hull.half, halfFaces:data.hull.halfFaces.slice(),
-          frontSeamFace:data.hull.frontSeamFace||'front', rearSeamFace:data.hull.rearSeamFace||'rear',
-          armor: Object.assign({front:110,side:38,rear:26}, data.hull.armor) };
-      } else {
-        const h = halfFromFull(data.hull.verts, data.hull.faces);
-        state.hull = Object.assign(h, { armor: Object.assign({front:110,side:38,rear:26}, data.hull.armor) });
-      }
-    }
-    if(data.turret){
-      if(data.turret.half){
-        state.turret = { half:data.turret.half, halfFaces:data.turret.halfFaces.slice(),
-          frontSeamFace:data.turret.frontSeamFace||'front', rearSeamFace:data.turret.rearSeamFace||'rear',
-          armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
-          pivot: Object.assign({dx:8,dy:0}, data.turret.pivot) };
-      } else {
-        const h = halfFromFull(data.turret.verts, data.turret.faces);
-        state.turret = Object.assign(h, { armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
-          pivot: Object.assign({dx:8,dy:0}, data.turret.pivot) });
-      }
-    }
-    document.getElementById('t-id').value = state.id;
-    document.getElementById('t-hasTurret').checked = state.hasTurret;
-    document.getElementById('t-traverse').value = state.traverseLimit;
-    document.getElementById('t-maxSpeed').value = state.maxSpeed;
-    document.getElementById('t-turnRate').value = state.turnRate;
-    document.getElementById('t-turretTurnRate').value = state.turretTurnRate;
-    clearSelection();
-    syncArmorInputsFromState();
-    render(); renderEdgeLists();
+    applyTankData(data);
   } catch(err){
     alert('载入失败，JSON 结构不符合预期: '+err.message);
   }
 });
+
+// ================= tank_list.json I/O =================
+// The designer reads entries from tank_list.json (same JSON the MVP fetches) and writes the current
+// design back into it. Since a browser tab cannot write to the source file directly, "save" merges
+// the design into the fetched list and downloads the updated tank_list.json for the user to replace
+// over the original. If tank_list.json is unreachable (e.g. opened via file://), we fall back to
+// saving a file containing just the current design entry.
+let tankListCache = null;
+function populateTankListSelect(list){
+  const sel = document.getElementById('tankListSelect');
+  sel.innerHTML = '';
+  Object.keys(list).forEach(k=>{
+    const opt = document.createElement('option');
+    opt.value = k;
+    opt.textContent = k;
+    sel.appendChild(opt);
+  });
+  if(sel.options.length && sel.value !== state.id) sel.value = sel.options[0].value;
+}
+document.getElementById('tankListLoadBtn').addEventListener('click', ()=>{
+  const key = document.getElementById('tankListSelect').value;
+  if(!tankListCache || !tankListCache[key]){
+    fetch('tank_list.json')
+      .then(res=>res.ok ? res.json() : Promise.reject(new Error('HTTP '+res.status)))
+      .then(list=>{
+        tankListCache = list;
+        populateTankListSelect(list);
+        if(list[key]){ try{ applyTankData(list[key]); alert('已载入 '+key); }catch(e){ alert('载入失败: '+e.message); } }
+      })
+      .catch(err=>alert('无法读取 tank_list.json: '+err.message+'（设计器需通过本地服务器打开才能读写 tank_list.json）'));
+    return;
+  }
+  if(tankListCache[key]){ try{ applyTankData(tankListCache[key]); }catch(e){ alert('载入失败: '+e.message); } }
+});
+function saveToTankList(){
+  const out = buildExport();
+  const apply = (list)=>{
+    if(!list) list = {};
+    list[out.id] = out;
+    const blob = new Blob([JSON.stringify(list, null, 2)], { type:'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'tank_list.json';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  };
+  if(tankListCache){ apply(tankListCache); return; }
+  fetch('tank_list.json')
+    .then(res=>res.ok ? res.json() : Promise.reject(new Error('HTTP '+res.status)))
+    .then(list=>{ tankListCache = list; apply(list); })
+    .catch(()=>{ apply({}); }); // fallback: single-entry file, user can merge manually
+}
 
 // ================= init =================
 syncArmorInputsFromState();

@@ -1,0 +1,14 @@
+{
+  "name": "rogue-tank",
+  "version": "0.1.0",
+  "description": "Rogue Tank — node-based map progression + top-down 2D tactical tank Roguelike (prototypes)",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "serve": "node server.js",
+    "check": "node scripts/check-html.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
