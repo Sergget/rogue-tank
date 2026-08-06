@@ -6,91 +6,33 @@
     "maxSpeed": 90,
     "turnRate": 2,
     "turretTurnRate": 2.2,
+    "hp": 100,
+    "heightClass": "medium",
+    "barrel": { "len": 140, "width": 18, "muzzle": "single", "evacPos": 55 },
     "hull": {
       "verts": [
-        [
-          34.5,
-          -7.8
-        ],
-        [
-          21.9,
-          -19.2
-        ],
-        [
-          -50.4,
-          -19
-        ],
-        [
-          -50.4,
-          19
-        ],
-        [
-          21.9,
-          19.2
-        ],
-        [
-          34.5,
-          7.8
-        ]
+        [34.5, -7.8],
+        [21.9, -19.2],
+        [-50.4, -19],
+        [-50.4, 19],
+        [21.9, 19.2],
+        [34.5, 7.8]
       ],
-      "faces": [
-        "front",
-        "side",
-        "rear",
-        "side",
-        "front",
-        "front"
-      ],
-      "armor": {
-        "front": 100,
-        "side": 38,
-        "rear": 26
-      }
+      "faces": ["front", "side", "rear", "side", "front", "front"],
+      "armor": { "front": 100, "side": 38, "rear": 26 }
     },
     "turret": {
       "verts": [
-        [
-          16.7,
-          -8.1
-        ],
-        [
-          4.7,
-          -21.2
-        ],
-        [
-          -27.4,
-          -13.1
-        ],
-        [
-          -27.4,
-          13.1
-        ],
-        [
-          4.7,
-          21.2
-        ],
-        [
-          16.7,
-          8.1
-        ]
+        [16.7, -8.1],
+        [4.7, -21.2],
+        [-27.4, -13.1],
+        [-27.4, 13.1],
+        [4.7, 21.2],
+        [16.7, 8.1]
       ],
-      "faces": [
-        "front",
-        "side",
-        "rear",
-        "side",
-        "front",
-        "front"
-      ],
-      "armor": {
-        "front": 120,
-        "side": 50,
-        "rear": 20
-      },
-      "pivot": {
-        "dx": 2,
-        "dy": 0
-      }
+      "faces": ["front", "side", "rear", "side", "front", "front"],
+      "armor": { "front": 120, "side": 50, "rear": 20 },
+      "pivot": { "dx": 2, "dy": 0 }
     }
   },
   "dummy": {
@@ -100,10 +42,6 @@
     "maxSpeed": 120,
     "turnRate": 2.0,
     "turretTurnRate": 2.2,
-    "hullLen": 64,
-    "hullWid": 38,
-    "turLen": 34,
-    "turWid": 36,
     "hp": 100,
     "maxHp": 100,
     "penetration": 120,
@@ -111,16 +49,27 @@
     "reload": 1.3,
     "heightClass": "heavy",
     "color": "#ff8a5c",
-    "anchors": {
-      "hull_top": { "dx": 0, "dy": 0 },
-      "hull_front": { "dx": 32, "dy": 0 },
-      "hull_rear": { "dx": -32, "dy": 0 },
-      "turret_top": { "dx": 0, "dy": 0 },
-      "gun_root": { "dx": 17, "dy": 0 }
+    "barrel": { "len": 110, "width": 22, "muzzle": "double", "evacPos": 40 },
+    "hull": {
+      "verts": [
+        [26, -19],
+        [26, 19],
+        [-32, 19],
+        [-32, -19]
+      ],
+      "faces": ["front", "side", "rear", "side"],
+      "armor": { "front": 110, "side": 38, "rear": 26 }
     },
-    "armor": {
-      "hull":   { "front":110, "side":38, "rear":26 },
-      "turret": { "front":140, "side":50, "rear":24 }
+    "turret": {
+      "verts": [
+        [15, -14],
+        [15, 14],
+        [-16, 14],
+        [-16, -14]
+      ],
+      "faces": ["front", "side", "rear", "side"],
+      "armor": { "front": 140, "side": 50, "rear": 24 },
+      "pivot": { "dx": 2, "dy": 0 }
     }
   }
 }

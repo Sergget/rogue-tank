@@ -132,16 +132,28 @@
     <div class="section">
       <h3>坦克选择 Tank Select</h3>
       <div class="bar-row"><span class="bar-label">玩家坦克</span><select id="playerTankSelect"></select></div>
+      <div class="bar-row"><span class="bar-label">靶车坦克</span><select id="dummyTankSelect"></select></div>
       <div class="btnrow" style="margin-top:4px;">
         <button id="applyPlayerTankBtn">应用到玩家</button>
+        <button id="applyDummyTankBtn">应用到靶车</button>
         <button id="reloadTankListBtn">重新加载列表</button>
       </div>
-      <div class="mono" id="tankSelectHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">从 tank_list.json 载入坦克配置并替换玩家</div>
+      <div class="mono" id="tankSelectHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">从 tank_list.json 载入坦克配置并替换玩家 / 靶车（含炮管预设、多边形装甲）</div>
     </div>
 
     <div class="section">
       <h3>玩家 Player</h3>
       <div class="bar-row"><span class="bar-label">HULL HP</span><div class="bar-track"><div class="bar-fill" id="pHpBar" style="background:var(--green); width:100%"></div></div><span class="bar-val" id="pHpVal">100</span></div>
+      <div class="bar-row"><span class="bar-label">最高速度</span><span class="mono" id="pSpeedVal" style="font-size:11px; color:var(--amber);">--</span></div>
+    </div>
+
+    <div class="section">
+      <h3>靶场 Test Range</h3>
+      <div class="btnrow" style="margin-top:4px;">
+        <button id="rangeBtn">开启靶场 RANGE</button>
+        <button id="spreadBtn" class="active">散布: 开</button>
+      </div>
+      <div class="mono" id="rangeStats" style="margin-top:6px; font-size:10px; color:var(--text-dim); line-height:1.6;">靶场未开启 — 关闭散布即绝对精准</div>
     </div>
 
     <div class="section">
@@ -383,6 +395,13 @@ function makeTank(opts){
   }
   return tank;
 }
+
+// ---------- world scale ----------
+// A tank's maxSpeed (config value) is treated as px/s on screen. Real tanks top out ~60-70 km/h,
+// so map the stored number to a display km/h and slow on-screen motion so 120 → 60 feels concrete.
+const SPEED_KMH_FACTOR = 0.5;   // maxSpeed value → real km/h (120 → 60)
+const SPEED_PX_FACTOR  = 0.55;  // maxSpeed value → screen px/s (120 → ~66 px/s)
+function tankKmh(t){ return Math.round((t.stats?.maxSpeed ?? t.maxSpeed) * SPEED_KMH_FACTOR); }
 
 function applyTankConfig(tank, spec){
   if (!spec) return;
@@ -941,8 +960,9 @@ function reflectDir(dx,dy,nx,ny){
 }
 
 // Resolve ONE physical impact against `hit` (already chosen edge). When allowBounce is true and the
-// angle is too steep, the shell ricochets: it continues along the reflected ray, may strike the tank
-// a second time and STILL deal damage, but that second hit cannot bounce again (allowBounce=false).
+// angle is too steep, the shell ricochets: it bounces off the surface like light, leaving a short
+// fading tracer along the reflected ray that disappears after a short distance — NO secondary hit,
+// NO secondary damage. The ricochet is purely visual after the bounce point.
 function resolveImpact(ox,oy,dx,dy, shooter, target, hit, allowBounce){
   const cosT = Math.abs(dx*hit.nx + dy*hit.ny);
   const theta = Math.acos(Math.min(1,Math.max(-1,cosT)));
@@ -954,28 +974,20 @@ function resolveImpact(ox,oy,dx,dy, shooter, target, hit, allowBounce){
   const hitPoint = { x:hit.x, y:hit.y };
   const seg = [{ x1:ox, y1:oy, x2:hit.x, y2:hit.y }];
 
-  // ---- ricochet: reflect and re-resolve exactly once ----
+  // ---- ricochet: reflect off the surface; the shell then flies a SHORT reflected tracer that
+  // fades out. No re-resolution, no second impact, no damage after the bounce.
   if(allowBounce && theta > BOUNCE_ANGLE){
     const r = reflectDir(dx,dy,hit.nx,hit.ny);
-    const ex = hit.x + r.x*0.5, ey = hit.y + r.y*0.5; // start slightly beyond the bounce point
-    const further = raycastTank(ex,ey, r.x,r.y, target);
-    let sub = null;
-    if(further){
-      further.sort((a,b) => a.t - b.t);
-      sub = resolveImpact(ex,ey, r.x,r.y, shooter, target, further[0], false);
-    }
-    const head = `${hit.part==='turret'?superstructureLabel(target):'车体'} ${faceLabel(hit.faceKey)} 入射角 ${(theta*180/Math.PI).toFixed(0)}° 超过跳弹角，炮弹被弹飞`;
-    const text = sub
-      ? `跳弹！${head} ⇒ ${sub.text}`
-      : `跳弹！${head}，弹离后未再命中`;
+    const ex = hit.x + r.x*1.5, ey = hit.y + r.y*1.5; // start just beyond the bounce point
+    const bounceLen = 90; // short reflected flight, then the tracer fades away
+    const bx = ex + r.x*bounceLen, by = ey + r.y*bounceLen;
+    const head = `${hit.part==='turret'?superstructureLabel(target):'车体'} ${faceLabel(hit.faceKey)} 入射角 ${(theta*180/Math.PI).toFixed(0)}° 超过跳弹角，炮弹被装甲弹飞`;
     return {
-      outcome: sub ? sub.outcome : 'BOUNCE',
-      cls: sub ? sub.cls : 'BOUNCE',
-      text,
-      part: sub ? sub.part : hit.part,
-      faceKey: sub ? sub.faceKey : hit.faceKey,
-      hitPoint: sub ? sub.hitPoint : hitPoint,
-      segments: seg.concat(sub ? sub.segments : []),
+      outcome: 'BOUNCE', cls: 'BOUNCE',
+      text: `跳弹！${head} — 炮弹沿反射方向飞离，未造成穿透`,
+      part: hit.part, faceKey: hit.faceKey,
+      hitPoint,
+      segments: seg.concat([{ x1:ex, y1:ey, x2:bx, y2:by }]),
       bouncePoint: hitPoint,
       bounced: true
     };
@@ -983,10 +995,9 @@ function resolveImpact(ox,oy,dx,dy, shooter, target, hit, allowBounce){
 
   let outcome, text, cls;
   if(theta > BOUNCE_ANGLE){
-    // Second impact of a ricocheted shell: it must NOT bounce again — treat the steep angle as
-    // a normal armor attempt (equivalent to an enormous effective thickness, i.e. a block).
+    // AllowBounce=false callers with an ultra-steep angle: treat as a block (no bounce allowed).
     outcome='BLOCK'; cls='BLOCK';
-    text = `未击穿 — 反弹弹二次命中 ${faceLabel(hit.faceKey)}，入射角 ${(theta*180/Math.PI).toFixed(0)}° 过陡`;
+    text = `未击穿 — 命中 ${faceLabel(hit.faceKey)}，入射角 ${(theta*180/Math.PI).toFixed(0)}° 过陡`;
   } else {
     const eff = thickness/Math.cos(theta);
     if(eff > shooter.stats.penetration){
@@ -1063,27 +1074,48 @@ dummy.reviveT = 0;          // countdown to auto-revive
 // 从 tank_list.json 加载坦克配置数据
 let tankListData = null;
 function populateTankSelect(){
-  const sel = document.getElementById('playerTankSelect');
-  sel.innerHTML = '';
-  if(!tankListData){ sel.innerHTML = '<option>加载失败</option>'; return; }
-  const keys = Object.keys(tankListData);
-  keys.forEach(k=>{
-    const opt = document.createElement('option');
-    opt.value = k;
-    opt.textContent = `${k}${tankListData[k].hasTurret===false ? ' (无炮塔)' : ''}`;
-    sel.appendChild(opt);
-  });
-  if(keys.length){ sel.value = 'T-90M1' in tankListData ? 'T-90M1' : keys[0]; }
+  for(const selId of ['playerTankSelect','dummyTankSelect']){
+    const sel = document.getElementById(selId);
+    sel.innerHTML = '';
+    if(!tankListData){ sel.innerHTML = '<option>加载失败</option>'; continue; }
+    const keys = Object.keys(tankListData);
+    keys.forEach(k=>{
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = `${k}${tankListData[k].hasTurret===false ? ' (无炮塔)' : ''}`;
+      sel.appendChild(opt);
+    });
+    if(keys.length){
+      if(selId==='playerTankSelect') sel.value = 'T-90M1' in tankListData ? 'T-90M1' : keys[0];
+      else sel.value = 'dummy' in tankListData ? 'dummy' : keys[0];
+    }
+  }
+}
+function applyTankFromList(tank, id){
+  const spec = tankListData && tankListData[id];
+  if(!spec){ return false; }
+  applyTankConfig(tank, spec);
+  resetEntity(tank);
+  return true;
 }
 function applyPlayerTank(id){
-  const spec = tankListData && tankListData[id];
-  if(!spec){ pushLog(`坦克配置不存在: ${id}`, 'COVER'); return; }
-  applyTankConfig(player, spec);
-  resetEntity(player);
-  pushLog(`玩家已切换为坦克 ${id} — 穿深 ${player.stats.penetration} / 伤害 ${player.stats.damage} / 装甲已同步`, 'PEN');
-  // re-sync the turret lock toggle visual with the new tank's turret flag
-  const tt = document.getElementById('toggleTurretBtn');
-  tt.classList.toggle('active', !player.hasTurret);
+  if(applyTankFromList(player, id)){
+    pushLog(`玩家已切换为坦克 ${id} — 穿深 ${player.stats.penetration} / 伤害 ${player.stats.damage} / 装甲已同步`, 'PEN');
+    // re-sync the turret lock toggle visual with the new tank's turret flag
+    const tt = document.getElementById('toggleTurretBtn');
+    tt.classList.toggle('active', !player.hasTurret);
+  } else {
+    pushLog(`坦克配置不存在: ${id}`, 'COVER');
+  }
+}
+function applyDummyTank(id){
+  if(applyTankFromList(dummy, id)){
+    pushLog(`靶车已切换为坦克 ${id}`, 'PEN');
+    document.getElementById('dummyHpInput').value = dummy.maxHp;
+    document.getElementById('eHeightClass').textContent = dummy.heightClass==='heavy' ? '重坦(高车体)' : '中坦(矮车体)';
+  } else {
+    pushLog(`坦克配置不存在: ${id}`, 'COVER');
+  }
 }
 function loadTankList(){
   fetch('tank_list.json')
@@ -1091,14 +1123,12 @@ function loadTankList(){
     .then(data => {
       tankListData = data;
       populateTankSelect();
-      const pSel = document.getElementById('playerTankSelect');
-      if (data["T-90M1"]) {
-        applyPlayerTank(pSel.value);
-      }
-      if (data["dummy"]) {
-        applyTankConfig(dummy, data["dummy"]);
-        document.getElementById('dummyHpInput').value = dummy.maxHp;
-        document.getElementById('eHeightClass').textContent = dummy.heightClass==='heavy' ? '重坦(高车体)' : '中坦(矮车体)';
+      // Only auto-apply on FIRST load so both tanks show their real model/armor;
+      // reloading afterwards must not clobber a user's custom config.
+      if(!player._tankLoaded){
+        if (data["T-90M1"]) applyPlayerTank('T-90M1');
+        if (data["dummy"]) applyDummyTank('dummy');
+        player._tankLoaded = true;
       }
     })
     .catch(err => { console.error('加载 tank_list.json 失败:', err); populateTankSelect(); });
@@ -1106,9 +1136,28 @@ function loadTankList(){
 document.getElementById('applyPlayerTankBtn').addEventListener('click', ()=>{
   applyPlayerTank(document.getElementById('playerTankSelect').value);
 });
+document.getElementById('applyDummyTankBtn').addEventListener('click', ()=>{
+  applyDummyTank(document.getElementById('dummyTankSelect').value);
+});
 document.getElementById('reloadTankListBtn').addEventListener('click', ()=>{
   loadTankList();
   pushLog('已重新加载 tank_list.json','COVER');
+});
+document.getElementById('rangeBtn').addEventListener('click', ()=>{
+  rangeOn = !rangeOn;
+  const b = document.getElementById('rangeBtn');
+  b.textContent = rangeOn ? '关闭靶场 RANGE' : '开启靶场 RANGE';
+  b.classList.toggle('active', rangeOn);
+  if(!rangeOn){ rangeShots.length = 0; }
+  renderRangeStats();
+  pushLog(rangeOn ? '靶场已开启 — 射击记录落点散布' : '靶场已关闭','COVER');
+});
+document.getElementById('spreadBtn').addEventListener('click', ()=>{
+  spreadOn = !spreadOn;
+  const b = document.getElementById('spreadBtn');
+  b.textContent = spreadOn ? '散布: 开' : '散布: 关(绝对精准)';
+  b.classList.toggle('active', spreadOn);
+  pushLog(`散布已${spreadOn?'开启':'关闭（绝对精准）'}`,'COVER');
 });
 loadTankList();
 
@@ -1207,6 +1256,34 @@ let tracers = [];
 let impacts = [];
 let bounceFx = []; // ricochet spark visuals
 
+// ---------- test range ----------
+let rangeOn = false;        // draw distance markers + show shot stats near the fixed target
+let spreadOn = true;        // false = absolute precision (sigma clamped to 0)
+const RANGE_SPACING = 100;  // px between distance markers
+const rangeShots = [];      // { distAim, x, y } deviation of each landing from the aim point
+const RANGE_MAX_SHOTS = 200;
+function addRangeShot(landX, landY, aimX, aimY){
+  const dist = Math.hypot(landX-aimX, landY-aimY);
+  rangeShots.push({ x:landX, y:landY, aimX, aimY, dist });
+  if(rangeShots.length > RANGE_MAX_SHOTS) rangeShots.shift();
+  renderRangeStats();
+}
+function renderRangeStats(){
+  const el = document.getElementById('rangeStats');
+  if(!el) return;
+  if(!rangeOn){ el.textContent = '靶场未开启 — 关闭散布即绝对精准'; return; }
+  if(rangeShots.length===0){ el.textContent = '靶场开启 — 开火记录落点散布'; return; }
+  const dists = rangeShots.map(s=>s.dist);
+  const avg = dists.reduce((a,b)=>a+b,0)/dists.length;
+  const mean = [...dists].sort((a,b)=>a-b)[Math.floor(dists.length/2)];
+  const max = Math.max(...dists);
+  const min = Math.min(...dists);
+  el.innerHTML =
+    `<div>射击次数: <b style="color:var(--amber)">${rangeShots.length}</b></div>`+
+    `<div>平均偏差: <b style="color:var(--amber)">${avg.toFixed(1)}</b> px</div>`+
+    `<div>中位偏差: ${mean.toFixed(1)} px　最差: ${max.toFixed(1)} px　最优: ${min.toFixed(1)} px</div>`;
+}
+
 function tryFire(){
   if(player.reloadT>0 || player.immobT>0) return;
   const target = nearestEnemyTo(player);
@@ -1215,29 +1292,45 @@ function tryFire(){
   const gr = gunRoot(player);
   const ox = gr.x, oy = gr.y;
 
-  // the shell flies along a spread-affected ray; the live bloom sigma decides how far it wobbles
-  const sigma = player.sigma;
+  // the shell flies along a spread-affected ray; the live bloom sigma decides how far it wobbles.
+  // With spread off the sigma is forced to 0 → absolutely precise landing.
+  const sigma = spreadOn ? player.sigma : 0;
   const spreadAngle = player.turretAngle + gaussian(sigma);
   const dx = Math.cos(spreadAngle), dy = Math.sin(spreadAngle);
+
+  // In range mode, before the armor/cover resolve, also record where this shot crosses the
+  // vertical plane passing through the target's position — that is the "landing point".
+  if(rangeOn){
+    const planeX = target.x;
+    const tCross = (planeX - ox) / (Math.cos(spreadAngle) || 1e-6);
+    const landX = ox + Math.cos(spreadAngle)*tCross;
+    const landY = oy + Math.sin(spreadAngle)*tCross;
+    const aimX = ox + Math.cos(player.turretAngle)*tCross;
+    const aimY = oy + Math.sin(player.turretAngle)*tCross;
+    addRangeShot(landX, landY, aimX, aimY);
+  }
 
   // Check for solid walls first
   const aimFarX = ox + dx * 1200;
   const aimFarY = oy + dy * 1200;
   const solidBlock = isBlockedBySolidCover(ox, oy, aimFarX, aimFarY);
 
-  const res = resolveShot(ox,oy,dx,dy, player, target, solidBlock);
-  // draw every flight segment (a ricochet produces a reflected segment as well)
-  (res.segments || [{x1:ox,y1:oy,x2:ox+dx*1200,y2:oy+dy*1200}]).forEach(s=>{
-    tracers.push({x1:s.x1,y1:s.y1, x2:s.x2, y2:s.y2, life:0.18});
-  });
-  if(res.hitPoint){
-    const color = res.outcome==='PEN' ? '#ff5c4d' : (res.bounced ? '#5cc8ff' : res.outcome==='COVER' ? '#ffb454' : '#7a8065');
-    impacts.push({x:res.hitPoint.x, y:res.hitPoint.y, life:0.4, color});
-  }
-  // ricochet gets a distinct spark + flash at the bounce point
-  if(res.bounced && res.bouncePoint){
-    bounceFx.push({x:res.bouncePoint.x, y:res.bouncePoint.y, life:0.6});
-  }
+   const res = resolveShot(ox,oy,dx,dy, player, target, solidBlock);
+   // draw every flight segment (a ricochet produces a reflected segment as well)
+   const segs = res.segments || [{x1:ox,y1:oy,x2:ox+dx*1200,y2:oy+dy*1200}];
+   segs.forEach((s,i)=>{
+     // the LAST segment in a ricochet is the reflected shell path
+     const isRicochet = res.bounced && (i === segs.length-1);
+     tracers.push({x1:s.x1,y1:s.y1, x2:s.x2, y2:s.y2, life: isRicochet ? 0.35 : 0.18, ricochet: isRicochet});
+   });
+   if(res.hitPoint){
+     const color = res.outcome==='PEN' ? '#ff5c4d' : (res.bounced ? '#5cc8ff' : res.outcome==='COVER' ? '#ffb454' : '#7a8065');
+     impacts.push({x:res.hitPoint.x, y:res.hitPoint.y, life:0.4, color});
+   }
+   // ricochet gets a distinct spark + flash at the bounce point
+   if(res.bounced && res.bouncePoint){
+     bounceFx.push({x:res.bouncePoint.x, y:res.bouncePoint.y, life:0.5, angle: segs.length>=2 ? Math.atan2(segs[segs.length-1].y2-segs[segs.length-1].y1, segs[segs.length-1].x2-segs[segs.length-1].x1) : 0});
+   }
   if(res.bounced && res.outcome==='BOUNCE'){
     pushLog(res.text, 'BOUNCE');
   } else {
@@ -1321,8 +1414,9 @@ function update(dt){
     if(keys["d"]) player.hullAngle += player.stats.turnRate*dt*turnModifier;
     let mv=0;
     if(keys["w"]) mv=1; else if(keys["s"]) mv=-1;
-    player.x += Math.cos(player.hullAngle)*mv*player.stats.maxSpeed*dt*speedModifier;
-    player.y += Math.sin(player.hullAngle)*mv*player.stats.maxSpeed*dt*speedModifier;
+    const pSpeed = player.stats.maxSpeed * SPEED_PX_FACTOR;
+    player.x += Math.cos(player.hullAngle)*mv*pSpeed*dt*speedModifier;
+    player.y += Math.sin(player.hullAngle)*mv*pSpeed*dt*speedModifier;
     // Full-cover collision resolution: push tank out of any solid cover it overlaps
     resolveFullCoverCollisions(player);
     advanceTracks(player, player.x-p0x, player.y-p0y, norm(player.hullAngle-p0a));
@@ -1364,8 +1458,8 @@ function update(dt){
     if(keys['arrowright']) dummy.hullAngle += 1.6*dt*dTurnMod;
     let mv=0;
     if(keys['arrowup']) mv=1; else if(keys['arrowdown']) mv=-1;
-    dummy.x += Math.cos(dummy.hullAngle)*mv*90*dt*dSpeedMod;
-    dummy.y += Math.sin(dummy.hullAngle)*mv*90*dt*dSpeedMod;
+    dummy.x += Math.cos(dummy.hullAngle)*mv*90*SPEED_PX_FACTOR*dt*dSpeedMod;
+    dummy.y += Math.sin(dummy.hullAngle)*mv*90*SPEED_PX_FACTOR*dt*dSpeedMod;
     resolveFullCoverCollisions(dummy);
     advanceTracks(dummy, dummy.x-d0x, dummy.y-d0y, norm(dummy.hullAngle-d0a));
   }
@@ -1401,6 +1495,7 @@ function update(dt){
 function updateHud(){
   document.getElementById('pHpBar').style.width = (player.hp/player.stats.maxHp*100)+'%';
   document.getElementById('pHpVal').textContent = player.hp.toFixed(0);
+  document.getElementById('pSpeedVal').textContent = tankKmh(player)+' km/h';
   document.getElementById('eHpBar').style.width = (dummy.hp/dummy.maxHp*100)+'%';
   document.getElementById('eHpVal').textContent = dummy.hp.toFixed(0);
   document.getElementById('eStatus').textContent =
@@ -1473,10 +1568,13 @@ function drawTank(t){
   ctx.setLineDash([]);
   ctx.restore();
 
-  const structureAngle = superstructureAngle(t);
-  const tPoly = turretPoly(t);
-  const tc = polyCorners(turCx,turCy,structureAngle, tPoly);
-  renderTurretTexture(turCx, turCy, structureAngle, t);
+   // turret shadow projected onto the hull deck (offset up-left to simulate overhead light)
+   paintTurretShadow(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1, -3, -2);
+
+   const structureAngle = superstructureAngle(t);
+   const tPoly = turretPoly(t);
+   const tc = polyCorners(turCx,turCy,structureAngle, tPoly);
+   renderTurretTexture(turCx, turCy, structureAngle, t);
   ctx.beginPath();
   ctx.moveTo(tc[0].x,tc[0].y);
   for(let i=1;i<tc.length;i++) ctx.lineTo(tc[i].x,tc[i].y);
@@ -1499,11 +1597,28 @@ function drawTank(t){
     ctx.setLineDash([]);
   }
 
-  ctx.strokeStyle = t.color; ctx.lineWidth=3;
-  ctx.beginPath();
-  ctx.moveTo(turCx,turCy);
-  ctx.lineTo(turCx+Math.cos(t.turretAngle)*(t.turLen*0.9), turCy+Math.sin(t.turretAngle)*(t.turLen*0.9));
-  ctx.stroke();
+   // Barrel: clip to outside the turret polygon so the root inside the turret is not visible.
+   // Find where the barrel ray exits the turret polygon, then draw from there to the muzzle.
+   const barrelRayDx = Math.cos(t.turretAngle), barrelRayDy = Math.sin(t.turretAngle);
+   const tPolyEdges = polyEdges(tc, tPoly);
+   let barrelStartT = 0;
+   for(const e of tPolyEdges){
+     // ray from turret center (0,0 in local) along barrel dir; edge endpoints in world
+     const ax = e.a.x - turCx, ay = e.a.y - turCy;
+     const bx = e.b.x - turCx, by = e.b.y - turCy;
+     const ex = bx-ax, ey = by-ay;
+     const denom = barrelRayDx*ey - barrelRayDy*ex;
+     if(Math.abs(denom) < 1e-9) continue;
+     const s = (ax*ey - ay*ex) / denom;
+     if(s > barrelStartT) barrelStartT = s;
+   }
+   barrelStartT = Math.max(0, barrelStartT - 1); // start just outside the edge
+   const barrelEnd = t.turLen*0.9;
+   ctx.strokeStyle = t.color; ctx.lineWidth=3;
+   ctx.beginPath();
+   ctx.moveTo(turCx + barrelRayDx*barrelStartT, turCy + barrelRayDy*barrelStartT);
+   ctx.lineTo(turCx + barrelRayDx*barrelEnd, turCy + barrelRayDy*barrelEnd);
+   ctx.stroke();
 
   // ---- draw attachments ----
   t.attachments.forEach(att => {
@@ -1540,6 +1655,36 @@ function drawTank(t){
   ctx.fillText(t.heightClass==='heavy' ? '重坦' : '中坦', t.x-10, t.y+t.hullWid/2+16);
 }
 
+function drawRange(){
+  const startX = gunRoot(player).x;
+  const planeX = dummy.x; // target plane (vertical line through the fixed dummy target)
+  ctx.save();
+  // distance markers (range stakes) along the firing lane from the tank toward the target plane
+  ctx.strokeStyle = 'rgba(92,200,255,0.4)'; ctx.fillStyle = 'rgba(92,200,255,0.7)';
+  ctx.font = '10px "JetBrains Mono", monospace'; ctx.lineWidth = 1;
+  for(let x=startX; x<=planeX; x+=RANGE_SPACING){
+    ctx.setLineDash([3,5]);
+    ctx.beginPath(); ctx.moveTo(x, dummy.y-60); ctx.lineTo(x, dummy.y+60); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText((x-startX).toFixed(0)+'px', x-20, dummy.y-66);
+  }
+  // target plane guide
+  ctx.setLineDash([2,6]);
+  ctx.strokeStyle = 'rgba(92,200,255,0.55)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(planeX, dummy.y-90); ctx.lineTo(planeX, dummy.y+90); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // recorded landing points (each shot's cross on the target plane) vs its aim point
+  rangeShots.forEach(s=>{
+    ctx.fillStyle = 'rgba(255,180,84,0.9)';
+    ctx.beginPath(); ctx.arc(s.x, s.y, 3, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,180,84,0.6)';
+    ctx.beginPath(); ctx.moveTo(s.aimX, s.aimY-5); ctx.lineTo(s.aimX, s.aimY+5);
+    ctx.moveTo(s.aimX-5, s.aimY); ctx.lineTo(s.aimX+5, s.aimY); ctx.stroke();
+  });
+  ctx.restore();
+}
+
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.strokeStyle = 'rgba(255,255,255,0.035)'; ctx.lineWidth=1;
@@ -1547,31 +1692,60 @@ function draw(){
   for(let y=0;y<canvas.height;y+=40){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
 
   covers.forEach(drawCover);
+  if(rangeOn) drawRange();
   entities.forEach(drawTank);
 
-  tracers.forEach(t=>{
-    ctx.strokeStyle = `rgba(255,180,84,${Math.max(0,t.life/0.18)})`;
-    ctx.lineWidth=2;
-    ctx.beginPath(); ctx.moveTo(t.x1,t.y1); ctx.lineTo(t.x2,t.y2); ctx.stroke();
-  });
+   tracers.forEach(t=>{
+     const alpha = Math.max(0, t.life/(t.ricochet?0.35:0.18));
+     if(t.ricochet){
+       // Reflection-style gradient: opaque at the bounce origin, fading to transparent at the tip.
+       // Drawn as a single tapered stroke using a linear gradient + a glow pass.
+       const grad = ctx.createLinearGradient(t.x1,t.y1, t.x2,t.y2);
+       grad.addColorStop(0, `rgba(140,210,255,${0.9*alpha})`);
+       grad.addColorStop(0.4, `rgba(100,180,240,${0.5*alpha})`);
+       grad.addColorStop(1, `rgba(80,160,220,0)`);
+       // glow pass
+       ctx.strokeStyle = `rgba(120,200,255,${0.25*alpha})`; ctx.lineWidth=6;
+       ctx.beginPath(); ctx.moveTo(t.x1,t.y1); ctx.lineTo(t.x2,t.y2); ctx.stroke();
+       // core gradient line
+       ctx.strokeStyle = grad; ctx.lineWidth=3;
+       ctx.beginPath(); ctx.moveTo(t.x1,t.y1); ctx.lineTo(t.x2,t.y2); ctx.stroke();
+       // bright leading dot at the bounce origin
+       ctx.fillStyle = `rgba(180,230,255,${alpha})`;
+       ctx.beginPath(); ctx.arc(t.x1,t.y1,3,0,TAU); ctx.fill();
+     } else {
+       ctx.strokeStyle = `rgba(255,180,84,${alpha})`;
+       ctx.lineWidth=2;
+       ctx.beginPath(); ctx.moveTo(t.x1,t.y1); ctx.lineTo(t.x2,t.y2); ctx.stroke();
+     }
+   });
   impacts.forEach(im=>{
     const r = (0.4-im.life)*40;
     ctx.strokeStyle = im.color; ctx.globalAlpha = Math.max(0,im.life/0.4);
     ctx.beginPath(); ctx.arc(im.x,im.y,r,0,TAU); ctx.stroke();
     ctx.globalAlpha=1;
   });
-  // ricochet spark: concentric expanding blue rings + small cross flash
-  bounceFx.forEach(fx=>{
-    const p = 1 - Math.max(0, fx.life/0.6);
-    ctx.globalAlpha = Math.max(0, fx.life/0.6);
-    ctx.strokeStyle = '#5cc8ff'; ctx.lineWidth = 2;
-    for(let k=1;k<=3;k++){
-      ctx.beginPath(); ctx.arc(fx.x, fx.y, 4 + p*26 + k*2, 0, TAU); ctx.stroke();
-    }
-    ctx.fillStyle = '#5cc8ff';
-    ctx.fillRect(fx.x-3, fx.y-3, 6, 6);
-    ctx.globalAlpha = 1;
-  });
+   // ricochet spark: concentric expanding blue rings + directional flash along reflection angle
+   bounceFx.forEach(fx=>{
+     const p = 1 - Math.max(0, fx.life/0.5);
+     ctx.globalAlpha = Math.max(0, fx.life/0.5);
+     ctx.strokeStyle = '#5cc8ff'; ctx.lineWidth = 2;
+     for(let k=1;k<=3;k++){
+       ctx.beginPath(); ctx.arc(fx.x, fx.y, 4 + p*22 + k*2, 0, TAU); ctx.stroke();
+     }
+     // directional streak along the reflection direction (fading quickly)
+     const streakLen = 12 + p*30;
+     const grad = ctx.createLinearGradient(fx.x, fx.y, fx.x+Math.cos(fx.angle)*streakLen, fx.y+Math.sin(fx.angle)*streakLen);
+     grad.addColorStop(0, `rgba(140,210,255,${0.8*fx.life/0.5})`);
+     grad.addColorStop(1, 'rgba(80,160,220,0)');
+     ctx.strokeStyle = grad; ctx.lineWidth = 2.5;
+     ctx.beginPath(); ctx.moveTo(fx.x, fx.y);
+     ctx.lineTo(fx.x+Math.cos(fx.angle)*streakLen, fx.y+Math.sin(fx.angle)*streakLen);
+     ctx.stroke();
+     ctx.fillStyle = '#5cc8ff';
+     ctx.fillRect(fx.x-3, fx.y-3, 6, 6);
+     ctx.globalAlpha = 1;
+   });
 
   // ---- aim line + dispersion cones ----
   const gr = gunRoot(player);
