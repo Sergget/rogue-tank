@@ -52,11 +52,14 @@ function paintClipLocal(ctx, verts){
 //   scale  : 1 in mvp, viewScale in designer
 //   color  : base color (t.color or designer's neutral paint)
 //   phase  : scrolling offset (t.trackPhase or a time-driven value)
-function paintTracks(ctx, verts, cx, cy, angle, scale, color, phase){
+function paintTracks(ctx, verts, cx, cy, angle, scale, color, phase, opts){
+  opts = opts || {};
   const { minX, maxX, minY, maxY } = paintBounds(verts);
-  const L = (maxX-minX)/2, W = (maxY-minY)/2, tw = 7/scale;
+  const L = (maxX-minX)/2, W = (maxY-minY)/2;
+  const tw = (opts.trackWidth || 7) / scale;
+  const offsetExtra = (opts.trackOffset || 0) / scale;
   const cxm = (minX+maxX)/2, cym = (minY+maxY)/2;
-  const yTop = cym - W - tw/2, yBot = cym + W + tw/2;
+  const yTop = cym - W - tw/2 - offsetExtra, yBot = cym + W + tw/2 + offsetExtra;
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(angle||0);
@@ -91,15 +94,18 @@ function paintTurretShadow(ctx, verts, cx, cy, angle, scale, ox, oy){
   ctx.rotate(angle||0);
   ctx.scale(scale, scale);
   ctx.translate(ox, oy);
-  const rx = W*0.78, ry = W*0.62;
+  const rx = W*1.0, ry = W*0.8;
   const grad = ctx.createRadialGradient(0,0,0, 0,0,rx);
-  grad.addColorStop(0, 'rgba(0,0,0,0.42)');
-  grad.addColorStop(0.6, 'rgba(0,0,0,0.28)');
+  grad.addColorStop(0, 'rgba(0,0,0,0.5)');
+  grad.addColorStop(0.55, 'rgba(0,0,0,0.34)');
   grad.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2);
   ctx.fill();
+  // faint hard footprint so the shadow reads as a cast, not just a dark blob under the turret
+  ctx.strokeStyle='rgba(0,0,0,0.12)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.ellipse(0,0,W*0.92,W*0.74,0,0,Math.PI*2); ctx.stroke();
   ctx.restore();
 }
 
@@ -146,12 +152,27 @@ function paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts){
         ctx.beginPath(); ctx.moveTo(fx, cym - W*0.5); ctx.lineTo(fx + L*0.12, cym); ctx.lineTo(fx, cym + W*0.5); ctx.stroke();
       }
     } else {
-      // mantlet bar across the front cheeks
-      ctx.strokeStyle = paintShade(color, 12); ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(maxX - L*0.35, cym - W*0.72); ctx.lineTo(maxX - L*0.35, cym + W*0.72); ctx.stroke();
-      // commander hatch (rear-left) + gunner sight (front-right)
+      // commander cupola(s) — class icon on the turret/fighting room RIGHT side:
+      //   turretless (fixed casemate) or heavy tank → 2 cupolas in a row (并列);
+      //   medium tank → 1 cupola. Positioned on the right side (local +y).
+      const cupolas = (opts.heightClass === 'heavy' || opts.hasTurret === false) ? 2 : 1;
+      const cupCy = cym + W*0.44;
       ctx.fillStyle = paintShade(color, -28);
-      ctx.beginPath(); ctx.arc(minX + (maxX-minX)*0.3, cym - W*0.4, W*0.16, 0, Math.PI*2); ctx.fill();
+      if(cupolas === 1){
+        ctx.beginPath(); ctx.arc(cxm - L*0.08, cupCy, W*0.15, 0, Math.PI*2); ctx.fill();
+      } else {
+        ctx.beginPath(); ctx.arc(cxm - L*0.30, cupCy, W*0.14, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cxm + L*0.18, cupCy, W*0.14, 0, Math.PI*2); ctx.fill();
+      }
+      // cupola rim(s)
+      ctx.strokeStyle = paintShade(color, 18); ctx.lineWidth = 1;
+      if(cupolas === 1){
+        ctx.beginPath(); ctx.arc(cxm - L*0.08, cupCy, W*0.15 + 1.5, 0, Math.PI*2); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.arc(cxm - L*0.30, cupCy, W*0.14 + 1.5, 0, Math.PI*2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(cxm + L*0.18, cupCy, W*0.14 + 1.5, 0, Math.PI*2); ctx.stroke();
+      }
+      // gunner sight (front-right)
       ctx.strokeStyle = paintShade(color, 18); ctx.lineWidth = 1.5;
       ctx.strokeRect(maxX - (maxX-minX)*0.45, cym + W*0.08, W*0.5, W*0.18);
     }

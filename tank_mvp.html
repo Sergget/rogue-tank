@@ -36,6 +36,30 @@
       radial-gradient(ellipse at 30% 20%, rgba(126,217,87,0.04), transparent 60%),
       var(--bg);
   }
+  #leftPane{
+    position:absolute; top:12px; left:12px; width:300px; z-index:10;
+    display:flex; flex-direction:column; gap:8px; pointer-events:none;
+  }
+  #solutionPanel{
+    background:rgba(18,20,15,0.85); border:1px solid var(--line);
+    padding:8px 10px;
+  }
+  #solutionPanel .sp-title{
+    font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:2px;
+    color:var(--amber-dim); text-transform:uppercase; margin-bottom:6px;
+  }
+  #logOverlay{
+    background:rgba(18,20,15,0.75); border:1px solid var(--line);
+    padding:8px 10px; width:100%; max-height:200px;
+    font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.5;
+    display:flex; flex-direction:column-reverse; overflow:hidden;
+  }
+  #logOverlay div{border-bottom:1px dotted #2a2d20; padding:2px 0; opacity:.9;}
+  #logOverlay .PEN{color:var(--green);}
+  #logOverlay .BOUNCE{color:var(--blue);}
+  #logOverlay .BLOCK{color:var(--text-dim);}
+  #logOverlay .COVER{color:var(--amber);}
+  #logOverlay .CRIT{color:var(--red); font-weight:700;}
   canvas{display:block; width:100%; height:100%;}
   #hud{
     background:var(--panel);
@@ -111,6 +135,24 @@
 <body>
 <div id="app">
   <div id="stage-wrap">
+    <div id="leftPane">
+      <div id="solutionPanel">
+        <div class="sp-title">实时弹道预测 <b>FIRING SOLUTION</b></div>
+        <div id="solution">
+          <div class="row"><span class="k">命中部位</span><span class="v" id="solPart">--</span></div>
+          <div class="row"><span class="k">入射角 θ</span><span class="v" id="solAngle">--</span></div>
+          <div class="row"><span class="k">名义厚度</span><span class="v" id="solThick">--</span></div>
+          <div class="row"><span class="k">等效厚度</span><span class="v" id="solEff">--</span></div>
+          <div class="row"><span class="k">掩体状态</span><span class="v" id="solCover">无遮挡</span></div>
+          <div class="row"><span class="k">判定</span><span class="v" id="solResult">--</span></div>
+        </div>
+        <div class="legend">
+          <div><span class="sw" style="background:rgba(166,138,60,0.55); border-color:#a68a3c;"></span>半高掩体 — 中坦车体近乎全藏，重坦仍半露</div>
+          <div><span class="sw" style="background:rgba(106,106,106,0.65); border-color:#6a6a6a;"></span>全高掩体 — 完全遮蔽</div>
+        </div>
+      </div>
+      <div id="logOverlay"></div>
+    </div>
     <canvas id="c"></canvas>
     <div id="reloadWrap">
       装填 RELOAD
@@ -123,7 +165,6 @@
     <div class="section">
       <h3>架构扩展 Test Extension</h3>
       <div class="btnrow">
-        <button id="toggleTurretBtn">切换无炮塔模式</button>
         <button id="addShieldBtn">添加护盾附件</button>
         <button id="addDroneBtn">添加无人机附件</button>
       </div>
@@ -139,12 +180,6 @@
         <button id="reloadTankListBtn">重新加载列表</button>
       </div>
       <div class="mono" id="tankSelectHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">从 tank_list.json 载入坦克配置并替换玩家 / 靶车（含炮管预设、多边形装甲）</div>
-    </div>
-
-    <div class="section">
-      <h3>玩家 Player</h3>
-      <div class="bar-row"><span class="bar-label">HULL HP</span><div class="bar-track"><div class="bar-fill" id="pHpBar" style="background:var(--green); width:100%"></div></div><span class="bar-val" id="pHpVal">100</span></div>
-      <div class="bar-row"><span class="bar-label">最高速度</span><span class="mono" id="pSpeedVal" style="font-size:11px; color:var(--amber);">--</span></div>
     </div>
 
     <div class="section">
@@ -168,43 +203,22 @@
         <button id="applyHpBtn" style="padding:4px 7px;">应用</button>
       </div>
       <div class="bar-row" style="align-items:center;">
-        <span class="bar-label">无敌</span>
-        <button id="invulnBtn" style="padding:4px 7px;">关闭 INVULN</button>
-        <span class="mono" id="invulnHint" style="font-size:10px; color:var(--text-dim);">开启后靶车不掉血</span>
-      </div>
-      <div class="bar-row" style="align-items:center;">
         <span class="bar-label">自动复活</span>
         <button id="autoReviveBtn" style="padding:4px 7px;">开启 AUTO-REVIVE</button>
         <span class="mono" id="autoReviveHint" style="font-size:10px; color:var(--text-dim);">摧毁后 1.5s 满血复活</span>
       </div>
     </div>
 
-    <div class="section">
-      <h3>实时弹道预测 Firing Solution</h3>
-      <div id="solution">
-        <div class="row"><span class="k">命中部位</span><span class="v" id="solPart">--</span></div>
-        <div class="row"><span class="k">入射角 θ</span><span class="v" id="solAngle">--</span></div>
-        <div class="row"><span class="k">名义厚度</span><span class="v" id="solThick">--</span></div>
-        <div class="row"><span class="k">等效厚度</span><span class="v" id="solEff">--</span></div>
-        <div class="row"><span class="k">掩体状态</span><span class="v" id="solCover">无遮挡</span></div>
-        <div class="row"><span class="k">判定</span><span class="v" id="solResult">--</span></div>
-      </div>
-      <div class="legend">
-        <div><span class="sw" style="background:rgba(166,138,60,0.55); border-color:#a68a3c;"></span>半高掩体 — 中坦车体近乎全藏，重坦仍半露</div>
-        <div><span class="sw" style="background:rgba(106,106,106,0.65); border-color:#6a6a6a;"></span>全高掩体 — 完全遮蔽</div>
-      </div>
-    </div>
-
-    <div class="section" style="flex:1; min-height:110px; display:flex; flex-direction:column;">
+    <div class="section" style="display:none;">
       <h3>命中日志 Hit Log</h3>
       <div id="log"></div>
     </div>
 
     <div class="section controls">
       <div><b>WASD</b> 移动 / 转向车体（W/S 前后，A/D 转向）</div>
-      <div><b>鼠标</b> 手动瞄准方位角（炮塔转动有转速限制）</div>
+      <div><b>鼠标</b> 手动瞄准方位角（炮塔转动有转速与射界限制，射界=车体中线±traverseLimit）</div>
       <div><b>左键 / 空格</b> 开火（有装填时间）</div>
-      <div><b>方向键</b> 手动移动测试靶 — 两块掩体就在默认射线上，把靶车开到掩体后面测试露头概率</div>
+      <div><b>方向键</b> 手动移动测试靶 — 掩体已移到默认射线上方；把靶车开到掩体后面测试露头概率</div>
     </div>
 
     <div class="btnrow">
@@ -213,7 +227,14 @@
   </div>
 </div>
 
-<script src="js/tank_paint.js"></script>
+<script src="js/tank_utils.js"></script>
+  <script src="js/tank_geometry.js"></script>
+  <script src="js/tank_model.js"></script>
+  <script src="js/tank_cover.js"></script>
+  <script src="js/tank_physics.js"></script>
+  <script src="js/tank_entity.js"></script>
+  <script src="js/tank_fx.js"></script>
+  <script src="js/tank_paint.js"></script>
 <script>
 (() => {
 const canvas = document.getElementById('c');
@@ -222,904 +243,8 @@ function resize(){ canvas.width = canvas.clientWidth; canvas.height = canvas.cli
 window.addEventListener('resize', resize);
 resize();
 
-// ---------- utils ----------
-const TAU = Math.PI*2;
-function norm(a){ a = a % TAU; if(a<0) a+=TAU; return a; }
-function angDiff(a,b){ let d = norm(a-b); if(d>Math.PI) d -= TAU; return d; }
-function gaussian(sigma){
-  let u=0,v=0;
-  while(u===0) u=Math.random();
-  while(v===0) v=Math.random();
-  return sigma * Math.sqrt(-2*Math.log(u)) * Math.cos(TAU*v);
-}
-function rotate(dx,dy,theta){
-  return { x: dx*Math.cos(theta) - dy*Math.sin(theta), y: dx*Math.sin(theta) + dy*Math.cos(theta) };
-}
-function segRayIntersect(ox,oy,dx,dy, ax,ay,bx,by){
-  // ray: O + t*D, t in R (unrestricted here, caller clamps as needed) ; segment A->B, s in [0,1]
-  const ex = bx-ax, ey = by-ay;
-  const denom = dx*ey - dy*ex;
-  if (Math.abs(denom) < 1e-9) return null;
-  const t = ((ax-ox)*ey - (ay-oy)*ex) / denom;
-  const s = ((ax-ox)*dy - (ay-oy)*dx) / denom;
-  if (s >= 0 && s <= 1) return {t, s};
-  return null;
-}
-
-// ---------- tank model ----------
-// ---------- three-layer attribute system (base / modifiers / stats) ----------
-// Combat code reads ONLY tank.stats. `tank.base` holds the untuned values; `tank.modifiers`
-// (buffs/debuffs from cards, shop, skills) layer on top. Modifiers apply adds first, then mults.
-function computeStats(base, modifiers){
-  const s = {
-    penetration: base.penetration,
-    damage: base.damage,
-    reload: base.reload,
-    maxSpeed: base.maxSpeed,
-    turnRate: base.turnRate,
-    turretTurnRate: base.turretTurnRate,
-    maxHp: base.maxHp,
-    armor: JSON.parse(JSON.stringify(base.armor))
-  };
-  // pass 1: adds, pass 2: mults (so mult scales the accumulated add result)
-  for(const pass of ['add','mult']){
-    for(const m of (modifiers||[])){
-      if(m.mode !== pass) continue;
-      if(m.stat.startsWith('armor')){
-        applyArmorMod(s.armor, m);
-      } else if(s[m.stat] !== undefined){
-        s[m.stat] = pass==='add' ? s[m.stat]+m.value : s[m.stat]*m.value;
-      }
-    }
-  }
-  return s;
-}
-// armor modifiers use paths like "armor.hull.front", "armor.hull", "armor.turret.side"
-function applyArmorMod(armor, m){
-  const parts = m.stat.split('.');
-  const group = armor[parts[1]];
-  if(!group) return;
-  if(parts[2]){
-    if(group[parts[2]] !== undefined){
-      group[parts[2]] = m.mode==='add' ? group[parts[2]]+m.value : group[parts[2]]*m.value;
-    }
-  } else {
-    for(const k in group){
-      group[k] = m.mode==='add' ? group[k]+m.value : group[k]*m.value;
-    }
-  }
-}
-function addModifier(tank, mod){
-  tank.modifiers.push({
-    stat: mod.stat, mode: mod.mode || 'add', value: mod.value,
-    source: mod.source || 'generic',
-    expiresAt: mod.expiresAt !== undefined ? mod.expiresAt : Infinity
-  });
-  refreshStats(tank);
-  return tank.stats;
-}
-function addTimedModifier(tank, mod, durationMs){
-  return addModifier(tank, Object.assign({}, mod, { expiresAt: Date.now()+durationMs }));
-}
-function removeModifierBySource(tank, source){
-  tank.modifiers = tank.modifiers.filter(m => m.source !== source);
-  refreshStats(tank);
-  return tank.stats;
-}
-function refreshStats(tank){
-  const now = Date.now();
-  if(tank.modifiers.some(m => m.expiresAt !== Infinity && m.expiresAt <= now)){
-    tank.modifiers = tank.modifiers.filter(m => m.expiresAt === Infinity || m.expiresAt > now);
-  }
-  tank.stats = computeStats(tank.base, tank.modifiers);
-  return tank.stats;
-}
-
-// Browser-console smoke test for the base/modifiers/stats system (no test framework).
-// Usage: debugStats()             -> shows current base + stats
-//        debugStats('+pen',30)    -> add-mult test: +30 pen, x1.5 dmg, +20 front armor, permanent
-//        debugStats('timed')      -> add a 1.5s-limited +50% reload modifier that self-expires
-//        debugStats('clear')      -> remove ALL modifiers, restoring pure base stats
-function debugStats(action, value){
-  const N = (v)=>parseFloat(value)||v;
-  if(action==='clear'){
-    player.modifiers = [];
-    refreshStats(player);
-  } else if(action==='timed'){
-    addModifier(player,{ stat:'reload', mode:'mult', value:1.5, source:'timedTest', expiresAt:Date.now()+1500 });
-  } else if(action==='+pen'){
-    addModifier(player,{ stat:'penetration', mode:'add', value:N(30), source:'debugPerm' });
-    addModifier(player,{ stat:'damage', mode:'mult', value:1.5, source:'debugPerm' });
-    addModifier(player,{ stat:'armor.hull.front', mode:'add', value:20, source:'debugPerm' });
-    addModifier(player,{ stat:'armor.turret', mode:'mult', value:1.2, source:'debugPerm' });
-  }
-  const out = {
-    base: JSON.parse(JSON.stringify(player.base)),
-    stats: JSON.parse(JSON.stringify(player.stats)),
-    modifiers: player.modifiers.map(m=>({stat:m.stat,mode:m.mode,value:m.value,source:m.source,expiresAt:m.expiresAt}))
-  };
-  console.table && console.table(out.stats);
-  pushLog(`[debugStats] ${action||'view'}: pen=${player.stats.penetration} dmg=${player.stats.damage} reload=${player.stats.reload}` +
-    ` armor.hull.front=${player.stats.armor.hull.front} armor.turret.front=${player.stats.armor.turret.front}`, 'COVER');
-  return out;
-}
-window.debugStats = debugStats;
-
-function makeTank(opts){
-  const tank = Object.assign({
-    id:null, team:'enemy', // 'player' | 'ally' | 'enemy' — drives targeting, HUD slot, and future AI
-    x:0,y:0,hullAngle:0,turretAngle:0,
-    hullLen:64, hullWid:38,
-    turLen:34, turWid:36,
-    speed:0,
-    hasTurret:true,
-    traverseLimit: 15 * Math.PI / 180, // 左右射界，仅对固定战斗室坦克的炮管有效
-    reloadT:0,
-    immobT:0, fireDebuffT:0, dotT:0,
-    heightClass:'medium', // 'heavy' (tall silhouette) | 'medium' (short silhouette, hides better)
-    color:'#7ed957',
-    trackPhase:0, // scrolling offset for rolling track texture (driven by movement in update())
-    attachments: [],
-    anchors: {
-      hull_top: { dx: 0, dy: 0 },
-      hull_front: { dx: 32, dy: 0 },
-      hull_rear: { dx: -32, dy: 0 },
-      turret_top: { dx: 0, dy: 0 },
-      gun_root: { dx: 17, dy: 0 } // Relative to turret pivot
-    },
-    // three-layer attribute system. base = untuned values; combat reads stats only.
-    base: {
-      maxSpeed: 120, turnRate: 2.0, turretTurnRate: 2.2,
-      penetration: 120, damage: 34, reload: 1.3,
-      maxHp: 100,
-      armor: { hull:{front:110,side:38,rear:26}, turret:{front:140,side:50,rear:24} }
-    },
-    modifiers: [],
-    // dynamic bloom/收缩 system (see SPREAD config): current sigma tracks motion, then shrinks back
-    // to base when the tank slows/stops. Modeled on WoT's three-expansion (movement / hull-traverse /
-    // turret-traverse) bloom. Only `player` actually drives this; here for uniformity.
-    sigma:0, prevHullAngle:0, prevTurretAngle:0
-  }, opts);
-
-  // normalize base: fill any missing numeric stats from the legacy flat defaults, then compute stats
-  const base = tank.base = Object.assign({}, tank.base);
-  const dflt = { maxSpeed:120, turnRate:2.0, turretTurnRate:2.2, penetration:120, damage:34, reload:1.3, maxHp:100 };
-  for(const k in dflt) if(base[k] === undefined) base[k] = dflt[k];
-  if(!base.armor) base.armor = { hull:{front:110,side:38,rear:26}, turret:{front:140,side:50,rear:24} };
-  tank.modifiers = tank.modifiers || [];
-  refreshStats(tank);
-  tank.hp = tank.stats.maxHp;
-  tank.maxHp = tank.stats.maxHp; // legacy alias used by a few test-rig/HUD paths
-  // faction drives paint — a tank's spec/color never overrides team color
-  tank.color = teamColor(tank);
-  if (opts.traverseLimitInDeg !== undefined) {
-    tank.traverseLimit = opts.traverseLimitInDeg * Math.PI / 180;
-  }
-  return tank;
-}
-
-// ---------- world scale ----------
-// A tank's maxSpeed (config value) is treated as a game-scaled speed. The stored number maps to a
-// real-ish km/h for HUD display AND to on-screen px/s for motion:
-//   display (km/h) = maxSpeed * SPEED_KMH_FACTOR   (120 → 60 km/h)
-//   on-screen      = maxSpeed * SPEED_PX_FACTOR    (120 → px/s)
-const SPEED_KMH_FACTOR = 0.5;   // maxSpeed value → real km/h (120 → 60)
-const SPEED_PX_FACTOR  = 1.6;   // maxSpeed value → screen px/s (120 → ~192 px/s)
-function tankKmh(t){ return Math.round((t.stats?.maxSpeed ?? t.maxSpeed) * SPEED_KMH_FACTOR); }
-
-// ---------- team colors ----------
-// Color follows FACTION, never the tank spec — friendly green / player blue / enemy pale red.
-const TEAM_COLORS = { player: '#5c8cff', ally: '#7ed957', enemy: '#ff8a8a' };
-function teamColor(t){ return TEAM_COLORS[t.team] || TEAM_COLORS.enemy; }
-
-function applyTankConfig(tank, spec){
-  if (!spec) return;
-  if (spec.hasTurret !== undefined) tank.hasTurret = spec.hasTurret;
-  if (spec.traverseLimit !== undefined) tank.traverseLimit = spec.traverseLimit * Math.PI / 180;
-  const b = tank.base;
-  if (spec.maxSpeed !== undefined) b.maxSpeed = spec.maxSpeed;
-  if (spec.turnRate !== undefined) b.turnRate = spec.turnRate;
-  if (spec.turretTurnRate !== undefined) b.turretTurnRate = spec.turretTurnRate;
-  if (spec.hp !== undefined) b.maxHp = spec.hp;
-  if (spec.maxHp !== undefined) b.maxHp = spec.maxHp;
-  if (spec.penetration !== undefined) b.penetration = spec.penetration;
-  if (spec.damage !== undefined) b.damage = spec.damage;
-  if (spec.reload !== undefined) b.reload = spec.reload;
-  if (spec.heightClass !== undefined) tank.heightClass = spec.heightClass;
-  if (spec.anchors !== undefined) Object.assign(tank.anchors, spec.anchors);
-  if (spec.armor !== undefined){
-    tank.customArmor = spec.armor;
-    if (!b.armor) b.armor = {};
-    if (spec.armor.hull){ if(!b.armor.hull) b.armor.hull = {}; Object.assign(b.armor.hull, spec.armor.hull); }
-    if (spec.armor.turret){ if(!b.armor.turret) b.armor.turret = {}; Object.assign(b.armor.turret, spec.armor.turret); }
-  }
-
-  if (spec.hull) {
-    if (spec.hull.verts && spec.hull.faces) {
-      // Recenter the verts so the local origin sits at the track-rectangle's geometric center:
-      // the hull then rotates around its own geometric center, not an offset (turret-pivot) point.
-      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
-      for (const [vx, vy] of spec.hull.verts) {
-        if (vx < minX) minX = vx;
-        if (vx > maxX) maxX = vx;
-        if (vy < minY) minY = vy;
-        if (vy > maxY) maxY = vy;
-      }
-      const cx = (minX+maxX)/2, cy = (minY+maxY)/2;
-      tank.hullSpec = { verts: spec.hull.verts.map(([vx,vy])=>[vx-cx, vy-cy]), faces: spec.hull.faces };
-      tank.hullLen = maxX - minX;
-      tank.hullWid = maxY - minY;
-    }
-    if (spec.hull.armor) {
-      if (!b.armor) b.armor = {};
-      if (!b.armor.hull) b.armor.hull = {};
-      Object.assign(b.armor.hull, spec.hull.armor);
-    }
-  }
-
-  if (spec.turret) {
-    if (spec.turret.verts && spec.turret.faces) {
-      tank.turretSpec = { verts: spec.turret.verts, faces: spec.turret.faces };
-      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
-      for (const [vx, vy] of spec.turret.verts) {
-        if (vx < minX) minX = vx;
-        if (vx > maxX) maxX = vx;
-        if (vy < minY) minY = vy;
-        if (vy > maxY) maxY = vy;
-      }
-      tank.turLen = maxX - minX;
-      tank.turWid = maxY - minY;
-    }
-    if (spec.turret.armor) {
-      if (!b.armor) b.armor = {};
-      if (!b.armor.turret) b.armor.turret = {};
-      Object.assign(b.armor.turret, spec.turret.armor);
-    }
-    if (spec.turret.pivot) {
-      tank.turretPivotOffset = spec.turret.pivot;
-    }
-  }
-
-  refreshStats(tank);
-  tank.hp = tank.stats.maxHp;
-  tank.maxHp = tank.stats.maxHp;
-  if (tank.spawn) tank.spawn.hp = tank.stats.maxHp; // keep reset consistent with a fresh load
-}
-
-// ---------- dynamic spread (bloom / shrink) ----------
-// Three motion sources inflate the dispersion sigma; once they stop, sigma decays back toward the
-// static base. Numbers are deliberately tuned small (radians of aim angle) for a top-down 2D feel.
-const SPREAD = {
-  base: 0.018,                       // static (fully settled) sigma
-  fireDebuff: 0.020,                 // extra sigma while gunner is down (crew hit)
-  moveMax: 0.014,                    // sigma added at full forward speed
-  hullRotMax: 0.012,                 // sigma added at full hull turn rate
-  turretRotMax: 0.018,               // sigma added at full turret turn rate (most disruptive)
-  bloomRate: 2.0,                    // how fast sigma grows toward the motion target (1/s)
-  shrinkRate: 0.3,                   // how fast sigma shrinks back to base when settled (1/s)
-  // worst-case (final) sigma = base + every source maxed + debuff — the dispersion cone you can
-  // never be worse than. Used to draw the "final" reference cone alongside the live one.
-  worstCase(){ return this.base + this.moveMax + this.hullRotMax + this.turretRotMax + this.fireDebuff; }
-};
-// current per-frame motion-driven sigma target for the player
-function motionSigma(t, dt){
-  if(dt<=0) return SPREAD.base;
-  const hullRate  = Math.abs(norm(t.hullAngle - t.prevHullAngle + Math.PI) - Math.PI) / dt; // |Δangle|/s
-  const turRate   = Math.abs(norm(t.turretAngle - t.prevTurretAngle + Math.PI) - Math.PI) / dt;
-  // forward speed proxy: maxSpeed scaled by whether the player is driving (only player moves here)
-  let speed = 0;
-  if(t.id==='player'){
-    speed = (keys['w']||keys['s']) ? t.stats.maxSpeed : 0;
-  }
-  const sMove = SPREAD.moveMax    * Math.min(1, speed / t.stats.maxSpeed);
-  const sHull = SPREAD.hullRotMax * Math.min(1, hullRate / t.stats.turnRate);
-  const sTur  = SPREAD.turretRotMax * Math.min(1, turRate / t.stats.turretTurnRate);
-  let base = SPREAD.base + (t.fireDebuffT>0 ? SPREAD.fireDebuff : 0);
-  return base + sMove + sHull + sTur;
-}
-// per-frame update of a tank's live sigma toward its motion target (bloom fast, shrink slow)
-function updateSigma(t, dt){
-  const target = motionSigma(t, dt);
-  const debuffBase = SPREAD.base + (t.fireDebuffT>0 ? SPREAD.fireDebuff : 0);
-  if(target > t.sigma){
-    t.sigma += Math.min(target - t.sigma, SPREAD.bloomRate * dt);
-  } else {
-    t.sigma -= Math.min(t.sigma - Math.max(target, debuffBase), SPREAD.shrinkRate * dt);
-    if(t.sigma < debuffBase) t.sigma = debuffBase;
-  }
-}
-
-// ---------- pure 2D armor model (flat thickness per direction, no glacis/mesh) ----------
-const ARMOR = {
-  hull:   { front:110, side:38, rear:26 },
-  turret: { front:140, side:50, rear:24 }
-};
-const BOUNCE_ANGLE = 78 * Math.PI/180;
-
-// ---------- verticality & exposure (3D silhouette proxy) ----------
-// All heights in meters. 2D top-down game uses these to decide "what pokes out".
-const HEIGHTS = {
-  medium: { hull: 1.4, turret: 0.9 }, // Total 2.3m
-  heavy:  { hull: 1.8, turret: 1.0 }, // Total 2.8m
-  cover: {
-    half: 1.4, // Perfectly aligns with medium hull
-    full: 3.0  // Blocks everything
-  }
-};
-
-// Returns {zMin, zMax} for a part based on tank's height class
-function getPartZRange(tank, partKey) {
-  const h = HEIGHTS[tank.heightClass];
-  if (partKey === 'hull') return { zMin: 0, zMax: h.hull };
-  if (partKey === 'turret') return { zMin: h.hull, zMax: h.hull + h.turret };
-  return { zMin: 0, zMax: 1.0 }; // Fallback
-}
-
-// Gun height is assumed to be at the middle of the turret
-function getGunHeight(tank) {
-  const h = HEIGHTS[tank.heightClass];
-  return h.hull + h.turret * 0.5;
-}
-
-function partCorners(cx,cy,angle,halfL,halfW){
-  const local = [ [halfL,-halfW], [halfL,halfW], [-halfL,halfW], [-halfL,-halfW] ]; // FL,FR,RR,RL
-  return local.map(([dx,dy])=>{
-    const r = rotate(dx,dy,angle);
-    return { x: cx+r.x, y: cy+r.y };
-  });
-}
-function partEdges(corners, angle){
-  const names = ['front','right','rear','left'];
-  const localNormals = [ [1,0],[0,1],[-1,0],[0,-1] ];
-  const edges = [];
-  for(let i=0;i<4;i++){
-    const a = corners[i], b = corners[(i+1)%4];
-    const n = rotate(localNormals[i][0], localNormals[i][1], angle);
-    edges.push({ name:names[i], a,b, nx:n.x, ny:n.y, faceKey: (names[i]==='left'||names[i]==='right') ? 'side' : names[i] });
-  }
-  return edges;
-}
-
-// ---------- arbitrary polygon parts (arrowhead hull + Leopard-style turret) ----------
-// Local convention: +x = forward, +y = left (matches the legacy rectangle verts above).
-// Each part is a list of local verts; each EDGE i (vert[i] -> vert[i+1]) carries a faceKey so the
-// armor system still maps a hit edge to front/side/rear thickness. Slanted front edges are 'front'.
-//
-// Hull — arrowhead/glacis: a single mid-front vertex pokes forward, flanked by two slant edges
-// that both count as front armor. (verts go front-right -> tip -> front-left -> rear-left -> rear-right)
-const HULL_PROTRUSION = 0.5; // tip pokes forward by this fraction of hull half-width
-function hullPoly(t){
-  if (t.hullSpec) return t.hullSpec;
-  const L = t.hullLen/2, W = t.hullWid/2, tip = W*HULL_PROTRUSION;
-  return {
-    verts: [ [L,-W], [L+tip,0], [L,W], [-L,W], [-L,-W] ],
-    // edge faceKeys, same order as the vert->vert+1 edges
-    faces: ['front','front','side','rear','side']
-  };
-}
-// Turret/fighting room — Leopard 2A6-style wedge (top-down): narrow front cheeks, widening to mid, tapered rear.
-function turretPoly(t){
-  if (t.turretSpec) return t.turretSpec;
-  const L = t.turLen/2, W = t.turWid/2;
-  return {
-    verts: [ [L*0.95,-W*0.82], [L*0.95,W*0.82], [L*0.05,W*0.96], [-L*0.95,W*0.92], [-L*0.95,-W*0.92], [L*0.05,-W*0.96] ],
-    // front cheeks + front slants -> front; mid->rear left/right -> side; rear -> rear
-    faces: ['front','front','side','rear','side','front']
-  };
-}
-function superstructureAngle(t){ return t.hasTurret ? t.turretAngle : t.hullAngle; }
-function superstructureLabel(t){ return t.hasTurret ? '炮塔' : '战斗室'; }
-// world-space corners of a polygon part
-function polyCorners(cx,cy,angle, poly){
-  return poly.verts.map(([dx,dy])=>{ const r = rotate(dx,dy,angle); return { x: cx+r.x, y: cy+r.y }; });
-}
-// world-space edges with outward normals + faceKey. Normals are derived from edge direction and
-// picked to point AWAY from the part centroid, so winding order doesn't matter.
-function polyEdges(corners, poly){
-  // centroid of the (assumed convex) polygon
-  let gx=0, gy=0; for(const c of corners){ gx+=c.x; gy+=c.y; } gx/=corners.length; gy/=corners.length;
-  const edges = [];
-  const n = corners.length;
-  for(let i=0;i<n;i++){
-    const a = corners[i], b = corners[(i+1)%n];
-    const ex = b.x-a.x, ey = b.y-a.y;
-    // two candidate perpendiculars; choose the one pointing away from centroid (outward)
-    const c1x = ey,  c1y = -ex;
-    const c2x = -ey, c2y = ex;
-    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
-    const out1 = c1x*(mx-gx) + c1y*(my-gy);
-    let nx, ny;
-    if(out1 >= 0){ nx=c1x; ny=c1y; } else { nx=c2x; ny=c2y; }
-    const len = Math.hypot(nx,ny) || 1;
-    const face = poly.faces[i];
-    edges.push({ a, b, nx:nx/len, ny:ny/len, faceKey: face, name: face });
-  }
-  return edges;
-}
-function raycastTank(ox,oy,dx,dy, tank){
-  const pOff = turretPivot(tank);
-  const turCx = pOff.x;
-  const turCy = pOff.y;
-  const parts = [
-    { key:'turret', cx:turCx, cy:turCy, angle:superstructureAngle(tank), poly:turretPoly(tank) },
-    { key:'hull',   cx:tank.x, cy:tank.y, angle:tank.hullAngle, poly:hullPoly(tank) }
-  ];
-  
-  const hits = [];
-  for(const p of parts){
-    const corners = polyCorners(p.cx,p.cy,p.angle, p.poly);
-    const edges = polyEdges(corners, p.poly);
-    let best = null;
-    for(const e of edges){
-      const hit = segRayIntersect(ox,oy,dx,dy, e.a.x,e.a.y, e.b.x,e.b.y);
-      if(hit && hit.t>0.001 && (!best || hit.t < best.t)){
-        best = { t:hit.t, s:hit.s, edge:e };
-      }
-    }
-    if(best){
-      const px = ox+dx*best.t, py = oy+dy*best.t;
-      hits.push({ part:p.key, edgeName:best.edge.name, faceKey:best.edge.faceKey, nx:best.edge.nx, ny:best.edge.ny, s:best.s, x:px, y:py, t:best.t });
-    }
-  }
-  // Return all hits so the caller can decide based on exposure/probability
-  return hits.length > 0 ? hits : null;
-}
-function moduleFromHit(hit){
-  if(hit.part==='turret'){
-    if(hit.faceKey==='side'){
-      if(hit.s>0.3 && hit.s<0.7) return {key:'crew', label:'乘员(炮手)'};
-      return {key:'turretHull', label:'上部结构装甲'};
-    }
-    return {key:'turretHull', label:'上部结构装甲'};
-  }
-  if(hit.faceKey==='side'){
-    if(hit.s<0.22 || hit.s>0.78) return {key:'track', label:'履带/负重轮'};
-    if(hit.s<0.5) return {key:'ammo', label:'弹药架'};
-    return {key:'engine', label:'油箱/发动机'};
-  }
-  return {key:'hullHull', label: hit.edgeName==='front' ? '车体正面装甲' : '车体后部装甲'};
-}
-function faceLabel(k){ return {front:'正面',side:'侧面',rear:'后部'}[k]||k; }
-
-// turret pivot / gun root (firing origin sits at muzzle tip: front center + barrel length)
-function turretPivot(t){
-  const off = t.turretPivotOffset || { dx: 8, dy: 0 };
-  const r = rotate(off.dx, off.dy, t.hullAngle);
-  return { x: t.x + r.x, y: t.y + r.y };
-}
-function turretFrontDist(t){
-  const poly = turretPoly(t);
-  let maxF = -Infinity;
-  for(const [vx, vy] of poly.verts){
-    if(vx > maxF) maxF = vx;
-  }
-  return maxF > -Infinity ? maxF : (t.turLen/2);
-}
-function gunRoot(t){
-  const p = turretPivot(t);
-  const frontDist = turretFrontDist(t);
-  const b = t.barrel || { len: 120 };
-  const barrelLen = t.turLen * ((b.len || 120) / 100);
-  const totalDist = frontDist + barrelLen;
-  return {
-    x: p.x + Math.cos(t.turretAngle) * totalDist,
-    y: p.y + Math.sin(t.turretAngle) * totalDist
-  };
-}
-
-// ---------- cover system ----------
-// Height-class x cover-tier x hit-part -> block PROBABILITY. Deliberately a lookup table instead
-// of precise 3D silhouette clipping: this is a 2D top-down game, so a rough statistical stand-in
-// for "how much of the tank's real 3D profile pokes out above this cover" is both cheaper and,
-// arguably, more honest than fake-precise geometry we can't actually back up in 2D.
-//
-// Distance-contested model: whichever side (shooter or target) sits closer to a given cover gets
-// the advantage on THAT cover — closer = your own shots pass it more easily, farther = your shots
-// eat more of the block chance. 'full' cover (a solid building) skips all of this and just blocks
-// outright when the line of sight physically crosses it — there's no proximity nuance to a wall
-// with no gaps. 'half' cover (a foxhole/sandbag cluster) is where the graduated model applies.
-const COVER_TIERS = {
-  half: { label:'半高掩体',           fill:'rgba(166,138,60,0.4)',  stroke:'#a68a3c', mode:'graduated' },
-  full: { label:'全高掩体',           fill:'rgba(106,106,106,0.55)', stroke:'#6a6a6a', mode:'solid' }
-};
-// base block amplitude AT ZERO DISTANCE for 'graduated' cover — height class sets the ceiling,
-// distance tiers below scale it down from there.
-const DEFENSE_BASE = {
-  medium: { hull:0.8,  turret:0.15 },
-  heavy:  { hull:0.6,  turret:0.10 }
-};
-const ATTACKER_AMPLITUDE_FACTOR = 0.5; // being close to the same cover helps the shooter too, just less than it helps the defender
-// discrete distance bands (edge-to-edge, px) -> fraction of the base amplitude retained
-function distanceTier(dist){
-  if(dist <= 15) return 1.0;
-  if(dist <= 45) return 0.55;
-  if(dist <= 90) return 0.22;
-  return 0;
-}
-
-// static test cover objects, sitting directly on the default player↔dummy firing lane (y=340)
-// so alignment is guaranteed by default — drive the dummy forward/back (arrow keys) to tuck behind one
-const covers = [
-  { x:470, y:340, w:80, h:34, angle:0, tier:'half' },
-  { x:660, y:340, w:70, h:34, angle:0, tier:'full' }
-];
-
-// ---------- tank–cover physical interaction (OBB overlap via SAT) ----------
-// Returns the first cover object whose footprint overlaps the tank's hull OBB, or null.
-// For movement physics only — ballistic raycasts use findCoversOnPath() instead.
-function getCoverUnderTank(tank) {
-  const tankCorners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
-  for (const cov of covers) {
-    const covCorners = partCorners(cov.x, cov.y, cov.angle, cov.w/2, cov.h/2);
-    if (obbOverlap(tankCorners, covCorners)) return cov;
-  }
-  return null;
-}
-
-// SAT (Separating Axis Theorem) overlap test for two convex quads.
-// Returns true if the two OBBs overlap.
-function obbOverlap(cornersA, cornersB) {
-  function getAxes(corners) {
-    const axes = [];
-    for (let i = 0; i < corners.length; i++) {
-      const j = (i + 1) % corners.length;
-      const ex = corners[j].x - corners[i].x;
-      const ey = corners[j].y - corners[i].y;
-      const len = Math.hypot(ex, ey) || 1;
-      axes.push({ x: -ey / len, y: ex / len }); // perpendicular (outward normal)
-    }
-    return axes;
-  }
-  function project(corners, axis) {
-    let min = Infinity, max = -Infinity;
-    for (const c of corners) {
-      const d = c.x * axis.x + c.y * axis.y;
-      if (d < min) min = d;
-      if (d > max) max = d;
-    }
-    return { min, max };
-  }
-  const axes = getAxes(cornersA).concat(getAxes(cornersB));
-  for (const axis of axes) {
-    const pA = project(cornersA, axis);
-    const pB = project(cornersB, axis);
-    if (pA.max < pB.min || pB.max < pA.min) return false; // separating axis found
-  }
-  return true; // no separating axis → overlap
-}
-
-// SAT-based MTV (Minimum Translation Vector) for collision resolution.
-// Returns { dx, dy, depth } to push the tank OUT of the cover, or null if no overlap.
-function obbMTV(tankCorners, covCorners) {
-  function getAxes(corners) {
-    const axes = [];
-    for (let i = 0; i < corners.length; i++) {
-      const j = (i + 1) % corners.length;
-      const ex = corners[j].x - corners[i].x;
-      const ey = corners[j].y - corners[i].y;
-      const len = Math.hypot(ex, ey) || 1;
-      axes.push({ x: -ey / len, y: ex / len });
-    }
-    return axes;
-  }
-  function project(corners, axis) {
-    let min = Infinity, max = -Infinity;
-    for (const c of corners) {
-      const d = c.x * axis.x + c.y * axis.y;
-      if (d < min) min = d;
-      if (d > max) max = d;
-    }
-    return { min, max };
-  }
-  const axes = getAxes(tankCorners).concat(getAxes(covCorners));
-  let minDepth = Infinity;
-  let mtvAxis = null;
-  for (const axis of axes) {
-    const pA = project(tankCorners, axis);
-    const pB = project(covCorners, axis);
-    if (pA.max < pB.min || pB.max < pA.min) return null; // no overlap
-    // overlap depth on this axis
-    const overlap = Math.min(pA.max - pB.min, pB.max - pA.min);
-    if (overlap < minDepth) {
-      minDepth = overlap;
-      mtvAxis = axis;
-    }
-  }
-  if (!mtvAxis) return null;
-  // Ensure the MTV pushes tank AWAY from cover center
-  let tcx = 0, tcy = 0;
-  for (const c of tankCorners) { tcx += c.x; tcy += c.y; }
-  tcx /= tankCorners.length; tcy /= tankCorners.length;
-  let ccx = 0, ccy = 0;
-  for (const c of covCorners) { ccx += c.x; ccy += c.y; }
-  ccx /= covCorners.length; ccy /= covCorners.length;
-  const dot = (tcx - ccx) * mtvAxis.x + (tcy - ccy) * mtvAxis.y;
-  if (dot < 0) { mtvAxis.x = -mtvAxis.x; mtvAxis.y = -mtvAxis.y; }
-  return { dx: mtvAxis.x * minDepth, dy: mtvAxis.y * minDepth, depth: minDepth };
-}
-
-// Resolve all full-cover collisions for a tank (push it out of any overlapping solid covers).
-function resolveFullCoverCollisions(tank) {
-  const tankCorners = () => partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
-  for (const cov of covers) {
-    if (COVER_TIERS[cov.tier].mode !== 'solid') continue;
-    const covCorners = partCorners(cov.x, cov.y, cov.angle, cov.w/2, cov.h/2);
-    const mtv = obbMTV(tankCorners(), covCorners);
-    if (mtv) {
-      tank.x += mtv.dx;
-      tank.y += mtv.dy;
-    }
-  }
-}
-
-
-// every cover whose footprint the shot's line crosses between shooter and target, with each
-// side's edge-to-edge distance to that specific cover (entry point used as the reference point)
-function findCoversOnPath(ox,oy,tx,ty){
-  const dx=tx-ox, dy=ty-oy;
-  const dist = Math.hypot(dx,dy) || 1;
-  const ux=dx/dist, uy=dy/dist;
-  const hits = [];
-  for(const cov of covers){
-    const corners = partCorners(cov.x,cov.y,cov.angle, cov.w/2, cov.h/2);
-    let nearest = null;
-    for(let i=0;i<4;i++){
-      const a=corners[i], b=corners[(i+1)%4];
-      const hit = segRayIntersect(ox,oy,ux,uy, a.x,a.y,b.x,b.y);
-      if(hit && hit.t>0.5 && hit.t<dist && (!nearest || hit.t<nearest.t)) nearest = hit;
-    }
-    if(nearest){
-      hits.push({ cover:cov, distA:nearest.t, distB:dist-nearest.t, point:{x:ox+ux*nearest.t,y:oy+uy*nearest.t} });
-    }
-  }
-  hits.sort((a,b)=>a.distA-b.distA); // nearest-to-shooter first
-  return hits;
-}
-// New logic: calculates how much of a Z-range [zMin, zMax] is exposed over covers
-function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax) {
-  const hits = findCoversOnPath(ox,oy,tx,ty);
-  let effectiveCoverH = 0;
-
-  for(const h of hits){
-    const coverMaxH = HEIGHTS.cover[h.cover.tier] || 0;
-    
-    // If target is very close to cover (within 15px per distanceTier), 
-    // we use full cover height to ensure stable "hull down" behavior.
-    const targetProximity = distanceTier(h.distB);
-    const hEff = coverMaxH * (0.4 + 0.6 * targetProximity);
-    effectiveCoverH = Math.max(effectiveCoverH, hEff);
-    
-    // Solid walls are always solid
-    if (COVER_TIERS[h.cover.tier].mode === 'solid') return 0;
-  }
-
-  // Floating point safety: if height difference is negligible, treat as 0
-  const exposedHeight = Math.max(0, zMax - effectiveCoverH);
-  if (exposedHeight < 0.001) return 0;
-  
-  const totalPartHeight = zMax - zMin;
-  const partExposure = Math.max(0, zMax - Math.max(zMin, effectiveCoverH));
-  
-  return Math.min(1, partExposure / totalPartHeight);
-}
-
-// composes every crossed cover's contribution into one final block probability for this shot
-function coverBlockInfo(ox,oy,tx,ty, shooter, target, part){
-  const z = getPartZRange(target, part);
-  const exposure = getExposure(ox,oy,tx,ty, shooter, target, z.zMin, z.zMax);
-  return { prob: 1 - exposure, hits: findCoversOnPath(ox,oy,tx,ty) };
-}
-
-// Roll the ACTUAL shell's fate against cover.
-// For the new system, we don't "block" the shell before hitting the tank anymore;
-// instead, cover reduces the probability of hitting specific parts.
-// If the shell hits the "area" of the tank, we then roll which part it hits based on exposure.
-// This function now just returns if the shell is stopped by a SOLID wall.
-function isBlockedBySolidCover(ox,oy,tx,ty){
-  const hits = findCoversOnPath(ox,oy,tx,ty);
-  for(const h of hits){
-    if(COVER_TIERS[h.cover.tier].mode === 'solid') return h;
-  }
-  return null;
-}
-function resolveShot(ox,oy,dx,dy, shooter, target, solidBlock){
-  if(solidBlock){
-    const tier = solidBlock.cover.tier;
-    const label = COVER_TIERS[tier].label;
-    return {
-      outcome:'COVER', cls:'COVER',
-      text:`被${label}挡住 — 炮弹被掩体截停`,
-      hitPoint: solidBlock.point,
-      segments:[{ x1:ox, y1:oy, x2:solidBlock.point.x, y2:solidBlock.point.y }]
-    };
-  }
-
-  const potentialHits = raycastTank(ox,oy,dx,dy, target);
-  if(!potentialHits) return {
-    outcome:'MISS', text:'脱靶 — 未命中目标轮廓',
-    segments:[{ x1:ox, y1:oy, x2:ox+dx*1200, y2:oy+dy*1200 }]
-  };
-
-  // Sort potential hits by distance just for base reference, but we will pick by exposure
-  potentialHits.sort((a,b) => a.t - b.t);
-
-  // Calculate exposure weights for all hit parts
-  const weightedParts = potentialHits.map(h => {
-    const z = getPartZRange(target, h.part);
-    const exposure = getExposure(ox,oy, h.x, h.y, shooter, target, z.zMin, z.zMax);
-    return { hit: h, weight: exposure };
-  });
-
-  const totalWeight = weightedParts.reduce((sum, p) => sum + p.weight, 0);
-  let hit = null;
-
-  if (totalWeight <= 0) {
-    // All parts are fully covered
-    const firstHit = potentialHits[0];
-    return {
-      outcome:'COVER', cls:'COVER',
-      text:`未命中 — 目标处于掩体完全遮蔽中`,
-      hitPoint: {x: firstHit.x, y: firstHit.y},
-      segments:[{ x1:ox, y1:oy, x2:firstHit.x, y2:firstHit.y }]
-    };
-  } else {
-    // Roll for which part is hit based on exposure
-    let roll = Math.random() * totalWeight;
-    for (const p of weightedParts) {
-      roll -= p.weight;
-      if (roll <= 0) {
-        hit = p.hit;
-        break;
-      }
-    }
-    if (!hit) hit = weightedParts[0].hit;
-  }
-
-  return resolveImpact(ox,oy,dx,dy, shooter, target, hit, true);
-}
-
-// mirror the incident direction across the hit edge's outward normal — the ricochet continuation ray
-function reflectDir(dx,dy,nx,ny){
-  const dot = dx*nx + dy*ny;
-  return { x: dx - 2*dot*nx, y: dy - 2*dot*ny };
-}
-
-// Resolve ONE physical impact against `hit` (already chosen edge). When allowBounce is true and the
-// angle is too steep, the shell ricochets: it bounces off the surface like light, leaving a short
-// fading tracer along the reflected ray that disappears after a short distance — NO secondary hit,
-// NO secondary damage. The ricochet is purely visual after the bounce point.
-function resolveImpact(ox,oy,dx,dy, shooter, target, hit, allowBounce){
-  const cosT = Math.abs(dx*hit.nx + dy*hit.ny);
-  const theta = Math.acos(Math.min(1,Math.max(-1,cosT)));
-  const armorTable = target.stats.armor || target.customArmor || ARMOR;
-  const thickness = (armorTable[hit.part] && armorTable[hit.part][hit.faceKey] !== undefined)
-    ? armorTable[hit.part][hit.faceKey]
-    : ARMOR[hit.part][hit.faceKey];
-  const mod = moduleFromHit(hit);
-  const hitPoint = { x:hit.x, y:hit.y };
-  const seg = [{ x1:ox, y1:oy, x2:hit.x, y2:hit.y }];
-
-  // ---- ricochet: reflect off the surface; the shell continues flying along the reflected direction,
-  // potentially causing a secondary hit (and damage) against a nearby tank, but CANNOT bounce a second time.
-  if(allowBounce && theta > BOUNCE_ANGLE){
-    const r = reflectDir(dx,dy,hit.nx,hit.ny);
-    const ex = hit.x + r.x*1.5, ey = hit.y + r.y*1.5; // start just beyond the bounce point
-
-    // Raycast reflected shell against all living entities to see if it secondary-hits anything
-    let secHit = null, secTarget = null;
-    let secBestT = Infinity;
-    for(const e of entities){
-      if(e.hp <= 0) continue;
-      const hits = raycastTank(ex, ey, r.x, r.y, e);
-      if(hits){
-        for(const h of hits){
-          if(h.t > 0.001 && h.t < secBestT){
-            secBestT = h.t;
-            secHit = h;
-            secTarget = e;
-          }
-        }
-      }
-    }
-
-    const head = `${hit.part==='turret'?superstructureLabel(target):'车体'} ${faceLabel(hit.faceKey)} 入射角 ${(theta*180/Math.PI).toFixed(0)}° 超过跳弹角，炮弹被装甲弹飞`;
-    if(secHit && secTarget){
-      // Resolve secondary impact with allowBounce=false so no tertiary bounce occurs
-      const secRes = resolveImpact(ex, ey, r.x, r.y, shooter, secTarget, secHit, false);
-      const endX = secRes.hitPoint ? secRes.hitPoint.x : ex + r.x * secBestT;
-      const endY = secRes.hitPoint ? secRes.hitPoint.y : ey + r.y * secBestT;
-      return {
-        outcome: 'BOUNCE', cls: 'BOUNCE',
-        text: `跳弹二次命中！${head} → 反射二次命中 ${secTarget.id==='player'?'玩家':'目标'} (${secRes.text})`,
-        part: hit.part, faceKey: hit.faceKey,
-        hitPoint: secRes.hitPoint || hitPoint,
-        segments: seg.concat([{ x1:ex, y1:ey, x2:endX, y2:endY }]),
-        bouncePoint: hitPoint,
-        bounced: true
-      };
-    } else {
-      const bounceLen = 220; // reflected flight path when hitting open space
-      const bx = ex + r.x*bounceLen, by = ey + r.y*bounceLen;
-      return {
-        outcome: 'BOUNCE', cls: 'BOUNCE',
-        text: `跳弹！${head} — 炮弹沿反射方向飞离`,
-        part: hit.part, faceKey: hit.faceKey,
-        hitPoint,
-        segments: seg.concat([{ x1:ex, y1:ey, x2:bx, y2:by }]),
-        bouncePoint: hitPoint,
-        bounced: true
-      };
-    }
-  }
-
-  let outcome, text, cls;
-  if(theta > BOUNCE_ANGLE){
-    // AllowBounce=false callers with an ultra-steep angle: treat as a block (no bounce allowed).
-    outcome='BLOCK'; cls='BLOCK';
-    text = `未击穿 — 命中 ${faceLabel(hit.faceKey)}，入射角 ${(theta*180/Math.PI).toFixed(0)}° 过陡`;
-  } else {
-    const eff = thickness/Math.cos(theta);
-    if(eff > shooter.stats.penetration){
-      outcome='BLOCK'; cls='BLOCK';
-      text = `未击穿 — ${faceLabel(hit.faceKey)} 等效厚度 ${eff.toFixed(0)} > 穿深 ${shooter.stats.penetration}`;
-    } else {
-      outcome='PEN'; cls='PEN';
-      const invuln = (target.id==='dummy' && dummy.invuln);
-      let dmg = shooter.stats.damage * (0.85 + Math.random()*0.3);
-      let extra = '';
-      if(!invuln){
-        if(mod.key==='ammo' && Math.random()<0.28){
-          dmg = target.hp; extra = '（弹药架殉爆！）'; cls='CRIT';
-        } else if(mod.key==='track'){
-          target.immobT = 4; extra = '（履带被击断，锁定 4s）';
-        } else if(mod.key==='engine'){
-          target.dotT = 3; extra = '（油箱起火，持续损伤）';
-        } else if(mod.key==='crew'){
-          target.fireDebuffT = 5; extra = '（炮手阵亡，散布增大）';
-        }
-        target.hp = Math.max(0, target.hp - dmg);
-      } else {
-        extra = '（靶车无敌，不掉血）';
-      }
-      text = `击穿！命中 ${mod.label}，造成 ${dmg.toFixed(0)} 伤害 ${extra}`;
-    }
-  }
-  return { outcome, text, cls, part:hit.part, faceKey:hit.faceKey, hitPoint, segments:seg };
-}
-
-// ---------- entity registry ----------
-// Every tank (player, allies, enemies, and eventually escort drones) lives in one array.
-// `player`/`dummy` below are just convenience references into it — nothing in the game loop
-// should assume there are only ever these two; new code should go through `entities`.
-const entities = [];
-function spawnTank(opts){
-  const t = makeTank(opts);
-  t.spawn = { x:t.x, y:t.y, hullAngle:t.hullAngle, turretAngle:t.turretAngle, hp:t.hp }; // for resetEntity()
-  entities.push(t);
-  return t;
-}
-function resetEntity(t){
-  Object.assign(t, t.spawn, { immobT:0, dotT:0, fireDebuffT:0, reloadT:0, _dead:false, reviveT:0 });
-}
-// accumulate rolling-track phase from real displacement (translation + hull rotation). Turning a
-// tracked vehicle in place also rolls its tracks (differential feel).
-function advanceTracks(t, dx, dy, dAngle){
-  t.trackPhase = (t.trackPhase||0) + Math.hypot(dx,dy) + Math.abs(dAngle)*(t.hullWid/2);
-}
-function isHostile(teamA, teamB){
-  const enemySide = t => t==='enemy';
-  return enemySide(teamA) !== enemySide(teamB); // enemy team vs. (player+ally) side
-}
-function livingEnemiesOf(team){ return entities.filter(e=>isHostile(e.team,team) && e.hp>0); }
-function nearestEnemyTo(shooter){
-  const candidates = livingEnemiesOf(shooter.team);
-  let best=null, bestD=Infinity;
-  for(const c of candidates){
-    const d = Math.hypot(c.x-shooter.x, c.y-shooter.y);
-    if(d<bestD){ bestD=d; best=c; }
-  }
-  return best;
-}
+// entity registry lives in js/tank_entity.js (entities / spawnTank / resetEntity / advanceTracks /
+// isHostile / clamp / livingEnemiesOf / nearestEnemyTo / resolveTankCollisions)
 
 const player = spawnTank({ id:'player', team:'player', x:260, y:340, hullAngle:0, turretAngle:0, color:'#7ed957', heightClass:'medium' });
 player.sigma = SPREAD.base;
@@ -1141,7 +266,7 @@ function populateTankSelect(){
     keys.forEach(k=>{
       const opt = document.createElement('option');
       opt.value = k;
-      opt.textContent = `${k}${tankListData[k].hasTurret===false ? ' (无炮塔)' : ''}`;
+      opt.textContent = k;
       sel.appendChild(opt);
     });
     if(keys.length){
@@ -1160,9 +285,6 @@ function applyTankFromList(tank, id){
 function applyPlayerTank(id){
   if(applyTankFromList(player, id)){
     pushLog(`玩家已切换为坦克 ${id} — 穿深 ${player.stats.penetration} / 伤害 ${player.stats.damage} / 装甲已同步`, 'PEN');
-    // re-sync the turret lock toggle visual with the new tank's turret flag
-    const tt = document.getElementById('toggleTurretBtn');
-    tt.classList.toggle('active', !player.hasTurret);
   } else {
     pushLog(`坦克配置不存在: ${id}`, 'COVER');
   }
@@ -1242,7 +364,6 @@ document.getElementById('resetBtn').addEventListener('click', ()=>{
   dummy.turretSwing = 0;
   // sync HP input + toggle visuals with the reset state
   document.getElementById('dummyHpInput').value = dummy.maxHp;
-  const ib = document.getElementById('invulnBtn'); ib.textContent = dummy.invuln ? '开启 INVULN' : '关闭 INVULN'; ib.classList.toggle('active', dummy.invuln);
   const ab = document.getElementById('autoReviveBtn'); ab.textContent = dummy.autoRevive ? '开启 AUTO-REVIVE' : '关闭 AUTO-REVIVE'; ab.classList.toggle('active', dummy.autoRevive);
   logClear();
 });
@@ -1258,14 +379,8 @@ document.getElementById('applyHpBtn').addEventListener('click', ()=>{
   dummy.spawn.hp = v;            // keep reset consistent with the chosen max
   dummy._dead = false;
   dummy.reviveT = 0;
+  dummy.ammoBlew=false; dummy.ammoFaultT=0; dummy.ammoFaultHits=0; dummy.trackBroken=false; dummy.fireT=0;
   pushLog(`靶车满血值设为 ${v}`,'COVER');
-});
-document.getElementById('invulnBtn').addEventListener('click', (e)=>{
-  dummy.invuln = !dummy.invuln;
-  e.currentTarget.textContent = dummy.invuln ? '开启 INVULN' : '关闭 INVULN';
-  e.currentTarget.classList.toggle('active', dummy.invuln);
-  if(dummy.invuln){ dummy._dead=false; dummy.reviveT=0; if(dummy.hp<=0){ dummy.hp = dummy.maxHp; } }
-  pushLog(`靶车无敌：${dummy.invuln?'开':'关'}`,'COVER');
 });
 document.getElementById('autoReviveBtn').addEventListener('click', (e)=>{
   dummy.autoRevive = !dummy.autoRevive;
@@ -1275,20 +390,10 @@ document.getElementById('autoReviveBtn').addEventListener('click', (e)=>{
 });
 // initialize toggle button visuals to match defaults (autoRevive on)
 (function(){
-  const ib = document.getElementById('invulnBtn'); ib.textContent = dummy.invuln ? '开启 INVULN' : '关闭 INVULN'; ib.classList.toggle('active', dummy.invuln);
   const ab = document.getElementById('autoReviveBtn'); ab.textContent = dummy.autoRevive ? '开启 AUTO-REVIVE' : '关闭 AUTO-REVIVE'; ab.classList.toggle('active', dummy.autoRevive);
 })();
 
 // ---------- extension test controls ----------
-document.getElementById('toggleTurretBtn').addEventListener('click', (e) => {
-  player.hasTurret = !player.hasTurret;
-  if(!player.hasTurret){
-    const relative = Math.max(-player.traverseLimit, Math.min(player.traverseLimit, angDiff(player.turretAngle, player.hullAngle)));
-    player.turretAngle = norm(player.hullAngle + relative);
-  }
-  e.currentTarget.classList.toggle('active', !player.hasTurret);
-  pushLog(`玩家坦克模式：${player.hasTurret ? '旋转炮塔' : '固定战斗室 + 有限射界炮管'}`, 'COVER');
-});
 document.getElementById('addShieldBtn').addEventListener('click', () => {
   player.attachments.push({ type: 'shield', bindTo: 'gun_root', size: 25, relativeAngle: 0 });
   pushLog('已在炮管添加护盾附件', 'PEN');
@@ -1299,19 +404,20 @@ document.getElementById('addDroneBtn').addEventListener('click', () => {
 });
 
 // ---------- log ----------
-const logEl = document.getElementById('log');
-function logClear(){ logEl.innerHTML=''; }
+const logEl = document.getElementById('logOverlay');
+function logClear(){ if(logEl) logEl.innerHTML=''; }
 function pushLog(text, cls){
+  if(!logEl) return;
   const d = document.createElement('div');
   d.className = cls||'';
   const time = new Date().toLocaleTimeString('en-GB',{hour12:false});
   d.textContent = `[${time}] ${text}`;
   logEl.prepend(d);
-  while(logEl.children.length>60) logEl.removeChild(logEl.lastChild);
+  while(logEl.children.length>25) logEl.removeChild(logEl.lastChild);
 }
 
 // ---------- firing ----------
-let tracers = [];
+let shells = [];   // 炮弹飞行动画（沿弹道逐段推进）
 let impacts = [];
 let bounceFx = []; // ricochet spark visuals
 
@@ -1369,32 +475,33 @@ function tryFire(){
     addRangeShot(landX, landY, aimX, aimY);
   }
 
-  // Check for solid walls first
-  const aimFarX = ox + dx * 1200;
-  const aimFarY = oy + dy * 1200;
-  const solidBlock = isBlockedBySolidCover(ox, oy, aimFarX, aimFarY);
+  // resolveShot handles obstructions in ray-order (target part vs. solid cover — whichever is
+  // nearest), so a cover behind/past the target can never eat a round meant for the tank.
+  // 命中结果被延迟：text/cls 与伤害施放在炮弹真正到达命中点时执行（shell.log），
+  // 开火瞬间不再提前触发任何"击中效果"。
+  const res = resolveShot(ox,oy,dx,dy, player, target);
 
-   const res = resolveShot(ox,oy,dx,dy, player, target, solidBlock);
-   // draw every flight segment (a ricochet produces a reflected segment as well)
-   const segs = res.segments || [{x1:ox,y1:oy,x2:ox+dx*1200,y2:oy+dy*1200}];
-   segs.forEach((s,i)=>{
-     // the LAST segment in a ricochet is the reflected shell path
-     const isRicochet = res.bounced && (i === segs.length-1);
-     tracers.push({x1:s.x1,y1:s.y1, x2:s.x2, y2:s.y2, life: isRicochet ? 0.35 : 0.18, ricochet: isRicochet});
-   });
-   if(res.hitPoint){
-     const color = res.outcome==='PEN' ? '#ff5c4d' : (res.bounced ? '#5cc8ff' : res.outcome==='COVER' ? '#ffb454' : '#7a8065');
-     impacts.push({x:res.hitPoint.x, y:res.hitPoint.y, life:0.4, color});
-   }
-   // ricochet gets a distinct spark + flash at the bounce point
-   if(res.bounced && res.bouncePoint){
-     bounceFx.push({x:res.bouncePoint.x, y:res.bouncePoint.y, life:0.5, angle: segs.length>=2 ? Math.atan2(segs[segs.length-1].y2-segs[segs.length-1].y1, segs[segs.length-1].x2-segs[segs.length-1].x1) : 0});
-   }
-  if(res.bounced && res.outcome==='BOUNCE'){
-    pushLog(res.text, 'BOUNCE');
-  } else {
-    pushLog(res.text, res.cls || (res.outcome==='MISS'?'BLOCK':''));
-  }
+  // 炮口闪光（开火瞬间，属于炮口，不受延迟约束）
+  burstExplosion(ox, oy, 0.6, 6, 3, 0);
+
+  // 炮弹动画：整段弹道（含跳弹反射段）交给飞行的炮弹呈现，速度=坦克炮弹飞行速度
+  const segs = res.segments || [{ x1:ox, y1:oy, x2:ox+dx*1200, y2:oy+dy*1200 }];
+  const shellSpeed = player.stats.shellSpeed || 1200;
+  shells.push({
+    segs,
+    segIdx: 0,
+    t: 0,
+    speed: Math.max(200, shellSpeed),
+    impact: res.hitPoint ? {
+      x: res.hitPoint.x, y: res.hitPoint.y,
+      color: res.outcome==='PEN' ? '#ff5c4d' : (res.bounced ? '#5cc8ff' : res.outcome==='COVER' ? '#ffb454' : '#7a8065')
+    } : null,
+    bounce: res.bounced && res.bouncePoint ? {
+      x: res.bouncePoint.x, y: res.bouncePoint.y,
+      angle: segs.length>=2 ? Math.atan2(segs[segs.length-1].y2-segs[segs.length-1].y1, segs[segs.length-1].x2-segs[segs.length-1].x1) : 0
+    } : null,
+    log: res.log || (() => ({ text: res.text, cls: res.cls || '' }))
+  });
 }
 
 // ---------- live firing solution (no spread) ----------
@@ -1438,7 +545,7 @@ function updateSolution(){
   const thickness = (armorTable[hit.part] && armorTable[hit.part][hit.faceKey] !== undefined)
     ? armorTable[hit.part][hit.faceKey]
     : ARMOR[hit.part][hit.faceKey];
-  const mod = moduleFromHit(hit);
+  const mod = moduleFromHit(target, hit);
   elPart.textContent = `${hit.part==='turret'?superstructureLabel(target):'车体'}·${faceLabel(hit.faceKey)}(${mod.label})`;
   elAngle.textContent = (theta*180/Math.PI).toFixed(1)+'°';
   elThick.textContent = thickness+' mm';
@@ -1453,8 +560,19 @@ function updateSolution(){
   }
 }
 
+// combat effects (弹药架殉爆 / 履带断裂 / 起火) live in js/tank_fx.js —
+// state (explosions/turretFlights/fxParticles), spawners (burstExplosion/emitTankFire/spawnAmmoBlowFx/
+// spawnTrackBreakFx/…), per-frame advance (updateFx), and draw helpers (drawExplosions/
+// drawTurretFlights/drawFxParticles, each taking an explicit ctx).
+
 // ---------- update ----------
 let last = performance.now();
+
+// Tank ⇄ tank collision lives in js/tank_entity.js (resolveTankCollisions → partCorners + obbMTV)
+
+// 起火时速度大幅下降约 50%
+function fireMul(t){ return (t.fireT>0 || t.dotT>0) ? 0.5 : 1; }
+
 function update(dt){
   if(player.immobT>0) player.immobT -= dt; else {
     // Half-cover slows movement & rotation; full-cover is physically impassable (resolved below)
@@ -1473,20 +591,33 @@ function update(dt){
     if(keys["d"]) player.hullAngle += player.stats.turnRate*dt*turnModifier;
     let mv=0;
     if(keys["w"]) mv=1; else if(keys["s"]) mv=-1;
-    const pSpeed = player.stats.maxSpeed * SPEED_PX_FACTOR;
-    player.x += Math.cos(player.hullAngle)*mv*pSpeed*dt*speedModifier;
-    player.y += Math.sin(player.hullAngle)*mv*pSpeed*dt*speedModifier;
+    // Mobility: accel / decel come from enginePower ÷ weight (computed once in makeTank → tank.stats.accel/brake).
+    const pAccel  = player.stats.accel * speedModifier;
+    const pBrake  = player.stats.brake * speedModifier;
+    const pTarget = mv * player.stats.maxSpeed * SPEED_PX_FACTOR * speedModifier * fireMul(player);
+    player.speed = player.speed || 0;
+    if(mv === 0){
+      // Release key: responsive stop/neutral decel
+      const decel = pBrake * 1.8 * dt;
+      if(player.speed > 0) player.speed = Math.max(0, player.speed - decel);
+      else if(player.speed < 0) player.speed = Math.min(0, player.speed + decel);
+    } else {
+      player.speed += clamp(pTarget - player.speed, -pBrake*dt, pAccel*dt);
+    }
+    player.x += Math.cos(player.hullAngle)*player.speed*dt;
+    player.y += Math.sin(player.hullAngle)*player.speed*dt;
     // Full-cover collision resolution: push tank out of any solid cover it overlaps
     resolveFullCoverCollisions(player);
     advanceTracks(player, player.x-p0x, player.y-p0y, norm(player.hullAngle-p0a));
   }
+  if(player.immobT<=0){ player.immobT=0; player.trackBroken=false; }
   player.x = Math.max(40, Math.min(canvas.width-40, player.x));
   player.y = Math.max(40, Math.min(canvas.height-40, player.y));
 
   let desired = Math.atan2(mouseWorld.y-player.y, mouseWorld.x-player.x);
-  
-  if (!player.hasTurret) {
-    // 无炮塔坦克：炮管角度相对于车体角度受限
+
+  // 炮塔转动射界限制：炮塔（连同炮管）只能在车体中轴线左右 ±traverseLimit 内转动
+  {
     const relativeDesired = angDiff(desired, player.hullAngle);
     const clampedRelative = Math.max(-player.traverseLimit, Math.min(player.traverseLimit, relativeDesired));
     desired = player.hullAngle + clampedRelative;
@@ -1517,53 +648,210 @@ function update(dt){
     if(keys['arrowright']) dummy.hullAngle += 1.6*dt*dTurnMod;
     let mv=0;
     if(keys['arrowup']) mv=1; else if(keys['arrowdown']) mv=-1;
-    dummy.x += Math.cos(dummy.hullAngle)*mv*dummy.stats.maxSpeed*SPEED_PX_FACTOR*dt*dSpeedMod;
-    dummy.y += Math.sin(dummy.hullAngle)*mv*dummy.stats.maxSpeed*SPEED_PX_FACTOR*dt*dSpeedMod;
+    const dAccel   = dummy.stats.accel * dSpeedMod;
+    const dBrake   = dummy.stats.brake * dSpeedMod;
+    const dTarget  = mv * dummy.stats.maxSpeed * SPEED_PX_FACTOR * dSpeedMod * fireMul(dummy);
+    dummy.speed = dummy.speed || 0;
+    if(mv === 0){
+      const decel = dBrake * 1.8 * dt;
+      if(dummy.speed > 0) dummy.speed = Math.max(0, dummy.speed - decel);
+      else if(dummy.speed < 0) dummy.speed = Math.min(0, dummy.speed + decel);
+    } else {
+      dummy.speed += clamp(dTarget - dummy.speed, -dBrake*dt, dAccel*dt);
+    }
+    dummy.x += Math.cos(dummy.hullAngle)*dummy.speed*dt;
+    dummy.y += Math.sin(dummy.hullAngle)*dummy.speed*dt;
     resolveFullCoverCollisions(dummy);
     advanceTracks(dummy, dummy.x-d0x, dummy.y-d0y, norm(dummy.hullAngle-d0a));
   }
+  if(dummy.immobT<=0){ dummy.immobT=0; dummy.trackBroken=false; }
   dummy.x = Math.max(40, Math.min(canvas.width-40, dummy.x));
   dummy.y = Math.max(40, Math.min(canvas.height-40, dummy.y));
   dummy.turretSwing += dt*0.6;
-  dummy.turretAngle = dummy.hullAngle + Math.sin(dummy.turretSwing)*0.9;
+  const relSwing = Math.max(-dummy.traverseLimit, Math.min(dummy.traverseLimit, Math.sin(dummy.turretSwing)*0.9));
+  dummy.turretAngle = norm(dummy.hullAngle + relSwing);
+
+  // keep every tank from overlapping its neighbours (player vs dummy, future allies/enemies)
+  resolveTankCollisions();
 
   entities.forEach(e=>{
     // invulnerable test-rig targets (dummy) never lose hp — DoT, pens, ammo detonations all no-op
     const invuln = (e.id==='dummy' && dummy.invuln);
-    if(e.dotT>0 && !invuln){ e.dotT -= dt; e.hp = Math.max(0, e.hp - 6*dt); }
-    if(e.hp<=0 && !e._dead){ e._dead=true; pushLog(`${e.id==='player'?'玩家':e.id} 已摧毁 — 按 RESET 重来`,'CRIT'); }
+    // 弹药故障排障窗口：上次命中弹药架后倒计时；窗口结束则清空命中计数
+    if(e.ammoFaultT>0){ e.ammoFaultT -= dt; if(e.ammoFaultT<=0){ e.ammoFaultT=0; e.ammoFaultHits=0; } }
+    // 起火：DOT 伤害 + 燃烧/浓烟视觉发射
+    if(e.dotT>0 && !invuln){ e.dotT -= dt; e.hp = Math.max(0, e.hp - 6*dt); if(e.dotT<=0) e.dotT=0; }
+    // 起火特效：已摧毁的坦克持续燃烧；存活坦克在 fireT 时间内燃烧
+    if(e.hp<=0 && e._dead){
+      e.fireT = Math.max(e.fireT, 2);
+      emitTankFire(e);
+    } else if(e.fireT>0){
+      e.fireT -= dt; if(e.fireT<=0) e.fireT=0; else emitTankFire(e);
+    }
+    // 弹药架殉爆：一次性生成爆炸 + 掀飞炮塔视觉
+    if(e.ammoBlew && !e._blowFx){ e._blowFx = true; spawnAmmoBlowFx(e); }
+    // 履带被击断：一次性生成破片/火花视觉
+    if(e.trackBroken && !e._trackFx){ e._trackFx = true; spawnTrackBreakFx(e); }
+    if(e.hp<=0 && !e._dead){ e._dead=true; e.hp=0; e.fireT = Math.max(e.fireT, 4); pushLog(`${e.id==='player'?'玩家':e.id} 已摧毁 — 车体起火`,'CRIT'); }
     // auto-revive for the test-rig dummy so you can keep shooting after a kill
     if(e.id==='dummy' && e._dead && dummy.autoRevive){
       e.reviveT = (e.reviveT||0) + dt;
       if(e.reviveT >= 1.5){
         e.hp = e.maxHp; e._dead=false; e.reviveT=0;
         e.immobT=0; e.dotT=0; e.fireDebuffT=0;
+        e.fireT=0; e.ammoFaultT=0; e.ammoFaultHits=0; e.trackBroken=false;
+        e.ammoBlew=false; e._blowFx=false; e._trackFx=false;
         pushLog('靶车自动复活 — 满血','COVER');
       }
     }
   });
 
-  tracers.forEach(t=>t.life-=dt); tracers = tracers.filter(t=>t.life>0);
+  // 炮弹飞行动画：按坦克炮弹飞行速度逐段推进
+  shells.forEach(s=>{
+    s.t += s.speed * dt;
+    while(s.segIdx < s.segs.length){
+      const seg = s.segs[s.segIdx];
+      const len = Math.hypot(seg.x2-seg.x1, seg.y2-seg.y1) || 1;
+      if(s.t < len) break;
+      s.t -= len;
+      s.segIdx++;
+      // 越过弹着点（进入反射段起点）→ 触发跳弹火花
+      if(s.segIdx === 1 && s.bounce && !s.bounceSpawned){
+        s.bounceSpawned = true;
+        bounceFx.push({ x: s.bounce.x, y: s.bounce.y, life:0.5, angle: s.bounce.angle });
+      }
+    }
+    if(s.segIdx >= s.segs.length){
+      if(!s.arrived){
+        s.arrived = true;
+        if(s.impact) impacts.push({ x: s.impact.x, y: s.impact.y, life:0.4, color: s.impact.color });
+        // 炮弹到达命中点：施加延迟的伤害/模块效果并输出命中日志（此前不产生任何效果）
+        if(s.log){
+          const li = s.log();
+          if(li && li.text) pushLog(li.text, li.cls || '');
+        }
+      }
+    }
+  });
+  shells = shells.filter(s => s.segIdx < s.segs.length);
   impacts.forEach(t=>t.life-=dt); impacts = impacts.filter(t=>t.life>0);
   bounceFx.forEach(t=>t.life-=dt); bounceFx = bounceFx.filter(t=>t.life>0);
+
+  // fantasy combat effects timers
+  updateFx(dt);
 
   updateSolution();
   updateHud();
 }
 
 function updateHud(){
-  document.getElementById('pHpBar').style.width = (player.hp/player.stats.maxHp*100)+'%';
-  document.getElementById('pHpVal').textContent = player.hp.toFixed(0);
-  document.getElementById('pSpeedVal').textContent = tankKmh(player)+' km/h';
   document.getElementById('eHpBar').style.width = (dummy.hp/dummy.maxHp*100)+'%';
   document.getElementById('eHpVal').textContent = dummy.hp.toFixed(0);
   document.getElementById('eStatus').textContent =
-    dummy.hp<=0 ? '已摧毁' : dummy.immobT>0 ? `履带损坏 (${dummy.immobT.toFixed(1)}s)` : dummy.dotT>0 ? '起火中' : '正常';
+    dummy.hp<=0 ? (dummy.ammoBlew?'弹药库殉爆':'已摧毁')
+    : dummy.immobT>0 ? `履带损坏 (${dummy.immobT.toFixed(1)}s)`
+    : (dummy.dotT>0 || dummy.fireT>0) ? '起火中'
+    : dummy.ammoFaultHits>0 ? `弹药故障排障 (${dummy.ammoFaultT.toFixed(1)}s)`
+    : '正常';
   const rf = document.getElementById('reloadFill');
   rf.style.width = (100 - (player.reloadT/player.stats.reload*100)) + '%';
 }
 
 // ---------- draw ----------
+// 履带被击断的俯视表现：擦除断开段 + 撕裂金属残端 + 脱落履带节。
+// 所有断链效果被限制在"履带带条"范围内（车体边缘之外），不再侵入车体表面。
+function drawBrokenTracks(t){
+  const L = t.hullLen/2, W = t.hullWid/2;
+  const tw = t.trackWidth || 8;
+  const off = t.trackOffset || 0;
+  const gapX = L*0.45;
+  const innerY = W + off + 1;   // 履带内侧边缘（车体之外固定空出 1px）
+  const outerY = W + tw + off + 1; // 履带外侧边缘
+  ctx.save();
+  ctx.translate(t.x, t.y);
+  ctx.rotate(t.hullAngle);
+  for(const dir of [-1,1]){
+    const y0 = Math.min(innerY*dir, outerY*dir);
+    const y1 = Math.max(innerY*dir, outerY*dir);
+    // 擦除断开处的履带段（露出地面，仅限履带带条）
+    ctx.fillStyle = 'rgba(16,17,13,1)';
+    ctx.fillRect(gapX - tw*1.1, y0, tw*2.2, y1-y0);
+    // 撕裂的金属残端（锯齿状，全部在带条内）
+    ctx.strokeStyle = 'rgba(150,140,110,0.9)'; ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(gapX - tw*1.0, y0 + dir*tw*0.15);
+    ctx.lineTo(gapX - tw*0.2, y0 + dir*tw*0.65);
+    ctx.lineTo(gapX + tw*0.4, y0 + dir*tw*1.0);
+    ctx.lineTo(gapX + tw*1.0, y0 + dir*tw*1.25);
+    ctx.stroke();
+    // 脱落的履带节（悬垂在断裂处带条外侧）
+    const hangY = outerY*dir + dir*tw*0.9;
+    ctx.strokeStyle = paintShade(t.color, -58); ctx.lineWidth = tw*0.9; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(gapX - tw*1.2, hangY); ctx.lineTo(gapX + tw*0.3, hangY); ctx.stroke();
+    ctx.strokeStyle = paintShade(t.color, -12); ctx.lineWidth = 1.2; ctx.setLineDash([3,4]); ctx.lineDashOffset = -((t.trackPhase||0)%7);
+    ctx.beginPath(); ctx.moveTo(gapX - tw*1.2, hangY); ctx.lineTo(gapX + tw*0.3, hangY); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+// 弹药架殉爆后的焦黑车体
+function drawCharredHull(t){
+  const hc = polyCorners(t.x,t.y,t.hullAngle, hullPoly(t));
+  ctx.beginPath();
+  ctx.moveTo(hc[0].x,hc[0].y);
+  for(let i=1;i<hc.length;i++) ctx.lineTo(hc[i].x,hc[i].y);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(18,16,12,0.6)';
+  ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  const r1 = rotate(6, 2, t.hullAngle);
+  ctx.beginPath(); ctx.arc(t.x+r1.x, t.y+r1.y, t.hullWid*0.32, 0, TAU); ctx.fill();
+  const r2 = rotate(-10, 7, t.hullAngle);
+  ctx.beginPath(); ctx.arc(t.x+r2.x, t.y+r2.y, t.hullWid*0.22, 0, TAU); ctx.fill();
+}
+// 起火坦克的炽热辉光（叠加在车体上）
+function drawFireGlow(t){
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const W = t.hullWid*0.5;
+  const ex = engineLocalX(t);
+  const gx = t.x + Math.cos(t.hullAngle)*(ex*0.8);
+  const gy = t.y + Math.sin(t.hullAngle)*(ex*0.8);
+  const flick = 0.7 + Math.random()*0.3;
+  const grad = ctx.createRadialGradient(gx,gy,0, gx,gy,W*1.3);
+  grad.addColorStop(0,   `rgba(255,150,45,${0.34*flick})`);
+  grad.addColorStop(0.55,`rgba(255,110,35,${0.16*flick})`);
+  grad.addColorStop(1,   'rgba(255,90,30,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(gx, gy, W*1.3, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+// draw helpers for explosions / turret flights / fx particles live in js/tank_fx.js —
+// drawExplosions(ctx), drawTurretFlights(ctx), drawFxParticles(ctx)
+
+// 炮弹飞行动画的渲染：发光弹头 + 短尾焰 + 弹道轨迹
+function drawShells(){
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for(const s of shells){
+    const seg = s.segs[Math.min(s.segIdx, s.segs.length-1)];
+    const len = Math.hypot(seg.x2-seg.x1, seg.y2-seg.y1) || 1;
+    const frac = Math.min(1, s.t / len);
+    const sx = seg.x1 + (seg.x2-seg.x1)*frac;
+    const sy = seg.y1 + (seg.y2-seg.y1)*frac;
+    const ux = (seg.x2-seg.x1)/len, uy = (seg.y2-seg.y1)/len;
+    // 弹道尾迹（沿飞行方向）
+    ctx.strokeStyle = 'rgba(255,225,150,0.55)'; ctx.lineWidth = 2.5; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(sx-ux*16, sy-uy*16); ctx.lineTo(sx, sy); ctx.stroke();
+    // 弹头本体（光晕 + 核心亮点）
+    ctx.fillStyle = 'rgba(255,240,200,0.9)';
+    ctx.beginPath(); ctx.arc(sx, sy, 3.2, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.beginPath(); ctx.arc(sx, sy, 1.4, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawCover(cov){
   const tier = COVER_TIERS[cov.tier];
   const c = partCorners(cov.x,cov.y,cov.angle, cov.w/2, cov.h/2);
@@ -1583,7 +871,7 @@ function drawCover(cov){
 function shade(hex, pct){ return paintShade(hex, pct); }
 // rolling tank tracks under the hull, driven by t.trackPhase (accumulated in update()).
 function drawTracks(t){
-  paintTracks(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 1, t.color, t.trackPhase||0);
+  paintTracks(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 1, t.color, t.trackPhase||0, { trackWidth: t.trackWidth || 8, trackOffset: t.trackOffset || 0 });
 }
 // hull top-down paint.
 function renderHullTexture(t){
@@ -1591,7 +879,7 @@ function renderHullTexture(t){
 }
 // turret top-down paint.
 function renderTurretTexture(cx, cy, angle, t){
-  paintPartTexture(ctx, turretPoly(t).verts, cx, cy, angle, 1, t.color, 'turret', { detail:true });
+  paintPartTexture(ctx, turretPoly(t).verts, cx, cy, angle, 1, t.color, 'turret', { detail:true, heightClass: t.heightClass });
 }
 // local bounding box of a polygon part (mvp local helper; shared impl lives in tank_paint.js)
 function polyBounds(poly){
@@ -1618,7 +906,11 @@ function drawTank(t){
   ctx.strokeStyle = t.color; ctx.lineWidth=4;
   ctx.beginPath(); ctx.moveTo(hc[0].x,hc[0].y); ctx.lineTo(hc[1].x,hc[1].y); ctx.lineTo(hc[2].x,hc[2].y); ctx.stroke();
 
+  // 履带被击断：断开处 + 脱落履带节 + 撕裂金属
+  if(t.trackBroken) drawBrokenTracks(t);
+
   // turret ring (on the hull, under the turret)
+  if(!t.ammoBlew){
   ctx.save();
   ctx.translate(turCx, turCy);
   ctx.strokeStyle = shade(t.color, -12); ctx.lineWidth = 1.5;
@@ -1626,9 +918,14 @@ function drawTank(t){
   ctx.beginPath(); ctx.arc(0, 0, t.turWid*0.5, 0, TAU); ctx.stroke();
   ctx.setLineDash([]);
   ctx.restore();
+  }
 
+   // 弹药架殉爆后炮塔被掀飞（飞头），炮塔/炮管全部不再绘制；车体焦黑 + 炽热
+   if(t.ammoBlew){ drawCharredHull(t); if(t.fireT>0) drawFireGlow(t); }
+   if(!t.ammoBlew){
    // turret shadow projected onto the hull deck (offset up-left to simulate overhead light)
-   paintTurretShadow(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1, -3, -2);
+   if(t.fireT>0) drawFireGlow(t);
+   paintTurretShadow(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1, 7, 9);
 
    const structureAngle = superstructureAngle(t);
    const tPoly = turretPoly(t);
@@ -1643,7 +940,8 @@ function drawTank(t){
   ctx.strokeStyle = t.color; ctx.lineWidth=3;
   ctx.beginPath(); ctx.moveTo(tc[0].x,tc[0].y); ctx.lineTo(tc[1].x,tc[1].y); ctx.stroke();
 
-  if (!t.hasTurret) {
+  // 炮塔转动射界：±traverseLimit 左右极限射线（仅当射界 < 180° 时有限制；180° = 360° 全向旋转）
+  if(t.traverseLimit < Math.PI){
     ctx.strokeStyle = 'rgba(255,180,84,0.32)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4,4]);
@@ -1656,25 +954,14 @@ function drawTank(t){
     ctx.setLineDash([]);
   }
 
-   // Barrel: extends from front edge of the turret out to the muzzle length.
-   // Rendered with the same detail as the designer (tube + highlight + bore evacuator + muzzle brake).
+   // Barrel: 炮管根部接在炮塔前缘（=旋转中心 + 前缘偏移 turretFrontDist），长度按设计器口径
+   // = 炮塔长 × (len/100)。与 gunRoot() 完全同轴，炮塔转动时根部随前缘一起走，不再从炮塔中心/尾部伸出。
    const barrelRayDx = Math.cos(t.turretAngle), barrelRayDy = Math.sin(t.turretAngle);
-   const tPolyEdges = polyEdges(tc, tPoly);
-   let barrelStartT = 0;
-   for(const e of tPolyEdges){
-     // ray from turret center along barrel dir; edge endpoints in world
-     const ax = e.a.x - turCx, ay = e.a.y - turCy;
-     const bx = e.b.x - turCx, by = e.b.y - turCy;
-     const ex = bx-ax, ey = by-ay;
-     const denom = barrelRayDx*ey - barrelRayDy*ex;
-     if(Math.abs(denom) < 1e-9) continue;
-     const s = (ax*ey - ay*ex) / denom;
-     if(s > barrelStartT) barrelStartT = s;
-   }
-   barrelStartT = Math.max(0, barrelStartT - 0.5); // start right at turret front edge
    const bSpec = t.barrel || { len: 120, width: 18, muzzle: 'none', evacPos: 55 };
-   const barrelLen = t.turLen * ((bSpec.len || 120) / 100);
-   const baseX = turCx + barrelRayDx*barrelStartT, baseY = turCy + barrelRayDy*barrelStartT;
+   const barrelPct = Math.max(0, Math.min(3, (bSpec.len || 120) / 100));
+   const barrelLen = t.turLen * barrelPct;
+   const frontOff = turretFrontDist(t);
+   const baseX = turCx + barrelRayDx*frontOff, baseY = turCy + barrelRayDy*frontOff;
    const endX = baseX + barrelRayDx*barrelLen, endY = baseY + barrelRayDy*barrelLen;
    const barrelWid = Math.max(3, t.turWid * ((bSpec.width || 18)/100) * 0.5);
    const perpX = -barrelRayDy, perpY = barrelRayDx;
@@ -1687,21 +974,43 @@ function drawTank(t){
    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = Math.max(1, barrelWid*0.4);
    ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(endX, endY); ctx.stroke();
 
-   // bore evacuator bulge at configured position
-   if(bSpec.evacPos > 0){
-      const ex = baseX + barrelRayDx*(bSpec.evacPos/100)*barrelLen;
-      const ey = baseY + barrelRayDy*(bSpec.evacPos/100)*barrelLen;
+   // bore evacuator bulge at configured position (styles: none/ring/bulb/slotted/long)
+   const evc = (bSpec.evac && bSpec.evac.style) ? bSpec.evac
+     : (bSpec.evacPos !== undefined ? { style: bSpec.evacPos > 0 ? 'ring' : 'none', pos: bSpec.evacPos } : { style: 'none', pos: 30 });
+   if(evc.style && evc.style !== 'none'){
+      const ex = baseX + barrelRayDx*(evc.pos/100)*barrelLen;
+      const ey = baseY + barrelRayDy*(evc.pos/100)*barrelLen;
       const evacR = barrelWid*0.9;
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = Math.max(2, barrelWid*0.35);
-      ctx.beginPath();
-      ctx.moveTo(ex + perpX*evacR, ey + perpY*evacR);
-      ctx.lineTo(ex - perpX*evacR, ey - perpY*evacR);
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = Math.max(1, barrelWid*0.2);
-      ctx.beginPath();
-      ctx.moveTo(ex + perpX*evacR*0.7, ey + perpY*evacR*0.7);
-      ctx.lineTo(ex - perpX*evacR*0.7, ey - perpY*evacR*0.7);
-      ctx.stroke();
+      if(evc.style === 'ring' || evc.style === 'slotted'){
+         ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = Math.max(2, barrelWid*0.35);
+         ctx.beginPath();
+         ctx.moveTo(ex + perpX*evacR, ey + perpY*evacR);
+         ctx.lineTo(ex - perpX*evacR, ey - perpY*evacR);
+         ctx.stroke();
+         ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = Math.max(1, barrelWid*0.2);
+         ctx.beginPath();
+         ctx.moveTo(ex + perpX*evacR*0.7, ey + perpY*evacR*0.7);
+         ctx.lineTo(ex - perpX*evacR*0.7, ey - perpY*evacR*0.7);
+         ctx.stroke();
+         if(evc.style === 'slotted'){
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.fillRect(ex - barrelRayDx*barrelWid*0.5 - perpX*evacR*0.35, ey - barrelRayDy*barrelWid*0.5 - perpY*evacR*0.35, barrelWid, evacR*0.7);
+            ctx.fillRect(ex - barrelRayDx*barrelWid*0.5 + perpX*evacR*0.15, ey - barrelRayDy*barrelWid*0.5 + perpY*evacR*0.15, barrelWid, evacR*0.7);
+         }
+      } else if(evc.style === 'bulb'){
+         ctx.save(); ctx.translate(ex, ey); ctx.rotate(t.turretAngle);
+         ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = Math.max(1, barrelWid*0.2);
+         ctx.beginPath(); ctx.ellipse(0, 0, barrelWid*0.6, barrelWid*0.95, 0, 0, TAU);
+         ctx.fill(); ctx.stroke();
+         ctx.restore();
+      } else if(evc.style === 'long'){
+         ctx.save(); ctx.translate(ex, ey); ctx.rotate(t.turretAngle);
+         ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = Math.max(1, barrelWid*0.2);
+         const L = barrelLen*0.12;
+         ctx.fillRect(-barrelWid*0.35, -barrelWid*0.75, L, barrelWid*1.5);
+         ctx.strokeRect(-barrelWid*0.35, -barrelWid*0.75, L, barrelWid*1.5);
+         ctx.restore();
+      }
    }
 
    // muzzle brake at the end
@@ -1725,6 +1034,17 @@ function drawTank(t){
             ctx.lineTo(bx - perpX*bw, by - perpY*bw);
             ctx.stroke();
          }
+      } else if(bSpec.muzzle === 'multi'){
+         const bw = barrelWid*1.3;
+         for(const off of [-0.75, -0.25, 0.25]){
+            const bx = mx + barrelRayDx*barrelWid*off;
+            const by = my + barrelRayDy*barrelWid*off;
+            ctx.lineWidth = barrelWid*0.5;
+            ctx.beginPath();
+            ctx.moveTo(bx + perpX*bw, by + perpY*bw);
+            ctx.lineTo(bx - perpX*bw, by - perpY*bw);
+            ctx.stroke();
+         }
       } else if(bSpec.muzzle === 'slug'){
          ctx.lineWidth = barrelWid*1.1;
          ctx.beginPath(); ctx.arc(mx, my, barrelWid*0.7, t.turretAngle-Math.PI*0.4, t.turretAngle+Math.PI*0.4); ctx.stroke();
@@ -1736,12 +1056,50 @@ function drawTank(t){
             ctx.lineTo(mx + Math.cos(a)*barrelWid*0.7, my + Math.sin(a)*barrelWid*0.7);
             ctx.stroke();
          }
+      } else if(bSpec.muzzle === 'pepperpot'){
+         ctx.lineWidth = barrelWid*1.2;
+         ctx.beginPath(); ctx.arc(mx, my, barrelWid*0.7, 0, TAU); ctx.stroke();
+         ctx.lineWidth = Math.max(1, barrelWid*0.25);
+         for(let i=0;i<4;i++){
+            const a = t.turretAngle - Math.PI*0.5 + i*(Math.PI/2);
+            ctx.beginPath();
+            ctx.moveTo(mx + Math.cos(a)*barrelWid*0.7, my + Math.sin(a)*barrelWid*0.7);
+            ctx.lineTo(mx + Math.cos(a)*barrelWid*0.45, my + Math.sin(a)*barrelWid*0.45);
+            ctx.stroke();
+         }
+      } else if(bSpec.muzzle === 'heavy_square'){
+         ctx.lineWidth = barrelWid*2.0;
+         ctx.beginPath();
+         ctx.moveTo(mx + perpX*barrelWid*1.1, my + perpY*barrelWid*1.1);
+         ctx.lineTo(mx - perpX*barrelWid*1.1, my - perpY*barrelWid*1.1);
+         ctx.stroke();
+      } else if(bSpec.muzzle === 'cylinder'){
+         ctx.save(); ctx.translate(mx, my); ctx.rotate(t.turretAngle);
+         ctx.fillStyle = 'rgba(0,0,0,0.4)';
+         ctx.fillRect(-barrelWid*0.8, -barrelWid*0.95, barrelWid*1.6, barrelWid*1.9);
+         ctx.fillStyle = 'rgba(20,20,20,0.7)';
+         ctx.fillRect(-barrelWid*0.6, -barrelWid*1.1, barrelWid*1.2, barrelWid*0.35);
+         ctx.fillRect(-barrelWid*0.6, barrelWid*0.75, barrelWid*1.2, barrelWid*0.35);
+         ctx.restore();
       }
    }
+   // 炮管护套 jacket: thicker rectangle sleeve over part of the barrel (len>0 → active)
+   const jk = bSpec.jacket || { len: 0, pos: 45 };
+   if((jk.len || 0) > 0){
+      const jkS = Math.max(0, Math.min(90, jk.pos || 45))/100*barrelLen;
+      const jkE = Math.min(100, (jk.pos || 45) + (jk.len || 0))/100*barrelLen;
+      const ax = baseX + barrelRayDx*jkS, ay = baseY + barrelRayDy*jkS;
+      ctx.save(); ctx.translate(ax, ay); ctx.rotate(t.turretAngle);
+      ctx.fillStyle = shade(t.color, -18); ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
+      ctx.fillRect(0, -barrelWid*0.85, Math.max(1, jkE-jkS), barrelWid*1.7);
+      ctx.strokeRect(0, -barrelWid*0.85, Math.max(1, jkE-jkS), barrelWid*1.7);
+      ctx.restore();
+   }
    ctx.lineCap = 'butt';
+   } // end turret/barrel block (skipped when the ammo rack blew the turret off)
 
   // ---- draw attachments ----
-  t.attachments.forEach(att => {
+  if(!t.ammoBlew) t.attachments.forEach(att => {
     let basePos = { x: t.x, y: t.y }, baseAngle = t.hullAngle;
     if (att.bindTo.startsWith('turret')) {
       basePos = { x: turCx, y: turCy };
@@ -1770,9 +1128,19 @@ function drawTank(t){
     ctx.restore();
   });
 
-  // height-class tag
-  ctx.fillStyle = t.color; ctx.font='10px "JetBrains Mono", monospace';
-  ctx.fillText(t.heightClass==='heavy' ? '重坦' : '中坦', t.x-10, t.y+t.hullWid/2+16);
+  // Tank Health Bar (under tank, hidden when full HP)
+  const maxHp = t.stats?.maxHp || t.maxHp || 100;
+  if(t.hp < maxHp && t.hp > 0){
+    const barW = 44, barH = 5;
+    const bx = t.x - barW/2, by = t.y + (t.hullWid||38)/2 + 14;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(bx-1, by-1, barW+2, barH+2);
+    const hpPct = Math.max(0, Math.min(1, t.hp / maxHp));
+    ctx.fillStyle = t.team === 'player' ? '#7ed957' : '#ff5c4d';
+    ctx.fillRect(bx, by, barW * hpPct, barH);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
+    ctx.strokeRect(bx, by, barW, barH);
+  }
 }
 
 function drawRange(){
@@ -1811,34 +1179,14 @@ function draw(){
   for(let x=0;x<canvas.width;x+=40){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
   for(let y=0;y<canvas.height;y+=40){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
 
-  covers.forEach(drawCover);
+covers.forEach(drawCover);
   if(rangeOn) drawRange();
   entities.forEach(drawTank);
+  drawShells();
+  drawExplosions(ctx);
+  drawTurretFlights(ctx);
+  drawFxParticles(ctx);
 
-   tracers.forEach(t=>{
-     const alpha = Math.max(0, t.life/(t.ricochet?0.35:0.18));
-     if(t.ricochet){
-       // Reflection-style gradient: opaque at the bounce origin, fading to transparent at the tip.
-       // Drawn as a single tapered stroke using a linear gradient + a glow pass.
-       const grad = ctx.createLinearGradient(t.x1,t.y1, t.x2,t.y2);
-       grad.addColorStop(0, `rgba(140,210,255,${0.9*alpha})`);
-       grad.addColorStop(0.4, `rgba(100,180,240,${0.5*alpha})`);
-       grad.addColorStop(1, `rgba(80,160,220,0)`);
-       // glow pass
-       ctx.strokeStyle = `rgba(120,200,255,${0.25*alpha})`; ctx.lineWidth=6;
-       ctx.beginPath(); ctx.moveTo(t.x1,t.y1); ctx.lineTo(t.x2,t.y2); ctx.stroke();
-       // core gradient line
-       ctx.strokeStyle = grad; ctx.lineWidth=3;
-       ctx.beginPath(); ctx.moveTo(t.x1,t.y1); ctx.lineTo(t.x2,t.y2); ctx.stroke();
-       // bright leading dot at the bounce origin
-       ctx.fillStyle = `rgba(180,230,255,${alpha})`;
-       ctx.beginPath(); ctx.arc(t.x1,t.y1,3,0,TAU); ctx.fill();
-     } else {
-       ctx.strokeStyle = `rgba(255,180,84,${alpha})`;
-       ctx.lineWidth=2;
-       ctx.beginPath(); ctx.moveTo(t.x1,t.y1); ctx.lineTo(t.x2,t.y2); ctx.stroke();
-     }
-   });
   impacts.forEach(im=>{
     const r = (0.4-im.life)*40;
     ctx.strokeStyle = im.color; ctx.globalAlpha = Math.max(0,im.life/0.4);
@@ -1867,26 +1215,18 @@ function draw(){
      ctx.globalAlpha = 1;
    });
 
-  // ---- aim line + dispersion cones ----
+  // ---- aim line + dispersion cones (瞄准线保持虚线；发射炮线已删除，炮弹用飞行动画呈现) ----
   const gr = gunRoot(player);
   const aimA = player.turretAngle;
-  const aimFar = { x: gr.x + Math.cos(aimA)*1400, y: gr.y + Math.sin(aimA)*1400 };
-  // The aim line is clipped at the first FULL cover it crosses — a solid wall blocks line of sight
-  // whether or not a target is behind it, so the dashed aim ray shouldn't visually pass through it.
-  const aimCovers = findCoversOnPath(gr.x,gr.y, aimFar.x,aimFar.y);
-  const firstSolid = aimCovers.find(h => COVER_TIERS[h.cover.tier].mode==='solid');
-  const aimEnd = firstSolid ? firstSolid.point : { x: gr.x+Math.cos(aimA)*900, y: gr.y+Math.sin(aimA)*900 };
+  const aimU = Math.cos(aimA), aimV = Math.sin(aimA);
 
-  // aim line (center, no spread)
-  ctx.strokeStyle='rgba(255,180,84,0.3)'; ctx.setLineDash([5,5]); ctx.lineWidth=1;
-  ctx.beginPath(); ctx.moveTo(gr.x,gr.y); ctx.lineTo(aimEnd.x,aimEnd.y); ctx.stroke();
+  // aim line (center, no spread) — faint dashed reference along the same ray
+  ctx.strokeStyle='rgba(255,180,84,0.3)'; ctx.setLineDash([8,8]); ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(gr.x,gr.y); ctx.lineTo(gr.x+aimU*900, gr.y+aimV*900); ctx.stroke();
 
-  // dispersion cones — two nested cones drawn as their left/right boundary rays:
-  //   • live cone:   turretAngle ± current bloom sigma (grows when moving/traversing, shrinks when settled)
-  //   • final cone:  turretAngle ± worst-case sigma (the dispersion you can never exceed)
-  // Each cone is a pair of dashed rays, so "2 dashed lines" = 2 cones (live + final reference).
+  // dispersion cones — shortened boundaries (length 250px) to keep UI clean
   function drawCone(sigma, color, dash){
-    const L = 900;
+    const L = 250;
     ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash(dash);
     ctx.beginPath();
     ctx.moveTo(gr.x,gr.y);

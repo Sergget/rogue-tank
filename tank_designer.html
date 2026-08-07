@@ -66,9 +66,13 @@
   .armor-row{display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:11px;}
   .armor-row .swatch{width:10px;height:10px;display:inline-block;border:1px solid rgba(255,255,255,0.3);}
   .edge-list{max-height:120px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:10px;display:flex;flex-direction:column;gap:3px;}
-  .edge-row{display:flex;justify-content:space-between;align-items:center;padding:2px 4px;background:rgba(255,255,255,0.02);}
+  .edge-row{display:flex;justify-content:space-between;align-items:center;padding:2px 4px;background:rgba(255,255,255,0.02);cursor:pointer;}
+  .edge-row:hover{background:rgba(255,180,84,0.08);}
+  .edge-row.active{background:rgba(255,180,84,0.15);outline:1px solid var(--amber);}
   .edge-row.seam{background:rgba(255,180,84,0.05);}
   .edge-row .ename{color:var(--text-dim);}
+  .edge-row .face-dot{display:inline-block;width:8px;height:8px;border:1px solid rgba(255,255,255,0.3);margin-right:4px;vertical-align:-1px;}
+  .edge-row .armor-val{color:var(--amber-dim);margin-right:2px;font-size:9px;}
   #json-out,#json-in{
     width:100%;height:130px;background:#000;color:var(--amber);
     font-family:'JetBrains Mono',monospace;font-size:10px;border:1px solid var(--line);
@@ -79,11 +83,27 @@
   .legend span.sw{display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px;border:1px solid rgba(255,255,255,0.3);}
   #selInfo{font-size:11px;color:var(--text-dim);margin-bottom:6px;}
   #selInfo b{color:var(--amber);}
+  #top-bar{
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    background:rgba(26,29,21,0.92); border:1px solid var(--line);
+    padding:8px 16px; display:flex; align-items:center; gap:12px;
+    z-index:20; box-shadow:0 4px 12px rgba(0,0,0,0.5);
+    font-family:'JetBrains Mono',monospace; font-size:11px;
+  }
+</head>
 </style>
 </head>
 <body>
 <div id="app">
   <div id="stage-wrap">
+    <div id="top-bar">
+      <span style="color:var(--amber-dim); font-weight:700;">TANK SELECT</span>
+      <select id="tankListSelect" style="width:130px;"></select>
+      <button id="tankListLoadBtn">载入</button>
+      <button id="tankListSaveBtn" class="active">保存</button>
+      <button id="tankListNewBtn">新增</button>
+      <button id="tankListDeleteBtn" class="danger">删除</button>
+    </div>
     <canvas id="editor-canvas"></canvas>
     <div id="hint"></div>
     <div id="coordReadout">局部坐标: --</div>
@@ -95,11 +115,13 @@
     <div class="section">
       <h3>基础参数 Base</h3>
       <div class="prop-row"><span class="lbl">名称 ID</span><input type="text" id="t-id" class="wide" value="new_tank"></div>
-      <div class="prop-row"><span class="lbl">有炮塔 Has Turret</span><input type="checkbox" id="t-hasTurret" checked></div>
-      <div class="prop-row"><span class="lbl">左右射界 (°)</span><input type="number" id="t-traverse" value="15"></div>
-      <div class="prop-row"><span class="lbl">最大速度</span><input type="number" id="t-maxSpeed" value="120"></div>
+      <div class="prop-row"><span class="lbl">左右射界 (°)</span><input type="number" id="t-traverse" value="180" min="0" max="180" step="5"></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">180° = 炮塔可 360° 全向旋转；低于 180° 时炮塔只能在车体中线左右各 ±射界 角度内转动</div>
+      <div class="prop-row"><span class="lbl">最大速度 px/s</span><input type="number" id="t-maxSpeed" value="120"></div>
       <div class="prop-row"><span class="lbl">车体转速 rad/s</span><input type="number" id="t-turnRate" value="2.0" step="0.1"></div>
       <div class="prop-row"><span class="lbl">炮塔转速 rad/s</span><input type="number" id="t-turretTurnRate" value="2.2" step="0.1"></div>
+      <div class="prop-row"><span class="lbl">重量 kg (base)</span><input type="number" id="t-weight" value="300" step="10"></div>
+      <div class="prop-row"><span class="lbl">马力 hp (base)</span><input type="number" id="t-enginePower" value="900" step="50"></div>
     </div>
 
     <div class="section">
@@ -108,6 +130,7 @@
       <div class="prop-row"><span class="lbl">穿深 mm</span><input type="number" id="t-penetration" value="120"></div>
       <div class="prop-row"><span class="lbl">单发伤害</span><input type="number" id="t-damage" value="34"></div>
       <div class="prop-row"><span class="lbl">装填 s</span><input type="number" id="t-reload" value="1.3" step="0.1"></div>
+      <div class="prop-row"><span class="lbl">弹速 px/s</span><input type="number" id="t-shellSpeed" value="1200" step="100"></div>
       <div class="prop-row"><span class="lbl">车高等级</span>
         <select id="t-heightClass">
           <option value="medium">中坦 (矮车体)</option>
@@ -139,6 +162,10 @@
         <button id="clearPolyBtn" class="danger">清空当前多边形</button>
         <button id="resetDefaultBtn">重置默认形状</button>
       </div>
+      <div class="btnrow" style="margin-top:8px;">
+        <button id="snapToggleBtn">网格吸附 关</button>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:6px;">Delete/Backspace 删除选中顶点 · 方向键 1px 微调 · Esc 取消选中 · 网格吸附开启后拖动/新增顶点对齐到整数格</div>
     </div>
 
     <div class="section">
@@ -182,62 +209,58 @@
        </div>
        <div class="prop-row"><span class="lbl">长度 (炮塔长%)</span><input type="number" id="barrelLen" value="120" min="60" max="250"></div>
        <div class="prop-row"><span class="lbl">粗细 (炮塔宽%)</span><input type="number" id="barrelWidth" value="18" min="6" max="40"></div>
-       <div class="prop-row"><span class="lbl">制退器样式</span>
-         <select id="barrelMuzzle">
-           <option value="none">无 None</option>
-           <option value="single">单室 Single-baffle</option>
-           <option value="double">双室 Double-baffle</option>
-           <option value="slug">鼠笼式 Slug</option>
-         </select>
-       </div>
-       <div class="prop-row"><span class="lbl">抽烟器位置 (炮管%)</span><input type="number" id="barrelEvac" value="55" min="20" max="80"></div>
+<div class="prop-row"><span class="lbl">制退器样式</span>
+          <select id="barrelMuzzle">
+            <option value="none">无 None</option>
+            <option value="single">单室 Rect-Single</option>
+            <option value="double">双室 Rect-Double</option>
+            <option value="multi">多室 Rect-Multi</option>
+            <option value="slug">开槽笼式 Slot-Cage</option>
+            <option value="pepperpot">多孔胡椒罐 Pepperpot</option>
+            <option value="heavy_square">重型方体 Heavy-Block</option>
+            <option value="cylinder">筒式开缝 Cylinder</option>
+          </select>
+        </div>
+        <div class="prop-row"><span class="lbl">抽烟器样式</span>
+          <select id="barrelEvacStyle">
+            <option value="none">无 None</option>
+            <option value="ring">圆环 Ring</option>
+            <option value="bulb">圆鼓 Bulb</option>
+            <option value="slotted">开槽箍 Slotted</option>
+            <option value="long">长筒 Long</option>
+          </select>
+        </div>
+       <div class="prop-row"><span class="lbl">抽烟器位置 (炮管%)</span><input type="number" id="barrelEvac" value="30" min="0" max="95"></div>
+       <div class="prop-row"><span class="lbl">护套长度 (炮管%)</span><input type="number" id="jacketLen" value="0" min="0" max="100"></div>
+       <div class="prop-row"><span class="lbl">护套位置 (炮管%)</span><input type="number" id="jacketPos" value="45" min="0" max="90"></div>
+       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">护套长度 &gt; 0 时，在炮管上附着比炮管更粗的矩形套筒（热护套/套筒）；0 表示无护套</div>
      </div>
+
+<div class="section">
+       <h3>履带外观 Track Visuals</h3>
+       <div class="prop-row"><span class="lbl">履带宽度 (px)</span><input type="number" id="trackWidthInput" value="8" min="2" max="48"></div>
+       <div class="prop-row"><span class="lbl">履带外扩 (px)</span><input type="number" id="trackOffsetInput" value="0"></div>
+       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">外扩范围随履带宽度联动：可调区间为 [-履带宽度, +履带宽度/2]（负值向内收起，正值向外张开），物理判定不受影响</div>
+      </div>
 
      <div class="section">
-       <h3>车体边（仅编辑侧，另一侧自动镜像） Hull Edges</h3>
+       <h3>装甲分段 Edge Armor</h3>
+       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">每条边可单独归属 前/侧/后 装甲：在下方列表中选择，或在画布上点击边线中点循环切换（镜像侧自动沿用，无需单独设置）</div>
+       <div class="prop-row"><span class="lbl">车体边 Hull</span></div>
        <div class="edge-list" id="hullEdgeList"></div>
+       <div style="height:8px;"></div>
+       <div class="prop-row"><span class="lbl">炮塔边 Turret</span></div>
+       <div class="edge-list" id="turretEdgeList"></div>
+       <div class="prop-row" style="margin-top:8px;">
+         <span class="lbl">旋转中心偏移 dx,dy</span>
+         <span class="mono" id="pivotReadout" style="font-size:11px; color:var(--amber);">8, 0</span>
+       </div>
      </div>
-
-    <div class="section">
-      <h3>炮塔边（仅编辑侧） Turret Edges</h3>
-      <div class="edge-list" id="turretEdgeList"></div>
-      <div class="prop-row" style="margin-top:8px;">
-        <span class="lbl">旋转中心偏移 dx,dy</span>
-        <span class="mono" id="pivotReadout" style="font-size:11px; color:var(--amber);">8, 0</span>
-      </div>
-    </div>
-
-    <div class="section">
-      <h3>tank_list 交互</h3>
-      <div class="prop-row"><span class="lbl">从 tank_list 载入</span>
-        <select id="tankListSelect"></select>
-      </div>
-      <div class="btnrow" style="margin-top:6px;">
-        <button id="tankListLoadBtn">载入所选条目</button>
-        <button id="tankListSaveBtn">保存到 tank_list</button>
-      </div>
-      <div class="hint-text" style="margin-top:6px; font-size:10px; color:var(--text-dim);">「保存到 tank_list」会读取当前 tank_list.json、合并当前设计后下载更新后的文件，请覆盖回项目根目录；tank_mvp.html 即从该文件载入坦克。</div>
-    </div>
-
-    <div class="section">
-      <h3>导出 Export</h3>
-      <div class="btnrow">
-        <button id="exportBtn">导出 JSON</button>
-      </div>
-      <div id="json-out" class="mono"></div>
-    </div>
-
-    <div class="section">
-      <h3>导入 Import</h3>
-      <textarea id="json-in" placeholder="粘贴之前导出的 JSON..."></textarea>
-      <div class="btnrow" style="margin-top:6px;">
-        <button id="loadBtn">载入 Load</button>
-      </div>
-    </div>
   </div>
 </div>
 
 <script src="js/tank_paint.js"></script>
+<script src="js/tank_halfgeom.js"></script>
 <script>
 (() => {
 const canvas = document.getElementById('editor-canvas');
@@ -319,27 +342,32 @@ function defaultTurret(){
 
 // ================= state =================
 let state = {
-   id:'new_tank', hasTurret:true, traverseLimit:15,
+   id:'new_tank', traverseLimit:180,
    maxSpeed:120, turnRate:2.0, turretTurnRate:2.2,
    hp:100, penetration:120, damage:34, reload:1.3, heightClass:'medium',
+   trackWidth: 8, trackOffset: 0,
    hull: defaultHull(),
    turret: defaultTurret(),
-   barrel: { len:120, width:18, muzzle:'none', evacPos:55 }
+   barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 } }
 };
 
-// gun barrel presets: len/% of turret length, width/% of turret width, muzzle brake, evacuator pos/% of barrel
+// gun barrel presets: len/% of turret length, width/% of turret width, muzzle brake,
+// evacuator style + pos/% of barrel, jacket len/% + pos/%
 const BARREL_PRESETS = {
-   standard:    { len:120, width:18, muzzle:'none',   evacPos:55 },
-   long50:      { len:195, width:10, muzzle:'none',   evacPos:62 },
-   shorthowitzer: { len:85, width:28, muzzle:'double', evacPos:0 },
-   cannon:      { len:140, width:16, muzzle:'single', evacPos:48 },
-   longcannon:  { len:220, width:12, muzzle:'double', evacPos:58 },
-   autoloader:  { len:110, width:22, muzzle:'slug',   evacPos:0 }
+   standard:    { len:120, width:18, muzzle:'none',  evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 } },
+   long50:      { len:195, width:10, muzzle:'none',  evac:{ style:'slotted', pos:62 }, jacket:{ len:0, pos:45 } },
+   shorthowitzer: { len:85, width:28, muzzle:'double', evac:{ style:'bulb', pos:35 }, jacket:{ len:0, pos:45 } },
+   cannon:      { len:140, width:16, muzzle:'single', evac:{ style:'ring', pos:48 }, jacket:{ len:0, pos:45 } },
+   longcannon:  { len:220, width:12, muzzle:'double', evac:{ style:'ring', pos:58 }, jacket:{ len:40, pos:50 } },
+   autoloader:  { len:110, width:22, muzzle:'slug',  evac:{ style:'none', pos:0 }, jacket:{ len:0, pos:45 } }
 };
 let mode = 'hull'; // 'hull' | 'turret' | 'pivot' | 'preview'
 let viewScale = 1;
 let drag = null;
 let selected = null; // { poly:'hull'|'turret', index }
+let hoverEdge = null;   // { poly, index } edge under cursor (canvas highlight)
+let selectedEdge = null; // { poly, index, seam:'front'|'rear' } edge chosen in list/canvas
+let snapToGrid = false;
 let previewAngle = 0;
 let trackPhase = 0; // scrolling track animation phase for edit modes (driven at fixed rate)
 const HIT_R = 9, EDGE_HIT_R = 8;
@@ -377,6 +405,17 @@ function findEdgeHit(poly, center, sx, sy){
   }
   return -1;
 }
+// Edge-midpoint hit (used to cycle an edge's armor classification front→side→rear).
+function findEdgeMidpointHit(poly, center, sx, sy){
+  const n = poly.half.length;
+  if(n<2) return -1;
+  for(let i=0;i<n-1;i++){
+    const a = toScreen(center, poly.half[i]), b = toScreen(center, poly.half[i+1]);
+    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+    if(Math.hypot(sx-mx, sy-my) <= EDGE_HIT_R) return i;
+  }
+  return -1;
+}
 
 // ================= mouse interaction =================
 canvas.addEventListener('mousedown', e=>{
@@ -399,17 +438,34 @@ window.addEventListener('mousemove', e=>{
   const {x:sx,y:sy} = getCanvasPos(e);
   updateReadout(sx,sy);
   if(mode==='preview' && !drag){ updatePreviewAim(sx,sy); render(); return; }
-  if(!drag) return;
+  if(!drag){
+    // hover highlight: closest editable half-chain edge under the cursor
+    if(mode==='hull' || mode==='turret'){
+      const poly = state[mode];
+      const center = mode==='hull' ? hullCenter() : turretCenter();
+      const ei = poly.half.length>=2 ? findEdgeHit(poly, center, sx, sy) : -1;
+      const key = ei>=0 ? mode+':'+ei : null;
+      const cur = hoverEdge ? hoverEdge.poly+':'+hoverEdge.index : null;
+      if(key !== cur){
+        hoverEdge = ei>=0 ? { poly:mode, index:ei } : null;
+        render();
+      }
+    }
+    return;
+  }
   if(Math.hypot(sx-drag.downX, sy-drag.downY) > 3) drag.moved = true;
   if(!drag.moved) return;
   if(drag.poly==='pivot'){
     const c = hullCenter();
-    const [lx,ly] = toLocal(c, sx, sy);
-    state.turret.pivot.dx = Math.round(lx); state.turret.pivot.dy = Math.round(ly);
-    document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, ${state.turret.pivot.dy}`;
+    const [lx] = toLocal(c, sx, sy);
+    // pivot is locked to the centerline (axis, y=0): only dx is editable
+    state.turret.pivot.dx = Math.round(lx);
+    state.turret.pivot.dy = 0;
+    document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, 0`;
   } else if(drag.index>=0){
     const center = drag.poly==='hull' ? hullCenter() : turretCenter();
-    const [lx,ly] = toLocal(center, sx, sy);
+    let [lx,ly] = toLocal(center, sx, sy);
+    if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
     state[drag.poly].half[drag.index] = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
     syncSelectedInputs();
   }
@@ -421,9 +477,10 @@ window.addEventListener('mouseup', e=>{
   if(!drag.moved){
     if(drag.poly==='pivot'){
       const c = hullCenter();
-      const [lx,ly] = toLocal(c, sx, sy);
-      state.turret.pivot.dx = Math.round(lx); state.turret.pivot.dy = Math.round(ly);
-      document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, ${state.turret.pivot.dy}`;
+      const [lx] = toLocal(c, sx, sy);
+      state.turret.pivot.dx = Math.round(lx);
+      state.turret.pivot.dy = 0;
+      document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, 0`;
     } else if(drag.index>=0){
       // plain click on an existing vertex: select it for precise editing (no longer deletes on click —
       // use the "删除选中顶点" button instead, so a mis-click doesn't destroy work).
@@ -431,16 +488,34 @@ window.addEventListener('mouseup', e=>{
     } else if(drag.isNew){
       const poly = state[drag.poly];
       const center = drag.poly==='hull' ? hullCenter() : turretCenter();
-      const ei = poly.half.length>=2 ? findEdgeHit(poly, center, sx, sy) : -1;
-      if(ei>=0){
-        setFace(poly.halfFaces, ei, nextFace(getFace(poly.halfFaces, ei)));
+      // clicking an edge MIDPOINT cycles that edge's armor classification (front→side→rear);
+      // this is the quick canvas way to assign 前/侧/后 - use the sidebar lists for explicit picks.
+      const mid = poly.half.length>=2 ? findEdgeMidpointHit(poly, center, sx, sy) : -1;
+      if(mid>=0){
+        const nxt = nextFace(getFace(poly.halfFaces, mid));
+        setFace(poly.halfFaces, mid, nxt);
+        selectedEdge = { poly: drag.poly, index: mid };
+        const lbl = nxt==='front' ? '前' : nxt==='side' ? '侧' : '后';
+        pushHint(`边 #${mid} 装甲 → ${lbl}(${nxt})`);
       } else {
-        const [lx,ly] = toLocal(center, sx, sy);
+        const ei = poly.half.length>=2 ? findEdgeHit(poly, center, sx, sy) : -1;
+        let [lx,ly] = toLocal(center, sx, sy);
+        if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
         if(ly > 2/viewScale){
           pushHint('请在中心线一侧 (y ≤ 0) 绘制，另一侧会自动镜像生成');
         } else {
-          poly.half.push([ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ]);
-          selectVertex(drag.poly, poly.half.length-1);
+          const newPt = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
+          if(ei>=0){
+            // Insert vertex on the clicked segment ei (between v_ei and v_{ei+1})
+            poly.half.splice(ei+1, 0, newPt);
+            const oldFace = getFace(poly.halfFaces, ei);
+            poly.halfFaces.splice(ei, 0, oldFace);
+            selectVertex(drag.poly, ei+1);
+            pushHint(`在边线 #${ei} 上新增顶点 v${ei+1}`);
+          } else {
+            poly.half.push(newPt);
+            selectVertex(drag.poly, poly.half.length-1);
+          }
         }
       }
     }
@@ -460,7 +535,8 @@ canvas.addEventListener('wheel', e=>{
 function updatePreviewAim(sx,sy){
   const tc = turretCenter();
   let ang = Math.atan2(sy-tc.y, sx-tc.x);
-  if(!state.hasTurret){
+  // 射界限制：仅当射界 < 180° 时炮塔受限于车体中线左右 ±射界；180° 表示 360° 全向旋转
+  if(state.traverseLimit < 180){
     const limit = state.traverseLimit * Math.PI/180;
     let rel = Math.atan2(Math.sin(ang), Math.cos(ang));
     rel = Math.max(-limit, Math.min(limit, rel));
@@ -525,7 +601,7 @@ document.getElementById('v-y').addEventListener('input', ()=>{
   state[selected.poly].half[selected.index][1] = v;
   render();
 });
-document.getElementById('deleteVertBtn').addEventListener('click', ()=>{
+function deleteSelectedVertex(){
   if(!selected) return;
   const poly = state[selected.poly];
   if(poly.half.length<=2){ pushHint('每侧至少保留 2 个顶点'); return; }
@@ -538,18 +614,52 @@ document.getElementById('deleteVertBtn').addEventListener('click', ()=>{
   else if(poly.halfFaces.length>0) poly.halfFaces.pop();
   clearSelection();
   render(); renderEdgeLists();
+}
+document.getElementById('deleteVertBtn').addEventListener('click', deleteSelectedVertex);
+// keyboard: Delete/Backspace removes the selected vertex; arrows nudge it 1px; Esc clears selection
+window.addEventListener('keydown', e=>{
+  if(e.key === 'Escape'){
+    clearSelection(); selectedEdge = null;
+    render(); renderEdgeLists();
+    return;
+  }
+  if(selected){
+    if(e.key==='Delete' || e.key==='Backspace'){
+      e.preventDefault(); deleteSelectedVertex(); return;
+    }
+    const step = snapToGrid ? 1 : 0.5;
+    let dx=0, dy=0;
+    if(e.key==='ArrowLeft') dx = -step;
+    else if(e.key==='ArrowRight') dx = step;
+    else if(e.key==='ArrowUp') dy = -step;
+    else if(e.key==='ArrowDown') dy = step;
+    if(dx || dy){
+      e.preventDefault();
+      const p = state[selected.poly].half[selected.index];
+      p[0] = Math.round((p[0]+dx)*10)/10;
+      p[1] = Math.round(Math.min(0, p[1]+dy)*10)/10;
+      syncSelectedInputs(); render();
+    }
+  }
+});
+document.getElementById('snapToggleBtn').addEventListener('click', ()=>{
+  snapToGrid = !snapToGrid;
+  document.getElementById('snapToggleBtn').textContent = snapToGrid ? '网格吸附 开' : '网格吸附 关';
+  document.getElementById('snapToggleBtn').classList.toggle('active', snapToGrid);
+  pushHint(snapToGrid ? '网格吸附已开启：拖动/新增顶点将对齐到整数格' : '网格吸附已关闭');
 });
 
 // ================= mode switching =================
 const HINTS = {
-  hull: '点击空白处依次添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击顶点选中后可在左侧精确输入坐标或删除 · 点击边线中点循环装甲类型',
-  turret: '同车体操作，坐标以炮塔旋转中心为原点，仅编辑 y≤0 一侧，另一侧自动镜像',
-  pivot: '点击或拖动设置炮塔旋转中心（相对车体中心的偏移量 dx, dy）',
-  preview: '移动鼠标预览炮塔瞄准方向；若未勾选"有炮塔"，炮管将被限制在左右射界范围内（战斗室随车体固定不转）'
+  hull: '点击空白处依次添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击顶点选中后可在左侧精确输入坐标，Delete/方向键编辑 · 点击边线中点循环装甲类型 · 悬停高亮当前边',
+  turret: '同车体操作，坐标以炮塔旋转中心为原点，仅编辑 y≤0 一侧，另一侧自动镜像 · 悬停高亮当前边',
+  pivot: '点击或拖动设置炮塔旋转中心：只能在车体中轴线上（y=0）水平移动 dx，dy 固定为 0',
+  preview: '移动鼠标预览炮塔瞄准方向；射界 = 180° 时炮塔 360° 全向旋转，低于 180° 时将受限在 ±射界 内'
 };
 function setMode(m){
   mode = m;
   clearSelection();
+  hoverEdge = null;
   document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('mode'+m[0].toUpperCase()+m.slice(1)).classList.add('active');
   const hintEl = document.getElementById('hint');
@@ -601,7 +711,7 @@ function syncArmorInputsFromState(){
   document.getElementById('a-turret-front').value = state.turret.armor.front;
   document.getElementById('a-turret-side').value = state.turret.armor.side;
   document.getElementById('a-turret-rear').value = state.turret.armor.rear;
-  document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, ${state.turret.pivot.dy}`;
+  document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, 0`;
 }
 ['a-hull-front','a-hull-side','a-hull-rear','a-turret-front','a-turret-side','a-turret-rear'].forEach(id=>{
   document.getElementById(id).addEventListener('input', ()=>{
@@ -618,23 +728,63 @@ function syncArmorInputsFromState(){
 function applyBarrelPreset(key){
    const p = BARREL_PRESETS[key];
    if(!p) return;
-   state.barrel = { len:p.len, width:p.width, muzzle:p.muzzle, evacPos:p.evacPos };
+   state.barrel = { len:p.len, width:p.width, muzzle:p.muzzle,
+     evac:{ style:p.evac.style, pos:p.evac.pos },
+     jacket:{ len:p.jacket.len, pos:p.jacket.pos } };
    document.getElementById('barrelLen').value = p.len;
    document.getElementById('barrelWidth').value = p.width;
    document.getElementById('barrelMuzzle').value = p.muzzle;
-   document.getElementById('barrelEvac').value = p.evacPos;
+   document.getElementById('barrelEvacStyle').value = p.evac.style;
+   document.getElementById('barrelEvac').value = p.evac.pos;
+   document.getElementById('jacketLen').value = p.jacket.len;
+   document.getElementById('jacketPos').value = p.jacket.pos;
    render();
 }
 document.getElementById('barrelPreset').addEventListener('change', ()=>{
    applyBarrelPreset(document.getElementById('barrelPreset').value);
 });
-['barrelLen','barrelWidth','barrelEvac'].forEach(id=>{
+['barrelLen','barrelWidth'].forEach(id=>{
    document.getElementById(id).addEventListener('input', ()=>{
       state.barrel.len = parseFloat(document.getElementById('barrelLen').value)||120;
       state.barrel.width = parseFloat(document.getElementById('barrelWidth').value)||18;
-      state.barrel.evacPos = parseFloat(document.getElementById('barrelEvac').value)||55;
       render();
    });
+});
+['jacketLen','jacketPos'].forEach(id=>{
+   document.getElementById(id).addEventListener('input', ()=>{
+      state.barrel.jacket.len = parseFloat(document.getElementById('jacketLen').value)||0;
+      state.barrel.jacket.pos = parseFloat(document.getElementById('jacketPos').value)||45;
+      render();
+   });
+});
+document.getElementById('barrelEvac').addEventListener('input', ()=>{
+   state.barrel.evac.pos = parseFloat(document.getElementById('barrelEvac').value)||30;
+   render();
+});
+document.getElementById('barrelEvacStyle').addEventListener('change', ()=>{
+   state.barrel.evac.style = document.getElementById('barrelEvacStyle').value;
+   render();
+});
+function updateTrackRanges(){
+  const w = parseFloat(document.getElementById('trackWidthInput').value)||8;
+  const oEl = document.getElementById('trackOffsetInput');
+  oEl.min = -w; oEl.max = w/2;
+  state.trackWidth = w;
+  state.trackOffset = Math.max(oEl.min, Math.min(oEl.max, parseFloat(oEl.value)||0));
+  oEl.value = state.trackOffset;
+  render();
+}
+['trackWidthInput'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', updateTrackRanges);
+});
+document.getElementById('trackOffsetInput').addEventListener('input', ()=>{
+  const oEl = document.getElementById('trackOffsetInput');
+  const w = parseFloat(document.getElementById('trackWidthInput').value)||8;
+  oEl.min = -w; oEl.max = w/2;
+  const v = Math.max(oEl.min, Math.min(oEl.max, parseFloat(oEl.value)||0));
+  oEl.value = v;
+  state.trackOffset = v;
+  render();
 });
 document.getElementById('barrelMuzzle').addEventListener('change', ()=>{
    state.barrel.muzzle = document.getElementById('barrelMuzzle').value;
@@ -644,8 +794,7 @@ document.getElementById('barrelMuzzle').addEventListener('change', ()=>{
 // ================= base params =================
 function syncBaseFromInputs(){
   state.id = document.getElementById('t-id').value;
-  state.hasTurret = document.getElementById('t-hasTurret').checked;
-  state.traverseLimit = parseFloat(document.getElementById('t-traverse').value)||0;
+  state.traverseLimit = parseFloat(document.getElementById('t-traverse').value)||180;
   state.maxSpeed = parseFloat(document.getElementById('t-maxSpeed').value)||0;
   state.turnRate = parseFloat(document.getElementById('t-turnRate').value)||0;
   state.turretTurnRate = parseFloat(document.getElementById('t-turretTurnRate').value)||0;
@@ -653,11 +802,14 @@ function syncBaseFromInputs(){
   state.penetration = parseFloat(document.getElementById('t-penetration').value)||0;
   state.damage = parseFloat(document.getElementById('t-damage').value)||0;
   state.reload = parseFloat(document.getElementById('t-reload').value)||0;
+  state.shellSpeed = parseFloat(document.getElementById('t-shellSpeed').value)||1200;
+  state.weight = parseFloat(document.getElementById('t-weight').value)||300;
+  state.enginePower = parseFloat(document.getElementById('t-enginePower').value)||900;
   state.heightClass = document.getElementById('t-heightClass').value || 'medium';
   render();
 }
-['t-id','t-hasTurret','t-traverse','t-maxSpeed','t-turnRate','t-turretTurnRate',
- 't-hp','t-penetration','t-damage','t-reload','t-heightClass'].forEach(id=>{
+['t-id','t-traverse','t-maxSpeed','t-turnRate','t-turretTurnRate',
+ 't-hp','t-penetration','t-damage','t-reload','t-shellSpeed','t-weight','t-enginePower','t-heightClass'].forEach(id=>{
   document.getElementById(id).addEventListener('input', syncBaseFromInputs);
   document.getElementById(id).addEventListener('change', syncBaseFromInputs);
 });
@@ -673,33 +825,55 @@ function renderEdgeListFor(key, container){
   const n = poly.half.length;
   if(n<2){ container.innerHTML = '<div class="ename">（顶点不足，无边）</div>'; return; }
 
-  const addRow = (label, faceVal, onChange, isSeam)=>{
+  const addRow = (label, faceVal, onChange, isSeam, edgeRef)=>{
     const row = document.createElement('div');
     row.className = 'edge-row' + (isSeam?' seam':'');
+    const isActive = selectedEdge && selectedEdge.poly===key &&
+      ((selectedEdge.seam && edgeRef.seam===selectedEdge.seam) || (selectedEdge.index!==undefined && edgeRef.index===selectedEdge.index));
+    if(isActive) row.classList.add('active');
+    const left = document.createElement('span');
+    const dot = document.createElement('span');
+    dot.className = 'face-dot'; dot.style.background = FACE_COLOR[faceVal] || '#5a5f4a';
     const lab = document.createElement('span'); lab.className='ename'; lab.textContent = label;
+    left.appendChild(dot); left.appendChild(lab);
+    const armorVal = document.createElement('span');
+    armorVal.className = 'armor-val';
+    const mm = (poly.armor && poly.armor[faceVal]) ? poly.armor[faceVal] : '';
+    armorVal.textContent = mm ? mm+'mm' : '';
     const sel = document.createElement('select');
     ['front','side','rear'].forEach(f=>{
       const opt=document.createElement('option'); opt.value=f; opt.textContent=f;
       if(faceVal===f) opt.selected=true;
       sel.appendChild(opt);
     });
-    sel.addEventListener('change', ()=>{ onChange(sel.value); render(); });
-    row.appendChild(lab); row.appendChild(sel);
+    sel.addEventListener('change', ()=>{ onChange(sel.value); render(); renderEdgeLists(); });
+    row.appendChild(left); row.appendChild(armorVal); row.appendChild(sel);
+    row.addEventListener('click', e=>{
+      if(e.target === sel) return; // let the dropdown take the click
+      selectedEdge = { poly:key, index:edgeRef.index, seam:edgeRef.seam };
+      clearSelection();
+      render(); renderEdgeLists();
+    });
     container.appendChild(row);
   };
 
   for(let i=0;i<n-1;i++){
-    addRow(`边 v${i}→v${i+1}`, getFace(poly.halfFaces,i), v=>setFace(poly.halfFaces,i,v), false);
+    addRow(`边 v${i}→v${i+1}`, getFace(poly.halfFaces,i), v=>setFace(poly.halfFaces,i,v), false, { index:i });
   }
   if(!onCenterline(poly.half[n-1])){
-    addRow('接缝(后) rear seam', poly.rearSeamFace, v=>{ poly.rearSeamFace=v; }, true);
+    addRow('接缝(后) rear seam', poly.rearSeamFace, v=>{ poly.rearSeamFace=v; }, true, { seam:'rear' });
   }
   if(!onCenterline(poly.half[0])){
-    addRow('接缝(前) front seam', poly.frontSeamFace, v=>{ poly.frontSeamFace=v; }, true);
+    addRow('接缝(前) front seam', poly.frontSeamFace, v=>{ poly.frontSeamFace=v; }, true, { seam:'front' });
   }
+  // per-class summary: how many primary edges are in front/side/rear (mirrored side copies them)
+  const counts = { front:0, side:0, rear:0 };
+  for(let i=0;i<n-1;i++) counts[getFace(poly.halfFaces,i)]++;
+  if(!onCenterline(poly.half[n-1])) counts[poly.rearSeamFace]++;
+  if(!onCenterline(poly.half[0])) counts[poly.frontSeamFace]++;
   const note = document.createElement('div');
-  note.className='ename'; note.style.opacity='.6'; note.style.marginTop='2px';
-  note.textContent = '(镜像侧边线自动沿用以上分类，无需单独设置)';
+  note.className='ename'; note.style.marginTop='2px';
+  note.innerHTML = `合计：<span style="color:var(--front)">前 ${counts.front}</span> · <span style="color:var(--side)">侧 ${counts.side}</span> · <span style="color:var(--rear)">后 ${counts.rear}</span><span style="opacity:.6">（镜像侧自动沿用）</span>`;
   container.appendChild(note);
 }
 
@@ -728,66 +902,102 @@ function drawDesignerBarrel(tc, angle, scale){
    const baseY = tc.y + sin*maxX*scale;
    const endX = baseX + cos*barrelLen*scale;
    const endY = baseY + sin*barrelLen*scale;
+   const U = barrelLen*scale; // barrel screen length in px
+
+   // box along the barrel axis: from off0..off1 px from the root, halfH = half thickness (px)
+   const box = (off0, off1, halfH, fill, stroke)=>{
+     const ax = baseX + cos*off0, ay = baseY + sin*off0;
+     const bx = baseX + cos*off1, by = baseY + sin*off1;
+     const L = Math.max(1, Math.hypot(bx-ax, by-ay));
+     ctx.save();
+     ctx.translate(ax, ay);
+     ctx.rotate(angle);
+     ctx.fillStyle = fill; ctx.lineWidth = 1;
+     ctx.fillRect(0, -halfH, L, halfH*2);
+     if(stroke){ ctx.strokeStyle = stroke; ctx.strokeRect(0, -halfH, L, halfH*2); }
+     ctx.restore();
+   };
 
    // main barrel tube
    ctx.strokeStyle = '#8a8a7a'; ctx.lineWidth = barrelWid*scale;
-   ctx.lineCap = 'round';
+   ctx.lineCap = 'butt';
    ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(endX, endY); ctx.stroke();
    // barrel highlight
    ctx.strokeStyle = '#b5b5a5'; ctx.lineWidth = Math.max(1, barrelWid*scale*0.4);
    ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(endX, endY); ctx.stroke();
 
-   // bore evacuator bulge at configured position
-   if(b.evacPos > 0){
-      const ex = baseX + cos*(b.evacPos/100)*barrelLen*scale;
-      const ey = baseY + sin*(b.evacPos/100)*barrelLen*scale;
-      const perpX = -sin, perpY = cos;
-      const evacR = barrelWid*scale*0.9;
-      ctx.strokeStyle = '#7a7a6a'; ctx.lineWidth = Math.max(2, barrelWid*scale*0.35);
-      ctx.beginPath();
-      ctx.moveTo(ex + perpX*evacR, ey + perpY*evacR);
-      ctx.lineTo(ex - perpX*evacR, ey - perpY*evacR);
-      ctx.stroke();
-      ctx.strokeStyle = '#9a9a8a'; ctx.lineWidth = Math.max(1, barrelWid*scale*0.2);
-      ctx.beginPath();
-      ctx.moveTo(ex + perpX*evacR*0.7, ey + perpY*evacR*0.7);
-      ctx.lineTo(ex - perpX*evacR*0.7, ey - perpY*evacR*0.7);
-      ctx.stroke();
+   // 炮管护套 jacket: thicker rectangle sleeve over part of the barrel (len>0 → active)
+   const jk = b.jacket || { len:0, pos:45 };
+   const jkLen = Math.max(0, Math.min(100, jk.len||0));
+   if(jkLen > 0){
+      const jkS = Math.max(0, Math.min(90, jk.pos||45));
+      const jkE = Math.min(100, jkS + jkLen);
+      box(jkS/100*U, jkE/100*U, barrelWid*scale*0.9, '#5c5c50', '#b5b5a5');
+      box(jkS/100*U, jkS/100*U + Math.max(2, barrelWid*scale*0.15), barrelWid*scale*0.98, '#3f3f36', null);
    }
 
-   // muzzle brake at the end
-   if(b.muzzle !== 'none'){
-      const mx = endX, my = endY;
-      const perpX = -sin, perpY = cos;
+   // 抽烟器 bore evacuator: styles none / ring / bulb / slotted / long
+   const ev = b.evac || { style:'none', pos:30 };
+   if(ev.style && ev.style !== 'none'){
+      const epos = Math.max(0, Math.min(95, ev.pos||30))/100*U;
+      const w = barrelWid*scale; // half-width of tube in px
+      if(ev.style === 'ring'){
+         box(epos - U*0.04, epos + U*0.04, w*0.72, '#5a5a4a', '#b5b5a5');
+      } else if(ev.style === 'bulb'){
+         ctx.save(); ctx.translate(baseX+cos*epos, baseY+sin*epos); ctx.rotate(angle);
+         ctx.fillStyle = '#5a5a4a'; ctx.strokeStyle = '#b5b5a5'; ctx.lineWidth = 1;
+         ctx.beginPath(); ctx.ellipse(0, 0, w*0.75, w*1.15, 0, 0, Math.PI*2);
+         ctx.fill(); ctx.stroke();
+         ctx.restore();
+      } else if(ev.style === 'slotted'){
+         box(epos - U*0.05, epos + U*0.05, w*0.8, '#4c4c40', '#b5b5a5');
+         ctx.save(); ctx.translate(baseX+cos*epos, baseY+sin*epos); ctx.rotate(angle);
+         ctx.fillStyle = '#1a1a14';
+         ctx.fillRect(-U*0.035, -w*0.62, U*0.012, w*1.24);
+         ctx.fillRect(U*0.01, -w*0.62, U*0.012, w*1.24);
+         ctx.restore();
+      } else if(ev.style === 'long'){
+         box(epos - U*0.005, epos + U*0.12, w*0.68, '#5a5a4a', '#b5b5a5');
+      }
+   }
+
+   // 制退器 muzzle brake (drawn at the muzzle tip; `mw` = tube half-width px)
+   const mw = barrelWid*scale;
+   if(b.muzzle && b.muzzle !== 'none'){
       if(b.muzzle === 'single'){
-         ctx.strokeStyle = '#6a6a5a'; ctx.lineWidth = barrelWid*scale*1.3;
-         ctx.beginPath();
-         ctx.moveTo(mx + perpX*barrelWid*scale*0.8, my + perpY*barrelWid*scale*0.8);
-         ctx.lineTo(mx - perpX*barrelWid*scale*0.8, my - perpY*barrelWid*scale*0.8);
-         ctx.stroke();
+         box(U - mw*0.7, U + mw*0.45, mw*0.9, '#5a5a4a', '#a5a595');
       } else if(b.muzzle === 'double'){
-         const bw = barrelWid*scale*1.2;
-         for(const off of [-0.5, 0.5]){
-            const bx = mx + cos*barrelWid*off*scale;
-            const by = my + sin*barrelWid*off*scale;
-            ctx.strokeStyle = '#6a6a5a'; ctx.lineWidth = barrelWid*scale*0.7;
-            ctx.beginPath();
-            ctx.moveTo(bx + perpX*bw, by + perpY*bw);
-            ctx.lineTo(bx - perpX*bw, by - perpY*bw);
-            ctx.stroke();
-         }
+         box(U - mw*0.4, U + mw*0.55, mw*0.95, '#5a5a4a', '#a5a595');
+         ctx.save(); ctx.translate(endX, endY); ctx.rotate(angle);
+         ctx.fillStyle = '#111'; ctx.fillRect(-mw*0.1, -mw*0.85, mw*0.2, mw*1.7);
+         ctx.restore();
+      } else if(b.muzzle === 'multi'){
+         box(U - mw*0.1, U + mw*0.75, mw*0.95, '#5a5a4a', '#a5a595');
+         ctx.save(); ctx.translate(endX, endY); ctx.rotate(angle);
+         ctx.fillStyle = '#111';
+         for(const s of [0.15, 0.45, 0.75]) ctx.fillRect(mw*s, -mw*0.85, mw*0.09, mw*1.7);
+         ctx.restore();
       } else if(b.muzzle === 'slug'){
-         // cage-style muzzle brake
-         ctx.strokeStyle = '#6a6a5a'; ctx.lineWidth = barrelWid*scale*1.1;
-         ctx.beginPath(); ctx.arc(mx, my, barrelWid*scale*0.7, angle-Math.PI*0.4, angle+Math.PI*0.4); ctx.stroke();
-         ctx.lineWidth = Math.max(1, barrelWid*scale*0.3);
-         for(let i=0;i<3;i++){
-            const a = angle - Math.PI*0.3 + i*(Math.PI*0.6/2);
-            ctx.beginPath();
-            ctx.moveTo(mx, my);
-            ctx.lineTo(mx + Math.cos(a)*barrelWid*scale*0.7, my + Math.sin(a)*barrelWid*scale*0.7);
-            ctx.stroke();
-         }
+         box(U - mw*0.5, U + mw*0.6, mw*0.8, '#4c4c40', '#a5a595');
+         ctx.save(); ctx.translate(endX, endY); ctx.rotate(angle);
+         ctx.fillStyle = '#111';
+         ctx.fillRect(0, -mw*0.8, mw*0.25, mw*0.45); ctx.fillRect(0, mw*0.35, mw*0.25, mw*0.45);
+         ctx.restore();
+      } else if(b.muzzle === 'pepperpot'){
+         box(U - mw*0.3, U + mw*0.7, mw*0.75, '#4c4c44', '#a5a595');
+         ctx.save(); ctx.translate(endX, endY); ctx.rotate(angle);
+         ctx.fillStyle = '#111';
+         for(const s of [-0.6, -0.2, 0.2, 0.6]) ctx.fillRect(-mw*0.5, s*mw, mw*0.2, mw*0.32);
+         ctx.restore();
+      } else if(b.muzzle === 'heavy_square'){
+         box(U - mw*0.2, U + mw*0.8, mw*1.1, '#4c4c40', '#a5a595');
+      } else if(b.muzzle === 'cylinder'){
+         box(U - mw*0.6, U + mw*0.2, mw*1.0, '#54544c', '#a5a595');
+         ctx.save(); ctx.translate(endX, endY); ctx.rotate(angle);
+         ctx.fillStyle = '#222';
+         ctx.fillRect(-mw*0.6, -mw*1.05, mw*0.9, mw*0.25);
+         ctx.fillRect(-mw*0.6, mw*0.8, mw*0.9, mw*0.25);
+         ctx.restore();
       }
    }
    ctx.lineCap = 'butt';
@@ -815,22 +1025,51 @@ function fullVertsBounds(poly){
 function drawDesignerTracks(phase, scale){
   const { fullVerts } = fullVertsBounds(state.hull);
   const hc = hullCenter();
-  paintTracks(ctx, fullVerts, hc.x, hc.y, 0, scale, DESIGN_PAINT, phase);
+  const trackW = state.trackWidth || 8;
+  const trackOff = state.trackOffset || 0;
+  paintTracks(ctx, fullVerts, hc.x, hc.y, 0, scale, DESIGN_PAINT, phase, { trackWidth: trackW, trackOffset: trackOff });
 }
-// faded base paint for edit modes; full texture for preview/test. Delegates to shared module.
+// Flat base fill — the designer intentionally does NOT render procedural textures (deck plates,
+// grilles, cupolas, …) so vertex/edge/armor editing stays clean and readable. `faded` = edit modes
+// (faint), otherwise slightly stronger for preview.
 function paintPart(poly, center, angle, scale, opts){
   const fullVerts = buildFullVerts(poly.half);
-  paintPartTexture(ctx, fullVerts, center.x, center.y, angle, scale, DESIGN_PAINT,
-    poly===state.hull ? 'hull' : 'turret', opts);
+  if(fullVerts.length < 3) return;
+  const faded = !!(opts && opts.faded);
+  ctx.save();
+  ctx.translate(center.x, center.y);
+  ctx.rotate(angle||0);
+  ctx.scale(scale, scale);
+  ctx.beginPath();
+  fullVerts.forEach((p,i)=>{ if(i===0) ctx.moveTo(p[0],p[1]); else ctx.lineTo(p[0],p[1]); });
+  ctx.closePath();
+  ctx.fillStyle = paintShade(DESIGN_PAINT, poly===state.hull ? -10 : -2);
+  ctx.globalAlpha = faded ? 0.4 : 0.85;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 function drawPolygon(poly, center, angle, opts){
   const active = opts.active;
   const fullVerts = buildFullVerts(poly.half);
   const { faces: fullFaces, primary } = buildFullFacesWithFlags(poly.half, i=>getFace(poly.halfFaces,i), poly.frontSeamFace, poly.rearSeamFace);
   const n = fullVerts.length;
+  const hN = poly.half.length;
+  const touchesFront = onCenterline(poly.half[0]);
+  const touchesRear = onCenterline(poly.half[hN-1]);
   const world = fullVerts.map(p=>toScreen(center, p, angle));
+  // map a full-edge index back to the half-chain index / seam it mirrors (for highlight matching)
+  function fullEdgeHalfRef(i){
+    if(i < hN-1) return { index:i };
+    const mstart = hN-1 + (touchesRear ? 0 : 1);
+    if(!touchesRear && i === hN-1) return { seam:'rear' };
+    const mlen = hN-1;
+    if(i >= mstart && i < mstart+mlen) return { index: (hN-2) - (i-mstart) };
+    if(!touchesFront && i === mstart+mlen) return { seam:'front' };
+    return null;
+  }
   if(n>=3){
-    // procedural paint (see paintPart): filler/details driven by opts.detail / opts.faded
+    // flat paint fill (no texture) — see paintPart()
     const partOpts = {};
     if (opts.detail) partOpts.detail = true;
     if (opts.faded) partOpts.faded = true;
@@ -838,14 +1077,25 @@ function drawPolygon(poly, center, angle, opts){
     for(let i=0;i<n;i++){
       const a = world[i], b = world[(i+1)%n];
       const editable = primary[i]; // half-chain + seam edges are user-controlled; mirrored-chain edges just copy them
-      ctx.strokeStyle = active ? (editable ? FACE_COLOR[fullFaces[i]] : '#5a5f4a') : 'rgba(255,255,255,0.15)';
-      ctx.lineWidth = active ? (editable?3:2) : 1.5;
+      // Color outline based on face type (front/side/rear)
+      const faceType = fullFaces[i] || 'side';
+      ctx.strokeStyle = editable ? FACE_COLOR[faceType] : 'rgba(90,95,74,0.7)';
+      ctx.lineWidth = active ? (editable?4:2.5) : 2;
       ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
       if(active && editable){
+        const ref = fullEdgeHalfRef(i);
+        const isHover = hoverEdge && ref && !ref.seam && ref.index===hoverEdge.index && hoverEdge.poly===(poly===state.hull?'hull':'turret');
+        const isSel = selectedEdge && ref && selectedEdge.poly===(poly===state.hull?'hull':'turret') &&
+          ((ref.seam && selectedEdge.seam===ref.seam) || (ref.index!==undefined && selectedEdge.index===ref.index));
+        if(isSel || isHover){
+          ctx.strokeStyle = isSel ? 'rgba(255,180,84,0.95)' : 'rgba(255,180,84,0.45)';
+          ctx.lineWidth = 9;
+          ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+        }
         const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
-        ctx.fillStyle = FACE_COLOR[fullFaces[i]];
+        ctx.fillStyle = FACE_COLOR[faceType];
         ctx.font = '9px "JetBrains Mono", monospace';
-        ctx.fillText(fullFaces[i], mx+4, my-4);
+        ctx.fillText(faceType, mx+4, my-4);
       }
     }
   } else if(n===2){
@@ -861,6 +1111,11 @@ function drawPolygon(poly, center, angle, opts){
     ctx.fillStyle = isSel ? '#7ed957' : (active ? '#fff' : 'rgba(255,255,255,0.3)');
     ctx.fill();
     ctx.strokeStyle = active ? '#000' : 'transparent'; ctx.lineWidth = 1; ctx.stroke();
+    if(active){
+      ctx.fillStyle = isSel ? '#7ed957' : 'rgba(255,255,255,0.8)';
+      ctx.font = '9px "JetBrains Mono", monospace';
+      ctx.fillText(`v${i}`, w.x + 6, w.y - 6);
+    }
   });
   if(active){
     const mirroredHalf = poly.half.filter(p=>!onCenterline(p)).map(mirrorPt);
@@ -886,7 +1141,7 @@ function render(){
   ctx.fillStyle = 'rgba(126,217,87,0.6)'; ctx.font='10px "JetBrains Mono", monospace';
   ctx.fillText('FRONT →', hc.x+124*viewScale, hc.y+4);
 
-  const turretAngle = (mode==='preview' && state.hasTurret) ? previewAngle : 0;
+  const turretAngle = (mode==='preview') ? previewAngle : 0;
   // tracks under everything (animated scroll in preview via wall-clock time)
   const fullDetail = (mode==='preview');
   drawDesignerTracks(fullDetail ? performance.now()*0.02 : trackPhase, viewScale);
@@ -901,7 +1156,8 @@ function render(){
   ctx.fillStyle = '#ffb454'; ctx.font='10px "JetBrains Mono", monospace';
   ctx.fillText('炮塔旋转中心', tc.x+10, tc.y-10);
 
-  if(!state.hasTurret){
+  // 射界限制射线：仅当射界 < 180° 时绘制（180° = 全向旋转，无限制）
+  if(state.traverseLimit < 180){
     const limit = state.traverseLimit * Math.PI/180;
     ctx.strokeStyle = 'rgba(255,180,84,0.35)'; ctx.setLineDash([5,5]); ctx.lineWidth=1;
     ctx.beginPath();
@@ -919,17 +1175,27 @@ function render(){
 function buildExport(){
    return {
      id: state.id,
-     hasTurret: state.hasTurret,
      traverseLimit: state.traverseLimit,
      maxSpeed: state.maxSpeed,
      turnRate: state.turnRate,
      turretTurnRate: state.turretTurnRate,
+     weight: state.weight || 300,
+     enginePower: state.enginePower || 900,
      hp: state.hp,
      penetration: state.penetration,
      damage: state.damage,
      reload: state.reload,
+     shellSpeed: state.shellSpeed || 1200,
      heightClass: state.heightClass,
-     barrel: { len:state.barrel.len, width:state.barrel.width, muzzle:state.barrel.muzzle, evacPos:state.barrel.evacPos },
+     trackWidth: state.trackWidth,
+     trackOffset: state.trackOffset,
+     barrel: {
+       len: state.barrel.len,
+       width: state.barrel.width,
+       muzzle: state.barrel.muzzle,
+       evac: { style: state.barrel.evac.style, pos: state.barrel.evac.pos },
+       jacket: { len: state.barrel.jacket.len, pos: state.barrel.jacket.pos }
+     },
      hull: {
        verts: buildFullVerts(state.hull.half),
        faces: buildFullFaces(state.hull.half, i=>getFace(state.hull.halfFaces,i), state.hull.frontSeamFace, state.hull.rearSeamFace),
@@ -939,13 +1205,10 @@ function buildExport(){
        verts: buildFullVerts(state.turret.half),
        faces: buildFullFaces(state.turret.half, i=>getFace(state.turret.halfFaces,i), state.turret.frontSeamFace, state.turret.rearSeamFace),
        armor: state.turret.armor,
-       pivot: state.turret.pivot
+       pivot: { dx: state.turret.pivot.dx, dy: 0 }
      }
    };
 }
-document.getElementById('exportBtn').addEventListener('click', ()=>{
-  document.getElementById('json-out').textContent = JSON.stringify(buildExport(), null, 2);
-});
 document.getElementById('tankListSaveBtn').addEventListener('click', ()=>{
   saveToTankList();
 });
@@ -983,81 +1246,114 @@ function halfFromFull(verts, faces){
   }
   return { half, halfFaces, frontSeamFace, rearSeamFace };
 }
+// Shift a half poly so its full silhouette is centered on its own bbox center (matching how
+// tank_mvp.html's applyTankConfig centers the HULL hull). Turret polygons are NOT centered here —
+// their local origin must stay exactly where `pivot` puts them.
+function recenterPoly(poly){
+  const full = buildFullVerts(poly.half);
+  if(full.length < 2){ return poly; }
+  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  for(const [vx,vy] of full){
+    if(vx<minX) minX=vx; if(vx>maxX) maxX=vx; if(vy<minY) minY=vy; if(vy>maxY) maxY=vy;
+  }
+  const cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+  poly.half = poly.half.map(([vx,vy])=>[ Math.round((vx-cx)*10)/10, Math.round((vy-cy)*10)/10 ]);
+  return poly;
+}
+// normalize a barrel spec (new {evac:{style,pos}, jacket:{len,pos}} format OR legacy evacPos number)
+function normalizeBarrel(b){
+  if(!b) return { len:120, width:18, muzzle:'none', evac:{ style:'none', pos:30 }, jacket:{ len:0, pos:45 } };
+  let evac;
+  if(b.evac && b.evac.style) evac = { style:b.evac.style, pos: b.evac.pos !== undefined ? b.evac.pos : 30 };
+  else if(b.evacPos !== undefined) evac = { style: b.evacPos > 0 ? 'ring' : 'none', pos: b.evacPos };
+  else evac = { style:'none', pos:30 };
+  return {
+    len: b.len || 120, width: b.width || 18, muzzle: b.muzzle || 'none',
+    evac,
+    jacket: b.jacket ? { len: b.jacket.len||0, pos: b.jacket.pos!==undefined ? b.jacket.pos : 45 } : { len:0, pos:45 }
+  };
+}
 function applyTankData(data){
   state.id = data.id ?? state.id;
-  state.hasTurret = data.hasTurret ?? state.hasTurret;
-  state.traverseLimit = data.traverseLimit ?? state.traverseLimit;
+  state.traverseLimit = data.traverseLimit ?? 180;
   state.maxSpeed = data.maxSpeed ?? state.maxSpeed;
   state.turnRate = data.turnRate ?? state.turnRate;
   state.turretTurnRate = data.turretTurnRate ?? state.turretTurnRate;
+  state.weight = data.weight ?? 300;
+  state.enginePower = data.enginePower ?? 900;
   state.hp = data.hp ?? state.hp;
   state.penetration = data.penetration ?? state.penetration;
   state.damage = data.damage ?? state.damage;
   state.reload = data.reload ?? state.reload;
+  state.shellSpeed = data.shellSpeed ?? 1200;
   state.heightClass = data.heightClass ?? state.heightClass;
   if(data.hull){
     if(data.hull.half){
       state.hull = { half:data.hull.half, halfFaces:data.hull.halfFaces.slice(),
         frontSeamFace:data.hull.frontSeamFace||'front', rearSeamFace:data.hull.rearSeamFace||'rear',
         armor: Object.assign({front:110,side:38,rear:26}, data.hull.armor) };
+      recenterPoly(state.hull);
     } else {
       const h = halfFromFull(data.hull.verts, data.hull.faces);
       state.hull = Object.assign(h, { armor: Object.assign({front:110,side:38,rear:26}, data.hull.armor) });
+      recenterPoly(state.hull);
     }
   }
-   if(data.turret){
-     if(data.turret.half){
-       state.turret = { half:data.turret.half, halfFaces:data.turret.halfFaces.slice(),
-         frontSeamFace:data.turret.frontSeamFace||'front', rearSeamFace:data.turret.rearSeamFace||'rear',
-         armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
-         pivot: Object.assign({dx:8,dy:0}, data.turret.pivot) };
-     } else {
-       const h = halfFromFull(data.turret.verts, data.turret.faces);
-       state.turret = Object.assign(h, { armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
-         pivot: Object.assign({dx:8,dy:0}, data.turret.pivot) });
+     if(data.turret){
+       // pivot is locked to the centerline: only dx is editable, dy forced to 0
+       const pivot = { dx: (data.turret.pivot && data.turret.pivot.dx !== undefined) ? data.turret.pivot.dx : 8, dy:0 };
+       if(data.turret.half){
+         state.turret = { half:data.turret.half, halfFaces:data.turret.halfFaces.slice(),
+           frontSeamFace:data.turret.frontSeamFace||'front', rearSeamFace:data.turret.rearSeamFace||'rear',
+           armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
+           pivot };
+       } else {
+         const h = halfFromFull(data.turret.verts, data.turret.faces);
+         state.turret = Object.assign(h, { armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
+           pivot });
+       }
      }
-   }
-   if(data.barrel){
-     state.barrel = { len:data.barrel.len||120, width:data.barrel.width||18, muzzle:data.barrel.muzzle||'none', evacPos:data.barrel.evacPos||55 };
-   }
+   if(data.barrel) state.barrel = normalizeBarrel(data.barrel);
+   if(data.trackWidth !== undefined) state.trackWidth = data.trackWidth;
+   if(data.trackOffset !== undefined) state.trackOffset = data.trackOffset;
+   document.getElementById('trackWidthInput').value = state.trackWidth || 8;
+   document.getElementById('trackOffsetInput').value = state.trackOffset || 0;
+   updateTrackRanges();
    document.getElementById('t-id').value = state.id;
-  document.getElementById('t-hasTurret').checked = state.hasTurret;
-  document.getElementById('t-traverse').value = state.traverseLimit;
-  document.getElementById('t-maxSpeed').value = state.maxSpeed;
-  document.getElementById('t-turnRate').value = state.turnRate;
-  document.getElementById('t-turretTurnRate').value = state.turretTurnRate;
-  document.getElementById('t-hp').value = state.hp;
-  document.getElementById('t-penetration').value = state.penetration;
-  document.getElementById('t-damage').value = state.damage;
-  document.getElementById('t-reload').value = state.reload;
-  document.getElementById('t-heightClass').value = state.heightClass;
+   document.getElementById('t-traverse').value = state.traverseLimit;
+   document.getElementById('t-maxSpeed').value = state.maxSpeed;
+   document.getElementById('t-turnRate').value = state.turnRate;
+   document.getElementById('t-turretTurnRate').value = state.turretTurnRate;
+   document.getElementById('t-weight').value = state.weight;
+   document.getElementById('t-enginePower').value = state.enginePower;
+   document.getElementById('t-hp').value = state.hp;
+   document.getElementById('t-penetration').value = state.penetration;
+   document.getElementById('t-damage').value = state.damage;
+   document.getElementById('t-reload').value = state.reload;
+   document.getElementById('t-shellSpeed').value = state.shellSpeed;
+   document.getElementById('t-heightClass').value = state.heightClass;
    clearSelection();
    syncArmorInputsFromState();
    document.getElementById('barrelLen').value = state.barrel.len;
    document.getElementById('barrelWidth').value = state.barrel.width;
    document.getElementById('barrelMuzzle').value = state.barrel.muzzle;
-   document.getElementById('barrelEvac').value = state.barrel.evacPos;
+   document.getElementById('barrelEvacStyle').value = state.barrel.evac.style;
+   document.getElementById('barrelEvac').value = state.barrel.evac.pos;
+   document.getElementById('jacketLen').value = state.barrel.jacket.len;
+   document.getElementById('jacketPos').value = state.barrel.jacket.pos;
    // find matching preset to highlight it
    let matchedPreset = '';
    for(const k in BARREL_PRESETS){
       const p = BARREL_PRESETS[k];
-      if(p.len===state.barrel.len && p.width===state.barrel.width && p.muzzle===state.barrel.muzzle){
+      if(p.len===state.barrel.len && p.width===state.barrel.width && p.muzzle===state.barrel.muzzle &&
+         p.evac.style===state.barrel.evac.style && p.evac.pos===state.barrel.evac.pos &&
+         p.jacket.len===state.barrel.jacket.len && p.jacket.pos===state.barrel.jacket.pos){
          matchedPreset = k; break;
       }
    }
    document.getElementById('barrelPreset').value = matchedPreset;
    render(); renderEdgeLists();
 }
-document.getElementById('loadBtn').addEventListener('click', ()=>{
-  let data;
-  try{ data = JSON.parse(document.getElementById('json-in').value); }
-  catch(err){ alert('JSON 解析失败: '+err.message); return; }
-  try{
-    applyTankData(data);
-  } catch(err){
-    alert('载入失败，JSON 结构不符合预期: '+err.message);
-  }
-});
 
 // ================= tank_list.json I/O =================
 // The designer reads entries from tank_list.json (same JSON the MVP fetches) and writes the current
@@ -1069,52 +1365,144 @@ let tankListCache = null;
 function populateTankListSelect(list){
   const sel = document.getElementById('tankListSelect');
   sel.innerHTML = '';
+  let found = false;
   Object.keys(list).forEach(k=>{
     const opt = document.createElement('option');
     opt.value = k;
     opt.textContent = k;
     sel.appendChild(opt);
+    if(k === state.id) found = true;
   });
-  if(sel.options.length && sel.value !== state.id) sel.value = sel.options[0].value;
+  if(sel.options.length){
+    sel.value = found ? state.id : sel.options[0].value;
+  }
+}
+// Reads tank_list.json into the cache once, then runs `then`. Used by init + the load button.
+function fetchTankList(then){
+  if(tankListCache){ then(tankListCache); return; }
+  fetch('tank_list.json')
+    .then(res=>res.ok ? res.json() : Promise.reject(new Error('HTTP '+res.status)))
+    .then(list=>{ tankListCache = list; then(list); })
+    .catch(err=>{ console.warn('无法读取 tank_list.json:', err.message); then(null); });
+}
+// Rebuild the collective JSON from (cache) and trigger a download. When tankListCache is null
+// (list never fetched), downloads just the single entry built from `entries`.
+function downloadTankList(entries, fallback){
+  let list;
+  if(tankListCache){ list = tankListCache; Object.assign(list, entries); }
+  else { list = Object.assign({}, entries); }
+  const blob = new Blob([JSON.stringify(list, null, 2)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'tank_list.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+}
+function loadTankFromList(key){
+  if(!tankListCache || !tankListCache[key]) return false;
+  try{ applyTankData(tankListCache[key]); return true; }catch(e){ alert('载入失败: '+e.message); return false; }
 }
 document.getElementById('tankListLoadBtn').addEventListener('click', ()=>{
   const key = document.getElementById('tankListSelect').value;
-  if(!tankListCache || !tankListCache[key]){
-    fetch('tank_list.json')
-      .then(res=>res.ok ? res.json() : Promise.reject(new Error('HTTP '+res.status)))
-      .then(list=>{
-        tankListCache = list;
-        populateTankListSelect(list);
-        if(list[key]){ try{ applyTankData(list[key]); alert('已载入 '+key); }catch(e){ alert('载入失败: '+e.message); } }
-      })
-      .catch(err=>alert('无法读取 tank_list.json: '+err.message+'（设计器需通过本地服务器打开才能读写 tank_list.json）'));
-    return;
-  }
-  if(tankListCache[key]){ try{ applyTankData(tankListCache[key]); }catch(e){ alert('载入失败: '+e.message); } }
+  fetchTankList(list=>{
+    if(list && list[key]) loadTankFromList(key);
+    else pushHint('请先点击「载入」刷新列表，或该条目不存在');
+  });
+});
+document.getElementById('tankListSaveBtn').addEventListener('click', ()=>{
+  saveToTankList();
+});
+document.getElementById('tankListNewBtn').addEventListener('click', ()=>{
+  // fresh default design with a unique id — user renames it via 名称 ID then hits 保存 to add it.
+  const base = state.id === 'new_tank' ? 'new_tank' : state.id.replace(/_\d+$/, '');
+  let n = 1; let candidate = base + '_1';
+  while(tankListCache && tankListCache[candidate]){ n++; candidate = base + '_' + n; }
+  applyTankData({
+    id: candidate,
+    traverseLimit: 180,
+    maxSpeed: 120, turnRate: 2.0, turretTurnRate: 2.2,
+    hp: 100, penetration: 120, damage: 34, reload: 1.3, heightClass: 'medium',
+    barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 } }
+    // no hull/turret keys => keeps designer default shapes
+  });
+  if(tankListCache) populateTankListSelect(tankListCache);
+  pushHint('已新建坦克 "'+candidate+'" — 编辑后在「名称 ID」改好名字，点击「保存」即添加到列表');
+});
+document.getElementById('tankListDeleteBtn').addEventListener('click', ()=>{
+  const key = document.getElementById('tankListSelect').value;
+  if(!tankListCache){ pushHint('尚未载入 tank_list.json'); return; }
+  if(!(key in tankListCache)){ pushHint('列表中没有该条目'); return; }
+  if(!confirm(`从 tank_list 中删除「${key}」？`)) return;
+  delete tankListCache[key];
+  populateTankListSelect(tankListCache);
+
+  fetch('api/tank_list', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(tankListCache, null, 2)
+  })
+  .then(res => {
+    if (res.ok) {
+      pushHint('已从 tank_list.json 中删除 ' + key);
+    } else {
+      downloadTankList({});
+      pushHint('已删除 ' + key + '，请覆盖下载的 tank_list.json');
+    }
+  })
+  .catch(() => {
+    downloadTankList({});
+    pushHint('已删除 ' + key + '，请覆盖下载的 tank_list.json');
+  });
 });
 function saveToTankList(){
   const out = buildExport();
-  const apply = (list)=>{
-    if(!list) list = {};
-    list[out.id] = out;
-    const blob = new Blob([JSON.stringify(list, null, 2)], { type:'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'tank_list.json';
-    a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  const run = (fullList)=>{
+    fullList[out.id] = out;
+    tankListCache = fullList;
+    populateTankListSelect(tankListCache);
+    
+    // Attempt POST to local server if available
+    fetch('api/tank_list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fullList, null, 2)
+    })
+    .then(res => {
+      if (res.ok) {
+        pushHint('已自动保存更新到 tank_list.json！');
+      } else {
+        downloadTankList({});
+        pushHint('服务器保存失败，已在本地下载 tank_list.json');
+      }
+    })
+    .catch(() => {
+      downloadTankList({});
+      pushHint('已在本地下载 tank_list.json（无开发服务器支持）');
+    });
   };
-  if(tankListCache){ apply(tankListCache); return; }
-  fetch('tank_list.json')
-    .then(res=>res.ok ? res.json() : Promise.reject(new Error('HTTP '+res.status)))
-    .then(list=>{ tankListCache = list; apply(list); })
-    .catch(()=>{ apply({}); }); // fallback: single-entry file, user can merge manually
+
+  if (tankListCache) {
+    run(tankListCache);
+  } else {
+    fetch('tank_list.json')
+      .then(res => res.ok ? res.json() : Promise.reject(new Error('HTTP ' + res.status)))
+      .then(list => run(list))
+      .catch(() => run({}));
+  }
 }
 
 // ================= init =================
 syncArmorInputsFromState();
+document.getElementById('barrelEvacStyle').value = state.barrel.evac.style;
+document.getElementById('barrelEvac').value = state.barrel.evac.pos;
+document.getElementById('jacketLen').value = state.barrel.jacket.len;
+document.getElementById('jacketPos').value = state.barrel.jacket.pos;
+document.getElementById('trackWidthInput').value = state.trackWidth;
+updateTrackRanges();
 setMode('hull');
 updateZoomReadout();
+// load tank_list.json up front so the "tank_list 交互" select is usable immediately.
+fetchTankList(list=>{ if(list) populateTankListSelect(list); });
 resize();
 renderEdgeLists();
 })();

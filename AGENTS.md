@@ -31,7 +31,7 @@ This document provides high-signal guidance for OpenCode agents working on the R
 - **Cover System**:
     - `full` (full-height) cover provides 100% deterministic block.
     - `half` (half-height) cover uses a probabilistic model based on distance, relative positions, and multiple cover multipliers.
-- **Ricochet**: Projectiles can genuinely ricochet off surfaces at incidence angles >78°, potentially causing secondary hits. Secondary ricochets are not allowed.
+- **Ricochet**: Projectiles can genuinely ricochet off surfaces at incidence angles >70°, potentially causing secondary hits. Secondary ricochets are not allowed.
 - **Entities Registry**: Centralized `entities` array (`id`, `team`, `spawn`) manages all in-game units (player, enemies, etc.) via `isHostile`, `nearestEnemyTo`, `resetEntity`.
 
 ## High-Priority Technical Debt / Next Steps (from `DEVELOPMENT.md`)
