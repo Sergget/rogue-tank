@@ -57,7 +57,7 @@ function nearestEnemyTo(shooter){
 // Tank ⇄ tank collision: tanks must never overlap. Each pair that overlaps is pushed apart
 // along its minimum-translation vector (MTV), split equally between both so the whole comes across.
 function resolveTankCollisions(iterations){
-  for(let it=0; it < (iterations||3); it++){
+  for(let it=0; it < (iterations||4); it++){
     let moved = false;
     for(let i=0;i<entities.length;i++){
       for(let j=i+1;j<entities.length;j++){
@@ -66,16 +66,54 @@ function resolveTankCollisions(iterations){
         const cornersA = partCorners(a.x,a.y,a.hullAngle, a.hullLen/2, a.hullWid/2);
         const cornersB = partCorners(b.x,b.y,b.hullAngle, b.hullLen/2, b.hullWid/2);
         const mtv = obbMTV(cornersA, cornersB);
-        if(mtv && mtv.depth > 0.1){
-          // Add small EPSILON buffer (0.5px) along MTV to break sticking/vibration
-          const buffer = 0.5;
-          const pushX = mtv.dx + (mtv.dx > 0 ? buffer : -buffer);
-          const pushY = mtv.dy + (mtv.dy > 0 ? buffer : -buffer);
+        if(mtv && mtv.depth > 0.05){
+          const depth = mtv.depth;
+          // Calculate true unit direction from MTV
+          const mtvLen = Math.hypot(mtv.dx, mtv.dy);
+          if (mtvLen < 1e-4) continue;
+          const ux = mtv.dx / mtvLen;
+          const uy = mtv.dy / mtvLen;
+          
+          // Separate them along the MTV. Add a tiny buffer (0.1px) to prevent precision sticking.
+          const separation = depth + 0.1;
+          const pushX = ux * separation;
+          const pushY = uy * separation;
+          
           a.x -= pushX * 0.5; a.y -= pushY * 0.5;
           b.x += pushX * 0.5; b.y += pushY * 0.5;
-          // Dampen collision relative speed
-          if(a.speed) a.speed *= 0.8;
-          if(b.speed) b.speed *= 0.8;
+          
+          // Dampen speed along the collision normal to prevent sticking and endless vibration
+          // Project velocities onto collision normal (ux, uy)
+          const velA_X = a.speed ? Math.cos(a.hullAngle) * a.speed : 0;
+          const velA_Y = a.speed ? Math.sin(a.hullAngle) * a.speed : 0;
+          const velB_X = b.speed ? Math.cos(b.hullAngle) * b.speed : 0;
+          const velB_Y = b.speed ? Math.sin(b.hullAngle) * b.speed : 0;
+          
+          const relVelX = velA_X - velB_X;
+          const relVelY = velA_Y - velB_Y;
+          const normalVel = relVelX * ux + relVelY * uy;
+          
+          // If moving towards each other, subtract the relative speed component along normal
+          if (normalVel > 0) {
+            const impulse = normalVel * 0.5;
+            if (a.speed) {
+              const aNormalX = ux * impulse;
+              const aNormalY = uy * impulse;
+              const newA_X = velA_X - aNormalX;
+              const newA_Y = velA_Y - aNormalY;
+              a.speed = Math.hypot(newA_X, newA_Y) * (velA_X * newA_X + velA_Y * newA_Y > 0 ? 1 : -1) * 0.7;
+            }
+            if (b.speed) {
+              const bNormalX = ux * impulse;
+              const bNormalY = uy * impulse;
+              const newB_X = velB_X + bNormalX;
+              const newB_Y = velB_Y + bNormalY;
+              b.speed = Math.hypot(newB_X, newB_Y) * (velB_X * newB_X + velB_Y * newB_Y > 0 ? 1 : -1) * 0.7;
+            }
+          } else {
+            if(a.speed) a.speed *= 0.8;
+            if(b.speed) b.speed *= 0.8;
+          }
           moved = true;
         }
       }

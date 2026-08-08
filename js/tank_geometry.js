@@ -212,6 +212,17 @@ function gunRoot(t){
   };
 }
 
+function gunTip(t){
+  const gr = gunRoot(t);
+  const bSpec = t.barrel || { len: 120, width: 18, muzzle: 'none' };
+  const barrelPct = Math.max(0, Math.min(3, (bSpec.len || 120) / 100));
+  const barrelLen = (t.turLen || 34) * barrelPct;
+  return {
+    x: gr.x + Math.cos(t.turretAngle) * barrelLen,
+    y: gr.y + Math.sin(t.turretAngle) * barrelLen
+  };
+}
+
 // Export for Node.js if running in test environment
 if (typeof module !== 'undefined' && module.exports) {
   const U = require('./tank_utils.js');
@@ -240,6 +251,7 @@ if (typeof module !== 'undefined' && module.exports) {
     faceLabel,
     turretPivot,
     turretFrontDist,
-    gunRoot
+    gunRoot,
+    gunTip
   };
 }

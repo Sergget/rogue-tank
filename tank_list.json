@@ -20,8 +20,15 @@
     "barrel": {
       "len": 110,
       "width": 22,
-      "muzzle": "double",
-      "evacPos": 40
+      "muzzle": "multi",
+      "evac": {
+        "style": "ring",
+        "pos": 40
+      },
+      "jacket": {
+        "len": 0,
+        "pos": 45
+      }
     },
     "hull": {
       "verts": [
@@ -118,9 +125,9 @@
     "turretTurnRate": 3,
     "weight": 100,
     "enginePower": 1200,
-    "hp": 100,
+    "hp": 80,
     "penetration": 160,
-    "damage": 40,
+    "damage": 50,
     "reload": 1,
     "shellSpeed": 1600,
     "heightClass": "medium",
@@ -252,11 +259,11 @@
     "id": "tiger-I",
     "traverseLimit": 180,
     "maxSpeed": 120,
-    "turnRate": 2,
-    "turretTurnRate": 2.2,
-    "weight": 300,
-    "enginePower": 900,
-    "hp": 100,
+    "turnRate": 1.6,
+    "turretTurnRate": 2,
+    "weight": 600,
+    "enginePower": 700,
+    "hp": 120,
     "penetration": 135,
     "damage": 40,
     "reload": 1.3,
@@ -479,11 +486,11 @@
     "maxSpeed": 120,
     "turnRate": 2,
     "turretTurnRate": 2.2,
-    "weight": 300,
+    "weight": 550,
     "enginePower": 900,
-    "hp": 100,
+    "hp": 110,
     "penetration": 120,
-    "damage": 34,
+    "damage": 45,
     "reload": 1.3,
     "shellSpeed": 1200,
     "heightClass": "heavy",

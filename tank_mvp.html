@@ -499,8 +499,8 @@ function tryFire(){
   if(!target) return;
   // 装填手/弹药架受伤 → 装填更久（debuff 降低装填速度）
   player.reloadT = player.stats.reload / debuffReloadRate(player);
-  const gr = gunRoot(player);
-  const ox = gr.x, oy = gr.y;
+  const gp = gunTip(player);
+  const ox = gp.x, oy = gp.y;
 
   // 散布只影响出膛方向（炮弹真实飞行，命中与否由飞行期间的实际情况决定）
   const sigma = spreadOn ? player.sigma : 0;
@@ -528,9 +528,10 @@ function tryFire(){
     addRangeShot(landX, landY, aimX, aimY);
   }
 
-  // 炮口闪光（开火瞬间）：定向锥形闪光 + 少量烟尘
+  // 炮口闪光（开火瞬间）：定向锥形闪光 + 少量烟尘。传入具体的制退器样式
+  const bMuzzle = (player.barrel && player.barrel.muzzle) || 'none';
   burstExplosion(ox, oy, 0.6, 4, 2, 0);
-  spawnMuzzleFlash(ox, oy, spreadAngle || player.turretAngle, 1);
+  spawnMuzzleFlash(ox, oy, spreadAngle || player.turretAngle, 1, bMuzzle);
 
   // 生成真实飞行炮弹：位置 / 方向 / 速度 / 穿深 / 伤害 / 弹种
   shells.push({
@@ -552,8 +553,8 @@ function tryFire(){
 // ---------- live firing solution (no spread) ----------
 function updateSolution(){
   const target = nearestEnemyTo(player);
-  const gr = gunRoot(player);
-  const ox = gr.x, oy = gr.y;
+  const gp = gunTip(player);
+  const ox = gp.x, oy = gp.y;
   const dx = Math.cos(player.turretAngle), dy = Math.sin(player.turretAngle);
   const hits = target ? raycastTank(ox,oy,dx,dy, target) : null;
   const elPart = document.getElementById('solPart');
@@ -1458,7 +1459,7 @@ function drawClassBadge(t, x, y){
 }
 
 function drawRange(){
-  const startX = gunRoot(player).x;
+  const startX = gunTip(player).x;
   const planeX = dummy.x; // target plane (vertical line through the fixed dummy target)
   ctx.save();
   // distance markers (range stakes) along the firing lane from the tank toward the target plane
@@ -1533,26 +1534,26 @@ covers.forEach(drawCover);
    });
 
   // ---- aim line + dispersion cones (瞄准线保持虚线；发射炮线已删除，炮弹用飞行动画呈现) ----
-  const gr = gunRoot(player);
+  const gp = gunTip(player);
   const aimA = player.turretAngle;
   const aimU = Math.cos(aimA), aimV = Math.sin(aimA);
 
   // aim line (center, no spread) — faint dashed reference along the same ray
   ctx.strokeStyle='rgba(255,180,84,0.3)'; ctx.setLineDash([8,8]); ctx.lineWidth=1.5;
-  ctx.beginPath(); ctx.moveTo(gr.x,gr.y); ctx.lineTo(gr.x+aimU*900, gr.y+aimV*900); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(gp.x,gp.y); ctx.lineTo(gp.x+aimU*900, gp.y+aimV*900); ctx.stroke();
 
   // dispersion cones — shortened boundaries (length 250px) to keep UI clean
   function drawCone(sigma, color, dash){
     const L = 250;
     ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash(dash);
     ctx.beginPath();
-    ctx.moveTo(gr.x,gr.y);
-    ctx.lineTo(gr.x+Math.cos(aimA-sigma)*L, gr.y+Math.sin(aimA-sigma)*L);
-    ctx.moveTo(gr.x,gr.y);
-    ctx.lineTo(gr.x+Math.cos(aimA+sigma)*L, gr.y+Math.sin(aimA+sigma)*L);
+    ctx.moveTo(gp.x,gp.y);
+    ctx.lineTo(gp.x+Math.cos(aimA-sigma)*L, gp.y+Math.sin(aimA-sigma)*L);
+    ctx.moveTo(gp.x,gp.y);
+    ctx.lineTo(gp.x+Math.cos(aimA+sigma)*L, gp.y+Math.sin(aimA+sigma)*L);
     ctx.stroke();
   }
-  drawCone(SPREAD.worstCase(), 'rgba(255,180,84,0.18)', [3,7]);  // final (worst-case) cone — faint, long dash
+  // Remove SPREAD.worstCase() drawCone, only draw the live cone to keep display clean
   drawCone(player.sigma,          'rgba(255,180,84,0.5)',  [2,4]);  // live cone — brighter, short dash
   ctx.setLineDash([]);
 }

@@ -73,9 +73,9 @@ function spawnTrackBreakFx(t){
   burstExplosion(p.x, p.y, 0.7, 8, 4, 6);
   spawnImpactFx(p.x, p.y, t.hullAngle, 'block', 0.7);
 }
-// 炮口闪光：出膛时在炮口位置生成窄扇形闪光，不随缩放变形
-function spawnMuzzleFlash(x, y, angle, scale){
-  muzzleFlashes.push({ x, y, ang: angle || 0, life: 0, max: 0.1, big: scale || 1 });
+// 炮口闪光：出膛时在炮口位置生成窄扇形闪光，不随缩放变形。可以接收制退器类型
+function spawnMuzzleFlash(x, y, angle, scale, muzzleType){
+  muzzleFlashes.push({ x, y, ang: angle || 0, life: 0, max: 0.1, big: scale || 1, muzzle: muzzleType || 'none' });
 }
 function spawnSpark(x, y, angle, speed, life, size){
   fxParticles.push({ kind:'spark', x, y,
@@ -167,27 +167,87 @@ function drawTurretFlights(ctx){
     ctx.restore();
   }
 }
-// 炮口闪光：向开火方向拉长的锥形光 + 中央光斑 + 光环（叠加混合）
+// 炮口闪光：向开火方向拉长的锥形光 + 中央光斑 + 光环（叠加混合）。支持 8 种制退器渲染
 function drawMuzzleFlashes(ctx){
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   for(const f of muzzleFlashes){
     const t = Math.min(1, f.life / f.max);
     const a = Math.max(0, 1 - t);
-    const r = 5 + t * 20 * f.big;
+    const r = (5 + t * 20) * f.big;
     ctx.save();
     ctx.translate(f.x, f.y);
     ctx.rotate(f.ang);
-    const grad = ctx.createLinearGradient(0, 0, r * 2.4, 0);
-    grad.addColorStop(0,   `rgba(255,248,210,${0.95*a})`);
-    grad.addColorStop(0.4, `rgba(255,190,80,${0.55*a})`);
-    grad.addColorStop(1,   'rgba(255,120,30,0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r * 2.4, -0.55, 0.55); ctx.closePath(); ctx.fill();
+
+    // 辅助函数：绘制特定角度和大小的火舌
+    const drawPlume = (angleOffset, lenFactor, widthAng) => {
+      ctx.save();
+      ctx.rotate(angleOffset);
+      const plumeGrad = ctx.createLinearGradient(0, 0, r * 2.4 * lenFactor, 0);
+      plumeGrad.addColorStop(0, `rgba(255,248,210,${0.95*a})`);
+      plumeGrad.addColorStop(0.4, `rgba(255,190,80,${0.55*a})`);
+      plumeGrad.addColorStop(1, 'rgba(255,120,30,0)');
+      ctx.fillStyle = plumeGrad;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, r * 2.4 * lenFactor, -widthAng, widthAng);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    };
+
+    const type = f.muzzle || 'none';
+    if (type === 'none') {
+      // 传统单向向前锥形火舌
+      drawPlume(0, 1.1, 0.55);
+    } else if (type === 'single') {
+      // 向前较大喷射 + 两侧90度排气火星
+      drawPlume(0, 1.0, 0.45);
+      drawPlume(Math.PI/2, 0.4, 0.25);
+      drawPlume(-Math.PI/2, 0.4, 0.25);
+    } else if (type === 'double') {
+      // 中等向前 + 两侧强力90度双火舌
+      drawPlume(0, 0.8, 0.35);
+      drawPlume(Math.PI/2, 0.65, 0.25);
+      drawPlume(-Math.PI/2, 0.65, 0.25);
+    } else if (type === 'multi') {
+      // 向前微弱 + 侧后方多级斜火舌
+      drawPlume(0, 0.5, 0.25);
+      drawPlume(Math.PI * 0.45, 0.5, 0.2);
+      drawPlume(-Math.PI * 0.45, 0.5, 0.2);
+      drawPlume(Math.PI * 0.55, 0.4, 0.15);
+      drawPlume(-Math.PI * 0.55, 0.4, 0.15);
+    } else if (type === 'slug') {
+      // 扁、宽且短的向前火球，具有更强的核心发散
+      drawPlume(0, 0.85, 1.0);
+    } else if (type === 'pepperpot') {
+      // 六向星状火针
+      for (let i = 0; i < 6; i++) {
+        const ang = -Math.PI * 0.5 + i * (Math.PI / 3);
+        drawPlume(ang, 0.55, 0.12);
+      }
+    } else if (type === 'heavy_square') {
+      // 向前及两侧宽幅方形火柱
+      drawPlume(0, 1.25, 0.7);
+      drawPlume(Math.PI/2, 0.8, 0.5);
+      drawPlume(-Math.PI/2, 0.8, 0.5);
+    } else if (type === 'cylinder') {
+      // 弱向前 + 横向扇形排焰
+      drawPlume(0, 0.4, 0.25);
+      drawPlume(Math.PI/2, 0.75, 0.65);
+      drawPlume(-Math.PI/2, 0.75, 0.65);
+    }
+
+    // 核心圆斑
+    const coreR = type === 'slug' ? r * 0.75 : r * 0.5;
     ctx.fillStyle = `rgba(255,255,235,${0.9*a})`;
-    ctx.beginPath(); ctx.arc(0, 0, r * 0.5, 0, TAU); ctx.fill();
-    ctx.strokeStyle = `rgba(255,200,110,${0.7*a})`; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(0, 0, r * 1.5, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, coreR, 0, TAU); ctx.fill();
+
+    // 冲击环
+    const ringR = type === 'slug' ? r * 2.0 : r * 1.5;
+    ctx.strokeStyle = `rgba(255,200,110,${0.7*a})`; ctx.lineWidth = type === 'heavy_square' ? 2.5 : 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, ringR, 0, TAU); ctx.stroke();
+
     ctx.restore();
   }
   ctx.restore();
