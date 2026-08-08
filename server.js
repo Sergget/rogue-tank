@@ -38,8 +38,24 @@ const server = http.createServer((req, res) => {
   // Handle API endpoints (POST /api/tank_list or /tank_list.json to update tank_list.json)
   if ((req.method === 'POST' || req.method === 'PUT') && (urlPath === '/api/tank_list' || urlPath === '/tank_list.json')) {
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    const MAX_SIZE = 2 * 1024 * 1024; // 2MB limit
+    let limitExceeded = false;
+
+    req.on('data', chunk => {
+      if (limitExceeded) return;
+      if (body.length + chunk.length > MAX_SIZE) {
+        limitExceeded = true;
+        body = '';
+        res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ success: false, error: 'Request body exceeds size limit of 2MB' }));
+        req.resume(); // keep draining so the request can complete on our side
+        return;
+      }
+      body += chunk;
+    });
+
     req.on('end', () => {
+      if (limitExceeded) return; // response already sent
       try {
         JSON.parse(body); // Validate JSON
         const targetFile = path.join(ROOT, 'tank_list.json');
@@ -48,7 +64,7 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ success: true, message: 'tank_list.json updated successfully' }));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ success: false, error: 'Invalid JSON body: ' + err.message }));
+        res.end(JSON.stringify({ success: false, error: 'Invalid JSON or write failed: ' + err.message }));
       }
     });
     return;

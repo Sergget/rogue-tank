@@ -36,15 +36,32 @@ function checkFileScripts(htmlPath) {
     const body = (m[2] || '').trim();
     if (!body) continue;                    // empty — just a src include
     if (/\bsrc\s*=\s*"/.test(attrs)) continue; // external script, ignore blank body
+    
+    // Check for duplicate function declarations
+    const fnRegex = /function\s+([A-Za-z0-9_]+)\s*\(/g;
+    const foundFns = {};
+    let match;
+    while ((match = fnRegex.exec(body)) !== null) {
+      const fnName = match[1];
+      if (foundFns[fnName]) {
+        console.warn(`⚠️ Warning: Duplicate function declaration "${fnName}" in inline script of ${label}`);
+      }
+      foundFns[fnName] = true;
+    }
+    
     checkCode(`${label}#inline${inlineIdx++}`, body);
   }
 }
 
-for (const rel of ['js/tank_rules.js', 'js/tank_paint.js', 'server.js']) {
-  const full = path.join(ROOT, rel);
-  if (!fs.existsSync(full)) { console.error(`✗ missing: ${rel}`); failed++; continue; }
+// Shared JS files in js/
+const jsDir = path.join(ROOT, 'js');
+const jsFiles = fs.readdirSync(jsDir).filter(f => f.endsWith('.js'));
+for (const file of jsFiles) {
+  const rel = path.join('js', file);
+  const full = path.join(jsDir, file);
   checkCode(rel, fs.readFileSync(full, 'utf8'));
 }
+checkCode('server.js', fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8'));
 for (const rel of ['tank_mvp.html', 'tank_designer.html', 'tank_compare.html']) {
   const full = path.join(ROOT, rel);
   if (!fs.existsSync(full)) { console.error(`✗ missing: ${rel}`); failed++; continue; }

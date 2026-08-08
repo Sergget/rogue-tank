@@ -8,6 +8,7 @@
 // match" bugs from hand-authored JSON.
 //
 // Pure logic only — no DOM / canvas — so the same geometry code can be unit-tested in Node.
+// rotate / distToSegment are provided globally by tank_utils.js (tank_rules→utils load first).
 //
 //   buildFullVerts(half)                        — half -> full closed polygon vertex list
 //   buildFullFacesWithFlags(half, ...)          — half + seam faces -> full faces + primary flags
@@ -17,15 +18,6 @@
 //   recenterPoly(poly)                          — shift half so the full silhouette is bbox-centered
 //   normalizeBarrel(b)                          — normalize a barrel spec (new or legacy format)
 
-function rotate(dx,dy,theta){
-  return { x: dx*Math.cos(theta) - dy*Math.sin(theta), y: dx*Math.sin(theta) + dy*Math.cos(theta) };
-}
-function distToSegment(px,py,ax,ay,bx,by){
-  const abx=bx-ax, aby=by-ay;
-  const t = Math.max(0, Math.min(1, ((px-ax)*abx+(py-ay)*aby)/((abx*abx+aby*aby)||1)));
-  const cx=ax+abx*t, cy=ay+aby*t;
-  return Math.hypot(px-cx, py-cy);
-}
 const CENTER_EPS = 1e-4;
 function onCenterline(p){ return Math.abs(p[1]) < CENTER_EPS; }
 function mirrorPt(p){ return [p[0], -p[1]]; }
@@ -153,10 +145,11 @@ function normalizeBarrel(b){
 }
 
 if (typeof module !== 'undefined' && module.exports) {
+  const U = require('./tank_utils.js');
   module.exports = {
     CENTER_EPS,
-    rotate,
-    distToSegment,
+    rotate: U.rotate,
+    distToSegment: U.distToSegment,
     onCenterline,
     mirrorPt,
     pointsEqual,

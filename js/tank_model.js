@@ -15,7 +15,7 @@ function computeStats(base, modifiers){
     maxHp: base.maxHp,
     weight: base.weight,
     enginePower: base.enginePower,
-    armor: JSON.parse(JSON.stringify(base.armor)),
+    armor: (typeof structuredClone === 'function') ? structuredClone(base.armor) : JSON.parse(JSON.stringify(base.armor)),
     // 履带被击毁锁定时间（秒）；玩家侧可随升级缩短
     trackLock: base.trackLock !== undefined ? base.trackLock : RULES.modules.trackLockDefault,
     // 模块伤害倍率（玩家侧可随卡牌/技能升级增强；敌方固定倍率见 RULES.modules.ammo/crew.enemy）
@@ -164,40 +164,28 @@ function applyTankConfig(tank, spec){
   if (spec.hasTurret !== undefined) tank.hasTurret = spec.hasTurret; // legacy entries only
   if (spec.traverseLimit !== undefined) tank.traverseLimit = spec.traverseLimit * Math.PI / 180;
   const b = tank.base;
-  if (spec.maxSpeed !== undefined) b.maxSpeed = spec.maxSpeed;
-  if (spec.turnRate !== undefined) b.turnRate = spec.turnRate;
-  if (spec.turretTurnRate !== undefined) b.turretTurnRate = spec.turretTurnRate;
-  if (spec.enginePower !== undefined) b.enginePower = spec.enginePower;
-  if (spec.weight !== undefined) b.weight = spec.weight;
+  
+  // Table-driven field copies to reduce boilerplate
+  const baseFields = [
+    'maxSpeed', 'turnRate', 'turretTurnRate', 'enginePower', 'weight',
+    'penetration', 'damage', 'reload', 'shellSpeed',
+    'trackLock', 'ammoMult', 'crewMult', 'spreadMult', 'aimSpeed'
+  ];
+  for (const f of baseFields) {
+    if (spec[f] !== undefined) b[f] = spec[f];
+  }
   if (spec.hp !== undefined) b.maxHp = spec.hp;
   if (spec.maxHp !== undefined) b.maxHp = spec.maxHp;
-  if (spec.penetration !== undefined) b.penetration = spec.penetration;
-  if (spec.damage !== undefined) b.damage = spec.damage;
-  if (spec.reload !== undefined) b.reload = spec.reload;
-  if (spec.shellSpeed !== undefined) b.shellSpeed = spec.shellSpeed;
-  if (spec.heightClass !== undefined) tank.heightClass = spec.heightClass;
-  if (spec.trackWidth !== undefined) tank.trackWidth = spec.trackWidth;
-  if (spec.trackOffset !== undefined) tank.trackOffset = spec.trackOffset;
-  if (spec.trackLock !== undefined) b.trackLock = spec.trackLock;
-  if (spec.ammoMult !== undefined) b.ammoMult = spec.ammoMult;
-  if (spec.crewMult !== undefined) b.crewMult = spec.crewMult;
-  if (spec.spreadMult !== undefined) b.spreadMult = spec.spreadMult;
-  if (spec.aimSpeed !== undefined) b.aimSpeed = spec.aimSpeed;
+
+  const instanceFields = ['heightClass', 'trackWidth', 'trackOffset'];
+  for (const f of instanceFields) {
+    if (spec[f] !== undefined) tank[f] = spec[f];
+  }
+
   if (spec.anchors !== undefined) Object.assign(tank.anchors, spec.anchors);
   if (spec.barrel){
-    // normalize: new {evac:{style,pos}, jacket:{len,pos}} format, or legacy flat evacPos number
-    let evac;
-    if (spec.barrel.evac && spec.barrel.evac.style) evac = { style: spec.barrel.evac.style, pos: spec.barrel.evac.pos !== undefined ? spec.barrel.evac.pos : 30 };
-    else if (spec.barrel.evacPos !== undefined) evac = { style: spec.barrel.evacPos > 0 ? 'ring' : 'none', pos: spec.barrel.evacPos };
-    else evac = { style: 'none', pos: 30 };
-    tank.barrel = {
-      len: spec.barrel.len || 120,
-      width: spec.barrel.width || 18,
-      muzzle: spec.barrel.muzzle || 'none',
-      evac,
-      jacket: spec.barrel.jacket ? { len: spec.barrel.jacket.len || 0, pos: spec.barrel.jacket.pos !== undefined ? spec.barrel.jacket.pos : 45 } : { len: 0, pos: 45 },
-      mantlet: spec.barrel.mantlet ? { style: spec.barrel.mantlet.style || 'none', pos: spec.barrel.mantlet.pos !== undefined ? spec.barrel.mantlet.pos : 0, width: spec.barrel.mantlet.width !== undefined ? spec.barrel.mantlet.width : 40 } : { style: 'none', pos: 0, width: 40 }
-    };
+    // normalize: shared normalizeBarrel from tank_halfgeom.js (loaded on all pages)
+    tank.barrel = normalizeBarrel(spec.barrel);
   }
   if (spec.armor !== undefined){
     tank.customArmor = spec.armor;

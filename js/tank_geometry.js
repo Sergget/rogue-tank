@@ -1,6 +1,6 @@
 'use strict';
 
-const ARMOR = {
+const ARMOR = RULES.defaultArmor || {
   hull:   { front:110, side:38, rear:26 },
   turret: { front:140, side:50, rear:24 }
 };
@@ -20,24 +20,7 @@ function getGunHeight(tank) {
   return h.hull + h.turret * 0.5;
 }
 
-function partCorners(cx,cy,angle,halfL,halfW){
-  const local = [ [halfL,-halfW], [halfL,halfW], [-halfL,halfW], [-halfL,-halfW] ]; // FL,FR,RR,RL
-  return local.map(([dx,dy])=>{
-    const r = rotate(dx,dy,angle);
-    return { x: cx+r.x, y: cy+r.y };
-  });
-}
-function partEdges(corners, angle){
-  const names = ['front','right','rear','left'];
-  const localNormals = [ [1,0],[0,1],[-1,0],[0,-1] ];
-  const edges = [];
-  for(let i=0;i<4;i++){
-    const a = corners[i], b = corners[(i+1)%4];
-    const n = rotate(localNormals[i][0], localNormals[i][1], angle);
-    edges.push({ name:names[i], a,b, nx:n.x, ny:n.y, faceKey: (names[i]==='left'||names[i]==='right') ? 'side' : names[i] });
-  }
-  return edges;
-}
+// partCorners & partEdges are provided globally by tank_utils.js
 
 const HULL_PROTRUSION = 0.5;
 function hullPoly(t){
@@ -132,6 +115,33 @@ function bestTankHit(hits, minT, maxT){
   return cand[0];
 }
 
+// 鼠标径向部位选择（玩家意图）：沿无散布瞄准线把鼠标投影到炮口同线上，
+// 与目标最近命中距离比较——更远 → 'turret'（上部），更近 → 'hull'，死区内 → 'auto'。
+// hits 来自 raycastTank（每个部位一条最近命中）；margin 为死区半径（px）。
+function aimPartPreference(ox, oy, ux, uy, mouseX, mouseY, hits, margin){
+  if(!hits) return 'auto';
+  let tNear = Infinity;
+  for(const h of hits){ if(h.t < tNear) tNear = h.t; }
+  if(!isFinite(tNear)) return 'auto';
+  const mt = (mouseX - ox) * ux + (mouseY - oy) * uy;
+  if(mt > tNear + margin) return 'turret';
+  if(mt < tNear - margin) return 'hull';
+  return 'auto';
+}
+
+// 按偏好选择命中部位：pref='hull' 且存在车体命中 → 取车体；其余（含 'auto'）保持炮塔优先。
+// 与 bestTankHit 的差异仅在有两条命中（车体+炮塔）时的取舍；'auto' 即为原默认行为。
+function bestHitForPref(hits, minT, maxT, pref){
+  if(!hits) return null;
+  const cand = hits.filter(function(h){ return h.t > (minT||0.001) && h.t <= (maxT === undefined ? Infinity : maxT); });
+  if(cand.length === 0) return null;
+  const tur = cand.filter(function(h){ return h.part === 'turret'; });
+  const hu  = cand.filter(function(h){ return h.part === 'hull'; });
+if(pref === 'hull' && hu.length) return hu[0];
+  if(tur.length) return tur[0];
+  return cand[0];
+}
+
 // 发动机是否位于车体后部：由炮塔旋转中心决定——
 // 炮塔旋转中心在车体中心前部(dx>0) → 弹药架在前、发动机在后；
 // 炮塔旋转中心在车体中心后部(dx<0) → 弹药架在后、发动机在前。
@@ -204,14 +214,15 @@ function gunRoot(t){
 
 // Export for Node.js if running in test environment
 if (typeof module !== 'undefined' && module.exports) {
+  const U = require('./tank_utils.js');
   module.exports = {
     ARMOR,
     BOUNCE_ANGLE,
     HEIGHTS,
     getPartZRange,
     getGunHeight,
-    partCorners,
-    partEdges,
+    partCorners: U.partCorners,
+    partEdges: U.partEdges,
     HULL_PROTRUSION,
     hullPoly,
     turretPoly,
@@ -224,6 +235,8 @@ if (typeof module !== 'undefined' && module.exports) {
     engineLocalX,
     moduleFromHit,
     bestTankHit,
+    aimPartPreference,
+    bestHitForPref,
     faceLabel,
     turretPivot,
     turretFrontDist,

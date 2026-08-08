@@ -6,7 +6,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "serve": "node server.js",
-    "check": "node scripts/check-html.js"
+    "check": "node scripts/check-html.js",
+    "test": "node scripts/test-covers.js"
   },
   "engines": {
     "node": ">=18"

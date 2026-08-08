@@ -2,15 +2,8 @@
 
 // 掩体系数统一收口到 js/tank_rules.js（特性5）；此处仅做别名保持调用方兼容
 const COVER_TIERS = RULES.coverTiers;
-const DEFENSE_BASE = RULES.coverDefenseBase;
-const ATTACKER_AMPLITUDE_FACTOR = RULES.attackerAmplitudeFactor;
-
-function distanceTier(dist){
-  for (const [at, mult] of RULES.distanceTier) {
-    if (dist <= at) return mult;
-  }
-  return 0;
-}
+// distanceTier 已随 A1 双档模型移除（见 RULES.coverHugDist），不再有距离渐变
+// 半高掩体的"能否开过去"由 RULES.coverTiers.half.driveBy（按 heightClass）门控
 
 // 地图元素（掩体体系，见 DEVELOPMENT.md §2.7）：每个元素带运行时耐久 hp——
 // hp<=0 即毁（被炮弹/碾压/HE 溅射摧毁），已毁元素从所有判定与绘制中排除。
@@ -110,63 +103,46 @@ function getCoverUnderTank(tank) {
   return null;
 }
 
+// ---------- OBB / SAT collision helpers ----------
+function getOBBAxes(corners) {
+  const axes = [];
+  for (let i = 0; i < corners.length; i++) {
+    const j = (i + 1) % corners.length;
+    const ex = corners[j].x - corners[i].x;
+    const ey = corners[j].y - corners[i].y;
+    const len = Math.hypot(ex, ey) || 1;
+    axes.push({ x: -ey / len, y: ex / len });
+  }
+  return axes;
+}
+
+function projectOBB(corners, axis) {
+  let min = Infinity, max = -Infinity;
+  for (const c of corners) {
+    const d = c.x * axis.x + c.y * axis.y;
+    if (d < min) min = d;
+    if (d > max) max = d;
+  }
+  return { min, max };
+}
+
 function obbOverlap(cornersA, cornersB) {
-  function getAxes(corners) {
-    const axes = [];
-    for (let i = 0; i < corners.length; i++) {
-      const j = (i + 1) % corners.length;
-      const ex = corners[j].x - corners[i].x;
-      const ey = corners[j].y - corners[i].y;
-      const len = Math.hypot(ex, ey) || 1;
-      axes.push({ x: -ey / len, y: ex / len });
-    }
-    return axes;
-  }
-  function project(corners, axis) {
-    let min = Infinity, max = -Infinity;
-    for (const c of corners) {
-      const d = c.x * axis.x + c.y * axis.y;
-      if (d < min) min = d;
-      if (d > max) max = d;
-    }
-    return { min, max };
-  }
-  const axes = getAxes(cornersA).concat(getAxes(cornersB));
+  const axes = getOBBAxes(cornersA).concat(getOBBAxes(cornersB));
   for (const axis of axes) {
-    const pA = project(cornersA, axis);
-    const pB = project(cornersB, axis);
+    const pA = projectOBB(cornersA, axis);
+    const pB = projectOBB(cornersB, axis);
     if (pA.max < pB.min || pB.max < pA.min) return false;
   }
   return true;
 }
 
 function obbMTV(tankCorners, covCorners) {
-  function getAxes(corners) {
-    const axes = [];
-    for (let i = 0; i < corners.length; i++) {
-      const j = (i + 1) % corners.length;
-      const ex = corners[j].x - corners[i].x;
-      const ey = corners[j].y - corners[i].y;
-      const len = Math.hypot(ex, ey) || 1;
-      axes.push({ x: -ey / len, y: ex / len });
-    }
-    return axes;
-  }
-  function project(corners, axis) {
-    let min = Infinity, max = -Infinity;
-    for (const c of corners) {
-      const d = c.x * axis.x + c.y * axis.y;
-      if (d < min) min = d;
-      if (d > max) max = d;
-    }
-    return { min, max };
-  }
-  const axes = getAxes(tankCorners).concat(getAxes(covCorners));
+  const axes = getOBBAxes(tankCorners).concat(getOBBAxes(covCorners));
   let minDepth = Infinity;
   let mtvAxis = null;
   for (const axis of axes) {
-    const pA = project(tankCorners, axis);
-    const pB = project(covCorners, axis);
+    const pA = projectOBB(tankCorners, axis);
+    const pB = projectOBB(covCorners, axis);
     if (pA.max < pB.min || pB.max < pA.min) return null;
     const overlap = Math.min(pA.max - pB.min, pB.max - pA.min);
     if (overlap < minDepth) {
@@ -190,6 +166,7 @@ function obbMTV(tankCorners, covCorners) {
 //   crushable 元素（栅栏/沙袋/树桩/碎石）：直接压毁；
 //   solid 不可压毁（全高建筑/树）：MTV 推出，物理隔离；
 //   graduated（半高）/ none（灌木）：只让 update 里做通行系数，不推。
+//   半高掩体另有 driveBy 门控（A1 设定）：重坦可开过去，中坦等同 solid 被推出。
 function resolveCoverCollisions(tank) {
   const tankCorners = () => partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
   for (const cov of covers) {
@@ -202,7 +179,8 @@ function resolveCoverCollisions(tank) {
       destroyCover(cov, 'crush');
       continue;
     }
-    if (tier.mode === 'solid') {
+    const blocked = tier.mode === 'solid' || (tier.driveBy && tier.driveBy[tank.heightClass] === false);
+    if (blocked) {
       tank.x += mtv.dx;
       tank.y += mtv.dy;
     }
@@ -217,21 +195,36 @@ function findCoversOnPath(ox,oy,tx,ty){
   for(const cov of covers){
     if(cov.hp <= 0) continue;   // 已摧毁元素不再参与判定/预测
     const corners = partCorners(cov.x,cov.y,cov.angle, cov.w/2, cov.h/2);
-    let nearest = null;
+    let entry = null, exit = null;
     for(let i=0;i<4;i++){
       const a=corners[i], b=corners[(i+1)%4];
       const hit = segRayIntersect(ox,oy,ux,uy, a.x,a.y,b.x,b.y);
-      if(hit && hit.t>0.5 && hit.t<dist && (!nearest || hit.t<nearest.t)) nearest = hit;
+      if(hit && hit.t>0.5){
+        // entry 只取命中点之前的穿越；exit 取整个矩形的出口（可越过命中点，
+        // 供方向判据判定"掩体是否完整位于射手与目标之间"）
+        if(hit.t < dist){
+          if(!entry || hit.t<entry) entry = hit.t;
+        }
+        if(!exit || hit.t>exit) exit = hit.t;
+      }
     }
-    if(nearest){
-      hits.push({ cover:cov, distA:nearest.t, distB:dist-nearest.t, point:{x:ox+ux*nearest.t,y:oy+uy*nearest.t} });
+    if(entry !== null){
+      hits.push({ cover:cov, distA:entry, distB:dist-entry, distExit:exit || entry,
+                  point:{x:ox+ux*entry,y:oy+uy*entry} });
     }
   }
   hits.sort((a,b)=>a.distA-b.distA);
   return hits;
 }
 
-function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax) {
+// A1 双档遮挡模型（替代 distanceTier 三档渐变，见 RULES.coverHugDist）：
+//   · 贴掩体（目标距掩体 ≤ coverHugDist）：半高掩体遮蔽到目标车体顶 —— 车体全隐、炮塔仍露（hull-down）。
+//     低矮残骸（树桩/碎石）不给"全藏"加成，任何距离只遮蔽到自身高度。
+//   · 拉开（> coverHugDist）：只遮蔽到掩体顶 —— 高出掩体的部分恒定露出
+//     （重坦车体 0.4m/1.8m ≈ 0.22，中坦车体 1.4 ≤ 掩体顶 → 恒全隐；炮塔恒露出）。
+//   · 方向判据（cutoffDist）：掩体必须被射线在命中目标车体前完整穿过（distExit < cutoffDist）
+//     才参与遮挡 —— 骑上/压入掩体的坦克不会获得全方向遮蔽，只有"掩体在弹道与目标之间"才生效。
+function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
   const hits = findCoversOnPath(ox,oy,tx,ty);
   let effectiveCoverH = 0;
 
@@ -239,28 +232,29 @@ function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax) {
     const tier = COVER_TIERS[h.cover.tier];
     // 纯视线/可穿透元素不参与弹道遮挡（灌木 none / 栅栏 pass）
     if(tier.mode === 'none' || tier.mode === 'pass') continue;
+    // 方向判据：掩体须在命中车体前被射线完整穿过（骑上/包住车体的掩体不生效）
+    if(cutoffDist !== undefined && h.distExit >= cutoffDist) continue;
     const coverMaxH = HEIGHTS.cover[h.cover.tier] || 0;
     if(tier.mode === 'solid' || tier.mode === 'single') return 0;
-    const targetProximity = distanceTier(h.distB);
-    // 距离分档只衰减"高出掩体顶部"的部分：整个高度都 ≤ 掩体高度的部位（中坦车体 1.4 ≤
-    // 半高掩体 1.4）无论离开掩体多远都保持全遮蔽，不会被距离分档"揭盖"。只有高于掩体的
-    // 部分（重坦车体 / 任何炮塔）才按距离分档衰减有效遮挡高度。
-    const hEff = coverMaxH * (0.4 + 0.6 * targetProximity);
-    effectiveCoverH = Math.max(effectiveCoverH, (zMax <= coverMaxH) ? coverMaxH : hEff);
+    const hugging = h.distB <= RULES.coverHugDist;
+    const effH = (hugging && h.cover.tier === 'half')
+      ? HEIGHTS[target.heightClass].hull
+      : coverMaxH;
+    effectiveCoverH = Math.max(effectiveCoverH, effH);
   }
 
   const exposedHeight = Math.max(0, zMax - effectiveCoverH);
   if (exposedHeight < 0.001) return 0;
-  
+
   const totalPartHeight = zMax - zMin;
   const partExposure = Math.max(0, zMax - Math.max(zMin, effectiveCoverH));
-  
+
   return Math.min(1, partExposure / totalPartHeight);
 }
 
-function coverBlockInfo(ox,oy,tx,ty, shooter, target, part){
+function coverBlockInfo(ox,oy,tx,ty, shooter, target, part, cutoffDist){
   const z = getPartZRange(target, part);
-  const exposure = getExposure(ox,oy,tx,ty, shooter, target, z.zMin, z.zMax);
+  const exposure = getExposure(ox,oy,tx,ty, shooter, target, z.zMin, z.zMax, cutoffDist);
   return { prob: 1 - exposure, hits: findCoversOnPath(ox,oy,tx,ty) };
 }
 
@@ -276,9 +270,6 @@ function isBlockedBySolidCover(ox,oy,tx,ty){
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     COVER_TIERS,
-    DEFENSE_BASE,
-    ATTACKER_AMPLITUDE_FACTOR,
-    distanceTier,
     covers,
     snapshotCovers,
     resetCovers,

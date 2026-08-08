@@ -246,6 +246,7 @@
 <script src="js/tank_rules.js"></script>
 <script src="js/tank_utils.js"></script>
   <script src="js/tank_geometry.js"></script>
+  <script src="js/tank_halfgeom.js"></script>
   <script src="js/tank_model.js"></script>
   <script src="js/tank_cover.js"></script>
   <script src="js/tank_physics.js"></script>
@@ -509,6 +510,12 @@ function tryFire(){
   // 当前弹种（特性4）：AP/APCR/HE 倍率作用在速/穿深/伤害上
   const ammo = RULES.ammoTypes[player.ammoKey] || RULES.ammoTypes.ap;
 
+  // 命中部位意图：沿无散布瞄准线把鼠标投影到与目标的距离上（比目标远 → 打炮塔 / 近 → 打车体）
+  const aimA = player.turretAngle;
+  const aimU = Math.cos(aimA), aimV = Math.sin(aimA);
+  const aimHits = raycastTank(ox, oy, aimU, aimV, target);
+  const hitPref = aimPartPreference(ox, oy, aimU, aimV, mouseWorld.x, mouseWorld.y, aimHits, RULES.aim.partProbe);
+
   // In range mode, record where this shot crosses the vertical plane through the target's
   // position — the "aiming landing point" (prediction only, actual landing follows the real shot).
   if(rangeOn){
@@ -534,6 +541,7 @@ function tryFire(){
     dmg:  player.stats.damage * ammo.dmg,
     ammo,
     shooter: player,
+    hitPref,
     canBounce: true,
     bounced: false,
     dist: 0,
@@ -561,7 +569,7 @@ function updateSolution(){
     return;
   }
   // For the solution UI, we show the most exposed part or the first hit
-  const weighted = hits.map(h => ({ h, w: getExposure(ox, oy, h.x, h.y, player, target, getPartZRange(target, h.part).zMin, getPartZRange(target, h.part).zMax) }));
+  const weighted = hits.map(h => ({ h, w: getExposure(ox, oy, h.x, h.y, player, target, getPartZRange(target, h.part).zMin, getPartZRange(target, h.part).zMax, h.t) }));
   weighted.sort((a,b) => b.w - a.w);
   const hit = weighted[0].h;
   const exposure = weighted[0].w;
@@ -763,16 +771,16 @@ function update(dt){
     const nx = sx + s.dx*step, ny = sy + s.dy*step;
 
     // 候选障碍：isHostile 的存活实体（友方/自身穿透，不阻挡）
-    // bestTankHit 取本步长内唯一生效命中：同平面覆盖区炮塔优先（炮塔是上层构件），
-    // 未命中炮塔时取最近命中（修复：从正/后方射击命中炮塔）。
-    let bestDist = Infinity, bestTank = null, bestHit = null, bestCover = null;
+    // bestHitForPref 取本步长内唯一生效命中：按 shell.hitPref（鼠标径向意图）选车体/炮塔，
+    // 'auto' 时保持原默认——同平面覆盖区炮塔优先（炮塔是上层构件），未命中炮塔取最近。
+    let bestDist = Infinity, bestTank = null, bestHit = null, bestHits = null, bestCover = null;
     for(const e of entities){
       if(e.hp <= 0) continue;
       if(!isHostile(s.shooter.team, e.team)) continue;
       const hits = raycastTank(sx, sy, s.dx, s.dy, e);
-      const bh = bestTankHit(hits, 0.001, step);
+      const bh = bestHitForPref(hits, 0.001, step, s.hitPref);
       if(bh && bh.t < bestDist){
-        bestDist = bh.t; bestTank = e; bestHit = bh; bestCover = null;
+        bestDist = bh.t; bestTank = e; bestHit = bh; bestHits = hits; bestCover = null;
       }
     }
     // 掩体/元素拦截（§2.7）：solid/single 为截停候选；pass（栅栏）直接穿透，但穿过的瞬间摧毁该元素
@@ -829,7 +837,7 @@ function update(dt){
       s.x = hx; s.y = hy;
       // 半高掩体：按命中时刻的暴露概率判定是否被拦截
       const z = getPartZRange(bestTank, bestHit.part);
-      const exposure = getExposure(sx, sy, hx, hy, s.shooter, bestTank, z.zMin, z.zMax);
+      const exposure = getExposure(sx, sy, hx, hy, s.shooter, bestTank, z.zMin, z.zMax, bestDist);
       if(exposure <= 0 || Math.random() > exposure){
         impacts.push({ x:hx, y:hy, life:0.4, color:'#ffb454' });
         spawnImpactFx(hx, hy, Math.atan2(s.dy, s.dx), 'block', 0.7);

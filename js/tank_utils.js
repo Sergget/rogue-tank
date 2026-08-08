@@ -28,6 +28,13 @@ function rotate(dx, dy, theta) {
   };
 }
 
+function distToSegment(px, py, ax, ay, bx, by) {
+  const abx = bx - ax, aby = by - ay;
+  const t = Math.max(0, Math.min(1, ((px - ax) * abx + (py - ay) * aby) / ((abx * abx + aby * aby) || 1)));
+  const cx = ax + abx * t, cy = ay + aby * t;
+  return Math.hypot(px - cx, py - cy);
+}
+
 function segRayIntersect(ox, oy, dx, dy, ax, ay, bx, by) {
   const ex = bx - ax, ey = by - ay;
   const denom = dx * ey - dy * ex;
@@ -78,6 +85,7 @@ if (typeof module !== 'undefined' && module.exports) {
     angDiff,
     gaussian,
     rotate,
+    distToSegment,
     segRayIntersect,
     partCorners,
     partEdges,

@@ -9,10 +9,7 @@
 //     outcome: 'BOUNCE'（调整 shell 方向与位置，继续飞行）| 'BLOCK' | 'PEN'
 //   impactGeometry(shell, hit, target)          — 入射角/等效厚度（预测面板与命中结算共用）
 
-function reflectDir(dx,dy,nx,ny){
-  const dot = dx*nx + dy*ny;
-  return { x: dx - 2*dot*nx, y: dy - 2*dot*ny };
-}
+// reflectDir is provided globally by tank_utils.js
 
 function impactGeometry(shell, hit, target){
   const cosT = Math.abs(shell.dx*hit.nx + shell.dy*hit.ny);
@@ -156,8 +153,9 @@ function applyModuleDamage(shell, target, hit){
 
 // Export for Node.js if running in test environment
 if (typeof module !== 'undefined' && module.exports) {
+  const U = require('./tank_utils.js');
   module.exports = {
-    reflectDir,
+    reflectDir: U.reflectDir,
     impactGeometry,
     resolveHit,
     applyModuleDamage

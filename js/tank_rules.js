@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------
 //   ballistics     弹道：跳弹角 / 炮弹极限射程
 //   heights        身高（车体/炮塔/掩体高度，米）——决定掩体遮挡与露头概率
-//   distanceTier   掩体遮挡的距离分档衰减
+//   coverHugDist   掩体遮挡 A1 双档：贴掩体全藏 / 拉开恒定露出
 //   coverTiers     掩体种类与显示样式（half=半高渐变 / full=全高实体）
 //   spread         射击散布（扩圈缩圈）全套参数
 //   speed          速度换算系数（px↔kmh / 功率→加速度 / 刹车）
@@ -14,13 +14,29 @@
 //   modules        模块伤害重做相关：倍率 / debuff 时长 / 削弱系数 / 部件分区
 //   ammoTypes      弹种表（倍率 + 表现色）
 //   shellVisual    炮弹外观视觉参数
+// ======================= 机制参数兜底默认值 =======================
+const DEFAULT_ARMOR = {
+  hull:   { front: 110, side: 38, rear: 26 },
+  turret: { front: 140, side: 50, rear: 24 }
+};
+
 const RULES = {
+  // 默认坦克装甲
+  defaultArmor: DEFAULT_ARMOR,
   // ======================= 弹道 =======================
   ballistics: {
     // 跳弹角：入射角（与表面法线夹角）超过该值 → 判定跳弹并反射
     bounceAngle: 70 * Math.PI / 180,
     // 炮弹最大飞行距离（px），超出即销毁
     shellMaxDist: 1800
+  },
+
+  // ======================= 瞄准部位选择 =======================
+  // 命中车体/炮塔由玩家鼠标沿瞄准线的径向位置决定：
+  // 鼠标投影距离比目标最近命中距离大 partProbe 以上 → 打炮塔（上部）；
+  // 小 partProbe 以上 → 打车体；落在死区内 → auto（保持炮塔优先默认）。
+  aim: {
+    partProbe: 12   // 死区（px）：鼠标与目标碰撞距离的判定阈值
   },
 
   // ======================= 高度系统 =======================
@@ -41,21 +57,22 @@ const RULES = {
     }
   },
 
-  // ======================= 掩体遮挡距离分档 =======================
-  // 越靠近掩体的部位越容易被完全遮蔽；条目:[距离上限px, 系数]，超出则 0
-  distanceTier: [
-    [15, 1.0],
-    [45, 0.55],
-    [90, 0.22]
-  ],
+  // ======================= 掩体遮挡（A1 双档模型） =======================
+  // 半高掩体的遮挡不再用距离三档渐变，改为确定性两档：
+  //   目标距掩体 ≤ coverHugDist  → 掩体遮蔽至车体顶（车体全隐，炮塔照常露出）
+  //   目标距掩体 >  coverHugDist → 只遮蔽到掩体顶（高出掩体的部分恒定露出）
+  // 方向性：掩体仅当"完全位于射手与目标之间"（射线穿过掩体并在命中车体前退出）时生效，
+  // 骑上/压入掩体的坦克不会获得全方向遮蔽。
+  coverHugDist: 15,
 
   // ======================= 掩体 / 地图元素 =======================
   // 每种 tier 是一个"行为描述"：mode 决定炮弹交互；move 决定坦克通行系数；
   // crushable 决定坦克压过是否摧毁；hp 为耐久（Infinity = 不可破坏）；
   // vision 决定是否遮挡视线（灌木/树冠，未来接 AI 索敌）；toTier 为被摧毁后的残骸；
   // draw 决定渲染类型（box/bush/tree/soft/barricade/stump/rubble）。
+  // driveBy：按 heightClass 门控"能否开过去"——半高掩体重坦可越、中坦被挡（MTV 推出）。
   coverTiers: {
-    half:       { label: '半高掩体', fill: 'rgba(166,138,60,0.4)',   stroke: '#a68a3c', mode: 'graduated', move: 0.4,  crushable: false, hp: Infinity, vision: false, draw: 'box' },
+    half:       { label: '半高掩体', fill: 'rgba(166,138,60,0.4)',   stroke: '#a68a3c', mode: 'graduated', move: 0.4,  crushable: false, hp: Infinity, vision: false, draw: 'box', driveBy: { heavy: true, medium: false } },
     full:       { label: '全高掩体', fill: 'rgba(106,106,106,0.55)', stroke: '#6a6a6a', mode: 'solid',     move: 1.0,  crushable: false, hp: Infinity, vision: false, draw: 'box' },
     bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#5c8238', mode: 'none',      move: 1.0,  crushable: false, hp: Infinity, vision: true,  draw: 'bush' },
     tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#3f5c3c', mode: 'solid',     move: 1.0,  crushable: false, hp: 3,        vision: true,  draw: 'tree', toTier: 'stump' },
@@ -70,14 +87,6 @@ const RULES = {
     heSplashRadius: 24,   // HE 弹销毁瞬间的溅射半径（px）——只伤害可破坏元素，不对坦克溅射
     heCoverDmg: 1         // HE 溅射对单个元素的伤害（树耐久 3，栅栏/沙袋/树桩/碎石 1 击毁）
   },
-
-  // 防御基数（按身材等级的车体/炮塔被掩体遮蔽权重，供后续拾区计算/平衡）
-  coverDefenseBase: {
-    medium: { hull: 0.8, turret: 0.15 },
-    heavy:  { hull: 0.6, turret: 0.10 }
-  },
-  // 攻击方振幅因子（后备防御公式的弹药量项——目前未接入主判定，保留并注明）
-  attackerAmplitudeFactor: 0.5,
 
   // ======================= 散布（summare dimension bloom/shrink） =======================
   spread: {
@@ -146,14 +155,8 @@ const RULES = {
   }
 };
 
-// 距离分档函数：给定掩体距目标距离，返回有效遮挡系数（0~1）
-function distanceTier(dist){
-  for (const [at, mult] of RULES.distanceTier) {
-    if (dist <= at) return mult;
-  }
-  return 0;
-}
+// 距离分档函数已移除（A1 双档模型见 coverHugDist，掩体遮挡不再有连续渐变）
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { RULES, distanceTier };
+  module.exports = { RULES };
 }

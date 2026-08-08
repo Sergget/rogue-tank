@@ -11,6 +11,7 @@
 |---|---|---|---|
 | 2026-08-08 | `PLAN.md` | 全文（特性 1~5 规划 + 第 0/6/7/8/9 节 + 第 10 节 地图元素 A1~A3） | 已全部实现（见 DEVELOPMENT §3、§2.7、§5.5） |
 | 2026-08-08 | `ISSUES.md` | #1~#8（含修复记录）+ 附：本轮新增特性 | #1~#8 已解决并验证；附注内容已并入 DEVELOPMENT §3 |
+| 2026-08-13 | `PLAN.md` | 重构批次：代码去重 1.1~1.7 + 校验强化 2.1~2.3 + 性能优化 3.1~3.3 + 文档纠偏 4.1 | 全部完成并验证（结论见 DEVELOPMENT §3.6） |
 
 ------
 
@@ -398,10 +399,10 @@ if (mod.key==='ammo') {
 
 验证路径：`npm start` → `http://127.0.0.1:8000/`，按上表逐项操作；`npm run check` 须全绿。
 ---
-
 # 二、2026-08-08 归档自 `ISSUES.md`（原文）
 
 ---
+
 # Rogue Tank — 工程问题清单（已核实）
 
 > 本文档用于**核实并记录**代码库中已确认存在的问题。每条问题先给出可复现/可定位的代码证据（`文件:行号` + 数据/脚本演示），再说明根因与影响面，避免"怀疑但说不清"的模糊项堆积。
@@ -568,3 +569,93 @@ if (mod.key==='ammo') {
 - **开火/命中特效升级**（`js/tank_fx.js`）：出膛锥形炮口闪光（`spawnMuzzleFlash`）、弹道烟迹（HE 更浓）、命中四态冲击闪光+火花+烟尘（`spawnImpactFx`：击穿/高爆/未击穿/跳弹各配不同色调与规模）、火花粒子（与既有火/烟/破片同池）；MVP 全部接入（含弹跳与掩体命中）。
 - **血条左侧车型徽章**（`tank_mvp.html` `drawClassBadge`）：重坦=六边形 / 中坦=五边形，与血条同一水平、位于车体之外不遮挡坦克。
 - **设计器装甲面板高亮**（`tank_designer.html`）：在画面/列表选中某条边后，「装甲厚度 Armor」面板顶部显示"当前装甲段"读数（部位·边·类型·mm），并高亮对应 mm 输入框。
+
+---
+
+# 三、2026-08-13 归档自 `PLAN.md`（原文）
+
+---
+
+# 功能与重构计划（Features & Refactoring Plan）
+
+> 本文档是**临时文档**：只存放 "进行中 / 待实施" 的计划条目。
+> 条目**实现并验证完成后**，按 `AGENTS.md` 定义的 4 步生命周期：先把结论同步进 `DEVELOPMENT.md` → **删除本条目** → 原文归档到 `ARCHIVE.md`。
+> 本文档不保存已完成的历史（历史计划见 `ARCHIVE.md`）。
+
+---
+
+## 1. 代码去重与共享重构（High Priority）
+
+- **Task 1.1: 清理 `tank_designer.html` 冗余函数声明**
+  - 背景：`tank_designer.html` 已引入 `js/tank_halfgeom.js`，但在内联脚本里重复声明了 16 个相同的几何函数。
+  - 动作：删除内联冗余声明，使用 `js/tank_halfgeom.js` 导出的全局函数。
+  - 验证：`npm run check`，并通过 dev server 打开设计器验证渲染、编辑、导入导出功能。
+
+- **Task 1.2: 统一 `partCorners` 与 `partEdges`**
+  - 背景：`js/tank_utils.js` 与 `js/tank_geometry.js` 均包含了逐字相同的 `partCorners`/`partEdges` 实现。
+  - 动作：保留 `js/tank_utils.js` 实现，移除 `js/tank_geometry.js` 中的重复函数。
+  - 验证：`npm run check` & `node scripts/test-covers.js`。
+
+- **Task 1.3: 统一 `reflectDir`**
+  - 背景：`js/tank_utils.js` 与 `js/tank_physics.js` 重复定义了 `reflectDir`。
+  - 动作：保留 `js/tank_utils.js`，删除 `js/tank_physics.js` 的独立定义。
+  - 验证：`npm run check` & `node scripts/test-covers.js` & 浏览器测试弹道跳弹。
+
+- **Task 1.4: 统一 `distanceTier`**
+  - 背景：`js/tank_rules.js` 与 `js/tank_cover.js` 重复定义了 `distanceTier`。
+  - 动作：保留 `js/tank_rules.js` 实现，删除 `js/tank_cover.js` 重复别名定义。
+  - 验证：`npm run check` & `node scripts/test-covers.js`。
+
+- **Task 1.5: 统一 `normalizeBarrel`**
+  - 背景：`js/tank_halfgeom.js` 与 `js/tank_model.js` 存在两份逻辑相近的 `normalizeBarrel` 炮管规格归一化代码。
+  - 动作：统一在 `js/tank_halfgeom.js` 提供，`js/tank_model.js`（及其它模块）复用该定义。
+  - 验证：`npm run check`，设计器与 MVP 中加载不同炮管样式测试。
+
+- **Task 1.6: 提炼 OBB 计算函数**
+  - 背景：`js/tank_cover.js` 中 `obbOverlap` 与 `obbMTV` 内部各包含一套私有的 `getAxes`/`project` 投影辅助函数。
+  - 动作：提炼至模块顶层共享函数。
+  - 验证：`node scripts/test-covers.js`。
+
+- **Task 1.7: 统一默认装甲基数定义**
+  - 背景：`ARMOR`（110/38/26, 140/50/24）散落在 `js/tank_geometry.js`、`js/tank_model.js` 与 `js/tank_halfgeom.js` 多处。
+  - 动作：收口统一至 `RULES` 或单一数据源。
+  - 验证：`npm run check`，靶车装甲数值计算正确。
+
+---
+
+## 2. 测试与校验工具强化（Medium Priority）
+
+- **Task 2.1: 扩展 `scripts/check-html.js` 校验范围**
+  - 动作：从仅检查 3 个 JS 文件扩展为遍历整个 `js/` 目录中的所有 JS 文件做 Node 语法冒烟检查。
+  - 验证：`node scripts/check-html.js` 运行并通过全量校验。
+
+- **Task 2.2: 配置 `package.json` 测试命令**
+  - 动作：增加 `"test": "node scripts/test-covers.js"` 脚本。
+  - 验证：执行 `npm test` 正常跑通测试。
+
+- **Task 2.3: `check-html.js` 增加重复函数声明校验**
+  - 动作：在冒烟脚本中加入 AST/正则分析，检测 HTML/JS 文件中顶层函数的重复定义。
+  - 验证：`npm run check`。
+
+---
+
+## 3. 性能与细节优化（Medium Priority）
+
+- **Task 3.1: 优化 `computeStats` 装甲拷贝性能**
+  - 动作：替换 `JSON.parse(JSON.stringify(base.armor))` 为逐层浅拷贝或 `structuredClone`。
+  - 验证：`npm run check` & 浏览器运行无误。
+
+- **Task 3.2: 表驱动化 `applyTankConfig` 属性映射**
+  - 动作：消除连续 `if (spec.X !== undefined)` 样板代码，使用映射配置数组统一拷贝。
+  - 验证：应用配置前后坦克属性保持完全一致。
+
+- **Task 3.3: 增强 `server.js` 接口安全性与健壮性**
+  - 动作：为 POST `/api/tank_list` 添加 body 大小限制（如 2MB）和 `try...catch` 包裹的写入保护。
+  - 验证：测试正常保存与超大/非法请求拦截。
+
+---
+
+## 4. 文档一致性纠偏（Low Priority）
+
+- **Task 4.1: 同步 `DEVELOPMENT.md` 属性系统实现状态**
+  - 动作：更新 §5.1 / §3，将"属性 base/modifiers/stats 三层结构"标明为底层已完成，后续重点为"卡牌/技能接入"。
