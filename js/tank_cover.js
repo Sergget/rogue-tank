@@ -217,16 +217,15 @@ function findCoversOnPath(ox,oy,tx,ty){
   return hits;
 }
 
-// A1 双档遮挡模型（替代 distanceTier 三档渐变，见 RULES.coverHugDist）：
-//   · 贴掩体（目标距掩体 ≤ coverHugDist）：半高掩体遮蔽到目标车体顶 —— 车体全隐、炮塔仍露（hull-down）。
-//     低矮残骸（树桩/碎石）不给"全藏"加成，任何距离只遮蔽到自身高度。
-//   · 拉开（> coverHugDist）：只遮蔽到掩体顶 —— 高出掩体的部分恒定露出
-//     （重坦车体 0.4m/1.8m ≈ 0.22，中坦车体 1.4 ≤ 掩体顶 → 恒全隐；炮塔恒露出）。
-//   · 方向判据（cutoffDist）：掩体必须被射线在命中目标车体前完整穿过（distExit < cutoffDist）
-//     才参与遮挡 —— 骑上/压入掩体的坦克不会获得全方向遮蔽，只有"掩体在弹道与目标之间"才生效。
+// 简化版 3 条规则掩体遮挡模型：
+//   1. 部位露出：炮塔（zMin > 1.2 或 part==='turret'）恒定 100% 露出。
+//      半高掩体后，中坦车体 100% 阻挡（0% 露出），重坦车体露出 25%（75% 阻挡）。
+//   2. 距离压制：沿弹道分析所有介于攻击方与被攻击方之间的半高掩体，取离【被攻击方】最近的一座掩体 C_near。
+//      若 dist(攻击方, C_near) < dist(被攻击方, C_near)，说明攻击方离掩体更近/占据压制优势，被攻击方视为【无掩体】（exposure=1）。
+//   3. 方向判据（cutoffDist）：掩体须在命中车体前被射线完整穿过（distExit < cutoffDist）。
 function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
   const hits = findCoversOnPath(ox,oy,tx,ty);
-  let effectiveCoverH = 0;
+  const validHits = [];
 
   for(const h of hits){
     const tier = COVER_TIERS[h.cover.tier];
@@ -234,22 +233,37 @@ function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
     if(tier.mode === 'none' || tier.mode === 'pass') continue;
     // 方向判据：掩体须在命中车体前被射线完整穿过（骑上/包住车体的掩体不生效）
     if(cutoffDist !== undefined && h.distExit >= cutoffDist) continue;
-    const coverMaxH = HEIGHTS.cover[h.cover.tier] || 0;
-    if(tier.mode === 'solid' || tier.mode === 'single') return 0;
-    const hugging = h.distB <= RULES.coverHugDist;
-    const effH = (hugging && h.cover.tier === 'half')
-      ? HEIGHTS[target.heightClass].hull
-      : coverMaxH;
-    effectiveCoverH = Math.max(effectiveCoverH, effH);
+    if(tier.mode === 'solid' || tier.mode === 'single') return 0; // 全高/固态掩体确定性 100% 格挡
+    validHits.push(h);
   }
 
-  const exposedHeight = Math.max(0, zMax - effectiveCoverH);
-  if (exposedHeight < 0.001) return 0;
+  if(validHits.length === 0) return 1.0;
 
-  const totalPartHeight = zMax - zMin;
-  const partExposure = Math.max(0, zMax - Math.max(zMin, effectiveCoverH));
+  // 按离【被攻击方】(distB) 的距离升序排序，找到离被攻击方最近的一座半高掩体 C_near
+  validHits.sort((a,b) => a.distB - b.distB);
+  const cNear = validHits[0];
 
-  return Math.min(1, partExposure / totalPartHeight);
+  // 计算攻击方(ox,oy)与被攻击方(tx,ty)各自到 C_near (cov.x, cov.y) 中心/交点的真实距离
+  const distAttackerToCover = cNear.distA;
+  const distTargetToCover = cNear.distB;
+
+  // 规则2: 距离压制——若攻击方离 C_near 的距离 < 被攻击方离 C_near 的距离，则视为无掩体
+  if (distAttackerToCover < distTargetToCover) {
+    return 1.0;
+  }
+
+  // 规则1: 结合目标车型（heightClass）与判定部位高度决定露出比例
+  // 炮塔（zMin >= 1.2m）100% 露出
+  if (zMin >= 1.2) {
+    return 1.0;
+  }
+
+  // 车体露出比例
+  const hClass = (target && target.heightClass) || 'medium';
+  if (hClass === 'heavy') {
+    return RULES.coverRules.heavyHullExposure; // 重坦车体漏出 25%
+  }
+  return RULES.coverRules.mediumHullExposure; // 中坦车体 0% 漏出（100% 阻挡）
 }
 
 function coverBlockInfo(ox,oy,tx,ty, shooter, target, part, cutoffDist){

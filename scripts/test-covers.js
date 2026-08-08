@@ -82,26 +82,30 @@ C.resolveCoverCollisions(mediumT);
 ok(mediumT.x !== mx0 || mediumT.y !== my0, `medium tank pushed out of half cover (moved)`);
 C.resetCovers();
 
-// 5c) A1 双档遮挡：贴掩体全藏 / 拉开恒定露出（重坦车体 0.22、中坦恒全隐；炮塔恒露出）
-const shortsX = half.x - 400;
-const hugTx = half.x - 32;      // 入口(半宽40)后 8px ≤ coverHugDist(15)：贴掩体
-const farTx  = half.x + 120;    // 距离拉开
-const heavyHull  = C.getExposure(shortsX, half.y, hugTx, half.y, null, { heightClass: 'heavy' }, 0, 1.8);
-const heavyHullFar = C.getExposure(shortsX, half.y, farTx, half.y, null, { heightClass: 'heavy' }, 0, 1.8);
-ok(heavyHull === 0, `A1 hug: heavy hull fully hidden (got ${heavyHull})`);
-ok(heavyHullFar > 0.2 && heavyHullFar < 0.24, `A1 away: heavy hull exposes ~0.22 (got ${heavyHullFar.toFixed(3)})`);
-const medHull = C.getExposure(shortsX, half.y, hugTx, half.y, null, { heightClass: 'medium' }, 0, 1.4);
-const medHullFar = C.getExposure(shortsX, half.y, farTx, half.y, null, { heightClass: 'medium' }, 0, 1.4);
-ok(medHull === 0 && medHullFar === 0, `medium hull always fully hidden (hug=${medHull}, far=${medHullFar})`);
-const turretHug = C.getExposure(shortsX, half.y, hugTx, half.y, null, { heightClass: 'heavy' }, 1.8, 2.8);
-const turretFar = C.getExposure(shortsX, half.y, farTx, half.y, null, { heightClass: 'heavy' }, 1.8, 2.8);
-ok(turretHug === 1 && turretFar === 1, `turret always exposed (hug=${turretHug}, far=${turretFar})`);
+// 5c) 简化版掩体模型：重坦/中坦车体在半高掩体后的露出与距离压制测试
+const ox = half.x - 400;
+const targetFarX = half.x + 120; // 掩体在 (half.x, half.y)，攻击方在 half.x-400，目标在 half.x+120：目标离掩体近
+const heavyHullFar = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'heavy' }, 0, 1.8);
+ok(heavyHullFar === 0.25, `heavy hull exposes 25% behind half cover (got ${heavyHullFar})`);
 
-// 5d) 方向判据：骑上/包住掩体的坦克不被全方向遮蔽（cutoffDist 早于掩体出口 → 不参与）
-const onCover = C.getExposure(shortsX, half.y, half.x, half.y, null, { heightClass: 'heavy' }, 0, 1.8, 400);
-ok(onCover > 0.5, `tank riding cover not shielded from flank (got ${onCover.toFixed(2)})`);
-const behindCover = C.getExposure(shortsX, half.y, farTx, half.y, null, { heightClass: 'heavy' }, 0, 1.8, 520);
-ok(behindCover < 0.5, `tank behind cover still shielded with cutoff (got ${behindCover.toFixed(2)})`);
+const medHullFar = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'medium' }, 0, 1.4);
+ok(medHullFar === 0.0, `medium hull exposes 0% behind half cover (got ${medHullFar})`);
+
+const turretExposed = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'medium' }, 1.4, 2.3);
+ok(turretExposed === 1.0, `turret is 100% exposed behind half cover (got ${turretExposed})`);
+
+// 5d) 距离压制：攻击方离半高掩体更近 (distA < distB) → 被攻击方视为无掩体 (exposure = 1.0)
+const half1 = findTier('half');
+const attackerNearX = half1.x - 200; // 攻击方 (half1.x - 200, half1.y + 100)
+const targetAwayX = half1.x + 300;   // 目标 (half1.x + 300, half1.y + 100)
+const suppressedExp = C.getExposure(attackerNearX, half1.y + 100, targetAwayX, half1.y + 100, null, { heightClass: 'medium' }, 0, 1.4);
+ok(suppressedExp === 1.0, `attacker closer to cover suppresses target cover advantage (got ${suppressedExp})`);
+
+// 5e) 方向判据：骑上/包住掩体的坦克不被全方向遮蔽（cutoffDist 早于掩体出口 → 不参与）
+const onCover = C.getExposure(ox, half.y, half.x, half.y, null, { heightClass: 'heavy' }, 0, 1.8, 400);
+ok(onCover === 1.0, `tank riding cover not shielded from flank (got ${onCover.toFixed(2)})`);
+const behindCover = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'heavy' }, 0, 1.8, 520);
+ok(behindCover === 0.25, `tank behind cover shielded with cutoff (got ${behindCover})`);
 C.resetCovers();
 
 // 6) solid non-crushable pushes tank out
