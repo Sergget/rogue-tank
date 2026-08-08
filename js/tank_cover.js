@@ -1,32 +1,109 @@
 'use strict';
 
-const COVER_TIERS = {
-  half: { label:'半高掩体',           fill:'rgba(166,138,60,0.4)',  stroke:'#a68a3c', mode:'graduated' },
-  full: { label:'全高掩体',           fill:'rgba(106,106,106,0.55)', stroke:'#6a6a6a', mode:'solid' }
-};
-
-const DEFENSE_BASE = {
-  medium: { hull:0.8,  turret:0.15 },
-  heavy:  { hull:0.6,  turret:0.10 }
-};
-
-const ATTACKER_AMPLITUDE_FACTOR = 0.5;
+// 掩体系数统一收口到 js/tank_rules.js（特性5）；此处仅做别名保持调用方兼容
+const COVER_TIERS = RULES.coverTiers;
+const DEFENSE_BASE = RULES.coverDefenseBase;
+const ATTACKER_AMPLITUDE_FACTOR = RULES.attackerAmplitudeFactor;
 
 function distanceTier(dist){
-  if(dist <= 15) return 1.0;
-  if(dist <= 45) return 0.55;
-  if(dist <= 90) return 0.22;
+  for (const [at, mult] of RULES.distanceTier) {
+    if (dist <= at) return mult;
+  }
   return 0;
 }
 
+// 地图元素（掩体体系，见 DEVELOPMENT.md §2.7）：每个元素带运行时耐久 hp——
+// hp<=0 即毁（被炮弹/碾压/HE 溅射摧毁），已毁元素从所有判定与绘制中排除。
+// 树伐倒 → 树桩(stump)；沙袋击毁 → 碎石(rubble)，残骸仍提供半高概率遮挡。
 const covers = [
   { x:470, y:300, w:80, h:34, angle:0, tier:'half' },
-  { x:660, y:300, w:70, h:34, angle:0, tier:'full' }
+  { x:660, y:300, w:70, h:34, angle:0, tier:'full' },
+  { x:560, y:150, w:24, h:18, angle:0, tier:'tree' },       // 树：挡路+步上可伐倒
+  { x:760, y:470, w:56, h:34, angle:0, tier:'bush' },       // 灌木：靶车可开入隐藏
+  { x:930, y:150, w:56, h:30, angle:0, tier:'bush' },       // 灌木（装饰）
+  { x:330, y:510, w:170, h:10, angle:0, tier:'soft' },      // 栅栏：穿透即毁 / 压过即毁
+  { x:450, y:180, w:64, h:28, angle:0, tier:'barricade' }   // 沙袋路障：挡 1 发
 ];
+
+// 每块掩体/元素在启动时快照初始状态（耐久取 tier 默认值），resetCovers() 用于重置战场
+function snapshotCovers(){
+  covers.forEach(c=>{
+    if(c.hp === undefined) c.hp = COVER_TIERS[c.tier].hp;
+    c.spawn = { tier:c.tier, x:c.x, y:c.y, w:c.w, h:c.h, angle:c.angle, hp:c.hp };
+  });
+}
+function resetCovers(){
+  covers.forEach(c=>{
+    if(c.spawn) Object.assign(c, c.spawn);
+    delete c._gone;
+  });
+}
+snapshotCovers();
+
+// 元素被摧毁：一次性消耗（_gone 幂等标志；每帧多辆车压上同一元素只毁一次）。
+// toTier 残骸（树→树桩、沙袋→碎石）原地降级为半高残骸并保留于 covers。
+function destroyCover(cov, reason){
+  if(cov._gone) return;
+  cov._gone = true;
+  cov.hp = 0;
+  if(typeof burstExplosion === 'function'){
+    burstExplosion(cov.x, cov.y, 0.9, 10, 5, 8);
+  }
+  if(typeof pushLog === 'function'){
+    const why = reason==='shell' ? '炮弹击毁' : (reason==='splash' ? '爆炸波及' : '坦克碾碎');
+    pushLog(`${COVER_TIERS[cov.tier].label}被${why}`, 'COVER');
+  }
+  const to = COVER_TIERS[cov.tier].toTier;
+  if(to){
+    cov.tier = to;
+    cov.angle = 0;
+    cov.w = Math.max(24, cov.w*0.6);
+    cov.h = Math.max(16, cov.h*0.6);
+    cov.hp = COVER_TIERS[to].hp;
+    cov._gone = false;          // 残骸重新"存活"（仍可再被毁/压毁）
+  }
+}
+
+// 扣除耐久；归零即摧毁。不可破坏元素（hp=Infinity）不受伤害。
+function damageCover(cov, amt, reason){
+  if(!cov || cov.hp <= 0 || !Number.isFinite(cov.hp)) return false;
+  cov.hp = Math.max(0, cov.hp - (amt||1));
+  if(cov.hp <= 0){ destroyCover(cov, reason||'shell'); return true; }
+  return false;
+}
+
+// 掩体表面法线：命中点最近一条边向外（方向无要求，反射公式对方向不敏感）
+function coverNormalAt(cov, px, py){
+  const c = partCorners(cov.x,cov.y,cov.angle, cov.w/2, cov.h/2);
+  let best=null, bestD=Infinity;
+  for(let i=0;i<4;i++){
+    const a=c[i], b=c[(i+1)%4];
+    const ex=b.x-a.x, ey=b.y-a.y;
+    const len=Math.hypot(ex,ey)||1;
+    const ux=ex/len, uy=ey/len;
+    const t=Math.max(0, Math.min(len, (px-a.x)*ux + (py-a.y)*uy));
+    const hx=a.x+ux*t, hy=a.y+uy*t;
+    const d=(px-hx)*(px-hx)+(py-hy)*(py-hy);
+    if(d<bestD){ bestD=d; best={ nx:-uy, ny:ux }; }
+  }
+  return best;
+}
+
+// HE 破障（A3）：落点半径内所有可破坏元素吃 1 点溅射伤害
+function splashCoversAt(x, y, radius){
+  let destroyed = 0;
+  for(const cov of covers){
+    if(cov.hp <= 0 || !Number.isFinite(cov.hp)) continue;
+    const d = Math.hypot(cov.x-x, cov.y-y);
+    if(d <= radius && damageCover(cov, 1, 'splash')) destroyed++;
+  }
+  return destroyed;
+}
 
 function getCoverUnderTank(tank) {
   const tankCorners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
   for (const cov of covers) {
+    if(cov.hp <= 0) continue;
     const covCorners = partCorners(cov.x, cov.y, cov.angle, cov.w/2, cov.h/2);
     if (obbOverlap(tankCorners, covCorners)) return cov;
   }
@@ -109,13 +186,23 @@ function obbMTV(tankCorners, covCorners) {
   return { dx: mtvAxis.x * minDepth, dy: mtvAxis.y * minDepth, depth: minDepth };
 }
 
-function resolveFullCoverCollisions(tank) {
+// 掩体/元素 ⇄ 坦克 碰撞：三态处理（见 2.7）——
+//   crushable 元素（栅栏/沙袋/树桩/碎石）：直接压毁；
+//   solid 不可压毁（全高建筑/树）：MTV 推出，物理隔离；
+//   graduated（半高）/ none（灌木）：只让 update 里做通行系数，不推。
+function resolveCoverCollisions(tank) {
   const tankCorners = () => partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
   for (const cov of covers) {
-    if (COVER_TIERS[cov.tier].mode !== 'solid') continue;
+    if (cov.hp <= 0) continue;
+    const tier = COVER_TIERS[cov.tier];
     const covCorners = partCorners(cov.x, cov.y, cov.angle, cov.w/2, cov.h/2);
     const mtv = obbMTV(tankCorners(), covCorners);
-    if (mtv) {
+    if (!mtv) continue;
+    if (tier.crushable) {
+      destroyCover(cov, 'crush');
+      continue;
+    }
+    if (tier.mode === 'solid') {
       tank.x += mtv.dx;
       tank.y += mtv.dy;
     }
@@ -128,6 +215,7 @@ function findCoversOnPath(ox,oy,tx,ty){
   const ux=dx/dist, uy=dy/dist;
   const hits = [];
   for(const cov of covers){
+    if(cov.hp <= 0) continue;   // 已摧毁元素不再参与判定/预测
     const corners = partCorners(cov.x,cov.y,cov.angle, cov.w/2, cov.h/2);
     let nearest = null;
     for(let i=0;i<4;i++){
@@ -148,8 +236,11 @@ function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax) {
   let effectiveCoverH = 0;
 
   for(const h of hits){
+    const tier = COVER_TIERS[h.cover.tier];
+    // 纯视线/可穿透元素不参与弹道遮挡（灌木 none / 栅栏 pass）
+    if(tier.mode === 'none' || tier.mode === 'pass') continue;
     const coverMaxH = HEIGHTS.cover[h.cover.tier] || 0;
-    if (COVER_TIERS[h.cover.tier].mode === 'solid') return 0;
+    if(tier.mode === 'solid' || tier.mode === 'single') return 0;
     const targetProximity = distanceTier(h.distB);
     // 距离分档只衰减"高出掩体顶部"的部分：整个高度都 ≤ 掩体高度的部位（中坦车体 1.4 ≤
     // 半高掩体 1.4）无论离开掩体多远都保持全遮蔽，不会被距离分档"揭盖"。只有高于掩体的
@@ -189,10 +280,16 @@ if (typeof module !== 'undefined' && module.exports) {
     ATTACKER_AMPLITUDE_FACTOR,
     distanceTier,
     covers,
+    snapshotCovers,
+    resetCovers,
+    destroyCover,
+    damageCover,
+    coverNormalAt,
+    splashCoversAt,
     getCoverUnderTank,
     obbOverlap,
     obbMTV,
-    resolveFullCoverCollisions,
+    resolveCoverCollisions,
     findCoversOnPath,
     getExposure,
     coverBlockInfo,

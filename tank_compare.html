@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>坦克对比编辑器 · Tank Compare</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
+  :root{
+    --bg:#12140f;
+    --panel:#1a1d15;
+    --line:#3a3f2c;
+    --amber:#ffb454;
+    --amber-dim:#8a6a35;
+    --green:#7ed957;
+    --red:#ff5c4d;
+    --text:#d9dcc9;
+    --text-dim:#7a8065;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--text);
+    font-family:'Rajdhani',sans-serif;
+  }
+  .mono{font-family:'JetBrains Mono',monospace;}
+  #topbar{
+    position:sticky;top:0;z-index:20;
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    background:rgba(18,20,15,0.92);border-bottom:1px solid var(--line);
+    padding:8px 12px;
+  }
+  #topbar .title{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:2px;color:var(--amber-dim);text-transform:uppercase;}
+  #topbar .title b{color:var(--amber);}
+  #topbar .mono{font-size:10px;color:var(--text-dim);}
+  #status{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--green);}
+  a.navlink{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--amber-dim);text-decoration:none;border:1px solid var(--line);padding:3px 7px;}
+  a.navlink:hover{color:var(--amber);border-color:var(--amber);}
+  button{
+    background:transparent;border:1px solid var(--amber-dim);color:var(--amber);
+    font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1px;
+    padding:6px 10px;cursor:pointer;text-transform:uppercase;
+  }
+  button:hover{background:rgba(255,180,84,0.1);border-color:var(--amber);}
+  #scroll{overflow-x:auto;padding:14px 12px 40px;}
+  #columns{display:flex;gap:12px;align-items:flex-start;}
+  .col{
+    flex:0 0 auto;width:250px;
+    background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    padding:10px 10px 12px;
+    display:flex;flex-direction:column;gap:3px;
+  }
+  .col .head{text-align:center;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:6px;}
+  .col .head .name{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--amber);font-weight:700;margin-top:6px;}
+  .col canvas{display:block;width:150px;height:90px;background:#0c0d09;border:1px solid var(--line);margin:0 auto;}
+  .mrow{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:11px;min-height:22px;}
+  .mrow .lbl{color:var(--text-dim);flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:10px;}
+  .mrow .ro{color:var(--text-dim);font-size:10px;font-family:'JetBrains Mono',monospace;white-space:nowrap;}
+  input[type="number"]{
+    width:76px;background:#0c0d09;border:1px solid var(--line);color:var(--text);
+    font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 4px;text-align:right;flex-shrink:0;
+  }
+  input[type="number"]:focus{outline:none;border-color:var(--amber);}
+  select{
+    background:#0c0d09;border:1px solid var(--line);color:var(--text);
+    font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 4px;flex-shrink:0;
+  }
+  details{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);}
+  details summary{cursor:pointer;color:var(--amber-dim);}
+  details textarea{width:100%;height:120px;background:#0c0d09;border:1px solid var(--line);color:var(--text);font-size:9px;margin-top:4px;}
+  #hint{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);margin-left:4px;max-width:900px;line-height:1.6;}
+</style>
+</head>
+<body>
+<div id="topbar">
+  <span class="title">坦克对比编辑器 <b>TANK COMPARE</b></span>
+  <button id="loadBtn">重新载入</button>
+  <button id="saveBtn">保存到 tank_list.json</button>
+  <span id="status"></span>
+  <a class="navlink" href="tank_mvp.html">主原型</a>
+  <a class="navlink" href="tank_designer.html">设计器</a>
+</div>
+<div id="scroll">
+  <div id="columns"></div>
+  <div id="hint">
+    说明：本页一列一辆坦克，可直接编辑并保存下列字段。车体/炮塔多边形几何为只读（逻辑由 tank_designer 编辑）；
+    每列底部可展开「原始 JSON」查看完整条目。保存走 POST /api/tank_list，无开发服务器时自动改为下载 tank_list.json 供覆盖。
+  </div>
+</div>
+
+<script src="js/tank_rules.js"></script>
+<script src="js/tank_utils.js"></script>
+<script src="js/tank_geometry.js"></script>
+<script src="js/tank_model.js"></script>
+<script src="js/tank_paint.js"></script>
+<script>
+(() => {
+'use strict';
+
+const statusEl = document.getElementById('status');
+const columnsEl = document.getElementById('columns');
+let list = null;
+
+function setStatus(t){
+  statusEl.textContent = t;
+  setTimeout(()=>{ if(statusEl.textContent===t) statusEl.textContent=''; }, 4000);
+}
+
+// ---------- 字段描述表 ----------
+const MUZZLES = ['none','single','double','multi','slug','pepperpot','heavy_square','cylinder'];
+const EVAC = ['none','ring','bulb','slotted','long'];
+const FIELD_ROWS = [
+  { label:'最大速度',   path:'maxSpeed',            type:'num' },
+  { label:'转向速度',   path:'turnRate',           type:'num' },
+  { label:'炮塔转速',   path:'turretTurnRate',     type:'num' },
+  { label:'重量',       path:'weight',             type:'num' },
+  { label:'马力',       path:'enginePower',        type:'num' },
+  { label:'生命值',     path:'hp',                 type:'num' },
+  { label:'穿深',       path:'penetration',        type:'num' },
+  { label:'伤害',       path:'damage',             type:'num' },
+  { label:'装填(s)',    path:'reload',             type:'num' },
+  { label:'弹速',       path:'shellSpeed',         type:'num' },
+  { label:'射界(°)',    path:'traverseLimit',      type:'num' },
+  { label:'身高等级',   path:'heightClass',        type:'sel', options:['medium','heavy'] },
+  { label:'履带宽',     path:'trackWidth',         type:'num' },
+  { label:'履带偏置',   path:'trackOffset',        type:'num' },
+  { label:'履带锁定(s)',path:'trackLock',          type:'num' },
+  { label:'三扩系数',   path:'spreadMult',          type:'num' },
+  { label:'缩圈速度',   path:'aimSpeed',            type:'num' },
+  { label:'装甲·车体正面', path:'hull.armor.front', type:'num' },
+  { label:'装甲·车体侧面', path:'hull.armor.side',  type:'num' },
+  { label:'装甲·车体后部', path:'hull.armor.rear',  type:'num' },
+  { label:'装甲·炮塔正面', path:'turret.armor.front', type:'num' },
+  { label:'装甲·炮塔侧面', path:'turret.armor.side',  type:'num' },
+  { label:'装甲·炮塔后部', path:'turret.armor.rear',  type:'num' },
+  { label:'炮管长度',   path:'barrel.len',         type:'num' },
+  { label:'炮口宽',     path:'barrel.width',       type:'num' },
+  { label:'炮口制退器', path:'barrel.muzzle',      type:'sel', options:MUZZLES },
+  { label:'排烟器样式', path:'barrel.evac.style',  type:'sel', options:EVAC },
+  { label:'排烟器位置', path:'barrel.evac.pos',    type:'num' },
+  { label:'护套长度',   path:'barrel.jacket.len',  type:'num' },
+  { label:'护套位置',   path:'barrel.jacket.pos',  type:'num' },
+  { label:'炮塔枢轴 dx',path:'turret.pivot.dx',    type:'num' },
+  { label:'炮塔枢轴 dy',path:'turret.pivot.dy',    type:'num' }
+];
+
+function getPath(obj, path){
+  let v = obj;
+  for(const p of path.split('.')){ if(v == null) return undefined; v = v[p]; }
+  return v;
+}
+function setPath(obj, path, val){
+  const parts = path.split('.');
+  let v = obj;
+  for(let i=0;i<parts.length-1;i++){
+    if(v[parts[i]] == null) v[parts[i]] = {};
+    v = v[parts[i]];
+  }
+  v[parts[parts.length-1]] = val;
+}
+
+// 补齐可编辑字段的结构，保存时不误清几何等字段
+function ensureDefaults(spec){
+  if(spec.id == null) spec.id = 'unknown';
+  if(spec.hull == null) spec.hull = {};
+  if(spec.hull.armor == null) spec.hull.armor = {};
+  if(spec.turret == null) spec.turret = {};
+  if(spec.turret.armor == null) spec.turret.armor = {};
+  if(spec.turret.pivot == null) spec.turret.pivot = { dx:0, dy:0 };
+  if(spec.barrel == null) spec.barrel = {};
+  if(spec.barrel.evac == null){
+    // 兼容旧版扁平 evacPos（dummy 等条目）
+    if(spec.barrel.evacPos !== undefined){
+      spec.barrel.evac = { style: spec.barrel.evacPos>0 ? 'ring' : 'none', pos: Math.abs(spec.barrel.evacPos) };
+      delete spec.barrel.evacPos;
+    } else {
+      spec.barrel.evac = { style:'none', pos:30 };
+    }
+  }
+  if(spec.barrel.jacket == null) spec.barrel.jacket = { len:0, pos:45 };
+}
+
+// ---------- 缩略图 ----------
+function polyBounds(poly){ return paintBounds(poly.verts); }
+
+function renderThumb(canvas, spec){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  const t = makeTank({ x:0, y:0, hullAngle:0, turretAngle:0, team:'enemy', heightClass: spec.heightClass||'medium' });
+  applyTankConfig(t, spec);
+  const hPoly = hullPoly(t);
+  const tPoly = turretPoly(t);
+  const hb = polyBounds(hPoly);
+  const tb = polyBounds(tPoly);
+  const pivot = t.turretPivotOffset || { dx:8, dy:0 };
+  const lenSpec = (spec.barrel && spec.barrel.len != null) ? spec.barrel.len : 120;
+  const barPct = Math.max(0, Math.min(3, lenSpec/100));
+  const barLen = t.turLen * barPct;
+  const tipX = pivot.dx + turretFrontDist(t) + barLen;
+  const trackOut = Math.abs(t.trackOffset||0) + (t.trackWidth||8);
+  const minX = Math.min(hb.minX, tb.minX, -trackOut);
+  const maxX = Math.max(hb.maxX, tb.maxX, pivot.dx + tipX);
+  const minY = Math.min(hb.minY, tb.minY) - trackOut;
+  const maxY = Math.max(hb.maxY, tb.maxY) + trackOut;
+  const spanX = Math.max(1, maxX-minX);
+  const spanY = Math.max(1, maxY-minY);
+  const scale = Math.min(W/(spanX+16), H/(spanY+12));
+  ctx.save();
+  ctx.translate(W/2 - (minX+spanX/2)*scale, H/2 - (minY+spanY/2)*scale);
+  ctx.scale(scale, scale);
+
+  paintTracks(ctx, hPoly.verts, 0, 0, 0, 1, t.color, 0, { trackWidth: t.trackWidth||8, trackOffset: t.trackOffset||0 });
+  paintPartTexture(ctx, hPoly.verts, 0, 0, 0, 1, t.color, 'hull', { detail:true });
+  const hc = polyCorners(0, 0, 0, hPoly);
+  ctx.beginPath(); ctx.moveTo(hc[0].x, hc[0].y);
+  for(let i=1;i<hc.length;i++) ctx.lineTo(hc[i].x, hc[i].y);
+  ctx.closePath(); ctx.strokeStyle = t.color; ctx.lineWidth = 1.2; ctx.stroke();
+
+  const p = turretPivot(t);
+  const tCx = p.x, tCy = p.y;
+  paintTurretShadow(ctx, tPoly.verts, tCx, tCy, 0, 1, 5, 7, 0);
+  paintPartTexture(ctx, tPoly.verts, tCx, tCy, 0, 1, t.color, 'turret', { detail:true, heightClass: t.heightClass });
+  const tc = polyCorners(tCx, tCy, 0, tPoly);
+  ctx.beginPath(); ctx.moveTo(tc[0].x, tc[0].y);
+  for(let i=1;i<tc.length;i++) ctx.lineTo(tc[i].x, tc[i].y);
+  ctx.closePath(); ctx.strokeStyle = t.color; ctx.lineWidth = 1.2; ctx.stroke();
+
+  const frontOff = turretFrontDist(t);
+  const bw = Math.max(2, t.turWid * ((spec.barrel && spec.barrel.width != null) ? spec.barrel.width/100 : 0.18) * 0.5);
+  ctx.strokeStyle = t.color; ctx.lineWidth = bw; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(tCx + frontOff, tCy); ctx.lineTo(tCx + frontOff + barLen, tCy); ctx.stroke();
+  ctx.restore();
+}
+
+// ---------- 字段行 ----------
+function renderRowField(spec, f){
+  const row = document.createElement('div');
+  row.className = 'mrow';
+  const lbl = document.createElement('span');
+  lbl.className = 'lbl'; lbl.textContent = f.label;
+  row.appendChild(lbl);
+  const val = getPath(spec, f.path);
+  if(f.type === 'num'){
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = (val === undefined || val === null) ? '' : +val;
+    input.addEventListener('input', ()=>{
+      const v = input.value === '' ? undefined : parseFloat(input.value);
+      if(v === undefined || !isNaN(v)) setPath(spec, f.path, v);
+    });
+    row.appendChild(input);
+  } else if(f.type === 'sel'){
+    const sel = document.createElement('select');
+    f.options.forEach(o=>{
+      const op = document.createElement('option'); op.value = o; op.textContent = o; sel.appendChild(op);
+    });
+    sel.value = (val === undefined || val === null) ? f.options[0] : String(val);
+    sel.addEventListener('change', ()=> setPath(spec, f.path, sel.value));
+    row.appendChild(sel);
+  }
+  return row;
+}
+
+function buildColumn(key, spec){
+  const col = document.createElement('div');
+  col.className = 'col';
+
+  const head = document.createElement('div');
+  head.className = 'head';
+  const cv = document.createElement('canvas');
+  cv.width = 150; cv.height = 90;
+  renderThumb(cv, spec);
+  head.appendChild(cv);
+  const name = document.createElement('div');
+  name.className = 'name'; name.textContent = key;
+  head.appendChild(name);
+  col.appendChild(head);
+
+  for(const f of FIELD_ROWS) col.appendChild(renderRowField(spec, f));
+
+  const geoInfos = [
+    ['车体顶点', spec.hull && spec.hull.verts ? spec.hull.verts.length : 5],
+    ['车体面数', spec.hull && spec.hull.faces ? spec.hull.faces.length : 5],
+    ['炮塔顶点', spec.turret && spec.turret.verts ? spec.turret.verts.length : 6],
+    ['炮塔面数', spec.turret && spec.turret.faces ? spec.turret.faces.length : 6]
+  ];
+  for(const [g, n] of geoInfos){
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = g;
+    const ro = document.createElement('span'); ro.className = 'ro'; ro.textContent = n + ' (只读)';
+    row.appendChild(lbl); row.appendChild(ro);
+    col.appendChild(row);
+  }
+  const tip = document.createElement('div');
+  tip.className = 'ro'; tip.textContent = '多边形几何请用 tank_designer 编辑';
+  tip.style.color = 'var(--text-dim)';
+  col.appendChild(tip);
+
+  const det = document.createElement('details');
+  const sum = document.createElement('summary'); sum.textContent = '原始 JSON';
+  det.appendChild(sum);
+  const ta = document.createElement('textarea');
+  ta.value = JSON.stringify(spec, null, 2);
+  ta.addEventListener('change', ()=>{
+    try {
+      const parsed = JSON.parse(ta.value);
+      Object.keys(parsed).forEach(k=>{ spec[k] = parsed[k]; });
+      setStatus('JSON 已应用');
+    } catch(e){ setStatus('JSON 错误: '+e.message); }
+  });
+  det.appendChild(ta);
+  col.appendChild(det);
+  return col;
+}
+
+function renderAll(){
+  columnsEl.innerHTML = '';
+  for(const key of Object.keys(list)){
+    ensureDefaults(list[key]);
+    columnsEl.appendChild(buildColumn(key, list[key]));
+  }
+}
+
+// ---------- 载入 / 保存 ----------
+function load(){
+  setStatus('载入中…');
+  fetch('tank_list.json')
+    .then(res=>res.ok ? res.json() : Promise.reject(new Error('HTTP '+res.status)))
+    .then(data=>{
+      list = data;
+      renderAll();
+      setStatus('已载入 ' + Object.keys(list).length + ' 辆坦克');
+    })
+    .catch(err=> setStatus('载入失败: '+err.message));
+}
+function save(){
+  if(!list){ setStatus('尚未载入数据'); return; }
+  const body = JSON.stringify(list, null, 2);
+  fetch('api/tank_list', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body
+  })
+  .then(res=>{
+    if(res.ok) setStatus('已保存到 tank_list.json ✓');
+    else throw new Error('HTTP '+res.status);
+  })
+  .catch(()=>{
+    const blob = new Blob([body], { type:'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'tank_list.json';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    setStatus('无服务器，已下载 tank_list.json');
+  });
+}
+
+document.getElementById('loadBtn').addEventListener('click', load);
+document.getElementById('saveBtn').addEventListener('click', save);
+load();
+})();
+</script>
+</body>
+</html>

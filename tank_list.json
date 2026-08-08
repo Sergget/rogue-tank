@@ -15,6 +15,8 @@
     "heightClass": "heavy",
     "trackWidth": 8,
     "trackOffset": 0,
+    "spreadMult": 1,
+    "aimSpeed": 0.15,
     "barrel": {
       "len": 110,
       "width": 22,
@@ -124,6 +126,8 @@
     "heightClass": "medium",
     "trackWidth": 9,
     "trackOffset": 1,
+    "spreadMult": 1.2,
+    "aimSpeed": 0.2,
     "barrel": {
       "len": 145,
       "width": 10,
@@ -253,62 +257,67 @@
     "weight": 300,
     "enginePower": 900,
     "hp": 100,
-    "penetration": 120,
-    "damage": 34,
+    "penetration": 135,
+    "damage": 40,
     "reload": 1.3,
     "shellSpeed": 1200,
-    "heightClass": "medium",
+    "heightClass": "heavy",
     "trackWidth": 20,
     "trackOffset": -10,
     "barrel": {
       "len": 120,
       "width": 10,
-      "muzzle": "none",
+      "muzzle": "single",
       "evac": {
         "style": "none",
         "pos": 21
       },
       "jacket": {
-        "len": 36,
-        "pos": 1
+        "len": 35,
+        "pos": 11
+      },
+      "mantlet": {
+        "style": "winged",
+        "pos": 6,
+        "width": 44
       }
     },
     "hull": {
       "verts": [
         [
-          17.6,
+          34.5,
           0
         ],
         [
-          17.4,
+          34.3,
           -13.7
         ],
         [
-          12.6,
+          29.5,
           -14
         ],
         [
-          12.4,
+          29.3,
           -19.2
         ],
         [
-          -51.4,
+          -34.5,
           -19
         ],
         [
-          -51.4,
+          -34.5,
           19
         ],
         [
-          12.4,
+          29.3,
           19.2
         ],
         [
-          12.6,
+          29.5,
           14
         ],
         [
-          17.4,
+          34.3,
           13.7
         ]
       ],
@@ -332,95 +341,95 @@
     "turret": {
       "verts": [
         [
-          23,
+          19.7,
           -9.5
         ],
         [
-          20.2,
+          16.9,
           -13.7
         ],
         [
-          16.2,
+          12.9,
           -16.2
         ],
         [
-          10.5,
+          7.2,
           -17.5
         ],
         [
-          3.7,
+          0.4,
           -17.2
         ],
         [
-          -3.3,
+          -6.6,
           -14.5
         ],
         [
-          -6.5,
+          -9.8,
           -11
         ],
         [
-          -11,
+          -14.3,
           -12.2
         ],
         [
-          -13.5,
+          -16.8,
           -9.5
         ],
         [
-          -14.8,
+          -18.1,
           -7
         ],
         [
-          -15.8,
+          -19.1,
           -4.2
         ],
         [
-          -16.3,
+          -19.6,
           0
         ],
         [
-          -15.8,
+          -19.1,
           4.2
         ],
         [
-          -14.8,
+          -18.1,
           7
         ],
         [
-          -13.5,
+          -16.8,
           9.5
         ],
         [
-          -11,
+          -14.3,
           12.2
         ],
         [
-          -6.5,
+          -9.8,
           11
         ],
         [
-          -3.3,
+          -6.6,
           14.5
         ],
         [
-          3.7,
+          0.4,
           17.2
         ],
         [
-          10.5,
+          7.2,
           17.5
         ],
         [
-          16.2,
+          12.9,
           16.2
         ],
         [
-          20.2,
+          16.9,
           13.7
         ],
         [
-          23,
+          19.7,
           9.5
         ]
       ],
@@ -455,7 +464,181 @@
         "rear": 60
       },
       "pivot": {
-        "dx": -19,
+        "dx": 4,
+        "dy": 0
+      },
+      "axis": {
+        "dx": 0,
+        "dy": 0
+      }
+    }
+  },
+  "Obj 780": {
+    "id": "Obj 780",
+    "traverseLimit": 180,
+    "maxSpeed": 120,
+    "turnRate": 2,
+    "turretTurnRate": 2.2,
+    "weight": 300,
+    "enginePower": 900,
+    "hp": 100,
+    "penetration": 120,
+    "damage": 34,
+    "reload": 1.3,
+    "shellSpeed": 1200,
+    "heightClass": "heavy",
+    "trackWidth": 17,
+    "trackOffset": -7,
+    "barrel": {
+      "len": 120,
+      "width": 18,
+      "muzzle": "none",
+      "evac": {
+        "style": "slotted",
+        "pos": 30
+      },
+      "jacket": {
+        "len": 0,
+        "pos": 45
+      },
+      "mantlet": {
+        "style": "box",
+        "pos": -1,
+        "width": 22
+      }
+    },
+    "hull": {
+      "verts": [
+        [
+          39.5,
+          -5.2
+        ],
+        [
+          30.3,
+          -9.2
+        ],
+        [
+          26.5,
+          -15
+        ],
+        [
+          -23.5,
+          -16.2
+        ],
+        [
+          -29.5,
+          -10.5
+        ],
+        [
+          -33,
+          -4
+        ],
+        [
+          -33,
+          4
+        ],
+        [
+          -29.5,
+          10.5
+        ],
+        [
+          -23.5,
+          16.2
+        ],
+        [
+          26.5,
+          15
+        ],
+        [
+          30.3,
+          9.2
+        ],
+        [
+          39.5,
+          5.2
+        ]
+      ],
+      "faces": [
+        "front",
+        "front",
+        "side",
+        "rear",
+        "rear",
+        "rear",
+        "rear",
+        "rear",
+        "side",
+        "front",
+        "front",
+        "front"
+      ],
+      "armor": {
+        "front": 110,
+        "side": 75,
+        "rear": 45
+      }
+    },
+    "turret": {
+      "verts": [
+        [
+          20,
+          0
+        ],
+        [
+          15.5,
+          -9.2
+        ],
+        [
+          9,
+          -15
+        ],
+        [
+          0,
+          -17.2
+        ],
+        [
+          -25.5,
+          -6.5
+        ],
+        [
+          -25.5,
+          6.5
+        ],
+        [
+          0,
+          17.2
+        ],
+        [
+          9,
+          15
+        ],
+        [
+          15.5,
+          9.2
+        ]
+      ],
+      "faces": [
+        "front",
+        "front",
+        "side",
+        "side",
+        "rear",
+        "side",
+        "side",
+        "front",
+        "front"
+      ],
+      "armor": {
+        "front": 110,
+        "side": 78,
+        "rear": 60
+      },
+      "pivot": {
+        "dx": 5,
+        "dy": 0
+      },
+      "axis": {
+        "dx": 0,
         "dy": 0
       }
     }

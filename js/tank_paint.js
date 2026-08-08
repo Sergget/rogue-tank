@@ -86,14 +86,21 @@ function paintTracks(ctx, verts, cx, cy, angle, scale, color, phase, opts){
 // ---------- turret shadow ----------
 // Soft elliptical shadow projected onto the hull deck, offset by `ox,oy` (local units) to simulate
 // a light source from above. Drawn BEFORE the turret so the turret paints over it.
-function paintTurretShadow(ctx, verts, cx, cy, angle, scale, ox, oy){
+// 阴影偏移方向先按 worldAng（车体朝向）旋转：光在战场里方向固定，炮塔自转不应改变阴影方向。
+function paintTurretShadow(ctx, verts, cx, cy, angle, scale, ox, oy, worldAng){
   const { minX, maxX, minY, maxY } = paintBounds(verts);
   const W = (maxY-minY)/2;
+  let offX = ox||0, offY = oy||0;
+  if(worldAng){
+    const r = { x: Math.cos(worldAng)*offX - Math.sin(worldAng)*offY,
+                y: Math.sin(worldAng)*offX + Math.cos(worldAng)*offY };
+    offX = r.x; offY = r.y;
+  }
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(angle||0);
   ctx.scale(scale, scale);
-  ctx.translate(ox, oy);
+  ctx.translate(offX, offY);
   const rx = W*1.0, ry = W*0.8;
   const grad = ctx.createRadialGradient(0,0,0, 0,0,rx);
   grad.addColorStop(0, 'rgba(0,0,0,0.5)');

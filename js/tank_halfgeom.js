@@ -79,7 +79,8 @@ function defaultTurret(){
     halfFaces: ['front','side'],
     frontSeamFace: 'front', rearSeamFace: 'rear',
     armor: { front:140, side:50, rear:24 },
-    pivot: { dx:8, dy:0 }
+    pivot: { dx:8, dy:0 },
+    axis: { dx:0, dy:0 }   // 炮塔自身旋转轴（本地帧内），经归一化后恒为 (0,0)；与车体 pivot 概念分离
   };
 }
 
@@ -138,7 +139,7 @@ function recenterPoly(poly){
 }
 // normalize a barrel spec (new {evac:{style,pos}, jacket:{len,pos}} format OR legacy evacPos number)
 function normalizeBarrel(b){
-  if(!b) return { len:120, width:18, muzzle:'none', evac:{ style:'none', pos:30 }, jacket:{ len:0, pos:45 } };
+  if(!b) return { len:120, width:18, muzzle:'none', evac:{ style:'none', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } };
   let evac;
   if(b.evac && b.evac.style) evac = { style:b.evac.style, pos: b.evac.pos !== undefined ? b.evac.pos : 30 };
   else if(b.evacPos !== undefined) evac = { style: b.evacPos > 0 ? 'ring' : 'none', pos: b.evacPos };
@@ -146,7 +147,8 @@ function normalizeBarrel(b){
   return {
     len: b.len || 120, width: b.width || 18, muzzle: b.muzzle || 'none',
     evac,
-    jacket: b.jacket ? { len: b.jacket.len||0, pos: b.jacket.pos!==undefined ? b.jacket.pos : 45 } : { len:0, pos:45 }
+    jacket: b.jacket ? { len: b.jacket.len||0, pos: b.jacket.pos!==undefined ? b.jacket.pos : 45 } : { len:0, pos:45 },
+    mantlet: b.mantlet ? { style: b.mantlet.style||'none', pos: b.mantlet.pos!==undefined ? b.mantlet.pos : 0, width: b.mantlet.width!==undefined ? b.mantlet.width : 40 } : { style:'none', pos:0, width:40 }
   };
 }
 

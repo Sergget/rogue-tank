@@ -90,5 +90,6 @@ server.listen(PORT, HOST, () => {
   console.log('Rogue Tank dev server');
   console.log(`  → http://${HOST}:${PORT}/            (tank_mvp.html)`);
   console.log(`  → http://${HOST}:${PORT}/tank_designer.html`);
+  console.log(`  → http://${HOST}:${PORT}/tank_compare.html`);
   console.log(`  → tank_list.json + js/tank_paint.js served from project root`);
 });

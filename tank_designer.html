@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>坦克设计器 · Tank Designer v0.3</title>
+<title>坦克设计器 · Tank Designer v0.5</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
   :root{
@@ -64,6 +64,7 @@
   button.danger:hover{background:rgba(255,92,77,0.12);border-color:var(--front);color:var(--front);}
   .btnrow{display:flex;gap:6px;flex-wrap:wrap;}
   .armor-row{display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:11px;}
+  .armor-row input.armor-active{outline:2px solid var(--amber);outline-offset:1px;background:#241d10;}
   .armor-row .swatch{width:10px;height:10px;display:inline-block;border:1px solid rgba(255,255,255,0.3);}
   .edge-list{max-height:120px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:10px;display:flex;flex-direction:column;gap:3px;}
   .edge-row{display:flex;justify-content:space-between;align-items:center;padding:2px 4px;background:rgba(255,255,255,0.02);cursor:pointer;}
@@ -99,6 +100,8 @@
     <div id="top-bar">
       <span style="color:var(--amber-dim); font-weight:700;">TANK SELECT</span>
       <select id="tankListSelect" style="width:130px;"></select>
+      <span style="color:var(--text-dim);">名称</span>
+      <input type="text" id="t-id" value="new_tank" style="width:110px; background:#000; border:1px solid var(--line); color:#fff; font-family:'JetBrains Mono',monospace; font-size:10px; padding:2px 3px;">
       <button id="tankListLoadBtn">载入</button>
       <button id="tankListSaveBtn" class="active">保存</button>
       <button id="tankListNewBtn">新增</button>
@@ -110,11 +113,10 @@
     <div id="zoomReadout">缩放: 100%</div>
   </div>
   <div id="sidebar">
-    <div class="title">坦克设计器 <b>TANK DESIGNER v0.3</b></div>
+    <div class="title">坦克设计器 <b>TANK DESIGNER v0.5</b></div>
 
     <div class="section">
       <h3>基础参数 Base</h3>
-      <div class="prop-row"><span class="lbl">名称 ID</span><input type="text" id="t-id" class="wide" value="new_tank"></div>
       <div class="prop-row"><span class="lbl">左右射界 (°)</span><input type="number" id="t-traverse" value="180" min="0" max="180" step="5"></div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">180° = 炮塔可 360° 全向旋转；低于 180° 时炮塔只能在车体中线左右各 ±射界 角度内转动</div>
       <div class="prop-row"><span class="lbl">最大速度 px/s</span><input type="number" id="t-maxSpeed" value="120"></div>
@@ -137,6 +139,9 @@
           <option value="heavy">重坦 (高车体)</option>
         </select>
       </div>
+      <div class="prop-row"><span class="lbl">三扩系数</span><input type="number" id="t-spreadMult" value="1" min="0.1" max="5" step="0.1"></div>
+      <div class="prop-row"><span class="lbl">缩圈速度</span><input type="number" id="t-aimSpeed" value="0.15" min="0.02" max="2" step="0.02"></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">三扩系数：移动/转车体/转炮塔三源散布的统一倍率（1 = 基准）；缩圈速度：瞄准圈收敛速度，越小缩圈越慢</div>
     </div>
 
     <div class="section">
@@ -163,9 +168,38 @@
         <button id="resetDefaultBtn">重置默认形状</button>
       </div>
       <div class="btnrow" style="margin-top:8px;">
+        <button id="centerTurretBtn">炮塔自身居中对齐</button>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">
+        炮塔自身中心 ↔ 旋转轴偏移 <span class="mono" id="axisDevReadout" style="color:var(--amber);">0.0</span>（0 = 中心正落在旋转轴上）
+      </div>
+      <div class="btnrow" style="margin-top:8px;">
         <button id="snapToggleBtn">网格吸附 关</button>
       </div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:6px;">Delete/Backspace 删除选中顶点 · 方向键 1px 微调 · Esc 取消选中 · 网格吸附开启后拖动/新增顶点对齐到整数格</div>
+    </div>
+
+    <div class="section">
+      <h3>炮塔多边形预设 Regular Polygon</h3>
+      <div class="prop-row"><span class="lbl">边数</span>
+        <select id="turretPresetN">
+          <option value="3">正三角形 3</option>
+          <option value="4">正方形 4</option>
+          <option value="5">正五边形 5</option>
+          <option value="6" selected>正六边形 6</option>
+          <option value="7">正七边形 7</option>
+          <option value="8">正八边形 8</option>
+        </select>
+      </div>
+      <div class="prop-row"><span class="lbl">外接圆半径 R</span><input type="number" id="turretPresetR" value="20" min="6" max="60" step="1"></div>
+      <div class="prop-row"><span class="lbl">朝向</span>
+        <select id="turretPresetFlat">
+          <option value="point" selected>尖角朝前 Point</option>
+          <option value="flat">齐边朝前 Flat</option>
+        </select>
+      </div>
+      <div class="btnrow"><button id="turretPresetApplyBtn">应用形状（替换当前炮塔）</button></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">正多边形以炮塔旋转中心为圆心、外接圆半径 R 生成，应用后覆盖当前炮塔顶点（装甲与旋转中心保留）</div>
     </div>
 
     <div class="section">
@@ -180,6 +214,10 @@
 
     <div class="section">
       <h3>装甲厚度 Armor (mm)</h3>
+      <div class="prop-row" style="align-items:flex-start; flex-direction:column; gap:2px; margin-bottom:8px;">
+        <span class="lbl">当前装甲段</span>
+        <span class="mono" id="armorSelReadout" style="color:var(--amber); font-size:11px;">未选择 — 点击画布边线或下方列表选择</span>
+      </div>
       <div class="armor-row"><span class="swatch" style="background:var(--front);"></span>车体正面 <input type="number" id="a-hull-front" value="110"></div>
       <div class="armor-row"><span class="swatch" style="background:var(--side);"></span>车体侧面 <input type="number" id="a-hull-side" value="38"></div>
       <div class="armor-row"><span class="swatch" style="background:var(--rear);"></span>车体后部 <input type="number" id="a-hull-rear" value="26"></div>
@@ -234,6 +272,24 @@
        <div class="prop-row"><span class="lbl">护套长度 (炮管%)</span><input type="number" id="jacketLen" value="0" min="0" max="100"></div>
        <div class="prop-row"><span class="lbl">护套位置 (炮管%)</span><input type="number" id="jacketPos" value="45" min="0" max="90"></div>
        <div class="hint-text" style="font-size:10px; color:var(--text-dim);">护套长度 &gt; 0 时，在炮管上附着比炮管更粗的矩形套筒（热护套/套筒）；0 表示无护套</div>
+     </div>
+
+<div class="section">
+       <h3>炮盾 Mantlet</h3>
+       <div class="prop-row"><span class="lbl">预设样式</span>
+         <select id="mantletPreset">
+           <option value="none" selected>无 None</option>
+           <option value="single">单层 Single</option>
+           <option value="double">双层 Double</option>
+           <option value="collar">环颈套筒 Collar</option>
+           <option value="box">盒式护罩 Box</option>
+           <option value="winged">侧翼式 Winged</option>
+           <option value="wedge">楔形 Wedge</option>
+         </select>
+       </div>
+       <div class="prop-row"><span class="lbl">位置 (炮管%)</span><input type="number" id="mantletPos" value="0" min="-40" max="60"></div>
+       <div class="prop-row"><span class="lbl">宽度 (炮塔宽%)</span><input type="number" id="mantletWid" value="40" min="14" max="120"></div>
+       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">炮盾为炮管根部与炮塔结合处的纯视觉装甲罩：位置指其中心相对炮塔前缘的偏移（% 炮管长，负值缩回炮塔内），宽度相对炮塔全宽计算；不影响任何物理/穿深判定</div>
      </div>
 
 <div class="section">
@@ -340,15 +396,46 @@ function defaultTurret(){
   };
 }
 
+// 正 n 边形炮塔形状预设：以原点（=炮塔旋转中心）为外接圆圆心，顶点按 -x 方向顺时针落位，
+// n∈[3,8]。`flatFront`=true 时绕起点偏移 半步角，使最前方落在"边中点"上（齐边朝前），否则落在
+// "顶点"上（尖角朝前）。两种朝向的图形都以车体中轴线(y=0)为对称轴，可直接提取右半侧半形。
+function turretRegularPreset(n, R, flatFront){
+  const step = 2*Math.PI/n;
+  const start = flatFront ? step/2 : 0;
+  const pts = [];
+  for(let k=0;k<n;k++){
+    const a = start - k*step;
+    pts.push({ a, x:R*Math.cos(a), y:R*Math.sin(a) });
+  }
+  const halfPts = pts.filter(p=>p.y <= CENTER_EPS);
+  const r1 = v=>Math.round(v*10)/10;
+  const half = halfPts.map(p=>[r1(p.x), r1(p.y)]);
+  const halfFaces = [];
+  for(let k=0;k<halfPts.length-1;k++){
+    const midA = (halfPts[k].a + halfPts[k+1].a)/2;
+    const mx = R*Math.cos(midA);
+    halfFaces.push(Math.abs(mx) < 1e-6 ? 'side' : (mx > 0 ? 'front' : 'rear'));
+  }
+  return {
+    half,
+    halfFaces,
+    frontSeamFace: 'front',
+    rearSeamFace: 'rear',
+    armor: state.turret.armor,
+    pivot: state.turret.pivot
+  };
+}
+
 // ================= state =================
 let state = {
    id:'new_tank', traverseLimit:180,
    maxSpeed:120, turnRate:2.0, turretTurnRate:2.2,
    hp:100, penetration:120, damage:34, reload:1.3, heightClass:'medium',
+   spreadMult: 1, aimSpeed: 0.15,
    trackWidth: 8, trackOffset: 0,
    hull: defaultHull(),
    turret: defaultTurret(),
-   barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 } }
+   barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } }
 };
 
 // gun barrel presets: len/% of turret length, width/% of turret width, muzzle brake,
@@ -360,6 +447,16 @@ const BARREL_PRESETS = {
    cannon:      { len:140, width:16, muzzle:'single', evac:{ style:'ring', pos:48 }, jacket:{ len:0, pos:45 } },
    longcannon:  { len:220, width:12, muzzle:'double', evac:{ style:'ring', pos:58 }, jacket:{ len:40, pos:50 } },
    autoloader:  { len:110, width:22, muzzle:'slug',  evac:{ style:'none', pos:0 }, jacket:{ len:0, pos:45 } }
+};
+// 炮盾 mantlet 预设（纯视觉）：style = 样式，pos = 位置(%炮管长，负=缩回炮塔内)，width = 宽度(%炮塔全宽)
+const MANTLE_PRESETS = {
+   none:   { style:'none',   pos:0,  width:40 },
+   single: { style:'single', pos:0,  width:40 },
+   double: { style:'double', pos:5,  width:50 },
+   collar: { style:'collar', pos:0,  width:28 },
+   box:    { style:'box',    pos:0,  width:66 },
+   winged: { style:'winged', pos:-12, width:46 },
+   wedge:  { style:'wedge',  pos:0,  width:44 }
 };
 let mode = 'hull'; // 'hull' | 'turret' | 'pivot' | 'preview'
 let viewScale = 1;
@@ -429,6 +526,19 @@ canvas.addEventListener('mousedown', e=>{
       selectVertex(mode, vi);
       return;
     }
+    // 炮塔模式：按住"座圈旋转中心"十字或"炮塔自身中心"青点，沿中轴线平移整个炮塔多边形，
+    // 即把座圈圆心（旋转轴）调整到炮塔上的任意位置（pivot 不变）。
+    if(mode==='turret'){
+      const tc2 = turretCenter();
+      const oc = turretOwnCenter();
+      const wpx = tc2.x + oc.cx*viewScale, wpy = tc2.y + oc.cy*viewScale;
+      const grab = Math.hypot(sx-tc2.x, sy-tc2.y) <= 16 || Math.hypot(sx-wpx, sy-wpy) <= 12;
+      if(grab){
+        const [lx] = toLocal(tc2, sx, sy);
+        drag = { poly:'turretAxis', moved:false, downX:sx, downY:sy, axisStartX: lx };
+        return;
+      }
+    }
     drag = { poly:mode, index:-1, moved:false, downX:sx, downY:sy, isNew:true };
   } else if(mode==='pivot'){
     drag = { poly:'pivot', moved:false, downX:sx, downY:sy };
@@ -462,6 +572,21 @@ window.addEventListener('mousemove', e=>{
     state.turret.pivot.dx = Math.round(lx);
     state.turret.pivot.dy = 0;
     document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, 0`;
+  } else if(drag.poly==='turretAxis'){
+    // 平移炮塔多边形（沿车体中轴线）：座圈圆心相对炮塔的位置改变，绕车体中心(pivot)不动
+    const tc2 = turretCenter();
+    const [lx] = toLocal(tc2, sx, sy);
+    let shift = lx - drag.axisStartX;
+    if(snapToGrid) shift = Math.round(shift);
+    shift = Math.round(shift*10)/10;
+    if(shift !== 0){
+      state.turret.half = state.turret.half.map(([vx,vy])=>[ Math.round((vx+shift)*10)/10, vy ]);
+      drag.axisStartX = lx;
+      drag.moved = true;
+      clearSelection();
+      render();
+    }
+    return;
   } else if(drag.index>=0){
     const center = drag.poly==='hull' ? hullCenter() : turretCenter();
     let [lx,ly] = toLocal(center, sx, sy);
@@ -481,6 +606,8 @@ window.addEventListener('mouseup', e=>{
       state.turret.pivot.dx = Math.round(lx);
       state.turret.pivot.dy = 0;
       document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, 0`;
+    } else if(drag.poly==='turretAxis'){
+      pushHint('在炮塔模式下拖拽十字/青色点可平移炮塔，把座圈圆心（旋转轴）调整到炮塔内的任意位置');
     } else if(drag.index>=0){
       // plain click on an existing vertex: select it for precise editing (no longer deletes on click —
       // use the "删除选中顶点" button instead, so a mis-click doesn't destroy work).
@@ -652,8 +779,8 @@ document.getElementById('snapToggleBtn').addEventListener('click', ()=>{
 // ================= mode switching =================
 const HINTS = {
   hull: '点击空白处依次添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击顶点选中后可在左侧精确输入坐标，Delete/方向键编辑 · 点击边线中点循环装甲类型 · 悬停高亮当前边',
-  turret: '同车体操作，坐标以炮塔旋转中心为原点，仅编辑 y≤0 一侧，另一侧自动镜像 · 悬停高亮当前边',
-  pivot: '点击或拖动设置炮塔旋转中心：只能在车体中轴线上（y=0）水平移动 dx，dy 固定为 0',
+  turret: '同车体操作，坐标以炮塔旋转中心为原点，仅编辑 y≤0 一侧，另一侧自动镜像 · 悬停高亮当前边 · 青点=炮塔自身中心、橙叉=绕车体旋转中心，两者不重合时旋转会"甩尾"，可用「炮塔自身居中对齐」拉齐 · 拖拽十字/青点可平移炮塔，把座圈圆心调到炮塔上的任意位置',
+  pivot: '点击或拖动设置炮塔旋转中心（绕车体）：只能在车体中轴线上（y=0）水平移动 dx，dy 固定为 0（绕车旋转中心与炮塔自身中心是两个独立概念，见青色"炮塔自身中心"标记）',
   preview: '移动鼠标预览炮塔瞄准方向；射界 = 180° 时炮塔 360° 全向旋转，低于 180° 时将受限在 ±射界 内'
 };
 function setMode(m){
@@ -702,6 +829,36 @@ document.getElementById('resetDefaultBtn').addEventListener('click', ()=>{
   syncArmorInputsFromState();
   render(); renderEdgeLists();
 });
+// ----------------- turret own center vs rotation axis (issue #1 fix) -----------------
+// 炮塔自身旋转中心（本地帧内的轴点，=多边型原点）与"炮塔自身几何中心（包围盒中心）"是两个
+// 独立概念；后者偏离轴点时，旋转会让炮塔甩尾。该工具把两者对齐（平移多边形），并提供实时
+// 偏离读数与画布标记，避免手写数据把旋转中心带偏到炮塔尾部。
+function turretOwnCenter(){
+  const full = buildFullVerts(state.turret.half);
+  if(full.length < 2) return { cx:0, cy:0 };
+  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  for(const [vx,vy] of full){
+    if(vx<minX)minX=vx; if(vx>maxX)maxX=vx; if(vy<minY)minY=vy; if(vy>maxY)maxY=vy;
+  }
+  return { cx:(minX+maxX)/2, cy:(minY+maxY)/2, minX, maxX, minY, maxY };
+}
+function updateAxisDevReadout(){
+  const el = document.getElementById('axisDevReadout');
+  if(!el) return;
+  const { cx, cy } = turretOwnCenter();
+  el.textContent = Math.hypot(cx, cy).toFixed(1);
+}
+document.getElementById('centerTurretBtn').addEventListener('click', ()=>{
+  const { cx } = turretOwnCenter();
+  if(Math.abs(cx) < 0.05){
+    pushHint('炮塔自身中心已与旋转轴重合，无需对齐');
+    return;
+  }
+  state.turret.half = state.turret.half.map(([vx,vy])=>[ Math.round((vx-cx)*10)/10, vy ]);
+  clearSelection();
+  render(); renderEdgeLists();
+  pushHint(`炮塔自身中心已对齐到旋转轴（沿车中线平移 ${cx.toFixed(1)}）`);
+});
 
 // ================= armor inputs =================
 function syncArmorInputsFromState(){
@@ -721,6 +878,7 @@ function syncArmorInputsFromState(){
     state.turret.armor.front = parseFloat(document.getElementById('a-turret-front').value)||0;
     state.turret.armor.side  = parseFloat(document.getElementById('a-turret-side').value)||0;
     state.turret.armor.rear  = parseFloat(document.getElementById('a-turret-rear').value)||0;
+    updateArmorSelReadout();
   });
 });
 
@@ -730,7 +888,8 @@ function applyBarrelPreset(key){
    if(!p) return;
    state.barrel = { len:p.len, width:p.width, muzzle:p.muzzle,
      evac:{ style:p.evac.style, pos:p.evac.pos },
-     jacket:{ len:p.jacket.len, pos:p.jacket.pos } };
+     jacket:{ len:p.jacket.len, pos:p.jacket.pos },
+     mantlet: state.barrel.mantlet || { style:'none', pos:0, width:40 } };
    document.getElementById('barrelLen').value = p.len;
    document.getElementById('barrelWidth').value = p.width;
    document.getElementById('barrelMuzzle').value = p.muzzle;
@@ -791,9 +950,45 @@ document.getElementById('barrelMuzzle').addEventListener('change', ()=>{
    render();
 });
 
+// ================= regular polygon turret preset =================
+document.getElementById('turretPresetApplyBtn').addEventListener('click', ()=>{
+  const n = Math.max(3, Math.min(8, parseInt(document.getElementById('turretPresetN').value,10)||6));
+  const R = parseFloat(document.getElementById('turretPresetR').value)||20;
+  const flat = document.getElementById('turretPresetFlat').value === 'flat';
+  state.turret = turretRegularPreset(n, R, flat);
+  clearSelection();
+  syncArmorInputsFromState();
+  render(); renderEdgeLists();
+  pushHint(`炮塔已替换为正${n}边形（外接圆半径 ${R}，${flat?'齐边朝前':'尖角朝前'}）`);
+});
+
+// ================= mantlet preset =================
+function applyMantletPreset(key){
+  const p = MANTLE_PRESETS[key];
+  if(!p) return;
+  state.barrel.mantlet = { style:p.style, pos:p.pos, width:p.width };
+  document.getElementById('mantletPos').value = p.pos;
+  document.getElementById('mantletWid').value = p.width;
+  render();
+}
+document.getElementById('mantletPreset').addEventListener('change', ()=>{
+  applyMantletPreset(document.getElementById('mantletPreset').value);
+});
+document.getElementById('mantletPos').addEventListener('input', ()=>{
+  state.barrel.mantlet = Object.assign({style:'none',pos:0,width:40}, state.barrel.mantlet, { pos: parseFloat(document.getElementById('mantletPos').value)||0 });
+  render();
+});
+document.getElementById('mantletWid').addEventListener('input', ()=>{
+  state.barrel.mantlet = Object.assign({style:'none',pos:0,width:40}, state.barrel.mantlet, { width: parseFloat(document.getElementById('mantletWid').value)||40 });
+  render();
+});
+
 // ================= base params =================
 function syncBaseFromInputs(){
+  const prevId = state.id;
   state.id = document.getElementById('t-id').value;
+  // 顶部下拉同步：名称框改名时，让下拉跟随（未保存项由 populate 补带后缀的选项）
+  if(prevId !== state.id) populateTankListSelect(tankListCache || {});
   state.traverseLimit = parseFloat(document.getElementById('t-traverse').value)||180;
   state.maxSpeed = parseFloat(document.getElementById('t-maxSpeed').value)||0;
   state.turnRate = parseFloat(document.getElementById('t-turnRate').value)||0;
@@ -806,18 +1001,51 @@ function syncBaseFromInputs(){
   state.weight = parseFloat(document.getElementById('t-weight').value)||300;
   state.enginePower = parseFloat(document.getElementById('t-enginePower').value)||900;
   state.heightClass = document.getElementById('t-heightClass').value || 'medium';
+  state.spreadMult = parseFloat(document.getElementById('t-spreadMult').value)||1;
+  state.aimSpeed = parseFloat(document.getElementById('t-aimSpeed').value)||0.15;
   render();
 }
 ['t-id','t-traverse','t-maxSpeed','t-turnRate','t-turretTurnRate',
- 't-hp','t-penetration','t-damage','t-reload','t-shellSpeed','t-weight','t-enginePower','t-heightClass'].forEach(id=>{
+ 't-hp','t-penetration','t-damage','t-reload','t-shellSpeed','t-weight','t-enginePower','t-heightClass',
+ 't-spreadMult','t-aimSpeed'].forEach(id=>{
   document.getElementById(id).addEventListener('input', syncBaseFromInputs);
   document.getElementById(id).addEventListener('change', syncBaseFromInputs);
 });
 
 // ================= edge list panel (only the editable half + seams — mirrored edges are implicit) =================
+// 当前选中装甲段 → 面板读数 + 对应 mm 输入框高亮（Change: 装甲编辑面板高亮正在编辑的段）
+function selectedEdgeFace(){
+  if(!selectedEdge || !state[selectedEdge.poly]) return null;
+  const poly = state[selectedEdge.poly];
+  if(selectedEdge.seam){
+    return {
+      face: selectedEdge.seam==='front' ? poly.frontSeamFace : poly.rearSeamFace,
+      label: selectedEdge.seam==='front' ? '前接缝' : '后接缝'
+    };
+  }
+  if(selectedEdge.index >= poly.half.length-1) return null;
+  return { face: getFace(poly.halfFaces, selectedEdge.index), label:`边 v${selectedEdge.index}→v${selectedEdge.index+1}` };
+}
+function updateArmorSelReadout(){
+  const el = document.getElementById('armorSelReadout');
+  if(!el) return;
+  document.querySelectorAll('.armor-active').forEach(i=>i.classList.remove('armor-active'));
+  if(!selectedEdge || !selectedEdgeFace()){
+    el.innerHTML = '未选择 — 点击画布边线或下方列表选择';
+    return;
+  }
+  const poly = state[selectedEdge.poly];
+  const sf = selectedEdgeFace();
+  const mm = (poly.armor && poly.armor[sf.face] !== undefined) ? poly.armor[sf.face] : '-';
+  const key = selectedEdge.poly;
+  el.innerHTML = `${key==='hull'?'车体':'炮塔'} · ${sf.label} · <b style="color:${FACE_COLOR[sf.face]}">${sf.face}</b> ${mm}mm`;
+  const inp = document.getElementById(`a-${key==='hull'?'hull':'turret'}-${sf.face}`);
+  if(inp) inp.classList.add('armor-active');
+}
 function renderEdgeLists(){
   renderEdgeListFor('hull', document.getElementById('hullEdgeList'));
   renderEdgeListFor('turret', document.getElementById('turretEdgeList'));
+  updateArmorSelReadout();
 }
 function renderEdgeListFor(key, container){
   const poly = state[key];
@@ -925,6 +1153,48 @@ function drawDesignerBarrel(tc, angle, scale){
    // barrel highlight
    ctx.strokeStyle = '#b5b5a5'; ctx.lineWidth = Math.max(1, barrelWid*scale*0.4);
    ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(endX, endY); ctx.stroke();
+
+   // 炮盾 mantlet（纯视觉，样式 none/single/double/collar/box/winged/wedge）：
+   // 位于炮管根部（可沿炮管前后偏移 pos/%），宽度按炮塔全宽百分比计算
+   const mt = b.mantlet || { style:'none', pos:0, width:40 };
+   if(mt.style && mt.style !== 'none'){
+      const mPos = (mt.pos||0)/100 * U;
+      const mW = Math.max(barrelWid*scale*1.2, turWid*Math.max(0, mt.width||40)/100*0.5*scale);
+      const mdx = baseX + cos*mPos, mdy = baseY + sin*mPos;
+      const d = mW*0.6;
+      ctx.save(); ctx.translate(mdx, mdy); ctx.rotate(angle);
+      ctx.lineWidth = 1;
+      if(mt.style === 'single'){
+         ctx.fillStyle = '#4a4a40'; ctx.strokeStyle = '#b5b5a5';
+         ctx.fillRect(-d/2, -mW, d, mW*2); ctx.strokeRect(-d/2, -mW, d, mW*2);
+      } else if(mt.style === 'double'){
+         ctx.fillStyle = '#4a4a40'; ctx.strokeStyle = '#b5b5a5';
+         ctx.fillRect(-d*0.6, -mW*0.85, d*0.55, mW*1.7); ctx.strokeRect(-d*0.6, -mW*0.85, d*0.55, mW*1.7);
+         ctx.fillStyle = '#5c5c50';
+         ctx.fillRect(d*0.1, -mW*0.58, d*0.5, mW*1.16); ctx.strokeRect(d*0.1, -mW*0.58, d*0.5, mW*1.16);
+      } else if(mt.style === 'collar'){
+         ctx.fillStyle = '#5a5a4a'; ctx.strokeStyle = '#b5b5a5';
+         ctx.fillRect(-d*0.3, -mW, d*0.6, mW*2); ctx.strokeRect(-d*0.3, -mW, d*0.6, mW*2);
+         ctx.fillStyle = '#23231c';
+         ctx.fillRect(-d*0.05, -mW*0.72, d*0.1, mW*1.44);
+      } else if(mt.style === 'box'){
+         ctx.fillStyle = '#4a4a40'; ctx.strokeStyle = '#b5b5a5';
+         ctx.fillRect(-d*0.9, -mW, d*1.8, mW*2); ctx.strokeRect(-d*0.9, -mW, d*1.8, mW*2);
+         ctx.fillStyle = '#5c5c50';
+         ctx.fillRect(d*0.55, -mW*0.9, d*0.2, mW*1.8);
+      } else if(mt.style === 'winged'){
+         ctx.fillStyle = '#4a4a40'; ctx.strokeStyle = '#b5b5a5';
+         ctx.fillRect(-d*0.5, -mW*0.42, d, mW*0.84); ctx.strokeRect(-d*0.5, -mW*0.42, d, mW*0.84);
+         ctx.fillRect(-d*0.5, -mW*1.1, d*0.55, mW*0.62); ctx.strokeRect(-d*0.5, -mW*1.1, d*0.55, mW*0.62);
+         ctx.fillRect(-d*0.5, mW*0.48, d*0.55, mW*0.62); ctx.strokeRect(-d*0.5, mW*0.48, d*0.55, mW*0.62);
+      } else if(mt.style === 'wedge'){
+         ctx.fillStyle = '#4a4a40'; ctx.strokeStyle = '#b5b5a5';
+         ctx.beginPath();
+         ctx.moveTo(-d, -mW); ctx.lineTo(d, -mW*0.5); ctx.lineTo(d, mW*0.5); ctx.lineTo(-d, mW);
+         ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+      ctx.restore();
+   }
 
    // 炮管护套 jacket: thicker rectangle sleeve over part of the barrel (len>0 → active)
    const jk = b.jacket || { len:0, pos:45 };
@@ -1154,7 +1424,33 @@ function render(){
   ctx.beginPath(); ctx.moveTo(tc.x-9,tc.y); ctx.lineTo(tc.x+9,tc.y);
   ctx.moveTo(tc.x,tc.y-9); ctx.lineTo(tc.x,tc.y+9); ctx.stroke();
   ctx.fillStyle = '#ffb454'; ctx.font='10px "JetBrains Mono", monospace';
-  ctx.fillText('炮塔旋转中心', tc.x+10, tc.y-10);
+  ctx.fillText(mode==='turret' ? '座圈圆心（拖拽平移）' : '炮塔旋转中心', tc.x+10, tc.y-10);
+  // 炮塔模式：可拖拽提示环（抓住十字或青点平移整个炮塔，调整轴心位置）
+  if(mode==='turret'){
+    ctx.strokeStyle = 'rgba(92,200,255,0.3)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.arc(tc.x, tc.y, 16, 0, Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // turret's OWN center (bbox center) — distinct from the rotation axis (issue #1 fix): the gap
+  // between this dot and the pivot cross is the source of "炮塔甩尾". Drawn in turret/pivot modes.
+  if(mode==='turret' || mode==='pivot'){
+    const oc = turretOwnCenter();
+    const cosA = Math.cos(turretAngle), sinA = Math.sin(turretAngle);
+    const wpx = tc.x + (oc.cx*cosA - oc.cy*sinA)*viewScale;
+    const wpy = tc.y + (oc.cx*sinA + oc.cy*cosA)*viewScale;
+    const offLocal = Math.hypot(oc.cx, oc.cy);
+    ctx.beginPath(); ctx.arc(wpx, wpy, 4, 0, Math.PI*2);
+    ctx.strokeStyle = offLocal > 0.05 ? '#5cc8ff' : 'rgba(92,200,255,0.45)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle = '#5cc8ff'; ctx.font='9px "JetBrains Mono", monospace';
+    ctx.fillText('炮塔自身中心', wpx+8, wpy-6);
+    if(offLocal > 0.05){
+      ctx.setLineDash([3,3]); ctx.strokeStyle = 'rgba(92,200,255,0.5)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(tc.x,tc.y); ctx.lineTo(wpx,wpy); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  updateAxisDevReadout();
 
   // 射界限制射线：仅当射界 < 180° 时绘制（180° = 全向旋转，无限制）
   if(state.traverseLimit < 180){
@@ -1189,12 +1485,15 @@ function buildExport(){
      heightClass: state.heightClass,
      trackWidth: state.trackWidth,
      trackOffset: state.trackOffset,
+     spreadMult: state.spreadMult,
+     aimSpeed: state.aimSpeed,
      barrel: {
        len: state.barrel.len,
        width: state.barrel.width,
        muzzle: state.barrel.muzzle,
        evac: { style: state.barrel.evac.style, pos: state.barrel.evac.pos },
-       jacket: { len: state.barrel.jacket.len, pos: state.barrel.jacket.pos }
+       jacket: { len: state.barrel.jacket.len, pos: state.barrel.jacket.pos },
+       mantlet: { style: state.barrel.mantlet.style, pos: state.barrel.mantlet.pos, width: state.barrel.mantlet.width }
      },
      hull: {
        verts: buildFullVerts(state.hull.half),
@@ -1205,7 +1504,11 @@ function buildExport(){
        verts: buildFullVerts(state.turret.half),
        faces: buildFullFaces(state.turret.half, i=>getFace(state.turret.halfFaces,i), state.turret.frontSeamFace, state.turret.rearSeamFace),
        armor: state.turret.armor,
-       pivot: { dx: state.turret.pivot.dx, dy: 0 }
+       pivot: { dx: state.turret.pivot.dx, dy: 0 },
+       // 炮塔自身旋转轴（本地帧内）。顶点已按"轴点=局部原点"归一化，故此处恒为 (0,0)；
+       // 保留该字段是为了与运行时 tank_model.js 的归一化逻辑配套："炮塔自身旋转中心"与
+       // "绕车体旋转中心"（pivot，见上）两个概念在数据 / UI 上都分开表达。
+       axis: { dx: state.turret.axis ? state.turret.axis.dx : 0, dy: 0 }
      }
    };
 }
@@ -1262,7 +1565,7 @@ function recenterPoly(poly){
 }
 // normalize a barrel spec (new {evac:{style,pos}, jacket:{len,pos}} format OR legacy evacPos number)
 function normalizeBarrel(b){
-  if(!b) return { len:120, width:18, muzzle:'none', evac:{ style:'none', pos:30 }, jacket:{ len:0, pos:45 } };
+  if(!b) return { len:120, width:18, muzzle:'none', evac:{ style:'none', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } };
   let evac;
   if(b.evac && b.evac.style) evac = { style:b.evac.style, pos: b.evac.pos !== undefined ? b.evac.pos : 30 };
   else if(b.evacPos !== undefined) evac = { style: b.evacPos > 0 ? 'ring' : 'none', pos: b.evacPos };
@@ -1270,7 +1573,8 @@ function normalizeBarrel(b){
   return {
     len: b.len || 120, width: b.width || 18, muzzle: b.muzzle || 'none',
     evac,
-    jacket: b.jacket ? { len: b.jacket.len||0, pos: b.jacket.pos!==undefined ? b.jacket.pos : 45 } : { len:0, pos:45 }
+    jacket: b.jacket ? { len: b.jacket.len||0, pos: b.jacket.pos!==undefined ? b.jacket.pos : 45 } : { len:0, pos:45 },
+    mantlet: b.mantlet ? { style: b.mantlet.style||'none', pos: b.mantlet.pos!==undefined ? b.mantlet.pos : 0, width: b.mantlet.width!==undefined ? b.mantlet.width : 40 } : { style:'none', pos:0, width:40 }
   };
 }
 function applyTankData(data){
@@ -1302,22 +1606,35 @@ function applyTankData(data){
      if(data.turret){
        // pivot is locked to the centerline: only dx is editable, dy forced to 0
        const pivot = { dx: (data.turret.pivot && data.turret.pivot.dx !== undefined) ? data.turret.pivot.dx : 8, dy:0 };
-       if(data.turret.half){
-         state.turret = { half:data.turret.half, halfFaces:data.turret.halfFaces.slice(),
-           frontSeamFace:data.turret.frontSeamFace||'front', rearSeamFace:data.turret.rearSeamFace||'rear',
-           armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
-           pivot };
+       // turret.axis = 炮塔自身旋转中心（在炮塔本地帧内的坐标），与车体上的 pivot 分开设置。
+       // 归一化：把 axis 平移到局部原点，使运行时始终以"轴点=多边型原点"运行（见 tank_model.js
+       // 的同一逻辑）。归一化后轴点落在炮塔内部何处由顶点数据本身表达，round-trip 行为不变。
+       const ax = (data.turret.axis && data.turret.axis.dx) || 0;
+       const ay = (data.turret.axis && data.turret.axis.dy) || 0;
+       let fullVerts, fullFaces;
+       if(data.turret.verts && data.turret.faces){
+         fullVerts = data.turret.verts;
+         fullFaces = data.turret.faces;
+       } else if(data.turret.half){
+         fullVerts = buildFullVerts(data.turret.half);
+         fullFaces = buildFullFaces(data.turret.half, i=>getFace(data.turret.halfFaces,i), data.turret.frontSeamFace||'front', data.turret.rearSeamFace||'rear');
        } else {
-         const h = halfFromFull(data.turret.verts, data.turret.faces);
-         state.turret = Object.assign(h, { armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor),
-           pivot });
+         fullVerts = buildFullVerts(state.turret.half);
+         fullFaces = buildFullFaces(state.turret.half, i=>getFace(state.turret.halfFaces,i), state.turret.frontSeamFace, state.turret.rearSeamFace);
        }
+       fullVerts = fullVerts.map(([vx,vy])=>[ Math.round((vx-ax)*10)/10, Math.round((vy-ay)*10)/10 ]);
+       const h = halfFromFull(fullVerts, fullFaces);
+       state.turret = Object.assign(h, { armor: Object.assign({front:140,side:50,rear:24}, data.turret.armor), pivot, axis: { dx:0, dy:0 } });
      }
    if(data.barrel) state.barrel = normalizeBarrel(data.barrel);
    if(data.trackWidth !== undefined) state.trackWidth = data.trackWidth;
    if(data.trackOffset !== undefined) state.trackOffset = data.trackOffset;
+   if(data.spreadMult !== undefined) state.spreadMult = data.spreadMult;
+   if(data.aimSpeed !== undefined) state.aimSpeed = data.aimSpeed;
    document.getElementById('trackWidthInput').value = state.trackWidth || 8;
    document.getElementById('trackOffsetInput').value = state.trackOffset || 0;
+   document.getElementById('t-spreadMult').value = state.spreadMult;
+   document.getElementById('t-aimSpeed').value = state.aimSpeed;
    updateTrackRanges();
    document.getElementById('t-id').value = state.id;
    document.getElementById('t-traverse').value = state.traverseLimit;
@@ -1341,6 +1658,9 @@ function applyTankData(data){
    document.getElementById('barrelEvac').value = state.barrel.evac.pos;
    document.getElementById('jacketLen').value = state.barrel.jacket.len;
    document.getElementById('jacketPos').value = state.barrel.jacket.pos;
+   document.getElementById('mantletPreset').value = state.barrel.mantlet.style;
+   document.getElementById('mantletPos').value = state.barrel.mantlet.pos;
+   document.getElementById('mantletWid').value = state.barrel.mantlet.width;
    // find matching preset to highlight it
    let matchedPreset = '';
    for(const k in BARREL_PRESETS){
@@ -1365,17 +1685,22 @@ let tankListCache = null;
 function populateTankListSelect(list){
   const sel = document.getElementById('tankListSelect');
   sel.innerHTML = '';
-  let found = false;
+  const added = new Set();
   Object.keys(list).forEach(k=>{
     const opt = document.createElement('option');
     opt.value = k;
     opt.textContent = k;
     sel.appendChild(opt);
-    if(k === state.id) found = true;
+    added.add(k);
   });
-  if(sel.options.length){
-    sel.value = found ? state.id : sel.options[0].value;
+  // 当前设计（含未保存的新坦克）始终出现在下拉里，避免与列表不一致造成混淆
+  if(!added.has(state.id) && state.id){
+    const opt = document.createElement('option');
+    opt.value = state.id;
+    opt.textContent = state.id + ' (未保存)';
+    sel.appendChild(opt);
   }
+  if(sel.options.length) sel.value = state.id;
 }
 // Reads tank_list.json into the cache once, then runs `then`. Used by init + the load button.
 function fetchTankList(then){
@@ -1413,7 +1738,7 @@ document.getElementById('tankListSaveBtn').addEventListener('click', ()=>{
   saveToTankList();
 });
 document.getElementById('tankListNewBtn').addEventListener('click', ()=>{
-  // fresh default design with a unique id — user renames it via 名称 ID then hits 保存 to add it.
+  // fresh default design with a unique id — user renames it via 名称 框 then hits 保存 to add it.
   const base = state.id === 'new_tank' ? 'new_tank' : state.id.replace(/_\d+$/, '');
   let n = 1; let candidate = base + '_1';
   while(tankListCache && tankListCache[candidate]){ n++; candidate = base + '_' + n; }
@@ -1425,8 +1750,8 @@ document.getElementById('tankListNewBtn').addEventListener('click', ()=>{
     barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 } }
     // no hull/turret keys => keeps designer default shapes
   });
-  if(tankListCache) populateTankListSelect(tankListCache);
-  pushHint('已新建坦克 "'+candidate+'" — 编辑后在「名称 ID」改好名字，点击「保存」即添加到列表');
+  populateTankListSelect(tankListCache || {});
+  pushHint('已新建坦克 "'+candidate+'" — 已在顶部下拉选中，编辑后在名称框改好名字，点击「保存」即添加到列表');
 });
 document.getElementById('tankListDeleteBtn').addEventListener('click', ()=>{
   const key = document.getElementById('tankListSelect').value;
@@ -1497,6 +1822,9 @@ document.getElementById('barrelEvacStyle').value = state.barrel.evac.style;
 document.getElementById('barrelEvac').value = state.barrel.evac.pos;
 document.getElementById('jacketLen').value = state.barrel.jacket.len;
 document.getElementById('jacketPos').value = state.barrel.jacket.pos;
+document.getElementById('mantletPreset').value = state.barrel.mantlet.style;
+document.getElementById('mantletPos').value = state.barrel.mantlet.pos;
+document.getElementById('mantletWid').value = state.barrel.mantlet.width;
 document.getElementById('trackWidthInput').value = state.trackWidth;
 updateTrackRanges();
 setMode('hull');

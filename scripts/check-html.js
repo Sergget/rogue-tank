@@ -40,12 +40,12 @@ function checkFileScripts(htmlPath) {
   }
 }
 
-for (const rel of ['js/tank_paint.js', 'server.js']) {
+for (const rel of ['js/tank_rules.js', 'js/tank_paint.js', 'server.js']) {
   const full = path.join(ROOT, rel);
   if (!fs.existsSync(full)) { console.error(`✗ missing: ${rel}`); failed++; continue; }
   checkCode(rel, fs.readFileSync(full, 'utf8'));
 }
-for (const rel of ['tank_mvp.html', 'tank_designer.html']) {
+for (const rel of ['tank_mvp.html', 'tank_designer.html', 'tank_compare.html']) {
   const full = path.join(ROOT, rel);
   if (!fs.existsSync(full)) { console.error(`✗ missing: ${rel}`); failed++; continue; }
   checkFileScripts(full);

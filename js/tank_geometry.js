@@ -4,16 +4,9 @@ const ARMOR = {
   hull:   { front:110, side:38, rear:26 },
   turret: { front:140, side:50, rear:24 }
 };
-const BOUNCE_ANGLE = 70 * Math.PI/180;
-
-const HEIGHTS = {
-  medium: { hull: 1.4, turret: 0.9 }, // Total 2.3m
-  heavy:  { hull: 1.8, turret: 1.0 }, // Total 2.8m
-  cover: {
-    half: 1.4, // Perfectly aligns with medium hull
-    full: 3.0  // Blocks everything
-  }
-};
+// 跳弹角 / 身高统一收口到 js/tank_rules.js（特性5：机制参数集中化）
+const BOUNCE_ANGLE = RULES.ballistics.bounceAngle;
+const HEIGHTS = RULES.heights;
 
 function getPartZRange(tank, partKey) {
   const h = HEIGHTS[tank.heightClass];
@@ -123,6 +116,22 @@ function raycastTank(ox,oy,dx,dy, tank){
   return hits.length > 0 ? hits : null;
 }
 
+// 多部位命中时选择"本步长内唯一生效"的命中：
+// 炮塔是车体上层的独立构件，同一条弹道先后穿过同一平面覆盖区时炮塔应优先被命中；
+// 未命中炮塔时取最靠近的第一处命中。minT/maxT 限定在炮弹以 step 推进的区间内。
+function bestTankHit(hits, minT, maxT){
+  if(!hits) return null;
+  const cand = hits.filter(function(h){ return h.t > (minT||0.001) && h.t <= (maxT === undefined ? Infinity : maxT); });
+  if(cand.length === 0) return null;
+  const tur = cand.filter(function(h){ return h.part === 'turret'; });
+  if(tur.length){
+    tur.sort(function(a,b){ return a.t - b.t; });
+    return tur[0];
+  }
+  cand.sort(function(a,b){ return a.t - b.t; });
+  return cand[0];
+}
+
 // 发动机是否位于车体后部：由炮塔旋转中心决定——
 // 炮塔旋转中心在车体中心前部(dx>0) → 弹药架在前、发动机在后；
 // 炮塔旋转中心在车体中心后部(dx<0) → 弹药架在后、发动机在前。
@@ -136,23 +145,33 @@ function engineLocalX(t){
 }
 
 function moduleFromHit(tank, hit){
+  const Z = RULES.modules.zones;
   if(hit.part==='turret'){
     if(hit.faceKey==='side'){
-      if(hit.s>0.3 && hit.s<0.7) return {key:'crew', label:'乘员(炮手)'};
-      return {key:'turretHull', label:'上部结构装甲'};
+      // 炮塔侧面按命中点局部 x 分前后：前段/中段 → 炮手，后段 → 装填手
+      const p = turretPivot(tank);
+      const rel = rotate(hit.x - p.x, hit.y - p.y, -superstructureAngle(tank));
+      const halfL = Math.max(1, (tank.turLen||34)/2);
+      if(rel.x/halfL >= Z.turretLoader) return {key:'gunner', label:'炮手'};
+      if(rel.x/halfL >= Z.turretAmmo) return {key:'loader', label:'装填手'};
+      return {key:'ammo', label:'炮塔尾舱弹药架'};
     }
+    if(hit.faceKey==='rear') return {key:'commander', label:'车长'};
     return {key:'turretHull', label:'上部结构装甲'};
   }
   if(hit.faceKey==='side'){
     // 用命中点相对车体中心的局部 x 判定前后（s 的方向因左右侧面而异，不能直接用）
     const rel = rotate(hit.x - tank.x, hit.y - tank.y, -tank.hullAngle);
     const halfL = Math.max(1, (tank.hullLen||64)/2);
-    if(Math.abs(rel.x)/halfL > 0.78) return {key:'track', label:'履带/负重轮'};
-    const isEngineZone = engineRearOf(tank) ? rel.x < 0 : rel.x >= 0;
-    return isEngineZone ? {key:'engine', label:'油箱/发动机'} : {key:'ammo', label:'弹药架'};
+    const rx = rel.x / halfL;
+    // 分区（波带）：极前端/极后端 → 履带；前段 → 驾驶员；中段 → 弹药架；后段 → 发动机
+    if(Math.abs(rx) > Z.trackBound) return {key:'track', label:'履带/负重轮'};
+    if(rx >= Z.driverFront) return {key:'driver', label:'驾驶员'};
+    if(rx >= Z.ammoRear) return {key:'ammo', label:'弹药架'};
+    return {key:'engine', label:'油箱/发动机'};
   }
   if(hit.faceKey==='rear'){
-    return {key:'engine', label:'油箱/发动机舱'};
+    return {key:'engine', label:'发动机舱'};
   }
   return {key:'hullHull', label: hit.edgeName==='front' ? '车体正面装甲' : '车体后部装甲'};
 }
@@ -204,6 +223,7 @@ if (typeof module !== 'undefined' && module.exports) {
     engineRearOf,
     engineLocalX,
     moduleFromHit,
+    bestTankHit,
     faceLabel,
     turretPivot,
     turretFrontDist,

@@ -16,10 +16,17 @@ function computeStats(base, modifiers){
     weight: base.weight,
     enginePower: base.enginePower,
     armor: JSON.parse(JSON.stringify(base.armor)),
-    // 弹药架：玩家/友方需在窗口内被 2 次命中才殉爆；窗口可随升级缩短（游戏内表述「弹药故障排障」）
-    ammoFaultWindow: base.ammoFaultWindow !== undefined ? base.ammoFaultWindow : 5,
     // 履带被击毁锁定时间（秒）；玩家侧可随升级缩短
-    trackLock: base.trackLock !== undefined ? base.trackLock : 8
+    trackLock: base.trackLock !== undefined ? base.trackLock : RULES.modules.trackLockDefault,
+    // 模块伤害倍率（玩家侧可随卡牌/技能升级增强；敌方固定倍率见 RULES.modules.ammo/crew.enemy）
+    ammoMult: base.ammoMult !== undefined ? base.ammoMult : RULES.modules.ammo.player,
+    crewMult: base.crewMult !== undefined ? base.crewMult : RULES.modules.crew.player,
+    // 发动机起火 DOT：倍率/时长可随升级增强（默认 1）
+    dotRatioMult: base.dotRatioMult !== undefined ? base.dotRatioMult : 1,
+    dotDurationMult: base.dotDurationMult !== undefined ? base.dotDurationMult : 1,
+    // 三扩系数（移动/转车体/转炮塔 三源散布统一倍率，默认 1）与缩圈速度（sigma 收缩速率，默认取 RULES.spread.shrinkRate）
+    spreadMult: base.spreadMult !== undefined ? base.spreadMult : 1,
+    aimSpeed: base.aimSpeed !== undefined ? base.aimSpeed : RULES.spread.shrinkRate
   };
   // derived mobility: forward acceleration (px/s^2) from horsepower per tonne scaled to game units.
   // heavier tank (more weight) @ same hp accelutes slower; lower braking threshold = faster decel.
@@ -94,12 +101,11 @@ function makeTank(opts){
     hasTurret:true,              // legacy field kept for backward compat; new specs omit it
     traverseLimit: Math.PI,      // 180° = full 360° rotation by default; < π → limited traverse
     reloadT:0,
-    reloadT:0,
-    immobT:0, fireDebuffT:0, dotT:0,
-    ammoFaultT:0, ammoFaultHits:0,   // 弹药架故障窗口倒计时 / 窗口内命中次数
+    immobT:0, fireDebuffT:0, dotT:0, dotDps:0, dotSeconds:0,
     fireT:0,                         // 起火燃烧视觉时间（秒）
     trackBroken:false,               // 履带被击断（视觉用）
     ammoBlew:false, _blowFx:false,   // 弹药架殉爆状态 + 视觉已生成标记
+    debuffs:{},                      // 模块 debuff（8s 计时）：gunner/loader/driver/engine/commander/ammo
     heightClass:'medium',
     color:'#7ed957',
     trackPhase:0,
@@ -117,8 +123,11 @@ function makeTank(opts){
       maxHp: 100,
       weight: 300, enginePower: 900,
       armor: { hull:{front:110,side:38,rear:26}, turret:{front:140,side:50,rear:24} },
-      ammoFaultWindow: 5,
-      trackLock: 8
+      trackLock: RULES.modules.trackLockDefault,
+      ammoMult: RULES.modules.ammo.player,
+      crewMult: RULES.modules.crew.player,
+      dotRatioMult: 1,
+      dotDurationMult: 1
     },
     modifiers: [],
     sigma:0, prevHullAngle:0, prevTurretAngle:0
@@ -139,12 +148,12 @@ function makeTank(opts){
   return tank;
 }
 
-const SPEED_KMH_FACTOR = 0.5; // (maxSpeed in px/s / 2) = km/h
-const SPEED_PX_FACTOR  = 1.6;
+const SPEED_KMH_FACTOR = RULES.speed.kmhFactor;      // (maxSpeed in px/s / 2) = km/h
+const SPEED_PX_FACTOR  = RULES.speed.pxFactor;
 // convert horsepower-per-tonne into game px/s^2 acceleration; these two set the accel feel.
 // For responsive roguelike action, responsiveness is high (accel x180 scale, quick brake x3.5).
-const ACCEL_POWER_TO_PX_SCALE = 180;
-const BRAKE_FACTOR = 3.5;
+const ACCEL_POWER_TO_PX_SCALE = RULES.speed.accelPowerToPxScale;
+const BRAKE_FACTOR = RULES.speed.brakeFactor;
 function tankKmh(t){ return Math.round((t.stats?.maxSpeed ?? t.maxSpeed) * SPEED_KMH_FACTOR); }
 
 const TEAM_COLORS = { player: '#5c8cff', ally: '#7ed957', enemy: '#ff8a8a' };
@@ -169,8 +178,11 @@ function applyTankConfig(tank, spec){
   if (spec.heightClass !== undefined) tank.heightClass = spec.heightClass;
   if (spec.trackWidth !== undefined) tank.trackWidth = spec.trackWidth;
   if (spec.trackOffset !== undefined) tank.trackOffset = spec.trackOffset;
-  if (spec.ammoFaultWindow !== undefined) b.ammoFaultWindow = spec.ammoFaultWindow;
   if (spec.trackLock !== undefined) b.trackLock = spec.trackLock;
+  if (spec.ammoMult !== undefined) b.ammoMult = spec.ammoMult;
+  if (spec.crewMult !== undefined) b.crewMult = spec.crewMult;
+  if (spec.spreadMult !== undefined) b.spreadMult = spec.spreadMult;
+  if (spec.aimSpeed !== undefined) b.aimSpeed = spec.aimSpeed;
   if (spec.anchors !== undefined) Object.assign(tank.anchors, spec.anchors);
   if (spec.barrel){
     // normalize: new {evac:{style,pos}, jacket:{len,pos}} format, or legacy flat evacPos number
@@ -183,7 +195,8 @@ function applyTankConfig(tank, spec){
       width: spec.barrel.width || 18,
       muzzle: spec.barrel.muzzle || 'none',
       evac,
-      jacket: spec.barrel.jacket ? { len: spec.barrel.jacket.len || 0, pos: spec.barrel.jacket.pos !== undefined ? spec.barrel.jacket.pos : 45 } : { len: 0, pos: 45 }
+      jacket: spec.barrel.jacket ? { len: spec.barrel.jacket.len || 0, pos: spec.barrel.jacket.pos !== undefined ? spec.barrel.jacket.pos : 45 } : { len: 0, pos: 45 },
+      mantlet: spec.barrel.mantlet ? { style: spec.barrel.mantlet.style || 'none', pos: spec.barrel.mantlet.pos !== undefined ? spec.barrel.mantlet.pos : 0, width: spec.barrel.mantlet.width !== undefined ? spec.barrel.mantlet.width : 40 } : { style: 'none', pos: 0, width: 40 }
     };
   }
   if (spec.armor !== undefined){
@@ -214,11 +227,18 @@ function applyTankConfig(tank, spec){
     }
   }
 
-  // Turret verts are authored in the turret's own local frame where origin (0,0) IS the turret's
-  // rotation axis; `pivot` then places that axis on the hull. Keys are kept exactly as given —
-  // re-centering to the bbox would silently move the axis away from `pivot` and spin the turret
-  // around the wrong point (炮塔旋转中心漂移/落在炮塔尾部的根因)。
+  // Turret geometry has TWO independent settings (issue #1):
+  //   - `turret.axis`  {dx,dy} — the turret's OWN rotation point inside the turret's authored local
+  //     frame. The hull-side `turret.pivot` then anchors that axis onto the hull. This decouples
+  //     "炮塔自身的旋转中心" from "绕车体的旋转中心".
+  //   - To keep every downstream consumer (raycast/draw/barrel/fx) working on the invariant
+  //     "turret local origin (0,0) IS the rotation axis", the verts are normalized here: axis is
+  //     translated to the origin. Hand-authored data whose (0,0) drifted to the tail no longer
+  //     silently spins the turret around the tail (炮塔旋转轴漂移/落在炮塔尾部的根因)。
   if (spec.turret && spec.turret.verts && spec.turret.faces) {
+    const axis = (spec.turret && spec.turret.axis) || null;
+    const ax = (axis && axis.dx) || 0;
+    const ay = (axis && axis.dy) || 0;
     let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
     for (const [vx, vy] of spec.turret.verts) {
       if (vx < minX) minX = vx;
@@ -226,9 +246,10 @@ function applyTankConfig(tank, spec){
       if (vy < minY) minY = vy;
       if (vy > maxY) maxY = vy;
     }
-    tank.turretSpec = { verts: spec.turret.verts.map(([vx,vy])=>[vx, vy]), faces: spec.turret.faces };
+    tank.turretSpec = { verts: spec.turret.verts.map(([vx,vy])=>[vx - ax, vy - ay]), faces: spec.turret.faces };
     tank.turLen = Math.max(1, maxX - minX);
     tank.turWid = Math.max(1, maxY - minY);
+    tank.turretAxis = { dx: ax, dy: ay };   // recorded for rollout/inspection; already applied above
   }
   if (spec.turret && spec.turret.pivot) {
     tank.turretPivotOffset = spec.turret.pivot;
@@ -245,16 +266,10 @@ function applyTankConfig(tank, spec){
   if (tank.spawn) tank.spawn.hp = tank.stats.maxHp;
 }
 
-const SPREAD = {
-  base: 0.018,
-  fireDebuff: 0.020,
-  moveMax: 0.014,
-  hullRotMax: 0.012,
-  turretRotMax: 0.018,
-  bloomRate: 2.0,
-  shrinkRate: 0.3,
+// SPREAD 全部数值来自 RULES.spread（特性5：集中配置）；保留旧面相（含 worstCase() 方法）
+const SPREAD = Object.assign({}, RULES.spread, {
   worstCase(){ return this.base + this.moveMax + this.hullRotMax + this.turretRotMax + this.fireDebuff; }
-};
+});
 
 function motionSigma(t, dt, keys){
   if(dt<=0) return SPREAD.base;
@@ -264,9 +279,11 @@ function motionSigma(t, dt, keys){
   if(t.id==='player' && keys){
     speed = (keys['w']||keys['s']) ? t.stats.maxSpeed : 0;
   }
-  const sMove = SPREAD.moveMax    * Math.min(1, speed / t.stats.maxSpeed);
-  const sHull = SPREAD.hullRotMax * Math.min(1, hullRate / t.stats.turnRate);
-  const sTur  = SPREAD.turretRotMax * Math.min(1, turRate / t.stats.turretTurnRate);
+  // 炮手受伤（gunner debuff）→ 移动扩圈加倍；三扩系数统一缩放三个运动散布源（stats.spreadMult）
+  const mK = (t.stats && t.stats.spreadMult !== undefined) ? t.stats.spreadMult : 1;
+  let sMove = SPREAD.moveMax    * Math.min(1, speed / t.stats.maxSpeed) * debuffSpread(t) * mK;
+  const sHull = SPREAD.hullRotMax * Math.min(1, hullRate / t.stats.turnRate) * mK;
+  const sTur  = SPREAD.turretRotMax * Math.min(1, turRate / t.stats.turretTurnRate) * mK;
   let base = SPREAD.base + (t.fireDebuffT>0 ? SPREAD.fireDebuff : 0);
   return base + sMove + sHull + sTur;
 }
@@ -274,12 +291,75 @@ function motionSigma(t, dt, keys){
 function updateSigma(t, dt, keys){
   const target = motionSigma(t, dt, keys);
   const debuffBase = SPREAD.base + (t.fireDebuffT>0 ? SPREAD.fireDebuff : 0);
+  // 缩圈速度支持坦克级覆盖（stats.aimSpeed），默认走 RULES.spread.shrinkRate
+  const shrinkK = (t.stats && t.stats.aimSpeed > 0) ? t.stats.aimSpeed : SPREAD.shrinkRate;
   if(target > t.sigma){
     t.sigma += Math.min(target - t.sigma, SPREAD.bloomRate * dt);
   } else {
-    t.sigma -= Math.min(t.sigma - Math.max(target, debuffBase), SPREAD.shrinkRate * dt);
+    t.sigma -= Math.min(t.sigma - Math.max(target, debuffBase), shrinkK * dt);
     if(t.sigma < debuffBase) t.sigma = debuffBase;
   }
+}
+
+// ---------- 模块 debuff（特性3）：8s 瞬时状态 + 属性消费 ----------
+// 命中弹药架/乘员/发动机后在本体上打 buff。debuffs[key] 存剩余秒数，>0 即生效。
+// 数值全部来自 RULES.modules（倍率 / 时长 / 分区）。玩家侧倍率可经 stats 升级（ammoMult/crewMult）。
+const DB = RULES.modules;
+
+function setDebuff(t, key, seconds){
+  t.debuffs = t.debuffs || {};
+  // 刷新时长、不叠加（决策：第二次命中刷新到 N 秒，不累加伤害加深）
+  t.debuffs[key] = seconds || DB.debuffSeconds;
+}
+// 每帧对所有 debuff 统一倒扣，归零清除
+function tickDebuffs(t, dt){
+  if(!t.debuffs) return;
+  let alive = null;
+  for(const k in t.debuffs){
+    t.debuffs[k] -= dt;
+    if(t.debuffs[k] <= 0){ delete t.debuffs[k]; }
+    else if(alive) alive = true;
+  }
+}
+// 取"成员/模块伤害"的实际倍率：玩家侧默认 ammo×2 / crew×1.2（stats 可升级），敌方固定 ammo×2 / crew×1.2
+function moduleMult(shooter, modKey){
+  const isPlayer = shooter && shooter.team === 'player';
+  if(modKey === 'ammo'){
+    return isPlayer ? (shooter.stats ? (shooter.stats.ammoMult || DB.ammo.player) : DB.ammo.player) : DB.ammo.enemy;
+  }
+  return isPlayer ? (shooter.stats ? (shooter.stats.crewMult || DB.crew.player) : DB.crew.player) : DB.crew.enemy;
+}
+// debuffSpread：炮手受伤 → 扩圈 ×spreadHurt；车长 → 全体 ×commanderDebuff
+function debuffSpread(t){
+  const d = t.debuffs || {};
+  let mul = 1;
+  if(d.gunner > 0) mul *= DB.rates.spreadHurt;
+  if(d.commander > 0) mul *= DB.rates.commanderDebuff;
+  return mul;
+}
+// debuffReloadRate：装填手/弹药架受伤 → 装填速度 ×0.6；车长 ×0.85
+function debuffReloadRate(t){
+  const d = t.debuffs || {};
+  let mul = 1;
+  if(d.loader > 0 || d.ammo > 0) mul *= DB.rates.reloadHurt;
+  if(d.commander > 0) mul *= DB.rates.commanderDebuff;
+  return mul;
+}
+// debuffTurnRate：驾驶员受伤 → 转向速度 ×0.6；车长 ×0.85
+function debuffTurnRate(t){
+  const d = t.debuffs || {};
+  let mul = 1;
+  if(d.driver > 0) mul *= DB.rates.turnHurt;
+  if(d.commander > 0) mul *= DB.rates.commanderDebuff;
+  return mul;
+}
+// debuffSpeed：发动机受伤 → 最大速度 ×0.6；车长 ×0.85
+function debuffSpeedRate(t){
+  const d = t.debuffs || {};
+  let mul = 1;
+  if(d.engine > 0) mul *= DB.rates.speedHurt;
+  if(d.commander > 0) mul *= DB.rates.commanderDebuff;
+  return mul;
 }
 
 // Export for Node.js if running in test environment
@@ -300,6 +380,13 @@ if (typeof module !== 'undefined' && module.exports) {
     applyTankConfig,
     SPREAD,
     motionSigma,
-    updateSigma
+    updateSigma,
+    setDebuff,
+    tickDebuffs,
+    moduleMult,
+    debuffSpread,
+    debuffReloadRate,
+    debuffTurnRate,
+    debuffSpeedRate
   };
 }

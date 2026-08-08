@@ -149,6 +149,11 @@
         <div class="legend">
           <div><span class="sw" style="background:rgba(166,138,60,0.55); border-color:#a68a3c;"></span>半高掩体 — 中坦车体近乎全藏，重坦仍半露</div>
           <div><span class="sw" style="background:rgba(106,106,106,0.65); border-color:#6a6a6a;"></span>全高掩体 — 完全遮蔽</div>
+          <div><span class="sw" style="background:rgba(88,130,58,0.55); border-color:#5c8238;"></span>灌木丛 — 弹可穿透，树冠遮挡视线</div>
+          <div><span class="sw" style="background:rgba(56,88,52,0.6); border-color:#3f5c3c;"></span>树 — 树干挡路挡弹，3 发伐倒→树桩</div>
+          <div><span class="sw" style="background:rgba(150,118,70,0.55); border-color:#96764a;"></span>栅栏 — 炮弹/坦克穿过即毁</div>
+          <div><span class="sw" style="background:rgba(158,128,72,0.6); border-color:#9e8048;"></span>沙袋路障 — 挡 1 发，>70° 斜射跳弹</div>
+          <div><span class="sw" style="background:rgba(112,74,40,0.75); border-color:#6e4a26;"></span>树桩/碎石 — 残骸半掩，可碾毁</div>
         </div>
       </div>
       <div id="logOverlay"></div>
@@ -192,6 +197,17 @@
     </div>
 
     <div class="section">
+      <h3>弹种 Ammo Type</h3>
+      <div class="bar-row"><span class="bar-label">当前弹种</span><select id="ammoSelect"></select></div>
+      <div class="legend">
+        <div><span class="sw" style="background:#5cc8ff;"></span>AP — 标准弹（速度/穿深/伤害 <b>1.0</b>）</div>
+        <div><span class="sw" style="background:#ff6c5c;"></span>APCR — 高速弹（速度/穿深 <b>1.2</b>，伤害 <b>0.8</b>）</div>
+        <div><span class="sw" style="background:#ffb454;"></span>HE — 高爆弹（速度/穿深 <b>0.6</b>，伤害 <b>1.2</b>）</div>
+      </div>
+      <div class="mono" id="ammoHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">数字键 1 / 2 / 3 或下拉切换弹种；换弹后下一次开火即用新弹种。HE 销毁瞬间对落点 24px 内溅射破障</div>
+    </div>
+
+    <div class="section">
       <h3>目标 Target Dummy</h3>
       <div class="bar-row"><span class="bar-label">HULL HP</span><div class="bar-track"><div class="bar-fill" id="eHpBar" style="background:var(--green); width:100%"></div></div><span class="bar-val" id="eHpVal">100</span></div>
       <div class="bar-row"><span class="bar-label">STATUS</span><span class="mono" id="eStatus" style="font-size:11px; color:var(--text-dim);">正常</span></div>
@@ -227,6 +243,7 @@
   </div>
 </div>
 
+<script src="js/tank_rules.js"></script>
 <script src="js/tank_utils.js"></script>
   <script src="js/tank_geometry.js"></script>
   <script src="js/tank_model.js"></script>
@@ -343,13 +360,38 @@ document.getElementById('spreadBtn').addEventListener('click', ()=>{
 loadTankList();
 
 const keys = {};
-// NOTE: keys 1/2/0 used to force turret/hull target-lock; removed per design — this slot is
-// reserved for a future ammo-type switch (AP/APCR/HE etc) instead of a part-lock command.
+// NOTE: keys 1/2/0 used to force turret/hull target-lock; removed per design — this slot now
+// switches ammo type (AP/APCR/HE, 特性4) instead of a part-lock command.
 window.addEventListener('keydown', e=>{
   keys[e.key.toLowerCase()]=true;
   if(e.key===' ') e.preventDefault();
 });
 window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
+
+// ---------- ammo type selection (特性4) ----------
+const AMMO_KEYS = { '1':'ap', '2':'apcr', '3':'he' };
+player.ammoKey = 'ap';
+function setAmmo(key){
+  if(!RULES.ammoTypes[key]) return;
+  player.ammoKey = key;
+  const sel = document.getElementById('ammoSelect');
+  if(sel) sel.value = key;
+  pushLog(`弹种切换：${RULES.ammoTypes[key].label}`,'COVER');
+}
+(function(){
+  const sel = document.getElementById('ammoSelect');
+  for(const k of Object.keys(RULES.ammoTypes)){
+    const o = document.createElement('option');
+    o.value = k; o.textContent = RULES.ammoTypes[k].label;
+    sel.appendChild(o);
+  }
+  sel.value = player.ammoKey;
+  sel.addEventListener('change', e=>{ setAmmo(e.target.value); });
+})();
+document.addEventListener('keydown', e=>{
+  const k = e.key;
+  if(AMMO_KEYS[k]) setAmmo(AMMO_KEYS[k]);
+});
 
 let mouseWorld = {x:player.x+100,y:player.y};
 canvas.addEventListener('mousemove', e=>{
@@ -361,6 +403,7 @@ canvas.addEventListener('mousedown', e=>{ if(e.button===0) tryFire(); });
 
 document.getElementById('resetBtn').addEventListener('click', ()=>{
   entities.forEach(resetEntity);
+  resetCovers();
   dummy.turretSwing = 0;
   // sync HP input + toggle visuals with the reset state
   document.getElementById('dummyHpInput').value = dummy.maxHp;
@@ -379,7 +422,7 @@ document.getElementById('applyHpBtn').addEventListener('click', ()=>{
   dummy.spawn.hp = v;            // keep reset consistent with the chosen max
   dummy._dead = false;
   dummy.reviveT = 0;
-  dummy.ammoBlew=false; dummy.ammoFaultT=0; dummy.ammoFaultHits=0; dummy.trackBroken=false; dummy.fireT=0;
+  dummy.ammoBlew=false; dummy.debuffs={}; dummy.trackBroken=false; dummy.fireT=0; dummy.dotT=0; dummy.dotDps=0; dummy.dotSeconds=0;
   pushLog(`靶车满血值设为 ${v}`,'COVER');
 });
 document.getElementById('autoReviveBtn').addEventListener('click', (e)=>{
@@ -453,54 +496,48 @@ function tryFire(){
   if(player.reloadT>0 || player.immobT>0) return;
   const target = nearestEnemyTo(player);
   if(!target) return;
-  player.reloadT = player.stats.reload;
+  // 装填手/弹药架受伤 → 装填更久（debuff 降低装填速度）
+  player.reloadT = player.stats.reload / debuffReloadRate(player);
   const gr = gunRoot(player);
   const ox = gr.x, oy = gr.y;
 
-  // the shell flies along a spread-affected ray; the live bloom sigma decides how far it wobbles.
-  // With spread off the sigma is forced to 0 → absolutely precise landing.
+  // 散布只影响出膛方向（炮弹真实飞行，命中与否由飞行期间的实际情况决定）
   const sigma = spreadOn ? player.sigma : 0;
   const spreadAngle = player.turretAngle + gaussian(sigma);
   const dx = Math.cos(spreadAngle), dy = Math.sin(spreadAngle);
 
-  // In range mode, before the armor/cover resolve, also record where this shot crosses the
-  // vertical plane passing through the target's position — that is the "landing point".
+  // 当前弹种（特性4）：AP/APCR/HE 倍率作用在速/穿深/伤害上
+  const ammo = RULES.ammoTypes[player.ammoKey] || RULES.ammoTypes.ap;
+
+  // In range mode, record where this shot crosses the vertical plane through the target's
+  // position — the "aiming landing point" (prediction only, actual landing follows the real shot).
   if(rangeOn){
     const planeX = target.x;
-    const tCross = (planeX - ox) / (Math.cos(spreadAngle) || 1e-6);
-    const landX = ox + Math.cos(spreadAngle)*tCross;
-    const landY = oy + Math.sin(spreadAngle)*tCross;
+    const tCross = (planeX - ox) / (dx || 1e-6);
+    const landX = ox + dx*tCross;
+    const landY = oy + dy*tCross;
     const aimX = ox + Math.cos(player.turretAngle)*tCross;
     const aimY = oy + Math.sin(player.turretAngle)*tCross;
     addRangeShot(landX, landY, aimX, aimY);
   }
 
-  // resolveShot handles obstructions in ray-order (target part vs. solid cover — whichever is
-  // nearest), so a cover behind/past the target can never eat a round meant for the tank.
-  // 命中结果被延迟：text/cls 与伤害施放在炮弹真正到达命中点时执行（shell.log），
-  // 开火瞬间不再提前触发任何"击中效果"。
-  const res = resolveShot(ox,oy,dx,dy, player, target);
+  // 炮口闪光（开火瞬间）：定向锥形闪光 + 少量烟尘
+  burstExplosion(ox, oy, 0.6, 4, 2, 0);
+  spawnMuzzleFlash(ox, oy, spreadAngle || player.turretAngle, 1);
 
-  // 炮口闪光（开火瞬间，属于炮口，不受延迟约束）
-  burstExplosion(ox, oy, 0.6, 6, 3, 0);
-
-  // 炮弹动画：整段弹道（含跳弹反射段）交给飞行的炮弹呈现，速度=坦克炮弹飞行速度
-  const segs = res.segments || [{ x1:ox, y1:oy, x2:ox+dx*1200, y2:oy+dy*1200 }];
-  const shellSpeed = player.stats.shellSpeed || 1200;
+  // 生成真实飞行炮弹：位置 / 方向 / 速度 / 穿深 / 伤害 / 弹种
   shells.push({
-    segs,
-    segIdx: 0,
-    t: 0,
-    speed: Math.max(200, shellSpeed),
-    impact: res.hitPoint ? {
-      x: res.hitPoint.x, y: res.hitPoint.y,
-      color: res.outcome==='PEN' ? '#ff5c4d' : (res.bounced ? '#5cc8ff' : res.outcome==='COVER' ? '#ffb454' : '#7a8065')
-    } : null,
-    bounce: res.bounced && res.bouncePoint ? {
-      x: res.bouncePoint.x, y: res.bouncePoint.y,
-      angle: segs.length>=2 ? Math.atan2(segs[segs.length-1].y2-segs[segs.length-1].y1, segs[segs.length-1].x2-segs[segs.length-1].x1) : 0
-    } : null,
-    log: res.log || (() => ({ text: res.text, cls: res.cls || '' }))
+    x: ox, y: oy,
+    dx, dy,
+    speed: Math.max(200, player.stats.shellSpeed * ammo.speed),
+    pen:  player.stats.penetration * ammo.pen,
+    dmg:  player.stats.damage * ammo.dmg,
+    ammo,
+    shooter: player,
+    canBounce: true,
+    bounced: false,
+    dist: 0,
+    dead: false
   });
 }
 
@@ -531,7 +568,14 @@ function updateSolution(){
 
   const coverInfo = { prob: 1 - exposure, hits: findCoversOnPath(ox, oy, hit.x, hit.y) };
   if(coverInfo.prob>0){
-    const detail = coverInfo.hits.map(h=>`${COVER_TIERS[h.cover.tier].label}(己方${h.distA.toFixed(0)}px/靶${h.distB.toFixed(0)}px→${(h.prob*100).toFixed(0)}%)`).join(' × ');
+    const detail = coverInfo.hits.map(h=>{
+      const t = COVER_TIERS[h.cover.tier];
+      const kind = (t.mode==='pass'||t.mode==='none') ? '穿透'
+                 : (t.mode==='solid'||t.mode==='single') ? '全挡'
+                 : '部分遮挡';
+      const mark = (Number.isFinite(h.cover.hp) && h.cover.hp>0) ? ' ⚡可击毁' : '';
+      return `${t.label}(己方${h.distA.toFixed(0)}px/靶${h.distB.toFixed(0)}px·${kind}${mark})`;
+    }).join(' × ');
     elCover.textContent = `${(coverInfo.prob*100).toFixed(0)}% — ${detail}`;
     elCover.className = 'v cover';
   } else {
@@ -570,31 +614,33 @@ let last = performance.now();
 
 // Tank ⇄ tank collision lives in js/tank_entity.js (resolveTankCollisions → partCorners + obbMTV)
 
-// 起火时速度大幅下降约 50%
-function fireMul(t){ return (t.fireT>0 || t.dotT>0) ? 0.5 : 1; }
+// 起火时速度大幅下降（倍率来自 RULES.fire.speedMul）
+function fireMul(t){ return (t.fireT>0 || t.dotT>0) ? RULES.fire.speedMul : 1; }
 
 function update(dt){
   if(player.immobT>0) player.immobT -= dt; else {
-    // Half-cover slows movement & rotation; full-cover is physically impassable (resolved below)
+    // 掩体/元素的通行系数（§2.7）：半高/栅栏等减速通行，灌木全速；solid 元素由碰撞推出/压毁
     const currentCover = getCoverUnderTank(player);
     let speedModifier = 1.0;
     let turnModifier = 1.0;
 
-    if (currentCover && COVER_TIERS[currentCover.tier].mode === 'graduated') {
-      // Half cover: tank can traverse but with heavy penalties
-      speedModifier = 0.4;
-      turnModifier = 0.4;
+    if (currentCover) {
+      const cvTier = COVER_TIERS[currentCover.tier];
+      speedModifier = cvTier.move !== undefined ? cvTier.move : 1.0;
+      turnModifier = speedModifier;
     }
 
     const p0x = player.x, p0y = player.y, p0a = player.hullAngle;
-    if(keys["a"]) player.hullAngle -= player.stats.turnRate*dt*turnModifier;
-    if(keys["d"]) player.hullAngle += player.stats.turnRate*dt*turnModifier;
+    // 驾驶员受伤 → 转向速度降低（debuff）
+    if(keys["a"]) player.hullAngle -= player.stats.turnRate*dt*turnModifier*debuffTurnRate(player);
+    if(keys["d"]) player.hullAngle += player.stats.turnRate*dt*turnModifier*debuffTurnRate(player);
     let mv=0;
     if(keys["w"]) mv=1; else if(keys["s"]) mv=-1;
     // Mobility: accel / decel come from enginePower ÷ weight (computed once in makeTank → tank.stats.accel/brake).
     const pAccel  = player.stats.accel * speedModifier;
     const pBrake  = player.stats.brake * speedModifier;
-    const pTarget = mv * player.stats.maxSpeed * SPEED_PX_FACTOR * speedModifier * fireMul(player);
+    // 发动机受伤 → 最大速度降低（debuff）
+    const pTarget = mv * player.stats.maxSpeed * RULES.speed.pxFactor * speedModifier * fireMul(player) * debuffSpeedRate(player);
     player.speed = player.speed || 0;
     if(mv === 0){
       // Release key: responsive stop/neutral decel
@@ -606,8 +652,8 @@ function update(dt){
     }
     player.x += Math.cos(player.hullAngle)*player.speed*dt;
     player.y += Math.sin(player.hullAngle)*player.speed*dt;
-    // Full-cover collision resolution: push tank out of any solid cover it overlaps
-    resolveFullCoverCollisions(player);
+    // 掩体/元素碰撞：solid 推出（不可压）、crushable 压毁、graduated/none 仅通行系数
+    resolveCoverCollisions(player);
     advanceTracks(player, player.x-p0x, player.y-p0y, norm(player.hullAngle-p0a));
   }
   if(player.immobT<=0){ player.immobT=0; player.trackBroken=false; }
@@ -632,6 +678,7 @@ function update(dt){
 
   if(player.reloadT>0) player.reloadT = Math.max(0, player.reloadT-dt);
   if(player.fireDebuffT>0) player.fireDebuffT -= dt;
+  tickDebuffs(player, dt);
   if(keys[' ']) tryFire();
 
   if(dummy.immobT>0) dummy.immobT -= dt; else {
@@ -639,18 +686,19 @@ function update(dt){
     const dummyCover = getCoverUnderTank(dummy);
     let dSpeedMod = 1.0;
     let dTurnMod = 1.0;
-    if (dummyCover && COVER_TIERS[dummyCover.tier].mode === 'graduated') {
-      dSpeedMod = 0.4;
-      dTurnMod = 0.4;
+    if (dummyCover) {
+      const dTier = COVER_TIERS[dummyCover.tier];
+      dSpeedMod = dTier.move !== undefined ? dTier.move : 1.0;
+      dTurnMod = dSpeedMod;
     }
     const d0x = dummy.x, d0y = dummy.y, d0a = dummy.hullAngle;
-    if(keys['arrowleft']) dummy.hullAngle -= 1.6*dt*dTurnMod;
-    if(keys['arrowright']) dummy.hullAngle += 1.6*dt*dTurnMod;
+    if(keys['arrowleft']) dummy.hullAngle -= 1.6*dt*dTurnMod*debuffTurnRate(dummy);
+    if(keys['arrowright']) dummy.hullAngle += 1.6*dt*dTurnMod*debuffTurnRate(dummy);
     let mv=0;
     if(keys['arrowup']) mv=1; else if(keys['arrowdown']) mv=-1;
     const dAccel   = dummy.stats.accel * dSpeedMod;
     const dBrake   = dummy.stats.brake * dSpeedMod;
-    const dTarget  = mv * dummy.stats.maxSpeed * SPEED_PX_FACTOR * dSpeedMod * fireMul(dummy);
+    const dTarget  = mv * dummy.stats.maxSpeed * RULES.speed.pxFactor * dSpeedMod * fireMul(dummy) * debuffSpeedRate(dummy);
     dummy.speed = dummy.speed || 0;
     if(mv === 0){
       const decel = dBrake * 1.8 * dt;
@@ -661,7 +709,7 @@ function update(dt){
     }
     dummy.x += Math.cos(dummy.hullAngle)*dummy.speed*dt;
     dummy.y += Math.sin(dummy.hullAngle)*dummy.speed*dt;
-    resolveFullCoverCollisions(dummy);
+    resolveCoverCollisions(dummy);
     advanceTracks(dummy, dummy.x-d0x, dummy.y-d0y, norm(dummy.hullAngle-d0a));
   }
   if(dummy.immobT<=0){ dummy.immobT=0; dummy.trackBroken=false; }
@@ -677,10 +725,10 @@ function update(dt){
   entities.forEach(e=>{
     // invulnerable test-rig targets (dummy) never lose hp — DoT, pens, ammo detonations all no-op
     const invuln = (e.id==='dummy' && dummy.invuln);
-    // 弹药故障排障窗口：上次命中弹药架后倒计时；窗口结束则清空命中计数
-    if(e.ammoFaultT>0){ e.ammoFaultT -= dt; if(e.ammoFaultT<=0){ e.ammoFaultT=0; e.ammoFaultHits=0; } }
-    // 起火：DOT 伤害 + 燃烧/浓烟视觉发射
-    if(e.dotT>0 && !invuln){ e.dotT -= dt; e.hp = Math.max(0, e.hp - 6*dt); if(e.dotT<=0) e.dotT=0; }
+    // 模块 debuff 倒计时（8s 瞬时状态；归零自动清除）
+    tickDebuffs(e, dt);
+    // 起火：DOT 伤害（每秒 = 攻击方标准伤害 × RULES.fire.dotRatio，升级可放大）+ 燃烧/浓烟视觉发射
+    if(e.dotT>0 && !invuln){ e.dotT -= dt; e.hp = Math.max(0, e.hp - (e.dotDps||0)*dt); if(e.dotT<=0){ e.dotT=0; e.dotDps=0; } }
     // 起火特效：已摧毁的坦克持续燃烧；存活坦克在 fireT 时间内燃烧
     if(e.hp<=0 && e._dead){
       e.fireT = Math.max(e.fireT, 2);
@@ -698,42 +746,125 @@ function update(dt){
       e.reviveT = (e.reviveT||0) + dt;
       if(e.reviveT >= 1.5){
         e.hp = e.maxHp; e._dead=false; e.reviveT=0;
-        e.immobT=0; e.dotT=0; e.fireDebuffT=0;
-        e.fireT=0; e.ammoFaultT=0; e.ammoFaultHits=0; e.trackBroken=false;
+        e.immobT=0; e.dotT=0; e.dotDps=0; e.dotSeconds=0; e.fireDebuffT=0;
+        e.fireT=0; e.debuffs={}; e.trackBroken=false;
         e.ammoBlew=false; e._blowFx=false; e._trackFx=false;
         pushLog('靶车自动复活 — 满血','COVER');
       }
     }
   });
 
-  // 炮弹飞行动画：按坦克炮弹飞行速度逐段推进
+  // 炮弹逐帧真实飞行（特性2）：每帧炮口到落点做 swept-segment 检测，
+  // 对敌方坦克与全高掩体取路径上最近障碍；命中后按"命中时刻"结算。
   shells.forEach(s=>{
-    s.t += s.speed * dt;
-    while(s.segIdx < s.segs.length){
-      const seg = s.segs[s.segIdx];
-      const len = Math.hypot(seg.x2-seg.x1, seg.y2-seg.y1) || 1;
-      if(s.t < len) break;
-      s.t -= len;
-      s.segIdx++;
-      // 越过弹着点（进入反射段起点）→ 触发跳弹火花
-      if(s.segIdx === 1 && s.bounce && !s.bounceSpawned){
-        s.bounceSpawned = true;
-        bounceFx.push({ x: s.bounce.x, y: s.bounce.y, life:0.5, angle: s.bounce.angle });
+    if(s.dead) return;
+    const step = s.speed * dt;
+    const sx = s.x, sy = s.y;
+    const nx = sx + s.dx*step, ny = sy + s.dy*step;
+
+    // 候选障碍：isHostile 的存活实体（友方/自身穿透，不阻挡）
+    // bestTankHit 取本步长内唯一生效命中：同平面覆盖区炮塔优先（炮塔是上层构件），
+    // 未命中炮塔时取最近命中（修复：从正/后方射击命中炮塔）。
+    let bestDist = Infinity, bestTank = null, bestHit = null, bestCover = null;
+    for(const e of entities){
+      if(e.hp <= 0) continue;
+      if(!isHostile(s.shooter.team, e.team)) continue;
+      const hits = raycastTank(sx, sy, s.dx, s.dy, e);
+      const bh = bestTankHit(hits, 0.001, step);
+      if(bh && bh.t < bestDist){
+        bestDist = bh.t; bestTank = e; bestHit = bh; bestCover = null;
       }
     }
-    if(s.segIdx >= s.segs.length){
-      if(!s.arrived){
-        s.arrived = true;
-        if(s.impact) impacts.push({ x: s.impact.x, y: s.impact.y, life:0.4, color: s.impact.color });
-        // 炮弹到达命中点：施加延迟的伤害/模块效果并输出命中日志（此前不产生任何效果）
-        if(s.log){
-          const li = s.log();
-          if(li && li.text) pushLog(li.text, li.cls || '');
+    // 掩体/元素拦截（§2.7）：solid/single 为截停候选；pass（栅栏）直接穿透，但穿过的瞬间摧毁该元素
+    const covs = findCoversOnPath(sx, sy, nx, ny);
+    for(const c of covs){
+      const tier = COVER_TIERS[c.cover.tier];
+      if(tier.mode === 'pass' && c.distA <= step && c.distA < bestDist){
+        if(damageCover(c.cover, 1, 'shell')){
+          impacts.push({ x:c.point.x, y:c.point.y, life:0.4, color:'#96764a' });
+          spawnImpactFx(c.point.x, c.point.y, Math.atan2(s.dy, s.dx), 'block', 0.7);
+        }
+        continue;
+      }
+      if((tier.mode === 'solid' || tier.mode === 'single') && c.distA <= step && c.distA < bestDist){
+        bestDist = c.distA; bestCover = c; bestTank = null; bestHit = null;
+      }
+    }
+
+    if(bestCover){
+      s.x = bestCover.point.x; s.y = bestCover.point.y;
+      const coverTier = COVER_TIERS[bestCover.cover.tier];
+      if(coverTier.mode === 'single'){
+        // 沙袋路障：斜射（>70°）跳弹不消耗耐久；正射挡 1 发后摧毁
+        const n = coverNormalAt(bestCover.cover, s.x, s.y);
+        const cosT = n ? Math.abs(s.dx*n.nx + s.dy*n.ny) : 0;
+        if(s.canBounce && Math.acos(Math.min(1, Math.max(-1, cosT))) > BOUNCE_ANGLE){
+          const r = reflectDir(s.dx, s.dy, n.nx, n.ny);
+          s.dx = r.x; s.dy = r.y;
+          s.bounced = true; s.canBounce = false;
+          bounceFx.push({ x:s.x, y:s.y, life:0.5, angle:Math.atan2(r.y,r.x) });
+          spawnImpactFx(s.x, s.y, Math.atan2(r.y,r.x), 'bounce', 0.8);
+          pushLog(`跳弹！炮弹在${coverTier.label}表面掠射弹开 — 路障无损`,'BOUNCE');
+        } else {
+          impacts.push({ x:s.x, y:s.y, life:0.4, color:'#ffb454' });
+          spawnImpactFx(s.x, s.y, Math.atan2(s.dx, s.dy), 'block', 0.8);
+          damageCover(bestCover.cover, 1, 'shell');
+          s.dead = true;
+        }
+      } else {
+        impacts.push({ x:s.x, y:s.y, life:0.4, color:'#ffb454' });
+        spawnImpactFx(s.x, s.y, Math.atan2(s.dx, s.dy), 'block', 0.8);
+        if(Number.isFinite(bestCover.cover.hp)){
+          // 树等可破坏 solid 元素：每发 -1 耐久；未毁时提示剩余耐久，毁时 destroyCover 出日志
+          if(!damageCover(bestCover.cover, 1, 'shell')){
+            pushLog(`被${coverTier.label}挡住 — 树干受损（剩余耐久 ${bestCover.cover.hp}）`,'COVER');
+          }
+        } else {
+          pushLog(`被${coverTier.label}挡住 — 炮弹被掩体截停`,'COVER');
+        }
+        s.dead = true;
+      }
+    } else if(bestTank){
+      const hx = sx + s.dx*bestDist, hy = sy + s.dy*bestDist;
+      s.x = hx; s.y = hy;
+      // 半高掩体：按命中时刻的暴露概率判定是否被拦截
+      const z = getPartZRange(bestTank, bestHit.part);
+      const exposure = getExposure(sx, sy, hx, hy, s.shooter, bestTank, z.zMin, z.zMax);
+      if(exposure <= 0 || Math.random() > exposure){
+        impacts.push({ x:hx, y:hy, life:0.4, color:'#ffb454' });
+        spawnImpactFx(hx, hy, Math.atan2(s.dy, s.dx), 'block', 0.7);
+        pushLog('未命中 — 被半高掩体拦截','COVER');
+        s.dead = true;
+      } else {
+        const res = resolveHit(s, bestTank, bestHit, s.canBounce);
+        if(res.outcome === 'BOUNCE'){
+          bounceFx.push({ x:res.bouncePoint.x, y:res.bouncePoint.y, life:0.5, angle:res.bounceAngle });
+          spawnImpactFx(res.bouncePoint.x, res.bouncePoint.y, res.bounceAngle, 'bounce', 1);
+          pushLog(res.text, res.cls);
+          // resolveHit 已更新 s.dx/dy 与位置，继续飞行
+        } else {
+          const o = res.outcome==='PEN' ? ((s.ammo && s.ammo.key === 'he') ? 'he' : 'pen') : 'block';
+          impacts.push({ x:hx, y:hy, life:0.4, color: res.outcome==='PEN' ? '#ff6c5c' : '#7a8065' });
+          spawnImpactFx(hx, hy, Math.atan2(s.dy, s.dx), o, 1);
+          pushLog(res.text, res.cls);
+          s.dead = true;
         }
       }
+    } else {
+      s.x = nx; s.y = ny;
+      s.dist += step;
+      // 弹道烟迹（HE 高爆弹更浓）
+      if(Math.random() < 0.55){
+        spawnSmoke(nx, ny, s.ammo && s.ammo.key === 'he' ? 16 : 8);
+      }
+      // 极限射程 / 出画布 → 销毁
+      if(s.dist >= RULES.ballistics.shellMaxDist) s.dead = true;
+      else if(nx < -60 || nx > canvas.width+60 || ny < -60 || ny > canvas.height+60) s.dead = true;
     }
   });
-  shells = shells.filter(s => s.segIdx < s.segs.length);
+  // A3: HE 破障 — 每发销毁的 HE 弹在落点对可破坏元素做溅射（半径见 RULES.breach）
+  shells.forEach(s=>{ if(s.dead && s.ammo && s.ammo.key === 'he'){ splashCoversAt(s.x, s.y, RULES.breach.heSplashRadius); } });
+  shells = shells.filter(s=>!s.dead);
   impacts.forEach(t=>t.life-=dt); impacts = impacts.filter(t=>t.life>0);
   bounceFx.forEach(t=>t.life-=dt); bounceFx = bounceFx.filter(t=>t.life>0);
 
@@ -747,14 +878,19 @@ function update(dt){
 function updateHud(){
   document.getElementById('eHpBar').style.width = (dummy.hp/dummy.maxHp*100)+'%';
   document.getElementById('eHpVal').textContent = dummy.hp.toFixed(0);
+  const dB = dummy.debuffs || {};
+  const dbKeys = Object.keys(dB).filter(k=>dB[k]>0);
+  const dbLabels = { gunner:'炮手', loader:'装填手', driver:'驾驶员', engine:'发动机', commander:'车长', ammo:'弹药架' };
+  const dbList = dbKeys.length ? dbKeys.map(k=>dbLabels[k]||k).join('/') : '';
   document.getElementById('eStatus').textContent =
     dummy.hp<=0 ? (dummy.ammoBlew?'弹药库殉爆':'已摧毁')
     : dummy.immobT>0 ? `履带损坏 (${dummy.immobT.toFixed(1)}s)`
     : (dummy.dotT>0 || dummy.fireT>0) ? '起火中'
-    : dummy.ammoFaultHits>0 ? `弹药故障排障 (${dummy.ammoFaultT.toFixed(1)}s)`
+    : dbKeys.length ? `${dbList}受损 (${dB[dbKeys[0]].toFixed(1)}s)`
     : '正常';
   const rf = document.getElementById('reloadFill');
-  rf.style.width = (100 - (player.reloadT/player.stats.reload*100)) + '%';
+  const reloadDur = player.stats.reload / debuffReloadRate(player);
+  rf.style.width = (100 - (player.reloadT/reloadDur*100)) + '%';
 }
 
 // ---------- draw ----------
@@ -829,40 +965,139 @@ function drawFireGlow(t){
 // draw helpers for explosions / turret flights / fx particles live in js/tank_fx.js —
 // drawExplosions(ctx), drawTurretFlights(ctx), drawFxParticles(ctx)
 
-// 炮弹飞行动画的渲染：发光弹头 + 短尾焰 + 弹道轨迹
+// 炮弹渲染（特性4）：细长尖头弹体沿飞行方向 + 弹种色拖尾 + 弹头亮点
 function drawShells(){
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
+  const SV = RULES.shellVisual;
   for(const s of shells){
-    const seg = s.segs[Math.min(s.segIdx, s.segs.length-1)];
-    const len = Math.hypot(seg.x2-seg.x1, seg.y2-seg.y1) || 1;
-    const frac = Math.min(1, s.t / len);
-    const sx = seg.x1 + (seg.x2-seg.x1)*frac;
-    const sy = seg.y1 + (seg.y2-seg.y1)*frac;
-    const ux = (seg.x2-seg.x1)/len, uy = (seg.y2-seg.y1)/len;
-    // 弹道尾迹（沿飞行方向）
-    ctx.strokeStyle = 'rgba(255,225,150,0.55)'; ctx.lineWidth = 2.5; ctx.lineCap='round';
-    ctx.beginPath(); ctx.moveTo(sx-ux*16, sy-uy*16); ctx.lineTo(sx, sy); ctx.stroke();
-    // 弹头本体（光晕 + 核心亮点）
-    ctx.fillStyle = 'rgba(255,240,200,0.9)';
-    ctx.beginPath(); ctx.arc(sx, sy, 3.2, 0, TAU); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.95)';
-    ctx.beginPath(); ctx.arc(sx, sy, 1.4, 0, TAU); ctx.fill();
+    const ang = Math.atan2(s.dy, s.dx);
+    const col  = (s.ammo && s.ammo.color) ? s.ammo.color : '#ffb454';
+    const tail = (s.ammo && s.ammo.tail) ? s.ammo.tail : 'rgba(255,180,84,0.6)';
+    const L = SV.length, W = SV.width, tailLen = SV.tailLen;
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(ang);
+    // 拖尾（沿 -x 渐隐短线）
+    ctx.globalCompositeOperation = 'lighter';
+    const tg = ctx.createLinearGradient(-tailLen, 0, 0, 0);
+    tg.addColorStop(0, 'rgba(255,255,255,0)');
+    tg.addColorStop(1, tail);
+    ctx.strokeStyle = tg; ctx.lineWidth = 3; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-tailLen, 0); ctx.lineTo(0, 0); ctx.stroke();
+    // 弹体：尖头朝 +x（飞行方向）
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(L/2, 0);
+    ctx.lineTo(-L/2, -W/2);
+    ctx.lineTo(-L/2 - 2, 0);
+    ctx.lineTo(-L/2, W/2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(L/2, 0); ctx.lineTo(-L/2, -W/2); ctx.lineTo(-L/2 - 2, 0); ctx.lineTo(-L/2, W/2); ctx.closePath(); ctx.stroke();
+    // 弹头亮点
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath(); ctx.arc(L*0.3, 0, 1.3, 0, TAU); ctx.fill();
+    ctx.restore();
   }
-  ctx.restore();
 }
 
+// 地图元素分层绘制（§2.7）：box=矩形掩体（含标签）；soft/barricade/stump/rubble/bush/tree
+// 各画专属贴图；灌木树冠（bush/tree 的上层叶片）由 drawFoliage 画在坦克之上形成视线遮挡。
 function drawCover(cov){
   const tier = COVER_TIERS[cov.tier];
   const c = partCorners(cov.x,cov.y,cov.angle, cov.w/2, cov.h/2);
-  ctx.beginPath();
-  ctx.moveTo(c[0].x,c[0].y);
-  for(let i=1;i<4;i++) ctx.lineTo(c[i].x,c[i].y);
-  ctx.closePath();
-  ctx.fillStyle = tier.fill; ctx.fill();
-  ctx.strokeStyle = tier.stroke; ctx.lineWidth=2; ctx.stroke();
-  ctx.fillStyle = tier.stroke; ctx.font='10px "JetBrains Mono", monospace';
-  ctx.fillText(tier.label, cov.x-24, cov.y-cov.h/2-6);
+  const boxPath = ()=>{
+    ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
+    for(let i=1;i<4;i++) ctx.lineTo(c[i].x,c[i].y);
+    ctx.closePath();
+  };
+  if(tier.draw === 'box'){
+    boxPath();
+    ctx.fillStyle = tier.fill; ctx.fill();
+    ctx.strokeStyle = tier.stroke; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle = tier.stroke; ctx.font='10px "JetBrains Mono", monospace';
+    ctx.fillText(tier.label, cov.x-24, cov.y-cov.h/2-6);
+  } else if(tier.draw === 'soft'){
+    boxPath();
+    ctx.fillStyle = tier.fill; ctx.fill();
+    ctx.strokeStyle = tier.stroke; ctx.lineWidth=1.5; ctx.stroke();
+    // 立柱
+    ctx.strokeStyle = '#6b5436'; ctx.lineWidth=2;
+    for(let i=-3;i<=3;i++){
+      ctx.beginPath();
+      ctx.arc(cov.x + (i*cov.w/7), cov.y, 1.5, 0, TAU);
+      ctx.stroke();
+    }
+  } else if(tier.draw === 'barricade'){
+    // 沙袋：一排堆叠椭圆 + 顶部凸袋
+    ctx.fillStyle = 'rgba(150,118,66,0.85)';
+    for(let i=0;i<4;i++){
+      ctx.beginPath();
+      ctx.ellipse(cov.x - cov.w/2 + (i+0.5)*cov.w/4, cov.y, cov.w/10, cov.h*0.32, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(120,96,54,0.9)';
+    ctx.beginPath();
+    ctx.ellipse(cov.x, cov.y - cov.h*0.15, cov.w/2, cov.h*0.22, 0, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = tier.stroke; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w/2, cov.h/2, 0, 0, TAU); ctx.stroke();
+  } else if(tier.draw === 'stump'){
+    ctx.fillStyle = 'rgba(88,58,30,0.9)';
+    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w/2, cov.h/2, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(50,34,16,1)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w/2, cov.h/2, 0, 0, TAU); ctx.stroke();
+    // 年轮
+    ctx.strokeStyle = 'rgba(60,40,22,0.6)';
+    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w*0.3, cov.h*0.3, 0, 0, TAU); ctx.stroke();
+  } else if(tier.draw === 'rubble'){
+    for(let i=0;i<5;i++){
+      const ox = (i%2? 1:-1)*(cov.w*0.18 + i*2.5);
+      const oy = (i<2? 1:-1)*cov.h*0.15 + (i===4? 0 : 2);
+      ctx.fillStyle = i%2 ? 'rgba(96,92,84,0.75)' : 'rgba(112,108,98,0.7)';
+      ctx.beginPath(); ctx.arc(cov.x+ox, cov.y+oy, 2.2 + (i%3), 0, TAU); ctx.fill();
+    }
+  } else if(tier.draw === 'bush'){
+    // 灌木基底阴影（上层叶片在 drawFoliage）
+    ctx.fillStyle = 'rgba(26,40,22,0.28)';
+    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w/2, cov.h/2, 0, 0, TAU); ctx.fill();
+  } else if(tier.draw === 'tree'){
+    // 树干
+    const r = Math.max(cov.w, cov.h)*0.6;
+    ctx.fillStyle = 'rgba(58,42,24,0.92)';
+    ctx.beginPath(); ctx.arc(cov.x, cov.y, r, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(36,26,14,1)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(cov.x, cov.y, r, 0, TAU); ctx.stroke();
+  }
+}
+
+// 树冠 / 灌木叶片层：画在所有坦克之上，实现"遮挡视线"的表现（§2.7）
+function drawFoliage(){
+  for(const cov of covers){
+    if(cov.hp === 0) continue;
+    const tier = COVER_TIERS[cov.tier];
+    if(tier.vision !== true) continue;
+    if(tier.draw === 'bush'){
+      for(let i=0;i<5;i++){
+        const oa = (i/5)*TAU + 0.6;
+        const ox = Math.cos(oa)*cov.w*0.22, oy = Math.sin(oa)*cov.h*0.22;
+        ctx.fillStyle = i%2 ? 'rgba(70,110,50,0.5)' : 'rgba(96,130,60,0.45)';
+        ctx.beginPath(); ctx.ellipse(cov.x+ox, cov.y+oy, cov.w*0.22, cov.h*0.22, oa, 0, TAU); ctx.fill();
+      }
+      ctx.strokeStyle = 'rgba(92,132,60,0.55)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w*0.34, cov.h*0.34, 0, 0, TAU); ctx.stroke();
+    } else if(tier.draw === 'tree'){
+      const R = Math.max(cov.w, cov.h)*1.9;
+      ctx.fillStyle = 'rgba(44,70,32,0.62)';
+      ctx.beginPath(); ctx.arc(cov.x, cov.y, R*0.85, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(66,104,46,0.5)';
+      ctx.beginPath(); ctx.arc(cov.x+R*0.28, cov.y-R*0.2, R*0.5, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(cov.x-R*0.3, cov.y+R*0.15, R*0.45, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(48,80,38,0.6)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(cov.x, cov.y, R*0.85, 0, TAU); ctx.stroke();
+    }
+  }
 }
 
 // ---------- procedural paint / simplified textures ----------
@@ -923,9 +1158,9 @@ function drawTank(t){
    // 弹药架殉爆后炮塔被掀飞（飞头），炮塔/炮管全部不再绘制；车体焦黑 + 炽热
    if(t.ammoBlew){ drawCharredHull(t); if(t.fireT>0) drawFireGlow(t); }
    if(!t.ammoBlew){
-   // turret shadow projected onto the hull deck (offset up-left to simulate overhead light)
+   // 阴影方向固定在世界方向（投影用 t.hullAngle），炮塔自转不改变阴影方向
    if(t.fireT>0) drawFireGlow(t);
-   paintTurretShadow(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1, 7, 9);
+   paintTurretShadow(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1, 7, 9, t.hullAngle);
 
    const structureAngle = superstructureAngle(t);
    const tPoly = turretPoly(t);
@@ -973,6 +1208,49 @@ function drawTank(t){
    // barrel highlight
    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = Math.max(1, barrelWid*0.4);
    ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(endX, endY); ctx.stroke();
+
+   // 炮盾 mantlet（纯视觉，样式 none/single/double/collar/box/winged/wedge）：
+   // 位于炮管根部（可沿炮管前后偏移 pos/%），宽度按炮塔全宽百分比计算；不影响任何判定。
+   const mt = bSpec.mantlet || { style:'none', pos:0, width:40 };
+   if(mt.style && mt.style !== 'none'){
+      const mPos = (mt.pos||0)/100*barrelLen;
+      const mW = Math.max(barrelWid*1.2, t.turWid*((mt.width!==undefined ? mt.width : 40)/100)*0.5);
+      const mdx = baseX + barrelRayDx*mPos, mdy = baseY + barrelRayDy*mPos;
+      const d = mW*0.6;
+      ctx.save(); ctx.translate(mdx, mdy); ctx.rotate(t.turretAngle);
+      ctx.lineWidth = 1;
+      const dark = shade(t.color, -30), dark2 = shade(t.color, -14), edge = 'rgba(255,255,255,0.22)';
+      if(mt.style === 'single'){
+         ctx.fillStyle = dark; ctx.strokeStyle = edge;
+         ctx.fillRect(-d/2, -mW, d, mW*2); ctx.strokeRect(-d/2, -mW, d, mW*2);
+      } else if(mt.style === 'double'){
+         ctx.fillStyle = dark; ctx.strokeStyle = edge;
+         ctx.fillRect(-d*0.6, -mW*0.85, d*0.55, mW*1.7); ctx.strokeRect(-d*0.6, -mW*0.85, d*0.55, mW*1.7);
+         ctx.fillStyle = dark2;
+         ctx.fillRect(d*0.1, -mW*0.58, d*0.5, mW*1.16); ctx.strokeRect(d*0.1, -mW*0.58, d*0.5, mW*1.16);
+      } else if(mt.style === 'collar'){
+         ctx.fillStyle = dark2; ctx.strokeStyle = edge;
+         ctx.fillRect(-d*0.3, -mW, d*0.6, mW*2); ctx.strokeRect(-d*0.3, -mW, d*0.6, mW*2);
+         ctx.fillStyle = 'rgba(0,0,0,0.45)';
+         ctx.fillRect(-d*0.05, -mW*0.72, d*0.1, mW*1.44);
+      } else if(mt.style === 'box'){
+         ctx.fillStyle = dark; ctx.strokeStyle = edge;
+         ctx.fillRect(-d*0.9, -mW, d*1.8, mW*2); ctx.strokeRect(-d*0.9, -mW, d*1.8, mW*2);
+         ctx.fillStyle = dark2;
+         ctx.fillRect(d*0.55, -mW*0.9, d*0.2, mW*1.8);
+      } else if(mt.style === 'winged'){
+         ctx.fillStyle = dark; ctx.strokeStyle = edge;
+         ctx.fillRect(-d*0.5, -mW*0.42, d, mW*0.84); ctx.strokeRect(-d*0.5, -mW*0.42, d, mW*0.84);
+         ctx.fillRect(-d*0.5, -mW*1.1, d*0.55, mW*0.62); ctx.strokeRect(-d*0.5, -mW*1.1, d*0.55, mW*0.62);
+         ctx.fillRect(-d*0.5, mW*0.48, d*0.55, mW*0.62); ctx.strokeRect(-d*0.5, mW*0.48, d*0.55, mW*0.62);
+      } else if(mt.style === 'wedge'){
+         ctx.fillStyle = dark; ctx.strokeStyle = edge;
+         ctx.beginPath();
+         ctx.moveTo(-d, -mW); ctx.lineTo(d, -mW*0.5); ctx.lineTo(d, mW*0.5); ctx.lineTo(-d, mW);
+         ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+      ctx.restore();
+   }
 
    // bore evacuator bulge at configured position (styles: none/ring/bulb/slotted/long)
    const evc = (bSpec.evac && bSpec.evac.style) ? bSpec.evac
@@ -1128,11 +1406,13 @@ function drawTank(t){
     ctx.restore();
   });
 
-  // Tank Health Bar (under tank, hidden when full HP)
-  const maxHp = t.stats?.maxHp || t.maxHp || 100;
+  // 血条阈值用实例 maxHp（t.maxHp 由 makeTank/applyHp 同步），stats.maxHp 可能是旧的塔载默认值
+  const maxHp = (t.maxHp && t.maxHp > 0) ? t.maxHp : (t.stats?.maxHp || 100);
   if(t.hp < maxHp && t.hp > 0){
     const barW = 44, barH = 5;
     const bx = t.x - barW/2, by = t.y + (t.hullWid||38)/2 + 14;
+    // 血条左侧重/中型标志（不遮挡坦克本体）
+    drawClassBadge(t, bx - 9, by + barH/2);
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(bx-1, by-1, barW+2, barH+2);
     const hpPct = Math.max(0, Math.min(1, t.hp / maxHp));
@@ -1141,6 +1421,32 @@ function drawTank(t){
     ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
     ctx.strokeRect(bx, by, barW, barH);
   }
+}
+
+// 车型标志：六边形 = 重坦，五边形 = 中坦（显示在血条左侧）
+function drawClassBadge(t, x, y){
+  const n = t.heightClass === 'heavy' ? 6 : 5;
+  const R0 = 6, r0 = 4;
+  const cc = t.heightClass === 'heavy' ? '#ffb454' : '#5cc8ff';
+  ctx.save();
+  ctx.fillStyle = 'rgba(16,18,14,0.8)';
+  ctx.strokeStyle = cc; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for(let i = 0; i < n; i++){
+    const a = -Math.PI/2 + i*(2*Math.PI/n);
+    const px = x + Math.cos(a)*R0, py = y + Math.sin(a)*R0;
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = cc; ctx.globalAlpha = 0.85;
+  ctx.beginPath();
+  for(let i = 0; i < n; i++){
+    const a = -Math.PI/2 + i*(2*Math.PI/n);
+    const px = x + Math.cos(a)*r0, py = y + Math.sin(a)*r0;
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
 }
 
 function drawRange(){
@@ -1182,10 +1488,13 @@ function draw(){
 covers.forEach(drawCover);
   if(rangeOn) drawRange();
   entities.forEach(drawTank);
+  drawFoliage();   // 灌木/树冠层：盖住其下坦克 = 视线遮挡
   drawShells();
   drawExplosions(ctx);
   drawTurretFlights(ctx);
   drawFxParticles(ctx);
+  drawMuzzleFlashes(ctx);
+  drawHitFx(ctx);
 
   impacts.forEach(im=>{
     const r = (0.4-im.life)*40;

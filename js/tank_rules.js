@@ -1,0 +1,159 @@
+'use strict';
+
+// tank_rules.js — 集中式机制参数配置（唯一的平衡调整入口）。
+// 所有"非坦克自身"的战斗机制数值都收口在这里，带注释便于平衡调整与对照设计文档。
+// 必须最先被页面加载（其他模块引用 RULES）。
+// ---------------------------------------------------------------
+//   ballistics     弹道：跳弹角 / 炮弹极限射程
+//   heights        身高（车体/炮塔/掩体高度，米）——决定掩体遮挡与露头概率
+//   distanceTier   掩体遮挡的距离分档衰减
+//   coverTiers     掩体种类与显示样式（half=半高渐变 / full=全高实体）
+//   spread         射击散布（扩圈缩圈）全套参数
+//   speed          速度换算系数（px↔kmh / 功率→加速度 / 刹车）
+//   fire           起火燃烧：每秒灼烧伤害 / 时长 / 速度惩罚
+//   modules        模块伤害重做相关：倍率 / debuff 时长 / 削弱系数 / 部件分区
+//   ammoTypes      弹种表（倍率 + 表现色）
+//   shellVisual    炮弹外观视觉参数
+const RULES = {
+  // ======================= 弹道 =======================
+  ballistics: {
+    // 跳弹角：入射角（与表面法线夹角）超过该值 → 判定跳弹并反射
+    bounceAngle: 70 * Math.PI / 180,
+    // 炮弹最大飞行距离（px），超出即销毁
+    shellMaxDist: 1800
+  },
+
+  // ======================= 高度系统 =======================
+  heights: {
+    // heightClass → { hull, turret }: 中坦/重坦车体与炮塔高度（米级抽象）
+    medium: { hull: 1.4, turret: 0.9 },   // 总高 2.3m
+    heavy:  { hull: 1.8, turret: 1.0 },   // 总高 2.8m
+    // 掩体相对高度（与车体高度比较决定露出程度）
+    cover: {
+      half: 1.4,  // 与中坦车体齐平
+      full: 3.0,   // 完全遮蔽一切
+      bush: 1.1,   // 灌木丛（纯视线元素，不参与遮挡判定）
+      soft: 0.8,   // 栅栏（可穿透软掩体）
+      barricade: 1.4, // 沙袋路障（一次性）
+      tree: 2.8,   // 树（树干全高，树冠高）
+      stump: 0.6,  // 树桩（残骸，低矮）
+      rubble: 0.5  // 碎石（残骸，更矮）
+    }
+  },
+
+  // ======================= 掩体遮挡距离分档 =======================
+  // 越靠近掩体的部位越容易被完全遮蔽；条目:[距离上限px, 系数]，超出则 0
+  distanceTier: [
+    [15, 1.0],
+    [45, 0.55],
+    [90, 0.22]
+  ],
+
+  // ======================= 掩体 / 地图元素 =======================
+  // 每种 tier 是一个"行为描述"：mode 决定炮弹交互；move 决定坦克通行系数；
+  // crushable 决定坦克压过是否摧毁；hp 为耐久（Infinity = 不可破坏）；
+  // vision 决定是否遮挡视线（灌木/树冠，未来接 AI 索敌）；toTier 为被摧毁后的残骸；
+  // draw 决定渲染类型（box/bush/tree/soft/barricade/stump/rubble）。
+  coverTiers: {
+    half:       { label: '半高掩体', fill: 'rgba(166,138,60,0.4)',   stroke: '#a68a3c', mode: 'graduated', move: 0.4,  crushable: false, hp: Infinity, vision: false, draw: 'box' },
+    full:       { label: '全高掩体', fill: 'rgba(106,106,106,0.55)', stroke: '#6a6a6a', mode: 'solid',     move: 1.0,  crushable: false, hp: Infinity, vision: false, draw: 'box' },
+    bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#5c8238', mode: 'none',      move: 1.0,  crushable: false, hp: Infinity, vision: true,  draw: 'bush' },
+    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#3f5c3c', mode: 'solid',     move: 1.0,  crushable: false, hp: 3,        vision: true,  draw: 'tree', toTier: 'stump' },
+    soft:       { label: '栅栏',     fill: 'rgba(150,118,70,0.4)',   stroke: '#96764a', mode: 'pass',      move: 0.45, crushable: true,  hp: 1,        vision: false, draw: 'soft' },
+    barricade:  { label: '沙袋路障', fill: 'rgba(158,128,72,0.55)',  stroke: '#9e8048', mode: 'single',    move: 1.0,  crushable: true,  hp: 1,        vision: false, draw: 'barricade', toTier: 'rubble' },
+    stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', mode: 'graduated', move: 0.6,  crushable: true,  hp: 1,        vision: false, draw: 'stump' },
+    rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', mode: 'graduated', move: 0.6,  crushable: true,  hp: 1,        vision: false, draw: 'rubble' }
+  },
+
+  // ======================= 破障（可破坏地图元素） =======================
+  breach: {
+    heSplashRadius: 24,   // HE 弹销毁瞬间的溅射半径（px）——只伤害可破坏元素，不对坦克溅射
+    heCoverDmg: 1         // HE 溅射对单个元素的伤害（树耐久 3，栅栏/沙袋/树桩/碎石 1 击毁）
+  },
+
+  // 防御基数（按身材等级的车体/炮塔被掩体遮蔽权重，供后续拾区计算/平衡）
+  coverDefenseBase: {
+    medium: { hull: 0.8, turret: 0.15 },
+    heavy:  { hull: 0.6, turret: 0.10 }
+  },
+  // 攻击方振幅因子（后备防御公式的弹药量项——目前未接入主判定，保留并注明）
+  attackerAmplitudeFactor: 0.5,
+
+  // ======================= 散布（summare dimension bloom/shrink） =======================
+  spread: {
+    base: 0.018,              // 静止基准散布（弧度 σ）
+    fireDebuff: 0.020,        // 炮手 debuff（起火/阵亡）额外加量
+    moveMax: 0.014,           // 行进中散布上限
+    hullRotMax: 0.012,        // 车体转向散布上限
+    turretRotMax: 0.018,      // 炮塔旋转散布上限
+    bloomRate: 2.0,           // 散布扩散速度
+    shrinkRate: 0.15          // 缩圈（集中）速度 — 坦克级设置：三扩系数×散布上限 / 缩圈速度走 base.spreadMult / base.aimSpeed
+  },
+
+  // ======================= 速度 / 机动换算 =======================
+  speed: {
+    kmhFactor: 0.5,            // maxSpeed(px/s) × 0.5 = km/h（HUD 显示）
+    pxFactor: 1.6,             // 推进速度 = maxSpeed × pxFactor（px/s）
+    accelPowerToPxScale: 180,   // 马力/吨 → px/s² 加速度比例
+    brakeFactor: 3.5           // 刹车加速度 = 加速 × brakeFactor
+  },
+
+  // ======================= 起火 =======================
+  fire: {
+    dotRatio: 0.10,            // 燃烧灼伤 = 攻击方标准伤害 × dotRatio / 秒
+    dotSeconds: 5,             // 燃烧持续（秒）
+    speedMul: 0.5,             // 燃烧时移动速度倍率（×50%）
+    fireVisualSeconds: 4       // 起火视觉燃烟时长（秒）
+  },
+
+  // ======================= 模块伤害（特性3） =======================
+  modules: {
+    debuffSeconds: 8,           // 各类模块 debuff 持续时间（秒）
+    trackLockDefault: 8,        // 履带被击毁锁定时间（秒），随升级可缩短
+    // 伤害倍率：玩家（可随升级增强，读 shooter.stats.ammoMult/crewMult）vs 敌方固定值
+    ammo: { player: 2, enemy: 2 },
+    crew: { player: 1.2, enemy: 1.2 },
+    // 各削弱效果倍率（0~1 = 减速，2 = 加倍；惩罚较早期版本适当调轻）
+    rates: {
+      reloadHurt: 0.6,          // 装填手/弹药架受伤:装填速度 ×0.6（时间 ×1.67）
+      turnHurt: 0.6,            // 驾驶员受伤:转向速度 ×0.6
+      speedHurt: 0.6,           // 发动机受伤:最大速度 ×0.6
+      spreadHurt: 1.6,          // 炮手受伤:移动扩圈 ×1.6
+      commanderDebuff: 0.85     // 车长受伤:全体成员效果 ×0.85
+    },
+    // 命中部位的局部坐标分区（hull/turret 的局部 x 或走参 s，用于 moduleFromHit）
+    zones: {
+      trackBound: 0.78,         // |relX|/halfL 超过 → 履带/负重轮
+      driverFront: 0.25,        // 车体侧面 relX ≥ → 驾驶员
+      ammoRear: -0.25,          // relX < → 发动机；介于两者 → 弹药架
+      turretLoader: -0.25,      // 炮塔侧面 relX < → 装填手（否则炮手）
+      turretAmmo: -0.62         // 炮塔侧面 relX < → 炮塔尾舱弹药架（装填手身后小范围弹药架）
+    }
+  },
+
+  // ======================= 弹种（特性（4） =======================
+  ammoTypes: {
+    ap:   { label: 'AP',   color: '#5cc8ff', speed: 1.0, pen: 1.0, dmg: 1.0, tail: 'rgba(92,200,255,0.6)' },
+    apcr: { label: 'APCR', color: '#ff6c5c', speed: 1.2, pen: 1.2, dmg: 0.8, tail: 'rgba(255,106,92,0.6)' },
+    he:   { label: 'HE',   color: '#ffb454', speed: 0.6, pen: 0.6, dmg: 1.2, tail: 'rgba(255,180,84,0.6)' }
+  },
+
+  // 炮弹视觉
+  shellVisual: {
+    length: 14,   // 弹体长度（px）
+    width: 4,     // 弹体宽度（px）
+    tailLen: 18   // 拖尾长度（px）
+  }
+};
+
+// 距离分档函数：给定掩体距目标距离，返回有效遮挡系数（0~1）
+function distanceTier(dist){
+  for (const [at, mult] of RULES.distanceTier) {
+    if (dist <= at) return mult;
+  }
+  return 0;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { RULES, distanceTier };
+}

@@ -21,8 +21,9 @@ function spawnTank(opts){
 }
 
 function resetEntity(t){
-  Object.assign(t, t.spawn, { immobT:0, dotT:0, fireDebuffT:0, reloadT:0, _dead:false, reviveT:0,
-    ammoFaultT:0, ammoFaultHits:0, fireT:0, trackBroken:false,
+  Object.assign(t, t.spawn, { immobT:0, dotT:0, dotDps:0, dotSeconds:0, fireDebuffT:0, reloadT:0, _dead:false, reviveT:0,
+    fireT:0, trackBroken:false,
+    debuffs:{},
     ammoBlew:false, _blowFx:false, _trackFx:false });
 }
 
