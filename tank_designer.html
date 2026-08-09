@@ -333,9 +333,12 @@
   </div>
 </div>
 
+<script src="js/tank_rules.js"></script>
 <script src="js/tank_paint.js"></script>
 <script src="js/tank_utils.js"></script>
 <script src="js/tank_halfgeom.js"></script>
+<script src="js/tank_presets.js"></script>
+<script src="js/tank_listio.js"></script>
 <script>
 (() => {
 const canvas = document.getElementById('editor-canvas');
@@ -392,26 +395,9 @@ let state = {
    barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } }
 };
 
-// gun barrel presets: len/% of turret length, width/% of turret width, muzzle brake,
-// evacuator style + pos/% of barrel, jacket len/% + pos/%
-const BARREL_PRESETS = {
-   standard:    { len:120, width:18, muzzle:'none',  evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 } },
-   long50:      { len:195, width:10, muzzle:'none',  evac:{ style:'slotted', pos:62 }, jacket:{ len:0, pos:45 } },
-   shorthowitzer: { len:85, width:28, muzzle:'double', evac:{ style:'bulb', pos:35 }, jacket:{ len:0, pos:45 } },
-   cannon:      { len:140, width:16, muzzle:'single', evac:{ style:'ring', pos:48 }, jacket:{ len:0, pos:45 } },
-   longcannon:  { len:220, width:12, muzzle:'double', evac:{ style:'ring', pos:58 }, jacket:{ len:40, pos:50 } },
-   autoloader:  { len:110, width:22, muzzle:'slug',  evac:{ style:'none', pos:0 }, jacket:{ len:0, pos:45 } }
-};
-// 炮盾 mantlet 预设（纯视觉）：style = 样式，pos = 位置(%炮管长，负=缩回炮塔内)，width = 宽度(%炮塔全宽)
-const MANTLE_PRESETS = {
-   none:   { style:'none',   pos:0,  width:40 },
-   single: { style:'single', pos:0,  width:40 },
-   double: { style:'double', pos:5,  width:50 },
-   collar: { style:'collar', pos:0,  width:28 },
-   box:    { style:'box',    pos:0,  width:66 },
-   winged: { style:'winged', pos:-12, width:46 },
-   wedge:  { style:'wedge',  pos:0,  width:44 }
-};
+// gun barrel / mantlet presets 已下沉为配置模块 js/tank_presets.js（BARREL_PRESETS / MANTLE_PRESETS）
+
+// ================= state =================
 let mode = 'hull'; // 'hull' | 'turret' | 'pivot' | 'preview'
 let viewScale = 1;
 let drag = null;
@@ -1419,13 +1405,8 @@ function render(){
 
   // Draw Internal Module Zones Overlay
   if(document.getElementById('showZonesCheckbox') && document.getElementById('showZonesCheckbox').checked){
-    const Z = {
-      trackBound: 0.78,
-      driverFront: 0.25,
-      ammoRear: -0.25,
-      turretLoader: -0.25,
-      turretAmmo: -0.62
-    };
+    // 分区数值单一来源：RULES.modules.zones（js/tank_rules.js）
+    const Z = RULES.modules.zones;
     
     // 1. Draw Hull module bands
     // Hull bbox size
@@ -1662,12 +1643,10 @@ function applyTankData(data){
    render(); renderEdgeLists();
 }
 
-// ================= tank_list.json I/O =================
-// The designer reads entries from tank_list.json (same JSON the MVP fetches) and writes the current
-// design back into it. Since a browser tab cannot write to the source file directly, "save" merges
-// the design into the fetched list and downloads the updated tank_list.json for the user to replace
-// over the original. If tank_list.json is unreachable (e.g. opened via file://), we fall back to
-// saving a file containing just the current design entry.
+// ================= tanks/ I/O（一型一文件，js/tank_listio.js） =================
+// 数据源 = tanks/ 目录（与 MVP/compare 同源），经 GET /api/tanks 聚合读取；
+// 保存 = POST /api/tanks/<id> 单文件写；删除 = DELETE /api/tanks/<id>；
+// 服务器不可用时降级下载 <id>.json 供手动放入 tanks/。
 let tankListCache = null;
 function populateTankListSelect(list){
   const sel = document.getElementById('tankListSelect');
@@ -1689,26 +1668,10 @@ function populateTankListSelect(list){
   }
   if(sel.options.length) sel.value = state.id;
 }
-// Reads tank_list.json into the cache once, then runs `then`. Used by init + the load button.
-function fetchTankList(then){
+// 载入 tanks/ 列表（带缓存），首次进入后直接复用。init / load 按钮 / 保存流程共用。
+function loadTankListAll(then){
   if(tankListCache){ then(tankListCache); return; }
-  fetch('tank_list.json')
-    .then(res=>res.ok ? res.json() : Promise.reject(new Error('HTTP '+res.status)))
-    .then(list=>{ tankListCache = list; then(list); })
-    .catch(err=>{ console.warn('无法读取 tank_list.json:', err.message); then(null); });
-}
-// Rebuild the collective JSON from (cache) and trigger a download. When tankListCache is null
-// (list never fetched), downloads just the single entry built from `entries`.
-function downloadTankList(entries, fallback){
-  let list;
-  if(tankListCache){ list = tankListCache; Object.assign(list, entries); }
-  else { list = Object.assign({}, entries); }
-  const blob = new Blob([JSON.stringify(list, null, 2)], { type:'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'tank_list.json';
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  fetchTankList(list => { tankListCache = list; then(list); });
 }
 function loadTankFromList(key){
   if(!tankListCache || !tankListCache[key]) return false;
@@ -1716,7 +1679,7 @@ function loadTankFromList(key){
 }
 document.getElementById('tankListLoadBtn').addEventListener('click', ()=>{
   const key = document.getElementById('tankListSelect').value;
-  fetchTankList(list=>{
+  loadTankListAll(list=>{
     if(list && list[key]) loadTankFromList(key);
     else pushHint('请先点击「载入」刷新列表，或该条目不存在');
   });
@@ -1742,65 +1705,29 @@ document.getElementById('tankListNewBtn').addEventListener('click', ()=>{
 });
 document.getElementById('tankListDeleteBtn').addEventListener('click', ()=>{
   const key = document.getElementById('tankListSelect').value;
-  if(!tankListCache){ pushHint('尚未载入 tank_list.json'); return; }
+  if(!tankListCache){ pushHint('尚未载入 tanks/ 列表'); return; }
   if(!(key in tankListCache)){ pushHint('列表中没有该条目'); return; }
-  if(!confirm(`从 tank_list 中删除「${key}」？`)) return;
+  if(!confirm(`从 tanks/ 中删除「${key}」？`)) return;
   delete tankListCache[key];
   populateTankListSelect(tankListCache);
 
-  fetch('api/tank_list', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(tankListCache, null, 2)
-  })
-  .then(res => {
-    if (res.ok) {
-      pushHint('已从 tank_list.json 中删除 ' + key);
-    } else {
-      downloadTankList({});
-      pushHint('已删除 ' + key + '，请覆盖下载的 tank_list.json');
-    }
-  })
-  .catch(() => {
-    downloadTankList({});
-    pushHint('已删除 ' + key + '，请覆盖下载的 tank_list.json');
+  deleteTank(key, ok => {
+    if(ok) pushHint(`已从 tanks/ 删除 ${key}.json`);
+    else pushHint(`服务器删除失败 — 请手动删除 tanks/${key}.json`);
   });
 });
 function saveToTankList(){
   const out = buildExport();
-  const run = (fullList)=>{
-    fullList[out.id] = out;
-    tankListCache = fullList;
-    populateTankListSelect(tankListCache);
-    
-    // Attempt POST to local server if available
-    fetch('api/tank_list', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fullList, null, 2)
-    })
-    .then(res => {
-      if (res.ok) {
-        pushHint('已自动保存更新到 tank_list.json！');
-      } else {
-        downloadTankList({});
-        pushHint('服务器保存失败，已在本地下载 tank_list.json');
-      }
-    })
-    .catch(() => {
-      downloadTankList({});
-      pushHint('已在本地下载 tank_list.json（无开发服务器支持）');
-    });
-  };
-
-  if (tankListCache) {
-    run(tankListCache);
-  } else {
-    fetch('tank_list.json')
-      .then(res => res.ok ? res.json() : Promise.reject(new Error('HTTP ' + res.status)))
-      .then(list => run(list))
-      .catch(() => run({}));
-  }
+  if(tankListCache){ tankListCache[out.id] = out; populateTankListSelect(tankListCache); }
+  // 单文件原子写（POST /api/tanks/<id>）；失败降级下载单条目
+  saveTankEntry(out.id, out, ok => {
+    if(ok){
+      pushHint(`已保存 tanks/${out.id}.json`);
+    } else {
+      downloadTankFile(out.id, out);
+      pushHint(`服务器保存失败，已下载 ${out.id}.json — 请手动放入 tanks/ 目录`);
+    }
+  });
 }
 
 // ================= init =================
@@ -1816,8 +1743,8 @@ document.getElementById('trackWidthInput').value = state.trackWidth;
 updateTrackRanges();
 setMode('hull');
 updateZoomReadout();
-// load tank_list.json up front so the "tank_list 交互" select is usable immediately.
-fetchTankList(list=>{ if(list) populateTankListSelect(list); });
+// 预先载入 tanks/ 列表，让顶部「坦克列表」下拉立即可用。
+loadTankListAll(list=>{ if(list) populateTankListSelect(list); });
 resize();
 renderEdgeLists();
 })();

@@ -1,0 +1,138 @@
+{
+  "id": "Leapard_1",
+  "traverseLimit": 180,
+  "maxSpeed": 140,
+  "turnRate": 2.5,
+  "turretTurnRate": 3,
+  "weight": 100,
+  "enginePower": 1200,
+  "hp": 80,
+  "penetration": 160,
+  "damage": 50,
+  "reload": 1,
+  "shellSpeed": 1600,
+  "heightClass": "medium",
+  "trackWidth": 9,
+  "trackOffset": 1,
+  "spreadMult": 1.2,
+  "aimSpeed": 0.2,
+  "barrel": {
+    "len": 145,
+    "width": 10,
+    "muzzle": "none",
+    "evac": {
+      "style": "long",
+      "pos": 29
+    },
+    "jacket": {
+      "len": 0,
+      "pos": 45
+    }
+  },
+  "hull": {
+    "verts": [
+      [
+        32.8,
+        -14
+      ],
+      [
+        -32.7,
+        -13.7
+      ],
+      [
+        -32.7,
+        13.7
+      ],
+      [
+        32.8,
+        14
+      ]
+    ],
+    "faces": [
+      "side",
+      "rear",
+      "side",
+      "front"
+    ],
+    "armor": {
+      "front": 60,
+      "side": 38,
+      "rear": 26
+    }
+  },
+  "turret": {
+    "verts": [
+      [
+        17.9,
+        -7.7
+      ],
+      [
+        9.9,
+        -11.5
+      ],
+      [
+        3.6,
+        -13
+      ],
+      [
+        -6.1,
+        -12.5
+      ],
+      [
+        -11.4,
+        -8.5
+      ],
+      [
+        -14.1,
+        -8
+      ],
+      [
+        -14.1,
+        8
+      ],
+      [
+        -11.4,
+        8.5
+      ],
+      [
+        -6.1,
+        12.5
+      ],
+      [
+        3.6,
+        13
+      ],
+      [
+        9.9,
+        11.5
+      ],
+      [
+        17.9,
+        7.7
+      ]
+    ],
+    "faces": [
+      "front",
+      "side",
+      "side",
+      "side",
+      "side",
+      "rear",
+      "side",
+      "side",
+      "side",
+      "side",
+      "front",
+      "front"
+    ],
+    "armor": {
+      "front": 80,
+      "side": 50,
+      "rear": 24
+    },
+    "pivot": {
+      "dx": 8,
+      "dy": 0
+    }
+  }
+}

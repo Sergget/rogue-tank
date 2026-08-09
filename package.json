@@ -7,7 +7,7 @@
     "dev": "node server.js",
     "serve": "node server.js",
     "check": "node scripts/check-html.js",
-    "test": "node scripts/test-covers.js"
+    "test": "node scripts/test-covers.js && node scripts/test-tanks.js && node scripts/test-hitpart.js"
   },
   "engines": {
     "node": ">=18"

@@ -1,0 +1,225 @@
+{
+  "id": "tiger-I",
+  "traverseLimit": 180,
+  "maxSpeed": 120,
+  "turnRate": 1.6,
+  "turretTurnRate": 2,
+  "weight": 600,
+  "enginePower": 700,
+  "hp": 120,
+  "penetration": 135,
+  "damage": 40,
+  "reload": 1.3,
+  "shellSpeed": 1200,
+  "heightClass": "heavy",
+  "trackWidth": 20,
+  "trackOffset": -10,
+  "barrel": {
+    "len": 120,
+    "width": 10,
+    "muzzle": "single",
+    "evac": {
+      "style": "none",
+      "pos": 21
+    },
+    "jacket": {
+      "len": 35,
+      "pos": 11
+    },
+    "mantlet": {
+      "style": "winged",
+      "pos": 6,
+      "width": 44
+    }
+  },
+  "hull": {
+    "verts": [
+      [
+        34.5,
+        0
+      ],
+      [
+        34.3,
+        -13.7
+      ],
+      [
+        29.5,
+        -14
+      ],
+      [
+        29.3,
+        -19.2
+      ],
+      [
+        -34.5,
+        -19
+      ],
+      [
+        -34.5,
+        19
+      ],
+      [
+        29.3,
+        19.2
+      ],
+      [
+        29.5,
+        14
+      ],
+      [
+        34.3,
+        13.7
+      ]
+    ],
+    "faces": [
+      "front",
+      "front",
+      "front",
+      "side",
+      "rear",
+      "side",
+      "front",
+      "front",
+      "front"
+    ],
+    "armor": {
+      "front": 110,
+      "side": 80,
+      "rear": 54
+    }
+  },
+  "turret": {
+    "verts": [
+      [
+        19.7,
+        -9.5
+      ],
+      [
+        16.9,
+        -13.7
+      ],
+      [
+        12.9,
+        -16.2
+      ],
+      [
+        7.2,
+        -17.5
+      ],
+      [
+        0.4,
+        -17.2
+      ],
+      [
+        -6.6,
+        -14.5
+      ],
+      [
+        -9.8,
+        -11
+      ],
+      [
+        -14.3,
+        -12.2
+      ],
+      [
+        -16.8,
+        -9.5
+      ],
+      [
+        -18.1,
+        -7
+      ],
+      [
+        -19.1,
+        -4.2
+      ],
+      [
+        -19.6,
+        0
+      ],
+      [
+        -19.1,
+        4.2
+      ],
+      [
+        -18.1,
+        7
+      ],
+      [
+        -16.8,
+        9.5
+      ],
+      [
+        -14.3,
+        12.2
+      ],
+      [
+        -9.8,
+        11
+      ],
+      [
+        -6.6,
+        14.5
+      ],
+      [
+        0.4,
+        17.2
+      ],
+      [
+        7.2,
+        17.5
+      ],
+      [
+        12.9,
+        16.2
+      ],
+      [
+        16.9,
+        13.7
+      ],
+      [
+        19.7,
+        9.5
+      ]
+    ],
+    "faces": [
+      "front",
+      "side",
+      "side",
+      "side",
+      "side",
+      "rear",
+      "rear",
+      "rear",
+      "rear",
+      "rear",
+      "rear",
+      "rear",
+      "rear",
+      "rear",
+      "rear",
+      "rear",
+      "rear",
+      "side",
+      "side",
+      "side",
+      "side",
+      "front",
+      "front"
+    ],
+    "armor": {
+      "front": 160,
+      "side": 80,
+      "rear": 60
+    },
+    "pivot": {
+      "dx": 4,
+      "dy": 0
+    },
+    "axis": {
+      "dx": 0,
+      "dy": 0
+    }
+  }
+}

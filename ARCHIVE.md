@@ -13,6 +13,8 @@
 | 2026-08-08 | `ISSUES.md` | #1~#8（含修复记录）+ 附：本轮新增特性 | #1~#8 已解决并验证；附注内容已并入 DEVELOPMENT §3 |
 | 2026-08-13 | `PLAN.md` | 重构批次：代码去重 1.1~1.7 + 校验强化 2.1~2.3 + 性能优化 3.1~3.3 + 文档纠偏 4.1 | 全部完成并验证（结论见 DEVELOPMENT §3.6） |
 | 2026-08-13 | 交互/重构 | 重坦/中坦不同车体高度与半高掩体交互关系简化方案 | 简化为 3 规则确定性模型，全部测试与 HTML 校验通过 |
+| 2026-08-13 | `PLAN.md` | P-02（子条目 1~6）模块化重构批次 | 已完成并验证（结论见 DEVELOPMENT §3.6；第 7 条 battledraw 可选延后） |
+| 2026-08-13 | `PLAN.md` | P-03 坦克数据拆分 tanks/ 一型一文件 | 已全部完成并验证（结论见 DEVELOPMENT §3.6；`split-tank-list.js` 保留作维护工具） |
 
 ------
 
@@ -689,3 +691,49 @@ if (mod.key==='ammo') {
 2. **距离压制**：分析弹道路径上所有介于攻击方与被攻击方之间的半高掩体，取离【被攻击方】最近的一座掩体 C_near。若 dist(攻击方, C_near) < dist(被攻击方, C_near)，则被攻击方视为【无掩体】（exposure = 1.0）。
 3. **通行**：重坦可越过半高掩体，中坦被阻挡（MTV 推出）。
 4. **代码改动**：更新 `js/tank_rules.js`（`RULES.coverRules`）、`js/tank_cover.js`（`getExposure` 重构）、`scripts/test-covers.js`（Node 单元测试升级），同步更新 `DEVELOPMENT.md` §2.5 与 §2.7 行为矩阵。
+
+---
+
+# 五、2026-08-13 归档自 `PLAN.md`：P-02 子条目 1~6（原文）
+
+> 来源：`PLAN.md` 条目 P-02「模块化重构：内联大脚本下沉 + 数据去重」的子条目 1~6。
+> 第 7 条（`js/tank_battledraw.js`，可选低优先）仍保留在 PLAN.md。实现结论见 `DEVELOPMENT.md` §3.6。
+
+**方案**（研究结论，按依赖顺序分批次，每批可独立落地、独立验证）：
+
+1. **P-03 先行**：坦克数据拆到 `tanks/` 一型一文件（见 P-03），`js/tank_listio.js` 接口以其为准。
+2. **`js/tank_listio.js`**（复用 P-03 的 `/api/tanks` 端点）：统一 `fetchTankList(cb)` / `saveTankList(list, cb)`（含无服务器时下载 fallback）。当前三处重复：`tank_mvp.html:319-341`、`tank_designer.html:1693-1804`、`tank_compare.html:326-358`。
+3. **`paintBarrel(ctx, cx, cy, angle, opts)` 下沉到 `tank_paint.js`**：`tank_designer.html:1084-1239`（drawDesignerBarrel）与 `tank_mvp.html:1201-1384`（drawTank 内炮管段）是同一套炮管几何参数（barrel/mantlet/jacket/evac/muzzle）的两份 ~150 行复制 → 二变一。难点：两处的坐标系约定一致（+x 朝前、%炮塔长/宽），仅端口不同。
+4. **配置表下沉**：`BARREL_PRESETS` + `MANTLE_PRESETS`（`tank_designer.html:397-414`）→ 新 `js/tank_presets.js`；`FIELD_ROWS` + `MUZZLES`/`EVAC` 枚举（`tank_compare.html:109-144`）→ 新 `js/tank_schema.js`（字段架构单一来源，designer/compare 共用）。
+5. **数据去重（快）**：designer `render()` 中 Z 分区常量（`tank_designer.html:1422-1428`）删除，改读 `RULES.modules.zones`（`js/tank_rules.js:136-142`，完全同值）；mvp `dbLabels`（`tank_mvp.html:892`）与 `tank_geometry.js:165-184` 的模块标签合并为集中 map。
+6. **`js/tank_move.js`：`driveTank(t, dt, { turn, move })`**：合并 `tank_mvp.html:629-668` 与 `693-723` 两条完全平行的驾驶块（转向/加减速/掩体 move 系数/起火/fireMul/debuff 乘数/碰撞推出），为技术债 #3（敌方/友军 AI）铺路——AI 只出输入。
+
+---
+
+# 六、2026-08-13 归档自 `PLAN.md`：P-03 坦克数据拆分（原文）
+
+**问题**：`tank_list.json` 聚合全部坦克，任何设计器保存/删除都会整体重写；多人/多分支编辑冲突面大；未来"节点内可拾取/敌方池"等按型引用需拆文件。
+
+**方案**：拆分 `tanks/` 目录 = 每辆坦克一个 JSON 文件：
+- 文件：`tanks/<id>.json`，内容为现在的单个条目（`tank_list.json` 中某 key 的值，不含外层包裹）；`id` 与文件名一致（含空格等合法字符保留，URL 编码传输；若未来 id 出现 `/` 再约定净化规则）。
+- server（`server.js`）新增：
+  - `GET /api/tanks` → 遍历 `tanks/*.json` 聚合为 `{ id → spec }`（文件名排序，确定性输出；暂不引入 `tanks/index.json` 有序清单，如需要再议）。
+  - `POST /api/tanks/<id>` → 写单个文件（原子写：先写临时文件再改名）。
+  - `DELETE /api/tanks/<id>` → 删除单个文件。
+  - 迁移完成后移除旧 `POST /api/tank_list` 与根目录 `tank_list.json`（或保留 `GET /tank_list.json` 兼容另议——倾向不保留，三个原型一次性切换）。
+- 原型改动（与 P-02#2 联动，`js/tank_listio.js` 统一）：
+  - mvp：`loadTankList` → `fetch('api/tanks')`；
+  - designer：`fetchTankList`/`saveToTankList`/删除 → 对应端点；无服务器降级下载改为下载 `tanks/<id>.json`；
+  - compare：`load`/`save` 同上。
+- 迁移工具：`scripts/split-tank-list.js`（读旧 `tank_list.json` → 写入 `tanks/*.json`；保留仓库作维护工具）。
+- 校验：新增 Node 测试（纳入 `npm run test`）：遍历 `tanks/*.json` 验证 JSON 合法、`id===文件名`、几何 half/full round-trip（`buildFullVerts`/`halfFromFull`）、必填字段齐全；`npm run check` 保持全绿。
+
+**决策清单**（已全部完成）：
+- [x] 文件名直接 = id（空格保留）
+- [x] 聚合排序：文件名字母序（确定性）
+- [x] 不保留 `tank_list.json` 兼容路径（一次性迁移）
+- [x] 实现 server API + 迁移脚本
+- [x] 三个原型切换到 `/api/tanks`
+- [x] 文档（AGENTS.md §4/§3.1/§3.2/§3.3、DEVELOPMENT.md）同步
+
+**验证路径**：迁移后 `npm run test` + `npm run check` 全绿；dev server 下三个原型全流程（载入列表、替换坦克、designer 保存/删除回写、compare 保存）。

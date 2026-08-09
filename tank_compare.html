@@ -73,7 +73,7 @@
 <div id="topbar">
   <span class="title">坦克对比编辑器 <b>TANK COMPARE</b></span>
   <button id="loadBtn">重新载入</button>
-  <button id="saveBtn">保存到 tank_list.json</button>
+  <button id="saveBtn">保存到 tanks/ 目录</button>
   <span id="status"></span>
   <a class="navlink" href="tank_mvp.html">主原型</a>
   <a class="navlink" href="tank_designer.html">设计器</a>
@@ -82,7 +82,7 @@
   <div id="columns"></div>
   <div id="hint">
     说明：本页一列一辆坦克，可直接编辑并保存下列字段。车体/炮塔多边形几何为只读（逻辑由 tank_designer 编辑）；
-    每列底部可展开「原始 JSON」查看完整条目。保存走 POST /api/tank_list，无开发服务器时自动改为下载 tank_list.json 供覆盖。
+    每列底部可展开「原始 JSON」查看完整条目。保存逐辆写入 tanks/<id>.json（POST /api/tanks/<id>），无开发服务器时自动改为下载各文件供覆盖。
   </div>
 </div>
 
@@ -91,7 +91,9 @@
 <script src="js/tank_geometry.js"></script>
 <script src="js/tank_halfgeom.js"></script>
 <script src="js/tank_model.js"></script>
-<script src="js/tank_paint.js"></script>
+  <script src="js/tank_paint.js"></script>
+  <script src="js/tank_schema.js"></script>
+  <script src="js/tank_listio.js"></script>
 <script>
 (() => {
 'use strict';
@@ -105,43 +107,7 @@ function setStatus(t){
   setTimeout(()=>{ if(statusEl.textContent===t) statusEl.textContent=''; }, 4000);
 }
 
-// ---------- 字段描述表 ----------
-const MUZZLES = ['none','single','double','multi','slug','pepperpot','heavy_square','cylinder'];
-const EVAC = ['none','ring','bulb','slotted','long'];
-const FIELD_ROWS = [
-  { label:'最大速度',   path:'maxSpeed',            type:'num' },
-  { label:'转向速度',   path:'turnRate',           type:'num' },
-  { label:'炮塔转速',   path:'turretTurnRate',     type:'num' },
-  { label:'重量',       path:'weight',             type:'num' },
-  { label:'马力',       path:'enginePower',        type:'num' },
-  { label:'生命值',     path:'hp',                 type:'num' },
-  { label:'穿深',       path:'penetration',        type:'num' },
-  { label:'伤害',       path:'damage',             type:'num' },
-  { label:'装填(s)',    path:'reload',             type:'num' },
-  { label:'弹速',       path:'shellSpeed',         type:'num' },
-  { label:'射界(°)',    path:'traverseLimit',      type:'num' },
-  { label:'身高等级',   path:'heightClass',        type:'sel', options:['medium','heavy'] },
-  { label:'履带宽',     path:'trackWidth',         type:'num' },
-  { label:'履带偏置',   path:'trackOffset',        type:'num' },
-  { label:'履带锁定(s)',path:'trackLock',          type:'num' },
-  { label:'三扩系数',   path:'spreadMult',          type:'num' },
-  { label:'缩圈速度',   path:'aimSpeed',            type:'num' },
-  { label:'装甲·车体正面', path:'hull.armor.front', type:'num' },
-  { label:'装甲·车体侧面', path:'hull.armor.side',  type:'num' },
-  { label:'装甲·车体后部', path:'hull.armor.rear',  type:'num' },
-  { label:'装甲·炮塔正面', path:'turret.armor.front', type:'num' },
-  { label:'装甲·炮塔侧面', path:'turret.armor.side',  type:'num' },
-  { label:'装甲·炮塔后部', path:'turret.armor.rear',  type:'num' },
-  { label:'炮管长度',   path:'barrel.len',         type:'num' },
-  { label:'炮口宽',     path:'barrel.width',       type:'num' },
-  { label:'炮口制退器', path:'barrel.muzzle',      type:'sel', options:MUZZLES },
-  { label:'排烟器样式', path:'barrel.evac.style',  type:'sel', options:EVAC },
-  { label:'排烟器位置', path:'barrel.evac.pos',    type:'num' },
-  { label:'护套长度',   path:'barrel.jacket.len',  type:'num' },
-  { label:'护套位置',   path:'barrel.jacket.pos',  type:'num' },
-  { label:'炮塔枢轴 dx',path:'turret.pivot.dx',    type:'num' },
-  { label:'炮塔枢轴 dy',path:'turret.pivot.dy',    type:'num' }
-];
+// ---------- 字段描述表（单一来源：js/tank_schema.js） ----------
 
 function getPath(obj, path){
   let v = obj;
@@ -322,38 +288,25 @@ function renderAll(){
   }
 }
 
-// ---------- 载入 / 保存 ----------
+// ---------- 载入 / 保存（tanks/ 一型一文件，js/tank_listio.js） ----------
 function load(){
   setStatus('载入中…');
-  fetch('tank_list.json')
-    .then(res=>res.ok ? res.json() : Promise.reject(new Error('HTTP '+res.status)))
-    .then(data=>{
-      list = data;
-      renderAll();
-      setStatus('已载入 ' + Object.keys(list).length + ' 辆坦克');
-    })
-    .catch(err=> setStatus('载入失败: '+err.message));
+  fetchTankList(data => {
+    if(!data){ setStatus('载入失败: 无法读取 tanks/ 目录'); return; }
+    list = data;
+    renderAll();
+    setStatus('已载入 ' + Object.keys(list).length + ' 辆坦克');
+  });
 }
 function save(){
   if(!list){ setStatus('尚未载入数据'); return; }
-  const body = JSON.stringify(list, null, 2);
-  fetch('api/tank_list', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body
-  })
-  .then(res=>{
-    if(res.ok) setStatus('已保存到 tank_list.json ✓');
-    else throw new Error('HTTP '+res.status);
-  })
-  .catch(()=>{
-    const blob = new Blob([body], { type:'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'tank_list.json';
-    a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
-    setStatus('无服务器，已下载 tank_list.json');
+  saveTankList(list, failed => {
+    if(failed.length === 0){
+      setStatus('已保存到 tanks/ 目录 ✓');
+    } else {
+      failed.forEach(id => downloadTankFile(id, list[id]));
+      setStatus(`保存失败 ${failed.length} 辆 ${failed.join(', ')} — 已下载，请手动放入 tanks/`);
+    }
   });
 }
 

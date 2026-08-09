@@ -20,6 +20,10 @@
   - `tank_fx.js`：战斗特效（殉爆/履带断/起火/炮口闪光/命中特效/粒子）。
   - `tank_paint.js`：程序化坦克渲染（履带/阴影/俯视纹理），纯 ctx 显式传入、无 DOM 依赖。
   - `tank_halfgeom.js`：半侧对称多边形几何 + 炮管规格归一化 `normalizeBarrel`（三个原型/设计器均加载，纯逻辑可 Node 测试）。
+  - `tank_move.js`：统一坦克运动 `driveTank(t, dt, {turn, move})`（玩家/靶车/AI 共用，含掩体通行系数/起火与 debuff 乘数/碰撞推出/履带相位）+ `fireMul`。
+  - `tank_listio.js`：坦克数据读写层（`tanks/` 一型一文件，fetch/save/delete + 无服务器时下载 fallback）。
+  - `tank_presets.js`：炮管/炮盾预设表（`BARREL_PRESETS`/`MANTLE_PRESETS`，原设计器内联）。
+  - `tank_schema.js`：坦克字段架构表（`FIELD_ROWS` + 枚举，designer/compare 共用单一来源）。
 
 ## 2. 文档分工（开始工作前必读）
 
@@ -48,7 +52,7 @@
 
 ### 3.1 启动原型（dev server — 必需，不可省略）
 
-原型必须通过 HTTP 服务打开——它们会 `fetch('tank_list.json')` 并加载共享的 `js/tank_paint.js`，两者在 `file://` 下都无法工作。
+原型必须通过 HTTP 服务打开——它们会 `fetch('api/tanks')` 并加载共享的 `js/tank_paint.js`，两者在 `file://` 下都无法工作。
 
 - 启动：`npm start`（或 `npm run dev`，或双击 `start.bat`）。
 - 访问（默认端口 8000，可用 `PORT=9000` 覆盖）：
@@ -60,13 +64,13 @@
 ### 3.2 测试坦克战斗
 
 - 通过 dev server 打开 `tank_mvp.html`。
-- 用 HUD 中的「坦克选择」下拉从 `tank_list.json` 加载不同坦克配置到玩家/靶车，横向对比。
+- 用 HUD 中的「坦克选择」下拉从 `tanks/` 一型一文件列表（`api/tanks`）加载不同坦克配置到玩家/靶车，横向对比。
 
 ### 3.3 设计与测试坦克几何
 
 - 通过 dev server 打开 `tank_designer.html`。
 - 该工具可编辑车体/炮塔多边形、逐边装甲，并内置「甲弹对抗」测试（入射角/等效厚度/跳弹判定）。
-- 设计器保存会写回 `tank_list.json`（`POST /api/tank_list`）；`tank_mvp.html` / `tank_compare.html` 重新加载列表即可生效（`applyTankConfig()` 在 `js/tank_model.js`）。
+- 设计器保存会写回 `tanks/<id>.json`（`POST /api/tanks/<id>`）；`tank_mvp.html` / `tank_compare.html` 重新加载列表即可生效（`applyTankConfig()` 在 `js/tank_model.js`）。
 
 ### 3.4 脚本加载顺序（新增模块/脚本时注意）
 

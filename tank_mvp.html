@@ -184,7 +184,7 @@
         <button id="applyDummyTankBtn">应用到靶车</button>
         <button id="reloadTankListBtn">重新加载列表</button>
       </div>
-      <div class="mono" id="tankSelectHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">从 tank_list.json 载入坦克配置并替换玩家 / 靶车（含炮管预设、多边形装甲）</div>
+      <div class="mono" id="tankSelectHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">从 tanks/ 目录载入坦克配置并替换玩家 / 靶车（含炮管预设、多边形装甲）</div>
     </div>
 
     <div class="section">
@@ -251,8 +251,10 @@
   <script src="js/tank_cover.js"></script>
   <script src="js/tank_physics.js"></script>
   <script src="js/tank_entity.js"></script>
+  <script src="js/tank_move.js"></script>
   <script src="js/tank_fx.js"></script>
   <script src="js/tank_paint.js"></script>
+  <script src="js/tank_listio.js"></script>
 <script>
 (() => {
 const canvas = document.getElementById('c');
@@ -273,7 +275,7 @@ dummy.invuln = false;       // when true: hp is locked, dummy never takes damage
 dummy.autoRevive = true;    // when true: dummy respawns full 1.5s after being destroyed
 dummy.reviveT = 0;          // countdown to auto-revive
 
-// 从 tank_list.json 加载坦克配置数据
+// 从 tanks/ 目录（一型一文件，经 /api/tanks 聚合）加载坦克配置数据
 let tankListData = null;
 function populateTankSelect(){
   for(const selId of ['playerTankSelect','dummyTankSelect']){
@@ -317,20 +319,18 @@ function applyDummyTank(id){
   }
 }
 function loadTankList(){
-  fetch('tank_list.json')
-    .then(res => { if(!res.ok) throw new Error(res.status); return res.json(); })
-    .then(data => {
-      tankListData = data;
-      populateTankSelect();
-      // Only auto-apply on FIRST load so both tanks show their real model/armor;
-      // reloading afterwards must not clobber a user's custom config.
-      if(!player._tankLoaded){
-        if (data["T-90M1"]) applyPlayerTank('T-90M1');
-        if (data["dummy"]) applyDummyTank('dummy');
-        player._tankLoaded = true;
-      }
-    })
-    .catch(err => { console.error('加载 tank_list.json 失败:', err); populateTankSelect(); });
+  fetchTankList(data => {
+    tankListData = data;
+    populateTankSelect();
+    if(!tankListData) return;
+    // Only auto-apply on FIRST load so both tanks show their real model/armor;
+    // reloading afterwards must not clobber a user's custom config.
+    if(!player._tankLoaded){
+      if (tankListData["T-90M1"]) applyPlayerTank('T-90M1');
+      if (tankListData["dummy"]) applyDummyTank('dummy');
+      player._tankLoaded = true;
+    }
+  });
 }
 document.getElementById('applyPlayerTankBtn').addEventListener('click', ()=>{
   applyPlayerTank(document.getElementById('playerTankSelect').value);
@@ -340,7 +340,7 @@ document.getElementById('applyDummyTankBtn').addEventListener('click', ()=>{
 });
 document.getElementById('reloadTankListBtn').addEventListener('click', ()=>{
   loadTankList();
-  pushLog('已重新加载 tank_list.json','COVER');
+  pushLog('已重新加载 tanks/ 坦克列表','COVER');
 });
 document.getElementById('rangeBtn').addEventListener('click', ()=>{
   rangeOn = !rangeOn;
@@ -569,11 +569,23 @@ function updateSolution(){
     elCover.textContent='--'; elCover.className='v';
     return;
   }
-  // For the solution UI, we show the most exposed part or the first hit
-  const weighted = hits.map(h => ({ h, w: getExposure(ox, oy, h.x, h.y, player, target, getPartZRange(target, h.part).zMin, getPartZRange(target, h.part).zMax, h.t) }));
-  weighted.sort((a,b) => b.w - a.w);
-  const hit = weighted[0].h;
-  const exposure = weighted[0].w;
+  // 同源意图（与实弹一致）：沿无散布瞄准线按鼠标投影选部位（aimPartPreference），
+  // 首选部位完全被半高掩体遮蔽（exposure==0）时回退到露出的另一部位——与炮弹循环同一套规则。
+  const hitPref = aimPartPreference(ox, oy, dx, dy, mouseWorld.x, mouseWorld.y, hits, RULES.aim.partProbe);
+  let hit = bestHitForPref(hits, 0.001, Infinity, hitPref);
+  if(hit && hitPref !== 'auto' && hits.length > 1){
+    const zChosen = getPartZRange(target, hit.part);
+    const eChosen = getExposure(ox, oy, hit.x, hit.y, player, target, zChosen.zMin, zChosen.zMax, hit.t);
+    if(eChosen <= 0){
+      const other = hits.find(h => h.part !== hit.part);
+      if(other){
+        const zOther = getPartZRange(target, other.part);
+        const eOther = getExposure(ox, oy, other.x, other.y, player, target, zOther.zMin, zOther.zMax, other.t);
+        if(eOther > 0) hit = other;
+      }
+    }
+  }
+  const exposure = getExposure(ox, oy, hit.x, hit.y, player, target, getPartZRange(target, hit.part).zMin, getPartZRange(target, hit.part).zMax, hit.t);
 
   const coverInfo = { prob: 1 - exposure, hits: findCoversOnPath(ox, oy, hit.x, hit.y) };
   if(coverInfo.prob>0){
@@ -623,48 +635,12 @@ let last = performance.now();
 
 // Tank ⇄ tank collision lives in js/tank_entity.js (resolveTankCollisions → partCorners + obbMTV)
 
-// 起火时速度大幅下降（倍率来自 RULES.fire.speedMul）
-function fireMul(t){ return (t.fireT>0 || t.dotT>0) ? RULES.fire.speedMul : 1; }
-
 function update(dt){
-  if(player.immobT>0) player.immobT -= dt; else {
-    // 掩体/元素的通行系数（§2.7）：半高/栅栏等减速通行，灌木全速；solid 元素由碰撞推出/压毁
-    const currentCover = getCoverUnderTank(player);
-    let speedModifier = 1.0;
-    let turnModifier = 1.0;
-
-    if (currentCover) {
-      const cvTier = COVER_TIERS[currentCover.tier];
-      speedModifier = cvTier.move !== undefined ? cvTier.move : 1.0;
-      turnModifier = speedModifier;
-    }
-
-    const p0x = player.x, p0y = player.y, p0a = player.hullAngle;
-    // 驾驶员受伤 → 转向速度降低（debuff）
-    if(keys["a"]) player.hullAngle -= player.stats.turnRate*dt*turnModifier*debuffTurnRate(player);
-    if(keys["d"]) player.hullAngle += player.stats.turnRate*dt*turnModifier*debuffTurnRate(player);
-    let mv=0;
-    if(keys["w"]) mv=1; else if(keys["s"]) mv=-1;
-    // Mobility: accel / decel come from enginePower ÷ weight (computed once in makeTank → tank.stats.accel/brake).
-    const pAccel  = player.stats.accel * speedModifier;
-    const pBrake  = player.stats.brake * speedModifier;
-    // 发动机受伤 → 最大速度降低（debuff）
-    const pTarget = mv * player.stats.maxSpeed * RULES.speed.pxFactor * speedModifier * fireMul(player) * debuffSpeedRate(player);
-    player.speed = player.speed || 0;
-    if(mv === 0){
-      // Release key: responsive stop/neutral decel
-      const decel = pBrake * 1.8 * dt;
-      if(player.speed > 0) player.speed = Math.max(0, player.speed - decel);
-      else if(player.speed < 0) player.speed = Math.min(0, player.speed + decel);
-    } else {
-      player.speed += clamp(pTarget - player.speed, -pBrake*dt, pAccel*dt);
-    }
-    player.x += Math.cos(player.hullAngle)*player.speed*dt;
-    player.y += Math.sin(player.hullAngle)*player.speed*dt;
-    // 掩体/元素碰撞：solid 推出（不可压）、crushable 压毁、graduated/none 仅通行系数
-    resolveCoverCollisions(player);
-    advanceTracks(player, player.x-p0x, player.y-p0y, norm(player.hullAngle-p0a));
-  }
+  // 驾驶（转向/加减速/掩体通行/碰撞/履带相位）统一在 js/tank_move.js 的 driveTank
+  driveTank(player, dt, {
+    turn: keys['a'] ? -1 : (keys['d'] ? 1 : 0),
+    move: keys['w'] ? 1 : (keys['s'] ? -1 : 0)
+  });
   if(player.immobT<=0){ player.immobT=0; player.trackBroken=false; }
   player.x = Math.max(40, Math.min(canvas.width-40, player.x));
   player.y = Math.max(40, Math.min(canvas.height-40, player.y));
@@ -690,37 +666,11 @@ function update(dt){
   tickDebuffs(player, dt);
   if(keys[' ']) tryFire();
 
-  if(dummy.immobT>0) dummy.immobT -= dt; else {
-    // Apply same cover physics to dummy tank
-    const dummyCover = getCoverUnderTank(dummy);
-    let dSpeedMod = 1.0;
-    let dTurnMod = 1.0;
-    if (dummyCover) {
-      const dTier = COVER_TIERS[dummyCover.tier];
-      dSpeedMod = dTier.move !== undefined ? dTier.move : 1.0;
-      dTurnMod = dSpeedMod;
-    }
-    const d0x = dummy.x, d0y = dummy.y, d0a = dummy.hullAngle;
-    if(keys['arrowleft']) dummy.hullAngle -= 1.6*dt*dTurnMod*debuffTurnRate(dummy);
-    if(keys['arrowright']) dummy.hullAngle += 1.6*dt*dTurnMod*debuffTurnRate(dummy);
-    let mv=0;
-    if(keys['arrowup']) mv=1; else if(keys['arrowdown']) mv=-1;
-    const dAccel   = dummy.stats.accel * dSpeedMod;
-    const dBrake   = dummy.stats.brake * dSpeedMod;
-    const dTarget  = mv * dummy.stats.maxSpeed * RULES.speed.pxFactor * dSpeedMod * fireMul(dummy) * debuffSpeedRate(dummy);
-    dummy.speed = dummy.speed || 0;
-    if(mv === 0){
-      const decel = dBrake * 1.8 * dt;
-      if(dummy.speed > 0) dummy.speed = Math.max(0, dummy.speed - decel);
-      else if(dummy.speed < 0) dummy.speed = Math.min(0, dummy.speed + decel);
-    } else {
-      dummy.speed += clamp(dTarget - dummy.speed, -dBrake*dt, dAccel*dt);
-    }
-    dummy.x += Math.cos(dummy.hullAngle)*dummy.speed*dt;
-    dummy.y += Math.sin(dummy.hullAngle)*dummy.speed*dt;
-    resolveCoverCollisions(dummy);
-    advanceTracks(dummy, dummy.x-d0x, dummy.y-d0y, norm(dummy.hullAngle-d0a));
-  }
+  // 靶车：同 player 的运动学（方向键输入），turnRate 统一走 stats（与 player/AI 一致）
+  driveTank(dummy, dt, {
+    turn: keys['arrowleft'] ? -1 : (keys['arrowright'] ? 1 : 0),
+    move: keys['arrowup'] ? 1 : (keys['arrowdown'] ? -1 : 0)
+  });
   if(dummy.immobT<=0){ dummy.immobT=0; dummy.trackBroken=false; }
   dummy.x = Math.max(40, Math.min(canvas.width-40, dummy.x));
   dummy.y = Math.max(40, Math.min(canvas.height-40, dummy.y));
@@ -779,7 +729,21 @@ function update(dt){
       if(e.hp <= 0) continue;
       if(!isHostile(s.shooter.team, e.team)) continue;
       const hits = raycastTank(sx, sy, s.dx, s.dy, e);
-      const bh = bestHitForPref(hits, 0.001, step, s.hitPref);
+      let bh = bestHitForPref(hits, 0.001, step, s.hitPref);
+      // 掩体回退（半高掩体）：首选部位完全被遮蔽（exposure==0）时换到露出的另一部位；
+      // 两部位都被挡或 'auto' 时维持原选择，由下方暴露概率判定走拦截。
+      if(bh && s.hitPref !== 'auto' && hits.length > 1){
+        const zP = getPartZRange(e, bh.part);
+        const eP = getExposure(sx, sy, sx + s.dx*bh.t, sy + s.dy*bh.t, s.shooter, e, zP.zMin, zP.zMax, bh.t);
+        if(eP <= 0){
+          const other = hits.find(h => h.part !== bh.part && h.t > 0.001 && h.t <= step);
+          if(other){
+            const zO = getPartZRange(e, other.part);
+            const eO = getExposure(sx, sy, sx + s.dx*other.t, sy + s.dy*other.t, s.shooter, e, zO.zMin, zO.zMax, other.t);
+            if(eO > 0) bh = other;
+          }
+        }
+      }
       if(bh && bh.t < bestDist){
         bestDist = bh.t; bestTank = e; bestHit = bh; bestHits = hits; bestCover = null;
       }
@@ -889,8 +853,8 @@ function updateHud(){
   document.getElementById('eHpVal').textContent = dummy.hp.toFixed(0);
   const dB = dummy.debuffs || {};
   const dbKeys = Object.keys(dB).filter(k=>dB[k]>0);
-  const dbLabels = { gunner:'炮手', loader:'装填手', driver:'驾驶员', engine:'发动机', commander:'车长', ammo:'弹药架' };
-  const dbList = dbKeys.length ? dbKeys.map(k=>dbLabels[k]||k).join('/') : '';
+  // 模块中文标签集中在 js/tank_model.js 的 MODULE_LABELS（HUD/日志共用）
+  const dbList = dbKeys.length ? dbKeys.map(k=>moduleLabel(k)).join('/') : '';
   document.getElementById('eStatus').textContent =
     dummy.hp<=0 ? (dummy.ammoBlew?'弹药库殉爆':'已摧毁')
     : dummy.immobT>0 ? `履带损坏 (${dummy.immobT.toFixed(1)}s)`

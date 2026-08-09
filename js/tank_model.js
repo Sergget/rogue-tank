@@ -294,6 +294,10 @@ function updateSigma(t, dt, keys){
 // 数值全部来自 RULES.modules（倍率 / 时长 / 分区）。玩家侧倍率可经 stats 升级（ammoMult/crewMult）。
 const DB = RULES.modules;
 
+// 模块中文标签（HUD/debug 显示用，集中定义避免各处复制）
+const MODULE_LABELS = { gunner:'炮手', loader:'装填手', driver:'驾驶员', engine:'发动机', commander:'车长', ammo:'弹药架' };
+function moduleLabel(key){ return MODULE_LABELS[key] || key; }
+
 function setDebuff(t, key, seconds){
   t.debuffs = t.debuffs || {};
   // 刷新时长、不叠加（决策：第二次命中刷新到 N 秒，不累加伤害加深）
@@ -365,6 +369,8 @@ if (typeof module !== 'undefined' && module.exports) {
     tankKmh,
     TEAM_COLORS,
     teamColor,
+    MODULE_LABELS,
+    moduleLabel,
     applyTankConfig,
     SPREAD,
     motionSigma,
