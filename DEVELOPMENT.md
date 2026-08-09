@@ -147,6 +147,7 @@
 - **配置表下沉（P-02#4）**：`BARREL_PRESETS`/`MANTLE_PRESETS` → `js/tank_presets.js`；`FIELD_ROWS`/`MUZZLES`/`EVAC` → `js/tank_schema.js`（designer/compare 共用单一来源）。
 - **坦克运动统一（P-02#6）**：新 `js/tank_move.js` 提供 `driveTank(t, dt, {turn, move})`，合并 `tank_mvp.html` 原来 player/dummy 两条完全平行的驾驶块（转向/加减速/掩体 `move` 通行系数/起火 `fireMul` 与 debuff 乘数/掩体碰撞推出/履带相位推进）；靶车转向速率改为统一走 `t.stats.turnRate`（原来硬编码 1.6）。未来敌方/友军 AI 只出 `{turn, move}` 即可驾驶。
 - **数据去重（P-02#5）**：模块中文标签 `MODULE_LABELS`/`moduleLabel` 集中到 `js/tank_model.js` 并导出（mvp HUD 删除本地副本，标签统一为"发动机"）；designer『显示内部模块 zones』改读 `RULES.modules.zones`（删除内联同值常量）。
+- **命中部位意图选择（P-01）**：开火瞬间沿无散布瞄准线把鼠标投影到目标命中距离上，`投影值 > 目标距 + partProbe(12px)` 判定意图打**炮塔**（上部），`< 目标距 - partProbe` 判定打**车体**，死区内 `'auto'` 默认炮塔优先；首选部位完全被半高掩体遮蔽时，实时回退到露出的另一部位；预测面板同源显示“本次将命中部位”（`aimPartPreference`/`bestHitForPref`，`js/tank_geometry.js:121/134`）。已用 `scripts/test-hitpart.js` 覆盖投影边界、偏好取舍及窗口。
 
 ---
 
@@ -277,6 +278,8 @@
 | dotSeconds | 5s | 持续时长 |
 | dotRatioMult / dotDurationMult | 1.0 | 玩家侧可随升级增强（乘入上面两项） |
 | speedMul | ×0.5 | 燃烧时移动速度倍率 |
+| **瞄准部位意图（`RULES.aim`）** |||
+| partProbe | 12px | 鼠标相对于目标距离偏离的判定死区半径 |
 | **地图元素（`RULES.coverTiers` / `RULES.breach`）** |||
 | 树耐久 | 3 发 | 树干每发 -1，伐倒 → 树桩（残骸） |
 | 栅栏/沙袋耐久 | 1 | 软掩体被穿透弹毁，沙袋挡 1 发或 >70° 跳弹 |
