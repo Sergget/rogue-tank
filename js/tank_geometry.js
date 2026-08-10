@@ -196,11 +196,26 @@ function turretPivot(t){
 
 function turretFrontDist(t){
   const poly = turretPoly(t);
-  let maxF = -Infinity;
-  for(const [vx, vy] of poly.verts){
-    if(vx > maxF) maxF = vx;
+  if (!poly || !poly.verts || poly.verts.length < 2) return (t.turLen||34)/2;
+  let maxInterX = -Infinity;
+  const verts = poly.verts;
+  const n = verts.length;
+  for (let i = 0; i < n; i++) {
+    const p1 = verts[i], p2 = verts[(i + 1) % n];
+    if ((p1[1] <= 0 && p2[1] >= 0) || (p1[1] >= 0 && p2[1] <= 0)) {
+      if (Math.abs(p1[1] - p2[1]) < 1e-6) {
+        maxInterX = Math.max(maxInterX, p1[0], p2[0]);
+      } else {
+        const tVal = (0 - p1[1]) / (p2[1] - p1[1]);
+        const ix = p1[0] + tVal * (p2[0] - p1[0]);
+        maxInterX = Math.max(maxInterX, ix);
+      }
+    }
   }
-  return maxF > -Infinity ? maxF : (t.turLen/2);
+  if (maxInterX === -Infinity) {
+    for (const p of verts) maxInterX = Math.max(maxInterX, p[0]);
+  }
+  return maxInterX;
 }
 
 function gunRoot(t){

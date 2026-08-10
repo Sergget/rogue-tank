@@ -22,7 +22,9 @@
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;overflow:hidden;}
   .mono{font-family:'JetBrains Mono',monospace;}
-  #app{display:grid;grid-template-columns:1fr 380px;height:100vh;}
+  #app{display:grid;grid-template-columns:360px 1fr 380px;height:100vh;}
+  #left-sidebar{background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
+  #right-sidebar{background:var(--panel);border-left:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
   #stage-wrap{position:relative;background:radial-gradient(ellipse at 30% 20%, rgba(126,217,87,0.04), transparent 60%), var(--bg);}
   #editor-canvas{background:#0c0d09;cursor:crosshair;width:100%;height:100%;display:block;}
   #coordReadout{
@@ -40,8 +42,7 @@
     font-size:11px; color:var(--amber-dim); background:rgba(0,0,0,0.45); padding:6px 10px; border:1px solid var(--line);
     line-height:1.6; pointer-events:none;
   }
-  #sidebar{background:var(--panel);border-left:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
-  .title{font-size:16px;font-weight:700;border-bottom:2px solid var(--amber);padding-bottom:8px;letter-spacing:1px;}
+  .title{font-size:15px;font-weight:700;border-bottom:2px solid var(--amber);padding-bottom:8px;letter-spacing:1px;}
   .title b{color:var(--amber);}
   .section{border:1px solid var(--line);padding:10px 12px;background:rgba(255,255,255,0.02);}
   .section h3{margin:0 0 8px;font-size:11px;text-transform:uppercase;color:var(--amber);font-family:'JetBrains Mono',monospace;letter-spacing:1px;}
@@ -159,19 +160,12 @@
       <div class="btnrow">
         <button id="modeHull" class="mode-btn active">车体 Hull</button>
         <button id="modeTurret" class="mode-btn">炮塔 Turret</button>
-        <button id="modePivot" class="mode-btn">旋转中心 Pivot</button>
         <button id="modePreview" class="mode-btn">预览瞄准 Preview</button>
       </div>
       <div class="btnrow" style="margin-top:8px;">
         <button id="undoVertBtn">撤销末尾顶点</button>
         <button id="clearPolyBtn" class="danger">清空当前多边形</button>
         <button id="resetDefaultBtn">重置默认形状</button>
-      </div>
-      <div class="btnrow" style="margin-top:8px;">
-        <button id="centerTurretBtn">炮塔自身居中对齐</button>
-      </div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">
-        炮塔自身中心 ↔ 旋转轴偏移 <span class="mono" id="axisDevReadout" style="color:var(--amber);">0.0</span>（0 = 中心正落在旋转轴上）
       </div>
       <div class="btnrow" style="margin-top:8px;">
         <button id="snapToggleBtn">网格吸附 关</button>
@@ -313,16 +307,30 @@
        <div style="height:8px;"></div>
        <div class="prop-row"><span class="lbl">炮塔边 Turret</span></div>
        <div class="edge-list" id="turretEdgeList"></div>
-        <div class="prop-row" style="margin-top:8px;">
-          <span class="lbl">旋转中心偏移 dx,dy</span>
-          <span class="mono" id="pivotReadout" style="font-size:11px; color:var(--amber);">8, 0</span>
-        </div>
-        <div class="prop-row" style="margin-top:8px;">
-          <span class="lbl">炮塔自身旋转中心</span>
-          <input type="number" id="t-axisDx" value="0" step="1" style="width:64px;">
-          <input type="number" id="t-axisDy" value="0" step="1" style="width:64px;">
-        </div>
-        <div class="hint-text" style="font-size:10px; color:var(--text-dim);">「旋转中心偏移」＝座圈圆心在车体上的锚点（pivot，绕车体旋转中心）；「炮塔自身旋转中心」＝旋转轴落在炮塔几何内的哪一处（axis）。两者是同一个世界点、两个参考系：改 axis 时炮塔多边形相对座圈滑移（dx/dy 可自由设置）</div>
+     <div class="section">
+       <h3>座圈中心 Turret Ring Centers</h3>
+       <div class="prop-row">
+         <span class="lbl">车体座圈圆心 (pivot)</span>
+         <div style="display:flex; gap:4px; align-items:center;">
+           <span style="font-size:10px; color:var(--text-dim);">X</span>
+           <input type="number" id="t-pivotDx" value="8" step="1" style="width:50px;">
+           <span style="font-size:10px; color:var(--text-dim);">Y</span>
+           <input type="number" id="t-pivotDy" value="0" step="1" style="width:50px;">
+         </div>
+       </div>
+       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">车体坐标系下，炮塔座圈在车体上的安装偏移（车体模式可拖动）</div>
+
+       <div class="prop-row">
+         <span class="lbl">炮塔座圈圆心 (axis)</span>
+         <div style="display:flex; gap:4px; align-items:center;">
+           <span style="font-size:10px; color:var(--text-dim);">X</span>
+           <input type="number" id="t-axisDx" value="0" step="1" style="width:50px;">
+           <span style="font-size:10px; color:var(--text-dim);">Y</span>
+           <input type="number" id="t-axisDy" value="0" disabled style="width:50px; opacity:0.5;">
+         </div>
+       </div>
+       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">炮塔坐标系下，座圈圆心的横坐标（y 轴固定为 0，炮塔模式可拖动）</div>
+     </div>
       </div>
   </div>
 </div>
@@ -406,10 +414,26 @@ const ZOOM_MIN = 0.3, ZOOM_MAX = 4;
 
 function hullCenter(){ return { x: canvas.width/2, y: canvas.height/2 }; }
 function turretCenter(){ const c = hullCenter(); return { x: c.x + state.turret.pivot.dx*viewScale, y: c.y + state.turret.pivot.dy*viewScale }; }
-// 炮塔几何的屏幕绘制/命中原点：平移后的"炮塔自身旋转中心"(axis) 正好落在座圈圆心 (turretCenter)。
-// axis=({0,0}) 时与原行为完全一致；axis≠0 时炮塔多边形相对座圈滑移，实现"绕车体中心"与"炮塔自身中心"
-// 两个独立概念（拖拽 axis 即调整炮塔自身旋转中心，见 turretAxis 拖动）。
-function turretDrawCenter(){ const tc = turretCenter(); return { x: tc.x - (state.turret.axis.dx||0)*viewScale, y: tc.y - (state.turret.axis.dy||0)*viewScale }; }
+// 炮塔坐标系点 -> 屏幕世界坐标点
+// 炮塔坐标系：原点 (0,0) 为炮塔基础几何原点；
+// 炮塔的座圈圆心横坐标为 axis.dx，纵坐标始终为 0；
+// 车体的座圈圆心坐标为 pivot (pivot.dx, pivot.dy)。
+function turretToScreen(localPt, angle){
+  const hc = hullCenter();
+  const ringX = hc.x + state.turret.pivot.dx * viewScale;
+  const ringY = hc.y + (state.turret.pivot.dy || 0) * viewScale;
+  const ax = (state.turret.axis && state.turret.axis.dx) || 0;
+  
+  // 局部点相对于炮塔座圈圆心 (ax, 0) 的偏移向量
+  const relX = localPt[0] - ax;
+  const relY = localPt[1] - 0;
+  
+  if (angle) {
+    const r = rotate(relX, relY, angle);
+    return { x: ringX + r.x * viewScale, y: ringY + r.y * viewScale };
+  }
+  return { x: ringX + relX * viewScale, y: ringY + relY * viewScale };
+}
 function getCanvasPos(e){ const r = canvas.getBoundingClientRect(); return { x: e.clientX-r.left, y: e.clientY-r.top }; }
 function toScreen(center, local, angle){
   const p = angle ? rotate(local[0],local[1],angle) : { x:local[0], y:local[1] };
@@ -419,11 +443,39 @@ function toLocal(center, sx, sy){ return [ (sx-center.x)/viewScale, (sy-center.y
 
 const FACE_COLOR = { front:'#ff5c4d', side:'#5cc8ff', rear:'#b98aff' };
 
-// ================= hit testing (only against the editable half) =================
+// ================= hit testing for turret / hull =================
 function findVertexHit(poly, center, sx, sy){
   for(let i=0;i<poly.half.length;i++){
     const w = toScreen(center, poly.half[i]);
     if(Math.hypot(sx-w.x, sy-w.y) <= HIT_R) return i;
+  }
+  return -1;
+}
+function findVertexHitForTurret(poly, sx, sy){
+  for(let i=0;i<poly.half.length;i++){
+    const w = turretToScreen(poly.half[i], mode==='preview' ? previewAngle : 0);
+    if(Math.hypot(sx-w.x, sy-w.y) <= HIT_R) return i;
+  }
+  return -1;
+}
+function findEdgeHitForTurret(poly, sx, sy){
+  const n = poly.half.length;
+  if(n<2) return -1;
+  const ang = mode==='preview' ? previewAngle : 0;
+  for(let i=0;i<n-1;i++){
+    const a = turretToScreen(poly.half[i], ang), b = turretToScreen(poly.half[i+1], ang);
+    if(distToSegment(sx,sy,a.x,a.y,b.x,b.y) <= EDGE_HIT_R) return i;
+  }
+  return -1;
+}
+function findEdgeMidpointHitForTurret(poly, sx, sy){
+  const n = poly.half.length;
+  if(n<2) return -1;
+  const ang = mode==='preview' ? previewAngle : 0;
+  for(let i=0;i<n-1;i++){
+    const a = turretToScreen(poly.half[i], ang), b = turretToScreen(poly.half[i+1], ang);
+    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+    if(Math.hypot(sx-mx, sy-my) <= EDGE_HIT_R) return i;
   }
   return -1;
 }
@@ -451,32 +503,43 @@ function findEdgeMidpointHit(poly, center, sx, sy){
 // ================= mouse interaction =================
 canvas.addEventListener('mousedown', e=>{
   const {x:sx,y:sy} = getCanvasPos(e);
-  if(mode==='hull' || mode==='turret'){
-    const poly = state[mode];
-    const center = mode==='hull' ? hullCenter() : turretDrawCenter();
-    const vi = findVertexHit(poly, center, sx, sy);
-    if(vi>=0){
-      drag = { poly:mode, index:vi, moved:false, downX:sx, downY:sy };
-      selectVertex(mode, vi);
+  if(mode==='hull'){
+    // 车体模式：先测试是否点击车体上的炮塔座圈圆心 (pivot) 标记
+    const hc = hullCenter();
+    const ringCenter = {
+      x: hc.x + state.turret.pivot.dx * viewScale,
+      y: hc.y + (state.turret.pivot.dy || 0) * viewScale
+    };
+    if(Math.hypot(sx - ringCenter.x, sy - ringCenter.y) <= 16){
+      drag = { poly:'hullPivot', moved:false, downX:sx, downY:sy };
       return;
     }
-    // 炮塔模式：按住"座圈旋转中心"十字或"炮塔自身中心"青点，自由拖拽（dx/dy 双向）调整
-    // 炮塔自身旋转中心（axis）在炮塔内的位置：座圈圆心(pivot)不动，炮塔多边形跟随光标滑移。
-    if(mode==='turret'){
-      const tc2 = turretCenter();
-      const tdc = turretDrawCenter();
-      const oc = turretOwnCenter();
-      const wpx = tdc.x + oc.cx*viewScale, wpy = tdc.y + oc.cy*viewScale;
-      const grab = Math.hypot(sx-tc2.x, sy-tc2.y) <= 16 || Math.hypot(sx-wpx, sy-wpy) <= 12;
-      if(grab){
-        const [lx, ly] = toLocal(tdc, sx, sy);
-        drag = { poly:'turretAxis', moved:false, downX:sx, downY:sy, axisStartX: lx, axisStartY: ly };
-        return;
-      }
+    const poly = state.hull;
+    const vi = findVertexHit(poly, hc, sx, sy);
+    if(vi>=0){
+      drag = { poly:'hull', index:vi, moved:false, downX:sx, downY:sy };
+      selectVertex('hull', vi);
+      return;
     }
-    drag = { poly:mode, index:-1, moved:false, downX:sx, downY:sy, isNew:true };
+    drag = { poly:'hull', index:-1, moved:false, downX:sx, downY:sy, isNew:true };
+  } else if(mode==='turret'){
+    // 炮塔模式：测试是否按住“炮塔座圈圆心”十字标记 (axis.dx, 0)
+    const ax = (state.turret.axis && state.turret.axis.dx) || 0;
+    const axisPos = turretToScreen([ax, 0], 0);
+    if(Math.hypot(sx - axisPos.x, sy - axisPos.y) <= 16){
+      drag = { poly:'turretAxis', moved:false, downX:sx, downY:sy };
+      return;
+    }
+    const poly = state.turret;
+    const vi = findVertexHitForTurret(poly, sx, sy);
+    if(vi>=0){
+      drag = { poly:'turret', index:vi, moved:false, downX:sx, downY:sy };
+      selectVertex('turret', vi);
+      return;
+    }
+    drag = { poly:'turret', index:-1, moved:false, downX:sx, downY:sy, isNew:true };
   } else if(mode==='pivot'){
-    drag = { poly:'pivot', moved:false, downX:sx, downY:sy };
+    drag = { poly:'hullPivot', moved:false, downX:sx, downY:sy };
   }
 });
 window.addEventListener('mousemove', e=>{
@@ -485,50 +548,62 @@ window.addEventListener('mousemove', e=>{
   if(mode==='preview' && !drag){ updatePreviewAim(sx,sy); render(); return; }
   if(!drag){
     // hover highlight: closest editable half-chain edge under the cursor
-    if(mode==='hull' || mode==='turret'){
-      const poly = state[mode];
-      const center = mode==='hull' ? hullCenter() : turretDrawCenter();
-      const ei = poly.half.length>=2 ? findEdgeHit(poly, center, sx, sy) : -1;
-      const key = ei>=0 ? mode+':'+ei : null;
+    if(mode==='hull'){
+      const poly = state.hull;
+      const ei = poly.half.length>=2 ? findEdgeHit(poly, hullCenter(), sx, sy) : -1;
+      const key = ei>=0 ? 'hull:'+ei : null;
       const cur = hoverEdge ? hoverEdge.poly+':'+hoverEdge.index : null;
-      if(key !== cur){
-        hoverEdge = ei>=0 ? { poly:mode, index:ei } : null;
-        render();
-      }
+      if(key !== cur){ hoverEdge = ei>=0 ? { poly:'hull', index:ei } : null; render(); }
+    } else if(mode==='turret'){
+      const poly = state.turret;
+      const ei = poly.half.length>=2 ? findEdgeHitForTurret(poly, sx, sy) : -1;
+      const key = ei>=0 ? 'turret:'+ei : null;
+      const cur = hoverEdge ? hoverEdge.poly+':'+hoverEdge.index : null;
+      if(key !== cur){ hoverEdge = ei>=0 ? { poly:'turret', index:ei } : null; render(); }
     }
     return;
   }
   if(Math.hypot(sx-drag.downX, sy-drag.downY) > 3) drag.moved = true;
   if(!drag.moved) return;
-  if(drag.poly==='pivot'){
+  if(drag.poly==='hullPivot'){
+    // 拖动车体上的炮塔座圈圆心 (pivot)：可修改 dx 和 dy
     const c = hullCenter();
-    const [lx] = toLocal(c, sx, sy);
-    // pivot is locked to the centerline (axis, y=0): only dx is editable
-    state.turret.pivot.dx = Math.round(lx);
-    state.turret.pivot.dy = 0;
-    document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, 0`;
+    const [lx, ly] = toLocal(c, sx, sy);
+    let dx = lx, dy = ly;
+    if(snapToGrid){ dx = Math.round(dx); dy = Math.round(dy); }
+    state.turret.pivot.dx = Math.round(dx*10)/10;
+    state.turret.pivot.dy = Math.round(dy*10)/10;
+    syncArmorInputsFromState();
+    render();
   } else if(drag.poly==='turretAxis'){
-    // 调整炮塔自身旋转中心（axis）：座圈圆心(pivot)不动，炮塔几何相对它自由滑移（dx/dy 双向）。
-    // 溜动量在几何绘制帧（turretDrawCenter）内计算，axis 反向跟随 → 拖拽炮塔随光标移动。
-    const [lx, ly] = toLocal(turretDrawCenter(), sx, sy);
-    let ddx = lx - drag.axisStartX, ddy = ly - drag.axisStartY;
-    if(snapToGrid){ ddx = Math.round(ddx); ddy = Math.round(ddy); }
-    ddx = Math.round(ddx*10)/10; ddy = Math.round(ddy*10)/10;
-    if(ddx !== 0 || ddy !== 0){
-      state.turret.axis.dx = Math.round((state.turret.axis.dx - ddx)*10)/10;
-      state.turret.axis.dy = Math.round((state.turret.axis.dy - ddy)*10)/10;
-      drag.axisStartX = lx; drag.axisStartY = ly;
-      drag.moved = true;
-      clearSelection();
-      syncAxisInputs();
-      render();
-    }
-    return;
+    // 拖动炮塔上的炮塔座圈圆心 (axis)：纵坐标强制为 0，仅修改横坐标 dx
+    const hc = hullCenter();
+    const ringX = hc.x + state.turret.pivot.dx * viewScale;
+    const axOld = (state.turret.axis && state.turret.axis.dx) || 0;
+    const ddx = (sx - drag.downX) / viewScale;
+    let newAx = axOld - ddx;
+    if(snapToGrid) newAx = Math.round(newAx);
+    state.turret.axis.dx = Math.round(newAx*10)/10;
+    state.turret.axis.dy = 0; // 纵坐标始终为 0
+    drag.downX = sx;
+    syncRingInputs();
+    render();
   } else if(drag.index>=0){
-    const center = drag.poly==='hull' ? hullCenter() : turretDrawCenter();
-    let [lx,ly] = toLocal(center, sx, sy);
-    if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
-    state[drag.poly].half[drag.index] = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
+    if(drag.poly==='hull'){
+      let [lx,ly] = toLocal(hullCenter(), sx, sy);
+      if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
+      state.hull.half[drag.index] = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
+    } else if(drag.poly==='turret'){
+      // 拖动炮塔顶点：用 turretToScreen 的逆算法，反推本地坐标 lx, ly
+      const hc = hullCenter();
+      const ringX = hc.x + state.turret.pivot.dx * viewScale;
+      const ringY = hc.y + (state.turret.pivot.dy||0) * viewScale;
+      const ax = (state.turret.axis && state.turret.axis.dx) || 0;
+      let lx = (sx - ringX)/viewScale + ax;
+      let ly = (sy - ringY)/viewScale;
+      if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
+      state.turret.half[drag.index] = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
+    }
     syncSelectedInputs();
   }
   render();
@@ -537,48 +612,72 @@ window.addEventListener('mouseup', e=>{
   if(!drag) return;
   const {x:sx,y:sy} = getCanvasPos(e);
   if(!drag.moved){
-    if(drag.poly==='pivot'){
+    if(drag.poly==='hullPivot'){
       const c = hullCenter();
-      const [lx] = toLocal(c, sx, sy);
+      const [lx, ly] = toLocal(c, sx, sy);
       state.turret.pivot.dx = Math.round(lx);
-      state.turret.pivot.dy = 0;
-      document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, 0`;
+      state.turret.pivot.dy = Math.round(ly);
+      syncRingInputs();
     } else if(drag.poly==='turretAxis'){
-      pushHint('拖拽十字/青色点可自由调整「炮塔自身旋转中心」（axis，dx/dy 双向）：座圈不动，炮塔几何随光标滑移');
+      pushHint('拖拽“炮塔座圈圆心”标记可调整旋转轴在炮塔上的横坐标 (axis.dx, y 轴锁死 0)');
     } else if(drag.index>=0){
-      // plain click on an existing vertex: select it for precise editing (no longer deletes on click —
-      // use the "删除选中顶点" button instead, so a mis-click doesn't destroy work).
       selectVertex(drag.poly, drag.index);
     } else if(drag.isNew){
       const poly = state[drag.poly];
-      const center = drag.poly==='hull' ? hullCenter() : turretDrawCenter();
-      // clicking an edge MIDPOINT cycles that edge's armor classification (front→side→rear);
-      // this is the quick canvas way to assign 前/侧/后 - use the sidebar lists for explicit picks.
-      const mid = poly.half.length>=2 ? findEdgeMidpointHit(poly, center, sx, sy) : -1;
-      if(mid>=0){
-        const nxt = nextFace(getFace(poly.halfFaces, mid));
-        setFace(poly.halfFaces, mid, nxt);
-        selectedEdge = { poly: drag.poly, index: mid };
-        const lbl = nxt==='front' ? '前' : nxt==='side' ? '侧' : '后';
-        pushHint(`边 #${mid} 装甲 → ${lbl}(${nxt})`);
-      } else {
-        const ei = poly.half.length>=2 ? findEdgeHit(poly, center, sx, sy) : -1;
-        let [lx,ly] = toLocal(center, sx, sy);
-        if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
-        if(ly > 2/viewScale){
-          pushHint('请在中心线一侧 (y ≤ 0) 绘制，另一侧会自动镜像生成');
+      if(drag.poly==='hull'){
+        const center = hullCenter();
+        const mid = poly.half.length>=2 ? findEdgeMidpointHit(poly, center, sx, sy) : -1;
+        if(mid>=0){
+          const nxt = nextFace(getFace(poly.halfFaces, mid));
+          setFace(poly.halfFaces, mid, nxt);
+          selectedEdge = { poly: 'hull', index: mid };
+          pushHint(`车体边 #${mid} 装甲 → ${nxt}`);
         } else {
-          const newPt = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
-          if(ei>=0){
-            // Insert vertex on the clicked segment ei (between v_ei and v_{ei+1})
-            poly.half.splice(ei+1, 0, newPt);
-            const oldFace = getFace(poly.halfFaces, ei);
-            poly.halfFaces.splice(ei, 0, oldFace);
-            selectVertex(drag.poly, ei+1);
-            pushHint(`在边线 #${ei} 上新增顶点 v${ei+1}`);
+          const ei = poly.half.length>=2 ? findEdgeHit(poly, center, sx, sy) : -1;
+          let [lx,ly] = toLocal(center, sx, sy);
+          if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
+          if(ly > 2/viewScale){
+            pushHint('请在中心线一侧 (y ≤ 0) 绘制，另一侧会自动镜像生成');
           } else {
-            poly.half.push(newPt);
-            selectVertex(drag.poly, poly.half.length-1);
+            const newPt = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
+            if(ei>=0){
+              poly.half.splice(ei+1, 0, newPt);
+              poly.halfFaces.splice(ei, 0, getFace(poly.halfFaces, ei));
+              selectVertex('hull', ei+1);
+            } else {
+              poly.half.push(newPt);
+              selectVertex('hull', poly.half.length-1);
+            }
+          }
+        }
+      } else if(drag.poly==='turret'){
+        const hc = hullCenter();
+        const ringX = hc.x + state.turret.pivot.dx * viewScale;
+        const ringY = hc.y + (state.turret.pivot.dy||0) * viewScale;
+        const ax = (state.turret.axis && state.turret.axis.dx) || 0;
+        const mid = poly.half.length>=2 ? findEdgeMidpointHitForTurret(poly, sx, sy) : -1;
+        if(mid>=0){
+          const nxt = nextFace(getFace(poly.halfFaces, mid));
+          setFace(poly.halfFaces, mid, nxt);
+          selectedEdge = { poly: 'turret', index: mid };
+          pushHint(`炮塔边 #${mid} 装甲 → ${nxt}`);
+        } else {
+          const ei = poly.half.length>=2 ? findEdgeHitForTurret(poly, sx, sy) : -1;
+          let lx = (sx - ringX)/viewScale + ax;
+          let ly = (sy - ringY)/viewScale;
+          if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
+          if(ly > 2/viewScale){
+            pushHint('请在中心线一侧 (y ≤ 0) 绘制，另一侧会自动镜像生成');
+          } else {
+            const newPt = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
+            if(ei>=0){
+              poly.half.splice(ei+1, 0, newPt);
+              poly.halfFaces.splice(ei, 0, getFace(poly.halfFaces, ei));
+              selectVertex('turret', ei+1);
+            } else {
+              poly.half.push(newPt);
+              selectVertex('turret', poly.half.length-1);
+            }
           }
         }
       }
@@ -715,9 +814,8 @@ document.getElementById('snapToggleBtn').addEventListener('click', ()=>{
 
 // ================= mode switching =================
 const HINTS = {
-  hull: '点击空白处依次添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击顶点选中后可在左侧精确输入坐标，Delete/方向键编辑 · 点击边线中点循环装甲类型 · 悬停高亮当前边',
-  turret: '同车体操作，坐标以旋转轴（橙叉）为原点，仅编辑 y≤0 一侧，另一侧自动镜像 · 悬停高亮当前边 · 青点=炮塔自身中心、橙叉=座圈圆心（旋转轴世界点）：拖拽橙叉/青点可自由调整「炮塔自身旋转中心」（axis，dx/dy 双向），座圈在车体上不动、炮塔几何随光标滑移，也可用侧栏 dx/dy 输入精确设置，或用「炮塔自身居中对齐」一键拉齐',
-  pivot: '点击或拖动设置座圈圆心（绕车体旋转中心）：只能在车体中轴线上（y=0）水平移动 dx，dy 固定为 0。注意区分：「绕车体旋转中心」=座圈锚在车体上哪里（本模式）；「炮塔自身旋转中心」=旋转轴落在炮塔几何内哪处（炮塔模式/侧栏轴心输入）——两者是同一个世界点、两个参考系',
+  hull: '点击空白添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击“车体座圈圆心”标记或在侧栏编辑 pivot (X,Y) 可调整座圈在车体上的相对安装位置',
+  turret: '点击空白添加炮塔顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击“炮塔座圈圆心”标记或在侧栏编辑 axis.dx 可调整座圈在炮塔中的相对横坐标（y 轴固定为 0）· 炮管及附件锚定在前缘装甲交点',
   preview: '移动鼠标预览炮塔瞄准方向；射界 = 180° 时炮塔 360° 全向旋转，低于 180° 时将受限在 ±射界 内'
 };
 function setMode(m){
@@ -733,7 +831,6 @@ function setMode(m){
 }
 document.getElementById('modeHull').addEventListener('click', ()=>setMode('hull'));
 document.getElementById('modeTurret').addEventListener('click', ()=>setMode('turret'));
-document.getElementById('modePivot').addEventListener('click', ()=>setMode('pivot'));
 document.getElementById('modePreview').addEventListener('click', ()=>setMode('preview'));
 
 // ================= zoom controls =================
@@ -787,38 +884,42 @@ function updateAxisDevReadout(){
   const dev = Math.hypot((state.turret.axis.dx||0) - cx, (state.turret.axis.dy||0) - cy);
   el.textContent = dev.toFixed(1);
 }
-function syncAxisInputs(){
-  const dxEl = document.getElementById('t-axisDx'), dyEl = document.getElementById('t-axisDy');
-  if(!dxEl || !dyEl) return;
-  dxEl.value = (state.turret.axis && state.turret.axis.dx) || 0;
-  dyEl.value = (state.turret.axis && state.turret.axis.dy) || 0;
+function syncRingInputs(){
+  const pdxEl = document.getElementById('t-pivotDx');
+  const pdyEl = document.getElementById('t-pivotDy');
+  const adxEl = document.getElementById('t-axisDx');
+  const adyEl = document.getElementById('t-axisDy');
+  if(pdxEl) pdxEl.value = (state.turret.pivot && state.turret.pivot.dx) || 0;
+  if(pdyEl) pdyEl.value = (state.turret.pivot && state.turret.pivot.dy) || 0;
+  if(adxEl) adxEl.value = (state.turret.axis && state.turret.axis.dx) || 0;
+  if(adyEl){ adyEl.value = 0; adyEl.disabled = true; }
 }
-['t-axisDx','t-axisDy'].forEach(id=>{
-  document.getElementById(id).addEventListener('input', ()=>{
-    const v = parseFloat(document.getElementById(id).value);
+
+['t-pivotDx', 't-pivotDy'].forEach(id => {
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
     if(Number.isNaN(v)) return;
-    if(!state.turret.axis) state.turret.axis = { dx:0, dy:0 };
-    if(id==='t-axisDx') state.turret.axis.dx = v; else state.turret.axis.dy = v;
+    if(!state.turret.pivot) state.turret.pivot = { dx:0, dy:0 };
+    if(id === 't-pivotDx') state.turret.pivot.dx = v;
+    else state.turret.pivot.dy = v;
     render();
   });
 });
-document.getElementById('centerTurretBtn').addEventListener('click', ()=>{
-  const { cx, cy } = turretOwnCenter();
-  const ax = (state.turret.axis && state.turret.axis.dx) || 0;
-  const ay = (state.turret.axis && state.turret.axis.dy) || 0;
-  if(Math.hypot(ax - cx, ay - cy) < 0.05){
-    pushHint('炮塔自身中心已与旋转轴重合，无需对齐');
-    return;
-  }
-  // 把炮塔自身旋转中心移到炮塔包围盒中心（半形镜像下 cy 恒为 0，落在中轴线上）
-  state.turret.axis = { dx: Math.round(cx*10)/10, dy: Math.round(cy*10)/10 };
-  syncAxisInputs();
-  clearSelection();
-  render(); renderEdgeLists();
-  pushHint(`炮塔自身旋转中心已对齐到炮塔自身中心（axis = ${Math.round(cx*10)/10}, ${Math.round(cy*10)/10}）`);
-});
 
-// ================= armor inputs =================
+const adxEl = document.getElementById('t-axisDx');
+if(adxEl){
+  adxEl.addEventListener('input', () => {
+    const v = parseFloat(adxEl.value);
+    if(Number.isNaN(v)) return;
+    if(!state.turret.axis) state.turret.axis = { dx:0, dy:0 };
+    state.turret.axis.dx = v;
+    state.turret.axis.dy = 0;
+    render();
+  });
+}
+
 function syncArmorInputsFromState(){
   document.getElementById('a-hull-front').value = state.hull.armor.front;
   document.getElementById('a-hull-side').value = state.hull.armor.side;
@@ -826,8 +927,7 @@ function syncArmorInputsFromState(){
   document.getElementById('a-turret-front').value = state.turret.armor.front;
   document.getElementById('a-turret-side').value = state.turret.armor.side;
   document.getElementById('a-turret-rear').value = state.turret.armor.rear;
-  document.getElementById('pivotReadout').textContent = `${state.turret.pivot.dx}, 0`;
-  syncAxisInputs();
+  syncRingInputs();
 }
 ['a-hull-front','a-hull-side','a-hull-rear','a-turret-front','a-turret-side','a-turret-rear'].forEach(id=>{
   document.getElementById(id).addEventListener('input', ()=>{
@@ -1065,7 +1165,29 @@ function renderEdgeListFor(key, container){
 }
 
 // ================= barrel rendering =================
-// Turret bbox in local space: front edge (maxX) is where the barrel roots, full length = maxX - minX.
+// 炮塔装甲多边形与对称轴 y=0 的前缘交点（最大 x 坐标），炮管根部、炮盾、护套、制退器均绑定在此点
+function turretFrontX(){
+  const full = buildFullVerts(state.turret.half);
+  if(full.length < 2) return 0;
+  let maxInterX = -Infinity;
+  const n = full.length;
+  for(let i=0; i<n; i++){
+    const p1 = full[i], p2 = full[(i+1)%n];
+    if((p1[1] <= 0 && p2[1] >= 0) || (p1[1] >= 0 && p2[1] <= 0)){
+      if(Math.abs(p1[1] - p2[1]) < 1e-6){
+        maxInterX = Math.max(maxInterX, p1[0], p2[0]);
+      } else {
+        const tVal = (0 - p1[1]) / (p2[1] - p1[1]);
+        const ix = p1[0] + tVal * (p2[0] - p1[0]);
+        maxInterX = Math.max(maxInterX, ix);
+      }
+    }
+  }
+  if(maxInterX === -Infinity){
+    for(const p of full) maxInterX = Math.max(maxInterX, p[0]);
+  }
+  return maxInterX;
+}
 function turretBBox(){
    const full = buildFullVerts(state.turret.half);
    let minX=0, maxX=0;
@@ -1075,18 +1197,19 @@ function turretBBox(){
    }
    return { minX, maxX, turLen: Math.max(1, maxX - minX) };
 }
-function drawDesignerBarrel(tc, angle, scale){
+function drawDesignerBarrel(angle, scale){
    const b = state.barrel;
-   const { maxX, turLen } = turretBBox();
+   const { turLen } = turretBBox();
+   const frontX = turretFrontX();
    const turWid = 36; // approx turret width
-   // barrel length is a % of turret length, measured FROM the front center of the turret
+   // barrel length is a % of turret length, measured FROM the front intersection of the turret armor with y=0
    const barrelLen = turLen * (b.len/100);
    const barrelWid = Math.max(3, turWid * (b.width/100) * 0.5);
-   const cos = Math.cos(angle), sin = Math.sin(angle);
 
-   // root at turret front center: pivot center + frontX along the aim direction
-   const baseX = tc.x + cos*maxX*scale;
-   const baseY = tc.y + sin*maxX*scale;
+   // 炮管根部完全绑定在炮塔前缘装甲与 y=0 对称轴的交点 (frontX, 0)
+   const base = turretToScreen([frontX, 0], angle);
+   const baseX = base.x, baseY = base.y;
+   const cos = Math.cos(angle), sin = Math.sin(angle);
    const endX = baseX + cos*barrelLen*scale;
    const endY = baseY + sin*barrelLen*scale;
    const U = barrelLen*scale; // barrel screen length in px
@@ -1286,7 +1409,8 @@ function drawPolygon(poly, center, angle, opts){
   const hN = poly.half.length;
   const touchesFront = onCenterline(poly.half[0]);
   const touchesRear = onCenterline(poly.half[hN-1]);
-  const world = fullVerts.map(p=>toScreen(center, p, angle));
+  const isTurret = (poly === state.turret);
+  const world = fullVerts.map(p => isTurret ? turretToScreen(p, angle) : toScreen(center, p, angle));
   // map a full-edge index back to the half-chain index / seam it mirrors (for highlight matching)
   function fullEdgeHalfRef(i){
     if(i < hN-1) return { index:i };
@@ -1302,7 +1426,18 @@ function drawPolygon(poly, center, angle, opts){
     const partOpts = {};
     if (opts.detail) partOpts.detail = true;
     if (opts.faded) partOpts.faded = true;
-    paintPart(poly, center, angle, viewScale, partOpts);
+    
+    // Fill background path
+    ctx.save();
+    ctx.beginPath();
+    world.forEach((p,i)=>{ if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+    ctx.closePath();
+    ctx.fillStyle = paintShade(DESIGN_PAINT, poly===state.hull ? -10 : -2);
+    ctx.globalAlpha = opts.faded ? 0.4 : 0.85;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
     for(let i=0;i<n;i++){
       const a = world[i], b = world[(i+1)%n];
       const editable = primary[i]; // half-chain + seam edges are user-controlled; mirrored-chain edges just copy them
@@ -1333,7 +1468,7 @@ function drawPolygon(poly, center, angle, opts){
   }
   // vertex handles: interactive (bright) only for the editable half; mirrored side shown as small read-only dots
   poly.half.forEach((p,i)=>{
-    const w = toScreen(center, p, angle);
+    const w = isTurret ? turretToScreen(p, angle) : toScreen(center, p, angle);
     const isSel = active && selected && selected.poly===(poly===state.hull?'hull':'turret') && selected.index===i;
     ctx.beginPath();
     ctx.arc(w.x, w.y, active ? (isSel?7:5) : 3, 0, Math.PI*2);
@@ -1349,7 +1484,7 @@ function drawPolygon(poly, center, angle, opts){
   if(active){
     const mirroredHalf = poly.half.filter(p=>!onCenterline(p)).map(mirrorPt);
     mirroredHalf.forEach(p=>{
-      const w = toScreen(center, p, angle);
+      const w = isTurret ? turretToScreen(p, angle) : toScreen(center, p, angle);
       ctx.beginPath(); ctx.arc(w.x, w.y, 3, 0, Math.PI*2);
       ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fill();
     });
@@ -1361,8 +1496,7 @@ function render(){
   trackPhase = (trackPhase + 0.6) % 1000; // steady rolling-track scroll across static re-renders
 
   const hc = hullCenter();
-  const tc = turretCenter();
-  const tdc = turretDrawCenter(); // 炮塔几何绘制原点（座圈圆心 - axis）
+  const tc = turretCenter(); // 车体与座圈圆心（基础参考点）
 
   // centerline (mirror axis) reference
   ctx.strokeStyle = 'rgba(126,217,87,0.35)'; ctx.setLineDash([4,4]); ctx.lineWidth=1;
@@ -1376,42 +1510,54 @@ function render(){
   const fullDetail = (mode==='preview');
   drawDesignerTracks(fullDetail ? performance.now()*0.02 : trackPhase, viewScale);
   const partOpts = { active:false, detail: fullDetail, faded: !fullDetail };
-  drawPolygon(state.turret, tdc, turretAngle, Object.assign({ active: mode==='turret' || mode==='pivot' }, partOpts));
+
+  drawPolygon(state.turret, null, turretAngle, Object.assign({ active: mode==='turret' || mode==='pivot' }, partOpts));
   drawPolygon(state.hull, hc, 0, Object.assign({ active: mode==='hull' }, partOpts));
-  // pivot marker
-  ctx.beginPath(); ctx.arc(tc.x, tc.y, mode==='pivot'?7:4, 0, Math.PI*2);
+
+  // 1. 车体上的炮塔座圈圆心 (pivot) 标记位置：
+  const ringCenter = {
+    x: hc.x + state.turret.pivot.dx * viewScale,
+    y: hc.y + (state.turret.pivot.dy || 0) * viewScale
+  };
+
+  // 2. 炮塔上的炮塔座圈圆心 (axis) 标记位置 (以 turretToScreen 计算)：
+  const ax = (state.turret.axis && state.turret.axis.dx) || 0;
+  const axisPos = turretToScreen([ax, 0], turretAngle);
+
+  // 绘制座圈圆心 / 旋转中心标记：
+  ctx.beginPath(); ctx.arc(axisPos.x, axisPos.y, (mode==='pivot'||mode==='turret')?7:4, 0, Math.PI*2);
   ctx.strokeStyle = '#ffb454'; ctx.lineWidth=2; ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(tc.x-9,tc.y); ctx.lineTo(tc.x+9,tc.y);
-  ctx.moveTo(tc.x,tc.y-9); ctx.lineTo(tc.x,tc.y+9); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(axisPos.x-9,axisPos.y); ctx.lineTo(axisPos.x+9,axisPos.y);
+  ctx.moveTo(axisPos.x,axisPos.y-9); ctx.lineTo(axisPos.x,axisPos.y+9); ctx.stroke();
   ctx.fillStyle = '#ffb454'; ctx.font='10px "JetBrains Mono", monospace';
-  ctx.fillText(mode==='turret' ? '座圈圆心（拖拽调轴）' : '炮塔旋转中心', tc.x+10, tc.y-10);
-  // 炮塔模式：可拖拽提示环（抓住十字或青点自由拖拽炮塔自身旋转中心 axis，座圈不动）
+  ctx.fillText(mode==='turret' ? '炮塔座圈圆心 (x)' : '座圈圆心', axisPos.x+10, axisPos.y-10);
+  
   if(mode==='turret'){
     ctx.strokeStyle = 'rgba(92,200,255,0.3)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
-    ctx.beginPath(); ctx.arc(tc.x, tc.y, 16, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(axisPos.x, axisPos.y, 16, 0, Math.PI*2); ctx.stroke();
     ctx.setLineDash([]);
   }
 
-  // turret's OWN center (bbox center) — distinct from the rotation axis (issue #1 fix): the gap
-  // between this dot and the pivot cross is the source of "炮塔甩尾". Drawn in turret/pivot modes.
-  if(mode==='turret' || mode==='pivot'){
+  // 绘制炮管与附件：全套绑定在 turretToScreen([frontX, 0], turretAngle) 上
+  drawDesignerBarrel(turretAngle, viewScale);
+
+  // turret's OWN center (bbox center)
+  if(mode==='turret'){
     const oc = turretOwnCenter();
     const cosA = Math.cos(turretAngle), sinA = Math.sin(turretAngle);
-    // 炮塔自身中心跟随几何绘制原点（tdc），与其相对偏移即"甩尾"距离
-    const wpx = tdc.x + (oc.cx*cosA - oc.cy*sinA)*viewScale;
-    const wpy = tdc.y + (oc.cx*sinA + oc.cy*cosA)*viewScale;
-    const offLocal = Math.hypot(oc.cx, oc.cy);
+    const wpx = tc.x + (oc.cx*cosA - oc.cy*sinA)*viewScale;
+    const wpy = tc.y + (oc.cx*sinA + oc.cy*cosA)*viewScale;
+    const offLocal = Math.hypot(oc.cx - ax, oc.cy - ay);
     ctx.beginPath(); ctx.arc(wpx, wpy, 4, 0, Math.PI*2);
     ctx.strokeStyle = offLocal > 0.05 ? '#5cc8ff' : 'rgba(92,200,255,0.45)'; ctx.lineWidth=2; ctx.stroke();
     ctx.fillStyle = '#5cc8ff'; ctx.font='9px "JetBrains Mono", monospace';
     ctx.fillText('炮塔自身中心', wpx+8, wpy-6);
     if(offLocal > 0.05){
       ctx.setLineDash([3,3]); ctx.strokeStyle = 'rgba(92,200,255,0.5)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(tc.x,tc.y); ctx.lineTo(wpx,wpy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(axisPos.x, axisPos.y); ctx.lineTo(wpx,wpy); ctx.stroke();
       ctx.setLineDash([]);
     }
   }
-  updateAxisDevReadout();
 
   // Draw Internal Module Zones Overlay
   if(document.getElementById('showZonesCheckbox') && document.getElementById('showZonesCheckbox').checked){
@@ -1472,15 +1618,21 @@ function render(){
       const halfW = Math.max(1, (maxY - minY)/2);
       
       const drawTurretBand = (xStartFrac, xEndFrac, color, label) => {
-        const xS = xStartFrac * halfL * viewScale;
-        const xE = xEndFrac * halfL * viewScale;
-        const w = halfW * 0.85 * viewScale;
+        const xS = xStartFrac * halfL;
+        const xE = xEndFrac * halfL;
+        const w = halfW * 0.85;
+        const p1 = turretToScreen([xS, -w], turretAngle);
+        const p2 = turretToScreen([xE, -w], turretAngle);
+        const p3 = turretToScreen([xE, w], turretAngle);
+        const p4 = turretToScreen([xS, w], turretAngle);
         ctx.fillStyle = color;
-        ctx.fillRect(tdc.x + xS, tdc.y - w, xE - xS, w * 2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
-        ctx.strokeRect(tdc.x + xS, tdc.y - w, xE - xS, w * 2);
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1; ctx.stroke();
+        const mid = turretToScreen([(xS+xE)/2, 0], turretAngle);
         ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '9px "JetBrains Mono", monospace';
-        ctx.fillText(label, tdc.x + (xS + xE)/2 - 18, tdc.y + 3);
+        ctx.fillText(label, mid.x - 18, mid.y + 3);
       };
       
       ctx.save();
@@ -1499,14 +1651,12 @@ function render(){
     const limit = state.traverseLimit * Math.PI/180;
     ctx.strokeStyle = 'rgba(255,180,84,0.35)'; ctx.setLineDash([5,5]); ctx.lineWidth=1;
     ctx.beginPath();
-    ctx.moveTo(tc.x,tc.y); ctx.lineTo(tc.x+Math.cos(limit)*90*viewScale, tc.y+Math.sin(limit)*90*viewScale);
-    ctx.moveTo(tc.x,tc.y); ctx.lineTo(tc.x+Math.cos(-limit)*90*viewScale, tc.y+Math.sin(-limit)*90*viewScale);
+    ctx.moveTo(axisPos.x, axisPos.y);
+    ctx.lineTo(axisPos.x+Math.cos(limit)*90*viewScale, axisPos.y+Math.sin(limit)*90*viewScale);
+    ctx.moveTo(axisPos.x, axisPos.y);
+    ctx.lineTo(axisPos.x+Math.cos(-limit)*90*viewScale, axisPos.y+Math.sin(-limit)*90*viewScale);
     ctx.stroke(); ctx.setLineDash([]);
   }
-
-   // barrel is always drawn so the preset edits are visible in every mode; the pointer aim angle
-   // is used in preview, otherwise the barrel points along the hull forward (+x, angle 0).
-   drawDesignerBarrel(tc, turretAngle, viewScale);
 }
 
 // ================= export / import =================

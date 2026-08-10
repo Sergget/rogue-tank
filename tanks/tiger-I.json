@@ -14,6 +14,8 @@
   "heightClass": "heavy",
   "trackWidth": 20,
   "trackOffset": -10,
+  "spreadMult": 1,
+  "aimSpeed": 0.15,
   "barrel": {
     "len": 120,
     "width": 10,
@@ -214,11 +216,11 @@
       "rear": 60
     },
     "pivot": {
-      "dx": 4,
+      "dx": 3,
       "dy": 0
     },
     "axis": {
-      "dx": 0,
+      "dx": 4,
       "dy": 0
     }
   }
