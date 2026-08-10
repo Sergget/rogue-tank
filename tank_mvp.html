@@ -290,7 +290,10 @@ function populateTankSelect(){
       sel.appendChild(opt);
     });
     if(keys.length){
-      if(selId==='playerTankSelect') sel.value = 'T-90M1' in tankListData ? 'T-90M1' : keys[0];
+      if(selId==='playerTankSelect') {
+        const defaultPlayerKey = ('Obj 780' in tankListData) ? 'Obj 780' : (('T-90M1' in tankListData) ? 'T-90M1' : keys[0]);
+        sel.value = defaultPlayerKey;
+      }
       else sel.value = 'dummy' in tankListData ? 'dummy' : keys[0];
     }
   }
@@ -326,8 +329,14 @@ function loadTankList(){
     // Only auto-apply on FIRST load so both tanks show their real model/armor;
     // reloading afterwards must not clobber a user's custom config.
     if(!player._tankLoaded){
-      if (tankListData["T-90M1"]) applyPlayerTank('T-90M1');
-      if (tankListData["dummy"]) applyDummyTank('dummy');
+      const playerSel = document.getElementById('playerTankSelect');
+      const playerKey = playerSel ? playerSel.value : null;
+      if (playerKey && tankListData[playerKey]) applyPlayerTank(playerKey);
+
+      const dummySel = document.getElementById('dummyTankSelect');
+      const dummyKey = dummySel ? dummySel.value : null;
+      if (dummyKey && tankListData[dummyKey]) applyDummyTank(dummyKey);
+
       player._tankLoaded = true;
     }
   });
@@ -534,8 +543,11 @@ function tryFire(){
   spawnMuzzleFlash(ox, oy, spreadAngle || player.turretAngle, 1, bMuzzle);
 
   // 生成真实飞行炮弹：位置 / 方向 / 速度 / 穿深 / 伤害 / 弹种
+  // fx/fy = 弹道起点（炮口或跳弹点）：半高掩体的垂直剖面拦截按“弹道起点→命中点”整条射线判定，
+  // 而不是按炮弹逐帧到达时的近端位置（后者在炮弹已飞过掩体后会漏判遮挡）。
   shells.push({
     x: ox, y: oy,
+    fx: ox, fy: oy,
     dx, dy,
     speed: Math.max(200, player.stats.shellSpeed * ammo.speed),
     pen:  player.stats.penetration * ammo.pen,
@@ -569,22 +581,11 @@ function updateSolution(){
     elCover.textContent='--'; elCover.className='v';
     return;
   }
-  // 同源意图（与实弹一致）：沿无散布瞄准线按鼠标投影选部位（aimPartPreference），
-  // 首选部位完全被半高掩体遮蔽（exposure==0）时回退到露出的另一部位——与炮弹循环同一套规则。
+  // 同源意图（与实弹一致）：沿无散布瞄准线按鼠标投影选部位（aimPartPreference）。
+  // 垂直剖面单一判定：首选部位被半高掩体遮挡就显示"被拦截"概率，不自动改打另一部位（与实弹一致）。
   const hitPref = aimPartPreference(ox, oy, dx, dy, mouseWorld.x, mouseWorld.y, hits, RULES.aim.partProbe);
   let hit = bestHitForPref(hits, 0.001, Infinity, hitPref);
-  if(hit && hitPref !== 'auto' && hits.length > 1){
-    const zChosen = getPartZRange(target, hit.part);
-    const eChosen = getExposure(ox, oy, hit.x, hit.y, player, target, zChosen.zMin, zChosen.zMax, hit.t);
-    if(eChosen <= 0){
-      const other = hits.find(h => h.part !== hit.part);
-      if(other){
-        const zOther = getPartZRange(target, other.part);
-        const eOther = getExposure(ox, oy, other.x, other.y, player, target, zOther.zMin, zOther.zMax, other.t);
-        if(eOther > 0) hit = other;
-      }
-    }
-  }
+  if(!hit) hit = bestHitForPref(hits, 0.001, Infinity, 'auto');
   const exposure = getExposure(ox, oy, hit.x, hit.y, player, target, getPartZRange(target, hit.part).zMin, getPartZRange(target, hit.part).zMax, hit.t);
 
   const coverInfo = { prob: 1 - exposure, hits: findCoversOnPath(ox, oy, hit.x, hit.y) };
@@ -713,6 +714,26 @@ function update(dt){
     }
   });
 
+  // 半高掩体垂直剖面判决：沿整条弹道（弹道起点 fx,fy → 前方）解析会命中的目标部位。
+  // 按 hitPref 意图分类炮弹的“垂直剖面”，只区分——打炮塔（z>=1.2，越过掩体）/ 打车体（被拦截）。
+  // 没有“部位被挡则改打另一部位”的回退：车体被半高掩体挡就是被拦截，不是改打炮塔。
+  function shellVerticalDecision(s){
+    let dec = null;
+    for(const e of entities){
+      if(e.hp <= 0) continue;
+      if(!isHostile(s.shooter.team, e.team)) continue;
+      const hits = raycastTank(s.fx, s.fy, s.dx, s.dy, e);
+      if(!hits) continue;
+      const bh = bestHitForPref(hits, 0.001, Infinity, s.hitPref);
+      if(!bh) continue;
+      const hx = s.fx + s.dx*bh.t, hy = s.fy + s.dy*bh.t;
+      const z = getPartZRange(e, bh.part);
+      const exposure = getExposure(s.fx, s.fy, hx, hy, s.shooter, e, z.zMin, z.zMax, bh.t);
+      if(!dec || bh.t < dec.hit.t) dec = { tank:e, hit:bh, z, exposure, t:bh.t };
+    }
+    return dec;
+  }
+
   // 炮弹逐帧真实飞行（特性2）：每帧炮口到落点做 swept-segment 检测，
   // 对敌方坦克与全高掩体取路径上最近障碍；命中后按"命中时刻"结算。
   shells.forEach(s=>{
@@ -729,21 +750,7 @@ function update(dt){
       if(e.hp <= 0) continue;
       if(!isHostile(s.shooter.team, e.team)) continue;
       const hits = raycastTank(sx, sy, s.dx, s.dy, e);
-      let bh = bestHitForPref(hits, 0.001, step, s.hitPref);
-      // 掩体回退（半高掩体）：首选部位完全被遮蔽（exposure==0）时换到露出的另一部位；
-      // 两部位都被挡或 'auto' 时维持原选择，由下方暴露概率判定走拦截。
-      if(bh && s.hitPref !== 'auto' && hits.length > 1){
-        const zP = getPartZRange(e, bh.part);
-        const eP = getExposure(sx, sy, sx + s.dx*bh.t, sy + s.dy*bh.t, s.shooter, e, zP.zMin, zP.zMax, bh.t);
-        if(eP <= 0){
-          const other = hits.find(h => h.part !== bh.part && h.t > 0.001 && h.t <= step);
-          if(other){
-            const zO = getPartZRange(e, other.part);
-            const eO = getExposure(sx, sy, sx + s.dx*other.t, sy + s.dy*other.t, s.shooter, e, zO.zMin, zO.zMax, other.t);
-            if(eO > 0) bh = other;
-          }
-        }
-      }
+      const bh = bestHitForPref(hits, 0.001, step, s.hitPref);
       if(bh && bh.t < bestDist){
         bestDist = bh.t; bestTank = e; bestHit = bh; bestHits = hits; bestCover = null;
       }
@@ -752,6 +759,7 @@ function update(dt){
     const covs = findCoversOnPath(sx, sy, nx, ny);
     for(const c of covs){
       const tier = COVER_TIERS[c.cover.tier];
+      if(s.dead) break;
       if(tier.mode === 'pass' && c.distA <= step && c.distA < bestDist){
         if(damageCover(c.cover, 1, 'shell')){
           impacts.push({ x:c.point.x, y:c.point.y, life:0.4, color:'#96764a' });
@@ -762,9 +770,27 @@ function update(dt){
       if((tier.mode === 'solid' || tier.mode === 'single') && c.distA <= step && c.distA < bestDist){
         bestDist = c.distA; bestCover = c; bestTank = null; bestHit = null;
       }
+      if(tier.mode === 'graduated' && c.distA <= step && c.distA < bestDist){
+        // 垂直剖面拦截：在掩体入口即时判定（炮弹不会先飞过掩体、再在车体面被拦下）。
+        // 判决沿弹道起点整条射线：打炮塔（z>=1.2）直接越过；打车体被半高掩体拦截
+        // （中坦车体 100% / 重坦车体 75%；重坦剩余 25% 按概率穿过）。
+        const dec = shellVerticalDecision(s);
+        if(dec){
+          if(!s.dec) s.dec = dec; // 缓存到到达时使用（跳弹后弹道起点改变，会重新判决）
+          if(dec.exposure < 1 && (dec.exposure <= 0 || Math.random() > dec.exposure)){
+            s.x = c.point.x; s.y = c.point.y;
+            impacts.push({ x:c.point.x, y:c.point.y, life:0.4, color:'#ffb454' });
+            spawnImpactFx(c.point.x, c.point.y, Math.atan2(s.dy, s.dx), 'block', 0.7);
+            pushLog('未命中 — 被半高掩体拦截','COVER');
+            s.dead = true;
+          }
+        }
+      }
     }
 
-    if(bestCover){
+    if(s.dead){
+      // 本帧已在掩体入口被截停
+    } else if(bestCover){
       s.x = bestCover.point.x; s.y = bestCover.point.y;
       const coverTier = COVER_TIERS[bestCover.cover.tier];
       if(coverTier.mode === 'single'){
@@ -775,6 +801,8 @@ function update(dt){
           const r = reflectDir(s.dx, s.dy, n.nx, n.ny);
           s.dx = r.x; s.dy = r.y;
           s.bounced = true; s.canBounce = false;
+          s.fx = s.x; s.fy = s.y; // 弹道起点重置为跳弹点
+          s.dec = null; // 新弹道段重新判决
           bounceFx.push({ x:s.x, y:s.y, life:0.5, angle:Math.atan2(r.y,r.x) });
           spawnImpactFx(s.x, s.y, Math.atan2(r.y,r.x), 'bounce', 0.8);
           pushLog(`跳弹！炮弹在${coverTier.label}表面掠射弹开 — 路障无损`,'BOUNCE');
@@ -797,20 +825,38 @@ function update(dt){
         }
         s.dead = true;
       }
-    } else if(bestTank){
-      const hx = sx + s.dx*bestDist, hy = sy + s.dy*bestDist;
+    } else if(bestTank || s.dec){
+      // 命中部位/距离：已有半高掩体判决（s.dec，沿弹道起点整条射线）→ 按判决部位与距离命中；
+      // 无判决（未穿越半高掩体）→ 维持逐帧窗口选择（无遮挡时的原行为）。
+      const hitT  = s.dec ? s.dec.hit  : bestHit;
+      const hitTank = s.dec ? s.dec.tank : bestTank;
+      const hitDist = s.dec ? s.dec.t : bestDist;
+      const hx = s.dec ? (s.fx + s.dx*hitDist) : (sx + s.dx*hitDist);
+      const hy = s.dec ? (s.fy + s.dy*hitDist) : (sy + s.dy*hitDist);
       s.x = hx; s.y = hy;
-      // 半高掩体：按命中时刻的暴露概率判定是否被拦截
-      const z = getPartZRange(bestTank, bestHit.part);
-      const exposure = getExposure(sx, sy, hx, hy, s.shooter, bestTank, z.zMin, z.zMax, bestDist);
+      // 半高掩体拦截概率已在掩体入口处判决（s.dec.exposure）；到达时不再二次判定。
+      // 未穿越掩体的炮弹按弹道起点整条射线的垂直剖面兜底（正常情况 exposure=1 直接命中）。
+      const exposure = s.dec ? 1.0 : getExposure(s.fx, s.fy, hx, hy, s.shooter, hitTank, s.dec? s.dec.z.zMin : getPartZRange(hitTank, hitT.part).zMin, s.dec? s.dec.z.zMax : getPartZRange(hitTank, hitT.part).zMax, s.dist + hitDist);
       if(exposure <= 0 || Math.random() > exposure){
-        impacts.push({ x:hx, y:hy, life:0.4, color:'#ffb454' });
-        spawnImpactFx(hx, hy, Math.atan2(s.dy, s.dx), 'block', 0.7);
+        // 垂直剖面拦截：炮弹停在首个遮断本次弹道的半高掩体上（中坦车体 100% / 重坦车体 75% 拦截）
+        let stopX = hx, stopY = hy;
+        const iCovs = findCoversOnPath(s.fx, s.fy, hx, hy);
+        for(const c of iCovs){
+          const tc = COVER_TIERS[c.cover.tier];
+          if(tc.mode === 'solid' || tc.mode === 'single') continue;
+          if(tc.mode === 'none' || tc.mode === 'pass') continue;
+          if(c.distExit < s.dist + bestDist + 16){ stopX = c.point.x; stopY = c.point.y; break; }
+        }
+        s.x = stopX; s.y = stopY;
+        impacts.push({ x:stopX, y:stopY, life:0.4, color:'#ffb454' });
+        spawnImpactFx(stopX, stopY, Math.atan2(s.dy, s.dx), 'block', 0.7);
         pushLog('未命中 — 被半高掩体拦截','COVER');
         s.dead = true;
       } else {
-        const res = resolveHit(s, bestTank, bestHit, s.canBounce);
+        const res = resolveHit(s, hitTank, hitT, s.canBounce);
         if(res.outcome === 'BOUNCE'){
+          s.fx = res.bouncePoint.x; s.fy = res.bouncePoint.y; // 弹道起点重置为跳弹点
+          s.dec = null; // 新弹道段重新判决
           bounceFx.push({ x:res.bouncePoint.x, y:res.bouncePoint.y, life:0.5, angle:res.bounceAngle });
           spawnImpactFx(res.bouncePoint.x, res.bouncePoint.y, res.bounceAngle, 'bounce', 1);
           pushLog(res.text, res.cls);

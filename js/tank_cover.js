@@ -136,30 +136,37 @@ function obbOverlap(cornersA, cornersB) {
   return true;
 }
 
-function obbMTV(tankCorners, covCorners) {
-  const axes = getOBBAxes(tankCorners).concat(getOBBAxes(covCorners));
-  let minDepth = Infinity;
-  let mtvAxis = null;
+// 全部候选 MTV（每个 OBB 轴一个），供对稳定性敏感的调用方（坦克⇄坦克）做轴选择。
+// 每个条目：{ dx, dy, depth, ux, uy } —— 单位轴已定向为"把 cornersA 推离 cornersB"
+// （dot(centerA - centerB, (ux,uy)) >= 0，与 obbMTV 约定一致）。
+// 任一轴分离 → 返回 null（不碰撞）。
+function obbMTVs(cornersA, cornersB) {
+  const axes = getOBBAxes(cornersA).concat(getOBBAxes(cornersB));
+  const out = [];
   for (const axis of axes) {
-    const pA = projectOBB(tankCorners, axis);
-    const pB = projectOBB(covCorners, axis);
+    const pA = projectOBB(cornersA, axis);
+    const pB = projectOBB(cornersB, axis);
     if (pA.max < pB.min || pB.max < pA.min) return null;
     const overlap = Math.min(pA.max - pB.min, pB.max - pA.min);
-    if (overlap < minDepth) {
-      minDepth = overlap;
-      mtvAxis = axis;
-    }
+    let ax = axis.x, ay = axis.y;
+    let acx = 0, acy = 0;
+    for (const c of cornersA) { acx += c.x; acy += c.y; }
+    acx /= cornersA.length; acy /= cornersA.length;
+    let bcx = 0, bcy = 0;
+    for (const c of cornersB) { bcx += c.x; bcy += c.y; }
+    bcx /= cornersB.length; bcy /= cornersB.length;
+    if ((acx - bcx) * ax + (acy - bcy) * ay < 0) { ax = -ax; ay = -ay; }
+    out.push({ dx: ax * overlap, dy: ay * overlap, depth: overlap, ux: ax, uy: ay });
   }
-  if (!mtvAxis) return null;
-  let tcx = 0, tcy = 0;
-  for (const c of tankCorners) { tcx += c.x; tcy += c.y; }
-  tcx /= tankCorners.length; tcy /= tankCorners.length;
-  let ccx = 0, ccy = 0;
-  for (const c of covCorners) { ccx += c.x; ccy += c.y; }
-  ccx /= covCorners.length; ccy /= covCorners.length;
-  const dot = (tcx - ccx) * mtvAxis.x + (tcy - ccy) * mtvAxis.y;
-  if (dot < 0) { mtvAxis.x = -mtvAxis.x; mtvAxis.y = -mtvAxis.y; }
-  return { dx: mtvAxis.x * minDepth, dy: mtvAxis.y * minDepth, depth: minDepth };
+  return out;
+}
+
+function obbMTV(tankCorners, covCorners) {
+  const candidates = obbMTVs(tankCorners, covCorners);
+  if (!candidates) return null;
+  let best = candidates[0];
+  for (const c of candidates) if (c.depth < best.depth) best = c;
+  return { dx: best.dx, dy: best.dy, depth: best.depth };
 }
 
 // 掩体/元素 ⇄ 坦克 碰撞：三态处理（见 2.7）——
@@ -217,11 +224,11 @@ function findCoversOnPath(ox,oy,tx,ty){
   return hits;
 }
 
-// 简化版 3 条规则掩体遮挡模型：
-//   1. 部位露出：炮塔（zMin > 1.2 或 part==='turret'）恒定 100% 露出。
+// 纯垂直剖面掩体遮挡模型（弹道实时逐射线计算，无"宽度/距离压制"概念）：
+//   1. 弹道路径是否穿掩体由实际射线与掩体 OBB 的交点决定（findCoversOnPath）——
+//      射线绕过掩体（未相交）即无遮挡，直接命中；与"攻击方/被攻击方谁离掩体更近"无关。
+//   2. 部位露出（垂直剖面）：炮塔（zMin >= 1.2）恒定 100% 露出；
 //      半高掩体后，中坦车体 100% 阻挡（0% 露出），重坦车体露出 25%（75% 阻挡）。
-//   2. 距离压制：沿弹道分析所有介于攻击方与被攻击方之间的半高掩体，取离【被攻击方】最近的一座掩体 C_near。
-//      若 dist(攻击方, C_near) < dist(被攻击方, C_near)，说明攻击方离掩体更近/占据压制优势，被攻击方视为【无掩体】（exposure=1）。
 //   3. 方向判据（cutoffDist）：掩体须在命中车体前被射线完整穿过（distExit < cutoffDist）。
 function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
   const hits = findCoversOnPath(ox,oy,tx,ty);
@@ -231,29 +238,18 @@ function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
     const tier = COVER_TIERS[h.cover.tier];
     // 纯视线/可穿透元素不参与弹道遮挡（灌木 none / 栅栏 pass）
     if(tier.mode === 'none' || tier.mode === 'pass') continue;
-    // 方向判据：掩体须在命中车体前被射线完整穿过（骑上/包住车体的掩体不生效）
-    if(cutoffDist !== undefined && h.distExit >= cutoffDist) continue;
+    // 方向判据：掩体须在命中车体前被射线完整穿过（骑上/包住车体的掩体不生效；
+    // 贴掩体时 distExit 与 cutoffDist 极其接近，允许 16px 向后容差以确保贴掩体遮挡生效）
+    const COVER_DIRECTION_TOLERANCE = 16;
+    if(cutoffDist !== undefined && h.distExit >= cutoffDist + COVER_DIRECTION_TOLERANCE) continue;
     if(tier.mode === 'solid' || tier.mode === 'single') return 0; // 全高/固态掩体确定性 100% 格挡
     validHits.push(h);
   }
 
   if(validHits.length === 0) return 1.0;
 
-  // 按离【被攻击方】(distB) 的距离升序排序，找到离被攻击方最近的一座半高掩体 C_near
-  validHits.sort((a,b) => a.distB - b.distB);
-  const cNear = validHits[0];
-
-  // 计算攻击方(ox,oy)与被攻击方(tx,ty)各自到 C_near (cov.x, cov.y) 中心/交点的真实距离
-  const distAttackerToCover = cNear.distA;
-  const distTargetToCover = cNear.distB;
-
-  // 规则2: 距离压制——若攻击方离 C_near 的距离 < 被攻击方离 C_near 的距离，则视为无掩体
-  if (distAttackerToCover < distTargetToCover) {
-    return 1.0;
-  }
-
-  // 规则1: 结合目标车型（heightClass）与判定部位高度决定露出比例
-  // 炮塔（zMin >= 1.2m）100% 露出
+  // 垂直剖面：结合目标车型（heightClass）与判定部位高度决定露出比例
+  // 炮塔（zMin >= 1.2m）恒定 100% 露出
   if (zMin >= 1.2) {
     return 1.0;
   }
@@ -293,6 +289,7 @@ if (typeof module !== 'undefined' && module.exports) {
     splashCoversAt,
     getCoverUnderTank,
     obbOverlap,
+    obbMTVs,
     obbMTV,
     resolveCoverCollisions,
     findCoversOnPath,

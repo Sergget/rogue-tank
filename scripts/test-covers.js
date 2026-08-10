@@ -82,7 +82,7 @@ C.resolveCoverCollisions(mediumT);
 ok(mediumT.x !== mx0 || mediumT.y !== my0, `medium tank pushed out of half cover (moved)`);
 C.resetCovers();
 
-// 5c) 简化版掩体模型：重坦/中坦车体在半高掩体后的露出与距离压制测试
+// 5c) 纯垂直剖面掩体模型：重坦/中坦车体与炮塔在半高掩体后的露出比例
 const ox = half.x - 400;
 const targetFarX = half.x + 120; // 掩体在 (half.x, half.y)，攻击方在 half.x-400，目标在 half.x+120：目标离掩体近
 const heavyHullFar = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'heavy' }, 0, 1.8);
@@ -94,12 +94,19 @@ ok(medHullFar === 0.0, `medium hull exposes 0% behind half cover (got ${medHullF
 const turretExposed = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'medium' }, 1.4, 2.3);
 ok(turretExposed === 1.0, `turret is 100% exposed behind half cover (got ${turretExposed})`);
 
-// 5d) 距离压制：攻击方离半高掩体更近 (distA < distB) → 被攻击方视为无掩体 (exposure = 1.0)
+// 5d) 贴掩体遮挡（用户场景：弹道逐射线实时计算 → 只按垂直剖面判定，攻击方贴近与否无影响）：
+//     攻击方紧贴掩体一侧，被攻击方在掩体另一侧 → 车体仍被完全遮挡（旧"距离压制"规则曾被判定为无掩体）
 const half1 = findTier('half');
-const attackerNearX = half1.x - 200; // 攻击方 (half1.x - 200, half1.y + 100)
-const targetAwayX = half1.x + 300;   // 目标 (half1.x + 300, half1.y + 100)
-const suppressedExp = C.getExposure(attackerNearX, half1.y + 100, targetAwayX, half1.y + 100, null, { heightClass: 'medium' }, 0, 1.4);
-ok(suppressedExp === 1.0, `attacker closer to cover suppresses target cover advantage (got ${suppressedExp})`);
+const attackerHugX = half1.x - 45; // 攻击方紧贴掩体左侧
+const targetBehindX = half1.x + 120; // 目标在掩体右侧后方
+const heavyHug = C.getExposure(attackerHugX, half1.y, targetBehindX, half1.y, null, { heightClass: 'heavy' }, 0, 1.8);
+ok(heavyHug === 0.25, `heavy hull covered while attacker hugs cover (got ${heavyHug})`);
+const medHug = C.getExposure(attackerHugX, half1.y, targetBehindX, half1.y, null, { heightClass: 'medium' }, 0, 1.4);
+ok(medHug === 0.0, `medium hull covered while attacker hugs cover (got ${medHug})`);
+// 目标紧贴掩体背面（贴掩体全藏）：同样按垂直剖面，不被误判为骑掩体
+const targetHugX = half1.x + 45;
+const medHugTarget = C.getExposure(ox, half1.y, targetHugX, half1.y, null, { heightClass: 'medium' }, 0, 1.4);
+ok(medHugTarget === 0.0, `medium hull covered while target hugs cover (got ${medHugTarget})`);
 
 // 5e) 方向判据：骑上/包住掩体的坦克不被全方向遮蔽（cutoffDist 早于掩体出口 → 不参与）
 const onCover = C.getExposure(ox, half.y, half.x, half.y, null, { heightClass: 'heavy' }, 0, 1.8, 400);

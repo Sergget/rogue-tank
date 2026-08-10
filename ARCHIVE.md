@@ -15,6 +15,8 @@
 | 2026-08-13 | 交互/重构 | 重坦/中坦不同车体高度与半高掩体交互关系简化方案 | 简化为 3 规则确定性模型，全部测试与 HTML 校验通过 |
 | 2026-08-13 | `PLAN.md` | P-02（子条目 1~6）模块化重构批次 | 已完成并验证（结论见 DEVELOPMENT §3.6；第 7 条 battledraw 可选延后） |
 | 2026-08-13 | `PLAN.md` | P-03 坦克数据拆分 tanks/ 一型一文件 | 已全部完成并验证（结论见 DEVELOPMENT §3.6；`split-tank-list.js` 保留作维护工具） |
+| 2026-08-10 | `ISSUES.md` | #9. tank_mvp.html 首次加载玩家坦克未从 tanks/ 目录正确应用 | 已修复并验证（玩家默认加载适配 tanks/ 优先存在的配置） |
+| 2026-08-10 | `ISSUES.md` | #12. 坦克交叉碰撞"鬼畜"抖动（MTV 轴歧义 + 幽灵穿模 + 速度模型破坏） | 已重写碰撞解析并验证（结论见 DEVELOPMENT §3「坦克间碰撞」） |
 
 ------
 
@@ -587,6 +589,49 @@ if (mod.key==='ammo') {
 
 ---
 
+## #10 射击紧贴半高掩体的中坦车体时仍能命中（方向判据把"贴掩体"误判为"骑掩体"） — 已解决 (2026-08-10)
+
+### 归档自 `ISSUES.md` #10
+
+#### 用户描述
+> 射击紧贴着半高掩体的中坦时，仍能命中车体。
+
+#### 可复现证据（Node 脚本复现，场景见下）
+- 半高掩体 `(470,300)` w=80（x∈[430,510]）；中坦（hullLen=64, hullWid=38, heightClass=medium）贴掩体右侧停放（`resolveCoverCollisions` 推出后中心 x=542，车体后缘 x=510 恰好与掩体出口重合）；射手 `(70,300)` 沿 x 轴直射。
+- `raycastTank`：车体 rear 面命中 `t=440 (510,300)`；`findCoversOnPath` 给出掩体 `distA=360, distExit=440`。
+- `getExposure(..., cutoffDist=bh.t=440)`：`js/tank_cover.js:235` 的 `if(cutoffDist !== undefined && h.distExit >= cutoffDist) continue;` → `440 >= 440` 成立 → **掩体被跳过** → 中坦车体 exposure=1.0（应为 0.0，即 100% 格挡）；重坦同场景 exposure=1.0（应为 0.25）。
+- 调用方把"命中车体的距离"作为 cutoffDist：`tank_mvp.html:588`（瞄准解算）、`tank_mvp.html:805`（炮弹命中时刻判定）、`tank_mvp.html:737/742`（部位回退）。
+
+#### 根因
+方向判据（掩体须在命中车体前被完整穿过）用严格 `distExit >= cutoffDist` 判定，无任何容差。坦克贴掩体时"掩体出口 == 车体命中点"（`distExit == cutoffDist`），被误判成"骑上/包住掩体"（本该是 `distExit` 明显大于 `cutoffDist` 的情形），导致掩体不参与遮挡、车体直接吃弹。
+
+#### 修复
+`js/tank_cover.js` 的 `getExposure` 中引入常量 `COVER_DIRECTION_TOLERANCE = 16`，将方向判据修改为 `if(cutoffDist !== undefined && h.distExit >= cutoffDist + COVER_DIRECTION_TOLERANCE) continue;`。16px 容差覆盖了坦克贴掩体时因 OBB 边缘重合带来的边缘浮点与深度切削，使中坦/重坦贴掩体时的车体掩体遮挡正常生效（中坦 0.0、重坦 0.25），同时维持了"骑在掩体上"（target 在掩体内部）的 exposure=1.0 不受干扰。在 Node 端对中坦/重坦贴掩体 8 个旋转朝向做了全覆盖测试，全部通过。
+
+---
+
+## #11 设计器炮塔自身旋转中心仍无法"自由设置"且 axis 落盘 round-trip 漂移 — 已解决 (2026-08-10)
+
+### 归档自 `ISSUES.md` #11
+
+#### 用户描述
+> 设计器中，炮塔自身的旋转中心仍然不能自由设置。
+
+#### 可复现证据
+- **axis 数值输入无视觉效果**：`tank_designer.html:826-834` 的 `t-axisDx`/`t-axisDy` 输入只写 `state.turret.axis` 并 `render()`；而渲染路径 `tank_designer.html:1370`（`drawPolygon(state.turret, tc, …)`，tc=车体中心+`pivot`）**从不读取 `state.turret.axis`** → 改了输入画面上的炮塔/旋转中心纹丝不动。
+- **axis 落盘 round-trip 漂移**：导出 `tank_designer.html:1541` 写原始 axis；导入 `tank_designer.html:1593` 按 `-axis` 平移全部顶点。Node 复现：把 axis 设为 `(6,0)` 后每存→载一轮，炮塔几何整体再平移 -6（半形 x 跨 `[-18..30]→[-24..24]→[-30..18]→[-36..12]`），永不稳定。
+- **旋转中心只能沿中轴线移动**：`pivot` 模式拖拽 `tank_designer.html:507-510` 与『炮塔』模式平移多边形 `tank_designer.html:519` 都把 dy 锁 0（模式提示 `tank_designer.html:719` 自述"只能在车体中轴线上…dy 固定为 0"）；可编辑旋转中心仅限 dx。
+
+#### 根因
+`#9` 修复（ARCHIVE.md 5）为 `axis` 加了输入框与导出，但只打通了"存取"，没打通"几何语义"：设计器内部始终以"局部原点=旋转轴"编辑（顶点已被 `-axis` 归一化），`axis` 值对画布是死数据；又因导出/导入都按原始 axis 处理，形成每轮 -axis 的累积漂移。`#1` 修复原约定"导出恒写 axis=(0,0)"被 `#9` 破坏，round-trip 不变量失效。
+
+#### 修复
+1. 移除 `tank_designer.html` 侧边栏中无几何响应、易引发误导的 `t-axisDx`/`t-axisDy` 独立数字输入组件。
+2. 恢复 `#1` 修复确立的"旋转轴恒为 (0,0)"归一化不变量：`buildExport()` 中的 `axis` 恒写出 `{dx: 0, dy: 0}`；`applyTankData()` 读入包含非零 `axis` 的第三方/旧 JSON 数据时，对顶点进行一次 `-axis` 偏移归一化，随后锁定 `state.turret.axis = {dx: 0, dy: 0}`。
+3. 经 Node 模拟 5 轮 save/load round-trip 验证，顶点几何精度与范围 100% 恒定（零漂移）。炮塔自身旋转轴在设计器中统一由『炮塔』模式下的画布拖拽/对齐工具维护。
+
+---
+
 ## 附：本轮新增特性（非问题，记录备查）
 - **开火/命中特效升级**（`js/tank_fx.js`）：出膛锥形炮口闪光（`spawnMuzzleFlash`）、弹道烟迹（HE 更浓）、命中四态冲击闪光+火花+烟尘（`spawnImpactFx`：击穿/高爆/未击穿/跳弹各配不同色调与规模）、火花粒子（与既有火/烟/破片同池）；MVP 全部接入（含弹跳与掩体命中）。
 - **血条左侧车型徽章**（`tank_mvp.html` `drawClassBadge`）：重坦=六边形 / 中坦=五边形，与血条同一水平、位于车体之外不遮挡坦克。
@@ -737,3 +782,90 @@ if (mod.key==='ammo') {
 - [x] 文档（AGENTS.md §4/§3.1/§3.2/§3.3、DEVELOPMENT.md）同步
 
 **验证路径**：迁移后 `npm run test` + `npm run check` 全绿；dev server 下三个原型全流程（载入列表、替换坦克、designer 保存/删除回写、compare 保存）。
+
+---
+
+### [2026-08-10] 归档自 ISSUES.md #9
+
+### #9. tank_mvp.html 首次加载玩家坦克未从 tanks/ 目录正确应用
+
+- **现象/证据**：`tanks/` 目录下文件为 `dummy.json`, `Leapard_1.json`, `new_tank.json`, `Obj 780.json`, `tiger-I.json`，无 `T-90M1`。但在 `tank_mvp.html` 中：
+  - L293: `if(selId==='playerTankSelect') sel.value = 'T-90M1' in tankListData ? 'T-90M1' : keys[0];`
+  - L329: `if (tankListData["T-90M1"]) applyPlayerTank('T-90M1');`
+  由于 `T-90M1` 不存在，导致下拉选框及首次自动加载未能应用来自 `tanks/` 目录的任何实际玩家坦克配置。
+- **修复方案**：将玩家默认回退配置切换为列表中优先存在的合法配置（例如 preferred `'Obj 780'` 或列表首项 `keys[0]`），确保首次加载时应用真实的 `tanks/` 配置。
+
+---
+
+### [2026-08-10] 修复记录：半高掩体改为纯垂直剖面模型（弹道实时判定）
+
+> 来源：用户复审 ISSUES.md #10（已归档 2026-08-10）后复测：紧贴半高掩体的中坦车体仍可被命中；并明确模型口径——"弹道是实时计算的，无需考虑宽度问题，仅在垂直剖面考虑炮弹是命中了半高掩体、车体（重坦）还是炮塔"。
+
+**更正：原 #10 归档（16px 方向判据容差方案）并非完整修复。** 16px 容差只补上了方向判据的贴掩体边缘误判；真实漏判还有两个根因：
+
+1. **MVP 到达帧取点错误**：炮弹循环逐帧用炮弹**当前**位置 (sx,sy) 求 `getExposure`——弹丸飞过掩体后，射线起点已在掩体另一侧，射线不再与掩体相交 → `findCoversOnPath` 永空 → exposure 恒 1，半高掩体从不拦截。
+2. **旧 3 规则模型的距离压制在贴掩体场景歧义**：`distB` 取"目标到掩体入口"在贴掩体时可与攻击方距离比较得出错误压制方向。
+
+**新模型（2026-08-10 实施，见 DEVELOPMENT.md §2.5）**：
+
+- `getExposure`（`js/tank_cover.js`）删去规则2 距离压制，只保留垂直剖面分类：炮塔（zMin≥1.2）恒 100% 露出；车体中坦 0% 露出 / 重坦 25%（`RULES.coverRules`）；方向判据 + 16px 贴掩体容差保留（防骑掩体误遮蔽）。
+- **实弹在掩体入口即时判决**（`tank_mvp.html` `shellVerticalDecision`）：沿"弹道起点 (fx,fy) → 前方"整条射线按 `hitPref` 解析会命中的部位；穿越 `graduated` 掩体的那一帧按曝光概率拦截于掩体入口（中坦 100% / 重坦 75%）；打炮塔则直接越过。通过者到达时按判决部位直接命中（`s.dec`，不二次掷骰）。
+- 弹道起点 (fx,fy) 在开火与每次跳弹/反射（barricade / 坦克）时重置，判决随弹道段重算。
+- **回退机制移除**：删除"首选部位全遮蔽 → 回退打另一部位"（`updateSolution` 与实弹同源）——被挡即被拦截，引导玩家改打炮塔。
+- 测试同步：`scripts/test-covers.js` 删 5d 距离压制用例；新增 Windows 临时验证 `test-mvp-flow.js`（复刻 MVP 逐帧飞行）确认：中坦贴掩体 100% 拦截于入口 x=430、0 车体/炮塔命中；auto/turret-pref 100% 越掩体打炮塔；重坦 25% 击穿；无掩体时不受影响；射手贴掩体（x=400）仍正确拦截。
+- 验证：`npm run check`（17 模块全绿）+ `scripts/test-covers.js` + `scripts/test-hitpart.js` 全绿。
+
+---
+
+### [2026-08-10] 归档自 ISSUES.md #13
+
+### #13 设计器"炮塔自身旋转中心"（turret.axis）自由设置缺工具 — 已解决
+
+- **用户报告**：设计器中不能调整炮塔绕自身的旋转中心（复测 #11）。
+- **根因**：早期提交 `7e0c739` 的 `t-axisDx`/`t-axisDy` 输入只写 state、渲染路径从不读 `axis`（无几何效果、误导）；`ARCHIVE.md` #11 修复（删输入+导出恒 0 归一化）矫枉过正——画布只剩沿车体中轴线的平移，dy 恒 0，无法把旋转中心自由设置到多边形内任意点。
+- **修复（工作副本已含，验证通过）**：恢复侧栏 `t-axisDx`/`t-axisDy` 双向输入（`syncAxisInputs()`）；『炮塔』模式拖拽改 **dx/dy 双向**自由滑移（`turretDrawCenter()` = 座圈圆心 − axis，座圈不动、几何随光标滑移，绘制/命中/提示环全部以 tdc 为原点）；`buildExport` 写真实 axis、`applyTankData` 原样导入（不做 -axis 平移）→ round-trip 零漂移；「炮塔自身居中对齐」直接设置 `axis={bbox中心}`（`axisDevReadout` = axis 与 bbox 中心甩尾距离）。
+- **验证**：`verify-axis-rt.js` 5 轮存/载逐顶点一致（axis=(6,-3) 存取逐位不变、axis 世界点精确落在 pivot）；`npm run check` + `test-covers.js` + `test-hitpart.js` 全绿；MVP 经 `applyTankConfig` 按 -axis 归一化渲染一致。
+- **结论**：`#11` 归档（2026-08-10）的"删输入 + 导出恒 0 归一化"方案已被本实现取代（真实 axis 存取 + 双向自由编辑）。
+
+---
+
+### [2026-08-10] 归档自 ISSUES.md #12
+
+### #12 两辆坦克交叉碰撞时"鬼畜"抖动（MTV 轴歧义 + 幽灵穿模 + 速度模型破坏） — 已解决
+
+> 核实时间：2026-08-10。已用 Node 模拟复现（垂直交叉/对向互顶两种场景）。
+
+**复现场景**：`tank_mvp.html` 中玩家与靶车（或任何两辆存活坦克）垂直交叉相遇、车头对顶推进时，接触点周围坦克以约 60Hz 频率被交替朝不同方向弹飞抖动（"鬼畜"）。模拟复现：垂直交叉 300 帧内 **MTV 推出轴翻转 31 次**、**幽灵穿模 16 帧**（x 向深叠 >20px 但 SAT 判定不碰撞）、单帧推出幅度 ±30~42px 来回跳（f=62 推 -32.4 → f=64 推 +42.6），速度被抽干至 0~5 后又被 driveTank 加速回 192，形成速度 0↔192 高频振荡。
+
+**代码位置**：`js/tank_entity.js:59-123`（`resolveTankCollisions`）。该段含速度阻尼/冲量的逻辑由 commit `7e0c739`（"fix tank collision jitter"）引入，属**修复引入的回归**——ARCHIVE.md 中"已消除鬼畜"的记录针对的是更早的纯推出版本，当前实现并未兑现。
+
+**根因**（三个叠加）：
+
+1. **MTV 最小深度轴歧义**（`js/tank_entity.js:68-83` + `js/tank_cover.js:139-163` `obbMTV`）：重叠较深/近方形时两轴投影深度接近，每帧 `minDepth` 取到的轴在两轴间反复横跳（交叉场景实测 31 次/300 帧），推出向量方向每帧剧烈翻转 → 抖动直接来源。
+2. **幽灵穿模**（`js/tank_entity.js:78` `separation = depth + 0.1`）：沿 MTV 推出多加 0.1px buffer，任何一轴分离后 SAT 判定整体"不再碰撞"（`obbMTV` 返回 null），另一轴即使深叠 50px 也不处理 → 坦克贴着 0.1px 间隙直接对穿（实测对向互顶两车互换位置后继续全速行驶）。交叉时 MTV 优先推较窄轴（宽度轴），y 先分离后 x 深叠任意穿。
+3. **速度模型被破坏**（`js/tank_entity.js:85-116`）：`t.speed` 是标量，但阻尼逻辑按"速度矢量"运算后经 `Math.hypot(newA_X,newA_Y)` 还原，再乘 `*0.7`（冲量 `normalVel*0.5` 之后又砍 30%，且横向切向分量也被误砍）；速度方向与 `hullAngle` 不一致时下一帧 `driveTank`（`js/tank_move.js:43-44`）沿 hullAngle 重建速度 → 能量注入方向错误；else 分支（`js/tank_entity.js:113-116`）只要重叠就每帧 `speed *= 0.8`（即使正在分离），配合 4 次迭代每帧最多砍 4 次 → 速度 0↔192 抖动。另有 `*0.7` 后的符号判定 `velA·newA > 0`（`js/tank_entity.js:104`）在速度接近 0 时对数值噪声极敏感，前后反复抽搐。
+
+**影响**：坦克接触手感极差（战场核心交互）；玩家被"弹开/穿模"误导走位；两车可重叠卡死（实测交叉后末尾 xOverlap=63.8 仍互相叠住）。
+
+**修复方向（建议）**：碰撞角点共线冲突时稳定选取"接近冲量方向"的轴（或用各轴深度 * 相对速度投影加权）；分离 buffer 改为仅沿"深叠轴"施加或不再依赖单轴分离即判不碰撞（如保留最小穿深分离）；速度阻尼改为纯法向分量衰减、保留切向滑动，避免 `Math.hypot` 破坏方向并去掉 `*0.7`/`*0.8` 的双重砍速（切向不砍）。
+
+---
+
+### [2026-08-10] 修复记录：坦克⇄坦克碰撞解析重写（稳定选轴 + 标量冲量）
+
+> 对应 `ARCHIVE.md` #12（已归档 2026-08-10，结论以 DEVELOPMENT.md §3「坦克间碰撞」为准）。
+
+**新模型**（`js/tank_entity.js` `resolveTankCollisions` / `js/tank_cover.js` `obbMTVs`）：
+
+1. **稳定选轴**：`obbMTVs` 返回全部候选 MTV；近最小深度轴（`depth ≤ minDepth*1.15`）内优先取"最抵消逼近运动"的轴（相对速度在轴上的投影为负、且抵消比最大），相对速度接近 0 时回退最小深度轴。交叉/对顶轴不再逐帧横跳（300 帧测试 0 次翻转）。
+2. **标量冲量**：取消矢量运算 + `Math.hypot` 方向还原；法向闭合速度每次减半（完全非弹性，冲量系数 0.5），标量速度经**投影重建**到各自车体轴（受撞车的侧向冲量换向到自身 hullAngle，抵除上面再开车能被动"甩出"方向正确的 bug），切向速度不砍（保留滑动）。
+3. **分离缓冲**：0.1px buffer 仅加在"实际求解的推出轴上"（冲量分支适用的分离），不再"单轴分离即判整体不碰撞"——新版收集全部候选 MTV，缓冲导致的分离不再掩盖另一轴的深叠（幽灵对穿消除）。
+4. 拦截后 `speed *= 0` 只对仍在闭合的轴发生（`updateSpeedInvariant`），对向互顶静止；全部摩擦砍速（`*0.8`）删除。
+
+**验证**（`scripts/test-tankcollision.js`，已挂入 `npm test`）：
+
+- 垂直交叉对撞：穿透深度 0.00px，300 帧轴翻转 0 次，速度全程平滑 ≤ cap 192，无 0↔192 振荡，无残余重叠。
+- 对向互顶：静止不抽搐（速度 0→(-1) 微漂→稳定 0），位置锁定。
+- 推挤：被顶车沿自身车体轴获得动量（x−0.77/-y−63.05/-x 三方向均符合预期），法向传递系数 ~1。
+- 快速穿插（200 帧 640px/s）：永不穿模、无幽灵帧，推出方向始终背离穿透方向。
+- `npm run check`（19 模块 + HTML 全绿）+ `npm test` 4 文件全绿（含本次新增 `test-tankcollision.js`）。

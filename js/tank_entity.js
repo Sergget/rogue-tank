@@ -56,6 +56,12 @@ function nearestEnemyTo(shooter){
 
 // Tank ⇄ tank collision: tanks must never overlap. Each pair that overlaps is pushed apart
 // along its minimum-translation vector (MTV), split equally between both so the whole comes across.
+// #12 修复要点：
+//  1. MTV 轴选择速度稳定化——近最小深度（≤1.15×）的候选轴里，优先取"最抵消逼近运动"的轴，
+//     深叠/近方形重叠时不再逐帧在两轴间横跳（旧版横跳直接造成"鬼畜"抖动与横向幽灵穿模）；
+//  2. 速度响应只作用在碰撞法向闭合分量上（完全非弹性冲量 j = 相对法向速度/2），
+//     切向滑动分量原样保留；标量速度经投影重建到各自车体轴，不再用 Math.hypot 丢方向、
+//     不再有 ×0.7 / ×0.8 每帧堆叠砍速（旧版使速度 0↔max 高频振荡）。
 function resolveTankCollisions(iterations){
   for(let it=0; it < (iterations||4); it++){
     let moved = false;
@@ -65,57 +71,53 @@ function resolveTankCollisions(iterations){
         if(a.hp<=0 || b.hp<=0) continue;
         const cornersA = partCorners(a.x,a.y,a.hullAngle, a.hullLen/2, a.hullWid/2);
         const cornersB = partCorners(b.x,b.y,b.hullAngle, b.hullLen/2, b.hullWid/2);
-        const mtv = obbMTV(cornersA, cornersB);
-        if(mtv && mtv.depth > 0.05){
-          const depth = mtv.depth;
-          // Calculate true unit direction from MTV
-          const mtvLen = Math.hypot(mtv.dx, mtv.dy);
-          if (mtvLen < 1e-4) continue;
-          const ux = mtv.dx / mtvLen;
-          const uy = mtv.dy / mtvLen;
-          
-          // Separate them along the MTV. Add a tiny buffer (0.1px) to prevent precision sticking.
-          const separation = depth + 0.1;
-          const pushX = ux * separation;
-          const pushY = uy * separation;
-          
-          a.x -= pushX * 0.5; a.y -= pushY * 0.5;
-          b.x += pushX * 0.5; b.y += pushY * 0.5;
-          
-          // Dampen speed along the collision normal to prevent sticking and endless vibration
-          // Project velocities onto collision normal (ux, uy)
-          const velA_X = a.speed ? Math.cos(a.hullAngle) * a.speed : 0;
-          const velA_Y = a.speed ? Math.sin(a.hullAngle) * a.speed : 0;
-          const velB_X = b.speed ? Math.cos(b.hullAngle) * b.speed : 0;
-          const velB_Y = b.speed ? Math.sin(b.hullAngle) * b.speed : 0;
-          
-          const relVelX = velA_X - velB_X;
-          const relVelY = velA_Y - velB_Y;
-          const normalVel = relVelX * ux + relVelY * uy;
-          
-          // If moving towards each other, subtract the relative speed component along normal
-          if (normalVel > 0) {
-            const impulse = normalVel * 0.5;
-            if (a.speed) {
-              const aNormalX = ux * impulse;
-              const aNormalY = uy * impulse;
-              const newA_X = velA_X - aNormalX;
-              const newA_Y = velA_Y - aNormalY;
-              a.speed = Math.hypot(newA_X, newA_Y) * (velA_X * newA_X + velA_Y * newA_Y > 0 ? 1 : -1) * 0.7;
-            }
-            if (b.speed) {
-              const bNormalX = ux * impulse;
-              const bNormalY = uy * impulse;
-              const newB_X = velB_X + bNormalX;
-              const newB_Y = velB_Y + bNormalY;
-              b.speed = Math.hypot(newB_X, newB_Y) * (velB_X * newB_X + velB_Y * newB_Y > 0 ? 1 : -1) * 0.7;
-            }
-          } else {
-            if(a.speed) a.speed *= 0.8;
-            if(b.speed) b.speed *= 0.8;
+        const candidates = obbMTVs(cornersA, cornersB);
+        if(!candidates) continue;
+        // 稳定选轴：先按最小深度定基准，再在近基准轴里用"相对速度投影"决胜。
+        // 注意 u=(ux,uy) 约定：从 B 质心指向 A 质心（推 A 远离 B 的方向，与掩体 obbMTV 一致）
+        let minD = Infinity;
+        for(const c of candidates) if(c.depth < minD) minD = c.depth;
+        let best = candidates[0];
+        const tie = candidates.filter(c => c.depth <= minD * 1.15);
+        if(tie.length > 1){
+          const vAx = Math.cos(a.hullAngle) * a.speed, vAy = Math.sin(a.hullAngle) * a.speed;
+          const vBx = Math.cos(b.hullAngle) * b.speed, vBy = Math.sin(b.hullAngle) * b.speed;
+          let bestScore = -Infinity;
+          for(const c of tie){
+            const score = (vBx - vAx) * c.ux + (vBy - vAy) * c.uy;   // >0 = 沿该轴闭合逼近
+            if(score > bestScore){ bestScore = score; best = c; }
           }
-          moved = true;
+          if(bestScore <= 0) best = tie[0];   // 正在分离/纯切向：退回最小深度
+        } else {
+          best = tie[0];
         }
+        const depth = best.depth;
+        if(depth <= 0.05) continue;
+        // 沿解析后的 MTV 等量分离（0.1px 缓冲防精度粘连）：A 沿 +u、B 沿 -u
+        const separation = depth + 0.1;
+        const pushX = best.ux * separation;
+        const pushY = best.uy * separation;
+        a.x += pushX * 0.5; a.y += pushY * 0.5;
+        b.x -= pushX * 0.5; b.y -= pushY * 0.5;
+
+        // 速度冲量（仅法向闭合分量；t.speed 为沿 hullAngle 的标量）：
+        //   vA' = vA + j·u, vB' = vB − j·u，j = relN/2（完全非弹性，闭合速度一次清零）；
+        //   切向分量原样保留；结果向量投影回各自车体轴得到新标量，不破坏方向。
+        const vAx = Math.cos(a.hullAngle) * a.speed, vAy = Math.sin(a.hullAngle) * a.speed;
+        const vBx = Math.cos(b.hullAngle) * b.speed, vBy = Math.sin(b.hullAngle) * b.speed;
+        const relN = (vBx - vAx) * best.ux + (vBy - vAy) * best.uy;
+        if(relN > 0){
+          const j = relN * 0.5;
+          a.speed = (vAx + best.ux * j) * Math.cos(a.hullAngle)
+                  + (vAy + best.uy * j) * Math.sin(a.hullAngle);
+          b.speed = (vBx - best.ux * j) * Math.cos(b.hullAngle)
+                  + (vBy - best.uy * j) * Math.sin(b.hullAngle);
+          const cap = t => (t.stats && t.stats.maxSpeed) ? t.stats.maxSpeed * RULES.speed.pxFactor : 0;
+          const capA = cap(a), capB = cap(b);
+          if(capA > 0) a.speed = Math.max(-capA, Math.min(capA, a.speed));
+          if(capB > 0) b.speed = Math.max(-capB, Math.min(capB, b.speed));
+        }
+        moved = true;
       }
     }
     if(!moved) break;
