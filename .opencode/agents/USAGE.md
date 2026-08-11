@@ -8,7 +8,7 @@ This project has **8 configured sub-agents** in `.opencode/agents/` plus **3 ski
 |---|---|---|
 | **Invocation** | `/task {agent: tank-combat, description: ...}` or `@tank-combat` | `/skill shared-module-dev` |
 | **Mode** | `subagent` — runs as isolated Task session | Injects instructions into current conversation |
-| **Visibility** | Hidden ones (`test-runner`, `orchestrator`) run automatically; visible ones appear in `@` autocomplete | Always loaded on demand via `/skill` |
+| **Visibility** | Hidden ones (`test-runner`) run automatically; visible ones appear in `@` autocomplete | Always loaded on demand via `/skill` |
 | **Config file** | `.opencode/agents/<name>.md` (YAML frontmatter) | `.opencode/skills/<name>/SKILL.md` |
 
 ## 2. Quick Reference: When to Use Each Agent
@@ -22,21 +22,21 @@ This project has **8 configured sub-agents** in `.opencode/agents/` plus **3 ski
 | Build enemy AI, camera, node map progression | `@node-map` | Owns map structure, AI states, economy (§2 of DEVELOPMENT.md) |
 | Write/run tests, verify changes | `@test-runner` | Runs `npm run check` + `npm test` (hidden — auto-invoked) |
 | Update documentation lifecycle | `@docs-agent` | Manages DEVELOPMENT.md/PLAN.md/ISSUES.md/ARCHIVE.md |
-| Have a task that spans multiple areas | `@orchestrator` | Routes to right specialist, runs verification, handles docs |
+| Have a task that spans multiple areas | **Tab** 切到 `orchestrator` | Primary agent：路由到多个 specialist 并行干活（各自独立上下文），再跑验证与文档 |
 
 ## 3. Automatic Workflow Patterns
 
 ### Pattern A: Single-subsystem change
 ```
-@orchestrator Fix the fire DOT damage calculation in resolveHit — it should apply once per tick, not per frame
+Tab 切到 orchestrator → Fix the fire DOT damage calculation in resolveHit — it should apply once per tick, not per frame
 ```
 → Orchestrator routes to `@tank-combat`, waits, then `@test-runner`, then `@docs-agent`.
 
 ### Pattern B: Multi-file change (e.g., new RULES field + combat logic)
 ```
-@orchestrator Add a new ammo type "APCR-2" with 1.5x speed, 0.9x penetration, and a trail color option in RULES
+Tab 切到 orchestrator → Add a new ammo type "APCR-2" with 1.5x speed, 0.9x penetration, and a trail color option in RULES
 ```
-→ Orchestrator mentions both `@tank-model` (add to RULES.ammoTypes) and `@tank-combat` (implement flight behavior), then `@test-runner`.
+→ Orchestrator dispatches `@tank-model` (add to RULES.ammoTypes) and `@tank-combat` (implement flight behavior) **in parallel** — separate contexts — then merges results and runs `@test-runner`.
 
 ### Pattern C: Verification only (skip implementation)
 ```
@@ -52,7 +52,7 @@ This project has **8 configured sub-agents** in `.opencode/agents/` plus **3 ski
 
 ## 4. Direct @Mention (manual)
 
-You can skip the orchestrator and mention agents directly:
+You can skip the orchestrator and call sub-agents directly with `@` (or `/task`):
 
 ```
 @tank-combat Can you change the fire DOT from 10% to 15% per second?
