@@ -153,7 +153,7 @@
 - **配置表下沉（P-02#4）**：`BARREL_PRESETS`/`MANTLE_PRESETS` → `js/tank_presets.js`；`FIELD_ROWS`/`MUZZLES`/`EVAC` → `js/tank_schema.js`（designer/compare 共用单一来源）。
 - **坦克运动统一（P-02#6）**：新 `js/tank_move.js` 提供 `driveTank(t, dt, {turn, move})`，合并 `tank_mvp.html` 原来 player/dummy 两条完全平行的驾驶块（转向/加减速/掩体 `move` 通行系数/起火 `fireMul` 与 debuff 乘数/掩体碰撞推出/履带相位推进）；靶车转向速率改为统一走 `t.stats.turnRate`（原来硬编码 1.6）。未来敌方/友军 AI 只出 `{turn, move}` 即可驾驶。
 - **数据去重（P-02#5）**：模块中文标签 `MODULE_LABELS`/`moduleLabel` 集中到 `js/tank_model.js` 并导出（mvp HUD 删除本地副本，标签统一为"发动机"）；designer『显示内部模块 zones』改读 `RULES.modules.zones`（删除内联同值常量）。
-- **命中部位意图选择（P-01）**：开火瞬间沿无散布瞄准线把鼠标投影到目标命中距离上，`投影值 > 目标距 + partProbe(12px)` 判定意图打**炮塔**（上部），`< 目标距 - partProbe` 判定打**车体**，死区内 `'auto'` 默认炮塔优先；预测面板同源显示“本次将命中部位”（`aimPartPreference`/`bestHitForPref`，`js/tank_geometry.js:121/134`）。半高掩体按垂直剖面单一判定（2026-08-10 起）：被挡即拦截，**不再回退改打另一部位**（见 2.5，取代 P-01 原“首选部位全遮蔽才回退”决策）。已用 `scripts/test-hitpart.js` 覆盖投影边界、偏好取舍及窗口。
+- **命中部位意图选择（P-01，已完结）**：开火瞬间沿无散布瞄准线把鼠标投影到目标命中距离上，`投影值 > 目标距 + partProbe(12px)` 判定意图打**炮塔**（上部），`< 目标距 - partProbe` 判定打**车体**，死区内 `'auto'` 默认炮塔优先；预测面板同源显示“本次将命中部位”（`aimPartPreference`/`bestHitForPref`，`js/tank_geometry.js:121/134`）。半高掩体按垂直剖面单一判定（2026-08-10 起）：被挡即拦截，**不再回退改打另一部位**（见 2.5，取代 P-01 原“首选部位全遮蔽才回退”决策）。已用 `scripts/test-hitpart.js` 覆盖投影边界、偏好取舍及窗口。**`partProbe=12` 于 2026-08-11 手感标定完成**：死区大小体感合适（偏离鼠标方向即可可靠分出炮塔/车体，又不至于晃动误判），保持可调。
 
 ---
 
@@ -213,6 +213,14 @@
         - **座圈圆心可拖拽编辑**（`ARCHIVE.md` #6）：『炮塔』模式按住画布上旋转中心的十字或"炮塔自身中心"青点 **dx/dy 双向**拖动，即自由调整炮塔自身旋转中心（座圈圆心不动、炮塔多边形相对滑移，见 §3「炮塔自身旋转中心（axis）可自由编辑」）；『旋转中心』模式拖拽十字 = 沿车体中轴线平移 pivot（dy 固定 0）。
         - **装甲厚度面板联动高亮**：选中画布边线/列表行后，面板顶部显示"当前装甲段"读数（部位·边·类型·mm），对应 mm 输入框高亮。
         - **战斗参数新增 三扩系数 / 缩圈速度**（`spreadMult` / `aimSpeed`），随条目存取，`tank_compare.html` 同步展示（`ARCHIVE.md` #5）。
+        - **工具链/性能三件套（P-04，本次会话已实现）**：
+          - **JSDoc + tsc 类型检查**：配置 TypeScript 类型检查（`checkJs: true`, `noEmit: true`），类型文件存于 `types/globals.d.ts`，打通了 IDE 类型提示与开发期零构建错误检测（`npm run typecheck`）。
+          - **pre-commit git hooks**：挂载本地 `pre-commit` 钩子，提交前强制自检 `npm run check`。
+          - **OpenCode Skill (test-runner)**：固化 `npm run check`（包含语法和类型两重防线）与 `npm test`，大幅提升 AI 与 Agent 自检效率。
+          - **Canvas 性能三件套**：
+            1. **离屏预渲染缓存**（`PAINT_CACHE`）：程序化坦克渲染支持在 `scale === 1` 下（实战游玩时）首帧将车体/炮塔细节栅格化至 offscreen 离屏 canvas 缓存，后续帧直接调用 `drawImage`，彻底节省了每帧昂贵的多边形和路径（Path）重建。
+            2. **粒子对象池**（`PARTICLE_POOL`）：对 `tank_fx.js` 下的火焰/浓烟/碎片/火花粒子接入对象池，大幅减少特效高频创建/销毁带来的内存抖动和垃圾回收（GC）开销。
+            3. **fixed timestep (120Hz)**：将 `tank_mvp.html` 的物理更新与主循环解耦，基于 fixed step 累加器保持恒定的物理模拟与碰撞更新，消除高刷/低刷屏下的速度与阻尼手感漂移。
 
 ---
 

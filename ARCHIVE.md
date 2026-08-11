@@ -17,10 +17,41 @@
 | 2026-08-13 | `PLAN.md` | P-03 坦克数据拆分 tanks/ 一型一文件 | 已全部完成并验证（结论见 DEVELOPMENT §3.6；`split-tank-list.js` 保留作维护工具） |
 | 2026-08-10 | `ISSUES.md` | #9. tank_mvp.html 首次加载玩家坦克未从 tanks/ 目录正确应用 | 已修复并验证（玩家默认加载适配 tanks/ 优先存在的配置） |
 | 2026-08-10 | `ISSUES.md` | #12. 坦克交叉碰撞"鬼畜"抖动（MTV 轴歧义 + 幽灵穿模 + 速度模型破坏） | 已重写碰撞解析并验证（结论见 DEVELOPMENT §3「坦克间碰撞」） |
+| 2026-08-11 | `PLAN.md` | P-04 工具链与性能批次（JSDoc/tsc/pre-commit/Skill/性能三件套） | 已全部完成并验证（结论见 DEVELOPMENT §4.7.4 / §4.5.6 等） |
+| 2026-08-11 | `PLAN.md` | P-01 命中部位由鼠标径向意图决定（打炮塔 / 打车体） | 已全部完成并验证（结论见 DEVELOPMENT §3.6 / §2.5；`partProbe=12` 手感标定完成） |
 
 ------
 
 # 一、2026-08-08 归档自 `PLAN.md`（原文）
+
+---
+
+# 二、2026-08-11 归档自 `PLAN.md`（P-04 工具链与性能批次，原文）
+
+### P-04 工具链/工程效率批次（短期，本次会话新增）
+
+**动机**：模块数量增长后，纯语法冒烟（`npm run check`）拦不住类型错误与浏览器侧回归；为 AI 协作与手测效率补齐轻量工具链，全部零运行时依赖、不引入构建。
+
+**子条目**：
+1. **JSDoc 类型检查**：`devDependencies` 加 `typescript`；新建 `tsconfig.json`（`checkJs: true`, `noEmit: true`）；共享模块关键签名加 JSDoc（`tank_utils`/`tank_geometry`/`tank_model`/`tank_physics` 优先）；`package.json` 加 `typecheck` 脚本；`npm run check` 串入 `npm run typecheck`。
+2. **pre-commit git hook**：创建 `.git/hooks/pre-commit` 自动执行 `npm run check`（含语法检查与重复声明检测）。
+3. **OpenCode `test-runner` skill**：创建 `.opencode/skills/test-runner/SKILL.md`，固化测试与检查规范。
+4. **Canvas 性能三件套**（`js/tank_paint.js`/`js/tank_fx.js`，纯表现层）：
+   - 程序化坦克贴图**离屏预渲染缓存**；
+   - **粒子对象池**（火花/烟尘/碎片）；
+   - **fixed timestep** 帧率稳定。
+
+**验证路径**：`npm run check` 全绿；三个原型浏览器正常加载。
+
+**决策清单**：
+- [x] 1. JSDoc + typescript + tsconfig 接入
+- [x] 2. pre-commit hook 挂载
+- [x] 3. test-runner skill 创建
+- [x] 4. Canvas 性能优化（离屏缓存/粒子池/fixed timestep）
+
+---
+
+# 三、2026-08-08 归档自 `ISSUES.md`（原文）
 
 ---
 # 功能执行计划（Features Plan）
@@ -869,3 +900,37 @@ if (mod.key==='ammo') {
 - 推挤：被顶车沿自身车体轴获得动量（x−0.77/-y−63.05/-x 三方向均符合预期），法向传递系数 ~1。
 - 快速穿插（200 帧 640px/s）：永不穿模、无幽灵帧，推出方向始终背离穿透方向。
 - `npm run check`（19 模块 + HTML 全绿）+ `npm test` 4 文件全绿（含本次新增 `test-tankcollision.js`）。
+
+---
+
+# 四、2026-08-11 归档自 `PLAN.md`（P-01 命中部位意图，原文）
+
+### P-01 命中部位由鼠标径向意图决定（打炮塔 / 打车体）
+
+**问题**：命中车体还是炮塔由 `bestTankHit`（炮塔恒优先）+ 散布落弹方位共同决定，玩家无法用输入影响，体感"完全随机"。
+
+**方案**（已定稿）：开火瞬间沿"无散布瞄准线"把鼠标投影到炮口距离上，与目标最近碰撞距离比较：
+- `鼠标投影 > 目标碰撞距离 + partProbe` → 打**炮塔**（上部）；
+- `鼠标投影 < 目标碰撞距离 - partProbe` → 打**车体**；
+- 处于死区内 → `auto`（保持现状：炮塔优先，兼容 `ARCHIVE.md #2` 修复）。
+- 掩体：垂直剖面单一判定（2026-08-10 修订，取代原"首选部位全遮蔽才回退"决策）——所选部位被半高掩体拦就是被拦截，不回退改打另一部位；引导玩家改打炮塔（详见 `DEVELOPMENT.md` §2.5）。
+- 预测面板 `updateSolution` 用**同源逻辑**显示"本次将命中部位"，与实弹判定一致。
+
+**改动**：
+1. `js/tank_rules.js` → 新增 `RULES.aim = { partProbe: 12 }`（死区 px）。
+2. `js/tank_geometry.js` → 新增 `aimPartPreference(...)`（纯投影判定，返回 `'turret'|'hull'|'auto'`）与 `bestHitForPref(hits,minT,maxT,pref)`（按偏好取部位命中）；`bestTankHit` 保留不动。
+3. `tank_mvp.html` → `tryFire` 预算并写 `shell.hitPref`；炮弹循环改用 `bestHitForPref` + 掩体回退；`updateSolution` 同源预览。
+4. 测试：新增 `scripts/test-hitpart.js`（Node 覆盖两函数与死区边界），`package.json` `test` 脚本跑两个测试文件。
+
+**玩法价值**：炮塔正面 140 > 车体正面 110——打炮塔=穿透难但拆炮手/装填手/弹药架（debuff/殉爆）；打车体=穿透易但打引擎/驾驶员/履带。
+
+**验证路径**：`npm run test` + `npm run check` 全绿；dev server 下真机手感标定 `partProbe`。
+
+**决策清单**：
+- [x] 交互：仅鼠标位置（不加快捷键位）
+- [x] 反馈：仅预测面板（`solPart`），不画画面标记
+- [x] 掩体：垂直剖面单一判定（2026-08-10 修订，见上方方案说明）
+- [x] 实现 + 测试（全绿）
+- [x] `partProbe=12` 体感标定（可调）
+
+**上次完成批次**（2026-08-13，命中意图 + 掩体回退逻辑实现与 Node 测试）见 `DEVELOPMENT.md` §3.6 / §3.7 与 `ARCHIVE.md`。
