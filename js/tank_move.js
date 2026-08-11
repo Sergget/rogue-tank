@@ -44,7 +44,7 @@ function driveTank(t, dt, input){
   t.y += Math.sin(t.hullAngle)*t.speed*dt;
   // 掩体/元素碰撞：solid 推出（不可压）、crushable 压毁、graduated/none 仅通行系数
   resolveCoverCollisions(t);
-  advanceTracks(t, t.x-p0x, t.y-p0y, norm(t.hullAngle-p0a));
+  advanceTracks(t, Math.hypot(t.x-p0x, t.y-p0y));
 }
 
 if (typeof module !== 'undefined' && module.exports) {

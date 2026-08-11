@@ -1,0 +1,47 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "tank-combat": {
+      "description": "Combat & physics specialist — handles resolveHit, ballistics, damage, modules, sigma/spread, and tank_mvp.html battle systems",
+      "mode": "subagent",
+      "color": "error"
+    },
+    "tank-designer": {
+      "description": "Geometry & editor specialist — handles polygon editing, armor faces, pivot/axis, barrel presets, and tank_designer.html workflows",
+      "mode": "subagent",
+      "color": "warning"
+    },
+    "tank-model": {
+      "description": "Data & config specialist — handles shared JS modules, tank JSON configs (tanks/), applyTankConfig, RULES, schema, presets",
+      "mode": "subagent",
+      "color": "info"
+    },
+    "map-cover": {
+      "description": "Cover & map-element specialist — handles tank_cover.js, graduated/half/full covers, trees/bushes/barricades, OBB collision",
+      "mode": "subagent",
+      "color": "success"
+    },
+    "test-runner": {
+      "description": "Verification specialist — runs npm run check, npm test, typecheck, and validates changes against acceptance criteria",
+      "mode": "subagent",
+      "hidden": true
+    },
+    "docs-agent": {
+      "description": "Documentation lifecycle specialist — enforces 4-step doc lifecycle (DEVELOPMENT.md, PLAN.md, ISSUES.md, ARCHIVE.md)",
+      "mode": "subagent",
+      "permission": {
+        "bash": "deny",
+        "edit": "allow"
+      }
+    },
+    "node-map": {
+      "description": "Map progression & AI specialist — handles node-based maps, enemy AI states, friendly HQ, economy, death/resurrection",
+      "mode": "subagent",
+      "color": "accent"
+    },
+    "orchestrator": {
+      "description": "Routes tasks to the correct specialist sub-agent, runs verification, and manages documentation lifecycle",
+      "mode": "subagent"
+    }
+  }
+}

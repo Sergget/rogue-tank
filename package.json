@@ -6,10 +6,15 @@
     "start": "node server.js",
     "dev": "node server.js",
     "serve": "node server.js",
-    "check": "node scripts/check-html.js",
+    "check": "node scripts/check-html.js && npm run typecheck",
+    "typecheck": "tsc --noEmit",
     "test": "node scripts/test-covers.js && node scripts/test-tanks.js && node scripts/test-hitpart.js && node scripts/test-tankcollision.js"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
   }
 }

@@ -117,13 +117,40 @@ function paintTurretShadow(ctx, verts, cx, cy, angle, scale, ox, oy, worldAng){
 }
 
 // ---------- top-down textures ----------
-// paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts)
-//   kind : 'hull' | 'turret'
-//   opts : { faded?:boolean, detail?:boolean }
-//     faded  — edit modes: faint base paint only (keeps vertex/edge editing readable)
-//     detail — full texture (deck plate, grilles, hatch, etc.); skipped when faded
-// Local-unit geometry; clip to the part polygon, then stamp simplified top-down details.
-function paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts){
+// Offscreen Canvas Cache for procedural tank sprites to optimize render performance
+const PAINT_CACHE = new Map();
+function clearPaintCache() {
+  PAINT_CACHE.clear();
+}
+
+function getCachedTankSprite(color, kind, verts, hasTurret, heightClass) {
+  const cacheKey = `${color}_${kind}_${hasTurret}_${heightClass}_${verts.map(v => `${v[0].toFixed(1)},${v[1].toFixed(1)}`).join('|')}`;
+  if (PAINT_CACHE.has(cacheKey)) {
+    return PAINT_CACHE.get(cacheKey);
+  }
+  
+  // Calculate bounding box in local space
+  const { minX, maxX, minY, maxY } = paintBounds(verts);
+  const w = Math.ceil(maxX - minX) + 8;
+  const h = Math.ceil(maxY - minY) + 8;
+  const cx = -minX + 4;
+  const cy = -minY + 4;
+  
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  
+  // Paint the texture once onto this offscreen canvas at local scale 1
+  paintPartTextureDirect(ctx, verts, cx, cy, 0, 1, color, kind, { detail: true, hasTurret, heightClass });
+  
+  const cacheEntry = { canvas, cx, cy, w, h };
+  PAINT_CACHE.set(cacheKey, cacheEntry);
+  return cacheEntry;
+}
+
+// Internal drawing function that does the actual work on a context (offscreen or direct)
+function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, opts) {
   opts = opts || {};
   const { minX, maxX, minY, maxY } = paintBounds(verts);
   const L = (maxX-minX)/2, W = (maxY-minY)/2;
@@ -185,4 +212,26 @@ function paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts){
     }
   }
   ctx.restore();
+}
+
+// paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts)
+//   kind : 'hull' | 'turret'
+//   opts : { faded?:boolean, detail?:boolean }
+//     faded  — edit modes: faint base paint only (keeps vertex/edge editing readable)
+//     detail — full texture (deck plate, grilles, hatch, etc.); skipped when faded
+// Local-unit geometry; clip to the part polygon, then stamp simplified top-down details.
+function paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts){
+  opts = opts || {};
+  // If we are in high performance mode (detail && !faded) and scale is constant (e.g. 1 in play), use the offscreen cache.
+  // When zoomed or faded, bypass the cache to draw sharp vectors.
+  if (!opts.faded && opts.detail !== false && scale === 1) {
+    const entry = getCachedTankSprite(color, kind, verts, opts.hasTurret !== false, opts.heightClass);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle || 0);
+    ctx.drawImage(entry.canvas, -entry.cx, -entry.cy);
+    ctx.restore();
+  } else {
+    paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, opts);
+  }
 }

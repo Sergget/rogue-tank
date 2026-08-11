@@ -17,20 +17,48 @@ let muzzleFlashes = [];  // 炮口闪光: {x,y,ang,life,max,big}
 let hitFx = [];          // 命中/擦弹特效: {x,y,ang,life,max,outcome,scale}
 const FX_MAX_PARTICLES = 600;
 
+// Particle Object Pool to eliminate GC and memory allocation overhead
+const PARTICLE_POOL = [];
+function getPooledParticle(kind, x, y, vx, vy, max, size) {
+  let p;
+  if (PARTICLE_POOL.length > 0) {
+    p = PARTICLE_POOL.pop();
+    p.kind = kind;
+    p.x = x;
+    p.y = y;
+    p.vx = vx;
+    p.vy = vy;
+    p.age = 0;
+    p.max = max;
+    p.size = size;
+  } else {
+    p = { kind, x, y, vx, vy, age: 0, max, size };
+  }
+  return p;
+}
+function releaseParticle(p) {
+  if (PARTICLE_POOL.length < 1000) {
+    PARTICLE_POOL.push(p);
+  }
+}
+
 function spawnFlame(x,y,spread){
+  if (fxParticles.length > FX_MAX_PARTICLES) return;
   const a = Math.random()*TAU, sp = 18 + Math.random()*spread;
-  fxParticles.push({ kind:'flame', x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp - 46,
-    age:0, max:0.35 + Math.random()*0.5, size:4.5 + Math.random()*7 });
+  fxParticles.push(getPooledParticle('flame', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 46,
+    0.35 + Math.random()*0.5, 4.5 + Math.random()*7));
 }
 function spawnSmoke(x,y,spread){
+  if (fxParticles.length > FX_MAX_PARTICLES) return;
   const a = Math.random()*TAU, sp = (6 + Math.random()*spread)*0.45;
-  fxParticles.push({ kind:'smoke', x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp - 12,
-    age:0, max:0.7 + Math.random()*0.9, size:5 + Math.random()*7 });
+  fxParticles.push(getPooledParticle('smoke', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 12,
+    0.7 + Math.random()*0.9, 5 + Math.random()*7));
 }
 function spawnDebris(x,y){
+  if (fxParticles.length > FX_MAX_PARTICLES) return;
   const a = Math.random()*TAU, sp = 60 + Math.random()*120;
-  fxParticles.push({ kind:'debris', x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp - 60,
-    age:0, max:0.5 + Math.random()*0.4, size:1.2 + Math.random()*1.8 });
+  fxParticles.push(getPooledParticle('debris', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 60,
+    0.5 + Math.random()*0.4, 1.2 + Math.random()*1.8));
 }
 function burstExplosion(x,y,scale,flames,smokes,debris){
   explosions.push({ x, y, life:0, max:0.65, scale:scale||1.6 });
@@ -57,10 +85,13 @@ function spawnAmmoBlowFx(t){
   const bp = t.blowHitPoint || { x:t.x, y:t.y };
   burstExplosion(bp.x, bp.y, 2.2, 46, 26, 18);
   const p = turretPivot(t);
+  const px = p[0];
+  const py = p[1];
   const ang = superstructureAngle(t);
+  const tPoly = turretPoly(t);
   turretFlights.push({
-    snap: { verts:(t.turretSpec && t.turretSpec.verts) || turretPoly(t).verts, color:t.color, len:t.turLen, wid:t.turWid },
-    x:p.x, y:p.y, ang,
+    snap: { verts:(t.turretSpec && t.turretSpec.verts) || (Array.isArray(tPoly) ? tPoly : tPoly.verts), color:t.color, len:t.turLen, wid:t.turWid },
+    x:px, y:py, ang,
     vx: Math.cos(ang) * (40 + Math.random()*60) + (Math.random()-0.5)*50,
     vy: -230 - Math.random()*110,
     spin: (Math.random()-0.5)*7,
@@ -78,9 +109,10 @@ function spawnMuzzleFlash(x, y, angle, scale, muzzleType){
   muzzleFlashes.push({ x, y, ang: angle || 0, life: 0, max: 0.1, big: scale || 1, muzzle: muzzleType || 'none' });
 }
 function spawnSpark(x, y, angle, speed, life, size){
-  fxParticles.push({ kind:'spark', x, y,
-    vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
-    age:0, max: life, size: size || 1.2 });
+  if (fxParticles.length > FX_MAX_PARTICLES) return;
+  fxParticles.push(getPooledParticle('spark', x, y,
+    Math.cos(angle)*speed, Math.sin(angle)*speed,
+    life, size || 1.2));
 }
 // 命中/擦弹特效：冲击闪光 + 火花 + 烟尘。outcome: 'pen'|'he'|'block'|'bounce'
 function spawnImpactFx(x, y, angle, outcome, scale){
@@ -97,10 +129,11 @@ function spawnImpactFx(x, y, angle, outcome, scale){
   if(o !== 'bounce'){
     // 命中烟尘（穿透/高爆更多）
     for(let i = 0; i < (o === 'he' ? 7 : 3); i++){
+      if (fxParticles.length > FX_MAX_PARTICLES) break;
       const a = Math.random()*TAU, sp = 20 + Math.random()*60;
-      fxParticles.push({ kind:'smoke', x: x + (Math.random()*8-4), y: y + (Math.random()*8-4),
-        vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 10,
-        age:0, max: 0.4 + Math.random()*0.5, size: 4 + Math.random()*5 });
+      fxParticles.push(getPooledParticle('smoke', x + (Math.random()*8-4), y + (Math.random()*8-4),
+        Math.cos(a)*sp, Math.sin(a)*sp - 10,
+        0.4 + Math.random()*0.5, 4 + Math.random()*5));
     }
   }
 }
@@ -113,13 +146,24 @@ function updateFx(dt){
     if(Math.random() < 0.35 && fxParticles.length < FX_MAX_PARTICLES) spawnSmoke(f.x, f.y, 8);
   });
   turretFlights = turretFlights.filter(f=>f.age < f.max);
-  fxParticles.forEach(p=>{
-    p.age += dt; p.x += p.vx*dt; p.y += p.vy*dt;
-    if(p.kind === 'spark'){ p.vx *= 0.96; p.vy = p.vy*0.96 + 50*dt; }
-    else if(p.kind !== 'debris'){ p.vx *= 0.985; }
-    else { p.vy += 220*dt; }
-  });
-  fxParticles = fxParticles.filter(p=>p.age < p.max);
+  
+  const activeParticles = [];
+  for (let i = 0; i < fxParticles.length; i++) {
+    const p = fxParticles[i];
+    p.age += dt;
+    if (p.age < p.max) {
+      p.x += p.vx*dt;
+      p.y += p.vy*dt;
+      if(p.kind === 'spark'){ p.vx *= 0.96; p.vy = p.vy*0.96 + 50*dt; }
+      else if(p.kind !== 'debris'){ p.vx *= 0.985; }
+      else { p.vy += 220*dt; }
+      activeParticles.push(p);
+    } else {
+      releaseParticle(p);
+    }
+  }
+  fxParticles = activeParticles;
+  
   muzzleFlashes.forEach(f=>f.life+=dt); muzzleFlashes = muzzleFlashes.filter(f=>f.life < f.max);
   hitFx.forEach(f=>f.life+=dt); hitFx = hitFx.filter(f=>f.life < f.max);
 }

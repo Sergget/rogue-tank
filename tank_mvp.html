@@ -1568,10 +1568,21 @@ covers.forEach(drawCover);
   ctx.setLineDash([]);
 }
 
+// ---------- loop with fixed timestep ----------
+const STEP_TIME = 1 / 120; // 120Hz fixed physics step
+let accumulator = 0;
+
 function loop(now){
-  const dt = Math.min(0.05, (now-last)/1000);
+  let dt = (now - last) / 1000;
+  if (dt > 0.2) dt = 0.2; // panic threshold to avoid spiral of death
   last = now;
-  update(dt);
+
+  accumulator += dt;
+  while (accumulator >= STEP_TIME) {
+    update(STEP_TIME);
+    accumulator -= STEP_TIME;
+  }
+
   draw();
   requestAnimationFrame(loop);
 }

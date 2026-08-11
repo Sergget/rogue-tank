@@ -255,9 +255,13 @@ function applyTankConfig(tank, spec){
 }
 
 // SPREAD 全部数值来自 RULES.spread（特性5：集中配置）；保留旧面相（含 worstCase() 方法）
-const SPREAD = Object.assign({}, RULES.spread, {
+const SPREAD = {
+  base: 0.018, moveMax: 0.014, hullRotMax: 0.012, turretRotMax: 0.018, fireDebuff: 0.02, bloomRate: 2.0, shrinkRate: 0.15,
   worstCase(){ return this.base + this.moveMax + this.hullRotMax + this.turretRotMax + this.fireDebuff; }
-});
+};
+if (typeof RULES !== 'undefined' && RULES.spread) {
+  Object.assign(SPREAD, RULES.spread);
+}
 
 function motionSigma(t, dt, keys){
   if(dt<=0) return SPREAD.base;
