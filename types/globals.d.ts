@@ -51,14 +51,25 @@ declare function spawnImpactFx(x: any, y: any, type: any, angle?: any): void;
 declare function burstExplosion(x?: any, y?: any, r?: any, count?: any, speed?: any, color?: any): void;
 declare function pushLog(msg: any, color?: any): void;
 
-declare function turretPivot(t: any): [number, number];
+declare function turretPivot(t: any): { x: number; y: number };
+declare function turretFrontDist(t: any): number;
+declare function polyCorners(cx: number, cy: number, angle: number, poly: any): any[];
 declare function superstructureAngle(t: any): number;
 declare function engineLocalX(t: any): number;
+
+declare function drawTank(ctx: any, t: any): void;
+declare function drawBrokenTracks(ctx: any, t: any): void;
+declare function drawCharredHull(ctx: any, t: any): void;
+declare function drawFireGlow(ctx: any, t: any): void;
+declare function drawShells(ctx: any, shells: any[]): void;
+declare function drawCover(ctx: any, cov: any): void;
+declare function drawFoliage(ctx: any, covers: any[]): void;
+declare function drawClassBadge(ctx: any, t: any, x: number, y: number): void;
 declare function setDebuff(t: any, name: any, sec: any): void;
 declare function debuffTurnRate(t: any): number;
 declare function debuffSpeedRate(t: any): number;
 declare function clamp(val: any, min: any, max: any): number;
-declare function advanceTracks(t: any, dist: any): void;
+declare function advanceTracks(t: any, dx: any, dy: any, dAngle: any): void;
 
 declare function superstructureLabel(hit: any): string;
 declare function faceLabel(faceKey: any): string;

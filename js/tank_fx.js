@@ -85,8 +85,8 @@ function spawnAmmoBlowFx(t){
   const bp = t.blowHitPoint || { x:t.x, y:t.y };
   burstExplosion(bp.x, bp.y, 2.2, 46, 26, 18);
   const p = turretPivot(t);
-  const px = p[0];
-  const py = p[1];
+  const px = p.x;
+  const py = p.y;
   const ang = superstructureAngle(t);
   const tPoly = turretPoly(t);
   turretFlights.push({

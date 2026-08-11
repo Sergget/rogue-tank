@@ -157,5 +157,32 @@ function residualOverlap(a, b){
   ok(maxResidual <= 0.6, `45° 斜交：无深穿残留 (max=${maxResidual.toFixed(2)}px)`);
 }
 
+// 5) 履带相位（ISSUES #14 回归）：driveTank 后 trackPhase 必须为有限数并随位移/转向累积
+{
+  clear();
+  const A = freshTank('A5', 300, 320, 0, 'player');
+  A.trackPhase = 0;
+  MV.driveTank(A, dt, { turn:0, move:1 });
+  ok(Number.isFinite(A.trackPhase) && A.trackPhase > 0,
+    `履带相位有限且随行驶累积 (trackPhase=${A.trackPhase.toFixed(3)})`);
+  const p1 = A.trackPhase;
+  MV.driveTank(A, dt, { turn:1, move:0 });
+  ok(Number.isFinite(A.trackPhase) && A.trackPhase > p1,
+    `原地转向也推进履带相位 (${p1.toFixed(3)} -> ${A.trackPhase.toFixed(3)})`);
+}
+
+// 6) 移动散布源（ISSUES #15 回归）：motionSigma 传入 keys 时移动源生效，未传时无移动源
+{
+  const A = freshTank('player', 300, 320, 0, 'player');
+  A.prevHullAngle = 0; A.prevTurretAngle = 0;
+  const noKeys = MD.motionSigma(A, dt, undefined);
+  const withKeys = MD.motionSigma(A, dt, { w:true });
+  ok(Math.abs(withKeys - (RULES.spread.base + RULES.spread.moveMax)) < 1e-9,
+    `传 keys（行进中）：sigma = base+moveMax (got ${withKeys.toFixed(4)})`);
+  ok(Math.abs(noKeys - RULES.spread.base) < 1e-9,
+    `不传 keys（静止）：sigma = base (got ${noKeys.toFixed(4)})`);
+  ok(withKeys > noKeys, '移动源随 keys 生效（有 keys > 无 keys）');
+}
+
 console.log(fails ? `\n${fails} failure(s).` : '\nAll tank-collision checks passed.');
 process.exitCode = fails ? 1 : 0;

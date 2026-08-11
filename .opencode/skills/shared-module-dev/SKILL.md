@@ -16,7 +16,7 @@ description: Use when adding or modifying shared JavaScript modules in js/ or ad
 3. `js/tank_geometry.js` / `js/tank_cover.js` / `js/tank_halfgeom.js` —依赖 `RULES` 和 `utils`。
 4. `js/tank_presets.js` / `js/tank_schema.js` — 字段与预设表。
 5. `js/tank_model.js` — 依赖规则、几何与半形（`makeTank`, `applyTankConfig`, `computeStats`）。
-6. `js/tank_move.js` / `js/tank_physics.js` / `js/tank_entity.js` / `js/tank_fx.js` / `js/tank_paint.js` — 高层战斗/渲染/物理系统。
+6. `js/tank_move.js` / `js/tank_physics.js` / `js/tank_entity.js` / `js/tank_fx.js` / `js/tank_paint.js` / `js/tank_battledraw.js` — 高层战斗/渲染/物理系统（battledraw 在 paint 之后加载，依赖 tank_paint/tank_geometry/tank_cover）。
 7. `js/tank_listio.js` — I/O 适配层。
 
 ## 2. 双重导出模式 (Dual-Environment Module Pattern)

@@ -19,6 +19,7 @@
 | 2026-08-10 | `ISSUES.md` | #12. 坦克交叉碰撞"鬼畜"抖动（MTV 轴歧义 + 幽灵穿模 + 速度模型破坏） | 已重写碰撞解析并验证（结论见 DEVELOPMENT §3「坦克间碰撞」） |
 | 2026-08-11 | `PLAN.md` | P-04 工具链与性能批次（JSDoc/tsc/pre-commit/Skill/性能三件套） | 已全部完成并验证（结论见 DEVELOPMENT §4.7.4 / §4.5.6 等） |
 | 2026-08-11 | `PLAN.md` | P-01 命中部位由鼠标径向意图决定（打炮塔 / 打车体） | 已全部完成并验证（结论见 DEVELOPMENT §3.6 / §2.5；`partProbe=12` 手感标定完成） |
+| 2026-08-11 | `PLAN.md` | P-02（第 7 条 battledraw 绘制层下沉，P-02 完结） | 已完成并验证（结论见 DEVELOPMENT §3.6；顺带修复 `tank_fx.js` 飞头坐标 `p[0]` 取 `undefined` 的潜伏 bug） |
 
 ------
 
@@ -934,3 +935,41 @@ if (mod.key==='ammo') {
 - [x] `partProbe=12` 体感标定（可调）
 
 **上次完成批次**（2026-08-13，命中意图 + 掩体回退逻辑实现与 Node 测试）见 `DEVELOPMENT.md` §3.6 / §3.7 与 `ARCHIVE.md`。
+
+---
+
+# 八、2026-08-11 归档自 `PLAN.md`：P-02（第 7 条 battledraw，P-02 完结，原文）
+
+### P-02 模块化重构：内联大脚本下沉 + 数据去重
+
+**背景**：`tank_mvp.html`（内联 ~1300 行）与 `tank_designer.html`（内联 ~1500 行）各自持有可共享的实现；`tank_list.json` I/O 逻辑在三个原型里重复三份；若干配置数据与 `RULES` 重复。
+
+**状态**：子条目 1~6 已完成（P-03 先行拆分 / listio / paintBarrel / 配置表下沉 / 数据去重 / tank_move），见 `DEVELOPMENT.md` §3.6 与 `ARCHIVE.md`。剩余第 7 条（可选）：
+
+7. **`js/tank_battledraw.js`**（可选，低优先）：mvp 战斗场景绘制层（`drawTank`/`drawBrokenTracks`/`drawCharredHull`/`drawFireGlow`/`drawShells`/`drawCover`/`drawFoliage`/`drawClassBadge`，~400 行）仿 `tank_fx.js` 先例 ctx 显式传参下沉。测试台专用块（`drawRange`/`addRangeShot`/`AMMO_KEYS`/`RANGE_*`）留在 mvp 不拆。
+
+**验证路径**：每批 `npm run check` + `npm run test` 全绿；dev server 手动过一遍三个原型（加载/切换坦克、设计器保存回写、对比页编辑保存）。
+
+**完结结论**：第 7 条已实现并验证（`npm run check` + `npm test` 全绿；Playwright 真机确认坦克/掩体正常渲染、无控制台错误）；实现细节见 `DEVELOPMENT.md` §3.6。
+
+
+---
+
+# 九、2026-08-11 归档自 `ISSUES.md`（#14/#15 修复，原文）
+
+### #14 履带相位 trackPhase 恒为 NaN，履带滚动动画失效（2026-08-11 战前代码审查确认）
+- **证据**：`js/tank_move.js:47` 调用 `advanceTracks(t, Math.hypot(t.x-p0x, t.y-p0y))`，而 `js/tank_entity.js:32` 的签名为 `advanceTracks(t, dx, dy, dAngle)` —— dy/dAngle 为 `undefined`，`Math.hypot(dist, undefined)` 返回 `NaN` → `t.trackPhase = NaN`。Node 复现：`driveTank` 一次 move 后 `trackPhase` 即 NaN；`tank_move.js` 中记录的 `p0a`（hullAngle 旧值）从未被使用，本意即传角度差。
+- **影响**：`js/tank_battledraw.js:20/61` 以 `t.trackPhase||0` 兜底 → 履带纹路相位恒为 0，**滚动动画失效**（视觉回归，不崩溃）；未来任何直接消费 phase 的代码会扩散 NaN。
+
+### #15 移动散布源失效：`updateSigma` 未传 keys（2026-08-11 战前代码审查确认）
+- **证据**：`tank_mvp.html:662` 调用 `updateSigma(player, dt)` 未传第三个参数 `keys`；`js/tank_model.js:271` 的 `if(t.id==='player' && keys)` 分支因 `keys === undefined` 恒不成立 → `speed = 0` → `sMove = 0`。Node 复现：`motionSigma(t, dt, {w:true})` 与 `motionSigma(t, dt, undefined)` 返回值完全相同。
+- **影响**：三扩系统中**移动源（`moveMax`，全速 0.014 rad）永不生效**，仅车体转向/炮塔转向两源生效；与 DEVELOPMENT.md §3「受移动速度、车体转速、炮塔转速、乘员受伤四源驱动」不符——玩家按住 W 直线行驶时散布不扩大。
+
+**修复记录（2026-08-11）**：
+- #14：`js/tank_move.js:48` 改传 `advanceTracks(t, t.x-p0x, t.y-p0y, t.hullAngle-p0a)`；`types/globals.d.ts` 同步声明 `advanceTracks(t, dx, dy, dAngle)`；新增 `test-tankcollision.js` 测试 5（履带相位有限且随行驶/转向累积）。
+- #15：`tank_mvp.html:662` 改 `updateSigma(player, dt, keys)`；新增 `test-tankcollision.js` 测试 6（传 keys：sigma=base+moveMax；不传：sigma=base）。
+- 验证：`npm run check` + `npm test` 全绿。结论已同步 `DEVELOPMENT.md` §3（坦克运动统一 / 扩圈缩圈系统）、§5.3（履带转动动画已实现）、§6.2（标记完成）。
+
+
+---
+

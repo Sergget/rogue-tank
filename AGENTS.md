@@ -19,6 +19,7 @@
   - `tank_entity.js`：实体注册表（entities 数组、spawnTank/isHostile/nearestEnemyTo/resolveTankCollisions）。
   - `tank_fx.js`：战斗特效（殉爆/履带断/起火/炮口闪光/命中特效/粒子）。
   - `tank_paint.js`：程序化坦克渲染（履带/阴影/俯视纹理），纯 ctx 显式传入、无 DOM 依赖。
+  - `tank_battledraw.js`：mvp 战斗场景绘制层（drawTank/drawShells/drawCover/drawFoliage/车型标志等），仿 tank_fx.js ctx 显式传参；测试台专用块留在 mvp 不拆。
   - `tank_halfgeom.js`：半侧对称多边形几何 + 炮管规格归一化 `normalizeBarrel`（三个原型/设计器均加载，纯逻辑可 Node 测试）。
   - `tank_move.js`：统一坦克运动 `driveTank(t, dt, {turn, move})`（玩家/靶车/AI 共用，含掩体通行系数/起火与 debuff 乘数/碰撞推出/履带相位）+ `fireMul`。
   - `tank_listio.js`：坦克数据读写层（`tanks/` 一型一文件，fetch/save/delete + 无服务器时下载 fallback）。
