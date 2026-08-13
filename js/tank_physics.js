@@ -91,6 +91,9 @@ function applyModuleDamage(shell, target, hit){
               mod.key === 'driver' || mod.key === 'commander'){
       dmg *= moduleMult(shell.shooter, 'crew');
     }
+    // 所有倍率乘完后再取整：日志/显示与实际扣血用同一整数 dmg，
+    // 消除"显示 100、实际 99.5、残 0.5HP 不死"的浮点不一致
+    dmg = Math.round(dmg);
     target.hp = Math.max(0, target.hp - dmg);
     const alive = target.hp > 0;
 
@@ -148,7 +151,7 @@ function applyModuleDamage(shell, target, hit){
         break;
     }
   }
-  return { cls, text: `击穿！命中 ${mod.label}，造成 ${dmg.toFixed(0)} 伤害 ${extra}` };
+  return { cls, text: `击穿！命中 ${mod.label}，造成 ${dmg} 伤害 ${extra}` };
 }
 
 // Export for Node.js if running in test environment
