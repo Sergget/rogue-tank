@@ -37,23 +37,23 @@
   "hull": {
     "verts": [
       [
-        41.5,
+        36.8,
         0
       ],
       [
-        32,
+        27.3,
         -19
       ],
       [
-        -32,
+        -36.7,
         -19
       ],
       [
-        -32,
+        -36.7,
         19
       ],
       [
-        32,
+        27.3,
         19
       ]
     ],
@@ -118,5 +118,99 @@
       "dx": 0,
       "dy": 0
     }
+  },
+  "modules": {
+    "driver": [
+      {
+        "part": "hull",
+        "x": 32,
+        "y": -9.5,
+        "len": 0.35,
+        "off": -0.32,
+        "mirror": true
+      }
+    ],
+    "ammo": [
+      {
+        "part": "hull",
+        "x": -4.7,
+        "y": -19,
+        "len": 0.25,
+        "off": -0.25,
+        "mirror": true
+      },
+      {
+        "part": "turret",
+        "x": -22.2,
+        "y": 0,
+        "len": 1,
+        "off": 0,
+        "mirror": true
+      },
+      {
+        "part": "turret",
+        "x": -10.7,
+        "y": -14.7,
+        "len": 0.35,
+        "off": 0.32,
+        "mirror": true
+      }
+    ],
+    "engine": [
+      {
+        "part": "hull",
+        "x": -36.7,
+        "y": 0,
+        "len": 0.6,
+        "off": 0,
+        "mirror": true
+      },
+      {
+        "part": "hull",
+        "x": -4.7,
+        "y": -19,
+        "len": 0.3,
+        "off": 0.25,
+        "mirror": true
+      }
+    ],
+    "gunner": [
+      {
+        "part": "turret",
+        "x": 9.4,
+        "y": -13.9,
+        "len": 0.5,
+        "off": 0,
+        "mirror": false
+      },
+      {
+        "part": "turret",
+        "x": 18,
+        "y": 0,
+        "len": 0.35,
+        "off": 0.25,
+        "mirror": false
+      }
+    ],
+    "loader": [
+      {
+        "part": "turret",
+        "x": -10.7,
+        "y": 14.7,
+        "len": 0.5,
+        "off": 0.25,
+        "mirror": false
+      }
+    ],
+    "commander": [
+      {
+        "part": "turret",
+        "x": -10.7,
+        "y": -14.7,
+        "len": 0.5,
+        "off": -0.25,
+        "mirror": false
+      }
+    ]
   }
 }

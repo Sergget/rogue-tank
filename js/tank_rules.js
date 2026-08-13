@@ -138,7 +138,27 @@ const RULES = {
       ammoRear: -0.25,          // relX < → 发动机；介于两者 → 弹药架
       turretLoader: -0.25,      // 炮塔侧面 relX < → 装填手（否则炮手）
       turretAmmo: -0.62         // 炮塔侧面 relX < → 炮塔尾舱弹药架（装填手身后小范围弹药架）
-    }
+    },
+    // 线段挂载模块系统（tank_designer「模块 Modules」编辑器）：
+    // 扁平 6 类模块，每类可挂载多处；每处放置挂在一条车体/炮塔全形边（含前/后接缝边）上，
+    // 坐标为该边中点的作者帧坐标；len = 覆盖长度比例、off = 沿边偏移（带中心 = 0.5+off，
+    // 均钳制在边内）、mirror = 是否同时镜像到另一侧（默认 true）。向内偏移深度不入 JSON
+    // （纯视觉示意带），运行时判定也用它。v2 旧格式（{hull:{key:{x,y,len}}, turret:{...}}）
+    // 由 normalizeTankModules 迁移为扁平放置。
+    // 履带（track）不是挂载模块：履带碰撞盒 = 现有履带模型前后端一小段距离（车体极前/极后端，
+    // 见 zones.trackBound），moduleFromHit 恒自动判定（2026-08-12 设计决策，无需设计器设置）。
+    keys: ['driver', 'ammo', 'engine', 'gunner', 'loader', 'commander'],
+    legacyPartKeys: {
+      hull:   ['driver', 'ammo', 'engine'],
+      turret: ['gunner', 'loader', 'ammo', 'commander']
+    },
+    labels: {
+      driver: '驾驶员', ammo: '弹药架', engine: '发动机',
+      gunner: '炮手', loader: '装填手', commander: '车长'
+    },
+    bandDepth: { hull: 10, turret: 8 },   // 模块带向内偏移深度（px，视觉 + 判定共用）
+    lenMin: 0.05,                         // len 下限（比例，=5%）；len 上限恒为 1（整条边）
+    lenDefault: 0.5                       // 设计器挂载时的默认 len
   },
 
   // ======================= 弹种（特性（4） =======================

@@ -223,5 +223,147 @@
       "dx": 4,
       "dy": 0
     }
+  },
+  "modules": {
+    "driver": [
+      {
+        "part": "hull",
+        "x": 34.4,
+        "y": -6.8,
+        "len": 0.5,
+        "off": 0,
+        "mirror": false
+      },
+      {
+        "part": "hull",
+        "x": -2.6,
+        "y": -19.1,
+        "len": 0.1,
+        "off": -0.45,
+        "mirror": false
+      }
+    ],
+    "ammo": [
+      {
+        "part": "hull",
+        "x": -2.6,
+        "y": -19.1,
+        "len": 0.3,
+        "off": -0.25,
+        "mirror": true
+      },
+      {
+        "part": "turret",
+        "x": -19.3,
+        "y": -2.1,
+        "len": 0.6,
+        "off": 0,
+        "mirror": true
+      },
+      {
+        "part": "turret",
+        "x": -18.6,
+        "y": -5.6,
+        "len": 0.6,
+        "off": 0,
+        "mirror": true
+      },
+      {
+        "part": "turret",
+        "x": -17.5,
+        "y": -8.2,
+        "len": 0.6,
+        "off": 0,
+        "mirror": true
+      },
+      {
+        "part": "turret",
+        "x": -15.5,
+        "y": -10.8,
+        "len": 0.6,
+        "off": 0,
+        "mirror": true
+      },
+      {
+        "part": "turret",
+        "x": -12,
+        "y": -11.6,
+        "len": 1,
+        "off": 0,
+        "mirror": true
+      }
+    ],
+    "engine": [
+      {
+        "part": "hull",
+        "x": -34.5,
+        "y": 0,
+        "len": 0.65,
+        "off": 0,
+        "mirror": true
+      },
+      {
+        "part": "hull",
+        "x": -2.6,
+        "y": -19.1,
+        "len": 0.25,
+        "off": 0.25,
+        "mirror": true
+      }
+    ],
+    "gunner": [
+      {
+        "part": "turret",
+        "x": 18.3,
+        "y": -11.6,
+        "len": 0.6,
+        "off": 0,
+        "mirror": false
+      },
+      {
+        "part": "turret",
+        "x": 19.7,
+        "y": 0,
+        "len": 0.35,
+        "off": 0,
+        "mirror": false
+      }
+    ],
+    "loader": [
+      {
+        "part": "turret",
+        "x": -3.1,
+        "y": 15.9,
+        "len": 0.8,
+        "off": 0,
+        "mirror": false
+      },
+      {
+        "part": "turret",
+        "x": 3.8,
+        "y": 17.4,
+        "len": 0.8,
+        "off": 0,
+        "mirror": false
+      }
+    ],
+    "commander": [
+      {
+        "part": "turret",
+        "x": 3.8,
+        "y": -17.3,
+        "len": 0.7,
+        "off": 0,
+        "mirror": false
+      },
+      {
+        "part": "turret",
+        "x": 10.1,
+        "y": -16.8,
+        "len": 0.7,
+        "off": 0,
+        "mirror": false
+      }
+    ]
   }
 }

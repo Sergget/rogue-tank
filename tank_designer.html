@@ -22,10 +22,10 @@
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;overflow:hidden;}
   .mono{font-family:'JetBrains Mono',monospace;}
-  #app{display:grid;grid-template-columns:360px 1fr 380px;height:100vh;}
-  #left-sidebar{background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
-  #right-sidebar{background:var(--panel);border-left:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
-  #stage-wrap{position:relative;background:radial-gradient(ellipse at 30% 20%, rgba(126,217,87,0.04), transparent 60%), var(--bg);}
+  #app{display:grid;grid-template-columns:20vw 1fr 380px;height:100vh;}
+  #left-sidebar{grid-column:1;grid-row:1;background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
+  #right-sidebar{grid-column:3;grid-row:1;background:var(--panel);border-left:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
+  #stage-wrap{grid-column:2;grid-row:1;position:relative;background:radial-gradient(ellipse at 30% 20%, rgba(126,217,87,0.04), transparent 60%), var(--bg);}
   #editor-canvas{background:#0c0d09;cursor:crosshair;width:100%;height:100%;display:block;}
   #coordReadout{
     position:absolute; left:12px; bottom:12px; font-family:'JetBrains Mono',monospace;
@@ -92,7 +92,6 @@
     z-index:20; box-shadow:0 4px 12px rgba(0,0,0,0.5);
     font-family:'JetBrains Mono',monospace; font-size:11px;
   }
-</head>
 </style>
 </head>
 <body>
@@ -113,7 +112,7 @@
     <div id="coordReadout">局部坐标: --</div>
     <div id="zoomReadout">缩放: 100%</div>
   </div>
-  <div id="sidebar">
+  <div id="left-sidebar">
     <div class="title">坦克设计器 <b>TANK DESIGNER v0.5</b></div>
 
     <div class="section">
@@ -145,6 +144,55 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">三扩系数：移动/转车体/转炮塔三源散布的统一倍率（1 = 基准）；缩圈速度：瞄准圈收敛速度，越小缩圈越慢</div>
     </div>
 
+    <div class="section panel-hull">
+      <h3>装甲厚度 Armor — 车体 (mm)</h3>
+      <div class="prop-row" style="align-items:flex-start; flex-direction:column; gap:2px; margin-bottom:8px;">
+        <span class="lbl">当前装甲段</span>
+        <span class="mono armor-sel-readout" style="color:var(--amber); font-size:11px;">未选择 — 点击画布边线或下方列表选择</span>
+      </div>
+      <div class="armor-row"><span class="swatch" style="background:var(--front);"></span>车体正面 <input type="number" id="a-hull-front" value="110"></div>
+      <div class="armor-row"><span class="swatch" style="background:var(--side);"></span>车体侧面 <input type="number" id="a-hull-side" value="38"></div>
+      <div class="armor-row"><span class="swatch" style="background:var(--rear);"></span>车体后部 <input type="number" id="a-hull-rear" value="26"></div>
+      <div class="legend">
+        <div><span class="sw" style="background:var(--front);"></span>front</div>
+        <div><span class="sw" style="background:var(--side);"></span>side</div>
+        <div><span class="sw" style="background:var(--rear);"></span>rear</div>
+        <div><span class="sw" style="background:var(--mirror);"></span>镜像侧（只读，自动生成）</div>
+      </div>
+    </div>
+
+    <div class="section panel-turret">
+      <h3>装甲厚度 Armor — 炮塔 (mm)</h3>
+      <div class="prop-row" style="align-items:flex-start; flex-direction:column; gap:2px; margin-bottom:8px;">
+        <span class="lbl">当前装甲段</span>
+        <span class="mono armor-sel-readout" style="color:var(--amber); font-size:11px;">未选择 — 点击画布边线或下方列表选择</span>
+      </div>
+      <div class="armor-row"><span class="swatch" style="background:var(--front);"></span>炮塔正面 <input type="number" id="a-turret-front" value="140"></div>
+      <div class="armor-row"><span class="swatch" style="background:var(--side);"></span>炮塔侧面 <input type="number" id="a-turret-side" value="50"></div>
+      <div class="armor-row"><span class="swatch" style="background:var(--rear);"></span>炮塔后部 <input type="number" id="a-turret-rear" value="24"></div>
+      <div class="legend">
+        <div><span class="sw" style="background:var(--front);"></span>front</div>
+        <div><span class="sw" style="background:var(--side);"></span>side</div>
+        <div><span class="sw" style="background:var(--rear);"></span>rear</div>
+        <div><span class="sw" style="background:var(--mirror);"></span>镜像侧（只读，自动生成）</div>
+      </div>
+    </div>
+
+     <div class="section panel-hull">
+       <h3>装甲分段 Edge Armor — 车体</h3>
+       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">每条边可单独归属 前/侧/后 装甲：在下方列表中选择，或在画布上点击边线中点循环切换（镜像侧自动沿用，无需单独设置）</div>
+       <div class="edge-list" id="hullEdgeList"></div>
+      </div>
+
+     <div class="section panel-turret">
+       <h3>装甲分段 Edge Armor — 炮塔</h3>
+       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">每条边可单独归属 前/侧/后 装甲：在下方列表中选择，或在画布上点击边线中点循环切换（镜像侧自动沿用，无需单独设置）</div>
+       <div class="edge-list" id="turretEdgeList"></div>
+      </div>
+
+  </div>
+
+  <div id="right-sidebar">
     <div class="section">
       <h3>视图 View</h3>
       <div class="btnrow">
@@ -156,12 +204,18 @@
     </div>
 
     <div class="section">
-      <h3>编辑模式 Mode</h3>
+      <h3>编辑 Edit</h3>
       <div class="btnrow">
-        <button id="modeHull" class="mode-btn active">车体 Hull</button>
-        <button id="modeTurret" class="mode-btn">炮塔 Turret</button>
+        <button id="modeHull" class="mode-btn edit-tab-btn active">车体 Hull</button>
+        <button id="modeTurret" class="mode-btn edit-tab-btn">炮塔 Turret</button>
+        <button id="modeModules" class="mode-btn edit-tab-btn">模块 Modules</button>
+        <button id="modeAppearance" class="mode-btn edit-tab-btn">外观件 Appearance</button>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">列表选中条目 = 当前可编辑面板与画布编辑目标：车体（顶点+装甲）/ 炮塔（顶点+座圈+多边形预设）/ 模块 / 外观件（炮管+炮盾+履带）</div>
+      <div class="btnrow" style="margin-top:8px;">
         <button id="modePreview" class="mode-btn">预览瞄准 Preview</button>
       </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">「预览瞄准」为独立视图辅助：移动鼠标旋转炮塔查看瞄准方向与外观效果，不改变当前编辑条目</div>
       <div class="btnrow" style="margin-top:8px;">
         <button id="undoVertBtn">撤销末尾顶点</button>
         <button id="clearPolyBtn" class="danger">清空当前多边形</button>
@@ -170,10 +224,62 @@
       <div class="btnrow" style="margin-top:8px;">
         <button id="snapToggleBtn">网格吸附 关</button>
       </div>
+      <div class="btnrow" style="margin-top:8px; align-items:center;">
+        <span class="lbl" style="font-size:10px; color:var(--text-dim);">部件可见</span>
+        <button id="partVisHullBtn" class="part-vis-btn active">车体</button>
+        <button id="partVisTurretBtn" class="part-vis-btn active">炮塔</button>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">「部件可见」可单独隐藏车体/炮塔（仅编辑辅助，不写入存档）：隐藏的部件不渲染、不参与任何画布命中，模块编辑时不会误点到另一部件；仅剩一个部件可见时无法再隐藏</div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:6px;">Delete/Backspace 删除选中顶点 · 方向键 1px 微调 · Esc 取消选中 · 网格吸附开启后拖动/新增顶点对齐到整数格</div>
     </div>
 
-    <div class="section">
+    <div class="section panel-turret">
+      <h3>座圈中心 Turret Ring Centers</h3>
+      <div class="prop-row">
+        <span class="lbl">车体座圈圆心 (pivot)</span>
+        <div style="display:flex; gap:4px; align-items:center;">
+          <span style="font-size:10px; color:var(--text-dim);">X</span>
+          <input type="number" id="t-pivotDx" value="8" step="1" style="width:50px;">
+          <span style="font-size:10px; color:var(--text-dim);">Y</span>
+          <input type="number" id="t-pivotDy" value="0" step="1" style="width:50px;">
+        </div>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">车体坐标系下，炮塔座圈在车体上的安装偏移（车体模式可拖动）</div>
+
+      <div class="prop-row">
+        <span class="lbl">炮塔座圈圆心 (axis)</span>
+        <div style="display:flex; gap:4px; align-items:center;">
+          <span style="font-size:10px; color:var(--text-dim);">X</span>
+          <input type="number" id="t-axisDx" value="0" step="1" style="width:50px;">
+          <span style="font-size:10px; color:var(--text-dim);">Y</span>
+          <input type="number" id="t-axisDy" value="0" disabled style="width:50px; opacity:0.5;">
+        </div>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">炮塔坐标系下，座圈圆心的横坐标（y 轴固定为 0，炮塔模式可拖动）</div>
+    </div>
+
+    <div class="section panel-modules">
+      <h3>模块 Modules</h3>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">「模块 Modules」模式：列表选中模块 → 点击装甲边挂载（车体类模块 驾驶员/弹药架/发动机 只能挂车体边，炮塔类 炮手/装填手/车长 只能挂炮塔边，弹药架两侧均可；含前/后接缝与镜像侧；同一模块可挂多处）→ 选中带后拖两端手柄调长度、拖中部手柄调位置、勾选「镜像」控制是否两侧。Delete/Backspace 移除 · Esc 取消选中。保存前 6 个模块必须全部挂载。履带（深色带）为自动判定区：车体极前/极后端恒为履带碰撞盒，无需挂载。</div>
+      <div id="moduleList" class="edge-list" style="max-height:220px; overflow-y:auto;"></div>
+      <div class="prop-row" id="moduleLenRow" style="display:none; margin-top:8px;">
+        <span class="lbl">长度 len (%)</span>
+        <input type="number" id="moduleLenInput" value="50" min="5" max="100" step="5" style="width:70px;">
+      </div>
+      <div class="prop-row" id="moduleOffRow" style="display:none; margin-top:8px;">
+        <span class="lbl">位置 off (%)</span>
+        <input type="number" id="moduleOffInput" value="0" min="-45" max="45" step="5" style="width:70px;">
+      </div>
+      <div class="prop-row" id="moduleMirrorRow" style="display:none; margin-top:8px;">
+        <span class="lbl">镜像到两侧</span>
+        <input type="checkbox" id="moduleMirrorCheckbox" checked style="width:auto;">
+      </div>
+      <div class="btnrow" style="margin-top:8px;">
+        <button id="moduleRemoveBtn" class="danger" disabled>移除选中模块</button>
+      </div>
+    </div>
+
+    <div class="section panel-turret">
       <h3>炮塔多边形预设 Regular Polygon</h3>
       <div class="prop-row"><span class="lbl">边数</span>
         <select id="turretPresetN">
@@ -196,7 +302,79 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">正多边形以炮塔旋转中心为圆心、外接圆半径 R 生成，应用后覆盖当前炮塔顶点（装甲与旋转中心保留）</div>
     </div>
 
-    <div class="section">
+    <div class="section panel-appearance">
+      <h3>炮管预设 Barrel Preset</h3>
+      <div class="prop-row"><span class="lbl">预设样式</span>
+        <select id="barrelPreset">
+          <option value="standard">标准炮管 Standard</option>
+          <option value="long50">长管50cal Long 50cal</option>
+          <option value="shorthowitzer">短管榴弹炮 Short Howitzer</option>
+          <option value="cannon">加农炮 Cannon</option>
+          <option value="longcannon">长加农 Long Cannon</option>
+          <option value="autoloader">自动装填 Autoloader</option>
+        </select>
+      </div>
+      <div class="prop-row"><span class="lbl">长度 (炮塔长%)</span><input type="number" id="barrelLen" value="120" min="60" max="250"></div>
+      <div class="prop-row"><span class="lbl">粗细 (炮塔宽%)</span><input type="number" id="barrelWidth" value="18" min="6" max="40"></div>
+      <div class="prop-row"><span class="lbl">制退器样式</span>
+        <select id="barrelMuzzle">
+          <option value="none">无 None</option>
+          <option value="single">单室 Rect-Single</option>
+          <option value="double">双室 Rect-Double</option>
+          <option value="multi">多室 Rect-Multi</option>
+          <option value="slug">开槽笼式 Slot-Cage</option>
+          <option value="pepperpot">多孔胡椒罐 Pepperpot</option>
+          <option value="heavy_square">重型方体 Heavy-Block</option>
+          <option value="cylinder">筒式开缝 Cylinder</option>
+        </select>
+      </div>
+      <div class="prop-row"><span class="lbl">抽烟器样式</span>
+        <select id="barrelEvacStyle">
+          <option value="none">无 None</option>
+          <option value="ring">圆环 Ring</option>
+          <option value="bulb">圆鼓 Bulb</option>
+          <option value="slotted">开槽箍 Slotted</option>
+          <option value="long">长筒 Long</option>
+        </select>
+      </div>
+      <div class="prop-row"><span class="lbl">抽烟器位置 (炮管%)</span><input type="number" id="barrelEvac" value="30" min="0" max="95"></div>
+      <div class="prop-row"><span class="lbl">护套长度 (炮管%)</span><input type="number" id="jacketLen" value="0" min="0" max="100"></div>
+      <div class="prop-row"><span class="lbl">护套位置 (炮管%)</span><input type="number" id="jacketPos" value="45" min="0" max="90"></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">护套长度 &gt; 0 时，在炮管上附着比炮管更粗的矩形套筒（热护套/套筒）；0 表示无护套</div>
+    </div>
+
+    <div class="section panel-appearance">
+      <h3>炮盾 Mantlet</h3>
+      <div class="prop-row"><span class="lbl">预设样式</span>
+        <select id="mantletPreset">
+          <option value="none" selected>无 None</option>
+          <option value="single">单层 Single</option>
+          <option value="double">双层 Double</option>
+          <option value="collar">环颈套筒 Collar</option>
+          <option value="box">盒式护罩 Box</option>
+          <option value="winged">侧翼式 Winged</option>
+          <option value="wedge">楔形 Wedge</option>
+        </select>
+      </div>
+      <div class="prop-row"><span class="lbl">位置 (炮管%)</span><input type="number" id="mantletPos" value="0" min="-40" max="60"></div>
+      <div class="prop-row"><span class="lbl">宽度 (炮塔宽%)</span><input type="number" id="mantletWid" value="40" min="14" max="120"></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">炮盾为炮管根部与炮塔结合处的纯视觉装甲罩：位置指其中心相对炮塔前缘的偏移（% 炮管长，负值缩回炮塔内），宽度相对炮塔全宽计算；不影响任何物理/穿深判定</div>
+    </div>
+
+    <div class="section panel-appearance">
+      <h3>履带外观 Track Visuals</h3>
+      <div class="prop-row"><span class="lbl">履带宽度 (px)</span><input type="number" id="trackWidthInput" value="8" min="2" max="48"></div>
+      <div class="prop-row"><span class="lbl">履带外扩 (px)</span><input type="number" id="trackOffsetInput" value="0"></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">外扩范围随履带宽度联动：可调区间为 [-履带宽度, +履带宽度/2]（负值向内收起，正值向外张开），物理判定不受影响</div>
+      <div style="height:12px;"></div>
+      <div class="prop-row">
+        <span class="lbl">显示内部模块 Zones</span>
+        <input type="checkbox" id="showZonesCheckbox" style="width: 20px; height: 20px; cursor: pointer;">
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">开启后在车体和炮塔上半透明叠加显示逻辑判定模块带（驾驶员、弹药架、发动机、炮手、装填手、车长，来自「模块 Modules」编辑结果；履带为自动判定区，恒显示于车体极前/极后端）</div>
+    </div>
+
+    <div class="section panel-hull panel-turret">
       <h3>选中顶点 Selected Vertex</h3>
       <div id="selInfo">未选中顶点 — 点击画布上一个顶点即可选中并精确编辑坐标</div>
       <div class="prop-row"><span class="lbl">X</span><input type="number" id="v-x" disabled></div>
@@ -205,133 +383,6 @@
         <button id="deleteVertBtn" class="danger" disabled>删除选中顶点</button>
       </div>
     </div>
-
-    <div class="section">
-      <h3>装甲厚度 Armor (mm)</h3>
-      <div class="prop-row" style="align-items:flex-start; flex-direction:column; gap:2px; margin-bottom:8px;">
-        <span class="lbl">当前装甲段</span>
-        <span class="mono" id="armorSelReadout" style="color:var(--amber); font-size:11px;">未选择 — 点击画布边线或下方列表选择</span>
-      </div>
-      <div class="armor-row"><span class="swatch" style="background:var(--front);"></span>车体正面 <input type="number" id="a-hull-front" value="110"></div>
-      <div class="armor-row"><span class="swatch" style="background:var(--side);"></span>车体侧面 <input type="number" id="a-hull-side" value="38"></div>
-      <div class="armor-row"><span class="swatch" style="background:var(--rear);"></span>车体后部 <input type="number" id="a-hull-rear" value="26"></div>
-      <div style="height:6px;"></div>
-      <div class="armor-row"><span class="swatch" style="background:var(--front);"></span>炮塔正面 <input type="number" id="a-turret-front" value="140"></div>
-      <div class="armor-row"><span class="swatch" style="background:var(--side);"></span>炮塔侧面 <input type="number" id="a-turret-side" value="50"></div>
-      <div class="armor-row"><span class="swatch" style="background:var(--rear);"></span>炮塔后部 <input type="number" id="a-turret-rear" value="24"></div>
-      <div class="legend">
-        <div><span class="sw" style="background:var(--front);"></span>front</div>
-        <div><span class="sw" style="background:var(--side);"></span>side</div>
-        <div><span class="sw" style="background:var(--rear);"></span>rear</div>
-        <div><span class="sw" style="background:var(--mirror);"></span>镜像侧（只读，自动生成）</div>
-      </div>
-    </div>
-
-     <div class="section">
-       <h3>炮管预设 Barrel Preset</h3>
-       <div class="prop-row"><span class="lbl">预设样式</span>
-         <select id="barrelPreset">
-           <option value="standard">标准炮管 Standard</option>
-           <option value="long50">长管50cal Long 50cal</option>
-           <option value="shorthowitzer">短管榴弹炮 Short Howitzer</option>
-           <option value="cannon">加农炮 Cannon</option>
-           <option value="longcannon">长加农 Long Cannon</option>
-           <option value="autoloader">自动装填 Autoloader</option>
-         </select>
-       </div>
-       <div class="prop-row"><span class="lbl">长度 (炮塔长%)</span><input type="number" id="barrelLen" value="120" min="60" max="250"></div>
-       <div class="prop-row"><span class="lbl">粗细 (炮塔宽%)</span><input type="number" id="barrelWidth" value="18" min="6" max="40"></div>
-<div class="prop-row"><span class="lbl">制退器样式</span>
-          <select id="barrelMuzzle">
-            <option value="none">无 None</option>
-            <option value="single">单室 Rect-Single</option>
-            <option value="double">双室 Rect-Double</option>
-            <option value="multi">多室 Rect-Multi</option>
-            <option value="slug">开槽笼式 Slot-Cage</option>
-            <option value="pepperpot">多孔胡椒罐 Pepperpot</option>
-            <option value="heavy_square">重型方体 Heavy-Block</option>
-            <option value="cylinder">筒式开缝 Cylinder</option>
-          </select>
-        </div>
-        <div class="prop-row"><span class="lbl">抽烟器样式</span>
-          <select id="barrelEvacStyle">
-            <option value="none">无 None</option>
-            <option value="ring">圆环 Ring</option>
-            <option value="bulb">圆鼓 Bulb</option>
-            <option value="slotted">开槽箍 Slotted</option>
-            <option value="long">长筒 Long</option>
-          </select>
-        </div>
-       <div class="prop-row"><span class="lbl">抽烟器位置 (炮管%)</span><input type="number" id="barrelEvac" value="30" min="0" max="95"></div>
-       <div class="prop-row"><span class="lbl">护套长度 (炮管%)</span><input type="number" id="jacketLen" value="0" min="0" max="100"></div>
-       <div class="prop-row"><span class="lbl">护套位置 (炮管%)</span><input type="number" id="jacketPos" value="45" min="0" max="90"></div>
-       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">护套长度 &gt; 0 时，在炮管上附着比炮管更粗的矩形套筒（热护套/套筒）；0 表示无护套</div>
-     </div>
-
-<div class="section">
-       <h3>炮盾 Mantlet</h3>
-       <div class="prop-row"><span class="lbl">预设样式</span>
-         <select id="mantletPreset">
-           <option value="none" selected>无 None</option>
-           <option value="single">单层 Single</option>
-           <option value="double">双层 Double</option>
-           <option value="collar">环颈套筒 Collar</option>
-           <option value="box">盒式护罩 Box</option>
-           <option value="winged">侧翼式 Winged</option>
-           <option value="wedge">楔形 Wedge</option>
-         </select>
-       </div>
-       <div class="prop-row"><span class="lbl">位置 (炮管%)</span><input type="number" id="mantletPos" value="0" min="-40" max="60"></div>
-       <div class="prop-row"><span class="lbl">宽度 (炮塔宽%)</span><input type="number" id="mantletWid" value="40" min="14" max="120"></div>
-       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">炮盾为炮管根部与炮塔结合处的纯视觉装甲罩：位置指其中心相对炮塔前缘的偏移（% 炮管长，负值缩回炮塔内），宽度相对炮塔全宽计算；不影响任何物理/穿深判定</div>
-     </div>
-
- <div class="section">
-        <h3>履带外观 Track Visuals</h3>
-        <div class="prop-row"><span class="lbl">履带宽度 (px)</span><input type="number" id="trackWidthInput" value="8" min="2" max="48"></div>
-        <div class="prop-row"><span class="lbl">履带外扩 (px)</span><input type="number" id="trackOffsetInput" value="0"></div>
-        <div class="hint-text" style="font-size:10px; color:var(--text-dim);">外扩范围随履带宽度联动：可调区间为 [-履带宽度, +履带宽度/2]（负值向内收起，正值向外张开），物理判定不受影响</div>
-        <div style="height:12px;"></div>
-        <div class="prop-row">
-          <span class="lbl">显示内部模块 Zones</span>
-          <input type="checkbox" id="showZonesCheckbox" style="width: 20px; height: 20px; cursor: pointer;">
-        </div>
-        <div class="hint-text" style="font-size:10px; color:var(--text-dim);">开启后在车体和炮塔侧面半透明叠加显示逻辑判定模块位置（驾驶员、弹药架、发动机、履带负重轮、炮手等，来自 RULES.modules.zones）</div>
-       </div>
-
-     <div class="section">
-       <h3>装甲分段 Edge Armor</h3>
-       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">每条边可单独归属 前/侧/后 装甲：在下方列表中选择，或在画布上点击边线中点循环切换（镜像侧自动沿用，无需单独设置）</div>
-       <div class="prop-row"><span class="lbl">车体边 Hull</span></div>
-       <div class="edge-list" id="hullEdgeList"></div>
-       <div style="height:8px;"></div>
-       <div class="prop-row"><span class="lbl">炮塔边 Turret</span></div>
-       <div class="edge-list" id="turretEdgeList"></div>
-     <div class="section">
-       <h3>座圈中心 Turret Ring Centers</h3>
-       <div class="prop-row">
-         <span class="lbl">车体座圈圆心 (pivot)</span>
-         <div style="display:flex; gap:4px; align-items:center;">
-           <span style="font-size:10px; color:var(--text-dim);">X</span>
-           <input type="number" id="t-pivotDx" value="8" step="1" style="width:50px;">
-           <span style="font-size:10px; color:var(--text-dim);">Y</span>
-           <input type="number" id="t-pivotDy" value="0" step="1" style="width:50px;">
-         </div>
-       </div>
-       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">车体坐标系下，炮塔座圈在车体上的安装偏移（车体模式可拖动）</div>
-
-       <div class="prop-row">
-         <span class="lbl">炮塔座圈圆心 (axis)</span>
-         <div style="display:flex; gap:4px; align-items:center;">
-           <span style="font-size:10px; color:var(--text-dim);">X</span>
-           <input type="number" id="t-axisDx" value="0" step="1" style="width:50px;">
-           <span style="font-size:10px; color:var(--text-dim);">Y</span>
-           <input type="number" id="t-axisDy" value="0" disabled style="width:50px; opacity:0.5;">
-         </div>
-       </div>
-       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">炮塔坐标系下，座圈圆心的横坐标（y 轴固定为 0，炮塔模式可拖动）</div>
-     </div>
-      </div>
   </div>
 </div>
 
@@ -339,13 +390,23 @@
 <script src="js/tank_paint.js"></script>
 <script src="js/tank_utils.js"></script>
 <script src="js/tank_halfgeom.js"></script>
+<script src="js/tank_geometry.js"></script>
 <script src="js/tank_presets.js"></script>
 <script src="js/tank_listio.js"></script>
 <script>
 (() => {
 const canvas = document.getElementById('editor-canvas');
 const ctx = canvas.getContext('2d');
-function resize(){ canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; render(); }
+// 高分屏（devicePixelRatio > 1）下按物理像素建后备缓冲，并用 setTransform 保持全部绘图逻辑
+// 沿用 CSS 像素坐标（命中测试/坐标读数均为 CSS px，无需改动）；避免画布被浏览器放大导致画面模糊。
+let canvasDpr = 1;
+function resize(){
+  canvasDpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(canvas.clientWidth * canvasDpr));
+  canvas.height = Math.max(1, Math.round(canvas.clientHeight * canvasDpr));
+  ctx.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
+  render();
+}
 window.addEventListener('resize', resize);
 
 // ================= geometry / mirror helpers =================
@@ -394,14 +455,17 @@ let state = {
    trackWidth: 8, trackOffset: 0,
    hull: defaultHull(),
    turret: defaultTurret(),
-   barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } }
+   barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } },
+   // 线段挂载模块：扁平 { key: [ { part, x, y, len, off, mirror }, ... ] }，(x,y) = 全形边中点
+   // 的作者帧坐标；part = 放置所在的车体/炮塔；同一模块可挂多处
+   modules: {}
 };
 
 // gun barrel / mantlet presets 已下沉为配置模块 js/tank_presets.js（BARREL_PRESETS / MANTLE_PRESETS）
 
 // ================= state =================
 let mode = 'hull'; // 'hull' | 'turret' | 'pivot' | 'preview'
-let viewScale = 1;
+let viewScale = 5;
 let drag = null;
 let selected = null; // { poly:'hull'|'turret', index }
 let hoverEdge = null;   // { poly, index } edge under cursor (canvas highlight)
@@ -409,10 +473,20 @@ let selectedEdge = null; // { poly, index, seam:'front'|'rear' } edge chosen in 
 let snapToGrid = false;
 let previewAngle = 0;
 let trackPhase = 0; // scrolling track animation phase for edit modes (driven at fixed rate)
+let modSel = null;   // { key, idx } selected module (idx=null = 模块级，点击边挂载新放置)
+let modLenDrag = null; // { key, idx, handleIdx, downX, downY, edge } len/off-handle drag
+let moduleLenDefault = 50;   // 新放置默认 len（%）
+let moduleMirrorDefault = true; // 新放置默认镜像
+// 编辑列表选中项（驱动面板显隐）：'hull' | 'turret' | 'modules' | 'appearance'
+let editTab = 'hull';
+// 部件可见性开关（纯编辑辅助，不写入任何导出/JSON）：隐藏的部件不渲染、不参与画布命中
+let partVisible = { hull: true, turret: true };
 const HIT_R = 9, EDGE_HIT_R = 8;
-const ZOOM_MIN = 0.3, ZOOM_MAX = 4;
+const ZOOM_MIN = 0.3, ZOOM_MAX = 8;
+// 模块带配色（与 RULES.modules.labels 的 key 对齐）
+const MODULE_COLORS = { driver:'#5cc8ff', ammo:'#ff5c4d', engine:'#ffb454', gunner:'#7ed957', loader:'#c864fa', commander:'#ffd75c' };
 
-function hullCenter(){ return { x: canvas.width/2, y: canvas.height/2 }; }
+function hullCenter(){ return { x: canvas.clientWidth/2, y: canvas.clientHeight/2 }; }
 function turretCenter(){ const c = hullCenter(); return { x: c.x + state.turret.pivot.dx*viewScale, y: c.y + state.turret.pivot.dy*viewScale }; }
 // 炮塔坐标系点 -> 屏幕世界坐标点
 // 炮塔坐标系：原点 (0,0) 为炮塔基础几何原点；
@@ -499,10 +573,281 @@ function findEdgeMidpointHit(poly, center, sx, sy){
   }
   return -1;
 }
+// 镜像感知的半形链边命中（模块挂载用）：点击 y>0 镜像侧的边也映射到同一半形边索引。
+function findEdgeHitMirrorAware(poly, center, sx, sy){
+  const n = poly.half.length;
+  if(n<2) return -1;
+  for(let i=0;i<n-1;i++){
+    const a = toScreen(center, poly.half[i]), b = toScreen(center, poly.half[i+1]);
+    if(distToSegment(sx,sy,a.x,a.y,b.x,b.y) <= EDGE_HIT_R) return i;
+    const am = toScreen(center, [poly.half[i][0], -poly.half[i][1]]);
+    const bm = toScreen(center, [poly.half[i+1][0], -poly.half[i+1][1]]);
+    if(distToSegment(sx,sy,am.x,am.y,bm.x,bm.y) <= EDGE_HIT_R) return i;
+  }
+  return -1;
+}
+function findEdgeHitMirrorAwareForTurret(poly, sx, sy){
+  const n = poly.half.length;
+  if(n<2) return -1;
+  const ang = mode==='preview' ? previewAngle : 0;
+  for(let i=0;i<n-1;i++){
+    const a = turretToScreen(poly.half[i], ang), b = turretToScreen(poly.half[i+1], ang);
+    if(distToSegment(sx,sy,a.x,a.y,b.x,b.y) <= EDGE_HIT_R) return i;
+    const am = turretToScreen([poly.half[i][0], -poly.half[i][1]], ang);
+    const bm = turretToScreen([poly.half[i+1][0], -poly.half[i+1][1]], ang);
+    if(distToSegment(sx,sy,am.x,am.y,bm.x,bm.y) <= EDGE_HIT_R) return i;
+  }
+  return -1;
+}
+
+// ================= 线段挂载模块：工具（渲染 / 命中 / 手柄共用） =================
+// 设计器顶点帧 = 作者帧（turret 未做 -axis 平移），故找边时 axis 传 {0,0}；
+// 运行时（tank_geometry.js moduleHitFromBands）用战斗帧 + tank.turretAxis 回推，两端一致。
+function modulePlacement(key, idx){
+  const arr = state.modules[key];
+  return (arr && arr[idx]) || null;
+}
+function moduleLocalBands(part, p){
+  if(!p) return [];
+  const verts = buildFullVerts(state[part].half);
+  return findModuleBands(verts, p, { dx:0, dy:0 }, RULES.modules.bandDepth[part]);
+}
+function moduleBandToScreen(part, quad, angle){
+  return quad.map(([lx,ly]) => part==='hull' ? toScreen(hullCenter(), [lx,ly]) : turretToScreen([lx,ly], angle));
+}
+// 屏幕坐标 → 命中哪个模块放置（带内判定，含镜像边带；隐藏部件的带不参与命中）
+function findModuleAtScreen(sx, sy){
+  const turretAngle = (mode==='preview') ? previewAngle : 0;
+  for(const key of RULES.modules.keys){
+    const arr = state.modules[key] || [];
+    for(let i=0;i<arr.length;i++){
+      const p = arr[i];
+      if(!partVisible[p.part]) continue; // 部件隐藏 → 其模块带不参与选中
+      for(const quad of moduleLocalBands(p.part, p)){
+        const sc = moduleBandToScreen(p.part, quad, turretAngle);
+        if(pointInQuad(sx, sy, sc.map(q=>[q.x,q.y]))) return { key, idx: i };
+      }
+    }
+  }
+  return null;
+}
+// 全形边命中（含前/后接缝边与镜像侧）：先炮塔（绘制在上层）再车体；隐藏部件的边不参与命中
+function findFullEdgeAtScreen(sx, sy){
+  const turretAngle = (mode==='preview') ? previewAngle : 0;
+  const checks = [
+    { part:'turret', verts: buildFullVerts(state.turret.half), toS: pt => turretToScreen(pt, turretAngle) },
+    { part:'hull',   verts: buildFullVerts(state.hull.half),   toS: pt => toScreen(hullCenter(), pt) }
+  ];
+  for(const g of checks){
+    if(!partVisible[g.part]) continue;
+    if(g.verts.length < 3) continue;
+    for(let i=0;i<g.verts.length;i++){
+      const A = g.toS(g.verts[i]), B = g.toS(g.verts[(i+1)%g.verts.length]);
+      if(distToSegment(sx, sy, A.x, A.y, B.x, B.y) <= EDGE_HIT_R){
+        const mid = { x:(g.verts[i][0]+g.verts[(i+1)%g.verts.length][0])/2,
+                      y:(g.verts[i][1]+g.verts[(i+1)%g.verts.length][1])/2 };
+        return { part: g.part, edgeIndex: i, mid };
+      }
+    }
+  }
+  return null;
+}
+// 选中放置的手柄：沿主边两端 A/B（len）+ 中部 M（off）的屏幕坐标 + 沿边方向参数
+function moduleLenHandles(key, idx){
+  const p = modulePlacement(key, idx);
+  if(!p) return { edge: null, handles: [] };
+  const verts = buildFullVerts(state[p.part].half);
+  // 直接匹配优先（保持放置侧别），无直接匹配再镜像回退（与 findModuleBands 一致）
+  let edgeIdx = -1, A = null, B = null;
+  for(let pass=0; pass<2 && edgeIdx<0; pass++){
+    for(let i=0;i<verts.length;i++){
+      const a = verts[i], b = verts[(i+1)%verts.length];
+      const mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2;
+      const okD = Math.abs(mx - p.x) <= 0.5 && Math.abs(my - p.y) <= 0.5;
+      const okM = Math.abs(mx - p.x) <= 0.5 && Math.abs(my + p.y) <= 0.5;
+      if((pass===0 ? okD : okM)){ edgeIdx = i; A = a; B = b; break; }
+    }
+  }
+  if(edgeIdx < 0){
+    const bands = moduleLocalBands(p.part, p);
+    if(!bands.length) return { edge: null, handles: [] };
+    A = [bands[0][0][0], bands[0][0][1]]; B = [bands[0][1][0], bands[0][1][1]];
+  }
+  const ang = (mode==='preview') ? previewAngle : 0;
+  const pA = p.part==='hull' ? toScreen(hullCenter(), A) : turretToScreen(A, ang);
+  const pB = p.part==='hull' ? toScreen(hullCenter(), B) : turretToScreen(B, ang);
+  const ex = pB.x - pA.x, ey = pB.y - pA.y;
+  const edgeLen = Math.hypot(ex, ey) || 1;
+  return {
+    edge: { ex: ex/edgeLen, ey: ey/edgeLen, len: edgeLen, mid: { x:(pA.x+pB.x)/2, y:(pA.y+pB.y)/2 } },
+    handles: [
+      { x:pA.x, y:pA.y, idx:0 },
+      { x:(pA.x+pB.x)/2, y:(pA.y+pB.y)/2, idx:2 },
+      { x:pB.x, y:pB.y, idx:1 }
+    ]
+  };
+}
+// 全形边索引 ← 放置坐标（列表显示「边#i」用；容差 0.5，直接匹配优先，镜像回退）
+function edgeIndexOfPlacement(p){
+  const verts = buildFullVerts(state[p.part].half);
+  for(let pass=0; pass<2; pass++){
+    for(let i=0;i<verts.length;i++){
+      const mx = (verts[i][0]+verts[(i+1)%verts.length][0])/2;
+      const my = (verts[i][1]+verts[(i+1)%verts.length][1])/2;
+      if(pass===0 ? (Math.abs(mx - p.x) <= 0.5 && Math.abs(my - p.y) <= 0.5)
+                  : (Math.abs(mx - p.x) <= 0.5 && Math.abs(my + p.y) <= 0.5)) return i;
+    }
+  }
+  return -1;
+}
+// 顶点编辑使某部件已挂载放置失效 → 清除该部件全部放置（镜像匹配放置按 part 一并清除）
+function clearModulePlacementsOf(part){
+  for(const key of RULES.modules.keys){
+    const arr = state.modules[key];
+    if(!arr || !arr.length) continue;
+    const kept = arr.filter(p => p.part !== part);
+    if(kept.length) state.modules[key] = kept;
+    else delete state.modules[key];
+  }
+  if(modSel && modSel.idx !== null && !modulePlacement(modSel.key, modSel.idx)) modSel = null;
+}
+function renderModuleList(){
+  const container = document.getElementById('moduleList');
+  if(!container) return;
+  container.innerHTML = '';
+  for(const key of RULES.modules.keys){
+    const arr = state.modules[key] || [];
+    const row = document.createElement('div');
+    row.className = 'edge-row' + (modSel && modSel.key===key && modSel.idx===null ? ' active' : '');
+    row.style.cursor = 'pointer';
+    const dot = document.createElement('span');
+    dot.className = 'face-dot'; dot.style.background = MODULE_COLORS[key] || '#5a5f4a';
+    const lab = document.createElement('span'); lab.className = 'ename';
+    lab.textContent = RULES.modules.labels[key] || key;
+    const stat = document.createElement('span');
+    stat.className = 'armor-val';
+    if(arr.length){
+      const parts = {};
+      for(const p of arr) parts[p.part] = (parts[p.part]||0) + 1;
+      const s = Object.keys(parts).map(part => `${part==='hull'?'车体':'炮塔'}×${parts[part]}`).join(' ');
+      stat.textContent = s; stat.style.color = '#9fdc7c';
+    } else {
+      stat.textContent = '未放置';
+      stat.style.color = '#ff5c4d';
+    }
+    row.appendChild(dot); row.appendChild(lab); row.appendChild(stat);
+    row.addEventListener('click', ()=>{
+      modSel = { key, idx: null };
+      renderModuleList(); render();
+    });
+    container.appendChild(row);
+    if(modSel && modSel.key===key && arr.length){
+      arr.forEach((p, i)=>{
+        const pr = document.createElement('div');
+        pr.className = 'edge-row' + (modSel.idx===i ? ' active' : '');
+        pr.style.cssText = 'padding-left:16px; cursor:pointer;';
+        pr.textContent = `${p.part==='hull'?'车体':'炮塔'} · 边#${edgeIndexOfPlacement(p)} · ${Math.round(p.len*100)}% · 偏移${Math.round((p.off||0)*100)}% · ${p.mirror!==false?'镜像':'单侧'}`;
+        pr.addEventListener('click', ()=>{
+          modSel = { key, idx: i };
+          renderModuleList(); render();
+        });
+        container.appendChild(pr);
+      });
+    }
+  }
+  // 面板行显隐：len 行（模块级 = 新放置默认值）；off/镜像行（仅放置级）
+  const selP = (modSel && modSel.idx !== null) ? modulePlacement(modSel.key, modSel.idx) : null;
+  const lenRow = document.getElementById('moduleLenRow');
+  const offRow = document.getElementById('moduleOffRow');
+  const mirRow = document.getElementById('moduleMirrorRow');
+  const removeBtn = document.getElementById('moduleRemoveBtn');
+  if(lenRow) lenRow.style.display = modSel ? 'flex' : 'none';
+  if(offRow) offRow.style.display = selP ? 'flex' : 'none';
+  if(mirRow) mirRow.style.display = selP ? 'flex' : 'none';
+  if(removeBtn) removeBtn.disabled = !modSel;
+  if(modSel){
+    const lenInp = document.getElementById('moduleLenInput');
+    const offInp = document.getElementById('moduleOffInput');
+    const mirInp = document.getElementById('moduleMirrorCheckbox');
+    if(selP){
+      lenInp.value = Math.round(selP.len*100);
+      offInp.value = Math.round((selP.off||0)*100);
+      mirInp.checked = selP.mirror !== false;
+    } else {
+      lenInp.value = moduleLenDefault;
+      offInp.value = 0;
+      mirInp.checked = moduleMirrorDefault;
+    }
+  }
+}
+function selectModule(sel){
+  modSel = sel;
+  renderModuleList(); render();
+}
+function removeSelectedModule(){
+  if(!modSel) return;
+  if(modSel.idx !== null){
+    const arr = state.modules[modSel.key];
+    if(arr && arr[modSel.idx]) arr.splice(modSel.idx, 1);
+    if(arr && !arr.length) delete state.modules[modSel.key];
+  } else {
+    const n = (state.modules[modSel.key]||[]).length;
+    if(n) pushHint(`已移除「${RULES.modules.labels[modSel.key]||modSel.key}」的全部 ${n} 处放置`);
+    delete state.modules[modSel.key];
+  }
+  modSel = null;
+  renderModuleList(); render();
+}
+document.getElementById('moduleRemoveBtn').addEventListener('click', removeSelectedModule);
+document.getElementById('moduleLenInput').addEventListener('change', ()=>{
+  if(!modSel) return;
+  const v = parseFloat(document.getElementById('moduleLenInput').value);
+  if(Number.isNaN(v)) return;
+  const len = Math.round(Math.max(RULES.modules.lenMin*100, Math.min(100, v)))/100;
+  if(modSel.idx !== null){
+    const p = modulePlacement(modSel.key, modSel.idx);
+    if(!p) return;
+    p.len = len;
+    // len 变化 → off 上限 (1-len)/2 收窄，联动重钳（防止 len 拖长后 off 越界）
+    const offMax = Math.floor((1 - len)/2*100 + 1e-9)/100;
+    p.off = Math.max(-offMax, Math.min(offMax, Math.round((p.off||0)*100)/100));
+  } else {
+    moduleLenDefault = len;
+  }
+  renderModuleList(); render();
+});
+document.getElementById('moduleOffInput').addEventListener('change', ()=>{
+  if(!modSel || modSel.idx === null) return;
+  const p = modulePlacement(modSel.key, modSel.idx);
+  if(!p) return;
+  const v = parseFloat(document.getElementById('moduleOffInput').value);
+  if(Number.isNaN(v)) return;
+  // off 先四舍五入再钳制到 lim 的 0.01 步进下界（先钳后舍会得越界值，见 tank_geometry.js normalizeTankModules）
+  const lim = (1 - p.len)/2;
+  const offMax = Math.floor(lim*100 + 1e-9)/100;
+  p.off = Math.max(-offMax, Math.min(offMax, Math.round(v/100*100)/100));
+  renderModuleList(); render();
+});
+document.getElementById('moduleMirrorCheckbox').addEventListener('change', ()=>{
+  if(!modSel) return;
+  const chk = document.getElementById('moduleMirrorCheckbox');
+  if(modSel.idx !== null){
+    const p = modulePlacement(modSel.key, modSel.idx);
+    if(p) p.mirror = chk.checked;
+  } else {
+    moduleMirrorDefault = chk.checked;
+  }
+  renderModuleList(); render();
+});
 
 // ================= mouse interaction =================
 canvas.addEventListener('mousedown', e=>{
   const {x:sx,y:sy} = getCanvasPos(e);
+  // 部件可见性：隐藏的部件不接受任何画布编辑（顶点/边/座圈/新增顶点）
+  if((mode==='hull' && !partVisible.hull) || (mode==='turret' && !partVisible.turret)){
+    pushHint('该部件已隐藏 — 在「部件可见」中重新显示后再编辑');
+    return;
+  }
   if(mode==='hull'){
     // 车体模式：先测试是否点击车体上的炮塔座圈圆心 (pivot) 标记
     const hc = hullCenter();
@@ -540,6 +885,54 @@ canvas.addEventListener('mousedown', e=>{
     drag = { poly:'turret', index:-1, moved:false, downX:sx, downY:sy, isNew:true };
   } else if(mode==='pivot'){
     drag = { poly:'hullPivot', moved:false, downX:sx, downY:sy };
+  } else if(mode==='modules'){
+    // 1) 手柄拖拽（选中放置的带两端 A/B = len、中部 M = off）；放置所在部件隐藏时跳过
+    if(modSel && modSel.idx !== null){
+      const p0 = modulePlacement(modSel.key, modSel.idx);
+      if(p0 && partVisible[p0.part]){
+        const h = moduleLenHandles(modSel.key, modSel.idx);
+        if(h.handles.length){
+          for(const hd of h.handles){
+            if(Math.hypot(sx-hd.x, sy-hd.y) <= 10){
+              modLenDrag = { key:modSel.key, idx:modSel.idx, handleIdx:hd.idx, downX:sx, downY:sy, edge:h.edge };
+              drag = { poly:'moduleLen', moved:false, downX:sx, downY:sy };
+              return;
+            }
+          }
+        }
+      }
+    }
+    // 2) 点击已挂载的模块带 → 选中该放置
+    const hitMod = findModuleAtScreen(sx, sy);
+    if(hitMod){ selectModule(hitMod); return; }
+    // 3) 点击全形装甲边（车体/炮塔任意边，含前/后接缝与镜像侧）→ 为选中模块挂载新放置
+    if(modSel){
+      const edgeHit = findFullEdgeAtScreen(sx, sy);
+      if(edgeHit){
+        const key = modSel.key;
+        const allowed = moduleAllowedParts(key);
+        if(!allowed.includes(edgeHit.part)){
+          pushHint(`「${RULES.modules.labels[key]||key}」只能挂载在${allowed.map(p=>p==='hull'?'车体':'炮塔').join('/')}上`, 4000);
+          return;
+        }
+        state.modules[key] = state.modules[key] || [];
+        state.modules[key].push({
+          part: edgeHit.part,
+          x: Math.round(edgeHit.mid.x*10)/10,
+          y: Math.round(edgeHit.mid.y*10)/10,
+          len: moduleLenDefault/100,
+          off: 0,
+          mirror: moduleMirrorDefault
+        });
+        const idx = state.modules[key].length - 1;
+        selectModule({ key, idx });
+        pushHint(`「${RULES.modules.labels[key]||key}」附着于 ${edgeHit.part==='hull'?'车体':'炮塔'} 边#${edgeHit.edgeIndex}（len ${moduleLenDefault}%${moduleMirrorDefault?' · 镜像到两侧':''}）— 拖两端手柄调长度 · 拖中部手柄调位置 · 可继续点击边添加更多放置`);
+        return;
+      }
+      pushHint('点击任意装甲边挂载（车体/炮塔全形边，含前/后接缝边与镜像侧）；点带选中既有放置');
+    } else {
+      pushHint('请先在「模块 Modules」列表中选中一个模块');
+    }
   }
 });
 window.addEventListener('mousemove', e=>{
@@ -548,24 +941,59 @@ window.addEventListener('mousemove', e=>{
   if(mode==='preview' && !drag){ updatePreviewAim(sx,sy); render(); return; }
   if(!drag){
     // hover highlight: closest editable half-chain edge under the cursor
+    // 部件可见性：隐藏部件的边/带不参与 hover 高亮
     if(mode==='hull'){
+      if(!partVisible.hull){ if(hoverEdge){ hoverEdge = null; render(); } return; }
       const poly = state.hull;
       const ei = poly.half.length>=2 ? findEdgeHit(poly, hullCenter(), sx, sy) : -1;
       const key = ei>=0 ? 'hull:'+ei : null;
       const cur = hoverEdge ? hoverEdge.poly+':'+hoverEdge.index : null;
       if(key !== cur){ hoverEdge = ei>=0 ? { poly:'hull', index:ei } : null; render(); }
     } else if(mode==='turret'){
+      if(!partVisible.turret){ if(hoverEdge){ hoverEdge = null; render(); } return; }
       const poly = state.turret;
       const ei = poly.half.length>=2 ? findEdgeHitForTurret(poly, sx, sy) : -1;
       const key = ei>=0 ? 'turret:'+ei : null;
       const cur = hoverEdge ? hoverEdge.poly+':'+hoverEdge.index : null;
       if(key !== cur){ hoverEdge = ei>=0 ? { poly:'turret', index:ei } : null; render(); }
+    } else if(mode==='modules'){
+      const hf = findFullEdgeAtScreen(sx, sy);
+      const key = hf ? hf.part+':'+hf.edgeIndex : null;
+      const cur = hoverEdge ? hoverEdge.poly+':'+hoverEdge.index : null;
+      if(key !== cur){ hoverEdge = hf ? { poly:hf.part, index:hf.edgeIndex } : null; render(); }
     }
     return;
   }
   if(Math.hypot(sx-drag.downX, sy-drag.downY) > 3) drag.moved = true;
   if(!drag.moved) return;
-  if(drag.poly==='hullPivot'){
+  if(drag.poly==='moduleLen'){
+    // 手柄拖拽：沿主边投影 t ∈ [0,1]；A=起点(idx0)/M=中部(idx2,off)/B=终点(idx1)
+    if(!modLenDrag) { drag = null; return; }
+    const p = modulePlacement(modLenDrag.key, modLenDrag.idx);
+    const e = modLenDrag.edge;
+    if(!p || !e){ drag = null; return; }
+    const proj = (sx - e.mid.x)*e.ex + (sy - e.mid.y)*e.ey;
+    const t = 0.5 + proj / e.len;
+    const lenMin = RULES.modules.lenMin;
+    if(modLenDrag.handleIdx === 2){
+      // 中部手柄：off = t - 0.5，先四舍五入再钳制到 lim 的 0.01 步进下界
+      const lim = (1 - p.len)/2;
+      const offMax = Math.floor(lim*100 + 1e-9)/100;
+      p.off = Math.max(-offMax, Math.min(offMax, Math.round((t - 0.5)*100)/100));
+    } else {
+      // 端部手柄：带端点 = c ± len/2（c = 0.5+off）
+      const c = 0.5 + (p.off||0);
+      const half = modLenDrag.handleIdx===0
+        ? Math.max(lenMin/2, Math.min(0.5, c - t))
+        : Math.max(lenMin/2, Math.min(0.5, t - c));
+      p.len = Math.round(Math.max(lenMin, Math.min(1, half*2))*100)/100;
+      // len 变化 → off 上限收窄，联动重钳（防止 len 拖长后 off 越界）
+      const offMax = Math.floor((1 - p.len)/2*100 + 1e-9)/100;
+      p.off = Math.max(-offMax, Math.min(offMax, Math.round((p.off||0)*100)/100));
+    }
+    renderModuleList();
+    render();
+  } else if(drag.poly==='hullPivot'){
     // 拖动车体上的炮塔座圈圆心 (pivot)：可修改 dx 和 dy
     const c = hullCenter();
     const [lx, ly] = toLocal(c, sx, sy);
@@ -709,12 +1137,12 @@ function updatePreviewAim(sx,sy){
 }
 
 let hintTimer=null;
-function pushHint(msg){
+function pushHint(msg, ms){
   const el = document.getElementById('hint');
   const base = el.dataset.base || '';
   el.textContent = msg;
   clearTimeout(hintTimer);
-  hintTimer = setTimeout(()=>{ el.textContent = base; }, 1600);
+  hintTimer = setTimeout(()=>{ el.textContent = base; }, ms || 1600);
 }
 function updateReadout(sx,sy){
   const el = document.getElementById('coordReadout');
@@ -783,7 +1211,14 @@ document.getElementById('deleteVertBtn').addEventListener('click', deleteSelecte
 window.addEventListener('keydown', e=>{
   if(e.key === 'Escape'){
     clearSelection(); selectedEdge = null;
+    if(modSel){ modSel = null; renderModuleList(); }
     render(); renderEdgeLists();
+    return;
+  }
+  // 模块模式：Delete/Backspace 移除选中模块（放置级 = 该放置；模块级 = 全部放置）
+  if(modSel && (e.key==='Delete' || e.key==='Backspace')){
+    e.preventDefault();
+    removeSelectedModule();
     return;
   }
   if(selected){
@@ -812,26 +1247,82 @@ document.getElementById('snapToggleBtn').addEventListener('click', ()=>{
   pushHint(snapToGrid ? '网格吸附已开启：拖动/新增顶点将对齐到整数格' : '网格吸附已关闭');
 });
 
-// ================= mode switching =================
+// ================= mode switching（编辑列表驱动：editTab 控制面板显隐，mode 控制画布） =================
 const HINTS = {
   hull: '点击空白添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击“车体座圈圆心”标记或在侧栏编辑 pivot (X,Y) 可调整座圈在车体上的相对安装位置',
   turret: '点击空白添加炮塔顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击“炮塔座圈圆心”标记或在侧栏编辑 axis.dx 可调整座圈在炮塔中的相对横坐标（y 轴固定为 0）· 炮管及附件锚定在前缘装甲交点',
-  preview: '移动鼠标预览炮塔瞄准方向；射界 = 180° 时炮塔 360° 全向旋转，低于 180° 时将受限在 ±射界 内'
+  modules: '在「模块 Modules」列表选中模块 → 点击装甲边挂载（车体类 驾驶员/弹药架/发动机 只挂车体边、炮塔类 炮手/装填手/车长 只挂炮塔边、弹药架两侧均可；含前/后接缝与镜像侧，两侧均可点；同一模块可挂多处）→ 选中带后拖两端手柄调长度、拖中部手柄调位置、勾选「镜像到两侧」控制单/双侧 · Delete/Backspace 移除 · Esc 取消选中 · 可用「部件可见」隐藏车体/炮塔避免误点 · 履带为自动判定区（车体极前/极后端），无需挂载',
+  preview: '移动鼠标预览炮塔瞄准方向；射界 = 180° 时炮塔 360° 全向旋转，低于 180° 时将受限在 ±射界 内',
+  appearance: '外观件编辑：炮管预设（长度/粗细/制退器/抽烟器/护套）、炮盾、履带外观均为整车外观参数；画布处于预览模式，移动鼠标可旋转炮塔查看效果'
 };
+// 面板显隐：panel-<tab> 类命中当前 editTab 的面板显示，其余隐藏；顶点编辑按钮仅在车体/炮塔条目可用
+function updatePanelVisibility(){
+  document.querySelectorAll('.panel-hull, .panel-turret, .panel-modules, .panel-appearance').forEach(el=>{
+    el.style.display = el.classList.contains('panel-'+editTab) ? '' : 'none';
+  });
+  const vertEdit = (editTab==='hull' || editTab==='turret');
+  document.getElementById('undoVertBtn').disabled = !vertEdit;
+  document.getElementById('clearPolyBtn').disabled = !vertEdit;
+}
+// 列表条目高亮 = editTab；「预览瞄准」为独立视图辅助（高亮由 mode==='preview' 决定，不影响条目状态）
+function updateModeButtons(){
+  document.querySelectorAll('.edit-tab-btn').forEach(b=>b.classList.remove('active'));
+  const tabBtn = document.getElementById('mode'+editTab[0].toUpperCase()+editTab.slice(1));
+  if(tabBtn) tabBtn.classList.add('active');
+  document.getElementById('modePreview').classList.toggle('active', mode==='preview');
+}
 function setMode(m){
   mode = m;
   clearSelection();
   hoverEdge = null;
-  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('mode'+m[0].toUpperCase()+m.slice(1)).classList.add('active');
+  // 列表条目 ↔ 画布模式同步：hull/turret/modules 条目直接切换对应编辑模式；preview 不改变条目
+  if(m==='hull' || m==='turret' || m==='modules') editTab = m;
+  updateModeButtons();
   const hintEl = document.getElementById('hint');
-  hintEl.textContent = HINTS[m];
-  hintEl.dataset.base = HINTS[m];
+  hintEl.textContent = HINTS[m] || '';
+  hintEl.dataset.base = hintEl.textContent;
+  updatePanelVisibility();
   render();
 }
 document.getElementById('modeHull').addEventListener('click', ()=>setMode('hull'));
 document.getElementById('modeTurret').addEventListener('click', ()=>setMode('turret'));
+document.getElementById('modeModules').addEventListener('click', ()=>setMode('modules'));
+document.getElementById('modeAppearance').addEventListener('click', ()=>{
+  // 外观件条目：面板切到外观件组，画布进入预览模式（无顶点编辑目标，便于查看炮管/炮盾/履带效果）
+  editTab = 'appearance';
+  mode = 'preview';
+  clearSelection();
+  hoverEdge = null;
+  updateModeButtons();
+  const hintEl = document.getElementById('hint');
+  hintEl.textContent = HINTS.appearance;
+  hintEl.dataset.base = HINTS.appearance;
+  updatePanelVisibility();
+  render();
+});
 document.getElementById('modePreview').addEventListener('click', ()=>setMode('preview'));
+
+// ================= 部件可见性（纯编辑辅助，不写入导出/JSON） =================
+function setPartVisible(part, vis){
+  partVisible[part] = vis;
+  document.getElementById('partVis' + (part==='hull' ? 'Hull' : 'Turret') + 'Btn').classList.toggle('active', vis);
+  // 隐藏当前编辑目标部件 → 切到模块条目（防止画布交互落空）；另一侧仍可正常挂载/选择/拖拽
+  if(!vis){
+    if(mode==='hull' && part==='hull') setMode('modules');
+    else if(mode==='turret' && part==='turret') setMode('modules');
+    pushHint((part==='hull' ? '车体' : '炮塔') + '已隐藏 — 不渲染、不参与命中；点击「部件可见」重新显示', 2200);
+  }
+  render();
+}
+document.getElementById('partVisHullBtn').addEventListener('click', ()=>{
+  // 至少保留一个部件可见（避免画布完全空白）
+  if(partVisible.hull && !partVisible.turret){ pushHint('至少保留一个部件可见'); return; }
+  setPartVisible('hull', !partVisible.hull);
+});
+document.getElementById('partVisTurretBtn').addEventListener('click', ()=>{
+  if(partVisible.turret && !partVisible.hull){ pushHint('至少保留一个部件可见'); return; }
+  setPartVisible('turret', !partVisible.turret);
+});
 
 // ================= zoom controls =================
 document.getElementById('zoomInBtn').addEventListener('click', ()=>{ viewScale=Math.min(ZOOM_MAX,viewScale*1.2); updateZoomReadout(); render(); });
@@ -840,28 +1331,34 @@ document.getElementById('zoomResetBtn').addEventListener('click', ()=>{ viewScal
 
 // ================= vertex/polygon bulk ops =================
 document.getElementById('undoVertBtn').addEventListener('click', ()=>{
-  const target = (mode==='hull'||mode==='turret') ? mode : 'hull';
+  // 编辑列表驱动后：撤销目标 = 当前条目（车体/炮塔）；其余条目下按钮已禁用
+  const target = (editTab==='hull'||editTab==='turret') ? editTab : 'hull';
   const poly = state[target];
   if(poly.half.length<=2){ pushHint('每侧至少保留 2 个顶点'); return; }
   poly.half.pop(); poly.halfFaces.pop();
+  // 半形链改变 → 该部分已挂载模块位置失效，清除该部件全部放置
+  clearModulePlacementsOf(target);
   clearSelection();
-  render(); renderEdgeLists();
+  render(); renderEdgeLists(); renderModuleList();
 });
 document.getElementById('clearPolyBtn').addEventListener('click', ()=>{
-  const target = (mode==='hull'||mode==='turret') ? mode : 'hull';
+  const target = (editTab==='hull'||editTab==='turret') ? editTab : 'hull';
   if(!confirm(`清空当前「${target==='hull'?'车体':'炮塔'}」多边形，重新绘制？`)) return;
   state[target].half = [];
   state[target].halfFaces = [];
+  clearModulePlacementsOf(target);
   clearSelection();
-  render(); renderEdgeLists();
+  render(); renderEdgeLists(); renderModuleList();
 });
 document.getElementById('resetDefaultBtn').addEventListener('click', ()=>{
   if(!confirm('重置车体与炮塔为默认形状？（会丢失当前编辑内容）')) return;
   state.hull = defaultHull();
   state.turret = defaultTurret();
+  state.modules = {};
+  modSel = null;
   clearSelection();
   syncArmorInputsFromState();
-  render(); renderEdgeLists();
+  render(); renderEdgeLists(); renderModuleList();
 });
 // ----------------- turret own center vs rotation axis (issue #1 fix) -----------------
 // 炮塔自身旋转中心（本地帧内的轴点，=多边型原点）与"炮塔自身几何中心（包围盒中心）"是两个
@@ -1086,18 +1583,18 @@ function selectedEdgeFace(){
   return { face: getFace(poly.halfFaces, selectedEdge.index), label:`边 v${selectedEdge.index}→v${selectedEdge.index+1}` };
 }
 function updateArmorSelReadout(){
-  const el = document.getElementById('armorSelReadout');
-  if(!el) return;
+  const readouts = document.querySelectorAll('.armor-sel-readout');
   document.querySelectorAll('.armor-active').forEach(i=>i.classList.remove('armor-active'));
   if(!selectedEdge || !selectedEdgeFace()){
-    el.innerHTML = '未选择 — 点击画布边线或下方列表选择';
+    readouts.forEach(el=>{ el.innerHTML = '未选择 — 点击画布边线或下方列表选择'; });
     return;
   }
   const poly = state[selectedEdge.poly];
   const sf = selectedEdgeFace();
   const mm = (poly.armor && poly.armor[sf.face] !== undefined) ? poly.armor[sf.face] : '-';
   const key = selectedEdge.poly;
-  el.innerHTML = `${key==='hull'?'车体':'炮塔'} · ${sf.label} · <b style="color:${FACE_COLOR[sf.face]}">${sf.face}</b> ${mm}mm`;
+  const html = `${key==='hull'?'车体':'炮塔'} · ${sf.label} · <b style="color:${FACE_COLOR[sf.face]}">${sf.face}</b> ${mm}mm`;
+  readouts.forEach(el=>{ el.innerHTML = html; });
   const inp = document.getElementById(`a-${key==='hull'?'hull':'turret'}-${sf.face}`);
   if(inp) inp.classList.add('armor-active');
 }
@@ -1360,8 +1857,8 @@ function drawGrid(){
   ctx.strokeStyle = 'rgba(255,255,255,0.035)'; ctx.lineWidth = 1;
   const step = 40*viewScale;
   if(step>4){
-    for(let x=canvas.width/2 % step; x<canvas.width; x+=step){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
-    for(let y=canvas.height/2 % step; y<canvas.height; y+=step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+    for(let x=canvas.clientWidth/2 % step; x<canvas.clientWidth; x+=step){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.clientHeight); ctx.stroke(); }
+    for(let y=canvas.clientHeight/2 % step; y<canvas.clientHeight; y+=step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.clientWidth,y); ctx.stroke(); }
   }
 }
 // neutral base tone for the designer's procedural paint (no per-tank color exists here)
@@ -1446,9 +1943,12 @@ function drawPolygon(poly, center, angle, opts){
       ctx.strokeStyle = editable ? FACE_COLOR[faceType] : 'rgba(90,95,74,0.7)';
       ctx.lineWidth = active ? (editable?4:2.5) : 2;
       ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-      if(active && editable){
+      if(active){
         const ref = fullEdgeHalfRef(i);
-        const isHover = hoverEdge && ref && !ref.seam && ref.index===hoverEdge.index && hoverEdge.poly===(poly===state.hull?'hull':'turret');
+        const isHover = hoverEdge && hoverEdge.poly===(poly===state.hull?'hull':'turret') && (
+          (mode==='modules' && hoverEdge.index===i) ||
+          (mode!=='modules' && ref && !ref.seam && ref.index===hoverEdge.index)
+        );
         const isSel = selectedEdge && ref && selectedEdge.poly===(poly===state.hull?'hull':'turret') &&
           ((ref.seam && selectedEdge.seam===ref.seam) || (ref.index!==undefined && selectedEdge.index===ref.index));
         if(isSel || isHover){
@@ -1491,7 +1991,7 @@ function drawPolygon(poly, center, angle, opts){
   }
 }
 function render(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
   drawGrid();
   trackPhase = (trackPhase + 0.6) % 1000; // steady rolling-track scroll across static re-renders
 
@@ -1508,11 +2008,12 @@ function render(){
   const turretAngle = (mode==='preview') ? previewAngle : 0;
   // tracks under everything (animated scroll in preview via wall-clock time)
   const fullDetail = (mode==='preview');
-  drawDesignerTracks(fullDetail ? performance.now()*0.02 : trackPhase, viewScale);
   const partOpts = { active:false, detail: fullDetail, faded: !fullDetail };
 
-  drawPolygon(state.turret, null, turretAngle, Object.assign({ active: mode==='turret' || mode==='pivot' }, partOpts));
-  drawPolygon(state.hull, hc, 0, Object.assign({ active: mode==='hull' }, partOpts));
+  // 部件可见性：隐藏的部件（含履带/炮管等其附属视觉）不渲染
+  if(partVisible.hull) drawDesignerTracks(fullDetail ? performance.now()*0.02 : trackPhase, viewScale);
+  if(partVisible.turret) drawPolygon(state.turret, null, turretAngle, Object.assign({ active: mode==='turret' || mode==='pivot' || mode==='modules' }, partOpts));
+  if(partVisible.hull) drawPolygon(state.hull, hc, 0, Object.assign({ active: mode==='hull' || mode==='modules' }, partOpts));
 
   // 1. 车体上的炮塔座圈圆心 (pivot) 标记位置：
   const ringCenter = {
@@ -1522,6 +2023,7 @@ function render(){
 
   // 2. 炮塔上的炮塔座圈圆心 (axis) 标记位置 (以 turretToScreen 计算)：
   const ax = (state.turret.axis && state.turret.axis.dx) || 0;
+  const ay = (state.turret.axis && state.turret.axis.dy) || 0;
   const axisPos = turretToScreen([ax, 0], turretAngle);
 
   // 绘制座圈圆心 / 旋转中心标记：
@@ -1532,17 +2034,17 @@ function render(){
   ctx.fillStyle = '#ffb454'; ctx.font='10px "JetBrains Mono", monospace';
   ctx.fillText(mode==='turret' ? '炮塔座圈圆心 (x)' : '座圈圆心', axisPos.x+10, axisPos.y-10);
   
-  if(mode==='turret'){
+  if(mode==='turret' && partVisible.turret){
     ctx.strokeStyle = 'rgba(92,200,255,0.3)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
     ctx.beginPath(); ctx.arc(axisPos.x, axisPos.y, 16, 0, Math.PI*2); ctx.stroke();
     ctx.setLineDash([]);
   }
 
-  // 绘制炮管与附件：全套绑定在 turretToScreen([frontX, 0], turretAngle) 上
-  drawDesignerBarrel(turretAngle, viewScale);
+  // 绘制炮管与附件：全套绑定在 turretToScreen([frontX, 0], turretAngle) 上（炮塔隐藏时一并隐藏）
+  if(partVisible.turret) drawDesignerBarrel(turretAngle, viewScale);
 
   // turret's OWN center (bbox center)
-  if(mode==='turret'){
+  if(mode==='turret' && partVisible.turret){
     const oc = turretOwnCenter();
     const cosA = Math.cos(turretAngle), sinA = Math.sin(turretAngle);
     const wpx = tc.x + (oc.cx*cosA - oc.cy*sinA)*viewScale;
@@ -1559,95 +2061,15 @@ function render(){
     }
   }
 
-  // Draw Internal Module Zones Overlay
-  if(document.getElementById('showZonesCheckbox') && document.getElementById('showZonesCheckbox').checked){
-    // 分区数值单一来源：RULES.modules.zones（js/tank_rules.js）
-    const Z = RULES.modules.zones;
-    
-    // 1. Draw Hull module bands
-    // Hull bbox size
-    const hFull = buildFullVerts(state.hull.half);
-    if (hFull.length >= 3) {
-      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
-      for(const [vx,vy] of hFull){
-        if(vx<minX)minX=vx; if(vx>maxX)maxX=vx; if(vy<minY)minY=vy; if(vy>maxY)maxY=vy;
-      }
-      const halfL = Math.max(1, (maxX - minX)/2);
-      const halfW = Math.max(1, (maxY - minY)/2);
-      
-      const drawHullBand = (xStartFrac, xEndXFrac, color, label) => {
-        const xS = xStartFrac * halfL * viewScale;
-        const xE = xEndXFrac * halfL * viewScale;
-        const w = halfW * 0.85 * viewScale;
-        ctx.fillStyle = color;
-        ctx.fillRect(hc.x + xS, hc.y - w, xE - xS, w * 2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
-        ctx.strokeRect(hc.x + xS, hc.y - w, xE - xS, w * 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '9px "JetBrains Mono", monospace';
-        ctx.fillText(label, hc.x + (xS + xE)/2 - 18, hc.y + 3);
-      };
-      
-      ctx.save();
-      // Translate to hull center (no rotation in editing except preview, but hull is drawn at 0 angle)
-      // We will draw transparent OBB segments
-      // Tracks: left and right edges (|rx| > 0.78)
-      ctx.fillStyle = 'rgba(100,100,100,0.32)';
-      ctx.fillRect(hc.x - halfL*viewScale, hc.y - halfW*1.05*viewScale, halfL*2*viewScale, halfW*0.2*viewScale);
-      ctx.fillRect(hc.x - halfL*viewScale, hc.y + halfW*0.85*viewScale, halfL*2*viewScale, halfW*0.2*viewScale);
-      ctx.fillStyle = '#fff'; ctx.font = '8px "JetBrains Mono", monospace';
-      ctx.fillText('履带 (Tracks)', hc.x - 30, hc.y - halfW*0.92*viewScale);
-      ctx.fillText('履带 (Tracks)', hc.x - 30, hc.y + halfW*0.98*viewScale);
-      
-      // Driver: rx >= 0.25
-      drawHullBand(0.25, 0.78, 'rgba(92,200,255,0.22)', '驾驶员');
-      // Ammo: -0.25 <= rx < 0.25
-      drawHullBand(-0.25, 0.25, 'rgba(255,92,92,0.22)', '弹药架');
-      // Engine: rx < -0.25
-      drawHullBand(-0.78, -0.25, 'rgba(255,180,84,0.22)', '发动机');
-      ctx.restore();
-    }
-    
-    // 2. Draw Turret module bands
-    const tFull = buildFullVerts(state.turret.half);
-    if (tFull.length >= 3) {
-      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
-      for(const [vx,vy] of tFull){
-        if(vx<minX)minX=vx; if(vx>maxX)maxX=vx; if(vy<minY)minY=vy; if(vy>maxY)maxY=vy;
-      }
-      const halfL = Math.max(1, (maxX - minX)/2);
-      const halfW = Math.max(1, (maxY - minY)/2);
-      
-      const drawTurretBand = (xStartFrac, xEndFrac, color, label) => {
-        const xS = xStartFrac * halfL;
-        const xE = xEndFrac * halfL;
-        const w = halfW * 0.85;
-        const p1 = turretToScreen([xS, -w], turretAngle);
-        const p2 = turretToScreen([xE, -w], turretAngle);
-        const p3 = turretToScreen([xE, w], turretAngle);
-        const p4 = turretToScreen([xS, w], turretAngle);
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
-        ctx.closePath(); ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1; ctx.stroke();
-        const mid = turretToScreen([(xS+xE)/2, 0], turretAngle);
-        ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '9px "JetBrains Mono", monospace';
-        ctx.fillText(label, mid.x - 18, mid.y + 3);
-      };
-      
-      ctx.save();
-      // Gunner: rx >= -0.25
-      drawTurretBand(-0.25, 0.8, 'rgba(126,217,87,0.25)', '炮手');
-      // Loader: -0.62 <= rx < -0.25
-      drawTurretBand(-0.62, -0.25, 'rgba(200,100,250,0.22)', '装填手');
-      // Turret Ammo: rx < -0.62
-      drawTurretBand(-0.95, -0.62, 'rgba(255,50,50,0.25)', '尾舱弹药');
-      ctx.restore();
-    }
+  // Draw internal module bands（设计器编辑的线段挂载模块；模块模式恒显示，其余模式由复选框控制）
+  const showMods = (mode==='modules') || (document.getElementById('showZonesCheckbox') && document.getElementById('showZonesCheckbox').checked);
+  if(showMods){
+    if(partVisible.hull){ drawTrackZone(); drawModuleBands('hull', 0); }
+    if(partVisible.turret) drawModuleBands('turret', turretAngle);
   }
 
-  // 射界限制射线：仅当射界 < 180° 时绘制（180° = 全向旋转，无限制）
-  if(state.traverseLimit < 180){
+  // 射界限制射线：仅当射界 < 180° 时绘制（180° = 全向旋转，无限制）；炮塔隐藏时不绘制
+  if(partVisible.turret && state.traverseLimit < 180){
     const limit = state.traverseLimit * Math.PI/180;
     ctx.strokeStyle = 'rgba(255,180,84,0.35)'; ctx.setLineDash([5,5]); ctx.lineWidth=1;
     ctx.beginPath();
@@ -1656,6 +2078,79 @@ function render(){
     ctx.moveTo(axisPos.x, axisPos.y);
     ctx.lineTo(axisPos.x+Math.cos(-limit)*90*viewScale, axisPos.y+Math.sin(-limit)*90*viewScale);
     ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+
+// 自动履带区（2026-08-12 起履带不是挂载模块）：现有履带模型沿车体全长，其前后端一小段
+// 距离（|relX|/halfL > zones.trackBound，即车体极前/极后端）恒为履带碰撞盒，
+// 由 moduleFromHit 自动判定，无需设计器挂载。
+function drawTrackZone(){
+  const verts = buildFullVerts(state.hull.half);
+  if(!verts.length) return;
+  const b = paintBounds(verts);
+  const L = (b.maxX - b.minX)/2, cxm = (b.minX + b.maxX)/2;
+  const tb = (RULES.modules.zones && RULES.modules.zones.trackBound) || 0.78;
+  const xA = cxm + L*tb, xB = cxm - L*tb;
+  const hc = hullCenter();
+  const strip = (x0, x1) => {
+    if(x1 - x0 <= 0.01) return;
+    const p = [[x0,b.minY],[x1,b.minY],[x1,b.maxY],[x0,b.maxY]].map(pt => toScreen(hc, pt));
+    ctx.beginPath();
+    ctx.moveTo(p[0].x, p[0].y);
+    for(let i=1;i<p.length;i++) ctx.lineTo(p[i].x, p[i].y);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(154,164,138,0.5)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1;
+    ctx.stroke();
+    const mid = toScreen(hc, [(x0+x1)/2, (b.minY+b.maxY)/2]);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = '9px "JetBrains Mono", monospace';
+    ctx.fillText('履带', mid.x - 16, mid.y + 3);
+  };
+  strip(xA, b.maxX);
+  strip(b.minX, xB);
+}
+
+// 模块带渲染：半透明带形 + 名称标签；选中放置高亮描边并显示 3 手柄（两端 len + 中部 off）
+function drawModuleBands(part, angle){
+  const ang = (part==='turret') ? angle : 0;
+  for(const key of RULES.modules.keys){
+    const arr = state.modules[key] || [];
+    for(let i=0;i<arr.length;i++){
+      const p = arr[i];
+      if(p.part !== part) continue;
+      const isSel = modSel && modSel.key===key && modSel.idx===i;
+      const bands = moduleLocalBands(part, p);
+      for(const quad of bands){
+        const sc = moduleBandToScreen(part, quad, ang);
+        ctx.beginPath();
+        ctx.moveTo(sc[0].x, sc[0].y);
+        for(let i2=1;i2<sc.length;i2++) ctx.lineTo(sc[i2].x, sc[i2].y);
+        ctx.closePath();
+        ctx.fillStyle = MODULE_COLORS[key] || '#9aa48a';
+        ctx.globalAlpha = isSel ? 0.5 : 0.32;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = isSel ? 'rgba(255,180,84,0.95)' : 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = isSel ? 3 : 1;
+        ctx.stroke();
+        // 标签：模块名 + len%（挂在带的边中点内侧）
+        const mx = (sc[0].x+sc[1].x)/2, my = (sc[0].y+sc[1].y)/2;
+        const ix = (sc[2].x+sc[3].x)/2, iy = (sc[2].y+sc[3].y)/2;
+        ctx.fillStyle = isSel ? '#ffd75c' : 'rgba(255,255,255,0.85)';
+        ctx.font = '9px "JetBrains Mono", monospace';
+        ctx.fillText(`${RULES.modules.labels[key]||key} ${Math.round(p.len*100)}%`, (mx+ix)/2 - 16, (my+iy)/2 + 3);
+      }
+      if(isSel){
+        const h = moduleLenHandles(key, i);
+        for(const hd of h.handles){
+          ctx.beginPath(); ctx.arc(hd.x, hd.y, hd.idx===2 ? 4 : 5, 0, Math.PI*2);
+          ctx.fillStyle = '#ffb454'; ctx.fill();
+          ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
+        }
+      }
+    }
   }
 }
 
@@ -1687,11 +2182,11 @@ function buildExport(){
        jacket: { len: state.barrel.jacket.len, pos: state.barrel.jacket.pos },
        mantlet: { style: state.barrel.mantlet.style, pos: state.barrel.mantlet.pos, width: state.barrel.mantlet.width }
      },
-     hull: {
-       verts: buildFullVerts(state.hull.half),
-       faces: buildFullFaces(state.hull.half, i=>getFace(state.hull.halfFaces,i), state.hull.frontSeamFace, state.hull.rearSeamFace),
-       armor: state.hull.armor
-     },
+      hull: {
+        verts: buildFullVerts(state.hull.half),
+        faces: buildFullFaces(state.hull.half, i=>getFace(state.hull.halfFaces,i), state.hull.frontSeamFace, state.hull.rearSeamFace),
+        armor: state.hull.armor
+      },
         turret: {
         verts: buildFullVerts(state.turret.half),
         faces: buildFullFaces(state.turret.half, i=>getFace(state.turret.halfFaces,i), state.turret.frontSeamFace, state.turret.rearSeamFace),
@@ -1700,13 +2195,66 @@ function buildExport(){
         // axis = 炮塔自身旋转中心（旋转轴在炮塔几何内的位置）：网格顶点按原样导出、axis 实时写入，
         // 导入时不再做 -axis 平移（见 applyTankData），round-trip 恒稳定、无漂移。
         axis: { dx: state.turret.axis.dx || 0, dy: state.turret.axis.dy || 0 }
-      }
+      },
+      // 线段挂载模块：重新匹配当前半形链边中点（顶点编辑后模块仍贴边），x/y 0.1 取整、len 0.01 取整
+      modules: exportModules(),
    };
+}
+// 导出模块：扁平 { key: [ { part, x, y, len, off, mirror } ] }。每处放置重新以 (x,y) 匹配当前
+// 全形边中点（容差 0.5，含镜像匹配），保证 round-trip 稳定；顶点增删后漂移出任何边的放置
+// 直接跳过（不再符合"放置必须落在全形边上"）。
+// 帧约定：turret 模块坐标 = 作者帧（与导出 verts 同帧）；hull 模块坐标必须换算到导出 verts
+// 的 bbox 居中帧 —— 战斗端 applyTankConfig 会把 hull verts 平移到居中帧，两端必须同帧。
+function exportModules(){
+  const out = {};
+  let cx = 0, cy = 0;
+  {
+    const full = buildFullVerts(state.hull.half);
+    if(full.length >= 2){
+      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+      for(const [vx,vy] of full){
+        if(vx<minX)minX=vx; if(vx>maxX)maxX=vx; if(vy<minY)minY=vy; if(vy>maxY)maxY=vy;
+      }
+      cx = (minX+maxX)/2; cy = (minY+maxY)/2;
+    }
+  }
+  let skipped = 0;
+  for(const key of RULES.modules.keys){
+    const arr = state.modules[key] || [];
+    if(!arr.length) continue;
+    const list = [];
+    for(const p of arr){
+      const verts = buildFullVerts(state[p.part].half);
+      // 直接匹配优先（保持放置侧别），镜像匹配兜底
+      let found = null;
+      for(let pass=0; pass<2 && !found; pass++){
+        for(let i=0;i<verts.length;i++){
+          const mx = (verts[i][0]+verts[(i+1)%verts.length][0])/2;
+          const my = (verts[i][1]+verts[(i+1)%verts.length][1])/2;
+          if(pass===0 ? (Math.abs(mx - p.x) <= 0.5 && Math.abs(my - p.y) <= 0.5)
+                      : (Math.abs(mx - p.x) <= 0.5 && Math.abs(my + p.y) <= 0.5)){ found = { x:mx, y:my }; break; }
+        }
+      }
+      if(!found){ skipped++; continue; }
+      list.push({
+        part: p.part,
+        x: Math.round((found.x - (p.part==='hull' ? cx : 0))*10)/10,
+        y: Math.round((found.y - (p.part==='hull' ? cy : 0))*10)/10,
+        len: Math.round(p.len*100)/100,
+        off: Math.round((p.off||0)*100)/100,
+        mirror: p.mirror !== false
+      });
+    }
+    if(list.length) out[key] = list;
+  }
+  if(skipped > 0) console.warn(`[designer] exportModules: ${skipped} 处放置未匹配任何全形边中点，已跳过`);
+  return out;
 }
 document.getElementById('tankListSaveBtn').addEventListener('click', ()=>{
   saveToTankList();
 });
-function applyTankData(data){
+function applyTankData(data, opts){
+  opts = opts || {};
   state.id = data.id ?? state.id;
   state.traverseLimit = data.traverseLimit ?? 180;
   state.maxSpeed = data.maxSpeed ?? state.maxSpeed;
@@ -1800,6 +2348,11 @@ function applyTankData(data){
       }
    }
    document.getElementById('barrelPreset').value = matchedPreset;
+   // 线段挂载模块：有字段 → normalizeTankModules 清洗（tank_geometry.js，旧 v2 分区格式自动迁移）；
+   // 无字段（旧数据）→ 空放置状态
+   state.modules = data.modules ? (normalizeTankModules(data.modules) || {}) : {};
+   modSel = null;
+   renderModuleList();
    render(); renderEdgeLists();
 }
 
@@ -1877,6 +2430,32 @@ document.getElementById('tankListDeleteBtn').addEventListener('click', ()=>{
   });
 });
 function saveToTankList(){
+  // 保存校验：6 个模块必须全部放置（每类至少 1 处），且每处放置只能挂在其部件类允许的边上
+  // （车体类 driver/ammo/engine → 车体边；炮塔类 gunner/loader/commander → 炮塔边；
+  //  弹药架 ammo 两侧均可——语义分类来自 RULES.modules.legacyPartKeys，见 moduleAllowedParts）
+  // 履带不是模块：履带碰撞盒 = 车体极前/极后端自动判定（见 moduleFromHit），无需挂载。
+  const miss = [];
+  const badParts = [];
+  for(const key of RULES.modules.keys){
+    const arr = state.modules[key] || [];
+    if(!arr.length){ miss.push(RULES.modules.labels[key]||key); continue; }
+    const allowed = moduleAllowedParts(key);
+    for(let i=0;i<arr.length;i++){
+      if(!allowed.includes(arr[i].part)){
+        badParts.push(`「${RULES.modules.labels[key]||key}」#${i+1}（${arr[i].part==='hull'?'车体':'炮塔'}边）`);
+      }
+    }
+  }
+  if(badParts.length){
+    pushHint(`无法保存：${badParts.join('、')} 挂载在部件类不允许的边上（${miss.length ? '且未放置：' + miss.join('、') + '；' : ''}请移至允许的边）`, 6000);
+    setMode('modules');
+    return;
+  }
+  if(miss.length){
+    pushHint(`无法保存：模块未全部放置 — ${miss.join('、')}`, 5000);
+    setMode('modules');
+    return;
+  }
   const out = buildExport();
   if(tankListCache){ tankListCache[out.id] = out; populateTankListSelect(tankListCache); }
   // 单文件原子写（POST /api/tanks/<id>）；失败降级下载单条目
@@ -1901,6 +2480,7 @@ document.getElementById('mantletPos').value = state.barrel.mantlet.pos;
 document.getElementById('mantletWid').value = state.barrel.mantlet.width;
 document.getElementById('trackWidthInput').value = state.trackWidth;
 updateTrackRanges();
+renderModuleList();
 setMode('hull');
 updateZoomReadout();
 // 预先载入 tanks/ 列表，让顶部「坦克列表」下拉立即可用。

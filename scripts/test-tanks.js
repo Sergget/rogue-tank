@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 const H = require('../js/tank_halfgeom.js');
+const RULES_MOD = require('../js/tank_rules.js');
 
 const TANKS_DIR = path.join(__dirname, '..', 'tanks');
 let fails = 0;
@@ -60,6 +61,29 @@ for(const f of files){
   // barrel 归一化：新格式加载无异常且结构完整
   const b = H.normalizeBarrel(spec.barrel);
   ok(b && Number.isFinite(b.len) && b.evac && b.jacket && b.mantlet, `${f}: barrel 归一化结构完整`);
+
+  // 线段挂载模块：字段存在时校验结构（扁平 { key: [placement] }；placement 含 part/x/y/len/off/mirror，
+  // x/y/len 有限、len ∈ [lenMin,1]）；缺失 = 旧数据，允许
+  if(spec.modules !== undefined){
+    ok(typeof spec.modules === 'object' && spec.modules !== null && !Array.isArray(spec.modules), `${f}: modules 字段为对象`);
+    const flatKeys = (RULES_MOD && RULES_MOD.RULES && RULES_MOD.RULES.modules && RULES_MOD.RULES.modules.keys) || [];
+    for(const key of Object.keys(spec.modules)){
+      const list = spec.modules[key];
+      ok(flatKeys.includes(key), `${f}: modules.${key} 为已知模块键`);
+      ok(Array.isArray(list) && list.length > 0, `${f}: modules.${key} 为放置数组（每类至少 1 处）`);
+      if(Array.isArray(list)){
+        list.forEach((m, i)=>{
+          const okPart = m && (m.part==='hull' || m.part==='turret');
+          const okStruct = m && Number.isFinite(m.x) && Number.isFinite(m.y) && Number.isFinite(m.len) &&
+            m.len >= RULES_MOD.RULES.modules.lenMin && m.len <= 1 &&
+            Number.isFinite(m.off) && Math.abs(m.off) <= (1 - m.len)/2 + 1e-9;
+          ok(okPart && okStruct, `${f}: modules.${key}[${i}] 结构合法 (part/x/y/len/off, len∈[lenMin,1], |off|≤(1-len)/2)`);
+        });
+      }
+    }
+  } else {
+    ok(true, `${f}: 无 modules 字段（旧数据，允许）`);
+  }
 }
 
 console.log(fails === 0 ? 'test-tanks: 全部通过' : `test-tanks: ${fails} 项失败`);

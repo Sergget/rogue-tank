@@ -1,5 +1,10 @@
 'use strict';
 
+// 线段挂载模块（tank_designer「模块 Modules」编辑）：normalizeTankModules 由 tank_geometry.js
+// 提供。浏览器端它是全局函数（geometry 先于 model 加载）；Node 测试端在下方 export 块内
+// require tank_geometry.js 兜底赋值，保证 applyTankConfig 两侧行为一致。
+let _normalizeTankModules = (typeof normalizeTankModules === 'function') ? normalizeTankModules : null;
+
 // ---------- three-layer attribute system (base / modifiers / stats) ----------
 // Combat code reads ONLY tank.stats. `tank.base` holds the untuned values; `tank.modifiers`
 // (buffs/debuffs from cards, shop, skills) layer on top. Modifiers apply adds first, then mults.
@@ -130,6 +135,7 @@ function makeTank(opts){
       dotDurationMult: 1
     },
     modifiers: [],
+    modules: null,                  // 线段挂载模块（设计器导出；null/无字段 = 旧数据，走 zones 退化）
     sigma:0, prevHullAngle:0, prevTurretAngle:0
   }, opts);
 
@@ -248,6 +254,12 @@ function applyTankConfig(tank, spec){
     Object.assign(b.armor.turret, spec.turret.armor);
   }
 
+  // 线段挂载模块：仅当 spec.modules 存在才写（旧数据无字段 → 保持 makeTank 的 null，
+  // moduleFromHit 走 zones 退化路径）
+  if (spec.modules){
+    tank.modules = (typeof _normalizeTankModules === 'function') ? _normalizeTankModules(spec.modules) : null;
+  }
+
   refreshStats(tank);
   tank.hp = tank.stats.maxHp;
   tank.maxHp = tank.stats.maxHp;
@@ -360,6 +372,14 @@ function debuffSpeedRate(t){
 
 // Export for Node.js if running in test environment
 if (typeof module !== 'undefined' && module.exports) {
+  // Node 测试端兜底：浏览器端 normalizeTankModules 是 tank_geometry.js 的全局函数，
+  // Node 端模块作用域看不到全局，从 require 的 geometry 拿同一实现（保持单一来源）。
+  try {
+    const _geom = require('./tank_geometry.js');
+    if (!_normalizeTankModules && _geom && typeof _geom.normalizeTankModules === 'function'){
+      _normalizeTankModules = _geom.normalizeTankModules;
+    }
+  } catch(e){ /* geometry 未加载时保持 null（浏览器端不会走到这里） */ }
   module.exports = {
     computeStats,
     applyArmorMod,

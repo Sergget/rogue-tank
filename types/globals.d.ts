@@ -27,6 +27,19 @@ declare function gunRoot(t: any): [number, number];
 declare function gunTip(t: any): [number, number];
 declare function aimPartPreference(px: any, py: any, tx: any, ty: any, prefDist: any, deadzone: any): 'turret' | 'hull' | 'auto';
 declare function bestHitForPref(hits: any, minT: any, maxT: any, pref: any): any;
+declare function shellPartHit(hits: any, step: any, pref: any): any;
+
+// 线段挂载模块系统（设计器「模块 Modules」编辑；tank_geometry.js）
+// 扁平数据模型：{ key: [ { part, x, y, len, off, mirror }, ... ] }（6 键见 RULES.modules.keys；
+// 履带 track 非挂载模块，履带碰撞盒 = 车体极前/极后端自动判定）
+declare function normalizeTankModules(m: any): any;
+declare function pointInQuad(px: number, py: number, quad: any): boolean;
+declare function moduleBandForEdge(verts: any, edgeIdx: number, gx: number, gy: number, len: number, depth: number, off?: any): any;
+declare function findModuleBands(verts: any, m: any, axis: any, depth: number): any;
+declare function moduleHitFromBands(verts: any, mods: any, part: string, axis: any, depth: number, rx: number, ry: number): any;
+declare function hasModulePlacementsOn(mods: any, part: string): boolean;
+declare function moduleLabelOf(key: string): string;
+declare function moduleAllowedParts(key: string): string[];
 
 declare function makeTank(config?: any): any;
 declare function clearPaintCache(): void;

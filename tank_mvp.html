@@ -744,14 +744,16 @@ function update(dt){
     const nx = sx + s.dx*step, ny = sy + s.dy*step;
 
     // 候选障碍：isHostile 的存活实体（友方/自身穿透，不阻挡）
-    // bestHitForPref 取本步长内唯一生效命中：按 shell.hitPref（鼠标径向意图）选车体/炮塔，
-    // 'auto' 时保持原默认——同平面覆盖区炮塔优先（炮塔是上层构件），未命中炮塔取最近。
+    // shellPartHit 先探测本帧是否与目标相触（任一部位进入步长窗口），相触后
+    // 按 shell.hitPref（鼠标径向意图）选车体/炮塔：明确意图沿整条射线选择
+    // （与预测面板/半高掩体判决同源，避免车体面先入窗截胡炮塔面）；
+    // 'auto' 时保持旧行为——同平面覆盖区炮塔优先（炮塔是上层构件），未命中炮塔取最近。
     let bestDist = Infinity, bestTank = null, bestHit = null, bestHits = null, bestCover = null;
     for(const e of entities){
       if(e.hp <= 0) continue;
       if(!isHostile(s.shooter.team, e.team)) continue;
       const hits = raycastTank(sx, sy, s.dx, s.dy, e);
-      const bh = bestHitForPref(hits, 0.001, step, s.hitPref);
+      const bh = shellPartHit(hits, step, s.hitPref);
       if(bh && bh.t < bestDist){
         bestDist = bh.t; bestTank = e; bestHit = bh; bestHits = hits; bestCover = null;
       }
@@ -897,7 +899,9 @@ function update(dt){
 
 function updateHud(){
   document.getElementById('eHpBar').style.width = (dummy.hp/dummy.maxHp*100)+'%';
-  document.getElementById('eHpVal').textContent = dummy.hp.toFixed(0);
+  // Math.ceil：DOT 逐帧扣血会留下小数 HP，显示取上整保证"显示值 ≥ 实际值"；
+  // 整数直击伤害下（applyModuleDamage 已 Math.round）显示 == 实际
+  document.getElementById('eHpVal').textContent = Math.ceil(dummy.hp);
   const dB = dummy.debuffs || {};
   const dbKeys = Object.keys(dB).filter(k=>dB[k]>0);
   // 模块中文标签集中在 js/tank_model.js 的 MODULE_LABELS（HUD/日志共用）
