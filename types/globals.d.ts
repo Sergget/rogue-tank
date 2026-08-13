@@ -51,6 +51,8 @@ declare function normalizeBarrel(b: any): any;
 declare function resolveHit(shooter: any, target: any, hit: any, angle: any, dist: any): any;
 declare function resolveCoverCollisions(t: any, dt?: any, moveX?: any, moveY?: any): void;
 declare function getCoverUnderTank(t: any): any;
+declare function coverCorners(cov: any): any[];
+declare function coverCollisionParts(cov: any): any[][];
 declare function getPartZRange(t: any, part: any): any;
 
 declare var entities: any[];
@@ -87,3 +89,48 @@ declare function advanceTracks(t: any, dx: any, dy: any, dAngle: any): void;
 declare function superstructureLabel(hit: any): string;
 declare function faceLabel(faceKey: any): string;
 declare function moduleMult(m: any, target?: any): number;
+
+interface NodeGenOptions {
+  seed?: number | string;
+  templateId?: string;
+  centerX?: number;
+  centerY?: number;
+  x?: number;
+  y?: number;
+  cullRate?: number;
+  applyToCovers?: boolean;
+}
+
+interface GeneratedNodeResult {
+  template: {
+    id: string;
+    name: string;
+    tags: string[];
+    w: number;
+    h: number;
+    items: any[];
+  };
+  covers: Array<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    angle: number;
+    tier: string;
+    hp: number;
+    verts?: number[][];
+    collisionVerts?: number[][][];
+  }>;
+  seed: number | string;
+  difficulty: number;
+}
+
+declare var covers: any[];
+declare function snapshotCovers(): void;
+declare function resetCovers(): void;
+
+declare var NODE_TEMPLATES: any[];
+declare function createRNG(seed?: any): any;
+declare function registerTemplate(template: any): void;
+declare function getTemplates(): any[];
+declare function generateNode(difficulty?: number, options?: NodeGenOptions): GeneratedNodeResult;

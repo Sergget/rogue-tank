@@ -150,7 +150,7 @@
           <div><span class="sw" style="background:rgba(166,138,60,0.55); border-color:#a68a3c;"></span>半高掩体 — 中坦车体近乎全藏，重坦仍半露</div>
           <div><span class="sw" style="background:rgba(106,106,106,0.65); border-color:#6a6a6a;"></span>全高掩体 — 完全遮蔽</div>
           <div><span class="sw" style="background:rgba(88,130,58,0.55); border-color:#5c8238;"></span>灌木丛 — 弹可穿透，树冠遮挡视线</div>
-          <div><span class="sw" style="background:rgba(56,88,52,0.6); border-color:#3f5c3c;"></span>树 — 树干挡路挡弹，3 发伐倒→树桩</div>
+          <div><span class="sw" style="background:rgba(56,88,52,0.6); border-color:#3f5c3c;"></span>树 — 树干挡路挡弹，1 发伐倒→倒树（树冠遮挡视线）</div>
           <div><span class="sw" style="background:rgba(150,118,70,0.55); border-color:#96764a;"></span>栅栏 — 炮弹/坦克穿过即毁</div>
           <div><span class="sw" style="background:rgba(158,128,72,0.6); border-color:#9e8048;"></span>沙袋路障 — 挡 1 发，>70° 斜射跳弹</div>
           <div><span class="sw" style="background:rgba(112,74,40,0.75); border-color:#6e4a26;"></span>树桩/碎石 — 残骸半掩，可碾毁</div>
@@ -238,6 +238,7 @@
     </div>
 
     <div class="btnrow">
+      <button id="genNodeBtn">随机生成战场 GENERATE</button>
       <button id="resetBtn">重置 RESET</button>
     </div>
   </div>
@@ -249,6 +250,7 @@
   <script src="js/tank_halfgeom.js"></script>
   <script src="js/tank_model.js"></script>
   <script src="js/tank_cover.js"></script>
+  <script src="js/tank_nodegen.js"></script>
   <script src="js/tank_physics.js"></script>
   <script src="js/tank_entity.js"></script>
   <script src="js/tank_move.js"></script>
@@ -412,6 +414,11 @@ canvas.addEventListener('mousemove', e=>{
 });
 canvas.addEventListener('mousedown', e=>{ if(e.button===0) tryFire(); });
 
+document.getElementById('genNodeBtn').addEventListener('click', ()=>{
+  const randomDiff = Math.random();
+  const res = generateNode(randomDiff, { applyToCovers: true });
+  pushLog(`随机生成战场: [${res.template.name}] 难度=${(randomDiff*100).toFixed(0)}% 元素数=${res.covers.length}`,'COVER');
+});
 document.getElementById('resetBtn').addEventListener('click', ()=>{
   entities.forEach(resetEntity);
   resetCovers();
@@ -819,9 +826,9 @@ function update(dt){
         impacts.push({ x:s.x, y:s.y, life:0.4, color:'#ffb454' });
         spawnImpactFx(s.x, s.y, Math.atan2(s.dx, s.dy), 'block', 0.8);
         if(Number.isFinite(bestCover.cover.hp)){
-          // 树等可破坏 solid 元素：每发 -1 耐久；未毁时提示剩余耐久，毁时 destroyCover 出日志
+          // 可破坏 solid 元素（树等，耐久 1 一发即毁）：未毁时提示剩余耐久，毁时 destroyCover 出日志
           if(!damageCover(bestCover.cover, 1, 'shell')){
-            pushLog(`被${coverTier.label}挡住 — 树干受损（剩余耐久 ${bestCover.cover.hp}）`,'COVER');
+            pushLog(`被${coverTier.label}挡住 — 掩体受损（剩余耐久 ${bestCover.cover.hp}）`,'COVER');
           }
         } else {
           pushLog(`被${coverTier.label}挡住 — 炮弹被掩体截停`,'COVER');

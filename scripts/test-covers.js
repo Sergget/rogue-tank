@@ -14,6 +14,7 @@ global.partEdges = U.partEdges;
 global.reflectDir = U.reflectDir;
 global.RULES = RULES_MOD.RULES;
 global.HEIGHTS = require('../js/tank_geometry.js').HEIGHTS; // geometry 顶层 const，tank_cover 依赖
+global.polyCorners = require('../js/tank_geometry.js').polyCorners; // coverCorners 依赖（复杂多边形）
 const C = require('../js/tank_cover.js');
 
 let fails = 0;
@@ -24,20 +25,33 @@ function ok(cond, label) {
 function findTier(tier) { return C.covers.find(x => x.tier === tier); }
 
 // 1) initial hp derived from tier
-ok(findTier('tree').hp === 3, 'tree derives hp from tier (3)');
+ok(findTier('tree').hp === 1, 'tree derives hp from tier (1)');
 ok(findTier('barricade').hp === 1, 'barricade hp=1');
 ok(findTier('full').hp === Infinity, 'full cover hp=Infinity');
 ok(findTier('half').hp === Infinity, 'half cover hp=Infinity');
 
-// 2) damage/destroy + felled-to-stump chain
+// 2) damage/destroy + felled-to-fallen chain (1 发伐倒 → 倒树)
 const tree = findTier('tree');
 C.damageCover(tree, 1, 'shell');
-ok(tree.hp === 2 && tree.tier === 'tree', `tree hp 3->2 (got ${tree.hp})`);
-C.damageCover(tree, 2, 'shell');
-ok(tree.tier === 'stump' && tree.hp === 1, `tree felled -> stump hp=1 (got ${tree.tier}/${tree.hp})`);
-C.damageCover(tree, 1, 'shell');
-ok(tree.hp === 0, 'stump destroyed by crush hit');
+ok(tree.tier === 'fallen' && tree.hp === Infinity, `tree felled in 1 shot -> fallen residue (got ${tree.tier}/${tree.hp})`);
+const FT = C.COVER_TIERS.fallen;
+ok(FT.vision === true && FT.mode === 'none' && FT.crushable === false && FT.hp === Infinity,
+  'fallen tier: vision occludes / shells pass (mode none) / not crushable / not re-destructible');
+ok(tree.w === 24*2.4 && tree.h === Math.max(8, 18*0.5), `fallen residue uses residueW/residueH sizing (got ${tree.w}x${tree.h})`);
+ok(!C.damageCover(tree, 1, 'shell') && tree.hp === Infinity && tree.tier === 'fallen',
+  'fallen tree immune to further damage (hp=Infinity)');
+// 弹穿透：穿过倒树不遮挡（树冠仅遮挡视线，mode none）
+const expFallen = C.getExposure(tree.x - 200, tree.y, tree.x + 200, tree.y, null, { heightClass: 'medium' }, 0, 1.4);
+ok(expFallen > 0.5, `shell passes through fallen tree (exposure=${expFallen.toFixed(2)})`);
+// 坦克压过倒树：不推不毁（crushable false, mode none）
+const fTank = { x: tree.x, y: tree.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'medium' };
+const fTx = fTank.x, fTy = fTank.y;
+C.resolveCoverCollisions(fTank);
+ok(tree.tier === 'fallen' && tree.hp === Infinity && fTank.x === fTx && fTank.y === fTy,
+  'tank drives over fallen tree (no push, no crush)');
 C.resetCovers();
+ok(findTier('tree').hp === 1 && findTier('tree').tier === 'tree', 'resetCovers restores tree (tier/hp)');
+ok(findTier('fallen') === undefined, 'fallen is transient residue only (no static instance)');
 
 // 3) destroyed covers excluded from path queries
 const barricade = findTier('barricade');
@@ -132,8 +146,80 @@ C.resetCovers();
 
 // 9) resetCovers restores all
 C.resetCovers();
-ok(findTier('tree').hp === 3 && findTier('barricade').hp === 1 && findTier('barricade').tier === 'barricade',
+ok(findTier('tree').hp === 1 && findTier('barricade').hp === 1 && findTier('barricade').tier === 'barricade',
   'resetCovers restores hp/tier for all elements');
+
+// 10) 复杂多边形掩体（需求2）：verts 顶点数组承载任意多边形，全部角点计算走 coverCorners
+const lFull  = C.covers.find(c => c.tier === 'full' && c.verts);   // L 形凹多边形全高（x:250 y:650）
+const hexHalf = C.covers.find(c => c.tier === 'half' && c.verts);  // 六边形半高（x:700 y:650）
+ok(!!lFull && !!hexHalf, 'polygonal covers present (L-full + hex-half)');
+const lCorners = C.coverCorners(lFull);
+const hexCorners = C.coverCorners(hexHalf);
+ok(lCorners.length === 6 && hexCorners.length === 6, 'coverCorners returns N corners for polygonal covers');
+ok(C.coverCorners(findTier('barricade')).length === 4, 'coverCorners falls back to 4 rect corners');
+
+// 10a) findCoversOnPath：穿过实体区命中、穿过凹陷缺口不命中
+//      L 形：实体区 y=630（x∈205..295 全宽），凹槽 x∈255..295, y∈640..680（右侧开口）
+let lhits = C.findCoversOnPath(150, 630, 350, 630);
+ok(lhits.length === 1 && lhits[0].cover === lFull, 'ray through L body hits the polygonal cover');
+let vhits = C.findCoversOnPath(270, 650, 280, 670); // 完全落在凹槽缺口内
+ok(vhits.length === 0, 'ray inside L concavity misses (no edge crossing)');
+
+// 10b) getExposure：solid 多边形全挡；half 六边形半高行为不变
+const expLPoly = C.getExposure(100, 630, 400, 630, null, { heightClass: 'medium' }, 0, 1.4);
+ok(expLPoly === 0, `solid polygonal cover fully occludes (got ${expLPoly})`);
+const expHexHeavy = C.getExposure(hexHalf.x - 200, hexHalf.y, hexHalf.x + 200, hexHalf.y, null, { heightClass: 'heavy' }, 0, 1.8);
+ok(expHexHeavy === 0.25, `heavy hull exposes 25% behind hex-half (got ${expHexHeavy})`);
+const expHexMed = C.getExposure(hexHalf.x - 200, hexHalf.y, hexHalf.x + 200, hexHalf.y, null, { heightClass: 'medium' }, 0, 1.4);
+ok(expHexMed === 0.0, `medium hull exposes 0% behind hex-half (got ${expHexMed})`);
+const expHexTurret = C.getExposure(hexHalf.x - 200, hexHalf.y, hexHalf.x + 200, hexHalf.y, null, { heightClass: 'medium' }, 1.4, 2.3);
+ok(expHexTurret === 1.0, `turret 100% exposed behind hex-half (got ${expHexTurret})`);
+
+// 10c) coverNormalAt：多边形边上取点返回单位法线
+const nHex = C.coverNormalAt(hexHalf, hexHalf.x, hexHalf.y - 25); // 六边形顶边中点（局部 y=-25）
+ok(nHex && Math.abs(Math.hypot(nHex.nx, nHex.ny) - 1) < 1e-6, 'coverNormalAt on polygon edge returns unit normal');
+
+// 10d) resolveCoverCollisions：solid 多边形推出坦克；half 多边形 driveBy 行为不变
+const tLPoly = { x: lFull.x, y: lFull.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'medium' };
+C.resolveCoverCollisions(tLPoly);
+ok(tLPoly.x !== lFull.x || tLPoly.y !== lFull.y, 'solid polygonal cover pushes tank out');
+const tHexHeavy = { x: hexHalf.x, y: hexHalf.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'heavy' };
+const hx0 = tHexHeavy.x, hy0 = tHexHeavy.y;
+C.resolveCoverCollisions(tHexHeavy);
+ok(tHexHeavy.x === hx0 && tHexHeavy.y === hy0, 'hex-half: heavy tank drives over (no push)');
+const tHexMed = { x: hexHalf.x, y: hexHalf.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'medium' };
+C.resolveCoverCollisions(tHexMed);
+ok(tHexMed.x !== hexHalf.x || tHexMed.y !== hexHalf.y, 'hex-half: medium tank pushed out');
+
+// 10e) obbOverlap / obbMTV：任意顶点数仍正确（SAT 对顶点数无假设）
+ok(C.obbOverlap(lCorners, hexCorners) === false, 'separated 6-gons do not overlap');
+const farBox = partCorners(100, 100, 0, 20, 20);
+ok(C.obbOverlap(lCorners, farBox) === false, 'far-away box vs L no overlap');
+const overBox = partCorners(lFull.x, lFull.y, 0, 20, 20); // 40x40 盒骑在 L 实体区上
+ok(C.obbOverlap(lCorners, overBox) === true, 'box overlapping L solid region overlaps (SAT)');
+const mtvPoly = C.obbMTV(overBox, lCorners);
+ok(mtvPoly && mtvPoly.depth > 0, 'obbMTV resolves 6-gon collision with positive depth');
+
+// 11) L-shaped cover compound convex collision test
+const pocketX = 275, pocketY = 660;
+const pocketBox = partCorners(pocketX, pocketY, 0, 5, 5);
+// Verify that the pocket box overlaps the old full/convex hull coverCorners
+ok(C.obbOverlap(pocketBox, lCorners) === true, 'pocket box overlaps full convex hull of L cover');
+// Verify that the pocket box does not overlap any of the compound collision parts
+const collisionParts = C.coverCollisionParts(lFull);
+let overlapsAny = false;
+for (const part of collisionParts) {
+  if (C.obbOverlap(pocketBox, part)) {
+    overlapsAny = true;
+  }
+}
+ok(overlapsAny === false, 'pocket box does not overlap any of the compound collision parts of L cover');
+
+// Verify tank is not blocked inside the pocket (at pocketX, pocketY)
+const pocketTank = { x: pocketX, y: pocketY, hullAngle: 0, hullLen: 10, hullWid: 10, hp: 10, heightClass: 'medium' };
+const px0 = pocketTank.x, py0 = pocketTank.y;
+C.resolveCoverCollisions(pocketTank);
+ok(pocketTank.x === px0 && pocketTank.y === py0, 'tank is not blocked/pushed inside L-shaped cover concave pocket');
 
 console.log(fails ? `\n${fails} failure(s).` : '\nAll cover-system checks passed.');
 process.exitCode = fails ? 1 : 0;

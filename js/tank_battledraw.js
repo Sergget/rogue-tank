@@ -134,14 +134,14 @@ function drawShells(ctx, shells){
   }
 }
 
-// 地图元素分层绘制（§2.7）：box=矩形掩体（含标签）；soft/barricade/stump/rubble/bush/tree
-// 各画专属贴图；灌木树冠（bush/tree 的上层叶片）由 drawFoliage 画在坦克之上形成视线遮挡。
+// 地图元素分层绘制（§2.7）：box=矩形掩体（含标签）；soft/barricade/stump/rubble/bush/tree/fallen
+// 各画专属贴图；树冠叶片（bush/tree/fallen 的上层叶片）由 drawFoliage 画在坦克之上形成视线遮挡。
 function drawCover(ctx, cov){
   const tier = COVER_TIERS[cov.tier];
-  const c = partCorners(cov.x,cov.y,cov.angle, cov.w/2, cov.h/2);
+  const c = coverCorners(cov);
   const boxPath = ()=>{
     ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
-    for(let i=1;i<4;i++) ctx.lineTo(c[i].x,c[i].y);
+    for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
     ctx.closePath();
   };
   if(tier.draw === 'box'){
@@ -201,6 +201,31 @@ function drawCover(ctx, cov){
     ctx.beginPath(); ctx.arc(cov.x, cov.y, r, 0, TAU); ctx.fill();
     ctx.strokeStyle = 'rgba(36,26,14,1)'; ctx.lineWidth=1.5;
     ctx.beginPath(); ctx.arc(cov.x, cov.y, r, 0, TAU); ctx.stroke();
+  } else if(tier.draw === 'fallen'){
+    // 倒树：横躺树干沿 cov.w 方向（锥形椭圆 + 枝杈 + 根部伐倒断面），树冠叶片在 drawFoliage
+    const L = cov.w/2, r0 = Math.max(3, cov.h*0.5), r1 = Math.max(2, cov.h*0.3);
+    // 树干主体（根部粗、梢部细：两段椭圆渐变）
+    ctx.fillStyle = 'rgba(58,42,24,0.92)';
+    ctx.beginPath(); ctx.ellipse(cov.x + L*0.15, cov.y, L*0.65, r0, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(66,48,26,0.9)';
+    ctx.beginPath(); ctx.ellipse(cov.x - L*0.15, cov.y, L*0.6, r1, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(36,26,14,1)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, L, r0, 0, 0, TAU); ctx.stroke();
+    // 枝杈（向上翘起的短枝）
+    ctx.strokeStyle = 'rgba(66,48,26,0.9)'; ctx.lineWidth=1.5;
+    for(let i=-2;i<=2;i++){
+      const bx = cov.x + i*L*0.38;
+      const dir = (i%2===0) ? 1 : -1;
+      ctx.beginPath(); ctx.moveTo(bx, cov.y);
+      ctx.lineTo(bx + dir*cov.h*0.6, cov.y - dir*cov.h*0.8);
+      ctx.stroke();
+    }
+    // 根部伐倒断面（树干左端圆截面 + 年轮）
+    ctx.fillStyle = 'rgba(126,96,60,0.95)';
+    ctx.beginPath(); ctx.arc(cov.x - L, cov.y, r0*0.9, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(60,40,22,0.8)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(cov.x - L, cov.y, r0*0.9, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cov.x - L, cov.y, r0*0.45, 0, TAU); ctx.stroke();
   }
 }
 
@@ -228,6 +253,18 @@ function drawFoliage(ctx, covers){
       ctx.beginPath(); ctx.arc(cov.x-R*0.3, cov.y+R*0.15, R*0.45, 0, TAU); ctx.fill();
       ctx.strokeStyle = 'rgba(48,80,38,0.6)'; ctx.lineWidth=1;
       ctx.beginPath(); ctx.arc(cov.x, cov.y, R*0.85, 0, TAU); ctx.stroke();
+    } else if(tier.draw === 'fallen'){
+      // 倒树树冠：摊扁的叶片簇覆盖树干端部（灌木效果，画在坦克之上遮挡视线）
+      const cx = cov.x + cov.w*0.32, cy = cov.y;
+      const rw = Math.max(8, cov.w*0.3), rh = Math.max(6, cov.h*1.5);
+      for(let i=0;i<5;i++){
+        const oa = (i/5)*TAU + 0.5;
+        const ox = Math.cos(oa)*rw*0.55, oy = Math.sin(oa)*rh*0.55;
+        ctx.fillStyle = i%2 ? 'rgba(70,110,50,0.55)' : 'rgba(96,130,60,0.5)';
+        ctx.beginPath(); ctx.ellipse(cx+ox, cy+oy, rw*0.5, rh*0.5, oa, 0, TAU); ctx.fill();
+      }
+      ctx.strokeStyle = 'rgba(92,132,60,0.55)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.ellipse(cx, cy, rw, rh, 0, 0, TAU); ctx.stroke();
     }
   }
 }

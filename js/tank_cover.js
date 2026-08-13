@@ -7,22 +7,36 @@ const COVER_TIERS = RULES.coverTiers;
 
 // 地图元素（掩体体系，见 DEVELOPMENT.md §2.7）：每个元素带运行时耐久 hp——
 // hp<=0 即毁（被炮弹/碾压/HE 溅射摧毁），已毁元素从所有判定与绘制中排除。
-// 树伐倒 → 树桩(stump)；沙袋击毁 → 碎石(rubble)，残骸仍提供半高概率遮挡。
+// 树伐倒 → 倒树(fallen，横躺树干+树冠，树冠=灌木遮挡效果)；沙袋击毁 → 碎石(rubble)。
+// 掩体可承载任意复杂多边形：实例带 verts（局部坐标顶点数组）时，全部角点计算
+// 走 coverCorners → polyCorners；否则回退矩形 partCorners（w/h 半宽半高）。
 const covers = [
   { x:470, y:300, w:80, h:34, angle:0, tier:'half' },
   { x:660, y:300, w:70, h:34, angle:0, tier:'full' },
-  { x:560, y:150, w:24, h:18, angle:0, tier:'tree' },       // 树：挡路+步上可伐倒
+  { x:560, y:150, w:24, h:18, angle:0, tier:'tree' },       // 树：挡路+1 发伐倒→倒树
   { x:760, y:470, w:56, h:34, angle:0, tier:'bush' },       // 灌木：靶车可开入隐藏
   { x:930, y:150, w:56, h:30, angle:0, tier:'bush' },       // 灌木（装饰）
   { x:330, y:510, w:170, h:10, angle:0, tier:'soft' },      // 栅栏：穿透即毁 / 压过即毁
-  { x:450, y:180, w:64, h:28, angle:0, tier:'barricade' }   // 沙袋路障：挡 1 发
+  { x:450, y:180, w:64, h:28, angle:0, tier:'barricade' },  // 沙袋路障：挡 1 发
+  // 复杂多边形验证实例（需求2，为后续贴图做准备）：verts 为局部坐标顶点数组，
+  // w/h 仅作包围盒参考；L 形凹多边形全高掩体 + 六边形半高掩体。
+  { x:250, y:650, w:90, h:60, angle:0, tier:'full',
+    verts: [[-45,-30],[45,-30],[45,-10],[5,-10],[5,30],[-45,30]],
+    collisionVerts: [
+      [[-45,-30],[5,-30],[5,30],[-45,30]],
+      [[5,-30],[45,-30],[45,-10],[5,-10]]
+    ] },
+  { x:700, y:650, w:80, h:50, angle:0, tier:'half',
+    verts: [[-40,0],[-20,-25],[20,-25],[40,0],[20,25],[-20,25]] }
 ];
 
 // 每块掩体/元素在启动时快照初始状态（耐久取 tier 默认值），resetCovers() 用于重置战场
 function snapshotCovers(){
   covers.forEach(c=>{
     if(c.hp === undefined) c.hp = COVER_TIERS[c.tier].hp;
-    c.spawn = { tier:c.tier, x:c.x, y:c.y, w:c.w, h:c.h, angle:c.angle, hp:c.hp };
+    c.spawn = { tier:c.tier, x:c.x, y:c.y, w:c.w, h:c.h, angle:c.angle, hp:c.hp,
+                ...(c.verts ? { verts: c.verts.slice() } : {}),
+                ...(c.collisionVerts ? { collisionVerts: c.collisionVerts.map(v => v.map(pt => pt.slice())) } : {}) };
   });
 }
 function resetCovers(){
@@ -34,7 +48,9 @@ function resetCovers(){
 snapshotCovers();
 
 // 元素被摧毁：一次性消耗（_gone 幂等标志；每帧多辆车压上同一元素只毁一次）。
-// toTier 残骸（树→树桩、沙袋→碎石）原地降级为半高残骸并保留于 covers。
+// toTier 残骸（树→倒树、沙袋→碎石）原地降级并保留于 covers；残骸尺寸默认通用
+// 0.6/0.6 缩小，tier 配置了 residueW/residueH 时用其覆盖（如倒树横躺 2.4/0.5）。
+// 多边形掩体（verts）被摧毁后残骸按矩形 w/h 表现，故清除 verts。
 function destroyCover(cov, reason){
   if(cov._gone) return;
   cov._gone = true;
@@ -50,10 +66,18 @@ function destroyCover(cov, reason){
   if(to){
     cov.tier = to;
     cov.angle = 0;
-    cov.w = Math.max(24, cov.w*0.6);
-    cov.h = Math.max(16, cov.h*0.6);
+    const rw = COVER_TIERS[to].residueW, rh = COVER_TIERS[to].residueH;
+    if(rw !== undefined || rh !== undefined){
+      cov.w = Math.max(8, cov.w * (rw !== undefined ? rw : 0.6));
+      cov.h = Math.max(8, cov.h * (rh !== undefined ? rh : 0.6));
+    } else {
+      cov.w = Math.max(24, cov.w*0.6);
+      cov.h = Math.max(16, cov.h*0.6);
+    }
     cov.hp = COVER_TIERS[to].hp;
     cov._gone = false;          // 残骸重新"存活"（仍可再被毁/压毁）
+    delete cov.verts;           // 残骸按矩形 w/h 表现，不再沿用多边形几何
+    delete cov.collisionVerts;  // 同样清除多边形碰撞块
   }
 }
 
@@ -65,12 +89,29 @@ function damageCover(cov, amt, reason){
   return false;
 }
 
+// 掩体角点统一入口（需求2）：带 verts（局部坐标顶点数组，长度≥3）的复杂多边形
+// 掩体走 polyCorners（tank_geometry.js 全局），否则回退矩形 partCorners（w/h 半宽半高）。
+function coverCorners(cov){
+  if(cov.verts && cov.verts.length >= 3){
+    return polyCorners(cov.x, cov.y, cov.angle, { verts: cov.verts });
+  }
+  return partCorners(cov.x, cov.y, cov.angle, cov.w/2, cov.h/2);
+}
+
+// 支持多凸包碰撞（L型等凹多边形）：如果掩体有 collisionVerts，返回各子块角点数组组成的数组；否则返回含单一块 coverCorners(cov) 的数组。
+function coverCollisionParts(cov) {
+  if (cov.collisionVerts && cov.collisionVerts.length > 0) {
+    return cov.collisionVerts.map(cv => polyCorners(cov.x, cov.y, cov.angle, { verts: cv }));
+  }
+  return [coverCorners(cov)];
+}
+
 // 掩体表面法线：命中点最近一条边向外（方向无要求，反射公式对方向不敏感）
 function coverNormalAt(cov, px, py){
-  const c = partCorners(cov.x,cov.y,cov.angle, cov.w/2, cov.h/2);
+  const c = coverCorners(cov);
   let best=null, bestD=Infinity;
-  for(let i=0;i<4;i++){
-    const a=c[i], b=c[(i+1)%4];
+  for(let i=0;i<c.length;i++){
+    const a=c[i], b=c[(i+1)%c.length];
     const ex=b.x-a.x, ey=b.y-a.y;
     const len=Math.hypot(ex,ey)||1;
     const ux=ex/len, uy=ey/len;
@@ -97,8 +138,12 @@ function getCoverUnderTank(tank) {
   const tankCorners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
   for (const cov of covers) {
     if(cov.hp <= 0) continue;
-    const covCorners = partCorners(cov.x, cov.y, cov.angle, cov.w/2, cov.h/2);
-    if (obbOverlap(tankCorners, covCorners)) return cov;
+    const parts = coverCollisionParts(cov);
+    for (const part of parts) {
+      if (obbOverlap(tankCorners, part)) {
+        return cov;
+      }
+    }
   }
   return null;
 }
@@ -179,17 +224,19 @@ function resolveCoverCollisions(tank) {
   for (const cov of covers) {
     if (cov.hp <= 0) continue;
     const tier = COVER_TIERS[cov.tier];
-    const covCorners = partCorners(cov.x, cov.y, cov.angle, cov.w/2, cov.h/2);
-    const mtv = obbMTV(tankCorners(), covCorners);
-    if (!mtv) continue;
-    if (tier.crushable) {
-      destroyCover(cov, 'crush');
-      continue;
-    }
-    const blocked = tier.mode === 'solid' || (tier.driveBy && tier.driveBy[tank.heightClass] === false);
-    if (blocked) {
-      tank.x += mtv.dx;
-      tank.y += mtv.dy;
+    const parts = coverCollisionParts(cov);
+    for (const part of parts) {
+      const mtv = obbMTV(tankCorners(), part);
+      if (!mtv) continue;
+      if (tier.crushable) {
+        destroyCover(cov, 'crush');
+        break; // 已压毁则不再检测其他 collisionVerts
+      }
+      const blocked = tier.mode === 'solid' || (tier.driveBy && tier.driveBy[tank.heightClass] === false);
+      if (blocked) {
+        tank.x += mtv.dx;
+        tank.y += mtv.dy;
+      }
     }
   }
 }
@@ -201,10 +248,10 @@ function findCoversOnPath(ox,oy,tx,ty){
   const hits = [];
   for(const cov of covers){
     if(cov.hp <= 0) continue;   // 已摧毁元素不再参与判定/预测
-    const corners = partCorners(cov.x,cov.y,cov.angle, cov.w/2, cov.h/2);
+    const corners = coverCorners(cov);
     let entry = null, exit = null;
-    for(let i=0;i<4;i++){
-      const a=corners[i], b=corners[(i+1)%4];
+    for(let i=0;i<corners.length;i++){
+      const a=corners[i], b=corners[(i+1)%corners.length];
       const hit = segRayIntersect(ox,oy,ux,uy, a.x,a.y,b.x,b.y);
       if(hit && hit.t>0.5){
         // entry 只取命中点之前的穿越；exit 取整个矩形的出口（可越过命中点，
@@ -286,12 +333,14 @@ if (typeof module !== 'undefined' && module.exports) {
     destroyCover,
     damageCover,
     coverNormalAt,
+    coverCorners,
     splashCoversAt,
     getCoverUnderTank,
     obbOverlap,
     obbMTVs,
     obbMTV,
     resolveCoverCollisions,
+    coverCollisionParts,
     findCoversOnPath,
     getExposure,
     coverBlockInfo,
