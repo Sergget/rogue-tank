@@ -8,8 +8,7 @@
 
 ## 1. 项目定型
 
-**类型**：节点式地图推进 + 局内得分驱动构筑 的战术坦克 Roguelike（俯视角 2D）。
-~~曾定为"无限波次刷怪"~~ — 已推翻：无限波次的数值膨胀式压力和"慢节奏、拼角度"的战斗立意冲突，改为**节点式地图**，每个节点是一块独立的、有限范围的战场，难度随节点在地图中的推进程度随机生成，模拟真实战场"层层推进"的感觉。
+**类型**：节点式地图推进 + 局内得分驱动构筑 的战术坦克 Roguelike（俯视角 2D）。每个节点是一块独立的、有限范围的战场，难度随节点在地图中的推进程度随机生成，模拟真实战场"层层推进"的感觉。
 
 **目标单局时长**：从 0 开始一局，控制在 10 分钟以内。
 
@@ -51,7 +50,6 @@
 | 用途 | 节点间三选一卡牌（可消耗得分刷新选项）+ **节点间商店**：买本局内的消耗品/临时强化 | **死亡后商店**：永久升级（贵，局内不可购买）、消耗品（如复活次数，便宜） |
 
 - 节点间商店 与 死亡后商店 是**两套独立商店**，货币互不流通——维持"死亡才能换永久成长"的核心惩罚分量不被稀释。
-- ~~卡牌获取节奏：局内得分达到节点阈值 → 三选一~~ — 已被"节点间开放三选一"取代，不再依赖战斗中的得分阈值触发。
 
 ### 2.5 掩体系统（已实现于原型）
 掩体分两种，处理方式完全不同：
@@ -93,45 +91,52 @@
 - **A3·路障跳弹**：弹丸与沙袋路障碰撞时复用坦克跳弹逻辑（>70° 反射，一次反射后 `canBounce=false`），跳弹不消耗路障耐久——斜向的沙袋是可以"弹走"的。
 - 树为不可压毁（树干挡路，同建筑），只能炮弹伐倒；灌木不可摧毁。
 
-### 2.8 已明确排除 / 延后的机制
-- ~~无限波次~~：已推翻，改为节点式地图（见 2.1）。
-- ~~低矮掩体~~：已移除，只保留半高/全高两档。
-- ~~1/2/0 部位锁定~~：已移除。**该按键位预留给后续"弹种切换"**（AP/APCR/HE 等），非部位锁定。
-- ~~"友军防线"作为敌人回避区域~~：已废弃，改为固定位置的密集掩体点，双方都可利用，不是敌人主动回避的区域。
-- ~~3D 顶点装甲模型（首上/首下/炮盾上下）~~：已实现过完整版本（含 Newell 法线、等效厚度、画中画命中演示），后判定为"对 Roguelike 过于复杂——玩家无法操控俯仰角，Z 轴搜索变成黑箱计算"，**已整体回退**为纯 2D 单厚度装甲（front/side/rear 各一个数）。3D 模型代码不建议复用，如未来要做"特殊 Boss 专属弱点"之类的差异化机制，应作为独立特例实现，不作为全体坦克的标配系统。
+### 2.8 已明确排除 / 延后的机制（历史）
+- 曾被提出并最终排除/延后的机制（无限波次、低矮掩体、1/2/0 部位锁定、友军防线回避区、3D 顶点装甲模型回退）的完整原文见 `ARCHIVE.md`（2026-08-13 归档自 DEVELOPMENT.md §2.8）。
+- 其中两条后续指引仍有效：**1/2/0 按键位仍预留给未来"弹种切换"**（AP/APCR/HE 等，非部位锁定）；**3D 装甲模型回退后**，若未来要做"特殊 Boss 专属弱点"之类的差异化机制，应作为独立特例实现，不作为全体坦克的标配系统。
+
+### 2.9 模块系统：装甲边段挂载（已定型并实装，2026-08-12）
+- **定位**：模块（`RULES.modules.keys` 扁平 6 类：driver/ammo/engine/gunner/loader/commander，语义上 driver/ammo/engine 属车体、gunner/loader/commander 属炮塔、ammo 两侧均可）**挂载在装甲边上**——每处放置 = 一条车体/炮塔**全形边**（含前/后接缝边）+ 沿边覆盖比例 `len` 形成的边段，向内偏移 `bandDepth`（hull 10px / turret 8px）构成示意带（仅渲染与判定深度，不入 JSON）。**履带（track）不是挂载模块（2026-08-12 设计决策）**：roguelike 定位下不为履带设专门放置——履带碰撞盒 = **现有履带模型前后端一小段距离**（履带沿车体全长，其前后端即车体极前/极后端，`|relX|/halfL > zones.trackBound=0.78`），`moduleFromHit` 对该判定恒先于一切模块带执行、与是否挂载模块无关。
+- **数据格式（作者帧）**：`modules: { "driver": [ { "part": "hull", "x": 25.0, "y": -6.5, "len": 0.5, "off": 0, "mirror": true }, ... ] }` —— `(x,y)` 为全形边中点的作者帧坐标，`len ∈ [lenMin=0.05, 1]`（默认 0.4；**2026-08-12 下限从 0.15 降到 0.05**，允许细长模块带）、`off ∈ [-0.35, 0.35]` 为带中心沿边偏移（`off=0` = 边中点对称）、`mirror=true` 时同时在跨轴镜像伙伴边（对 y=0 轴）生成带。**同模块可挂载多处**，命中取覆盖点 len 最小者（细分优先）。**存中点而非边索引**：顶点增删不漂移，且对前/后接缝两种半形约定都健壮。旧 v2 分区格式（`{hull:{...}, turret:{...}}`）由 `normalizeTankModules` 自动迁移（`off=0`、`mirror=true`、part 继承 v2 部件；v2 双 ammo → 2 个放置；v2 hull.track 因 track 已非模块而被丢弃——车体极前端/后端自动判定接管）。
+- **坐标帧约定**：JSON 中 hull 模块坐标为**居中帧**（战斗端 `applyTankConfig` 恒把 hull 顶点平移至 bbox 居中；设计器 `defaultHull()` 未居中（bbox 中心 x≈4.75）→ `exportModules` 导出时减 bbox 中心、`applyTankData` 读入时加回——两处对称实现，否则"保存→重载后 hull 模块全丢"）；turret 模块坐标 = 作者帧（无居中换算）。
+- **命中判定**：`moduleFromHit`（`js/tank_geometry.js`）车体侧面先做**自动履带区**判定（`|relX|/halfL > 0.78` → 履带/负重轮，任何坦克恒生效），再按 `tank.modules` 做带判定——`findModuleBands` 逐放置生成主边带 + 镜像伙伴带，**直接匹配（保持放置侧别）优先，跨轴镜像回退**（否则 mirror=false 的 y>0 放置会跳到对侧），命中取 len 最小者；无任何带命中 → 结构性 fallback。**镜像伙伴带 = 主带沿 y=0 轴的真镜像**（`off` 需取反：伙伴边在链中反向遍历，镜像点沿边参数 = 1−t，`off` 原样复用会把「镜像」变成「中心对称」——2026-08-12 修复）。**部件级判定**：该部件（hull/turret）存在放置才走带判定；部件无放置（或 `modules` 为 null/空）→ 该部件走旧 zones 分区逻辑保留（旧 json 零行为变化；车体侧面 zones 仅剩 driver/ammo/engine 三段，履带区由上文自动判定先行截获）。
+- **设计器交互**：「模块 Modules」编辑模式——列表选中模块 → 点击任意全形装甲边挂载新放置（turret 优先再 hull；len=`moduleLenDefault`、off=0、mirror=`moduleMirrorDefault`；**对称轴两侧（y≤0 与 y>0）的边均可挂载/选中/拖拽**）、点带选中放置、**3 手柄拖拽**（两端 len + 中部 off，`modLenDrag` 时设置 `drag={poly:'moduleLen',...}`）、Delete/Backspace 移除、Esc 取消；「显示内部模块 Zones」复选框渲染已放置带（模块模式恒显示；履带自动区以橄榄色带恒渲染于车体极前/极后端并标注「履带」，不可编辑）；**车体/炮塔可见性切换按钮**（`partVisible`，互斥护栏、至少保留一个部件可见；隐藏部件不渲染、不参与边/带/悬停命中，纯编辑辅助不入 JSON）；保存前 6 个模块必须全部挂载（每类至少 1 处，缺失阻止保存并切到模块模式列出清单）。
+- **兼容**：旧坦克（无 modules 字段）加载 → 空放置（不自动派生），需手动挂载全部模块后方可保存；v2 分区格式加载 → 自动迁移为扁平放置（track 除外）。
 
 ---
 
 ## 3. 当前原型（`tank_mvp.html`）已验证的系统
 
-- **移动/转向（WASD）、鼠标瞄准（带转速限制）、开火/装填** — 加减速基于**车重 `weight` 与发动机马力 `enginePower`**（存于 base 层）：`accel = enginePower/weight * 180`（px/s²，`RULES.speed.accelPowerToPxScale`），越重越快达不到峰值、低马力的重型车加速最慢；刹车 `brake = accel × 3.5`（`RULES.speed.brakeFactor`）恒快于加速，松键减速再乘 1.8，实现真实的重型惯性与滑停感（注：旧文档 "×30 / ×2.2" 为过时数值，2026-08-11 审查时以 `RULES.speed` 为准更正）。
-- **坦克间碰撞（2026-08-10 重写，ISSUES #12 修复）**：每帧对实体两两做 OBB SAT 解析（`resolveTankCollisions` → `obbMTVs`，`js/tank_cover.js` 提供全部候选 MTV）。**稳定选轴**：近最小深度（≤1.15×）的候选轴内优先取"最抵消逼近运动"的轴（相对速度投影决胜），深叠/近方形重叠时推出轴不再逐帧横跳；**速度冲量**只作用于法向闭合分量（`j = 相对法向速度/2`，完全非弹性），标量速度经投影重建到各自车体轴（`js/tank_entity.js`），无 `Math.hypot` 方向丢失、无逐帧乘法砍速。两车对撞/推挤/交叉不再抖动、不穿模、不横向幽灵滑移；推挤时被推车沿自己车体轴获得动量（被顶走）。
-- **瞄准线**：炮口沿炮管方向的虚线参考线（长 900px，无散布），任意角度朝向目标都有可见瞄准线；发射炮线已删除，炮弹用真实飞行动画呈现（旧条目中的 `firstObstructionPoint` 截停高亮线已随 P-01/P-02 重构移除，2026-08-11 审查确认）。
-- **掩体遮挡：纯垂直剖面模型（MVP 已实现）**：`getExposure`（`js/tank_cover.js`）删去旧"距离压制"规则，只按垂直剖面分类——炮塔（zMin≥1.2）恒 100% 露出；车体中坦 0% 露出 / 重坦 25%（`RULES.coverRules`）；方向判据 + 16px 贴掩体容差保留（`COVER_DIRECTION_TOLERANCE`，防骑掩体误遮蔽，`ARCHIVE.md` #10）。**实弹在掩体入口即时判决**：`tank_mvp.html` `shellVerticalDecision` 沿弹道起点(fx,fy)→前方整条射线解析命中部位，`graduated` 掩体在穿越帧按曝光概率拦截于掩体入口（中坦 100% / 重坦 75%），通过者到达时按判决部位直接命中（`s.dec`，不二次掷骰）；弹道起点随跳弹/反射重置、判决重算；**删除"首选部位全遮蔽→回退打另一部位"机制**（被挡即被拦截，引导玩家改打炮塔，预测面板同源）。根因更正：原 #10 的 16px 容差方案并未解决 MVP 漏判——炮弹循环在到达帧用逐帧近端位置求 exposure，炮弹飞过掩体后射线不再穿掩体导致永不自检；新模型在掩体入口处整条弹道判定解决之（见 `ARCHIVE.md` 2026-08-10 修复记录）。
+- **移动/转向（WASD）、鼠标瞄准（带转速限制）、开火/装填** — 加减速基于**车重 `weight` 与发动机马力 `enginePower`**（存于 base 层）：`accel = enginePower/weight * 180`（px/s²，`RULES.speed.accelPowerToPxScale`），越重越快达不到峰值、低马力的重型车加速最慢；刹车 `brake = accel × 3.5`（`RULES.speed.brakeFactor`）恒快于加速，松键减速再乘 1.8，实现真实的重型惯性与滑停感（数值以 `RULES.speed` 为准，见 §5.5）。
+- **坦克间碰撞（2026-08-10 重写）**：每帧对实体两两做 OBB SAT 解析（`resolveTankCollisions` → `obbMTVs`，`js/tank_cover.js` 提供全部候选 MTV）。**稳定选轴**：近最小深度（≤1.15×）的候选轴内优先取"最抵消逼近运动"的轴（相对速度投影决胜），深叠/近方形重叠时推出轴不再逐帧横跳；**速度冲量**只作用于法向闭合分量（`j = 相对法向速度/2`，完全非弹性），标量速度经投影重建到各自车体轴（`js/tank_entity.js`），无 `Math.hypot` 方向丢失、无逐帧乘法砍速。两车对撞/推挤/交叉不再抖动、不穿模、不横向幽灵滑移；推挤时被推车沿自己车体轴获得动量（被顶走）。
+- **瞄准线**：炮口沿炮管方向的虚线参考线（长 900px，无散布），任意角度朝向目标都有可见瞄准线；发射炮线已删除，炮弹用真实飞行动画呈现（旧 `firstObstructionPoint` 截停高亮线已移除）。
+- **掩体遮挡：纯垂直剖面模型（MVP 已实现）**：`getExposure`（`js/tank_cover.js`）删去旧"距离压制"规则，只按垂直剖面分类——炮塔（zMin≥1.2）恒 100% 露出；车体中坦 0% 露出 / 重坦 25%（`RULES.coverRules`）；方向判据 + 16px 贴掩体容差保留（`COVER_DIRECTION_TOLERANCE`，防骑掩体误遮蔽）。**实弹在掩体入口即时判决**：`tank_mvp.html` `shellVerticalDecision` 沿弹道起点(fx,fy)→前方整条射线解析命中部位，`graduated` 掩体在穿越帧按曝光概率拦截于掩体入口（中坦 100% / 重坦 75%），通过者到达时按判决部位直接命中（`s.dec`，不二次掷骰）；弹道起点随跳弹/反射重置、判决重算；**被挡即被拦截**（不回退改打另一部位，引导玩家改打炮塔，预测面板同源）。
 - **双座圈圆心与炮管前缘交点绑定**：设计器 `tank_designer.html` 提供了两个独立的座圈圆心编辑：
   - **车体的炮塔座圈圆心 (`pivot`)**：车体坐标系下，炮塔在车体上的安装偏移（支持 `dx, dy` 双向数字输入与“车体”模式下的画布拖拽）。
   - **炮塔的炮塔座圈圆心 (`axis`)**：炮塔坐标系下，座圈圆心的相对横坐标（`axis.dx` 数字输入与“炮塔”模式下的画布拖拽，`axis.dy` 固定锁死为 0）。
   - **炮管与附件锚定**：炮管根部、炮盾、热护套、抽烟器与制退器全套依托 `turretToScreen([frontX, 0], angle)`（炮塔前缘装甲与 y=0 对称轴交点）绑定延伸，旋转时围绕 `axis` 精准自转，矢量紧密缝合，杜绝脱节分离。
+  - **轴点 y 兜底（2026-08-12）**：`render()` 内「炮塔自身中心」甩尾距离读数以 `const ay = (state.turret.axis && state.turret.axis.dy) || 0` 取轴点 y（与 `ax` 对称、缺省兜底，无 `turret.axis` 的旧条目也安全）。
 - **设计器模式按钮精简**：精简模式切换为「车体 Hull」、「炮塔 Turret」、「预览瞄准 Preview」3 个模式按钮，删除不必要的「旋转中心 Pivot」与「炮塔自身居中对齐」等冗余按钮，侧栏提供专用的「座圈中心 Turret Ring Centers」输入框面板。
 - **多部位命中选择（炮塔优先）**：`raycastTank` 对 hull/turret 分别返回最近命中后，由 `bestHitForPref`（`tank_geometry.js:134`，P-01 起取代 `bestTankHit`——后者仅保留供测试做 parity 对照）在本步长区间内做唯一结算——**炮塔命中恒优先于车体**（炮塔是车体上层构件），非炮塔命中取最近处；`pref='hull'` 时强制取车体命中（P-01 鼠标径向意图）。修复"从正/后方射击只能命中车体"的问题（`ARCHIVE.md` #2）。
-- **模块分区**：炮塔侧面按命中点局部 x 分 炮手/装填手/炮塔尾舱弹药架（后段 -0.62 倍半长内=弹药架，`RULES.modules.zones.turretAmmo`）；车体侧面分 履带/驾驶员/弹药架/发动机（前后由炮塔枢轴方向决定）（`ARCHIVE.md` #3）。
+- **模块分区（旧数据回退路径，部件级）**：车体侧面命中**恒先被自动履带区截获**（`|relX|/halfL > 0.78` → 履带/负重轮，§2.9；任何坦克、无论是否挂载模块）；其后 `moduleFromHit` 对 `tank.modules` 为 null/空 的旧条目，以及**该部件（hull/turret）无任何模块放置**的部件，走本分区（`ARCHIVE.md` #3）——炮塔侧面按命中点局部 x 分 炮手/装填手/炮塔尾舱弹药架（后段 -0.62 倍半长内=弹药架，`RULES.modules.zones.turretAmmo`）；车体侧面（履带区外）分 驾驶员/弹药架/发动机。**该部件存在放置** → 走 2.9 的装甲边段挂载判定（hull 有放置而 turret 无放置时，turret 命中仍走本分区退化）。
 - **三扩系数 + 缩圈速度（坦克级可配）**：`base.spreadMult`（移动/转车体/转炮塔三源散布统一倍率，缺省 1）与 `base.aimSpeed`（sigma 收缩速率，缺省取 `RULES.spread.shrinkRate`）；设计器『战斗参数』、`tank_compare.html`、`tanks/<id>.json` 均已接入（`ARCHIVE.md` #5）。
 - **炮塔阴影方向固定（世界方向）**：`paintTurretShadow` 用车体朝向投影阴影偏移，炮塔自转不再改变光影方向（`ARCHIVE.md` #7）。
 - **开火/命中特效（炮弹手感增强）**：出膛锥形炮口闪光（`spawnMuzzleFlash`），**已升级程序化支持 8 种制退器视觉样式**（`none`/`single`/`double`/`multi`/`slug`/`pepperpot`/`heavy_square`/`cylinder` 各有不同的向前、左右、斜后或多向星芒火舌排焰效果）。弹道烟迹（HE 更浓）、命中四态冲击闪光+火花+烟尘（`spawnImpactFx`：击穿=红橙色 / 高爆=大范围 / 未击穿=灰白 / 跳弹=蓝白火花）、火花粒子；全部在 `js/tank_fx.js`，MVP 已接入。
 - **炮口尖端（`gunTip`）发射原点绑定**：开火、弹道烟迹、飞行炮弹、瞄准射线及实时散布锥在 MVP 中均正确对齐至炮管最前端的**炮口位置**（`gunTip(t)`），消除了原有特效与炮弹在炮管结合部/炮塔原点（`gunRoot`）产生的错位。
 - **实时散布锥去重与净化**：去除了 MVP 中最坏情况（`worstCase`）散布虚线常驻绘制，现在只显示灵动收缩、紧凑灵敏的实时散布锥，战斗界面和视觉大为净化。
-- **坦克碰撞（Jitter 鬼畜消除，ISSUES #12 重写结论）**：~~`resolveTankCollisions` 的 OBB MTV 推开逻辑经过了数学上的精准推开向量化重构，对碰撞法向速度进行了投影摩擦阻尼计算。两车对撞、推挤时能够极其平滑地阻隔并滑行，彻底消除了极速前后高频振荡、卡入和"鬼畜"的问题。~~ **旧实现（7e0c739 引入）实际是回归**：MTV 最小深度轴在近方形重叠时逐帧横跳、推出方向与 u 约定相反导致深叠、0.1px 缓冲造成"单轴分离即判不碰撞"的横向幽灵对穿、`Math.hypot`+`×0.7`/`×0.8` 双砍速搞出速度 0↔max 高频振荡（2026-08-10 已重写，详见上文「坦克间碰撞」条目与 `ARCHIVE.md` #12 修复记录）。
 - **自定义炮塔本地旋转轴**：在设计器 `tank_designer.html` 侧边栏新增了 `turret.axis` dx/dy 自定义数字输入控件，打通了与坦克条目间 round-trip 的无损存取，使设计师可以彻底、精确地微调座圈圆心与炮塔自转中心的关系（避免甩尾）。
-- **逻辑模块可视化覆盖层**：在设计器中提供了「显示内部模块 zones」Toggle 复选框，开启后在画布上将 `RULES.modules.zones` 包含的所有逻辑内部器官（驾驶员、发动机、弹药架、负重轮履带、炮手、装填手、尾舱弹药等）以半透明具名 OBB 彩色带形式精确描绘渲染出来，实现所见即所画、所画即判定。
+- **逻辑模块可视化覆盖层**：设计器「显示内部模块 Zones」Toggle 复选框——开启后（模块模式下恒显示）在画布上渲染**每个模块放置的带**（半透明具名色带 + 名称标签；选中放置高亮描边并显示 3 手柄：两端 len + 中部 off；镜像开启时镜像侧带同步渲染），另以橄榄色带**恒渲染车体极前/极后端的自动履带区**（标注「履带」，不可编辑）。旧数据（无放置）不渲染任何带；`RULES.modules.zones` 的 OBB 色带仅作旧数据的判定回退，不再由本复选框描绘。
 - **血条左侧车型徽章**：重坦=六边形、中坦=五边形（WoT 式），与血条同水平、不遮挡坦克本体。
 - **坦克设计器 ⇄ `tanks/`**：设计器打开即拉取 `tanks/` 列表（`api/tanks`）填充下拉；支持**新增坦克**（默认形状+唯一 id）、**修改**（载入→编辑→保存覆盖同 id）、**删除**（确认后从列表移除）；保存/删除均写回 `tanks/<id>.json`（`js/tank_listio.js`）。坦克名称/ID 由顶部工具栏的「名称」输入框统一管理（新坦克即时出现在顶部下拉并选中），右侧面板不再单独显示坦克名。
+- **设计器编辑列表（2026-08-12，列表驱动面板显隐）**：右栏「编辑模式」改造为**编辑列表**，条目 = 车体 / 炮塔 / 模块 / 外观件（炮管预设含制退器/抽烟器/护套/炮管样式 + 炮盾 + 履带外观）；`editTab` 驱动 `updatePanelVisibility()` 按 `panel-<tab>` 类显隐面板，列表选中 ↔ 画布编辑模式状态同步（`setMode` 同步 `editTab`，外观件条目 → 画布进入 preview）；「预览瞄准」保留为独立小切换按钮。面板归属：左栏基础/战斗参数常显，装甲厚度/装甲分段**按部件拆分**为 `panel-hull`/`panel-turret` 两组随条目显隐；右栏座圈中心+炮塔多边形预设+选中顶点 → 炮塔，模块面板 → 模块，炮管预设+炮盾+履带外观 → 外观件。配套：撤销/清空按钮仅车体/炮塔条目可用（消除「炮塔条目 + preview 时撤销误删车体顶点」隐患，目标取 `editTab` 而非 `mode`）。**模块编辑增强**：车体/炮塔**可见性切换按钮**（互斥、至少保留一个可见；隐藏部件不渲染、不参与边/带/悬停命中，不入 JSON——编辑炮塔模块时可隐藏车体防误选）；`RULES.modules.lenMin` 0.15 → **0.05**（设计器钳制与 `normalizeTankModules` 兜底同步；`moduleLenInput` min 改 5）。对称轴两侧（y>0）边的挂载/选中/手柄经 Node 复现验证可用（无 v2 残留钳制，已补 8 项回归测试）。
+- **设计器布局（双栏重构，2026-08-12）**：`tank_designer.html` 页面骨架为 `#app` 三列网格 `20vw 1fr 380px` —— 左侧 `#left-sidebar` **数据/参数面板**（约窗口宽度 1/5：基础/战斗参数、装甲厚度、装甲分段）+ 中间 `#stage-wrap` **模型画布区** + 右侧 `#right-sidebar` **绘图/外观面板**（视图缩放、编辑模式、座圈中心、炮塔多边形预设、炮管预设、炮盾、履带外观、选中顶点），两栏各自独立滚动。**三列用显式 `grid-column:1/2/3` 定位**（不依赖 DOM 顺序，防止自动排布把面板放错列）；缩放范围 ZOOM_MIN~ZOOM_MAX（30%~800%），**打开默认缩放 500%**（`viewScale=5`，滚轮/±按钮可继续放大至 800%，「重置视图」回到 100%）。「座圈中心」置于「编辑模式」之下。
 - **多边形坦克形状**：车体为箭镞形（前缘中间顶点前突，两侧斜边归正面装甲），炮塔为豹2A6式六边形楔形（前窄后宽，正面颊板+斜边归正面装甲）。几何由 `hullPoly`/`turretPoly` 定义本地顶点+逐边 faceKey，`polyCorners` 旋转到世界坐标，`polyEdges` 通过质心法算外法线。旧矩形 `partCorners`/`partEdges` 仍保留用于掩体矩形渲染和路径检测。
 - 水平散布（高斯分布），瞄准线/开火射线正确绑定在炮口（`gunRoot`，随炮塔转动）
-- **扩圈/缩圈系统（WoT 三扩模型）**：玩家坦克维护一个实时 sigma 值，受移动速度、车体转速、炮塔转速、乘员受伤（fireDebuff）四源驱动。运动时 sigma 快速膨胀（`bloomRate`），停止后缓慢收缩回 base（`shrinkRate`）。HUD 以一条虚线锥可视化：实时锥（当前 sigma）——最坏情况锥已于 2026-08-11 前移除（见上文「实时散布锥去重与净化」）。参数集中在 `RULES.spread` 配置对象中；三源运动散布共用一个坦克级倍率 `spreadMult`、收缩速率可用 `aimSpeed` 覆盖（设计器/compare 可调，见 `ARCHIVE.md` #5），全局默认节奏由 `shrinkRate` 控制。**2026-08-11 修复（ISSUES #15）**：移动源（`moveMax`）此前因 MVP 调用 `updateSigma(player, dt)` 未传 `keys` 而恒为 0——已改 `updateSigma(player, dt, keys)`，四源全部生效；已补 `test-tankcollision.js` 回归测试（传 keys 时 sigma = base+moveMax，不传时 = base）。
+- **扩圈/缩圈系统（WoT 三扩模型）**：玩家坦克维护一个实时 sigma 值，受移动速度、车体转速、炮塔转速、乘员受伤（fireDebuff）四源驱动。运动时 sigma 快速膨胀（`bloomRate`），停止后缓慢收缩回 base（`shrinkRate`）。HUD 以一条虚线锥可视化：实时锥（当前 sigma）——最坏情况锥已移除（见上文「实时散布锥去重与净化」）。参数集中在 `RULES.spread` 配置对象中；三源运动散布共用一个坦克级倍率 `spreadMult`、收缩速率可用 `aimSpeed` 覆盖（设计器/compare 可调），全局默认节奏由 `shrinkRate` 控制。四源全部生效（回归测试 `test-tankcollision.js`：传 keys 时 sigma = base+moveMax，不传时 = base）。
 - **掩体弹道路径判定**：每发炮弹在散布范围内生成实际弹道射线，掩体判定基于该射线路径（`coverRollOnShellRay`）。全高掩体 100% 确定格挡，半高掩体按概率掷骰。实时预测面板仍用瞄准线显示参考格挡率。
 - **入射角 + 等效厚度 三态判定：跳弹 / 未击穿 / 击穿** —— **跳弹现为真正的反弹**：入射角超过 70° 时，炮弹沿命中边外法线的反射方向继续飞行，仍可能二次命中并造成伤害，但**不允许二次跳弹**（反弹弹二次命中一律按未击穿/击穿判定，不再跳弹）。原型对每次开火弹道拆分为多段弹道，对跳弹的反射段绘制一束沿反射线射出的专属扩散环视觉（`resolveHit` + `bounceFx`）。
 - **坦克选择（测试不同坦克）**：`tank_mvp.html` 的 HUD 新增「坦克选择」下拉框 +「应用到玩家」/「重新加载列表」，从 `tanks/` 列表（`api/tanks`）载入任意条目并整体替换玩家配置（几何/装甲/机动/无炮塔模式），便于横向对比不同坦克。支持首次加载根据列表中优先存在的合法配置（例如优先 `'Obj 780'` 或列表中首项）自动为玩家应用配置，保证首屏即生效。
-- 模块伤害：履带（锁定移动）/ 弹药架（×2 伤害，未杀 → 装填降低 8s，击杀 → 殉爆掀飞炮塔）/ 发动机（×1.2 伤害 + 起火 DOT：每秒攻击方标准伤害的 10%，持续 5s，倍率/时长可随升级增强）/ 乘员（炮手/装填手/驾驶员/车长对应 debuff，8s，惩罚较早期版本调轻）
+- 模块伤害：履带（锁定移动）/ 弹药架（×2 伤害，未杀 → 装填降低 8s，击杀 → 殉爆掀飞炮塔）/ 发动机（×1.2 伤害 + 起火 DOT：每秒攻击方标准伤害的 10%，持续 5s，倍率/时长可随升级增强）/ 乘员（炮手/装填手/驾驶员/车长对应 debuff，8s）。**伤害取整（2026-08-13 定型）**：`applyModuleDamage` 在随机浮动（×0.85~1.15）与模块倍率全部乘完后 `Math.round` 取整为整数再扣血，日志文本直接用同一整数（不用 `toFixed`），保证"显示伤害 == 实际扣血"；HUD 血条数字因 DOT 逐帧扣血会残留小数 HP，显示改用 `Math.ceil`（取上整，显示值 ≥ 实际值；整数直击下恒无小数残留）。消除"显示 100 伤害却杀不死 100HP 目标"的浮点不一致。
 - 车高等级（重坦/中坦）切换，用于掩体遮挡与 driveBy 通行门控
 - 掩体系统：半高**纯垂直剖面模型**（弹道实时判定，与双方距离无关；贴掩体与拉开等价，见 2.5）+ 全高确定性截停 + 方向判据（骑上/压入掩体不遮蔽，见 2.5）；`distanceTier` 三档渐变与 `coverDefenseBase`/`attackerAmplitudeFactor` 死代码已移除
 - **地图元素体系（A1~A3，见 2.7）**：树 / 灌木 / 栅栏 / 沙袋路障 + 树桩/碎石残骸。运行状态（耐久/残骸化）挂在 `covers` 实例上，`findCoversOnPath`/`getCoverUnderTank`/`getExposure` 均跳过已毁元素；炮弹穿透软掩体、沙袋挡 1 发（>70° 跳弹不触发）、树干 3 发伐倒；坦克压过 crushable 元素即摧毁（`destroyCover` + 破坏粒子）；灌木/树冠绘制在坦克之上实现视线遮挡，`vision` 字段为未来 AI 索敌预留；HE 溅射（半径 24px）破障。预测面板逐掩体标注「可击毁」与 穿透/全挡/部分遮挡 分类（取代原先 NaN% 的占比显示）。
@@ -140,21 +145,21 @@
 - **测试靶控制台**（HUD 内）：满血值可调（1~99999）、无敌开关（开/关 INVULN）、自动复活开关（1.5s 满血复活）。无敌状态锁血但不影响击穿/跳弹判定显示；自动复活确保靶车始终可被瞄准。
 
 #### 3.6 工程基建与代码去重（2026-08-13 会话）
-- **共享几何收口**：`rotate`/`distToSegment`/`partCorners`/`partEdges`/`reflectDir` 全部收敛到 `js/tank_utils.js`（单一实现）；`tank_geometry.js`、`tank_physics.js`、`tank_halfgeom.js`、`tank_designer.html` 内联脚本删除重复声明、改用 utils 全局。`tank_cover.js` 的 `distanceTier` 不再本地定义（2026-08-08 已随 A1 双档模型整体移除，含 `tank_rules.js`/`tank_cover.js`/`test-covers.js` 全部引用与导出）。
+- **共享几何收口**：`rotate`/`distToSegment`/`partCorners`/`partEdges`/`reflectDir` 全部收敛到 `js/tank_utils.js`（单一实现）；`tank_geometry.js`、`tank_physics.js`、`tank_halfgeom.js`、`tank_designer.html` 内联脚本删除重复声明、改用 utils 全局。`tank_cover.js` 的 `distanceTier` 不再本地定义（已随 A1 双档模型移除）。
 - **炮管规格单一数据源**：`normalizeBarrel` 只在 `js/tank_halfgeom.js` 定义一次，`tank_model.js`/设计器均复用；设计器不再内联第三方副本。
 - **默认装甲基数收口**：`js/tank_rules.js` 提供 `RULES.defaultArmor`（110/38/26、140/50/24 单一来源），`tank_geometry.js`/`tank_model.js`/`tank_halfgeom.js` 的散落常量改读该处。
 - **OBB 辅助函数复用**：`tank_cover.js` 的 `obbOverlap`/`obbMTV` 内部投影辅助提炼为模块顶层共享函数（消除两套私有 `getAxes`/`project`）。
-- **哪些 Web 页面加载哪些模块**（设计师此前不加载 `tank_utils.js`，现在三个页面都加载同一组共享模块，顺序统一为 `rules → utils → geometry → halfgeom → model` 等）。
+- **Web 页面加载顺序**：三个页面统一加载同一组共享模块，顺序统一为 `rules → utils → geometry → halfgeom → model` 等。
 - **`scripts/check-html.js` 扩展**：冒烟检查从固定 3 个文件扩展为遍历整个 `js/` 目录全部 JS + `server.js` + 三个原型的每个内联 `<script>`；并新增顶层重复函数声明检测（防止再次引入重复定义）。
 - **`package.json` 测试脚本**：`npm test` → 串联 `scripts/test-covers.js`（掩体/地图元素行为）、`test-tanks.js`（tanks/ 条目结构与几何 round-trip）、`test-hitpart.js`（命中部位意图）、`test-tankcollision.js`（坦克碰撞稳定性），全部通过。
 - **`computeStats` / `applyTankConfig` 优化**：装甲深拷贝改用 `structuredClone`（替代 `JSON` 序列化）；`applyTankConfig` 表驱动化（配置数组统一拷贝，消除连续 `if (spec.X !== undefined)` 样板）。
 - **`server.js` 健壮性**：`POST /api/tank_list` 增加 2MB body 上限与 `try...catch` 写入保护，非法/超大请求安全拒绝，不再 5xx 崩溃。
 - **坦克数据拆分 `tanks/` 一型一文件（P-02#2 / P-03）**：删除聚合的 `tank_list.json` 与旧 `POST /api/tank_list`；`server.js` 提供 `GET /api/tanks`（遍历 `tanks/*.json`，文件名排序确定性聚合）、`POST /api/tanks/<id>`（临时文件+改名原子写）、`DELETE /api/tanks/<id>`；三个原型统一走 `js/tank_listio.js`（含无服务器时下载 `tanks/<id>.json` 的 fallback）。旧聚合文件由 `scripts/split-tank-list.js` 拆出（保留作维护工具）。
 - **配置表下沉（P-02#4）**：`BARREL_PRESETS`/`MANTLE_PRESETS` → `js/tank_presets.js`；`FIELD_ROWS`/`MUZZLES`/`EVAC` → `js/tank_schema.js`（designer/compare 共用单一来源）。
-- **坦克运动统一（P-02#6）**：新 `js/tank_move.js` 提供 `driveTank(t, dt, {turn, move})`，合并 `tank_mvp.html` 原来 player/dummy 两条完全平行的驾驶块（转向/加减速/掩体 `move` 通行系数/起火 `fireMul` 与 debuff 乘数/掩体碰撞推出/履带相位推进）；靶车转向速率改为统一走 `t.stats.turnRate`（原来硬编码 1.6）。未来敌方/友军 AI 只出 `{turn, move}` 即可驾驶。**2026-08-11 修复（ISSUES #14）**：`advanceTracks(t, Math.hypot(...))` 参数错位（签名 `(t, dx, dy, dAngle)`）致 `trackPhase=NaN`、履带滚动动画失效——改传 `advanceTracks(t, t.x-p0x, t.y-p0y, t.hullAngle-p0a)`（`p0a` 位移前的车体角），已补 `test-tankcollision.js` 回归测试（履带相位有限且随行驶/转向累积）。
+- **坦克运动统一（P-02#6）**：新 `js/tank_move.js` 提供 `driveTank(t, dt, {turn, move})`，合并 `tank_mvp.html` 原来 player/dummy 两条完全平行的驾驶块（转向/加减速/掩体 `move` 通行系数/起火 `fireMul` 与 debuff 乘数/掩体碰撞推出/履带相位推进）；靶车转向速率改为统一走 `t.stats.turnRate`。未来敌方/友军 AI 只出 `{turn, move}` 即可驾驶。**履带相位**：`driveTank` 按 `advanceTracks(t, t.x-p0x, t.y-p0y, t.hullAngle-p0a)`（位移与转角差）累积相位，履带滚动动画与真实行驶/转向同步（回归测试 `test-tankcollision.js`）。
 - **数据去重（P-02#5）**：模块中文标签 `MODULE_LABELS`/`moduleLabel` 集中到 `js/tank_model.js` 并导出（mvp HUD 删除本地副本，标签统一为"发动机"）；designer『显示内部模块 zones』改读 `RULES.modules.zones`（删除内联同值常量）。
-- **战斗场景绘制层下沉（P-02#7，P-02 完结）**：新 `js/tank_battledraw.js` 收编 `tank_mvp.html` 战斗绘制（`drawTank`/`drawBrokenTracks`/`drawCharredHull`/`drawFireGlow`/`drawShells(ctx, shells)`/`drawCover`/`drawFoliage(ctx, covers)`/`drawClassBadge` 及薄封装 `shade`/`drawTracks`/`renderHullTexture`/`renderTurretTexture`，~600 行），全部显式传 `ctx`（`tank_fx.js` 先例，无 DOM 依赖）；测试台专用块（`drawRange`/`addRangeShot`/`RANGE_*`）留 mvp 不拆；mvp 加载顺序插在 `tank_paint.js` 之后。顺带修复：`tank_fx.js:87-89` 用 `p[0]`/`p[1]` 取 `turretPivot(t)` 坐标，而运行时返回值实为 `{x, y}` 对象（`p[0]===undefined`）→ 弹药架殉爆的"炮塔掀飞"以 NaN 坐标生成、不可见；已改 `p.x`/`p.y`。`types/globals.d.ts` 同步：`turretPivot` 声明更正为 `{x,y}`，并补齐 `polyCorners`/`turretFrontDist` 与 8 个 draw 函数声明。
-- **命中部位意图选择（P-01，已完结）**：开火瞬间沿无散布瞄准线把鼠标投影到目标命中距离上，`投影值 > 目标距 + partProbe(12px)` 判定意图打**炮塔**（上部），`< 目标距 - partProbe` 判定打**车体**，死区内 `'auto'` 默认炮塔优先；预测面板同源显示“本次将命中部位”（`aimPartPreference`/`bestHitForPref`，`js/tank_geometry.js:121/134`）。半高掩体按垂直剖面单一判定（2026-08-10 起）：被挡即拦截，**不再回退改打另一部位**（见 2.5，取代 P-01 原“首选部位全遮蔽才回退”决策）。已用 `scripts/test-hitpart.js` 覆盖投影边界、偏好取舍及窗口。**`partProbe=12` 于 2026-08-11 手感标定完成**：死区大小体感合适（偏离鼠标方向即可可靠分出炮塔/车体，又不至于晃动误判），保持可调。
+- **战斗场景绘制层下沉（P-02#7，P-02 完结）**：新 `js/tank_battledraw.js` 收编 `tank_mvp.html` 战斗绘制（`drawTank`/`drawBrokenTracks`/`drawCharredHull`/`drawFireGlow`/`drawShells(ctx, shells)`/`drawCover`/`drawFoliage(ctx, covers)`/`drawClassBadge` 及薄封装 `shade`/`drawTracks`/`renderHullTexture`/`renderTurretTexture`，~600 行），全部显式传 `ctx`（`tank_fx.js` 先例，无 DOM 依赖）；测试台专用块（`drawRange`/`addRangeShot`/`RANGE_*`）留 mvp 不拆；mvp 加载顺序插在 `tank_paint.js` 之后。`types/globals.d.ts` 已同步补齐相关函数声明（`turretPivot` 返回 `{x,y}`、`polyCorners`/`turretFrontDist` 与 8 个 draw 函数）。
+- **命中部位意图选择（P-01，已完结）**：开火瞬间沿无散布瞄准线把鼠标投影到目标命中距离上，`投影值 > 目标距 + partProbe(12px)` 判定意图打**炮塔**（上部），`< 目标距 - partProbe` 判定打**车体**，死区内 `'auto'` 默认炮塔优先；预测面板同源显示“本次将命中部位”（`aimPartPreference`/`bestHitForPref`，`js/tank_geometry.js:121/134`）。半高掩体按垂直剖面单一判定（2026-08-10 起）：被挡即拦截，**不再回退改打另一部位**（见 2.5，取代 P-01 原“首选部位全遮蔽才回退”决策）。已用 `scripts/test-hitpart.js` 覆盖投影边界、偏好取舍及窗口。**`partProbe=12` 于 2026-08-11 手感标定完成**：死区大小体感合适（偏离鼠标方向即可可靠分出炮塔/车体，又不至于晃动误判），保持可调。**实弹直击部位选判（2026-08-13）**：实弹直击路径与预测面板/半高掩体判决统一走「整条射线」口径——新增 `shellPartHit(hits, step, pref)`（`js/tank_geometry.js`，P-01 同源）：先探测相触帧（任一部位进入步长窗口），再对明确意图 `turret`/`hull` 沿整条射线选部位；**`'auto'`（死区）保持逐帧窗口语义**（已定型决策：死区正对仍可能命中车体，面板死区显示炮塔的差异为已知行为，不修正）。`tank_mvp.html:754` 直击路径用 `shellPartHit`；`test-hitpart.js` 含窗口回归用例。
 
 ---
 
@@ -186,42 +191,7 @@
    - **无炮塔坦克 (Fixed-Turret)**：旧格式的 `hasTurret` 属性已移除，改为统一"有旋转炮塔"模型——炮塔转向自由度完全由 `traverseLimit` 控制（180° = 360° 全向旋转；<180° 时炮塔只能在车体中线左右各 ±traverseLimit 内转动）。
    - **附件绑定系统 (Attachment System)**：通过 `anchors` 定义锚点，支持浮游炮、护盾等附件根据锚点实时跟随渲染。
    - **坦克编辑器 (Tank Editor)**：需要独立工具，支持几何形状、装甲厚度、模块位置、火控参数、机动参数的一站式编辑与 JSON 导出。
-     - **v0.2 进度（本次会话）**：`tank_designer.html` 已从"固定矩形+四个数值输入框"升级为**任意多边形顶点编辑器**：
-       - 车体/炮塔均可自由添加/拖动/删除顶点（画布交互：空白处点击加点、拖动移动、单击顶点删除、点击边线中点循环装甲面类型 front/side/rear）。
-       - 新增**炮塔旋转中心（pivot）**可视化设置（`tank_designer.html`：编辑器把 `pivot` 锁在车体中轴线上、只编辑 dx；运行时 `turretPivot()` 支持完整 dx/dy，两者在 #1 修复后与 `turret.axis`（炮塔自身旋转轴）一起构成"两个独立旋转中心"）。
-       - 装甲不再是车体/炮塔各一个笼统数值，而是**逐边指定 front/side/rear**，配合独立的三个厚度输入框（mm）。
-       - 新增预览瞄准模式：模拟无炮塔坦克炮管在射界限制内的摆动。
-        - 导出 JSON 结构与 `tank_mvp.html` 的 `hullPoly()`/`turretPoly()`/`ARMOR` 直接同构（`{verts, faces, armor}` + 炮塔 `pivot`/`axis`），**加载链路已打通**：`tank_mvp.html` 的「坦克选择」与 `tank_compare.html` 均通过 `makeTank()+applyTankConfig()`（`js/tank_model.js`）读取 `tanks/<id>.json` 条目，编辑器保存 → 写回 `tanks/<id>.json` → 原型下拉重载即可生效（见 `ARCHIVE.md` #1 的格式约定）。
-       - 尚未覆盖：模块位置（履带/弹药架/油箱/乘员判定区间目前仍是 `moduleFromHit()` 里按 `s` 比例硬编码的经验值，编辑器还不能可视化摆放）、火控参数（穿深/伤害/装填）、几何尺寸参数（hullLen/turLen 等）与多边形顶点解耦后如何互相印证也未处理。
-     - **v0.3 进度（本次会话）**：
-       - **镜像对称编辑**：车体/炮塔改为只编辑 y≤0 一侧（右半），另一侧由代码按中心线（y=0）自动镜像生成，杜绝手改 JSON 时两侧对不齐的问题。内部数据结构从"完整闭合多边形 verts+faces"改为"半侧 `half`/`halfFaces` + 可选的前/后接缝装甲面 `frontSeamFace`/`rearSeamFace`"，闭合多边形在渲染/导出时按需现算（`buildFullVerts`/`buildFullFacesWithFlags`）。已用 node 脚本验证：默认车体/炮塔的半侧数据镜像还原后，与原型 `hullPoly()`/`turretPoly()` 的面积和逐边装甲分类完全一致。
-       - **画布缩放**：滚轮或 +/− 按钮缩放（0.3x~4x），车体中心固定为缩放基准点。
-       - **顶点精确编辑**：单击顶点不再直接删除，而是选中并在侧栏显示可编辑的 X/Y 数值输入框（Y 会被钳制在 ≤0，防止越过镜像轴），删除顶点需要点击专门的"删除选中顶点"按钮，避免误操作。
-       - 装甲边列表相应简化为只列出"半侧内部边 + 前/后接缝边"（数量少很多），并注明镜像侧边线自动沿用同一分类、无需单独设置。
-       - 导入功能同时兼容"半侧格式"（完整还原）和"旧版完整多边形格式"（尽力反推出半侧数据，假设源数据本身左右对称）。
-      - **v0.4 进度（本次会话）**：~~新增**甲弹对抗测试**（新编辑模式按钮「甲弹对抗」+侧栏测试面板…）~~ — **2026-08-11 代码审查核实：该功能在 `tank_designer.html` 与 git 历史中均不存在**（无对应按钮/函数/提交），疑为未落地或随「设计器模式按钮精简」回退而文档未同步删除；如需「编辑器产出 → 判定逻辑」的轻量自测，需按下列原始方案重新实现：
-        - **固定炮·测装甲**：设置穿深、命中部位（车体/炮塔战斗室）、装甲面（正/侧/后）、入射角 θ，对当前设计的装甲做**绝对精准**的单发判定并高亮命中面、画出炮位射线与命中标识。
-        - **固定靶·测穿深与散布**：对一块固定厚度/入射角/半张角的钢靶执行 N 发射击，用高斯散布 σ 统计命中率、跳弹数、未击穿数、击穿数与命中击穿率，画布绘出靶板、瞄准线与散布/命中窗口锥。
-        - 属于把"编辑器产出的几何/装甲"直接喂进原型判定逻辑的轻量自测工具，不依赖 `tank_mvp.html` 的加载链路。
-      - **v0.5 进度（本次会话）**：炮塔外形与炮管造型的快速预设——
-        - **正多边形炮塔预设**：正三~正八边形一键生成（`turretRegularPreset`），以炮塔旋转中心为圆心、**外接圆半径 R**（可调 6~60px，默认 20）为尺寸参数，支持「尖角朝前 / 齐边朝前」两种朝向；应用时仅替换顶点几何（保留装甲值与旋转轴心）。两种朝向的正多边形均以车体中轴为对称轴，半形提取自动正确（已 Node 验证 3~8 边 × 2 朝向的对称性与逐边装甲分类）。
-        - **炮盾 Mantlet（炮管结合部视觉件）**：新增 `barrel.mantlet = { style, pos, width }`：
-          - 预设样式 7 种：`none` 无 / `single` 单层 / `double` 双层 / `collar` 环颈套筒 / `box` 盒式护罩 / `winged` 侧翼式 / `wedge` 楔形，预设下拉一键应用全套配置。
-          - `pos`：炮盾中心相对炮塔前缘的轴向偏移（% 炮管长，负值=缩回炮塔内，可调 -40~+60）；`width`：相对炮塔全宽的百分比（默认 40）。
-          - **纯视觉件**：不参与穿深/跳弹/命中/掩体任何判定。
-        - 数据链路已打通：设计器保存时写入 `mantlet` 字段；`normalizeBarrel`（`js/tank_halfgeom.js` 与设计器内各一份）与 `tank_model.js` 的 `applyTankConfig` 均做旧数据兼容（缺省=无）；**实战斗画面 `tank_mvp.html` 同步渲染同一套炮盾**（基于 `gunRoot` 同一锚点，位置/宽度语义一致），确保设计器所见即战斗所得。
-      - **v0.6 进度（本次会话）**：
-        - **座圈圆心可拖拽编辑**（`ARCHIVE.md` #6）：『炮塔』模式按住画布上旋转中心的十字或"炮塔自身中心"青点 **dx/dy 双向**拖动，即自由调整炮塔自身旋转中心（座圈圆心不动、炮塔多边形相对滑移，见 §3「炮塔自身旋转中心（axis）可自由编辑」）；『车体』模式拖拽十字 = 沿车体中轴线平移 pivot（dy 固定 0；「旋转中心」独立模式已随 §3 模式精简移除）。
-        - **装甲厚度面板联动高亮**：选中画布边线/列表行后，面板顶部显示"当前装甲段"读数（部位·边·类型·mm），对应 mm 输入框高亮。
-        - **战斗参数新增 三扩系数 / 缩圈速度**（`spreadMult` / `aimSpeed`），随条目存取，`tank_compare.html` 同步展示（`ARCHIVE.md` #5）。
-        - **工具链/性能三件套（P-04，本次会话已实现）**：
-          - **JSDoc + tsc 类型检查**：配置 TypeScript 类型检查（`checkJs: true`, `noEmit: true`），类型文件存于 `types/globals.d.ts`，打通了 IDE 类型提示与开发期零构建错误检测（`npm run typecheck`）。
-          - **pre-commit git hooks**：挂载本地 `pre-commit` 钩子，提交前强制自检 `npm run check`。
-          - **OpenCode Skill (test-runner)**：固化 `npm run check`（包含语法和类型两重防线）与 `npm test`，大幅提升 AI 与 Agent 自检效率。
-          - **Canvas 性能三件套**：
-            1. **离屏预渲染缓存**（`PAINT_CACHE`）：程序化坦克渲染支持在 `scale === 1` 下（实战游玩时）首帧将车体/炮塔细节栅格化至 offscreen 离屏 canvas 缓存，后续帧直接调用 `drawImage`，彻底节省了每帧昂贵的多边形和路径（Path）重建。
-            2. **粒子对象池**（`PARTICLE_POOL`）：对 `tank_fx.js` 下的火焰/浓烟/碎片/火花粒子接入对象池，大幅减少特效高频创建/销毁带来的内存抖动和垃圾回收（GC）开销。
-            3. **fixed timestep (120Hz)**：将 `tank_mvp.html` 的物理更新与主循环解耦，基于 fixed step 累加器保持恒定的物理模拟与碰撞更新，消除高刷/低刷屏下的速度与阻尼手感漂移。
+   - （v0.2~v0.7 的迭代进度叙述已归档至 `ARCHIVE.md`（2026-08-13 归档自 DEVELOPMENT.md §4.7）；当前编辑器功能状态见 §3「设计器编辑列表」「逻辑模块可视化覆盖层」「双座圈圆心」「多边形坦克形状」与 §2.9。）
 
 ---
 
@@ -241,7 +211,7 @@
 - ~~**碰撞盒从"写死4边矩形"抽象成"任意多边形+具名装甲面"**~~：**已完成**。`hullPoly`/`turretPoly` 定义本地顶点+逐边 faceKey，`polyCorners`/`polyEdges` 提供世界坐标与外法线（质心法自适应绕行方向），`raycastTank`、`drawTank` 均已切换到多边形系统。矩形 `partCorners`/`partEdges` 保留给掩体矩形使用。所有坦克共用同一套多边形定义（箭镞车体+豹2A6炮塔）。
 
 ### 5.3 低优先级（纯表现层，随时可加，不影响任何结构）
-- ~~履带转动动画（全宽/半宽可见）~~：**已实现**——`paintTracks` 以 `lineDashOffset` 滚动履带纹路，相位由 `advanceTracks` 按真实位移/转向累积（ISSUES #14 修复后生效）。
+- ~~履带转动动画（全宽/半宽可见）~~：**已实现**——`paintTracks` 以 `lineDashOffset` 滚动履带纹路，相位由 `advanceTracks` 按真实位移/转向累积（见 §3「坦克运动统一」）。
 - 炮管后座动画
 - 这两项与其他系统无耦合，可在任意阶段插入，无需提前规划。
 
@@ -284,7 +254,7 @@
 | hullRotMax | 0.012 | 全速转向最大 sigma |
 | turretRotMax | 0.018 | 全速转炮最大 sigma |
 | bloomRate | 2.0/s | sigma 膨胀速度 |
-| shrinkRate | 0.15/s | sigma 收缩速度（坦克级 aimSpeed 可覆盖，旧默认 0.3 过块） |
+| shrinkRate | 0.15/s | sigma 收缩速度（坦克级 aimSpeed 可覆盖） |
 | spreadMult / aimSpeed | 1 / 0.15 | 坦克级配置：三源统一倍率 / 缩圈速度（`tanks/<id>.json` 可配，缺省 1 / 0.15） |
 | worstCase | ~0.082 | 所有源满值叠加的 sigma |
 | **模块伤害** |||
@@ -317,7 +287,7 @@
 
 1. ~~`entities` 重构~~ — 已完成（见第3节）
 2. ~~**修复 `ISSUES.md` #14/#15**（2026-08-11 战前审查确认）：`advanceTracks` 参数错位致 trackPhase=NaN / `updateSigma` 未传 keys 致移动散布源失效；均为单点修复，修后补 Node 测试回归。~~ — **已完成**（`tank_move.js:48` / `tank_mvp.html:662` + `test-tankcollision.js` 测试 5/6，`npm run check`+`npm test` 全绿；归档见 `ARCHIVE.md`）
-3. **文档核实收尾**：§4.7 v0.4「甲弹对抗测试」已按现状标注为未落地；如需「编辑器产出 → 判定逻辑」的自测工具，按 §4.7 方案重新实现（可选排期）。
+3. **甲弹对抗自测工具（可选排期）**：如需「编辑器产出 → 判定逻辑」的轻量自测（固定炮·测装甲 / 固定靶·测穿深与散布），按 `ARCHIVE.md`（2026-08-13 归档自 DEVELOPMENT.md §4.7，v0.4 方案原文）重新实现。
 4. **摄像机 + 节点地图 + 小地图（2.1 / 5.1）**：
    - 摄像机跟随系统（玩家居中，节点战场约 1:9 摄像机比例）、独立小地图层（含已探索区域/敌人/据点标注）。
    - **节点生成器**：按难度权重随机生成掩体布局、敌军构成、友军据点位置；数据结构用有序节点列表（纯线性链，无分支），字段含敌人构成/强度档/据点/通关奖励。
