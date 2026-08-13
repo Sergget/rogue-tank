@@ -186,11 +186,11 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
         ctx.beginPath(); ctx.moveTo(fx, cym - W*0.5); ctx.lineTo(fx + L*0.12, cym); ctx.lineTo(fx, cym + W*0.5); ctx.stroke();
       }
     } else {
-      // commander cupola(s) — class icon on the turret/fighting room RIGHT side:
+      // commander cupola(s) — class icon on the turret/fighting room LEFT side:
       //   turretless (fixed casemate) or heavy tank → 2 cupolas in a row (并列);
-      //   medium tank → 1 cupola. Positioned on the right side (local +y).
+      //   medium tank → 1 cupola. Positioned on the left side (local -y).
       const cupolas = (opts.heightClass === 'heavy' || opts.hasTurret === false) ? 2 : 1;
-      const cupCy = cym + W*0.44;
+      const cupCy = cym - W*0.44;
       ctx.fillStyle = paintShade(color, -28);
       if(cupolas === 1){
         ctx.beginPath(); ctx.arc(cxm - L*0.08, cupCy, W*0.15, 0, Math.PI*2); ctx.fill();
