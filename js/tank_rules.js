@@ -52,7 +52,8 @@ const RULES = {
       soft: 0.8,   // 栅栏（可穿透软掩体）
       barricade: 1.4, // 沙袋路障（一次性）
       tree: 2.8,   // 树（树干全高，树冠高）
-      stump: 0.6,  // 树桩（残骸，低矮）
+      fallen: 1.1, // 倒树（残骸，与灌木同高；mode none 下高度仅作记录）
+      stump: 0.6,  // 树桩（残骸，低矮；地图作者可手动放置）
       rubble: 0.5  // 碎石（残骸，更矮）
     }
   },
@@ -76,7 +77,8 @@ const RULES = {
     half:       { label: '半高掩体', fill: 'rgba(166,138,60,0.4)',   stroke: '#a68a3c', mode: 'graduated', move: 0.4,  crushable: false, hp: Infinity, vision: false, draw: 'box', driveBy: { heavy: true, medium: false } },
     full:       { label: '全高掩体', fill: 'rgba(106,106,106,0.55)', stroke: '#6a6a6a', mode: 'solid',     move: 1.0,  crushable: false, hp: Infinity, vision: false, draw: 'box' },
     bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#5c8238', mode: 'none',      move: 1.0,  crushable: false, hp: Infinity, vision: true,  draw: 'bush' },
-    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#3f5c3c', mode: 'solid',     move: 1.0,  crushable: false, hp: 3,        vision: true,  draw: 'tree', toTier: 'stump' },
+    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#3f5c3c', mode: 'solid',     move: 1.0,  crushable: false, hp: 1,        vision: true,  draw: 'tree', toTier: 'fallen' },
+    fallen:     { label: '倒树',     fill: 'rgba(56,72,44,0.35)',    stroke: '#4a5c3a', mode: 'none',      move: 1.0,  crushable: false, hp: Infinity, vision: true,  draw: 'fallen', residueW: 2.4, residueH: 0.5 },
     soft:       { label: '栅栏',     fill: 'rgba(150,118,70,0.4)',   stroke: '#96764a', mode: 'pass',      move: 0.45, crushable: true,  hp: 1,        vision: false, draw: 'soft' },
     barricade:  { label: '沙袋路障', fill: 'rgba(158,128,72,0.55)',  stroke: '#9e8048', mode: 'single',    move: 1.0,  crushable: true,  hp: 1,        vision: false, draw: 'barricade', toTier: 'rubble' },
     stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', mode: 'graduated', move: 0.6,  crushable: true,  hp: 1,        vision: false, draw: 'stump' },
@@ -86,7 +88,7 @@ const RULES = {
   // ======================= 破障（可破坏地图元素） =======================
   breach: {
     heSplashRadius: 24,   // HE 弹销毁瞬间的溅射半径（px）——只伤害可破坏元素，不对坦克溅射
-    heCoverDmg: 1         // HE 溅射对单个元素的伤害（树耐久 3，栅栏/沙袋/树桩/碎石 1 击毁）
+    heCoverDmg: 1         // HE 溅射对单个元素的伤害（树耐久 1，栅栏/沙袋/树桩/碎石 1 击毁）
   },
 
   // ======================= 散布（summare dimension bloom/shrink） =======================

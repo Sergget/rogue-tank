@@ -514,10 +514,46 @@ function tryFire(){
   if(player.reloadT>0 || player.immobT>0) return;
   const target = nearestEnemyTo(player);
   if(!target) return;
+
+  // 1. 炮管贯穿掩体检测：从 gunRoot 到 gunTip
+  const rootP = gunRoot(player);
+  const tipP = gunTip(player);
+  const barrelCovers = findCoversOnPath(rootP.x, rootP.y, tipP.x, tipP.y);
+  const solidBarrelBlock = barrelCovers.find(c => {
+    const mode = COVER_TIERS[c.cover.tier].mode;
+    return mode === 'solid' || mode === 'single';
+  });
+
+  if(solidBarrelBlock){
+    // 炮管穿过全高/单发阻挡掩体：开火直接在炮管与掩体交点处被拦截
+    player.reloadT = player.stats.reload / debuffReloadRate(player);
+    const blockPt = solidBarrelBlock.point;
+    const coverTier = COVER_TIERS[solidBarrelBlock.cover.tier];
+    burstExplosion(blockPt.x, blockPt.y, 0.6, 4, 2, 0);
+    spawnMuzzleFlash(tipP.x, tipP.y, player.turretAngle, 1, (player.barrel && player.barrel.muzzle) || 'none');
+    impacts.push({ x: blockPt.x, y: blockPt.y, life: 0.4, color: '#ffb454' });
+    spawnImpactFx(blockPt.x, blockPt.y, player.turretAngle, 'block', 0.8);
+
+    if(coverTier.mode === 'single'){
+      damageCover(solidBarrelBlock.cover, 1, 'shell');
+      pushLog(`开火被掩体阻挡 — 炮管贯穿${coverTier.label}，炮弹在掩体处被截停`,'COVER');
+    } else {
+      if(Number.isFinite(solidBarrelBlock.cover.hp)){
+        if(!damageCover(solidBarrelBlock.cover, 1, 'shell')){
+          pushLog(`开火被掩体阻挡 — 炮管贯穿${coverTier.label}（剩余耐久 ${solidBarrelBlock.cover.hp}）`,'COVER');
+        }
+      } else {
+        pushLog(`开火被掩体阻挡 — 炮管贯穿${coverTier.label}，炮弹在掩体处被截停`,'COVER');
+      }
+    }
+    return;
+  }
+
   // 装填手/弹药架受伤 → 装填更久（debuff 降低装填速度）
   player.reloadT = player.stats.reload / debuffReloadRate(player);
-  const gp = gunTip(player);
+  const gp = tipP;
   const ox = gp.x, oy = gp.y;
+  const gr = rootP;
 
   // 散布只影响出膛方向（炮弹真实飞行，命中与否由飞行期间的实际情况决定）
   const sigma = spreadOn ? player.sigma : 0;
@@ -551,11 +587,10 @@ function tryFire(){
   spawnMuzzleFlash(ox, oy, spreadAngle || player.turretAngle, 1, bMuzzle);
 
   // 生成真实飞行炮弹：位置 / 方向 / 速度 / 穿深 / 伤害 / 弹种
-  // fx/fy = 弹道起点（炮口或跳弹点）：半高掩体的垂直剖面拦截按“弹道起点→命中点”整条射线判定，
-  // 而不是按炮弹逐帧到达时的近端位置（后者在炮弹已飞过掩体后会漏判遮挡）。
+  // fx/fy = 弹道起点（从 gunRoot 算，防穿透）：半高/全高掩体及弹道检测从 gunRoot 延伸
   shells.push({
     x: ox, y: oy,
-    fx: ox, fy: oy,
+    fx: gr.x, fy: gr.y,
     dx, dy,
     speed: Math.max(200, player.stats.shellSpeed * ammo.speed),
     pen:  player.stats.penetration * ammo.pen,
@@ -573,6 +608,7 @@ function tryFire(){
 // ---------- live firing solution (no spread) ----------
 function updateSolution(){
   const target = nearestEnemyTo(player);
+  const rp = gunRoot(player);
   const gp = gunTip(player);
   const ox = gp.x, oy = gp.y;
   const dx = Math.cos(player.turretAngle), dy = Math.sin(player.turretAngle);
@@ -583,6 +619,23 @@ function updateSolution(){
   const elEff = document.getElementById('solEff');
   const elResult = document.getElementById('solResult');
   const elCover = document.getElementById('solCover');
+
+  // 0. 检查从 gunRoot 到 gunTip 炮管线段是否被全高/单发掩体切断
+  const barrelCovers = findCoversOnPath(rp.x, rp.y, gp.x, gp.y);
+  const solidBarrelBlock = barrelCovers.find(c => {
+    const mode = COVER_TIERS[c.cover.tier].mode;
+    return mode === 'solid' || mode === 'single';
+  });
+
+  if(solidBarrelBlock){
+    const t = COVER_TIERS[solidBarrelBlock.cover.tier];
+    const mark = (Number.isFinite(solidBarrelBlock.cover.hp) && solidBarrelBlock.cover.hp>0) ? ' ⚡可击毁' : '';
+    elPart.textContent='--'; elAngle.textContent='--'; elThick.textContent='--'; elEff.textContent='--';
+    elResult.textContent='炮身被掩体阻挡'; elResult.className='v bad';
+    elCover.textContent=`100% — ${t.label}(炮身贯穿掩体·全挡${mark})`; elCover.className='v cover';
+    return;
+  }
+
   if(!hits){
     elPart.textContent='--'; elAngle.textContent='--'; elThick.textContent='--'; elEff.textContent='--';
     elResult.textContent='未瞄准目标'; elResult.className='v';
@@ -590,13 +643,13 @@ function updateSolution(){
     return;
   }
   // 同源意图（与实弹一致）：沿无散布瞄准线按鼠标投影选部位（aimPartPreference）。
-  // 垂直剖面单一判定：首选部位被半高掩体遮挡就显示"被拦截"概率，不自动改打另一部位（与实弹一致）。
+  // 垂直剖面单一判定：从 gunRoot(player) 起算路径掩体，防炮管越界盲区。
   const hitPref = aimPartPreference(ox, oy, dx, dy, mouseWorld.x, mouseWorld.y, hits, RULES.aim.partProbe);
   let hit = bestHitForPref(hits, 0.001, Infinity, hitPref);
   if(!hit) hit = bestHitForPref(hits, 0.001, Infinity, 'auto');
-  const exposure = getExposure(ox, oy, hit.x, hit.y, player, target, getPartZRange(target, hit.part).zMin, getPartZRange(target, hit.part).zMax, hit.t);
+  const exposure = getExposure(rp.x, rp.y, hit.x, hit.y, player, target, getPartZRange(target, hit.part).zMin, getPartZRange(target, hit.part).zMax, hit.t);
 
-  const coverInfo = { prob: 1 - exposure, hits: findCoversOnPath(ox, oy, hit.x, hit.y) };
+  const coverInfo = { prob: 1 - exposure, hits: findCoversOnPath(rp.x, rp.y, hit.x, hit.y) };
   if(coverInfo.prob>0){
     const detail = coverInfo.hits.map(h=>{
       const t = COVER_TIERS[h.cover.tier];
