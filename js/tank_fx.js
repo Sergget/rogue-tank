@@ -10,16 +10,19 @@
 //   drawTurretFlights(ctx)     — 被掀飞的炮塔（飞头）：上升→抛物线坠地，持续自旋并冒烟
 //   drawFxParticles(ctx)       — 火焰 / 浓烟 / 破片粒子
 
-let explosions = [];     // 殉爆火球: {x,y,life,max,scale}
+let explosions = [];     // 殉爆/爆破火球: {x,y,life,max,scale,style}
 let turretFlights = [];  // 被掀飞的炮塔（飞头）: {x,y,ang,vx,vy,spin,age,max,snap}
 let fxParticles = [];    // 火焰/浓烟/破片/火花粒子
-let muzzleFlashes = [];  // 炮口闪光: {x,y,ang,life,max,big}
+let muzzleFlashes = [];  // 炮口闪光: {x,y,ang,life,max,big,muzzle}
 let hitFx = [];          // 命中/擦弹特效: {x,y,ang,life,max,outcome,scale}
-const FX_MAX_PARTICLES = 600;
+let shockwaves = [];     // 冲击波环: {x,y,r,maxR,life,max,color,width}
+let scorchMarks = [];    // 地面灼痕/弹坑: {x,y,r,ang,life,max,opacity}
+const FX_MAX_PARTICLES = 1200;
+const FX_MAX_SCORCH = 80;
 
 // Particle Object Pool to eliminate GC and memory allocation overhead
 const PARTICLE_POOL = [];
-function getPooledParticle(kind, x, y, vx, vy, max, size) {
+function getPooledParticle(kind, x, y, vx, vy, max, size, extra) {
   let p;
   if (PARTICLE_POOL.length > 0) {
     p = PARTICLE_POOL.pop();
@@ -31,59 +34,101 @@ function getPooledParticle(kind, x, y, vx, vy, max, size) {
     p.age = 0;
     p.max = max;
     p.size = size;
+    p.extra = extra || null;
   } else {
-    p = { kind, x, y, vx, vy, age: 0, max, size };
+    p = { kind, x, y, vx, vy, age: 0, max, size, extra: extra || null };
   }
   return p;
 }
 function releaseParticle(p) {
-  if (PARTICLE_POOL.length < 1000) {
+  if (PARTICLE_POOL.length < 2000) {
     PARTICLE_POOL.push(p);
   }
 }
 
-function spawnFlame(x,y,spread){
+function spawnFlame(x,y,spread,speedMul){
   if (fxParticles.length > FX_MAX_PARTICLES) return;
-  const a = Math.random()*TAU, sp = 18 + Math.random()*spread;
-  fxParticles.push(getPooledParticle('flame', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 46,
-    0.35 + Math.random()*0.5, 4.5 + Math.random()*7));
+  const mul = speedMul || 1;
+  const a = Math.random()*TAU, sp = (20 + Math.random()*(spread||80)) * mul;
+  fxParticles.push(getPooledParticle('flame', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 35*mul,
+    0.35 + Math.random()*0.45, 5 + Math.random()*8));
 }
-function spawnSmoke(x,y,spread){
+function spawnSmoke(x,y,spread,speedMul){
   if (fxParticles.length > FX_MAX_PARTICLES) return;
-  const a = Math.random()*TAU, sp = (6 + Math.random()*spread)*0.45;
-  fxParticles.push(getPooledParticle('smoke', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 12,
-    0.7 + Math.random()*0.9, 5 + Math.random()*7));
+  const mul = speedMul || 1;
+  const a = Math.random()*TAU, sp = (8 + Math.random()*(spread||50)) * 0.45 * mul;
+  fxParticles.push(getPooledParticle('smoke', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 14*mul,
+    0.8 + Math.random()*1.0, 6 + Math.random()*9));
 }
-function spawnDebris(x,y){
+function spawnDebris(x,y,spread,speedMul){
   if (fxParticles.length > FX_MAX_PARTICLES) return;
-  const a = Math.random()*TAU, sp = 60 + Math.random()*120;
-  fxParticles.push(getPooledParticle('debris', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 60,
-    0.5 + Math.random()*0.4, 1.2 + Math.random()*1.8));
+  const mul = speedMul || 1;
+  const a = Math.random()*TAU, sp = (70 + Math.random()*(spread || 140)) * mul;
+  fxParticles.push(getPooledParticle('debris', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 50*mul,
+    0.6 + Math.random()*0.5, 1.5 + Math.random()*2.5));
 }
+function spawnSpark(x, y, angle, speed, life, size, colType){
+  if (fxParticles.length > FX_MAX_PARTICLES) return;
+  fxParticles.push(getPooledParticle('spark', x, y,
+    Math.cos(angle)*speed, Math.sin(angle)*speed,
+    life, size || 1.4, colType || 'amber'));
+}
+function spawnShockwave(x, y, maxR, dur, color, width){
+  shockwaves.push({ x, y, r: 2, maxR: maxR || 35, life: 0, max: dur || 0.35, color: color || 'rgba(255,210,120,0.8)', width: width || 2.5 });
+}
+function spawnScorchMark(x, y, r){
+  if (scorchMarks.length >= FX_MAX_SCORCH) {
+    scorchMarks.shift();
+  }
+  scorchMarks.push({
+    x, y,
+    r: r || (12 + Math.random()*8),
+    ang: Math.random()*TAU,
+    life: 0,
+    max: 20 + Math.random()*10,
+    opacity: 0.6 + Math.random()*0.25
+  });
+}
+
 function burstExplosion(x,y,scale,flames,smokes,debris){
-  explosions.push({ x, y, life:0, max:0.65, scale:scale||1.6 });
-  for(let i=0;i<(flames||0);i++) spawnFlame(x + (Math.random()*26-13), y + (Math.random()*26-13), 140);
-  for(let i=0;i<(smokes||0);i++) spawnSmoke(x + (Math.random()*30-15), y + (Math.random()*30-15), 70);
-  for(let i=0;i<(debris||0);i++) spawnDebris(x, y);
+  const sc = scale || 1.6;
+  explosions.push({ x, y, life:0, max:0.65, scale:sc });
+  spawnShockwave(x, y, 40 * sc, 0.35, 'rgba(255,200,100,0.8)', 2.5 * sc);
+  spawnScorchMark(x, y, 16 * sc);
+  for(let i=0;i<(flames||0);i++) spawnFlame(x + (Math.random()*26-13)*sc*0.5, y + (Math.random()*26-13)*sc*0.5, 160*sc, 1.2);
+  for(let i=0;i<(smokes||0);i++) spawnSmoke(x + (Math.random()*30-15)*sc*0.5, y + (Math.random()*30-15)*sc*0.5, 90*sc, 1.1);
+  for(let i=0;i<(debris||0);i++) spawnDebris(x, y, 160*sc, 1.2);
 }
-// 起火坦克：从发动机舱位置（由炮塔旋转中心决定前后）持续发射火焰与浓烟
+// 起火坦克：从发动机舱位置持续发射剧烈翻滚火焰与滚滚浓烟
 function emitTankFire(t){
   if(fxParticles.length > FX_MAX_PARTICLES) return;
   const L = t.hullLen/2, W = t.hullWid/2;
   const ex = engineLocalX(t);
   const pts = [ [ex, -W*0.3], [ex, W*0.3], [ex*0.7, -W*0.15], [ex*0.7, W*0.15], [ex*0.35, 0] ];
   for(const [lx,ly] of pts){
-    if(Math.random() < 0.55){
+    if(Math.random() < 0.65){
       const r = rotate(lx + (Math.random()*6-3), ly + (Math.random()*6-3), t.hullAngle);
-      spawnFlame(t.x+r.x, t.y+r.y, 30);
-      if(Math.random() < 0.45) spawnSmoke(t.x+r.x, t.y+r.y, 14);
+      spawnFlame(t.x+r.x, t.y+r.y, 45, 0.8);
+      if(Math.random() < 0.6) spawnSmoke(t.x+r.x, t.y+r.y, 25, 0.9);
+      if(Math.random() < 0.25) spawnSpark(t.x+r.x, t.y+r.y, -Math.PI/2 + (Math.random()-0.5)*1.2, 50 + Math.random()*80, 0.35, 1.1, 'amber');
     }
   }
 }
-// 弹药架殉爆：火球 + 炮塔掀飞（飞头）+ 大量火焰浓烟破片
+// 弹药架殉爆：戏剧化多阶火球 + 巨型冲击波 + 炮塔掀飞（飞头）+ 大面积焦痕 + 飞溅灼热碎片
 function spawnAmmoBlowFx(t){
   const bp = t.blowHitPoint || { x:t.x, y:t.y };
-  burstExplosion(bp.x, bp.y, 2.2, 46, 26, 18);
+  burstExplosion(bp.x, bp.y, 3.2, 70, 45, 36);
+  spawnShockwave(bp.x, bp.y, 140, 0.55, 'rgba(255,235,160,0.95)', 4.5);
+  spawnShockwave(bp.x, bp.y, 85, 0.4, 'rgba(255,140,50,0.85)', 3.0);
+  spawnScorchMark(bp.x, bp.y, 42);
+  
+  // 四散的炽热重破片
+  for(let i=0; i<24; i++){
+    const ang = Math.random()*TAU;
+    const spd = 160 + Math.random()*260;
+    spawnSpark(bp.x, bp.y, ang, spd, 0.4 + Math.random()*0.5, 1.8 + Math.random()*1.5, 'orange');
+  }
+
   const p = turretPivot(t);
   const px = p.x;
   const py = p.y;
@@ -92,48 +137,106 @@ function spawnAmmoBlowFx(t){
   turretFlights.push({
     snap: { verts:(t.turretSpec && t.turretSpec.verts) || (Array.isArray(tPoly) ? tPoly : tPoly.verts), color:t.color, len:t.turLen, wid:t.turWid },
     x:px, y:py, ang,
-    vx: Math.cos(ang) * (40 + Math.random()*60) + (Math.random()-0.5)*50,
-    vy: -230 - Math.random()*110,
-    spin: (Math.random()-0.5)*7,
-    age:0, max:1.9 + Math.random()*0.5
+    vx: Math.cos(ang) * (50 + Math.random()*80) + (Math.random()-0.5)*70,
+    vy: -280 - Math.random()*150,
+    spin: (Math.random()-0.5)*9,
+    age:0, max:2.2 + Math.random()*0.6
   });
 }
-// 履带断裂：破片 + 火花（小规模）
+// 履带断裂：破片 + 火花 + 冲击灰尘（小规模）
 function spawnTrackBreakFx(t){
   const p = t.trackFxPoint || { x:t.x, y:t.y };
-  burstExplosion(p.x, p.y, 0.7, 8, 4, 6);
-  spawnImpactFx(p.x, p.y, t.hullAngle, 'block', 0.7);
+  burstExplosion(p.x, p.y, 0.8, 12, 8, 12);
+  spawnImpactFx(p.x, p.y, t.hullAngle, 'block', 0.9);
 }
-// 炮口闪光：出膛时在炮口位置生成窄扇形闪光，不随缩放变形。可以接收制退器类型
+// 炮口闪光：出膛时在炮口位置生成带张力的定向火舌 + 侧向排气火花 + 冲击气浪
 function spawnMuzzleFlash(x, y, angle, scale, muzzleType){
-  muzzleFlashes.push({ x, y, ang: angle || 0, life: 0, max: 0.1, big: scale || 1, muzzle: muzzleType || 'none' });
+  const sc = scale || 1;
+  const type = muzzleType || 'none';
+  muzzleFlashes.push({ x, y, ang: angle || 0, life: 0, max: 0.12, big: sc, muzzle: type });
+  spawnShockwave(x, y, 28 * sc, 0.18, 'rgba(255,220,130,0.7)', 2);
+
+  // 喷射排气火花粒子
+  const emitDirSparks = (dirAng, count, spdMin, spdMax, spread) => {
+    for(let i = 0; i < count; i++){
+      const a = dirAng + (Math.random() - 0.5) * spread;
+      const sp = (spdMin + Math.random() * (spdMax - spdMin)) * sc;
+      spawnSpark(x, y, a, sp, 0.12 + Math.random() * 0.18, 1.2 + Math.random() * 0.8, 'amber');
+    }
+  };
+
+  emitDirSparks(angle, 6, 120, 240, 0.4);
+  if(type === 'single' || type === 'double' || type === 'heavy_square' || type === 'cylinder'){
+    emitDirSparks(angle + Math.PI/2, 4, 90, 180, 0.35);
+    emitDirSparks(angle - Math.PI/2, 4, 90, 180, 0.35);
+  }
 }
-function spawnSpark(x, y, angle, speed, life, size){
-  if (fxParticles.length > FX_MAX_PARTICLES) return;
-  fxParticles.push(getPooledParticle('spark', x, y,
-    Math.cos(angle)*speed, Math.sin(angle)*speed,
-    life, size || 1.2));
-}
-// 命中/擦弹特效：冲击闪光 + 火花 + 烟尘。outcome: 'pen'|'he'|'block'|'bounce'
+// 命中/擦弹特效：冲击闪光 + 锥形喷射火花 + 冲击波环 + 飞溅烟尘。outcome: 'pen'|'he'|'block'|'bounce'
 function spawnImpactFx(x, y, angle, outcome, scale){
   const o = outcome || 'pen';
-  hitFx.push({ x, y, ang: angle || 0, life: 0, max: o === 'bounce' ? 0.16 : 0.24,
-    outcome: o, scale: scale || 1 });
-  const sparks = o === 'he' ? 14 : (o === 'pen' ? 9 : 5);
-  const spd = o === 'he' ? 230 : 150;
-  for(let i = 0; i < sparks; i++){
-    const a = (angle || 0) + (Math.random() - 0.5) * 2.6;
-    spawnSpark(x, y, a, spd * (0.35 + Math.random() * 0.85), 0.15 + Math.random() * 0.3,
-      1.1 + Math.random() * 1.3);
-  }
-  if(o !== 'bounce'){
-    // 命中烟尘（穿透/高爆更多）
-    for(let i = 0; i < (o === 'he' ? 7 : 3); i++){
-      if (fxParticles.length > FX_MAX_PARTICLES) break;
-      const a = Math.random()*TAU, sp = 20 + Math.random()*60;
-      fxParticles.push(getPooledParticle('smoke', x + (Math.random()*8-4), y + (Math.random()*8-4),
-        Math.cos(a)*sp, Math.sin(a)*sp - 10,
-        0.4 + Math.random()*0.5, 4 + Math.random()*5));
+  const sc = scale || 1;
+  hitFx.push({ x, y, ang: angle || 0, life: 0, max: o === 'bounce' ? 0.18 : 0.28, outcome: o, scale: sc });
+  
+  if (o === 'he') {
+    // 高爆大范围爆轰：烈焰冲击波 + 环形烈焰破片 + 焦痕
+    spawnShockwave(x, y, 55 * sc, 0.3, 'rgba(255,180,70,0.85)', 3.0 * sc);
+    spawnScorchMark(x, y, 20 * sc);
+    const sparks = 24;
+    for(let i = 0; i < sparks; i++){
+      const a = Math.random() * TAU;
+      const spd = (160 + Math.random() * 240) * sc;
+      spawnSpark(x, y, a, spd, 0.2 + Math.random() * 0.35, 1.4 + Math.random() * 1.4, 'orange');
+    }
+    for(let i = 0; i < 8; i++){
+      spawnFlame(x + (Math.random()*12-6), y + (Math.random()*12-6), 90 * sc, 1.1);
+      spawnSmoke(x + (Math.random()*16-8), y + (Math.random()*16-8), 60 * sc, 1.0);
+    }
+    for(let i = 0; i < 10; i++){
+      spawnDebris(x, y, 120 * sc, 1.1);
+    }
+  } else if (o === 'pen') {
+    // 击穿：高亮向后穿透破片火花 + 金属碎屑 + 橙红冲击环
+    spawnShockwave(x, y, 32 * sc, 0.22, 'rgba(255,210,110,0.8)', 2.2 * sc);
+    spawnScorchMark(x, y, 11 * sc);
+    // 沿入射方向前突与两侧喷射的炽热破片
+    for(let i = 0; i < 16; i++){
+      const a = (angle || 0) + (Math.random() - 0.5) * 2.2;
+      const spd = (180 + Math.random() * 220) * sc;
+      spawnSpark(x, y, a, spd, 0.18 + Math.random() * 0.3, 1.3 + Math.random() * 1.2, 'amber');
+    }
+    // 少量反向回溅火花
+    for(let i = 0; i < 5; i++){
+      const a = (angle || 0) + Math.PI + (Math.random() - 0.5) * 1.4;
+      spawnSpark(x, y, a, (100 + Math.random() * 120) * sc, 0.15 + Math.random() * 0.2, 1.1, 'amber');
+    }
+    for(let i = 0; i < 4; i++){
+      spawnSmoke(x + (Math.random()*8-4), y + (Math.random()*8-4), 35 * sc, 0.9);
+      spawnDebris(x, y, 90 * sc, 0.9);
+    }
+  } else if (o === 'bounce') {
+    // 跳弹：锐利高亮电光蓝白火花喷溅 + 沿反弹方向的束状火针
+    spawnShockwave(x, y, 22 * sc, 0.16, 'rgba(160,220,255,0.85)', 2.0 * sc);
+    for(let i = 0; i < 14; i++){
+      const a = (angle || 0) + (Math.random() - 0.5) * 1.1; // 集中在反射方向锥内
+      const spd = (200 + Math.random() * 280) * sc;
+      spawnSpark(x, y, a, spd, 0.15 + Math.random() * 0.25, 1.3 + Math.random() * 1.1, 'cyan');
+    }
+    for(let i = 0; i < 6; i++){
+      const a = Math.random() * TAU;
+      spawnSpark(x, y, a, (80 + Math.random() * 140) * sc, 0.12 + Math.random() * 0.18, 1.0, 'cyan');
+    }
+  } else {
+    // 未击穿 (block)：钝感灰白/亮橙跳屑 + 黑色碎渣 + 灰烟
+    spawnShockwave(x, y, 18 * sc, 0.15, 'rgba(230,210,170,0.6)', 1.8 * sc);
+    spawnScorchMark(x, y, 8 * sc);
+    for(let i = 0; i < 9; i++){
+      const a = (angle || 0) + Math.PI + (Math.random() - 0.5) * 1.8; // 反弹向外
+      const spd = (120 + Math.random() * 160) * sc;
+      spawnSpark(x, y, a, spd, 0.12 + Math.random() * 0.22, 1.1 + Math.random() * 0.9, 'amber');
+    }
+    for(let i = 0; i < 3; i++){
+      spawnSmoke(x + (Math.random()*6-3), y + (Math.random()*6-3), 20 * sc, 0.7);
+      spawnDebris(x, y, 60 * sc, 0.7);
     }
   }
 }

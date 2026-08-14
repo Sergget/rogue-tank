@@ -30,7 +30,7 @@
     },
     "mantlet": {
       "style": "winged",
-      "pos": 6,
+      "pos": 5,
       "width": 44
     }
   },
@@ -325,7 +325,7 @@
         "x": 19.7,
         "y": 0,
         "len": 0.35,
-        "off": 0,
+        "off": 0.3,
         "mirror": false
       }
     ],

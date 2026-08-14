@@ -1,0 +1,15 @@
+# 行尾规范化：所有文本文件统一以 LF 存入仓库
+# 检出时按平台惯例（Windows 上 autocrlf 会转 CRLF，但 stat 缓存不再误判 modified）
+* text=auto
+
+# 显式二进制/图片资产（如有），git 不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
