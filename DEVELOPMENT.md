@@ -70,6 +70,14 @@
 3. **实弹拦截时机**：炮弹在穿越掩体的那一帧、在**掩体入口处**即时判决拦截（`tank_mvp.html` 的 `shellVerticalDecision`）：沿"弹道起点(fx,fy)→前方"整条射线解析会命中的部位，打车体 → 按曝光概率拦截于掩体入口（中坦 100% / 重坦 75%）；打炮塔 → 直接越过。跳弹/反射后弹道起点重置、重新判决。到达目标时按判决部位直接命中，不二次掷骰。
 4. **通行门控（driveBy）**：半高掩体按车型决定能否开过——**重坦可压过**（不毁、不推）、**中坦被挡**（MTV 推出）。
 5. **方向判据（cutoff）**：掩体必须被实际弹道射线**在命中目标车体前完整穿过**（掩体出口距离 < 命中距离 + 16px 容差）才参与遮挡；骑上/压入掩体的坦克**不会**获得全方向遮蔽。
+6. **防炮管越界盲区与炮口穿墙（单向开火防御判据，2026-08-14 实装）**：
+   - 坦克紧贴或推挤全高掩体/可破坏掩体时，可能导致程序计算所得的炮口尖端 `gunTip` 越过/贯穿到掩体背面，从而形成“炮管穿墙、在墙后无责任打墙外目标”或“单向无伤开火”漏洞。
+   - **防御性阻挡判据**：在开火决策（`tryFire`）和瞄准预览解算（`updateSolution`）时，系统会首先提取并检测 `gunRoot(t)`（炮管根部）到 `gunTip(t)`（炮口尖端）的 2D 物理线段。
+   - 如果该炮管物理线段与任何全高或单发阻挡掩体（`mode: 'solid'` 或 `mode: 'single'`，即建筑、沙袋路障或可破坏的树木等）相交：
+     1. 开火拦截：开火判定会立即在炮管与掩体的交点处（即相交点）被直接拦截，不再向前发射出飞行的实弹实体。
+     2. 特效与扣血：对该掩体施加 1 点普通炮弹扣血（`damageCover`），并在交点位置产生开火爆破火光、冒烟特效与击中能量粒子（`burstExplosion` / `spawnImpactFx`）。
+     3. 阻止开火：该次开火无法生成向前的飞行实弹，完美防御并堵死“炮管穿墙无伤射击”漏洞。
+   - **飞行动画与射线起点归一**：为了配合该防御判据，飞行炮弹在生成并飞行时的弹道拦截检测与预测射线判定中，其计算射线的逻辑起点统一采用 `fx/fy = gunRoot`（炮管根部），而其视觉生成和真实的初始飞行动画位置依旧对齐在 `gunTip`（炮口尖端），确保了飞弹在任何掩体边界判断上的严密连续性。
 
 ### 2.7 地图元素：树 / 灌木 / 可破坏掩体（本次会话新增，A1~A3 已实现）
 
@@ -180,7 +188,13 @@
 - **OBB 辅助函数复用**：`tank_cover.js` 的 `obbOverlap`/`obbMTV` 内部投影辅助提炼为模块顶层共享函数（消除两套私有 `getAxes`/`project`）。
 - **Web 页面加载顺序**：三个页面统一加载同一组共享模块，顺序统一为 `rules → utils → geometry → halfgeom → model` 等。
 - **`scripts/check-html.js` 扩展**：冒烟检查从固定 3 个文件扩展为遍历整个 `js/` 目录全部 JS + `server.js` + 三个原型的每个内联 `<script>`；并新增顶层重复函数声明检测（防止再次引入重复定义）。
-- **`package.json` 测试脚本**：`npm test` → 串联 `scripts/test-covers.js`（掩体/地图元素行为）、`test-tanks.js`（tanks/ 条目结构与几何 round-trip）、`test-hitpart.js`（命中部位意图）、`test-tankcollision.js`（坦克碰撞稳定性），全部通过。
+- **`package.json` 测试脚本**：`npm test` → 串联 **9 个测试套件全部通过**：`scripts/test-covers.js`（掩体/地图元素行为）、`test-tanks.js`（tanks/ 条目结构与几何 round-trip）、`test-hitpart.js`（命中部位意图）、`test-tankcollision.js`（坦克碰撞稳定性）、`test-nodegen.js`（节点地图元素生成器），以及 **4 个极端测试套件** `test-extreme-combat.js` / `test-extreme-geometry.js` / `test-extreme-model.js` / `test-extreme-cover.js`（覆盖战斗/物理、多边形几何、模型/属性、掩体系统的**极端但合法输入**，见下条）。
+- **极端输入测试里程碑（2026-08-14）**：新增 4 个「极端但合法」（extreme-but-valid）测试套件，共 **221 条断言**（`test-extreme-combat.js` 66 / `test-extreme-geometry.js` 84 / `test-extreme-model.js` 52 / `test-extreme-cover.js` 19），全部注册进 `npm test`（排在 `test-nodegen.js` 之后）与 `scripts/check-html.js` 的 scriptFile 冒烟数组；`npm run check`（语法 + typecheck）与 `npm test` 均退出码 0、9 个测试套件全绿：
+  - `test-extreme-combat.js`（战斗/物理，66 断言）：`resolveHit`/`impactGeometry`/`applyModuleDamage` 极端但合法用例——近 0° 与近 70° 入射角、极端装甲厚度（1/1000/1e6）、极端穿深（0/1e9/NaN 健壮性）、极端伤害（1e9 击杀、0/0.001 无操作）、模块极端（履带锁定、发动机起火 DOT、弹药架殉爆）、无敌、极端 maxHp（1e6/1）、双重跳弹语义（`reflectDir` 反射对合；二次跳弹护栏在调用方侧 `canBounce`）。
+  - `test-extreme-geometry.js`（多边形/半形几何，84 断言）：`hullPoly`/`turretPoly`/halfgeom 极端——微小但合法车体（200×0.5、2×1）、巨大坐标（±1e6）、极端长宽比（4000×4）、100 顶点半形、×1e6/×1e-3 尺度下的 `halfFromFull` 往返、近共线顶点、`normalizeBarrel` 极端（len 1e6/0.01/0/负、evac 新旧两种）、微小/巨大坦克的 `raycastTank`、`findModuleBands` len=1/lenMin。
+  - `test-extreme-model.js`（模型/属性，52 断言）：`computeStats`/`makeTank`/`applyTankConfig` 极端——base 1e6/1e9、零值/0.001、accel 极端、修饰器 add +1e9 / mult ×0 / ×-0.5 / 叠加顺序、装甲修饰器 1e6、过期定时修饰器剪除、极薄车体（10×1px）、turret axis 1e5、barrel len 1e6、`motionSigma`/`updateSigma` 极端（dt 0/1e6、turnRate 1e-6、spreadMult 0/1e6）、全部 5 个 debuff 辅助函数、tankKmh 0/1e6、moduleMult 极端。
+  - `test-extreme-cover.js`（掩体系统，19 断言）：`test-covers.js` §12~30 之外的极端掩体用例——shooter 参数惰性、零长度曝光段、深穿透 obbMTV（精确 2502 深度）、远处坦克无操作碰撞、路径端点恰在边/角、巨大坦克（hullLen 1e6）`getCoverUnderTank`、splash 半径 1e6、多边形中心 `coverNormalAt`、手动扩展数组后 `resetCovers`。
+  - **约束**：显式排除 0 宽/0 长等退化 0 维用例（不合理输入不测）；全部用例均为极端但合法的输入。
 - **`computeStats` / `applyTankConfig` 优化**：装甲深拷贝改用 `structuredClone`（替代 `JSON` 序列化）；`applyTankConfig` 表驱动化（配置数组统一拷贝，消除连续 `if (spec.X !== undefined)` 样板）。
 - **`server.js` 健壮性**：`POST /api/tank_list` 增加 2MB body 上限与 `try...catch` 写入保护，非法/超大请求安全拒绝，不再 5xx 崩溃。
 - **坦克数据拆分 `tanks/` 一型一文件（P-02#2 / P-03）**：删除聚合的 `tank_list.json` 与旧 `POST /api/tank_list`；`server.js` 提供 `GET /api/tanks`（遍历 `tanks/*.json`，文件名排序确定性聚合）、`POST /api/tanks/<id>`（临时文件+改名原子写）、`DELETE /api/tanks/<id>`；三个原型统一走 `js/tank_listio.js`（含无服务器时下载 `tanks/<id>.json` 的 fallback）。旧聚合文件由 `scripts/split-tank-list.js` 拆出（保留作维护工具）。

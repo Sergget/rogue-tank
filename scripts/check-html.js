@@ -62,7 +62,7 @@ for (const file of jsFiles) {
   checkCode(rel, fs.readFileSync(full, 'utf8'));
 }
 checkCode('server.js', fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8'));
-for (const scriptFile of ['scripts/test-covers.js', 'scripts/test-tanks.js', 'scripts/test-hitpart.js', 'scripts/test-tankcollision.js', 'scripts/test-nodegen.js']) {
+for (const scriptFile of ['scripts/test-covers.js', 'scripts/test-tanks.js', 'scripts/test-hitpart.js', 'scripts/test-tankcollision.js', 'scripts/test-nodegen.js', 'scripts/test-extreme-combat.js', 'scripts/test-extreme-geometry.js', 'scripts/test-extreme-model.js', 'scripts/test-extreme-cover.js']) {
   const full = path.join(ROOT, scriptFile);
   if (fs.existsSync(full)) {
     checkCode(scriptFile, fs.readFileSync(full, 'utf8'));

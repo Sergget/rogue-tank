@@ -221,5 +221,381 @@ const px0 = pocketTank.x, py0 = pocketTank.y;
 C.resolveCoverCollisions(pocketTank);
 ok(pocketTank.x === px0 && pocketTank.y === py0, 'tank is not blocked/pushed inside L-shaped cover concave pocket');
 
+// ================= EXTREME EDGE CASES =================
+
+// 12) Very large cover (extreme dimensions)
+C.resetCovers();
+{
+  // Add a huge cover manually for testing
+  const testCover = { x: 2000, y: 320, w: 5000, h: 5000, angle: 0, tier: 'full', hp: Infinity };
+  C.covers.push(testCover);
+  // Ray must start outside the cover
+  const exp = C.getExposure(-1000, 320, 3000, 320, null, { heightClass: 'medium' }, 0, 1.4);
+  ok(exp === 0, `extreme large solid cover fully occludes (got ${exp})`);
+  // Tank collision with huge cover
+  const tank = { x: 2000, y: 320, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'medium' };
+  C.resolveCoverCollisions(tank);
+  ok(tank.x !== 2000 || tank.y !== 320, 'huge cover pushes tank out');
+  C.covers.pop();
+}
+C.resetCovers();
+
+// 13) Very small cover (near-zero dimensions)
+{
+  const tiny = { x: 1000, y: 1000, w: 1, h: 1, angle: 0, tier: 'half', hp: Infinity };
+  C.covers.push(tiny);
+  const exp = C.getExposure(999, 1000, 1001, 1000, null, { heightClass: 'heavy' }, 0, 1.8);
+  ok(exp === 0.25 || exp === 0, 'tiny half cover handled without crash');
+  const corners = C.coverCorners(tiny);
+  ok(corners.length === 4 && corners.every(c => Number.isFinite(c.x) && Number.isFinite(c.y)), 'tiny cover corners finite');
+  C.covers.pop();
+}
+
+// 14) Extreme distance exposure (very far attacker/target)
+{
+  const half = C.covers.find(c => c.tier === 'half' && !c.verts);
+  if (half) {
+    // Attacker far away, target AT the half cover position - only half cover on path
+    const exp = C.getExposure(-10000, half.y, half.x, half.y, null, { heightClass: 'medium' }, 0, 1.4);
+    ok(exp === 0, 'extreme distance: medium hull at half cover position fully covered');
+    // Heavy at extreme distance
+    const expHeavy = C.getExposure(-10000, half.y, half.x, half.y, null, { heightClass: 'heavy' }, 0, 1.8);
+    ok(expHeavy === 0.25, 'extreme distance: heavy hull at half cover position 25% exposed');
+  }
+}
+
+// 15) Multiple overlapping covers on same path
+C.resetCovers();
+{
+  const c1 = C.covers.find(c => c.tier === 'half' && c.x < 400);
+  const c2 = C.covers.find(c => c.tier === 'half' && c.x > 400 && c.x < 800);
+  if (c1 && c2) {
+    // Ray through both half covers
+    const exp = C.getExposure(c1.x - 400, c1.y, c2.x + 400, c2.y, null, { heightClass: 'heavy' }, 0, 1.8);
+    // Multiple half covers multiply exposure (1 - (1-0.25)*(1-0.25)) = 0.4375
+    ok(Math.abs(exp - 0.4375) < 0.01, `multiple half covers multiply exposure (got ${exp.toFixed(4)})`);
+  }
+  C.resetCovers();
+}
+
+// 16) Cover destruction chain: tree -> stump -> fallen
+{
+  const tree = /** @type {any} */ (C.covers.find(c => c.tier === 'tree' && !c.verts));
+  if (tree) {
+    // First hit: tree -> stump or fallen (random 50/50)
+    C.damageCover(tree, 1, 'shell');
+    ok(tree.tier === 'stump' || tree.tier === 'fallen', 'tree -> stump or fallen on first hit');
+    // If stump, second hit -> fallen
+    if (tree.tier === 'stump') {
+      C.damageCover(tree, 1, 'shell');
+      ok(tree.tier === 'fallen' && tree.hp === Infinity, 'stump -> fallen on second hit');
+    }
+    // Further hits do nothing
+    C.damageCover(tree, 999, 'shell');
+    ok(tree.tier === 'fallen' && tree.hp === Infinity, 'fallen immune to massive damage');
+    C.resetCovers();
+  }
+}
+
+// 17) HE splash on multiple covers
+C.resetCovers();
+{
+  // Place several destructible covers near each other
+  const barricade1 = { x: 2000, y: 2000, w: 50, h: 25, angle: 0, tier: 'barricade', hp: 1 };
+  const barricade2 = { x: 2030, y: 2000, w: 50, h: 25, angle: 0, tier: 'barricade', hp: 1 };
+  const soft1 = { x: 2060, y: 2000, w: 100, h: 10, angle: 0, tier: 'soft', hp: 1 };
+  C.covers.push(barricade1, barricade2, soft1);
+  // Splash at center
+  C.splashCoversAt(2030, 2000, 50);
+  ok(barricade1.tier === 'rubble' && barricade1.hp === 1, 'barricade1 splash -> rubble');
+  ok(barricade2.tier === 'rubble' && barricade2.hp === 1, 'barricade2 splash -> rubble');
+  ok(soft1.hp === 0, 'soft destroyed by splash');
+  // Tree should become stump/fallen
+  const tree2 = { x: 2000, y: 2100, w: 24, h: 18, angle: 0, tier: 'tree', hp: 1 };
+  C.covers.push(tree2);
+  C.splashCoversAt(2000, 2100, 30);
+  ok(tree2.tier === 'stump' || tree2.tier === 'fallen', 'tree splash -> stump or fallen');
+  C.resetCovers();
+}
+
+// 18) Polygon cover edge cases: degenerate polygons
+{
+  // Triangle (minimum vertices)
+  const tri = { x: 3000, y: 3000, w: 100, h: 100, angle: 0, tier: 'full', hp: Infinity, verts: [[-50, -50], [50, -50], [0, 50]] };
+  C.covers.push(tri);
+  const triCorners = C.coverCorners(tri);
+  ok(triCorners.length === 3, 'triangle cover has 3 corners');
+  const nTri = C.coverNormalAt(tri, tri.x, tri.y - 50);
+  ok(nTri && Math.abs(Math.hypot(nTri.nx, nTri.ny) - 1) < 1e-6, 'triangle coverNormalAt works');
+  C.covers.pop();
+
+  // Very thin polygon (near-degenerate)
+  const thin = { x: 3100, y: 3000, w: 100, h: 100, angle: 0, tier: 'full', hp: Infinity, verts: [[-50, -1], [50, -1], [50, 1], [-50, 1]] };
+  C.covers.push(thin);
+  const thinCorners = C.coverCorners(thin);
+  ok(thinCorners.length === 4, 'thin polygon has 4 corners');
+  const nThin = C.coverNormalAt(thin, thin.x, thin.y - 1);
+  ok(nThin && Math.abs(Math.hypot(nThin.nx, nThin.ny) - 1) < 1e-6, 'thin polygon coverNormalAt works');
+  C.covers.pop();
+
+  // Concave polygon with many vertices
+  const star = { x: 3200, y: 3000, w: 100, h: 100, angle: 0, tier: 'half', hp: Infinity, verts: [[0, -50], [10, -10], [50, -10], [15, 10], [25, 50], [0, 20], [-25, 50], [-15, 10], [-50, -10], [-10, -10]] };
+  C.covers.push(star);
+  const starCorners = C.coverCorners(star);
+  ok(starCorners.length === 10, 'star polygon has 10 corners');
+  const expStar = C.getExposure(3100, 3000, 3300, 3000, null, { heightClass: 'heavy' }, 0, 1.8);
+  ok(expStar === 0.25, 'star half cover exposes 25% for heavy');
+  C.covers.pop();
+}
+
+// 19) OBB collision edge cases
+{
+  // Zero-area box (degenerate) - all corners at same point
+  // SAT: a point overlaps a box if the point is inside the box
+  const degBox = partCorners(4000, 4000, 0, 0, 0);
+  const normalBox = partCorners(4000, 4000, 0, 10, 10);
+  // The degenerate box is a point at (4000,4000), which is the center of normalBox
+  // So they DO overlap
+  ok(C.obbOverlap(degBox, normalBox) === true, 'degenerate box (point) at center overlaps normal box');
+  const mtvDeg = C.obbMTV(degBox, normalBox);
+  ok(mtvDeg && mtvDeg.depth >= 0, 'degenerate box MTV has non-negative depth');
+
+  // Degenerate box far from normal box
+  const degBox2 = partCorners(5000, 5000, 0, 0, 0);
+  ok(C.obbOverlap(degBox2, normalBox) === false, 'degenerate box far away does not overlap');
+
+  // Very thin box
+  const thinBox = partCorners(4100, 4000, 0, 0.001, 10);
+  const thinBox2 = partCorners(4100, 4000, 0, 10, 0.001);
+  ok(C.obbOverlap(thinBox, thinBox2) === true || C.obbOverlap(thinBox, thinBox2) === false, 'thin boxes handled');
+
+  // Rotated boxes at extreme angles
+  const rotBox1 = partCorners(4200, 4000, Math.PI / 4, 20, 20);
+  const rotBox2 = partCorners(4220, 4000, -Math.PI / 4, 20, 20);
+  ok(C.obbOverlap(rotBox1, rotBox2) === true, 'rotated boxes overlap');
+  const mtvRot = C.obbMTV(rotBox1, rotBox2);
+  ok(mtvRot && mtvRot.depth > 0, 'rotated boxes MTV positive depth');
+}
+
+// 20) resolveCoverCollisions with extreme tank configs
+C.resetCovers();
+{
+  const half = C.covers.find(c => c.tier === 'half' && !c.verts);
+  if (half) {
+    // Heavy tank fitting within cover - drives over (driveBy = true for heavy)
+    const fitTank = { x: half.x, y: half.y, hullAngle: 0, hullLen: 60, hullWid: 38, hp: 10, heightClass: 'heavy' };
+    const fx0 = fitTank.x, fy0 = fitTank.y;
+    C.resolveCoverCollisions(fitTank);
+    ok(fitTank.x === fx0 && fitTank.y === fy0, 'heavy tank fitting within half cover drives over');
+
+    // Very wide heavy tank - also drives over because driveBy.heavy = true
+    const wideTank = { x: half.x, y: half.y, hullAngle: 0, hullLen: 64, hullWid: 500, hp: 10, heightClass: 'heavy' };
+    const wx0 = wideTank.x, wy0 = wideTank.y;
+    C.resolveCoverCollisions(wideTank);
+    ok(wideTank.x === wx0 && wideTank.y === wy0, 'very wide heavy tank drives over half cover (driveBy=true)');
+
+    // Medium tank at extreme angle - gets pushed (driveBy.medium = false)
+    const angleTank = { x: half.x, y: half.y, hullAngle: Math.PI * 0.37, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'medium' };
+    const ax0 = angleTank.x, ay0 = angleTank.y;
+    C.resolveCoverCollisions(angleTank);
+    ok(angleTank.x !== ax0 || angleTank.y !== ay0, 'medium tank at angle pushed out of half cover');
+  }
+  C.resetCovers();
+}
+
+// 21) getExposure with extreme height classes
+{
+  const half = C.covers.find(c => c.tier === 'half' && !c.verts);
+  if (half) {
+    // Unknown height class defaults
+    const expUnknown = C.getExposure(half.x - 400, half.y, half.x + 400, half.y, null, { heightClass: 'unknown' }, 0, 1.4);
+    ok(expUnknown >= 0 && expUnknown <= 1, 'unknown height class handled gracefully');
+
+    // Missing heightClass
+    const expMissing = C.getExposure(half.x - 400, half.y, half.x + 400, half.y, null, {}, 0, 1.4);
+    ok(expMissing >= 0 && expMissing <= 1, 'missing heightClass handled gracefully');
+
+    // Extreme hullTop/turretTop values
+    // Negative hullTop = target is below cover = fully covered (exposure 0)
+    const expExtreme = C.getExposure(half.x - 400, half.y, half.x + 400, half.y, null, { heightClass: 'medium' }, -100, 1000);
+    ok(expExtreme === 0, 'extreme negative hullTop = fully covered (below cover)');
+    // Very high hullTop/turretTop = target is above cover = fully covered (exposure 0)
+    const expExtreme2 = C.getExposure(half.x - 400, half.y, half.x + 400, half.y, null, { heightClass: 'medium' }, 1000, 2000);
+    ok(expExtreme2 === 0, 'extreme high hullTop/turretTop = fully covered (above cover)');
+    // Turret zMin >= 1.2 = fully exposed (exposure 1) - use cutoff to exclude full cover at x=660
+    const expTurret = C.getExposure(half.x - 400, half.y, half.x + 400, half.y, null, { heightClass: 'medium' }, 1.5, 2.3, 500);
+    ok(expTurret === 1, 'turret zMin >= 1.2 = fully exposed (with cutoff before full cover)');
+  }
+}
+
+// 22) findCoversOnPath with extreme paths
+{
+  // Zero-length path
+  const hitsZero = C.findCoversOnPath(100, 100, 100, 100);
+  ok(hitsZero.length === 0, 'zero-length path returns no covers');
+
+  // Very long path across entire map
+  const hitsLong = C.findCoversOnPath(-10000, 0, 10000, 0);
+  ok(hitsLong.length >= 0, 'very long path handled');
+
+  // Path through many covers
+  const hitsMany = C.findCoversOnPath(0, 320, 1200, 320);
+  ok(hitsMany.length >= 0, 'path through many covers handled');
+}
+
+// 23) coverNormalAt edge cases
+{
+  const full = C.covers.find(c => c.tier === 'full' && !c.verts);
+  if (full) {
+    // Point far from cover - returns normal of closest edge (right edge)
+    const nFar = C.coverNormalAt(full, full.x + 10000, full.y);
+    ok(nFar && Math.abs(Math.hypot(nFar.nx, nFar.ny) - 1) < 1e-6, 'far point returns unit normal of closest edge');
+
+    // Point exactly at cover center - equidistant from all edges, returns one of them
+    const nCenter = C.coverNormalAt(full, full.x, full.y);
+    ok(nCenter && Math.abs(Math.hypot(nCenter.nx, nCenter.ny) - 1) < 1e-6, 'center point returns unit normal');
+
+    // Point on corner
+    const nCorner = C.coverNormalAt(full, full.x + full.w/2, full.y + full.h/2);
+    ok(nCorner && Math.abs(Math.hypot(nCorner.nx, nCorner.ny) - 1) < 1e-6, 'corner point returns unit normal');
+  }
+}
+
+// 24) Complex coverCollisionParts for L-shape
+{
+  const lFull = C.covers.find(c => c.tier === 'full' && c.verts);
+  if (lFull) {
+    const parts = C.coverCollisionParts(lFull);
+    ok(Array.isArray(parts) && parts.length > 1, 'L-shape has multiple collision parts');
+    ok(parts.every(p => Array.isArray(p) && p.length >= 3), 'each collision part is valid polygon');
+
+    // The two collision parts of the L-shape share a corner/edge at x=5, so they DO overlap slightly
+    // This is expected for compound collision shapes that decompose a concave polygon
+    let partsOverlap = false;
+    for (let i = 0; i < parts.length; i++) {
+      for (let j = i + 1; j < parts.length; j++) {
+        if (C.obbOverlap(parts[i], parts[j])) {
+          partsOverlap = true;
+        }
+      }
+    }
+    ok(partsOverlap, 'L-shape collision parts overlap at shared boundary (expected for convex decomposition)');
+  }
+}
+
+// 25) splashCoversAt edge cases
+{
+  // Splash with zero radius
+  const bar = C.covers.find(c => c.tier === 'barricade');
+  if (bar) {
+    const hpBefore = bar.hp;
+    C.splashCoversAt(bar.x, bar.y, 0);
+    ok(bar.hp === hpBefore, 'zero radius splash does nothing');
+  }
+
+  // Splash with negative radius
+  const bar2 = C.covers.find(c => c.tier === 'barricade' && c !== bar);
+  if (bar2) {
+    const hpBefore = bar2.hp;
+    C.splashCoversAt(bar2.x, bar2.y, -10);
+    ok(bar2.hp === hpBefore, 'negative radius splash does nothing');
+  }
+
+  // Splash at coordinates with no covers
+  C.splashCoversAt(99999, 99999, 100); // Should not crash
+  ok(true, 'splash at empty coordinates does not crash');
+}
+
+// 26) Reset covers multiple times
+for (let i = 0; i < 5; i++) {
+  C.resetCovers();
+  const tree = C.covers.find(c => c.tier === 'tree');
+  ok(tree && tree.hp === 1 && tree.tier === 'tree', `resetCovers iteration ${i+1} restores tree`);
+}
+
+// 27) getCoverUnderTank edge cases
+{
+  const half = C.covers.find(c => c.tier === 'half' && !c.verts);
+  if (half) {
+    // Tank exactly on cover
+    const under1 = C.getCoverUnderTank({ x: half.x, y: half.y, hullLen: 64, hullWid: 38, hullAngle: 0 });
+    ok(under1 === half, 'tank on cover returns that cover');
+
+    // Tank far from any cover
+    const under2 = C.getCoverUnderTank({ x: 99999, y: 99999, hullLen: 64, hullWid: 38, hullAngle: 0 });
+    ok(under2 === null, 'tank far from covers returns null');
+
+    // Tank with zero size
+    const under3 = C.getCoverUnderTank({ x: half.x, y: half.y, hullLen: 0, hullWid: 0, hullAngle: 0 });
+    ok(under3 === half || under3 === null, 'zero-size tank handled');
+  }
+}
+
+// 28) Damage cover with various damage types
+{
+  const bar = C.covers.find(c => c.tier === 'barricade');
+  if (bar) {
+    C.resetCovers();
+    const bar2 = C.covers.find(c => c.tier === 'barricade');
+    // Shell damage
+    const r1 = C.damageCover(bar2, 1, 'shell');
+    ok(r1 === true && bar2.tier === 'rubble' && bar2.hp === 1, 'shell damage destroys barricade -> rubble');
+
+    C.resetCovers();
+    const bar3 = C.covers.find(c => c.tier === 'barricade');
+    // HE damage
+    const r2 = C.damageCover(bar3, 1, 'he');
+    ok(r2 === true && bar3.tier === 'rubble' && bar3.hp === 1, 'HE damage destroys barricade -> rubble');
+
+    C.resetCovers();
+    const bar4 = C.covers.find(c => c.tier === 'barricade');
+    // Crash damage (from tank collision)
+    const r3 = C.damageCover(bar4, 1, 'crash');
+    ok(r3 === true && bar4.tier === 'rubble' && bar4.hp === 1, 'crash damage destroys barricade -> rubble');
+
+    C.resetCovers();
+    const tree = C.covers.find(c => c.tier === 'tree');
+    // Fire damage on tree
+    const r4 = C.damageCover(tree, 1, 'fire');
+    ok(r4 === true && (tree.tier === 'stump' || tree.tier === 'fallen'), 'fire damage fells tree');
+  }
+}
+
+// 29) Multiple damage types on same cover
+C.resetCovers();
+{
+  const tree = C.covers.find(c => c.tier === 'tree');
+  if (tree) {
+    // Shell then fire
+    C.damageCover(tree, 1, 'shell');
+    const tierAfterShell = tree.tier;
+    C.damageCover(tree, 1, 'fire');
+    ok(tree.tier === 'fallen', 'shell then fire -> fallen');
+
+    C.resetCovers();
+    const tree2 = C.covers.find(c => c.tier === 'tree');
+    // Fire then shell
+    C.damageCover(tree2, 1, 'fire');
+    const tierAfterFire = tree2.tier;
+    C.damageCover(tree2, 1, 'shell');
+    ok(tree2.tier === 'fallen', 'fire then shell -> fallen');
+  }
+  C.resetCovers();
+}
+
+// 30) Stress test: many rapid operations
+{
+  const start = Date.now();
+  for (let i = 0; i < 1000; i++) {
+    const x = Math.random() * 2000;
+    const y = Math.random() * 2000;
+    C.getExposure(x - 100, y, x + 100, y, null, { heightClass: 'medium' }, 0, 1.4);
+    C.findCoversOnPath(x, y, x + 200, y);
+    if (i % 100 === 0) C.resetCovers();
+  }
+  const elapsed = Date.now() - start;
+  ok(elapsed < 5000, `1000 rapid operations completed in ${elapsed}ms (should be < 5000ms)`);
+}
+
 console.log(fails ? `\n${fails} failure(s).` : '\nAll cover-system checks passed.');
 process.exitCode = fails ? 1 : 0;

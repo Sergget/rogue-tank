@@ -8,7 +8,7 @@
     "serve": "node server.js",
     "check": "node scripts/check-html.js && npm run typecheck",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/test-covers.js && node scripts/test-tanks.js && node scripts/test-hitpart.js && node scripts/test-tankcollision.js && node scripts/test-nodegen.js"
+    "test": "node scripts/test-covers.js && node scripts/test-tanks.js && node scripts/test-hitpart.js && node scripts/test-tankcollision.js && node scripts/test-nodegen.js && node scripts/test-extreme-combat.js && node scripts/test-extreme-geometry.js && node scripts/test-extreme-model.js && node scripts/test-extreme-cover.js"
   },
   "engines": {
     "node": ">=18"
