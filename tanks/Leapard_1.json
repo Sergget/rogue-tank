@@ -5,7 +5,7 @@
   "turnRate": 2.5,
   "turretTurnRate": 3,
   "weight": 100,
-  "enginePower": 1200,
+  "enginePower": 300,
   "hp": 80,
   "penetration": 160,
   "damage": 50,
@@ -191,8 +191,8 @@
         "x": 33.2,
         "y": 0,
         "len": 0.4,
-        "off": 0,
-        "mirror": true
+        "off": -0.15,
+        "mirror": false
       }
     ],
     "ammo": [

@@ -25,6 +25,10 @@
 | 2026-08-13 | `PLAN.md` | P-05 节点地图元素生成器（模板库 + 难度加权随机选） | 已完成并验证，支持种子 RNG 与加权选取、参数化变体（结论见 DEVELOPMENT §2.1 / §3.6） |
 | 2026-08-13 | `PLAN.md` | P-05 节点地图元素生成器（模板库 + 难度加权随机选） | 已全部完成并验证（结论见 DEVELOPMENT §2.1 / §3.6） |
 | 2026-08-13 | `DEVELOPMENT.md` | 历史整理：§1/§2.4 旧决策推翻纠偏、§2.8 排除机制整节、§3 修复历史与过时注记（#12/#14/#15/#16/#17 等）、§4.7 v0.2~v0.7 版本进度（含 v0.4 甲弹对抗核实） | 已归档（当前结论保留于 DEVELOPMENT §1/§2/§3/§4/§6） |
+| 2026-08-14 | `ISSUES.md` | #21. git status 误报大量未修改文件（index stat 记录 LF 大小、工作区为 CRLF） | 已修复并验证（结论见 DEVELOPMENT §3.6「git index stat 重新归一化」） |
+| 2026-08-14 | `ISSUES.md` | #18. 坦克紧贴时炮口伸入对方车体，正面贴脸射击命中后部模块（弹药架）＋车体视觉重叠 | 已修复并验证（结论见 DEVELOPMENT §3.6「#18/#19/#20 修复」） |
+| 2026-08-14 | `ISSUES.md` | #19. 设计器接缝边（前/后板）无法点击插入顶点（恒追加且不同步 halfFaces），装甲面板顺序非「前→后」 | 已修复并验证（结论见 DEVELOPMENT §3.6「#18/#19/#20 修复」） |
+| 2026-08-14 | `ISSUES.md` | #20. 弹药架殉爆特效范围过大（火球最大 r 161px / 冲击波环 140px，远超坦克尺寸） | 已修复并验证（结论见 DEVELOPMENT §3.6「#18/#19/#20 修复」） |
 
 ------
 
@@ -1189,4 +1193,119 @@ if (mod.key==='ammo') {
 
 
 ---
+
+## #21 git status 误报大量未修改文件（index stat 记录 LF 大小、工作区为 CRLF） — 已解决 (2026-08-14)
+
+**用户报告**（2026-08-14）：
+- git 工作区有很多文件看起来没有修改，但被追踪为更改（`git status` 显示 ~45 个文件 modified，`git diff` 却为空）。
+
+**已核实证据（file:line）**：
+1. **`git status` 报 modified 但 `git diff` 无差异**：`git status --short -- js/tank_fx.js` → ` M`，`git diff -- js/tank_fx.js` 无输出；`git hash-object --path js/tank_fx.js js/tank_fx.js` == index blob（`bd9106...`），内容 CRLF→LF 归一化后与 index 完全一致，确无真实改动。
+2. **index stat 记录 LF 大小、工作区为 CRLF**：`git ls-files --debug js/tank_fx.js` → `size: 19840`；实际文件 20327（差 487 = 行数，CRLF 每行 +1 字节）。所有被误报文件均为「idx 大小 = LF 版本、实际 = CRLF 版本」。
+3. **与行尾转换配置无关**：`git -c core.autocrlf=false` / `-c core.eol=lf` 均不改变判定（`git status --short` 仍 50 行）。
+4. **副本复现与修复验证**：整仓拷贝（含 `.git`）复现 50 行误报；`git add --renormalize .` 后仅剩真实改动 `tanks/Leapard_1.json`（staged），再 `git restore --staged .` 后仅剩该文件 unstaged 的真实改动。
+
+**根因**：工作区文件在 LF 状态时写入 index（stat 缓存记录 LF 大小），后整体被转为 CRLF（Windows 编辑器/autocrlf 检出），index stat 过期（size 不符）→ `git status` 按 stat 差异标 modified；`git diff` 先做 CRLF→LF 归一化故无差异。
+
+**影响**：~45 个文件持续显示 modified，无法确认真实改动、易误提交全量文件。
+
+**修复方向**（已在副本验证，未对工作区执行）：`git add --renormalize .` + `git restore --staged .`。顺带发现：`.gitattributes` 注释为 GBK 编码显示乱码（仅注释，属性行 ASCII 正常，可选 UTF-8 重写）。
+
+**修复记录**（2026-08-14 实装）：工作区执行 `git add --renormalize .` + `git restore --staged .`，误报从 50+ 行降到仅剩 3 个真实改动（`ISSUES.md`/`tank_mvp.html`/`tanks/Leapard_1.json`）；`.gitattributes` 注释已重写为 UTF-8（内容与 HEAD 一致，仅重写编码）。结论见 DEVELOPMENT.md §3.6「git index stat 重新归一化」。
+
+---
+
+# 十三、2026-08-14 归档自 `ISSUES.md`（#18/#19/#20，原文）
+
+### [2026-08-14] 归档自 ISSUES.md #18
+
+## #18 坦克紧贴时炮口伸入对方车体，正面贴脸射击命中后部模块（弹药架）＋车体视觉重叠 — 待处理
+
+**用户报告**（2026-08-14）：
+- 坦克间碰撞、紧贴时有重叠部分。
+- 从正面紧贴的靶车射击会击中弹药架，但所有弹药架都设置为只能从侧后击中。
+
+**已核实证据（`file:line`）**：
+1. **碰撞体积不含炮塔/炮管/箭镞尖头**：`resolveTankCollisions` 只用车体矩形包围盒分离
+   （`js/tank_entity.js:72-73` `partCorners(a.x,a.y,a.hullAngle, a.hullLen/2, a.hullWid/2)`）；
+   车体 `hullPoly` 箭镞尖头超出矩形前缘 `tip = hullWid*0.5/2`（`js/tank_geometry.js:25-33`，hullWid=38 时≈9.5px）；
+   炮管 `gunTip` 距车体中心≈65px（`js/tank_geometry.js:481-499`），正面对贴时嵌入对方车体≈33px。
+   静止贴住即保持嵌入（分离只留 0.1px 缓冲，`tank_entity.js:95-101`；每固定步调用一次，`tank_mvp.html:744`）。
+2. **开火无「炮口伸入敌方坦克」检测**：`tryFire` 只对 gunRoot→gunTip 炮管线段做**掩体**贯穿检测
+   （`tank_mvp.html:518-550` `findCoversOnPath`），不对敌方坦克做 point-in-polygon 检测；炮弹出生在 gunTip（`tank_mvp.html:591-605`）。
+3. **从多边形内部发射只命中出射（远侧）边**：`raycastTank` 取 `t>0.001` 的最小正值（`js/tank_geometry.js:88-93`），
+   体内发射时进入边 `t<0` 被丢弃，唯一命中为远侧后缘；炮弹逐帧检测用当前位置（首帧=体内枪口，`tank_mvp.html:815-816`）。
+4. **远侧后缘命中被判定为后部模块**：`moduleFromHit` 对 rear face / 后段 rel.x 判 发动机/弹药架/车长
+   （`js/tank_geometry.js:387-447`）；用户自设的 ammo 模块带挂在车体后缘（`moduleHitFromBands`）→ 正前方命中「弹药架」。
+5. **预测面板同源错误**：`updateSolution` 用 gunTip 起射线（`tank_mvp.html:613-615`），开火前即显示「车体·后部（弹药架）」。
+
+**根因**：①碰撞体积（车体矩形）与弹道几何（炮管/炮塔/箭镞尖头）不一致 → 紧贴时炮口必然入体；
+②`raycastTank` 无「体内发射 → 恢复进入边」处理；③`moduleFromHit` 按出射边归属模块。三者串联：
+紧贴 → 枪口入体 → 弹丸首帧命中目标远侧后缘 → 正面贴脸被结算为后部模块命中。
+
+**影响**：正面贴脸命中弹药架（×2 伤害、8s 装填 debuff、击杀殉爆掀飞炮塔，`js/tank_physics.js:100-111`）、
+发动机（起火 DOT）、车长；等效厚度按后部结算（rear 26 vs front 110），正面贴脸反而更容易击穿；
+跳弹判定用出射边法线，入射角/反射方向全错；箭镞尖头视觉重叠≈19px、炮管插入对方车体。
+范围不限 player→dummy，所有敌对坦克对紧贴皆有此问题；长炮管（barrelPct 上限 3×）嵌入更深。
+
+**修复方向**（未实施）：①`raycastTank` 增加「原点在部件多边形内部 → 取进入边（`t<0` 且 `|t|` 最小）为命中面」
+（核心，一处同时修实弹+预测+垂直剖面）；②`tryFire` 对伸入敌方车体的 gunTip 沿炮口方向回退出生点到多边形边界外（兜底）；
+③（可选）开火门控「贴脸压住」拦截；④（可选）碰撞体积改用 `hullPoly` 凸包消除尖头重叠。
+
+---
+
+### [2026-08-14] 归档自 ISSUES.md #19
+
+## #19 设计器接缝边（前/后板）无法点击插入顶点（恒追加且不同步 halfFaces），装甲面板顺序非「前→后」 — 待处理
+
+**用户报告**（2026-08-14）：
+- 为车体新增装甲线段的顶点时仍始终追加最后一个点；希望与炮塔类似，允许在线段上点击新增点。
+- 装甲（前/侧/后）设置面板中，线段的顺序要在插入顶点后按「前→后」重新排列。
+
+**已核实证据（`file:line`）**：
+1. **插入/追加逻辑 hull 与 turret 逐行对称**（`tank_designer.html:1053-1111` mouseup `drag.isNew` 分支）：
+   先试 `findEdgeMidpointHit*`（命中→循环切换装甲面），再试 `findEdgeHit*`（命中→`splice(ei+1,0,newPt)` 插入），
+   都没命中才 `push` 追加（`:1076` / `:1106`）。
+2. **接缝边不参与命中 → 恒追加**：`findEdgeHit`（`:556-564`）/`findEdgeMidpointHit`（`:566-575`）及 ForTurret 版
+   循环均为 `i<n-1`，只遍历半形链内部边，**前/后接缝边（front/rear seam）恒返回 -1**。
+   但接缝边在画布上以亮色可编辑渲染（`drawPolygon` `:1904`/`:1940-1945`，`js/tank_halfgeom.js:46-50` primary 标记）。
+   实测：点击默认车体后板→追加到链尾；点击 Obj 780 前板→新顶点出现在车头却追加到链尾（几何乱序「幽灵边」）。
+   「车体恒追加、炮塔可插入」的感知差异来自点击了不同边类型（默认车体的后板/Obj 780 的前板恰为接缝边）。
+3. **追加分支不同步 `halfFaces`**（`:1076`/`:1106` 只 `half.push`，未 `halfFaces.push`）：
+   新边索引落在 halfFaces 之外 → `getFace` fallback `'side'`（`js/tank_halfgeom.js:80`），面板合计计数失真。
+4. **面板顺序非「前→后」**：`renderEdgeListFor`（`:1644-1652`）输出 = 内部边（链序）+ `接缝(后)` + `接缝(前)`——
+   **前板恒排最后**；半形链方向由 `halfFromFull`/`buildFullVerts` 决定，并非强制前→后。
+
+**根因**：接缝边命中盲区（`i<n-1` 循环不含 seam 边）→ 接缝点击必然落入追加分支；追加对后接缝几何恰等、
+对前接缝几何错误（应 `splice(0,…)`），且追加路径丢失装甲面继承（恒 side）。面板顺序问题源于接缝行位置
+（前接缝排最后）与前接缝追加造成的链序错乱。
+
+**影响**：接缝边（前后装甲板）无法点击插入顶点；插入/追加后装甲面丢失继承、`halfFaces` 长度错位
+（影响删除索引映射与面板合计）；面板顺序非前→后；亮色可编辑边点击行为与内部边不一致（UX 混淆）。
+
+**修复方向**（未实施）：①接缝边命中与插入——复用 `findFullEdgeAtScreen`（`:635-654` 全形边遍历）或
+`fullEdgeHalfRef` 映射：前接缝 → `splice(0,…)` 并继承 `frontSeamFace`；后接缝 → 追加但同步写继承的 `rearSeamFace`；
+②统一所有新增顶点路径保证 `halfFaces` 长度 = `half.length-1`；
+③面板按「前接缝 → 内部边（链序）→ 后接缝」排列（只调显示顺序，不改链本身）。
+
+---
+
+### [2026-08-14] 归档自 ISSUES.md #20
+
+## #20 弹药架殉爆特效范围过大（火球最大 r 161px / 冲击波环 140px，远超坦克尺寸） — 待处理
+
+**用户报告**（2026-08-14）：
+- 弹药架殉爆特效不错，但范围太大，希望改小。
+
+**已核实证据（file:line）**：
+1. **火球半径随 scale 放大**：`spawnAmmoBlowFx` 调 `burstExplosion(bp.x, bp.y, 3.2, 70, 45, 36)`（`js/tank_fx.js:120`）；`drawExplosions` 半径 `r = 14 + t*46*ex.scale`（`js/tank_fx.js:278`）→ 最大 161px（直径 ~322px），远超坦克尺寸（对比履带断裂 `spawnTrackBreakFx` scale=0.8，`js/tank_fx.js:149`）。
+2. **双重巨型冲击波**：`spawnShockwave(bp.x, bp.y, 140, 0.55, ...)` 与 `spawnShockwave(bp.x, bp.y, 85, 0.4, ...)`（`js/tank_fx.js:121-122`）→ 半径 140 / 85px。
+3. **粒子散布全部 ×scale**：`burstExplosion` 内火焰/烟/碎片的 spread 参数 ×sc=3.2（`js/tank_fx.js:98-100`，火焰 spread 160*3.2≈512px）；另加 24 枚火花速度 160–420（`js/tank_fx.js:126-130`）。
+4. **焦痕半径 42**（`js/tank_fx.js:123` `spawnScorchMark`；`burstExplosion` 内另有 `16*sc≈51`）。
+
+**根因**：`spawnAmmoBlowFx`（`js/tank_fx.js:117-145`）为戏剧化效果使用 scale=3.2 且独立追加超大 shockwave 半径与粒子数，全部硬编码、无 RULES 配置项。
+
+**影响**：殉爆视觉半径远超车体（火球 ~322px 直径、双冲击波环 140/85px、碎屑散布 ~500px），画面过载、压制坦克本体。
+
+**修复方向**（未实施）：仅改 `spawnAmmoBlowFx` 参数——scale 3.2→2.0（火球最大 r 161→106px）、shockwave 140→95 / 85→60、焦痕 42→30、火花速度 160–420→120–320 且数量 24→18；不影响 `spawnTrackBreakFx` 等其他爆炸。
 
