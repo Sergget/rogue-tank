@@ -26,7 +26,7 @@
   .mono{font-family:'JetBrains Mono',monospace;}
   #app{
     display:grid;
-    grid-template-columns: 1fr 340px;
+    grid-template-columns: 300px 1fr 340px;
     grid-template-rows: 100%;
     height:100vh;
   }
@@ -37,8 +37,8 @@
       var(--bg);
   }
   #leftPane{
-    position:absolute; top:12px; left:12px; width:300px; z-index:10;
     display:flex; flex-direction:column; gap:8px; pointer-events:none;
+    padding:12px;
   }
   #solutionPanel{
     background:rgba(18,20,15,0.85); border:1px solid var(--line);
@@ -127,6 +127,11 @@
     width:220px; text-align:center; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim);}
   #reloadTrack{height:5px; background:#0c0d09; border:1px solid var(--line); margin-top:4px;}
   #reloadFill{height:100%; background:var(--amber); width:100%;}
+  #ammoIndicator{display:inline-flex; align-items:center; gap:5px; margin-left:8px;
+    font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700;
+    color:var(--text); vertical-align:middle;}
+  #ammoIndicator .dot{width:9px; height:9px; border-radius:50%; display:inline-block;
+    border:1px solid rgba(255,255,255,0.3);}
 
   .legend{display:flex; flex-direction:column; gap:4px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-top:6px;}
   .legend span.sw{display:inline-block; width:10px; height:10px; margin-right:6px; vertical-align:-1px; border:1px solid rgba(255,255,255,0.3);}
@@ -134,9 +139,8 @@
 </head>
 <body>
 <div id="app">
-  <div id="stage-wrap">
-    <div id="leftPane">
-      <div id="solutionPanel">
+  <div id="leftPane">
+    <div id="solutionPanel">
         <div class="sp-title">实时弹道预测 <b>FIRING SOLUTION</b></div>
         <div id="solution">
           <div class="row"><span class="k">命中部位</span><span class="v" id="solPart">--</span></div>
@@ -158,22 +162,16 @@
       </div>
       <div id="logOverlay"></div>
     </div>
+  <div id="stage-wrap">
     <canvas id="c"></canvas>
     <div id="reloadWrap">
       装填 RELOAD
+      <span id="ammoIndicator"><span class="dot"></span><span class="label"></span></span>
       <div id="reloadTrack"><div id="reloadFill"></div></div>
     </div>
   </div>
   <div id="hud">
     <div class="title">装甲测试台 <b>ARMOR TEST RIG</b> · MVP v0.2 (2D + 掩体)</div>
-
-    <div class="section">
-      <h3>架构扩展 Test Extension</h3>
-      <div class="btnrow">
-        <button id="addShieldBtn">添加护盾附件</button>
-        <button id="addDroneBtn">添加无人机附件</button>
-      </div>
-    </div>
 
     <div class="section">
       <h3>坦克选择 Tank Select</h3>
@@ -185,26 +183,6 @@
         <button id="reloadTankListBtn">重新加载列表</button>
       </div>
       <div class="mono" id="tankSelectHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">从 tanks/ 目录载入坦克配置并替换玩家 / 靶车（含炮管预设、多边形装甲）</div>
-    </div>
-
-    <div class="section">
-      <h3>靶场 Test Range</h3>
-      <div class="btnrow" style="margin-top:4px;">
-        <button id="rangeBtn">开启靶场 RANGE</button>
-        <button id="spreadBtn" class="active">散布: 开</button>
-      </div>
-      <div class="mono" id="rangeStats" style="margin-top:6px; font-size:10px; color:var(--text-dim); line-height:1.6;">靶场未开启 — 关闭散布即绝对精准</div>
-    </div>
-
-    <div class="section">
-      <h3>弹种 Ammo Type</h3>
-      <div class="bar-row"><span class="bar-label">当前弹种</span><select id="ammoSelect"></select></div>
-      <div class="legend">
-        <div><span class="sw" style="background:#5cc8ff;"></span>AP — 标准弹（速度/穿深/伤害 <b>1.0</b>）</div>
-        <div><span class="sw" style="background:#ff6c5c;"></span>APCR — 高速弹（速度/穿深 <b>1.2</b>，伤害 <b>0.8</b>）</div>
-        <div><span class="sw" style="background:#ffb454;"></span>HE — 高爆弹（速度/穿深 <b>0.6</b>，伤害 <b>1.2</b>）</div>
-      </div>
-      <div class="mono" id="ammoHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">数字键 1 / 2 / 3 或下拉切换弹种；换弹后下一次开火即用新弹种。HE 销毁瞬间对落点 24px 内溅射破障</div>
     </div>
 
     <div class="section">
@@ -354,22 +332,6 @@ document.getElementById('reloadTankListBtn').addEventListener('click', ()=>{
   loadTankList();
   pushLog('已重新加载 tanks/ 坦克列表','COVER');
 });
-document.getElementById('rangeBtn').addEventListener('click', ()=>{
-  rangeOn = !rangeOn;
-  const b = document.getElementById('rangeBtn');
-  b.textContent = rangeOn ? '关闭靶场 RANGE' : '开启靶场 RANGE';
-  b.classList.toggle('active', rangeOn);
-  if(!rangeOn){ rangeShots.length = 0; }
-  renderRangeStats();
-  pushLog(rangeOn ? '靶场已开启 — 射击记录落点散布' : '靶场已关闭','COVER');
-});
-document.getElementById('spreadBtn').addEventListener('click', ()=>{
-  spreadOn = !spreadOn;
-  const b = document.getElementById('spreadBtn');
-  b.textContent = spreadOn ? '散布: 开' : '散布: 关(绝对精准)';
-  b.classList.toggle('active', spreadOn);
-  pushLog(`散布已${spreadOn?'开启':'关闭（绝对精准）'}`,'COVER');
-});
 loadTankList();
 
 const keys = {};
@@ -384,23 +346,22 @@ window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
 // ---------- ammo type selection (特性4) ----------
 const AMMO_KEYS = { '1':'ap', '2':'apcr', '3':'he' };
 player.ammoKey = 'ap';
+function renderAmmoIndicator(){
+  const el = document.getElementById('ammoIndicator');
+  if(!el) return;
+  const ammo = RULES.ammoTypes[player.ammoKey] || RULES.ammoTypes.ap;
+  const dot = el.querySelector('.dot');
+  const label = el.querySelector('.label');
+  if(dot) dot.style.background = ammo.color;
+  if(label) label.textContent = ammo.label;
+}
 function setAmmo(key){
   if(!RULES.ammoTypes[key]) return;
   player.ammoKey = key;
-  const sel = document.getElementById('ammoSelect');
-  if(sel) sel.value = key;
+  renderAmmoIndicator();
   pushLog(`弹种切换：${RULES.ammoTypes[key].label}`,'COVER');
 }
-(function(){
-  const sel = document.getElementById('ammoSelect');
-  for(const k of Object.keys(RULES.ammoTypes)){
-    const o = document.createElement('option');
-    o.value = k; o.textContent = RULES.ammoTypes[k].label;
-    sel.appendChild(o);
-  }
-  sel.value = player.ammoKey;
-  sel.addEventListener('change', e=>{ setAmmo(e.target.value); });
-})();
+renderAmmoIndicator();
 document.addEventListener('keydown', e=>{
   const k = e.key;
   if(AMMO_KEYS[k]) setAmmo(AMMO_KEYS[k]);
@@ -454,16 +415,6 @@ document.getElementById('autoReviveBtn').addEventListener('click', (e)=>{
   const ab = document.getElementById('autoReviveBtn'); ab.textContent = dummy.autoRevive ? '开启 AUTO-REVIVE' : '关闭 AUTO-REVIVE'; ab.classList.toggle('active', dummy.autoRevive);
 })();
 
-// ---------- extension test controls ----------
-document.getElementById('addShieldBtn').addEventListener('click', () => {
-  player.attachments.push({ type: 'shield', bindTo: 'gun_root', size: 25, relativeAngle: 0 });
-  pushLog('已在炮管添加护盾附件', 'PEN');
-});
-document.getElementById('addDroneBtn').addEventListener('click', () => {
-  player.attachments.push({ type: 'drone', bindTo: 'hull_rear', relativeAngle: 0 });
-  pushLog('已在车尾添加无人机附件', 'PEN');
-});
-
 // ---------- log ----------
 const logEl = document.getElementById('logOverlay');
 function logClear(){ if(logEl) logEl.innerHTML=''; }
@@ -481,34 +432,6 @@ function pushLog(text, cls){
 let shells = [];   // 炮弹飞行动画（沿弹道逐段推进）
 let impacts = [];
 let bounceFx = []; // ricochet spark visuals
-
-// ---------- test range ----------
-let rangeOn = false;        // draw distance markers + show shot stats near the fixed target
-let spreadOn = true;        // false = absolute precision (sigma clamped to 0)
-const RANGE_SPACING = 100;  // px between distance markers
-const rangeShots = [];      // { distAim, x, y } deviation of each landing from the aim point
-const RANGE_MAX_SHOTS = 200;
-function addRangeShot(landX, landY, aimX, aimY){
-  const dist = Math.hypot(landX-aimX, landY-aimY);
-  rangeShots.push({ x:landX, y:landY, aimX, aimY, dist });
-  if(rangeShots.length > RANGE_MAX_SHOTS) rangeShots.shift();
-  renderRangeStats();
-}
-function renderRangeStats(){
-  const el = document.getElementById('rangeStats');
-  if(!el) return;
-  if(!rangeOn){ el.textContent = '靶场未开启 — 关闭散布即绝对精准'; return; }
-  if(rangeShots.length===0){ el.textContent = '靶场开启 — 开火记录落点散布'; return; }
-  const dists = rangeShots.map(s=>s.dist);
-  const avg = dists.reduce((a,b)=>a+b,0)/dists.length;
-  const mean = [...dists].sort((a,b)=>a-b)[Math.floor(dists.length/2)];
-  const max = Math.max(...dists);
-  const min = Math.min(...dists);
-  el.innerHTML =
-    `<div>射击次数: <b style="color:var(--amber)">${rangeShots.length}</b></div>`+
-    `<div>平均偏差: <b style="color:var(--amber)">${avg.toFixed(1)}</b> px</div>`+
-    `<div>中位偏差: ${mean.toFixed(1)} px　最差: ${max.toFixed(1)} px　最优: ${min.toFixed(1)} px</div>`;
-}
 
 function tryFire(){
   if(player.reloadT>0 || player.immobT>0) return;
@@ -556,7 +479,7 @@ function tryFire(){
   const gr = rootP;
 
   // 散布只影响出膛方向（炮弹真实飞行，命中与否由飞行期间的实际情况决定）
-  const sigma = spreadOn ? player.sigma : 0;
+  const sigma = player.sigma;
   const spreadAngle = player.turretAngle + gaussian(sigma);
   const dx = Math.cos(spreadAngle), dy = Math.sin(spreadAngle);
 
@@ -568,18 +491,6 @@ function tryFire(){
   const aimU = Math.cos(aimA), aimV = Math.sin(aimA);
   const aimHits = raycastTank(ox, oy, aimU, aimV, target);
   const hitPref = aimPartPreference(ox, oy, aimU, aimV, mouseWorld.x, mouseWorld.y, aimHits, RULES.aim.partProbe);
-
-  // In range mode, record where this shot crosses the vertical plane through the target's
-  // position — the "aiming landing point" (prediction only, actual landing follows the real shot).
-  if(rangeOn){
-    const planeX = target.x;
-    const tCross = (planeX - ox) / (dx || 1e-6);
-    const landX = ox + dx*tCross;
-    const landY = oy + dy*tCross;
-    const aimX = ox + Math.cos(player.turretAngle)*tCross;
-    const aimY = oy + Math.sin(player.turretAngle)*tCross;
-    addRangeShot(landX, landY, aimX, aimY);
-  }
 
   // 炮口闪光（开火瞬间）：定向锥形闪光 + 少量烟尘。传入具体的制退器样式
   const bMuzzle = (player.barrel && player.barrel.muzzle) || 'none';
@@ -982,42 +893,12 @@ function updateHud(){
 // 战斗场景绘制层（drawTank/drawBrokenTracks/drawCharredHull/drawFireGlow/drawShells/
 // drawCover/drawFoliage/drawClassBadge）已下沉为共享模块 js/tank_battledraw.js —
 // 全部函数显式接收 ctx（tank_paint.js 约定）；mvp 只负责按帧调用。
-// 测试台专用块（drawRange/addRangeShot/RANGE_*）保留在下方，不拆。
+// 测试台靶场块（drawRange/addRangeShot/RANGE_*）已随重构移除。
 
 // ---------- procedural paint / simplified textures ----------
 // 薄封装（shade/drawTracks/renderHullTexture/renderTurretTexture）已随绘制层移入
 // js/tank_battledraw.js（模块内部 helper，直接委托 js/tank_paint.js）。
 // 车型标志与完整坦克绘制（drawTank/drawClassBadge）同上，见 js/tank_battledraw.js。
-
-function drawRange(){
-  const startX = gunTip(player).x;
-  const planeX = dummy.x; // target plane (vertical line through the fixed dummy target)
-  ctx.save();
-  // distance markers (range stakes) along the firing lane from the tank toward the target plane
-  ctx.strokeStyle = 'rgba(92,200,255,0.4)'; ctx.fillStyle = 'rgba(92,200,255,0.7)';
-  ctx.font = '10px "JetBrains Mono", monospace'; ctx.lineWidth = 1;
-  for(let x=startX; x<=planeX; x+=RANGE_SPACING){
-    ctx.setLineDash([3,5]);
-    ctx.beginPath(); ctx.moveTo(x, dummy.y-60); ctx.lineTo(x, dummy.y+60); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillText((x-startX).toFixed(0)+'px', x-20, dummy.y-66);
-  }
-  // target plane guide
-  ctx.setLineDash([2,6]);
-  ctx.strokeStyle = 'rgba(92,200,255,0.55)'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(planeX, dummy.y-90); ctx.lineTo(planeX, dummy.y+90); ctx.stroke();
-  ctx.setLineDash([]);
-
-  // recorded landing points (each shot's cross on the target plane) vs its aim point
-  rangeShots.forEach(s=>{
-    ctx.fillStyle = 'rgba(255,180,84,0.9)';
-    ctx.beginPath(); ctx.arc(s.x, s.y, 3, 0, TAU); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,180,84,0.6)';
-    ctx.beginPath(); ctx.moveTo(s.aimX, s.aimY-5); ctx.lineTo(s.aimX, s.aimY+5);
-    ctx.moveTo(s.aimX-5, s.aimY); ctx.lineTo(s.aimX+5, s.aimY); ctx.stroke();
-  });
-  ctx.restore();
-}
 
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -1026,7 +907,6 @@ function draw(){
   for(let y=0;y<canvas.height;y+=40){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
 
 covers.forEach(cov => drawCover(ctx, cov));
-  if(rangeOn) drawRange();
   entities.forEach(t => drawTank(ctx, t));
   drawFoliage(ctx, covers);   // 灌木/树冠层：盖住其下坦克 = 视线遮挡
   drawShells(ctx, shells);
