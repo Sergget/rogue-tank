@@ -599,6 +599,33 @@ function findEdgeHitMirrorAwareForTurret(poly, sx, sy){
   }
   return -1;
 }
+// 接缝边（前/后板）命中：mirror(v0)↔v0 为前接缝、v(n-1)↔mirror(v(n-1)) 为后接缝（均为中心线上的
+// 竖直段，跨 y=0，与全形闭合边中的接缝段一致）。返回 { seam:'front'|'rear', nearMid:bool } 或 null；
+// nearMid = 点击落在接缝中点附近（与内部边一致：中点点击 = 循环切换装甲面，非中点 = 插入顶点）。
+// 接缝边参与画布命中（findEdgeHit* 只遍历半形链内部边 i<n-1，接缝恒 miss → 恒追加的根因）。
+function findSeamHitAtScreen(part, sx, sy){
+  const poly = state[part];
+  const n = poly.half.length;
+  if(n<2) return null;
+  const ang = mode==='preview' ? previewAngle : 0;
+  const toS = (part==='turret') ? (pt => turretToScreen(pt, ang)) : (pt => toScreen(hullCenter(), pt));
+  const segs = [];
+  if(!onCenterline(poly.half[0])){
+    const A = toS(mirrorPt(poly.half[0])), B = toS(poly.half[0]);
+    segs.push({ seam:'front', ax:A.x, ay:A.y, bx:B.x, by:B.y });
+  }
+  if(!onCenterline(poly.half[n-1])){
+    const A = toS(poly.half[n-1]), B = toS(mirrorPt(poly.half[n-1]));
+    segs.push({ seam:'rear', ax:A.x, ay:A.y, bx:B.x, by:B.y });
+  }
+  for(const s of segs){
+    if(distToSegment(sx, sy, s.ax, s.ay, s.bx, s.by) <= EDGE_HIT_R){
+      const mx = (s.ax+s.bx)/2, my = (s.ay+s.by)/2;
+      return { seam: s.seam, nearMid: Math.hypot(sx-mx, sy-my) <= EDGE_HIT_R };
+    }
+  }
+  return null;
+}
 
 // ================= 线段挂载模块：工具（渲染 / 命中 / 手柄共用） =================
 // 设计器顶点帧 = 作者帧（turret 未做 -axis 平移），故找边时 axis 传 {0,0}；
@@ -1062,20 +1089,44 @@ window.addEventListener('mouseup', e=>{
           pushHint(`车体边 #${mid} 装甲 → ${nxt}`);
         } else {
           const ei = poly.half.length>=2 ? findEdgeHit(poly, center, sx, sy) : -1;
+          // 接缝边（前/后板）命中：跨中心线，须先于 y≤0 检查（点击其 y>0 半段同样有效）
+          const sh = findSeamHitAtScreen('hull', sx, sy);
           let [lx,ly] = toLocal(center, sx, sy);
           if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
-          if(ly > 2/viewScale){
+          if(sh){
+            if(sh.nearMid){
+              // 接缝中点 → 循环切换接缝装甲面（与内部边行为一致）
+              const nxt = nextFace(sh.seam==='front' ? poly.frontSeamFace : poly.rearSeamFace);
+              if(sh.seam==='front') poly.frontSeamFace = nxt; else poly.rearSeamFace = nxt;
+              selectedEdge = { poly: 'hull', seam: sh.seam };
+              pushHint(`车体接缝(${sh.seam==='front'?'前':'后'}) 装甲 → ${nxt}`);
+            } else {
+              // 插入顶点：新边继承接缝装甲面；y 取镜像（点击接缝 y>0 半段 → 顶点落在镜像侧对应位置）
+              const newPt = [ Math.round(lx*10)/10, Math.round(-Math.abs(ly)*10)/10 ];
+              if(sh.seam==='front'){
+                // 前接缝 → 链头插入：新边 v(new)→v(旧0) 继承 frontSeamFace，新前接缝保持原面
+                poly.half.splice(0, 0, newPt);
+                poly.halfFaces.splice(0, 0, poly.frontSeamFace);
+                selectVertex('hull', 0);
+              } else {
+                // 后接缝 → 链尾追加：新边继承 rearSeamFace，新后接缝保持原面
+                poly.half.push(newPt);
+                poly.halfFaces.push(poly.rearSeamFace);
+                selectVertex('hull', poly.half.length-1);
+              }
+            }
+          } else if(ly > 2/viewScale){
             pushHint('请在中心线一侧 (y ≤ 0) 绘制，另一侧会自动镜像生成');
+          } else if(ei>=0){
+            const newPt = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
+            poly.half.splice(ei+1, 0, newPt);
+            poly.halfFaces.splice(ei, 0, getFace(poly.halfFaces, ei));
+            selectVertex('hull', ei+1);
           } else {
             const newPt = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
-            if(ei>=0){
-              poly.half.splice(ei+1, 0, newPt);
-              poly.halfFaces.splice(ei, 0, getFace(poly.halfFaces, ei));
-              selectVertex('hull', ei+1);
-            } else {
-              poly.half.push(newPt);
-              selectVertex('hull', poly.half.length-1);
-            }
+            poly.half.push(newPt);
+            poly.halfFaces.push('side'); // 空白追加：新边按侧装甲计（保证 halfFaces = half.length-1）
+            selectVertex('hull', poly.half.length-1);
           }
         }
       } else if(drag.poly==='turret'){
@@ -1091,21 +1142,45 @@ window.addEventListener('mouseup', e=>{
           pushHint(`炮塔边 #${mid} 装甲 → ${nxt}`);
         } else {
           const ei = poly.half.length>=2 ? findEdgeHitForTurret(poly, sx, sy) : -1;
+          // 接缝边（前/后板）命中：跨中心线，须先于 y≤0 检查（点击其 y>0 半段同样有效）
+          const sh = findSeamHitAtScreen('turret', sx, sy);
           let lx = (sx - ringX)/viewScale + ax;
           let ly = (sy - ringY)/viewScale;
           if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
-          if(ly > 2/viewScale){
+          if(sh){
+            if(sh.nearMid){
+              // 接缝中点 → 循环切换接缝装甲面（与内部边行为一致）
+              const nxt = nextFace(sh.seam==='front' ? poly.frontSeamFace : poly.rearSeamFace);
+              if(sh.seam==='front') poly.frontSeamFace = nxt; else poly.rearSeamFace = nxt;
+              selectedEdge = { poly: 'turret', seam: sh.seam };
+              pushHint(`炮塔接缝(${sh.seam==='front'?'前':'后'}) 装甲 → ${nxt}`);
+            } else {
+              // 插入顶点：新边继承接缝装甲面；y 取镜像（点击接缝 y>0 半段 → 顶点落在镜像侧对应位置）
+              const newPt = [ Math.round(lx*10)/10, Math.round(-Math.abs(ly)*10)/10 ];
+              if(sh.seam==='front'){
+                // 前接缝 → 链头插入：新边 v(new)→v(旧0) 继承 frontSeamFace，新前接缝保持原面
+                poly.half.splice(0, 0, newPt);
+                poly.halfFaces.splice(0, 0, poly.frontSeamFace);
+                selectVertex('turret', 0);
+              } else {
+                // 后接缝 → 链尾追加：新边继承 rearSeamFace，新后接缝保持原面
+                poly.half.push(newPt);
+                poly.halfFaces.push(poly.rearSeamFace);
+                selectVertex('turret', poly.half.length-1);
+              }
+            }
+          } else if(ly > 2/viewScale){
             pushHint('请在中心线一侧 (y ≤ 0) 绘制，另一侧会自动镜像生成');
+          } else if(ei>=0){
+            const newPt = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
+            poly.half.splice(ei+1, 0, newPt);
+            poly.halfFaces.splice(ei, 0, getFace(poly.halfFaces, ei));
+            selectVertex('turret', ei+1);
           } else {
             const newPt = [ Math.round(lx*10)/10, Math.round(Math.min(0,ly)*10)/10 ];
-            if(ei>=0){
-              poly.half.splice(ei+1, 0, newPt);
-              poly.halfFaces.splice(ei, 0, getFace(poly.halfFaces, ei));
-              selectVertex('turret', ei+1);
-            } else {
-              poly.half.push(newPt);
-              selectVertex('turret', poly.half.length-1);
-            }
+            poly.half.push(newPt);
+            poly.halfFaces.push('side'); // 空白追加：新边按侧装甲计（保证 halfFaces = half.length-1）
+            selectVertex('turret', poly.half.length-1);
           }
         }
       }
@@ -1641,14 +1716,15 @@ function renderEdgeListFor(key, container){
     container.appendChild(row);
   };
 
+  // 面板顺序：前接缝 → 内部边（链序）→ 后接缝（按坦克朝向「前→后」排列，仅显示顺序）
+  if(!onCenterline(poly.half[0])){
+    addRow('接缝(前) front seam', poly.frontSeamFace, v=>{ poly.frontSeamFace=v; }, true, { seam:'front' });
+  }
   for(let i=0;i<n-1;i++){
     addRow(`边 v${i}→v${i+1}`, getFace(poly.halfFaces,i), v=>setFace(poly.halfFaces,i,v), false, { index:i });
   }
   if(!onCenterline(poly.half[n-1])){
     addRow('接缝(后) rear seam', poly.rearSeamFace, v=>{ poly.rearSeamFace=v; }, true, { seam:'rear' });
-  }
-  if(!onCenterline(poly.half[0])){
-    addRow('接缝(前) front seam', poly.frontSeamFace, v=>{ poly.frontSeamFace=v; }, true, { seam:'front' });
   }
   // per-class summary: how many primary edges are in front/side/rear (mirrored side copies them)
   const counts = { front:0, side:0, rear:0 };

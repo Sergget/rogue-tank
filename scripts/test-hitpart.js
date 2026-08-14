@@ -79,19 +79,64 @@ ok(G.shellPartHit([{ part:'turret', t:999 }], 10, 'turret') === null, 'distant-o
 //        半形链边1 = [32,-19]→[-32,-19]（后部长边，中点 (0,-19)）
 //   turret 半形链边0 = [16.15,-14.76]→[0.85,-17.28]（前侧边，中点 (8.5,-16.02)）
 // 数据格式：扁平 { key: [ { part, x, y, len, off, mirror }, ... ] }（可多放置）
+// 全形面序与 buildFullFaces 一致（与 buildFullVerts 索引对齐）：
+//   hull   [41.5,0]→[32,-19] front / [32,-19]→[-32,-19] side / [-32,-19]→[-32,19] rear /
+//          [-32,19]→[32,19] side / [32,19]→[41.5,0] front
+//   turret [16.15,-14.76]→[0.85,-17.28] front / →[-16.15,-16.56] side / rear 接缝 /
+//          镜像 side / 镜像 front / [16.15,14.76]→[16.15,-14.76] front
 const HULL_V = H.buildFullVerts(H.defaultHull().half);
 const TURRET_V = H.buildFullVerts(H.defaultTurret().half);
-const HULL_F = ['front','front','side','rear','side'];
+const HULL_F = ['front','side','rear','side','front'];
+const TURRET_F = ['front','side','rear','side','front','front'];
 function mockTank(over){
   return Object.assign({
     x:0, y:0, hullAngle:0, turretAngle:0,
     hullLen:64, hullWid:38, turLen:34, turWid:36,
     hullSpec:{ verts: HULL_V.map(v=>v.slice()), faces: HULL_F.slice() },
-    turretSpec:{ verts: TURRET_V.map(v=>v.slice()), faces: HULL_F.slice() },
+    turretSpec:{ verts: TURRET_V.map(v=>v.slice()), faces: TURRET_F.slice() },
     turretPivotOffset:{ dx:8, dy:0 },
     turretAxis:{ dx:0, dy:0 },
     modules:null
   }, over);
+}
+
+// ---- ISSUES #18 体内发射 → 恢复进入边（raycastTank）----
+// 坦克紧贴时炮口（gunTip）伸入敌方车体，弹丸出生点在装甲内侧：命中面必须是炮管贯穿的
+// 进入边（正面），而不是远侧出射边（后部 → 弹药架/发动机/车长、等效厚度与跳弹法线全错）。
+{
+  // 用户场景：弹药架模块带挂在车体后缘（后部长边 (0,-19)，len=1 → 整条后边）
+  const t = mockTank({ modules: { ammo:[{ part:'hull', x:0, y:-19, len:1 }] } });
+  // 中轴贴脸：炮口 (30,0) 在车体内（前缘顶点 41.5），朝车内射击 (-1,0)
+  const hits = G.raycastTank(30, 0, -1, 0, t);
+  const h = (hits || []).find(x => x.part === 'hull');
+  ok(h && h.faceKey === 'front' && h.inside === true && h.t === 0, '体内发射: 车体命中=正面进入边（t=0 / inside）');
+  ok(h && h.x > 32 && h.x <= 41.5 && Math.abs(h.y) < 1e-9, '体内发射: 命中点=前缘表面交点（非后缘）');
+  const mod = G.moduleFromHit(t, h);
+  ok(mod && mod.key !== 'ammo' && mod.key !== 'engine', `正面贴脸模块=非后部模块（实际 ${mod && mod.key}）`);
+  ok(hits && hits.every(x => x.faceKey === 'front'), '体内发射: 全部命中面均为 front（无后部面）');
+  // 预测面板（bestHitForPref 整条射线）与实弹逐帧（shellPartHit）同源：
+  // 'hull' 强制车体进入边；'auto'/'turret' 可因炮塔优先选中射线前方的炮塔正面
+  // （同为 front，绝不落回后部出射边）。
+  for(const pref of ['auto','turret','hull']){
+    const bh = G.bestHitForPref(hits, 0.001, Infinity, pref);
+    ok(bh && bh.faceKey === 'front', `体内发射: bestHitForPref(${pref}) 命中面为 front（非后部）`);
+    const sh = G.shellPartHit(hits, 8, pref);
+    ok(sh && sh.faceKey === 'front', `体内发射: shellPartHit(${pref}) 首帧命中面为 front（非后部）`);
+  }
+  {
+    const bh = G.bestHitForPref(hits, 0.001, Infinity, 'hull');
+    ok(bh && bh.inside === true && bh.t === 0, '体内发射: pref=hull 强制选中车体进入边（t=0）');
+  }
+  // 外部发射行为不变（回归）：2 条命中、无 inside 标记
+  const ext = G.raycastTank(-100, 0, 1, 0, t);
+  ok(ext && ext.length === 2 && ext.every(x => !x.inside), '外部射线: 2 条命中且全部无 inside 标记');
+  // 跳弹后贴面外飞/切向掠开：原点在表面但已离开 → 不得再触发体内命中
+  const away = G.raycastTank(41.5, 0, 1, 0, t);
+  ok(away === null || away.every(x => !x.inside), '跳弹后贴面外飞: 无体内命中（可继续飞行）');
+  const graze = G.raycastTank(41.5, 0, 0, 1, t);
+  ok(graze === null || graze.every(x => !x.inside), '跳弹后贴面切向: 无体内命中');
+  // 目标在射线反向延伸处：不得误判体内
+  ok(G.raycastTank(100, 0, 1, 0, t) === null, '目标在身后: 无命中（不误判体内）');
 }
 
 // ---- normalizeTankModules：扁平结构清洗 + 旧 v2 格式迁移 ----

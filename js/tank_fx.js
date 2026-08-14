@@ -114,18 +114,18 @@ function emitTankFire(t){
     }
   }
 }
-// 弹药架殉爆：戏剧化多阶火球 + 巨型冲击波 + 炮塔掀飞（飞头）+ 大面积焦痕 + 飞溅灼热碎片
+// 弹药架殉爆：戏剧化多阶火球 + 双重冲击波 + 炮塔掀飞（飞头）+ 焦痕 + 飞溅灼热碎片
 function spawnAmmoBlowFx(t){
   const bp = t.blowHitPoint || { x:t.x, y:t.y };
-  burstExplosion(bp.x, bp.y, 3.2, 70, 45, 36);
-  spawnShockwave(bp.x, bp.y, 140, 0.55, 'rgba(255,235,160,0.95)', 4.5);
-  spawnShockwave(bp.x, bp.y, 85, 0.4, 'rgba(255,140,50,0.85)', 3.0);
-  spawnScorchMark(bp.x, bp.y, 42);
+  burstExplosion(bp.x, bp.y, 2.0, 70, 45, 36);
+  spawnShockwave(bp.x, bp.y, 95, 0.55, 'rgba(255,235,160,0.95)', 4.5);
+  spawnShockwave(bp.x, bp.y, 60, 0.4, 'rgba(255,140,50,0.85)', 3.0);
+  spawnScorchMark(bp.x, bp.y, 30);
   
   // 四散的炽热重破片
-  for(let i=0; i<24; i++){
+  for(let i=0; i<18; i++){
     const ang = Math.random()*TAU;
-    const spd = 160 + Math.random()*260;
+    const spd = 120 + Math.random()*200;
     spawnSpark(bp.x, bp.y, ang, spd, 0.4 + Math.random()*0.5, 1.8 + Math.random()*1.5, 'orange');
   }
 

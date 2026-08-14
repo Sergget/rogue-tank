@@ -85,13 +85,39 @@ function raycastTank(ox,oy,dx,dy, tank){
     const corners = polyCorners(p.cx,p.cy,p.angle, p.poly);
     const edges = polyEdges(corners, p.poly);
     let best = null;
+    // 体内发射（ISSUES #18）：原点在部件多边形内部/贴边时，取「进入边」为命中面——
+    // 即射线沿反向穿出多边形的边（t≤0.001 且 d·n<0，|t| 最小者）。炮口伸入敌方
+    // 车体时弹丸出生点已在装甲内侧，若不恢复进入边，只会命中远侧出射边（正面贴脸
+    // 被结算成后部模块：弹药架/发动机/车长，等效厚度与跳弹法线全错）。
+    // 原点是否在体内的判定用「出射边距离」：出射边（d·n>0）须在 ≥0.001 前方——
+    // 跳弹后弹丸贴面外飞（原点恰在出射边上、t≈0）不会误触发，直接继续飞行。
+    let entry = null;
+    let exitT = Infinity;
     for(const e of edges){
       const hit = segRayIntersect(ox,oy,dx,dy, e.a.x,e.a.y, e.b.x,e.b.y);
-      if(hit && hit.t>0.001 && (!best || hit.t < best.t)){
-        best = { t:hit.t, s:hit.s, edge:e };
+      if(!hit) continue;
+      const dn = dx*e.nx + dy*e.ny;
+      if(hit.t > 0.001){
+        if(!best || hit.t < best.t){
+          best = { t:hit.t, s:hit.s, edge:e };
+        }
+      } else if(hit.t <= 0.001 && dn < 0){
+        // 进入边候选：t≤0.001 的交点中，射线沿外法线反向进入（d·n<0）且最靠近原点者
+        if(!entry || hit.t > entry.t){
+          entry = { t:hit.t, s:hit.s, edge:e };
+        }
+      } else if(dn > 0 && hit.t < exitT){
+        exitT = hit.t;   // 出射边候选（全部 d·n>0 交点中最小者；位置不限）
       }
     }
-    if(best){
+    if(entry && exitT >= 0.001){
+      // 原点确在多边形内部（或恰贴进入边向内入射）→ 命中进入边：t 归零表示弹丸当前
+      // 已与该面接触（逐帧窗口/整条射线窗口都按"本位置即命中"处理），位置取进入点
+      // （炮管贯穿装甲的真实交点，模块归属/特效/入射角都按该面结算）。
+      const px = ox+dx*entry.t, py = oy+dy*entry.t;
+      hits.push({ part:p.key, edgeName:entry.edge.name, faceKey:entry.edge.faceKey,
+                  nx:entry.edge.nx, ny:entry.edge.ny, s:entry.s, x:px, y:py, t:0, inside:true });
+    } else if(best){
       const px = ox+dx*best.t, py = oy+dy*best.t;
       hits.push({ part:p.key, edgeName:best.edge.name, faceKey:best.edge.faceKey, nx:best.edge.nx, ny:best.edge.ny, s:best.s, x:px, y:py, t:best.t });
     }
@@ -102,9 +128,10 @@ function raycastTank(ox,oy,dx,dy, tank){
 // 多部位命中时选择"本步长内唯一生效"的命中：
 // 炮塔是车体上层的独立构件，同一条弹道先后穿过同一平面覆盖区时炮塔应优先被命中；
 // 未命中炮塔时取最靠近的第一处命中。minT/maxT 限定在炮弹以 step 推进的区间内。
+// inside 命中（ISSUES #18 体内发射恢复的进入边，t=0）视为本位置即接触：不受 minT 排除。
 function bestTankHit(hits, minT, maxT){
   if(!hits) return null;
-  const cand = hits.filter(function(h){ return h.t > (minT||0.001) && h.t <= (maxT === undefined ? Infinity : maxT); });
+  const cand = hits.filter(function(h){ return (h.t > (minT||0.001) || h.inside) && h.t <= (maxT === undefined ? Infinity : maxT); });
   if(cand.length === 0) return null;
   const tur = cand.filter(function(h){ return h.part === 'turret'; });
   if(tur.length){
@@ -133,7 +160,7 @@ function aimPartPreference(ox, oy, ux, uy, mouseX, mouseY, hits, margin){
 // 与 bestTankHit 的差异仅在有两条命中（车体+炮塔）时的取舍；'auto' 即为原默认行为。
 function bestHitForPref(hits, minT, maxT, pref){
   if(!hits) return null;
-  const cand = hits.filter(function(h){ return h.t > (minT||0.001) && h.t <= (maxT === undefined ? Infinity : maxT); });
+  const cand = hits.filter(function(h){ return (h.t > (minT||0.001) || h.inside) && h.t <= (maxT === undefined ? Infinity : maxT); });
   if(cand.length === 0) return null;
   const tur = cand.filter(function(h){ return h.part === 'turret'; });
   const hu  = cand.filter(function(h){ return h.part === 'hull'; });
@@ -149,7 +176,8 @@ if(pref === 'hull' && hu.length) return hu[0];
 // 见 ISSUES #14）；'auto' 保持旧逐帧窗口行为——窗口内炮塔优先，否则取最近命中。
 function shellPartHit(hits, step, pref){
   if(!hits) return null;
-  const contact = hits.some(function(h){ return h.t > 0.001 && h.t <= step; });
+  // inside 命中（体内发射恢复的进入边，t=0）：弹丸当前已在接触面上 → 相触成立
+  const contact = hits.some(function(h){ return h.t <= step && (h.inside || h.t > 0.001); });
   if(!contact) return null;
   if(pref && pref !== 'auto') return bestHitForPref(hits, 0.001, Infinity, pref);
   return bestHitForPref(hits, 0.001, step, 'auto');

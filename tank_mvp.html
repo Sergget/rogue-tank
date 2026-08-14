@@ -894,8 +894,9 @@ function update(dt){
       const hitT  = s.dec ? s.dec.hit  : bestHit;
       const hitTank = s.dec ? s.dec.tank : bestTank;
       const hitDist = s.dec ? s.dec.t : bestDist;
-      const hx = s.dec ? (s.fx + s.dx*hitDist) : (sx + s.dx*hitDist);
-      const hy = s.dec ? (s.fy + s.dy*hitDist) : (sy + s.dy*hitDist);
+      // 落点取命中对象自带的 x/y（对常规外部命中 = sx + dx*t 同值；对体内发射恢复的
+      // 进入边命中（ISSUES #18）= 炮管贯穿装甲的表面交点，而非炮口内缩点）。
+      const hx = hitT.x, hy = hitT.y;
       s.x = hx; s.y = hy;
       // 半高掩体拦截概率已在掩体入口处判决（s.dec.exposure）；到达时不再二次判定。
       // 未穿越掩体的炮弹按弹道起点整条射线的垂直剖面兜底（正常情况 exposure=1 直接命中）。
