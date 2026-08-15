@@ -1,0 +1,126 @@
+'use strict';
+
+// tank_camera.js — 摄像机跟随 + 视口 AABB 剔除（P-08 / DEVELOPMENT.md §6 条目 6）。
+// 纯逻辑模块：无 DOM / Canvas 依赖，Node 可测（module.exports 底部导出）。
+// 职责：维护摄像机状态（视口中心/尺寸/缩放/世界边界），跟随目标（玩家）平滑移动并
+// 钳制在世界边界内；提供 世界↔屏幕 坐标换算与「世界 AABB 是否进入视口」的剔除查询，
+// 供绘制层（mvp / 小地图）按视口跳过不可见元素。
+//
+// 坐标约定：
+//   - 世界坐标 = 节点地图坐标（covers/entities 所在坐标系）；
+//   - 屏幕坐标 = canvas 像素（视口中心 = 屏幕中心）；
+//   - cam.x/cam.y = 世界坐标下视口中心的坐标；cam.vw/cam.vh = 视口尺寸（屏幕 px）。
+
+/**
+ * 创建摄像机状态。
+ * @param {object} [opts]
+ * @param {number} [opts.vw] 视口宽（屏幕 px），默认 960
+ * @param {number} [opts.vh] 视口高（屏幕 px），默认 600
+ * @param {number} [opts.zoom] 缩放倍率，默认 1
+ * @param {object} [opts.bounds] 世界边界 { w, h }（节点地图尺寸）；缺省不钳制
+ * @returns {object} 摄像机状态
+ */
+function createCamera(opts) {
+  opts = opts || {};
+  return {
+    x: (opts.bounds ? opts.bounds.w : opts.vw || 960) / 2,
+    y: (opts.bounds ? opts.bounds.h : opts.vh || 600) / 2,
+    vw: opts.vw || 960,
+    vh: opts.vh || 600,
+    zoom: opts.zoom || 1,
+    bounds: opts.bounds || null
+  };
+}
+
+/**
+ * 相机跟随：视口中心平滑逼近目标（指数阻尼），并钳制在世界边界内
+ * （节点比视口小 → 居中；比视口大 → 边缘不露出世界外）。
+ * @param {object} cam 摄像机状态（就地修改）
+ * @param {object} target 目标（如玩家坦克 { x, y }）
+ * @param {number} dt 秒
+ * @param {object} [opts]
+ * @param {number} [opts.lerp] 跟随阻尼系数（0~1，越大越跟手），默认 4
+ */
+function updateCamera(cam, target, dt, opts) {
+  const lerp = (opts && opts.lerp) || 4;
+  const k = 1 - Math.exp(-lerp * (dt || 0));
+  if (target) {
+    cam.x += (target.x - cam.x) * k;
+    cam.y += (target.y - cam.y) * k;
+  }
+  clampCamera(cam);
+}
+
+/**
+ * 立即把视口中心钳制在世界边界内（不参与跟随阻尼）。
+ */
+function clampCamera(cam) {
+  if (!cam.bounds) return;
+  const w = cam.bounds.w, h = cam.bounds.h;
+  if (cam.vw >= w) {
+    cam.x = w / 2;                       // 视口比世界宽 → 居中
+  } else {
+    cam.x = Math.max(cam.vw / 2, Math.min(w - cam.vw / 2, cam.x));
+  }
+  if (cam.vh >= h) {
+    cam.y = h / 2;
+  } else {
+    cam.y = Math.max(cam.vh / 2, Math.min(h - cam.vh / 2, cam.y));
+  }
+}
+
+/**
+ * 世界坐标 → 屏幕坐标（视口中心 = 屏幕中心）。
+ * @returns {{x:number, y:number}}
+ */
+function worldToScreen(cam, wx, wy) {
+  return { x: (wx - cam.x) * cam.zoom + cam.vw / 2, y: (wy - cam.y) * cam.zoom + cam.vh / 2 };
+}
+
+/**
+ * 屏幕坐标 → 世界坐标（鼠标拾取用）。
+ * @returns {{x:number, y:number}}
+ */
+function screenToWorld(cam, sx, sy) {
+  return { x: (sx - cam.vw / 2) / cam.zoom + cam.x, y: (sy - cam.vh / 2) / cam.zoom + cam.y };
+}
+
+/**
+ * 视口在世界坐标下的 AABB（含缩放）。
+ * @returns {{minX:number, minY:number, maxX:number, maxY:number}}
+ */
+function viewBounds(cam) {
+  const hw = cam.vw / 2 / cam.zoom, hh = cam.vh / 2 / cam.zoom;
+  return { minX: cam.x - hw, minY: cam.y - hh, maxX: cam.x + hw, maxY: cam.y + hh };
+}
+
+/**
+ * 世界 AABB 剔除查询：以 (x,y) 为中心、w/h 为全尺寸的物体是否与视口相交。
+ * @param {object} cam
+ * @param {number} x 中心 x
+ * @param {number} y 中心 y
+ * @param {number} w 全宽（px）
+ * @param {number} h 全高（px）
+ * @param {number} [margin] 额外外扩余量（px），默认 64 —— 物体略出视口仍保留绘制，
+ *                          避免大尺寸物体（树冠/残骸/弹道特效）在边缘被硬切
+ * @returns {boolean} true = 在视口内（应绘制）
+ */
+function aabbInView(cam, x, y, w, h, margin) {
+  const m = margin !== undefined ? margin : 64;
+  const vb = viewBounds(cam);
+  const halfW = (w || 0) / 2 + m, halfH = (h || 0) / 2 + m;
+  return x + halfW >= vb.minX && x - halfW <= vb.maxX &&
+         y + halfH >= vb.minY && y - halfH <= vb.maxY;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    createCamera,
+    updateCamera,
+    clampCamera,
+    worldToScreen,
+    screenToWorld,
+    viewBounds,
+    aabbInView
+  };
+}

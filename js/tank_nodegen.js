@@ -184,6 +184,10 @@ function generateNode(difficulty, options) {
   /** @type {NodeGenOptions} */
   const opts = options || {};
 
+  // 节点地图缩放（P-08 / DEVELOPMENT §6 条目 6）：模板 w/h 与元素位置/尺寸按同一
+  // 倍率放大，使单个节点成为「摄像机约 1:9」的大世界；scale=1 时行为与 P-05 完全一致。
+  const scale = typeof opts.scale === 'number' && opts.scale > 0 ? opts.scale : 1;
+
   const seed = opts.seed !== undefined ? opts.seed : Math.floor(Math.random() * 1000000);
   const rng = createRNG(seed);
 
@@ -258,24 +262,28 @@ function generateNode(difficulty, options) {
     }
 
     // Position jitter (slight variations)
-    const jitterX = rng.range(-4, 4);
-    const jitterY = rng.range(-4, 4);
+    const jitterX = rng.range(-4, 4) * scale;
+    const jitterY = rng.range(-4, 4) * scale;
     const angleJitter = rng.range(-0.05, 0.05);
 
     const coverObj = {
-      x: centerX + item.dx + jitterX,
-      y: centerY + item.dy + jitterY,
-      w: item.w,
-      h: item.h,
+      x: centerX + item.dx * scale + jitterX,
+      y: centerY + item.dy * scale + jitterY,
+      w: item.w * scale,
+      h: item.h * scale,
       angle: (item.angle || 0) + angleJitter,
       tier: tier
     };
 
     if (item.verts) {
-      coverObj.verts = item.verts.map(v => v.slice());
+      coverObj.verts = scale === 1
+        ? item.verts.map(v => v.slice())
+        : item.verts.map(v => [v[0] * scale, v[1] * scale]);
     }
     if (item.collisionVerts) {
-      coverObj.collisionVerts = item.collisionVerts.map(cv => cv.map(pt => pt.slice()));
+      coverObj.collisionVerts = scale === 1
+        ? item.collisionVerts.map(cv => cv.map(pt => pt.slice()))
+        : item.collisionVerts.map(cv => cv.map(pt => [pt[0] * scale, pt[1] * scale]));
     }
 
     // Lookup default hp from RULES.coverTiers if available
@@ -313,7 +321,9 @@ function generateNode(difficulty, options) {
     template: selectedTemplate,
     covers: outCovers,
     seed: seed,
-    difficulty: diff
+    difficulty: diff,
+    w: selectedTemplate.w * scale,   // 缩放后的节点世界尺寸（P-08：摄像机/小地图用）
+    h: selectedTemplate.h * scale
   };
 }
 

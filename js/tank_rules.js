@@ -179,6 +179,20 @@ const RULES = {
     length: 14,   // 弹体长度（px）
     width: 4,     // 弹体宽度（px）
     tailLen: 18   // 拖尾长度（px）
+  },
+
+  // 节点地图（P-08 / DEVELOPMENT.md §6 条目 6）：单局线性节点链的构成参数。
+  // 消费方：js/tank_map.js（generateRun/makeNode/scoreNode）。
+  nodeMap: {
+    nodeScale: 3,                 // 模板尺寸放大倍率：700×400 模板 → 2100×1200 世界
+                                  // （摄像机约 1:9 比例；P-05 的 scale 选项）
+    runNodeCount: 5,              // 一局节点数（线性链长度）
+    speedClearMs: 120000,         // 限时通关阈值（ms）→ 结算速通 +20%
+    outpostChance: 0.7,           // 节点出现友军据点的概率
+    enemyTankPool: ['dummy'],     // 敌军构成使用的坦克池（tanks/ 中解析，缺省回退默认配置；
+                                  // 后续车型多样性里程碑（§6 条目 11）扩充池内容）
+    enemyMinDist: 150,            // 敌军彼此最小间距（px）
+    enemyMinPlayerDist: 250       // 敌军离玩家出生点最小间距（px）
   }
 };
 

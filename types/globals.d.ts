@@ -166,3 +166,49 @@ declare function playSound(key: string, opts?: any): boolean;
 declare function validateSoundDefs(defs?: any): string[];
 // webkitAudioContext：旧 WebKit 前缀 AudioContext（Safari <14.1 等），不在 TS DOM lib 标准类型中
 declare var webkitAudioContext: any;
+
+// 摄像机 + 视口剔除（js/tank_camera.js，P-08 / §6 条目 6）
+interface CameraState {
+  x: number;
+  y: number;
+  vw: number;
+  vh: number;
+  zoom: number;
+  bounds: { w: number; h: number } | null;
+}
+declare function createCamera(opts?: any): CameraState;
+declare function updateCamera(cam: CameraState, target: any, dt: number, opts?: any): void;
+declare function clampCamera(cam: CameraState): void;
+declare function worldToScreen(cam: CameraState, wx: number, wy: number): { x: number; y: number };
+declare function screenToWorld(cam: CameraState, sx: number, sy: number): { x: number; y: number };
+declare function viewBounds(cam: CameraState): { minX: number; minY: number; maxX: number; maxY: number };
+declare function aabbInView(cam: CameraState, x: number, y: number, w: number, h: number, margin?: number): boolean;
+
+// 全局游戏流程状态机（js/tank_flow.js，P-08 / §6 条目 6 捆绑前置）
+interface FlowState {
+  state: string;
+  prev: string | null;
+  payload: any;
+  runId: number;
+  _watchers: Function[];
+}
+declare var FLOW_STATES: string[];
+declare var FLOW_TRANSITIONS: any;
+declare function createFlow(): FlowState;
+declare function watchFlow(flow: FlowState, fn: Function): Function;
+declare function transition(flow: FlowState, next: string, payload?: any): void;
+declare function restartRun(flow: FlowState): void;
+
+// 线性节点链生成 / 通关奖励评分 / 节点实体化（js/tank_map.js，P-08 / §6 条目 6）
+declare function difficultyForIndex(index: number, count: number): number;
+declare function enemyCountForDifficulty(diff: number): number;
+declare function makeNode(index: number, count: number, rng: any): any;
+declare function generateRun(seed?: number | string, count?: number): { nodes: any[]; seed: number | string };
+declare function scoreNode(node: any, result: any): { base: number; bonuses: Array<{ label: string; amount: number }>; total: number };
+declare function materializeNode(node: any, env: any): { spawned: any[]; outpost: any };
+
+// 小地图（js/tank_minimap.js，P-08 / §6 条目 6）
+declare function minimapLayout(worldW: number, worldH: number, mmW: number, mmH: number): { scale: number; ox: number; oy: number };
+declare function worldToMinimap(layout: any, wx: number, wy: number): { x: number; y: number };
+declare function worldRectToMinimap(layout: any, minX: number, minY: number, maxX: number, maxY: number): { x: number; y: number; w: number; h: number };
+declare function drawMinimap(ctx: any, opts: any): void;
