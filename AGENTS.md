@@ -27,6 +27,11 @@
   - `tank_schema.js`：坦克字段架构表（`FIELD_ROWS` + 枚举，designer/compare 共用单一来源）。
   - `tank_assets.js`：M0 贴图资产层（`ASSET_DEFS` 注册表 + Image 加载器 + 离屏烘焙缓存 + `drawAsset`/`drawAssetCanopy`，P-06；`tools/bake.html` 导出 PNG 到 `assets/`，无图回退程序化 bake）。
   - `tank_audio.js`：M1 声音占位系统（`SOUND_DEFS` 八键参数表 + 惰性 AudioContext + `playSound` 单入口，P-07；Web Audio 全合成、零资产）。
+  - `tank_nodegen.js`：P-05 节点地图元素生成器（`NODE_TEMPLATES` 5 内置模板 + `generateNode(difficulty, {seed, templateId, scale})` 确定性生成，`scale` 选项把模板放大到大世界；纯逻辑可 Node 测试）。
+  - `tank_camera.js`：摄像机跟随 + 视口剔除（`createCamera`/`updateCamera` 指数阻尼+世界边界钳制/`worldToScreen`·`screenToWorld` 互逆/`viewBounds`/`aabbInView`，P-08；纯逻辑可 Node 测试）。
+  - `tank_flow.js`：全局游戏流程状态机（`createFlow`/`transition` 白名单转移/`watchFlow` 监听/`restartRun`，状态 map/battle/settlement/reward/gameover，P-08；纯逻辑可 Node 测试）。
+  - `tank_map.js`：线性节点链生成 + 通关奖励评分 + 节点实体化（`generateRun`/`makeNode`/`scoreNode`（§4.5）/`materializeNode` 显式 env 注入，依赖 tank_nodegen + `RULES.nodeMap`，P-08；纯逻辑可 Node 测试）。
+  - `tank_minimap.js`：小地图绘制层（布局纯函数 `minimapLayout`/`worldToMinimap`/`worldRectToMinimap` + `drawMinimap(ctx, opts)` 显式传参，P-08）。
 
 ## 2. 文档分工（开始工作前必读）
 
@@ -92,7 +97,7 @@
 
 ## 5. 技术债 / 下一步（来自 DEVELOPMENT.md）
 
-1. **属性系统接线**：base/modifiers/stats 三层结构已实现，但卡牌、局内技能、局外永久升级的修饰器来源尚未接入（`addModifier` 等 API 已就绪，见 `js/tank_model.js`）。
-2. **摄像机 + 节点地图 + 小地图**：含按难度随机生成节点内容（掩体布局/敌军构成/友军据点）。
-3. **敌人 AI 双态行为**（摄像机内主动 / 范围外被动、边缘贴近）+ 友军据点（消极防御、被摧毁、五折记分）。
-4. **死亡/复活状态机**（永久死亡、复活次数、满状态复活于友军据点旁）。
+1. **属性系统接线**：base/modifiers/stats 三层结构已实现，但卡牌、局内技能、局外永久升级的修饰器来源尚未接入（`addModifier` 等 API 已就绪，见 `js/tank_model.js`；P-08 卡牌占位已演示该管道）。
+2. ~~**摄像机 + 节点地图 + 小地图**~~：**已完成（P-08，2026-08-15）**——`js/tank_camera.js`/`tank_map.js`/`tank_flow.js`/`tank_minimap.js`，含按难度随机生成节点内容（掩体布局/敌军构成/友军据点）与线性节点链流程（见 DEVELOPMENT.md §2.12/§3.7）。
+3. **敌人 AI 双态行为**（摄像机内主动 / 范围外被动、边缘贴近）+ 友军据点（消极防御、被摧毁、五折记分）——节点生成已产出敌军/据点实体（`nodeSpawn` 标记），直接复用 `entities`/`nearestEnemyTo` + `driveTank` 接入。
+4. **死亡/复活状态机**（永久死亡、复活次数、满状态复活于友军据点旁）——P-08 前为 KIA 占位（gameover 覆盖层）。

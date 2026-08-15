@@ -152,6 +152,39 @@
 - **接入 `tank_mvp.html`（18 处挂接）**：开火 `tryFire` → 'fire'；炮管穿掩体拦截 → 'block'；命中四态（`resolveHit` BOUNCE → 'bounce' / PEN（HE 归 pen）→ 'pen' / 其他 → 'block'）；掩体拦截各分支（栅栏穿透毁/半高拦截/沙袋挡下/掩体截停）→ 'block'；殉爆 `spawnAmmoBlowFx` → 'ammoBlew'；履带断 `spawnTrackBreakFx` → 'trackBreak'；起火 DOT 用 `_prevFireT` 上升沿判定**只在起火开始/复燃帧触发一次**（不逐帧循环）；UI 交互（坦克应用/弹种切换/重置）→ 'ui'。
 - 独立里程碑、不阻塞其他系统；验证：`scripts/test-audio.js`（51 断言：八键齐全、参数合法、音量分级、无 AudioContext 环境 playSound/ensureAudio/initAudio 不抛错）挂进 `npm test`。
 
+### 2.12 摄像机 + 节点地图 + 小地图 + 流程状态机（P-08 已实现，2026-08-15；§6 条目 6）
+
+单局结构（§2.1 节点式地图）的结构性落地：**每个节点是约 1:9 摄像机比例的大世界**，玩家居中巡航；节点链为纯线性；战斗、结算、卡牌、阵亡之间由全局流程状态机驱动。
+
+**摄像机（`js/tank_camera.js`，纯逻辑，Node 可测）**：
+- `createCamera({vw, vh, zoom, bounds})`：视口中心/尺寸/缩放/世界边界；`updateCamera` 指数阻尼跟随目标（`k = 1−exp(−lerp·dt)`）并 `clampCamera` 钳制在世界边界内（视口比世界大 → 居中；大 → 边缘不露世界外）。
+- 坐标换算：`worldToScreen`/`screenToWorld`（含 zoom，互逆）；`viewBounds` 返回视口世界 AABB；`aabbInView(cam, x, y, w, h, margin=64)` 视口 AABB 剔除查询（物体中心+半尺寸+余量 vs 视口）。
+- mvp 接入：run 模式战斗态每帧跟随玩家；**测试台模式（未开局）保持恒等视口**（`setBenchCamera`：bounds=画布、中心=画布中心 → 屏幕==世界，旧行为零变化）。
+
+**节点地图（`js/tank_map.js`，纯逻辑，依赖 P-05 生成器 + `RULES.nodeMap`）**：
+- `generateRun(seed, count)`：一局 = 线性节点链（无分支，§2.1），节点数 `RULES.nodeMap.runNodeCount`（5）；`makeNode` 每节点 =
+  - **掩体布局**：复用 `generateNode`（P-05）并加 **`scale` 选项**（`tank_nodegen.js`，模板 w/h 与元素位置/尺寸/verts 同倍率放大；scale=1 零行为变化）——节点世界 = 模板 × `nodeScale`（3），约 700×400 → 2100×1200。
+  - **难度曲线（初版，§6 条目 12 的细化另行定表）**：`difficultyForIndex = 0.15 + 0.8·t^1.25`（t=index/(count−1)，单调 0.15→0.95，后段加速）。
+  - **敌军构成**：数量 `1 + floor(diff·4)`（1~4）；tankId 取自 `RULES.nodeMap.enemyTankPool`（默认 `['dummy']`，车型多样性里程碑扩充）；重坦占比随难度（diff>0.6 或 35% 概率）；散布在右 2/3 区域，拒绝采样避开掩体包围盒（+60px）、彼此 ≥`enemyMinDist`、离玩家出生点 ≥`enemyMinPlayerDist`。
+  - **友军据点**：概率 `outpostChance`（0.7）出现在左侧友军区（x ∈ [0.12w, 0.30w]），远离敌军与出生点。
+- **通关奖励（§4.5 落地）**：`scoreNode(node, {damageTaken, clearMs, outpostAlive})` —— base = `100·(1+index·0.2)`；无伤 +50%；速通（clearMs ≤ `RULES.nodeMap.speedClearMs`=120s）+20%；据点存活 +20%。
+- **实体化 `materializeNode(node, env)`**：env 显式注入（浏览器传 covers/entities/spawnTank/applyTankConfig+resetEntity；Node 测试传 fake）——替换全局 covers + `snapshotCovers`、清场（保留 player 与测试靶车 dummy）、生成敌军/据点实体（`nodeSpawn` 标记，供清敌判定与 M7 AI 识别）。
+
+**全局游戏流程状态机（`js/tank_flow.js`，纯逻辑，Node 可测）**：
+- `FLOW_STATES = map / battle / settlement / reward / gameover`；`FLOW_TRANSITIONS` 白名单转移表（`battle→settlement|gameover|map`、`settlement→reward|map`、`reward→battle|map`、`gameover→map` 等；**非法转移抛错**——测试与 UI 接线的护栏）。
+- `watchFlow(flow, fn)` 注册监听（UI 层消费；回调异常被吞，不中断状态机）；`restartRun` 重开（回 map、runId 自增）。
+- **战斗循环只是其中一个状态**：mvp `loop()` 模拟门控 `simulating = !run || flow.state==='battle'`——非战斗状态冻结战场，覆盖层接管。
+
+**小地图（`js/tank_minimap.js`，ctx 显式传参，布局纯函数 Node 可测）**：`minimapLayout`/`worldToMinimap`/`worldRectToMinimap` 世界→小地图等比换算；`drawMinimap` 画面板底、世界边界、掩体点（soft/bush 淡、full/barricade/tree 亮）、玩家绿/友军蓝/敌军红标记、摄像机视口矩形。mvp 屏幕空间右上角覆盖层（170×120）。
+
+**视口剔除 culling（条目 6 捆绑前置）**：mvp `draw()` 全部世界绘制套摄像机变换（`translate→scale→translate(-cam)`），covers/树冠层/shells 按 `aabbInView` 剔除（余量 64px），网格只画视口内线段；粒子池化为后续可选项（`drawFxParticles` 暂全量）。
+
+**UI 界面层约定（条目 6 捆绑前置）**：mvp 通过 `watchFlow` 监听状态转移 → 显隐 DOM 覆盖层（`#flowOverlay`：节点图 `mapScreen` / 结算 `settleScreen` / 卡牌 `rewardScreen` / 阵亡 `gameoverScreen`）；数据源是纯逻辑模块返回值（`generateRun`/`scoreNode`），UI 零耦合。**卡牌三选一为占位**（`PLACEHOLDER_CARDS` 直接 `addModifier` 给玩家加修饰器，演示 base/modifiers/stats 管道；内容池在 M10 经济里程碑落地）。
+
+**战斗判定接线（mvp）**：进入节点 → `enterBattle`（重置玩家到出生点、相机对齐、`materializeNode`）；战斗态逐帧累计玩家承伤（`damageTaken`）；**敌全灭 → settlement**；**玩家阵亡 → gameover**（M8 复活系统接入前的永久死亡占位）。敌军为静态靶标（无 AI，M7 接入 `driveTank` 即可行为化）；据点 `team:'ally'` 当前仅作结算加分标记（炮弹穿透友军，M7 起为可战斗单位）。测试台（未开局）行为不变。
+
+**验证**：`scripts/test-camera.js`（22 断言：换算互逆/zoom/钳制/阻尼收敛/剔除边界与余量）、`scripts/test-map.js`（难度曲线/敌军数量/节点链确定性/§4.5 评分/materializeNode 注入序列）、`scripts/test-flow.js`（合法/非法转移/监听/异常吞没/restartRun）挂进 `npm test`（现共 14 套）；vm 运行时冒烟验证完整流程：开局 → 战斗帧 → 清敌 → 结算 → 卡牌 → 下一节点 → 阵亡 → 重开（临时脚本，未入库）。
+
 ---
 
 ## 3. 当前原型（`tank_mvp.html`）已验证的系统
@@ -235,6 +268,14 @@
   - **#19 设计器接缝边无法插入顶点**（`tank_designer.html`，`js/tank_halfgeom.js` 未改）：新增 `findSeamHitAtScreen(part, sx, sy)`——用 `mirrorPt`/`onCenterline` 构造接缝线段（前=mirror(v0)↔v0、后=v(n-1)↔mirror(v(n-1))），`distToSegment ≤ EDGE_HIT_R` 命中，返回 `{seam:'front'|'rear', nearMid}`。mouseup `drag.isNew` 分支：接缝命中先于 y≤0 检查；前接缝 → `half.splice(0,0,newPt)` + `halfFaces.splice(0,0,frontSeamFace)`；后接缝 → `half.push` + `halfFaces.push(rearSeamFace)`；新顶点 y 取镜像 `-|ly|`；接缝中点 → `nextFace` 循环切换装甲面。空白追加路径补 `halfFaces.push('side')`（修复长度错位）；`renderEdgeListFor` 面板顺序改为「接缝(前) → 内部边（链序）→ 接缝(后)」，只调显示顺序不改链。Playwright 真实浏览器验证：默认车体后接缝/默认炮塔前接缝/Obj 780 前板（原 ISSUE 场景）均正确插入并继承装甲面；`halfFaces.length = half.length-1` 不变量恒成立；删除/索引映射不破。
   - **#20 殉爆特效过大**（`js/tank_fx.js` `spawnAmmoBlowFx` 参数）：scale 3.2→2.0（火球最大 r 161→106px）、shockwave 140→95 / 85→60、焦痕 42→30、火花 24→18 且速度 160–420→120–320；`burstExplosion` 内部派生量（内层冲击波 128→80、内层焦痕 51→32、火焰散布 512→320px）随 scale 自动缩小；其他爆炸路径（`spawnTrackBreakFx`/`spawnImpactFx`/`spawnMuzzleFlash`/掩体 `burstExplosion`）零接触。
 
+#### 3.7 节点地图流程（P-08，2026-08-15 会话；设计见 §2.12）
+- **摄像机巡航**：run 模式战斗态相机跟随玩家（指数阻尼 + 世界边界钳制），节点世界为模板 ×3（约 1:9 摄像机比例）；全部世界绘制套摄像机变换，网格只画视口内线段；测试台模式（未开局）恒等视口、旧行为零变化。
+- **视口 AABB 剔除**：`aabbInView`（余量 64px）过滤 covers/树冠层/shells；实体按 hull 尺寸剔除。
+- **小地图**：右上角覆盖层（170×120），世界边界/掩体点/玩家绿·敌军红·友军蓝/摄像机视口矩形。
+- **单局流程**：`NEW RUN` → 节点图（线性链，难度/敌军数/据点标注）→ 点选节点进入 → 战斗（玩家居中巡航，清敌判定）→ 结算（§4.5 评分：基础+无伤/速通/据点加成）→ 卡牌三选一（占位，`addModifier` 直接生效演示 modifiers 管道）→ 下一节点 → 全链通关回到节点图；玩家阵亡 → KIA 覆盖层 → 重开新局。测试台（未开局）不受影响。
+- **战斗判定**：玩家承伤逐帧累计；敌全灭 → settlement；玩家阵亡 → gameover（M8 复活前的永久死亡占位）。敌军为静态靶标（`nodeSpawn` 标记，M7 接 AI）；据点 `team:'ally'` 为加分标记（炮弹穿透，M7 起为战斗单位）。
+- **验证**：`scripts/test-camera.js`（22 断言）/ `test-map.js` / `test-flow.js` 挂进 `npm test`（共 14 套全绿）；vm 运行时冒烟覆盖「开局→战斗→清敌→结算→卡牌→下一节点→阵亡→重开」全流程（临时脚本，未入库）。
+
 ---
 
 ## 4. 开放问题（已知但尚未确定，按优先级排序）
@@ -279,7 +320,7 @@
   tank.stats      = computeStats(base, modifiers)   // 战斗逻辑只读这个，不摸 base
   ```
   需要确定的规则：叠加顺序（先加后乘）、同名修饰器是否可叠加、修饰器生命周期分类（永久/单局/限时）。
-- **摄像机 + 节点地图 + 小地图**：每个节点是一块独立的、有边界的地图（约 1:9 摄像机比例），需要摄像机跟随系统、独立渲染的小地图层，以及**按难度参数随机生成节点内容**（掩体布局/敌军构成/友军据点位置）的生成器。节点图是线性链条（无分支），数据结构可以是简单的有序节点列表，不需要图/树结构。**必须内建视口 AABB 剔除**（节点约 1:9 摄像机比例下全图遍历不可行；`drawCover`/`drawFoliage` 现遍历全部 `covers`），粒子考虑池化。**该里程碑还捆绑两个前置缺口**：**全局游戏流程状态机**（节点切换→结算→卡牌→商店→死亡/复活→局外商店需要一层场景状态管理；简单状态机模块、纯逻辑可 Node 测，战斗循环只是其中一个状态）与 **UI 界面层约定**（节点图/商店/卡牌三选一/永久升级均为新界面，需定界面模块归属与战斗循环通信方式，保持零依赖）。
+- ~~**摄像机 + 节点地图 + 小地图**~~：**已完成（P-08，2026-08-15，见 §2.12）**——摄像机跟随（玩家居中、世界边界钳制）、小地图层（掩体/实体/视口矩形标注）、完整节点生成（线性节点链：掩体布局复用 P-05 + scale、敌军构成、友军据点、§4.5 通关奖励）、视口 AABB 剔除、全局游戏流程状态机（map/battle/settlement/reward/gameover）与 UI 界面层约定（watchFlow 监听 → DOM 覆盖层）全部落地；剩余相关项：粒子池化（可选项）、难度曲线表细化（§6 条目 12）。
 
 ### 5.2 中优先级（已实现——多边形碰撞盒）
 - ~~**碰撞盒从"写死4边矩形"抽象成"任意多边形+具名装甲面"**~~：**已完成**。`hullPoly`/`turretPoly` 定义本地顶点+逐边 faceKey，`polyCorners`/`polyEdges` 提供世界坐标与外法线（质心法自适应绕行方向），`raycastTank`、`drawTank` 均已切换到多边形系统。矩形 `partCorners`/`partEdges` 保留给坦克矩形碰撞盒与无 `verts` 掩体的回退（掩体带 `verts` 时走 `coverCorners` 多边形，见 2.7）。所有坦克共用同一套多边形定义（箭镞车体+豹2A6炮塔）。
@@ -382,13 +423,14 @@
 5. ~~**M1 声音占位系统（2.11，独立、立即收益）**~~ — **已完成（2026-08-15，P-07 完结，见 §2.11/§3.6）**：
    - 新 `js/tank_audio.js`：Web Audio 程序化合成 8 类占位音效（开火/击穿/未击穿/跳弹/殉爆/履带断/起火/UI），后续替换为资产文件。
    - AudioContext 惰性初始化（首次用户交互解锁）；音量分级（战斗 vs UI）。
-6. **摄像机 + 节点地图 + 小地图（2.1 / 5.1，捆绑三个前置缺口）**：
-   - 摄像机跟随系统（玩家居中，节点战场约 1:9 摄像机比例）、独立小地图层（含已探索区域/敌人/据点标注）。
-   - **节点生成器**：按难度权重随机生成掩体布局、敌军构成、友军据点位置；数据结构用有序节点列表（纯线性链，无分支），字段含敌人构成/强度档/据点/通关奖励。（第一步地图元素生成器 P-05 已完结，见 `js/tank_nodegen.js`）
-   - **视口剔除 culling（5.6 捆绑）**：节点约 1:9 摄像机比例，全图遍历不可行；摄像机系统必须内建视口 AABB 剔除（`drawCover`/`drawFoliage` 现遍历全部 covers）；粒子考虑池化。
-   - **全局游戏流程状态机（5.6 捆绑）**：节点切换→结算→卡牌→商店→死亡/复活→局外商店需要一层场景状态管理；简单状态机模块（纯逻辑可 Node 测），战斗循环只是其中一个状态。
-   - **UI 界面层约定（5.6 捆绑）**：节点图/商店/卡牌三选一/永久升级均为新界面，需定界面模块归属与战斗循环通信方式，保持零依赖。
+6. ~~**摄像机 + 节点地图 + 小地图（2.1 / 5.1，捆绑三个前置缺口）**~~ — **已完成（2026-08-15，P-08 完结，见 §2.12/§3.7）**：
+   - 摄像机跟随系统（玩家居中，节点战场约 1:9 摄像机比例）、独立小地图层（掩体/实体/视口矩形标注）——`js/tank_camera.js` / `js/tank_minimap.js`。
+   - **节点生成器**：按难度权重随机生成掩体布局、敌军构成、友军据点位置；数据结构用有序节点列表（纯线性链，无分支），字段含敌人构成/强度档/据点/通关奖励——`js/tank_map.js`（P-05 的 `generateNode` 加 `scale` 选项复用为掩体布局源）。
+   - **视口剔除 culling（5.6 捆绑）**：摄像机系统内建视口 AABB 剔除（`aabbInView`，covers/树冠/shells 走剔除）；粒子池化为后续可选项。
+   - **全局游戏流程状态机（5.6 捆绑）**：`js/tank_flow.js`（map/battle/settlement/reward/gameover，白名单转移 + watchFlow 监听）；战斗循环只是其中一个状态。
+   - **UI 界面层约定（5.6 捆绑）**：mvp 经 watchFlow 监听 → DOM 覆盖层（节点图/结算/卡牌三选一/阵亡）；卡牌内容为占位（M10 落地）。
    - 节点切换流程：节点清空 → 结算（得分/无伤/限时/据点加成，见 4.5）→ 节点间商店与卡牌三选一 → 下一节点。
+   - **剩余项**：敌人 AI 双态（条目 7）、复活状态机（条目 8）、难度曲线表细化（条目 12）。
 7. **敌人 AI 双态行为 + 友军据点（2.2 / 5.1）**—— 现在可以直接用 `entities`/`nearestEnemyTo` + `driveTank`（只出 `{turn, move}` 输入）接入，不用再改 targeting/驾驶底层：
    - 入镜主动态：索敌 `nearestEnemyTo`、开火复用 shell 管线；范围外默认不活动。
    - 边缘靠近态：贴近摄像机边缘的一批主动靠近（**需量化触发宽度**，开放问题 2）。
