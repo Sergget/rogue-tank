@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rogue Tank — 贴图烘焙导出 (P-06)</title>
+<style>
+  body{ font-family: system-ui, "Microsoft YaHei", "Segoe UI", sans-serif; background:#16181a; color:#d8d4c8; margin:24px; }
+  h1{ font-size:20px; margin:0 0 8px; }
+  .note{ max-width:940px; font-size:13px; line-height:1.7; color:#a8a498; }
+  .note code{ background:#262b31; padding:1px 5px; border-radius:4px; color:#cfe3ff; }
+  .note ul{ margin:6px 0; padding-left:20px; }
+  .note li{ margin:3px 0; }
+  button{ margin:12px 12px 0 0; padding:8px 16px; font-size:13px; cursor:pointer;
+          background:#2a3040; color:#dfe8ff; border:1px solid #4a5670; border-radius:6px; }
+  button:hover{ background:#35405a; }
+  .grid{ display:flex; flex-wrap:wrap; gap:16px; margin-top:18px; }
+  .card{ background:#20242a; border:1px solid #383d45; border-radius:8px; padding:12px 14px; min-width:120px; }
+  .card h3{ font-size:13px; margin:0 0 8px; color:#e8e2d2; }
+  .card .meta{ font-size:11px; color:#8a8778; margin:8px 0 4px; }
+  canvas.thumb{
+    display:block; background:
+      repeating-conic-gradient(#262b31 0% 25%, #2c323a 0% 50%) 0 0 / 16px 16px;
+    border:1px solid #444; }
+  a.dl{ display:inline-block; margin-top:8px; font-size:12px; color:#5cc8ff; }
+  .combo{ margin-top:8px; font-size:11px; color:#7fa87f; }
+</style>
+</head>
+<body>
+<h1>M0 贴图烘焙导出工具（P-06 / DEVELOPMENT.md §2.10）</h1>
+<div class="note">
+  <p>遍历 <code>ASSET_DEFS</code> 每一档，在离屏 canvas 上用程序化 bake 函数烘焙贴图，展示预览并导出 PNG（保存到 <code>assets/</code> 目录）。</p>
+  <ul>
+    <li>导出文件名 = <code>&lt;key&gt;.png</code>（基底层）与 <code>&lt;key&gt;_canopy.png</code>（树冠/叶片层，仅 bush/tree/fallen）。</li>
+    <li>用 <code>canvas.toBlob</code> + <code>&lt;a download&gt;</code>，无需服务器——<code>file://</code> 直开本页即可。</li>
+    <li>精灵契约：掩体中心位于图片内 <code>(anchorX, anchorY)</code> 像素处（预览中红十字标出实测锚点）；日后真实美术替换同名文件即可，<code>drawAsset</code> 接口不变。</li>
+    <li>运行期：<code>js/tank_assets.js</code> 的 Image 加载器读到图片 → drawImage；无图/未加载 → 程序化 bake 回退（视觉零变化）。</li>
+  </ul>
+  <button id="exportAll">导出全部 PNG（base + canopy 依次下载）</button>
+  <button id="reload">重新烘焙</button>
+</div>
+<div id="grid" class="grid"></div>
+
+<script src="../js/tank_utils.js"></script>
+<script src="../js/tank_rules.js"></script>
+<script>window.COVER_TIERS = RULES.coverTiers;</script>
+<script src="../js/tank_assets.js"></script>
+<script>
+(function(){
+  const grid = document.getElementById('grid');
+  const entries = [];   // { name, spr }
+  const layerSuffix = l => (l === 'canopy' ? '_canopy' : '');
+
+  function addCard(key, layer, label){
+    const def = ASSET_DEFS[key];
+    if(!def) return;
+    const spr = bakeAssetCanvas(key, def.w, def.h, layer);
+    if(!spr) return;
+    entries.push({ name: key + layerSuffix(layer), spr });
+    const card = document.createElement('div'); card.className = 'card';
+    const h = document.createElement('h3');
+    h.textContent = label + ` — ${spr.canvas.width}×${spr.canvas.height}px`;
+    const cv = document.createElement('canvas');
+    cv.className = 'thumb';
+    cv.width = spr.canvas.width; cv.height = spr.canvas.height;
+    cv.style.width = Math.max(48, spr.canvas.width) + 'px';
+    cv.style.height = Math.max(48, spr.canvas.height) + 'px';
+    const c2 = cv.getContext('2d');
+    c2.drawImage(spr.canvas, 0, 0);
+    // 锚点十字：掩体中心在精灵内的位置
+    c2.strokeStyle = 'rgba(255,80,80,0.95)'; c2.lineWidth = 1;
+    c2.beginPath();
+    c2.moveTo(spr.ax - 6, spr.ay); c2.lineTo(spr.ax + 6, spr.ay);
+    c2.moveTo(spr.ax, spr.ay - 6); c2.lineTo(spr.ax, spr.ay + 6);
+    c2.stroke();
+    const meta = document.createElement('div'); meta.className = 'meta';
+    meta.textContent = `实测锚点 (${spr.ax.toFixed(1)}, ${spr.ay.toFixed(1)}) · 声明锚点 (${(layer === 'canopy' ? def.canopyAnchorX : def.anchorX).toFixed(1)}, ${(layer === 'canopy' ? def.canopyAnchorY : def.anchorY).toFixed(1)})`;
+    const a = document.createElement('a'); a.className = 'dl';
+    a.download = key + layerSuffix(layer) + '.png';
+    a.textContent = '下载 ' + key + layerSuffix(layer) + '.png';
+    spr.canvas.toBlob(blob => { a.href = URL.createObjectURL(blob); }, 'image/png');
+    card.append(h, cv, meta, a);
+    // 合成预览：base + canopy 叠加（还原运行时两层渲染）
+    if(layer === 'base' && def.bakeCanopy){
+      const csp = bakeAssetCanvas(key, def.w, def.h, 'canopy');
+      if(csp){
+        const cw = Math.max(cv.width, csp.canvas.width), ch = Math.max(cv.height, csp.canvas.height);
+        const combo = document.createElement('canvas'); combo.className = 'thumb';
+        combo.width = cw; combo.height = ch;
+        combo.style.width = cw + 'px'; combo.style.height = ch + 'px';
+        const cc = combo.getContext('2d');
+        cc.drawImage(spr.canvas, spr.ax - csp.ax, spr.ay - csp.ay);
+        cc.drawImage(csp.canvas, 0, 0);
+        const d = document.createElement('div'); d.className = 'combo';
+        d.textContent = '合成预览（基底 + 树冠层）';
+        card.append(combo, d);
+      }
+    }
+    grid.append(card);
+  }
+
+  function bakeAll(){
+    grid.innerHTML = '';
+    entries.length = 0;
+    for(const key of Object.keys(ASSET_DEFS)){
+      const def = ASSET_DEFS[key];
+      addCard(key, 'base', `${key}（基底）`);
+      if(def.bakeCanopy) addCard(key, 'canopy', `${key}（树冠/叶片层）`);
+    }
+  }
+
+  document.getElementById('reload').addEventListener('click', bakeAll);
+  document.getElementById('exportAll').addEventListener('click', () => {
+    let i = 0;
+    const next = () => {
+      if(i >= entries.length) return;
+      const e = entries[i++];
+      const a = document.createElement('a');
+      a.download = e.name + '.png';
+      e.spr.canvas.toBlob(blob => {
+        a.href = URL.createObjectURL(blob);
+        a.click();
+        setTimeout(next, 200);   // 逐张触发，避免浏览器拦截连续下载
+      }, 'image/png');
+    };
+    next();
+  });
+
+  bakeAll();
+})();
+</script>
+</body>
+</html>

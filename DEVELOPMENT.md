@@ -123,27 +123,34 @@
 - **设计器交互**：「模块 Modules」编辑模式——列表选中模块 → 点击任意全形装甲边挂载新放置（turret 优先再 hull；len=`moduleLenDefault`、off=0、mirror=`moduleMirrorDefault`；**对称轴两侧（y≤0 与 y>0）的边均可挂载/选中/拖拽**）、点带选中放置、**3 手柄拖拽**（两端 len + 中部 off，`modLenDrag` 时设置 `drag={poly:'moduleLen',...}`）、Delete/Backspace 移除、Esc 取消；「显示内部模块 Zones」复选框渲染已放置带（模块模式恒显示；履带自动区以橄榄色带恒渲染于车体极前/极后端并标注「履带」，不可编辑）；**车体/炮塔可见性切换按钮**（`partVisible`，互斥护栏、至少保留一个部件可见；隐藏部件不渲染、不参与边/带/悬停命中，纯编辑辅助不入 JSON）；保存前 6 个模块必须全部挂载（每类至少 1 处，缺失阻止保存并切到模块模式列出清单）。
 - **兼容**：旧坦克（无 modules 字段）加载 → 空放置（不自动派生），需手动挂载全部模块后方可保存；v2 分区格式加载 → 自动迁移为扁平放置（track 除外）。
 
-### 2.10 贴图系统（已定型，规划中 —— M0 贴图资产层 + 坦克纹理化里程碑，尚未实现）
+### 2.10 贴图系统（M0 已实现 2026-08-15；坦克纹理化为后续里程碑）
 
 **现状基线**（2026-08-13 核实）：全程序化矢量渲染、零图片资产；`file://` 兼容承诺（`img` 标签加载本地相对路径可行，与 `fetch` 不同；`server.js` MIME 已支持 png/svg）；`PAINT_CACHE` 离屏缓存先例（`js/tank_paint.js`，key = color+kind+hasTurret+heightClass+verts）；`t.color` 单色主色。
 
-**地图元素（M0，立即做）**：
-- 新增 `js/tank_assets.js` 资产层：`ASSET_DEFS` 注册表（tree/bush/barricade/stump/rubble/soft 每档 → 尺寸/锚点/程序化烘焙函数）+ 浏览器 Image 加载器 + `drawAsset(ctx, key, ...)`（有图 drawImage，无图/未加载回退程序化）。注册表纯数据可 Node 测，加载器浏览器分支。
-- **占位贴图来源**：把 `drawCover`/`drawFoliage` 现有程序化画法改造成可烘焙函数，首次使用时离屏 canvas 烘焙进缓存（沿用 PAINT_CACHE 思路），后续 drawImage；**视觉零变化、file:// 兼容、零依赖**。附 `tools/bake.html` 一键导出 PNG 到 `assets/`（日后真实美术直接替换文件，接口不变）。
-- `tank_battledraw.js` 的 tree/bush/barricade/stump/rubble/soft 分支改走资产层；half/full 保持程序化。设计器不画地图元素，不受影响。
+**地图元素（M0，已实现 2026-08-15，P-06 完结）**：
+- 新模块 `js/tank_assets.js`：`ASSET_DEFS` 注册表（soft/barricade/stump/rubble/bush/tree/fallen 七档 → 名义尺寸 w/h + 锚点 anchorX/anchorY + `bake(ctx,cov)` 程序化烘焙函数；bush/tree/fallen 另含 `bakeCanopy(ctx,cov)` 树冠/叶片层）+ 浏览器 Image 加载器（`assets/<key>.png` 与 `<key>_canopy.png`，未加载/失败保持 null 永久回退 bake）+ 离屏烘焙缓存（`ASSET_CACHE`，key = key+层+0.5px 量化尺寸，`getBakedSprite`/`bakeAssetCanvas` 先用探针画布 getImageData 量出内容包围盒再精确二次烘焙，锚点保证 ≥1px）+ `drawAsset(ctx,key,x,y,w,h,angle)`（有图 drawImage 绕锚点缩放 / 无图烘焙缓存回退；angle 为接口预留，原画法不随角度旋转）+ `drawAssetCanopy`（树冠层）。注册表纯数据 + 纯函数可 Node 测；document/Image/canvas 全部 `typeof document` 守卫（Node 加载安全）。
+- **占位贴图来源**：`drawCover`/`drawFoliage` 原程序化画法（soft/barricade/stump/rubble/bush/tree/fallen 分支）逐字搬运为 `ASSET_DEFS[key].bake`/`bakeCanopy`——**视觉零变化、file:// 兼容、零依赖**；`tank_battledraw.js` 对应分支改走 `drawAsset`/`drawAssetCanopy`（half/full box 保持程序化；`typeof ASSET_DEFS` 守卫保证未加载时安全回退）。
+- `tools/bake.html`：一键导出工具（`file://` 可直开）——遍历 ASSET_DEFS 离屏烘焙 + 锚点十字标注 + 合成预览（base+canopy），`canvas.toBlob` + `<a download>` 逐张导出 PNG 到 `assets/`（日后真实美术直接替换同名文件，接口不变）。
+- `assets/` 目录契约（README.md）：当前为空 = 全部走程序化 bake 占位；精灵内"掩体中心"应位于 (anchorX, anchorY) 像素处。
+- 验证：`scripts/test-assets.js`（61 断言：七键齐全、w/h>0、锚点合法、bake 为函数、mock ctx 调用不抛错且发出绘制调用、Node 下浏览器分支安全 no-op）挂进 `npm test`；`npm run check` 全绿；HTTP 冒烟 `js/tank_assets.js`/`tools/bake.html` 200。
 
-**坦克纹理化（用户已确认：图案叠层 + 主色）**：
+**坦克纹理化（用户已确认：图案叠层 + 主色，后续里程碑）**：
 - 不能做整坦克位图 sprite（几何是设计器逐顶点编辑的任意多边形）；做法 = **多边形 clip + 平铺图案叠层**（装甲板纹/焊缝/锈蚀/迷彩），保持 `t.color` 主色（灰度图案 + alpha 或 multiply 叠层），兼容设计器编辑、换色、`PAINT_CACHE` 缓存（key 加 pattern 段）。
 - `texture` 字段进 tank JSON + `tank_schema.js` FIELD_ROWS 枚举 + 设计器选择器（外观件条目）。
-- 与车型多样性内容合并为独立里程碑（排在 M0/M1/摄像机/AI/复活/经济之后；见 §6 条目 11）。
+- 与车型多样性内容合并为独立里程碑（排在摄像机/AI/复活/经济之后；见 §6 条目 11）。
 - 炮管/附件/特效保持程序化（角度/状态驱动，贴图收益低）。
 
-### 2.11 声音系统（已定型，规划中 —— M1 声音占位系统里程碑，尚未实现）
+### 2.11 声音系统（M1 已实现 2026-08-15，P-07 完结）
 
-- 现状：整个项目零音频。
+- 现状（2026-08-13）：整个项目零音频。
 - 决策：**先 Web Audio 程序化合成占位音效**（开火/击穿/未击穿/跳弹/殉爆/履带断/起火/UI），后续替换为资产文件。
-- 新模块 `js/tank_audio.js`（浏览器端；音效参数表/注册表可 Node 测，合成走浏览器分支）；AudioContext 惰性初始化（首次用户交互解锁，符合浏览器自动播放策略）；音量分级（战斗 vs UI）。
-- 独立里程碑、不阻塞其他系统；挂接战斗事件（命中四态/炮口闪光/破障/履带断/起火 DOT）与 UI 交互。
+- 新模块 `js/tank_audio.js`（2026-08-15 实现）：
+  - `SOUND_DEFS` 参数表（fire/pen/block/bounce/ammoBlew/trackBreak/fireDOT/ui 八键，纯数据可 Node 测）——每键 = bus（combat/ui 音量总线）+ 若干合成层（`osc` 层：wave/f0/f1/dur/gain/attack 振荡器 + 频率滑音 + 增益包络；`noise` 层：白噪声突发 + 可选 lowpass/highpass/bandpass 滤波；任意层可带 `delay` 秒做多段打击声）。
+  - `AUDIO_SETTINGS` 音量分级：combatGain=0.5 / uiGain=0.25（战斗响于 UI）。
+  - AudioContext 惰性初始化（`ensureAudio`/`initAudio`：首次调用创建 + suspended 时 resume，符合浏览器自动播放策略；mvp 在 pointerdown/keydown 一次性监听解锁）+ `playSound(key, opts?)` 单入口（未知键/无 AudioContext 静默返回 false，Node 安全）。
+  - `validateSoundDefs()` 纯逻辑校验（Node 可测）。
+- **接入 `tank_mvp.html`（18 处挂接）**：开火 `tryFire` → 'fire'；炮管穿掩体拦截 → 'block'；命中四态（`resolveHit` BOUNCE → 'bounce' / PEN（HE 归 pen）→ 'pen' / 其他 → 'block'）；掩体拦截各分支（栅栏穿透毁/半高拦截/沙袋挡下/掩体截停）→ 'block'；殉爆 `spawnAmmoBlowFx` → 'ammoBlew'；履带断 `spawnTrackBreakFx` → 'trackBreak'；起火 DOT 用 `_prevFireT` 上升沿判定**只在起火开始/复燃帧触发一次**（不逐帧循环）；UI 交互（坦克应用/弹种切换/重置）→ 'ui'。
+- 独立里程碑、不阻塞其他系统；验证：`scripts/test-audio.js`（51 断言：八键齐全、参数合法、音量分级、无 AudioContext 环境 playSound/ensureAudio/initAudio 不抛错）挂进 `npm test`。
 
 ---
 
@@ -219,6 +226,8 @@
 - **数据去重（P-02#5）**：模块中文标签 `MODULE_LABELS`/`moduleLabel` 集中到 `js/tank_model.js` 并导出（mvp HUD 删除本地副本，标签统一为"发动机"）；designer『显示内部模块 zones』改读 `RULES.modules.zones`（删除内联同值常量）。
 - **战斗场景绘制层下沉（P-02#7，P-02 完结）**：新 `js/tank_battledraw.js` 收编 `tank_mvp.html` 战斗绘制（`drawTank`/`drawBrokenTracks`/`drawCharredHull`/`drawFireGlow`/`drawShells(ctx, shells)`/`drawCover`/`drawFoliage(ctx, covers)`/`drawClassBadge` 及薄封装 `shade`/`drawTracks`/`renderHullTexture`/`renderTurretTexture`，~600 行），全部显式传 `ctx`（`tank_fx.js` 先例，无 DOM 依赖）；原测试台靶场块（`drawRange`/`addRangeShot`/`RANGE_*`）已随 2026-08-14 装甲测试台 UI 重构移除（见 §3）；mvp 加载顺序插在 `tank_paint.js` 之后。`types/globals.d.ts` 已同步补齐相关函数声明（`turretPivot` 返回 `{x,y}`、`polyCorners`/`turretFrontDist` 与 8 个 draw 函数）。
 - **节点地图元素生成器（P-05 完结，2026-08-13）**：新增 `js/tank_nodegen.js`（纯逻辑模块）与 `scripts/test-nodegen.js` 单测；`generateNode(difficulty, options)` 实现基于 Mulberry32 种子 RNG 的确定性生成、按难度加权模板选择（5 内置模板）、参数化密度与残骸预置，`tank_mvp.html` HUD 已增加「随机生成战场 GENERATE」测试按钮，`npm test` / `npm run check` 全绿。
+- **M0 贴图资产层（P-06 完结，2026-08-15）**：新增 `js/tank_assets.js`（ASSET_DEFS 七档注册表 + Image 加载器 + 离屏烘焙缓存 + drawAsset/drawAssetCanopy，见 §2.10）、`tools/bake.html`（一键导出 PNG）、`assets/` 目录契约、`scripts/test-assets.js`（61 断言挂进 `npm test`）；`js/tank_battledraw.js` 的 soft/barricade/stump/rubble/bush/tree/fallen 分支改走资产层（half/full box 程序化保留）。浏览器冒烟：三个原型加载顺序补 `tank_assets.js`（在 `tank_battledraw.js` 之前），HTTP 200。
+- **M1 声音占位系统（P-07 完结，2026-08-15）**：新增 `js/tank_audio.js`（SOUND_DEFS 八键参数表 + AUDIO_SETTINGS 音量分级 + 惰性 AudioContext + playSound 单入口 + validateSoundDefs，见 §2.11）、`scripts/test-audio.js`（51 断言挂进 `npm test`）；`tank_mvp.html` 挂接 18 处战斗/UI 事件（开火/命中四态/掩体拦截/殉爆/履带断/起火上升沿/UI 交互）+ pointerdown/keydown 首次交互解锁。
 - **命中部位意图选择（P-01，已完结）**：开火瞬间沿无散布瞄准线把鼠标投影到目标命中距离上，`投影值 > 目标距 + partProbe(12px)` 判定意图打**炮塔**（上部），`< 目标距 - partProbe` 判定打**车体**，死区内 `'auto'` 默认炮塔优先；预测面板同源显示“本次将命中部位”（`aimPartPreference`/`bestHitForPref`，`js/tank_geometry.js:121/134`）。半高掩体按垂直剖面单一判定（2026-08-10 起）：被挡即拦截，**不再回退改打另一部位**（见 2.5，取代 P-01 原“首选部位全遮蔽才回退”决策）。已用 `scripts/test-hitpart.js` 覆盖投影边界、偏好取舍及窗口。**`partProbe=12` 于 2026-08-11 手感标定完成**：死区大小体感合适（偏离鼠标方向即可可靠分出炮塔/车体，又不至于晃动误判），保持可调。**实弹直击部位选判（2026-08-13）**：实弹直击路径与预测面板/半高掩体判决统一走「整条射线」口径——新增 `shellPartHit(hits, step, pref)`（`js/tank_geometry.js`，P-01 同源）：先探测相触帧（任一部位进入步长窗口），再对明确意图 `turret`/`hull` 沿整条射线选部位；**`'auto'`（死区）保持逐帧窗口语义**（已定型决策：死区正对仍可能命中车体，面板死区显示炮塔的差异为已知行为，不修正）。`tank_mvp.html:754` 直击路径用 `shellPartHit`；`test-hitpart.js` 含窗口回归用例。
 - **git index stat 重新归一化（#21 修复，2026-08-14）**：工作区文件在 LF 状态时写入 index（stat 缓存记录 LF 大小），后整体被转为 CRLF（Windows 编辑器/autocrlf 检出）→ `git status` 按 stat 差异误报 ~50 个未修改文件为 modified（`git diff` 为空、归一化后内容与 index 一致）。已执行 `git add --renormalize .` + `git restore --staged .` 刷新 index stat，仅剩真实改动；`.gitattributes` 注释重写为 UTF-8。仓库约定：文本文件统一 LF 入库（`.gitattributes` `* text=auto`），Windows 检出 CRLF；改动文本文件后如 `git status` 误报，按上述命令刷新。
 - **#18/#19/#20 修复（2026-08-14）**（三问题均修复并经 `npm run check` + `npm test` 全量验证通过）：
@@ -355,7 +364,7 @@
 
 - **玩家进度持久化（存档，归属经济里程碑）**：永久升级 + 死亡时局内得分→商店点数转化需要存档（localStorage），需定存档结构、写入时机、版本化。
 - **视线遮挡查询函数（归属敌人 AI 里程碑，AI 前实现）**：`vision:true` 目前只有渲染（灌木/树冠画在坦克之上），没有"两点间视线是否被遮"的判定函数；是敌人 AI 索敌（开放问题 1）与玩家被发现判定的公共前置，建议实现为纯函数模块。
-- **声音系统（独立里程碑 M1，见 2.11）**：整个项目零音频；决策为先 Web Audio 程序化合成占位音效（开火/击穿/未击穿/跳弹/殉爆/履带断/起火/UI），后续替换为资产文件。
+- ~~**声音系统（独立里程碑 M1，见 2.11）**~~ — **已实现（2026-08-15，P-07 完结）**：`js/tank_audio.js` Web Audio 程序化合成 8 类占位音效（开火/击穿/未击穿/跳弹/殉爆/履带断/起火/UI），后续替换为资产文件；见 §2.11/§3.6。
 - **卡牌池/商店商品/永久升级树内容设计（归属经济里程碑）**：modifiers 管道就绪但无内容，纯设计工作。
 - **坦克车型多样性（归属坦克纹理化里程碑，见 2.10）**：所有 `tanks/` 条目共用同一箭镞车体+豹2A6炮塔模板，差异只在数值；需要几套定型几何模板 + 多色/迷彩方案（设计器已支持，缺内容资产），与纹理化合并。
 
@@ -366,15 +375,13 @@
 1. ~~`entities` 重构~~ — 已完成（见第3节）
 2. ~~**修复 `ISSUES.md` #14/#15**（2026-08-11 战前审查确认）：`advanceTracks` 参数错位致 trackPhase=NaN / `updateSigma` 未传 keys 致移动散布源失效；均为单点修复，修后补 Node 测试回归。~~ — **已完成**（`tank_move.js:48` / `tank_mvp.html:662` + `test-tankcollision.js` 测试 5/6，`npm run check`+`npm test` 全绿；归档见 `ARCHIVE.md`）
 3. **甲弹对抗自测工具（可选排期）**：如需「编辑器产出 → 判定逻辑」的轻量自测（固定炮·测装甲 / 固定靶·测穿深与散布），按 `ARCHIVE.md`（2026-08-13 归档自 DEVELOPMENT.md §4.7，v0.4 方案原文）重新实现。
-4. **M0 贴图资产层 + 地图元素贴图（2.10，独立、立即收益）**：
+4. ~~**M0 贴图资产层 + 地图元素贴图（2.10，独立、立即收益）**~~ — **已完成（2026-08-15，P-06 完结，见 §2.10/§3.6）**：
    - 新 `js/tank_assets.js` 资产层：`ASSET_DEFS` 注册表（tree/bush/barricade/stump/rubble/soft → 尺寸/锚点/烘焙函数）+ 浏览器 Image 加载器 + `drawAsset`（有图 drawImage、无图/未加载回退程序化）。
    - 把 `drawCover`/`drawFoliage` 现有程序化画法改造为可烘焙函数，首次使用离屏 canvas 烘焙进缓存（沿用 PAINT_CACHE 思路），后续 drawImage；**视觉零变化、file:// 兼容、零依赖**；`tools/bake.html` 一键导出 PNG 到 `assets/`（真实美术日后直接替换文件，接口不变）。
    - `tank_battledraw.js` 地图元素分支走资产层；half/full 保持程序化；设计器不画地图元素，不受影响。
-   - 执行方案见 `PLAN.md` P-06。
-5. **M1 声音占位系统（2.11，独立、立即收益）**：
+5. ~~**M1 声音占位系统（2.11，独立、立即收益）**~~ — **已完成（2026-08-15，P-07 完结，见 §2.11/§3.6）**：
    - 新 `js/tank_audio.js`：Web Audio 程序化合成 8 类占位音效（开火/击穿/未击穿/跳弹/殉爆/履带断/起火/UI），后续替换为资产文件。
    - AudioContext 惰性初始化（首次用户交互解锁）；音量分级（战斗 vs UI）。
-   - 执行方案见 `PLAN.md` P-07。
 6. **摄像机 + 节点地图 + 小地图（2.1 / 5.1，捆绑三个前置缺口）**：
    - 摄像机跟随系统（玩家居中，节点战场约 1:9 摄像机比例）、独立小地图层（含已探索区域/敌人/据点标注）。
    - **节点生成器**：按难度权重随机生成掩体布局、敌军构成、友军据点位置；数据结构用有序节点列表（纯线性链，无分支），字段含敌人构成/强度档/据点/通关奖励。（第一步地图元素生成器 P-05 已完结，见 `js/tank_nodegen.js`）

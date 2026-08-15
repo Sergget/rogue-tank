@@ -144,3 +144,25 @@ declare function createRNG(seed?: any): any;
 declare function registerTemplate(template: any): void;
 declare function getTemplates(): any[];
 declare function generateNode(difficulty?: number, options?: NodeGenOptions): GeneratedNodeResult;
+
+// M0 贴图资产层（js/tank_assets.js，P-06 / §2.10）
+declare var ASSET_DEFS: any;
+declare var ASSET_IMAGES: any;
+declare var ASSET_CACHE: any;
+declare function assetImage(key: string): any;
+declare function loadAssetImage(key: string): void;
+declare function preloadAssets(): void;
+declare function getBakedSprite(key: string, w: number, h: number, layer?: string): any;
+declare function bakeAssetCanvas(key: string, w: number, h: number, layer?: string): any;
+declare function drawAsset(ctx: any, key: string, x: number, y: number, w: number, h: number, angle?: number): void;
+declare function drawAssetCanopy(ctx: any, key: string, x: number, y: number, w: number, h: number): void;
+
+// M1 声音占位系统（js/tank_audio.js，P-07 / §2.11）
+declare var SOUND_DEFS: any;
+declare var AUDIO_SETTINGS: any;
+declare function initAudio(): any;
+declare function ensureAudio(): any;
+declare function playSound(key: string, opts?: any): boolean;
+declare function validateSoundDefs(defs?: any): string[];
+// webkitAudioContext：旧 WebKit 前缀 AudioContext（Safari <14.1 等），不在 TS DOM lib 标准类型中
+declare var webkitAudioContext: any;

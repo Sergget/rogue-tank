@@ -134,137 +134,37 @@ function drawShells(ctx, shells){
   }
 }
 
-// 地图元素分层绘制（§2.7）：box=矩形掩体（含标签）；soft/barricade/stump/rubble/bush/tree/fallen
-// 各画专属贴图；树冠叶片（bush/tree/fallen 的上层叶片）由 drawFoliage 画在坦克之上形成视线遮挡。
+// 地图元素分层绘制（§2.7）：box=矩形掩体（含标签）保持程序化；soft/barricade/stump/rubble/
+// bush/tree/fallen 走资产层（js/tank_assets.js：ASSET_DEFS 注册表 + drawAsset——有图
+// drawImage / 无图烘焙缓存，画法与旧内联分支逐字一致）。树冠叶片（bush/tree/fallen 的上层
+// 叶片）由 drawFoliage 在坦克之上调用 drawAssetCanopy 形成视线遮挡。
 function drawCover(ctx, cov){
   const tier = COVER_TIERS[cov.tier];
-  const c = coverCorners(cov);
-  const boxPath = ()=>{
+  if(tier.draw === 'box'){
+    const c = coverCorners(cov);
     ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
     for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
     ctx.closePath();
-  };
-  if(tier.draw === 'box'){
-    boxPath();
     ctx.fillStyle = tier.fill; ctx.fill();
     ctx.strokeStyle = tier.stroke; ctx.lineWidth=2; ctx.stroke();
     ctx.fillStyle = tier.stroke; ctx.font='10px "JetBrains Mono", monospace';
     ctx.fillText(tier.label, cov.x-24, cov.y-cov.h/2-6);
-  } else if(tier.draw === 'soft'){
-    boxPath();
-    ctx.fillStyle = tier.fill; ctx.fill();
-    ctx.strokeStyle = tier.stroke; ctx.lineWidth=1.5; ctx.stroke();
-    // 立柱
-    ctx.strokeStyle = '#6b5436'; ctx.lineWidth=2;
-    for(let i=-3;i<=3;i++){
-      ctx.beginPath();
-      ctx.arc(cov.x + (i*cov.w/7), cov.y, 1.5, 0, TAU);
-      ctx.stroke();
-    }
-  } else if(tier.draw === 'barricade'){
-    // 沙袋：一排堆叠椭圆 + 顶部凸袋
-    ctx.fillStyle = 'rgba(150,118,66,0.85)';
-    for(let i=0;i<4;i++){
-      ctx.beginPath();
-      ctx.ellipse(cov.x - cov.w/2 + (i+0.5)*cov.w/4, cov.y, cov.w/10, cov.h*0.32, 0, 0, TAU);
-      ctx.fill();
-    }
-    ctx.fillStyle = 'rgba(120,96,54,0.9)';
-    ctx.beginPath();
-    ctx.ellipse(cov.x, cov.y - cov.h*0.15, cov.w/2, cov.h*0.22, 0, 0, TAU);
-    ctx.fill();
-    ctx.strokeStyle = tier.stroke; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w/2, cov.h/2, 0, 0, TAU); ctx.stroke();
-  } else if(tier.draw === 'stump'){
-    ctx.fillStyle = 'rgba(88,58,30,0.9)';
-    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w/2, cov.h/2, 0, 0, TAU); ctx.fill();
-    ctx.strokeStyle = 'rgba(50,34,16,1)'; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w/2, cov.h/2, 0, 0, TAU); ctx.stroke();
-    // 年轮
-    ctx.strokeStyle = 'rgba(60,40,22,0.6)';
-    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w*0.3, cov.h*0.3, 0, 0, TAU); ctx.stroke();
-  } else if(tier.draw === 'rubble'){
-    for(let i=0;i<5;i++){
-      const ox = (i%2? 1:-1)*(cov.w*0.18 + i*2.5);
-      const oy = (i<2? 1:-1)*cov.h*0.15 + (i===4? 0 : 2);
-      ctx.fillStyle = i%2 ? 'rgba(96,92,84,0.75)' : 'rgba(112,108,98,0.7)';
-      ctx.beginPath(); ctx.arc(cov.x+ox, cov.y+oy, 2.2 + (i%3), 0, TAU); ctx.fill();
-    }
-  } else if(tier.draw === 'bush'){
-    // 灌木基底阴影（上层叶片在 drawFoliage）
-    ctx.fillStyle = 'rgba(26,40,22,0.28)';
-    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w/2, cov.h/2, 0, 0, TAU); ctx.fill();
-  } else if(tier.draw === 'tree'){
-    // 树干
-    const r = Math.max(cov.w, cov.h)*0.6;
-    ctx.fillStyle = 'rgba(58,42,24,0.92)';
-    ctx.beginPath(); ctx.arc(cov.x, cov.y, r, 0, TAU); ctx.fill();
-    ctx.strokeStyle = 'rgba(36,26,14,1)'; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.arc(cov.x, cov.y, r, 0, TAU); ctx.stroke();
-  } else if(tier.draw === 'fallen'){
-    // 倒树：横躺树干沿 cov.w 方向（锥形椭圆 + 枝杈 + 根部伐倒断面），树冠叶片在 drawFoliage
-    const L = cov.w/2, r0 = Math.max(3, cov.h*0.5), r1 = Math.max(2, cov.h*0.3);
-    // 树干主体（根部粗、梢部细：两段椭圆渐变）
-    ctx.fillStyle = 'rgba(58,42,24,0.92)';
-    ctx.beginPath(); ctx.ellipse(cov.x + L*0.15, cov.y, L*0.65, r0, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = 'rgba(66,48,26,0.9)';
-    ctx.beginPath(); ctx.ellipse(cov.x - L*0.15, cov.y, L*0.6, r1, 0, 0, TAU); ctx.fill();
-    ctx.strokeStyle = 'rgba(36,26,14,1)'; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.ellipse(cov.x, cov.y, L, r0, 0, 0, TAU); ctx.stroke();
-    // 枝杈（向上翘起的短枝）
-    ctx.strokeStyle = 'rgba(66,48,26,0.9)'; ctx.lineWidth=1.5;
-    for(let i=-2;i<=2;i++){
-      const bx = cov.x + i*L*0.38;
-      const dir = (i%2===0) ? 1 : -1;
-      ctx.beginPath(); ctx.moveTo(bx, cov.y);
-      ctx.lineTo(bx + dir*cov.h*0.6, cov.y - dir*cov.h*0.8);
-      ctx.stroke();
-    }
-    // 根部伐倒断面（树干左端圆截面 + 年轮）
-    ctx.fillStyle = 'rgba(126,96,60,0.95)';
-    ctx.beginPath(); ctx.arc(cov.x - L, cov.y, r0*0.9, 0, TAU); ctx.fill();
-    ctx.strokeStyle = 'rgba(60,40,22,0.8)'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.arc(cov.x - L, cov.y, r0*0.9, 0, TAU); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cov.x - L, cov.y, r0*0.45, 0, TAU); ctx.stroke();
+  } else if(typeof ASSET_DEFS !== 'undefined' && ASSET_DEFS[tier.draw]){
+    // 资产层：soft/barricade/stump/rubble/bush/tree/fallen（依赖 js/tank_assets.js 先加载）
+    drawAsset(ctx, tier.draw, cov.x, cov.y, cov.w, cov.h, cov.angle||0);
   }
 }
 
-// 树冠 / 灌木叶片层：画在所有坦克之上，实现"遮挡视线"的表现（§2.7）
+// 树冠 / 灌木叶片层：画在所有坦克之上，实现"遮挡视线"的表现（§2.7）。
+// 叶片画法已下沉为 ASSET_DEFS[key].bakeCanopy（js/tank_assets.js），此处保留
+// hp/vision 逐元素过滤后改走 drawAssetCanopy。
 function drawFoliage(ctx, covers){
   for(const cov of covers){
     if(cov.hp === 0) continue;
     const tier = COVER_TIERS[cov.tier];
     if(tier.vision !== true) continue;
-    if(tier.draw === 'bush'){
-      for(let i=0;i<5;i++){
-        const oa = (i/5)*TAU + 0.6;
-        const ox = Math.cos(oa)*cov.w*0.22, oy = Math.sin(oa)*cov.h*0.22;
-        ctx.fillStyle = i%2 ? 'rgba(70,110,50,0.5)' : 'rgba(96,130,60,0.45)';
-        ctx.beginPath(); ctx.ellipse(cov.x+ox, cov.y+oy, cov.w*0.22, cov.h*0.22, oa, 0, TAU); ctx.fill();
-      }
-      ctx.strokeStyle = 'rgba(92,132,60,0.55)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.ellipse(cov.x, cov.y, cov.w*0.34, cov.h*0.34, 0, 0, TAU); ctx.stroke();
-    } else if(tier.draw === 'tree'){
-      const R = Math.max(cov.w, cov.h)*1.9;
-      ctx.fillStyle = 'rgba(44,70,32,0.62)';
-      ctx.beginPath(); ctx.arc(cov.x, cov.y, R*0.85, 0, TAU); ctx.fill();
-      ctx.fillStyle = 'rgba(66,104,46,0.5)';
-      ctx.beginPath(); ctx.arc(cov.x+R*0.28, cov.y-R*0.2, R*0.5, 0, TAU); ctx.fill();
-      ctx.beginPath(); ctx.arc(cov.x-R*0.3, cov.y+R*0.15, R*0.45, 0, TAU); ctx.fill();
-      ctx.strokeStyle = 'rgba(48,80,38,0.6)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.arc(cov.x, cov.y, R*0.85, 0, TAU); ctx.stroke();
-    } else if(tier.draw === 'fallen'){
-      // 倒树树冠：摊扁的叶片簇覆盖树干端部（灌木效果，画在坦克之上遮挡视线）
-      const cx = cov.x + cov.w*0.32, cy = cov.y;
-      const rw = Math.max(8, cov.w*0.3), rh = Math.max(6, cov.h*1.5);
-      for(let i=0;i<5;i++){
-        const oa = (i/5)*TAU + 0.5;
-        const ox = Math.cos(oa)*rw*0.55, oy = Math.sin(oa)*rh*0.55;
-        ctx.fillStyle = i%2 ? 'rgba(70,110,50,0.55)' : 'rgba(96,130,60,0.5)';
-        ctx.beginPath(); ctx.ellipse(cx+ox, cy+oy, rw*0.5, rh*0.5, oa, 0, TAU); ctx.fill();
-      }
-      ctx.strokeStyle = 'rgba(92,132,60,0.55)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.ellipse(cx, cy, rw, rh, 0, 0, TAU); ctx.stroke();
+    if(typeof ASSET_DEFS !== 'undefined' && ASSET_DEFS[tier.draw] && ASSET_DEFS[tier.draw].bakeCanopy){
+      drawAssetCanopy(ctx, tier.draw, cov.x, cov.y, cov.w, cov.h);
     }
   }
 }

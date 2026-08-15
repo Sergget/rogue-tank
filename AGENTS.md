@@ -25,6 +25,8 @@
   - `tank_listio.js`：坦克数据读写层（`tanks/` 一型一文件，fetch/save/delete + 无服务器时下载 fallback）。
   - `tank_presets.js`：炮管/炮盾预设表（`BARREL_PRESETS`/`MANTLE_PRESETS`，原设计器内联）。
   - `tank_schema.js`：坦克字段架构表（`FIELD_ROWS` + 枚举，designer/compare 共用单一来源）。
+  - `tank_assets.js`：M0 贴图资产层（`ASSET_DEFS` 注册表 + Image 加载器 + 离屏烘焙缓存 + `drawAsset`/`drawAssetCanopy`，P-06；`tools/bake.html` 导出 PNG 到 `assets/`，无图回退程序化 bake）。
+  - `tank_audio.js`：M1 声音占位系统（`SOUND_DEFS` 八键参数表 + 惰性 AudioContext + `playSound` 单入口，P-07；Web Audio 全合成、零资产）。
 
 ## 2. 文档分工（开始工作前必读）
 

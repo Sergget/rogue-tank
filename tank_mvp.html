@@ -233,6 +233,8 @@
   <script src="js/tank_entity.js"></script>
   <script src="js/tank_move.js"></script>
   <script src="js/tank_fx.js"></script>
+  <script src="js/tank_audio.js"></script>
+  <script src="js/tank_assets.js"></script>
   <script src="js/tank_paint.js"></script>
   <script src="js/tank_battledraw.js"></script>
   <script src="js/tank_listio.js"></script>
@@ -243,6 +245,14 @@ const ctx = canvas.getContext('2d');
 function resize(){ canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; }
 window.addEventListener('resize', resize);
 resize();
+
+// ---------- audio (M1 占位音效，js/tank_audio.js) ----------
+// 浏览器自动播放策略：AudioContext 惰性创建，首次用户交互（pointerdown/keydown）时解锁。
+// playSound 内部也会自动 ensure（首个音效即解锁）；这里再显式监听一次，
+// 保证纯交互（如只移动/转向不开火）也有已解锁的上下文。
+function unlockAudio(){ initAudio(); }
+window.addEventListener('pointerdown', unlockAudio, { once:true });
+window.addEventListener('keydown', unlockAudio, { once:true });
 
 // entity registry lives in js/tank_entity.js (entities / spawnTank / resetEntity / advanceTracks /
 // isHostile / clamp / livingEnemiesOf / nearestEnemyTo / resolveTankCollisions)
@@ -295,6 +305,7 @@ function applyPlayerTank(id){
 }
 function applyDummyTank(id){
   if(applyTankFromList(dummy, id)){
+    dummy._prevFireT = 0; // resetEntity 置 fireT=0，同步清起火音效上升沿记录
     pushLog(`靶车已切换为坦克 ${id}`, 'PEN');
     document.getElementById('dummyHpInput').value = dummy.maxHp;
     document.getElementById('eHeightClass').textContent = dummy.heightClass==='heavy' ? '重坦(高车体)' : '中坦(矮车体)';
@@ -324,9 +335,11 @@ function loadTankList(){
 }
 document.getElementById('applyPlayerTankBtn').addEventListener('click', ()=>{
   applyPlayerTank(document.getElementById('playerTankSelect').value);
+  playSound('ui');
 });
 document.getElementById('applyDummyTankBtn').addEventListener('click', ()=>{
   applyDummyTank(document.getElementById('dummyTankSelect').value);
+  playSound('ui');
 });
 document.getElementById('reloadTankListBtn').addEventListener('click', ()=>{
   loadTankList();
@@ -359,6 +372,7 @@ function setAmmo(key){
   if(!RULES.ammoTypes[key]) return;
   player.ammoKey = key;
   renderAmmoIndicator();
+  playSound('ui'); // M1：弹种切换（数字键 1/2/3）
   pushLog(`弹种切换：${RULES.ammoTypes[key].label}`,'COVER');
 }
 renderAmmoIndicator();
@@ -381,13 +395,14 @@ document.getElementById('genNodeBtn').addEventListener('click', ()=>{
   pushLog(`随机生成战场: [${res.template.name}] 难度=${(randomDiff*100).toFixed(0)}% 元素数=${res.covers.length}`,'COVER');
 });
 document.getElementById('resetBtn').addEventListener('click', ()=>{
-  entities.forEach(resetEntity);
+  entities.forEach(e=>{ resetEntity(e); e._prevFireT = 0; }); // resetEntity 置 fireT=0，同步清起火音效记录
   resetCovers();
   dummy.turretSwing = 0;
   // sync HP input + toggle visuals with the reset state
   document.getElementById('dummyHpInput').value = dummy.maxHp;
   const ab = document.getElementById('autoReviveBtn'); ab.textContent = dummy.autoRevive ? '开启 AUTO-REVIVE' : '关闭 AUTO-REVIVE'; ab.classList.toggle('active', dummy.autoRevive);
   logClear();
+  playSound('ui'); // M1：重置
 });
 document.getElementById('heightBtn').addEventListener('click', ()=>{
   dummy.heightClass = dummy.heightClass==='heavy' ? 'medium' : 'heavy';
@@ -401,7 +416,7 @@ document.getElementById('applyHpBtn').addEventListener('click', ()=>{
   dummy.spawn.hp = v;            // keep reset consistent with the chosen max
   dummy._dead = false;
   dummy.reviveT = 0;
-  dummy.ammoBlew=false; dummy.debuffs={}; dummy.trackBroken=false; dummy.fireT=0; dummy.dotT=0; dummy.dotDps=0; dummy.dotSeconds=0;
+  dummy.ammoBlew=false; dummy.debuffs={}; dummy.trackBroken=false; dummy.fireT=0; dummy._prevFireT=0; dummy.dotT=0; dummy.dotDps=0; dummy.dotSeconds=0;
   pushLog(`靶车满血值设为 ${v}`,'COVER');
 });
 document.getElementById('autoReviveBtn').addEventListener('click', (e)=>{
@@ -456,6 +471,7 @@ function tryFire(){
     spawnMuzzleFlash(tipP.x, tipP.y, player.turretAngle, 1, (player.barrel && player.barrel.muzzle) || 'none');
     impacts.push({ x: blockPt.x, y: blockPt.y, life: 0.4, color: '#ffb454' });
     spawnImpactFx(blockPt.x, blockPt.y, player.turretAngle, 'block', 0.8);
+    playSound('block'); // M1：炮管贯穿掩体 → 开火在掩体处被截停（钝响）
 
     if(coverTier.mode === 'single'){
       damageCover(solidBarrelBlock.cover, 1, 'shell');
@@ -496,6 +512,7 @@ function tryFire(){
   const bMuzzle = (player.barrel && player.barrel.muzzle) || 'none';
   burstExplosion(ox, oy, 0.6, 4, 2, 0);
   spawnMuzzleFlash(ox, oy, spreadAngle || player.turretAngle, 1, bMuzzle);
+  playSound('fire'); // M1：开火
 
   // 生成真实飞行炮弹：位置 / 方向 / 速度 / 穿深 / 伤害 / 弹种
   // fx/fy = 弹道起点（从 gunRoot 算，防穿透）：半高/全高掩体及弹道检测从 gunRoot 延伸
@@ -666,12 +683,15 @@ function update(dt){
       e.fireT = Math.max(e.fireT, 2);
       emitTankFire(e);
     } else if(e.fireT>0){
-      e.fireT -= dt; if(e.fireT<=0) e.fireT=0; else emitTankFire(e);
+      // M1：起火音效只在"起火开始 / 复燃"帧触发一次（fireT 上升沿），不逐帧循环
+      if(e.fireT > (e._prevFireT||0)){ playSound('fireDOT'); }
+      e._prevFireT = e.fireT;
+      e.fireT -= dt; if(e.fireT<=0){ e.fireT=0; e._prevFireT=0; } else emitTankFire(e);
     }
     // 弹药架殉爆：一次性生成爆炸 + 掀飞炮塔视觉
-    if(e.ammoBlew && !e._blowFx){ e._blowFx = true; spawnAmmoBlowFx(e); }
+    if(e.ammoBlew && !e._blowFx){ e._blowFx = true; spawnAmmoBlowFx(e); playSound('ammoBlew'); }
     // 履带被击断：一次性生成破片/火花视觉
-    if(e.trackBroken && !e._trackFx){ e._trackFx = true; spawnTrackBreakFx(e); }
+    if(e.trackBroken && !e._trackFx){ e._trackFx = true; spawnTrackBreakFx(e); playSound('trackBreak'); }
     if(e.hp<=0 && !e._dead){ e._dead=true; e.hp=0; e.fireT = Math.max(e.fireT, 4); pushLog(`${e.id==='player'?'玩家':e.id} 已摧毁 — 车体起火`,'CRIT'); }
     // auto-revive for the test-rig dummy so you can keep shooting after a kill
     if(e.id==='dummy' && e._dead && dummy.autoRevive){
@@ -679,7 +699,7 @@ function update(dt){
       if(e.reviveT >= 1.5){
         e.hp = e.maxHp; e._dead=false; e.reviveT=0;
         e.immobT=0; e.dotT=0; e.dotDps=0; e.dotSeconds=0; e.fireDebuffT=0;
-        e.fireT=0; e.debuffs={}; e.trackBroken=false;
+        e.fireT=0; e._prevFireT=0; e.debuffs={}; e.trackBroken=false;
         e.ammoBlew=false; e._blowFx=false; e._trackFx=false;
         pushLog('靶车自动复活 — 满血','COVER');
       }
@@ -738,6 +758,7 @@ function update(dt){
         if(damageCover(c.cover, 1, 'shell')){
           impacts.push({ x:c.point.x, y:c.point.y, life:0.4, color:'#96764a' });
           spawnImpactFx(c.point.x, c.point.y, Math.atan2(s.dy, s.dx), 'block', 0.7);
+          playSound('block'); // M1：穿透性掩体（栅栏）被炮弹摧毁
         }
         continue;
       }
@@ -755,6 +776,7 @@ function update(dt){
             s.x = c.point.x; s.y = c.point.y;
             impacts.push({ x:c.point.x, y:c.point.y, life:0.4, color:'#ffb454' });
             spawnImpactFx(c.point.x, c.point.y, Math.atan2(s.dy, s.dx), 'block', 0.7);
+            playSound('block'); // M1：被半高掩体拦截
             pushLog('未命中 — 被半高掩体拦截','COVER');
             s.dead = true;
           }
@@ -779,16 +801,19 @@ function update(dt){
           s.dec = null; // 新弹道段重新判决
           bounceFx.push({ x:s.x, y:s.y, life:0.5, angle:Math.atan2(r.y,r.x) });
           spawnImpactFx(s.x, s.y, Math.atan2(r.y,r.x), 'bounce', 0.8);
+          playSound('bounce'); // M1：路障表面掠射跳弹
           pushLog(`跳弹！炮弹在${coverTier.label}表面掠射弹开 — 路障无损`,'BOUNCE');
         } else {
           impacts.push({ x:s.x, y:s.y, life:0.4, color:'#ffb454' });
           spawnImpactFx(s.x, s.y, Math.atan2(s.dx, s.dy), 'block', 0.8);
+          playSound('block'); // M1：沙袋路障挡下
           damageCover(bestCover.cover, 1, 'shell');
           s.dead = true;
         }
       } else {
         impacts.push({ x:s.x, y:s.y, life:0.4, color:'#ffb454' });
         spawnImpactFx(s.x, s.y, Math.atan2(s.dx, s.dy), 'block', 0.8);
+        playSound('block'); // M1：炮弹被掩体截停
         if(Number.isFinite(bestCover.cover.hp)){
           // 可破坏 solid 元素（树等，耐久 1 一发即毁）：未毁时提示剩余耐久，毁时 destroyCover 出日志
           if(!damageCover(bestCover.cover, 1, 'shell')){
@@ -825,6 +850,7 @@ function update(dt){
         s.x = stopX; s.y = stopY;
         impacts.push({ x:stopX, y:stopY, life:0.4, color:'#ffb454' });
         spawnImpactFx(stopX, stopY, Math.atan2(s.dy, s.dx), 'block', 0.7);
+        playSound('block'); // M1：到达时被半高掩体拦截
         pushLog('未命中 — 被半高掩体拦截','COVER');
         s.dead = true;
       } else {
@@ -835,12 +861,14 @@ function update(dt){
           bounceFx.push({ x:res.bouncePoint.x, y:res.bouncePoint.y, life:0.5, angle:res.bounceAngle });
           spawnImpactFx(res.bouncePoint.x, res.bouncePoint.y, res.bounceAngle, 'bounce', 1);
           pushLog(res.text, res.cls);
+          playSound('bounce'); // M1：跳弹
           // resolveHit 已更新 s.dx/dy 与位置，继续飞行
         } else {
           const o = res.outcome==='PEN' ? ((s.ammo && s.ammo.key === 'he') ? 'he' : 'pen') : 'block';
           impacts.push({ x:hx, y:hy, life:0.4, color: res.outcome==='PEN' ? '#ff6c5c' : '#7a8065' });
           spawnImpactFx(hx, hy, Math.atan2(s.dy, s.dx), o, 1);
           pushLog(res.text, res.cls);
+          playSound(o === 'he' ? 'pen' : o); // M1：击穿（HE 归 pen）/ 未击穿
           s.dead = true;
         }
       }
