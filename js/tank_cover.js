@@ -271,12 +271,20 @@ function findCoversOnPath(ox,oy,tx,ty){
   return hits;
 }
 
-// 纯垂直剖面掩体遮挡模型（弹道实时逐射线计算，无"宽度/距离压制"概念）：
+// 掩体遮挡模型：垂直剖面 + 射线高度插值（C 实验，2026-08-14）：
 //   1. 弹道路径是否穿掩体由实际射线与掩体 OBB 的交点决定（findCoversOnPath）——
 //      射线绕过掩体（未相交）即无遮挡，直接命中；与"攻击方/被攻击方谁离掩体更近"无关。
 //   2. 部位露出（垂直剖面）：炮塔（zMin >= 1.2）恒定 100% 露出；
 //      半高掩体后，中坦车体 100% 阻挡（0% 露出），重坦车体露出 25%（75% 阻挡）。
-//   3. 方向判据（cutoffDist）：掩体须在命中车体前被射线完整穿过（distExit < cutoffDist）。
+//   3. C 实验——半高掩体越掩判定（受控距离因素）：本游戏弹道射线无下坠，其高度在
+//      炮口高度（RULES.heights.muzzle，按射手 heightClass 取值）与目标部位中心高度
+//      zMid 之间线性插值。攻击方贴近掩体时，射线在掩体入口处
+//      （t = distA/(distA+distB)）仍高于掩体顶（RULES.heights.cover.half = 1.4）→
+//      该掩体被越过（不参与遮挡，exposure 1.0）；拉开距离后射线降至掩体顶以下 →
+//      恢复垂直剖面遮挡。仅正式 half 掩体参与插值；stump/rubble 等其他 graduated
+//      残骸保持旧行为（永远留在候选列表）。RULES.heights.cover.half 缺失时不做插值
+//      （保守回退旧行为）。炮塔恒露（zMin >= 1.2）与 16px 方向判据不受影响。
+//   4. 方向判据（cutoffDist）：掩体须在命中车体前被射线完整穿过（distExit < cutoffDist）。
 function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
   const hits = findCoversOnPath(ox,oy,tx,ty);
   const validHits = [];
@@ -299,6 +307,27 @@ function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
   // 炮塔（zMin >= 1.2m）恒定 100% 露出
   if (zMin >= 1.2) {
     return 1.0;
+  }
+
+  // C 实验——半高掩体越掩过滤：仅正式 half 掩体参与射线高度插值；
+  // 射线在掩体入口处高于掩体顶 → 越过（从候选移除）；stump/rubble 等其余
+  // graduated 残骸走旧路径。RULES.heights.cover.half 缺失 → 跳过插值（保守）。
+  const halfH = RULES.heights && RULES.heights.cover && RULES.heights.cover.half;
+  if (halfH !== undefined) {
+    const shooterH = (RULES.heights.muzzle && RULES.heights.muzzle[(shooter && shooter.heightClass) || 'medium']) || 1.8;
+    const zMid = (zMin + zMax) / 2; // 目标部位中心高度
+    const filtered = [];
+    for (const h of validHits) {
+      if (h.cover.tier === 'half') {
+        const t = h.distA / (h.distA + h.distB);
+        const rayH = shooterH + (zMid - shooterH) * t; // 射线在掩体入口处的高度
+        if (rayH > halfH) continue; // 越过掩体 → 不参与遮挡
+      }
+      filtered.push(h);
+    }
+    if (filtered.length === 0) return 1.0;
+    validHits.length = 0;
+    validHits.push(...filtered);
   }
 
   // 车体露出比例

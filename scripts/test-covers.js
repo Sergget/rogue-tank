@@ -108,16 +108,17 @@ ok(medHullFar === 0.0, `medium hull exposes 0% behind half cover (got ${medHullF
 const turretExposed = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'medium' }, 1.4, 2.3);
 ok(turretExposed === 1.0, `turret is 100% exposed behind half cover (got ${turretExposed})`);
 
-// 5d) 贴掩体遮挡（用户场景：弹道逐射线实时计算 → 只按垂直剖面判定，攻击方贴近与否无影响）：
-//     攻击方紧贴掩体一侧，被攻击方在掩体另一侧 → 车体仍被完全遮挡（旧"距离压制"规则曾被判定为无掩体）
+// 5d) 贴掩体遮挡（C 实验 2026-08-14：贴掩体越掩）：弹道射线高度在炮口（1.8）与目标
+//     部位中心（zMid）间线性插值；攻击方紧贴掩体时射线在掩体入口处仍高于 1.4m 掩体顶 →
+//     越过掩体、车体全露（exposure 1.0）。两用例均传 null shooter → 验证回退 medium 炮口高 1.8。
 const half1 = findTier('half');
-const attackerHugX = half1.x - 45; // 攻击方紧贴掩体左侧
+const attackerHugX = half1.x - 45; // 攻击方紧贴掩体左侧（掩体左缘 x=430，射程 5px 即达入口）
 const targetBehindX = half1.x + 120; // 目标在掩体右侧后方
 const heavyHug = C.getExposure(attackerHugX, half1.y, targetBehindX, half1.y, null, { heightClass: 'heavy' }, 0, 1.8);
-ok(heavyHug === 0.25, `heavy hull covered while attacker hugs cover (got ${heavyHug})`);
+ok(heavyHug === 1.0, `heavy hull exposed while attacker hugs cover (C 实验 2026-08-14：贴掩体越掩, got ${heavyHug})`);
 const medHug = C.getExposure(attackerHugX, half1.y, targetBehindX, half1.y, null, { heightClass: 'medium' }, 0, 1.4);
-ok(medHug === 0.0, `medium hull covered while attacker hugs cover (got ${medHug})`);
-// 目标紧贴掩体背面（贴掩体全藏）：同样按垂直剖面，不被误判为骑掩体
+ok(medHug === 1.0, `medium hull exposed while attacker hugs cover (C 实验 2026-08-14：贴掩体越掩, got ${medHug})`);
+// 目标紧贴掩体背面（贴掩体全藏）：射手远（t≈0.81 → 射线已降至掩体以下）→ 仍按垂直剖面全藏
 const targetHugX = half1.x + 45;
 const medHugTarget = C.getExposure(ox, half1.y, targetHugX, half1.y, null, { heightClass: 'medium' }, 0, 1.4);
 ok(medHugTarget === 0.0, `medium hull covered while target hugs cover (got ${medHugTarget})`);
@@ -128,6 +129,37 @@ ok(onCover === 1.0, `tank riding cover not shielded from flank (got ${onCover.to
 const behindCover = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'heavy' }, 0, 1.8, 520);
 ok(behindCover === 0.25, `tank behind cover shielded with cutoff (got ${behindCover})`);
 C.resetCovers();
+
+// 5f) C 实验 2026-08-14——半高掩体越掩判定（距离因素）：射线高度
+//     rayH = shooterH + (zMid - shooterH) * t 在掩体入口处高于 1.4 即越过。
+//     几何：half 掩体 (470,300) w=80 → x∈[430,510]；目标贴右侧 x=542；distB=112 固定。
+//     射手高度 medium=1.8，目标 zMid：medium 车体 0.7 / heavy 车体 0.9。
+{
+  const tgtX = 542, ty = 300;
+  const mShooter = { heightClass: 'medium' };
+  // 射手 x=400（贴掩体，t=30/142≈0.211）：rayH=1.8-1.1*0.211≈1.57>1.4 → 越过
+  ok(C.getExposure(400, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 0, 1.4) === 1.0,
+    `C 实验: medium hull 1.0 at xs=400 (t≈0.211, rayH≈1.57>1.4)`);
+  // 射手 x=300（t=130/242≈0.537）：rayH=1.8-1.1*0.537≈1.21<1.4 → 仍被挡
+  ok(C.getExposure(300, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 0, 1.4) === 0.0,
+    `C 实验: medium hull 0.0 at xs=300 (t≈0.537, rayH≈1.21<1.4)`);
+  // 重坦目标（zMid=0.9）、射手 x=400：rayH=1.8-0.9*0.211≈1.61>1.4 → 越过
+  ok(C.getExposure(400, ty, tgtX, ty, mShooter, { heightClass: 'heavy' }, 0, 1.8) === 1.0,
+    `C 实验: heavy hull 1.0 at xs=400 (rayH≈1.61>1.4)`);
+  // 重坦目标、射手 x=300：rayH=1.8-0.9*0.537≈1.32<1.4 → 分类概率不变（0.25）
+  ok(C.getExposure(300, ty, tgtX, ty, mShooter, { heightClass: 'heavy' }, 0, 1.8) === 0.25,
+    `C 实验: heavy hull 0.25 at xs=300 (rayH≈1.32<1.4)`);
+  // 炮塔（zMin=1.4 ≥ 1.2 恒露 clamp）：无论射手远近 → 1.0
+  ok(C.getExposure(400, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 1.4, 2.3) === 1.0 &&
+     C.getExposure(300, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 1.4, 2.3) === 1.0,
+    `C 实验: turret 恒露 1.0 不受越掩插值影响 (xs=400/300)`);
+  // 边界：临界 t=(1.8-1.4)/(1.8-0.7)=0.364 → xs=(430-0.364*542)/(1-0.364)≈366；
+  // 两侧各取一点验证插值连续性：xs=370 → t≈0.349, rayH≈1.416>1.4；xs=360 → t≈0.385, rayH≈1.377<1.4
+  ok(C.getExposure(370, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 0, 1.4) === 1.0,
+    `C 实验: 临界点左侧 xs=370 (t≈0.349, rayH≈1.416>1.4) → 1.0`);
+  ok(C.getExposure(360, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 0, 1.4) === 0.0,
+    `C 实验: 临界点右侧 xs=360 (t≈0.385, rayH≈1.377<1.4) → 0.0`);
+}
 
 // 6) solid non-crushable pushes tank out
 const fullHpBefore = full.hp;
@@ -165,11 +197,14 @@ ok(lhits.length === 1 && lhits[0].cover === lFull, 'ray through L body hits the 
 let vhits = C.findCoversOnPath(270, 650, 280, 670); // 完全落在凹槽缺口内
 ok(vhits.length === 0, 'ray inside L concavity misses (no edge crossing)');
 
-// 10b) getExposure：solid 多边形全挡；half 六边形半高行为不变
+// 10b) getExposure：solid 多边形全挡；half 六边形半高（C 实验 2026-08-14：贴掩体越掩）
 const expLPoly = C.getExposure(100, 630, 400, 630, null, { heightClass: 'medium' }, 0, 1.4);
 ok(expLPoly === 0, `solid polygonal cover fully occludes (got ${expLPoly})`);
+// 六边形入口 x=660，射手 x=500 → distA=160, t=0.4；重坦 zMid=0.9 → rayH=1.8-0.9*0.4=1.44>1.4
+// → 射线越过掩体（行为变更，非错误）
 const expHexHeavy = C.getExposure(hexHalf.x - 200, hexHalf.y, hexHalf.x + 200, hexHalf.y, null, { heightClass: 'heavy' }, 0, 1.8);
-ok(expHexHeavy === 0.25, `heavy hull exposes 25% behind hex-half (got ${expHexHeavy})`);
+ok(expHexHeavy === 1.0, `heavy hull exposed behind hex-half (C 实验 2026-08-14：t=0.4, rayH=1.44>1.4 → 越掩, got ${expHexHeavy})`);
+// 中坦 zMid=0.7 → rayH=1.8-1.1*0.4=1.36<1.4 → 仍按垂直剖面全挡
 const expHexMed = C.getExposure(hexHalf.x - 200, hexHalf.y, hexHalf.x + 200, hexHalf.y, null, { heightClass: 'medium' }, 0, 1.4);
 ok(expHexMed === 0.0, `medium hull exposes 0% behind hex-half (got ${expHexMed})`);
 const expHexTurret = C.getExposure(hexHalf.x - 200, hexHalf.y, hexHalf.x + 200, hexHalf.y, null, { heightClass: 'medium' }, 1.4, 2.3);
@@ -344,7 +379,9 @@ C.resetCovers();
   const starCorners = C.coverCorners(star);
   ok(starCorners.length === 10, 'star polygon has 10 corners');
   const expStar = C.getExposure(3100, 3000, 3300, 3000, null, { heightClass: 'heavy' }, 0, 1.8);
-  ok(expStar === 0.25, 'star half cover exposes 25% for heavy');
+  // C 实验 2026-08-14：射手距掩体入口 distA=67.5/200 → t=0.3375；
+  // rayH=1.8-0.9*0.3375=1.496>1.4 → 射线越过半高星形掩体（行为变更，非错误）
+  ok(expStar === 1.0, `star half cover: heavy hull exposed (C 实验 2026-08-14：t=0.34, rayH=1.50>1.4 → 越掩, got ${expStar})`);
   C.covers.pop();
 }
 
