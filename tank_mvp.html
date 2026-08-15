@@ -276,6 +276,12 @@
       <div><b>方向键</b> 手动移动测试靶 — 掩体已移到默认射线上方；把靶车开到掩体后面测试露头概率</div>
     </div>
 
+    <div class="section">
+      <h3>单局流程 Node Run</h3>
+      <button id="newRunBtn" style="width:100%; padding:10px;">开始一局 NEW RUN</button>
+      <div class="mono" style="font-size:10px; color:var(--text-dim); margin-top:6px;">生成 5 节点线性链：大世界巡航清敌 → 结算 → 卡牌三选一 → 下一节点；玩家阵亡即结束本局。</div>
+    </div>
+
     <div class="btnrow">
       <button id="genNodeBtn">随机生成战场 GENERATE</button>
       <button id="resetBtn">重置 RESET</button>
@@ -640,13 +646,15 @@ watchFlow(flow, (state, payload) => {
   }
 });
 
-document.getElementById('startRunBtn').addEventListener('click', () => {
+function startNewRun(){
   run = generateRun();
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
   pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}）`, 'COVER');
   playSound('ui');
   transition(flow, 'battle', { nodeIndex: 0 });
-});
+}
+document.getElementById('startRunBtn').addEventListener('click', startNewRun);
+document.getElementById('newRunBtn').addEventListener('click', startNewRun);
 document.getElementById('settleNextBtn').addEventListener('click', () => {
   playSound('ui');
   transition(flow, 'reward');
