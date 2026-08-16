@@ -67,10 +67,16 @@ function applyArmorMod(armor, m){
   }
 }
 
+// 修饰器生命周期分类（P-12 / §5.1 / §6 条目 9）：
+//   scope = 'permanent'（默认，局外永久升级）| 'run'（单局，run 结束清除）| 'timed'（限时，expiresAt 到期剪除）
+// 叠层规则：同名修饰器由 source 区分（卡牌 `card:<id>` + maxStacks、Boss 阶段 `boss-stage:<id>` 切换时移除）；
+// 先加后乘由 computeStats 两遍扫描保证（见 §5.1）。
 function addModifier(tank, mod){
+  const scope = mod.scope || (mod.expiresAt !== undefined && mod.expiresAt !== Infinity ? 'timed' : 'permanent');
   tank.modifiers.push({
     stat: mod.stat, mode: mod.mode || 'add', value: mod.value,
     source: mod.source || 'generic',
+    scope: scope,
     expiresAt: mod.expiresAt !== undefined ? mod.expiresAt : Infinity
   });
   refreshStats(tank);
@@ -78,13 +84,25 @@ function addModifier(tank, mod){
 }
 
 function addTimedModifier(tank, mod, durationMs){
-  return addModifier(tank, Object.assign({}, mod, { expiresAt: Date.now()+durationMs }));
+  return addModifier(tank, Object.assign({}, mod, { scope: 'timed', expiresAt: Date.now()+durationMs }));
 }
 
 function removeModifierBySource(tank, source){
   tank.modifiers = tank.modifiers.filter(m => m.source !== source);
   refreshStats(tank);
   return tank.stats;
+}
+
+// 按生命周期 scope 批量移除（run 结束清除单局修饰器；M10 局外永久升级用 permanent）
+function removeModifiersByScope(tank, scope){
+  tank.modifiers = tank.modifiers.filter(m => m.scope !== scope);
+  refreshStats(tank);
+  return tank.stats;
+}
+
+// 单局结束（gameover / 全链通关回 map）时清除 run 修饰器（卡牌、Boss 阶段、局内临时 buff）
+function removeRunModifiers(tank){
+  return removeModifiersByScope(tank, 'run');
 }
 
 function refreshStats(tank){
@@ -386,6 +404,8 @@ if (typeof module !== 'undefined' && module.exports) {
     addModifier,
     addTimedModifier,
     removeModifierBySource,
+    removeModifiersByScope,
+    removeRunModifiers,
     refreshStats,
     makeTank,
     SPEED_KMH_FACTOR,

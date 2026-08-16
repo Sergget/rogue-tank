@@ -353,6 +353,11 @@
 - **初始化**：`startNewRun`/`gameoverRestartBtn` 置 `player.revives = RULES.revive.baseRevives`（2）。
 - **验证**：`scripts/test-revive.js`（16 断言：复活点/掩体避开/无据点回退/满状态/无敌/清状态/次数消耗/耗尽失败）挂进 `npm test`（现共 19 套全绿）；vm 运行时冒烟覆盖「阵亡→复活→无敌递减→次数耗尽→gameover」（临时脚本，未入库）。
 
+#### 3.12 属性三层接线收尾（P-12，2026-08-15 会话；设计见 §5.1）
+- **生命周期分类**：`js/tank_model.js` 的 `addModifier` 加 `scope` 字段（`permanent` 默认 / `run` 单局 / `timed` 限时），`addTimedModifier` 自动 `timed`；新增 `removeModifiersByScope`/`removeRunModifiers`。
+- **卡牌/Boss 标 run**：`applyCardEffects`（`js/tank_cards.js`）与 `applyBossStage`（`js/tank_boss.js`）的 modifier 标 `scope:'run'`——run 结束（gameover/全链通关重开）由 `startNewRun`/`gameoverRestartBtn` 调 `removeRunModifiers(player)` 清除，修掉"卡牌 buff 跨 run 残留"的隐患。
+- **验证**：`scripts/test-modifiers.js`（11 断言：scope 分类/timed 自动/run 清除/stats 恢复/卡牌与 Boss 标 run/过期剪除）挂进 `npm test`（现共 20 套全绿）。
+
 ---
 
 ## 4. 开放问题（已知但尚未确定，按优先级排序）
@@ -397,7 +402,7 @@
   tank.stats      = computeStats(base, modifiers)   // 战斗逻辑只读这个，不摸 base
   ```
   需要确定的规则：叠加顺序（先加后乘）、同名修饰器是否可叠加、修饰器生命周期分类（永久/单局/限时）。
-  **进展（P-09）**：卡牌 modifier 已走 `addModifier` 管道接入（`js/tank_cards.js` `applyCardEffects`，source=`card:<id>`，`cardStackCount` 支持同名叠层）；叠加规则（先加后乘已实现于 `computeStats`）与"同名可叠上限"由卡牌 `maxStacks` 字段约束；局内技能/局外永久升级的修饰器源仍待接入（§6 条目 9/10）。
+  **已收尾（P-12，2026-08-15）**：修饰器带 `scope` 生命周期分类——`permanent`（默认，局外永久升级）/`run`（单局，`removeRunModifiers` 在 run 结束清除）/`timed`（`expiresAt` 到期 `refreshStats` 剪除）；卡牌 modifier（`applyCardEffects`）与 Boss 阶段 modifier（`applyBossStage`）均标 `run`；`addTimedModifier` 自动 `timed`。先加后乘由 `computeStats` 两遍扫描；同名叠层由 `source`（`card:<id>`+`maxStacks` / `boss-stage:<id>`）区分。剩余：局外永久升级（`permanent`）的修饰器**内容**由 M10 经济里程碑落地（管道已就绪）。
 - ~~**摄像机 + 节点地图 + 小地图**~~：**已完成（P-08，2026-08-15，见 §2.12）**——摄像机跟随（玩家居中、世界边界钳制）、小地图层（掩体/实体/视口矩形标注）、完整节点生成（线性节点链：掩体布局复用 P-05 + scale、敌军构成、友军据点、§4.5 通关奖励）、视口 AABB 剔除、全局游戏流程状态机（map/battle/settlement/reward/gameover）与 UI 界面层约定（watchFlow 监听 → DOM 覆盖层）全部落地；剩余相关项：粒子池化（可选项）、难度曲线表细化（§6 条目 12）。
 
 ### 5.2 中优先级（已实现——多边形碰撞盒）
@@ -516,7 +521,7 @@
    - **视线遮挡查询函数（前置，5.6）**：`tank_cover.js` `hasLineOfSight`（`vision:true` 灌木/树冠遮挡视线，与弹道穿透两套判定）已实现并接入 AI 索敌。
    - Boss `summons` 伴随单位已生成并走同一敌对 AI；阶段行为由 `onEnter.modifiers` 自然产生。
 8. ~~**死亡/复活状态机（2.3）**~~ — **已完成（2026-08-15，P-11，见 §2.3/§3.11）**：永久死亡 + 复活次数（基础 2，`RULES.revive.baseRevives`）+ 满状态复活于友军据点旁随机无障碍点 + `invulnSeconds`=3s 无敌（`js/tank_revive.js` + mvp 死亡判定 + `applyModuleDamage`/DOT 无敌检查 + 无敌闪烁视觉）。剩余：局前商店购买追加复活次数（M10 经济里程碑接入）。
-9. **base/modifiers/stats 三层接线（5.1）**：接入一两个测试用临时 buff 验证「先加后乘、同名可叠性、生命周期」规则好用后再铺开卡牌/商店/永久升级。**进展（P-09）**：卡牌 modifier 已接 `addModifier`（先加后乘、`maxStacks` 叠层已落地），剩余局内技能/局外永久升级的修饰器源与生命周期分类待定案。
+9. ~~**base/modifiers/stats 三层接线（5.1）**~~ — **已完成（2026-08-15，P-12，见 §5.1/§3.12）**：修饰器 `scope` 生命周期分类（permanent/run/timed）+ `removeRunModifiers`/`removeModifiersByScope`；卡牌与 Boss 阶段 modifier 标 `run`、run 结束清除。剩余：局外永久升级的修饰器**内容**（M10）。
 10. **经济与数值落地（含存档）**：击杀得分、节点通关奖励量化（4.5 方案）、局内得分→商店点数转化比例、卡牌三选一刷新费（开放问题 5）；**玩家进度持久化（存档，5.6）**：永久升级 + 死亡时局内得分→商店点数转化需要 localStorage，需定存档结构/写入时机/版本化；**卡牌池/商店商品/永久升级树内容设计（5.6）**：modifiers 管道就绪但无内容，纯设计工作。**进展（P-09）**：卡牌 economy 效果类型与 `cards/` 池已就绪（内容待批量）。
 11. **坦克纹理化 + 车型多样性内容（2.10）**：`texture` 字段 + 多边形 clip 平铺图案叠层（保持 `t.color` 主色）；texture 进 tank JSON + `tank_schema.js` FIELD_ROWS 枚举 + 设计器选择器（外观件条目）；几套定型几何模板 + 多色/迷彩方案（`tanks/` 条目目前共用箭镞车体+豹2A6炮塔模板，差异只在数值）。
 12. **难度曲线表**：敌人数量 / AI 策略复杂度 / 数值强度三杠杆随节点索引的涨法（线性/阶梯/曲线），供节点生成器使用（开放问题 6）。

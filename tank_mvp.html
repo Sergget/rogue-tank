@@ -727,6 +727,7 @@ function startNewRun(){
   run = generateRun();
   assignBossNode(run);   // P-09：链尾节点指定 Boss
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
+  removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
   player.revives = RULES.revive.baseRevives;   // P-11：复活次数（基础 2，局前可购追加 M10）
   pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}）`, 'COVER');
   playSound('ui');
@@ -744,6 +745,7 @@ document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   run = generateRun();                           // 新的一局
   assignBossNode(run);                           // P-09：链尾 Boss
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
+  removeRunModifiers(player);                   // P-12：清除上一局单局修饰器
   player.revives = RULES.revive.baseRevives;     // P-11：复活次数
   transition(flow, 'battle', { nodeIndex: 0 });
 });

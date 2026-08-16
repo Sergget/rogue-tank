@@ -146,7 +146,7 @@ function applyCardEffects(tank, card, ctx) {
   const applied = [];
   for (const ef of card.effects) {
     if (ef.type === 'modifier') {
-      addModifier(tank, { stat: ef.stat, mode: ef.mode, value: ef.value, source: 'card:' + card.id });
+      addModifier(tank, { stat: ef.stat, mode: ef.mode, value: ef.value, source: 'card:' + card.id, scope: 'run' });   // 卡牌=单局（run 结束清除）
       applied.push(ef);
     } else {
       if (!tank.cardEffects) tank.cardEffects = [];

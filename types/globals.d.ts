@@ -50,6 +50,8 @@ declare function computeStats(base: any, modifiers?: any): any;
 declare function addModifier(t: any, mod: any): any;
 declare function addTimedModifier(t: any, mod: any, durationMs: any): any;
 declare function removeModifierBySource(t: any, source: any): any;
+declare function removeModifiersByScope(t: any, scope: string): any;
+declare function removeRunModifiers(t: any): any;
 declare function refreshStats(t: any): any;
 declare function tankKmh(t: any): number;
 declare function updateSigma(t: any, dt: any, keys?: any): void;

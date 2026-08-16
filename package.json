@@ -8,7 +8,7 @@
     "serve": "node server.js",
     "check": "node scripts/check-html.js && npm run typecheck",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/test-covers.js && node scripts/test-tanks.js && node scripts/test-hitpart.js && node scripts/test-tankcollision.js && node scripts/test-nodegen.js && node scripts/test-camera.js && node scripts/test-map.js && node scripts/test-flow.js && node scripts/test-ai.js && node scripts/test-revive.js && node scripts/test-cards.js && node scripts/test-boss.js && node scripts/validate-content.js && node scripts/test-extreme-combat.js && node scripts/test-extreme-geometry.js && node scripts/test-extreme-model.js && node scripts/test-extreme-cover.js && node scripts/test-assets.js && node scripts/test-audio.js"
+    "test": "node scripts/test-covers.js && node scripts/test-tanks.js && node scripts/test-hitpart.js && node scripts/test-tankcollision.js && node scripts/test-nodegen.js && node scripts/test-camera.js && node scripts/test-map.js && node scripts/test-flow.js && node scripts/test-ai.js && node scripts/test-revive.js && node scripts/test-modifiers.js && node scripts/test-cards.js && node scripts/test-boss.js && node scripts/validate-content.js && node scripts/test-extreme-combat.js && node scripts/test-extreme-geometry.js && node scripts/test-extreme-model.js && node scripts/test-extreme-cover.js && node scripts/test-assets.js && node scripts/test-audio.js"
   },
   "engines": {
     "node": ">=18"

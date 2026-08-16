@@ -131,7 +131,7 @@ function applyBossStage(entity, stage) {
   const mods = (stage.onEnter && stage.onEnter.modifiers) || [];
   for (const m of mods) {
     if (typeof addModifier === 'function') {
-      addModifier(entity, { stat: m.stat, mode: m.mode, value: m.value, source: 'boss-stage:' + stage.id });
+      addModifier(entity, { stat: m.stat, mode: m.mode, value: m.value, source: 'boss-stage:' + stage.id, scope: 'run' });
     }
   }
 }

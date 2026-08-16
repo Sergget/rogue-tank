@@ -101,7 +101,7 @@
 
 ## 5. 技术债 / 下一步（来自 DEVELOPMENT.md）
 
-1. **属性系统接线**：base/modifiers/stats 三层结构已实现，但卡牌、局内技能、局外永久升级的修饰器来源尚未接入（`addModifier` 等 API 已就绪，见 `js/tank_model.js`；P-08 卡牌占位已演示该管道）。
+1. ~~**属性系统接线**~~：**已完成（P-12，2026-08-15）**——base/modifiers/stats 三层结构 + 修饰器 `scope` 生命周期分类（permanent/run/timed）+ `removeRunModifiers`；卡牌（P-09）与 Boss 阶段 modifier 标 `run`、run 结束清除（见 DEVELOPMENT.md §5.1/§3.12）。剩余：局外永久升级修饰器**内容**（M10）。
 2. ~~**摄像机 + 节点地图 + 小地图**~~：**已完成（P-08，2026-08-15）**——`js/tank_camera.js`/`tank_map.js`/`tank_flow.js`/`tank_minimap.js`，含按难度随机生成节点内容（掩体布局/敌军构成/友军据点）与线性节点链流程（见 DEVELOPMENT.md §2.12/§3.7）。
 3. ~~**敌人 AI 双态行为**（摄像机内主动 / 范围外被动、边缘贴近）+ 友军据点（消极防御、被摧毁、五折记分）~~ — **已完成（P-10，2026-08-15）**：`js/tank_ai.js`（`aiDecide` 双态 + 友军消极防御 + `RULES.ai` 参数）+ `hasLineOfSight` 视线遮挡 + `fireTank` 通用开火，Boss/summons 走同一敌对 AI（见 DEVELOPMENT.md §2.2/§3.10）。剩余：友军击杀五折记分（开放问题 4，非阻塞，留待经济里程碑）。
 4. ~~**死亡/复活状态机**（永久死亡、复活次数、满状态复活于友军据点旁）~~ — **已完成（P-11，2026-08-15）**：`js/tank_revive.js`（满状态复活 + 友军据点旁随机点 + `RULES.revive.invulnSeconds`=3s 无敌）+ mvp 死亡判定（`canRevive`→复活 / 耗尽→gameover）+ 无敌闪烁视觉（见 DEVELOPMENT.md §2.3/§3.11）。剩余：局前购买追加复活次数（M10）。
