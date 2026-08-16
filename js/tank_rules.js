@@ -227,6 +227,18 @@ const RULES = {
     enemyCountMax: 4,        // 敌人数量上限（enemyCount = 1 + floor(diff × 4)）
     aiTierMax: 2,            // AI 策略复杂度档位上限
     statMultMax: 1.5         // 数值强度乘数上限（1.0 → 1.5）
+  },
+
+  // 经济与存档（P-14 / DEVELOPMENT.md §2.4 / §6 条目 10）。
+  // 消费方：js/tank_economy.js（UPGRADE_DEFS / scoreToPoints / killScore / profile 读写）。
+  // 两条独立货币线（§2.4）：局内得分（击杀+节点通关，仅本局）vs 商店点数（死亡转化，跨局永久）。
+  economy: {
+    killScoreBase: 20,        // 普通敌人击杀得分（Boss 掉落见 bosses/*.json loot.score）
+    scoreToPointsRatio: 0.1,  // 死亡时局内得分 → 商店点数 转化比例（10%）
+    refreshCost: 10,          // 卡牌三选一刷新费（消耗局内得分，开放问题 5）
+    reviveCost: 40,           // 局前购买追加复活次数（商店点数）
+    saveVersion: 1,           // 存档版本号（profile.version；不匹配则重置）
+    saveKey: 'rogue-tank-save' // localStorage 键名
   }
 };
 

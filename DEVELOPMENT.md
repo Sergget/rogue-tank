@@ -57,6 +57,7 @@
 | 用途 | 节点间三选一卡牌（可消耗得分刷新选项）+ **节点间商店**：买本局内的消耗品/临时强化 | **死亡后商店**：永久升级（贵，局内不可购买）、消耗品（如复活次数，便宜） |
 
 - 节点间商店 与 死亡后商店 是**两套独立商店**，货币互不流通——维持"死亡才能换永久成长"的核心惩罚分量不被稀释。
+- **P-14 已实现（2026-08-15）**：`js/tank_economy.js`（`UPGRADE_DEFS` 永久升级树 + `scoreToPoints`/`killScore` + `loadProfile`/`saveProfile` 版本化存档 + `buyUpgrade`/`applyUpgrades`）。具体数值收口 `RULES.economy`：普通敌击杀 `killScoreBase`=20 分；死亡转化 `scoreToPointsRatio`=10%；卡牌刷新费 `refreshCost`=10；复活次数购买 `reviveCost`=40 点。**永久升级树（8 项，permanent scope，cost 25~40 点 / maxLevel 5）**：穿深/伤害/正面装甲/炮塔装甲/耐久/极速/装填/散布。存档 `{version, points, upgrades, stats}` 存 localStorage（键 `rogue-tank-save`），版本不匹配回退默认；死亡后商店（gameover 覆盖层）用点数买永久升级 + 复活次数；开局 `applyUpgrades` 应用永久升级 + `runs++`。**开放问题 5（节点通关得分量化）已部分落地**：击杀得分 `killScore` + §4.5 节点通关奖励 + 转化比例均已量化，剩余"卡牌刷新费交互"（M10 内节点间商店 UI）留待后续。
 
 ### 2.5 掩体系统（已实现于原型）
 掩体分两种，处理方式完全不同：
@@ -363,6 +364,13 @@
 - **接入生成器**：`tank_map.js` 的 `difficultyForIndex` 改读 `RULES.difficulty`；新增 `aiTierForDifficulty`/`statMultForDifficulty`；`makeNode` 产 `aiTier`+`statMult`（节点级 + 每个 enemy 带 `statMult`）；`materializeNode` 经 `env.applyDifficulty(tank, statMult)` 应用数值强度（mvp 用 `addModifier` 给敌军 hp/穿深/伤害 乘 statMult，`scope:'run'`）。
 - **验证**：`scripts/test-map.js` 补三杠杆断言（AI 档位/数值强度单调+范围+匹配难度+敌人带 statMult），`npm test` 全绿（现共 20 套）。
 
+#### 3.14 经济与存档（P-14，2026-08-15 会话；设计见 §2.4）
+- **纯逻辑 `js/tank_economy.js`**：`UPGRADE_DEFS`（8 项永久升级树：穿深/伤害/正面装甲/炮塔装甲/耐久/极速/装填/散布，cost 25~40 / maxLevel 5）+ `scoreToPoints`/`killScore` + `loadProfile`/`saveProfile`（版本化 + 损坏回退）+ `buyUpgrade`/`applyUpgrades`。
+- **击杀得分**：`entities.forEach` 击杀检测里 `runScore += killScore()`（敌方、非测试靶车）+ `profile.stats.kills++`。
+- **死亡转化**：gameover 分支 `scoreToPoints(runScore)`（10%）→ `profile.points` + `saveProfile`；gameover 覆盖层显示转化 + 现有点数 + 死亡商店（`renderDeathShop` 列永久升级与复活次数，`buyUpgradeAndRefresh`/`buyReviveAndRefresh` 挂 window）。
+- **开局应用**：`startNewRun` 调 `applyUpgrades(player, profile)`（permanent scope）+ `profile.stats.runs++` + `saveProfile`。
+- **验证**：`scripts/test-economy.js`（18 断言：存档默认/归一化/往返/转化/购买/满级/应用升级）挂进 `npm test`（现共 21 套全绿）；vm 运行时冒烟覆盖「开局应用升级+runs++ → gameover 转化+商店渲染 → 购买函数」（临时脚本，未入库）。
+
 ---
 
 ## 4. 开放问题（已知但尚未确定，按优先级排序）
@@ -491,7 +499,7 @@
 
 新系统一律遵循现有工程惯例：「js/ 模块 + Node 测试 + `types/globals.d.ts` 同步」。
 
-- **玩家进度持久化（存档，归属经济里程碑）**：永久升级 + 死亡时局内得分→商店点数转化需要存档（localStorage），需定存档结构、写入时机、版本化。
+- ~~**玩家进度持久化（存档，归属经济里程碑）**~~ — **已实现（P-14）**：`js/tank_economy.js` 的 `loadProfile`/`saveProfile`（版本化 `{version, points, upgrades, stats}`，键 `rogue-tank-save`，版本不匹配/损坏回退默认）；写入时机 = 开局（runs++）与死亡（得分转化 + 购买后）。
 - ~~**视线遮挡查询函数（归属敌人 AI 里程碑，AI 前实现）**~~ — **已实现（P-10）**：`js/tank_cover.js` `hasLineOfSight(ox,oy,tx,ty)`（`vision:true` 的灌木/树冠遮挡视线，与弹道穿透两套判定），已接入敌人 AI 索敌；Node 回归见 `scripts/test-covers.js` §31。
 - ~~**声音系统（独立里程碑 M1，见 2.11）**~~ — **已实现（2026-08-15，P-07 完结）**：`js/tank_audio.js` Web Audio 程序化合成 8 类占位音效（开火/击穿/未击穿/跳弹/殉爆/履带断/起火/UI），后续替换为资产文件；见 §2.11/§3.6。
 - **卡牌池/商店商品/永久升级树内容设计（归属经济里程碑）**：modifiers 管道就绪但无内容，纯设计工作。
@@ -527,7 +535,7 @@
    - Boss `summons` 伴随单位已生成并走同一敌对 AI；阶段行为由 `onEnter.modifiers` 自然产生。
 8. ~~**死亡/复活状态机（2.3）**~~ — **已完成（2026-08-15，P-11，见 §2.3/§3.11）**：永久死亡 + 复活次数（基础 2，`RULES.revive.baseRevives`）+ 满状态复活于友军据点旁随机无障碍点 + `invulnSeconds`=3s 无敌（`js/tank_revive.js` + mvp 死亡判定 + `applyModuleDamage`/DOT 无敌检查 + 无敌闪烁视觉）。剩余：局前商店购买追加复活次数（M10 经济里程碑接入）。
 9. ~~**base/modifiers/stats 三层接线（5.1）**~~ — **已完成（2026-08-15，P-12，见 §5.1/§3.12）**：修饰器 `scope` 生命周期分类（permanent/run/timed）+ `removeRunModifiers`/`removeModifiersByScope`；卡牌与 Boss 阶段 modifier 标 `run`、run 结束清除。剩余：局外永久升级的修饰器**内容**（M10）。
-10. **经济与数值落地（含存档）**：击杀得分、节点通关奖励量化（4.5 方案）、局内得分→商店点数转化比例、卡牌三选一刷新费（开放问题 5）；**玩家进度持久化（存档，5.6）**：永久升级 + 死亡时局内得分→商店点数转化需要 localStorage，需定存档结构/写入时机/版本化；**卡牌池/商店商品/永久升级树内容设计（5.6）**：modifiers 管道就绪但无内容，纯设计工作。**进展（P-09）**：卡牌 economy 效果类型与 `cards/` 池已就绪（内容待批量）。
+10. ~~**经济与数值落地（含存档）**~~ — **已完成（2026-08-15，P-14，见 §2.4/§3.14）**：击杀得分（`killScore`=20）+ 节点通关奖励（§4.5）+ 死亡转化（`scoreToPointsRatio`=10%）+ 版本化存档（`loadProfile`/`saveProfile`）+ 永久升级树（8 项 permanent scope，cost/maxLevel）+ 死亡后商店（买永久升级/复活次数）+ 开局 `applyUpgrades`。剩余：节点间商店（消耗品/临时强化）与卡牌刷新费 UI（局内商店界面留待后续）。
 11. **坦克纹理化 + 车型多样性内容（2.10）**：`texture` 字段 + 多边形 clip 平铺图案叠层（保持 `t.color` 主色）；texture 进 tank JSON + `tank_schema.js` FIELD_ROWS 枚举 + 设计器选择器（外观件条目）；几套定型几何模板 + 多色/迷彩方案（`tanks/` 条目目前共用箭镞车体+豹2A6炮塔模板，差异只在数值）。
 12. ~~**难度曲线表**~~ — **已完成（2026-08-15，P-13，见 §4 开放问题 6/§3.13）**：三杠杆定表 `RULES.difficulty`（曲线/敌人数量/AI 档位/数值强度），`makeNode` 产 `aiTier`+`statMult`、`materializeNode` 应用数值强度。剩余：AI 档位 1/2 的实际行为差异留待未来 AI 细化（当前双态即档位 0）。
 13. **碰撞体积与视觉几何对齐（可选，低优先）**：#18 修复（2026-08-14）后正面贴脸不再误判后部模块，但坦克碰撞盒仍为车体矩形包围盒（不含炮塔/炮管/箭镞尖头），紧贴时车体视觉重叠 ≈19px 仍残留（#18 修复方向④未实施，属弹道范围外的独立改动）；如需彻底消除，可考虑碰撞改用 `hullPoly` 凸包，风险点为碰撞手感/推挤行为回归，需回归 `test-tankcollision.js`。

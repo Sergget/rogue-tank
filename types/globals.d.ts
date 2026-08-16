@@ -265,3 +265,18 @@ declare function pointInAnyCover(covers: any[], x: number, y: number, padding: n
 declare function reviveTank(t: any, spot: any, invulnSeconds?: number): any;
 declare function canRevive(t: any): boolean;
 declare function reviveAt(t: any, outpost: any, covers: any[], playerSpawn: any, rng?: any): boolean;
+
+// 经济与存档（js/tank_economy.js，P-14 / §2.4 / §6 条目 10）
+declare var UPGRADE_DEFS: any[];
+declare function economyConfig(): any;
+declare function getUpgradeDef(id: string): any;
+declare function defaultProfile(): any;
+declare function normalizeProfile(p: any): any;
+declare function loadProfile(storage: any): any;
+declare function saveProfile(storage: any, profile: any): boolean;
+declare function killScore(): number;
+declare function scoreToPoints(score: number, ratio?: number): number;
+declare function upgradeLevel(profile: any, id: string): number;
+declare function canBuyUpgrade(profile: any, id: string): boolean;
+declare function buyUpgrade(profile: any, id: string): boolean;
+declare function applyUpgrades(tank: any, profile: any): number;

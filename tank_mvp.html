@@ -227,6 +227,7 @@
       <div id="gameoverScreen" class="screen" style="display:none;">
         <div class="screen-title">阵亡 KIA</div>
         <div id="gameoverBody"></div>
+        <div id="deathShop" style="margin-top:12px;"></div>
         <div class="btnrow"><button id="gameoverRestartBtn">重新开始 RESTART</button></div>
       </div>
     </div>
@@ -307,6 +308,7 @@
   <script src="js/tank_move.js"></script>
   <script src="js/tank_ai.js"></script>
   <script src="js/tank_revive.js"></script>
+  <script src="js/tank_economy.js"></script>
   <script src="js/tank_fx.js"></script>
   <script src="js/tank_audio.js"></script>
   <script src="js/tank_assets.js"></script>
@@ -330,6 +332,7 @@ let currentNode = null;    // 当前节点数据（makeNode 产出）
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
 let runScore = 0;          // 本局累计得分（§4.5 结算累加）
 let runFinished = false;
+let profile = loadProfile(localStorage);   // P-14：跨局存档（商店点数 + 永久升级 + 统计）
 const MM = { w: 170, h: 120, x: 0, y: 10 };   // 小地图框（右上角，x 绘制时按 canvas 宽算）
 function setBenchCamera(){
   cam.bounds = { w: canvas.width, h: canvas.height };
@@ -721,13 +724,60 @@ watchFlow(flow, (state, payload) => {
     showScreen('rewardScreen'); setOverlayVisible(true);
   } else if(state === 'gameover'){
     const diedAt = payload ? payload.nodeIndex : 0;
+    // P-14：死亡转化 —— 局内得分 → 商店点数（10%），累计 + 存档
+    const gained = scoreToPoints(runScore);
+    profile.points += gained;
+    saveProfile(localStorage, profile);
     document.getElementById('gameoverBody').innerHTML =
       `<div class="row"><span class="k">阵亡于节点</span><span>${diedAt + 1}/${run.nodes.length}</span></div>` +
       `<div class="row"><span class="k">本局得分</span><span>${runScore}</span></div>` +
-      `<div class="screen-hint">复活系统（M8）未接入 — 当前为永久死亡占位。</div>`;
+      `<div class="row"><span class="k">转化商店点数</span><span>+${gained}（10%）</span></div>` +
+      `<div class="row total"><span class="k">现有点数</span><span id="gameoverPoints">${profile.points}</span></div>`;
+    renderDeathShop();
     showScreen('gameoverScreen'); setOverlayVisible(true);
   }
 });
+
+// P-14：死亡后商店（永久升级 + 复活次数，用商店点数购买）
+function renderDeathShop(){
+  const el = document.getElementById('deathShop');
+  if(!el) return;
+  let html = `<div class="mono" style="font-size:10px;color:var(--amber-dim);margin-bottom:8px;">死亡后商店 · 点数 ${profile.points}</div>`;
+  for(const u of UPGRADE_DEFS){
+    const lv = upgradeLevel(profile, u.id);
+    const maxed = lv >= u.maxLevel;
+    html += `<div class="row" style="justify-content:space-between;">
+      <span class="k">${u.name} ${maxed ? '（满级）' : `${lv}/${u.maxLevel}`}</span>
+      <button ${maxed || profile.points < u.cost ? 'disabled style="opacity:0.4"' : ''} onclick="buyUpgradeAndRefresh('${u.id}')">${u.cost} 点</button>
+    </div>`;
+  }
+  // 复活次数购买
+  html += `<div class="row" style="justify-content:space-between;">
+    <span class="k">复活次数 +1（当前 ${player.revives}）</span>
+    <button ${profile.points < RULES.economy.reviveCost ? 'disabled style="opacity:0.4"' : ''} onclick="buyReviveAndRefresh()">${RULES.economy.reviveCost} 点</button>
+  </div>`;
+  el.innerHTML = html;
+}
+
+// P-14：死亡商店购买（挂 window 供 onclick 调用；buy 后刷新点数与按钮态并存档）
+window.buyUpgradeAndRefresh = function(id){
+  if(buyUpgrade(profile, id)){
+    saveProfile(localStorage, profile);
+    const p = document.getElementById('gameoverPoints'); if(p) p.textContent = profile.points;
+    renderDeathShop();
+    playSound('ui');
+  }
+};
+window.buyReviveAndRefresh = function(){
+  if(profile.points >= RULES.economy.reviveCost){
+    profile.points -= RULES.economy.reviveCost;
+    player.revives++;
+    saveProfile(localStorage, profile);
+    const p = document.getElementById('gameoverPoints'); if(p) p.textContent = profile.points;
+    renderDeathShop();
+    playSound('ui');
+  }
+};
 
 function startNewRun(){
   run = generateRun();
@@ -735,6 +785,9 @@ function startNewRun(){
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
   removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
   player.revives = RULES.revive.baseRevives;   // P-11：复活次数（基础 2，局前可购追加 M10）
+  applyUpgrades(player, profile);              // P-14：应用永久升级（permanent scope）
+  profile.stats.runs++;                         // P-14：局数统计
+  saveProfile(localStorage, profile);
   pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}）`, 'COVER');
   playSound('ui');
   transition(flow, 'battle', { nodeIndex: 0 });
@@ -1079,7 +1132,15 @@ function update(dt){
     if(e.ammoBlew && !e._blowFx){ e._blowFx = true; spawnAmmoBlowFx(e); playSound('ammoBlew'); }
     // 履带被击断：一次性生成破片/火花视觉
     if(e.trackBroken && !e._trackFx){ e._trackFx = true; spawnTrackBreakFx(e); playSound('trackBreak'); }
-    if(e.hp<=0 && !e._dead){ e._dead=true; e.hp=0; e.fireT = Math.max(e.fireT, 4); pushLog(`${e.id==='player'?'玩家':e.id} 已摧毁 — 车体起火`,'CRIT'); }
+    if(e.hp<=0 && !e._dead){
+      e._dead=true; e.hp=0; e.fireT = Math.max(e.fireT, 4);
+      // P-14：击杀得分（run 战斗态、敌方、非测试靶车 dummy）
+      if(run && battleState && e.team === 'enemy' && e.id !== 'dummy'){
+        runScore += killScore();
+        profile.stats.kills++;
+      }
+      pushLog(`${e.id==='player'?'玩家':e.id} 已摧毁 — 车体起火`,'CRIT');
+    }
     // auto-revive for the test-rig dummy so you can keep shooting after a kill
     if(e.id==='dummy' && e._dead && dummy.autoRevive){
       e.reviveT = (e.reviveT||0) + dt;

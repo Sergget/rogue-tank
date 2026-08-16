@@ -36,6 +36,7 @@
   - `tank_boss.js`：Boss 系统（`validateBoss`/`bossStageFor` + 运行时 `makeBossEntity`/`applyBossStage`/`updateBossStage`，P-09；纯逻辑可 Node 测试）。
   - `tank_ai.js`：敌人/友军 AI 决策（`aiDecide`/`aiDecideEnemy`/`aiDecideAlly` 双态 + 消极防御，输出 `{turn, move, turretDesired, fire}`，P-10；纯逻辑可 Node 测试，依赖 `RULES.ai`）。
   - `tank_revive.js`：死亡/复活状态机（`findReviveSpot`/`reviveTank`/`canRevive`/`reviveAt` 满状态复活+无敌+友军据点旁随机点，P-11；纯逻辑可 Node 测试，依赖 `RULES.revive`）。
+  - `tank_economy.js`：经济与存档（`UPGRADE_DEFS` 永久升级树 + `scoreToPoints`/`killScore` + `loadProfile`/`saveProfile` 版本化 + `buyUpgrade`/`applyUpgrades`，P-14；纯逻辑可 Node 测试，storage 显式注入，依赖 `RULES.economy`）。
 
 ## 2. 文档分工（开始工作前必读）
 
