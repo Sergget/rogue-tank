@@ -34,9 +34,11 @@ const byRarity = {};
 const byTag = {};
 const byEffectType = {};
 const numericRange = { min: Infinity, max: -Infinity };
+const nameCount = {};
 for (const c of cards) {
   byRarity[c.rarity] = (byRarity[c.rarity] || 0) + 1;
   for (const t of (c.tags || [])) byTag[t] = (byTag[t] || 0) + 1;
+  nameCount[c.name] = (nameCount[c.name] || 0) + 1;
   for (const ef of c.effects) {
     byEffectType[ef.type] = (byEffectType[ef.type] || 0) + 1;
     if (typeof ef.value === 'number') {
@@ -44,6 +46,11 @@ for (const c of cards) {
       numericRange.max = Math.max(numericRange.max, ef.value);
     }
   }
+}
+
+// name 唯一性（id 唯一由 validate-content 守门；name 重复会让玩家困惑，这里单独警示）
+for (const n in nameCount) {
+  if (nameCount[n] > 1) warn(`卡牌 name 重复: 「${n}」出现 ${nameCount[n]} 次`);
 }
 
 console.log('稀有度分布（期望权重）:');

@@ -1,6 +1,6 @@
 {
   "id": "support_track_guard",
-  "name": "履带护板",
+  "name": "履带防护套件",
   "rarity": "common",
   "tags": ["支援"],
   "desc": "履带加装护板，被击毁后锁定时间 -10%。",
