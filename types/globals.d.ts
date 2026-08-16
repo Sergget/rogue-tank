@@ -138,6 +138,7 @@ interface GeneratedNodeResult {
 declare var covers: any[];
 declare function snapshotCovers(): void;
 declare function resetCovers(): void;
+declare function hasLineOfSight(ox: number, oy: number, tx: number, ty: number): boolean;
 
 declare var NODE_TEMPLATES: any[];
 declare function createRNG(seed?: any): any;
@@ -246,3 +247,9 @@ declare function bossInStage(boss: any, hpRatio: number, stageId: string): boole
 declare function makeBossEntity(boss: any, env: any): any;
 declare function applyBossStage(entity: any, stage: any): void;
 declare function updateBossStage(entity: any): { changed: boolean; from?: string; to?: string; stage: any };
+
+// 敌人/友军 AI 决策（js/tank_ai.js，P-10 / §6 条目 7）
+declare function aiConfig(): any;
+declare function aiDecideEnemy(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
+declare function aiDecideAlly(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
+declare function aiDecide(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };

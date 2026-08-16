@@ -1364,3 +1364,11 @@ if (mod.key==='ammo') {
 - **Boss 运行时接入**：节点链末端为 Boss 战（生成 boss 实体、阶段触发、掉落结算）。
 - 验证：`node scripts/validate-content.js` 通过、`node scripts/audit-content.js --strict` 无警告、`npm test` 全绿。
 
+---
+
+### [2026-08-15] 归档自 PLAN.md 条目 7 视线遮挡查询函数（P-10 已完成）
+
+> 2026-08-15 删除自 PLAN.md「后续里程碑缺口清单」：视线遮挡查询函数已由 P-10 实现（`js/tank_cover.js` `hasLineOfSight`）并接入敌人 AI 索敌，详见 DEVELOPMENT.md §2.2/§5.6/§3.10。被删条目原文如下：
+
+- **视线遮挡查询函数**（`vision:true` 目前只有渲染、无"两点间视线是否被遮"判定；敌人 AI 索敌（开放问题 1）与玩家被发现判定的公共前置；实现为纯函数模块）—— 归属条目 7 敌人 AI 双态 + 友军据点。
+

@@ -305,6 +305,7 @@
   <script src="js/tank_physics.js"></script>
   <script src="js/tank_entity.js"></script>
   <script src="js/tank_move.js"></script>
+  <script src="js/tank_ai.js"></script>
   <script src="js/tank_fx.js"></script>
   <script src="js/tank_audio.js"></script>
   <script src="js/tank_assets.js"></script>
@@ -588,6 +589,27 @@ function enterBattle(nodeIndex){
     bossEntity.x = node.w * 0.7; bossEntity.y = node.h / 2;
     bossEntity.hullAngle = Math.PI; bossEntity.turretAngle = Math.PI;
     pushLog(`⚠ BOSS 战：「${node.boss.name}」— ${node.boss.desc || ''}`, 'CRIT');
+
+    // P-10：Boss summons——伴随单位（浮游炮/护卫/护盾发生器），计入清敌判定
+    if(node.boss.summons){
+      let si = 0;
+      for(const sm of node.boss.summons){
+        for(let i = 0; i < (sm.count || 0); i++){
+          const s = spawnTank({
+            id: `summon_${node.index}_${si++}`,
+            team: 'enemy',
+            x: bossEntity.x + (Math.random() - 0.5) * 220,
+            y: bossEntity.y + (Math.random() - 0.5) * 220,
+            hullAngle: Math.PI, turretAngle: Math.PI,
+            heightClass: 'medium'
+          });
+          const spec = tankListData && tankListData[sm.tankId];
+          if(spec) applyTankConfig(s, spec);
+          resetEntity(s);
+          s.nodeSpawn = true;
+        }
+      }
+    }
   }
 
   battleState = { startMs: performance.now(), prevPlayerHp: player.hp, damageTaken: 0, cleared: false, playerDied: false };
@@ -766,14 +788,15 @@ let shells = [];   // 炮弹飞行动画（沿弹道逐段推进）
 let impacts = [];
 let bounceFx = []; // ricochet spark visuals
 
-function tryFire(){
-  if(player.reloadT>0 || player.immobT>0) return;
-  const target = nearestEnemyTo(player);
-  if(!target) return;
+// 通用开火：玩家/敌人/友军/Boss 共用同一 shell 管线（P-10：从 tryFire 抽取）。
+// hitPref = 'turret'|'hull'|'auto'（玩家用鼠标意图，AI 用 'auto'）。返回是否真的发射了炮弹。
+function fireTank(shooter, target, hitPref){
+  if(!shooter || !target) return false;
+  if(shooter.reloadT>0 || shooter.immobT>0) return false;
 
   // 1. 炮管贯穿掩体检测：从 gunRoot 到 gunTip
-  const rootP = gunRoot(player);
-  const tipP = gunTip(player);
+  const rootP = gunRoot(shooter);
+  const tipP = gunTip(shooter);
   const barrelCovers = findCoversOnPath(rootP.x, rootP.y, tipP.x, tipP.y);
   const solidBarrelBlock = barrelCovers.find(c => {
     const mode = COVER_TIERS[c.cover.tier].mode;
@@ -781,74 +804,68 @@ function tryFire(){
   });
 
   if(solidBarrelBlock){
-    // 炮管穿过全高/单发阻挡掩体：开火直接在炮管与掩体交点处被拦截
-    player.reloadT = player.stats.reload / debuffReloadRate(player);
+    shooter.reloadT = shooter.stats.reload / debuffReloadRate(shooter);
     const blockPt = solidBarrelBlock.point;
     const coverTier = COVER_TIERS[solidBarrelBlock.cover.tier];
     burstExplosion(blockPt.x, blockPt.y, 0.6, 4, 2, 0);
-    spawnMuzzleFlash(tipP.x, tipP.y, player.turretAngle, 1, (player.barrel && player.barrel.muzzle) || 'none');
-    impacts.push({ x: blockPt.x, y: blockPt.y, life: 0.4, color: '#ffb454' });
-    spawnImpactFx(blockPt.x, blockPt.y, player.turretAngle, 'block', 0.8);
-    playSound('block'); // M1：炮管贯穿掩体 → 开火在掩体处被截停（钝响）
-
-    if(coverTier.mode === 'single'){
-      damageCover(solidBarrelBlock.cover, 1, 'shell');
-      pushLog(`开火被掩体阻挡 — 炮管贯穿${coverTier.label}，炮弹在掩体处被截停`,'COVER');
-    } else {
-      if(Number.isFinite(solidBarrelBlock.cover.hp)){
-        if(!damageCover(solidBarrelBlock.cover, 1, 'shell')){
-          pushLog(`开火被掩体阻挡 — 炮管贯穿${coverTier.label}（剩余耐久 ${solidBarrelBlock.cover.hp}）`,'COVER');
-        }
-      } else {
+    spawnMuzzleFlash(tipP.x, tipP.y, shooter.turretAngle, 1, (shooter.barrel && shooter.barrel.muzzle) || 'none');
+    spawnImpactFx(blockPt.x, blockPt.y, shooter.turretAngle, 'block', 0.8);
+    playSound('block');
+    if(shooter.team === 'player'){
+      if(coverTier.mode === 'single'){
+        damageCover(solidBarrelBlock.cover, 1, 'shell');
         pushLog(`开火被掩体阻挡 — 炮管贯穿${coverTier.label}，炮弹在掩体处被截停`,'COVER');
+      } else {
+        pushLog(`开火被掩体阻挡 — 炮管贯穿${coverTier.label}`,'COVER');
       }
     }
-    return;
+    return false;
   }
 
-  // 装填手/弹药架受伤 → 装填更久（debuff 降低装填速度）
-  player.reloadT = player.stats.reload / debuffReloadRate(player);
-  const gp = tipP;
-  const ox = gp.x, oy = gp.y;
-  const gr = rootP;
+  shooter.reloadT = shooter.stats.reload / debuffReloadRate(shooter);
+  const ox = tipP.x, oy = tipP.y;
 
-  // 散布只影响出膛方向（炮弹真实飞行，命中与否由飞行期间的实际情况决定）
-  const sigma = player.sigma;
-  const spreadAngle = player.turretAngle + gaussian(sigma);
+  // 散布只影响出膛方向
+  const sigma = shooter.sigma || 0;
+  const spreadAngle = shooter.turretAngle + gaussian(sigma);
   const dx = Math.cos(spreadAngle), dy = Math.sin(spreadAngle);
 
-  // 当前弹种（特性4）：AP/APCR/HE 倍率作用在速/穿深/伤害上
-  const ammo = RULES.ammoTypes[player.ammoKey] || RULES.ammoTypes.ap;
+  // 当前弹种
+  const ammo = RULES.ammoTypes[shooter.ammoKey] || RULES.ammoTypes.ap;
 
-  // 命中部位意图：沿无散布瞄准线把鼠标投影到与目标的距离上（比目标远 → 打炮塔 / 近 → 打车体）
-  const aimA = player.turretAngle;
-  const aimU = Math.cos(aimA), aimV = Math.sin(aimA);
-  const aimHits = raycastTank(ox, oy, aimU, aimV, target);
-  const hitPref = aimPartPreference(ox, oy, aimU, aimV, mouseWorld.x, mouseWorld.y, aimHits, RULES.aim.partProbe);
-
-  // 炮口闪光（开火瞬间）：定向锥形闪光 + 少量烟尘。传入具体的制退器样式
-  const bMuzzle = (player.barrel && player.barrel.muzzle) || 'none';
+  const bMuzzle = (shooter.barrel && shooter.barrel.muzzle) || 'none';
   burstExplosion(ox, oy, 0.6, 4, 2, 0);
-  spawnMuzzleFlash(ox, oy, spreadAngle || player.turretAngle, 1, bMuzzle);
-  playSound('fire'); // M1：开火
+  spawnMuzzleFlash(ox, oy, spreadAngle || shooter.turretAngle, 1, bMuzzle);
+  playSound('fire');
 
-  // 生成真实飞行炮弹：位置 / 方向 / 速度 / 穿深 / 伤害 / 弹种
-  // fx/fy = 弹道起点（从 gunRoot 算，防穿透）：半高/全高掩体及弹道检测从 gunRoot 延伸
   shells.push({
     x: ox, y: oy,
-    fx: gr.x, fy: gr.y,
+    fx: rootP.x, fy: rootP.y,
     dx, dy,
-    speed: Math.max(200, player.stats.shellSpeed * ammo.speed),
-    pen:  player.stats.penetration * ammo.pen,
-    dmg:  player.stats.damage * ammo.dmg,
+    speed: Math.max(200, shooter.stats.shellSpeed * ammo.speed),
+    pen:  shooter.stats.penetration * ammo.pen,
+    dmg:  shooter.stats.damage * ammo.dmg,
     ammo,
-    shooter: player,
+    shooter,
     hitPref,
     canBounce: true,
     bounced: false,
     dist: 0,
     dead: false
   });
+  return true;
+}
+
+function tryFire(){
+  const target = nearestEnemyTo(player);
+  if(!target) return;
+  // 命中部位意图：沿无散布瞄准线把鼠标投影到与目标的距离上（比目标远 → 打炮塔 / 近 → 打车体）
+  const tipP = gunTip(player);
+  const aimA = player.turretAngle;
+  const aimU = Math.cos(aimA), aimV = Math.sin(aimA);
+  const aimHits = raycastTank(tipP.x, tipP.y, aimU, aimV, target);
+  const hitPref = aimPartPreference(tipP.x, tipP.y, aimU, aimV, mouseWorld.x, mouseWorld.y, aimHits, RULES.aim.partProbe);
+  fireTank(player, target, hitPref);
 }
 
 // ---------- live firing solution (no spread) ----------
@@ -996,6 +1013,37 @@ function update(dt){
 
   // keep every tank from overlapping its neighbours (player vs dummy, future allies/enemies)
   resolveTankCollisions();
+
+  // P-10：敌人/友军 AI（§2.2 双态：摄像机内主动 / 边缘靠近 / 远处被动；友军消极防御）。
+  // 玩家与测试靶车（dummy）保持手动控制；nodeSpawn/Boss/召唤物走 aiDecide 决策。
+  if(run && battleState && flow.state === 'battle'){
+    const vb = viewBounds(cam);
+    const aiCtx = {
+      player,
+      view: vb,
+      enemies: entities.filter(e => e.team === 'enemy' && e.hp > 0),
+      hasLoS: hasLineOfSight
+    };
+    for(const e of entities){
+      if(e.id === 'player' || e.id === 'dummy') continue;   // 手动控制
+      if(e.hp <= 0) continue;
+      const d = aiDecide(e, aiCtx);
+      // 车体转向 + 移动（统一 driveTank）
+      driveTank(e, dt, { turn: d.turn, move: d.move });
+      // 炮塔转向（转速限制 + 射界限制，与玩家同口径）
+      const relDesired = angDiff(d.turretDesired, e.hullAngle);
+      const clampedRel = Math.max(-e.traverseLimit, Math.min(e.traverseLimit, relDesired));
+      const desired = e.hullAngle + clampedRel;
+      const diff = angDiff(desired, e.turretAngle);
+      const maxStep = e.stats.turretTurnRate * dt;
+      e.turretAngle = norm(e.turretAngle + Math.max(-maxStep, Math.min(maxStep, diff)));
+      // 开火：复用 fireTank（敌人打玩家，友军打最近敌人）
+      if(d.fire){
+        const target = e.team === 'ally' ? nearestEnemyTo(e) : player;
+        if(target && target.hp > 0) fireTank(e, target, 'auto');
+      }
+    }
+  }
 
   entities.forEach(e=>{
     // invulnerable test-rig targets (dummy) never lose hp — DoT, pens, ammo detonations all no-op

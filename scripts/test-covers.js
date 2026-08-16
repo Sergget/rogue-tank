@@ -634,5 +634,22 @@ C.resetCovers();
   ok(elapsed < 5000, `1000 rapid operations completed in ${elapsed}ms (should be < 5000ms)`);
 }
 
+// 31) hasLineOfSight：视线遮挡查询（vision:true 的灌木/树冠遮视线；炮弹穿透的灌木仍遮视线）
+C.resetCovers();
+{
+  const bush = C.covers.find(c => c.tier === 'bush');
+  if (bush) {
+    // 射线穿过灌木 → 视线被遮（bush tier vision=true，mode=none 穿透弹但仍遮视线）
+    ok(C.hasLineOfSight(bush.x - 100, bush.y, bush.x + 100, bush.y) === false, '穿过灌木 → 视线被遮');
+    // 不穿灌木的路径 → 视线畅通
+    ok(C.hasLineOfSight(bush.x - 100, bush.y + 300, bush.x + 100, bush.y + 300) === true, '不穿灌木 → 视线畅通');
+  }
+  const half = C.covers.find(c => c.tier === 'half');
+  if (half) {
+    // 半高掩体 vision=false → 不遮视线（炮弹遮挡与视线遮挡是两套判定）
+    ok(C.hasLineOfSight(half.x - 100, half.y, half.x + 100, half.y) === true, '半高掩体 → 不遮视线（vision=false）');
+  }
+}
+
 console.log(fails ? `\n${fails} failure(s).` : '\nAll cover-system checks passed.');
 process.exitCode = fails ? 1 : 0;

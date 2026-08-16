@@ -193,6 +193,17 @@ const RULES = {
                                   // 后续车型多样性里程碑（§6 条目 11）扩充池内容）
     enemyMinDist: 150,            // 敌军彼此最小间距（px）
     enemyMinPlayerDist: 250       // 敌军离玩家出生点最小间距（px）
+  },
+
+  // 敌人/友军 AI（P-10 / DEVELOPMENT.md §6 条目 7）：双态行为 + 友军据点消极防御。
+  // 消费方：js/tank_ai.js（aiDecide）。
+  ai: {
+    edgeMargin: 200,        // 摄像机边缘靠近触发宽度（开放问题 2 初版：视口外扩该距离内主动靠近）
+    engageRange: 520,       // 主动开火/接战距离（px）
+    keepRange: 320,         // 保持距离下限（大于 engage 靠近，小于 close 后退）
+    closeRange: 200,        // 太近阈值：后退拉开
+    aimTolerance: 0.12,     // 炮塔对准容差（rad）才开火
+    allyEngageRange: 460    // 友军据点射程（消极防御，只打射程内敌人）
   }
 };
 

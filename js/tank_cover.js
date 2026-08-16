@@ -352,6 +352,18 @@ function isBlockedBySolidCover(ox,oy,tx,ty){
   return null;
 }
 
+// 视线遮挡查询（§2.7 / §5.6 前置）：两点间是否被 `vision:true` 的掩体（灌木/树冠）遮挡。
+// 是敌人 AI 索敌（开放问题 1）与玩家被发现判定的公共前置；炮弹穿透的 pass/none 掩体（灌木
+// 本身 mode='none' 但 vision=true）仍遮挡视线——视线与弹道是两套判定。
+function hasLineOfSight(ox,oy,tx,ty){
+  const hits = findCoversOnPath(ox,oy,tx,ty);
+  for(const h of hits){
+    const tier = COVER_TIERS[h.cover.tier];
+    if(tier && tier.vision) return false;   // 灌木/树冠遮挡视线
+  }
+  return true;
+}
+
 // Export for Node.js if running in test environment
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -373,6 +385,7 @@ if (typeof module !== 'undefined' && module.exports) {
     findCoversOnPath,
     getExposure,
     coverBlockInfo,
-    isBlockedBySolidCover
+    isBlockedBySolidCover,
+    hasLineOfSight
   };
 }
