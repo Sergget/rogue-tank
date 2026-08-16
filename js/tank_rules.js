@@ -212,6 +212,21 @@ const RULES = {
     baseRevives: 2,          // 基础复活次数（一局开始前可用商店点数购买追加，见 §2.4/M10）
     invulnSeconds: 3,        // 复活后无敌时长（开放问题 3 定值：3 秒）
     reviveRadius: 150        // 复活点 = 友军据点周围半径内随机无障碍点（无据点回退玩家出生点）
+  },
+
+  // 难度曲线表（P-13 / DEVELOPMENT.md §6 条目 12 / 开放问题 6）。
+  // 消费方：js/tank_map.js（difficultyForIndex / makeNode）。
+  // 三杠杆随节点推进（t = index/(count-1)）的涨法：
+  //   敌人数量 = 1 + floor(diff × enemyCountMax)
+  //   AI 策略复杂度档位 = floor(diff × (aiTierMax+1)) 钳到 [0, aiTierMax]（0=基础索敌/1=主动贴近/2=协同，预留）
+  //   数值强度乘数 statMult = 1 + (statMultMax−1) × diff（作用敌军 hp/穿深/伤害）
+  difficulty: {
+    curveStart: 0.15,        // 首节点难度（t=0）
+    curveSpan: 0.8,          // 难度跨度（末节点 = curveStart+curveSpan）
+    curvePow: 1.25,          // 曲率（>1 后段加速，模拟"层层推进越打越难"）
+    enemyCountMax: 4,        // 敌人数量上限（enemyCount = 1 + floor(diff × 4)）
+    aiTierMax: 2,            // AI 策略复杂度档位上限
+    statMultMax: 1.5         // 数值强度乘数上限（1.0 → 1.5）
   }
 };
 

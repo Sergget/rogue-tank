@@ -205,6 +205,8 @@ declare function restartRun(flow: FlowState): void;
 // 线性节点链生成 / 通关奖励评分 / 节点实体化（js/tank_map.js，P-08 / §6 条目 6）
 declare function difficultyForIndex(index: number, count: number): number;
 declare function enemyCountForDifficulty(diff: number): number;
+declare function aiTierForDifficulty(diff: number): number;
+declare function statMultForDifficulty(diff: number): number;
 declare function makeNode(index: number, count: number, rng: any): any;
 declare function generateRun(seed?: number | string, count?: number): { nodes: any[]; seed: number | string };
 declare function scoreNode(node: any, result: any): { base: number; bonuses: Array<{ label: string; amount: number }>; total: number };

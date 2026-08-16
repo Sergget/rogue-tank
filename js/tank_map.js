@@ -15,22 +15,43 @@
 
 // ---------- 难度曲线与构成 ----------
 
-/**
- * 节点难度曲线（初版，§4 开放问题 6 / §6 条目 12 的细化另行定表）：
- * 索引 i∈[0,count-1]，t=i/(count-1)；diff = 0.15 + 0.8·t^1.25 —— 单调上升，0.15 → 0.95。
- * 后段（t>0.6）增速快于前段，模拟"层层推进越打越难"。
- */
-function difficultyForIndex(index, count) {
-  if (count <= 1) return 0.5;
-  const t = Math.max(0, Math.min(1, index / (count - 1)));
-  return Math.round((0.15 + 0.8 * Math.pow(t, 1.25)) * 100) / 100;
+function difficultyConfig() {
+  return (typeof RULES !== 'undefined' && RULES.difficulty) ? RULES.difficulty : null;
 }
 
 /**
- * 敌军数量：1 + floor(diff·4) ∈ [1, 5]（diff 0.15→1，0.5→3，0.95→4）。
+ * 节点难度曲线（P-13 / §6 条目 12 / 开放问题 6 定表）：
+ * 索引 i∈[0,count-1]，t=i/(count-1)；diff = curveStart + curveSpan·t^curvePow。
+ * 参数收口 RULES.difficulty（curveStart 0.15 / curveSpan 0.8 / curvePow 1.25 → 单调 0.15→0.95，后段加速）。
+ */
+function difficultyForIndex(index, count) {
+  if (count <= 1) return 0.5;
+  const cfg = difficultyConfig() || { curveStart: 0.15, curveSpan: 0.8, curvePow: 1.25 };
+  const t = Math.max(0, Math.min(1, index / (count - 1)));
+  return Math.round((cfg.curveStart + cfg.curveSpan * Math.pow(t, cfg.curvePow)) * 100) / 100;
+}
+
+/**
+ * 敌军数量：1 + floor(diff·enemyCountMax)（RULES.difficulty.enemyCountMax=4）。
  */
 function enemyCountForDifficulty(diff) {
-  return Math.max(1, 1 + Math.floor(Math.min(1, Math.max(0, diff)) * 4));
+  const cfg = difficultyConfig() || {};
+  const max = cfg.enemyCountMax !== undefined ? cfg.enemyCountMax : 4;
+  return Math.max(1, 1 + Math.floor(Math.min(1, Math.max(0, diff)) * max));
+}
+
+// AI 策略复杂度档位：floor(diff·(aiTierMax+1)) 钳到 [0, aiTierMax]
+function aiTierForDifficulty(diff) {
+  const cfg = difficultyConfig() || {};
+  const max = cfg.aiTierMax !== undefined ? cfg.aiTierMax : 2;
+  return Math.max(0, Math.min(max, Math.floor(Math.min(1, Math.max(0, diff)) * (max + 1))));
+}
+
+// 数值强度乘数：1 + (statMultMax−1)·diff（作用敌军 hp/穿深/伤害）
+function statMultForDifficulty(diff) {
+  const cfg = difficultyConfig() || {};
+  const max = cfg.statMultMax !== undefined ? cfg.statMultMax : 1.5;
+  return Math.round((1 + (max - 1) * Math.min(1, Math.max(0, diff))) * 100) / 100;
 }
 
 // ---------- 节点生成 ----------
@@ -68,6 +89,10 @@ function makeNode(index, count, rng) {
 
   const playerSpawn = { x: w * 0.10, y: h / 2 };
 
+  // 三杠杆（P-13 / §6 条目 12）：敌人数量 / AI 策略复杂度 / 数值强度随 diff 涨
+  const aiTier = aiTierForDifficulty(diff);
+  const statMult = statMultForDifficulty(diff);
+
   // 敌军构成：散布在右 2/3 区域，拒绝采样避开掩体/互相重叠/贴近玩家出生点
   const enemyCount = enemyCountForDifficulty(diff);
   const enemies = [];
@@ -87,7 +112,8 @@ function makeNode(index, count, rng) {
       x: Math.round(ex), y: Math.round(ey),
       hullAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
       turretAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
-      heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium'
+      heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
+      statMult: statMult           // P-13：数值强度乘数（materializeNode 经 env.applyDifficulty 应用）
     });
   }
 
@@ -113,6 +139,8 @@ function makeNode(index, count, rng) {
   return {
     index: index,
     difficulty: diff,
+    aiTier: aiTier,          // P-13：AI 策略复杂度档位（0~2，供未来 AI 分级消费）
+    statMult: statMult,      // P-13：数值强度乘数（敌军 hp/穿深/伤害）
     seed: templateResult.seed,
     w: w,
     h: h,
@@ -196,6 +224,7 @@ function scoreNode(node, result) {
  *   env.clearEntities(keepIds)       —— 移除保留 id 之外的实体（浏览器：entities filter）
  *   env.spawnTank(spec)              —— 生成实体（浏览器：spawnTank 全局；spec 含 id/team/x/y/hullAngle/turretAngle/heightClass）
  *   env.configureTank(tank, tankId)  —— 应用坦克配置（浏览器：applyTankConfig+resetEntity；测试可 no-op）
+ *   env.applyDifficulty(tank, statMult) —— 应用数值强度乘数（P-13：敌军 hp/穿深/伤害 随难度涨；测试可 no-op）
  * @param {object} node makeNode/generateRun 产出的节点
  * @param {object} env 运行环境注入
  * @returns {{ spawned: object[], outpost: object|null }}
@@ -217,6 +246,7 @@ function materializeNode(node, env) {
     });
     t.nodeSpawn = true;
     if (typeof env.configureTank === 'function') env.configureTank(t, e.tankId);
+    if (e.statMult && e.statMult !== 1 && typeof env.applyDifficulty === 'function') env.applyDifficulty(t, e.statMult);
     spawned.push(t);
   }
 
@@ -241,6 +271,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     difficultyForIndex,
     enemyCountForDifficulty,
+    aiTierForDifficulty,
+    statMultForDifficulty,
     makeNode,
     generateRun,
     scoreNode,

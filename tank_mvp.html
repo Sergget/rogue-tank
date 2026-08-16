@@ -573,6 +573,12 @@ function enterBattle(nodeIndex){
       const spec = tankListData && tankListData[tankId];
       if(spec) applyTankConfig(t, spec);
       resetEntity(t);
+    },
+    applyDifficulty(t, statMult){                        // P-13：数值强度乘数（敌军 hp/穿深/伤害 随难度涨）
+      addModifier(t, { stat: 'maxHp', mode: 'mult', value: statMult, source: 'difficulty', scope: 'run' });
+      addModifier(t, { stat: 'penetration', mode: 'mult', value: statMult, source: 'difficulty', scope: 'run' });
+      addModifier(t, { stat: 'damage', mode: 'mult', value: statMult, source: 'difficulty', scope: 'run' });
+      t.hp = t.stats.maxHp; t.maxHp = t.stats.maxHp;
     }
   });
 

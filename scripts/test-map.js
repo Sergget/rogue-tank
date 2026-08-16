@@ -12,6 +12,8 @@ global.generateNode = NG.generateNode;
 const {
   difficultyForIndex,
   enemyCountForDifficulty,
+  aiTierForDifficulty,
+  statMultForDifficulty,
   generateRun,
   makeNode,
   scoreNode,
@@ -36,6 +38,15 @@ ok(enemyCountForDifficulty(0.5) === 3, '中难度 3 敌');
 ok(enemyCountForDifficulty(0.95) === 4, '高难度 4 敌');
 ok(enemyCountForDifficulty(2) === 5 && enemyCountForDifficulty(-1) === 1, '越界钳制');
 
+// 2b) 三杠杆：AI 策略复杂度档位 + 数值强度乘数（P-13 / §6 条目 12）
+ok(aiTierForDifficulty(0.15) === 0 && aiTierForDifficulty(0.95) === 2, 'AI 档位 0→2 随难度涨');
+ok(aiTierForDifficulty(2) === 2 && aiTierForDifficulty(-1) === 0, 'AI 档位越界钳制');
+ok(statMultForDifficulty(0.15) === 1.08 && statMultForDifficulty(0.95) === 1.48, `数值强度 1.0→1.5（实际 ${statMultForDifficulty(0.15)}→${statMultForDifficulty(0.95)}）`);
+ok(statMultForDifficulty(2) === 1.5 && statMultForDifficulty(-1) === 1, '数值强度越界钳制');
+// 三杠杆单调
+for (let i = 1; i < diffs.length; i++) ok(aiTierForDifficulty(diffs[i]) >= aiTierForDifficulty(diffs[i - 1]), `AI 档位单调（${diffs[i - 1]}→${diffs[i]}）`);
+for (let i = 1; i < diffs.length; i++) ok(statMultForDifficulty(diffs[i]) >= statMultForDifficulty(diffs[i - 1]), `数值强度单调`);
+
 // 3) generateRun：节点数、确定性、节点字段合法性
 const run1 = generateRun('run-seed', 5);
 const run2 = generateRun('run-seed', 5);
@@ -53,11 +64,17 @@ for (const n of run1.nodes) {
     ok(c.x >= 0 && c.x <= n.w && c.y >= 0 && c.y <= n.h, `节点 ${n.index} 掩体在界内`);
   }
   ok(n.enemies.length === enemyCountForDifficulty(n.difficulty), `节点 ${n.index} 敌军数量匹配难度`);
+  // P-13：三杠杆字段（AI 档位 + 数值强度）落在节点与每个敌人上
+  ok(typeof n.aiTier === 'number' && n.aiTier >= 0 && n.aiTier <= 2, `节点 ${n.index} aiTier 合法`);
+  ok(typeof n.statMult === 'number' && n.statMult >= 1 && n.statMult <= 1.5, `节点 ${n.index} statMult 合法`);
+  ok(n.aiTier === aiTierForDifficulty(n.difficulty), `节点 ${n.index} aiTier 匹配难度`);
+  ok(n.statMult === statMultForDifficulty(n.difficulty), `节点 ${n.index} statMult 匹配难度`);
   for (const e of n.enemies) {
     ok(e.x > 0 && e.x < n.w && e.y > 0 && e.y < n.h, '敌军在界内');
     ok(e.tankId && typeof e.tankId === 'string', '敌军有 tankId');
     ok(typeof e.hullAngle === 'number' && typeof e.turretAngle === 'number', '敌军朝向合法');
     ok(e.heightClass === 'heavy' || e.heightClass === 'medium', '敌军车高合法');
+    ok(e.statMult === n.statMult, `节点 ${n.index} 敌军 statMult 与节点一致`);
     ok(Math.hypot(e.x - n.playerSpawn.x, e.y - n.playerSpawn.y) >= RULES_MOD.RULES.nodeMap.enemyMinPlayerDist - 1, '敌军离玩家出生点有最小间距');
   }
   if (n.outpost) {

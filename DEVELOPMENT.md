@@ -358,6 +358,11 @@
 - **卡牌/Boss 标 run**：`applyCardEffects`（`js/tank_cards.js`）与 `applyBossStage`（`js/tank_boss.js`）的 modifier 标 `scope:'run'`——run 结束（gameover/全链通关重开）由 `startNewRun`/`gameoverRestartBtn` 调 `removeRunModifiers(player)` 清除，修掉"卡牌 buff 跨 run 残留"的隐患。
 - **验证**：`scripts/test-modifiers.js`（11 断言：scope 分类/timed 自动/run 清除/stats 恢复/卡牌与 Boss 标 run/过期剪除）挂进 `npm test`（现共 20 套全绿）。
 
+#### 3.13 难度曲线表（P-13，2026-08-15 会话；设计见 §4 开放问题 6）
+- **三杠杆定表**：`RULES.difficulty`（curveStart 0.15 / curveSpan 0.8 / curvePow 1.25 / enemyCountMax 4 / aiTierMax 2 / statMultMax 1.5）。
+- **接入生成器**：`tank_map.js` 的 `difficultyForIndex` 改读 `RULES.difficulty`；新增 `aiTierForDifficulty`/`statMultForDifficulty`；`makeNode` 产 `aiTier`+`statMult`（节点级 + 每个 enemy 带 `statMult`）；`materializeNode` 经 `env.applyDifficulty(tank, statMult)` 应用数值强度（mvp 用 `addModifier` 给敌军 hp/穿深/伤害 乘 statMult，`scope:'run'`）。
+- **验证**：`scripts/test-map.js` 补三杠杆断言（AI 档位/数值强度单调+范围+匹配难度+敌人带 statMult），`npm test` 全绿（现共 20 套）。
+
 ---
 
 ## 4. 开放问题（已知但尚未确定，按优先级排序）
@@ -382,7 +387,7 @@
 - **速度加成**：在标定时间内完成，奖励 +20%。
 - **据点存活**：若该节点有友军据点且未被摧毁，奖励 +20%。
 
-6. **难度曲线的具体参数**：敌人数量、AI 策略复杂度、数值强度这三个难度杠杆，随节点推进具体怎么涨（线性/阶梯/曲线）？哪个节点索引对应哪档强度？需要在做节点生成器时定出具体表格。
+6. ~~**难度曲线的具体参数**~~ **已定表（P-13）**：三杠杆收口 `RULES.difficulty`——难度曲线 `diff = curveStart(0.15) + curveSpan(0.8)·t^curvePow(1.25)`（单调 0.15→0.95，后段加速）；敌人数量 `1 + floor(diff·enemyCountMax(4))`；AI 策略复杂度档位 `aiTier = floor(diff·(aiTierMax(2)+1))`（0 基础索敌/1 主动贴近/2 协同，预留）；数值强度乘数 `statMult = 1 + (statMultMax(1.5)−1)·diff`（作用敌军 hp/穿深/伤害）。`tank_map.js` 的 `makeNode` 产 `aiTier`/`statMult`，`materializeNode` 经 `env.applyDifficulty` 应用。
 
 7. **坦克类型与编辑器系统** (新增)：
    - **无炮塔坦克 (Fixed-Turret)**：旧格式的 `hasTurret` 属性已移除，改为统一"有旋转炮塔"模型——炮塔转向自由度完全由 `traverseLimit` 控制（180° = 360° 全向旋转；<180° 时炮塔只能在车体中线左右各 ±traverseLimit 内转动）。
@@ -524,6 +529,6 @@
 9. ~~**base/modifiers/stats 三层接线（5.1）**~~ — **已完成（2026-08-15，P-12，见 §5.1/§3.12）**：修饰器 `scope` 生命周期分类（permanent/run/timed）+ `removeRunModifiers`/`removeModifiersByScope`；卡牌与 Boss 阶段 modifier 标 `run`、run 结束清除。剩余：局外永久升级的修饰器**内容**（M10）。
 10. **经济与数值落地（含存档）**：击杀得分、节点通关奖励量化（4.5 方案）、局内得分→商店点数转化比例、卡牌三选一刷新费（开放问题 5）；**玩家进度持久化（存档，5.6）**：永久升级 + 死亡时局内得分→商店点数转化需要 localStorage，需定存档结构/写入时机/版本化；**卡牌池/商店商品/永久升级树内容设计（5.6）**：modifiers 管道就绪但无内容，纯设计工作。**进展（P-09）**：卡牌 economy 效果类型与 `cards/` 池已就绪（内容待批量）。
 11. **坦克纹理化 + 车型多样性内容（2.10）**：`texture` 字段 + 多边形 clip 平铺图案叠层（保持 `t.color` 主色）；texture 进 tank JSON + `tank_schema.js` FIELD_ROWS 枚举 + 设计器选择器（外观件条目）；几套定型几何模板 + 多色/迷彩方案（`tanks/` 条目目前共用箭镞车体+豹2A6炮塔模板，差异只在数值）。
-12. **难度曲线表**：敌人数量 / AI 策略复杂度 / 数值强度三杠杆随节点索引的涨法（线性/阶梯/曲线），供节点生成器使用（开放问题 6）。
+12. ~~**难度曲线表**~~ — **已完成（2026-08-15，P-13，见 §4 开放问题 6/§3.13）**：三杠杆定表 `RULES.difficulty`（曲线/敌人数量/AI 档位/数值强度），`makeNode` 产 `aiTier`+`statMult`、`materializeNode` 应用数值强度。剩余：AI 档位 1/2 的实际行为差异留待未来 AI 细化（当前双态即档位 0）。
 13. **碰撞体积与视觉几何对齐（可选，低优先）**：#18 修复（2026-08-14）后正面贴脸不再误判后部模块，但坦克碰撞盒仍为车体矩形包围盒（不含炮塔/炮管/箭镞尖头），紧贴时车体视觉重叠 ≈19px 仍残留（#18 修复方向④未实施，属弹道范围外的独立改动）；如需彻底消除，可考虑碰撞改用 `hullPoly` 凸包，风险点为碰撞手感/推挤行为回归，需回归 `test-tankcollision.js`。
 14. ~~**卡牌内容批量（≥100 张）+ Boss 内容批量（≥5 种）**~~ — **已完成（2026-08-15，P-09 阶段 B，见 §2.13/§2.14/§3.9）**：111 张卡（5 流派×稀有度按权重）+ 5 Boss（多阶段+弱点+掉落）+ Boss 链尾运行时接入（生成/阶段触发/掉落）全部落地，`validate-content.js` + `audit-content.js --strict` + `npm test` 全绿。剩余相关项：Boss `summons` 伴随单位与 `behavior` 的行为化随敌人 AI（条目 7）一并接入；卡牌 ability/passive/drone/economy 的运行时效果随对应里程碑（M7/M9/M10）接入。
