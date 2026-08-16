@@ -1,0 +1,11 @@
+{
+  "id": "demo_hull_reinforce",
+  "name": "车体补强焊件",
+  "rarity": "common",
+  "tags": ["爆破"],
+  "desc": "车体关键部位补焊加强件，最大生命 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "maxHp", "mode": "mult", "value": 1.1 }
+  ],
+  "maxStacks": 3
+}

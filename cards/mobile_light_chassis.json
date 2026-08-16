@@ -1,0 +1,11 @@
+{
+  "id": "mobile_light_chassis",
+  "name": "轻量化车体",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "车体重量 -8%，加速与制动更快。",
+  "effects": [
+    { "type": "modifier", "stat": "weight", "mode": "mult", "value": 0.92 }
+  ],
+  "maxStacks": 3
+}

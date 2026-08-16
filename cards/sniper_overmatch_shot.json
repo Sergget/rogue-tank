@@ -1,0 +1,11 @@
+{
+  "id": "sniper_overmatch_shot",
+  "name": "超越击穿",
+  "rarity": "epic",
+  "tags": ["狙击"],
+  "desc": "超越击穿（被动）：命中薄装甲时无视跳弹角与等效厚度。",
+  "effects": [
+    { "type": "passive", "key": "overmatch", "value": 1 }
+  ],
+  "maxStacks": 1
+}

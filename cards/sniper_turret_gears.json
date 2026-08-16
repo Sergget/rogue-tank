@@ -1,0 +1,11 @@
+{
+  "id": "sniper_turret_gears",
+  "name": "炮塔传动升级",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "炮塔转速 +12%。",
+  "effects": [
+    { "type": "modifier", "stat": "turretTurnRate", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

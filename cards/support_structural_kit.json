@@ -1,0 +1,11 @@
+{
+  "id": "support_structural_kit",
+  "name": "车体结构强化",
+  "rarity": "epic",
+  "tags": ["支援"],
+  "desc": "车体结构强化套件，最大耐久 +30（基础 100）。",
+  "effects": [
+    { "type": "modifier", "stat": "maxHp", "mode": "add", "value": 30 }
+  ],
+  "maxStacks": 1
+}

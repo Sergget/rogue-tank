@@ -1,0 +1,11 @@
+{
+  "id": "mobile_turret_servo",
+  "name": "炮塔伺服电机",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "炮塔转速 +12%，更快指向目标。",
+  "effects": [
+    { "type": "modifier", "stat": "turretTurnRate", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

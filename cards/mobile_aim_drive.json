@@ -1,0 +1,11 @@
+{
+  "id": "mobile_aim_drive",
+  "name": "瞄准驱动电机",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "缩圈速度 +12%，短停即可完成瞄准。",
+  "effects": [
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

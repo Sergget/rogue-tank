@@ -1,0 +1,11 @@
+{
+  "id": "mobile_dual_servo",
+  "name": "双伺服炮塔",
+  "rarity": "rare",
+  "tags": ["机动"],
+  "desc": "炮塔转速 +20%，快速指向任何来敌。",
+  "effects": [
+    { "type": "modifier", "stat": "turretTurnRate", "mode": "mult", "value": 1.2 }
+  ],
+  "maxStacks": 2
+}

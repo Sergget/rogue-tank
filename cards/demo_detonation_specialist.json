@@ -1,0 +1,12 @@
+{
+  "id": "demo_detonation_specialist",
+  "name": "弹药架引爆专家",
+  "rarity": "epic",
+  "tags": ["爆破"],
+  "desc": "弹药架模块伤害 +25%，乘员模块伤害 +15%。",
+  "effects": [
+    { "type": "modifier", "stat": "ammoMult", "mode": "mult", "value": 1.25 },
+    { "type": "modifier", "stat": "crewMult", "mode": "mult", "value": 1.15 }
+  ],
+  "maxStacks": 1
+}

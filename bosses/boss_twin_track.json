@@ -1,0 +1,62 @@
+{
+  "id": "boss_twin_track",
+  "name": "双体履带",
+  "desc": "前后分节车体同轴推进：先断前置引擎/履带瘫痪机动，前段损毁后后置引擎暴露；末段断尾求生高速突击。",
+  "tankId": "tiger-I",
+  "scale": 2.0,
+  "stages": [
+    {
+      "id": "p1_linked",
+      "name": "双体联动",
+      "hpFrom": 1.0,
+      "hpTo": 0.66,
+      "behavior": "前后车体同轴驱动，机动灵活（maxSpeed×1.15、turnRate×1.2），炮速偏慢（reload×1.3）；前置引擎与履带暴露在车头——命中 driver/engine/track 可单侧瘫痪，迫使其减速转圈；优先集火车头前置引擎，瘫痪机动后绕侧输出。",
+      "weakspots": ["track", "engine", "driver"],
+      "onEnter": {
+        "modifiers": [
+          { "stat": "maxSpeed", "mode": "mult", "value": 1.15 },
+          { "stat": "turnRate", "mode": "mult", "value": 1.2 },
+          { "stat": "reload", "mode": "mult", "value": 1.3 }
+        ]
+      }
+    },
+    {
+      "id": "p2_front_lost",
+      "name": "前段损毁",
+      "hpFrom": 0.66,
+      "hpTo": 0.33,
+      "behavior": "前置车体引擎/驾驶员被毁，前段装甲板脱落（armor.hull -25）：机动大幅下降（maxSpeed×0.65、turnRate×0.55），只能缓慢推进、转向笨重——这是绕侧输出的窗口；后置引擎在车尾暴露（weakspot engine），命中后彻底瘫痪转向；注意其炮塔仍可快速回转压制近身者。",
+      "weakspots": ["engine"],
+      "onEnter": {
+        "modifiers": [
+          { "stat": "maxSpeed", "mode": "mult", "value": 0.65 },
+          { "stat": "turnRate", "mode": "mult", "value": 0.55 },
+          { "stat": "armor.hull", "mode": "add", "value": -25 },
+          { "stat": "reload", "mode": "mult", "value": 0.85 }
+        ]
+      }
+    },
+    {
+      "id": "p3_tail_rush",
+      "name": "甩尾突击",
+      "hpFrom": 0.33,
+      "hpTo": 0.0,
+      "behavior": "仅剩后段车体，发动机过载甩尾突击：极速 ×1.5、转向 ×1.8、装填 ×0.6、伤害 ×1.25，高速冲撞 + 极快连射；前段残骸使本体仍带装甲缺口（armor.hull -25），冲撞轨迹直指玩家当前位置、可读可预判——不要直线硬刚，利用掩体侧面迎击，在它甩尾掉头露出侧面时集火。",
+      "weakspots": [],
+      "onEnter": {
+        "modifiers": [
+          { "stat": "maxSpeed", "mode": "mult", "value": 1.5 },
+          { "stat": "turnRate", "mode": "mult", "value": 1.8 },
+          { "stat": "reload", "mode": "mult", "value": 0.6 },
+          { "stat": "damage", "mode": "mult", "value": 1.25 },
+          { "stat": "armor.hull", "mode": "add", "value": -25 }
+        ]
+      }
+    }
+  ],
+  "loot": {
+    "score": 550,
+    "cardRarity": "epic",
+    "cards": 3
+  }
+}

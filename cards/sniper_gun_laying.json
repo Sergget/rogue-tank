@@ -1,0 +1,12 @@
+{
+  "id": "sniper_gun_laying",
+  "name": "炮控联动",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "缩圈速度 +20%，炮塔转速 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.20 },
+    { "type": "modifier", "stat": "turretTurnRate", "mode": "mult", "value": 1.10 }
+  ],
+  "maxStacks": 2
+}

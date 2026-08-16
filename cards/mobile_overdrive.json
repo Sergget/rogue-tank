@@ -1,0 +1,12 @@
+{
+  "id": "mobile_overdrive",
+  "name": "引擎极限超频",
+  "rarity": "epic",
+  "tags": ["机动"],
+  "desc": "马力 +35%，但起火后灼伤加剧 30%。",
+  "effects": [
+    { "type": "modifier", "stat": "enginePower", "mode": "mult", "value": 1.35 },
+    { "type": "modifier", "stat": "dotRatioMult", "mode": "mult", "value": 1.3 }
+  ],
+  "maxStacks": 1
+}

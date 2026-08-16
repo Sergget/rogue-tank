@@ -1,0 +1,11 @@
+{
+  "id": "sniper_long_barrel",
+  "name": "加长炮管",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "弹速 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "shellSpeed", "mode": "mult", "value": 1.10 }
+  ],
+  "maxStacks": 3
+}

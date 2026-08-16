@@ -1,0 +1,11 @@
+{
+  "id": "turret_rear_armor",
+  "name": "炮塔尾舱加强",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "炮塔尾舱加厚，等效厚度 +12mm。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.turret.rear", "mode": "add", "value": 12 }
+  ],
+  "maxStacks": 3
+}

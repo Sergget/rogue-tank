@@ -1,0 +1,11 @@
+{
+  "id": "mobile_stabilizer",
+  "name": "垂直稳定器",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "散布 -8%，行进中开火更稳。",
+  "effects": [
+    { "type": "modifier", "stat": "spreadMult", "mode": "mult", "value": 0.92 }
+  ],
+  "maxStacks": 3
+}

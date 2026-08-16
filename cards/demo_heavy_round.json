@@ -1,0 +1,11 @@
+{
+  "id": "demo_heavy_round",
+  "name": "重弹头",
+  "rarity": "common",
+  "tags": ["爆破"],
+  "desc": "统一加重弹头配重，全部弹种单发伤害 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "damage", "mode": "mult", "value": 1.1 }
+  ],
+  "maxStacks": 3
+}

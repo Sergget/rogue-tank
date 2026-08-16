@@ -2,13 +2,20 @@
 // 运行：node scripts/test-boss.js
 'use strict';
 
+// 运行时函数（makeBossEntity/applyBossStage/updateBossStage）引用全局 addModifier/removeModifierBySource
+global.addModifier = (t, m) => { t.modifiers = t.modifiers || []; t.modifiers.push(m); return t; };
+global.removeModifierBySource = (t, s) => { t.modifiers = (t.modifiers || []).filter(m => m.source !== s); };
+
 const {
   BOSS_WEAKSPOT_KEYS,
   validateBoss,
   validateBossStage,
   bossStageFor,
   bossStageIndex,
-  bossInStage
+  bossInStage,
+  makeBossEntity,
+  applyBossStage,
+  updateBossStage
 } = require('../js/tank_boss.js');
 
 let fails = 0;
@@ -57,6 +64,39 @@ ok(validateBoss({ id: 'x', name: 'X', stages: [{ id: 'p1', hpFrom: 1, hpTo: 0 }]
 
 // 6) 枚举
 ok(BOSS_WEAKSPOT_KEYS.includes('track') && BOSS_WEAKSPOT_KEYS.includes('ammo'), '弱点枚举含履带/弹药架');
+
+// 7) 运行时：makeBossEntity + 阶段切换（fake env + addModifier shim）
+const bossDef = {
+  id: 'b1', name: 'B', tankId: 'dummy', scale: 1.8,
+  stages: [
+    { id: 'p1', hpFrom: 1.0, hpTo: 0.6, onEnter: { modifiers: [{ stat: 'armor.hull.front', mode: 'add', value: 80 }] } },
+    { id: 'p2', hpFrom: 0.6, hpTo: 0.2, onEnter: { modifiers: [{ stat: 'turnRate', mode: 'mult', value: 2 }] } },
+    { id: 'p3', hpFrom: 0.2, hpTo: 0.0, onEnter: { modifiers: [] } }
+  ],
+  loot: { score: 500, cardRarity: 'legendary', cards: 3 }
+};
+let spawnCount = 0;
+const env = {
+  spawnTank(spec) { spawnCount++; return Object.assign({ id: spec.id, team: spec.team, x: spec.x, y: spec.y, hullAngle: spec.hullAngle, modifiers: [], hp: 1000, maxHp: 1000, stats: { maxHp: 1000 } }, spec); },
+  configureTank() {}
+};
+const bossEntity = makeBossEntity(bossDef, env);
+ok(spawnCount === 1 && bossEntity.isBoss === true && bossEntity.boss === bossDef, 'makeBossEntity 生成带元数据实体');
+ok(bossEntity.stageId === 'p1' && bossEntity.modifiers.length === 1 && bossEntity.modifiers[0].value === 80, '首阶段 modifiers 已应用');
+ok(bossEntity.hp === 1000 && bossEntity.maxHp === 1000, 'boss 满血出生（stats.maxHp）');
+
+// 阶段切换：hp 降到 0.6 以下 → p2，旧 p1 modifier 移除、新 p2 modifier 叠加
+bossEntity.hp = 500;  // ratio 0.5
+const r = updateBossStage(bossEntity);
+ok(r.changed === true && r.from === 'p1' && r.to === 'p2', '跨阶段触发（p1→p2）');
+ok(bossEntity.stageId === 'p2' && bossEntity.modifiers.length === 1 && bossEntity.modifiers[0].stat === 'turnRate', '旧阶段 modifier 已移除、新阶段已叠加');
+// 同阶段不重复触发
+const r2 = updateBossStage(bossEntity);
+ok(r2.changed === false, '同阶段不重复触发');
+// 末阶段
+bossEntity.hp = 100;  // ratio 0.1
+const r3 = updateBossStage(bossEntity);
+ok(r3.to === 'p3' && bossEntity.modifiers.length === 0, '末阶段 modifiers 为空');
 
 console.log('test-boss: 完成所有检查');
 if (fails === 0) console.log('test-boss: 全部通过');

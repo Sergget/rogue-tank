@@ -1,0 +1,11 @@
+{
+  "id": "sniper_recon_mark",
+  "name": "侦察标记弹",
+  "rarity": "epic",
+  "tags": ["狙击"],
+  "desc": "主动装置：发射侦察弹标记目标，暴露弱点（占位）。",
+  "effects": [
+    { "type": "ability", "key": "recon" }
+  ],
+  "maxStacks": 1
+}

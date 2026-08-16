@@ -1,0 +1,11 @@
+{
+  "id": "sniper_stabilizer",
+  "name": "炮口稳定器",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "缩圈速度 +12%。",
+  "effects": [
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

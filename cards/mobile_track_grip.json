@@ -1,0 +1,11 @@
+{
+  "id": "mobile_track_grip",
+  "name": "履带抓地齿",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "转向速度 +12%，小半径绕掩体更灵活。",
+  "effects": [
+    { "type": "modifier", "stat": "turnRate", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

@@ -1,0 +1,11 @@
+{
+  "id": "sniper_heavy_shell",
+  "name": "重型弹头",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "伤害 +8%。",
+  "effects": [
+    { "type": "modifier", "stat": "damage", "mode": "mult", "value": 1.08 }
+  ],
+  "maxStacks": 3
+}

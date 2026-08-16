@@ -1,0 +1,11 @@
+{
+  "id": "side_skirt",
+  "name": "侧裙板",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "车体两侧加装裙板，侧面等效厚度 +12mm。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull.side", "mode": "add", "value": 12 }
+  ],
+  "maxStacks": 3
+}

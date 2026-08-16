@@ -1,0 +1,11 @@
+{
+  "id": "sniper_precision_sight",
+  "name": "精密瞄具",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "散布缩小 8%。",
+  "effects": [
+    { "type": "modifier", "stat": "spreadMult", "mode": "mult", "value": 0.92 }
+  ],
+  "maxStacks": 3
+}

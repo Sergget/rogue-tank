@@ -1,0 +1,11 @@
+{
+  "id": "support_ammo_optimize",
+  "name": "弹药优化",
+  "rarity": "rare",
+  "tags": ["支援"],
+  "desc": "弹药架优化布置，命中敌方弹药架时伤害 +20%。",
+  "effects": [
+    { "type": "modifier", "stat": "ammoMult", "mode": "mult", "value": 1.2 }
+  ],
+  "maxStacks": 2
+}

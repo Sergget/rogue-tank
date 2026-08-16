@@ -1,0 +1,11 @@
+{
+  "id": "rear_grille",
+  "name": "尾部格栅装甲",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "车尾加装格栅装甲，尾部等效厚度 +15mm。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull.rear", "mode": "add", "value": 15 }
+  ],
+  "maxStacks": 3
+}

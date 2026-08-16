@@ -1,0 +1,12 @@
+{
+  "id": "demo_firestorm_round",
+  "name": "纵火高爆弹",
+  "rarity": "rare",
+  "tags": ["爆破"],
+  "desc": "起火灼伤速率 +15%，持续时间 +15%。",
+  "effects": [
+    { "type": "modifier", "stat": "dotRatioMult", "mode": "mult", "value": 1.15 },
+    { "type": "modifier", "stat": "dotDurationMult", "mode": "mult", "value": 1.15 }
+  ],
+  "maxStacks": 2
+}

@@ -1,0 +1,11 @@
+{
+  "id": "angle_boost",
+  "name": "摆角特训",
+  "rarity": "rare",
+  "tags": ["重甲"],
+  "desc": "被动：摆角度时跳弹角阈值 +5°。",
+  "effects": [
+    { "type": "passive", "key": "angle_boost", "value": 5 }
+  ],
+  "maxStacks": 2
+}

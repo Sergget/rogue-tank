@@ -1,0 +1,11 @@
+{
+  "id": "mobile_high_speed_transmission",
+  "name": "高速传动系统",
+  "rarity": "rare",
+  "tags": ["机动"],
+  "desc": "极速 +15%，抢点奔袭占尽先机。",
+  "effects": [
+    { "type": "modifier", "stat": "maxSpeed", "mode": "mult", "value": 1.15 }
+  ],
+  "maxStacks": 2
+}

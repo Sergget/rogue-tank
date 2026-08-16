@@ -185,7 +185,7 @@
 
 **验证**：`scripts/test-camera.js`（22 断言：换算互逆/zoom/钳制/阻尼收敛/剔除边界与余量）、`scripts/test-map.js`（难度曲线/敌军数量/节点链确定性/§4.5 评分/materializeNode 注入序列）、`scripts/test-flow.js`（合法/非法转移/监听/异常吞没/restartRun）挂进 `npm test`（现共 14 套）；vm 运行时冒烟验证完整流程：开局 → 战斗帧 → 清敌 → 结算 → 卡牌 → 下一节点 → 阵亡 → 重开（临时脚本，未入库）。
 
-### 2.13 卡牌系统（数据驱动，P-09 阶段 A 已实现，2026-08-15）
+### 2.13 卡牌系统（数据驱动，P-09 已实现，2026-08-15）
 
 **定位（§2.4 已定型）**：卡牌 = 局内节点间**三选一的改装/战术强化**，**不是**手牌指令牌组。拟真坦克主题、拒绝魔幻——效果围绕装甲/穿深/装填/机动/散布/视野/弹种/乘员展开，贴合本游戏"摆角度找跳弹、找掩体抢位置"的博弈调性（参照 Slay the Spire 的稀有度分层+流派构筑，但把"卡牌"落到"坦克改装"语境）。
 
@@ -205,13 +205,13 @@
 5. `drone` —— 伴随浮游炮（§2.2 已定型，M7 接入）。
 6. `economy` —— `{field:'scoreMul'|'shopDiscount'|'startScore'|'reviveCount', value}`（M10 落地）。
 
-**稀有度与流派**：稀有度 4 档 `common/rare/epic/legendary`（抽卡权重 50/30/15/5）；流派 5 个标签 `重甲/狙击/机动/爆破/支援`（构筑方向，可多标签）。**内容规模目标：卡牌 ≥100 张**（阶段 B 批量，稀有度分布按权重、5 流派全覆盖）。
+**稀有度与流派**：稀有度 4 档 `common/rare/epic/legendary`（抽卡权重 50/30/15/5）；流派 5 个标签 `重甲/狙击/机动/爆破/支援`（构筑方向，可多标签）。**内容规模已落地：111 张卡**（common 55 / rare 34 / epic 16 / legendary 6，实测占比 49.5/30.6/14.4/5.4%，5 流派各 21~23 张），覆盖 6 类效果（modifier 101 / ammo 17 / ability 8 / passive 8 / economy 5 / drone 1）。
 
 **模块与工具**：`js/tank_cards.js`（纯逻辑：`validateCard`/`validateCardSet`/`applyCardEffects`/`drawCardChoices`/`cardStackCount`/`weightedRarity`）；`scripts/validate-content.js`（内容 schema 守门，挂 `npm test`）+ `scripts/audit-content.js`（稀有度/流派/效果类型分布与数值极值审计，`--strict` 按阈值失败）；`tools/content_designer.html`（卡牌+Boss 统一编辑器，表格化编辑 effects、保存写回 JSON）；子 agent `@card-author`/`@balance-auditor`。mvp 的节点间三选一已接真实卡池（`/api/cards` → `drawCardChoices` 抽 3 → `applyCardEffects`）。
 
-### 2.14 Boss 系统（数据驱动，P-09 阶段 A 已实现，2026-08-15）
+### 2.14 Boss 系统（数据驱动，P-09 已实现，2026-08-15）
 
-**定位**：Boss = **特殊坦克配置 + 数据驱动多阶段机制**（参照 FTL Rebel Flagship 多阶段——每阶段改变打法；Into the Breach 弱点驱动——意图可读、位置博弈）。**不是弹幕墙**，延续"摆角度/打弱点/抢位置"的拟真博弈。**内容规模目标：Boss ≥5 种**，打法彼此区分。
+**定位**：Boss = **特殊坦克配置 + 数据驱动多阶段机制**（参照 FTL Rebel Flagship 多阶段——每阶段改变打法；Into the Breach 弱点驱动——意图可读、位置博弈）。**不是弹幕墙**，延续"摆角度/打弱点/抢位置"的拟真博弈。**内容规模已落地：5 种 Boss**，打法彼此区分。
 
 **数据**：`bosses/<id>.json` 一型一文件（经 `GET /api/bosses` 聚合）。Schema（唯一权威 = `js/tank_boss.js` 的 `validateBoss`）：
 ```json
@@ -221,11 +221,16 @@
   "loot": { "score": 500, "cardRarity": "legendary", "cards": 3 } }
 ```
 
-**阶段约束**：首阶段 `hpFrom=1`、末阶段 `hpTo=0`、相邻阶段阈值衔接（`validateBoss` 强制）；每阶段可声明 `behavior`（AI 接入层消费）、`weakspots`（弱点模块 ∈ `BOSS_WEAKSPOT_KEYS`：driver/ammo/engine/gunner/loader/commander/track）、`onEnter.modifiers`（阶段进入时叠加的 stat 修饰）。
+**阶段约束**：首阶段 `hpFrom=1`、末阶段 `hpTo=0`、相邻阶段阈值衔接（`validateBoss` 强制）；每阶段可声明 `behavior`（AI 接入层消费）、`weakspots`（弱点模块 ∈ `BOSS_WEAKSPOT_KEYS`：driver/ammo/engine/gunner/loader/commander/track）、`onEnter.modifiers`（阶段进入时叠加的 stat 修饰）。**阶段 modifiers 语义 = 该阶段相对 base 的完整画像**（`applyBossStage` 切阶段时自动 `removeModifierBySource` 移除上一阶段，故每阶段只写"本阶段应有的差值"，不写跨阶段 +X/−X 抵消）。
 
-**5 Boss 规划（阶段 B 落地）**：要塞炮台（正面免疫→绕侧打弹药架）、双体履带（分节车体）、狙击手（远距高穿+视野博弈）、堡垒（反应装甲+浮游炮）、指挥官（召唤伴随单位+护盾发生器）——示例 `siege_fort` 已入库。
+**5 Boss（已落地）**：
+1. `boss_siege_fort` 要塞炮台——正面 +80 免疫固守 → 绕侧打弹药架破甲（回 base 恢复机动）→ 狂暴突击。
+2. `boss_twin_track` 双体履带——打前段（track/engine/driver）降机动、后置引擎暴露 → 末段高速甩尾。
+3. `boss_sniper` 幽灵狙击手——远距高穿低散布放冷枪 → 破观测（commander）后散布失控 → 近身盲射。
+4. `boss_fortress` 移动堡垒——反应装甲 + 2 浮游炮（summons）→ 剥反应层 → 浮游炮全毁本体脆化。
+5. `boss_commander` 装甲指挥官——护盾屏障 + 护卫（summons）→ 破盾打指挥塔 → 孤注一掷。
 
-**模块与工具**：`js/tank_boss.js`（纯逻辑：`validateBoss`/`validateBossStage`/`bossStageFor`/`bossStageIndex`/`bossInStage`）；编辑器/校验/审计工具与卡牌共用（`tools/content_designer.html` / `validate-content.js` / `audit-content.js`）；子 agent `@boss-author`/`@balance-auditor`。Boss 作为节点链末端战斗的接入在阶段 B（生成 `boss` 实体 + 阶段触发）。
+**模块与工具**：`js/tank_boss.js`（纯逻辑：`validateBoss`/`validateBossStage`/`bossStageFor`/`bossStageIndex`/`bossInStage` + 运行时 `makeBossEntity`/`applyBossStage`/`updateBossStage`）；编辑器/校验/审计工具与卡牌共用（`tools/content_designer.html` / `validate-content.js` / `audit-content.js`）；子 agent `@boss-author`/`@balance-auditor`。**运行时已接入**：`assignBossNode` 给链尾节点指定随机 Boss → `enterBattle` spawn Boss 实体（`makeBossEntity`，满血+首阶段 modifiers）→ 战斗态 `updateBossStage` 跨血阈值切阶段 → Boss 击杀结算 `bossLoot`（score + 卡牌稀有度）。
 
 ---
 
@@ -324,6 +329,12 @@
 - **内容工具**：`scripts/validate-content.js`（schema 守门，挂 `npm test`）+ `scripts/audit-content.js`（分布/数值审计）+ `tools/content_designer.html`（卡牌+Boss 统一编辑器，effects/stages 表格化编辑、保存写回 JSON）。
 - **子 agent**：新增 `@card-author`（卡牌作者）/ `@boss-author`（Boss 作者）/ `@balance-auditor`（平衡审计）三角色（`.opencode/agents/`）。
 - **验证**：`scripts/test-cards.js` / `test-boss.js` / `validate-content.js` 挂进 `npm test`（现共 17 套全绿）；`/api/cards`/`/api/bosses` 端点 HTTP 200；vm 运行时冒烟覆盖「开局→清敌→结算→真实抽卡→选卡→stats 生效→下一节点」（临时脚本，未入库）。
+
+#### 3.9 内容批量 + Boss 运行时接入（P-09 阶段 B，2026-08-15 会话；设计见 §2.13/§2.14）
+- **卡牌批量 111 张**：5 个 `@card-author` 子 agent 并行产出（重甲/狙击/机动/爆破/支援 各 20 张 + 既有 11 张），稀有度实测 49.5/30.6/14.4/5.4%（期望 50/30/15/5），流派各 21~23 张；`validate-content.js` + `audit-content.js --strict` 全绿。
+- **Boss 批量 5 种**：`@boss-author` 产出 5 Boss（要塞炮台/双体履带/幽灵狙击手/移动堡垒/装甲指挥官，各 3 阶段 + 弱点 + 掉落，打法彼此区分）；删除阶段 A 的旧示例 `siege_fort`（被 `boss_siege_fort` 取代，且旧文件的 +80/−80 抵消写法不兼容"阶段 modifiers=相对 base 完整画像"的运行时语义）。
+- **Boss 运行时接入**：`assignBossNode`（链尾随机指定 Boss、清空普通敌军）→ `enterBattle` 用 `makeBossEntity` spawn Boss（满血+首阶段 modifiers）→ 战斗态 `updateBossStage` 跨血阈值切阶段（`applyBossStage` 移除旧阶段 modifiers 再叠加新阶段）→ 击杀结算 `bossLoot`（score + 卡牌稀有度，结算面板显示「Boss 战利品」行）。
+- **验证**：`scripts/test-boss.js` 补运行时断言（makeBossEntity 满血/首阶段 modifiers/跨阶段切换/同阶段不重复/末阶段）；vm 运行时冒烟覆盖「开局→推进链尾→Boss 生成→阶段触发→击杀→结算含 Boss 战利品」（临时脚本，未入库）；`npm test` 17 套全绿。
 
 ---
 
@@ -493,4 +504,4 @@
 11. **坦克纹理化 + 车型多样性内容（2.10）**：`texture` 字段 + 多边形 clip 平铺图案叠层（保持 `t.color` 主色）；texture 进 tank JSON + `tank_schema.js` FIELD_ROWS 枚举 + 设计器选择器（外观件条目）；几套定型几何模板 + 多色/迷彩方案（`tanks/` 条目目前共用箭镞车体+豹2A6炮塔模板，差异只在数值）。
 12. **难度曲线表**：敌人数量 / AI 策略复杂度 / 数值强度三杠杆随节点索引的涨法（线性/阶梯/曲线），供节点生成器使用（开放问题 6）。
 13. **碰撞体积与视觉几何对齐（可选，低优先）**：#18 修复（2026-08-14）后正面贴脸不再误判后部模块，但坦克碰撞盒仍为车体矩形包围盒（不含炮塔/炮管/箭镞尖头），紧贴时车体视觉重叠 ≈19px 仍残留（#18 修复方向④未实施，属弹道范围外的独立改动）；如需彻底消除，可考虑碰撞改用 `hullPoly` 凸包，风险点为碰撞手感/推挤行为回归，需回归 `test-tankcollision.js`。
-14. **卡牌内容批量（≥100 张）+ Boss 内容批量（≥5 种）**：数据驱动框架已就绪（§2.13/§2.14：schema/校验/审计/编辑器/子 agent 全通），本条目是**纯内容填充**——按稀有度权重（50/30/15/5）× 5 流派（重甲/狙击/机动/爆破/支援）批量产卡，5 Boss 按"强化坦克+多阶段机制"分别设计；可并行派 `@card-author`/`@boss-author` 子 agent，`@balance-auditor` 复核；Boss 作为节点链末端战斗的运行时接入（生成 boss 实体 + 阶段触发 + 掉落）随本条目一并落地。
+14. ~~**卡牌内容批量（≥100 张）+ Boss 内容批量（≥5 种）**~~ — **已完成（2026-08-15，P-09 阶段 B，见 §2.13/§2.14/§3.9）**：111 张卡（5 流派×稀有度按权重）+ 5 Boss（多阶段+弱点+掉落）+ Boss 链尾运行时接入（生成/阶段触发/掉落）全部落地，`validate-content.js` + `audit-content.js --strict` + `npm test` 全绿。剩余相关项：Boss `summons` 伴随单位与 `behavior` 的行为化随敌人 AI（条目 7）一并接入；卡牌 ability/passive/drone/economy 的运行时效果随对应里程碑（M7/M9/M10）接入。

@@ -1,0 +1,11 @@
+{
+  "id": "layered_armor",
+  "name": "复合装甲",
+  "rarity": "rare",
+  "tags": ["重甲"],
+  "desc": "车体换装复合装甲，全向等效厚度 +18%。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull", "mode": "mult", "value": 1.18 }
+  ],
+  "maxStacks": 2
+}

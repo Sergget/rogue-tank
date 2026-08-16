@@ -1,0 +1,11 @@
+{
+  "id": "demo_extended_fuse",
+  "name": "延燃药柱",
+  "rarity": "common",
+  "tags": ["爆破"],
+  "desc": "药柱持续燃烧更久，起火持续时间 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "dotDurationMult", "mode": "mult", "value": 1.1 }
+  ],
+  "maxStacks": 3
+}

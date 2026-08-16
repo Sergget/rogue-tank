@@ -1,0 +1,11 @@
+{
+  "id": "sloped_glacis",
+  "name": "首上装甲优化",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "首上装甲加大倾角，正面等效厚度 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull.front", "mode": "mult", "value": 1.1 }
+  ],
+  "maxStacks": 3
+}

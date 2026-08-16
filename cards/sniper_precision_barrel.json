@@ -1,0 +1,11 @@
+{
+  "id": "sniper_precision_barrel",
+  "name": "精锻炮管",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "散布缩小 15%。",
+  "effects": [
+    { "type": "modifier", "stat": "spreadMult", "mode": "mult", "value": 0.85 }
+  ],
+  "maxStacks": 2
+}

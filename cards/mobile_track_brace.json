@@ -1,0 +1,11 @@
+{
+  "id": "mobile_track_brace",
+  "name": "履带应急锁",
+  "rarity": "rare",
+  "tags": ["机动"],
+  "desc": "履带锁定时间 -20%，断履带不再是致命伤。",
+  "effects": [
+    { "type": "modifier", "stat": "trackLock", "mode": "mult", "value": 0.8 }
+  ],
+  "maxStacks": 2
+}

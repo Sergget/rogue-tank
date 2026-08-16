@@ -1,0 +1,12 @@
+{
+  "id": "mobile_ultra_light",
+  "name": "全车减重工程",
+  "rarity": "epic",
+  "tags": ["机动"],
+  "desc": "整车重量 -20%、马力 +15%，机动性全面质变。",
+  "effects": [
+    { "type": "modifier", "stat": "weight", "mode": "mult", "value": 0.8 },
+    { "type": "modifier", "stat": "enginePower", "mode": "mult", "value": 1.15 }
+  ],
+  "maxStacks": 1
+}

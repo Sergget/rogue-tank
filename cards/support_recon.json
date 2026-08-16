@@ -1,0 +1,11 @@
+{
+  "id": "support_recon",
+  "name": "战场侦察",
+  "rarity": "rare",
+  "tags": ["支援"],
+  "desc": "主动装置：短暂暴露附近敌军位置，为我方争取先手（占位）。",
+  "effects": [
+    { "type": "ability", "key": "recon" }
+  ],
+  "maxStacks": 1
+}

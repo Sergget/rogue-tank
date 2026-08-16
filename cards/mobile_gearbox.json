@@ -1,0 +1,11 @@
+{
+  "id": "mobile_gearbox",
+  "name": "竞速变速箱",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "极速 +10%，长途奔袭更快抢占点位。",
+  "effects": [
+    { "type": "modifier", "stat": "maxSpeed", "mode": "mult", "value": 1.1 }
+  ],
+  "maxStacks": 3
+}

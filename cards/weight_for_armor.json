@@ -1,0 +1,12 @@
+{
+  "id": "weight_for_armor",
+  "name": "以重换坚",
+  "rarity": "rare",
+  "tags": ["重甲"],
+  "desc": "整车换装加厚均质钢：等效厚度 +10mm，车重 +50t。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull", "mode": "add", "value": 10 },
+    { "type": "modifier", "stat": "weight", "mode": "add", "value": 50 }
+  ],
+  "maxStacks": 2
+}

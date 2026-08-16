@@ -1,0 +1,11 @@
+{
+  "id": "support_fcs_tune",
+  "name": "火控微调",
+  "rarity": "common",
+  "tags": ["支援"],
+  "desc": "火控系统微调，移动/转向散布 -8%。",
+  "effects": [
+    { "type": "modifier", "stat": "spreadMult", "mode": "mult", "value": 0.92 }
+  ],
+  "maxStacks": 2
+}

@@ -1,0 +1,12 @@
+{
+  "id": "front_fortress",
+  "name": "正面堡垒",
+  "rarity": "rare",
+  "tags": ["重甲"],
+  "desc": "正面防御特化：车体与炮塔正面等效厚度各 +20%。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull.front", "mode": "mult", "value": 1.2 },
+    { "type": "modifier", "stat": "armor.turret.front", "mode": "mult", "value": 1.2 }
+  ],
+  "maxStacks": 2
+}

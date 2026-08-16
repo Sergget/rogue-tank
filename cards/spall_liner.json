@@ -1,0 +1,11 @@
+{
+  "id": "spall_liner",
+  "name": "防崩落内衬",
+  "rarity": "epic",
+  "tags": ["重甲"],
+  "desc": "被动：被命中时乘员与模块伤害 -50%。",
+  "effects": [
+    { "type": "passive", "key": "spall_liner", "value": 0.5 }
+  ],
+  "maxStacks": 1
+}

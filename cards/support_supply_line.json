@@ -1,0 +1,11 @@
+{
+  "id": "support_supply_line",
+  "name": "补给车队",
+  "rarity": "common",
+  "tags": ["支援"],
+  "desc": "补给车队随行，节点商店折扣 +10%。",
+  "effects": [
+    { "type": "economy", "field": "shopDiscount", "value": 0.1 }
+  ],
+  "maxStacks": 2
+}

@@ -1,0 +1,11 @@
+{
+  "id": "rear_reinforce",
+  "name": "尾部加强",
+  "rarity": "rare",
+  "tags": ["重甲"],
+  "desc": "车尾加装双层背板，等效厚度 +20mm。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull.rear", "mode": "add", "value": 20 }
+  ],
+  "maxStacks": 2
+}

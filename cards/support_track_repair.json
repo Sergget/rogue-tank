@@ -1,0 +1,11 @@
+{
+  "id": "support_track_repair",
+  "name": "履带快修",
+  "rarity": "common",
+  "tags": ["支援"],
+  "desc": "主动装置：立即修复被击毁的履带，解除锁定（占位）。",
+  "effects": [
+    { "type": "ability", "key": "track_repair" }
+  ],
+  "maxStacks": 2
+}

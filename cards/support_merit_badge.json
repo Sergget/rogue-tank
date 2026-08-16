@@ -1,0 +1,11 @@
+{
+  "id": "support_merit_badge",
+  "name": "战功勋章",
+  "rarity": "common",
+  "tags": ["支援"],
+  "desc": "战功勋章加身，节点结算得分 +8%。",
+  "effects": [
+    { "type": "economy", "field": "scoreMul", "value": 1.08 }
+  ],
+  "maxStacks": 2
+}

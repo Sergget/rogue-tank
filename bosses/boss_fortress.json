@@ -1,0 +1,65 @@
+{
+  "id": "boss_fortress",
+  "name": "移动堡垒",
+  "desc": "反应装甲 + 伴随浮游炮：先清浮游炮削反应层，再打侧后弹药架；浮游炮全毁后本体脆化。",
+  "tankId": "tiger-I",
+  "scale": 2.0,
+  "summons": [
+    { "tankId": "dummy", "count": 2 }
+  ],
+  "stages": [
+    {
+      "id": "p1_reactive",
+      "name": "反应装甲层",
+      "hpFrom": 1.0,
+      "hpTo": 0.66,
+      "behavior": "车体披挂反应装甲（armor.hull +60、armor.turret +30），正面摆角近乎免疫；2 台浮游炮（dummy 单位）伴随提供侧翼火力（summons），需优先清理；弹药架（weakspot ammo）被反应块覆盖，仅侧后小角度可击穿——先清浮游炮消除侧翼威胁，再绕侧后用高穿弹打弹药架。",
+      "weakspots": ["ammo"],
+      "onEnter": {
+        "modifiers": [
+          { "stat": "armor.hull", "mode": "add", "value": 60 },
+          { "stat": "armor.turret", "mode": "add", "value": 30 },
+          { "stat": "turretTurnRate", "mode": "mult", "value": 0.8 },
+          { "stat": "reload", "mode": "mult", "value": 1.25 }
+        ]
+      }
+    },
+    {
+      "id": "p2_strip",
+      "name": "反应层剥离",
+      "hpFrom": 0.66,
+      "hpTo": 0.33,
+      "behavior": "反应装甲块被逐片剥离（阶段 1 的 +60/+30 移除，本体装甲反而因剥落破损：armor.hull -30），侧面可直接击穿；引擎（weakspot engine）在车尾暴露，命中瘫痪其机动；浮游炮已被消耗殆尽，本体转为主动冲锋压制（极速 ×1.2）——保持距离，边退边打侧后。",
+      "weakspots": ["ammo", "engine"],
+      "onEnter": {
+        "modifiers": [
+          { "stat": "armor.hull", "mode": "add", "value": -30 },
+          { "stat": "turretTurnRate", "mode": "mult", "value": 1.2 },
+          { "stat": "reload", "mode": "mult", "value": 0.85 },
+          { "stat": "maxSpeed", "mode": "mult", "value": 1.2 }
+        ]
+      }
+    },
+    {
+      "id": "p3_core",
+      "name": "核心暴露",
+      "hpFrom": 0.33,
+      "hpTo": 0.0,
+      "behavior": "浮游炮全毁、反应层剥落殆尽：本体核心暴露脆化（armor.hull -50），进入狂暴连射（装填 ×0.6、伤害 ×1.2、极速 ×1.25）；这是火力全开的最佳输出窗口，但需防范冲锋，利用掩体横向拉扯换角度输出。",
+      "weakspots": [],
+      "onEnter": {
+        "modifiers": [
+          { "stat": "armor.hull", "mode": "add", "value": -50 },
+          { "stat": "reload", "mode": "mult", "value": 0.6 },
+          { "stat": "damage", "mode": "mult", "value": 1.2 },
+          { "stat": "maxSpeed", "mode": "mult", "value": 1.25 }
+        ]
+      }
+    }
+  ],
+  "loot": {
+    "score": 600,
+    "cardRarity": "legendary",
+    "cards": 3
+  }
+}

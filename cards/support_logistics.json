@@ -1,0 +1,12 @@
+{
+  "id": "support_logistics",
+  "name": "后勤保障",
+  "rarity": "rare",
+  "tags": ["支援"],
+  "desc": "后勤保障体系：结算得分 +15%，商店折扣 +10%。",
+  "effects": [
+    { "type": "economy", "field": "scoreMul", "value": 1.15 },
+    { "type": "economy", "field": "shopDiscount", "value": 0.1 }
+  ],
+  "maxStacks": 1
+}

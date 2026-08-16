@@ -1,0 +1,11 @@
+{
+  "id": "demo_shaped_liner",
+  "name": "锥形装药罩",
+  "rarity": "common",
+  "tags": ["爆破"],
+  "desc": "HE 弹加装锥形装药罩，击穿力 +12%。",
+  "effects": [
+    { "type": "ammo", "key": "he", "field": "pen", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

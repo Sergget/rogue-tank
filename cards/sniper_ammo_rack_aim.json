@@ -1,0 +1,11 @@
+{
+  "id": "sniper_ammo_rack_aim",
+  "name": "弹药架瞄点",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "命中弹药架的模块伤害 +20%。",
+  "effects": [
+    { "type": "modifier", "stat": "ammoMult", "mode": "mult", "value": 1.20 }
+  ],
+  "maxStacks": 3
+}

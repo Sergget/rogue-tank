@@ -1,0 +1,11 @@
+{
+  "id": "track_guard",
+  "name": "履带护板",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "履带加装护板，被击毁后修复时间 -10%。",
+  "effects": [
+    { "type": "modifier", "stat": "trackLock", "mode": "mult", "value": 0.9 }
+  ],
+  "maxStacks": 3
+}

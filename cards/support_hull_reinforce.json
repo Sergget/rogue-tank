@@ -1,0 +1,11 @@
+{
+  "id": "support_hull_reinforce",
+  "name": "车体加固",
+  "rarity": "common",
+  "tags": ["支援"],
+  "desc": "车体结构加固，最大耐久 +10（基础 100）。",
+  "effects": [
+    { "type": "modifier", "stat": "maxHp", "mode": "add", "value": 10 }
+  ],
+  "maxStacks": 3
+}

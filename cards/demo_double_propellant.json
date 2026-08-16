@@ -1,0 +1,12 @@
+{
+  "id": "demo_double_propellant",
+  "name": "双份发射药",
+  "rarity": "rare",
+  "tags": ["爆破"],
+  "desc": "加装双份发射药，全部弹种单发伤害 +15%，弹速 +15%。",
+  "effects": [
+    { "type": "modifier", "stat": "damage", "mode": "mult", "value": 1.15 },
+    { "type": "modifier", "stat": "shellSpeed", "mode": "mult", "value": 1.15 }
+  ],
+  "maxStacks": 2
+}

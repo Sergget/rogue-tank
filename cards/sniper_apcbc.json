@@ -1,0 +1,11 @@
+{
+  "id": "sniper_apcbc",
+  "name": "被帽穿甲弹",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "AP 弹穿深 +12mm。",
+  "effects": [
+    { "type": "ammo", "key": "ap", "field": "pen", "mode": "add", "value": 12 }
+  ],
+  "maxStacks": 3
+}

@@ -1,0 +1,11 @@
+{
+  "id": "support_medevac",
+  "name": "战场救护协议",
+  "rarity": "legendary",
+  "tags": ["支援"],
+  "desc": "战场救护协议：复活次数 +1，阵亡后可满状态复活，改变整局节奏（占位）。",
+  "effects": [
+    { "type": "economy", "field": "reviveCount", "value": 1 }
+  ],
+  "maxStacks": 1
+}

@@ -1,0 +1,11 @@
+{
+  "id": "sniper_loader_drill",
+  "name": "装填手操练",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "装填时间 -10%。",
+  "effects": [
+    { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.90 }
+  ],
+  "maxStacks": 3
+}

@@ -1,0 +1,12 @@
+{
+  "id": "mobile_gun_drive_sync",
+  "name": "炮塔车体协同",
+  "rarity": "rare",
+  "tags": ["机动"],
+  "desc": "炮塔转速 +15%、车体转向 +15%，抢线更快。",
+  "effects": [
+    { "type": "modifier", "stat": "turretTurnRate", "mode": "mult", "value": 1.15 },
+    { "type": "modifier", "stat": "turnRate", "mode": "mult", "value": 1.15 }
+  ],
+  "maxStacks": 2
+}

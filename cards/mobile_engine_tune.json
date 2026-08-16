@@ -1,0 +1,11 @@
+{
+  "id": "mobile_engine_tune",
+  "name": "引擎调校",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "发动机马力 +12%，起步与提速更迅猛。",
+  "effects": [
+    { "type": "modifier", "stat": "enginePower", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

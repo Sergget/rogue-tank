@@ -515,6 +515,26 @@ function loadCardPool(){
 }
 loadCardPool();
 
+// P-09 Boss 池（bosses/ 一型一文件，经 /api/bosses 聚合）；链尾节点随机指定一个 Boss
+let bossPool = [];
+function loadBossPool(){
+  fetch('api/bosses')
+    .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+    .then(list => { bossPool = Object.values(list || {}); })
+    .catch(err => { console.warn('无法读取 bosses/ 列表:', err.message); bossPool = []; });
+}
+loadBossPool();
+
+function assignBossNode(run){
+  if(!run || !run.nodes.length) return;
+  if(bossPool.length){
+    const boss = bossPool[Math.floor(Math.random() * bossPool.length)];
+    const last = run.nodes[run.nodes.length - 1];
+    last.boss = boss;
+    last.enemies = [];   // Boss 战不混普通敌军（M7 起可配 summons）
+  }
+}
+
 function hideAllScreens(){
   for(const id of ['mapScreen','settleScreen','rewardScreen','gameoverScreen']) document.getElementById(id).style.display = 'none';
 }
@@ -553,9 +573,26 @@ function enterBattle(nodeIndex){
       resetEntity(t);
     }
   });
+
+  // P-09：Boss 战——链尾节点 spawn Boss 实体（node.enemies 已被 assignBossNode 清空）
+  if(node.boss){
+    const bossEntity = makeBossEntity(node.boss, {
+      spawnTank(spec){ return spawnTank(spec); },
+      configureTank(t, tankId){
+        const spec = tankListData && tankListData[tankId];
+        if(spec) applyTankConfig(t, spec);
+        resetEntity(t);
+      }
+    });
+    bossEntity.nodeSpawn = true;                       // 计入清敌判定（livingNodeEnemies）
+    bossEntity.x = node.w * 0.7; bossEntity.y = node.h / 2;
+    bossEntity.hullAngle = Math.PI; bossEntity.turretAngle = Math.PI;
+    pushLog(`⚠ BOSS 战：「${node.boss.name}」— ${node.boss.desc || ''}`, 'CRIT');
+  }
+
   battleState = { startMs: performance.now(), prevPlayerHp: player.hp, damageTaken: 0, cleared: false, playerDied: false };
   shells.length = 0; impacts.length = 0; bounceFx.length = 0;
-  pushLog(`进入节点 ${nodeIndex + 1}「${node.template.name}」 难度 ${(node.difficulty * 100).toFixed(0)}% — 敌军 ${node.enemies.length} 辆${node.outpost ? '，友军据点已部署' : ''}`, 'COVER');
+  pushLog(`进入节点 ${nodeIndex + 1}「${node.template.name}」 难度 ${(node.difficulty * 100).toFixed(0)}% — ${node.boss ? 'BOSS ' + node.boss.name : '敌军 ' + node.enemies.length + ' 辆'}${node.outpost ? '，友军据点已部署' : ''}`, 'COVER');
   renderRunHud();
 }
 
@@ -570,9 +607,14 @@ function finishNode(cleared){
   const outpostEntity = entities.find(e => e.team === 'ally' && e.nodeSpawn);
   const outpostAlive = !outpostEntity || outpostEntity.hp > 0;
   const score = scoreNode(currentNode, { damageTaken: battleState.damageTaken, clearMs, outpostAlive });
+  let bossLoot = null;
+  if(cleared && currentNode.boss){                     // P-09：Boss 掉落（score + 卡牌稀有度）
+    bossLoot = currentNode.boss.loot || null;
+    if(bossLoot && bossLoot.score) score.total += bossLoot.score;
+  }
   runScore += score.total;
   renderRunHud();
-  if(cleared) transition(flow, 'settlement', { nodeIndex: currentNode.index, score, clearMs });
+  if(cleared) transition(flow, 'settlement', { nodeIndex: currentNode.index, score, clearMs, bossLoot });
   else transition(flow, 'gameover', { nodeIndex: currentNode.index, score });
 }
 
@@ -626,6 +668,7 @@ watchFlow(flow, (state, payload) => {
     const s = payload.score;
     const rows = [`<div class="row"><span class="k">基础奖励</span><span>${s.base}</span></div>`];
     for(const b of s.bonuses) rows.push(`<div class="row"><span class="k">${b.label}</span><span>+${b.amount}</span></div>`);
+    if(payload.bossLoot && payload.bossLoot.score) rows.push(`<div class="row"><span class="k">Boss 战利品</span><span>+${payload.bossLoot.score}</span></div>`);
     rows.push(`<div class="row"><span class="k">通关用时</span><span>${(payload.clearMs / 1000).toFixed(1)}s</span></div>`);
     rows.push(`<div class="row total"><span class="k">本节点得分</span><span>${s.total}</span></div>`);
     document.getElementById('settleBody').innerHTML = rows.join('');
@@ -659,6 +702,7 @@ watchFlow(flow, (state, payload) => {
 
 function startNewRun(){
   run = generateRun();
+  assignBossNode(run);   // P-09：链尾节点指定 Boss
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
   pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}）`, 'COVER');
   playSound('ui');
@@ -674,6 +718,7 @@ document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   playSound('ui');
   restartRun(flow);                              // gameover → map（runId 自增）
   run = generateRun();                           // 新的一局
+  assignBossNode(run);                           // P-09：链尾 Boss
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
   transition(flow, 'battle', { nodeIndex: 0 });
 });
@@ -1178,11 +1223,18 @@ function update(dt){
   if(run && battleState && flow.state === 'battle' && !battleState.cleared){
     if(player.hp < battleState.prevPlayerHp) battleState.damageTaken += battleState.prevPlayerHp - player.hp;
     battleState.prevPlayerHp = player.hp;
+    // P-09：Boss 阶段触发（血量跨阈值 → 切换 modifiers + 日志）
+    for(const e of entities){
+      if(e.isBoss && e.hp > 0){
+        const r = updateBossStage(e);
+        if(r.changed){ pushLog(`BOSS「${e.boss.name}」进入阶段「${r.stage.name || r.stage.id}」：${r.stage.behavior || ''}`, 'CRIT'); playSound('ui'); }
+      }
+    }
     if(player._dead && !battleState.playerDied){
       battleState.playerDied = true;
       finishNode(false);               // 阵亡 → gameover（M8 复活系统接入前的永久死亡占位）
     } else if(!player._dead && livingNodeEnemies().length === 0){
-      finishNode(true);                // 敌全灭 → 结算
+      finishNode(true);                // 敌全灭（含 Boss）→ 结算
     }
   }
 

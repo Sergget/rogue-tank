@@ -1,0 +1,11 @@
+{
+  "id": "support_gunner_aim",
+  "name": "炮手校准",
+  "rarity": "common",
+  "tags": ["支援"],
+  "desc": "炮手校准瞄准装置，缩圈速度 +12%。",
+  "effects": [
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 2
+}

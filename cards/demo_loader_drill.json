@@ -1,0 +1,11 @@
+{
+  "id": "demo_loader_drill",
+  "name": "装填班组特训",
+  "rarity": "rare",
+  "tags": ["爆破"],
+  "desc": "装填手班组战术配合训练，装填时间 -15%。",
+  "effects": [
+    { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.85 }
+  ],
+  "maxStacks": 2
+}

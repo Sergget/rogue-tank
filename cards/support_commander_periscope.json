@@ -1,0 +1,11 @@
+{
+  "id": "support_commander_periscope",
+  "name": "车长潜望镜",
+  "rarity": "rare",
+  "tags": ["支援"],
+  "desc": "车长潜望镜：扩大战场视野范围，先敌发现、抢占先机（被动）。",
+  "effects": [
+    { "type": "passive", "key": "commander_sight" }
+  ],
+  "maxStacks": 1
+}

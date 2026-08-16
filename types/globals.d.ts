@@ -243,3 +243,6 @@ declare function validateBossStage(stage: any, idx: number): string[];
 declare function bossStageFor(boss: any, hpRatio: number): any;
 declare function bossStageIndex(boss: any, hpRatio: number): number;
 declare function bossInStage(boss: any, hpRatio: number, stageId: string): boolean;
+declare function makeBossEntity(boss: any, env: any): any;
+declare function applyBossStage(entity: any, stage: any): void;
+declare function updateBossStage(entity: any): { changed: boolean; from?: string; to?: string; stage: any };

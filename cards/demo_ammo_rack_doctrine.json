@@ -1,0 +1,11 @@
+{
+  "id": "demo_ammo_rack_doctrine",
+  "name": "弹药架引爆战术",
+  "rarity": "rare",
+  "tags": ["爆破"],
+  "desc": "针对性打击敌方弹药架，弹药架模块伤害 +20%。",
+  "effects": [
+    { "type": "modifier", "stat": "ammoMult", "mode": "mult", "value": 1.2 }
+  ],
+  "maxStacks": 2
+}

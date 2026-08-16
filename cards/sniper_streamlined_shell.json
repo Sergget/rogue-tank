@@ -1,0 +1,11 @@
+{
+  "id": "sniper_streamlined_shell",
+  "name": "流线型弹体",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "AP 弹弹速 +12%。",
+  "effects": [
+    { "type": "ammo", "key": "ap", "field": "speed", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

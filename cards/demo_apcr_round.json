@@ -1,0 +1,11 @@
+{
+  "id": "demo_apcr_round",
+  "name": "次口径脱壳弹",
+  "rarity": "rare",
+  "tags": ["爆破"],
+  "desc": "APCR 弹穿深 +20%——对重甲目标的换弹对策。",
+  "effects": [
+    { "type": "ammo", "key": "apcr", "field": "pen", "mode": "mult", "value": 1.2 }
+  ],
+  "maxStacks": 2
+}

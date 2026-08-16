@@ -1,0 +1,13 @@
+{
+  "id": "mobile_running_gun",
+  "name": "行进射击信条",
+  "rarity": "legendary",
+  "tags": ["机动"],
+  "desc": "极速 +25%、散布 -30%、缩圈 +25%——整场保持全速抢位，行进间开火几乎无惩罚。",
+  "effects": [
+    { "type": "modifier", "stat": "maxSpeed", "mode": "mult", "value": 1.25 },
+    { "type": "modifier", "stat": "spreadMult", "mode": "mult", "value": 0.7 },
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.25 }
+  ],
+  "maxStacks": 1
+}

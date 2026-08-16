@@ -1,0 +1,12 @@
+{
+  "id": "turret_bunker",
+  "name": "炮塔堡垒",
+  "rarity": "epic",
+  "tags": ["重甲"],
+  "desc": "炮塔正面等效厚度 +35%，侧面 +20%。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.turret.front", "mode": "mult", "value": 1.35 },
+    { "type": "modifier", "stat": "armor.turret.side", "mode": "mult", "value": 1.2 }
+  ],
+  "maxStacks": 1
+}

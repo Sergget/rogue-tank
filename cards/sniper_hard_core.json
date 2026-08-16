@@ -1,0 +1,11 @@
+{
+  "id": "sniper_hard_core",
+  "name": "硬芯弹芯",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "APCR 弹穿深 +14mm。",
+  "effects": [
+    { "type": "ammo", "key": "apcr", "field": "pen", "mode": "add", "value": 14 }
+  ],
+  "maxStacks": 3
+}

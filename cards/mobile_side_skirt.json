@@ -1,0 +1,11 @@
+{
+  "id": "mobile_side_skirt",
+  "name": "履带侧裙板",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "车体侧面装甲 +12%，保护履带与行走机构。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull.side", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

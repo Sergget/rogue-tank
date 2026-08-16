@@ -1,0 +1,11 @@
+{
+  "id": "support_crew_drill",
+  "name": "乘员操练",
+  "rarity": "common",
+  "tags": ["支援"],
+  "desc": "乘员操练有素，命中敌方乘员时伤害 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "crewMult", "mode": "mult", "value": 1.1 }
+  ],
+  "maxStacks": 2
+}

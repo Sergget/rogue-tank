@@ -1,0 +1,11 @@
+{
+  "id": "mobile_race_engine",
+  "name": "赛车级发动机",
+  "rarity": "rare",
+  "tags": ["机动"],
+  "desc": "发动机马力 +20%，直线加速一骑绝尘。",
+  "effects": [
+    { "type": "modifier", "stat": "enginePower", "mode": "mult", "value": 1.2 }
+  ],
+  "maxStacks": 2
+}

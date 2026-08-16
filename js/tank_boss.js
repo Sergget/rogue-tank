@@ -97,6 +97,58 @@ function bossInStage(boss, hpRatio, stageId) {
   return st && st.id === stageId;
 }
 
+// ---------- 运行时：Boss 实体生成与阶段触发 ----------
+
+// 生成 Boss 实体。env 注入（浏览器传 spawnTank/applyTankConfig；Node 测试传 fake）：
+//   env.spawnTank(spec)      —— 生成基础实体（spec 含 id/team/x/y/hullAngle/turretAngle/heightClass）
+//   env.configureTank(t, id) —— 应用 tanks/<id>.json 配置（含重置 hp 到满血）
+// 返回带 boss 元数据 + 已应用首阶段 modifiers 的实体。
+function makeBossEntity(boss, env) {
+  const t = env.spawnTank({
+    id: 'boss_' + boss.id,
+    team: 'enemy',
+    x: 0, y: 0,
+    hullAngle: Math.PI, turretAngle: Math.PI,
+    heightClass: 'heavy'
+  });
+  if (typeof env.configureTank === 'function') env.configureTank(t, boss.tankId || 'dummy');
+  // 满血出生（configureTank 可能重置 hp；boss 以 stats.maxHp 为准）
+  if (t.stats && t.stats.maxHp) { t.maxHp = t.stats.maxHp; t.hp = t.stats.maxHp; }
+  t.isBoss = true;
+  t.boss = boss;
+  t.stageId = null;
+  t.scale = boss.scale || 1;
+  if (boss.stages && boss.stages.length) applyBossStage(t, boss.stages[0]);
+  return t;
+}
+
+// 应用阶段：移除上一阶段 modifiers（source=boss-stage:<旧id>）→ 记录新阶段 → 叠加 onEnter.modifiers。
+function applyBossStage(entity, stage) {
+  if (entity.stageId && entity.stageId !== stage.id && typeof removeModifierBySource === 'function') {
+    removeModifierBySource(entity, 'boss-stage:' + entity.stageId);
+  }
+  entity.stageId = stage.id;
+  const mods = (stage.onEnter && stage.onEnter.modifiers) || [];
+  for (const m of mods) {
+    if (typeof addModifier === 'function') {
+      addModifier(entity, { stat: m.stat, mode: m.mode, value: m.value, source: 'boss-stage:' + stage.id });
+    }
+  }
+}
+
+// 按当前血量比例判定阶段；跨阶段时自动 applyBossStage，返回 { changed, from, to, stage }。
+function updateBossStage(entity) {
+  if (!entity.boss || !entity.boss.stages || entity.boss.stages.length === 0) return { changed: false, stage: null };
+  const hpRatio = entity.maxHp > 0 ? entity.hp / entity.maxHp : 0;
+  const stage = bossStageFor(entity.boss, hpRatio);
+  if (stage.id !== entity.stageId) {
+    const from = entity.stageId;
+    applyBossStage(entity, stage);
+    return { changed: true, from: from, to: stage.id, stage: stage };
+  }
+  return { changed: false, stage: stage };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     BOSS_WEAKSPOT_KEYS,
@@ -105,6 +157,9 @@ if (typeof module !== 'undefined' && module.exports) {
     validateBossStage,
     bossStageFor,
     bossStageIndex,
-    bossInStage
+    bossInStage,
+    makeBossEntity,
+    applyBossStage,
+    updateBossStage
   };
 }

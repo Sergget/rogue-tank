@@ -1,0 +1,11 @@
+{
+  "id": "support_loader_assist",
+  "name": "装填手辅助",
+  "rarity": "common",
+  "tags": ["支援"],
+  "desc": "装填手辅助装置，装填时间 -8%。",
+  "effects": [
+    { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.92 }
+  ],
+  "maxStacks": 3
+}

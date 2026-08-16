@@ -1,0 +1,11 @@
+{
+  "id": "support_elite_crew",
+  "name": "精英车组",
+  "rarity": "epic",
+  "tags": ["支援"],
+  "desc": "精英车组全员就位，命中敌方乘员时伤害 +30%。",
+  "effects": [
+    { "type": "modifier", "stat": "crewMult", "mode": "mult", "value": 1.3 }
+  ],
+  "maxStacks": 1
+}

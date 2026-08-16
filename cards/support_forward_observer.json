@@ -1,0 +1,12 @@
+{
+  "id": "support_forward_observer",
+  "name": "前沿观察哨",
+  "rarity": "epic",
+  "tags": ["支援"],
+  "desc": "前沿观察哨引导炮火：缩圈速度 +25%，散布 -15%。",
+  "effects": [
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.25 },
+    { "type": "modifier", "stat": "spreadMult", "mode": "mult", "value": 0.85 }
+  ],
+  "maxStacks": 1
+}

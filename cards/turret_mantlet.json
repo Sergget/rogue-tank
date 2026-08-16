@@ -1,0 +1,11 @@
+{
+  "id": "turret_mantlet",
+  "name": "炮盾加强",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "炮盾区域加厚，炮塔正面等效厚度 +12mm。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.turret.front", "mode": "add", "value": 12 }
+  ],
+  "maxStacks": 3
+}

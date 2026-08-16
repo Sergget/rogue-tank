@@ -1,0 +1,11 @@
+{
+  "id": "mobile_carbon_hull",
+  "name": "碳纤维车体",
+  "rarity": "rare",
+  "tags": ["机动"],
+  "desc": "车体重量 -15%，加速与制动显著提升。",
+  "effects": [
+    { "type": "modifier", "stat": "weight", "mode": "mult", "value": 0.85 }
+  ],
+  "maxStacks": 2
+}

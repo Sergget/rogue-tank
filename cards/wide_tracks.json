@@ -1,0 +1,12 @@
+{
+  "id": "wide_tracks",
+  "name": "加宽履带",
+  "rarity": "rare",
+  "tags": ["重甲"],
+  "desc": "履带加宽：修复时间 -20%，转向 +5%。",
+  "effects": [
+    { "type": "modifier", "stat": "trackLock", "mode": "mult", "value": 0.8 },
+    { "type": "modifier", "stat": "turnRate", "mode": "mult", "value": 1.05 }
+  ],
+  "maxStacks": 2
+}

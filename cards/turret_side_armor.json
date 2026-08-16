@@ -1,0 +1,11 @@
+{
+  "id": "turret_side_armor",
+  "name": "炮塔侧甲",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "炮塔侧面附加装甲，等效厚度 +10mm。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.turret.side", "mode": "add", "value": 10 }
+  ],
+  "maxStacks": 3
+}

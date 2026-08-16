@@ -1,0 +1,11 @@
+{
+  "id": "sniper_hyper_velocity",
+  "name": "超高速弹",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "弹速 +20%。",
+  "effects": [
+    { "type": "modifier", "stat": "shellSpeed", "mode": "mult", "value": 1.20 }
+  ],
+  "maxStacks": 2
+}

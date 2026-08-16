@@ -1,0 +1,11 @@
+{
+  "id": "mobile_quick_track",
+  "name": "快速履带卡扣",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "履带锁定时间 -10%，被打断后更快恢复机动。",
+  "effects": [
+    { "type": "modifier", "stat": "trackLock", "mode": "mult", "value": 0.9 }
+  ],
+  "maxStacks": 3
+}

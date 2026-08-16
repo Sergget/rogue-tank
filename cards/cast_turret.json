@@ -1,0 +1,11 @@
+{
+  "id": "cast_turret",
+  "name": "炮塔翻铸",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "炮塔整体翻铸优化，全向等效厚度 +8%。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.turret", "mode": "mult", "value": 1.08 }
+  ],
+  "maxStacks": 3
+}

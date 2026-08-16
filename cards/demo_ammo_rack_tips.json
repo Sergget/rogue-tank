@@ -1,0 +1,11 @@
+{
+  "id": "demo_ammo_rack_tips",
+  "name": "弹药架专项射击",
+  "rarity": "common",
+  "tags": ["爆破"],
+  "desc": "乘员演练命中弹药架舱位的射击要领，弹药架模块伤害 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "ammoMult", "mode": "mult", "value": 1.1 }
+  ],
+  "maxStacks": 3
+}

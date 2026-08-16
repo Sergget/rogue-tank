@@ -1,0 +1,11 @@
+{
+  "id": "demo_incendiary_filler",
+  "name": "燃烧剂装药",
+  "rarity": "common",
+  "tags": ["爆破"],
+  "desc": "弹内掺入燃烧剂，起火灼伤速率 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "dotRatioMult", "mode": "mult", "value": 1.1 }
+  ],
+  "maxStacks": 3
+}

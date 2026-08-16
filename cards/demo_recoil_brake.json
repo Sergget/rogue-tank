@@ -1,0 +1,11 @@
+{
+  "id": "demo_recoil_brake",
+  "name": "炮口制退器",
+  "rarity": "common",
+  "tags": ["爆破"],
+  "desc": "炮口制退器吸收后坐冲量，装填时间 -10%。",
+  "effects": [
+    { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.9 }
+  ],
+  "maxStacks": 3
+}

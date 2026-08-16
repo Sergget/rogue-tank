@@ -1,0 +1,11 @@
+{
+  "id": "sniper_commander_sight",
+  "name": "车长观瞄镜",
+  "rarity": "epic",
+  "tags": ["狙击"],
+  "desc": "车长观瞄镜（被动）：观测距离 +25%。",
+  "effects": [
+    { "type": "passive", "key": "commander_sight", "value": 25 }
+  ],
+  "maxStacks": 1
+}

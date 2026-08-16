@@ -1,0 +1,11 @@
+{
+  "id": "hull_bracing",
+  "name": "车体加强筋",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "车体结构加强，耐久 +12%。",
+  "effects": [
+    { "type": "modifier", "stat": "maxHp", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

@@ -1,0 +1,11 @@
+{
+  "id": "demo_he_streamline",
+  "name": "流线弹体",
+  "rarity": "common",
+  "tags": ["爆破"],
+  "desc": "HE 弹体流线化改造，飞行速度 +10%。",
+  "effects": [
+    { "type": "ammo", "key": "he", "field": "speed", "mode": "mult", "value": 1.1 }
+  ],
+  "maxStacks": 3
+}

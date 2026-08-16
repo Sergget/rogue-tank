@@ -1,0 +1,11 @@
+{
+  "id": "hull_front_plate",
+  "name": "前置附加装甲板",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "车体正面加装附加装甲板，等效厚度 +10mm。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull.front", "mode": "add", "value": 10 }
+  ],
+  "maxStacks": 3
+}
