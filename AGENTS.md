@@ -35,6 +35,7 @@
   - `tank_cards.js`：卡牌系统（`CARD_RARITIES`/`CARD_TAGS`/6 类效果枚举 + `validateCard`/`applyCardEffects`/`drawCardChoices`/`cardStackCount`，P-09；纯逻辑可 Node 测试）。
   - `tank_boss.js`：Boss 系统（`validateBoss`/`bossStageFor` + 运行时 `makeBossEntity`/`applyBossStage`/`updateBossStage`，P-09；纯逻辑可 Node 测试）。
   - `tank_ai.js`：敌人/友军 AI 决策（`aiDecide`/`aiDecideEnemy`/`aiDecideAlly` 双态 + 消极防御，输出 `{turn, move, turretDesired, fire}`，P-10；纯逻辑可 Node 测试，依赖 `RULES.ai`）。
+  - `tank_revive.js`：死亡/复活状态机（`findReviveSpot`/`reviveTank`/`canRevive`/`reviveAt` 满状态复活+无敌+友军据点旁随机点，P-11；纯逻辑可 Node 测试，依赖 `RULES.revive`）。
 
 ## 2. 文档分工（开始工作前必读）
 
@@ -103,4 +104,4 @@
 1. **属性系统接线**：base/modifiers/stats 三层结构已实现，但卡牌、局内技能、局外永久升级的修饰器来源尚未接入（`addModifier` 等 API 已就绪，见 `js/tank_model.js`；P-08 卡牌占位已演示该管道）。
 2. ~~**摄像机 + 节点地图 + 小地图**~~：**已完成（P-08，2026-08-15）**——`js/tank_camera.js`/`tank_map.js`/`tank_flow.js`/`tank_minimap.js`，含按难度随机生成节点内容（掩体布局/敌军构成/友军据点）与线性节点链流程（见 DEVELOPMENT.md §2.12/§3.7）。
 3. ~~**敌人 AI 双态行为**（摄像机内主动 / 范围外被动、边缘贴近）+ 友军据点（消极防御、被摧毁、五折记分）~~ — **已完成（P-10，2026-08-15）**：`js/tank_ai.js`（`aiDecide` 双态 + 友军消极防御 + `RULES.ai` 参数）+ `hasLineOfSight` 视线遮挡 + `fireTank` 通用开火，Boss/summons 走同一敌对 AI（见 DEVELOPMENT.md §2.2/§3.10）。剩余：友军击杀五折记分（开放问题 4，非阻塞，留待经济里程碑）。
-4. **死亡/复活状态机**（永久死亡、复活次数、满状态复活于友军据点旁）——P-08 前为 KIA 占位（gameover 覆盖层）。
+4. ~~**死亡/复活状态机**（永久死亡、复活次数、满状态复活于友军据点旁）~~ — **已完成（P-11，2026-08-15）**：`js/tank_revive.js`（满状态复活 + 友军据点旁随机点 + `RULES.revive.invulnSeconds`=3s 无敌）+ mvp 死亡判定（`canRevive`→复活 / 耗尽→gameover）+ 无敌闪烁视觉（见 DEVELOPMENT.md §2.3/§3.11）。剩余：局前购买追加复活次数（M10）。

@@ -204,6 +204,14 @@ const RULES = {
     closeRange: 200,        // 太近阈值：后退拉开
     aimTolerance: 0.12,     // 炮塔对准容差（rad）才开火
     allyEngageRange: 460    // 友军据点射程（消极防御，只打射程内敌人）
+  },
+
+  // 死亡/复活（P-11 / DEVELOPMENT.md §2.3 / §6 条目 8）。
+  // 消费方：js/tank_revive.js（findReviveSpot/reviveTank）。
+  revive: {
+    baseRevives: 2,          // 基础复活次数（一局开始前可用商店点数购买追加，见 §2.4/M10）
+    invulnSeconds: 3,        // 复活后无敌时长（开放问题 3 定值：3 秒）
+    reviveRadius: 150        // 复活点 = 友军据点周围半径内随机无障碍点（无据点回退玩家出生点）
   }
 };
 

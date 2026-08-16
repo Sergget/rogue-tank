@@ -75,7 +75,7 @@ function resolveHit(shell, target, hit, allowBounce){
 function applyModuleDamage(shell, target, hit){
   const mod = moduleFromHit(target, hit);
   const DB = RULES.modules;
-  const invuln = !!(target.invuln);
+  const invuln = !!(target.invuln) || (target.invulnT > 0);
   let cls = 'PEN', extra = '';
   let dmg = 0;
 

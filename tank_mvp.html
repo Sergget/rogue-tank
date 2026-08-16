@@ -306,6 +306,7 @@
   <script src="js/tank_entity.js"></script>
   <script src="js/tank_move.js"></script>
   <script src="js/tank_ai.js"></script>
+  <script src="js/tank_revive.js"></script>
   <script src="js/tank_fx.js"></script>
   <script src="js/tank_audio.js"></script>
   <script src="js/tank_assets.js"></script>
@@ -726,6 +727,7 @@ function startNewRun(){
   run = generateRun();
   assignBossNode(run);   // P-09：链尾节点指定 Boss
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
+  player.revives = RULES.revive.baseRevives;   // P-11：复活次数（基础 2，局前可购追加 M10）
   pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}）`, 'COVER');
   playSound('ui');
   transition(flow, 'battle', { nodeIndex: 0 });
@@ -742,6 +744,7 @@ document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   run = generateRun();                           // 新的一局
   assignBossNode(run);                           // P-09：链尾 Boss
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
+  player.revives = RULES.revive.baseRevives;     // P-11：复活次数
   transition(flow, 'battle', { nodeIndex: 0 });
 });
 document.getElementById('heightBtn').addEventListener('click', ()=>{
@@ -1046,8 +1049,10 @@ function update(dt){
   }
 
   entities.forEach(e=>{
-    // invulnerable test-rig targets (dummy) never lose hp — DoT, pens, ammo detonations all no-op
-    const invuln = (e.id==='dummy' && dummy.invuln);
+    // invulnerable：测试靶车无敌（dummy.invuln）或复活后短暂无敌（invulnT>0）——DoT/直击/殉爆均不掉血
+    const invuln = (e.id==='dummy' && dummy.invuln) || e.invulnT > 0;
+    // P-11：复活无敌计时器递减
+    if(e.invulnT > 0) e.invulnT = Math.max(0, e.invulnT - dt);
     // 模块 debuff 倒计时（8s 瞬时状态；归零自动清除）
     tickDebuffs(e, dt);
     // 起火：DOT 伤害（每秒 = 攻击方标准伤害 × RULES.fire.dotRatio，升级可放大）+ 燃烧/浓烟视觉发射
@@ -1279,8 +1284,15 @@ function update(dt){
       }
     }
     if(player._dead && !battleState.playerDied){
-      battleState.playerDied = true;
-      finishNode(false);               // 阵亡 → gameover（M8 复活系统接入前的永久死亡占位）
+      if(canRevive(player)){                                     // P-11：复活次数 > 0 → 满状态复活
+        const outpost = entities.find(e => e.team === 'ally' && e.nodeSpawn);
+        reviveAt(player, outpost, covers, currentNode.playerSpawn);
+        pushLog(`玩家阵亡 — 复活（剩余 ${player.revives} 次）：满状态 + 友军据点旁 + ${RULES.revive.invulnSeconds}s 无敌`, 'CRIT');
+        playSound('ui');
+      } else {
+        battleState.playerDied = true;
+        finishNode(false);               // 复活次数耗尽 → gameover（真 Roguelike 永久死亡）
+      }
     } else if(!player._dead && livingNodeEnemies().length === 0){
       finishNode(true);                // 敌全灭（含 Boss）→ 结算
     }
@@ -1346,7 +1358,12 @@ function draw(){
   // 视口 AABB 剔除：掩体/实体/树冠只画进入视口的（§6 条目 6 捆绑前置 culling）
   const inView = (cov) => aabbInView(cam, cov.x, cov.y, cov.w, cov.h);
   covers.filter(inView).forEach(cov => drawCover(ctx, cov));
-  entities.forEach(t => { if(aabbInView(cam, t.x, t.y, t.hullLen, t.hullWid)) drawTank(ctx, t); });
+  entities.forEach(t => {
+    if(!aabbInView(cam, t.x, t.y, t.hullLen, t.hullWid)) return;
+    if(t.invulnT > 0){ ctx.globalAlpha = 0.5 + 0.4 * Math.sin(performance.now() / 60); }   // P-11：复活无敌闪烁
+    drawTank(ctx, t);
+    ctx.globalAlpha = 1;
+  });
   drawFoliage(ctx, covers.filter(inView));   // 灌木/树冠层：盖住其下坦克 = 视线遮挡
   drawShells(ctx, shells.filter(s => aabbInView(cam, s.x, s.y, 60, 60, 40)));
   drawExplosions(ctx);

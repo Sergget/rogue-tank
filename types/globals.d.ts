@@ -253,3 +253,11 @@ declare function aiConfig(): any;
 declare function aiDecideEnemy(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
 declare function aiDecideAlly(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
 declare function aiDecide(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
+
+// 死亡/复活状态机（js/tank_revive.js，P-11 / §2.3 / §6 条目 8）
+declare function reviveConfig(): any;
+declare function findReviveSpot(outpost: any, covers: any[], playerSpawn: any, rng?: any, radius?: number): { x: number; y: number };
+declare function pointInAnyCover(covers: any[], x: number, y: number, padding: number): boolean;
+declare function reviveTank(t: any, spot: any, invulnSeconds?: number): any;
+declare function canRevive(t: any): boolean;
+declare function reviveAt(t: any, outpost: any, covers: any[], playerSpawn: any, rng?: any): boolean;
