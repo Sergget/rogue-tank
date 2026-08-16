@@ -1,0 +1,11 @@
+{
+  "id": "reactive_armor",
+  "name": "反应装甲",
+  "rarity": "legendary",
+  "tags": ["重甲"],
+  "desc": "首层反应装甲：抵挡一次命中并消解（被动）。",
+  "effects": [
+    { "type": "passive", "key": "reactive_armor", "value": 1 }
+  ],
+  "maxStacks": 1
+}

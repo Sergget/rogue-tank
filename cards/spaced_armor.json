@@ -1,0 +1,11 @@
+{
+  "id": "spaced_armor",
+  "name": "间隙装甲",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "车体正面附加间隙装甲，等效厚度 +12mm。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull.front", "mode": "add", "value": 12 }
+  ],
+  "maxStacks": 3
+}

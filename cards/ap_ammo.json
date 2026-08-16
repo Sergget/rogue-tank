@@ -1,0 +1,11 @@
+{
+  "id": "ap_ammo",
+  "name": "穿甲弹补给",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "基础穿深 +10mm。",
+  "effects": [
+    { "type": "modifier", "stat": "penetration", "mode": "add", "value": 10 }
+  ],
+  "maxStacks": 4
+}

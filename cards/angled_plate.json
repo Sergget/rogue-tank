@@ -1,0 +1,11 @@
+{
+  "id": "angled_plate",
+  "name": "倾斜装甲板",
+  "rarity": "rare",
+  "tags": ["重甲"],
+  "desc": "整车装甲按倾斜角优化，全向等效厚度 +15%。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull", "mode": "mult", "value": 1.15 }
+  ],
+  "maxStacks": 2
+}

@@ -1,0 +1,12 @@
+{
+  "id": "track_tune",
+  "name": "履带调校",
+  "rarity": "rare",
+  "tags": ["机动"],
+  "desc": "转向 +10%，极速 +5%。",
+  "effects": [
+    { "type": "modifier", "stat": "turnRate", "mode": "mult", "value": 1.1 },
+    { "type": "modifier", "stat": "maxSpeed", "mode": "mult", "value": 1.05 }
+  ],
+  "maxStacks": 2
+}

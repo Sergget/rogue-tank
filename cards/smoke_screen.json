@@ -1,0 +1,11 @@
+{
+  "id": "smoke_screen",
+  "name": "烟雾弹",
+  "rarity": "common",
+  "tags": ["支援"],
+  "desc": "主动装置：投放烟雾遮蔽敌方视线（占位）。",
+  "effects": [
+    { "type": "ability", "key": "smoke" }
+  ],
+  "maxStacks": 2
+}

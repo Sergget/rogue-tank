@@ -300,6 +300,8 @@
   <script src="js/tank_flow.js"></script>
   <script src="js/tank_map.js"></script>
   <script src="js/tank_minimap.js"></script>
+  <script src="js/tank_cards.js"></script>
+  <script src="js/tank_boss.js"></script>
   <script src="js/tank_physics.js"></script>
   <script src="js/tank_entity.js"></script>
   <script src="js/tank_move.js"></script>
@@ -503,11 +505,15 @@ document.getElementById('resetBtn').addEventListener('click', ()=>{
 // UI 界面层约定（§6 条目 6 捆绑前置）：mvp 通过 watchFlow 监听状态转移 → 显隐覆盖层；
 // 战斗循环只属于 'battle' 状态（loop 的模拟门控见 loop()）。
 
-const PLACEHOLDER_CARDS = [
-  { name:'火力强化', desc:'穿透 +12%（base/modifiers/stats 管道演示，M10 落内容池）', stat:'penetration', mode:'mult', value:1.12 },
-  { name:'机动强化', desc:'最大速度 +12%', stat:'maxSpeed', mode:'mult', value:1.12 },
-  { name:'装甲强化', desc:'正面装甲 +10%', stat:'armor', mode:'mult', value:1.1 }
-];
+// P-09 真实卡池（cards/ 一型一文件，经 /api/cards 聚合；替换原 PLACEHOLDER_CARDS 占位）
+let cardPool = [];
+function loadCardPool(){
+  fetch('api/cards')
+    .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+    .then(list => { cardPool = Object.values(list || {}); })
+    .catch(err => { console.warn('无法读取 cards/ 列表:', err.message); cardPool = []; });
+}
+loadCardPool();
 
 function hideAllScreens(){
   for(const id of ['mapScreen','settleScreen','rewardScreen','gameoverScreen']) document.getElementById(id).style.display = 'none';
@@ -572,7 +578,7 @@ function finishNode(cleared){
 
 function pickCard(card){
   if(!card) return;
-  addModifier(player, { stat: card.stat, mode: card.mode, value: card.value, source: 'card' });  // M10 前占位：直接加修饰器
+  applyCardEffects(player, card);   // P-09：走卡牌效果管道（modifier 立即生效，其余挂 cardEffects 供对应里程碑消费）
   pushLog(`获得卡牌「${card.name}」— ${card.desc}`, 'PEN');
   playSound('ui');
 }
@@ -627,11 +633,16 @@ watchFlow(flow, (state, payload) => {
   } else if(state === 'reward'){
     const row = document.getElementById('cardRow');
     row.innerHTML = '';
-    const cards = PLACEHOLDER_CARDS.slice().sort(() => Math.random() - 0.5).slice(0, 3);
+    const cards = cardPool.length ? drawCardChoices(cardPool, 3) : [];
+    if(cards.length === 0){
+      row.innerHTML = '<div class="screen-hint">卡池为空——请确认 cards/ 目录与 /api/cards 可用。</div>';
+    }
+    const rarityLabel = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇' };
     for(const c of cards){
       const d = document.createElement('div');
       d.className = 'card';
-      d.innerHTML = `<div class="cname">${c.name}</div><div class="cdesc">${c.desc}</div>`;
+      d.innerHTML = `<div class="cname">${c.name}</div><div class="cdesc">${c.desc || ''}</div>` +
+        `<div class="mono" style="font-size:10px;color:var(--amber-dim);margin-top:6px;">${rarityLabel[c.rarity] || c.rarity} · ${(c.tags||[]).join('/')}</div>`;
       d.addEventListener('click', () => { pickCard(c); nextNodeAfterReward(); });
       row.appendChild(d);
     }

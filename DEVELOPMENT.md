@@ -179,11 +179,53 @@
 
 **视口剔除 culling（条目 6 捆绑前置）**：mvp `draw()` 全部世界绘制套摄像机变换（`translate→scale→translate(-cam)`），covers/树冠层/shells 按 `aabbInView` 剔除（余量 64px），网格只画视口内线段；粒子池化为后续可选项（`drawFxParticles` 暂全量）。
 
-**UI 界面层约定（条目 6 捆绑前置）**：mvp 通过 `watchFlow` 监听状态转移 → 显隐 DOM 覆盖层（`#flowOverlay`：节点图 `mapScreen` / 结算 `settleScreen` / 卡牌 `rewardScreen` / 阵亡 `gameoverScreen`）；数据源是纯逻辑模块返回值（`generateRun`/`scoreNode`），UI 零耦合。**卡牌三选一为占位**（`PLACEHOLDER_CARDS` 直接 `addModifier` 给玩家加修饰器，演示 base/modifiers/stats 管道；内容池在 M10 经济里程碑落地）。
+**UI 界面层约定（条目 6 捆绑前置）**：mvp 通过 `watchFlow` 监听状态转移 → 显隐 DOM 覆盖层（`#flowOverlay`：节点图 `mapScreen` / 结算 `settleScreen` / 卡牌 `rewardScreen` / 阵亡 `gameoverScreen`）；数据源是纯逻辑模块返回值（`generateRun`/`scoreNode`），UI 零耦合。卡牌三选一由 P-09 起接真实卡池（`cards/` → `/api/cards` → `drawCardChoices`，见 §2.13）。
 
 **战斗判定接线（mvp）**：进入节点 → `enterBattle`（重置玩家到出生点、相机对齐、`materializeNode`）；战斗态逐帧累计玩家承伤（`damageTaken`）；**敌全灭 → settlement**；**玩家阵亡 → gameover**（M8 复活系统接入前的永久死亡占位）。敌军为静态靶标（无 AI，M7 接入 `driveTank` 即可行为化）；据点 `team:'ally'` 当前仅作结算加分标记（炮弹穿透友军，M7 起为可战斗单位）。测试台（未开局）行为不变。
 
 **验证**：`scripts/test-camera.js`（22 断言：换算互逆/zoom/钳制/阻尼收敛/剔除边界与余量）、`scripts/test-map.js`（难度曲线/敌军数量/节点链确定性/§4.5 评分/materializeNode 注入序列）、`scripts/test-flow.js`（合法/非法转移/监听/异常吞没/restartRun）挂进 `npm test`（现共 14 套）；vm 运行时冒烟验证完整流程：开局 → 战斗帧 → 清敌 → 结算 → 卡牌 → 下一节点 → 阵亡 → 重开（临时脚本，未入库）。
+
+### 2.13 卡牌系统（数据驱动，P-09 阶段 A 已实现，2026-08-15）
+
+**定位（§2.4 已定型）**：卡牌 = 局内节点间**三选一的改装/战术强化**，**不是**手牌指令牌组。拟真坦克主题、拒绝魔幻——效果围绕装甲/穿深/装填/机动/散布/视野/弹种/乘员展开，贴合本游戏"摆角度找跳弹、找掩体抢位置"的博弈调性（参照 Slay the Spire 的稀有度分层+流派构筑，但把"卡牌"落到"坦克改装"语境）。
+
+**数据**：`cards/<id>.json` 一型一文件（与 `tanks/` 同惯例，经 `GET /api/cards` 聚合）。Schema（唯一权威 = `js/tank_cards.js` 的 `validateCard`）：
+```json
+{ "id": "spaced_armor", "name": "间隙装甲", "rarity": "common", "tags": ["重甲"],
+  "desc": "车体正面附加间隙装甲，等效厚度 +12mm。",
+  "effects": [ { "type": "modifier", "stat": "armor.hull.front", "mode": "add", "value": 12 } ],
+  "maxStacks": 3 }
+```
+
+**效果类型（6 类，type 决定 params）**：
+1. `modifier` —— `{stat, mode:'add'|'mult', value}`，stat ∈ 白名单（穿透/伤害/装填/弹速/极速/转向/炮塔转速/装甲/履带锁/模块倍率/DOT 倍率/散布/缩圈）或装甲路径 `armor.hull.front` / `armor.hull` / `armor.turret.side`。**立即生效**（走 `addModifier` 管道，§5.1）。
+2. `ammo` —— 弹种改造 `{key:'ap'|'apcr'|'he', field:'pen'|'dmg'|'speed', mode, value}`（接入点 §5.4）。
+3. `ability` —— 主动装置 `{key:'smoke'|'repair'|'extinguish'|'recon'|'track_repair'}`（按键触发，M9 接入）。
+4. `passive` —— 机制性被动 `{key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}`。
+5. `drone` —— 伴随浮游炮（§2.2 已定型，M7 接入）。
+6. `economy` —— `{field:'scoreMul'|'shopDiscount'|'startScore'|'reviveCount', value}`（M10 落地）。
+
+**稀有度与流派**：稀有度 4 档 `common/rare/epic/legendary`（抽卡权重 50/30/15/5）；流派 5 个标签 `重甲/狙击/机动/爆破/支援`（构筑方向，可多标签）。**内容规模目标：卡牌 ≥100 张**（阶段 B 批量，稀有度分布按权重、5 流派全覆盖）。
+
+**模块与工具**：`js/tank_cards.js`（纯逻辑：`validateCard`/`validateCardSet`/`applyCardEffects`/`drawCardChoices`/`cardStackCount`/`weightedRarity`）；`scripts/validate-content.js`（内容 schema 守门，挂 `npm test`）+ `scripts/audit-content.js`（稀有度/流派/效果类型分布与数值极值审计，`--strict` 按阈值失败）；`tools/content_designer.html`（卡牌+Boss 统一编辑器，表格化编辑 effects、保存写回 JSON）；子 agent `@card-author`/`@balance-auditor`。mvp 的节点间三选一已接真实卡池（`/api/cards` → `drawCardChoices` 抽 3 → `applyCardEffects`）。
+
+### 2.14 Boss 系统（数据驱动，P-09 阶段 A 已实现，2026-08-15）
+
+**定位**：Boss = **特殊坦克配置 + 数据驱动多阶段机制**（参照 FTL Rebel Flagship 多阶段——每阶段改变打法；Into the Breach 弱点驱动——意图可读、位置博弈）。**不是弹幕墙**，延续"摆角度/打弱点/抢位置"的拟真博弈。**内容规模目标：Boss ≥5 种**，打法彼此区分。
+
+**数据**：`bosses/<id>.json` 一型一文件（经 `GET /api/bosses` 聚合）。Schema（唯一权威 = `js/tank_boss.js` 的 `validateBoss`）：
+```json
+{ "id": "siege_fort", "name": "要塞炮台", "tankId": "dummy", "scale": 1.8,
+  "stages": [ { "id": "fortified", "hpFrom": 1.0, "hpTo": 0.66, "behavior": "固守",
+                 "weakspots": ["ammo"], "onEnter": { "modifiers": [ { "stat": "armor.hull.front", "mode": "add", "value": 80 } ] } }, ... ],
+  "loot": { "score": 500, "cardRarity": "legendary", "cards": 3 } }
+```
+
+**阶段约束**：首阶段 `hpFrom=1`、末阶段 `hpTo=0`、相邻阶段阈值衔接（`validateBoss` 强制）；每阶段可声明 `behavior`（AI 接入层消费）、`weakspots`（弱点模块 ∈ `BOSS_WEAKSPOT_KEYS`：driver/ammo/engine/gunner/loader/commander/track）、`onEnter.modifiers`（阶段进入时叠加的 stat 修饰）。
+
+**5 Boss 规划（阶段 B 落地）**：要塞炮台（正面免疫→绕侧打弹药架）、双体履带（分节车体）、狙击手（远距高穿+视野博弈）、堡垒（反应装甲+浮游炮）、指挥官（召唤伴随单位+护盾发生器）——示例 `siege_fort` 已入库。
+
+**模块与工具**：`js/tank_boss.js`（纯逻辑：`validateBoss`/`validateBossStage`/`bossStageFor`/`bossStageIndex`/`bossInStage`）；编辑器/校验/审计工具与卡牌共用（`tools/content_designer.html` / `validate-content.js` / `audit-content.js`）；子 agent `@boss-author`/`@balance-auditor`。Boss 作为节点链末端战斗的接入在阶段 B（生成 `boss` 实体 + 阶段触发）。
 
 ---
 
@@ -272,9 +314,16 @@
 - **摄像机巡航**：run 模式战斗态相机跟随玩家（指数阻尼 + 世界边界钳制），节点世界为模板 ×3（约 1:9 摄像机比例）；全部世界绘制套摄像机变换，网格只画视口内线段；测试台模式（未开局）恒等视口、旧行为零变化。
 - **视口 AABB 剔除**：`aabbInView`（余量 64px）过滤 covers/树冠层/shells；实体按 hull 尺寸剔除。
 - **小地图**：右上角覆盖层（170×120），世界边界/掩体点/玩家绿·敌军红·友军蓝/摄像机视口矩形。
-- **单局流程**：右侧 HUD「单局流程」区常驻「开始一局 NEW RUN」按钮 → 生成节点链并进入节点 1（节点图覆盖层也可在通关后重新开局）→ 战斗（玩家居中巡航，清敌判定）→ 结算（§4.5 评分：基础+无伤/速通/据点加成）→ 卡牌三选一（占位，`addModifier` 直接生效演示 modifiers 管道）→ 下一节点 → 全链通关回到节点图；玩家阵亡 → KIA 覆盖层 → 重开新局。测试台（未开局）不受影响。
+- **单局流程**：右侧 HUD「单局流程」区常驻「开始一局 NEW RUN」按钮 → 生成节点链并进入节点 1（节点图覆盖层也可在通关后重新开局）→ 战斗（玩家居中巡航，清敌判定）→ 结算（§4.5 评分：基础+无伤/速通/据点加成）→ 卡牌三选一（P-09 起接真实卡池 `cards/`，`applyCardEffects` 生效）→ 下一节点 → 全链通关回到节点图；玩家阵亡 → KIA 覆盖层 → 重开新局。测试台（未开局）不受影响。
 - **战斗判定**：玩家承伤逐帧累计；敌全灭 → settlement；玩家阵亡 → gameover（M8 复活前的永久死亡占位）。敌军为静态靶标（`nodeSpawn` 标记，M7 接 AI）；据点 `team:'ally'` 为加分标记（炮弹穿透，M7 起为战斗单位）。
 - **验证**：`scripts/test-camera.js`（22 断言）/ `test-map.js` / `test-flow.js` 挂进 `npm test`（共 14 套全绿）；vm 运行时冒烟覆盖「开局→战斗→清敌→结算→卡牌→下一节点→阵亡→重开」全流程（临时脚本，未入库）。
+
+#### 3.8 卡牌/Boss 数据驱动框架（P-09 阶段 A，2026-08-15 会话；设计见 §2.13/§2.14）
+- **卡牌真实化**：节点间三选一从占位改为真实卡池——`cards/` 11 张示例卡经 `/api/cards` 聚合 → `drawCardChoices` 抽 3 → `applyCardEffects`（modifier 走 `addModifier` 立即改 stats，其余挂 `tank.cardEffects` 供对应里程碑消费）。
+- **Boss 框架**：`bosses/` 1 个示例 Boss（要塞炮台，3 阶段 + 弱点 + 掉落）；阶段判定纯逻辑 `bossStageFor`/`bossStageIndex`。
+- **内容工具**：`scripts/validate-content.js`（schema 守门，挂 `npm test`）+ `scripts/audit-content.js`（分布/数值审计）+ `tools/content_designer.html`（卡牌+Boss 统一编辑器，effects/stages 表格化编辑、保存写回 JSON）。
+- **子 agent**：新增 `@card-author`（卡牌作者）/ `@boss-author`（Boss 作者）/ `@balance-auditor`（平衡审计）三角色（`.opencode/agents/`）。
+- **验证**：`scripts/test-cards.js` / `test-boss.js` / `validate-content.js` 挂进 `npm test`（现共 17 套全绿）；`/api/cards`/`/api/bosses` 端点 HTTP 200；vm 运行时冒烟覆盖「开局→清敌→结算→真实抽卡→选卡→stats 生效→下一节点」（临时脚本，未入库）。
 
 ---
 
@@ -320,6 +369,7 @@
   tank.stats      = computeStats(base, modifiers)   // 战斗逻辑只读这个，不摸 base
   ```
   需要确定的规则：叠加顺序（先加后乘）、同名修饰器是否可叠加、修饰器生命周期分类（永久/单局/限时）。
+  **进展（P-09）**：卡牌 modifier 已走 `addModifier` 管道接入（`js/tank_cards.js` `applyCardEffects`，source=`card:<id>`，`cardStackCount` 支持同名叠层）；叠加规则（先加后乘已实现于 `computeStats`）与"同名可叠上限"由卡牌 `maxStacks` 字段约束；局内技能/局外永久升级的修饰器源仍待接入（§6 条目 9/10）。
 - ~~**摄像机 + 节点地图 + 小地图**~~：**已完成（P-08，2026-08-15，见 §2.12）**——摄像机跟随（玩家居中、世界边界钳制）、小地图层（掩体/实体/视口矩形标注）、完整节点生成（线性节点链：掩体布局复用 P-05 + scale、敌军构成、友军据点、§4.5 通关奖励）、视口 AABB 剔除、全局游戏流程状态机（map/battle/settlement/reward/gameover）与 UI 界面层约定（watchFlow 监听 → DOM 覆盖层）全部落地；剩余相关项：粒子池化（可选项）、难度曲线表细化（§6 条目 12）。
 
 ### 5.2 中优先级（已实现——多边形碰撞盒）
@@ -438,8 +488,9 @@
    - 第一版敌人不主动找掩体（开放问题 1）。
    - **视线遮挡查询函数（前置，5.6）**：`vision:true` 目前只有渲染，无"两点间视线是否被遮"判定函数；是敌人 AI 索敌（开放问题 1）与玩家被发现判定的公共前置，建议 AI 前实现为纯函数模块。
 8. **死亡/复活状态机（2.3）**：永久死亡、复活次数（基础 2，可商店购）、满状态复活于友军据点周围随机无障碍点 + 短暂无敌（**需定无敌时长与过渡表现**，开放问题 3，直接影响 10 分钟目标时长的实测）。
-9. **base/modifiers/stats 三层接线（5.1）**：接入一两个测试用临时 buff 验证「先加后乘、同名可叠性、生命周期」规则好用后再铺开卡牌/商店/永久升级。
-10. **经济与数值落地（含存档）**：击杀得分、节点通关奖励量化（4.5 方案）、局内得分→商店点数转化比例、卡牌三选一刷新费（开放问题 5）；**玩家进度持久化（存档，5.6）**：永久升级 + 死亡时局内得分→商店点数转化需要 localStorage，需定存档结构/写入时机/版本化；**卡牌池/商店商品/永久升级树内容设计（5.6）**：modifiers 管道就绪但无内容，纯设计工作。
+9. **base/modifiers/stats 三层接线（5.1）**：接入一两个测试用临时 buff 验证「先加后乘、同名可叠性、生命周期」规则好用后再铺开卡牌/商店/永久升级。**进展（P-09）**：卡牌 modifier 已接 `addModifier`（先加后乘、`maxStacks` 叠层已落地），剩余局内技能/局外永久升级的修饰器源与生命周期分类待定案。
+10. **经济与数值落地（含存档）**：击杀得分、节点通关奖励量化（4.5 方案）、局内得分→商店点数转化比例、卡牌三选一刷新费（开放问题 5）；**玩家进度持久化（存档，5.6）**：永久升级 + 死亡时局内得分→商店点数转化需要 localStorage，需定存档结构/写入时机/版本化；**卡牌池/商店商品/永久升级树内容设计（5.6）**：modifiers 管道就绪但无内容，纯设计工作。**进展（P-09）**：卡牌 economy 效果类型与 `cards/` 池已就绪（内容待批量）。
 11. **坦克纹理化 + 车型多样性内容（2.10）**：`texture` 字段 + 多边形 clip 平铺图案叠层（保持 `t.color` 主色）；texture 进 tank JSON + `tank_schema.js` FIELD_ROWS 枚举 + 设计器选择器（外观件条目）；几套定型几何模板 + 多色/迷彩方案（`tanks/` 条目目前共用箭镞车体+豹2A6炮塔模板，差异只在数值）。
 12. **难度曲线表**：敌人数量 / AI 策略复杂度 / 数值强度三杠杆随节点索引的涨法（线性/阶梯/曲线），供节点生成器使用（开放问题 6）。
 13. **碰撞体积与视觉几何对齐（可选，低优先）**：#18 修复（2026-08-14）后正面贴脸不再误判后部模块，但坦克碰撞盒仍为车体矩形包围盒（不含炮塔/炮管/箭镞尖头），紧贴时车体视觉重叠 ≈19px 仍残留（#18 修复方向④未实施，属弹道范围外的独立改动）；如需彻底消除，可考虑碰撞改用 `hullPoly` 凸包，风险点为碰撞手感/推挤行为回归，需回归 `test-tankcollision.js`。
+14. **卡牌内容批量（≥100 张）+ Boss 内容批量（≥5 种）**：数据驱动框架已就绪（§2.13/§2.14：schema/校验/审计/编辑器/子 agent 全通），本条目是**纯内容填充**——按稀有度权重（50/30/15/5）× 5 流派（重甲/狙击/机动/爆破/支援）批量产卡，5 Boss 按"强化坦克+多阶段机制"分别设计；可并行派 `@card-author`/`@boss-author` 子 agent，`@balance-auditor` 复核；Boss 作为节点链末端战斗的运行时接入（生成 boss 实体 + 阶段触发 + 掉落）随本条目一并落地。

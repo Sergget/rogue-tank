@@ -1,0 +1,11 @@
+{
+  "id": "turbocharger",
+  "name": "涡轮增压",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "发动机马力 +60，加速更迅猛。",
+  "effects": [
+    { "type": "modifier", "stat": "enginePower", "mode": "add", "value": 60 }
+  ],
+  "maxStacks": 3
+}

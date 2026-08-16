@@ -1,0 +1,12 @@
+{
+  "id": "rangefinder",
+  "name": "测距仪",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "散布缩小 15%，缩圈更快。",
+  "effects": [
+    { "type": "modifier", "stat": "spreadMult", "mode": "mult", "value": 0.85 },
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.25 }
+  ],
+  "maxStacks": 2
+}

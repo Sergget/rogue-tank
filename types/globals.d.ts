@@ -212,3 +212,34 @@ declare function minimapLayout(worldW: number, worldH: number, mmW: number, mmH:
 declare function worldToMinimap(layout: any, wx: number, wy: number): { x: number; y: number };
 declare function worldRectToMinimap(layout: any, minX: number, minY: number, maxX: number, maxY: number): { x: number; y: number; w: number; h: number };
 declare function drawMinimap(ctx: any, opts: any): void;
+
+// 卡牌系统（js/tank_cards.js，P-09 / §2.13）
+declare var CARD_RARITIES: string[];
+declare var RARITY_WEIGHTS: any;
+declare var CARD_TAGS: string[];
+declare var MODIFIER_STATS: string[];
+declare var AMMO_KEYS: string[];
+declare var AMMO_FIELDS: string[];
+declare var ABILITY_KEYS: string[];
+declare var PASSIVE_KEYS: string[];
+declare var ECONOMY_FIELDS: string[];
+declare var ARMOR_PARTS: string[];
+declare var ARMOR_FACES: string[];
+declare var CARD_EFFECT_TYPES: string[];
+declare function validateCard(card: any): string[];
+declare function validateCardEffect(ef: any, path: string): string[];
+declare function validateCardSet(cards: any[]): { errors: Array<{ id: string; errs: string[] }>; duplicates: string[] };
+declare function isArmorPath(stat: string): boolean;
+declare function applyCardEffects(tank: any, card: any, ctx?: any): any[];
+declare function cardStackCount(tank: any, cardId: string): number;
+declare function drawCardChoices(pool: any[], n?: number, rng?: any): any[];
+declare function weightedRarity(r: any): string;
+
+// Boss 系统（js/tank_boss.js，P-09 / §2.14）
+declare var BOSS_WEAKSPOT_KEYS: string[];
+declare var LOOT_RARITIES: string[];
+declare function validateBoss(boss: any): string[];
+declare function validateBossStage(stage: any, idx: number): string[];
+declare function bossStageFor(boss: any, hpRatio: number): any;
+declare function bossStageIndex(boss: any, hpRatio: number): number;
+declare function bossInStage(boss: any, hpRatio: number, stageId: string): boolean;

@@ -1,0 +1,11 @@
+{
+  "id": "repair_kit",
+  "name": "应急维修",
+  "rarity": "rare",
+  "tags": ["支援"],
+  "desc": "主动装置：立即修复履带并恢复部分车体（占位）。",
+  "effects": [
+    { "type": "ability", "key": "repair" }
+  ],
+  "maxStacks": 1
+}

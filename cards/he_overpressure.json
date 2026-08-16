@@ -1,0 +1,11 @@
+{
+  "id": "he_overpressure",
+  "name": "高爆超压",
+  "rarity": "common",
+  "tags": ["爆破"],
+  "desc": "HE 弹伤害 +20%。",
+  "effects": [
+    { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.2 }
+  ],
+  "maxStacks": 3
+}

@@ -1,6 +1,6 @@
 # Rogue Tank — Sub-Agent Usage Guide
 
-This project has **8 configured sub-agents** in `.opencode/agents/` plus **3 skills** in `.opencode/skills/`. Each is specialized for a subsystem of the tank roguelike codebase.
+This project has **11 configured sub-agents** in `.opencode/agents/` plus **3 skills** in `.opencode/skills/`. Each is specialized for a subsystem of the tank roguelike codebase.
 
 ## 1. Agent vs. Skill — What's the difference?
 
@@ -20,6 +20,9 @@ This project has **8 configured sub-agents** in `.opencode/agents/` plus **3 ski
 | Add/change RULES config, modify tank JSON format | `@tank-model` | Owns `tank_rules.js`, `tank_model.js`, `tanks/*.json`, `tank_listio.js` |
 | Tune cover system, map elements, destructible terrain | `@map-cover` | Owns `tank_cover.js`, cover/collision logic |
 | Build enemy AI, camera, node map progression | `@node-map` | Owns map structure, AI states, economy (§2 of DEVELOPMENT.md) |
+| Author card content (`cards/<id>.json`) | `@card-author` | Owns `cards/`, `js/tank_cards.js` schema；拟真坦克调性 + 稀有度/流派预算 |
+| Author boss content (`bosses/<id>.json`) | `@boss-author` | Owns `bosses/`, `js/tank_boss.js`；多阶段机制 + 弱点驱动 |
+| Audit card/boss balance & schema | `@balance-auditor` | 只读审计：`validate-content.js` / `audit-content.js` |
 | Write/run tests, verify changes | `@test-runner` | Runs `npm run check` + `npm test` (hidden — auto-invoked) |
 | Update documentation lifecycle | `@docs-agent` | Manages DEVELOPMENT.md/PLAN.md/ISSUES.md/ARCHIVE.md |
 | Have a task that spans multiple areas | **Tab** 切到 `orchestrator` | Primary agent：路由到多个 specialist 并行干活（各自独立上下文），再跑验证与文档 |

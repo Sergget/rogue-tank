@@ -8,6 +8,16 @@
 
 ## 当前进行中条目
 
+### P-09 卡牌/Boss 数据驱动框架 + 内容批量（进行中）
+
+**阶段 A —— 框架 + 工具 + 示例（已完成 2026-08-15）**：卡牌/Boss schema（`js/tank_cards.js` / `js/tank_boss.js` 纯逻辑）、一型一文件 `cards/`+`bosses/` + `/api/cards`+`/api/bosses` 端点、`scripts/validate-content.js` + `scripts/audit-content.js`、`tools/content_designer.html` 编辑器、子 agent `@card-author`/`@boss-author`/`@balance-auditor`、示例内容（11 卡 + 1 Boss）。定型见 DEVELOPMENT §2.13/§2.14，验证见 §3.8。
+
+**阶段 B —— 内容批量（待实施）**：
+- **卡牌 ≥100 张**：稀有度分布按权重 common 50% / rare 30% / epic 15% / legendary 5%，5 流派（重甲/狙击/机动/爆破/支援）全覆盖；效果类型覆盖 modifier/ammo/ability/passive/drone/economy 六类；拟真坦克主题。
+- **Boss ≥5 种**：强化坦克 + 多阶段机制（每阶段换打法/弱点/威胁），打法彼此区分；5 Boss 提案见 DEVELOPMENT §2.14。
+- **Boss 运行时接入**：节点链末端为 Boss 战（生成 boss 实体、阶段触发、掉落结算）。
+- 验证：`node scripts/validate-content.js` 通过、`node scripts/audit-content.js --strict` 无警告、`npm test` 全绿。
+
 ---
 
 ## 后续里程碑缺口清单（规划中，非近期；归属一览）

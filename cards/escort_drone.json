@@ -1,0 +1,11 @@
+{
+  "id": "escort_drone",
+  "name": "伴随浮游炮",
+  "rarity": "epic",
+  "tags": ["支援"],
+  "desc": "部署一架随行浮游炮，额外火力通道（占位）。",
+  "effects": [
+    { "type": "drone" }
+  ],
+  "maxStacks": 2
+}
