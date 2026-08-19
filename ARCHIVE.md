@@ -31,6 +31,14 @@
 | 2026-08-14 | `ISSUES.md` | #20. 弹药架殉爆特效范围过大（火球最大 r 161px / 冲击波环 140px，远超坦克尺寸） | 已修复并验证（结论见 DEVELOPMENT §3.6「#18/#19/#20 修复」） |
 | 2026-08-15 | `PLAN.md` | P-06 M0 贴图资产层 + 地图元素贴图 | 已实现并验证（结论见 DEVELOPMENT §2.10 / §3.6） |
 | 2026-08-15 | `PLAN.md` | P-07 M1 声音占位系统 | 已实现并验证（结论见 DEVELOPMENT §2.11 / §3.6） |
+| 2026-08-19 | `ISSUES.md` | #24. 地图尺寸过小，不满足 1:9 视口比例要求 | 已修复并验证（视口驱动 nodeScale，结论见 DEVELOPMENT §2.12） |
+| 2026-08-19 | `ISSUES.md` | #25. 地图元素密度与模板丰富度不足 | 已修复并验证（模板 5→7、items 12~25、剔除随难度递减，结论见 DEVELOPMENT §2.12） |
+| 2026-08-19 | `ISSUES.md` | #26. `npm run check` 的 typecheck 阶段失败（188 个 TS2339） | 已修复并验证（JSDoc `{object}`→`{any}` + globals.d.ts 补声明，`npm run typecheck` 0 错误） |
+| 2026-08-19 | `ISSUES.md` | #22. Formal Run 中测试靶车 dummy 混入且无限复活 | 已修复并验证（detach/restore helper，结论见 DEVELOPMENT §3.15） |
+| 2026-08-19 | `ISSUES.md` | #23. 敌方 AI 在战斗中只开一次炮 | 已修复并验证（entities 循环补 reloadT 递减，结论见 DEVELOPMENT §3.15） |
+| 2026-08-19 | `PLAN.md` | P-21 音效与 Web Audio 真实音效库升级 | 已完成并验证（音效库扩展 Panning/距离衰减，结论见 DEVELOPMENT §2.11） |
+| 2026-08-19 | `PLAN.md` | P-27 坦克纹理化接线 | 已完成并验证（全链路接线，结论见 DEVELOPMENT §3.16 / §6 条目 11） |
+| 2026-08-19 | `PLAN.md` | P-15 MVP 架构重构（三入口拆分 + HUD 极简 + 伤害飘字 + 状态/开发者面板） | 已完成并验证（结论见 DEVELOPMENT §2.15 / §3.17 / §6 条目 15） |
 
 ------
 
@@ -1372,3 +1380,111 @@ if (mod.key==='ammo') {
 
 - **视线遮挡查询函数**（`vision:true` 目前只有渲染、无"两点间视线是否被遮"判定；敌人 AI 索敌（开放问题 1）与玩家被发现判定的公共前置；实现为纯函数模块）—— 归属条目 7 敌人 AI 双态 + 友军据点。
 
+---
+
+### [2026-08-19] 归档自 ISSUES.md #24 地图尺寸过小，不满足 1:9 视口比例要求（已修复）
+
+> 2026-08-19 删除自 ISSUES.md：已修复并验证，结论见 DEVELOPMENT.md §2.12。被删条目原文如下：
+
+### #24 地图尺寸过小，不满足 1:9 视口比例要求
+- **复现场景**：在 1920x1080 / 1280x720 典型全屏视口下，节点地图尺寸仅约 2100x1200，玩家坦克只需 2~3 秒即可从地图左端开到右端，摄像机视口占满大半个地图，缺乏战术巡航与探索拉锯空间。
+- **根因分析**：
+  1. `tank_map.js` 中 `nodeScale = 3`，使得模板（约 700x400）放大后地图尺寸仅 2100x1200。
+  2. 视口面积与地图面积比接近 1:1.2 ~ 1:2.7，未能达到设计要求的"视口与独立战场面积比至少 1:9（地图宽高各为视口的 3 倍左右）"。
+- **影响**：战场显得拥挤局促，远距离狙击与战术拉扯无法施展。
+- **状态**：待处理。
+
+---
+
+### [2026-08-19] 归档自 ISSUES.md #25 地图元素密度与模板丰富度不足（已修复）
+
+> 2026-08-19 删除自 ISSUES.md：已修复并验证，结论见 DEVELOPMENT.md §2.12。被删条目原文如下：
+
+### #25 地图元素密度与模板丰富度不足，缺乏村落/森林地貌特征
+- **复现场景**：节点地图生成后，地图上仅零星分布 4~8 个掩体/树木，无法呈现具象的"城镇村落"、"密集森林阵地"或"河畔桥头堡"地形。
+- **根因分析**：
+  1. `tank_nodegen.js` 内置模板数量仅 5 个，且单模板内部 `items` 数量偏少（4~8 个）。
+  2. 生成器加权与随机剔除参数 `itemKeepRatio` 较稀疏，缺乏多层次地貌聚合生成算法。
+- **影响**：地图单调空旷，缺乏掩体博弈与地形地貌沉浸感。
+- **状态**：待处理。
+
+---
+
+### [2026-08-19] 归档自 ISSUES.md #26 typecheck 阶段失败（188 个 TS2339）（已修复）
+
+> 2026-08-19 删除自 ISSUES.md：已修复并验证，结论见 DEVELOPMENT.md §2.12/§5.6。被删条目原文如下：
+
+### #26 `npm run check` 的 typecheck 阶段失败（188 个 TS2339，集中在 P-08 模块）
+- **复现场景**：全新环境 `npm install`（package-lock 固定 `typescript ^7.0.2`）后运行 `npm run check`：`check-html.js` 语法冒烟全绿，但 `tsc --noEmit` 报 188 个错误、退出码 1，`npm run check` 整体失败。
+- **根因分析**：
+  1. `js/tank_camera.js` / `js/tank_flow.js` / `js/tank_map.js` / `js/tank_minimap.js` / `js/tank_nodegen.js` 及其测试脚本的 JSDoc 将参数标为 `{object}`，`checkJs` 下对 `opts.bounds.w`、`cam.x` 等属性访问一律报 TS2339（`Property 'x' does not exist on type 'object'`）；
+  2. `types/globals.d.ts` 虽用 `any` 声明了同名全局函数，但 JS 文件内就近的 JSDoc 注解优先于全局声明，声明未生效；
+  3. 错误分布（188 处，全部属 P-08 时代文件，非本次纹理改动引入）：`scripts/test-map.js` 69 / `js/tank_map.js` 36 / `scripts/test-camera.js` 27 / `js/tank_minimap.js` 20 / `scripts/test-flow.js` 15 / `js/tank_flow.js` 9 / `js/tank_camera.js` 8 / `js/tank_nodegen.js` 4。
+- **影响**：`npm run check` 验收门禁失效（语法冒烟可独立运行通过），后续改动失去 typecheck 兜底。
+- **状态**：待处理（修复方向：把上述 8 个文件 JSDoc 的 `{object}` 参数改 `{any}`/`{Record<string, any>}`，或收紧 tsconfig 排除测试脚本后补声明）。
+
+---
+
+### [2026-08-19] 归档自 ISSUES.md #22 Formal Run 中测试靶车 dummy 混入且无限复活（已修复）
+
+> 2026-08-19 删除自 ISSUES.md：已修复并验证，结论见 DEVELOPMENT.md §3.15。被删条目原文如下：
+
+### #22 Formal Run 中测试靶车 dummy 混入且无限复活
+- **复现场景**：点击"开始一局 NEW RUN"进入节点地图战斗后，战场中除了节点自动生成的敌军外，依然常驻一个测试靶车 `dummy`（位于 x:760, y:340）。击毁该 `dummy` 后，1.5 秒后其再次满血复活，且死死留在战场中。
+- **根因分析**：
+  1. `tank_mvp.html` 在初始化时全局创建了 `dummy` 靶车；在 `enterBattle` 节点实体化清理中，代码显式保留了 `dummy` (`if(!keepIds.includes(e.id) && e.id !== 'dummy') entities.splice(i, 1)`).
+  2. 战斗更新循环 `update` 中硬编码了对 `dummy.autoRevive` 的自动复活逻辑，导致正式节点模式下测试靶车干扰节点清场与战斗体验。
+- **影响**：正式 Roguelike 节点推进中混入测试靶车，打破战场沉浸感并导致清敌逻辑异常。
+- **状态**：待处理。
+
+---
+
+### [2026-08-19] 归档自 ISSUES.md #23 敌方 AI 在战斗中只开一次炮（已修复）
+
+> 2026-08-19 删除自 ISSUES.md：已修复并验证，结论见 DEVELOPMENT.md §3.15。被删条目原文如下：
+
+### #23 敌方 AI 在战斗中只开一次炮
+- **复现场景**：在节点战斗中，敌方坦克发现玩家并开出第一炮后，后续无论玩家如何移动/暴露，敌方坦克再也没有开过第二炮。
+- **根因分析**：
+  1. `fireTank` 在开火成功后会设置射手的装填倒计时 `shooter.reloadT = shooter.stats.reload / ...`。
+  2. 但在 `tank_mvp.html` 的 `update(dt)` 循环中，代码仅对 `player` 和 `dummy` 递减了 `reloadT`：
+     ```js
+     if (player.reloadT > 0) player.reloadT = Math.max(0, player.reloadT - dt);
+     if (dummy.reloadT > 0) dummy.reloadT = Math.max(0, dummy.reloadT - dt);
+     ```
+  3. `entities` 数组中的其他敌军/Boss/召唤物实体的 `e.reloadT` 从未被递减！导致其 `reloadT` 永久大于 0，`aiDecideEnemy` 判定 `t.reloadT <= 0` 永不成立，从而敌人全场只能开第一炮。
+- **影响**：所有 AI 敌人在开火一次后全部哑火，严重破坏战斗体验与 AI 压制力。
+- **状态**：待处理。
+
+### [2026-08-19] 归档自：PLAN.md P-27 坦克纹理化接线（已完成）
+
+> 2026-08-19 从 PLAN.md 删除。条目已完成并验证，结论见 DEVELOPMENT.md §3.16 / §6 条目 11（剩余：车型多样性几何模板，继续以 §6 条目 11 追踪）。被删条目原文如下：
+
+### P-27 坦克纹理化接线（对应 DEVELOPMENT §6 条目 11，已启动）
+- **现状（2026-08-19 核实）**：`js/tank_paint.js` 已落地 `TEXTURE_DEFS`（none/armor_plate 装甲板纹/weld_seam 焊缝/rust 锈蚀/camo 迷彩 5 种，`draw(ctx, bbox)` 数据驱动）与缓存 key 含 texture 段（`getCachedTankSprite` 第 6 参 + cacheKey），**但尚未接线**：`paintPartTextureDirect` 未消费 `opts.texture`（TEXTURE_DEFS 零调用）、`paintPartTexture`（L262）未把 texture 传入 `getCachedTankSprite`、tank JSON / `tank_schema.js` / 设计器 / `tank_battledraw.js` 均无 texture。
+- **目标（§2.10 定型）**：多边形 clip + 平铺图案叠层，灰度/半透明图案保持 `t.color` 主色；texture 进 tank JSON + FIELD_ROWS 枚举 + 设计器选择器；与车型多样性内容合并收尾。
+- **剩余步骤**：
+  1. `paintPartTextureDirect` 在 clip 内、base 填充后调用 `TEXTURE_DEFS[opts.texture].draw(ctx, bbox)`（`opts.texture` 缺失/`none`/未知键跳过）；
+  2. `paintPartTexture` 把 `t.texture` 透传 `getCachedTankSprite`（当前 L262 未传，缓存恒命中 none 路径）；
+  3. tank JSON 增 `texture` 可选字段（缺省 `none`）+ `tank_schema.js` FIELD_ROWS 枚举 + `applyTankConfig` 透传；
+  4. `tank_battledraw.js` 渲染入口传 `t.texture`；
+  5. `tank_designer.html` 外观件条目加 texture 下拉（切换即时生效、保存入 JSON）；
+  6. 车型多样性内容：`tanks/` 新增 ≥3 套几何模板 + 多色/迷彩配色方案；
+  7. 验证：cache key 含 texture 且不互相污染、主色保持（multiply/alpha 叠层）、PAINT_CACHE 命中率正常、`npm test` + `npm run check` 全绿、HTTP 冒烟三原型。
+- **验收**：设计器保存后 JSON 含 `texture` 字段；mvp 战斗场景可见纹理叠层；不同纹理缓存 key 不冲突。
+
+### [2026-08-19] 归档自：PLAN.md P-15 MVP 架构重构（已完成）
+
+> 2026-08-19 从 PLAN.md 删除。条目已完成并验证，结论见 DEVELOPMENT.md §2.15 / §3.17 / §6 条目 15。被删条目原文如下：
+
+### P-15 MVP 架构重构：正式游戏与装甲测试台（靶场）分离 + 首页管理 + HUD 极简/开发者面板
+- **目标**：
+  1. 将 `tank_mvp.html` 拆分为独立“主界面/首页入口（封面路由）”、“正式游戏战场（无 dummy 靶车）”与“装甲测试台（保留靶场控制台）”；
+  2. **正式游戏 HUD 极简**：日常仅保留小地图、装填进度条与弹种选择（1/2/3/4）；
+  3. **伤害飘字（Floating Damage Numbers）**：玩家与敌方受到直击/Splash/DOT/跳弹伤害时，产生物理上浮淡出数字（击穿红/橙、跳弹蓝/白、高爆黄）；
+  4. **玩家状态面板（Toggle）**：提供快捷键/按键开关，显示玩家当前装甲分布、血量、基础伤害/穿深/机动等必要参数；
+  5. **开发者面板（Dev Panel Overlay）**：将现有调试日志、发射解算、实时参数收纳至开发者面板，并新增：
+     - 超级精度模式开关（散布归零 / 瞬间缩圈）；
+     - 数值临时调整控件（实时改穿深/伤害/装填/极速/马力）；
+     - 卡牌选择与卡牌数值/修饰器实时调整面板。
+- **注记（2026-08-19）**：目标 1 的「正式 run 无 dummy」已由 ISSUES #22 最小修复先行达成（detach/restore，见 DEVELOPMENT §3.15）；「节点世界 ≥3× 视口」已由 #24 的 `nodeScaleFor` 实现，但 mvp 侧 `generateRun(seed, count, {viewport})` 接线未做（接线前回退旧 nodeScale=3）。
