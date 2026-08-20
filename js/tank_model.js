@@ -131,6 +131,7 @@ function makeTank(opts){
     debuffs:{},                      // 模块 debuff（8s 计时）：gunner/loader/driver/engine/commander/ammo
     heightClass:'medium',
     color:'#7ed957',
+    texture:'none',                  // 表面纹理叠层（TEXTURE_DEFS 键：none/armor_plate/weld_seam/rust/camo）
     trackPhase:0,
     attachments: [],
     anchors: {
@@ -201,7 +202,7 @@ function applyTankConfig(tank, spec){
   if (spec.hp !== undefined) b.maxHp = spec.hp;
   if (spec.maxHp !== undefined) b.maxHp = spec.maxHp;
 
-  const instanceFields = ['heightClass', 'trackWidth', 'trackOffset'];
+  const instanceFields = ['heightClass', 'trackWidth', 'trackOffset', 'texture'];
   for (const f of instanceFields) {
     if (spec[f] !== undefined) tank[f] = spec[f];
   }

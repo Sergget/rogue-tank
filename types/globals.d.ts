@@ -44,7 +44,16 @@ declare function moduleAllowedParts(key: string): string[];
 
 declare function makeTank(config?: any): any;
 declare function clearPaintCache(): void;
+declare function paintShade(hex: string, pct?: number): string;
+declare function paintBounds(verts: any): { minX: number; maxX: number; minY: number; maxY: number };
+declare function paintBeginLocal(ctx: any, verts: any): void;
+declare function paintClipLocal(ctx: any, verts: any): void;
 declare function paintTracks(ctx: any, verts: any, cx: any, cy: any, angle: any, scale: any, color: any, phase: any, opts?: any): void;
+declare function paintTurretShadow(ctx: any, verts: any, cx: any, cy: any, angle: any, scale: any, ox: number, oy: number, worldAng?: any): void;
+declare function getCachedTankSprite(color: any, kind: any, verts: any, hasTurret: any, heightClass: any, texture?: any): any;
+declare function paintPartTextureDirect(ctx: any, verts: any, cx: any, cy: any, angle: any, scale: any, color: any, kind: any, opts?: any): void;
+declare function paintPartTexture(ctx: any, verts: any, cx: any, cy: any, angle: any, scale: any, color: any, kind: any, opts?: any): void;
+declare var TEXTURE_DEFS: Record<string, { name: string; draw: ((ctx: any, bbox: any) => void) | null }>;
 declare function applyTankConfig(t: any, cfg: any): void;
 declare function computeStats(base: any, modifiers?: any): any;
 declare function addModifier(t: any, mod: any): any;
@@ -109,6 +118,7 @@ interface NodeGenOptions {
   centerY?: number;
   x?: number;
   y?: number;
+  scale?: number;       // #24：模板放大倍率（tank_nodegen.js generateNode 消费）
   cullRate?: number;
   applyToCovers?: boolean;
 }
@@ -135,6 +145,8 @@ interface GeneratedNodeResult {
   }>;
   seed: number | string;
   difficulty: number;
+  w: number;            // #24：#26 补全——缩放后的节点世界尺寸（tank_map.js 读取）
+  h: number;
 }
 
 declare var covers: any[];
@@ -146,6 +158,7 @@ declare var NODE_TEMPLATES: any[];
 declare function createRNG(seed?: any): any;
 declare function registerTemplate(template: any): void;
 declare function getTemplates(): any[];
+declare function pickTemplate(diff: number, rng: any): any;   // #24：难度加权模板选择（tank_map 预选用）
 declare function generateNode(difficulty?: number, options?: NodeGenOptions): GeneratedNodeResult;
 
 // M0 贴图资产层（js/tank_assets.js，P-06 / §2.10）
@@ -207,8 +220,9 @@ declare function difficultyForIndex(index: number, count: number): number;
 declare function enemyCountForDifficulty(diff: number): number;
 declare function aiTierForDifficulty(diff: number): number;
 declare function statMultForDifficulty(diff: number): number;
-declare function makeNode(index: number, count: number, rng: any): any;
-declare function generateRun(seed?: number | string, count?: number): { nodes: any[]; seed: number | string };
+declare function nodeScaleFor(viewport: any, templateDims: any): number;   // #24：视口 → 节点世界缩放倍率
+declare function makeNode(index: number, count: number, rng: any, env?: any): any;
+declare function generateRun(seed?: number | string, count?: number, env?: any): { nodes: any[]; seed: number | string };
 declare function scoreNode(node: any, result: any): { base: number; bonuses: Array<{ label: string; amount: number }>; total: number };
 declare function materializeNode(node: any, env: any): { spawned: any[]; outpost: any };
 
@@ -265,6 +279,41 @@ declare function pointInAnyCover(covers: any[], x: number, y: number, padding: n
 declare function reviveTank(t: any, spot: any, invulnSeconds?: number): any;
 declare function canRevive(t: any): boolean;
 declare function reviveAt(t: any, outpost: any, covers: any[], playerSpawn: any, rng?: any): boolean;
+
+// 无人机体系（js/tank_drone.js，P-17 子目标 4 阶段 2）
+declare var DRONE_KINDS: string[];
+declare var drones: any[];
+declare function droneConfig(): any;
+declare function spawnDrone(owner: any, kind?: string, opts?: any): any;
+declare function countDrones(owner?: any): number;
+declare function clearDrones(owner?: any): number;
+declare function updateDrones(dt: number, ctx?: any): Array<{ type: string; drone: any; target: any; damage: number }>;
+declare function droneIndicators(cam: any, entities: any[]): Array<{ x: number; y: number; angle: number; dist: number; team: string; kind: string }>;
+declare function droneDamage(drone: any): number;
+
+// 战术炮击（js/tank_strike.js，P-17 子目标 1 阶段 2）
+declare var strikes: any[];
+declare function strikeConfig(): any;
+declare function callStrike(x: number, y: number, opts?: any): any[];
+declare function updateStrikes(dt: number, entities?: any[], ctx?: any): Array<{ type: string; x: number; y: number; radius: number; dmg: number; owner: any; hits: any[] }>;
+declare function activeStrikes(): any[];
+declare function clearStrikes(owner?: any): number;
+declare function strikeDamage(owner: any, dmgMult?: number): number;
+
+// 战术护盾（js/tank_shield.js，P-17 子目标 3 阶段 2）
+declare function shieldConfig(): any;
+declare function applyShield(t: any, opts?: any): any;
+declare function updateShield(t: any, dt: number): void;
+declare function shieldAbsorbs(t: any, shell: any): boolean;
+declare function absorbDamage(t: any, dmg: number): number;
+declare function hasShield(t: any): boolean;
+
+// 主动能力统一入口（js/tank_abilities.js，P-17 子目标 3 阶段 2）
+declare var ABILITY_KEYS_RUNTIME: string[];
+declare function abilitiesConfig(): any;
+declare function hasAbility(t: any, key: string): boolean;
+declare function updateAbilityCd(t: any, dt: number): void;
+declare function tryActivateAbility(t: any, key: string, ctx?: any): any;
 
 // 经济与存档（js/tank_economy.js，P-14 / §2.4 / §6 条目 10）
 declare var UPGRADE_DEFS: any[];

@@ -47,6 +47,55 @@ function resetCovers(){
 }
 snapshotCovers();
 
+//// ---- 烟雾动态视线掩体（P-17 烟幕射击，2026-08-19 重写） ----
+// 烟雾 = 动态区域掩体（不是持卡全局生效）：smokeClouds 数组存活动烟雾云，
+// 每团 { x, y, radius, life, maxLife }。spawnSmokeCloud 生成、updateSmoke(dt) 逐帧消散。
+// hasLineOfSight 检查射线是否穿过烟雾云 → 遮挡视线（vision）；getExposure 不动
+// （烟雾 mode='none' 弹道穿透，只遮视线不挡弹）——与灌木 vision:true 同构。
+// 注意：本函数命名避开 tank_fx.js 的粒子 spawnSmoke（弹道烟迹视觉粒子，全局同名冲突）。
+// 本模块纯逻辑，视觉渲染由接入层（mvp）消费 smokeClouds 绘制。
+const smokeClouds = [];
+
+// 生成一团烟雾（位置/半径/持续秒）。叠加同位置不合并（每团独立计时）。
+// 场上烟雾云数达 RULES.smoke.maxClouds 上限时移除最早的一团（滚动窗口）。
+function spawnSmokeCloud(x, y, radius, durationSec){
+  const smokeCfg = (typeof RULES !== 'undefined' && RULES.smoke) || {};
+  const r = radius || smokeCfg.radius || 120;
+  const dur = durationSec || smokeCfg.duration || 5;
+  const max = smokeCfg.maxClouds || 8;
+  smokeClouds.push({ x, y, radius: r, life: dur, maxLife: dur });
+  while(smokeClouds.length > max) smokeClouds.shift();  // 超出上限丢弃最早烟雾
+}
+
+// 逐帧消散烟雾（mvp 主循环调用）。返回是否仍有烟雾存留。
+function updateSmoke(dt){
+  for(let i = smokeClouds.length - 1; i >= 0; i--){
+    smokeClouds[i].life -= dt;
+    if(smokeClouds[i].life <= 0) smokeClouds.splice(i, 1);
+  }
+  return smokeClouds.length > 0;
+}
+
+// 清除全部烟雾（重置战场/进入新节点时调用）。
+function clearSmoke(){
+  smokeClouds.length = 0;
+}
+
+// 线段 (ox,oy)→(tx,ty) 是否穿过任何烟雾云（圆与线段距离判定）。
+function smokeBlocksLoS(ox, oy, tx, ty){
+  for(const s of smokeClouds){
+    const dx = tx - ox, dy = ty - oy;
+    const len2 = dx*dx + dy*dy;
+    let t = len2 > 0 ? ((s.x - ox)*dx + (s.y - oy)*dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ox + dx*t, cy = oy + dy*t;
+    const dist2 = (s.x - cx)*(s.x - cx) + (s.y - cy)*(s.y - cy);
+    if(dist2 <= s.radius * s.radius) return true;
+  }
+  return false;
+}
+// ------------------------------------------------
+
 // 元素被摧毁：一次性消耗（_gone 幂等标志；每帧多辆车压上同一元素只毁一次）。
 // toTier 残骸（树→倒树、沙袋→碎石）原地降级并保留于 covers；残骸尺寸默认通用
 // 0.6/0.6 缩小，tier 配置了 residueW/residueH 时用其覆盖（如倒树横躺 2.4/0.5）。
@@ -355,12 +404,14 @@ function isBlockedBySolidCover(ox,oy,tx,ty){
 // 视线遮挡查询（§2.7 / §5.6 前置）：两点间是否被 `vision:true` 的掩体（灌木/树冠）遮挡。
 // 是敌人 AI 索敌（开放问题 1）与玩家被发现判定的公共前置；炮弹穿透的 pass/none 掩体（灌木
 // 本身 mode='none' 但 vision=true）仍遮挡视线——视线与弹道是两套判定。
+// P-17：烟雾动态掩体（smokeClouds）同样遮挡视线（弹道穿透不受影响）。
 function hasLineOfSight(ox,oy,tx,ty){
   const hits = findCoversOnPath(ox,oy,tx,ty);
   for(const h of hits){
     const tier = COVER_TIERS[h.cover.tier];
     if(tier && tier.vision) return false;   // 灌木/树冠遮挡视线
   }
+  if(smokeBlocksLoS(ox, oy, tx, ty)) return false;  // 烟雾云遮挡视线（P-17）
   return true;
 }
 
@@ -386,6 +437,11 @@ if (typeof module !== 'undefined' && module.exports) {
     getExposure,
     coverBlockInfo,
     isBlockedBySolidCover,
-    hasLineOfSight
+    hasLineOfSight,
+    smokeClouds,
+    spawnSmokeCloud,
+    updateSmoke,
+    clearSmoke,
+    smokeBlocksLoS
   };
 }

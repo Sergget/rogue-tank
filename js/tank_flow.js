@@ -21,7 +21,7 @@ const FLOW_TRANSITIONS = {
 
 /**
  * 创建流程状态机实例。
- * @returns {object} flow —— { state, prev, payload, runId, _watchers }
+ * @returns {any} flow —— { state, prev, payload, runId, _watchers }
  */
 function createFlow() {
   return {
@@ -46,7 +46,7 @@ function watchFlow(flow, fn) {
 
 /**
  * 状态转移。非法目标 / 未在白名单内的转移抛错（测试与 UI 接线的护栏）。
- * @param {object} flow
+ * @param {any} flow 流程状态机实例
  * @param {string} next 目标状态（FLOW_STATES 之一）
  * @param {*} [payload] 附加数据
  */

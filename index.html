@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rogue Tank — 入口</title>
+<style>
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:#101418; color:#d9dcc9;
+    font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+    min-height:100vh; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:30px;
+  }
+  h1{ font-size:36px; letter-spacing:8px; color:#e8e6d8; font-weight:600; }
+  .sub{ color:#8a8f7d; font-size:13px; letter-spacing:2px; }
+  .cards{ display:flex; gap:24px; flex-wrap:wrap; justify-content:center; padding:0 20px; }
+  a.card{
+    display:block; width:320px; padding:26px 24px; text-decoration:none; color:#d9dcc9;
+    background:#1a2026; border:1px solid #2a323a; border-radius:10px;
+    transition:transform .12s ease, border-color .12s ease;
+  }
+  a.card:hover{ transform:translateY(-3px); border-color:#5cc8ff; }
+  a.card .title{ font-size:20px; font-weight:600; margin-bottom:10px; }
+  a.card .desc{ font-size:13px; color:#9aa08c; line-height:1.8; }
+  .badge{ display:inline-block; font-size:11px; padding:2px 10px; border-radius:10px;
+          margin-bottom:12px; color:#101418; font-weight:600; }
+  .badge.game{ background:#ffb454; }
+  .badge.bench{ background:#5cc8ff; }
+  .tools{ display:flex; gap:16px; }
+  .tools a{ color:#8a8f7d; font-size:13px; text-decoration:none; border-bottom:1px dashed #3a424a; }
+  .tools a:hover{ color:#ffb454; }
+  footer{ color:#565b4d; font-size:12px; }
+</style>
+</head>
+<body>
+  <header style="text-align:center;">
+    <h1>ROGUE TANK</h1>
+    <div class="sub">节点式地图推进 · 局内得分驱动构筑 · 战术坦克 Roguelike</div>
+  </header>
+  <main class="cards">
+    <a class="card" href="tank_mvp.html">
+      <div><span class="badge game">正式游戏</span></div>
+      <div class="title">节点推进 · 构筑成长</div>
+      <div class="desc">节点式地图推进，击杀得分驱动卡牌构筑与 Boss 战；极简 HUD（Tab 状态 / ` 开发者面板），1/2/3/4 切换弹种。</div>
+    </a>
+    <a class="card" href="tank_bench.html">
+      <div><span class="badge bench">装甲测试台</span></div>
+      <div class="title">甲弹对抗 · 靶车测试</div>
+      <div class="desc">实时弹道 / 命中部位 / 跳弹 / 模块伤害测试台：玩家 vs 靶车，发射解算面板 + 掩体 / 残骸 / 地图元素。</div>
+    </a>
+  </main>
+  <nav class="tools">
+    <a href="tank_designer.html">坦克设计器</a>
+    <a href="tank_compare.html">坦克对比</a>
+  </nav>
+  <footer>共享模块 js/ · 需通过 dev server 访问（npm start）</footer>
+</body>
+</html>

@@ -13,12 +13,8 @@
 
 /**
  * 创建摄像机状态。
- * @param {object} [opts]
- * @param {number} [opts.vw] 视口宽（屏幕 px），默认 960
- * @param {number} [opts.vh] 视口高（屏幕 px），默认 600
- * @param {number} [opts.zoom] 缩放倍率，默认 1
- * @param {object} [opts.bounds] 世界边界 { w, h }（节点地图尺寸）；缺省不钳制
- * @returns {object} 摄像机状态
+ * @param {any} [opts] 选项（vw/vh/zoom/bounds；#26：宽松类型，避免 checkJs 误报）
+ * @returns {any} 摄像机状态
  */
 function createCamera(opts) {
   opts = opts || {};
@@ -35,11 +31,10 @@ function createCamera(opts) {
 /**
  * 相机跟随：视口中心平滑逼近目标（指数阻尼），并钳制在世界边界内
  * （节点比视口小 → 居中；比视口大 → 边缘不露出世界外）。
- * @param {object} cam 摄像机状态（就地修改）
- * @param {object} target 目标（如玩家坦克 { x, y }）
+ * @param {any} cam 摄像机状态（就地修改）
+ * @param {any} target 目标（如玩家坦克 { x, y }）
  * @param {number} dt 秒
- * @param {object} [opts]
- * @param {number} [opts.lerp] 跟随阻尼系数（0~1，越大越跟手），默认 4
+ * @param {any} [opts] 选项（opts.lerp 跟随阻尼系数 0~1，默认 4）
  */
 function updateCamera(cam, target, dt, opts) {
   const lerp = (opts && opts.lerp) || 4;
@@ -96,7 +91,7 @@ function viewBounds(cam) {
 
 /**
  * 世界 AABB 剔除查询：以 (x,y) 为中心、w/h 为全尺寸的物体是否与视口相交。
- * @param {object} cam
+ * @param {any} cam 摄像机状态
  * @param {number} x 中心 x
  * @param {number} y 中心 y
  * @param {number} w 全宽（px）

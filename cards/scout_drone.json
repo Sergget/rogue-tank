@@ -1,0 +1,11 @@
+{
+  "id": "scout_drone",
+  "name": "侦察无人机",
+  "rarity": "rare",
+  "tags": ["支援"],
+  "desc": "部署一架侦察无人机，标记视口外敌军位置，提前掌握战场动向。",
+  "effects": [
+    { "type": "drone", "kind": "scout" }
+  ],
+  "maxStacks": 1
+}

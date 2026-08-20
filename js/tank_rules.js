@@ -86,7 +86,10 @@ const RULES = {
     soft:       { label: '栅栏',     fill: 'rgba(150,118,70,0.4)',   stroke: '#96764a', mode: 'pass',      move: 0.45, crushable: true,  hp: 1,        vision: false, draw: 'soft' },
     barricade:  { label: '沙袋路障', fill: 'rgba(158,128,72,0.55)',  stroke: '#9e8048', mode: 'single',    move: 1.0,  crushable: true,  hp: 1,        vision: false, draw: 'barricade', toTier: 'rubble' },
     stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', mode: 'graduated', move: 0.6,  crushable: true,  hp: 1,        vision: false, draw: 'stump' },
-    rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', mode: 'graduated', move: 0.6,  crushable: true,  hp: 1,        vision: false, draw: 'rubble' }
+    rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', mode: 'graduated', move: 0.6,  crushable: true,  hp: 1,        vision: false, draw: 'rubble' },
+    // ======================= P-20：水体/桥梁地形 =======================
+    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', mode: 'solid',     move: 0.0,  crushable: false, hp: Infinity, vision: false, draw: 'box' }, // 描边 #409ce1 与 fill 同色系（水域蓝）
+    bridge:     { label: '桥梁',     fill: 'rgba(139,92,25,0.8)',    stroke: '#8b5c1a', mode: 'pass',      move: 1.0,  crushable: false, hp: 1,        vision: false, draw: 'box' }
   },
 
   // ======================= 破障（可破坏地图元素） =======================
@@ -120,6 +123,54 @@ const RULES = {
     dotSeconds: 5,             // 燃烧持续（秒）
     speedMul: 0.5,             // 燃烧时移动速度倍率（×50%）
     fireVisualSeconds: 4       // 起火视觉燃烟时长（秒）
+  },
+
+  // ======================= 烟幕（P-17 烟幕射击） =======================
+  smoke: {
+    radius: 120,               // 单团烟雾遮挡半径（px）
+    duration: 5,               // 烟雾持续（秒）
+    maxClouds: 8               // 场上同时存在的烟雾云上限（防滥用）
+  },
+
+  // ======================= 战术卡牌能力（P-17 战术卡牌能力与主动装备拓展） =======================
+  // 主动装置/无人机运行时参数（数据契约，schema 先行）：消费方为后续里程碑的
+  // strike（炮击）/ shield（护盾）/ drone（无人机）运行时模块；key 白名单与
+  // js/tank_cards.js 的 ABILITY_KEYS / DRONE_KINDS 保持一致。
+  abilities: {
+    // 呼叫战术支援——战术炮击：指定区域延迟 AOE（子目标 1）
+    artillery: {
+      delay: 2.5,        // 落弹延迟（秒）：从确认目标点到第一发落地
+      radius: 110,       // 爆炸半径（px），与 ammoTypes.he.splashRadius 同语义（范围伤害）
+      dmgMult: 1.2,      // 伤害倍率（相对攻击方标准伤害）
+      shellCount: 3,     // 单次呼叫落弹数（覆盖目标点附近小范围）
+      maxStrikes: 3,     // 场上同时预警中的炮击上限（防滥用）
+      reload: 15         // 主动能力冷却（秒）
+    },
+    // 超级装填——主动爆发装填（子目标 3）
+    overdrive: {
+      reloadMult: 0.45,  // 装填时间倍率（×0.45 ≈ 2.2 倍射速）
+      duration: 6,       // 持续（秒）
+      cooldown: 20       // 冷却（秒）
+    },
+    // 战术护盾——定向/全向弹道吸收（子目标 3）
+    shield: {
+      dirDuration: 8,    // 定向护盾持续（秒）
+      omniDuration: 4,   // 全向护盾持续（秒）
+      arc: Math.PI / 3,  // 定向吸收角弧度（π/3 ≈ 60°）
+      absorbCap: 150,    // 吸收伤害上限（超过后护盾破裂）
+      cooldown: 25       // 冷却（秒）
+    },
+    // 无人机体系（子目标 4）
+    drone: {
+      scoutRange: 700,     // 侦察指示范围（px）：视口外敌军位置指示箭头（默认视口 960×600，半对角线 ≈566，取 700 覆盖视口外一圈）
+      strikeRange: 260,    // 打击无人机近身自动索敌攻击范围（px）
+      fireInterval: 2.0,   // 攻击间隔（秒）
+      dmgMult: 0.4,        // 伤害倍率（相对攻击方标准伤害）
+      orbitDist: 90,       // 环绕玩家距离（px）
+      orbitSpeed: 1.2,     // 环绕角速度（rad/s，≈0.19 圈/秒；切线速度 ≈orbitDist×1.2 ≈108px/s）
+      orbitLerp: 6,        // 环绕跟随收敛速率（指数阻尼 λ：每帧 k=1−exp(−λ·dt)；越大贴得越紧）
+      countMax: 2          // 场上同时存在的无人机上限
+    }
   },
 
   // ======================= 模块伤害（特性3） =======================
@@ -167,11 +218,16 @@ const RULES = {
     lenDefault: 0.5                       // 设计器挂载时的默认 len
   },
 
-  // ======================= 弹种（特性（4） =======================
+  // ======================= 弹种（特性（4） / P-16：HEAT 与 HE 物理化） =======================
+  // 字段：label 显示名 / color HUD 色点 / tail 弹道拖尾 / speed×飞速 / pen×穿深 / dmg×伤害 /
+  //       spread×散布（缺省 1）/ noBounce 确定性不跳弹（HEAT 破甲弹 / HE 高爆弹）/
+  //       splashRadius HE 爆炸半径（px）——逻辑范围伤害与爆轰特效共用同一数值
+  //       （消费方：js/tank_physics.js resolveHit/applySplashAt + mvp 爆轰特效 scale=splashRadius/40）。
   ammoTypes: {
     ap:   { label: 'AP',   color: '#5cc8ff', speed: 1.0, pen: 1.0, dmg: 1.0, tail: 'rgba(92,200,255,0.6)' },
     apcr: { label: 'APCR', color: '#ff6c5c', speed: 1.2, pen: 1.2, dmg: 0.8, tail: 'rgba(255,106,92,0.6)' },
-    he:   { label: 'HE',   color: '#ffb454', speed: 0.6, pen: 0.6, dmg: 1.2, tail: 'rgba(255,180,84,0.6)' }
+    heat: { label: 'HEAT', color: '#ffd23c', speed: 0.8, pen: 1.4, dmg: 1.0, spread: 1.2, noBounce: true, tail: 'rgba(255,210,60,0.6)' },
+    he:   { label: 'HE',   color: '#ffb454', speed: 0.95, pen: 0.7, dmg: 1.0, noBounce: true, splashRadius: 90, tail: 'rgba(255,180,84,0.6)' }
   },
 
   // 炮弹视觉
@@ -196,14 +252,31 @@ const RULES = {
   },
 
   // 敌人/友军 AI（P-10 / DEVELOPMENT.md §6 条目 7）：双态行为 + 友军据点消极防御。
+  // 现已扩展为多态战术状态机（P-19）：状态包括 Stunned/Flank/Defensive/Search/Patrol。
   // 消费方：js/tank_ai.js（aiDecide）。
   ai: {
+    // --- 现有双态参数（保持不变） ---
     edgeMargin: 200,        // 摄像机边缘靠近触发宽度（开放问题 2 初版：视口外扩该距离内主动靠近）
     engageRange: 520,       // 主动开火/接战距离（px）
     keepRange: 320,         // 保持距离下限（大于 engage 靠近，小于 close 后退）
     closeRange: 200,        // 太近阈值：后退拉开
     aimTolerance: 0.12,     // 炮塔对准容差（rad）才开火
-    allyEngageRange: 460    // 友军据点射程（消极防御，只打射程内敌人）
+    allyEngageRange: 460,   // 友军据点射程（消极防御，只打射程内敌人）
+
+    // --- P-19 多态状态机参数 ---
+    flankZoneAngle: Math.PI / 2,    // 90度：判定" flank 侧向"的角度窗口（相对于目标朝向）
+    flankMinDist: 400,              // 开始尝试 flank 状态的最小玩家距离（px）
+    flankSideSelect: 0.7,           // 选择"远离炮塔指向一侧"的概率/偏向权重（0~1，数值越倾向于总是选远侧）
+    defensiveCoverThreshold: 0.6,   // 消极防御时倾向寻找/贴掩体的阈值（0~1）
+    defensiveHQRadius: 200,         // 友军据点防御半径（px），保持在该半径内优先驻守
+    searchOscillationSpeed: 0.25,   // 搜索状态扫描摆动速度（rad/s），来回扫视的频率
+    searchMinLoSBlocked: 2.0,       // 连续 LoS 被遮挡多少秒后触发搜索状态（秒）
+    stunModuleThreshold: 0.5,       // 模块 debuff 严重程度阈值（0~1）：超过此值触发惊慌状态
+    stunDuration: 3.0,              // 惊慌/呆滞状态持续时间（秒）
+    dazedProbability: 0.3,          // 模块伤害触发惊慌而非直接进入 stun 的概率
+    patrolSpeedFactor: 0.8,         // 巡逻/行军状态移动速度因子（相对于基准速度的比例）
+    patrolWanderSigma: 0.02,        // 巡逻状态正弦摆动幅度（rad），轻微摆动路径
+    patrolWanderSpeed: 1.5,         // 巡逻状态摆动周期频率（rad/s）
   },
 
   // 死亡/复活（P-11 / DEVELOPMENT.md §2.3 / §6 条目 8）。

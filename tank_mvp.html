@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>装甲测试台 · Armor Test Rig</title>
+<title>Rogue Tank · 正式游戏</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
 
@@ -24,105 +24,15 @@
     font-family:'Rajdhani',sans-serif; overflow:hidden;
   }
   .mono{font-family:'JetBrains Mono',monospace;}
-  #app{
-    display:grid;
-    grid-template-columns: 300px 1fr 340px;
-    grid-template-rows: 100%;
-    height:100vh;
-  }
   #stage-wrap{
-    position:relative;
+    position:relative; height:100vh;
     background:
       radial-gradient(ellipse at 30% 20%, rgba(126,217,87,0.04), transparent 60%),
       var(--bg);
   }
-  #leftPane{
-    display:flex; flex-direction:column; gap:8px; pointer-events:none;
-    padding:12px;
-  }
-  #solutionPanel{
-    background:rgba(18,20,15,0.85); border:1px solid var(--line);
-    padding:8px 10px;
-  }
-  #solutionPanel .sp-title{
-    font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:2px;
-    color:var(--amber-dim); text-transform:uppercase; margin-bottom:6px;
-  }
-  #logOverlay{
-    background:rgba(18,20,15,0.75); border:1px solid var(--line);
-    padding:8px 10px; width:100%; max-height:200px;
-    font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.5;
-    display:flex; flex-direction:column-reverse; overflow:hidden;
-  }
-  #logOverlay div{border-bottom:1px dotted #2a2d20; padding:2px 0; opacity:.9;}
-  #logOverlay .PEN{color:var(--green);}
-  #logOverlay .BOUNCE{color:var(--blue);}
-  #logOverlay .BLOCK{color:var(--text-dim);}
-  #logOverlay .COVER{color:var(--amber);}
-  #logOverlay .CRIT{color:var(--red); font-weight:700;}
   canvas{display:block; width:100%; height:100%;}
-  #hud{
-    background:var(--panel);
-    border-left:1px solid var(--line);
-    padding:16px 16px 12px;
-    overflow-y:auto;
-    display:flex; flex-direction:column; gap:14px;
-  }
-  .title{
-    font-family:'JetBrains Mono',monospace;
-    font-size:12px; letter-spacing:3px; color:var(--amber-dim);
-    text-transform:uppercase; border-bottom:1px solid var(--line); padding-bottom:8px;
-  }
-  .title b{color:var(--amber);}
-  .section{border:1px solid var(--line); background:rgba(255,255,255,0.015); padding:10px 12px;}
-  .section h3{
-    margin:0 0 8px; font-size:11px; letter-spacing:2px; color:var(--text-dim);
-    text-transform:uppercase; font-family:'JetBrains Mono',monospace; font-weight:500;
-  }
-  .bar-row{display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:12px;}
-  .bar-label{width:64px; flex-shrink:0; color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:10px;}
-  .bar-track{flex:1; height:10px; background:#0c0d09; border:1px solid var(--line); position:relative;}
-  .bar-fill{height:100%; transition:width .12s linear;}
-  .bar-val{width:44px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim);}
 
-  #solution{font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.9;}
-  #solution .row{display:flex; justify-content:space-between; gap:8px;}
-  #solution .k{color:var(--text-dim); flex-shrink:0;}
-  #solution .v{color:var(--text); font-weight:700; text-align:right;}
-  #solution .v.ok{color:var(--green);}
-  #solution .v.bad{color:var(--red);}
-  #solution .v.bounce{color:var(--blue);}
-  #solution .v.cover{color:var(--amber);}
-
-  #log{
-    font-family:'JetBrains Mono',monospace; font-size:11px; line-height:1.6;
-    height:170px; overflow-y:auto; display:flex; flex-direction:column-reverse;
-  }
-  #log div{border-bottom:1px dotted #2a2d20; padding:3px 0; opacity:.92;}
-  #log .PEN{color:var(--green);}
-  #log .BOUNCE{color:var(--blue);}
-  #log .BLOCK{color:var(--text-dim);}
-  #log .COVER{color:var(--amber);}
-  #log .CRIT{color:var(--red); font-weight:700;}
-
-  .controls{font-size:11px; color:var(--text-dim); font-family:'JetBrains Mono',monospace; line-height:1.9;}
-  .controls b{color:var(--amber-dim);}
-
-  button{
-    background:transparent; border:1px solid var(--amber-dim); color:var(--amber);
-    font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px;
-    padding:7px 10px; cursor:pointer; text-transform:uppercase;
-  }
-  button:hover{background:rgba(255,180,84,0.1); border-color:var(--amber);}
-  button.active{background:rgba(126,217,87,0.15); border-color:var(--green); color:var(--green);}
-  .btnrow{display:flex; gap:8px; flex-wrap:wrap;}
-
-  select{
-    background:#0c0d09; border:1px solid var(--line); color:var(--text);
-    font-family:'JetBrains Mono',monospace; font-size:11px; padding:3px 5px; flex:1; min-width:0;
-  }
-  select:focus{outline:none; border-color:var(--amber);}
-
+  /* ---------- 极简 HUD：装填条 + 弹种（P-15） ---------- */
   #reloadWrap{position:absolute; bottom:18px; left:50%; transform:translateX(-50%);
     width:220px; text-align:center; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim);}
   #reloadTrack{height:5px; background:#0c0d09; border:1px solid var(--line); margin-top:4px;}
@@ -132,11 +42,40 @@
     color:var(--text); vertical-align:middle;}
   #ammoIndicator .dot{width:9px; height:9px; border-radius:50%; display:inline-block;
     border:1px solid rgba(255,255,255,0.3);}
+  #hintBar{position:absolute; left:12px; bottom:10px; pointer-events:none;
+    font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-dim); opacity:.75; letter-spacing:1px;}
 
-  .legend{display:flex; flex-direction:column; gap:4px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-top:6px;}
-  .legend span.sw{display:inline-block; width:10px; height:10px; margin-right:6px; vertical-align:-1px; border:1px solid rgba(255,255,255,0.3);}
+  /* ---------- 通用控件 ---------- */
+  button{
+    background:transparent; border:1px solid var(--amber-dim); color:var(--amber);
+    font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px;
+    padding:7px 10px; cursor:pointer; text-transform:uppercase;
+  }
+  button:hover{background:rgba(255,180,84,0.1); border-color:var(--amber);}
+  button.active{background:rgba(126,217,87,0.15); border-color:var(--green); color:var(--green);}
+  .btnrow{display:flex; gap:8px; flex-wrap:wrap;}
+  .section{border:1px solid var(--line); background:rgba(255,255,255,0.015); padding:10px 12px;}
+  .section h3{
+    margin:0 0 8px; font-size:11px; letter-spacing:2px; color:var(--text-dim);
+    text-transform:uppercase; font-family:'JetBrains Mono',monospace; font-weight:500;
+  }
+  .bar-row{display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:12px;}
+  .bar-label{width:64px; flex-shrink:0; color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:10px;}
+  .bar-track{flex:1; height:10px; background:#0c0d09; border:1px solid var(--line); position:relative;}
+  .bar-fill{height:100%; transition:width .12s linear;}
+  .bar-val{width:auto; min-width:64px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim);}
+  select{
+    background:#0c0d09; border:1px solid var(--line); color:var(--text);
+    font-family:'JetBrains Mono',monospace; font-size:11px; padding:3px 5px; flex:1; min-width:0;
+  }
+  select:focus{outline:none; border-color:var(--amber);}
+  input[type=number]{
+    background:#0c0d09; border:1px solid var(--line); color:var(--text);
+    font-family:'JetBrains Mono',monospace; font-size:11px; padding:3px 5px; width:80px;
+  }
+  input[type=number]:focus{outline:none; border-color:var(--amber);}
 
-  /* P-08 节点地图流程覆盖层（摄像机+节点地图+小地图里程碑） */
+  /* ---------- P-08 节点地图流程覆盖层 ---------- */
   #flowOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     z-index:20; pointer-events:none; background:rgba(10,12,8,0.55);}
   #flowOverlay .screen{pointer-events:auto; background:rgba(18,20,15,0.97); border:1px solid var(--line);
@@ -167,126 +106,168 @@
   #cardRow .card:hover{border-color:var(--amber); background:rgba(255,180,84,0.1);}
   #cardRow .card .cname{font-family:'JetBrains Mono',monospace; color:var(--amber); font-size:12px; font-weight:700; margin-bottom:8px;}
   #cardRow .card .cdesc{font-size:10px; color:var(--text-dim); line-height:1.6;}
-  #runHud{position:absolute; top:10px; left:12px; z-index:10; pointer-events:none;
-    font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text);
-    background:rgba(10,12,14,0.7); border:1px solid var(--line); padding:6px 10px; line-height:1.7;}
-  #runHud b{color:var(--amber);}
-  #runHud .s{color:var(--green);}
+
+  /* ---------- P-15 玩家状态面板（Tab） ---------- */
+  #statusPanel{position:absolute; left:12px; top:12px; z-index:30; width:300px;
+    background:rgba(18,20,15,0.94); border:1px solid var(--line);
+    padding:14px 16px; font-family:'JetBrains Mono',monospace; box-shadow:0 8px 30px rgba(0,0,0,0.55);}
+  #statusPanel .sp-title{font-size:11px; letter-spacing:2px; color:var(--amber);
+    text-transform:uppercase; border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:10px;}
+  #statusPanel .row{display:flex; justify-content:space-between; gap:10px; font-size:11px; line-height:1.8;}
+  #statusPanel .row .k{color:var(--text-dim); flex-shrink:0;}
+  #statusPanel .row .v{color:var(--text); text-align:right;}
+  #statusPanel .row .v.bad{color:var(--red);}
+  #statusPanel .hp-row{display:flex; align-items:center; gap:8px; margin:6px 0 10px;}
+  #statusPanel .hp-track{flex:1; height:12px; background:#0c0d09; border:1px solid var(--line); position:relative;}
+  #statusPanel .hp-fill{height:100%; background:var(--green);}
+  #statusPanel .hp-val{font-size:10px; color:var(--text); min-width:88px; text-align:right;}
+  #statusPanel .armor-list{font-size:10px; color:var(--text-dim); line-height:1.8; border-top:1px dashed #2a2d20; padding-top:6px; margin-top:6px;}
+  #statusPanel .armor-list b{color:var(--amber-dim);}
+  #statusPanel .hint{font-size:9px; color:var(--text-dim); opacity:.7; margin-top:10px; letter-spacing:1px;}
+
+  /* ---------- P-15 开发者面板（`） ---------- */
+  #devPanel{position:absolute; right:12px; top:12px; z-index:31; width:400px; max-height:calc(100vh - 24px);
+    overflow-y:auto; background:rgba(18,20,15,0.95); border:1px solid var(--line);
+    padding:14px 16px; font-family:'JetBrains Mono',monospace; box-shadow:0 8px 30px rgba(0,0,0,0.6);}
+  #devPanel .sp-title{font-size:11px; letter-spacing:2px; color:var(--amber);
+    text-transform:uppercase; border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:10px;}
+  #devPanel .dev-sec{border:1px solid var(--line); background:rgba(255,255,255,0.015); padding:8px 10px; margin-bottom:10px;}
+  #devPanel .dev-sec h4{margin:0 0 6px; font-size:10px; letter-spacing:2px; color:var(--amber-dim);
+    text-transform:uppercase; font-weight:500;}
+  #devPanel .dev-row{display:flex; align-items:center; gap:6px; margin-bottom:5px; font-size:10px; color:var(--text); flex-wrap:wrap;}
+  #devPanel .dev-row .k{color:var(--text-dim); min-width:56px;}
+  #devPanel .dev-row button{padding:3px 6px; font-size:9px;}
+  #devPanel .dev-log{height:150px; overflow-y:auto; display:flex; flex-direction:column-reverse;
+    background:rgba(8,9,6,0.6); border:1px solid var(--line); padding:6px 8px; font-size:9px; line-height:1.6;}
+  #devPanel .dev-log div{border-bottom:1px dotted #2a2d20; padding:2px 0; opacity:.9;}
+  #devPanel .dev-log .PEN{color:var(--green);}
+  #devPanel .dev-log .BOUNCE{color:var(--blue);}
+  #devPanel .dev-log .BLOCK{color:var(--text-dim);}
+  #devPanel .dev-log .COVER{color:var(--amber);}
+  #devPanel .dev-log .CRIT{color:var(--red); font-weight:700;}
+  #devPanel .card-list{display:flex; flex-direction:column; gap:4px; max-height:180px; overflow-y:auto;}
+  #devPanel .card-list button{text-align:left; font-size:9px; padding:4px 6px; letter-spacing:0;}
+  #devPanel .mod-list{display:flex; flex-direction:column; gap:4px; max-height:200px; overflow-y:auto;}
+  #devPanel .mod-row{display:flex; align-items:center; gap:4px; font-size:9px; border:1px dashed #2a2d20; padding:3px 5px;}
+  #devPanel .mod-row .m-src{color:var(--amber-dim); max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  #devPanel .mod-row .m-stat{color:var(--text); min-width:70px;}
+  #devPanel .mod-row select{font-size:9px; padding:1px 2px; width:56px;}
+  #devPanel .mod-row input{width:64px; font-size:9px; padding:1px 3px;}
+  #devPanel .mod-row button{padding:2px 5px; font-size:9px;}
+  #devPanel .hint{font-size:9px; color:var(--text-dim); opacity:.7; margin-top:8px; letter-spacing:1px;}
 </style>
 </head>
 <body>
-<div id="app">
-  <div id="leftPane">
-    <div id="solutionPanel">
-        <div class="sp-title">实时弹道预测 <b>FIRING SOLUTION</b></div>
-        <div id="solution">
-          <div class="row"><span class="k">命中部位</span><span class="v" id="solPart">--</span></div>
-          <div class="row"><span class="k">入射角 θ</span><span class="v" id="solAngle">--</span></div>
-          <div class="row"><span class="k">名义厚度</span><span class="v" id="solThick">--</span></div>
-          <div class="row"><span class="k">等效厚度</span><span class="v" id="solEff">--</span></div>
-          <div class="row"><span class="k">掩体状态</span><span class="v" id="solCover">无遮挡</span></div>
-          <div class="row"><span class="k">判定</span><span class="v" id="solResult">--</span></div>
-        </div>
-        <div class="legend">
-          <div><span class="sw" style="background:rgba(166,138,60,0.55); border-color:#a68a3c;"></span>半高掩体 — 中坦车体近乎全藏，重坦仍半露</div>
-          <div><span class="sw" style="background:rgba(106,106,106,0.65); border-color:#6a6a6a;"></span>全高掩体 — 完全遮蔽</div>
-          <div><span class="sw" style="background:rgba(88,130,58,0.55); border-color:#5c8238;"></span>灌木丛 — 弹可穿透，树冠遮挡视线</div>
-          <div><span class="sw" style="background:rgba(56,88,52,0.6); border-color:#3f5c3c;"></span>树 — 树干挡路挡弹，1 发伐倒→倒树（树冠遮挡视线）</div>
-          <div><span class="sw" style="background:rgba(150,118,70,0.55); border-color:#96764a;"></span>栅栏 — 炮弹/坦克穿过即毁</div>
-          <div><span class="sw" style="background:rgba(158,128,72,0.6); border-color:#9e8048;"></span>沙袋路障 — 挡 1 发，>70° 斜射跳弹</div>
-          <div><span class="sw" style="background:rgba(112,74,40,0.75); border-color:#6e4a26;"></span>树桩/碎石 — 残骸半掩，可碾毁</div>
-        </div>
-      </div>
-      <div id="logOverlay"></div>
+<div id="stage-wrap">
+  <canvas id="c"></canvas>
+  <div id="reloadWrap">
+    装填 RELOAD
+    <span id="ammoIndicator"><span class="dot"></span><span class="label"></span></span>
+    <div id="reloadTrack"><div id="reloadFill"></div></div>
+  </div>
+  <div id="hintBar">TAB 状态 · ` 开发者 · 1/2/3/4 弹种 · WASD 移动 · 左键/空格 开火 · F 烟幕弹 · G 炮击 · H 护盾(Shift+H 全向) · V 超装填 · 无人机自动索敌</div>
+  <div id="flowOverlay" style="display:none;">
+    <div id="mapScreen" class="screen">
+      <div class="screen-title">节点地图 NODE MAP</div>
+      <div id="mapList"></div>
+      <div class="btnrow"><button id="startRunBtn">开始新的一局 NEW RUN</button></div>
+      <div class="screen-hint">线性推进：每个节点是独立战场，难度随推进上升。清除全部敌军即通关；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。</div>
     </div>
-  <div id="stage-wrap">
-    <canvas id="c"></canvas>
-    <div id="reloadWrap">
-      装填 RELOAD
-      <span id="ammoIndicator"><span class="dot"></span><span class="label"></span></span>
-      <div id="reloadTrack"><div id="reloadFill"></div></div>
+    <div id="settleScreen" class="screen" style="display:none;">
+      <div class="screen-title">节点结算 NODE CLEARED</div>
+      <div id="settleBody"></div>
+      <div class="btnrow"><button id="settleNextBtn">继续 CONTINUE</button></div>
     </div>
-    <div id="runHud" style="display:none;"></div>
-    <div id="flowOverlay" style="display:none;">
-      <div id="mapScreen" class="screen">
-        <div class="screen-title">节点地图 NODE MAP</div>
-        <div id="mapList"></div>
-        <div class="btnrow"><button id="startRunBtn">开始新的一局 NEW RUN</button></div>
-        <div class="screen-hint">线性推进：每个节点是独立战场，难度随推进上升。清除全部敌军即通关（M6：敌军暂无 AI，作为靶标）；友军据点存活可获结算加成（§4.5）。</div>
-      </div>
-      <div id="settleScreen" class="screen" style="display:none;">
-        <div class="screen-title">节点结算 NODE CLEARED</div>
-        <div id="settleBody"></div>
-        <div class="btnrow"><button id="settleNextBtn">继续 CONTINUE</button></div>
-      </div>
-      <div id="rewardScreen" class="screen" style="display:none;">
-        <div class="screen-title">卡牌奖励 CARD REWARD</div>
-        <div id="cardRow"></div>
-        <div class="screen-hint">三选一（M6 占位：卡牌直接给玩家加修饰器，内容池在 M10 经济里程碑落地）。</div>
-      </div>
-      <div id="gameoverScreen" class="screen" style="display:none;">
-        <div class="screen-title">阵亡 KIA</div>
-        <div id="gameoverBody"></div>
-        <div id="deathShop" style="margin-top:12px;"></div>
-        <div class="btnrow"><button id="gameoverRestartBtn">重新开始 RESTART</button></div>
-      </div>
+    <div id="rewardScreen" class="screen" style="display:none;">
+      <div class="screen-title">卡牌奖励 CARD REWARD</div>
+      <div id="cardRow"></div>
+      <div class="screen-hint">三选一：卡牌直接给玩家加修饰器（内容池在 M10 经济里程碑持续扩充）。</div>
+    </div>
+    <div id="gameoverScreen" class="screen" style="display:none;">
+      <div class="screen-title">阵亡 KIA</div>
+      <div id="gameoverBody"></div>
+      <div id="deathShop" style="margin-top:12px;"></div>
+      <div class="btnrow"><button id="gameoverRestartBtn">重新开始 RESTART</button></div>
     </div>
   </div>
-  <div id="hud">
-    <div class="title">装甲测试台 <b>ARMOR TEST RIG</b> · MVP v0.2 (2D + 掩体)</div>
-
-    <div class="section">
-      <h3>坦克选择 Tank Select</h3>
-      <div class="bar-row"><span class="bar-label">玩家坦克</span><select id="playerTankSelect"></select></div>
-      <div class="bar-row"><span class="bar-label">靶车坦克</span><select id="dummyTankSelect"></select></div>
-      <div class="btnrow" style="margin-top:4px;">
-        <button id="applyPlayerTankBtn">应用到玩家</button>
-        <button id="applyDummyTankBtn">应用到靶车</button>
-        <button id="reloadTankListBtn">重新加载列表</button>
-      </div>
-      <div class="mono" id="tankSelectHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">从 tanks/ 目录载入坦克配置并替换玩家 / 靶车（含炮管预设、多边形装甲）</div>
+  <div id="statusPanel" style="display:none;">
+    <div class="sp-title">玩家状态 PLAYER STATUS</div>
+    <div class="hp-row">
+      <span class="k" style="font-size:10px; color:var(--text-dim);">HP</span>
+      <div class="hp-track"><div class="hp-fill" id="stHpBar" style="width:100%"></div></div>
+      <span class="hp-val" id="stHpVal">--</span>
     </div>
+    <div class="row"><span class="k">火力</span><span class="v" id="stFire">--</span></div>
+    <div class="row"><span class="k">机动</span><span class="v" id="stMob">--</span></div>
+    <div class="row"><span class="k">当前散布 σ</span><span class="v" id="stSigma">--</span></div>
+    <div class="armor-list" id="stArmor"></div>
+    <div class="hint">按 TAB 关闭 · 数值实时读取（读 stats，不摸 base）</div>
+  </div>
+  <div id="devPanel" style="display:none;">
+    <div class="sp-title">开发者面板 DEV PANEL</div>
 
-    <div class="section">
-      <h3>目标 Target Dummy</h3>
-      <div class="bar-row"><span class="bar-label">HULL HP</span><div class="bar-track"><div class="bar-fill" id="eHpBar" style="background:var(--green); width:100%"></div></div><span class="bar-val" id="eHpVal">100</span></div>
-      <div class="bar-row"><span class="bar-label">STATUS</span><span class="mono" id="eStatus" style="font-size:11px; color:var(--text-dim);">正常</span></div>
-      <div class="bar-row"><span class="bar-label">身高等级</span><span class="mono" id="eHeightClass" style="font-size:11px; color:var(--amber);">重坦(高车体)</span></div>
-      <button id="heightBtn" style="margin-top:4px;">切换靶车身高等级</button>
-      <div class="bar-row" style="margin-top:8px; align-items:center;">
-        <span class="bar-label">满血值</span>
-        <input id="dummyHpInput" type="number" min="1" max="99999" value="100" style="width:70px; background:#0c0d09; border:1px solid var(--line); color:var(--text); font-family:'JetBrains Mono',monospace; font-size:11px; padding:3px 5px;">
-        <button id="applyHpBtn" style="padding:4px 7px;">应用</button>
+    <div class="dev-sec">
+      <h4>调试开关</h4>
+      <div class="dev-row">
+        <span class="k">超级精度</span>
+        <button id="zeroSpreadBtn">关闭</button>
+        <span style="color:var(--text-dim);">散布归零（瞬间缩圈，仅玩家）</span>
       </div>
-      <div class="bar-row" style="align-items:center;">
-        <span class="bar-label">自动复活</span>
-        <button id="autoReviveBtn" style="padding:4px 7px;">开启 AUTO-REVIVE</button>
-        <span class="mono" id="autoReviveHint" style="font-size:10px; color:var(--text-dim);">摧毁后 1.5s 满血复活</span>
+      <div class="dev-row">
+        <button id="genNodeBtn">随机生成战场</button>
+        <button id="resetBtn">重置 RESET</button>
+        <span style="color:var(--text-dim);">（战斗态禁用）</span>
       </div>
     </div>
 
-    <div class="section" style="display:none;">
-      <h3>命中日志 Hit Log</h3>
-      <div id="log"></div>
+    <div class="dev-sec">
+      <h4>数值临时调整（实时改 player.stats，仅本局）</h4>
+      <div class="dev-row"><span class="k">穿深</span><input id="devPen" type="number" step="1" min="0"><span class="k">伤害</span><input id="devDmg" type="number" step="1" min="0"></div>
+      <div class="dev-row"><span class="k">装填</span><input id="devReloadI" type="number" step="0.05" min="0.1"><span class="k">极速</span><input id="devSpeedI" type="number" step="5" min="0"></div>
+      <div class="dev-row"><span class="k">马力</span><input id="devPower" type="number" step="10" min="0">
+        <button id="devApplyBtn">应用</button>
+        <button id="devResetStatsBtn">重置</button>
+      </div>
     </div>
 
-    <div class="section controls">
-      <div><b>WASD</b> 移动 / 转向车体（W/S 前后，A/D 转向）</div>
-      <div><b>鼠标</b> 手动瞄准方位角（炮塔转动有转速与射界限制，射界=车体中线±traverseLimit）</div>
-      <div><b>左键 / 空格</b> 开火（有装填时间）</div>
-      <div><b>方向键</b> 手动移动测试靶 — 掩体已移到默认射线上方；把靶车开到掩体后面测试露头概率</div>
+    <div class="dev-sec">
+      <h4>实时参数</h4>
+      <div class="dev-row"><span class="k">σ</span><span id="devSigma">--</span></div>
+      <div class="dev-row"><span class="k">装填</span><span id="devReload">--</span></div>
+      <div class="dev-row"><span class="k">位置</span><span id="devPos">--</span></div>
+      <div class="dev-row"><span class="k">速度</span><span id="devSpeed">--</span></div>
+      <div class="dev-row"><span class="k">存活</span><span id="devEntities">--</span></div>
+      <div class="dev-row"><span class="k">节点</span><span id="devNode">--</span></div>
     </div>
 
-    <div class="section">
-      <h3>单局流程 Node Run</h3>
-      <button id="newRunBtn" style="width:100%; padding:10px;">开始一局 NEW RUN</button>
-      <div class="mono" style="font-size:10px; color:var(--text-dim); margin-top:6px;">生成 5 节点线性链：大世界巡航清敌 → 结算 → 卡牌三选一 → 下一节点；玩家阵亡即结束本局。</div>
+    <div class="dev-sec">
+      <h4>发射解算（实时弹道预测，无散布）</h4>
+      <div id="solution">
+        <div class="dev-row"><span class="k">部位</span><span id="solPart">--</span></div>
+        <div class="dev-row"><span class="k">入射角</span><span id="solAngle">--</span></div>
+        <div class="dev-row"><span class="k">厚度</span><span id="solThick">--</span></div>
+        <div class="dev-row"><span class="k">等效</span><span id="solEff">--</span></div>
+        <div class="dev-row"><span class="k">掩体</span><span id="solCover">--</span></div>
+        <div class="dev-row"><span class="k">判定</span><span id="solResult">--</span></div>
+      </div>
     </div>
 
-    <div class="btnrow">
-      <button id="genNodeBtn">随机生成战场 GENERATE</button>
-      <button id="resetBtn">重置 RESET</button>
+    <div class="dev-sec">
+      <h4>卡牌选择（选中即 applyCardEffects）</h4>
+      <div class="card-list" id="devCardList"></div>
     </div>
+
+    <div class="dev-sec">
+      <h4>修饰器列表（可编辑 / 删除）</h4>
+      <div class="mod-list" id="devModList"></div>
+    </div>
+
+    <div class="dev-sec">
+      <h4>调试日志</h4>
+      <div class="dev-log" id="devLog"></div>
+    </div>
+
+    <div class="hint">按 ` 关闭 · 超级精度与数值调整仅影响玩家，敌我弹道/结算逻辑不变</div>
   </div>
 </div>
 
@@ -315,6 +296,12 @@
   <script src="js/tank_paint.js"></script>
   <script src="js/tank_battledraw.js"></script>
   <script src="js/tank_listio.js"></script>
+  <script src="js/tank_dmgtext.js"></script>
+  <!-- P-17 战术卡牌能力运行时模块（阶段 3 接线；abilities 依赖 strike/shield，顺序不可颠倒） -->
+  <script src="js/tank_strike.js"></script>
+  <script src="js/tank_shield.js"></script>
+  <script src="js/tank_abilities.js"></script>
+  <script src="js/tank_drone.js"></script>
 <script>
 (() => {
 const canvas = document.getElementById('c');
@@ -324,7 +311,7 @@ window.addEventListener('resize', resize);
 resize();
 
 // ---------- P-08 摄像机 / 流程 / 单局状态（js/tank_camera.js · tank_flow.js · tank_map.js） ----------
-// 摄像机：run 模式下跟随玩家（节点大世界约 1:9）；测试台模式（无 run）保持恒等视口（屏幕==世界）
+// 正式游戏（P-15）：无测试台模式；未开局时保持恒等视口等待 NEW RUN
 const cam = createCamera({ vw: canvas.width, vh: canvas.height });
 const flow = createFlow();
 let run = null;            // generateRun() 结果：线性节点链
@@ -346,117 +333,30 @@ function syncCameraViewport(){
 window.addEventListener('resize', syncCameraViewport);
 
 // ---------- audio (M1 占位音效，js/tank_audio.js) ----------
-// 浏览器自动播放策略：AudioContext 惰性创建，首次用户交互（pointerdown/keydown）时解锁。
-// playSound 内部也会自动 ensure（首个音效即解锁）；这里再显式监听一次，
-// 保证纯交互（如只移动/转向不开火）也有已解锁的上下文。
 function unlockAudio(){ initAudio(); }
 window.addEventListener('pointerdown', unlockAudio, { once:true });
 window.addEventListener('keydown', unlockAudio, { once:true });
 
-// entity registry lives in js/tank_entity.js (entities / spawnTank / resetEntity / advanceTracks /
-// isHostile / clamp / livingEnemiesOf / nearestEnemyTo / resolveTankCollisions)
-
 const player = spawnTank({ id:'player', team:'player', x:260, y:340, hullAngle:0, turretAngle:0, color:'#7ed957', heightClass:'medium' });
 player.sigma = SPREAD.base;
-const dummy  = spawnTank({ id:'dummy',  team:'enemy',  x:760, y:340, hullAngle:Math.PI, turretAngle:Math.PI, color:'#ff8a5c', heightClass:'heavy' });
-dummy.turretSwing = 0;
-// test-rig-only toggles so the rig stays usable as a target after a kill (see HUD buttons)
-dummy.invuln = false;       // when true: hp is locked, dummy never takes damage
-dummy.autoRevive = true;    // when true: dummy respawns full 1.5s after being destroyed
-dummy.reviveT = 0;          // countdown to auto-revive
+// P-15：正式游戏无测试靶车 dummy —— entities 只含玩家/敌军/友军/Boss/召唤物
 
-// 从 tanks/ 目录（一型一文件，经 /api/tanks 聚合）加载坦克配置数据
+// 从 tanks/ 目录（一型一文件，经 /api/tanks 聚合）加载配置数据（敌军/Boss 实体化用）
 let tankListData = null;
-function populateTankSelect(){
-  for(const selId of ['playerTankSelect','dummyTankSelect']){
-    const sel = document.getElementById(selId);
-    sel.innerHTML = '';
-    if(!tankListData){ sel.innerHTML = '<option>加载失败</option>'; continue; }
-    const keys = Object.keys(tankListData);
-    keys.forEach(k=>{
-      const opt = document.createElement('option');
-      opt.value = k;
-      opt.textContent = k;
-      sel.appendChild(opt);
-    });
-    if(keys.length){
-      if(selId==='playerTankSelect') {
-        const defaultPlayerKey = ('Obj 780' in tankListData) ? 'Obj 780' : (('T-90M1' in tankListData) ? 'T-90M1' : keys[0]);
-        sel.value = defaultPlayerKey;
-      }
-      else sel.value = 'dummy' in tankListData ? 'dummy' : keys[0];
-    }
-  }
-}
-function applyTankFromList(tank, id){
-  const spec = tankListData && tankListData[id];
-  if(!spec){ return false; }
-  applyTankConfig(tank, spec);
-  resetEntity(tank);
-  return true;
-}
-function applyPlayerTank(id){
-  if(applyTankFromList(player, id)){
-    pushLog(`玩家已切换为坦克 ${id} — 穿深 ${player.stats.penetration} / 伤害 ${player.stats.damage} / 装甲已同步`, 'PEN');
-  } else {
-    pushLog(`坦克配置不存在: ${id}`, 'COVER');
-  }
-}
-function applyDummyTank(id){
-  if(applyTankFromList(dummy, id)){
-    dummy._prevFireT = 0; // resetEntity 置 fireT=0，同步清起火音效上升沿记录
-    pushLog(`靶车已切换为坦克 ${id}`, 'PEN');
-    document.getElementById('dummyHpInput').value = dummy.maxHp;
-    document.getElementById('eHeightClass').textContent = dummy.heightClass==='heavy' ? '重坦(高车体)' : '中坦(矮车体)';
-  } else {
-    pushLog(`坦克配置不存在: ${id}`, 'COVER');
-  }
-}
 function loadTankList(){
-  fetchTankList(data => {
-    tankListData = data;
-    populateTankSelect();
-    if(!tankListData) return;
-    // Only auto-apply on FIRST load so both tanks show their real model/armor;
-    // reloading afterwards must not clobber a user's custom config.
-    if(!player._tankLoaded){
-      const playerSel = document.getElementById('playerTankSelect');
-      const playerKey = playerSel ? playerSel.value : null;
-      if (playerKey && tankListData[playerKey]) applyPlayerTank(playerKey);
-
-      const dummySel = document.getElementById('dummyTankSelect');
-      const dummyKey = dummySel ? dummySel.value : null;
-      if (dummyKey && tankListData[dummyKey]) applyDummyTank(dummyKey);
-
-      player._tankLoaded = true;
-    }
-  });
+  fetchTankList(data => { tankListData = data; });
 }
-document.getElementById('applyPlayerTankBtn').addEventListener('click', ()=>{
-  applyPlayerTank(document.getElementById('playerTankSelect').value);
-  playSound('ui');
-});
-document.getElementById('applyDummyTankBtn').addEventListener('click', ()=>{
-  applyDummyTank(document.getElementById('dummyTankSelect').value);
-  playSound('ui');
-});
-document.getElementById('reloadTankListBtn').addEventListener('click', ()=>{
-  loadTankList();
-  pushLog('已重新加载 tanks/ 坦克列表','COVER');
-});
 loadTankList();
 
 const keys = {};
-// NOTE: keys 1/2/0 used to force turret/hull target-lock; removed per design — this slot now
-// switches ammo type (AP/APCR/HE, 特性4) instead of a part-lock command.
 window.addEventListener('keydown', e=>{
   keys[e.key.toLowerCase()]=true;
-  if(e.key===' ') e.preventDefault();
+  if(e.key===' ' || e.key==='Tab') e.preventDefault();
 });
 window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
 
-// ---------- ammo type selection (特性4) ----------
-const AMMO_KEYS = { '1':'ap', '2':'apcr', '3':'he' };
+// ---------- ammo type selection（特性4；P-15 极简 HUD 保留弹种切换 1/2/3/4） ----------
+const AMMO_KEYS = { '1':'ap', '2':'apcr', '3':'he', '4':'heat' };
 player.ammoKey = 'ap';
 function renderAmmoIndicator(){
   const el = document.getElementById('ammoIndicator');
@@ -471,7 +371,7 @@ function setAmmo(key){
   if(!RULES.ammoTypes[key]) return;
   player.ammoKey = key;
   renderAmmoIndicator();
-  playSound('ui'); // M1：弹种切换（数字键 1/2/3）
+  playSound('ui'); // M1：弹种切换（数字键 1/2/3/4）
   pushLog(`弹种切换：${RULES.ammoTypes[key].label}`,'COVER');
 }
 renderAmmoIndicator();
@@ -480,37 +380,103 @@ document.addEventListener('keydown', e=>{
   if(AMMO_KEYS[k]) setAmmo(AMMO_KEYS[k]);
 });
 
+// 鼠标瞄准（世界坐标）+ 左键开火（P-15 拆分时保留，与空格键等效）
 let mouseWorld = {x:player.x+100,y:player.y};
 canvas.addEventListener('mousemove', e=>{
   const r = canvas.getBoundingClientRect();
-  const p = screenToWorld(cam, e.clientX - r.left, e.clientY - r.top);  // P-08：屏幕→世界（摄像机）
+  const p = screenToWorld(cam, e.clientX - r.left, e.clientY - r.top);
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });
 canvas.addEventListener('mousedown', e=>{ if(e.button===0) tryFire(); });
 
-document.getElementById('genNodeBtn').addEventListener('click', ()=>{
-  const randomDiff = Math.random();
-  const res = generateNode(randomDiff, { applyToCovers: true });
-  pushLog(`随机生成战场: [${res.template.name}] 难度=${(randomDiff*100).toFixed(0)}% 元素数=${res.covers.length}`,'COVER');
-});
-document.getElementById('resetBtn').addEventListener('click', ()=>{
-  entities.forEach(e=>{ resetEntity(e); e._prevFireT = 0; }); // resetEntity 置 fireT=0，同步清起火音效记录
-  resetCovers();
-  dummy.turretSwing = 0;
-  // sync HP input + toggle visuals with the reset state
-  document.getElementById('dummyHpInput').value = dummy.maxHp;
-  const ab = document.getElementById('autoReviveBtn'); ab.textContent = dummy.autoRevive ? '开启 AUTO-REVIVE' : '关闭 AUTO-REVIVE'; ab.classList.toggle('active', dummy.autoRevive);
-  logClear();
-  playSound('ui'); // M1：重置
+// ---------- P-15 玩家状态面板（Tab）/ 开发者面板（`） ----------
+let statusOpen = false, devOpen = false;
+function togglePanel(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  const open = el.style.display === 'none';
+  el.style.display = open ? 'block' : 'none';
+  if(id === 'statusPanel'){ statusOpen = open; if(open) updateStatusPanel(); }
+  if(id === 'devPanel'){
+    devOpen = open;
+    if(open){ syncDevInputs(); renderDevCards(); renderDevMods(); updateSolution(); }
+  }
+}
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Tab'){ e.preventDefault(); togglePanel('statusPanel'); }
+  if(e.key === '`' || e.key === 'F12'){ e.preventDefault(); togglePanel('devPanel'); }
 });
 
-// ---------- P-08 节点地图流程（摄像机 + 节点链 + 结算 §4.5 + 卡牌三选一占位） ----------
-// 纯逻辑（生成/评分/状态机）在 js/tank_map.js / js/tank_flow.js；本段只做 UI 接线与实体化注入。
-// UI 界面层约定（§6 条目 6 捆绑前置）：mvp 通过 watchFlow 监听状态转移 → 显隐覆盖层；
-// 战斗循环只属于 'battle' 状态（loop 的模拟门控见 loop()）。
+// 状态面板：读 tank.stats（不摸 base）
+const FACE_LABELS = { front:'正面', side:'侧面', rear:'后部' };
+function armorRows(armor){
+  let html = '';
+  for(const part of ['hull','turret']){
+    const g = (armor && armor[part]) || {};
+    const row = ['front','side','rear'].map(f =>
+      `${FACE_LABELS[f]} ${g[f] !== undefined ? g[f] : '—'}mm`).join(' / ');
+    html += `<div><b>${part==='hull'?'车体':'炮塔'}</b>：${row}</div>`;
+  }
+  return html;
+}
+function updateStatusPanel(){
+  const s = player.stats;
+  const hpBar = document.getElementById('stHpBar');
+  if(hpBar) hpBar.style.width = Math.max(0, player.hp / Math.max(1, s.maxHp) * 100) + '%';
+  const hpVal = document.getElementById('stHpVal');
+  if(hpVal) hpVal.textContent = `${Math.ceil(player.hp)} / ${Math.round(s.maxHp)}`;
+  const stFire = document.getElementById('stFire');
+  if(stFire) stFire.textContent = `穿深 ${Math.round(s.penetration)}mm · 伤害 ${Math.round(s.damage)} · 装填 ${s.reload.toFixed(2)}s · 弹速 ${Math.round(s.shellSpeed)}`;
+  const stMob = document.getElementById('stMob');
+  if(stMob) stMob.textContent = `极速 ${tankKmh(player)}km/h · 转向 ${s.turnRate.toFixed(2)} · 炮塔 ${s.turretTurnRate.toFixed(2)} · 马力 ${Math.round(s.enginePower)}hp/${Math.round(s.weight)}t`;
+  const stSigma = document.getElementById('stSigma');
+  if(stSigma) stSigma.textContent = player.sigma.toFixed(4);
+  const stArmor = document.getElementById('stArmor');
+  if(stArmor) stArmor.innerHTML = armorRows(s.armor || (player.base && player.base.armor) || {});
+}
 
-// P-09 真实卡池（cards/ 一型一文件，经 /api/cards 聚合；替换原 PLACEHOLDER_CARDS 占位）
+// ---------- P-15 开发者面板：超级精度 / 数值覆盖 / 卡牌 / 修饰器 ----------
+const devAim = { zeroSpread: false };
+const devOverrides = {};    // 数值临时覆盖：{ stat → value }，每帧写回 player.stats
+function applyDevOverrides(){
+  for(const k in devOverrides){
+    if(player.stats[k] !== undefined) player.stats[k] = devOverrides[k];
+  }
+}
+const DEV_INPUT_MAP = { devPen:'penetration', devDmg:'damage', devReloadI:'reload', devSpeedI:'maxSpeed', devPower:'enginePower' };
+function syncDevInputs(){
+  for(const id in DEV_INPUT_MAP){
+    const el = document.getElementById(id);
+    if(el) el.value = Math.round(player.stats[DEV_INPUT_MAP[id]] * 100) / 100;
+  }
+}
+function applyDevInputs(){
+  for(const id in DEV_INPUT_MAP){
+    const el = document.getElementById(id);
+    const v = parseFloat(el.value);
+    if(Number.isFinite(v) && v >= 0) devOverrides[DEV_INPUT_MAP[id]] = v;
+  }
+  applyDevOverrides();
+  pushLog('数值覆盖已应用（临时，仅本局）','COVER');
+}
+function resetDevOverrides(){
+  for(const k in devOverrides) delete devOverrides[k];
+  refreshStats(player);
+  if(player.hp > player.stats.maxHp) player.hp = player.stats.maxHp;
+  syncDevInputs();
+  pushLog('数值覆盖已重置','COVER');
+}
+document.getElementById('zeroSpreadBtn').addEventListener('click', (e)=>{
+  devAim.zeroSpread = !devAim.zeroSpread;
+  e.currentTarget.textContent = devAim.zeroSpread ? '开启' : '关闭';
+  e.currentTarget.classList.toggle('active', devAim.zeroSpread);
+  pushLog(`超级精度：${devAim.zeroSpread ? '开（散布归零）' : '关'}`,'COVER');
+});
+document.getElementById('devApplyBtn').addEventListener('click', ()=>{ applyDevInputs(); playSound('ui'); });
+document.getElementById('devResetStatsBtn').addEventListener('click', ()=>{ resetDevOverrides(); playSound('ui'); });
+
+// 卡牌池（P-09 真实卡池；reward 三选一与 dev 面板共用）
 let cardPool = [];
 function loadCardPool(){
   fetch('api/cards')
@@ -520,7 +486,7 @@ function loadCardPool(){
 }
 loadCardPool();
 
-// P-09 Boss 池（bosses/ 一型一文件，经 /api/bosses 聚合）；链尾节点随机指定一个 Boss
+// Boss 池（P-09；链尾节点随机指定一个 Boss）
 let bossPool = [];
 function loadBossPool(){
   fetch('api/bosses')
@@ -540,35 +506,32 @@ function assignBossNode(run){
   }
 }
 
+// ---------- 节点地图流程 UI（纯逻辑在 js/tank_map.js · tank_flow.js） ----------
 function hideAllScreens(){
   for(const id of ['mapScreen','settleScreen','rewardScreen','gameoverScreen']) document.getElementById(id).style.display = 'none';
 }
 function showScreen(id){ hideAllScreens(); document.getElementById(id).style.display = 'block'; }
 function setOverlayVisible(v){ document.getElementById('flowOverlay').style.display = v ? 'flex' : 'none'; }
 
-function renderRunHud(){
-  const el = document.getElementById('runHud');
-  if(!run){ el.style.display = 'none'; return; }
-  el.style.display = 'block';
-  const i = currentNode ? currentNode.index : 0;
-  el.innerHTML = `节点 <b>${i + 1}/${run.nodes.length}</b> · 难度 <span style="color:var(--red)">${currentNode ? (currentNode.difficulty * 100).toFixed(0) : '--'}%</span> · 得分 <span class="s">${runScore}</span>`;
-}
-
 function enterBattle(nodeIndex){
   const node = run.nodes[nodeIndex];
   if(!node) return;
   currentNode = node;
   cam.bounds = { w: node.w, h: node.h };
-  resetEntity(player);                       // 满状态进入节点（复活系统 M8 接入前即死亡即重开）
+  clearSmoke();                              // P-17：进节点清空上一战场残留烟雾
+  clearStrikes();                            // P-17：进节点清空上一战场预警炮击
+  player.shield = null;                      // P-17：护盾是短时开启状态，不跨节点（冷却 abilityCdT 跨节点保留）
+  resetEntity(player);                       // 满状态进入节点
   player.x = node.playerSpawn.x; player.y = node.playerSpawn.y;
   player.hullAngle = 0; player.turretAngle = 0;
   cam.x = player.x; cam.y = player.y;        // 相机瞬间对齐出生点
   materializeNode(node, {
+    keepIds: ['player'].concat(entities.filter(e => e.isDrone).map(e => e.id)),   // P-17：无人机随行跨节点保留（随行单位语义）
     setCovers(list){ covers.length = 0; covers.push(...list); snapshotCovers(); },
     clearEntities(keepIds){
       for(let i = entities.length - 1; i >= 0; i--){
         const e = entities[i];
-        if(!keepIds.includes(e.id) && e.id !== 'dummy') entities.splice(i, 1);  // 保留测试靶车
+        if(!keepIds.includes(e.id)) entities.splice(i, 1);
       }
     },
     spawnTank(spec){ return spawnTank(spec); },
@@ -625,7 +588,6 @@ function enterBattle(nodeIndex){
   battleState = { startMs: performance.now(), prevPlayerHp: player.hp, damageTaken: 0, cleared: false, playerDied: false };
   shells.length = 0; impacts.length = 0; bounceFx.length = 0;
   pushLog(`进入节点 ${nodeIndex + 1}「${node.template.name}」 难度 ${(node.difficulty * 100).toFixed(0)}% — ${node.boss ? 'BOSS ' + node.boss.name : '敌军 ' + node.enemies.length + ' 辆'}${node.outpost ? '，友军据点已部署' : ''}`, 'COVER');
-  renderRunHud();
 }
 
 function livingNodeEnemies(){
@@ -645,15 +607,34 @@ function finishNode(cleared){
     if(bossLoot && bossLoot.score) score.total += bossLoot.score;
   }
   runScore += score.total;
-  renderRunHud();
   if(cleared) transition(flow, 'settlement', { nodeIndex: currentNode.index, score, clearMs, bossLoot });
   else transition(flow, 'gameover', { nodeIndex: currentNode.index, score });
 }
 
+// P-17：按 cardEffects 重建随行无人机（选卡后 / 复活后调用）。kind 缺省 striker 由模块兜底；
+// countMax 超限 spawnDrone 拒绝并返回 null——此处只负责提示（同 key 多卡按条目数 spawn）。
+function deployDronesFromCards(){
+  const effects = (player.cardEffects || []).filter(ef => ef.type === 'drone');
+  for(const ef of effects){
+    const d = spawnDrone(player, ef.kind, { registry: entities });
+    if(d){
+      pushLog(`已部署${d.kind === 'scout' ? '侦察' : '打击'}无人机 — ${d.kind === 'scout' ? '标记视口外敌军位置' : '环绕跟随，自动索敌'}`, 'PEN');
+    } else {
+      pushLog(`无人机部署失败（场上已达上限 ${RULES.abilities.drone.countMax} 架）`, 'COVER');
+    }
+  }
+}
+
 function pickCard(card){
   if(!card) return;
-  applyCardEffects(player, card);   // P-09：走卡牌效果管道（modifier 立即生效，其余挂 cardEffects 供对应里程碑消费）
+  const applied = applyCardEffects(player, card);   // P-09：走卡牌效果管道（modifier 立即生效，其余挂 cardEffects 供对应里程碑消费）
   pushLog(`获得卡牌「${card.name}」— ${card.desc}`, 'PEN');
+  // P-17：主动装置卡获得提示（按键映射与 hintBar 一致）
+  for(const ef of applied){
+    if(ef.type === 'ability' && ABILITY_KEY_HINT[ef.key]) pushLog(`已获得主动能力：${ABILITY_KEY_HINT[ef.key]}`, 'PEN');
+  }
+  // P-17：无人机卡 → 立即按 cardEffects 部署（重复取卡由模块 countMax 兜底拒绝）
+  if(applied.some(ef => ef.type === 'drone')) deployDronesFromCards();
   playSound('ui');
 }
 
@@ -684,12 +665,12 @@ function renderMapList(){
   const hint = document.querySelector('#mapScreen .screen-hint');
   hint.textContent = runFinished
     ? '🎉 全链通关！点「开始新的一局」再战。'
-    : '线性推进：每个节点是独立战场，难度随推进上升。清除全部敌军即通关（M6：敌军暂无 AI，作为靶标）；友军据点存活可获结算加成（§4.5）。';
+    : '线性推进：每个节点是独立战场，难度随推进上升。清除全部敌军即通关；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。';
 }
 
 // 流程监听：状态切换 → UI 显隐 + 战场搭建（纯逻辑在 tank_flow.js，UI 消费在本函数）
 watchFlow(flow, (state, payload) => {
-  if(!run) return;                       // 未开局：保持装甲测试台行为（无覆盖层）
+  if(!run) return;                       // 未开局：仅显示封面路由（mapScreen）
   if(state === 'map'){
     showScreen('mapScreen'); setOverlayVisible(true);
     renderMapList();
@@ -780,7 +761,8 @@ window.buyReviveAndRefresh = function(){
 };
 
 function startNewRun(){
-  run = generateRun();
+  // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
+  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height } });
   assignBossNode(run);   // P-09：链尾节点指定 Boss
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
   removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
@@ -793,7 +775,6 @@ function startNewRun(){
   transition(flow, 'battle', { nodeIndex: 0 });
 }
 document.getElementById('startRunBtn').addEventListener('click', startNewRun);
-document.getElementById('newRunBtn').addEventListener('click', startNewRun);
 document.getElementById('settleNextBtn').addEventListener('click', () => {
   playSound('ui');
   transition(flow, 'reward');
@@ -801,41 +782,16 @@ document.getElementById('settleNextBtn').addEventListener('click', () => {
 document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   playSound('ui');
   restartRun(flow);                              // gameover → map（runId 自增）
-  run = generateRun();                           // 新的一局
+  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height } });  // 新的一局（#24 视口驱动缩放）
   assignBossNode(run);                           // P-09：链尾 Boss
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
   removeRunModifiers(player);                   // P-12：清除上一局单局修饰器
   player.revives = RULES.revive.baseRevives;     // P-11：复活次数
   transition(flow, 'battle', { nodeIndex: 0 });
 });
-document.getElementById('heightBtn').addEventListener('click', ()=>{
-  dummy.heightClass = dummy.heightClass==='heavy' ? 'medium' : 'heavy';
-  document.getElementById('eHeightClass').textContent = dummy.heightClass==='heavy' ? '重坦(高车体)' : '中坦(矮车体)';
-});
-document.getElementById('applyHpBtn').addEventListener('click', ()=>{
-  const v = Math.max(1, Math.min(99999, parseInt(document.getElementById('dummyHpInput').value,10)||100));
-  document.getElementById('dummyHpInput').value = v;
-  dummy.maxHp = v;
-  dummy.hp = v;
-  dummy.spawn.hp = v;            // keep reset consistent with the chosen max
-  dummy._dead = false;
-  dummy.reviveT = 0;
-  dummy.ammoBlew=false; dummy.debuffs={}; dummy.trackBroken=false; dummy.fireT=0; dummy._prevFireT=0; dummy.dotT=0; dummy.dotDps=0; dummy.dotSeconds=0;
-  pushLog(`靶车满血值设为 ${v}`,'COVER');
-});
-document.getElementById('autoReviveBtn').addEventListener('click', (e)=>{
-  dummy.autoRevive = !dummy.autoRevive;
-  e.currentTarget.textContent = dummy.autoRevive ? '开启 AUTO-REVIVE' : '关闭 AUTO-REVIVE';
-  e.currentTarget.classList.toggle('active', dummy.autoRevive);
-  pushLog(`靶车自动复活：${dummy.autoRevive?'开':'关'}`,'COVER');
-});
-// initialize toggle button visuals to match defaults (autoRevive on)
-(function(){
-  const ab = document.getElementById('autoReviveBtn'); ab.textContent = dummy.autoRevive ? '开启 AUTO-REVIVE' : '关闭 AUTO-REVIVE'; ab.classList.toggle('active', dummy.autoRevive);
-})();
 
-// ---------- log ----------
-const logEl = document.getElementById('logOverlay');
+// ---------- log（P-15：收纳至开发者面板） ----------
+const logEl = document.getElementById('devLog');
 function logClear(){ if(logEl) logEl.innerHTML=''; }
 function pushLog(text, cls){
   if(!logEl) return;
@@ -845,6 +801,80 @@ function pushLog(text, cls){
   d.textContent = `[${time}] ${text}`;
   logEl.prepend(d);
   while(logEl.children.length>25) logEl.removeChild(logEl.lastChild);
+}
+
+// ---------- 调试按钮（P-15：收纳至开发者面板；战斗态禁用防破坏节点） ----------
+document.getElementById('genNodeBtn').addEventListener('click', ()=>{
+  if(run && flow.state === 'battle'){ pushLog('战斗中不可随机生成（会破坏节点掩体）','COVER'); return; }
+  const randomDiff = Math.random();
+  const res = generateNode(randomDiff, { applyToCovers: true });
+  pushLog(`随机生成战场: [${res.template.name}] 难度=${(randomDiff*100).toFixed(0)}% 元素数=${res.covers.length}`,'COVER');
+});
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  if(run && flow.state === 'battle'){ pushLog('战斗中不可重置（会破坏节点状态）','COVER'); return; }
+  entities.forEach(e=>{ resetEntity(e); e._prevFireT = 0; }); // resetEntity 置 fireT=0，同步清起火音效记录
+  resetCovers();
+  clearSmoke();                              // P-17：重置战场时清空烟雾云
+  clearStrikes();                            // P-17：重置战场时清空预警炮击
+  clearDrones(player);                       // P-17：重置战场时清空随行无人机
+  logClear();
+  playSound('ui'); // M1：重置
+});
+
+// ---------- P-15 开发者面板：卡牌选择 / 修饰器编辑 ----------
+function renderDevCards(){
+  const el = document.getElementById('devCardList');
+  if(!el) return;
+  el.innerHTML = '';
+  if(!cardPool.length){
+    el.innerHTML = '<div style="font-size:9px;color:var(--text-dim);">卡池为空（检查 cards/ 与 /api/cards）</div>';
+    return;
+  }
+  for(const c of cardPool){
+    const b = document.createElement('button');
+    b.textContent = `${c.name}（${c.rarity}${c.maxStacks ? ' ×' + c.maxStacks : ''}）`;
+    b.title = c.desc || '';
+    b.addEventListener('click', ()=>{ pickCard(c); renderDevMods(); syncDevInputs(); });
+    el.appendChild(b);
+  }
+}
+function renderDevMods(){
+  const el = document.getElementById('devModList');
+  if(!el) return;
+  el.innerHTML = '';
+  if(!player.modifiers.length){
+    el.innerHTML = '<div style="font-size:9px;color:var(--text-dim);">当前无修饰器</div>';
+    return;
+  }
+  player.modifiers.forEach((m, i) => {
+    const row = document.createElement('div');
+    row.className = 'mod-row';
+    row.innerHTML =
+      `<span class="m-src">${m.source}</span>` +
+      `<span class="m-stat">${m.stat}</span>` +
+      `<select class="m-mode"><option value="add" ${m.mode==='add'?'selected':''}>add</option><option value="mult" ${m.mode==='mult'?'selected':''}>mult</option></select>` +
+      `<input class="m-val" type="number" step="0.01" value="${m.value}">`;
+    const apply = document.createElement('button');
+    apply.textContent = '应用';
+    apply.addEventListener('click', ()=>{
+      m.mode = row.querySelector('.m-mode').value;
+      m.value = parseFloat(row.querySelector('.m-val').value);
+      if(!Number.isFinite(m.value)) m.value = 0;
+      refreshStats(player);
+      renderDevMods(); syncDevInputs();
+      pushLog(`修饰器已更新：${m.stat} ${m.mode} ${m.value}`,'COVER');
+    });
+    const del = document.createElement('button');
+    del.textContent = '删除';
+    del.addEventListener('click', ()=>{
+      player.modifiers.splice(i, 1);
+      refreshStats(player);
+      renderDevMods(); syncDevInputs();
+      pushLog(`修饰器已删除：${m.stat}（${m.source}）`,'COVER');
+    });
+    row.appendChild(apply); row.appendChild(del);
+    el.appendChild(row);
+  });
 }
 
 // ---------- firing ----------
@@ -889,13 +919,14 @@ function fireTank(shooter, target, hitPref){
   shooter.reloadT = shooter.stats.reload / debuffReloadRate(shooter);
   const ox = tipP.x, oy = tipP.y;
 
-  // 散布只影响出膛方向
-  const sigma = shooter.sigma || 0;
+  // 当前弹种（P-16：heat/he 的 pen/speed/dmg/spread/noBounce/splashRadius 系数均来自此表）
+  const ammo = RULES.ammoTypes[shooter.ammoKey] || RULES.ammoTypes.ap;
+
+  // 散布只影响出膛方向（P-15：开发者面板「超级精度」对玩家散布归零）。
+  // P-16：heat.spread=1.2 → 散布 ×1.2（HEAT 弹道更散，代价换 1.4× 穿深）
+  const sigma = (devAim.zeroSpread && shooter.id === 'player') ? 0 : ((shooter.sigma || 0) * (ammo.spread || 1));
   const spreadAngle = shooter.turretAngle + gaussian(sigma);
   const dx = Math.cos(spreadAngle), dy = Math.sin(spreadAngle);
-
-  // 当前弹种
-  const ammo = RULES.ammoTypes[shooter.ammoKey] || RULES.ammoTypes.ap;
 
   const bMuzzle = (shooter.barrel && shooter.barrel.muzzle) || 'none';
   burstExplosion(ox, oy, 0.6, 4, 2, 0);
@@ -910,6 +941,7 @@ function fireTank(shooter, target, hitPref){
     pen:  shooter.stats.penetration * ammo.pen,
     dmg:  shooter.stats.damage * ammo.dmg,
     ammo,
+    ammoKey: shooter.ammoKey,   // P-16：弹种键随弹携带（resolveHit 判定 noBounce/splashRadius）
     shooter,
     hitPref,
     canBounce: true,
@@ -932,8 +964,126 @@ function tryFire(){
   fireTank(player, target, hitPref);
 }
 
-// ---------- live firing solution (no spread) ----------
+// ---------- P-17 烟幕弹：专用发射路径（F 键，玩家专属） ----------
+// 烟幕弹是"区域视线掩体"弹药：无伤害/无穿深，命中任意终结条件（掩体/坦克/射程/出界）
+// 即在落点生成烟雾云（js/tank_cover.js spawnSmokeCloud），只遮 AI 视线不遮弹道。
+// 与 fireTank 分离（不共享弹种表）：pen/dmg 恒 0，无散布惩罚（sigma×1），reload 略短。
+function fireSmokeShell(shooter){
+  if(!shooter) return false;
+  if(shooter.reloadT>0 || shooter.immobT>0) return false;
+
+  // 1. 炮管贯穿掩体检测（与 fireTank 同口径）
+  const rootP = gunRoot(shooter);
+  const tipP = gunTip(shooter);
+  const barrelCovers = findCoversOnPath(rootP.x, rootP.y, tipP.x, tipP.y);
+  const solidBarrelBlock = barrelCovers.find(c => {
+    const mode = COVER_TIERS[c.cover.tier].mode;
+    return mode === 'solid' || mode === 'single';
+  });
+  if(solidBarrelBlock){
+    shooter.reloadT = shooter.stats.reload / debuffReloadRate(shooter);
+    burstExplosion(solidBarrelBlock.point.x, solidBarrelBlock.point.y, 0.6, 4, 2, 0);
+    spawnMuzzleFlash(tipP.x, tipP.y, shooter.turretAngle, 1, (shooter.barrel && shooter.barrel.muzzle) || 'none');
+    spawnImpactFx(solidBarrelBlock.point.x, solidBarrelBlock.point.y, shooter.turretAngle, 'block', 0.8);
+    playSound('block');
+    if(shooter.team === 'player') pushLog('烟幕弹发射被掩体阻挡 — 炮管贯穿掩体','COVER');
+    return false;
+  }
+
+  // 2. 装填：正常装填 × 0.8（烟幕弹更轻、药筒更小，装填略快；战术价值靠烟雾持续而非射速）
+  shooter.reloadT = (shooter.stats.reload / debuffReloadRate(shooter)) * 0.8;
+  const ox = tipP.x, oy = tipP.y;
+
+  // 3. 散布：sigma × 1（无弹种惩罚），朝炮塔当前方向发射（玩家用鼠标瞄准，炮塔即意图）
+  const spreadAngle = shooter.turretAngle + gaussian(shooter.sigma || 0);
+  const dx = Math.cos(spreadAngle), dy = Math.sin(spreadAngle);
+
+  const bMuzzle = (shooter.barrel && shooter.barrel.muzzle) || 'none';
+  burstExplosion(ox, oy, 0.6, 4, 2, 0);
+  spawnMuzzleFlash(ox, oy, spreadAngle, 1, bMuzzle);
+  playSound('fire');
+
+  shells.push({
+    x: ox, y: oy,
+    fx: rootP.x, fy: rootP.y,
+    dx, dy,
+    speed: Math.max(200, shooter.stats.shellSpeed * 0.7),  // 烟幕弹初速 ≈ 普通弹 ×0.7（更飘，便于在掩体前起烟）
+    pen: 0, dmg: 0,
+    ammo: { color: '#c8c8c8', tail: 'rgba(150,150,150,0.6)' },  // 仅视觉描述（drawShells 消费），不属 RULES.ammoTypes
+    ammoKey: 'smoke',
+    smoke: true,
+    shooter,
+    hitPref: 'auto',
+    canBounce: false,       // 烟幕弹不跳弹：命中即引爆
+    bounced: false,
+    dist: 0,
+    dead: false
+  });
+  return true;
+}
+
+// P-17 玩家烟幕弹入口（F 键）：炮塔已由鼠标瞄准（与普通开火同一指向），烟幕弹无需命中部位意图；
+// 有无敌人均可发射——有敌人时朝其方向（炮塔已对准）放烟遮蔽其索敌，无敌人时可朝当前方向封路/遮挡视野。
+function tryFireSmoke(){
+  if(!player || player.reloadT>0 || player.immobT>0) return;
+  fireSmokeShell(player);
+}
+
+// ---------- P-17 玩家主动能力（战术炮击 G / 战术护盾 H / 超级装填 V） ----------
+// 统一入口 js/tank_abilities.js tryActivateAbility：持有对应卡（cardEffects 含 {type:'ability',key}）
+// 才可激活；共享冷却 abilityCdT（模块内递减，mvp 主循环 updateAbilityCd 驱动）。按键处不做冷却
+// 判断——tryActivateAbility 返回 reason 提示。炮击/护盾保留 reloadT/immobT 门控（与烟幕一致）；
+// 超装填例外：其价值正是"立即清零 reloadT"，装填中施放才有意义，故不挡 reloadT（仅 immobT）。
+const ABILITY_KEY_HINT = {
+  artillery: '炮击支援（G 键）',
+  shield: '战术护盾（H 键，Shift+H 全向）',
+  overdrive: '超级装填（V 键）'
+};
+function abilityFailLog(verb, res){
+  if(res.reason === 'no-ability') pushLog(`未装备${verb}卡`, 'COVER');
+  else if(res.reason === 'cooldown') pushLog(`${verb}冷却中（剩余 ${res.cd.toFixed(1)}s）`, 'COVER');
+  else if(res.reason === 'need-target') pushLog('炮击需要目标点 — 请移动鼠标指定落点', 'COVER');
+  else if(res.reason === 'need-dir-or-omni') pushLog('护盾需要朝向', 'COVER');
+  else pushLog(`${verb}不可用（${res.reason}）`, 'COVER');
+}
+function tryStrike(){
+  if(!player || player.reloadT>0 || player.immobT>0) return;
+  const res = tryActivateAbility(player, 'artillery', { target: mouseWorld });
+  if(res.ok){
+    playSound('ui');
+    pushLog(`炮击支援已呼叫 — ${res.strikes.length} 发落弹将在目标区域着陆`, 'PEN');
+  } else {
+    abilityFailLog('炮击支援', res);
+  }
+}
+function tryShield(omni){
+  if(!player || player.reloadT>0 || player.immobT>0) return;
+  // 定向护盾：dir 语义 = 炮弹入射方向（shieldAbsorbs 用 shell.dx/dy 与 shield.dir 比角差，
+  // 见 js/tank_shield.js 与 test-abilities L164-168）。玩家炮塔朝敌时正面来袭炮弹飞行方向
+  // 恰与炮塔朝向相反 → dir = turretAngle + π，护盾才挡住正面攻击（视觉弧面显示在炮塔方向）。
+  const res = tryActivateAbility(player, 'shield', omni ? { omni: true } : { dir: player.turretAngle + Math.PI });
+  if(res.ok){
+    player._shieldMaxT = res.shield.t;   // 绘制淡出参考（初始时长，模块内已按 RULES.abilities 取值）
+    playSound('ui');
+    pushLog(`${omni ? '全向' : '定向'}护盾开启 — ${res.shield.t.toFixed(1)}s 内${omni ? '全向' : '正面'}吸收`, 'PEN');
+  } else {
+    abilityFailLog('战术护盾', res);
+  }
+}
+function tryOverdrive(){
+  if(!player || player.immobT>0) return;   // 注：不挡 reloadT——爆发装填的收益就是装填中施放
+  const res = tryActivateAbility(player, 'overdrive');
+  if(res.ok){
+    playSound('ui');
+    pushLog(`超级装填 — 装填立即完成，${res.duration}s 内装填 ×${res.reloadMult}`, 'PEN');
+  } else {
+    abilityFailLog('超级装填', res);
+  }
+}
+
+// ---------- live firing solution (no spread; P-15：收纳至开发者面板) ----------
 function updateSolution(){
+  if(!devOpen) return;   // 仅开发者面板开启时计算（raycast 开销）
   const target = nearestEnemyTo(player);
   const rp = gunRoot(player);
   const gp = gunTip(player);
@@ -959,14 +1109,14 @@ function updateSolution(){
     const mark = (Number.isFinite(solidBarrelBlock.cover.hp) && solidBarrelBlock.cover.hp>0) ? ' ⚡可击毁' : '';
     elPart.textContent='--'; elAngle.textContent='--'; elThick.textContent='--'; elEff.textContent='--';
     elResult.textContent='炮身被掩体阻挡'; elResult.className='v bad';
-    elCover.textContent=`100% — ${t.label}(炮身贯穿掩体·全挡${mark})`; elCover.className='v cover';
+    elCover.textContent=`100% — ${t.label}(炮身贯穿掩体·全挡${mark})`;
     return;
   }
 
   if(!hits){
     elPart.textContent='--'; elAngle.textContent='--'; elThick.textContent='--'; elEff.textContent='--';
     elResult.textContent='未瞄准目标'; elResult.className='v';
-    elCover.textContent='--'; elCover.className='v';
+    elCover.textContent='--';
     return;
   }
   // 同源意图（与实弹一致）：沿无散布瞄准线按鼠标投影选部位（aimPartPreference）。
@@ -987,10 +1137,8 @@ function updateSolution(){
       return `${t.label}(己方${h.distA.toFixed(0)}px/靶${h.distB.toFixed(0)}px·${kind}${mark})`;
     }).join(' × ');
     elCover.textContent = `${(coverInfo.prob*100).toFixed(0)}% — ${detail}`;
-    elCover.className = 'v cover';
   } else {
     elCover.textContent = '无遮挡';
-    elCover.className = 'v';
   }
 
   const cosT = Math.abs(dx*hit.nx + dy*hit.ny);
@@ -1003,29 +1151,38 @@ function updateSolution(){
   elPart.textContent = `${hit.part==='turret'?superstructureLabel(target):'车体'}·${faceLabel(hit.faceKey)}(${mod.label})`;
   elAngle.textContent = (theta*180/Math.PI).toFixed(1)+'°';
   elThick.textContent = thickness+' mm';
-  if(theta>BOUNCE_ANGLE){
+  // P-16：预测随弹种修正——穿深 ×ammo.pen（heat 1.4×）；noBounce 弹种（heat/he）过陡角不跳弹
+  const ammoPred = RULES.ammoTypes[player.ammoKey] || RULES.ammoTypes.ap;
+  const predPen = player.stats.penetration * ammoPred.pen;
+  if(theta>BOUNCE_ANGLE && !ammoPred.noBounce){
     elEff.textContent = '—';
-    elResult.textContent = '必定跳弹(弹离后可能二次命中)'; elResult.className='v bounce';
+    elResult.textContent = '必定跳弹(弹离后可能二次命中)';
   } else {
     const eff = thickness/Math.cos(theta);
     elEff.textContent = eff.toFixed(0)+' mm';
-    if(eff > player.stats.penetration){ elResult.textContent='无法击穿'; elResult.className='v bad'; }
-    else { elResult.textContent='可以击穿'; elResult.className='v ok'; }
+    if(eff > predPen){ elResult.textContent='无法击穿'; }
+    else { elResult.textContent='可以击穿'; }
   }
 }
 
-// combat effects (弹药架殉爆 / 履带断裂 / 起火) live in js/tank_fx.js —
-// state (explosions/turretFlights/fxParticles), spawners (burstExplosion/emitTankFire/spawnAmmoBlowFx/
-// spawnTrackBreakFx/…), per-frame advance (updateFx), and draw helpers (drawExplosions/
-// drawTurretFlights/drawFxParticles, each taking an explicit ctx).
+// ---------- P-15 开发者面板：实时参数 ----------
+function updateDevParams(){
+  const set = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt; };
+  set('devSigma', player.sigma.toFixed(4));
+  set('devReload', `${player.reloadT.toFixed(2)}s / ${(player.stats.reload / debuffReloadRate(player)).toFixed(2)}s`);
+  set('devPos', `(${player.x.toFixed(0)}, ${player.y.toFixed(0)})`);
+  set('devSpeed', `${(player.speed||0).toFixed(0)} px/s`);
+  set('devEntities', `${entities.filter(e=>e.hp>0).length} 存活`);
+  set('devNode', run && currentNode
+    ? `节点 ${currentNode.index + 1}/${run.nodes.length} · 难度 ${(currentNode.difficulty * 100).toFixed(0)}% · 得分 ${runScore} · seed ${run.seed}`
+    : '未开局（NEW RUN 后进入战斗）');
+}
 
 // ---------- update ----------
 let last = performance.now();
 
-// Tank ⇄ tank collision lives in js/tank_entity.js (resolveTankCollisions → partCorners + obbMTV)
-
 function update(dt){
-  // P-08：当前模拟世界尺寸（run 模式 = 节点大世界；测试台 = 画布）
+  // P-08：当前模拟世界尺寸（run 模式 = 节点大世界；未开局 = 画布）
   const worldW = (run && currentNode) ? currentNode.w : canvas.width;
   const worldH = (run && currentNode) ? currentNode.h : canvas.height;
 
@@ -1038,7 +1195,7 @@ function update(dt){
   player.x = Math.max(40, Math.min(worldW-40, player.x));
   player.y = Math.max(40, Math.min(worldH-40, player.y));
 
-  // P-08：相机跟随（run 战斗态；测试台保持恒等视口）
+  // P-08：相机跟随（run 战斗态；未开局保持恒等视口）
   if(run && currentNode && flow.state === 'battle') updateCamera(cam, player, dt);
   else setBenchCamera();
 
@@ -1055,6 +1212,7 @@ function update(dt){
   const maxStep = player.stats.turretTurnRate*dt;
   player.turretAngle = norm(player.turretAngle + Math.max(-maxStep, Math.min(maxStep, diff)));
   updateSigma(player, dt, keys);   // ISSUES #15 修复：传入 keys，移动散布源（moveMax）生效
+  if(devAim.zeroSpread) player.sigma = 0;   // P-15 超级精度：瞬间缩圈/散布归零
   player.prevHullAngle = player.hullAngle;
   player.prevTurretAngle = player.turretAngle;
 
@@ -1062,24 +1220,16 @@ function update(dt){
   if(player.fireDebuffT>0) player.fireDebuffT -= dt;
   tickDebuffs(player, dt);
   if(keys[' ']) tryFire();
+  if(keys['f']) tryFireSmoke();   // P-17：F 键发射烟幕弹（玩家专属）
+  if(keys['g']) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
+  if(keys['h']) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
+  if(keys['v']) tryOverdrive();   // P-17：V 键超级装填（爆发装填）
 
-  // 靶车：同 player 的运动学（方向键输入），turnRate 统一走 stats（与 player/AI 一致）
-  driveTank(dummy, dt, {
-    turn: keys['arrowleft'] ? -1 : (keys['arrowright'] ? 1 : 0),
-    move: keys['arrowup'] ? 1 : (keys['arrowdown'] ? -1 : 0)
-  });
-  if(dummy.immobT<=0){ dummy.immobT=0; dummy.trackBroken=false; }
-  dummy.x = Math.max(40, Math.min(worldW-40, dummy.x));
-  dummy.y = Math.max(40, Math.min(worldH-40, dummy.y));
-  dummy.turretSwing += dt*0.6;
-  const relSwing = Math.max(-dummy.traverseLimit, Math.min(dummy.traverseLimit, Math.sin(dummy.turretSwing)*0.9));
-  dummy.turretAngle = norm(dummy.hullAngle + relSwing);
-
-  // keep every tank from overlapping its neighbours (player vs dummy, future allies/enemies)
+  // keep every tank from overlapping its neighbours
   resolveTankCollisions();
 
   // P-10：敌人/友军 AI（§2.2 双态：摄像机内主动 / 边缘靠近 / 远处被动；友军消极防御）。
-  // 玩家与测试靶车（dummy）保持手动控制；nodeSpawn/Boss/召唤物走 aiDecide 决策。
+  // 玩家保持手动控制；nodeSpawn/Boss/召唤物走 aiDecide 决策。
   if(run && battleState && flow.state === 'battle'){
     const vb = viewBounds(cam);
     const aiCtx = {
@@ -1089,7 +1239,8 @@ function update(dt){
       hasLoS: hasLineOfSight
     };
     for(const e of entities){
-      if(e.id === 'player' || e.id === 'dummy') continue;   // 手动控制
+      if(e.id === 'player') continue;   // 手动控制
+      if(e.isDrone) continue;           // P-17：无人机无 hull 几何/射界，不参与坦克 AI 与 driveTank（由 tank_drone.js 管理）
       if(e.hp <= 0) continue;
       const d = aiDecide(e, aiCtx);
       // 车体转向 + 移动（统一 driveTank）
@@ -1109,15 +1260,43 @@ function update(dt){
     }
   }
 
+  // P-17：无人机逐帧行为（环绕跟随 + striker 索敌/开火计时；owner 阵亡自动退场）。
+  // 攻击事件直伤结算——击杀计分由下方 entities.forEach 统一击杀检测接管（runScore += killScore）。
+  const droneEvents = updateDrones(dt, { player, entities });
+  for(const ev of droneEvents){
+    const target = ev.target;
+    if(!target || target.hp <= 0) continue;
+    target.hp = Math.max(0, target.hp - ev.damage);   // 直伤（模块已排除无敌/阵亡目标）
+    const ang = Math.atan2(target.y - ev.drone.y, target.x - ev.drone.x);
+    spawnImpactFx(ev.drone.x, ev.drone.y, ang, 'pen', 0.5);
+    spawnDmgText(target.x, target.y - 14, ev.damage, 'pen');
+    playSound('flyby');   // M1：无人机开火哨声
+  }
+
   entities.forEach(e=>{
-    // invulnerable：测试靶车无敌（dummy.invuln）或复活后短暂无敌（invulnT>0）——DoT/直击/殉爆均不掉血
-    const invuln = (e.id==='dummy' && dummy.invuln) || e.invulnT > 0;
+    if(e.isDrone) return;   // P-17：无人机生命周期由 tank_drone.js 管理（fireT 是打击计时器，不参与装填/起火等坦克逻辑）
+    // ISSUES #23：非玩家实体装填倒计时——fireTank 只负责"开火时设置 reloadT"，
+    // 递减统一在本循环完成（player 已在上面单独递减，按 id 跳过避免双递减）。
+    if(e.id !== 'player' && e.reloadT > 0) e.reloadT = Math.max(0, e.reloadT - dt);
+    // invulnerable：复活后短暂无敌（invulnT>0）——DoT/直击/殉爆均不掉血
+    const invuln = e.invulnT > 0;
     // P-11：复活无敌计时器递减
     if(e.invulnT > 0) e.invulnT = Math.max(0, e.invulnT - dt);
     // 模块 debuff 倒计时（8s 瞬时状态；归零自动清除）
     tickDebuffs(e, dt);
-    // 起火：DOT 伤害（每秒 = 攻击方标准伤害 × RULES.fire.dotRatio，升级可放大）+ 燃烧/浓烟视觉发射
-    if(e.dotT>0 && !invuln){ e.dotT -= dt; e.hp = Math.max(0, e.hp - (e.dotDps||0)*dt); if(e.dotT<=0){ e.dotT=0; e.dotDps=0; } }
+    // 起火：DOT 伤害（每秒 = 攻击方标准伤害 × RULES.fire.dotRatio）+ P-15 飘字（灼烧橙，0.35s 聚合）
+    if(e.dotT>0 && !invuln){
+      e.dotT -= dt;
+      const dotDmg = (e.dotDps||0)*dt;
+      e.hp = Math.max(0, e.hp - dotDmg);
+      e._dotAcc = (e._dotAcc||0) + dotDmg;
+      e._dotTxt = (e._dotTxt||0) + dt;
+      if(e._dotTxt >= 0.35){
+        spawnDmgText(e.x, e.y - e.hullWid*0.6, Math.round(e._dotAcc), 'dot');
+        e._dotAcc = 0; e._dotTxt = 0;
+      }
+      if(e.dotT<=0){ e.dotT=0; e.dotDps=0; e._dotAcc=0; e._dotTxt=0; }
+    }
     // 起火特效：已摧毁的坦克持续燃烧；存活坦克在 fireT 时间内燃烧
     if(e.hp<=0 && e._dead){
       e.fireT = Math.max(e.fireT, 2);
@@ -1134,23 +1313,13 @@ function update(dt){
     if(e.trackBroken && !e._trackFx){ e._trackFx = true; spawnTrackBreakFx(e); playSound('trackBreak'); }
     if(e.hp<=0 && !e._dead){
       e._dead=true; e.hp=0; e.fireT = Math.max(e.fireT, 4);
-      // P-14：击杀得分（run 战斗态、敌方、非测试靶车 dummy）
-      if(run && battleState && e.team === 'enemy' && e.id !== 'dummy'){
+      if(e === player){ e.shield = null; e.abilityCdT = 0; clearDrones(player); }   // P-17：死亡清空护盾/能力冷却/随行无人机——复活后无盾、按 cardEffects 重建无人机
+      // P-14：击杀得分（run 战斗态、敌方）
+      if(run && battleState && e.team === 'enemy'){
         runScore += killScore();
         profile.stats.kills++;
       }
       pushLog(`${e.id==='player'?'玩家':e.id} 已摧毁 — 车体起火`,'CRIT');
-    }
-    // auto-revive for the test-rig dummy so you can keep shooting after a kill
-    if(e.id==='dummy' && e._dead && dummy.autoRevive){
-      e.reviveT = (e.reviveT||0) + dt;
-      if(e.reviveT >= 1.5){
-        e.hp = e.maxHp; e._dead=false; e.reviveT=0;
-        e.immobT=0; e.dotT=0; e.dotDps=0; e.dotSeconds=0; e.fireDebuffT=0;
-        e.fireT=0; e._prevFireT=0; e.debuffs={}; e.trackBroken=false;
-        e.ammoBlew=false; e._blowFx=false; e._trackFx=false;
-        pushLog('靶车自动复活 — 满血','COVER');
-      }
     }
   });
 
@@ -1182,11 +1351,67 @@ function update(dt){
     const sx = s.x, sy = s.y;
     const nx = sx + s.dx*step, ny = sy + s.dy*step;
 
+    // P-17 烟幕弹：不穿透、不伤害——命中坦克/掩体/射程/出界任意终结条件即在落点引爆生成烟雾云。
+    // 烟雾只遮 AI 视线（js/tank_cover.js hasLineOfSight 已接入），弹道不受影响；不 damageCover、
+    // 不 resolveHit。HE 破障段（ammoKey === 'he'）天然不命中 smoke 弹，无需额外过滤。
+    if(s.ammoKey === 'smoke'){
+      let detX = null, detY = null;
+
+      // 1) 坦克接触即引爆（不造成伤害，仅取敌对目标——与普通炮弹同口径穿透己方/自身）
+      for(const e of entities){
+        if(e.hp <= 0) continue;
+        if(!isHostile(s.shooter.team, e.team)) continue;
+        const hits = raycastTank(sx, sy, s.dx, s.dy, e);
+        const bh = shellPartHit(hits, step, 'auto');
+        if(bh){
+          detX = sx + s.dx*bh.t; detY = sy + s.dy*bh.t;
+          break;
+        }
+      }
+
+      // 2) 掩体/元素：solid/single 命中即引爆；graduated（半高）垂直判决拦截即引爆
+      if(detX === null){
+        const covs = findCoversOnPath(sx, sy, nx, ny);
+        for(const c of covs){
+          const tier = COVER_TIERS[c.cover.tier];
+          if(c.distA > step) break;
+          if(tier.mode === 'solid' || tier.mode === 'single'){
+            detX = c.point.x; detY = c.point.y;
+            break;
+          }
+          if(tier.mode === 'graduated' && c.distA <= step){
+            const dec = shellVerticalDecision(s);
+            if(dec && dec.exposure < 1 && (dec.exposure <= 0 || Math.random() > dec.exposure)){
+              detX = c.point.x; detY = c.point.y;
+              break;
+            }
+          }
+        }
+      }
+
+      // 3) 未提前引爆则推进；射程/出界同样在落点引爆
+      if(detX === null){
+        s.x = nx; s.y = ny;
+        s.dist += step;
+        if(s.dist >= RULES.ballistics.shellMaxDist || nx < -60 || nx > worldW+60 || ny < -60 || ny > worldH+60){
+          detX = nx; detY = ny;
+        }
+      }
+
+      if(detX !== null){
+        s.x = detX; s.y = detY;
+        spawnSmokeCloud(detX, detY);                       // P-17：生成动态烟雾云（核心逻辑在 js/tank_cover.js）
+        burstExplosion(detX, detY, 0.5, 0, 10, 0);         // 灰烟爆团视觉反馈（0 火 10 烟 0 碎片）
+        spawnSmoke(detX, detY, 12, 1);                     // 粒子烟迹增强
+        if(s.shooter.team === 'player') pushLog('烟幕弹引爆 — 生成烟雾','COVER');
+        s.dead = true;
+      } else if(Math.random() < 0.55){
+        spawnSmoke(nx, ny, 12);                            // 飞行烟迹（比普通弹略浓）
+      }
+      return;
+    }
+
     // 候选障碍：isHostile 的存活实体（友方/自身穿透，不阻挡）
-    // shellPartHit 先探测本帧是否与目标相触（任一部位进入步长窗口），相触后
-    // 按 shell.hitPref（鼠标径向意图）选车体/炮塔：明确意图沿整条射线选择
-    // （与预测面板/半高掩体判决同源，避免车体面先入窗截胡炮塔面）；
-    // 'auto' 时保持旧行为——同平面覆盖区炮塔优先（炮塔是上层构件），未命中炮塔取最近。
     let bestDist = Infinity, bestTank = null, bestHit = null, bestHits = null, bestCover = null;
     for(const e of entities){
       if(e.hp <= 0) continue;
@@ -1215,8 +1440,6 @@ function update(dt){
       }
       if(tier.mode === 'graduated' && c.distA <= step && c.distA < bestDist){
         // 垂直剖面拦截：在掩体入口即时判定（炮弹不会先飞过掩体、再在车体面被拦下）。
-        // 判决沿弹道起点整条射线：打炮塔（z>=1.2）直接越过；打车体被半高掩体拦截
-        // （中坦车体 100% / 重坦车体 75%；重坦剩余 25% 按概率穿过）。
         const dec = shellVerticalDecision(s);
         if(dec){
           if(!s.dec) s.dec = dec; // 缓存到到达时使用（跳弹后弹道起点改变，会重新判决）
@@ -1278,12 +1501,8 @@ function update(dt){
       const hitT  = s.dec ? s.dec.hit  : bestHit;
       const hitTank = s.dec ? s.dec.tank : bestTank;
       const hitDist = s.dec ? s.dec.t : bestDist;
-      // 落点取命中对象自带的 x/y（对常规外部命中 = sx + dx*t 同值；对体内发射恢复的
-      // 进入边命中（ISSUES #18）= 炮管贯穿装甲的表面交点，而非炮口内缩点）。
       const hx = hitT.x, hy = hitT.y;
       s.x = hx; s.y = hy;
-      // 半高掩体拦截概率已在掩体入口处判决（s.dec.exposure）；到达时不再二次判定。
-      // 未穿越掩体的炮弹按弹道起点整条射线的垂直剖面兜底（正常情况 exposure=1 直接命中）。
       const exposure = s.dec ? 1.0 : getExposure(s.fx, s.fy, hx, hy, s.shooter, hitTank, s.dec? s.dec.z.zMin : getPartZRange(hitTank, hitT.part).zMin, s.dec? s.dec.z.zMax : getPartZRange(hitTank, hitT.part).zMax, s.dist + hitDist);
       if(exposure <= 0 || Math.random() > exposure){
         // 垂直剖面拦截：炮弹停在首个遮断本次弹道的半高掩体上（中坦车体 100% / 重坦车体 75% 拦截）
@@ -1302,21 +1521,59 @@ function update(dt){
         pushLog('未命中 — 被半高掩体拦截','COVER');
         s.dead = true;
       } else {
+        // P-17 战术护盾：命中玩家且护盾生效时先过吸收判定（定向按入射方向 vs shield.dir 角差
+        // < arc/2，全向恒吸收——js/tank_shield.js shieldAbsorbs）。烟幕弹（dmg=0）在 smoke 分支
+        // 提前返回，天然不会走到此处；absorbDamage 对 dmg≤0 原样返回，无需显式过滤。
+        if(hitTank === player && hasShield(player) && shieldAbsorbs(player, s)){
+          const bleed = absorbDamage(player, s.dmg);
+          if(bleed <= 0){
+            // 全额吸收：炮弹销毁，不 resolveHit、不伤害目标
+            spawnImpactFx(hx, hy, Math.atan2(s.dy, s.dx), 'block', 0.9);
+            playSound('block'); // M1：护盾吸收
+            s.dead = true;
+            s.absorbed = true;   // 被吸收的 HE 弹不触发 A3 破障（弹未爆炸）
+          } else {
+            s.dmg = bleed;       // 部分吸收：以残余伤害继续原结算路径（resolveHit 读 s.dmg）
+          }
+          if(!hasShield(player)){   // 吸收池耗尽 → 护盾破裂（absorbDamage 已移除 t.shield）
+            burstExplosion(player.x, player.y, 0.5, 6, 4, 6);
+            spawnImpactFx(player.x, player.y, player.turretAngle, 'block', 1);
+            playSound('block');
+            pushLog('护盾破裂 — 吸收池耗尽', 'CRIT');
+          }
+        }
         const res = resolveHit(s, hitTank, hitT, s.canBounce);
         if(res.outcome === 'BOUNCE'){
           s.fx = res.bouncePoint.x; s.fy = res.bouncePoint.y; // 弹道起点重置为跳弹点
           s.dec = null; // 新弹道段重新判决
           bounceFx.push({ x:res.bouncePoint.x, y:res.bouncePoint.y, life:0.5, angle:res.bounceAngle });
           spawnImpactFx(res.bouncePoint.x, res.bouncePoint.y, res.bounceAngle, 'bounce', 1);
+          spawnDmgText(res.bouncePoint.x, res.bouncePoint.y - 10, '跳弹', 'bounce');   // P-15 飘字：跳弹蓝
           pushLog(res.text, res.cls);
           playSound('bounce'); // M1：跳弹
           // resolveHit 已更新 s.dx/dy 与位置，继续飞行
         } else {
-          const o = res.outcome==='PEN' ? ((s.ammo && s.ammo.key === 'he') ? 'he' : 'pen') : 'block';
-          impacts.push({ x:hx, y:hy, life:0.4, color: res.outcome==='PEN' ? '#ff6c5c' : '#7a8065' });
+          const isHe = s.ammoKey === 'he';
+          const o = res.outcome==='PEN' ? (isHe ? 'he' : 'pen') : 'block';
+          impacts.push({ x:hx, y:hy, life:0.4, color: isHe ? '#ffb454' : (res.outcome==='PEN' ? '#ff6c5c' : '#7a8065') });
           spawnImpactFx(hx, hy, Math.atan2(s.dy, s.dx), o, 1);
+          // P-16 HE 爆轰特效：burstExplosion 的 scale 以冲击波最大半径标定
+          //（tank_fx.js spawnShockwave: maxR = 40×scale）→ scale = splashRadius/40，
+          // 使特效爆炸半径与逻辑 splashRadius（RULES.ammoTypes.he.splashRadius=90）严格一致。
+          if(res.splash){
+            const sc = res.splash.radius / 40;
+            burstExplosion(hx, hy, sc, Math.round(22*sc), Math.round(14*sc), Math.round(11*sc));
+          }
+          // P-15 飘字：击穿红（HE 高爆黄）/ 未击穿白；P-16 HE 未击穿残余爆轰 → 黄字扣血数字
+          if(res.outcome === 'PEN'){
+            spawnDmgText(hx, hy - 14, res.dmg || 0, isHe ? 'he' : 'pen');
+          } else if(res.dmg > 0){
+            spawnDmgText(hx, hy - 14, res.dmg, 'he');
+          } else {
+            spawnDmgText(hx, hy - 14, '未击穿', 'block');
+          }
           pushLog(res.text, res.cls);
-          playSound(o === 'he' ? 'pen' : o); // M1：击穿（HE 归 pen）/ 未击穿
+          playSound(isHe ? 'pen' : o); // M1：击穿（HE 归 pen）/ 未击穿
           s.dead = true;
         }
       }
@@ -1325,21 +1582,37 @@ function update(dt){
       s.dist += step;
       // 弹道烟迹（HE 高爆弹更浓）
       if(Math.random() < 0.55){
-        spawnSmoke(nx, ny, s.ammo && s.ammo.key === 'he' ? 16 : 8);
+        spawnSmoke(nx, ny, s.ammoKey === 'he' ? 16 : 8);
       }
-      // 极限射程 / 出世界（run 模式 = 节点边界；测试台 = 画布）→ 销毁
+      // 极限射程 / 出世界（run 模式 = 节点边界；未开局 = 画布）→ 销毁
       if(s.dist >= RULES.ballistics.shellMaxDist) s.dead = true;
       else if(nx < -60 || nx > worldW+60 || ny < -60 || ny > worldH+60) s.dead = true;
     }
   });
-  // A3: HE 破障 — 每发销毁的 HE 弹在落点对可破坏元素做溅射（半径见 RULES.breach）
-  shells.forEach(s=>{ if(s.dead && s.ammo && s.ammo.key === 'he'){ splashCoversAt(s.x, s.y, RULES.breach.heSplashRadius); } });
+  // A3: HE 破障 — 每发销毁的 HE 弹在落点对可破坏元素做溅射（半径见 RULES.breach）。
+  // P-17：被护盾全额吸收的 HE 弹（s.absorbed）未爆炸，不触发破障。
+  shells.forEach(s=>{ if(s.dead && s.ammoKey === 'he' && !s.absorbed){ splashCoversAt(s.x, s.y, RULES.breach.heSplashRadius); } });
   shells = shells.filter(s=>!s.dead);
   impacts.forEach(t=>t.life-=dt); impacts = impacts.filter(t=>t.life>0);
   bounceFx.forEach(t=>t.life-=dt); bounceFx = bounceFx.filter(t=>t.life>0);
+  updateSmoke(dt);   // P-17：烟雾云逐帧消散（在 update(dt) 内 → 天然受 simulating 门控）
+
+  // P-17：主动能力主循环（与烟雾同处 simulating 门控内）
+  updateAbilityCd(player, dt);    // 共享冷却递减（artillery/shield/overdrive 同一 abilityCdT 字段）
+  updateShield(player, dt);       // 护盾时长递减（本版本仅玩家持有护盾，无盾时 no-op）
+  // P-17：战术炮击落弹推进（updateStrikes 已按阵营过滤扣血并返回命中明细；接线层播特效/飘字/音效）
+  for(const ev of updateStrikes(dt, entities)){
+    const sc = ev.radius / 40;    // §2.6 特效对齐：burstExplosion scale 以冲击波最大半径标定（maxR=40×scale）
+    burstExplosion(ev.x, ev.y, sc, Math.round(22*sc), Math.round(14*sc), Math.round(11*sc));
+    spawnImpactFx(ev.x, ev.y, 0, 'he', 1);   // 落弹无方向，径向对称爆轰特效
+    playSound('ammoBlewHE');      // M1：炮击落弹爆轰音
+    for(const h of ev.hits) spawnDmgText(h.target.x, h.target.y - 14, h.dmg, 'he');
+    if(ev.owner === player) pushLog(`炮击落弹命中 ${ev.hits.length} 个目标`, 'PEN');
+  }
 
   // fantasy combat effects timers
   updateFx(dt);
+  updateDmgTexts(dt);   // P-15：飘字推进（上浮/淡出/生命周期）
 
   // P-08 战斗流程判定（仅 run 战斗态；每次只结算一次，结算后由 flow 门控停表）
   if(run && battleState && flow.state === 'battle' && !battleState.cleared){
@@ -1356,6 +1629,7 @@ function update(dt){
       if(canRevive(player)){                                     // P-11：复活次数 > 0 → 满状态复活
         const outpost = entities.find(e => e.team === 'ally' && e.nodeSpawn);
         reviveAt(player, outpost, covers, currentNode.playerSpawn);
+        deployDronesFromCards();                          // P-17：复活后按 cardEffects 重建随行无人机
         pushLog(`玩家阵亡 — 复活（剩余 ${player.revives} 次）：满状态 + 友军据点旁 + ${RULES.revive.invulnSeconds}s 无敌`, 'CRIT');
         playSound('ui');
       } else {
@@ -1367,40 +1641,110 @@ function update(dt){
     }
   }
 
-  updateSolution();
+  applyDevOverrides();   // P-15：数值临时覆盖（refreshStats 可能被修饰器编辑触发，每帧重写）
   updateHud();
 }
 
 function updateHud(){
-  document.getElementById('eHpBar').style.width = (dummy.hp/dummy.maxHp*100)+'%';
-  // Math.ceil：DOT 逐帧扣血会留下小数 HP，显示取上整保证"显示值 ≥ 实际值"；
-  // 整数直击伤害下（applyModuleDamage 已 Math.round）显示 == 实际
-  document.getElementById('eHpVal').textContent = Math.ceil(dummy.hp);
-  const dB = dummy.debuffs || {};
-  const dbKeys = Object.keys(dB).filter(k=>dB[k]>0);
-  // 模块中文标签集中在 js/tank_model.js 的 MODULE_LABELS（HUD/日志共用）
-  const dbList = dbKeys.length ? dbKeys.map(k=>moduleLabel(k)).join('/') : '';
-  document.getElementById('eStatus').textContent =
-    dummy.hp<=0 ? (dummy.ammoBlew?'弹药库殉爆':'已摧毁')
-    : dummy.immobT>0 ? `履带损坏 (${dummy.immobT.toFixed(1)}s)`
-    : (dummy.dotT>0 || dummy.fireT>0) ? '起火中'
-    : dbKeys.length ? `${dbList}受损 (${dB[dbKeys[0]].toFixed(1)}s)`
-    : '正常';
+  // 极简 HUD：装填进度条（唯一常显 HUD 元素之一）
   const rf = document.getElementById('reloadFill');
   const reloadDur = player.stats.reload / debuffReloadRate(player);
   rf.style.width = (100 - (player.reloadT/reloadDur*100)) + '%';
+  // 按需面板（P-15）：开启时逐帧刷新
+  if(statusOpen) updateStatusPanel();
+  if(devOpen){ updateDevParams(); updateSolution(); }
 }
 
 // ---------- draw ----------
-// 战斗场景绘制层（drawTank/drawBrokenTracks/drawCharredHull/drawFireGlow/drawShells/
-// drawCover/drawFoliage/drawClassBadge）已下沉为共享模块 js/tank_battledraw.js —
-// 全部函数显式接收 ctx（tank_paint.js 约定）；mvp 只负责按帧调用。
-// 测试台靶场块（drawRange/addRangeShot/RANGE_*）已随重构移除。
+// 战斗场景绘制层（drawTank/drawShells/drawCover/drawFoliage/drawClassBadge）在
+// js/tank_battledraw.js；mvp 只负责按帧调用。P-15 新增 drawDmgTexts（js/tank_dmgtext.js）。
 
-// ---------- procedural paint / simplified textures ----------
-// 薄封装（shade/drawTracks/renderHullTexture/renderTurretTexture）已随绘制层移入
-// js/tank_battledraw.js（模块内部 helper，直接委托 js/tank_paint.js）。
-// 车型标志与完整坦克绘制（drawTank/drawClassBadge）同上，见 js/tank_battledraw.js。
+// P-17：无人机绘制（飞行器视觉：旋转翼 + 机体圆盘 + 指示灯；scout 带天线、striker 带炮管）。
+// 青色系小型单位，绘制在坦克/树冠之上（飞行高度）、烟幕之下；drones 由 js/tank_drone.js 维护。
+function drawDrones(){
+  const now = performance.now();
+  for(const d of drones){
+    if(d._dead || !d.owner || d.owner.hp <= 0) continue;
+    if(!aabbInView(cam, d.x, d.y, 30, 30, 40)) continue;
+    const bob = Math.sin(now / 220 + (d.orbitPhase || 0)) * 1.6;            // 悬浮起伏
+    const blink = 0.6 + 0.4 * Math.sin(now / 130 + (d.orbitPhase || 0) * 3); // 指示灯闪烁
+    ctx.save();
+    ctx.translate(d.x, d.y + bob);
+    // 旋转翼（高速旋转十字线）
+    const spin = now / 45;
+    ctx.strokeStyle = 'rgba(90,230,255,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for(let k = 0; k < 4; k++){
+      const a = spin + k * Math.PI / 2;
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(a) * 11, Math.sin(a) * 11);
+    }
+    ctx.stroke();
+    // 机体圆盘（青色系：scout 亮青、striker 深蓝青）
+    ctx.fillStyle = d.kind === 'scout' ? '#1e7a86' : '#16546b';
+    ctx.strokeStyle = '#5ce8ff';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(0, 0, 6, 0, TAU); ctx.fill(); ctx.stroke();
+    // 指示灯（红色闪烁）
+    ctx.fillStyle = `rgba(255,90,70,${blink.toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(0, -6, 1.6, 0, TAU); ctx.fill();
+    if(d.kind === 'scout'){
+      // 侦察：天线 + 顶部小球
+      ctx.strokeStyle = '#5ce8ff'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -11); ctx.stroke();
+      ctx.fillStyle = '#5ce8ff';
+      ctx.beginPath(); ctx.arc(0, -11, 1.4, 0, TAU); ctx.fill();
+    } else {
+      // 打击：短炮管沿环绕切线方向（提示攻击朝向）
+      ctx.save();
+      ctx.rotate((d.orbitPhase || 0) + Math.PI / 2);
+      ctx.strokeStyle = '#8fd8ff'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(13, 0); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+
+// P-17：侦察无人机指示箭头（屏幕空间，摄像机变换之外）：视口外敌军方向 + 距离。
+// 数据由 js/tank_drone.js droneIndicators 产出——仅存在存活 scout 时输出（视口外 + scoutRange 内
+// + 敌对）；无 scout 时返回空数组自动跳过。绘制在无人机实体之上、UI 之下。
+function drawDroneIndicators(){
+  const inds = droneIndicators(cam, entities);
+  if(!inds.length) return;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const margin = 28;
+  const halfW = canvas.width / 2 - margin, halfH = canvas.height / 2 - margin;
+  for(const ind of inds){
+    const sp = worldToScreen(cam, ind.x, ind.y);
+    if(sp.x >= 0 && sp.x <= canvas.width && sp.y >= 0 && sp.y <= canvas.height) continue;   // 兜底：屏幕内不画
+    const dx = sp.x - cx, dy = sp.y - cy;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    // 视口中心 → 目标射线与边缘矩形（margin 内缩）的交点
+    let t = Infinity;
+    if(ux > 0) t = Math.min(t, halfW / ux); else if(ux < 0) t = Math.min(t, -halfW / ux);
+    if(uy > 0) t = Math.min(t, halfH / uy); else if(uy < 0) t = Math.min(t, -halfH / uy);
+    const ax = cx + ux * t, ay = cy + uy * t;
+    // 三角箭头（指向目标方向；敌军红）
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(Math.atan2(dy, dx));
+    ctx.fillStyle = 'rgba(255,80,70,0.92)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(9, 0); ctx.lineTo(-5, -6); ctx.lineTo(-5, 6); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+    // 距离数字（世界 px → 米：10px ≈ 1m，贴近坦克尺度）
+    ctx.fillStyle = 'rgba(255,150,130,0.92)';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(ind.dist / 10) + 'm', ax + ux * 15, ay + uy * 15);
+  }
+}
 
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -1424,16 +1768,83 @@ function draw(){
     ctx.strokeRect(0, 0, currentNode.w, currentNode.h);
   }
 
-  // 视口 AABB 剔除：掩体/实体/树冠只画进入视口的（§6 条目 6 捆绑前置 culling）
+  // 视口 AABB 剔除：掩体/实体/树冠只画进入视口的
   const inView = (cov) => aabbInView(cam, cov.x, cov.y, cov.w, cov.h);
   covers.filter(inView).forEach(cov => drawCover(ctx, cov));
   entities.forEach(t => {
+    if(t.isDrone) return;   // P-17：无人机无坦克几何，由 drawDrones 单独绘制
     if(!aabbInView(cam, t.x, t.y, t.hullLen, t.hullWid)) return;
     if(t.invulnT > 0){ ctx.globalAlpha = 0.5 + 0.4 * Math.sin(performance.now() / 60); }   // P-11：复活无敌闪烁
     drawTank(ctx, t);
     ctx.globalAlpha = 1;
   });
   drawFoliage(ctx, covers.filter(inView));   // 灌木/树冠层：盖住其下坦克 = 视线遮挡
+  drawDrones();                              // P-17：无人机（飞行器视觉，坦克/树冠之上、烟幕之下）
+
+  // P-17 烟幕云：半透明灰团（中心深、边缘淡），画在坦克/树冠之上 = 遮视线语义；
+  // alpha 随 life/maxLife 淡出，仅画视口内（aabbInView 剔除）。
+  for(const sc of smokeClouds){
+    if(!aabbInView(cam, sc.x, sc.y, sc.radius*2, sc.radius*2, 40)) continue;
+    const alpha = Math.max(0, Math.min(1, sc.life / sc.maxLife)) * 0.45;
+    const g = ctx.createRadialGradient(sc.x, sc.y, sc.radius*0.12, sc.x, sc.y, sc.radius);
+    g.addColorStop(0, `rgba(125,125,125,${alpha})`);
+    g.addColorStop(1, 'rgba(125,125,125,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(sc.x, sc.y, sc.radius, 0, TAU); ctx.fill();
+  }
+
+  // P-17 战术炮击预警圈：虚线外圈 = 爆炸范围（固定 radius）；实心内圈随 t/delay 收缩 +
+  // 闪烁（越接近落地越紧迫），圆心十字标记 + 倒计时秒数。仅画视口内（aabbInView 剔除）。
+  for(const st of activeStrikes()){
+    if(!aabbInView(cam, st.x, st.y, st.radius*2, st.radius*2, 40)) continue;
+    const p = Math.max(0, Math.min(1, st.t / Math.max(0.001, st.delay)));
+    const blink = 0.75 + 0.25 * Math.sin(performance.now() / 90);
+    const alpha = (0.16 + 0.3 * p) * blink;
+    ctx.strokeStyle = `rgba(255,70,50,${alpha})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.arc(st.x, st.y, st.radius, 0, TAU); ctx.stroke();   // 爆炸范围圈
+    ctx.setLineDash([]);
+    ctx.fillStyle = `rgba(255,70,50,${alpha * 0.14})`;
+    ctx.beginPath(); ctx.arc(st.x, st.y, st.radius * p, 0, TAU); ctx.fill();  // 收缩实心圈
+    ctx.stroke();
+    ctx.beginPath();   // 圆心十字
+    ctx.moveTo(st.x - 12, st.y); ctx.lineTo(st.x + 12, st.y);
+    ctx.moveTo(st.x, st.y - 12); ctx.lineTo(st.x, st.y + 12);
+    ctx.stroke();
+    ctx.fillStyle = `rgba(255,140,110,${Math.min(1, alpha + 0.25)})`;   // 倒计时秒数
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(st.t.toFixed(1) + 's', st.x, st.y - st.radius * p - 8);
+  }
+
+  // P-17 战术护盾光环：全向 = 完整双圆环；定向 = 扇形弧（arc 朝 dir，RULES 默认 60°）。
+  // 青色半透明，alpha 随剩余时长 / 初始时长淡出（_shieldMaxT 在施放成功时记录）。
+  if(hasShield(player)){
+    const sh = player.shield;
+    const maxT = player._shieldMaxT || sh.t;
+    const p = Math.max(0, Math.min(1, sh.t / Math.max(0.001, maxT)));
+    const alpha = 0.12 + 0.28 * p;
+    const R = player.hullLen * 0.9 + 8;
+    ctx.strokeStyle = `rgba(90,210,255,${alpha})`;
+    ctx.lineWidth = 2.5;
+    if(sh.omni){
+      ctx.fillStyle = `rgba(90,210,255,${alpha * 0.16})`;
+      ctx.beginPath(); ctx.arc(player.x, player.y, R, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(player.x, player.y, R + 5, 0, TAU); ctx.stroke();
+    } else {
+      // 定向弧面显示在炮塔方向（sh.dir = 入射方向，弧面朝 -dir 张开 = 施放时炮塔朝向）
+      const a0 = sh.dir + Math.PI - sh.arc / 2, a1 = sh.dir + Math.PI + sh.arc / 2;
+      ctx.fillStyle = `rgba(90,210,255,${alpha * 0.16})`;
+      ctx.beginPath(); ctx.moveTo(player.x, player.y); ctx.arc(player.x, player.y, R, a0, a1); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.arc(player.x, player.y, R, a0, a1); ctx.stroke();
+      ctx.beginPath();   // 扇形两条边界线（护盾朝向视觉）
+      ctx.moveTo(player.x, player.y); ctx.lineTo(player.x + Math.cos(a0) * (R + 6), player.y + Math.sin(a0) * (R + 6));
+      ctx.moveTo(player.x, player.y); ctx.lineTo(player.x + Math.cos(a1) * (R + 6), player.y + Math.sin(a1) * (R + 6));
+      ctx.stroke();
+    }
+  }
+
   drawShells(ctx, shells.filter(s => aabbInView(cam, s.x, s.y, 60, 60, 40)));
   drawExplosions(ctx);
   drawTurretFlights(ctx);
@@ -1469,7 +1880,10 @@ function draw(){
      ctx.globalAlpha = 1;
    });
 
-  // ---- aim line + dispersion cones (瞄准线保持虚线；发射炮线已删除，炮弹用飞行动画呈现) ----
+  // P-15 伤害飘字（世界坐标，摄像机变换内）
+  drawDmgTexts(ctx);
+
+  // ---- aim line + dispersion cones（瞄准线保持虚线；发射炮线已删除，炮弹用飞行动画呈现） ----
   const gp = gunTip(player);
   const aimA = player.turretAngle;
   const aimU = Math.cos(aimA), aimV = Math.sin(aimA);
@@ -1489,10 +1903,12 @@ function draw(){
     ctx.lineTo(gp.x+Math.cos(aimA+sigma)*L, gp.y+Math.sin(aimA+sigma)*L);
     ctx.stroke();
   }
-  // Remove SPREAD.worstCase() drawCone, only draw the live cone to keep display clean
   drawCone(player.sigma,          'rgba(255,180,84,0.5)',  [2,4]);  // live cone — brighter, short dash
   ctx.setLineDash([]);
   ctx.restore();
+
+  // ---- P-17 侦察无人机指示箭头（屏幕空间覆盖层：视口外敌军方向 + 距离） ----
+  drawDroneIndicators();
 
   // ---- P-08 小地图（屏幕空间覆盖层，右上角） ----
   if(run && currentNode){
@@ -1520,7 +1936,7 @@ function loop(now){
 
   accumulator += dt;
   // P-08 模拟门控：run 模式下只有 battle 状态推进战斗循环（节点图/结算/卡牌/阵亡冻结战场）；
-  // 未开局（测试台模式）恒模拟。
+  // 未开局恒模拟（封面路由下仍可自由驾驶预览）。
   const simulating = !run || flow.state === 'battle';
   if(simulating){
     while (accumulator >= STEP_TIME) {
@@ -1534,6 +1950,12 @@ function loop(now){
   draw();
   requestAnimationFrame(loop);
 }
+
+// ---------- P-15 封面路由：加载即显示「开始新的一局」入口 ----------
+(function initCover(){
+  showScreen('mapScreen');
+  setOverlayVisible(true);
+})();
 requestAnimationFrame(loop);
 })();
 </script>

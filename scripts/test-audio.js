@@ -1,5 +1,5 @@
-// test-audio.js — M1 声音占位系统测试（Node 端，纯逻辑）
-// 验证 SOUND_DEFS 8 键齐全、参数合法、音量分级、playSound 在无 AudioContext 环境不抛错。
+// test-audio.js — M1/M2 声音系统测试（Node 端，纯逻辑）
+// 验证 SOUND_DEFS 键齐备（≥8 历史基线）、参数合法、音量分级、playSound 在无 AudioContext 环境不抛错。
 // 运行：node scripts/test-audio.js
 'use strict';
 
@@ -21,12 +21,16 @@ ok(typeof A.validateSoundDefs === 'function', '导出 validateSoundDefs');
 ok(A.SOUND_DEFS && typeof A.SOUND_DEFS === 'object', '导出 SOUND_DEFS');
 ok(A.AUDIO_SETTINGS && typeof A.AUDIO_SETTINGS === 'object', '导出 AUDIO_SETTINGS');
 
-// 2) SOUND_DEFS 恰有 8 键且无多余键
-const REQUIRED_KEYS = ['fire', 'pen', 'block', 'bounce', 'ammoBlew', 'trackBreak', 'fireDOT', 'ui'];
+// 2) SOUND_DEFS 动态对齐（不硬编码键数）
+//    选择理由：P-21 M2 升级后 SOUND_DEFS 已从 8 键扩展至 13 键（engine/trackFx/flyby/ammoBlewAP/ammoBlewHE），
+//    硬编码"恰有 N 键"会让每次合理增键都破坏测试。改为：
+//    ① 键数 ≥ 历史基线 8（只增不减）；② 8 个历史必需键仍在（旧调用方 playSound('fire') 等兼容性保障）；
+//    ③ 每个键的参数完整性交由第 3 节 validateSoundDefs + 第 3.1 节逐键结构抽查覆盖。
+const LEGACY_KEYS = ['fire', 'pen', 'block', 'bounce', 'ammoBlew', 'trackBreak', 'fireDOT', 'ui'];
 const keys = Object.keys(A.SOUND_DEFS);
-ok(keys.length === REQUIRED_KEYS.length, `SOUND_DEFS 键数 = ${REQUIRED_KEYS.length}（实际 ${keys.length}）`);
-ok(REQUIRED_KEYS.every(k => keys.indexOf(k) !== -1), '8 个必需键齐全：' + REQUIRED_KEYS.join(', '));
-ok(keys.every(k => REQUIRED_KEYS.indexOf(k) !== -1), '无多余键');
+ok(keys.length >= LEGACY_KEYS.length, `SOUND_DEFS 键数 ≥ ${LEGACY_KEYS.length}（实际 ${keys.length}）`);
+ok(LEGACY_KEYS.every(k => keys.indexOf(k) !== -1), `${LEGACY_KEYS.length} 个历史必需键齐全：` + LEGACY_KEYS.join(', '));
+ok(new Set(keys).size === keys.length, 'SOUND_DEFS 键名无重复');
 
 // 3) 参数合法性（validateSoundDefs 空问题列表 = 全部合法）
 const problems = A.validateSoundDefs();
@@ -37,6 +41,7 @@ if (problems.length) console.error('   问题明细:\n    - ' + problems.join('\
 // 3.1) 每个 def 的结构抽查（bus 分级 + 非空 layers + 正 gain）
 for (const k of keys) {
   const d = A.SOUND_DEFS[k];
+  ok(typeof d.label === 'string' && d.label.length > 0, `${k}.label 非空字符串`);
   ok(d.bus === 'combat' || d.bus === 'ui', `${k}.bus ∈ {combat,ui}`);
   ok(Array.isArray(d.layers) && d.layers.length > 0, `${k}.layers 非空`);
   ok(d.gain > 0, `${k}.gain > 0`);

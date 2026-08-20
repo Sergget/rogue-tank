@@ -163,7 +163,7 @@ const server = http.createServer((req, res) => {
     res.end();
     return;
   }
-  let filePath = path.normalize(path.join(ROOT, urlPath === '/' ? 'tank_mvp.html' : urlPath));
+  let filePath = path.normalize(path.join(ROOT, urlPath === '/' ? 'index.html' : urlPath));
   if (!filePath.startsWith(ROOT)) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('403 Forbidden');
@@ -191,8 +191,10 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log('Rogue Tank dev server');
-  console.log(`  → http://${HOST}:${PORT}/            (tank_mvp.html)`);
-  console.log(`  → http://${HOST}:${PORT}/tank_designer.html`);
-  console.log(`  → http://${HOST}:${PORT}/tank_compare.html`);
+  console.log(`  → http://${HOST}:${PORT}/                (index.html 首页)`);
+  console.log(`  → http://${HOST}:${PORT}/tank_mvp.html    (正式游戏)`);
+  console.log(`  → http://${HOST}:${PORT}/tank_bench.html  (装甲测试台)`);
+  console.log(`  → http://${HOST}:${PORT}/tank_designer.html (坦克设计器)`);
+  console.log(`  → http://${HOST}:${PORT}/tank_compare.html  (坦克对比)`);
   console.log(`  → content dirs (一型一文件): ${Object.keys(CONTENT_DIRS).join(', ')}`);
 });

@@ -1,0 +1,11 @@
+{
+  "id": "artillery_strike",
+  "name": "炮击支援",
+  "rarity": "epic",
+  "tags": ["支援"],
+  "desc": "主动装置：呼叫战术炮击，在指定区域延迟落下多枚炮弹，对范围内敌军造成高额伤害。",
+  "effects": [
+    { "type": "ability", "key": "artillery" }
+  ],
+  "maxStacks": 1
+}

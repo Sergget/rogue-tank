@@ -8,12 +8,14 @@ global.RULES = RULES_MOD.RULES;
 const NG = require('../js/tank_nodegen.js');
 global.createRNG = NG.createRNG;
 global.generateNode = NG.generateNode;
+global.pickTemplate = NG.pickTemplate;   // #24：tank_map.js 视口缩放前预选模板
 
 const {
   difficultyForIndex,
   enemyCountForDifficulty,
   aiTierForDifficulty,
   statMultForDifficulty,
+  nodeScaleFor,
   generateRun,
   makeNode,
   scoreNode,
@@ -48,16 +50,36 @@ for (let i = 1; i < diffs.length; i++) ok(aiTierForDifficulty(diffs[i]) >= aiTie
 for (let i = 1; i < diffs.length; i++) ok(statMultForDifficulty(diffs[i]) >= statMultForDifficulty(diffs[i - 1]), `数值强度单调`);
 
 // 3) generateRun：节点数、确定性、节点字段合法性
-const run1 = generateRun('run-seed', 5);
+const run1 = generateRun('run-seed', 5);                                            // 旧行为（无视口 → 固定 nodeScale=3）
 const run2 = generateRun('run-seed', 5);
+const runV = generateRun('run-seed', 5, { viewport: { vw: 1280, vh: 720 } });       // #24：视口驱动缩放
+const runV2 = generateRun('run-seed', 5, { viewport: { vw: 1280, vh: 720 } });
+const runW = generateRun('run-seed', 5, { viewport: { vw: 1920, vh: 1080 } });      // #24：1080p 全屏
 ok(run1.nodes.length === 5, '一局 5 节点');
 ok(JSON.stringify(run1.nodes.map(n => n.difficulty)) === JSON.stringify(run2.nodes.map(n => n.difficulty)), '同种子难度序列一致');
 ok(JSON.stringify(run1.nodes.map(n => n.covers.length)) === JSON.stringify(run2.nodes.map(n => n.covers.length)), '同种子掩体数量一致');
+ok(JSON.stringify(runV.nodes.map(n => n.covers.length)) === JSON.stringify(runV2.nodes.map(n => n.covers.length)), '视口模式同种子掩体数量一致');
+ok(JSON.stringify(runV.nodes.map(n => n.w)) === JSON.stringify(runV2.nodes.map(n => n.w)), '视口模式同种子节点尺寸一致');
+
+// 3b) #24：视口 → nodeScale 公式（nodeScale = 目标倍数 × max(vw/模板w, vh/模板h)）
+function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-6); }
+const legacyScale = nodeScaleFor(null, { w: 700, h: 400 });
+ok(legacyScale === 3, `无视口回退固定 nodeScale=3（实际 ${legacyScale}）`);
+const s720 = nodeScaleFor({ vw: 1280, vh: 720 }, { w: 700, h: 400 });
+ok(close(s720, 3 * Math.max(1280 / 700, 720 / 400)), `1280×720 → nodeScale ${s720.toFixed(4)} ≈ 3×max(vw/tw, vh/th)`);
+const s1080 = nodeScaleFor({ vw: 1920, vh: 1080 }, { w: 700, h: 400 });
+ok(close(s1080, 3 * Math.max(1920 / 700, 1080 / 400)), `1920×1080 → nodeScale ${s1080.toFixed(4)} ≈ 3×max(vw/tw, vh/th)`);
+ok(s1080 > s720, '视口越大 nodeScale 越大');
+ok(runV.nodes.every(n => n.w >= 3 * 1280 - 1e-3 && n.h >= 3 * 720 - 1e-3),
+   `1280×720 视口：全部节点宽高 ≥ 视口 3 倍（3840×2160，实际 ${runV.nodes[0].w.toFixed(0)}×${runV.nodes[0].h.toFixed(0)} 起）`);
+ok(runW.nodes.every(n => n.w >= 3 * 1920 - 1e-3 && n.h >= 3 * 1080 - 1e-3),
+   `1920×1080 视口：全部节点宽高 ≥ 视口 3 倍（5760×3240，实际 ${runW.nodes[0].w.toFixed(0)}×${runW.nodes[0].h.toFixed(0)} 起）`);
+ok(runV.nodes.every(n => n.w >= 3840 * 0.9 && n.w <= 3840 * 2.5), '视口模式节点宽度在合理区间（3~7.5 倍视口宽）');
 
 let totalEnemies = 0, totalOutposts = 0;
 for (const n of run1.nodes) {
   ok(n.w > 0 && n.h > 0, `节点 ${n.index} 世界尺寸 ${n.w}×${n.h}`);
-  ok(n.w > 600 && n.h > 300, `节点 ${n.index} 为放大后的大世界（scale=3）`);
+  ok(n.w > 600 && n.h > 300, `节点 ${n.index} 为放大后的大世界（旧行为 scale=3）`);
   ok(n.covers.length > 0, `节点 ${n.index} 有掩体`);
   ok(n.playerSpawn.x > 0 && n.playerSpawn.y > 0 && n.playerSpawn.x < n.w, '玩家出生点在界内');
   for (const c of n.covers) {
@@ -85,6 +107,18 @@ for (const n of run1.nodes) {
 }
 ok(totalEnemies >= 5, `全局敌军总数合理（${totalEnemies}）`);
 ok(totalOutposts >= 0 && totalOutposts <= 5, `据点数量在范围内（${totalOutposts}）`);
+
+// 3c) #24：视口模式下的敌军/据点/出生点约束仍然成立（大图不破坏布局约束）
+for (const n of runV.nodes) {
+  ok(n.playerSpawn.x > 0 && n.playerSpawn.x < n.w * 0.25, `视口模式节点 ${n.index} 出生点在左 1/4`);
+  for (const e of n.enemies) {
+    ok(e.x > n.w * 0.3 && e.x < n.w && e.y > 0 && e.y < n.h, `视口模式节点 ${n.index} 敌军散布右 2/3 区域`);
+    ok(Math.hypot(e.x - n.playerSpawn.x, e.y - n.playerSpawn.y) >= RULES_MOD.RULES.nodeMap.enemyMinPlayerDist - 1, '视口模式敌军离出生点最小间距');
+  }
+  if (n.outpost) {
+    ok(n.outpost.x > 0 && n.outpost.x < n.w * 0.35, '视口模式据点在友军侧（左 1/3）');
+  }
+}
 
 // 4) 各节点世界尺寸为放大后的大世界（模板按难度加权选择 → 尺寸可不同，只需都在合理区间）
 ok(run1.nodes.every(n => n.w >= 1800 && n.w <= 3000 && n.h >= 1000 && n.h <= 2000), '整局节点世界尺寸均为大世界（1800~3000 × 1000~2000）');
@@ -135,6 +169,14 @@ const rng = NG.createRNG(42);
 const solo = makeNode(0, 5, rng);
 ok(solo.index === 0 && solo.difficulty === 0.15, 'makeNode 单节点基础字段');
 ok(Array.isArray(solo.covers) && solo.covers.length > 0, 'makeNode 有掩体');
+// #24：makeNode 显式注入视口 → 世界尺寸 ≥ 视口 3 倍
+const rngV = NG.createRNG(42);
+const soloV = makeNode(0, 5, rngV, { viewport: { vw: 1920, vh: 1080 } });
+ok(soloV.w >= 3 * 1920 - 1e-3 && soloV.h >= 3 * 1080 - 1e-3,
+   `makeNode 视口注入 → 5760×3240+（实际 ${soloV.w.toFixed(0)}×${soloV.h.toFixed(0)}）`);
+ok(Array.isArray(soloV.covers) && soloV.covers.length > 0, 'makeNode 视口模式仍有掩体');
+// #25：单节点掩体数量在加密后的合理区间（低难教学节点剔除后也 ≥ 3）
+ok(soloV.covers.length >= 3, `makeNode 视口模式掩体数量合理（${soloV.covers.length}）`);
 
 console.log('test-map: 完成所有检查');
 if (fails === 0) console.log('test-map: 全部通过');

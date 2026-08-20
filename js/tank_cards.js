@@ -32,7 +32,11 @@ const AMMO_KEYS = ['ap', 'apcr', 'he'];
 const AMMO_FIELDS = ['pen', 'dmg', 'speed'];
 
 // 主动装置（ability，运行时在对应里程碑接入按键触发；schema 先行）
-const ABILITY_KEYS = ['smoke', 'repair', 'extinguish', 'recon', 'track_repair'];
+const ABILITY_KEYS = ['smoke', 'repair', 'extinguish', 'recon', 'track_repair', 'artillery', 'overdrive', 'shield'];
+
+// 无人机种类（drone）：scout=侦察指示（视口外敌军位置箭头）/ striker=近身自动索敌打击。
+// kind 缺失时兼容旧数据（默认 striker，伴随浮游炮语义）。
+const DRONE_KINDS = ['scout', 'striker'];
 
 // 特殊被动（passive：非数值修饰器的机制性被动）
 const PASSIVE_KEYS = ['reactive_armor', 'angle_boost', 'overmatch', 'spall_liner', 'commander_sight'];
@@ -100,6 +104,8 @@ function validateCardEffect(ef, path) {
       if (ef.value !== undefined && (typeof ef.value !== 'number' || !Number.isFinite(ef.value))) errs.push(`${p}: value 应为有限数值`);
       break;
     case 'drone':
+      // kind 可缺省（旧数据兼容，运行时默认 striker）；提供时必须在白名单内
+      if (ef.kind !== undefined && !DRONE_KINDS.includes(ef.kind)) errs.push(`${p}: kind 非法 ${ef.kind}（应为 ${DRONE_KINDS.join('/')}）`);
       break;
     case 'economy':
       if (!ECONOMY_FIELDS.includes(ef.field)) errs.push(`${p}: field 非法 ${ef.field}`);
@@ -199,6 +205,7 @@ if (typeof module !== 'undefined' && module.exports) {
     AMMO_KEYS,
     AMMO_FIELDS,
     ABILITY_KEYS,
+    DRONE_KINDS,
     PASSIVE_KEYS,
     ECONOMY_FIELDS,
     ARMOR_PARTS,

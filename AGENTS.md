@@ -72,7 +72,7 @@
   - `http://127.0.0.1:8000/` → tank_mvp.html
   - `http://127.0.0.1:8000/tank_designer.html`
   - `http://127.0.0.1:8000/tank_compare.html`
-- 校验：`npm run check` —— 对共享模块、`server.js` 及三个原型的每个内联 `<script>` 做语法冒烟（无需浏览器）；`node scripts/test-covers.js` —— 掩体/地图元素机制的 Node 端行为测试（两者都应全绿）。
+- 校验：`npm run check` —— 对共享模块、`server.js` 及三个原型的每个内联 `<script>` 做语法冒烟（无需浏览器）；`node scripts/test-covers.js` —— 掩体/地图元素机制的 Node 端行为测试；`npm run test:browser` —— 浏览器冒烟（需系统 Edge，playwright-core 无头，回归验证 #22/#23/#24，见 DEVELOPMENT.md §3.15；三者都应全绿）。
 
 ### 3.2 测试坦克战斗
 

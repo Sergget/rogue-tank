@@ -32,7 +32,7 @@ function createRNG(seed) {
 }
 
 /**
- * Handcrafted Battlefield Templates (5 built-in templates)
+ * Handcrafted Battlefield Templates (7 built-in templates)
  * Template Structure:
  * {
  *   id: string,
@@ -42,6 +42,8 @@ function createRNG(seed) {
  *   h: number,
  *   items: [ { tier, dx, dy, w, h, angle, verts?, collisionVerts? }, ... ]
  * }
+ * #25：单模板 items 扩充到 12~25 个（树/灌木/沙袋/栅栏/半高/全高混合），
+ * 体现 开阔走廊/密林阵地/城镇街区/交叉火力广场/混合障壁/村落中心/林地战线 的地貌特征。
  */
 const NODE_TEMPLATES = [
   {
@@ -51,11 +53,22 @@ const NODE_TEMPLATES = [
     w: 700,
     h: 400,
     items: [
-      { tier: 'half', dx: -140, dy: -60, w: 70, h: 30, angle: 0 },
-      { tier: 'bush', dx: 120, dy: 80, w: 80, h: 40, angle: 0 },
-      { tier: 'soft', dx: 0, dy: 140, w: 140, h: 10, angle: 0 },
-      { tier: 'tree', dx: -180, dy: 100, w: 24, h: 18, angle: 0 },
-      { tier: 'barricade', dx: 160, dy: -80, w: 60, h: 26, angle: 0 }
+      // 左右两侧半高矮墙构成纵向走廊骨架
+      { tier: 'half', dx: -240, dy: -120, w: 90, h: 30, angle: 0 },
+      { tier: 'half', dx: -240, dy: -20, w: 90, h: 30, angle: 0 },
+      { tier: 'half', dx: -240, dy: 80, w: 90, h: 30, angle: 0 },
+      { tier: 'half', dx: 240, dy: -100, w: 90, h: 30, angle: 0 },
+      { tier: 'half', dx: 240, dy: 0, w: 90, h: 30, angle: 0 },
+      { tier: 'half', dx: 240, dy: 100, w: 90, h: 30, angle: 0 },
+      // 中路横向栅栏与沙袋路障
+      { tier: 'soft', dx: 0, dy: -150, w: 160, h: 10, angle: 0 },
+      { tier: 'soft', dx: 0, dy: 150, w: 160, h: 10, angle: 0 },
+      { tier: 'barricade', dx: -120, dy: 40, w: 60, h: 26, angle: 0 },
+      { tier: 'barricade', dx: 120, dy: -60, w: 60, h: 26, angle: 0 },
+      // 点缀树丛
+      { tier: 'tree', dx: -120, dy: -140, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: 140, dy: 120, w: 70, h: 36, angle: 0 },
+      { tier: 'bush', dx: -40, dy: 60, w: 60, h: 32, angle: 0 }
     ]
   },
   {
@@ -65,16 +78,25 @@ const NODE_TEMPLATES = [
     w: 750,
     h: 450,
     items: [
-      { tier: 'tree', dx: -220, dy: -120, w: 24, h: 18, angle: 0 },
-      { tier: 'tree', dx: -180, dy: -50, w: 24, h: 18, angle: 0 },
-      { tier: 'tree', dx: 180, dy: 110, w: 24, h: 18, angle: 0 },
-      { tier: 'tree', dx: 220, dy: 50, w: 24, h: 18, angle: 0 },
-      { tier: 'tree', dx: 0, dy: -140, w: 24, h: 18, angle: 0 },
-      { tier: 'bush', dx: -100, dy: -80, w: 70, h: 36, angle: 0 },
-      { tier: 'bush', dx: 100, dy: 80, w: 70, h: 36, angle: 0 },
-      { tier: 'soft', dx: -50, dy: 120, w: 140, h: 10, angle: 0 },
-      { tier: 'stump', dx: 0, dy: 30, w: 24, h: 18, angle: 0 },
-      { tier: 'half', dx: 120, dy: -100, w: 64, h: 30, angle: 0 }
+      // 纵深树墙：左密右疏，间杂灌木/树桩/倒树
+      { tier: 'tree', dx: -280, dy: -140, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -230, dy: -60, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -260, dy: 40, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -200, dy: 130, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -120, dy: -160, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -80, dy: 90, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 0, dy: -80, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 60, dy: 150, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 120, dy: -150, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 180, dy: -40, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 230, dy: 80, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 290, dy: 140, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: -180, dy: -10, w: 70, h: 36, angle: 0 },
+      { tier: 'bush', dx: 40, dy: 30, w: 70, h: 36, angle: 0 },
+      { tier: 'bush', dx: 160, dy: 140, w: 60, h: 32, angle: 0 },
+      { tier: 'stump', dx: -40, dy: -140, w: 24, h: 18, angle: 0 },
+      { tier: 'half', dx: -60, dy: 150, w: 64, h: 30, angle: 0 },
+      { tier: 'soft', dx: 0, dy: -150, w: 120, h: 10, angle: 0 }
     ]
   },
   {
@@ -84,25 +106,38 @@ const NODE_TEMPLATES = [
     w: 800,
     h: 500,
     items: [
-      { tier: 'full', dx: -180, dy: -100, w: 100, h: 50, angle: 0 },
-      { tier: 'full', dx: 180, dy: 100, w: 90, h: 50, angle: 0 },
+      // 四座建筑骨架 + 一座带凹口立面（verts/collisionVerts 保序剔除下结构不被改写）
+      { tier: 'full', dx: -260, dy: -120, w: 110, h: 60, angle: 0 },
+      { tier: 'full', dx: 260, dy: -120, w: 110, h: 60, angle: 0 },
+      { tier: 'full', dx: -260, dy: 120, w: 110, h: 60, angle: 0 },
       {
         tier: 'full',
-        dx: -120,
+        dx: 180,
         dy: 120,
-        w: 90,
-        h: 60,
+        w: 110,
+        h: 70,
         angle: 0,
-        verts: [[-45, -30], [45, -30], [45, -10], [5, -10], [5, 30], [-45, 30]],
+        verts: [[-55, -35], [55, -35], [55, -15], [10, -15], [10, 35], [-55, 35]],
         collisionVerts: [
-          [[-45, -30], [5, -30], [5, 30], [-45, 30]],
-          [[5, -30], [45, -30], [45, -10], [5, -10]]
+          [[-55, -35], [10, -35], [10, 35], [-55, 35]],
+          [[10, -35], [55, -35], [55, -15], [10, -15]]
         ]
       },
+      // 街口矮墙与路障
+      { tier: 'half', dx: -120, dy: -120, w: 80, h: 32, angle: 0 },
+      { tier: 'half', dx: 120, dy: -120, w: 80, h: 32, angle: 0 },
       { tier: 'barricade', dx: 0, dy: -120, w: 70, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 0, dy: 120, w: 70, h: 28, angle: 0 },
-      { tier: 'half', dx: 150, dy: -80, w: 80, h: 32, angle: 0 },
-      { tier: 'rubble', dx: 80, dy: 0, w: 30, h: 20, angle: 0 }
+      { tier: 'barricade', dx: -80, dy: 20, w: 64, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 80, dy: 20, w: 64, h: 28, angle: 0 },
+      { tier: 'rubble', dx: -160, dy: 20, w: 30, h: 20, angle: 0 },
+      { tier: 'rubble', dx: 160, dy: 20, w: 30, h: 20, angle: 0 },
+      // 庭院栅栏与绿植
+      { tier: 'soft', dx: -180, dy: -30, w: 120, h: 10, angle: 0 },
+      { tier: 'soft', dx: 60, dy: -60, w: 100, h: 10, angle: 0 },
+      { tier: 'tree', dx: -60, dy: 60, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 40, dy: 100, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: -100, dy: 80, w: 60, h: 32, angle: 0 },
+      { tier: 'bush', dx: 120, dy: 60, w: 60, h: 32, angle: 0 }
     ]
   },
   {
@@ -112,15 +147,25 @@ const NODE_TEMPLATES = [
     w: 850,
     h: 520,
     items: [
-      { tier: 'full', dx: -250, dy: -140, w: 110, h: 60, angle: 0 },
-      { tier: 'full', dx: 250, dy: -140, w: 110, h: 60, angle: 0 },
-      { tier: 'full', dx: -250, dy: 140, w: 110, h: 60, angle: 0 },
-      { tier: 'full', dx: 250, dy: 140, w: 110, h: 60, angle: 0 },
-      { tier: 'half', dx: 0, dy: 0, w: 80, h: 36, angle: 0 },
-      { tier: 'barricade', dx: -100, dy: 0, w: 60, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 100, dy: 0, w: 60, h: 28, angle: 0 },
-      { tier: 'tree', dx: -120, dy: -100, w: 24, h: 18, angle: 0 },
-      { tier: 'tree', dx: 120, dy: 100, w: 24, h: 18, angle: 0 }
+      // 四角全高建筑形成交叉火力框架
+      { tier: 'full', dx: -300, dy: -160, w: 120, h: 64, angle: 0 },
+      { tier: 'full', dx: 300, dy: -160, w: 120, h: 64, angle: 0 },
+      { tier: 'full', dx: -300, dy: 160, w: 120, h: 64, angle: 0 },
+      { tier: 'full', dx: 300, dy: 160, w: 120, h: 64, angle: 0 },
+      // 中央高台 + 侧翼路障 + 废墟
+      { tier: 'half', dx: 0, dy: 0, w: 90, h: 38, angle: 0 },
+      { tier: 'half', dx: 0, dy: -100, w: 70, h: 30, angle: 0 },
+      { tier: 'barricade', dx: -140, dy: 0, w: 64, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 140, dy: 0, w: 64, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 0, dy: 100, w: 64, h: 28, angle: 0 },
+      { tier: 'rubble', dx: -220, dy: 0, w: 34, h: 22, angle: 0 },
+      { tier: 'rubble', dx: 220, dy: 0, w: 34, h: 22, angle: 0 },
+      // 广场边缘树丛
+      { tier: 'tree', dx: -180, dy: -140, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 180, dy: 140, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -80, dy: 140, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: 80, dy: -140, w: 64, h: 32, angle: 0 },
+      { tier: 'bush', dx: 0, dy: 180, w: 64, h: 32, angle: 0 }
     ]
   },
   {
@@ -130,12 +175,94 @@ const NODE_TEMPLATES = [
     w: 800,
     h: 480,
     items: [
-      { tier: 'half', dx: -150, dy: -60, w: 80, h: 34, angle: 0 },
-      { tier: 'full', dx: 150, dy: -60, w: 70, h: 34, angle: 0 },
-      { tier: 'barricade', dx: -60, dy: 100, w: 64, h: 28, angle: 0 },
-      { tier: 'bush', dx: 120, dy: 110, w: 60, h: 32, angle: 0 },
-      { tier: 'soft', dx: -180, dy: 120, w: 120, h: 10, angle: 0 },
-      { tier: 'tree', dx: 0, dy: -120, w: 24, h: 18, angle: 0 }
+      // 四象限全高/半高对位 + 中央沙袋环
+      { tier: 'full', dx: -200, dy: -100, w: 80, h: 40, angle: 0 },
+      { tier: 'full', dx: 200, dy: -100, w: 80, h: 40, angle: 0 },
+      { tier: 'half', dx: -200, dy: 100, w: 80, h: 34, angle: 0 },
+      { tier: 'half', dx: 200, dy: 100, w: 80, h: 34, angle: 0 },
+      { tier: 'half', dx: 0, dy: 0, w: 90, h: 36, angle: 0 },
+      { tier: 'barricade', dx: -100, dy: 0, w: 64, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 100, dy: 0, w: 64, h: 28, angle: 0 },
+      // 上下栅栏 + 树/灌/桩点缀
+      { tier: 'soft', dx: 0, dy: -140, w: 160, h: 10, angle: 0 },
+      { tier: 'soft', dx: 0, dy: 140, w: 160, h: 10, angle: 0 },
+      { tier: 'tree', dx: -280, dy: 0, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 280, dy: 0, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: -60, dy: -100, w: 60, h: 32, angle: 0 },
+      { tier: 'bush', dx: 60, dy: 100, w: 60, h: 32, angle: 0 },
+      { tier: 'stump', dx: 0, dy: -140, w: 24, h: 18, angle: 0 }
+    ]
+  },
+  {
+    id: 'village_center',
+    name: '村落中心广场 (高难)',
+    tags: ['mid', 'high'],
+    w: 820,
+    h: 500,
+    items: [
+      // 环形屋舍围出村落中心广场（#25 新增）
+      { tier: 'full', dx: -260, dy: -140, w: 110, h: 60, angle: 0 },
+      { tier: 'full', dx: 260, dy: -140, w: 110, h: 60, angle: 0 },
+      { tier: 'full', dx: -260, dy: 140, w: 110, h: 60, angle: 0 },
+      {
+        tier: 'full',
+        dx: 260,
+        dy: 140,
+        w: 100,
+        h: 64,
+        angle: 0,
+        verts: [[-50, -32], [50, -32], [50, -12], [8, -12], [8, 32], [-50, 32]],
+        collisionVerts: [
+          [[-50, -32], [8, -32], [8, 32], [-50, 32]],
+          [[8, -32], [50, -32], [50, -12], [8, -12]]
+        ]
+      },
+      { tier: 'full', dx: 0, dy: -170, w: 90, h: 46, angle: 0 },
+      // 广场中央：井台半高 + 沙袋封锁
+      { tier: 'half', dx: 0, dy: 0, w: 80, h: 36, angle: 0 },
+      { tier: 'barricade', dx: -120, dy: 0, w: 64, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 120, dy: 0, w: 64, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 0, dy: 90, w: 64, h: 28, angle: 0 },
+      // 庭院栅栏与巷口
+      { tier: 'soft', dx: -180, dy: 60, w: 140, h: 10, angle: 0 },
+      { tier: 'soft', dx: 180, dy: 60, w: 140, h: 10, angle: 0 },
+      { tier: 'soft', dx: -60, dy: -90, w: 120, h: 10, angle: 0 },
+      { tier: 'soft', dx: 60, dy: -90, w: 120, h: 10, angle: 0 },
+      // 村落绿植与废墟
+      { tier: 'tree', dx: -140, dy: -140, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 140, dy: 140, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: -80, dy: 100, w: 60, h: 32, angle: 0 },
+      { tier: 'rubble', dx: 0, dy: -60, w: 30, h: 20, angle: 0 }
+    ]
+  },
+  {
+    id: 'woodland_line',
+    name: '林地战线 (高难)',
+    tags: ['high'],
+    w: 860,
+    h: 520,
+    items: [
+      // 森林战线：纵深树墙 + 战壕矮墙（#25 新增）
+      { tier: 'tree', dx: -330, dy: -160, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -290, dy: -60, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -320, dy: 40, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -260, dy: 140, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -180, dy: -170, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -150, dy: 60, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -60, dy: -100, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -40, dy: 150, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 60, dy: -160, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 100, dy: -40, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 140, dy: 120, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 230, dy: -140, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 280, dy: -40, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 320, dy: 90, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: -220, dy: -20, w: 70, h: 36, angle: 0 },
+      { tier: 'bush', dx: 20, dy: 30, w: 70, h: 36, angle: 0 },
+      { tier: 'bush', dx: 180, dy: 40, w: 60, h: 32, angle: 0 },
+      { tier: 'stump', dx: -90, dy: -10, w: 24, h: 18, angle: 0 },
+      { tier: 'fallen', dx: 60, dy: 160, w: 90, h: 14, angle: 0 },
+      { tier: 'half', dx: 0, dy: 0, w: 90, h: 34, angle: 0 }
     ]
   }
 ];
@@ -174,6 +301,26 @@ function getTemplateWeight(template, diff) {
 }
 
 /**
+ * 按难度加权选择模板（generateNode 内部选择逻辑的导出版；#24 供 tank_map 在
+ * 视口缩放前预选模板以确定精确倍率）。同一 rng 实例调用，保持整局确定性。
+ * @param {number} diff 0~1 目标难度
+ * @param {any} rng createRNG 实例
+ * @returns {any} 选中的模板对象
+ */
+function pickTemplate(diff, rng) {
+  const templates = getTemplates();
+  const weights = templates.map(t => getTemplateWeight(t, diff));
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  let roll = rng() * totalWeight;
+
+  for (let i = 0; i < templates.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) return templates[i];
+  }
+  return templates[0];
+}
+
+/**
  * Main node cover layout generator
  * @param {number} [difficulty=0.5] 0~1 continuous difficulty weight
  * @param {NodeGenOptions} [options]
@@ -199,26 +346,16 @@ function generateNode(difficulty, options) {
   }
 
   if (!selectedTemplate) {
-    const weights = templates.map(t => getTemplateWeight(t, diff));
-    const totalWeight = weights.reduce((a, b) => a + b, 0);
-    let roll = rng() * totalWeight;
-
-    for (let i = 0; i < templates.length; i++) {
-      roll -= weights[i];
-      if (roll <= 0) {
-        selectedTemplate = templates[i];
-        break;
-      }
-    }
-    if (!selectedTemplate) selectedTemplate = templates[0];
+    selectedTemplate = pickTemplate(diff, rng);
   }
 
   const centerX = opts.x !== undefined ? opts.x : (opts.centerX !== undefined ? opts.centerX : 600);
   const centerY = opts.y !== undefined ? opts.y : (opts.centerY !== undefined ? opts.centerY : 350);
 
   // Parametric variations:
-  // 1. Density culling rate (0.00 ~ 0.08 depending on difficulty and rng)
-  const cullRate = opts.cullRate !== undefined ? opts.cullRate : rng.range(0.0, 0.08);
+  // 1. Density culling rate（#25：随难度递减——高难保留更多元素，低难仍可稀疏）：
+  //    diff=1 → 0~0.036；diff=0 → 0~0.12
+  const cullRate = opts.cullRate !== undefined ? opts.cullRate : rng.range(0.0, 0.12) * (1 - 0.7 * diff);
 
   // 2. Pre-damaged state probability (0.05 ~ 0.15 based on difficulty)
   const wreckProb = 0.05 + 0.10 * diff;
@@ -300,6 +437,56 @@ function generateNode(difficulty, options) {
     outCovers.push(coverObj);
   }
 
+  // P-20：随机插入水体/桥梁组合
+  // 每个节点最多 1 个水体/桥梁组合；概率随难度递增
+  const waterBridgeChance = diff * 0.5;
+  if (rng() < waterBridgeChance) {
+    // 生成水体：w [300, 800] * scale，h [200, 500] * scale（世界尺寸），
+    // 并按节点世界比例封顶（≤40% 宽/高）——原始区间相对模板尺寸本就占 35%~114%，
+    // scale 放大后会把大半个战场吞掉，导致敌军/据点拒绝采样被大片水域耗尽（ISSUES #62）
+    const waterW = Math.min(rng.range(300, 800) * scale, selectedTemplate.w * scale * 0.4);
+    const waterH = Math.min(rng.range(200, 500) * scale, selectedTemplate.h * scale * 0.4);
+
+    // 随机位置偏移（dx/dy 为相对于节点中心的偏移，遵循现有项顺序规范）
+    // 确保水体在节点界内：留出边距防止完全贴边
+    // 注意：偏移按「模板单位 × scale」约定采样（与 items 的 item.dx 一致）——
+    // 不可先按世界尺寸算 maxDx 再乘 scale（双重缩放会把水体/桥梁中心推出节点界，ISSUES #62）。
+    const marginX = Math.max(30, waterW * 0.1);
+    const marginY = Math.max(30, waterH * 0.1);
+    const maxDx = Math.max(0, (selectedTemplate.w - waterW / scale - marginX / scale) / 2);
+    const maxDy = Math.max(0, (selectedTemplate.h - waterH / scale - marginY / scale) / 2);
+    const waterDx = rng.range(-maxDx, maxDx);
+    const waterDy = rng.range(-maxDy, maxDy);
+
+    // 添加水体覆盖（tier: 'water'，move:0 表示不可通行）
+    outCovers.push({
+      x: centerX + waterDx * scale,
+      y: centerY + waterDy * scale,
+      w: waterW,
+      h: waterH,
+      angle: rng.range(-0.05, 0.05),
+      tier: 'water'
+    });
+
+    // 始终随水体一起插入桥梁：6px 宽的狭长通道，紧贴水体北缘
+    const bridgeW = 6 * scale;
+    const bridgeH = waterH;  // 与水体同高，作为通行视觉通道
+    const bridgeDx = waterDx;  // 对齐水体水平位置
+    // bridgeDy 用模板单位（与 waterDy 同基准，bridgeH=waterH → waterH/scale），
+    // 并钳到节点半高内，防止水体贴近节点上边缘时桥梁中心越界（ISSUES #62）
+    const halfH = selectedTemplate.h / 2;
+    const bridgeDy = Math.max(-halfH, Math.min(halfH, waterDy - waterH / scale));
+
+    outCovers.push({
+      x: centerX + bridgeDx * scale,
+      y: centerY + bridgeDy * scale,
+      w: bridgeW,
+      h: bridgeH,
+      angle: 0,
+      tier: 'bridge'
+    });
+  }
+
   const targetCovers = (typeof covers !== 'undefined' && Array.isArray(covers))
     ? covers
     : ((typeof global !== 'undefined' && global.covers && Array.isArray(global.covers)) ? global.covers : null);
@@ -334,6 +521,7 @@ if (typeof module !== 'undefined' && module.exports) {
     NODE_TEMPLATES,
     registerTemplate,
     getTemplates,
+    pickTemplate,
     generateNode
   };
 }

@@ -3,6 +3,7 @@
 // tank_mvp.html and tank_designer.html. All functions are platform-independent: they take an
 // explicit ctx, local-coordinate polygon verts, and a pose, so each caller supplies its own
 // geometry (mvp model vs designer half-polys) and colors.
+'use strict';
 //
 // Design note: kept as a plain script (NOT an ES module) so both prototypes keep working when
 // opened directly via file:// without a local server. Names are prefixed to avoid clashing with
@@ -117,14 +118,48 @@ function paintTurretShadow(ctx, verts, cx, cy, angle, scale, ox, oy, worldAng){
 }
 
 // ---------- top-down textures ----------
+// P-15 坦克纹理叠层（§2.10 定型）：多边形 clip + 平铺图案叠层，灰度/半透明图案保持 t.color 主色。
+// TEXTURE_DEFS 为数据驱动定义（name + draw(ctx, bbox)），bbox={minX,minY,maxX,maxY}（local 坐标，
+// 调用时已 clip 到部件多边形）。炮管/附件/特效保持程序化（§2.10）。
+const TEXTURE_DEFS = {
+  none: { name: '无', draw: null },
+  armor_plate: { name: '装甲板纹', draw: (ctx, b) => {
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 1;
+      const s = 14;
+      for(let x = Math.ceil(b.minX/s)*s; x <= b.maxX; x += s){ ctx.beginPath(); ctx.moveTo(x, b.minY); ctx.lineTo(x, b.maxY); ctx.stroke(); }
+      for(let y = Math.ceil(b.minY/s)*s; y <= b.maxY; y += s){ ctx.beginPath(); ctx.moveTo(b.minX, y); ctx.lineTo(b.maxX, y); ctx.stroke(); }
+  }},
+  weld_seam: { name: '焊缝', draw: (ctx, b) => {
+      ctx.strokeStyle = 'rgba(0,0,0,0.22)'; ctx.lineWidth = 2;
+      const s = 12;
+      for(let y = b.minY+3; y <= b.maxY-3; y += s){ ctx.beginPath(); ctx.moveTo(b.minX+2, y); ctx.lineTo(b.maxX-2, y); ctx.stroke(); }
+  }},
+  rust: { name: '锈蚀', draw: (ctx, b) => {
+      ctx.fillStyle = 'rgba(120,70,30,0.20)';
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      for(let i=0;i<8;i++){
+        const rx = b.minX + ((i*137)%101)/101*w, ry = b.minY + ((i*73)%97)/97*h;
+        ctx.beginPath(); ctx.ellipse(rx, ry, 3+(i%3), 2+(i%2), 0, 0, Math.PI*2); ctx.fill();
+      }
+  }},
+  camo: { name: '迷彩', draw: (ctx, b) => {
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      const blobs = [[0.15,0.2,0.35,0.30],[0.62,0.14,0.30,0.26],[0.40,0.70,0.40,0.30],[0.82,0.60,0.30,0.28]];
+      for(const [fx,fy,fw,fh] of blobs){
+        ctx.fillStyle = 'rgba(30,40,25,0.25)';
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, 0.6, 0, Math.PI*2); ctx.fill();
+      }
+  }}
+};
+
 // Offscreen Canvas Cache for procedural tank sprites to optimize render performance
 const PAINT_CACHE = new Map();
 function clearPaintCache() {
   PAINT_CACHE.clear();
 }
 
-function getCachedTankSprite(color, kind, verts, hasTurret, heightClass) {
-  const cacheKey = `${color}_${kind}_${hasTurret}_${heightClass}_${verts.map(v => `${v[0].toFixed(1)},${v[1].toFixed(1)}`).join('|')}`;
+function getCachedTankSprite(color, kind, verts, hasTurret, heightClass, texture) {
+  const cacheKey = `${color}_${kind}_${hasTurret}_${heightClass}_${texture||'none'}_${verts.map(v => `${v[0].toFixed(1)},${v[1].toFixed(1)}`).join('|')}`;
   if (PAINT_CACHE.has(cacheKey)) {
     return PAINT_CACHE.get(cacheKey);
   }
@@ -142,7 +177,7 @@ function getCachedTankSprite(color, kind, verts, hasTurret, heightClass) {
   const ctx = canvas.getContext('2d');
   
   // Paint the texture once onto this offscreen canvas at local scale 1
-  paintPartTextureDirect(ctx, verts, cx, cy, 0, 1, color, kind, { detail: true, hasTurret, heightClass });
+  paintPartTextureDirect(ctx, verts, cx, cy, 0, 1, color, kind, { detail: true, hasTurret, heightClass, texture });
   
   const cacheEntry = { canvas, cx, cy, w, h };
   PAINT_CACHE.set(cacheKey, cacheEntry);
@@ -166,6 +201,12 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
   if(opts.faded) ctx.globalAlpha = 0.5;
   ctx.fillRect(minX-2, minY-2, (maxX-minX)+4, (maxY-minY)+4);
   ctx.globalAlpha = 1;
+  // 纹理叠层（P-27 接线）：clip 内、base 填充后，灰度/半透明图案平铺在部件多边形上，
+  // 保持 color 主色；opts.texture 缺失/'none'/未知键 → 跳过（数据驱动 TEXTURE_DEFS）。
+  const texDef = opts.texture && TEXTURE_DEFS[opts.texture];
+  if(texDef && texDef.draw && !opts.faded){
+    texDef.draw(ctx, { minX, minY, maxX, maxY });
+  }
   if(!opts.faded && opts.detail !== false){
     if(isHull){
       // inset deck plate (sealed perimeter)
@@ -225,7 +266,7 @@ function paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts){
   // If we are in high performance mode (detail && !faded) and scale is constant (e.g. 1 in play), use the offscreen cache.
   // When zoomed or faded, bypass the cache to draw sharp vectors.
   if (!opts.faded && opts.detail !== false && scale === 1) {
-    const entry = getCachedTankSprite(color, kind, verts, opts.hasTurret !== false, opts.heightClass);
+    const entry = getCachedTankSprite(color, kind, verts, opts.hasTurret !== false, opts.heightClass, opts.texture);
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(angle || 0);
@@ -234,4 +275,21 @@ function paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts){
   } else {
     paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, opts);
   }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    paintShade,
+    paintBounds,
+    paintBeginLocal,
+    paintClipLocal,
+    paintTracks,
+    paintTurretShadow,
+    TEXTURE_DEFS,
+    PAINT_CACHE,
+    clearPaintCache,
+    getCachedTankSprite,
+    paintPartTextureDirect,
+    paintPartTexture
+  };
 }

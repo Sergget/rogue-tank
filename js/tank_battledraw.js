@@ -21,11 +21,11 @@ function drawTracks(ctx, t){
 }
 // hull top-down paint.
 function renderHullTexture(ctx, t){
-  paintPartTexture(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 1, t.color, 'hull', { detail:true });
+  paintPartTexture(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 1, t.color, 'hull', { detail:true, texture: t.texture });
 }
 // turret top-down paint.
 function renderTurretTexture(ctx, cx, cy, angle, t){
-  paintPartTexture(ctx, turretPoly(t).verts, cx, cy, angle, 1, t.color, 'turret', { detail:true, heightClass: t.heightClass });
+  paintPartTexture(ctx, turretPoly(t).verts, cx, cy, angle, 1, t.color, 'turret', { detail:true, heightClass: t.heightClass, texture: t.texture });
 }
 
 // 履带被击断的俯视表现：擦除断开段 + 撕裂金属残端 + 脱落履带节。

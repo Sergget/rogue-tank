@@ -179,65 +179,87 @@ function checkNumericBounds() {
 }
 
 // ── 描述与 Effect 矛盾检查 ──
-// 核心逻辑：卡牌 desc 使用整数百分比（如 +15, -50），
-// effect value 使用 decimal 乘数（如 1.15, 0.5）。
-// 一致性判定：desc_number ≈ (effect_value - 1) * 100
+// 核心逻辑：卡牌 desc 使用整数百分比/绝对量（如 +15, -50, +10mm），
+// effect value 的语义随 type/mode 分支（不是一律按乘法乘数）：
+//   modifier/ammo mode=add  → 绝对加量，期望 desc 数字 ≈ value（如 +10mm → 10）
+//   modifier/ammo mode=mult → 乘法乘数，期望 desc 数字 ≈ (value-1)*100
+//                             （1.15 → 15，0.85 → -15；value<1 为缩减，
+//                              desc 常写正数如"散布缩小 15%"，允许符号翻转匹配）
+//   economy scoreMul        → 乘数语义（1.15 → +15%）
+//   economy shopDiscount    → 小数语义（0.1 → +10%）
+//   economy startScore/reviveCount → 绝对量（value 本身）
+//   passive angle_boost     → 绝对量（+5°）
+//   passive commander_sight → 直接百分比（+25%）
+//   passive overmatch / reactive_armor / spall_liner → 阈值/标志/系数，不在 desc 展示，跳过
+//   ability / drone         → 无数值期望，跳过
+// 匹配规则：同期望值的多个 effect 可共享一个 desc 数字（如 bastion_armor
+// "整车等效厚度 +30%" 同时覆盖 hull/turret 两个 ×1.3 效果），因此按期望值分组、
+// 每组需 ≥1 个 ±5 容差内匹配的 desc 数字；无匹配时仅当最近数字偏差显著
+// （绝对值 >20 或相对偏差 >50%）才报错，避免对"缩圈更快"这类纯文字描述的效果误报。
 function checkDescEffectConsistency() {
   let failed = 0;
   const errors = [];
+
+  // 单个 effect 的期望 desc 数字；返回 null 表示该效果不在 desc 中体现数字
+  function expectedDescNum(ef) {
+    if (ef.type === 'modifier' || ef.type === 'ammo') {
+      if (ef.mode === 'add') return ef.value;              // +10mm / +100t 绝对量
+      return Math.round((ef.value - 1) * 100);             // 1.15 → 15, 0.85 → -15
+    }
+    if (ef.type === 'economy') {
+      if (ef.field === 'scoreMul') return Math.round((ef.value - 1) * 100); // 1.15 → +15%
+      if (ef.field === 'shopDiscount') return Math.round(ef.value * 100);   // 0.1 → +10%
+      return ef.value;                                     // startScore / reviveCount 绝对量
+    }
+    if (ef.type === 'passive') {
+      if (ef.key === 'angle_boost') return ef.value;       // +5° 绝对量
+      if (ef.key === 'commander_sight') return ef.value;   // +25% 直接百分比
+      return null;                                         // 阈值/标志/系数（overmatch 等）
+    }
+    return null;                                           // ability / drone 无数值期望
+  }
+
+  // 缩减乘数（mult 且 value<1）：desc 常写正数（"散布缩小 15%"），允许符号翻转匹配
+  function isSignFlexible(ef) {
+    return (ef.type === 'modifier' || ef.type === 'ammo') && ef.mode === 'mult' && ef.value < 1;
+  }
 
   const cards = loadJsonDir('cards');
   for (const c of cards) {
     if (!c.desc || !c.effects || c.effects.length === 0) continue;
 
     // 从 desc 中提取关键数字（整数或小数）
-    const descNumbers = c.desc.match(/-?\d+(?:\.\d+)?/g) || [];
-    const descNumSet = new Set(descNumbers.map(n => parseFloat(n)));
+    const descNumbers = (c.desc.match(/-?\d+(?:\.\d+)?/g) || []).map(n => parseFloat(n));
+    if (descNumbers.length === 0) continue; // desc 纯文字描述
 
-    // 从 effect 中获取数值
-    const effectEntries = c.effects
-      .filter(ef => typeof ef.value === 'number')
-      .map(ef => ({ type: ef.type, value: ef.value }));
+    // 按期望值分组：同期望的 effect 共享匹配池（整车 +30% 覆盖 hull+turret 两个 ×1.3）
+    const groups = new Map();
+    for (const ef of c.effects) {
+      if (typeof ef.value !== 'number' || !Number.isFinite(ef.value)) continue;
+      const expected = expectedDescNum(ef);
+      if (expected === null) continue;
+      if (!groups.has(expected)) groups.set(expected, []);
+      groups.get(expected).push(ef);
+    }
 
-    // 对每个 effect 检查 desc 中是否有匹配的数字
-    for (const { type, value: en } of effectEntries) {
-      // 计算 desc 应该有的期望百分比数字
-      // 公式：expected = (en - 1) * 100
-      // 当 en = 0.5 时，expected = -50（desc 里的 -50）
-      // 当 en = 1.15 时，expected = 15（desc 里的 +15）
-      // 当 en = 0.85 时，expected = -15
-      const expectedDescNum = Math.round((en - 1) * 100);
-
-      const matchingDescNums = descNumbers.filter(dn => {
-        const d = parseFloat(dn);
-        // 匹配条件：|d - expected| ≤ tolerance
-        // 容错：允许 ±5 的绝对差异（对应 5% 变化的容错空间）
-        const tolerance = 5;
-        return Math.abs(d - expectedDescNum) <= tolerance;
+    for (const [expected, effects] of groups) {
+      const flex = effects.some(isSignFlexible);
+      // 期望数字 ±5 容差内是否至少有一个 desc 数字
+      const hasMatch = descNumbers.some(d => {
+        if (Math.abs(d - expected) <= 5) return true;
+        return flex && Math.abs(d + expected) <= 5; // 缩减乘数允许正数写法
       });
-
-      if (matchingDescNums.length === 0 && descNumSet.size > 0) {
-        // desc 有数字但没有一个与 effect 匹配
-        // 计算 desc 数字与 expected 的偏差
-        const descNums = descNumbers.map(dn => parseFloat(dn));
-        const maxDesc = Math.max(...descNums, 0);
-        const minDesc = Math.min(...descNums, 0);
-        const avgDesc = descNums.reduce((a, b) => a + b, 0) / Math.max(descNums.length, 1);
-        const diffFromExpected = Math.abs(avgDesc - expectedDescNum);
-
-        // 明显偏差判断：desc 平均值与 expected 的相对偏差超过 50%
-        // 或者 desc 的最大/最小值与 expected 相差甚远
-        const clearMismatch = diffFromExpected > 20 ||
-          (Math.max(Math.abs(expectedDescNum), 1) > 0 && diffFromExpected / Math.max(Math.abs(expectedDescNum), 1) > 0.5);
-
-        if (clearMismatch) {
-          errors.push(`${c.id}: Effect ${type}.value=${en} 与 desc 中数字无法匹配 (expected desc ~${expectedDescNum}, desc 数字: ${descNumbers.join(', ')})`);
-          failed++;
-        }
-        // 否则（偏差在容错范围内），视为通过，避免对自然差异报错
+      if (hasMatch) continue;
+      // 无匹配：仅当最近数字偏差显著（绝对值 >20 或相对偏差 >50%）才报错
+      const minDiff = Math.min(...descNumbers.map(d =>
+        Math.min(Math.abs(d - expected), flex ? Math.abs(d + expected) : Infinity)));
+      const gross = minDiff > 20 || minDiff / Math.max(Math.abs(expected), 1) > 0.5;
+      if (gross) {
+        const desc = effects.map(e => `${e.type}.value=${e.value}`).join(' / ');
+        errors.push(`${c.id}: Effect ${desc} 与 desc 中数字无法匹配 (expected desc ~${expected}, desc 数字: ${descNumbers.join(', ')})`);
+        failed++;
       }
-      // 有 matchingDescNums 时什么也不做（正常匹配）
-      // descNumSet.size === 0 时什么也不做（desc 可能纯文字描述）
+      // 否则（偏差在容错范围内），视为通过，避免对自然差异/纯文字描述报错
     }
   }
 
@@ -249,7 +271,11 @@ function checkDescEffectConsistency() {
   return failed;
 }
 
-// ── 掩体多边形凹凸性与自相交检查 ──
+// ── 坦克 hull/turret 多边形简单性检查 ──
+// 底线是"简单多边形"：顶点数 ≥3、坐标有限、面积非零（非退化）、无自相交。
+// 不做凸性要求——设计器用半形对称几何（js/tank_halfgeom.js 半形 + x 轴镜像）生成
+// 完整多边形，车体天然允许内凹造型（车首斜面收窄等），引擎 raycastTank/partCorners
+// 均支持凹多边形；凸性检查会把合法内凹坦克误报为数据错误。
 function checkPolygonIntegrity() {
   let failed = 0;
   const errors = [];
@@ -260,24 +286,6 @@ function checkPolygonIntegrity() {
   if (!fs.existsSync(tanksDir)) {
     console.log('⚡ 没有 tanks/ 目录，跳过多边形完整性检查');
     return 0;
-  }
-
-  function isConvex(verts) {
-    if (verts.length < 3) return false;
-    let sign = 0;
-    const n = verts.length;
-    for (let i = 0; i < n; i++) {
-      const x1 = verts[i][0], y1 = verts[i][1];
-      const x2 = verts[(i + 1) % n][0], y2 = verts[(i + 1) % n][1];
-      const x3 = verts[(i + 2) % n][0], y3 = verts[(i + 2) % n][1];
-      const cross = (x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2);
-      if (cross !== 0) {
-        const currentSign = cross > 0 ? 1 : -1;
-        if (sign === 0) sign = currentSign;
-        else if (sign !== currentSign) return false;
-      }
-    }
-    return true;
   }
 
   function ccw(A, B, C) {
@@ -310,30 +318,42 @@ function checkPolygonIntegrity() {
     return false;
   }
 
+  // 简单多边形检查：返回问题描述数组（空数组 = 合法）
+  function checkSimplePolygon(verts) {
+    const issues = [];
+    if (!Array.isArray(verts) || verts.length < 3) {
+      issues.push('顶点数不足 3');
+      return issues;
+    }
+    let area = 0;
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i];
+      const b = verts[(i + 1) % verts.length];
+      if (!Array.isArray(a) || a.length < 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1])) {
+        issues.push('顶点含非有限坐标');
+        return issues;
+      }
+      area += a[0] * b[1] - b[0] * a[1];
+    }
+    if (Math.abs(area) / 2 <= 0) issues.push('退化多边形（面积为零）');
+    if (isSelfIntersecting(verts)) issues.push('自相交多边形');
+    return issues;
+  }
+
   for (const f of fs.readdirSync(tanksDir).filter(f => f.endsWith('.json')).sort()) {
     try {
       const spec = JSON.parse(fs.readFileSync(path.join(tanksDir, f), 'utf8'));
 
       if (spec.hull && spec.hull.verts) {
-        const convex = isConvex(spec.hull.verts);
-        if (!convex) {
-          errors.push(`${f}.hull: 非凸多边形`);
-          failed++;
-        }
-        if (isSelfIntersecting(spec.hull.verts)) {
-          errors.push(`${f}.hull: 自相交多边形`);
+        for (const issue of checkSimplePolygon(spec.hull.verts)) {
+          errors.push(`${f}.hull: ${issue}`);
           failed++;
         }
       }
 
       if (spec.turret && spec.turret.verts) {
-        const convex = isConvex(spec.turret.verts);
-        if (!convex) {
-          errors.push(`${f}.turret: 非凸多边形`);
-          failed++;
-        }
-        if (isSelfIntersecting(spec.turret.verts)) {
-          errors.push(`${f}.turret: 自相交多边形`);
+        for (const issue of checkSimplePolygon(spec.turret.verts)) {
+          errors.push(`${f}.turret: ${issue}`);
           failed++;
         }
       }
@@ -345,7 +365,7 @@ function checkPolygonIntegrity() {
   if (errors.length) {
     for (const e of errors) { console.error(`✗ ${e}`); }
   } else {
-    console.log('✓ 所有 hull/turret 多边形为凸且无自相交');
+    console.log('✓ 所有 hull/turret 多边形为简单多边形（≥3 顶点、非退化、无自相交）');
   }
   return failed;
 }

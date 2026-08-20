@@ -176,7 +176,7 @@ function renderThumb(canvas, spec){
   ctx.scale(scale, scale);
 
   paintTracks(ctx, hPoly.verts, 0, 0, 0, 1, t.color, 0, { trackWidth: t.trackWidth||8, trackOffset: t.trackOffset||0 });
-  paintPartTexture(ctx, hPoly.verts, 0, 0, 0, 1, t.color, 'hull', { detail:true });
+  paintPartTexture(ctx, hPoly.verts, 0, 0, 0, 1, t.color, 'hull', { detail:true, texture: t.texture });
   const hc = polyCorners(0, 0, 0, hPoly);
   ctx.beginPath(); ctx.moveTo(hc[0].x, hc[0].y);
   for(let i=1;i<hc.length;i++) ctx.lineTo(hc[i].x, hc[i].y);
@@ -185,7 +185,7 @@ function renderThumb(canvas, spec){
   const p = turretPivot(t);
   const tCx = p.x, tCy = p.y;
   paintTurretShadow(ctx, tPoly.verts, tCx, tCy, 0, 1, 5, 7, 0);
-  paintPartTexture(ctx, tPoly.verts, tCx, tCy, 0, 1, t.color, 'turret', { detail:true, heightClass: t.heightClass });
+  paintPartTexture(ctx, tPoly.verts, tCx, tCy, 0, 1, t.color, 'turret', { detail:true, heightClass: t.heightClass, texture: t.texture });
   const tc = polyCorners(tCx, tCy, 0, tPoly);
   ctx.beginPath(); ctx.moveTo(tc[0].x, tc[0].y);
   for(let i=1;i<tc.length;i++) ctx.lineTo(tc[i].x, tc[i].y);

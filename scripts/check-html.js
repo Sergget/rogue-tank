@@ -5,24 +5,20 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
-const { spawnSync } = require('child_process');
+const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
 let failed = 0;
 
 function checkCode(label, code) {
-  const tmp = path.join(os.tmpdir(), `rogue-tank-check-${Date.now()}-${Math.floor(Math.random()*1e6)}.js`);
-  fs.writeFileSync(tmp, code, 'utf8');
-  const r = spawnSync(process.execPath, ['--check', tmp], { encoding: 'utf8' });
-  if (r.status !== 0) {
+  try {
+    new vm.Script(code, { filename: label });
+    console.log(`✓ ${label}`);
+  } catch (err) {
     failed++;
     console.error(`✗ ${label}`);
-    console.error((r.stderr || '').split('\n').slice(0, 12).join('\n'));
-  } else {
-    console.log(`✓ ${label}`);
+    console.error(err.stack || err.message || err);
   }
-  try { fs.unlinkSync(tmp); } catch (_) {}
 }
 
 function checkFileScripts(htmlPath) {
@@ -62,13 +58,14 @@ for (const file of jsFiles) {
   checkCode(rel, fs.readFileSync(full, 'utf8'));
 }
 checkCode('server.js', fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8'));
-for (const scriptFile of ['scripts/test-covers.js', 'scripts/test-tanks.js', 'scripts/test-hitpart.js', 'scripts/test-tankcollision.js', 'scripts/test-nodegen.js', 'scripts/test-camera.js', 'scripts/test-map.js', 'scripts/test-flow.js', 'scripts/test-ai.js', 'scripts/test-revive.js', 'scripts/test-modifiers.js', 'scripts/test-economy.js', 'scripts/test-cards.js', 'scripts/test-boss.js', 'scripts/validate-content.js', 'scripts/audit-content.js', 'scripts/test-extreme-combat.js', 'scripts/test-extreme-geometry.js', 'scripts/test-extreme-model.js', 'scripts/test-extreme-cover.js', 'scripts/test-assets.js', 'scripts/test-audio.js']) {
+for (const scriptFile of ['scripts/test-covers.js', 'scripts/test-tanks.js', 'scripts/test-hitpart.js', 'scripts/test-tankcollision.js', 'scripts/test-nodegen.js', 'scripts/test-camera.js', 'scripts/test-map.js', 'scripts/test-flow.js', 'scripts/test-ai.js', 'scripts/test-revive.js', 'scripts/test-modifiers.js', 'scripts/test-economy.js', 'scripts/test-cards.js', 'scripts/test-boss.js', 'scripts/validate-content.js', 'scripts/test-card-effects.js', 'scripts/audit-content.js', 'scripts/test-extreme-combat.js', 'scripts/test-extreme-geometry.js', 'scripts/test-extreme-model.js', 'scripts/test-extreme-cover.js', 'scripts/test-assets.js', 'scripts/test-audio.js', 'scripts/test-dmgtext.js', 'scripts/test-drone.js', 'scripts/test-abilities.js', 'scripts/test-browser-smoke.cjs']) {
   const full = path.join(ROOT, scriptFile);
   if (fs.existsSync(full)) {
     checkCode(scriptFile, fs.readFileSync(full, 'utf8'));
   }
 }
-for (const rel of ['tank_mvp.html', 'tank_designer.html', 'tank_compare.html']) {
+checkCode('scripts/test-qa.js', fs.readFileSync(path.join(ROOT, 'scripts', 'test-qa.js'), 'utf8'));
+for (const rel of ['index.html', 'tank_mvp.html', 'tank_bench.html', 'tank_designer.html', 'tank_compare.html']) {
   const full = path.join(ROOT, rel);
   if (!fs.existsSync(full)) { console.error(`✗ missing: ${rel}`); failed++; continue; }
   checkFileScripts(full);

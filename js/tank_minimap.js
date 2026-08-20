@@ -40,16 +40,10 @@ function worldRectToMinimap(layout, minX, minY, maxX, maxY) {
 /**
  * 绘制小地图。屏幕空间调用（摄像机变换之外）。
  * @param {CanvasRenderingContext2D} ctx
- * @param {object} opts
- * @param {object} opts.world 世界尺寸 { w, h }
- * @param {object} opts.cam 摄像机（读 viewBounds，需 tank_camera.js 已加载）
- * @param {number} opts.x 小地图框左上角（屏幕 px）
- * @param {number} opts.y 小地图框左上角（屏幕 px）
- * @param {number} opts.w 小地图框宽（px）
- * @param {number} opts.h 小地图框高（px）
- * @param {object[]} [opts.covers] 掩体列表（画点）
- * @param {object[]} [opts.entities] 实体列表（按 team 画标记）
- * @param {number} [opts.alpha] 面板背景不透明度，默认 0.55
+ * @param {any} opts 绘制选项（#26：宽松类型，避免 checkJs 对属性访问误报）：
+ *   opts.world 世界尺寸 { w, h }；opts.cam 摄像机（读 viewBounds）；
+ *   opts.x/opts.y/opts.w/opts.h 小地图框（屏幕 px）；opts.covers 掩体列表；
+ *   opts.entities 实体列表；opts.alpha 面板背景不透明度，默认 0.55
  */
 function drawMinimap(ctx, opts) {
   const world = opts.world;
@@ -82,11 +76,18 @@ function drawMinimap(ctx, opts) {
     }
   }
 
-  // 实体标记：玩家绿 / 友军蓝 / 敌军红
+  // 实体标记：玩家绿 / 友军蓝 / 敌军红；无人机青点（P-17：随行单位，区别于坦克阵营）
   if (opts.entities) {
     for (const e of opts.entities) {
       if (e.hp <= 0) continue;
       const p = worldToMinimap(layout, e.x, e.y);
+      if (e.isDrone) {
+        ctx.fillStyle = '#5ce8ff';
+        ctx.beginPath();
+        ctx.arc(opts.x + p.x, opts.y + p.y, 1.8, 0, 6.2832);
+        ctx.fill();
+        continue;
+      }
       ctx.fillStyle = e.team === 'player' ? '#7ed957'
                     : e.team === 'ally' ? '#5cc8ff'
                     : '#ff5c5c';

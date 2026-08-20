@@ -1,0 +1,11 @@
+{
+  "id": "super_reload",
+  "name": "超级装填",
+  "rarity": "rare",
+  "tags": ["支援"],
+  "desc": "主动装置：激活超级装填，短时间内大幅缩短装填时间，倾泻密集火力。",
+  "effects": [
+    { "type": "ability", "key": "overdrive" }
+  ],
+  "maxStacks": 1
+}

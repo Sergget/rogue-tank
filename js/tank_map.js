@@ -61,23 +61,55 @@ function nodeConfig() {
 }
 
 /**
+ * 节点世界缩放倍率（#24）：nodeScale = 目标倍数 × max(vw/模板w, vh/模板h)。
+ * 目标倍数 = RULES.nodeMap.nodeScale（旧语义，缺省 3），保证节点世界宽高
+ * 各 ≥ 视口 3 倍（面积 ≥ 9 倍）。viewport 由调用方显式注入（mvp 传画布尺寸，
+ * Node 测试传假值）；viewport 缺省时回退旧行为（固定 nodeScale 倍率，如 3）。
+ * @param {any} [viewport] 视口尺寸 { vw, vh }（屏幕 px）；null/undefined = 旧行为
+ * @param {any} [templateDims] 选中模板的原始尺寸 { w, h }
+ * @returns {number} nodeScale（>0）
+ */
+function nodeScaleFor(viewport, templateDims) {
+  const cfg = nodeConfig();
+  const base = cfg.nodeScale || 1;
+  if (!viewport || !(viewport.vw > 0) || !(viewport.vh > 0) || !templateDims || !(templateDims.w > 0) || !(templateDims.h > 0)) {
+    return base;
+  }
+  return base * Math.max(viewport.vw / templateDims.w, viewport.vh / templateDims.h);
+}
+
+/**
  * 生成单个节点。
  * @param {number} index 节点索引（0 起）
  * @param {number} count 一局总节点数
- * @param {object} rng createRNG 实例（调用方传入，保证整局确定性）
- * @returns {object} node
+ * @param {any} rng createRNG 实例（调用方传入，保证整局确定性）
+ * @param {any} [env] 环境注入（#24）：{ viewport: { vw, vh } } —— 视口尺寸决定节点
+ *   世界缩放（宽高各 ≥ 视口 3 倍）；env 缺省/无 viewport 时回退 RULES.nodeMap.nodeScale
+ *   固定倍率（旧行为）
+ * @returns {any} node
  */
-function makeNode(index, count, rng) {
+function makeNode(index, count, rng, env) {
   const cfg = nodeConfig();
-  const scale = cfg.nodeScale || 1;
   const diff = difficultyForIndex(index, count);
+
+  // 视口驱动缩放（#24）：有视口时先按难度预选模板（其 w/h 决定精确倍率），
+  // 再传给 generateNode；无视口时走旧路径（generateNode 内部选择 + 固定 nodeScale）。
+  const viewport = (env && env.viewport) || null;
+  let templateId = undefined;
+  let scale = cfg.nodeScale || 1;
+  if (viewport && viewport.vw > 0 && viewport.vh > 0) {
+    const tpl = pickTemplate(diff, rng);
+    templateId = tpl.id;
+    scale = nodeScaleFor(viewport, tpl);
+  }
 
   // 掩体布局：模板按 scale 放大，世界坐标 (0,0)~(w,h)，中心 (w/2,h/2)
   const templateResult = generateNode(diff, {
     seed: rng.int(0, 1000000),
     scale: scale,
     centerX: 0,
-    centerY: 0
+    centerY: 0,
+    templateId: templateId
   });
   const w = templateResult.w, h = templateResult.h;
   const centerX = w / 2, centerY = h / 2;
@@ -166,16 +198,18 @@ function pointInCover(covers, x, y, padding) {
  * 生成一局：线性节点链。
  * @param {number|string} [seed] 整局确定性种子；缺省随机
  * @param {number} [count] 节点数（缺省 RULES.nodeMap.runNodeCount 或 5）
- * @returns {{ nodes: object[], seed: number|string }}
+ * @param {any} [env] 环境注入（#24）：{ viewport: { vw, vh } } 传给 makeNode；
+ *   缺省 = 旧行为（固定 nodeScale）
+ * @returns {{ nodes: any[], seed: number|string }}
  */
-function generateRun(seed, count) {
+function generateRun(seed, count, env) {
   const cfg = nodeConfig();
   const nodeCount = Math.max(1, Math.min(12, count || cfg.runNodeCount || 5));
   const s = seed !== undefined ? seed : Math.floor(Math.random() * 1000000);
   const rng = createRNG(s);
   const nodes = [];
   for (let i = 0; i < nodeCount; i++) {
-    nodes.push(makeNode(i, nodeCount, rng));
+    nodes.push(makeNode(i, nodeCount, rng, env));
   }
   return { nodes: nodes, seed: s };
 }
@@ -184,11 +218,8 @@ function generateRun(seed, count) {
 
 /**
  * 节点通关得分。
- * @param {object} node 节点数据
- * @param {object} result 战斗结果
- * @param {number} result.damageTaken 本节点玩家承受伤害（0 = 无伤）
- * @param {number} [result.clearMs] 通关耗时（ms）；undefined = 不判速通
- * @param {boolean} [result.outpostAlive] 本节点据点是否存活（无据点节点忽略）
+ * @param {any} node 节点数据
+ * @param {any} result 战斗结果（result.damageTaken / result.clearMs / result.outpostAlive）
  * @returns {{ base:number, bonuses:Array<{label:string, amount:number}>, total:number }}
  */
 function scoreNode(node, result) {
@@ -225,9 +256,9 @@ function scoreNode(node, result) {
  *   env.spawnTank(spec)              —— 生成实体（浏览器：spawnTank 全局；spec 含 id/team/x/y/hullAngle/turretAngle/heightClass）
  *   env.configureTank(tank, tankId)  —— 应用坦克配置（浏览器：applyTankConfig+resetEntity；测试可 no-op）
  *   env.applyDifficulty(tank, statMult) —— 应用数值强度乘数（P-13：敌军 hp/穿深/伤害 随难度涨；测试可 no-op）
- * @param {object} node makeNode/generateRun 产出的节点
- * @param {object} env 运行环境注入
- * @returns {{ spawned: object[], outpost: object|null }}
+ * @param {any} node makeNode/generateRun 产出的节点
+ * @param {any} env 运行环境注入
+ * @returns {{ spawned: any[], outpost: any }}
  */
 function materializeNode(node, env) {
   if (typeof env.setCovers === 'function') env.setCovers(node.covers);
@@ -273,6 +304,7 @@ if (typeof module !== 'undefined' && module.exports) {
     enemyCountForDifficulty,
     aiTierForDifficulty,
     statMultForDifficulty,
+    nodeScaleFor,
     makeNode,
     generateRun,
     scoreNode,

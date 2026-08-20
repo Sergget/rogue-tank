@@ -1,14 +1,26 @@
 #!/usr/bin/env node
 // bake-assets.js — Node 环境一键批量烘焙 assets/ 贴图（P-26 / DEVELOPMENT.md §2.10）。
-// 用 playwright-core + 系统 Edge 加载 tools/bake.html 执行导出逻辑，把 PNG 写到 assets/。
+// 用 playwright（可选工具链依赖）+ 系统 Edge 加载 tools/bake.html 执行导出逻辑，把 PNG 写到 assets/。
+// playwright 未安装时降级：提示改用 tools/bake.html 手动烘焙后退出（不 crash）。
 // CLI：node scripts/bake-assets.js [--force] （--force 全量重烘焙，跳过已存在文件默认跳过）
 // 输出每个资产的路径与大小；退出码 0/1
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
-const { executablePath } = require('playwright');
-const msedge = executablePath(); // 依赖系统已装 Edge (msedge channel)
+
+// playwright 是可选工具链依赖（驱动系统 Edge 无头烘焙）。以运行时字符串动态 require：
+// ① 未安装时捕获异常并降级（见 main() 开头），不 crash；
+// ② 模块说明符不在编译期字面量位置，tsc 不做静态模块解析——typecheck 不再报 TS2307。
+function tryRequire(name) {
+  try {
+    return require(name);
+  } catch (e) {
+    return null;
+  }
+}
+const playwright = tryRequire('playwright');
+const msedge = playwright ? playwright.executablePath() : null; // 依赖系统已装 Edge (msedge channel)
 
 // ── 配置 ────────────────────────────────────────────────────────────────────
 const ROOT = path.join(__dirname, '..');
@@ -53,6 +65,14 @@ function fileExists(p) {
 async function main() {
   const force = process.argv.includes('--force');
 
+  // playwright 缺失（可选依赖）时降级：清晰提示后退出，不 crash。
+  if (!playwright) {
+    console.error('✗ 未安装 playwright 模块（可选工具链依赖，用于驱动系统 Edge 烘焙）。');
+    console.error('  跳过命令行浏览器导出；请改用 tools/bake.html 手动烘焙，');
+    console.error('  或安装 playwright 后重试：node scripts/bake-assets.js [--force]');
+    process.exit(1);
+  }
+
   // 提取 ASSET_DEFS 以知道要导出哪些资产
   let assetDefKeys;
   try {
@@ -66,7 +86,7 @@ async function main() {
   console.log(`发现 ${keys.length} 个资产档位需要烘焙`);
 
   // 启动 playwright browser (系统 Edge)
-  const browser = await require('playwright').chromium.launch({
+  const browser = await playwright.chromium.launch({
     executablePath: msedge,
     headless: 'new'
   });

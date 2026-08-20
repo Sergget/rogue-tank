@@ -1,0 +1,11 @@
+{
+  "id": "tactical_shield",
+  "name": "战术护盾",
+  "rarity": "epic",
+  "tags": ["支援"],
+  "desc": "主动装置：展开战术护盾，短时间吸收来自指定方向或全方向的弹道伤害。",
+  "effects": [
+    { "type": "ability", "key": "shield" }
+  ],
+  "maxStacks": 1
+}

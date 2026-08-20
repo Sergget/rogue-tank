@@ -4,7 +4,7 @@
 'use strict';
 
 const path = require('path');
-const { createRNG, registerTemplate, generateNode, getTemplates } = require('../js/tank_nodegen.js');
+const { createRNG, registerTemplate, generateNode, getTemplates, NODE_TEMPLATES } = require('../js/tank_nodegen.js');
 
 let fails = 0;
 function ok(cond, label) {
@@ -22,26 +22,22 @@ for (let i = 0; i < result1.covers.length; i++) {
   ok(eqCover(result1.covers[i], result2.covers[i]), `种子 ${i} 覆盖一致`);
 }
 
-// 2) 难度权重：diff~1 时 half/barricade 数量增加，diff~0 时 bush/soft 比例提升
-const low = generateNode(0.1, { seed: 1 });
-const high = generateNode(0.9, { seed: 2 });
-let lowHalfFull = 0, lowBushSoft = 0;
-let highHalfFull = 0, highBushSoft = 0;
-for (const c of low.covers) {
-  if (c.tier === 'half' || c.tier === 'full' || c.tier === 'barricade') lowHalfFull++;
-  if (c.tier === 'bush' || c.tier === 'soft') lowBushSoft++;
+// 2) 难度权重：同一模板同一种子下，低难 bush/soft 保留 ≥ 高难（高难把 bush/soft
+//    升级为 barricade 且低难把 barricade 降级为 soft；cullRate=0 屏蔽剔除干扰，
+//    保证逐元素确定性可比）
+for (const tpl of getTemplates()) {
+  const low = generateNode(0.1, { templateId: tpl.id, seed: 7, cullRate: 0 });
+  const high = generateNode(0.9, { templateId: tpl.id, seed: 7, cullRate: 0 });
+  const count = (arr, pred) => arr.filter(pred).length;
+  const lowBushSoft = count(low.covers, c => c.tier === 'bush' || c.tier === 'soft');
+  const highBushSoft = count(high.covers, c => c.tier === 'bush' || c.tier === 'soft');
+  const lowHard = count(low.covers, c => c.tier === 'half' || c.tier === 'full' || c.tier === 'barricade');
+  const highHard = count(high.covers, c => c.tier === 'half' || c.tier === 'full' || c.tier === 'barricade');
+  ok(lowBushSoft >= highBushSoft,
+     `模板 ${tpl.id} 低难 bush/soft(${lowBushSoft}) ≥ 高难(${highBushSoft})`);
+  ok(highHard >= lowHard,
+     `模板 ${tpl.id} 高难 half/full/barricade(${highHard}) ≥ 低难(${lowHard})`);
 }
-for (const c of high.covers) {
-  if (c.tier === 'half' || c.tier === 'full' || c.tier === 'barricade') highHalfFull++;
-  if (c.tier === 'bush' || c.tier === 'soft') highBushSoft++;
-}
-// The test is very sensitive to small numbers. We'll use a different approach:
-// The element ratio adjustment should increase high tier elements based on difficulty.
-// We'll check if high difficulty produces the expected ratio:
-const lowRatio = lowBushSoft > 0 ? lowHalfFull / lowBushSoft : 0;
-const highRatio = highBushSoft > 0 ? highHalfFull / highBushSoft : 0;
-ok(highRatio >= lowRatio || high.covers.length === 0, '高难度 half/full/barricade 比例不少于低难度');
-ok(lowBushSoft > highBushSoft || low.covers.length === 0, '低难度 bush/soft 比例不少于高难度');
 
 // 3) 覆盖范围合法性：坐标 / 尺寸 / tier 存在于 RULES.coverTiers
 const RULES = require('../js/tank_rules.js').RULES;
@@ -54,14 +50,25 @@ for (const c of result1.covers) {
   if (c.collisionVerts) ok(Array.isArray(c.collisionVerts) && c.collisionVerts.length > 0, 'collisionVerts 合法');
 }
 
-// 4) 性能基准：确保合理性（任意标准，如一个模板的下限 <= 覆盖数量 <= 上限）
+// 4) 性能基准与密度下界（#25：模板 12~25 元素，中高难剔除后保留下界 ≥ 8）
 const templates = getTemplates();
+ok(templates.length >= 7, `内置模板数量 ≥ 7（实际 ${templates.length}）`);
+for (const tpl of NODE_TEMPLATES) {
+  ok(tpl.items.length >= 12 && tpl.items.length <= 25,
+     `模板 ${tpl.id} items ${tpl.items.length} 在 12~25 区间`);
+  ok(Array.isArray(tpl.tags) && tpl.tags.length > 0, `模板 ${tpl.id} 有 tags`);
+  const tiers = new Set(tpl.items.map(it => it.tier));
+  ok(tiers.size >= 4, `模板 ${tpl.id} 混合 ≥4 种 tier（${[...tiers].join('/')}）`);
+}
 for (const tpl of templates) {
-  const minItems = 0; // 保守起步，无硬性下限
-  const maxItems = 20; // 上限保守，实际多数模板 < 15
+  const maxItems = 30; // #25：单模板最多 25 元素，低难剔除后仍 ≤ 30
+  const minItems = 8;  // #25：中高难剔除率低（≤0.044），保留数下界
   const lowDiff = generateNode(0.1, { templateId: tpl.id, seed: 1 });
-  ok(lowDiff.covers.length >= minItems && lowDiff.covers.length <= maxItems,
-     `模板 ${tpl.id} 覆盖数量 ${lowDiff.covers.length} 合理`);
+  ok(lowDiff.covers.length >= 1 && lowDiff.covers.length <= maxItems,
+     `模板 ${tpl.id} 低难覆盖数量 ${lowDiff.covers.length} 合理（≤30）`);
+  const highDiff = generateNode(0.9, { templateId: tpl.id, seed: 1 });
+  ok(highDiff.covers.length >= minItems,
+     `模板 ${tpl.id} 高难覆盖数量 ${highDiff.covers.length} ≥ ${minItems}`);
 }
 
 // 5) 预损毁状态过渡：tree→stump/fallen, barricade→rubble

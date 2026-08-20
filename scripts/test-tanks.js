@@ -8,6 +8,13 @@ const path = require('path');
 const H = require('../js/tank_halfgeom.js');
 const RULES_MOD = require('../js/tank_rules.js');
 
+// 表面纹理键（P-27）：优先取 tank_paint.js TEXTURE_DEFS（单一来源），require 失败时静态兜底
+let TEXTURE_KEYS = ['none','armor_plate','weld_seam','rust','camo'];
+try {
+  const PAINT = require('../js/tank_paint.js');
+  if (PAINT && PAINT.TEXTURE_DEFS) TEXTURE_KEYS = Object.keys(PAINT.TEXTURE_DEFS);
+} catch (e) { /* 静态列表兜底 */ }
+
 const TANKS_DIR = path.join(__dirname, '..', 'tanks');
 let fails = 0;
 function ok(cond, label){
@@ -83,6 +90,13 @@ for(const f of files){
     }
   } else {
     ok(true, `${f}: 无 modules 字段（旧数据，允许）`);
+  }
+
+  // 表面纹理：可选字段；存在时必须是 TEXTURE_DEFS 已知键（缺省 none）
+  if(spec.texture !== undefined){
+    ok(TEXTURE_KEYS.includes(spec.texture), `${f}: texture 为已知纹理键 (${spec.texture})`);
+  } else {
+    ok(true, `${f}: 无 texture 字段（缺省 none，允许）`);
   }
 }
 

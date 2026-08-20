@@ -16,6 +16,7 @@
   "trackOffset": 0,
   "spreadMult": 1,
   "aimSpeed": 0.15,
+  "texture": "rust",
   "barrel": {
     "len": 110,
     "width": 22,

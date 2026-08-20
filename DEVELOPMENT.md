@@ -46,6 +46,12 @@
   - 据点本身**不是**保护目标/失败条件的一部分（失败条件见下）。
   - 友军击杀敌人 → **玩家获得该击杀分数的一半**（记分接口开放问题 4 非阻塞，见 §4）。
 - **伴随机器人（浮游炮）**：卡牌获取的随行单位，提升玩家火力通道，不是独立的"友军据点"概念，两者不合并设计。
+- **无人机体系（P-17 子目标 4，2026-08-20 阶段 2 定型并实现纯逻辑层，见 §3.21）**：两种无人机（kind 与 `tank_cards.js` `DRONE_KINDS` 一致）——
+  - `scout` 侦察：不攻击，`droneIndicators` 输出**视口外敌军指示**（`scoutRange`=700px 内、`aabbInView` 语义剔除），供战场边缘箭头/小地图标记消费（mvp 绘制接线为阶段 3）；
+  - `striker` 打击：近身自动索敌（`strikeRange`=260px 内最近、hp>0、非无敌目标），独立 `fireInterval`=2s 计时输出 `{type:'droneFire'}` 事件——**不消耗玩家炮弹、不受玩家装填影响**，伤害 = `dmgMult`×0.4 × `owner.stats.damage`（阶段 3 结算层执行，复用 `fireTank` 或直接伤害）；
+  - 环绕：`orbitDist`=90px 圆周 + `orbitSpeed`=1.2rad/s 相位推进 + 指数阻尼跟随（`orbitLerp`=6），owner 位移天然跟随；
+  - 生命周期：`countMax`=2 超限**拒绝部署**（不替换最旧）；owner 阵亡自动移除；`clearDrones(owner)` 清场（enterBattle/reset）；实体挂模块级 `drones` 数组（单一数据源），需要时经 `spawnDrone` 的 `opts.registry` 显式镜像进 `entities` 注册表。
+  - **mvp 接入（P-17，2026-08-20，见 §3.22）**：`pickCard` 部署 / `updateDrones` 战斗循环 / `droneFire` 事件结算（复用伤害管道）/ 視口外指示箭头 + 小地图标记 / `entities` 镜像与 `isDrone` 守卫（resolveTankCollisions L72 / AI 循环 L1243 / 绘制 L1775）/ 死亡清 `clearDrones` / 复活后 `deployDronesFromCards`。
 
 ### 2.3 死亡 / 复活 / 失败
 - 死亡为**永久性**（真正 Roguelike 式）。
@@ -91,6 +97,19 @@
    - **仅正式 `half` 掩体参与插值**；stump/rubble 等其他 graduated 残骸保持旧行为（永远留在候选列表）。`RULES.heights.cover.half` 缺失时不插值（保守回退旧行为）。
    - **不受影响**：炮塔恒露（zMin ≥ 1.2，插值在恒露 clamp 之后）、solid/single 确定性格挡、16px 方向判据、多掩体乘数路径。
    - 实现于 `getExposure`（`js/tank_cover.js`）；函数签名不变，所有消费点（mvp 预测面板 / 实弹判决 / 飞行）走同一函数自动生效。行为变化：贴半高掩体射击（射手距掩体入口 < 约 1/3 射程）车体可越掩命中——这是实验目的；`scripts/test-covers.js` 新增 5f 用例组（贴掩体越掩 / 拉开仍挡 / 重坦 / 炮塔恒露 / 临界点连续性）。
+8. **烟幕 = 动态区域视线掩体（P-17 子目标 2 已定型并实现，2026-08-20）**：烟雾是**动态、区域化**的 `vision` 掩体，与静态灌木/树冠互补——
+   - **只遮挡视线、不遮挡弹道**：`hasLineOfSight`（`js/tank_cover.js`）穿越烟雾云即返回 false（AI 索敌被阻断）；`getExposure` 不受影响（弹道照穿，`mode:'none'` 语义）。
+   - **对区域遮挡，不是"持卡即全图隐身"**：由 `smokeClouds` 数组维护各团烟雾（`{x, y, radius, life, maxLife}`），线段-圆距离判定，半径/时长/上限收口 `RULES.smoke`。
+   - **命名决策**：核心函数 `spawnSmokeCloud`（`js/tank_cover.js`），避开 `tank_fx.js` 的粒子 `spawnSmoke`（弹道烟迹视觉粒子）的全局同名冲突；视觉渲染由接入层消费 `smokeClouds` 绘制。
+
+### 2.6 弹种系统：多弹种物理化（P-16 已定型并实现，2026-08-19）
+- **弹种表 `RULES.ammoTypes`**（`js/tank_rules.js`，机制参数唯一配置源，必须最先加载）：四弹种 ap / apcr / heat / he（heat/he 为 P-16 新增，ap/apcr 既有不动）。字段：`label` 显示名 / `color` HUD 色点 / `tail` 弹道拖尾 + 战斗系数 `speed`×飞速 / `pen`×穿深 / `dmg`×伤害 / `spread`×散布（缺省 1）/ `noBounce` 确定性不跳弹 / `splashRadius` HE 爆炸半径（px）——逻辑范围伤害与爆轰特效共用同一数值。
+- **HEAT 破甲弹（`heat`）**：`{ speed 0.8, pen 1.4, dmg 1.0, spread 1.2, noBounce }`——**散布惩罚换穿深**：1.2× 散布（弹道更散）换 1.4× 穿深、0.8× 飞速；确定性不跳弹。
+- **HE 高爆弹（`he`）**：`{ speed 0.95, pen 0.7, dmg 1.0, noBounce, splashRadius 90 }`——低穿深高爆；确定性不跳弹；命中即爆轰（击穿与未击穿两支都爆）。
+- **noBounce 确定性不跳弹**：入射角 >70° 时跳过跳弹与角度 BLOCK 分支，直接按穿深判定——HEAT 高穿深仍可击穿；HE 走未击穿爆轰分支（残余爆轰伤害 `dmg × max(0.25, 0.5 × pen/eff)`，装甲吸收爆轰残余能量扣血，地板 25%）。AP/APCR 保持原跳弹语义（>70° 反射，二次跳弹仍不允许）。
+- **HE 范围溅射（`splashRadius`）**：命中点对周围实体施加 `dmg × (1 − dist/radius) × 0.5`——贴脸 50%、边缘衰减到 0；友军/敌军一视同仁（不做阵营区分）；无敌（invuln/invulnT）与已摧毁目标免疫；主目标由主命中结算、不重复扣血（`applySplashAt`，走 entities 全局注册表）。
+- **HE 破障（A3 保持独立）**：HE 弹销毁瞬间对落点半径 24px 内可破坏元素造成 1 点溅射伤害（`RULES.breach.heSplashRadius`），与 90px 坦克溅射是**两套并存**（前者只作用于掩体、后者作用于实体，见 2.7）。
+- **特效对齐约定**：HE 爆轰视觉特效半径与逻辑 splashRadius 严格一致（`burstExplosion` scale = splashRadius/40；`tank_fx.js` `spawnShockwave` maxR = 40×scale），杜绝"特效看着大/实际炸得小"的视觉误导。
 
 ### 2.7 地图元素：树 / 灌木 / 可破坏掩体（本次会话新增，A1~A3 已实现）
 
@@ -115,13 +134,13 @@
 - **"越打越平"残骸链**：树 → 倒树（横躺树干+树冠，**终态**：不挡弹不挡路、不可再毁、不可碾毁，纯视觉残留）；沙袋 → 碎石 → 碾毁。破坏不会无脑给纯收益，战场随对抗逐步夷平/清空。树桩已从残骸链移除（死配置保留于 `RULES.coverTiers`，见矩阵行标注）。
 - **掩体几何支持任意多边形（2026-08-13，为贴图做准备）**：`covers` 实例带 `verts`（局部坐标顶点数组，长度≥3）时，全部角点计算走 `coverCorners` → `polyCorners`（`js/tank_cover.js`），否则回退矩形 `partCorners`（w/h 半宽半高）；`coverNormalAt`/`getCoverUnderTank`/`resolveCoverCollisions`/`findCoversOnPath` 与 `drawCover` 均按顶点数通用（边循环 `(i+1)%corners.length` 回绕），OBB/SAT 辅助（getOBBAxes/projectOBB/obbOverlap/obbMTV）本就对任意顶点数无假设。残骸化时 `delete cov.verts`（残骸按矩形 w/h 表现）；快照/重置（snapshotCovers/resetCovers）含 verts。对于 L 形凹多边形等复杂掩体，支持多凸包碰撞（`collisionVerts`）：若有 `collisionVerts` 则返回各子凸多边形（凸包）由 `coverCollisionParts` 计算各自的碰撞角点数组用于坦克碰撞与落底判定（`getCoverUnderTank` / `resolveCoverCollisions`），否则 fallback 到单一块的 `coverCorners` 凸轮廓，解决了坦克在凹多边形口袋内被隐形边界卡住的问题。mvp 内置 2 个验证实例：L 形凹多边形全高掩体 @ (250,650)、六边形半高掩体 @ (700,650)。已经解决坦克在口袋内或口袋边缘等视觉空余区被隐形边界卡住的问题，并在 `scripts/test-covers.js` 添加了完整回归测试，验证化合物物理凸包在 OBB SAT 判定下的精准动作。
 - **软掩体的价值在减速区**：挡不住弹（穿透），但压过即毁且以 0.45 通行系数惩罚坦克——"用一发弹药买一条进攻路线"成为明确抉择。
-- **A3·HE 破障**：HE 弹命中（任意形式销毁）时对落点半径 24px 内的可破坏元素造成 1 点溅射伤害（`RULES.breach`），可同时清理一排栅栏/残骸；**只作用于掩体，不对坦克溅射**（HE 对坦克仍是纯倍率，见 5.4）。
+- **A3·HE 破障**：HE 弹命中（任意形式销毁）时对落点半径 24px 内的可破坏元素造成 1 点溅射伤害（`RULES.breach`），可同时清理一排栅栏/残骸；**只作用于掩体，不对坦克溅射**（对坦克的 90px 溅射与未击穿残余爆轰由 P-16 单独实现，见 §2.6——破障 24px 与坦克溅射 90px 两套并存）。
 - **A3·路障跳弹**：弹丸与沙袋路障碰撞时复用坦克跳弹逻辑（>70° 反射，一次反射后 `canBounce=false`），跳弹不消耗路障耐久——斜向的沙袋是可以"弹走"的。
 - 树为不可压毁（树干挡路，同建筑），只能炮弹伐倒，**树耐久 1 → 一发即倒**（伐倒后倒树仍不可压毁，见上）；灌木不可摧毁。
 
 ### 2.8 已明确排除 / 延后的机制（历史）
 - 曾被提出并最终排除/延后的机制（无限波次、低矮掩体、1/2/0 部位锁定、友军防线回避区、3D 顶点装甲模型回退）的完整原文见 `ARCHIVE.md`（2026-08-13 归档自 DEVELOPMENT.md §2.8）。
-- 其中两条后续指引仍有效：**1/2/0 按键位仍预留给未来"弹种切换"**（AP/APCR/HE 等，非部位锁定）；**3D 装甲模型回退后**，若未来要做"特殊 Boss 专属弱点"之类的差异化机制，应作为独立特例实现，不作为全体坦克的标配系统。
+- 其中两条后续指引仍有效：**1/2/0 按键位仍预留给未来"弹种切换"**（AP/APCR/HE 等，非部位锁定；**P-16 已落地**为数字键 1/2/3/4 → ap/apcr/he/heat，见 §2.6）；**3D 装甲模型回退后**，若未来要做"特殊 Boss 专属弱点"之类的差异化机制，应作为独立特例实现，不作为全体坦克的标配系统。
 
 ### 2.8b QA 与测试脚本规范（新增）
 本节记录测试脚本的质量保证要求，确保项目各模块测试代码的健壮性、安全边界覆盖和规范一致性。
@@ -227,6 +246,7 @@
 - `generateRun(seed, count, env)`：一局 = 线性节点链（无分支，§2.1），节点数 `RULES.nodeMap.runNodeCount`（5）；`makeNode(index, count, rng, env)` 每节点 =
   - **掩体布局**：复用 `generateNode`（P-05）并加 **`scale` 选项**（`tank_nodegen.js`，模板 w/h 与元素位置/尺寸/verts 同倍率放大；scale=1 零行为变化）。**视口驱动缩放（2026-08-19，#24 修复）**：`makeNode`/`generateRun` 显式注入 `env.viewport = { vw, vh }`（mvp 传画布尺寸、Node 测试传假值；纯逻辑可测）时，先经 `pickTemplate(diff, rng)`（nodegen 导出的难度加权选择）预选模板，再算 `nodeScaleFor = RULES.nodeMap.nodeScale(3) × max(vw/模板w, vh/模板h)` → 节点世界宽高各 ≥ 视口 3 倍（面积 ≥ 9 倍：1280×720 → ≥3840×2160、1920×1080 → ≥5760×3240）；env 缺省回退旧行为（固定 nodeScale=3，约 700×400 → 2100×1200）。敌军/据点散布区域按 w/h 比例（右 2/3、左 1/4）随世界放大，间距约束保持绝对 px（`enemyMinDist`/`enemyMinPlayerDist`）。
   - **内置模板（2026-08-19，#25 修复）**：`NODE_TEMPLATES` 由 5 个扩到 **7 个**（新增 `village_center` 村落中心广场 mid/high、`woodland_line` 林地战线 high），单模板 items 12~25 个（树/灌木/沙袋/栅栏/半高/全高混合，体现 开阔走廊/密林阵地/城镇街区/交叉火力广场/混合障壁/村落中心/林地战线 地貌）；剔除率随难度递减 `cullRate = rng.range(0, 0.12) × (1 − 0.7·diff)`（diff=1 → ≤0.036、diff=0 → ≤0.12，高难保留更多元素、低难仍可稀疏）；确定性（种子 RNG）不破坏。
+  - **水体/桥梁（P-20 部分落地，2026-08-20）**：`generateNode` 以 `waterBridgeChance = diff×0.5` 概率随机插入 1 组水体/桥梁组合（`tier:'water'` 不可通行 `move:0`、`tier:'bridge'` 通道 `move:1`，RULES.coverTiers）。**边界约束（ISSUES #62 修复，2026-08-20）**：① 水体尺寸封顶到节点宽高 40%——原始尺寸区间 `[300,800]×[200,500]` 相对模板（700~860）本就占 35%~114%，scale 后会把大半个战场吞掉并耗尽敌军/据点拒绝采样 guard（`pointInCover` 排斥）；② 偏移按「模板单位 × scale」约定采样一次（旧实现先按世界尺寸算 maxDx 再乘 scale，双重缩放把水体/桥梁中心推出节点界，legacy scale=3 下实测越界 +348px~−3480px）；③ 桥梁 y 偏移钳制在节点半高内（水体贴近上缘时防越界）。legacy（scale=3）与视口模式两条路径下生成掩体均落在 [0,w]×[0,h] 内。
   - **难度曲线（初版，§6 条目 12 的细化另行定表）**：`difficultyForIndex = 0.15 + 0.8·t^1.25`（t=index/(count−1)，单调 0.15→0.95，后段加速）。
   - **敌军构成**：数量 `1 + floor(diff·4)`（1~4）；tankId 取自 `RULES.nodeMap.enemyTankPool`（默认 `['dummy']`，车型多样性里程碑扩充）；重坦占比随难度（diff>0.6 或 35% 概率）；散布在右 2/3 区域，拒绝采样避开掩体包围盒（+60px）、彼此 ≥`enemyMinDist`、离玩家出生点 ≥`enemyMinPlayerDist`。
   - **友军据点**：概率 `outpostChance`（0.7）出现在左侧友军区（x ∈ [0.12w, 0.30w]），远离敌军与出生点。
@@ -271,6 +291,7 @@
 **稀有度与流派**：稀有度 4 档 `common/rare/epic/legendary`（抽卡权重 50/30/15/5）；流派 5 个标签 `重甲/狙击/机动/爆破/支援`（构筑方向，可多标签）。**内容规模已落地（会话 25b5b25d 产出）：111 张卡**（common 55 / rare 34 / epic 16 / legendary 6，占比 49.5/30.6/14.4/5.4%，5 流派各 21~23 张），覆盖 6 类效果（modifier 101 / ammo 17 / ability 8 / passive 8 / economy 5 / drone 1）。
 
 **模块与工具**：`js/tank_cards.js`（纯逻辑：`validateCard`/`validateCardSet`/`applyCardEffects`/`drawCardChoices`/`cardStackCount`/`weightedRarity`）；`scripts/validate-content.js`（内容 schema 守门，挂 `npm test`）+ `scripts/audit-content.js`（稀有度/流派/效果类型分布与数值极值审计，`--strict` 按阈值失败）；`tools/content_designer.html`（卡牌+Boss 统一编辑器，表格化编辑 effects、保存写回 JSON）；子 agent `@card-author`/`@balance-auditor`。mvp 的节点间三选一已接真实卡池（`/api/cards` → `drawCardChoices` 抽 3 → `applyCardEffects`）。
+- **运行时消费（P-17）**：`modifier` 立即生效走 base/modifiers/stats 管道；`ability`/`passive`/`drone`/`economy` 效果挂 `tank.cardEffects`（`{type, key/kind, cardId}`），由对应里程碑按键接入消费（ability→`js/tank_abilities.js` 统一入口+cd；drone→`js/tank_drone.js`；详见 §3.22）。
 
 ### 2.14 Boss 系统（数据驱动，P-09 已实现，2026-08-15）
 
@@ -313,7 +334,7 @@
 - **数值临时调整控件**（`devOverrides`）：实时改穿深 / 伤害 / 装填 / 极速 / 马力，每帧写回 `player.stats`，一键重置（L439-462）；
 - 卡牌列表 / 修饰器列表查看（开发期辅助）。
 
-**弹种 4（HEAT）**：数字键 4 当前仅提示未接入——`RULES.ammoTypes` 暂无 heat，正式接入随 P-16（§6 条目 16）。
+**弹种 4（HEAT）**：数字键 4 切换 HEAT（P-16 已接入，见 §2.6/§3.19）——heat 系数 1.4×穿深 / 0.8×速 / 1.2×散布 / 确定性不跳弹。
 
 ---
 
@@ -412,6 +433,10 @@
 - **内容工具**：`scripts/validate-content.js`（schema 守门，挂 `npm test`）+ `scripts/audit-content.js`（分布/数值审计）+ `tools/content_designer.html`（卡牌+Boss 统一编辑器，effects/stages 表格化编辑、保存写回 JSON）。
 - **子 agent**：新增 `@card-author`（卡牌作者）/ `@boss-author`（Boss 作者）/ `@balance-auditor`（平衡审计）三角色（`.opencode/agents/`）。
 - **验证**：`scripts/test-cards.js` / `test-boss.js` / `validate-content.js` 挂进 `npm test`（现共 17 套全绿）；`/api/cards`/`/api/bosses` 端点 HTTP 200；vm 运行时冒烟覆盖「开局→清敌→结算→真实抽卡→选卡→stats 生效→下一节点」（临时脚本，未入库）。
+- **内容校验修正（2026-08-20，ISSUES #59，31 项误报清零）**：`scripts/validate-content.js` 两处误报修复，校验能力未放松——
+  1. **desc/Effect 数字一致性按 effect 语义分支**（原逻辑一律按乘法乘数 `(value−1)×100` 期望）：`modifier`/`ammo` `mode=add` → 期望 desc 数字 ≈ value 绝对量（+10mm → 10）；`mode=mult` → ≈ `(value−1)×100`（0.85 → −15），且 value<1 的缩减乘数允许 desc 写正数（「散布缩小 15%」）；`economy` scoreMul 乘数 / shopDiscount 小数（0.1 → +10%）/ startScore·reviveCount 绝对量；`passive` angle_boost·commander_sight 直接数值、overmatch·reactive_armor·spall_liner 阈值/标志/系数跳过；ability/drone 无数值期望跳过。同期望值 effect 共享 desc 数字匹配池（「整车等效厚度 +30%」合法覆盖 hull+turret 两个 ×1.3）；无 ±5 匹配时仅最近数字偏差（绝对值 >20 或相对 >50%）才报错（「缩圈更快」纯文字描述不误报）。
+  2. **坦克 hull/turret 多边形凸性检查 → 简单多边形检查**（顶点 ≥3、坐标有限、面积非零、无自相交）：引擎与设计器半形对称几何（`js/tank_halfgeom.js`）天然支持合法凹车体（Leapard_1 / Obj 780 / tiger-I 实测 raycastTank 正常），凸性检查属误报。
+  真实不一致仍可检出（验证用例：desc +15 vs mult 1.5 → 报错；自交/零面积多边形 → 报错；临时用例测完即删）。
 
 #### 3.9 内容批量 + Boss 运行时接入（P-09 阶段 B，2026-08-15 会话；设计见 §2.13/§2.14）
 - **卡牌批量 111 张**：5 个 `@card-author` 子 agent 并行产出（重甲/狙击/机动/爆破/支援 各 20 张 + 既有 11 张），稀有度实测 49.5/30.6/14.4/5.4%（期望 50/30/15/5），流派各 21~23 张；`validate-content.js` + `audit-content.js --strict` 全绿。
@@ -477,12 +502,50 @@
 - **伤害飘字**：新模块 `js/tank_dmgtext.js`（纯逻辑双端导出：dmgTexts / DMG_TEXT / spawnDmgText / updateDmgTexts / drawDmgTexts，life 0.9s / rise 30px / 五色语义，见 §2.15）；`scripts/test-dmgtext.js`（13 断言）挂进 `npm test`（现共 **23 套**）与 check-html 冒烟清单；mvp / bench 两页接线——DOT 灼烧橙（L1125）、跳弹蓝（L1299）、击穿 / HE 黄伤害数（L1309）、未击穿白（L1311）；`js/tank_physics.js` `applyModuleDamage` 返回值补 `dmg` 字段。
 - **玩家状态面板**：TAB 切换 `#statusPanel`（L193/411-425），读 `player.stats` 显示火力 / 机动 / 散布 / 装甲分布。
 - **开发者面板**：F12（或反引号键）切换 `#devPanel`（L206/428-465）——超级精度开关（`devAim.zeroSpread`：开火 sigma 归零 L894 + 每帧缩圈 L1064）、数值临时调整控件（`devOverrides` 实时改穿深 / 伤害 / 装填 / 极速 / 马力 + 重置，L439-462）、调试日志 / 发射解算收纳。
-- **弹种 4（HEAT）**：数字键 4 仅提示（`RULES.ammoTypes` 暂无 heat），正式接入随 P-16（§6 条目 16）。
+- **弹种 4（HEAT）**：数字键 4 切换 HEAT（P-16 已接入，见 §2.6/§3.19）。
 - **验证**：`npm run check` 全绿（语法 + typecheck + 5 页面冒烟，§3.16 提及的 index.html/tank_bench.html 注册缺失已消除）；`npm test` 23 套全绿（含 test-dmgtext）；`npm run test:browser` 15 项全绿。
+
+#### 3.18 烟幕射击（P-17 子目标 2，2026-08-20 会话；设计见 §2.5 第 8 条）
+- **核心逻辑（`js/tank_cover.js`）**：动态区域烟雾——`smokeClouds` 数组（每团 `{x, y, radius, life, maxLife}`）+ `spawnSmokeCloud(x, y, radius, durationSec)`（参数缺省读 `RULES.smoke`，达 `maxClouds` 上限滚动丢弃最早一团）+ `updateSmoke(dt)`（逐帧递减 life、到期 splice 移除、返回是否仍有烟）+ `clearSmoke()` + `smokeBlocksLoS(ox, oy, tx, ty)`（线段-圆距离判定）；`hasLineOfSight` 已接入烟雾检查（射线穿越烟雾云 → false，在灌木/树冠 `vision` 检查之后）。纯逻辑可 Node 测，视觉渲染由接入层消费 `smokeClouds` 绘制。
+- **配置（`js/tank_rules.js`）**：`RULES.smoke = { radius: 120, duration: 5, maxClouds: 8 }`（见 §5.5）。
+- **AI 回滚（`js/tank_ai.js`）**：旧的坏逻辑（持卡即全图隐身）已删除；AI 走 `ctx.hasLoS`（mvp `tank_mvp.html:1154` 传 `hasLineOfSight`）→ 烟雾自动阻断 AI 索敌，无需 AI 层特判。
+- **mvp 接线（`tank_mvp.html`）**：
+  - F 键发射烟幕弹（`tryFireSmoke`/`fireSmokeShell`，玩家专属，与 `fireTank` 分离不共享弹种表）：速度 `shellSpeed×0.7`、装填 `stats.reload×0.8`、pen/dmg 恒 0、`canBounce:false`、散布 sigma×1、保留炮管贯穿掩体检测同口径。
+  - `shells.forEach` 的 `ammoKey==='smoke'` 分支（L1256）：在任意终结条件处 `spawnSmokeCloud(detX, detY)` 引爆——坦克接触（敌对目标 raycast，不伤害）/ solid·single 掩体命中 / 半高掩体垂直判决拦截 / 射程耗尽 / 出界；不 `damageCover`、不 `resolveHit`。
+  - `update(dt)` 内调 `updateSmoke(dt)`（L1475，受 simulating 门控）；`draw()` 在 `drawFoliage` 之后渲染径向渐变灰团（alpha 随 `life/maxLife` 淡出、`aabbInView` 剔除）；`enterBattle`/reset 时 `clearSmoke()`（L516/789）；HUD 提示条含 `· F 烟幕弹`。
+- **测试（`scripts/test-covers.js`）**：新增 32/33 两组共 11 条烟雾断言（穿烟遮视线 / 偏离畅通 / 不遮弹道 getExposure=1 / 到期消散 / 上限 8 / 清空）——全绿。
+- **验证**：`node scripts/test-covers.js` 全绿、test-ai 全绿、`npm run check` 语法冒烟全过（typecheck 仅 2 个预存在 bake-assets.js TS2307）、浏览器冒烟 ALL PASS。
+
+#### 3.19 弹种系统：HEAT/HE（P-16，2026-08-19 会话；设计见 §2.6）
+- **配置源**：`js/tank_rules.js` `ammoTypes` 四弹种表（ap/apcr/heat/he，heat/he 为 P-16 新增；数值见 §5.5 弹种行）。
+- **resolveHit 消费路径（`js/tank_physics.js`）**：`shellAmmoKey(shell)`（`shell.ammoKey` 优先，回退 `shell.ammo.key`）取弹种 → `ammoCfg.noBounce` 跳过跳弹（θ>70°）与角度 BLOCK 分支，直接按穿深判定（L59-89）→ `splashRadius>0` 时**击穿/未击穿两支都触发** `applySplashAt`（entities 注册表范围衰减伤害）并附 `res.splash` 元数据（L92-128）；HE 未击穿残余爆轰 `dmg × max(0.25, 0.5×pen/eff)`（确定性公式，不做随机；无敌目标不扣血，L99-105）。
+- **mvp/bench 接线（`tank_mvp.html` / `tank_bench.html`）**：`fireTank` 按 `RULES.ammoTypes[shooter.ammoKey] || RULES.ammoTypes.ap` 消费弹种系数（pen/speed/dmg/spread/noBounce/splashRadius，L892-893），`ammoKey` 随弹携带供 resolveHit 判定（L914）；**数字键 1/2/3/4 切弹种**（`AMMO_KEYS = {'1':'ap','2':'apcr','3':'he','4':'heat'}`，L354，HUD `#ammoIndicator` 色点+标签）；预测面板随弹种修正（穿深 ×ammo.pen、noBounce 弹种过陡角不跳弹，L1072-1073）；HE 破障 `splashCoversAt(s.x, s.y, RULES.breach.heSplashRadius)`（L1471）；HE 爆轰特效 `burstExplosion` scale = splashRadius/40 与逻辑半径严格一致（L1434-1440）。
+- **验证**：`scripts/test-extreme-combat.js` §12 组（12.1~12.7）7 项边缘断言——表结构与系数（heat pen 1.4/speed 0.8/spread 1.2/noBounce、he pen 0.7/speed 0.95/splashRadius 90/noBounce、ap/apcr 未动）、HEAT θ=75° 大角度不跳弹直接击穿（dx/dy 不被反射、canBounce 不消耗）、HEAT 1.4× 穿深击穿对照（基准 100→140 vs 正面 110）、HE 不跳弹 + splash 元数据、HE 未击穿残余爆轰（公式可验/地板 0.25/无敌免疫）、HE 范围溅射（近距衰减/边缘 0/半径外无伤/主目标不重复）、AP/APCR 跳弹回归；`npm test` 全绿；浏览器冒烟 `scripts/test-browser-smoke.cjs` 断言「数字键 4 切换 HEAT（P-16 实装）」。
+
+#### 3.20 数据/工具链修复（2026-08-20 会话）
+- **水域 tier 描边色合法化（`js/tank_rules.js:91`）**：`coverTiers.water.stroke` 原为 `'#3b8esl'`（`s`/`l` 非法十六进制字符，Canvas 忽略该描边），改为 `'#409ce1'`——与 fill `rgba(64,156,225,0.5)`（= #409CE1）同色系的水域蓝，行尾注释标注。
+- **test-audio.js 断言动态化（`scripts/test-audio.js`）**：P-21 M2 升级后 SOUND_DEFS 从 8 键扩展至 **13 键**（新增 engine/trackFx/flyby/ammoBlewAP/ammoBlewHE），旧断言「恰有 8 键且无多余键」失效（2 项失败）。改为动态对齐：① 键数 ≥ 历史基线 8（只增不减）；② 8 个历史必需键仍在（旧调用方 `playSound('fire')` 等兼容性保障）；③ 键名无重复；④ 每键参数完整性由 `validateSoundDefs`（0 问题）+ 逐键结构抽查（label 非空 / bus 分级 / layers 非空 / gain>0 / 每层 dur·gain>0）覆盖。
+- **bake-assets.js 可选依赖降级（ISSUES #61 完结，`scripts/bake-assets.js`）**：playwright 是可选工具链依赖；改为 `tryRequire('playwright')`（模块说明符走运行时字符串，tsc 不做静态解析——两个 TS2307 消失，`npm run typecheck` 0 错误）。未安装时打印提示（改用 `tools/bake.html` 手动烘焙）并退出码 1，不 crash；已安装时行为不变（`playwright.chromium.launch({ executablePath, headless:'new' })` 驱动系统 Edge）。
+- **验证**：`node scripts/test-audio.js` 84 断言全绿（exit 0）；`node scripts/bake-assets.js` 降级路径提示 + exit 1 无异常；`npm run check`（语法冒烟 + typecheck）全绿。
+
+#### 3.21 无人机体系（P-17 子目标 4 阶段 2，2026-08-20 会话；设计见 §2.2）
+- **纯逻辑 `js/tank_drone.js`**（无 DOM/Canvas，Node 可测）：模块级 `drones` 数组为单一数据源（镜像 `tank_dmgtext.js` 的 `dmgTexts` 惯例）；实体字段契约 `{id:'drone:<n>', isDrone:true, kind:'scout'|'striker', team:owner.team, owner, x, y, hp, maxHp, _dead, orbitPhase, fireT}`。
+  - `spawnDrone(owner, kind, opts)`：kind 缺省/非法 → `striker`（兼容旧数据）；`countMax` 超限拒绝返回 null（不替换最旧）；`opts.registry` 显式镜像进 `entities` 注册表（阶段 3 接线用；届时需给 `resolveTankCollisions`/`aiDecide` 循环补 `isDrone` 跳过守卫——无人机无 hull 几何字段）；`opts.phase` 可指定初始环绕相位（确定性测试）。
+  - `updateDrones(dt, ctx)`：环绕（相位推进 + 指数阻尼 `k=1−exp(−orbitLerp·dt)` 收敛，不依赖 `driveTank`）；striker 索敌（`ctx.enemies` 或 `ctx.entities` 阵营过滤；strikeRange 内最近、hp>0、`invulnT<=0` 目标）；`fireT` 仅在有效目标存在时累积，到 `fireInterval` 输出 `{type:'droneFire', drone, target, damage}` 并归零；**目标丢失 → fireT 冻结不清零**（重新锁定延续剩余计时）；owner 阵亡 → 自动移除；dt<=0 无操作。
+  - `droneIndicators(cam, entities)`：纯计算视口外敌军指示——仅当存在存活 scout；视口内（`aabbInView` 语义，含 64px 外扩余量）不指示；距任一 scout ≤ `scoutRange` 才输出 `{x, y, angle, dist, team, kind}`（世界坐标 + 相对视口中心的方向角/距离）；**striker 不提供指示**（侦察能力专属 scout）。
+  - `droneDamage(d)`：`round(dmgMult × owner.stats.damage)`（无 stats 回退基准 100）；`clearDrones(owner)`（缺省全清，联动 registry 镜像移除）；`countDrones(owner)`/`droneConfig()`/`DRONE_KINDS`。
+- **配置（`js/tank_rules.js`）**：`RULES.abilities.drone` 在阶段 1 契约基础上补 `orbitSpeed: 1.2`（rad/s）与 `orbitLerp: 6`（收敛 λ）两个环绕键（见 §5.5）。
+- **测试（`scripts/test-drone.js`）**：57 断言、14 组——spawn 契约/kind 回退/countMax/registry 镜像；环绕收敛（静止与 owner 位移后 dist≈orbitDist±3）；开火计时（累积/到点/归零/出范围冻结/回范围延续）；已毁/无敌目标不索敌、无敌结束恢复；scout 不攻击；droneIndicators（视口剔除/角度距离/scoutRange 过滤/空数组/fake cam/null 安全）；clearDrones；owner 阵亡移除；dt<=0/无 ctx 鲁棒；droneDamage 语义；droneConfig 读 RULES。挂进 `npm test` 链尾 + `scripts/check-html.js` 冒烟清单 + `types/globals.d.ts` 声明同步。
+- **验证**：`node scripts/test-drone.js` 57 断言全绿（exit 0）；`npm run check`（语法冒烟 + typecheck 0 错误）全绿；`scripts/test-qa.js` 对 test-drone.js 零问题（合规 4 种边界模式；QA 链首基线失败为 ISSUES #27~#57 已登记待处理，与本模块无关）；跳过 test-qa.js 后 `npm test` 链其余 24 套全绿。
+- **阶段 3 待办（未动 tank_mvp.html）**：mvp 接线——卡牌 `cardEffects` 部署（`applyCardEffects` 已入队 `{type:'drone', kind, cardId}`，按 `cardStackCount` 计数 ≤ countMax 生成）、`updateDrones` 接入战斗循环、`droneFire` 事件结算（复用 `fireTank` 或直接伤害）、指示箭头/小地图标记绘制、`entities` 注册与 `isDrone` 守卫、revive 后按 cardEffects 重新部署。
+
+#### 3.22 战术卡牌能力 mvp 接线（P-17，2026-08-20；设计/纯逻辑层见 §2.2 / §2.13 / §3.21）
+- **主动能力统一入口（`js/tank_abilities.js`, `js/tank_shield.js`, `js/tank_strike.js`，纯逻辑）**：`ABILITY_KEY_HINT`（artillery=炮击支援 G / shield=战术护盾 H(Shift+H 全向) / overdrive=超级装填 V）；`tryActivateAbility(t, key, ctx)` 持有检查（`tank.cardEffects` 含 `{type:'ability',key}`）+ 共享冷却 `t.abilityCdT`（readout `updateAbilityCd`）；callStrike 延迟 AOE（delay 2.5 / radius 110 / dmgMult 1.2 / shellCount散布连射 stagger 0.15 / maxStrikes 滚动丢弃）；applyShield 累计吸收（absorbCap 150 总池，入射角 `shieldAbsorbs` 在 resolveHit 前判定，穿透伤害续结算）；overdrive addTimedModifier reload mult 0.45 6s + 立即清零 reloadT。
+- **mvp 接入（`tank_mvp.html`）**：L1224-1226 G/H/V 按键（玩家专属；炮击/护盾挂 reloadT+immobT 门控，V 仅 immobT；炮击落点鼠标 world 坐标）；`update` 入 `updateStrikes(dt, entities)`/`updateAbilityCd(player,dt)`（simulating 门控）；shells 循环护盾吸收判定（L1491-1516，全额吸收销毁弹，部分穿透 `s.dmg=bleed` 续结算，破裂播特效）；`ammoKey==='smoke'` HE 破障跳过已吸收（`!s.absorbed`）；`enterBattle`/reset/死亡清 `clearStrikes()`+`player.shield=null`（冷却跨节点保留）；AI 循环 `if(e.isDrone) continue`（L1243），debuff 循环 `if(e.isDrone) return`（L1277），tank draw `if(t.isDrone) return`（L1775）+ `drawDrones`（L1664，悬浮/旋转翼/scout天线/striker炮管）+`drawDroneIndicators`（L1713，屏幕边缘箭头）；`pickCard` 部署/提示（deployDronesFromCards L637，ABILITY_KEY_HINT L1037-1041）；hintBar 追加 `· G 炮击 · H 护盾(Shift+H 全向) · V 超装填`（L168）。strikeHit 落弹播 `burstExplosion(scale=radius/40)`+`spawnImpactFx('he')`+`playSound('ammoBlewHE')`+ dmgText 飘字；droneFire 消耗 `target.hp -= damage` 后经既有击杀检测计分 —— 无人机不消耗玩家弹药/装填。
+- **验证**：`scripts/test-abilities.js` 76 断言 + `scripts/test-drone.js` 57 断言 + `scripts/validate-content.js`/`audit-content.js --strict` 全绿；`npm run check`（syntax smoke + typecheck 0 错误）；`npm run test:browser` 23 断言 ALL PASS（mvp/bench 无 console/page 错误）。`npm test` 仅链首 `test-qa.js` 静态合规自检失败（ISSUES #27~#57，13 脚本缺 require/shim，非 P-17）——跳过后余 26 套全绿；test-abilities/test-drone 被 test-qa.js 判定 `compliant`。
 
 ---
 
-## 4. 开放问题（已知但尚未确定，按优先级排序）
 
 这些不是"以后再说"，是**当前系统已经隐含依赖、但还没有明确答案**的缺口：
 
@@ -537,7 +600,7 @@
 
 ### 5.4 尚无实现机制、不能只靠数值层解决的属性
 以下属性已被列为"未来应可被卡牌/升级/技能影响"，但目前**功能本身不存在**，需要先实现机制才能接入 5.1 的 modifiers 系统：
-- **HE 弹种的范围伤害**：~~未实现（纯倍率）~~ — **部分实现**：HE 破障溅射（半径 24px，只伤害可破坏掩体）已上线（A3，见 2.7）；HE 对**坦克**的范围伤害/碎片吸收仍不存在（设计上"HE 对坦克 = 纯倍率"暂不变）。
+- ~~**HE 弹种的范围伤害**~~ — **已实现（P-16，2026-08-19，见 §2.6/§3.19）**：三套并存——HE 对坦克/实体的范围溅射（`splashRadius`=90px，`dmg×(1−dist/radius)×0.5`）+ 未击穿残余爆轰（`dmg×max(0.25, 0.5×pen/eff)`）+ A3 破障溅射（半径 24px，只伤害可破坏掩体，见 2.7）。"HE 对坦克 = 纯倍率"的旧设计已废除。
 - 反弹炮弹（弹反）机制
 - ~~瞄准精度随时间收缩（缩圈）机制~~：**已实现**（见第3节扩圈/缩圈系统）。SPREAD 配置 + motionSigma/updateSigma 驱动实时 sigma，可作为 modifiers 目标（如卡牌改变 bloomRate/shrinkRate/base）。
 - 穿透多个敌人（当前炮弹命中第一个目标即结束；`resolveHit` 单目标结算）
@@ -562,6 +625,14 @@
 | 最大速度 | 120px/s | 基础 |
 | 车体转速 | 2.0 rad/s | 基础 |
 | 炮塔转速 | 2.2 rad/s | 基础 |
+| **弹种（`RULES.ammoTypes`，P-16）** |||
+| ap | speed 1.0 / pen 1.0 / dmg 1.0 | 标准弹（基准） |
+| apcr | speed 1.2 / pen 1.2 / dmg 0.8 | 高速弹（既有，非 P-16 新增） |
+| heat | speed 0.8 / pen 1.4 / dmg 1.0 / spread 1.2 | HEAT 破甲：散布惩罚（1.2×）换 1.4× 穿深；noBounce 确定性不跳弹 |
+| he | speed 0.95 / pen 0.7 / dmg 1.0 / splashRadius 90 | HE 高爆：低穿深；noBounce 确定性不跳弹；命中即爆轰（90px 溅射 + 未击穿残余爆轰） |
+| noBounce | heat / he | θ>70° 跳过跳弹与角度 BLOCK，直接按穿深判定（AP/APCR 保持原跳弹语义） |
+| HE 溅射公式 | dmg × (1 − dist/radius) × 0.5 | 贴脸 50%、边缘衰减到 0；主目标不重复；无敌/已毁目标免疫 |
+| HE 未击穿残余爆轰 | dmg × max(0.25, 0.5 × pen/eff) | 装甲吸收爆轰残余能量扣血，地板 25%（确定性公式） |
 | **机动换算（`RULES.speed`）** |||
 | accelPowerToPxScale | 180 | 马力/吨 → px/s²：`accel = enginePower/weight × 180` |
 | brakeFactor | 3.5 | `brake = accel × 3.5`（松键减速再乘 1.8） |
@@ -607,6 +678,15 @@
 | life | 0.9s | 飘字存活时长（到期移除；上浮进度 = age/life 线性） |
 | rise | 30px | 全程上浮总高度（世界坐标） |
 | 五色语义 | pen 红/橙 · block 白 · bounce 蓝/白 · he 黄 · dot 橙 | 击穿/未击穿/跳弹/HE 击穿或爆轰/DOT 灼烧；未知 kind 回退 pen |
+| **烟幕（`RULES.smoke`，P-17 子目标 2）** |||
+| radius | 120px | 单团烟雾遮挡半径（线段-圆距离判定） |
+| duration | 5s | 烟雾持续时长（`updateSmoke` 逐帧递减 life，到期移除） |
+| maxClouds | 8 | 场上同时存在的烟雾云上限（超限滚动丢弃最早一团，防滥用） |
+| **主动能力（`RULES.abilities`，P-17）** |||
+| artillery | delay 2.5s / radius 110px / dmgMult 1.2 / shellCount 3 / maxStrikes 3 / cooldown 15s | 战术炮击：区域延迟 AOE（复用 applySplashAt 衰减，排除 owner/无敌免疫） |
+| overdrive | reloadMult 0.45 / duration 6s / cooldown 20s | 超级装填：爆发清零 reloadT + 6s 装填加速 |
+| shield | dirDuration 8s / omniDuration 4s / arc π/3(60°) / absorbCap 150 / cooldown 25s | 战术护盾：累计吸收，入射角判定 |
+| drone | scoutRange 700 / strikeRange 260 / fireInterval 2.0 / dmgMult 0.4 / orbitDist 90 / orbitSpeed 1.2 / orbitLerp 6 / countMax 2 | 无人机：orbital scout（视口外指示）+ striker（近身打击） |
 
 ### 5.6 后续系统缺口（2026-08-13 规划讨论补充，归属里程碑见 §6）
 
@@ -654,18 +734,15 @@
 12. ~~**难度曲线表**~~ — **已完成（2026-08-15，P-13，见 §4 开放问题 6/§3.13）**：三杠杆定表 `RULES.difficulty`（曲线/敌人数量/AI 档位/数值强度），`makeNode` 产 `aiTier`+`statMult`、`materializeNode` 应用数值强度。剩余：AI 档位 1/2 的实际行为差异留待未来 AI 细化（当前双态即档位 0）。
 13. **碰撞体积与视觉几何对齐（可选，低优先）**：#18 修复（2026-08-14）后正面贴脸不再误判后部模块，但坦克碰撞盒仍为车体矩形包围盒（不含炮塔/炮管/箭镞尖头），紧贴时车体视觉重叠 ≈19px 仍残留（#18 修复方向④未实施，属弹道范围外的独立改动）；如需彻底消除，可考虑碰撞改用 `hullPoly` 凸包，风险点为碰撞手感/推挤行为回归，需回归 `test-tankcollision.js`。
 14. ~~**卡牌内容批量（≥100 张）+ Boss 内容批量（≥5 种）**~~ — **已完成（2026-08-15，P-09 阶段 B，见 §2.13/§2.14/§3.9）**：111 张卡（5 流派×稀有度按权重）+ 5 Boss（多阶段+弱点+掉落）+ Boss 链尾运行时接入（生成/阶段触发/掉落）全部落地，`validate-content.js` + `audit-content.js --strict` + `npm test` 全绿。剩余相关项：Boss `summons` 伴随单位与 `behavior` 的行为化随敌人 AI（条目 7）一并接入；卡牌 ability/passive/drone/economy 的运行时效果随对应里程碑（M7/M9/M10）接入。
-15. ~~**MVP 架构重构（正式游戏 vs 装甲测试台分离 + 首页路由 + 开发者面板，P-15）**~~ — **已完成（2026-08-19，P-15，见 §2.15/§3.17）**：三入口拆分（`index.html` 首页 / `tank_mvp.html` 正式游戏 / `tank_bench.html` 装甲测试台，`server.js` '/' 路由）；正式游戏 HUD 极简（装填条 + 弹种 + 提示条 + 小地图）；伤害飘字模块（`js/tank_dmgtext.js` 五色语义，`npm test` 23 套）；玩家状态面板（TAB 切换）；开发者面板（F12 / 反引号键：超级精度 `devAim.zeroSpread` + 数值覆盖 `devOverrides`）。剩余：弹种 4（HEAT）数字键仅提示（`RULES.ammoTypes` 暂无 heat）——正式接入随条目 16（P-16）。
-16. **击穿与弹种机制升级：HEAT 破甲弹与 HE 高爆弹物理改造（P-16）**：
+15. ~~**MVP 架构重构（正式游戏 vs 装甲测试台分离 + 首页路由 + 开发者面板，P-15）**~~ — **已完成（2026-08-19，P-15，见 §2.15/§3.17）**：三入口拆分（`index.html` 首页 / `tank_mvp.html` 正式游戏 / `tank_bench.html` 装甲测试台，`server.js` '/' 路由）；正式游戏 HUD 极简（装填条 + 弹种 + 提示条 + 小地图）；伤害飘字模块（`js/tank_dmgtext.js` 五色语义，`npm test` 23 套）；玩家状态面板（TAB 切换）；开发者面板（F12 / 反引号键：超级精度 `devAim.zeroSpread` + 数值覆盖 `devOverrides`）。弹种 4（HEAT）随后由条目 16（P-16）接入完成（见 §2.6/§3.19）。
+16. ~~**击穿与弹种机制升级：HEAT 破甲弹与 HE 高爆弹物理改造（P-16）**~~ — **已完成（2026-08-19，P-16，见 §2.6/§3.19）**：
     - HEAT：确定性豁免跳弹（不计算 Bounce）、1.4 倍穿深、0.8 倍飞速、标准伤害、1.2 倍散布。
     - HE：确定性豁免跳弹、物理爆炸范围（`splashRadius`）与 Splash 范围伤害；增加未击穿爆轰伤害（基于装甲吸收后的残余能量扣血）；爆炸视觉特效范围与逻辑 Splash 半径完全对齐。
-17. **战术卡牌能力与主动装备拓展（P-17）**：
-    - 呼叫战术支援（炮击/轰炸延迟 AOE 判定）；
-    - 烟幕射击（生成视线阻断烟幕，影响 AI 索敌与玩家视野）；
-    - 超级装填与战术护盾（定向/全向弹道吸收护盾）；
-    - 多种无人机（Drones：视口外敌军位置指示箭头、近身自动索敌打击）。
+    - 实现：`RULES.ammoTypes` 配置源（heat/he 新增、ap/apcr 既有）+ `resolveHit` 弹种消费（noBounce 禁跳弹 / splashRadius 溅射 / 未击穿残余爆轰）+ mvp/bench 数字键 1/2/3/4 切弹种 + HE 破障（24px，与 90px 坦克溅射并存）+ 爆轰特效 scale=splashRadius/40 对齐；验证 `scripts/test-extreme-combat.js` §12 组 7 项边缘断言 + 浏览器冒烟「数字键 4 切 HEAT」全绿。
+17. **战术卡牌能力与主动装备拓展（P-17）** — **已完成（2026-08-20）**：~~烟幕射击~~（子目标 2，2026-08-20，见 §2.5 第 8 条 / §3.18）+ 呼叫战术支援（炮击/轰炸延迟 AOE）+ 超级装填/战术护盾 + 无人机体系（scout/striker），详见 §3.18 / §3.21 / **§3.22**；验证 `scripts/test-abilities.js`（76 断言）/`scripts/test-drone.js`（57 断言）/`npm run test:browser`（23 断言 ALL PASS）；`npm run check` 0 错误（`npm test` 仅链首 `test-qa.js` 基线失败为 ISSUES #27~#57 已登记非-P-17，详见 §3.22）。
 18. **内容生成与平衡性 Agent（P-18）**：定型 `@card-author` / `@boss-author` / `@balance-auditor` 子 agent 规范与工作流。
 19. **敌方 AI 战术状态机扩充（P-19）**：扩展绕行进攻（Flank）、消极防御、搜索前进、队列行军、呆滞惊慌等丰富 AI 行为状态。
-20. **新地图元素与水体/桥梁地形（P-20）**：增加河流、池塘、桥梁水体地形，阻断/减速通行，塑造桥头堡战术瓶颈与村落森林地貌。
+20. **新地图元素与水体/桥梁地形（P-20）**：增加河流、池塘、桥梁水体地形，阻断/减速通行，塑造桥头堡战术瓶颈与村落森林地貌。**部分落地（2026-08-20）**：`generateNode` 随机水体/桥梁组合已实现（含 #62 边界修复：尺寸封顶 40% + 偏移单次缩放 + 桥梁 y 钳制，见 §2.12）；剩余：河流连接效果与桥头堡战术验证、减速/阻断语义细化。
 21. **音效与 Web Audio 真实音效库升级（P-21）**：扩展动态引擎轰鸣、履带摩擦、近距离飞弹呼啸（Flyby）与 2D 空间音效（Panning/距离衰减）。
 22. **局外永久升级商店 UI（P-22）**：补齐 P-14 已完成的 8 项永久升级树局外购买界面与局间点数结算交互。
 23. **战术小地图强化（P-23）**：M 键放大全屏战术地图、标识地形/桥梁/水体与视口外警报脉纹。

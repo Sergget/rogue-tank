@@ -7,6 +7,8 @@
 // 炮口制退器 / 排烟器样式枚举（与 tank_paint.js 支持的绘制样式保持一致）
 const MUZZLES = ['none','single','double','multi','slug','pepperpot','heavy_square','cylinder'];
 const EVAC = ['none','ring','bulb','slotted','long'];
+// 表面纹理枚举（与 js/tank_paint.js TEXTURE_DEFS 的键一一对应，P-27 接线）
+const TEXTURES = ['none','armor_plate','weld_seam','rust','camo'];
 
 // 可编辑字段描述表：label = 列头，path = tank_list 条目内的点路径，type = num | sel
 const FIELD_ROWS = [
@@ -25,6 +27,7 @@ const FIELD_ROWS = [
   { label:'履带宽',     path:'trackWidth',         type:'num' },
   { label:'履带偏置',   path:'trackOffset',        type:'num' },
   { label:'履带锁定(s)',path:'trackLock',          type:'num' },
+  { label:'纹理',       path:'texture',            type:'sel', options:TEXTURES },
   { label:'三扩系数',   path:'spreadMult',          type:'num' },
   { label:'缩圈速度',   path:'aimSpeed',            type:'num' },
   { label:'装甲·车体正面', path:'hull.armor.front', type:'num' },
@@ -45,5 +48,5 @@ const FIELD_ROWS = [
 ];
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { MUZZLES, EVAC, FIELD_ROWS };
+  module.exports = { MUZZLES, EVAC, TEXTURES, FIELD_ROWS };
 }

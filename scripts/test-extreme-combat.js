@@ -276,5 +276,117 @@ ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret ===
   ok(G.getGunHeight(hvy) > G.getGunHeight(mid), '重坦炮管高度 > 中坦（身高合法两端）');
 }
 
+// ============================================================================
+// 12) P-16 弹种：HEAT/HE 表结构与系数 / 不跳弹 / HEAT 1.4×穿深 / HE 未击穿残余爆轰 /
+//     HE 范围溅射（entities 全局注册表）/ AP·APCR 跳弹回归
+// ============================================================================
+{
+  // 12.1) RULES.ammoTypes 表：heat/he 字段与系数（ap/apcr 不动）
+  const T = R.RULES.ammoTypes;
+  ok(T.heat && T.heat.label === 'HEAT', 'ammoTypes.heat 存在且 label=HEAT');
+  ok(T.heat.pen === 1.4 && T.heat.speed === 0.8 && T.heat.dmg === 1.0,
+    `heat 系数: pen 1.4 / speed 0.8 / dmg 1.0（got ${T.heat.pen}/${T.heat.speed}/${T.heat.dmg}）`);
+  ok(T.heat.spread === 1.2, 'heat 系数: spread 1.2（×散布，fireTank 消费）');
+  ok(T.heat.noBounce === true && !T.heat.splashRadius, 'heat: noBounce=true 且无 splashRadius');
+  ok(T.he && T.he.label === 'HE', 'ammoTypes.he 存在且 label=HE');
+  ok(T.he.pen === 0.7 && T.he.speed === 0.95 && T.he.dmg === 1.0,
+    `he 系数: pen 0.7 / speed 0.95 / dmg 1.0（got ${T.he.pen}/${T.he.speed}/${T.he.dmg}）`);
+  ok(T.he.noBounce === true && T.he.splashRadius === 90,
+    `he: noBounce=true 且 splashRadius=90（got ${T.he.splashRadius}）`);
+  ok(T.ap.pen === 1.0 && T.apcr.pen === 1.2 && !T.ap.noBounce && !T.apcr.noBounce,
+    'ap/apcr 未动（pen 1.0/1.2、无 noBounce）');
+}
+
+// 12.2) HEAT 大角度不跳弹：θ=75° + allowBounce=true → 不 BOUNCE（pen 极大 → PEN），
+//       shell 不被反射、canBounce 不消耗
+{
+  const t = mkTarget({});
+  const sh = mkShell({ ammoKey:'heat', dx:Math.cos(degToRad(75)), dy:Math.sin(degToRad(75)), pen:1e9 });
+  const res = P.resolveHit(sh, t, HIT_FRONT, true);
+  ok(res.outcome === 'PEN', 'HEAT θ=75° 大角度 + allowBounce → 不跳弹、直接击穿');
+  ok(sh.bounced === false && sh.canBounce === true,
+    'HEAT 不跳弹：bounced=false、canBounce 保持 true（未消耗二次跳弹标记）');
+  ok(Math.abs(sh.dx - Math.cos(degToRad(75))) < 1e-9 && Math.abs(sh.dy - Math.sin(degToRad(75))) < 1e-9,
+    'HEAT 不跳弹：shell.dx/dy 未被反射');
+}
+
+// 12.3) HEAT 1.4× 穿深系数：模拟 fireTank 的 shell.pen = stats.penetration × ammo.pen。
+//       基准穿深 100：AP(×1.0)=100 < 正面 110 → BLOCK；HEAT(×1.4)=140 > 110 → PEN
+{
+  const basePen = 100;
+  const apPen = basePen * R.RULES.ammoTypes.ap.pen;
+  const heatPen = basePen * R.RULES.ammoTypes.heat.pen;
+  ok(apPen === 100 && heatPen === 140, `fireTank 穿深公式: AP=${apPen}、HEAT=${heatPen}（×1.4）`);
+  const rAp = P.resolveHit(mkShell({ ammoKey:'ap', dx:1, dy:0, pen:apPen }), mkTarget({}), HIT_FRONT, true);
+  ok(rAp.outcome === 'BLOCK', '基准穿深 100 的 AP → 正面 110 未击穿（对照）');
+  const rHeat = P.resolveHit(mkShell({ ammoKey:'heat', dx:1, dy:0, pen:heatPen }), mkTarget({}), HIT_FRONT, true);
+  ok(rHeat.outcome === 'PEN', 'HEAT ×1.4=140 > 正面 110 → 击穿（1.4× 系数生效）');
+}
+
+// 12.4) HE 大角度不跳弹：θ=75° + allowBounce=true → 不 BOUNCE；pen 极大 → PEN 且带 splash 元数据
+{
+  const t = mkTarget({});
+  const sh = mkShell({ ammoKey:'he', dx:Math.cos(degToRad(75)), dy:Math.sin(degToRad(75)), pen:1e9, dmg:100 });
+  const res = P.resolveHit(sh, t, HIT_FRONT, true);
+  ok(res.outcome === 'PEN', 'HE θ=75° 大角度 + allowBounce → 不跳弹、直接击穿');
+  ok(sh.bounced === false, 'HE 不跳弹：shell.bounced=false');
+  ok(res.splash && res.splash.radius === 90, 'HE 击穿 → res.splash.radius = splashRadius(90)');
+}
+
+// 12.5) HE 未击穿残余爆轰：确定性公式 dmg × max(0.25, 0.5 × pen/eff)
+{
+  const dmg = 100;
+  // eff=110（正面 θ=0）、pen=80：ratio = max(0.25, 0.5×80/110) ≈ 0.3636 → dmg=round(100×0.3636)=36
+  const t = mkTarget({});
+  const res = P.resolveHit(mkShell({ ammoKey:'he', dx:1, dy:0, pen:80, dmg }), t, HIT_FRONT, true);
+  const ratio = Math.max(0.25, 0.5 * 80 / 110);
+  const expect = Math.round(dmg * ratio);
+  ok(res.outcome === 'BLOCK', 'HE pen=80 < eff=110 → 未击穿 BLOCK');
+  ok(res.dmg === expect && res.dmg > 0,
+    `残余爆轰 dmg=${res.dmg} = round(100×${ratio.toFixed(4)})（>0 且公式可验）`);
+  ok(t.hp === 100 - expect, `未击穿爆轰扣血: hp=${t.hp}（100−${expect}）`);
+  ok(res.text.indexOf('残余扣血') >= 0, 'BLOCK 文案含残余扣血说明');
+  ok(res.splash && res.splash.radius === 90, 'HE 未击穿 → res.splash.radius = 90（爆轰照常）');
+
+  // 地板：pen=20 → ratio = max(0.25, 0.5×20/110≈0.0909) = 0.25 → dmg=round(100×0.25)=25
+  const t2 = mkTarget({});
+  const res2 = P.resolveHit(mkShell({ ammoKey:'he', dx:1, dy:0, pen:20, dmg }), t2, HIT_FRONT, true);
+  ok(res2.dmg === 25 && t2.hp === 75, `厚甲地板: ratio 钳到 0.25 → dmg=25、hp=75（got ${res2.dmg}/${t2.hp}）`);
+
+  // 无敌目标：残余爆轰不扣血
+  const tI = mkTarget({ invuln: true });
+  const resI = P.resolveHit(mkShell({ ammoKey:'he', dx:1, dy:0, pen:80, dmg }), tI, HIT_FRONT, true);
+  ok(resI.dmg === 0 && tI.hp === 100, 'HE 残余爆轰对无敌目标：dmg=0、hp 不变');
+}
+
+// 12.6) HE 范围溅射：命中点对周围实体衰减伤害（entities 全局注册表，主目标排除）
+{
+  const dmg = 100;
+  // 命中点 = HIT_FRONT.x=32（溅射中心 32,0）；splashRadius=90
+  const main = mkTarget({ x:0, y:0, base:{ maxHp: 1000 } });   // 主目标：只吃击穿伤害（85~115）
+  const near = mkTarget({ x:77, y:0 });                        // 距中心 45 → falloff 0.5 → round(100×0.5×0.5)=25
+  const edge = mkTarget({ x:122, y:0 });                       // 距中心 90 = 半径 → falloff 0 → 0 伤害
+  const far  = mkTarget({ x:123, y:0 });                       // 距中心 91 > 90 → 无伤害
+  global.entities = [main, near, edge, far];
+  const res = P.resolveHit(mkShell({ ammoKey:'he', dx:1, dy:0, pen:1e9, dmg }), main, HIT_FRONT, true);
+  ok(res.outcome === 'PEN', 'HE 击穿主目标（溅射场景）');
+  ok(near.hp === 75, `副目标近（45px）衰减扣 25 → hp=75（got ${near.hp}）`);
+  ok(edge.hp === 100, `副目标边缘（90px=半径）falloff=0 → 不掉血（got ${edge.hp}）`);
+  ok(far.hp === 100, `半径外（91px）→ 不掉血（got ${far.hp}）`);
+  ok(main.hp >= 885 && main.hp <= 915,
+    `主目标不重复吃溅射（只吃击穿伤害 85~115，hp=${main.hp}∈[885,915]）`);
+  delete global.entities;
+}
+
+// 12.7) AP/APCR 回归：带 ammoKey 的普通弹种大角度仍跳弹（noBounce 仅 heat/he）
+{
+  const sh = mkShell({ ammoKey:'ap', dx:Math.cos(degToRad(72)), dy:Math.sin(degToRad(72)), pen:1e9 });
+  const res = P.resolveHit(sh, mkTarget({}), HIT_FRONT, true);
+  ok(res.outcome === 'BOUNCE' && sh.bounced === true, 'AP θ=72° + allowBounce → 仍跳弹（回归，行为不变）');
+  const sh2 = mkShell({ ammoKey:'apcr', dx:Math.cos(degToRad(72)), dy:Math.sin(degToRad(72)), pen:1e9 });
+  const res2 = P.resolveHit(sh2, mkTarget({}), HIT_FRONT, true);
+  ok(res2.outcome === 'BOUNCE', 'APCR θ=72° + allowBounce → 仍跳弹（回归）');
+}
+
 console.log(fails === 0 ? '\nAll extreme-combat checks passed.' : `\n${fails} FAILED`);
 process.exit(fails === 0 ? 0 : 1);

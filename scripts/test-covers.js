@@ -651,5 +651,37 @@ C.resetCovers();
   }
 }
 
+// 32) P-17 烟雾动态视线掩体（smokeClouds）：
+C.clearSmoke();
+{
+  // 无烟雾时视线畅通
+  ok(C.hasLineOfSight(0, 0, 400, 0) === true, '无烟雾 → 视线畅通');
+  // 生成一团烟雾于 (200,0)，半径 50
+  C.spawnSmokeCloud(200, 0, 50, 5);
+  ok(C.smokeClouds.length === 1, 'spawnSmoke 生成 1 团烟雾');
+  // 射线穿过烟雾中心 → 视线被遮
+  ok(C.hasLineOfSight(0, 0, 400, 0) === false, '射线穿烟雾中心 → 视线被遮');
+  // 偏离烟雾的射线（y 偏移 100 > 半径 50）→ 视线畅通
+  ok(C.hasLineOfSight(0, 100, 400, 100) === true, '偏离烟雾 → 视线畅通');
+  // 弹道不受烟雾影响：getExposure 穿过烟雾区域仍返回 1（烟雾 mode='none' 不挡弹）
+  ok(C.getExposure(0, 0, 400, 0, null, { heightClass: 'medium' }, 0, 1.4) === 1, '烟雾不遮弹道（getExposure=1）');
+  // 消散：updateSmoke 递减 life，超时后烟雾移除
+  C.updateSmoke(4.9);
+  ok(C.smokeClouds.length === 1, '烟雾未到消散时间仍存在');
+  C.updateSmoke(0.2);
+  ok(C.smokeClouds.length === 0, '烟雾到期后消散');
+  ok(C.hasLineOfSight(0, 0, 400, 0) === true, '烟雾消散后视线恢复');
+}
+
+// 33) 烟雾上限与清理：
+C.clearSmoke();
+{
+  for (let i = 0; i < 12; i++) C.spawnSmokeCloud(i * 10, 0, 10, 5);
+  ok(C.smokeClouds.length <= 8, `烟雾云上限受 RULES.smoke.maxClouds 约束（got ${C.smokeClouds.length}）`);
+  C.clearSmoke();
+  ok(C.smokeClouds.length === 0, 'clearSmoke 清空全部烟雾');
+  ok(C.hasLineOfSight(0, 0, 100, 0) === true, '清空后视线畅通');
+}
+
 console.log(fails ? `\n${fails} failure(s).` : '\nAll cover-system checks passed.');
 process.exitCode = fails ? 1 : 0;

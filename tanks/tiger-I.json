@@ -16,6 +16,7 @@
   "trackOffset": -10,
   "spreadMult": 1,
   "aimSpeed": 0.15,
+  "texture": "weld_seam",
   "barrel": {
     "len": 120,
     "width": 10,

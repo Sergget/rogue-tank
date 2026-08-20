@@ -69,6 +69,7 @@ function resolveTankCollisions(iterations){
       for(let j=i+1;j<entities.length;j++){
         const a = entities[i], b = entities[j];
         if(a.hp<=0 || b.hp<=0) continue;
+        if(a.isDrone || b.isDrone) continue;   // P-17：无人机无 hull 几何（hullAngle/hullLen/hullWid），跳过坦克碰撞（防 NaN 污染坐标）
         const cornersA = partCorners(a.x,a.y,a.hullAngle, a.hullLen/2, a.hullWid/2);
         const cornersB = partCorners(b.x,b.y,b.hullAngle, b.hullLen/2, b.hullWid/2);
         const candidates = obbMTVs(cornersA, cornersB);

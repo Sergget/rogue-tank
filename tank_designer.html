@@ -374,6 +374,20 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">开启后在车体和炮塔上半透明叠加显示逻辑判定模块带（驾驶员、弹药架、发动机、炮手、装填手、车长，来自「模块 Modules」编辑结果；履带为自动判定区，恒显示于车体极前/极后端）</div>
     </div>
 
+    <div class="section panel-appearance">
+      <h3>表面纹理 Texture</h3>
+      <div class="prop-row"><span class="lbl">纹理样式</span>
+        <select id="textureSelect">
+          <option value="none">无 None</option>
+          <option value="armor_plate">装甲板纹 Armor Plate</option>
+          <option value="weld_seam">焊缝 Weld Seam</option>
+          <option value="rust">锈蚀 Rust</option>
+          <option value="camo">迷彩 Camo</option>
+        </select>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">灰度/半透明图案平铺叠层，保持坦克主色（车体+炮塔同款）；在「预览」模式下即时可见，保存时写入 tank JSON（texture 字段）</div>
+    </div>
+
     <div class="section panel-hull panel-turret">
       <h3>选中顶点 Selected Vertex</h3>
       <div id="selInfo">未选中顶点 — 点击画布上一个顶点即可选中并精确编辑坐标</div>
@@ -453,6 +467,7 @@ let state = {
    hp:100, penetration:120, damage:34, reload:1.3, heightClass:'medium',
    spreadMult: 1, aimSpeed: 0.15,
    trackWidth: 8, trackOffset: 0,
+   texture: 'none', // 表面纹理（TEXTURE_DEFS 键：none/armor_plate/weld_seam/rust/camo）
    hull: defaultHull(),
    turret: defaultTurret(),
    barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } },
@@ -1576,6 +1591,10 @@ document.getElementById('trackOffsetInput').addEventListener('input', ()=>{
   state.trackOffset = v;
   render();
 });
+document.getElementById('textureSelect').addEventListener('change', ()=>{
+  state.texture = document.getElementById('textureSelect').value;
+  render();
+});
 document.getElementById('barrelMuzzle').addEventListener('change', ()=>{
    state.barrel.muzzle = document.getElementById('barrelMuzzle').value;
    render();
@@ -2011,6 +2030,22 @@ function drawPolygon(poly, center, angle, opts){
     ctx.globalAlpha = 1;
     ctx.restore();
 
+    // P-27 纹理叠层：仅预览模式（detail && !faded）下贴与 mvp 同款的 paintPartTexture 纹理，
+    // 车体以 hullCenter 为原点、炮塔换算到座圈圆心 + axis 平移帧（与 turretToScreen 同帧约定）；
+    // 编辑模式保持纯色填充便于看顶点/边/装甲。切换外观件下拉即时生效。
+    if(opts.detail && !opts.faded && state.texture && state.texture !== 'none'){
+      const texOpts = { detail:true, texture: state.texture, heightClass: state.heightClass };
+      if(isTurret){
+        const ax = (state.turret.axis && state.turret.axis.dx) || 0;
+        const ay = (state.turret.axis && state.turret.axis.dy) || 0;
+        const hc = hullCenter();
+        const ring = { x: hc.x + state.turret.pivot.dx*viewScale, y: hc.y + (state.turret.pivot.dy||0)*viewScale };
+        paintPartTexture(ctx, fullVerts.map(([vx,vy]) => [vx-ax, vy-ay]), ring.x, ring.y, angle, viewScale, DESIGN_PAINT, 'turret', texOpts);
+      } else {
+        paintPartTexture(ctx, fullVerts, center.x, center.y, angle, viewScale, DESIGN_PAINT, 'hull', texOpts);
+      }
+    }
+
     for(let i=0;i<n;i++){
       const a = world[i], b = world[(i+1)%n];
       const editable = primary[i]; // half-chain + seam edges are user-controlled; mirrored-chain edges just copy them
@@ -2250,6 +2285,7 @@ function buildExport(){
      trackOffset: state.trackOffset,
      spreadMult: state.spreadMult,
      aimSpeed: state.aimSpeed,
+     texture: state.texture,
      barrel: {
        len: state.barrel.len,
        width: state.barrel.width,
@@ -2381,10 +2417,13 @@ function applyTankData(data, opts){
    if(data.barrel) state.barrel = normalizeBarrel(data.barrel);
    if(data.trackWidth !== undefined) state.trackWidth = data.trackWidth;
    if(data.trackOffset !== undefined) state.trackOffset = data.trackOffset;
+   if(data.texture !== undefined && ['none','armor_plate','weld_seam','rust','camo'].includes(data.texture)) state.texture = data.texture;
+   else state.texture = 'none'; // 旧数据缺省无纹理
    if(data.spreadMult !== undefined) state.spreadMult = data.spreadMult;
    if(data.aimSpeed !== undefined) state.aimSpeed = data.aimSpeed;
    document.getElementById('trackWidthInput').value = state.trackWidth || 8;
    document.getElementById('trackOffsetInput').value = state.trackOffset || 0;
+   document.getElementById('textureSelect').value = state.texture;
    document.getElementById('t-spreadMult').value = state.spreadMult;
    document.getElementById('t-aimSpeed').value = state.aimSpeed;
    updateTrackRanges();
@@ -2555,6 +2594,7 @@ document.getElementById('mantletPreset').value = state.barrel.mantlet.style;
 document.getElementById('mantletPos').value = state.barrel.mantlet.pos;
 document.getElementById('mantletWid').value = state.barrel.mantlet.width;
 document.getElementById('trackWidthInput').value = state.trackWidth;
+document.getElementById('textureSelect').value = state.texture;
 updateTrackRanges();
 renderModuleList();
 setMode('hull');

@@ -38,7 +38,11 @@
 | 2026-08-19 | `ISSUES.md` | #23. 敌方 AI 在战斗中只开一次炮 | 已修复并验证（entities 循环补 reloadT 递减，结论见 DEVELOPMENT §3.15） |
 | 2026-08-19 | `PLAN.md` | P-21 音效与 Web Audio 真实音效库升级 | 已完成并验证（音效库扩展 Panning/距离衰减，结论见 DEVELOPMENT §2.11） |
 | 2026-08-19 | `PLAN.md` | P-27 坦克纹理化接线 | 已完成并验证（全链路接线，结论见 DEVELOPMENT §3.16 / §6 条目 11） |
+| 2026-08-19 | `PLAN.md` | P-16 弹种与击穿机制扩充：HEAT/HE | 已完成并验证（HEAT：1.4×穿深/0.8×速/1.2×散布，确定性不跳弹；HE：splashRadius 90 + 残余爆轰，确定性不跳弹，结论见 DEVELOPMENT §2.6 / §3.19） |
+| 2026-08-20 | `PLAN.md` | P-17 战术卡牌能力与主动装备拓展（战术炮击/护盾/超装填/无人机） | 已完成并验证（mvp 接入 G/H/V 按键、护盾吸收插入 resolveHit、延迟 AOE 炮击、无人机部署+视口外指示；结论见 DEVELOPMENT.md §3.22 / §6 条目 17） |
 | 2026-08-19 | `PLAN.md` | P-15 MVP 架构重构（三入口拆分 + HUD 极简 + 伤害飘字 + 状态/开发者面板） | 已完成并验证（结论见 DEVELOPMENT §2.15 / §3.17 / §6 条目 15） |
+| 2026-08-20 | `ISSUES.md` | #62. test-map legacy 模式节点 3/4 掩体越界 | 已修复并验证（P-20 水体/桥梁双重缩放 + 尺寸失控，结论见 DEVELOPMENT §2.12 / §6 条目 20） |
+| 2026-08-20 | `ISSUES.md` | #61. bake-assets.js: missing 'playwright' module | 已修复并验证（可选依赖 tryRequire 降级，结论见 DEVELOPMENT §3.20） |
 
 ------
 
@@ -1488,3 +1492,58 @@ if (mod.key==='ammo') {
      - 数值临时调整控件（实时改穿深/伤害/装填/极速/马力）；
      - 卡牌选择与卡牌数值/修饰器实时调整面板。
 - **注记（2026-08-19）**：目标 1 的「正式 run 无 dummy」已由 ISSUES #22 最小修复先行达成（detach/restore，见 DEVELOPMENT §3.15）；「节点世界 ≥3× 视口」已由 #24 的 `nodeScaleFor` 实现，但 mvp 侧 `generateRun(seed, count, {viewport})` 接线未做（接线前回退旧 nodeScale=3）。
+
+### [2026-08-20] 归档自 ISSUES.md #62 test-map legacy 模式节点 3/4 掩体越界（已修复）
+
+> 2026-08-20 删除自 ISSUES.md：已修复并验证，结论见 DEVELOPMENT.md §2.12 / §6 条目 20。被删条目原文如下：
+
+### #62 test-map legacy 模式节点 3/4 掩体越界
+- **File**: `scripts/test-map.js`（断言行 L86）
+- **Issue**: `node scripts/test-map.js` 输出 `节点 3 掩体在界内` ×2、`节点 4 掩体在界内` ×1（legacy scale=3 模式：`generateRun('run-seed', 5)` 不传 viewport → 固定 `nodeScale=3`，`scripts/test-map.js:53`）；断言行 `ok(c.x >= 0 && c.x <= n.w && c.y >= 0 && c.y <= n.h, \`节点 ${n.index} 掩体在界内\`)`（`scripts/test-map.js:86`）失败——节点 3/4 存在掩体坐标越出节点世界边界（`x<0 || x>n.w || y>n.h`）。
+- **根因**: 工作树中在途未提交的 `tank_nodegen.js` / `tank_map.js` 改动（P-08 视口模式 #24/#25 相关）；已实证与 P-17 无关——回退 P-17 三文件（tank_cover.js / tank_rules.js / tank_ai.js）后失败原样复现。
+- **Impact**: legacy（scale=3）模式下生成节点掩体可能越出节点边界；仅测试失败，浏览器冒烟（#24 节点 ≥3×画布）通过，不影响运行。
+- **Status**: 待处理（在途改动收尾时修复）
+
+### [2026-08-20] 归档自 ISSUES.md #61 bake-assets.js: missing 'playwright' module（已修复）
+
+> 2026-08-20 删除自 ISSUES.md：已修复并验证，结论见 DEVELOPMENT.md §3.20。被删条目原文如下：
+
+### #61 bake-assets.js: missing 'playwright' module
+- **File**: `scripts/bake-assets.js`
+- **Issue**: 缺少 `playwright` 模块（`scripts/check-html.js` 的 `npm run typecheck` 也报相同错误），CLI 无法运行；浏览器一键烘焙工具 `tools/bake.html` 仍可正常使用。
+- **Impact**: 开发者工作流中断，无法一键命令行批量烘焙导出贴图；手动工具不受影响
+- **Status**: 待处理
+
+---
+
+### [2026-08-20] 归档自 PLAN.md — P-17 战术卡牌能力（战术支持版）已完成
+
+> 2026-08-20 删除自 PLAN.md：已完成并验证，结论见 DEVELOPMENT.md §3.22 / §6 条目 17。被删条目原文如下：
+
+### P-17 战术卡牌能力与主动装备拓展
+- **目标**：
+  1. **呼叫战术支援**：战术炮击 / 轰炸（指定区域延迟 AOE 判定）；
+  2. **烟幕射击**：发射遮挡视线的烟幕弹，阻断 AI 索敌与玩家视线（`vision: true` 动态掩体）；
+  3. **超级装填 / 战术护盾**：主动爆发装填；定向/全向护盾（吸收指定角度或全向弹道）；
+  4. **无人机（Drones）体系**：小地图/战场箭头指引视口外敌军位置；近身自动索敌与主动打击敌方 AI。
+
+---
+
+### [2026-08-20] 归档自 PLAN.md — P-17 战术卡牌能力（歪号：局外商店 UI，正名 P-22）
+
+> 2026-08-20 删除自 PLAN.md：本条目原 PLAN.md 误标为 P-17，内容属 P-22（局外永久升级商店 UI），见 DEVELOPMENT.md §6 条目 22。被删条目原文如下：
+
+### P-17 战术卡牌能力与主动装备拓展
+- **目标**：
+  1. 为 P-14 已实现的局外存档与升级逻辑（`js/tank_economy.js` 8 项永久升级树）补齐完整的 UI 界面；
+  2. 提供"死亡/通关结算"后直接进入局外商店购买永久属性强化、追加开局复活次数的交互。
+
+### [2026-08-20] 归档自 ISSUES.md #59 validate-content.js: 31 项 desc/Effect 数字不匹配（已修复）
+
+> 2026-08-20 删除自 ISSUES.md：已修复并验证（`node scripts/validate-content.js` 0 失败；test-cards/test-card-effects/test-tanks/test-hitpart/test-extreme-geometry/`npm run check` 全绿；临时真实不一致用例可检出），结论见 DEVELOPMENT.md §3.8「内容校验修正（2026-08-20，ISSUES #59）」。被删条目原文如下：
+
+### #59 validate-content.js: 31 项 desc/Effect 数字不匹配
+- **File**: `scripts/validate-content.js`
+- **Issue**: 31 项卡牌效果描述与数值不匹配（`desc` 文字数值与 `Effect modifier.value`/`ammo.value`/`passive.value` 不一致），例如 `angle_boost: Effect passive.value=5 与 desc 中数字无法匹配 (expected desc ~400, desc 数字: 5)`。这是内容一致性问题，不影响游戏运行但会导致策划难以验证卡牌效果。
+- **Impact**: 内容质量问题，策划核对卡牌效果时需逐条核实；不影响游戏代码运行
+- **Status**: 待处理
