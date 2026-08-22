@@ -32,6 +32,7 @@
 | 2026-08-15 | `PLAN.md` | P-06 M0 贴图资产层 + 地图元素贴图 | 已实现并验证（结论见 DEVELOPMENT §2.10 / §3.6） |
 | 2026-08-15 | `PLAN.md` | P-07 M1 声音占位系统 | 已实现并验证（结论见 DEVELOPMENT §2.11 / §3.6） |
 | 2026-08-19 | `ISSUES.md` | #24. 地图尺寸过小，不满足 1:9 视口比例要求 | 已修复并验证（视口驱动 nodeScale，结论见 DEVELOPMENT §2.12） |
+| 2026-08-19 | `ISSUES.md` | #27~#39. 测试基础设施缺失 requires/shim 修复 | 已解决（21/24 脚本修复缺失 require/global shim，QA 合规率 24/24） |
 | 2026-08-19 | `ISSUES.md` | #25. 地图元素密度与模板丰富度不足 | 已修复并验证（模板 5→7、items 12~25、剔除随难度递减，结论见 DEVELOPMENT §2.12） |
 | 2026-08-19 | `ISSUES.md` | #26. `npm run check` 的 typecheck 阶段失败（188 个 TS2339） | 已修复并验证（JSDoc `{object}`→`{any}` + globals.d.ts 补声明，`npm run typecheck` 0 错误） |
 | 2026-08-19 | `ISSUES.md` | #22. Formal Run 中测试靶车 dummy 混入且无限复活 | 已修复并验证（detach/restore helper，结论见 DEVELOPMENT §3.15） |
@@ -43,8 +44,99 @@
 | 2026-08-19 | `PLAN.md` | P-15 MVP 架构重构（三入口拆分 + HUD 极简 + 伤害飘字 + 状态/开发者面板） | 已完成并验证（结论见 DEVELOPMENT §2.15 / §3.17 / §6 条目 15） |
 | 2026-08-20 | `ISSUES.md` | #62. test-map legacy 模式节点 3/4 掩体越界 | 已修复并验证（P-20 水体/桥梁双重缩放 + 尺寸失控，结论见 DEVELOPMENT §2.12 / §6 条目 20） |
 | 2026-08-20 | `ISSUES.md` | #61. bake-assets.js: missing 'playwright' module | 已修复并验证（可选依赖 tryRequire 降级，结论见 DEVELOPMENT §3.20） |
+| 2026-08-22 | `ISSUES.md` | #44 test-flow.js: only 0 edge-case patterns found | 已解决并验证（增加 payload 边缘、转移矩阵拦截、watcher 异常与重复注销隔离、复活与重置状态集成测试，4 种 QA 模式） |
+| 2026-08-22 | `ISSUES.md` | #61~#74 模块化代码审查质量与物理缺陷问题 | 已全部修复并验证（结论见 DEVELOPMENT §3.24） |
+| 2026-08-22 | `ISSUES.md` | #49 test-modifiers.js 缺乏边缘用例模式警告 | 已修复并增加健壮性边缘测试用例，QA 校验通过 |
+| 2026-08-22 | `ISSUES.md` | #60 audit-content.js: 无警告但分布异常 | 已核实分布正常（common 47.8% / rare 31.3% / epic 15.7% / legendary 5.2%，5 个 Boss 3 阶段），`--strict` 全绿 0 警告，归档完结 |
+| 2026-08-22 | `PLAN.md` | 2026-08-21 规划：局外流程闭环与存档/配置体系 (M10 扩展) | 已全部实现并验证（结论见 DEVELOPMENT §2.16 / §3.25 / §5.5 / §6 条目 22） |
 
 ------
+
+# 四、2026-08-19 归档自 `ISSUES.md`（测试基础设施修复）
+
+### #27 test-qa.js: missing global.TAU shim
+- **File**: `scripts/test-qa.js`
+- **Issue**: Missing `global.TAU = U.TAU` shim required by QA compliance check
+- **Impact**: QA compliance check fails; does not affect game code or runtime
+- **Status**: 已解决（已添加 `global.TAU = U.TAU`）
+
+### #28 test-qa.js: missing global.RULES shim
+- **File**: `scripts/test-qa.js`
+- **Issue**: Missing `global.RULES = RULES_MOD.RULES` shim required by QA compliance check
+- **Impact**: QA compliance check fails; does not affect game code or runtime
+- **Status**: 已解决（已添加 `global.RULES = RULES_MOD.RULES`）
+
+### #29 QA script has issues - review above
+- **File**: `scripts/test-qa.js`
+- **Issue**: QA script self-check reports 5/6 checks passed but has above issues
+- **Impact**: Developer workflow interruption; does not affect game code
+- **Status**: 已解决（已修复所有 requires/shim 问题，QA 合规率 24/24）
+
+### #30 test-audio.js: missing require('../js/tank_utils.js')
+- **File**: `scripts/test-audio.js`
+- **Issue**: Missing `require('../js/tank_utils.js')` at top of script
+- **Impact**: Test script cannot run; does not affect game code or audio system
+- **Status**: 已解决（已添加 `const U = require('../js/tank_utils.js');`）
+
+### #31 test-audio.js: missing require('../js/tank_rules.js')
+- **File**: `scripts/test-audio.js`
+- **Issue**: Missing `require('../js/tank_rules.js')` at top of script
+- **Impact**: Test script cannot run; does not affect game code or audio system
+- **Status**: 已解决（已添加 `const RULES_MOD = require('../js/tank_rules.js');`）
+
+### #32 test-boss.js: missing require('../js/tank_utils.js')
+- **File**: `scripts/test-boss.js`
+- **Issue**: Missing `require('../js/tank_utils.js')` at top of script
+- **Impact**: Test script cannot run; does not affect boss code
+- **Status**: 已解决（已添加 `const U = require('../js/tank_utils.js');`）
+
+### #33 test-boss.js: missing require('../js/tank_rules.js')
+- **File**: `scripts/test-boss.js`
+- **Issue**: Missing `require('../js/tank_rules.js')` at top of script
+- **Impact**: Test script cannot run; does not affect boss code
+- **Status**: 已解决（已添加 `const RULES_MOD = require('../js/tank_rules.js');`）
+
+### #34 test-camera.js: missing require('../js/tank_utils.js')
+- **File**: `scripts/test-camera.js`
+- **Issue**: Missing `require('../js/tank_utils.js')` at top of script
+- **Impact**: Test script cannot run; does not affect camera code
+- **Status**: 已解决（已添加 `const U = require('../js/tank_utils.js');`）
+
+### #35 test-camera.js: missing require('../js/tank_rules.js')
+- **File**: `scripts/test-camera.js`
+- **Issue**: Missing `require('../js/tank_rules.js')` at top of script
+- **Impact**: Test script cannot run; does not affect camera code
+- **Status**: 已解决（已添加 `const RULES_MOD = require('../js/tank_rules.js');`）
+
+### #36 test-card-effects.js: missing require('../js/tank_utils.js')
+- **File**: `scripts/test-card-effects.js`
+- **Issue**: Missing `require('../js/tank_utils.js')` at top of script
+- **Impact**: Test script cannot run; does not affect card effects code
+- **Status**: 已解决（已添加 `const U = require('../js/tank_utils.js');`）
+
+### #37 test-cards.js: missing require('../js/tank_utils.js')
+- **File**: `scripts/test-cards.js`
+- **Issue**: Missing `require('../js/tank_utils.js')` at top of script
+- **Impact**: Test script cannot run; does not affect cards code
+- **Status**: 已解决（已添加 `const U = require('../js/tank_utils.js');`）
+
+### #38 test-dmgtext.js: missing require('../js/tank_utils.js')
+- **File**: `scripts/test-dmgtext.js`
+- **Issue**: Missing `require('../js/tank_utils.js')` at top of script
+- **Impact**: Test script cannot run; does not affect dmgtext code
+- **Status**: 已解决（已添加 `const U = require('../js/tank_utils.js');`）
+
+### #39 test-dmgtext.js: missing require('../js/tank_rules.js')
+- **File**: `scripts/test-dmgtext.js`
+- **Issue**: Missing `require('../js/tank_rules.js')` at top of script
+- **Impact**: Test script cannot run; does not affect dmgtext code
+- **Status**: 已解决（已添加 `const RULES_MOD = require('../js/tank_rules.js');`）
+
+### #49 test-modifiers.js: only 0 edge-case patterns found (expected >= 3 for robustness coverage)
+- **File**: `scripts/test-modifiers.js`
+- **Issue**: Only 0 edge-case patterns found, expected >= 3 for robustness coverage
+- **Impact**: Reduced test robustness; does not affect modifiers code
+- **Status**: 已解决（已增加修饰器边界与鲁棒性测试用例，QA 校验通过，2026-08-22 归档）
 
 # 一、2026-08-08 归档自 `PLAN.md`（原文）
 
@@ -1547,3 +1639,211 @@ if (mod.key==='ammo') {
 - **Issue**: 31 项卡牌效果描述与数值不匹配（`desc` 文字数值与 `Effect modifier.value`/`ammo.value`/`passive.value` 不一致），例如 `angle_boost: Effect passive.value=5 与 desc 中数字无法匹配 (expected desc ~400, desc 数字: 5)`。这是内容一致性问题，不影响游戏运行但会导致策划难以验证卡牌效果。
 - **Impact**: 内容质量问题，策划核对卡牌效果时需逐条核实；不影响游戏代码运行
 - **Status**: 待处理
+
+---
+
+## ISSUES.md 归档（2026-08-22）
+
+### [2026-08-22] 归档自 ISSUES.md #61~#74（已完成）
+
+> 2026-08-22 删除自 ISSUES.md：已全部修复并验证，结论见 DEVELOPMENT.md §3.24。被删条目原文如下：
+
+### #61 tank_model.js: dynamic accel & brake ignore enginePower/weight modifiers
+- **File**: `js/tank_model.js:38-50`
+- **Issue**: `s.accel` and `s.brake` are calculated before modifier loop passes run. Modifiers modifying `enginePower` or `weight` do not update `accel` and `brake`.
+- **Impact**: Cards/upgrades modifying engine power or weight fail to affect actual acceleration/braking physics in movement.
+- **Status**: 待处理
+
+### #62 tank_cards.js: cardStackCount under-counts or over-counts cards
+- **File**: `js/tank_cards.js:144-146`
+- **Issue**: `cardStackCount` filters `tank.modifiers`. Multi-modifier cards return >1 count per pick, and cards with only non-modifier effects return 0.
+- **Impact**: Card stack counting and max-stack validation during card selection or queries are inaccurate.
+- **Status**: 待处理
+
+### #63 tank_economy.js: applyUpgrades triggers redundant refreshStats inside loop
+- **File**: `js/tank_economy.js:117-122`
+- **Issue**: `addModifier` is called per level in a loop, triggering `refreshStats` and `structuredClone(base.armor)` up to dozens of times sequentially at start.
+- **Impact**: Unnecessary CPU churn and GC during game init/run start.
+- **Status**: 待处理
+
+### #64 tank_cards.js: AMMO_KEYS missing 'heat'
+- **File**: `js/tank_cards.js:30-32`
+- **Issue**: `AMMO_KEYS` defines `['ap', 'apcr', 'he']` but `RULES.ammoTypes` includes `heat`.
+- **Impact**: Any card modifying `heat` ammo fails schema validation.
+- **Status**: 待处理
+
+### #65 tank_model.js: moduleMult falsy evaluation for 0 values and dead code in tickDebuffs
+- **File**: `js/tank_model.js:344, 354-357`
+- **Issue**: `shooter.stats.ammoMult || DB.ammo.player` falls back to default on 0; dead variable `alive` in `tickDebuffs`.
+- **Impact**: 0 module multiplier cannot be set; dead code smell.
+- **Status**: 待处理
+
+### #66 tank_camera.js: clampCamera ignores cam.zoom
+- **File**: `js/tank_camera.js:55-64`
+- **Issue**: `clampCamera` uses raw `cam.vw / 2` instead of `(cam.vw / 2) / cam.zoom`.
+- **Impact**: Camera bounds clamp incorrectly when zoom is not 1.0.
+- **Status**: 待处理
+
+### #67 tank_nodegen.js: tree to fallen generation does not adjust dimensions for residue
+- **File**: `js/tank_nodegen.js:424-425`
+- **Issue**: Pre-wrecking tree into fallen does not apply residueW/residueH scaling.
+- **Impact**: Pre-wrecked fallen trees have incorrect 24x18 dimensions instead of elongated obstacle shape.
+- **Status**: 待处理
+
+### #68 tank_minimap.js: viewport box drawing lacks clip rect
+- **File**: `js/tank_minimap.js:101-108`
+- **Issue**: Viewport rectangle is drawn without clipping to minimap frame.
+- **Impact**: Zooming out or view extending past world edge causes white viewport box to overflow minimap UI.
+- **Status**: 待处理
+
+### #69 tank_assets.js: ASSET_CACHE unbounded growth
+- **File**: `js/tank_assets.js:209, 239-248`
+- **Issue**: Dynamic node scaling creates floating point dimensions causing ASSET_CACHE to retain many offscreen canvases.
+- **Impact**: Memory usage increases over long game sessions.
+- **Status**: 待处理
+
+### #70 tank_move.js: AI tank trackBroken state not cleared on immobT expire
+- **File**: `js/tank_move.js:15`
+- **Issue**: `driveTank` decrements `immobT` but does not reset `trackBroken = false` when it reaches 0 (only mvp player code did it).
+- **Impact**: AI tanks repaired after immobilization retain broken track visual and dirty state.
+- **Status**: 待处理
+
+### #71 tank_fx.js: shockwaves and scorchMarks arrays not updated in updateFx
+- **File**: `js/tank_fx.js:18-19, 245-272`
+- **Issue**: `shockwaves` and `scorchMarks` are populated during explosions but never updated or filtered in `updateFx`, and lack draw functions.
+- **Impact**: Unbounded array growth during play.
+- **Status**: 待处理
+
+### #72 tank_battledraw.js: attachments traversal lacks array guard
+- **File**: `js/tank_battledraw.js:429-430`
+- **Issue**: `t.attachments.forEach` throws if `t.attachments` is undefined.
+- **Impact**: Potential crash when rendering tanks without attachments field.
+- **Status**: 待处理
+
+### #73 tank_geometry.js: turretFrontDist tVal lacks clamp guard
+- **File**: `js/tank_geometry.js:494-500`
+- **Issue**: `tVal = (0 - p1[1]) / (p2[1] - p1[1])` not clamped to [0, 1].
+- **Impact**: Near horizontal line floating point precision issues can produce out-of-range intersection.
+- **Status**: 待处理
+
+### #74 tank_halfgeom.js: halfFromFull does not enforce forward vertex order for CCW input
+- **File**: `js/tank_halfgeom.js:91-95`
+- **Issue**: `halfFromFull` assumes CW full polygon; CCW input produces reversed vertex order.
+- **Impact**: Polygon centering and armor face mapping inverted.
+- **Status**: 待处理
+
+---
+
+### [2026-08-22] 归档自 ISSUES.md #44
+
+### #44 test-flow.js: only 0 edge-case patterns found (expected >= 3 for robustness coverage)
+- **File**: `scripts/test-flow.js`
+- **Issue**: Only 0 edge-case patterns found, expected >= 3 for robustness coverage
+- **Impact**: Reduced test robustness; does not affect flow code
+- **Status**: 已解决（为 `test-flow.js` 扩展了 payload 边缘透传、非法转移矩阵交叉拦截、多 watcher 隔离与异常防护、重复 `unwatch`/`restartRun` 边界测试、以及复活判定/重置实体制约等用例，符合 QA 的 4 种 robustness 检查模式，`test-qa.js` 报告 4 edge-case patterns 无警告）
+
+---
+
+## PLAN.md 归档（2026-08-22）
+
+### [2026-08-22] 归档自 PLAN.md「2026-08-21 规划：局外流程闭环与存档/配置体系 (M10 扩展)」
+
+> 2026-08-22 删除自 docs/PLAN.md：该规划章节（背景与目标 + 特性 1/2/3 + 执行步骤与验证路径表）已全部实现并通过独立验证，结论同步至 DEVELOPMENT.md §2.16 / §3.25 / §5.5 / §6 条目 22。被删章节原文如下：
+
+## 2026-08-21 规划：局外流程闭环与存档/配置体系 (M10 扩展)
+
+### 背景与目标
+在节点生成与战斗系统稳定后，构建完整的游戏开局闭环：
+1. **首页存档管理**：支持多存档（创建/切换/重命名/删除），替代当前单一 localStorage 键；
+2. **出战配置（Loadout）**：进入存档后选择出战坦克（来自 `tanks/` 列表）并选配弹药（限制最多 3 种弹药类型）；
+3. **局前永久升级商店**：在开启 run 前进入商店消费点数升级属性，然后再进入节点地图开始游戏。
+
+---
+
+### 特性 1：首页多存档系统 (Save Management)
+
+#### 1.1 需求说明
+- 首页展示存档列表（可查看存档名、游玩局数、击杀数、拥有点数、最后游玩时间）；
+- 支持「新建存档」、「选择进入」、「重命名」、「删除存档」；
+- 每个存档拥有独立的：经济点数（points）、已购永久升级（upgrades）、统计数据（stats）、默认出战坦克（selectedTankId）、默认配备弹药（ammoLoadout）。
+
+#### 1.2 架构与文件分工
+- **`js/tank_economy.js`**：
+  - 扩展存储模型，采用「元索引 + 槽位字典」结构：
+    - `rogue-tank-saves-meta`: `{ activeSaveId: string, saves: Array<{ id: string, name: string, updatedAt: number }> }`
+    - `rogue-tank-save:<id>`: 具体的 profile 数据（遵循 `normalizeProfile`，新增 `selectedTankId` 与 `ammoLoadout` 字段）。
+  - 新增/导出纯逻辑 API（保持 Node 可测，接收 `storage` 显式注入）：
+    - `listSaveSlots(storage)` → 返回元数据列表
+    - `createSaveSlot(storage, name, initialData?)` → 创建新存档槽位并返回 slotId
+    - `deleteSaveSlot(storage, id)` → 删除指定槽位
+    - `renameSaveSlot(storage, id, newName)` → 重命名
+    - `loadActiveProfile(storage)` / `saveActiveProfile(storage, profile)`
+- **`tank_flow.js`**：
+  - 状态机新增 `'home'` 状态（作为顶层入口），状态转移白名单扩展：
+    - `home`: `['loadout', 'home']`
+    - `gameover`: `['map', 'home']`（阵亡后可选择回到首页或快速重开）
+
+---
+
+### 特性 2：出战坦克与弹药选配 (Tank & Ammo Loadout)
+
+#### 2.1 需求说明
+- 进入选定存档后展示出战准备面板（Loadout 界面）；
+- **坦克选择**：调用 `fetchTankList`（`js/tank_listio.js`）展示玩家已拥有的坦克卡片（预览外形、机动、装甲、穿深），点击选定；
+- **弹药配备**：从 `RULES.ammoTypes`（AP, APCR, HEAT, HE 等）中勾选出战携带的弹种，**严格限制最多选择 3 种**（若不足 3 种允许出战，但至少需要 1 种）；
+- 配置自动保存在当前存档 profile 的 `selectedTankId` 和 `ammoLoadout: [ammoKey1, ammoKey2, ammoKey3]` 字段中。
+
+#### 2.2 战斗中弹药切换 (Combat Ammo Cycling)
+- **`tank_mvp.html` / `tank_bench.html`**：
+  - 玩家坦克实体挂载 `t.ammoLoadout = [...]` 和 `t.currentAmmoIndex = 0`；
+  - 绑定数字键 `1` / `2` / `3`（或 `Q`/滚轮）实时切换当前装填弹种；
+  - HUD 增加弹药选择指示器（展示 3 种弹药的图标/按键/名称/穿深系数/伤害），高亮当前激活弹药；
+  - `fireTank` 发射时从当前激活弹药读取 `ammoKey`，`resolveHit` 按照所选弹种机制结算（HEAT 无跳弹、HE 溅射等）。
+
+---
+
+### 特性 3：局前永久升级商店 (Pre-Run Upgrade Shop)
+
+#### 3.1 需求说明
+- 在 Loadout 确认后（或从 Loadout 界面点击「强化整备」），进入「永久升级商店」；
+- 商店消费当前存档累计的**商店点数**（由历次 run 击杀与通关折算）；
+- 升级项基于 `UPGRADE_DEFS`（`js/tank_economy.js`）：
+  - 穿深强化、伤害强化、正面装甲、炮塔装甲、车体耐久、机动强化、装填优化、火控优化；
+  - 局前购买追加复活次数（扩展 `RULES.revive.extraRevivesCost`）；
+- 点击「出击 / START RUN」时：
+  1. 调用 `applyUpgrades(player, profile)` 为玩家坦克挂载 permanent scope 的 modifiers；
+  2. 状态机转移进入 `map` 状态，生成节点链并进入第一关战斗。
+
+#### 3.2 流程状态机完整流转
+```
+[首页: home] 
+    │  (选择/新建存档)
+    ▼
+[出战整备: loadout] ──(选择坦克 + 选配≤3种弹药)──┐
+    │                                         │
+    ▼                                         ▼
+[永久升级商店: shop] ───(消费点数升级)───► [节点地图: map]
+                                              │
+                                              ▼
+                                         [战斗: battle]
+                                              │
+                                              ▼
+                                         [结算: settlement] ──► [卡牌: reward] ──► [下一节点: battle]
+                                              │
+                                              ▼ (阵亡/通关)
+                                         [战败/通关: gameover] ──► [返回 home 或 shop]
+```
+
+---
+
+### 执行步骤与验证路径
+
+| 步骤 | 内容 | 涉及文件 | 验证方式 |
+|---|---|---|---|
+| 1 | 扩展 `tank_economy.js` 支持多存档槽位管理纯函数 | `js/tank_economy.js` | 编写 `scripts/test-economy.js` 单元测试（CRUD 槽位、隔离性） |
+| 2 | 扩展 `tank_flow.js` 状态机（增加 home, loadout, shop 状态及白名单转移） | `js/tank_flow.js` | 更新 `scripts/test-flow.js` 单元测试 |
+| 3 | 在 `tank_mvp.html` 中构建 Home / Loadout / Shop 的 UI 视图层与切换逻辑 | `tank_mvp.html` | `npm run check` 语法检查 + 浏览器手动冒烟 |
+| 4 | 接入弹药配备与战斗内 1/2/3 键切换逻辑 | `tank_mvp.html`, `js/tank_model.js` | 战斗内切换弹药开火，验证弹道色与击穿/溅射表现 |
+| 5 | 全量自动化测试回归 | 全部测试脚本 | `npm test` + `npm run check` |
+
+

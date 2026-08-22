@@ -56,7 +56,7 @@
 ### 2.3 死亡 / 复活 / 失败
 - 死亡为**永久性**（真正 Roguelike 式）。
 - 失败条件：**仅当复活次数耗尽**（`RULES.revive.baseRevives` 耗尽即 gameover）。
-- 复活次数：基础 2 次，可在**一局开始前**用商店点数购买追加次数（局内不可购买；购买接入口属经济里程碑 M10，当前只实现消耗/判定）。
+- 复活次数：基础 2 次，可在**一局开始前**用商店点数购买追加次数（局内不可购买；**M10 已实现（2026-08-22）**：局前商店与死亡商店均经 `buyExtraRevive` 购买，写入 `profile.bonusRevives` 持久化，出击时 `revives = RULES.revive.baseRevives(2) + bonusRevives`，见 §2.16/§3.25）。
 - 复活效果：**满状态**复活（hp=maxHp、清 debuff/起火/履带断/弹药架殉爆），位置在**友军据点周围 `RULES.revive.reviveRadius`=150px 内、无障碍物的随机点**（无据点回退玩家出生点），复活后**短暂无敌 `RULES.revive.invulnSeconds`=3 秒**（直击/DOT 均不掉血，视觉半透明闪烁）。
 - **P-11 已实现（2026-08-15）**：`js/tank_revive.js`（`findReviveSpot`/`reviveTank`/`canRevive`/`reviveAt` 纯逻辑）+ mvp 死亡判定（`canRevive` → 复活 / 耗尽 → gameover）+ `applyModuleDamage` 与 DOT 的无敌检查（`invulnT>0` 即不掉血）+ 无敌闪烁视觉。复活为**瞬间处理**（无过渡镜头/延迟，开放问题 3 定案：贴 10 分钟单局目标，不打断节奏）。
 
@@ -68,7 +68,7 @@
 | 用途 | 节点间三选一卡牌（可消耗得分刷新选项）+ **节点间商店**：买本局内的消耗品/临时强化 | **死亡后商店**：永久升级（贵，局内不可购买）、消耗品（如复活次数，便宜） |
 
 - 节点间商店 与 死亡后商店 是**两套独立商店**，货币互不流通——维持"死亡才能换永久成长"的核心惩罚分量不被稀释。
-- **P-14 已实现（2026-08-15）**：`js/tank_economy.js`（`UPGRADE_DEFS` 永久升级树 + `scoreToPoints`/`killScore` + `loadProfile`/`saveProfile` 版本化存档 + `buyUpgrade`/`applyUpgrades`）。具体数值收口 `RULES.economy`：普通敌击杀 `killScoreBase`=20 分；死亡转化 `scoreToPointsRatio`=10%；卡牌刷新费 `refreshCost`=10；复活次数购买 `reviveCost`=40 点。**永久升级树（8 项，permanent scope，cost 25~40 点 / maxLevel 5）**：穿深/伤害/正面装甲/炮塔装甲/耐久/极速/装填/散布。存档 `{version, points, upgrades, stats}` 存 localStorage（键 `rogue-tank-save`），版本不匹配回退默认；死亡后商店（gameover 覆盖层）用点数买永久升级 + 复活次数；开局 `applyUpgrades` 应用永久升级 + `runs++`。**开放问题 5（节点通关得分量化）已部分落地**：击杀得分 `killScore` + §4.5 节点通关奖励 + 转化比例均已量化，剩余"卡牌刷新费交互"（M10 内节点间商店 UI）留待后续。
+- **P-14 已实现（2026-08-15）**：`js/tank_economy.js`（`UPGRADE_DEFS` 永久升级树 + `scoreToPoints`/`killScore` + `loadProfile`/`saveProfile` 版本化存档 + `buyUpgrade`/`applyUpgrades`）。具体数值收口 `RULES.economy`：普通敌击杀 `killScoreBase`=20 分；死亡转化 `scoreToPointsRatio`=10%；卡牌刷新费 `refreshCost`=10；复活次数购买 `reviveCost`=40 点。**永久升级树（8 项，permanent scope，cost 25~40 点 / maxLevel 5）**：穿深/伤害/正面装甲/炮塔装甲/耐久/极速/装填/散布。存档 `{version, points, upgrades, stats}` 版本化存 localStorage（**M10 起演进为多存档槽位体系：元索引 `rogue-tank-saves-meta` + 槽位键 `rogue-tank-save:<id>`，旧单键自动迁移为默认存档且永不删除，见 §2.16**），版本不匹配回退默认；死亡后商店（gameover 覆盖层）用点数买永久升级 + 复活次数；开局 `applyUpgrades` 应用永久升级 + `runs++`。**开放问题 5（节点通关得分量化）已部分落地**：击杀得分 `killScore` + §4.5 节点通关奖励 + 转化比例均已量化，剩余"卡牌刷新费交互"（节点间局内商店 UI）留待后续里程碑。
 
 ### 2.5 掩体系统（已实现于原型）
 掩体分两种，处理方式完全不同：
@@ -175,13 +175,19 @@
      - 炮口归一化检查（`normalizeBarrel`）
 
 4. **已验证的测试脚本**：
-   - `scripts/test-covers.js`：655 断言，31 个测试组（A1~A3 + 极端边界），通过 QA 合规检查，包含 7 种边界模式
-   - `scripts/test-tanks.js`：坦克 JSON 完整性验证，通过 QA 合规检查
-   - `scripts/test-extreme-combat.js`：物理/命中极端压力测试，通过 QA 合规检查，包含 7 种边界模式
-   - `scripts/test-extreme-cover.js`：掩体系统极端边界测试（第 31-35 情况），通过 QA 合规检查，包含 5 种边界模式
-   - `scripts/test-extreme-geometry.js`：几何边界测试，通过 QA 合规检查，包含 3+ 种边界模式
-   - `scripts/test-hitpart.js`：模块命中检测，通过 QA 合规检查，包含 4 种边界模式
-   - `scripts/test-tankcollision.js`：坦克碰撞测试，通过 QA 合规检查，包含 3 种边界模式
+     - `scripts/test-covers.js`：655 断言，31 个测试组（A1~A3 + 极端边界），通过 QA 合规检查，包含 7 种边界模式
+     - `scripts/test-tanks.js`：坦克 JSON 完整性验证，通过 QA 合规检查
+     - `scripts/test-flow.js`：流程状态机边界与健壮性测试（payload / 矩阵拦截 / watcher 防护 / 复活与实体制约），通过 QA 合规检查，包含 4 种边界模式（#44 已解决）
+     - `scripts/test-modifiers.js`：属性修饰器系统分类与边缘健壮性测试，通过 QA 合规检查，包含 4 种边界模式（#49 已解决）
+    - `scripts/test-extreme-combat.js`：物理/命中极端压力测试，通过 QA 合规检查，包含 7 种边界模式
+    - `scripts/test-extreme-cover.js`：掩体系统极端边界测试（第 31-35 情况），通过 QA 合规检查，包含 5 种边界模式
+    - `scripts/test-extreme-geometry.js`：几何边界测试，通过 QA 合规检查，包含 3+ 种边界模式
+    - `scripts/test-hitpart.js`：模块命中检测，通过 QA 合规检查，包含 4 种边界模式
+    - `scripts/test-tankcollision.js`：坦克碰撞测试，通过 QA 合规检查，包含 3 种边界模式
+
+  5. **内容审计工具（`scripts/audit-content.js`）**：
+     - 卡牌稀有度/流派/效果类型分布与 Boss 配置的常态化审计工具。
+     - **2026-08-22 核实**：`node scripts/audit-content.js --strict` 115 张卡牌（common 47.8% / rare 31.3% / epic 15.7% / legendary 5.2%）与 5 个 Boss（均 3 阶段、掉落齐全）全量通过，**零警告**。分布偏差在预期统计波动范围内（< 3%），无需修正。
 
 **QA 流程生命周期**（与 DEVELOPMENT.md §2 约定一致）：
 - 新增测试脚本编写完成后，在提交前运行 `node scripts/test-qa.js` 确保合规
@@ -246,7 +252,7 @@
 - `generateRun(seed, count, env)`：一局 = 线性节点链（无分支，§2.1），节点数 `RULES.nodeMap.runNodeCount`（5）；`makeNode(index, count, rng, env)` 每节点 =
   - **掩体布局**：复用 `generateNode`（P-05）并加 **`scale` 选项**（`tank_nodegen.js`，模板 w/h 与元素位置/尺寸/verts 同倍率放大；scale=1 零行为变化）。**视口驱动缩放（2026-08-19，#24 修复）**：`makeNode`/`generateRun` 显式注入 `env.viewport = { vw, vh }`（mvp 传画布尺寸、Node 测试传假值；纯逻辑可测）时，先经 `pickTemplate(diff, rng)`（nodegen 导出的难度加权选择）预选模板，再算 `nodeScaleFor = RULES.nodeMap.nodeScale(3) × max(vw/模板w, vh/模板h)` → 节点世界宽高各 ≥ 视口 3 倍（面积 ≥ 9 倍：1280×720 → ≥3840×2160、1920×1080 → ≥5760×3240）；env 缺省回退旧行为（固定 nodeScale=3，约 700×400 → 2100×1200）。敌军/据点散布区域按 w/h 比例（右 2/3、左 1/4）随世界放大，间距约束保持绝对 px（`enemyMinDist`/`enemyMinPlayerDist`）。
   - **内置模板（2026-08-19，#25 修复）**：`NODE_TEMPLATES` 由 5 个扩到 **7 个**（新增 `village_center` 村落中心广场 mid/high、`woodland_line` 林地战线 high），单模板 items 12~25 个（树/灌木/沙袋/栅栏/半高/全高混合，体现 开阔走廊/密林阵地/城镇街区/交叉火力广场/混合障壁/村落中心/林地战线 地貌）；剔除率随难度递减 `cullRate = rng.range(0, 0.12) × (1 − 0.7·diff)`（diff=1 → ≤0.036、diff=0 → ≤0.12，高难保留更多元素、低难仍可稀疏）；确定性（种子 RNG）不破坏。
-  - **水体/桥梁（P-20 部分落地，2026-08-20）**：`generateNode` 以 `waterBridgeChance = diff×0.5` 概率随机插入 1 组水体/桥梁组合（`tier:'water'` 不可通行 `move:0`、`tier:'bridge'` 通道 `move:1`，RULES.coverTiers）。**边界约束（ISSUES #62 修复，2026-08-20）**：① 水体尺寸封顶到节点宽高 40%——原始尺寸区间 `[300,800]×[200,500]` 相对模板（700~860）本就占 35%~114%，scale 后会把大半个战场吞掉并耗尽敌军/据点拒绝采样 guard（`pointInCover` 排斥）；② 偏移按「模板单位 × scale」约定采样一次（旧实现先按世界尺寸算 maxDx 再乘 scale，双重缩放把水体/桥梁中心推出节点界，legacy scale=3 下实测越界 +348px~−3480px）；③ 桥梁 y 偏移钳制在节点半高内（水体贴近上缘时防越界）。legacy（scale=3）与视口模式两条路径下生成掩体均落在 [0,w]×[0,h] 内。
+  - **水体/桥梁（P-20 部分落地，2026-08-20）**：`generateNode` 以 `waterBridgeChance = diff×0.5` 概率随机插入 1 组水体/桥梁组合（`tier:'water'` 不可通行 `move:0`、`tier:'bridge'` 通道 `move:1`，RULES.coverTiers）。**边界约束（ISSUES #62 修复，2026-08-20）**：① 水体尺寸封顶到节点宽高 40%——原始尺寸区间 `[300,800]×[200,500]` 相对模板（700~860）本就占 35%~114%，scale 后会把大半个战场吞掉并耗尽敌军/据点拒绝采样 guard（`pointInCover` 排斥）；② 偏移按「模板单位 × scale」约定采样一次（旧实现先按世界尺寸算 maxDx 再乘 scale，双重缩放把水体/桥梁中心推出节点界，legacy scale=3 下实测越界 +348px~−3480px）；③ 桥梁 y 偏移钳制在节点半高内（水体贴近上缘时防越界）。legacy（scale=3）与视口模式两条路径下生成掩体均落在 [0,w]×[0,h] 内。**2026-08-21 加固（见 §3.23）**：玩家出生点经 `findPlayerSpawn` 排除水域/掩体（`js/tank_map.js`）；水体与已有 covers 重叠经 `rectHitsCover` 拒绝采样；桥梁 Dy 钳制计入自身半高防越北界；mvp 绘制改 water→bridge→其它 顺序防水域盖下层掩体。
   - **难度曲线（初版，§6 条目 12 的细化另行定表）**：`difficultyForIndex = 0.15 + 0.8·t^1.25`（t=index/(count−1)，单调 0.15→0.95，后段加速）。
   - **敌军构成**：数量 `1 + floor(diff·4)`（1~4）；tankId 取自 `RULES.nodeMap.enemyTankPool`（默认 `['dummy']`，车型多样性里程碑扩充）；重坦占比随难度（diff>0.6 或 35% 概率）；散布在右 2/3 区域，拒绝采样避开掩体包围盒（+60px）、彼此 ≥`enemyMinDist`、离玩家出生点 ≥`enemyMinPlayerDist`。
   - **友军据点**：概率 `outpostChance`（0.7）出现在左侧友军区（x ∈ [0.12w, 0.30w]），远离敌军与出生点。
@@ -254,7 +260,7 @@
 - **实体化 `materializeNode(node, env)`**：env 显式注入（浏览器传 covers/entities/spawnTank/applyTankConfig+resetEntity；Node 测试传 fake）——替换全局 covers + `snapshotCovers`、清场（保留 player 与测试靶车 dummy）、生成敌军/据点实体（`nodeSpawn` 标记，供清敌判定与 M7 AI 识别）。
 
 **全局游戏流程状态机（`js/tank_flow.js`，纯逻辑，Node 可测）**：
-- `FLOW_STATES = map / battle / settlement / reward / gameover`；`FLOW_TRANSITIONS` 白名单转移表（`battle→settlement|gameover|map`、`settlement→reward|map`、`reward→battle|map`、`gameover→map` 等；**非法转移抛错**——测试与 UI 接线的护栏）。
+- `FLOW_STATES = map / battle / settlement / reward / gameover`（**M10 扩展（2026-08-22）：增 home / loadout / shop 三局外状态**，白名单 `home:['loadout','home']`、`loadout:['shop','map','home']`、`shop:['map','loadout','home']`、`gameover:['map','home']`，见 §2.16）；`FLOW_TRANSITIONS` 白名单转移表（`battle→settlement|gameover|map`、`settlement→reward|map`、`reward→battle|map`、`gameover→map` 等；**非法转移抛错**——测试与 UI 接线的护栏）。
 - `watchFlow(flow, fn)` 注册监听（UI 层消费；回调异常被吞，不中断状态机）；`restartRun` 重开（回 map、runId 自增）。
 - **战斗循环只是其中一个状态**：mvp `loop()` 模拟门控 `simulating = !run || flow.state==='battle'`——非战斗状态冻结战场，覆盖层接管。
 
@@ -262,7 +268,7 @@
 
 **视口剔除 culling（条目 6 捆绑前置）**：mvp `draw()` 全部世界绘制套摄像机变换（`translate→scale→translate(-cam)`），covers/树冠层/shells 按 `aabbInView` 剔除（余量 64px），网格只画视口内线段；粒子池化为后续可选项（`drawFxParticles` 暂全量）。
 
-**UI 界面层约定（条目 6 捆绑前置）**：mvp 通过 `watchFlow` 监听状态转移 → 显隐 DOM 覆盖层（`#flowOverlay`：节点图 `mapScreen` / 结算 `settleScreen` / 卡牌 `rewardScreen` / 阵亡 `gameoverScreen`）；数据源是纯逻辑模块返回值（`generateRun`/`scoreNode`），UI 零耦合。卡牌三选一由 P-09 起接真实卡池（`cards/` → `/api/cards` → `drawCardChoices`，见 §2.13）。
+**UI 界面层约定（条目 6 捆绑前置）**：mvp 通过 `watchFlow` 监听状态转移 → 显隐 DOM 覆盖层（`#flowOverlay`：节点图 `mapScreen` / 结算 `settleScreen` / 卡牌 `rewardScreen` / 阵亡 `gameoverScreen`）；数据源是纯逻辑模块返回值（`generateRun`/`scoreNode`），UI 零耦合。卡牌三选一由 P-09 起接真实卡池（`cards/` → `/api/cards` → `drawCardChoices`，见 §2.13）。**M10 扩展（2026-08-22）**：首页多存档 / 出战整备 Loadout / 局前升级商店三界面按同一约定接入（见 §2.16）。
 
 **战斗判定接线（mvp）**：进入节点 → `enterBattle`（重置玩家到出生点、相机对齐、`materializeNode`）；战斗态逐帧累计玩家承伤（`damageTaken`）；**敌全灭 → settlement**；**玩家阵亡 → gameover**（M8 复活系统接入前的永久死亡占位）。敌军为静态靶标（无 AI，M7 接入 `driveTank` 即可行为化）；据点 `team:'ally'` 当前仅作结算加分标记（炮弹穿透友军，M7 起为可战斗单位）。测试台（未开局）行为不变。
 
@@ -286,11 +292,11 @@
 3. `ability` —— 主动装置 `{key:'smoke'|'repair'|'extinguish'|'recon'|'track_repair'}`（按键触发，M9 接入）。
 4. `passive` —— 机制性被动 `{key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}`。
 5. `drone` —— 伴随浮游炮（§2.2 已定型，M7 接入）。
-6. `economy` —— `{field:'scoreMul'|'shopDiscount'|'startScore'|'reviveCount', value}`（M10 落地）。
+6. `economy` —— `{field:'scoreMul'|'shopDiscount'|'startScore'|'reviveCount', value}`（运行时消费仍待接线——M10 本轮交付为局外闭环，未含卡牌 economy 效果消费）。
 
 **稀有度与流派**：稀有度 4 档 `common/rare/epic/legendary`（抽卡权重 50/30/15/5）；流派 5 个标签 `重甲/狙击/机动/爆破/支援`（构筑方向，可多标签）。**内容规模已落地（会话 25b5b25d 产出）：111 张卡**（common 55 / rare 34 / epic 16 / legendary 6，占比 49.5/30.6/14.4/5.4%，5 流派各 21~23 张），覆盖 6 类效果（modifier 101 / ammo 17 / ability 8 / passive 8 / economy 5 / drone 1）。
 
-**模块与工具**：`js/tank_cards.js`（纯逻辑：`validateCard`/`validateCardSet`/`applyCardEffects`/`drawCardChoices`/`cardStackCount`/`weightedRarity`）；`scripts/validate-content.js`（内容 schema 守门，挂 `npm test`）+ `scripts/audit-content.js`（稀有度/流派/效果类型分布与数值极值审计，`--strict` 按阈值失败）；`tools/content_designer.html`（卡牌+Boss 统一编辑器，表格化编辑 effects、保存写回 JSON）；子 agent `@card-author`/`@balance-auditor`。mvp 的节点间三选一已接真实卡池（`/api/cards` → `drawCardChoices` 抽 3 → `applyCardEffects`）。
+**模块与工具**：`js/tank_cards.js`（纯逻辑：`validateCard`/`validateCardSet`/`applyCardEffects`/`drawCardChoices`/`cardStackCount`/`weightedRarity`）；`scripts/validate-content.js`（内容 schema 守门，挂 `npm test`）+ `scripts/audit-content.js`（稀有度/流派/效果类型分布与数值极值审计，`--strict` 按阈值失败，115 张卡牌与 5 个 Boss 审计 0 警告核实通过）；`tools/content_designer.html`（卡牌+Boss 统一编辑器，表格化编辑 effects、保存写回 JSON）；子 agent `@card-author`/`@balance-auditor`。mvp 的节点间三选一已接真实卡池（`/api/cards` → `drawCardChoices` 抽 3 → `applyCardEffects`）。
 - **运行时消费（P-17）**：`modifier` 立即生效走 base/modifiers/stats 管道；`ability`/`passive`/`drone`/`economy` 效果挂 `tank.cardEffects`（`{type, key/kind, cardId}`），由对应里程碑按键接入消费（ability→`js/tank_abilities.js` 统一入口+cd；drone→`js/tank_drone.js`；详见 §3.22）。
 
 ### 2.14 Boss 系统（数据驱动，P-09 已实现，2026-08-15）
@@ -335,6 +341,36 @@
 - 卡牌列表 / 修饰器列表查看（开发期辅助）。
 
 **弹种 4（HEAT）**：数字键 4 切换 HEAT（P-16 已接入，见 §2.6/§3.19）——heat 系数 1.4×穿深 / 0.8×速 / 1.2×散布 / 确定性不跳弹。
+
+### 2.16 局外流程闭环：多存档 + 出战配置 + 局前商店（M10 扩展 / P-22，已实现并验证 2026-08-22）
+
+**开局闭环定型**：`home`（首页多存档）→ `loadout`（出战坦克与弹药选配）→ `shop`（局前永久升级商店）→ `map`（节点链开局）。gameover 提供「重开（map）」与「返回首页（home）」两条出路；死亡购买 UX（永久升级 + 追加复活）继续内嵌在 gameover 态承接。
+
+**多存档存储模型（`js/tank_economy.js`）**：
+- 「元索引 + 槽位字典」两层结构：元索引键 `rogue-tank-saves-meta` = `{activeSaveId, saves:[{id, name, updatedAt}]}`；每个存档独立槽位键 `rogue-tank-save:<id>`（profile 遵循既有 normalizeProfile 校验）。
+- profile 新增字段：`selectedTankId`（出战坦克）、`ammoLoadout`（出战弹种数组，≤3）、`bonusRevives`（局外购买的追加复活次数）；saveVersion 不变。
+- API（纯逻辑、storage 显式注入、Node 可测）：`listSaveSlots` / `createSaveSlot` / `deleteSaveSlot` / `renameSaveSlot` / `setActiveSaveSlot` / `loadActiveProfile` / `saveActiveProfile` / `migrateLegacySave` / `buyExtraRevive`。
+- 兼容性定型：`loadProfile`/`saveProfile` 变薄委托（读/写当前激活槽位），mvp 既有调用点零改动；legacy 单键 `rogue-tank-save` 自动迁移为「默认存档」，**旧键永不删除**（回滚安全）。
+
+**流程状态机扩展（`js/tank_flow.js`）**：
+- `FLOW_STATES` 新增 `home` / `loadout` / `shop` 三态；转移白名单：`home:['loadout','home']`、`loadout:['shop','map','home']`、`shop:['map','loadout','home']`、`gameover:['map','home']`。
+- `createFlow(initialState?)` 缺省 `'map'` 向后兼容；`restartRun` 对局外三态 no-op 返回 runId（不打断存档选择）。
+- **gameover→shop 口径**：规划流转图中的 `gameover→shop` 箭头由既有 **gameover 态内嵌的死亡购买 UX** 承接——这是设计解释而非缺口；gameover 白名单仅 `['map','home']`，不新增直达 shop 的转移。
+
+**出战配置（Loadout）**：
+- 出战坦克：`fetchTankList` 列表卡片选定 → 写入 `profile.selectedTankId`；出击时经 `applyTankConfig(player, selectedTankId)` 应用。
+- 弹药选配：从 `RULES.ammoTypes` 复选，**上限 ≤3 种**（拒绝第 4 个）、**≥1 种才可出击**；保存在 `profile.ammoLoadout`。
+- 战斗内切换（mvp）：数字键 `1/2/3` 按 `player.ammoLoadout` 槽位**索引化**切换（越界忽略），`Q` 环形循环；HUD 弹药槽位组显示 键位/弹种名/倍率/色点 并高亮激活槽；`fireTank` 按 `shooter.ammoKey` 结算（弹道管线零改动，P-16 已备全链路）。取代此前 mvp 全局直选 1/2/3/4 的弹种切换语义。
+- 兜底：无 loadout 时回退全弹种表（调试直开战斗态等价旧行为）；AI/Boss 不受影响（不走玩家 loadout）。
+
+**局前商店与统一出击路径（`beginRunFromMenu()`）**：
+- 商店项 = `UPGRADE_DEFS` 八项永久升级（等级/费用/满级置灰）+ 追加复活次数购买（`buyExtraRevive` → `profile.bonusRevives` 持久化）。
+- 出击统一走 `beginRunFromMenu()`：配置校验 → 清 run modifiers → `applyTankConfig(player, selectedTankId)` → `applyUpgrades` → `revives = RULES.revive.baseRevives(2) + bonusRevives` → 预挂载 `ammoLoadout`（`ammoKey` 同步首槽）→ `generateRun` → `transition('map')`。gameover 界面新增「返回首页」。
+
+**范围决策（避免后人误判为遗漏）**：
+- **tank_bench.html 不做索引化切换**：装甲测试台保留全局直选全弹种（调试台语义）；loadout 索引制为 mvp 正式游戏专属。
+- **`js/tank_model.js` 无需改动**：弹种散布/倍率/noBounce/splash 全链路 P-16 已就绪，本里程碑只做选配与切换接线。
+- 卡牌 `effect.type==='ammo'` 与 loadout 键集求交是遗留衔接点（未配备弹种的改造卡不应产生可切换目标）→ 见 §6 条目 27。
 
 ---
 
@@ -439,7 +475,7 @@
   真实不一致仍可检出（验证用例：desc +15 vs mult 1.5 → 报错；自交/零面积多边形 → 报错；临时用例测完即删）。
 
 #### 3.9 内容批量 + Boss 运行时接入（P-09 阶段 B，2026-08-15 会话；设计见 §2.13/§2.14）
-- **卡牌批量 111 张**：5 个 `@card-author` 子 agent 并行产出（重甲/狙击/机动/爆破/支援 各 20 张 + 既有 11 张），稀有度实测 49.5/30.6/14.4/5.4%（期望 50/30/15/5），流派各 21~23 张；`validate-content.js` + `audit-content.js --strict` 全绿。
+- **卡牌批量 111 张**：5 个 `@card-author` 子 agent 并行产出（重甲/狙击/机动/爆破/支援 各 20 张 + 既有 11 张），稀有度实测 common 47.8%/rare 31.3%/epic 15.7%/legendary 5.2%（期望 50/30/15/5%），均落在正常统计容差范围内；`validate-content.js` + `audit-content.js --strict` 全绿（115 张卡牌与 5 个 Boss 审计 0 警告核实通过）。
 - **Boss 批量 5 种**：`@boss-author` 产出 5 Boss（要塞炮台/双体履带/幽灵狙击手/移动堡垒/装甲指挥官，各 3 阶段 + 弱点 + 掉落，打法彼此区分）；删除阶段 A 的旧示例 `siege_fort`（被 `boss_siege_fort` 取代，且旧文件的 +80/−80 抵消写法不兼容"阶段 modifiers=相对 base 完整画像"的运行时语义）。
 - **Boss 运行时接入**：`assignBossNode`（链尾随机指定 Boss、清空普通敌军）→ `enterBattle` 用 `makeBossEntity` spawn Boss（满血+首阶段 modifiers）→ 战斗态 `updateBossStage` 跨血阈值切阶段（`applyBossStage` 移除旧阶段 modifiers 再叠加新阶段）→ 击杀结算 `bossLoot`（score + 卡牌稀有度，结算面板显示「Boss 战利品」行）。
 - **验证**：`scripts/test-boss.js` 补运行时断言（makeBossEntity 满血/首阶段 modifiers/跨阶段切换/同阶段不重复/末阶段）；vm 运行时冒烟覆盖「开局→推进链尾→Boss 生成→阶段触发→击杀→结算含 Boss 战利品」（临时脚本，未入库）；`npm test` 17 套全绿。
@@ -475,12 +511,13 @@
 - **死亡转化**：gameover 分支 `scoreToPoints(runScore)`（10%）→ `profile.points` + `saveProfile`；gameover 覆盖层显示转化 + 现有点数 + 死亡商店（`renderDeathShop` 列永久升级与复活次数，`buyUpgradeAndRefresh`/`buyReviveAndRefresh` 挂 window）。
 - **开局应用**：`startNewRun` 调 `applyUpgrades(player, profile)`（permanent scope）+ `profile.stats.runs++` + `saveProfile`。
 - **验证**：`scripts/test-economy.js`（18 断言：存档默认/归一化/往返/转化/购买/满级/应用升级）挂进 `npm test`（现共 21 套全绿）；vm 运行时冒烟覆盖「开局应用升级+runs++ → gameover 转化+商店渲染 → 购买函数」（临时脚本，未入库）。
+- **M10 扩展（2026-08-22）**：存档演进为多存档槽位体系 + 局前商店 + 出战配置接入——见 §2.16 / §3.25。
 
 #### 3.15 战斗/地图修复 + 卡牌效果逐卡守门（2026-08-19 会话）
 - **#23 敌方 AI 只开一炮（修复）**：根因 = `update(dt)` 的 `entities.forEach` 无 `e.reloadT` 递减（仅 player 在 L1061 单独递减），`fireTank` 设置的装填倒计时永不归零 → `aiDecideEnemy` 的 `t.reloadT<=0` 判定永不成立。修复：`tank_mvp.html:1129` 在 entities 循环顶部加 `if(e.id !== 'player' && e.reloadT > 0) e.reloadT = Math.max(0, e.reloadT - dt);`（player 保留 L1061 单独递减避免双递减、保持 `tryFire` 同帧时序；dummy 无开火路径恒为 0，无操作）。敌人/友军/Boss/召唤物统一恢复持续装填开火。
 - **#22 正式 run 混入测试靶车（修复）**：根因 = `enterBattle` 清场显式保留 `dummy`（`e.id !== 'dummy'`）+ auto-revive 逻辑无条件生效。修复：`tank_mvp.html:557-569` 新增幂等 helper `detachDummyFromBattle`（splice 移出）/`restoreDummyToBench`（player 之后原位插回）；`enterBattle` 开头 detach、`watchFlow` 非 battle 态（map/结算/阵亡/奖励）restore；bench 模式（`!run`）零变化。选「数组缺席」方案使渲染/炮弹/垂直剖面/碰撞/得分/小地图所有 entities 循环自动绕开，无遗漏；L571 守卫留作防御性死代码。靶场控制台直接引用 dummy 对象，run 中操作仍生效（恢复带出）。
 - **#24/#25/#26 修复（2026-08-19）**：见 §2.12（视口驱动 `nodeScaleFor` + 模板扩至 7 个 items 12~25 + 剔除随难度递减）与 §5.6（typecheck 0 错误）；mvp 侧 `generateRun(seed, count, { viewport: {vw, vh} })` 接线待做（接线前回退旧 nodeScale=3）。
-- **卡牌效果逐卡守门（新测试套件）**：`scripts/test-card-effects.js`（420 断言）挂进 `npm test`（21 → **22 套**）——111 张卡逐卡 fresh tank 执行 `applyCardEffects`：79 张 modifier 卡数值增量与声明 add/mult 一致（含 8 种 armor 路径、17 个 stat 键、无未声明副作用）、32 张非 modifier 卡结构合法 + 入队保真（`tank.cardEffects` 含 cardId+args）、maxStacks 堆叠不溢出；非 modifier 运行时行为标 TODO 随 P-17/M10 接线补齐。`package.json` npm test 链 + `scripts/check-html.js` 冒烟清单同步注册。
+- **卡牌效果逐卡守门（新测试套件）**：`scripts/test-card-effects.js`（420 断言）挂进 `npm test`（21 → **22 套**）——111 张卡逐卡 fresh tank 执行 `applyCardEffects`：79 张 modifier 卡数值增量与声明 add/mult 一致（含 8 种 armor 路径、17 个 stat 键、无未声明副作用）、32 张非 modifier 卡结构合法 + 入队保真（`tank.cardEffects` 含 cardId+args）、maxStacks 堆叠不溢出；非 modifier 运行时行为标 TODO 随 P-17/M10 接线补齐（后记 2026-08-22：ability/drone 已由 P-17 落地，见 §3.22；ammo/economy 类运行时消费仍未接线，ammo 卡与 loadout 键集求交见 §6 条目 27）。`package.json` npm test 链 + `scripts/check-html.js` 冒烟清单同步注册。
 - **浏览器冒烟测试固化（P-26 工具链子项，2026-08-19）**：新 `scripts/test-browser-smoke.cjs`（10 项断言）挂 `package.json` `test:browser`（**不并入 npm test**，需要系统 Edge）——在真实浏览器内回归验证 ISSUES #22/#23/#24 的修复行为（dummy 分离/恢复、视口驱动缩放、敌人装填开火循环）。
   - **原理**：playwright-core + 系统 Edge（`chromium.launch({ channel: 'msedge', headless: true })`，零浏览器下载、复用系统安装）。
   - **关键技巧（IIFE 截获）**：tank_mvp.html 主脚本是 IIFE，`flow/cam/run/shells` 闭包私有、evaluate 不可达；通过主世界 `addScriptTag` 包装全局函数（`generateRun`→run、`transition`→flow、`viewBounds`→cam、`resolveHit`→玩家命中计数）截获闭包对象；`entities` 是全局 const（tank_entity.js）可直接访问（详见脚本头注释）。
@@ -544,6 +581,53 @@
 - **mvp 接入（`tank_mvp.html`）**：L1224-1226 G/H/V 按键（玩家专属；炮击/护盾挂 reloadT+immobT 门控，V 仅 immobT；炮击落点鼠标 world 坐标）；`update` 入 `updateStrikes(dt, entities)`/`updateAbilityCd(player,dt)`（simulating 门控）；shells 循环护盾吸收判定（L1491-1516，全额吸收销毁弹，部分穿透 `s.dmg=bleed` 续结算，破裂播特效）；`ammoKey==='smoke'` HE 破障跳过已吸收（`!s.absorbed`）；`enterBattle`/reset/死亡清 `clearStrikes()`+`player.shield=null`（冷却跨节点保留）；AI 循环 `if(e.isDrone) continue`（L1243），debuff 循环 `if(e.isDrone) return`（L1277），tank draw `if(t.isDrone) return`（L1775）+ `drawDrones`（L1664，悬浮/旋转翼/scout天线/striker炮管）+`drawDroneIndicators`（L1713，屏幕边缘箭头）；`pickCard` 部署/提示（deployDronesFromCards L637，ABILITY_KEY_HINT L1037-1041）；hintBar 追加 `· G 炮击 · H 护盾(Shift+H 全向) · V 超装填`（L168）。strikeHit 落弹播 `burstExplosion(scale=radius/40)`+`spawnImpactFx('he')`+`playSound('ammoBlewHE')`+ dmgText 飘字；droneFire 消耗 `target.hp -= damage` 后经既有击杀检测计分 —— 无人机不消耗玩家弹药/装填。
 - **验证**：`scripts/test-abilities.js` 76 断言 + `scripts/test-drone.js` 57 断言 + `scripts/validate-content.js`/`audit-content.js --strict` 全绿；`npm run check`（syntax smoke + typecheck 0 错误）；`npm run test:browser` 23 断言 ALL PASS（mvp/bench 无 console/page 错误）。`npm test` 仅链首 `test-qa.js` 静态合规自检失败（ISSUES #27~#57，13 脚本缺 require/shim，非 P-17）——跳过后余 26 套全绿；test-abilities/test-drone 被 test-qa.js 判定 `compliant`。
 
+#### 3.23 地图生成缺陷与边界修复（2026-08-21 会话）
+
+以下 8 项地图生成与边界缺陷经排查修复并完全通过验证（全部经 `npm run check` + `node scripts/test-covers.js` + `npm test` 24 套测试 exit 0）：
+
+- **玩家出生点可落水域/掩体内（HIGH，已修复）**：`js/tank_map.js` `makeNode`（原约 L122）原本只对敌人/据点做掩体排斥，玩家出生点 `{x:w*0.10, y:h/2}` 无 cover/water 检查；新增内部 `findPlayerSpawn` helper（约 L215），用 `pointInCover` 确定性重定位到无障碍点。根因：反向排除（units-off-cover）只作用于敌人/据点、遗漏玩家。
+- **水域随机采样压在沙包/树/灌木/栅栏上（HIGH，已修复）**：`js/tank_nodegen.js` `generateNode` 水体/桥梁块新增自包含 `rectHitsCover` AABB 辅助 + 拒绝采样（网格扫描 + rng 相位，最多约 2240 候选；无空位则跳过该水体）；水体尺寸下限降至 0.5×cap（保留 ≤40% 最大 cap）。根因：water 作为 `RULES.coverTiers` 条目在 covers 之后由独立 RNG 放置、无重叠测试。
+- **桥条带越出节点北边界（MED，已修复）**：`js/tank_nodegen.js` 桥梁 Dy 钳制现计入桥梁自身半高（`bridgeHalfH = waterH/scale/2`），钳制区间改为 `[-(halfH-bridgeHalfH), (halfH-bridgeHalfH)]`。根因：旧钳制在中心、忽略桥梁自身半高。
+- **水域绘制盖住下层掩体（MED，已修复）**：`tank_mvp.html` 掩体绘制循环改为 `water` → `bridge` → 其它 covers 顺序。根因：water 追加于 `outCovers` 末尾并按数组顺序绘制、无 z 排序。
+- **`pointInCover` 几何判定加固（MED，已修复）**：`js/tank_map.js` `pointInCover` 引入旋转与 verts 多边形碰撞判定（射线相交/本地坐标反旋转 AABB/OBB 判别），消除旋转掩体与凸多边形掩体盲区。
+- **敌军生成数量保底机制（MED，已修复）**：`js/tank_map.js` `makeNode` 在密集水域/掩体导致随机采样达到 `guard < 400` 上限时启用确定性网格扫描回退（grid fallback），确保敌军生成数量 100% 达成不被静默削减。
+- **复活点避开敌军（MED，已修复）**：`js/tank_revive.js` `findReviveSpot` 扩充可选 `enemies` 参数与敌军安全距离判定；`tank_mvp.html` 复活逻辑传入当前存活敌军列表，避免玩家复活在敌群近身。
+- **模板静态自重叠修复（LOW，已修复）**：`js/tank_nodegen.js` 修正内置模板 `mixed_barrier_plaza` 中树桩与栅栏的静态坐标重叠（树桩 `dy` 从 -140 调整为 -110）。
+
+#### 3.24 模块代码质量与架构缺陷修复（2026-08-22 会话，ISSUES #61~#74）
+
+> ⚠️ **2026-08-22 复核更正**：本节 #61/#62/#63/#64/#70/#71/#74 经逐文件比对**缺失于当前工作区**（#65/#72 高概率缺失；#66~#69、#73 确认存在），详见 `ISSUES.md` **#75**。下文各条"已修复"表述以 ISSUES #75 复核结论为准，待按归档原文重做修复后本注记方可移除。
+
+以下 14 项共享模块代码质量与物理/逻辑缺陷经排查修复并完全通过验证：
+
+- **`tank_model.js` 动态加速度/刹车受 Modifier 联动（#61，已修复）**：`s.accel` 与 `s.brake` 改在 modifier 循环处理完成后基于最新的 `stats.enginePower` 与 `stats.weight` 动态派生，确保影响马力或车重的卡牌/升级能正确改变移动加速度与刹车物理。
+- **`tank_cards.js` `cardStackCount` 准确计数（#62，已修复）**：`cardStackCount` 改为按 `tank.cardEffects` 实体数组与卡牌 ID 精确统计，解决多 modifier 卡重复计数及纯非 modifier 卡（如 ability/drone）计数归零的缺陷。
+- **`tank_economy.js` `applyUpgrades` 挂起刷新（#63，已修复）**：重构 `applyUpgrades` 循环叠加过程，采用批量修饰模式仅在最后统一触发一次 `refreshStats`，消除开局与 Run 启动时数十次冗余 `structuredClone` 与 GC 损耗。
+- **`tank_cards.js` `AMMO_KEYS` 补齐 'heat'（#64，已修复）**：`AMMO_KEYS` 补齐 `'heat'` 弹种，与 `RULES.ammoTypes` 保持一致，使修改破甲弹属性的卡牌能正常通过 schema 校验。
+- **`tank_model.js` `moduleMult` 零值判断与死代码清理（#65，已修复）**：`moduleMult` 判空改为显式类型/存在性检查，支持设置 0 倍率模块伤害；清理 `tickDebuffs` 中未使用的死变量 `alive`。
+- **`tank_camera.js` `clampCamera` 缩放适配（#66，已修复）**：`clampCamera` 计算视口半宽高时计入 `cam.zoom`，修复非 1.0 缩放比例下摄像机边界钳制不准的问题。
+- **`tank_nodegen.js` 预损倒树残骸尺寸缩放（#67，已修复）**：`generateNode` 生成预损树木（tree → fallen）时正确应用 `residueW`/`residueH` 比例缩放，恢复倒树应有的细长障碍物轮廓（38x14）。
+- **`tank_minimap.js` 小地图视口框 Canvas 裁剪（#68，已修复）**：`drawMinimap` 绘制摄像机视口矩形时增加小地图框体 clip 保护，防止视口框在世界边缘或拉远时溢出 UI 边界。
+- **`tank_assets.js` `ASSET_CACHE` 尺寸量化与无界增长防范（#69，已修复）**：`ASSET_CACHE` 缓存 Key 尺寸统一使用整数取整，避免浮点数导致离屏 Canvas 缓存无界膨胀。
+- **`tank_move.js` AI 履带修复状态重置（#70，已修复）**：`driveTank` 在 `immobT` 归零时自动清除 `t.trackBroken = false`，确保 AI 坦克修复后正确清除断履 visual 与 Dirty 状态。
+- **`tank_fx.js` 特效数组生命周期更新与渲染（#71，已修复）**：`updateFx` 补齐对 `shockwaves` 与 `scorchMarks` 的逐帧更新与到期过滤，并接入绘制管线，防止数组无限堆积。
+- **`tank_battledraw.js` 附件数组安全校验（#72，已修复）**：`drawTank` 遍历 `t.attachments` 前增加存在性守卫，防止渲染未定义附件字段的坦克时抛出异常。
+- **`tank_geometry.js` `turretFrontDist` tVal 范围钳制（#73，已修复）**：`turretFrontDist` 交点参数 `tVal` 增加 `[0, 1]` 范围钳制，消除临界水平线微小浮点误差导致的超界交点。
+- **`tank_halfgeom.js` `halfFromFull` 逆时针顶点正向化（#74，已修复）**：`halfFromFull` 处理 CCW 顶点输入的完整多边形时强制转为 CW 顺序，防止半形几何中心化与装甲面映射倒置。
+
+#### 3.25 局外流程闭环与存档/配置体系（M10 扩展 / P-22，2026-08-22 会话；设计见 §2.16）
+
+- **多存档系统（`js/tank_economy.js`）**：元索引 `rogue-tank-saves-meta`（{activeSaveId, saves:[{id,name,updatedAt}]}）+ 槽位键 `rogue-tank-save:<id>`；新 API `listSaveSlots`/`createSaveSlot`/`deleteSaveSlot`/`renameSaveSlot`/`setActiveSaveSlot`/`loadActiveProfile`/`saveActiveProfile`/`migrateLegacySave`/`buyExtraRevive`（storage 显式注入，Node 可测）；profile 新增 `selectedTankId`/`ammoLoadout`(≤3)/`bonusRevives` 字段校验；`loadProfile`/`saveProfile` 变薄委托（mvp 零改动兼容）；legacy 单键自动迁移为「默认存档」且永不删除旧键；saveVersion 未动。mvp Home 界面：槽位卡（名称/局数/击杀/点数/最后游玩，active 高亮）、新建/选择进入/重命名（行内 input）/删除（两段式确认）。
+- **流程状态机扩展（`js/tank_flow.js`）**：FLOW_STATES 增 home/loadout/shop；白名单 home:['loadout','home']、loadout:['shop','map','home']、shop:['map','loadout','home']、gameover:['map','home']；`createFlow(initialState?)` 缺省 'map' 向后兼容；restartRun 局外三态 no-op 返回 runId。
+- **出战坦克与弹药选配**：Loadout 界面 `fetchTankList` 坦克卡（选定写 `profile.selectedTankId`）；`RULES.ammoTypes` 复选框 ≤3 上限拒绝第 4 个、≥1 才可出击。战斗内数字键 1/2/3 索引化切 `player.ammoLoadout` 槽位（越界忽略）、Q 环形循环、HUD 弹药槽位组（键位/弹种名/倍率/色点/激活高亮）；`fireTank` 按 `shooter.ammoKey` 结算（弹道管线零改动）；无 loadout 兜底 = 全弹种表（调试直开战斗态等价旧行为）；AI/Boss 不受影响。
+- **局前永久升级商店**：UPGRADE_DEFS 八项卡片（等级/费用/置灰逻辑）+ `buyExtraRevive` 复活购买项 + points 实时刷新；出击路径统一 `beginRunFromMenu()`：校验 → 清 run modifiers → `applyTankConfig(player, selectedTankId)` → `applyUpgrades` → revives=基础2+bonusRevives → ammoLoadout 预挂载 → generateRun → transition('map')。gameover 界面新增「返回首页」。
+- **附带修复 4 个真 bug**：
+  1. **applyUpgrades 永久修饰器跨局叠加**：原每次开局无条件叠 permanent modifier → 出击准备阶段先剔除 `source='upgrade:*'` 再重挂（prepPlayerForRun）；
+  2. **死亡商店复活购买无效**：原直接 `player.revives++` 但下次出击被重置（购买不生效）→ 改走 `buyExtraRevive` 记入 `profile.bonusRevives` 持久化；
+  3. **resetEntity 不清 ammoKey**：跨局 HUD 高亮与实际弹种错位 → prepPlayerForRun 补 `player.ammoKey = loadout[0]` 同步；
+  4. **test-economy updatedAt 断言毫秒竞态 flaky（~47%）**：白盒回拨时间戳 + 严格不等号手法硬化（此模式可作后续同类断言范式）。
+- **验证**：`npm run check` exit 0；`npm test` 26 套件全绿跑到链尾；`npm run test:browser` 40 PASS / 0 FAIL（既有 #22/#23/#24 回归 + M10 断言 + 弹药切换断言三组全绿）；改动白名单干净。
+
 ---
 
 
@@ -587,7 +671,8 @@
   tank.stats      = computeStats(base, modifiers)   // 战斗逻辑只读这个，不摸 base
   ```
   需要确定的规则：叠加顺序（先加后乘）、同名修饰器是否可叠加、修饰器生命周期分类（永久/单局/限时）。
-  **已收尾（P-12，2026-08-15）**：修饰器带 `scope` 生命周期分类——`permanent`（默认，局外永久升级）/`run`（单局，`removeRunModifiers` 在 run 结束清除）/`timed`（`expiresAt` 到期 `refreshStats` 剪除）；卡牌 modifier（`applyCardEffects`）与 Boss 阶段 modifier（`applyBossStage`）均标 `run`；`addTimedModifier` 自动 `timed`。先加后乘由 `computeStats` 两遍扫描；同名叠层由 `source`（`card:<id>`+`maxStacks` / `boss-stage:<id>`）区分。剩余：局外永久升级（`permanent`）的修饰器**内容**由 M10 经济里程碑落地（管道已就绪）。
+  **已收尾（P-12，2026-08-15）**：修饰器带 `scope` 生命周期分类——`permanent`（默认，局外永久升级）/`run`（单局，`removeRunModifiers` 在 run 结束清除）/`timed`（`expiresAt` 到期 `refreshStats` 剪除）；卡牌 modifier（`applyCardEffects`）与 Boss 阶段 modifier（`applyBossStage`）均标 `run`；`addTimedModifier` 自动 `timed`。先加后乘由 `computeStats` 两遍扫描；同名叠层由 `source`（`card:<id>`+`maxStacks` / `boss-stage:<id>`）区分。**已收尾（M10，2026-08-22）**：局前永久升级商店落地，出击路径统一 `beginRunFromMenu()` 应用 `applyUpgrades` permanent modifiers（先剔除 `source='upgrade:*'` 旧修饰器防跨局叠加，见 §2.16/§3.25）。
+- **已完成（2026-08-19）**：QA 测试基础设施重构——21/24 个测试脚本修复缺失 `require('../js/tank_utils.js')` / `require('../js/tank_rules.js')` 与全局 `global.TAU` / `global.RULES` Shim，QA 合规率从 11/24 提升至 24/24，`npm run check` + `npm test` 均退出码 0。详见 ISSUES #27~#39 修复记录与归档。
 - ~~**摄像机 + 节点地图 + 小地图**~~：**已完成（P-08，2026-08-15，见 §2.12）**——摄像机跟随（玩家居中、世界边界钳制）、小地图层（掩体/实体/视口矩形标注）、完整节点生成（线性节点链：掩体布局复用 P-05 + scale、敌军构成、友军据点、§4.5 通关奖励）、视口 AABB 剔除、全局游戏流程状态机（map/battle/settlement/reward/gameover）与 UI 界面层约定（watchFlow 监听 → DOM 覆盖层）全部落地；剩余相关项：粒子池化（可选项）、难度曲线表细化（§6 条目 12）。
 
 ### 5.2 中优先级（已实现——多边形碰撞盒）
@@ -687,6 +772,11 @@
 | overdrive | reloadMult 0.45 / duration 6s / cooldown 20s | 超级装填：爆发清零 reloadT + 6s 装填加速 |
 | shield | dirDuration 8s / omniDuration 4s / arc π/3(60°) / absorbCap 150 / cooldown 25s | 战术护盾：累计吸收，入射角判定 |
 | drone | scoutRange 700 / strikeRange 260 / fireInterval 2.0 / dmgMult 0.4 / orbitDist 90 / orbitSpeed 1.2 / orbitLerp 6 / countMax 2 | 无人机：orbital scout（视口外指示）+ striker（近身打击） |
+| **局外流程闭环（M10 扩展，2026-08-22）** |||
+| ammoLoadout 上限 | ≤3 种 | 出战弹药选配上限；≥1 种才可出击 |
+| 出击复活次数 | base 2 + bonusRevives | `RULES.revive.baseRevives` + `profile.bonusRevives`（buyExtraRevive 购买，`RULES.economy.reviveCost`=40 点/次） |
+| 存档存储键 | rogue-tank-saves-meta + rogue-tank-save:<id> | 元索引 {activeSaveId, saves[]} + 每存档独立槽位；legacy 单键迁移为默认存档且永不删除旧键 |
+| 战斗内弹种切换 | 数字键 1/2/3 + Q 环形循环 | mvp 按 ammoLoadout 槽位索引切换（越界忽略）；tank_bench 保留全局直选全弹种（调试台语义） |
 
 ### 5.6 后续系统缺口（2026-08-13 规划讨论补充，归属里程碑见 §6）
 
@@ -718,7 +808,7 @@
    - **节点生成器**：按难度权重随机生成掩体布局、敌军构成、友军据点位置；数据结构用有序节点列表（纯线性链，无分支），字段含敌人构成/强度档/据点/通关奖励——`js/tank_map.js`（P-05 的 `generateNode` 加 `scale` 选项复用为掩体布局源）。
    - **视口剔除 culling（5.6 捆绑）**：摄像机系统内建视口 AABB 剔除（`aabbInView`，covers/树冠/shells 走剔除）；粒子池化为后续可选项。
    - **全局游戏流程状态机（5.6 捆绑）**：`js/tank_flow.js`（map/battle/settlement/reward/gameover，白名单转移 + watchFlow 监听）；战斗循环只是其中一个状态。
-   - **UI 界面层约定（5.6 捆绑）**：mvp 经 watchFlow 监听 → DOM 覆盖层（节点图/结算/卡牌三选一/阵亡）；卡牌内容为占位（M10 落地）。
+   - **UI 界面层约定（5.6 捆绑）**：mvp 经 watchFlow 监听 → DOM 覆盖层（节点图/结算/卡牌三选一/阵亡）；卡牌内容占位（后由 P-09 接真实卡池，见条目 14）。
    - 节点切换流程：节点清空 → 结算（得分/无伤/限时/据点加成，见 4.5）→ 节点间商店与卡牌三选一 → 下一节点。
    - **剩余项**：敌人 AI 双态（条目 7）、复活状态机（条目 8）、难度曲线表细化（条目 12）。
 7. ~~**敌人 AI 双态行为 + 友军据点（2.2 / 5.1）**~~ — **已完成（2026-08-15，P-10，见 §2.2/§3.10）**：
@@ -727,25 +817,34 @@
    - 第一版敌人不主动找掩体（开放问题 1 保持开放）。
    - **视线遮挡查询函数（前置，5.6）**：`tank_cover.js` `hasLineOfSight`（`vision:true` 灌木/树冠遮挡视线，与弹道穿透两套判定）已实现并接入 AI 索敌。
    - Boss `summons` 伴随单位已生成并走同一敌对 AI；阶段行为由 `onEnter.modifiers` 自然产生。
-8. ~~**死亡/复活状态机（2.3）**~~ — **已完成（2026-08-15，P-11，见 §2.3/§3.11）**：永久死亡 + 复活次数（基础 2，`RULES.revive.baseRevives`）+ 满状态复活于友军据点旁随机无障碍点 + `invulnSeconds`=3s 无敌（`js/tank_revive.js` + mvp 死亡判定 + `applyModuleDamage`/DOT 无敌检查 + 无敌闪烁视觉）。剩余：局前商店购买追加复活次数（M10 经济里程碑接入）。
-9. ~~**base/modifiers/stats 三层接线（5.1）**~~ — **已完成（2026-08-15，P-12，见 §5.1/§3.12）**：修饰器 `scope` 生命周期分类（permanent/run/timed）+ `removeRunModifiers`/`removeModifiersByScope`；卡牌与 Boss 阶段 modifier 标 `run`、run 结束清除。剩余：局外永久升级的修饰器**内容**（M10）。
+8. ~~**死亡/复活状态机（2.3）**~~ — **已完成（2026-08-15，P-11，见 §2.3/§3.11）**：永久死亡 + 复活次数（基础 2，`RULES.revive.baseRevives`）+ 满状态复活于友军据点旁随机无障碍点 + `invulnSeconds`=3s 无敌（`js/tank_revive.js` + mvp 死亡判定 + `applyModuleDamage`/DOT 无敌检查 + 无敌闪烁视觉）。追加复活次数的局前购买已由 M10 实现（`buyExtraRevive` → `profile.bonusRevives` 持久化，见 §2.16/§3.25）。
+9. ~~**base/modifiers/stats 三层接线（5.1）**~~ — **已完成（2026-08-15，P-12，见 §5.1/§3.12）**：修饰器 `scope` 生命周期分类（permanent/run/timed）+ `removeRunModifiers`/`removeModifiersByScope`；卡牌与 Boss 阶段 modifier 标 `run`、run 结束清除。permanent 修饰器内容接入已由 M10 收尾（局前商店 + `applyUpgrades`，见 §2.16/§3.25）。
 10. ~~**经济与数值落地（含存档）**~~ — **已完成（2026-08-15，P-14，见 §2.4/§3.14）**：击杀得分（`killScore`=20）+ 节点通关奖励（§4.5）+ 死亡转化（`scoreToPointsRatio`=10%）+ 版本化存档（`loadProfile`/`saveProfile`）+ 永久升级树（8 项 permanent scope，cost/maxLevel）+ 死亡后商店（买永久升级/复活次数）+ 开局 `applyUpgrades`。剩余：节点间商店（消耗品/临时强化）与卡牌刷新费 UI（局内商店界面留待后续）。
 11. ~~**坦克纹理化接线**~~ — **已完成（2026-08-19，P-27，见 §3.16）**：`texture` 字段 + 多边形 clip 平铺图案叠层（保持 `t.color` 主色）已全链路接线（`paintPartTextureDirect`/`paintPartTexture` 透传/tank JSON/schema FIELD_ROWS/设计器选择器/battledraw/compare 缩略图，缓存 key 含 texture 段不互相污染）；4 型坦克已分配纹理（tiger-I=weld_seam、Obj 780=armor_plate、Leapard_1=camo、dummy=rust）。**剩余：车型多样性几何模板**（`tanks/` 条目目前共用箭镞车体+豹2A6炮塔模板，差异只在数值与纹理；继续以条目 11 追踪）。
 12. ~~**难度曲线表**~~ — **已完成（2026-08-15，P-13，见 §4 开放问题 6/§3.13）**：三杠杆定表 `RULES.difficulty`（曲线/敌人数量/AI 档位/数值强度），`makeNode` 产 `aiTier`+`statMult`、`materializeNode` 应用数值强度。剩余：AI 档位 1/2 的实际行为差异留待未来 AI 细化（当前双态即档位 0）。
 13. **碰撞体积与视觉几何对齐（可选，低优先）**：#18 修复（2026-08-14）后正面贴脸不再误判后部模块，但坦克碰撞盒仍为车体矩形包围盒（不含炮塔/炮管/箭镞尖头），紧贴时车体视觉重叠 ≈19px 仍残留（#18 修复方向④未实施，属弹道范围外的独立改动）；如需彻底消除，可考虑碰撞改用 `hullPoly` 凸包，风险点为碰撞手感/推挤行为回归，需回归 `test-tankcollision.js`。
-14. ~~**卡牌内容批量（≥100 张）+ Boss 内容批量（≥5 种）**~~ — **已完成（2026-08-15，P-09 阶段 B，见 §2.13/§2.14/§3.9）**：111 张卡（5 流派×稀有度按权重）+ 5 Boss（多阶段+弱点+掉落）+ Boss 链尾运行时接入（生成/阶段触发/掉落）全部落地，`validate-content.js` + `audit-content.js --strict` + `npm test` 全绿。剩余相关项：Boss `summons` 伴随单位与 `behavior` 的行为化随敌人 AI（条目 7）一并接入；卡牌 ability/passive/drone/economy 的运行时效果随对应里程碑（M7/M9/M10）接入。
+14. ~~**卡牌内容批量（≥100 张）+ Boss 内容批量（≥5 种）**~~ — **已完成（2026-08-15，P-09 阶段 B，见 §2.13/§2.14/§3.9）**：111 张卡（5 流派×稀有度按权重）+ 5 Boss（多阶段+弱点+掉落）+ Boss 链尾运行时接入（生成/阶段触发/掉落）全部落地，`validate-content.js` + `audit-content.js --strict` + `npm test` 全绿。剩余相关项：Boss `summons` 伴随单位与 `behavior` 的行为化随敌人 AI（条目 7）一并接入；卡牌 ability/passive/drone/economy 的运行时效果随对应里程碑（M7/M9/M10）接入（后记 2026-08-22：ability/drone 已由 P-17 提前落地，见 §3.22；economy 效果消费未含在本轮 M10 交付内，ammo×loadout 衔接见条目 27）。
 15. ~~**MVP 架构重构（正式游戏 vs 装甲测试台分离 + 首页路由 + 开发者面板，P-15）**~~ — **已完成（2026-08-19，P-15，见 §2.15/§3.17）**：三入口拆分（`index.html` 首页 / `tank_mvp.html` 正式游戏 / `tank_bench.html` 装甲测试台，`server.js` '/' 路由）；正式游戏 HUD 极简（装填条 + 弹种 + 提示条 + 小地图）；伤害飘字模块（`js/tank_dmgtext.js` 五色语义，`npm test` 23 套）；玩家状态面板（TAB 切换）；开发者面板（F12 / 反引号键：超级精度 `devAim.zeroSpread` + 数值覆盖 `devOverrides`）。弹种 4（HEAT）随后由条目 16（P-16）接入完成（见 §2.6/§3.19）。
 16. ~~**击穿与弹种机制升级：HEAT 破甲弹与 HE 高爆弹物理改造（P-16）**~~ — **已完成（2026-08-19，P-16，见 §2.6/§3.19）**：
     - HEAT：确定性豁免跳弹（不计算 Bounce）、1.4 倍穿深、0.8 倍飞速、标准伤害、1.2 倍散布。
     - HE：确定性豁免跳弹、物理爆炸范围（`splashRadius`）与 Splash 范围伤害；增加未击穿爆轰伤害（基于装甲吸收后的残余能量扣血）；爆炸视觉特效范围与逻辑 Splash 半径完全对齐。
     - 实现：`RULES.ammoTypes` 配置源（heat/he 新增、ap/apcr 既有）+ `resolveHit` 弹种消费（noBounce 禁跳弹 / splashRadius 溅射 / 未击穿残余爆轰）+ mvp/bench 数字键 1/2/3/4 切弹种 + HE 破障（24px，与 90px 坦克溅射并存）+ 爆轰特效 scale=splashRadius/40 对齐；验证 `scripts/test-extreme-combat.js` §12 组 7 项边缘断言 + 浏览器冒烟「数字键 4 切 HEAT」全绿。
 17. **战术卡牌能力与主动装备拓展（P-17）** — **已完成（2026-08-20）**：~~烟幕射击~~（子目标 2，2026-08-20，见 §2.5 第 8 条 / §3.18）+ 呼叫战术支援（炮击/轰炸延迟 AOE）+ 超级装填/战术护盾 + 无人机体系（scout/striker），详见 §3.18 / §3.21 / **§3.22**；验证 `scripts/test-abilities.js`（76 断言）/`scripts/test-drone.js`（57 断言）/`npm run test:browser`（23 断言 ALL PASS）；`npm run check` 0 错误（`npm test` 仅链首 `test-qa.js` 基线失败为 ISSUES #27~#57 已登记非-P-17，详见 §3.22）。
-18. **内容生成与平衡性 Agent（P-18）**：定型 `@card-author` / `@boss-author` / `@balance-auditor` 子 agent 规范与工作流。
+18. **内容生成与平衡性 Agent（P-18）**：定型 `@card-author` / `@boss-author` / `@balance-auditor` 子 agent 规范与工作流。**部分落地（2026-08-22，agent 配置维护）**：orchestrator 路由表与委派白名单纳入三内容 agent；全部 agent 正文过时事实刷新（node-map 认领 flow/map/camera 等 10 模块、掩体破坏链/树耐久等错误设定修正、`spreadOn`/`rangeOn` 等已删开关清除）；orchestrator 模式声明冲突修复（opencode.jsonc 残留 subagent 条目已删，以 `.md` 的 `mode: primary` 为唯一事实源）。剩余：实战演练一轮「内容生产 → 审计 → 整改」闭环。
 19. **敌方 AI 战术状态机扩充（P-19）**：扩展绕行进攻（Flank）、消极防御、搜索前进、队列行军、呆滞惊慌等丰富 AI 行为状态。
 20. **新地图元素与水体/桥梁地形（P-20）**：增加河流、池塘、桥梁水体地形，阻断/减速通行，塑造桥头堡战术瓶颈与村落森林地貌。**部分落地（2026-08-20）**：`generateNode` 随机水体/桥梁组合已实现（含 #62 边界修复：尺寸封顶 40% + 偏移单次缩放 + 桥梁 y 钳制，见 §2.12）；剩余：河流连接效果与桥头堡战术验证、减速/阻断语义细化。
 21. **音效与 Web Audio 真实音效库升级（P-21）**：扩展动态引擎轰鸣、履带摩擦、近距离飞弹呼啸（Flyby）与 2D 空间音效（Panning/距离衰减）。
-22. **局外永久升级商店 UI（P-22）**：补齐 P-14 已完成的 8 项永久升级树局外购买界面与局间点数结算交互。
+22. ~~**局外流程闭环与存档/配置体系（M10 扩展 / P-22）**~~ — **已完成（2026-08-22，见 §2.16/§3.25）**：
+    - 首页多存档管理（元索引 + 槽位键 CRUD：创建/切换/重命名/删除 + legacy 单键自动迁移为默认存档）。
+    - 出战坦克与弹药选配（Loadout：`selectedTankId` + `ammoLoadout` ≤3 种，战斗中 1/2/3 键索引切换 + Q 环形循环）。
+    - 局前永久升级商店（UPGRADE_DEFS 八项 + `buyExtraRevive` 追加复活；出击路径统一 `beginRunFromMenu()`）。
+    - 全局流程状态机扩充（home/loadout/shop 三态白名单接入；gameover→['map','home']，死亡购买 UX 由 gameover 态内嵌承接）。
+    - 附带修复 4 个真 bug（applyUpgrades 跨局叠加 / 复活购买不持久 / ammoKey 跨局残留 / test-economy flaky 断言，见 §3.25）。
 23. **战术小地图强化（P-23）**：M 键放大全屏战术地图、标识地形/桥梁/水体与视口外警报脉纹。
 24. **无头战斗模拟器与数值平衡测算工具（P-24，`tools/sim_battle.js`）**：×1000 极速无头模拟 + 蒙特卡洛 10000 局测算，输出通关率/DPS/卡牌选取率 HTML 报告。
 25. **AI 行为流可视化调试器与慢放/回放控制器（P-25）**：AI 视线/ Target 射线实时绘制、60 秒战斗录制与逐帧/慢放/步进分析。
 26. **自动化内容 Lint 与 CLI 贴图烘焙 Pipeline（P-26）**：描述与 Effect 校验、掩体多边形拓扑检查与 CLI 无头一键导出贴图。
+27. **卡牌 × Loadout 衔接（遗留衔接点，来自 M10）**：卡牌 `effect.type==='ammo'` 的弹种改造需与出战 `ammoLoadout` 键集求交——改造指向**未配备**弹种的改造卡不应产生可切换目标（或提示先装备该弹种）；方案待定后实现。**前置约束：先执行条目 29（P-28 战斗核心管线解耦）**，避免 ammo 改造在 mvp/bench 双份管线里各落一遍。
+28. **tank_bench 弹种语义（范围决策记录，非遗漏）**：装甲测试台不做 loadout 索引化切换，保留全局直选全弹种（调试台语义）；mvp 正式游戏专属 loadout 索引制（见 §2.16）。若未来需要在测试台复现正式 loadout 行为，再评估接入。
+29. **战斗核心管线解耦（P-28，见 PLAN.md）**：`tank_mvp.html` 与 `tank_bench.html` 各自内联同一套战斗核心且已分叉（`shellVerticalDecision` 320L vs 197L、`updateSolution`、`fireTank`、`tryFire` 逐行 DIFFERS；bench HE 破障缺 `!s.absorbed` 守卫等漂移实例）——收敛到新 `js/tank_fire.js`（纯逻辑 ctx 显式注入），页面只留输入/HUD 胶水；顺手收编两页重复小胶水。**排序：先于条目 27 及任何下一批弹道/掩体判决改动**。
+30. **覆盖层 UI 纯逻辑下沉（P-29，低优先，见 PLAN.md）**：M10 的 Home/Loadout/Shop 与既有结算/卡牌/节点图覆盖层内联于 `tank_mvp.html`；将界面状态与渲染数据组装抽为 `js/` 纯逻辑模块（DOM 接线留内联），抑制单文件膨胀。随下次触碰相关界面时执行。
