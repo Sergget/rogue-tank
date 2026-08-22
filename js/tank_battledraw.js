@@ -426,7 +426,8 @@ function drawTank(ctx, t){
    } // end turret/barrel block (skipped when the ammo rack blew the turret off)
 
   // ---- draw attachments ----
-  if(!t.ammoBlew) t.attachments.forEach(att => {
+  if(!t.ammoBlew && Array.isArray(t.attachments)) t.attachments.forEach(att => {
+    if(!att || !att.bindTo) return;
     let basePos = { x: t.x, y: t.y }, baseAngle = t.hullAngle;
     if (att.bindTo.startsWith('turret')) {
       basePos = { x: turCx, y: turCy };
@@ -436,7 +437,7 @@ function drawTank(ctx, t){
       baseAngle = t.turretAngle;
     }
     
-    const anchor = t.anchors[att.bindTo] || { dx: 0, dy: 0 };
+    const anchor = (t.anchors && t.anchors[att.bindTo]) ? t.anchors[att.bindTo] : { dx: 0, dy: 0 };
     const r = rotate(anchor.dx, anchor.dy, baseAngle);
     const ax = basePos.x + r.x, ay = basePos.y + r.y;
     

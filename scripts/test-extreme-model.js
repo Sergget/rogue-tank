@@ -236,9 +236,8 @@ function ok(cond, label){
   const pZero = makeTank({ team:'player', base:{ ammoMult:0 } });
   const pBig  = makeTank({ team:'player', base:{ ammoMult:1e6 } });
   const eBig  = makeTank({ team:'enemy',  base:{ ammoMult:1e6 } });
-  // 当前行为：stats.ammoMult 经 `|| DB.ammo.player` 取值，falsy 0 会回退默认倍率 2（文档化，非 bug 断言）
-  ok(moduleMult(pZero, 'ammo') === DB.ammo.player,
-    `player ammoMult=0 当前行为: falsy 回退默认 ×${DB.ammo.player}（非 0，文档化）`);
+  // #65 修复后：typeof stats.ammoMult === 'number' 允许 0 倍率，不再 falsy 回退默认
+  ok(moduleMult(pZero, 'ammo') === 0, '#65: player ammoMult=0 允许显式设为 0');
   ok(moduleMult(pBig, 'ammo') === 1e6 && Number.isFinite(moduleMult(pBig, 'ammo')),
     'player ammoMult=1e6 -> 巨大但有限');
   ok(moduleMult(eBig, 'ammo') === DB.ammo.enemy, 'enemy 忽略 stats -> 恒为 RULES 固定倍率');

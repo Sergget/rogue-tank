@@ -254,6 +254,18 @@ function mockTank(over){
 ok(RULES.modules.lenMin === 0.05, `RULES.modules.lenMin = 0.05（实际 ${RULES.modules.lenMin}）`);
 ok(RULES.modules.bandDepth.hull === 10 && RULES.modules.bandDepth.turret === 8, 'RULES.modules.bandDepth = {hull:10, turret:8}');
 
+// ---- #74 halfFromFull CCW 逆时针顶点正向化 ----
+{
+  const cwVerts = [[40, 0], [30, -20], [-30, -20], [-40, 0], [-30, 20], [30, 20]];
+  const ccwVerts = cwVerts.slice().reverse();
+  const resCW = H.halfFromFull(cwVerts, ['front', 'side', 'rear', 'rear', 'side', 'front']);
+  const resCCW = H.halfFromFull(ccwVerts, ['front', 'side', 'rear', 'rear', 'side', 'front']);
+  ok(resCW.half.length === 4, '#74: CW 多边形提取半形为 4 顶点（y<=0 包含两中线端点）');
+  ok(resCCW.half.length === 4, '#74: CCW 多边形也正向化并正确提取 4 顶点');
+  ok(Math.abs(resCW.half[0][0] - resCCW.half[0][0]) < 1e-4 && Math.abs(resCW.half[0][1] - resCCW.half[0][1]) < 1e-4,
+    '#74: CCW 与 CW 提取首顶点对齐一致');
+}
+
 console.log(`\n${count} assertions, ${fails === 0 ? 'all passed' : fails + ' FAILED'}`);
 console.log(fails === 0 ? 'All extreme-geometry checks passed.' : `${fails} FAILED`);
 process.exit(fails === 0 ? 0 : 1);

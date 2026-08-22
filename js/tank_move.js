@@ -12,7 +12,14 @@ function fireMul(t){ return (t.fireT>0 || t.dotT>0) ? RULES.fire.speedMul : 1; }
 
 function driveTank(t, dt, input){
   const turn = input.turn || 0, mv = input.move || 0;
-  if(t.immobT > 0){ t.immobT -= dt; return; }
+  if(t.immobT > 0){
+    t.immobT -= dt;
+    if(t.immobT <= 0){
+      t.immobT = 0;
+      t.trackBroken = false;
+    }
+    return;
+  }
   // 掩体/元素通行系数（§2.7）：半高/栅栏等 move<1 减速通行，灌木全速；solid 元素由碰撞推出/压毁
   const cover = getCoverUnderTank(t);
   let speedModifier = 1.0;

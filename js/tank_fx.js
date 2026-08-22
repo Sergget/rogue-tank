@@ -269,6 +269,8 @@ function updateFx(dt){
   
   muzzleFlashes.forEach(f=>f.life+=dt); muzzleFlashes = muzzleFlashes.filter(f=>f.life < f.max);
   hitFx.forEach(f=>f.life+=dt); hitFx = hitFx.filter(f=>f.life < f.max);
+  shockwaves.forEach(s=>s.life+=dt); shockwaves = shockwaves.filter(s=>s.life < s.max);
+  scorchMarks.forEach(s=>s.life+=dt); scorchMarks = scorchMarks.filter(s=>s.life < s.max);
 }
 
 // 殉爆火球（扩张并淡出）
@@ -461,6 +463,35 @@ function drawFxParticles(ctx){
   ctx.restore();
 }
 
+// 冲击波环绘制
+function drawShockwaves(ctx){
+  for(const sw of shockwaves){
+    const t = Math.min(1, sw.life / sw.max);
+    const r = sw.r + t * (sw.maxR - sw.r);
+    const a = Math.max(0, 1 - t);
+    ctx.save();
+    ctx.strokeStyle = sw.color || `rgba(255,210,120,${0.8*a})`;
+    ctx.lineWidth = (sw.width || 2.5) * (1 - 0.5*t);
+    ctx.beginPath();
+    ctx.arc(sw.x, sw.y, r, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// 地面弹坑与焦痕绘制
+function drawScorchMarks(ctx){
+  for(const sm of scorchMarks){
+    const a = Math.max(0, 1 - sm.life / sm.max) * (sm.opacity || 0.45);
+    ctx.save();
+    ctx.fillStyle = `rgba(20, 18, 15, ${a})`;
+    ctx.beginPath();
+    ctx.arc(sm.x, sm.y, sm.r, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     explosions,
@@ -468,10 +499,14 @@ if (typeof module !== 'undefined' && module.exports) {
     fxParticles,
     muzzleFlashes,
     hitFx,
+    shockwaves,
+    scorchMarks,
     FX_MAX_PARTICLES,
     spawnFlame,
     spawnSmoke,
     spawnDebris,
+    spawnShockwave,
+    spawnScorchMark,
     burstExplosion,
     emitTankFire,
     spawnAmmoBlowFx,
@@ -483,6 +518,8 @@ if (typeof module !== 'undefined' && module.exports) {
     drawTurretFlights,
     drawFxParticles,
     drawMuzzleFlashes,
-    drawHitFx
+    drawHitFx,
+    drawShockwaves,
+    drawScorchMarks
   };
 }

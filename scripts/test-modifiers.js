@@ -164,6 +164,18 @@ ok(model.debuffSpeedRate(t14) === RULES.modules.rates.speedHurt, 'engine debuff 
 model.addModifier(t14, { stat: 'invuln', mode: 'add', value: 1, scope: 'timed', expiresAt: Date.now() + 3000 });
 ok(t14.modifiers.some(m => m.stat === 'invuln'), 'invuln 临时修饰器正确加入');
 
+// 16) #61 动态马力/车重对 accel/brake 的物理联动回归
+const t16 = model.makeTank({ team: 'player', enginePower: 600, weight: 30 });
+const baseAccel = t16.stats.accel;
+model.addModifier(t16, { stat: 'enginePower', mode: 'mult', value: 1.5 });
+ok(Math.abs(t16.stats.accel - baseAccel * 1.5) < 1e-4, '#61: 升级 enginePower 后 stats.accel 联动放大 1.5 倍');
+ok(Math.abs(t16.stats.brake - t16.stats.accel * 3.5) < 1e-4, '#61: stats.brake 同步联动保持 3.5 倍 accel');
+
+// 17) #65 moduleMult 零值与类型判断
+const fakeShooter = { team: 'player', stats: { ammoMult: 0, crewMult: 0 } };
+ok(model.moduleMult(fakeShooter, 'ammo') === 0, '#65: 允许将 ammoMult 设为 0');
+ok(model.moduleMult(fakeShooter, 'crew') === 0, '#65: 允许将 crewMult 设为 0');
+
 console.log('test-modifiers: 完成所有检查');
 if (fails === 0) console.log('test-modifiers: 全部通过');
 else console.error(`test-modifiers: ${fails} 项失败`);

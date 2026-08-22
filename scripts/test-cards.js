@@ -32,6 +32,7 @@ ok(cardsMod.validateCardEffect({ type: 'modifier', stat: 'nope', mode: 'add', va
 ok(cardsMod.validateCardEffect({ type: 'modifier', stat: 'armor.hull.front', mode: 'mult', value: 1.2 }, 'e').length === 0, '装甲路径合法');
 ok(cardsMod.validateCardEffect({ type: 'modifier', stat: 'armor.hull.xx', mode: 'add', value: 1 }, 'e').length > 0, '装甲路径非法面报错');
 ok(cardsMod.validateCardEffect({ type: 'ammo', key: 'ap', field: 'pen', mode: 'mult', value: 1.1 }, 'e').length === 0, 'ammo 合法');
+ok(cardsMod.validateCardEffect({ type: 'ammo', key: 'heat', field: 'pen', mode: 'mult', value: 1.2 }, 'e').length === 0, '#64: ammo key heat 合法');
 ok(cardsMod.validateCardEffect({ type: 'ability', key: 'smoke' }, 'e').length === 0, 'ability 合法');
 ok(cardsMod.validateCardEffect({ type: 'drone' }, 'e').length === 0, 'drone 合法');
 
@@ -53,6 +54,13 @@ ok(cardsMod.cardStackCount(tank, 'ap') === 2 && tank.stats.penetration === baseP
 // armor 路径 modifier
 cardsMod.applyCardEffects(tank, { id: 'arm', name: 'x', rarity: 'common', effects: [{ type: 'modifier', stat: 'armor.hull.front', mode: 'add', value: 12 }] });
 ok(tank.stats.armor.hull.front === 110 + 12, '装甲路径 modifier 生效');
+
+// #62 cardStackCount 纯 non-modifier 效果与混合效果统计
+const tDrone = model.makeTank({ team: 'player' });
+cardsMod.applyCardEffects(tDrone, { id: 'drone_card', name: 'drone', rarity: 'rare', effects: [{ type: 'drone', kind: 'scout' }] });
+ok(cardsMod.cardStackCount(tDrone, 'drone_card') === 1, '#62: 纯 drone 效果卡 stackCount 为 1');
+cardsMod.applyCardEffects(tDrone, { id: 'drone_card', name: 'drone', rarity: 'rare', effects: [{ type: 'drone', kind: 'scout' }] });
+ok(cardsMod.cardStackCount(tDrone, 'drone_card') === 2, '#62: 重复应用后 stackCount 累积为 2');
 
 // 6) drawCardChoices：确定性 + 数量 + 不重复
 const pool = [];

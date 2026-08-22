@@ -28,7 +28,7 @@ const MODIFIER_STATS = [
 ];
 
 // 弹种改造：key = 弹种（RULES.ammoTypes），field = 可改字段
-const AMMO_KEYS = ['ap', 'apcr', 'he'];
+const AMMO_KEYS = ['ap', 'apcr', 'he', 'heat'];
 const AMMO_FIELDS = ['pen', 'dmg', 'speed'];
 
 // 主动装置（ability，运行时在对应里程碑接入按键触发；schema 先行）
@@ -140,9 +140,12 @@ function validateCardSet(cards) {
 
 // ---------- 应用效果 ----------
 
-// 卡牌已叠加次数（同名卡按 source `card:<id>` 统计）
+// 卡牌已叠加次数（支持修饰器卡与纯机制卡统计）
 function cardStackCount(tank, cardId) {
-  return (tank.modifiers || []).filter(m => m.source === 'card:' + cardId).length;
+  if (!tank) return 0;
+  const modCount = (tank.modifiers || []).filter(m => m && m.source === 'card:' + cardId).length;
+  if (modCount > 0) return modCount;
+  return (tank.cardEffects || []).filter(e => e && e.cardId === cardId).length;
 }
 
 // 应用卡牌效果到坦克。modifier 走 addModifier 立即生效；其余类型挂到 tank.cardEffects 供

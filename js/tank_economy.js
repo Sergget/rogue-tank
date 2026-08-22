@@ -339,19 +339,29 @@ function buyExtraRevive(profile){
 }
 
 // 把已购永久升级应用到坦克（permanent scope，每级叠一层；开局调用）
+// 优化：批量 push 进 tank.modifiers 并在末尾统一触发一次 refreshStats，消除频繁 structuredClone
 function applyUpgrades(tank, profile){
-  if(!profile || !profile.upgrades) return 0;
+  if(!profile || !profile.upgrades || !tank) return 0;
   let applied = 0;
+  tank.modifiers = tank.modifiers || [];
   for(const id in profile.upgrades){
     const u = getUpgradeDef(id);
     if(!u) continue;
     const lv = profile.upgrades[id];
     for(let i = 0; i < lv; i++){
-      if(typeof addModifier === 'function'){
-        addModifier(tank, { stat: u.stat, mode: u.mode, value: u.value, source: 'upgrade:' + id, scope: 'permanent' });
-        applied++;
-      }
+      tank.modifiers.push({
+        stat: u.stat,
+        mode: u.mode || 'add',
+        value: u.value,
+        source: 'upgrade:' + id,
+        scope: 'permanent',
+        expiresAt: Infinity
+      });
+      applied++;
     }
+  }
+  if(applied > 0 && typeof refreshStats === 'function'){
+    refreshStats(tank);
   }
   return applied;
 }

@@ -33,10 +33,6 @@ function computeStats(base, modifiers){
     spreadMult: base.spreadMult !== undefined ? base.spreadMult : 1,
     aimSpeed: base.aimSpeed !== undefined ? base.aimSpeed : RULES.spread.shrinkRate
   };
-  // derived mobility: forward acceleration (px/s^2) from horsepower per tonne scaled to game units.
-  // heavier tank (more weight) @ same hp accelutes slower; lower braking threshold = faster decel.
-  s.accel = (base.enginePower / base.weight) * ACCEL_POWER_TO_PX_SCALE;
-  s.brake = s.accel * BRAKE_FACTOR;
   // pass 1: adds, pass 2: mults (so mult scales the accumulated add result)
   for(const pass of ['add','mult']){
     for(const m of (modifiers||[])){
@@ -48,6 +44,12 @@ function computeStats(base, modifiers){
       }
     }
   }
+  // derived mobility: forward acceleration (px/s^2) from horsepower per tonne scaled to game units.
+  // derived AFTER modifier loop so cards/upgrades modifying enginePower or weight affect actual accel/brake.
+  const effPower = typeof s.enginePower === 'number' ? s.enginePower : base.enginePower;
+  const effWeight = typeof s.weight === 'number' && s.weight > 0 ? s.weight : base.weight;
+  s.accel = (effPower / effWeight) * ACCEL_POWER_TO_PX_SCALE;
+  s.brake = s.accel * BRAKE_FACTOR;
   return s;
 }
 
@@ -341,20 +343,20 @@ function setDebuff(t, key, seconds){
 // 每帧对所有 debuff 统一倒扣，归零清除
 function tickDebuffs(t, dt){
   if(!t.debuffs) return;
-  let alive = null;
   for(const k in t.debuffs){
     t.debuffs[k] -= dt;
     if(t.debuffs[k] <= 0){ delete t.debuffs[k]; }
-    else if(alive) alive = true;
   }
 }
 // 取"成员/模块伤害"的实际倍率：玩家侧默认 ammo×2 / crew×1.2（stats 可升级），敌方固定 ammo×2 / crew×1.2
 function moduleMult(shooter, modKey){
   const isPlayer = shooter && shooter.team === 'player';
   if(modKey === 'ammo'){
-    return isPlayer ? (shooter.stats ? (shooter.stats.ammoMult || DB.ammo.player) : DB.ammo.player) : DB.ammo.enemy;
+    if(!isPlayer) return DB.ammo.enemy;
+    return (shooter && shooter.stats && typeof shooter.stats.ammoMult === 'number') ? shooter.stats.ammoMult : DB.ammo.player;
   }
-  return isPlayer ? (shooter.stats ? (shooter.stats.crewMult || DB.crew.player) : DB.crew.player) : DB.crew.enemy;
+  if(!isPlayer) return DB.crew.enemy;
+  return (shooter && shooter.stats && typeof shooter.stats.crewMult === 'number') ? shooter.stats.crewMult : DB.crew.player;
 }
 // debuffSpread：炮手受伤 → 扩圈 ×spreadHurt；车长 → 全体 ×commanderDebuff
 function debuffSpread(t){

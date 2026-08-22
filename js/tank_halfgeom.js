@@ -85,32 +85,57 @@ function nextFace(f){ return f==='front' ? 'side' : f==='side' ? 'rear' : 'front
 // expressed as {half, halfFaces, frontSeamFace, rearSeamFace}) so re-loading a previous export
 // round-trips losslessly. Full-form import derives a half by taking every vertex with y<=0 in
 // order — this is a best-effort reconstruction and assumes the source was actually symmetric.
+// If the input full polygon is oriented counter-clockwise (CCW, signed area > 0), it is reversed
+// to enforce standard CW (front -> right side -> rear) order.
+function polygonSignedArea(pts){
+  let a = 0;
+  for(let i=0;i<pts.length;i++){
+    const p1 = pts[i], p2 = pts[(i+1)%pts.length];
+    a += (p1[0]*p2[1] - p2[0]*p1[1]);
+  }
+  return a * 0.5;
+}
+
 function halfFromFull(verts, faces){
+  if(!verts || !verts.length) return { half:[], halfFaces:[], frontSeamFace:'front', rearSeamFace:'rear' };
+  let srcVerts = verts.map(p=>p.slice());
+  let srcFaces = Array.isArray(faces) ? faces.slice() : [];
+  if(polygonSignedArea(srcVerts) > 0){
+    srcVerts.reverse();
+    if(srcFaces.length === srcVerts.length){
+      const revFaces = [];
+      for(let i = srcFaces.length - 1; i >= 0; i--){
+        revFaces.push(srcFaces[i]);
+      }
+      srcFaces = revFaces;
+    }
+  }
+
   const half = [];
   const halfFaces = [];
-  for(let i=0;i<verts.length;i++){
-    if(verts[i][1] <= CENTER_EPS){
-      half.push(verts[i].slice());
+  for(let i=0;i<srcVerts.length;i++){
+    if(srcVerts[i][1] <= CENTER_EPS){
+      half.push(srcVerts[i].slice());
     }
   }
   for(let i=0;i<half.length-1;i++) halfFaces.push('side');
   // best-effort: try to recover edge classifications for consecutive half vertices from the source
   // faces array by matching endpoints; falls back to 'side' if not found.
   for(let i=0;i<half.length-1;i++){
-    for(let j=0;j<verts.length;j++){
-      const a=verts[j], b=verts[(j+1)%verts.length];
+    for(let j=0;j<srcVerts.length;j++){
+      const a=srcVerts[j], b=srcVerts[(j+1)%srcVerts.length];
       if((pointsEqual(a,half[i])&&pointsEqual(b,half[i+1])) || (pointsEqual(b,half[i])&&pointsEqual(a,half[i+1]))){
-        halfFaces[i] = faces[j]; break;
+        halfFaces[i] = srcFaces[j]; break;
       }
     }
   }
   let frontSeamFace='front', rearSeamFace='rear';
   if(half.length){
     const first=half[0], last=half[half.length-1];
-    for(let j=0;j<verts.length;j++){
-      const a=verts[j], b=verts[(j+1)%verts.length];
-      if(!onCenterline(first) && ((pointsEqual(a,first)&&pointsEqual(b,mirrorPt(first)))||(pointsEqual(b,first)&&pointsEqual(a,mirrorPt(first))))) frontSeamFace = faces[j];
-      if(!onCenterline(last) && ((pointsEqual(a,last)&&pointsEqual(b,mirrorPt(last)))||(pointsEqual(b,last)&&pointsEqual(a,mirrorPt(last))))) rearSeamFace = faces[j];
+    for(let j=0;j<srcVerts.length;j++){
+      const a=srcVerts[j], b=srcVerts[(j+1)%srcVerts.length];
+      if(!onCenterline(first) && ((pointsEqual(a,first)&&pointsEqual(b,mirrorPt(first)))||(pointsEqual(b,first)&&pointsEqual(a,mirrorPt(first))))) frontSeamFace = srcFaces[j];
+      if(!onCenterline(last) && ((pointsEqual(a,last)&&pointsEqual(b,mirrorPt(last)))||(pointsEqual(b,last)&&pointsEqual(a,mirrorPt(last))))) rearSeamFace = srcFaces[j];
     }
   }
   return { half, halfFaces, frontSeamFace, rearSeamFace };

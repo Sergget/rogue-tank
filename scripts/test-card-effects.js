@@ -92,6 +92,13 @@ function applyExpected(stats, effects) {
       }
     }
   }
+  // #61: 派生 mobility 属性必须与 computeStats 对齐，根据 modifier 后的 enginePower/weight 重新计算
+  const ACCEL_POWER_TO_PX_SCALE = (typeof RULES !== 'undefined' && RULES.speed && RULES.speed.accelPowerToPxScale) || 180;
+  const BRAKE_FACTOR = (typeof RULES !== 'undefined' && RULES.speed && RULES.speed.brakeFactor) || 3.5;
+  if (typeof s.enginePower === 'number' && typeof s.weight === 'number' && s.weight > 0) {
+    s.accel = (s.enginePower / s.weight) * ACCEL_POWER_TO_PX_SCALE;
+    s.brake = s.accel * BRAKE_FACTOR;
+  }
   return s;
 }
 

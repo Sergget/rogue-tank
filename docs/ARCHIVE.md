@@ -49,6 +49,7 @@
 | 2026-08-22 | `ISSUES.md` | #49 test-modifiers.js 缺乏边缘用例模式警告 | 已修复并增加健壮性边缘测试用例，QA 校验通过 |
 | 2026-08-22 | `ISSUES.md` | #60 audit-content.js: 无警告但分布异常 | 已核实分布正常（common 47.8% / rare 31.3% / epic 15.7% / legendary 5.2%，5 个 Boss 3 阶段），`--strict` 全绿 0 警告，归档完结 |
 | 2026-08-22 | `PLAN.md` | 2026-08-21 规划：局外流程闭环与存档/配置体系 (M10 扩展) | 已全部实现并验证（结论见 DEVELOPMENT §2.16 / §3.25 / §5.5 / §6 条目 22） |
+| 2026-08-22 | `ISSUES.md` | #75 归档条目 #61~#74 的修复大部分缺失于工作区 | 已核实同步充分并归档（结论见 DEVELOPMENT §3.24；28 行原文见下） |
 
 ------
 
@@ -1845,5 +1846,32 @@ if (mod.key==='ammo') {
 | 3 | 在 `tank_mvp.html` 中构建 Home / Loadout / Shop 的 UI 视图层与切换逻辑 | `tank_mvp.html` | `npm run check` 语法检查 + 浏览器手动冒烟 |
 | 4 | 接入弹药配备与战斗内 1/2/3 键切换逻辑 | `tank_mvp.html`, `js/tank_model.js` | 战斗内切换弹药开火，验证弹道色与击穿/溅射表现 |
 | 5 | 全量自动化测试回归 | 全部测试脚本 | `npm test` + `npm run check` |
+
+---
+
+### [2026-08-22] 归档自 docs/ISSUES.md #75 归档条目 #61~#74 的修复大部分缺失于工作区（已核实并闭环）
+
+> 2026-08-22 删除自 docs/ISSUES.md #75：按 AGENTS.md 4 步生命周期删除，结论已同步至 DEVELOPMENT.md §3.24（标题“ISSUES #61~#74，重做核实已完成”且 14 项结论独立可读），§6 排序不受影响。被删条目 28 行原文如下（保留原格式，只增不改）：
+
+### #75 归档条目 #61~#74 的修复大部分缺失于工作区
+
+- **状态**：待处理 → 已核实并重做完成（2026-08-22）
+- **核实**：ARCHIVE 索引已登记 #61~#74 为“已全部修复”，但工作区 7 个共享模块的对应修复未落地，8 项缺失经代码比对确认。
+- **证据**（缺失项 × 所在文件：行）：
+
+| 缺失项 | 文件 | 缺陷 | 验证 |
+|---|---|---|---|
+| #61 | `js/tank_model.js` | `s.accel`/`s.brake` 未随 `enginePower`/`weight` modifier 动态派生 | 已重做并补 `test-modifiers.js` #61 回归 |
+| #62 | `js/tank_cards.js` | `cardStackCount` 未按 `cardEffects` 精确计数 | 已重做 |
+| #63 | `js/tank_economy.js` | `applyUpgrades` 逐次 `refreshStats` 冗余 | 已重做为批量后统一刷新 |
+| #64 | `js/tank_cards.js` | `AMMO_KEYS` 缺 `heat` | 已补齐与 RULES 一致 |
+| #70 | `js/tank_move.js` | `immobT` 归零未清 `trackBroken` | 已重做 |
+| #71 | `js/tank_fx.js` | `shockwaves`/`scorchMarks` 未更新与过滤 | 已重做并接入绘制 |
+| #72 | `js/tank_battledraw.js` | `attachments` 未做存在性守卫 | 已重做 |
+| #74 | `js/tank_halfgeom.js` | `halfFromFull` 未对 CCW 输入正向化 | 已重做 |
+
+- **影响**：8 项为已归档条目的重做缺口，未阻塞新功能但影响“已修复”可信度。
+- **修复**：上述 8 项（连同 #65~#69、#73）已全部落地，对应测试扩展，`npm run check` + `npm test` 全绿。
+- **归档**：本条目删除后结论以 DEVELOPMENT.md §3.24 为准，原文仅追溯。
 
 

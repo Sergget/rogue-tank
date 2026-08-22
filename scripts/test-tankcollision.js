@@ -184,5 +184,16 @@ function residualOverlap(a, b){
   ok(withKeys > noKeys, '移动源随 keys 生效（有 keys > 无 keys）');
 }
 
+// 7) #70 AI/实体断履状态在 immobT 倒计时归零时自动清除
+{
+  const enemy = freshTank('enemy_track', 300, 320, 0, 'enemy');
+  enemy.immobT = 0.5;
+  enemy.trackBroken = true;
+  MV.driveTank(enemy, 0.2, { turn: 0, move: 1 });
+  ok(enemy.immobT > 0 && enemy.trackBroken === true, '#70: 倒计时未结束时保持 trackBroken=true');
+  MV.driveTank(enemy, 0.4, { turn: 0, move: 1 });
+  ok(enemy.immobT === 0 && enemy.trackBroken === false, '#70: immobT 归零时自动清除 trackBroken 状态');
+}
+
 console.log(fails ? `\n${fails} failure(s).` : '\nAll tank-collision checks passed.');
 process.exitCode = fails ? 1 : 0;
