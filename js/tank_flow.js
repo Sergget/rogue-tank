@@ -6,26 +6,45 @@
 // (settlement) → 节点间卡牌/商店(reward) → 下一节点 / 阵亡(gameover)。
 // 战斗循环只是其中一个状态（battle）；其余状态由 UI 层消费（见 UI 界面层约定，
 // DEVELOPMENT.md §5.1）。死亡/复活（M8）与局外商店（M10）接入时在此扩展状态。
+// M10 扩展：新增局外三态 —— home(首页/存档选择，顶层入口)、loadout(出战整备)、
+// shop(永久升级商店)，构成 home → loadout ⇄ shop → map 的局外闭环
+// （docs/PLAN.md 特性 3 §3.2 流程状态机完整流转）。
 
 // 合法状态集合（transition 的唯一约束来源）
-const FLOW_STATES = ['map', 'battle', 'settlement', 'reward', 'gameover'];
+const FLOW_STATES = [
+  'home', 'loadout', 'shop',               // M10 局外三态（home 为顶层入口，位于 map 之前）
+  'map', 'battle', 'settlement', 'reward', 'gameover'
+];
+
+// 局外状态集合（尚未开始一局 run）：restartRun 对其为 no-op（见 restartRun JSDoc）
+const FLOW_OUTRUN_STATES = ['home', 'loadout', 'shop'];
 
 // 允许的转移表：from → to 白名单（未知转移抛错，防流程失控）
 const FLOW_TRANSITIONS = {
+  // —— M10 局外闭环 ——
+  home:       ['loadout', 'home'],              // 选择存档 → 出战整备；home→home 自环 = 同界面切换存档后刷新
+  loadout:    ['shop', 'map', 'home'],          // 确认配置直接出击 → 节点图；进强化整备 → 商店；返回首页
+  shop:       ['map', 'loadout', 'home'],       // 购买完毕出击 → 节点图；回整备微调；回首页
+  // —— 局内一局流程（P-08）——
   map:        ['battle'],
   battle:     ['settlement', 'gameover', 'map'],  // 结算 = 敌全灭/通关；gameover = 阵亡（复活耗尽）；map = 放弃节点/重开
   settlement: ['reward', 'map'],            // 正常 → 卡牌/商店；无奖励（最后一关后）→ 回到节点图
   reward:     ['battle', 'map'],            // 选完 → 下一节点；节点链走完 → 回到节点图（一局结束）
-  gameover:   ['map']                       // 阵亡 → 重新开始（复活系统 M8 接入后扩展）
+  gameover:   ['map', 'home']               // 阵亡 → 快速重开（重新开始）；或回首页（M10）
 };
 
 /**
  * 创建流程状态机实例。
+ * @param {string} [initialState='map'] 初始状态（缺省 'map' 保持向后兼容；局外 UI 入口传 'home'）
  * @returns {any} flow —— { state, prev, payload, runId, _watchers }
  */
-function createFlow() {
+function createFlow(initialState) {
+  const init = initialState !== undefined ? initialState : 'map';
+  if (!FLOW_STATES.includes(init)) {
+    throw new Error(`tank_flow: 未知初始状态 "${init}"`);
+  }
   return {
-    state: 'map',
+    state: init,
     prev: null,
     payload: null,          // 进入当前状态时携带的数据（如 { nodeIndex } / { score }）
     runId: 0,               // 一局一 id（每次回到 map 重新开局时自增）
@@ -68,8 +87,15 @@ function transition(flow, next, payload) {
 
 /**
  * 重新开局：回到节点图、runId 自增（供 UI 重置局内状态）。已在地图态时仅自增 runId。
+ *
+ * 局外约定（M10）：从 home / loadout / shop 等「局外状态」调用时为 no-op ——
+ * 一局尚未开始（还没进入过 map），重开无意义：既不抛错也不进入 map，
+ * 仅原样返回当前 runId；其余状态（map/battle/settlement/reward/gameover）行为不变。
  */
 function restartRun(flow) {
+  if (FLOW_OUTRUN_STATES.includes(flow.state)) {
+    return flow.runId;
+  }
   if (flow.state === 'map') {
     flow.runId++;
     return;

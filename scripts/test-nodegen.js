@@ -3,6 +3,10 @@
 // 运行：node scripts/test-nodegen.js
 'use strict';
 
+const U = require('../js/tank_utils.js');
+global.TAU = U.TAU;
+const RULES_MOD = require('../js/tank_rules.js');
+global.RULES = RULES_MOD.RULES;
 const path = require('path');
 const { createRNG, registerTemplate, generateNode, getTemplates, NODE_TEMPLATES } = require('../js/tank_nodegen.js');
 

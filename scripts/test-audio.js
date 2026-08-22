@@ -3,7 +3,10 @@
 // 运行：node scripts/test-audio.js
 'use strict';
 
-const A = require('../js/tank_audio.js');
+const U = require('../js/tank_utils.js');
+const RULES_MOD = require('../js/tank_rules.js');
+global.TAU = U.TAU;
+global.RULES = RULES_MOD.RULES;
 
 let fails = 0;
 let asserts = 0;
@@ -14,6 +17,7 @@ function ok(cond, label) {
 }
 
 // 1) 导出完整性
+const A = require('../js/tank_audio.js');
 ok(typeof A.playSound === 'function', '导出 playSound');
 ok(typeof A.initAudio === 'function', '导出 initAudio');
 ok(typeof A.ensureAudio === 'function', '导出 ensureAudio');

@@ -13,11 +13,14 @@
 // 运行：node scripts/test-card-effects.js（npm test 已纳入，validate-content.js 之后）
 'use strict';
 
+const U = require('../js/tank_utils.js');
+
 const fs = require('fs');
 const path = require('path');
 
 const RULES_MOD = require('../js/tank_rules.js');
 global.RULES = RULES_MOD.RULES;
+global.TAU = U.TAU;
 const H = require('../js/tank_halfgeom.js');
 global.normalizeBarrel = H.normalizeBarrel;   // applyTankConfig 浏览器全局惯例（Node 兜底）
 const model = require('../js/tank_model.js');

@@ -47,20 +47,23 @@ function updateCamera(cam, target, dt, opts) {
 }
 
 /**
- * 立即把视口中心钳制在世界边界内（不参与跟随阻尼）。
+ * 立即把视口中心钳制在世界边界内（不参与跟随阻尼，考虑 cam.zoom 缩放）。
  */
 function clampCamera(cam) {
   if (!cam.bounds) return;
   const w = cam.bounds.w, h = cam.bounds.h;
-  if (cam.vw >= w) {
+  const zoom = cam.zoom || 1;
+  const hw = (cam.vw / 2) / zoom;
+  const hh = (cam.vh / 2) / zoom;
+  if (hw * 2 >= w) {
     cam.x = w / 2;                       // 视口比世界宽 → 居中
   } else {
-    cam.x = Math.max(cam.vw / 2, Math.min(w - cam.vw / 2, cam.x));
+    cam.x = Math.max(hw, Math.min(w - hw, cam.x));
   }
-  if (cam.vh >= h) {
+  if (hh * 2 >= h) {
     cam.y = h / 2;
   } else {
-    cam.y = Math.max(cam.vh / 2, Math.min(h - cam.vh / 2, cam.y));
+    cam.y = Math.max(hh, Math.min(h - hh, cam.y));
   }
 }
 

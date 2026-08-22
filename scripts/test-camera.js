@@ -2,6 +2,11 @@
 // 运行：node scripts/test-camera.js
 'use strict';
 
+const U = require('../js/tank_utils.js');
+const RULES_MOD = require('../js/tank_rules.js');
+global.TAU = U.TAU;
+global.RULES = RULES_MOD.RULES;
+
 const {
   createCamera,
   updateCamera,

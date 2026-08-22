@@ -50,8 +50,12 @@ function drawMinimap(ctx, opts) {
   const layout = minimapLayout(world.w, world.h, opts.w, opts.h);
   const alpha = opts.alpha !== undefined ? opts.alpha : 0.55;
 
-  // 面板底 + 边框
   ctx.save();
+  ctx.beginPath();
+  ctx.rect(opts.x, opts.y, opts.w, opts.h);
+  ctx.clip();
+
+  // 面板底 + 边框
   ctx.fillStyle = `rgba(10,12,14,${alpha})`;
   ctx.strokeStyle = 'rgba(255,255,255,0.25)';
   ctx.lineWidth = 1;

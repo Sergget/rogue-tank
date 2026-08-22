@@ -10,8 +10,11 @@
 'use strict';
 
 // ---- browser-global shims（同 test-covers.js 先例：Node 里把共享模块挂到 global）----
+require('../js/tank_rules.js');
+const RULES_MOD = require('../js/tank_rules.js');
 const U = require('../js/tank_utils.js');
 global.TAU = U.TAU;
+global.RULES = RULES_MOD.RULES;
 global.partCorners = U.partCorners;   // soft bake 的 boxPath（angle 0 矩形）用
 // soft/barricade 显示色单一来源（RULES.coverTiers）；缺省时 bake 内字面量回退也能跑
 global.COVER_TIERS = require('../js/tank_rules.js').RULES.coverTiers;

@@ -2,6 +2,8 @@
 // Run: node scripts/test-dmgtext.js
 'use strict';
 
+require('../js/tank_utils.js');
+require('../js/tank_rules.js');
 const D = require('../js/tank_dmgtext.js');
 
 let fails = 0;

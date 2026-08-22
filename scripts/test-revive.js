@@ -2,6 +2,8 @@
 // 运行：node scripts/test-revive.js
 'use strict';
 
+const U = require('../js/tank_utils.js');
+global.TAU = U.TAU;
 const RULES_MOD = require('../js/tank_rules.js');
 global.RULES = RULES_MOD.RULES;
 const { createRNG } = require('../js/tank_nodegen.js');

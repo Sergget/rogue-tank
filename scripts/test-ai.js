@@ -7,6 +7,7 @@ global.RULES = RULES_MOD.RULES;
 const U = require('../js/tank_utils.js');
 global.angDiff = U.angDiff;
 global.norm = U.norm;
+global.TAU = U.TAU;
 const { aiDecideEnemy, aiDecideAlly, aiDecide } = require('../js/tank_ai.js');
 
 let fails = 0;

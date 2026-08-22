@@ -190,7 +190,7 @@ const NODE_TEMPLATES = [
       { tier: 'tree', dx: 280, dy: 0, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: -60, dy: -100, w: 60, h: 32, angle: 0 },
       { tier: 'bush', dx: 60, dy: 100, w: 60, h: 32, angle: 0 },
-      { tier: 'stump', dx: 0, dy: -140, w: 24, h: 18, angle: 0 }
+      { tier: 'stump', dx: 0, dy: -110, w: 24, h: 18, angle: 0 }
     ]
   },
   {
@@ -321,6 +321,35 @@ function pickTemplate(diff, rng) {
 }
 
 /**
+ * AABB 重叠检测：矩形（中心 x,y + 尺寸 w,h）是否击中任一已放置掩体的外接框。
+ * 用于水体/桥梁拒绝采样，避免水体/桥梁压在已放置掩体上（P-20 修复 / ISSUES #62 衍生）。
+ * 自包含实现：仅依赖覆盖 c.x,c.y,c.w,c.h（世界尺寸），不引入 tank_cover 依赖，
+ * 保持模块 Node 测试可用性。
+ * @param {Array} covers 已放置掩体数组（{x,y,w,h,...}）
+ * @param {number} x 矩形中心 x
+ * @param {number} y 矩形中心 y
+ * @param {number} w 矩形宽（世界尺寸）
+ * @param {number} h 矩形高（世界尺寸）
+ * @param {number} pad 各掩体 AABB 外扩边距（px）
+ * @returns {boolean}
+ */
+function rectHitsCover(covers, x, y, w, h, pad) {
+  const left = x - w / 2 - pad;
+  const right = x + w / 2 + pad;
+  const top = y - h / 2 - pad;
+  const bottom = y + h / 2 + pad;
+  for (let i = 0; i < covers.length; i++) {
+    const c = covers[i];
+    const cl = c.x - c.w / 2 - pad;
+    const cr = c.x + c.w / 2 + pad;
+    const ct = c.y - c.h / 2 - pad;
+    const cb = c.y + c.h / 2 + pad;
+    if (right > cl && left < cr && bottom > ct && top < cb) return true;
+  }
+  return false;
+}
+
+/**
  * Main node cover layout generator
  * @param {number} [difficulty=0.5] 0~1 continuous difficulty weight
  * @param {NodeGenOptions} [options]
@@ -391,9 +420,16 @@ function generateNode(difficulty, options) {
       }
     }
 
+    let itemW = item.w, itemH = item.h;
+
     // Pre-damaged / wrecked state transition
     if (tier === 'tree' && rng() < wreckProb) {
       tier = rng() < 0.5 ? 'stump' : 'fallen';
+      if (tier === 'fallen') {
+        itemW *= 2.4; itemH *= 0.5;
+      } else if (tier === 'stump') {
+        itemW *= 0.6; itemH *= 0.6;
+      }
     } else if (tier === 'barricade' && rng() < wreckProb) {
       tier = 'rubble';
     }
@@ -406,8 +442,8 @@ function generateNode(difficulty, options) {
     const coverObj = {
       x: centerX + item.dx * scale + jitterX,
       y: centerY + item.dy * scale + jitterY,
-      w: item.w * scale,
-      h: item.h * scale,
+      w: itemW * scale,
+      h: itemH * scale,
       angle: (item.angle || 0) + angleJitter,
       tier: tier
     };
@@ -441,50 +477,80 @@ function generateNode(difficulty, options) {
   // 每个节点最多 1 个水体/桥梁组合；概率随难度递增
   const waterBridgeChance = diff * 0.5;
   if (rng() < waterBridgeChance) {
-    // 生成水体：w [300, 800] * scale，h [200, 500] * scale（世界尺寸），
+    // 生成水体：w/h 受「≤40% 节点尺寸」封顶（scale 已计入），
     // 并按节点世界比例封顶（≤40% 宽/高）——原始区间相对模板尺寸本就占 35%~114%，
-    // scale 放大后会把大半个战场吞掉，导致敌军/据点拒绝采样被大片水域耗尽（ISSUES #62）
-    const waterW = Math.min(rng.range(300, 800) * scale, selectedTemplate.w * scale * 0.4);
-    const waterH = Math.min(rng.range(200, 500) * scale, selectedTemplate.h * scale * 0.4);
-
-    // 随机位置偏移（dx/dy 为相对于节点中心的偏移，遵循现有项顺序规范）
-    // 确保水体在节点界内：留出边距防止完全贴边
-    // 注意：偏移按「模板单位 × scale」约定采样（与 items 的 item.dx 一致）——
-    // 不可先按世界尺寸算 maxDx 再乘 scale（双重缩放会把水体/桥梁中心推出节点界，ISSUES #62）。
-    const marginX = Math.max(30, waterW * 0.1);
-    const marginY = Math.max(30, waterH * 0.1);
-    const maxDx = Math.max(0, (selectedTemplate.w - waterW / scale - marginX / scale) / 2);
-    const maxDy = Math.max(0, (selectedTemplate.h - waterH / scale - marginY / scale) / 2);
-    const waterDx = rng.range(-maxDx, maxDx);
-    const waterDy = rng.range(-maxDy, maxDy);
-
-    // 添加水体覆盖（tier: 'water'，move:0 表示不可通行）
-    outCovers.push({
-      x: centerX + waterDx * scale,
-      y: centerY + waterDy * scale,
-      w: waterW,
-      h: waterH,
-      angle: rng.range(-0.05, 0.05),
-      tier: 'water'
-    });
-
-    // 始终随水体一起插入桥梁：6px 宽的狭长通道，紧贴水体北缘
+    // scale 放大后会把大半个战场吞掉，导致敌军/据点拒绝采样被大片水域耗尽（ISSUES #62）。
+    // 拒绝采样（P-20 修复 / ISSUES #62 衍生）：每轮用 rng 抽取 waterW/waterH（封顶 40% 节点尺寸），
+    // 并对「节点内可行位置」做网格扫描（相位由 rng 决定，保持确定性）寻找不与任何已放置掩体
+    // 重叠的水体/桥梁候选；全失败则跳过本节点水体（不放置水体/桥梁）。纯随机 30 次在自由空间
+    // 占比极小（高难掩体密集）时几乎必失，故改以网格扫描提升命中率，同时仍只用 rng（确定性）。
+    // 桥梁（狭长通道）位于水体北缘，一并做重叠检测（best-effort）。镜像 tank_map.js 的 guard 模式。
+    const WATER_PAD = 8;
     const bridgeW = 6 * scale;
-    const bridgeH = waterH;  // 与水体同高，作为通行视觉通道
-    const bridgeDx = waterDx;  // 对齐水体水平位置
-    // bridgeDy 用模板单位（与 waterDy 同基准，bridgeH=waterH → waterH/scale），
-    // 并钳到节点半高内，防止水体贴近节点上边缘时桥梁中心越界（ISSUES #62）
-    const halfH = selectedTemplate.h / 2;
-    const bridgeDy = Math.max(-halfH, Math.min(halfH, waterDy - waterH / scale));
+    const WATER_GX = 20, WATER_GY = 14, WATER_SIZE_TRIES = 8;
+    let waterDx = null, waterDy = null, waterW = 0, waterH = 0;
+    const phaseX = rng(), phaseY = rng();
+    waterSearch:
+    for (let si = 0; si < WATER_SIZE_TRIES; si++) {
+      // 尺寸在 [0.5*cap, cap] 间采样：仍受「≤40% 节点尺寸」封顶（cap）约束，
+      // 但下限放宽到半 cap，使密集掩体间仍能找到可落位的水体（原始实现固定取上限→几乎必重叠）。
+      const capW = selectedTemplate.w * scale * 0.4;
+      const capH = selectedTemplate.h * scale * 0.4;
+      const tryW = rng.range(0.5 * capW, capW);
+      const tryH = rng.range(0.5 * capH, capH);
+      // 确保水体在节点界内：留出边距防止完全贴边；偏移按「模板单位 × scale」约定采样。
+      // 不可先按世界尺寸算 maxDx 再乘 scale（双重缩放会把水体/桥梁中心推出节点界，ISSUES #62）。
+      const marginX = Math.max(30, tryW * 0.1);
+      const marginY = Math.max(30, tryH * 0.1);
+      const maxDx = Math.max(0, (selectedTemplate.w - tryW / scale - marginX / scale) / 2);
+      const maxDy = Math.max(0, (selectedTemplate.h - tryH / scale - marginY / scale) / 2);
+      for (let gi = 0; gi < WATER_GX; gi++) {
+        for (let gj = 0; gj < WATER_GY; gj++) {
+          const tryDx = -maxDx + (2 * maxDx) * ((gi + phaseX) / WATER_GX);
+          const tryDy = -maxDy + (2 * maxDy) * ((gj + phaseY) / WATER_GY);
+          const tryWX = centerX + tryDx * scale;
+          const tryWY = centerY + tryDy * scale;
+          const tryBX = centerX + tryDx * scale;                  // 桥梁对齐水体水平位置
+          const tryBY = centerY + (tryDy - tryH / scale) * scale; // 紧贴水体北缘
+          if (!rectHitsCover(outCovers, tryWX, tryWY, tryW, tryH, WATER_PAD) &&
+              !rectHitsCover(outCovers, tryBX, tryBY, bridgeW, tryH, WATER_PAD)) {
+            waterDx = tryDx; waterDy = tryDy; waterW = tryW; waterH = tryH;
+            break waterSearch;
+          }
+        }
+      }
+    }
 
-    outCovers.push({
-      x: centerX + bridgeDx * scale,
-      y: centerY + bridgeDy * scale,
-      w: bridgeW,
-      h: bridgeH,
-      angle: 0,
-      tier: 'bridge'
-    });
+    if (waterDx !== null) {
+      // 添加水体覆盖（tier: 'water'，move:0 表示不可通行）
+      outCovers.push({
+        x: centerX + waterDx * scale,
+        y: centerY + waterDy * scale,
+        w: waterW,
+        h: waterH,
+        angle: rng.range(-0.05, 0.05),
+        tier: 'water'
+      });
+
+      // 始终随水体一起插入桥梁：6px 宽的狭长通道，紧贴水体北缘
+      const bridgeH = waterH;  // 与水体同高，作为通行视觉通道
+      const bridgeDx = waterDx;  // 对齐水体水平位置
+      // bridgeDy 用模板单位（与 waterDy 同基准，bridgeH=waterH → waterH/scale），
+      // 并钳到节点半高减去桥梁自身半高内，防止水体贴近节点上边缘时桥梁越界（Fix 2 / ISSUES #62）
+      const halfH = selectedTemplate.h / 2;
+      const bridgeHalfH = waterH / scale / 2;
+      const bridgeClamp = Math.max(0, halfH - bridgeHalfH);
+      const bridgeDy = Math.max(-bridgeClamp, Math.min(bridgeClamp, waterDy - waterH / scale));
+
+      outCovers.push({
+        x: centerX + bridgeDx * scale,
+        y: centerY + bridgeDy * scale,
+        w: bridgeW,
+        h: bridgeH,
+        angle: 0,
+        tier: 'bridge'
+      });
+    }
   }
 
   const targetCovers = (typeof covers !== 'undefined' && Array.isArray(covers))

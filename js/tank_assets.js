@@ -234,6 +234,12 @@ function preloadAssets(){
   }
 }
 
+const MAX_ASSET_CACHE_SIZE = 128;
+
+function clearAssetCache() {
+  ASSET_CACHE.clear();
+}
+
 // 烘焙精灵缓存（key = 资产 key + 层 + 尺寸，尺寸取 0.5px 量化以限制缓存增长）。
 // 返回 { canvas, ax, ay }（掩体中心位于 canvas 内 (ax, ay) 像素处）或 null。
 function getBakedSprite(key, w, h, layer){
@@ -243,6 +249,10 @@ function getBakedSprite(key, w, h, layer){
   const qw = Math.round(w*2)/2, qh = Math.round(h*2)/2;
   const cacheKey = key + ':' + (layer || 'base') + ':' + qw + 'x' + qh;
   if(ASSET_CACHE.has(cacheKey)) return ASSET_CACHE.get(cacheKey);
+  if(ASSET_CACHE.size >= MAX_ASSET_CACHE_SIZE){
+    const firstKey = ASSET_CACHE.keys().next().value;
+    if(firstKey !== undefined) ASSET_CACHE.delete(firstKey);
+  }
   const spr = bakeAssetCanvas(key, qw, qh, layer);
   if(spr) ASSET_CACHE.set(cacheKey, spr);
   return spr;
@@ -328,6 +338,8 @@ function drawAssetSprite(ctx, key, x, y, w, h, layer){
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     ASSET_DEFS,
+    ASSET_CACHE,
+    clearAssetCache,
     assetImage,
     loadAssetImage,
     preloadAssets,

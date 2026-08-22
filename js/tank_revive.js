@@ -13,19 +13,31 @@ function reviveConfig(){ return (typeof RULES !== 'undefined' && RULES.revive) ?
 // 查找复活点：友军据点周围半径内随机无障碍点；无据点回退玩家出生点。
 // covers 为掩体数组（{x,y,w,h,tier}），排除 solid/graduated 掩体包围盒（+padding 余量）。
 // rng 为随机源（可选），确定性测试可传 createRNG。
-function findReviveSpot(outpost, covers, playerSpawn, rng, radius){
+function findReviveSpot(outpost, covers, playerSpawn, rng, radius, enemies){
   const cfg = reviveConfig();
   const center = outpost ? { x: outpost.x, y: outpost.y } : (playerSpawn || { x: 0, y: 0 });
   const R = radius !== undefined ? radius : (cfg.reviveRadius !== undefined ? cfg.reviveRadius : 150);
+  const avoid = cfg.reviveEnemyAvoid || 120;
   const r = rng || Math.random;
   for(let attempt = 0; attempt < 40; attempt++){
     const ang = r() * Math.PI * 2;
     const dist = r() * R;
     const x = center.x + Math.cos(ang) * dist;
     const y = center.y + Math.sin(ang) * dist;
-    if(!pointInAnyCover(covers, x, y, 40)) return { x: Math.round(x), y: Math.round(y) };
+    if(!pointInAnyCover(covers, x, y, 40) && !pointNearEnemy(enemies, x, y, avoid)){
+      return { x: Math.round(x), y: Math.round(y) };
+    }
   }
   return { x: Math.round(center.x), y: Math.round(center.y) };   // 兜底：中心点
+}
+
+// 点是否过近任一敌方单位（复活点避让敌人；enemies 为 {x,y} 列表，缺省视为无）
+function pointNearEnemy(enemies, x, y, dist){
+  if(!enemies || !enemies.length) return false;
+  for(const e of enemies){
+    if(Math.hypot(x - e.x, y - e.y) < dist) return true;
+  }
+  return false;
 }
 
 // 点是否落在任一掩体包围盒内（padding 外扩）
@@ -60,10 +72,10 @@ function reviveTank(t, spot, invulnSeconds){
 function canRevive(t){ return (t.revives || 0) > 0; }
 
 // 消耗一次复活次数并执行满状态复活；返回是否成功（次数耗尽则失败）。
-function reviveAt(t, outpost, covers, playerSpawn, rng){
+function reviveAt(t, outpost, covers, playerSpawn, rng, enemies){
   if(!canRevive(t)) return false;
   t.revives--;
-  const spot = findReviveSpot(outpost, covers, playerSpawn, rng);
+  const spot = findReviveSpot(outpost, covers, playerSpawn, rng, undefined, enemies);
   reviveTank(t, spot);
   return true;
 }

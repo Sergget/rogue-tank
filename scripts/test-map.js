@@ -3,6 +3,8 @@
 'use strict';
 
 // ---- browser-global shims（与 test-covers.js 同款约定）----
+const U = require('../js/tank_utils.js');
+global.TAU = U.TAU;
 const RULES_MOD = require('../js/tank_rules.js');
 global.RULES = RULES_MOD.RULES;
 const NG = require('../js/tank_nodegen.js');

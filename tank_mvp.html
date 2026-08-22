@@ -37,11 +37,17 @@
     width:220px; text-align:center; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim);}
   #reloadTrack{height:5px; background:#0c0d09; border:1px solid var(--line); margin-top:4px;}
   #reloadFill{height:100%; background:var(--amber); width:100%;}
-  #ammoIndicator{display:inline-flex; align-items:center; gap:5px; margin-left:8px;
+  #ammoIndicator{display:inline-flex; align-items:center; gap:4px; margin-left:8px;
     font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700;
     color:var(--text); vertical-align:middle;}
+  #ammoIndicator .ammo-cell{display:inline-flex; align-items:center; gap:4px;
+    border:1px solid var(--line); background:#0c0d09; padding:2px 6px;}
+  #ammoIndicator .ammo-cell.active{border-color:var(--green); background:rgba(126,217,87,0.12);}
   #ammoIndicator .dot{width:9px; height:9px; border-radius:50%; display:inline-block;
     border:1px solid rgba(255,255,255,0.3);}
+  #ammoIndicator .key{color:var(--amber-dim);}
+  #ammoIndicator .ammo-cell.active .key{color:var(--amber);}
+  #ammoIndicator .mult{color:var(--text-dim); font-weight:400; font-size:9px;}
   #hintBar{position:absolute; left:12px; bottom:10px; pointer-events:none;
     font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-dim); opacity:.75; letter-spacing:1px;}
 
@@ -107,6 +113,59 @@
   #cardRow .card .cname{font-family:'JetBrains Mono',monospace; color:var(--amber); font-size:12px; font-weight:700; margin-bottom:8px;}
   #cardRow .card .cdesc{font-size:10px; color:var(--text-dim); line-height:1.6;}
 
+  /* ---------- M10 局外三界面（Home 存档 / Loadout 整备 / Shop 商店） ---------- */
+  #flowOverlay .screen.wide{min-width:560px; max-width:880px;}
+  #homeSlotList{display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto;}
+  #homeSlotList .slot-row{display:flex; align-items:center; gap:10px; border:1px solid var(--line);
+    padding:8px 12px; background:rgba(255,255,255,0.02);}
+  #homeSlotList .slot-row.active{border-color:var(--green); background:rgba(126,217,87,0.06);}
+  #homeSlotList .slot-main{flex:1; min-width:0;}
+  #homeSlotList .slot-name{color:var(--text); font-weight:700; font-size:12px;}
+  #homeSlotList .slot-name .badge{font-size:9px; color:var(--green); border:1px solid var(--green);
+    padding:0 4px; margin-left:6px; font-family:'JetBrains Mono',monospace; font-weight:400;}
+  #homeSlotList .slot-meta{font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-dim);
+    line-height:1.7; margin-top:2px;}
+  #homeSlotList .slot-actions{display:flex; flex-direction:column; gap:4px; flex-shrink:0;}
+  #homeSlotList button{font-size:9px; padding:3px 8px; letter-spacing:1px;}
+  #homeSlotList button.danger{border-color:#6b3a33; color:var(--red);}
+  #homeSlotList button.danger:hover{background:rgba(255,92,77,0.12); border-color:var(--red);}
+  #homeSlotList input{background:#0c0d09; border:1px solid var(--amber-dim); color:var(--text);
+    font-family:'JetBrains Mono',monospace; font-size:11px; padding:2px 5px; width:120px;}
+  #homeEmpty{text-align:center; padding:22px 0 14px; color:var(--text-dim); font-size:12px; line-height:2;}
+  #loadTankList{display:flex; flex-wrap:wrap; gap:8px; max-height:236px; overflow-y:auto;
+    margin-bottom:10px; align-content:flex-start;}
+  #loadTankList .tank-card{width:158px; border:1px solid var(--line); background:rgba(255,255,255,0.02);
+    padding:9px 10px; cursor:pointer;}
+  #loadTankList .tank-card:hover{border-color:var(--amber); background:rgba(255,180,84,0.08);}
+  #loadTankList .tank-card.selected{border-color:var(--green); background:rgba(126,217,87,0.08);}
+  #loadTankList .tank-card .tname{font-family:'JetBrains Mono',monospace; color:var(--amber);
+    font-size:11px; font-weight:700; margin-bottom:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #loadTankList .tank-card .tstat{font-family:'JetBrains Mono',monospace; font-size:9px;
+    color:var(--text-dim); line-height:1.7;}
+  #loadAmmoList{display:flex; flex-direction:column; gap:5px; margin-top:6px;}
+  #loadAmmoList .ammo-row{display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;}
+  #loadAmmoList .ammo-row .dot{width:9px; height:9px; border-radius:50%; display:inline-block;
+    border:1px solid rgba(255,255,255,0.3); flex-shrink:0;}
+  #loadAmmoList .ammo-row .aname{font-family:'JetBrains Mono',monospace; color:var(--text);
+    min-width:46px; font-weight:700;}
+  #loadAmmoList .ammo-row .astat{font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-dim);}
+  #shopPoints{font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--amber);
+    margin-bottom:10px; letter-spacing:1px;}
+  #shopUpgradeList{display:flex; flex-wrap:wrap; gap:8px; max-height:270px; overflow-y:auto;
+    margin-bottom:10px; align-content:flex-start;}
+  #shopUpgradeList .shop-card{width:178px; border:1px solid var(--line); background:rgba(255,255,255,0.02);
+    padding:9px 10px; cursor:pointer;}
+  #shopUpgradeList .shop-card:hover{border-color:var(--amber); background:rgba(255,180,84,0.08);}
+  #shopUpgradeList .shop-card.off{opacity:0.45; cursor:default;}
+  #shopUpgradeList .shop-card.off:hover{border-color:var(--line); background:rgba(255,255,255,0.02);}
+  #shopUpgradeList .sname{font-family:'JetBrains Mono',monospace; color:var(--amber); font-size:11px;
+    font-weight:700; display:flex; justify-content:space-between; gap:6px;}
+  #shopUpgradeList .sname .lv{color:var(--text-dim); font-weight:400;}
+  #shopUpgradeList .sdesc{font-size:10px; color:var(--text-dim); line-height:1.6; margin-top:5px;}
+  #shopUpgradeList .scost{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--amber-dim); margin-top:6px;}
+  #shopReviveRow{border:1px solid var(--line); background:rgba(255,255,255,0.02); padding:9px 12px;
+    display:flex; justify-content:space-between; align-items:center; gap:10px;}
+
   /* ---------- P-15 玩家状态面板（Tab） ---------- */
   #statusPanel{position:absolute; left:12px; top:12px; z-index:30; width:300px;
     background:rgba(18,20,15,0.94); border:1px solid var(--line);
@@ -165,7 +224,7 @@
     <span id="ammoIndicator"><span class="dot"></span><span class="label"></span></span>
     <div id="reloadTrack"><div id="reloadFill"></div></div>
   </div>
-  <div id="hintBar">TAB 状态 · ` 开发者 · 1/2/3/4 弹种 · WASD 移动 · 左键/空格 开火 · F 烟幕弹 · G 炮击 · H 护盾(Shift+H 全向) · V 超装填 · 无人机自动索敌</div>
+  <div id="hintBar">TAB 状态 · ` 开发者 · 1/2/3 或 Q/滚轮 切弹种 · WASD 移动 · 左键/空格 开火 · F 烟幕弹 · G 炮击 · H 护盾(Shift+H 全向) · V 超装填 · 无人机自动索敌</div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
       <div class="screen-title">节点地图 NODE MAP</div>
@@ -187,7 +246,45 @@
       <div class="screen-title">阵亡 KIA</div>
       <div id="gameoverBody"></div>
       <div id="deathShop" style="margin-top:12px;"></div>
-      <div class="btnrow"><button id="gameoverRestartBtn">重新开始 RESTART</button></div>
+      <div class="btnrow">
+        <button id="gameoverRestartBtn">重新开始 RESTART</button>
+        <button id="gameoverHomeBtn">返回首页 HOME</button>
+      </div>
+    </div>
+    <div id="homeScreen" class="screen" style="display:none;">
+      <div class="screen-title">作战档案 HOME</div>
+      <div id="homeEmpty" style="display:none;">
+        尚无存档。<br>新建一份作战档案，开启你的第一条推进链。
+        <div class="btnrow"><button id="homeCreateBtnEmpty">＋ 新建存档 NEW SAVE</button></div>
+      </div>
+      <div id="homeSlotList"></div>
+      <div class="btnrow"><button id="homeCreateBtn">＋ 新建存档 NEW SAVE</button></div>
+      <div class="screen-hint">每份档案独立保存：商店点数 / 永久升级 / 统计 / 出战配置。选择进入后前往出战整备。</div>
+    </div>
+    <div id="loadoutScreen" class="screen wide" style="display:none;">
+      <div class="screen-title">出战整备 LOADOUT</div>
+      <div id="loadTankList"></div>
+      <div class="section">
+        <h3>弹药选配（最多 3 种 · 至少 1 种）</h3>
+        <div id="loadAmmoList"></div>
+      </div>
+      <div id="loadHint" class="screen-hint"></div>
+      <div class="btnrow">
+        <button id="loadShopBtn">强化整备 SHOP</button>
+        <button id="loadHomeBtn">返回首页</button>
+        <button id="loadStartBtn">出击 START RUN</button>
+      </div>
+    </div>
+    <div id="shopScreen" class="screen wide" style="display:none;">
+      <div class="screen-title">强化整备 UPGRADE SHOP</div>
+      <div id="shopPoints"></div>
+      <div id="shopUpgradeList"></div>
+      <div id="shopReviveRow"></div>
+      <div id="shopHint" class="screen-hint">永久升级跨局生效（permanent scope，作用于每局出击的玩家坦克）；追加复活次数在下次出击时自带。</div>
+      <div class="btnrow">
+        <button id="shopLoadoutBtn">返回整备 LOADOUT</button>
+        <button id="shopStartBtn">出击 START RUN</button>
+      </div>
     </div>
   </div>
   <div id="statusPanel" style="display:none;">
@@ -313,7 +410,7 @@ resize();
 // ---------- P-08 摄像机 / 流程 / 单局状态（js/tank_camera.js · tank_flow.js · tank_map.js） ----------
 // 正式游戏（P-15）：无测试台模式；未开局时保持恒等视口等待 NEW RUN
 const cam = createCamera({ vw: canvas.width, vh: canvas.height });
-const flow = createFlow();
+const flow = createFlow('home');   // M10：局外三态入口——首页(存档) → 整备/商店 → 节点图 → 战斗
 let run = null;            // generateRun() 结果：线性节点链
 let currentNode = null;    // 当前节点数据（makeNode 产出）
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
@@ -344,41 +441,84 @@ player.sigma = SPREAD.base;
 // 从 tanks/ 目录（一型一文件，经 /api/tanks 聚合）加载配置数据（敌军/Boss 实体化用）
 let tankListData = null;
 function loadTankList(){
-  fetchTankList(data => { tankListData = data; });
+  fetchTankList(data => {
+    tankListData = data;
+    if(flow.state === 'loadout') renderLoadout();   // M10：坦克列表异步就绪时刷新整备卡片
+  });
 }
 loadTankList();
 
+// ---------- M10：局外界面输入门控 ----------
+// home/loadout/shop 三态期间冻结战斗侧键盘/开火/面板热键，避免局外 UI 与战斗输入互相干扰。
+// （update() 模拟本身由 simulating 门控冻结；这里再挡一层按键注册与热键触发。）
+const MENU_STATES = ['home', 'loadout', 'shop'];
+function inMenuState(){ return MENU_STATES.indexOf(flow.state) >= 0; }
+
 const keys = {};
 window.addEventListener('keydown', e=>{
+  if(inMenuState()) return;   // 局外界面：不注册战斗移动键（Tab 焦点导航等浏览器默认行为放行）
   keys[e.key.toLowerCase()]=true;
   if(e.key===' ' || e.key==='Tab') e.preventDefault();
 });
 window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
 
-// ---------- ammo type selection（特性4；P-15 极简 HUD 保留弹种切换 1/2/3/4） ----------
-const AMMO_KEYS = { '1':'ap', '2':'apcr', '3':'he', '4':'heat' };
+// ---------- 弹种切换（特性4 §2.2：出战配备 loadout 索引化） ----------
+// 数字键 1/2/3 → 选 player.ammoLoadout[0/1/2]；Q 键 / 鼠标滚轮环形循环（同样走索引逻辑）。
+// 未配备的槽位按键无效果（越界忽略）。无 loadout 数据时（调试直开战斗态等路径）
+// 兜底为全弹种表，保持旧行为可用。切换只改写 ammoKey/currentAmmoIndex ——
+// 不触碰 reloadT：沿用旧版 setAmmo 语义（保留装填进度，不静默改变手感）。
 player.ammoKey = 'ap';
+player.currentAmmoIndex = 0;
+function activeLoadout(){
+  if(Array.isArray(player.ammoLoadout) && player.ammoLoadout.length) return player.ammoLoadout;
+  return Object.keys(RULES.ammoTypes);   // 兜底：全弹种表
+}
 function renderAmmoIndicator(){
   const el = document.getElementById('ammoIndicator');
   if(!el) return;
-  const ammo = RULES.ammoTypes[player.ammoKey] || RULES.ammoTypes.ap;
-  const dot = el.querySelector('.dot');
-  const label = el.querySelector('.label');
-  if(dot) dot.style.background = ammo.color;
-  if(label) label.textContent = ammo.label;
+  const lo = activeLoadout();
+  const cur = ((player.currentAmmoIndex | 0) % lo.length + lo.length) % lo.length;
+  let html = '';
+  for(let i = 0; i < lo.length; i++){
+    const a = RULES.ammoTypes[lo[i]] || RULES.ammoTypes.ap;
+    html += `<span class="ammo-cell${i === cur ? ' active' : ''}" data-ammo="${lo[i]}">`
+      + `<span class="dot" style="background:${a.color}"></span>`
+      + `<span class="key">${i + 1}</span><span class="label">${a.label}</span>`
+      + `<span class="mult">穿×${a.pen}/伤×${a.dmg}</span></span>`;
+  }
+  el.innerHTML = html;
 }
 function setAmmo(key){
   if(!RULES.ammoTypes[key]) return;
   player.ammoKey = key;
+  const i = activeLoadout().indexOf(key);
+  if(i >= 0) player.currentAmmoIndex = i;   // 激活索引与键同步（兜底表外键不动索引）
   renderAmmoIndicator();
-  playSound('ui'); // M1：弹种切换（数字键 1/2/3/4）
+  playSound('ui'); // M1：弹种切换音效（数字键/Q/滚轮共用，先例同旧版数字键直选）
   pushLog(`弹种切换：${RULES.ammoTypes[key].label}`,'COVER');
+}
+function setAmmoSlot(idx){
+  const lo = activeLoadout();
+  if(!(idx >= 0 && idx < lo.length)) return;   // 越界/未配备槽位：按键无效果
+  setAmmo(lo[idx]);
+}
+function cycleAmmo(dir){
+  const lo = activeLoadout();
+  if(lo.length < 2) return;
+  const cur = ((player.currentAmmoIndex | 0) % lo.length + lo.length) % lo.length;
+  setAmmoSlot((cur + dir + lo.length) % lo.length);
 }
 renderAmmoIndicator();
 document.addEventListener('keydown', e=>{
+  if(inMenuState()) return;   // 局外界面：弹种热键不响应
   const k = e.key;
-  if(AMMO_KEYS[k]) setAmmo(AMMO_KEYS[k]);
+  if(k >= '1' && k <= '9') setAmmoSlot(k.charCodeAt(0) - 49);   // '1'→槽0 …；越界自动忽略
+  else if(k === 'q' || k === 'Q') cycleAmmo(1);
 });
+window.addEventListener('wheel', e=>{
+  if(inMenuState()) return;   // 局外界面：滚轮不切弹（passive 不拦截列表滚动默认行为）
+  cycleAmmo(e.deltaY > 0 ? 1 : -1);
+}, { passive:true });
 
 // 鼠标瞄准（世界坐标）+ 左键开火（P-15 拆分时保留，与空格键等效）
 let mouseWorld = {x:player.x+100,y:player.y};
@@ -388,7 +528,7 @@ canvas.addEventListener('mousemove', e=>{
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });
-canvas.addEventListener('mousedown', e=>{ if(e.button===0) tryFire(); });
+canvas.addEventListener('mousedown', e=>{ if(inMenuState()) return; if(e.button===0) tryFire(); });
 
 // ---------- P-15 玩家状态面板（Tab）/ 开发者面板（`） ----------
 let statusOpen = false, devOpen = false;
@@ -404,6 +544,7 @@ function togglePanel(id){
   }
 }
 document.addEventListener('keydown', e=>{
+  if(inMenuState()) return;   // 局外界面：Tab/` 面板热键不响应
   if(e.key === 'Tab'){ e.preventDefault(); togglePanel('statusPanel'); }
   if(e.key === '`' || e.key === 'F12'){ e.preventDefault(); togglePanel('devPanel'); }
 });
@@ -508,7 +649,8 @@ function assignBossNode(run){
 
 // ---------- 节点地图流程 UI（纯逻辑在 js/tank_map.js · tank_flow.js） ----------
 function hideAllScreens(){
-  for(const id of ['mapScreen','settleScreen','rewardScreen','gameoverScreen']) document.getElementById(id).style.display = 'none';
+  for(const id of ['mapScreen','settleScreen','rewardScreen','gameoverScreen','homeScreen','loadoutScreen','shopScreen'])
+    document.getElementById(id).style.display = 'none';
 }
 function showScreen(id){ hideAllScreens(); document.getElementById(id).style.display = 'block'; }
 function setOverlayVisible(v){ document.getElementById('flowOverlay').style.display = v ? 'flex' : 'none'; }
@@ -670,6 +812,10 @@ function renderMapList(){
 
 // 流程监听：状态切换 → UI 显隐 + 战场搭建（纯逻辑在 tank_flow.js，UI 消费在本函数）
 watchFlow(flow, (state, payload) => {
+  // M10 局外三界面：不依赖 run（可在任意局外时机进入），先于战斗路由处理
+  if(state === 'home'){ renderHome(); showScreen('homeScreen'); setOverlayVisible(true); return; }
+  if(state === 'loadout'){ renderLoadout(); showScreen('loadoutScreen'); setOverlayVisible(true); return; }
+  if(state === 'shop'){ renderShop(); showScreen('shopScreen'); setOverlayVisible(true); return; }
   if(!run) return;                       // 未开局：仅显示封面路由（mapScreen）
   if(state === 'map'){
     showScreen('mapScreen'); setOverlayVisible(true);
@@ -732,9 +878,9 @@ function renderDeathShop(){
       <button ${maxed || profile.points < u.cost ? 'disabled style="opacity:0.4"' : ''} onclick="buyUpgradeAndRefresh('${u.id}')">${u.cost} 点</button>
     </div>`;
   }
-  // 复活次数购买
+  // 复活次数购买（M10：走经济模块 buyExtraRevive——扣点 + profile.bonusRevives++，跨局生效）
   html += `<div class="row" style="justify-content:space-between;">
-    <span class="k">复活次数 +1（当前 ${player.revives}）</span>
+    <span class="k">复活次数 +1（已购加成 ${profile.bonusRevives | 0}）</span>
     <button ${profile.points < RULES.economy.reviveCost ? 'disabled style="opacity:0.4"' : ''} onclick="buyReviveAndRefresh()">${RULES.economy.reviveCost} 点</button>
   </div>`;
   el.innerHTML = html;
@@ -750,9 +896,7 @@ window.buyUpgradeAndRefresh = function(id){
   }
 };
 window.buyReviveAndRefresh = function(){
-  if(profile.points >= RULES.economy.reviveCost){
-    profile.points -= RULES.economy.reviveCost;
-    player.revives++;
+  if(buyExtraRevive(profile)){          // M10：加购记入存档 bonusRevives（下次出击自带）
     saveProfile(localStorage, profile);
     const p = document.getElementById('gameoverPoints'); if(p) p.textContent = profile.points;
     renderDeathShop();
@@ -761,13 +905,12 @@ window.buyReviveAndRefresh = function(){
 };
 
 function startNewRun(){
+  removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
+  prepPlayerForRun();                           // M10：出战坦克配置 + 永久升级重挂 + 复活次数（含加购）
   // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
   run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height } });
   assignBossNode(run);   // P-09：链尾节点指定 Boss
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
-  removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
-  player.revives = RULES.revive.baseRevives;   // P-11：复活次数（基础 2，局前可购追加 M10）
-  applyUpgrades(player, profile);              // P-14：应用永久升级（permanent scope）
   profile.stats.runs++;                         // P-14：局数统计
   saveProfile(localStorage, profile);
   pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}）`, 'COVER');
@@ -786,9 +929,299 @@ document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   assignBossNode(run);                           // P-09：链尾 Boss
   runScore = 0; runFinished = false; currentNode = null; battleState = null;
   removeRunModifiers(player);                   // P-12：清除上一局单局修饰器
-  player.revives = RULES.revive.baseRevives;     // P-11：复活次数
+  prepPlayerForRun();                            // M10：坦克配置 + 升级重挂 + 复活次数（含加购）
   transition(flow, 'battle', { nodeIndex: 0 });
 });
+document.getElementById('gameoverHomeBtn').addEventListener('click', () => {
+  playSound('ui');
+  transition(flow, 'home');                      // M10：阵亡后回首页（gameover → home 白名单合法）
+});
+
+// ==================== M10 局外三界面（Home 存档 / Loadout 整备 / Shop 商店） ====================
+// 纯视图层接线：数据面全部消费 js/tank_economy.js（多存档槽位 API，storage=localStorage 显式注入）
+// 与 js/tank_flow.js 的 home/loadout/shop 三态白名单；不改共享模块。
+// 镜像约定：`profile` 是「当前 active 存档」的内存镜像；任何结构性操作（建/删/切换）后立即重载镜像。
+
+const fmtStamp = ms => {
+  const d = new Date(ms || 0);
+  const p2 = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+};
+
+// 元索引 activeSaveId 直读（normalizeMeta 未导出；这里只做防御性解析取一个字段）
+function activeSaveIdOf(){
+  try{
+    const raw = localStorage.getItem(savesMetaKey());
+    const m = raw ? JSON.parse(raw) : null;
+    return (m && typeof m.activeSaveId === 'string' && m.activeSaveId) ? m.activeSaveId : null;
+  }catch(e){ return null; }
+}
+
+// 读单个槽位的完整 profile（首页卡片需展示各槽的 runs/kills/points）
+function slotProfileOf(id){
+  try{
+    const raw = localStorage.getItem(saveSlotPrefix() + id);
+    return raw ? normalizeProfile(JSON.parse(raw)) : null;
+  }catch(e){ return null; }
+}
+
+let renamingSlotId = null;    // 重命名中的槽位 id（行内输入框态）
+let deleteArmSlotId = null;   // 删除二次确认武装态（再点一次才真删；任何重渲染自动解除）
+
+function renderHome(){
+  const slots = listSaveSlots(localStorage);
+  const activeId = activeSaveIdOf();
+  const listEl = document.getElementById('homeSlotList');
+  const emptyEl = document.getElementById('homeEmpty');
+  const empty = slots.length === 0;
+  if(emptyEl) emptyEl.style.display = empty ? 'block' : 'none';
+  if(listEl) listEl.style.display = empty ? 'none' : 'block';
+  if(!listEl) return;
+  listEl.innerHTML = '';
+  for(const s of slots){
+    const prof = slotProfileOf(s.id);
+    const row = document.createElement('div');
+    row.className = 'slot-row' + (s.id === activeId ? ' active' : '');
+
+    const main = document.createElement('div'); main.className = 'slot-main';
+    const nameLine = document.createElement('div'); nameLine.className = 'slot-name';
+    if(renamingSlotId === s.id){
+      // 行内重命名（无弹窗依赖）：输入新名 → 确定 / 取消
+      const input = document.createElement('input');
+      input.value = s.name; input.maxLength = 24;
+      const okB = document.createElement('button'); okB.textContent = '确定';
+      const noB = document.createElement('button'); noB.textContent = '取消';
+      okB.addEventListener('click', () => {
+        renameSaveSlot(localStorage, s.id, input.value);
+        renamingSlotId = null; renderHome(); playSound('ui');
+      });
+      noB.addEventListener('click', () => { renamingSlotId = null; renderHome(); });
+      nameLine.appendChild(input); nameLine.appendChild(okB); nameLine.appendChild(noB);
+    } else {
+      nameLine.textContent = s.name;
+      if(s.id === activeId){
+        const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = '当前';
+        nameLine.appendChild(badge);
+      }
+    }
+    const meta = document.createElement('div'); meta.className = 'slot-meta';
+    meta.textContent = `局数 ${prof ? prof.stats.runs : 0} · 击杀 ${prof ? prof.stats.kills : 0} · 点数 ${prof ? prof.points : 0} · ${fmtStamp(s.updatedAt)}`;
+    main.appendChild(nameLine); main.appendChild(meta);
+
+    const acts = document.createElement('div'); acts.className = 'slot-actions';
+    const enterB = document.createElement('button'); enterB.className = 'enter-btn'; enterB.textContent = '选择进入';
+    enterB.addEventListener('click', () => {
+      playSound('ui');
+      if(setActiveSaveSlot(localStorage, s.id)){
+        profile = loadActiveProfile(localStorage);   // 切换全局 profile 镜像到该存档
+        transition(flow, 'loadout');                 // home → loadout（白名单合法）
+      }
+    });
+    const renameB = document.createElement('button'); renameB.textContent = '重命名';
+    renameB.addEventListener('click', () => { renamingSlotId = s.id; deleteArmSlotId = null; renderHome(); });
+    const delB = document.createElement('button'); delB.className = 'danger';
+    delB.textContent = deleteArmSlotId === s.id ? '确认删除？' : '删除';   // 二次确认（武装→再点执行）
+    delB.addEventListener('click', () => {
+      if(deleteArmSlotId !== s.id){ deleteArmSlotId = s.id; renamingSlotId = null; renderHome(); return; }
+      deleteSaveSlot(localStorage, s.id);            // 删 active 时模块自动迁移 activeSaveId
+      deleteArmSlotId = null; renamingSlotId = null;
+      profile = loadActiveProfile(localStorage);     // 统一重载镜像（可能已迁移/清空）
+      renderHome();
+      playSound('ui');
+    });
+    acts.appendChild(enterB); acts.appendChild(renameB); acts.appendChild(delB);
+    row.appendChild(main); row.appendChild(acts);
+    listEl.appendChild(row);
+  }
+}
+
+function createSaveAndRefresh(){
+  createSaveSlot(localStorage);                      // 缺省名「新存档」，创建即设为 active
+  profile = loadActiveProfile(localStorage);
+  deleteArmSlotId = null; renamingSlotId = null;
+  renderHome();
+  playSound('ui');
+}
+document.getElementById('homeCreateBtn').addEventListener('click', createSaveAndRefresh);
+document.getElementById('homeCreateBtnEmpty').addEventListener('click', createSaveAndRefresh);
+
+// ---------- Loadout（出战整备） ----------
+function tankSummary(spec){
+  const kmh = Math.round((spec.maxSpeed !== undefined ? spec.maxSpeed : 120) * SPEED_KMH_FACTOR);
+  const front = (spec.armor && spec.armor.hull && spec.armor.hull.front !== undefined) ? spec.armor.hull.front
+              : ((spec.hull && spec.hull.armor && spec.hull.armor.front !== undefined) ? spec.hull.armor.front : 110);
+  const hp = (spec.hp !== undefined) ? spec.hp : ((spec.maxHp !== undefined) ? spec.maxHp : 100);
+  return `极速 ${kmh}km/h · 耐久 ${hp} · 正面 ${front}mm · 穿深 ${spec.penetration !== undefined ? spec.penetration : 120}mm`;
+}
+
+// 出击就绪校验：已选坦克（且在当前 tanks/ 列表中存在）+ 至少 1 种弹药
+function deploymentReady(){
+  return !!(profile.selectedTankId && tankListData && tankListData[profile.selectedTankId]) &&
+         Array.isArray(profile.ammoLoadout) && profile.ammoLoadout.length >= 1;
+}
+
+function refreshLoadHint(){
+  const hint = document.getElementById('loadHint');
+  if(hint){
+    hint.textContent = !profile.selectedTankId ? '请选择一辆出战坦克。'
+      : (!tankListData || !tankListData[profile.selectedTankId]) ? '所选坦克不在当前 tanks/ 列表中，请重新选择。'
+      : (!(profile.ammoLoadout || []).length ? '请至少选配 1 种弹药。'
+      : `已选弹种 ${(profile.ammoLoadout).length}/3 · 配置在出击时写入存档。`);
+  }
+  const ready = deploymentReady();
+  for(const id of ['loadStartBtn','shopStartBtn']){
+    const b = document.getElementById(id);
+    if(b) b.disabled = !ready;
+  }
+}
+
+function renderLoadout(){
+  // —— 出战坦克卡片（tanks/ 列表；id 排序确定性渲染） ——
+  const grid = document.getElementById('loadTankList');
+  grid.innerHTML = '';
+  const ids = tankListData ? Object.keys(tankListData).sort() : [];
+  if(!ids.length){
+    grid.innerHTML = '<div class="screen-hint">坦克列表加载中或不可用（检查 dev server 与 tanks/ 目录）…</div>';
+  }
+  for(const id of ids){
+    const card = document.createElement('div');
+    card.className = 'tank-card' + (profile.selectedTankId === id ? ' selected' : '');
+    card.dataset.tankId = id;
+    card.innerHTML = `<div class="tname">${id}</div><div class="tstat">${tankSummary(tankListData[id])}</div>`;
+    card.addEventListener('click', () => {
+      profile.selectedTankId = id;                   // 写入 profile（出击时随 saveActiveProfile 落盘）
+      for(const el of grid.querySelectorAll('.tank-card')) el.classList.toggle('selected', el.dataset.tankId === id);
+      refreshLoadHint();
+      playSound('ui');
+    });
+    grid.appendChild(card);
+  }
+  // —— 弹药选配复选框（RULES.ammoTypes 全量；上限 3 种由 UI 拒绝第 4 个勾选） ——
+  const ammoBox = document.getElementById('loadAmmoList');
+  ammoBox.innerHTML = '';
+  for(const key of Object.keys(RULES.ammoTypes)){
+    const a = RULES.ammoTypes[key];
+    const rowL = document.createElement('label'); rowL.className = 'ammo-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.dataset.ammo = key;
+    cb.checked = (profile.ammoLoadout || []).indexOf(key) >= 0;
+    cb.addEventListener('change', () => {
+      const arr = profile.ammoLoadout = profile.ammoLoadout || [];
+      if(cb.checked){
+        if(arr.length >= 3){                          // 上限拒绝：回退勾选态并提示
+          cb.checked = false;
+          pushLog('弹种选配已达上限（最多 3 种）', 'COVER');
+          playSound('block');
+          return;
+        }
+        if(arr.indexOf(key) < 0) arr.push(key);
+      } else {
+        const i = arr.indexOf(key); if(i >= 0) arr.splice(i, 1);
+      }
+      refreshLoadHint();
+      playSound('ui');
+    });
+    const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = a.color;
+    const nm = document.createElement('b'); nm.className = 'aname'; nm.textContent = a.label;
+    const bits = [`穿深×${a.pen}`, `伤害×${a.dmg}`, `弹速×${a.speed}`];
+    if(a.noBounce) bits.push('无跳弹');
+    if(a.splashRadius) bits.push(`溅射${a.splashRadius}px`);
+    const st = document.createElement('span'); st.className = 'astat'; st.textContent = bits.join(' · ');
+    rowL.appendChild(cb); rowL.appendChild(dot); rowL.appendChild(nm); rowL.appendChild(st);
+    ammoBox.appendChild(rowL);
+  }
+  refreshLoadHint();
+}
+
+// ---------- Shop（局前永久升级商店） ----------
+function renderShop(){
+  const pts = document.getElementById('shopPoints');
+  if(pts) pts.textContent = `商店点数 POINTS ▸ ${profile.points}`;
+  const grid = document.getElementById('shopUpgradeList');
+  grid.innerHTML = '';
+  for(const u of UPGRADE_DEFS){
+    const lv = upgradeLevel(profile, u.id);
+    const maxed = lv >= u.maxLevel;
+    const can = !maxed && profile.points >= u.cost;
+    const card = document.createElement('div');
+    card.className = 'shop-card' + (can ? '' : ' off');
+    card.innerHTML =
+      `<div class="sname"><span>${u.name}</span><span class="lv">${maxed ? 'MAX' : 'Lv ' + lv + '/' + u.maxLevel}</span></div>` +
+      `<div class="sdesc">${u.desc}</div>` +
+      `<div class="scost">${maxed ? '已满级' : u.cost + ' 点'}</div>`;
+    if(can){
+      card.addEventListener('click', () => {
+        if(buyUpgrade(profile, u.id)){
+          saveActiveProfile(localStorage, profile);   // 即时落盘（扣点持久化）
+          renderShop();
+          playSound('ui');
+        }
+      });
+    }
+    grid.appendChild(card);
+  }
+  // 追加复活次数（buyExtraRevive：扣点 + bonusRevives++，下次出击自带）
+  const cost = RULES.economy.reviveCost;
+  const rowEl = document.getElementById('shopReviveRow');
+  if(rowEl){
+    const canRv = profile.points >= cost;
+    rowEl.innerHTML =
+      `<span>追加复活次数 <b>+1</b><br><span style="font-size:9px;color:var(--text-dim);">跨局生效：下次出击自带（当前加购 ${profile.bonusRevives | 0} 次）</span></span>` +
+      `<button ${canRv ? '' : 'disabled style="opacity:0.4;"'}>${cost} 点</button>`;
+    rowEl.querySelector('button').onclick = () => {
+      if(buyExtraRevive(profile)){
+        saveActiveProfile(localStorage, profile);
+        renderShop();
+        playSound('ui');
+      }
+    };
+  }
+}
+
+// ---------- 出击路径统一（loadout / shop START RUN 共用） ----------
+// 把玩家实体整备到「selectedTankId 配置 + 当前永久升级」状态。
+// 顺序要点：applyTankConfig 只重写 base（不清 modifiers）→ 必须先剔除旧 upgrade:* 再重挂，
+// 否则多次出击会叠加 permanent 层；run scope 修饰器由调用方 removeRunModifiers 清理。
+function prepPlayerForRun(){
+  const spec = (profile.selectedTankId && tankListData) ? tankListData[profile.selectedTankId] : null;
+  if(spec) applyTankConfig(player, spec);            // selectedTankId → 玩家实体配置（找不到则保持默认车）
+  player.modifiers = player.modifiers.filter(m => String(m.source || '').indexOf('upgrade:') !== 0);
+  refreshStats(player);
+  applyUpgrades(player, profile);                    // P-14：永久升级（permanent scope）
+  player.revives = RULES.revive.baseRevives + (profile.bonusRevives | 0);   // P-11 基础 + M10 加购
+  player.ammoLoadout = (profile.ammoLoadout || []).slice();  // 特性4 预挂载（本任务只带数据上战场）
+  player.currentAmmoIndex = 0;
+  // §2.2 索引化切换：初始弹种必须同步槽 0 —— resetEntity 不清 ammoKey，
+  // 不补这行的话上一局切到 heat，下一局 HUD 高亮槽 0 实际却发射旧弹种。
+  player.ammoKey = activeLoadout()[0];
+  renderAmmoIndicator();                             // 槽位组随本局配备重建（≤3 格）
+  resetEntity(player);                               // 恢复 spawn 快照（hp 已随 applyTankConfig 同步 maxHp）
+}
+
+function beginRunFromMenu(){
+  if(!deploymentReady()){
+    pushLog('出击被拒绝：请先选择出战坦克并至少选配 1 种弹药', 'CRIT');
+    refreshLoadHint();
+    return false;
+  }
+  removeRunModifiers(player);                        // P-12：清上一局残留单局修饰器
+  prepPlayerForRun();
+  // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
+  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height } });
+  assignBossNode(run);                               // P-09：链尾节点指定 Boss
+  runScore = 0; runFinished = false; currentNode = null; battleState = null;
+  profile.stats.runs++;                              // P-14：局数统计
+  saveActiveProfile(localStorage, profile);          // 配置与统计落盘（active 槽）
+  pushLog(`出击！配置已保存 — ${run.nodes.length} 节点线性链（seed ${run.seed}），在节点图选择首节点开战`, 'COVER');
+  playSound('ui');
+  transition(flow, 'map');                           // loadout/shop → map（watcher 渲染节点链，点击节点进 battle）
+  return true;
+}
+document.getElementById('loadStartBtn').addEventListener('click', beginRunFromMenu);
+document.getElementById('shopStartBtn').addEventListener('click', beginRunFromMenu);
+document.getElementById('loadShopBtn').addEventListener('click', () => { playSound('ui'); transition(flow, 'shop'); });
+document.getElementById('loadHomeBtn').addEventListener('click', () => { playSound('ui'); transition(flow, 'home'); });
+document.getElementById('shopLoadoutBtn').addEventListener('click', () => { playSound('ui'); transition(flow, 'loadout'); });
 
 // ---------- log（P-15：收纳至开发者面板） ----------
 const logEl = document.getElementById('devLog');
@@ -1628,7 +2061,7 @@ function update(dt){
     if(player._dead && !battleState.playerDied){
       if(canRevive(player)){                                     // P-11：复活次数 > 0 → 满状态复活
         const outpost = entities.find(e => e.team === 'ally' && e.nodeSpawn);
-        reviveAt(player, outpost, covers, currentNode.playerSpawn);
+        reviveAt(player, outpost, covers, currentNode.playerSpawn, undefined, entities.filter(e => e.team === 'enemy'));
         deployDronesFromCards();                          // P-17：复活后按 cardEffects 重建随行无人机
         pushLog(`玩家阵亡 — 复活（剩余 ${player.revives} 次）：满状态 + 友军据点旁 + ${RULES.revive.invulnSeconds}s 无敌`, 'CRIT');
         playSound('ui');
@@ -1770,7 +2203,11 @@ function draw(){
 
   // 视口 AABB 剔除：掩体/实体/树冠只画进入视口的
   const inView = (cov) => aabbInView(cam, cov.x, cov.y, cov.w, cov.h);
-  covers.filter(inView).forEach(cov => drawCover(ctx, cov));
+  // 地形（水体/桥梁）先画，再画其余掩体——避免水体（数组末尾 push）盖住其下掩体（Fix 3）
+  const inViewCovers = covers.filter(inView);
+  inViewCovers.filter(cov => cov.tier === 'water').forEach(cov => drawCover(ctx, cov));
+  inViewCovers.filter(cov => cov.tier === 'bridge').forEach(cov => drawCover(ctx, cov));
+  inViewCovers.filter(cov => cov.tier !== 'water' && cov.tier !== 'bridge').forEach(cov => drawCover(ctx, cov));
   entities.forEach(t => {
     if(t.isDrone) return;   // P-17：无人机无坦克几何，由 drawDrones 单独绘制
     if(!aabbInView(cam, t.x, t.y, t.hullLen, t.hullWid)) return;
@@ -1951,9 +2388,10 @@ function loop(now){
   requestAnimationFrame(loop);
 }
 
-// ---------- P-15 封面路由：加载即显示「开始新的一局」入口 ----------
-(function initCover(){
-  showScreen('mapScreen');
+// ---------- M10 入口路由：加载即进入首页（存档管理；flow 初始态 'home'，watcher 未触发需手动首渲染） ----------
+(function initMenu(){
+  renderHome();
+  showScreen('homeScreen');
   setOverlayVisible(true);
 })();
 requestAnimationFrame(loop);

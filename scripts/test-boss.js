@@ -2,6 +2,11 @@
 // 运行：node scripts/test-boss.js
 'use strict';
 
+const U = require('../js/tank_utils.js');
+global.TAU = U.TAU;
+const RULES_MOD = require('../js/tank_rules.js');
+global.RULES = RULES_MOD.RULES;
+
 // 运行时函数（makeBossEntity/applyBossStage/updateBossStage）引用全局 addModifier/removeModifierBySource
 global.addModifier = (t, m) => { t.modifiers = t.modifiers || []; t.modifiers.push(m); return t; };
 global.removeModifierBySource = (t, s) => { t.modifiers = (t.modifiers || []).filter(m => m.source !== s); };

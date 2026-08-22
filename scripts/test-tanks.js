@@ -2,11 +2,15 @@
 // test-tanks.js — tanks/ 目录（一型一文件）数据完整性校验。
 // 验证：JSON 合法、id===文件名、必填字段齐全、半/全形几何 round-trip、barrel 归一化可加载。
 // 运行：node scripts/test-tanks.js（npm test 已纳入）
+require('../js/tank_utils.js');
+const U = require('../js/tank_utils.js');  // <--- 添加：供 global.TAU / global.norm 使用
 const fs = require('fs');
 const path = require('path');
 
 const H = require('../js/tank_halfgeom.js');
 const RULES_MOD = require('../js/tank_rules.js');
+global.RULES = RULES_MOD.RULES;
+global.TAU = U.TAU;
 
 // 表面纹理键（P-27）：优先取 tank_paint.js TEXTURE_DEFS（单一来源），require 失败时静态兜底
 let TEXTURE_KEYS = ['none','armor_plate','weld_seam','rust','camo'];

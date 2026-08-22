@@ -119,7 +119,14 @@ function makeNode(index, count, rng, env) {
     c.y += centerY;
   }
 
-  const playerSpawn = { x: w * 0.10, y: h / 2 };
+  // 玩家出生点：默认左缘 (0.10w, h/2)；必须远离所有掩体（含水域 tier，见 pointInCover）。
+  // 若落在掩体内，确定性重选址（仅用传入 rng，禁止 Math.random）：优先保留左缘意图的最近合法点，
+  // 否则推到违规掩体外缘相邻清空处。最终钳制在节点边界 [margin, w-margin]×[margin, h-margin] 内。
+  const spawnMargin = cfg.spawnMargin || 60;
+  let playerSpawn = { x: w * 0.10, y: h / 2 };
+  if (pointInCover(templateResult.covers, playerSpawn.x, playerSpawn.y, spawnMargin)) {
+    playerSpawn = findPlayerSpawn(templateResult.covers, w, h, rng, spawnMargin);
+  }
 
   // 三杠杆（P-13 / §6 条目 12）：敌人数量 / AI 策略复杂度 / 数值强度随 diff 涨
   const aiTier = aiTierForDifficulty(diff);
@@ -147,6 +154,46 @@ function makeNode(index, count, rng, env) {
       heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
       statMult: statMult           // P-13：数值强度乘数（materializeNode 经 env.applyDifficulty 应用）
     });
+  }
+
+  // 兜底补满：随机采样在密集掩体/水域下可能凑不齐 enemyCount（guard<400 上限），
+  // 改用确定性网格扫描，按"最小净空"挑选，保证节点敌军数符合难度构成。
+  if (enemies.length < enemyCount) {
+    const minPlayer = cfg.enemyMinPlayerDist || 250;
+    const minDist = cfg.enemyMinDist || 150;
+    const step = Math.max(20, minDist * 0.7);
+    const cands = [];
+    for (let gx = w * 0.35; gx <= w * 0.92; gx += step) {
+      for (let gy = h * 0.12; gy <= h * 0.88; gy += step) {
+        if (Math.hypot(gx - playerSpawn.x, gy - playerSpawn.y) < minPlayer) continue;
+        let ok = true;
+        for (const e of enemies) {
+          if (Math.hypot(gx - e.x, gy - e.y) < minDist) { ok = false; break; }
+        }
+        if (!ok) continue;
+        if (pointInCover(templateResult.covers, gx, gy, 60)) continue;
+        let clear = Math.hypot(gx - playerSpawn.x, gy - playerSpawn.y) - minPlayer;
+        for (const e of enemies) clear = Math.min(clear, Math.hypot(gx - e.x, gy - e.y) - minDist);
+        cands.push({ x: gx, y: gy, clear });
+      }
+    }
+    cands.sort((a, b) => b.clear - a.clear);
+    for (const c of cands) {
+      if (enemies.length >= enemyCount) break;
+      let ok = true;
+      for (const e of enemies) {
+        if (Math.hypot(c.x - e.x, c.y - e.y) < minDist) { ok = false; break; }
+      }
+      if (!ok) continue;
+      enemies.push({
+        tankId: rng.choice(cfg.enemyTankPool && cfg.enemyTankPool.length ? cfg.enemyTankPool : ['dummy']),
+        x: Math.round(c.x), y: Math.round(c.y),
+        hullAngle: Math.atan2(playerSpawn.y - c.y, playerSpawn.x - c.x),
+        turretAngle: Math.atan2(playerSpawn.y - c.y, playerSpawn.x - c.x),
+        heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
+        statMult: statMult
+      });
+    }
   }
 
   // 友军据点：左 1/4 区域、概率出现、远离敌军与玩家出生点（§2.2：消极防御、可被摧毁）
@@ -185,13 +232,138 @@ function makeNode(index, count, rng, env) {
   };
 }
 
-// 点是否落在任一掩体的包围盒内（padding 外扩；solid/graduated 都算阻挡物）
+// 点是否落在任一掩体内（考虑旋转与多边形 verts；padding 外扩）。
+// box 掩体：将点旋转到掩体局部坐标系后做半轴比较；
+// 带 verts/collisionVerts 的多边形掩体：点旋转到局部后做"点在多边形内"判定，
+// 并以到各边距离做 padding 缓冲。纯函数、确定性、无外部依赖。
 function pointInCover(covers, x, y, padding) {
   for (const c of covers) {
-    const halfW = c.w / 2 + padding, halfH = c.h / 2 + padding;
-    if (Math.abs(x - c.x) <= halfW && Math.abs(y - c.y) <= halfH) return true;
+    if (c.verts || c.collisionVerts) {
+      if (pointInCoverPoly(c, x, y, padding)) return true;
+    } else {
+      const dx = x - c.x, dy = y - c.y;
+      const ang = -(c.angle || 0);
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const lx = dx * ca - dy * sa;
+      const ly = dx * sa + dy * ca;
+      if (Math.abs(lx) <= (c.w || 0) / 2 + padding && Math.abs(ly) <= (c.h || 0) / 2 + padding) return true;
+    }
   }
   return false;
+}
+
+// 多边形掩体命中测试（局部坐标 verts / collisionVerts；含 padding 边距缓冲）
+function pointInCoverPoly(c, x, y, padding) {
+  const vs = c.verts || c.collisionVerts;
+  if (!vs || vs.length < 3) {
+    const dx = x - c.x, dy = y - c.y;
+    const ang = -(c.angle || 0);
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    const lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
+    return Math.abs(lx) <= (c.w || 0) / 2 + padding && Math.abs(ly) <= (c.h || 0) / 2 + padding;
+  }
+  const dx = x - c.x, dy = y - c.y;
+  const ang = -(c.angle || 0);
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
+  let inside = false;
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    const xi = vs[i][0], yi = vs[i][1], xj = vs[j][0], yj = vs[j][1];
+    if (((yi > ly) !== (yj > ly)) && (lx < (xj - xi) * (ly - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  if (inside) return true;
+  if (padding > 0) {
+    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+      if (segDist(lx, ly, vs[i][0], vs[i][1], vs[j][0], vs[j][1]) <= padding) return true;
+    }
+  }
+  return false;
+}
+
+// 点到线段最短距离（多边形边距缓冲用）
+function segDist(px, py, ax, ay, bx, by) {
+  const vx = bx - ax, vy = by - ay;
+  const wx = px - ax, wy = py - ay;
+  const len2 = vx * vx + vy * vy;
+  let t = len2 > 0 ? (wx * vx + wy * vy) / len2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const cx = ax + t * vx, cy = ay + t * vy;
+  return Math.hypot(px - cx, py - cy);
+}
+
+/**
+ * 为玩家出生点确定性选址：返回 covers 包围盒（含 padding）外、节点边界内、
+ * 且尽量贴近默认左缘点 (0.10w, h/2) 的合法点。
+ * 仅使用传入的 rng（禁止 Math.random），以保证整局确定性。
+ * @param {Array} covers 世界坐标掩体列表（含水域 tier）
+ * @param {number} w 节点世界宽
+ * @param {number} h 节点世界高
+ * @param {any} rng createRNG 实例
+ * @param {number} margin 与掩体/边界的最小间距
+ * @returns {{x:number, y:number}}
+ */
+function findPlayerSpawn(covers, w, h, rng, margin) {
+  const origX = w * 0.10, origY = h / 2;
+  const loX = margin, hiX = w - margin;
+  const loY = margin, hiY = h - margin;
+
+  // 代价：优先保留左缘意图——横向外移（增大 x）加权更重，纵向贴近中线。
+  const cost = (x, y) => {
+    const dx = (x - origX) * 1.5;
+    const dy = y - origY;
+    return dx * dx + dy * dy;
+  };
+  const clamp = (x, y) => ({
+    x: Math.max(loX, Math.min(hiX, x)),
+    y: Math.max(loY, Math.min(hiY, y))
+  });
+
+  let best = null, bestCost = Infinity;
+  const consider = (x, y) => {
+    const p = clamp(x, y);
+    if (pointInCover(covers, p.x, p.y, margin)) return;
+    const c = cost(p.x, p.y);
+    if (c < bestCost) { bestCost = c; best = p; }
+  };
+
+  // 系统 nudges（确定性，不耗 rng）：
+  // 保持中线、x 向右内推 0.10w → 0.20w；
+  for (let i = 1; i <= 16; i++) consider(origX + i * 0.00625 * w, origY);
+  // 保持左缘、y 在 [0.12h, 0.88h] 上下移动；
+  for (let i = 1; i <= 32; i++) consider(origX, loY + (hiY - loY) * (i / 33));
+
+  // rng 驱动候选：左缘偏向区域 [0.10w, 0.30w]×[margin, h-margin] 确定性采样，
+  // 与系统 nudges 一并取代价最小的合法点（保持就近 + 确定性）。
+  for (let i = 0; i < 60; i++) {
+    consider(rng.range(w * 0.10, w * 0.30), rng.range(loY, hiY));
+  }
+  if (best) return best;
+
+  // 绝对兜底：把出生点沿"掩体中心→默认点"向量径向推出违规掩体外缘，
+  // 若仍被阻挡则继续沿该方向外推，直到清空（受步数限制）；最后钳制到边界内。
+  let offending = null;
+  for (const c of covers) {
+    const halfW = c.w / 2 + margin, halfH = c.h / 2 + margin;
+    if (Math.abs(origX - c.x) <= halfW && Math.abs(origY - c.y) <= halfH) { offending = c; break; }
+  }
+  if (offending) {
+    let vx = origX - offending.x, vy = origY - offending.y;
+    const len0 = Math.hypot(vx, vy);
+    if (len0 < 1e-6) { vx = -1; vy = 0; } else { vx /= len0; vy /= len0; }
+    const reachX = offending.w / 2 + margin + 5;
+    const reachY = offending.h / 2 + margin + 5;
+    const tX = vx !== 0 ? reachX / Math.abs(vx) : Infinity;
+    const tY = vy !== 0 ? reachY / Math.abs(vy) : Infinity;
+    let t = Math.max(tX, tY);
+    const stepInc = offending.w * 0.25 + offending.h * 0.25 + margin;
+    for (let step = 0; step < 64; step++) {
+      const p = clamp(offending.x + vx * t, offending.y + vy * t);
+      if (!pointInCover(covers, p.x, p.y, margin)) return p;
+      t += stepInc;
+    }
+  }
+  // 极端兜底：左缘中点（即便仍可能被极少极端布局阻挡，至少保证在界内）。
+  return clamp(origX, origY);
 }
 
 /**

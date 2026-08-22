@@ -116,11 +116,14 @@ function startServer(port) {
         const origGen = window.generateRun, origTrans = window.transition,
               origVB = window.viewBounds, origHit = window.resolveHit;
         window.__hits = [];
+        window.__shellHits = [];   // 特性4 §2.2：玩家炮弹命中采样（shell.ammoKey 契约）
         window.generateRun = function(...a){ const r = origGen.apply(this, a); window.__lastRun = r; return r; };
         window.transition = function(f, ...a){ window.__flow = f; return origTrans.apply(this, [f, ...a]); };
         window.viewBounds = function(c, ...a){ window.__cam = c; return origVB.apply(this, [c, ...a]); };
         window.resolveHit = function(s, t, h, ab){
           const r = origHit.apply(this, [s, t, h, ab]);
+          if (s && s.shooter && s.shooter.id === 'player')
+            window.__shellHits.push({ key: s.ammoKey || null });
           if (t && t.id === 'player') window.__hits.push({ at: performance.now(), hp: t.hp });
           return r;
         };
@@ -132,9 +135,93 @@ function startServer(port) {
       })();
     `});
 
-    // ---- 开局：startRunBtn 在隐藏 overlay 内，只能 evaluate 点击 ----
-    await page.evaluate(() => document.getElementById('startRunBtn').click());
+    // ---- M10 局外主链路：Home 新建存档 → Loadout 选坦克+弹药 → 出击进节点图 → 点节点进 battle ----
+    // 初始态断言走纯 DOM（flow 对象要等第一次 transition 才被包装器截获，首页启动无转移）
+    const boot = await page.evaluate(() => ({
+      homeVisible: document.getElementById('homeScreen').style.display !== 'none',
+      otherHidden: ['loadoutScreen','shopScreen','mapScreen'].every(id => document.getElementById(id).style.display === 'none'),
+      overlayVisible: document.getElementById('flowOverlay').style.display !== 'none'
+    }));
+    console.log('=== M10 启动态 ===', JSON.stringify(boot));
+    check('M10 初始为 Home 态（首页覆盖层可见）', boot.homeVisible && boot.otherHidden && boot.overlayVisible, JSON.stringify(boot));
+
+    await page.evaluate(() => document.getElementById('homeCreateBtn').click());
+    await page.waitForTimeout(200);
+    const slotCount = await page.evaluate(() => document.querySelectorAll('#homeSlotList .slot-row').length);
+    check('M10 新建存档出现槽位卡', slotCount >= 1, `slots=${slotCount}`);
+
+    await page.evaluate(() => document.querySelector('#homeSlotList .slot-row .enter-btn').click());
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'loadout', { timeout: 5000 });
+    // 等坦克列表异步就绪（fetch /api/tanks → renderLoadout 刷卡片）
+    await page.waitForFunction(() => document.querySelectorAll('#loadTankList .tank-card').length > 0, { timeout: 10000 });
+    const loadoutInfo = await page.evaluate(() => ({
+      tankCards: document.querySelectorAll('#loadTankList .tank-card').length,
+      ammoBoxes: document.querySelectorAll('#loadAmmoList input[type=checkbox]').length
+    }));
+    check('M10 Loadout 列出坦克卡片与弹药复选框', loadoutInfo.tankCards > 0 && loadoutInfo.ammoBoxes >= 4, JSON.stringify(loadoutInfo));
+
+    // 选定第一辆坦克 + 勾选前三种弹药；第 4 种应被上限拒绝（勾选态回退）
+    const sel = await page.evaluate(() => {
+      document.querySelector('#loadTankList .tank-card').click();
+      const boxes = [...document.querySelectorAll('#loadAmmoList input[type=checkbox]')];
+      boxes[0].click(); boxes[1].click(); boxes[2].click();
+      const before = boxes.filter(b => b.checked).length;
+      if (boxes[3]) { boxes[3].click(); }
+      const after = boxes.filter(b => b.checked).length;
+      return {
+        before, after,
+        selectedCard: !!document.querySelector('#loadTankList .tank-card.selected'),
+        startDisabled: document.getElementById('loadStartBtn').disabled
+      };
+    });
+    console.log('=== M10 整备选择 ===', JSON.stringify(sel));
+    check('M10 坦克卡片点击选定', sel.selectedCard);
+    check('M10 弹药 ≤3 上限生效', sel.before === 3 && sel.after === 3, JSON.stringify(sel));
+    check('M10 校验通过后出击按钮可用', !sel.startDisabled);
+
+    // Shop 界面冒烟：整备 ⇄ 商店往返（新档 0 点：升级卡应全置灰、复活按钮应禁用）
+    await page.evaluate(() => document.getElementById('loadShopBtn').click());
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'shop', { timeout: 5000 });
+    const shopInfo = await page.evaluate(() => ({
+      visible: document.getElementById('shopScreen').style.display !== 'none',
+      points: document.getElementById('shopPoints').textContent,
+      cards: document.querySelectorAll('#shopUpgradeList .shop-card').length,
+      offCards: document.querySelectorAll('#shopUpgradeList .shop-card.off').length,
+      reviveBtnDisabled: !!document.querySelector('#shopReviveRow button[disabled]'),
+      defCount: UPGRADE_DEFS.length
+    }));
+    console.log('=== M10 商店 ===', JSON.stringify(shopInfo));
+    check('M10 Shop 渲染升级卡且 0 点全置灰（含复活项禁用）',
+      shopInfo.visible && shopInfo.cards === shopInfo.defCount && shopInfo.defCount > 0 &&
+      shopInfo.offCards === shopInfo.cards && shopInfo.reviveBtnDisabled, JSON.stringify(shopInfo));
+    await page.evaluate(() => document.getElementById('shopLoadoutBtn').click());
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'loadout', { timeout: 5000 });
+
+    await page.evaluate(() => document.getElementById('loadStartBtn').click());
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'map', { timeout: 10000 });
+    check('M10 出击 → 节点图渲染节点链', await page.evaluate(() =>
+      window.__dbg.flow.state === 'map' && document.querySelectorAll('#mapList .node-row').length >= 3));
+
+    await page.evaluate(() => document.querySelector('#mapList .node-row').click());
     await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'battle', { timeout: 10000 });
+
+    // M10 出击写档断言：active 槽持久化 selectedTankId/ammoLoadout/runs，且作用于 player 实体
+    const savedProf = await page.evaluate(() => {
+      const meta = JSON.parse(localStorage.getItem('rogue-tank-saves-meta'));
+      const prof = JSON.parse(localStorage.getItem('rogue-tank-save:' + meta.activeSaveId));
+      const p = entities.find(e => e.id === 'player');
+      return {
+        selectedTankId: prof.selectedTankId, ammoLen: prof.ammoLoadout.length, runs: prof.stats.runs,
+        playerAmmoLoadout: p.ammoLoadout ? p.ammoLoadout.length : -1, playerRevives: p.revives,
+        reviveBase: RULES.revive.baseRevives
+      };
+    });
+    console.log('=== M10 出击写档 ===', JSON.stringify(savedProf));
+    check('M10 selectedTankId 持久化并作用于 player 实体',
+      typeof savedProf.selectedTankId === 'string' && savedProf.playerAmmoLoadout === 3, JSON.stringify(savedProf));
+    check('M10 局数统计随出击递增', savedProf.runs >= 1, `runs=${savedProf.runs}`);
+    check('M10 复活次数 = 基础值（无加购时）', savedProf.playerRevives === savedProf.reviveBase,
+      `revives=${savedProf.playerRevives} base=${savedProf.reviveBase}`);
 
     const info = await page.evaluate(() => {
       const es = entities || [];
@@ -250,19 +337,99 @@ function startServer(port) {
     await page.keyboard.press('Backquote');
     await page.waitForTimeout(100);
 
-    await page.keyboard.press('2');
-    await page.waitForTimeout(150);
-    const ammoLabel = await page.evaluate(() => document.getElementById('ammoIndicator').querySelector('.label').textContent);
-    check('数字键 2 切换 APCR', ammoLabel === 'APCR', `label=${ammoLabel}`);
-    await page.keyboard.press('3');
-    await page.waitForTimeout(100);
-    const ammoLabelHe = await page.evaluate(() => document.getElementById('ammoIndicator').querySelector('.label').textContent);
-    check('数字键 3 切换 HE', ammoLabelHe === 'HE', `label=${ammoLabelHe}`);
-    await page.keyboard.press('4');
-    await page.waitForTimeout(100);
-    const ammoLabelHeat = await page.evaluate(() => document.getElementById('ammoIndicator').querySelector('.label').textContent);
-    check('数字键 4 切换 HEAT（P-16 实装）', ammoLabelHeat === 'HEAT', `label=${ammoLabelHeat}`);
+    // ---- 特性4 §2.2 出战配备索引切换：数字键 1/2/3 → ammoLoadout[i]，Q 环形循环 ----
+    // 旧断言（按 2/3/4 断言固定 APCR/HE/HEAT 直选）已随全局直选一起退役：
+    // 战斗内弹种由 loadout 决定，断言全部按 player.ammoLoadout 内容动态推导。
+    const readAmmoHud = () => page.evaluate(() => {
+      const p = entities.find(e => e.id === 'player');
+      const cells = [...document.querySelectorAll('#ammoIndicator .ammo-cell')];
+      return {
+        count: cells.length,
+        labels: cells.map(c => c.querySelector('.label').textContent),
+        expectLabels: p.ammoLoadout.map(k => RULES.ammoTypes[k].label),
+        activeIdx: cells.findIndex(c => c.classList.contains('active')),
+        loadout: p.ammoLoadout.slice(),
+        idx: p.currentAmmoIndex,
+        ammoKey: p.ammoKey
+      };
+    });
+
     await page.keyboard.press('1');
+    await page.waitForTimeout(150);
+    let a = await readAmmoHud();
+    console.log('=== 弹药槽位组（按 1）===', JSON.stringify(a));
+    check('(c) 弹药组 HUD 格数 === ammoLoadout.length(≤3)',
+      a.count === a.loadout.length && a.loadout.length >= 1 && a.loadout.length <= 3,
+      `cells=${a.count} loadout=${JSON.stringify(a.loadout)}`);
+    check('(c) 各格标签/顺序按配备渲染', JSON.stringify(a.labels) === JSON.stringify(a.expectLabels),
+      `labels=${JSON.stringify(a.labels)} expect=${JSON.stringify(a.expectLabels)}`);
+    check('(a) 按 1 → 高亮/索引/ammoKey 对齐 loadout[0]',
+      a.activeIdx === 0 && a.idx === 0 && a.ammoKey === a.loadout[0],
+      `active=${a.activeIdx} idx=${a.idx} key=${a.ammoKey} loadout[0]=${a.loadout[0]}`);
+
+    await page.keyboard.press('2');
+    await page.waitForTimeout(120);
+    a = await readAmmoHud();
+    check('(a) 按 2 → 对齐 loadout[1]', a.activeIdx === 1 && a.idx === 1 && a.ammoKey === a.loadout[1],
+      `active=${a.activeIdx} idx=${a.idx} key=${a.ammoKey} loadout[1]=${a.loadout[1]}`);
+
+    await page.keyboard.press('3');
+    await page.waitForTimeout(120);
+    a = await readAmmoHud();
+    const lastIdx = a.loadout.length - 1;
+    check('(a) 按 3 → 对齐 loadout[末位]', a.activeIdx === lastIdx && a.idx === lastIdx && a.ammoKey === a.loadout[lastIdx],
+      `active=${a.activeIdx} idx=${a.idx} key=${a.ammoKey} last=${lastIdx}`);
+
+    await page.keyboard.press('4');   // 第 4 槽未配备（上限 3）：按键无效果
+    await page.waitForTimeout(120);
+    a = await readAmmoHud();
+    check('(b) 按 4（未配备槽）无效果',
+      a.activeIdx === lastIdx && a.idx === lastIdx && a.ammoKey === a.loadout[lastIdx],
+      `active=${a.activeIdx} idx=${a.idx} key=${a.ammoKey}`);
+
+    await page.keyboard.press('q');   // Q 环形循环：末位 → 回绕槽 0
+    await page.waitForTimeout(120);
+    a = await readAmmoHud();
+    check('Q 环形循环回绕到槽 0', a.activeIdx === 0 && a.idx === 0 && a.ammoKey === a.loadout[0],
+      `active=${a.activeIdx} idx=${a.idx} key=${a.ammoKey}`);
+
+    // ---- (d) 开火后炮弹携带所选槽位 ammoKey ----
+    // shells 数组在主脚本 IIFE 内不可直接采样，改经 resolveHit 包装器记录玩家命中弹的
+    // shell.ammoKey（P-16 契约字段）。敌人放到玩家右侧固定距离 + 鼠标移到其屏幕位置，
+    // 炮塔每帧追踪 mouseWorld 自然对准；Space 按住跨多个 rAF 帧（keys[' '] 为轮询采样）。
+    await page.keyboard.press('3');   // 切到末位弹种再开火
+    await page.waitForTimeout(120);
+    a = await readAmmoHud();
+    const firedExpect = a.ammoKey;
+    const mark = await page.evaluate(() => window.__shellHits.length);
+    let firedKey = null;
+    for(let i = 0; i < 6 && firedKey === null; i++){
+      const placed = await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        const en = entities.find(e => e.team === 'enemy' && e.hp > 0) || entities.find(e => e.team === 'enemy');
+        if(!(p && en)) return null;
+        en.x = p.x + 220; en.y = p.y;
+        en.hp = en.stats.maxHp; en.reloadT = 0; en.immobT = 0;
+        p.reloadT = 0; p.immobT = 0;   // 清装填，保证本帧可开火
+        return { x: en.x, y: en.y };
+      });
+      if(!placed) break;
+      const scr = await page.evaluate(([wx, wy]) => {
+        const s = worldToScreen(window.__dbg.cam, wx, wy); return [s.x, s.y];
+      }, [placed.x, placed.y]);
+      await page.mouse.move(scr[0], scr[1]);
+      await page.waitForTimeout(i === 0 ? 800 : 300);   // 首次给炮塔足够转向时间
+      await page.keyboard.down(' ');
+      await page.waitForTimeout(140);
+      await page.keyboard.up(' ');
+      await page.waitForTimeout(500);                   // 等炮弹飞完 ~220px 触发 resolveHit
+      firedKey = await page.evaluate(m => {
+        const rec = window.__shellHits.slice(m)[0];
+        return rec ? rec.key : null;
+      }, mark);
+    }
+    check('(d) 开火命中弹携带所选槽位 ammoKey', firedKey !== null && firedKey === firedExpect,
+      `fired=${firedKey} expect=${firedExpect}`);
     await page.waitForTimeout(100);
 
     const dmgCount = await page.evaluate(() => { spawnDmgText(100, 100, '99', 'pen'); return dmgTexts.length; });
