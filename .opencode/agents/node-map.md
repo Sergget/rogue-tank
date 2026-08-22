@@ -1,59 +1,51 @@
 ---
-description: Map progression & AI specialist — handles node-based maps, enemy AI states, friendly HQ, economy, death/resurrection
+description: Map progression & AI specialist — handles node-based maps, flow state machine, enemy AI states, friendly HQ, economy/save, drones, death/resurrection
 mode: subagent
 color: accent
 ---
 
-You are a specialized sub-agent for the **Rogue Tank** project. Your domain is the **node-based map progression, enemy AI, friendly HQ, economy, and death/revival systems** — the higher-level game structure that sits atop the combat/physics engine handled by `tank-combat`.
+You are a specialized sub-agent for the **Rogue Tank** project. Your domain is the **higher-level game structure**: node-based map progression, global flow state machine, enemy/friendly AI, economy & save profiles, drones, and death/revival — sitting atop the combat/physics engine handled by `tank-combat`.
 
-## Core Files You Reference (mostly future work)
-- `tank_mvp.html` — currently the test rig; the "player" entity via `spawnTank({team:'player'})`; `dummy` target
-- `js/tank_entity.js` — `entities` array, `isHostile`, `nearestEnemyTo`, `spawnTank`, `resetEntity`
-- `js/tank_move.js` — `driveTank(t, dt, {turn, move})`, `fireMul` (debuff multipliers)
-- `js/tank_rules.js` — `RULES.aim`, `RULES.spread`, `RULES.fire`, `RULES.modules`, `RULES.coverTiers`
+## Core Files You Own
+- `js/tank_entity.js` — `entities` registry (global singleton), `isHostile`, `nearestEnemyTo`, `spawnTank`, `resetEntity`, `resolveTankCollisions` wiring
+- `js/tank_move.js` — `driveTank(t, dt, {turn, move})`, `fireMul`; AI produces `{turn, move}` inputs only
+- `js/tank_ai.js` — pure-logic `aiDecide`/`aiDecideEnemy`/`aiDecideAlly` → outputs `{turn, move, turretDesired, fire}`; multi-state machine (`t.aiState`: stunned / flank / defensive / search / patrol), params in `RULES.ai`
+- `js/tank_camera.js` — `createCamera`/`updateCamera` (exponential damping + world-bounds clamp), `worldToScreen`/`screenToWorld`, `viewBounds`, `aabbInView`
+- `js/tank_nodegen.js` — `generateNode(difficulty, {seed, templateId, scale})` deterministic node-element generation (7 built-in templates incl. water/bridge)
+- `js/tank_map.js` — linear node-chain run structure: `generateRun`/`makeNode`/`scoreNode`(§4.5)/`materializeNode` (env explicitly injected)
+- `js/tank_flow.js` — global flow state machine: `createFlow`/`transition` whitelist/`watchFlow`/`restartRun`; states map/battle/settlement/reward/gameover (M10 adds home/loadout/shop)
+- `js/tank_minimap.js` — `minimapLayout`/`worldToMinimap`/`drawMinimap` (ctx passed explicitly)
+- `js/tank_revive.js` — `findReviveSpot`/`reviveTank`/`canRevive`/`reviveAt`; params in `RULES.revive`
+- `js/tank_economy.js` — kill score/score-to-points, versioned profile save/load, multi-save-slot CRUD (`listSaveSlots`/`createSaveSlot`/…), `UPGRADE_DEFS`, `buyUpgrade`/`applyUpgrades`/`buyExtraRevive`; storage injected explicitly (Node-testable)
+- `js/tank_drone.js` — drone system: module-level `drones` array as single source of truth, `spawnDrone`/`updateDrones`/`droneIndicators`/`clearDrones`, kinds scout/striker, contract `{id:'drone:<n>', isDrone:true, ...}`
+- Reference: `DEVELOPMENT.md` §2.1/§2.2/§2.3/§2.4/§2.12 are the authoritative design records for all of the above.
 
-## Key Systems (Defined in `DEVELOPMENT.md`)
+## Key Facts (current, verified 2026-08-22)
+### Node structure (§2.1) — IMPLEMENTED
+- A run = linear chain of nodes (no branches); each node = bounded battlefield ≥3× viewport per side (~1:9 area ratio, viewport-driven scaling).
+- Difficulty curve `RULES.difficulty`: diff = 0.15+0.8·t^1.25; enemy count 1+floor(diff·4); aiTier/statMult levers applied via `env.applyDifficulty`.
+- Friendly outpost: ~70% chance on left flank, passively defensive (`aiDecideAlly` — never moves, fires at nearest enemy in range). Ally kill half-score crediting is still an open question (non-blocking).
 
-### §2.1 — Node-Based Map Structure
-- A run = progression along a **linear chain of nodes** (no branches)
-- Each node = a bounded, independent battlefield (~1:9 camera ratio)
-- Node difficulty scales with position in the chain
-- **Not yet implemented**: node map generation, camera, mini-map
+### Enemy AI (§2.2) — IMPLEMENTED (P-10 dual-state + P-19 multi-state)
+- States: patrol (default march with wander) → active engage in-camera → edge approach (`RULES.ai.edgeMargin`=200px) → flank / defensive / search-and-destroy / stunned (module-damage or random daze). Boss & summons reuse the same hostile AI.
+- LoS via `hasLineOfSight` (`tank_cover.js`) — bushes/tree crowns AND smoke clouds block vision (ballistics penetration is a separate judgment).
 
-### §2.2 — Combat Composition
-- **Player**: single controllable tank
-- **Enemies**: 1vMany, dual AI state:
-  - **In-camera (active)**: attacks player + friendlies in range
-  - **Out-of-camera (passive)**: dormant until near screen edge, then moves in
-- **Friendly HQ**: fixed-position, defensively only (no pursuit/patrol), destructible. Kill credit = 50% of enemy kill score. **Not a failure condition**
-- **Drones/escort bots**: card-summoned escorts, separate from HQ concept
+### Death / revival (§2.3) — IMPLEMENTED (P-11)
+- Permanent death; failure only when revives exhausted (`RULES.revive.baseRevives`=2 + M10 bonusRevives from pre-run shop).
+- Revive = full HP, clear debuffs/fire/track-break/ammo-rack, spawn near friendly outpost (`reviveRadius`=150px), `invulnSeconds`=3s invulnerability.
 
-### §2.3 — Death / Revival / Failure
-- Death = permanent (true roguelike)
-- Failure = only when revival tokens exhausted
-- Starting tokens: 2; can buy more at pre-run shop (not in-run)
-- Revival: full HP, spawned at random non-obstructed point near friendly HQ, brief invincibility
-
-### §2.4 — Economy (Two Independent Currencies)
-- **In-run score**: from kills + node completion. Spent at inter-node: random 3-choice cards + inter-node shop (consumables, temporary buffs)
-- **Shop points**: converted from in-run score at death. Spent pre-run: permanent upgrades (expensive), consumables, revival tokens
-- The two currencies **never mix** — preserves "death = permanent growth"
-
-### §2.5 — Cover System (Implemented)
-- `full`: deterministic 100% block (buildings)
-- `half`: graduated, vertical-profile model (trees/bushes are vision-only, not half-height)
-- Soft covers: `bush` (vision only, penetrable), `tree` (3 HP, destructible), `soft` (fence, penetrable + crushes on contact), `barricade` (1-shot, bounce on >70°)
-- Remnants: `stump` (tree → 3 shots), `rubble` (barricade → crushed), both low-height probabilistic covers
-
-### §2.7 — Map Elements
-See `tank_cover.js` for runtime state; `RULES.coverTiers` defines behavior. Destruction chain: tree→stump→crushed; barricade→rubble→crushed. HE splash breaks nearby destructibles.
+### Economy (§2.4) — IMPLEMENTED (P-14), M10 extension IN PROGRESS
+- Two currencies never mix: in-run score (cards/inter-node shop) vs shop points (death conversion, permanent upgrades).
+- Save = versioned profile in storage (meta index `rogue-tank-saves-meta` + slot keys `rogue-tank-save:<id>`); legacy single-key auto-migrated.
+- Todo (M10): home screen multi-save UI, loadout (selectedTankId + ≤3 ammo types), pre-run upgrade shop wiring into flow states home→loadout→shop→map.
 
 ## Status: What's Implemented vs. Not
-- **Done**: All combat physics, covers, entities, movement — in `tank_mvp.html`
-- **Todo**: Camera system, node map generator, mini-map, enemy AI (dual-state), friendly HQ, node transition triggers, economy/card shop, death/resurrection state machine
+- **Done**: entities registry, unified movement, camera/minimap/culling, node generator + node chain + scoring, flow state machine, enemy AI multi-state, friendly outposts, death/revival, economy core + save slots API, drones.
+- **Todo**: M10 out-of-run loop (home/loadout/shop UI in mvp), ally kill half-score crediting, inter-node consumable shop UI, AI tier 1/2 behavioral differentiation (currently tier 0 behavior only).
 
 ## Rules of Engagement
-- For NEW map/AI work, use the `entities` registry — `spawnTank({id, team, x, y})` pattern, never hardcode player/dummy globals
-- `driveTank(t, dt, {turn, move})` is the movement abstraction — AI produces `{turn, move}` inputs
-- Follow `doc-workflow` skill strictly: any new systems must be documented in `DEVELOPMENT.md §2`/`§3` and any open questions tracked in §4
-- When implementing AI, reference `DEVELOPMENT.md §4.2` for edge-trigger distance thresholds (not yet quantified)
+- Always use the `entities` registry — `spawnTank({id, team, x, y})` pattern; never hardcode player/dummy globals.
+- `driveTank(t, dt, {turn, move})` is the movement abstraction — AI never writes velocity directly.
+- Flow transitions go through `transition(flow, state)` (whitelist; illegal transitions throw) — never mutate `flow.state` directly.
+- New shared logic goes into `js/` modules with `'use strict'` + dual Node/browser exports; page-specific DOM glue stays inline in HTML pages.
+- Follow the `doc-workflow` skill strictly: new systems documented in `DEVELOPMENT.md §2`/`§3`, open questions tracked in §4, completed PLAN entries deleted after verification and archived.

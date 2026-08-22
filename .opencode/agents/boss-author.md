@@ -43,4 +43,4 @@ You are a specialized sub-agent for the **Rogue Tank** project. Your domain is *
 
 ## Rules of Engagement
 - 写完必须 `node scripts/validate-content.js` 通过、`node scripts/audit-content.js --strict` 无警告。
-- 不要改 `js/tank_boss.js` 的校验/枚举；需要新弱弱点/新字段时先改 `js/tank_boss.js` 白名单并同步 `scripts/test-boss.js`。
+- 不要改 `js/tank_boss.js` 的校验/枚举；需要新弱点/新字段时先改 `js/tank_boss.js` 白名单并同步 `scripts/test-boss.js`。

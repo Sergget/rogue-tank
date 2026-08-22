@@ -38,10 +38,8 @@
       "description": "Map progression & AI specialist — handles node-based maps, enemy AI states, friendly HQ, economy, death/resurrection",
       "mode": "subagent",
       "color": "accent"
-    },
-    "orchestrator": {
-      "description": "Routes tasks to the correct specialist sub-agent, runs verification, and manages documentation lifecycle",
-      "mode": "subagent"
     }
+    // 注：orchestrator 不在此配置——其唯一事实源是 .opencode/agents/orchestrator.md（mode: primary，Tab 切换使用）。
+    // 此处曾残留一条 mode:subagent 的 orchestrator 条目与 .md frontmatter 冲突，已删除（2026-08-22）。
   }
 }

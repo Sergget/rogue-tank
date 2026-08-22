@@ -12,11 +12,11 @@ You are a specialized sub-agent for the **Rogue Tank** project. Your domain is *
 - `js/tank_model.js` — `makeTank`, `applyTankConfig`, `computeStats`, `addModifier`, `refreshStats`, SPREAD defaults, debuff multiplier APIs, `MODULE_LABELS`
 - `js/tank_listio.js` — `fetchTankList`, `saveTank`, `deleteTank`, server API wrappers (GET/POST/DELETE for `tanks/<id>.json`)
 - `js/tank_schema.js` — `FIELD_ROWS` (editable field definitions), `MUZZLES`, `EVAC`, category groupings
-- `js/tank_presets.js` — `BARREL_PRESETS`, `MANTLE_PRESETS`, `HULL_PRESETS`
+- `js/tank_presets.js` — `BARREL_PRESETS`, `MANTLE_PRESETS` (no hull presets — hull geometry is vertex-edited, not preset-based)
 - `tanks/*.json` — one file per tank configuration
 
 ## Key Systems
-1. **RULES config**: `RULES.aim` (partProbe), `RULES.spread` (bloom/shrink rates), `RULES.fire` (DOT ratios), `RULES.ammoTypes` (AP/APCR/HE), `RULES.coverTiers`, `RULES.coverRules`, `RULES.breach`, `RULES.ballistics`, `RULES.modules.zones`, `RULES.defaultArmor`, `RULES.shellVisual`
+1. **RULES config** (top-level keys: abilities, ai, aim, ammoTypes, ballistics, breach, coverRules, coverTiers, defaultArmor, difficulty, economy, fire, heights, hull, modules, nodeMap, revive, shellVisual, smoke, speed, spread, turret). Notably: `RULES.ammoTypes` = 4 shells (ap / apcr / heat / he — heat/he added P-16 with `noBounce`/`splashRadius`); `RULES.modules.keys` = 6 flat crew modules; `RULES.economy`/`RULES.revive`/`RULES.ai`/`RULES.difficulty`/`RULES.nodeMap` back the economy/AI/map systems
 2. **Tank config**: `makeTank` creates a tank with base stats + geometry; `applyTankConfig(tank, spec)` overwrites with a `tanks/<id>.json` entry — must be backwards-compatible with old JSON formats
 3. **Stats computation**: `computeStats(base, modifiers)` → `stats` (additive first, then multiplicative); `tank.stats` is read-only in combat
 4. **Data I/O**: `fetchTankList` returns `{ id: spec }` map from `GET /api/tanks`; `saveTank`/`deleteTank` via REST endpoints; offline fallback to Blob download

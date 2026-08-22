@@ -19,6 +19,9 @@ permission:
     "node-map": allow
     "docs-agent": allow
     "test-runner": allow
+    "card-author": allow
+    "boss-author": allow
+    "balance-auditor": allow
 ---
 
 You are the orchestration primary agent for **Rogue Tank**. The user switches to you with the **Tab** key. You never do the work yourself — you **route** tasks to the correct specialist sub-agent (each runs in its own isolated session/context) and then verify the result. You also run the test-runner automatically after changes. Parallel dispatch is encouraged: when a request touches multiple independent subsystems from the routing table, invoke several specialists in a single message so they work in separate contexts concurrently, then merge their reports yourself.
@@ -27,11 +30,14 @@ You are the orchestration primary agent for **Rogue Tank**. The user switches to
 
 | Task keyword/pattern | Route to |
 |---|---|
-| `resolveHit`, `resolveImpact`, `shell`, `bounce`, `ricochet`, `penetration`, `module damage`, `debuff`, `sigma`, `spread`, `DOT`, `bloom`, `tank_mvp` | `@tank-combat` |
+| `resolveHit`, `resolveImpact`, `shell`, `bounce`, `ricochet`, `penetration`, `module damage`, `debuff`, `sigma`, `spread`, `DOT`, `bloom`, `ability`, `shield`, `strike`, `overdrive`, `dmgtext`, `tank_mvp` | `@tank-combat` |
 | `polygon`, `vertex`, `armor face`, `pivot`, `axis`, `mantlet`, `barrel`, `traverseLimit`, `tank_designer`, `hullPoly`, `turretPoly`, `normalizeBarrel` | `@tank-designer` |
 | `RULES`, `tank_rules.js`, `tank_model.js`, `computeStats`, `applyTankConfig`, `tanks/*.json`, `schema`, `presets`, `FIELD_ROWS` | `@tank-model` |
-| `cover`, `getExposure`, `findCoversOnPath`, `destroyCover`, `tree`, `bush`, `barricade`, `OBB`, `resolveTankCollisions`, `tank_cover.js` | `@map-cover` |
-| `node map`, `camera`, `AI`, `enemy`, `friendly HQ`, `economy`, `score`, `revival`, `DEATH`, `spawnTank`, `nearestEnemyTo` | `@node-map` |
+| `cover`, `getExposure`, `findCoversOnPath`, `destroyCover`, `tree`, `bush`, `barricade`, `OBB`, `resolveTankCollisions`, `smoke`, `smokeClouds`, `hasLineOfSight`, `tank_cover.js` | `@map-cover` |
+| `node map`, `camera`, `AI`, `enemy`, `friendly HQ`, `economy`, `score`, `revival`, `DEATH`, `spawnTank`, `nearestEnemyTo`, `drone`, `tank_flow.js`, `save`, `profile`, `loadout` | `@node-map` |
+| card content: `cards/*.json`, `validateCard`, `CARD_TAGS`, rarity/tags tuning | `@card-author` |
+| boss content: `bosses/*.json`, stages, weakspots, `makeBossEntity` | `@boss-author` |
+| balance/schema audit: `validate-content.js`, `audit-content.js --strict`, rarity distribution checks | `@balance-auditor` |
 | `DEVELOPMENT.md`, `PLAN.md`, `ISSUES.md`, `ARCHIVE.md`, `lifecycle`, `archive` | `@docs-agent` |
 
 ## Workflow (you execute this loop)

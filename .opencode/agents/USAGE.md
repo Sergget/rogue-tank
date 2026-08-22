@@ -1,6 +1,6 @@
 # Rogue Tank — Sub-Agent Usage Guide
 
-This project has **11 configured sub-agents** in `.opencode/agents/` plus **3 skills** in `.opencode/skills/`. Each is specialized for a subsystem of the tank roguelike codebase.
+This project has **11 configured sub-agents** in `.opencode/agents/` plus **4 skills** in `.opencode/skills/`. Each is specialized for a subsystem of the tank roguelike codebase.
 
 ## 1. Agent vs. Skill — What's the difference?
 
@@ -15,15 +15,15 @@ This project has **11 configured sub-agents** in `.opencode/agents/` plus **3 sk
 
 | You want to... | Use | Why |
 |---|---|---|
-| Fix shell flight, bounces, module damage, sigma/spread | `@tank-combat` | Owns `tank_mvp.html`, `tank_physics.js`, `tank_fx.js` |
+| Fix shell flight, bounces, module damage, sigma/spread, abilities/shield/strike/dmgtext | `@tank-combat` | Owns `js/tank_physics.js`, `tank_fx.js`, `tank_dmgtext.js`, `tank_abilities/shield/strike.js`, battle wiring in mvp/bench |
 | Edit tank polygons, armor faces, barrel presets | `@tank-designer` | Owns `tank_designer.html`, `tank_halfgeom.js`, `tank_geometry.js` |
 | Add/change RULES config, modify tank JSON format | `@tank-model` | Owns `tank_rules.js`, `tank_model.js`, `tanks/*.json`, `tank_listio.js` |
-| Tune cover system, map elements, destructible terrain | `@map-cover` | Owns `tank_cover.js`, cover/collision logic |
-| Build enemy AI, camera, node map progression | `@node-map` | Owns map structure, AI states, economy (§2 of DEVELOPMENT.md) |
+| Tune cover system, map elements, smoke/vision, destructible terrain | `@map-cover` | Owns `tank_cover.js` (covers + smokeClouds + hasLineOfSight), collision logic |
+| Build flow state machine, node maps, camera/minimap, enemy AI, drones, economy/save/revival | `@node-map` | Owns `tank_flow/map/camera/minimap/nodegen/ai/drone/economy/revive/entity/move` |
 | Author card content (`cards/<id>.json`) | `@card-author` | Owns `cards/`, `js/tank_cards.js` schema；拟真坦克调性 + 稀有度/流派预算 |
 | Author boss content (`bosses/<id>.json`) | `@boss-author` | Owns `bosses/`, `js/tank_boss.js`；多阶段机制 + 弱点驱动 |
 | Audit card/boss balance & schema | `@balance-auditor` | 只读审计：`validate-content.js` / `audit-content.js` |
-| Write/run tests, verify changes | `@test-runner` | Runs `npm run check` + `npm test` (hidden — auto-invoked) |
+| Write/run tests, verify changes | `@test-runner` | Runs `npm run check` + `npm test` + `npm run test:browser` (hidden — auto-invoked) |
 | Update documentation lifecycle | `@docs-agent` | Manages DEVELOPMENT.md/PLAN.md/ISSUES.md/ARCHIVE.md |
 | Have a task that spans multiple areas | **Tab** 切到 `orchestrator` | Primary agent：路由到多个 specialist 并行干活（各自独立上下文），再跑验证与文档 |
 
@@ -83,12 +83,13 @@ The sub-agent configs watch for these **status variables** in the code:
 
 | Variable | Monitored by | Location |
 |---|---|---|
-| `spreadOn`, `rangeOn`, `ammoKey` | tank-combat | `tank_mvp.html` |
-| `_tankLoaded` | tank-combat | `tank_mvp.html` |
-| `invuln`, `autoRevive`, `_dead` | tank-combat | entity state |
-| `cover.hp`, `cover.crushed`, `cover.tier` | map-cover | `tank_cover.js` |
-| `shell.dec`, `bounced`, `canBounce` | tank-combat | shell object |
-| `debuffs{}` | tank-combat | entity object |
+| `player.ammoKey` (1/2/3/4 → ap/apcr/he/heat) | tank-combat | `tank_mvp.html` / bench |
+| `flow.state` (map/battle/settlement/reward/gameover) | node-map | `js/tank_flow.js` |
+| `invuln`, `invulnT`, `_dead` | tank-combat | entity state |
+| `cover.hp`, `cover.tier` (+ `toTier` chain) | map-cover | `tank_cover.js` |
+| `smokeClouds[]` | map-cover | `tank_cover.js` |
+| `shell.dec`, `bounced`, `canBounce`, `absorbed` | tank-combat | shell object |
+| `debuffs{}`, `cardEffects{}` | tank-combat / node-map | entity object |
 | `turret.pivot`, `turret.axis`, `traverseLimit` | tank-designer | tank JSON |
 | `RULES.*` fields | tank-model | `tank_rules.js` |
 
