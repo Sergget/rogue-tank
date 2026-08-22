@@ -97,6 +97,15 @@
 
 浏览器端无模块系统，顶层函数与常量即全局。`tank_rules.js` 必须最先加载（其他模块在顶层引用 `RULES`）；`tank_utils.js` 在 `tank_geometry.js`/`tank_cover.js`/`tank_halfgeom.js` 之前（后两者复用 utils 的 `rotate`/`distToSegment`）；`tank_entity.js` 中声明的 `entities` 数组是全局唯一实例，不得重复声明。`tank_halfgeom.js` 提供 `normalizeBarrel`，在三个原型/设计器中都先于 `tank_model.js` 加载。
 
+### 3.5 大文档与大输出读取纪律（2026-08-22 新增，防 agent 死循环）
+
+`docs/DEVELOPMENT.md`（~170KB）、`docs/ARCHIVE.md`（~165KB）与 `npm test` 输出（~120KB+）均远超单次工具调用的舒适吞吐。**约定：**
+
+- **Grep 优先**：先用关键词/章节标题定位行号（如 `Select-String -Pattern "^#### 3\.24"`），再带 offset/limit 切片读取所需片段；**禁止对以上文件全文读取**。
+- **同一文件重复读取 ≤ 3 次**；需要跨节交叉核对时优先 Grep 而非多次全文。
+- **测试输出**：验证只看退出码 + 尾部摘要/失败行，抽查具体断言用定向检索，不把完整输出灌进上下文。
+- **子代理派发**：遵守 `.opencode/agents/orchestrator.md` 的 Dispatch Discipline——预消化证据进提示词、给停止条件与调用上限、不委派已完成的工作。
+
 ## 4. 架构要点
 
 - **节点式地图**：游戏是节点式地图推进，不是无限波次。每个节点是独立、有边界的战场（详见 docs/DEVELOPMENT.md §2.1）。

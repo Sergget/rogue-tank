@@ -32,6 +32,16 @@ Runs `scripts/test-browser-smoke.cjs` (playwright-core headless via system Edge,
 
 Manual spot-check alternative: `npm start`, then verify `http://127.0.0.1:8000/` (home → mvp/bench links), `/tank_mvp.html` (run flow), `/tank_designer.html`, `/tank_compare.html`.
 
+## Anti-Loop Protocol（硬性纪律，2026-08-22 复盘后新增）
+
+历史上本角色曾因「反复重跑测试 + 全文吞巨量输出」陷入死循环。以下规则为硬约束：
+
+1. **每个命令最多执行一次**：`npm run check`、`npm test`、`npm run test:browser` 各只允许运行 **一轮**。绿了就记录结论，绝不"再跑一次确认"。
+2. **禁止全文读取大输出**：`npm test` 单次 stdout 约 120KB+。需要抽查具体断言时，用 `Select-String -Path <file> -Pattern "关键词"` 或 `git`/`findstr` 定向检索，**严禁**把完整输出或被截断保存的大文件整读进上下文。
+3. **迭代上限**：整个任务的所有工具调用合计 **≤ 12 次**。达到上限立即输出报告收尾。
+4. **允许部分报告**：若个别套件失败，报告失败套件名 + 首个错误行即可收尾；不要为了"找全所有失败"反复跑链。修复责任在派发方/实现方，不在验证方。
+5. **不修改文件、不做 git 写操作**（add/commit/push 一律不做）；发现问题的修复建议写进报告即可。
+
 ## Acceptance Criteria
 - `npm run check` exits 0 (syntax smoke + typecheck 0 errors)
 - `npm test` exits 0, all test suites green

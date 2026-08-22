@@ -45,4 +45,16 @@ M10 的 Home/Loadout/Shop 三屏与既有 结算/卡牌/节点图/gameover 覆�
 
 ---
 
+### P-30 文档分卷：ARCHIVE.md 按月拆卷 + 大文档读取纪律落地（低优先，ARCHIVE 再增 ~50KB 时执行）
+
+**背景**：`docs/ARCHIVE.md` 已 ~165KB 且只增不删；2026-08-22 复盘证实 agent 对巨型单体文档反复全文读取是子代理死循环的系统性根因之一（同会话内主 agent 也两次背靠背全文读同一 165KB 文件）。
+
+**方案**：
+- ARCHIVE.md 保留「归档索引表」（轻量、常查），正文按月分卷：`docs/archive/2026-08.md` 起逐月迁移原文，`ARCHIVE.md` 正文替换为各卷链接；只增不删语义不变。
+- 配套：`AGENTS.md §3.5`「大文档 grep 优先、禁全文读取」约定已先行生效（本批次落地）；`.opencode/agents/test-runner.md` 与 `docs-agent.md` 已写入硬性迭代上限与切片读取纪律。
+
+**验证**：分卷后 `AGENTS.md`/各 agent 配置中的路径引用全部更新；`grep -r "ARCHIVE.md"` 无断链；文档生命周期 4 步在新结构下演练一次。
+
+---
+
 （其余无进行中条目。）
