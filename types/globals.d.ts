@@ -85,7 +85,7 @@ declare function obbMTVs(polyA: any, polyB: any): any;
 declare function spawnMuzzleFlash(x: any, y: any, angle: any, style?: any): void;
 declare function spawnImpactFx(x: any, y: any, type: any, angle?: any): void;
 declare function burstExplosion(x?: any, y?: any, r?: any, count?: any, speed?: any, color?: any): void;
-declare function pushLog(msg: any, color?: any): void;
+declare var pushLog: any;
 
 declare function turretPivot(t: any): { x: number; y: number };
 declare function turretFrontDist(t: any): number;
@@ -178,7 +178,7 @@ declare var SOUND_DEFS: any;
 declare var AUDIO_SETTINGS: any;
 declare function initAudio(): any;
 declare function ensureAudio(): any;
-declare function playSound(key: string, opts?: any): boolean;
+declare var playSound: any;
 declare function validateSoundDefs(defs?: any): string[];
 // webkitAudioContext：旧 WebKit 前缀 AudioContext（Safari <14.1 等），不在 TS DOM lib 标准类型中
 declare var webkitAudioContext: any;
