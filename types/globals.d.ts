@@ -315,6 +315,32 @@ declare function hasAbility(t: any, key: string): boolean;
 declare function updateAbilityCd(t: any, dt: number): void;
 declare function tryActivateAbility(t: any, key: string, ctx?: any): any;
 
+// 覆盖层视图模型（js/tank_screens.js，P-29）
+declare var SCREENS: string[];
+declare var TankScreens: any;
+declare function formatStamp(ms: number): string;
+declare function tankSummary(spec: any): string;
+declare function deploymentReady(profile: any, tankListData: any): boolean;
+declare function buildHomeViewModel(opts: any): any;
+declare function buildLoadoutViewModel(opts: any): any;
+declare function buildShopViewModel(opts: any): any;
+declare function buildMapListViewModel(opts: any): any;
+declare function buildDeathShopViewModel(opts: any): any;
+declare function buildSettlementViewModel(opts: any): any;
+interface Window {
+  TankScreens: any;
+  SCREENS: string[];
+  formatStamp: any;
+  tankSummary: any;
+  deploymentReady: any;
+  buildHomeViewModel: any;
+  buildLoadoutViewModel: any;
+  buildShopViewModel: any;
+  buildMapListViewModel: any;
+  buildDeathShopViewModel: any;
+  buildSettlementViewModel: any;
+}
+
 // 经济与存档（js/tank_economy.js，P-14 / §2.4 / §6 条目 10）
 declare var UPGRADE_DEFS: any[];
 declare function economyConfig(): any;

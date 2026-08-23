@@ -400,6 +400,7 @@
   <script src="js/tank_abilities.js"></script>
   <script src="js/tank_drone.js"></script>
   <script src="js/tank_fire.js"></script>
+  <script src="js/tank_screens.js"></script>
 <script>
 (() => {
 const canvas = document.getElementById('c');
@@ -650,8 +651,10 @@ function assignBossNode(run){
 
 // ---------- 节点地图流程 UI（纯逻辑在 js/tank_map.js · tank_flow.js） ----------
 function hideAllScreens(){
-  for(const id of ['mapScreen','settleScreen','rewardScreen','gameoverScreen','homeScreen','loadoutScreen','shopScreen'])
-    document.getElementById(id).style.display = 'none';
+  const ids = (typeof SCREENS !== 'undefined' && Array.isArray(SCREENS) && SCREENS.length) ? SCREENS
+    : (typeof TankScreens !== 'undefined' && TankScreens.SCREENS) ? TankScreens.SCREENS
+    : ['mapScreen','settleScreen','rewardScreen','gameoverScreen','homeScreen','loadoutScreen','shopScreen'];
+  for(const id of ids) document.getElementById(id).style.display = 'none';
 }
 function showScreen(id){ hideAllScreens(); document.getElementById(id).style.display = 'block'; }
 function setOverlayVisible(v){ document.getElementById('flowOverlay').style.display = v ? 'flex' : 'none'; }
@@ -793,22 +796,38 @@ function nextNodeAfterReward(){
 }
 
 function renderMapList(){
+  const _builder = (typeof buildMapListViewModel === 'function' ? buildMapListViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildMapListViewModel : null));
+  const vm = _builder ? _builder({ run, currentNodeIndex: currentNode ? currentNode.index : null, runFinished }) : null;
   const list = document.getElementById('mapList');
   list.innerHTML = '';
-  run.nodes.forEach((n, i) => {
-    const row = document.createElement('div');
-    row.className = 'node-row' + (currentNode && currentNode.index === i ? ' current' : '');
-    const mark = (currentNode && currentNode.index === i) ? '▶' : '';
-    row.innerHTML = `<span class="idx">${mark}${i + 1}</span>` +
-      `<span class="meta"><b>${n.template.name}</b><br><span>敌军 ${n.enemies.length} · ${n.outpost ? '有据点' : '无据点'} · ${n.w}×${n.h}</span></span>` +
-      `<span class="diff">难度 ${(n.difficulty * 100).toFixed(0)}%</span>`;
-    row.addEventListener('click', () => { playSound('ui'); transition(flow, 'battle', { nodeIndex: i }); });
-    list.appendChild(row);
-  });
-  const hint = document.querySelector('#mapScreen .screen-hint');
-  hint.textContent = runFinished
-    ? '🎉 全链通关！点「开始新的一局」再战。'
-    : '线性推进：每个节点是独立战场，难度随推进上升。清除全部敌军即通关；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。';
+  if(vm){
+    for(const r of vm.rows){
+      const row = document.createElement('div');
+      row.className = 'node-row' + (r.current ? ' current' : '');
+      row.innerHTML = `<span class="idx">${r.mark}${r.index + 1}</span>` +
+        `<span class="meta"><b>${r.name}</b><br><span>${r.meta}</span></span>` +
+        `<span class="diff">${r.diffText}</span>`;
+      row.addEventListener('click', () => { playSound('ui'); transition(flow, 'battle', { nodeIndex: r.index }); });
+      list.appendChild(row);
+    }
+    const hint = document.querySelector('#mapScreen .screen-hint');
+    if(hint) hint.textContent = vm.hintText;
+  } else {
+    run.nodes.forEach((n, i) => {
+      const row = document.createElement('div');
+      row.className = 'node-row' + (currentNode && currentNode.index === i ? ' current' : '');
+      const mark = (currentNode && currentNode.index === i) ? '▶' : '';
+      row.innerHTML = `<span class="idx">${mark}${i + 1}</span>` +
+        `<span class="meta"><b>${n.template.name}</b><br><span>敌军 ${n.enemies.length} · ${n.outpost ? '有据点' : '无据点'} · ${n.w}×${n.h}</span></span>` +
+        `<span class="diff">难度 ${(n.difficulty * 100).toFixed(0)}%</span>`;
+      row.addEventListener('click', () => { playSound('ui'); transition(flow, 'battle', { nodeIndex: i }); });
+      list.appendChild(row);
+    });
+    const hint = document.querySelector('#mapScreen .screen-hint');
+    hint.textContent = runFinished
+      ? '🎉 全链通关！点「开始新的一局」再战。'
+      : '线性推进：每个节点是独立战场，难度随推进上升。清除全部敌军即通关；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。';
+  }
 }
 
 // 流程监听：状态切换 → UI 显隐 + 战场搭建（纯逻辑在 tank_flow.js，UI 消费在本函数）
@@ -825,13 +844,19 @@ watchFlow(flow, (state, payload) => {
     setOverlayVisible(false);
     enterBattle(payload ? payload.nodeIndex : 0);
   } else if(state === 'settlement'){
-    const s = payload.score;
-    const rows = [`<div class="row"><span class="k">基础奖励</span><span>${s.base}</span></div>`];
-    for(const b of s.bonuses) rows.push(`<div class="row"><span class="k">${b.label}</span><span>+${b.amount}</span></div>`);
-    if(payload.bossLoot && payload.bossLoot.score) rows.push(`<div class="row"><span class="k">Boss 战利品</span><span>+${payload.bossLoot.score}</span></div>`);
-    rows.push(`<div class="row"><span class="k">通关用时</span><span>${(payload.clearMs / 1000).toFixed(1)}s</span></div>`);
-    rows.push(`<div class="row total"><span class="k">本节点得分</span><span>${s.total}</span></div>`);
-    document.getElementById('settleBody').innerHTML = rows.join('');
+    const _bSet = (typeof buildSettlementViewModel === 'function' ? buildSettlementViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildSettlementViewModel : null));
+    if(_bSet){
+      const vm = _bSet({ score: payload.score, clearMs: payload.clearMs, bossLoot: payload.bossLoot });
+      document.getElementById('settleBody').innerHTML = vm.rows.map(r => `<div class="row${r.total ? ' total' : ''}"><span class="k">${r.k}</span><span>${r.v}</span></div>`).join('');
+    } else {
+      const s = payload.score;
+      const rows = [`<div class="row"><span class="k">基础奖励</span><span>${s.base}</span></div>`];
+      for(const b of s.bonuses) rows.push(`<div class="row"><span class="k">${b.label}</span><span>+${b.amount}</span></div>`);
+      if(payload.bossLoot && payload.bossLoot.score) rows.push(`<div class="row"><span class="k">Boss 战利品</span><span>+${payload.bossLoot.score}</span></div>`);
+      rows.push(`<div class="row"><span class="k">通关用时</span><span>${(payload.clearMs / 1000).toFixed(1)}s</span></div>`);
+      rows.push(`<div class="row total"><span class="k">本节点得分</span><span>${s.total}</span></div>`);
+      document.getElementById('settleBody').innerHTML = rows.join('');
+    }
     showScreen('settleScreen'); setOverlayVisible(true);
   } else if(state === 'reward'){
     const row = document.getElementById('cardRow');
@@ -866,10 +891,27 @@ watchFlow(flow, (state, payload) => {
   }
 });
 
-// P-14：死亡后商店（永久升级 + 复活次数，用商店点数购买）
+// P-14：死亡后商店（永久升级 + 复活次数，用商店点数购买）— 薄包装：buildDeathShopViewModel
 function renderDeathShop(){
   const el = document.getElementById('deathShop');
   if(!el) return;
+  const _b = (typeof buildDeathShopViewModel === 'function' ? buildDeathShopViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildDeathShopViewModel : null));
+  if(_b){
+    const vm = _b({ profile, upgradeDefs: (typeof UPGRADE_DEFS !== 'undefined' ? UPGRADE_DEFS : []), reviveCost: (typeof RULES !== 'undefined' && RULES.economy && RULES.economy.reviveCost) || 40 });
+    let html = `<div class="mono" style="font-size:10px;color:var(--amber-dim);margin-bottom:8px;">${vm.header}</div>`;
+    for(const u of vm.upgrades){
+      html += `<div class="row" style="justify-content:space-between;">
+      <span class="k">${u.name} ${u.maxed ? '（满级）' : `${u.lv}/${u.maxLevel}`}</span>
+      <button ${u.maxed || !u.can ? 'disabled style="opacity:0.4"' : ''} onclick="buyUpgradeAndRefresh('${u.id}')">${u.cost} 点</button>
+    </div>`;
+    }
+    html += `<div class="row" style="justify-content:space-between;">
+    <span class="k">复活次数 +1（已购加成 ${vm.revive.bonus | 0}）</span>
+    <button ${!vm.revive.can ? 'disabled style="opacity:0.4"' : ''} onclick="buyReviveAndRefresh()">${vm.revive.cost} 点</button>
+  </div>`;
+    el.innerHTML = html;
+    return;
+  }
   let html = `<div class="mono" style="font-size:10px;color:var(--amber-dim);margin-bottom:8px;">死亡后商店 · 点数 ${profile.points}</div>`;
   for(const u of UPGRADE_DEFS){
     const lv = upgradeLevel(profile, u.id);
@@ -879,7 +921,6 @@ function renderDeathShop(){
       <button ${maxed || profile.points < u.cost ? 'disabled style="opacity:0.4"' : ''} onclick="buyUpgradeAndRefresh('${u.id}')">${u.cost} 点</button>
     </div>`;
   }
-  // 复活次数购买（M10：走经济模块 buyExtraRevive——扣点 + profile.bonusRevives++，跨局生效）
   html += `<div class="row" style="justify-content:space-between;">
     <span class="k">复活次数 +1（已购加成 ${profile.bonusRevives | 0}）</span>
     <button ${profile.points < RULES.economy.reviveCost ? 'disabled style="opacity:0.4"' : ''} onclick="buyReviveAndRefresh()">${RULES.economy.reviveCost} 点</button>
@@ -943,11 +984,11 @@ document.getElementById('gameoverHomeBtn').addEventListener('click', () => {
 // 与 js/tank_flow.js 的 home/loadout/shop 三态白名单；不改共享模块。
 // 镜像约定：`profile` 是「当前 active 存档」的内存镜像；任何结构性操作（建/删/切换）后立即重载镜像。
 
-const fmtStamp = ms => {
+const fmtStamp = (typeof formatStamp === 'function' ? formatStamp : (typeof TankScreens !== 'undefined' && TankScreens.formatStamp) ? TankScreens.formatStamp : (ms => {
   const d = new Date(ms || 0);
   const p2 = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
-};
+}));
 
 // 元索引 activeSaveId 直读（normalizeMeta 未导出；这里只做防御性解析取一个字段）
 function activeSaveIdOf(){
@@ -974,6 +1015,50 @@ function renderHome(){
   const activeId = activeSaveIdOf();
   const listEl = document.getElementById('homeSlotList');
   const emptyEl = document.getElementById('homeEmpty');
+  const _bHome = (typeof buildHomeViewModel === 'function' ? buildHomeViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildHomeViewModel : null));
+  if(_bHome){
+    const vm = _bHome({ slots, activeId, renamingSlotId, deleteArmSlotId, slotProfileOf });
+    if(emptyEl) emptyEl.style.display = vm.empty ? 'block' : 'none';
+    if(listEl) listEl.style.display = vm.empty ? 'none' : 'block';
+    if(!listEl) return;
+    listEl.innerHTML = '';
+    for(const r of vm.rows){
+      const row = document.createElement('div');
+      row.className = 'slot-row' + (r.active ? ' active' : '');
+      const main = document.createElement('div'); main.className = 'slot-main';
+      const nameLine = document.createElement('div'); nameLine.className = 'slot-name';
+      if(r.renamingInput){
+        const input = document.createElement('input');
+        input.value = r.name; input.maxLength = 24;
+        const okB = document.createElement('button'); okB.textContent = '确定';
+        const noB = document.createElement('button'); noB.textContent = '取消';
+        okB.addEventListener('click', () => { renameSaveSlot(localStorage, r.id, input.value); renamingSlotId = null; renderHome(); playSound('ui'); });
+        noB.addEventListener('click', () => { renamingSlotId = null; renderHome(); });
+        nameLine.appendChild(input); nameLine.appendChild(okB); nameLine.appendChild(noB);
+      } else {
+        nameLine.textContent = r.name;
+        if(r.badge){ const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = '当前'; nameLine.appendChild(badge); }
+      }
+      const meta = document.createElement('div'); meta.className = 'slot-meta';
+      meta.textContent = r.meta;
+      main.appendChild(nameLine); main.appendChild(meta);
+      const acts = document.createElement('div'); acts.className = 'slot-actions';
+      const enterB = document.createElement('button'); enterB.className = 'enter-btn'; enterB.textContent = '选择进入';
+      enterB.addEventListener('click', () => { playSound('ui'); if(setActiveSaveSlot(localStorage, r.id)){ profile = loadActiveProfile(localStorage); transition(flow, 'loadout'); } });
+      const renameB = document.createElement('button'); renameB.textContent = '重命名';
+      renameB.addEventListener('click', () => { renamingSlotId = r.id; deleteArmSlotId = null; renderHome(); });
+      const delB = document.createElement('button'); delB.className = 'danger';
+      delB.textContent = r.showDeleteConfirm ? '确认删除？' : '删除';
+      delB.addEventListener('click', () => {
+        if(deleteArmSlotId !== r.id){ deleteArmSlotId = r.id; renamingSlotId = null; renderHome(); return; }
+        deleteSaveSlot(localStorage, r.id); deleteArmSlotId = null; renamingSlotId = null; profile = loadActiveProfile(localStorage); renderHome(); playSound('ui');
+      });
+      acts.appendChild(enterB); acts.appendChild(renameB); acts.appendChild(delB);
+      row.appendChild(main); row.appendChild(acts);
+      listEl.appendChild(row);
+    }
+    return;
+  }
   const empty = slots.length === 0;
   if(emptyEl) emptyEl.style.display = empty ? 'block' : 'none';
   if(listEl) listEl.style.display = empty ? 'none' : 'block';
@@ -983,56 +1068,27 @@ function renderHome(){
     const prof = slotProfileOf(s.id);
     const row = document.createElement('div');
     row.className = 'slot-row' + (s.id === activeId ? ' active' : '');
-
     const main = document.createElement('div'); main.className = 'slot-main';
     const nameLine = document.createElement('div'); nameLine.className = 'slot-name';
     if(renamingSlotId === s.id){
-      // 行内重命名（无弹窗依赖）：输入新名 → 确定 / 取消
-      const input = document.createElement('input');
-      input.value = s.name; input.maxLength = 24;
+      const input = document.createElement('input'); input.value = s.name; input.maxLength = 24;
       const okB = document.createElement('button'); okB.textContent = '确定';
       const noB = document.createElement('button'); noB.textContent = '取消';
-      okB.addEventListener('click', () => {
-        renameSaveSlot(localStorage, s.id, input.value);
-        renamingSlotId = null; renderHome(); playSound('ui');
-      });
+      okB.addEventListener('click', () => { renameSaveSlot(localStorage, s.id, input.value); renamingSlotId = null; renderHome(); playSound('ui'); });
       noB.addEventListener('click', () => { renamingSlotId = null; renderHome(); });
       nameLine.appendChild(input); nameLine.appendChild(okB); nameLine.appendChild(noB);
-    } else {
-      nameLine.textContent = s.name;
-      if(s.id === activeId){
-        const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = '当前';
-        nameLine.appendChild(badge);
-      }
-    }
+    } else { nameLine.textContent = s.name; if(s.id === activeId){ const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = '当前'; nameLine.appendChild(badge); } }
     const meta = document.createElement('div'); meta.className = 'slot-meta';
     meta.textContent = `局数 ${prof ? prof.stats.runs : 0} · 击杀 ${prof ? prof.stats.kills : 0} · 点数 ${prof ? prof.points : 0} · ${fmtStamp(s.updatedAt)}`;
     main.appendChild(nameLine); main.appendChild(meta);
-
     const acts = document.createElement('div'); acts.className = 'slot-actions';
     const enterB = document.createElement('button'); enterB.className = 'enter-btn'; enterB.textContent = '选择进入';
-    enterB.addEventListener('click', () => {
-      playSound('ui');
-      if(setActiveSaveSlot(localStorage, s.id)){
-        profile = loadActiveProfile(localStorage);   // 切换全局 profile 镜像到该存档
-        transition(flow, 'loadout');                 // home → loadout（白名单合法）
-      }
-    });
-    const renameB = document.createElement('button'); renameB.textContent = '重命名';
-    renameB.addEventListener('click', () => { renamingSlotId = s.id; deleteArmSlotId = null; renderHome(); });
-    const delB = document.createElement('button'); delB.className = 'danger';
-    delB.textContent = deleteArmSlotId === s.id ? '确认删除？' : '删除';   // 二次确认（武装→再点执行）
-    delB.addEventListener('click', () => {
-      if(deleteArmSlotId !== s.id){ deleteArmSlotId = s.id; renamingSlotId = null; renderHome(); return; }
-      deleteSaveSlot(localStorage, s.id);            // 删 active 时模块自动迁移 activeSaveId
-      deleteArmSlotId = null; renamingSlotId = null;
-      profile = loadActiveProfile(localStorage);     // 统一重载镜像（可能已迁移/清空）
-      renderHome();
-      playSound('ui');
-    });
+    enterB.addEventListener('click', () => { playSound('ui'); if(setActiveSaveSlot(localStorage, s.id)){ profile = loadActiveProfile(localStorage); transition(flow, 'loadout'); } });
+    const renameB = document.createElement('button'); renameB.textContent = '重命名'; renameB.addEventListener('click', () => { renamingSlotId = s.id; deleteArmSlotId = null; renderHome(); });
+    const delB = document.createElement('button'); delB.className = 'danger'; delB.textContent = deleteArmSlotId === s.id ? '确认删除？' : '删除';
+    delB.addEventListener('click', () => { if(deleteArmSlotId !== s.id){ deleteArmSlotId = s.id; renamingSlotId = null; renderHome(); return; } deleteSaveSlot(localStorage, s.id); deleteArmSlotId = null; renamingSlotId = null; profile = loadActiveProfile(localStorage); renderHome(); playSound('ui'); });
     acts.appendChild(enterB); acts.appendChild(renameB); acts.appendChild(delB);
-    row.appendChild(main); row.appendChild(acts);
-    listEl.appendChild(row);
+    row.appendChild(main); row.appendChild(acts); listEl.appendChild(row);
   }
 }
 
@@ -1047,27 +1103,34 @@ document.getElementById('homeCreateBtn').addEventListener('click', createSaveAnd
 document.getElementById('homeCreateBtnEmpty').addEventListener('click', createSaveAndRefresh);
 
 // ---------- Loadout（出战整备） ----------
+// 薄包装：tankSummary / deploymentReady 委托 js/tank_screens.js（保留内联兜底）
 function tankSummary(spec){
-  const kmh = Math.round((spec.maxSpeed !== undefined ? spec.maxSpeed : 120) * SPEED_KMH_FACTOR);
+  const _f = (typeof TankScreens !== 'undefined' ? TankScreens.tankSummary : null) || (typeof tank_screens_tankSummary === 'function' ? tank_screens_tankSummary : null);
+  if(_f) return _f(spec);
+  const _kmhFactor = (typeof RULES !== 'undefined' && RULES.speed && typeof RULES.speed.kmhFactor === 'number') ? RULES.speed.kmhFactor : 0.5;
+  const kmh = Math.round((spec.maxSpeed !== undefined ? spec.maxSpeed : 120) * _kmhFactor);
   const front = (spec.armor && spec.armor.hull && spec.armor.hull.front !== undefined) ? spec.armor.hull.front
               : ((spec.hull && spec.hull.armor && spec.hull.armor.front !== undefined) ? spec.hull.armor.front : 110);
   const hp = (spec.hp !== undefined) ? spec.hp : ((spec.maxHp !== undefined) ? spec.maxHp : 100);
   return `极速 ${kmh}km/h · 耐久 ${hp} · 正面 ${front}mm · 穿深 ${spec.penetration !== undefined ? spec.penetration : 120}mm`;
 }
-
-// 出击就绪校验：已选坦克（且在当前 tanks/ 列表中存在）+ 至少 1 种弹药
 function deploymentReady(){
+  const _f = (typeof TankScreens !== 'undefined' ? TankScreens.deploymentReady : null);
+  if(_f) return _f(profile, tankListData);
   return !!(profile.selectedTankId && tankListData && tankListData[profile.selectedTankId]) &&
          Array.isArray(profile.ammoLoadout) && profile.ammoLoadout.length >= 1;
 }
-
 function refreshLoadHint(){
+  const _bLoad = (typeof buildLoadoutViewModel === 'function' ? buildLoadoutViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildLoadoutViewModel : null));
   const hint = document.getElementById('loadHint');
   if(hint){
-    hint.textContent = !profile.selectedTankId ? '请选择一辆出战坦克。'
-      : (!tankListData || !tankListData[profile.selectedTankId]) ? '所选坦克不在当前 tanks/ 列表中，请重新选择。'
-      : (!(profile.ammoLoadout || []).length ? '请至少选配 1 种弹药。'
-      : `已选弹种 ${(profile.ammoLoadout).length}/3 · 配置在出击时写入存档。`);
+    if(_bLoad){ hint.textContent = _bLoad({ profile, tankListData, ammoTypes: (typeof RULES !== 'undefined' ? RULES.ammoTypes : {}) }).hint; }
+    else {
+      hint.textContent = !profile.selectedTankId ? '请选择一辆出战坦克。'
+        : (!tankListData || !tankListData[profile.selectedTankId]) ? '所选坦克不在当前 tanks/ 列表中，请重新选择。'
+        : (!(profile.ammoLoadout || []).length ? '请至少选配 1 种弹药。'
+        : `已选弹种 ${(profile.ammoLoadout).length}/3 · 配置在出击时写入存档。`);
+    }
   }
   const ready = deploymentReady();
   for(const id of ['loadStartBtn','shopStartBtn']){
@@ -1077,105 +1140,123 @@ function refreshLoadHint(){
 }
 
 function renderLoadout(){
-  // —— 出战坦克卡片（tanks/ 列表；id 排序确定性渲染） ——
+  const _bL = (typeof buildLoadoutViewModel === 'function' ? buildLoadoutViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildLoadoutViewModel : null));
+  const vm = _bL ? _bL({ profile, tankListData, ammoTypes: (typeof RULES !== 'undefined' ? RULES.ammoTypes : {}) }) : null;
   const grid = document.getElementById('loadTankList');
   grid.innerHTML = '';
-  const ids = tankListData ? Object.keys(tankListData).sort() : [];
-  if(!ids.length){
-    grid.innerHTML = '<div class="screen-hint">坦克列表加载中或不可用（检查 dev server 与 tanks/ 目录）…</div>';
+  if(vm){
+    if(vm.emptyTankList){
+      grid.innerHTML = '<div class="screen-hint">坦克列表加载中或不可用（检查 dev server 与 tanks/ 目录）…</div>';
+    } else {
+      for(const c of vm.tankCards){
+        const card = document.createElement('div');
+        card.className = 'tank-card' + (c.selected ? ' selected' : '');
+        card.dataset.tankId = c.id;
+        card.innerHTML = `<div class="tname">${c.id}</div><div class="tstat">${c.summary}</div>`;
+        card.addEventListener('click', () => {
+          profile.selectedTankId = c.id;
+          for(const el of grid.querySelectorAll('.tank-card')) el.classList.toggle('selected', el.dataset.tankId === c.id);
+          refreshLoadHint(); playSound('ui');
+        });
+        grid.appendChild(card);
+      }
+    }
+    const ammoBox = document.getElementById('loadAmmoList');
+    ammoBox.innerHTML = '';
+    for(const r of vm.ammoRows){
+      const rowL = document.createElement('label'); rowL.className = 'ammo-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.dataset.ammo = r.key;
+      cb.checked = r.checked;
+      cb.addEventListener('change', () => {
+        const arr = profile.ammoLoadout = profile.ammoLoadout || [];
+        if(cb.checked){
+          if(arr.length >= 3){ cb.checked = false; pushLog('弹种选配已达上限（最多 3 种）', 'COVER'); playSound('block'); return; }
+          if(arr.indexOf(r.key) < 0) arr.push(r.key);
+        } else { const i = arr.indexOf(r.key); if(i >= 0) arr.splice(i, 1); }
+        refreshLoadHint(); playSound('ui');
+      });
+      const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = r.color;
+      const nm = document.createElement('b'); nm.className = 'aname'; nm.textContent = r.label;
+      const st = document.createElement('span'); st.className = 'astat'; st.textContent = r.bits;
+      rowL.appendChild(cb); rowL.appendChild(dot); rowL.appendChild(nm); rowL.appendChild(st);
+      ammoBox.appendChild(rowL);
+    }
+    refreshLoadHint();
+    return;
   }
+  const ids = tankListData ? Object.keys(tankListData).sort() : [];
+  if(!ids.length){ grid.innerHTML = '<div class="screen-hint">坦克列表加载中或不可用（检查 dev server 与 tanks/ 目录）…</div>'; }
   for(const id of ids){
     const card = document.createElement('div');
     card.className = 'tank-card' + (profile.selectedTankId === id ? ' selected' : '');
     card.dataset.tankId = id;
     card.innerHTML = `<div class="tname">${id}</div><div class="tstat">${tankSummary(tankListData[id])}</div>`;
-    card.addEventListener('click', () => {
-      profile.selectedTankId = id;                   // 写入 profile（出击时随 saveActiveProfile 落盘）
-      for(const el of grid.querySelectorAll('.tank-card')) el.classList.toggle('selected', el.dataset.tankId === id);
-      refreshLoadHint();
-      playSound('ui');
-    });
+    card.addEventListener('click', () => { profile.selectedTankId = id; for(const el of grid.querySelectorAll('.tank-card')) el.classList.toggle('selected', el.dataset.tankId === id); refreshLoadHint(); playSound('ui'); });
     grid.appendChild(card);
   }
-  // —— 弹药选配复选框（RULES.ammoTypes 全量；上限 3 种由 UI 拒绝第 4 个勾选） ——
   const ammoBox = document.getElementById('loadAmmoList');
   ammoBox.innerHTML = '';
   for(const key of Object.keys(RULES.ammoTypes)){
     const a = RULES.ammoTypes[key];
     const rowL = document.createElement('label'); rowL.className = 'ammo-row';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.dataset.ammo = key;
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.dataset.ammo = key;
     cb.checked = (profile.ammoLoadout || []).indexOf(key) >= 0;
     cb.addEventListener('change', () => {
       const arr = profile.ammoLoadout = profile.ammoLoadout || [];
-      if(cb.checked){
-        if(arr.length >= 3){                          // 上限拒绝：回退勾选态并提示
-          cb.checked = false;
-          pushLog('弹种选配已达上限（最多 3 种）', 'COVER');
-          playSound('block');
-          return;
-        }
-        if(arr.indexOf(key) < 0) arr.push(key);
-      } else {
-        const i = arr.indexOf(key); if(i >= 0) arr.splice(i, 1);
-      }
-      refreshLoadHint();
-      playSound('ui');
+      if(cb.checked){ if(arr.length >= 3){ cb.checked = false; pushLog('弹种选配已达上限（最多 3 种）', 'COVER'); playSound('block'); return; } if(arr.indexOf(key) < 0) arr.push(key); }
+      else { const i = arr.indexOf(key); if(i >= 0) arr.splice(i, 1); }
+      refreshLoadHint(); playSound('ui');
     });
     const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = a.color;
     const nm = document.createElement('b'); nm.className = 'aname'; nm.textContent = a.label;
-    const bits = [`穿深×${a.pen}`, `伤害×${a.dmg}`, `弹速×${a.speed}`];
-    if(a.noBounce) bits.push('无跳弹');
-    if(a.splashRadius) bits.push(`溅射${a.splashRadius}px`);
+    const bits = [`穿深×${a.pen}`, `伤害×${a.dmg}`, `弹速×${a.speed}`]; if(a.noBounce) bits.push('无跳弹'); if(a.splashRadius) bits.push(`溅射${a.splashRadius}px`);
     const st = document.createElement('span'); st.className = 'astat'; st.textContent = bits.join(' · ');
-    rowL.appendChild(cb); rowL.appendChild(dot); rowL.appendChild(nm); rowL.appendChild(st);
-    ammoBox.appendChild(rowL);
+    rowL.appendChild(cb); rowL.appendChild(dot); rowL.appendChild(nm); rowL.appendChild(st); ammoBox.appendChild(rowL);
   }
   refreshLoadHint();
 }
 
-// ---------- Shop（局前永久升级商店） ----------
+// ---------- Shop（局前永久升级商店） — 薄包装：buildShopViewModel
 function renderShop(){
+  const _bS = (typeof buildShopViewModel === 'function' ? buildShopViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildShopViewModel : null));
+  if(_bS){
+    const vm = _bS({ profile, upgradeDefs: (typeof UPGRADE_DEFS !== 'undefined' ? UPGRADE_DEFS : []), economyRules: (typeof RULES !== 'undefined' ? RULES.economy : {}) });
+    const pts = document.getElementById('shopPoints');
+    if(pts) pts.textContent = vm.pointsText;
+    const grid = document.getElementById('shopUpgradeList');
+    grid.innerHTML = '';
+    for(const u of vm.upgrades){
+      const card = document.createElement('div');
+      card.className = 'shop-card' + (u.can ? '' : ' off');
+      card.innerHTML = `<div class="sname"><span>${u.name}</span><span class="lv">${u.lvText}</span></div><div class="sdesc">${u.desc}</div><div class="scost">${u.costText}</div>`;
+      if(u.can){ card.addEventListener('click', () => { if(buyUpgrade(profile, u.id)){ saveActiveProfile(localStorage, profile); renderShop(); playSound('ui'); } }); }
+      grid.appendChild(card);
+    }
+    const rowEl = document.getElementById('shopReviveRow');
+    if(rowEl){
+      rowEl.innerHTML = `<span>追加复活次数 <b>+1</b><br><span style="font-size:9px;color:var(--text-dim);">跨局生效：下次出击自带（当前加购 ${vm.revive.bonus | 0} 次）</span></span><button ${vm.revive.can ? '' : 'disabled style="opacity:0.4;"'}>${vm.revive.cost} 点</button>`;
+      rowEl.querySelector('button').onclick = () => { if(buyExtraRevive(profile)){ saveActiveProfile(localStorage, profile); renderShop(); playSound('ui'); } };
+    }
+    return;
+  }
   const pts = document.getElementById('shopPoints');
   if(pts) pts.textContent = `商店点数 POINTS ▸ ${profile.points}`;
   const grid = document.getElementById('shopUpgradeList');
   grid.innerHTML = '';
   for(const u of UPGRADE_DEFS){
-    const lv = upgradeLevel(profile, u.id);
-    const maxed = lv >= u.maxLevel;
-    const can = !maxed && profile.points >= u.cost;
-    const card = document.createElement('div');
-    card.className = 'shop-card' + (can ? '' : ' off');
-    card.innerHTML =
-      `<div class="sname"><span>${u.name}</span><span class="lv">${maxed ? 'MAX' : 'Lv ' + lv + '/' + u.maxLevel}</span></div>` +
-      `<div class="sdesc">${u.desc}</div>` +
-      `<div class="scost">${maxed ? '已满级' : u.cost + ' 点'}</div>`;
-    if(can){
-      card.addEventListener('click', () => {
-        if(buyUpgrade(profile, u.id)){
-          saveActiveProfile(localStorage, profile);   // 即时落盘（扣点持久化）
-          renderShop();
-          playSound('ui');
-        }
-      });
-    }
+    const lv = upgradeLevel(profile, u.id); const maxed = lv >= u.maxLevel; const can = !maxed && profile.points >= u.cost;
+    const card = document.createElement('div'); card.className = 'shop-card' + (can ? '' : ' off');
+    card.innerHTML = `<div class="sname"><span>${u.name}</span><span class="lv">${maxed ? 'MAX' : 'Lv ' + lv + '/' + u.maxLevel}</span></div><div class="sdesc">${u.desc}</div><div class="scost">${maxed ? '已满级' : u.cost + ' 点'}</div>`;
+    if(can){ card.addEventListener('click', () => { if(buyUpgrade(profile, u.id)){ saveActiveProfile(localStorage, profile); renderShop(); playSound('ui'); } }); }
     grid.appendChild(card);
   }
-  // 追加复活次数（buyExtraRevive：扣点 + bonusRevives++，下次出击自带）
   const cost = RULES.economy.reviveCost;
   const rowEl = document.getElementById('shopReviveRow');
   if(rowEl){
     const canRv = profile.points >= cost;
-    rowEl.innerHTML =
-      `<span>追加复活次数 <b>+1</b><br><span style="font-size:9px;color:var(--text-dim);">跨局生效：下次出击自带（当前加购 ${profile.bonusRevives | 0} 次）</span></span>` +
-      `<button ${canRv ? '' : 'disabled style="opacity:0.4;"'}>${cost} 点</button>`;
-    rowEl.querySelector('button').onclick = () => {
-      if(buyExtraRevive(profile)){
-        saveActiveProfile(localStorage, profile);
-        renderShop();
-        playSound('ui');
-      }
-    };
+    rowEl.innerHTML = `<span>追加复活次数 <b>+1</b><br><span style="font-size:9px;color:var(--text-dim);">跨局生效：下次出击自带（当前加购 ${profile.bonusRevives | 0} 次）</span></span><button ${canRv ? '' : 'disabled style="opacity:0.4;"'}>${cost} 点</button>`;
+    rowEl.querySelector('button').onclick = () => { if(buyExtraRevive(profile)){ saveActiveProfile(localStorage, profile); renderShop(); playSound('ui'); } };
   }
 }
 
