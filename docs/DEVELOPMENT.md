@@ -61,7 +61,7 @@
 
 ## 5. 下一步顺序（活跃项）
 
-- **27. 卡牌 × Loadout 衔接**：ammo 改造卡与 ammoLoadout 键集求交（前置阻塞已解除，P-28 完成）。
+- **27. 卡牌 × Loadout 衔接（P-27）——已完成（2026-08-23）**：`js/tank_cards.js` 扩展 `drawCardChoices` 过滤未配弹种卡 + 导出 `computeAmmoConfig`（叠加 `cardEffects` 弹种改造，支持 add/mult）；`js/tank_fire.js` 开火与预测接入 `computeAmmoConfig`；`tank_mvp.html` 奖励抽卡传入 `ammoLoadout: player.ammoLoadout`；单测全绿。
 - **30. 覆盖层 UI 纯逻辑下沉（P-29，低优先）——已完成（2026-08-23）**：`js/tank_screens.js` 纯逻辑视图模型（`SCREENS` + `buildHome/Loadout/Shop/MapList/DeathShop/SettlementViewModel` + `tankSummary/deploymentReady/formatStamp`，零 DOM 依赖、双端导出）+ `tank_mvp.html` 薄包装接线（DOM 渲染与事件留内联，行为零回归）；`npm run check` + `npm test` 全绿。
 - **31. 文档分卷维护（P-30）——已完成（2026-08-23）**：ARCHIVE 正文已按月分卷至 `docs/archive/`（主文件只留索引表），DEVELOPMENT 已拆为核心流程控制 + specs 五卷索引；后续新归档写入当月卷并更新索引行即可。
 - 其余远期项（P-21 音效升级 / P-23 全屏战术地图 / P-24 无头模拟器 / P-25 AI 可视化 / P-26 内容 Lint Pipeline）详见 PLAN.md 与归档快照 §6。

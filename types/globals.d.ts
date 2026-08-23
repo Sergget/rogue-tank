@@ -251,7 +251,8 @@ declare function validateCardSet(cards: any[]): { errors: Array<{ id: string; er
 declare function isArmorPath(stat: string): boolean;
 declare function applyCardEffects(tank: any, card: any, ctx?: any): any[];
 declare function cardStackCount(tank: any, cardId: string): number;
-declare function drawCardChoices(pool: any[], n?: number, rng?: any): any[];
+declare function computeAmmoConfig(shooter: any, ammoKey?: string): any;
+declare function drawCardChoices(pool: any[], n?: number, optsOrRng?: any): any[];
 declare function weightedRarity(r: any): string;
 
 // Boss 系统（js/tank_boss.js，P-09 / §2.14）

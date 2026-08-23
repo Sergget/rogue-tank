@@ -61,6 +61,7 @@
 | 2026-08-23 | `PLAN.md` | P-28 战斗核心管线解耦：mvp⇄bench 双份收敛到 `js/tank_fire.js` | 已完成并验证（`js/tank_fire.js` ~376 行 / 24783 字节 + `scripts/test-fire.js` 9 项全绿 + 双页 811 deletions；结论见 DEVELOPMENT §3.26 / §6 条目 29，§6 条目 27 前置阻塞已解除） |
 | 2026-08-23 | `PLAN.md` | P-30 文档分卷：ARCHIVE 按月拆卷 + DEVELOPMENT 拆 specs 五卷 | 已完成并验证（archive/2026-08.md 169KB 分卷 + ARCHIVE.md 9KB 索引 + DEVELOPMENT 5KB 核心流控 + specs 五卷；结论见 DEVELOPMENT §5 条目 31） |
 | 2026-08-23 | `PLAN.md` | P-29 覆盖层 UI 纯逻辑下沉 | 已完成并验证（`js/tank_screens.js` 纯逻辑 viewModel + `tank_mvp.html` 薄包装，结论见 DEVELOPMENT §5 条目 30） |
+| 2026-08-23 | `PLAN.md` | P-27 卡牌 × Loadout 衔接 | 已完成并验证（`drawCardChoices` 过滤未配弹种卡 + `computeAmmoConfig` 弹种强化生效，结论见 DEVELOPMENT §5 条目 27） |
 
 ------
 

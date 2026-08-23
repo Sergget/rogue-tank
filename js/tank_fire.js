@@ -76,7 +76,8 @@ function fireTank(shooter, target, hitPref, ctx){
   }
   shooter.reloadT=shooter.stats.reload/debuffReload(shooter);
   const ox=tipP.x, oy=tipP.y;
-  const ammo=(R.ammoTypes&&(R.ammoTypes[shooter.ammoKey]||R.ammoTypes.ap))||{speed:1,pen:1,dmg:1,spread:1};
+  const getAmmoCfg=c.computeAmmoConfig||_G('computeAmmoConfig',function(s,k){ return (R.ammoTypes&&(R.ammoTypes[k]||R.ammoTypes.ap))||{speed:1,pen:1,dmg:1,spread:1}; });
+  const ammo=getAmmoCfg(shooter,shooter.ammoKey);
   const zero=devAim&&devAim.zeroSpread&&shooter.id==='player';
   const sigma=zero?0:((shooter.sigma||0)*(ammo.spread||1));
   const spreadAngle=shooter.turretAngle+gauss(sigma);
@@ -202,7 +203,8 @@ function computeSolution(ctx){
   const thickness=(armorTable[hit.part]&&armorTable[hit.part][hit.faceKey]!==undefined)?armorTable[hit.part][hit.faceKey]:100;
   const mod=moduleFromHit(target,hit);
   const cosT=Math.abs(dx*hit.nx+dy*hit.ny), theta=Math.acos(Math.min(1,Math.max(-1,cosT)));
-  const ammoPred=(R.ammoTypes&&(R.ammoTypes[player.ammoKey]||R.ammoTypes.ap))||{pen:1,noBounce:false};
+  const getAmmoCfg=c.computeAmmoConfig||_G('computeAmmoConfig',function(s,k){ return (R.ammoTypes&&(R.ammoTypes[k]||R.ammoTypes.ap))||{pen:1,noBounce:false}; });
+  const ammoPred=getAmmoCfg(player,player.ammoKey);
   const predPen=player.stats.penetration*(ammoPred.pen||1);
   let willBounce=false;
   if(theta>bounce&&!ammoPred.noBounce) willBounce=true;

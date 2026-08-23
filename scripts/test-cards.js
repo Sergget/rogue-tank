@@ -77,7 +77,33 @@ ok(d1.map(c => c.id).join(',') === d2.map(c => c.id).join(','), '同种子抽卡
 ok(new Set(d1.map(c => c.id)).size === 3, '抽卡不重复');
 ok(cardsMod.drawCardChoices(pool, 100).length === pool.length, '超量抽取返回全池');
 
-// 7) 实际 cards/ 数据全合法（由 validate-content.js 主校验，这里抽样确认模块可加载）
+// 7) P-27 弹种卡过滤与 computeAmmoConfig 校验
+const samplePool = [
+  { id: 'c_ap', name: 'AP穿深', rarity: 'common', tags: ['狙击'], effects: [{ type: 'ammo', key: 'ap', field: 'pen', mode: 'add', value: 10 }] },
+  { id: 'c_he', name: 'HE增伤', rarity: 'common', tags: ['爆破'], effects: [{ type: 'ammo', key: 'he', field: 'dmg', mode: 'mult', value: 1.2 }] },
+  { id: 'c_gen', name: '装甲强化', rarity: 'common', tags: ['重甲'], effects: [{ type: 'modifier', stat: 'maxHp', mode: 'add', value: 20 }] }
+];
+const drawnApOnly = cardsMod.drawCardChoices(samplePool, 3, { ammoLoadout: ['ap'] });
+ok(drawnApOnly.some(c => c.id === 'c_ap'), '抽到匹配的 AP 卡');
+ok(drawnApOnly.some(c => c.id === 'c_gen'), '抽到通用卡');
+ok(!drawnApOnly.some(c => c.id === 'c_he'), '过滤掉未携带的 HE 改造卡');
+
+// computeAmmoConfig 运算断言
+const dummyShooter = {
+  ammoKey: 'ap',
+  cardEffects: [
+    { type: 'ammo', key: 'ap', field: 'pen', mode: 'add', value: 15 },
+    { type: 'ammo', key: 'ap', field: 'pen', mode: 'mult', value: 1.2 },
+    { type: 'ammo', key: 'ap', field: 'dmg', mode: 'mult', value: 1.1 },
+    { type: 'ammo', key: 'he', field: 'dmg', mode: 'mult', value: 2.0 } // 异种弹药不影响 ap
+  ]
+};
+const apCfg = cardsMod.computeAmmoConfig(dummyShooter, 'ap');
+// AP base pen=1, (1 + 15) * 1.2 = 19.2; base dmg=1, 1 * 1.1 = 1.1
+ok(Math.abs(apCfg.pen - 19.2) < 1e-4, 'AP 穿深加算与乘算叠加正确');
+ok(Math.abs(apCfg.dmg - 1.1) < 1e-4, 'AP 伤害乘算正确');
+
+// 8) 实际 cards/ 数据全合法（由 validate-content.js 主校验，这里抽样确认模块可加载）
 ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 流派');
 
 console.log('test-cards: 完成所有检查');

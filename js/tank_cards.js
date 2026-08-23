@@ -166,13 +166,61 @@ function applyCardEffects(tank, card, ctx) {
   return applied;
 }
 
+// ---------- 弹种改造计算 (P-27) ----------
+
+// 计算特定坦克在特定弹种上的最终配置（含 cardEffects 弹种改造）
+function computeAmmoConfig(shooter, ammoKey) {
+  const key = ammoKey || (shooter && shooter.ammoKey) || 'ap';
+  const rules = (typeof RULES !== 'undefined' && RULES.ammoTypes) ? RULES.ammoTypes : {};
+  const base = rules[key] || rules.ap || { pen: 1, dmg: 1, speed: 1, spread: 1 };
+  const cfg = Object.assign({}, base);
+
+  const effects = (shooter && Array.isArray(shooter.cardEffects)) ? shooter.cardEffects : [];
+  for (const pass of ['add', 'mult']) {
+    for (const ef of effects) {
+      if (!ef || ef.type !== 'ammo' || ef.key !== key || ef.mode !== pass) continue;
+      if (ef.field === 'pen' || ef.field === 'dmg' || ef.field === 'speed') {
+        const val = typeof cfg[ef.field] === 'number' ? cfg[ef.field] : 1;
+        cfg[ef.field] = pass === 'add' ? (val + ef.value) : (val * ef.value);
+      }
+    }
+  }
+  if (typeof cfg.pen === 'number') cfg.pen = Math.max(0, cfg.pen);
+  if (typeof cfg.dmg === 'number') cfg.dmg = Math.max(0, cfg.dmg);
+  if (typeof cfg.speed === 'number') cfg.speed = Math.max(0, cfg.speed);
+  return cfg;
+}
+
 // ---------- 抽卡 ----------
 
-// 按稀有度权重抽取 n 张不重复卡。pool 为卡数组。rng 为 createRNG 实例（可选）。
-function drawCardChoices(pool, n, rng) {
+// 按稀有度权重抽取 n 张不重复卡。pool 为卡数组。optsOrRng 可为 createRNG 实例或 { rng, ammoLoadout } 配置对象。
+function drawCardChoices(pool, n, optsOrRng) {
   const count = n || 3;
-  const r = rng || Math.random;
-  const usable = (pool || []).slice();
+  let r = Math.random;
+  let ammoLoadout = null;
+
+  if (typeof optsOrRng === 'function') {
+    r = optsOrRng;
+  } else if (optsOrRng && typeof optsOrRng === 'object') {
+    if (typeof optsOrRng.rng === 'function') r = optsOrRng.rng;
+    if (Array.isArray(optsOrRng.ammoLoadout)) ammoLoadout = optsOrRng.ammoLoadout;
+  }
+
+  let usable = (pool || []).slice();
+
+  // P-27: 过滤掉包含玩家未携带弹种改造的卡牌
+  if (ammoLoadout) {
+    usable = usable.filter(card => {
+      if (!card || !Array.isArray(card.effects)) return true;
+      for (const ef of card.effects) {
+        if (ef && ef.type === 'ammo' && !ammoLoadout.includes(ef.key)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
   if (usable.length <= count) return usable.slice();
   const picked = [];
   while (picked.length < count && usable.length > 0) {
@@ -220,6 +268,7 @@ if (typeof module !== 'undefined' && module.exports) {
     isArmorPath,
     applyCardEffects,
     cardStackCount,
+    computeAmmoConfig,
     drawCardChoices,
     weightedRarity
   };

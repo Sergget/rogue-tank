@@ -861,7 +861,7 @@ watchFlow(flow, (state, payload) => {
   } else if(state === 'reward'){
     const row = document.getElementById('cardRow');
     row.innerHTML = '';
-    const cards = cardPool.length ? drawCardChoices(cardPool, 3) : [];
+    const cards = cardPool.length ? drawCardChoices(cardPool, 3, { ammoLoadout: player.ammoLoadout }) : [];
     if(cards.length === 0){
       row.innerHTML = '<div class="screen-hint">卡池为空——请确认 cards/ 目录与 /api/cards 可用。</div>';
     }
