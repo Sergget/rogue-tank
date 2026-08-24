@@ -278,7 +278,9 @@ const RULES = {
     searchMinLoSBlocked: 2.0,       // 连续 LoS 被遮挡多少秒后触发搜索状态（秒）
     stunModuleThreshold: 0.5,       // 模块 debuff 严重程度阈值（0~1）：超过此值触发惊慌状态
     stunDuration: 3.0,              // 惊慌/呆滞状态持续时间（秒）
+    stunImmunityAfter: 2.0,         // stunned 自然结束后免疫窗时长（秒）：期间不再被压入 stunned（防高射速无限连控）
     dazedProbability: 0.3,          // 模块伤害触发惊慌而非直接进入 stun 的概率
+    alertRadius: 600,               // 警觉传播半径（px）：敌对 AI 被击中时，该半径内友邻一并警觉（propagateAlert）
     patrolSpeedFactor: 0.8,         // 巡逻/行军状态移动速度因子（相对于基准速度的比例）
     patrolWanderSigma: 0.02,        // 巡逻状态正弦摆动幅度（rad），轻微摆动路径
     patrolWanderSpeed: 1.5,         // 巡逻状态摆动周期频率（rad/s）

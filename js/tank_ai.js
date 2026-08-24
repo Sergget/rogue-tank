@@ -52,22 +52,43 @@ function aiDecideEnemy(t, ctx){
   if(!t.aiEngaged){
     if(dist > enterD){ t.aiState = 'patrol'; return out; }   // 触发距离外：patrol 不活动
   } else if(dist > exitD){                                   // 滞回带内保持接战，超出才脱离
-    t.aiEngaged = false;
-    t.aiState = 'patrol';
-    return out;
+    // 警觉记忆（被击中/友邻告警）：持有 lastKnownPlayerPos 时即使超出滞回带也保持
+    // 接战——朝记忆点 search 推进，直到到达附近或重新获得视线后清除（见 LoS/search 分支）。
+    if(!t.lastKnownPlayerPos){
+      t.aiEngaged = false;
+      t.aiState = 'patrol';
+      return out;
+    }
   }
   t.aiEngaged = true;
 
   // LoS 节流：仅距离达标时才评估（上方 patrol 早退路径不做射线），避免逐帧全图射线开销。
   const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y) : true;
 
-  // 距离达标但无视线 → search 态推进（沿用 searchOscillationSpeed 等参数扫视前进）
+  // 重新获得视线 → 警觉记忆已确认目标位置，清除
+  if(los && t.lastKnownPlayerPos) t.lastKnownPlayerPos = null;
+
+  // 距离达标但无视线 → search 态推进：优先朝警觉记忆点（来弹方向）推进，
+  // 无记忆时沿用 searchOscillationSpeed 等参数扫视前进
   if(!los){
     const searchOscSpeed = cfg.searchOscillationSpeed !== undefined ? cfg.searchOscillationSpeed : 0.25;
     const oscillate = Math.sin(1.0 * searchOscSpeed) * 0.3;
+    let heading = desired;
+    const mem = t.lastKnownPlayerPos;
+    if(mem){
+      const mdx = mem.x - t.x, mdy = mem.y - t.y;
+      const mdist = Math.hypot(mdx, mdy);
+      const arrive = cfg.searchArriveDist !== undefined ? cfg.searchArriveDist : 140;
+      if(mdist <= arrive){
+        t.lastKnownPlayerPos = null;   // 到达记忆点附近：放弃追忆，恢复扫视推进
+      } else {
+        heading = Math.atan2(mdy, mdx);   // 未到达：朝记忆点（来弹方向）推进
+      }
+    }
     out.move = 1;
-    out.turn = oscillate;
-    out.turretDesired = desired + oscillate;
+    const hDiff = angDiff(heading, t.hullAngle);
+    out.turn = hDiff > 0.05 ? 1 : (hDiff < -0.05 ? -1 : 0);
+    out.turretDesired = heading;
     t.aiState = 'search';
     return out;
   }
@@ -107,8 +128,12 @@ function aiDecideEnemy(t, ctx){
 
   const stunThreshold = cfg.stunModuleThreshold !== undefined ? cfg.stunModuleThreshold : 0.5;
   const stunProb = cfg.dazedProbability !== undefined ? cfg.dazedProbability : 0.3;
-  const shouldStun = debuffSeverity >= stunThreshold ||
-                     (Math.random() < stunProb && debuffSeverity > 0.2);
+  // stun 免疫窗：stunned 自然结束后 stunImmuneT 秒内不再被压入 stunned
+  // （防高射速 + 30% 随机 daze 无限连控；见 RULES.ai.stunImmunityAfter）
+  const stunImmune = (t.stunImmuneT || 0) > 0;
+  const shouldStun = !stunImmune && (
+                     debuffSeverity >= stunThreshold ||
+                     (Math.random() < stunProb && debuffSeverity > 0.2));
 
   // --- 3) 状态机：确定当前状态，并仅对应状态修正输出 ---
   // 使用 stateVariable 追踪当前活跃状态，base 输出在无状态激活时保留不变。
@@ -230,18 +255,57 @@ function aiDecide(t, ctx){
 // AI 状态计时器由主游戏循环统一递减（同 reloadT、invulnT 的模式）。
 // 主循环每帧调用： aiUpdateStateTimer(t, dt) 确保跨帧计时正确。
 function aiUpdateStateTimer(t, dt){
+  // stun 免疫窗倒计时（独立于 stunned 状态，每帧递减）
+  if(t.stunImmuneT > 0){
+    t.stunImmuneT = Math.max(0, t.stunImmuneT - dt);
+  }
   if(t.aiState === 'stunned' && t.aiStateTimer > 0){
     t.aiStateTimer = Math.max(0, t.aiStateTimer - dt);
     if(t.aiStateTimer <= 0){
       t.aiState = 'patrol'; // 惊慌计时结束，恢复巡逻
       t.aiStateTimer = 0;
+      // 自然苏醒 → 进入 stun 免疫窗（RULES.ai.stunImmunityAfter，缺省 2s）
+      const cfg = aiConfig();
+      t.stunImmuneT = cfg.stunImmunityAfter !== undefined ? cfg.stunImmunityAfter : 2.0;
     }
   }
+}
+
+// --- 警觉系统（被击中/友邻告警）：修复「镜头外无伤打木桩」缺陷 ---
+// alertEntity：命中/告警来源 (srcX,srcY) 触发敌对 AI 立即接战——
+//   置 aiEngaged、记录 lastKnownPlayerPos（来弹方向，search 分支朝其推进）、
+//   清除进行中的 stunned（被击中立即惊醒）。玩家/友军实体为 no-op。
+// 返回 true 表示该实体被警觉。
+function alertEntity(t, srcX, srcY){
+  if(!t || t.team !== 'enemy' || t.isDrone || t.hp <= 0) return false;
+  t.aiEngaged = true;
+  t.lastKnownPlayerPos = { x: srcX, y: srcY };
+  if(t.aiState === 'stunned'){
+    t.aiState = 'patrol';       // 被击中立即惊醒（不给免疫窗——免疫窗只在自然苏醒后授予）
+    t.aiStateTimer = 0;
+  }
+  return true;
+}
+
+// propagateAlert：以 (x,y) 为中心、radius（缺省 RULES.ai.alertRadius=600）内的
+// 其他存活敌对 AI 全部警觉（lastKnown 记为 x,y）。返回被警觉的实体数。
+function propagateAlert(entitiesArr, x, y, radius){
+  const cfg = aiConfig();
+  const r = (radius !== undefined && radius > 0) ? radius
+          : (cfg.alertRadius !== undefined ? cfg.alertRadius : 600);
+  let count = 0;
+  const list = entitiesArr || [];
+  for(const e of list){
+    if(!e || e.hp <= 0) continue;
+    if(Math.hypot(e.x - x, e.y - y) > r) continue;   // 半径筛选
+    if(alertEntity(e, x, y)) count++;
+  }
+  return count;
 }
 
 // 敌人（含 Boss）决策。
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer };
+  module.exports = { aiConfig, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert };
 }

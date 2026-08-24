@@ -277,6 +277,10 @@ declare function aiConfig(): any;
 declare function aiDecideEnemy(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
 declare function aiDecideAlly(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
 declare function aiDecide(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
+declare function aiUpdateStateTimer(t: any, dt: number): void;
+// 警觉系统（被击中/友邻告警）：敌对 AI 立即接战并记录来弹方向
+declare function alertEntity(t: any, srcX: number, srcY: number): boolean;
+declare function propagateAlert(entitiesArr: any[], x: number, y: number, radius?: number): number;
 
 // 死亡/复活状态机（js/tank_revive.js，P-11 / §2.3 / §6 条目 8）
 declare function reviveConfig(): any;

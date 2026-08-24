@@ -1609,7 +1609,21 @@ function update(dt){
     shellPartHit,
     coverNormalAt,
     reflectDir,
-    resolveHit,
+    // resolveHit 包装：命中敌对 AI → alertEntity（立即接战+记来弹方向）+ 半径友邻告警。
+    // 只对敌方目标生效；玩家/友军被击中不触发。BOUNCE 也算被命中（同样暴露弹源方向）。
+    resolveHit: (function(){
+      const raw = resolveHit;
+      return function(s, target, hit, allowBounce){
+        const res = raw(s, target, hit, allowBounce);
+        if(res && target && target.team === 'enemy' && target.hp > 0 && !target.isDrone){
+          const sx = (s && s.shooter) ? s.shooter.x : (s ? s.fx : 0);
+          const sy = (s && s.shooter) ? s.shooter.y : (s ? s.fy : 0);
+          alertEntity(target, sx, sy);
+          propagateAlert(entities, sx, sy);
+        }
+        return res;
+      };
+    })(),
     hasShield,
     shieldAbsorbs,
     absorbDamage,
@@ -1657,6 +1671,7 @@ function update(dt){
       if(e.id === 'player') continue;   // 手动控制
       if(e.isDrone) continue;           // P-17：无人机无 hull 几何/射界，不参与坦克 AI 与 driveTank（由 tank_drone.js 管理）
       if(e.hp <= 0) continue;
+      aiUpdateStateTimer(e, dt);   // stun 计时/免疫窗倒计时（主循环统一递减，同 reloadT 模式）
       const d = aiDecide(e, aiCtx);
       // 车体转向 + 移动（统一 driveTank）
       driveTank(e, dt, { turn: d.turn, move: d.move });
@@ -1682,6 +1697,11 @@ function update(dt){
     const target = ev.target;
     if(!target || target.hp <= 0) continue;
     target.hp = Math.max(0, target.hp - ev.damage);   // 直伤（模块已排除无敌/阵亡目标）
+    // 警觉钩子：无人机直伤命中敌对 AI → 立即接战 + 友邻告警（同炮弹命中路径，只对敌方生效）
+    if(target.team === 'enemy' && target.hp > 0 && !target.isDrone){
+      alertEntity(target, ev.drone.x, ev.drone.y);
+      propagateAlert(entities, ev.drone.x, ev.drone.y);
+    }
     const ang = Math.atan2(target.y - ev.drone.y, target.x - ev.drone.x);
     spawnImpactFx(ev.drone.x, ev.drone.y, ang, 'pen', 0.5);
     spawnDmgText(target.x, target.y - 14, ev.damage, 'pen');

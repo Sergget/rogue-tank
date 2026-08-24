@@ -1,4 +1,4 @@
-// test-ai.js — 敌人/友军 AI 决策测试（Node 端，Pure Logic）
+﻿// test-ai.js — 敌人/友军 AI 决策测试（Node 端，Pure Logic）
 // 运行：node scripts/test-ai.js
 'use strict';
 
@@ -8,7 +8,7 @@ const U = require('../js/tank_utils.js');
 global.angDiff = U.angDiff;
 global.norm = U.norm;
 global.TAU = U.TAU;
-const { aiDecideEnemy, aiDecideAlly, aiDecide } = require('../js/tank_ai.js');
+const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert } = require('../js/tank_ai.js');
 
 let fails = 0;
 function ok(cond, label) {
@@ -90,7 +90,88 @@ ok(dAlly2.move === 0 && dAlly2.turn === 0, '友军消极防御（不移动）');
 ok(aiDecide(ally, { enemies: [], hasLoS: () => true }).fire === false, 'aiDecide 分发 ally');
 ok(aiDecide(far, { player, hasLoS: () => true }).move === 0, 'aiDecide 分发 enemy');
 
-console.log('test-ai: 完成所有检查');
-if (fails === 0) console.log('test-ai: 全部通过');
-else console.error(`test-ai: ${fails} 项失败`);
+// ===== 警觉系统（被击中/友邻告警 + stun 免疫窗） =====
+
+console.log('--- 警觉系统 ---');
+
+// A) alertEntity：未激活（触发距离外被动）的敌对 AI 被警觉后立即接战且不再 patrol 早退
+{
+  const t = enemy(0, 500, Math.PI, Math.PI, 0);          // 距玩家(1000,500) 1000 > 700 → 被动
+  const dBefore = aiDecideEnemy(t, { player, hasLoS: () => false });
+  ok(dBefore.move === 0 && dBefore.turn === 0 && dBefore.fire === false,
+    '警觉前：触发距离外 → 全零输出（木桩）');
+  ok(alertEntity(t, 900, 500) === true, 'alertEntity 对敌对实体生效（返回 true）');
+  ok(t.aiEngaged === true && t.lastKnownPlayerPos && t.lastKnownPlayerPos.x === 900 && t.lastKnownPlayerPos.y === 500,
+    '警觉后：aiEngaged 置位 + lastKnownPlayerPos 记录来弹方向');
+  // 警觉后即使超出滞回带也保持接战；无视线 → search 朝记忆点推进
+  const dAfter = aiDecideEnemy(t, { player, hasLoS: () => false });
+  ok(dAfter.move === 1 && t.aiState === 'search', '警觉后不再早退 patrol → search 态推进');
+  ok(Math.abs(dAfter.turretDesired - 0) < 1e-9,
+    'search 朝记忆点 (900,500)（正右方，atan2(0,+)=0）推进');
+  ok(dAfter.turn === 1 || dAfter.turn === -1 || dAfter.turn === 0, 'search 输出合法 turn');
+}
+// A2) alertEntity 非敌方目标 no-op
+{
+  const p = { team: 'player', x: 0, y: 0, hp: 100 };
+  ok(alertEntity(p, 10, 10) === false, 'alertEntity 对玩家 no-op');
+  const ally = { team: 'ally', x: 0, y: 0, hp: 100 };
+  ok(alertEntity(ally, 10, 10) === false, 'alertEntity 对友军 no-op');
+  const dead = enemy(0, 0, 0, 0, 0); dead.hp = 0;
+  ok(alertEntity(dead, 10, 10) === false, 'alertEntity 对阵亡实体 no-op');
+}
+
+// B) alertEntity 清除进行中的 stunned（被击中立即惊醒）
+{
+  const t = enemy(800, 500, 0, 0, 0);
+  aiDecideEnemy(t, { player, hasLoS: () => true });       // 激活
+  t.aiState = 'stunned'; t.aiStateTimer = 3.0;
+  alertEntity(t, 900, 500);
+  ok(t.aiState !== 'stunned' && t.aiStateTimer === 0, 'stunned 进行中被击中 → 立即惊醒');
+}
+
+// C) propagateAlert：半径内外筛选正确
+{
+  const center = { x: 2000, y: 2000 };
+  const inA = enemy(2300, 2000, 0, 0, 0);   // 距 300 < 600
+  const inB = enemy(2000, 2500, 0, 0, 0);   // 距 500 < 600
+  const outC = enemy(2700, 2000, 0, 0, 0);  // 距 700 > 600
+  const deadD = enemy(2100, 2000, 0, 0, 0); deadD.hp = 0;  // 半径内但阵亡
+  const playerE = { team: 'player', x: 2050, y: 2000, hp: 100 }; // 非敌对
+  const n = propagateAlert([inA, inB, outC, deadD, playerE], center.x, center.y);
+  ok(n === 2, `propagateAlert 只警觉半径内存活敌对 AI（实际 ${n}，期望 2）`);
+  ok(inA.aiEngaged === true && inB.aiEngaged === true, '半径内敌对 AI 均置位 aiEngaged');
+  ok(inA.lastKnownPlayerPos.x === 2000 && inA.lastKnownPlayerPos.y === 2000, 'lastKnown 记为告警来源点');
+  ok(outC.aiEngaged === undefined || outC.aiEngaged === false, '半径外不被警觉');
+  // 显式 radius 覆盖
+  const farF = enemy(3200, 2000, 0, 0, 0);   // 距 1200
+  ok(propagateAlert([farF], center.x, center.y, 1500) === 1, '显式 radius 参数生效');
+  ok(propagateAlert([], center.x, center.y) === 0, '空列表返回 0');
+}
+
+// D) stun 免疫窗：自然苏醒后立即再压不生效，免疫窗过后恢复可 stun
+{
+  const cfg = RULES.ai;
+  const t = enemy(800, 500, 0, 0, 0);
+  aiDecideEnemy(t, { player, hasLoS: () => true });       // 激活（dist 300 < engage）
+  t.trackBroken = true;                                    // debuffSeverity ≥ 阈值 → 必 stun
+  aiDecideEnemy(t, { player, hasLoS: () => true });
+  ok(t.aiState === 'stunned' && t.aiStateTimer > 0, '模块重伤 → 进入 stunned');
+  // 免疫计时走 aiUpdateStateTimer：3s 后自然苏醒并授予免疫窗
+  for(let i = 0; i < 310; i++) aiUpdateStateTimer(t, 0.01);   // 3.1s
+  ok(t.aiState !== 'stunned', 'stunDuration 到点 → 自然苏醒');
+  ok((t.stunImmuneT || 0) > 0, `苏醒后进入免疫窗（stunImmuneT=${t.stunImmuneT}）`);
+  delete t.trackBroken;
+  // 免疫窗内再次满足 stun 条件 → 不进入 stunned
+  t.immobT = 5;                                            // debuffSeverity ≥ 阈值
+  const r1 = aiDecideEnemy(Object.assign(t, {}), { player, hasLoS: () => true });
+  ok(t.aiState !== 'stunned', '免疫窗内再压不生效（不被压入 stunned）');
+  // 免疫窗耗尽后恢复可 stun
+  for(let i = 0; i < 220; i++) aiUpdateStateTimer(t, 0.01);   // 再过 2.2s > stunImmunityAfter=2.0
+  ok((t.stunImmuneT || 0) === 0, '免疫窗倒计时归零');
+  aiDecideEnemy(t, { player, hasLoS: () => true });
+  ok(t.aiState === 'stunned', '免疫窗过后恢复可 stun');
+}
+
+if(fails === 0) console.log('test-ai: 完成所有检查，全部通过');
+else console.error('test-ai: ' + fails + ' 项失败');
 process.exit(fails === 0 ? 0 : 1);
