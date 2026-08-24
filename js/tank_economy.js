@@ -50,7 +50,8 @@ function getUpgradeDef(id){ return UPGRADE_DEFS.find(u => u.id === id) || null; 
 const AMMO_LOADOUT_MAX = 3;
 
 // profile = { version, points, upgrades: { id → level }, stats: { runs, kills },
-//             selectedTankId, ammoLoadout: [ammoKey×≤3], bonusRevives }
+//             selectedTankId, ammoLoadout: [ammoKey×≤3], bonusRevives,
+//             settings: { invertReverseTurn } }
 function defaultProfile(){
   return {
     version: economyConfig().saveVersion || 1,
@@ -59,7 +60,9 @@ function defaultProfile(){
     stats: { runs: 0, kills: 0 },
     selectedTankId: null,
     ammoLoadout: [],
-    bonusRevives: 0
+    bonusRevives: 0,
+    // P-35：持久化设置（倒车转向倒置开关；新设置项在此补默认值）
+    settings: { invertReverseTurn: false }
   };
 }
 
@@ -76,7 +79,11 @@ function normalizeProfile(p){
     stats: { runs: 0, kills: 0 },
     selectedTankId: (typeof p.selectedTankId === 'string' && p.selectedTankId.length > 0) ? p.selectedTankId : null,
     ammoLoadout: [],
-    bonusRevives: Number.isInteger(p.bonusRevives) && p.bonusRevives >= 0 ? p.bonusRevives : 0
+    bonusRevives: Number.isInteger(p.bonusRevives) && p.bonusRevives >= 0 ? p.bonusRevives : 0,
+    // P-35：settings 逐字段守卫（旧档缺省 → 默认 false，向后兼容）
+    settings: {
+      invertReverseTurn: !!(p.settings && typeof p.settings === 'object' && p.settings.invertReverseTurn)
+    }
   };
   if(p.upgrades && typeof p.upgrades === 'object'){
     for(const id in p.upgrades){

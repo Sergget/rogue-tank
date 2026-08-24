@@ -13,7 +13,8 @@
 // 合法状态集合（transition 的唯一约束来源）
 const FLOW_STATES = [
   'home', 'loadout', 'shop',               // M10 局外三态（home 为顶层入口，位于 map 之前）
-  'map', 'battle', 'settlement', 'reward', 'gameover'
+  'map', 'battle', 'pause',                // P-35：pause = 战斗内 ESC 暂停/设置面板（仅可从 battle 进入）
+  'settlement', 'reward', 'gameover'
 ];
 
 // 局外状态集合（尚未开始一局 run）：restartRun 对其为 no-op（见 restartRun JSDoc）
@@ -25,9 +26,12 @@ const FLOW_TRANSITIONS = {
   home:       ['loadout', 'home'],              // 选择存档 → 出战整备；home→home 自环 = 同界面切换存档后刷新
   loadout:    ['shop', 'map', 'home'],          // 确认配置直接出击 → 节点图；进强化整备 → 商店；返回首页
   shop:       ['map', 'loadout', 'home'],       // 购买完毕出击 → 节点图；回整备微调；回首页
-  // —— 局内一局流程（P-08）——
+  // —— 局内一局流程（P-08；P-35 增 pause）——
   map:        ['battle'],
-  battle:     ['settlement', 'gameover', 'map'],  // 结算 = 敌全灭/通关；gameover = 阵亡（复活耗尽）；map = 放弃节点/重开
+  battle:     ['settlement', 'gameover', 'map', 'pause'],  // 结算 = 敌全灭/通关；gameover = 阵亡（复活耗尽）；map = 放弃节点/重开；pause = ESC 暂停
+  // pause→battle = 继续战斗（恢复现场，UI 层不得重新实体化节点）；pause→settlement = 「终止游戏并结算」（voluntaryEnd，
+  // P-34 将消费该入口做终局结算语义）
+  pause:      ['battle', 'settlement'],
   settlement: ['reward', 'map'],            // 正常 → 卡牌/商店；无奖励（最后一关后）→ 回到节点图
   reward:     ['battle', 'map'],            // 选完 → 下一节点；节点链走完 → 回到节点图（一局结束）
   gameover:   ['map', 'home']               // 阵亡 → 快速重开（重新开始）；或回首页（M10）

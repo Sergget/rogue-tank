@@ -286,6 +286,15 @@
         <button id="shopStartBtn">出击 START RUN</button>
       </div>
     </div>
+    <div id="pauseScreen" class="screen" style="display:none;">
+      <div class="screen-title">暂停 PAUSED</div>
+      <div id="pauseBindings"></div>
+      <div id="pauseSettings" style="margin-top:12px;"></div>
+      <div class="btnrow">
+        <button id="pauseResumeBtn">继续 RESUME</button>
+        <button id="pauseEndBtn">终止游戏并结算 END &amp; SETTLE</button>
+      </div>
+    </div>
   </div>
   <div id="statusPanel" style="display:none;">
     <div class="sp-title">玩家状态 PLAYER STATUS</div>
@@ -496,7 +505,7 @@ function setAmmo(key){
   const i = activeLoadout().indexOf(key);
   if(i >= 0) player.currentAmmoIndex = i;   // 激活索引与键同步（兜底表外键不动索引）
   renderAmmoIndicator();
-  playSound('ui'); // M1：弹种切换音效（数字键/Q/滚轮共用，先例同旧版数字键直选）
+  playSound('ui'); // M1：弹种切换音效（数字键/Q 共用）
   pushLog(`弹种切换：${RULES.ammoTypes[key].label}`,'COVER');
 }
 function setAmmoSlot(idx){
@@ -518,9 +527,20 @@ document.addEventListener('keydown', e=>{
   else if(k === 'q' || k === 'Q') cycleAmmo(1);
 });
 window.addEventListener('wheel', e=>{
-  if(inMenuState()) return;   // 局外界面：滚轮不切弹（passive 不拦截列表滚动默认行为）
-  cycleAmmo(e.deltaY > 0 ? 1 : -1);
-}, { passive:true });
+  if(inMenuState()) return;   // 局外界面：滚轮不调缩放（不拦截列表滚动默认行为）
+  e.preventDefault();          // 战斗中滚轮专属缩放，阻止页面滚动
+  // P-39 滚轮缩放：以鼠标当前位置为焦点（zoom-to-cursor）。
+  // 弹药循环已由数字键 1/2/3 与 Q 环形循环承担（上方 keydown 监听），滚轮完全让位。
+  const r = canvas.getBoundingClientRect();
+  const sx = e.clientX - r.left, sy = e.clientY - r.top;
+  const wpt = screenToWorld(cam, sx, sy);            // 缩放前光标下的世界点（缩放后要保持不动）
+  const step = RULES.camera.zoomStep;
+  const mul = e.deltaY < 0 ? (1 + step) : 1 / (1 + step);   // 上滚放大 / 下滚缩小
+  const tz = setZoom(cam, cam.targetZoom * mul);
+  // 直接把中心挪到「目标缩放下光标世界点仍在原屏幕位置」处；缩放阻尼期间由跟随收敛兜底
+  cam.x = wpt.x - (sx - cam.vw / 2) / tz;
+  cam.y = wpt.y - (sy - cam.vh / 2) / tz;
+}, { passive:false });
 
 // 鼠标瞄准（世界坐标）+ 左键开火（P-15 拆分时保留，与空格键等效）
 let mouseWorld = {x:player.x+100,y:player.y};
@@ -549,6 +569,46 @@ document.addEventListener('keydown', e=>{
   if(inMenuState()) return;   // 局外界面：Tab/` 面板热键不响应
   if(e.key === 'Tab'){ e.preventDefault(); togglePanel('statusPanel'); }
   if(e.key === '`' || e.key === 'F12'){ e.preventDefault(); togglePanel('devPanel'); }
+});
+
+// ---------- P-35：ESC 暂停/设置面板（battle ⇄ pause；局外三态与其他状态不响应） ----------
+// battle→pause：冻结战场（loop 的 simulating 门控自动停更），显示暂停覆盖层；
+// pause→battle：恢复现场（watcher 里 prev==='pause' 分支跳过 enterBattle 重新实体化）。
+// pause→settlement（终止游戏并结算）：voluntaryEnd 终局语义由 P-34 完善，本条目仅保证转移合法。
+function renderPause(){
+  const vm = buildPausePanel({ settings: profile.settings });
+  document.getElementById('pauseBindings').innerHTML = vm.bindings.map(b =>
+    `<div class="row" style="justify-content:flex-start; gap:10px;"><span class="k" style="min-width:150px;">${b.keys}</span><span style="font-size:11px;color:var(--text-dim);">${b.desc}</span></div>`
+  ).join('');
+  const s = vm.settings;
+  document.getElementById('pauseSettings').innerHTML =
+    `<label style="cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;">` +
+    `<input type="checkbox" id="pauseInvertTurn"${s.invertReverseTurn ? ' checked' : ''}> ${s.invertReverseTurnDesc}</label>`;
+  const cb = document.getElementById('pauseInvertTurn');
+  cb.addEventListener('change', function(){
+    if(!profile.settings || typeof profile.settings !== 'object') profile.settings = {};
+    profile.settings.invertReverseTurn = this.checked;
+    saveActiveProfile(localStorage, profile);   // 即时持久化（P-35 设置项）
+    playSound('ui');
+  });
+}
+document.addEventListener('keydown', e=>{
+  if(e.key !== 'Escape') return;
+  if(flow.state === 'battle'){
+    e.preventDefault();
+    transition(flow, 'pause', { nodeIndex: currentNode ? currentNode.index : 0 });
+  } else if(flow.state === 'pause'){
+    e.preventDefault();
+    transition(flow, 'battle');   // 恢复战斗（payload 无需 nodeIndex，prev==='pause' 不重新实体化）
+  }
+});
+document.getElementById('pauseResumeBtn').addEventListener('click', () => {
+  playSound('ui');
+  transition(flow, 'battle');
+});
+document.getElementById('pauseEndBtn').addEventListener('click', () => {
+  playSound('ui');
+  transition(flow, 'settlement', { voluntaryEnd: true });   // P-34 接手终局结算语义
 });
 
 // 状态面板：读 tank.stats（不摸 base）
@@ -836,13 +896,16 @@ watchFlow(flow, (state, payload) => {
   if(state === 'home'){ renderHome(); showScreen('homeScreen'); setOverlayVisible(true); return; }
   if(state === 'loadout'){ renderLoadout(); showScreen('loadoutScreen'); setOverlayVisible(true); return; }
   if(state === 'shop'){ renderShop(); showScreen('shopScreen'); setOverlayVisible(true); return; }
+  // P-35：战斗内暂停面板（战场冻结，仅覆盖层；恢复/终止经 transition 白名单）
+  if(state === 'pause'){ renderPause(); showScreen('pauseScreen'); setOverlayVisible(true); return; }
   if(!run) return;                       // 未开局：仅显示封面路由（mapScreen）
   if(state === 'map'){
     showScreen('mapScreen'); setOverlayVisible(true);
     renderMapList();
   } else if(state === 'battle'){
     setOverlayVisible(false);
-    enterBattle(payload ? payload.nodeIndex : 0);
+    // P-35：pause→battle = 恢复现场（战场仍在），不得重新实体化节点
+    if(flow.prev !== 'pause') enterBattle(payload ? payload.nodeIndex : 0);
   } else if(state === 'settlement'){
     const _bSet = (typeof buildSettlementViewModel === 'function' ? buildSettlementViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildSettlementViewModel : null));
     if(_bSet){
@@ -1478,7 +1541,9 @@ function update(dt){
   // 驾驶（转向/加减速/掩体通行/碰撞/履带相位）统一在 js/tank_move.js 的 driveTank
   driveTank(player, dt, {
     turn: keys['a'] ? -1 : (keys['d'] ? 1 : 0),
-    move: keys['w'] ? 1 : (keys['s'] ? -1 : 0)
+    move: keys['w'] ? 1 : (keys['s'] ? -1 : 0),
+    // P-35：倒车转向倒置（玩家持久化设置；AI 不传 → 默认关闭零影响）
+    invertTurnWhenReversing: !!(profile.settings && profile.settings.invertReverseTurn)
   });
   if(player.immobT<=0){ player.immobT=0; player.trackBroken=false; }
   player.x = Math.max(40, Math.min(worldW-40, player.x));
@@ -2039,7 +2104,9 @@ function loop(now){
   accumulator += dt;
   // P-08 模拟门控：run 模式下只有 battle 状态推进战斗循环（节点图/结算/卡牌/阵亡冻结战场）；
   // 未开局恒模拟（封面路由下仍可自由驾驶预览）。
-  const simulating = !run || flow.state === 'battle';
+  // P-35：pause 态显式冻结（跳过所有 update，仅 draw 渲染当前战场快照）。
+  const paused = flow.state === 'pause';
+  const simulating = !paused && (!run || flow.state === 'battle');
   if(simulating){
     while (accumulator >= STEP_TIME) {
       update(STEP_TIME);

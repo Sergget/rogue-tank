@@ -62,6 +62,8 @@
 | 2026-08-23 | `PLAN.md` | P-30 文档分卷：ARCHIVE 按月拆卷 + DEVELOPMENT 拆 specs 五卷 | 已完成并验证（archive/2026-08.md 169KB 分卷 + ARCHIVE.md 9KB 索引 + DEVELOPMENT 5KB 核心流控 + specs 五卷；结论见 DEVELOPMENT §5 条目 31） |
 | 2026-08-23 | `PLAN.md` | P-29 覆盖层 UI 纯逻辑下沉 | 已完成并验证（`js/tank_screens.js` 纯逻辑 viewModel + `tank_mvp.html` 薄包装，结论见 DEVELOPMENT §5 条目 30） |
 | 2026-08-23 | `PLAN.md` | P-27 卡牌 × Loadout 衔接 | 已完成并验证（`drawCardChoices` 过滤未配弹种卡 + `computeAmmoConfig` 弹种强化生效，结论见 DEVELOPMENT §5 条目 27） |
+| 2026-08-24 | `PLAN.md` | P-39 镜头滚轮缩放 | 已完成并验证（RULES.camera minZoom/maxZoom/zoomStep + setZoom 钳制 + zoom 指数阻尼 + zoom-to-cursor 滚轮缩放，见 DEVELOPMENT.md §2.1 / specs/map.md） |
+| 2026-08-24 | `PLAN.md` | P-35 ESC 暂停/设置面板 + 终止游戏并结算 + 倒车转向倒置开关 | 已完成并验证（battle⇄pause 冻结战斗循环 + pause→settlement voluntaryEnd 终止入口 + invertReverseTurn 倒车转向倒置，见 DEVELOPMENT.md §2.1 / specs/map.md） |
 
 ------
 

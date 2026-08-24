@@ -264,6 +264,37 @@ transition(flowOutShop, 'shop');
 restartRun(flowOutShop);
 ok(flowOutShop.state === 'shop', 'restartRun 在 shop 态（经 loadout）同样 no-op 停留原地');
 
+// 17) P-35：pause 态 —— battle⇄pause 合法、pause→settlement（终止游戏并结算）合法
+const flowPause = createFlow();
+transition(flowPause, 'battle');
+transition(flowPause, 'pause', { nodeIndex: 0 });
+ok(flowPause.state === 'pause' && flowPause.prev === 'battle' && flowPause.payload.nodeIndex === 0, 'battle→pause 合法且 payload 透传');
+transition(flowPause, 'battle');
+ok(flowPause.state === 'battle' && flowPause.prev === 'pause', 'pause→battle 合法（恢复战斗）');
+
+transition(flowPause, 'pause', { voluntaryEnd: true });
+transition(flowPause, 'settlement', { voluntaryEnd: true });
+ok(flowPause.state === 'settlement' && flowPause.payload.voluntaryEnd === true, 'pause→settlement 合法（终止游戏并结算，voluntaryEnd payload）');
+
+// pause 白名单外的转移仍被拦截
+assertTransitionThrows('pause', 'map', '非法转移拒绝: pause→map 抛出');
+assertTransitionThrows('home', 'pause', '非法转移拒绝: home→pause 抛出（局外不可暂停）');
+
+// restartRun 在 pause 态：直接调用被白名单拦截（pause 无 map 出路，不静默改变状态）；恢复 battle 后行为正常回 map
+const flowPauseRestart = createFlow();
+transition(flowPauseRestart, 'battle');
+transition(flowPauseRestart, 'pause');
+let pauseRestartThrew = false;
+try { restartRun(flowPauseRestart); } catch (e) { pauseRestartThrew = true; }
+ok(pauseRestartThrew && flowPauseRestart.state === 'pause' && flowPauseRestart.runId === 0,
+   'restartRun 在 pause 态被白名单拦截：抛错且不静默改变状态/runId');
+const flowPause2 = createFlow();
+transition(flowPause2, 'battle');
+transition(flowPause2, 'pause');
+transition(flowPause2, 'battle');   // 恢复后重开
+restartRun(flowPause2);
+ok(flowPause2.state === 'map' && flowPause2.prev === 'battle', 'pause 恢复 battle 后 restartRun 正常退回 map');
+
 console.log('test-flow: 完成所有检查');
 if (fails === 0) console.log('test-flow: 全部通过');
 else console.error(`test-flow: ${fails} 项失败`);

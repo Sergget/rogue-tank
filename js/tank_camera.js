@@ -18,14 +18,34 @@
  */
 function createCamera(opts) {
   opts = opts || {};
+  // P-39 缩放参数：优先取调用方显式值，缺省回退 RULES.camera，再兜底硬编码。
+  const rc = (typeof RULES !== 'undefined' && RULES.camera) || {};
+  const zoom0 = opts.zoom || 1;
   return {
     x: (opts.bounds ? opts.bounds.w : opts.vw || 960) / 2,
     y: (opts.bounds ? opts.bounds.h : opts.vh || 600) / 2,
     vw: opts.vw || 960,
     vh: opts.vh || 600,
-    zoom: opts.zoom || 1,
+    zoom: zoom0,
+    targetZoom: zoom0,                       // 阻尼收敛目标（updateCamera 内平滑趋近）
+    minZoom: opts.minZoom || rc.minZoom || 0.5,
+    maxZoom: opts.maxZoom || rc.maxZoom || 2.0,
     bounds: opts.bounds || null
   };
+}
+
+/**
+ * 设置缩放目标（P-39）：钳制到 [minZoom,maxZoom] 后写入 cam.targetZoom，
+ * 实际 cam.zoom 由 updateCamera 指数阻尼平滑趋近。返回钳制后的目标值。
+ * @param {any} cam 摄像机状态
+ * @param {number} target 目标缩放
+ * @returns {number} 钳制后的目标缩放
+ */
+function setZoom(cam, target) {
+  const t = Number(target) || 1;
+  const lo = cam.minZoom || 0.5, hi = cam.maxZoom || 2.0;
+  cam.targetZoom = Math.max(lo, Math.min(hi, t));
+  return cam.targetZoom;
 }
 
 /**
@@ -39,6 +59,13 @@ function createCamera(opts) {
 function updateCamera(cam, target, dt, opts) {
   const lerp = (opts && opts.lerp) || 4;
   const k = 1 - Math.exp(-lerp * (dt || 0));
+  // P-39 缩放阻尼：cam.zoom 平滑趋近 cam.targetZoom（默认比位置跟随更快收敛）。
+  if (cam.targetZoom != null && cam.targetZoom !== cam.zoom) {
+    const zk = 1 - Math.exp(-((opts && opts.zoomLerp) || 10) * (dt || 0));
+    cam.zoom += (cam.targetZoom - cam.zoom) * zk;
+    // 收敛后贴合，避免无限小数漂移
+    if (Math.abs(cam.targetZoom - cam.zoom) < 1e-4) cam.zoom = cam.targetZoom;
+  }
   if (target) {
     cam.x += (target.x - cam.x) * k;
     cam.y += (target.y - cam.y) * k;
@@ -114,6 +141,7 @@ function aabbInView(cam, x, y, w, h, margin) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     createCamera,
+    setZoom,
     updateCamera,
     clampCamera,
     worldToScreen,

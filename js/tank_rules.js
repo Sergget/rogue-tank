@@ -287,6 +287,14 @@ const RULES = {
     reviveRadius: 150        // 复活点 = 友军据点周围半径内随机无障碍点（无据点回退玩家出生点）
   },
 
+  // 摄像机缩放（P-39 镜头滚轮缩放）。
+  // 消费方：js/tank_camera.js（createCamera 缺省 / setZoom 钳制 / updateCamera 阻尼）+ tank_mvp.html（滚轮乘法步进）。
+  camera: {
+    minZoom: 0.5,            // 最小缩放（拉远下限，视野最大）
+    maxZoom: 2.0,            // 最大缩放（推近上限）
+    zoomStep: 0.15           // 每格滚轮的乘法步进系数（targetZoom *= 1±zoomStep）
+  },
+
   // 难度曲线表（P-13 / DEVELOPMENT.md §6 条目 12 / 开放问题 6）。
   // 消费方：js/tank_map.js（difficultyForIndex / makeNode）。
   // 三杠杆随节点推进（t = index/(count-1)）的涨法：

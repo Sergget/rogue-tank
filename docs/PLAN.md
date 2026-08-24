@@ -13,20 +13,12 @@
 ### P-34. 终局结算闭环（死亡耗尽 / ESC 主动终止）+ 跨局难度升级 + 手动结算保存
 - **目标**：一局不再固定 5 节点收尾——节点链随推进持续延伸（开放式），Boss 每 5 节点出现（协同 P-37）。终局仅两种触发：① 阵亡且复活次数耗尽 → gameover 强制终局；② 战斗中 ESC 暂停面板（P-35）选「终止游戏并结算」→ 主动终局。两路均进入终局结算屏（得分/评分汇总）→ 得分 ×10% 转永久点数 → `profile.difficultyLevel` +1 持久化（下一局叠加入 generateRun 曲线）。另：局内 settlement 保留手动「结算并保存」按钮。
 - **改动点**：
-  - `js/tank_flow.js`：新增 `pause` 态（P-35 先行）与转移 battle→pause、pause→settlement（终止并结算）；gameover 保持死亡耗尽出口；扩展白名单表并补单测。
+  - `js/tank_flow.js`：新增 `pause` 态（已落地，2026-08-24）与转移 battle→pause、pause→settlement（终止并结算）；gameover 保持死亡耗尽出口；扩展白名单表并补单测。
   - `tank_mvp.html`：`nextNodeAfterReward` 末节点分支改为开放式续接生成下一节点而非回图收束；ESC 暂停面板挂「终止游戏并结算」；终局结算屏复用现有 settlement 渲染。
   - `js/tank_map.js`：`generateRun` 支持链尾续接生成；接受 `difficultyLevel` 参数叠加难度曲线；`aiTier` 注入 spawnTank spec（协同 ISSUES #76）。
   - `js/tank_economy.js` + `tank_mvp.html`：difficultyLevel 持久化与任一终局 +1；双账本记分（约定见 P-41）；「结算并保存」按钮调 `saveActiveProfile`。
-- **依赖**：P-35（暂停面板承载终止入口）先行；P-37 提供 Boss 周期标记。
+- **依赖**：P-35（暂停面板承载终止入口）（已落地，2026-08-24）；P-37 提供 Boss 周期标记。
 - **验证**：`npm run check` + `npm test`；浏览器连续推进 >5 节点且每第 5 节点遇 Boss；两条终局路径均正确结算且下一局难度提升；中途保存重载生效。
-
-### P-35. ESC 暂停/设置面板 + 终止游戏并结算 + 倒车转向倒置开关
-- **目标**：ESC 打开暂停/设置面板（含按键绑定展示、倒车转向倒置开关、「终止游戏并结算」按钮——后者承接 P-34 主动终局入口），暂停冻结战斗循环。
-- **改动点**：
-  - `js/tank_flow.js`：新增 `pause` 态 + `battle⇄pause` 转移；`draw()` 在 `pause` 态跳过更新仅渲染。
-  - `tank_mvp.html`：新增 ESC 监听与暂停/设置 overlay（按键绑定说明 + 倒车倒置开关写入 profile 设置，默认关）。
-  - `js/tank_move.js:35` 附近：依据 profile 开关在 `move<0` 时翻转 `turn` 符号。
-- **验证**：`npm run check` + `npm test`；浏览器 ESC 暂停/恢复；切换开关后倒车手感验证。
 
 ### P-36. 地面生物群落地貌（混凝土/草原/黄草/泥潭/蓝水）
 - **目标**：战斗地面按节点 biome 主题化填充（混凝土灰/草原绿/黄草/暗泥/蓝水），与 #78 的「减速不挡弹泥潭地形」协同。
@@ -51,13 +43,6 @@
   - 引入 per-node `killQuota`（可超过初始批次），节点结束条件改为 `kills>=quota` 或"清场+配额达成"。
   - 利用 `hasLineOfSight`/camera bounds 判定镜头外生成点。
 - **验证**：`npm run check` + `npm test`；浏览器确认推进中镜头外持续增兵、击杀数超过初始批次。
-
-### P-39. 镜头滚轮缩放
-- **目标**：鼠标滚轮调节 `cam.zoom`（带上下限与阻尼），将滚轮从弹药切换解耦或改为组合键。
-- **改动点**：
-  - `js/tank_camera.js`：为 `zoom` 增加 `minZoom/maxZoom` 与 `updateCamera` 阻尼收敛。
-  - `tank_mvp.html`：新增 `wheel` 监听改绑 `cam.zoom` 调整（弹药切换可移至 `Q`/数字键或 Shift+滚轮），并调用 `worldToScreen`/`screenToWorld` 以焦点为中心缩放。
-- **验证**：`npm run check` + `npm test`；浏览器滚轮缩放顺滑、缩放中心合理。
 
 ### P-40. 地形类型抽象落地（水域/泥潭 + 具体地形 + 富集准备）
 - **目标**：将 water/mud 抽象为类似全高/半高掩体的「地形类型」，具象出水潭、河流、烂泥地、水潭周围烂泥地、残破建筑、完整建筑等，并为后续富集地图元素（岩石/不规则形态、biome 地面、AI 找掩体、摧毁特效）打基座。设计稿见 `docs/specs/map.md` §5。

@@ -10,7 +10,7 @@
 // 加载顺序：tank_rules.js → tank_economy.js / tank_flow.js 之后、内联脚本之前
 // 双端导出：浏览器全局 + Node module.exports
 
-const SCREENS = ['mapScreen','settleScreen','rewardScreen','gameoverScreen','homeScreen','loadoutScreen','shopScreen'];
+const SCREENS = ['mapScreen','settleScreen','rewardScreen','gameoverScreen','homeScreen','loadoutScreen','shopScreen','pauseScreen'];
 
 function formatStamp(ms){
   const d = new Date(ms || 0);
@@ -161,6 +161,35 @@ function buildDeathShopViewModel(opts){
   return { header, pointsText: base.pointsText, upgrades: base.upgrades, revive: base.revive };
 }
 
+// P-35：暂停/设置面板视图模型（零 DOM）——按键绑定说明 + 设置开关状态 + 按钮定义。
+// DOM 接线（ESC 切换 / checkbox 写档 / 终止结算按钮）留在 tank_mvp.html 薄包装层。
+function buildPausePanel(opts){
+  opts = opts || {};
+  const settings = (opts.settings && typeof opts.settings === 'object') ? opts.settings : {};
+  const bindings = [
+    { keys: 'W / A / S / D', desc: '前进 / 转向 / 倒车' },
+    { keys: '鼠标 + 左键 / 空格', desc: '炮塔瞄准 · 开火' },
+    { keys: '1 / 2 / 3 或 Q / 滚轮', desc: '切换弹种' },
+    { keys: 'F', desc: '烟幕弹' },
+    { keys: 'G', desc: '战术炮击' },
+    { keys: 'H（Shift+H 全向）', desc: '护盾' },
+    { keys: 'V', desc: '超装填' },
+    { keys: 'TAB / `', desc: '玩家状态面板 / 开发者面板' },
+    { keys: 'ESC', desc: '暂停 ⇄ 继续' }
+  ];
+  return {
+    bindings,
+    settings: {
+      invertReverseTurn: !!settings.invertReverseTurn,
+      invertReverseTurnDesc: '倒车转向倒置：S 倒车时 A/D 转向反置（拟真履带差速）。'
+    },
+    buttons: [
+      { id: 'pauseResumeBtn', label: '继续 RESUME', action: 'resume' },
+      { id: 'pauseEndBtn', label: '终止游戏并结算 END & SETTLE', action: 'endRun' }
+    ]
+  };
+}
+
 function buildSettlementViewModel(opts){
   opts = opts || {};
   const score = opts.score || null;
@@ -190,7 +219,8 @@ if(typeof window !== 'undefined'){
     buildShopViewModel,
     buildMapListViewModel,
     buildDeathShopViewModel,
-    buildSettlementViewModel
+    buildSettlementViewModel,
+    buildPausePanel
   };
   window.SCREENS = SCREENS;
   window.formatStamp = formatStamp;
@@ -202,6 +232,7 @@ if(typeof window !== 'undefined'){
   window.buildMapListViewModel = buildMapListViewModel;
   window.buildDeathShopViewModel = buildDeathShopViewModel;
   window.buildSettlementViewModel = buildSettlementViewModel;
+  window.buildPausePanel = buildPausePanel;
   // tankSummary / deploymentReady 可能已被 mvp 内联同名覆盖，薄包装层优先用 TankScreens.*
 }
 
@@ -216,6 +247,7 @@ if(typeof module !== 'undefined' && module.exports){
     buildShopViewModel,
     buildMapListViewModel,
     buildDeathShopViewModel,
-    buildSettlementViewModel
+    buildSettlementViewModel,
+    buildPausePanel
   };
 }

@@ -9,6 +9,7 @@ global.RULES = RULES_MOD.RULES;
 
 const {
   createCamera,
+  setZoom,
   updateCamera,
   clampCamera,
   worldToScreen,
@@ -84,6 +85,33 @@ ok(!aabbInView(cv, 700, 600, 0, 0, 0), '边界外 100px、无余量 → 剔除')
 ok(aabbInView(cv, 700, 600, 0, 0, 256), '边界外 100px、余量 256 → 保留');
 // 视口 AABB 应在边界处精确：x=800 中心恰在边缘（minX=800）→ 相交（≥）
 ok(aabbInView(cv, 800, 600, 0, 0, 0), '恰在视口左边缘 → 相交保留');
+
+// 8) P-39 缩放：setZoom 钳制 + 阻尼收敛 + zoom≠1 时互逆
+const RULES = RULES_MOD.RULES;
+const cz = createCamera({ vw: 800, vh: 600 });
+ok(close(cz.minZoom, RULES.camera.minZoom) && close(cz.maxZoom, RULES.camera.maxZoom),
+   'createCamera 从 RULES.camera 读缺省上下限');
+ok(close(setZoom(cz, 99), cz.maxZoom) && close(cz.targetZoom, cz.maxZoom), 'setZoom 超上限 → 钳到 maxZoom');
+ok(close(setZoom(cz, 0.01), cz.minZoom) && close(cz.targetZoom, cz.minZoom), 'setZoom 低于下限 → 钳到 minZoom');
+setZoom(cz, 1.5);
+for (let i = 0; i < 100; i++) updateCamera(cz, null, 0.05);
+ok(close(cz.zoom, 1.5, 1e-3), 'updateCamera 多帧后 zoom 收敛到 targetZoom');
+const zBefore = cz.zoom;
+setZoom(cz, 99); // target=2.0
+updateCamera(cz, null, 0.03);
+ok(cz.zoom > zBefore && cz.zoom < cz.targetZoom + 1e-9, '阻尼中间帧：zoom 向 target 单调趋近且不超过');
+
+// zoom≠1 的 worldToScreen/screenToWorld 双向互逆
+const camR = createCamera({ vw: 800, vh: 600, bounds: { w: 2400, h: 1200 } });
+camR.x = 900; camR.y = 500; camR.zoom = 1.7; camR.targetZoom = 1.7;
+const pA = { x: 1234.5, y: 678.9 };
+const sA = worldToScreen(camR, pA.x, pA.y);
+const bA = screenToWorld(camR, sA.x, sA.y);
+ok(close(bA.x, pA.x) && close(bA.y, pA.y), 'zoom=1.7：世界→屏幕→世界 互逆');
+const sB = { x: 321, y: 456 };
+const wB = screenToWorld(camR, sB.x, sB.y);
+const bB = worldToScreen(camR, wB.x, wB.y);
+ok(close(bB.x, sB.x) && close(bB.y, sB.y), 'zoom=1.7：屏幕→世界→屏幕 互逆');
 
 console.log('test-camera: 完成所有检查');
 if (fails === 0) console.log('test-camera: 全部通过');

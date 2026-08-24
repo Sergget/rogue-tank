@@ -12,6 +12,9 @@ function fireMul(t){ return (t.fireT>0 || t.dotT>0) ? RULES.fire.speedMul : 1; }
 
 function driveTank(t, dt, input){
   const turn = input.turn || 0, mv = input.move || 0;
+  // P-35：倒车转向倒置（拟真履带差速）——仅当调用方显式开启（玩家设置项）且 move<0 时翻转 turn；
+  // 默认关闭 → 玩家旧手感与 AI 行为零影响。
+  const effTurn = (input.invertTurnWhenReversing && mv < 0) ? -turn : turn;
   if(t.immobT > 0){
     t.immobT -= dt;
     if(t.immobT <= 0){
@@ -32,7 +35,7 @@ function driveTank(t, dt, input){
   const p0x = t.x, p0y = t.y, p0a = t.hullAngle;
 
   // 驾驶员受伤 → 转向速度降低（debuff）
-  t.hullAngle += turn * t.stats.turnRate * dt * turnModifier * debuffTurnRate(t);
+  t.hullAngle += effTurn * t.stats.turnRate * dt * turnModifier * debuffTurnRate(t);
   // Mobility: accel / decel 来自 enginePower ÷ weight（makeTank 算过一次 → t.stats.accel/brake）
   const pAccel = t.stats.accel * speedModifier;
   const pBrake = t.stats.brake * speedModifier;

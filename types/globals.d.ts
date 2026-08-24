@@ -190,9 +190,13 @@ interface CameraState {
   vw: number;
   vh: number;
   zoom: number;
+  targetZoom: number;
+  minZoom: number;
+  maxZoom: number;
   bounds: { w: number; h: number } | null;
 }
 declare function createCamera(opts?: any): CameraState;
+declare function setZoom(cam: CameraState, target: number): number;
 declare function updateCamera(cam: CameraState, target: any, dt: number, opts?: any): void;
 declare function clampCamera(cam: CameraState): void;
 declare function worldToScreen(cam: CameraState, wx: number, wy: number): { x: number; y: number };
@@ -328,6 +332,7 @@ declare function buildShopViewModel(opts: any): any;
 declare function buildMapListViewModel(opts: any): any;
 declare function buildDeathShopViewModel(opts: any): any;
 declare function buildSettlementViewModel(opts: any): any;
+declare function buildPausePanel(opts: any): any;   // P-35：暂停/设置面板视图模型
 interface Window {
   TankScreens: any;
   SCREENS: string[];
@@ -340,6 +345,7 @@ interface Window {
   buildMapListViewModel: any;
   buildDeathShopViewModel: any;
   buildSettlementViewModel: any;
+  buildPausePanel: any;
 }
 
 // 经济与存档（js/tank_economy.js，P-14 / §2.4 / §6 条目 10）

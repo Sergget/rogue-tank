@@ -23,7 +23,7 @@
 - 难度完全靠敌人数量、敌人策略（AI 复杂度）、数值强度三者随节点推进同步提升；曲线定表 `RULES.difficulty`（diff = 0.15 + 0.8·t^1.25）。
 - **Boss 节奏**：每第 5 个节点为 Boss 节点（RULES.bossInterval=5；实现见 PLAN P-37）。
 - 节点间开放卡牌三选一与**局内商店**（实现见 PLAN P-41）：局内商店按**当前得分**计价消费，只售 run 内属性升级（modifiers scope:'run'，本局结束清除、不带出存档），消费独立记账、**不减损**终局转化用的累计得分；**永久升级商店**消费由终局累计得分 ×10% 转化的点数。两套商店货币互不流通。
-- 流程状态机 `js/tank_flow.js`：home → loadout → shop → map → battle ⇄ pause → settlement → reward → battle …。**终局条件（二选一，2026-08-24 定案）**：① 阵亡且复活次数耗尽 → gameover 强制终局结算；② 战斗中 ESC 暂停面板「终止游戏并结算」（PLAN P-35/P-34）→ 主动终局结算。两路终局均结算得分并使跨局难度等级 +1。白名单转移表护栏，非法转移抛错；UI 层经 watchFlow 监听显隐 DOM 覆盖层。（pause 等新态待实现落地）
+- 流程状态机 `js/tank_flow.js`：home → loadout → shop → map → battle ⇄ pause → settlement → reward → battle …。**终局条件（二选一，2026-08-24 定案）**：① 阵亡且复活次数耗尽 → gameover 强制终局结算；② 战斗中 ESC 暂停面板「终止游戏并结算」（PLAN P-35/P-34）→ 主动终局结算。两路终局均结算得分并使跨局难度等级 +1。白名单转移表护栏，非法转移抛错；UI 层经 watchFlow 监听显隐 DOM 覆盖层。pause 态已落地（2026-08-24，P-35）：battle⇄pause 冻结战斗循环（仅渲染不更新）；pause→settlement 为「终止游戏并结算」入口（voluntaryEnd payload，终局结算语义由 P-34 完善）；玩家设置 profile.settings.invertReverseTurn 经 driveTank invertTurnWhenReversing 实现倒车转向倒置。
 
 ### 2.2 死亡 / 复活 / 失败
 - 死亡为永久性；失败条件**仅当复活次数耗尽**。
