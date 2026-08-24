@@ -28,8 +28,8 @@ function createCamera(opts) {
     vh: opts.vh || 600,
     zoom: zoom0,
     targetZoom: zoom0,                       // 阻尼收敛目标（updateCamera 内平滑趋近）
-    minZoom: opts.minZoom || rc.minZoom || 0.5,
-    maxZoom: opts.maxZoom || rc.maxZoom || 2.0,
+    minZoom: opts.minZoom || rc.minZoom || 0.8,
+    maxZoom: opts.maxZoom || rc.maxZoom || 1.3,
     bounds: opts.bounds || null
   };
 }
@@ -43,7 +43,7 @@ function createCamera(opts) {
  */
 function setZoom(cam, target) {
   const t = Number(target) || 1;
-  const lo = cam.minZoom || 0.5, hi = cam.maxZoom || 2.0;
+  const lo = cam.minZoom || 0.8, hi = cam.maxZoom || 1.3;
   cam.targetZoom = Math.max(lo, Math.min(hi, t));
   return cam.targetZoom;
 }

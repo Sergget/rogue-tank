@@ -290,9 +290,10 @@ const RULES = {
   // 摄像机缩放（P-39 镜头滚轮缩放）。
   // 消费方：js/tank_camera.js（createCamera 缺省 / setZoom 钳制 / updateCamera 阻尼）+ tank_mvp.html（滚轮乘法步进）。
   camera: {
-    minZoom: 0.5,            // 最小缩放（拉远下限，视野最大）
-    maxZoom: 2.0,            // 最大缩放（推近上限）
-    zoomStep: 0.15           // 每格滚轮的乘法步进系数（targetZoom *= 1±zoomStep）
+    minZoom: 0.8,            // 最小缩放（拉远下限，视野最大）
+    maxZoom: 1.3,            // 最大缩放（推近上限）
+    zoomStep: 0.1            // 每格滚轮的乘法步进系数（targetZoom *= 1±zoomStep）
+    // 设计理由：区间收敛防不对称优势（拉远信息/拉近瞄准）。
   },
 
   // 难度曲线表（P-13 / DEVELOPMENT.md §6 条目 12 / 开放问题 6）。

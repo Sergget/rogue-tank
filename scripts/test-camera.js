@@ -93,11 +93,11 @@ ok(close(cz.minZoom, RULES.camera.minZoom) && close(cz.maxZoom, RULES.camera.max
    'createCamera 从 RULES.camera 读缺省上下限');
 ok(close(setZoom(cz, 99), cz.maxZoom) && close(cz.targetZoom, cz.maxZoom), 'setZoom 超上限 → 钳到 maxZoom');
 ok(close(setZoom(cz, 0.01), cz.minZoom) && close(cz.targetZoom, cz.minZoom), 'setZoom 低于下限 → 钳到 minZoom');
-setZoom(cz, 1.5);
+setZoom(cz, 1.25);
 for (let i = 0; i < 100; i++) updateCamera(cz, null, 0.05);
-ok(close(cz.zoom, 1.5, 1e-3), 'updateCamera 多帧后 zoom 收敛到 targetZoom');
+ok(close(cz.zoom, 1.25, 1e-3), 'updateCamera 多帧后 zoom 收敛到 targetZoom');
 const zBefore = cz.zoom;
-setZoom(cz, 99); // target=2.0
+setZoom(cz, 99); // target=1.3
 updateCamera(cz, null, 0.03);
 ok(cz.zoom > zBefore && cz.zoom < cz.targetZoom + 1e-9, '阻尼中间帧：zoom 向 target 单调趋近且不超过');
 
