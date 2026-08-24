@@ -88,6 +88,69 @@ if (typeof covers !== 'undefined') {
   covers.length = oldLen; // 恢复初始状态
 }
 
+// ================= P-40 地形标签生成（terrainTags） =================
+// 7) 确定性与数量/位置约束：pond 中央区、river 沿边、mud 环带；不受 cullRate 影响
+{
+  const TPL_WITH = ['forest_dense', 'urban_block', 'crossfire_plaza', 'mixed_barrier_plaza', 'village_center', 'woodland_line'];
+  for (const tpl of NODE_TEMPLATES) {
+    const tags = tpl.terrainTags || [];
+    // 确定性：同 seed 同 cullRate 下地形完全一致
+    for (const seed of [11, 42, 777]) {
+      const a = generateNode(0.6, { templateId: tpl.id, seed, cullRate: 0 });
+      const b = generateNode(0.6, { templateId: tpl.id, seed, cullRate: 0 });
+      const terr = r => r.covers.filter(c => c.tier === 'water' || c.tier === 'river' || c.tier === 'mud');
+      ok(JSON.stringify(terr(a)) === JSON.stringify(terr(b)),
+        `模板 ${tpl.id} seed=${seed} 地形生成确定性一致`);
+      ok(terr(a).length >= tags.reduce((n, t) => n + (t === 'mudPatch' ? 3 : t ? 1 : 0), 0),
+        `模板 ${tpl.id} seed=${seed} 地形数量与标签匹配 (${terr(a).length})`);
+      // 不受剔除影响：即使高剔除率，地形元素仍然产出（形状可随 rng 流位差变化，
+      // 但数量始终满足标签下界——地形不进入剔除循环）
+      const hi = generateNode(0.6, { templateId: tpl.id, seed, cullRate: 0.5 });
+      ok(terr(hi).length >= tags.reduce((n, t) => n + (t === 'mudPatch' ? 3 : t ? 1 : 0), 0),
+        `模板 ${tpl.id} seed=${seed} 地形不被 cullRate 剔除`);
+    }
+    // 无地形标签模板不产出地形
+    if (tags.length === 0) {
+      const r = generateNode(0.6, { templateId: tpl.id, seed: 5, cullRate: 0 });
+      ok(!r.covers.some(c => c.tier === 'water' || c.tier === 'river' || c.tier === 'mud'),
+        `模板 ${tpl.id} 无地形标签 → 不生成地形`);
+    }
+    // 有标签模板逐项校验位置约束
+    const r = generateNode(0.6, { templateId: tpl.id, seed: 42, cullRate: 0 });
+    const W = r.w, H = r.h;
+    for (const c of r.covers) {
+      const lx = c.x - 600, ly = c.y - 350; // 节点局部坐标（默认 centerX/centerY=600/350）
+      if (c.tier === 'water') {
+        ok(Math.abs(lx) < W * 0.25 && Math.abs(ly) < H * 0.25, `${tpl.id} 水潭在中央区`);
+        ok(Array.isArray(c.verts) && c.verts.length === 8, `${tpl.id} 水潭八边形 verts`);
+      }
+      if (c.tier === 'river' && Array.isArray(c.segments)) {
+        ok(c.segments.length >= 4, `${tpl.id} 河流 ≥4 连通段`);
+        // 全部段落在边缘带（距对应边 ≤ 20% 边长）
+        const nearEdge = c.segments.every(s => {
+          const ax = Math.abs(lx + s.dx), ay = Math.abs(ly + s.dy);
+          return ax > W / 2 - W * 0.18 || ay > H / 2 - H * 0.18;
+        });
+        ok(nearEdge, `${tpl.id} 河流沿边分布`);
+        ok(!!c.groupId, `${tpl.id} 河流携带 groupId`);
+      }
+      if (c.tier === 'mud') {
+        ok(typeof c.x === 'number' && c.w > 0, `${tpl.id} 泥斑实例合法`);
+      }
+    }
+    if ((tpl.terrainTags || []).includes('mudPatch')) {
+      const muds = r.covers.filter(c => c.tier === 'mud');
+      ok(muds.length >= 3 && muds.length <= 4, `${tpl.id} 泥斑 3~4 块 (got ${muds.length})`);
+      // 环带：围绕中心分布（半径在 15%~35% 节点尺寸）
+      const ringOk = muds.every(m => {
+        const d = Math.hypot(m.x - 600, m.y - 350);
+        return d > Math.min(W, H) * 0.12 && d < Math.min(W, H) * 0.40;
+      });
+      ok(ringOk || muds.length === 0, `${tpl.id} 泥斑呈环带分布`);
+    }
+  }
+}
+
 console.log('test-nodegen: 完成所有检查');
 if (fails === 0) console.log('test-nodegen: 全部通过');
 else console.error(`test-nodegen: ${fails} 项失败`);

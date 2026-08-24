@@ -68,14 +68,21 @@ function drawMinimap(ctx, opts) {
   ctx.strokeRect(opts.x + wb.x, opts.y + wb.y, world.w * layout.scale, world.h * layout.scale);
 
   // 掩体点（soft/bush 淡，solid/graduated/其余 亮）
+  // P-40 地形抽象：按 tierGroup 编码——liquid 系(水/河)蓝、ground 系(泥)褐点、
+  // structure 新地形(rock/intact/ruined)实心方块；其余 tier 维持旧配色。
   if (opts.covers) {
     for (const c of opts.covers) {
       if (c.hp <= 0) continue;
       const p = worldToMinimap(layout, c.x, c.y);
-      const dot = (c.tier === 'soft' || c.tier === 'bush') ? 1 : 1.6;
-      ctx.fillStyle = (c.tier === 'full' || c.tier === 'barricade') ? 'rgba(210,180,120,0.95)'
-                    : (c.tier === 'tree' || c.tier === 'fallen') ? 'rgba(120,160,90,0.9)'
-                    : 'rgba(200,200,200,0.55)';
+      const tg = (typeof COVER_TIERS !== 'undefined' && COVER_TIERS[c.tier]) ? COVER_TIERS[c.tier].tierGroup : null;
+      let dot = (c.tier === 'soft' || c.tier === 'bush') ? 1 : 1.6;
+      let color = (c.tier === 'full' || c.tier === 'barricade') ? 'rgba(210,180,120,0.95)'
+                : (c.tier === 'tree' || c.tier === 'fallen') ? 'rgba(120,160,90,0.9)'
+                : 'rgba(200,200,200,0.55)';
+      if (tg === 'liquid') { dot = 2.2; color = 'rgba(64,156,225,0.95)'; }
+      else if (tg === 'ground') { dot = 2.2; color = 'rgba(140,102,52,0.9)'; }
+      else if (tg === 'structure' && (c.tier === 'rock' || c.tier === 'intact' || c.tier === 'ruined')) { dot = 2.4; color = 'rgba(190,190,185,0.95)'; }
+      ctx.fillStyle = color;
       ctx.fillRect(opts.x + p.x - dot / 2, opts.y + p.y - dot / 2, dot, dot);
     }
   }

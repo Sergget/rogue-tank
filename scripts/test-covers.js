@@ -683,5 +683,92 @@ C.clearSmoke();
   ok(C.hasLineOfSight(0, 0, 100, 0) === true, '清空后视线畅通');
 }
 
+// ================= P-40 地形类型抽象（docs/specs/map.md §5 / #85 裁定） =================
+C.resetCovers();
+{
+  const baseLen = C.covers.length;
+  const T = C.COVER_TIERS;
+
+  // 34) tier schema 矩阵：新六属性 + 派生旧字段一致
+  ok(T.water.passability === 0 && T.water.shellBlock === false && T.water.exposureProfile === 'none' && T.water.tierGroup === 'liquid',
+    'water: passability 0 / shellBlock false(越飞) / profile none / liquid');
+  ok(T.river.shellBlock === false && T.river.drawStyle === 'water-chain' && T.river.passability === 0,
+    'river: 越飞 + water-chain + passability 0');
+  ok(T.mud.passability === 0.35 && T.mud.shellBlock === false && T.mud.tierGroup === 'ground' && T.mud.move === 0.35,
+    'mud: 0.35 减速 / 越飞 / ground / move 别名同步');
+  ok(T.rock.shellBlock === true && T.rock.exposureProfile === 'full' && T.rock.destructible === Infinity && T.rock.drawStyle === 'rock-poly',
+    'rock: solid 全遮不可毁 rock-poly');
+  ok(T.intact.shellBlock === true && T.intact.exposureProfile === 'full' && T.intact.passability === 1.0,
+    'intact: solid 全遮自由通行');
+  ok(T.ruined.shellBlock === 'grad' && T.ruined.exposureProfile === 'half' && T.ruined.destructible === 1 && T.ruined.toTier === 'rubble',
+    'ruined: grad 半剖面可毁 → rubble');
+  ok(T.half.mode === 'graduated' && T.tree.mode === 'solid' && T.bush.mode === 'none' && T.soft.mode === 'pass' && T.barricade.mode === 'single',
+    '派生旧字段 mode 与既有值一致（回归保障）');
+  ok(T.half.exposureProfile === 'half' && T.stump.exposureProfile === 'graduated' && T.rubble.exposureProfile === 'graduated',
+    'exposureProfile 分发矩阵：half 插值 / stump·rubble 渐变不插值');
+
+  // 35) 弹道零遮蔽（#85）：water/river/mud 炮弹越飞
+  const water = { x:3000, y:500, w:200, h:120, angle:0, tier:'water' };
+  const river = { x:3000, y:800, w:10, h:10, angle:0, tier:'river',
+                  segments:[{dx:-60,dy:0,w:80,h:40,angle:0},{dx:20,dy:8,w:90,h:40,angle:0}] };
+  const mud   = { x:3400, y:900, w:160, h:100, angle:0, tier:'mud' };
+  C.covers.push(water, river, mud);
+  for(const t of [water, mud]){
+    const e = C.getExposure(t.x-400, t.y, t.x+400, t.y, null, {heightClass:'medium'}, 0, 1.4);
+    ok(e === 1, `${t.tier} 弹道越飞 exposure=1 (got ${e})`);
+    ok(C.isBlockedBySolidCover(t.x-400, t.y, t.x+400, t.y) === null, `${t.tier} 不判为 solid 遮蔽`);
+  }
+  // 河流多段：几何命中父实例、弹道越飞
+  const seg2 = river.segments[1];
+  const rx = river.x + seg2.dx, ry = river.y + seg2.dy;
+  ok(C.findCoversOnPath(rx-200, ry, rx+200, ry).some(h=>h.cover===river),
+    '河流 segments findCoversOnPath 命中父实例');
+  const rexp = C.getExposure(rx-200, ry, rx+200, ry, null, {heightClass:'medium'}, 0, 1.4);
+  ok(rexp === 1, `river 弹道越飞 exposure=1 (got ${rexp})`);
+
+  // 36) rock/intact 全遮蔽 + 实体推出
+  const rock = { x:3600, y:500, w:70, h:70, angle:0, tier:'rock', hp:Infinity,
+                 verts:[[-30,-25],[30,-25],[35,5],[15,28],[-20,25],[-32,0]] };
+  const intact = { x:3900, y:800, w:110, h:60, angle:0, tier:'intact', hp:Infinity };
+  C.covers.push(rock, intact);
+  ok(C.getExposure(rock.x-300, rock.y, rock.x+300, rock.y, null, {heightClass:'heavy'}, 0, 1.8) === 0,
+    'rock 全遮蔽 exposure=0');
+  ok(C.isBlockedBySolidCover(intact.x-300, intact.y, intact.x+300, intact.y) !== null,
+    'intact 判定为 solid 遮蔽');
+  const rkTank = { x:rock.x, y:rock.y, hullAngle:0, hullLen:64, hullWid:38, hp:10, heightClass:'medium' };
+  const rrx = rkTank.x, rry = rkTank.y;
+  C.resolveCoverCollisions(rkTank);
+  ok(rkTank.x!==rrx || rkTank.y!==rry, 'rock 推出坦克（实体结构）');
+  ok(rock.hp === Infinity, 'rock hp Infinity 不受损');
+
+  // 37) mud：不被推出 + getCoverUnderTank 命中（driveTank 减速走 tier 表 move=0.35）
+  const mdTank = { x:mud.x, y:mud.y, hullAngle:0, hullLen:64, hullWid:38, hp:10, heightClass:'medium' };
+  const mx = mdTank.x, my = mdTank.y;
+  C.resolveCoverCollisions(mdTank);
+  ok(mdTank.x===mx && mdTank.y===my, 'mud 不推出坦克（仅减速）');
+  ok(C.getCoverUnderTank(mdTank) === mud, 'getCoverUnderTank 命中泥地（通行系数来源）');
+
+  // 38) water/river 推出阻断移动
+  for(const wt of [{t:water,label:'water'},{t:river,label:'river'}]){
+    const tk = { x:wt.t.x, y:wt.t.y, hullAngle:0, hullLen:64, hullWid:38, hp:10, heightClass:'medium' };
+    const bx=tk.x, by=tk.y;
+    C.resolveCoverCollisions(tk);
+    ok(tk.x!==bx || tk.y!==by, `${wt.label} 阻断移动（passability 0 推出）`);
+  }
+
+  // 39) ruined：半剖面插值 + 摧毁转 rubble 残骸链
+  const ruined = { x:3200, y:1300, w:100, h:50, angle:0, tier:'ruined', hp:1 };
+  C.covers.push(ruined);
+  const rFar = C.getExposure(ruined.x-400, ruined.y, ruined.x+120, ruined.y, null, {heightClass:'medium'}, 0, 1.4);
+  ok(rFar === 0, `ruined 半剖面：中坦车体远距全藏 (got ${rFar})`);
+  const rTurret = C.getExposure(ruined.x-400, ruined.y, ruined.x+120, ruined.y, null, {heightClass:'medium'}, 1.4, 2.3);
+  ok(rTurret === 1, `ruined 后炮塔恒露 (got ${rTurret})`);
+  C.damageCover(ruined, 1, 'shell');
+  ok(ruined.tier === 'rubble' && ruined.hp === 1, `ruined 摧毁 → rubble 残骸 (got ${ruined.tier}/${ruined.hp})`);
+
+  C.covers.length = baseLen;   // 移除本节临时实例
+  C.resetCovers();
+}
+
 console.log(fails ? `\n${fails} failure(s).` : '\nAll cover-system checks passed.');
 process.exitCode = fails ? 1 : 0;

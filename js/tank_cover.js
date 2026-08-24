@@ -36,7 +36,9 @@ function snapshotCovers(){
     if(c.hp === undefined) c.hp = COVER_TIERS[c.tier].hp;
     c.spawn = { tier:c.tier, x:c.x, y:c.y, w:c.w, h:c.h, angle:c.angle, hp:c.hp,
                 ...(c.verts ? { verts: c.verts.slice() } : {}),
-                ...(c.collisionVerts ? { collisionVerts: c.collisionVerts.map(v => v.map(pt => pt.slice())) } : {}) };
+                ...(c.collisionVerts ? { collisionVerts: c.collisionVerts.map(v => v.map(pt => pt.slice())) } : {}),
+                // P-40：河流多段连通——segments 相对偏移一并快照，resetCovers 可还原
+                ...(c.segments ? { segments: c.segments.map(s => Object.assign({}, s)) } : {}) };
   });
 }
 function resetCovers(){
@@ -147,8 +149,23 @@ function coverCorners(cov){
   return partCorners(cov.x, cov.y, cov.angle, cov.w/2, cov.h/2);
 }
 
+// P-40 河流多段连通（docs/specs/map.md §5.3）：单 cover 实例可携带 segments
+// [{dx,dy,w,h,angle}...]（dx/dy 为相对实例中心的偏移）。所有几何消费（角点/碰撞/
+// 弹道/绘制）先经 coverSegRects 展开成世界坐标矩形列表；无 segments 的普通元素返回自身。
+function coverSegRects(cov){
+  if(cov.segments && cov.segments.length){
+    return cov.segments.map(s=>({ x: cov.x + (s.dx||0), y: cov.y + (s.dy||0),
+      w: s.w || cov.w, h: s.h || cov.h, angle: (cov.angle||0) + (s.angle||0) }));
+  }
+  return [cov];
+}
+
 // 支持多凸包碰撞（L型等凹多边形）：如果掩体有 collisionVerts，返回各子块角点数组组成的数组；否则返回含单一块 coverCorners(cov) 的数组。
+// P-40：带 segments 的河流按各段矩形展开为独立凸块。
 function coverCollisionParts(cov) {
+  if (cov.segments && cov.segments.length > 0) {
+    return coverSegRects(cov).map(r => partCorners(r.x, r.y, r.angle, r.w/2, r.h/2));
+  }
   if (cov.collisionVerts && cov.collisionVerts.length > 0) {
     return cov.collisionVerts.map(cv => polyCorners(cov.x, cov.y, cov.angle, { verts: cv }));
   }
@@ -281,7 +298,10 @@ function resolveCoverCollisions(tank) {
         destroyCover(cov, 'crush');
         break; // 已压毁则不再检测其他 collisionVerts
       }
-      const blocked = tier.mode === 'solid' || (tier.driveBy && tier.driveBy[tank.heightClass] === false);
+      // P-40：passability=0（水/河）阻断移动；shellBlock 挡弹类照旧实体推出；泥(0.35)不推只减速
+      const blocked = tier.passability === 0 ||
+        tier.shellBlock === true || tier.shellBlock === 'single' ||
+        (tier.driveBy && tier.driveBy[tank.heightClass] === false);
       if (blocked) {
         tank.x += mtv.dx;
         tank.y += mtv.dy;
@@ -297,23 +317,31 @@ function findCoversOnPath(ox,oy,tx,ty){
   const hits = [];
   for(const cov of covers){
     if(cov.hp <= 0) continue;   // 已摧毁元素不再参与判定/预测
-    const corners = coverCorners(cov);
-    let entry = null, exit = null;
-    for(let i=0;i<corners.length;i++){
-      const a=corners[i], b=corners[(i+1)%corners.length];
-      const hit = segRayIntersect(ox,oy,ux,uy, a.x,a.y,b.x,b.y);
-      if(hit && hit.t>0.5){
-        // entry 只取命中点之前的穿越；exit 取整个矩形的出口（可越过命中点，
-        // 供方向判据判定"掩体是否完整位于射手与目标之间"）
-        if(hit.t < dist){
-          if(!entry || hit.t<entry) entry = hit.t;
+    // P-40：河流多段——逐段求交，取最早入口段代表整个实例（cover 字段指向父实例）
+    let bEntry=null, bExit=null, bPoint=null;
+    for(const rect of coverSegRects(cov)){
+      const corners = (rect === cov) ? coverCorners(cov)
+                                     : partCorners(rect.x, rect.y, rect.angle, rect.w/2, rect.h/2);
+      let entry = null, exit = null;
+      for(let i=0;i<corners.length;i++){
+        const a=corners[i], b=corners[(i+1)%corners.length];
+        const hit = segRayIntersect(ox,oy,ux,uy, a.x,a.y,b.x,b.y);
+        if(hit && hit.t>0.5){
+          // entry 只取命中点之前的穿越；exit 取整个矩形的出口（可越过命中点，
+          // 供方向判据判定"掩体是否完整位于射手与目标之间"）
+          if(hit.t < dist){
+            if(!entry || hit.t<entry) entry = hit.t;
+          }
+          if(!exit || hit.t>exit) exit = hit.t;
         }
-        if(!exit || hit.t>exit) exit = hit.t;
+      }
+      if(entry !== null && (bEntry===null || entry<bEntry)){
+        bEntry=entry; bExit=exit; bPoint={x:ox+ux*entry,y:oy+uy*entry};
       }
     }
-    if(entry !== null){
-      hits.push({ cover:cov, distA:entry, distB:dist-entry, distExit:exit || entry,
-                  point:{x:ox+ux*entry,y:oy+uy*entry} });
+    if(bEntry !== null){
+      hits.push({ cover:cov, distA:bEntry, distB:dist-bEntry, distExit:bExit || bEntry,
+                  point:bPoint });
     }
   }
   hits.sort((a,b)=>a.distA-b.distA);
@@ -334,19 +362,29 @@ function findCoversOnPath(ox,oy,tx,ty){
 //      残骸保持旧行为（永远留在候选列表）。RULES.heights.cover.half 缺失时不做插值
 //      （保守回退旧行为）。炮塔恒露（zMin >= 1.2）与 16px 方向判据不受影响。
 //   4. 方向判据（cutoffDist）：掩体须在命中车体前被射线完整穿过（distExit < cutoffDist）。
+// P-40 地形抽象（§5.1/§5.2）：弹道交互统一消费 shellBlock（true/'single' 挡弹 / 'grad' 渐变 /
+// false 越飞——水/河/泥不入遮蔽查询，#85 裁定）；半高剖面插值按 exposureProfile==='half'
+// 分发（half + ruined 残破建筑同走 C 越掩），消除 tier==='half' 硬编码特判。
+function tierShellBlock(tier){
+  if(tier.shellBlock !== undefined) return tier.shellBlock;
+  // 兜底：未迁移自定义 tier 按旧 mode 推导
+  return tier.mode === 'solid' ? true : tier.mode === 'single' ? 'single'
+       : tier.mode === 'graduated' ? 'grad' : false;
+}
 function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
   const hits = findCoversOnPath(ox,oy,tx,ty);
   const validHits = [];
 
   for(const h of hits){
     const tier = COVER_TIERS[h.cover.tier];
-    // 纯视线/可穿透元素不参与弹道遮挡（灌木 none / 栅栏 pass）
-    if(tier.mode === 'none' || tier.mode === 'pass') continue;
+    const sb = tierShellBlock(tier);
+    // 炮弹越飞的地形（水/河/泥）与纯视线/可穿透元素不参与弹道遮蔽
+    if(sb === false) continue;
     // 方向判据：掩体须在命中车体前被射线完整穿过（骑上/包住车体的掩体不生效；
     // 贴掩体时 distExit 与 cutoffDist 极其接近，允许 16px 向后容差以确保贴掩体遮挡生效）
     const COVER_DIRECTION_TOLERANCE = 16;
     if(cutoffDist !== undefined && h.distExit >= cutoffDist + COVER_DIRECTION_TOLERANCE) continue;
-    if(tier.mode === 'solid' || tier.mode === 'single') return 0; // 全高/固态掩体确定性 100% 格挡
+    if(sb === true || sb === 'single') return 0; // 全遮剖面/固态掩体确定性 100% 格挡
     validHits.push(h);
   }
 
@@ -358,16 +396,17 @@ function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
     return 1.0;
   }
 
-  // C 实验——半高掩体越掩过滤：仅正式 half 掩体参与射线高度插值；
-  // 射线在掩体入口处高于掩体顶 → 越过（从候选移除）；stump/rubble 等其余
-  // graduated 残骸走旧路径。RULES.heights.cover.half 缺失 → 跳过插值（保守）。
+  // C 实验——半高掩体越掩过滤：exposureProfile==='half' 的地形（half/ruined 残破建筑）
+  // 参与射线高度插值；射线在掩体入口处高于掩体顶 → 越过（从候选移除）。
+  // stump/rubble 等 graduated 剖面残骸走旧路径（不插值）。RULES.heights.cover.half 缺失 →
+  // 跳过插值（保守回退旧行为）。
   const halfH = RULES.heights && RULES.heights.cover && RULES.heights.cover.half;
   if (halfH !== undefined) {
     const shooterH = (RULES.heights.muzzle && RULES.heights.muzzle[(shooter && shooter.heightClass) || 'medium']) || 1.8;
     const zMid = (zMin + zMax) / 2; // 目标部位中心高度
     const filtered = [];
     for (const h of validHits) {
-      if (h.cover.tier === 'half') {
+      if (COVER_TIERS[h.cover.tier].exposureProfile === 'half') {
         const t = h.distA / (h.distA + h.distB);
         const rayH = shooterH + (zMid - shooterH) * t; // 射线在掩体入口处的高度
         if (rayH > halfH) continue; // 越过掩体 → 不参与遮挡
@@ -396,7 +435,7 @@ function coverBlockInfo(ox,oy,tx,ty, shooter, target, part, cutoffDist){
 function isBlockedBySolidCover(ox,oy,tx,ty){
   const hits = findCoversOnPath(ox,oy,tx,ty);
   for(const h of hits){
-    if(COVER_TIERS[h.cover.tier].mode === 'solid') return h;
+    if(tierShellBlock(COVER_TIERS[h.cover.tier]) === true) return h;
   }
   return null;
 }
@@ -426,6 +465,8 @@ if (typeof module !== 'undefined' && module.exports) {
     damageCover,
     coverNormalAt,
     coverCorners,
+    coverSegRects,
+    tierShellBlock,
     splashCoversAt,
     getCoverUnderTank,
     obbOverlap,

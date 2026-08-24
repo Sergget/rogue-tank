@@ -142,6 +142,9 @@ interface GeneratedNodeResult {
     hp: number;
     verts?: number[][];
     collisionVerts?: number[][][];
+    // P-40：河流多段连通（相对实例中心的偏移段）+ 同源连通标识
+    segments?: Array<{ dx: number; dy: number; w: number; h: number; angle?: number }>;
+    groupId?: string;
   }>;
   seed: number | string;
   difficulty: number;
@@ -153,6 +156,9 @@ declare var covers: any[];
 declare function snapshotCovers(): void;
 declare function resetCovers(): void;
 declare function hasLineOfSight(ox: number, oy: number, tx: number, ty: number): boolean;
+// P-40 地形抽象：tier schema 消费辅助（shellBlock 判定 / 河流多段展开）
+declare function tierShellBlock(tier: any): boolean | string;
+declare function coverSegRects(cov: any): any[];
 
 declare var NODE_TEMPLATES: any[];
 declare function createRNG(seed?: any): any;

@@ -149,6 +149,70 @@ function drawCover(ctx, cov){
     ctx.strokeStyle = tier.stroke; ctx.lineWidth=2; ctx.stroke();
     ctx.fillStyle = tier.stroke; ctx.font='10px "JetBrains Mono", monospace';
     ctx.fillText(tier.label, cov.x-24, cov.y-cov.h/2-6);
+  } else if(tier.draw === 'mud'){
+    // P-40 烂泥地：暗褐斑块 + 湿润高光点（高光偏移由坐标派生，确定性）
+    const c = coverCorners(cov);
+    ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
+    for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
+    ctx.closePath();
+    ctx.fillStyle = tier.fill; ctx.fill();
+    ctx.strokeStyle = tier.stroke; ctx.lineWidth=1.5; ctx.stroke();
+    for(let i=0;i<3;i++){
+      const hx = cov.x + (((cov.x + i*37) % 100)/100 - 0.5) * cov.w * 0.6;
+      const hy = cov.y + (((cov.y + i*53) % 100)/100 - 0.5) * cov.h * 0.6;
+      ctx.fillStyle = 'rgba(180,160,120,0.35)';
+      ctx.beginPath(); ctx.arc(hx, hy, Math.max(1.5, Math.min(cov.w,cov.h)*0.06), 0, TAU); ctx.fill();
+    }
+  } else if(tier.draw === 'rock-poly'){
+    // P-40 岩石：verts 多边形灰岩 + 棱线（无 verts 回退矩形）
+    const c = coverCorners(cov);
+    ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
+    for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
+    ctx.closePath();
+    ctx.fillStyle = tier.fill; ctx.fill();
+    ctx.strokeStyle = tier.stroke; ctx.lineWidth=2; ctx.stroke();
+    // 棱线：各顶点向质心连浅色线，营造多面体感
+    let gx=0, gy=0; for(const p of c){ gx+=p.x; gy+=p.y; } gx/=c.length; gy/=c.length;
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth=1;
+    for(let i=0;i<c.length;i+=2){
+      ctx.beginPath(); ctx.moveTo((c[i].x+gx)/2, (c[i].y+gy)/2); ctx.lineTo(gx, gy); ctx.stroke();
+    }
+  } else if(tier.draw === 'rubble-box'){
+    // P-40 残破建筑（ruined）：破损轮廓 box——主体 box + 缺口锯齿线
+    const c = coverCorners(cov);
+    ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
+    for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
+    ctx.closePath();
+    ctx.fillStyle = tier.fill; ctx.fill();
+    ctx.strokeStyle = tier.stroke; ctx.lineWidth=2; ctx.stroke();
+    // 破损轮廓：沿对角的两条锯齿裂缝
+    ctx.strokeStyle = 'rgba(30,28,24,0.5)'; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(cov.x - cov.w*0.3, cov.y - cov.h*0.35);
+    ctx.lineTo(cov.x - cov.w*0.1, cov.y - cov.h*0.05);
+    ctx.lineTo(cov.x - cov.w*0.25, cov.y + cov.h*0.25);
+    ctx.moveTo(cov.x + cov.w*0.32, cov.y + cov.h*0.3);
+    ctx.lineTo(cov.x + cov.w*0.08, cov.y + cov.h*0.02);
+    ctx.lineTo(cov.x + cov.w*0.22, cov.y - cov.h*0.28);
+    ctx.stroke();
+  } else if(tier.draw === 'water-chain'){
+    // P-40 河流多段连通绘制：遍历 segments 单笔触连续画水面；普通单块回退自身矩形
+    const rects = (typeof coverSegRects === 'function') ? coverSegRects(cov) : [cov];
+    for(const r of rects){
+      const rc = partCorners(r.x, r.y, r.angle||0, r.w/2, r.h/2);
+      ctx.beginPath(); ctx.moveTo(rc[0].x,rc[0].y);
+      for(let i=1;i<rc.length;i++) ctx.lineTo(rc[i].x,rc[i].y);
+      ctx.closePath();
+      ctx.fillStyle = tier.fill; ctx.fill();
+      ctx.strokeStyle = tier.stroke; ctx.lineWidth=1.5; ctx.stroke();
+      // 水面高光：长轴方向的浅色流线
+      const long = r.w >= r.h;
+      ctx.strokeStyle = 'rgba(220,240,255,0.3)'; ctx.lineWidth=1;
+      ctx.beginPath();
+      if(long){ ctx.moveTo(r.x - r.w*0.35, r.y); ctx.lineTo(r.x + r.w*0.35, r.y); }
+      else { ctx.moveTo(r.x, r.y - r.h*0.35); ctx.lineTo(r.x, r.y + r.h*0.35); }
+      ctx.stroke();
+    }
   } else if(typeof ASSET_DEFS !== 'undefined' && ASSET_DEFS[tier.draw]){
     // 资产层：soft/barricade/stump/rubble/bush/tree/fallen（依赖 js/tank_assets.js 先加载）
     drawAsset(ctx, tier.draw, cov.x, cov.y, cov.w, cov.h, cov.angle||0);

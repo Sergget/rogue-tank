@@ -71,25 +71,34 @@ const RULES = {
     heavyHullExposure: 0.25    // 重坦车体在半高掩体后的露出比例（0.25 = 75% 阻挡，25% 漏出）
   },
 
-  // ======================= 掩体 / 地图元素 =======================
-  // 每种 tier 是一个"行为描述"：mode 决定炮弹交互；move 决定坦克通行系数；
-  // crushable 决定坦克压过是否摧毁；hp 为耐久（Infinity = 不可破坏）；
-  // vision 决定是否遮挡视线（灌木/树冠，未来接 AI 索敌）；toTier 为被摧毁后的残骸；
-  // draw 决定渲染类型（box/bush/tree/soft/barricade/stump/rubble）。
-  // driveBy：按 heightClass 门控"能否开过去"——半高掩体重坦可越、中坦被挡（MTV 推出）。
+  // ======================= 掩体 / 地图元素（P-40 地形类型抽象，docs/specs/map.md §5） =======================
+  // 每个 tier 是一个"行为描述"，统一 schema 六属性（§5.1）：
+  //   passability     坦克通行系数（0=不可入 / 0.35·0.6=减速 / 1=自由）——旧字段 move 由归一化同步
+  //   shellBlock      弹道交互：true=solid 确定性挡弹 / 'single'=挡 1 发 / 'grad'=渐变垂直剖面 / false=炮弹越飞（不入弹道遮蔽查询，#85 裁定）
+  //   exposureProfile 遮蔽剖面：'full'=全遮 / 'half'=半高垂直剖面+C 越掩插值 / 'graduated'=渐变无插值 / 'none'=不参与
+  //   destructible    耐久语义：数值=可毁 / Infinity=不可毁结构 / null=非结构（水/泥/植被）；运行时 hp 由归一化回填
+  //   drawStyle       渲染风格（box/bush/tree/soft/barricade/stump/rubble/water/water-chain/mud/rock-poly/rubble-box）——旧字段 draw 由归一化同步
+  //   tierGroup       语义分组（cover/structure/foliage/liquid/ground）——小地图/AI 找掩体消费
+  // 其余字段：vision 遮视线 / crushable 压过即毁 / toTier 摧毁残骸链 / driveBy 按 heightClass 门控越障。
+  // 旧字段 mode/move/draw 由下方 normalizeCoverTiers 从新 schema 单向派生，供未迁移消费方过渡。
   coverTiers: {
-    half:       { label: '半高掩体', fill: 'rgba(166,138,60,0.4)',   stroke: '#a68a3c', mode: 'graduated', move: 0.4,  crushable: false, hp: Infinity, vision: false, draw: 'box', driveBy: { heavy: true, medium: false } },
-    full:       { label: '全高掩体', fill: 'rgba(106,106,106,0.55)', stroke: '#6a6a6a', mode: 'solid',     move: 1.0,  crushable: false, hp: Infinity, vision: false, draw: 'box' },
-    bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#5c8238', mode: 'none',      move: 1.0,  crushable: false, hp: Infinity, vision: true,  draw: 'bush' },
-    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#3f5c3c', mode: 'solid',     move: 1.0,  crushable: false, hp: 1,        vision: true,  draw: 'tree', toTier: 'fallen' },
-    fallen:     { label: '倒树',     fill: 'rgba(56,72,44,0.35)',    stroke: '#4a5c3a', mode: 'none',      move: 1.0,  crushable: false, hp: Infinity, vision: true,  draw: 'fallen', residueW: 2.4, residueH: 0.5 },
-    soft:       { label: '栅栏',     fill: 'rgba(150,118,70,0.4)',   stroke: '#96764a', mode: 'pass',      move: 0.45, crushable: true,  hp: 1,        vision: false, draw: 'soft' },
-    barricade:  { label: '沙袋路障', fill: 'rgba(158,128,72,0.55)',  stroke: '#9e8048', mode: 'single',    move: 1.0,  crushable: true,  hp: 1,        vision: false, draw: 'barricade', toTier: 'rubble' },
-    stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', mode: 'graduated', move: 0.6,  crushable: true,  hp: 1,        vision: false, draw: 'stump' },
-    rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', mode: 'graduated', move: 0.6,  crushable: true,  hp: 1,        vision: false, draw: 'rubble' },
-    // ======================= P-20：水体/桥梁地形 =======================
-    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', mode: 'solid',     move: 0.0,  crushable: false, hp: Infinity, vision: false, draw: 'box' }, // 描边 #409ce1 与 fill 同色系（水域蓝）
-    bridge:     { label: '桥梁',     fill: 'rgba(139,92,25,0.8)',    stroke: '#8b5c1a', mode: 'pass',      move: 1.0,  crushable: false, hp: 1,        vision: false, draw: 'box' }
+    half:       { label: '半高掩体', fill: 'rgba(166,138,60,0.4)',   stroke: '#a68a3c', passability: 0.4,  shellBlock: 'grad',   exposureProfile: 'half',      destructible: Infinity, crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'cover',     driveBy: { heavy: true, medium: false } },
+    full:       { label: '全高掩体', fill: 'rgba(106,106,106,0.55)', stroke: '#6a6a6a', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' },
+    bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#5c8238', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'bush',        tierGroup: 'foliage' },
+    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#3f5c3c', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: false, vision: true,  drawStyle: 'tree',        tierGroup: 'foliage', toTier: 'fallen' },
+    fallen:     { label: '倒树',     fill: 'rgba(56,72,44,0.35)',    stroke: '#4a5c3a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'fallen',      tierGroup: 'foliage', residueW: 2.4, residueH: 0.5 },
+    soft:       { label: '栅栏',     fill: 'rgba(150,118,70,0.4)',   stroke: '#96764a', passability: 0.45, shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'soft',        tierGroup: 'structure' },
+    barricade:  { label: '沙袋路障', fill: 'rgba(158,128,72,0.55)',  stroke: '#9e8048', passability: 1.0,  shellBlock: 'single', exposureProfile: 'full',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'barricade',   tierGroup: 'structure', toTier: 'rubble' },
+    stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'graduated', destructible: 1,        crushable: true,  vision: false, drawStyle: 'stump',       tierGroup: 'structure' },
+    rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'graduated', destructible: 1,        crushable: true,  vision: false, drawStyle: 'rubble',      tierGroup: 'structure' },
+    // ======================= P-20/P-40：水体/桥梁 + 新地形 =======================
+    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water',       tierGroup: 'liquid' }, // #85：炮弹越飞 + 移动阻断（passability 0）
+    river:      { label: '河流',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water-chain', tierGroup: 'liquid' }, // 多段连通水体（segments）
+    mud:        { label: '烂泥地',   fill: 'rgba(96,72,44,0.45)',    stroke: '#60482c', passability: 0.35, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'mud',         tierGroup: 'ground' }, // 减速不阻挡、不进弹道遮蔽
+    intact:     { label: '完整建筑', fill: 'rgba(98,98,110,0.6)',    stroke: '#62626e', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' },
+    ruined:     { label: '残破建筑', fill: 'rgba(122,114,100,0.5)',  stroke: '#7a7264', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'half',      destructible: 1,        crushable: false, vision: false, drawStyle: 'rubble-box',  tierGroup: 'structure', toTier: 'rubble', driveBy: { heavy: true, medium: false } },
+    rock:       { label: '岩石',     fill: 'rgba(138,138,132,0.85)', stroke: '#6f6f68', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: false, drawStyle: 'rock-poly',   tierGroup: 'structure' },
+    bridge:     { label: '桥梁',     fill: 'rgba(139,92,25,0.8)',    stroke: '#8b5c1a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' }
   },
 
   // ======================= 破障（可破坏地图元素） =======================
@@ -400,6 +409,35 @@ const RULES = {
 };
 
 // 距离分档函数已移除（A1 双档模型见 coverHugDist，掩体遮挡不再有连续渐变）
+
+// P-40 tier schema 归一化：新六属性（passability/shellBlock/exposureProfile/destructible/
+// drawStyle/tierGroup）为唯一事实源；旧字段 move/draw/mode/hp 单向派生，供未迁移消费方
+// （tank_move 的 move、渲染层的 draw、tank_fire 等的 mode）过渡使用。派生规则：
+//   mode = solid（shellBlock true）/ single / graduated（grad）/ none（vision 遮视线穿透弹）/
+//          pass（其余 shellBlock false：栅栏/水/河/泥——炮弹越飞；移动阻断由 passability=0 承担）
+(function normalizeCoverTiers(){
+  for(const k of Object.keys(RULES.coverTiers)){
+    const t = RULES.coverTiers[k];
+    if(t.passability === undefined) t.passability = (t.move !== undefined ? t.move : 1.0);
+    t.move = t.passability;                       // 旧别名：driveTank 减速系数
+    if(t.drawStyle === undefined) t.drawStyle = (t.draw || 'box');
+    t.draw = t.drawStyle;                         // 旧别名：渲染层分支
+    if(t.shellBlock === undefined){
+      // 兜底：自定义/未迁移 tier 按旧 mode 推导
+      t.shellBlock = t.mode === 'solid' ? true : t.mode === 'single' ? 'single'
+                   : t.mode === 'graduated' ? 'grad' : false;
+    }
+    if(t.destructible === undefined) t.destructible = t.hp;
+    t.hp = (t.destructible === null || t.destructible === undefined) ? Infinity : t.destructible;
+    if(t.tierGroup === undefined) t.tierGroup = 'cover';
+    if(t.mode === undefined){
+      t.mode = t.shellBlock === true ? 'solid'
+             : t.shellBlock === 'single' ? 'single'
+             : t.shellBlock === 'grad' ? 'graduated'
+             : (t.vision ? 'none' : 'pass');
+    }
+  }
+})();
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { RULES };

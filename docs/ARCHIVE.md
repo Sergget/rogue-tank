@@ -72,6 +72,8 @@
 | 2026-08-24 | `ISSUES.md` | #82 Boss 仅在链尾节点生成，无“每 5 节点一个”节奏配置 | 已修复并验证（P-37 bossInterval=5 周期落地，见 DEVELOPMENT.md §2.1 / specs/map.md） |
 | 2026-08-24 | `ISSUES.md` | #84 镜头大小固定，滚轮被改作弹药切换，无缩放 | 已修复并验证（P-39 滚轮缩放落地，本批核验确认，见 DEVELOPMENT.md §2.1 / specs/map.md） |
 | 2026-08-24 | `ISSUES.md` | #76 难度未驱动敌方属性与 AI 状态机分化 | 已全面解决并验证（entityMults 十维属性分化 + aiTierProfiles 行为分层 + coverSeek 寻掩 + patrol wander，见 specs/combat.md §5） |
+| 2026-08-24 | `PLAN.md` | P-40 地形类型抽象落地 | 已完成并验证（coverTiers 六属性 schema / water 弹越飞阻移动 / river segments 方案 A / mud·rock·ruined·intact 新 tier，见 specs/map.md §5.6） |
+| 2026-08-24 | `ISSUES.md` | #85 水体 tier 文档/代码矛盾 | 已解决并验证（water shellBlock:false 弹越飞、保留移动阻断，随 P-40 落地，见 specs/map.md §5.6） |
 
 ------
 

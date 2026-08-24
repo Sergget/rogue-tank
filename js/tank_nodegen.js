@@ -50,6 +50,15 @@ const NODE_TEMPLATES = [
     id: 'corridor_tutorial',
     name: '开阔走廊 (低难/教学)',
     tags: ['low'],
+    // P-40 地形标签分配表（terrainTags，0~2 种）：
+    //   corridor_tutorial   []                        教学开阔地——无地形干扰
+    //   forest_dense        ['edgeRiver']             林间溪流沿战场边缘蜿蜒
+    //   urban_block         ['mudPatch']              街巷泥泞斑点
+    //   crossfire_plaza     ['centralPond']           广场中央水景池
+    //   mixed_barrier_plaza ['mudPatch']              广场四周烂泥带
+    //   village_center      ['centralPond','mudPatch']村口水井潭 + 泥泞环带
+    //   woodland_line       ['edgeRiver']             战线侧翼河流
+    terrainTags: [],
     w: 700,
     h: 400,
     items: [
@@ -75,6 +84,7 @@ const NODE_TEMPLATES = [
     id: 'forest_dense',
     name: '密林阵地',
     tags: ['low', 'mid'],
+    terrainTags: ['edgeRiver'],
     w: 750,
     h: 450,
     items: [
@@ -103,6 +113,7 @@ const NODE_TEMPLATES = [
     id: 'urban_block',
     name: '城镇街区',
     tags: ['mid', 'high'],
+    terrainTags: ['mudPatch'],
     w: 800,
     h: 500,
     items: [
@@ -144,6 +155,7 @@ const NODE_TEMPLATES = [
     id: 'crossfire_plaza',
     name: '交叉火力广场 (高难)',
     tags: ['high'],
+    terrainTags: ['centralPond'],
     w: 850,
     h: 520,
     items: [
@@ -172,6 +184,7 @@ const NODE_TEMPLATES = [
     id: 'mixed_barrier_plaza',
     name: '混合障壁广场',
     tags: ['low', 'mid', 'high'],
+    terrainTags: ['mudPatch'],
     w: 800,
     h: 480,
     items: [
@@ -197,6 +210,7 @@ const NODE_TEMPLATES = [
     id: 'village_center',
     name: '村落中心广场 (高难)',
     tags: ['mid', 'high'],
+    terrainTags: ['centralPond', 'mudPatch'],
     w: 820,
     h: 500,
     items: [
@@ -239,6 +253,7 @@ const NODE_TEMPLATES = [
     id: 'woodland_line',
     name: '林地战线 (高难)',
     tags: ['high'],
+    terrainTags: ['edgeRiver'],
     w: 860,
     h: 520,
     items: [
@@ -349,6 +364,80 @@ function rectHitsCover(covers, x, y, w, h, pad) {
   return false;
 }
 
+// ======================= P-40 地形标签生成（terrainTags） =======================
+// 三种确定性地形放置（同 seed 同结果；不受 cullRate 剔除与难度升降级影响）：
+//   centralPond — 中央水潭：单块 water 八边形 verts 近似圆，中心附近拒绝采样避让已放掩体
+//   edgeRiver   — 沿边河流：单 river 实例携带 segments 多段连通（B4 方案 A），沿四边之一
+//   mudPatch    — 泥环/泥斑：mud 环带若干块（允许与其他元素叠放，地面层无碰撞）
+function placeCentralPond(rng, tpl, scale, centerX, centerY, outCovers) {
+  const R = rng.range(0.10, 0.14) * Math.min(tpl.w, tpl.h) * scale;
+  const D = R * 2;
+  // 确定性拒绝采样：以节点中心为基准的 5x5 相位网格找不压掩体的落点；全失败则强制居中
+  const phaseX = rng(), phaseY = rng();
+  let px = centerX, py = centerY;
+  pondSearch:
+  for (let gi = 0; gi < 5; gi++) {
+    for (let gj = 0; gj < 5; gj++) {
+      const fx = centerX + ((gi + phaseX) / 5 - 0.5) * tpl.w * scale * 0.3;
+      const fy = centerY + ((gj + phaseY) / 5 - 0.5) * tpl.h * scale * 0.3;
+      if (!rectHitsCover(outCovers, fx, fy, D, D, 8)) { px = fx; py = fy; break pondSearch; }
+    }
+  }
+  const rot = rng() * Math.PI * 2;
+  const verts = [];
+  for (let i = 0; i < 8; i++) {
+    const a = rot + (i / 8) * Math.PI * 2;
+    verts.push([Math.cos(a) * R, Math.sin(a) * R]);
+  }
+  return { x: px, y: py, w: D, h: D, angle: rng.range(-0.03, 0.03), tier: 'water', verts };
+}
+
+function placeEdgeRiver(rng, tpl, scale, centerX, centerY) {
+  const edge = rng.int(0, 3);            // 0=N 1=S 2=W 3=E
+  const segN = rng.int(4, 6);            // 连通段数
+  const alongDim = edge < 2 ? tpl.w : tpl.h;
+  const span = alongDim * scale * 1.04;  // 河流贯穿整条边（略超出防缺口）
+  const segLen = span / segN * 1.25;     // 段间重叠 25% 保证连通
+  const thick = Math.min(tpl.w, tpl.h) * scale * rng.range(0.08, 0.11);
+  const halfW = tpl.w * scale / 2, halfH = tpl.h * scale / 2;
+  const band = Math.max(thick * 0.7, Math.min(tpl.w, tpl.h) * scale * 0.08); // 距边距离带
+  const baseOff = rng.range(-0.06, 0.06); // 蜿蜒基准相位
+  const segments = [];
+  for (let i = 0; i < segN; i++) {
+    const t = (i + 0.5) / segN - 0.5;    // -0.5..0.5 沿轴向
+    const meander = (baseOff + Math.sin((i / segN) * Math.PI + baseOff * 6)) * band * 0.5;
+    let dx = 0, dy = 0, w = segLen, h = thick;
+    if (edge === 0) { dx = t * span; dy = -halfH + band + meander; }        // 北缘
+    else if (edge === 1) { dx = t * span; dy = halfH - band + meander; }    // 南缘
+    else if (edge === 2) { w = thick; h = segLen; dx = -halfW + band + meander; dy = t * span; } // 西缘
+    else { w = thick; h = segLen; dx = halfW - band + meander; dy = t * span; }                  // 东缘
+    segments.push({ dx, dy, w, h, angle: 0 });
+  }
+  // 实例锚点取首段中心，w/h 记录外接范围（供 rectHitsCover/小地图通绘参考）
+  const s0 = segments[0];
+  const cx = centerX + s0.dx, cy = centerY + s0.dy;
+  const extX = Math.max.apply(null, segments.map(s => Math.abs(s.dx) + s.w / 2));
+  const extY = Math.max.apply(null, segments.map(s => Math.abs(s.dy) + s.h / 2));
+  return { x: cx, y: cy, w: extX * 2, h: extY * 2, angle: 0, tier: 'river',
+           segments, groupId: 'river' }; // groupId：同一生成调用产出的连通水体标识
+}
+
+function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
+  const K = rng.int(3, 4);               // 泥斑数量
+  const ringR = Math.min(tpl.w, tpl.h) * scale * rng.range(0.20, 0.28);
+  const baseAng = rng() * Math.PI * 2;
+  const out = [];
+  for (let k = 0; k < K; k++) {
+    const ang = baseAng + (k / K) * Math.PI * 2 + rng.range(-0.15, 0.15);
+    const rr = ringR * rng.range(0.85, 1.15);
+    const mw = rng.range(40, 64) * scale;
+    const mh = mw * rng.range(0.6, 0.9);
+    out.push({ x: centerX + Math.cos(ang) * rr, y: centerY + Math.sin(ang) * rr,
+               w: mw, h: mh, angle: rng.range(-0.2, 0.2), tier: 'mud' });
+  }
+  return out;
+}
+
 /**
  * Main node cover layout generator
  * @param {number} [difficulty=0.5] 0~1 continuous difficulty weight
@@ -392,6 +481,15 @@ function generateNode(difficulty, options) {
   const outCovers = [];
   const items = selectedTemplate.items || [];
 
+  // tier 表提前查询（P-40）：地形类（liquid/ground）不参与难度升降级
+  const coverTiers = (typeof RULES !== 'undefined' && RULES.coverTiers)
+    ? RULES.coverTiers
+    : (typeof COVER_TIERS !== 'undefined' ? COVER_TIERS : null);
+  const isTerrainTier = (tier) => {
+    const ct = coverTiers && coverTiers[tier];
+    return !!ct && (ct.tierGroup === 'liquid' || ct.tierGroup === 'ground');
+  };
+
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
 
@@ -404,18 +502,21 @@ function generateNode(difficulty, options) {
 
     // Element ratio adjustment:
     // High difficulty -> upgrade soft/bush to barricade/half
-    if (diff > 0.6) {
-      if ((tier === 'bush' || tier === 'soft') && rng() < (diff - 0.5) * 0.4) {
-        tier = 'barricade';
+    // （P-40：地形标签 tier 不降级/升级——full→half 等仅作用于掩体类）
+    if (!isTerrainTier(tier)) {
+      if (diff > 0.6) {
+        if ((tier === 'bush' || tier === 'soft') && rng() < (diff - 0.5) * 0.4) {
+          tier = 'barricade';
+        }
       }
-    }
-    // Low difficulty -> downgrade full/barricade to half/soft
-    else if (diff < 0.35) {
-      if (!item.verts) { // Don't modify complex polygon structures
-        if (tier === 'barricade' && rng() < (0.4 - diff) * 0.4) {
-          tier = 'soft';
-        } else if (tier === 'full' && rng() < (0.4 - diff) * 0.3) {
-          tier = 'half';
+      // Low difficulty -> downgrade full/barricade to half/soft
+      else if (diff < 0.35) {
+        if (!item.verts) { // Don't modify complex polygon structures
+          if (tier === 'barricade' && rng() < (0.4 - diff) * 0.4) {
+            tier = 'soft';
+          } else if (tier === 'full' && rng() < (0.4 - diff) * 0.3) {
+            tier = 'half';
+          }
         }
       }
     }
@@ -460,10 +561,6 @@ function generateNode(difficulty, options) {
     }
 
     // Lookup default hp from RULES.coverTiers if available
-    const coverTiers = (typeof RULES !== 'undefined' && RULES.coverTiers)
-      ? RULES.coverTiers
-      : (typeof COVER_TIERS !== 'undefined' ? COVER_TIERS : null);
-
     if (coverTiers && coverTiers[tier]) {
       coverObj.hp = coverTiers[tier].hp;
     } else {
@@ -471,6 +568,20 @@ function generateNode(difficulty, options) {
     }
 
     outCovers.push(coverObj);
+  }
+
+  // ---- P-40 地形标签生成（不受 cullRate 剔除；同 seed 确定性） ----
+  const terrainTags = selectedTemplate.terrainTags || [];
+  for (const tag of terrainTags) {
+    if (tag === 'centralPond') {
+      outCovers.push(placeCentralPond(rng, selectedTemplate, scale, centerX, centerY, outCovers));
+    } else if (tag === 'edgeRiver') {
+      outCovers.push(placeEdgeRiver(rng, selectedTemplate, scale, centerX, centerY));
+    } else if (tag === 'mudPatch') {
+      for (const m of placeMudPatch(rng, selectedTemplate, scale, centerX, centerY, outCovers)) {
+        outCovers.push(m);
+      }
+    }
   }
 
   // P-20：随机插入水体/桥梁组合

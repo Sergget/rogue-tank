@@ -2118,10 +2118,15 @@ function draw(){
   // 视口 AABB 剔除：掩体/实体/树冠只画进入视口的
   const inView = (cov) => aabbInView(cam, cov.x, cov.y, cov.w, cov.h);
   // 地形（水体/桥梁）先画，再画其余掩体——避免水体（数组末尾 push）盖住其下掩体（Fix 3）
+  // P-40：地面/液态地形层按 tierGroup 判定（water/river/mud 垫底），桥面压在水上
+  const groundLayerCov = (cov) => {
+    const tg = COVER_TIERS[cov.tier] && COVER_TIERS[cov.tier].tierGroup;
+    return tg === 'liquid' || tg === 'ground';
+  };
   const inViewCovers = covers.filter(inView);
-  inViewCovers.filter(cov => cov.tier === 'water').forEach(cov => drawCover(ctx, cov));
+  inViewCovers.filter(groundLayerCov).forEach(cov => drawCover(ctx, cov));
   inViewCovers.filter(cov => cov.tier === 'bridge').forEach(cov => drawCover(ctx, cov));
-  inViewCovers.filter(cov => cov.tier !== 'water' && cov.tier !== 'bridge').forEach(cov => drawCover(ctx, cov));
+  inViewCovers.filter(cov => !groundLayerCov(cov) && cov.tier !== 'bridge').forEach(cov => drawCover(ctx, cov));
   entities.forEach(t => {
     if(t.isDrone) return;   // P-17：无人机无坦克几何，由 drawDrones 单独绘制
     if(!aabbInView(cam, t.x, t.y, t.hullLen, t.hullWid)) return;

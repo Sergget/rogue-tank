@@ -8,7 +8,7 @@
 
 ## 玩法系统 PLAN（2026-08-24）
 
-> 编号说明：原 P-27/P-29/P-30 与 DEVELOPMENT.md §5 记录的历史已完成条目撞号，2026-08-24 起重编号；本批活跃条目为 P-36/P-38/P-40（玩法线）与 P-42~P-49（视觉/音频专项）、P-50（候选库）。
+> 编号说明：原 P-27/P-29/P-30 与 DEVELOPMENT.md §5 记录的历史已完成条目撞号，2026-08-24 起重编号；本批活跃条目为 P-36/P-38（玩法线）与 P-42~P-49（视觉/音频专项，已升级为可执行条目）、P-50（候选库）。
 
 ### P-36. 地面生物群落地貌（混凝土/草原/黄草/泥潭/蓝水）
 - **目标**：战斗地面按节点 biome 主题化填充（混凝土灰/草原绿/黄草/暗泥/蓝水），与 #78 的「减速不挡弹泥潭地形」协同。
@@ -25,17 +25,6 @@
   - 引入 per-node `killQuota`（可超过初始批次），节点结束条件改为 `kills>=quota` 或"清场+配额达成"。
   - 利用 `hasLineOfSight`/camera bounds 判定镜头外生成点。
 - **验证**：`npm run check` + `npm test`；浏览器确认推进中镜头外持续增兵、击杀数超过初始批次。
-
-### P-40. 地形类型抽象落地（水域/泥潭 + 具体地形 + 富集准备）
-- **目标**：将 water/mud 抽象为类似全高/半高掩体的「地形类型」，具象出水潭、河流、烂泥地、水潭周围烂泥地、残破建筑、完整建筑等，并为后续富集地图元素（岩石/不规则形态、biome 地面、AI 找掩体、摧毁特效）打基座。设计稿见 `docs/specs/map.md` §5。
-- **前置（已解除，2026-08-24 裁定）**：ISSUES #85 已裁定水=炮弹越飞（不挡弹）、阻挡坦克移动；落地时将 js/tank_rules.js:91 water 的 mode:'solid' 改为 pass 语义（保留 move:0.0 移动阻断），实施时同步 specs/map.md §5.2 表述。
-- **改动点**：
-  - `js/tank_rules.js` `RULES.coverTiers`：新增 `mud`/`river`/`rock`/`ruined`/`intact` 等 tier，按 §5.1 schema 设属性；重裁定 `water` 的 `shellBlock`。
-  - `js/tank_cover.js`：泛化 `getExposure` 的 `exposureProfile` 分发（取代硬编码 `tier==='half'`，:361-373）；支持 `segments[]` 连通多段（河流）。
-  - `js/tank_nodegen.js`：模板打地形放置标签（中央水潭/沿边河流/泥环），生成新 tier。
-  - `js/tank_battledraw.js` + `tank_minimap.js`：新 `drawStyle`（water-chain/rock-poly/mud/structure）与液体/地面 tier 的小地图表征。
-  - 交叉任务：地面 biome 图层 (#81)、不规则岩石 (#78)、AI 找掩体钩子 (#76)、建筑摧毁 FX、地形步进音效/特效。
-- **验证**：`npm run check` + `npm test`；浏览器确认水潭越弹但挡坦克、泥地减速、河流连通、建筑 half/full 剖面与摧毁残骸。
 
 ---
 

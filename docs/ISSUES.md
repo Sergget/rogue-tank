@@ -39,6 +39,8 @@
 
 **影响：** 地形同质化，缺自然掩体形态（不规则岩石、连续曲线水域）与减速地形博弈。
 
+**进展（2026-08-24）**：随 P-40 部分解决——RULES.coverTiers 新增 mud/rock tier、nodegen 地形标签生成八边形 verts 水潭与多段河流（不规则形态已进生成层）；剩余范围：设计器侧 verts 多边形创作 UI、更多不规则掩体形态模板。
+
 **状态：** 待处理
 
 ### #81. 战斗地面单一平坦，缺生物群落地貌（混凝土/草原/黄草/泥潭/蓝水）
@@ -67,20 +69,5 @@
 **影响：** 每节点战斗密度固定、缺乏"随推进增兵"的压迫感；单局可击杀数受限于初始批次。
 
 **状态：** 待处理
-
-### #85. 水体 tier 文档/代码矛盾（mode:'solid' 挡弹 vs AGENTS.md 称 pass 越飞）
-
-**可复现证据：**
-- `js/tank_rules.js:91` `water`：`mode:'solid'`, `move:0.0` → 炮弹 100% 被挡（`tank_cover.js:349` `solid`→`return 0`），坦克不可入。
-- `AGENTS.md` §4 描述：`pass (soft/water — penetrable by shells; water blocks movement)` —— 称 water 应为 `pass`（炮弹越飞、仅挡移动）。
-- 二者矛盾：代码把水当实心障碍挡弹，文档称水应让炮弹越过。
-
-**根因：** 文档与实现对 water 的弹道语义不一致，且 `RULES.coverTiers` 无 `mud` tier（与 #81/#78 协同，地形富集前须先裁定）。
-
-**影响：** 在落地「地形类型抽象」(PLAN P-40 / specs/map.md §5) 前，必须先行裁定水潭/河流是否挡弹，否则设计值（5.2 表 water `shellBlock=false`）与现有代码冲突，无法一致落地。
-
-**裁定（2026-08-24）**：以 AGENTS.md §4 为准——水 = 炮弹越飞（不挡弹）、阻挡坦克移动。待代码落地：`js/tank_rules.js:91` water 的 `mode:'solid'` 改为 pass 语义（保留 `move:0.0` 移动阻断），随 PLAN P-40 实施并同步 specs/map.md §5.2。
-
-**状态：** 处理中
 
 ---
