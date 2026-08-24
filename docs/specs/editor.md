@@ -24,6 +24,16 @@
 - 遍历 ASSET_DEFS 离屏烘焙 + 锚点十字标注 + 合成预览，canvas.toBlob 逐张导出 PNG 到 assets/。
 - file:// 可直开，零服务器依赖。
 
-## 5. 坦克纹理化 (P-27)
-- 不做整坦克位图 sprite（几何是任意多边形）；做法 = 多边形 clip + 平铺图案叠层（装甲板纹/焊缝/锈蚀/迷彩）。
-- texture 字段进 tank JSON + FIELD_ROWS 枚举 + 设计器选择器，全链路接线；保持 t.color 主色灰度图案叠层，兼容换色与 PAINT_CACHE。
+## 6. 坦克贴图与战术涂装视觉规范 (Tank Visual & Camo Spec)
+
+- **多边形图案叠层 (Polygon Pattern Overlay)**：
+  - 基于 `tank_paint.js` 的 `paintClipLocal` 进行多边形裁剪后叠层渲染；
+  - 包含 4 套标准战术迷彩（`texture` 字段）：
+    1. `camo-forest`（森林迷彩）：深绿/墨绿/暗褐斑块交错；
+    2. `camo-desert`（沙漠伪装）：沙黄/浅褐/风蚀斑点；
+    3. `camo-urban`（城市灰）：深灰/铸铁灰/沥青方块迷彩；
+    4. `camo-winter`（雪地斑驳）：灰白底色 + 暗灰线条痕迹。
+- **装甲质感与防滑涂层 (Armor Texture & Wear)**：
+  - **焊缝 (Weld Seams)**：在装甲边缘与多边形顶点连接处绘制双重微弱高光/阴影线条；
+  - **边缘磨损 (Edge Wear)**：车体与炮塔外角处叠加 5%~10% 的露底漆防锈色（dark rust）；
+  - **铸造颗粒 (Cast Armor)**：对重型/中型坦克炮塔增加微弱噪点与铸造线。

@@ -41,8 +41,26 @@
   - striker 打击型：近身环绕索敌开火（strikeRange=260px，fireInterval=2s），不消耗玩家弹药。
   - 上限 countMax=2，超限拒绝部署；owner 阵亡自动移除。
 
-## 5. 战斗核心管线收敛 (js/tank_fire.js, P-28)
-- 所有战斗发射、瞄准预测与命中判决唯一收敛于 js/tank_fire.js（~376行，ctx 显式注入）。
-- 包含接口：fireTank / fireSmokeShell / tryFire / tryFireSmoke / computeSolution / updateSolution / stepShells / shellVerticalDecision。
-- 统一维护半高掩体垂直判决、!s.absorbed 护盾守卫、HE破障/烟幕/二次跳弹禁止语义。
-- tank_mvp.html 与 tank_bench.html 双页共用此模块，任何弹道/掩体判决修复单点生效。
+## 6. 特效与视效表现规范 (FX Visual Standards)
+
+- **开火与弹道 (Muzzle & Traces)**：
+  - **AP**：灰白实线曳光（tracer），炮口单向锥形火花。
+  - **APCR**：亮蓝高速气流拖尾（blue-tint tracer），炮口高压窄束闪光。
+  - **HEAT**：细长橙红高温熔流拖尾，炮口高温金属射流火花。
+  - **HE**：滚滚黑烟+浓烈黄红烟尘拖尾，炮口大面积圆环爆焰。
+- **命中、跳弹与爆轰 (Hit, Ricochet & Explosion)**：
+  - **跳弹 (Bounce)**：严格沿法线方向喷射高亮金黄切削火花（sparks），并在装甲表面留淡灰色划痕。
+  - **穿透 (Penetration)**：向车体内部与后方喷射装甲金属碎片（debris）与高压火花，触发局部小范围闪光。
+  - **HE 爆轰 (Explosion)**：爆轰火球 `explosions` 与冲击波 `shockwaves` 扩散半径必须严格按 `RULES.ammoTypes.HE.splashRadius` (90px) 动态缩放；地面生成深色弹坑痕迹 `scorchMarks`。
+  - **飞头/殉爆 (Turret Blow-off)**：弹药架致死摧毁触发 `spawnAmmoBlowFx`；炮塔在空中弧形抛物线飞行并剧烈自旋，一路留滚滚黑烟粒子 `smoke`，落地时生成剧烈震屏与落点冲击波。
+## 7. 音频与声效表现规范 (Audio Visual Standards)
+
+- **声音总线与并发管理 (Busses & Concurrency)**：
+  - `combat` 总线（主音量受 `AUDIO_SETTINGS.combatGain` 控制）：开火/爆炸/击穿/跳弹/履带断裂，`maxConcurrent=3`；
+  - `ui` 总线（主音量受 `AUDIO_SETTINGS.uiGain` 控制）：点击/选卡/装填完成/警告，`maxConcurrent=4`；
+- **采样优先与合成兜底 (Sample-Priority Architecture)**：
+  - 音频系统优先加载并播放 `audio/` 目录下的 CC0/Freesound 真实采样（WAV/OGG）；
+  - 若采样缺失、网络加载超时或本地 `file://` 环境下，系统无缝自动回退至 `SOUND_DEFS` 程序化合成器。
+- **2D 空间化与距离衰减 (Spatialization)**：
+  - 战斗事件通过 `playSound(key, opts, {x, y})` 传入世界坐标，使用 `PannerNode`（HRTF / `exponential` rolloff）进行定位；
+  - 听众位置 `setListenerPos(cam.x, cam.y)` 实时跟随摄像机；超出 1200px 范围的音效自动施加 Lowpass 滤镜模拟远距离钝音感。
