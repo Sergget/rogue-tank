@@ -22,7 +22,7 @@
 
 ### 2.1 单局结构 —— 节点式地图
 - 一局 = 一条**纯线性、开放式**节点链（2026-08-24 定案：不固定 5 节点收尾，节点随推进持续延伸），无分支路线。每个节点是独立、有边界的战场（约 1:9 摄像机比例）。已落地：generateRun 初始链 + `extendRun` 无限续接；难度参数化 diff(index)=min(0.95, 0.15+0.8·min(1,index/12)^1.25) 再叠加 difficultyLevel×0.04（封顶 1.15）。（数值以 RULES.difficulty 收口字段为准）
-- 难度完全靠敌人数量、敌人策略（AI 复杂度）、数值强度三者随节点推进同步提升；曲线定表 `RULES.difficulty`（diff = 0.15 + 0.8·t^1.25）。
+- 难度完全靠敌人数量、敌人策略（AI 复杂度）、数值强度三者随节点推进同步提升；曲线定表 `RULES.difficulty`（diff = 0.15 + 0.8·t^1.25）。（2026-08-24 全面落地：entityMults 十维属性分化 + AI tierProfiles 行为分层，玩家隔离）
 - **Boss 节奏**：每第 5 个节点为 Boss 节点（已落地，2026-08-24，`RULES.nodeMap.bossInterval`=5）。
 - 节点间开放卡牌三选一与**局内商店**（已落地，2026-08-24）：局内商店按**当前得分**计价消费，只售 run 内属性升级（modifiers scope:'run'，本局结束清除、不带出存档），消费独立记账、**不减损**终局转化用的累计得分；**永久升级商店**消费由终局累计得分 ×10% 转化的点数。两套商店货币互不流通。商品表 `RUN_SHOP_DEFS`（6 项：紧急维修/快速装填/精密火控/引擎超压/姿态稳定/装甲应急补强），定价 `round(baseCost×costGrowth^level)`。
 - 流程状态机 `js/tank_flow.js`：home → loadout → shop → map → battle ⇄ pause → settlement → reward → battle …。**终局条件（二选一，2026-08-24 定案）**：① 阵亡且复活次数耗尽 → gameover 强制终局结算；② 战斗中 ESC 暂停面板「终止游戏并结算」（已落地）→ 主动终局结算。两路终局均结算得分并使跨局难度等级 +1。白名单转移表护栏，非法转移抛错；UI 层经 watchFlow 监听显隐 DOM 覆盖层。pause 态已落地（2026-08-24，P-35）：battle⇄pause 冻结战斗循环（仅渲染不更新）；pause→settlement 为「终止游戏并结算」入口（voluntaryEnd payload，终局结算语义已完善）；玩家设置 profile.settings.invertReverseTurn 经 driveTank invertTurnWhenReversing 实现倒车转向倒置。
@@ -81,7 +81,7 @@
 
 ## 5. 下一步顺序（活跃项）
 
-- **活跃开发项（2026-08-24 起）**：近期计划见 docs/PLAN.md：玩法线 P-36/P-38/P-40，视觉音频专项 P-42~P-49（文档规范阶段），候选库 P-50；已核实问题见 docs/ISSUES.md #76~#78、#81、#83、#85。下方历史记录中的 P-27/P-29/P-30 为旧编号（已完成工作），勿与本批混淆。
+- **活跃开发项（2026-08-24 起）**：近期计划见 docs/PLAN.md：玩法线 P-36/P-38/P-40，视觉音频专项 P-42~P-49（文档规范阶段），候选库 P-50；已核实问题见 docs/ISSUES.md #77、#78、#81、#83、#85。下方历史记录中的 P-27/P-29/P-30 为旧编号（已完成工作），勿与本批混淆。
 
 - **27. 卡牌 × Loadout 衔接（P-27）——已完成（2026-08-23）**：`js/tank_cards.js` 扩展 `drawCardChoices` 过滤未配弹种卡 + 导出 `computeAmmoConfig`（叠加 `cardEffects` 弹种改造，支持 add/mult）；`js/tank_fire.js` 开火与预测接入 `computeAmmoConfig`；`tank_mvp.html` 奖励抽卡传入 `ammoLoadout: player.ammoLoadout`；单测全绿。
 - **30. 覆盖层 UI 纯逻辑下沉（P-29，低优先）——已完成（2026-08-23）**：`js/tank_screens.js` 纯逻辑视图模型（`SCREENS` + `buildHome/Loadout/Shop/MapList/DeathShop/SettlementViewModel` + `tankSummary/deploymentReady/formatStamp`，零 DOM 依赖、双端导出）+ `tank_mvp.html` 薄包装接线（DOM 渲染与事件留内联，行为零回归）；`npm run check` + `npm test` 全绿。

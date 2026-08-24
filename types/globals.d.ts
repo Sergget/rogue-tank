@@ -224,7 +224,8 @@ declare function difficultyForIndex(index: number, difficultyLevel?: number): nu
 declare function isBossNodeIndex(index: number): boolean;   // P-37：周期 Boss 节点判定
 declare function enemyCountForDifficulty(diff: number): number;
 declare function aiTierForDifficulty(diff: number): number;
-declare function statMultForDifficulty(diff: number): number;
+declare function statMultForDifficulty(diff: number): number;   // #76 A：兼容薄委托 = entityMults.maxHp
+declare function entityMultsForDifficulty(diff: number): Record<string, number>;   // #76 A：全属性难度乘子表（按 diffNorm 线性插值）
 declare function triggerDistForDifficulty(diff: number): number;   // AI 有效触发距离（难度化）
 declare function nodeScaleFor(viewport: any, templateDims: any): number;   // #24：视口 → 节点世界缩放倍率
 declare function makeNode(index: number, rng: any, env?: any): any;
@@ -277,6 +278,8 @@ declare function updateBossStage(entity: any): { changed: boolean; from?: string
 // 敌人/友军 AI 决策（js/tank_ai.js，P-10 / §6 条目 7）
 declare function aiConfig(): any;
 declare function aiDecideEnemy(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
+declare function aiTierProfile(tier: number): any;   // #76 B：按 t.aiTier 取 RULES.ai.tierProfiles 档位（越高级越警觉/准/抗晕）
+// aiCtx（#76）：{ player, hasLoS(ox,oy,tx,ty), covers?: any[]（C6 寻掩查询）, dt?: number / time?: number（C5 摆动相位源） }
 declare function aiDecideAlly(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
 declare function aiDecide(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
 declare function aiUpdateStateTimer(t: any, dt: number): void;

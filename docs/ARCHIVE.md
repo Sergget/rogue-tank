@@ -71,6 +71,7 @@
 | 2026-08-24 | `ISSUES.md` | #80 缺少 ESC 暂停/设置面板；倒车转向未倒置且无开关 | 已修复并验证（P-35 pause 面板落地，本批核验确认，见 DEVELOPMENT.md §2.1） |
 | 2026-08-24 | `ISSUES.md` | #82 Boss 仅在链尾节点生成，无“每 5 节点一个”节奏配置 | 已修复并验证（P-37 bossInterval=5 周期落地，见 DEVELOPMENT.md §2.1 / specs/map.md） |
 | 2026-08-24 | `ISSUES.md` | #84 镜头大小固定，滚轮被改作弹药切换，无缩放 | 已修复并验证（P-39 滚轮缩放落地，本批核验确认，见 DEVELOPMENT.md §2.1 / specs/map.md） |
+| 2026-08-24 | `ISSUES.md` | #76 难度未驱动敌方属性与 AI 状态机分化 | 已全面解决并验证（entityMults 十维属性分化 + aiTierProfiles 行为分层 + coverSeek 寻掩 + patrol wander，见 specs/combat.md §5） |
 
 ------
 

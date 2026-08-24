@@ -272,8 +272,22 @@ const RULES = {
     // --- P-19 多态状态机参数 ---
     flankZoneAngle: Math.PI / 2,    // 90度：判定" flank 侧向"的角度窗口（相对于目标朝向）
     flankMinDist: 400,              // 开始尝试 flank 状态的最小玩家距离（px）
+    flankDist: 300,                 // #76 B：flank 侧翼目标点距自身横向偏移（px）——原 tank_ai.js 硬编码收口
     flankSideSelect: 0.7,           // 选择"远离炮塔指向一侧"的概率/偏向权重（0~1，数值越倾向于总是选远侧）
-    defensiveCoverThreshold: 0.6,   // 消极防御时倾向寻找/贴掩体的阈值（0~1）
+    defensiveCoverThreshold: 0.6,   // 消极防御时倾向寻找/贴掩体的阈值（0~1）；#76 C6 复用为重坦受创寻掩的血量阈值
+    coverSeekRadius: 500,           // #76 C6：重坦受创寻掩的搜索半径（px），找半径内最近 full/half 掩体
+    coverArriveDist: 90,            // #76 C6：距背弹面目标点多近算"到位"（px），到位后原地还击
+    coverStandoffMargin: 40,        // #76 C6：背弹面外扩边距（px），避免贴墙卡住
+    coverHeavyArmorMin: 100,        // #76 C6：「重甲」车体正面装甲阈值（mm），达标或 aiTier≥1 才会寻掩
+    // --- tierProfiles（#76 B）：按实体 t.aiTier 索引的档位表；越高级越警觉/越准/越抗晕 ---
+    //   engageMul  — 接战距离乘数（高级敌人更远即开火压制）
+    //   aimTolMul  — 开火炮塔容差乘数（<1 更准）
+    //   stunResist — 抗晕：dazedProbability 减半 + stun 阈值 +0.2
+    tierProfiles: [
+      {},                                  // tier 0：基础行为，无修正
+      { engageMul: 1.1, aimTolMul: 0.8 },  // tier 1：更警觉、更准
+      { engageMul: 1.2, aimTolMul: 0.6, stunResist: true }  // tier 2：精英——远距压制、高精度、抗晕
+    ],
     defensiveHQRadius: 200,         // 友军据点防御半径（px），保持在该半径内优先驻守
     searchOscillationSpeed: 0.25,   // 搜索状态扫描摆动速度（rad/s），来回扫视的频率
     searchMinLoSBlocked: 2.0,       // 连续 LoS 被遮挡多少秒后触发搜索状态（秒）
@@ -310,7 +324,7 @@ const RULES = {
   // 三杠杆随节点推进的涨法：
   //   敌人数量 = 1 + floor(diff × enemyCountMax)
   //   AI 策略复杂度档位 = floor(diff × (aiTierMax+1)) 钳到 [0, aiTierMax]（0=基础索敌/1=主动贴近/2=协同，预留）
-  //   数值强度乘数 statMult = 1 + (statMultMax−1) × diff（作用敌军 hp/穿深/伤害）
+  //   数值强度乘数：P-13 旧三项（maxHp/penetration/damage）已并入下方 entityMults 表（#76 A）。
   // P-34：开放式节点链下 t=index/(count-1) 失效，难度改为索引驱动饱和曲线：
   //   diff = min(curveCap, curveStart + curveSpan·min(1,index/diffSatIndex)^curvePow)
   //   再叠加跨局等级：effDiff = min(diffMax, diff + difficultyLevel×crossRunLevelBonus)
@@ -325,7 +339,24 @@ const RULES = {
     diffMax: 1.15,           // 有效难度绝对上限（含跨局加成后钳制）
     enemyCountMax: 4,        // 敌人数量上限（enemyCount = 1 + floor(diff × 4)）
     aiTierMax: 2,            // AI 策略复杂度档位上限
-    statMultMax: 1.5         // 数值强度乘数上限（1.0 → 1.5）
+    statMultMax: 1.5,        // 【已废弃 → entityMults.penetration[1]】保留仅为旧存档/调用兼容
+    // #76 A 敌军属性全面难度分化（表驱动）：每键 [diff=0 乘子, diff=diffMax 乘子]，
+    // 按 diffNorm = effDiff/diffMax 线性插值（js/tank_map.js entityMultsForDifficulty 消费）。
+    // 只作用于敌军实体生成（materializeNode 经 env.applyDifficulty 叠乘到 stats），玩家绝不走此路径。
+    // 终值校准说明：生存端 maxHp/armorAll 抬升最高（拖长 TTK、鼓励玩家绕侧打背面），
+    // 输出端 damage/penetration 温和（避免一击必杀挫败），机动/火控端小幅强化（更难风筝）。
+    entityMults: {
+      maxHp:         [1, 1.6],   // 生命
+      penetration:   [1, 1.5],   // 穿深
+      damage:        [1, 1.4],   // 单发伤害
+      armorAll:      [1, 1.45],  // 装甲全面乘（遍历 hull/turret 各面叠乘）
+      reload:        [1, 0.82],  // 装填时间（越难越短=射速越高）
+      spreadMult:    [1, 0.78],  // 三扩系数（越难越准）
+      aimSpeed:      [1, 1.35],  // 缩圈速度（越难瞄得越快）
+      maxSpeed:      [1, 1.18],  // 极速
+      turnRate:      [1, 1.22],  // 车体转速
+      turretTurnRate:[1, 1.3]    // 炮塔转速
+    }
   },
 
   // 经济与存档（P-14 / DEVELOPMENT.md §2.4 / §6 条目 10）。

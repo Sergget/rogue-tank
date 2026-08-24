@@ -764,10 +764,19 @@ function enterBattle(nodeIndex){
       if(spec) applyTankConfig(t, spec);
       resetEntity(t);
     },
-    applyDifficulty(t, statMult){                        // P-13：数值强度乘数（敌军 hp/穿深/伤害 随难度涨）
-      addModifier(t, { stat: 'maxHp', mode: 'mult', value: statMult, source: 'difficulty', scope: 'run' });
-      addModifier(t, { stat: 'penetration', mode: 'mult', value: statMult, source: 'difficulty', scope: 'run' });
-      addModifier(t, { stat: 'damage', mode: 'mult', value: statMult, source: 'difficulty', scope: 'run' });
+    applyDifficulty(t, mults){                           // #76 A：敌军属性全面难度分化（表驱动）
+      if(!mults) return;                                 // 玩家/据点实体绝不走此路径（materializeNode 只对 team=enemy 调用）
+      const STAT_KEYS = ['maxHp','penetration','damage','reload','spreadMult','aimSpeed','maxSpeed','turnRate','turretTurnRate'];
+      for(const k of STAT_KEYS){
+        if(mults[k] !== undefined && mults[k] !== 1){
+          addModifier(t, { stat: k, mode: 'mult', value: mults[k], source: 'difficulty', scope: 'run' });
+        }
+      }
+      // armorAll：装甲各面遍历叠乘（armor.hull / armor.turret 组路径乘全组，见 tank_model.applyArmorMod）
+      if(mults.armorAll !== undefined && mults.armorAll !== 1){
+        addModifier(t, { stat: 'armor.hull', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
+        addModifier(t, { stat: 'armor.turret', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
+      }
       t.hp = t.stats.maxHp; t.maxHp = t.stats.maxHp;
     }
   });
@@ -1806,7 +1815,9 @@ function update(dt){
     const aiCtx = {
       player,
       enemies: entities.filter(e => e.team === 'enemy' && e.hp > 0),
-      hasLoS: hasLineOfSight
+      hasLoS: hasLineOfSight,
+      covers,   // #76 C6：掩体查询注入（重坦受创寻掩用；AI 侧遍历比较，无需寻路）
+      dt        // #76 C5：patrol 微摆动本地相位的帧步长（性能无关）
     };
     for(const e of entities){
       if(e.id === 'player') continue;   // 手动控制

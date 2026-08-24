@@ -6,16 +6,60 @@
 // 视线判定通过 ctx.hasLoS(ox,oy,tx,ty) 注入（见 js/tank_cover.js hasLineOfSight），
 // 保持本模块对掩体全局的零依赖、可独立测试。
 //
-// 战术状态机（P-19）：敌人在下列状态间切换
-//   Stunned    — 模块伤害/被击震惊（优先级最高，计时器计数后恢复）
+// 战术状态机（P-19 / #76 扩充）：敌人在下列状态间切换
+//   Stunned    — 模块伤害/被击震惊（优先级最高，计时器计数后恢复；tier2 抗晕减半概率+阈值上调）
 //   Flank      — 绕行进攻：横向绕到目标侧翼再开火
+//   CoverSeek  — 重坦受创寻掩（#76 C6）：血量低于阈值时退到最近掩体背弹面还击
 //   Defensive  — 消极防御：守在据点/掩体后，只打射程内目标
 //   Search     — 搜索前进：目标被掩体遮挡时朝最后已知位置推进并扫视
-//   Patrol     — 队列行军：无目标或远战场时沿固定方向/巡逻前进
+//   Patrol     — 队列行军：无目标或远战场时沿固定方向/巡逻前进（#76 C5 未激活早退带微摆动）
 //
 // aiState 字段为 P-25 可视化预留。
 
 function aiConfig(){ return (typeof RULES !== 'undefined' && RULES.ai) ? RULES.ai : {}; }
+
+// #76 B：按实体 t.aiTier 取档位表（RULES.ai.tierProfiles），越高级越警觉/越准/越抗晕。
+// 纯函数、可独立单测：缺档/越界一律回退空 profile（tier 0 基础行为）。
+function aiTierProfile(tier){
+  const cfg = aiConfig();
+  const arr = Array.isArray(cfg.tierProfiles) ? cfg.tierProfiles : [];
+  const i = Math.max(0, Math.floor(Number.isFinite(tier) ? tier : 0));
+  return arr[i] || {};
+}
+
+// #76 C5：patrol 早退微摆动 —— 远处未激活敌人缓慢左右摆头（不再全零死板）。
+// 时间源选择：ctx.time 显式注入时用之（确定性、测试友好）；否则用实体本地相位
+// t.wanderPhase += speed×step 的性能无关推进（step 取 ctx.dt 或固定 1/60 步长，已注明）。
+// 输出为 turn 分量：sin(phase)×sigma（sigma=patrolWanderSigma rad 幅度，move 恒 0）。
+function _patrolWanderTurn(t, ctx){
+  const cfg = aiConfig();
+  const speed = cfg.patrolWanderSpeed !== undefined ? cfg.patrolWanderSpeed : 1.5;
+  const sigma = cfg.patrolWanderSigma !== undefined ? cfg.patrolWanderSigma : 0.02;
+  let phase;
+  if(ctx && Number.isFinite(ctx.time)){
+    phase = ctx.time * speed;
+  } else {
+    const step = (ctx && Number.isFinite(ctx.dt) && ctx.dt > 0) ? ctx.dt : (1/60);
+    if(!Number.isFinite(t.wanderPhase)) t.wanderPhase = 0;
+    phase = t.wanderPhase;          // 先读后推进：首次调用 phase=0（sin=0，保持旧全零首调兼容）
+    t.wanderPhase += speed * step;
+  }
+  return Math.sin(phase) * sigma;
+}
+
+// #76 B：接战/精度参数合成（可单测）——
+//   engage = engageRange × 难度比(trigRatio) × 档位 engageMul
+//     难度比复用生成期难度化触发距离：trigRatio = clamp(t.aiTriggerDist / triggerDistBase, 1, hysteresis)
+//     （aiTriggerDist 由 tank_map.triggerDistForDifficulty 按 effDiff 算好，作为难度代理避免额外穿线）
+//   tol = aimTolerance × 档位 aimTolMul（<1 更准）
+function _effectiveEngage(t, cfg, prof){
+  const baseEngage = cfg.engageRange !== undefined ? cfg.engageRange : 520;
+  const baseTrig = cfg.triggerDistBase !== undefined ? cfg.triggerDistBase : 700;
+  const hyst = cfg.triggerHysteresis !== undefined ? cfg.triggerHysteresis : 1.25;
+  const trigRatio = (t.aiTriggerDist && t.aiTriggerDist > 0 && baseTrig > 0)
+    ? Math.min(hyst, Math.max(1, t.aiTriggerDist / baseTrig)) : 1;
+  return baseEngage * trigRatio * (prof.engageMul || 1);
+}
 
 // 初始化/确保实体 AI 属性
 function _aiInit(t){
@@ -40,6 +84,11 @@ function aiDecideEnemy(t, ctx){
   const dist = Math.hypot(dx, dy) || 1;
   const desired = Math.atan2(dy, dx);
 
+  // #76 B：档位 + 难度合成的接战/精度参数（提前计算，供开火/移动/flank/寻掩共用）
+  const prof = aiTierProfile(t.aiTier);
+  const engage = _effectiveEngage(t, cfg, prof);
+  const tol = (cfg.aimTolerance !== undefined ? cfg.aimTolerance : 0.12) * (prof.aimTolMul || 1);
+
   // --- 激活触发（重设计）：距离 + 可见性，与摄像机视野彻底解耦 ---
   // 有效触发距离：实体字段 aiTriggerDist（生成时按难度算好，见 tank_map.js
   // triggerDistForDifficulty）优先，缺省回退 RULES.ai.triggerDistBase。
@@ -50,13 +99,19 @@ function aiDecideEnemy(t, ctx){
   const enterD = trigDist, exitD = trigDist * hyst;
   if(t.aiEngaged === undefined) t.aiEngaged = false;
   if(!t.aiEngaged){
-    if(dist > enterD){ t.aiState = 'patrol'; return out; }   // 触发距离外：patrol 不活动
+    if(dist > enterD){
+      // #76 C5：激活门控外的 patrol 早退不再全零——微摆动摆头（远处敌人不死板）
+      t.aiState = 'patrol';
+      out.turn = _patrolWanderTurn(t, ctx);
+      return out;
+    }                                                   // 触发距离外：patrol 不活动
   } else if(dist > exitD){                                   // 滞回带内保持接战，超出才脱离
     // 警觉记忆（被击中/友邻告警）：持有 lastKnownPlayerPos 时即使超出滞回带也保持
     // 接战——朝记忆点 search 推进，直到到达附近或重新获得视线后清除（见 LoS/search 分支）。
     if(!t.lastKnownPlayerPos){
       t.aiEngaged = false;
       t.aiState = 'patrol';
+      out.turn = _patrolWanderTurn(t, ctx);   // #76 C5：同上，脱离接战后微摆动
       return out;
     }
   }
@@ -99,14 +154,13 @@ function aiDecideEnemy(t, ctx){
   else if(hullDiff < -0.05) out.turn = -1;
   out.turretDesired = desired;
 
-  // 移动：保持距离（远则进，太近则退）
-  const engage = cfg.engageRange !== undefined ? cfg.engageRange : 520;
+  // 移动：保持距离（远则进，太近则退）——engage 已含难度/档位调制（#76 B）
   const close = cfg.closeRange !== undefined ? cfg.closeRange : 200;
   if(dist > engage) out.move = 1;
   else if(dist < close) out.move = -1;
 
   // 开火：炮塔大致对准 + 视线畅通（触发段已算好 los）+ 装填好 + 在接战距离内
-  const tol = cfg.aimTolerance !== undefined ? cfg.aimTolerance : 0.12;
+  // tol 已按档位 aimTolMul 收紧（#76 B）
   const aimErr = Math.abs(angDiff(t.turretAngle, desired));
   if(aimErr < tol && los && dist <= engage && t.reloadT <= 0) out.fire = true;
 
@@ -126,8 +180,10 @@ function aiDecideEnemy(t, ctx){
   if(t.trackBroken || (t.immobT && t.immobT > 0)) debuffSeverity = Math.max(debuffSeverity, 0.8);
   if(t.fireDebuffT && t.fireDebuffT > 0) debuffSeverity = Math.max(debuffSeverity, 0.5);
 
-  const stunThreshold = cfg.stunModuleThreshold !== undefined ? cfg.stunModuleThreshold : 0.5;
-  const stunProb = cfg.dazedProbability !== undefined ? cfg.dazedProbability : 0.3;
+  const stunThreshold = (cfg.stunModuleThreshold !== undefined ? cfg.stunModuleThreshold : 0.5)
+                        + (prof.stunResist ? 0.2 : 0);   // #76 B：抗晕档阈值上调
+  const stunProb = (cfg.dazedProbability !== undefined ? cfg.dazedProbability : 0.3)
+                   * (prof.stunResist ? 0.5 : 1);          // #76 B：抗晕档随机 daze 概率减半
   // stun 免疫窗：stunned 自然结束后 stunImmuneT 秒内不再被压入 stunned
   // （防高射速 + 30% 随机 daze 无限连控；见 RULES.ai.stunImmunityAfter）
   const stunImmune = (t.stunImmuneT || 0) > 0;
@@ -168,8 +224,8 @@ function aiDecideEnemy(t, ctx){
       const dotRight = targetRight.x * turretDir.x + targetRight.y * turretDir.y;
       const chooseFarSide = dotRight < 0; // 点积为负 → 右侧已是“远侧”
 
-      // 计算侧翼目标位置：移动到目标侧方一定距离处
-      const flankDist = 300;
+      // 计算侧翼目标位置：移动到目标侧方一定距离处（#76 B：flankDist 收口 RULES.ai）
+      const flankDist = cfg.flankDist !== undefined ? cfg.flankDist : 300;
       const flankTargetX = t.x + targetRight.x * flankDist;
       const flankTargetY = t.y + targetRight.y * flankDist;
 
@@ -180,6 +236,52 @@ function aiDecideEnemy(t, ctx){
       out.move = 1;  // 前进至 flank 位置
       out.turretDesired = desired; // 炮塔仍对准玩家
       state = 'flank';
+    }
+  }
+
+  // 2b) CoverSeek（#76 C6）：重坦受创寻掩——接战中、重甲（aiTier≥1 或车体正面装甲达标）
+  // 且血量低于 defensiveCoverThreshold 时，向半径 coverSeekRadius 内最近 full/half 掩体的
+  // 背弹面（掩体位置沿「掩体→玩家」反方向偏移半深+边距）移动；到位后原地还击。
+  // 无合适掩体则维持原行为。原 defensive 远距守据点语义不受影响（独立状态，见下）。
+  if(state !== 'stunned' && state !== 'flank'){
+    const seekThresh = cfg.defensiveCoverThreshold !== undefined ? cfg.defensiveCoverThreshold : 0.6;
+    const armorMin = cfg.coverHeavyArmorMin !== undefined ? cfg.coverHeavyArmorMin : 100;
+    const frontArmor = (t.stats && t.stats.armor && t.stats.armor.hull && t.stats.armor.hull.front !== undefined)
+                       ? t.stats.armor.hull.front : 0;
+    const heavyEnough = (t.aiTier !== undefined && t.aiTier >= 1) || frontArmor >= armorMin;
+    const hpRatio = (t.maxHp > 0) ? (t.hp / t.maxHp) : 1;
+    if(heavyEnough && hpRatio < seekThresh){
+      const coversArr = Array.isArray(ctx.covers) ? ctx.covers : [];
+      const radius = cfg.coverSeekRadius !== undefined ? cfg.coverSeekRadius : 500;
+      let best = null, bestD = Infinity;
+      for(const c of coversArr){
+        if(!c || (c.tier !== 'full' && c.tier !== 'half')) continue;   // 只认可挡弹的实体掩体
+        const cd = Math.hypot(c.x - t.x, c.y - t.y);
+        if(cd <= radius && cd < bestD){ bestD = cd; best = c; }
+      }
+      if(best){
+        // 背弹面目标点：从掩体中心沿「掩体→玩家」反方向偏移半深 + 边距（遍历比较即可，无需寻路）
+        const toP = Math.hypot(p.x - best.x, p.y - best.y) || 1;
+        const ux = (p.x - best.x) / toP, uy = (p.y - best.y) / toP;
+        const halfDepth = Math.min(best.w || 40, best.h || 40) / 2;
+        const margin = cfg.coverStandoffMargin !== undefined ? cfg.coverStandoffMargin : 40;
+        const tx = best.x - ux * (halfDepth + margin);
+        const ty = best.y - uy * (halfDepth + margin);
+        const arrive = cfg.coverArriveDist !== undefined ? cfg.coverArriveDist : 90;
+        const dToTarget = Math.hypot(tx - t.x, ty - t.y);
+        if(dToTarget > arrive){
+          const seekHeading = Math.atan2(ty - t.y, tx - t.x);
+          const sDiff = angDiff(seekHeading, t.hullAngle);
+          out.turn = sDiff > 0.05 ? 1 : (sDiff < -0.05 ? -1 : 0);
+          out.move = 1;   // 向掩体背弹面机动
+        } else {
+          out.move = 0;   // 已就位：原地还击
+        }
+        out.turretDesired = desired;   // 炮塔全程锁定玩家
+        if(aimErr < tol && los && dist <= engage && t.reloadT <= 0) out.fire = true;
+        state = 'coverSeek';
+      }
+      // 无掩体可寻 → 静默落回 base/flank/defensive 原行为
     }
   }
 
@@ -307,5 +409,5 @@ function propagateAlert(entitiesArr, x, y, radius){
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert };
+  module.exports = { aiConfig, aiTierProfile, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert };
 }

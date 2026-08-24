@@ -71,11 +71,30 @@ function aiTierForDifficulty(diff) {
   return Math.max(0, Math.min(max, Math.floor(Math.min(1, Math.max(0, diff)) * (max + 1))));
 }
 
-// 数值强度乘数：1 + (statMultMax−1)·diff（作用敌军 hp/穿深/伤害）
-function statMultForDifficulty(diff) {
+// 数值强度乘子（#76 A 表驱动）：原 P-13「1+(statMultMax−1)·diff 三项特判」已迁移进
+// RULES.difficulty.entityMults（键值 = [diff=0 乘子, diff=diffMax 乘子]，按 diffNorm 线性插值）。
+// 返回整张乘子表，materializeNode 经 env.applyDifficulty(t, mults) 叠乘到敌军 stats。
+function entityMultsForDifficulty(diff) {
   const cfg = difficultyConfig() || {};
-  const max = cfg.statMultMax !== undefined ? cfg.statMultMax : 1.5;
-  return Math.round((1 + (max - 1) * Math.min(1, Math.max(0, diff))) * 100) / 100;
+  const table = cfg.entityMults || {
+    maxHp: [1, 1.6], penetration: [1, 1.5], damage: [1, 1.4], armorAll: [1, 1.45],
+    reload: [1, 0.82], spreadMult: [1, 0.78], aimSpeed: [1, 1.35],
+    maxSpeed: [1, 1.18], turnRate: [1, 1.22], turretTurnRate: [1, 1.3]
+  };
+  const diffMax = cfg.diffMax !== undefined ? cfg.diffMax : 1.15;
+  const n = Math.min(1, Math.max(0, (Number.isFinite(diff) ? diff : 0) / diffMax));
+  const out = {};
+  for (const k in table) {
+    const pair = table[k];
+    if (!Array.isArray(pair) || pair.length < 2) continue;
+    out[k] = Math.round((pair[0] + (pair[1] - pair[0]) * n) * 1000) / 1000;
+  }
+  return out;
+}
+
+// 兼容薄委托（P-13 遗留函数名）：旧语义"数值强度乘数"取表中 maxHp 档（生存端代表值）。
+function statMultForDifficulty(diff) {
+  return entityMultsForDifficulty(diff).maxHp;
 }
 
 // AI 有效触发距离（重设计）：triggerDistBase × lerp(1.0, triggerDistDiffMultMax, diff归一化)。
@@ -163,8 +182,10 @@ function makeNode(index, rng, env) {
   }
 
   // 三杠杆（P-13 / §6 条目 12）：敌人数量 / AI 策略复杂度 / 数值强度随 diff 涨
+  // #76 A：数值强度改为 entityMults 全属性乘子表（旧 statMult 三项特判已并入表）
   const aiTier = aiTierForDifficulty(diff);
-  const statMult = statMultForDifficulty(diff);
+  const statMult = statMultForDifficulty(diff);   // 兼容保留：= entityMults.maxHp
+  const entityMults = entityMultsForDifficulty(diff);
 
   // AI 触发重设计：敌军生成点必须在有效触发距离之外（玩家开局不应看到脸刷兵）。
   // 最小间距取「难度化触发距离 × 1.05 余量」与旧配置 enemyMinPlayerDist 的较大者。
@@ -197,7 +218,8 @@ function makeNode(index, rng, env) {
       hullAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
       turretAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
       heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
-      statMult: statMult,           // P-13：数值强度乘数（materializeNode 经 env.applyDifficulty 应用）
+      statMult: statMult,           // 兼容保留（= entityMults.maxHp）；#76 A 起以 entityMults 为准
+      entityMults: entityMults,     // #76 A：全属性难度乘子表（materializeNode 经 env.applyDifficulty 应用）
       aiTier: aiTier                // P-34 C：AI 档位随敌人数据下发（materializeNode 注入实体 t.aiTier，#76 消费）
     });
   }
@@ -237,6 +259,7 @@ function makeNode(index, rng, env) {
         turretAngle: Math.atan2(playerSpawn.y - c.y, playerSpawn.x - c.x),
         heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
         statMult: statMult,
+        entityMults: entityMults,    // #76 A：兜底补满路径同样带全属性乘子表
         aiTier: aiTier               // P-34 C：兜底补满路径同样带档位
       });
     }
@@ -271,7 +294,8 @@ function makeNode(index, rng, env) {
     index: index,
     difficulty: diff,
     aiTier: aiTier,          // P-13：AI 策略复杂度档位（0~2，供未来 AI 分级消费）
-    statMult: statMult,      // P-13：数值强度乘数（敌军 hp/穿深/伤害）
+    statMult: statMult,      // P-13：数值强度乘数（兼容保留 = entityMults.maxHp）
+    entityMults: entityMults, // #76 A：全属性难度乘子表（节点级快照，敌军逐个引用同值）
     difficultyLevel: difficultyLevel,  // P-34：本节点生成时的跨局难度等级（溯源用）
     boss: bossMark ? true : null,      // P-37：周期 Boss 标记（true=待 UI 层指定定义；null=普通节点）
     seed: templateResult.seed,
@@ -507,7 +531,8 @@ function scoreNode(node, result) {
  *   env.clearEntities(keepIds)       —— 移除保留 id 之外的实体（浏览器：entities filter）
  *   env.spawnTank(spec)              —— 生成实体（浏览器：spawnTank 全局；spec 含 id/team/x/y/hullAngle/turretAngle/heightClass）
  *   env.configureTank(tank, tankId)  —— 应用坦克配置（浏览器：applyTankConfig+resetEntity；测试可 no-op）
- *   env.applyDifficulty(tank, statMult) —— 应用数值强度乘数（P-13：敌军 hp/穿深/伤害 随难度涨；测试可 no-op）
+ *   env.applyDifficulty(tank, mults) —— 应用难度乘子表（#76 A：敌军全属性随 effDiff 插值叠乘；
+ *      mults = entityMultsForDifficulty 产出；旧 statMult 敌军数据自动降级为三项表；测试可 no-op）
  * @param {any} node makeNode/generateRun 产出的节点
  * @param {any} env 运行环境注入
  * @returns {{ spawned: any[], outpost: any }}
@@ -531,7 +556,13 @@ function materializeNode(node, env) {
     t.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // AI 触发距离（难度化，生成时算好）
     t.aiTier = (e.aiTier !== undefined) ? e.aiTier : (node.aiTier || 0);   // P-34 C：AI 档位注入实体（#76 消费）
     if (typeof env.configureTank === 'function') env.configureTank(t, e.tankId);
-    if (e.statMult && e.statMult !== 1 && typeof env.applyDifficulty === 'function') env.applyDifficulty(t, e.statMult);
+    // #76 A：难度乘子应用点集中于此（敌军专属，玩家/据点不走此路径）。
+    // 新数据带 entityMults 全表；旧 statMult 数据降级为 P-13 三项表，行为向后兼容。
+    const mults = e.entityMults ||
+      ((e.statMult && e.statMult !== 1)
+        ? { maxHp: e.statMult, penetration: e.statMult, damage: e.statMult }
+        : null);
+    if (mults && typeof env.applyDifficulty === 'function') env.applyDifficulty(t, mults);
     spawned.push(t);
   }
 
@@ -559,6 +590,7 @@ if (typeof module !== 'undefined' && module.exports) {
     enemyCountForDifficulty,
     aiTierForDifficulty,
     statMultForDifficulty,
+    entityMultsForDifficulty,
     triggerDistForDifficulty,
     nodeScaleFor,
     makeNode,

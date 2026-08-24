@@ -8,7 +8,7 @@ const U = require('../js/tank_utils.js');
 global.angDiff = U.angDiff;
 global.norm = U.norm;
 global.TAU = U.TAU;
-const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert } = require('../js/tank_ai.js');
+const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile } = require('../js/tank_ai.js');
 
 let fails = 0;
 function ok(cond, label) {
@@ -170,6 +170,122 @@ console.log('--- 警觉系统 ---');
   ok((t.stunImmuneT || 0) === 0, '免疫窗倒计时归零');
   aiDecideEnemy(t, { player, hasLoS: () => true });
   ok(t.aiState === 'stunned', '免疫窗过后恢复可 stun');
+}
+
+// ===== #76 B/C：AI 行为参数化 + tier 消费 + patrol 微摆动 + 重坦寻掩 =====
+
+console.log('--- #76 B/C：参数化/tier/摆动/寻掩 ---');
+
+// E) flankDist 读 cfg（RULES.ai 收口，原 tank_ai.js 硬编码 300）
+{
+  const saveFD = RULES.ai.flankDist;
+  const fl = enemy(420, 500, Math.PI, Math.PI, 0);   // dist 580 ∈ (engage 520, flankMinDist×1.5=600)
+  const rDefault = aiDecideEnemy(fl, { player, hasLoS: () => true });
+  ok(fl.aiState === 'flank' && rDefault.move === 1, 'flank 态触发（距离窗口内）');
+  RULES.ai.flankDist = -saveFD;   // 取负 → 侧翼目标点翻到对侧 → 车体转向翻转（证明消费 cfg）
+  const rFlip = aiDecideEnemy(fl, { player, hasLoS: () => true });
+  ok(rFlip.turn === -rDefault.turn, `flankDist 读 cfg：取负后转向翻转（${rDefault.turn}→${rFlip.turn}）`);
+  RULES.ai.flankDist = saveFD;
+}
+
+// F) aiTierProfile 档位表 + engageMul/aimTolMul 消费
+{
+  ok(aiTierProfile(2).stunResist === true && aiTierProfile(1).engageMul > 1, 'tierProfiles 档位定义可读');
+  ok(Object.keys(aiTierProfile(99)).length === 0 && Object.keys(aiTierProfile(undefined)).length === 0,
+    'tier 越界/缺省回退空 profile（tier 0 基础行为）');
+  // engageMul：dist 580 —— tier0 接战距离 520（超距 → flank 靠近）；tier2 接战距离 520×1.2=624（已接战）
+  const te0 = enemy(420, 500, Math.PI, 0, 0);
+  aiDecideEnemy(te0, { player, hasLoS: () => true });
+  ok(te0.aiState === 'flank' , 'tier0：580 > engage 520 → flank 机动');
+  const te2 = enemy(420, 500, Math.PI, 0, 0);
+  te2.aiTier = 2;
+  const rte2 = aiDecideEnemy(te2, { player, hasLoS: () => true });
+  ok(rte2.move === 0 && rte2.fire === true, 'tier2：engage=624 ≥ 580 → 原地开火（engageMul 消费）');
+  // aimTolMul：aimErr 0.1 —— tier0 容差 0.12 可开火；tier2 容差 0.12×0.6=0.072 不开火
+  const ta0 = enemy(800, 500, Math.PI, 0.1, 0);
+  ok(aiDecideEnemy(ta0, { player, hasLoS: () => true }).fire === true, 'tier0：aimErr 0.1 < tol 0.12 → 开火');
+  const ta2 = enemy(800, 500, Math.PI, 0.1, 0);
+  ta2.aiTier = 2;
+  ok(aiDecideEnemy(ta2, { player, hasLoS: () => true }).fire === false, 'tier2：aimTolMul 收紧 tol=0.072 → 不开火');
+}
+
+// G) stunResist 生效（tier2：阈值 +0.2 且 daze 概率减半——用受控 Math.random 消除随机性）
+{
+  const realRandom = Math.random;
+  Math.random = () => 0.99;   // 高于任何 daze 概率 → 只走确定性阈值分支
+  const ts0 = enemy(800, 500, 0, 0, 0);
+  aiDecideEnemy(ts0, { player, hasLoS: () => true });
+  ts0.fireDebuffT = 1;        // severity 0.5 ≥ tier0 阈值 0.5 → 必 stun
+  aiDecideEnemy(ts0, { player, hasLoS: () => true });
+  ok(ts0.aiState === 'stunned', 'tier0：severity 0.5 ≥ 阈值 0.5 → stunned');
+  const ts2 = enemy(800, 500, 0, 0, 0);
+  ts2.aiTier = 2;
+  aiDecideEnemy(ts2, { player, hasLoS: () => true });
+  ts2.fireDebuffT = 1;        // severity 0.5 < tier2 阈值 0.7 且随机分支被压制 → 不 stun
+  aiDecideEnemy(ts2, { player, hasLoS: () => true });
+  ok(ts2.aiState !== 'stunned', 'tier2：stunResist 阈值上调至 0.7 → 抗晕不 stun');
+  Math.random = realRandom;
+}
+
+// H) patrol 微摆动（#76 C5）：激活门控外早退不再全零；ctx.time 注入确定性验证
+{
+  const tw = enemy(0, 0, 0, 0, 0);   // dist ~1118 > 700 → patrol 早退
+  const speed = RULES.ai.patrolWanderSpeed, sigma = RULES.ai.patrolWanderSigma;
+  const ctxP = { player, hasLoS: () => true };
+  const wPeak = aiDecideEnemy(tw, Object.assign({}, ctxP, { time: Math.PI / 2 / speed }));
+  ok(tw.aiState === 'patrol' && Math.abs(wPeak.turn - sigma) < 1e-9 && wPeak.move === 0,
+     `patrol 微摆动峰值 turn≈sigma=${sigma}（实际 ${wPeak.turn}）、move 保持 0`);
+  const wZero = aiDecideEnemy(tw, Object.assign({}, ctxP, { time: 0 }));
+  ok(wZero.turn === 0, '相位 0 处摆动为 0');
+  const wValley = aiDecideEnemy(tw, Object.assign({}, ctxP, { time: (Math.PI * 1.5) / speed }));
+  ok(Math.abs(wValley.turn + sigma) < 1e-9, '谷值 -sigma（正弦对称）');
+  let bounded = true;
+  for (let i = 0; i < 50; i++) {
+    const r = aiDecideEnemy(tw, Object.assign({}, ctxP, { time: i * 0.37 }));
+    if (Math.abs(r.turn) > sigma || r.move !== 0) { bounded = false; break; }
+  }
+  ok(bounded, '任意相位下幅度受限 |turn| ≤ sigma 且 move=0');
+  // 本地相位回退路径（无 ctx.time）：首调 phase=0 → 0，随后推进非恒零
+  const tl = enemy(0, 0, 0, 0, 0);
+  ok(aiDecideEnemy(tl, ctxP).turn === 0, '本地相位首调为 0（sin(0)）');
+  const t2v = aiDecideEnemy(tl, Object.assign({}, ctxP, { dt: 1 }));   // phase += speed×1 ≈ 1.5 rad
+  ok(Math.abs(t2v.turn) > 0 && Math.abs(t2v.turn) <= sigma, '本地相位随 dt 推进产生非零受限摆动');
+}
+
+// I) 重坦受创寻掩（#76 C6）：触发条件 / 目标点方向 / 到位还击 / 无掩体回退
+{
+  const mkHeavy = () => ({
+    team: 'enemy', x: 900, y: 500, hullAngle: Math.PI, turretAngle: 0, reloadT: 0,
+    stats: { turretTurnRate: 2.2, armor: { hull: { front: 120 } } },
+    hp: 40, maxHp: 100, traverseLimit: Math.PI   // hpRatio 0.4 < defensiveCoverThreshold 0.6
+  });
+  const covers = [
+    { x: 700, y: 500, w: 80, h: 60, tier: 'full' },   // 最近合格掩体（距 200）；玩家在右 → 背弹面在左
+    { x: 950, y: 700, w: 50, h: 50, tier: 'bush' }    // bush 非挡弹掩体，应被忽略
+  ];
+  const tc = mkHeavy();
+  const rc = aiDecideEnemy(tc, { player, hasLoS: () => true, covers });
+  ok(tc.aiState === 'coverSeek', '重甲 + 血量 < 阈值 → coverSeek 态');
+  ok(rc.move === 1 && rc.turn === 0,
+     '向背弹面目标点机动（目标 (630,500) 在正左方，车体已朝左 → 仅前进不转向）');
+  ok(rc.turretDesired === 0 && rc.fire === true, '寻掩途中炮塔锁定玩家且条件满足即还击');
+  // 到位判定：实体挪到目标点半径内 → 原地还击
+  tc.x = 635;
+  const rc2 = aiDecideEnemy(tc, { player, hasLoS: () => true, covers });
+  ok(rc2.move === 0 && tc.aiState === 'coverSeek', '到位（≤coverArriveDist）→ 原地还击');
+  // 非 heavyEnough（正面装甲 50 < 100 且无 aiTier）：血量再低也不寻掩
+  const tl = mkHeavy();
+  tl.stats.armor.hull.front = 50; delete tl.aiTier;
+  aiDecideEnemy(tl, { player, hasLoS: () => true, covers });
+  ok(tl.aiState !== 'coverSeek', '非重甲低档实体不触发寻掩');
+  // 无合格掩体 → 维持原行为
+  const tn = mkHeavy();
+  aiDecideEnemy(tn, { player, hasLoS: () => true, covers: [] });
+  ok(tn.aiState !== 'coverSeek', '半径内无 full/half 掩体 → 维持原行为');
+  // 血量健康 → 不寻掩
+  const th = mkHeavy(); th.hp = 100; th.maxHp = 100;
+  aiDecideEnemy(th, { player, hasLoS: () => true, covers });
+  ok(th.aiState !== 'coverSeek', 'hpRatio ≥ 阈值 → 不寻掩');
 }
 
 if(fails === 0) console.log('test-ai: 完成所有检查，全部通过');

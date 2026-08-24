@@ -18,6 +18,7 @@ const {
   enemyCountForDifficulty,
   aiTierForDifficulty,
   statMultForDifficulty,
+  entityMultsForDifficulty,
   triggerDistForDifficulty,
   nodeScaleFor,
   generateRun,
@@ -54,14 +55,30 @@ ok(enemyCountForDifficulty(0.5) === 3, '中难度 3 敌');
 ok(enemyCountForDifficulty(0.95) === 4, '高难度 4 敌');
 ok(enemyCountForDifficulty(2) === 5 && enemyCountForDifficulty(-1) === 1, '越界钳制');
 
-// 2b) 三杠杆：AI 策略复杂度档位 + 数值强度乘数（P-13 / §6 条目 12）
+// 2b) 三杠杆：AI 策略复杂度档位 + 数值强度乘数（P-13 / §6 条目 12；#76 A 表驱动改造）
 ok(aiTierForDifficulty(0.15) === 0 && aiTierForDifficulty(0.95) === 2, 'AI 档位 0→2 随难度涨');
 ok(aiTierForDifficulty(2) === 2 && aiTierForDifficulty(-1) === 0, 'AI 档位越界钳制');
-ok(statMultForDifficulty(0.15) === 1.08 && statMultForDifficulty(0.95) === 1.48, `数值强度 1.0→1.5（实际 ${statMultForDifficulty(0.15)}→${statMultForDifficulty(0.95)}）`);
-ok(statMultForDifficulty(2) === 1.5 && statMultForDifficulty(-1) === 1, '数值强度越界钳制');
+// #76 A：entityMults 表驱动插值（[diff=0, diff=diffMax]，按 diffNorm 线性）
+const EM = entityMultsForDifficulty;
+const dMax = RULES_MOD.RULES.difficulty.diffMax;
+ok(EM(0).maxHp === 1 && EM(0).damage === 1 && EM(0).armorAll === 1 && EM(0).reload === 1, 'diff 0：全乘子为下限 1');
+ok(EM(dMax).maxHp === 1.6 && EM(dMax).penetration === 1.5 && EM(dMax).damage === 1.4 && EM(dMax).armorAll === 1.45,
+   `diff 上限：生存/输出端触顶终值（实际 maxHp=${EM(dMax).maxHp} armorAll=${EM(dMax).armorAll}）`);
+ok(EM(dMax).reload === 0.82 && EM(dMax).spreadMult === 0.78 && EM(dMax).aimSpeed === 1.35,
+   'diff 上限：火控端反向键（reload↓/spread↓/aimSpeed↑）');
+ok(closeNum(EM(dMax * 0.5).maxHp, 1.3), `中点线性插值 (1+1.6)/2=1.3（实际 ${EM(dMax * 0.5).maxHp}）`);
+ok(EM(-1).maxHp === 1 && EM(99).maxHp === 1.6, '乘子越界钳制到 [下限, 上限]');
+// 兼容薄委托 statMultForDifficulty = entityMults.maxHp
+ok(closeNum(statMultForDifficulty(0.15), 1.078) && closeNum(statMultForDifficulty(0.95), 1.496),
+   `兼容 statMult（=maxHp 档）0→上限线性（实际 ${statMultForDifficulty(0.15)}→${statMultForDifficulty(0.95)}）`);
+ok(statMultForDifficulty(-1) === 1 && statMultForDifficulty(99) === 1.6, '兼容 statMult 越界钳制');
 // 三杠杆单调
 for (let i = 1; i < diffs.length; i++) ok(aiTierForDifficulty(diffs[i]) >= aiTierForDifficulty(diffs[i - 1]), `AI 档位单调（${diffs[i - 1]}→${diffs[i]}）`);
 for (let i = 1; i < diffs.length; i++) ok(statMultForDifficulty(diffs[i]) >= statMultForDifficulty(diffs[i - 1]), `数值强度单调`);
+for (let i = 1; i < diffs.length; i++) {
+  const a = EM(diffs[i - 1]), b = EM(diffs[i]);
+  ok(b.maxHp >= a.maxHp && b.reload <= a.reload && b.spreadMult <= a.spreadMult && b.armorAll >= a.armorAll, `全属性乘子方向正确（${diffs[i-1]}→${diffs[i]}）`);
+}
 
 // 3) generateRun：节点数、确定性、节点字段合法性
 const run1 = generateRun('run-seed', 5);                                            // 旧行为（无视口 → 固定 nodeScale=3）
@@ -107,17 +124,19 @@ for (const n of run1.nodes) {
     ok(!n.boss, `普通节点 ${n.index} 无 Boss 标记`);
     ok(n.enemies.length === enemyCountForDifficulty(n.difficulty), `节点 ${n.index} 敌军数量匹配难度`);
   }
-  // P-13：三杠杆字段（AI 档位 + 数值强度）落在节点与每个敌人上
+  // P-13/#76 A：三杠杆字段（AI 档位 + 数值强度）落在节点与每个敌人上
   ok(typeof n.aiTier === 'number' && n.aiTier >= 0 && n.aiTier <= 2, `节点 ${n.index} aiTier 合法`);
-  ok(typeof n.statMult === 'number' && n.statMult >= 1 && n.statMult <= 1.5, `节点 ${n.index} statMult 合法`);
+  ok(typeof n.statMult === 'number' && n.statMult >= 1 && n.statMult <= 1.6, `节点 ${n.index} statMult 合法（兼容 =maxHp 档）`);
   ok(n.aiTier === aiTierForDifficulty(Math.min(1, n.difficulty)), `节点 ${n.index} aiTier 匹配难度`);
-  ok(n.statMult === statMultForDifficulty(Math.min(1, n.difficulty)), `节点 ${n.index} statMult 匹配难度`);
+  ok(n.statMult === statMultForDifficulty(n.difficulty), `节点 ${n.index} statMult 匹配难度`);
+  ok(JSON.stringify(n.entityMults) === JSON.stringify(entityMultsForDifficulty(n.difficulty)), `节点 ${n.index} entityMults 表匹配难度（#76 A）`);
   for (const e of n.enemies) {
     ok(e.x > 0 && e.x < n.w && e.y > 0 && e.y < n.h, '敌军在界内');
     ok(e.tankId && typeof e.tankId === 'string', '敌军有 tankId');
     ok(typeof e.hullAngle === 'number' && typeof e.turretAngle === 'number', '敌军朝向合法');
     ok(e.heightClass === 'heavy' || e.heightClass === 'medium', '敌军车高合法');
     ok(e.statMult === n.statMult, `节点 ${n.index} 敌军 statMult 与节点一致`);
+    ok(JSON.stringify(e.entityMults) === JSON.stringify(n.entityMults), `节点 ${n.index} 敌军 entityMults 与节点一致（#76 A）`);
     ok(e.aiTier === n.aiTier, `节点 ${n.index} 敌军 aiTier 与节点一致（P-34 C 数据面）`);
     ok(Math.hypot(e.x - n.playerSpawn.x, e.y - n.playerSpawn.y) >= RULES_MOD.RULES.nodeMap.enemyMinPlayerDist - 1, '敌军离玩家出生点有最小间距');
   }
@@ -259,6 +278,52 @@ for (let i = 0; i < 5; i++) {
 }
 const runZ = extendRun(generateRun('lv-seed', 5, { difficultyLevel: 3 }));
 ok(runZ.difficulty === difficultyForIndex(5, 3), 'extendRun 复用 run.env 的 difficultyLevel');
+
+// 11) #76 A：materializeNode 敌军 stats 反映 entityMults + 玩家/据点不受影响
+(function testEntityMultsApplied() {
+  const mkStats = () => ({
+    maxHp: 1000, penetration: 120, damage: 200, reload: 5, spreadMult: 1,
+    aimSpeed: 0.15, maxSpeed: 120, turnRate: 1, turretTurnRate: 1.2,
+    armor: { hull: { front: 100, side: 50, rear: 30 }, turret: { front: 140, side: 60, rear: 40 } }
+  });
+  const diffTargets = [];
+  const envM = {
+    spawnTank(spec) {
+      return Object.assign({ hp: 1000, stats: mkStats(), modifiers: [] }, spec);
+    },
+    configureTank() {},
+    // 模拟 mvp applyDifficulty：全键乘 + armorAll 遍历装甲面
+    applyDifficulty(t, m) {
+      for (const k of ['maxHp','penetration','damage','reload','spreadMult','aimSpeed','maxSpeed','turnRate','turretTurnRate']) {
+        if (m[k] !== undefined && m[k] !== 1) t.stats[k] *= m[k];
+      }
+      for (const g of ['hull', 'turret']) {
+        for (const f in t.stats.armor[g]) t.stats.armor[g][f] *= m.armorAll;
+      }
+      t.hp = t.stats.maxHp;
+      diffTargets.push(t.team);
+    }
+  };
+  const multsMax = entityMultsForDifficulty(dMax);
+  const resM = materializeNode({
+    index: 6, difficulty: dMax, covers: [], outpost: { x: 50, y: 50 },   // index 6 非 Boss 周期
+    enemies: [
+      { tankId: 'dummy', x: 500, y: 300, hullAngle: 0, turretAngle: 0, heightClass: 'medium', entityMults: multsMax, aiTier: 2 },
+      { tankId: 'dummy', x: 700, y: 400, hullAngle: 0, turretAngle: 0, heightClass: 'heavy', entityMults: multsMax, aiTier: 1 }
+    ]
+  }, envM);
+  const e0 = resM.spawned[0], e1 = resM.spawned[1];
+  ok(e0.stats.maxHp === 1600, `entityMults.maxHp 应用：1000→1600（实际 ${e0.stats.maxHp}）`);
+  ok(closeNum(e0.stats.reload, 4.1), `entityMults.reload 应用：5→4.1（实际 ${e0.stats.reload}）`);
+  ok(e0.stats.armor.hull.front === 145 && e0.stats.armor.turret.rear === 58,
+     `armorAll 全面生效：hull.front 100→145 / turret.rear 40→58（实际 ${e0.stats.armor.hull.front}/${e0.stats.armor.turret.rear}）`);
+  ok(e1.stats.penetration === 180 && e1.stats.spreadMult === 0.78 && closeNum(e1.stats.turretTurnRate, 1.56),
+     '第二个敌军同样按表叠乘（pen/spread/turretTurnRate）');
+  ok(JSON.stringify(diffTargets.sort()) === JSON.stringify(['enemy', 'enemy']),
+     'applyDifficulty 仅对 team=enemy 调用（玩家/据点不受难度影响）');
+  ok(resM.outpost && resM.outpost.stats.maxHp === 1000 && resM.outpost.stats.armor.hull.front === 100,
+     '据点实体 stats 完全未被乘子触碰');
+})();
 
 console.log('test-map: 完成所有检查');
 if (fails === 0) console.log('test-map: 全部通过');
