@@ -100,6 +100,7 @@ declare function drawFireGlow(ctx: any, t: any): void;
 declare function drawShells(ctx: any, shells: any[]): void;
 declare function drawCover(ctx: any, cov: any): void;
 declare function drawFoliage(ctx: any, covers: any[]): void;
+declare function drawGround(ctx: any, opts: { viewBounds?: { minX: number; minY: number; maxX: number; maxY: number }; biome?: string; seed?: number | string }): void;   // P-36/#81：biome 地面（底色 + 种子确定性低频色斑）
 declare function drawClassBadge(ctx: any, t: any, x: number, y: number): void;
 declare function setDebuff(t: any, name: any, sec: any): void;
 declare function debuffTurnRate(t: any): number;
@@ -128,10 +129,12 @@ interface GeneratedNodeResult {
     id: string;
     name: string;
     tags: string[];
+    biome?: string;   // P-36/#81：biome 地面主题标签
     w: number;
     h: number;
     items: any[];
   };
+  biome?: string | null;   // P-36/#81：随生成结果透传（makeNode 写入 node.biome）
   covers: Array<{
     x: number;
     y: number;

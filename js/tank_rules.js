@@ -246,11 +246,30 @@ const RULES = {
     tailLen: 18   // 拖尾长度（px）
   },
 
+  // P-36/#81 biome 地面配色板（取自 P-44 底色表；water 本批不做背景水体）。
+  // 消费方：js/tank_battledraw.js drawGround（底色 + 种子确定性低频色斑）。
+  biomes: {
+    concrete: { base: '#6a6d6f', alt: ['#54575a', '#7d8082'] },   // 城镇街区/交叉火力广场
+    meadow:   { base: '#4e5c33', alt: ['#42502b', '#5f6d40'] },   // 密林/林地/村落
+    steppe:   { base: '#8a7a46', alt: ['#796b3d', '#9b8b55'] },   // 开阔走廊/混合障壁广场
+    mudland:  { base: '#4a3a28', alt: ['#3e3122', '#59482f'] }    // 泥地主题（预留，本批无模板使用）
+  },
+
   // 节点地图（P-08 / DEVELOPMENT.md §6 条目 6）：单局线性节点链的构成参数。
   // 消费方：js/tank_map.js（generateRun/makeNode/scoreNode）。
   nodeMap: {
     nodeScale: 3,                 // 模板尺寸放大倍率：700×400 模板 → 2100×1200 世界
                                   // （摄像机约 1:9 比例；P-05 的 scale 选项）
+    // #77 掩体尺寸收敛：掩体类元素在「模板单位 × nodeScale」之外再乘的 tier 级系数。
+    // 调参理由：nodeScale=3 下旧掩体世界尺寸过大（半高墙 240~270px ≈4× 车长、沙袋 180~210px），
+    // 收敛到 半高≈1.5~2×车长(100~150px)/全高≈2~3×(150~220px)/沙袋≈1×(60~90px)；
+    // 地形标签生成物（pond/river/mud）与树丛不在此表 → 尺寸不受影响。
+    coverWorldScale: { half: 0.55, full: 0.58, barricade: 0.40 },
+    // #77 低难度 full→half 降级帽：单节点最多降 floor(full数×帽值) 个（≤30%），
+    // 保证低难度下每节点仍保留 ≥70% 全高建筑（掩体骨架可读性）。
+    fullDowngradeCap: 0.30,
+    // #77 cullRate 剔除保护：每模板至少前 N 个全高建筑不被随机剔除（保底掩体骨架）。
+    fullCullProtect: 2,
     runNodeCount: 5,              // 一局初始节点数（线性链长度；开放式链下仅作起点，后续 extendRun 追加）
     bossInterval: 5,              // 每第 5 个节点为 Boss 节点（(index+1) % 5 === 0 → index 4/9/14…）
     speedClearMs: 120000,         // 限时通关阈值（ms）→ 结算速通 +20%

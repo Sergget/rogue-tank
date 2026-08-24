@@ -302,6 +302,7 @@ function makeNode(index, rng, env) {
     w: w,
     h: h,
     template: { id: templateResult.template.id, name: templateResult.template.name },
+    biome: templateResult.biome || null,   // P-36/#81：地面主题标签（mvp drawGround 消费）
     covers: templateResult.covers,
     playerSpawn: playerSpawn,
     enemies: enemies,

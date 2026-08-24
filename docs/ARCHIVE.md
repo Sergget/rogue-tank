@@ -74,6 +74,9 @@
 | 2026-08-24 | `ISSUES.md` | #76 难度未驱动敌方属性与 AI 状态机分化 | 已全面解决并验证（entityMults 十维属性分化 + aiTierProfiles 行为分层 + coverSeek 寻掩 + patrol wander，见 specs/combat.md §5） |
 | 2026-08-24 | `PLAN.md` | P-40 地形类型抽象落地 | 已完成并验证（coverTiers 六属性 schema / water 弹越飞阻移动 / river segments 方案 A / mud·rock·ruined·intact 新 tier，见 specs/map.md §5.6） |
 | 2026-08-24 | `ISSUES.md` | #85 水体 tier 文档/代码矛盾 | 已解决并验证（water shellBlock:false 弹越飞、保留移动阻断，随 P-40 落地，见 specs/map.md §5.6） |
+| 2026-08-24 | `PLAN.md` | P-36 地面生物群落地貌 | 已完成并验证（RULES.biomes 四色调色板 + drawGround 确定性程序化地面层，见 specs/map.md §5.7） |
+| 2026-08-24 | `ISSUES.md` | #77 掩体过大/密度低/全高过少 | 已解决并验证（coverWorldScale 收敛 + 密度×1.57 + 全高补齐与降级/剔除双保护，见 specs/map.md §5.7） |
+| 2026-08-24 | `ISSUES.md` | #81 战斗地面单一平坦缺地貌 | 已解决并验证（biome 标签 + drawGround 主题化底色，见 specs/map.md §5.7） |
 
 ------
 

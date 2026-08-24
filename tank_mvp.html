@@ -2104,6 +2104,13 @@ function draw(){
 
   // 网格：只画视口内的线（大世界全图划线不可行）
   const vb = viewBounds(cam);
+
+  // P-36/#81 biome 地面：battle 态且局内时按当前节点 biome 绘制程序化地面
+  // （底色 + 种子确定性低频色斑）；其他态维持原 clearRect + 淡网格观感。
+  if(run && currentNode && flow.state === 'battle'){
+    drawGround(ctx, { viewBounds: vb, biome: currentNode.biome, seed: currentNode.seed });
+  }
+
   const gs = 40;
   ctx.strokeStyle = 'rgba(255,255,255,0.035)'; ctx.lineWidth=1;
   for(let x = Math.floor(vb.minX/gs)*gs; x <= vb.maxX; x += gs){ ctx.beginPath(); ctx.moveTo(x, vb.minY); ctx.lineTo(x, vb.maxY); ctx.stroke(); }

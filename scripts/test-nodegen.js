@@ -58,14 +58,15 @@ for (const c of result1.covers) {
 const templates = getTemplates();
 ok(templates.length >= 7, `内置模板数量 ≥ 7（实际 ${templates.length}）`);
 for (const tpl of NODE_TEMPLATES) {
-  ok(tpl.items.length >= 12 && tpl.items.length <= 25,
-     `模板 ${tpl.id} items ${tpl.items.length} 在 12~25 区间`);
+  // #77 密度提升后上限放宽：单模板最多 ~34 元素（原 #25 上限 25）
+  ok(tpl.items.length >= 12 && tpl.items.length <= 34,
+     `模板 ${tpl.id} items ${tpl.items.length} 在 12~34 区间`);
   ok(Array.isArray(tpl.tags) && tpl.tags.length > 0, `模板 ${tpl.id} 有 tags`);
   const tiers = new Set(tpl.items.map(it => it.tier));
   ok(tiers.size >= 4, `模板 ${tpl.id} 混合 ≥4 种 tier（${[...tiers].join('/')}）`);
 }
 for (const tpl of templates) {
-  const maxItems = 30; // #25：单模板最多 25 元素，低难剔除后仍 ≤ 30
+  const maxItems = 42; // #77：密度提升后单模板元素上限放宽到 42
   const minItems = 8;  // #25：中高难剔除率低（≤0.044），保留数下界
   const lowDiff = generateNode(0.1, { templateId: tpl.id, seed: 1 });
   ok(lowDiff.covers.length >= 1 && lowDiff.covers.length <= maxItems,
@@ -149,6 +150,94 @@ if (typeof covers !== 'undefined') {
       ok(ringOk || muds.length === 0, `${tpl.id} 泥斑呈环带分布`);
     }
   }
+}
+
+// ================= #77 调参 + P-36/#81 biome 地面（批次⑤） =================
+// 8) biome 标签存在且确定；generateRun 透传到 run.nodes[i].biome
+{
+  const biomes = Object.keys(RULES.biomes);
+  for (const tpl of NODE_TEMPLATES) {
+    ok(biomes.indexOf(tpl.biome) >= 0, `模板 ${tpl.id} biome=${tpl.biome} 在 RULES.biomes 中`);
+    const a = generateNode(0.5, { templateId: tpl.id, seed: 9 });
+    const b = generateNode(0.5, { templateId: tpl.id, seed: 9 });
+    ok(a.biome === tpl.biome && b.biome === a.biome, `模板 ${tpl.id} biome 确定且随结果透传`);
+  }
+  const { generateRun } = require('../js/tank_map.js');
+  // tank_map.js 依赖浏览器全局 createRNG/generateNode（Node 端注入）
+  global.createRNG = createRNG;
+  global.generateNode = generateNode;
+  const run = generateRun(4242, 4);
+  ok(run.nodes.every(n => n.biome && biomes.indexOf(n.biome) >= 0), 'generateRun 每节点携带合法 biome');
+}
+
+// 9) 全高分布再平衡：三补模板全高下限 + 低难降级帽（残留 ≥70%）+ cull 保护
+{
+  const fullMinByTpl = { corridor_tutorial: 2, forest_dense: 3, woodland_line: 2 };
+  for (const tpl of NODE_TEMPLATES) {
+    const tplFulls = tpl.items.filter(it => it.tier === 'full').length;
+    if (fullMinByTpl[tpl.id]) {
+      ok(tplFulls >= fullMinByTpl[tpl.id],
+        `模板 ${tpl.id} 全高数 ${tplFulls} ≥ ${fullMinByTpl[tpl.id]}（#77 补配）`);
+    }
+    if (tplFulls === 0) continue;
+    // 低难度降级帽：diff=0.1、cullRate=0 时 full 残留 ≥70%
+    const low = generateNode(0.1, { templateId: tpl.id, seed: 31, cullRate: 0 });
+    const lowFulls = low.covers.filter(c => c.tier === 'full').length;
+    ok(lowFulls >= Math.ceil(tplFulls * 0.7),
+      `模板 ${tpl.id} 低难 full 残留 ${lowFulls}/${tplFulls} ≥70%（降级帽）`);
+    // cull 保护：极端剔除率下仍保留至少 min(2, 全高数) 个 full
+    const culled = generateNode(0.6, { templateId: tpl.id, seed: 32, cullRate: 0.9 });
+    const culledFulls = culled.covers.filter(c => c.tier === 'full').length;
+    ok(culledFulls >= Math.min(2, tplFulls),
+      `模板 ${tpl.id} cull 保护：高剔除率下 full 残留 ${culledFulls} ≥ ${Math.min(2, tplFulls)}`);
+  }
+}
+
+// 10) 尺寸收敛抽断言（默认 nodeScale=3 世界尺寸）：half 100~150 / full 150~220 / barricade 60~90
+{
+  const inRange = (v, lo, hi) => v >= lo - 1e-6 && v <= hi + 1e-6;
+  for (const tpl of NODE_TEMPLATES) {
+    // 默认 nodeScale=3（RULES.nodeMap.nodeScale）下的世界尺寸口径
+    const r = generateNode(0.5, { templateId: tpl.id, seed: 77, cullRate: 0, scale: 3 });
+    for (const spec of [['half', 100, 150], ['full', 150, 220], ['barricade', 60, 90]]) {
+      const tier = spec[0], lo = spec[1], hi = spec[2];
+      const ws = r.covers.filter(c => c.tier === tier).map(c => c.w);
+      if (!ws.length) continue; // 该模板无此 tier 则跳过（如 forest_dense 原无沙袋）
+      ok(ws.every(w => inRange(w, lo, hi)),
+        `模板 ${tpl.id} ${tier} 世界宽 ${ws.map(v => Math.round(v)).join(',')} 在 ${lo}~${hi}`);
+    }
+  }
+}
+
+// 11) 密度下限：掩体总元素数 ≥ 旧值(120)×1.4
+{
+  const totalItems = NODE_TEMPLATES.reduce((n, t) => n + t.items.length, 0);
+  ok(totalItems >= 168, `七模板掩体总数 ${totalItems} ≥ 168（旧 120×1.4，#77 密度提升）`);
+}
+
+// 12) drawGround 冒烟（纯 ctx mock，无 DOM）：不同 seed 不报错、颜色来自 RULES.biomes
+{
+  const bd = require('../js/tank_battledraw.js');
+  const METHODS = ['save','restore','fillRect','beginPath','rect','clip','ellipse','fill'];
+  const makeMock = (log) => new Proxy({}, {
+    get(t, prop) {
+      return (typeof prop === 'string' && METHODS.indexOf(prop) >= 0)
+        ? function(){ log.push(prop); } : t[prop];
+    },
+    set(t, prop, v) { log.push(String(prop) + '=' + String(v)); return true; }
+  });
+  const vb = { minX: 0, minY: 0, maxX: 800, maxY: 600 };
+  let threw = false;
+  try {
+    bd.drawGround(makeMock([]), { viewBounds: vb, biome: 'concrete', seed: 1 });
+    bd.drawGround(makeMock([]), { viewBounds: vb, biome: 'meadow', seed: 2 });
+    bd.drawGround(makeMock([]), { viewBounds: vb, biome: 'unknown_biome', seed: 'abc' });
+    bd.drawGround(makeMock([]), { viewBounds: null }); // 非法 bounds 应安全返回
+  } catch (e) { threw = true; console.error(e); }
+  ok(!threw, 'drawGround 不同 seed/biome/非法入参不报错');
+  const log1 = [], seq = () => { const l = []; bd.drawGround(makeMock(l), { viewBounds: vb, biome: 'steppe', seed: 555 }); return l.join('|'); };
+  ok(log1.length === 0 && seq() === seq(), 'drawGround 同 seed 输出序列确定一致');
+  ok(/#/.test(seq()), 'drawGround 颜色值来自 RULES.biomes 十六进制调色板');
 }
 
 console.log('test-nodegen: 完成所有检查');

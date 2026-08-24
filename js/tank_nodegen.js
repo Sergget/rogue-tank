@@ -59,6 +59,11 @@ const NODE_TEMPLATES = [
     //   village_center      ['centralPond','mudPatch']村口水井潭 + 泥泞环带
     //   woodland_line       ['edgeRiver']             战线侧翼河流
     terrainTags: [],
+    // P-36/#81 biome 地面主题标签（映射 RULES.biomes 调色板）：
+    //   corridor_tutorial/mixed_barrier_plaza → steppe（开阔黄草地）
+    //   urban_block/crossfire_plaza → concrete（城镇硬地）
+    //   forest_dense/woodland_line/village_center → meadow（林地/村落草绿）
+    biome: 'steppe',
     w: 700,
     h: 400,
     items: [
@@ -74,10 +79,22 @@ const NODE_TEMPLATES = [
       { tier: 'soft', dx: 0, dy: 150, w: 160, h: 10, angle: 0 },
       { tier: 'barricade', dx: -120, dy: 40, w: 60, h: 26, angle: 0 },
       { tier: 'barricade', dx: 120, dy: -60, w: 60, h: 26, angle: 0 },
+      // #77 全高补配（教学走廊补 2 座哨塔式建筑，形成中路遮蔽）
+      { tier: 'full', dx: -90, dy: -150, w: 88, h: 46, angle: 0 },
+      { tier: 'full', dx: 100, dy: 150, w: 88, h: 46, angle: 0 },
       // 点缀树丛
       { tier: 'tree', dx: -120, dy: -140, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: 140, dy: 120, w: 70, h: 36, angle: 0 },
-      { tier: 'bush', dx: -40, dy: 60, w: 60, h: 32, angle: 0 }
+      { tier: 'bush', dx: -40, dy: 60, w: 60, h: 32, angle: 0 },
+      // #77 密度提升：走廊纵深补量（避开边缘河流带与中央通道）
+      { tier: 'half', dx: 0, dy: 55, w: 84, h: 32, angle: 0 },
+      { tier: 'half', dx: -240, dy: 170, w: 84, h: 32, angle: 0 },
+      { tier: 'half', dx: 240, dy: -180, w: 84, h: 32, angle: 0 },
+      { tier: 'soft', dx: -120, dy: -60, w: 140, h: 10, angle: 0 },
+      { tier: 'soft', dx: 130, dy: 60, w: 140, h: 10, angle: 0 },
+      { tier: 'tree', dx: 60, dy: -40, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: -190, dy: 110, w: 64, h: 32, angle: 0 },
+      { tier: 'barricade', dx: 40, dy: 110, w: 66, h: 28, angle: 0 }
     ]
   },
   {
@@ -85,6 +102,7 @@ const NODE_TEMPLATES = [
     name: '密林阵地',
     tags: ['low', 'mid'],
     terrainTags: ['edgeRiver'],
+    biome: 'meadow',
     w: 750,
     h: 450,
     items: [
@@ -106,7 +124,20 @@ const NODE_TEMPLATES = [
       { tier: 'bush', dx: 160, dy: 140, w: 60, h: 32, angle: 0 },
       { tier: 'stump', dx: -40, dy: -140, w: 24, h: 18, angle: 0 },
       { tier: 'half', dx: -60, dy: 150, w: 64, h: 30, angle: 0 },
-      { tier: 'soft', dx: 0, dy: -150, w: 120, h: 10, angle: 0 }
+      { tier: 'soft', dx: 0, dy: -150, w: 120, h: 10, angle: 0 },
+      // #77 全高补配（密林阵地补 3 座林间工事，避免纯软掩体无骨架）
+      { tier: 'full', dx: -160, dy: -60, w: 92, h: 48, angle: 0 },
+      { tier: 'full', dx: 120, dy: 60, w: 92, h: 48, angle: 0 },
+      { tier: 'full', dx: 260, dy: -120, w: 92, h: 48, angle: 0 },
+      // #77 密度提升：林间补量（避开边缘河流带）
+      { tier: 'half', dx: -220, dy: 150, w: 76, h: 30, angle: 0 },
+      { tier: 'half', dx: 200, dy: 160, w: 76, h: 30, angle: 0 },
+      { tier: 'barricade', dx: -260, dy: 40, w: 66, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 60, dy: -140, w: 66, h: 28, angle: 0 },
+      { tier: 'soft', dx: -100, dy: 100, w: 120, h: 10, angle: 0 },
+      { tier: 'bush', dx: -300, dy: -120, w: 64, h: 32, angle: 0 },
+      { tier: 'tree', dx: 320, dy: 40, w: 24, h: 18, angle: 0 },
+      { tier: 'stump', dx: 280, dy: -60, w: 24, h: 18, angle: 0 }
     ]
   },
   {
@@ -114,6 +145,7 @@ const NODE_TEMPLATES = [
     name: '城镇街区',
     tags: ['mid', 'high'],
     terrainTags: ['mudPatch'],
+    biome: 'concrete',
     w: 800,
     h: 500,
     items: [
@@ -148,7 +180,18 @@ const NODE_TEMPLATES = [
       { tier: 'tree', dx: -60, dy: 60, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: 40, dy: 100, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: -100, dy: 80, w: 60, h: 32, angle: 0 },
-      { tier: 'bush', dx: 120, dy: 60, w: 60, h: 32, angle: 0 }
+      { tier: 'bush', dx: 120, dy: 60, w: 60, h: 32, angle: 0 },
+      // #77 密度提升：街巷补量（+1 全高，强化街区骨架）
+      { tier: 'full', dx: 0, dy: 150, w: 96, h: 50, angle: 0 },
+      { tier: 'half', dx: -200, dy: -180, w: 78, h: 32, angle: 0 },
+      { tier: 'half', dx: 200, dy: 180, w: 78, h: 32, angle: 0 },
+      { tier: 'barricade', dx: -40, dy: 40, w: 68, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 180, dy: -60, w: 68, h: 28, angle: 0 },
+      { tier: 'rubble', dx: -40, dy: -60, w: 30, h: 20, angle: 0 },
+      { tier: 'soft', dx: -260, dy: 60, w: 110, h: 10, angle: 0 },
+      { tier: 'tree', dx: 220, dy: 60, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: -220, dy: -60, w: 60, h: 32, angle: 0 },
+      { tier: 'bush', dx: 100, dy: -190, w: 60, h: 32, angle: 0 }
     ]
   },
   {
@@ -156,6 +199,7 @@ const NODE_TEMPLATES = [
     name: '交叉火力广场 (高难)',
     tags: ['high'],
     terrainTags: ['centralPond'],
+    biome: 'concrete',
     w: 850,
     h: 520,
     items: [
@@ -177,7 +221,18 @@ const NODE_TEMPLATES = [
       { tier: 'tree', dx: 180, dy: 140, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: -80, dy: 140, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: 80, dy: -140, w: 64, h: 32, angle: 0 },
-      { tier: 'bush', dx: 0, dy: 180, w: 64, h: 32, angle: 0 }
+      { tier: 'bush', dx: 0, dy: 180, w: 64, h: 32, angle: 0 },
+      // #77 密度提升：广场补量（+1 全高北门楼；中央水潭由拒绝采样避让掩体）
+      { tier: 'full', dx: 0, dy: -190, w: 94, h: 48, angle: 0 },
+      { tier: 'half', dx: -160, dy: -120, w: 74, h: 30, angle: 0 },
+      { tier: 'half', dx: 160, dy: 120, w: 74, h: 30, angle: 0 },
+      { tier: 'barricade', dx: -220, dy: -140, w: 66, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 220, dy: 140, w: 66, h: 28, angle: 0 },
+      { tier: 'rubble', dx: -60, dy: 60, w: 32, h: 22, angle: 0 },
+      { tier: 'soft', dx: 0, dy: 170, w: 150, h: 10, angle: 0 },
+      { tier: 'soft', dx: -250, dy: 60, w: 120, h: 10, angle: 0 },
+      { tier: 'tree', dx: 250, dy: -60, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: -100, dy: -190, w: 62, h: 32, angle: 0 }
     ]
   },
   {
@@ -185,12 +240,15 @@ const NODE_TEMPLATES = [
     name: '混合障壁广场',
     tags: ['low', 'mid', 'high'],
     terrainTags: ['mudPatch'],
+    biome: 'steppe',
     w: 800,
     h: 480,
     items: [
       // 四象限全高/半高对位 + 中央沙袋环
-      { tier: 'full', dx: -200, dy: -100, w: 80, h: 40, angle: 0 },
-      { tier: 'full', dx: 200, dy: -100, w: 80, h: 40, angle: 0 },
+      // #77 尺寸收敛配套：full 基准 80×40 → 88×44（×coverWorldScale.full 0.58 ×3 ≈153px，
+      // 落入全高目标区间 150~220px；80 宽会缩到 139px 越下界）
+      { tier: 'full', dx: -200, dy: -100, w: 88, h: 44, angle: 0 },
+      { tier: 'full', dx: 200, dy: -100, w: 88, h: 44, angle: 0 },
       { tier: 'half', dx: -200, dy: 100, w: 80, h: 34, angle: 0 },
       { tier: 'half', dx: 200, dy: 100, w: 80, h: 34, angle: 0 },
       { tier: 'half', dx: 0, dy: 0, w: 90, h: 36, angle: 0 },
@@ -203,7 +261,18 @@ const NODE_TEMPLATES = [
       { tier: 'tree', dx: 280, dy: 0, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: -60, dy: -100, w: 60, h: 32, angle: 0 },
       { tier: 'bush', dx: 60, dy: 100, w: 60, h: 32, angle: 0 },
-      { tier: 'stump', dx: 0, dy: -110, w: 24, h: 18, angle: 0 }
+      { tier: 'stump', dx: 0, dy: -110, w: 24, h: 18, angle: 0 },
+      // #77 密度提升：广场补量（+1 全高南翼）
+      { tier: 'full', dx: 0, dy: 150, w: 88, h: 44, angle: 0 },
+      { tier: 'half', dx: -120, dy: -160, w: 72, h: 30, angle: 0 },
+      { tier: 'half', dx: 120, dy: 160, w: 72, h: 30, angle: 0 },
+      { tier: 'barricade', dx: -180, dy: -60, w: 66, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 180, dy: 60, w: 66, h: 28, angle: 0 },
+      { tier: 'rubble', dx: 0, dy: 60, w: 30, h: 20, angle: 0 },
+      { tier: 'soft', dx: -200, dy: 120, w: 120, h: 10, angle: 0 },
+      { tier: 'soft', dx: 200, dy: -120, w: 120, h: 10, angle: 0 },
+      { tier: 'tree', dx: -140, dy: 60, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: 140, dy: -60, w: 60, h: 32, angle: 0 }
     ]
   },
   {
@@ -211,6 +280,7 @@ const NODE_TEMPLATES = [
     name: '村落中心广场 (高难)',
     tags: ['mid', 'high'],
     terrainTags: ['centralPond', 'mudPatch'],
+    biome: 'meadow',
     w: 820,
     h: 500,
     items: [
@@ -246,7 +316,18 @@ const NODE_TEMPLATES = [
       { tier: 'tree', dx: -140, dy: -140, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: 140, dy: 140, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: -80, dy: 100, w: 60, h: 32, angle: 0 },
-      { tier: 'rubble', dx: 0, dy: -60, w: 30, h: 20, angle: 0 }
+      { tier: 'rubble', dx: 0, dy: -60, w: 30, h: 20, angle: 0 },
+      // #77 密度提升：村落补量（+1 全高南屋；水井潭由拒绝采样避让）
+      { tier: 'full', dx: 0, dy: 170, w: 92, h: 46, angle: 0 },
+      { tier: 'half', dx: -180, dy: -60, w: 72, h: 30, angle: 0 },
+      { tier: 'half', dx: 180, dy: 60, w: 72, h: 30, angle: 0 },
+      { tier: 'barricade', dx: -60, dy: 150, w: 66, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 60, dy: -150, w: 66, h: 28, angle: 0 },
+      { tier: 'rubble', dx: -180, dy: 150, w: 30, h: 20, angle: 0 },
+      { tier: 'tree', dx: 0, dy: 60, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -220, dy: 0, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: 220, dy: 0, w: 60, h: 32, angle: 0 },
+      { tier: 'stump', dx: 100, dy: 110, w: 24, h: 18, angle: 0 }
     ]
   },
   {
@@ -254,6 +335,7 @@ const NODE_TEMPLATES = [
     name: '林地战线 (高难)',
     tags: ['high'],
     terrainTags: ['edgeRiver'],
+    biome: 'meadow',
     w: 860,
     h: 520,
     items: [
@@ -277,7 +359,21 @@ const NODE_TEMPLATES = [
       { tier: 'bush', dx: 180, dy: 40, w: 60, h: 32, angle: 0 },
       { tier: 'stump', dx: -90, dy: -10, w: 24, h: 18, angle: 0 },
       { tier: 'fallen', dx: 60, dy: 160, w: 90, h: 14, angle: 0 },
-      { tier: 'half', dx: 0, dy: 0, w: 90, h: 34, angle: 0 }
+      { tier: 'half', dx: 0, dy: 0, w: 90, h: 34, angle: 0 },
+      // #77 全高补配（林地战线补 2 座支撑点工事，战线不再无硬骨架）
+      { tier: 'full', dx: -100, dy: -180, w: 92, h: 46, angle: 0 },
+      { tier: 'full', dx: 120, dy: 180, w: 92, h: 46, angle: 0 },
+      // #77 密度提升：战线纵深补量（避开边缘河流带）
+      { tier: 'half', dx: -240, dy: -140, w: 78, h: 32, angle: 0 },
+      { tier: 'half', dx: 240, dy: 140, w: 78, h: 32, angle: 0 },
+      { tier: 'barricade', dx: -180, dy: 100, w: 66, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 200, dy: -100, w: 66, h: 28, angle: 0 },
+      { tier: 'soft', dx: -60, dy: 60, w: 130, h: 10, angle: 0 },
+      { tier: 'tree', dx: 340, dy: -120, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -340, dy: 120, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 40, dy: -60, w: 24, h: 18, angle: 0 },
+      { tier: 'bush', dx: -120, dy: 20, w: 62, h: 32, angle: 0 },
+      { tier: 'stump', dx: 180, dy: 120, w: 24, h: 18, angle: 0 }
     ]
   }
 ];
@@ -490,11 +586,38 @@ function generateNode(difficulty, options) {
     return !!ct && (ct.tierGroup === 'liquid' || ct.tierGroup === 'ground');
   };
 
+  // #77 cullRate 剔除保护：每模板至少前 fullCullProtect(2) 个全高建筑不被随机剔除
+  // （保底掩体骨架；地形标签生成物本就不进剔除循环）。
+  const cfgNodeMap = (typeof RULES !== 'undefined' && RULES.nodeMap) ? RULES.nodeMap : {};
+  const fullCullProtect = cfgNodeMap.fullCullProtect !== undefined ? cfgNodeMap.fullCullProtect : 2;
+  const protectedFullIdx = new Set();
+  if (fullCullProtect > 0) {
+    let seen = 0;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].tier === 'full') {
+        if (seen < fullCullProtect) protectedFullIdx.add(i);
+        seen++;
+      }
+    }
+  }
+
+  // #77 低难度 full→half 降级帽：单节点最多降 floor(full数×fullDowngradeCap=30%) 个，
+  // 保证低难度下全高建筑残留 ≥70%（阈值 diff<0.35 沿用原降级窗口）。
+  const downgradeCap = cfgNodeMap.fullDowngradeCap !== undefined ? cfgNodeMap.fullDowngradeCap : 0.30;
+  const tplFullCount = items.filter(it => it.tier === 'full').length;
+  let fullDowngraded = 0;
+  let fullDowngradeBudget = Math.floor(tplFullCount * downgradeCap);
+
+  // #77 尺寸收敛系数表（RULES.nodeMap.coverWorldScale）：掩体类按 tier 缩放世界尺寸
+  // （半高 0.55 → ≈100~150px、全高 0.58 → ≈150~220px、沙袋 0.40 → ≈60~90px @nodeScale=3）；
+  // 地形/植被类不在表中不受影响。verts/collisionVerts 同步按同系数缩放保持几何一致。
+  const coverWorldScale = cfgNodeMap.coverWorldScale || {};
+
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
 
-    // Culling check (keep relative order)
-    if (items.length > 3 && rng() < cullRate) {
+    // Culling check (keep relative order)——#77：受保护的全高建筑跳过剔除
+    if (items.length > 3 && !protectedFullIdx.has(i) && rng() < cullRate) {
       continue;
     }
 
@@ -510,18 +633,27 @@ function generateNode(difficulty, options) {
         }
       }
       // Low difficulty -> downgrade full/barricade to half/soft
+      // （#77：full→half 受降级帽约束，单节点最多降 floor(full数×30%)）
       else if (diff < 0.35) {
         if (!item.verts) { // Don't modify complex polygon structures
           if (tier === 'barricade' && rng() < (0.4 - diff) * 0.4) {
             tier = 'soft';
-          } else if (tier === 'full' && rng() < (0.4 - diff) * 0.3) {
+          } else if (tier === 'full' && fullDowngraded < fullDowngradeBudget && rng() < (0.4 - diff) * 0.3) {
             tier = 'half';
+            fullDowngraded++;
           }
         }
       }
     }
 
     let itemW = item.w, itemH = item.h;
+
+    // #77 尺寸收敛：掩体类按 coverWorldScale[tier] 收敛世界尺寸
+    const sizeFactor = (!isTerrainTier(tier) && typeof coverWorldScale[tier] === 'number')
+      ? coverWorldScale[tier] : 1;
+    itemW *= sizeFactor;
+    itemH *= sizeFactor;
+    const vertScale = scale * sizeFactor;
 
     // Pre-damaged / wrecked state transition
     if (tier === 'tree' && rng() < wreckProb) {
@@ -550,14 +682,14 @@ function generateNode(difficulty, options) {
     };
 
     if (item.verts) {
-      coverObj.verts = scale === 1
+      coverObj.verts = vertScale === 1
         ? item.verts.map(v => v.slice())
-        : item.verts.map(v => [v[0] * scale, v[1] * scale]);
+        : item.verts.map(v => [v[0] * vertScale, v[1] * vertScale]);
     }
     if (item.collisionVerts) {
-      coverObj.collisionVerts = scale === 1
+      coverObj.collisionVerts = vertScale === 1
         ? item.collisionVerts.map(cv => cv.map(pt => pt.slice()))
-        : item.collisionVerts.map(cv => cv.map(pt => [pt[0] * scale, pt[1] * scale]));
+        : item.collisionVerts.map(cv => cv.map(pt => [pt[0] * vertScale, pt[1] * vertScale]));
     }
 
     // Lookup default hp from RULES.coverTiers if available
@@ -683,6 +815,7 @@ function generateNode(difficulty, options) {
 
   return {
     template: selectedTemplate,
+    biome: selectedTemplate.biome || null,   // P-36/#81：biome 地面主题标签（makeNode 透传到 run.nodes）
     covers: outCovers,
     seed: seed,
     difficulty: diff,

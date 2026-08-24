@@ -11,6 +11,7 @@
 //   drawShells(ctx, shells)       — 飞行炮弹（弹种色拖尾 + 弹头亮点）
 //   drawCover(ctx, cov)           — 掩体/地图元素分层绘制
 //   drawFoliage(ctx, covers)      — 树冠/灌木叶片层（画在坦克之上形成视线遮挡）
+//   drawGround(ctx, opts)         — P-36/#81 biome 地面（底色 + 种子确定性低频色斑）
 //   drawClassBadge(ctx, t, x, y)  — 重/中型车型标志（六边形/五边形）
 
 // thin wrappers delegating to the shared tank_paint.js module
@@ -563,6 +564,62 @@ function drawClassBadge(ctx, t, x, y){
   ctx.restore();
 }
 
+// ======================= P-36/#81 biome 地面（drawGround） =======================
+// 纯程序化零资产地面绘制：底色填充视口区 + 基于 seed 的确定性低频色斑。
+// opts = { viewBounds: {minX,minY,maxX,maxY}, biome: 'concrete'|'meadow'|'steppe'|..., seed }
+// 调色板来自 RULES.biomes；同 seed 同 biome 输出完全一致（LCG 确定性，不逐帧闪烁）。
+
+// 种子哈希：数字直取；字符串 FNV-1a 压缩为 32bit 非零种子
+function _groundSeedHash(seed) {
+  let s;
+  if (typeof seed === 'number') s = seed >>> 0;
+  else {
+    s = 2166136261 >>> 0;
+    const str = String(seed);
+    for (let i = 0; i < str.length; i++) {
+      s = Math.imul(s ^ str.charCodeAt(i), 16777619) >>> 0;
+    }
+  }
+  return s || 1;
+}
+
+function drawGround(ctx, opts) {
+  opts = opts || {};
+  const biomes = (typeof RULES !== 'undefined' && RULES.biomes) ? RULES.biomes : {};
+  // 缺省调色板：RULES 未加载/未知 biome 时的中性草地回退
+  const pal = biomes[opts.biome] || { base: '#3d4630', alt: ['#353d29', '#46503a'] };
+  const vb = opts.viewBounds;
+  if (!vb || !(vb.maxX > vb.minX) || !(vb.maxY > vb.minY)) return;
+
+  const x0 = vb.minX, y0 = vb.minY, w = vb.maxX - vb.minX, h = vb.maxY - vb.minY;
+  let s = _groundSeedHash(opts.seed);
+  const next = () => {                       // LCG（Numerical Recipes 参数），确定性
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+
+  const alts = (pal.alt && pal.alt.length) ? pal.alt : [pal.base];
+  const n = 8 + Math.floor(next() * 7);      // 8~14 个大椭圆色斑
+
+  ctx.save();
+  ctx.fillStyle = pal.base;
+  ctx.fillRect(x0, y0, w, h);
+  ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();   // 色斑裁剪在视口区内
+  for (let i = 0; i < n; i++) {
+    const cx = x0 + next() * w;
+    const cy = y0 + next() * h;
+    const rw = w * (0.10 + next() * 0.16);
+    const rh = rw * (0.45 + next() * 0.5);
+    const rot = next() * Math.PI;
+    ctx.globalAlpha = 0.06 + next() * 0.06;  // alpha ≤0.12 低频色斑
+    ctx.fillStyle = alts[Math.floor(next() * alts.length) % alts.length];
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rw, rh, rot, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     drawTank,
@@ -572,6 +629,7 @@ if (typeof module !== 'undefined' && module.exports) {
     drawShells,
     drawCover,
     drawFoliage,
-    drawClassBadge
+    drawClassBadge,
+    drawGround
   };
 }
