@@ -224,6 +224,7 @@ declare function difficultyForIndex(index: number, count: number): number;
 declare function enemyCountForDifficulty(diff: number): number;
 declare function aiTierForDifficulty(diff: number): number;
 declare function statMultForDifficulty(diff: number): number;
+declare function triggerDistForDifficulty(diff: number): number;   // AI 有效触发距离（难度化）
 declare function nodeScaleFor(viewport: any, templateDims: any): number;   // #24：视口 → 节点世界缩放倍率
 declare function makeNode(index: number, count: number, rng: any, env?: any): any;
 declare function generateRun(seed?: number | string, count?: number, env?: any): { nodes: any[]; seed: number | string };

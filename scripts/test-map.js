@@ -17,6 +17,7 @@ const {
   enemyCountForDifficulty,
   aiTierForDifficulty,
   statMultForDifficulty,
+  triggerDistForDifficulty,
   nodeScaleFor,
   generateRun,
   makeNode,
@@ -122,6 +123,17 @@ for (const n of runV.nodes) {
   }
 }
 
+// 3d) AI 触发重设计：敌军生成点必须在难度化有效触发距离之外（玩家开局不应看到脸刷兵）
+for (const n of run1.nodes.concat(runV.nodes)) {
+  const trig = triggerDistForDifficulty(n.difficulty);
+  ok(trig >= RULES_MOD.RULES.ai.triggerDistBase && trig <= RULES_MOD.RULES.ai.triggerDistBase * RULES_MOD.RULES.ai.triggerDistDiffMultMax + 1,
+     `节点 ${n.index} 触发距离在难度区间内（${trig}）`);
+  for (const e of n.enemies) {
+    const d = Math.hypot(e.x - n.playerSpawn.x, e.y - n.playerSpawn.y);
+    ok(d >= trig * 1.05 - 1, `节点 ${n.index} 敌军生成点距玩家 ≥ 有效触发距离×1.05（d=${Math.round(d)} trig=${trig}）`);
+  }
+}
+
 // 4) 各节点世界尺寸为放大后的大世界（模板按难度加权选择 → 尺寸可不同，只需都在合理区间）
 ok(run1.nodes.every(n => n.w >= 1800 && n.w <= 3000 && n.h >= 1000 && n.h <= 2000), '整局节点世界尺寸均为大世界（1800~3000 × 1000~2000）');
 
@@ -163,6 +175,8 @@ if (node1.outpost) {
 }
 ok(res.spawned.length === calls.spawn.length, '返回 spawned 列表');
 ok(res.spawned.every(t => t.nodeSpawn === true), '实体带 nodeSpawn 标记');
+ok(res.spawned.filter(t => t.team === 'enemy').every(t => t.aiTriggerDist === triggerDistForDifficulty(node1.difficulty)),
+   '敌军实体带难度化 aiTriggerDist 字段');
 if (node1.outpost) ok(res.outpost === res.spawned[res.spawned.length - 1], '返回 outpost 引用');
 else ok(res.outpost === null, '无据点节点返回 null');
 

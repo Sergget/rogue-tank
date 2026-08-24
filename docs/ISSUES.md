@@ -28,6 +28,8 @@
 
 **影响：** 不同难度敌人体感高度雷同，缺乏难度梯度带来的博弈差异；用户设想的"低难更小绕行范围/随机横移露侧、高难重坦找掩体"全部缺失。
 
+**进展（2026-08-24）**：「距离受难度影响」已部分落地——RULES.ai.triggerDistBase/triggerDistDiffMultMax + tank_map.triggerDistForDifficulty + 实体 aiTriggerDist 注入；同时 AI 激活门控由摄像机视野（P-10 旧设计）改为距离+可见性触发，生成点距玩家 ≥ 触发距离×1.05。条目其余范围（装甲/射速/精度/速度等属性难度分化、flank/patrol/defensive 行为参数全面难度化、patrolWander 消费）仍待处理。
+
 **状态：** 待处理
 
 ### #77. 掩体相对坦克过大、密度偏低、全高掩体过少

@@ -41,6 +41,17 @@
   - striker 打击型：近身环绕索敌开火（strikeRange=260px，fireInterval=2s），不消耗玩家弹药。
   - 上限 countMax=2，超限拒绝部署；owner 阵亡自动移除。
 
+## 5. 敌方 AI 激活触发 (Enemy AI Activation Trigger)（2026-08-24 定案）
+
+- **与摄像机视野解耦**：激活判定与摄像机视野彻底解耦（废除 P-10 的「视野内主动 / 范围外被动」门控），改为**距离 + 可见性**触发。
+- **有效触发距离**：= `RULES.ai.triggerDistBase`（700px）× 难度乘数（最高 ×1.6），经 `js/tank_map.js` 的 `triggerDistForDifficulty(diff)` 计算，节点生成时注入实体字段 `aiTriggerDist`；`aiDecideEnemy` 读实体字段，缺省回退 RULES 基准值。
+- **滞回防抖**：脱离接战阈值 = 进入阈值 × 1.25（实体字段 `aiEngaged` 承载），消除边界抖动。
+- **可见性分支**：
+  - 距离达标且有视线（hasLineOfSight）→ 接战分支（flank / 开火等）；
+  - 距离达标但无视线 → 提前进入 search 推进；
+  - LoS 仅在距离达标时评估（patrol 早退路径零射线开销）。
+- **生成点约束**：敌军与 Boss summons 的局内生成点必须位于该敌有效触发距离 × 1.05 之外（径向外推优先，越出敌区时确定性重掷，不消耗额外 rng——同 seed 结果稳定）。
+
 ## 6. 特效与视效表现规范 (FX Visual Standards)
 
 - **开火与弹道 (Muzzle & Traces)**：

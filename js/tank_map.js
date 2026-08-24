@@ -54,6 +54,16 @@ function statMultForDifficulty(diff) {
   return Math.round((1 + (max - 1) * Math.min(1, Math.max(0, diff))) * 100) / 100;
 }
 
+// AI 有效触发距离（重设计）：triggerDistBase × lerp(1.0, triggerDistDiffMultMax, diff归一化)。
+// 在实体生成时算好挂 t.aiTriggerDist，aiDecideEnemy 读实体字段（与摄像机视野彻底解耦）。
+function triggerDistForDifficulty(diff) {
+  const ai = (typeof RULES !== 'undefined' && RULES.ai) ? RULES.ai : {};
+  const base = ai.triggerDistBase !== undefined ? ai.triggerDistBase : 700;
+  const maxMult = ai.triggerDistDiffMultMax !== undefined ? ai.triggerDistDiffMultMax : 1.6;
+  const d = Math.min(1, Math.max(0, diff));
+  return Math.round(base * (1 + (maxMult - 1) * d));
+}
+
 // ---------- 节点生成 ----------
 
 function nodeConfig() {
@@ -132,14 +142,25 @@ function makeNode(index, count, rng, env) {
   const aiTier = aiTierForDifficulty(diff);
   const statMult = statMultForDifficulty(diff);
 
+  // AI 触发重设计：敌军生成点必须在有效触发距离之外（玩家开局不应看到脸刷兵）。
+  // 最小间距取「难度化触发距离 × 1.05 余量」与旧配置 enemyMinPlayerDist 的较大者。
+  const trigDist = triggerDistForDifficulty(diff);
+  const minPlayerDist = Math.max(cfg.enemyMinPlayerDist || 250, Math.round(trigDist * 1.05));
+
   // 敌军构成：散布在右 2/3 区域，拒绝采样避开掩体/互相重叠/贴近玩家出生点
   const enemyCount = enemyCountForDifficulty(diff);
   const enemies = [];
   let guard = 0;
   while (enemies.length < enemyCount && guard++ < 400) {
-    const ex = rng.range(w * 0.35, w * 0.92);
-    const ey = rng.range(h * 0.12, h * 0.88);
-    if (Math.hypot(ex - playerSpawn.x, ey - playerSpawn.y) < (cfg.enemyMinPlayerDist || 250)) continue;
+    let ex = rng.range(w * 0.35, w * 0.92);
+    let ey = rng.range(h * 0.12, h * 0.88);
+    if (Math.hypot(ex - playerSpawn.x, ey - playerSpawn.y) < minPlayerDist) {
+      // 沿径向外推到最小间距；推出敌区则放弃该候选重掷（仅用传入 rng，保持确定性）
+      const ang = Math.atan2(ey - playerSpawn.y, ex - playerSpawn.x);
+      ex = playerSpawn.x + Math.cos(ang) * minPlayerDist;
+      ey = playerSpawn.y + Math.sin(ang) * minPlayerDist;
+      if (ex < w * 0.35 || ex > w * 0.92 || ey < h * 0.12 || ey > h * 0.88) continue;
+    }
     let tooClose = false;
     for (const e of enemies) {
       if (Math.hypot(ex - e.x, ey - e.y) < (cfg.enemyMinDist || 150)) { tooClose = true; break; }
@@ -159,20 +180,19 @@ function makeNode(index, count, rng, env) {
   // 兜底补满：随机采样在密集掩体/水域下可能凑不齐 enemyCount（guard<400 上限），
   // 改用确定性网格扫描，按"最小净空"挑选，保证节点敌军数符合难度构成。
   if (enemies.length < enemyCount) {
-    const minPlayer = cfg.enemyMinPlayerDist || 250;
     const minDist = cfg.enemyMinDist || 150;
     const step = Math.max(20, minDist * 0.7);
     const cands = [];
     for (let gx = w * 0.35; gx <= w * 0.92; gx += step) {
       for (let gy = h * 0.12; gy <= h * 0.88; gy += step) {
-        if (Math.hypot(gx - playerSpawn.x, gy - playerSpawn.y) < minPlayer) continue;
+        if (Math.hypot(gx - playerSpawn.x, gy - playerSpawn.y) < minPlayerDist) continue;
         let ok = true;
         for (const e of enemies) {
           if (Math.hypot(gx - e.x, gy - e.y) < minDist) { ok = false; break; }
         }
         if (!ok) continue;
         if (pointInCover(templateResult.covers, gx, gy, 60)) continue;
-        let clear = Math.hypot(gx - playerSpawn.x, gy - playerSpawn.y) - minPlayer;
+        let clear = Math.hypot(gx - playerSpawn.x, gy - playerSpawn.y) - minPlayerDist;
         for (const e of enemies) clear = Math.min(clear, Math.hypot(gx - e.x, gy - e.y) - minDist);
         cands.push({ x: gx, y: gy, clear });
       }
@@ -448,6 +468,7 @@ function materializeNode(node, env) {
       heightClass: e.heightClass
     });
     t.nodeSpawn = true;
+    t.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // AI 触发距离（难度化，生成时算好）
     if (typeof env.configureTank === 'function') env.configureTank(t, e.tankId);
     if (e.statMult && e.statMult !== 1 && typeof env.applyDifficulty === 'function') env.applyDifficulty(t, e.statMult);
     spawned.push(t);
@@ -476,6 +497,7 @@ if (typeof module !== 'undefined' && module.exports) {
     enemyCountForDifficulty,
     aiTierForDifficulty,
     statMultForDifficulty,
+    triggerDistForDifficulty,
     nodeScaleFor,
     makeNode,
     generateRun,

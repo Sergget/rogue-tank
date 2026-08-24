@@ -252,6 +252,30 @@ function startServer(port) {
     check('有敌军实体', info.enemyCount > 0, `enemyCount=${info.enemyCount}`);
     check('节点链 ≥3 节点', info.runNodes >= 3, `nodes=${info.runNodes} seed=${info.seed}`);
 
+    // ---- P-39 缩放观感修正：setZoom(maxZoom) 后经游戏循环阻尼泵帧，
+    //      cam.zoom 应明显 >1 且 viewBounds(cam) 宽度相应收窄（证明缩放作用于视口管线）----
+    const zBefore = await page.evaluate(() => {
+      const cam = window.__dbg.cam;
+      if (!cam) return null;
+      const vb = viewBounds(cam);
+      return { zoom: cam.zoom, targetZoom: cam.targetZoom, vw: Math.round(vb.maxX - vb.minX), maxZoom: cam.maxZoom };
+    });
+    await page.evaluate(() => { setZoom(window.__dbg.cam, RULES.camera.maxZoom); });
+    await page.waitForTimeout(900);   // 泵若干帧：主循环 updateCamera 指数阻尼收敛到 targetZoom
+    const zAfter = await page.evaluate(() => {
+      const cam = window.__dbg.cam;
+      const vb = viewBounds(cam);
+      return { zoom: Math.round(cam.zoom * 1000) / 1000, targetZoom: cam.targetZoom, vw: Math.round(vb.maxX - vb.minX) };
+    });
+    console.log('=== P-39 缩放探针 ===', JSON.stringify({ before: zBefore, after: zAfter }));
+    check('P-39 setZoom 生效：targetZoom=maxZoom、zoom 明显 >1、视口宽度收窄',
+      !!zBefore && !!zAfter &&
+      zAfter.targetZoom === zBefore.maxZoom && zAfter.zoom > 1.05 &&
+      zAfter.vw < zBefore.vw * 0.95,
+      JSON.stringify(zAfter));
+    await page.evaluate(() => { setZoom(window.__dbg.cam, 1); });   // 还原缩放，避免影响后续采样
+    await page.waitForTimeout(400);
+
     // ---- #23 敌人开火循环：把敌人瞬移到玩家旁（距离足够近以确定为交火），
     //      多次采样装填计时（reloadT>0 出现即装填循环生效）+ 玩家被命中数增长 ----
     // Flaky 根因（2026-08-19）：随机地图种子下节点 0 可能含友军据点（outpost_0），

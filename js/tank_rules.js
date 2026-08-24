@@ -255,8 +255,13 @@ const RULES = {
   // 现已扩展为多态战术状态机（P-19）：状态包括 Stunned/Flank/Defensive/Search/Patrol。
   // 消费方：js/tank_ai.js（aiDecide）。
   ai: {
-    // --- 现有双态参数（保持不变） ---
-    edgeMargin: 200,        // 摄像机边缘靠近触发宽度（开放问题 2 初版：视口外扩该距离内主动靠近）
+    // --- 激活触发（重设计）：距离 + 可见性，与摄像机视野彻底解耦 ---
+    // 有效触发距离在实体生成时按难度算好挂 t.aiTriggerDist（js/tank_map.js
+    // triggerDistForDifficulty），aiDecideEnemy 读实体字段、缺省回退基准值。
+    triggerDistBase: 700,          // 有效触发距离基准（px）：量级取 engageRange(520) 与
+                                   // 原视口半宽+edgeMargin(~880) 之间，保证接战前先激活
+    triggerDistDiffMultMax: 1.6,   // 难度乘数上限：有效值 = base × lerp(1.0, multMax, 难度归一化)
+    triggerHysteresis: 1.25,       // 滞回防抖：脱离接战阈值 = 进入阈值 × 该系数
     engageRange: 520,       // 主动开火/接战距离（px）
     keepRange: 320,         // 保持距离下限（大于 engage 靠近，小于 close 后退）
     closeRange: 200,        // 太近阈值：后退拉开
@@ -292,8 +297,9 @@ const RULES = {
   camera: {
     minZoom: 0.8,            // 最小缩放（拉远下限，视野最大）
     maxZoom: 1.3,            // 最大缩放（推近上限）
-    zoomStep: 0.1            // 每格滚轮的乘法步进系数（targetZoom *= 1±zoomStep）
-    // 设计理由：区间收敛防不对称优势（拉远信息/拉近瞄准）。
+    zoomStep: 0.15           // 每格滚轮的乘法步进系数（targetZoom *= 1±zoomStep）
+    // 设计理由：区间收敛防不对称优势（拉远信息/拉近瞄准）；步进取 0.15 保证
+    // [0.8,1.3] 区间内每格缩放有可感知的观感变化（0.1 时用户反馈"看不出变了"）。
   },
 
   // 难度曲线表（P-13 / DEVELOPMENT.md §6 条目 12 / 开放问题 6）。

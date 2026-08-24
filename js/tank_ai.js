@@ -34,19 +34,43 @@ function aiDecideEnemy(t, ctx){
 // --- 1) 基线：原有 P-10 双态 AI 逻辑（完全向后兼容） ---
   // 此部分输出与原 aiDecideEnemy 完全一致，作为后续状态机的基线
 
-  if(!p || p.hp <= 0){ t.aiState = 'patrol'; return out; }
+  if(!p || p.hp <= 0){ t.aiState = 'patrol'; t.aiEngaged = false; return out; }
 
   const dx = p.x - t.x, dy = p.y - t.y;
   const dist = Math.hypot(dx, dy) || 1;
   const desired = Math.atan2(dy, dx);
 
-  // 摄像机边缘外扩范围（边缘靠近态）
-  const margin = cfg.edgeMargin !== undefined ? cfg.edgeMargin : 200;
-  const inRange = ctx.view
-    && t.x >= ctx.view.minX - margin && t.x <= ctx.view.maxX + margin
-    && t.y >= ctx.view.minY - margin && t.y <= ctx.view.maxY + margin;
+  // --- 激活触发（重设计）：距离 + 可见性，与摄像机视野彻底解耦 ---
+  // 有效触发距离：实体字段 aiTriggerDist（生成时按难度算好，见 tank_map.js
+  // triggerDistForDifficulty）优先，缺省回退 RULES.ai.triggerDistBase。
+  // 滞回防抖：进入阈值 = 有效触发距离；脱离阈值 = 进入阈值 × triggerHysteresis。
+  const baseTrig = cfg.triggerDistBase !== undefined ? cfg.triggerDistBase : 700;
+  const hyst = cfg.triggerHysteresis !== undefined ? cfg.triggerHysteresis : 1.25;
+  const trigDist = (t.aiTriggerDist && t.aiTriggerDist > 0) ? t.aiTriggerDist : baseTrig;
+  const enterD = trigDist, exitD = trigDist * hyst;
+  if(t.aiEngaged === undefined) t.aiEngaged = false;
+  if(!t.aiEngaged){
+    if(dist > enterD){ t.aiState = 'patrol'; return out; }   // 触发距离外：patrol 不活动
+  } else if(dist > exitD){                                   // 滞回带内保持接战，超出才脱离
+    t.aiEngaged = false;
+    t.aiState = 'patrol';
+    return out;
+  }
+  t.aiEngaged = true;
 
-  if(!inRange){ t.aiState = 'patrol'; return out; }   // 远处：默认不活动
+  // LoS 节流：仅距离达标时才评估（上方 patrol 早退路径不做射线），避免逐帧全图射线开销。
+  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y) : true;
+
+  // 距离达标但无视线 → search 态推进（沿用 searchOscillationSpeed 等参数扫视前进）
+  if(!los){
+    const searchOscSpeed = cfg.searchOscillationSpeed !== undefined ? cfg.searchOscillationSpeed : 0.25;
+    const oscillate = Math.sin(1.0 * searchOscSpeed) * 0.3;
+    out.move = 1;
+    out.turn = oscillate;
+    out.turretDesired = desired + oscillate;
+    t.aiState = 'search';
+    return out;
+  }
 
   // 转向：朝玩家
   const hullDiff = angDiff(desired, t.hullAngle);
@@ -60,10 +84,9 @@ function aiDecideEnemy(t, ctx){
   if(dist > engage) out.move = 1;
   else if(dist < close) out.move = -1;
 
-  // 开火：炮塔大致对准 + 视线畅通 + 装填好 + 在接战距离内
+  // 开火：炮塔大致对准 + 视线畅通（触发段已算好 los）+ 装填好 + 在接战距离内
   const tol = cfg.aimTolerance !== undefined ? cfg.aimTolerance : 0.12;
   const aimErr = Math.abs(angDiff(t.turretAngle, desired));
-  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y) : true;
   if(aimErr < tol && los && dist <= engage && t.reloadT <= 0) out.fire = true;
 
   // --- 2) 模块伤/stunned 检查 ---
@@ -106,7 +129,7 @@ function aiDecideEnemy(t, ctx){
   if(state !== 'stunned'){
     const flankMinDist = cfg.flankMinDist !== undefined ? cfg.flankMinDist : 400;
     // 仅在距离>engage（原本不会开火）且< flankMinDist*1.5 时才尝试 flank
-    const canFlank = inRange && dist > engage && dist < flankMinDist * 1.5 && los;
+    const canFlank = dist > engage && dist < flankMinDist * 1.5 && los;
     if(canFlank){
       // 计算目标的前向和右向量（使用玩家 hullAngle 作为参考）
       const playerHullAng = p.hullAngle !== undefined ? p.hullAngle : 0;
@@ -154,31 +177,15 @@ function aiDecideEnemy(t, ctx){
     }
   }
 
-  // 4) Search & Destroy：目标被掩体遮挡时推进并扫视
-  // 简化实现：当前帧LoS被遮挡且距离在合理范围内时触发
-  // 实际 LoS block 计时由主循环通过 aiUpdateStateTimer 与搜索阈值控制
-  if(state !== 'stunned' && state !== 'flank' && state !== 'defensive'){
-    // 简化判断：当前 LoS 被遮挡 且 距离未超过两倍射程
-    if(!los && dist < engage * 2){
-      const searchOscSpeed = cfg.searchOscillationSpeed !== undefined ? cfg.searchOscillationSpeed : 0.25;
-      // 使用固定摆幅简化实现（实际应由计时器驱动的正弦函数）
-      const oscillate = Math.sin(1.0 * searchOscSpeed) * 0.3;
-      out.move = 1;  // 前进搜索
-      out.turn = oscillate; // 摆动转向
-      out.turretDesired = desired + oscillate; // 炮塔随摆动扫视
-      state = 'search';
-    }
-  }
+  // 4) Search & Destroy：已在触发段处理——距离达标但无视线时提前进入 search 推进
+  // 并返回（见上方 LoS 分支），此处不再重复判定。
 
   // 5) Patrol / March：默认行为——沿当方向前进带微小正弦摆动。
   // 只有在无其他状态激活时才应用摆动修正，保留 base turn/move/fire。
   // Patrol state只在 truly no-target 情况下有摆动；当有目标且无其他状态时保持 base 输出。
-  // 这里的关键：只有当玩家 genuinely 不在视野/射程范围时才应用巡逻摆动。
-  // 由于是在主循环中实体 always 有玩家目标（或无），我们只在以下情境应用：
-  // - 玩家不在视野范围内（!inRange 已在 earlier 返回，故此处!inRange不可能）
-  // - 或者显式标记为无目标态。为保持向后兼容，此处不额外修正输出，
+  // 这里的关键：只有当目标真正超出触发距离/滞回带时才会提前返回 patrol（见触发段），
+  // 能走到这里的实体必然已接战。为保持向后兼容，此处不额外修正输出，
   //   让 base AI 结果 completely 保留，不引入额外摆动。
-  // 仅在特定“真正无目标”情境（如演练模式）才考虑额外摆动，本版本保持 base 输出不变。
 
   // --- 4) 根据 state 设置 aiState 并返回 ---
   t.aiState = state;
@@ -233,7 +240,7 @@ function aiUpdateStateTimer(t, dt){
 }
 
 // 敌人（含 Boss）决策。
-// ctx: { player, view:{minX,minY,maxX,maxY}, hasLoS(ox,oy,tx,ty) }
+// ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { aiConfig, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer };

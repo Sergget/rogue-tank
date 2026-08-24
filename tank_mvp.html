@@ -766,22 +766,34 @@ function enterBattle(nodeIndex){
     });
     bossEntity.nodeSpawn = true;                       // 计入清敌判定（livingNodeEnemies）
     bossEntity.x = node.w * 0.7; bossEntity.y = node.h / 2;
+    bossEntity.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // 与普通敌军同规则
     bossEntity.hullAngle = Math.PI; bossEntity.turretAngle = Math.PI;
     pushLog(`⚠ BOSS 战：「${node.boss.name}」— ${node.boss.desc || ''}`, 'CRIT');
 
     // P-10：Boss summons——伴随单位（浮游炮/护卫/护盾发生器），计入清敌判定
+    // AI 触发重设计：summons 生成点同样必须在有效触发距离之外（沿径向外推保证）。
     if(node.boss.summons){
+      const sumTrig = triggerDistForDifficulty(node.difficulty) * 1.05;
       let si = 0;
       for(const sm of node.boss.summons){
         for(let i = 0; i < (sm.count || 0); i++){
+          let sx = bossEntity.x + (Math.random() - 0.5) * 220;
+          let sy = bossEntity.y + (Math.random() - 0.5) * 220;
+          const pdx = sx - node.playerSpawn.x, pdy = sy - node.playerSpawn.y;
+          const pd = Math.hypot(pdx, pdy);
+          if(pd < sumTrig){
+            const ang = pd > 0 ? Math.atan2(pdy, pdx) : Math.PI;
+            sx = node.playerSpawn.x + Math.cos(ang) * sumTrig;
+            sy = node.playerSpawn.y + Math.sin(ang) * sumTrig;
+          }
           const s = spawnTank({
             id: `summon_${node.index}_${si++}`,
             team: 'enemy',
-            x: bossEntity.x + (Math.random() - 0.5) * 220,
-            y: bossEntity.y + (Math.random() - 0.5) * 220,
+            x: sx, y: sy,
             hullAngle: Math.PI, turretAngle: Math.PI,
             heightClass: 'medium'
           });
+          s.aiTriggerDist = triggerDistForDifficulty(node.difficulty);
           const spec = tankListData && tankListData[sm.tankId];
           if(spec) applyTankConfig(s, spec);
           resetEntity(s);
@@ -1632,13 +1644,12 @@ function update(dt){
   // keep every tank from overlapping its neighbours
   resolveTankCollisions();
 
-  // P-10：敌人/友军 AI（§2.2 双态：摄像机内主动 / 边缘靠近 / 远处被动；友军消极防御）。
+  // AI 触发重设计：激活判定 = 距离 + 可见性（与摄像机视野彻底解耦），
+  // 有效触发距离在实体化时按难度挂 t.aiTriggerDist；友军消极防御不受影响。
   // 玩家保持手动控制；nodeSpawn/Boss/召唤物走 aiDecide 决策。
   if(run && battleState && flow.state === 'battle'){
-    const vb = viewBounds(cam);
     const aiCtx = {
       player,
-      view: vb,
       enemies: entities.filter(e => e.team === 'enemy' && e.hp > 0),
       hasLoS: hasLineOfSight
     };
