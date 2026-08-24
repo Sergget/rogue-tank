@@ -325,6 +325,93 @@ ok(runZ.difficulty === difficultyForIndex(5, 3), 'extendRun 复用 run.env 的 d
      '据点实体 stats 完全未被乘子触碰');
 })();
 
+// 12) P-38：击杀配额公式 + 递增生成节奏（reinforcementTick）
+const { quotaForDifficulty, reinforcementTick } = require('../js/tank_map.js');
+
+// 12a) 配额公式：quota = max(initial, initial + 2 + floor(effDiff×6))
+ok(quotaForDifficulty(1, 0.15) === 3, `配额低难度 1+2+0=3（实际 ${quotaForDifficulty(1, 0.15)}）`);
+ok(quotaForDifficulty(2, 0.5) === 7, `配额中难度 2+2+floor(3)=7（实际 ${quotaForDifficulty(2, 0.5)}）`);
+ok(quotaForDifficulty(4, 0.95) === 11, `配额高难度 4+2+5=11（实际 ${quotaForDifficulty(4, 0.95)}）`);
+ok(quotaForDifficulty(3, -1) === quotaForDifficulty(3, 0), '负难度钳制到 0');
+for (let i = 1; i < diffs.length; i++) {
+  ok(quotaForDifficulty(2, diffs[i]) >= quotaForDifficulty(2, diffs[i - 1]), `配额随难度单调（${diffs[i-1]}→${diffs[i]}）`);
+}
+// 配额恒 ≥ 初始敌数（初始全灭但未满 → 增援续战）
+for (const d of diffs) {
+  const initN = enemyCountForDifficulty(d);
+  ok(quotaForDifficulty(initN, d) >= initN, `配额 ≥ 初始敌数（diff=${d}）`);
+}
+// makeNode 写入 node.quota；Boss 节点为 null
+(function testNodeQuotaField() {
+  const r = generateRun(20260824, 7);
+  for (const nd of r.nodes) {
+    if (nd.boss) ok(nd.quota === null, `Boss 节点 index=${nd.index} quota=null`);
+    else {
+      const expect = quotaForDifficulty(nd.enemies.length, nd.difficulty);
+      ok(nd.quota === expect && Number.isFinite(nd.quota),
+         `常规节点 index=${nd.index} quota=${nd.quota} 符合公式（期望 ${expect}）`);
+    }
+  }
+})();
+
+// 12b) reinforcementTick 门控条件
+function baseTickState(over) {
+  return Object.assign({
+    alive: 1, killedThisNode: 2, quota: 6, effDiff: 0.5, initialCount: 3,
+    playerPos: { x: 1500, y: 1000 },
+    viewBounds: { minX: 1300, minY: 800, maxX: 1700, maxY: 1200 },
+    worldSize: { w: 3000, h: 2000 },
+    covers: [], outpostPos: null,
+    rng: createRNG(42), timer: 9,
+    aiTriggerDist: triggerDistForDifficulty(0.5),
+    tankPool: ['dummy']
+  }, over || {});
+}
+// 触发条件满足 → 产出 1~2 个 spec，落点全部合法
+(function testTickSpawns() {
+  const specs = reinforcementTick(baseTickState());
+  ok(Array.isArray(specs) && specs.length >= 1 && specs.length <= 2, `tick 产出 1~2 个 spec（实际 ${specs.length}）`);
+  const minPD = triggerDistForDifficulty(0.5) * 1.05;
+  for (const sp of specs) {
+    const outsideView = sp.x < 1180 || sp.x > 1820 || sp.y < 680 || sp.y > 1320;   // 视口外扩 120px 外
+    ok(outsideView, `落点 (${sp.x},${sp.y}) 在视口 AABB 外扩 120px 之外`);
+    ok(sp.x >= 120 && sp.x <= 2880 && sp.y >= 120 && sp.y <= 1880, '落点在世界边界内（margin 钳制）');
+    ok(Math.hypot(sp.x - 1500, sp.y - 1000) >= minPD, `落点距玩家 ≥ aiTriggerDist×1.05（${Math.round(Math.hypot(sp.x-1500, sp.y-1000))} ≥ ${Math.round(minPD)}）`);
+    ok(sp.reinforcement === true, 'spec 带 reinforcement 标记');
+    ok(typeof sp.tankId === 'string' && (sp.heightClass === 'heavy' || sp.heightClass === 'medium'), 'spec 模板字段完整');
+    ok(sp.aiTier === 0 || typeof sp.aiTier === 'number', 'spec 带 aiTier');
+  }
+})();
+// 配额已满 → 不产出
+ok(reinforcementTick(baseTickState({ killedThisNode: 6, quota: 6 })).length === 0, 'killed≥quota 不产出');
+// Boss 节点（quota=null）禁用
+ok(reinforcementTick(baseTickState({ quota: null })).length === 0, 'Boss 节点（quota=null）禁用递增生成');
+// alive 已达 desiredAlive → 不产出（initial=3→ceil(1.8)=2 + floor(0.5×3)=1 → desired=3）
+ok(reinforcementTick(baseTickState({ alive: 3 })).length === 0, 'alive≥desiredAlive 不产出');
+ok(reinforcementTick(baseTickState({ alive: 2 })).length >= 1, 'alive<desiredAlive 触发补兵');
+// maxAlive 封顶
+ok(reinforcementTick(baseTickState({ alive: 7 })).length === 0, 'alive=maxAlive(7) 封顶不产出');
+// interval 未到 → 不产出
+ok(reinforcementTick(baseTickState({ timer: 7.99 })).length === 0, 'interval(8s) 未到不产出');
+// 预算钳制：quota−killed−alive=1 → 恰好 1 个
+ok(reinforcementTick(baseTickState({ alive: 2, killedThisNode: 3, quota: 6 })).length === 1,
+   '剩余预算 1 时只生成 1 个');
+// 掩体拒绝：全域 solid 掩体下无合法落点 → 空数组
+ok(reinforcementTick(baseTickState({ covers: [{ x: 1500, y: 1000, w: 3000, h: 2000, angle: 0 }] })).length === 0,
+   '全域掩体覆盖时拒绝采样返回空');
+// 友军据点 300px 约束
+(function testOutpostConstraint() {
+  const specs = reinforcementTick(baseTickState({ outpostPos: { x: 1500, y: 1000 } }));
+  for (const sp of specs) ok(Math.hypot(sp.x - 1500, sp.y - 1000) >= 300, `落点距据点 ≥300（实际 ${Math.round(Math.hypot(sp.x-1500, sp.y-1000))}）`);
+})();
+// rng 注入确定性：同 seed 同输入 → 完全一致输出；缺 rng → 空
+(function testDeterminism() {
+  const a = reinforcementTick(baseTickState({ rng: createRNG(777) }));
+  const b = reinforcementTick(baseTickState({ rng: createRNG(777) }));
+  ok(JSON.stringify(a) === JSON.stringify(b) && a.length > 0, '同 seed 确定性复现');
+  ok(reinforcementTick(baseTickState({ rng: null })).length === 0, '缺 rng 注入安全返回空');
+})();
+
 console.log('test-map: 完成所有检查');
 if (fails === 0) console.log('test-map: 全部通过');
 else console.error(`test-map: ${fails} 项失败`);

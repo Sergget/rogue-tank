@@ -81,7 +81,7 @@
 
 ## 5. 下一步顺序（活跃项）
 
-- **活跃开发项（2026-08-24 起）**：近期计划见 docs/PLAN.md：玩法线 P-38，视觉音频专项 P-42~P-49（已升级为可执行条目），候选库 P-50；已核实问题见 docs/ISSUES.md #78（部分解决：设计器 verts UI）、#83。下方历史记录中的 P-27/P-29/P-30 为旧编号（已完成工作），勿与本批混淆。
+- **活跃开发项（2026-08-24 起）**：近期计划见 docs/PLAN.md：玩法线 PLAN 已全部完成归档（P-34~P-41），视觉音频专项 P-42~P-49（已升级为可执行条目），候选库 P-50；已核实问题仅余 #78 部分范围（设计器 verts UI）。下方历史记录中的 P-27/P-29/P-30 为旧编号（已完成工作），勿与本批混淆。
 
 - **27. 卡牌 × Loadout 衔接（P-27）——已完成（2026-08-23）**：`js/tank_cards.js` 扩展 `drawCardChoices` 过滤未配弹种卡 + 导出 `computeAmmoConfig`（叠加 `cardEffects` 弹种改造，支持 add/mult）；`js/tank_fire.js` 开火与预测接入 `computeAmmoConfig`；`tank_mvp.html` 奖励抽卡传入 `ammoLoadout: player.ammoLoadout`；单测全绿。
 - **30. 覆盖层 UI 纯逻辑下沉（P-29，低优先）——已完成（2026-08-23）**：`js/tank_screens.js` 纯逻辑视图模型（`SCREENS` + `buildHome/Loadout/Shop/MapList/DeathShop/SettlementViewModel` + `tankSummary/deploymentReady/formatStamp`，零 DOM 依赖、双端导出）+ `tank_mvp.html` 薄包装接线（DOM 渲染与事件留内联，行为零回归）；`npm run check` + `npm test` 全绿。

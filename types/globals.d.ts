@@ -237,6 +237,8 @@ declare function statMultForDifficulty(diff: number): number;   // #76 A：兼�
 declare function entityMultsForDifficulty(diff: number): Record<string, number>;   // #76 A：全属性难度乘子表（按 diffNorm 线性插值）
 declare function triggerDistForDifficulty(diff: number): number;   // AI 有效触发距离（难度化）
 declare function nodeScaleFor(viewport: any, templateDims: any): number;   // #24：视口 → 节点世界缩放倍率
+declare function quotaForDifficulty(initialCount: number, effDiff: number): number;   // P-38：击杀配额公式（max(初始, 初始+base+floor(diff×scale))）
+declare function reinforcementTick(state: any): any[];   // P-38：递增生成节奏 tick → spawn spec 数组（纯逻辑，rng 注入）
 declare function makeNode(index: number, rng: any, env?: any): any;
 declare function generateRun(seed?: number | string, count?: number, env?: any): { nodes: any[]; seed: number | string; env: any; difficultyLevel: number };
 declare function extendRun(run: any, envOverride?: any): any;   // P-34：开放式链追加下一节点（确定性续接）

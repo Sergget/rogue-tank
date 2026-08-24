@@ -64,6 +64,19 @@ function enemyCountForDifficulty(diff) {
   return Math.max(1, 1 + Math.floor(Math.min(1, Math.max(0, diff)) * max));
 }
 
+// P-38 击杀配额公式（仅常规节点；Boss 节点由 makeNode 置 null）：
+//   quota = max(initialCount, initialCount + quotaAddBase + floor(effDiff × quotaDiffScale))
+// 参数收口 RULES.nodeMap（quotaAddBase 2 / quotaDiffScale 6）。配额恒 ≥ 初始敌数：
+// 初始全灭但配额未满时，由 reinforcementTick 递增生成补兵继续战斗。
+function quotaForDifficulty(initialCount, effDiff) {
+  const cfg = nodeConfig();
+  const init = Math.max(1, initialCount | 0);
+  const addBase = cfg.quotaAddBase !== undefined ? cfg.quotaAddBase : 2;
+  const diffScale = cfg.quotaDiffScale !== undefined ? cfg.quotaDiffScale : 6;
+  const d = Math.max(0, Number.isFinite(effDiff) ? effDiff : 0);
+  return Math.max(init, init + addBase + Math.floor(d * diffScale));
+}
+
 // AI 策略复杂度档位：floor(diff·(aiTierMax+1)) 钳到 [0, aiTierMax]
 function aiTierForDifficulty(diff) {
   const cfg = difficultyConfig() || {};
@@ -290,9 +303,14 @@ function makeNode(index, rng, env) {
   const bossMark = isBossNodeIndex(index);
   if (bossMark) enemies.length = 0;
 
+  // P-38：击杀配额（仅常规节点）——节点结束条件由「初始全灭」改为「节点内击杀数 ≥ quota」。
+  // Boss 节点不定义配额（summons 即其机制，禁用递增生成）。
+  const quota = bossMark ? null : quotaForDifficulty(enemies.length, diff);
+
   return {
     index: index,
     difficulty: diff,
+    quota: quota,            // P-38：击杀配额（null = Boss 节点禁用递增/配额制）
     aiTier: aiTier,          // P-13：AI 策略复杂度档位（0~2，供未来 AI 分级消费）
     statMult: statMult,      // P-13：数值强度乘数（兼容保留 = entityMults.maxHp）
     entityMults: entityMults, // #76 A：全属性难度乘子表（节点级快照，敌军逐个引用同值）
@@ -524,6 +542,94 @@ function scoreNode(node, result) {
   return { base: base, bonuses: bonuses, total: total };
 }
 
+// ---------- 敌方进度推进：镜头外递增生成（P-38） ----------
+
+/**
+ * 递增生成节奏 tick（纯逻辑，Node 可测）：常规节点内按配额/存量/节奏决定本帧是否补兵。
+ *
+ * 触发条件（全部满足才产出）：
+ *   - quota 有效且 killedThisNode < quota（配额未满；quota=null/≤0 = Boss 节点，禁用）；
+ *   - alive < desiredAlive = min(maxAlive, ceil(initialCount×desiredAliveRatio) + floor(effDiff×3))；
+ *   - alive < maxAlive（场上封顶）；
+ *   - timer ≥ reinforceInterval 秒（距上次生成间隔）；
+ *   - 预算 budget = min(quota − killed − alive, maxAlive − alive) > 0，本批生成
+ *     n = min(1~2[rng 决定], budget) 个。
+ *
+ * 落点约束（拒绝采样，仅消耗注入 rng、确定性）：
+ *   - 视口 AABB 外扩 reinforceMargin(120px) 之外（玩家不可见刷兵）；
+ *   - 世界边界 [margin, w−margin]×[margin, h−margin] 内；
+ *   - 距玩家当前位置 ≥ aiTriggerDist×1.05（与开局敌军生成同规则）；
+ *   - 距友军据点 ≥ reinforceOutpostDist(300px)；
+ *   - 避开 solid 掩体（pointInCover padding=60 拒绝）。每目标最多尝试 60 次，
+ *     极端布局（视口外扩覆盖全域等）下可能凑不齐——返回实际可行的子集或空数组。
+ *
+ * @param {any} state { alive, killedThisNode, quota, effDiff, initialCount,
+ *   playerPos:{x,y}, viewBounds:{minX,minY,maxX,maxY}, worldSize:{w,h},
+ *   covers?, outpostPos?, rng(createRNG 实例), timer, aiTriggerDist?, aiTier?,
+ *   statMult?, entityMults?, tankPool? }
+ * @returns {Array} spawn spec 数组（字段与 makeNode 敌军条目兼容 + reinforcement:true），空数组 = 本帧不生成
+ */
+function reinforcementTick(state) {
+  const out = [];
+  const cfg = nodeConfig();
+  const s = state || {};
+  // Boss 节点 / 无配额：递增生成禁用（summons 即 Boss 战机制）
+  if (!Number.isFinite(s.quota) || s.quota <= 0) return out;
+  if (!s.rng || !s.playerPos || !s.viewBounds || !s.worldSize) return out;
+  const killed = Math.max(0, s.killedThisNode | 0);
+  if (killed >= s.quota) return out;                       // 配额已满 → 节点应已结束
+  const alive = Math.max(0, s.alive | 0);
+  const maxAlive = cfg.maxAlive !== undefined ? cfg.maxAlive : 7;
+  if (alive >= maxAlive) return out;                       // 场上封顶
+  const initial = Number.isFinite(s.initialCount) ? Math.max(1, s.initialCount) : Math.max(1, alive + killed);
+  const ratio = cfg.desiredAliveRatio !== undefined ? cfg.desiredAliveRatio : 0.6;
+  const effDiff = Math.max(0, Number.isFinite(s.effDiff) ? s.effDiff : 0);
+  const desired = Math.min(maxAlive, Math.ceil(initial * ratio) + Math.floor(effDiff * 3));
+  if (alive >= desired) return out;                        // 存量仍达标 → 不补兵
+  const interval = cfg.reinforceInterval !== undefined ? cfg.reinforceInterval : 8;
+  if ((Number.isFinite(s.timer) ? s.timer : 0) < interval) return out;   // 节奏未到
+
+  const w = s.worldSize.w, h = s.worldSize.h;
+  if (!(w > 0) || !(h > 0)) return out;
+  const margin = cfg.reinforceMargin !== undefined ? cfg.reinforceMargin : 120;
+  const vb = s.viewBounds;
+  const trig = (Number.isFinite(s.aiTriggerDist) && s.aiTriggerDist > 0)
+    ? s.aiTriggerDist : triggerDistForDifficulty(effDiff);
+  const minPlayerDist = trig * 1.05;
+  const outpostDist = cfg.reinforceOutpostDist !== undefined ? cfg.reinforceOutpostDist : 300;
+  const covers = Array.isArray(s.covers) ? s.covers : [];
+  const pool = (Array.isArray(s.tankPool) && s.tankPool.length) ? s.tankPool : ['dummy'];
+
+  let n = Math.min(2, s.quota - killed - alive, maxAlive - alive);   // 预算钳制
+  if (n <= 0) return out;
+  n = Math.min(n, s.rng.int(1, 2));                                  // 每次生成 1~2 个（rng 确定性）
+
+  for (let i = 0; i < n; i++) {
+    for (let tries = 0; tries < 60; tries++) {
+      const x = s.rng.range(margin, w - margin);
+      const y = s.rng.range(margin, h - margin);
+      if (x >= vb.minX - margin && x <= vb.maxX + margin &&
+          y >= vb.minY - margin && y <= vb.maxY + margin) continue;  // 视口外扩区内拒绝
+      if (Math.hypot(x - s.playerPos.x, y - s.playerPos.y) < minPlayerDist) continue;
+      if (s.outpostPos && Math.hypot(x - s.outpostPos.x, y - s.outpostPos.y) < outpostDist) continue;
+      if (pointInCover(covers, x, y, 60)) continue;                  // solid 掩体拒绝
+      const ang = Math.atan2(s.playerPos.y - y, s.playerPos.x - x);  // 朝向玩家（配合 spawn 后立即警觉）
+      out.push({
+        reinforcement: true,
+        tankId: s.rng.choice(pool),
+        x: Math.round(x), y: Math.round(y),
+        hullAngle: ang, turretAngle: ang,
+        heightClass: (effDiff > 0.6 || s.rng() < 0.35) ? 'heavy' : 'medium',
+        statMult: s.statMult,
+        entityMults: s.entityMults || null,
+        aiTier: Number.isFinite(s.aiTier) ? s.aiTier : 0
+      });
+      break;
+    }
+  }
+  return out;
+}
+
 // ---------- 节点实体化（注入浏览器全局） ----------
 
 /**
@@ -594,6 +700,8 @@ if (typeof module !== 'undefined' && module.exports) {
     entityMultsForDifficulty,
     triggerDistForDifficulty,
     nodeScaleFor,
+    quotaForDifficulty,
+    reinforcementTick,
     makeNode,
     generateRun,
     extendRun,

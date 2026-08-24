@@ -277,7 +277,15 @@ const RULES = {
     enemyTankPool: ['dummy'],     // 敌军构成使用的坦克池（tanks/ 中解析，缺省回退默认配置；
                                   // 后续车型多样性里程碑（§6 条目 11）扩充池内容）
     enemyMinDist: 150,            // 敌军彼此最小间距（px）
-    enemyMinPlayerDist: 250       // 敌军离玩家出生点最小间距（px）
+    enemyMinPlayerDist: 250,      // 敌军离玩家出生点最小间距（px）
+    // P-38 敌方进度推进：击杀配额 + 镜头外递增生成（消费方 js/tank_map.js reinforcementTick）
+    reinforceInterval: 8,         // 两次递增生成的最小间隔（秒）
+    maxAlive: 7,                  // 常规节点场上存活敌军上限（初始+增援合计封顶）
+    quotaAddBase: 2,              // 配额加项基数：quota = max(初始敌数, 初始 + base + floor(effDiff×scale))
+    quotaDiffScale: 6,            // 配额难度系数（effDiff 为该节点有效难度）
+    desiredAliveRatio: 0.6,       // 补兵阈值：desiredAlive = ceil(初始敌数×ratio) + floor(effDiff×3)，封顶 maxAlive
+    reinforceMargin: 120,         // 增援落点必须在视口 AABB 外扩该值之外（玩家不可见刷兵）
+    reinforceOutpostDist: 300     // 增援落点距友军据点最小间距（px）
   },
 
   // 敌人/友军 AI（P-10 / DEVELOPMENT.md §6 条目 7）：双态行为 + 友军据点消极防御。

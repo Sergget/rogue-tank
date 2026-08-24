@@ -77,6 +77,8 @@
 | 2026-08-24 | `PLAN.md` | P-36 地面生物群落地貌 | 已完成并验证（RULES.biomes 四色调色板 + drawGround 确定性程序化地面层，见 specs/map.md §5.7） |
 | 2026-08-24 | `ISSUES.md` | #77 掩体过大/密度低/全高过少 | 已解决并验证（coverWorldScale 收敛 + 密度×1.57 + 全高补齐与降级/剔除双保护，见 specs/map.md §5.7） |
 | 2026-08-24 | `ISSUES.md` | #81 战斗地面单一平坦缺地貌 | 已解决并验证（biome 标签 + drawGround 主题化底色，见 specs/map.md §5.7） |
+| 2026-08-24 | `PLAN.md` | P-38 敌方递增生成 + 击杀配额 | 已完成并验证（quota 配额制节点结算 + reinforcementTick 镜头外确定性补兵 + 增援立即警觉，见 specs/map.md §5.8；玩法线 PLAN 清零） |
+| 2026-08-24 | `ISSUES.md` | #83 敌方一次性生成缺递增生成 | 已解决并验证（同 P-38 落地，见 specs/map.md §5.8） |
 
 ------
 

@@ -50,6 +50,10 @@
   #ammoIndicator .mult{color:var(--text-dim); font-weight:400; font-size:9px;}
   #hintBar{position:absolute; left:12px; bottom:10px; pointer-events:none;
     font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-dim); opacity:.75; letter-spacing:1px;}
+  /* P-38 剩余击杀配额小字（常规节点战斗态显示，其余隐藏） */
+  #quotaHud{position:absolute; left:12px; bottom:32px; pointer-events:none;
+    font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px;
+    color:var(--text-dim); text-shadow:0 1px 2px rgba(0,0,0,0.8);}
 
   /* ---------- 通用控件 ---------- */
   button{
@@ -231,12 +235,13 @@
     <div id="reloadTrack"><div id="reloadFill"></div></div>
   </div>
   <div id="hintBar">TAB 状态 · ` 开发者 · 1/2/3 或 Q/滚轮 切弹种 · WASD 移动 · 左键/空格 开火 · F 烟幕弹 · G 炮击 · H 护盾(Shift+H 全向) · V 超装填 · 无人机自动索敌</div>
+  <div id="quotaHud" style="display:none;"></div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
       <div class="screen-title">节点地图 NODE MAP</div>
       <div id="mapList"></div>
       <div class="btnrow"><button id="startRunBtn">开始新的一局 NEW RUN</button></div>
-      <div class="screen-hint">线性推进：每个节点是独立战场，难度随推进上升。清除全部敌军即通关；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。</div>
+      <div class="screen-hint">线性推进：每个节点是独立战场，难度随推进上升。达到击杀配额即通关（敌军会持续增援）；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。</div>
     </div>
     <div id="settleScreen" class="screen" style="display:none;">
       <div class="screen-title">节点结算 NODE CLEARED</div>
@@ -764,21 +769,7 @@ function enterBattle(nodeIndex){
       if(spec) applyTankConfig(t, spec);
       resetEntity(t);
     },
-    applyDifficulty(t, mults){                           // #76 A：敌军属性全面难度分化（表驱动）
-      if(!mults) return;                                 // 玩家/据点实体绝不走此路径（materializeNode 只对 team=enemy 调用）
-      const STAT_KEYS = ['maxHp','penetration','damage','reload','spreadMult','aimSpeed','maxSpeed','turnRate','turretTurnRate'];
-      for(const k of STAT_KEYS){
-        if(mults[k] !== undefined && mults[k] !== 1){
-          addModifier(t, { stat: k, mode: 'mult', value: mults[k], source: 'difficulty', scope: 'run' });
-        }
-      }
-      // armorAll：装甲各面遍历叠乘（armor.hull / armor.turret 组路径乘全组，见 tank_model.applyArmorMod）
-      if(mults.armorAll !== undefined && mults.armorAll !== 1){
-        addModifier(t, { stat: 'armor.hull', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
-        addModifier(t, { stat: 'armor.turret', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
-      }
-      t.hp = t.stats.maxHp; t.maxHp = t.stats.maxHp;
-    }
+    applyDifficulty(t, mults){ applyDifficultyMults(t, mults); }   // P-38：页级函数，增援生成复用
   });
 
   // P-37/P-09：Boss 战——周期 Boss 节点（node.boss=true 由 map 模块预标）在进入战斗时
@@ -836,7 +827,11 @@ function enterBattle(nodeIndex){
     }
   }
 
-  battleState = { startMs: performance.now(), prevPlayerHp: player.hp, damageTaken: 0, cleared: false, playerDied: false };
+  // P-38：节点内击杀配额计数 + 递增生成节奏计时器；增援 rng 按节点种子派生（跨节点不串流）
+  battleState = { startMs: performance.now(), prevPlayerHp: player.hp, damageTaken: 0,
+    nodeKills: 0, reinforceT: 0, reinforced: 0,
+    reinforceRng: createRNG((node.seed | 0) + 91733 + node.index),
+    cleared: false, playerDied: false };
   shells.length = 0; impacts.length = 0; bounceFx.length = 0;
   pushLog(`进入节点 ${nodeIndex + 1}「${node.template.name}」 难度 ${(node.difficulty * 100).toFixed(0)}% — ${node.boss ? 'BOSS ' + node.boss.name : '敌军 ' + node.enemies.length + ' 辆'}${node.outpost ? '，友军据点已部署' : ''}`, 'COVER');
 }
@@ -860,6 +855,44 @@ function finishNode(cleared){
   runScore += score.total;
   if(cleared) transition(flow, 'settlement', { nodeIndex: currentNode.index, score, clearMs, bossLoot });
   else transition(flow, 'gameover', { nodeIndex: currentNode.index, score });
+}
+
+// #76 A：敌军属性全面难度分化（原 enterBattle 内联闭包提升为页级函数；P-38 增援同规则应用）
+function applyDifficultyMults(t, mults){
+  if(!mults) return;                                 // 玩家/据点实体绝不走此路径
+  const STAT_KEYS = ['maxHp','penetration','damage','reload','spreadMult','aimSpeed','maxSpeed','turnRate','turretTurnRate'];
+  for(const k of STAT_KEYS){
+    if(mults[k] !== undefined && mults[k] !== 1){
+      addModifier(t, { stat: k, mode: 'mult', value: mults[k], source: 'difficulty', scope: 'run' });
+    }
+  }
+  // armorAll：装甲各面遍历叠乘（armor.hull / armor.turret 组路径乘全组，见 tank_model.applyArmorMod）
+  if(mults.armorAll !== undefined && mults.armorAll !== 1){
+    addModifier(t, { stat: 'armor.hull', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
+    addModifier(t, { stat: 'armor.turret', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
+  }
+  t.hp = t.stats.maxHp; t.maxHp = t.stats.maxHp;
+}
+
+// P-38：增援敌军实体化——与开局敌军同规则注入 aiTriggerDist/aiTier/难度乘子，
+// 并立即警觉（alertEntity：aiEngaged=true + lastKnownPlayerPos=玩家当前位置）→ 主动推进而非蹲守。
+function spawnReinforcement(spec){
+  const t = spawnTank({
+    id: `enemy_${currentNode.index}_r${battleState.reinforced++}`,
+    team: 'enemy', x: spec.x, y: spec.y,
+    hullAngle: spec.hullAngle, turretAngle: spec.turretAngle,
+    heightClass: spec.heightClass
+  });
+  t.nodeSpawn = true;                       // 计入 livingNodeEnemies（配额未满时维持战斗）
+  t.reinforcement = true;                   // P-38 增援标记（溯源/调试用）
+  t.aiTriggerDist = triggerDistForDifficulty(currentNode.difficulty);
+  t.aiTier = (spec.aiTier !== undefined) ? spec.aiTier : (currentNode.aiTier || 0);
+  const td = tankListData && tankListData[spec.tankId];
+  if(td) applyTankConfig(t, td);
+  resetEntity(t);
+  applyDifficultyMults(t, spec.entityMults);
+  alertEntity(t, player.x, player.y);       // 立即警觉 + 持有玩家位置记忆
+  return t;
 }
 
 // P-17：按 cardEffects 重建随行无人机（选卡后 / 复活后调用）。kind 缺省 striker 由模块兜底；
@@ -1905,6 +1938,7 @@ function update(dt){
       if(run && battleState && e.team === 'enemy'){
         runScore += killScore();
         runKills++;
+        battleState.nodeKills++;   // P-38：节点内击杀数（配额判定用）
         profile.stats.kills++;
       }
       pushLog(`${e.id==='player'?'玩家':e.id} 已摧毁 — 车体起火`,'CRIT');
@@ -1961,6 +1995,39 @@ function update(dt){
   updateFx(dt);
   updateDmgTexts(dt);   // P-15：飘字推进（上浮/淡出/生命周期）
 
+  // P-38：敌方递增生成（仅常规节点战斗态；Boss 节点禁用——summons 即其机制）。
+  // reinforcementTick 为纯逻辑：节奏/存量/配额门控 + 落点约束（视口外扩外/触发距离外/
+  // 据点 300px 外/避掩体），产出 spawn spec 后由此处执行 env.spawnTank。
+  if(run && battleState && flow.state === 'battle' && !battleState.cleared &&
+     currentNode && !currentNode.boss){
+    battleState.reinforceT += dt;
+    const specs = reinforcementTick({
+      alive: livingNodeEnemies().length,
+      killedThisNode: battleState.nodeKills || 0,
+      quota: currentNode.quota,
+      effDiff: currentNode.difficulty,
+      initialCount: currentNode.enemies.length,
+      playerPos: { x: player.x, y: player.y },
+      viewBounds: viewBounds(cam),
+      worldSize: { w: currentNode.w, h: currentNode.h },
+      covers: covers,
+      outpostPos: currentNode.outpost,
+      rng: battleState.reinforceRng,
+      timer: battleState.reinforceT,
+      aiTriggerDist: triggerDistForDifficulty(currentNode.difficulty),
+      aiTier: currentNode.aiTier || 0,
+      statMult: currentNode.statMult,
+      entityMults: currentNode.entityMults,
+      tankPool: (RULES.nodeMap && RULES.nodeMap.enemyTankPool) || ['dummy']
+    });
+    if(specs.length){
+      battleState.reinforceT = 0;              // 重置节奏计时器
+      for(const sp of specs) spawnReinforcement(sp);
+      pushLog(`⚠ 敌军增援抵达 ×${specs.length}`, 'CRIT');
+      playSound('ui');
+    }
+  }
+
   // P-08 战斗流程判定（仅 run 战斗态；每次只结算一次，结算后由 flow 门控停表）
   if(run && battleState && flow.state === 'battle' && !battleState.cleared){
     if(player.hp < battleState.prevPlayerHp) battleState.damageTaken += battleState.prevPlayerHp - player.hp;
@@ -1983,8 +2050,13 @@ function update(dt){
         battleState.playerDied = true;
         finishNode(false);               // 复活次数耗尽 → gameover（真 Roguelike 永久死亡）
       }
-    } else if(!player._dead && livingNodeEnemies().length === 0){
-      finishNode(true);                // 敌全灭（含 Boss）→ 结算
+    } else if(!player._dead){
+      // P-38：常规节点改配额制——节点内击杀数 ≥ quota 即通关；
+      // 初始全灭但配额未满时不结算，由递增生成（reinforcementTick）补兵继续战斗。
+      // Boss 节点无配额：沿用「Boss+summons 全灭」判定。
+      const quotaDone = currentNode && !currentNode.boss &&
+        Number.isFinite(currentNode.quota) && (battleState.nodeKills || 0) >= currentNode.quota;
+      if(quotaDone || livingNodeEnemies().length === 0) finishNode(true);
     }
   }
 
@@ -1997,6 +2069,13 @@ function updateHud(){
   const rf = document.getElementById('reloadFill');
   const reloadDur = player.stats.reload / debuffReloadRate(player);
   rf.style.width = (100 - (player.reloadT/reloadDur*100)) + '%';
+  // P-38：剩余击杀配额小字（仅常规节点战斗态显示；Boss/局外态隐藏）
+  const qh = document.getElementById('quotaHud');
+  if(run && battleState && !battleState.cleared && flow.state === 'battle' &&
+     currentNode && !currentNode.boss && Number.isFinite(currentNode.quota)){
+    qh.style.display = 'block';
+    qh.textContent = `剩余敌人配额 ${Math.max(0, currentNode.quota - (battleState.nodeKills||0))} / ${currentNode.quota}`;
+  } else qh.style.display = 'none';
   // 按需面板（P-15）：开启时逐帧刷新
   if(statusOpen) updateStatusPanel();
   if(devOpen){ updateDevParams(); updateSolution(); }
