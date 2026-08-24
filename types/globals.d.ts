@@ -219,15 +219,17 @@ declare function watchFlow(flow: FlowState, fn: Function): Function;
 declare function transition(flow: FlowState, next: string, payload?: any): void;
 declare function restartRun(flow: FlowState): void;
 
-// 线性节点链生成 / 通关奖励评分 / 节点实体化（js/tank_map.js，P-08 / §6 条目 6）
-declare function difficultyForIndex(index: number, count: number): number;
+// 线性节点链生成 / 通关奖励评分 / 节点实体化（js/tank_map.js，P-08 / §6 条目 6；P-34 开放式链）
+declare function difficultyForIndex(index: number, difficultyLevel?: number): number;   // P-34：索引驱动饱和曲线 + 跨局难度叠加
+declare function isBossNodeIndex(index: number): boolean;   // P-37：周期 Boss 节点判定
 declare function enemyCountForDifficulty(diff: number): number;
 declare function aiTierForDifficulty(diff: number): number;
 declare function statMultForDifficulty(diff: number): number;
 declare function triggerDistForDifficulty(diff: number): number;   // AI 有效触发距离（难度化）
 declare function nodeScaleFor(viewport: any, templateDims: any): number;   // #24：视口 → 节点世界缩放倍率
-declare function makeNode(index: number, count: number, rng: any, env?: any): any;
-declare function generateRun(seed?: number | string, count?: number, env?: any): { nodes: any[]; seed: number | string };
+declare function makeNode(index: number, rng: any, env?: any): any;
+declare function generateRun(seed?: number | string, count?: number, env?: any): { nodes: any[]; seed: number | string; env: any; difficultyLevel: number };
+declare function extendRun(run: any, envOverride?: any): any;   // P-34：开放式链追加下一节点（确定性续接）
 declare function scoreNode(node: any, result: any): { base: number; bonuses: Array<{ label: string; amount: number }>; total: number };
 declare function materializeNode(node: any, env: any): { spawned: any[]; outpost: any };
 
@@ -363,6 +365,13 @@ declare function loadProfile(storage: any): any;
 declare function saveProfile(storage: any, profile: any): boolean;
 declare function killScore(): number;
 declare function scoreToPoints(score: number, ratio?: number): number;
+declare function settleRun(profile: any, finalScore: number): { pointsGained: number; difficultyLevel: number } | null;   // P-34：终局结算（幂等由调用方 payload.settled 保证）
+declare var RUN_SHOP_DEFS: any[];                                            // P-41：局内商店商品表
+declare function getRunShopDef(id: string): any | null;
+declare function runShopPriceFor(def: any, ownedLevel: number): number;       // P-41：定价 round(baseCost × costGrowth^ownedLevel)
+declare function canAfford(balance: number, price: number): boolean;
+declare function applyRunShopPurchase(state: { total?: number, spent?: number, levels?: Record<string, number> }, defId: string): boolean;
+declare function toggleRunShop(force?: boolean): void;                       // P-41：mvp 局内商店浮层开关
 declare function upgradeLevel(profile: any, id: string): number;
 declare function canBuyUpgrade(profile: any, id: string): boolean;
 declare function buyUpgrade(profile: any, id: string): boolean;

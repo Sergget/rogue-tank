@@ -64,6 +64,13 @@
 | 2026-08-23 | `PLAN.md` | P-27 卡牌 × Loadout 衔接 | 已完成并验证（`drawCardChoices` 过滤未配弹种卡 + `computeAmmoConfig` 弹种强化生效，结论见 DEVELOPMENT §5 条目 27） |
 | 2026-08-24 | `PLAN.md` | P-39 镜头滚轮缩放 | 已完成并验证（RULES.camera minZoom/maxZoom/zoomStep + setZoom 钳制 + zoom 指数阻尼 + zoom-to-cursor 滚轮缩放，见 DEVELOPMENT.md §2.1 / specs/map.md） |
 | 2026-08-24 | `PLAN.md` | P-35 ESC 暂停/设置面板 + 终止游戏并结算 + 倒车转向倒置开关 | 已完成并验证（battle⇄pause 冻结战斗循环 + pause→settlement voluntaryEnd 终止入口 + invertReverseTurn 倒车转向倒置，见 DEVELOPMENT.md §2.1 / specs/map.md） |
+| 2026-08-24 | `PLAN.md` | P-34 终局结算闭环（死亡耗尽/ESC 主动终止）+ 跨局难度升级 + 手动结算保存 | 已完成并验证（settleRun 双路终局 + extendRun 开放式链 + difficultyLevel 跨局叠加，见 DEVELOPMENT.md §2.1/§2.3 / specs/map.md） |
+| 2026-08-24 | `PLAN.md` | P-37 Boss 节奏可配置（每 N 节点一个） | 已完成并验证（`RULES.nodeMap.bossInterval`=5 周期预标 + 清常规敌人，见 DEVELOPMENT.md §2.1 / specs/map.md） |
+| 2026-08-24 | `PLAN.md` | P-41 局内商店（当前得分消费 · run 内属性升级） | 已完成并验证（`RUN_SHOP_DEFS` 6 项 + 双账本 API，购买扣余额不动累计，见 DEVELOPMENT.md §2.1/§2.3） |
+| 2026-08-24 | `ISSUES.md` | #79 完成 5 节点后无终局结算/商店/难度升级；无手动结算保存 | 已修复并验证（P-34/P-41 落地：终局闭环+难度升级+手动保存，见 DEVELOPMENT.md §2.1/§2.3） |
+| 2026-08-24 | `ISSUES.md` | #80 缺少 ESC 暂停/设置面板；倒车转向未倒置且无开关 | 已修复并验证（P-35 pause 面板落地，本批核验确认，见 DEVELOPMENT.md §2.1） |
+| 2026-08-24 | `ISSUES.md` | #82 Boss 仅在链尾节点生成，无“每 5 节点一个”节奏配置 | 已修复并验证（P-37 bossInterval=5 周期落地，见 DEVELOPMENT.md §2.1 / specs/map.md） |
+| 2026-08-24 | `ISSUES.md` | #84 镜头大小固定，滚轮被改作弹药切换，无缩放 | 已修复并验证（P-39 滚轮缩放落地，本批核验确认，见 DEVELOPMENT.md §2.1 / specs/map.md） |
 
 ------
 

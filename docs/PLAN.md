@@ -8,17 +8,7 @@
 
 ## 玩法系统 PLAN（2026-08-24）
 
-> 编号说明：原 P-27/P-29/P-30 与 DEVELOPMENT.md §5 记录的历史已完成条目撞号，2026-08-24 起重编号为 P-34/P-35/P-36；本批活跃条目为 P-34~P-41。
-
-### P-34. 终局结算闭环（死亡耗尽 / ESC 主动终止）+ 跨局难度升级 + 手动结算保存
-- **目标**：一局不再固定 5 节点收尾——节点链随推进持续延伸（开放式），Boss 每 5 节点出现（协同 P-37）。终局仅两种触发：① 阵亡且复活次数耗尽 → gameover 强制终局；② 战斗中 ESC 暂停面板（P-35）选「终止游戏并结算」→ 主动终局。两路均进入终局结算屏（得分/评分汇总）→ 得分 ×10% 转永久点数 → `profile.difficultyLevel` +1 持久化（下一局叠加入 generateRun 曲线）。另：局内 settlement 保留手动「结算并保存」按钮。
-- **改动点**：
-  - `js/tank_flow.js`：新增 `pause` 态（已落地，2026-08-24）与转移 battle→pause、pause→settlement（终止并结算）；gameover 保持死亡耗尽出口；扩展白名单表并补单测。
-  - `tank_mvp.html`：`nextNodeAfterReward` 末节点分支改为开放式续接生成下一节点而非回图收束；ESC 暂停面板挂「终止游戏并结算」；终局结算屏复用现有 settlement 渲染。
-  - `js/tank_map.js`：`generateRun` 支持链尾续接生成；接受 `difficultyLevel` 参数叠加难度曲线；`aiTier` 注入 spawnTank spec（协同 ISSUES #76）。
-  - `js/tank_economy.js` + `tank_mvp.html`：difficultyLevel 持久化与任一终局 +1；双账本记分（约定见 P-41）；「结算并保存」按钮调 `saveActiveProfile`。
-- **依赖**：P-35（暂停面板承载终止入口）（已落地，2026-08-24）；P-37 提供 Boss 周期标记。
-- **验证**：`npm run check` + `npm test`；浏览器连续推进 >5 节点且每第 5 节点遇 Boss；两条终局路径均正确结算且下一局难度提升；中途保存重载生效。
+> 编号说明：原 P-27/P-29/P-30 与 DEVELOPMENT.md §5 记录的历史已完成条目撞号，2026-08-24 起重编号；本批活跃条目为 P-36/P-38/P-40（玩法线）与 P-42~P-49（视觉/音频专项）、P-50（候选库）。
 
 ### P-36. 地面生物群落地貌（混凝土/草原/黄草/泥潭/蓝水）
 - **目标**：战斗地面按节点 biome 主题化填充（混凝土灰/草原绿/黄草/暗泥/蓝水），与 #78 的「减速不挡弹泥潭地形」协同。
@@ -27,14 +17,6 @@
   - `tank_mvp.html` `draw()`：新增地面填充步骤（按 biome 选底色 + 可选纹理/网格），替换单一清屏。
   - `RULES.coverTiers`：新增 `mud` tier（减速不挡弹，`mode` 区分）；水域弹道语义已裁定为「弹越飞、挡移动」（#85，随 P-40 落地），本条目仅负责地面配色与视觉层。
 - **验证**：`npm run check` + `npm test`；浏览器不同节点地面配色/纹理切换。
-
-### P-37. Boss 节奏可配置（每 N 节点一个 / 链尾 + 周期）
-- **目标**：落实 2026-08-24 定案——默认 RULES.bossInterval=5（每 5 节点一个 Boss），节奏参数可调；配合开放式长链（P-34）使周期标记在推进中自然生效。
-- **改动点**：
-  - `js/tank_rules.js`：新增 `RULES.bossInterval`（默认如 5）或 `bossSchedule` 配置。
-  - `tank_mvp.html` `assignBossNode`：依据 `RULES.bossInterval` 标记多个 Boss 节点（链尾保留 + 周期节点），并相应清敌。
-  - `js/tank_map.js` `generateRun`：节点生成时按节奏预标 `boss`。
-- **验证**：`npm run check` + `npm test`；调整 `bossInterval` 后确认多个 Boss 节点出现。
 
 ### P-38. 敌方进度推进/镜头外递增生成 + 击杀配额
 - **目标**：每节点在开局外，随进度/镜头外动态增兵，提升单局可击杀数与压迫感。
@@ -54,14 +36,6 @@
   - `js/tank_battledraw.js` + `tank_minimap.js`：新 `drawStyle`（water-chain/rock-poly/mud/structure）与液体/地面 tier 的小地图表征。
   - 交叉任务：地面 biome 图层 (#81)、不规则岩石 (#78)、AI 找掩体钩子 (#76)、建筑摧毁 FX、地形步进音效/特效。
 - **验证**：`npm run check` + `npm test`；浏览器确认水潭越弹但挡坦克、泥地减速、河流连通、建筑 half/full 剖面与摧毁残骸。
-
-### P-41. 局内商店（节点间 · 当前得分消费 · run 内属性升级）
-- **目标**：2026-08-24 定案落地——节点间开放真正的局内商店：出售仅当局有效的属性升级（modifiers `scope:'run'`，本局结束清除、不带出存档）；按当前得分计价消费，消费独立记账、**不减损**终局转化用的累计得分。
-- **改动点**：
-  - `js/tank_economy.js`：`RUN_SHOP_DEFS` 商品表 + 双账本 API（累计得分流水与可花余额分离；购买扣余额、不动累计）。
-  - `tank_mvp.html`：settlement/reward 界面新增商店入口与购买 UI（复用 shop 屏骨架）；购买应用 scope='run' modifiers（复用 `removeRunModifiers` 清理时机）。
-- **依赖**：与 P-34 同批实施（共享经济账本改造）；属性修饰器机制已有（P-12）。
-- **验证**：`npm run check` + `npm test`；浏览器购买后属性生效、本局结束升级消失、终局转化分数不受购买影响。
 
 ---
 

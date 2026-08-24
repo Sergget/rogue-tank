@@ -60,39 +60,6 @@
 
 **状态：** 待处理
 
-### #79. 完成 5 节点后无终局结算/商店/难度升级；无手动结算保存
-
-**可复现证据：**
-- `js/tank_map.js:377-387` `generateRun` 构建固定 `runNodeCount`(默认 5) 节点链，无终局/胜利处理。
-- `tank_mvp.html:787-796` `nextNodeAfterReward`：末节点清除后仅 `transition(flow,'map',{finished:true})`，回到节点地图起始，**不进入商店/难度升级终局**。
-- `js/tank_flow.js:26-27,32`：`shop` 仅可从 `home`/`loadout` 进入（局前）；`reward:['battle','map']` 无"完成→商店"分支。
-- `tank_mvp.html:846-860` `settlement` 每节点后显示，`settleNextBtn`(:963) 仅去 `reward`，无最终 run 结算。
-- 手动结算+保存 UI 缺失：所有 `saveProfile`/`saveActiveProfile` 调用均在局外（商店购买 :1233/1239/1251/1259、死亡转换 :883、buyUpgrade :934/942、startNewRun :957、beginRunFromMenu :1296）；局内 `settlement` 无保存动作。
-- 难度跨局不升级：`tank_mvp.html:953` `startNewRun` 用新 seed 调 `generateRun` 重建相同 0.15→0.95 曲线；M10 `shop` 仅施加玩家永久 buff（`applyUpgrades`），从不提升敌方/难度参数。`js/tank_map.js:27-32` `difficultyForIndex` 仅局内逐节点 0.15→0.95 单调升。
-
-**根因：** 流程状态机缺"完成 run 终局结算→商店→难度升级"分支；无局内手动结算/保存入口；跨局难度曲线恒定。
-
-**影响：** 玩家打完 5 节点即"白打"，无资源结算/商店消费/难度成长正反馈（与 #76 互补：#76 是难度不驱动 AI/属性，此处是流程缺结算闭环）。
-
-**设计更新（2026-08-24）**：单局改为开放式节点链，「完成 5 节点即终局」概念取消——终局 = 死亡耗尽 或 ESC 主动终止并结算（DEVELOPMENT.md §2.1 / PLAN P-34）。本条所列问题（无终局闭环/无手动保存/难度跨局不升级）仍然成立，修复按新设计执行。
-
-**状态：** 待处理
-
-### #80. 缺少 ESC 暂停/设置面板；倒车左右转向未倒置且无开关
-
-**可复现证据：**
-- `js/tank_flow.js:14-17` `FLOW_STATES = ['home','loadout','shop','map','battle','settlement','reward','gameover']` 无 `pause` 态；`tank_flow.js:23-34` 无暂停转移。
-- `tank_mvp.html` 无 `Escape` 处理器（移动键 :460-464、弹药 1-9/Q :514-519、Tab/反引号/F12 面板 :548-552）；无暂停/设置/按键绑定配置面板（`tank_designer.html:1302` 的 Escape 仅用于设计器，与本游戏无关）。
-- `js/tank_move.js:35` `driveTank` 直接 `t.hullAngle += turn * t.stats.turnRate * dt * turnModifier * debuffTurnRate(t)`，`turn` 不随 `move` 符号翻转；模块内无倒车转向倒置开关。
-
-**根因：** 流程状态机与 UI 均无暂停/设置概念；倒车转向逻辑固定为非倒置。
-
-**影响：** 玩家无法随时暂停/改键；倒车时转向手感反直觉（且无可选倒置开关）。
-
-**设计更新（2026-08-24）**：ESC 面板将承载「终止游戏并结算」入口（PLAN P-35/P-34）；暂停/改键诉求不变。
-
-**状态：** 待处理
-
 ### #81. 战斗地面单一平坦，缺生物群落地貌（混凝土/草原/黄草/泥潭/蓝水）
 
 **可复现证据：**
@@ -107,21 +74,6 @@
 
 **状态：** 待处理
 
-### #82. Boss 仅在链尾节点生成，无"每 5 节点一个"节奏配置
-
-**可复现证据：**
-- `tank_mvp.html:642-650` `assignBossNode(run)` 仅把 `run.nodes[last]` 标 `boss` 并清空其 `enemies`；:697 注释"链尾节点 spawn Boss 实体"；:698-732 `enterBattle` 仅 `if(node.boss)` 创建 Boss。
-- `js/tank_map.js:377` `generateRun(seed,count,env)` 构建 `count` 节点，除 `assignBossNode` 外无任何节点被标 boss；`js/tank_rules.js` 仅有 `killScoreBase`(:309) 提及 boss，**无 `bossInterval`/节奏配置**。
-- 结论：Boss 当前**只出现在最后一个节点**，并非每 5 节点一个，且无可调节奏参数。
-
-**根因：** Boss 节奏硬编码为"链尾唯一"，无按节点索引的周期配置。
-
-**影响：** 用户预期的"每 5 节点一个 Boss"未实现；长 run 中途无 Boss 节点，节奏单调。
-
-**设计更新（2026-08-24）**：裁定维持「每 5 节点一个 Boss」，由开放式长链激活其意义（DEVELOPMENT.md §2.1 / PLAN P-37）。
-
-**状态：** 待处理
-
 ### #83. 敌方 AI 开局一次性生成，缺进度推进/镜头外递增生成
 
 **可复现证据：**
@@ -132,19 +84,6 @@
 **根因：** 敌方生成完全前置且批量；无随节点进度/镜头外动态生成机制与击杀配额。
 
 **影响：** 每节点战斗密度固定、缺乏"随推进增兵"的压迫感；单局可击杀数受限于初始批次。
-
-**状态：** 待处理
-
-### #84. 镜头大小固定，滚轮被改作弹药切换，无缩放
-
-**可复现证据：**
-- `js/tank_camera.js:26` `zoom: opts.zoom || 1` 默认 1；全局 `grep '\.zoom\s*='` 无任何运行期赋值，`zoom` 恒为 1。
-- `tank_mvp.html:520-523` `window.addEventListener('wheel', ...)` 调 `cycleAmmo(e.deltaY>0?1:-1)`，为 `passive` 且仅在 `inMenuState()` 内生效——滚轮被用于弹药槽循环，**未绑定缩放**；无独立 zoom 控制。
-- `cam.zoom` 已被 `worldToScreen`(:75)/`screenToWorld`(:83)/`clampCameraToBounds`(:55-57) 消费，且绘制经 `ctx.scale(cam.zoom,cam.zoom)`（`tank_mvp.html:1853`）应用——**缩放管线已具备**，仅缺运行期写入路径。
-
-**根因：** 缩放参数存在但恒为 1；滚轮被弹药切换占用，未接 zoom。
-
-**影响：** 玩家无法放大观察/缩小纵览战场；滚轮交互与缩放预期不符。
 
 **状态：** 待处理
 
@@ -164,4 +103,3 @@
 **状态：** 处理中
 
 ---
-

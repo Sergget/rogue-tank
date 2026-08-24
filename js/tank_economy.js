@@ -50,7 +50,7 @@ function getUpgradeDef(id){ return UPGRADE_DEFS.find(u => u.id === id) || null; 
 const AMMO_LOADOUT_MAX = 3;
 
 // profile = { version, points, upgrades: { id → level }, stats: { runs, kills },
-//             selectedTankId, ammoLoadout: [ammoKey×≤3], bonusRevives,
+//             selectedTankId, ammoLoadout: [ammoKey×≤3], bonusRevives, difficultyLevel,
 //             settings: { invertReverseTurn } }
 function defaultProfile(){
   return {
@@ -61,6 +61,8 @@ function defaultProfile(){
     selectedTankId: null,
     ammoLoadout: [],
     bonusRevives: 0,
+    // P-34：跨局难度等级（每次终局结算 +1，下一局节点难度叠加 crossRunLevelBonus）
+    difficultyLevel: 0,
     // P-35：持久化设置（倒车转向倒置开关；新设置项在此补默认值）
     settings: { invertReverseTurn: false }
   };
@@ -80,6 +82,8 @@ function normalizeProfile(p){
     selectedTankId: (typeof p.selectedTankId === 'string' && p.selectedTankId.length > 0) ? p.selectedTankId : null,
     ammoLoadout: [],
     bonusRevives: Number.isInteger(p.bonusRevives) && p.bonusRevives >= 0 ? p.bonusRevives : 0,
+    // P-34：跨局难度等级守卫（旧档缺省 → 0，向后兼容）
+    difficultyLevel: Number.isInteger(p.difficultyLevel) && p.difficultyLevel >= 0 ? p.difficultyLevel : 0,
     // P-35：settings 逐字段守卫（旧档缺省 → 默认 false，向后兼容）
     settings: {
       invertReverseTurn: !!(p.settings && typeof p.settings === 'object' && p.settings.invertReverseTurn)
@@ -315,6 +319,85 @@ function scoreToPoints(score, ratio){
   return Math.floor((score || 0) * r);
 }
 
+// ---------- 终局结算（P-34） ----------
+
+// 终局统一结算入口：局内得分 → 商店点数转化 + 跨局难度等级 +1。
+// 两条终局路径共用：① 阵亡复活耗尽（gameover）② ESC「终止游戏并结算」（pause→settlement voluntaryEnd）。
+// 幂等护栏约定：本函数不判重——由调用方 payload.settled 标记保证同一局只调用一次
+// （transition payload 每次转移重建，天然隔离不同局的结算）。
+// 可花余额账本（P-41 已定案）：settleRun 不做任何扣减——局内商店消费走「双变量账本」：
+// UI 层持有 runScoreTotal（终局转化用）与 runScoreSpent（已花），可花余额 = total − spent；
+// 购买只增加 spent → 「消费不减损终局转化得分」天然成立，本函数仍按 finalScore 全额转点。
+function settleRun(profile, finalScore){
+  if(!profile || typeof profile !== 'object') return null;
+  const gained = scoreToPoints(finalScore);
+  profile.points += gained;
+  profile.difficultyLevel = (Number.isInteger(profile.difficultyLevel) && profile.difficultyLevel > 0 ? profile.difficultyLevel : 0) + 1;
+  return { pointsGained: gained, difficultyLevel: profile.difficultyLevel };
+}
+
+// ---------- 局内商店（P-41：run 内属性升级 · 账本模型） ----------
+
+// 每项：{ id, name, desc, baseCost, costGrowth, maxLevel, effects, instant? }
+// effects = [{ stat, mode, value }]（mode add=绝对量 / mult=倍率，与 UPGRADE_DEFS 同款；
+//   stat 必须是 computeStats 产物键或 armor 路径，购买后 push scope='run' 修饰器，
+//   source='runshop:<id>'，由 removeRunModifiers 在 run 结束/新开局清除）。
+// instant 类（如紧急维修）不走修饰器：effects 留空 + instant:{ type:'healPct', value }，
+// 由 UI 层购买时直接改 tank.hp。
+// 数值校准基准：节点通关奖励 §4.5 约 50~120 分/节点、击杀 20 分/个——
+// 首件定价 30~60 分（约半节点奖励），costGrowth 1.5~1.8 保证滚雪球递减边际。
+const RUN_SHOP_DEFS = [
+  { id: 'emergency_repair',  name: '紧急维修',   desc: '立即恢复 40% 最大耐久（即时生效；可重复购买）',
+    baseCost: 30, costGrowth: 1.5, maxLevel: 9,
+    instant: { type: 'healPct', value: 0.4 }, effects: [] },
+  { id: 'fast_reload',       name: '快速装填',   desc: '装填时间 −10%/级',
+    baseCost: 40, costGrowth: 1.6, maxLevel: 3,
+    effects: [{ stat: 'reload', mode: 'mult', value: 0.9 }] },
+  { id: 'precision_gunnery', name: '精密火控',   desc: '散布 −15%/级',
+    baseCost: 45, costGrowth: 1.6, maxLevel: 3,
+    effects: [{ stat: 'spreadMult', mode: 'mult', value: 0.85 }] },
+  { id: 'engine_overdrive',  name: '引擎超压',   desc: '极速 +12px/s/级',
+    baseCost: 50, costGrowth: 1.8, maxLevel: 2,
+    effects: [{ stat: 'maxSpeed', mode: 'add', value: 12 }] },
+  { id: 'steady_mount',      name: '姿态稳定',   desc: '三源散布系数 −0.5（移动/转向散布惩罚显著减轻）',
+    baseCost: 60, costGrowth: 1.0, maxLevel: 1,
+    effects: [{ stat: 'spreadMult', mode: 'add', value: -0.5 }] },
+  { id: 'hull_patch',        name: '装甲应急补强', desc: '车体正面装甲 +8mm/级',
+    baseCost: 55, costGrowth: 1.7, maxLevel: 2,
+    effects: [{ stat: 'armor.hull.front', mode: 'add', value: 8 }] }
+];
+
+function getRunShopDef(id){ return RUN_SHOP_DEFS.find(d => d.id === id) || null; }
+
+// 定价曲线：第 ownedLevel+1 级价格 = round(baseCost × costGrowth^ownedLevel)
+function runShopPriceFor(def, ownedLevel){
+  const lv = Math.max(0, Math.floor(ownedLevel || 0));
+  return Math.round((def.baseCost || 0) * Math.pow(def.costGrowth || 1, lv));
+}
+
+// 余额判定（账本模型：余额由调用方以 total − spent 计算后传入）
+function canAfford(balance, price){
+  return Number.isFinite(balance) && Number.isFinite(price) && price >= 0 && balance >= price;
+}
+
+// 购买纯操作：state = { total, spent, levels: {id→lv} }（UI 层持有，本函数原地更新）。
+// 三分支失败返回 false：def 不存在 / 已满级 / 余额不足；成功则 spent += price、levels[id]+1。
+// 不做任何效果应用——modifiers/hp 应用由 UI 层按 def.effects/instant 执行（保持本函数可测）。
+function applyRunShopPurchase(state, defId){
+  if(!state || typeof state !== 'object') return false;
+  const def = getRunShopDef(defId);
+  if(!def) return false;
+  state.levels = state.levels || {};
+  const lv = state.levels[defId] || 0;
+  if(lv >= def.maxLevel) return false;
+  const price = runShopPriceFor(def, lv);
+  const balance = (Number(state.total) || 0) - (Number(state.spent) || 0);
+  if(!canAfford(balance, price)) return false;
+  state.spent = (Number(state.spent) || 0) + price;
+  state.levels[defId] = lv + 1;
+  return true;
+}
+
 // ---------- 升级购买与应用 ----------
 
 function upgradeLevel(profile, id){ return (profile.upgrades && profile.upgrades[id]) || 0; }
@@ -395,6 +478,12 @@ if (typeof module !== 'undefined' && module.exports) {
     saveProfile,
     killScore,
     scoreToPoints,
+    settleRun,
+    RUN_SHOP_DEFS,
+    getRunShopDef,
+    runShopPriceFor,
+    canAfford,
+    applyRunShopPurchase,
     upgradeLevel,
     canBuyUpgrade,
     buyExtraRevive,

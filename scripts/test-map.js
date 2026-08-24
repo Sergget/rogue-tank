@@ -14,12 +14,14 @@ global.pickTemplate = NG.pickTemplate;   // #24：tank_map.js 视口缩放前预
 
 const {
   difficultyForIndex,
+  isBossNodeIndex,
   enemyCountForDifficulty,
   aiTierForDifficulty,
   statMultForDifficulty,
   triggerDistForDifficulty,
   nodeScaleFor,
   generateRun,
+  extendRun,
   makeNode,
   scoreNode,
   materializeNode
@@ -31,11 +33,20 @@ function ok(cond, label) {
   else { console.error(`✗ ${label}`); fails++; }
 }
 
-// 1) 难度曲线：单调上升、范围合法
-const diffs = [0, 1, 2, 3, 4].map(i => difficultyForIndex(i, 5));
-ok(diffs[0] === 0.15 && diffs[4] === 0.95, `难度曲线端点 0.15→0.95（实际 ${diffs[0]}→${diffs[4]}）`);
+// 1) 难度曲线（P-34 开放式链参数化）：索引驱动饱和曲线，端点/封顶/单调/钳制
+const diffs = [0, 1, 2, 3, 4, 6, 8, 12, 14].map(i => difficultyForIndex(i));
+ok(diffs[0] === 0.15, `首节点难度 0.15（实际 ${diffs[0]}）`);
+ok(difficultyForIndex(12) === 0.95, `饱和索引 12 处封顶 0.95（实际 ${difficultyForIndex(12)}）`);
+ok(difficultyForIndex(40) === 0.95, '超饱和后仍封顶 0.95（开放式链不随长度失控）');
+ok(difficultyForIndex(-3) === 0.15, '负索引钳制到首节点难度');
 for (let i = 1; i < diffs.length; i++) ok(diffs[i] >= diffs[i - 1], `难度单调（${diffs[i - 1]}→${diffs[i]}）`);
 for (const d of diffs) ok(d >= 0 && d <= 1, '难度在 [0,1]');
+// 跨局难度等级叠加：effDiff = min(1.15, base + level×0.04)
+ok(closeNum(difficultyForIndex(0, 1), 0.19), `Lv.1 首节点 0.15+0.04=0.19（实际 ${difficultyForIndex(0, 1)}）`);
+ok(difficultyForIndex(0, 5) === 0.35, `Lv.5 首节点 0.15+0.20=0.35（实际 ${difficultyForIndex(0, 5)}）`);
+ok(difficultyForIndex(12, 10) === 1.15, `Lv.10 高索引触绝对上限 1.15（实际 ${difficultyForIndex(12, 10)}）`);
+ok(difficultyForIndex(0) === difficultyForIndex(0, 0), 'level 0 等价缺省');
+function closeNum(a, b) { return Math.abs(a - b) < 1e-9; }
 
 // 2) 敌军数量随难度
 ok(enemyCountForDifficulty(0.15) === 1, '低难度 1 敌');
@@ -88,18 +99,26 @@ for (const n of run1.nodes) {
   for (const c of n.covers) {
     ok(c.x >= 0 && c.x <= n.w && c.y >= 0 && c.y <= n.h, `节点 ${n.index} 掩体在界内`);
   }
-  ok(n.enemies.length === enemyCountForDifficulty(n.difficulty), `节点 ${n.index} 敌军数量匹配难度`);
+  // P-37：Boss 周期节点（index 4/9 → (index+1)%5===0）清空常规敌军；普通节点数量匹配难度
+  if (n.boss) {
+    ok(n.boss === true, `节点 ${n.index} 为周期 Boss 节点（预标 true，待 UI 层指定定义）`);
+    ok(n.enemies.length === 0, `Boss 节点 ${n.index} 不混普通敌军`);
+  } else {
+    ok(!n.boss, `普通节点 ${n.index} 无 Boss 标记`);
+    ok(n.enemies.length === enemyCountForDifficulty(n.difficulty), `节点 ${n.index} 敌军数量匹配难度`);
+  }
   // P-13：三杠杆字段（AI 档位 + 数值强度）落在节点与每个敌人上
   ok(typeof n.aiTier === 'number' && n.aiTier >= 0 && n.aiTier <= 2, `节点 ${n.index} aiTier 合法`);
   ok(typeof n.statMult === 'number' && n.statMult >= 1 && n.statMult <= 1.5, `节点 ${n.index} statMult 合法`);
-  ok(n.aiTier === aiTierForDifficulty(n.difficulty), `节点 ${n.index} aiTier 匹配难度`);
-  ok(n.statMult === statMultForDifficulty(n.difficulty), `节点 ${n.index} statMult 匹配难度`);
+  ok(n.aiTier === aiTierForDifficulty(Math.min(1, n.difficulty)), `节点 ${n.index} aiTier 匹配难度`);
+  ok(n.statMult === statMultForDifficulty(Math.min(1, n.difficulty)), `节点 ${n.index} statMult 匹配难度`);
   for (const e of n.enemies) {
     ok(e.x > 0 && e.x < n.w && e.y > 0 && e.y < n.h, '敌军在界内');
     ok(e.tankId && typeof e.tankId === 'string', '敌军有 tankId');
     ok(typeof e.hullAngle === 'number' && typeof e.turretAngle === 'number', '敌军朝向合法');
     ok(e.heightClass === 'heavy' || e.heightClass === 'medium', '敌军车高合法');
     ok(e.statMult === n.statMult, `节点 ${n.index} 敌军 statMult 与节点一致`);
+    ok(e.aiTier === n.aiTier, `节点 ${n.index} 敌军 aiTier 与节点一致（P-34 C 数据面）`);
     ok(Math.hypot(e.x - n.playerSpawn.x, e.y - n.playerSpawn.y) >= RULES_MOD.RULES.nodeMap.enemyMinPlayerDist - 1, '敌军离玩家出生点有最小间距');
   }
   if (n.outpost) {
@@ -108,7 +127,7 @@ for (const n of run1.nodes) {
   }
   totalEnemies += n.enemies.length;
 }
-ok(totalEnemies >= 5, `全局敌军总数合理（${totalEnemies}）`);
+ok(totalEnemies >= 3, `全局敌军总数合理（${totalEnemies}，Boss 节点不计）`);
 ok(totalOutposts >= 0 && totalOutposts <= 5, `据点数量在范围内（${totalOutposts}）`);
 
 // 3c) #24：视口模式下的敌军/据点/出生点约束仍然成立（大图不破坏布局约束）
@@ -177,22 +196,69 @@ ok(res.spawned.length === calls.spawn.length, '返回 spawned 列表');
 ok(res.spawned.every(t => t.nodeSpawn === true), '实体带 nodeSpawn 标记');
 ok(res.spawned.filter(t => t.team === 'enemy').every(t => t.aiTriggerDist === triggerDistForDifficulty(node1.difficulty)),
    '敌军实体带难度化 aiTriggerDist 字段');
+// P-34 C：aiTier 注入实体（数据接线，#76 消费）
+if (node1.enemies.length > 0) {
+  ok(res.spawned.filter(t => t.team === 'enemy').every(t => t.aiTier === node1.aiTier),
+     `敌军实体带 t.aiTier=${node1.aiTier}（P-34 C）`);
+} else {
+  ok(true, '该节点为 Boss 节点无普通敌军（aiTier 注入由下方 solo 节点覆盖）');
+}
+const matBoss = materializeNode({ index: 4, difficulty: 0.35, aiTier: 1, covers: [], enemies: [
+  { tankId: 'dummy', x: 500, y: 300, hullAngle: 0, turretAngle: 0, heightClass: 'medium', statMult: 1, aiTier: 1 }
+], outpost: null }, {
+  spawnTank(spec) { return Object.assign({ hp: 100 }, spec); }
+});
+ok(matBoss.spawned[0].aiTier === 1, 'materializeNode 敌军数据 aiTier → 实体 t.aiTier');
 if (node1.outpost) ok(res.outpost === res.spawned[res.spawned.length - 1], '返回 outpost 引用');
 else ok(res.outpost === null, '无据点节点返回 null');
 
-// 7) makeNode 单节点（独立 rng）合法
+// 7) makeNode 单节点（独立 rng）合法（P-34：签名去 count，难度只依赖 index/env.difficultyLevel）
 const rng = NG.createRNG(42);
-const solo = makeNode(0, 5, rng);
+const solo = makeNode(0, rng);
 ok(solo.index === 0 && solo.difficulty === 0.15, 'makeNode 单节点基础字段');
 ok(Array.isArray(solo.covers) && solo.covers.length > 0, 'makeNode 有掩体');
+ok(solo.enemies.length === enemyCountForDifficulty(0.15), 'makeNode 敌军数量匹配难度');
+ok(!solo.boss, 'index 0 非 Boss 节点');
 // #24：makeNode 显式注入视口 → 世界尺寸 ≥ 视口 3 倍
 const rngV = NG.createRNG(42);
-const soloV = makeNode(0, 5, rngV, { viewport: { vw: 1920, vh: 1080 } });
+const soloV = makeNode(0, rngV, { viewport: { vw: 1920, vh: 1080 } });
 ok(soloV.w >= 3 * 1920 - 1e-3 && soloV.h >= 3 * 1080 - 1e-3,
    `makeNode 视口注入 → 5760×3240+（实际 ${soloV.w.toFixed(0)}×${soloV.h.toFixed(0)}）`);
 ok(Array.isArray(soloV.covers) && soloV.covers.length > 0, 'makeNode 视口模式仍有掩体');
 // #25：单节点掩体数量在加密后的合理区间（低难教学节点剔除后也 ≥ 3）
 ok(soloV.covers.length >= 3, `makeNode 视口模式掩体数量合理（${soloV.covers.length}）`);
+
+// 8) P-37：Boss 周期标记 —— (index+1)%5===0 → index 4/9/14…
+ok(isBossNodeIndex(4) && isBossNodeIndex(9) && isBossNodeIndex(14), 'isBossNodeIndex 周期判定 4/9/14');
+ok(!isBossNodeIndex(0) && !isBossNodeIndex(3) && !isBossNodeIndex(8), '非周期索引不标 Boss');
+const runB = generateRun('boss-seed', 12);   // 上限 12 节点
+ok(runB.nodes[4].boss === true && runB.nodes[4].enemies.length === 0, 'generateRun 节点 5（index 4）为 Boss 节点且清敌');
+ok(runB.nodes[9].boss === true && runB.nodes[9].enemies.length === 0, 'generateRun 节点 10（index 9）为 Boss 节点且清敌');
+ok(runB.nodes.filter(n => n.boss).length === 2, '12 节点内恰有 2 个 Boss 节点');
+
+// 9) P-34：extendRun 开放式链追加 —— 增长、确定性、Boss 周期延续
+const runX1 = generateRun('ext-seed', 3);
+const runX2 = generateRun('ext-seed', 3);
+const n3a = extendRun(runX1);
+const n3b = extendRun(runX2);
+ok(runX1.nodes.length === 4 && runX2.nodes.length === 4, 'extendRun 追加后链长 +1');
+ok(JSON.stringify(n3a) === JSON.stringify(n3b), '同 seed 同 env 下 extendRun 结果一致（确定性）');
+ok(JSON.stringify(n3a) === JSON.stringify(generateRun('ext-seed', 4).nodes[3]), 'extendRun 续接节点 ≡ 一次性生成长链的同位节点');
+ok(n3a.index === 3 && n3a.difficulty === difficultyForIndex(3), '追加节点难度按新索引计算');
+const runY = generateRun('ext-seed', 3);
+for (let k = 0; k < 12; k++) extendRun(runY);   // 3 → 15
+ok(runY.nodes.length === 15, `连续 extendRun 链长无上限（实际 ${runY.nodes.length}）`);
+ok(runY.nodes[14].boss === true && runY.nodes[14].enemies.length === 0, 'index 14 为周期 Boss 节点（P-37 周期在开放式链下延续）');
+ok(runY.nodes[13] && !runY.nodes[13].boss, 'index 13 非 Boss');
+
+// 10) P-34：difficultyLevel 经 env 注入生成（跨局难度叠加数据面）
+const runLv = generateRun('lv-seed', 5, { difficultyLevel: 2 });
+ok(runLv.difficultyLevel === 2, 'run.difficultyLevel 记录注入值');
+for (let i = 0; i < 5; i++) {
+  ok(runLv.nodes[i].difficulty === difficultyForIndex(i, 2), `Lv.2 节点 ${i} 难度叠加正确`);
+}
+const runZ = extendRun(generateRun('lv-seed', 5, { difficultyLevel: 3 }));
+ok(runZ.difficulty === difficultyForIndex(5, 3), 'extendRun 复用 run.env 的 difficultyLevel');
 
 console.log('test-map: 完成所有检查');
 if (fails === 0) console.log('test-map: 全部通过');

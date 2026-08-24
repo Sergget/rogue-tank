@@ -115,6 +115,12 @@
 
   /* ---------- M10 局外三界面（Home 存档 / Loadout 整备 / Shop 商店） ---------- */
   #flowOverlay .screen.wide{min-width:560px; max-width:880px;}
+  /* P-41：局内商店浮层——叠在当前 screen（settlement/reward）之上，不占用 flow 状态 */
+  #runShopPanel{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:5;
+    background:rgba(18,20,15,0.98); border:1px solid var(--line); padding:18px 22px;
+    min-width:480px; max-width:680px; max-height:80vh; overflow:auto; display:none;}
+  #runShopPanel .row{display:flex; align-items:center;}
+
   #homeSlotList{display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto;}
   #homeSlotList .slot-row{display:flex; align-items:center; gap:10px; border:1px solid var(--line);
     padding:8px 12px; background:rgba(255,255,255,0.02);}
@@ -235,12 +241,18 @@
     <div id="settleScreen" class="screen" style="display:none;">
       <div class="screen-title">节点结算 NODE CLEARED</div>
       <div id="settleBody"></div>
-      <div class="btnrow"><button id="settleNextBtn">继续 CONTINUE</button></div>
+      <div class="btnrow">
+        <button id="settleSaveBtn">结算并保存 SAVE</button>
+        <button id="settleShopBtn">局内商店 SHOP</button>
+        <button id="settleNextBtn">继续 CONTINUE</button>
+        <button id="settleHomeBtn" style="display:none;">返回首页 HOME</button>
+      </div>
     </div>
     <div id="rewardScreen" class="screen" style="display:none;">
       <div class="screen-title">卡牌奖励 CARD REWARD</div>
       <div id="cardRow"></div>
       <div class="screen-hint">三选一：卡牌直接给玩家加修饰器（内容池在 M10 经济里程碑持续扩充）。</div>
+      <div class="btnrow"><button id="rewardShopBtn">局内商店 SHOP</button></div>
     </div>
     <div id="gameoverScreen" class="screen" style="display:none;">
       <div class="screen-title">阵亡 KIA</div>
@@ -294,6 +306,10 @@
         <button id="pauseResumeBtn">继续 RESUME</button>
         <button id="pauseEndBtn">终止游戏并结算 END &amp; SETTLE</button>
       </div>
+    </div>
+    <div id="runShopPanel">
+      <div id="runShopBody"></div>
+      <div class="btnrow"><button onclick="toggleRunShop(false)">关闭 CLOSE</button></div>
     </div>
   </div>
   <div id="statusPanel" style="display:none;">
@@ -426,7 +442,12 @@ let run = null;            // generateRun() 结果：线性节点链
 let currentNode = null;    // 当前节点数据（makeNode 产出）
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
 let runScore = 0;          // 本局累计得分（§4.5 结算累加）
-let runFinished = false;
+let runKills = 0;          // 本局累计击杀数（P-34 终局汇总展示）
+// P-41 账本模型：可花余额 = runScore（total）− runScoreSpent（已花）；购买只加 spent，
+// 消费不减损终局转化得分；runShopLevels 由 UI 独立存储（新开局随 spent 一并归零）。
+let runScoreSpent = 0;
+let runShopLevels = {};
+let runFinished = false;   // P-34 开放式链后恒为 false（链不再收束，终局走 gameover/voluntaryEnd）
 let profile = loadProfile(localStorage);   // P-14：跨局存档（商店点数 + 永久升级 + 统计）
 const MM = { w: 170, h: 120, x: 0, y: 10 };   // 小地图框（右上角，x 绘制时按 canvas 宽算）
 function setBenchCamera(){
@@ -699,14 +720,11 @@ function loadBossPool(){
 }
 loadBossPool();
 
-function assignBossNode(run){
-  if(!run || !run.nodes.length) return;
-  if(bossPool.length){
-    const boss = bossPool[Math.floor(Math.random() * bossPool.length)];
-    const last = run.nodes[run.nodes.length - 1];
-    last.boss = boss;
-    last.enemies = [];   // Boss 战不混普通敌军（M7 起可配 summons）
-  }
+// P-37：Boss 节点标记已移入 js/tank_map.js（makeNode 按 RULES.bossInterval 周期预标 node.boss=true
+// 并清空常规敌人）；Boss 具体定义在进入战斗时从 Boss 池懒指定（原 assignBossNode 独占逻辑删除）。
+function pickBossDef(){
+  if(!bossPool.length) return null;
+  return bossPool[Math.floor(Math.random() * bossPool.length)];
 }
 
 // ---------- 节点地图流程 UI（纯逻辑在 js/tank_map.js · tank_flow.js） ----------
@@ -754,7 +772,12 @@ function enterBattle(nodeIndex){
     }
   });
 
-  // P-09：Boss 战——链尾节点 spawn Boss 实体（node.enemies 已被 assignBossNode 清空）
+  // P-37/P-09：Boss 战——周期 Boss 节点（node.boss=true 由 map 模块预标）在进入战斗时
+  // 懒指定 Boss 定义；普通节点该字段为 null 不进此分支。
+  if(node.boss){
+    if(node.boss === true) node.boss = pickBossDef();
+    if(!node.boss){ pushLog('⚠ Boss 池为空，按普通空场节点处理', 'CRIT'); }
+  }
   if(node.boss){
     const bossEntity = makeBossEntity(node.boss, {
       spawnTank(spec){ return spawnTank(spec); },
@@ -794,6 +817,7 @@ function enterBattle(nodeIndex){
             heightClass: 'medium'
           });
           s.aiTriggerDist = triggerDistForDifficulty(node.difficulty);
+          s.aiTier = node.aiTier || 0;   // P-34 C：Boss summons 同样带 AI 档位（#76 消费）
           const spec = tankListData && tankListData[sm.tankId];
           if(spec) applyTankConfig(s, spec);
           resetEntity(s);
@@ -857,14 +881,14 @@ function pickCard(card){
 }
 
 function nextNodeAfterReward(){
+  // P-34 开放式节点链：不再有"末节点收束"——超出当前链长时经 extendRun 追加下一节点继续推进；
+  // 终局只由 ① 阵亡复活耗尽（gameover）② ESC「终止游戏并结算」（voluntaryEnd）触发。
   const i = currentNode.index + 1;
-  if(i < run.nodes.length){
-    transition(flow, 'battle', { nodeIndex: i });
-  } else {
-    runFinished = true;
-    pushLog(`🎉 全链通关！本局得分 ${runScore}`, 'CRIT');
-    transition(flow, 'map', { finished: true });
+  if(i >= run.nodes.length){
+    extendRun(run);
+    pushLog(`节点链延伸 → 第 ${run.nodes.length} 节点（难度 ${(run.nodes[run.nodes.length-1].difficulty*100).toFixed(0)}%${run.nodes[run.nodes.length-1].boss ? ' · BOSS' : ''}）`, 'COVER');
   }
+  transition(flow, 'battle', { nodeIndex: i });
 }
 
 function renderMapList(){
@@ -904,6 +928,7 @@ function renderMapList(){
 
 // 流程监听：状态切换 → UI 显隐 + 战场搭建（纯逻辑在 tank_flow.js，UI 消费在本函数）
 watchFlow(flow, (state, payload) => {
+  toggleRunShop(false);                  // P-41：任何 flow 转移都收起局内商店浮层
   // M10 局外三界面：不依赖 run（可在任意局外时机进入），先于战斗路由处理
   if(state === 'home'){ renderHome(); showScreen('homeScreen'); setOverlayVisible(true); return; }
   if(state === 'loadout'){ renderLoadout(); showScreen('loadoutScreen'); setOverlayVisible(true); return; }
@@ -920,17 +945,45 @@ watchFlow(flow, (state, payload) => {
     if(flow.prev !== 'pause') enterBattle(payload ? payload.nodeIndex : 0);
   } else if(state === 'settlement'){
     const _bSet = (typeof buildSettlementViewModel === 'function' ? buildSettlementViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildSettlementViewModel : null));
-    if(_bSet){
-      const vm = _bSet({ score: payload.score, clearMs: payload.clearMs, bossLoot: payload.bossLoot });
-      document.getElementById('settleBody').innerHTML = vm.rows.map(r => `<div class="row${r.total ? ' total' : ''}"><span class="k">${r.k}</span><span>${r.v}</span></div>`).join('');
+    // P-34：终局汇总分支（voluntaryEnd = ESC「终止游戏并结算」）——
+    // 幂等护栏：payload.settled 标记保证同一局只 settleRun 一次（transition payload 每次转移重建）。
+    if(payload.voluntaryEnd && !payload.settled){
+      payload.settled = true;
+      payload.settleResult = settleRun(profile, runScore);   // 得分×10% 转点 + 难度等级 +1（P-41 可花余额账本待接入）
+      saveActiveProfile(localStorage, profile);
+    }
+    if(payload.voluntaryEnd){
+      const res = payload.settleResult || { pointsGained: 0, difficultyLevel: profile.difficultyLevel || 1 };
+      const nodesCleared = (currentNode ? currentNode.index : 0) + 1;
+      document.getElementById('settleBody').innerHTML =
+        `<div class="row"><span class="k">推进节点数</span><span>${nodesCleared}</span></div>` +
+        `<div class="row"><span class="k">本局总击杀</span><span>${runKills}</span></div>` +
+        `<div class="row"><span class="k">本局总分</span><span>${runScore}</span></div>` +
+        `<div class="row"><span class="k">得分转化商店点数</span><span>+${res.pointsGained}（10%）</span></div>` +
+        `<div class="row total"><span class="k">难度已提升至</span><span>Lv.${res.difficultyLevel}</span></div>`;
+      // 终局面板按钮切换：隐藏继续/保存/局内商店，显示返回首页（settlement→home 白名单合法）
+      document.getElementById('settleNextBtn').style.display = 'none';
+      document.getElementById('settleSaveBtn').style.display = 'none';
+      document.getElementById('settleShopBtn').style.display = 'none';
+      document.getElementById('settleHomeBtn').style.display = '';
     } else {
-      const s = payload.score;
-      const rows = [`<div class="row"><span class="k">基础奖励</span><span>${s.base}</span></div>`];
-      for(const b of s.bonuses) rows.push(`<div class="row"><span class="k">${b.label}</span><span>+${b.amount}</span></div>`);
-      if(payload.bossLoot && payload.bossLoot.score) rows.push(`<div class="row"><span class="k">Boss 战利品</span><span>+${payload.bossLoot.score}</span></div>`);
-      rows.push(`<div class="row"><span class="k">通关用时</span><span>${(payload.clearMs / 1000).toFixed(1)}s</span></div>`);
-      rows.push(`<div class="row total"><span class="k">本节点得分</span><span>${s.total}</span></div>`);
-      document.getElementById('settleBody').innerHTML = rows.join('');
+      if(_bSet){
+        const vm = _bSet({ score: payload.score, clearMs: payload.clearMs, bossLoot: payload.bossLoot });
+        document.getElementById('settleBody').innerHTML = vm.rows.map(r => `<div class="row${r.total ? ' total' : ''}"><span class="k">${r.k}</span><span>${r.v}</span></div>`).join('');
+      } else {
+        const s = payload.score;
+        const rows = [`<div class="row"><span class="k">基础奖励</span><span>${s.base}</span></div>`];
+        for(const b of s.bonuses) rows.push(`<div class="row"><span class="k">${b.label}</span><span>+${b.amount}</span></div>`);
+        if(payload.bossLoot && payload.bossLoot.score) rows.push(`<div class="row"><span class="k">Boss 战利品</span><span>+${payload.bossLoot.score}</span></div>`);
+        rows.push(`<div class="row"><span class="k">通关用时</span><span>${(payload.clearMs / 1000).toFixed(1)}s</span></div>`);
+        rows.push(`<div class="row total"><span class="k">本节点得分</span><span>${s.total}</span></div>`);
+        document.getElementById('settleBody').innerHTML = rows.join('');
+      }
+      // 普通节点结算：继续 + 手动存档可见，终局按钮隐藏（局内商店入口可见）
+      document.getElementById('settleNextBtn').style.display = '';
+      document.getElementById('settleSaveBtn').style.display = '';
+      document.getElementById('settleShopBtn').style.display = '';
+      document.getElementById('settleHomeBtn').style.display = 'none';
     }
     showScreen('settleScreen'); setOverlayVisible(true);
   } else if(state === 'reward'){
@@ -952,14 +1005,21 @@ watchFlow(flow, (state, payload) => {
     showScreen('rewardScreen'); setOverlayVisible(true);
   } else if(state === 'gameover'){
     const diedAt = payload ? payload.nodeIndex : 0;
-    // P-14：死亡转化 —— 局内得分 → 商店点数（10%），累计 + 存档
-    const gained = scoreToPoints(runScore);
-    profile.points += gained;
-    saveProfile(localStorage, profile);
+    // P-34：死亡终局结算 —— 并入 settleRun 语义（得分×10% 转点 + 跨局难度等级 +1）。
+    // 幂等护栏：payload.settled 标记防重复结算；此处替换原 scoreToPoints 直转代码避免双份转化。
+    if(!payload.settled){
+      payload.settled = true;
+      payload.settleResult = settleRun(profile, runScore);
+      saveProfile(localStorage, profile);
+    }
+    const res = payload.settleResult || { pointsGained: 0 };
+    const gained = res.pointsGained;
     document.getElementById('gameoverBody').innerHTML =
       `<div class="row"><span class="k">阵亡于节点</span><span>${diedAt + 1}/${run.nodes.length}</span></div>` +
+      `<div class="row"><span class="k">本局总击杀</span><span>${runKills}</span></div>` +
       `<div class="row"><span class="k">本局得分</span><span>${runScore}</span></div>` +
       `<div class="row"><span class="k">转化商店点数</span><span>+${gained}（10%）</span></div>` +
+      `<div class="row"><span class="k">难度已提升至</span><span>Lv.${res.difficultyLevel}</span></div>` +
       `<div class="row total"><span class="k">现有点数</span><span id="gameoverPoints">${profile.points}</span></div>`;
     renderDeathShop();
     showScreen('gameoverScreen'); setOverlayVisible(true);
@@ -1021,16 +1081,85 @@ window.buyReviveAndRefresh = function(){
   }
 };
 
+// ==================== P-41 局内商店（run 内属性升级 · 账本模型） ====================
+// 浮层叠在 settlement/reward 屏之上（不占用 flow 状态）；数据面消费 tank_economy.js
+// 的 RUN_SHOP_DEFS / runShopPriceFor / canAfford / applyRunShopPurchase 纯 API。
+
+function runShopBalance(){ return Math.max(0, runScore - runScoreSpent); }
+
+function resetRunShopState(){
+  runScoreSpent = 0;
+  runShopLevels = {};
+  toggleRunShop(false);
+}
+
+// 购买效果应用：instant 类直接改 hp（不走修饰器）；effects 类 push scope='run' 修饰器，
+// source='runshop:<id>'——addModifier 内部 refreshStats 立即重算 stats；
+// removeRunModifiers（startNewRun / gameoverRestart / beginRunFromMenu 三路径）负责清除。
+function applyRunShopEffects(def){
+  if(def.instant && def.instant.type === 'healPct' && player.hp > 0){
+    const before = Math.ceil(player.hp);
+    player.hp = Math.min(player.stats.maxHp, player.hp + player.stats.maxHp * def.instant.value);
+    pushLog(`紧急维修：HP ${before} → ${Math.ceil(player.hp)}`, 'COVER');
+  }
+  for(const ef of (def.effects || [])){
+    addModifier(player, { stat: ef.stat, mode: ef.mode, value: ef.value, source: 'runshop:' + def.id, scope: 'run' });
+  }
+}
+
+function renderRunShopPanel(){
+  const el = document.getElementById('runShopBody');
+  if(!el) return;
+  let html = `<div class="screen-title">局内商店 RUN SHOP</div>` +
+    `<div style="font-size:11px;color:var(--amber-dim);margin-bottom:10px;">可用得分 <b id="runShopBalance">${runShopBalance()}</b>（总得分 ${runScore} − 已花 ${runScoreSpent}；花费不减终局转化得分）</div>`;
+  for(const d of RUN_SHOP_DEFS){
+    const lv = runShopLevels[d.id] || 0;
+    const maxed = lv >= d.maxLevel;
+    const price = runShopPriceFor(d, lv);
+    const afford = !maxed && canAfford(runShopBalance(), price);
+    html += `<div class="row" style="justify-content:space-between;">
+      <span class="k">${d.name} <span style="color:var(--text-dim);font-weight:normal;font-size:10px;">${d.desc}</span></span>
+      <span>${maxed ? '满级 ' + lv + '/' + d.maxLevel : `${lv}/${d.maxLevel} · `}<button ${afford ? '' : 'disabled style="opacity:0.4"'} onclick="buyRunShopItem('${d.id}')">${maxed ? 'MAX' : price + ' 分'}</button></span>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+window.toggleRunShop = function(force){
+  const el = document.getElementById('runShopPanel');
+  if(!el) return;
+  const open = force !== undefined ? force : el.style.display === 'none';
+  el.style.display = open ? 'block' : 'none';
+  if(open) renderRunShopPanel();
+};
+
+window.buyRunShopItem = function(id){
+  const def = getRunShopDef(id);
+  if(!def) return;
+  const st = { total: runScore, spent: runScoreSpent, levels: runShopLevels };
+  const priceBefore = runShopPriceFor(def, runShopLevels[id] || 0);
+  if(!applyRunShopPurchase(st, id)) return;      // 余额不足/满级：按钮已禁用，此处防御
+  runScoreSpent = st.spent;
+  runShopLevels = st.levels;
+  applyRunShopEffects(def);
+  pushLog(`局内商店：购入「${def.name}」（−${priceBefore} 分）`, 'COVER');
+  playSound('ui');
+  renderRunShopPanel();
+};
+
+document.getElementById('settleShopBtn').addEventListener('click', () => { playSound('ui'); toggleRunShop(); });
+document.getElementById('rewardShopBtn').addEventListener('click', () => { playSound('ui'); toggleRunShop(); });
+
 function startNewRun(){
   removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
   prepPlayerForRun();                           // M10：出战坦克配置 + 永久升级重挂 + 复活次数（含加购）
   // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
-  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height } });
-  assignBossNode(run);   // P-09：链尾节点指定 Boss
-  runScore = 0; runFinished = false; currentNode = null; battleState = null;
+  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入）
+  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
+  resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
   profile.stats.runs++;                         // P-14：局数统计
   saveProfile(localStorage, profile);
-  pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}）`, 'COVER');
+  pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.${profile.difficultyLevel || 0}）`, 'COVER');
   playSound('ui');
   transition(flow, 'battle', { nodeIndex: 0 });
 }
@@ -1039,12 +1168,23 @@ document.getElementById('settleNextBtn').addEventListener('click', () => {
   playSound('ui');
   transition(flow, 'reward');
 });
+// P-34：per-node 手动保存——仅落盘当前进度（点数/统计/配置），不做得分转化
+document.getElementById('settleSaveBtn').addEventListener('click', () => {
+  saveActiveProfile(localStorage, profile);
+  pushLog('进度已保存', 'COVER');
+  playSound('ui');
+});
+// P-34：终局结算 → 回首页（settlement→home 白名单合法；结算已在进入 settlement 时完成）
+document.getElementById('settleHomeBtn').addEventListener('click', () => {
+  playSound('ui');
+  transition(flow, 'home');
+});
 document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   playSound('ui');
   restartRun(flow);                              // gameover → map（runId 自增）
-  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height } });  // 新的一局（#24 视口驱动缩放）
-  assignBossNode(run);                           // P-09：链尾 Boss
-  runScore = 0; runFinished = false; currentNode = null; battleState = null;
+  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });  // 新的一局（#24 视口缩放；P-34 跨局难度注入）
+  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
+  resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
   removeRunModifiers(player);                   // P-12：清除上一局单局修饰器
   prepPlayerForRun();                            // M10：坦克配置 + 升级重挂 + 复活次数（含加购）
   transition(flow, 'battle', { nodeIndex: 0 });
@@ -1364,12 +1504,13 @@ function beginRunFromMenu(){
   removeRunModifiers(player);                        // P-12：清上一局残留单局修饰器
   prepPlayerForRun();
   // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
-  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height } });
-  assignBossNode(run);                               // P-09：链尾节点指定 Boss
-  runScore = 0; runFinished = false; currentNode = null; battleState = null;
+  // P-34：env.difficultyLevel 注入跨局难度等级（settleRun 每终局 +1）
+  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });
+  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
+  resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
   profile.stats.runs++;                              // P-14：局数统计
   saveActiveProfile(localStorage, profile);          // 配置与统计落盘（active 槽）
-  pushLog(`出击！配置已保存 — ${run.nodes.length} 节点线性链（seed ${run.seed}），在节点图选择首节点开战`, 'COVER');
+  pushLog(`出击！配置已保存 — ${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.${profile.difficultyLevel || 0}）`, 'COVER');
   playSound('ui');
   transition(flow, 'map');                           // loadout/shop → map（watcher 渲染节点链，点击节点进 battle）
   return true;
@@ -1752,6 +1893,7 @@ function update(dt){
       // P-14：击杀得分（run 战斗态、敌方）
       if(run && battleState && e.team === 'enemy'){
         runScore += killScore();
+        runKills++;
         profile.stats.kills++;
       }
       pushLog(`${e.id==='player'?'玩家':e.id} 已摧毁 — 车体起火`,'CRIT');

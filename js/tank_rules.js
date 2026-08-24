@@ -242,7 +242,8 @@ const RULES = {
   nodeMap: {
     nodeScale: 3,                 // 模板尺寸放大倍率：700×400 模板 → 2100×1200 世界
                                   // （摄像机约 1:9 比例；P-05 的 scale 选项）
-    runNodeCount: 5,              // 一局节点数（线性链长度）
+    runNodeCount: 5,              // 一局初始节点数（线性链长度；开放式链下仅作起点，后续 extendRun 追加）
+    bossInterval: 5,              // 每第 5 个节点为 Boss 节点（(index+1) % 5 === 0 → index 4/9/14…）
     speedClearMs: 120000,         // 限时通关阈值（ms）→ 结算速通 +20%
     outpostChance: 0.7,           // 节点出现友军据点的概率
     enemyTankPool: ['dummy'],     // 敌军构成使用的坦克池（tanks/ 中解析，缺省回退默认配置；
@@ -304,16 +305,24 @@ const RULES = {
     // [0.8,1.3] 区间内每格缩放有可感知的观感变化（0.1 时用户反馈"看不出变了"）。
   },
 
-  // 难度曲线表（P-13 / DEVELOPMENT.md §6 条目 12 / 开放问题 6）。
+  // 难度曲线表（P-13 / DEVELOPMENT.md §6 条目 12 / 开放问题 6；P-34 开放式链参数化改造）。
   // 消费方：js/tank_map.js（difficultyForIndex / makeNode）。
-  // 三杠杆随节点推进（t = index/(count-1)）的涨法：
+  // 三杠杆随节点推进的涨法：
   //   敌人数量 = 1 + floor(diff × enemyCountMax)
   //   AI 策略复杂度档位 = floor(diff × (aiTierMax+1)) 钳到 [0, aiTierMax]（0=基础索敌/1=主动贴近/2=协同，预留）
   //   数值强度乘数 statMult = 1 + (statMultMax−1) × diff（作用敌军 hp/穿深/伤害）
+  // P-34：开放式节点链下 t=index/(count-1) 失效，难度改为索引驱动饱和曲线：
+  //   diff = min(curveCap, curveStart + curveSpan·min(1,index/diffSatIndex)^curvePow)
+  //   再叠加跨局等级：effDiff = min(diffMax, diff + difficultyLevel×crossRunLevelBonus)
+  //   （每终局一次 difficultyLevel+1，下一局整体抬升；数值经 P-34 定表，可微调但需注释说明）
   difficulty: {
-    curveStart: 0.15,        // 首节点难度（t=0）
-    curveSpan: 0.8,          // 难度跨度（末节点 = curveStart+curveSpan）
+    curveStart: 0.15,        // 首节点难度（index=0）
+    curveSpan: 0.8,          // 难度跨度
     curvePow: 1.25,          // 曲率（>1 后段加速，模拟"层层推进越打越难"）
+    diffSatIndex: 12,        // 曲线饱和索引：index≥12 后基础难度封顶（开放式链的"虚拟末节点"）
+    curveCap: 0.95,          // 基础难度封顶值
+    crossRunLevelBonus: 0.04,// 每级跨局难度等级对基础难度的线性加成
+    diffMax: 1.15,           // 有效难度绝对上限（含跨局加成后钳制）
     enemyCountMax: 4,        // 敌人数量上限（enemyCount = 1 + floor(diff × 4)）
     aiTierMax: 2,            // AI 策略复杂度档位上限
     statMultMax: 1.5         // 数值强度乘数上限（1.0 → 1.5）

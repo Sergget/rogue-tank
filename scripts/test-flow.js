@@ -67,7 +67,7 @@ const allInvalidTargets = {
   shop:       ['battle', 'settlement', 'reward', 'gameover', 'shop'],
   map:        ['settlement', 'reward', 'gameover', 'map', 'home', 'loadout', 'shop'],
   battle:     ['reward', 'battle', 'home', 'loadout', 'shop'],
-  settlement: ['battle', 'settlement', 'gameover', 'home', 'loadout', 'shop'],
+  settlement: ['battle', 'settlement', 'gameover', 'loadout', 'shop'],   // P-34：home 移出非法集（settlement→home 终局回首页）
   reward:     ['settlement', 'gameover', 'reward', 'home', 'loadout', 'shop'],
   gameover:   ['battle', 'settlement', 'reward', 'gameover', 'loadout', 'shop']
 };
@@ -279,6 +279,22 @@ ok(flowPause.state === 'settlement' && flowPause.payload.voluntaryEnd === true, 
 // pause 白名单外的转移仍被拦截
 assertTransitionThrows('pause', 'map', '非法转移拒绝: pause→map 抛出');
 assertTransitionThrows('home', 'pause', '非法转移拒绝: home→pause 抛出（局外不可暂停）');
+
+// 17b) P-34：settlement→home 合法（终局结算后回首页）
+const flowSettleHome = createFlow();
+transition(flowSettleHome, 'battle');
+transition(flowSettleHome, 'settlement', { score: { base: 100, bonuses: [], total: 100 } });
+transition(flowSettleHome, 'home');
+ok(flowSettleHome.state === 'home' && flowSettleHome.prev === 'settlement', 'settlement→home 合法转移成功（P-34 终局回首页）');
+
+// 17c) P-34：voluntaryEnd 全链路 —— battle→pause→settlement(voluntaryEnd)→home
+const flowVoluntary = createFlow();
+transition(flowVoluntary, 'battle');
+transition(flowVoluntary, 'pause', { nodeIndex: 2 });
+transition(flowVoluntary, 'settlement', { voluntaryEnd: true });
+ok(flowVoluntary.state === 'settlement' && flowVoluntary.payload.voluntaryEnd === true, 'voluntaryEnd：pause→settlement 进入终局结算');
+transition(flowVoluntary, 'home');
+ok(flowVoluntary.state === 'home' && flowVoluntary.prev === 'settlement', 'voluntaryEnd：settlement→home 全链路收束');
 
 // restartRun 在 pause 态：直接调用被白名单拦截（pause 无 map 出路，不静默改变状态）；恢复 battle 后行为正常回 map
 const flowPauseRestart = createFlow();

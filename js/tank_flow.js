@@ -32,7 +32,8 @@ const FLOW_TRANSITIONS = {
   // pause→battle = 继续战斗（恢复现场，UI 层不得重新实体化节点）；pause→settlement = 「终止游戏并结算」（voluntaryEnd，
   // P-34 将消费该入口做终局结算语义）
   pause:      ['battle', 'settlement'],
-  settlement: ['reward', 'map'],            // 正常 → 卡牌/商店；无奖励（最后一关后）→ 回到节点图
+  // settlement→home = 终局结算（voluntaryEnd 主动终止）后回首页；settlement→reward/map = 普通节点结算流转
+  settlement: ['reward', 'map', 'home'],
   reward:     ['battle', 'map'],            // 选完 → 下一节点；节点链走完 → 回到节点图（一局结束）
   gameover:   ['map', 'home']               // 阵亡 → 快速重开（重新开始）；或回首页（M10）
 };

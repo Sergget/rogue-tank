@@ -317,6 +317,82 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
      'storage 缺失/缺方法 → false');
 }
 
+// ---------- P-34：difficultyLevel 归一化 + settleRun 终局结算 ----------
+{
+  // 归一化守卫
+  const d0 = eco.normalizeProfile({ version: 1, points: 5 });
+  ok(d0.difficultyLevel === 0, '旧档缺 difficultyLevel → 缺省 0（向后兼容）');
+  const d1 = eco.normalizeProfile({ version: 1, points: 5, difficultyLevel: 7 });
+  ok(d1.difficultyLevel === 7, '合法 difficultyLevel 保留');
+  const d2 = eco.normalizeProfile({ version: 1, points: 5, difficultyLevel: -3 });
+  ok(d2.difficultyLevel === 0, '负数 difficultyLevel → 0');
+  const d3 = eco.normalizeProfile({ version: 1, points: 5, difficultyLevel: 2.5 });
+  ok(d3.difficultyLevel === 0, '非整数 difficultyLevel → 0');
+
+  // settleRun：得分×10% 转点 + 难度等级 +1
+  const sp = { version: 1, points: 100, difficultyLevel: 3 };
+  const r = eco.settleRun(sp, 250);
+  ok(r.pointsGained === 25 && sp.points === 125, `settleRun 转点 250×10%=25（实际 +${r.pointsGained}，points=${sp.points}）`);
+  ok(r.difficultyLevel === 4 && sp.difficultyLevel === 4, 'settleRun 难度等级 +1（3→4）');
+  const sp0 = { version: 1, points: 0 };
+  const r0 = eco.settleRun(sp0, 0);
+  ok(r0.pointsGained === 0 && r0.difficultyLevel === 1 && sp0.difficultyLevel === 1, '零分结算仍提升难度等级；缺省 level 从 0 起');
+  const rn = eco.settleRun(sp0, 19);
+  ok(rn.pointsGained === 1, '19 分 → floor(1.9)=1（向下取整）');
+  ok(eco.settleRun(null, 100) === null, 'profile 缺失 → null（防御）');
+  // 幂等说明：settleRun 本身不判重——同一局重复调用会重复加分/升级；
+  // 幂等护栏由 mvp 调用方的 payload.settled 标记保证（transition payload 每次转移重建，天然隔离不同局）。
+}
+
+// ---------- P-41：局内商店（RUN_SHOP_DEFS 结构 / 定价曲线 / 账本购买 API） ----------
+{
+  // stats 键集合对照：computeStats 产物键（armor 路径单独放行）
+  const model = require('../js/tank_model.js');
+  const baseStats = model.computeStats(
+    { penetration: 100, damage: 30, reload: 2, shellSpeed: 800, maxSpeed: 120,
+      turnRate: 2, turretTurnRate: 2, maxHp: 100, weight: 300, enginePower: 900,
+      armor: { hull: { front: 50 }, turret: { front: 60 } } }, []);
+  const validStats = new Set(Object.keys(baseStats));
+
+  ok(eco.RUN_SHOP_DEFS.length >= 5 && eco.RUN_SHOP_DEFS.length <= 6, `RUN_SHOP_DEFS 数量 5~6（实际 ${eco.RUN_SHOP_DEFS.length}）`);
+  const ids = new Set();
+  let structOk = true;
+  for (const d of eco.RUN_SHOP_DEFS) {
+    if (!d.id || ids.has(d.id)) structOk = false;
+    ids.add(d.id);
+    for (const k of ['name', 'desc', 'baseCost', 'costGrowth', 'maxLevel']) {
+      if (!(k in d)) structOk = false;
+    }
+    if (!(typeof d.baseCost === 'number' && d.baseCost > 0 && typeof d.costGrowth === 'number' && d.maxLevel >= 1)) structOk = false;
+    if (!Array.isArray(d.effects) && !d.instant) structOk = false;   // 属性类或即时类二选一
+    for (const ef of (d.effects || [])) {
+      if (ef.stat.startsWith('armor')) { /* armor 路径白名单 */ }
+      else if (!validStats.has(ef.stat)) structOk = false;
+      if (ef.mode !== 'add' && ef.mode !== 'mult') structOk = false;
+    }
+  }
+  ok(structOk, 'RUN_SHOP_DEFS 结构校验（字段完备/id 唯一/effects stat 合法对照 computeStats 键集合）');
+
+  // 定价曲线 runShopPriceFor
+  const fr = eco.getRunShopDef('fast_reload');
+  ok(fr && eco.runShopPriceFor(fr, 0) === fr.baseCost, `runShopPriceFor(lv0)=baseCost=${fr.baseCost}`);
+  ok(eco.runShopPriceFor(fr, 2) === Math.round(fr.baseCost * Math.pow(fr.costGrowth, 2)), `runShopPriceFor(lv2)=round(${fr.baseCost}×${fr.costGrowth}²)=${eco.runShopPriceFor(fr, 2)}`);
+
+  // 购买 API 三分支
+  const st = { total: 300, spent: 0, levels: {} };
+  ok(eco.applyRunShopPurchase(st, 'fast_reload') === true && st.spent === fr.baseCost && st.levels.fast_reload === 1, '购买成功：spent += price、levels +1');
+  ok(eco.applyRunShopPurchase(st, 'fast_reload') === true && st.spent === fr.baseCost + eco.runShopPriceFor(fr, 1), '二级购买成功：costGrowth 递增计价');
+  const stPoor = { total: 10, spent: 0, levels: {} };
+  ok(eco.applyRunShopPurchase(stPoor, 'engine_overdrive') === false && stPoor.spent === 0, '余额不足 → false 且不改动账本');
+  const stMax = { total: 999999, spent: 0, levels: { steady_mount: 1 } };
+  ok(eco.applyRunShopPurchase(stMax, 'steady_mount') === false, '超 maxLevel → false');
+  ok(eco.canAfford(50, 50) && !eco.canAfford(49, 50), 'canAfford 边界（=通过 / <拒绝）');
+
+  // 即时效果类商品形态：effects 空 + instant healPct
+  const rep = eco.getRunShopDef('emergency_repair');
+  ok(rep && rep.effects.length === 0 && rep.instant && rep.instant.type === 'healPct', '紧急维修为即时类（effects 空 + instant.healPct）');
+}
+
 console.log(`test-economy: 共 ${total} 条断言`);
 console.log('test-economy: 完成所有检查');
 if (fails === 0) console.log(`test-economy: 全部通过（${total}/${total}）`);

@@ -20,15 +20,39 @@ function difficultyConfig() {
 }
 
 /**
- * 节点难度曲线（P-13 / §6 条目 12 / 开放问题 6 定表）：
- * 索引 i∈[0,count-1]，t=i/(count-1)；diff = curveStart + curveSpan·t^curvePow。
- * 参数收口 RULES.difficulty（curveStart 0.15 / curveSpan 0.8 / curvePow 1.25 → 单调 0.15→0.95，后段加速）。
+ * 节点难度曲线（P-13 定表；P-34 开放式节点链参数化改造）：
+ * 旧公式 t=i/(count-1) 在无限延长链下失效（count 不再已知），改为索引驱动饱和曲线：
+ *   base = min(curveCap, curveStart + curveSpan·min(1, index/diffSatIndex)^curvePow)
+ *   eff  = min(diffMax, base + difficultyLevel × crossRunLevelBonus)   ← 跨局等级叠加
+ * 参数收口 RULES.difficulty（curveStart 0.15 / curveSpan 0.8 / curvePow 1.25 /
+ * diffSatIndex 12 / curveCap 0.95 / crossRunLevelBonus 0.04 / diffMax 1.15）。
+ * 数值定表说明：index=12 处基础难度封顶 0.95（约等于旧 5 节点链末段强度），
+ * 每次终局 difficultyLevel+1 使下一局同索引难度 +0.04，封顶 1.15（敌数/杠杆公式对 >1
+ * 的 diff 已有钳制，仅 statMult 触顶 1.5）。
+ * @param {number} index 节点索引（0 起）
+ * @param {number} [difficultyLevel] 跨局难度等级（profile.difficultyLevel，缺省 0）
+ * @returns {number} 有效难度（0~1.15）
  */
-function difficultyForIndex(index, count) {
-  if (count <= 1) return 0.5;
-  const cfg = difficultyConfig() || { curveStart: 0.15, curveSpan: 0.8, curvePow: 1.25 };
-  const t = Math.max(0, Math.min(1, index / (count - 1)));
-  return Math.round((cfg.curveStart + cfg.curveSpan * Math.pow(t, cfg.curvePow)) * 100) / 100;
+function difficultyForIndex(index, difficultyLevel) {
+  const cfg = difficultyConfig() || {
+    curveStart: 0.15, curveSpan: 0.8, curvePow: 1.25,
+    diffSatIndex: 12, curveCap: 0.95, crossRunLevelBonus: 0.04, diffMax: 1.15
+  };
+  const i = Math.max(0, index);
+  const sat = cfg.diffSatIndex !== undefined ? cfg.diffSatIndex : 12;
+  const cap = cfg.curveCap !== undefined ? cfg.curveCap : 0.95;
+  const base = Math.min(cap, cfg.curveStart + cfg.curveSpan * Math.pow(Math.min(1, i / sat), cfg.curvePow));
+  const lv = (Number.isFinite(difficultyLevel) && difficultyLevel > 0) ? difficultyLevel : 0;
+  const bonus = (cfg.crossRunLevelBonus !== undefined ? cfg.crossRunLevelBonus : 0.04) * lv;
+  const max = cfg.diffMax !== undefined ? cfg.diffMax : 1.15;
+  return Math.round(Math.min(max, base + bonus) * 100) / 100;
+}
+
+// Boss 节点判定（P-37）：每第 bossInterval 个节点为 Boss 节点（(index+1) % interval === 0 → index 4/9/14…）。
+// makeNode 预标 node.boss=true 并清空常规敌人；Boss 具体定义由 UI 层在进入战斗时从 Boss 池懒指定。
+function isBossNodeIndex(index) {
+  const interval = (typeof RULES !== 'undefined' && RULES.nodeMap && RULES.nodeMap.bossInterval) || 5;
+  return ((index + 1) % interval) === 0;
 }
 
 /**
@@ -90,17 +114,17 @@ function nodeScaleFor(viewport, templateDims) {
 
 /**
  * 生成单个节点。
- * @param {number} index 节点索引（0 起）
- * @param {number} count 一局总节点数
+ * @param {number} index 节点索引（0 起；开放式链下无上限，难度按索引饱和）
  * @param {any} rng createRNG 实例（调用方传入，保证整局确定性）
- * @param {any} [env] 环境注入（#24）：{ viewport: { vw, vh } } —— 视口尺寸决定节点
- *   世界缩放（宽高各 ≥ 视口 3 倍）；env 缺省/无 viewport 时回退 RULES.nodeMap.nodeScale
- *   固定倍率（旧行为）
+ * @param {any} [env] 环境注入：{ viewport: { vw, vh }, difficultyLevel: number }
+ *   —— viewport 决定节点世界缩放（宽高各 ≥ 视口 3 倍）；difficultyLevel 为跨局
+ *   难度等级（P-34，settleRun 每终局 +1，叠加进有效难度）；缺省回退旧行为
  * @returns {any} node
  */
-function makeNode(index, count, rng, env) {
+function makeNode(index, rng, env) {
   const cfg = nodeConfig();
-  const diff = difficultyForIndex(index, count);
+  const difficultyLevel = (env && Number.isFinite(env.difficultyLevel)) ? env.difficultyLevel : 0;
+  const diff = difficultyForIndex(index, difficultyLevel);
 
   // 视口驱动缩放（#24）：有视口时先按难度预选模板（其 w/h 决定精确倍率），
   // 再传给 generateNode；无视口时走旧路径（generateNode 内部选择 + 固定 nodeScale）。
@@ -173,7 +197,8 @@ function makeNode(index, count, rng, env) {
       hullAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
       turretAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
       heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
-      statMult: statMult           // P-13：数值强度乘数（materializeNode 经 env.applyDifficulty 应用）
+      statMult: statMult,           // P-13：数值强度乘数（materializeNode 经 env.applyDifficulty 应用）
+      aiTier: aiTier                // P-34 C：AI 档位随敌人数据下发（materializeNode 注入实体 t.aiTier，#76 消费）
     });
   }
 
@@ -211,7 +236,8 @@ function makeNode(index, count, rng, env) {
         hullAngle: Math.atan2(playerSpawn.y - c.y, playerSpawn.x - c.x),
         turretAngle: Math.atan2(playerSpawn.y - c.y, playerSpawn.x - c.x),
         heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
-        statMult: statMult
+        statMult: statMult,
+        aiTier: aiTier               // P-34 C：兜底补满路径同样带档位
       });
     }
   }
@@ -235,11 +261,19 @@ function makeNode(index, count, rng, env) {
     }
   }
 
+  // P-37：Boss 节点周期标记 —— 每第 bossInterval 个节点为 Boss 战（index 4/9/14…）。
+  // 预标 node.boss=true 并清空常规敌人（沿用原链尾 Boss 处理：Boss 战不混普通敌军）；
+  // Boss 具体定义（name/loot/summons）由 UI 层进入战斗时从 Boss 池懒指定（保持本模块零 IO）。
+  const bossMark = isBossNodeIndex(index);
+  if (bossMark) enemies.length = 0;
+
   return {
     index: index,
     difficulty: diff,
     aiTier: aiTier,          // P-13：AI 策略复杂度档位（0~2，供未来 AI 分级消费）
     statMult: statMult,      // P-13：数值强度乘数（敌军 hp/穿深/伤害）
+    difficultyLevel: difficultyLevel,  // P-34：本节点生成时的跨局难度等级（溯源用）
+    boss: bossMark ? true : null,      // P-37：周期 Boss 标记（true=待 UI 层指定定义；null=普通节点）
     seed: templateResult.seed,
     w: w,
     h: h,
@@ -387,12 +421,13 @@ function findPlayerSpawn(covers, w, h, rng, margin) {
 }
 
 /**
- * 生成一局：线性节点链。
+ * 生成一局：线性节点链（开放式链的初始段）。
  * @param {number|string} [seed] 整局确定性种子；缺省随机
- * @param {number} [count] 节点数（缺省 RULES.nodeMap.runNodeCount 或 5）
- * @param {any} [env] 环境注入（#24）：{ viewport: { vw, vh } } 传给 makeNode；
- *   缺省 = 旧行为（固定 nodeScale）
- * @returns {{ nodes: any[], seed: number|string }}
+ * @param {number} [count] 初始节点数（缺省 RULES.nodeMap.runNodeCount 或 5，上限 12；
+ *   开放式链下后续经 extendRun 无限追加）
+ * @param {any} [env] 环境注入：{ viewport: { vw, vh }, difficultyLevel: number }；
+ *   env 会存入返回值 run.env 供 extendRun 复用（保持确定性续接）
+ * @returns {{ nodes: any[], seed: number|string, env: any, difficultyLevel: number }}
  */
 function generateRun(seed, count, env) {
   const cfg = nodeConfig();
@@ -401,9 +436,34 @@ function generateRun(seed, count, env) {
   const rng = createRNG(s);
   const nodes = [];
   for (let i = 0; i < nodeCount; i++) {
-    nodes.push(makeNode(i, nodeCount, rng, env));
+    nodes.push(makeNode(i, rng, env));
   }
-  return { nodes: nodes, seed: s };
+  const difficultyLevel = (env && Number.isFinite(env.difficultyLevel)) ? env.difficultyLevel : 0;
+  return { nodes: nodes, seed: s, env: env || null, difficultyLevel: difficultyLevel };
+}
+
+/**
+ * 开放式节点链追加（P-34）：以 run 现有长度为下一节点索引追加生成一个节点并推入 run.nodes。
+ * 确定性保证：从 run.seed 重放既有节点消耗的 rng 流（逐个重算前序节点、丢弃结果），
+ * 再生成新节点 —— 同 seed 同 env 下 extendRun 结果与"一次性生成长链"完全一致。
+ * 难度按新索引走饱和曲线并叠加 run.difficultyLevel（env.difficultyLevel）；
+ * Boss 周期标记沿用 P-37 规则。
+ * @param {any} run generateRun 产出（会被就地修改 nodes）
+ * @param {any} [envOverride] 可选覆盖 env（缺省复用 run.env）
+ * @returns {any} 新追加的节点
+ */
+function extendRun(run, envOverride) {
+  if (!run || !Array.isArray(run.nodes)) return null;
+  const e = (envOverride !== undefined) ? envOverride : (run.env || null);
+  const rng = createRNG(run.seed);
+  for (let i = 0; i < run.nodes.length; i++) {
+    makeNode(i, rng, e);          // 重放 rng 流（丢弃结果）
+  }
+  const next = makeNode(run.nodes.length, rng, e);
+  run.env = e;
+  run.difficultyLevel = (e && Number.isFinite(e.difficultyLevel)) ? e.difficultyLevel : 0;
+  run.nodes.push(next);
+  return next;
 }
 
 // ---------- 通关奖励评分（§4.5 方案） ----------
@@ -469,6 +529,7 @@ function materializeNode(node, env) {
     });
     t.nodeSpawn = true;
     t.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // AI 触发距离（难度化，生成时算好）
+    t.aiTier = (e.aiTier !== undefined) ? e.aiTier : (node.aiTier || 0);   // P-34 C：AI 档位注入实体（#76 消费）
     if (typeof env.configureTank === 'function') env.configureTank(t, e.tankId);
     if (e.statMult && e.statMult !== 1 && typeof env.applyDifficulty === 'function') env.applyDifficulty(t, e.statMult);
     spawned.push(t);
@@ -494,6 +555,7 @@ function materializeNode(node, env) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     difficultyForIndex,
+    isBossNodeIndex,
     enemyCountForDifficulty,
     aiTierForDifficulty,
     statMultForDifficulty,
@@ -501,6 +563,7 @@ if (typeof module !== 'undefined' && module.exports) {
     nodeScaleFor,
     makeNode,
     generateRun,
+    extendRun,
     scoreNode,
     materializeNode
   };
