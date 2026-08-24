@@ -113,7 +113,7 @@ const RULES = {
   speed: {
     kmhFactor: 0.5,            // maxSpeed(px/s) × 0.5 = km/h（HUD 显示）
     pxFactor: 1.6,             // 推进速度 = maxSpeed × pxFactor（px/s）
-    accelPowerToPxScale: 180,   // 马力/吨 → px/s² 加速度比例
+    accelPowerToPxScale: 130,   // 马力/吨 → px/s² 加速度比例（P-修正：由 180 下调至 130，加速 ramp 略迟缓更"肉"，top speed 不变）
     brakeFactor: 3.5           // 刹车加速度 = 加速 × brakeFactor
   },
 
@@ -312,6 +312,33 @@ const RULES = {
     reviveCost: 40,           // 局前购买追加复活次数（商店点数）
     saveVersion: 1,           // 存档版本号（profile.version；不匹配则重置）
     saveKey: 'rogue-tank-save' // localStorage 键名
+  },
+
+  // ======================= 真实世界单位标定（以 Tiger I 为基准） =======================
+  // Tiger I 真实数据：车长 6.316m（不含炮）、宽 3.73m、高 3.0m、极速 38 km/h、88mm炮弹初速 ~810 m/s (AP)
+  // 游戏里 Tiger I 车体顶点：front x=34.5, rear x=-34.5 → 车体长 69px
+  // PX_PER_METER = 69 / 6.316 ≈ 10.92 px/m
+  // 标定后的换算：
+  //   - maxSpeed(px/s) / PX_PER_METER * 3.6 = km/h  (px/s → m/s × 3.6)
+  //   - shellSpeed(px/s) / PX_PER_METER = m/s
+  //   - barrel.len(px) / PX_PER_METER = m
+  //   - hullLen(px) / PX_PER_METER = m
+  //   - armor mm 保持不变、weight 吨保持不变
+  scale: {
+    REF_TANK_ID: 'tiger-I',
+    REF_HULL_LENGTH_M: 6.316,      // Tiger I 车体长（不含炮），米
+    REF_HULL_LENGTH_PX: 69,        // Tiger I 车体长（游戏像素）：front 34.5 - rear (-34.5)
+    REF_MAX_SPEED_KMH: 38,         // Tiger I 真实极速 km/h
+    REF_SHELL_SPEED_MS: 810,       // Tiger I 88mm AP 弹初速 m/s
+    // 计算得出的比例常量
+    get PX_PER_METER() { return this.REF_HULL_LENGTH_PX / this.REF_HULL_LENGTH_M; },  // ≈10.92
+    // 校准后的 kmhFactor：使 Tiger I 的 120 px/s → 38 km/h
+    // kmhFactor = REF_MAX_SPEED_KMH / (REF_MAX_SPEED_PX * 3.6 / PX_PER_METER)
+    // 其中 REF_MAX_SPEED_PX = 120 (tiger-I.json maxSpeed)
+    get CALIBRATED_KMH_FACTOR() {
+      const refMaxSpeedPx = 120;  // tiger-I.json maxSpeed
+      return this.REF_MAX_SPEED_KMH / (refMaxSpeedPx * 3.6 / this.PX_PER_METER);
+    }
   }
 };
 

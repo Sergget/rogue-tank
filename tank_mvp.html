@@ -530,7 +530,7 @@ canvas.addEventListener('mousemove', e=>{
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });
-canvas.addEventListener('mousedown', e=>{ if(inMenuState()) return; if(e.button===0) tryFire(); });
+canvas.addEventListener('mousedown', e=>{ if(inMenuState()) return; if(e.button===0 && fireCtx) tryFire(fireCtx); });
 
 // ---------- P-15 玩家状态面板（Tab）/ 开发者面板（`） ----------
 let statusOpen = false, devOpen = false;
@@ -1397,6 +1397,9 @@ let shells = [];   // 炮弹飞行动画（沿弹道逐段推进）
 let impacts = [];
 let bounceFx = []; // ricochet spark visuals
 
+// [P-28] 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用
+let fireCtx = null;
+
 // [P-28] 战斗发射管线已收敛到 js/tank_fire.js（fireTank/fireSmokeShell/tryFire/tryFireSmoke 由共享模块提供）
 // ---------- P-17 玩家主动能力（战术炮击 G / 战术护盾 H / 超级装填 V） ----------
 // 统一入口 js/tank_abilities.js tryActivateAbility：持有对应卡（cardEffects 含 {type:'ability',key}）
@@ -1505,8 +1508,58 @@ function update(dt){
   if(player.reloadT>0) player.reloadT = Math.max(0, player.reloadT-dt);
   if(player.fireDebuffT>0) player.fireDebuffT -= dt;
   tickDebuffs(player, dt);
-  if(keys[' ']) tryFire();
-  if(keys['f']) tryFireSmoke();   // P-17：F 键发射烟幕弹（玩家专属）
+
+  // [P-28] 刷新 fireCtx 显式注入所有战斗管线依赖（规避 IIFE 作用域导致 _G 回退失效）
+  fireCtx = {
+    player,
+    mouseWorld,
+    shells,
+    impacts,
+    bounceFx,
+    entities,
+    covers,
+    RULES,
+    COVER_TIERS,
+    nearestEnemyTo,
+    gunTip,
+    gunRoot,
+    raycastTank,
+    aimPartPreference,
+    bestHitForPref,
+    getPartZRange,
+    getExposure,
+    findCoversOnPath,
+    shellPartHit,
+    coverNormalAt,
+    reflectDir,
+    resolveHit,
+    hasShield,
+    shieldAbsorbs,
+    absorbDamage,
+    burstExplosion,
+    spawnImpactFx,
+    spawnDmgText,
+    playSound,
+    pushLog,
+    damageCover,
+    splashCoversAt,
+    spawnSmoke,
+    spawnSmokeCloud,
+    isHostile,
+    gaussian,
+    debuffReloadRate,
+    computeAmmoConfig,
+    devAim,
+    fireTank,
+    fireSmokeShell,
+    bounceAngle: BOUNCE_ANGLE,
+    worldW: worldW,
+    worldH: worldH,
+    random: Math.random
+  };
+
+  if(keys[' ']) tryFire(fireCtx);
+  if(keys['f']) tryFireSmoke(fireCtx);   // P-17：F 键发射烟幕弹（玩家专属）
   if(keys['g']) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
   if(keys['h']) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
   if(keys['v']) tryOverdrive();   // P-17：V 键超级装填（爆发装填）
@@ -1541,7 +1594,7 @@ function update(dt){
       // 开火：复用 fireTank（敌人打玩家，友军打最近敌人）
       if(d.fire){
         const target = e.team === 'ally' ? nearestEnemyTo(e) : player;
-        if(target && target.hp > 0) fireTank(e, target, 'auto');
+        if(target && target.hp > 0) fireTank(e, target, 'auto', fireCtx);
       }
     }
   }
@@ -1632,10 +1685,14 @@ function update(dt){
   // 炮弹逐帧真实飞行（特性2）：每帧炮口到落点做 swept-segment 检测，
   // 对敌方坦克与全高掩体取路径上最近障碍；命中后按"命中时刻"结算。
   // [P-28] 炮弹飞行积分已收敛到 js/tank_fire.js stepShells（半高越掩/护盾!s.absorbed/HE破障/烟幕/二次跳弹禁止）
-  stepShells(dt, { worldW: worldW, worldH: worldH });
-  shells = shells.filter(s=>!s.dead);
-  impacts.forEach(t=>t.life-=dt); impacts = impacts.filter(t=>t.life>0);
-  bounceFx.forEach(t=>t.life-=dt); bounceFx = bounceFx.filter(t=>t.life>0);
+  stepShells(dt, fireCtx);
+  // [P-28] 原地过滤保持数组引用稳定——fireCtx.shells/impacts/bounceFx 由事件处理器跨帧持有，
+  // 若用 `arr = arr.filter(...)` 重赋值会让 fireCtx 持有过期引用（症状：有火光无炮弹）
+  for(let i=shells.length-1;i>=0;i--){ if(shells[i].dead) shells.splice(i,1); }
+  impacts.forEach(t=>t.life-=dt);
+  for(let i=impacts.length-1;i>=0;i--){ if(impacts[i].life<=0) impacts.splice(i,1); }
+  bounceFx.forEach(t=>t.life-=dt);
+  for(let i=bounceFx.length-1;i>=0;i--){ if(bounceFx[i].life<=0) bounceFx.splice(i,1); }
   updateSmoke(dt);   // P-17：烟雾云逐帧消散（在 update(dt) 内 → 天然受 simulating 门控）
 
   // P-17：主动能力主循环（与烟雾同处 simulating 门控内）

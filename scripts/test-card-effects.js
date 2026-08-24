@@ -99,12 +99,27 @@ function applyExpected(stats, effects) {
     s.accel = (s.enginePower / s.weight) * ACCEL_POWER_TO_PX_SCALE;
     s.brake = s.accel * BRAKE_FACTOR;
   }
+  // 真实世界单位标定字段（与 computeStats 保持一致）：maxSpeedKmh、shellSpeedMs 由 maxSpeed/shellSpeed 换算
+  // hullLengthM、barrelLengthM 为几何派生，不随 modifier 变化，不在此计算（statsDiff 会排除）
+  if (RULES && RULES.scale && RULES.scale.PX_PER_METER) {
+    const pxPerMeter = RULES.scale.PX_PER_METER;
+    if (typeof s.maxSpeed === 'number') {
+      s.maxSpeedKmh = Math.round((s.maxSpeed / pxPerMeter) * 3.6);
+    }
+    if (typeof s.shellSpeed === 'number') {
+      s.shellSpeedMs = Math.round(s.shellSpeed / pxPerMeter);
+    }
+  }
   return s;
 }
 
 // 深度比较 stats 两份（数字容差 1e-9），返回不一致键列表（空 = 一致）
 // 递归处理 armor.hull.front 等任意嵌套路径（避免对象按引用比较的假偏差）
+// 排除几何派生的标定字段（hullLengthM, barrelLengthM），它们不随 modifier 变化且 applyExpected 不计算
+const CALIBRATION_GEOM_FIELDS = new Set(['hullLengthM', 'barrelLengthM']);
+
 function diffVal(va, vb, key, bad) {
+  if (CALIBRATION_GEOM_FIELDS.has(key)) return; // 跳过几何派生标定字段
   if (typeof va === 'number') {
     if (typeof vb !== 'number' || Math.abs(va - vb) > 1e-9 * Math.max(1, Math.abs(va))) bad.push(key);
   } else if (va && typeof va === 'object') {

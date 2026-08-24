@@ -50,6 +50,23 @@ function computeStats(base, modifiers){
   const effWeight = typeof s.weight === 'number' && s.weight > 0 ? s.weight : base.weight;
   s.accel = (effPower / effWeight) * ACCEL_POWER_TO_PX_SCALE;
   s.brake = s.accel * BRAKE_FACTOR;
+
+  // ======================= 真实世界单位标定字段 =======================
+  // 基于 RULES.scale (以 Tiger I 为基准) 计算真实单位数值
+  // 注意：hullLengthM 和 barrelLengthM 需要 tank 实例的几何数据，在 applyTankConfig 中补全
+  const scale = RULES.scale;
+  const pxPerMeter = scale.PX_PER_METER;
+
+  // 极速 km/h：maxSpeed(px/s) / pxPerMeter * 3.6
+  s.maxSpeedKmh = Math.round((s.maxSpeed / pxPerMeter) * 3.6);
+
+  // 弹速 m/s：shellSpeed(px/s) / pxPerMeter
+  s.shellSpeedMs = Math.round(s.shellSpeed / pxPerMeter);
+
+  // 占位，applyTankConfig 后会根据 tank.hullLen 和 tank.barrel.len 补全
+  s.hullLengthM = 0;
+  s.barrelLengthM = 0;
+
   return s;
 }
 
@@ -284,6 +301,16 @@ function applyTankConfig(tank, spec){
   refreshStats(tank);
   tank.hp = tank.stats.maxHp;
   tank.maxHp = tank.stats.maxHp;
+
+  // 真实世界单位标定：补全车体长度和炮管长度（米）
+  const scale = RULES.scale;
+  const pxPerMeter = scale.PX_PER_METER;
+  if (tank.hullLen && tank.hullLen > 0) {
+    tank.stats.hullLengthM = Math.round((tank.hullLen / pxPerMeter) * 100) / 100; // 保留两位小数
+  }
+  if (tank.barrel && tank.barrel.len && tank.barrel.len > 0) {
+    tank.stats.barrelLengthM = Math.round((tank.barrel.len / pxPerMeter) * 100) / 100;
+  }
   if (tank.spawn) tank.spawn.hp = tank.stats.maxHp;
 }
 

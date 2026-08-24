@@ -4,7 +4,7 @@
   "maxSpeed": 140,
   "turnRate": 2.5,
   "turretTurnRate": 3,
-  "weight": 100,
+  "weight": 42,
   "enginePower": 300,
   "hp": 80,
   "penetration": 160,

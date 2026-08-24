@@ -44,7 +44,7 @@ function ok(cond, label){
   const s = computeStats(base, []);
   ok(s.maxSpeed===1e6 && s.turnRate===1e6 && s.reload===1e6 && s.maxHp===1e9,
     'computeStats 极端基准 (1e6/1e6/1e6/1e9) 原样保留');
-  ok(Number.isFinite(s.accel) && s.accel === 540, 'computeStats 极端基准 accel 有限 (900/300×180=540)');
+  ok(Number.isFinite(s.accel) && s.accel === 390, 'computeStats 极端基准 accel 有限 (900/300×130=390)');
   const t = makeTank({ base });
   ok(t.stats.maxSpeed===1e6 && t.stats.turnRate===1e6 && t.stats.reload===1e6 && t.stats.maxHp===1e9,
     'makeTank 极端基准 -> tank.stats 与基准一致');
@@ -66,7 +66,7 @@ function ok(cond, label){
     damage:34, reload:1.3, maxHp:100, weight:w, enginePower:p,
     armor:{ hull:{front:1,side:1,rear:1}, turret:{front:1,side:1,rear:1} } });
   const aHuge = computeStats(mkbase(1, 1e6), []);
-  ok(aHuge.accel === 1.8e8 && Number.isFinite(aHuge.accel),
+  ok(aHuge.accel === 1.3e8 && Number.isFinite(aHuge.accel),
     `accel: power=1e6 weight=1 -> 巨大但有限 (${aHuge.accel})`);
   const aTiny = computeStats(mkbase(1e6, 1), []);
   ok(Number.isFinite(aTiny.accel) && !Number.isNaN(aTiny.accel) && aTiny.accel > 0,

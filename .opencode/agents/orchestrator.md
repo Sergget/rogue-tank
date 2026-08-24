@@ -22,6 +22,8 @@ permission:
     "card-author": allow
     "boss-author": allow
     "balance-auditor": allow
+    "asset-artist": allow
+    "sound-designer": allow
 ---
 
 You are the orchestration primary agent for **Rogue Tank**. The user switches to you with the **Tab** key. You never do the work yourself — you **route** tasks to the correct specialist sub-agent (each runs in its own isolated session/context) and then verify the result. You also run the test-runner automatically after changes. Parallel dispatch is encouraged: when a request touches multiple independent subsystems from the routing table, invoke several specialists in a single message so they work in separate contexts concurrently, then merge their reports yourself.
@@ -39,6 +41,8 @@ You are the orchestration primary agent for **Rogue Tank**. The user switches to
 | boss content: `bosses/*.json`, stages, weakspots, `makeBossEntity` | `@boss-author` |
 | balance/schema audit: `validate-content.js`, `audit-content.js --strict`, rarity distribution checks | `@balance-auditor` |
 | `DEVELOPMENT.md`, `PLAN.md`, `ISSUES.md`, `ARCHIVE.md`, `lifecycle`, `archive` | `@docs-agent` |
+| `贴图` `精灵图` `sprite` `动画帧` `atlas` `assets/` `bake` `tank_assets.js` `ASSET_DEFS` `anchorX` `anchorY` `canopyAnchor` `程序化回退` | `@asset-artist` |
+| `音效` `SOUND_DEFS` `playSound` `空间化` `PannerNode` `合成器` `层` `总线` `增益` `自适应` `tank_audio.js` `AUDIO_SETTINGS` | `@sound-designer` |
 
 ## Workflow (you execute this loop)
 1. **Analyze** the user request — identify which subsystem(s) it touches

@@ -37,7 +37,7 @@
       var(--bg);
   }
   #leftPane{
-    display:flex; flex-direction:column; gap:8px; pointer-events:none;
+    display:flex; flex-direction:column; gap:8px;
     padding:12px;
   }
   #solutionPanel{
@@ -224,7 +224,11 @@
   <script src="js/tank_paint.js"></script>
   <script src="js/tank_battledraw.js"></script>
   <script src="js/tank_listio.js"></script>
+  <!-- cards 提供 computeAmmoConfig（fireCtx 引用）；纯逻辑模块，加载无副作用 -->
+  <script src="js/tank_cards.js"></script>
   <script src="js/tank_dmgtext.js"></script>
+  <!-- P-17 护盾模块：fireCtx 引用 hasShield/shieldAbsorbs/absorbDamage，缺失会导致 update 首帧 ReferenceError → rAF 循环断裂 → 页面冻结 -->
+  <script src="js/tank_shield.js"></script>
   <script src="js/tank_fire.js"></script>
 <script>
 (() => {
@@ -381,7 +385,7 @@ canvas.addEventListener('mousemove', e=>{
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });
-canvas.addEventListener('mousedown', e=>{ if(e.button===0) tryFire(); });
+canvas.addEventListener('mousedown', e=>{ if(e.button===0 && fireCtx) tryFire(fireCtx); });
 
 document.getElementById('genNodeBtn').addEventListener('click', ()=>{
   const randomDiff = Math.random();
@@ -444,6 +448,9 @@ let bounceFx = []; // ricochet spark visuals
 
 // [P-28] 战斗发射管线已收敛到 js/tank_fire.js
 // [P-28] updateSolution 已收敛到 js/tank_fire.js
+// 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用
+let fireCtx = null;
+
 // ---------- update ----------
 let last = performance.now();
 
@@ -481,7 +488,57 @@ function update(dt){
   if(player.reloadT>0) player.reloadT = Math.max(0, player.reloadT-dt);
   if(player.fireDebuffT>0) player.fireDebuffT -= dt;
   tickDebuffs(player, dt);
-  if(keys[' ']) tryFire();
+
+  // [P-28] 刷新 fireCtx 显式注入所有战斗管线依赖（规避 IIFE 作用域导致 _G 回退失效）
+  fireCtx = {
+    player,
+    mouseWorld,
+    shells,
+    impacts,
+    bounceFx,
+    entities,
+    covers,
+    RULES,
+    COVER_TIERS,
+    nearestEnemyTo,
+    gunTip,
+    gunRoot,
+    raycastTank,
+    aimPartPreference,
+    bestHitForPref,
+    getPartZRange,
+    getExposure,
+    findCoversOnPath,
+    shellPartHit,
+    coverNormalAt,
+    reflectDir,
+    resolveHit,
+    hasShield,
+    shieldAbsorbs,
+    absorbDamage,
+    burstExplosion,
+    spawnImpactFx,
+    spawnDmgText,
+    playSound,
+    pushLog,
+    damageCover,
+    splashCoversAt,
+    spawnSmoke,
+    spawnSmokeCloud,
+    isHostile,
+    gaussian,
+    debuffReloadRate,
+    computeAmmoConfig,
+    devAim: { zeroSpread: false },
+    fireTank,
+    fireSmokeShell,
+    bounceAngle: BOUNCE_ANGLE,
+    worldW: worldW,
+    worldH: worldH,
+    random: Math.random
+  };
+
+  if(keys[' ']) tryFire(fireCtx);
 
   // 靶车：同 player 的运动学（方向键输入），turnRate 统一走 stats（与 player 一致）
   driveTank(dummy, dt, {
@@ -574,10 +631,14 @@ function update(dt){
   // 炮弹逐帧真实飞行（特性2）：每帧炮口到落点做 swept-segment 检测，
   // 对敌方坦克与全高掩体取路径上最近障碍；命中后按"命中时刻"结算。
   // [P-28] 炮弹飞行积分已收敛到 js/tank_fire.js stepShells
-  stepShells(dt, { worldW: worldW, worldH: worldH });
-  shells = shells.filter(s=>!s.dead);
-  impacts.forEach(t=>t.life-=dt); impacts = impacts.filter(t=>t.life>0);
-  bounceFx.forEach(t=>t.life-=dt); bounceFx = bounceFx.filter(t=>t.life>0);
+  stepShells(dt, fireCtx);
+  // [P-28] 原地过滤保持数组引用稳定——fireCtx.shells/impacts/bounceFx 由事件处理器跨帧持有，
+  // 若用 `arr = arr.filter(...)` 重赋值会让 fireCtx 持有过期引用（症状：有火光无炮弹）
+  for(let i=shells.length-1;i>=0;i--){ if(shells[i].dead) shells.splice(i,1); }
+  impacts.forEach(t=>t.life-=dt);
+  for(let i=impacts.length-1;i>=0;i--){ if(impacts[i].life<=0) impacts.splice(i,1); }
+  bounceFx.forEach(t=>t.life-=dt);
+  for(let i=bounceFx.length-1;i>=0;i--){ if(bounceFx[i].life<=0) bounceFx.splice(i,1); }
 
   // fantasy combat effects timers
   updateFx(dt);

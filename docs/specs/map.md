@@ -36,3 +36,50 @@
 - ASSET_DEFS 注册表管理 soft/barricade/stump/rubble/bush/tree/fallen 七档贴图规格与程序化 bake 函数。
 - 零外部图片依赖：assets/ 目录为空时自动离屏烘焙缓存（ASSET_CACHE），file:// 离线完整兼容。
 - tools/bake.html 一键导出 PNG 到 assets/，日后真实美术直接替换同名文件接口不变。
+
+## 5. 地形类型抽象 (Terrain-Type Abstraction)
+
+> 设计稿（落地计划见 PLAN.md P-33）：将水域/泥潭与全高/半高掩体统一抽象为「地形类型」。每个地形即一个 cover 实例，由一组属性刻画，为后续丰富地图元素（水潭/河流/烂泥地/建筑等）提供一致基座。
+
+### 5.1 统一属性 schema
+每个地形实例携带：
+- `passability`：坦克通行系数（move mult，0=不可入，1=自由，0.35/0.6=减速）
+- `shellBlock`：弹道交互（true=`solid` 挡弹 / `single` 挡 1 发 / false 且减速=`pass` 越障 / false 且不减速=`none`/`graduated` 概率垂直剖面）
+- `exposureProfile`：遮蔽剖面（`full`/`half`/`none`）
+- `destructible`：耐久（`hp` 数值 / `Infinity` 不可毁 / `null` 不属结构）
+- `drawStyle`：渲染风格（box/bush/tree/soft/barricade/stump/rubble/water/rock-poly/structure...）
+- `tierGroup`：语义分组（cover/structure/foliage/liquid/ground）
+
+### 5.2 具体地形映射（设计值）
+| 具体地形 | passability | shellBlock | exposureProfile | destructible | drawStyle | tierGroup |
+|---|---|---|---|---|---|---|
+| 全高掩体(建筑墙) | 1.0 | true(solid) | full | ∞ | box | structure |
+| 半高掩体(矮墙) | 0.4 | grad | half | ∞ | box | cover |
+| 水潭 | 0.0 | false(越飞) | none | null | water | liquid |
+| 河流 | 0.0 | false(越飞) | none | null | water-chain | liquid |
+| 烂泥地 | 0.35 | false | none | null | mud | ground |
+| 水潭周围烂泥地 | 0.35 | false | none | null | mud | ground |
+| 残破建筑 | 0.6 | grad | half | hp=1 | rubble-box | structure |
+| 完整建筑 | 1.0 | true(solid) | full | ∞ | box | structure |
+| 岩石 | 1.0 | true(solid) | full | ∞ | rock-poly | structure |
+| 灌木 | 1.0 | false(vision) | none | null | bush | foliage |
+| 树木 | 1.0 | true(tree) | full | 1→fallen | tree | foliage |
+
+> 关键设计：(1) 水潭/河流 `shellBlock=false`（炮弹越飞、仅挡坦克）+ `passability=0`；(2) 河流为**多段连通**水体（见 5.3）；(3) 岩石/完整建筑复用 `solid`+`full` 但 `drawStyle` 走多边形；(4) 残破建筑=`graduated`+`half`+`destructible`。
+
+### 5.3 河流作为连通多段地形
+河流由共享同一逻辑体的多个 water 段链接而成（连续 movement 阻断 + 单次笔触绘制），需在 cover 实例 schema 增加 `segments[]`/parent-link 字段（当前实例 schema 无此字段，见 §5.4-9）。
+
+### 5.4 其他需补充内容（落地前 checklist）
+1. **地面 biome 图层 (#81)**：水/泥需独立于 OBB covers 的铺地图层，才能连续平铺而非孤立方块。
+2. **不规则岩石形态 (#78)**：需 nodegen/designer 的 `verts` 多边形创作（基础设施 `tank_cover.js:143-156` 已具备，但缺编辑器 UI 与 `rock` tier）。
+3. **AI 找掩体钩子 (#76)**：AI 须读取 `exposureProfile`/`shellBlock` 选地形；当前 `aiDecide` 仅用 LoS/距离。
+4. **建筑摧毁/特效**：`destroyCover` 当前仅换 `toTier` 残骸（tree→fallen、barricade→rubble）；完整/残破建筑需碎屑 FX + `tierGroup:'structure'` 残骸链。
+5. **小地图表征**：`tank_minimap.js` 须编码 liquid/ground tier（当前仅通用绘制 covers），使水潭/河流读作地形而非障碍。
+6. **音效/特效**：`tank_audio.js`/`tank_fx.js` 需入水溅射、泥地迟滞声（当前无地形步进 SFX）。
+7. **nodegen 模板打标**：模板须携带地形放置标签（中央水潭、沿边河流、泥环）以生成新 tier。
+8. **新地形 half 曝光**：`getExposure` C 插值（`tank_cover.js:361-373`）硬编码 `tier==='half'`；残破建筑/带 half 剖面的岩石需泛化 `exposureProfile` 分发。
+9. **河流连通多段字段**：见 5.3。
+
+> ⚠️ **代码/文档矛盾 (ISSUES #85)**：`AGENTS.md` 称 water 应为 `pass`（炮弹越飞、挡移动），但 `js/tank_rules.js:91` 实际 `mode:'solid'`（挡弹）。地形富集前须先裁定水潭/河流是否挡弹，再落地 §5.2。
+

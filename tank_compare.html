@@ -244,6 +244,51 @@ function buildColumn(key, spec){
 
   for(const f of FIELD_ROWS) col.appendChild(renderRowField(spec, f));
 
+  // ---------- 真实世界单位标定显示（以 Tiger I 为基准） ----------
+  // 创建临时坦克实例并应用配置，读取计算后的标定数值
+  const calTank = makeTank({ x:0, y:0, hullAngle:0, turretAngle:0, team:'enemy', heightClass: spec.heightClass||'medium' });
+  applyTankConfig(calTank, spec);
+  const calStats = calTank.stats;
+  const pxPerMeter = RULES.scale.PX_PER_METER;
+
+  const calRows = [
+    ['标定极速', calStats.maxSpeedKmh !== undefined ? calStats.maxSpeedKmh + ' km/h' : '—'],
+    ['标定弹速', calStats.shellSpeedMs !== undefined ? calStats.shellSpeedMs + ' m/s' : '—'],
+    ['车体长度', calStats.hullLengthM !== undefined && calStats.hullLengthM > 0 ? calStats.hullLengthM.toFixed(2) + ' m' : '—'],
+    ['炮管长度', calStats.barrelLengthM !== undefined && calStats.barrelLengthM > 0 ? calStats.barrelLengthM.toFixed(2) + ' m' : '—'],
+    ['换算比例', pxPerMeter.toFixed(2) + ' px/m']
+  ];
+
+  // 添加分隔线标题
+  const calHeader = document.createElement('div');
+  calHeader.className = 'mrow';
+  calHeader.style.borderTop = '1px solid var(--line)';
+  calHeader.style.marginTop = '8px';
+  calHeader.style.paddingTop = '4px';
+  const calHeaderLbl = document.createElement('span');
+  calHeaderLbl.className = 'lbl';
+  calHeaderLbl.textContent = '📏 真实单位标定';
+  calHeaderLbl.style.color = 'var(--amber)';
+  calHeaderLbl.style.fontWeight = '700';
+  calHeader.appendChild(calHeaderLbl);
+  col.appendChild(calHeader);
+
+  for(const [label, value] of calRows){
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    const lbl = document.createElement('span');
+    lbl.className = 'lbl';
+    lbl.textContent = label;
+    const ro = document.createElement('span');
+    ro.className = 'ro';
+    ro.textContent = value;
+    ro.style.color = 'var(--green)';
+    ro.style.fontFamily = 'JetBrains Mono, monospace';
+    row.appendChild(lbl);
+    row.appendChild(ro);
+    col.appendChild(row);
+  }
+
   const geoInfos = [
     ['车体顶点', spec.hull && spec.hull.verts ? spec.hull.verts.length : 5],
     ['车体面数', spec.hull && spec.hull.faces ? spec.hull.faces.length : 5],

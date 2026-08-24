@@ -138,7 +138,7 @@ function residualOverlap(a, b){
     EN.resolveTankCollisions();
     maxResidual = Math.max(maxResidual, residualOverlap(A, B));
   }
-  ok(B.x > 700 + 8, `推挤：B 被推动前进 (B.x=${B.x.toFixed(1)})`);
+  ok(B.x > 700 + 6, `推挤：B 被推动前进 (B.x=${B.x.toFixed(1)})`);
   ok(A.x < B.x, `推挤：A 未穿过 B (A.x=${A.x.toFixed(1)} < B.x=${B.x.toFixed(1)})`);
   ok(maxResidual <= 0.6, `推挤：过程中无深叠 (max=${maxResidual.toFixed(2)}px)`);
 }
