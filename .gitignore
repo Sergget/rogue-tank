@@ -2,3 +2,5 @@ node_modules/
 *.log
 .DS_Store
 .playwright-mcp/
+# 子代理临时工作区（输出重定向/调试脚本）
+.opencode/tmp/
