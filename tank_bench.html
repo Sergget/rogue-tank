@@ -175,6 +175,16 @@
     </div>
 
     <div class="section">
+      <h3>卡牌测试 Card Test (#32)</h3>
+      <div class="bar-row"><span class="bar-label">卡池</span><select id="cardSelect"><option>加载中…</option></select></div>
+      <div class="btnrow" style="margin-top:4px;">
+        <button id="applyCardBtn">应用 APPLY</button>
+        <button id="clearCardsBtn">清除全部 CLEAR</button>
+      </div>
+      <div class="mono" style="font-size:10px; color:var(--text-dim); margin-top:4px;">重复点击应用即叠加一层效果（模拟叠层）；仅作用于玩家坦克，靶车不吃卡</div>
+    </div>
+
+    <div class="section">
       <h3>目标 Target Dummy</h3>
       <div class="bar-row"><span class="bar-label">HULL HP</span><div class="bar-track"><div class="bar-fill" id="eHpBar" style="background:var(--green); width:100%"></div></div><span class="bar-val" id="eHpVal">100</span></div>
       <div class="bar-row"><span class="bar-label">STATUS</span><span class="mono" id="eStatus" style="font-size:11px; color:var(--text-dim);">正常</span></div>
@@ -440,6 +450,67 @@ function pushLog(text, cls){
   logEl.prepend(d);
   while(logEl.children.length>25) logEl.removeChild(logEl.lastChild);
 }
+
+// ---------- #32 卡牌测试面板：加载卡池 → applyCardEffects 叠加到玩家坦克 ----------
+let cardPool = null;
+function populateCardSelect(){
+  const sel = document.getElementById('cardSelect');
+  if(!sel) return;
+  sel.innerHTML = '';
+  if(!cardPool){ sel.innerHTML = '<option>卡池加载失败</option>'; return; }
+  const ids = Object.keys(cardPool).sort();
+  if(!ids.length){ sel.innerHTML = '<option>卡池为空</option>'; return; }
+  ids.forEach(id=>{
+    const card = cardPool[id];
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = `${card.name || id} · ${String(card.rarity || 'common').toUpperCase()}`;
+    sel.appendChild(opt);
+  });
+}
+function loadCardPool(){
+  // /api/cards 由 server.js 聚合 cards/*.json 为 { id → spec }；无服务器（file://）时回退提示
+  fetch('/api/cards').then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(data=>{
+      cardPool = data;
+      populateCardSelect();
+      pushLog(`卡池已加载：${Object.keys(cardPool).length} 张`,'COVER');
+    })
+    .catch(()=>{
+      cardPool = null;
+      populateCardSelect();
+      pushLog('卡池加载失败 — /api/cards 不可用，请经 dev server (npm start) 打开本页','CRIT');
+    });
+}
+document.getElementById('applyCardBtn').addEventListener('click', ()=>{
+  if(!cardPool){ pushLog('卡池未加载，无法应用卡牌','CRIT'); return; }
+  const id = document.getElementById('cardSelect').value;
+  const card = cardPool[id];
+  if(!card){ pushLog(`卡牌不存在: ${id}`,'COVER'); return; }
+  // 叠加式：每次点击都重新应用全部效果（modifier 走 addModifier、装置入 cardEffects 队列），
+  // 可重复点击模拟叠层（受 maxStacks 约束的卡由消费端语义处理）
+  const applied = applyCardEffects(player, card);
+  playSound('ui');
+  pushLog(`应用卡牌「${card.name || id}」(${card.rarity}) ×${cardStackCount(player, id)} 层 — ${applied.length} 条效果生效`,'PEN');
+});
+document.getElementById('clearCardsBtn').addEventListener('click', ()=>{
+  // 清除全部卡牌效果：剔除 source 以 'card:' 开头的 modifiers + 清空 cardEffects 队列，
+  // 再 refreshStats 还原属性。不重建实体——bench 的 player/dummy 是被 update/draw/fireCtx
+  // 跨帧持有的常量引用，重建会断链。
+  let removedMods = 0;
+  if(Array.isArray(player.modifiers)){
+    for(let i=player.modifiers.length-1;i>=0;i--){
+      const m = player.modifiers[i];
+      if(m && typeof m.source==='string' && m.source.indexOf('card:')===0){ player.modifiers.splice(i,1); removedMods++; }
+    }
+  }
+  const removedFx = Array.isArray(player.cardEffects) ? player.cardEffects.length : 0;
+  player.cardEffects = [];
+  refreshStats(player);
+  playSound('ui');
+  pushLog(`清除全部卡牌效果 — 移除 ${removedMods} 条 modifier / ${removedFx} 条装置效果，玩家属性已还原`,'COVER');
+});
+loadCardPool();
 
 // ---------- firing ----------
 let shells = [];   // 炮弹飞行动画（沿弹道逐段推进）

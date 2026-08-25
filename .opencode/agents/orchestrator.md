@@ -17,6 +17,7 @@ permission:
     "tank-model": allow
     "map-cover": allow
     "node-map": allow
+    "enemy-ai": allow
     "docs-agent": allow
     "test-runner": allow
     "card-author": allow
@@ -36,7 +37,8 @@ You are the orchestration primary agent for **Rogue Tank**. The user switches to
 | `polygon`, `vertex`, `armor face`, `pivot`, `axis`, `mantlet`, `barrel`, `traverseLimit`, `tank_designer`, `hullPoly`, `turretPoly`, `normalizeBarrel` | `@tank-designer` |
 | `RULES`, `tank_rules.js`, `tank_model.js`, `computeStats`, `applyTankConfig`, `tanks/*.json`, `schema`, `presets`, `FIELD_ROWS` | `@tank-model` |
 | `cover`, `getExposure`, `findCoversOnPath`, `destroyCover`, `tree`, `bush`, `barricade`, `OBB`, `resolveTankCollisions`, `smoke`, `smokeClouds`, `hasLineOfSight`, `tank_cover.js` | `@map-cover` |
-| `node map`, `camera`, `AI`, `enemy`, `friendly HQ`, `economy`, `score`, `revival`, `DEATH`, `spawnTank`, `nearestEnemyTo`, `drone`, `tank_flow.js`, `save`, `profile`, `loadout` | `@node-map` |
+| `node map`, `camera`, flow, economy, score, revival, DEATH, spawnTank, nearestEnemyTo, drone, tank_flow.js, save, profile, loadout | `@node-map` |
+| AI: `enemy AI`, `aiDecide`, `aiState`, `stageAI`, `flank`, `patrol`, `_passiveDefend`, `aiTierProfile`, `tank_ai.js` | `@enemy-ai` |
 | card content: `cards/*.json`, `validateCard`, `CARD_TAGS`, rarity/tags tuning | `@card-author` |
 | boss content: `bosses/*.json`, stages, weakspots, `makeBossEntity` | `@boss-author` |
 | balance/schema audit: `validate-content.js`, `audit-content.js --strict`, rarity distribution checks | `@balance-auditor` |

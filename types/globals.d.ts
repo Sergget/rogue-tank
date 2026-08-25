@@ -70,6 +70,7 @@ declare function debuffReloadRate(t: any): number;
 declare function normalizeBarrel(b: any): any;
 
 declare function resolveHit(shooter: any, target: any, hit: any, angle: any, dist: any): any;
+declare function applyDamage(target: any, amount: number): void;
 declare function resolveCoverCollisions(t: any, dt?: any, moveX?: any, moveY?: any): void;
 declare function getCoverUnderTank(t: any): any;
 declare function coverCorners(cov: any): any[];
@@ -339,6 +340,8 @@ declare var ABILITY_KEYS_RUNTIME: string[];
 declare function abilitiesConfig(): any;
 declare function hasAbility(t: any, key: string): boolean;
 declare function updateAbilityCd(t: any, dt: number): void;
+declare function updateAbilityCds(t: any, dt: number): void;
+declare var ABILITY_KEYS_INNATE: string[];
 declare function tryActivateAbility(t: any, key: string, ctx?: any): any;
 
 // 覆盖层视图模型（js/tank_screens.js，P-29）

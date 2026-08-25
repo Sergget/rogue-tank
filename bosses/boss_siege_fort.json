@@ -3,7 +3,17 @@
   "name": "要塞炮台",
   "desc": "固定重型炮台：正面装甲近乎免疫，绕侧摧毁弹药架破甲；破甲后转机动反击，残血狂暴突击。别硬顶正面，绕侧打弱点。",
   "tankId": "dummy",
-  "scale": 1.9,
+  "scale": 2.0,
+  "behavior": { "style": "crush", "contact": { "dmg": 120, "knockback": 260, "cd": 1.5 } },
+  "tuning": {
+    "hpMul": 8,
+    "moveMul": 0.5,
+    "turnMul": 0.6,
+    "turretTurnMul": 0.6,
+    "shellMul": 0.8,
+    "fireRateMul": 0.6,
+    "dmgMul": 1.5
+  },
   "stages": [
     {
       "id": "p1_hold",
@@ -12,6 +22,7 @@
       "hpTo": 0.66,
       "behavior": "静止固守：车体几乎不移动（maxSpeed×0.2、转向×0.5），炮口锁定玩家缓慢转向（turretTurnRate×0.7）；正面装甲 +80 近乎免疫，正面硬顶几乎无法击穿。需绕侧/绕后，用高穿弹或模块伤害打侧面与后方的弹药架（weakspot ammo）；弹药架被击毁即触发殉爆进入破甲阶段。",
       "weakspots": ["ammo"],
+      "ai": { "mode": "hold", "params": { "anchorRange": 0 } },
       "onEnter": {
         "modifiers": [
           { "stat": "armor.hull.front", "mode": "add", "value": 80 },
@@ -28,6 +39,7 @@
       "hpTo": 0.33,
       "behavior": "弹药架殉爆撕裂车体：阶段 1 的正面增甲被移除（回基础装甲），恢复机动转反击（转向×1.2、极速×1.1）——主动转向保持火力面朝向玩家并缓慢追击；弹药架（weakspot ammo）与引擎（weakspot engine）暴露，命中引擎可进一步瘫痪其转向；优先在它转向途中从侧后输出。",
       "weakspots": ["ammo", "engine"],
+      "ai": { "mode": "skirmish", "params": { "keepDist": 450 } },
       "onEnter": {
         "modifiers": [
           { "stat": "turnRate", "mode": "mult", "value": 1.2 },
@@ -43,6 +55,7 @@
       "hpTo": 0.0,
       "behavior": "狂暴突击：装填 ×0.55、伤害 ×1.2、极速 ×1.4，不计代价全速冲撞玩家；车体残破（armor.hull -25），冲撞轨迹直指玩家当前位置、可读可预判——利用掩体侧面迎击，在冲撞路径上提前摆好跳弹角度，抓它撞停后的侧后输出窗口。",
       "weakspots": [],
+      "ai": { "mode": "charge", "params": { "targetRange": 0 } },
       "onEnter": {
         "modifiers": [
           { "stat": "reload", "mode": "mult", "value": 0.55 },

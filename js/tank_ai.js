@@ -66,6 +66,33 @@ function _aiInit(t){
   if(t.aiState === undefined) t.aiState = 'patrol';
 }
 
+// P-51：Boss 阶段行为模式参数表（RULES.boss.aiModes，由 js/tank_rules.js 提供）。
+// 兜底内联同值三模式，保证 Node 单测不依赖 tank_rules.js 的加载时序。
+function _bossStageAIModes(){
+  const fb = { hold:{}, charge:{keepDist:0}, skirmish:{keepDist:640} };
+  return (typeof RULES !== 'undefined' && RULES.boss && RULES.boss.aiModes) ? RULES.boss.aiModes : fb;
+}
+
+// 消极防御核心（友军据点语义，P-51 提取共用）：原地不动、炮塔锁定射程内目标，
+// 对准+视线+装填满足才开火；目标不存在/超出射程 → 输出保持当前朝向、不开火。
+// target 为单个实体（友军传最近敌人，Boss hold 传玩家）。
+function _passiveDefend(t, ctx, target){
+  const cfg = aiConfig();
+  const out = { turn: 0, move: 0, turretDesired: t.turretAngle, fire: false };
+  if(!target || target.hp <= 0) return out;
+  const range = cfg.allyEngageRange !== undefined ? cfg.allyEngageRange : 460;
+  const dx = target.x - t.x, dy = target.y - t.y;
+  const d = Math.hypot(dx, dy);
+  if(d > range) return out;
+  const desired = Math.atan2(dy, dx);
+  out.turretDesired = desired;
+  const tol = cfg.aimTolerance !== undefined ? cfg.aimTolerance : 0.12;
+  const aimErr = Math.abs(angDiff(t.turretAngle, desired));
+  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, target.x, target.y) : true;
+  if(aimErr < tol && los && t.reloadT <= 0) out.fire = true;
+  return out;
+}
+
 // 状态机主决策 —— 敌人（含 Boss/召唤物）。输出格式完全向后兼容：
 //   { turn: number, move: number, turretDesired: number, fire: boolean }
 function aiDecideEnemy(t, ctx){
@@ -79,6 +106,54 @@ function aiDecideEnemy(t, ctx){
   // 此部分输出与原 aiDecideEnemy 完全一致，作为后续状态机的基线
 
   if(!p || p.hp <= 0){ t.aiState = 'patrol'; t.aiEngaged = false; return out; }
+
+  // ISSUE 21b：Boss 强制接战（永不脱离 aggro / 不丢失目标记忆）
+  if(t.isBoss){
+    t.aiEngaged = true;
+    t.lastKnownPlayerPos = t.lastKnownPlayerPos || { x: p.x, y: p.y };
+  }
+
+  // --- 0) P-51：Boss 阶段声明式行为覆盖（仅 isBoss 且 stageAI 存在时生效） ---
+  //   hold     → 复用友军消极防御语义（原地防守、射程内还击，不进主动状态机）
+  //   skirmish → 与目标保持 keepDist：过近倒车（move=-1，遵循 driveTank 倒车约定）、
+  //              达标即停；炮塔全程照常瞄准开火。
+  //   charge / 未知 mode → 显式默认激进接敌：不加任何位移约束，直接落入下方基线
+  //   主动状态机（params.keepDist=0 不产生额外约束）。
+  //   非 Boss 或 stageAI 为 null → 完全不进入本分支，行为零改动。
+  if(t.isBoss && t.stageAI && t.stageAI.mode){
+    const modes = _bossStageAIModes();
+    const mCfg = modes && typeof modes === 'object' ? modes[t.stageAI.mode] : null;
+
+    if(t.stageAI.mode === 'hold'){
+      t.aiState = 'hold';
+      return _passiveDefend(t, ctx, p);
+    }
+
+    if(t.stageAI.mode === 'skirmish'){
+      const fbSkirmish = (modes.skirmish && modes.skirmish.keepDist !== undefined)
+        ? modes.skirmish.keepDist : 640;
+      const pKeep = t.stageAI.params ? t.stageAI.params.keepDist : undefined;
+      const keepDist = Number.isFinite(pKeep) ? pKeep : fbSkirmish;
+      const dxB = p.x - t.x, dyB = p.y - t.y;
+      const distB = Math.hypot(dxB, dyB) || 1;
+      const desiredB = Math.atan2(dyB, dxB);
+      const out = { turn: 0, move: 0, turretDesired: desiredB, fire: false };
+      // 车体朝向目标；拉开距离用 move<0 倒车（driveTank 现有约定），不引入反向转向逻辑
+      const hullDiff = angDiff(desiredB, t.hullAngle);
+      if(hullDiff > 0.05) out.turn = 1;
+      else if(hullDiff < -0.05) out.turn = -1;
+      out.move = distB < keepDist ? -1 : 0;
+      const cfgA = aiConfig();
+      const tol = cfgA.aimTolerance !== undefined ? cfgA.aimTolerance : 0.12;
+      const aimErr = Math.abs(angDiff(t.turretAngle, desiredB));
+      const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y) : true;
+      if(aimErr < tol && los && t.reloadT <= 0) out.fire = true;
+      t.aiState = 'skirmish';
+      return out;
+    }
+
+    // charge 及未知 mode：落回基线主动状态机（无额外处理）
+  }
 
   const dx = p.x - t.x, dy = p.y - t.y;
   const dist = Math.hypot(dx, dy) || 1;
@@ -103,7 +178,7 @@ function aiDecideEnemy(t, ctx){
       // #76 C5：激活门控外的 patrol 早退不再全零——微摆动摆头（远处敌人不死板）
       t.aiState = 'patrol';
       out.turn = _patrolWanderTurn(t, ctx);
-      return out;
+      if(!t.isBoss) return out;                       // ISSUE 21b：Boss 不回 patrol，继续追击
     }                                                   // 触发距离外：patrol 不活动
   } else if(dist > exitD){                                   // 滞回带内保持接战，超出才脱离
     // 警觉记忆（被击中/友邻告警）：持有 lastKnownPlayerPos 时即使超出滞回带也保持
@@ -112,7 +187,7 @@ function aiDecideEnemy(t, ctx){
       t.aiEngaged = false;
       t.aiState = 'patrol';
       out.turn = _patrolWanderTurn(t, ctx);   // #76 C5：同上，脱离接战后微摆动
-      return out;
+      if(!t.isBoss) return out;                       // ISSUE 21b：Boss 不回 patrol，继续追击
     }
   }
   t.aiEngaged = true;
@@ -157,7 +232,7 @@ function aiDecideEnemy(t, ctx){
   // 移动：保持距离（远则进，太近则退）——engage 已含难度/档位调制（#76 B）
   const close = cfg.closeRange !== undefined ? cfg.closeRange : 200;
   if(dist > engage) out.move = 1;
-  else if(dist < close) out.move = -1;
+  else if(dist < close && !t.isBoss) out.move = -1;   // ISSUE 21b：Boss 不后撤（防 kite）
 
   // 开火：炮塔大致对准 + 视线畅通（触发段已算好 los）+ 装填好 + 在接战距离内
   // tol 已按档位 aimTolMul 收紧（#76 B）
@@ -317,35 +392,86 @@ function aiDecideEnemy(t, ctx){
   // --- 4) 根据 state 设置 aiState 并返回 ---
   t.aiState = state;
 
-  // 仅当 state 不是 'patrol'（或显式需要时）才应用摆动修正。
-  // 对于 patrol，让 base AI 结果完全保留，不引入额外修正。
-  // 这确保了现有测试中“距离在接战范围内 → 不前进”这类断言不被破坏。
+  // #88 装填间隙随机侧摆（基线 patrol 态专用；普通敌与 Boss 基线均适用）：
+  // 装填前段（reloadT > 装填时长 × sideSwingReloadFrac，缺省 0.3）且非特殊态时，
+  // 车体向随机侧向目标角（当前朝向 ± rng(sideSwingAngleMin~sideSwingAngleMax)）摆动——
+  // 每次持续数秒后换向（t._swingTarget/_swingT 计时）。turn 朝目标摆、前进机动微降（0.3）；
+  // 炮塔锁定与开火条件不变（不触碰 turretDesired/fire）。reloadT 归零恢复常规并清计时。
+  // 注：Boss 的防风筝 move=1 覆盖（下方 ISSUE 21b）优先级更高——Boss 只摆车体方向不停驶。
+  if(state === 'patrol' && ctx && Number.isFinite(ctx.dt)){
+    const reloadDur = (t.stats && typeof t.stats.reload === 'number' && t.stats.reload > 0)
+      ? t.stats.reload : 4;
+    const frac = cfg.sideSwingReloadFrac !== undefined ? cfg.sideSwingReloadFrac : 0.3;
+    const minA = cfg.sideSwingAngleMin !== undefined ? cfg.sideSwingAngleMin : 0.78;
+    const maxA = cfg.sideSwingAngleMax !== undefined ? cfg.sideSwingAngleMax : 1.57;
+    if(t.reloadT > reloadDur * frac){
+      if(!Number.isFinite(t._swingTarget) || (t._swingT || 0) <= 0){
+        const ang = minA + Math.random() * Math.max(0, maxA - minA);
+        t._swingTarget = norm(t.hullAngle + ((Math.random() < 0.5) ? -ang : ang));
+        t._swingT = 1.5 + Math.random() * 2.5;   // 每次数秒换一次方向
+      }
+      t._swingT -= ctx.dt;
+      const sDiff = angDiff(t._swingTarget, t.hullAngle);
+      out.turn = sDiff > 0.05 ? 1 : (sDiff < -0.05 ? -1 : 0);
+      if(out.move > 0) out.move = 0.3;   // 微降机动（仅压低前进；倒车/停止语义保留）
+    } else {
+      t._swingTarget = undefined;
+      t._swingT = 0;
+    }
+  }
+
+  // ISSUE 9：接战微行为随机化（仅 engaged 基态 / 非 stunned/flank/coverSeek 生效）。
+  // 通过惰性计时器在坦克上随机触发“露头偏角(peek)”与“短促走位(repos)”：
+  //   - peek：触发时给 out.turn 叠加 ±peekAngleMax 的偏角持续数秒（炮塔仍锁玩家，不抑制开火）；
+  //   - repos：触发时短暂改写 out.move 为 ±1 走位并加一个小转向偏置，窗口结束自动回基态。
+  // 不改动 turretDesired（恒锁玩家）与开火条件，亦不触碰 aiUpdateStateTimer。
+  if(state === 'patrol' && ctx && Number.isFinite(ctx.dt)){
+    const peekMax = (cfg.peekAngleMax !== undefined) ? cfg.peekAngleMax : 0.5;
+    const peekIV = Array.isArray(cfg.peekInterval) ? cfg.peekInterval : [3, 6];
+    const reposIV = Array.isArray(cfg.reposInterval) ? cfg.reposInterval : [4, 8];
+    if(t.aiPeekTimer === undefined) t.aiPeekTimer = Math.random() * (peekIV[1] - peekIV[0]) + peekIV[0];
+    if(t.aiReposTimer === undefined) t.aiReposTimer = Math.random() * (reposIV[1] - reposIV[0]) + reposIV[0];
+    if(t.aiPeekUntil === undefined) t.aiPeekUntil = 0;
+    if(t.aiReposUntil === undefined) t.aiReposUntil = 0;
+    t.aiPeekTimer -= ctx.dt;
+    t.aiReposTimer -= ctx.dt;
+    if(t.aiPeekUntil > 0){
+      t.aiPeekUntil -= ctx.dt;
+      out.turn += (t.aiPeekOffset || 0);          // 持续数秒的露头偏角（在基态转向基础上叠加）
+    } else if(t.aiPeekTimer <= 0){
+      t.aiPeekOffset = (Math.random() * 2 - 1) * peekMax;   // ±peekAngleMax 随机偏角
+      t.aiPeekUntil = 1.5 + Math.random() * 1.5;            // 持续 1.5~3s
+      t.aiPeekTimer = Math.random() * (peekIV[1] - peekIV[0]) + peekIV[0];
+    }
+    if(t.aiReposUntil > 0){
+      t.aiReposUntil -= ctx.dt;
+      out.move = (t.aiReposStrafe || 0);           // 短暂走位（±1），窗口结束自动回到基态 move
+      out.turn += (t.aiReposTurnBias || 0);
+    } else if(t.aiReposTimer <= 0){
+      t.aiReposUntil = 0.6 + Math.random() * 0.8;  // 持续 0.6~1.4s
+      t.aiReposStrafe = (Math.random() < 0.5) ? 1 : -1;
+      t.aiReposTurnBias = (Math.random() * 2 - 1) * 0.3;
+      t.aiReposTimer = Math.random() * (reposIV[1] - reposIV[0]) + reposIV[0];
+    }
+  }
+
+  // ISSUE 21b：Boss 始终向玩家推进（覆盖任何微观走位/状态位移）
+  if(t.isBoss) out.move = 1;
 
   return out;
 }
 
 // 友军据点：消极防御（不追击/不巡逻），只打射程内最近敌人。
 // ctx: { enemies:[...], hasLoS(ox,oy,tx,ty) }
+// P-51：核心语义提取为 _passiveDefend 共用（Boss hold 模式复用同一路径）。
 function aiDecideAlly(t, ctx){
-  const cfg = aiConfig();
-  const out = { turn: 0, move: 0, turretDesired: t.turretAngle, fire: false };
-  // 保持原有逻辑不变——消极防御语义不变
   const targets = ((ctx && ctx.enemies) || []).filter(e => e.hp > 0);
   let best = null, bestD = Infinity;
   for(const e of targets){
     const d = Math.hypot(e.x - t.x, e.y - t.y);
     if(d < bestD){ bestD = d; best = e; }
   }
-  const range = cfg.allyEngageRange !== undefined ? cfg.allyEngageRange : 460;
-  if(best && bestD <= range){
-    const desired = Math.atan2(best.y - t.y, best.x - t.x);
-    out.turretDesired = desired;
-    const tol = cfg.aimTolerance !== undefined ? cfg.aimTolerance : 0.12;
-    const aimErr = Math.abs(angDiff(t.turretAngle, desired));
-    const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, best.x, best.y) : true;
-    if(aimErr < tol && los && t.reloadT <= 0) out.fire = true;
-  }
-  return out;
+  return _passiveDefend(t, ctx, best);
 }
 
 // 通用分发：ally 走消极防御，其余（enemy/Boss/召唤物）走多态状态机。
@@ -409,5 +535,5 @@ function propagateAlert(entitiesArr, x, y, radius){
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiTierProfile, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert };
+  module.exports = { aiConfig, aiTierProfile, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, _passiveDefend, _bossStageAIModes };
 }

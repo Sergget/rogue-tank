@@ -61,17 +61,18 @@ ok(aiTierForDifficulty(2) === 2 && aiTierForDifficulty(-1) === 0, 'AI 档位越�
 // #76 A：entityMults 表驱动插值（[diff=0, diff=diffMax]，按 diffNorm 线性）
 const EM = entityMultsForDifficulty;
 const dMax = RULES_MOD.RULES.difficulty.diffMax;
-ok(EM(0).maxHp === 1 && EM(0).damage === 1 && EM(0).armorAll === 1 && EM(0).reload === 1, 'diff 0：全乘子为下限 1');
-ok(EM(dMax).maxHp === 1.6 && EM(dMax).penetration === 1.5 && EM(dMax).damage === 1.4 && EM(dMax).armorAll === 1.45,
+const TBL = RULES_MOD.RULES.difficulty.entityMults;   // #76 A 表驱动乘子端点 [diff=0, diff=diffMax]；测试以端点+插值为唯一真值，抗未来调参
+ok(EM(0).maxHp === TBL.maxHp[0] && EM(0).damage === TBL.damage[0] && EM(0).armorAll === TBL.armorAll[0] && EM(0).reload === TBL.reload[0], 'diff 0：全乘子为弱难度下限（<1，弱易强难）');
+ok(EM(dMax).maxHp === TBL.maxHp[1] && EM(dMax).penetration === TBL.penetration[1] && EM(dMax).damage === TBL.damage[1] && EM(dMax).armorAll === TBL.armorAll[1],
    `diff 上限：生存/输出端触顶终值（实际 maxHp=${EM(dMax).maxHp} armorAll=${EM(dMax).armorAll}）`);
-ok(EM(dMax).reload === 0.82 && EM(dMax).spreadMult === 0.78 && EM(dMax).aimSpeed === 1.35,
+ok(EM(dMax).reload === TBL.reload[1] && EM(dMax).spreadMult === TBL.spreadMult[1] && EM(dMax).aimSpeed === TBL.aimSpeed[1],
    'diff 上限：火控端反向键（reload↓/spread↓/aimSpeed↑）');
-ok(closeNum(EM(dMax * 0.5).maxHp, 1.3), `中点线性插值 (1+1.6)/2=1.3（实际 ${EM(dMax * 0.5).maxHp}）`);
-ok(EM(-1).maxHp === 1 && EM(99).maxHp === 1.6, '乘子越界钳制到 [下限, 上限]');
+ok(closeNum(EM(dMax * 0.5).maxHp, (TBL.maxHp[0] + TBL.maxHp[1]) / 2), `中点线性插值 (${(TBL.maxHp[0] + TBL.maxHp[1]) / 2})（实际 ${EM(dMax * 0.5).maxHp}）`);
+ok(EM(-1).maxHp === TBL.maxHp[0] && EM(99).maxHp === TBL.maxHp[1], '乘子越界钳制到 [下限, 上限]');
 // 兼容薄委托 statMultForDifficulty = entityMults.maxHp
-ok(closeNum(statMultForDifficulty(0.15), 1.078) && closeNum(statMultForDifficulty(0.95), 1.496),
-   `兼容 statMult（=maxHp 档）0→上限线性（实际 ${statMultForDifficulty(0.15)}→${statMultForDifficulty(0.95)}）`);
-ok(statMultForDifficulty(-1) === 1 && statMultForDifficulty(99) === 1.6, '兼容 statMult 越界钳制');
+ok(closeNum(statMultForDifficulty(0.15), entityMultsForDifficulty(0.15).maxHp) && closeNum(statMultForDifficulty(0.95), entityMultsForDifficulty(0.95).maxHp),
+   `兼容 statMult（=maxHp 档）随难度插值（实际 ${statMultForDifficulty(0.15)}→${statMultForDifficulty(0.95)}）`);
+ok(statMultForDifficulty(-1) === entityMultsForDifficulty(-1).maxHp && statMultForDifficulty(99) === entityMultsForDifficulty(99).maxHp, '兼容 statMult 越界钳制');
 // 三杠杆单调
 for (let i = 1; i < diffs.length; i++) ok(aiTierForDifficulty(diffs[i]) >= aiTierForDifficulty(diffs[i - 1]), `AI 档位单调（${diffs[i - 1]}→${diffs[i]}）`);
 for (let i = 1; i < diffs.length; i++) ok(statMultForDifficulty(diffs[i]) >= statMultForDifficulty(diffs[i - 1]), `数值强度单调`);
@@ -126,7 +127,7 @@ for (const n of run1.nodes) {
   }
   // P-13/#76 A：三杠杆字段（AI 档位 + 数值强度）落在节点与每个敌人上
   ok(typeof n.aiTier === 'number' && n.aiTier >= 0 && n.aiTier <= 2, `节点 ${n.index} aiTier 合法`);
-  ok(typeof n.statMult === 'number' && n.statMult >= 1 && n.statMult <= 1.6, `节点 ${n.index} statMult 合法（兼容 =maxHp 档）`);
+   ok(typeof n.statMult === 'number' && n.statMult >= TBL.maxHp[0] - 1e-9 && n.statMult <= TBL.maxHp[1] + 1e-9, `节点 ${n.index} statMult 合法（兼容 =maxHp 档，弱易<1 强难>1）`);
   ok(n.aiTier === aiTierForDifficulty(Math.min(1, n.difficulty)), `节点 ${n.index} aiTier 匹配难度`);
   ok(n.statMult === statMultForDifficulty(n.difficulty), `节点 ${n.index} statMult 匹配难度`);
   ok(JSON.stringify(n.entityMults) === JSON.stringify(entityMultsForDifficulty(n.difficulty)), `节点 ${n.index} entityMults 表匹配难度（#76 A）`);
@@ -313,11 +314,11 @@ ok(runZ.difficulty === difficultyForIndex(5, 3), 'extendRun 复用 run.env 的 d
     ]
   }, envM);
   const e0 = resM.spawned[0], e1 = resM.spawned[1];
-  ok(e0.stats.maxHp === 1600, `entityMults.maxHp 应用：1000→1600（实际 ${e0.stats.maxHp}）`);
+  ok(e0.stats.maxHp === 1000 * multsMax.maxHp, `entityMults.maxHp 应用：1000→${e0.stats.maxHp}（实际 ${e0.stats.maxHp}）`);
   ok(closeNum(e0.stats.reload, 4.1), `entityMults.reload 应用：5→4.1（实际 ${e0.stats.reload}）`);
-  ok(e0.stats.armor.hull.front === 145 && e0.stats.armor.turret.rear === 58,
-     `armorAll 全面生效：hull.front 100→145 / turret.rear 40→58（实际 ${e0.stats.armor.hull.front}/${e0.stats.armor.turret.rear}）`);
-  ok(e1.stats.penetration === 180 && e1.stats.spreadMult === 0.78 && closeNum(e1.stats.turretTurnRate, 1.56),
+  ok(e0.stats.armor.hull.front === 100 * multsMax.armorAll && e0.stats.armor.turret.rear === 40 * multsMax.armorAll,
+     `armorAll 全面生效：hull.front 100→${e0.stats.armor.hull.front} / turret.rear 40→${e0.stats.armor.turret.rear}（实际 ${e0.stats.armor.hull.front}/${e0.stats.armor.turret.rear}）`);
+  ok(e1.stats.penetration === 120 * multsMax.penetration && e1.stats.spreadMult === 1 * multsMax.spreadMult && closeNum(e1.stats.turretTurnRate, 1.2 * multsMax.turretTurnRate),
      '第二个敌军同样按表叠乘（pen/spread/turretTurnRate）');
   ok(JSON.stringify(diffTargets.sort()) === JSON.stringify(['enemy', 'enemy']),
      'applyDifficulty 仅对 team=enemy 调用（玩家/据点不受难度影响）');

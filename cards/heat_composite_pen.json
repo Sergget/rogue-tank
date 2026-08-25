@@ -1,0 +1,11 @@
+{
+  "id": "heat_composite_pen",
+  "name": "复合破甲药型罩",
+  "rarity": "common",
+  "tags": ["狙击", "爆破"],
+  "desc": "改进 HEAT 弹铜质药型罩，破甲穿深 +6%。",
+  "effects": [
+    { "type": "ammo", "key": "heat", "field": "pen", "mode": "mult", "value": 1.06 }
+  ],
+  "maxStacks": 3
+}

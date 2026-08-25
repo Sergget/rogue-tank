@@ -139,6 +139,7 @@ function drawShells(ctx, shells){
 // bush/tree/fallen 走资产层（js/tank_assets.js：ASSET_DEFS 注册表 + drawAsset——有图
 // drawImage / 无图烘焙缓存，画法与旧内联分支逐字一致）。树冠叶片（bush/tree/fallen 的上层
 // 叶片）由 drawFoliage 在坦克之上调用 drawAssetCanopy 形成视线遮挡。
+// road（#87）：地面类扁平条带，由 mvp 按 tierGroup='ground' 垫底绘制，不遮单位。
 function drawCover(ctx, cov){
   const tier = COVER_TIERS[cov.tier];
   if(tier.draw === 'box'){
@@ -214,6 +215,42 @@ function drawCover(ctx, cov){
       else { ctx.moveTo(r.x, r.y - r.h*0.35); ctx.lineTo(r.x, r.y + r.h*0.35); }
       ctx.stroke();
     }
+  } else if(tier.draw === 'water'){
+    // ISSUE 3：水域可见——半透明蓝 blob（verts 多边形或矩形回退），区别于地形绿/褐/灰
+    const c = coverCorners(cov);
+    ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
+    for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(60,110,150,0.55)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(150,200,230,0.7)'; ctx.lineWidth=1.5; ctx.stroke();
+    // 涟漪高光：质心向外的浅弧（确定性，无需 rng）
+    let gx=0, gy=0; for(const p of c){ gx+=p.x; gy+=p.y; } gx/=c.length; gy/=c.length;
+    ctx.strokeStyle = 'rgba(180,220,245,0.45)'; ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.arc(gx, gy, Math.min(cov.w, cov.h)*0.28, 0.4, Math.PI*0.9);
+    ctx.stroke();
+  } else if(tier.draw === 'road'){
+    // #87 村庄道路：扁平沥青条带（tierGroup='ground' → mvp 地面图层垫底绘制，
+    // 画在坦克之下不遮单位；tank_bench 全掩体先于坦克绘制，同样垫底）。
+    // 深灰沥青 + 边缘浅描边 + 中线虚线（虚线沿长轴、无随机相位，确定性）。
+    const c = coverCorners(cov);
+    ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
+    for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
+    ctx.closePath();
+    ctx.fillStyle = tier.fill || '#3c3c3e'; ctx.fill();
+    ctx.strokeStyle = 'rgba(210,205,190,0.35)'; ctx.lineWidth=1.5; ctx.stroke();
+    // 中线虚线（沿条带长轴方向）
+    ctx.save();
+    ctx.translate(cov.x, cov.y);
+    ctx.rotate(cov.angle || 0);
+    ctx.strokeStyle = 'rgba(225,220,195,0.55)'; ctx.lineWidth = 2;
+    ctx.setLineDash([12,10]);
+    ctx.beginPath();
+    if(cov.w >= cov.h){ ctx.moveTo(-cov.w*0.46, 0); ctx.lineTo(cov.w*0.46, 0); }
+    else { ctx.moveTo(0, -cov.h*0.46); ctx.lineTo(0, cov.h*0.46); }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
   } else if(typeof ASSET_DEFS !== 'undefined' && ASSET_DEFS[tier.draw]){
     // 资产层：soft/barricade/stump/rubble/bush/tree/fallen（依赖 js/tank_assets.js 先加载）
     drawAsset(ctx, tier.draw, cov.x, cov.y, cov.w, cov.h, cov.angle||0);

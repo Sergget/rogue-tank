@@ -3,10 +3,10 @@
   "name": "徐进弹幕",
   "rarity": "epic",
   "tags": ["爆破"],
-  "desc": "持续火力压制：装填时间 -15%，HE 弹伤害 +20%。",
+  "desc": "持续火力压制：装填时间 -15%，HE 弹伤害 +15%。",
   "effects": [
     { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.85 },
-    { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.2 }
+    { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.15 }
   ],
   "maxStacks": 1
 }

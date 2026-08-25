@@ -47,7 +47,7 @@ function step(a, b){
   MV.driveTank(b, dt, { turn:0, move:1 });
 }
 function clear(){ EN.entities.length = 0; }
-function speedCap(t){ return t.stats.maxSpeed * RULES.speed.pxFactor; }
+function speedCap(t){ return t.stats.maxSpeed * RULES.speed.pxFactor * RULES.speed.effMul; }
 // resolve 之后两车的真实残余重叠（SAT 投影深度；null=已分离→0）
 function residualOverlap(a, b){
   const all = CV.obbMTVs(

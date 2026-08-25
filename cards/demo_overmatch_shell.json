@@ -3,10 +3,10 @@
   "name": "超口径高爆弹",
   "rarity": "epic",
   "tags": ["爆破"],
-  "desc": "超口径弹体：口径碾压判定强化（被动），HE 弹伤害 +15%。",
+  "desc": "超口径弹体：口径碾压判定强化（被动），HE 弹伤害 +14%。",
   "effects": [
     { "type": "passive", "key": "overmatch", "value": 0.85 },
-    { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.15 }
+    { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.14 }
   ],
   "maxStacks": 1
 }

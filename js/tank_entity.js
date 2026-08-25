@@ -113,7 +113,7 @@ function resolveTankCollisions(iterations){
                   + (vAy + best.uy * j) * Math.sin(a.hullAngle);
           b.speed = (vBx - best.ux * j) * Math.cos(b.hullAngle)
                   + (vBy - best.uy * j) * Math.sin(b.hullAngle);
-          const cap = t => (t.stats && t.stats.maxSpeed) ? t.stats.maxSpeed * RULES.speed.pxFactor : 0;
+          const cap = t => (t.stats && t.stats.maxSpeed) ? t.stats.maxSpeed * RULES.speed.pxFactor * RULES.speed.effMul : 0;
           const capA = cap(a), capB = cap(b);
           if(capA > 0) a.speed = Math.max(-capA, Math.min(capA, a.speed));
           if(capB > 0) b.speed = Math.max(-capB, Math.min(capB, b.speed));

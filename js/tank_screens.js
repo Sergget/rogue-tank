@@ -28,8 +28,7 @@ function tankSummary(spec){
   return `极速 ${kmh}km/h · 耐久 ${hp} · 正面 ${front}mm · 穿深 ${pen}mm`;
 }
 
-function deploymentReady(profile, tankListData){
-  return !!(profile && profile.selectedTankId && tankListData && tankListData[profile.selectedTankId]) &&
+function deploymentReady(profile, tankListData){  return !!(profile && profile.selectedTankId && tankListData && tankListData[profile.selectedTankId]) &&
          Array.isArray(profile.ammoLoadout) && profile.ammoLoadout.length >= 1;
 }
 
@@ -38,6 +37,20 @@ function _loadoutHint(profile, tankListData){
   if(!tankListData || !tankListData[profile.selectedTankId]) return '所选坦克不在当前 tanks/ 列表中，请重新选择。';
   if(!(profile.ammoLoadout || []).length) return '请至少选配 1 种弹药。';
   return `已选弹种 ${(profile.ammoLoadout).length}/3 · 配置在出击时写入存档。`;
+}
+
+// 永久升级总览行（首页存档卡片）：遍历 profile.upgrades 非零项，按 UPGRADE_DEFS 顺序拼名称。
+// 特殊消费项（repair_kit_cd/medkit_cd 等 stat 为空的 def）同样展示——它们是玩家可感知的成长。
+function upgradesOverviewLine(prof, upgradeDefs){
+  const defs = Array.isArray(upgradeDefs) ? upgradeDefs
+    : ((typeof UPGRADE_DEFS !== 'undefined' && Array.isArray(UPGRADE_DEFS)) ? UPGRADE_DEFS : []);
+  const ups = (prof && prof.upgrades && typeof prof.upgrades === 'object') ? prof.upgrades : {};
+  const parts = [];
+  for(const d of defs){
+    const lv = ups[d.id] | 0;
+    if(lv > 0) parts.push(`${d.name} Lv${lv}`);
+  }
+  return parts.length ? `永久升级：${parts.join(' · ')}` : '';
 }
 
 function buildHomeViewModel(opts){
@@ -68,6 +81,7 @@ function buildHomeViewModel(opts){
       active,
       badge: active,
       meta,
+      upgradesLine: upgradesOverviewLine(prof, opts.upgradeDefs),
       renamingInput,
       showDeleteConfirm,
       updatedAt: s.updatedAt,
@@ -174,17 +188,24 @@ function buildPausePanel(opts){
     { keys: 'G', desc: '战术炮击' },
     { keys: 'H（Shift+H 全向）', desc: '护盾' },
     { keys: 'V', desc: '超装填' },
-    { keys: 'TAB / `', desc: '玩家状态面板 / 开发者面板' },
+    { keys: '4', desc: '修理箱—修复受损模块' },
+    { keys: '5', desc: '医疗包—救治全体成员' },
+    { keys: '` 或 F12', desc: '开发者面板' },
+    { keys: 'Tab', desc: '玩家状态面板' },
     { keys: 'ESC', desc: '暂停 ⇄ 继续' }
   ];
   return {
     bindings,
     settings: {
       invertReverseTurn: !!settings.invertReverseTurn,
-      invertReverseTurnDesc: '倒车转向倒置：S 倒车时 A/D 转向反置（拟真履带差速）。'
+      invertReverseTurnDesc: '倒车转向倒置：S 倒车时 A/D 转向反置（拟真履带差速）。',
+      showFps: !!settings.showFps,
+      showFpsLabel: '显示帧率 (FPS)'
     },
     buttons: [
       { id: 'pauseResumeBtn', label: '继续 RESUME', action: 'resume' },
+      { id: 'pauseControlsBtn', label: '控制 CONTROLS', action: 'toggleControls' },
+      { id: 'pauseShopBtn', label: '局内商店 RUN SHOP', action: 'runShop' },
       { id: 'pauseEndBtn', label: '终止游戏并结算 END & SETTLE', action: 'endRun' }
     ]
   };
@@ -220,7 +241,8 @@ if(typeof window !== 'undefined'){
     buildMapListViewModel,
     buildDeathShopViewModel,
     buildSettlementViewModel,
-    buildPausePanel
+    buildPausePanel,
+    upgradesOverviewLine
   };
   window.SCREENS = SCREENS;
   window.formatStamp = formatStamp;
@@ -248,6 +270,7 @@ if(typeof module !== 'undefined' && module.exports){
     buildMapListViewModel,
     buildDeathShopViewModel,
     buildSettlementViewModel,
-    buildPausePanel
+    buildPausePanel,
+    upgradesOverviewLine
   };
 }

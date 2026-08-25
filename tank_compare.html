@@ -199,7 +199,27 @@ function renderThumb(canvas, spec){
 }
 
 // ---------- 字段行 ----------
-function renderRowField(spec, f){
+// display 元数据（js/tank_schema.js）的读数解析：
+//   via:'stats'       → 读同源派生键（computeStats 产出，换算系数唯一权威 RULES.speed.kmhFactor）
+//   scale:'pxPerMeter'→ 原始 px ÷ RULES.scale.PX_PER_METER 得米
+const STATS_VIA = {
+  'maxSpeed':    st => (st && st.maxSpeedKmh !== undefined) ? st.maxSpeedKmh : null,
+  'shellSpeed':  st => (st && st.shellSpeedMs !== undefined) ? st.shellSpeedMs : null
+};
+function displayReadout(f, val, stats){
+  const d = f.display;
+  if(!d) return null;
+  let num = null;
+  if(d.via === 'stats'){
+    num = STATS_VIA[f.path] ? STATS_VIA[f.path](stats) : null;
+  } else if(d.scale === 'pxPerMeter'){
+    const ppm = RULES.scale && RULES.scale.PX_PER_METER;
+    num = (typeof val === 'number' && ppm) ? val / ppm : null;
+  }
+  return (num !== null && !isNaN(num)) ? num + ' ' + d.suffix : null;
+}
+
+function renderRowField(spec, f, stats){
   const row = document.createElement('div');
   row.className = 'mrow';
   const lbl = document.createElement('span');
@@ -224,7 +244,50 @@ function renderRowField(spec, f){
     sel.addEventListener('change', ()=> setPath(spec, f.path, sel.value));
     row.appendChild(sel);
   }
+  // 有 display 元数据的行：输入框旁渲染只读真实单位小字（数据源：实例 stats 派生键 / PX_PER_METER）
+  const ro = displayReadout(f, val, stats);
+  if(ro !== null){
+    const unit = document.createElement('span');
+    unit.className = 'ro';
+    unit.textContent = ro;
+    unit.title = '真实单位读数（只读，来自 computeStats 同源派生 / RULES.scale.PX_PER_METER）';
+    row.appendChild(unit);
+  }
   return row;
+}
+
+// ---------- 精度 σ 读数行（置于 spreadMult/aimSpeed 之后） ----------
+// σ_base = SPREAD.base × spreadMult；最差散布 = SPREAD.worstCase() × spreadMult（rad，4 位小数）
+// @100m 横向偏移：100m 距离 = 100×PX_PER_METER(px)，偏移px = 距离px×σ(rad)，÷PX_PER_METER 还原为米
+// ——PX_PER_METER 分子分母相消，等价于小角近似弧长 100×σ；无该键时直接用弧长近似并注明。
+function precisionReadout(sigma){
+  const ppm = (RULES.scale && typeof RULES.scale.PX_PER_METER === 'number') ? RULES.scale.PX_PER_METER : null;
+  let offM, note = '';
+  if(ppm){
+    offM = (100 * ppm * sigma) / ppm;
+  } else {
+    offM = 100 * sigma; // 无 PX_PER_METER 键：用 100×σ(rad) 近似弧长
+    note = ' (弧长近似)';
+  }
+  return sigma.toFixed(4) + ' rad · @100m≈' + offM.toFixed(2) + 'm' + note;
+}
+function buildPrecisionRows(spec){
+  const mult = (spec.spreadMult !== undefined && spec.spreadMult !== null && !isNaN(+spec.spreadMult)) ? +spec.spreadMult : 1;
+  const rows = [
+    ['精度 σ',      precisionReadout(SPREAD.base * mult)],
+    ['最差散布',     precisionReadout(SPREAD.worstCase() * mult)]
+  ];
+  const frag = document.createDocumentFragment();
+  for(const [label, value] of rows){
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = label;
+    const ro = document.createElement('span'); ro.className = 'ro'; ro.textContent = value;
+    ro.title = 'σ_base = SPREAD.base × spreadMult；最差 = SPREAD.worstCase() × spreadMult（rad）';
+    row.appendChild(lbl); row.appendChild(ro);
+    frag.appendChild(row);
+  }
+  return frag;
 }
 
 function buildColumn(key, spec){
@@ -242,15 +305,19 @@ function buildColumn(key, spec){
   head.appendChild(name);
   col.appendChild(head);
 
-  for(const f of FIELD_ROWS) col.appendChild(renderRowField(spec, f));
-
-  // ---------- 真实世界单位标定显示（以 Tiger I 为基准） ----------
-  // 创建临时坦克实例并应用配置，读取计算后的标定数值
+  // ---------- 实例化一次：字段行只读读数与标定区块共用（calStats 来自同源 computeStats） ----------
   const calTank = makeTank({ x:0, y:0, hullAngle:0, turretAngle:0, team:'enemy', heightClass: spec.heightClass||'medium' });
   applyTankConfig(calTank, spec);
   const calStats = calTank.stats;
   const pxPerMeter = RULES.scale.PX_PER_METER;
 
+  for(const f of FIELD_ROWS){
+    col.appendChild(renderRowField(spec, f, calStats));
+    if(f.path === 'aimSpeed') col.appendChild(buildPrecisionRows(spec));
+  }
+
+  // ---------- 真实世界单位标定显示（以 Tiger I 为基准） ----------
+  // maxSpeedKmh 由 computeStats 按 RULES.speed.kmhFactor 同源产出，此处无本地换算硬编码
   const calRows = [
     ['标定极速', calStats.maxSpeedKmh !== undefined ? calStats.maxSpeedKmh + ' km/h' : '—'],
     ['标定弹速', calStats.shellSpeedMs !== undefined ? calStats.shellSpeedMs + ' m/s' : '—'],

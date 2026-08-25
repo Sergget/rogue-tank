@@ -104,7 +104,8 @@ function _splash(s, entities) {
     if (dist > s.radius) continue;
     const d = Math.round(s.dmg * (1 - dist / s.radius) * 0.5);
     if (d <= 0) continue;
-    e.hp = Math.max(0, e.hp - d);
+    if (typeof applyDamage === 'function') applyDamage(e, d);   // 路由经 GLOBAL applyDamage（tank_physics.js）
+    else e.hp = Math.max(0, e.hp - d);
     hits.push({ target: e, dmg: d });
   }
   return hits;

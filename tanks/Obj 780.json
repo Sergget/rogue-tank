@@ -12,10 +12,10 @@
   "reload": 1.3,
   "shellSpeed": 1200,
   "heightClass": "heavy",
-  "trackWidth": 17,
+  "trackWidth": 12,
   "trackOffset": -7,
-  "spreadMult": 1,
-  "aimSpeed": 0.15,
+  "spreadMult": 1.5,
+  "aimSpeed": 0.25,
   "texture": "armor_plate",
   "barrel": {
     "len": 120,

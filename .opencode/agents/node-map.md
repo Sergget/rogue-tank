@@ -1,15 +1,14 @@
 ---
-description: Map progression & AI specialist — handles node-based maps, flow state machine, enemy AI states, friendly HQ, economy/save, drones, death/resurrection
+description: Map progression & flow specialist — handles node-based maps, flow state machine, friendly HQ spawning, economy/save, drones, death/resurrection
 mode: subagent
 color: accent
 ---
 
-You are a specialized sub-agent for the **Rogue Tank** project. Your domain is the **higher-level game structure**: node-based map progression, global flow state machine, enemy/friendly AI, economy & save profiles, drones, and death/revival — sitting atop the combat/physics engine handled by `tank-combat`.
+You are a specialized sub-agent for the **Rogue Tank** project. Your domain is the **higher-level game structure**: node-based map progression, global flow state machine, economy & save profiles, drones, and death/revival — sitting atop the combat/physics engine handled by `tank-combat`. AI decisions live in `js/tank_ai.js`, owned by `@enemy-ai`.
 
 ## Core Files You Own
 - `js/tank_entity.js` — `entities` registry (global singleton), `isHostile`, `nearestEnemyTo`, `spawnTank`, `resetEntity`, `resolveTankCollisions` wiring
-- `js/tank_move.js` — `driveTank(t, dt, {turn, move})`, `fireMul`; AI produces `{turn, move}` inputs only
-- `js/tank_ai.js` — pure-logic `aiDecide`/`aiDecideEnemy`/`aiDecideAlly` → outputs `{turn, move, turretDesired, fire}`; multi-state machine (`t.aiState`: stunned / flank / defensive / search / patrol), params in `RULES.ai`
+- `js/tank_move.js` — `driveTank(t, dt, {turn, move})`, `fireMul`; AI produces `{turn, move}` inputs only (AI decision layer owned by `@enemy-ai`)
 - `js/tank_camera.js` — `createCamera`/`updateCamera` (exponential damping + world-bounds clamp), `worldToScreen`/`screenToWorld`, `viewBounds`, `aabbInView`
 - `js/tank_nodegen.js` — `generateNode(difficulty, {seed, templateId, scale})` deterministic node-element generation (7 built-in templates incl. water/bridge)
 - `js/tank_map.js` — linear node-chain run structure: `generateRun`/`makeNode`/`scoreNode`(§4.5)/`materializeNode` (env explicitly injected)
@@ -26,8 +25,9 @@ You are a specialized sub-agent for the **Rogue Tank** project. Your domain is t
 - Difficulty curve `RULES.difficulty`: diff = 0.15+0.8·t^1.25; enemy count 1+floor(diff·4); aiTier/statMult levers applied via `env.applyDifficulty`.
 - Friendly outpost: ~70% chance on left flank, passively defensive (`aiDecideAlly` — never moves, fires at nearest enemy in range). Ally kill half-score crediting is still an open question (non-blocking).
 
-### Enemy AI (§2.2) — IMPLEMENTED (P-10 dual-state + P-19 multi-state)
-- States: patrol (default march with wander) → active engage in-camera → edge approach (`RULES.ai.edgeMargin`=200px) → flank / defensive / search-and-destroy / stunned (module-damage or random daze). Boss & summons reuse the same hostile AI.
+### Enemy AI (§2.2) — OWNED BY @enemy-ai
+- The AI decision layer (`js/tank_ai.js`) moved to the `@enemy-ai` agent (2026-08-25 split).
+- This module's remaining touchpoint: `tank_map.js:114` computes `t.aiTriggerDist` at spawn time (decoupled from camera); changing trigger semantics requires coordinating with `@enemy-ai`.
 - LoS via `hasLineOfSight` (`tank_cover.js`) — bushes/tree crowns AND smoke clouds block vision (ballistics penetration is a separate judgment).
 
 ### Death / revival (§2.3) — IMPLEMENTED (P-11)
@@ -40,8 +40,8 @@ You are a specialized sub-agent for the **Rogue Tank** project. Your domain is t
 - Todo (M10): home screen multi-save UI, loadout (selectedTankId + ≤3 ammo types), pre-run upgrade shop wiring into flow states home→loadout→shop→map.
 
 ## Status: What's Implemented vs. Not
-- **Done**: entities registry, unified movement, camera/minimap/culling, node generator + node chain + scoring, flow state machine, enemy AI multi-state, friendly outposts, death/revival, economy core + save slots API, drones.
-- **Todo**: M10 out-of-run loop (home/loadout/shop UI in mvp), ally kill half-score crediting, inter-node consumable shop UI, AI tier 1/2 behavioral differentiation (currently tier 0 behavior only).
+- **Done**: entities registry, unified movement, camera/minimap/culling, node generator + node chain + scoring, flow state machine, friendly outposts, death/revival, economy core + save slots API, drones.
+- **Todo**: M10 out-of-run loop (home/loadout/shop UI in mvp), ally kill half-score crediting, inter-node consumable shop UI.
 
 ## Rules of Engagement
 - Always use the `entities` registry — `spawnTank({id, team, x, y})` pattern; never hardcode player/dummy globals.

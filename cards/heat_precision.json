@@ -1,0 +1,12 @@
+{
+  "id": "heat_precision",
+  "name": "破甲弹道精修",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "优化 HEAT 弹出膛姿态与火控解算：弹速 +8%，散布 -4%。",
+  "effects": [
+    { "type": "ammo", "key": "heat", "field": "speed", "mode": "mult", "value": 1.08 },
+    { "type": "modifier", "stat": "spreadMult", "mode": "mult", "value": 0.96 }
+  ],
+  "maxStacks": 2
+}

@@ -78,15 +78,34 @@ const baseHp = t8.stats.maxHp;
 model.addModifier(t8, { stat: 'maxHp', mode: 'mult', value: 1.5 });
 ok(t8.stats.maxHp === baseHp * 1.5, '小数乘值 1.5 正确放大 maxHp');
 
-// 9) 先加后乘与多重乘值叠加顺序
+// 9) 先加后乘与多重乘值【加法聚合】（2026-08-25 用户决定 #97：mult 不再逐条相乘，
+//    同一 stat 的所有 mult 聚合为 1 + Σ(value−1)：×1.5 与 ×1.2 → ×1.7 而非 ×1.8）
 const t9 = model.makeTank({ team: 'player' });
 const basePen9 = t9.stats.penetration;
 model.addModifier(t9, { stat: 'penetration', mode: 'add', value: 30 });
 model.addModifier(t9, { stat: 'penetration', mode: 'add', value: 10 });
 model.addModifier(t9, { stat: 'penetration', mode: 'mult', value: 1.5 });
 model.addModifier(t9, { stat: 'penetration', mode: 'mult', value: 1.2 });
-const expectedPen = (basePen9 + 40) * 1.5 * 1.2;
-ok(Math.abs(t9.stats.penetration - expectedPen) < 1e-5, '先加后乘及多重乘值复合计算正确');
+const expectedPen = (basePen9 + 40) * 1.7;
+ok(Math.abs(t9.stats.penetration - expectedPen) < 1e-5, '先加后乘及多重乘值加法聚合正确（×1.5+×1.2 → ×1.7）');
+
+// 9b) 加法聚合边界：两条 ×0.85 → 0.70（而非 0.7225）；多条聚合钳 ≥0
+const t9b = model.makeTank({ team: 'player' });
+model.addModifier(t9b, { stat: 'damage', mode: 'mult', value: 0.85 });
+model.addModifier(t9b, { stat: 'damage', mode: 'mult', value: 0.85 });
+ok(Math.abs(t9b.stats.damage - t9b.base.damage * 0.70) < 1e-5, '两条 ×0.85 聚合为 ×0.70（加法聚合）');
+const t9c = model.makeTank({ team: 'player' });
+model.addModifier(t9c, { stat: 'maxHp', mode: 'mult', value: 0.3 });
+model.addModifier(t9c, { stat: 'maxHp', mode: 'mult', value: 0.3 });
+model.addModifier(t9c, { stat: 'maxHp', mode: 'mult', value: 0.3 });
+ok(t9c.stats.maxHp === 0, '三条重 debuff 聚合为负时钳 ≥0（maxHp=0）');
+
+// 9c) armor 路径同样加法聚合（同一路径两条 mult → 单次应用）
+const t9d = model.makeTank({ team: 'player' });
+const baseFrontD = t9d.stats.armor.hull.front;
+model.addModifier(t9d, { stat: 'armor.hull.front', mode: 'mult', value: 1.2 });
+model.addModifier(t9d, { stat: 'armor.hull.front', mode: 'mult', value: 1.2 });
+ok(Math.abs(t9d.stats.armor.hull.front - baseFrontD * 1.4) < 1e-5, 'armor.hull.front 两条 ×1.2 聚合为 ×1.4');
 
 // 10) 装甲修饰器（整组/单面/未知路径鲁棒性）
 const t10 = model.makeTank({ team: 'player' });

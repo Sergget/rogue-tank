@@ -288,6 +288,141 @@ console.log('--- #76 B/C：参数化/tier/摆动/寻掩 ---');
   ok(th.aiState !== 'coverSeek', 'hpRatio ≥ 阈值 → 不寻掩');
 }
 
+// ============================================================
+// P-51：Boss 阶段声明式行为脚本（entity.stageAI）消费测试
+// ============================================================
+
+function boss(x, y, hullAngle, turretAngle, stageAI, reloadT) {
+  return { team: 'enemy', isBoss: true, x, y, hullAngle, turretAngle,
+           reloadT: reloadT || 0, stats: { turretTurnRate: 2.2 }, hp: 500, maxHp: 500,
+           traverseLimit: Math.PI, stageAI };
+}
+
+// --- hold 模式：复用友军消极防御语义（原地、射程内还击、不追击） ---
+{
+  // 距玩家 300 ≤ allyEngageRange(460)，炮塔已对准（atan2(0,+300)=0）、装填好 → 原地开火
+  const bh = boss(700, 500, 0, 0, { mode: 'hold', params: {} });
+  const rHold = aiDecideEnemy(bh, { player, hasLoS: () => true });
+  ok(rHold.move === 0 && rHold.turn === 0 && rHold.fire === true,
+     'Boss hold：射程内对准 → 原地还击（不追击）');
+  ok(rHold.turretDesired !== undefined && Math.abs(rHold.turretDesired - 0) < 1e-9,
+     'Boss hold：炮塔锁定玩家');
+  ok(bh.aiState === 'hold', "Boss hold：aiState 置 'hold'");
+  // 射程外（距玩家 600 > 460）：不动不开火
+  const bhFar = boss(400, 500, Math.PI, Math.PI, { mode: 'hold', params: {} });
+  const rHoldFar = aiDecideEnemy(bhFar, { player, hasLoS: () => true });
+  ok(rHoldFar.move === 0 && rHoldFar.turn === 0 && rHoldFar.fire === false,
+     'Boss hold：目标超出射程 → 静止不开火');
+}
+
+// --- skirmish 模式：保持 keepDist，过近倒车 / 达标停火；炮塔照常瞄准开火 ---
+{
+  // 默认 keepDist=640：dist 500 < 640 → move=-1 倒车拉开；车体朝向玩家（desired=0）
+  const skClose = boss(500, 500, 0, 0, { mode: 'skirmish' }, 0);
+  const rSk1 = aiDecideEnemy(skClose, { player, hasLoS: () => true });
+  ok(rSk1.move === -1, 'Boss skirmish：dist(500) < keepDist(640) → 倒车拉开');
+  ok(Math.abs(rSk1.turretDesired) < 1e-9 && rSk1.fire === true,
+     'Boss skirmish：倒车同时炮塔照常瞄准开火');
+  // dist 800 ≥ 640 → 停下开火
+  const skFar = boss(200, 500, 0, 0, { mode: 'skirmish' }, 0);
+  const rSk2 = aiDecideEnemy(skFar, { player, hasLoS: () => true });
+  ok(rSk2.move === 0 && rSk2.fire === true,
+     'Boss skirmish：dist(800) ≥ keepDist → 停下开火');
+  // params.keepDist 覆盖默认值：keepDist=300 时 dist 400 ≥ 300 → 不再倒车
+  const skOverride = boss(600, 500, Math.PI, Math.PI,
+                          { mode: 'skirmish', params: { keepDist: 300 } }, 0);
+  const rSk3 = aiDecideEnemy(skOverride, { player, hasLoS: () => true });
+  ok(rSk3.move === 0, 'Boss skirmish：params.keepDist 覆盖生效（dist 400 ≥ 300 → 停）');
+  // 视线遮挡 → 不开火但仍倒车
+  const skBlocked = boss(500, 500, Math.PI, Math.PI, { mode: 'skirmish' }, 0);
+  const rSk4 = aiDecideEnemy(skBlocked, { player, hasLoS: () => false });
+  ok(rSk4.move === -1 && rSk4.fire === false,
+     'Boss skirmish：无视线 → 不开火但机动照旧');
+}
+
+// --- charge 模式：显式默认激进接敌（等价基线主动行为） ---
+{
+  // dist 580 ∈ (520 engage, 700 trigger] 且已接战路径 → 前进接敌（与基线 veryFar 用例一致）
+  const chg = boss(420, 500, Math.PI, Math.PI, { mode: 'charge', params: { keepDist: 0 } }, 0);
+  const rCh = aiDecideEnemy(chg, { player, hasLoS: () => true });
+  ok(rCh.move === 1, 'Boss charge：超出 engage 但触发内 → 激进接敌前进');
+  // 对准+视线+装填好 → 开火
+  const chgReady = boss(800, 500, Math.PI, 0, { mode: 'charge', params: {} }, 0);
+  const rCh2 = aiDecideEnemy(chgReady, { player, hasLoS: () => true });
+  ok(rCh2.fire === true, 'Boss charge：条件满足 → 开火');
+}
+
+// --- 校验：stageAI=null 的 Boss 具备 Boss 专属始终追击特征（防风筝：move=1，区别于普通敌） ---
+{
+  function mkPair(stageAI) {
+    const plain = { team: 'enemy', x: 800, y: 500, hullAngle: Math.PI, turretAngle: 0,
+                    reloadT: 0, stats: { turretTurnRate: 2.2 }, hp: 100, traverseLimit: Math.PI };
+    const asB = Object.assign({}, plain);
+    if (stageAI !== null) asB.isBoss = true;
+    else { asB.isBoss = true; asB.stageAI = null; }
+    return [plain, asB];
+  }
+  // Boss(stageAI=null) 防风筝：始终 move=1 推进
+  const [p1, b1] = mkPair(null);
+  const o1 = aiDecideEnemy(p1, { player, hasLoS: () => true });
+  const o2 = aiDecideEnemy(b1, { player, hasLoS: () => true });
+  ok(o2.move === 1 && b1.aiEngaged === true,
+     'Boss 特征：stageAI=null 的 Boss 始终 move=1 追击且 aiEngaged 置位（防风筝）');
+  ok(o1.fire === true && o2.fire === true, '回归基线自检：对准+视线+装填好 → fire=true');
+  // 视线遮挡 search 分支下 Boss 同样保持推进
+  const [p3, b3] = mkPair(null);
+  const o5 = aiDecideEnemy(p3, { player, hasLoS: () => false });
+  const o6 = aiDecideEnemy(b3, { player, hasLoS: () => false });
+  ok(o6.move === 1,
+     'Boss 特征：视线遮挡下 Boss 同样保持 move=1 推进');
+}
+
+// ============================================================
+// #88：装填间隙随机侧摆（基线 patrol 态；普通敌与 Boss 均适用）
+// ============================================================
+console.log('--- #88：装填间隙侧摆 ---');
+{
+  const realRandom = Math.random;
+  Math.random = () => 0.99;   // 受控随机：压制 peek/repos/daze，方向固定取 +maxA 侧
+  // 场景：dist 1100（>engage 520、<defensive 阈值、flank 窗口外），实体 aiTriggerDist=1200 保持接战；
+  // 装填前段：reloadT=3.5 > stats.reload(4) × 0.3(1.2)
+  const sw = enemy(-100, 500, Math.PI, Math.PI, 3.5);
+  sw.stats.reload = 4;
+  sw.aiTriggerDist = 1200;
+  const rsw = aiDecideEnemy(sw, { player, hasLoS: () => true, dt: 0.016 });
+  ok(sw.aiState === 'patrol', '侧摆场景落在基线 patrol 态');
+  ok(Number.isFinite(sw._swingTarget) && (sw._swingT || 0) >= 1.5,
+     `侧摆计时初始化：_swingTarget 已掷出、_swingT=${sw._swingT && sw._swingT.toFixed(2)}（≥1.5s 持续）`);
+  const mag = Math.abs(angDiff(sw._swingTarget, Math.PI));
+  ok(mag >= RULES.ai.sideSwingAngleMin - 1e-9 && mag <= RULES.ai.sideSwingAngleMax + 1e-9,
+     `侧摆目标角幅度 ${mag.toFixed(3)} ∈ [sideSwingAngleMin, sideSwingAngleMax]（消费 RULES.ai）`);
+  ok(rsw.turn === 1 || rsw.turn === -1, '装填前段车体朝侧摆目标角转向');
+  ok(rsw.move === 0.3, '前进机动微降至 0.3');
+  ok(Math.abs(rsw.turretDesired) < 1e-9 && rsw.fire === false, '炮塔照常锁玩家；装填中不开火');
+  // 方向换向：_swingT 到期后重掷（_swingT 回到 ≥1.5）
+  sw._swingT = 0;
+  aiDecideEnemy(sw, { player, hasLoS: () => true, dt: 0.016 });
+  ok((sw._swingT || 0) >= 1.5, '侧摆持续到期 → 重掷新方向与持续时长');
+  // 装填完成恢复常规：reloadT=0 → 清侧摆状态、move 恢复基线
+  sw.reloadT = 0;
+  const rDone = aiDecideEnemy(sw, { player, hasLoS: () => true, dt: 0.016 });
+  ok(!Number.isFinite(sw._swingTarget) && rDone.move === 1, 'reloadT 归零恢复常规（清 _swingTarget、move 回基线 1）');
+  // 装填后段（reloadT ≤ 时长×30%）：不触发侧摆
+  const late = enemy(-100, 500, Math.PI, Math.PI, 1.0);
+  late.stats.reload = 4;
+  late.aiTriggerDist = 1200;
+  const rLate = aiDecideEnemy(late, { player, hasLoS: () => true, dt: 0.016 });
+  ok(!Number.isFinite(late._swingTarget) && rLate.move === 1, '装填后段（≤30%）不侧摆');
+  // Boss 基线同样侧摆转向，但防风筝 move=1 优先级更高
+  const bsw = boss(-100, 500, Math.PI, 0, null, 3.5);
+  bsw.stats.reload = 4;
+  bsw.aiTriggerDist = 1200;
+  const rb = aiDecideEnemy(bsw, { player, hasLoS: () => true, dt: 0.016 });
+  ok(rb.move === 1 && Number.isFinite(bsw._swingTarget),
+     'Boss 基线：侧摆照常掷出，但防风筝保持 move=1 推进');
+  Math.random = realRandom;
+}
+
 if(fails === 0) console.log('test-ai: 完成所有检查，全部通过');
 else console.error('test-ai: ' + fails + ' 项失败');
 process.exit(fails === 0 ? 0 : 1);

@@ -10,6 +10,8 @@ const model = require('../js/tank_model.js');
 global.addModifier = model.addModifier; // tank_cards.applyCardEffects 引用全局（浏览器惯例）
 const cardsMod = require('../js/tank_cards.js');
 const { createRNG } = require('../js/tank_nodegen.js');
+const fs = require('fs');
+const path = require('path');
 
 let fails = 0;
 function ok(cond, label) {
@@ -99,9 +101,63 @@ const dummyShooter = {
   ]
 };
 const apCfg = cardsMod.computeAmmoConfig(dummyShooter, 'ap');
-// AP base pen=1, (1 + 15) * 1.2 = 19.2; base dmg=1, 1 * 1.1 = 1.1
+// AP base pen=1, add 15 → 16; 单条 mult 1.2 聚合后仍为 ×1.2 → (1+15)*1.2 = 19.2; base dmg=1, ×1.1
 ok(Math.abs(apCfg.pen - 19.2) < 1e-4, 'AP 穿深加算与乘算叠加正确');
 ok(Math.abs(apCfg.dmg - 1.1) < 1e-4, 'AP 伤害乘算正确');
+
+// #97 加法聚合：同 field 多条 mult 聚合为 1 + Σ(value−1) 应用一次（非迭代相乘）
+const heShooter = {
+  ammoKey: 'he',
+  cardEffects: [
+    { type: 'ammo', key: 'he', field: 'dmg', mode: 'mult', value: 1.2 },
+    { type: 'ammo', key: 'he', field: 'dmg', mode: 'mult', value: 1.2 }
+  ]
+};
+const heCfg = cardsMod.computeAmmoConfig(heShooter, 'he');
+ok(Math.abs(heCfg.dmg - 1.4) < 1e-4, '#97: HE 伤害双 mult 加法聚合 ×1.4（旧迭代语义为 1.44）');
+// add pass 不变：add 与 mult 混合时先加后乘
+const mixCfg = cardsMod.computeAmmoConfig({
+  ammoKey: 'heat',
+  cardEffects: [
+    { type: 'ammo', key: 'heat', field: 'pen', mode: 'mult', value: 1.2 },
+    { type: 'ammo', key: 'heat', field: 'pen', mode: 'mult', value: 1.3 }
+  ]
+}, 'heat');
+ok(Math.abs(mixCfg.pen - (1.4 * (1 + 0.2 + 0.3))) < 1e-4, '#97: HEAT 穿深 base×聚合乘子（base 1.4 × 1.5 = 2.1）');
+// 多条聚合钳 ≥0：两条大减益聚合为负时钳到 0
+const negCfg = cardsMod.computeAmmoConfig({
+  ammoKey: 'apcr',
+  cardEffects: [
+    { type: 'ammo', key: 'apcr', field: 'dmg', mode: 'mult', value: 0.4 },
+    { type: 'ammo', key: 'apcr', field: 'dmg', mode: 'mult', value: 0.5 }
+  ]
+}, 'apcr');
+ok(negCfg.dmg === 0, '#97: 多条 mult 聚合为负时钳 ≥0（0.8×max(0, 1−0.6−0.5)=0）');
+
+// HEAT 弹种卡（内容分布 #97）：数据驱动逐卡校验 schema + computeAmmoConfig 增量
+{
+  const cardsDir = path.join(__dirname, '..', 'cards');
+  const heatCards = ['heat_overpressure', 'heat_composite_pen', 'heat_precision'];
+  for (const id of heatCards) {
+    const card = JSON.parse(fs.readFileSync(path.join(cardsDir, id + '.json'), 'utf8'));
+    ok(card.id === id && cardsMod.validateCard(card).length === 0, `${id}: 卡牌文件存在且 validateCard 通过`);
+    const t = model.makeTank({ team: 'player' });
+    cardsMod.applyCardEffects(t, card);
+    ok(cardsMod.cardStackCount(t, id) === card.effects.filter(e => e.type !== 'modifier').length,
+      `${id}: ammo 效果入队 cardEffects`);
+    const cfg = cardsMod.computeAmmoConfig(t, 'heat');
+    for (const ef of card.effects) {
+      if (ef.type !== 'ammo') continue;
+      const baseV = RULES.ammoTypes.heat[ef.field];
+      const expected = ef.mode === 'add' ? baseV + ef.value : baseV * (1 + (ef.value - 1));
+      ok(Math.abs(cfg[ef.field] - expected) < 1e-4, `${id}: HEAT ${ef.field} ${ef.mode} ${ef.value} → ${expected.toFixed(4)}`);
+    }
+    if (card.effects.some(e => e.type === 'modifier' && e.stat === 'spreadMult')) {
+      const spreadEf = card.effects.find(e => e.stat === 'spreadMult');
+      ok(Math.abs(t.stats.spreadMult - spreadEf.value) < 1e-9, `${id}: spreadMult modifier 立即生效`);
+    }
+  }
+}
 
 // 8) 实际 cards/ 数据全合法（由 validate-content.js 主校验，这里抽样确认模块可加载）
 ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 流派');

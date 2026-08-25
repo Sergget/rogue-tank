@@ -305,6 +305,83 @@ function abilityTank(effects) {
   ok(rs2.ok === true && rs2.shield.omni === true, 'shield 经统一入口激活（omni 透传）');
 }
 
+// ---- 16) repair/medkit（innate）：免持有检查 / 独立冷却池 / baseCd fallback 45 / 效果清除范围 / ammoBlew 不可修 ----
+{
+  // 16a) innate 绕过 hasAbility：无 cardEffects 的裸坦克可直接激活
+  const bare = model.makeTank({ team: 'player' });
+  ok(abil.hasAbility(bare, 'repair') === false, 'repair 无卡持有（hasAbility=false）——innate 不依赖卡牌');
+  let r = abil.tryActivateAbility(bare, 'repair', {});
+  ok(r.ok === true && r.key === 'repair', '裸坦克激活 repair 成功（绕过持有检查）');
+
+  // 16b) 独立冷却池：写 abilityCds.repair、不动共享 abilityCdT；medkit 与 repair 互不干扰
+  ok(typeof bare.abilityCds === 'object' && close(bare.abilityCds.repair, 45), '激活后 abilityCds.repair = 45（fallback 基础冷却）');
+  ok((bare.abilityCdT || 0) === 0, '共享冷却 abilityCdT 未被 innate 触碰（独立池）');
+  r = abil.tryActivateAbility(bare, 'medkit', {});
+  ok(r.ok === true, 'repair 冷却期内 medkit 仍可激活（独立冷却互不干扰）');
+  ok(close(bare.abilityCds.medkit, 45), 'abilityCds.medkit = 45');
+
+  // 16c) 冷却期内重复激活拒绝 'cooldown'
+  r = abil.tryActivateAbility(bare, 'repair', {});
+  ok(r.ok === false && r.reason === 'cooldown' && close(r.cd, 45), 'repair 冷却期内重复激活 → reason=cooldown');
+  ok(close(bare.abilityCds.repair, 45), '被拒绝的激活不重置冷却');
+
+  // 16d) baseCd 覆盖：t.abilityBaseCd 注入商店减免值
+  const boosted = model.makeTank({ team: 'player' });
+  boosted.abilityBaseCd = { repair: 30, medkit: 42 };
+  abil.tryActivateAbility(boosted, 'repair', {});
+  abil.tryActivateAbility(boosted, 'medkit', {});
+  ok(close(boosted.abilityCds.repair, 30), 'abilityBaseCd.repair=30 → 有效冷却 30');
+  ok(close(boosted.abilityCds.medkit, 42), 'abilityBaseCd.medkit=42 → 有效冷却 42');
+  const partial = model.makeTank({ team: 'player' });
+  partial.abilityBaseCd = { medkit: 20 };   // repair 未注入 → fallback 45
+  abil.tryActivateAbility(partial, 'repair', {});
+  ok(close(partial.abilityCds.repair, 45), 'abilityBaseCd 缺该键 → fallback 45');
+
+  // 16e) updateAbilityCds：逐键递减 / 钳 ≥0 / dt<=0 安全 / 与 updateAbilityCd 互不干扰
+  const cdT = model.makeTank({ team: 'player' });
+  cdT.abilityCds = { repair: 10, medkit: 1 };
+  cdT.abilityCdT = 99;
+  abil.updateAbilityCds(cdT, 2);
+  ok(close(cdT.abilityCds.repair, 8) && cdT.abilityCds.medkit === 0, 'updateAbilityCds(2) → repair 8 / medkit 钳到 0');
+  ok(cdT.abilityCdT === 99, 'updateAbilityCds 不触碰共享 abilityCdT');
+  abil.updateAbilityCds(cdT, -5);
+  ok(close(cdT.abilityCds.repair, 8), 'dt<0 不递减');
+  abil.updateAbilityCd(cdT, 1);
+  ok(cdT.abilityCdT === 98 && close(cdT.abilityCds.repair, 8), 'updateAbilityCd 只动 abilityCdT（两池互不干扰）');
+  abil.updateAbilityCds(null, 1);   // 无实体安全
+
+  // 16f) repair 效果清除范围：履带/机动状态 + engine/ammo debuff；乘员 debuff 保留
+  const dmg = model.makeTank({ team: 'player' });
+  dmg.trackBroken = true; dmg._trackFx = true; dmg.immobT = 5;
+  dmg.debuffs = { engine: 3, ammo: 2, gunner: 4 };
+  r = abil.tryActivateAbility(dmg, 'repair', {});
+  ok(r.ok === true && r.repairedAmmoRack === true, 'repair 激活成功且弹药架可修');
+  ok(dmg.trackBroken === false && dmg.immobT === 0, 'repair 清 trackBroken/immobT');
+  ok(dmg.debuffs.engine === undefined && dmg.debuffs.ammo === undefined, 'repair 清 debuffs.engine/ammo');
+  ok(dmg.debuffs.gunner > 0, 'repair 不清乘员 debuff（gunner 保留，属 medkit 范围）');
+
+  // 16g) medkit 效果清除范围：四类乘员 debuff；发动机保留
+  const crew = model.makeTank({ team: 'player' });
+  crew.debuffs = { gunner: 2, loader: 3, commander: 1, driver: 2, engine: 6 };
+  r = abil.tryActivateAbility(crew, 'medkit', {});
+  ok(r.ok === true, 'medkit 激活成功');
+  ok(crew.debuffs.gunner === undefined && crew.debuffs.loader === undefined
+    && crew.debuffs.commander === undefined && crew.debuffs.driver === undefined, 'medkit 清 gunner/loader/commander/driver 四类乘员 debuff');
+  ok(crew.debuffs.engine > 0, 'medkit 不清模块 debuff（engine 保留，属 repair 范围）');
+
+  // 16h) ammoBlew 不可修：殉爆保留、ammo debuff 保留，其余照常修复、激活仍成功
+  const blew = model.makeTank({ team: 'player' });
+  blew.ammoBlew = true;
+  blew.trackBroken = true; blew.immobT = 4;
+  blew.debuffs = { ammo: 2, engine: 3 };
+  r = abil.tryActivateAbility(blew, 'repair', {});
+  ok(r.ok === true && r.repairedAmmoRack === false, 'ammoBlew 时 repair 激活成功但弹药架不可修（repairedAmmoRack=false）');
+  ok(blew.ammoBlew === true, '殉爆状态保留（ammoBlew 不清除）');
+  ok(blew.debuffs.ammo > 0, 'ammo debuff 保留（弹药架未修）');
+  ok(blew.trackBroken === false && blew.immobT === 0 && blew.debuffs.engine === undefined, '其余（履带/机动/发动机）照常修复');
+}
+
+
 console.log('test-abilities: 完成所有检查');
 if (fails === 0) console.log('test-abilities: 全部通过');
 else console.error(`test-abilities: ${fails} 项失败`);

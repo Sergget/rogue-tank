@@ -48,12 +48,17 @@
   #ammoIndicator .key{color:var(--amber-dim);}
   #ammoIndicator .ammo-cell.active .key{color:var(--amber);}
   #ammoIndicator .mult{color:var(--text-dim); font-weight:400; font-size:9px;}
-  #hintBar{position:absolute; left:12px; bottom:10px; pointer-events:none;
+  #hintBar{position:absolute; left:12px; bottom:10px; pointer-events:none; display:none;
     font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-dim); opacity:.75; letter-spacing:1px;}
+  #topLeftInfo{position:absolute; left:12px; top:12px; font-size:13px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; line-height:1.4;}
   /* P-38 剩余击杀配额小字（常规节点战斗态显示，其余隐藏） */
   #quotaHud{position:absolute; left:12px; bottom:32px; pointer-events:none;
     font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px;
     color:var(--text-dim); text-shadow:0 1px 2px rgba(0,0,0,0.8);}
+  /* ISSUE 18：帧率读出（右下角，仅 showFps 时显示） */
+  #fpsReadout{position:absolute; right:12px; bottom:10px; font-size:12px; color:#6f6; display:none; pointer-events:none;}
+  /* ISSUE 17-display：当前弹种最终属性读出（顶部居中） */
+  #ammoReadout{position:absolute; left:50%; transform:translateX(-50%); top:12px; font-size:12px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; font-family:'JetBrains Mono',monospace; display:none;}
 
   /* ---------- 通用控件 ---------- */
   button{
@@ -120,9 +125,10 @@
   /* ---------- M10 局外三界面（Home 存档 / Loadout 整备 / Shop 商店） ---------- */
   #flowOverlay .screen.wide{min-width:560px; max-width:880px;}
   /* P-41：局内商店浮层——叠在当前 screen（settlement/reward）之上，不占用 flow 状态 */
-  #runShopPanel{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:5;
+  #runShopPanel{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:30;
     background:rgba(18,20,15,0.98); border:1px solid var(--line); padding:18px 22px;
-    min-width:480px; max-width:680px; max-height:80vh; overflow:auto; display:none;}
+    min-width:480px; max-width:680px; max-height:80vh; overflow:auto; display:none;
+    pointer-events:auto;}
   #runShopPanel .row{display:flex; align-items:center;}
 
   #homeSlotList{display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto;}
@@ -234,7 +240,10 @@
     <span id="ammoIndicator"><span class="dot"></span><span class="label"></span></span>
     <div id="reloadTrack"><div id="reloadFill"></div></div>
   </div>
-  <div id="hintBar">TAB 状态 · ` 开发者 · 1/2/3 或 Q/滚轮 切弹种 · WASD 移动 · 左键/空格 开火 · F 烟幕弹 · G 炮击 · H 护盾(Shift+H 全向) · V 超装填 · 无人机自动索敌</div>
+  <div id="topLeftInfo">TAB 状态 · ` 开发者 · 1/2/3 或 Q/滚轮 切弹种 · WASD 移动 · 左键/空格 开火 · F 烟幕弹 · G 炮击 · H 护盾(Shift+H 全向) · V 超装填 · 4 修理箱 · 5 医疗包 · 无人机自动索敌</div>
+  <div id="hintBar"></div>
+  <div id="fpsReadout">FPS --</div>
+  <div id="ammoReadout"></div>
   <div id="quotaHud" style="display:none;"></div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
@@ -305,10 +314,14 @@
     </div>
     <div id="pauseScreen" class="screen" style="display:none;">
       <div class="screen-title">暂停 PAUSED</div>
-      <div id="pauseBindings"></div>
-      <div id="pauseSettings" style="margin-top:12px;"></div>
+      <div id="pauseControls" style="display:none;">
+        <div id="pauseBindings"></div>
+        <div id="pauseSettings" style="margin-top:12px;"></div>
+      </div>
       <div class="btnrow">
         <button id="pauseResumeBtn">继续 RESUME</button>
+        <button id="pauseControlsBtn">控制 CONTROLS</button>
+        <button id="pauseShopBtn">局内商店 RUN SHOP</button>
         <button id="pauseEndBtn">终止游戏并结算 END &amp; SETTLE</button>
       </div>
     </div>
@@ -328,6 +341,7 @@
     <div class="row"><span class="k">机动</span><span class="v" id="stMob">--</span></div>
     <div class="row"><span class="k">当前散布 σ</span><span class="v" id="stSigma">--</span></div>
     <div class="armor-list" id="stArmor"></div>
+    <div class="armor-list" id="stAmmo"></div>
     <div class="hint">按 TAB 关闭 · 数值实时读取（读 stats，不摸 base）</div>
   </div>
   <div id="devPanel" style="display:none;">
@@ -339,6 +353,11 @@
         <span class="k">超级精度</span>
         <button id="zeroSpreadBtn">关闭</button>
         <span style="color:var(--text-dim);">散布归零（瞬间缩圈，仅玩家）</span>
+      </div>
+      <div class="dev-row">
+        <span class="k">无视野</span>
+        <button id="devVisionBtn">关闭</button>
+        <span style="color:var(--text-dim);">关闭视野剔除（#89 调试）</span>
       </div>
       <div class="dev-row">
         <button id="genNodeBtn">随机生成战场</button>
@@ -365,6 +384,8 @@
       <div class="dev-row"><span class="k">速度</span><span id="devSpeed">--</span></div>
       <div class="dev-row"><span class="k">存活</span><span id="devEntities">--</span></div>
       <div class="dev-row"><span class="k">节点</span><span id="devNode">--</span></div>
+      <div class="dev-row"><span class="k">节点类型</span><span id="devNodeType">--</span></div>
+      <div class="dev-row"><span class="k">敌人数</span><span id="devEnemyCount">--</span></div>
     </div>
 
     <div class="dev-sec">
@@ -382,6 +403,11 @@
     <div class="dev-sec">
       <h4>卡牌选择（选中即 applyCardEffects）</h4>
       <div class="card-list" id="devCardList"></div>
+    </div>
+
+    <div class="dev-sec">
+      <h4>已持有卡牌（区别于上方调试选取器）</h4>
+      <div id="devOwnedCards"></div>
     </div>
 
     <div class="dev-sec">
@@ -473,6 +499,7 @@ window.addEventListener('keydown', unlockAudio, { once:true });
 
 const player = spawnTank({ id:'player', team:'player', x:260, y:340, hullAngle:0, turretAngle:0, color:'#7ed957', heightClass:'medium' });
 player.sigma = SPREAD.base;
+player.dmgTakenMul = 0.85;   // ISSUE #6：玩家受伤减伤（node-map 难度/经济里程碑设定，经 applyDamage 统一生效）
 // P-15：正式游戏无测试靶车 dummy —— entities 只含玩家/敌军/友军/Boss/召唤物
 
 // 从 tanks/ 目录（一型一文件，经 /api/tanks 聚合）加载配置数据（敌军/Boss 实体化用）
@@ -609,12 +636,21 @@ function renderPause(){
   const s = vm.settings;
   document.getElementById('pauseSettings').innerHTML =
     `<label style="cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;">` +
-    `<input type="checkbox" id="pauseInvertTurn"${s.invertReverseTurn ? ' checked' : ''}> ${s.invertReverseTurnDesc}</label>`;
+    `<input type="checkbox" id="pauseInvertTurn"${s.invertReverseTurn ? ' checked' : ''}> ${s.invertReverseTurnDesc}</label>` +
+    `<label style="cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;margin-top:8px;">` +
+    `<input type="checkbox" id="pauseFpsToggle"${s.showFps ? ' checked' : ''}> ${s.showFpsLabel || '显示帧率 (FPS)'}</label>`;
   const cb = document.getElementById('pauseInvertTurn');
   cb.addEventListener('change', function(){
     if(!profile.settings || typeof profile.settings !== 'object') profile.settings = {};
     profile.settings.invertReverseTurn = this.checked;
     saveActiveProfile(localStorage, profile);   // 即时持久化（P-35 设置项）
+    playSound('ui');
+  });
+  const fpsCb = document.getElementById('pauseFpsToggle');
+  if(fpsCb) fpsCb.addEventListener('change', function(){
+    if(!profile.settings || typeof profile.settings !== 'object') profile.settings = {};
+    profile.settings.showFps = this.checked;
+    saveActiveProfile(localStorage, profile);   // 即时持久化（ISSUE 18 设置项）
     playSound('ui');
   });
 }
@@ -632,6 +668,15 @@ document.getElementById('pauseResumeBtn').addEventListener('click', () => {
   playSound('ui');
   transition(flow, 'battle');
 });
+document.getElementById('pauseControlsBtn').addEventListener('click', () => {
+  const pc = document.getElementById('pauseControls');
+  if(pc) pc.style.display = (pc.style.display === 'none') ? 'block' : 'none';
+  playSound('ui');
+});
+document.getElementById('pauseShopBtn').addEventListener('click', () => {
+  playSound('ui');
+  toggleRunShop();   // 复用局内商店浮层（独立叠加于暂停之上）
+});
 document.getElementById('pauseEndBtn').addEventListener('click', () => {
   playSound('ui');
   transition(flow, 'settlement', { voluntaryEnd: true });   // P-34 接手终局结算语义
@@ -644,7 +689,7 @@ function armorRows(armor){
   for(const part of ['hull','turret']){
     const g = (armor && armor[part]) || {};
     const row = ['front','side','rear'].map(f =>
-      `${FACE_LABELS[f]} ${g[f] !== undefined ? g[f] : '—'}mm`).join(' / ');
+      `${FACE_LABELS[f]} ${g[f] !== undefined ? Math.round(g[f]) : '—'}mm`).join(' / ');
     html += `<div><b>${part==='hull'?'车体':'炮塔'}</b>：${row}</div>`;
   }
   return html;
@@ -663,6 +708,20 @@ function updateStatusPanel(){
   if(stSigma) stSigma.textContent = player.sigma.toFixed(4);
   const stArmor = document.getElementById('stArmor');
   if(stArmor) stArmor.innerHTML = armorRows(s.armor || (player.base && player.base.armor) || {});
+  // #93：分弹种最终属性行（computeAmmoConfig 叠加卡牌弹种改造，与 ammoReadout 同源）
+  const stAmmo = document.getElementById('stAmmo');
+  if(stAmmo){
+    let ammoHtml = '';
+    for(const key of ['ap','apcr','heat','he']){
+      const meta = RULES.ammoTypes[key];
+      if(!meta || typeof computeAmmoConfig !== 'function') continue;
+      const ac = computeAmmoConfig(player, key);
+      if(!ac) continue;
+      const f = v => (typeof v === 'number' ? v.toFixed(2) : '—');
+      ammoHtml += `<div><b>${(meta.label || key).toUpperCase()}</b> 穿×${f(ac.pen)} 伤×${f(ac.dmg)} 速×${f(ac.speed)}</div>`;
+    }
+    stAmmo.innerHTML = ammoHtml;
+  }
 }
 
 // ---------- P-15 开发者面板：超级精度 / 数值覆盖 / 卡牌 / 修饰器 ----------
@@ -701,6 +760,12 @@ document.getElementById('zeroSpreadBtn').addEventListener('click', (e)=>{
   e.currentTarget.textContent = devAim.zeroSpread ? '开启' : '关闭';
   e.currentTarget.classList.toggle('active', devAim.zeroSpread);
   pushLog(`超级精度：${devAim.zeroSpread ? '开（散布归零）' : '关'}`,'COVER');
+});
+document.getElementById('devVisionBtn').addEventListener('click', (e)=>{
+  devNoVision = !devNoVision;
+  e.currentTarget.textContent = devNoVision ? '开启' : '关闭';
+  e.currentTarget.classList.toggle('active', devNoVision);
+  pushLog(`无视野调试：${devNoVision ? '开（跳过视野剔除）' : '关'}`,'COVER');
 });
 document.getElementById('devApplyBtn').addEventListener('click', ()=>{ applyDevInputs(); playSound('ui'); });
 document.getElementById('devResetStatsBtn').addEventListener('click', ()=>{ resetDevOverrides(); playSound('ui'); });
@@ -792,6 +857,7 @@ function enterBattle(nodeIndex){
     bossEntity.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // 与普通敌军同规则
     bossEntity.hullAngle = Math.PI; bossEntity.turretAngle = Math.PI;
     pushLog(`⚠ BOSS 战：「${node.boss.name}」— ${node.boss.desc || ''}`, 'CRIT');
+    applyDifficultyMults(bossEntity, currentNode.entityMults, false);   // false=跳过玩家能力封顶，Boss 可正经超越玩家
 
     // P-10：Boss summons——伴随单位（浮游炮/护卫/护盾发生器），计入清敌判定
     // AI 触发重设计：summons 生成点同样必须在有效触发距离之外（沿径向外推保证）。
@@ -858,8 +924,16 @@ function finishNode(cleared){
 }
 
 // #76 A：敌军属性全面难度分化（原 enterBattle 内联闭包提升为页级函数；P-38 增援同规则应用）
-function applyDifficultyMults(t, mults){
+// applyPlayerCap（缺省 true）：增援/普通敌军遭受 "玩家能力封顶"（#92 新方案，2026-08-25）——
+//   穿深：≤ player.penetration × RULES.difficulty.penCapVsPlayer(1.2)；
+//   伤害：钳入 [player.damage × dmgFloorVsPlayer(0.4), 0.7 × 玩家最强弹种最终伤害(dmgCapAmmoMult)]；
+//   ★速度：maxSpeed = lerp(0.3, 0.6, diffNorm) × player.maxSpeed × randFactor(0.85~1.15/辆独立随机)，
+//     diffNorm 由 currentNode.difficulty 归一（0.15~0.95 → 0~1）——同节点不同敌速度不同；
+//   turnRate/turretTurnRate 不再封顶（保留 entityMults 缩放）。
+// Boss 调用时传 false 跳封顶（Boss 可正经超越玩家；RULES.boss.tuning.penMul 由 boss-author 消费）。
+function applyDifficultyMults(t, mults, applyPlayerCap){
   if(!mults) return;                                 // 玩家/据点实体绝不走此路径
+  if(applyPlayerCap === undefined) applyPlayerCap = true;
   const STAT_KEYS = ['maxHp','penetration','damage','reload','spreadMult','aimSpeed','maxSpeed','turnRate','turretTurnRate'];
   for(const k of STAT_KEYS){
     if(mults[k] !== undefined && mults[k] !== 1){
@@ -872,6 +946,37 @@ function applyDifficultyMults(t, mults){
     addModifier(t, { stat: 'armor.turret', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
   }
   t.hp = t.stats.maxHp; t.maxHp = t.stats.maxHp;
+  // 玩家能力封顶（#92 新方案）
+  if(applyPlayerCap && typeof player !== 'undefined' && player && player.stats){
+    const D = (RULES && RULES.difficulty) || {};
+    // 穿深封顶
+    if(typeof t.stats.penetration === 'number' && typeof player.stats.penetration === 'number'){
+      const penCap = player.stats.penetration * (D.penCapVsPlayer !== undefined ? D.penCapVsPlayer : 1.2);
+      if(t.stats.penetration > penCap) t.stats.penetration = penCap;
+    }
+    // 伤害地板/天花板（天花板 = 玩家所携 ap/apcr/heat 最终伤害最高者 × dmgCapAmmoMult）
+    if(typeof t.stats.damage === 'number' && typeof player.stats.damage === 'number'){
+      const floor = player.stats.damage * (D.dmgFloorVsPlayer !== undefined ? D.dmgFloorVsPlayer : 0.4);
+      let strongest = 0;
+      if(typeof computeAmmoConfig === 'function'){
+        for(const key of ['ap', 'apcr', 'heat']){
+          const ac = computeAmmoConfig(player, key);
+          if(ac && typeof ac.dmg === 'number') strongest = Math.max(strongest, ac.dmg * player.stats.damage);
+        }
+      }
+      const cap = strongest > 0 ? strongest * (D.dmgCapAmmoMult !== undefined ? D.dmgCapAmmoMult : 0.7) : Infinity;
+      if(t.stats.damage < floor) t.stats.damage = floor;
+      if(t.stats.damage > cap) t.stats.damage = cap;
+    }
+    // ★速度新方案：难度驱动的相对速度 + 每辆独立随机浮动
+    if(typeof t.stats.maxSpeed === 'number' && typeof player.stats.maxSpeed === 'number' && player.stats.maxSpeed > 0){
+      const diff = (currentNode && typeof currentNode.difficulty === 'number') ? currentNode.difficulty : 0.15;
+      const diffNorm = Math.max(0, Math.min(1, (diff - 0.15) / (0.95 - 0.15)));
+      const speedFactor = 0.3 + (0.6 - 0.3) * diffNorm;          // lerp(0.3, 0.6, diffNorm)
+      const randFactor = 0.85 + Math.random() * 0.30;            // 0.85~1.15 每辆独立
+      t.stats.maxSpeed = speedFactor * randFactor * player.stats.maxSpeed;
+    }
+  }
 }
 
 // P-38：增援敌军实体化——与开局敌军同规则注入 aiTriggerDist/aiTier/难度乘子，
@@ -898,14 +1003,48 @@ function spawnReinforcement(spec){
 // P-17：按 cardEffects 重建随行无人机（选卡后 / 复活后调用）。kind 缺省 striker 由模块兜底；
 // countMax 超限 spawnDrone 拒绝并返回 null——此处只负责提示（同 key 多卡按条目数 spawn）。
 function deployDronesFromCards(){
-  const effects = (player.cardEffects || []).filter(ef => ef.type === 'drone');
+  // ISSUE 12：scout 无人机暂不投放（保留 striker 打击型）；scout 卡对应效果被跳过
+  const effects = (player.cardEffects || []).filter(ef => ef.type === 'drone' && ef.kind !== 'scout');
   for(const ef of effects){
     const d = spawnDrone(player, ef.kind, { registry: entities });
     if(d){
-      pushLog(`已部署${d.kind === 'scout' ? '侦察' : '打击'}无人机 — ${d.kind === 'scout' ? '标记视口外敌军位置' : '环绕跟随，自动索敌'}`, 'PEN');
+      pushLog(`已部署${d.kind === 'striker' ? '打击' : d.kind}无人机 — 环绕跟随，自动索敌`, 'PEN');
     } else {
       pushLog(`无人机部署失败（场上已达上限 ${RULES.abilities.drone.countMax} 架）`, 'COVER');
     }
+  }
+}
+
+// P-51 Wave2：Boss 战利品追加卡牌轮 pending 状态（settlement 进入时捕获，抽完即清，防普通节点误触发）
+let pendingLootRounds = 0;        // 剩余追加三选一轮数
+let pendingLootRarityIdx = -1;    // 保底稀有度在 CARD_RARITIES 中的下标（-1 = 无保底/全池）
+
+function bossLootRarityLabel(idx){
+  const m = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇' };
+  return (typeof CARD_RARITIES !== 'undefined' && CARD_RARITIES[idx]) ? (m[CARD_RARITIES[idx]] || CARD_RARITIES[idx]) : '—';
+}
+
+// P-51 Wave2：追加轮抽取池——按保底稀有度过滤（rarity 下标 ≥ 保底下标）；
+// 子集不足 3 张放宽一档，再不足用全池。
+function bossLootPool(){
+  if(pendingLootRarityIdx < 0 || typeof CARD_RARITIES === 'undefined' || !cardPool.length) return cardPool;
+  for(let minIdx = Math.min(pendingLootRarityIdx, CARD_RARITIES.length - 1); minIdx < CARD_RARITIES.length; minIdx++){
+    const sub = cardPool.filter(c => c.rarity && CARD_RARITIES.indexOf(c.rarity) >= minIdx);
+    if(sub.length >= 3) return sub;
+  }
+  return cardPool;
+}
+
+// P-51 Wave2：卡牌选择后的推进——仍有追加轮 → reward→reward 再开一轮（白名单合法）；
+// 抽完所有轮次 → 清空 pending 并走正常节点推进。
+function advanceRewardFlow(){
+  if(pendingLootRounds > 0){
+    pendingLootRounds--;
+    playSound('ui');
+    transition(flow, 'reward');
+  } else {
+    pendingLootRounds = 0; pendingLootRarityIdx = -1;
+    nextNodeAfterReward();
   }
 }
 
@@ -1009,14 +1148,26 @@ watchFlow(flow, (state, payload) => {
       document.getElementById('settleShopBtn').style.display = 'none';
       document.getElementById('settleHomeBtn').style.display = '';
     } else {
+      // P-51 Wave2：每次进入 settlement 先清 pending，再按本次 payload 捕获 Boss 战利品追加轮
+      pendingLootRounds = 0; pendingLootRarityIdx = -1;
+      const bl = (payload && payload.bossLoot) || null;
+      if(bl && typeof bl.cards === 'number' && bl.cards > 0){
+        pendingLootRounds = bl.cards;
+        pendingLootRarityIdx = (typeof CARD_RARITIES !== 'undefined') ? CARD_RARITIES.indexOf(bl.cardRarity) : -1;
+      }
       if(_bSet){
         const vm = _bSet({ score: payload.score, clearMs: payload.clearMs, bossLoot: payload.bossLoot });
         document.getElementById('settleBody').innerHTML = vm.rows.map(r => `<div class="row${r.total ? ' total' : ''}"><span class="k">${r.k}</span><span>${r.v}</span></div>`).join('');
+        if(bl && bl.cards > 0){
+          document.getElementById('settleBody').insertAdjacentHTML('beforeend',
+            `<div class="row"><span class="k">Boss 追加卡牌</span><span>×${bl.cards}（稀有度保底 ${bossLootRarityLabel(pendingLootRarityIdx)}）</span></div>`);
+        }
       } else {
         const s = payload.score;
         const rows = [`<div class="row"><span class="k">基础奖励</span><span>${s.base}</span></div>`];
         for(const b of s.bonuses) rows.push(`<div class="row"><span class="k">${b.label}</span><span>+${b.amount}</span></div>`);
         if(payload.bossLoot && payload.bossLoot.score) rows.push(`<div class="row"><span class="k">Boss 战利品</span><span>+${payload.bossLoot.score}</span></div>`);
+        if(bl && bl.cards > 0) rows.push(`<div class="row"><span class="k">Boss 追加卡牌</span><span>×${bl.cards}（稀有度保底 ${bossLootRarityLabel(pendingLootRarityIdx)}）</span></div>`);
         rows.push(`<div class="row"><span class="k">通关用时</span><span>${(payload.clearMs / 1000).toFixed(1)}s</span></div>`);
         rows.push(`<div class="row total"><span class="k">本节点得分</span><span>${s.total}</span></div>`);
         document.getElementById('settleBody').innerHTML = rows.join('');
@@ -1031,7 +1182,10 @@ watchFlow(flow, (state, payload) => {
   } else if(state === 'reward'){
     const row = document.getElementById('cardRow');
     row.innerHTML = '';
-    const cards = cardPool.length ? drawCardChoices(cardPool, 3, { ammoLoadout: player.ammoLoadout }) : [];
+    // P-51 Wave2：Boss 追加轮 → 按保底稀有度过滤抽取池；普通轮 → 全池
+    const bonusRound = pendingLootRounds > 0;
+    const drawPool = bonusRound ? bossLootPool() : cardPool;
+    const cards = drawPool.length ? drawCardChoices(drawPool, 3, { ammoLoadout: player.ammoLoadout }) : [];
     if(cards.length === 0){
       row.innerHTML = '<div class="screen-hint">卡池为空——请确认 cards/ 目录与 /api/cards 可用。</div>';
     }
@@ -1041,7 +1195,7 @@ watchFlow(flow, (state, payload) => {
       d.className = 'card';
       d.innerHTML = `<div class="cname">${c.name}</div><div class="cdesc">${c.desc || ''}</div>` +
         `<div class="mono" style="font-size:10px;color:var(--amber-dim);margin-top:6px;">${rarityLabel[c.rarity] || c.rarity} · ${(c.tags||[]).join('/')}</div>`;
-      d.addEventListener('click', () => { pickCard(c); nextNodeAfterReward(); });
+      d.addEventListener('click', () => { pickCard(c); advanceRewardFlow(); });
       row.appendChild(d);
     }
     showScreen('rewardScreen'); setOverlayVisible(true);
@@ -1135,7 +1289,7 @@ function resetRunShopState(){
   toggleRunShop(false);
 }
 
-// 购买效果应用：instant 类直接改 hp（不走修饰器）；effects 类 push scope='run' 修饰器，
+// 购买效果应用：instant 类直接改 hp / 冷却账本（不走修饰器）；effects 类 push scope='run' 修饰器，
 // source='runshop:<id>'——addModifier 内部 refreshStats 立即重算 stats；
 // removeRunModifiers（startNewRun / gameoverRestart / beginRunFromMenu 三路径）负责清除。
 function applyRunShopEffects(def){
@@ -1144,25 +1298,73 @@ function applyRunShopEffects(def){
     player.hp = Math.min(player.stats.maxHp, player.hp + player.stats.maxHp * def.instant.value);
     pushLog(`紧急维修：HP ${before} → ${Math.ceil(player.hp)}`, 'COVER');
   }
+  // #90：修理箱/医疗包局内速冷——维护 run 级冷却减免账本（供能力冷却消费：基础45s − 永久×1 − 局内×3）
+  if(def.instant && def.instant.type === 'cdReduce'){
+    const ab = def.instant.ability;
+    if(!player.runShopCdBonus || typeof player.runShopCdBonus !== 'object') player.runShopCdBonus = { repair:0, medkit:0 };
+    player.runShopCdBonus[ab] = (player.runShopCdBonus[ab] || 0) - def.instant.value;
+    pushLog(`${ab === 'repair' ? '修理箱' : '医疗包'}冷却减免 −${def.instant.value}s（当前有效 ${effectiveKitCd(ab)}s）`, 'COVER');
+  }
   for(const ef of (def.effects || [])){
     addModifier(player, { stat: ef.stat, mode: ef.mode, value: ef.value, source: 'runshop:' + def.id, scope: 'run' });
   }
 }
+
+// ==================== #90 修理箱/医疗包冷却账本（永久 ×1 + 局内 ×3） ====================
+const KIT_BASE_CD = 45;   // 基础冷却（秒）
+function kitPermLv(key){ return upgradeLevel(profile, key === 'repair' ? 'repair_kit_cd' : 'medkit_cd') | 0; }
+function kitRunLv(key){ return runShopLevels[key === 'repair' ? 'repair_kit_cd_run' : 'medkit_cd_run'] | 0; }
+function effectiveKitCd(key){ return Math.max(0, KIT_BASE_CD - kitPermLv(key) - kitRunLv(key) * 3); }
+
+// #90：「当前值 → 购买后值」预览文本（数值从 player.stats 与 def.effects/instant 现算）
+function _statPathVal(path){
+  return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), player.stats);
+}
+function runShopPreviewText(def){
+  const s = player.stats;
+  if(def.instant && def.instant.type === 'healPct') return `维修 ${Math.round(def.instant.value * 100)}%HP`;
+  if(def.instant && def.instant.type === 'cdReduce'){
+    const cur = effectiveKitCd(def.instant.ability);
+    return `冷却 ${cur}s→${Math.max(0, cur - def.instant.value)}s`;
+  }
+  const ef = (def.effects || [])[0];
+  if(!ef) return def.desc;
+  const cur = _statPathVal(ef.stat);
+  if(typeof cur !== 'number') return def.desc;
+  const next = ef.mode === 'mult' ? cur * ef.value : cur + ef.value;
+  const unit = ef.stat === 'reload' ? 's'
+    : (String(ef.stat).indexOf('armor.') === 0 ? 'mm'
+    : (ef.stat === 'maxSpeed' ? 'px/s' : ''));
+  const fixed2 = ef.mode === 'mult' || ef.stat === 'spreadMult';
+  const fmt = v => fixed2 ? v.toFixed(2) : String(Math.round(v));
+  return `${fmt(cur)}${unit}→${fmt(next)}${unit}`;
+}
+
+const RUN_SHOP_GROUPS = [
+  { id: 'firepower', title: '🔥 火力 FIREPOWER' },
+  { id: 'armor',     title: '🛡 防护 ARMOR' },
+  { id: 'mobility',  title: '⚙ 机动 MOBILITY' },
+  { id: 'misc',      title: '🧰 杂项 MISC' }
+];
 
 function renderRunShopPanel(){
   const el = document.getElementById('runShopBody');
   if(!el) return;
   let html = `<div class="screen-title">局内商店 RUN SHOP</div>` +
     `<div style="font-size:11px;color:var(--amber-dim);margin-bottom:10px;">可用得分 <b id="runShopBalance">${runShopBalance()}</b>（总得分 ${runScore} − 已花 ${runScoreSpent}；花费不减终局转化得分）</div>`;
-  for(const d of RUN_SHOP_DEFS){
-    const lv = runShopLevels[d.id] || 0;
-    const maxed = lv >= d.maxLevel;
-    const price = runShopPriceFor(d, lv);
-    const afford = !maxed && canAfford(runShopBalance(), price);
-    html += `<div class="row" style="justify-content:space-between;">
-      <span class="k">${d.name} <span style="color:var(--text-dim);font-weight:normal;font-size:10px;">${d.desc}</span></span>
-      <span>${maxed ? '满级 ' + lv + '/' + d.maxLevel : `${lv}/${d.maxLevel} · `}<button ${afford ? '' : 'disabled style="opacity:0.4"'} onclick="buyRunShopItem('${d.id}')">${maxed ? 'MAX' : price + ' 分'}</button></span>
-    </div>`;
+  for(const g of RUN_SHOP_GROUPS){
+    const defs = RUN_SHOP_DEFS.filter(d => d.group === g.id);
+    if(!defs.length) continue;
+    html += `<div style="font-size:10px;letter-spacing:2px;color:var(--amber);border-bottom:1px solid var(--line);margin:10px 0 6px;padding-bottom:4px;">${g.title}</div>`;
+    for(const d of defs){
+      const lv = runShopLevels[d.id] || 0;
+      const price = runShopPriceFor(d, lv);
+      const afford = canAfford(runShopBalance(), price);   // ISSUE 20：取消 maxLevel 上限，无限购买（costGrowth 雪球约束）
+      html += `<div class="row" style="justify-content:space-between;">
+        <span class="k">${d.name} <span style="color:var(--text-dim);font-weight:normal;font-size:10px;">${runShopPreviewText(d)}</span></span>
+        <span>Lv ${lv} · <button ${afford ? '' : 'disabled style="opacity:0.4"'} onclick="buyRunShopItem('${d.id}')">${price} 分</button></span>
+      </div>`;
+    }
   }
   el.innerHTML = html;
 }
@@ -1198,6 +1400,7 @@ function startNewRun(){
   // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
   run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入）
   runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
+  pendingLootRounds = 0; pendingLootRarityIdx = -1;   // P-51 Wave2：跨局清 Boss 追加卡牌轮
   resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
   profile.stats.runs++;                         // P-14：局数统计
   saveProfile(localStorage, profile);
@@ -1274,7 +1477,8 @@ function renderHome(){
   const emptyEl = document.getElementById('homeEmpty');
   const _bHome = (typeof buildHomeViewModel === 'function' ? buildHomeViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildHomeViewModel : null));
   if(_bHome){
-    const vm = _bHome({ slots, activeId, renamingSlotId, deleteArmSlotId, slotProfileOf });
+    const vm = _bHome({ slots, activeId, renamingSlotId, deleteArmSlotId, slotProfileOf,
+      upgradeDefs: (typeof UPGRADE_DEFS !== 'undefined' ? UPGRADE_DEFS : []) });
     if(emptyEl) emptyEl.style.display = vm.empty ? 'block' : 'none';
     if(listEl) listEl.style.display = vm.empty ? 'none' : 'block';
     if(!listEl) return;
@@ -1299,6 +1503,12 @@ function renderHome(){
       const meta = document.createElement('div'); meta.className = 'slot-meta';
       meta.textContent = r.meta;
       main.appendChild(nameLine); main.appendChild(meta);
+      if(r.upgradesLine){
+        const upLine = document.createElement('div'); upLine.className = 'slot-meta';
+        upLine.style.color = 'var(--amber-dim)';
+        upLine.textContent = r.upgradesLine;
+        main.appendChild(upLine);
+      }
       const acts = document.createElement('div'); acts.className = 'slot-actions';
       const enterB = document.createElement('button'); enterB.className = 'enter-btn'; enterB.textContent = '选择进入';
       enterB.addEventListener('click', () => { playSound('ui'); if(setActiveSaveSlot(localStorage, r.id)){ profile = loadActiveProfile(localStorage); transition(flow, 'loadout'); } });
@@ -1338,6 +1548,16 @@ function renderHome(){
     const meta = document.createElement('div'); meta.className = 'slot-meta';
     meta.textContent = `局数 ${prof ? prof.stats.runs : 0} · 击杀 ${prof ? prof.stats.kills : 0} · 点数 ${prof ? prof.points : 0} · ${fmtStamp(s.updatedAt)}`;
     main.appendChild(nameLine); main.appendChild(meta);
+    {   // 永久升级总览行（兜底分支与 vm 分支同语义）
+      const upText = (typeof TankScreens !== 'undefined' && TankScreens.upgradesOverviewLine)
+        ? TankScreens.upgradesOverviewLine(prof, (typeof UPGRADE_DEFS !== 'undefined' ? UPGRADE_DEFS : [])) : '';
+      if(upText){
+        const upLine = document.createElement('div'); upLine.className = 'slot-meta';
+        upLine.style.color = 'var(--amber-dim)';
+        upLine.textContent = upText;
+        main.appendChild(upLine);
+      }
+    }
     const acts = document.createElement('div'); acts.className = 'slot-actions';
     const enterB = document.createElement('button'); enterB.className = 'enter-btn'; enterB.textContent = '选择进入';
     enterB.addEventListener('click', () => { playSound('ui'); if(setActiveSaveSlot(localStorage, s.id)){ profile = loadActiveProfile(localStorage); transition(flow, 'loadout'); } });
@@ -1535,6 +1755,10 @@ function prepPlayerForRun(){
   player.ammoKey = activeLoadout()[0];
   renderAmmoIndicator();                             // 槽位组随本局配备重建（≤3 格）
   resetEntity(player);                               // 恢复 spawn 快照（hp 已随 applyTankConfig 同步 maxHp）
+  player.hp = player.stats.maxHp;                    // #99：满血出击（resetEntity 后兜底，防快照 hp 陈旧）
+  // #90 修理箱/医疗包（开局自带）：基础冷却 45s − 永久级数×1；run 级减免账本随新局归零
+  player.abilityBaseCd = { repair: effectiveKitCd('repair'), medkit: effectiveKitCd('medkit') };
+  player.runShopCdBonus = { repair: 0, medkit: 0 };
 }
 
 function beginRunFromMenu(){
@@ -1711,22 +1935,74 @@ function tryOverdrive(){
   }
 }
 
+// #90 修理箱（4）/ 医疗包（5）：开局自带（无需持卡），独立冷却走 t.abilityCds.repair/medkit
+// （运行时由 js/tank_abilities.js 战斗层扩展消费；基础冷却注入见 prepPlayerForRun 的 abilityBaseCd）。
+function kitFailLog(verb, res){
+  if(res.reason === 'unsupported') pushLog(`${verb}运行时尚未接入（战斗层扩展后生效）`, 'COVER');
+  else if(res.reason === 'cooldown') pushLog(`${verb}冷却中（剩余 ${res.cd.toFixed(1)}s）`, 'COVER');
+  else pushLog(`${verb}不可用（${res.reason}）`, 'COVER');
+}
+function tryRepairKit(){
+  if(!player || player.hp <= 0 || player.immobT > 0) return;
+  const res = tryActivateAbility(player, 'repair');
+  if(res.ok){ playSound('ui'); pushLog('修理箱启用 — 受损模块修复中', 'PEN'); }
+  else kitFailLog('修理箱', res);
+}
+function tryMedkit(){
+  if(!player || player.hp <= 0 || player.immobT > 0) return;
+  const res = tryActivateAbility(player, 'medkit');
+  if(res.ok){ playSound('ui'); pushLog('医疗包使用 — 全体乘员救治', 'PEN'); }
+  else kitFailLog('医疗包', res);
+}
+
 // [P-28] updateSolution/computeSolution 已收敛到 js/tank_fire.js
 // ---------- P-15 开发者面板：实时参数 ----------
 function updateDevParams(){
   const set = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt; };
   set('devSigma', player.sigma.toFixed(4));
-  set('devReload', `${player.reloadT.toFixed(2)}s / ${(player.stats.reload / debuffReloadRate(player)).toFixed(2)}s`);
+  set('devReload', player.stats.reload.toFixed(2) + 's');   // 面板主值：基础装填（受 debuff 时实际更长）
   set('devPos', `(${player.x.toFixed(0)}, ${player.y.toFixed(0)})`);
-  set('devSpeed', `${(player.speed||0).toFixed(0)} px/s`);
+  set('devSpeed', tankKmh(player) + 'km/h');
   set('devEntities', `${entities.filter(e=>e.hp>0).length} 存活`);
   set('devNode', run && currentNode
     ? `节点 ${currentNode.index + 1}/${run.nodes.length} · 难度 ${(currentNode.difficulty * 100).toFixed(0)}% · 得分 ${runScore} · seed ${run.seed}`
     : '未开局（NEW RUN 后进入战斗）');
+  set('devNodeType', run && currentNode
+    ? (currentNode.boss ? 'BOSS' : '普通') + ' (' + (currentNode.template ? currentNode.template.id : '?') + ')'
+    : '--');
+  set('devEnemyCount', `${entities.filter(e=>e.team==='enemy'&&e.hp>0).length}`);
+  renderDevOwnedCards();
+}
+
+// [P-15] 开发者面板：已持有卡牌（按 cardId 分组计数，经 cardPool 取名称/稀有度）
+function renderDevOwnedCards(){
+  const el = document.getElementById('devOwnedCards');
+  if(!el) return;
+  const effects = (player.cardEffects || []);
+  if(!effects.length){
+    el.innerHTML = '<div style="font-size:9px;color:var(--text-dim);">尚未持有任何卡牌</div>';
+    return;
+  }
+  const counts = {};
+  for(const ef of effects){
+    if(!ef || !ef.cardId) continue;
+    counts[ef.cardId] = (counts[ef.cardId] || 0) + 1;
+  }
+  const rows = Object.keys(counts).map(cardId => {
+    const card = (typeof cardPool !== 'undefined' && cardPool) ? cardPool.find(c => c.id === cardId) : null;
+    const name = card ? card.name : cardId;
+    const rarity = (card && card.rarity) ? '（' + card.rarity + '）' : '';
+    return `<span class="k" style="min-width:auto;margin-right:12px;">${name}${rarity} ×${counts[cardId]}</span>`;
+  });
+  el.innerHTML = rows.length
+    ? rows.join('')
+    : '<div style="font-size:9px;color:var(--text-dim);">尚未持有任何卡牌</div>';
 }
 
 // ---------- update ----------
 let last = performance.now();
+let fpsLast = last;
+let fpsFrames = 0;
 
 function update(dt){
   // P-08：当前模拟世界尺寸（run 模式 = 节点大世界；未开局 = 画布）
@@ -1794,10 +2070,28 @@ function update(dt){
     reflectDir,
     // resolveHit 包装：命中敌对 AI → alertEntity（立即接战+记来弹方向）+ 半径友邻告警。
     // 只对敌方目标生效；玩家/友军被击中不触发。BOUNCE 也算被命中（同样暴露弹源方向）。
+    // P-51 Wave2：目标为敌方 Boss 且命中部位属于当前阶段 weakspots → 构造 opts
+    //   （RULES.boss.weakspot：penAdd/dmgMul/ignoreBounce，带存在性防护）传给底层 resolveHit；
+    //   命中弱点给 pushLog 可感知反馈（伤害飘字仍由既有 PEN 管道按放大后的 dmg 渲染）。只对敌方 Boss 目标走弱点位。
     resolveHit: (function(){
       const raw = resolveHit;
       return function(s, target, hit, allowBounce){
-        const res = raw(s, target, hit, allowBounce);
+        let opts;
+        if(target && target.isBoss && target.team === 'enemy' &&
+           typeof isWeakspotHit === 'function' && typeof RULES !== 'undefined' &&
+           RULES.boss && RULES.boss.weakspot){
+          const mod = (typeof moduleFromHit === 'function') ? moduleFromHit(target, hit) : null;
+          if(mod && mod.key && isWeakspotHit(target, mod.key)){
+            const ws = RULES.boss.weakspot;
+            opts = {
+              penAdd: ws.penAdd || 0,
+              dmgMul: ws.dmgMul || 1,
+              ignoreBounce: !!ws.ignoreBounce
+            };
+            pushLog(`弱点命中！${mod.label} — 穿深+${ws.penAdd || 0} 伤害×${ws.dmgMul || 1}`, 'PEN');
+          }
+        }
+        const res = raw(s, target, hit, allowBounce, opts);
         if(res && target && target.team === 'enemy' && target.hp > 0 && !target.isDrone){
           const sx = (s && s.shooter) ? s.shooter.x : (s ? s.fx : 0);
           const sy = (s && s.shooter) ? s.shooter.y : (s ? s.fy : 0);
@@ -1837,6 +2131,8 @@ function update(dt){
   if(keys['g']) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
   if(keys['h']) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
   if(keys['v']) tryOverdrive();   // P-17：V 键超级装填（爆发装填）
+  if(keys['4']) tryRepairKit();   // #90：4 键修理箱（开局自带）
+  if(keys['5']) tryMedkit();      // #90：5 键医疗包（开局自带）
 
   // keep every tank from overlapping its neighbours
   resolveTankCollisions();
@@ -1881,13 +2177,16 @@ function update(dt){
   for(const ev of droneEvents){
     const target = ev.target;
     if(!target || target.hp <= 0) continue;
-    target.hp = Math.max(0, target.hp - ev.damage);   // 直伤（模块已排除无敌/阵亡目标）
+    const ang = Math.atan2(target.y - ev.drone.y, target.x - ev.drone.x);
+    // ISSUE 12：打击无人机开火特效（炮口闪光 + 弹道曳光），与玩家炮弹视觉一致
+    spawnMuzzleFlash(ev.drone.x, ev.drone.y, ang, 0.6);
+    spawnTracer(ev.drone.x, ev.drone.y, target.x, target.y, '#ffd24a');
+    applyDamage(target, ev.damage);   // 直伤（模块已排除无敌/阵亡目标；统一经 applyDamage 尊重 dmgTakenMul 减伤）
     // 警觉钩子：无人机直伤命中敌对 AI → 立即接战 + 友邻告警（同炮弹命中路径，只对敌方生效）
     if(target.team === 'enemy' && target.hp > 0 && !target.isDrone){
       alertEntity(target, ev.drone.x, ev.drone.y);
       propagateAlert(entities, ev.drone.x, ev.drone.y);
     }
-    const ang = Math.atan2(target.y - ev.drone.y, target.x - ev.drone.x);
     spawnImpactFx(ev.drone.x, ev.drone.y, ang, 'pen', 0.5);
     spawnDmgText(target.x, target.y - 14, ev.damage, 'pen');
     playSound('flyby');   // M1：无人机开火哨声
@@ -1908,7 +2207,7 @@ function update(dt){
     if(e.dotT>0 && !invuln){
       e.dotT -= dt;
       const dotDmg = (e.dotDps||0)*dt;
-      e.hp = Math.max(0, e.hp - dotDmg);
+      applyDamage(e, dotDmg);   // 统一经 applyDamage 尊重 dmgTakenMul 减伤（飘字仍用原始 dotDmg）
       e._dotAcc = (e._dotAcc||0) + dotDmg;
       e._dotTxt = (e._dotTxt||0) + dt;
       if(e._dotTxt >= 0.35){
@@ -1980,6 +2279,7 @@ function update(dt){
 
   // P-17：主动能力主循环（与烟雾同处 simulating 门控内）
   updateAbilityCd(player, dt);    // 共享冷却递减（artillery/shield/overdrive 同一 abilityCdT 字段）
+  updateAbilityCds(player, dt);   // 修理箱/医疗包独立冷却递减（t.abilityCds 池， innate 键 4/5）
   updateShield(player, dt);       // 护盾时长递减（本版本仅玩家持有护盾，无盾时 no-op）
   // P-17：战术炮击落弹推进（updateStrikes 已按阵营过滤扣血并返回命中明细；接线层播特效/飘字/音效）
   for(const ev of updateStrikes(dt, entities)){
@@ -2037,6 +2337,29 @@ function update(dt){
       if(e.isBoss && e.hp > 0){
         const r = updateBossStage(e);
         if(r.changed){ pushLog(`BOSS「${e.boss.name}」进入阶段「${r.stage.name || r.stage.id}」：${r.stage.behavior || ''}`, 'CRIT'); playSound('ui'); }
+      }
+    }
+    // #91b Boss 顶层行为接线（boss-author 的 updateBossBehavior）：
+    //   crush/weave 接触碾压（伤害+击退已由模块经 applyDamage 结算，此处播反馈）、
+    //   weave 周期冲刺、command 炮击压制（strikes 已入全局预警数组——落点红圈由 draw() 统一绘制）。
+    for(const e of entities){
+      if(!(e.isBoss && e.hp > 0)) continue;
+      let evts = [];
+      try { evts = updateBossBehavior(e, dt, player, {
+        bounds: { minX: 40, minY: 40, maxX: worldW - 40, maxY: worldH - 40 }
+      }); } catch(err) { /* 行为层异常不阻断战斗主循环 */ }
+      for(const ev of evts){
+        if(ev.type === 'contact'){
+          playSound('pen');
+          spawnImpactFx(ev.x, ev.y, Math.atan2(player.y - e.y, player.x - e.x), 'he', 0.8);   // 击退尘土/火花
+          pushLog(`BOSS 碾压撞击！−${ev.dmg}`, 'CRIT');
+        } else if(ev.type === 'chargeStart'){
+          pushLog('⚠ BOSS 冲刺启动！', 'CRIT');
+          playSound('ui');
+        } else if(ev.type === 'barrage'){
+          playSound('ui');
+          pushLog(`⚠ BOSS 弹幕压制 — ${ev.strikes.length} 发落弹来袭`, 'CRIT');
+        }
       }
     }
     if(player._dead && !battleState.playerDied){
@@ -2172,6 +2495,23 @@ function drawDroneIndicators(){
   }
 }
 
+// ---------- #89 视野系统 v1（用户终版：纯距离，无 LoS 遮挡） ----------
+// 可视圆心 C = player.pos + normalize(mouseWorld − player.pos) × bias × radius（RULES.vision）。
+// 敌对存活实体（含 Boss；不含据点/友军/无人机）若 dist(E,C) > radius 且 dist(E,player) > inner×radius
+// → 主画布跳过绘制（其炮弹仍绘制）。友军/据点/拾取恒可见。小地图敌军点始终绘制不受影响。
+const VISION_CFG = (typeof RULES !== 'undefined' && RULES.vision) ? RULES.vision : { radius: 900, bias: 0.35, inner: 0.45 };
+let devNoVision = false;   // dev 面板开关：跳过视野剔除
+function entityHiddenByVision(e){
+  if(devNoVision) return false;
+  if(!e || e.team !== 'enemy' || e.hp <= 0 || e.isDrone) return false;
+  const vdx = mouseWorld.x - player.x, vdy = mouseWorld.y - player.y;
+  const vlen = Math.hypot(vdx, vdy) || 1;
+  const cx = player.x + (vdx / vlen) * VISION_CFG.bias * VISION_CFG.radius;
+  const cy = player.y + (vdy / vlen) * VISION_CFG.bias * VISION_CFG.radius;
+  if(Math.hypot(e.x - cx, e.y - cy) <= VISION_CFG.radius) return false;   // 可视圆内
+  return Math.hypot(e.x - player.x, e.y - player.y) > VISION_CFG.inner * VISION_CFG.radius;   // 贴身内圈恒可见
+}
+
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
@@ -2215,6 +2555,7 @@ function draw(){
   inViewCovers.filter(cov => !groundLayerCov(cov) && cov.tier !== 'bridge').forEach(cov => drawCover(ctx, cov));
   entities.forEach(t => {
     if(t.isDrone) return;   // P-17：无人机无坦克几何，由 drawDrones 单独绘制
+    if(entityHiddenByVision(t)) return;   // #89：视野外敌对存活实体跳过绘制（炮弹仍绘制；小地图不受影响）
     if(!aabbInView(cam, t.x, t.y, t.hullLen, t.hullWid)) return;
     if(t.invulnT > 0){ ctx.globalAlpha = 0.5 + 0.4 * Math.sin(performance.now() / 60); }   // P-11：复活无敌闪烁
     drawTank(ctx, t);
@@ -2365,6 +2706,23 @@ function draw(){
       entities
     });
   }
+
+  // ISSUE 17-display：当前弹种最终属性读出（computeAmmoConfig 叠加卡牌改造）
+  const arEl = document.getElementById('ammoReadout');
+  if(arEl){
+    if(player && player.ammoKey && typeof computeAmmoConfig === 'function'){
+      const cfg = computeAmmoConfig(player, player.ammoKey);
+      const ammoMeta = (typeof RULES !== 'undefined' && RULES.ammoTypes && RULES.ammoTypes[player.ammoKey]) || null;
+      const label = ammoMeta && ammoMeta.label ? ammoMeta.label : player.ammoKey;
+      const pen = (cfg && typeof cfg.pen === 'number') ? cfg.pen : 1;
+      const dmg = (cfg && typeof cfg.dmg === 'number') ? cfg.dmg : 1;
+      const spd = (cfg && typeof cfg.speed === 'number') ? cfg.speed : 1;
+      arEl.textContent = `${label} 穿×${pen.toFixed(1)} 伤×${dmg.toFixed(1)} 速×${spd.toFixed(1)}`;
+      arEl.style.display = 'block';
+    } else {
+      arEl.style.display = 'none';
+    }
+  }
 }
 
 // ---------- loop with fixed timestep ----------
@@ -2392,6 +2750,18 @@ function loop(now){
   }
 
   draw();
+
+  // ISSUE 18：FPS 统计（仅显示用，不影响模拟；~2x/sec 刷新）
+  fpsFrames++;
+  if(now - fpsLast >= 500){
+    const fpsVal = Math.round(fpsFrames * 1000 / (now - fpsLast));
+    fpsFrames = 0; fpsLast = now;
+    const frEl = document.getElementById('fpsReadout');
+    if(frEl) frEl.textContent = 'FPS ' + fpsVal;
+  }
+  const frEl2 = document.getElementById('fpsReadout');
+  if(frEl2) frEl2.style.display = (profile && profile.settings && profile.settings.showFps) ? 'block' : 'none';
+
   requestAnimationFrame(loop);
 }
 

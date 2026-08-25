@@ -39,6 +39,15 @@ const RULES = {
     partProbe: 12   // 死区（px）：鼠标与目标碰撞距离的判定阈值
   },
 
+  // ======================= 视野系统（offset-circle 视野模型） =======================
+  // 可视圆心 = 车身位置向鼠标方向偏移 bias × radius，半径 radius；
+  // 车内圈 inner × radius 恒常可见（不受偏移影响）。
+  vision: {
+    radius: 900,   // 视野半径（px）
+    bias: 0.35,    // 圆心朝鼠标方向偏移量（×radius）
+    inner: 0.45    // 车内圈恒显半径（×radius）
+  },
+
   // ======================= 高度系统 =======================
   heights: {
     // heightClass → { hull, turret }: 中坦/重坦车体与炮塔高度（米级抽象）
@@ -82,22 +91,23 @@ const RULES = {
   // 其余字段：vision 遮视线 / crushable 压过即毁 / toTier 摧毁残骸链 / driveBy 按 heightClass 门控越障。
   // 旧字段 mode/move/draw 由下方 normalizeCoverTiers 从新 schema 单向派生，供未迁移消费方过渡。
   coverTiers: {
-    half:       { label: '半高掩体', fill: 'rgba(166,138,60,0.4)',   stroke: '#a68a3c', passability: 0.4,  shellBlock: 'grad',   exposureProfile: 'half',      destructible: Infinity, crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'cover',     driveBy: { heavy: true, medium: false } },
-    full:       { label: '全高掩体', fill: 'rgba(106,106,106,0.55)', stroke: '#6a6a6a', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' },
-    bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#5c8238', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'bush',        tierGroup: 'foliage' },
-    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#3f5c3c', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: false, vision: true,  drawStyle: 'tree',        tierGroup: 'foliage', toTier: 'fallen' },
+    half:       { label: '半高掩体', fill: 'rgba(150,128,72,0.45)',  stroke: '#2e2410', passability: 0.4,  shellBlock: 'grad',   exposureProfile: 'half',      destructible: Infinity, crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'cover',     driveBy: { heavy: true, medium: false } },
+    full:       { label: '全高掩体', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure' },
+    bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#3f9a2e', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'bush',        tierGroup: 'foliage' },
+    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#2e6e28', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: false, vision: true,  drawStyle: 'tree',        tierGroup: 'foliage', toTier: 'fallen' },
     fallen:     { label: '倒树',     fill: 'rgba(56,72,44,0.35)',    stroke: '#4a5c3a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'fallen',      tierGroup: 'foliage', residueW: 2.4, residueH: 0.5 },
     soft:       { label: '栅栏',     fill: 'rgba(150,118,70,0.4)',   stroke: '#96764a', passability: 0.45, shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'soft',        tierGroup: 'structure' },
     barricade:  { label: '沙袋路障', fill: 'rgba(158,128,72,0.55)',  stroke: '#9e8048', passability: 1.0,  shellBlock: 'single', exposureProfile: 'full',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'barricade',   tierGroup: 'structure', toTier: 'rubble' },
     stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'graduated', destructible: 1,        crushable: true,  vision: false, drawStyle: 'stump',       tierGroup: 'structure' },
     rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'graduated', destructible: 1,        crushable: true,  vision: false, drawStyle: 'rubble',      tierGroup: 'structure' },
     // ======================= P-20/P-40：水体/桥梁 + 新地形 =======================
-    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water',       tierGroup: 'liquid' }, // #85：炮弹越飞 + 移动阻断（passability 0）
-    river:      { label: '河流',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water-chain', tierGroup: 'liquid' }, // 多段连通水体（segments）
+    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water',       tierGroup: 'liquid' }, // #85：炮弹越飞；#16 改为可涉水（passability 0.4 慢速通行，不再硬阻断）
+    river:      { label: '河流',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water-chain', tierGroup: 'liquid' }, // 多段连通水体（segments）；#16 同改为可涉水
     mud:        { label: '烂泥地',   fill: 'rgba(96,72,44,0.45)',    stroke: '#60482c', passability: 0.35, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'mud',         tierGroup: 'ground' }, // 减速不阻挡、不进弹道遮蔽
-    intact:     { label: '完整建筑', fill: 'rgba(98,98,110,0.6)',    stroke: '#62626e', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' },
+    road:       { label: '道路',     fill: 'rgba(122,120,114,0.55)', stroke: '#6e6c66', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'road',        tierGroup: 'ground' }, // 村庄街道：可自由通行、不挡弹、不遮视线（纯地面标识）
+    intact:     { label: '完整建筑', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure' },
     ruined:     { label: '残破建筑', fill: 'rgba(122,114,100,0.5)',  stroke: '#7a7264', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'half',      destructible: 1,        crushable: false, vision: false, drawStyle: 'rubble-box',  tierGroup: 'structure', toTier: 'rubble', driveBy: { heavy: true, medium: false } },
-    rock:       { label: '岩石',     fill: 'rgba(138,138,132,0.85)', stroke: '#6f6f68', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: false, drawStyle: 'rock-poly',   tierGroup: 'structure' },
+    rock:       { label: '岩石',     fill: 'rgba(138,138,132,0.85)', stroke: '#6f6f68', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'rock-poly',   tierGroup: 'structure' },
     bridge:     { label: '桥梁',     fill: 'rgba(139,92,25,0.8)',    stroke: '#8b5c1a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' }
   },
 
@@ -120,8 +130,11 @@ const RULES = {
 
   // ======================= 速度 / 机动换算 =======================
   speed: {
-    kmhFactor: 0.5,            // maxSpeed(px/s) × 0.5 = km/h（HUD 显示）
+    // 2026-08-25 统一换算：kmhFactor=0.4 为唯一 px/s→km/h 系数（HUD/tankKmh 与
+    // tank_model 的 stats.maxSpeedKmh 同源同值；旧 PX_PER_METER×3.6 与 CALIBRATED_KMH_FACTOR 双轨已废）
+    kmhFactor: 0.4,            // maxSpeed(px/s) × 0.4 = km/h（HUD 显示）
     pxFactor: 1.6,             // 推进速度 = maxSpeed × pxFactor（px/s）
+    effMul: 1.3,               // 运行期有效移动速度乘子（地图尺度提速 ~1.3x）；面板 stats.maxSpeed 不变
     accelPowerToPxScale: 130,   // 马力/吨 → px/s² 加速度比例（P-修正：由 180 下调至 130，加速 ramp 略迟缓更"肉"，top speed 不变）
     brakeFactor: 3.5           // 刹车加速度 = 加速 × brakeFactor
   },
@@ -239,6 +252,12 @@ const RULES = {
     he:   { label: 'HE',   color: '#ffb454', speed: 0.95, pen: 0.7, dmg: 1.0, noBounce: true, splashRadius: 90, tail: 'rgba(255,180,84,0.6)' }
   },
 
+  // ======================= 弹种增益软上限（ISSUE 19） =======================
+  // 卡牌叠乘（ammo-card / 改装）对各弹种 dmg/pen/speed 的最终值做软钳制：
+  // final[field] ≤ base[field] × ammoTypeCap[field]（per-ammo 独立钳制）。
+  // 消费方：js/tank_fire.js computeAmmoConfig（card-author 读取并 clamp 每弹种最终值）。
+  ammoTypeCap: { dmg: 2.5, pen: 1.8, speed: 2.0 },
+
   // 炮弹视觉
   shellVisual: {
     length: 14,   // 弹体长度（px）
@@ -264,7 +283,12 @@ const RULES = {
     // 调参理由：nodeScale=3 下旧掩体世界尺寸过大（半高墙 240~270px ≈4× 车长、沙袋 180~210px），
     // 收敛到 半高≈1.5~2×车长(100~150px)/全高≈2~3×(150~220px)/沙袋≈1×(60~90px)；
     // 地形标签生成物（pond/river/mud）与树丛不在此表 → 尺寸不受影响。
-    coverWorldScale: { half: 0.55, full: 0.58, barricade: 0.40 },
+    coverWorldScale: { half: 0.42, full: 0.42, barricade: 0.32 },
+    // #83 敌方集群生成：把同节点的敌军按"簇"布置（而非均匀散点），地图观感更像战术编队
+    enemyClusterRadius: 150,       // 簇内成员彼此最大间距（px）
+    enemyClusterSizeMin: 3,        // 单簇最小敌数（2026-08-25 数量上调 2→3）
+    enemyClusterSizeMax: 6,        // 单簇最大敌数（2026-08-25 数量上调 5→6）
+    enemyClusterCountBase: 2,      // 基础簇数（随难度线性叠加；2026-08-25 上调 1→2）
     // #77 低难度 full→half 降级帽：单节点最多降 floor(full数×帽值) 个（≤30%），
     // 保证低难度下每节点仍保留 ≥70% 全高建筑（掩体骨架可读性）。
     fullDowngradeCap: 0.30,
@@ -334,7 +358,14 @@ const RULES = {
     alertRadius: 600,               // 警觉传播半径（px）：敌对 AI 被击中时，该半径内友邻一并警觉（propagateAlert）
     patrolSpeedFactor: 0.8,         // 巡逻/行军状态移动速度因子（相对于基准速度的比例）
     patrolWanderSigma: 0.02,        // 巡逻状态正弦摆动幅度（rad），轻微摆动路径
-    patrolWanderSpeed: 1.5,         // 巡逻状态摆动周期频率（rad/s）
+    patrolWanderSpeed: 1.5,       // 巡逻状态摆动周期频率（rad/s）
+    // #83 探头/重部署节奏（消费方 js/tank_ai.js）：探头露头 + 周期性变位
+    peekAngleMax: 0.5,            // 探头最大偏摆角（rad）
+    peekInterval: [3, 6],         // 探头随机再触发间隔（秒，区间随机）
+    reposInterval: [4, 8],        // 重部署（变位）间隔（秒，区间随机）
+    // 2026-08-25 装填间隙侧摆：装填期间车体随机侧摆（rad 区间随机，45°~90°）
+    sideSwingAngleMin: 0.78,      // 最小侧摆角（≈45°）
+    sideSwingAngleMax: 1.57       // 最大侧摆角（≈90°）
   },
 
   // 死亡/复活（P-11 / DEVELOPMENT.md §2.3 / §6 条目 8）。
@@ -373,6 +404,11 @@ const RULES = {
     curveCap: 0.95,          // 基础难度封顶值
     crossRunLevelBonus: 0.04,// 每级跨局难度等级对基础难度的线性加成
     diffMax: 1.15,           // 有效难度绝对上限（含跨局加成后钳制）
+    // 2026-08-25 敌军难度三键重构（替代旧 enemyStatCapVsPlayer=0.8 单一封顶，旧键已删除；
+    // 消费方 tank_mvp.html applyDifficultyMults 需同步接线）：
+    penCapVsPlayer: 1.2,     // 敌军穿深上限 = 1.2 × 玩家穿深
+    dmgFloorVsPlayer: 0.4,   // 敌军伤害下限 = 0.4 × 玩家伤害
+    dmgCapAmmoMult: 0.7,     // 敌军伤害上限 = 0.7 × 玩家所携 ap/apcr/heat 中最终伤害最高者的伤害值
     enemyCountMax: 4,        // 敌人数量上限（enemyCount = 1 + floor(diff × 4)）
     aiTierMax: 2,            // AI 策略复杂度档位上限
     statMultMax: 1.5,        // 【已废弃 → entityMults.penetration[1]】保留仅为旧存档/调用兼容
@@ -382,16 +418,44 @@ const RULES = {
     // 终值校准说明：生存端 maxHp/armorAll 抬升最高（拖长 TTK、鼓励玩家绕侧打背面），
     // 输出端 damage/penetration 温和（避免一击必杀挫败），机动/火控端小幅强化（更难风筝）。
     entityMults: {
-      maxHp:         [1, 1.6],   // 生命
-      penetration:   [1, 1.5],   // 穿深
-      damage:        [1, 1.4],   // 单发伤害
-      armorAll:      [1, 1.45],  // 装甲全面乘（遍历 hull/turret 各面叠乘）
-      reload:        [1, 0.82],  // 装填时间（越难越短=射速越高）
-      spreadMult:    [1, 0.78],  // 三扩系数（越难越准）
-      aimSpeed:      [1, 1.35],  // 缩圈速度（越难瞄得越快）
-      maxSpeed:      [1, 1.18],  // 极速
-      turnRate:      [1, 1.22],  // 车体转速
-      turretTurnRate:[1, 1.3]    // 炮塔转速
+      maxHp:         [0.8, 1.4],   // 生命（易弱难强，下限<1）
+      penetration:   [0.75, 1.25], // 穿深
+      damage:        [0.75, 1.2],  // 单发伤害
+      armorAll:      [0.7, 1.3],   // 装甲全面乘（遍历 hull/turret 各面叠乘）
+      reload:        [1.25, 0.82], // 装填时间（易慢难快）
+      spreadMult:    [1.3, 0.78],  // 三扩系数（易散难准）
+      aimSpeed:      [0.8, 1.35],  // 缩圈速度
+      maxSpeed:      [0.7, 1.15],  // 极速
+      turnRate:      [0.7, 1.2],   // 车体转速
+      turretTurnRate:[0.7, 1.25]   // 炮塔转速
+    }
+  },
+
+  // P-51：Boss 数据驱动机制参数（弱点命中增益 + 阶段声明式行为脚本）。
+  // 消费方：js/tank_ai.js（aiModes，阶段行为模式）；tank_mvp.html（weakspot，弱点结算，Wave 2 接线）。
+  boss: {
+    weakspot: {
+      dmgMul: 1.5,         // 命中当前阶段 weakspots 模块时伤害 ×1.5
+      penAdd: 15,          // 穿深 +15mm（穿透判定前加算）
+      ignoreBounce: true   // 弱点命中跳过跳弹判定
+    },
+    aiModes: {
+      hold: {},                          // 消极防御（复用友军 passive 语义）
+      charge: { keepDist: 0 },           // 全速接敌
+      skirmish: { keepDist: 640 }        // 与目标保持距离（风筝）
+    },
+    // #83 Boss 数值调谐（消费方 js/tank_boss.js / materializeNode）：以"体型放大的普通坦克"为基准
+    // 再套下列乘子；hpMul 抬血量、move/turn/turretTurn 放慢、shell/fireRate/dmg 调整输出节奏。
+    tuning: {
+      hpMul: 8,            // 生命 ×8
+      moveMul: 0.5,        // 极速 ×0.5
+      turnMul: 0.6,        // 车体转速 ×0.6
+      turretTurnMul: 0.6,  // 炮塔转速 ×0.6
+      shellMul: 0.8,       // 炮弹威力 ×0.8
+      fireRateMul: 0.6,    // 射速 ×0.6（装填时间 ×1/0.6）
+      dmgMul: 1.5,         // 单发伤害 ×1.5
+      penMul: 1.4,         // 穿深 ×1.4（2026-08-25 新增：Boss 穿深独立乘子，不受敌军 penCapVsPlayer 封顶）
+      engageDist: 99999    // #21：Boss 出生即进入交战（巨大触发半径，绕过常规 trigDist 700 / 巡逻/风筝）
     }
   },
 
@@ -411,11 +475,11 @@ const RULES = {
   // Tiger I 真实数据：车长 6.316m（不含炮）、宽 3.73m、高 3.0m、极速 38 km/h、88mm炮弹初速 ~810 m/s (AP)
   // 游戏里 Tiger I 车体顶点：front x=34.5, rear x=-34.5 → 车体长 69px
   // PX_PER_METER = 69 / 6.316 ≈ 10.92 px/m
-  // 标定后的换算：
-  //   - maxSpeed(px/s) / PX_PER_METER * 3.6 = km/h  (px/s → m/s × 3.6)
+  // 标定后的换算（2026-08-25 统一）：px/s → km/h 走 RULES.speed.kmhFactor=0.4
+  //   - maxSpeed(px/s) × kmhFactor = km/h（tankKmh 与 computeStats.maxSpeedKmh 同源同值）
   //   - shellSpeed(px/s) / PX_PER_METER = m/s
   //   - barrel.len(px) / PX_PER_METER = m
-  //   - hullLen(px) / PX_PER_METER = m
+  //   - hullLen(px) / PX_METER = m
   //   - armor mm 保持不变、weight 吨保持不变
   scale: {
     REF_TANK_ID: 'tiger-I',
@@ -424,14 +488,7 @@ const RULES = {
     REF_MAX_SPEED_KMH: 38,         // Tiger I 真实极速 km/h
     REF_SHELL_SPEED_MS: 810,       // Tiger I 88mm AP 弹初速 m/s
     // 计算得出的比例常量
-    get PX_PER_METER() { return this.REF_HULL_LENGTH_PX / this.REF_HULL_LENGTH_M; },  // ≈10.92
-    // 校准后的 kmhFactor：使 Tiger I 的 120 px/s → 38 km/h
-    // kmhFactor = REF_MAX_SPEED_KMH / (REF_MAX_SPEED_PX * 3.6 / PX_PER_METER)
-    // 其中 REF_MAX_SPEED_PX = 120 (tiger-I.json maxSpeed)
-    get CALIBRATED_KMH_FACTOR() {
-      const refMaxSpeedPx = 120;  // tiger-I.json maxSpeed
-      return this.REF_MAX_SPEED_KMH / (refMaxSpeedPx * 3.6 / this.PX_PER_METER);
-    }
+    get PX_PER_METER() { return this.REF_HULL_LENGTH_PX / this.REF_HULL_LENGTH_M; }  // ≈10.92
   }
 };
 

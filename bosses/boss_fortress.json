@@ -4,6 +4,16 @@
   "desc": "反应装甲 + 伴随浮游炮：先清浮游炮削反应层，再打侧后弹药架；浮游炮全毁后本体脆化。",
   "tankId": "tiger-I",
   "scale": 2.0,
+  "behavior": { "style": "fortify" },
+  "tuning": {
+    "hpMul": 8,
+    "moveMul": 0.5,
+    "turnMul": 0.6,
+    "turretTurnMul": 0.6,
+    "shellMul": 0.8,
+    "fireRateMul": 0.6,
+    "dmgMul": 1.5
+  },
   "summons": [
     { "tankId": "dummy", "count": 2 }
   ],
@@ -15,6 +25,7 @@
       "hpTo": 0.66,
       "behavior": "车体披挂反应装甲（armor.hull +60、armor.turret +30），正面摆角近乎免疫；2 台浮游炮（dummy 单位）伴随提供侧翼火力（summons），需优先清理；弹药架（weakspot ammo）被反应块覆盖，仅侧后小角度可击穿——先清浮游炮消除侧翼威胁，再绕侧后用高穿弹打弹药架。",
       "weakspots": ["ammo"],
+      "ai": { "mode": "hold", "params": { "anchorRange": 300 } },
       "onEnter": {
         "modifiers": [
           { "stat": "armor.hull", "mode": "add", "value": 60 },
@@ -31,6 +42,7 @@
       "hpTo": 0.33,
       "behavior": "反应装甲块被逐片剥离（阶段 1 的 +60/+30 移除，本体装甲反而因剥落破损：armor.hull -30），侧面可直接击穿；引擎（weakspot engine）在车尾暴露，命中瘫痪其机动；浮游炮已被消耗殆尽，本体转为主动冲锋压制（极速 ×1.2）——保持距离，边退边打侧后。",
       "weakspots": ["ammo", "engine"],
+      "ai": { "mode": "charge", "params": { "targetRange": 150 } },
       "onEnter": {
         "modifiers": [
           { "stat": "armor.hull", "mode": "add", "value": -30 },
@@ -47,6 +59,7 @@
       "hpTo": 0.0,
       "behavior": "浮游炮全毁、反应层剥落殆尽：本体核心暴露脆化（armor.hull -50），进入狂暴连射（装填 ×0.6、伤害 ×1.2、极速 ×1.25）；这是火力全开的最佳输出窗口，但需防范冲锋，利用掩体横向拉扯换角度输出。",
       "weakspots": [],
+      "ai": { "mode": "charge", "params": { "targetRange": 0 } },
       "onEnter": {
         "modifiers": [
           { "stat": "armor.hull", "mode": "add", "value": -50 },

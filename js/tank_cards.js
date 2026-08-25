@@ -169,6 +169,10 @@ function applyCardEffects(tank, card, ctx) {
 // ---------- 弹种改造计算 (P-27) ----------
 
 // 计算特定坦克在特定弹种上的最终配置（含 cardEffects 弹种改造）
+// #97 加法聚合（2026-08-25，与 tank_model.computeStats 对齐）：mult pass 按 field 分组，
+// 同 field 的所有 mult 先聚合为单一乘子 1 + Σ(value−1) 再应用一次；多条聚合钳 ≥0
+// （单条不变）。add pass 保持逐条累加。HE 软上限在聚合之后应用。
+// 例：两张 HE dmg ×1.2 → 聚合乘子 1 + 0.2 + 0.2 = 1.4（旧迭代语义为 1.44）。
 function computeAmmoConfig(shooter, ammoKey) {
   const key = ammoKey || (shooter && shooter.ammoKey) || 'ap';
   const rules = (typeof RULES !== 'undefined' && RULES.ammoTypes) ? RULES.ammoTypes : {};
@@ -176,18 +180,43 @@ function computeAmmoConfig(shooter, ammoKey) {
   const cfg = Object.assign({}, base);
 
   const effects = (shooter && Array.isArray(shooter.cardEffects)) ? shooter.cardEffects : [];
-  for (const pass of ['add', 'mult']) {
-    for (const ef of effects) {
-      if (!ef || ef.type !== 'ammo' || ef.key !== key || ef.mode !== pass) continue;
-      if (ef.field === 'pen' || ef.field === 'dmg' || ef.field === 'speed') {
-        const val = typeof cfg[ef.field] === 'number' ? cfg[ef.field] : 1;
-        cfg[ef.field] = pass === 'add' ? (val + ef.value) : (val * ef.value);
-      }
+  // add pass：逐条累加（不变）
+  for (const ef of effects) {
+    if (!ef || ef.type !== 'ammo' || ef.key !== key || ef.mode !== 'add') continue;
+    if (ef.field === 'pen' || ef.field === 'dmg' || ef.field === 'speed') {
+      const val = typeof cfg[ef.field] === 'number' ? cfg[ef.field] : 1;
+      cfg[ef.field] = val + ef.value;
     }
+  }
+  // mult pass：按 field 分组加法聚合，一次应用（#97）
+  const agg = new Map();
+  for (const ef of effects) {
+    if (!ef || ef.type !== 'ammo' || ef.key !== key || ef.mode !== 'mult') continue;
+    if (ef.field !== 'pen' && ef.field !== 'dmg' && ef.field !== 'speed') continue;
+    let e = agg.get(ef.field);
+    if (!e) { e = { mul: 1, count: 0 }; agg.set(ef.field, e); }
+    e.mul += ef.value - 1; e.count++;
+  }
+  for (const [field, e] of agg) {
+    const mul = e.count > 1 ? Math.max(0, e.mul) : e.mul;
+    const val = typeof cfg[field] === 'number' ? cfg[field] : 1;
+    cfg[field] = val * mul;
   }
   if (typeof cfg.pen === 'number') cfg.pen = Math.max(0, cfg.pen);
   if (typeof cfg.dmg === 'number') cfg.dmg = Math.max(0, cfg.dmg);
   if (typeof cfg.speed === 'number') cfg.speed = Math.max(0, cfg.speed);
+
+  // 软上限（P-19）：防止弹种改造乘算堆叠失控。上限 = 该弹种基础值 × 全局系数，
+  // 因此上限随弹种不同（base 即 RULES.ammoTypes[key]）。tank-model 会注入 RULES.ammoTypeCap。
+  // 软上限（P-19）：仅对 HE 生效 —— HE 成长过快被用户反馈，AP/APCR/HEAT 堆叠保持原设计。
+  // 上限 = 该弹种基础值 × 全局系数（base 即 RULES.ammoTypes[key]）。tank-model 注入 RULES.ammoTypeCap。
+  if (key === 'he' && RULES && RULES.ammoTypeCap) {
+    for (const field of ['pen', 'dmg', 'speed']) {
+      const cap = (base[field] === undefined ? 1 : base[field]) * (RULES.ammoTypeCap[field] !== undefined ? RULES.ammoTypeCap[field] : 99);
+      if (typeof cfg[field] === 'number') cfg[field] = Math.min(cfg[field], cap);
+    }
+  }
+
   return cfg;
 }
 

@@ -690,10 +690,10 @@ C.resetCovers();
   const T = C.COVER_TIERS;
 
   // 34) tier schema 矩阵：新六属性 + 派生旧字段一致
-  ok(T.water.passability === 0 && T.water.shellBlock === false && T.water.exposureProfile === 'none' && T.water.tierGroup === 'liquid',
-    'water: passability 0 / shellBlock false(越飞) / profile none / liquid');
-  ok(T.river.shellBlock === false && T.river.drawStyle === 'water-chain' && T.river.passability === 0,
-    'river: 越飞 + water-chain + passability 0');
+  ok(T.water.passability === 0.4 && T.water.shellBlock === false && T.water.exposureProfile === 'none' && T.water.tierGroup === 'liquid',
+    'water: passability 0.4 / shellBlock false / profile none / liquid');
+  ok(T.river.shellBlock === false && T.river.drawStyle === 'water-chain' && T.river.passability === 0.4,
+    'river: 越飞 + water-chain + passability 0.4');
   ok(T.mud.passability === 0.35 && T.mud.shellBlock === false && T.mud.tierGroup === 'ground' && T.mud.move === 0.35,
     'mud: 0.35 减速 / 越飞 / ground / move 别名同步');
   ok(T.rock.shellBlock === true && T.rock.exposureProfile === 'full' && T.rock.destructible === Infinity && T.rock.drawStyle === 'rock-poly',
@@ -748,12 +748,13 @@ C.resetCovers();
   ok(mdTank.x===mx && mdTank.y===my, 'mud 不推出坦克（仅减速）');
   ok(C.getCoverUnderTank(mdTank) === mud, 'getCoverUnderTank 命中泥地（通行系数来源）');
 
-  // 38) water/river 推出阻断移动
+  // 38) water/river 不再硬阻断移动（passability 0.4 可涉水慢速，同 mud 0.35 只减速不推出）
   for(const wt of [{t:water,label:'water'},{t:river,label:'river'}]){
     const tk = { x:wt.t.x, y:wt.t.y, hullAngle:0, hullLen:64, hullWid:38, hp:10, heightClass:'medium' };
     const bx=tk.x, by=tk.y;
     C.resolveCoverCollisions(tk);
-    ok(tk.x!==bx || tk.y!==by, `${wt.label} 阻断移动（passability 0 推出）`);
+    ok(tk.x===bx && tk.y===by, `${wt.label} 不阻断移动（passability>0 可涉水，只减速不推出）`);
+    ok(C.getCoverUnderTank(tk) === wt.t, `getCoverUnderTank 命中${wt.label}（通行系数来源）`);
   }
 
   // 39) ruined：半剖面插值 + 摧毁转 rubble 残骸链

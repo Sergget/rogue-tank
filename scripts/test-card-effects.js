@@ -2,9 +2,10 @@
 // 与 validate-content.js（schema 守门）/ audit-content.js（静态平衡审计）分工：
 // 本套件对 cards/ 每张卡构造 fresh tank（applyTankConfig + computeStats），
 // 走 applyCardEffects 全链路，验证：
-//   - modifier 效果（101 个，79 张卡）：stats 增量与声明 add/mult 一致（含 armor 路径）、
+//   - modifier 效果（102 个，80 张卡）：stats 增量与声明 add/mult 一致（含 armor 路径）、
 //     修饰器注册（source=card:<id> / scope=run）正确；
-//   - ammo/ability/passive/drone/economy 效果（43 个，36 张纯非 modifier 卡）：
+//   - ammo/ability/passive/drone/economy 效果（46 个：42 个在 38 张纯非 modifier 卡 +
+//     4 个在混合卡如 heat_precision）：
 //     applyCardEffects 不抛错、对 tank 无未声明副作用、正确入队 tank.cardEffects
 //     （含 P-17 专项：artillery/overdrive/shield 三张主动卡 key 入队保真、drone 卡
 //     kind 保真 scout/striker；运行时行为随 P-17 后续子目标接线后补行为测试，
@@ -71,25 +72,49 @@ function freshTank() {
   return tank;
 }
 
-// ---------- 期望值计算（镜像 computeStats 语义：先 add 后 mult；armor 路径按 applyArmorMod） ----------
+// ---------- 期望值计算（镜像 computeStats 语义：先 add 后 mult；mult 加法聚合 #97；armor 路径按 applyArmorMod） ----------
+// 2026-08-25：computeStats 的 mult 改为加法聚合——同一 stat 的所有 mult 先聚合为
+// 单一乘子 1 + Σ(value−1) 再应用一次；多条聚合钳 ≥0（单条不变）。
+// 因此期望值必须对【全部修饰器一次性】聚合计算，不能逐卡/逐堆叠迭代相乘。
 
-function applyExpected(stats, effects) {
-  const s = structuredClone(stats);
-  for (const pass of ['add', 'mult']) {
-    for (const ef of effects) {
-      if (ef.mode !== pass) continue;
-      if (ef.stat.startsWith('armor')) {
-        const parts = ef.stat.split('.');
-        const group = s.armor[parts[1]];
-        if (!group) continue;
-        if (parts[2]) {
-          if (group[parts[2]] !== undefined) group[parts[2]] = pass === 'add' ? group[parts[2]] + ef.value : group[parts[2]] * ef.value;
-        } else {
-          for (const k in group) group[k] = pass === 'add' ? group[k] + ef.value : group[k] * ef.value;
-        }
-      } else if (s[ef.stat] !== undefined) {
-        s[ef.stat] = pass === 'add' ? s[ef.stat] + ef.value : s[ef.stat] * ef.value;
+function aggregateMultExpected(s, effectsList) {
+  // add pass
+  for (const ef of effectsList) {
+    if (ef.mode !== 'add') continue;
+    if (ef.stat.startsWith('armor')) {
+      const parts = ef.stat.split('.');
+      const group = s.armor[parts[1]];
+      if (!group) continue;
+      if (parts[2]) {
+        if (group[parts[2]] !== undefined) group[parts[2]] += ef.value;
+      } else {
+        for (const k in group) group[k] += ef.value;
       }
+    } else if (s[ef.stat] !== undefined) {
+      s[ef.stat] += ef.value;
+    }
+  }
+  // mult pass：按完整 stat 字符串分组加法聚合（Map 保持首次出现顺序）
+  const agg = new Map();
+  for (const ef of effectsList) {
+    if (ef.mode !== 'mult') continue;
+    let e = agg.get(ef.stat);
+    if (!e) { e = { mul: 1, count: 0 }; agg.set(ef.stat, e); }
+    e.mul += ef.value - 1; e.count++;
+  }
+  for (const [stat, e] of agg) {
+    const mul = e.count > 1 ? Math.max(0, e.mul) : e.mul;
+    if (stat.startsWith('armor')) {
+      const parts = stat.split('.');
+      const group = s.armor[parts[1]];
+      if (!group) continue;
+      if (parts[2]) {
+        if (group[parts[2]] !== undefined) group[parts[2]] *= mul;
+      } else {
+        for (const k in group) group[k] *= mul;
+      }
+    } else if (s[stat] !== undefined) {
+      s[stat] *= mul;
     }
   }
   // #61: 派生 mobility 属性必须与 computeStats 对齐，根据 modifier 后的 enginePower/weight 重新计算
@@ -99,18 +124,28 @@ function applyExpected(stats, effects) {
     s.accel = (s.enginePower / s.weight) * ACCEL_POWER_TO_PX_SCALE;
     s.brake = s.accel * BRAKE_FACTOR;
   }
-  // 真实世界单位标定字段（与 computeStats 保持一致）：maxSpeedKmh、shellSpeedMs 由 maxSpeed/shellSpeed 换算
+  // 真实世界单位标定字段（与 computeStats 保持一致，2026-08-25 统一 kmhFactor）：
+  // maxSpeedKmh = maxSpeed × RULES.speed.kmhFactor；shellSpeedMs 由 shellSpeed/pxPerMeter 换算
   // hullLengthM、barrelLengthM 为几何派生，不随 modifier 变化，不在此计算（statsDiff 会排除）
+  const kmhFactor = (typeof RULES !== 'undefined' && RULES.speed && typeof RULES.speed.kmhFactor === 'number') ? RULES.speed.kmhFactor : 0.4;
+  if (typeof s.maxSpeed === 'number') {
+    s.maxSpeedKmh = Math.round(s.maxSpeed * kmhFactor);
+  }
   if (RULES && RULES.scale && RULES.scale.PX_PER_METER) {
     const pxPerMeter = RULES.scale.PX_PER_METER;
-    if (typeof s.maxSpeed === 'number') {
-      s.maxSpeedKmh = Math.round((s.maxSpeed / pxPerMeter) * 3.6);
-    }
     if (typeof s.shellSpeed === 'number') {
       s.shellSpeedMs = Math.round(s.shellSpeed / pxPerMeter);
     }
   }
   return s;
+}
+
+function applyExpected(stats, effects) {
+  return aggregateMultExpected(structuredClone(stats), effects);
+}
+
+function applyExpectedAll(stats, effectsList) {
+  return aggregateMultExpected(structuredClone(stats), effectsList);
 }
 
 // 深度比较 stats 两份（数字容差 1e-9），返回不一致键列表（空 = 一致）
@@ -210,8 +245,10 @@ for (const card of CARDS) {
     // cardStackCount 语义 = 修饰器数（每效果一个），非卡牌张数（tank_cards.js:138）
     ok(cardsMod.cardStackCount(tank, card.id) === maxStacks * mods.length,
       `${tag}: maxStacks=${maxStacks} 堆叠计数正确（cardStackCount=${maxStacks}×${mods.length} 修饰器）`);
-    let expected = structuredClone(preStats);
-    for (let i = 0; i < maxStacks; i++) expected = applyExpected(expected, mods);
+    // 加法聚合（#97）下期望值必须对全部修饰器一次性聚合，不能逐堆叠迭代相乘
+    const allMods = [];
+    for (let i = 0; i < maxStacks; i++) allMods.push(...mods);
+    const expected = applyExpectedAll(preStats, allMods);
     const bad = statsDiff(tank.stats, expected);
     ok(bad.length === 0 && tank.modifiers.length === preModCount + maxStacks * mods.length,
       `${tag}: maxStacks=${maxStacks} 满堆叠数值正确（${maxStacks}×${mods.length} 修饰器）${bad.length ? ` — stats 偏差: ${bad.join(', ')}` : ''}`);
@@ -271,7 +308,7 @@ for (const card of CARDS) {
 }
 
 // 覆盖率与分布
-console.log(`效果类型分布: ${JSON.stringify(dist)}（对照 DEVELOPMENT.md §2.13: modifier 101 / ammo 17 / ability 11 / passive 8 / economy 5 / drone 2）`);
+console.log(`效果类型分布: ${JSON.stringify(dist)}（对照 DEVELOPMENT.md §2.13: modifier 102 / ammo 20 / ability 11 / passive 8 / economy 5 / drone 2）`);
 console.log(`覆盖率: ${CARDS.length}/${CARDS.length} 张卡逐卡执行验证（applyCardEffects 全链路）`);
 console.log(`  modifier 数值验证: ${modifierCards}/${CARDS.length} 张卡（${modifierEffects} 个 modifier 效果逐一数值核对）`);
 console.log(`  结构+无副作用验证: ${structureOnlyCards}/${CARDS.length} 张卡（${nonModifierEffects} 个非 modifier 效果，运行时行为 TODO）`);

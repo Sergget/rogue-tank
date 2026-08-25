@@ -11,17 +11,23 @@ const EVAC = ['none','ring','bulb','slotted','long'];
 const TEXTURES = ['none','armor_plate','weld_seam','rust','camo'];
 
 // 可编辑字段描述表：label = 列头，path = tank_list 条目内的点路径，type = num | sel
+// 可选 display 元数据（纯数据、零依赖，消费方为 tank_compare.html 的只读真实单位小字）：
+//   suffix          — 读数单位后缀（如 'km/h' / 'm/s' / 'm'）
+//   via: 'stats'    — 读数不换算原始值，而是取实例 stats 的同源派生键
+//                     （映射约定由消费方持有：maxSpeed→stats.maxSpeedKmh、shellSpeed→stats.shellSpeedMs，
+//                      换算系数唯一权威 RULES.speed.kmhFactor=0.4 与 RULES.scale.PX_PER_METER）
+//   scale:'pxPerMeter' — 原始 px 值 ÷ RULES.scale.PX_PER_METER 得米（barrel.len 等）
 const FIELD_ROWS = [
-  { label:'最大速度',   path:'maxSpeed',            type:'num' },
-  { label:'转向速度',   path:'turnRate',           type:'num' },
-  { label:'炮塔转速',   path:'turretTurnRate',     type:'num' },
+  { label:'最大速度',   path:'maxSpeed',            type:'num', display:{ suffix:'km/h', via:'stats' } },
+  { label:'转向速度(rad/s)',   path:'turnRate',           type:'num' },
+  { label:'炮塔转速(rad/s)',   path:'turretTurnRate',     type:'num' },
   { label:'重量',       path:'weight',             type:'num' },
   { label:'马力',       path:'enginePower',        type:'num' },
   { label:'生命值',     path:'hp',                 type:'num' },
   { label:'穿深',       path:'penetration',        type:'num' },
   { label:'伤害',       path:'damage',             type:'num' },
   { label:'装填(s)',    path:'reload',             type:'num' },
-  { label:'弹速',       path:'shellSpeed',         type:'num' },
+  { label:'弹速',       path:'shellSpeed',         type:'num', display:{ suffix:'m/s', via:'stats' } },
   { label:'射界(°)',    path:'traverseLimit',      type:'num' },
   { label:'身高等级',   path:'heightClass',        type:'sel', options:['medium','heavy'] },
   { label:'履带宽',     path:'trackWidth',         type:'num' },
@@ -36,7 +42,7 @@ const FIELD_ROWS = [
   { label:'装甲·炮塔正面', path:'turret.armor.front', type:'num' },
   { label:'装甲·炮塔侧面', path:'turret.armor.side',  type:'num' },
   { label:'装甲·炮塔后部', path:'turret.armor.rear',  type:'num' },
-  { label:'炮管长度',   path:'barrel.len',         type:'num' },
+  { label:'炮管长度',   path:'barrel.len',         type:'num', display:{ suffix:'m', scale:'pxPerMeter' } },
   { label:'炮口宽',     path:'barrel.width',       type:'num' },
   { label:'炮口制退器', path:'barrel.muzzle',      type:'sel', options:MUZZLES },
   { label:'排烟器样式', path:'barrel.evac.style',  type:'sel', options:EVAC },

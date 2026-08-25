@@ -228,7 +228,7 @@ function ok(cond, label){
   ok(tankKmh(t0) === 0, 'maxSpeed=0 -> tankKmh=0');
   const t1 = makeTank({ base:{ maxSpeed:1e6 } });
   const k = tankKmh(t1);
-  ok(k === 500000 && Number.isFinite(k), `maxSpeed=1e6 -> tankKmh=${k}（有限）`);
+  ok(k === 400000 && Number.isFinite(k), `maxSpeed=1e6 -> tankKmh=${k}（有限，kmhFactor=0.4）`);
 }
 
 // ========== 9) moduleMult 玩家 vs 敌方 ==========

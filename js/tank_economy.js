@@ -39,7 +39,10 @@ const UPGRADE_DEFS = [
   { id: 'hp_up',        name: '车体耐久', stat: 'maxHp',               mode: 'add',  value: 10,   cost: 25, maxLevel: 5, desc: '车体耐久 +10/级' },
   { id: 'speed_up',     name: '机动强化', stat: 'maxSpeed',            mode: 'add',  value: 5,    cost: 25, maxLevel: 5, desc: '极速 +5/级' },
   { id: 'reload_up',    name: '装填优化', stat: 'reload',              mode: 'mult', value: 0.97, cost: 35, maxLevel: 5, desc: '装填时间 −3%/级' },
-  { id: 'aim_up',       name: '火控优化', stat: 'spreadMult',          mode: 'mult', value: 0.95, cost: 35, maxLevel: 5, desc: '散布 −5%/级' }
+  { id: 'aim_up',       name: '火控优化', stat: 'spreadMult',          mode: 'mult', value: 0.95, cost: 35, maxLevel: 5, desc: '散布 −5%/级' },
+  // 特殊消费项（无 stat/modifier——由 mvp 消费 levels：基础冷却 45s − 级数×1）
+  { id: 'repair_kit_cd', name: '修理箱冷却', stat: null, mode: null, value: 0, cost: 20, maxLevel: 15, desc: '修理箱冷却 −1s/级（特殊消费）' },
+  { id: 'medkit_cd',     name: '医疗包冷却', stat: null, mode: null, value: 0, cost: 20, maxLevel: 15, desc: '医疗包冷却 −1s/级（特殊消费）' }
 ];
 
 function getUpgradeDef(id){ return UPGRADE_DEFS.find(u => u.id === id) || null; }
@@ -64,7 +67,7 @@ function defaultProfile(){
     // P-34：跨局难度等级（每次终局结算 +1，下一局节点难度叠加 crossRunLevelBonus）
     difficultyLevel: 0,
     // P-35：持久化设置（倒车转向倒置开关；新设置项在此补默认值）
-    settings: { invertReverseTurn: false }
+    settings: { invertReverseTurn: false, showFps: false }
   };
 }
 
@@ -86,7 +89,8 @@ function normalizeProfile(p){
     difficultyLevel: Number.isInteger(p.difficultyLevel) && p.difficultyLevel >= 0 ? p.difficultyLevel : 0,
     // P-35：settings 逐字段守卫（旧档缺省 → 默认 false，向后兼容）
     settings: {
-      invertReverseTurn: !!(p.settings && typeof p.settings === 'object' && p.settings.invertReverseTurn)
+      invertReverseTurn: !!(p.settings && typeof p.settings === 'object' && p.settings.invertReverseTurn),
+      showFps: !!(p.settings && typeof p.settings === 'object' && p.settings.showFps)
     }
   };
   if(p.upgrades && typeof p.upgrades === 'object'){
@@ -338,33 +342,59 @@ function settleRun(profile, finalScore){
 
 // ---------- 局内商店（P-41：run 内属性升级 · 账本模型） ----------
 
-// 每项：{ id, name, desc, baseCost, costGrowth, maxLevel, effects, instant? }
+// 每项：{ id, name, desc, group, baseCost, costGrowth, maxLevel, effects, instant? }
+// group 分组：'firepower'(火力) | 'armor'(防护) | 'mobility'(机动) | 'misc'(杂项)——UI 按组分节渲染。
 // effects = [{ stat, mode, value }]（mode add=绝对量 / mult=倍率，与 UPGRADE_DEFS 同款；
 //   stat 必须是 computeStats 产物键或 armor 路径，购买后 push scope='run' 修饰器，
 //   source='runshop:<id>'，由 removeRunModifiers 在 run 结束/新开局清除）。
-// instant 类（如紧急维修）不走修饰器：effects 留空 + instant:{ type:'healPct', value }，
-// 由 UI 层购买时直接改 tank.hp。
-// 数值校准基准：节点通关奖励 §4.5 约 50~120 分/节点、击杀 20 分/个——
-// 首件定价 30~60 分（约半节点奖励），costGrowth 1.5~1.8 保证滚雪球递减边际。
+// instant 类不走修饰器：effects 留空 + instant:{ type, value, ... }，由 UI 层购买时直接消费——
+//   healPct：立即改 tank.hp；cdReduce（ability:'repair'|'medkit'）：局内冷却减免累加。
+// 数值校准基准（#90 重定价）：节点通关奖励 §4.5 约 50~120 分/节点、击杀 20 分/个——
+// 首件定价 20~35 分（整体较旧版下调 ~40%），costGrowth 1.5~1.8 保证滚雪球递减边际。
 const RUN_SHOP_DEFS = [
-  { id: 'emergency_repair',  name: '紧急维修',   desc: '立即恢复 40% 最大耐久（即时生效；可重复购买）',
-    baseCost: 30, costGrowth: 1.5, maxLevel: 9,
-    instant: { type: 'healPct', value: 0.4 }, effects: [] },
-  { id: 'fast_reload',       name: '快速装填',   desc: '装填时间 −10%/级',
-    baseCost: 40, costGrowth: 1.6, maxLevel: 3,
-    effects: [{ stat: 'reload', mode: 'mult', value: 0.9 }] },
-  { id: 'precision_gunnery', name: '精密火控',   desc: '散布 −15%/级',
-    baseCost: 45, costGrowth: 1.6, maxLevel: 3,
-    effects: [{ stat: 'spreadMult', mode: 'mult', value: 0.85 }] },
-  { id: 'engine_overdrive',  name: '引擎超压',   desc: '极速 +12px/s/级',
-    baseCost: 50, costGrowth: 1.8, maxLevel: 2,
-    effects: [{ stat: 'maxSpeed', mode: 'add', value: 12 }] },
-  { id: 'steady_mount',      name: '姿态稳定',   desc: '三源散布系数 −0.5（移动/转向散布惩罚显著减轻）',
-    baseCost: 60, costGrowth: 1.0, maxLevel: 1,
-    effects: [{ stat: 'spreadMult', mode: 'add', value: -0.5 }] },
-  { id: 'hull_patch',        name: '装甲应急补强', desc: '车体正面装甲 +8mm/级',
-    baseCost: 55, costGrowth: 1.7, maxLevel: 2,
-    effects: [{ stat: 'armor.hull.front', mode: 'add', value: 8 }] }
+  // ---- 火力 ----
+  { id: 'fast_reload',       name: '快速装填',   group: 'firepower', desc: '装填时间 −3%/级',
+    baseCost: 25, costGrowth: 1.6, maxLevel: 3,
+    effects: [{ stat: 'reload', mode: 'mult', value: 0.97 }] },
+  { id: 'precision_gunnery', name: '精密火控',   group: 'firepower', desc: '散布 −4%/级',
+    baseCost: 28, costGrowth: 1.6, maxLevel: 3,
+    effects: [{ stat: 'spreadMult', mode: 'mult', value: 0.96 }] },
+  { id: 'steady_mount',      name: '姿态稳定',   group: 'firepower', desc: '三源散布系数 −0.15（移动/转向散布惩罚显著减轻）',
+    baseCost: 35, costGrowth: 1.0, maxLevel: 1,
+    effects: [{ stat: 'spreadMult', mode: 'add', value: -0.15 }] },
+  // ---- 防护：装甲拆多部位独立商品（原 hull_patch 移除，id 不复用防存档 levels 脏数据） ----
+  { id: 'hull_front_patch',   name: '车体正面补强', group: 'armor', desc: '车体正面装甲 +2mm/级',
+    baseCost: 35, costGrowth: 1.6, maxLevel: 2,
+    effects: [{ stat: 'armor.hull.front', mode: 'add', value: 2 }] },
+  { id: 'hull_side_patch',    name: '车体侧面补强', group: 'armor', desc: '车体侧面装甲 +2mm/级',
+    baseCost: 25, costGrowth: 1.6, maxLevel: 2,
+    effects: [{ stat: 'armor.hull.side', mode: 'add', value: 2 }] },
+  { id: 'hull_rear_patch',    name: '车体后部补强', group: 'armor', desc: '车体后部装甲 +2mm/级',
+    baseCost: 25, costGrowth: 1.6, maxLevel: 2,
+    effects: [{ stat: 'armor.hull.rear', mode: 'add', value: 2 }] },
+  { id: 'turret_front_patch', name: '炮塔正面补强', group: 'armor', desc: '炮塔正面装甲 +2mm/级',
+    baseCost: 35, costGrowth: 1.6, maxLevel: 2,
+    effects: [{ stat: 'armor.turret.front', mode: 'add', value: 2 }] },
+  { id: 'turret_side_patch',  name: '炮塔侧面补强', group: 'armor', desc: '炮塔侧面装甲 +2mm/级',
+    baseCost: 25, costGrowth: 1.6, maxLevel: 2,
+    effects: [{ stat: 'armor.turret.side', mode: 'add', value: 2 }] },
+  { id: 'turret_rear_patch',  name: '炮塔后部补强', group: 'armor', desc: '炮塔后部装甲 +2mm/级',
+    baseCost: 25, costGrowth: 1.6, maxLevel: 2,
+    effects: [{ stat: 'armor.turret.rear', mode: 'add', value: 2 }] },
+  // ---- 机动 ----
+  { id: 'engine_overdrive',  name: '引擎超压',   group: 'mobility', desc: '极速 +3px/s/级',
+    baseCost: 30, costGrowth: 1.8, maxLevel: 2,
+    effects: [{ stat: 'maxSpeed', mode: 'add', value: 3 }] },
+  // ---- 杂项 ----
+  { id: 'emergency_repair',  name: '紧急维修',   group: 'misc', desc: '立即恢复 25% 最大耐久（即时生效；可重复购买）',
+    baseCost: 20, costGrowth: 1.5, maxLevel: 9,
+    instant: { type: 'healPct', value: 0.25 }, effects: [] },
+  { id: 'repair_kit_cd_run', name: '修理箱速冷', group: 'misc', desc: '修理箱冷却 −3s/级（仅本局；特殊消费）',
+    baseCost: 30, costGrowth: 1.5, maxLevel: 5,
+    instant: { type: 'cdReduce', ability: 'repair', value: 3 }, effects: [] },
+  { id: 'medkit_cd_run',     name: '医疗包速冷', group: 'misc', desc: '医疗包冷却 −3s/级（仅本局；特殊消费）',
+    baseCost: 30, costGrowth: 1.5, maxLevel: 5,
+    instant: { type: 'cdReduce', ability: 'medkit', value: 3 }, effects: [] }
 ];
 
 function getRunShopDef(id){ return RUN_SHOP_DEFS.find(d => d.id === id) || null; }
@@ -381,7 +411,7 @@ function canAfford(balance, price){
 }
 
 // 购买纯操作：state = { total, spent, levels: {id→lv} }（UI 层持有，本函数原地更新）。
-// 三分支失败返回 false：def 不存在 / 已满级 / 余额不足；成功则 spent += price、levels[id]+1。
+// 两分支失败返回 false：def 不存在 / 余额不足（ISSUE 20：已取消 maxLevel 上限，无限购买由 costGrowth 雪球约束）。
 // 不做任何效果应用——modifiers/hp 应用由 UI 层按 def.effects/instant 执行（保持本函数可测）。
 function applyRunShopPurchase(state, defId){
   if(!state || typeof state !== 'object') return false;
@@ -389,7 +419,6 @@ function applyRunShopPurchase(state, defId){
   if(!def) return false;
   state.levels = state.levels || {};
   const lv = state.levels[defId] || 0;
-  if(lv >= def.maxLevel) return false;
   const price = runShopPriceFor(def, lv);
   const balance = (Number(state.total) || 0) - (Number(state.spent) || 0);
   if(!canAfford(balance, price)) return false;
@@ -437,6 +466,7 @@ function applyUpgrades(tank, profile){
   for(const id in profile.upgrades){
     const u = getUpgradeDef(id);
     if(!u) continue;
+    if(!u.stat) continue;   // 特殊消费项（repair_kit_cd/medkit_cd 无 modifier——由 mvp 消费 levels）
     const lv = profile.upgrades[id];
     for(let i = 0; i < lv; i++){
       tank.modifiers.push({

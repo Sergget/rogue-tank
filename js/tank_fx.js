@@ -17,6 +17,7 @@ let muzzleFlashes = [];  // 炮口闪光: {x,y,ang,life,max,big,muzzle}
 let hitFx = [];          // 命中/擦弹特效: {x,y,ang,life,max,outcome,scale}
 let shockwaves = [];     // 冲击波环: {x,y,r,maxR,life,max,color,width}
 let scorchMarks = [];    // 地面灼痕/弹坑: {x,y,r,ang,life,max,opacity}
+let tracers = [];        // 曳光拖尾短亮线段: {x1,y1,x2,y2,life,max,color}
 const FX_MAX_PARTICLES = 1200;
 const FX_MAX_SCORCH = 80;
 
@@ -171,6 +172,10 @@ function spawnMuzzleFlash(x, y, angle, scale, muzzleType){
     emitDirSparks(angle - Math.PI/2, 4, 90, 180, 0.35);
   }
 }
+// 曳光拖尾：出膛后每帧在炮弹上一帧→当前位置生成一段极短寿命的亮线，替代旧烟雾尾迹
+function spawnTracer(x1, y1, x2, y2, color){
+  tracers.push({ x1: x1, y1: y1, x2: x2, y2: y2, life: 0, max: 0.12, color: color || '#ffd24a' });
+}
 // 命中/擦弹特效：冲击闪光 + 锥形喷射火花 + 冲击波环 + 飞溅烟尘。outcome: 'pen'|'he'|'block'|'bounce'
 function spawnImpactFx(x, y, angle, outcome, scale){
   const o = outcome || 'pen';
@@ -271,6 +276,7 @@ function updateFx(dt){
   hitFx.forEach(f=>f.life+=dt); hitFx = hitFx.filter(f=>f.life < f.max);
   shockwaves.forEach(s=>s.life+=dt); shockwaves = shockwaves.filter(s=>s.life < s.max);
   scorchMarks.forEach(s=>s.life+=dt); scorchMarks = scorchMarks.filter(s=>s.life < s.max);
+  tracers.forEach(t=>t.life+=dt); tracers = tracers.filter(t=>t.life < t.max);
 }
 
 // 殉爆火球（扩张并淡出）
@@ -347,8 +353,10 @@ function drawMuzzleFlashes(ctx){
 
     const type = f.muzzle || 'none';
     if (type === 'none') {
-      // 传统单向向前锥形火舌
+      // 2 侧 + 前：主向前锥火舌 + 两侧垂直排气火舌
       drawPlume(0, 1.1, 0.55);
+      drawPlume(Math.PI/2, 0.45, 0.28);
+      drawPlume(-Math.PI/2, 0.45, 0.28);
     } else if (type === 'single') {
       // 向前较大喷射 + 两侧90度排气火星
       drawPlume(0, 1.0, 0.45);
@@ -398,6 +406,20 @@ function drawMuzzleFlashes(ctx){
     ctx.beginPath(); ctx.arc(0, 0, ringR, 0, TAU); ctx.stroke();
 
     ctx.restore();
+  }
+  ctx.restore();
+}
+// 曳光拖尾绘制（叠加混合亮线段）
+function drawTracers(ctx){
+  if(!tracers.length) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for(const t of tracers){
+    const a = Math.max(0, 1 - t.life/t.max);
+    ctx.strokeStyle = t.color;
+    ctx.globalAlpha = a;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(t.x1, t.y1); ctx.lineTo(t.x2, t.y2); ctx.stroke();
   }
   ctx.restore();
 }
@@ -492,6 +514,8 @@ function drawScorchMarks(ctx){
   }
 }
 
+if (typeof globalThis !== 'undefined') { globalThis.spawnMuzzleFlash = spawnMuzzleFlash; globalThis.spawnTracer = spawnTracer; }
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     explosions,
@@ -501,6 +525,7 @@ if (typeof module !== 'undefined' && module.exports) {
     hitFx,
     shockwaves,
     scorchMarks,
+    tracers,
     FX_MAX_PARTICLES,
     spawnFlame,
     spawnSmoke,
@@ -512,12 +537,14 @@ if (typeof module !== 'undefined' && module.exports) {
     spawnAmmoBlowFx,
     spawnTrackBreakFx,
     spawnMuzzleFlash,
+    spawnTracer,
     spawnImpactFx,
     updateFx,
     drawExplosions,
     drawTurretFlights,
     drawFxParticles,
     drawMuzzleFlashes,
+    drawTracers,
     drawHitFx,
     drawShockwaves,
     drawScorchMarks

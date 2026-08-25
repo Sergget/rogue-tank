@@ -56,7 +56,8 @@ function fireTank(shooter, target, hitPref, ctx){
   const dmgCover=c.damageCover||_G('damageCover',function(){return false;});
   const devAim=c.devAim!==undefined?c.devAim:_G('devAim',null);
   if(!shooter||!target) return false;
-  if(shooter.reloadT>0||shooter.immobT>0) return false;
+  // #95：履带断（immobT>0）不再阻止开火——车体机动瘫痪 ≠ 火炮缴械，仅装填门控保留
+  if(shooter.reloadT>0) return false;
   if(!gunRoot||!gunTip||!find) return false;
   const rootP=gunRoot(shooter), tipP=gunTip(shooter);
   const barrelCovers=find(rootP.x,rootP.y,tipP.x,tipP.y);
@@ -106,7 +107,8 @@ function fireSmokeShell(shooter, ctx){
   const play=c.playSound||_G('playSound',function(){});
   const push=c.pushLog||_G('pushLog',function(){});
   if(!shooter) return false;
-  if(shooter.reloadT>0||shooter.immobT>0) return false;
+  // #95：烟幕弹经主炮发射（与普通炮弹同管线，含炮管掩体贯穿判定）——履带断不缴械火炮
+  if(shooter.reloadT>0) return false;
   if(!gunRoot||!gunTip||!find) return false;
   const rootP=gunRoot(shooter), tipP=gunTip(shooter);
   const barrelCovers=find(rootP.x,rootP.y,tipP.x,tipP.y);
@@ -158,7 +160,10 @@ function tryFireSmoke(ctx){
   const c=_ctx(ctx);
   const player=c.player||_G('player',null);
   const f=c.fireSmokeShell||fireSmokeShell;
-  if(!player||player.reloadT>0||player.immobT>0) return false;
+  // #95 语义裁定：烟幕弹虽是能力键位入口，但实际经主炮发射（fireSmokeShell 与普通开火
+  // 同管线、同炮管掩体贯穿判定），非炮击/护盾类「施放」——immobT 门控一并移除；
+  // 炮击(callStrike)/护盾(applyShield) 的施放门控在 tank_strike/tank_shield 接线层，不受此处影响。
+  if(!player||player.reloadT>0) return false;
   return f(player,c);
 }
 
@@ -287,6 +292,7 @@ function stepShells(dt, ctx){
   const splashCovers=c.splashCoversAt||_G('splashCoversAt',function(){});
   const spawnSmoke=c.spawnSmoke||_G('spawnSmoke',function(){});
   const spawnSmokeCloud=c.spawnSmokeCloud||_G('spawnSmokeCloud',function(){});
+  const spawnTracer=c.spawnTracer||_G('spawnTracer',function(){});
   const bounceAngle=c.bounceAngle!==undefined?c.bounceAngle:(_G('BOUNCE_ANGLE',R.ballistics?R.ballistics.bounceAngle:Math.PI*70/180));
   const worldW=c.worldW!==undefined?c.worldW:(c.worldWidth!==undefined?c.worldWidth:(_G('canvas',null)?_G('canvas',null).width:2000));
   const worldH=c.worldH!==undefined?c.worldH:(c.worldHeight!==undefined?c.worldHeight:(_G('canvas',null)?_G('canvas',null).height:2000));
@@ -294,6 +300,7 @@ function stepShells(dt, ctx){
   shells.forEach(function(s){
     if(s.dead) return;
     const step=s.speed*dt, sx=s.x, sy=s.y, nx=sx+s.dx*step, ny=sy+s.dy*step;
+    if(s.ammoKey!=='smoke' && spawnTracer) spawnTracer(sx, sy, nx, ny, (s.ammo&&s.ammo.tracer)||'#ffd24a');
     if(s.ammoKey==='smoke'){
       let detX=null, detY=null;
       for(const e of ents){
@@ -338,8 +345,13 @@ function stepShells(dt, ctx){
       }
       if((tier.mode==='solid'||tier.mode==='single')&&cov.distA<=step&&cov.distA<bestDist){ bestDist=cov.distA; bestCover=cov; bestTank=null; bestHit=null; }
       if(tier.mode==='graduated'&&cov.distA<=step&&cov.distA<bestDist){
-        const dec=shellVerticalDecision(s,c);
-        if(dec){ if(!s.dec) s.dec=dec; if(dec.exposure<1&&(dec.exposure<=0||rnd()>dec.exposure)){ s.x=cov.point.x; s.y=cov.point.y; if(impacts) impacts.push({x:cov.point.x,y:cov.point.y,life:0.4,color:'#ffb454'}); impactFx(cov.point.x,cov.point.y,Math.atan2(s.dy,s.dx),'block',0.7); play('block'); push('未命中 — 被半高掩体拦截','COVER'); s.dead=true; } }
+        // #36：s.dec 曝光判定按掩体实例判重——首个半高掩体算出的 dec 不得套用到后续
+        // 不同掩体；_decCoverId 记录缓存归属的 cover 引用，命中不同 cover 时重算。
+        // 同一 cover 跨帧维持缓存（原语义：dec 只在跳弹时经 s.dec=null 复位，见下两处）。
+        if(!s.dec || s._decCoverId !== cov.cover){
+          const dec=shellVerticalDecision(s,c);
+          if(dec){ s.dec=dec; s._decCoverId=cov.cover; }
+        }
       }
     }
     if(s.dead){ /* 已在掩体入口被截停 */ }
@@ -351,7 +363,7 @@ function stepShells(dt, ctx){
         const cosT=n?Math.abs(s.dx*n.nx+s.dy*n.ny):0;
         if(s.canBounce&&Math.acos(Math.min(1,Math.max(-1,cosT)))>bounceAngle){
           const r=reflect?reflect(s.dx,s.dy,n.nx,n.ny):{x:-s.dx,y:-s.dy};
-          s.dx=r.x; s.dy=r.y; s.bounced=true; s.canBounce=false; s.fx=s.x; s.fy=s.y; s.dec=null;
+          s.dx=r.x; s.dy=r.y; s.bounced=true; s.canBounce=false; s.fx=s.x; s.fy=s.y; s.dec=null; s._decCoverId=null;
           if(bounceFx) bounceFx.push({x:s.x,y:s.y,life:0.5,angle:Math.atan2(r.y,r.x)});
           impactFx(s.x,s.y,Math.atan2(r.y,r.x),'bounce',0.8); play('bounce'); push('跳弹！炮弹在'+tier.label+'表面掠射弹开 — 路障无损','BOUNCE');
         } else { if(impacts) impacts.push({x:s.x,y:s.y,life:0.4,color:'#ffb454'}); impactFx(s.x,s.y,Math.atan2(s.dx,s.dy),'block',0.8); play('block'); dmgCover(bestCover.cover,1,'shell'); s.dead=true; }
@@ -359,7 +371,7 @@ function stepShells(dt, ctx){
     } else if(bestTank||s.dec){
       const hitT=s.dec?s.dec.hit:bestHit, hitTank=s.dec?s.dec.tank:bestTank, hitDist=s.dec?s.dec.t:bestDist, hx=hitT.x, hy=hitT.y;
       s.x=hx; s.y=hy;
-      const exposure=s.dec?1.0:(getExp&&getZ?getExp(s.fx,s.fy,hx,hy,s.shooter,hitTank,s.dec?s.dec.z.zMin:getZ(hitTank,hitT.part).zMin,s.dec?s.dec.z.zMax:getZ(hitTank,hitT.part).zMax,s.dist+hitDist):1);
+      const exposure = s.dec ? (s.dec.exposure!==undefined ? s.dec.exposure : 1) : (getExp&&getZ ? getExp(s.fx,s.fy,hx,hy,s.shooter,hitTank,s.dec?s.dec.z.zMin:getZ(hitTank,hitT.part).zMin,s.dec?s.dec.z.zMax:getZ(hitTank,hitT.part).zMax,s.dist+hitDist) : 1);
       if(exposure<=0||rnd()>exposure){
         let stopX=hx, stopY=hy;
         if(find){ const iCovs=find(s.fx,s.fy,hx,hy); for(const cov of iCovs){ const tc=T[cov.cover.tier]||{mode:'solid'}; if(tc.mode==='solid'||tc.mode==='single') continue; if(tc.mode==='none'||tc.mode==='pass') continue; if(cov.distExit<s.dist+bestDist+16){ stopX=cov.point.x; stopY=cov.point.y; break; } } }
@@ -374,11 +386,11 @@ function stepShells(dt, ctx){
         }
         if(!shieldBlocked){
           const res=resolveHit?resolveHit(s,hitTank,hitT,s.canBounce):{outcome:'PEN',dmg:0,splash:null,text:'',cls:'PEN',bouncePoint:{x:hx,y:hy},bounceAngle:0};
-          if(res.outcome==='BOUNCE'){ s.fx=res.bouncePoint.x; s.fy=res.bouncePoint.y; s.dec=null; if(bounceFx) bounceFx.push({x:res.bouncePoint.x,y:res.bouncePoint.y,life:0.5,angle:res.bounceAngle}); impactFx(res.bouncePoint.x,res.bouncePoint.y,res.bounceAngle,'bounce',1); dmgText(res.bouncePoint.x,res.bouncePoint.y-10,'跳弹','bounce'); push(res.text,res.cls); play('bounce'); }
+          if(res.outcome==='BOUNCE'){ s.fx=res.bouncePoint.x; s.fy=res.bouncePoint.y; s.dec=null; s._decCoverId=null; if(bounceFx) bounceFx.push({x:res.bouncePoint.x,y:res.bouncePoint.y,life:0.5,angle:res.bounceAngle}); impactFx(res.bouncePoint.x,res.bouncePoint.y,res.bounceAngle,'bounce',1); dmgText(res.bouncePoint.x,res.bouncePoint.y-10,'跳弹','bounce'); push(res.text,res.cls); play('bounce'); }
           else { const isHe=s.ammoKey==='he', o=res.outcome==='PEN'?(isHe?'he':'pen'):'block'; if(impacts) impacts.push({x:hx,y:hy,life:0.4,color:isHe?'#ffb454':(res.outcome==='PEN'?'#ff6c5c':'#7a8065')}); impactFx(hx,hy,Math.atan2(s.dy,s.dx),o,1); if(res.splash){ const sc=res.splash.radius/40; burst(hx,hy,sc,Math.round(22*sc),Math.round(14*sc),Math.round(11*sc)); } if(res.outcome==='PEN') dmgText(hx,hy-14,res.dmg||0,isHe?'he':'pen'); else if(res.dmg>0) dmgText(hx,hy-14,res.dmg,'he'); else dmgText(hx,hy-14,'未击穿','block'); push(res.text,res.cls); play(isHe?'pen':o); s.dead=true; }
         }
       }
-    } else { s.x=nx; s.y=ny; s.dist+=step; if(rnd()<0.55) spawnSmoke(nx,ny,s.ammoKey==='he'?16:8); const maxD=(R.ballistics&&R.ballistics.shellMaxDist)||1800; if(s.dist>=maxD) s.dead=true; else if(nx<-60||nx>worldW+60||ny<-60||ny>worldH+60) s.dead=true; }
+    } else { s.x=nx; s.y=ny; s.dist+=step; const maxD=(R.ballistics&&R.ballistics.shellMaxDist)||1800; if(s.dist>=maxD) s.dead=true; else if(nx<-60||nx>worldW+60||ny<-60||ny>worldH+60) s.dead=true; }
   });
   const breachR=(R.breach&&R.breach.heSplashRadius)||24;
   shells.forEach(function(s){ if(s.dead&&s.ammoKey==='he'&&!s.absorbed) splashCovers(s.x,s.y,breachR); });

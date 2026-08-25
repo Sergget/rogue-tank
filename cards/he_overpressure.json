@@ -3,9 +3,9 @@
   "name": "高爆超压",
   "rarity": "common",
   "tags": ["爆破"],
-  "desc": "HE 弹伤害 +20%。",
+  "desc": "HE 弹伤害 +8%。",
   "effects": [
-    { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.2 }
+    { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.08 }
   ],
-  "maxStacks": 3
+  "maxStacks": 2
 }

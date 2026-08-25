@@ -33,15 +33,34 @@ function computeStats(base, modifiers){
     spreadMult: base.spreadMult !== undefined ? base.spreadMult : 1,
     aimSpeed: base.aimSpeed !== undefined ? base.aimSpeed : RULES.spread.shrinkRate
   };
-  // pass 1: adds, pass 2: mults (so mult scales the accumulated add result)
-  for(const pass of ['add','mult']){
-    for(const m of (modifiers||[])){
-      if(m.mode !== pass) continue;
-      if(m.stat.startsWith('armor')){
-        applyArmorMod(s.armor, m);
-      } else if(s[m.stat] !== undefined){
-        s[m.stat] = pass==='add' ? s[m.stat]+m.value : s[m.stat]*m.value;
-      }
+  // pass 1: adds, pass 2: mults (so mult scales the accumulated add result).
+  // mult 语义（2026-08-25 用户决定 #97）：同一 stat 的所有 mult 修饰器先【加法聚合】为
+  // 单一乘子 1 + Σ(value_i − 1) 再应用一次（例：×1.2×1.2 → 1.4 而非 1.44；×0.85×0.85 → 0.70）。
+  // 单条修饰器数学上不变（1+(v−1)=v）；多条聚合结果钳 ≥0 防负乘子（单条保留原值，行为不变）。
+  // armor 路径按完整 stat 字符串分组聚合（armor.hull 与 armor.hull.front 属不同组），
+  // 组间仍按首次出现顺序先后应用——整组与单面路径的组合语义与旧实现一致。
+  for(const m of (modifiers||[])){
+    if(m.mode !== 'add') continue;
+    if(m.stat.startsWith('armor')){
+      applyArmorMod(s.armor, m);
+    } else if(s[m.stat] !== undefined){
+      s[m.stat] += m.value;
+    }
+  }
+  const multAgg = new Map();   // stat -> { mul, count }（Map 保持首次出现顺序）
+  for(const m of (modifiers||[])){
+    if(m.mode !== 'mult') continue;
+    let e = multAgg.get(m.stat);
+    if(!e){ e = { mul: 1, count: 0 }; multAgg.set(m.stat, e); }
+    e.mul += m.value - 1;
+    e.count++;
+  }
+  for(const [stat, e] of multAgg){
+    const mul = e.count > 1 ? Math.max(0, e.mul) : e.mul;
+    if(stat.startsWith('armor')){
+      applyArmorMod(s.armor, { stat: stat, mode: 'mult', value: mul });
+    } else if(s[stat] !== undefined){
+      s[stat] *= mul;
     }
   }
   // derived mobility: forward acceleration (px/s^2) from horsepower per tonne scaled to game units.
@@ -57,8 +76,9 @@ function computeStats(base, modifiers){
   const scale = RULES.scale;
   const pxPerMeter = scale.PX_PER_METER;
 
-  // 极速 km/h：maxSpeed(px/s) / pxPerMeter * 3.6
-  s.maxSpeedKmh = Math.round((s.maxSpeed / pxPerMeter) * 3.6);
+  // 极速 km/h：maxSpeed(px/s) × RULES.speed.kmhFactor（2026-08-25 统一换算：
+  // 与 tankKmh 同源同值，废除旧 PX_PER_METER×3.6 双轨标定）
+  s.maxSpeedKmh = Math.round(s.maxSpeed * RULES.speed.kmhFactor);
 
   // 弹速 m/s：shellSpeed(px/s) / pxPerMeter
   s.shellSpeedMs = Math.round(s.shellSpeed / pxPerMeter);
@@ -192,7 +212,7 @@ function makeTank(opts){
   return tank;
 }
 
-const SPEED_KMH_FACTOR = RULES.speed.kmhFactor;      // (maxSpeed in px/s / 2) = km/h
+const SPEED_KMH_FACTOR = RULES.speed.kmhFactor;      // maxSpeed(px/s) × kmhFactor = km/h（与 computeStats.maxSpeedKmh 同源）
 const SPEED_PX_FACTOR  = RULES.speed.pxFactor;
 // convert horsepower-per-tonne into game px/s^2 acceleration; these two set the accel feel.
 // For responsive roguelike action, responsiveness is high (accel x180 scale, quick brake x3.5).

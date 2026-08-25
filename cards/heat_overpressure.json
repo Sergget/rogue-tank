@@ -1,0 +1,11 @@
+{
+  "id": "heat_overpressure",
+  "name": "破甲弹超压装药",
+  "rarity": "common",
+  "tags": ["爆破"],
+  "desc": "HEAT 弹提高炸药装填密度，伤害 +6%。",
+  "effects": [
+    { "type": "ammo", "key": "heat", "field": "dmg", "mode": "mult", "value": 1.06 }
+  ],
+  "maxStacks": 3
+}

@@ -1,6 +1,6 @@
 # Rogue Tank — Sub-Agent Usage Guide
 
-This project has **11 configured sub-agents** in `.opencode/agents/` plus **4 skills** in `.opencode/skills/`. Each is specialized for a subsystem of the tank roguelike codebase.
+This project has **12 configured sub-agents** in `.opencode/agents/` plus **4 skills** in `.opencode/skills/`. Each is specialized for a subsystem of the tank roguelike codebase.
 
 ## 1. Agent vs. Skill — What's the difference?
 
@@ -19,7 +19,8 @@ This project has **11 configured sub-agents** in `.opencode/agents/` plus **4 sk
 | Edit tank polygons, armor faces, barrel presets | `@tank-designer` | Owns `tank_designer.html`, `tank_halfgeom.js`, `tank_geometry.js` |
 | Add/change RULES config, modify tank JSON format | `@tank-model` | Owns `tank_rules.js`, `tank_model.js`, `tanks/*.json`, `tank_listio.js` |
 | Tune cover system, map elements, smoke/vision, destructible terrain | `@map-cover` | Owns `tank_cover.js` (covers + smokeClouds + hasLineOfSight), collision logic |
-| Build flow state machine, node maps, camera/minimap, enemy AI, drones, economy/save/revival | `@node-map` | Owns `tank_flow/map/camera/minimap/nodegen/ai/drone/economy/revive/entity/move` |
+| Build flow state machine, node maps, camera/minimap, drones, economy/save/revival | `@node-map` | Owns `tank_flow/map/camera/minimap/nodegen/drone/economy/revive/entity/move` |
+| Tune enemy/friendly AI decisions, AI states, Boss stage behavior consumption | `@enemy-ai` | Owns `js/tank_ai.js` (+ `scripts/test-ai.js`); reads entity fields only, outputs `{turn, move, turretDesired, fire}` |
 | Author card content (`cards/<id>.json`) | `@card-author` | Owns `cards/`, `js/tank_cards.js` schema；拟真坦克调性 + 稀有度/流派预算 |
 | Author boss content (`bosses/<id>.json`) | `@boss-author` | Owns `bosses/`, `js/tank_boss.js`；多阶段机制 + 弱点驱动 |
 | Audit card/boss balance & schema | `@balance-auditor` | 只读审计：`validate-content.js` / `audit-content.js` |
@@ -40,6 +41,12 @@ Tab 切到 orchestrator → Fix the fire DOT damage calculation in resolveHit �
 Tab 切到 orchestrator → Add a new ammo type "APCR-2" with 1.5x speed, 0.9x penetration, and a trail color option in RULES
 ```
 → Orchestrator dispatches `@tank-model` (add to RULES.ammoTypes) and `@tank-combat` (implement flight behavior) **in parallel** — separate contexts — then merges results and runs `@test-runner`.
+
+### Pattern B2: Boss stage behavior change (declarative contract)
+```
+Tab 切到 orchestrator → Give boss_rammer a new "ambush" stage AI mode that holds fire until the player crosses a distance threshold, then charges
+```
+→ Orchestrator dispatches `@boss-author` (stage `ai: {mode: 'ambush'}` in `bosses/*.json`) and `@enemy-ai` (dispatch branch + `RULES.boss.aiModes` entry via tank-model + test case) **in parallel**, then runs `@test-runner`. The boundary is the thin declarative contract: `applyBossStage` sets `entity.stageAI`, `aiDecideEnemy` consumes it.
 
 ### Pattern C: Verification only (skip implementation)
 ```
@@ -85,6 +92,8 @@ The sub-agent configs watch for these **status variables** in the code:
 |---|---|---|
 | `player.ammoKey` (1/2/3/4 → ap/apcr/he/heat) | tank-combat | `tank_mvp.html` / bench |
 | `flow.state` (map/battle/settlement/reward/gameover) | node-map | `js/tank_flow.js` |
+| `t.aiState`, `t.aiEngaged`, `t.stageAI.mode` | enemy-ai | `js/tank_ai.js` (set by caller/boss runtime) |
+| `RULES.boss.aiModes` | enemy-ai / tank-model | `tank_rules.js` + `tank_ai.js` `_bossStageAIModes` |
 | `invuln`, `invulnT`, `_dead` | tank-combat | entity state |
 | `cover.hp`, `cover.tier` (+ `toTier` chain) | map-cover | `tank_cover.js` |
 | `smokeClouds[]` | map-cover | `tank_cover.js` |

@@ -354,12 +354,13 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
       armor: { hull: { front: 50 }, turret: { front: 60 } } }, []);
   const validStats = new Set(Object.keys(baseStats));
 
-  ok(eco.RUN_SHOP_DEFS.length >= 5 && eco.RUN_SHOP_DEFS.length <= 6, `RUN_SHOP_DEFS 数量 5~6（实际 ${eco.RUN_SHOP_DEFS.length}）`);
+  ok(eco.RUN_SHOP_DEFS.length === 13, `RUN_SHOP_DEFS 数量 13（#90 重做后：3 火力 + 6 装甲项 + 1 机动 + 3 杂项；实际 ${eco.RUN_SHOP_DEFS.length}）`);
   const ids = new Set();
   let structOk = true;
   for (const d of eco.RUN_SHOP_DEFS) {
     if (!d.id || ids.has(d.id)) structOk = false;
     ids.add(d.id);
+    if (['firepower','armor','mobility','misc'].indexOf(d.group) < 0) structOk = false;   // #90：全部商品必须带合法分组
     for (const k of ['name', 'desc', 'baseCost', 'costGrowth', 'maxLevel']) {
       if (!(k in d)) structOk = false;
     }
@@ -371,10 +372,26 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
       if (ef.mode !== 'add' && ef.mode !== 'mult') structOk = false;
     }
   }
-  ok(structOk, 'RUN_SHOP_DEFS 结构校验（字段完备/id 唯一/effects stat 合法对照 computeStats 键集合）');
+  ok(structOk, 'RUN_SHOP_DEFS 结构校验（字段完备/id 唯一/group 合法/effects stat 合法对照 computeStats 键集合）');
+
+  // #90：分组归属抽查
+  const grpOf = id => { const d = eco.getRunShopDef(id); return d ? d.group : null; };
+  ok(grpOf('fast_reload') === 'firepower' && grpOf('precision_gunnery') === 'firepower' && grpOf('steady_mount') === 'firepower', '火力组：fast_reload/precision_gunnery/steady_mount');
+  ok(grpOf('engine_overdrive') === 'mobility', '机动组：engine_overdrive');
+  ok(grpOf('emergency_repair') === 'misc' && grpOf('repair_kit_cd_run') === 'misc' && grpOf('medkit_cd_run') === 'misc', '杂项组：emergency_repair/双速冷');
+  const patchIds = ['hull_front_patch','hull_side_patch','hull_rear_patch','turret_front_patch','turret_side_patch','turret_rear_patch'];
+  let armorGroupOk = true;
+  for (const pid of patchIds) {
+    const pd = eco.getRunShopDef(pid);
+    if (!pd || pd.group !== 'armor' || !pd.effects.length || !pd.effects[0].stat.startsWith('armor.') ||
+        pd.effects[0].value !== 2 || !(pd.baseCost >= 25 && pd.baseCost <= 35) || pd.costGrowth !== 1.6) armorGroupOk = false;
+  }
+  ok(armorGroupOk, '防护组：六装甲独立商品（各 +2mm、baseCost 25~35、costGrowth 1.6）');
+  ok(!eco.getRunShopDef('hull_patch'), '原 hull_patch 已移除（id 不复用防存档 levels 脏数据）');
 
   // 定价曲线 runShopPriceFor
   const fr = eco.getRunShopDef('fast_reload');
+  ok(fr && fr.baseCost === 25, '#90 重定价：fast_reload baseCost=25（实际 ' + (fr && fr.baseCost) + '）');
   ok(fr && eco.runShopPriceFor(fr, 0) === fr.baseCost, `runShopPriceFor(lv0)=baseCost=${fr.baseCost}`);
   ok(eco.runShopPriceFor(fr, 2) === Math.round(fr.baseCost * Math.pow(fr.costGrowth, 2)), `runShopPriceFor(lv2)=round(${fr.baseCost}×${fr.costGrowth}²)=${eco.runShopPriceFor(fr, 2)}`);
 
@@ -384,13 +401,32 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
   ok(eco.applyRunShopPurchase(st, 'fast_reload') === true && st.spent === fr.baseCost + eco.runShopPriceFor(fr, 1), '二级购买成功：costGrowth 递增计价');
   const stPoor = { total: 10, spent: 0, levels: {} };
   ok(eco.applyRunShopPurchase(stPoor, 'engine_overdrive') === false && stPoor.spent === 0, '余额不足 → false 且不改动账本');
-  const stMax = { total: 999999, spent: 0, levels: { steady_mount: 1 } };
-  ok(eco.applyRunShopPurchase(stMax, 'steady_mount') === false, '超 maxLevel → false');
+  // ISSUE 20：已取消 maxLevel 上限，满级后仍能继续购买（costGrowth 雪球约束边际）
+  const stMax = { total: 999999, spent: 0, levels: { steady_mount: 50 } };
+  ok(eco.applyRunShopPurchase(stMax, 'steady_mount') === true && stMax.levels.steady_mount === 51, '取消 maxLevel 上限后仍可继续购买（无限购买）');
   ok(eco.canAfford(50, 50) && !eco.canAfford(49, 50), 'canAfford 边界（=通过 / <拒绝）');
 
   // 即时效果类商品形态：effects 空 + instant healPct
   const rep = eco.getRunShopDef('emergency_repair');
   ok(rep && rep.effects.length === 0 && rep.instant && rep.instant.type === 'healPct', '紧急维修为即时类（effects 空 + instant.healPct）');
+  ok(rep && rep.instant.value === 0.25 && rep.baseCost === 20 && rep.desc.indexOf('25%') >= 0, '#90：紧急维修 healPct=0.25、baseCost=20、desc 同步 25%');
+  const rkcd = eco.getRunShopDef('repair_kit_cd_run'), mkcd = eco.getRunShopDef('medkit_cd_run');
+  ok(rkcd && mkcd && rkcd.instant.type === 'cdReduce' && rkcd.instant.ability === 'repair' && rkcd.instant.value === 3 &&
+     mkcd.instant.ability === 'medkit' && mkcd.instant.value === 3 && rkcd.baseCost === 30 && rkcd.costGrowth === 1.5,
+     '#90：修理箱/医疗包速冷（cdReduce −3s/级、baseCost 30、costGrowth 1.5）');
+  const kitDefs = eco.UPGRADE_DEFS.filter(u => u.id === 'repair_kit_cd' || u.id === 'medkit_cd');
+  ok(kitDefs.length === 2 && kitDefs.every(u => u.maxLevel === 15 && u.cost === 20 && !u.stat),
+     'UPGRADE_DEFS 追加 repair_kit_cd/medkit_cd（maxLevel 15、cost 20、无 stat 特殊消费）');
+  {
+    // applyUpgrades 跳过无 stat 的特殊消费项（不产生脏 modifier）
+    const model2 = require('../js/tank_model.js');
+    const tank = model2.makeTank ? model2.makeTank({}) : null;
+    if (tank) {
+      const profU = { version: 1, points: 0, upgrades: { repair_kit_cd: 3 } };
+      const appliedN = eco.applyUpgrades(tank, eco.normalizeProfile(profU));
+      ok(appliedN === 0, 'applyUpgrades 对特殊消费项 no-op（levels 存档即可，不产生 modifier）');
+    }
+  }
 }
 
 console.log(`test-economy: 共 ${total} 条断言`);

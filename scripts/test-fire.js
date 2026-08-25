@@ -150,5 +150,24 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
   ok(res3.outcome!=='BOUNCE', 'allowBounce false -> no bounce');
 }
 
+// 5) #95: track break (immobT>0) must NOT block firing — only reloadT gates
+{
+  const shooter=M.makeTank({id:'p95',team:'player',x:0,y:0,hullAngle:0,turretAngle:0, base:{penetration:100, damage:20, reload:1, shellSpeed:1000, maxHp:100}});
+  const target=M.makeTank({id:'e95',team:'enemy',x:500,y:0});
+  global.entities=[shooter,target];
+  C.covers.length=0;
+  global.shells=[]; global.impacts=[]; global.bounceFx=[];
+  global.devAim={zeroSpread:true};
+  shooter.ammoKey='ap'; shooter.sigma=0;
+  shooter.reloadT=0; shooter.immobT=5; shooter.trackBroken=true;
+  ok(F.fireTank(shooter,target,'auto')===true && global.shells.length===1, '#95 fireTank fires while immobT>0 (track broken not disarmed)');
+  global.shells.length=0;
+  shooter.reloadT=0;
+  ok(F.fireSmokeShell(shooter)===true && global.shells[0] && global.shells[0].smoke===true, '#95 fireSmokeShell fires while immobT>0');
+  // reloadT still blocks
+  shooter.reloadT=2;
+  ok(F.fireTank(shooter,target,'auto')===false, 'reloadT>0 still blocks fireTank (gating preserved)');
+}
+
 console.log(fails===0?'\nAll fire checks passed.':`\n${fails} FAILED`);
 process.exit(fails===0?0:1);

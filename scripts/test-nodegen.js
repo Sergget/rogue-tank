@@ -66,11 +66,12 @@ for (const tpl of NODE_TEMPLATES) {
   ok(tiers.size >= 4, `模板 ${tpl.id} 混合 ≥4 种 tier（${[...tiers].join('/')}）`);
 }
 for (const tpl of templates) {
-  const maxItems = 42; // #77：密度提升后单模板元素上限放宽到 42
+  // #87：分层村庄（道路/建筑/杂物）+ 林地簇运行时生成后，单模板元素峰值上限放宽到 64
+  const maxItems = 64;
   const minItems = 8;  // #25：中高难剔除率低（≤0.044），保留数下界
   const lowDiff = generateNode(0.1, { templateId: tpl.id, seed: 1 });
   ok(lowDiff.covers.length >= 1 && lowDiff.covers.length <= maxItems,
-     `模板 ${tpl.id} 低难覆盖数量 ${lowDiff.covers.length} 合理（≤30）`);
+     `模板 ${tpl.id} 低难覆盖数量 ${lowDiff.covers.length} 合理（≤${maxItems}）`);
   const highDiff = generateNode(0.9, { templateId: tpl.id, seed: 1 });
   ok(highDiff.covers.length >= minItems,
      `模板 ${tpl.id} 高难覆盖数量 ${highDiff.covers.length} ≥ ${minItems}`);
@@ -122,8 +123,14 @@ if (typeof covers !== 'undefined') {
     for (const c of r.covers) {
       const lx = c.x - 600, ly = c.y - 350; // 节点局部坐标（默认 centerX/centerY=600/350）
       if (c.tier === 'water') {
-        ok(Math.abs(lx) < W * 0.25 && Math.abs(ly) < H * 0.25, `${tpl.id} 水潭在中央区`);
-        ok(Array.isArray(c.verts) && c.verts.length === 8, `${tpl.id} 水潭八边形 verts`);
+        // 有机凸 blob 水潭（placeCentralPond，携带 verts）置于中央区且顶点数 ~12~18；
+        // 旧式矩形水桥（无 verts）仅校验尺寸合法，不做中央区/顶点数约束
+        if (Array.isArray(c.verts)) {
+          ok(Math.abs(lx) < W * 0.30 && Math.abs(ly) < H * 0.30, `${tpl.id} 水潭在中央区`);
+          ok(c.verts.length >= 10 && c.verts.length <= 22, `${tpl.id} 水潭凸blob verts(${c.verts.length})`);
+        } else {
+          ok(c.w > 0 && c.h > 0, `${tpl.id} 矩形水桥尺寸合法`);
+        }
       }
       if (c.tier === 'river' && Array.isArray(c.segments)) {
         ok(c.segments.length >= 4, `${tpl.id} 河流 ≥4 连通段`);
@@ -193,26 +200,35 @@ if (typeof covers !== 'undefined') {
   }
 }
 
-// 10) 尺寸收敛抽断言（默认 nodeScale=3 世界尺寸）：half 100~150 / full 150~220 / barricade 60~90
+// 10) 尺寸收敛抽断言（默认 nodeScale=3 世界尺寸，新 coverWorldScale）：half 78~118 / full 108~245 / barricade 55~70
 {
   const inRange = (v, lo, hi) => v >= lo - 1e-6 && v <= hi + 1e-6;
   for (const tpl of NODE_TEMPLATES) {
-    // 默认 nodeScale=3（RULES.nodeMap.nodeScale）下的世界尺寸口径
+    // 默认 nodeScale=3（RULES.nodeMap.nodeScale）下的世界尺寸口径；
+    // #87 村庄沿街建筑（groupId 'village-building'）另走收敛带宽校验，不在本断言内。
     const r = generateNode(0.5, { templateId: tpl.id, seed: 77, cullRate: 0, scale: 3 });
-    for (const spec of [['half', 100, 150], ['full', 150, 220], ['barricade', 60, 90]]) {
-      const tier = spec[0], lo = spec[1], hi = spec[2];
-      const ws = r.covers.filter(c => c.tier === tier).map(c => c.w);
-      if (!ws.length) continue; // 该模板无此 tier 则跳过（如 forest_dense 原无沙袋）
-      ok(ws.every(w => inRange(w, lo, hi)),
-        `模板 ${tpl.id} ${tier} 世界宽 ${ws.map(v => Math.round(v)).join(',')} 在 ${lo}~${hi}`);
+    for (const spec of [['half', 78, 118], ['full', 108, 245], ['barricade', 55, 70]]) {
+     const tier = spec[0], lo = spec[1], hi = spec[2];
+    const ws = r.covers.filter(c => c.tier === tier && c.groupId !== 'village-building').map(c => c.w);
+    if (!ws.length) continue; // 该模板无此 tier 则跳过（如 forest_dense 原无沙袋）
+    ok(ws.every(w => inRange(w, lo, hi)),
+      `模板 ${tpl.id} ${tier} 世界宽 ${ws.map(v => Math.round(v)).join(',')} 在 ${lo}~${hi}`);
     }
-  }
+    }
+    // #87 村庄建筑收敛宽度：50~80 模板单位 × nodeScale(3) × coverWorldScale.full(0.42) ≈ 63~101px
+   for (const tpl of NODE_TEMPLATES.filter(t => t.village)) {
+     const r = generateNode(0.5, { templateId: tpl.id, seed: 77, cullRate: 0, scale: 3 });
+     const vbw = r.covers.filter(c => c.tier === 'full' && c.groupId === 'village-building').map(c => c.w);
+     ok(vbw.length > 0, `模板 ${tpl.id} 村庄建筑已生成（${vbw.length} 栋）`);
+     ok(vbw.every(w => inRange(w, 63, 101)),
+        `模板 ${tpl.id} 村庄建筑宽 ${vbw.map(v => Math.round(v)).join(',')} 收敛在 63~101`);
+   }
 }
 
-// 11) 密度下限：掩体总元素数 ≥ 旧值(120)×1.4
+// 11) 密度下限：掩体总 items 数 ≥ 150（#87 forest_dense 散点树移入运行时林地簇后下界重校）
 {
   const totalItems = NODE_TEMPLATES.reduce((n, t) => n + t.items.length, 0);
-  ok(totalItems >= 168, `七模板掩体总数 ${totalItems} ≥ 168（旧 120×1.4，#77 密度提升）`);
+  ok(totalItems >= 150, `七模板掩体总数 ${totalItems} ≥ 150（#87 林地簇重构后下界）`);
 }
 
 // 12) drawGround 冒烟（纯 ctx mock，无 DOM）：不同 seed 不报错、颜色来自 RULES.biomes
@@ -238,6 +254,68 @@ if (typeof covers !== 'undefined') {
   const log1 = [], seq = () => { const l = []; bd.drawGround(makeMock(l), { viewBounds: vb, biome: 'steppe', seed: 555 }); return l.join('|'); };
   ok(log1.length === 0 && seq() === seq(), 'drawGround 同 seed 输出序列确定一致');
   ok(/#/.test(seq()), 'drawGround 颜色值来自 RULES.biomes 十六进制调色板');
+}
+
+// ================= #87 村庄分层生成（道路/沿街建筑/杂物） =================
+// 13) village_center：≥2 条 road 条带实例 + ≥4 栋收敛宽度建筑沿路分布；road tier 缺失时
+//     （并行区 RULES.coverTiers.road 未落地）降级跳过道路断言，其余照常可测
+const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
+{
+  const r = generateNode(0.7, { templateId: 'village_center', seed: 20260825, cullRate: 0, scale: 3 });
+  const buildings = r.covers.filter(c => c.groupId === 'village-building');
+  ok(buildings.length >= 4 && buildings.length <= 7,
+     `村庄建筑 4~7 栋（实际 ${buildings.length}）`);
+  if (hasRoadTier) {
+    const roads = r.covers.filter(c => c.tier === 'road');
+    ok(roads.length >= 2, `村庄 road 实例 ≥2（实际 ${roads.length}）`);
+    ok(roads.every(rd => rd.h >= 60 - 1e-6 && rd.h <= 80 + 1e-6),
+       `道路条带宽 ${roads.map(rd => Math.round(rd.h)).join(',')} 在 60~80 世界px`);
+    // 建筑中心到最近 road 条带的距离 ≤ 路半宽(≤40) + 建筑半宽 + 50px → 沿路分布
+    const distToRoad = (b) => Math.min.apply(null, roads.map(rd => {
+      const dx = b.x - rd.x, dy = b.y - rd.y;
+      const ca = Math.cos(rd.angle || 0), sa = Math.sin(rd.angle || 0);
+      const lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
+      const qx = Math.max(-rd.w / 2, Math.min(rd.w / 2, lx));
+      const qy = Math.max(-rd.h / 2, Math.min(rd.h / 2, ly));
+      return Math.hypot(lx - qx, ly - qy);
+    }));
+    let nearN = 0;
+    for (const b of buildings) {
+      const lim = 40 + Math.max(b.w, b.h) / 2 + 50;
+      if (distToRoad(b) <= lim) nearN++;
+    }
+    ok(nearN >= 2, `至少 2 栋建筑沿路分布（实际 ${nearN}/${buildings.length}）`);
+  } else {
+    console.warn('test-nodegen: RULES.coverTiers.road 尚未落地——道路断言跳过（#87 并行区 guard）');
+  }
+  // 村庄分层确定性：同 seed 完全一致
+  const r2 = generateNode(0.7, { templateId: 'village_center', seed: 20260825, cullRate: 0, scale: 3 });
+  ok(JSON.stringify(r.covers) === JSON.stringify(r2.covers), '村庄分层生成同 seed 确定性一致');
+}
+
+// ================= #87 树林簇（forest clusters） =================
+// 14) forest_dense：≥2 个树簇（groupId forest*，簇内 tree 数 ≥4）；village_center 防风林簇 tree ≥4；
+//     簇生成确定性（同 seed 完全一致）
+{
+  for (const seed of [7, 4242]) {
+    const r = generateNode(0.5, { templateId: 'forest_dense', seed, cullRate: 0, scale: 3 });
+    const r2 = generateNode(0.5, { templateId: 'forest_dense', seed, cullRate: 0, scale: 3 });
+    ok(JSON.stringify(r.covers) === JSON.stringify(r2.covers),
+       `forest_dense seed=${seed} 林地簇确定性一致`);
+    const groups = {};
+    for (const c of r.covers) {
+      if (c.tier === 'tree' && typeof c.groupId === 'string' && c.groupId.indexOf('forest') === 0) {
+        groups[c.groupId] = (groups[c.groupId] || 0) + 1;
+      }
+    }
+    const dense = Object.keys(groups).filter(g => groups[g] >= 4);
+    ok(dense.length >= 2,
+       `forest_dense seed=${seed} 含 ≥2 个树簇（簇内 tree ≥4，实际 ${dense.length} 簇 ${JSON.stringify(groups)}）`);
+  }
+  const rv = generateNode(0.5, { templateId: 'village_center', seed: 99, cullRate: 0, scale: 3 });
+  const fgTrees = rv.covers.filter(c => c.tier === 'tree' &&
+    typeof c.groupId === 'string' && c.groupId.indexOf('forest') === 0);
+  ok(fgTrees.length >= 4, `village_center 防风林簇 tree ≥4（实际 ${fgTrees.length}）`);
 }
 
 console.log('test-nodegen: 完成所有检查');

@@ -90,9 +90,9 @@ function aiTierForDifficulty(diff) {
 function entityMultsForDifficulty(diff) {
   const cfg = difficultyConfig() || {};
   const table = cfg.entityMults || {
-    maxHp: [1, 1.6], penetration: [1, 1.5], damage: [1, 1.4], armorAll: [1, 1.45],
-    reload: [1, 0.82], spreadMult: [1, 0.78], aimSpeed: [1, 1.35],
-    maxSpeed: [1, 1.18], turnRate: [1, 1.22], turretTurnRate: [1, 1.3]
+    maxHp: [0.8, 1.4], penetration: [0.75, 1.25], damage: [0.75, 1.2], armorAll: [0.7, 1.3],
+    reload: [1.25, 0.82], spreadMult: [1.3, 0.78], aimSpeed: [0.8, 1.35],
+    maxSpeed: [0.7, 1.15], turnRate: [0.7, 1.2], turretTurnRate: [0.7, 1.25]
   };
   const diffMax = cfg.diffMax !== undefined ? cfg.diffMax : 1.15;
   const n = Math.min(1, Math.max(0, (Number.isFinite(diff) ? diff : 0) / diffMax));
@@ -205,36 +205,58 @@ function makeNode(index, rng, env) {
   const trigDist = triggerDistForDifficulty(diff);
   const minPlayerDist = Math.max(cfg.enemyMinPlayerDist || 250, Math.round(trigDist * 1.05));
 
-  // 敌军构成：散布在右 2/3 区域，拒绝采样避开掩体/互相重叠/贴近玩家出生点
+  // 敌军构成（#ISSUE5 聚簇生成）：先选 clusterCount 个簇心（右 2/3、距玩家≥minPlayerDist、避开掩体），
+  // 每簇在 enemyClusterRadius 内散布若干敌人（拒绝采样避开掩体/互相重叠/贴近玩家），
+  // 总数不足时由下方网格兜底补满；enemyCount 总数保持不变。
   const enemyCount = enemyCountForDifficulty(diff);
+  const clusterCount = Math.max(1, Math.min(4, Math.round((cfg.enemyClusterCountBase || 1) + diff * 3)));
+  const clusterRadius = cfg.enemyClusterRadius || 150;
+  const clusterSizeMin = cfg.enemyClusterSizeMin || 2;
+  const clusterSizeMax = cfg.enemyClusterSizeMax || 5;
   const enemies = [];
-  let guard = 0;
-  while (enemies.length < enemyCount && guard++ < 400) {
-    let ex = rng.range(w * 0.35, w * 0.92);
-    let ey = rng.range(h * 0.12, h * 0.88);
-    if (Math.hypot(ex - playerSpawn.x, ey - playerSpawn.y) < minPlayerDist) {
-      // 沿径向外推到最小间距；推出敌区则放弃该候选重掷（仅用传入 rng，保持确定性）
-      const ang = Math.atan2(ey - playerSpawn.y, ex - playerSpawn.x);
-      ex = playerSpawn.x + Math.cos(ang) * minPlayerDist;
-      ey = playerSpawn.y + Math.sin(ang) * minPlayerDist;
-      if (ex < w * 0.35 || ex > w * 0.92 || ey < h * 0.12 || ey > h * 0.88) continue;
+  let remaining = enemyCount;
+  let cg = 0;
+  while(enemies.length < enemyCount && cg < clusterCount && remaining > 0){
+    cg++;
+    // 选簇心
+    let cx = 0, cy = 0, okCenter = false;
+    for(let tries = 0; tries < 40; tries++){
+      const tx = rng.range(w * 0.35, w * 0.92);
+      const ty = rng.range(h * 0.12, h * 0.88);
+      if(Math.hypot(tx - playerSpawn.x, ty - playerSpawn.y) < minPlayerDist) continue;
+      if(pointInCover(templateResult.covers, tx, ty, 60)) continue;
+      cx = tx; cy = ty; okCenter = true; break;
     }
-    let tooClose = false;
-    for (const e of enemies) {
-      if (Math.hypot(ex - e.x, ey - e.y) < (cfg.enemyMinDist || 150)) { tooClose = true; break; }
+    if(!okCenter) continue;
+    const size = Math.min(remaining, rng.int(clusterSizeMin, clusterSizeMax));
+    let placed = 0, pg = 0;
+    while(placed < size && pg < 60){
+      pg++;
+      const ang = rng.range(0, Math.PI * 2);
+      const rad = rng.range(0, clusterRadius);
+      const ex = cx + Math.cos(ang) * rad;
+      const ey = cy + Math.sin(ang) * rad;
+      if(ex < w * 0.35 || ex > w * 0.92 || ey < h * 0.12 || ey > h * 0.88) continue;
+      if(Math.hypot(ex - playerSpawn.x, ey - playerSpawn.y) < minPlayerDist) continue;
+      let tooClose = false;
+      for(const e of enemies){
+        if(Math.hypot(ex - e.x, ey - e.y) < (cfg.enemyMinDist || 150)){ tooClose = true; break; }
+      }
+      if(tooClose) continue;
+      if(pointInCover(templateResult.covers, ex, ey, 60)) continue;
+      enemies.push({
+        tankId: rng.choice(cfg.enemyTankPool && cfg.enemyTankPool.length ? cfg.enemyTankPool : ['dummy']),
+        x: Math.round(ex), y: Math.round(ey),
+        hullAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
+        turretAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
+        heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
+        statMult: statMult,           // 兼容保留（= entityMults.maxHp）；#76 A 起以 entityMults 为准
+        entityMults: entityMults,     // #76 A：全属性难度乘子表（materializeNode 经 env.applyDifficulty 应用）
+        aiTier: aiTier                // P-34 C：AI 档位随敌人数据下发（materializeNode 注入实体 t.aiTier，#76 消费）
+      });
+      placed++;
+      remaining--;
     }
-    if (tooClose) continue;
-    if (pointInCover(templateResult.covers, ex, ey, 60)) continue;
-    enemies.push({
-      tankId: rng.choice(cfg.enemyTankPool && cfg.enemyTankPool.length ? cfg.enemyTankPool : ['dummy']),
-      x: Math.round(ex), y: Math.round(ey),
-      hullAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
-      turretAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
-      heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
-      statMult: statMult,           // 兼容保留（= entityMults.maxHp）；#76 A 起以 entityMults 为准
-      entityMults: entityMults,     // #76 A：全属性难度乘子表（materializeNode 经 env.applyDifficulty 应用）
-      aiTier: aiTier                // P-34 C：AI 档位随敌人数据下发（materializeNode 注入实体 t.aiTier，#76 消费）
-    });
   }
 
   // 兜底补满：随机采样在密集掩体/水域下可能凑不齐 enemyCount（guard<400 上限），
@@ -281,7 +303,7 @@ function makeNode(index, rng, env) {
   // 友军据点：左 1/4 区域、概率出现、远离敌军与玩家出生点（§2.2：消极防御、可被摧毁）
   let outpost = null;
   if (rng() < (cfg.outpostChance !== undefined ? cfg.outpostChance : 0.7)) {
-    guard = 0;
+    let guard = 0;
     while (guard++ < 200) {
       const ox = rng.range(w * 0.12, w * 0.30);
       const oy = rng.range(h * 0.2, h * 0.8);

@@ -19,6 +19,16 @@
 //   t.abilityCdT = RULES.abilities[key].reload|cooldown（artillery 用 reload，其余用
 //   cooldown）；冷却期内 tryActivateAbility 一律拒绝 {ok:false, reason:'cooldown'}。
 //
+// 修理箱/医疗包（innate 内置能力，键 'repair'/'medkit'）：开局自带、无需卡牌持有检查
+//   （绕过 hasAbility）。冷却走**独立字段池** t.abilityCds = { repair?, medkit? }（秒），
+//   与 G/H/V 共享的 abilityCdT 互不干扰；有效冷却 = (t.abilityBaseCd &&
+//   t.abilityBaseCd[key]) || 45（mvp/node-map 把商店减免注入 abilityBaseCd，未注入时
+//   回退基础 45s）。逐帧递减由接线层调用 updateAbilityCds(t, dt)；未接入时
+//   tryActivateAbility 的 cooldown 判断天然容错（冷却永不结束而已，不报错）。
+//   repair 效果：清 trackBroken/immobT + debuffs 中 engine/ammo 模块键并 refreshStats；
+//   弹药架殉爆（ammoBlew=true）不可修（保留殉爆与 ammo debuff），其余照常修复且激活成功。
+//   medkit 效果：清 debuffs 中 gunner/loader/commander/driver 四类乘员键并 refreshStats。
+//
 // overdrive 细节（决策）：激活时立即清零 t.reloadT（「爆发装填」语义——当前装填
 //   立即打完；RULES 注释即「主动爆发装填」）。持续 duration 秒内新开火设置的
 //   reloadT = stats.reload × 0.45（fireTank 读 stats.reload，见 tank_mvp.html），
@@ -32,10 +42,20 @@ let _callStrike = (typeof callStrike === 'function') ? callStrike : null;
 let _applyShield = (typeof applyShield === 'function') ? applyShield : null;
 let _addTimedModifier = (typeof addTimedModifier === 'function') ? addTimedModifier : null;
 let _removeModifierBySource = (typeof removeModifierBySource === 'function') ? removeModifierBySource : null;
+let _refreshStats = (typeof refreshStats === 'function') ? refreshStats : null;
 
-// 本模块支持的运行时能力键（其余 ABILITY_KEYS 如 smoke/repair/recon 属烟幕/维修等
+// 本模块支持的运行时能力键（其余 ABILITY_KEYS 如 smoke/recon 属烟幕/侦察等
 // 其他系统，不在本入口分发范围）
 const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield'];
+
+// innate 内置能力键：开局自带、绕过卡牌持有检查（独立冷却池 t.abilityCds）
+const ABILITY_KEYS_INNATE = ['repair', 'medkit'];
+
+// innate 有效冷却（秒）：mvp/node-map 把商店减免注入 t.abilityBaseCd[key]；未注入回退 45
+const INNATE_BASE_CD_FALLBACK = 45;
+
+// medkit 清除的四类乘员 debuff 键（与 MODULE_LABELS 乘员键对齐）
+const MEDKIT_CREW_KEYS = ['gunner', 'loader', 'commander', 'driver'];
 
 function abilitiesConfig() {
   return (typeof RULES !== 'undefined' && RULES.abilities) ? RULES.abilities : {};
@@ -64,6 +84,50 @@ function updateAbilityCd(t, dt) {
   t.abilityCdT = Math.max(0, t.abilityCdT - dt);
 }
 
+// 逐帧递减 innate 独立冷却池 t.abilityCds（repair/medkit），各键归零钳制；
+// 与 updateAbilityCd（G/H/V 共享 abilityCdT）互不干扰。接线层（mvp 主循环）需逐帧调用。
+function updateAbilityCds(t, dt) {
+  if (dt <= 0 || !t || !t.abilityCds) return;
+  for (const k in t.abilityCds) {
+    if (t.abilityCds[k] > 0) t.abilityCds[k] = Math.max(0, t.abilityCds[k] - dt);
+  }
+}
+
+// innate 有效冷却：优先 t.abilityBaseCd[key]（mvp/node-map 注入的商店减免值）
+function innateBaseCd(t, key) {
+  const v = t && t.abilityBaseCd ? t.abilityBaseCd[key] : undefined;
+  return (typeof v === 'number' && v > 0) ? v : INNATE_BASE_CD_FALLBACK;
+}
+
+// innate 激活（repair/medkit）：绕过 hasAbility；独立冷却池；冷却期内拒绝 'cooldown'
+function _tryActivateInnate(t, key) {
+  t.abilityCds = t.abilityCds || {};
+  if ((t.abilityCds[key] || 0) > 0) {
+    return { ok: false, reason: 'cooldown', cd: t.abilityCds[key] };
+  }
+  if (key === 'repair') {
+    // 弹药架殉爆不可修：保留 ammoBlew 与 ammo debuff，其余照常修复、激活仍成功
+    const blew = !!t.ammoBlew;
+    t.trackBroken = false;
+    t._trackFx = false;   // 复位一次性视觉标记：下次履带被击断可重新触发破片特效
+    t.immobT = 0;
+    const d = (t.debuffs = t.debuffs || {});
+    delete d.engine;
+    if (!blew) delete d.ammo;
+    if (_refreshStats) _refreshStats(t);
+    t.abilityCds[key] = innateBaseCd(t, key);
+    return { ok: true, key: key, repairedAmmoRack: !blew };
+  }
+  if (key === 'medkit') {
+    const d = (t.debuffs = t.debuffs || {});
+    MEDKIT_CREW_KEYS.forEach(function (k) { delete d[k]; });
+    if (_refreshStats) _refreshStats(t);
+    t.abilityCds[key] = innateBaseCd(t, key);
+    return { ok: true, key: key };
+  }
+  return { ok: false, reason: 'unsupported' };
+}
+
 /**
  * 主动能力统一入口。
  * @param {any} t 实体（读 cardEffects / abilityCdT / turretAngle，写 abilityCdT/reloadT/shield/modifiers）
@@ -73,6 +137,8 @@ function updateAbilityCd(t, dt) {
  */
 function tryActivateAbility(t, key, ctx) {
   if (!t) return { ok: false, reason: 'no-tank' };
+  // innate（repair/medkit）优先分发：开局自带、绕过 hasAbility 卡牌持有检查、独立冷却池
+  if (ABILITY_KEYS_INNATE.indexOf(key) >= 0) return _tryActivateInnate(t, key);
   if (ABILITY_KEYS_RUNTIME.indexOf(key) < 0) return { ok: false, reason: 'unsupported' };
   if (!hasAbility(t, key)) return { ok: false, reason: 'no-ability' };
   if ((t.abilityCdT || 0) > 0) return { ok: false, reason: 'cooldown', cd: t.abilityCdT };
@@ -128,12 +194,16 @@ if (typeof module !== 'undefined' && module.exports) {
     const M = require('./tank_model.js');
     if (!_addTimedModifier && M && typeof M.addTimedModifier === 'function') _addTimedModifier = M.addTimedModifier;
     if (!_removeModifierBySource && M && typeof M.removeModifierBySource === 'function') _removeModifierBySource = M.removeModifierBySource;
-  } catch (e) { /* model 未加载时保持 null */ }
+    if (!_refreshStats && M && typeof M.refreshStats === 'function') _refreshStats = M.refreshStats;
+  } catch (e) { /* model 未加载时保持 null（浏览器端不会走到这里） */ }
   module.exports = {
     ABILITY_KEYS_RUNTIME,
+    ABILITY_KEYS_INNATE,
     abilitiesConfig,
     hasAbility,
     updateAbilityCd,
+    updateAbilityCds,
+    innateBaseCd,
     tryActivateAbility
   };
 }

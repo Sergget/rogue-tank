@@ -12,10 +12,10 @@
   "reload": 1.3,
   "shellSpeed": 1200,
   "heightClass": "heavy",
-  "trackWidth": 8,
+  "trackWidth": 6,
   "trackOffset": 0,
-  "spreadMult": 1,
-  "aimSpeed": 0.15,
+  "spreadMult": 1.5,
+  "aimSpeed": 0.2,
   "texture": "rust",
   "barrel": {
     "len": 110,

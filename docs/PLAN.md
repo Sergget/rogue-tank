@@ -313,5 +313,3 @@
   5. **AI 降级链**：盲射压制期 $T_{\text{sup}}$ 结束转入 `search` 扫视，玩家持续不开火达 $T_{\text{deg}}$（受难度缩放）后清除 `lastKnownPlayerPos` 降级为 `patrol` 巡逻。
 
 
-
-

@@ -3,7 +3,17 @@
   "name": "幽灵狙击手",
   "desc": "远距高穿低甲，烟雾与掩体间放冷枪：先打观测手（commander）废其观瞄，散布失控后被迫近战；利用烟雾近身。",
   "tankId": "Leapard_1",
-  "scale": 1.6,
+  "scale": 2.0,
+  "behavior": { "style": "skirmish_long" },
+  "tuning": {
+    "hpMul": 8,
+    "moveMul": 0.5,
+    "turnMul": 0.6,
+    "turretTurnMul": 0.6,
+    "shellMul": 0.8,
+    "fireRateMul": 0.6,
+    "dmgMul": 1.5
+  },
   "stages": [
     {
       "id": "p1_hunt",
@@ -12,6 +22,7 @@
       "hpTo": 0.66,
       "behavior": "保持 700+ 距离放冷枪：穿深 +40、散布 ×0.4、缩圈 ×1.3、弹速 ×1.2，命中即重伤；周期性施放烟雾制造视野盲区，在烟幕掩护下换位狙击；本体极脆，弱点为指挥塔上的观测手（weakspot commander）——命中后观瞄受损、进入下一阶段；利用地形拉近距离或炮火压制烟雾出口。",
       "weakspots": ["commander"],
+      "ai": { "mode": "skirmish", "params": { "keepDist": 900 } },
       "onEnter": {
         "modifiers": [
           { "stat": "penetration", "mode": "add", "value": 40 },
@@ -29,6 +40,7 @@
       "hpTo": 0.33,
       "behavior": "观测手被击伤，观瞄系统散布失控（散布 ×2.5、缩圈 ×0.5、弹速 ×0.85，穿深回基础）：无法远距精确射击，被迫拉近距离作战；炮手（weakspot gunner）成为第二弱点，命中后射速进一步下降；此时应主动近身，利用掩体逼近，别给它喘息换位的机会。",
       "weakspots": ["commander", "gunner"],
+      "ai": { "mode": "skirmish", "params": { "keepDist": 900 } },
       "onEnter": {
         "modifiers": [
           { "stat": "spreadMult", "mode": "mult", "value": 2.5 },
@@ -44,6 +56,7 @@
       "hpTo": 0.0,
       "behavior": "观瞄彻底失效，改为贴脸盲射近战：装填 ×0.55、极速 ×1.35、散布 ×1.6，高射速但散布巨大；利用其散布劣势贴身绕圈打侧面，正面低甲可被直接击穿，抓住它换弹间隙输出。",
       "weakspots": [],
+      "ai": { "mode": "skirmish", "params": { "keepDist": 700 } },
       "onEnter": {
         "modifiers": [
           { "stat": "reload", "mode": "mult", "value": 0.55 },

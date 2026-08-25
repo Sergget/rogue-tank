@@ -3,10 +3,10 @@
   "name": "强化高爆弹",
   "rarity": "rare",
   "tags": ["爆破"],
-  "desc": "HE 弹伤害 +15%，击穿力 +15%。",
+  "desc": "HE 弹伤害 +12%，击穿力 +12%。",
   "effects": [
-    { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.15 },
-    { "type": "ammo", "key": "he", "field": "pen", "mode": "mult", "value": 1.15 }
+    { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.12 },
+    { "type": "ammo", "key": "he", "field": "pen", "mode": "mult", "value": 1.12 }
   ],
   "maxStacks": 2
 }

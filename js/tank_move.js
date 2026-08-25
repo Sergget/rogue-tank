@@ -40,7 +40,7 @@ function driveTank(t, dt, input){
   const pAccel = t.stats.accel * speedModifier;
   const pBrake = t.stats.brake * speedModifier;
   // 发动机受伤 → 最大速度降低（debuff）
-  const pTarget = mv * t.stats.maxSpeed * RULES.speed.pxFactor * speedModifier * fireMul(t) * debuffSpeedRate(t);
+  const pTarget = mv * t.stats.maxSpeed * RULES.speed.pxFactor * speedModifier * fireMul(t) * debuffSpeedRate(t) * RULES.speed.effMul;
   t.speed = t.speed || 0;
   if(mv === 0){
     // 松键：快速停止/中性滑行减速
