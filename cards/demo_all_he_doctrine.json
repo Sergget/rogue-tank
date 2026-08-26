@@ -3,11 +3,10 @@
   "name": "全线高爆战术",
   "rarity": "legendary",
   "tags": ["爆破"],
-  "desc": "战术手册全面转向高爆：HE 弹伤害 +20%、击穿力 +20%，装填时间 -15%。",
+  "desc": "战术手册全面转向高爆：HE 弹伤害 +20%、击穿力 +20%。",
   "effects": [
     { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.2 },
-    { "type": "ammo", "key": "he", "field": "pen", "mode": "mult", "value": 1.2 },
-    { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.85 }
+    { "type": "ammo", "key": "he", "field": "pen", "mode": "mult", "value": 1.2 }
   ],
   "maxStacks": 1
 }

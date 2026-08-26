@@ -31,6 +31,11 @@ function computeStats(base, modifiers){
     dotDurationMult: base.dotDurationMult !== undefined ? base.dotDurationMult : 1,
     // 三扩系数（移动/转车体/转炮塔 三源散布统一倍率，默认 1）与缩圈速度（sigma 收缩速率，默认取 RULES.spread.shrinkRate）
     spreadMult: base.spreadMult !== undefined ? base.spreadMult : 1,
+    // 独立运动三扩系数（D3 #A1/#A3 解耦，2026-08-26）：只缩放移动/转车体/转炮塔三个运动散布源。
+    // 默认继承出厂 base.spreadMult（设计器「三扩系数」对标定底盘运动散布的既有调校保持不变）；
+    // 解耦的是【运行期】通道——精密火控等 spreadMult 修饰器不再泄漏到运动散布，反之亦然。
+    motionSpreadMul: base.motionSpreadMul !== undefined ? base.motionSpreadMul
+      : (base.spreadMult !== undefined ? base.spreadMult : 1),
     aimSpeed: base.aimSpeed !== undefined ? base.aimSpeed : RULES.spread.shrinkRate
   };
   // pass 1: adds, pass 2: mults (so mult scales the accumulated add result).
@@ -67,6 +72,8 @@ function computeStats(base, modifiers){
   // 姿态稳定（run shop add −0.15）等叠加曾使三扩系数穿越 0 变负 → motionSigma 负目标。
   // floor 作用在最终生效值上：负中间值不外泄，三源运动散布合成链语义不变。
   s.spreadMult = Math.max(s.spreadMult, RULES.spread.multFloor);
+  // motionSpreadMul 同样钳 ≥ multFloor：与 spreadMult 同级下限，防叠加穿越 0 使运动源变负
+  s.motionSpreadMul = Math.max(s.motionSpreadMul !== undefined ? s.motionSpreadMul : s.spreadMult, RULES.spread.multFloor);
   // 运行时重量硬上限（2026-08-26 用户裁定）：80t 只是设计器出厂上限（parameterLimits.weight.max），
   // 卡牌/局内升级可突破；但聚合后的最终 weight 一律钳 ≤ RULES.weightRuntimeCap（240t）。
   if (typeof RULES.weightRuntimeCap === 'number' && s.weight > RULES.weightRuntimeCap) {
@@ -258,7 +265,7 @@ function applyTankConfig(tank, spec){
   const baseFields = [
     'maxSpeed', 'turnRate', 'turretTurnRate', 'enginePower', 'weight',
     'penetration', 'damage', 'reload', 'shellSpeed',
-    'trackLock', 'ammoMult', 'crewMult', 'spreadMult', 'aimSpeed'
+    'trackLock', 'ammoMult', 'crewMult', 'spreadMult', 'motionSpreadMul', 'aimSpeed'
   ];
   for (const f of baseFields) {
     if (spec[f] !== undefined) b[f] = spec[f];
@@ -455,8 +462,12 @@ function motionSigma(t, dt, keys){
   if(t.id==='player' && keys){
     speed = (keys['w']||keys['s']) ? t.stats.maxSpeed : 0;
   }
-  // 炮手受伤（gunner debuff）→ 移动扩圈加倍；三扩系数统一缩放三个运动散布源（stats.spreadMult）
-  const mK = (t.stats && t.stats.spreadMult !== undefined) ? t.stats.spreadMult : 1;
+  // 炮手受伤（gunner debuff）→ 移动扩圈加倍；运动三源统一缩放系数优先消费独立键 stats.motionSpreadMul
+  // （D3 #A1/#A3 解耦：steady_mount 只作用于运动散布、不影响精度基准 spreadMult）；
+  // 向后兼容：旧运行时快照无 motionSpreadMul 键时回退 spreadMult。
+  const stK = t.stats || {};
+  const mK = stK.motionSpreadMul !== undefined ? stK.motionSpreadMul
+    : (stK.spreadMult !== undefined ? stK.spreadMult : 1);
   let sMove = SPREAD.moveMax    * Math.min(1, speed / t.stats.maxSpeed) * debuffSpread(t) * mK;
   const sHull = SPREAD.hullRotMax * Math.min(1, hullRate / t.stats.turnRate) * mK;
   const sTur  = SPREAD.turretRotMax * Math.min(1, turRate / t.stats.turretTurnRate) * mK;

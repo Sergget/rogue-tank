@@ -1324,37 +1324,48 @@ function applyRunShopEffects(def){
 
 // ==================== #90 修理箱/医疗包冷却账本（永久 ×1 + 局内 ×3） ====================
 const KIT_BASE_CD = 45;   // 基础冷却（秒）
+const KIT_CD_FLOOR = 15;  // #A1：冷却下限显式钳底——满投入（永久 15 级 + 局内 5 级）恰 45−15−15=15s，防未来参数漂移破下限
 function kitPermLv(key){ return upgradeLevel(profile, key === 'repair' ? 'repair_kit_cd' : 'medkit_cd') | 0; }
 function kitRunLv(key){ return runShopLevels[key === 'repair' ? 'repair_kit_cd_run' : 'medkit_cd_run'] | 0; }
-function effectiveKitCd(key){ return Math.max(0, KIT_BASE_CD - kitPermLv(key) - kitRunLv(key) * 3); }
+function effectiveKitCd(key){ return Math.max(KIT_CD_FLOOR, KIT_BASE_CD - kitPermLv(key) - kitRunLv(key) * 3); }
 
-// #90：「当前值 → 购买后值」预览文本（数值从 player.stats 与 def.effects/instant 现算）
+// #90/#A1：「当前值 → 购买后值」预览文本——逐商品独立现算（数值从 player.stats 与该商品自己的
+// def.effects/instant 取得），字段解耦后不存在跨商品联动。多面打包商品（装甲包）取首面现算并标注面数。
 function _statPathVal(path){
   return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), player.stats);
 }
+// 统一口径格式化：maxSpeed 以 km/h 显示（kmhFactor 唯一换算源）；系数类两位小数；其余整数+单位
+function _fmtStat(ef, v){
+  if(ef.stat === 'reload') return v.toFixed(2) + 's';
+  if(ef.stat === 'maxSpeed') return Math.round(v * RULES.speed.kmhFactor) + 'km/h';
+  if(String(ef.stat).indexOf('armor.') === 0) return Math.round(v) + 'mm';
+  if(ef.stat === 'penetration') return Math.round(v) + 'mm';
+  if(ef.stat === 'enginePower') return Math.round(v) + 'hp';
+  return v.toFixed(2);   // spreadMult / motionSpreadMul 等系数类
+}
 function runShopPreviewText(def){
-  const s = player.stats;
   if(def.instant && def.instant.type === 'healPct') return `维修 ${Math.round(def.instant.value * 100)}%HP`;
   if(def.instant && def.instant.type === 'cdReduce'){
     const cur = effectiveKitCd(def.instant.ability);
-    return `冷却 ${cur}s→${Math.max(0, cur - def.instant.value)}s`;
+    const next = Math.max(KIT_CD_FLOOR, cur - def.instant.value);
+    return cur <= KIT_CD_FLOOR ? `冷却已到下限 ${cur}s` : `冷却 ${cur}s→${next}s`;
   }
-  const ef = (def.effects || [])[0];
-  if(!ef) return def.desc;
+  const efs = def.effects || [];
+  if(!efs.length) return def.desc;
+  const ef = efs[0];
   const cur = _statPathVal(ef.stat);
   if(typeof cur !== 'number') return def.desc;
-  const unit = ef.stat === 'reload' ? 's'
-    : (String(ef.stat).indexOf('armor.') === 0 ? 'mm'
-    : (ef.stat === 'maxSpeed' ? 'px/s' : ''));
-  const fixed2 = ef.mode === 'mult' || ef.stat === 'spreadMult';
-  const fmt = v => fixed2 ? v.toFixed(2) : String(Math.round(v));
+  // 打包商品标注（同值多面）：按 stat 路径第二段推导部位名
+  const packTag = efs.length > 1 ? `（${ef.stat.split('.')[1] === 'hull' ? '车体' : '炮塔'}三面同步）` : '';
+  // #A1：达限商品只显示当前值 + 达限文案（与满级同款禁用先例）
+  if(runShopLimitBlocked(def, cur)) return `${_fmtStat(ef, cur)} ${def.limitLabel || '已达上限'}`;
   // D3 #A2：满级商品只显示当前值（不再展示不可达的 →next 预览，避免误导）
   const curLv = runShopLevels[def.id] || 0;
   if(def.maxLevel !== undefined && def.maxLevel !== null && curLv >= def.maxLevel){
-    return `已满级 ${fmt(cur)}${unit}`;
+    return `已满级 ${_fmtStat(ef, cur)}${packTag}`;
   }
   const next = ef.mode === 'mult' ? cur * ef.value : cur + ef.value;
-  return `${fmt(cur)}${unit}→${fmt(next)}${unit}`;
+  return `${_fmtStat(ef, cur)}→${_fmtStat(ef, next)}${packTag}`;
 }
 
 const RUN_SHOP_GROUPS = [
@@ -1378,10 +1389,14 @@ function renderRunShopPanel(){
       const price = runShopPriceFor(d, lv);
       // D3 #A2：恢复 maxLevel 上限判定——满级商品按钮禁用（未定义 maxLevel 的商品仍无限购买）
       const maxed = d.maxLevel !== undefined && d.maxLevel !== null && lv >= d.maxLevel;
-      const afford = !maxed && canAfford(runShopBalance(), price);
+      // #A1：达限商品按钮禁用（reload 下限 / maxSpeed 上限），文案沿用 #A2 禁用先例
+      const ef0 = (d.effects || [])[0];
+      const blocked = !maxed && !!ef0 && runShopLimitBlocked(d, _statPathVal(ef0.stat));
+      const afford = !maxed && !blocked && canAfford(runShopBalance(), price);
+      const btnLabel = maxed ? '已满级' : blocked ? (d.limitLabel || '已达上限') : (price + ' 分');
       html += `<div class="row" style="justify-content:space-between;">
         <span class="k">${d.name} <span style="color:var(--text-dim);font-weight:normal;font-size:10px;">${runShopPreviewText(d)}</span></span>
-        <span>Lv ${lv}${d.maxLevel != null ? '/' + d.maxLevel : ''} · <button ${afford ? '' : 'disabled style="opacity:0.4"'} onclick="buyRunShopItem('${d.id}')">${maxed ? '已满级' : price + ' 分'}</button></span>
+        <span>Lv ${lv}${d.maxLevel != null ? '/' + d.maxLevel : ''} · <button ${afford ? '' : 'disabled style="opacity:0.4"'} onclick="buyRunShopItem('${d.id}')">${btnLabel}</button></span>
       </div>`;
     }
   }
@@ -1399,6 +1414,9 @@ window.toggleRunShop = function(force){
 window.buyRunShopItem = function(id){
   const def = getRunShopDef(id);
   if(!def) return;
+  // #A1：达限防御（reload 下限/maxSpeed 上限；按钮已禁用，此处双保险）
+  const ef0 = (def.effects || [])[0];
+  if(ef0 && runShopLimitBlocked(def, _statPathVal(ef0.stat))) return;
   const st = { total: runScore, spent: runScoreSpent, levels: runShopLevels };
   const priceBefore = runShopPriceFor(def, runShopLevels[id] || 0);
   if(!applyRunShopPurchase(st, id)) return;      // 余额不足/满级：按钮已禁用，此处防御

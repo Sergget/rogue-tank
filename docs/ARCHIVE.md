@@ -88,6 +88,8 @@
 | 2026-08-26 | `ISSUES.md` | #A7. 按住左键不能连射 | 已修复并验证（mouseFireHeld 标志 + battle 态逐帧 tryFire、reloadT/breech 射速门控，见 specs/combat.md §5.1） |
 | 2026-08-26 | `ISSUES.md` | #A8. 半高掩体炮弹瞬移命中 | 已修复并验证（graduated 判决缓存 s.dec 后结算分支剩余距离门控、实体直接命中优先，见 specs/combat.md §5.1） |
 | 2026-08-26 | `ISSUES.md` | #A13. ammo 卡 mode:'add' 语义错位（严重平衡炸弹） | 已修复并验证（add 改乘算后毫米追加、computeAmmoConfig 输出 fieldAdd 单独合成、软上限仅钳 HE 最终值，见 specs/cards.md §3） |
+| 2026-08-26 | `ISSUES.md` | #A1. 局内商店姿态稳定/精密火控字段耦合 + 恒价 | 已修复并验证（独立 stat motionSpreadMul ×0.85 解耦运动散布、motionSigma 消费 `motionSpreadMul ?? spreadMult` 向后兼容，见 specs/combat.md §2 / DEVELOPMENT §2.1） |
+| 2026-08-26 | `ISSUES.md` | #A3. 局内商店结构缺陷合集 | 已按用户裁定重构并验证（RUN_SHOP_DEFS 12 项四分组：新增穿深加工/火力增强/马力强化、防护六面改两打包商品、fast_reload 0.5s 下限与 engine_overdrive 150km/h 上限达限拒购、极速 km/h 口径、冷却钳底 15s、可重复购买 growth ≥1.5，见 DEVELOPMENT §2.1） |
 
 ------
 

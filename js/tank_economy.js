@@ -349,55 +349,82 @@ function settleRun(profile, finalScore){
 //   source='runshop:<id>'，由 removeRunModifiers 在 run 结束/新开局清除）。
 // instant 类不走修饰器：effects 留空 + instant:{ type, value, ... }，由 UI 层购买时直接消费——
 //   healPct：立即改 tank.hp；cdReduce（ability:'repair'|'medkit'）：局内冷却减免累加。
-// 数值校准基准（#90 重定价）：节点通关奖励 §4.5 约 50~120 分/节点、击杀 20 分/个——
-// 首件定价 20~35 分（整体较旧版下调 ~40%），costGrowth 1.5~1.8 保证滚雪球递减边际。
+// 数值校准基准（#90 重定价 → D3 #A1/#A3 重构，2026-08-26）：节点通关奖励 §4.5 约 50~120 分/节点、
+// 击杀 20 分/个——首件定价 20~60 分；可重复购买商品 costGrowth ≥ 1.6（早期可负担、5 级后显著昂贵）；
+// 无上限商品以 maxLevel:99 表示「无显式级数上限」（价格指数增长自然约束，UI 显示 Lv n/99）。
+// limit 字段（#A1）：购买后效果值将穿越 { stat, min?, max? } 硬边界时拒购——数值与
+// RULES.parameterLimits 同源（reload.min=0.5s、maxSpeed.max=375px/s=150km/h），由 runShopLimitBlocked 判定。
 const RUN_SHOP_DEFS = [
   // ---- 火力 ----
-  { id: 'fast_reload',       name: '快速装填',   group: 'firepower', desc: '装填时间 −3%/级',
+  { id: 'fast_reload',       name: '快速装填',   group: 'firepower', desc: '装填时间 −3%/级（下限 0.5s）',
     baseCost: 25, costGrowth: 1.6, maxLevel: 3,
-    effects: [{ stat: 'reload', mode: 'mult', value: 0.97 }] },
-  { id: 'precision_gunnery', name: '精密火控',   group: 'firepower', desc: '散布 −4%/级',
+    effects: [{ stat: 'reload', mode: 'mult', value: 0.97 }],
+    limit: { stat: 'reload', min: 0.5 }, limitLabel: '已达装填下限' },
+  { id: 'penetration_up',    name: '穿深加工',   group: 'firepower', desc: '穿透 +6mm/级',
+    baseCost: 30, costGrowth: 1.7, maxLevel: 99,
+    effects: [{ stat: 'penetration', mode: 'add', value: 6 }] },
+  { id: 'damage_up',         name: '火力增强',   group: 'firepower', desc: '单发伤害 +4/级',
+    baseCost: 30, costGrowth: 1.7, maxLevel: 99,
+    effects: [{ stat: 'damage', mode: 'add', value: 4 }] },
+  { id: 'precision_gunnery', name: '精密火控',   group: 'firepower', desc: '瞄准散布 −4%/级',
     baseCost: 28, costGrowth: 1.6, maxLevel: 3,
     effects: [{ stat: 'spreadMult', mode: 'mult', value: 0.96 }] },
-  { id: 'steady_mount',      name: '姿态稳定',   group: 'firepower', desc: '三源散布系数 −0.15（移动/转向散布惩罚显著减轻）',
+  { id: 'steady_mount',      name: '姿态稳定',   group: 'firepower', desc: '运动散布系数 ×0.85（移动/转向扩圈减轻；不影响瞄准散布）',
     baseCost: 35, costGrowth: 1.0, maxLevel: 1,
-    effects: [{ stat: 'spreadMult', mode: 'add', value: -0.15 }] },
-  // ---- 防护：装甲拆多部位独立商品（原 hull_patch 移除，id 不复用防存档 levels 脏数据） ----
-  { id: 'hull_front_patch',   name: '车体正面补强', group: 'armor', desc: '车体正面装甲 +2mm/级',
-    baseCost: 35, costGrowth: 1.6, maxLevel: 2,
-    effects: [{ stat: 'armor.hull.front', mode: 'add', value: 2 }] },
-  { id: 'hull_side_patch',    name: '车体侧面补强', group: 'armor', desc: '车体侧面装甲 +2mm/级',
-    baseCost: 25, costGrowth: 1.6, maxLevel: 2,
-    effects: [{ stat: 'armor.hull.side', mode: 'add', value: 2 }] },
-  { id: 'hull_rear_patch',    name: '车体后部补强', group: 'armor', desc: '车体后部装甲 +2mm/级',
-    baseCost: 25, costGrowth: 1.6, maxLevel: 2,
-    effects: [{ stat: 'armor.hull.rear', mode: 'add', value: 2 }] },
-  { id: 'turret_front_patch', name: '炮塔正面补强', group: 'armor', desc: '炮塔正面装甲 +2mm/级',
-    baseCost: 35, costGrowth: 1.6, maxLevel: 2,
-    effects: [{ stat: 'armor.turret.front', mode: 'add', value: 2 }] },
-  { id: 'turret_side_patch',  name: '炮塔侧面补强', group: 'armor', desc: '炮塔侧面装甲 +2mm/级',
-    baseCost: 25, costGrowth: 1.6, maxLevel: 2,
-    effects: [{ stat: 'armor.turret.side', mode: 'add', value: 2 }] },
-  { id: 'turret_rear_patch',  name: '炮塔后部补强', group: 'armor', desc: '炮塔后部装甲 +2mm/级',
-    baseCost: 25, costGrowth: 1.6, maxLevel: 2,
-    effects: [{ stat: 'armor.turret.rear', mode: 'add', value: 2 }] },
+    // #A1/#A3：改挂独立运动三扩键 motionSpreadMul（mult 语义：按比例缩放、与 precision_gunnery
+    // 的 spreadMult 通道彻底解耦；computeStats 对聚合结果钳 ≥ RULES.spread.multFloor 防穿零）
+    effects: [{ stat: 'motionSpreadMul', mode: 'mult', value: 0.85 }] },
+  // ---- 防护：六面拆卖合并为两个打包商品（#A1，2026-08-26；原 *_patch id 移除不复用防存档 levels 脏数据）----
+  { id: 'hull_armor_kit',    name: '车体装甲包', group: 'armor', desc: '车体正面/侧面/后部装甲各 +2mm/级',
+    baseCost: 60, costGrowth: 1.6, maxLevel: 2,
+    effects: [
+      { stat: 'armor.hull.front', mode: 'add', value: 2 },
+      { stat: 'armor.hull.side',  mode: 'add', value: 2 },
+      { stat: 'armor.hull.rear',  mode: 'add', value: 2 }
+    ] },
+  { id: 'turret_armor_kit',  name: '炮塔装甲包', group: 'armor', desc: '炮塔正面/侧面/后部装甲各 +2mm/级',
+    baseCost: 60, costGrowth: 1.6, maxLevel: 2,
+    effects: [
+      { stat: 'armor.turret.front', mode: 'add', value: 2 },
+      { stat: 'armor.turret.side',  mode: 'add', value: 2 },
+      { stat: 'armor.turret.rear',  mode: 'add', value: 2 }
+    ] },
   // ---- 机动 ----
-  { id: 'engine_overdrive',  name: '引擎超压',   group: 'mobility', desc: '极速 +3px/s/级',
+  { id: 'engine_overdrive',  name: '引擎超压',   group: 'mobility', desc: '极速 +1.2km/h/级（上限 150km/h）',
     baseCost: 30, costGrowth: 1.8, maxLevel: 2,
-    effects: [{ stat: 'maxSpeed', mode: 'add', value: 3 }] },
+    // 效果值仍为 px/s（+3px/s × kmhFactor 0.4 = +1.2km/h）；desc/预览统一 km/h 口径显示
+    effects: [{ stat: 'maxSpeed', mode: 'add', value: 3 }],
+    limit: { stat: 'maxSpeed', max: 375 }, limitLabel: '已达极速上限' },
+  { id: 'engine_power_up',   name: '马力强化',   group: 'mobility', desc: '引擎马力 +60/级（功重比↑；受运行时重量上限间接约束）',
+    baseCost: 25, costGrowth: 1.6, maxLevel: 99,
+    effects: [{ stat: 'enginePower', mode: 'add', value: 60 }] },
   // ---- 杂项 ----
   { id: 'emergency_repair',  name: '紧急维修',   group: 'misc', desc: '立即恢复 25% 最大耐久（即时生效；可重复购买）',
     baseCost: 20, costGrowth: 1.5, maxLevel: 9,
     instant: { type: 'healPct', value: 0.25 }, effects: [] },
-  { id: 'repair_kit_cd_run', name: '修理箱速冷', group: 'misc', desc: '修理箱冷却 −3s/级（仅本局；特殊消费）',
+  { id: 'repair_kit_cd_run', name: '修理箱速冷', group: 'misc', desc: '修理箱冷却 −3s/级（仅本局；特殊消费；下限 15s）',
     baseCost: 30, costGrowth: 1.5, maxLevel: 5,
     instant: { type: 'cdReduce', ability: 'repair', value: 3 }, effects: [] },
-  { id: 'medkit_cd_run',     name: '医疗包速冷', group: 'misc', desc: '医疗包冷却 −3s/级（仅本局；特殊消费）',
+  { id: 'medkit_cd_run',     name: '医疗包速冷', group: 'misc', desc: '医疗包冷却 −3s/级（仅本局；特殊消费；下限 15s）',
     baseCost: 30, costGrowth: 1.5, maxLevel: 5,
     instant: { type: 'cdReduce', ability: 'medkit', value: 3 }, effects: [] }
 ];
 
 function getRunShopDef(id){ return RUN_SHOP_DEFS.find(d => d.id === id) || null; }
+
+// #A1 达限判定（纯函数）：def.limit = { stat, min?, max? }——按首条 effect 计算购买后的结果值，
+// 穿越 [min,max] 硬边界（1e-9 容差防浮点误判）时返回 true。UI 层用于禁用按钮 + 购买前防御，
+// 数值与 RULES.parameterLimits 同源（fast_reload: reload.min=0.5s / engine_overdrive: maxSpeed.max=375px/s）。
+function runShopLimitBlocked(def, curVal){
+  const lim = def && def.limit;
+  if(!lim || typeof curVal !== 'number') return false;
+  const ef = (def.effects || [])[0];
+  if(!ef) return false;
+  const next = ef.mode === 'mult' ? curVal * ef.value : curVal + ef.value;
+  if(lim.min !== undefined && next < lim.min - 1e-9) return true;
+  if(lim.max !== undefined && next > lim.max + 1e-9) return true;
+  return false;
+}
 
 // 定价曲线：第 ownedLevel+1 级价格 = round(baseCost × costGrowth^ownedLevel)
 function runShopPriceFor(def, ownedLevel){
@@ -514,6 +541,7 @@ if (typeof module !== 'undefined' && module.exports) {
     RUN_SHOP_DEFS,
     getRunShopDef,
     runShopPriceFor,
+    runShopLimitBlocked,
     canAfford,
     applyRunShopPurchase,
     upgradeLevel,

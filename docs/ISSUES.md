@@ -35,41 +35,6 @@
 
 ## 平衡与系统接线问题（2026-08-26，#A1~#A16）
 
-### #A1. 局内商店姿态稳定/精密火控字段耦合 + 恒价
-
-**状态：** 待处理
-
-**可复现证据：**
-- `js/tank_economy.js:361-364` 两升级项共用 `stat:'spreadMult'`（精密火控 mult 0.96 / 姿态稳定 add −0.15, baseCost:35, costGrowth:1.0, maxLevel:1）。
-- `tank_mvp.html:1332-1334` 预览从同一 stats.spreadMult 现算导致联动。
-- 价格公式 `economy:403-405` 因 costGrowth:1.0 恒为 35。
-
-**根因：** 两商品共用 stat 字段 + costGrowth 数据设定。
-
-**影响：** 商店预览联动失真；价格恒定无成长曲线。
-
-**处理方向：** 姿态稳定改独立 stat（如 motionSpreadMul 三扩专用系数）或改 mult 模式；重校准 RUN_SHOP_DEFS 价格曲线。
-
----
-
-### #A3. 局内商店结构缺陷合集
-
-**状态：** 待处理
-
-**可复现证据：**
-1. 火力组仅 fast_reload/precision_gunnery/steady_mount（`economy:356-364`），缺穿深/伤害项（pen_up/dmg_up 只在局外 UPGRADE_DEFS :35-36）。
-2. computeStats 对 reload 无 0.5s 下限钳制（`tank_model.js:42-65` 全文无 clamp）——"最短0.5s不能再升"实为误读，现状是无上限。
-3. 防护六面拆卖 hull/turret×front/side/rear 各+2mm（`economy:365-383`），未打包车体/炮塔。
-4. 机动仅 engine_overdrive maxSpeed+3px/s（`economy:385-387`），单位 px/s 非 km/h，无马力/加速度项（局外同样只有 speed_up）。
-5. 维修/医疗冷却实测不成立——KIT_BASE_CD=45，mvp:1314,1317 满投入最低恰 15s 不短于 15s。
-6. 紧急维修超上限不成立——mvp:1298 有 Math.min(maxHp,·) clamp；TAB 血量每帧刷新（mvp:2402-2403）。
-
-**影响：** 商品结构不合理、单位显示误导、部分传闻缺陷经核实不存在（第5/6项）。
-
-**处理方向：** 按用户需求重设计 RUN_SHOP_DEFS：装填加 0.5s 下限、火力增穿深/伤害项（暂无上限）、防护改车体/炮塔打包、极速改 km/h 显示且 ≤150km/h 上限、新增马力项（降加速手感）。
-
----
-
 ### #A5. 自身模块受损/成员受伤无 UI 指示
 
 **状态：** 待处理

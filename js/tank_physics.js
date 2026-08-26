@@ -32,6 +32,20 @@ function shellAmmoKey(shell){
   return shell.ammoKey || (shell.ammo && shell.ammo.key) || null;
 }
 
+// #A14b/#A15：收集坦克 cardEffects 中某 passive key 的全部数值（applyCardEffects 挂载，
+// 与 drone/ability/ammo 的消费写法同源）。返回数值数组（无则空数组）；多来源如何聚合
+// 由消费方按语义决定：overmatch 取最大阈值、spall_liner 取最小乘数。
+function passiveValues(tank, key){
+  const list = (tank && Array.isArray(tank.cardEffects)) ? tank.cardEffects : [];
+  const out = [];
+  for(let i=0;i<list.length;i++){
+    const ef = list[i];
+    if(ef && ef.type === 'passive' && ef.key === key
+      && typeof ef.value === 'number' && Number.isFinite(ef.value)) out.push(ef.value);
+  }
+  return out;
+}
+
 // 统一伤害入口（Issue #6）：尊重 target.dmgTakenMul（玩家更肉时由 node-map 设为 0.85，
 // 缺省 1），并统一做非负钳制。其他模块（tank_strike / mvp DOT 等）也应改走本入口，
 // 便于集中应用受伤减伤，避免散落的直接 hp 减法绕开减伤逻辑。
@@ -78,7 +92,23 @@ function resolveHit(shell, target, hit, allowBounce, opts){
   const effPen = shell.pen + ((opts && opts.penAdd) || 0);           // P-51 弱点：穿深加成
   const dmgMulV = (opts && opts.dmgMul) || 1;                        // P-51 弱点：最终伤害乘算
 
-  if(allowBounce && theta > BOUNCE_ANGLE && !noBounce && !ignBounce){
+  // #A14b 超口径碾压（passive overmatch）：AP/APCR 弹命中时，若目标该面等效厚度 ≤ 穿深 ×
+  // 阈值系数（多来源取最大阈值），跳过跳弹判定与过陡 BLOCK 分支、强制走穿透路径结算
+  // （口径碾压语义；后续 eff > effPen 的正常未击穿判定保持不变）。HEAT/HE 本就 noBounce。
+  const omKey = shellAmmoKey(shell);
+  const omVals = passiveValues(shell.shooter, 'overmatch');
+  const omThreshold = omVals.length ? Math.max.apply(null, omVals) : null;
+  const overmatched = !!(omThreshold !== null && omThreshold > 0
+    && (omKey === 'ap' || omKey === 'apcr' || omKey === null)
+    && eff <= effPen * omThreshold);
+
+  // #A15 防崩落内衬（passive spall_liner）：整车受伤降低——多来源取最强一个（最小 value），
+  // 不叠乘。叠加顺序：装甲/跳弹判定之后、最终 dmg 输出之前一次性乘算
+  // （对击穿路径与 HE 残余爆轰都生效；applySplashAt 对其他实体的溅射伤害不经此路径）。
+  const spallVals = passiveValues(target, 'spall_liner');
+  const spallMul = spallVals.length ? Math.min.apply(null, spallVals) : 1;
+
+  if(allowBounce && theta > BOUNCE_ANGLE && !noBounce && !ignBounce && !overmatched){
     const r = reflectDir(shell.dx, shell.dy, hit.nx, hit.ny);
     shell.x = hit.x; shell.y = hit.y;
     shell.dx = r.x; shell.dy = r.y;
@@ -95,8 +125,8 @@ function resolveHit(shell, target, hit, allowBounce, opts){
 
   if(theta > BOUNCE_ANGLE){
     // noBounce 弹种（heat/he）过陡角度不跳弹：跳过角度 BLOCK，直接按穿深判定
-    // （HEAT 高穿深仍可击穿；HE 走未击穿爆轰分支）。
-    if(!noBounce && !ignBounce){
+    // （HEAT 高穿深仍可击穿；HE 走未击穿爆轰分支）。#A14b：overmatch 碾压同样跳过本分支。
+    if(!noBounce && !ignBounce && !overmatched){
       return {
         outcome:'BLOCK', cls:'BLOCK',
         text:`未击穿 — ${head}，入射角 ${deg}° 过陡`,
@@ -117,7 +147,7 @@ function resolveHit(shell, target, hit, allowBounce, opts){
       let dmg = 0;
       const invuln = !!(target.invuln) || (target.invulnT > 0);
       if(!invuln && target.hp > 0){
-        dmg = Math.round(shell.dmg * ratio * dmgMulV);
+        dmg = Math.round(shell.dmg * ratio * dmgMulV * spallMul);   // #A15：内衬整车减伤乘算
         applyDamage(target, dmg);
       }
       applySplashAt(hit.x, hit.y, splashRadius, shell.dmg, target, shell);
@@ -136,8 +166,11 @@ function resolveHit(shell, target, hit, allowBounce, opts){
   }
 
   // 击穿：命中即结算（模块伤害倍率 → 掉血 → 击杀/殉爆判定 → debuff）
-  const modRes = applyModuleDamage(shell, target, hit, { dmgMul: dmgMulV });
+  // #A15：spallMul 并入 dmgMul 在 applyModuleDamage 内乘算——位于装甲/跳弹判定之后、
+  // 随机抖动与取整之前，保证「显示伤害 = 实际扣血」的整数一致性不被破坏。
+  const modRes = applyModuleDamage(shell, target, hit, { dmgMul: dmgMulV * spallMul });
   const res = Object.assign({ outcome:'PEN', part:hit.part, faceKey:hit.faceKey, hitPoint }, modRes);
+  if(overmatched) res.overmatch = true;   // #A14b：口径碾压标记（测试/飘字可观测）
   if(splashRadius > 0){
     // HE 击穿：弹体在命中处爆轰，范围溅射照常施加（主目标已由 applyModuleDamage 结算，排除在外）
     applySplashAt(hit.x, hit.y, splashRadius, shell.dmg, target, shell);
@@ -156,7 +189,8 @@ function resolveHit(shell, target, hit, allowBounce, opts){
 //   breech  炮闩（P-49）：×crewMult；未杀 → 短时完全无法开火（fireTank/tryFire 门控）
 //   track   履带：正常伤害 + 锁定
 //   null    P-49 zonesV2 概率余量：正常结算伤害、无成员/模块倍率加成、无 debuff
-// opts（可选）：{ dmgMul } — P-51 弱点命中最终伤害乘算；不传时 ×1（行为不变）。
+// opts（可选）：{ dmgMul } — 最终伤害乘算（P-51 弱点命中；#A15 起固定传入 dmgMul×spallMul，
+// 含内衬整车减伤）；不传时 ×1（行为不变）。
 function applyModuleDamage(shell, target, hit, opts){
   const mod = moduleFromHit(target, hit);
   const modKey = (mod && mod.key) || null;

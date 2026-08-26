@@ -354,7 +354,7 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
       armor: { hull: { front: 50 }, turret: { front: 60 } } }, []);
   const validStats = new Set(Object.keys(baseStats));
 
-  ok(eco.RUN_SHOP_DEFS.length === 13, `RUN_SHOP_DEFS 数量 13（#90 重做后：3 火力 + 6 装甲项 + 1 机动 + 3 杂项；实际 ${eco.RUN_SHOP_DEFS.length}）`);
+  ok(eco.RUN_SHOP_DEFS.length === 12, `RUN_SHOP_DEFS 数量 12（D3 #A1/#A3 重构后：火力 5 + 防护包 2 + 机动 2 + 杂项 3；实际 ${eco.RUN_SHOP_DEFS.length}）`);
   const ids = new Set();
   let structOk = true;
   for (const d of eco.RUN_SHOP_DEFS) {
@@ -371,23 +371,58 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
       else if (!validStats.has(ef.stat)) structOk = false;
       if (ef.mode !== 'add' && ef.mode !== 'mult') structOk = false;
     }
+    // #A1：limit 商品必须带 limitLabel 且数值对照 RULES.parameterLimits（由下方专项断言抽查）
+    if (d.limit && typeof d.limitLabel !== 'string') structOk = false;
+    // #A1 定价校准：可重复购买（maxLevel>1）商品 costGrowth ≥ 1.5（早期可负担、5 级后显著昂贵）
+    if (d.maxLevel > 1 && d.costGrowth < 1.5) structOk = false;
   }
-  ok(structOk, 'RUN_SHOP_DEFS 结构校验（字段完备/id 唯一/group 合法/effects stat 合法对照 computeStats 键集合）');
+  ok(structOk, 'RUN_SHOP_DEFS 结构校验（字段完备/id 唯一/group 合法/effects stat 合法对照 computeStats 键集合/limit 带 label/growth 校准）');
 
   // #90：分组归属抽查
   const grpOf = id => { const d = eco.getRunShopDef(id); return d ? d.group : null; };
-  ok(grpOf('fast_reload') === 'firepower' && grpOf('precision_gunnery') === 'firepower' && grpOf('steady_mount') === 'firepower', '火力组：fast_reload/precision_gunnery/steady_mount');
-  ok(grpOf('engine_overdrive') === 'mobility', '机动组：engine_overdrive');
+  ok(grpOf('fast_reload') === 'firepower' && grpOf('penetration_up') === 'firepower' && grpOf('damage_up') === 'firepower' &&
+     grpOf('precision_gunnery') === 'firepower' && grpOf('steady_mount') === 'firepower', '#A1：火力组五商品（含新增穿深加工/火力增强）');
+  ok(grpOf('engine_overdrive') === 'mobility' && grpOf('engine_power_up') === 'mobility', '#A1：机动组（引擎超压 + 新增马力强化）');
   ok(grpOf('emergency_repair') === 'misc' && grpOf('repair_kit_cd_run') === 'misc' && grpOf('medkit_cd_run') === 'misc', '杂项组：emergency_repair/双速冷');
-  const patchIds = ['hull_front_patch','hull_side_patch','hull_rear_patch','turret_front_patch','turret_side_patch','turret_rear_patch'];
+  // #A1：防护六面拆卖合并为两个打包商品（各三面 +2mm、baseCost 60、costGrowth 1.6、maxLevel 2）
   let armorGroupOk = true;
-  for (const pid of patchIds) {
-    const pd = eco.getRunShopDef(pid);
-    if (!pd || pd.group !== 'armor' || !pd.effects.length || !pd.effects[0].stat.startsWith('armor.') ||
-        pd.effects[0].value !== 2 || !(pd.baseCost >= 25 && pd.baseCost <= 35) || pd.costGrowth !== 1.6) armorGroupOk = false;
+  for (const kid of ['hull_armor_kit', 'turret_armor_kit']) {
+    const kd = eco.getRunShopDef(kid);
+    const part = kid.split('_')[0];   // hull / turret
+    if (!kd || kd.group !== 'armor' || !kd.effects || kd.effects.length !== 3 ||
+        !kd.effects.every(ef => ef.mode === 'add' && ef.value === 2 && ef.stat === 'armor.' + part + '.' + ef.stat.split('.')[2]) ||
+        kd.baseCost !== 60 || kd.costGrowth !== 1.6 || kd.maxLevel !== 2) armorGroupOk = false;
   }
-  ok(armorGroupOk, '防护组：六装甲独立商品（各 +2mm、baseCost 25~35、costGrowth 1.6）');
-  ok(!eco.getRunShopDef('hull_patch'), '原 hull_patch 已移除（id 不复用防存档 levels 脏数据）');
+  ok(armorGroupOk, '#A1 防护打包：hull_armor_kit/turret_armor_kit（三面各 +2mm、baseCost 60、growth 1.6）');
+  // #A1：原六面拆卖 id 与旧 hull_patch 均移除（id 不复用防存档 levels 脏数据）
+  ok(['hull_front_patch','hull_side_patch','hull_rear_patch','turret_front_patch','turret_side_patch','turret_rear_patch']
+       .every(pid => !eco.getRunShopDef(pid)) && !eco.getRunShopDef('hull_patch'),
+     '#A1：六个 *_patch 拆卖商品与旧 hull_patch 均已移除');
+
+  // #A1：新增无上限火力/马力商品定义完整性
+  const puD = eco.getRunShopDef('penetration_up'), duD = eco.getRunShopDef('damage_up'), epuD = eco.getRunShopDef('engine_power_up');
+  ok(puD && puD.effects[0].stat === 'penetration' && puD.effects[0].mode === 'add' && puD.effects[0].value === 6 && puD.maxLevel === 99,
+     '#A1：穿深加工 penetration add+6/级（maxLevel 99=无显式上限）');
+  ok(duD && duD.effects[0].stat === 'damage' && duD.effects[0].mode === 'add' && duD.effects[0].value === 4 && duD.maxLevel === 99,
+     '#A1：火力增强 damage add+4/级（maxLevel 99=无显式上限）');
+  ok(epuD && epuD.effects[0].stat === 'enginePower' && epuD.effects[0].mode === 'add' && epuD.effects[0].value === 60,
+     '#A1：马力强化 enginePower add+60/级（功重比自然上升，受 weightRuntimeCap 间接约束）');
+  // #A1/#A3：姿态稳定改造——独立运动键 motionSpreadMul、mult 语义、单次购买
+  const smD = eco.getRunShopDef('steady_mount');
+  ok(smD && smD.effects.length === 1 && smD.effects[0].stat === 'motionSpreadMul' &&
+     smD.effects[0].mode === 'mult' && smD.effects[0].value === 0.85 && smD.maxLevel === 1,
+     '#A1/#A3：steady_mount 改挂 motionSpreadMul ×0.85（maxLevel 1，与 spreadMult 解耦）');
+
+  // #A1：达限判定 runShopLimitBlocked（reload 下限 0.5s / maxSpeed 上限 375px/s，对照 RULES.parameterLimits 同源数值）
+  const frL = eco.getRunShopDef('fast_reload'), eoL = eco.getRunShopDef('engine_overdrive');
+  const RLIM = (RULES_MOD && RULES_MOD.RULES) ? RULES_MOD.RULES.parameterLimits : null;
+  ok(RLIM && frL.limit && frL.limit.min === RLIM.reload.min, `fast_reload limit.min 与 parameterLimits.reload.min(${RLIM ? RLIM.reload.min : '?'}) 同源`);
+  ok(RLIM && eoL.limit && eoL.limit.max === RLIM.maxSpeed.max, `engine_overdrive limit.max 与 parameterLimits.maxSpeed.max(${RLIM ? RLIM.maxSpeed.max : '?'}) 同源`);
+  ok(eco.runShopLimitBlocked(frL, 0.51) === true, '#A1 reload 达限拒购：0.51×0.97≈0.4947 < 0.5 → blocked');
+  ok(eco.runShopLimitBlocked(frL, 0.52) === false, '#A1 reload 未达限：0.52×0.97≈0.5044 ≥ 0.5 → 可购');
+  ok(eco.runShopLimitBlocked(eoL, 373) === true, '#A1 maxSpeed 达限拒购：373+3=376 > 375px/s(150km/h) → blocked');
+  ok(eco.runShopLimitBlocked(eoL, 100) === false, '#A1 maxSpeed 未达限 → 可购');
+  ok(eco.runShopLimitBlocked(duD, 30) === false && eco.runShopLimitBlocked(smD, 1) === false, '无 limit 字段商品永不达限');
 
   // 定价曲线 runShopPriceFor
   const fr = eco.getRunShopDef('fast_reload');
@@ -427,6 +462,32 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
       const appliedN = eco.applyUpgrades(tank, eco.normalizeProfile(profU));
       ok(appliedN === 0, 'applyUpgrades 对特殊消费项 no-op（levels 存档即可，不产生 modifier）');
     }
+  }
+
+  // ---------- D3 #A1/#A3：motionSpreadMul 与 spreadMult 解耦 ----------
+  {
+    // 复用外层块已 require 的 tank_model（避免同作用域重复声明）；norm 挂 global（test-ai 先例）
+    global.norm = require('../js/tank_utils.js').norm;
+    // computeStats：motionSpreadMul 默认 1、聚合后钳 ≥ RULES.spread.multFloor
+    const csBase = { penetration:100, damage:30, reload:2, shellSpeed:800, maxSpeed:120,
+      turnRate:2, turretTurnRate:2, maxHp:100, weight:300, enginePower:900,
+      armor:{ hull:{ front:50 }, turret:{ front:60 } } };
+    const cs1 = model.computeStats(csBase, []);
+    ok(cs1.motionSpreadMul === 1, '#A1/#A3：computeStats 默认 stats.motionSpreadMul = 1');
+    const cs2 = model.computeStats(csBase, [{ stat:'motionSpreadMul', mode:'add', value:-0.9, scope:'run' }]);
+    ok(cs2.motionSpreadMul === global.RULES.spread.multFloor, '#A1/#A3：motionSpreadMul 聚合后钳 ≥ multFloor（add −0.9 → 0.2）');
+
+    // motionSigma：三源运动散布消费独立键，spreadMult 变化不再影响运动散布
+    const mkT = st => ({ id:'npc', stats:st, hullAngle:0, prevHullAngle:-1, turretAngle:0, prevTurretAngle:-1, fireDebuffT:0 });
+    const sigOf = st => model.motionSigma(mkT(st), 1, null);
+    const mob = { maxSpeed:120, turnRate:2, turretTurnRate:2 };
+    const sA = sigOf(Object.assign({ motionSpreadMul:1, spreadMult:1 }, mob));
+    const sB = sigOf(Object.assign({ motionSpreadMul:1, spreadMult:0.85 }, mob));   // 精密火控只动 spreadMult
+    const sC = sigOf(Object.assign({ motionSpreadMul:0.85 }, mob));                 // 姿态稳定只动 motionSpreadMul
+    ok(Math.abs(sA - sB) < 1e-9, '#A1/#A3 解耦：spreadMult 购买不影响运动散布预览（motionSigma 不变）');
+    ok(sB > sC + 1e-12, '#A1/#A3：steady_mount（motionSpreadMul ×0.85）确实降低运动三源散布');
+    const sD = sigOf(Object.assign({ spreadMult:0.85 }, mob));   // 旧数据无 motionSpreadMul 键
+    ok(Math.abs(sD - sC) < 1e-9, '#A1/#A3 向后兼容：无 motionSpreadMul 键时回退消费 spreadMult');
   }
 }
 

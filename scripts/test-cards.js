@@ -184,6 +184,90 @@ ok(negCfg.dmg === 0, '#97: 多条 mult 聚合为负时钳 ≥0（0.8×max(0, 1�
 // 8) 实际 cards/ 数据全合法（由 validate-content.js 主校验，这里抽样确认模块可加载）
 ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 流派');
 
+// ===== #A14b / #A15：resolveHit 卡牌被动接线（overmatch 免跳弹 / spall_liner 整车减伤）=====
+{
+  const G = require('../js/tank_geometry.js');
+  global.ARMOR = G.ARMOR; global.BOUNCE_ANGLE = G.BOUNCE_ANGLE;
+  global.faceLabel = G.faceLabel; global.superstructureLabel = G.superstructureLabel;
+  global.moduleFromHit = G.moduleFromHit;
+  global.setDebuff = model.setDebuff; global.moduleMult = model.moduleMult;
+  global.reflectDir = U.reflectDir; global.rotate = U.rotate;
+  const P = require('../js/tank_physics.js');
+
+  const HIT_FRONT = { part: 'hull', faceKey: 'front', x: 32, y: 0, nx: 1, ny: 0, edgeName: 'front' };
+  const mkTarget15 = () => model.makeTank({ team: 'enemy', hullAngle: 0, turretAngle: 0 });
+  // 陡角入射：与正面法线夹角 80°（> 跳弹角 70°），eff = 厚度 / cos(80°)
+  const steep = { dx: Math.cos(80 * Math.PI / 180), dy: Math.sin(80 * Math.PI / 180) };
+  const effSteep = P.impactGeometry(Object.assign({ x: 0, y: 0 }, steep), HIT_FRONT, mkTarget15()).eff;
+
+  // 固定骰子：applyModuleDamage 的 0.85 + rand×0.3 抖动固定为 ×1.0，伤害可精确比对
+  const realRandom = Math.random;
+  Math.random = function () { return 0.5; };
+  try {
+    // (a) 基线：无卡 + AP 陡角 → 照常跳弹
+    const rBase = P.resolveHit(
+      { x: 0, y: 0, dx: steep.dx, dy: steep.dy, pen: effSteep * 2, dmg: 34, ammoKey: 'ap', shooter: null, canBounce: true },
+      mkTarget15(), Object.assign({}, HIT_FRONT), true);
+    ok(rBase.outcome === 'BOUNCE', '#A14b: 无卡基线 — AP 陡角照常跳弹');
+
+    // (b) overmatch 免跳弹：eff ≤ pen×0.85 → 跳过跳弹/过陡 BLOCK，强制按穿透路径结算
+    const omShooter = { cardEffects: [{ type: 'passive', key: 'overmatch', value: 0.85 }] };
+    const rOm = P.resolveHit(
+      { x: 0, y: 0, dx: steep.dx, dy: steep.dy, pen: effSteep / 0.85, dmg: 34, ammoKey: 'ap', shooter: omShooter, canBounce: true },
+      mkTarget15(), Object.assign({}, HIT_FRONT), true);
+    ok(rOm.outcome === 'PEN' && rOm.overmatch === true, '#A14b: overmatch 生效 — eff ≤ pen×0.85 免跳弹强制穿透');
+
+    // (c) 阈值不满足：eff > pen×0.85 → 照常跳弹
+    const rOmLow = P.resolveHit(
+      { x: 0, y: 0, dx: steep.dx, dy: steep.dy, pen: effSteep * 0.8, dmg: 34, ammoKey: 'ap', shooter: omShooter, canBounce: true },
+      mkTarget15(), Object.assign({}, HIT_FRONT), true);
+    ok(rOmLow.outcome === 'BOUNCE', '#A14b: eff > pen×0.85 不触发碾压 — 照常跳弹');
+
+    // (d) HEAT 不受 overmatch 影响（本就 noBounce；语义限定 AP/APCR）
+    const rHeat = P.resolveHit(
+      { x: 0, y: 0, dx: steep.dx, dy: steep.dy, pen: effSteep, dmg: 34, ammoKey: 'heat', shooter: omShooter, canBounce: true },
+      mkTarget15(), Object.assign({}, HIT_FRONT), true);
+    ok(rHeat.outcome !== 'BOUNCE' && rHeat.overmatch === undefined,
+      '#A14b: HEAT 弹不走 overmatch 标记路径');
+
+    // (e) spall_liner 整车减伤乘算：正入射击穿，dmg ≈ 基线 × 0.8（取整容差 ±1）
+    const flat = { dx: 1, dy: 0 };
+    const shellFlat = (extra) => Object.assign({ x: 0, y: 0, dx: 1, dy: 0, pen: 1e9, dmg: 100, ammoKey: 'ap', canBounce: false }, extra);
+    const dBase = P.resolveHit(shellFlat({ shooter: null }), mkTarget15(), Object.assign({}, HIT_FRONT), false).dmg;
+    const tS = mkTarget15();
+    tS.cardEffects = [{ type: 'passive', key: 'spall_liner', value: 0.8 }];
+    const dSpall = P.resolveHit(shellFlat({ shooter: null }), tS, Object.assign({}, HIT_FRONT), false).dmg;
+    ok(Math.abs(dSpall - dBase * 0.8) <= 1, `#A15: spall_liner 减伤乘算 ${dBase}→${dSpall} ≈ ×0.8`);
+
+    // (f) 多来源取最强：0.8 + 0.85 同时持有 → 按 0.8 结算（非叠乘 0.68）
+    const tM = mkTarget15();
+    tM.cardEffects = [
+      { type: 'passive', key: 'spall_liner', value: 0.8 },
+      { type: 'passive', key: 'spall_liner', value: 0.85 }
+    ];
+    const dMulti = P.resolveHit(shellFlat({ shooter: null }), tM, Object.assign({}, HIT_FRONT), false).dmg;
+    ok(dMulti === dSpall, `#A15: 多来源取最强 — 双内衬按 ×0.8 结算（${dMulti}=${dSpall}，非叠乘 ×0.68）`);
+  } finally {
+    Math.random = realRandom;
+  }
+
+  // (g) 内容断言：三张涉改卡的 schema 与效果行
+  const cardsDir = path.join(__dirname, '..', 'cards');
+  const heDoc = JSON.parse(fs.readFileSync(path.join(cardsDir, 'demo_all_he_doctrine.json'), 'utf8'));
+  ok(cardsMod.validateCard(heDoc).length === 0 && !heDoc.effects.some(e => e.type === 'modifier' && e.stat === 'reload'),
+    '#A14a: 全线高爆战术 — 已移除全局 reload modifier 效果');
+  const omCard = JSON.parse(fs.readFileSync(path.join(cardsDir, 'demo_overmatch_shell.json'), 'utf8'));
+  ok(cardsMod.validateCard(omCard).length === 0
+    && !omCard.effects.some(e => e.type === 'ammo')
+    && omCard.effects.some(e => e.type === 'passive' && e.key === 'overmatch' && e.value === 0.85),
+    '#A14b: 超口径穿甲弹 — 移除 HE dmg 效果、保留 passive overmatch 0.85');
+  const spRare = JSON.parse(fs.readFileSync(path.join(cardsDir, 'support_spall_liner.json'), 'utf8'));
+  const spEpic = JSON.parse(fs.readFileSync(path.join(cardsDir, 'spall_liner.json'), 'utf8'));
+  ok(spRare.effects[0].value === 0.8 && spEpic.effects[0].value === 0.85
+    && cardsMod.validateCard(spRare).length === 0 && cardsMod.validateCard(spEpic).length === 0,
+    '#A15: 内衬双卡数值 rare 0.8 / epic 0.85 且 schema 合法');
+}
+
 console.log('test-cards: 完成所有检查');
 if (fails === 0) console.log('test-cards: 全部通过');
 else console.error(`test-cards: ${fails} 项失败`);

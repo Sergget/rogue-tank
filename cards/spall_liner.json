@@ -3,9 +3,9 @@
   "name": "防崩落内衬",
   "rarity": "epic",
   "tags": ["重甲"],
-  "desc": "被动：被命中时乘员与模块伤害 -50%。",
+  "desc": "被动：坦克受到的所有伤害 -15%（多来源取最强，不叠乘）。",
   "effects": [
-    { "type": "passive", "key": "spall_liner", "value": 0.5 }
+    { "type": "passive", "key": "spall_liner", "value": 0.85 }
   ],
   "maxStacks": 1
 }
