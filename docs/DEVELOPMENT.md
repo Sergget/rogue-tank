@@ -97,7 +97,9 @@
 
 ## 5. 下一步顺序（活跃项）
 
-- **活跃开发项（2026-08-24 起）**：近期计划见 docs/PLAN.md：玩法线 PLAN 已全部完成归档（P-34~P-41），视觉音频专项 P-42~P-49（已升级为可执行条目），候选库 P-50；已核实问题仅余 #78 部分范围（设计器 verts UI）。下方历史记录中的 P-27/P-29/P-30 为旧编号（已完成工作），勿与本批混淆。
+- **活跃开发项（2026-08-26 起）**：近期计划见 docs/PLAN.md：玩法线 PLAN 已全部完成归档（P-34~P-41）；当前着力**玩法核心专项 P-42~P-44**（卡牌平衡审计 / 地图生成质量 / 战斗与 AI 修补）；视觉专项（旧 P-42~P-45）与音频专项（旧 P-46~P-49）暂缓，规格全文移交 `.opencode/agents/asset-artist.md` / `sound-designer.md`「暂缓储备规范」章节维护；候选库前移为 P-45。已核实问题仅余 #78 部分范围（设计器 verts UI）。下方历史记录中的 P-27/P-29/P-30 为旧编号（已完成工作），勿与本批混淆。
+
+- **32. Godot 引擎迁移可行性评估——已完成（2026-08-26，决策：技术可行、暂不迁移）**：在 `feat/godot-eval` 分支完成最小验证工程 `godot-eval/`（Godot 4.7.2 + godot-mcp 接入），四项试点全部冒烟通过：TileMapLayer 掩体布局 + 碰撞多边形 / CoverTier `.tres` 资源化对齐 RULES.coverTiers / canvas_item shader（换色·闪白·履带滚动）/ GPUParticles2D 枪口火焰。结论：地图/素材/渲染三维度收益显著，但全量迁移需重建 28 个 Node 测试链且甲弹对抗物理回归风险最高，工时约 22~36 人日；现阶段以"思想移植"方式在现有栈内吸收收益（离屏 tint 缓存、程序化地图编辑器页等），分支与评估工程已存档备查（`feat/godot-eval` @ `5b81959`，含 `godot-eval/README.md` 复现指引），首个可玩版发布后或需原生导出时重启评估。
 
 - **27. 卡牌 × Loadout 衔接（P-27）——已完成（2026-08-23）**：`js/tank_cards.js` 扩展 `drawCardChoices` 过滤未配弹种卡 + 导出 `computeAmmoConfig`（叠加 `cardEffects` 弹种改造，支持 add/mult）；`js/tank_fire.js` 开火与预测接入 `computeAmmoConfig`；`tank_mvp.html` 奖励抽卡传入 `ammoLoadout: player.ammoLoadout`；单测全绿。
 - **30. 覆盖层 UI 纯逻辑下沉（P-29，低优先）——已完成（2026-08-23）**：`js/tank_screens.js` 纯逻辑视图模型（`SCREENS` + `buildHome/Loadout/Shop/MapList/DeathShop/SettlementViewModel` + `tankSummary/deploymentReady/formatStamp`，零 DOM 依赖、双端导出）+ `tank_mvp.html` 薄包装接线（DOM 渲染与事件留内联，行为零回归）；`npm run check` + `npm test` 全绿。

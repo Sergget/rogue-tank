@@ -2,5 +2,12 @@ node_modules/
 *.log
 .DS_Store
 .playwright-mcp/
-# ×Ó´úÀíÁÙÊ±¹¤×÷Çø£¨Êä³öÖØ¶¨Ïò/µ÷ÊÔ½Å±¾£©
+# ï¿½Ó´ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ø¶ï¿½ï¿½ï¿½/ï¿½ï¿½ï¿½Ô½Å±ï¿½ï¿½ï¿½
 .opencode/tmp/
+
+# Godot eval archive lives on feat/godot-eval (@5b81959); keep local copies untracked here
+godot-eval/
+tools/godot-mcp/
+# Godot portable binary + editor cache (local only)
+tools/godot/
+.godot/
