@@ -22,7 +22,7 @@
 
 ### 2.1 单局结构 —— 节点式地图
 - 一局 = 一条**纯线性、开放式**节点链（2026-08-24 定案：不固定 5 节点收尾，节点随推进持续延伸），无分支路线。每个节点是独立、有边界的战场（约 1:9 摄像机比例）。已落地：generateRun 初始链 + `extendRun` 无限续接；难度参数化 diff(index)=min(0.95, 0.15+0.8·min(1,index/12)^1.25) 再叠加 difficultyLevel×0.04（封顶 1.15）。（数值以 RULES.difficulty 收口字段为准）
-- 难度完全靠敌人数量、敌人策略（AI 复杂度）、数值强度三者随节点推进同步提升；曲线定表 `RULES.difficulty`（diff = 0.15 + 0.8·t^1.25）。（2026-08-24 全面落地：entityMults 十维属性分化 + AI tierProfiles 行为分层，玩家隔离）。敌人难度现已采用弱→强曲线：RULES.difficulty.entityMults 十维属性表下界<1（简单节点敌人更弱更慢）、上界略>1（困难节点更强更快）；普通敌人输出类属性经 applyDifficultyMults 时硬顶为玩家对应属性的 80%（RULES.difficulty.enemyStatCapVsPlayer=0.8），Boss 不在此封顶。敌军生成改为聚集布点（RULES.nodeMap.enemyClusterRadius/SizeMin/Max/CountBase）：每聚集点 2–5 辆、聚集点数随难度提升。
+- 难度完全靠敌人数量、敌人策略（AI 复杂度）、数值强度三者随节点推进同步提升；曲线定表 `RULES.difficulty`（diff = 0.15 + 0.8·t^1.25）。（2026-08-24 全面落地：entityMults 十维属性分化 + AI tierProfiles 行为分层，玩家隔离）。敌人难度现已采用弱→强曲线：RULES.difficulty.entityMults 十维属性表下界<1（简单节点敌人更弱更慢）、上界略>1（困难节点更强更快）；普通敌人输出端封顶采用三键方案（2026-08-25 起，取代旧 enemyStatCapVsPlayer=0.8）：penCapVsPlayer=1.2（spawn 快照封顶）/ dmgFloorVsPlayer=0.4（伤害地板）/ dmgCapAmmoMult=0.7（最强弹种终伤天花板），Boss 经 applyDifficultyMults 第三参跳过此封顶。敌军生成改为聚集布点（RULES.nodeMap.enemyClusterRadius/SizeMin/Max/CountBase）：每聚集点 2–5 辆、聚集点数随难度提升。
 - **Boss 节奏**：每第 5 个节点为 Boss 节点（已落地，2026-08-24，`RULES.nodeMap.bossInterval`=5）。Boss 复用 tanks/*.json 模型并放大 2× 几何（hull/turret 多边形、炮塔枢轴、锚点、履带同步缩放，barrel.len 不缩放）；经 bosses/*.json 的 tuning 块（默认 RULES.boss.tuning：hpMul 8 / moveMul 0.5 / turnMul 0.6 / turretTurnMul 0.6 / shellMul 0.8 / fireRateMul 0.6 / dmgMul 1.5）在同级普通敌人基准上进一步降机动、提射速/伤害/血量；生成后再叠加 applyDifficultyMults 以同级敌人为基准。
 - 节点间开放卡牌三选一与**局内商店**（已落地，2026-08-24）：局内商店按**当前得分**计价消费，只售 run 内属性升级（modifiers scope:'run'，本局结束清除、不带出存档），消费独立记账、**不减损**终局转化用的累计得分；**永久升级商店**消费由终局累计得分 ×10% 转化的点数。两套商店货币互不流通。商品表 `RUN_SHOP_DEFS`（6 项：紧急维修/快速装填/精密火控/引擎超压/姿态稳定/装甲应急补强），定价 `round(baseCost×costGrowth^level)`。局内商店除结算/奖励节点外，现也可从 ESC 暂停菜单的「局内商店」按钮进入；暂停面板内商店按钮此前因 pointer-events 失效不可点击，已修复。
 - 流程状态机 `js/tank_flow.js`：home → loadout → shop → map → battle ⇄ pause → settlement → reward → battle …。**终局条件（二选一，2026-08-24 定案）**：① 阵亡且复活次数耗尽 → gameover 强制终局结算；② 战斗中 ESC 暂停面板「终止游戏并结算」（已落地）→ 主动终局结算。两路终局均结算得分并使跨局难度等级 +1。白名单转移表护栏，非法转移抛错；UI 层经 watchFlow 监听显隐 DOM 覆盖层。pause 态已落地（2026-08-24，P-35）：battle⇄pause 冻结战斗循环（仅渲染不更新）；pause→settlement 为「终止游戏并结算」入口（voluntaryEnd payload，终局结算语义已完善）；玩家设置 profile.settings.invertReverseTurn 经 driveTank invertTurnWhenReversing 实现倒车转向倒置。ESC 暂停菜单的按键绑定已收入「控制」子菜单；暂停菜单保留「局内商店」与「终止游戏并结算」两个子按钮。
@@ -66,6 +66,12 @@
   - **Boss 行为差异化 v1**：behavior 字段五风格（command 炮击召唤 / fortify 掩体火力点 / crush 碾压碰撞伤害击退 / skirmish_long 超远伸缩 / weave 随机走位冲撞）+ penMul=1.4 + strikes 落点红圈预警。
   - **地形生成 v2**：road tier 村庄分层生成（街道→沿街建筑→杂物）+ placeForestClusters 树林簇；full/intact/rock `vision:true` 挡 AI 视野。
   - **其他修复**：履带断不再缴械（fireTank 仅 reloadT 门控）、耐久升级后满血开局、控制子菜单默认折叠、Tab 面板装甲取整 + 分弹种参数行、AI 装填间隙侧摆 45–90°、bench 卡牌测试面板、对比器真实单位 + σ精度读数。
+- **模块概率分区与参数极限制（2026-08-26 落地，P-49 核心批）**：
+  - 命中判定改为**七类模块几何概率分区**（炮塔四象限 + 车体纵轴区段、区内互斥抽取，breech 新键；细节见 specs/combat.md「弹药架与模块」），设计器废除自定义挂载，旧 json modules 字段加载静默忽略。
+  - **全参数极限制**：`RULES.parameterLimits` 全参数极限表生效（reload 下限 0.5s / maxSpeed ≤150km/h 等），设计器与运行时统一钳制。
+  - **重量双层上限**：weight 改为 `deriveWeight` 派生（不可手动自定义）+ 设计上限 80t + `RULES.weightRuntimeCap` 运行硬顶 240t。
+  - **功重比显示**：设计器 / 对比器新增功重比读数。
+   - **回放基线重锚**：28f3e684 → 1e49b3fc（归因 P-49 概率分区 + 重量运行时钳制的累计数值面改动）。
 
 ### 2.6 音效设计与声音管线定型
 - **音效立意**：低沉、厚重、具有战场压迫感的拟真机械与爆破音效，杜绝轻飘的电子合成感。

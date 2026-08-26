@@ -32,3 +32,248 @@
 > 其余历史问题（#76~#77、#79~#82、#84~#85 等）：已全部解决并归档，见 `ARCHIVE.md` 索引表 2026-08-24 条目。
 
 ---
+
+## 平衡与系统接线问题（2026-08-26，#A1~#A16）
+
+### #A1. 局内商店姿态稳定/精密火控字段耦合 + 恒价
+
+**状态：** 待处理
+
+**可复现证据：**
+- `js/tank_economy.js:361-364` 两升级项共用 `stat:'spreadMult'`（精密火控 mult 0.96 / 姿态稳定 add −0.15, baseCost:35, costGrowth:1.0, maxLevel:1）。
+- `tank_mvp.html:1332-1334` 预览从同一 stats.spreadMult 现算导致联动。
+- 价格公式 `economy:403-405` 因 costGrowth:1.0 恒为 35。
+
+**根因：** 两商品共用 stat 字段 + costGrowth 数据设定。
+
+**影响：** 商店预览联动失真；价格恒定无成长曲线。
+
+**处理方向：** 姿态稳定改独立 stat（如 motionSpreadMul 三扩专用系数）或改 mult 模式；重校准 RUN_SHOP_DEFS 价格曲线。
+
+---
+
+### #A3. 局内商店结构缺陷合集
+
+**状态：** 待处理
+
+**可复现证据：**
+1. 火力组仅 fast_reload/precision_gunnery/steady_mount（`economy:356-364`），缺穿深/伤害项（pen_up/dmg_up 只在局外 UPGRADE_DEFS :35-36）。
+2. computeStats 对 reload 无 0.5s 下限钳制（`tank_model.js:42-65` 全文无 clamp）——"最短0.5s不能再升"实为误读，现状是无上限。
+3. 防护六面拆卖 hull/turret×front/side/rear 各+2mm（`economy:365-383`），未打包车体/炮塔。
+4. 机动仅 engine_overdrive maxSpeed+3px/s（`economy:385-387`），单位 px/s 非 km/h，无马力/加速度项（局外同样只有 speed_up）。
+5. 维修/医疗冷却实测不成立——KIT_BASE_CD=45，mvp:1314,1317 满投入最低恰 15s 不短于 15s。
+6. 紧急维修超上限不成立——mvp:1298 有 Math.min(maxHp,·) clamp；TAB 血量每帧刷新（mvp:2402-2403）。
+
+**影响：** 商品结构不合理、单位显示误导、部分传闻缺陷经核实不存在（第5/6项）。
+
+**处理方向：** 按用户需求重设计 RUN_SHOP_DEFS：装填加 0.5s 下限、火力增穿深/伤害项（暂无上限）、防护改车体/炮塔打包、极速改 km/h 显示且 ≤150km/h 上限、新增马力项（降加速手感）。
+
+---
+
+### #A4. 履带断时按 4 键修理无效
+
+**状态：** 待处理
+
+**可复现证据：**
+- `tank_mvp.html:1946` tryRepairKit 早退 `if(player.immobT>0) return;`——履带断即置 immobT>0（mvp:2019），在最需要修理时静默拒绝。
+- 共享层 tryActivateAbility(t,'repair') 本身支持清 trackBroken/immobT（`tank_abilities.js:28,108-119`）。
+- 医疗包 L1952 同样门控。
+
+**影响：** 最需要修理的场景下修理键静默失效。
+
+**处理方向：** 删除页面侧 immobT 早退，拦截交给共享层 reason 提示。
+
+---
+
+### #A5. 自身模块受损/成员受伤无 UI 指示
+
+**状态：** 待处理
+
+**可复现证据：**
+- grep MODULE_LABELS/debuffIcon 于 tank_mvp.html 仅右侧 pushLog 文本日志。
+- TAB statusPanel 只显 hp/装甲列表（mvp:185-201 CSS），无模块/乘员行、无顶部中央状态条。
+
+**影响：** 玩家无法直观感知自身模块/乘员受损状态。
+
+**处理方向：** 画面顶部中央新增成员/模块状态条。
+
+---
+
+### #A6. 伤害飘字溢出剩余血量 + 死亡后 DOT 继续跳字 + 缺颜色分类
+
+**状态：** 待处理
+
+**可复现证据：**
+- hp 在 `tank_physics.js:41` 钳 0 但飘字取 res.dmg 未截断（tank_physics.js:120 → tank_fire.js:389-390）。
+- DOT tick `tank_mvp.html:2207` 无 hp>0/_dead 检查、死亡块 L2233-2234 不清 dotT（bench 页 L638 同病）。
+- 当前五色方案 `tank_dmgtext.js:18-24`。
+- resolveHit 的 res 已含部位信息但 dmgText 调用点未透传，spawnDmgText 签名 (x,y,text,kind)。
+
+**影响：** 击杀伤害虚高显示、尸体持续跳字、部位信息无视觉区分。
+
+**处理方向：** 飘字伤害 min(res.dmg, 击杀前剩余hp)；DOT tick 加存活检查+死亡清 dotT；扩展 kind 实现白(普通)/黄(成员与非弹药架模块)/红(弹药架)。
+
+---
+
+### #A7. 按住左键不能连射
+
+**状态：** 待处理
+
+**可复现证据：**
+- `tank_mvp.html:606` 仅 mousedown 单发触发，全文件无 mouseup/held 状态。
+- `js/tank_fire.js:60-66` tryFire 内建 reloadT 门控天然支持逐帧轮询。
+
+**影响：** 操作手感受限。
+
+**处理方向：** 加 mouseDownHeld 标志，主循环 held 时调 tryFire。
+
+---
+
+### #A8. 半高掩体炮弹瞬移命中
+
+**状态：** 待处理
+
+**可复现证据：**
+- 弹道飞行中确实逐帧检测（`tank_fire.js:302` 线段扫掠、:338 findCoversOnPath、:347-355 graduated 分支缓存 s.dec），但结算分支 :371-374 `else if(bestTank||s.dec)` 不检查 s.dist 是否已达 dec.t，直接把炮弹坐标设为预测命中点结算——判决提前到入口被实现成结算也提前到入口。
+- 另有两条设计豁免放大感知：炮塔恒露（`tank_cover.js:395-397` zMin≥1.2 直接 exposure=1.0）、贴掩越掩插值（tank_cover.js:403-419 rayH>1.4 剔除整块掩体）。
+
+**影响：** 半高掩体防护观感严重失真（炮弹看似穿过掩体瞬移命中）。
+
+**处理方向：** :371 分支入口加剩余距离门控（未飞到 dec.t 继续积分飞行），不动 getExposure。
+
+---
+
+### #A9. 半高掩体实战低生效评估（属实，三条件互斥）
+
+**状态：** 待处理
+
+**可复现证据链：**
+- 交战距离短（engageRange=520/keepRange 320，`tank_rules.js:322,326`）使 C 插值豁免几乎恒成立。
+- 炮塔恒露让敌方打炮塔即可绕过整个 half 模型（Ttk≈3发）。
+- AI 仅 coverSeek（`tank_ai.js:333` 重甲+hp<60%+500px）才用 half，且 half vision:false 不遮视线（`tank_cover.js:447-455`+`tank_rules.js:94`）。
+- 再叠 A8 瞬移 bug 观感恶化。
+
+**剥离可行性：**
+- 最小方案 half.shellBlock 'grad'→true + exposureProfile:'full'，可删 shellVerticalDecision/C 插值子系统（`tank_fire.js:16-39,347-355,371-378` + `tank_cover.js:399-419`）。
+- 联动项：`tank_ai.js:333`、`tank_nodegen.js:958-962`、docs/specs/map.md §2、test-covers/test-fire/test-extreme-cover。
+- ruined 共享 exposureProfile:'half'（`tank_rules.js:109`）需一并裁定。
+
+**反向意见：** half 是"打炮塔破掩体位"战术深度唯一载体，建议先修 A8 再观察数据。
+
+---
+
+### #A10. 树冠视觉尺寸与逻辑盒脱节 + 倒树不可辨识
+
+**状态：** 待处理
+
+**可复现证据：**
+- 树冠径 bake 硬编码 R=max(w,h)*1.9（`tank_assets.js:147`），scale≈3 时冠幅≈232–280px 而逻辑 OBB 只有 24×18×scale（遮挡判定只认 cov.w/h，`tank_cover.js:322-324`）——所见远大于所挡。
+- 倒树 fallen 尺寸链路正确（57.6×9）但绘制细线条1-1.5px+alpha≤0.55 无轮廓对比（`tank_assets.js:161-201`），无 destroyed 专用渲染分支。
+
+**影响：** 视觉遮挡与逻辑遮挡不一致；倒树在画面上难以辨识。
+
+**处理方向：** 冠径乘数降到 ~1.2-1.4 或提为 RULES 参数保持"所见即所挡"；倒树加深描边/根部断茬高亮/衬底椭圆。
+
+---
+
+### #A11. 地形占位冲突：道路/水域任意叠加 + 道路不贯穿
+
+**状态：** 待处理
+
+**可复现证据：**
+- 村庄道路落位零检测（`tank_nodegen.js:641` 直接 push，不避让模板 items:161 与林地簇:1037-1041）。
+- edgeRiver 零检测（:482-510）；中央水潭 25 相位全失败兜底强制居中（:456）仍叠加。
+- P-20 水体/桥有检测（:1072-1148）。
+- 道路单街长度仅模板边长×[0.55~0.75]（:617）不到达边缘即止+折线偏转±0.08~0.22rad 造成断裂；道路只是村落附属层非地图骨架。
+
+**影响：** 道路与建筑/林地/水域任意重叠；路网断裂不贯穿。
+
+**处理方向：** generateNode 最前新增地图级路网阶段（2~3 条贯穿主干道 polyline + 分支 + occupied 集合复用 obbPairHits:583-593），village 层沿路网选簇心，edgeRiver 加 rectHitsCover（压路处放 bridge 反成特性），去掉水潭强制居中。约 +150 行中等重构。
+
+---
+
+### #A12. 节点间回血不满（选了 maxHp 升级后）
+
+**状态：** 待处理
+
+**可复现证据：**
+- enterBattle resetEntity 恢复的是 spawn 快照陈旧 hp（`tank_entity.js:23-28` Object.assign(t,t.spawn)；快照仅在 applyTankConfig 同步 tank_model.js:334）。
+- 战斗中 addModifier 提升 maxHp 后 refreshStats（`tank_model.js:113-123`）既不抬 hp 也不回写 spawn.hp。
+- 出击路径有 #99 兜底（mvp:1757-1758 player.hp=maxHp）但 enterBattle（mvp:818）没有。
+
+**影响：** 选了 maxHp 升级后节点间回血不满血。
+
+**处理方向：** enterBattle 补 player.hp=stats.maxHp 兜底；addModifier 中 maxHp 变化按增量比例提升 hp 并同步 spawn.hp（两者都做）。
+
+---
+
+### #A13. ammo 卡 mode:'add' 语义错位（严重平衡炸弹）
+
+**状态：** 待处理
+
+**可复现证据：**
+- add 加在倍率刻度而非 mm——sniper_hard_core desc「APCR穿深+14mm」实际 1.2+14=15.2 倍（1520%）（`js/tank_cards.js:184-189` cfg[field]=val+ef.value，val 初值为 RULES 倍率）。
+- sniper_apcbc「AP+12mm」→13倍。
+- HE 软上限（`tank_cards.js:213`）只钳 HE，AP/APCR 无钳制。
+- test-cards.js:104 固化了该语义。
+
+**影响：** 穿深卡实际效果放大百倍级，严重破坏平衡。
+
+**处理方向：** 优先修 add 语义（改 mm 刻度需同步 fireTank 换算，或改 mult+desc）；列为扩卡前置修复。
+
+---
+
+### #A14. "全线高爆战术"过强 / "超口径高爆弹"未生效死效果
+
+**状态：** 待处理
+
+**可复现证据：**
+- demo_all_he_doctrine legendary 三重效果 HE dmg×1.2+HE pen×1.2+reload×0.85——reload 是全局 modifier 白送全弹种装填。
+- demo_overmatch_shell passive overmatch value:0.85 全仓无消费方（cardEffects 消费仅 drone/ability/ammo 三处：mvp:1007/`tank_abilities.js:74-77`/`tank_cards.js:182`），实际只有 HE dmg×1.14 生效。
+- 转 AP 可行：resolveHit 经 shell.shooter.cardEffects 读 passive 加系数，小改 tank_physics.js。
+
+**影响：** 一卡效果溢出到全局装填；另一卡为死效果。
+
+**处理方向：** 全线高爆拆出 reload 或降 -8%；overmatch 接线并按需求转 AP。
+
+---
+
+### #A15. 成员防护内衬两张卡完全未实现（比描述不符更严重）
+
+**状态：** 待处理
+
+**可复现证据：**
+- cards/support_spall_liner.json（rare −20%）/spall_liner.json（epic −50%）的 passive spall_liner 运行时零消费（PASSIVE_KEYS 仅白名单声明 `tank_cards.js:42`；`tank_physics.js` 模块/乘员路径无检查）。
+- 归档快照 :520 自证 passive/economy 类挂账未接线。
+- 用户所述"描述应为坦克受伤降低"在代码中无对应物——真实状态是拿卡毫无效果。
+
+**影响：** 两张卡完全无效但仍占抽卡池。
+
+**处理方向：** resolveHit 模块伤害分支接 cardEffects.spall_liner；接线前先移出抽卡池或标注未生效。
+
+---
+
+### #A16. 敌方/Boss 参数绑定审计结论 + 配套发现
+
+**状态：** 待处理
+
+**审计结论：** 运行时 reload/turnRate/turretTurnRate/maxSpeed 消费点全部读自身 t.stats（`tank_move.js:38,43` / `tank_fire.js:66,78` / `tank_ai.js:92,150,240,402`），**无任何运行时读 player.stats 的路径**——"跟着玩家实时数值"不成立；玩家绑定仅 spawn 快照三处直写：
+1. pen 封顶 mvp:953-955 直写 stats.penetration（RULES.difficulty.penCapVsPlayer=1.2, `tank_rules.js:409`）；
+2. damage 地板/天花板 mvp:958-969（dmgFloorVsPlayer 0.4/dmgCapAmmoMult 0.7, `tank_rules.js:410-411`）；
+3. maxSpeed 公式硬编码页内 lerp(0.3,0.6)×rand(0.85~1.15)×player.stats.maxSpeed（mvp:974-977），**覆盖了刚应用的 entityMults.maxSpeed（`tank_rules.js:428` 对该字段实际失效，两套机制打架）**，且违反"调参进 RULES"约定。
+
+**风险：** 三处均绕 modifiers 直写，敌人后续 refreshStats 会把未封顶值还原（潜在回归点）。
+
+**敌穿深确定性：** fireTank pen=stats.penetration*ammo.pen（`tank_fire.js:90`）无随机 → "打不穿永远打不穿"成立；改造落点=开火时刻对非玩家 shooter roll 0.6–1.4 正态（参数进 RULES，gaussian 注入通道已有 tank_fire.js:50），勿在 resolveHit roll（波及玩家+预测面板 predPen 失真）。
+
+**Boss：** tuning 链零玩家引用（`tank_boss.js:212-217`）；射速已绑难度三层乘子（boss fireRateMul 缺省 0.6 + entityMults.reload[1.25,0.82] + 阶段 onEnter）。
+
+**文档漂移：** docs/DEVELOPMENT.md:25 仍写旧键 enemyStatCapVsPlayer=0.8，代码已是新三键方案（`tank_rules.js:407-411`）——需同步。
+
+**处理方向：**
+- a-3 速度公式提为 RULES.difficulty.speedVsPlayer 表并消除与 entityMults 打架；
+- 直写改经 modifiers 注入防 refreshStats 回归；
+- 敌 pen 浮动按上述落点实施；
+- 修 DEVELOPMENT.md:25。
+
+---

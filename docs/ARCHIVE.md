@@ -81,6 +81,7 @@
 | 2026-08-24 | `ISSUES.md` | #83 敌方一次性生成缺递增生成 | 已解决并验证（同 P-38 落地，见 specs/map.md §5.8） |
 | 2026-08-24 | `PLAN.md` | P-51 Boss 数据驱动机制补全（weakspots / loot 卡牌掉落 / ai 行为脚本） | 已完成并验证（resolveHit 可选增益 opts + 阶段声明式行为三模式 hold/charge/skirmish + loot.cards 三选一奖励链，见 specs/boss.md §4 / specs/combat.md §2） |
 | 2026-08-25 | `ISSUES.md` | #86~#101 玩法设计问题第二批（16 条，含原 #37b 重编号并入本批的说明） | 已全部解决并验证（对比器真实单位/村庄分层生成/AI侧摆/视野系统v1/商店v2/Boss行为五风格/敌军参数新封顶/履带断不缴械/加法聚合/修理箱医疗包，见 DEVELOPMENT.md §2.5「玩法设计第二批修复与机制定型」） |
+| 2026-08-26 | `ISSUES.md` | #A2. 姿态稳定无限购买致 spreadMult 负值（0.00→−0.15） | 已修复并验证（spread.multFloor=0.2/sigmaFloor + maxLevel 判定恢复 + 满级按钮禁用，见 specs/combat.md §2「散布下限防负值」） |
 
 ------
 
