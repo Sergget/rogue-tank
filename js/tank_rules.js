@@ -125,7 +125,9 @@ const RULES = {
     hullRotMax: 0.012,        // 车体转向散布上限
     turretRotMax: 0.018,      // 炮塔旋转散布上限
     bloomRate: 2.0,           // 散布扩散速度
-    shrinkRate: 0.15          // 缩圈（集中）速度 — 坦克级设置：三扩系数×散布上限 / 缩圈速度走 base.spreadMult / base.aimSpeed
+    shrinkRate: 0.15,         // 缩圈（集中）速度 — 坦克级设置：三扩系数×散布上限 / 缩圈速度走 base.spreadMult / base.aimSpeed
+    multFloor: 0.2,           // D3 #A2（2026-08-26）：stats.spreadMult 聚合后的下限钳制——卡牌/升级叠加不得使三扩系数穿越 0 变负
+    sigmaFloor: 0.01          // D3 #A2（2026-08-26）：最终生效 σ 下限——floor 作用在合成结果上，负中间值不外泄
   },
 
   // ======================= 速度 / 机动换算 =======================
@@ -210,13 +212,41 @@ const RULES = {
       spreadHurt: 1.6,          // 炮手受伤:移动扩圈 ×1.6
       commanderDebuff: 0.85     // 车长受伤:全体成员效果 ×0.85
     },
-    // 命中部位的局部坐标分区（hull/turret 的局部 x 或走参 s，用于 moduleFromHit）
+    // P-49 前自动履带区阈值（仍生效）：|relX|/halfL 超过 → 履带/负重轮
+    //（moduleFromHit + tank_designer 履带区渲染共用）。
     zones: {
-      trackBound: 0.78,         // |relX|/halfL 超过 → 履带/负重轮
-      driverFront: 0.25,        // 车体侧面 relX ≥ → 驾驶员
-      ammoRear: -0.25,          // relX < → 发动机；介于两者 → 弹药架
-      turretLoader: -0.25,      // 炮塔侧面 relX < → 装填手（否则炮手）
-      turretAmmo: -0.62         // 炮塔侧面 relX < → 炮塔尾舱弹药架（装填手身后小范围弹药架）
+      trackBound: 0.78,
+      // ——以下四键已废弃（P-49 几何分区+概率抽取上线后不再消费；保留仅供旧存档/外部读取兼容，
+      //   新代码一律走 zonesV2）——
+      driverFront: 0.25,        // [废弃 P-49]
+      ammoRear: -0.25,          // [废弃 P-49]
+      turretLoader: -0.25,      // [废弃 P-49]
+      turretAmmo: -0.62         // [废弃 P-49]
+    },
+    // P-49 几何分区 + 概率抽取表（唯一消费方 js/tank_geometry.js moduleFromHit）：
+    //   炮塔四象限（turretQuadrants）：原点 = 炮塔装甲多边形几何中心（centroid，非座圈中心）、
+    //     坐标轴为炮塔局部系（x=炮塔朝向、随炮塔旋转）；左右 = 从炮塔内面向正面时的左右。
+    //   车体纵轴区段（hullFrontPivot/hullRearPivot）：t = 击穿点沿车体纵轴投影归一化（0=车头）；
+    //     构型由座圈圆心相对车体多边形 centroid 的前后位置决定（前(含重合)=hullFrontPivot，否则 rear）。
+    //   区内互斥抽取单分支（按对象键序累积抽样）；权和<1 的余量 → null = 正常结算伤害、
+    //     无成员/模块倍率加成。随机源 = 全局 Math.random（回放经 seed 流整体替换保持确定性）。
+    zonesV2: {
+      turretQuadrants: {
+        frontLeft:  { gunner: 0.50, breech: 0.05 },
+        frontRight: { commander: 0.30, loader: 0.30, breech: 0.05 },
+        rearLeft:   { ammo: 0.50 },
+        rearRight:  { ammo: 0.50 }
+      },
+      hullFrontPivot: [
+        { tMin: 0.0, tMax: 0.1, weights: { driver: 0.10, ammo: 0.10 } },
+        { tMin: 0.1, tMax: 0.5, weights: { ammo: 0.50 } },
+        { tMin: 0.5, tMax: 1.0, weights: { engine: 0.40 } }
+      ],
+      hullRearPivot: [
+        { tMin: 0.0, tMax: 0.5, weights: { engine: 0.40 } },
+        { tMin: 0.5, tMax: 0.6, weights: { driver: 0.05, ammo: 0.50 } },
+        { tMin: 0.6, tMax: 1.0, weights: { ammo: 0.40 } }
+      ]
     },
     // 线段挂载模块系统（tank_designer「模块 Modules」编辑器）：
     // 扁平 6 类模块，每类可挂载多处；每处放置挂在一条车体/炮塔全形边（含前/后接缝边）上，
@@ -233,7 +263,8 @@ const RULES = {
     },
     labels: {
       driver: '驾驶员', ammo: '弹药架', engine: '发动机',
-      gunner: '炮手', loader: '装填手', commander: '车长'
+      gunner: '炮手', loader: '装填手', commander: '车长',
+      breech: '炮闩'
     },
     bandDepth: { hull: 10, turret: 8 },   // 模块带向内偏移深度（px，视觉 + 判定共用）
     lenMin: 0.05,                         // len 下限（比例，=5%）；len 上限恒为 1（整条边）
@@ -489,7 +520,48 @@ const RULES = {
     REF_SHELL_SPEED_MS: 810,       // Tiger I 88mm AP 弹初速 m/s
     // 计算得出的比例常量
     get PX_PER_METER() { return this.REF_HULL_LENGTH_PX / this.REF_HULL_LENGTH_M; }  // ≈10.92
-  }
+  },
+
+  // ======================= P-49 全参数极限表（唯一收口） =======================
+  // 取值方法：存量四车（tanks/dummy|Leapard_1|Obj 780|tiger-I.json）数值包络 ±30% 后取整；
+  // reload 下限 0.5s 为用户既定需求；maxSpeed 上限按用户裁定 ≤150km/h ÷ kmhFactor(0.4) = 375 px/s；
+  // weight 上限 80t 为用户裁定（P-49，2026-08-26 细化：仅约束设计器出厂校验）。
+  // 设计器保存校验消费方应把输入钳到 [min,max] 区间。
+  parameterLimits: {
+    maxHp:            { min: 50,  max: 160 },  // 存量 hp 包络 80~120（±30% → 56~156，取整）
+    penetration:      { min: 80,  max: 210 },  // 穿深包络 120~160mm（±30% → 84~208）
+    damage:           { min: 25,  max: 65 },   // 单发伤害包络 35~50（±30% → 24.5~65）
+    reload:           { min: 0.5, max: 3.0 },  // 装填秒数：下限 0.5s 用户既定需求；上限包络 2.0×1.3≈2.6 → 圆整 3.0
+    shellSpeed:       { min: 600, max: 2100 }, // 弹速 px/s 包络 1000~1600（±30% → 700~2080）
+    maxSpeed:         { min: 60,  max: 375 },  // px/s；max=150km/h÷kmhFactor0.4=375（用户裁定 ≤150km/h）；min 对应 24km/h
+    turnRate:         { min: 1.0, max: 3.5 },  // 车体转速 rad/s 包络 1.6~2.5（±30% → 1.12~3.25）
+    turretTurnRate:   { min: 1.0, max: 4.0 },  // 炮塔转速 rad/s 包络 1.5~3.0（±30% → 1.05~3.9）
+    enginePower:      { min: 200, max: 1200 }, // 马力包络 300~900（±30% → 210~1170）
+    spreadMult:       { min: 0.5, max: 3.0 },  // 三扩系数包络 0.8~2.0（±30% → 0.56~2.6）；min 与 RULES.spread.multFloor 同级防穿零
+    weight:           { min: 10,  max: 80 },   // 吨：max=80t 为【设计上限】，仅设计器出厂校验（卡牌/局内升级可突破）；下限给超轻底盘留余地
+    armor: {                                   // 各面装甲厚度 mm：逐面取包络 ±30%
+      hull: {
+        front: { min: 40, max: 150 },          // 包络 60~110（±30% → 42~143）
+        side:  { min: 25, max: 105 },          // 包络 38~80（±30% → 26.6~104）
+        rear:  { min: 15, max: 75 }            // 包络 26~54（±30% → 18.2~70.2）
+      },
+      turret: {
+        front: { min: 55, max: 210 },          // 包络 80~160（±30% → 56~208）
+        side:  { min: 35, max: 105 },          // 包络 50~80（±30% → 35~104）
+        rear:  { min: 15, max: 80 }            // 包络 24~60（±30% → 16.8~78）
+      }
+    },
+    geometry: {                                // 外形尺寸 px（由 verts 包围盒导出，包络 ±30% 取整）
+      hullLen: { min: 40, max: 95 },           // 车体长包络 58~69.6（±30% → 75.4→圆整 95 含余量）
+      hullWid: { min: 24, max: 55 },           // 车体宽包络 38~38.4（±30% ≈ 50，留余量 55）
+      turLen:  { min: 20, max: 60 },           // 炮塔长包络 31.7~45.5（±30% → 59.2）
+      turWid:  { min: 18, max: 48 }            // 炮塔宽包络 34.4~35（±30% ≈ 45.5 → 圆整 48）
+    }
+  },
+
+  // 运行时重量绝对上限（吨）：卡牌/局内升级可突破 parameterLimits.weight.max(80t) 设计上限，
+  // 但 computeStats 聚合后的最终 s.weight 一律钳 ≤ 此值（2026-08-26 用户裁定）。
+  weightRuntimeCap: 240
 };
 
 // 距离分档函数已移除（A1 双档模型见 coverHugDist，掩体遮挡不再有连续渐变）

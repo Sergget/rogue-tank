@@ -153,10 +153,13 @@ function resolveHit(shell, target, hit, allowBounce, opts){
 //   loader  装填手：×crewMult；未杀 → 装填速度降低
 //   driver  驾驶员：×crewMult；未杀 → 转向速度降低
 //   commander 车长：×crewMult；未杀 → 全体成员效果 ×commanderDebuff
+//   breech  炮闩（P-49）：×crewMult；未杀 → 短时完全无法开火（fireTank/tryFire 门控）
 //   track   履带：正常伤害 + 锁定
+//   null    P-49 zonesV2 概率余量：正常结算伤害、无成员/模块倍率加成、无 debuff
 // opts（可选）：{ dmgMul } — P-51 弱点命中最终伤害乘算；不传时 ×1（行为不变）。
 function applyModuleDamage(shell, target, hit, opts){
   const mod = moduleFromHit(target, hit);
+  const modKey = (mod && mod.key) || null;
   const DB = RULES.modules;
   const invuln = !!(target.invuln) || (target.invulnT > 0);
   let cls = 'PEN', extra = '';
@@ -168,10 +171,10 @@ function applyModuleDamage(shell, target, hit, opts){
     extra = '（目标已摧毁）';
   } else {
     dmg = shell.dmg * ((opts && opts.dmgMul) || 1) * (0.85 + Math.random()*0.3);
-    if(mod.key === 'ammo'){
+    if(modKey === 'ammo'){
       dmg *= moduleMult(shell.shooter, 'ammo');
-    } else if(mod.key === 'engine' || mod.key === 'gunner' || mod.key === 'loader' ||
-              mod.key === 'driver' || mod.key === 'commander'){
+    } else if(modKey === 'engine' || modKey === 'gunner' || modKey === 'loader' ||
+              modKey === 'driver' || modKey === 'commander' || modKey === 'breech'){
       dmg *= moduleMult(shell.shooter, 'crew');
     }
     // 所有倍率乘完后再取整：日志/显示与实际扣血用同一整数 dmg，
@@ -180,7 +183,7 @@ function applyModuleDamage(shell, target, hit, opts){
     applyDamage(target, dmg);
     const alive = target.hp > 0;
 
-    switch(mod.key){
+    switch(modKey){
       case 'ammo':
         if(alive){
           setDebuff(target, 'ammo', DB.debuffSeconds);
@@ -232,10 +235,23 @@ function applyModuleDamage(shell, target, hit, opts){
         if(alive){ setDebuff(target, 'commander', DB.debuffSeconds); extra = `（车长受伤：全体成员性能-15% ${DB.debuffSeconds}s）`; }
         else extra = '（车长阵亡）';
         break;
+      case 'breech':
+        // P-49 炮闩：短时完全无法开火（门控在 tank_fire.js fireTank/tryFire/fireSmokeShell；
+        // 修理箱 repair 清除表含 breech）。debuff 计时风格与其他模块一致。
+        if(alive){ setDebuff(target, 'breech', DB.debuffSeconds); extra = `（炮闩受损：无法开火 ${DB.debuffSeconds}s）`; }
+        else extra = '（炮闩被毁）';
+        break;
+      case null:
+        // P-49 zonesV2 概率余量：正常结算伤害，无 debuff、无倍率加成
+        break;
     }
   }
   // dmg：实际扣血整数（飘字显示用；invuln/已摧毁目标为 0）
-  return { cls, text: `击穿！命中 ${mod.label}，造成 ${dmg} 伤害 ${extra}`, dmg };
+  return { cls,
+    text: modKey
+      ? `击穿！命中 ${mod.label}，造成 ${dmg} 伤害 ${extra}`
+      : `击穿！造成 ${dmg} 伤害 ${extra}`,
+    dmg };
 }
 
 // Export for Node.js if running in test environment

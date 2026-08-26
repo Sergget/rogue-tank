@@ -916,12 +916,9 @@ function generateNode(difficulty, options) {
     }
   }
 
-  // #77 低难度 full→half 降级帽：单节点最多降 floor(full数×fullDowngradeCap=30%) 个，
-  // 保证低难度下全高建筑残留 ≥70%（阈值 diff<0.35 沿用原降级窗口）。
-  const downgradeCap = cfgNodeMap.fullDowngradeCap !== undefined ? cfgNodeMap.fullDowngradeCap : 0.30;
-  const tplFullCount = items.filter(it => it.tier === 'full').length;
-  let fullDowngraded = 0;
-  let fullDowngradeBudget = Math.floor(tplFullCount * downgradeCap);
+  // #77 低难度 full→half 降级帽（fullDowngradeCap）：D5 第一阶段后 full→half 降级
+  // 已改为无操作，降级帽预算随之废弃（RULES.nodeMap.fullDowngradeCap 字段保留不删，
+  // 以兼容配置读取与后续 half 子系统去留裁定）。
 
   // #77 尺寸收敛系数表（RULES.nodeMap.coverWorldScale）：掩体类按 tier 缩放世界尺寸
   // （半高 0.55 → ≈100~150px、全高 0.58 → ≈150~220px、沙袋 0.40 → ≈60~90px @nodeScale=3）；
@@ -954,24 +951,26 @@ function generateNode(difficulty, options) {
 
     let tier = item.tier;
 
+    // D5 第一阶段（2026-08-26）：地图生成禁止落位 half 掩体——模板/随机落位的
+    // half 实例直接跳过不生成（最纯粹的测试态）。运行时 RULES.coverTiers.half 与
+    // tank_cover.js / tank_fire.js 的 half 判定逻辑全部保留不动（兼容 bench/测试）。
+    if (tier === 'half') continue;
+
     // Element ratio adjustment:
-    // High difficulty -> upgrade soft/bush to barricade/half
-    // （P-40：地形标签 tier 不降级/升级——full→half 等仅作用于掩体类）
+    // High difficulty -> upgrade soft/bush to barricade
+    // （P-40：地形标签 tier 不降级/升级；D5：bush/soft 升级池不再含 half 选项）
     if (!isTerrainTier(tier)) {
       if (diff > 0.6) {
         if ((tier === 'bush' || tier === 'soft') && rng() < (diff - 0.5) * 0.4) {
           tier = 'barricade';
         }
       }
-      // Low difficulty -> downgrade full/barricade to half/soft
-      // （#77：full→half 受降级帽约束，单节点最多降 floor(full数×30%)）
+      // Low difficulty -> downgrade barricade to soft
+      // （D5：full→half 降级改为无操作——full 保持 full，不再产出 half 掩体）
       else if (diff < 0.35) {
         if (!item.verts) { // Don't modify complex polygon structures
           if (tier === 'barricade' && rng() < (0.4 - diff) * 0.4) {
             tier = 'soft';
-          } else if (tier === 'full' && fullDowngraded < fullDowngradeBudget && rng() < (0.4 - diff) * 0.3) {
-            tier = 'half';
-            fullDowngraded++;
           }
         }
       }

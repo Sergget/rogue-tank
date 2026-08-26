@@ -195,6 +195,33 @@ const fakeShooter = { team: 'player', stats: { ammoMult: 0, crewMult: 0 } };
 ok(model.moduleMult(fakeShooter, 'ammo') === 0, '#65: 允许将 ammoMult 设为 0');
 ok(model.moduleMult(fakeShooter, 'crew') === 0, '#65: 允许将 crewMult 设为 0');
 
+// 18) D3 #A2 spreadMult 聚合下限：连续 add(-0.15) 叠加不得使 stats.spreadMult 穿越 RULES.spread.multFloor
+const t18 = model.makeTank({ team: 'player' });
+for(let i = 0; i < 10; i++){
+  model.addModifier(t18, { stat: 'spreadMult', mode: 'add', value: -0.15, scope: 'run' });
+}
+ok(t18.stats.spreadMult >= RULES.spread.multFloor,
+   `D3 #A2: 连续 10 条 add(-0.15) 后 stats.spreadMult=${t18.stats.spreadMult.toFixed(2)} ≥ multFloor(${RULES.spread.multFloor})`);
+// mult 路径同样受下限保护（精密火控 ×0.96 与 add 混合聚合后仍钳 ≥ floor）
+const t18b = model.makeTank({ team: 'player' });
+model.addModifier(t18b, { stat: 'spreadMult', mode: 'add', value: -0.15, scope: 'run' });
+model.addModifier(t18b, { stat: 'spreadMult', mode: 'mult', value: 0.5, scope: 'run' });
+ok(t18b.stats.spreadMult >= RULES.spread.multFloor, 'D3 #A2: add+mult 混合聚合后 spreadMult 仍钳 ≥ multFloor');
+// 正常区间不受钳制影响（单条 -0.15 → 0.85，高于 floor 0.2，行为不变）
+const t18c = model.makeTank({ team: 'player' });
+model.addModifier(t18c, { stat: 'spreadMult', mode: 'add', value: -0.15, scope: 'run' });
+ok(Math.abs(t18c.stats.spreadMult - 0.85) < 1e-9, 'D3 #A2: 单条 add(-0.15) → 0.85 不受 floor 影响');
+
+// 19) D3 #A2 motionSigma 最终生效 σ 下限：负中间值不允许外泄
+global.SPREAD = model.SPREAD;
+global.norm = U.norm;   // motionSigma 内部依赖 utils.norm（Node 端补全局）
+const t19 = model.makeTank({ team: 'player' });
+t19.stats.spreadMult = -3;   // 直接注入越界值模拟历史脏数据（正常路径已被 computeStats 钳制）
+t19.prevHullAngle = t19.hullAngle; t19.prevTurretAngle = t19.turretAngle;
+const sig19 = model.motionSigma(t19, 0.016, {});
+ok(sig19 >= model.SPREAD.sigmaFloor && sig19 > 0,
+   `D3 #A2: motionSigma 返回值 ${sig19.toFixed(4)} ≥ sigmaFloor(${model.SPREAD.sigmaFloor}) 且恒为正`);
+
 console.log('test-modifiers: 完成所有检查');
 if (fails === 0) console.log('test-modifiers: 全部通过');
 else console.error(`test-modifiers: ${fails} 项失败`);

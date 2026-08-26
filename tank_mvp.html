@@ -1331,12 +1331,17 @@ function runShopPreviewText(def){
   if(!ef) return def.desc;
   const cur = _statPathVal(ef.stat);
   if(typeof cur !== 'number') return def.desc;
-  const next = ef.mode === 'mult' ? cur * ef.value : cur + ef.value;
   const unit = ef.stat === 'reload' ? 's'
     : (String(ef.stat).indexOf('armor.') === 0 ? 'mm'
     : (ef.stat === 'maxSpeed' ? 'px/s' : ''));
   const fixed2 = ef.mode === 'mult' || ef.stat === 'spreadMult';
   const fmt = v => fixed2 ? v.toFixed(2) : String(Math.round(v));
+  // D3 #A2：满级商品只显示当前值（不再展示不可达的 →next 预览，避免误导）
+  const curLv = runShopLevels[def.id] || 0;
+  if(def.maxLevel !== undefined && def.maxLevel !== null && curLv >= def.maxLevel){
+    return `已满级 ${fmt(cur)}${unit}`;
+  }
+  const next = ef.mode === 'mult' ? cur * ef.value : cur + ef.value;
   return `${fmt(cur)}${unit}→${fmt(next)}${unit}`;
 }
 
@@ -1359,10 +1364,12 @@ function renderRunShopPanel(){
     for(const d of defs){
       const lv = runShopLevels[d.id] || 0;
       const price = runShopPriceFor(d, lv);
-      const afford = canAfford(runShopBalance(), price);   // ISSUE 20：取消 maxLevel 上限，无限购买（costGrowth 雪球约束）
+      // D3 #A2：恢复 maxLevel 上限判定——满级商品按钮禁用（未定义 maxLevel 的商品仍无限购买）
+      const maxed = d.maxLevel !== undefined && d.maxLevel !== null && lv >= d.maxLevel;
+      const afford = !maxed && canAfford(runShopBalance(), price);
       html += `<div class="row" style="justify-content:space-between;">
         <span class="k">${d.name} <span style="color:var(--text-dim);font-weight:normal;font-size:10px;">${runShopPreviewText(d)}</span></span>
-        <span>Lv ${lv} · <button ${afford ? '' : 'disabled style="opacity:0.4"'} onclick="buyRunShopItem('${d.id}')">${price} 分</button></span>
+        <span>Lv ${lv}${d.maxLevel != null ? '/' + d.maxLevel : ''} · <button ${afford ? '' : 'disabled style="opacity:0.4"'} onclick="buyRunShopItem('${d.id}')">${maxed ? '已满级' : price + ' 分'}</button></span>
       </div>`;
     }
   }

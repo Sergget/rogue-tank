@@ -111,8 +111,10 @@ function mockTank(over){
   const h = (hits || []).find(x => x.part === 'hull');
   ok(h && h.faceKey === 'front' && h.inside === true && h.t === 0, '体内发射: 车体命中=正面进入边（t=0 / inside）');
   ok(h && h.x > 32 && h.x <= 41.5 && Math.abs(h.y) < 1e-9, '体内发射: 命中点=前缘表面交点（非后缘）');
-  const mod = G.moduleFromHit(t, h);
-  ok(mod && mod.key !== 'ammo' && mod.key !== 'engine', `正面贴脸模块=非后部模块（实际 ${mod && mod.key}）`);
+  // P-49：前缘命中点落入发动机段概率区——固定首抽 0.99 抽中余量（null），
+  // 断言「非后部模块」语义不变（绝不判为 ammo/engine 强制模块）
+  const mod = withRng(() => G.moduleFromHit(t, h), 7, 0.99);
+  ok(!mod || (mod.key !== 'ammo' && mod.key !== 'engine'), `正面贴脸模块=非后部模块或余量 null（实际 ${mod && mod.key}）`);
   ok(hits && hits.every(x => x.faceKey === 'front'), '体内发射: 全部命中面均为 front（无后部面）');
   // 预测面板（bestHitForPref 整条射线）与实弹逐帧（shellPartHit）同源：
   // 'hull' 强制车体进入边；'auto'/'turret' 可因炮塔优先选中射线前方的炮塔正面
@@ -243,132 +245,131 @@ ok(G.normalizeTankModules('x') === null, 'normalize(non-object) -> null');
   ok(G.findModuleBands(HULL_V, { x:999, y:999, len:0.5 }, { dx:0, dy:0 }, 10).length === 0, '找不到边 -> []');
 }
 
-// ---- moduleFromHit：新扁平模块数据路径 ----
-{
-  const t = mockTank({ modules: { driver:[{ part:'hull', x:0, y:-19, len:0.5 }] } });
-  let r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-10, y:-19, edgeName:'side' });
-  ok(r && r.key==='driver', '车体模块带命中 -> driver');
-  // 镜像侧命中（世界 +y 侧边）
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-10, y:19, edgeName:'side' });
-  ok(r && r.key==='driver', '镜像侧命中 -> 同一模块');
-  // len 覆盖段外 → 结构性 fallback（x=20 在履带自动区 |rx|>0.78 之外）
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:20, y:-19, edgeName:'side' });
-  ok(r && r.key==='hullHull' && r.label==='车体侧装甲', 'len 覆盖段外 -> 车体侧装甲');
-  // rear 未覆盖 → 发动机舱（结构性）
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'rear', x:-20, y:0, edgeName:'rear' });
-  ok(r && r.key==='engine' && r.label==='发动机舱', '车体后部未覆盖 -> 发动机舱');
+// ================= P-49 moduleFromHit：几何分区 + 概率抽取（RULES.modules.zonesV2） =================
+// 固定 LCG 替换全局 Math.random（与 tank_sim 回放同通道——moduleFromHit 的随机源即全局 Math.random）。
+// firstVal：首抽指定值，用于精确断言累积抽样分支边界；缺省走纯 seed 流。
+function withRng(fn, seed, firstVal){
+  let s = (seed >>> 0) || 1;
+  const orig = Math.random;
+  let n = 0;
+  Math.random = function(){
+    if(n++ === 0 && firstVal !== undefined) return firstVal;
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+  try { return fn(); } finally { Math.random = orig; }
+}
+const TUR_C = G.polyCentroidLocal(TURRET_V);
+const HUL_C = G.polyCentroidLocal(HULL_V);
+// 炮塔命中点构造：pivot(8,0)，tank 在原点、角度 0 → rel = hit - pivot，再减 centroid 得分区局部坐标
+function turHit(lx, ly){
+  return { part:'turret', faceKey:'side', x: 8 + TUR_C.x + lx, y: TUR_C.y + ly };
 }
 {
-  // 同键多放置重叠：仍命中该键
-  const t = mockTank({ modules: { driver:[
-    { part:'hull', x:0, y:-19, len:0.5 }, { part:'hull', x:0, y:-19, len:1 }
-  ] } });
-  let r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-10, y:-19, edgeName:'side' });
-  ok(r && r.key==='driver', '同键多放置重叠区命中 driver');
-  // 不同键重叠：len 小者优先
-  const t2 = mockTank({ modules: { driver:[{ part:'hull', x:0, y:-19, len:1 }], ammo:[{ part:'hull', x:0, y:-19, len:0.5 }] } });
-  r = G.moduleFromHit(t2, { part:'hull', faceKey:'side', x:-10, y:-19, edgeName:'side' });
-  ok(r && r.key==='ammo', '重叠区取 len 小者 (ammo 0.5)');
-  // miss 区（x=-20：|rx|<0.78 履带区外、ammo 带外）→ driver
-  r = G.moduleFromHit(t2, { part:'hull', faceKey:'side', x:-20, y:-19, edgeName:'side' });
-  ok(r && r.key==='driver', '仅大覆盖区 -> driver');
-}
-{
-  // off 偏移放置：带后移后原中心不命中、偏移区内命中
-  const t = mockTank({ modules: { driver:[{ part:'hull', x:0, y:-19, len:0.5, off:0.25 }] } });
-  let r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-16, y:-19, edgeName:'side' });
-  ok(r && r.key==='driver', 'off 偏移带内命中');
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:16, y:-19, edgeName:'side' });
-  ok(r && r.key==='hullHull', 'off 偏移带外 (x=16) -> 结构性');
-  // off 放置的镜像侧：带在镜像位置（y=19 侧 x∈[-32,0]）命中；中心对称的旧行为会命中 (16,19)
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-16, y:19, edgeName:'side' });
-  ok(r && r.key==='driver', 'off 镜像侧命中（镜像位置 (-16,19)）');
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:16, y:19, edgeName:'side' });
-  ok(r && r.key==='hullHull', 'off 镜像侧带外 (x=16, y=19) -> 结构性');
-}
-{
-  // mirror=false：单侧放置，镜像侧命中 → 结构性
-  const t = mockTank({ modules: { driver:[{ part:'hull', x:0, y:-19, len:0.5, mirror:false }] } });
-  let r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-10, y:-19, edgeName:'side' });
-  ok(r && r.key==='driver', '单侧放置: 主侧命中 driver');
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-10, y:19, edgeName:'side' });
-  ok(r && r.key==='hullHull', '单侧放置: 镜像侧 -> 车体侧装甲');
-}
-{
-  // 履带碰撞盒自动派生（2026-08-12 设计决策：track 不再是挂载模块）：
-  // 车体极前/极后端（|relX|/halfL > zones.trackBound，恒 0.78）即为履带，
-  // 与是否挂载任何模块无关，无需设计器设置。
-  const t = mockTank({ modules: { driver:[{ part:'hull', x:0, y:-19, len:0.5 }] } });
-  let r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-25, y:0, edgeName:'side' });
-  ok(r && r.key==='track', '自动履带区: 车体极后端命中 -> track（无需 track 放置）');
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:25, y:0, edgeName:'side' });
-  ok(r && r.key==='track', '自动履带区: 车体极前端命中 -> track（模块带未覆盖也应履带）');
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-10, y:-14, edgeName:'side' });
-  ok(r && r.key==='driver', '自动履带区外: 模块带判定照常（driver）');
-}
-{
-  // 炮塔放置：命中点转局部帧（减 turretPivot）
-  const t = mockTank({ modules: { gunner:[{ part:'turret', x:8.5, y:-16.02, len:0.5 }] } });
-  const r = G.moduleFromHit(t, { part:'turret', faceKey:'side', x:16.5, y:-16.02, edgeName:'side' });
-  ok(r && r.key==='gunner', '炮塔模块命中 -> gunner (pivot 偏移回推)');
-  const r2 = G.moduleFromHit(t, { part:'turret', faceKey:'rear', x:-20, y:0, edgeName:'rear' });
-  ok(r2 && r2.key==='turretHull', '炮塔未覆盖 -> 上部结构装甲');
-}
-{
-  // part 过滤：hull 放置不生成炮塔带 → 炮塔无放置 → turret 走 zones 退化；hull 命中无带 → 结构性
-  const t = mockTank({ modules: { gunner:[{ part:'hull', x:8.5, y:-16.02, len:0.5 }] } });
-  let r = G.moduleFromHit(t, { part:'turret', faceKey:'side', x:16.5, y:-16.02, edgeName:'side' });
-  ok(r && r.key==='gunner' && r.label==='炮手', 'part 过滤: hull 放置不参与 turret，走 zones');
-  r = G.moduleFromHit(t, { part:'turret', faceKey:'rear', x:-20, y:0, edgeName:'rear' });
-  ok(r && r.key==='commander', 'part 过滤: 炮塔后部 -> zones 车长');
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:16.5, y:-16.02, edgeName:'side' });
-  ok(r && r.key==='hullHull', 'hull 放置无带命中 -> 结构性');
-}
-{
-  // 同一模块键同时挂车体与炮塔（v2 的 hull-ammo + turret-ammo 双放置）
-  const t = mockTank({ modules: { ammo:[
-    { part:'hull', x:0, y:-19, len:0.5 }, { part:'turret', x:8.5, y:-16.02, len:0.5 }
-  ] } });
-  let r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-10, y:-19, edgeName:'side' });
-  ok(r && r.key==='ammo', '混合放置: 车体命中 ammo');
-  r = G.moduleFromHit(t, { part:'turret', faceKey:'side', x:16.5, y:-16.02, edgeName:'side' });
-  ok(r && r.key==='ammo', '混合放置: 炮塔命中 ammo');
-}
-{
-  // turret 轴偏移：战斗帧 = 作者帧 - axis，找边时回推 axis 匹配
-  const t = mockTank({
-    turretAxis:{ dx:4, dy:0 },
-    turretSpec:{ verts: TURRET_V.map(([vx,vy])=>[vx-4, vy]), faces: HULL_F.slice() },
-    modules: { gunner:[{ part:'turret', x:8.5, y:-16.02, len:0.5 }] }
-  });
-  // 命中点局部 rel = (4.5,-16.02)（战斗帧边中点）→ hit = pivot(8,0) + rel
-  const r = G.moduleFromHit(t, { part:'turret', faceKey:'side', x:12.5, y:-16.02, edgeName:'side' });
-  ok(r && r.key==='gunner', 'turret 轴偏移: 作者帧模块坐标经 axis 回推命中');
+  const t = mockTank({});
+  // 左前区（lx>0, ly<0）：{gunner:0.50, breech:0.05}
+  let r = withRng(() => G.moduleFromHit(t, turHit(12, -14)), 11, 0.0);
+  ok(r && r.key==='gunner' && r.label==='炮手', 'P-49 炮塔左前: r<0.50 -> gunner');
+  r = withRng(() => G.moduleFromHit(t, turHit(12, -14)), 11, 0.52);
+  ok(r && r.key==='breech' && r.label==='炮闩', 'P-49 炮塔左前: 0.50≤r<0.55 -> breech');
+  // 右前区：{commander:0.30, loader:0.30, breech:0.05}
+  r = withRng(() => G.moduleFromHit(t, turHit(12, 14)), 11, 0.0);
+  ok(r && r.key==='commander', 'P-49 炮塔右前: r<0.30 -> commander');
+  r = withRng(() => G.moduleFromHit(t, turHit(12, 14)), 11, 0.35);
+  ok(r && r.key==='loader', 'P-49 炮塔右前: 0.30≤r<0.60 -> loader');
+  r = withRng(() => G.moduleFromHit(t, turHit(12, 14)), 11, 0.62);
+  ok(r && r.key==='breech', 'P-49 炮塔右前: 0.60≤r<0.65 -> breech');
+  // 左/右后区：{ammo:0.50}，余量 0.5 -> null
+  r = withRng(() => G.moduleFromHit(t, turHit(-12, -14)), 11, 0.0);
+  ok(r && r.key==='ammo', 'P-49 炮塔左后: r<0.50 -> ammo');
+  r = withRng(() => G.moduleFromHit(t, turHit(-12, 14)), 11, 0.6);
+  ok(r === null, 'P-49 炮塔右后: r≥权和 -> null（正常结算无加成）');
+  // 象限随炮塔旋转：turretAngle=π 时同一世界点象限翻转
+  const tRot = mockTank({ turretAngle: Math.PI });
+  r = withRng(() => G.moduleFromHit(tRot, { part:'turret', faceKey:'side', x: -(8 + TUR_C.x + 12), y: -(TUR_C.y - 14) }), 11, 0.0);
+  ok(r && r.key==='gunner', 'P-49 象限随炮塔旋转（turretAngle=π 对称点仍左前 -> gunner）');
+
+  // 统计抽样：固定 seed 下 N 次左前区命中分布近似 50/5/45
+  const N = 4000;
+  let cntG=0, cntB=0, cntNull=0;
+  withRng(() => {
+    for(let i=0;i<N;i++){
+      const m = G.moduleFromHit(t, turHit(12, -14));
+      if(!m) cntNull++; else if(m.key==='gunner') cntG++; else if(m.key==='breech') cntB++;
+    }
+  }, 20260826);
+  ok(Math.abs(cntG/N - 0.50) < 0.04 && Math.abs(cntB/N - 0.05) < 0.02 && Math.abs(cntNull/N - 0.45) < 0.04,
+    `P-49 左前区抽样 N=${N}: gunner ${(cntG/N*100).toFixed(1)}% / breech ${(cntB/N*100).toFixed(1)}% / 余量 ${(cntNull/N*100).toFixed(1)}% ≈ 50/5/45`);
+
+  // ---- 车体纵轴区段（默认 turretPivotOffset dx=8 > hull centroid x → 前置构型）----
+  ok(HUL_C.x < 8, `P-49 构型前提: 座圈(8) 在车体 centroid(${HUL_C.x.toFixed(2)}) 前 -> 前置`);
+  function hullHit(relX, relY, faceKey){ return { part:'hull', faceKey: faceKey||'side', x: relX, y: relY }; }
+  // 车体纵轴投影范围 [-32, 41.5]，range=73.5，t=(maxX−x)/range（0=车头=+x 端，同 engineLocalX「+x 为前」约定）；
+  // 驾驶员段 [0,0.1) 需 x>34.15 → 只能经正面面命中（侧面 |x|≤24.96 已被履带区外限覆盖不到）
+  r = withRng(() => G.moduleFromHit(t, hullHit(38, 0, 'front')), 11, 0.05);
+  ok(r && r.key==='driver', 'P-49 前置车体 [0,0.1): 抽中 driver（0.10）');
+  r = withRng(() => G.moduleFromHit(t, hullHit(38, 0, 'front')), 11, 0.15);
+  ok(r && r.key==='ammo', 'P-49 前置车体 [0,0.1): 抽中 ammo（0.10）');
+  r = withRng(() => G.moduleFromHit(t, hullHit(38, 0, 'front')), 11, 0.9);
+  ok(r === null, 'P-49 前置车体 [0,0.1): r≥0.20 -> null 余量');
+  // 弹药段 [0.1,0.5)：x=12 → t≈0.401
+  r = withRng(() => G.moduleFromHit(t, hullHit(12, -10)), 11, 0.2);
+  ok(r && r.key==='ammo', 'P-49 前置车体 [0.1,0.5): -> ammo');
+  // 发动机段 [0.5,1]（车尾 −x 半段）：x=-20 → t≈0.837
+  r = withRng(() => G.moduleFromHit(t, hullHit(-20, 0)), 11, 0.1);
+  ok(r && r.key==='engine', 'P-49 前置车体 [0.5,1]: -> engine');
+  r = withRng(() => G.moduleFromHit(t, hullHit(-20, 0)), 11, 0.9);
+  ok(r === null, 'P-49 前置车体 [0.5,1]: r≥0.40 -> null 余量');
+  r = withRng(() => G.moduleFromHit(t, hullHit(30, 0)), 11, 0.1);
+  ok(r && r.key==='track', 'P-49 前置车体 x=30 侧面命中被自动履带区截获（先于概率分区）');
+  // 自动履带区保留（先于概率分区）：车体极前/极后端恒 track
+  ok(G.moduleFromHit(t, hullHit(-25, 0)) && G.moduleFromHit(t, hullHit(-25, 0)).key==='track', 'P-49 自动履带区保留: 极后端 -> track');
+  ok(withRng(()=>G.moduleFromHit(t, hullHit(25, 0)), 11, 0.9).key === 'track', 'P-49 自动履带区保留: 极前端 -> track');
+
+  // ---- 后置构型（turretPivotOffset dx=-20 < centroid x）----
+  const tRear = mockTank({ turretPivotOffset:{ dx:-20, dy:0 } });
+  r = withRng(() => G.moduleFromHit(tRear, hullHit(20, 0)), 11, 0.1);
+  ok(r && r.key==='engine', 'P-49 后置车体 [0,0.5): -> engine');
+  r = withRng(() => G.moduleFromHit(tRear, hullHit(0, 0)), 11, 0.02);
+  ok(r && r.key==='driver', 'P-49 后置车体 [0.5,0.6): 抽中 driver（0.05）');
+  r = withRng(() => G.moduleFromHit(tRear, hullHit(0, 0)), 11, 0.3);
+  ok(r && r.key==='ammo', 'P-49 后置车体 [0.5,0.6): 抽中 ammo（0.50）');
+  r = withRng(() => G.moduleFromHit(tRear, hullHit(0, 0)), 11, 0.9);
+  ok(r === null, 'P-49 后置车体 [0.5,0.6): r≥0.55 -> null 余量');
+  r = withRng(() => G.moduleFromHit(tRear, hullHit(-20, 0)), 11, 0.1);
+  ok(r && r.key==='ammo', 'P-49 后置车体 [0.6,1]: -> ammo（0.40）');
+
+  // ---- 旧 json 自定义 modules 挂载数据：忽略不再消费（不报错、不影响分区）----
+  const tLegacy = mockTank({ modules: { ammo:[{ part:'hull', x:0, y:-19, len:1 }], gunner:[{ part:'turret', x:8.5, y:-16.02, len:1 }] } });
+  r = withRng(() => G.moduleFromHit(tLegacy, hullHit(12, -10)), 11, 0.2);
+  ok(r && r.key==='ammo', 'P-49 旧挂载数据忽略: 车体段位照常概率分区');
+  r = withRng(() => G.moduleFromHit(tLegacy, turHit(12, -14)), 11, 0.0);
+  ok(r && r.key==='gunner', 'P-49 旧挂载数据忽略: 炮塔照常象限概率（非挂载强制）');
 }
 
-// ---- moduleFromHit：无 modules / 空对象 → zones 退化路径（行为与改动前一致） ----
+// ---- P-49 applyModuleDamage：概率余量（null）正常结算 + breech debuff 施加 ----
 {
-  const t = mockTank({});  // modules:null（旧数据）
-  let r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:-30, y:-10, edgeName:'side' });
-  ok(r && r.key==='track', 'zones 退化: |rx|>0.78 -> 履带/负重轮');
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:10, y:-10, edgeName:'side' });
-  ok(r && r.key==='driver', 'zones 退化: 前段 -> 驾驶员');
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'side', x:4, y:-10, edgeName:'side' });
-  ok(r && r.key==='ammo', 'zones 退化: 中段 -> 弹药架');
-  r = G.moduleFromHit(t, { part:'hull', faceKey:'rear', x:-20, y:0, edgeName:'rear' });
-  ok(r && r.key==='engine', 'zones 退化: 后部 -> 发动机舱');
-  r = G.moduleFromHit(t, { part:'turret', faceKey:'side', x:14, y:0, edgeName:'side' });
-  ok(r && r.key==='gunner', 'zones 退化: 炮塔前段 -> 炮手');
-  r = G.moduleFromHit(t, { part:'turret', faceKey:'rear', x:-20, y:0, edgeName:'rear' });
-  ok(r && r.key==='commander', 'zones 退化: 炮塔后部 -> 车长');
-  // 空对象（无已放置模块）→ 同样走 zones
-  const t2 = mockTank({ modules:{ driver:[] } });
-  r = G.moduleFromHit(t2, { part:'hull', faceKey:'side', x:10, y:-10, edgeName:'side' });
-  ok(r && r.key==='driver', '空模块对象 -> zones 退化一致');
-  // 部分挂载（只挂 hull）→ turret 仍走 zones
-  const t3 = mockTank({ modules:{ driver:[{ part:'hull', x:0, y:-19, len:0.5 }] } });
-  r = G.moduleFromHit(t3, { part:'turret', faceKey:'side', x:14, y:0, edgeName:'side' });
-  ok(r && r.key==='gunner', '部分挂载: 未挂载部件仍走 zones');
+  const PHYS = require('../js/tank_physics.js');
+  global.RULES.modules.zonesV2; // 触达即校验存在
+  global.moduleFromHit = G.moduleFromHit; // applyModuleDamage 以全局引用调用（本文件其余处走 G.* 命名空间）
+  global.moduleLabelOf = G.moduleLabelOf;
+  global.moduleMult = require('../js/tank_model.js').moduleMult;
+  global.setDebuff = require('../js/tank_model.js').setDebuff;
+  const target = { hp:1000, maxHp:1000, debuffs:{}, invuln:false, invulnT:0, team:'enemy',
+                   x:0, y:0, hullAngle:0, turretAngle:0, hullLen:64, hullWid:38, turLen:34, turWid:36,
+                   hullSpec:{ verts: HULL_V.map(v=>v.slice()), faces: HULL_F.slice() },
+                   turretSpec:{ verts: TURRET_V.map(v=>v.slice()), faces: TURRET_F.slice() },
+                   turretPivotOffset:{ dx:8, dy:0 }, stats:{} };
+  const shell = { dmg: 100, shooter: { team:'player', stats:{} }, ammoKey:'ap' };
+  // 余量（null）：无 debuff、伤害=基础整数抖动域内、文本无模块名
+  const resNull = withRng(() => PHYS.applyModuleDamage(shell, Object.assign({}, target, {hp:1000}), turHit(-12, 14), {}), 5, 0.99);
+  ok(resNull.cls==='PEN' && resNull.text.indexOf('命中') < 0 && !target.debuffs.breech,
+    'P-49 applyModuleDamage 余量: 正常结算、无模块文本');
+  // breech 分支：debuff 施加 + 文本
+  const tgt2 = Object.assign({}, target, { hp:1000, debuffs:{} });
+  const resBr = withRng(() => PHYS.applyModuleDamage(shell, tgt2, turHit(12, -14), {}), 5, 0.51);
+  ok(resBr.text.indexOf('炮闩') >= 0 && tgt2.debuffs.breech === RULES.modules.debuffSeconds,
+    'P-49 applyModuleDamage: breech 命中施加无法开火 debuff（8s）');
 }
 
 // ---- 设计器模块编辑：对称轴另一侧（y>0）回归（tank_designer.html 纯逻辑复刻） ----

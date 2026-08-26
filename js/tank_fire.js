@@ -58,6 +58,8 @@ function fireTank(shooter, target, hitPref, ctx){
   if(!shooter||!target) return false;
   // #95：履带断（immobT>0）不再阻止开火——车体机动瘫痪 ≠ 火炮缴械，仅装填门控保留
   if(shooter.reloadT>0) return false;
+  // P-49 炮闩受损：短时完全无法开火（机械缴械，与装填 debuff 不同）
+  if(shooter.debuffs && shooter.debuffs.breech > 0) return false;
   if(!gunRoot||!gunTip||!find) return false;
   const rootP=gunRoot(shooter), tipP=gunTip(shooter);
   const barrelCovers=find(rootP.x,rootP.y,tipP.x,tipP.y);
@@ -109,6 +111,7 @@ function fireSmokeShell(shooter, ctx){
   if(!shooter) return false;
   // #95：烟幕弹经主炮发射（与普通炮弹同管线，含炮管掩体贯穿判定）——履带断不缴械火炮
   if(shooter.reloadT>0) return false;
+  if(shooter.debuffs && shooter.debuffs.breech > 0) return false; // P-49 炮闩受损
   if(!gunRoot||!gunTip||!find) return false;
   const rootP=gunRoot(shooter), tipP=gunTip(shooter);
   const barrelCovers=find(rootP.x,rootP.y,tipP.x,tipP.y);
@@ -206,7 +209,8 @@ function computeSolution(ctx){
   const superLabel=c.superstructureLabel||_G('superstructureLabel',function(){return '';});
   const armorTable=(target.stats&&target.stats.armor)||target.customArmor||ARMOR||{hull:{front:110,side:38,rear:26},turret:{front:140,side:50,rear:24}};
   const thickness=(armorTable[hit.part]&&armorTable[hit.part][hit.faceKey]!==undefined)?armorTable[hit.part][hit.faceKey]:100;
-  const mod=moduleFromHit(target,hit);
+  const mod=moduleFromHit(target,hit);   // P-49：概率余量可为 null → 标签留空
+  const modLabel=(mod&&mod.label)||'';
   const cosT=Math.abs(dx*hit.nx+dy*hit.ny), theta=Math.acos(Math.min(1,Math.max(-1,cosT)));
   const getAmmoCfg=c.computeAmmoConfig||_G('computeAmmoConfig',function(s,k){ return (R.ammoTypes&&(R.ammoTypes[k]||R.ammoTypes.ap))||{pen:1,noBounce:false}; });
   const ammoPred=getAmmoCfg(player,player.ammoKey);
@@ -215,7 +219,7 @@ function computeSolution(ctx){
   if(theta>bounce&&!ammoPred.noBounce) willBounce=true;
   const eff=thickness/Math.cos(theta);
   const canPen=!willBounce&&eff<=predPen;
-  return {blocked:null,hitPref:hitPref,hit:hit,target:target,partLabel:(hit.part==='turret'?superLabel(target):'车体')+'·'+faceLabel(hit.faceKey)+'('+mod.label+')',theta:theta,thickness:thickness,eff:eff,willBounce:willBounce,canPen:canPen,predPen:predPen,coverInfo:coverInfo,ammoKey:player.ammoKey};
+  return {blocked:null,hitPref:hitPref,hit:hit,target:target,partLabel:(hit.part==='turret'?superLabel(target):'车体')+'·'+faceLabel(hit.faceKey)+'('+modLabel+')',theta:theta,thickness:thickness,eff:eff,willBounce:willBounce,canPen:canPen,predPen:predPen,coverInfo:coverInfo,ammoKey:player.ammoKey};
 }
 
 function updateSolution(ctx){

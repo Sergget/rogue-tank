@@ -39,8 +39,10 @@ for (const tpl of getTemplates()) {
   const highHard = count(high.covers, c => c.tier === 'half' || c.tier === 'full' || c.tier === 'barricade');
   ok(lowBushSoft >= highBushSoft,
      `模板 ${tpl.id} 低难 bush/soft(${lowBushSoft}) ≥ 高难(${highBushSoft})`);
-  ok(highHard >= lowHard,
-     `模板 ${tpl.id} 高难 half/full/barricade(${highHard}) ≥ 低难(${lowHard})`);
+  // D5 注：half 停止生成后，高难 wreckProb(0.14) 高于低难(0.06) 会把 barricade 翻成
+  // rubble（不计入 hard），单 seed 抽样允许 ≤2 的噪声容差
+  ok(highHard >= lowHard - 2,
+     `模板 ${tpl.id} 高难 half/full/barricade(${highHard}) ≥ 低难(${lowHard})-2`);
 }
 
 // 3) 覆盖范围合法性：坐标 / 尺寸 / tier 存在于 RULES.coverTiers
@@ -52,6 +54,15 @@ for (const c of result1.covers) {
   ok(c.tier in coverTiers, `tier ${c.tier} 在 RULES.coverTiers 中`);
   if (c.verts) ok(Array.isArray(c.verts) && c.verts.length >= 3, 'verts 合法');
   if (c.collisionVerts) ok(Array.isArray(c.collisionVerts) && c.collisionVerts.length > 0, 'collisionVerts 合法');
+}
+
+// 3b) D5 第一阶段：地图生成禁止落位 half 掩体——全模板 × 低/中/高难度输出零 half
+for (const tpl of NODE_TEMPLATES) {
+  for (const d of [0.1, 0.5, 0.9]) {
+    const r = generateNode(d, { templateId: tpl.id, seed: 99 });
+    const halves = r.covers.filter(c => c.tier === 'half').length;
+    ok(halves === 0, `模板 ${tpl.id} diff=${d} 生成结果无 half 掩体（实际 ${halves} 个）`);
+  }
 }
 
 // 4) 性能基准与密度下界（#25：模板 12~25 元素，中高难剔除后保留下界 ≥ 8）
@@ -111,11 +122,13 @@ if (typeof covers !== 'undefined') {
       ok(terr(hi).length >= tags.reduce((n, t) => n + (t === 'mudPatch' ? 3 : t ? 1 : 0), 0),
         `模板 ${tpl.id} seed=${seed} 地形不被 cullRate 剔除`);
     }
-    // 无地形标签模板不产出地形
+    // 无地形标签模板不产出标签地形
+    // （D5 注：P-20 随机水体/桥梁插层与地形标签无关、按 diff*0.5 概率触发，
+    //   故此处只禁标签驱动的 river/mud；water 允许来自随机水桥组合）
     if (tags.length === 0) {
       const r = generateNode(0.6, { templateId: tpl.id, seed: 5, cullRate: 0 });
-      ok(!r.covers.some(c => c.tier === 'water' || c.tier === 'river' || c.tier === 'mud'),
-        `模板 ${tpl.id} 无地形标签 → 不生成地形`);
+      ok(!r.covers.some(c => c.tier === 'river' || c.tier === 'mud'),
+        `模板 ${tpl.id} 无地形标签 → 不生成标签地形`);
     }
     // 有标签模板逐项校验位置约束
     const r = generateNode(0.6, { templateId: tpl.id, seed: 42, cullRate: 0 });

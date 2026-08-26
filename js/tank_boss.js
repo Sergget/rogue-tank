@@ -10,7 +10,7 @@
 // （AI/Boss 控制器）消费；本模块只负责 schema、校验、阶段判定与掉落。
 
 // 弱点模块枚举（与 tank_model.js moduleFromHit 的模块 key 一致，另加 track 履带）
-const BOSS_WEAKSPOT_KEYS = ['driver', 'ammo', 'engine', 'gunner', 'loader', 'commander', 'track'];
+const BOSS_WEAKSPOT_KEYS = ['driver', 'ammo', 'engine', 'gunner', 'loader', 'commander', 'track', 'breech'];
 
 // 掉落卡牌稀有度（loot.cardRarity）
 const LOOT_RARITIES = ['common', 'rare', 'epic', 'legendary'];

@@ -50,7 +50,10 @@ function mkTarget(over){
 // 命中构造（部分部位可换弹道方向）：hullLen=64 → halfL=32
 const HIT_FRONT = { part:'hull', faceKey:'front', x:32, y:0, nx:1, ny:0, edgeName:'front' };
 const HIT_REAR  = { part:'hull', faceKey:'rear',  x:-32, y:0, nx:-1, ny:0, edgeName:'rear' };
-const HIT_AMMO_SIDE = { part:'hull', faceKey:'side', x:0, y:-10, nx:1, ny:0, edgeName:'side' };   // rx=0 → 弹药架区
+const HIT_AMMO_SIDE = { part:'hull', faceKey:'side', x:10, y:-10, nx:1, ny:0, edgeName:'side' };  // P-49: t=(41.5−10)/73.5≈0.43 ∈ 弹药段 [0.1,0.5)
+// P-49 概率分区：模块命中改为区内随机抽取 → 用固定值替换 Math.random 保证断言确定性
+//（0.2=弹药段抽中 ammo / 0.1=发动机段抽中 engine / 0.9=任何区均落余量 null）
+function withDice(v, fn){ const orig = Math.random; Math.random = () => v; try { return fn(); } finally { Math.random = orig; } }
 const HIT_TRACK_SIDE = { part:'hull', faceKey:'side', x:31, y:0, nx:1, ny:0, edgeName:'side' };   // |rx|=0.969>0.78 → 履带
 
 // ============================================================================
@@ -177,23 +180,23 @@ ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret ===
 // ============================================================================
 {
   const tK = mkTarget({});
-  const resK = P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:1e9 }), tK, HIT_FRONT, true);
+  const resK = withDice(0.9, () => P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:1e9 }), tK, HIT_FRONT, true));
   ok(resK.outcome === 'PEN', 'dmg=1e9 击穿');
   ok(tK.hp === 0, 'dmg=1e9 → hp 钳制到 0（击杀）');
-  ok(tK.ammoBlew === false, '车体正面（hullHull）击杀 → 不殉爆');
+  ok(tK.ammoBlew === false, '车体正面击杀（余量无模块）→ 不殉爆');
 
   const tA = mkTarget({});
-  const resA = P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:1e9 }), tA, HIT_AMMO_SIDE, true);
+  const resA = withDice(0.2, () => P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:1e9 }), tA, HIT_AMMO_SIDE, true));
   ok(tA.hp === 0 && tA.ammoBlew === true, '弹药架致命命中 → ammoBlew=true');
   ok(tA.fireT === RULES.fire.fireVisualSeconds, '殉爆 → fireT=视觉燃烟时长');
-  ok(tA.blowHitPoint && tA.blowHitPoint.x === 0 && tA.blowHitPoint.y === -10, '殉爆点记录命中点');
+  ok(tA.blowHitPoint && tA.blowHitPoint.x === 10 && tA.blowHitPoint.y === -10, '殉爆点记录命中点');
   ok(resA.cls === 'CRIT', '殉爆 → cls=CRIT');
 
   const t0 = mkTarget({});
-  P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:0 }), t0, HIT_FRONT, true);
+  withDice(0.9, () => P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:0 }), t0, HIT_FRONT, true));
   ok(t0.hp === 100, 'dmg=0 → hp 不变');
   const tT = mkTarget({});
-  P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:0.001 }), tT, HIT_FRONT, true);
+  withDice(0.9, () => P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:0.001 }), tT, HIT_FRONT, true));
   ok(tT.hp === tT.maxHp, 'dmg=0.001 → Math.round 取整为 0 → hp 不变');
 }
 
@@ -211,7 +214,7 @@ ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret ===
 
   const tEn = mkTarget({});
   const shEn = mkShell({ dx:-1, dy:0, pen:200, dmg:34, shooter:mkTarget({ team:'player' }) });
-  const resEn = P.resolveHit(shEn, tEn, HIT_REAR, true);
+  const resEn = withDice(0.1, () => P.resolveHit(shEn, tEn, HIT_REAR, true)); // 后部面 t=1 ∈ 发动机段 [0.5,1]，0.1<0.40 抽中 engine
   ok(resEn.outcome === 'PEN', '发动机命中（车体后部）→ 击穿');
   ok(tEn.dotDps > 0 && tEn.dotSeconds === RULES.fire.dotSeconds,
     `发动机起火 DOT: dps=${tEn.dotDps.toFixed(2)}>0、dotSeconds=${tEn.dotSeconds}s=${RULES.fire.dotSeconds}`);
@@ -219,11 +222,11 @@ ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret ===
   ok(tEn.debuffs.engine === RULES.modules.debuffSeconds, '发动机未死 → engine debuff 8s');
 
   const tAk = mkTarget({ base: { maxHp: 10 } });
-  const resAk = P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:34 }), tAk, HIT_AMMO_SIDE, true);
+  const resAk = withDice(0.2, () => P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:34 }), tAk, HIT_AMMO_SIDE, true));
   ok(tAk.hp === 0 && tAk.ammoBlew === true, '低血量（maxHp=10）弹药架致命 → 殉爆');
 
   const tAm = mkTarget({ base: { maxHp: 1e6 } });
-  P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:10 }), tAm, HIT_AMMO_SIDE, true);
+  withDice(0.2, () => P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:10 }), tAm, HIT_AMMO_SIDE, true));
   ok(tAm.debuffs.ammo === RULES.modules.debuffSeconds && tAm.ammoBlew === false,
     '弹药架未死 → ammo debuff 8s、不殉爆');
 }
@@ -245,7 +248,7 @@ ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret ===
 {
   const tH = mkTarget({ base: { maxHp: 1e6 } });
   ok(tH.maxHp === 1e6 && tH.hp === 1e6, 'maxHp=1e6 → hp=1e6');
-  const resH = P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:34 }), tH, HIT_FRONT, true);
+  const resH = withDice(0.9, () => P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:34 }), tH, HIT_FRONT, true)); // 余量无模块倍率
   const lo = 1e6 - Math.round(34*1.15), hi = 1e6 - Math.round(34*0.85);
   ok(tH.hp >= lo && tH.hp <= hi, `dmg=34×随机倍率[0.85,1.15] → 扣血∈[${lo},${hi}]（hp=${tH.hp}）`);
 
@@ -253,7 +256,7 @@ ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret ===
   P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:34 }), t1, HIT_FRONT, true);
   ok(t1.hp === 0, 'maxHp=1 → 一击必杀 hp=0');
   const t1a = mkTarget({ base: { maxHp: 1 } });
-  P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:34 }), t1a, HIT_AMMO_SIDE, true);
+  withDice(0.2, () => P.resolveHit(mkShell({ dx:1, dy:0, pen:200, dmg:34 }), t1a, HIT_AMMO_SIDE, true));
   ok(t1a.hp === 0 && t1a.ammoBlew === true, 'maxHp=1 弹药架命中 → 殉爆');
 
   const tD = mkTarget({});
@@ -350,7 +353,7 @@ ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret ===
 
   // 地板：pen=20 → ratio = max(0.25, 0.5×20/110≈0.0909) = 0.25 → dmg=round(100×0.25)=25
   const t2 = mkTarget({});
-  const res2 = P.resolveHit(mkShell({ ammoKey:'he', dx:1, dy:0, pen:20, dmg }), t2, HIT_FRONT, true);
+  const res2 = withDice(0.9, () => P.resolveHit(mkShell({ ammoKey:'he', dx:1, dy:0, pen:20, dmg }), t2, HIT_FRONT, true));
   ok(res2.dmg === 25 && t2.hp === 75, `厚甲地板: ratio 钳到 0.25 → dmg=25、hp=75（got ${res2.dmg}/${t2.hp}）`);
 
   // 无敌目标：残余爆轰不扣血
@@ -368,7 +371,7 @@ ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret ===
   const edge = mkTarget({ x:122, y:0 });                       // 距中心 90 = 半径 → falloff 0 → 0 伤害
   const far  = mkTarget({ x:123, y:0 });                       // 距中心 91 > 90 → 无伤害
   global.entities = [main, near, edge, far];
-  const res = P.resolveHit(mkShell({ ammoKey:'he', dx:1, dy:0, pen:1e9, dmg }), main, HIT_FRONT, true);
+  const res = withDice(0.9, () => P.resolveHit(mkShell({ ammoKey:'he', dx:1, dy:0, pen:1e9, dmg }), main, HIT_FRONT, true)); // 余量无模块倍率
   ok(res.outcome === 'PEN', 'HE 击穿主目标（溅射场景）');
   ok(near.hp === 75, `副目标近（45px）衰减扣 25 → hp=75（got ${near.hp}）`);
   ok(edge.hp === 100, `副目标边缘（90px=半径）falloff=0 → 不掉血（got ${edge.hp}）`);

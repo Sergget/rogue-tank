@@ -25,7 +25,7 @@
 //   t.abilityBaseCd[key]) || 45（mvp/node-map 把商店减免注入 abilityBaseCd，未注入时
 //   回退基础 45s）。逐帧递减由接线层调用 updateAbilityCds(t, dt)；未接入时
 //   tryActivateAbility 的 cooldown 判断天然容错（冷却永不结束而已，不报错）。
-//   repair 效果：清 trackBroken/immobT + debuffs 中 engine/ammo 模块键并 refreshStats；
+//   repair 效果：清 trackBroken/immobT + debuffs 中 engine/ammo/breech 模块键并 refreshStats；
 //   弹药架殉爆（ammoBlew=true）不可修（保留殉爆与 ammo debuff），其余照常修复且激活成功。
 //   medkit 效果：清 debuffs 中 gunner/loader/commander/driver 四类乘员键并 refreshStats。
 //
@@ -113,6 +113,7 @@ function _tryActivateInnate(t, key) {
     t.immobT = 0;
     const d = (t.debuffs = t.debuffs || {});
     delete d.engine;
+    delete d.breech;   // P-49 炮闩受损（无法开火）属机械损伤 → 修理箱可修
     if (!blew) delete d.ammo;
     if (_refreshStats) _refreshStats(t);
     t.abilityCds[key] = innateBaseCd(t, key);

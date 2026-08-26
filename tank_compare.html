@@ -318,7 +318,13 @@ function buildColumn(key, spec){
 
   // ---------- 真实世界单位标定显示（以 Tiger I 为基准） ----------
   // maxSpeedKmh 由 computeStats 按 RULES.speed.kmhFactor 同源产出，此处无本地换算硬编码
+  // P-49 只读派生：派生重量（deriveWeight 单一来源）+ 功重比 = enginePower ÷ 派生重量
+  // （吨位即内部值，无换算；与设计器 updateWeightReadout 同口径）
+  const dWeight = deriveWeight(spec);
+  const ePow = getPath(spec, 'enginePower');
   const calRows = [
+    ['功重比', (typeof ePow === 'number' && ePow > 0 && dWeight > 0) ? (ePow / dWeight).toFixed(1) + ' hp/t' : '—'],
+    ['派生重量', dWeight > 0 ? dWeight.toFixed(1) + ' t' : '—'],
     ['标定极速', calStats.maxSpeedKmh !== undefined ? calStats.maxSpeedKmh + ' km/h' : '—'],
     ['标定弹速', calStats.shellSpeedMs !== undefined ? calStats.shellSpeedMs + ' m/s' : '—'],
     ['车体长度', calStats.hullLengthM !== undefined && calStats.hullLengthM > 0 ? calStats.hullLengthM.toFixed(2) + ' m' : '—'],

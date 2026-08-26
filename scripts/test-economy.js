@@ -401,9 +401,10 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
   ok(eco.applyRunShopPurchase(st, 'fast_reload') === true && st.spent === fr.baseCost + eco.runShopPriceFor(fr, 1), '二级购买成功：costGrowth 递增计价');
   const stPoor = { total: 10, spent: 0, levels: {} };
   ok(eco.applyRunShopPurchase(stPoor, 'engine_overdrive') === false && stPoor.spent === 0, '余额不足 → false 且不改动账本');
-  // ISSUE 20：已取消 maxLevel 上限，满级后仍能继续购买（costGrowth 雪球约束边际）
-  const stMax = { total: 999999, spent: 0, levels: { steady_mount: 50 } };
-  ok(eco.applyRunShopPurchase(stMax, 'steady_mount') === true && stMax.levels.steady_mount === 51, '取消 maxLevel 上限后仍可继续购买（无限购买）');
+  // D3 #A2：恢复 maxLevel 上限判定——满级后第 2 次购买返回 false 且账本不变（未定义 maxLevel 的商品仍无限购买）
+  const stMax = { total: 999999, spent: 0, levels: { steady_mount: 1 } };
+  ok(eco.applyRunShopPurchase(stMax, 'steady_mount') === false && stMax.levels.steady_mount === 1 && stMax.spent === 0, 'maxLevel 上限：steady_mount 满级后第 2 次购买返回 false 且账本不变');
+  ok(eco.RUN_SHOP_DEFS.every(d => d.maxLevel !== undefined && d.maxLevel !== null), '现行 RUN_SHOP_DEFS 全部商品均定义 maxLevel（上限判定全量生效）');
   ok(eco.canAfford(50, 50) && !eco.canAfford(49, 50), 'canAfford 边界（=通过 / <拒绝）');
 
   // 即时效果类商品形态：effects 空 + instant healPct

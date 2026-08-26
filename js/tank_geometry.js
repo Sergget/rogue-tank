@@ -412,66 +412,96 @@ function moduleHitFromBands(verts, mods, part, axis, depth, rx, ry){
   return best ? { key: best, label: moduleLabelOf(best) } : null;
 }
 
+// P-49 多边形几何中心（面积加权 centroid），verts 为局部帧 [[x,y],...]；
+// 退化（非多边形）→ 顶点均值。用于炮塔/车体分区原点。
+function polyCentroidLocal(verts){
+  if(!verts || verts.length < 3) return { x:0, y:0 };
+  let a=0, cx=0, cy=0;
+  for(let i=0;i<verts.length;i++){
+    const p = verts[i], q = verts[(i+1)%verts.length];
+    const cross = p[0]*q[1] - q[0]*p[1];
+    a += cross; cx += (p[0]+q[0])*cross; cy += (p[1]+q[1])*cross;
+  }
+  if(Math.abs(a) < 1e-9){
+    let sx=0, sy=0; for(const v of verts){ sx+=v[0]; sy+=v[1]; }
+    return { x:sx/verts.length, y:sy/verts.length };
+  }
+  a *= 0.5;
+  return { x:cx/(6*a), y:cy/(6*a) };
+}
+
+// P-49 区内互斥抽取：weights = { key: prob }，按 RULES 键序累积抽样；
+// 抽中和 ≥ 权和（区和<1 的余量）→ null（正常结算伤害、无成员/模块倍率加成）。
+// 随机源 = 全局 Math.random（tank_sim 回放以 seed 流整体替换 → 确定性回放不受影响）。
+function zoneDraw(weights){
+  if(!weights) return null;
+  const r = Math.random();
+  let acc = 0;
+  for(const k in weights){
+    acc += weights[k];
+    if(r < acc) return k;
+  }
+  return null;
+}
+
+function zoneResult(weights){
+  const key = zoneDraw(weights);
+  return key ? { key, label: moduleLabelOf(key) } : null;
+}
+
+// P-49 命中部位→模块：face 分区改为**几何分区+概率抽取**（RULES.modules.zonesV2）。
+//   炮塔：四象限（原点=炮塔装甲多边形 centroid，x=炮塔朝向局部系；左=从塔内面向正面时的左手侧，
+//         屏幕 y 向下坐标系下即局部 y<0）。
+//   车体：纵轴区段（t=击穿点沿车体纵轴投影归一化，0=车头）；构型由座圈圆心相对车体
+//         polygon centroid 的前后位置决定（前置/后置炮塔）。侧面极前/极后端仍恒为自动履带区。
+// 返回 null = 概率余量：正常结算伤害、无成员/模块倍率加成（调用方须判空）。
+// 旧 json 的自定义 modules 挂载数据不再消费（忽略、不报错）。
 function moduleFromHit(tank, hit){
   const Z = RULES.modules.zones;
-  const MODS = RULES.modules;
+  const ZV = RULES.modules.zonesV2 || {};
   if(hit.part==='turret'){
-    // 线段挂载模块：命中点转炮塔局部帧（与 turretSpec.verts 同帧），逐模块逐带判定；
-    // 无覆盖 → 上部结构装甲（结构性 fallback，不再走 zones 分区）。
-    if(tank.modules && hasModulePlacementsOn(tank.modules, 'turret')){
-      const p = turretPivot(tank);
-      const rel = rotate(hit.x - p.x, hit.y - p.y, -superstructureAngle(tank));
-      const hitMod = moduleHitFromBands(
-        tank.turretSpec && tank.turretSpec.verts, tank.modules, 'turret',
-        tank.turretAxis || { dx:0, dy:0 }, MODS.bandDepth.turret, rel.x, rel.y);
-      if(hitMod) return hitMod;
-      return {key:'turretHull', label:'上部结构装甲'};
-    }
-    if(hit.faceKey==='side'){
-      // 炮塔侧面按命中点局部 x 分前后：前段/中段 → 炮手，后段 → 装填手
-      const p = turretPivot(tank);
-      const rel = rotate(hit.x - p.x, hit.y - p.y, -superstructureAngle(tank));
-      const halfL = Math.max(1, (tank.turLen||34)/2);
-      if(rel.x/halfL >= Z.turretLoader) return {key:'gunner', label:'炮手'};
-      if(rel.x/halfL >= Z.turretAmmo) return {key:'loader', label:'装填手'};
-      return {key:'ammo', label:'炮塔尾舱弹药架'};
-    }
-    if(hit.faceKey==='rear') return {key:'commander', label:'车长'};
-    return {key:'turretHull', label:'上部结构装甲'};
+    // 击穿点转炮塔局部帧（与 turretSpec.verts 同帧），相对装甲多边形 centroid 判象限后概率抽取
+    const p = turretPivot(tank);
+    const rel = rotate(hit.x - p.x, hit.y - p.y, -superstructureAngle(tank));
+    const poly = turretPoly(tank);
+    const c = polyCentroidLocal(poly && poly.verts);
+    const lx = rel.x - c.x, ly = rel.y - c.y;
+    const quadKey = (lx >= 0)
+      ? ((ly < 0) ? 'frontLeft' : 'frontRight')
+      : ((ly < 0) ? 'rearLeft' : 'rearRight');
+    const TQ = ZV.turretQuadrants || {};
+    return zoneResult(TQ[quadKey]);
   }
+  // hull：击穿点转车体局部帧；履带碰撞盒恒先截获（车体极前/极后端，2026-08-12 设计决策保留）
+  const rel = rotate(hit.x - tank.x, hit.y - tank.y, -tank.hullAngle);
   if(hit.faceKey==='side'){
-    // 用命中点相对车体中心的局部 x 判定前后（s 的方向因左右侧面而异，不能直接用）
-    const rel = rotate(hit.x - tank.x, hit.y - tank.y, -tank.hullAngle);
     const halfL = Math.max(1, (tank.hullLen||64)/2);
-    // 履带碰撞盒：恒为车体极前/极后端（现有履带模型沿车体全长，其前后端即车体两端），
-    // 无需挂载 track 模块——2026-08-12 设计决策（roguelike 简化：机制由规则自动派生）。
     if(Math.abs(rel.x/halfL) > Z.trackBound) return {key:'track', label:'履带/负重轮'};
   }
-  if(tank.modules && hasModulePlacementsOn(tank.modules, 'hull')){
-    // 线段挂载模块：命中点转车体局部帧（与 hullSpec.verts 同帧）；无覆盖 → 结构性 fallback
-    // （侧面装甲 / 发动机舱 / 正面装甲）。
-    const rel = rotate(hit.x - tank.x, hit.y - tank.y, -tank.hullAngle);
-    const hitMod = moduleHitFromBands(
-      tank.hullSpec && tank.hullSpec.verts, tank.modules, 'hull',
-      { dx:0, dy:0 }, MODS.bandDepth.hull, rel.x, rel.y);
-    if(hitMod) return hitMod;
-    if(hit.faceKey==='rear') return {key:'engine', label:'发动机舱'};
-    return {key:'hullHull', label: hit.edgeName==='front' ? '车体正面装甲' : (hit.faceKey==='side' ? '车体侧装甲' : '车体后部装甲')};
+    // 纵轴投影归一化（0=车头）：车体多边形顶点沿局部 x 极值裁剪（局部帧 +x 为前，同 engineLocalX 约定）
+    const hp = hullPoly(tank);
+    const verts = (hp && hp.verts) || [];
+    if(verts.length >= 2){
+      let minX=Infinity, maxX=-Infinity;
+      for(const v of verts){ if(v[0]<minX) minX=v[0]; if(v[0]>maxX) maxX=v[0]; }
+      const range = Math.max(1e-6, maxX-minX);
+      const tProj = Math.min(1, Math.max(0, (maxX-rel.x)/range));
+    // 构型：座圈圆心（hull 局部帧坐标，turretPivotOffset={dx,dy} 即定义于该帧，同 turretPivot）
+    // 在车体 centroid 前（含重合）= 前置炮塔
+    const pOff = tank.turretPivotOffset || {};
+    const pLocalX = Number.isFinite(pOff.dx) ? pOff.dx : (Number.isFinite(pOff.x) ? pOff.x : 8);
+    const hc = polyCentroidLocal(verts);
+    const segs = (pLocalX >= hc.x)
+      ? (ZV.hullFrontPivot || [])
+      : (ZV.hullRearPivot || []);
+    for(const seg of segs){
+      // 半开区间 [tMin, tMax)，末段（tMax≥1）右闭 [tMin, 1]（P-49 规格裁定）
+      if(tProj >= seg.tMin && (tProj < seg.tMax || (seg.tMax >= 1 && tProj <= seg.tMax)))
+        return zoneResult(seg.weights);
+    }
   }
-  if(hit.faceKey==='side'){
-    // 用命中点相对车体中心的局部 x 判定前后（s 的方向因左右侧面而异，不能直接用）
-    const rel = rotate(hit.x - tank.x, hit.y - tank.y, -tank.hullAngle);
-    const halfL = Math.max(1, (tank.hullLen||64)/2);
-    const rx = rel.x / halfL;
-    // 分区（波带）：极前端/极后端 → 履带；前段 → 驾驶员；中段 → 弹药架；后段 → 发动机
-    if(rx >= Z.driverFront) return {key:'driver', label:'驾驶员'};
-    if(rx >= Z.ammoRear) return {key:'ammo', label:'弹药架'};
-    return {key:'engine', label:'油箱/发动机'};
-  }
-  if(hit.faceKey==='rear'){
-    return {key:'engine', label:'发动机舱'};
-  }
-  return {key:'hullHull', label: hit.edgeName==='front' ? '车体正面装甲' : '车体后部装甲'};
+  // 纵轴区间未覆盖 / 无权重命中（余量）→ 正常结算
+  return null;
 }
 
 function faceLabel(k){ return {front:'正面',side:'侧面',rear:'后部'}[k]||k; }
@@ -555,6 +585,9 @@ if (typeof module !== 'undefined' && module.exports) {
     moduleAllowedParts,
     moduleHitFromBands,
     moduleFromHit,
+    polyCentroidLocal,
+    zoneDraw,
+    zoneResult,
     bestTankHit,
     aimPartPreference,
     bestHitForPref,

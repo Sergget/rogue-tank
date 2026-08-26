@@ -411,7 +411,8 @@ function canAfford(balance, price){
 }
 
 // 购买纯操作：state = { total, spent, levels: {id→lv} }（UI 层持有，本函数原地更新）。
-// 两分支失败返回 false：def 不存在 / 余额不足（ISSUE 20：已取消 maxLevel 上限，无限购买由 costGrowth 雪球约束）。
+// 三分支失败返回 false：def 不存在 / 已达 maxLevel（D3 #A2 恢复上限判定；未定义 maxLevel 的商品
+// 仍可无限购买，尊重 ISSUE 20 决策的其余部分）/ 余额不足。
 // 不做任何效果应用——modifiers/hp 应用由 UI 层按 def.effects/instant 执行（保持本函数可测）。
 function applyRunShopPurchase(state, defId){
   if(!state || typeof state !== 'object') return false;
@@ -419,6 +420,7 @@ function applyRunShopPurchase(state, defId){
   if(!def) return false;
   state.levels = state.levels || {};
   const lv = state.levels[defId] || 0;
+  if(def.maxLevel !== undefined && def.maxLevel !== null && lv >= def.maxLevel) return false;
   const price = runShopPriceFor(def, lv);
   const balance = (Number(state.total) || 0) - (Number(state.spent) || 0);
   if(!canAfford(balance, price)) return false;

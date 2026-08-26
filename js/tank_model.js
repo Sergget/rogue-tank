@@ -63,6 +63,15 @@ function computeStats(base, modifiers){
       s[stat] *= mul;
     }
   }
+  // D3 #A2 下限钳制（2026-08-26）：spreadMult 聚合完成后钳 ≥ RULES.spread.multFloor。
+  // 姿态稳定（run shop add −0.15）等叠加曾使三扩系数穿越 0 变负 → motionSigma 负目标。
+  // floor 作用在最终生效值上：负中间值不外泄，三源运动散布合成链语义不变。
+  s.spreadMult = Math.max(s.spreadMult, RULES.spread.multFloor);
+  // 运行时重量硬上限（2026-08-26 用户裁定）：80t 只是设计器出厂上限（parameterLimits.weight.max），
+  // 卡牌/局内升级可突破；但聚合后的最终 weight 一律钳 ≤ RULES.weightRuntimeCap（240t）。
+  if (typeof RULES.weightRuntimeCap === 'number' && s.weight > RULES.weightRuntimeCap) {
+    s.weight = RULES.weightRuntimeCap;
+  }
   // derived mobility: forward acceleration (px/s^2) from horsepower per tonne scaled to game units.
   // derived AFTER modifier loop so cards/upgrades modifying enginePower or weight affect actual accel/brake.
   const effPower = typeof s.enginePower === 'number' ? s.enginePower : base.enginePower;
@@ -334,7 +343,86 @@ function applyTankConfig(tank, spec){
   if (tank.spawn) tank.spawn.hp = tank.stats.maxHp;
 }
 
-// SPREAD 全部数值来自 RULES.spread（特性5：集中配置）；保留旧面相（含 worstCase() 方法）
+// ---------- P-49 派生重量（纯函数，双端可用） ----------
+// 设计裁定（2026-08-26）：weight 一律按装甲几何派生，不允许自定义。本函数是唯一派生源，
+// 作为设计器保存校验与显示的数据源；computeStats 不受影响（weight 仍读 base/stats）。
+//
+// 公式：weight(t) = 底盘基数 + Σ(车体各边长px × 该边厚度mm × 车体系数) + Σ(炮塔各边长px × 厚度mm × 炮塔系数)
+//       = 28 + (车体Σ(px·mm) × 0.82 + 炮塔Σ(px·mm) × 1.5) / 1000
+// 单位映射：内部数值即"吨"（tiger-I 存 57、Obj780 存 55、Leapard_1 存 42——与真实吨位一致；
+// 比对器/设计器按原值显示为 t，无换算系数）。makeTank 默认 weight:300 是 legacy 占位尺度
+// （dummy.json 同源），非物理值；deriveWeight(dummy) ≈ 44t 才是其几何对应的物理重量。
+// 系数标定：对 tiger-I/Obj780/Leapard_1 三元方程组求解后圆整（底盘基数吸收动力总成/悬挂/
+// 炮管/乘员等非装甲质量），三车派生偏差均 <±1%（见 scripts/test-weight.js）。
+const DERIVE_WEIGHT_BASE_T = 28;             // 底盘基数（吨）：动力/悬挂/火炮等非装甲固定质量
+const DERIVE_WEIGHT_HULL_KG_PER_PXMM = 0.82; // 车体每 px·mm 的千克数（标定见上）
+const DERIVE_WEIGHT_TUR_KG_PER_PXMM = 1.5;   // 炮塔每 px·mm 的千克数（炮塔铸造件密度更高 → 系数更大）
+
+// 多边形逐边长度按 faces 标签分组求和（闭合环）
+function polyPerimeterByFace(verts, faces){
+  const sums = {};
+  const n = verts.length;
+  for(let i = 0; i < n; i++){
+    const a = verts[i], b = verts[(i+1)%n];
+    const len = Math.hypot(b[0]-a[0], b[1]-a[1]);
+    const face = (faces && faces[i]) ? faces[i] : 'side';
+    sums[face] = (sums[face] || 0) + len;
+  }
+  return sums;
+}
+
+// 解析某部件（hull/turret）的逐面厚度：spec.armor.<part> 与 spec.<part>.armor 合并，
+// 缺面回退 RULES.defaultArmor（旧数据无显式厚度时的单一事实源）。
+function resolvePartArmor(spec, part){
+  const dflt = (typeof RULES !== 'undefined' && RULES.defaultArmor && RULES.defaultArmor[part])
+    ? RULES.defaultArmor[part] : { front: 110, side: 40, rear: 25 };
+  const out = Object.assign({}, dflt);
+  if(spec.armor && spec.armor[part]) Object.assign(out, spec.armor[part]);
+  if(spec[part] && spec[part].armor) Object.assign(out, spec[part].armor);
+  return out;
+}
+
+// 部件 Σ(边长px × 厚度mm)，单位 px·mm
+function partPxMm(verts, faces, armor){
+  const byFace = polyPerimeterByFace(verts, faces);
+  let sum = 0;
+  for(const face in byFace){
+    const t = typeof armor[face] === 'number' ? armor[face]
+            : (armor.side !== undefined ? armor.side : 40);   // 未标注面按侧厚兜底
+    sum += byFace[face] * t;
+  }
+  return sum;
+}
+
+function deriveWeight(spec){
+  if(!spec) return DERIVE_WEIGHT_BASE_T;
+  let hullPxmm = 0, turPxmm = 0;
+  if(spec.hull && Array.isArray(spec.hull.verts)){
+    hullPxmm = partPxMm(spec.hull.verts, spec.hull.faces, resolvePartArmor(spec, 'hull'));
+  }
+  if(spec.turret && Array.isArray(spec.turret.verts)){
+    turPxmm = partPxMm(spec.turret.verts, spec.turret.faces, resolvePartArmor(spec, 'turret'));
+  }
+  // 底盘基数 + 车体装甲质量 + 炮塔装甲质量（px·mm × kg/(px·mm) ÷ 1000 → 吨）
+  return DERIVE_WEIGHT_BASE_T
+       + (DERIVE_WEIGHT_HULL_KG_PER_PXMM * hullPxmm + DERIVE_WEIGHT_TUR_KG_PER_PXMM * turPxmm) / 1000;
+}
+
+// P-49 重量上限判定：返回派生值 + 上限判定 + 区间钳制结果（设计器批次消费入口）。
+// 上限来自 RULES.parameterLimits.weight（当前 80t，用户暂定值）。
+function weightLimitInfo(spec){
+  const lim = (typeof RULES !== 'undefined' && RULES.parameterLimits && RULES.parameterLimits.weight)
+    ? RULES.parameterLimits.weight : { min: 10, max: 80 };
+  const derived = deriveWeight(spec);
+  return {
+    derived,                                  // 派生重量（吨）
+    min: lim.min, max: lim.max,               // 允许区间（吨）
+    ok: derived <= lim.max && derived >= lim.min,  // 是否在区间内（超上限 → 设计器禁用增量）
+    clamped: Math.min(Math.max(derived, lim.min), lim.max) // 钳到允许区间后的显示值
+  };
+}
+
+
 const SPREAD = {
   base: 0.018, moveMax: 0.014, hullRotMax: 0.012, turretRotMax: 0.018, fireDebuff: 0.02, bloomRate: 2.0, shrinkRate: 0.15,
   worstCase(){ return this.base + this.moveMax + this.hullRotMax + this.turretRotMax + this.fireDebuff; }
@@ -357,7 +445,8 @@ function motionSigma(t, dt, keys){
   const sHull = SPREAD.hullRotMax * Math.min(1, hullRate / t.stats.turnRate) * mK;
   const sTur  = SPREAD.turretRotMax * Math.min(1, turRate / t.stats.turretTurnRate) * mK;
   let base = SPREAD.base + (t.fireDebuffT>0 ? SPREAD.fireDebuff : 0);
-  return base + sMove + sHull + sTur;
+  // D3 #A2：最终生效 σ 下限（RULES.spread.sigmaFloor）——floor 作用在合成结果上，负中间值不允许外泄
+  return Math.max(base + sMove + sHull + sTur, SPREAD.sigmaFloor);
 }
 
 function updateSigma(t, dt, keys){
@@ -379,7 +468,7 @@ function updateSigma(t, dt, keys){
 const DB = RULES.modules;
 
 // 模块中文标签（HUD/debug 显示用，集中定义避免各处复制）
-const MODULE_LABELS = { gunner:'炮手', loader:'装填手', driver:'驾驶员', engine:'发动机', commander:'车长', ammo:'弹药架' };
+const MODULE_LABELS = { gunner:'炮手', loader:'装填手', driver:'驾驶员', engine:'发动机', commander:'车长', ammo:'弹药架', breech:'炮闩' };
 function moduleLabel(key){ return MODULE_LABELS[key] || key; }
 
 function setDebuff(t, key, seconds){
@@ -466,6 +555,11 @@ if (typeof module !== 'undefined' && module.exports) {
     MODULE_LABELS,
     moduleLabel,
     applyTankConfig,
+    deriveWeight,
+    weightLimitInfo,
+    DERIVE_WEIGHT_BASE_T,
+    DERIVE_WEIGHT_HULL_KG_PER_PXMM,
+    DERIVE_WEIGHT_TUR_KG_PER_PXMM,
     SPREAD,
     motionSigma,
     updateSigma,

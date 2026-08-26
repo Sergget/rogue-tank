@@ -169,5 +169,29 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
   ok(F.fireTank(shooter,target,'auto')===false, 'reloadT>0 still blocks fireTank (gating preserved)');
 }
 
+// 6) P-49: breech debuff（炮闩受损）blocks firing — fireTank / fireSmokeShell / repair clears
+{
+  const shooter=M.makeTank({id:'p49',team:'player',x:0,y:0,hullAngle:0,turretAngle:0, base:{penetration:100, damage:20, reload:1, shellSpeed:1000, maxHp:100}});
+  const target=M.makeTank({id:'e49',team:'enemy',x:500,y:0});
+  global.entities=[shooter,target];
+  C.covers.length=0;
+  global.shells=[]; global.impacts=[]; global.bounceFx=[];
+  global.devAim={zeroSpread:true};
+  shooter.ammoKey='ap'; shooter.sigma=0;
+  shooter.reloadT=0;
+  shooter.debuffs={ breech: RULES.modules.debuffSeconds };
+  ok(F.fireTank(shooter,target,'auto')===false && global.shells.length===0, 'P-49 breech debuff blocks fireTank');
+  ok(F.fireSmokeShell(shooter)===false, 'P-49 breech debuff blocks fireSmokeShell');
+  // debuff 到期恢复开火
+  shooter.debuffs={};
+  global.shells.length=0;
+  ok(F.fireTank(shooter,target,'auto')===true && global.shells.length===1, 'P-49 breech debuff 过期后 fireTank 恢复');
+  // 修理箱清除表含 breech：repair 激活后清 debuff
+  shooter.debuffs={ breech: 5, engine: 5 };
+  const A=require('../js/tank_abilities.js');
+  const r=A.tryActivateAbility(shooter,'repair');
+  ok(r && r.ok===true && !shooter.debuffs.breech && !shooter.debuffs.engine, 'P-49 repair 清除 breech/engine debuff');
+}
+
 console.log(fails===0?'\nAll fire checks passed.':`\n${fails} FAILED`);
 process.exit(fails===0?0:1);

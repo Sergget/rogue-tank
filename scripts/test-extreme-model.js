@@ -44,7 +44,9 @@ function ok(cond, label){
   const s = computeStats(base, []);
   ok(s.maxSpeed===1e6 && s.turnRate===1e6 && s.reload===1e6 && s.maxHp===1e9,
     'computeStats 极端基准 (1e6/1e6/1e6/1e9) 原样保留');
-  ok(Number.isFinite(s.accel) && s.accel === 390, 'computeStats 极端基准 accel 有限 (900/300×130=390)');
+  // 2026-08-26 P-49 运行时重量硬上限：聚合 weight 一律钳 ≤ RULES.weightRuntimeCap(240)，
+  // 故 900/300×130 的旧基准失效 -> 900/240×130 = 487.5
+  ok(Number.isFinite(s.accel) && s.accel === 487.5, 'computeStats 极端基准 accel 有限 (900/240[cap]×130=487.5)');
   const t = makeTank({ base });
   ok(t.stats.maxSpeed===1e6 && t.stats.turnRate===1e6 && t.stats.reload===1e6 && t.stats.maxHp===1e9,
     'makeTank 极端基准 -> tank.stats 与基准一致');
@@ -186,9 +188,15 @@ function ok(cond, label){
     `turnRate=1e-6 + 大 hullRate -> min(1,…) 封顶 (${sig} === ${(SP.base+SP.hullRotMax).toFixed(4)})`);
 }
 {
+  // D3 #A2（2026-08-26）：computeStats 对 spreadMult 聚合结果钳 ≥ RULES.spread.multFloor——
+  // 旧行为「spreadMult=0 → 运动源清零」已废止，0 被钳为 multFloor，运动源按 0.2 倍保留。
   const t = makeTank({ id:'player', base:{ maxSpeed:120, spreadMult:0 } });
   t.prevHullAngle = 0; t.prevTurretAngle = 0;
-  ok(motionSigma(t, 1/60, { w:true }) === SP.base, 'spreadMult=0 -> 三个运动源清零，仅剩基准');
+  const sigZero = motionSigma(t, 1/60, { w:true });
+  ok(t.stats.spreadMult === RULES.spread.multFloor,
+    `spreadMult=0 -> computeStats 钳为 multFloor (${t.stats.spreadMult})`);
+  ok(sigZero > SP.base && Number.isFinite(sigZero),
+    `spreadMult=0(钳 0.2) -> 运动源 ×0.2 保留且有限 (${sigZero.toFixed(4)})`);
 }
 {
   const t = makeTank({ id:'player', base:{ maxSpeed:120, spreadMult:1e6 } });
@@ -197,11 +205,14 @@ function ok(cond, label){
   ok(Number.isFinite(sig) && sig > 1e4, `spreadMult=1e6 -> sigma 巨大但有限 (${sig.toFixed(1)})`);
 }
 {
+  // D3 #A2：spreadMult=0 被 computeStats 钳为 multFloor(0.2)，sigma 收敛到 base + 0.2×运动源
+  //（无输入时运动源为 0，仍收敛到基准 base；最终生效 σ 恒 ≥ RULES.spread.sigmaFloor）。
   const t = makeTank({ id:'player', base:{ maxSpeed:120, spreadMult:0 } });
   updateSigma(t, 0, {});
   ok(Number.isFinite(t.sigma), 'updateSigma dt=0 -> sigma 有限');
   for(let i=0; i<200; i++) updateSigma(t, 1/60, {});
-  ok(t.sigma === SP.base, 'updateSigma spreadMult=0 -> 收敛到基准 base');
+  ok(t.sigma === SP.base && t.sigma >= SP.sigmaFloor,
+    `updateSigma spreadMult=0(钳 ${RULES.spread.multFloor}) 无输入 -> 收敛到基准 base（≥ sigmaFloor）`);
 }
 
 // ========== 7) 模块 debuff 五倍率 + setDebuff 刷新 + tickDebuffs 清空 ==========
