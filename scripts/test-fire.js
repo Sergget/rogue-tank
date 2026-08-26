@@ -132,6 +132,31 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
   global.shells=[];
 }
 
+// 3b) #A8 半高掩体瞬移命中门控：dec.t 未飞抵时继续正常积分，到达后才结算
+{
+  const shooter=M.makeTank({id:'player',team:'player',x:0,y:0,hullAngle:0,turretAngle:0});
+  const target=M.makeTank({id:'e',team:'enemy',x:500,y:0,hullAngle:0,turretAngle:0});
+  global.entities=[shooter,target];
+  const cov={x:100,y:0,w:60,h:40,angle:0,tier:'half',hp:Infinity};
+  C.covers.push(cov);
+  global.impacts=[]; global.bounceFx=[];
+  // 低速弹：step=10px/帧，掩体入口当帧缓存 dec.t≈全弹道距离（≫dist+step）
+  const s={x:-10,y:0, fx:-20,fy:0, dx:1,dy:0, speed:200, pen:1000, dmg:50, ammoKey:'ap', ammo:{}, shooter:shooter, hitPref:'auto', canBounce:true, bounced:false, dist:0, dead:false};
+  global.shells=[s];
+  let noTeleport=true, settled=false;
+  for(let i=0;i<90 && !s.dead;i++){
+    const hadDec=!!s.dec;
+    F.stepShells(0.05,{worldW:4000,worldH:4000,random:()=>0.01});
+    // 已有 dec 但本帧未结算 → hp 必须不变、坐标不得跳到命中点（只前进 step）
+    if(hadDec && !s.dead && target.hp!==target.stats.maxHp) noTeleport=false;
+    if(s.dead && target.hp<target.stats.maxHp) settled=true;
+  }
+  ok(noTeleport, '#A8: dec 缓存期间不瞬移结算（目标不掉血直到飞抵）');
+  ok(settled, '#A8: 飞抵 dec.t 后正常穿透结算');
+  C.covers.splice(C.covers.indexOf(cov),1);
+  global.shells=[];
+}
+
 // 4) bounce semantics: secondary bounce forbidden (canBounce false after first)
 {
   const shooter=M.makeTank({id:'a',team:'enemy',x:0,y:0,hullAngle:0});

@@ -70,21 +70,6 @@
 
 ---
 
-### #A4. 履带断时按 4 键修理无效
-
-**状态：** 待处理
-
-**可复现证据：**
-- `tank_mvp.html:1946` tryRepairKit 早退 `if(player.immobT>0) return;`——履带断即置 immobT>0（mvp:2019），在最需要修理时静默拒绝。
-- 共享层 tryActivateAbility(t,'repair') 本身支持清 trackBroken/immobT（`tank_abilities.js:28,108-119`）。
-- 医疗包 L1952 同样门控。
-
-**影响：** 最需要修理的场景下修理键静默失效。
-
-**处理方向：** 删除页面侧 immobT 早退，拦截交给共享层 reason 提示。
-
----
-
 ### #A5. 自身模块受损/成员受伤无 UI 指示
 
 **状态：** 待处理
@@ -96,50 +81,6 @@
 **影响：** 玩家无法直观感知自身模块/乘员受损状态。
 
 **处理方向：** 画面顶部中央新增成员/模块状态条。
-
----
-
-### #A6. 伤害飘字溢出剩余血量 + 死亡后 DOT 继续跳字 + 缺颜色分类
-
-**状态：** 待处理
-
-**可复现证据：**
-- hp 在 `tank_physics.js:41` 钳 0 但飘字取 res.dmg 未截断（tank_physics.js:120 → tank_fire.js:389-390）。
-- DOT tick `tank_mvp.html:2207` 无 hp>0/_dead 检查、死亡块 L2233-2234 不清 dotT（bench 页 L638 同病）。
-- 当前五色方案 `tank_dmgtext.js:18-24`。
-- resolveHit 的 res 已含部位信息但 dmgText 调用点未透传，spawnDmgText 签名 (x,y,text,kind)。
-
-**影响：** 击杀伤害虚高显示、尸体持续跳字、部位信息无视觉区分。
-
-**处理方向：** 飘字伤害 min(res.dmg, 击杀前剩余hp)；DOT tick 加存活检查+死亡清 dotT；扩展 kind 实现白(普通)/黄(成员与非弹药架模块)/红(弹药架)。
-
----
-
-### #A7. 按住左键不能连射
-
-**状态：** 待处理
-
-**可复现证据：**
-- `tank_mvp.html:606` 仅 mousedown 单发触发，全文件无 mouseup/held 状态。
-- `js/tank_fire.js:60-66` tryFire 内建 reloadT 门控天然支持逐帧轮询。
-
-**影响：** 操作手感受限。
-
-**处理方向：** 加 mouseDownHeld 标志，主循环 held 时调 tryFire。
-
----
-
-### #A8. 半高掩体炮弹瞬移命中
-
-**状态：** 待处理
-
-**可复现证据：**
-- 弹道飞行中确实逐帧检测（`tank_fire.js:302` 线段扫掠、:338 findCoversOnPath、:347-355 graduated 分支缓存 s.dec），但结算分支 :371-374 `else if(bestTank||s.dec)` 不检查 s.dist 是否已达 dec.t，直接把炮弹坐标设为预测命中点结算——判决提前到入口被实现成结算也提前到入口。
-- 另有两条设计豁免放大感知：炮塔恒露（`tank_cover.js:395-397` zMin≥1.2 直接 exposure=1.0）、贴掩越掩插值（tank_cover.js:403-419 rayH>1.4 剔除整块掩体）。
-
-**影响：** 半高掩体防护观感严重失真（炮弹看似穿过掩体瞬移命中）。
-
-**处理方向：** :371 分支入口加剩余距离门控（未飞到 dec.t 继续积分飞行），不动 getExposure。
 
 ---
 
@@ -189,37 +130,6 @@
 **影响：** 道路与建筑/林地/水域任意重叠；路网断裂不贯穿。
 
 **处理方向：** generateNode 最前新增地图级路网阶段（2~3 条贯穿主干道 polyline + 分支 + occupied 集合复用 obbPairHits:583-593），village 层沿路网选簇心，edgeRiver 加 rectHitsCover（压路处放 bridge 反成特性），去掉水潭强制居中。约 +150 行中等重构。
-
----
-
-### #A12. 节点间回血不满（选了 maxHp 升级后）
-
-**状态：** 待处理
-
-**可复现证据：**
-- enterBattle resetEntity 恢复的是 spawn 快照陈旧 hp（`tank_entity.js:23-28` Object.assign(t,t.spawn)；快照仅在 applyTankConfig 同步 tank_model.js:334）。
-- 战斗中 addModifier 提升 maxHp 后 refreshStats（`tank_model.js:113-123`）既不抬 hp 也不回写 spawn.hp。
-- 出击路径有 #99 兜底（mvp:1757-1758 player.hp=maxHp）但 enterBattle（mvp:818）没有。
-
-**影响：** 选了 maxHp 升级后节点间回血不满血。
-
-**处理方向：** enterBattle 补 player.hp=stats.maxHp 兜底；addModifier 中 maxHp 变化按增量比例提升 hp 并同步 spawn.hp（两者都做）。
-
----
-
-### #A13. ammo 卡 mode:'add' 语义错位（严重平衡炸弹）
-
-**状态：** 待处理
-
-**可复现证据：**
-- add 加在倍率刻度而非 mm——sniper_hard_core desc「APCR穿深+14mm」实际 1.2+14=15.2 倍（1520%）（`js/tank_cards.js:184-189` cfg[field]=val+ef.value，val 初值为 RULES 倍率）。
-- sniper_apcbc「AP+12mm」→13倍。
-- HE 软上限（`tank_cards.js:213`）只钳 HE，AP/APCR 无钳制。
-- test-cards.js:104 固化了该语义。
-
-**影响：** 穿深卡实际效果放大百倍级，严重破坏平衡。
-
-**处理方向：** 优先修 add 语义（改 mm 刻度需同步 fireTank 换算，或改 mult+desc）；列为扩卡前置修复。
 
 ---
 

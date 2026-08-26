@@ -43,7 +43,7 @@
 - **目标**：修复战斗结算与 `aiDecide` 已核实问题，并建立可复现的回归判据。
 - **进度（2026-08-26）**：
   - ✅ **回放冒烟基线已建成**：`js/tank_sim.js`（确定性 headless 全链战斗模拟：generateRun 节点链实体化 + 全员 aiDecide 驱动 + driveTank/fireTank/stepShells/resolveHit 共享模块复用，运行期以 seed RNG 流整体替换 Math.random 覆盖 AI 抖动与伤害浮动）+ `scripts/test-replay.js`（13 断言：完整打完 / 同 seed 摘要一致 / 异 seed 分化 / 时长与 HP 域不变量），已接入 `npm test` 链尾。
-  - 基线锚点：seed=1 五节点 hash `8ca1022b`（P-49 概率分区重锚：moduleFromHit 改几何分区+概率抽取后随机流位移，旧锚点 `28f3e684` 作废）；战局分布含 win/loss/timeout 三态。已知保真度取舍记录于 tank_sim.js 头注释（Boss 占位实体 / dot 连续近似 / 无复活卡牌）。
+  - 基线锚点：seed=1 五节点 hash `1e49b3fc`（P-49 概率分区重锚后现行值；P-49 后缺陷修复批(#A8 半高瞬移门控/#A6 飘字截断) 已验证 hash 中性，锚点不变，DEVELOPMENT.md §2 同步）；战局分布含 win/loss/timeout 三态。已知保真度取舍记录于 tank_sim.js 头注释（Boss 占位实体 / dot 连续近似 / 无复活卡牌）。
   - 实现中发现的接口陷阱（备查）：`materializeNode` 的 `env.clearEntities(keepIds)` 是**保留**语义——实现若清空一切会把玩家从注册表抹掉，敌军因 `ctx.player` 引用脱离注册表而永不接战。
 - **待办**：
   - 用基线跑批量 seed 收集失败案例 → 核实进 ISSUES；

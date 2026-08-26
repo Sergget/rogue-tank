@@ -26,7 +26,11 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 
 ## 3. 六大效果类型 (type 决定 params)
 1. **modifier**：{stat, mode:'add'|'mult', value}——stat 白名单（穿透/伤害/装填/弹速/极速/转向/炮塔转速/装甲路径 armor.hull.front 等）或履带锁/模块倍率/DOT倍率/散布。立即生效（走 addModifier 管道，§5.1 三层属性系统）。
-2. **ammo**：弹种改造 {key:'ap'|'apcr'|'he', field:'pen'|'dmg'|'speed', mode, value}（接入点 §5.4）。
+2. **ammo**：弹种改造 {key:'ap'|'apcr'|'he', field:'pen'|'dmg'|'speed', mode, value}。
+   - **mode:'mult'**：对 RULES 基准倍率做乘算聚合。
+   - **mode:'add' = 乘算后毫米追加**（2026-08-26，原 ISSUES #A13 修复定案）：最终属性 = base × mult聚合 + Σadd，value 按**字段自然单位**计——pen=mm / dmg=伤害值 / speed=px/s（如「APCR穿深+14mm」即最终穿深加 14mm，而非倍率刻度 +14）。
+   - `computeAmmoConfig` 将 Σadd 输出为独立的 `fieldAdd` 字段存放，由消费方（fireTank/computeAmmoConfig 合成端）在乘算聚合之后合成，杜绝把 mm 追加混入倍率刻度。
+   - 软上限 `ammoTypeCap` 作用于**最终等效值**且仅钳 HE（AP/APCR/HEAT 不受限）。（接入点 §5.4）
 3. **ability**：主动装置 {key:'smoke'|'artillery'|'shield'|'overdrive'}（按键触发，P-17 接入 G/H/V）。
 4. **passive**：机制性被动 {key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}。
 5. **drone**：伴随浮游炮 {kind:'scout'|'striker'}（§2.2 已定型，countMax=2 上限）。

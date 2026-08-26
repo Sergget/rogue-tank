@@ -82,6 +82,12 @@
 | 2026-08-24 | `PLAN.md` | P-51 Boss 数据驱动机制补全（weakspots / loot 卡牌掉落 / ai 行为脚本） | 已完成并验证（resolveHit 可选增益 opts + 阶段声明式行为三模式 hold/charge/skirmish + loot.cards 三选一奖励链，见 specs/boss.md §4 / specs/combat.md §2） |
 | 2026-08-25 | `ISSUES.md` | #86~#101 玩法设计问题第二批（16 条，含原 #37b 重编号并入本批的说明） | 已全部解决并验证（对比器真实单位/村庄分层生成/AI侧摆/视野系统v1/商店v2/Boss行为五风格/敌军参数新封顶/履带断不缴械/加法聚合/修理箱医疗包，见 DEVELOPMENT.md §2.5「玩法设计第二批修复与机制定型」） |
 | 2026-08-26 | `ISSUES.md` | #A2. 姿态稳定无限购买致 spreadMult 负值（0.00→−0.15） | 已修复并验证（spread.multFloor=0.2/sigmaFloor + maxLevel 判定恢复 + 满级按钮禁用，见 specs/combat.md §2「散布下限防负值」） |
+| 2026-08-26 | `ISSUES.md` | #A12. 节点间回血不满（选了 maxHp 升级后） | 已修复并验证（enterBattle 满血兜底 + refreshStats 收口处 maxHp 差量抬 hp/同步 spawn.hp，见 DEVELOPMENT.md §2.2） |
+| 2026-08-26 | `ISSUES.md` | #A4. 履带断时按 4 键修理无效 | 已修复并验证（tryRepairKit/tryMedkit 删除 immobT 反向早退、拦截移交共享层 reason 提示，见 specs/combat.md §2） |
+| 2026-08-26 | `ISSUES.md` | #A6. 伤害飘字溢出剩余血量 + 死亡后 DOT 继续跳字 + 缺颜色分类 | 已修复并验证（飘字 min(dmg,剩余HP)/DOT 存活检查与死亡清 dot/白·黄·红颜色语义+pen legacy 别名，见 specs/combat.md §6） |
+| 2026-08-26 | `ISSUES.md` | #A7. 按住左键不能连射 | 已修复并验证（mouseFireHeld 标志 + battle 态逐帧 tryFire、reloadT/breech 射速门控，见 specs/combat.md §5.1） |
+| 2026-08-26 | `ISSUES.md` | #A8. 半高掩体炮弹瞬移命中 | 已修复并验证（graduated 判决缓存 s.dec 后结算分支剩余距离门控、实体直接命中优先，见 specs/combat.md §5.1） |
+| 2026-08-26 | `ISSUES.md` | #A13. ammo 卡 mode:'add' 语义错位（严重平衡炸弹） | 已修复并验证（add 改乘算后毫米追加、computeAmmoConfig 输出 fieldAdd 单独合成、软上限仅钳 HE 最终值，见 specs/cards.md §3） |
 
 ------
 

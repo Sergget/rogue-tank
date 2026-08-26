@@ -29,6 +29,7 @@
 
 ### 2.2 死亡 / 复活 / 失败
 - 死亡为永久性；失败条件**仅当复活次数耗尽**。
+- **节点间满血进入与 maxHp 同步（#A12，2026-08-26）**：enterBattle 经 resetEntity 恢复 spawn 快照后兜底 `player.hp = stats.maxHp`（与 #99 出击路径同款）；战斗中任何经 `refreshStats` 的 maxHp 正向变化按增量抬升当前 hp 并把 `spawn.hp` 同步为新满血值——差量对比收口在 refreshStats 而非 addModifier，多 modifier 叠加只按累计差量抬升一次；上限回落（移除修饰器/限时到期）仅钳制不主动扣血。
 - 复活 = 基础 2 次 + 局前商店加购（`profile.bonusRevives`）；满状态复活于友军据点旁随机无障碍点，附 3 秒无敌。模块 `js/tank_revive.js`。
 - 除阵亡耗尽外，玩家可在战斗中经 ESC 暂停面板主动「终止游戏并结算」结束本局（已落地，2026-08-24）。
 

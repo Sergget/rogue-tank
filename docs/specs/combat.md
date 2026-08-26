@@ -24,6 +24,7 @@
   - 发动机命中引发起火 DOT（dps=3.4，5s），并施加机动 debuff。
   - 履带命中 → trackBroken + immobT=8s 锁定。
   - 车长命中 → 全体乘员效果 ×0.85。
+  - **修理箱/医疗包可用性**（2026-08-26，原 ISSUES #A4 修复定案）：tryRepairKit/tryMedkit 已删除 immobT>0 的反向早退——履带断/重伤时不再静默拒绝，拦截统一移交共享层 tryActivateAbility 的 reason 提示。
 - **散布下限防负值（2026-08-26，原 ISSUES #A2 修复定案）**：`RULES.spread.multFloor=0.2` 对 spreadMult 加法聚合结果钳下限 + `sigmaFloor` σ 地板；局内商店姿态稳定恢复 maxLevel 判定（applyRunShopPurchase），满级购买按钮禁用置灰。
 
 ## 3. 弹种系统 (Ammo Types)
@@ -65,12 +66,13 @@
 
 ### 5.1 战斗机制更新（本轮落地）
 - 移动与生存：RULES.speed.effMul=1.3 在 driveTank 与碰撞限速两处消费，实际移速×1.3，但面板显示 stats.maxSpeed 不变；玩家经 applyDamage(target,amount) 统一扣血并乘 dmgTakenMul（玩家=0.85，更肉），面板 HP/装甲数值不变。
-- 炮弹与掩体：修复半高掩体曝光 bug——shell 在 exposure<1 时于掩体处被拦截，不再必然命中后方敌人；mud/water 为 mode:'pass' 飞越（不触发命中）。
+- 炮弹与掩体：修复半高掩体曝光 bug——shell 在 exposure<1 时于掩体处被拦截，不再必然命中后方敌人；mud/water 为 mode:'pass' 飞越（不触发命中）。graduated 掩体入口缓存判决（s.dec）后，结算分支带剩余距离门控——未飞抵 dec.t 前继续正常飞行积分，飞抵当帧才结算；实体直接命中优先（2026-08-26，原 ISSUES #A8 修复定案）。
 - 主炮特效：开火生成炮口双侧+前方闪光（spawnMuzzleFlash），炮弹每帧生成曳光拖尾（spawnTracer，颜色取自 ammo.tracer 或默认 #ffd24a），替代原烟雾拖尾。
 - 敌方 AI：aiDecideEnemy 在接战非特殊态注入随机微行为——peek 车体摆角（RULES.ai.peekAngleMax / peekInterval）与换位（RULES.ai.reposInterval），炮塔锁敌与开火条件不变。
 - 无人机：scout 暂不加入游戏（deployDronesFromCards 已 gate 掉）；striker 每 2s / 260px 内对最近敌人造成 0.4×拥有者伤害的直接扣血，并播放炮口闪光+曳光（视觉），保留侦察型离屏指示逻辑备用。
 - 弹种独立隔离与软上限：卡牌 `type:'ammo'` 效果经 `computeAmmoConfig` 严格按弹种隔离（不触碰其他弹种）；为抑制 HE 滚雪球过快，HE 专属卡牌幅度大幅下调（common 1.06–1.08 / rare 1.12 / epic 1.14–1.15 / legendary 1.20；common 叠层上限降至 2），且 `computeAmmoConfig` 对 HE 施加 `RULES.ammoTypeCap` 软上限（dmg:2.5, pen:1.8, speed:2.0；AP/APCR/HEAT 不受此限制）；战斗 HUD 增加实时 `#ammoReadout` 显示当前弹种最终加成。
 - 控制与设置：暂停菜单「控制」子菜单完整展示按键映射（独立包含 ` 或 F12 开发者面板、Tab 玩家状态面板）；新增 `profile.settings.showFps` 设置开关（默认 off）与实时 `#fpsReadout`；左上角增设常驻常显控制提示 `#topLeftInfo`（字号 ≥13px）。
+- 左键连射（2026-08-26，原 ISSUES #A7 修复定案）：左键支持按住连射——mouseFireHeld 标志 + battle 态逐帧 tryFire，射速由 reloadT/breech 门控保证；暂停或面板打开时不触发。
 
 ## 6. 特效与视效表现规范 (FX Visual Standards)
 
@@ -84,6 +86,10 @@
   - **穿透 (Penetration)**：向车体内部与后方喷射装甲金属碎片（debris）与高压火花，触发局部小范围闪光。
   - **HE 爆轰 (Explosion)**：爆轰火球 `explosions` 与冲击波 `shockwaves` 扩散半径必须严格按 `RULES.ammoTypes.HE.splashRadius` (90px) 动态缩放；地面生成深色弹坑痕迹 `scorchMarks`。
   - **飞头/殉爆 (Turret Blow-off)**：弹药架致死摧毁触发 `spawnAmmoBlowFx`；炮塔在空中弧形抛物线飞行并剧烈自旋，一路留滚滚黑烟粒子 `smoke`，落地时生成剧烈震屏与落点冲击波。
+- **伤害飘字 (Damage Numbers)**（2026-08-26，原 ISSUES #A6 修复定案）：
+  - 飘字显示 min(res.dmg, 击杀前剩余HP)，击杀伤害不再溢出虚高；
+  - DOT tick 加存活检查，目标死亡即清 dot 字段（mvp + bench 双页一致），尸体不再持续跳字；
+  - 颜色语义：普通伤害白(plain) / 成员与非弹药架模块黄(module) / 弹药架红(ammoRack)；pen 色保留为 legacy 别名。
 ## 7. 音频与声效表现规范 (Audio Visual Standards)
 
 - **声音总线与并发管理 (Busses & Concurrency)**：

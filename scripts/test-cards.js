@@ -101,9 +101,25 @@ const dummyShooter = {
   ]
 };
 const apCfg = cardsMod.computeAmmoConfig(dummyShooter, 'ap');
-// AP base pen=1, add 15 → 16; 单条 mult 1.2 聚合后仍为 ×1.2 → (1+15)*1.2 = 19.2; base dmg=1, ×1.1
-ok(Math.abs(apCfg.pen - 19.2) < 1e-4, 'AP 穿深加算与乘算叠加正确');
+// #A13 语义（2026-08-26）：mult 作用于倍率刻度 → cfg.pen = base(1)×1.2 = 1.2；
+// add 在乘算后以 mm 追加 → cfg.penAdd = 15（消费方 tank_fire.js：stats.penetration×1.2 + 15mm）
+ok(Math.abs(apCfg.pen - 1.2) < 1e-4, '#A13: AP 穿深倍率部分 base×multAggr=1.2');
+ok(Math.abs(apCfg.penAdd - 15) < 1e-4, '#A13: AP 穿深追加部分 penAdd=15mm（自然单位、乘算后追加）');
 ok(Math.abs(apCfg.dmg - 1.1) < 1e-4, 'AP 伤害乘算正确');
+
+// #A13 明确用例：最终穿深 = 基础值×Π(mult) + Σ(add)，而非 (基础值+add)×mult
+{
+  const s13 = { ammoKey: 'apcr', cardEffects: [
+    { type: 'ammo', key: 'apcr', field: 'pen', mode: 'mult', value: 1.5 },
+    { type: 'ammo', key: 'apcr', field: 'pen', mode: 'add', value: 20 }
+  ] };
+  const c13 = cardsMod.computeAmmoConfig(s13, 'apcr');
+  // 模拟消费公式（gunPen=100mm）：100×(base×1.5)+20；旧「先加后乘」语义为 (100+20)×(base×1.5)
+  const apcrBase = RULES.ammoTypes.apcr.pen;
+  ok(Math.abs(c13.pen - apcrBase * 1.5) < 1e-4 && Math.abs(c13.penAdd - 20) < 1e-4
+    && Math.abs((100 * c13.pen + c13.penAdd) - (100 * apcrBase * 1.5 + 20)) < 1e-4,
+    `#A13: add 在乘算后追加（100×${(apcrBase * 1.5).toFixed(2)}+20=${(100 * apcrBase * 1.5 + 20).toFixed(0)}mm，而非先加后乘）`);
+}
 
 // #97 加法聚合：同 field 多条 mult 聚合为 1 + Σ(value−1) 应用一次（非迭代相乘）
 const heShooter = {
@@ -115,7 +131,7 @@ const heShooter = {
 };
 const heCfg = cardsMod.computeAmmoConfig(heShooter, 'he');
 ok(Math.abs(heCfg.dmg - 1.4) < 1e-4, '#97: HE 伤害双 mult 加法聚合 ×1.4（旧迭代语义为 1.44）');
-// add pass 不变：add 与 mult 混合时先加后乘
+// add 与 mult 混合时（#A13）：mult 先作用于倍率刻度，add 乘算后追加（见上方明确用例）
 const mixCfg = cardsMod.computeAmmoConfig({
   ammoKey: 'heat',
   cardEffects: [
@@ -149,8 +165,14 @@ ok(negCfg.dmg === 0, '#97: 多条 mult 聚合为负时钳 ≥0（0.8×max(0, 1�
     for (const ef of card.effects) {
       if (ef.type !== 'ammo') continue;
       const baseV = RULES.ammoTypes.heat[ef.field];
-      const expected = ef.mode === 'add' ? baseV + ef.value : baseV * (1 + (ef.value - 1));
-      ok(Math.abs(cfg[ef.field] - expected) < 1e-4, `${id}: HEAT ${ef.field} ${ef.mode} ${ef.value} → ${expected.toFixed(4)}`);
+      if (ef.mode === 'add') {
+        // #A13：add 不混入倍率刻度，单独存放在 field+'Add'，由消费方在乘算后追加
+        ok(cfg[ef.field + 'Add'] === ef.value, `${id}: HEAT ${ef.field} add ${ef.value} → ${ef.field}Add=${ef.value}`);
+      } else {
+        const expected = baseV * (1 + (ef.value - 1));
+        ok(Math.abs(cfg[ef.field] - expected) < 1e-4, `${id}: HEAT ${ef.field} mult ${ef.value} → ${expected.toFixed(4)}`);
+        ok(cfg[ef.field + 'Add'] === undefined, `${id}: mult 不产生追加量`);
+      }
     }
     if (card.effects.some(e => e.type === 'modifier' && e.stat === 'spreadMult')) {
       const spreadEf = card.effects.find(e => e.stat === 'spreadMult');

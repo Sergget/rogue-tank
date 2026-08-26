@@ -603,7 +603,17 @@ canvas.addEventListener('mousemove', e=>{
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });
-canvas.addEventListener('mousedown', e=>{ if(inMenuState()) return; if(e.button===0 && fireCtx) tryFire(fireCtx); });
+// #A7：按住左键持续开火——mousedown/mouseup 维护按下标志，主循环 battle 态逐帧 tryFire
+// （tryFire 内建 reloadT/breech 门控，天然保证射速间隔）；ESC 暂停（flow!=='battle'）与
+// 面板打开（statusOpen/devOpen）时不连发；窗口失焦/鼠标移出画布复位防卡住。
+let mouseFireHeld = false;
+canvas.addEventListener('mousedown', e=>{
+  if(inMenuState()) return;
+  if(e.button===0){ mouseFireHeld = true; if(fireCtx) tryFire(fireCtx); }
+});
+window.addEventListener('mouseup', e=>{ if(e.button===0) mouseFireHeld = false; });
+canvas.addEventListener('mouseleave', ()=>{ mouseFireHeld = false; });
+window.addEventListener('blur', ()=>{ mouseFireHeld = false; });
 
 // ---------- P-15 玩家状态面板（Tab）/ 开发者面板（`） ----------
 let statusOpen = false, devOpen = false;
@@ -718,7 +728,8 @@ function updateStatusPanel(){
       const ac = computeAmmoConfig(player, key);
       if(!ac) continue;
       const f = v => (typeof v === 'number' ? v.toFixed(2) : '—');
-      ammoHtml += `<div><b>${(meta.label || key).toUpperCase()}</b> 穿×${f(ac.pen)} 伤×${f(ac.dmg)} 速×${f(ac.speed)}</div>`;
+      const fa = v => (typeof v === 'number' && v !== 0 ? `(+${v.toFixed(0)})` : '');   // #A13: 自然单位追加量（pen=mm）
+      ammoHtml += `<div><b>${(meta.label || key).toUpperCase()}</b> 穿×${f(ac.pen)}${fa(ac.penAdd)} 伤×${f(ac.dmg)}${fa(ac.dmgAdd)} 速×${f(ac.speed)}${fa(ac.speedAdd)}</div>`;
     }
     stAmmo.innerHTML = ammoHtml;
   }
@@ -816,6 +827,7 @@ function enterBattle(nodeIndex){
   clearStrikes();                            // P-17：进节点清空上一战场预警炮击
   player.shield = null;                      // P-17：护盾是短时开启状态，不跨节点（冷却 abilityCdT 跨节点保留）
   resetEntity(player);                       // 满状态进入节点
+  player.hp = player.stats.maxHp;            // #A12：满血进节点（resetEntity 后兜底，防 spawn 快照 hp 陈旧）
   player.x = node.playerSpawn.x; player.y = node.playerSpawn.y;
   player.hullAngle = 0; player.turretAngle = 0;
   cam.x = player.x; cam.y = player.y;        // 相机瞬间对齐出生点
@@ -961,7 +973,7 @@ function applyDifficultyMults(t, mults, applyPlayerCap){
       if(typeof computeAmmoConfig === 'function'){
         for(const key of ['ap', 'apcr', 'heat']){
           const ac = computeAmmoConfig(player, key);
-          if(ac && typeof ac.dmg === 'number') strongest = Math.max(strongest, ac.dmg * player.stats.damage);
+          if(ac && typeof ac.dmg === 'number') strongest = Math.max(strongest, ac.dmg * player.stats.damage + (ac.dmgAdd || 0));   // #A13: 含 dmg 追加量
         }
       }
       const cap = strongest > 0 ? strongest * (D.dmgCapAmmoMult !== undefined ? D.dmgCapAmmoMult : 0.7) : Infinity;
@@ -1950,13 +1962,16 @@ function kitFailLog(verb, res){
   else pushLog(`${verb}不可用（${res.reason}）`, 'COVER');
 }
 function tryRepairKit(){
-  if(!player || player.hp <= 0 || player.immobT > 0) return;
+  // #A4：不再以 immobT 早退——履带断恰是修理箱的核心场景；immobT 相关拦截
+  // 交给共享层 tryActivateAbility 的 reason 提示机制（kitFailLog 有兜底展示）。
+  if(!player || player.hp <= 0) return;
   const res = tryActivateAbility(player, 'repair');
   if(res.ok){ playSound('ui'); pushLog('修理箱启用 — 受损模块修复中', 'PEN'); }
   else kitFailLog('修理箱', res);
 }
 function tryMedkit(){
-  if(!player || player.hp <= 0 || player.immobT > 0) return;
+  // #A4：同修理箱，移除 immobT 早退（保留 hp<=0 门控）。
+  if(!player || player.hp <= 0) return;
   const res = tryActivateAbility(player, 'medkit');
   if(res.ok){ playSound('ui'); pushLog('医疗包使用 — 全体乘员救治', 'PEN'); }
   else kitFailLog('医疗包', res);
@@ -2133,6 +2148,8 @@ function update(dt){
     random: Math.random
   };
 
+  // #A7：按住左键持续开火（reloadT 门控在 fireTank 内保证射速间隔）
+  if(mouseFireHeld && flow.state === 'battle' && !statusOpen && !devOpen) tryFire(fireCtx);
   if(keys[' ']) tryFire(fireCtx);
   if(keys['f']) tryFireSmoke(fireCtx);   // P-17：F 键发射烟幕弹（玩家专属）
   if(keys['g']) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
@@ -2195,7 +2212,7 @@ function update(dt){
       propagateAlert(entities, ev.drone.x, ev.drone.y);
     }
     spawnImpactFx(ev.drone.x, ev.drone.y, ang, 'pen', 0.5);
-    spawnDmgText(target.x, target.y - 14, ev.damage, 'pen');
+    spawnDmgText(target.x, target.y - 14, ev.damage, 'plain');
     playSound('flyby');   // M1：无人机开火哨声
   }
 
@@ -2210,8 +2227,9 @@ function update(dt){
     if(e.invulnT > 0) e.invulnT = Math.max(0, e.invulnT - dt);
     // 模块 debuff 倒计时（8s 瞬时状态；归零自动清除）
     tickDebuffs(e, dt);
-    // 起火：DOT 伤害（每秒 = 攻击方标准伤害 × RULES.fire.dotRatio）+ P-15 飘字（灼烧橙，0.35s 聚合）
-    if(e.dotT>0 && !invuln){
+    // 起火：DOT 伤害（每秒 = 攻击方标准伤害 × RULES.fire.dotRatio）+ P-15 飘字（0.35s 聚合）
+    // #A6：hp>0 门控——目标死亡后 DOT 不再继续扣血/跳字
+    if(e.dotT>0 && !invuln && e.hp>0){
       e.dotT -= dt;
       const dotDmg = (e.dotDps||0)*dt;
       applyDamage(e, dotDmg);   // 统一经 applyDamage 尊重 dmgTakenMul 减伤（飘字仍用原始 dotDmg）
@@ -2239,6 +2257,7 @@ function update(dt){
     if(e.trackBroken && !e._trackFx){ e._trackFx = true; spawnTrackBreakFx(e); playSound('trackBreak'); }
     if(e.hp<=0 && !e._dead){
       e._dead=true; e.hp=0; e.fireT = Math.max(e.fireT, 4);
+      e.dotT=0; e.dotDps=0; e.dotSeconds=0; e._dotAcc=0; e._dotTxt=0;   // #A6：死亡清 DOT——不再死后跳字
       if(e === player){ e.shield = null; e.abilityCdT = 0; clearDrones(player); }   // P-17：死亡清空护盾/能力冷却/随行无人机——复活后无盾、按 cardEffects 重建无人机
       // P-14：击杀得分（run 战斗态、敌方）
       if(run && battleState && e.team === 'enemy'){
@@ -2724,7 +2743,8 @@ function draw(){
       const pen = (cfg && typeof cfg.pen === 'number') ? cfg.pen : 1;
       const dmg = (cfg && typeof cfg.dmg === 'number') ? cfg.dmg : 1;
       const spd = (cfg && typeof cfg.speed === 'number') ? cfg.speed : 1;
-      arEl.textContent = `${label} 穿×${pen.toFixed(1)} 伤×${dmg.toFixed(1)} 速×${spd.toFixed(1)}`;
+      const addBit = (v, unit) => (cfg && typeof cfg[v] === 'number' && cfg[v] !== 0) ? `(+${cfg[v].toFixed(0)}${unit})` : '';   // #A13
+      arEl.textContent = `${label} 穿×${pen.toFixed(1)}${addBit('penAdd','mm')} 伤×${dmg.toFixed(1)}${addBit('dmgAdd','')} 速×${spd.toFixed(1)}${addBit('speedAdd','')}`;
       arEl.style.display = 'block';
     } else {
       arEl.style.display = 'none';

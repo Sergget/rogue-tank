@@ -222,6 +222,36 @@ const sig19 = model.motionSigma(t19, 0.016, {});
 ok(sig19 >= model.SPREAD.sigmaFloor && sig19 > 0,
    `D3 #A2: motionSigma 返回值 ${sig19.toFixed(4)} ≥ sigmaFloor(${model.SPREAD.sigmaFloor}) 且恒为正`);
 
+// 20) #A12 maxHp 修饰器与当前 hp / spawn 快照同步（节点间回血不满修复）
+const t20 = model.makeTank({ team: 'player' });
+t20.spawn = { hp: t20.stats.maxHp };            // 模拟 applyTankConfig 的 spawn 快照
+t20.hp = t20.stats.maxHp * 0.4;                 // 战斗中被打残
+const baseHp20 = t20.stats.maxHp;
+model.addModifier(t20, { stat: 'maxHp', mode: 'add', value: 50, scope: 'run' });   // 卡牌 +maxHp
+ok(Math.abs(t20.hp - (baseHp20 * 0.4 + 50)) < 1e-6,
+   `#A12: maxHp+50 后 hp 按增量抬升（${baseHp20 * 0.4}→${t20.hp}）`);
+ok(t20.hp <= t20.stats.maxHp, '#A12: 抬升后 hp 不超过新上限');
+ok(t20.spawn.hp === t20.stats.maxHp, '#A12: spawn.hp 同步为新满血值');
+// 多条叠加只按累计差量抬升一次（refreshStats 收口）
+model.addModifier(t20, { stat: 'maxHp', mode: 'mult', value: 1.5, scope: 'run' });
+ok(Math.abs(t20.hp - Math.min(t20.stats.maxHp, baseHp20 * 0.4 + 50 + (t20.stats.maxHp - (baseHp20 + 50)))) < 1e-4,
+   '#A12: 第二条 maxHp 修饰器仍按累计差量抬升一次');
+// enterBattle 场景模拟：resetEntity(Object.assign(t,t.spawn)) 后兜底满血
+const t20b = model.makeTank({ team: 'player' });
+t20b.spawn = { hp: t20b.stats.maxHp };
+Object.assign(t20b, t20b.spawn);                // resetEntity 等价
+t20b.hp = t20b.stats.maxHp;                     // mvp enterBattle 兜底行
+ok(t20b.hp === t20b.stats.maxHp && t20b.spawn.hp === t20b.stats.maxHp,
+   '#A12: enterBattle 场景模拟——resetEntity+兜底后 hp == 新 maxHp');
+// 上限回落（移除 run 修饰器）仅钳制不扣血
+const t20c = model.makeTank({ team: 'player' });
+t20c.hp = t20c.stats.maxHp;
+const baseHp20c = t20c.stats.maxHp;
+model.removeRunModifiers(t20c);                  // 无 run 修饰器，no-op
+model.addModifier(t20c, { stat: 'maxHp', mode: 'add', value: 30, scope: 'run' });
+model.removeRunModifiers(t20c);                  // 移除 → maxHp 回落 30
+ok(t20c.hp === baseHp20c, '#A12: maxHp 回落后 hp 仅钳回原上限，不额外扣血');
+
 console.log('test-modifiers: 完成所有检查');
 if (fails === 0) console.log('test-modifiers: 全部通过');
 else console.error(`test-modifiers: ${fails} 项失败`);

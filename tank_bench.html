@@ -634,8 +634,9 @@ function update(dt){
     if(e.invulnT > 0) e.invulnT = Math.max(0, e.invulnT - dt);
     // 模块 debuff 倒计时（8s 瞬时状态；归零自动清除）
     tickDebuffs(e, dt);
-    // 起火：DOT 伤害（每秒 = 攻击方标准伤害 × RULES.fire.dotRatio）+ 飘字（P-15：灼烧橙，0.35s 聚合一次）
-    if(e.dotT>0 && !invuln){
+    // 起火：DOT 伤害（每秒 = 攻击方标准伤害 × RULES.fire.dotRatio）+ 飘字（0.35s 聚合一次）
+    // #A6：hp>0 门控——目标死亡后 DOT 不再继续扣血/跳字
+    if(e.dotT>0 && !invuln && e.hp>0){
       e.dotT -= dt;
       const dotDmg = (e.dotDps||0)*dt;
       e.hp = Math.max(0, e.hp - dotDmg);
@@ -663,6 +664,7 @@ function update(dt){
     if(e.trackBroken && !e._trackFx){ e._trackFx = true; spawnTrackBreakFx(e); playSound('trackBreak'); }
     if(e.hp<=0 && !e._dead){
       e._dead=true; e.hp=0; e.fireT = Math.max(e.fireT, 4);
+      e.dotT=0; e.dotDps=0; e.dotSeconds=0; e._dotAcc=0; e._dotTxt=0;   // #A6：死亡清 DOT——不再死后跳字
       pushLog(`${e.id==='player'?'玩家':'靶车'} 已摧毁 — 车体起火`,'CRIT');
     }
     // auto-revive for the test-rig dummy so you can keep shooting after a kill

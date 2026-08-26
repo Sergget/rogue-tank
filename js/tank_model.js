@@ -158,7 +158,23 @@ function refreshStats(tank){
   if(tank.modifiers.some(m => m.expiresAt !== Infinity && m.expiresAt <= now)){
     tank.modifiers = tank.modifiers.filter(m => m.expiresAt === Infinity || m.expiresAt > now);
   }
+  // #A12：maxHp 变化的 hp 同步放在 refreshStats 收口处（而非 addModifier 内）——
+  // addModifier/addTimedModifier/removeModifierBySource/removeModifiersByScope/卡牌批量注入
+  // 全部经此处收敛，多 modifier 叠加只按累计差量抬升一次，不会重复加血。
+  const prevMaxHp = (tank.stats && typeof tank.stats.maxHp === 'number') ? tank.stats.maxHp : null;
   tank.stats = computeStats(tank.base, tank.modifiers);
+  if(prevMaxHp !== null && typeof tank.hp === 'number' && tank.stats.maxHp !== prevMaxHp){
+    const dHp = tank.stats.maxHp - prevMaxHp;
+    if(dHp > 0){
+      // 上限提升：当前 hp 按增量同步抬升（钳新上限），spawn 快照同步为满血，
+      // 防下一节点 resetEntity 把 hp 恢复到不含加成的旧 maxHp。
+      tank.hp = Math.min(tank.stats.maxHp, tank.hp + dHp);
+      if(tank.spawn) tank.spawn.hp = tank.stats.maxHp;
+    } else {
+      // 上限回落（移除修饰器/限时到期）：仅钳制，不主动扣血。
+      tank.hp = Math.min(tank.hp, tank.stats.maxHp);
+    }
+  }
   return tank.stats;
 }
 

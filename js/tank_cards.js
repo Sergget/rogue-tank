@@ -169,10 +169,12 @@ function applyCardEffects(tank, card, ctx) {
 // ---------- 弹种改造计算 (P-27) ----------
 
 // 计算特定坦克在特定弹种上的最终配置（含 cardEffects 弹种改造）
-// #97 加法聚合（2026-08-25，与 tank_model.computeStats 对齐）：mult pass 按 field 分组，
-// 同 field 的所有 mult 先聚合为单一乘子 1 + Σ(value−1) 再应用一次；多条聚合钳 ≥0
-// （单条不变）。add pass 保持逐条累加。HE 软上限在聚合之后应用。
-// 例：两张 HE dmg ×1.2 → 聚合乘子 1 + 0.2 + 0.2 = 1.4（旧迭代语义为 1.44）。
+// #A13 语义定案（2026-08-26）：mode:'mult' 作用于弹种倍率刻度（base 即 RULES.ammoTypes[key]
+// 的比率），mode:'add' 在乘算之后以字段自然单位追加（pen=mm / dmg=伤害数值 / speed=px/s）：
+//   最终属性 = 坦克基础值(base stat) × Π(mult) + Σ(add)
+// 返回约定：cfg[field] = 弹种基准 × multAggr（倍率部分，供消费方乘算）；
+//           cfg[field+'Add'] = Σ(add)（自然单位追加量，消费方在乘算结果上加上，见 tank_fire.js）。
+// mult 聚合沿用全局加法语义 1 + Σ(value−1)（#97，与 computeStats 对齐）；多条聚合钳 ≥0。
 function computeAmmoConfig(shooter, ammoKey) {
   const key = ammoKey || (shooter && shooter.ammoKey) || 'ap';
   const rules = (typeof RULES !== 'undefined' && RULES.ammoTypes) ? RULES.ammoTypes : {};
@@ -180,14 +182,6 @@ function computeAmmoConfig(shooter, ammoKey) {
   const cfg = Object.assign({}, base);
 
   const effects = (shooter && Array.isArray(shooter.cardEffects)) ? shooter.cardEffects : [];
-  // add pass：逐条累加（不变）
-  for (const ef of effects) {
-    if (!ef || ef.type !== 'ammo' || ef.key !== key || ef.mode !== 'add') continue;
-    if (ef.field === 'pen' || ef.field === 'dmg' || ef.field === 'speed') {
-      const val = typeof cfg[ef.field] === 'number' ? cfg[ef.field] : 1;
-      cfg[ef.field] = val + ef.value;
-    }
-  }
   // mult pass：按 field 分组加法聚合，一次应用（#97）
   const agg = new Map();
   for (const ef of effects) {
@@ -202,18 +196,39 @@ function computeAmmoConfig(shooter, ammoKey) {
     const val = typeof cfg[field] === 'number' ? cfg[field] : 1;
     cfg[field] = val * mul;
   }
+  // add pass（#A13）：乘算之后追加，单独存放不混入倍率刻度
+  for (const ef of effects) {
+    if (!ef || ef.type !== 'ammo' || ef.key !== key || ef.mode !== 'add') continue;
+    if (ef.field === 'pen' || ef.field === 'dmg' || ef.field === 'speed') {
+      const addKey = ef.field + 'Add';
+      cfg[addKey] = (typeof cfg[addKey] === 'number' ? cfg[addKey] : 0) + ef.value;
+    }
+  }
+  // 倍率部分钳 ≥0；追加量为自然单位（可负），非负钳制由消费方在最终值上执行
   if (typeof cfg.pen === 'number') cfg.pen = Math.max(0, cfg.pen);
   if (typeof cfg.dmg === 'number') cfg.dmg = Math.max(0, cfg.dmg);
   if (typeof cfg.speed === 'number') cfg.speed = Math.max(0, cfg.speed);
 
-  // 软上限（P-19）：防止弹种改造乘算堆叠失控。上限 = 该弹种基础值 × 全局系数，
-  // 因此上限随弹种不同（base 即 RULES.ammoTypes[key]）。tank-model 会注入 RULES.ammoTypeCap。
-  // 软上限（P-19）：仅对 HE 生效 —— HE 成长过快被用户反馈，AP/APCR/HEAT 堆叠保持原设计。
-  // 上限 = 该弹种基础值 × 全局系数（base 即 RULES.ammoTypes[key]）。tank-model 注入 RULES.ammoTypeCap。
+  // 软上限（P-19）：仅对 HE 生效 —— 上限 = 该弹种基础倍率 × 全局系数（RULES.ammoTypeCap，
+  // tank-model 注入）。#A13：作用点核查——软上限应作用于最终值（含 add 追加量）。有坦克 stats
+  // 时把 add 折算成等效倍率参与钳制，超限按比例同时缩放倍率与追加量；无 stats（纯单测环境）
+  // 退化为仅钳倍率部分（当前 HE 卡均为纯 mult，不受影响）。
   if (key === 'he' && RULES && RULES.ammoTypeCap) {
+    const FIELD_STAT = { pen: 'penetration', dmg: 'damage', speed: 'shellSpeed' };
     for (const field of ['pen', 'dmg', 'speed']) {
-      const cap = (base[field] === undefined ? 1 : base[field]) * (RULES.ammoTypeCap[field] !== undefined ? RULES.ammoTypeCap[field] : 99);
-      if (typeof cfg[field] === 'number') cfg[field] = Math.min(cfg[field], cap);
+      const baseR = base[field] === undefined ? 1 : base[field];
+      const cap = baseR * (RULES.ammoTypeCap[field] !== undefined ? RULES.ammoTypeCap[field] : 99);
+      const addKey = field + 'Add';
+      const statName = FIELD_STAT[field];
+      const sVal = (shooter && shooter.stats && typeof shooter.stats[statName] === 'number' && shooter.stats[statName] > 0)
+        ? shooter.stats[statName] : null;
+      let finalRatio = (typeof cfg[field] === 'number' ? cfg[field] : baseR)
+        + (sVal !== null && typeof cfg[addKey] === 'number' ? cfg[addKey] / sVal : 0);
+      if (finalRatio > cap) {
+        const k = cap / finalRatio;
+        if (typeof cfg[field] === 'number') cfg[field] *= k;
+        if (typeof cfg[addKey] === 'number') cfg[addKey] *= k;
+      }
     }
   }
 

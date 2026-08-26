@@ -6,8 +6,9 @@
 //   spawnDmgText(x, y, text, kind) 命中/跳弹/DOT 时生成 → updateDmgTexts(dt) 逐帧推进
 //   （上浮 + 淡出 + 生命周期）→ drawDmgTexts(ctx) 在世界坐标绘制（调用方已套摄像机变换）。
 //
-// 颜色语义（P-15 定型）：击穿红/橙（pen）、未击穿白（block）、跳弹蓝/白（bounce）、
-// 高爆黄（he，HE 弹击穿 / 爆轰）、DOT 灼烧橙（dot）。
+// 颜色语义（P-15 定型 + #A6 裁定扩展）：跳弹蓝/白（bounce）、未击穿白（block）、
+// DOT 灼烧橙（dot）；击穿伤害按部位分类——普通伤害白（plain）、成员及非弹药架模块黄
+// （module）、弹药架红（ammoRack）、HE 弹击穿/爆轰黄（he）。pen 保留为 legacy 别名。
 
 const dmgTexts = [];
 
@@ -16,11 +17,14 @@ const DMG_TEXT = {
   rise: 30,         // 全程上浮总高度（px，世界坐标）
   font: '700 13px "JetBrains Mono", monospace',
   colors: {
-    pen:    '#ff6c5c',   // 击穿红/橙
-    block:  '#d9dcc9',   // 未击穿白
-    bounce: '#5cc8ff',   // 跳弹蓝/白
-    he:     '#ffb454',   // 高爆黄
-    dot:    '#ff9a3c'    // DOT 灼烧橙
+    plain:   '#d9dcc9',   // 普通击穿伤害（白，#A6 裁定）
+    module:  '#ffb454',   // 成员/非弹药架模块命中（黄，#A6 裁定）
+    ammoRack:'#ff5c50',   // 弹药架命中（红，#A6 裁定）
+    pen:     '#ff6c5c',   // legacy 键（保留兼容旧调用方）
+    block:   '#d9dcc9',   // 未击穿白
+    bounce:  '#5cc8ff',   // 跳弹蓝/白
+    he:      '#ffb454',   // 高爆黄（HE 弹击穿 / 爆轰残余）
+    dot:     '#ff9a3c'    // DOT 灼烧橙
   }
 };
 

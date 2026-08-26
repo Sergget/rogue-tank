@@ -247,7 +247,9 @@ function applyModuleDamage(shell, target, hit, opts){
     }
   }
   // dmg：实际扣血整数（飘字显示用；invuln/已摧毁目标为 0）
+  // modKey：命中部位类别（#A6 飘字颜色分类：弹药架红 / 成员与其他模块黄 / 无模块白）
   return { cls,
+    modKey,
     text: modKey
       ? `击穿！命中 ${mod.label}，造成 ${dmg} 伤害 ${extra}`
       : `击穿！造成 ${dmg} 伤害 ${extra}`,
