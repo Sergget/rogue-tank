@@ -120,6 +120,58 @@ function triggerDistForDifficulty(diff) {
   return Math.round(base * (1 + (maxMult - 1) * d));
 }
 
+/**
+ * 敌军构成随节点深度（index）演进（P-43）：
+ *   返回长度为 enemyCount 的 spec 数组，每元素 = { tankId, heightClass, role, elite, aiTier, entityMults }。
+ *   深度信号 p 取难度归一化（难度曲线随 index 单调上升至饱和，天然体现 depth，无需 runLength）。
+ *   · 早期（p 小）：重型占比低（~10%）、轻量同质；
+ *   · 中期（p>0.30）：重型占比上升（~40%+）、给部分敌人标 role:'support'（仅 tag，不改战斗逻辑）；
+ *   · 后期（p>0.50）：重型占比高（~75%）、并在首个敌人标 elite:true（aiTier+1 钳≤2、entityMults×1.15）。
+ *   确定性：只用传入 rng，按既有 per-enemy 调用顺序（rng.choice 选 tankId）；重型/支援/精英均为确定性推导，
+ *   不新增独立 rng 流、不挪到 generateNode 之前（保证种子/地形回放稳定，同 seed 两次结果逐字段一致）。
+ *   两处生成路径（聚簇 + 兜底）共用同一数组，按 enemies.length 顺序消费，互不干扰。
+ * @param {number} index 节点索引（0 起；保留参数，深度以 diff 体现）
+ * @param {number} diff 有效难度
+ * @param {any} rng createRNG 实例
+ * @param {any} cfg nodeConfig()
+ * @returns {Array} 长度 = enemyCountForDifficulty(diff) 的 spec 数组
+ */
+function enemyCompositionForDepth(index, diff, rng, cfg) {
+  const count = enemyCountForDifficulty(diff);
+  const diffCfg = difficultyConfig() || {};
+  const diffMax = diffCfg.diffMax !== undefined ? diffCfg.diffMax : 1.15;
+  const aiTierMax = diffCfg.aiTierMax !== undefined ? diffCfg.aiTierMax : 2;
+  // 深度信号：难度归一化（0~1），随 index 单调非降（饱和于 diffSatIndex）。
+  const p = Math.min(1, Math.max(0, diff / diffMax));
+  // 重型目标占比：早期 ~10% → 后期 ~75%（平滑、随 index 非降）。
+  const heavyRatio = Math.min(0.85, 0.10 + 0.80 * p);
+  const supportDepth = p > 0.30;   // 中段起引入支援型 tag
+  const eliteDepth = p > 0.50;     // 后段起首个敌人标 elite（领队）
+  const pool = (cfg.enemyTankPool && cfg.enemyTankPool.length) ? cfg.enemyTankPool : ['dummy'];
+  const baseAiTier = aiTierForDifficulty(diff);
+  const baseMults = entityMultsForDifficulty(diff);
+  const heavyTarget = Math.round(heavyRatio * count);   // 重型数量（确定性，保证随 index 非降）
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const tankId = rng.choice(pool);
+    // 前 heavyTarget 个为重型（确定性分配到具体敌人，避免小样本随机抖动破坏曲线单调性）。
+    const heightClass = (i < heavyTarget) ? 'heavy' : 'medium';
+    // 精英仅后期首个敌人；支援型中段起、奇数序号（i%3===1）的非精英敌人，确定性不耗额外 rng。
+    const elite = (i === 0 && eliteDepth);
+    const role = (supportDepth && !elite && (i % 3 === 1)) ? 'support' : 'assault';
+    let aiTier = baseAiTier;
+    let entityMults = baseMults;
+    if (elite) {
+      // 精英：AI 档位 +1（钳到 aiTierMax），数值乘子各 ×1.15 并深拷贝，避免污染其他敌人。
+      aiTier = Math.max(0, Math.min(aiTierMax, baseAiTier + 1));
+      entityMults = {};
+      for (const k in baseMults) entityMults[k] = Math.round(baseMults[k] * 1.15 * 1000) / 1000;
+    }
+    out.push({ tankId, heightClass, role, elite, aiTier, entityMults });
+  }
+  return out;
+}
+
 // ---------- 节点生成 ----------
 
 function nodeConfig() {
@@ -213,7 +265,10 @@ function makeNode(index, rng, env) {
   const clusterRadius = cfg.enemyClusterRadius || 150;
   const clusterSizeMin = cfg.enemyClusterSizeMin || 2;
   const clusterSizeMax = cfg.enemyClusterSizeMax || 5;
+  // P-43：构成随深度演进——compose 一次，聚簇与兜底两处共用同一 spec 数组（按 enemies.length 顺序消费）。
+  const composition = enemyCompositionForDepth(index, diff, rng, cfg);
   const enemies = [];
+  const clusterCentroids = [];
   let remaining = enemyCount;
   let cg = 0;
   while(enemies.length < enemyCount && cg < clusterCount && remaining > 0){
@@ -225,7 +280,7 @@ function makeNode(index, rng, env) {
       const ty = rng.range(h * 0.12, h * 0.88);
       if(Math.hypot(tx - playerSpawn.x, ty - playerSpawn.y) < minPlayerDist) continue;
       if(pointInCover(templateResult.covers, tx, ty, 60)) continue;
-      cx = tx; cy = ty; okCenter = true; break;
+      cx = tx; cy = ty; okCenter = true; clusterCentroids.push({ x: cx, y: cy }); break;
     }
     if(!okCenter) continue;
     const size = Math.min(remaining, rng.int(clusterSizeMin, clusterSizeMax));
@@ -244,15 +299,21 @@ function makeNode(index, rng, env) {
       }
       if(tooClose) continue;
       if(pointInCover(templateResult.covers, ex, ey, 60)) continue;
+      const spec = composition[enemies.length] || {
+        tankId: (cfg.enemyTankPool && cfg.enemyTankPool[0]) || 'dummy',
+        heightClass: 'medium', role: 'assault', elite: false, aiTier: aiTier, entityMults: entityMults
+      };
       enemies.push({
-        tankId: rng.choice(cfg.enemyTankPool && cfg.enemyTankPool.length ? cfg.enemyTankPool : ['dummy']),
+        tankId: spec.tankId,
         x: Math.round(ex), y: Math.round(ey),
         hullAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
         turretAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
-        heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
+        heightClass: spec.heightClass,
+        role: spec.role,                     // P-43：构成深度演进附加 tag（'assault'|'support'，下游未消费则忽略）
+        elite: spec.elite,                   // P-43：精英（领队）标记（仅后期首个敌人，下游可叠加强度）
         statMult: statMult,           // 兼容保留（= entityMults.maxHp）；#76 A 起以 entityMults 为准
-        entityMults: entityMults,     // #76 A：全属性难度乘子表（materializeNode 经 env.applyDifficulty 应用）
-        aiTier: aiTier                // P-34 C：AI 档位随敌人数据下发（materializeNode 注入实体 t.aiTier，#76 消费）
+        entityMults: spec.entityMults, // #76 A / P-43：per-enemy 全属性难度乘子表（elite 已 ×1.15 深拷贝）
+        aiTier: spec.aiTier                // P-34 C / P-43：per-enemy AI 档位（elite 档位 +1）
       });
       placed++;
       remaining--;
@@ -287,18 +348,39 @@ function makeNode(index, rng, env) {
         if (Math.hypot(c.x - e.x, c.y - e.y) < minDist) { ok = false; break; }
       }
       if (!ok) continue;
+      const spec = composition[enemies.length] || {
+        tankId: (cfg.enemyTankPool && cfg.enemyTankPool[0]) || 'dummy',
+        heightClass: 'medium', role: 'assault', elite: false, aiTier: aiTier, entityMults: entityMults
+      };
       enemies.push({
-        tankId: rng.choice(cfg.enemyTankPool && cfg.enemyTankPool.length ? cfg.enemyTankPool : ['dummy']),
+        tankId: spec.tankId,
         x: Math.round(c.x), y: Math.round(c.y),
         hullAngle: Math.atan2(playerSpawn.y - c.y, playerSpawn.x - c.x),
         turretAngle: Math.atan2(playerSpawn.y - c.y, playerSpawn.x - c.x),
-        heightClass: (diff > 0.6 || rng() < 0.35) ? 'heavy' : 'medium',
+        heightClass: spec.heightClass,
+        role: spec.role,                     // P-43：构成深度演进附加 tag
+        elite: spec.elite,                   // P-43：精英标记
         statMult: statMult,
-        entityMults: entityMults,    // #76 A：兜底补满路径同样带全属性乘子表
-        aiTier: aiTier               // P-34 C：兜底补满路径同样带档位
+        entityMults: spec.entityMults,    // #76 A / P-43：兜底补满路径同样带 per-enemy 全属性乘子表
+        aiTier: spec.aiTier               // P-34 C / P-43：兜底补满路径同样带 per-enemy 档位
       });
     }
   }
+
+  // A17 方案1：生成期 LoS 走廊保证（世界帧，生成后处理）。
+  // 用"节点 seed 派生的独立子流"驱动侧移随机方向，绝不消耗整局 rng（保证：
+  // 无遮挡节点布局零变化、仅曾零开火节点 covers 改变 → 回放 hash 只对这些节点变化）。
+  // 真实 spawn / 敌簇质心此时才确定（依赖 covers 的拒绝采样），故在生成后世界帧处理，
+  // 而非把 losHints 回传给 generateNode（避免扰动 generateNode 的 rng 流序）。
+  let losClusters = clusterCentroids.slice();
+  if (!losClusters.length && enemies.length) losClusters = enemies.map(e => ({ x: e.x, y: e.y }));
+  if (losClusters.length && typeof ensureLoSCorridor === 'function') {
+    const losRng = createRNG((((Number(templateResult.seed) >>> 0) ^ 0x4C05A3) + 0x9E3779B9) >>> 0);
+    ensureLoSCorridor(templateResult.covers,
+      { spawn: playerSpawn, clusters: losClusters, bounds: { w: w, h: h } }, losRng);
+  }
+  // 记录 A17 走廊所针对的敌簇质心（供校验/调试；不改变既有字段语义）
+  const enemyClusters = losClusters;
 
   // 友军据点：左 1/4 区域、概率出现、远离敌军与玩家出生点（§2.2：消极防御、可被摧毁）
   let outpost = null;
@@ -345,6 +427,7 @@ function makeNode(index, rng, env) {
     biome: templateResult.biome || null,   // P-36/#81：地面主题标签（mvp drawGround 消费）
     covers: templateResult.covers,
     playerSpawn: playerSpawn,
+    enemyClusters: enemyClusters,
     enemies: enemies,
     outpost: outpost,
     cleared: false
@@ -716,6 +799,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     difficultyForIndex,
     isBossNodeIndex,
+    enemyCompositionForDepth,
     enemyCountForDifficulty,
     aiTierForDifficulty,
     statMultForDifficulty,

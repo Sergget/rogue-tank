@@ -123,6 +123,7 @@ interface NodeGenOptions {
   scale?: number;       // #24：模板放大倍率（tank_nodegen.js generateNode 消费）
   cullRate?: number;
   applyToCovers?: boolean;
+  losHints?: { spawn: { x: number; y: number }; clusters: Array<{ x: number; y: number }>; bounds?: { w: number; h: number } };
 }
 
 interface GeneratedNodeResult {
@@ -159,7 +160,11 @@ interface GeneratedNodeResult {
 declare var covers: any[];
 declare function snapshotCovers(): void;
 declare function resetCovers(): void;
-declare function hasLineOfSight(ox: number, oy: number, tx: number, ty: number): boolean;
+declare function hasLineOfSight(ox: number, oy: number, tx: number, ty: number, coversList?: any[]): boolean;
+// A17：视线遮挡原语——返回 (ax,ay)→(bx,by) 首个挡视线（tier.vision）掩体及其侧向单位向量
+declare function losBlocker(ax: number, ay: number, bx: number, by: number, coversList?: any[]): { cover: any; nx: number; ny: number; point?: any } | null;
+// A17 方案1：生成期 LoS 走廊保证（开走廊：侧移 / full→soft 降级 / 移除），返回是否改动
+declare function ensureLoSCorridor(coversList: any[], hints: any, rng: any): boolean;
 // P-40 地形抽象：tier schema 消费辅助（shellBlock 判定 / 河流多段展开）
 declare function tierShellBlock(tier: any): boolean | string;
 declare function coverSegRects(cov: any): any[];

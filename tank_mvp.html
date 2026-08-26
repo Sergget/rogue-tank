@@ -1435,7 +1435,7 @@ function startNewRun(){
   removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
   prepPlayerForRun();                           // M10：出战坦克配置 + 永久升级重挂 + 复活次数（含加购）
   // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
-  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入）
+  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
   runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
   pendingLootRounds = 0; pendingLootRarityIdx = -1;   // P-51 Wave2：跨局清 Boss 追加卡牌轮
   resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
@@ -1464,7 +1464,7 @@ document.getElementById('settleHomeBtn').addEventListener('click', () => {
 document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   playSound('ui');
   restartRun(flow);                              // gameover → map（runId 自增）
-  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });  // 新的一局（#24 视口缩放；P-34 跨局难度注入）
+  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });  // 新的一局（#24 视口缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
   runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
   resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
   removeRunModifiers(player);                   // P-12：清除上一局单局修饰器
@@ -1808,7 +1808,7 @@ function beginRunFromMenu(){
   prepPlayerForRun();
   // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
   // P-34：env.difficultyLevel 注入跨局难度等级（settleRun 每终局 +1）
-  run = generateRun(undefined, undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });
+  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });   // __TEST__.setSeed 一次性透传
   runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
   resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
   profile.stats.runs++;                              // P-14：局数统计
@@ -2773,11 +2773,14 @@ function draw(){
 // ---------- loop with fixed timestep ----------
 const STEP_TIME = 1 / 120; // 120Hz fixed physics step
 let accumulator = 0;
+let testTimeScale = 1;   // B 层测试钩子：__TEST__.setTimeScale() 写入（默认 1；0=冻结模拟）
+let testFps = 0;         // B 层测试钩子 HUD 用：最近一次 FPS 统计值（loop 内 ~2 次/秒刷新）
 
 function loop(now){
   let dt = (now - last) / 1000;
   if (dt > 0.2) dt = 0.2; // panic threshold to avoid spiral of death
   last = now;
+  dt *= testTimeScale;     // 测试时间缩放（0=暂停；draw 照常渲染当前快照）
 
   accumulator += dt;
   // P-08 模拟门控：run 模式下只有 battle 状态推进战斗循环（节点图/结算/卡牌/阵亡冻结战场）；
@@ -2801,6 +2804,7 @@ function loop(now){
   if(now - fpsLast >= 500){
     const fpsVal = Math.round(fpsFrames * 1000 / (now - fpsLast));
     fpsFrames = 0; fpsLast = now;
+    testFps = fpsVal;
     const frEl = document.getElementById('fpsReadout');
     if(frEl) frEl.textContent = 'FPS ' + fpsVal;
   }
@@ -2817,6 +2821,129 @@ function loop(now){
   setOverlayVisible(true);
 })();
 requestAnimationFrame(loop);
+
+// ---------- B 层测试钩子 window.__TEST__ + 极简调试 HUD（F1 切换） ----------
+// 仅调试用：钩子未被调用 / HUD 未开启时零副作用（不注册进模拟路径、不改任何共享模块状态）。
+// 种子策略：generateRun(seed,…) 原生接受外部种子 → setSeed 记录后由三处 newRun 调用点
+// 经 nextRunSeed() 一次性透传，无需包装 Math.random。
+let testPendingSeed = null;   // __TEST__.setSeed 写入；下一次 newRun（startNewRun/gameoverRestart/beginRunFromMenu）消费
+function nextRunSeed(){
+  const s = testPendingSeed;
+  testPendingSeed = null;
+  return s === null ? undefined : s;
+}
+
+(function initTestHooks(){
+  // ---- 极简调试 HUD（右上角半透明面板，pointer-events:none，F1 显隐） ----
+  const hud = document.createElement('div');
+  hud.id = 'testDebugHud';
+  hud.style.cssText = 'position:fixed;top:8px;right:8px;z-index:9999;width:320px;max-height:72vh;'
+    + 'overflow:hidden;background:rgba(0,0,0,.75);color:#cfe6cf;font:11px/1.5 Consolas,monospace;'
+    + 'padding:8px 10px;border:1px solid #3a4a3a;border-radius:4px;pointer-events:none;'
+    + 'display:none;white-space:pre-wrap;';
+  document.body.appendChild(hud);
+  let hudVisible = false;
+
+  // F1 独立监听：不受局外菜单门控（inMenuState）影响，任意流程态均可开关。
+  // mvp 既有键位（Tab/`/F12/Esc/空格/1-9/Q/WASD/鼠标）均未占用 F1 —— 无冲突。
+  window.addEventListener('keydown', e => {
+    if(e.key !== 'F1') return;
+    e.preventDefault();   // 阻止浏览器帮助键默认行为
+    hudVisible = !hudVisible;
+    hud.style.display = hudVisible ? 'block' : 'none';
+  });
+
+  function num(v, d){ return (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : String(v); }
+
+  function refreshHud(){
+    if(!hudVisible) return;
+    const st = player.stats || {};
+    const armorFront = st.armor && st.armor.hull ? st.armor.hull.front : undefined;
+    let enemy = null;
+    try { enemy = nearestEnemyTo(player); } catch(_e){ enemy = null; }
+    const reloadDur = Math.max(0.0001, st.reload || 1);
+    const L = [];
+    L.push('[__TEST__ HUD v1]');
+    L.push('flow=' + flow.state
+      + ' node=' + (currentNode ? currentNode.index : 'null')
+      + ' t=' + (battleState ? ((performance.now() - battleState.startMs) / 1000).toFixed(1) + 's' : '--')
+      + (run ? (' seed=' + run.seed) : ''));
+    L.push('player hp=' + num(player.hp, 0) + '/' + num(st.maxHp, 0)
+      + ' revives=' + (player.revives | 0)
+      + ' ammo=' + (player.ammoKey || '--')
+      + ' reload=' + (player.reloadT > 0
+        ? (num(player.reloadT, 2) + 's(' + ((1 - player.reloadT / reloadDur) * 100).toFixed(0) + '%)')
+        : 'ready'));
+    L.push('stats dmg=' + num(st.damage, 1)
+      + ' pen=' + num(st.penetration, 1)
+      + ' hullF=' + num(armorFront, 0)
+      + ' reloadT=' + num(st.reload, 2)
+      + ' moveSpd=' + num(st.maxSpeed, 0));
+    L.push('-- modifiers (' + ((player.modifiers || []).length) + ') --');
+    const mods = player.modifiers || [];
+    const MAXM = 12;
+    for(let i = 0; i < mods.length && i < MAXM; i++){
+      const m = mods[i];
+      let row = '  ' + [m.source, m.stat, m.mode, num(m.value, 3), m.scope].join(' | ');
+      if(m.scope === 'timed' && m.expiresAt !== Infinity){
+        row += ' ' + Math.max(0, (m.expiresAt - Date.now()) / 1000).toFixed(1) + 's';
+      }
+      L.push(row);
+    }
+    if(mods.length > MAXM) L.push('  …+' + (mods.length - MAXM) + ' more');
+    const cefs = player.cardEffects || [];
+    L.push('-- cardEffects (' + cefs.length + ') --');
+    for(const ef of cefs.slice(0, MAXM)){
+      L.push('  ' + [ef.type, ef.cardId || '-', ef.kind || '-'].join(' | '));
+    }
+    if(cefs.length > MAXM) L.push('  …+' + (cefs.length - MAXM) + ' more');
+    L.push('nearest enemy: ' + (!enemy ? '(none)'
+      : (enemy.id + ' hp=' + num(enemy.hp, 0) + ' dist=' + num(Math.hypot(enemy.x - player.x, enemy.y - player.y), 0))));
+    L.push('fps=' + testFps + ' timeScale=' + testTimeScale);
+    hud.textContent = L.join('\n');
+  }
+  setInterval(refreshHud, 200);   // 200ms 节流刷新（规格允许）
+
+  // ---- 只读访问器 + 动作函数 ----
+  window.__TEST__ = {
+    version: 1,
+    player(){ return player; },
+    entities(){ return entities; },
+    flowState(){ return flow.state; },
+    currentNode(){ return currentNode ? currentNode.index : null; },
+    seed(){ return run ? run.seed : null; },
+    giveCard(id){
+      if(typeof applyCardEffects !== 'function') throw new Error('__TEST__.giveCard: applyCardEffects 不可用');
+      if(!cardPool.length) throw new Error('__TEST__.giveCard: 卡池尚未加载（cardPool 为空，稍后再试）');
+      const card = cardPool.find(c => c.id === id);
+      if(!card) throw new Error('__TEST__.giveCard: 卡池中不存在 id="' + id + '"');
+      const applied = applyCardEffects(player, card);   // 堆叠上限由 maxStacks 内部管
+      for(const ef of applied){
+        if(ef.type === 'drone') deployDronesFromCards();   // 与 pickCard 同路径保持状态一致
+      }
+      pushLog('[TEST] 给予卡牌「' + card.name + '」', 'PEN');
+      return applied;
+    },
+    skipToNode(n){
+      if(flow.state !== 'map') throw new Error('__TEST__.skipToNode: 仅 map 态可用（当前 ' + flow.state + '）');
+      if(!run || !run.nodes[n]) throw new Error('__TEST__.skipToNode: 节点不存在 index=' + n);
+      transition(flow, 'battle', { nodeIndex: n });   // 走白名单转移（watcher → enterBattle），不绕过状态机
+      return n;
+    },
+    setTimeScale(s){
+      const v = Number(s);
+      if(!isFinite(v) || v < 0 || v > 8) throw new Error('__TEST__.setTimeScale: s 必须在 [0, 8]');
+      testTimeScale = v;
+      return testTimeScale;
+    },
+    setSeed(s){
+      const v = Number(s);
+      if(!isFinite(v)) throw new Error('__TEST__.setSeed: s 必须是有限数值');
+      testPendingSeed = v | 0;
+      return testPendingSeed;   // 一次性：下一次 startNewRun/gameoverRestart/beginRunFromMenu 消费后失效
+    }
+  };
+})();
 })();
 </script>
 </body>

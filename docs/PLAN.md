@@ -24,8 +24,8 @@
 - **协作**：`card-author` 出调整方案 → `balance-auditor` 审计闭环。
 - **追加范围（2026-08-26）**：
   - 并入 ISSUES #A13：ammo `mode:'add'` 加在倍率刻度上的语义错位（sniper_apcbc/hard_core 数值失真），修复时同步 specs/cards.md 明确 add=乘算后毫米追加，并修 test-cards.js 固化断言；
-  - 并入 ISSUES #A14：demo_all_he_doctrine 全局 reload×0.85 白送效果拆出或降档；demo_overmatch_shell passive 未接线，按用户意向转 AP 弹种；
-  - 并入 ISSUES #A15：spall_liner 两卡 passive 零消费，接线 resolveHit 模块伤害分支或先移出抽卡池。
+  - 并入 ISSUES #A14：demo_all_he_doctrine 全局 reload×0.85 白送效果拆出或降档；demo_overmatch_shell passive 未接线，按用户意向转 AP 弹种。
+  - （原 #A15 spall_liner 两卡 passive 零消费已于 2026-08-26 核实为已修复——tank_physics.js 经 passiveValues 消费，已走 lifecycle 删除，见 docs/ARCHIVE.md）
 - **定案记录（2026-08-26）**：弹种升级模式采用「全局 modifier 为常规主通道 + rare 以上 per-ammo 身份精品卡（每弹种 ≤3 张）」；HE splashRadius 升级需先扩 AMMO_FIELDS 白名单（枚举变更流程）。
 
 ### P-43. 地图生成质量优化 (Node Generation Quality)
@@ -37,7 +37,14 @@
 - **验证路径**：`npm test` 相关链全绿；度量指标与阈值落档 `docs/specs/map.md`。
 - **协作**：`map-cover`（掩体布局）+ `node-map`（流程/构成）分工，`test-runner` 验证。
 - **追加范围（2026-08-26）**：并入 ISSUES #A11（地形占位冲突：道路/水域零检测叠加、道路不贯穿）。
-- **新增定案（2026-08-26 用户裁定 D5）**：第一阶段先行在 generateNode 中禁止生成半高掩体（half tier 实例不再落位，运行时 RULES.coverTiers.half 与既有判定逻辑保留不动以保证兼容），待游玩测试后再决定是否彻底剥离 half 子系统——届时同步重写 specs/map.md 相关章节并裁定 ruined 残破建筑的 exposureProfile 归属。
+  - **新增定案（2026-08-26 用户裁定 D5）**：第一阶段先行在 generateNode 中禁止生成半高掩体（half tier 实例不再落位，运行时 RULES.coverTiers.half 与既有判定逻辑保留不动以保证兼容），待游玩测试后再决定是否彻底剥离 half 子系统——届时同步重写 specs/map.md 相关章节并裁定 ruined 残破建筑的 exposureProfile 归属。
+- **进度（2026-08-26，首轮）**：
+  - ✅ **seed 固定快照回归**已建：`scripts/test-nodegen-snapshot.js`（112 用例：确定性 + 无 half + 非空 + 布局度量健全性），已挂入 `npm test` 链（test-qa.js 校验 30/30 合规通过）。
+  - ✅ **布局质量度量** `nodeLayoutMetrics(result, opts)` 落地于 `js/tank_nodegen.js`：返回 `coverCoverage / connectivityRatio（网格 BFS 可达占比）/ losSymmetry / minPassageWidth / coverCount / waterArea`，纯逻辑 Node 可测；快照测试内含其健全性断言。
+  - ✅ **D5 半高禁令确认落地**：`generateNode` 主循环 `if (tier === 'half') continue;`（~L1056）已生效，实测输出零 half tier。
+  - ✅ **敌军构成随节点深度成曲线**：`js/tank_map.js` 新增 `enemyCompositionForDepth(index, diff, rng, cfg)`——重型占比随深度单调上升（~10%→75%）、后期首个敌人标 `elite`（更高 aiTier + 全属性 ×1.15）、中期奇数序号敌人标 `role:'support'`（预留 tag，战斗逻辑未消费）；总数恒定 = `enemyCountForDifficulty(diff)`；确定性不破坏（回放 seed=1 hash 现 `799b65f`，仅漂移、断言仍过）。
+  - ⚠ **已知遗留子问题**：`makeNode` 在 `diff≈0.35`（idx4）下实生成敌数恒为 0（聚簇 + 兜底网格在无视口 scale=3 下找不到合法落点），属**预存落点脆弱性、非本次引入**（git stash 比对原版同 0）；留待 #A11 / 落点兜底强化一并处理，不阻塞本切片。
+  - **待办（未做）**：① ✅ **5 模板难度缩放校准已完成**（2026-08-26）：基于 `nodeLayoutMetrics` 实测剖面锁定回归带（`scripts/test-nodegen-calibration.js`，7 模板 ×5 难度 ×8 seed 挂入 `npm test`）；实测开阔模板连通性 0.97–1.0 且 coverCoverage 随难度单调非降、密林模板为设计性分区（兜底可玩性由 `findPlayerSpawn`+`ensureLoSCorridor` 保障），参数未做破坏性调整；带宽与旋钮清单见 specs/map.md §8。② ⬜ 并入的 #A11 地形占位/路网重构（道路/水域叠加 + 道路不贯穿）尚未实施。
 
 ### P-44. 战斗结算与 AI 修补 (Combat & AI Fixes)
 - **目标**：修复战斗结算与 `aiDecide` 已核实问题，并建立可复现的回归判据。

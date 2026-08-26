@@ -850,9 +850,108 @@ function placeForestClusters(items, rng, opts) {
 }
 
 /**
+ * A17 方案1：生成期 LoS 走廊保证原语（纯函数、确定性、无 DOM）。
+ * 对 (spawn, 各 cluster 质心) 逐一校验直视线（hasLineOfSight，与 AI 索敌同口径），
+ * 若存在挡视线体（tier.vision 的 full/bush/tree/fallen/intact/rock），则开走廊：
+ *   ① 侧移遮挡体：沿"线段垂线方向"平移出线段（挪动量 = 遮挡体沿垂线半幅 + 与线段
+ *      垂距 + 余量，确保整块露出缝隙），受控且不越界 / 不撞其它掩体；
+ *   ② 无法安全侧移则降级：仅 full→soft 能去除 vision（half 生成期被 D5 禁止→跳过；
+ *      其余 foliage/rock 降级无意义→直接移除）；
+ *   ③ 仍不行则移除该遮挡体。
+ * 循环直到该 cluster 视线打开或无可处理遮挡体；多 cluster 各自处理；最终保底至少
+ * 保证一个 cluster 与玩家间直视线成立。
+ * 确定性：只用注入的 rng（建议调用方传"由节点 seed 派生的独立子流"，以免污染整局 rng）。
+ * 坐标与 coversList 同帧（makeNode 传世界帧；generateNode 内部调用传其局部帧）。
+ * @param {Array} coversList 将被就地修改（侧移 / 降级 / 移除）的掩体数组
+ * @param {{spawn:{x,y}, clusters:Array<{x,y}>, bounds?:{w,h}}} hints
+ * @param {any} rng createRNG 实例（仅在做侧移随机方向选择/兜底时用；无遮挡时不消耗）
+ * @returns {boolean} 是否对 coversList 做了改动
+ */
+function ensureLoSCorridor(coversList, hints, rng) {
+  if (!hints || !hints.spawn || !Array.isArray(hints.clusters) || !hints.clusters.length) return false;
+  if (!coversList || !coversList.length) return false;
+  const spawn = hints.spawn;
+  const bounds = hints.bounds || null;
+  const pad = 8;
+
+  const visionOf = (tier) => {
+    const t = (typeof COVER_TIERS !== 'undefined' && COVER_TIERS && COVER_TIERS[tier]) ? COVER_TIERS[tier] : null;
+    return !!(t && t.vision);
+  };
+  const losOk = (a, b) => (typeof hasLineOfSight === 'function')
+    ? hasLineOfSight(a.x, a.y, b.x, b.y, coversList)
+    : true;
+  const blockerAt = (a, b) => (typeof losBlocker === 'function')
+    ? losBlocker(a.x, a.y, b.x, b.y, coversList) : null;
+
+  let changed = false;
+
+  const openOne = (c) => {
+    for (let iter = 0; iter < 8; iter++) {
+      const blk = blockerAt(spawn, c);
+      if (!blk) return true;                 // 已打开
+      const cov = blk.cover;
+
+      // ① 侧移：沿线段垂线把遮挡体整体平移出线段
+      const dx = c.x - spawn.x, dy = c.y - spawn.y;
+      const L = Math.hypot(dx, dy) || 1;
+      const px = -dy / L, py = dx / L;       // 与 losBlocker 同向的垂线（侧向）
+      // 遮挡体沿垂线的半幅（精确：投影 OBB 角点到垂线）
+      let minP = Infinity, maxP = -Infinity;
+      const cs = (typeof coverCorners === 'function') ? coverCorners(cov) : null;
+      if (cs && cs.length) {
+        for (const pt of cs) { const d = pt.x * px + pt.y * py; if (d < minP) minP = d; if (d > maxP) maxP = d; }
+      } else {
+        const e = Math.max(cov.w || 0, cov.h || 0) / 2; minP = -e; maxP = e;
+      }
+      const ext = (maxP - minP) / 2;
+      // 线段恒定垂线坐标 = spawn·perp（与 c·perp 相同，因 (c-spawn)⊥perp）
+      const segP = spawn.x * px + spawn.y * py;
+      const centerP = (minP + maxP) / 2;
+      const shift = ext + Math.abs(segP - centerP) + 24;  // 整块移出线段 + 余量
+      let moved = false;
+      for (const sgn of [1, -1]) {
+        const nx = cov.x + px * shift * sgn;
+        const ny = cov.y + py * shift * sgn;
+        if (bounds) {
+          const m = 60;
+          if (nx < m || nx > bounds.w - m || ny < m || ny > bounds.h - m) continue;
+        }
+        // 不与其它掩体重叠（AABB 近似 + pad）
+        if (rectHitsCover(coversList.filter(o => o !== cov), nx, ny, cov.w, cov.h, pad)) continue;
+        cov.x = nx; cov.y = ny; moved = true; break;
+      }
+      if (moved) { changed = true; continue; }   // 重测是否仍挡
+
+      // ② 降级：仅 full→soft 能去除 vision（half 生成期被 D5 禁止→跳过；其它降级无效）
+      if (cov.tier === 'full' && visionOf('full') && !visionOf('soft')) {
+        cov.tier = 'soft';
+        cov.hp = (COVER_TIERS.soft && COVER_TIERS.soft.hp !== undefined) ? COVER_TIERS.soft.hp : 1;
+        changed = true; continue;
+      }
+
+      // ③ 移除：本遮挡体移除后可能仍有后续遮挡体，继续循环剔除（8 次上限防死循环）
+      const idx = coversList.indexOf(cov);
+      if (idx >= 0) { coversList.splice(idx, 1); changed = true; }
+      continue;
+    }
+    return true;
+  };
+
+  for (const c of hints.clusters) {
+    if (losOk(spawn, c)) continue;
+    openOne(c);
+  }
+  // 保底：至少一条直视线（对首个 cluster 激进开走廊）
+  const anyOpen = hints.clusters.some(c => losOk(spawn, c));
+  if (!anyOpen) openOne(hints.clusters[0]);
+  return changed;
+}
+
+/**
  * Main node cover layout generator
  * @param {number} [difficulty=0.5] 0~1 continuous difficulty weight
- * @param {NodeGenOptions} [options]
+ * @param {NodeGenOptions} [options] 含可选 losHints（见 ensureLoSCorridor）
  * @returns {GeneratedNodeResult}
  */
 function generateNode(difficulty, options) {
@@ -1147,6 +1246,13 @@ function generateNode(difficulty, options) {
     }
   }
 
+  // A17：若调用方提供 losHints（生成期 LoS 走廊保证），在此对 outCovers 开走廊。
+  // losHints 坐标须为 generateNode 内部帧（相对 centerX,centerY）；缺省不启用，行为不变，
+  // 既有无遮挡节点布局零变化。makeNode 走"生成后世界帧"路径（见其内 ensureLoSCorridor 调用）。
+  if (opts.losHints && opts.losHints.spawn && Array.isArray(opts.losHints.clusters)) {
+    ensureLoSCorridor(outCovers, opts.losHints, rng);
+  }
+
   const targetCovers = (typeof covers !== 'undefined' && Array.isArray(covers))
     ? covers
     : ((typeof global !== 'undefined' && global.covers && Array.isArray(global.covers)) ? global.covers : null);
@@ -1175,16 +1281,222 @@ function generateNode(difficulty, options) {
   };
 }
 
-// Export for Node.js if running in test environment
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    createRNG,
-    NODE_TEMPLATES,
-    registerTemplate,
-    getTemplates,
-    pickTemplate,
-    generateNode,
-    placeVillage,
-    placeForestClusters
-  };
-}
+  /**
+   * 布局质量度量（P-43 / 地基切片）：给定 generateNode 的 result，返回一组可量化的
+   * 布局健康度指标，供后续难度校准 / #A11 重构前建立基线。纯函数、无 DOM、Node 可测。
+   * 不依赖 tank_cover / tank_map，自包含实现 OBB 点测试；视线查询默认惰性 require
+   * tank_cover.hasLineOfSight（失败则 losSymmetry=null），亦可由 opts.hasLineOfSight 注入。
+   * @param {Object} result generateNode 返回值（含 covers/w/h，可选 water/playerSpawn）
+   * @param {Object} [opts]
+   * @param {number} [opts.step=25]      连通性网格采样步长（px）
+   * @param {number} [opts.margin=40]    连通性采样区域边距（px）
+   * @param {number} [opts.losSamples=200] 视线对称性随机采样点数
+   * @param {Object} [opts.startPoint]   连通性 BFS 起点；缺省用 result.playerSpawn 或 (w*0.10,h/2)
+   * @param {Function} [opts.hasLineOfSight] 视线遮挡查询（(ox,oy,tx,ty,covers)=>bool）
+   * @returns {Object} {coverCoverage, connectivityRatio, losSymmetry, minPassageWidth, coverCount, waterArea}
+   */
+  function nodeLayoutMetrics(result, opts) {
+    opts = opts || {};
+    const covers = (result && result.covers) || [];
+    const w = (result && result.w) || 0;
+    const h = (result && result.h) || 0;
+    const playArea = w * h;
+
+    // --- coverCoverage：Σ(w*h) / 可玩面积（AABB 近似，旋转忽略；可 >1） ---
+    let coverArea = 0;
+    for (const c of covers) coverArea += (c.w || 0) * (c.h || 0);
+    const coverCoverage = playArea > 0 ? coverArea / playArea : 0;
+
+    // --- 自包含 OBB 点测试（旋转矩形 + verts/collisionVerts 多边形） ---
+    const isBlocked = (x, y) => {
+      for (const c of covers) {
+        if (c.verts || c.collisionVerts) {
+          if (_pointInCoverPoly(c, x, y, 0)) return true;
+        } else {
+          const dx = x - c.x, dy = y - c.y;
+          const ang = -(c.angle || 0);
+          const ca = Math.cos(ang), sa = Math.sin(ang);
+          const lx = dx * ca - dy * sa;
+          const ly = dx * sa + dy * ca;
+          if (Math.abs(lx) <= (c.w || 0) / 2 && Math.abs(ly) <= (c.h || 0) / 2) return true;
+        }
+      }
+      return false;
+    };
+
+    // --- connectivityRatio：网格采样（step / margin）+ BFS（4-连通，直角不切角） ---
+    const step = opts.step || 25;
+    const margin = opts.margin || 40;
+    const xs = [], ys = [];
+    for (let x = margin; x <= w - margin + 1e-6; x += step) xs.push(x);
+    for (let y = margin; y <= h - margin + 1e-6; y += step) ys.push(y);
+    if (xs.length === 0) xs.push(w / 2);
+    if (ys.length === 0) ys.push(h / 2);
+    const cols = xs.length, rows = ys.length;
+    const blockedGrid = [];
+    let totalNonBlocked = 0;
+    for (let gy = 0; gy < rows; gy++) {
+      blockedGrid[gy] = new Array(cols);
+      for (let gx = 0; gx < cols; gx++) {
+        const b = isBlocked(xs[gx], ys[gy]);
+        blockedGrid[gy][gx] = b;
+        if (!b) totalNonBlocked++;
+      }
+    }
+    const start = opts.startPoint || (result && result.playerSpawn) || { x: w * 0.10, y: h / 2 };
+    let sgx = 0, sgy = 0, bestD = Infinity;
+    for (let gy = 0; gy < rows; gy++) {
+      for (let gx = 0; gx < cols; gx++) {
+        const d = (xs[gx] - start.x) * (xs[gx] - start.x) + (ys[gy] - start.y) * (ys[gy] - start.y);
+        if (d < bestD) { bestD = d; sgx = gx; sgy = gy; }
+      }
+    }
+    let connectivityRatio = 0;
+    if (totalNonBlocked > 0 && !blockedGrid[sgy][sgx]) {
+      const seen = new Array(rows * cols).fill(false);
+      const idx = (gy, gx) => gy * cols + gx;
+      const queue = [[sgy, sgx]];
+      seen[idx(sgy, sgx)] = true;
+      let reached = 0;
+      while (queue.length) {
+        const cur = queue.pop();
+        const cy = cur[0], cx = cur[1];
+        reached++;
+        const neigh = [[cy - 1, cx], [cy + 1, cx], [cy, cx - 1], [cy, cx + 1]];
+        for (const n of neigh) {
+          const ny = n[0], nx = n[1];
+          if (ny < 0 || ny >= rows || nx < 0 || nx >= cols) continue;
+          if (blockedGrid[ny][nx]) continue;
+          if (seen[idx(ny, nx)]) continue;
+          seen[idx(ny, nx)] = true;
+          queue.push([ny, nx]);
+        }
+      }
+      connectivityRatio = reached / totalNonBlocked;
+    } else {
+      connectivityRatio = 0;
+    }
+
+    // --- minPassageWidth：两两 OBB「中心距 − 较大半对角线」的最小正值间隙 ---
+    let minGap = Infinity;
+    for (let i = 0; i < covers.length; i++) {
+      for (let j = i + 1; j < covers.length; j++) {
+        const a = covers[i], b = covers[j];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        const ha = Math.hypot(a.w || 0, a.h || 0) / 2;
+        const hb = Math.hypot(b.w || 0, b.h || 0) / 2;
+        const gap = dist - Math.max(ha, hb);
+        if (gap > 0 && gap < minGap) minGap = gap;
+      }
+    }
+    const minPassageWidth = (minGap === Infinity) ? 0 : minGap;
+
+    // --- losSymmetry：K 个随机采样点，unordered 对 (i,j) 双向视线相等比例 ---
+    let losSymmetry = null;
+    const losFn = opts.hasLineOfSight || _getLoS();
+    if (losFn) {
+      if (covers.length === 0) {
+        losSymmetry = 1; // 无掩体 → 双向视线恒等
+      } else if (w > 0 && h > 0) {
+        const K = opts.losSamples || 200;
+        const r = createRNG(((result.seed >>> 0) ^ 0x4C6F53) >>> 0);
+        const pts = [];
+        for (let i = 0; i < K; i++) pts.push({ x: r() * w, y: r() * h });
+        let eq = 0, tot = 0;
+        for (let i = 0; i < K; i++) {
+          for (let j = i + 1; j < K; j++) {
+            const f = losFn(pts[i].x, pts[i].y, pts[j].x, pts[j].y, covers);
+            const b = losFn(pts[j].x, pts[j].y, pts[i].x, pts[i].y, covers);
+            tot++;
+            if (f === b) eq++;
+          }
+        }
+        losSymmetry = tot > 0 ? eq / tot : 1;
+      }
+    }
+
+    // --- waterArea：若 result.water 存在则累加（当前 generateNode 不产出，留待 #A11） ---
+    let waterArea = 0;
+    if (result && result.water) {
+      const wl = Array.isArray(result.water) ? result.water : [result.water];
+      for (const ww of wl) waterArea += (ww.w || 0) * (ww.h || 0);
+    }
+
+    return {
+      coverCoverage,
+      connectivityRatio,
+      losSymmetry,
+      minPassageWidth,
+      coverCount: covers.length,
+      waterArea
+    };
+  }
+
+  // 视线查询惰性加载（容错：RULES 未注入时返回 null，不污染主链路）
+  /** @type {any} */
+  let _losModCache = '__uninit__';
+  function _getLoS() {
+    if (_losModCache !== '__uninit__') return _losModCache;
+    try {
+      const cov = require('./tank_cover.js');
+      _losModCache = (cov && cov.hasLineOfSight) || null;
+    } catch (e) {
+      _losModCache = null;
+    }
+    return _losModCache;
+  }
+
+  // 多边形掩体命中测试（局部坐标 verts / collisionVerts；含 padding 边距缓冲）
+  function _pointInCoverPoly(c, x, y, padding) {
+    const vs = c.verts || c.collisionVerts;
+    if (!vs || vs.length < 3) {
+      const dx = x - c.x, dy = y - c.y;
+      const ang = -(c.angle || 0);
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
+      return Math.abs(lx) <= (c.w || 0) / 2 + padding && Math.abs(ly) <= (c.h || 0) / 2 + padding;
+    }
+    const dx = x - c.x, dy = y - c.y;
+    const ang = -(c.angle || 0);
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    const lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
+    let inside = false;
+    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+      const xi = vs[i][0], yi = vs[i][1], xj = vs[j][0], yj = vs[j][1];
+      if (((yi > ly) !== (yj > ly)) && (lx < (xj - xi) * (ly - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    if (inside) return true;
+    if (padding > 0) {
+      for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+        if (_segDist(lx, ly, vs[i][0], vs[i][1], vs[j][0], vs[j][1]) <= padding) return true;
+      }
+    }
+    return false;
+  }
+
+  // 点到线段最短距离（多边形边距缓冲用）
+  function _segDist(px, py, ax, ay, bx, by) {
+    const vx = bx - ax, vy = by - ay;
+    const wx = px - ax, wy = py - ay;
+    const len2 = vx * vx + vy * vy;
+    let t = len2 > 0 ? (wx * vx + wy * vy) / len2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const cx = ax + t * vx, cy = ay + t * vy;
+    return Math.hypot(px - cx, py - cy);
+  }
+
+  // Export for Node.js if running in test environment
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      createRNG,
+      NODE_TEMPLATES,
+      registerTemplate,
+      getTemplates,
+      pickTemplate,
+      generateNode,
+      placeVillage,
+      placeForestClusters,
+      ensureLoSCorridor,
+      nodeLayoutMetrics
+    };
+  }

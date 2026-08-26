@@ -310,12 +310,13 @@ function resolveCoverCollisions(tank) {
   }
 }
 
-function findCoversOnPath(ox,oy,tx,ty){
+function findCoversOnPath(ox,oy,tx,ty, coversList){
   const dx=tx-ox, dy=ty-oy;
   const dist = Math.hypot(dx,dy) || 1;
   const ux=dx/dist, uy=dy/dist;
   const hits = [];
-  for(const cov of covers){
+  const list = (coversList && coversList.length) ? coversList : covers;
+  for(const cov of list){
     if(cov.hp <= 0) continue;   // 已摧毁元素不再参与判定/预测
     // P-40：河流多段——逐段求交，取最早入口段代表整个实例（cover 字段指向父实例）
     let bEntry=null, bExit=null, bPoint=null;
@@ -432,10 +433,31 @@ function coverBlockInfo(ox,oy,tx,ty, shooter, target, part, cutoffDist){
   return { prob: 1 - exposure, hits: findCoversOnPath(ox,oy,tx,ty) };
 }
 
-function isBlockedBySolidCover(ox,oy,tx,ty){
-  const hits = findCoversOnPath(ox,oy,tx,ty);
+function isBlockedBySolidCover(ox,oy,tx,ty, coversList){
+  const hits = findCoversOnPath(ox,oy,tx,ty, coversList);
   for(const h of hits){
     if(tierShellBlock(COVER_TIERS[h.cover.tier]) === true) return h;
+  }
+  return null;
+}
+
+// A17：视线遮挡原语——返回 (ax,ay)→(bx,by) 线上首个挡视线（tier.vision）的掩体，
+// 以及供 AI 绕行 / 生成期开走廊复用的侧向单位向量 (nx,ny)。纯函数、无 DOM 依赖。
+// 与 hasLineOfSight 同口径（仅 tier.vision 决定的掩体遮挡视线；烟雾由调用方另行判定）。
+// (nx,ny) 取"线段垂线方向"（spec 允许退化形式）：既可直接用于把遮挡体沿此平移露出缝隙，
+// 也可供 AI 沿 ±(nx,ny) 侧向绕行。coversList 缺省走全局 covers；该参数使原语可作用于
+// 任意掩体集合（如生成期的节点局部 covers，而非运行期全局数组）。
+function losBlocker(ax, ay, bx, by, coversList) {
+  const hits = findCoversOnPath(ax, ay, bx, by, coversList);
+  for (const h of hits) {
+    const tier = COVER_TIERS[h.cover.tier];
+    if (tier && tier.vision) {
+      const dx = bx - ax, dy = by - ay;
+      const L = Math.hypot(dx, dy) || 1;
+      // 垂线方向（侧向）：(-dy, dx)/L —— 开走廊时把遮挡体沿此平移即可露出缝
+      const nx = -dy / L, ny = dx / L;
+      return { cover: h.cover, nx: nx, ny: ny, point: h.point };
+    }
   }
   return null;
 }
@@ -444,8 +466,8 @@ function isBlockedBySolidCover(ox,oy,tx,ty){
 // 是敌人 AI 索敌（开放问题 1）与玩家被发现判定的公共前置；炮弹穿透的 pass/none 掩体（灌木
 // 本身 mode='none' 但 vision=true）仍遮挡视线——视线与弹道是两套判定。
 // P-17：烟雾动态掩体（smokeClouds）同样遮挡视线（弹道穿透不受影响）。
-function hasLineOfSight(ox,oy,tx,ty){
-  const hits = findCoversOnPath(ox,oy,tx,ty);
+function hasLineOfSight(ox,oy,tx,ty, coversList){
+  const hits = findCoversOnPath(ox,oy,tx,ty, coversList);
   for(const h of hits){
     const tier = COVER_TIERS[h.cover.tier];
     if(tier && tier.vision) return false;   // 灌木/树冠遮挡视线
@@ -478,6 +500,7 @@ if (typeof module !== 'undefined' && module.exports) {
     getExposure,
     coverBlockInfo,
     isBlockedBySolidCover,
+    losBlocker,
     hasLineOfSight,
     smokeClouds,
     spawnSmokeCloud,

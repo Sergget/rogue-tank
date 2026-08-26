@@ -113,20 +113,6 @@
 
 ---
 
-### #A15. 成员防护内衬两张卡完全未实现（比描述不符更严重）
-
-**状态：** 待处理
-
-**可复现证据：**
-- cards/support_spall_liner.json（rare −20%）/spall_liner.json（epic −50%）的 passive spall_liner 运行时零消费（PASSIVE_KEYS 仅白名单声明 `tank_cards.js:42`；`tank_physics.js` 模块/乘员路径无检查）。
-- 归档快照 :520 自证 passive/economy 类挂账未接线。
-- 用户所述"描述应为坦克受伤降低"在代码中无对应物——真实状态是拿卡毫无效果。
-
-**影响：** 两张卡完全无效但仍占抽卡池。
-
-**处理方向：** resolveHit 模块伤害分支接 cardEffects.spall_liner；接线前先移出抽卡池或标注未生效。
-
----
 
 ### #A16. 敌方/Boss 参数绑定审计结论 + 配套发现
 
@@ -151,4 +137,4 @@
 - 敌 pen 浮动按上述落点实施；
 - 修 DEVELOPMENT.md:25。
 
----
+

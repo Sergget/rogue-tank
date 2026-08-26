@@ -47,6 +47,38 @@ function _patrolWanderTurn(t, ctx){
   return Math.sin(phase) * sigma;
 }
 
+// #A17 方案2：LoS 受阻时的运行时侧向绕行（兜底层，防 AI 顶墙永久卡死）。
+// 纯函数、可独立单测：取 losBlocker 提供的遮挡体侧向单位向量 (nx,ny)，
+// 选 ± 侧使 AI 偏移一个试步后视线更接近恢复（复检：偏好 null > 离 AI 更远），
+// 再合成「朝 heading 前进 + 侧向(s)偏移」的期望朝向，输出温和转向分量。
+// 无遮挡 / losBlocker 不可用 / 目标过近 → 返回 null（调用方回退原直冲语义）。
+function _losDetour(t, p, heading){
+  const cfg = aiConfig();
+  if(typeof losBlocker !== 'function') return null;       // 原语不可用则不动
+  const blk = losBlocker(t.x, t.y, p.x, p.y);
+  if(!blk) return null;                                    // 无遮挡 → 不需要绕
+  const nx = blk.nx, ny = blk.ny;
+  const L0 = Math.hypot(p.x - t.x, p.y - t.y) || 1;
+  if(L0 < 40) return null;                                 // 过近不绕，避免抖动
+  // 选 ±(nx,ny)：偏移试步后复检，取使遮挡更远 / 视线恢复的一侧
+  const step = cfg.detourProbeStep !== undefined ? cfg.detourProbeStep : 60;
+  const a1x = t.x + nx * step, a1y = t.y + ny * step;
+  const a2x = t.x - nx * step, a2y = t.y - ny * step;
+  const h1 = losBlocker(a1x, a1y, p.x, p.y);
+  const h2 = losBlocker(a2x, a2y, p.x, p.y);
+  const d1 = h1 ? Math.hypot(h1.point.x - a1x, h1.point.y - a1y) : Infinity;
+  const d2 = h2 ? Math.hypot(h2.point.x - a2x, h2.point.y - a2y) : Infinity;
+  const s = d1 >= d2 ? 1 : -1;                             // 离遮挡更远的一侧更优
+  // 合成期望朝向：朝 heading（记忆点/玩家）方向 + 侧向偏移，权重收口 RULES.ai.detourLatWeight
+  const w = cfg.detourLatWeight !== undefined ? cfg.detourLatWeight : 0.8;
+  const hx = Math.cos(heading), hy = Math.sin(heading);
+  const dxV = hx + nx * s * w, dyV = hy + ny * s * w;
+  const detourHeading = Math.atan2(dyV, dxV);
+  const hDiff = angDiff(detourHeading, t.hullAngle);
+  const turn = hDiff > 0.05 ? 1 : (hDiff < -0.05 ? -1 : 0);
+  return { turn: turn, sign: s };
+}
+
 // #76 B：接战/精度参数合成（可单测）——
 //   engage = engageRange × 难度比(trigRatio) × 档位 engageMul
 //     难度比复用生成期难度化触发距离：trigRatio = clamp(t.aiTriggerDist / triggerDistBase, 1, hysteresis)
@@ -216,8 +248,15 @@ function aiDecideEnemy(t, ctx){
       }
     }
     out.move = 1;
-    const hDiff = angDiff(heading, t.hullAngle);
-    out.turn = hDiff > 0.05 ? 1 : (hDiff < -0.05 ? -1 : 0);
+    // #A17 方案2：LoS 受阻时叠加温和侧向绕行（losBlocker 选 ± 侧），避免顶墙永久卡死；
+    // LoS 恢复即退出本分支、回到正常接战（下方 los 为真路径）。
+    const detour = _losDetour(t, p, heading);
+    if(detour){
+      out.turn = detour.turn;
+    } else {
+      const hDiff = angDiff(heading, t.hullAngle);
+      out.turn = hDiff > 0.05 ? 1 : (hDiff < -0.05 ? -1 : 0);
+    }
     out.turretDesired = heading;
     t.aiState = 'search';
     return out;
