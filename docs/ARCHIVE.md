@@ -1,4 +1,4 @@
-# Rogue Tank — 历史归档索引（ARCHIVE INDEX）
+﻿# Rogue Tank — 历史归档索引（ARCHIVE INDEX）
 
 > 本文件是已完成条目的**顶层只读索引表**。
 > 为防止单体文档过大引发上下文死循环，归档正文已按月分卷存放在 docs/archive/ 目录下。
@@ -93,5 +93,6 @@
 | 2026-08-26 | `ISSUES.md` | #A15. 成员防护内衬两张卡完全未实现（已修复） | 已修复并验证（tank_physics.js 经 passiveValues 消费 spall_liner 乘入模块伤害，活浏览器实测 PEN 伤害均值降至无内衬 0.7981 倍，见 specs/combat.md §2） |
 | 2026-08-26 | `ISSUES.md` | #A17. 批量 seed 回放出现高比例零开火节点 | 已修复并验证（生成期 LoS 走廊 + 运行期侧向绕行落地于 tank_cover.js/tank_nodegen.js/tank_ai.js；零开火节点 9/40→7/40，npm run check / npm test / test:browser 全绿；见 specs/map.md §7） |
 
+| 2026-08-27 | `ISSUES.md` | #A16. 敌方/Boss 参数绑定审计结论 + 配套发现 | 已解决并验证（三处 spawn 直写改经 addModifier 注入 difficulty-cap；纯函数 difficultyCapMuls 收口换算；speedVsPlayer 收口 RULES；test-modifiers.js §21 断言等价；回放 hash 不变；见 DEVELOPMENT §2.1） |
 ------
 

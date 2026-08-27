@@ -958,35 +958,27 @@ function applyDifficultyMults(t, mults, applyPlayerCap){
     addModifier(t, { stat: 'armor.turret', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
   }
   t.hp = t.stats.maxHp; t.maxHp = t.stats.maxHp;
-  // 玩家能力封顶（#92 新方案）
+  // 玩家能力封顶（#92 新方案 / #A16：改经 addModifier 注入，防后续 refreshStats 把直写值抹回未封顶）
   if(applyPlayerCap && typeof player !== 'undefined' && player && player.stats){
-    const D = (RULES && RULES.difficulty) || {};
-    // 穿深封顶
-    if(typeof t.stats.penetration === 'number' && typeof player.stats.penetration === 'number'){
-      const penCap = player.stats.penetration * (D.penCapVsPlayer !== undefined ? D.penCapVsPlayer : 1.2);
-      if(t.stats.penetration > penCap) t.stats.penetration = penCap;
-    }
-    // 伤害地板/天花板（天花板 = 玩家所携 ap/apcr/heat 最终伤害最高者 × dmgCapAmmoMult）
-    if(typeof t.stats.damage === 'number' && typeof player.stats.damage === 'number'){
-      const floor = player.stats.damage * (D.dmgFloorVsPlayer !== undefined ? D.dmgFloorVsPlayer : 0.4);
-      let strongest = 0;
-      if(typeof computeAmmoConfig === 'function'){
-        for(const key of ['ap', 'apcr', 'heat']){
-          const ac = computeAmmoConfig(player, key);
-          if(ac && typeof ac.dmg === 'number') strongest = Math.max(strongest, ac.dmg * player.stats.damage + (ac.dmgAdd || 0));   // #A13: 含 dmg 追加量
-        }
+    // 预计算最强弹种终伤（用于 dmg 天花板，等价于原 computeAmmoConfig 循环）
+    let strongest = 0;
+    if(typeof computeAmmoConfig === 'function'){
+      for(const key of ['ap', 'apcr', 'heat']){
+        const ac = computeAmmoConfig(player, key);
+        if(ac && typeof ac.dmg === 'number') strongest = Math.max(strongest, ac.dmg * player.stats.damage + (ac.dmgAdd || 0));   // #A13: 含 dmg 追加量
       }
-      const cap = strongest > 0 ? strongest * (D.dmgCapAmmoMult !== undefined ? D.dmgCapAmmoMult : 0.7) : Infinity;
-      if(t.stats.damage < floor) t.stats.damage = floor;
-      if(t.stats.damage > cap) t.stats.damage = cap;
     }
-    // ★速度新方案：难度驱动的相对速度 + 每辆独立随机浮动
-    if(typeof t.stats.maxSpeed === 'number' && typeof player.stats.maxSpeed === 'number' && player.stats.maxSpeed > 0){
-      const diff = (currentNode && typeof currentNode.difficulty === 'number') ? currentNode.difficulty : 0.15;
-      const diffNorm = Math.max(0, Math.min(1, (diff - 0.15) / (0.95 - 0.15)));
-      const speedFactor = 0.3 + (0.6 - 0.3) * diffNorm;          // lerp(0.3, 0.6, diffNorm)
-      const randFactor = 0.85 + Math.random() * 0.30;            // 0.85~1.15 每辆独立
-      t.stats.maxSpeed = speedFactor * randFactor * player.stats.maxSpeed;
+    const diff = (currentNode && typeof currentNode.difficulty === 'number') ? currentNode.difficulty : 0.15;
+    const diffNorm = Math.max(0, Math.min(1, (diff - 0.15) / (0.95 - 0.15)));
+    const randFactor = 0.85 + Math.random() * 0.30;   // 0.85~1.15 每辆独立，运行期随机非 RNG 流
+    // 把「相对玩家的目标绝对值」换算为「相对 t.base.X 的 mult 系数」，遍历注入（scope 'run'、source 'difficulty-cap'），
+    // 与上方先行的 entityMults（source 'difficulty'）加法聚合兼容，逐值等价于旧直写（见 js/tank_model.js difficultyCapMuls 注释）。
+    const caps = (typeof difficultyCapMuls === 'function')
+      ? difficultyCapMuls(t, { player: player, strongest: strongest, diffNorm: diffNorm, randFactor: randFactor })
+      : {};
+    const CAP_STAT = { penMul: 'penetration', dmgFloorMul: 'damage', dmgCapMul: 'damage', speedMul: 'maxSpeed' };
+    for(const key in caps){
+      addModifier(t, { stat: CAP_STAT[key], mode: 'mult', value: caps[key], source: 'difficulty-cap', scope: 'run' });
     }
   }
 }

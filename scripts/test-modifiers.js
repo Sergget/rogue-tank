@@ -252,6 +252,75 @@ model.addModifier(t20c, { stat: 'maxHp', mode: 'add', value: 30, scope: 'run' })
 model.removeRunModifiers(t20c);                  // 移除 → maxHp 回落 30
 ok(t20c.hp === baseHp20c, '#A12: maxHp 回落后 hp 仅钳回原上限，不额外扣血');
 
+// 21) #A16 difficultyCapMuls：敌军能力封顶/地板/速度 → mult 系数换算（纯函数 + 注入等价性）
+// 背景：applyDifficultyMults 原直写 t.stats.* 对敌人封顶/抬升，绕过 modifiers 三层，任何后续
+// addModifier/refreshStats 会把直写值抹回未封顶（潜在回归）。现改经 difficultyCapMuls 换算系数
+// + addModifier 注入，本测试固化「逐值等价于旧直写」与「仅超限/越界才注入」。
+(function(){
+  const D = global.RULES.difficulty;
+  const em = D.entityMults;
+  // 可控玩家基准
+  const player = model.makeTank({ team: 'player' });
+  player.base.penetration = 200; player.stats.penetration = 200;
+  player.base.damage = 50;       player.stats.damage = 50;
+  player.base.maxSpeed = 100;    player.stats.maxSpeed = 100;
+
+  const diffNorm = 0.5, randFactor = 1.0;
+  const SV = D.speedVsPlayer;
+  const speedFactor = SV.baseFloor + (SV.baseCeil - SV.baseFloor) * diffNorm;
+  const targetSpeed = speedFactor * randFactor * player.stats.maxSpeed;   // 0.45*1*100=45
+  const penCap = player.stats.penetration * D.penCapVsPlayer;             // 240
+  const floor = player.stats.damage * D.dmgFloorVsPlayer;                 // 20
+
+  // 21a 正常区间敌人：pen 未超限、dmg 远高于地板，应只注入 speedMul
+  const e1 = model.makeTank({ team: 'enemy' });
+  e1.base.penetration = 150; e1.stats.penetration = 150;   // 150*1.25=187.5 < 240
+  e1.base.damage = 80;      e1.stats.damage = 80;
+  e1.base.maxSpeed = 120;   e1.stats.maxSpeed = 120;
+  model.addModifier(e1, { stat: 'penetration', mode: 'mult', value: em.penetration[1], source: 'difficulty', scope: 'run' });
+  model.addModifier(e1, { stat: 'damage', mode: 'mult', value: em.damage[1], source: 'difficulty', scope: 'run' });
+  model.addModifier(e1, { stat: 'maxSpeed', mode: 'mult', value: em.maxSpeed[1], source: 'difficulty', scope: 'run' });
+  const caps1 = model.difficultyCapMuls(e1, { player: player, strongest: 9999, diffNorm: diffNorm, randFactor: randFactor });
+  ok(caps1.speedMul !== undefined, '#A16: speedMul 恒注入（相对速度公式）');
+  ok(caps1.penMul === undefined, '#A16: pen 未超限时不注入 penMul');
+  ok(caps1.dmgFloorMul === undefined && caps1.dmgCapMul === undefined, '#A16: dmg 正常区间不注入（strongest 高→cap 高）');
+  const CAP_STAT = { penMul: 'penetration', dmgFloorMul: 'damage', dmgCapMul: 'damage', speedMul: 'maxSpeed' };
+  for (const k in caps1) model.addModifier(e1, { stat: CAP_STAT[k], mode: 'mult', value: caps1[k], source: 'difficulty-cap', scope: 'run' });
+  ok(Math.abs(e1.stats.maxSpeed - targetSpeed) < 1e-6,
+    `#A16: speed 注入后逐值等价旧直写（${e1.stats.maxSpeed.toFixed(3)} vs ${targetSpeed.toFixed(3)}）`);
+
+  // 21b pen 超限场景：直写目标 = penCap，注入后应命中
+  const e2 = model.makeTank({ team: 'enemy' });
+  e2.base.penetration = 300; e2.stats.penetration = 300;   // 300*1.25=375 > 240
+  model.addModifier(e2, { stat: 'penetration', mode: 'mult', value: em.penetration[1], source: 'difficulty', scope: 'run' });
+  const caps2 = model.difficultyCapMuls(e2, { player: player, strongest: 9999, diffNorm: 0, randFactor: 1 });
+  ok(caps2.penMul !== undefined, '#A16: pen 超限时注入 penMul');
+  model.addModifier(e2, { stat: 'penetration', mode: 'mult', value: caps2.penMul, source: 'difficulty-cap', scope: 'run' });
+  ok(Math.abs(e2.stats.penetration - penCap) < 1e-6,
+    `#A16: pen 封顶注入后逐值等价旧直写（${e2.stats.penetration.toFixed(3)} vs ${penCap}）`);
+
+  // 21c dmg 低于地板场景
+  const e3 = model.makeTank({ team: 'enemy' });
+  e3.base.damage = 10; e3.stats.damage = 10;     // 10*1.2=12 < floor 20
+  model.addModifier(e3, { stat: 'damage', mode: 'mult', value: em.damage[1], source: 'difficulty', scope: 'run' });
+  const caps3 = model.difficultyCapMuls(e3, { player: player, strongest: 9999, diffNorm: 0, randFactor: 1 });
+  ok(caps3.dmgFloorMul !== undefined, '#A16: dmg 低于地板时注入 dmgFloorMul');
+  model.addModifier(e3, { stat: 'damage', mode: 'mult', value: caps3.dmgFloorMul, source: 'difficulty-cap', scope: 'run' });
+  ok(Math.abs(e3.stats.damage - floor) < 1e-6,
+    `#A16: dmg 地板注入后逐值等价旧直写（${e3.stats.damage.toFixed(3)} vs ${floor}）`);
+
+  // 21d dmg 高于天花板场景
+  const e4 = model.makeTank({ team: 'enemy' });
+  e4.base.damage = 200; e4.stats.damage = 200;   // 200*1.2=240
+  const cap2 = 100 * D.dmgCapAmmoMult;            // strongest=100 → cap=70
+  model.addModifier(e4, { stat: 'damage', mode: 'mult', value: em.damage[1], source: 'difficulty', scope: 'run' });
+  const caps4 = model.difficultyCapMuls(e4, { player: player, strongest: 100, diffNorm: 0, randFactor: 1 });
+  ok(caps4.dmgCapMul !== undefined, '#A16: dmg 高于天花板时注入 dmgCapMul');
+  model.addModifier(e4, { stat: 'damage', mode: 'mult', value: caps4.dmgCapMul, source: 'difficulty-cap', scope: 'run' });
+  ok(Math.abs(e4.stats.damage - cap2) < 1e-6,
+    `#A16: dmg 天花板注入后逐值等价旧直写（${e4.stats.damage.toFixed(3)} vs ${cap2}）`);
+})();
+
 console.log('test-modifiers: 完成所有检查');
 if (fails === 0) console.log('test-modifiers: 全部通过');
 else console.error(`test-modifiers: ${fails} 项失败`);

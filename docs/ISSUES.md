@@ -11,6 +11,8 @@
 
 > 已解决并归档的历史条目（#1~#26, #44, #49, #60~#75 及修复记录、附注特性）：见 `ARCHIVE.md`.
 
+---
+
 ## 玩法设计问题（2026-08-24）
 
 ### #78. 掩体形状单一(矩形为主)，缺不规则岩石/连续曲线水域/烂泥减速地形
@@ -113,28 +115,21 @@
 
 ---
 
+### #A18. 回放基线批量 seed 扫描：大量节点超时（战斗不收敛）
 
-### #A16. 敌方/Boss 参数绑定审计结论 + 配套发现
+**状态：** 待处理（根因待排查）
 
-**状态：** 待处理
+**可复现证据：**
+- 诊断脚本 `scripts/diagnose-replay-seeds.js`（P-44 待办① 落地，基于 `js/tank_sim.js runReplay` 确定性回放）跑 `24 seeds × 4 nodes，maxNodeTime=45s`：
+  - outcome 分布：win=18 / loss=17 / **timeout=61**（总节点 96，超时率 ≈63%）；
+  - hardCrash=0、zeroFire=0、earlyLoss=0，但 **23/24 seed 达 timeoutHeavy 阈值（≥2/4 节点 timeout）**；
+  - 完整 TIMEOUT-HEAVY 清单（seed→timeout 节点数）：1:2 2:3 3:4 4:2 5:3 6:3 7:2 8:3 10:3 11:2 12:2 13:4 14:4 15:2 16:3 17:3 18:2 19:2 20:2 21:3 22:2 23:2 24:2。
+- 结论：**zeroFire=0 说明双方确有交火，但绝大多数节点在限定时间内分不出胜负**——属「有开火但不收敛」类，与已修复的 #A17「零开火卡墙」是不同根因类。
+- 阈值依赖：本扫描 maxNodeTime=45s（比 test-replay.js 基线 120s 更激进）；真实超时率随上限抬升下降，但高占比提示 sim 代理玩家推进逻辑（`tank_sim.js` 内 `nearestEnemyTo` 触发距离 700×0.75 机动）或 AI 对峙未强制终结，基线对「战斗不收敛」类回归探测力弱。
 
-**审计结论：** 运行时 reload/turnRate/turretTurnRate/maxSpeed 消费点全部读自身 t.stats（`tank_move.js:38,43` / `tank_fire.js:66,78` / `tank_ai.js:92,150,240,402`），**无任何运行时读 player.stats 的路径**——"跟着玩家实时数值"不成立；玩家绑定仅 spawn 快照三处直写：
-1. pen 封顶 mvp:953-955 直写 stats.penetration（RULES.difficulty.penCapVsPlayer=1.2, `tank_rules.js:409`）；
-2. damage 地板/天花板 mvp:958-969（dmgFloorVsPlayer 0.4/dmgCapAmmoMult 0.7, `tank_rules.js:410-411`）；
-3. maxSpeed 公式硬编码页内 lerp(0.3,0.6)×rand(0.85~1.15)×player.stats.maxSpeed（mvp:974-977），**覆盖了刚应用的 entityMults.maxSpeed（`tank_rules.js:428` 对该字段实际失效，两套机制打架）**，且违反"调参进 RULES"约定。
+**影响：** P-44 回放基线主要价值是「修补后 hash 归因」，但当前高超时率使其难以区分「真实平衡」与「sim 缺陷导致的假超时」，削弱回归判据信度。
 
-**风险：** 三处均绕 modifiers 直写，敌人后续 refreshStats 会把未封顶值还原（潜在回归点）。
-
-**敌穿深确定性：** fireTank pen=stats.penetration*ammo.pen（`tank_fire.js:90`）无随机 → "打不穿永远打不穿"成立；改造落点=开火时刻对非玩家 shooter roll 0.6–1.4 正态（参数进 RULES，gaussian 注入通道已有 tank_fire.js:50），勿在 resolveHit roll（波及玩家+预测面板 predPen 失真）。
-
-**Boss：** tuning 链零玩家引用（`tank_boss.js:212-217`）；射速已绑难度三层乘子（boss fireRateMul 缺省 0.6 + entityMults.reload[1.25,0.82] + 阶段 onEnter）。
-
-**文档漂移：** docs/DEVELOPMENT.md:25 仍写旧键 enemyStatCapVsPlayer=0.8，代码已是新三键方案（`tank_rules.js:407-411`）——需同步。
-
-**处理方向：**
-- a-3 速度公式提为 RULES.difficulty.speedVsPlayer 表并消除与 entityMults 打架；
-- 直写改经 modifiers 注入防 refreshStats 回归；
-- 敌 pen 浮动按上述落点实施；
-- 修 DEVELOPMENT.md:25。
-
-
+**处理方向（建议，待核实）：**
+- 排查 sim 代理玩家推进阈值与 AI 对峙：是否应在超时前强制拉近/强攻，或真实对局同样高超时（需对比真人录像或浏览器实跑）；
+- 区分「真平衡超时」（双方势均力敌）与「sim 缺陷假超时」（代理玩家/AI 卡位）；
+- 若确认为 sim 缺陷，增强 `tank_sim.js` 代理玩家行为或加 `forceResolve` 兜底，使基线超时率降至可解释区间，再重锚 baseline hash。

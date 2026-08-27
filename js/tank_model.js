@@ -106,6 +106,67 @@ function computeStats(base, modifiers){
   return s;
 }
 
+// ---------- #A16 敌军能力封顶/地板 → mult 系数换算（纯函数，双端可 Node 测试） ----------
+// applyDifficultyMults 原以直写 t.stats.* 对敌人能力封顶/抬升，绕过 modifiers 三层结构，
+// 任何后续 addModifier/refreshStats 会把直写值抹回未封顶。本函数把「相对玩家的目标绝对值」
+// 换算成「相对 t.base.X 的 mode:'mult' 系数」，交由调用方经 addModifier 注入（scope 'run'、
+// source 'difficulty-cap'），与 spawn 时先行的 entityMults（source 'difficulty'）加法聚合兼容。
+//
+// 关键换算（2026-08-27 #A16）：computeStats 对同一 stat 的多条 mult 加法聚合为 1+Σ(v_i−1)，
+// 故注入系数不能简单取 target/base（会与 entityMults 相乘而非替换）。正确公式以「当前生效值
+// t.stats.X」为基准算差量：
+//     mul = (target − t.stats.X) / t.base.X + 1
+// 注入后聚合乘数多出 (mul−1)，final = t.stats.X + t.base.X·(mul−1) = target —— 与旧直写「把
+// stats.X 设为 target」逐值等价，且不依赖 base 之外的其他修饰器。
+//
+// 入参 t：敌人坦克（含 .base 与 .stats，stats 已含先行 entityMults）；
+//   opts.player：玩家坦克（读 .stats）；opts.strongest：最强弹种终伤（mvp 由 computeAmmoConfig
+//   预计算传入，避免本文件倒序依赖 tank_cards）；opts.diffNorm：归一难度 0~1；opts.randFactor：
+//   每辆车独立随机浮动（0.85~1.15，运行期随机非 RNG 流，mvp 用 Math.random 生成）。
+// 返回「需要注入的 mult 字典」：只在真正要封顶/抬升时才出现对应键（penMul | dmgFloorMul |
+// dmgCapMul | speedMul），无关键不存在——调用方据此遍历 addModifier，避免无谓注入。
+function difficultyCapMuls(t, opts){
+  const out = {};
+  const D = (typeof RULES !== 'undefined' && RULES.difficulty) || {};
+  opts = opts || {};
+  const player = opts.player;
+  if(!t || !t.base || !t.stats || !player || !player.stats) return out;
+
+  // 穿深封顶：penCap = player.penetration × penCapVsPlayer；仅当当前生效值超限才压
+  if(typeof t.stats.penetration === 'number' && typeof player.stats.penetration === 'number'
+     && typeof t.base.penetration === 'number' && t.base.penetration > 0){
+    const penCap = player.stats.penetration * (D.penCapVsPlayer !== undefined ? D.penCapVsPlayer : 1.2);
+    if(t.stats.penetration > penCap){
+      out.penMul = (penCap - t.stats.penetration) / t.base.penetration + 1;
+    }
+  }
+  // 伤害地板/天花板（天花板 = 最强弹种终伤 × dmgCapAmmoMult）。floor < cap 恒成立（强弹种
+  // dmg ≥ 玩家 dmg），故二选一注入：低于地板抬升、高于天花板压制，中间不动。
+  if(typeof t.stats.damage === 'number' && typeof player.stats.damage === 'number'
+     && typeof t.base.damage === 'number' && t.base.damage > 0){
+    const floor = player.stats.damage * (D.dmgFloorVsPlayer !== undefined ? D.dmgFloorVsPlayer : 0.4);
+    const strongest = typeof opts.strongest === 'number' ? opts.strongest : 0;
+    const cap = strongest > 0 ? strongest * (D.dmgCapAmmoMult !== undefined ? D.dmgCapAmmoMult : 0.7) : Infinity;
+    if(t.stats.damage < floor){
+      out.dmgFloorMul = (floor - t.stats.damage) / t.base.damage + 1;
+    } else if(t.stats.damage > cap){
+      out.dmgCapMul = (cap - t.stats.damage) / t.base.damage + 1;
+    }
+  }
+  // ★速度：targetSpeed = lerp(baseFloor, baseCeil, diffNorm) × randFactor × player.maxSpeed。
+  // 旧实现直写 t.stats.maxSpeed（完全覆盖 entityMults.maxSpeed）；注入差量系数后同样逐值等价。
+  if(typeof t.stats.maxSpeed === 'number' && typeof player.stats.maxSpeed === 'number' && player.stats.maxSpeed > 0
+     && typeof t.base.maxSpeed === 'number' && t.base.maxSpeed > 0){
+    const SV = D.speedVsPlayer || { baseFloor: 0.3, baseCeil: 0.6, randMin: 0.85, randMax: 1.15 };
+    const diffNorm = typeof opts.diffNorm === 'number' ? Math.max(0, Math.min(1, opts.diffNorm)) : 0;
+    const randFactor = typeof opts.randFactor === 'number' ? opts.randFactor : 1;
+    const speedFactor = SV.baseFloor + (SV.baseCeil - SV.baseFloor) * diffNorm;
+    const targetSpeed = speedFactor * randFactor * player.stats.maxSpeed;
+    out.speedMul = (targetSpeed - t.stats.maxSpeed) / t.base.maxSpeed + 1;
+  }
+  return out;
+}
+
 // armor modifiers use paths like "armor.hull.front", "armor.hull", "armor.turret.side"
 function applyArmorMod(armor, m){
   const parts = m.stat.split('.');
@@ -574,6 +635,7 @@ if (typeof module !== 'undefined' && module.exports) {
     removeRunModifiers,
     refreshStats,
     makeTank,
+    difficultyCapMuls,
     SPEED_KMH_FACTOR,
     SPEED_PX_FACTOR,
     tankKmh,

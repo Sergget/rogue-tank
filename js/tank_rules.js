@@ -436,10 +436,20 @@ const RULES = {
     crossRunLevelBonus: 0.04,// 每级跨局难度等级对基础难度的线性加成
     diffMax: 1.15,           // 有效难度绝对上限（含跨局加成后钳制）
     // 2026-08-25 敌军难度三键重构（替代旧 enemyStatCapVsPlayer=0.8 单一封顶，旧键已删除；
-    // 消费方 tank_mvp.html applyDifficultyMults 需同步接线）：
+    // 消费方 tank_mvp.html applyDifficultyMults 需同步接线）。
+    // 2026-08-27 #A16 补第四键 speedVsPlayer：把 maxSpeed 页内硬编码 lerp 收口进 RULES，
+    // 消除与 entityMults.maxSpeed（同函数先行注入）两套机制打架，并改经 modifiers 注入防 refreshStats 回归。
+    // 三键（pen/dmg floor/dmg cap）为相对玩家的封顶/地板绝对值；第四键约束相对玩家速度公式：
+    //   targetSpeed = lerp(baseFloor, baseCeil, diffNorm) × randFactor(randMin~randMax 每辆独立) × player.maxSpeed
     penCapVsPlayer: 1.2,     // 敌军穿深上限 = 1.2 × 玩家穿深
     dmgFloorVsPlayer: 0.4,   // 敌军伤害下限 = 0.4 × 玩家伤害
     dmgCapAmmoMult: 0.7,     // 敌军伤害上限 = 0.7 × 玩家所携 ap/apcr/heat 中最终伤害最高者的伤害值
+    speedVsPlayer: {         // 敌军极速相对玩家公式（消费方 tank_mvp.html applyDifficultyMults）
+      baseFloor: 0.3,        // diffNorm=0 时速度系数下限
+      baseCeil: 0.6,         // diffNorm=1 时速度系数上限
+      randMin: 0.85,         // 每辆独立随机浮动下限
+      randMax: 1.15          // 每辆独立随机浮动上限
+    },
     enemyCountMax: 4,        // 敌人数量上限（enemyCount = 1 + floor(diff × 4)）
     aiTierMax: 2,            // AI 策略复杂度档位上限
     statMultMax: 1.5,        // 【已废弃 → entityMults.penetration[1]】保留仅为旧存档/调用兼容
