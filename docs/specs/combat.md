@@ -28,6 +28,7 @@
 - **防崩落内衬 passive spall_liner 生效（2026-08-26，原 ISSUES #A15 修复定案）**：`tank_physics.js` 经 `passiveValues(target,'spall_liner')` 取多来源最小值 `spallMul`，在 `applyModuleDamage` 乘入最终模块/乘员伤害；多张卡取最强（最小乘子）语义。活浏览器实测 `giveCard('support_spall_liner')` 后敌方 PEN 伤害均值降至无内衬 0.7981 倍（预期 0.8），epic 卡 `spall_liner.json` 当前 value 0.85。
 - **散布下限防负值（2026-08-26，原 ISSUES #A2 修复定案）**：`RULES.spread.multFloor=0.2` 对 spreadMult 加法聚合结果钳下限 + `sigmaFloor` σ 地板；局内商店姿态稳定恢复 maxLevel 判定（applyRunShopPurchase），满级购买按钮禁用置灰。
 - **运动散布与精度基准解耦（2026-08-26，原 ISSUES #A1 修复定案）**：新增独立 stat `motionSpreadMul`（运动三源专用系数）——computeStats 默认继承出厂 `base.spreadMult`（保留设计器对底盘运动散布的标定）并钳 ≥ `spread.multFloor`；motionSigma 消费 `stats.motionSpreadMul ?? stats.spreadMult`（旧运行时快照无该键时回退，向后兼容）。运行期 spreadMult 修饰器（精密火控/卡牌）不再影响运动散布；局内商店姿态稳定改挂 `motionSpreadMul` mult ×0.85（maxLevel 1）。
+- **成员/模块受损状态条（2026-08-28，原 ISSUES #A5 修复定案）**：`tank_mvp.html` 顶部中央新增 `#moduleStatus` 状态条（`updateModuleStatus()` 每帧刷新，挂入 `updateHud()`）——读 `player.debuffs`（gunner/loader/driver/commander/engine/ammo/breech 各键，经 `MODULE_LABELS` 译中文标签 + 剩余秒数药丸）与 `player.trackBroken`/`immobT`（履带断裂），无受伤时整体隐藏。纯视觉 HUD，无共享模块/测试链改动；`npm run check` + `test:browser` 全绿（mvp 无 console/page 错误）。
 
 ## 3. 弹种系统 (Ammo Types)
 唯一数据源：RULES.ammoTypes（js/tank_rules.js，机制参数唯一配置源）
@@ -69,6 +70,8 @@
 ### 5.1 战斗机制更新（本轮落地）
 - 移动与生存：RULES.speed.effMul=1.3 在 driveTank 与碰撞限速两处消费，实际移速×1.3，但面板显示 stats.maxSpeed 不变；玩家经 applyDamage(target,amount) 统一扣血并乘 dmgTakenMul（玩家=0.85，更肉），面板 HP/装甲数值不变。
 - 炮弹与掩体：修复半高掩体曝光 bug——shell 在 exposure<1 时于掩体处被拦截，不再必然命中后方敌人；mud/water 为 mode:'pass' 飞越（不触发命中）。graduated 掩体入口缓存判决（s.dec）后，结算分支带剩余距离门控——未飞抵 dec.t 前继续正常飞行积分，飞抵当帧才结算；实体直接命中优先（2026-08-26，原 ISSUES #A8 修复定案）。
+- **半高掩体低生效定案（2026-08-28，原 ISSUES #A9 评估）**：三条件互斥分析属实，但 D5 半高禁令（`generateNode` 跳过 `'half'` tier，`test-nodegen-snapshot.js` 断言 halfViolations=0）已从源头中和「实战低生效」；#A8 瞬移修复也使反向意见前提（先修 A8 再观察）达成，而全程无 half 生成故无可观测数据。**彻底剥离 half 子系统延后（D5 裁定，待游玩测试）**——`ruined` 残破建筑共享 `exposureProfile:'half'`+`shellBlock:'grad'`（`tank_rules.js:109`），剥离须同步裁定 ruined 归属，非死代码不可盲删。
+- **回放高 timeout 根因与修复（2026-08-28，原 ISSUES #A18）**：批量 seed 回放约 46% 节点超时，根因是**回放代理玩家（`js/tank_sim.js`）只推进位置、从不转炮塔也不开火**（`turret` 恒 0、`fire` 恒 false），而远处敌人因距离 > `aiTriggerDist`（默认 700~1120px）保持 `patrol`/`engaged=false` 不接战——双方僵持 0 开火假超时。修复：代理玩家始终把炮塔 `turretDesired` 指向最近敌人并在大致对准（≤~7°）时请求开火（范围/LoS/装填由开火块统一门控），仅改动 `tank_sim.js`（回放 harness，不影响正式游戏）。实测超时率 46.5%→15.5%、win 45→140/200、`timeoutHeavy` 30→6 seed；回放 hash 重锚 799b65f→5d754f53（可归因）。**残留 15.5%** 属第二层「敌人超触发距离不接战 + LoS 受阻不逼近」的真实对峙/平衡问题，需对比真人实跑录像再裁定是否加强 AI 迫近或加 forceResolve 兜底。
 - 主炮特效：开火生成炮口双侧+前方闪光（spawnMuzzleFlash），炮弹每帧生成曳光拖尾（spawnTracer，颜色取自 ammo.tracer 或默认 #ffd24a），替代原烟雾拖尾。
 - 敌方 AI：aiDecideEnemy 在接战非特殊态注入随机微行为——peek 车体摆角（RULES.ai.peekAngleMax / peekInterval）与换位（RULES.ai.reposInterval），炮塔锁敌与开火条件不变。
 - 无人机：scout 暂不加入游戏（deployDronesFromCards 已 gate 掉）；striker 每 2s / 260px 内对最近敌人造成 0.4×拥有者伤害的直接扣血，并播放炮口闪光+曳光（视觉），保留侦察型离屏指示逻辑备用。

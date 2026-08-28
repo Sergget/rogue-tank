@@ -1,4 +1,4 @@
-﻿# Rogue Tank — 历史归档索引（ARCHIVE INDEX）
+# Rogue Tank — 历史归档索引（ARCHIVE INDEX）
 
 > 本文件是已完成条目的**顶层只读索引表**。
 > 为防止单体文档过大引发上下文死循环，归档正文已按月分卷存放在 docs/archive/ 目录下。
@@ -94,5 +94,8 @@
 | 2026-08-26 | `ISSUES.md` | #A17. 批量 seed 回放出现高比例零开火节点 | 已修复并验证（生成期 LoS 走廊 + 运行期侧向绕行落地于 tank_cover.js/tank_nodegen.js/tank_ai.js；零开火节点 9/40→7/40，npm run check / npm test / test:browser 全绿；见 specs/map.md §7） |
 
 | 2026-08-27 | `ISSUES.md` | #A16. 敌方/Boss 参数绑定审计结论 + 配套发现 | 已解决并验证（三处 spawn 直写改经 addModifier 注入 difficulty-cap；纯函数 difficultyCapMuls 收口换算；speedVsPlayer 收口 RULES；test-modifiers.js §21 断言等价；回放 hash 不变；见 DEVELOPMENT §2.1） |
+| 2026-08-27 | `ISSUES.md` | #A14. "全线高爆战术"过强 / "超口径高爆弹"未生效死效果 | 已修复并验证（demo_all_he_doctrine 移除 reload×0.85、demo_overmatch_shell 转 AP 保留 passive overmatch 0.85；tank_physics.js passiveValues + resolveHit overmatch 口径碾压分支；test-cards.js #A14a/#A14b 断言，见 specs/cards.md §6） |
+| 2026-08-28 | `ISSUES.md` | #A5. 自身模块受损/成员受伤无 UI 指示 | 已修复并验证（tank_mvp.html 顶部中央 #moduleStatus 状态条 + updateModuleStatus 读 debuffs/trackBroken，无受伤隐藏；check + test:browser 全绿，见 specs/combat.md §2） |
+| 2026-08-28 | `ISSUES.md` | #A18. 回放基线批量 seed 扫描：大量节点超时 | 已修复并验证（根因=tank_sim.js 代理玩家不瞄准不开火致 0 开火假超时；补 turretDesired 指向+对准即开火，超时率 46.5%→15.5%，回放 hash→5d754f53；见 specs/combat.md §5.1） |
 ------
 

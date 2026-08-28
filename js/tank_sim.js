@@ -315,15 +315,21 @@ function runReplay(opts){
 
         let out = AI.aiDecide(t, aiCtx);
 
-        // 玩家推进策略：真实对局中由人操推进；回放里无敌人进入触发圈时
-        // 向最近敌人机动，否则双方被动对峙必然超时（P-44 基线约定）。
+        // 玩家推进策略（#A18 修复）：真实对局中由人操推进 + 瞄准 + 开火。
+        // 原实现只向最近敌人机动、从不转炮塔（turret 恒 0）也不开火，导致远距离敌人
+        // 持 patrol/engaged=false 不接战、与玩家两相僵持 → 大量 0 开火假超时（#A18 根因）。
         if (t === player){
           const adv = ENT.nearestEnemyTo(t);
           if (adv){
             const dAdv = Math.hypot(adv.x - t.x, adv.y - t.y);
+            const desH = Math.atan2(adv.y - t.y, adv.x - t.x);
+            // 始终把炮塔指向最近敌人（模拟玩家瞄准）
+            out.turretDesired = desH;
+            // 炮塔大致对准（≤~7°）时请求开火；范围/LoS/装填由下方统一开火块门控
+            out.fire = Math.abs(GEO.angDiff(desH, t.turretAngle)) < 0.12;
             const trig = t.aiTriggerDist || 700;
+            // 距离过远时向最近敌人机动（保留原 P-44 基线推进约定）
             if (dAdv > trig * 0.75){
-              const desH = Math.atan2(adv.y - t.y, adv.x - t.x);
               const hd = GEO.angDiff(desH, t.hullAngle);
               out.turn = Math.abs(hd) < 0.08 ? 0 : (hd > 0 ? 1 : -1);
               out.move = Math.abs(hd) < 0.5 ? 1 : 0;

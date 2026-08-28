@@ -55,6 +55,14 @@
   #quotaHud{position:absolute; left:12px; bottom:32px; pointer-events:none;
     font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px;
     color:var(--text-dim); text-shadow:0 1px 2px rgba(0,0,0,0.8);}
+  /* #A5：成员/模块受损状态条（顶部中央；无受伤时隐藏） */
+  #moduleStatus{position:absolute; left:50%; top:12px; transform:translateX(-50%);
+    pointer-events:none; display:none; max-width:70%; text-align:center; z-index:25;
+    font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px;}
+  #moduleStatus .pill{display:inline-block; margin:0 4px; padding:3px 8px; border-radius:3px;
+    background:rgba(10,12,9,0.82); border:1px solid var(--red); color:var(--red);
+    text-shadow:0 1px 2px #000; white-space:nowrap;}
+  #moduleStatus .pill .t{color:var(--amber); font-size:9px; opacity:.9;}
   /* ISSUE 18：帧率读出（右下角，仅 showFps 时显示） */
   #fpsReadout{position:absolute; right:12px; bottom:10px; font-size:12px; color:#6f6; display:none; pointer-events:none;}
   /* ISSUE 17-display：当前弹种最终属性读出（顶部居中） */
@@ -241,6 +249,7 @@
     <div id="reloadTrack"><div id="reloadFill"></div></div>
   </div>
   <div id="topLeftInfo">TAB 状态 · ` 开发者 · 1/2/3 或 Q/滚轮 切弹种 · WASD 移动 · 左键/空格 开火 · F 烟幕弹 · G 炮击 · H 护盾(Shift+H 全向) · V 超装填 · 4 修理箱 · 5 医疗包 · 无人机自动索敌</div>
+  <div id="moduleStatus"></div>
   <div id="hintBar"></div>
   <div id="fpsReadout">FPS --</div>
   <div id="ammoReadout"></div>
@@ -2423,6 +2432,27 @@ function update(dt){
   updateHud();
 }
 
+// #A5：成员/模块受损状态条（顶部中央）。读 player.debuffs（炮手/装填手/驾驶员/车长/发动机/弹药架/炮闩）
+// 与 trackBroken/immobT（履带断），有任一受伤即显示药丸，归零自动隐藏。
+function updateModuleStatus(){
+  const el = document.getElementById('moduleStatus');
+  if(!el) return;
+  const d = player.debuffs || {};
+  const pills = [];
+  // 履带断裂：trackBroken 或 immobT（履带锁）残
+  if(player.trackBroken || player.immobT > 0){
+    const t = Math.max(player.immobT || 0, 0);
+    pills.push({ label:'履带', sub: t > 0 ? t.toFixed(0)+'s' : '断裂' });
+  }
+  for(const k in d){
+    if(d[k] > 0) pills.push({ label: moduleLabel(k), sub: d[k].toFixed(0)+'s' });
+  }
+  if(pills.length === 0){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  el.innerHTML = pills.map(p =>
+    `<span class="pill">⚠ ${p.label}<span class="t"> ${p.sub}</span></span>`).join('');
+}
+
 function updateHud(){
   // 极简 HUD：装填进度条（唯一常显 HUD 元素之一）
   const rf = document.getElementById('reloadFill');
@@ -2438,6 +2468,8 @@ function updateHud(){
   // 按需面板（P-15）：开启时逐帧刷新
   if(statusOpen) updateStatusPanel();
   if(devOpen){ updateDevParams(); updateSolution(); }
+  // #A5：成员/模块受损状态条逐帧刷新
+  updateModuleStatus();
 }
 
 // ---------- draw ----------

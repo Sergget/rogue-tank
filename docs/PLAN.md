@@ -23,8 +23,8 @@
 - **验证路径**：`node scripts/validate-content.js` + `scripts/test-cards.js` / `test-card-effects.js` 全绿；审计报告无 red 级残留；调优前后数值对比留档。
 - **协作**：`card-author` 出调整方案 → `balance-auditor` 审计闭环。
 - **追加范围（2026-08-26）**：
-  - 并入 ISSUES #A13：ammo `mode:'add'` 加在倍率刻度上的语义错位（sniper_apcbc/hard_core 数值失真），修复时同步 specs/cards.md 明确 add=乘算后毫米追加，并修 test-cards.js 固化断言；
-  - 并入 ISSUES #A14：demo_all_he_doctrine 全局 reload×0.85 白送效果拆出或降档；demo_overmatch_shell passive 未接线，按用户意向转 AP 弹种。
+  - ✅ 并入 ISSUES **#A13**（ammo `mode:'add'` 加在倍率刻度上的语义错位）已于 2026-08-26 修复并归档：computeAmmoConfig 的 add pass 改按「乘算后毫米追加」独立合成 `fieldAdd`（自然单位、不混入倍率刻度），specs/cards.md §3 同步改写，test-cards.js 固化断言修正完毕（见 docs/ARCHIVE.md 2026-08-26 #A13）。
+  - ✅ 并入 ISSUES **#A14**（「全线高爆战术」过强 / 「超口径高爆弹」死效果）已于 2026-08-26 修复并归档（原 2026-08-26 批次遗漏 lifecycle，2026-08-27 补走）：demo_all_he_doctrine 移除 reload×0.85 白送效果、仅保留 HE dmg×1.2+pen×1.2；demo_overmatch_shell 转 AP 保留 passive overmatch 0.85，tank_physics.js 经 passiveValues 接通口径碾压分支；test-cards.js #A14a/#A14b 断言覆盖（见 docs/ARCHIVE.md 2026-08-27 #A14 / specs/cards.md §6）。
   - （原 #A15 spall_liner 两卡 passive 零消费已于 2026-08-26 核实为已修复——tank_physics.js 经 passiveValues 消费，已走 lifecycle 删除，见 docs/ARCHIVE.md）
 - **定案记录（2026-08-26）**：弹种升级模式采用「全局 modifier 为常规主通道 + rare 以上 per-ammo 身份精品卡（每弹种 ≤3 张）」；HE splashRadius 升级需先扩 AMMO_FIELDS 白名单（枚举变更流程）。
 
@@ -50,12 +50,12 @@
 - **目标**：修复战斗结算与 `aiDecide` 已核实问题，并建立可复现的回归判据。
 - **进度（2026-08-26）**：
   - ✅ **回放冒烟基线已建成**：`js/tank_sim.js`（确定性 headless 全链战斗模拟：generateRun 节点链实体化 + 全员 aiDecide 驱动 + driveTank/fireTank/stepShells/resolveHit 共享模块复用，运行期以 seed RNG 流整体替换 Math.random 覆盖 AI 抖动与伤害浮动）+ `scripts/test-replay.js`（13 断言：完整打完 / 同 seed 摘要一致 / 异 seed 分化 / 时长与 HP 域不变量），已接入 `npm test` 链尾。
-  - 基线锚点：seed=1 五节点 hash `1e49b3fc`（P-49 概率分区重锚后现行值；P-49 后缺陷修复批(#A8 半高瞬移门控/#A6 飘字截断) 已验证 hash 中性，锚点不变，DEVELOPMENT.md §2 同步）；战局分布含 win/loss/timeout 三态。已知保真度取舍记录于 tank_sim.js 头注释（Boss 占位实体 / dot 连续近似 / 无复活卡牌）。
+  - 基线锚点：seed=1 五节点 hash 现行值 `5d754f53`（演进链 28f3e684 → 1e49b3fc〔P-49〕→ 5b8c4126〔#A17〕→ 799b65f〔P-43〕→ 5d754f53〔#A18 代理玩家补瞄准+开火〕；test-replay.js 仅校验确定性、不钉常量，每次改动须能归因到修复内容后重新锚定）；战局分布含 win/loss/timeout 三态。已知保真度取舍记录于 tank_sim.js 头注释（Boss 占位实体 / dot 连续近似 / 无复活卡牌）。
   - 实现中发现的接口陷阱（备查）：`materializeNode` 的 `env.clearEntities(keepIds)` 是**保留**语义——实现若清空一切会把玩家从注册表抹掉，敌军因 `ctx.player` 引用脱离注册表而永不接战。
 - **待办**：
   - 用基线跑批量 seed 收集失败案例 → 核实进 ISSUES；
   - 修补范围（须先核实）：AI 边缘贴近卡位、友军消极防御误判、Boss 阶段衔接断档、`resolveHit` 极端入射角边界；
-  - 并入 ISSUES #A8（半高掩体炮弹瞬移命中：tank_fire.js:371 结算分支补剩余距离门控）、#A16（敌 pen/dmg/maxSpeed 三处 spawn 直写改经 modifiers 注入防 refreshStats 回归）；
+  - ✅ 并入 ISSUES **#A8**（半高掩体炮弹瞬移命中：tank_fire.js:371 结算分支剩余距离门控）与 **#A16**（敌 pen 封顶/dmg 地板+天花板/maxSpeed 四键直写改经 difficultyCapMuls + addModifier 注入防 refreshStats 回归）均已于 2026-08-26 / 2026-08-27 修复并归档，剩余飞向量由本条目后续修补继续覆盖；
   - 注意事项：掩体门控与难度公式改动会使回放基线 hash 锚点失效，每次改动须能归因到修复内容后重新锚定。
   - 顺带清偿技术债遗留：友军击杀五折记分（DEVELOPMENT §5 技术债 3 开放问题，非阻塞）。
 - **验证路径**：回放冒烟通过（每次修补后 hash 变化须能归因到修复内容）+ 每个修复项有对应回归断言；`npm run test:browser` 无报错。

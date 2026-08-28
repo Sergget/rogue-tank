@@ -144,7 +144,9 @@ const ASSET_DEFS = {
     },
     bakeCanopy(ctx, cov){
       const x = cov.x, y = cov.y, w = cov.w, h = cov.h;
-      const R = Math.max(w, h)*1.9;
+      // #A10：冠径乘数由 1.9 降至 1.4，使树冠视觉半径更贴近逻辑 OBB（24×18），
+      // 缓解"所见远大于所挡"的视觉-逻辑脱节；如需进一步收紧可继续下调或提为 RULES 参数。
+      const R = Math.max(w, h)*1.4;
       ctx.fillStyle = 'rgba(44,70,32,0.62)';
       ctx.beginPath(); ctx.arc(x, y, R*0.85, 0, TAU); ctx.fill();
       ctx.fillStyle = 'rgba(66,104,46,0.5)';

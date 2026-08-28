@@ -72,7 +72,7 @@
   - **全参数极限制**：`RULES.parameterLimits` 全参数极限表生效（reload 下限 0.5s / maxSpeed ≤150km/h 等），设计器与运行时统一钳制。
   - **重量双层上限**：weight 改为 `deriveWeight` 派生（不可手动自定义）+ 设计上限 80t + `RULES.weightRuntimeCap` 运行硬顶 240t。
   - **功重比显示**：设计器 / 对比器新增功重比读数。
-   - **回放基线重锚**：28f3e684 → 1e49b3fc（归因 P-49 概率分区 + 重量运行时钳制的累计数值面改动）。
+   - **回放基线重锚**：28f3e684 → 1e49b3fc → 5b8c4126（#A17 零开火修复）→ 799b65f（P-43 敌群构成）→ **5d754f53**（当前值，#A18 回放代理玩家补瞄准+开火，超时率 46.5%→15.5%；test-replay.js 仅校验确定性不钉常量）。
 
 ### 2.6 音效设计与声音管线定型
 - **音效立意**：低沉、厚重、具有战场压迫感的拟真机械与爆破音效，杜绝轻飘的电子合成感。
@@ -104,7 +104,7 @@
 
 ## 5. 下一步顺序（活跃项）
 
-- **活跃开发项（2026-08-26 起）**：近期计划见 docs/PLAN.md：玩法线 PLAN 已全部完成归档（P-34~P-41）；当前着力**玩法核心专项 P-42~P-44**（卡牌平衡审计 / 地图生成质量 / 战斗与 AI 修补）；视觉专项（旧 P-42~P-45）与音频专项（旧 P-46~P-49）暂缓，规格全文移交 `.opencode/agents/asset-artist.md` / `sound-designer.md`「暂缓储备规范」章节维护；候选库前移为 P-45。已核实问题仅余 #78 部分范围（设计器 verts UI）。下方历史记录中的 P-27/P-29/P-30 为旧编号（已完成工作），勿与本批混淆。
+- **活跃开发项（2026-08-26 起）**：近期计划见 docs/PLAN.md：玩法线 PLAN 已全部完成归档（P-34~P-41）；当前着力**玩法核心专项 P-42~P-44**（卡牌平衡审计 / 地图生成质量 / 战斗与 AI 修补）；视觉专项（旧 P-42~P-45）与音频专项（旧 P-46~P-49）暂缓，规格全文移交 `.opencode/agents/asset-artist.md` / `sound-designer.md`「暂缓储备规范」章节维护；候选库前移为 P-45。当前待处理问题见 docs/ISSUES.md：#78（剩余范围=设计器 verts UI）、#A9（半高掩体低生效评估）、#A11（地形占位冲突，并入 P-43）。下方历史记录中的 P-27/P-29/P-30 为旧编号（已完成工作），勿与本批混淆。
 
 - **33. mvp 浏览器测试钩子 `window.__TEST__` + F1 调试 HUD——已完成（2026-08-26）**：仅 `tank_mvp.html` 改动，零共享模块影响。钩子：`player()/entities()/flowState()/currentNode()/seed()` 只读取态，`giveCard(id)` 按 id 查 cardPool 对 player 执行 applyCardEffects，`skipToNode(n)` 仅 map 态且走 transition 白名单进 battle，`setTimeScale(0~8)`（0=暂停）作用于主循环 dt；`setSeed(s)` 为**一次性语义**——下一次 generateRun 生效后自动失效（run 种子经 `js/tank_map.js` generateRun 原生参数透传，非 Math.random 包装）。HUD：F1 显隐（键位无冲突）右上角半透明等宽面板，200ms 节流刷新，显示 flow/node/计时/seed、player hp/revives/ammoKey/reload、stats 五项摘要、modifiers 前12条+溢出计数、cardEffects、最近敌对 id/hp/dist、FPS/timeScale；钩子未被调用时零副作用。验证（2026-08-26）：`npm run check` + `npm test`（~24 套件全绿）+ `npm run test:browser`（mvp/bench 零 console/page 错误）三链全绿。
 
