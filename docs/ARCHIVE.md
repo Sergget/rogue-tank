@@ -10,6 +10,7 @@
 ## 分卷列表 (Archive Volumes)
 
 - 📘 [2026年08月历史归档 (docs/archive/2026-08.md)](archive/2026-08.md)
+- 📘 [2026年09月历史归档 (docs/archive/2026-09.md)](archive/2026-09.md)
 
 ---
 
@@ -97,5 +98,9 @@
 | 2026-08-27 | `ISSUES.md` | #A14. "全线高爆战术"过强 / "超口径高爆弹"未生效死效果 | 已修复并验证（demo_all_he_doctrine 移除 reload×0.85、demo_overmatch_shell 转 AP 保留 passive overmatch 0.85；tank_physics.js passiveValues + resolveHit overmatch 口径碾压分支；test-cards.js #A14a/#A14b 断言，见 specs/cards.md §6） |
 | 2026-08-28 | `ISSUES.md` | #A5. 自身模块受损/成员受伤无 UI 指示 | 已修复并验证（tank_mvp.html 顶部中央 #moduleStatus 状态条 + updateModuleStatus 读 debuffs/trackBroken，无受伤隐藏；check + test:browser 全绿，见 specs/combat.md §2） |
 | 2026-08-28 | `ISSUES.md` | #A18. 回放基线批量 seed 扫描：大量节点超时 | 已修复并验证（根因=tank_sim.js 代理玩家不瞄准不开火致 0 开火假超时；补 turretDesired 指向+对准即开火，超时率 46.5%→15.5%，回放 hash→5d754f53；见 specs/combat.md §5.1） |
+| 2026-09-06 | `PLAN.md` | P-46. 类别化敌军体系与生成机制优化 | 已完成并验证（结论见 DEVELOPMENT / specs） |
+| 2026-09-06 | `PLAN.md` | P-48. 对比器单位标定与分组重构 | 已完成并验证（结论见 specs/editor.md） |
+| 2026-09-06 | `PLAN.md` | P-49. 模块/成员概率分区系统与设计器耦合链 | 已完成并验证（结论见 specs/combat.md 与 specs/editor.md） |
+| 2026-09-06 | 交互/修复 | #A19. HUD弹种清理与修理箱医疗包损伤门控 | 已完成并验证（精简 HUD 并彻底隔离修理箱医疗包损伤门控，见 specs/combat.md §2） |
 ------
 

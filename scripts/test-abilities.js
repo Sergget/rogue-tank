@@ -307,8 +307,9 @@ function abilityTank(effects) {
 
 // ---- 16) repair/medkit（innate）：免持有检查 / 独立冷却池 / baseCd fallback 45 / 效果清除范围 / ammoBlew 不可修 ----
 {
-  // 16a) innate 绕过 hasAbility：无 cardEffects 的裸坦克可直接激活
+  // 16a) innate 绕过 hasAbility：无 cardEffects 的裸坦克可直接激活（需预置可修损伤以满足门控）
   const bare = model.makeTank({ team: 'player' });
+  bare.trackBroken = true;   // 门控前置：有可修损伤才可激活 repair
   ok(abil.hasAbility(bare, 'repair') === false, 'repair 无卡持有（hasAbility=false）——innate 不依赖卡牌');
   let r = abil.tryActivateAbility(bare, 'repair', {});
   ok(r.ok === true && r.key === 'repair', '裸坦克激活 repair 成功（绕过持有检查）');
@@ -316,6 +317,7 @@ function abilityTank(effects) {
   // 16b) 独立冷却池：写 abilityCds.repair、不动共享 abilityCdT；medkit 与 repair 互不干扰
   ok(typeof bare.abilityCds === 'object' && close(bare.abilityCds.repair, 45), '激活后 abilityCds.repair = 45（fallback 基础冷却）');
   ok((bare.abilityCdT || 0) === 0, '共享冷却 abilityCdT 未被 innate 触碰（独立池）');
+  bare.debuffs = { gunner: 1 };   // 门控前置：有受伤乘员才可激活 medkit
   r = abil.tryActivateAbility(bare, 'medkit', {});
   ok(r.ok === true, 'repair 冷却期内 medkit 仍可激活（独立冷却互不干扰）');
   ok(close(bare.abilityCds.medkit, 45), 'abilityCds.medkit = 45');
@@ -328,12 +330,14 @@ function abilityTank(effects) {
   // 16d) baseCd 覆盖：t.abilityBaseCd 注入商店减免值
   const boosted = model.makeTank({ team: 'player' });
   boosted.abilityBaseCd = { repair: 30, medkit: 42 };
+  boosted.trackBroken = true; boosted.debuffs = { gunner: 1 };   // 门控前置：预置损伤/受伤
   abil.tryActivateAbility(boosted, 'repair', {});
   abil.tryActivateAbility(boosted, 'medkit', {});
   ok(close(boosted.abilityCds.repair, 30), 'abilityBaseCd.repair=30 → 有效冷却 30');
   ok(close(boosted.abilityCds.medkit, 42), 'abilityBaseCd.medkit=42 → 有效冷却 42');
   const partial = model.makeTank({ team: 'player' });
   partial.abilityBaseCd = { medkit: 20 };   // repair 未注入 → fallback 45
+  partial.trackBroken = true;   // 门控前置：预置可修损伤
   abil.tryActivateAbility(partial, 'repair', {});
   ok(close(partial.abilityCds.repair, 45), 'abilityBaseCd 缺该键 → fallback 45');
 

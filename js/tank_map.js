@@ -167,7 +167,10 @@ function enemyCompositionForDepth(index, diff, rng, cfg) {
       entityMults = {};
       for (const k in baseMults) entityMults[k] = Math.round(baseMults[k] * 1.15 * 1000) / 1000;
     }
-    out.push({ tankId, heightClass, role, elite, aiTier, entityMults });
+    // P-46：纯逻辑层类别推导——tankId 无法读 json，仅按 heightClass 区分 heavy/medium；
+    // light/spg 等真实 json class 由 materializeNode 后经 configureTank 覆盖（浏览器侧 deriveTankClass）。
+    const tankClass = (heightClass === 'heavy') ? 'heavy' : 'medium';
+    out.push({ tankId, heightClass, tankClass, role, elite, aiTier, entityMults });
   }
   return out;
 }
@@ -257,77 +260,90 @@ function makeNode(index, rng, env) {
   const trigDist = triggerDistForDifficulty(diff);
   const minPlayerDist = Math.max(cfg.enemyMinPlayerDist || 250, Math.round(trigDist * 1.05));
 
-  // 敌军构成（#ISSUE5 聚簇生成）：先选 clusterCount 个簇心（右 2/3、距玩家≥minPlayerDist、避开掩体），
-  // 每簇在 enemyClusterRadius 内散布若干敌人（拒绝采样避开掩体/互相重叠/贴近玩家），
-  // 总数不足时由下方网格兜底补满；enemyCount 总数保持不变。
+  // P-46 敌军生成优化（多方向环带生成代替右侧单向聚簇）：
+  // 以 playerSpawn 为原点，根据难度 diffNorm 划分多向扇区（ringSectorsBase~ringSectorsMax 向包围），
+  // 在环带半径 [minPlayerDist, maxPlayerDist] 内拒绝采样敌军落点（避开掩体、世界边界及彼此重叠）。
+  // 若因极端密集掩体未填满，由下方全图网格兜底补满。
   const enemyCount = enemyCountForDifficulty(diff);
-  const clusterCount = Math.max(1, Math.min(4, Math.round((cfg.enemyClusterCountBase || 1) + diff * 3)));
-  const clusterRadius = cfg.enemyClusterRadius || 150;
-  const clusterSizeMin = cfg.enemyClusterSizeMin || 2;
-  const clusterSizeMax = cfg.enemyClusterSizeMax || 5;
-  // P-43：构成随深度演进——compose 一次，聚簇与兜底两处共用同一 spec 数组（按 enemies.length 顺序消费）。
+  const diffCfg = difficultyConfig() || {};
+  const diffMax = diffCfg.diffMax !== undefined ? diffCfg.diffMax : 1.15;
+  const diffNorm = Math.min(1, Math.max(0, diff / diffMax));
+
+  const sectorsCount = Math.min(cfg.ringSectorsMax || 4, Math.max(cfg.ringSectorsBase || 2, Math.round((cfg.ringSectorsBase || 2) + diffNorm * 2)));
+  const maxWorldDim = Math.max(w, h);
+  const maxPlayerDist = Math.min(maxWorldDim * (cfg.ringMaxDistMult || 0.85), Math.max(minPlayerDist + 300, maxWorldDim * 0.7));
+
+  // P-43：构成随深度演进——compose 一次，环带与兜底两处共用同一 spec 数组（按 enemies.length 顺序消费）。
   const composition = enemyCompositionForDepth(index, diff, rng, cfg);
   const enemies = [];
   const clusterCentroids = [];
-  let remaining = enemyCount;
-  let cg = 0;
-  while(enemies.length < enemyCount && cg < clusterCount && remaining > 0){
-    cg++;
-    // 选簇心
-    let cx = 0, cy = 0, okCenter = false;
-    for(let tries = 0; tries < 40; tries++){
-      const tx = rng.range(w * 0.35, w * 0.92);
-      const ty = rng.range(h * 0.12, h * 0.88);
-      if(Math.hypot(tx - playerSpawn.x, ty - playerSpawn.y) < minPlayerDist) continue;
-      if(pointInCover(templateResult.covers, tx, ty, 60)) continue;
-      cx = tx; cy = ty; okCenter = true; clusterCentroids.push({ x: cx, y: cy }); break;
-    }
-    if(!okCenter) continue;
-    const size = Math.min(remaining, rng.int(clusterSizeMin, clusterSizeMax));
-    let placed = 0, pg = 0;
-    while(placed < size && pg < 60){
-      pg++;
-      const ang = rng.range(0, Math.PI * 2);
-      const rad = rng.range(0, clusterRadius);
-      const ex = cx + Math.cos(ang) * rad;
-      const ey = cy + Math.sin(ang) * rad;
-      if(ex < w * 0.35 || ex > w * 0.92 || ey < h * 0.12 || ey > h * 0.88) continue;
-      if(Math.hypot(ex - playerSpawn.x, ey - playerSpawn.y) < minPlayerDist) continue;
-      let tooClose = false;
-      for(const e of enemies){
-        if(Math.hypot(ex - e.x, ey - e.y) < (cfg.enemyMinDist || 150)){ tooClose = true; break; }
-      }
-      if(tooClose) continue;
-      if(pointInCover(templateResult.covers, ex, ey, 60)) continue;
-      const spec = composition[enemies.length] || {
-        tankId: (cfg.enemyTankPool && cfg.enemyTankPool[0]) || 'dummy',
-        heightClass: 'medium', role: 'assault', elite: false, aiTier: aiTier, entityMults: entityMults
-      };
-      enemies.push({
-        tankId: spec.tankId,
-        x: Math.round(ex), y: Math.round(ey),
-        hullAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
-        turretAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
-        heightClass: spec.heightClass,
-        role: spec.role,                     // P-43：构成深度演进附加 tag（'assault'|'support'，下游未消费则忽略）
-        elite: spec.elite,                   // P-43：精英（领队）标记（仅后期首个敌人，下游可叠加强度）
-        statMult: statMult,           // 兼容保留（= entityMults.maxHp）；#76 A 起以 entityMults 为准
-        entityMults: spec.entityMults, // #76 A / P-43：per-enemy 全属性难度乘子表（elite 已 ×1.15 深拷贝）
-        aiTier: spec.aiTier                // P-34 C / P-43：per-enemy AI 档位（elite 档位 +1）
-      });
-      placed++;
-      remaining--;
-    }
+
+  // 计算多方向主角度（随整局确定性 rng 整体微调偏移）
+  const baseAngleOffset = rng.range(0, Math.PI * 2);
+  const sectorAngles = [];
+  for (let s = 0; s < sectorsCount; s++) {
+    sectorAngles.push(baseAngleOffset + (s * (Math.PI * 2) / sectorsCount));
   }
 
-  // 兜底补满：随机采样在密集掩体/水域下可能凑不齐 enemyCount（guard<400 上限），
-  // 改用确定性网格扫描，按"最小净空"挑选，保证节点敌军数符合难度构成。
+  // 轮流在各扇区放置敌人，直到放满或尝试用尽
+  let sectorIdx = 0;
+  let attempts = 0;
+  const maxAttempts = enemyCount * 80;
+  while (enemies.length < enemyCount && attempts < maxAttempts) {
+    attempts++;
+    const targetAngle = sectorAngles[sectorIdx % sectorsCount];
+    sectorIdx++;
+
+    // 在扇区中心角 ± 35 度范围及环带内径到外径之间随机采样
+    const angle = targetAngle + rng.range(-Math.PI / 5, Math.PI / 5);
+    const dist = rng.range(minPlayerDist, maxPlayerDist);
+    const ex = playerSpawn.x + Math.cos(angle) * dist;
+    const ey = playerSpawn.y + Math.sin(angle) * dist;
+
+    // 边界检测：必须在地图有效边界 [margin, w-margin] 内
+    const margin = 50;
+    if (ex < margin || ex > w - margin || ey < margin || ey > h - margin) continue;
+    if (Math.hypot(ex - playerSpawn.x, ey - playerSpawn.y) < minPlayerDist) continue;
+
+    // 彼此间距检测
+    let tooClose = false;
+    for (const e of enemies) {
+      if (Math.hypot(ex - e.x, ey - e.y) < (cfg.enemyMinDist || 150)) { tooClose = true; break; }
+    }
+    if (tooClose) continue;
+
+    // 避开掩体
+    if (pointInCover(templateResult.covers, ex, ey, 60)) continue;
+
+    const spec = composition[enemies.length] || {
+      tankId: (cfg.enemyTankPool && cfg.enemyTankPool[0]) || 'tiger-I',
+      heightClass: 'medium', tankClass: 'medium', role: 'assault', elite: false, aiTier: aiTier, entityMults: entityMults
+    };
+
+    enemies.push({
+      tankId: spec.tankId,
+      x: Math.round(ex), y: Math.round(ey),
+      hullAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
+      turretAngle: Math.atan2(playerSpawn.y - ey, playerSpawn.x - ex),
+      heightClass: spec.heightClass,
+      tankClass: spec.tankClass,       // P-46：类别（纯逻辑推导，浏览器侧经 configureTank 覆盖为 json class）
+      role: spec.role,                 // P-43：构成深度演进附加 tag
+      elite: spec.elite,               // P-43：精英标记
+      statMult: statMult,              // 兼容保留
+      entityMults: spec.entityMults,   // 全属性乘子表
+      aiTier: spec.aiTier              // AI 档位
+    });
+    clusterCentroids.push({ x: Math.round(ex), y: Math.round(ey) });
+  }
+
+  // 兜底补满：若多方向环带因掩体极度密集未能凑齐 enemyCount，
+  // 改用确定性网格扫描，挑选离掩体与玩家净空最大区域补足。
   if (enemies.length < enemyCount) {
     const minDist = cfg.enemyMinDist || 150;
     const step = Math.max(20, minDist * 0.7);
     const cands = [];
-    for (let gx = w * 0.35; gx <= w * 0.92; gx += step) {
-      for (let gy = h * 0.12; gy <= h * 0.88; gy += step) {
+    for (let gx = 60; gx <= w - 60; gx += step) {
+      for (let gy = 60; gy <= h - 60; gy += step) {
         if (Math.hypot(gx - playerSpawn.x, gy - playerSpawn.y) < minPlayerDist) continue;
         let ok = true;
         for (const e of enemies) {
@@ -350,7 +366,7 @@ function makeNode(index, rng, env) {
       if (!ok) continue;
       const spec = composition[enemies.length] || {
         tankId: (cfg.enemyTankPool && cfg.enemyTankPool[0]) || 'dummy',
-        heightClass: 'medium', role: 'assault', elite: false, aiTier: aiTier, entityMults: entityMults
+        heightClass: 'medium', tankClass: 'medium', role: 'assault', elite: false, aiTier: aiTier, entityMults: entityMults
       };
       enemies.push({
         tankId: spec.tankId,
@@ -358,6 +374,7 @@ function makeNode(index, rng, env) {
         hullAngle: Math.atan2(playerSpawn.y - c.y, playerSpawn.x - c.x),
         turretAngle: Math.atan2(playerSpawn.y - c.y, playerSpawn.x - c.x),
         heightClass: spec.heightClass,
+        tankClass: spec.tankClass,       // P-46：类别
         role: spec.role,                     // P-43：构成深度演进附加 tag
         elite: spec.elite,                   // P-43：精英标记
         statMult: statMult,
@@ -767,6 +784,7 @@ function materializeNode(node, env) {
     t.nodeSpawn = true;
     t.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // AI 触发距离（难度化，生成时算好）
     t.aiTier = (e.aiTier !== undefined) ? e.aiTier : (node.aiTier || 0);   // P-34 C：AI 档位注入实体（#76 消费）
+    t.tankClass = e.tankClass || (e.heightClass === 'heavy' ? 'heavy' : 'medium');  // P-46：类别注入（浏览器 configureTank 可再覆盖 json class）
     if (typeof env.configureTank === 'function') env.configureTank(t, e.tankId);
     // #76 A：难度乘子应用点集中于此（敌军专属，玩家/据点不走此路径）。
     // 新数据带 entityMults 全表；旧 statMult 数据降级为 P-13 三项表，行为向后兼容。

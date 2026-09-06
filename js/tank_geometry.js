@@ -433,19 +433,58 @@ function polyCentroidLocal(verts){
 // P-49 区内互斥抽取：weights = { key: prob }，按 RULES 键序累积抽样；
 // 抽中和 ≥ 权和（区和<1 的余量）→ null（正常结算伤害、无成员/模块倍率加成）。
 // 随机源 = 全局 Math.random（tank_sim 回放以 seed 流整体替换 → 确定性回放不受影响）。
-function zoneDraw(weights){
+function zoneDraw(weights, shooter, target){
   if(!weights) return null;
+  const cfg = RULES.coupling || {};
+  const MOD = RULES.modules || {};
+  const refArea = cfg.refHullArea || 2500;
+  const minF = MOD.sizeFactorMin !== undefined ? MOD.sizeFactorMin : 0.7;
+  const maxF = MOD.sizeFactorMax !== undefined ? MOD.sizeFactorMax : 1.3;
+  const probCap = MOD.zoneProbCap !== undefined ? MOD.zoneProbCap : 0.90;
+
+  // 1. 尺寸因子计算：目标车体投影面积 targetArea = hullLen * hullWid
+  let sizeFactor = 1.0;
+  if(target){
+    const targetArea = (target.hullLen || 64) * (target.hullWid || 38);
+    if(targetArea > 0){
+      sizeFactor = Math.max(minF, Math.min(maxF, refArea / targetArea));
+    }
+  }
+
+  // 2. 攻击方卡牌概率加成
+  const fcCrit = (shooter && shooter.stats && shooter.stats.fireControlCrit) || 0;
+  const laCrit = (shooter && shooter.stats && shooter.stats.loaderAmmoCrit) || 0;
+
+  // 3. 动态计算调整后的概率权重
+  const adjusted = {};
+  let totalW = 0;
+  for(const k in weights){
+    let baseW = weights[k];
+    let bonus = 0;
+    if(k === 'gunner' || k === 'breech'){
+      bonus = fcCrit;
+    } else if(k === 'loader' || k === 'ammo'){
+      bonus = laCrit;
+    }
+    // w = (baseW + bonus) * sizeFactor, 单项 clamp ≤ zoneProbCap
+    let w = (baseW + bonus) * sizeFactor;
+    w = Math.min(probCap, Math.max(0, w));
+    adjusted[k] = w;
+    totalW += w;
+  }
+
+  // 4. 互斥概率抽取
   const r = Math.random();
   let acc = 0;
-  for(const k in weights){
-    acc += weights[k];
+  for(const k in adjusted){
+    acc += adjusted[k];
     if(r < acc) return k;
   }
   return null;
 }
 
-function zoneResult(weights){
-  const key = zoneDraw(weights);
+function zoneResult(weights, shooter, target){
+  const key = zoneDraw(weights, shooter, target);
   return key ? { key, label: moduleLabelOf(key) } : null;
 }
 
@@ -456,7 +495,7 @@ function zoneResult(weights){
 //         polygon centroid 的前后位置决定（前置/后置炮塔）。侧面极前/极后端仍恒为自动履带区。
 // 返回 null = 概率余量：正常结算伤害、无成员/模块倍率加成（调用方须判空）。
 // 旧 json 的自定义 modules 挂载数据不再消费（忽略、不报错）。
-function moduleFromHit(tank, hit){
+function moduleFromHit(tank, hit, shooter){
   const Z = RULES.modules.zones;
   const ZV = RULES.modules.zonesV2 || {};
   if(hit.part==='turret'){
@@ -470,7 +509,7 @@ function moduleFromHit(tank, hit){
       ? ((ly < 0) ? 'frontLeft' : 'frontRight')
       : ((ly < 0) ? 'rearLeft' : 'rearRight');
     const TQ = ZV.turretQuadrants || {};
-    return zoneResult(TQ[quadKey]);
+    return zoneResult(TQ[quadKey], shooter, tank);
   }
   // hull：击穿点转车体局部帧；履带碰撞盒恒先截获（车体极前/极后端，2026-08-12 设计决策保留）
   const rel = rotate(hit.x - tank.x, hit.y - tank.y, -tank.hullAngle);
@@ -497,7 +536,7 @@ function moduleFromHit(tank, hit){
     for(const seg of segs){
       // 半开区间 [tMin, tMax)，末段（tMax≥1）右闭 [tMin, 1]（P-49 规格裁定）
       if(tProj >= seg.tMin && (tProj < seg.tMax || (seg.tMax >= 1 && tProj <= seg.tMax)))
-        return zoneResult(seg.weights);
+        return zoneResult(seg.weights, shooter, tank);
     }
   }
   // 纵轴区间未覆盖 / 无权重命中（余量）→ 正常结算

@@ -23,7 +23,7 @@ declare function hullPoly(t: any): any;
 declare function turretPoly(t: any): any;
 declare function raycastTank(t: any, ox: any, oy: any, dx: any, dy: any, maxDist?: any): any;
 declare function bestTankHit(hits: any): any;
-declare function moduleFromHit(hit: any, target?: any): any;
+declare function moduleFromHit(hit: any, target?: any, shooter?: any): any;
 declare function gunRoot(t: any): { x: number; y: number };
 declare function gunTip(t: any): { x: number; y: number };
 declare function aimPartPreference(px: any, py: any, tx: any, ty: any, prefDist: any, deadzone: any): 'turret' | 'hull' | 'auto';
@@ -112,6 +112,8 @@ declare function advanceTracks(t: any, dx: any, dy: any, dAngle: any): void;
 declare function superstructureLabel(hit: any): string;
 declare function faceLabel(faceKey: any): string;
 declare function moduleMult(m: any, target?: any): number;
+declare function deriveCoupledStats(spec: any): { reloadMultiplier: number; spreadMultiplier: number; maxAllowedEnginePower: number; hullArea: number; moduleSizeFactor: number };
+declare function deriveTankClass(spec: any): string;
 
 interface NodeGenOptions {
   seed?: number | string;

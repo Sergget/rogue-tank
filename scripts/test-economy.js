@@ -384,16 +384,17 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
      grpOf('precision_gunnery') === 'firepower' && grpOf('steady_mount') === 'firepower', '#A1：火力组五商品（含新增穿深加工/火力增强）');
   ok(grpOf('engine_overdrive') === 'mobility' && grpOf('engine_power_up') === 'mobility', '#A1：机动组（引擎超压 + 新增马力强化）');
   ok(grpOf('emergency_repair') === 'misc' && grpOf('repair_kit_cd_run') === 'misc' && grpOf('medkit_cd_run') === 'misc', '杂项组：emergency_repair/双速冷');
-  // #A1：防护六面拆卖合并为两个打包商品（各三面 +2mm、baseCost 60、costGrowth 1.6、maxLevel 2）
+  // #A4（2026）：防护六面拆卖合并为两个打包商品（各三面 +2mm、baseCost 60、costGrowth 1.6、
+  // maxLevel 99=防御性兜底——真正上限由 runShopLimitBlocked 按 parameterLimits.armor.* 逐面动态决定）
   let armorGroupOk = true;
   for (const kid of ['hull_armor_kit', 'turret_armor_kit']) {
     const kd = eco.getRunShopDef(kid);
     const part = kid.split('_')[0];   // hull / turret
     if (!kd || kd.group !== 'armor' || !kd.effects || kd.effects.length !== 3 ||
         !kd.effects.every(ef => ef.mode === 'add' && ef.value === 2 && ef.stat === 'armor.' + part + '.' + ef.stat.split('.')[2]) ||
-        kd.baseCost !== 60 || kd.costGrowth !== 1.6 || kd.maxLevel !== 2) armorGroupOk = false;
+        kd.baseCost !== 60 || kd.costGrowth !== 1.6 || kd.maxLevel !== 99) armorGroupOk = false;
   }
-  ok(armorGroupOk, '#A1 防护打包：hull_armor_kit/turret_armor_kit（三面各 +2mm、baseCost 60、growth 1.6）');
+  ok(armorGroupOk, '#A1 防护打包：hull_armor_kit/turret_armor_kit（三面各 +2mm、baseCost 60、growth 1.6、maxLevel 99 兜底）');
   // #A1：原六面拆卖 id 与旧 hull_patch 均移除（id 不复用防存档 levels 脏数据）
   ok(['hull_front_patch','hull_side_patch','hull_rear_patch','turret_front_patch','turret_side_patch','turret_rear_patch']
        .every(pid => !eco.getRunShopDef(pid)) && !eco.getRunShopDef('hull_patch'),
@@ -423,6 +424,27 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
   ok(eco.runShopLimitBlocked(eoL, 373) === true, '#A1 maxSpeed 达限拒购：373+3=376 > 375px/s(150km/h) → blocked');
   ok(eco.runShopLimitBlocked(eoL, 100) === false, '#A1 maxSpeed 未达限 → 可购');
   ok(eco.runShopLimitBlocked(duD, 30) === false && eco.runShopLimitBlocked(smD, 1) === false, '无 limit 字段商品永不达限');
+
+  // #A4：由具体数值决定上限——多面打包（装甲包）逐面按 parameterLimits 判定，而非写死 maxLevel。
+  const hk = eco.getRunShopDef('hull_armor_kit'), tk = eco.getRunShopDef('turret_armor_kit');
+  ok(hk && hk.maxLevel === 99 && tk && tk.maxLevel === 99, '#A4 装甲包 maxLevel 99（防御性兜底，非写死上限）');
+  // hull.front 默认 110，max=150；side 默认 38，max=105。构造 stats 使 side 已到 104，
+  // +2mm → 106 > 105 达限（逐面真实值判定，而非用 front 值误判）。
+  const pkStats = { armor: { hull: { front: 110, side: 104, rear: 26 } } };
+  ok(eco.runShopLimitBlocked(hk, 110, pkStats) === true,
+    '#A4 装甲包逐面达限：hull.side 104+2=106 > max 105 → blocked（真实各面值，非单 curVal 误判）');
+  const pkStatsOk = { armor: { hull: { front: 110, side: 100, rear: 26 } } };
+  ok(eco.runShopLimitBlocked(hk, 110, pkStatsOk) === false,
+    '#A4 装甲包未达限：三面均在 max 内 → 可购');
+  // precision_gunnery：spreadMult 由具体数值决定（接近下限 0.5 时达限；不传 stats 回退 curVal）
+  const pg = eco.getRunShopDef('precision_gunnery');
+  ok(pg && pg.maxLevel === 99 && pg.limit && pg.limit.min === (RLIM ? RLIM.spreadMult.min : 0.5),
+    '#A4 precision_gunnery：maxLevel 99 兜底 + limit 对齐 spreadMult.min');
+  ok(eco.runShopLimitBlocked(pg, 0.51) === true, '#A4 precision_gunnery 达限：0.51×0.96≈0.4896 < 0.5 → blocked');
+  ok(eco.runShopLimitBlocked(pg, 0.53) === false, '#A4 precision_gunnery 未达限：0.53×0.96≈0.5088 ≥ 0.5 → 可购');
+  // steady_mount：motionSpreadMul 对齐 spreadMult 边界（用户 2026 决定）
+  ok(smD.limit && smD.limit.min === (RLIM ? RLIM.motionSpreadMul.min : 0.5),
+    '#A4 steady_mount limit.min 对齐 motionSpreadMul.min(0.5) 边界');
 
   // 定价曲线 runShopPriceFor
   const fr = eco.getRunShopDef('fast_reload');

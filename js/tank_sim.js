@@ -129,7 +129,8 @@ function runReplay(opts){
   };
   const MODEL = {
     makeTank: _simGlobal('makeTank'),
-    applyTankConfig: _simGlobal('applyTankConfig')
+    applyTankConfig: _simGlobal('applyTankConfig'),
+    deriveTankClass: _simGlobal('deriveTankClass')
   };
 
   const rng = simCreateRNG(seed ^ 0x5f3759df);   // 与节点生成流分离的运行期流
@@ -194,7 +195,10 @@ function runReplay(opts){
     const pSpec = loadSpec(o.playerTankId || 'tiger-I');
     if (pSpec && MODEL.applyTankConfig) MODEL.applyTankConfig(player, pSpec);
 
-    // 实体化敌军（难度乘子经 env.applyDifficulty 注入，语义对齐 mvp 接线）
+    // P-46: 玩家出击基准 stats 快照（敌军数值锚定基准）
+    const playerAnchorStats = JSON.parse(JSON.stringify(player.stats));
+
+    // 实体化敌军（P-46：纯外观 + 玩家基准锚定比例，对齐 mvp 接线）
     _simGlobal('materializeNode')(node, {
       setCovers: function(){ /* 掩体已先行替换 */ },
       // keepIds 语义对齐 mvp：仅清除非保留实体（玩家须存活于注册表中，
@@ -208,7 +212,12 @@ function runReplay(opts){
       spawnTank: function(opts){ return _spawnSimTank(opts); },
       configureTank: function(t, id){
         const spec = loadSpec(id);
-        if (spec && MODEL.applyTankConfig) MODEL.applyTankConfig(t, spec);
+        if (MODEL.applyEnemyAppearanceAndStats){
+          MODEL.applyEnemyAppearanceAndStats(t, spec, playerAnchorStats);
+        } else {
+          if (spec && MODEL.applyTankConfig) MODEL.applyTankConfig(t, spec);
+          if (spec && MODEL.deriveTankClass) t.tankClass = MODEL.deriveTankClass(spec);
+        }
       },
       applyDifficulty: function(t, mults){
         for (const k in mults){

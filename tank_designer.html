@@ -126,7 +126,11 @@
       <div class="prop-row"><span class="lbl">马力 hp (base)</span><input type="number" id="t-enginePower" value="900" step="50"></div>
       <div class="prop-row"><span class="lbl">派生重量</span><span class="mono" id="derivedWeightReadout" style="color:var(--amber);">—</span></div>
       <div class="prop-row"><span class="lbl">功重比</span><span class="mono" id="pwRatioReadout" style="color:var(--green);">—</span></div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">派生重量 = deriveWeight(装甲几何)（tank_model.js 单一来源）；达到 80t 设计上限后禁止继续提升增重参数（装甲厚度/尺寸/顶点外扩）。下方「重量 kg (base)」为旧版占位字段，不再参与判定</div>
+      <div class="prop-row"><span class="lbl">装填惩罚</span><span class="mono" id="reloadCouplingReadout" style="color:var(--amber);">—</span></div>
+      <div class="prop-row"><span class="lbl">散布惩罚</span><span class="mono" id="spreadCouplingReadout" style="color:var(--amber);">—</span></div>
+      <div class="prop-row"><span class="lbl">可用马力上限</span><span class="mono" id="powerCouplingReadout" style="color:var(--green);">—</span></div>
+      <div class="prop-row"><span class="lbl">模块易损因子</span><span class="mono" id="moduleSizeFactorReadout" style="color:var(--green);">—</span></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">派生重量 = deriveWeight(装甲几何)（tank_model.js 单一来源）；达到 80t 设计上限后禁止继续提升增重参数（装甲厚度/尺寸/顶点外扩）。下方「重量 kg (base)」为旧版占位字段，不再参与判定。属性耦合链（P-49）：更高穿深/伤害推导出装填与三扩惩罚、车体尺寸限制最大可用马力、车体面积物理缩放内部模块易损因子（0.7x~1.3x：大车体宽敞不易损，小车体紧凑易损）——仅作设计要求提示，不自动改写已保存数值。</div>
     </div>
 
     <div class="section">
@@ -1871,6 +1875,27 @@ function updateWeightReadout(){
   if(pEl){
     const ep = state.enginePower || 0;
     pEl.textContent = (dW > 0 && ep > 0) ? (ep / dW).toFixed(1) + ' hp/t' : '—';
+  }
+  // P-49 属性耦合链只读读数：穿深/伤害 → 装填·三扩惩罚；车体尺寸 → 可用马力上限
+  updateCouplingReadout();
+}
+function updateCouplingReadout(){
+  const rEl = document.getElementById('reloadCouplingReadout');
+  const sEl = document.getElementById('spreadCouplingReadout');
+  const pEl = document.getElementById('powerCouplingReadout');
+  const mEl = document.getElementById('moduleSizeFactorReadout');
+  const c = deriveCoupledStats ? deriveCoupledStats(buildExport()) : null;
+  if(c){
+    if(rEl) rEl.textContent = '×' + c.reloadMultiplier.toFixed(3);
+    if(sEl) sEl.textContent = '×' + c.spreadMultiplier.toFixed(3);
+    const overPower = (state.enginePower||0) > c.maxAllowedEnginePower;
+    if(pEl) pEl.textContent = c.maxAllowedEnginePower + ' hp' + (overPower ? ' ⚠ 当前马力超可用上限' : '');
+    if(mEl){
+      const sf = c.moduleSizeFactor || 1.0;
+      const tag = sf < 0.95 ? '（宽敞）' : (sf > 1.05 ? '（紧凑）' : '（标准）');
+      mEl.textContent = '×' + sf.toFixed(2) + ' ' + tag;
+      mEl.style.color = sf <= 1.0 ? 'var(--green)' : 'var(--amber)';
+    }
   }
 }
 // 顶点几何约束：按全形包围盒长/宽上限钳制（半形链 |y| 对称、x 共享）

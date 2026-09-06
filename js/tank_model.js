@@ -36,7 +36,10 @@ function computeStats(base, modifiers){
     // 解耦的是【运行期】通道——精密火控等 spreadMult 修饰器不再泄漏到运动散布，反之亦然。
     motionSpreadMul: base.motionSpreadMul !== undefined ? base.motionSpreadMul
       : (base.spreadMult !== undefined ? base.spreadMult : 1),
-    aimSpeed: base.aimSpeed !== undefined ? base.aimSpeed : RULES.spread.shrinkRate
+    aimSpeed: base.aimSpeed !== undefined ? base.aimSpeed : RULES.spread.shrinkRate,
+    // P-49: 模块暴击/概率修正 stat 通道 (fireControlCrit & loaderAmmoCrit)
+    fireControlCrit: base.fireControlCrit !== undefined ? base.fireControlCrit : 0,
+    loaderAmmoCrit: base.loaderAmmoCrit !== undefined ? base.loaderAmmoCrit : 0
   };
   // pass 1: adds, pass 2: mults (so mult scales the accumulated add result).
   // mult 语义（2026-08-25 用户决定 #97）：同一 stat 的所有 mult 修饰器先【加法聚合】为
@@ -79,6 +82,11 @@ function computeStats(base, modifiers){
   if (typeof RULES.weightRuntimeCap === 'number' && s.weight > RULES.weightRuntimeCap) {
     s.weight = RULES.weightRuntimeCap;
   }
+  // P-49: 概率修正通道加值钳制在 [0, critBonusCap] (加法上限 0.25)
+  const critCap = (RULES.modules && RULES.modules.critBonusCap) !== undefined ? RULES.modules.critBonusCap : 0.25;
+  s.fireControlCrit = Math.min(critCap, Math.max(0, s.fireControlCrit));
+  s.loaderAmmoCrit = Math.min(critCap, Math.max(0, s.loaderAmmoCrit));
+
   // derived mobility: forward acceleration (px/s^2) from horsepower per tonne scaled to game units.
   // derived AFTER modifier loop so cards/upgrades modifying enginePower or weight affect actual accel/brake.
   const effPower = typeof s.enginePower === 'number' ? s.enginePower : base.enginePower;
@@ -427,6 +435,138 @@ function applyTankConfig(tank, spec){
   if (tank.spawn) tank.spawn.hp = tank.stats.maxHp;
 }
 
+/**
+ * P-46 敌军专属配置应用（只取外观与类型，不取数值）：
+ *   1. 复制外观几何（hull/turret/barrel/texture/track 等）与 class 类型；
+ *   2. 数值基准由出击时冻结的玩家基准快照 anchorStats × RULES.enemyClassProfiles[class] 设定；
+ *   3. 难度乘子 entityMults 在初始化后注入。
+ * @param {any} tank 敌军实体
+ * @param {any} spec tanks/*.json 规格
+ * @param {any} anchorStats 玩家出击基准 stats 快照（或 null 回退自身基础）
+ * @param {any} [entityMults] 难度乘子表
+ */
+function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
+  if (!tank) return;
+  // 1. 复制纯外观与几何
+  if (spec) {
+    if (spec.traverseLimit !== undefined) tank.traverseLimit = spec.traverseLimit * Math.PI / 180;
+    const instanceFields = ['heightClass', 'trackWidth', 'trackOffset', 'texture'];
+    for (const f of instanceFields) {
+      if (spec[f] !== undefined) tank[f] = spec[f];
+    }
+    if (spec.anchors !== undefined) Object.assign(tank.anchors, spec.anchors);
+    if (spec.barrel) tank.barrel = normalizeBarrel(spec.barrel);
+
+    if (spec.hull && spec.hull.verts && spec.hull.faces) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const [vx, vy] of spec.hull.verts) {
+        if (vx < minX) minX = vx; if (vx > maxX) maxX = vx;
+        if (vy < minY) minY = vy; if (vy > maxY) maxY = vy;
+      }
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      tank.hullSpec = { verts: spec.hull.verts.map(([vx, vy]) => [vx - cx, vy - cy]), faces: spec.hull.faces };
+      tank.hullLen = maxX - minX;
+      tank.hullWid = maxY - minY;
+    }
+
+    if (spec.turret && spec.turret.verts && spec.turret.faces) {
+      const axis = spec.turret.axis || null;
+      const ax = (axis && axis.dx) || 0;
+      const ay = (axis && axis.dy) || 0;
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const [vx, vy] of spec.turret.verts) {
+        if (vx < minX) minX = vx; if (vx > maxX) maxX = vx;
+        if (vy < minY) minY = vy; if (vy > maxY) maxY = vy;
+      }
+      tank.turretSpec = { verts: spec.turret.verts.map(([vx, vy]) => [vx - ax, vy - ay]), faces: spec.turret.faces };
+      tank.turLen = Math.max(1, maxX - minX);
+      tank.turWid = Math.max(1, maxY - minY);
+      tank.turretAxis = { dx: ax, dy: ay };
+    }
+    if (spec.turret && spec.turret.pivot) {
+      tank.turretPivotOffset = spec.turret.pivot;
+    }
+    if (spec.modules) {
+      tank.modules = (typeof _normalizeTankModules === 'function') ? _normalizeTankModules(spec.modules) : null;
+    }
+  }
+
+  // 2. 类别识别
+  const cls = (spec && deriveTankClass(spec)) || tank.tankClass || 'medium';
+  tank.tankClass = cls;
+
+  // 3. 数值锚定：以玩家基准 anchorStats × enemyClassProfiles 写入 base
+  const profiles = (typeof RULES !== 'undefined' && RULES.enemyClassProfiles) || {};
+  const prof = profiles[cls] || profiles.medium || {
+    maxHp: 1.0, penetration: 1.0, damage: 1.0, reload: 1.0, maxSpeed: 1.0, turnRate: 1.0, armor: 1.0
+  };
+
+  const b = tank.base;
+  const p = anchorStats || {
+    maxHp: 100, penetration: 120, damage: 34, reload: 1.3, maxSpeed: 120, turnRate: 2.0, turretTurnRate: 2.2,
+    shellSpeed: 1200, weight: 50, enginePower: 700,
+    armor: { hull: { front: 100, side: 40, rear: 25 }, turret: { front: 100, side: 40, rear: 25 } }
+  };
+
+  // 核心 6 维比例计算
+  b.maxHp = Math.round((p.maxHp !== undefined ? p.maxHp : 100) * (prof.maxHp || 1.0));
+  b.penetration = Math.round((p.penetration !== undefined ? p.penetration : 120) * (prof.penetration || 1.0));
+  b.damage = Math.round((p.damage !== undefined ? p.damage : 34) * (prof.damage || 1.0));
+  b.reload = Math.round((p.reload !== undefined ? p.reload : 1.3) * (prof.reload || 1.0) * 100) / 100;
+  b.maxSpeed = Math.round((p.maxSpeed !== undefined ? p.maxSpeed : 120) * (prof.maxSpeed || 1.0));
+  b.turnRate = Math.round((p.turnRate !== undefined ? p.turnRate : 2.0) * (prof.turnRate || 1.0) * 100) / 100;
+  b.turretTurnRate = Math.round((p.turretTurnRate !== undefined ? p.turretTurnRate : 2.2) * (prof.turnRate || 1.0) * 100) / 100;
+
+  // 杂项属性兜底保留
+  b.shellSpeed = p.shellSpeed || 1200;
+  b.enginePower = p.enginePower || 700;
+  b.weight = p.weight || 50;
+
+  // 装甲按 armor 系数缩放
+  const armMul = prof.armor || 1.0;
+  b.armor = {
+    hull: {
+      front: Math.round(((p.armor && p.armor.hull && p.armor.hull.front) || 100) * armMul),
+      side:  Math.round(((p.armor && p.armor.hull && p.armor.hull.side)  || 40) * armMul),
+      rear:  Math.round(((p.armor && p.armor.hull && p.armor.hull.rear)  || 25) * armMul)
+    },
+    turret: {
+      front: Math.round(((p.armor && p.armor.turret && p.armor.turret.front) || 100) * armMul),
+      side:  Math.round(((p.armor && p.armor.turret && p.armor.turret.side)  || 40) * armMul),
+      rear:  Math.round(((p.armor && p.armor.turret && p.armor.turret.rear)  || 25) * armMul)
+    }
+  };
+
+  // 重算 stats
+  tank.modifiers = [];
+  refreshStats(tank);
+
+  // 4. 注入难度乘子 entityMults（若有）
+  if (entityMults) {
+    const STAT_KEYS = ['maxHp', 'penetration', 'damage', 'reload', 'spreadMult', 'aimSpeed', 'maxSpeed', 'turnRate', 'turretTurnRate'];
+    for (const k of STAT_KEYS) {
+      if (entityMults[k] !== undefined && entityMults[k] !== 1) {
+        addModifier(tank, { stat: k, mode: 'mult', value: entityMults[k], source: 'difficulty', scope: 'run' });
+      }
+    }
+    if (entityMults.armorAll !== undefined && entityMults.armorAll !== 1) {
+      addModifier(tank, { stat: 'armor.hull', mode: 'mult', value: entityMults.armorAll, source: 'difficulty', scope: 'run' });
+      addModifier(tank, { stat: 'armor.turret', mode: 'mult', value: entityMults.armorAll, source: 'difficulty', scope: 'run' });
+    }
+  }
+
+  tank.hp = tank.stats.maxHp;
+  tank.maxHp = tank.stats.maxHp;
+
+  const pxPerMeter = (typeof RULES !== 'undefined' && RULES.scale && RULES.scale.PX_PER_METER) || 20;
+  if (tank.hullLen && tank.hullLen > 0) {
+    tank.stats.hullLengthM = Math.round((tank.hullLen / pxPerMeter) * 100) / 100;
+  }
+  if (tank.barrel && tank.barrel.len && tank.barrel.len > 0) {
+    tank.stats.barrelLengthM = Math.round((tank.barrel.len / pxPerMeter) * 100) / 100;
+  }
+}
+
 // ---------- P-49 派生重量（纯函数，双端可用） ----------
 // 设计裁定（2026-08-26）：weight 一律按装甲几何派生，不允许自定义。本函数是唯一派生源，
 // 作为设计器保存校验与显示的数据源；computeStats 不受影响（weight 仍读 base/stats）。
@@ -504,6 +644,72 @@ function weightLimitInfo(spec){
     ok: derived <= lim.max && derived >= lim.min,  // 是否在区间内（超上限 → 设计器禁用增量）
     clamped: Math.min(Math.max(derived, lim.min), lim.max) // 钳到允许区间后的显示值
   };
+}
+
+/**
+ * P-49 设计器出厂参数耦合推导函数：
+ * 计算根据穿深、单发伤害推导出的建议装填时间增量与三扩增量，以及车体尺寸允许的最大马力。
+ * @param {any} spec 坦克 spec
+ * @returns {{ reloadMultiplier: number, spreadMultiplier: number, maxAllowedEnginePower: number, hullArea: number, moduleSizeFactor: number }}
+ */
+function deriveCoupledStats(spec){
+  const cfg = (typeof RULES !== 'undefined' && RULES.coupling) ? RULES.coupling : {
+    basePen: 120, baseDmg: 40, penReloadFactor: 0.005, dmgReloadFactor: 0.015,
+    penSpreadFactor: 0.002, dmgSpreadFactor: 0.005, refHullArea: 2500, enginePowerPerArea: 0.36
+  };
+  const pen = (spec && spec.penetration !== undefined) ? spec.penetration : cfg.basePen;
+  const dmg = (spec && spec.damage !== undefined) ? spec.damage : cfg.baseDmg;
+
+  const deltaPen = Math.max(0, pen - cfg.basePen);
+  const deltaDmg = Math.max(0, dmg - cfg.baseDmg);
+
+  const reloadMultiplier = 1.0 + deltaPen * cfg.penReloadFactor + deltaDmg * cfg.dmgReloadFactor;
+  const spreadMultiplier = 1.0 + deltaPen * cfg.penSpreadFactor + deltaDmg * cfg.dmgSpreadFactor;
+
+  let area = cfg.refHullArea;
+  if(spec && spec.hull && spec.hull.verts && Array.isArray(spec.hull.verts) && spec.hull.verts.length >= 3){
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for(const v of spec.hull.verts){
+      const vx = v.x !== undefined ? v.x : v[0];
+      const vy = v.y !== undefined ? v.y : v[1];
+      if(vx < minX) minX = vx; if(vx > maxX) maxX = vx;
+      if(vy < minY) minY = vy; if(vy > maxY) maxY = vy;
+    }
+    const w = maxX - minX, h = maxY - minY;
+    if(w > 0 && h > 0) area = w * h;
+  }
+  const maxAllowedEnginePower = Math.round(Math.min(1200, Math.max(300, area * cfg.enginePowerPerArea)));
+
+  const minF = (typeof RULES !== 'undefined' && RULES.modules && RULES.modules.sizeFactorMin !== undefined) ? RULES.modules.sizeFactorMin : 0.7;
+  const maxF = (typeof RULES !== 'undefined' && RULES.modules && RULES.modules.sizeFactorMax !== undefined) ? RULES.modules.sizeFactorMax : 1.3;
+  const moduleSizeFactor = Math.max(minF, Math.min(maxF, cfg.refHullArea / area));
+
+  return { reloadMultiplier, spreadMultiplier, maxAllowedEnginePower, hullArea: area, moduleSizeFactor };
+}
+
+/**
+ * P-46 坦克类别推导：优先读显式 spec.class，缺失时按数值启发式推导。
+ * @param {any} spec 坦克 spec
+ * @returns {string} 'light' | 'medium' | 'heavy' | 'spg' | 'target'
+ */
+function deriveTankClass(spec){
+  const valid = ['light','medium','heavy','spg','target'];
+  if(spec && valid.indexOf(spec.class) >= 0) return spec.class;
+  // 目标靶车/占位（无战斗数值的 dummy 等）标记为 target（退出敌池）
+  if(spec && (spec.target === true || spec.target === 'true')) return 'target';
+  const arm = (spec && spec.armor) ||
+    (spec && spec.hull && spec.hull.armor ? { front: spec.hull.armor.front } : null);
+  const front = (arm && typeof arm.front === 'number') ? arm.front :
+    (spec && spec.hull && spec.hull.armor && typeof spec.hull.armor.front === 'number' ? spec.hull.armor.front : null);
+  const hp = (spec && typeof spec.hp === 'number') ? spec.hp : null;
+  const spd = (spec && typeof spec.maxSpeed === 'number') ? spec.maxSpeed :
+    (spec && spec.stats && typeof spec.stats.maxSpeed === 'number' ? spec.stats.maxSpeed : null);
+  const barrel = spec && spec.barrel;  // SPG 通常炮管长/射界窄
+  // 启发式：重甲 + 高血量 + 低速 → heavy；高穿深 + 长炮管 + 低速 → spg；轻血高机 → light
+  if(front !== null && front >= 130 && hp !== null && hp >= 140) return 'heavy';
+  if(barrel && typeof barrel.len === 'number' && barrel.len >= 220 && spd !== null && spd <= 95) return 'spg';
+  if(hp !== null && hp <= 70 && spd !== null && spd >= 130) return 'light';
+  return 'medium';
 }
 
 
@@ -644,8 +850,11 @@ if (typeof module !== 'undefined' && module.exports) {
     MODULE_LABELS,
     moduleLabel,
     applyTankConfig,
+    applyEnemyAppearanceAndStats,
     deriveWeight,
     weightLimitInfo,
+    deriveCoupledStats,
+    deriveTankClass,
     DERIVE_WEIGHT_BASE_T,
     DERIVE_WEIGHT_HULL_KG_PER_PXMM,
     DERIVE_WEIGHT_TUR_KG_PER_PXMM,

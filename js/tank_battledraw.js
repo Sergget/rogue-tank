@@ -347,10 +347,23 @@ function drawTank(ctx, t){
    const barrelPct = Math.max(0, Math.min(3, (bSpec.len || 120) / 100));
    const barrelLen = t.turLen * barrelPct;
    const frontOff = turretFrontDist(t);
-   const baseX = turCx + barrelRayDx*frontOff, baseY = turCy + barrelRayDy*frontOff;
-   const endX = baseX + barrelRayDx*barrelLen, endY = baseY + barrelRayDy*barrelLen;
    const barrelWid = Math.max(3, t.turWid * ((bSpec.width || 18)/100) * 0.5);
    const perpX = -barrelRayDy, perpY = barrelRayDx;
+
+   // 开火后坐回弹（纯视觉）：recoilT 从 0.08 衰减到 0 时 sin(π·progress) 从 0 升到顶再回 0，
+   // 形成「出击→回弹」。仅平移视觉炮管（baseX/baseY 全局后移），炮盾/护套/制退器均随 baseX/baseY
+   // 自然跟随，避免「炮管后坐但制退器留在原地」穿帮。不改 gunRoot()/gunTip() 判定坐标。
+   const _recoilT = t.recoilT || 0;
+   const RECOIL_PX = 5;
+   const _recoilMag = RECOIL_PX * (barrelWid / 18);
+   let recoilOff = 0;
+   if(_recoilT > 0){
+     const _rc = Math.min(1, Math.max(0, _recoilT / 0.08));
+     recoilOff = _recoilMag * Math.sin(Math.PI * _rc);
+   }
+   const baseX = turCx + barrelRayDx*frontOff - barrelRayDx*recoilOff;
+   const baseY = turCy + barrelRayDy*frontOff - barrelRayDy*recoilOff;
+   const endX = baseX + barrelRayDx*barrelLen, endY = baseY + barrelRayDy*barrelLen;
 
    // main barrel tube
    ctx.strokeStyle = t.color; ctx.lineWidth = barrelWid;

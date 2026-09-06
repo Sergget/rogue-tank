@@ -204,6 +204,14 @@ const RULES = {
     // 伤害倍率：玩家（可随升级增强，读 shooter.stats.ammoMult/crewMult）vs 敌方固定值
     ammo: { player: 2, enemy: 2 },
     crew: { player: 1.2, enemy: 1.2 },
+    critBonusCap: 0.25,        // 单类概率修正加值硬上限 (+25%)
+    zoneProbCap: 0.90,         // 修正后单项概率硬上限 (90%)
+    sizeFactorMin: 0.7,        // 车体尺寸对模块概率缩放下限
+    sizeFactorMax: 1.3,        // 车体尺寸对模块概率缩放上限
+    critStatKeys: {
+      fireControl: 'fireControlCrit', // 对应 gunner, breech
+      loaderAmmo: 'loaderAmmoCrit'    // 对应 loader, ammo
+    },
     // 各削弱效果倍率（0~1 = 减速，2 = 加倍；惩罚较早期版本适当调轻）
     rates: {
       reloadHurt: 0.6,          // 装填手/弹药架受伤:装填速度 ×0.6（时间 ×1.67）
@@ -329,10 +337,15 @@ const RULES = {
     bossInterval: 5,              // 每第 5 个节点为 Boss 节点（(index+1) % 5 === 0 → index 4/9/14…）
     speedClearMs: 120000,         // 限时通关阈值（ms）→ 结算速通 +20%
     outpostChance: 0.7,           // 节点出现友军据点的概率
-    enemyTankPool: ['dummy'],     // 敌军构成使用的坦克池（tanks/ 中解析，缺省回退默认配置；
-                                  // 后续车型多样性里程碑（§6 条目 11）扩充池内容）
+    enemyTankPool: ['tiger-I', 'Leapard_1', 'Obj 780', 'panzer-IV', 'hummel'], // P-46: 敌军车型池（dummy 标 target 退出）
     enemyMinDist: 150,            // 敌军彼此最小间距（px）
     enemyMinPlayerDist: 250,      // 敌军离玩家出生点最小间距（px）
+    // P-46 多方向环带生成参数（以玩家出生点为参考）：
+    // 随难度 diffNorm 递增方向扇区数与环带扩展范围
+    ringSectorsBase: 2,           // 基础包围方向数（低难度至少 2 向）
+    ringSectorsMax: 4,            // 最大包围方向数（高难度扩展至 4 向多角包围）
+    ringMinDist: 350,             // 环带内径最小间距（px，确保不在脸刷兵）
+    ringMaxDistMult: 0.85,        // 环带外径系数（相对地图半尺寸）
     // P-38 敌方进度推进：击杀配额 + 镜头外递增生成（消费方 js/tank_map.js reinforcementTick）
     reinforceInterval: 8,         // 两次递增生成的最小间隔（秒）
     maxAlive: 7,                  // 常规节点场上存活敌军上限（初始+增援合计封顶）
@@ -341,6 +354,18 @@ const RULES = {
     desiredAliveRatio: 0.6,       // 补兵阈值：desiredAlive = ceil(初始敌数×ratio) + floor(effDiff×3)，封顶 maxAlive
     reinforceMargin: 120,         // 增援落点必须在视口 AABB 外扩该值之外（玩家不可见刷兵）
     reinforceOutpostDist: 300     // 增援落点距友军据点最小间距（px）
+  },
+
+  // P-46 类别化敌军（玩家基准锚定制，2026-08-26 第三批裁定，取代旧构筑预算制）：
+  //   敌军各项属性 = 玩家出战坦克对应属性 × enemyClassProfiles[class] 比例 × 难度系数(entityMults)。
+  //   四类比例向量（相对玩家基准 1.0 的比例）收口于此，绝对值不落地——保证节点 1 与玩家出厂配置匹配、
+  //   且两类成长线（玩家卡牌成长 vs 敌人难度成长）独立。消费方预留：js/tank_map.js 生成 + mvp
+  //   beginRun 冻结玩家 stats 快照时按月读取（本期先落地 class 行为分发与配置，数值锚定接线待 P-46 下批）。
+  enemyClassProfiles: {
+    light:  { maxHp: 0.80, penetration: 0.90, damage: 0.90, reload: 0.85, maxSpeed: 1.15, turnRate: 1.20, armor: 0.80 },
+    medium: { maxHp: 1.00, penetration: 1.00, damage: 1.00, reload: 1.00, maxSpeed: 1.00, turnRate: 1.00, armor: 1.00 },
+    heavy:  { maxHp: 1.40, penetration: 1.15, damage: 1.15, reload: 1.25, maxSpeed: 0.80, turnRate: 0.75, armor: 1.35 },
+    spg:    { maxHp: 0.75, penetration: 1.10, damage: 1.30, reload: 1.60, maxSpeed: 0.85, turnRate: 0.70, armor: 0.65 }
   },
 
   // 敌人/友军 AI（P-10 / DEVELOPMENT.md §6 条目 7）：双态行为 + 友军据点消极防御。
@@ -396,7 +421,22 @@ const RULES = {
     reposInterval: [4, 8],        // 重部署（变位）间隔（秒，区间随机）
     // 2026-08-25 装填间隙侧摆：装填期间车体随机侧摆（rad 区间随机，45°~90°）
     sideSwingAngleMin: 0.78,      // 最小侧摆角（≈45°）
-    sideSwingAngleMax: 1.57       // 最大侧摆角（≈90°）
+    sideSwingAngleMax: 1.57,      // 最大侧摆角（≈90°）
+
+    // --- classProfiles（P-46 类别化敌军）：按实体 t.tankClass 的行为档案覆盖 ---
+    //   与 tierProfiles 正交：先按 aiTier 取档位、再按 tankClass 叠加类型行为修正。
+    //   engageMul   — 接战距离乘数（轻型远距试探/重型近距钢猛）
+    //   aimTolMul   — 开火容差乘数（<1 更准）
+    //   flankBias   — 侧翼绕行倾向（轻型高、重型低、SPG 0 绝不侧绕）
+    //   moveLock    — true = 只前进不后撤（重型钢猛贴脸，防风筝由强度承担）
+    //   keepRange   — true = 与目标保持距离（SPG 曲射/远距直射，过近倒车）
+    //   stunResist  — 抗晕（重型）
+    classProfiles: {
+      light:  { engageMul: 1.18, aimTolMul: 1.0,  flankBias: 1.35, moveLock: false, keepRange: false, stunResist: false },
+      medium: { engageMul: 1.0,  aimTolMul: 1.0,  flankBias: 1.0,  moveLock: false, keepRange: false, stunResist: false },
+      heavy:  { engageMul: 0.92, aimTolMul: 1.1,  flankBias: 0.6,  moveLock: true,  keepRange: false, stunResist: true  },
+      spg:    { engageMul: 1.25, aimTolMul: 0.95, flankBias: 0.0,  moveLock: false, keepRange: true,  stunResist: false }
+    }
   },
 
   // 死亡/复活（P-11 / DEVELOPMENT.md §2.3 / §6 条目 8）。
@@ -532,6 +572,19 @@ const RULES = {
     get PX_PER_METER() { return this.REF_HULL_LENGTH_PX / this.REF_HULL_LENGTH_M; }  // ≈10.92
   },
 
+  // ======================= P-49 属性耦合链配置 =======================
+  // 仅在设计器出厂推导时消费：穿深/伤害与装填/三扩耦合、车体尺寸与马力上限挂钩。
+  coupling: {
+    basePen: 120,             // 基准穿深 (mm)
+    baseDmg: 40,              // 基准伤害
+    penReloadFactor: 0.005,   // 每高于基准 1mm 穿深，装填增加 0.5%
+    dmgReloadFactor: 0.015,   // 每高于基准 1 点伤害，装填增加 1.5%
+    penSpreadFactor: 0.002,   // 每高于基准 1mm 穿深，散布增加 0.2%
+    dmgSpreadFactor: 0.005,   // 每高于基准 1 点伤害，散布增加 0.5%
+    refHullArea: 2500,        // 参考车体投影面积 (px^2) ≈ 65px × 38px
+    enginePowerPerArea: 0.36  // 允许最大马力系数：maxHp = clamp(area * 0.36, 400, 1200)
+  },
+
   // ======================= P-49 全参数极限表（唯一收口） =======================
   // 取值方法：存量四车（tanks/dummy|Leapard_1|Obj 780|tiger-I.json）数值包络 ±30% 后取整；
   // reload 下限 0.5s 为用户既定需求；maxSpeed 上限按用户裁定 ≤150km/h ÷ kmhFactor(0.4) = 375 px/s；
@@ -548,6 +601,7 @@ const RULES = {
     turretTurnRate:   { min: 1.0, max: 4.0 },  // 炮塔转速 rad/s 包络 1.5~3.0（±30% → 1.05~3.9）
     enginePower:      { min: 200, max: 1200 }, // 马力包络 300~900（±30% → 210~1170）
     spreadMult:       { min: 0.5, max: 3.0 },  // 三扩系数包络 0.8~2.0（±30% → 0.56~2.6）；min 与 RULES.spread.multFloor 同级防穿零
+    motionSpreadMul:  { min: 0.5, max: 3.0 },  // 对齐 spreadMult 边界（用户 2026 决定：姿态稳定 steady_mount 的达限判定与三扩系数同级）
     weight:           { min: 10,  max: 80 },   // 吨：max=80t 为【设计上限】，仅设计器出厂校验（卡牌/局内升级可突破）；下限给超轻底盘留余地
     armor: {                                   // 各面装甲厚度 mm：逐面取包络 ±30%
       hull: {

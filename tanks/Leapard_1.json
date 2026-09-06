@@ -1,5 +1,6 @@
 {
   "id": "Leapard_1",
+  "class": "light",
   "traverseLimit": 180,
   "maxSpeed": 140,
   "turnRate": 2.5,

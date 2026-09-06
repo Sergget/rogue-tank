@@ -1,5 +1,6 @@
 {
   "id": "tiger-I",
+  "class": "heavy",
   "traverseLimit": 180,
   "maxSpeed": 120,
   "turnRate": 1.6,

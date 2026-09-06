@@ -367,23 +367,32 @@ const RUN_SHOP_DEFS = [
     baseCost: 30, costGrowth: 1.7, maxLevel: 99,
     effects: [{ stat: 'damage', mode: 'add', value: 4 }] },
   { id: 'precision_gunnery', name: '精密火控',   group: 'firepower', desc: '瞄准散布 −4%/级',
-    baseCost: 28, costGrowth: 1.6, maxLevel: 3,
-    effects: [{ stat: 'spreadMult', mode: 'mult', value: 0.96 }] },
+    baseCost: 28, costGrowth: 1.6, maxLevel: 99,
+    // #A4：maxLevel:99 仅作「数值未达界的防御性兜底上限」——真正可升级次数由 limit 按具体数值决定
+    // （spreadMult ×0.96/级降到下限 0.5 约需 17 级，99 远超此数，故达限判定完全交由 limit 主导；
+    // 卡牌叠加把 spreadMult 压得更低时，可购级数随之动态缩小——即「由具体数值决定」而非开局写死）。
+    effects: [{ stat: 'spreadMult', mode: 'mult', value: 0.96 }],
+    limit: { stat: 'spreadMult', min: 0.5 }, limitLabel: '已达三扩下限' },
   { id: 'steady_mount',      name: '姿态稳定',   group: 'firepower', desc: '运动散布系数 ×0.85（移动/转向扩圈减轻；不影响瞄准散布）',
     baseCost: 35, costGrowth: 1.0, maxLevel: 1,
     // #A1/#A3：改挂独立运动三扩键 motionSpreadMul（mult 语义：按比例缩放、与 precision_gunnery
     // 的 spreadMult 通道彻底解耦；computeStats 对聚合结果钳 ≥ RULES.spread.multFloor 防穿零）
-    effects: [{ stat: 'motionSpreadMul', mode: 'mult', value: 0.85 }] },
+    // maxLevel:1 语义保留（单次强效卡，本就只应买一次，不因数值驱动而允许重复购买）
+    effects: [{ stat: 'motionSpreadMul', mode: 'mult', value: 0.85 }],
+    limit: { stat: 'motionSpreadMul', min: 0.5 }, limitLabel: '已达运动三扩下限' },
   // ---- 防护：六面拆卖合并为两个打包商品（#A1，2026-08-26；原 *_patch id 移除不复用防存档 levels 脏数据）----
   { id: 'hull_armor_kit',    name: '车体装甲包', group: 'armor', desc: '车体正面/侧面/后部装甲各 +2mm/级',
-    baseCost: 60, costGrowth: 1.6, maxLevel: 2,
+    baseCost: 60, costGrowth: 1.6, maxLevel: 99,
+    // #A4：多面打包商品不手写 limit——runShopLimitBlocked 在 def.limit 缺失时逐条 effect 按
+    // RULES.parameterLimits 点分路径（armor.hull.front 等）逐面推导达限；maxLevel:99 仅作防御性兜底，
+    // 真正上限由逐面 max（如 hull.front max=150mm，从 110 起 +2mm/级约 20 级）动态决定。
     effects: [
       { stat: 'armor.hull.front', mode: 'add', value: 2 },
       { stat: 'armor.hull.side',  mode: 'add', value: 2 },
       { stat: 'armor.hull.rear',  mode: 'add', value: 2 }
     ] },
   { id: 'turret_armor_kit',  name: '炮塔装甲包', group: 'armor', desc: '炮塔正面/侧面/后部装甲各 +2mm/级',
-    baseCost: 60, costGrowth: 1.6, maxLevel: 2,
+    baseCost: 60, costGrowth: 1.6, maxLevel: 99,
     effects: [
       { stat: 'armor.turret.front', mode: 'add', value: 2 },
       { stat: 'armor.turret.side',  mode: 'add', value: 2 },
@@ -415,9 +424,44 @@ function getRunShopDef(id){ return RUN_SHOP_DEFS.find(d => d.id === id) || null;
 // #A1 达限判定（纯函数）：def.limit = { stat, min?, max? }——按首条 effect 计算购买后的结果值，
 // 穿越 [min,max] 硬边界（1e-9 容差防浮点误判）时返回 true。UI 层用于禁用按钮 + 购买前防御，
 // 数值与 RULES.parameterLimits 同源（fast_reload: reload.min=0.5s / engine_overdrive: maxSpeed.max=375px/s）。
-function runShopLimitBlocked(def, curVal){
+//
+// #A4 多面打包扩展（2026）：def.limit 缺失但多条 effects 存在时（装甲包 hull/turret × front/side/rear），
+// 逐条 effect 按其 stat 点分路径从 RULES.parameterLimits 取 {min,max}，用 mode(add 加 / mult 乘)
+// 算出购买后该面值，任一穿越边界即 true——由具体数值决定可升级空间，而非写死 maxLevel。
+// 达限推导须容错：RULES 或 parameterLimits 或点分路径缺失时缺省返回 false（放行购买），不抛异常。
+function _plPathVal(path){
+  // 从 RULES.parameterLimits 按点分路径取值；任一环节缺失返回 undefined
+  const limits = (typeof RULES !== 'undefined' && RULES && RULES.parameterLimits) ? RULES.parameterLimits : null;
+  if(!limits) return undefined;
+  return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), limits);
+}
+function runShopLimitBlocked(def, curVal, stats){
+  if(!def || typeof curVal !== 'number') return false;
   const lim = def && def.limit;
-  if(!lim || typeof curVal !== 'number') return false;
+  // 从 stats 对象按点分路径取某 stat 的当前值（多面打包用真实各面值，不用单一 curVal）
+  const statCur = (path) => {
+    if(!stats || typeof stats !== 'object') return undefined;
+    return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), stats);
+  };
+  if(!lim){
+    // #A4 推导分支：def.limit 缺失时遍历 effects，逐条按其 stat 的真实当前值判定。
+    // 多面打包（装甲包 hull/turret × front/side/rear）各面值不同，必须逐面取 stats 现值；
+    // 无法取到该面现值（stats 未传入且非首条效应）时回退 curVal，最后由 parameterLimits 判定。
+    const efs = def.effects || [];
+    if(!efs.length) return false;
+    for(let i = 0; i < efs.length; i++){
+      const ef = efs[i];
+      if(!ef || !ef.stat) continue;
+      const b = _plPathVal(ef.stat);
+      if(!b) continue;                         // 该 stat 无边界 → 该面不判限（容错）
+      const cv = (i === 0 && statCur(ef.stat) === undefined) ? curVal : statCur(ef.stat);
+      if(typeof cv !== 'number') continue;     // 该面现值不可得 → 跳过（容错，放行）
+      const next = ef.mode === 'mult' ? cv * ef.value : cv + ef.value;
+      if(b.min !== undefined && next < b.min - 1e-9) return true;
+      if(b.max !== undefined && next > b.max + 1e-9) return true;
+    }
+    return false;
+  }
   const ef = (def.effects || [])[0];
   if(!ef) return false;
   const next = ef.mode === 'mult' ? curVal * ef.value : curVal + ef.value;

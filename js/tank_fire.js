@@ -89,6 +89,7 @@ function fireTank(shooter, target, hitPref, ctx){
   burst(ox,oy,0.6,4,2,0);
   muzzle(ox,oy,spreadAngle||shooter.turretAngle,1,bMuzzle);
   play('fire');
+  shooter.recoilT = 0.08;
   shells.push({x:ox,y:oy,fx:rootP.x,fy:rootP.y,dx:dx,dy:dy,speed:Math.max(200,shooter.stats.shellSpeed*(ammo.speed||1)+(ammo.speedAdd||0)),pen:shooter.stats.penetration*(ammo.pen||1)+(ammo.penAdd||0),dmg:Math.max(0,shooter.stats.damage*(ammo.dmg||1)+(ammo.dmgAdd||0)),ammo:ammo,ammoKey:shooter.ammoKey,shooter:shooter,hitPref:hitPref,canBounce:true,bounced:false,dist:0,dead:false});
   return true;
 }
@@ -133,6 +134,7 @@ function fireSmokeShell(shooter, ctx){
   burst(ox,oy,0.6,4,2,0);
   muzzle(ox,oy,spreadAngle,1,bMuzzle);
   play('fire');
+  shooter.recoilT = 0.08;
   shells.push({x:ox,y:oy,fx:rootP.x,fy:rootP.y,dx:dx,dy:dy,speed:Math.max(200,shooter.stats.shellSpeed*0.7),pen:0,dmg:0,ammo:{color:'#c8c8c8',tail:'rgba(150,150,150,0.6)'},ammoKey:'smoke',smoke:true,shooter:shooter,hitPref:'auto',canBounce:false,bounced:false,dist:0,dead:false});
   return true;
 }

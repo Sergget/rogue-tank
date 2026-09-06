@@ -33,7 +33,7 @@ const FIELD_ROWS = [
   { label:'装填(s)',    path:'reload',             type:'num', group:'firepower' },
   { label:'弹速(px/s)', path:'shellSpeed',         type:'num', group:'firepower' },
   { label:'射界(°)',    path:'traverseLimit',      type:'num', group:'firepower' },
-  { label:'三扩系数',   path:'spreadMult',          type:'num', group:'firepower', special:'spread100m' },
+  { label:'精度@100m(m)', path:'spreadMult',       type:'num', group:'firepower', special:'spread100m' },
   { label:'缩圈速度',   path:'aimSpeed',            type:'num', group:'firepower' },
   { label:'炮管长度(m)',path:'barrel.len',         type:'num', group:'firepower',
     edit:{ unit:'m', factor:['scale','PX_PER_METER'], op:'mul' } },

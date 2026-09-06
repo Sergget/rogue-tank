@@ -56,3 +56,11 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 - **`#A14a` 全线高爆战术（`demo_all_he_doctrine` legendary）**：移除全局 reload×0.85 白送效果，仅保留 HE dmg×1.2 + HE pen×1.2 两重弹种效果——不再溢出到全弹种装填。
 - **`#A15` 防崩落内衬（`support_spall_liner` rare 0.8 / `spall_liner` epic 0.85）**：spallMul 乘入击穿路径与 HE 残余爆轰的最终伤害（位于装甲/跳弹判定之后、随机抖动与取整之前，保证显示伤害=实际扣血整数一致）。
 - 测试锚定：`scripts/test-cards.js` §#A14a/#A14b/#A15 断言覆盖（overmatch 免跳弹/阈值不满足仍跳弹/HEAT 不受影响；内衬 rare 0.8 + epic 0.85 多来源取最强）。
+
+---
+
+## 7. P-49 卡牌概率修正通道落地（2026-09-06）
+- **卡牌概率修正效果**：
+  - 新增 `fireControlCrit` (火控增强提升炮手、炮闩受损概率) 与 `loaderAmmoCrit` (提升装填手、弹药架受损概率) 修饰器。
+  - 加法叠加，最大加成限制在 ≤25%，修正后单区判定概率限制在 ≤90%（确保保留击穿而没有额外成员/模块损伤的余量空间）。
+  - 在 `tank_physics.js` 的 `moduleFromHit` 中完整应用。`scripts/test-cards.js` 对应新增判定几率加成及钳制上限测试断言，全部通过。

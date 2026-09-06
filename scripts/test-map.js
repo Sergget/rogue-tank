@@ -150,11 +150,11 @@ for (const n of run1.nodes) {
 ok(totalEnemies >= 3, `全局敌军总数合理（${totalEnemies}，Boss 节点不计）`);
 ok(totalOutposts >= 0 && totalOutposts <= 5, `据点数量在范围内（${totalOutposts}）`);
 
-// 3c) #24：视口模式下的敌军/据点/出生点约束仍然成立（大图不破坏布局约束）
+// 3c) #24 / P-46：视口模式下的敌军/据点/出生点约束仍然成立（大图不破坏布局约束）
 for (const n of runV.nodes) {
   ok(n.playerSpawn.x > 0 && n.playerSpawn.x < n.w * 0.25, `视口模式节点 ${n.index} 出生点在左 1/4`);
   for (const e of n.enemies) {
-    ok(e.x > n.w * 0.3 && e.x < n.w && e.y > 0 && e.y < n.h, `视口模式节点 ${n.index} 敌军散布右 2/3 区域`);
+    ok(e.x > 0 && e.x < n.w && e.y > 0 && e.y < n.h, `视口模式节点 ${n.index} 敌军在界内`);
     ok(Math.hypot(e.x - n.playerSpawn.x, e.y - n.playerSpawn.y) >= RULES_MOD.RULES.nodeMap.enemyMinPlayerDist - 1, '视口模式敌军离出生点最小间距');
   }
   if (n.outpost) {

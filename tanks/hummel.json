@@ -1,0 +1,85 @@
+{
+  "id": "hummel",
+  "class": "spg",
+  "traverseLimit": 25,
+  "maxSpeed": 90,
+  "turnRate": 1.5,
+  "turretTurnRate": 1.2,
+  "weight": 24,
+  "enginePower": 300,
+  "hp": 70,
+  "penetration": 140,
+  "damage": 75,
+  "reload": 2.6,
+  "shellSpeed": 950,
+  "heightClass": "medium",
+  "trackWidth": 8,
+  "trackOffset": -4,
+  "spreadMult": 1.4,
+  "aimSpeed": 1.2,
+  "texture": "camo",
+  "barrel": {
+    "len": 230,
+    "width": 14,
+    "muzzle": "single",
+    "evac": {
+      "style": "none",
+      "pos": 0
+    },
+    "jacket": {
+      "len": 0,
+      "pos": 0
+    },
+    "mantlet": {
+      "style": "box",
+      "pos": 0,
+      "width": 26
+    }
+  },
+  "hull": {
+    "verts": [
+      [30.0, -13.0],
+      [-30.0, -13.0],
+      [-30.0, 13.0],
+      [30.0, 13.0]
+    ],
+    "faces": [
+      "side",
+      "rear",
+      "side",
+      "front"
+    ],
+    "armor": {
+      "front": 30,
+      "side": 20,
+      "rear": 15
+    }
+  },
+  "turret": {
+    "verts": [
+      [10.0, -11.0],
+      [-16.0, -11.0],
+      [-16.0, 11.0],
+      [10.0, 11.0]
+    ],
+    "faces": [
+      "side",
+      "rear",
+      "side",
+      "front"
+    ],
+    "armor": {
+      "front": 20,
+      "side": 15,
+      "rear": 10
+    },
+    "pivot": {
+      "dx": -4,
+      "dy": 0
+    },
+    "axis": {
+      "dx": -4,
+      "dy": 0
+    }
+  }
+}

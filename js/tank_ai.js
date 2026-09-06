@@ -27,6 +27,20 @@ function aiTierProfile(tier){
   return arr[i] || {};
 }
 
+// P-46 类别化敌军：按实体类别取行为档案覆盖（RULES.ai.classProfiles）。
+// 类别来源：t.tankClass（materializeNode 注入，缺省按 heightClass 启发式回退）。
+// 纯函数、可单测：未知类别回退空 profile（medium 基线零修正）。
+function aiClassForTank(t){
+  const cfg = aiConfig();
+  const map = (typeof cfg.classProfiles === 'object' && cfg.classProfiles) ? cfg.classProfiles : {};
+  let cls = (t && (t.tankClass || t.class));
+  if(!cls){
+    // 启发式回退：heavy 车体按重型，轻量无显式标记时视作 medium（保持旧行为零漂移）
+    cls = (t && t.heightClass === 'heavy') ? 'heavy' : 'medium';
+  }
+  return map[cls] || {};
+}
+
 // #76 C5：patrol 早退微摆动 —— 远处未激活敌人缓慢左右摆头（不再全零死板）。
 // 时间源选择：ctx.time 显式注入时用之（确定性、测试友好）；否则用实体本地相位
 // t.wanderPhase += speed×step 的性能无关推进（step 取 ctx.dt 或固定 1/60 步长，已注明）。
@@ -192,9 +206,21 @@ function aiDecideEnemy(t, ctx){
   const desired = Math.atan2(dy, dx);
 
   // #76 B：档位 + 难度合成的接战/精度参数（提前计算，供开火/移动/flank/寻掩共用）
+  // P-46：类别行为档案叠加——tier(档位) × class(类别) 乘性合成，类别只带非中性覆盖
   const prof = aiTierProfile(t.aiTier);
-  const engage = _effectiveEngage(t, cfg, prof);
-  const tol = (cfg.aimTolerance !== undefined ? cfg.aimTolerance : 0.12) * (prof.aimTolMul || 1);
+  const clsProf = aiClassForTank(t);
+  const merged = Object.assign({}, prof, {
+    engageMul: (prof.engageMul || 1) * (clsProf.engageMul !== undefined ? clsProf.engageMul : 1),
+    aimTolMul: (prof.aimTolMul || 1) * (clsProf.aimTolMul !== undefined ? clsProf.aimTolMul : 1),
+    stunResist: !!(prof.stunResist || clsProf.stunResist)
+  });
+  const profEff = merged;
+  const engage = _effectiveEngage(t, cfg, profEff);
+  const tol = (cfg.aimTolerance !== undefined ? cfg.aimTolerance : 0.12) * (profEff.aimTolMul || 1);
+  // 类别行为开关（供移动/flank 分支消费）
+  const clsFlankBias = (clsProf.flankBias !== undefined) ? clsProf.flankBias : 1;
+  const clsMoveLock = !!clsProf.moveLock;
+  const clsKeepRange = !!clsProf.keepRange;
 
   // --- 激活触发（重设计）：距离 + 可见性，与摄像机视野彻底解耦 ---
   // 有效触发距离：实体字段 aiTriggerDist（生成时按难度算好，见 tank_map.js
@@ -268,10 +294,20 @@ function aiDecideEnemy(t, ctx){
   else if(hullDiff < -0.05) out.turn = -1;
   out.turretDesired = desired;
 
-  // 移动：保持距离（远则进，太近则退）——engage 已含难度/档位调制（#76 B）
+  // 移动：保持距离（远则进，太近则退）——engage 已含难度/档位/类别调制（#76 B / P-46）
   const close = cfg.closeRange !== undefined ? cfg.closeRange : 200;
-  if(dist > engage) out.move = 1;
-  else if(dist < close && !t.isBoss) out.move = -1;   // ISSUE 21b：Boss 不后撤（防 kite）
+  // P-46 类别移动：
+  //   spg keepRange   → 与目标保持距离（过近倒车、达距即停，远则进）
+  //   heavy moveLock  → 只进不退（钢猛贴脸，防风筝由强度/装甲承担）
+  //   其余            → 原远进近退语义
+  if(clsKeepRange && !t.isBoss){
+    const hold = engage * 0.9;   // 保持距离窗口用接战距离的 90% 做下限
+    if(dist < hold) out.move = -1;
+    else if(dist > engage) out.move = 1;
+    else out.move = 0;
+  } else if(dist > engage) out.move = 1;
+  else if(dist < close && !t.isBoss && !clsMoveLock) out.move = -1;   // ISSUE 21b：Boss 不后撤；P-46 heavy 不后撤
+  else if(dist < close && clsMoveLock && !t.isBoss) out.move = 1;    // P-46 heavy：贴脸也持续前压（move=1 泛化）
 
   // 开火：炮塔大致对准 + 视线畅通（触发段已算好 los）+ 装填好 + 在接战距离内
   // tol 已按档位 aimTolMul 收紧（#76 B）
@@ -295,9 +331,9 @@ function aiDecideEnemy(t, ctx){
   if(t.fireDebuffT && t.fireDebuffT > 0) debuffSeverity = Math.max(debuffSeverity, 0.5);
 
   const stunThreshold = (cfg.stunModuleThreshold !== undefined ? cfg.stunModuleThreshold : 0.5)
-                        + (prof.stunResist ? 0.2 : 0);   // #76 B：抗晕档阈值上调
+                        + (profEff.stunResist ? 0.2 : 0);   // #76 B：抗晕档阈值上调（含类别 heavy 抗晕）
   const stunProb = (cfg.dazedProbability !== undefined ? cfg.dazedProbability : 0.3)
-                   * (prof.stunResist ? 0.5 : 1);          // #76 B：抗晕档随机 daze 概率减半
+                   * (profEff.stunResist ? 0.5 : 1);          // #76 B：抗晕档随机 daze 概率减半
   // stun 免疫窗：stunned 自然结束后 stunImmuneT 秒内不再被压入 stunned
   // （防高射速 + 30% 随机 daze 无限连控；见 RULES.ai.stunImmunityAfter）
   const stunImmune = (t.stunImmuneT || 0) > 0;
@@ -323,8 +359,9 @@ function aiDecideEnemy(t, ctx){
   // 2) Flank：绕行进攻——距离已超出近身阈值且在射程之外，横向绕到目标侧翼
   if(state !== 'stunned'){
     const flankMinDist = cfg.flankMinDist !== undefined ? cfg.flankMinDist : 400;
-    // 仅在距离>engage（原本不会开火）且< flankMinDist*1.5 时才尝试 flank
-    const canFlank = dist > engage && dist < flankMinDist * 1.5 && los;
+    // 仅在距离>engage（原本不会开火）且< flankMinDist×1.5×flankBias 时才尝试 flank；P-46 类别侧向倾向调制
+    const canFlank = dist > engage && dist < flankMinDist * 1.5 * Math.max(0, clsFlankBias) && los
+                     && clsFlankBias > 0;
     if(canFlank){
       // 计算目标的前向和右向量（使用玩家 hullAngle 作为参考）
       const playerHullAng = p.hullAngle !== undefined ? p.hullAngle : 0;
@@ -574,5 +611,5 @@ function propagateAlert(entitiesArr, x, y, radius){
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiTierProfile, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, _passiveDefend, _bossStageAIModes };
+  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, _passiveDefend, _bossStageAIModes };
 }

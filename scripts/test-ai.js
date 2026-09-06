@@ -8,7 +8,7 @@ const U = require('../js/tank_utils.js');
 global.angDiff = U.angDiff;
 global.norm = U.norm;
 global.TAU = U.TAU;
-const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile } = require('../js/tank_ai.js');
+const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile, aiClassForTank } = require('../js/tank_ai.js');
 
 let fails = 0;
 function ok(cond, label) {
@@ -207,6 +207,16 @@ console.log('--- #76 B/C：参数化/tier/摆动/寻掩 ---');
   const ta2 = enemy(800, 500, Math.PI, 0.1, 0);
   ta2.aiTier = 2;
   ok(aiDecideEnemy(ta2, { player, hasLoS: () => true }).fire === false, 'tier2：aimTolMul 收紧 tol=0.072 → 不开火');
+}
+
+// F2) P-46 类别行为档案（aiClassForTank + classProfiles 消费）
+{
+  ok(aiClassForTank({ tankClass: 'light' }).flankBias > 1, 'class light：flankBias > 1（侧绕强化）');
+  ok(aiClassForTank({ tankClass: 'heavy' }).moveLock === true, 'class heavy：moveLock 只进不退');
+  ok(aiClassForTank({ tankClass: 'spg' }).keepRange === true, 'class spg：keepRange 保持距离');
+  ok(aiClassForTank({ tankClass: 'spg' }).flankBias === 0, 'class spg：flankBias=0 绝不侧绕');
+  ok(aiClassForTank({ heightClass: 'heavy' }).moveLock === true, '无 tankClass 时按 heightClass=heavy 回退重型');
+  ok(aiClassForTank({}).engageMul === undefined || aiClassForTank({}).moveLock === false, '未知类别回退 medium 基线零修正');
 }
 
 // G) stunResist 生效（tier2：阈值 +0.2 且 daze 概率减半——用受控 Math.random 消除随机性）

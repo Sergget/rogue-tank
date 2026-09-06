@@ -1,5 +1,7 @@
 {
   "id": "dummy",
+  "target": true,
+  "class": "target",
   "traverseLimit": 180,
   "maxSpeed": 120,
   "turnRate": 2,

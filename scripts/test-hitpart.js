@@ -366,7 +366,7 @@ function turHit(lx, ly){
   ok(resNull.cls==='PEN' && resNull.text.indexOf('命中') < 0 && !target.debuffs.breech,
     'P-49 applyModuleDamage 余量: 正常结算、无模块文本');
   // breech 分支：debuff 施加 + 文本
-  const tgt2 = Object.assign({}, target, { hp:1000, debuffs:{} });
+  const tgt2 = Object.assign({}, target, { hp:1000, debuffs:{}, hullLen:50, hullWid:50 });
   const resBr = withRng(() => PHYS.applyModuleDamage(shell, tgt2, turHit(12, -14), {}), 5, 0.51);
   ok(resBr.text.indexOf('炮闩') >= 0 && tgt2.debuffs.breech === RULES.modules.debuffSeconds,
     'P-49 applyModuleDamage: breech 命中施加无法开火 debuff（8s）');
@@ -506,6 +506,54 @@ ok(RULES.modules.lenMin === 0.05, `lenMin = 0.05（当前 ${RULES.modules.lenMin
   ok(n3.driver[0].off === -0.25, 'off 钳制: 合法边界值保留 (len=0.5, off=-0.25)');
   const n4 = G.normalizeTankModules({ driver:[{ part:'hull', x:0, y:19, len:1, off:0.33 }] });
   ok(n4.driver[0].off === 0, 'off 钳制: len=1 → off 恒 0');
+}
+
+// ---- P-49 概率修正通道 (fireControlCrit / loaderAmmoCrit) 与车体尺寸因子断言 ----
+{
+  const tNormal = mockTank({ hullLen:64, hullWid:38 }); // area = 2432 ≈ 2500, sizeFactor ≈ 1.028
+  const tLarge  = mockTank({ hullLen:100, hullWid:60 }); // area = 6000, sizeFactor = 2500/6000 = 0.416 -> clamp min 0.7
+  const tSmall  = mockTank({ hullLen:40, hullWid:25 });  // area = 1000, sizeFactor = 2500/1000 = 2.5 -> clamp max 1.3
+
+  // 1. 尺寸因子 (sizeFactor) 影响测试 (无 shooter)
+  // 大车体 (tLarge): 概率加权缩小到 0.7 对应倍率
+  // 左前区炮塔: base gunner=0.50, breech=0.05. 缩放后: gunner = 0.50 * 0.7 = 0.35, breech = 0.05 * 0.7 = 0.035, 余量 = 0.615
+  let r = withRng(() => G.moduleFromHit(tLarge, turHit(12, -14)), 11, 0.34);
+  ok(r && r.key === 'gunner', 'P-49 大车体尺寸缩放: r<0.35 -> gunner');
+  r = withRng(() => G.moduleFromHit(tLarge, turHit(12, -14)), 11, 0.36);
+  ok(r && r.key === 'breech', 'P-49 大车体尺寸缩放: 0.35<=r<0.385 -> breech');
+  r = withRng(() => G.moduleFromHit(tLarge, turHit(12, -14)), 11, 0.40);
+  ok(r === null, 'P-49 大车体尺寸缩放: r>=0.385 -> null 余量变大');
+
+  // 小车体 (tSmall): 概率加权放大到 1.3 对应倍率
+  // 左前区炮塔: base gunner=0.50, breech=0.05. 缩放后: gunner = min(0.9, 0.50 * 1.3) = 0.65, breech = min(0.9, 0.05 * 1.3) = 0.065
+  r = withRng(() => G.moduleFromHit(tSmall, turHit(12, -14)), 11, 0.60);
+  ok(r && r.key === 'gunner', 'P-49 小车体尺寸缩放: r<0.65 -> gunner');
+  r = withRng(() => G.moduleFromHit(tSmall, turHit(12, -14)), 11, 0.68);
+  ok(r && r.key === 'breech', 'P-49 小车体尺寸缩放: 0.65<=r<0.715 -> breech');
+
+  // 2. 攻击方卡牌概率加成测试
+  // 带有 fireControlCrit = 0.20 的攻击方
+  const shooterFC = { stats: { fireControlCrit: 0.20, loaderAmmoCrit: 0 } };
+  // 针对 tNormal (sizeFactor ≈ 1.028)
+  // 左前区炮塔: base gunner=0.50 (+0.20 -> 0.70) * 1.028 = 0.7196 -> clamp 0.7196
+  // breech=0.05 (+0.20 -> 0.25) * 1.028 = 0.257
+  r = withRng(() => G.moduleFromHit(tNormal, turHit(12, -14), shooterFC), 11, 0.70);
+  ok(r && r.key === 'gunner', 'P-49 火控概率加成: shooter.fireControlCrit 生效 -> gunner');
+  r = withRng(() => G.moduleFromHit(tNormal, turHit(12, -14), shooterFC), 11, 0.80);
+  ok(r && r.key === 'breech', 'P-49 火控概率加成: shooter.fireControlCrit 生效 -> breech');
+
+  // 带有 loaderAmmoCrit = 0.25 的攻击方
+  const shooterLA = { stats: { fireControlCrit: 0, loaderAmmoCrit: 0.25 } };
+  // 针对右后区炮塔: base ammo=0.50 (+0.25 -> 0.75) * 1.028 = 0.771 -> clamp 0.771
+  r = withRng(() => G.moduleFromHit(tNormal, turHit(-12, 14), shooterLA), 11, 0.70);
+  ok(r && r.key === 'ammo', 'P-49 装填/弹药概率加成: shooter.loaderAmmoCrit 生效 -> ammo');
+
+  // 单项概率上限 (zoneProbCap = 0.90) 钳制测试
+  // 超大加成 + 小车体 (1.3): ammo base 0.50 + 0.25 = 0.75 * 1.3 = 0.975 -> clamp 0.90
+  r = withRng(() => G.moduleFromHit(tSmall, turHit(-12, 14), shooterLA), 11, 0.89);
+  ok(r && r.key === 'ammo', 'P-49 概率上限 0.90 钳制: r<0.90 -> ammo');
+  r = withRng(() => G.moduleFromHit(tSmall, turHit(-12, 14), shooterLA), 11, 0.92);
+  ok(r === null, 'P-49 概率上限 0.90 钳制: r>=0.90 -> null 余量 (即使放大超 1.0 仍留 10% 余量)');
 }
 
 console.log(fails === 0 ? '\nAll hitpart checks passed.' : `\n${fails} FAILED`);

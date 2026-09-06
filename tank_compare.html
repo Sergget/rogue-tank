@@ -219,6 +219,13 @@ function displayReadout(f, val, stats){
   return (num !== null && !isNaN(num)) ? num + ' ' + d.suffix : null;
 }
 
+function getEditFactor(f){
+  if(!f.edit || !Array.isArray(f.edit.factor)) return null;
+  const [sub, key] = f.edit.factor;
+  if(RULES && RULES[sub] && typeof RULES[sub][key] === 'number') return RULES[sub][key];
+  return null;
+}
+
 function renderRowField(spec, f, stats){
   const row = document.createElement('div');
   row.className = 'mrow';
@@ -226,13 +233,62 @@ function renderRowField(spec, f, stats){
   lbl.className = 'lbl'; lbl.textContent = f.label;
   row.appendChild(lbl);
   const val = getPath(spec, f.path);
+
+  if(f.special === 'spread100m'){
+    // 联动输入框：以「100m 散布(m)」口径设定三扩系数 spreadMult
+    // spread100m = 100 * SPREAD.base * spreadMult; spreadMult = spread100m / (100 * SPREAD.base)
+    const mult = (val !== undefined && val !== null && !isNaN(+val)) ? +val : 1;
+    const s100 = (100 * SPREAD.base * mult);
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = '0.01';
+    input.value = s100.toFixed(2);
+    input.title = '以100m静止散布范围(m)输入，自动折算为底层 spreadMult';
+    input.addEventListener('input', ()=>{
+      const v = parseFloat(input.value);
+      if(!isNaN(v) && v > 0){
+        const newMult = v / (100 * SPREAD.base);
+        setPath(spec, f.path, +newMult.toFixed(4));
+        renderAll();
+      }
+    });
+    row.appendChild(input);
+    const ro = document.createElement('span');
+    ro.className = 'ro';
+    ro.textContent = `(x${mult.toFixed(2)})`;
+    ro.title = '底层 spreadMult 倍率';
+    row.appendChild(ro);
+    return row;
+  }
+
   if(f.type === 'num'){
     const input = document.createElement('input');
     input.type = 'number';
-    input.value = (val === undefined || val === null) ? '' : +val;
+    const factor = getEditFactor(f);
+    let displayVal = val;
+    if(factor && val !== undefined && val !== null){
+      if(f.edit.op === 'div'){
+        // 存储值 px/s = km/h ÷ factor(0.4) -> 显示值 km/h = val * factor
+        displayVal = Math.round(val * factor);
+      } else if(f.edit.op === 'mul'){
+        // 存储值 px = m * factor -> 显示值 m = val / factor
+        displayVal = +(val / factor).toFixed(2);
+      }
+    }
+    input.value = (displayVal === undefined || displayVal === null) ? '' : +displayVal;
     input.addEventListener('input', ()=>{
-      const v = input.value === '' ? undefined : parseFloat(input.value);
-      if(v === undefined || !isNaN(v)) setPath(spec, f.path, v);
+      if(input.value === ''){
+        setPath(spec, f.path, undefined);
+      } else {
+        let v = parseFloat(input.value);
+        if(!isNaN(v)){
+          if(factor){
+            if(f.edit.op === 'div') v = v / factor; // km/h 转 px/s
+            else if(f.edit.op === 'mul') v = v * factor; // m 转 px
+          }
+          setPath(spec, f.path, v);
+        }
+      }
     });
     row.appendChild(input);
   } else if(f.type === 'sel'){
@@ -243,15 +299,6 @@ function renderRowField(spec, f, stats){
     sel.value = (val === undefined || val === null) ? f.options[0] : String(val);
     sel.addEventListener('change', ()=> setPath(spec, f.path, sel.value));
     row.appendChild(sel);
-  }
-  // 有 display 元数据的行：输入框旁渲染只读真实单位小字（数据源：实例 stats 派生键 / PX_PER_METER）
-  const ro = displayReadout(f, val, stats);
-  if(ro !== null){
-    const unit = document.createElement('span');
-    unit.className = 'ro';
-    unit.textContent = ro;
-    unit.title = '真实单位读数（只读，来自 computeStats 同源派生 / RULES.scale.PX_PER_METER）';
-    row.appendChild(unit);
   }
   return row;
 }
@@ -311,57 +358,62 @@ function buildColumn(key, spec){
   const calStats = calTank.stats;
   const pxPerMeter = RULES.scale.PX_PER_METER;
 
-  for(const f of FIELD_ROWS){
-    col.appendChild(renderRowField(spec, f, calStats));
-    if(f.path === 'aimSpeed') col.appendChild(buildPrecisionRows(spec));
-  }
-
-  // ---------- 真实世界单位标定显示（以 Tiger I 为基准） ----------
-  // maxSpeedKmh 由 computeStats 按 RULES.speed.kmhFactor 同源产出，此处无本地换算硬编码
-  // P-49 只读派生：派生重量（deriveWeight 单一来源）+ 功重比 = enginePower ÷ 派生重量
-  // （吨位即内部值，无换算；与设计器 updateWeightReadout 同口径）
-  const dWeight = deriveWeight(spec);
-  const ePow = getPath(spec, 'enginePower');
-  const calRows = [
-    ['功重比', (typeof ePow === 'number' && ePow > 0 && dWeight > 0) ? (ePow / dWeight).toFixed(1) + ' hp/t' : '—'],
-    ['派生重量', dWeight > 0 ? dWeight.toFixed(1) + ' t' : '—'],
-    ['标定极速', calStats.maxSpeedKmh !== undefined ? calStats.maxSpeedKmh + ' km/h' : '—'],
-    ['标定弹速', calStats.shellSpeedMs !== undefined ? calStats.shellSpeedMs + ' m/s' : '—'],
-    ['车体长度', calStats.hullLengthM !== undefined && calStats.hullLengthM > 0 ? calStats.hullLengthM.toFixed(2) + ' m' : '—'],
-    ['炮管长度', calStats.barrelLengthM !== undefined && calStats.barrelLengthM > 0 ? calStats.barrelLengthM.toFixed(2) + ' m' : '—'],
-    ['换算比例', pxPerMeter.toFixed(2) + ' px/m']
+  // 按四组 (firepower / armor / mobility / misc) 分区渲染
+  const groups = [
+    { key: 'firepower', label: '🔥 火力' },
+    { key: 'armor',     label: '🛡️ 防护' },
+    { key: 'mobility',  label: '⚡ 机动' },
+    { key: 'misc',      label: '⚙️ 杂项' }
   ];
 
-  // 添加分隔线标题
-  const calHeader = document.createElement('div');
-  calHeader.className = 'mrow';
-  calHeader.style.borderTop = '1px solid var(--line)';
-  calHeader.style.marginTop = '8px';
-  calHeader.style.paddingTop = '4px';
-  const calHeaderLbl = document.createElement('span');
-  calHeaderLbl.className = 'lbl';
-  calHeaderLbl.textContent = '📏 真实单位标定';
-  calHeaderLbl.style.color = 'var(--amber)';
-  calHeaderLbl.style.fontWeight = '700';
-  calHeader.appendChild(calHeaderLbl);
-  col.appendChild(calHeader);
+  for(const g of groups){
+    const gRows = FIELD_ROWS.filter(r => r.group === g.key);
+    if(!gRows.length) continue;
 
-  for(const [label, value] of calRows){
-    const row = document.createElement('div');
-    row.className = 'mrow';
-    const lbl = document.createElement('span');
-    lbl.className = 'lbl';
-    lbl.textContent = label;
-    const ro = document.createElement('span');
-    ro.className = 'ro';
-    ro.textContent = value;
-    ro.style.color = 'var(--green)';
-    ro.style.fontFamily = 'JetBrains Mono, monospace';
-    row.appendChild(lbl);
-    row.appendChild(ro);
-    col.appendChild(row);
+    const gHeader = document.createElement('div');
+    gHeader.className = 'mrow';
+    gHeader.style.borderTop = '1px solid var(--line)';
+    gHeader.style.marginTop = '8px';
+    gHeader.style.paddingTop = '4px';
+    const gLbl = document.createElement('span');
+    gLbl.className = 'lbl';
+    gLbl.textContent = g.label;
+    gLbl.style.color = 'var(--amber)';
+    gLbl.style.fontWeight = '700';
+    gHeader.appendChild(gLbl);
+    col.appendChild(gHeader);
+
+    for(const f of gRows){
+      col.appendChild(renderRowField(spec, f, calStats));
+      if(f.path === 'aimSpeed') col.appendChild(buildPrecisionRows(spec));
+    }
+
+    // P-48：只读派生（功重比 + 派生重量）内嵌于机动分组尾部
+    if(g.key === 'mobility'){
+      const dWeight = deriveWeight(spec);
+      const ePow = getPath(spec, 'enginePower');
+      const mobDerives = [
+        ['功重比', (typeof ePow === 'number' && ePow > 0 && dWeight > 0) ? (ePow / dWeight).toFixed(1) + ' hp/t' : '—'],
+        ['派生重量', dWeight > 0 ? dWeight.toFixed(1) + ' t' : '—']
+      ];
+      for(const [label, value] of mobDerives){
+        const row = document.createElement('div');
+        row.className = 'mrow';
+        const lbl = document.createElement('span');
+        lbl.className = 'lbl';
+        lbl.textContent = label;
+        const ro = document.createElement('span');
+        ro.className = 'ro';
+        ro.textContent = value;
+        ro.style.color = 'var(--green)';
+        row.appendChild(lbl);
+        row.appendChild(ro);
+        col.appendChild(row);
+      }
+    }
   }
 
+  // P-48：原“真实单位标定”整块取消（各字段直接输入真实单位）
   const geoInfos = [
     ['车体顶点', spec.hull && spec.hull.verts ? spec.hull.verts.length : 5],
     ['车体面数', spec.hull && spec.hull.faces ? spec.hull.faces.length : 5],

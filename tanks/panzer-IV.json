@@ -1,0 +1,85 @@
+{
+  "id": "panzer-IV",
+  "class": "medium",
+  "traverseLimit": 180,
+  "maxSpeed": 115,
+  "turnRate": 2.2,
+  "turretTurnRate": 2.2,
+  "weight": 25,
+  "enginePower": 300,
+  "hp": 90,
+  "penetration": 110,
+  "damage": 35,
+  "reload": 1.4,
+  "shellSpeed": 1100,
+  "heightClass": "medium",
+  "trackWidth": 8,
+  "trackOffset": -4,
+  "spreadMult": 1.0,
+  "aimSpeed": 1.8,
+  "texture": "armor_plate",
+  "barrel": {
+    "len": 105,
+    "width": 10,
+    "muzzle": "double",
+    "evac": {
+      "style": "none",
+      "pos": 0
+    },
+    "jacket": {
+      "len": 0,
+      "pos": 0
+    },
+    "mantlet": {
+      "style": "box",
+      "pos": 0,
+      "width": 30
+    }
+  },
+  "hull": {
+    "verts": [
+      [28.0, -14.0],
+      [-28.0, -14.0],
+      [-28.0, 14.0],
+      [28.0, 14.0]
+    ],
+    "faces": [
+      "side",
+      "rear",
+      "side",
+      "front"
+    ],
+    "armor": {
+      "front": 80,
+      "side": 30,
+      "rear": 20
+    }
+  },
+  "turret": {
+    "verts": [
+      [14.0, -12.0],
+      [-14.0, -12.0],
+      [-14.0, 12.0],
+      [14.0, 12.0]
+    ],
+    "faces": [
+      "side",
+      "rear",
+      "side",
+      "front"
+    ],
+    "armor": {
+      "front": 50,
+      "side": 30,
+      "rear": 20
+    },
+    "pivot": {
+      "dx": 0,
+      "dy": 0
+    },
+    "axis": {
+      "dx": 0,
+      "dy": 0
+    }
+  }
+}

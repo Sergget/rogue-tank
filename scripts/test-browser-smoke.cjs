@@ -335,7 +335,7 @@ function startServer(port) {
     // ---- P-15 正式游戏页：极简 HUD / 面板切换 / 弹种切换 / 飘字 ----
     const hud = await page.evaluate(() => ({
       reloadWrap: !!document.getElementById('reloadWrap'),
-      ammoIndicator: !!document.getElementById('ammoIndicator'),
+      bottomHud: !!document.getElementById('bottomHud'),
       hintBar: !!document.getElementById('hintBar'),
       solutionPanel: !!document.getElementById('solutionPanel'),
       playerTankSelect: !!document.getElementById('playerTankSelect'),
@@ -343,7 +343,7 @@ function startServer(port) {
       devDisplay: (document.getElementById('devPanel') || { style: {} }).style.display
     }));
     console.log('=== P-15 极简 HUD ===', JSON.stringify(hud));
-    check('游戏页保留极简 HUD（装填条/弹种/提示条）', hud.reloadWrap && hud.ammoIndicator && hud.hintBar, JSON.stringify(hud));
+    check('游戏页保留极简 HUD（装填条/底部HUD/提示条）', hud.reloadWrap && hud.bottomHud && hud.hintBar, JSON.stringify(hud));
     check('游戏页移除靶场元素（solutionPanel/坦克选择）', !hud.solutionPanel && !hud.playerTankSelect, JSON.stringify(hud));
     check('状态/开发者面板初始隐藏', hud.statusDisplay === 'none' && hud.devDisplay === 'none', JSON.stringify(hud));
 
@@ -366,13 +366,15 @@ function startServer(port) {
     // 战斗内弹种由 loadout 决定，断言全部按 player.ammoLoadout 内容动态推导。
     const readAmmoHud = () => page.evaluate(() => {
       const p = entities.find(e => e.id === 'player');
-      const cells = [...document.querySelectorAll('#ammoIndicator .ammo-cell')];
+      // 弹种面板 #ammoIndicator 已移除（弹种切换改由底部 HUD 按钮承担），
+      // 弹种切换验证改读玩家状态（currentAmmoIndex / ammoKey / ammoLoadout），不再依赖 DOM。
+      const loadout = p.ammoLoadout.slice();
       return {
-        count: cells.length,
-        labels: cells.map(c => c.querySelector('.label').textContent),
-        expectLabels: p.ammoLoadout.map(k => RULES.ammoTypes[k].label),
-        activeIdx: cells.findIndex(c => c.classList.contains('active')),
-        loadout: p.ammoLoadout.slice(),
+        count: loadout.length,
+        labels: loadout.map(k => RULES.ammoTypes[k].label),
+        expectLabels: loadout.map(k => RULES.ammoTypes[k].label),
+        activeIdx: p.currentAmmoIndex,
+        loadout: loadout,
         idx: p.currentAmmoIndex,
         ammoKey: p.ammoKey
       };

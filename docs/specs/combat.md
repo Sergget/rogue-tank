@@ -24,11 +24,17 @@
   - 发动机命中引发起火 DOT（dps=3.4，5s），并施加机动 debuff。
   - 履带命中 → trackBroken + immobT=8s 锁定。
   - 车长命中 → 全体乘员效果 ×0.85。
-  - **修理箱/医疗包可用性**（2026-08-26，原 ISSUES #A4 修复定案）：tryRepairKit/tryMedkit 已删除 immobT>0 的反向早退——履带断/重伤时不再静默拒绝，拦截统一移交共享层 tryActivateAbility 的 reason 提示。
+  - **修理箱/医疗包可用性与门控（2026-09-06，本次修复与能力门控落地）**：
+    - tryRepairKit/tryMedkit 的可用性：删除了 immobT > 0 时直接早退拒绝的逻辑，统一移交共享层 `_tryActivateInnate` 的 reason 提示。
+    - **未受损判定门控**：在 `js/tank_abilities.js` 的 `_tryActivateInnate` 中，为了防止在无受损或乘员健康时白白浪费使用，新增了前置损伤判定。
+      - `repair` 触发时，必须满足以下任一条件：`trackBroken === true` 或 `immobT > 0` 或 `debuffs.engine > 0` 或 `debuffs.breech > 0` 或 `(!ammoBlew && debuffs.ammo > 0)`。
+      - `medkit` 触发时，`debuffs` 中必须包含任一受伤乘员键且其值 >0（如 `driver`、`gunner`、`loader`、`commander` 等）。
+      - 若不满足前置条件，拒绝激活、不扣除使用次数、不进入冷却，并分别返回 `'no-damage'` / `'no-injury'`，页面 `kitFailLog` 拦截并显示友好提示。
 - **防崩落内衬 passive spall_liner 生效（2026-08-26，原 ISSUES #A15 修复定案）**：`tank_physics.js` 经 `passiveValues(target,'spall_liner')` 取多来源最小值 `spallMul`，在 `applyModuleDamage` 乘入最终模块/乘员伤害；多张卡取最强（最小乘子）语义。活浏览器实测 `giveCard('support_spall_liner')` 后敌方 PEN 伤害均值降至无内衬 0.7981 倍（预期 0.8），epic 卡 `spall_liner.json` 当前 value 0.85。
 - **散布下限防负值（2026-08-26，原 ISSUES #A2 修复定案）**：`RULES.spread.multFloor=0.2` 对 spreadMult 加法聚合结果钳下限 + `sigmaFloor` σ 地板；局内商店姿态稳定恢复 maxLevel 判定（applyRunShopPurchase），满级购买按钮禁用置灰。
 - **运动散布与精度基准解耦（2026-08-26，原 ISSUES #A1 修复定案）**：新增独立 stat `motionSpreadMul`（运动三源专用系数）——computeStats 默认继承出厂 `base.spreadMult`（保留设计器对底盘运动散布的标定）并钳 ≥ `spread.multFloor`；motionSigma 消费 `stats.motionSpreadMul ?? stats.spreadMult`（旧运行时快照无该键时回退，向后兼容）。运行期 spreadMult 修饰器（精密火控/卡牌）不再影响运动散布；局内商店姿态稳定改挂 `motionSpreadMul` mult ×0.85（maxLevel 1）。
 - **成员/模块受损状态条（2026-08-28，原 ISSUES #A5 修复定案）**：`tank_mvp.html` 顶部中央新增 `#moduleStatus` 状态条（`updateModuleStatus()` 每帧刷新，挂入 `updateHud()`）——读 `player.debuffs`（gunner/loader/driver/commander/engine/ammo/breech 各键，经 `MODULE_LABELS` 译中文标签 + 剩余秒数药丸）与 `player.trackBroken`/`immobT`（履带断裂），无受伤时整体隐藏。纯视觉 HUD，无共享模块/测试链改动；`npm run check` + `test:browser` 全绿（mvp 无 console/page 错误）。
+- **局内商店可升级次数由具体数值决定（2026-08-28 定案，取代写死 maxLevel）**：有自然数值边界的商品改为按 `RULES.parameterLimits` 动态判定达限，而非需求出生时写死整数上限（因局内卡牌经 addModifier 也会改 reload/spreadMult/motionSpreadMul/装甲值，会改变真实可升级空间）。`runShopLimitBlocked(def, curVal, stats)` 三分支：① `def.limit` 存在（fast_reload / engine_overdrive / precision_gunnery / steady_mount）走显式单键判定；② `def.limit` 缺失但多条 effects（多面打包装甲包 hull/turret × front/side/rear）逐面按点分路径 `parameterLimits.armor.*` 推导达限，**读 `stats` 对象各面真实现值**（非 UI 传入的单一 curVal），任一穿越边界即 true；③ 无边界/缺省容错返回 false（放行）。`motionSpreadMul` 边界本轮新增于 `parameterLimits`（min 0.5 / max 3.0，对齐 spreadMult）；商品 `maxLevel` 统一 99 作防御性兜底，`computeStats` 的 `multFloor` 物理钳底不动。测试：test-economy 新增装甲包逐面达限/precision_gunnery 数值驱动/steady_mount 边界对齐断言（164 条全绿）。
 
 ## 3. 弹种系统 (Ammo Types)
 唯一数据源：RULES.ammoTypes（js/tank_rules.js，机制参数唯一配置源）
@@ -95,6 +101,10 @@
   - 飘字显示 min(res.dmg, 击杀前剩余HP)，击杀伤害不再溢出虚高；
   - DOT tick 加存活检查，目标死亡即清 dot 字段（mvp + bench 双页一致），尸体不再持续跳字；
   - 颜色语义：普通伤害白(plain) / 成员与非弹药架模块黄(module) / 弹药架红(ammoRack)；pen 色保留为 legacy 别名。
+- **开火后坐与装填/底部 HUD（2026-08-28 落地）**：
+  - **开火后坐回弹**：`fireTank`/`fireSmokeShell` 成功开火分支写 `shooter.recoilT = 0.08`（被掩体阻挡分支不写）；主循环 player 与非玩家实体各自递减 `recoilT`（沿用 reloadT 递减模式）。`drawTank` 炮管段按 `sin(π·recoilT/0.08)` 生成出击-回弹位移，仅把视觉炮管 baseX/baseY 沿炮管反向平移（炮盾/护套/制退器随 baseX/baseY 自然跟随），**不改 gunRoot()/gunTip() 判定坐标**；位移量随口径 `barrelWid/18` 轻微缩放。
+  - **装填进度环形化**：废除原屏幕底部横向装填条（`#reloadWrap` 的 `#reloadTrack/#reloadFill`），改为 `drawReloadRing(ctx)` 贴炮口 `gunTip(player)` 世界坐标的环形弧（世界坐标经 `worldToScreen`，半径固定 13px），从 -90° 顺时针扫 360°×进度，**满值(≥1)即消失**（仅战斗态、装填中、玩家存活时绘制），挂入战斗绘制循环（drawDrones 后、烟幕云前）。
+  - **底部常显 HUD**：新增 `#bottomHud`（战斗态门控 `flow.state==='battle'`）——常显玩家血条 `#playerHpTrack/Fill/Val`（同 updateStatusPanel 口径）+ 能力按钮行 `#abilityBtns`：↻弹种循环(cycleAmmo)/F 烟幕(tryFireSmoke)/G 炮击/H 护盾全向/V 超装填/4 修理箱/5 医疗包，`updateBottomHud()`（挂入 updateHud）刷新冷却角标——G/H/V 读共享 `abilityCdT`、4/5 读独立 `abilityCds.repair/medkit`，冷却中置灰+角标秒数。纯 UI 薄包装接线，能力逻辑仍走既有 tryActivateAbility/tryRepairKit/tryMedkit。
 ## 7. 音频与声效表现规范 (Audio Visual Standards)
 
 - **声音总线与并发管理 (Busses & Concurrency)**：

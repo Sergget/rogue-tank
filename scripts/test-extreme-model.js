@@ -26,6 +26,7 @@ global.moduleMult = MD.moduleMult; global.debuffSpread = MD.debuffSpread;
 global.debuffReloadRate = MD.debuffReloadRate; global.debuffTurnRate = MD.debuffTurnRate;
 global.debuffSpeedRate = MD.debuffSpeedRate; global.tankKmh = MD.tankKmh;
 global.SPREAD = MD.SPREAD;
+global.deriveCoupledStats = MD.deriveCoupledStats;
 
 const DB = RULES.modules;   // 模块倍率 / 时长
 const SP = SPREAD;          // 散布参数（== RULES.spread）
@@ -253,6 +254,26 @@ function ok(cond, label){
     'player ammoMult=1e6 -> 巨大但有限');
   ok(moduleMult(eBig, 'ammo') === DB.ammo.enemy, 'enemy 忽略 stats -> 恒为 RULES 固定倍率');
   ok(moduleMult(pBig, 'gunner') === DB.crew.player, 'player crew -> stats.crewMult 默认 ×1.2');
+
+  // P-49 deriveCoupledStats 耦合推导断言
+  if(typeof deriveCoupledStats === 'function'){
+    const cDefault = deriveCoupledStats({});
+    ok(cDefault.reloadMultiplier === 1.0, '基准穿深/伤害 -> 装填倍率=1.0');
+    ok(cDefault.spreadMultiplier === 1.0, '基准穿深/伤害 -> 散布倍率=1.0');
+    ok(cDefault.maxAllowedEnginePower >= 300, '车体面积推导马力在合法范围');
+    ok(cDefault.hullArea === 2500, '默认车体面积为 refHullArea (2500)');
+    ok(cDefault.moduleSizeFactor === 1.0, '默认车体模块易损因子为 1.0');
+
+    const cLarge = deriveCoupledStats({ hull: { verts: [[-50,-30],[50,-30],[50,30],[-50,30]] } }); // 100 * 60 = 6000 px^2
+    ok(cLarge.moduleSizeFactor <= 0.75, '大车体模块易损因子降低（<=0.75）');
+
+    const cSmall = deriveCoupledStats({ hull: { verts: [[-20,-15],[20,-15],[20,15],[-20,15]] } }); // 40 * 30 = 1200 px^2
+    ok(cSmall.moduleSizeFactor >= 1.25, '小车体模块易损因子升高（>=1.25）');
+
+    const cHigh = deriveCoupledStats({ penetration: 160, damage: 60 });
+    ok(cHigh.reloadMultiplier > 1.0, '更高穿深与伤害 -> 装填时间惩罚系数上升');
+    ok(cHigh.spreadMultiplier > 1.0, '更高穿深与伤害 -> 散布惩罚系数上升');
+  }
 }
 
 console.log(fails ? `\n${fails} failure(s).` : '\nAll extreme model checks passed.');

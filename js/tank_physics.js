@@ -192,7 +192,7 @@ function resolveHit(shell, target, hit, allowBounce, opts){
 // opts（可选）：{ dmgMul } — 最终伤害乘算（P-51 弱点命中；#A15 起固定传入 dmgMul×spallMul，
 // 含内衬整车减伤）；不传时 ×1（行为不变）。
 function applyModuleDamage(shell, target, hit, opts){
-  const mod = moduleFromHit(target, hit);
+  const mod = moduleFromHit(target, hit, shell ? shell.shooter : null);
   const modKey = (mod && mod.key) || null;
   const DB = RULES.modules;
   const invuln = !!(target.invuln) || (target.invulnT > 0);
