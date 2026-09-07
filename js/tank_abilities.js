@@ -49,7 +49,7 @@ let _refreshStats = (typeof refreshStats === 'function') ? refreshStats : null;
 const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield'];
 
 // innate 内置能力键：开局自带、绕过卡牌持有检查（独立冷却池 t.abilityCds）
-const ABILITY_KEYS_INNATE = ['repair', 'medkit'];
+const ABILITY_KEYS_INNATE = ['repair', 'medkit', 'extinguish'];
 
 // innate 有效冷却（秒）：mvp/node-map 把商店减免注入 t.abilityBaseCd[key]；未注入回退 45
 const INNATE_BASE_CD_FALLBACK = 45;
@@ -134,6 +134,14 @@ function _tryActivateInnate(t, key) {
     const anyInjured = MEDKIT_CREW_KEYS.some(function (k) { return (d[k] || 0) > 0; });
     if (!anyInjured) return { ok: false, reason: 'no-injury' };
     MEDKIT_CREW_KEYS.forEach(function (k) { delete d[k]; });
+    if (_refreshStats) _refreshStats(t);
+    t.abilityCds[key] = innateBaseCd(t, key);
+    return { ok: true, key: key };
+  }
+  if (key === 'extinguish') {
+    // 前置判定：车体未起火则拒绝激活，不消耗不进入冷却
+    if (!t.fireDebuffT || t.fireDebuffT <= 0) return { ok: false, reason: 'no-fire' };
+    t.fireDebuffT = 0;
     if (_refreshStats) _refreshStats(t);
     t.abilityCds[key] = innateBaseCd(t, key);
     return { ok: true, key: key };

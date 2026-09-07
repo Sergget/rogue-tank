@@ -279,7 +279,7 @@
       <button class="abtn ammo-slot" id="slot3" onclick="selectAmmoSlot(2)" title="3号备用弹 (3)"><span class="label">--</span><span class="num">3</span></button>
       <button class="abtn" id="btn4" onclick="tryRepairKit()" title="修理箱 (4)">修<span class="cd" id="cd4"></span><span class="num">4</span></button>
       <button class="abtn" id="btn5" onclick="tryMedkit()" title="医疗包 (5)">医<span class="cd" id="cd5"></span><span class="num">5</span></button>
-      <button class="abtn" id="btn6" onclick="tryFireSmoke(fireCtx)" title="烟幕弹/应急灭火 (6)">烟<span class="num">6</span></button>
+      <button class="abtn" id="btn6" onclick="tryExtinguish()" title="自动灭火器 (6)">灭<span class="cd" id="cd6"></span><span class="num">6</span></button>
       <button class="abtn skill-btn" id="btnF" onclick="tryFireSmoke(fireCtx)" title="烟幕弹 (F)" style="display:none;">F</button>
       <button class="abtn skill-btn" id="btnG" onclick="tryStrike()" title="炮击 (G)" style="display:none;">G<span class="cd" id="cdG"></span></button>
       <button class="abtn skill-btn" id="btnH" onclick="tryShield(true)" title="护盾 (H)" style="display:none;">H<span class="cd" id="cdH"></span></button>
@@ -1492,8 +1492,9 @@ function startNewRun(){
   pendingLootRounds = 0; pendingLootRarityIdx = -1;   // P-51 Wave2：跨局清 Boss 追加卡牌轮
   resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
   profile.stats.runs++;                         // P-14：局数统计
+  profile.difficultyLevel = 0;                  // 难度重置（新开局强制 Lv.0）
   saveProfile(localStorage, profile);
-  pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.${profile.difficultyLevel || 0}）`, 'COVER');
+  pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.0）`, 'COVER');
   playSound('ui');
   transition(flow, 'battle', { nodeIndex: 0 });
 }
@@ -1516,13 +1517,15 @@ document.getElementById('settleHomeBtn').addEventListener('click', () => {
 document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   playSound('ui');
   restartRun(flow);                              // gameover → map（runId 自增）
-  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });  // 新的一局（#24 视口缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
+  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });  // 新的一局：难度强制重置 Lv.0
   runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
   resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
   removeRunModifiers(player);                   // P-12：清除上一局单局修饰器
   prepPlayerForRun();                            // M10：坦克配置 + 升级重挂 + 复活次数（含加购）
   // P-46：出击时刻冻结玩家基准属性快照
   playerAnchorStats = JSON.parse(JSON.stringify(player.stats));
+  profile.difficultyLevel = 0;                  // 难度重置
+  saveProfile(localStorage, profile);
   transition(flow, 'battle', { nodeIndex: 0 });
 });
 document.getElementById('gameoverHomeBtn').addEventListener('click', () => {
@@ -1863,13 +1866,14 @@ function beginRunFromMenu(){
   // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
   // P-46：出击时刻冻结玩家基准属性快照（深拷贝，单局内不变）
   playerAnchorStats = JSON.parse(JSON.stringify(player.stats));
-  // P-34：env.difficultyLevel 注入跨局难度等级（settleRun 每终局 +1）
-  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });   // __TEST__.setSeed 一次性透传
+  // P-34：env.difficultyLevel 注入跨局难度等级（新开局强制重置 Lv.0）
+  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });   // __TEST__.setSeed 一次性透传
   runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
   resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
   profile.stats.runs++;                              // P-14：局数统计
+  profile.difficultyLevel = 0;                  // 难度重置
   saveActiveProfile(localStorage, profile);          // 配置与统计落盘（active 槽）
-  pushLog(`出击！配置已保存 — ${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.${profile.difficultyLevel || 0}）`, 'COVER');
+  pushLog(`出击！配置已保存 — ${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.0）`, 'COVER');
   playSound('ui');
   transition(flow, 'map');                           // loadout/shop → map（watcher 渲染节点链，点击节点进 battle）
   return true;
@@ -2035,6 +2039,7 @@ function kitFailLog(verb, res){
   else if(res.reason === 'cooldown') pushLog(`${verb}冷却中（剩余 ${res.cd.toFixed(1)}s）`, 'COVER');
   else if(res.reason === 'no-damage') pushLog('暂无受损模块，无需使用修理箱', 'COVER');
   else if(res.reason === 'no-injury') pushLog('乘员均健康，无需使用医疗包', 'COVER');
+  else if(res.reason === 'no-fire') pushLog('车体未起火，无需使用灭火器', 'COVER');
   else pushLog(`${verb}不可用（${res.reason}）`, 'COVER');
 }
 function tryRepairKit(){
@@ -2051,6 +2056,13 @@ function tryMedkit(){
   const res = tryActivateAbility(player, 'medkit');
   if(res.ok){ playSound('ui'); pushLog('医疗包使用 — 全体乘员救治', 'PEN'); }
   else kitFailLog('医疗包', res);
+}
+function tryExtinguish(){
+  // 自动灭火器：开局自带（与修理箱/医疗包同 innate 池），扑灭车体起火
+  if(!player || player.hp <= 0) return;
+  const res = tryActivateAbility(player, 'extinguish');
+  if(res.ok){ playSound('ui'); pushLog('灭火器启动 — 车体起火已扑灭', 'PEN'); }
+  else kitFailLog('灭火器', res);
 }
 
 // [P-28] updateSolution/computeSolution 已收敛到 js/tank_fire.js
@@ -2240,6 +2252,7 @@ function update(dt){
     if(keys['v']) tryOverdrive();   // P-17：V 键超级装填（爆发装填）
     if(keys['4']) tryRepairKit();   // #90：4 键修理箱（开局自带）
     if(keys['5']) tryMedkit();      // #90：5 键医疗包（开局自带）
+    if(keys['6']) tryExtinguish();  // 自动灭火器（开局自带）
   }
 
   // keep every tank from overlapping its neighbours
@@ -2513,7 +2526,8 @@ function update(dt){
     }
   }
 
-  applyDevOverrides();   // P-15：数值临时覆盖（refreshStats 可能被修饰器编辑触发，每帧重写）
+  refreshStats(player);    // 清理过期的限时修饰器（如 overdrive 装填加速等）
+  applyDevOverrides();     // P-15：数值临时覆盖（每帧重写 devOverrides 到 player.stats）
   updateHud();
 }
 
@@ -2604,6 +2618,8 @@ function updateBottomHud(){
   cd('cd4', repairCd > 0 ? repairCd.toFixed(0) : '', repairCd > 0);
   const medkitCd = (player.abilityCds && player.abilityCds.medkit) || 0;
   cd('cd5', medkitCd > 0 ? medkitCd.toFixed(0) : '', medkitCd > 0);
+  const extCd = (player.abilityCds && player.abilityCds.extinguish) || 0;
+  cd('cd6', extCd > 0 ? extCd.toFixed(0) : '', extCd > 0);
 
   // F/G/H/V 战术技能条件展示（仅当玩家持有对应能力卡牌/属性时显示）
   const btnF = document.getElementById('btnF');
@@ -2626,15 +2642,21 @@ function updateBottomHud(){
 }
 
 // ---------- draw ----------
-// 炮口环形装填进度：贴 gunTip 的世界坐标圆环，从 -90° 顺时针扫弧，满值(>=1)即消失。
+// 炮口环形装填进度：贴 gunTip 偏移位置的世界坐标圆环，从 -90° 顺时针扫弧，满值(>=1)即消失。
 // 仅战斗态 + 装填中 + 玩家存活时绘制；半径固定（与视口缩放无关）。
+// 偏移量：垂直于炮塔方向向外（避免重叠炮管贴图）。
 function drawReloadRing(ctx){
   if(!(flow.state === 'battle' && player.hp > 0)) return;
   if(!(player.reloadT > 0 && player.stats.reload > 0)) return;
   const dur = player.stats.reload / debuffReloadRate(player);
   if(!(dur > 0)) return;
   const tip = gunTip(player);
-  const wp = worldToScreen(cam, tip.x, tip.y);
+  // 偏移：垂直于炮塔方向（向左/向右均可，这里取向左 +90°），距离约 20px
+  const OFFSET_DIST = 20;
+  const perpAngle = player.turretAngle - Math.PI / 2;
+  const offsetX = Math.cos(perpAngle) * OFFSET_DIST;
+  const offsetY = Math.sin(perpAngle) * OFFSET_DIST;
+  const wp = worldToScreen(cam, tip.x + offsetX, tip.y + offsetY);
   const R = 13;
   const p = Math.max(0, Math.min(1, 1 - player.reloadT / dur));
   if(p >= 1) return;

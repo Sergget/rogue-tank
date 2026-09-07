@@ -375,22 +375,30 @@ const RUN_SHOP_DEFS = [
     effects: [{ stat: 'motionSpreadMul', mode: 'mult', value: 0.85 }],
     limit: { stat: 'motionSpreadMul', min: 0.5 }, limitLabel: '已达运动三扩下限' },
   // ---- 防护：六面拆卖合并为两个打包商品（#A1，2026-08-26；原 *_patch id 移除不复用防存档 levels 脏数据）----
-  { id: 'hull_armor_kit',    name: '车体装甲包', group: 'armor', desc: '车体正面/侧面/后部装甲各 +2mm/级',
-    baseCost: 60, costGrowth: 1.6, maxLevel: 99,
+  { id: 'hull_armor_kit',    name: '车体装甲包', group: 'armor', desc: '车体正面/侧面/后部装甲各 +2mm/级（重量 +0.3t/级）',
+    baseCost: 60, costGrowth: 1.55, maxLevel: 99,
     // #A4：多面打包商品不手写 limit——runShopLimitBlocked 在 def.limit 缺失时逐条 effect 按
     // RULES.parameterLimits 点分路径（armor.hull.front 等）逐面推导达限；maxLevel:99 仅作防御性兜底，
     // 真正上限由逐面 max（如 hull.front max=150mm，从 110 起 +2mm/级约 20 级）动态决定。
     effects: [
       { stat: 'armor.hull.front', mode: 'add', value: 2 },
       { stat: 'armor.hull.side',  mode: 'add', value: 2 },
-      { stat: 'armor.hull.rear',  mode: 'add', value: 2 }
+      { stat: 'armor.hull.rear',  mode: 'add', value: 2 },
+      { stat: 'weight', mode: 'add', value: 0.3 }  // 重量惩罚
     ] },
-  { id: 'turret_armor_kit',  name: '炮塔装甲包', group: 'armor', desc: '炮塔正面/侧面/后部装甲各 +2mm/级',
-    baseCost: 60, costGrowth: 1.6, maxLevel: 99,
+  { id: 'turret_armor_kit',  name: '炮塔装甲包', group: 'armor', desc: '炮塔正面/侧面/后部装甲各 +2mm/级（重量 +0.2t/级）',
+    baseCost: 60, costGrowth: 1.55, maxLevel: 99,
     effects: [
       { stat: 'armor.turret.front', mode: 'add', value: 2 },
       { stat: 'armor.turret.side',  mode: 'add', value: 2 },
-      { stat: 'armor.turret.rear',  mode: 'add', value: 2 }
+      { stat: 'armor.turret.rear',  mode: 'add', value: 2 },
+      { stat: 'weight', mode: 'add', value: 0.2 }  // 重量惩罚
+    ] },
+  { id: 'hp_up',             name: '加装装甲/内部模组', group: 'armor', desc: '最大耐久 +15/级（重量 +0.5t/级，无上限）',
+    baseCost: 40, costGrowth: 1.5, maxLevel: 99,
+    effects: [
+      { stat: 'maxHp', mode: 'add', value: 15 },
+      { stat: 'weight', mode: 'add', value: 0.5 }  // 重量惩罚
     ] },
   // ---- 机动 ----
   { id: 'engine_overdrive',  name: '引擎超压',   group: 'mobility', desc: '极速 +1.2km/h/级（上限 150km/h）',

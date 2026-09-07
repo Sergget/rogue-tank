@@ -592,8 +592,8 @@ const RULES = {
   // 设计器保存校验消费方应把输入钳到 [min,max] 区间。
   parameterLimits: {
     maxHp:            { min: 50,  max: 160 },  // 存量 hp 包络 80~120（±30% → 56~156，取整）
-    penetration:      { min: 80,  max: 210 },  // 穿深包络 120~160mm（±30% → 84~208）
-    damage:           { min: 25,  max: 65 },   // 单发伤害包络 35~50（±30% → 24.5~65）
+    penetration:      { min: 80,  max: 9999 }, // 穿深无上限（用户需求：火力/穿深/装甲不设上限）
+    damage:           { min: 25,  max: 9999 }, // 单发伤害无上限（用户需求：火力/穿深/装甲不设上限）
     reload:           { min: 0.5, max: 3.0 },  // 装填秒数：下限 0.5s 用户既定需求；上限包络 2.0×1.3≈2.6 → 圆整 3.0
     shellSpeed:       { min: 600, max: 2100 }, // 弹速 px/s 包络 1000~1600（±30% → 700~2080）
     maxSpeed:         { min: 60,  max: 375 },  // px/s；max=150km/h÷kmhFactor0.4=375（用户裁定 ≤150km/h）；min 对应 24km/h
@@ -603,16 +603,16 @@ const RULES = {
     spreadMult:       { min: 0.5, max: 3.0 },  // 三扩系数包络 0.8~2.0（±30% → 0.56~2.6）；min 与 RULES.spread.multFloor 同级防穿零
     motionSpreadMul:  { min: 0.5, max: 3.0 },  // 对齐 spreadMult 边界（用户 2026 决定：姿态稳定 steady_mount 的达限判定与三扩系数同级）
     weight:           { min: 10,  max: 80 },   // 吨：max=80t 为【设计上限】，仅设计器出厂校验（卡牌/局内升级可突破）；下限给超轻底盘留余地
-    armor: {                                   // 各面装甲厚度 mm：逐面取包络 ±30%
+    armor: {                                   // 各面装甲厚度 mm：无上限（用户需求：装甲不设上限）
       hull: {
-        front: { min: 40, max: 150 },          // 包络 60~110（±30% → 42~143）
-        side:  { min: 25, max: 105 },          // 包络 38~80（±30% → 26.6~104）
-        rear:  { min: 15, max: 75 }            // 包络 26~54（±30% → 18.2~70.2）
+        front: { min: 40, max: 9999 },
+        side:  { min: 25, max: 9999 },
+        rear:  { min: 15, max: 9999 }
       },
       turret: {
-        front: { min: 55, max: 210 },          // 包络 80~160（±30% → 56~208）
-        side:  { min: 35, max: 105 },          // 包络 50~80（±30% → 35~104）
-        rear:  { min: 15, max: 80 }            // 包络 24~60（±30% → 16.8~78）
+        front: { min: 55, max: 9999 },
+        side:  { min: 35, max: 9999 },
+        rear:  { min: 15, max: 9999 }
       }
     },
     geometry: {                                // 外形尺寸 px（由 verts 包围盒导出，包络 ±30% 取整）
