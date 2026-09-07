@@ -52,6 +52,21 @@ function driveTank(t, dt, input){
   }
   t.x += Math.cos(t.hullAngle)*t.speed*dt;
   t.y += Math.sin(t.hullAngle)*t.speed*dt;
+
+  // 地图边界约束（问题7）：限制坦克在合法作战区域内，防穿出世界或小地图外
+  const nodeW = (input && input.worldBounds && input.worldBounds.maxX) || (typeof globalThis !== 'undefined' && globalThis.currentNode && globalThis.currentNode.w);
+  const nodeH = (input && input.worldBounds && input.worldBounds.maxY) || (typeof globalThis !== 'undefined' && globalThis.currentNode && globalThis.currentNode.h);
+  if(input && input.worldBounds){
+    const wb = input.worldBounds;
+    const margin = Math.max(t.hullLen || 32, t.hullWid || 32) * 0.6;
+    if(wb.minX !== undefined) t.x = Math.max(wb.minX + margin, Math.min(wb.maxX - margin, t.x));
+    if(wb.minY !== undefined) t.y = Math.max(wb.minY + margin, Math.min(wb.maxY - margin, t.y));
+  } else if(nodeW && nodeH){
+    const margin = Math.max(t.hullLen || 32, t.hullWid || 32) * 0.6;
+    t.x = Math.max(margin, Math.min(nodeW - margin, t.x));
+    t.y = Math.max(margin, Math.min(nodeH - margin, t.y));
+  }
+
   // 掩体/元素碰撞：solid 推出（不可压）、crushable 压毁、graduated/none 仅通行系数
   resolveCoverCollisions(t);
   // 履带相位：由真实位移（平移 + 车体转向角差）累积（ISSUES #14：传完整参数，勿用 Math.hypot 简写）

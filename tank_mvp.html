@@ -63,7 +63,12 @@
   #abilityBtns .abtn .cd{position:absolute; top:-8px; right:-8px;
     background:#0c0d09; border:1px solid var(--amber); color:var(--amber);
     font-size:9px; padding:0 3px; border-radius:3px; line-height:1.2;}
-  #abilityBtns .abtn.gray .cd{border-color:var(--line); color:var(--text-dim);}
+  #abilityBtns .abtn .num{position:absolute; bottom:1px; right:2px;
+    font-size:8px; color:var(--text-dim); opacity:0.8; line-height:1;}
+  #abilityBtns .abtn.active{border-color:var(--green); color:var(--green); background:rgba(126,217,87,0.12);}
+  #abilityBtns .abtn.ammo-slot .label{font-weight:700;}
+  #abilityBtns .abtn.skill-btn{border-color:#5cc8ff; color:#5cc8ff;}
+  #abilityBtns .abtn.skill-btn:hover{background:rgba(92,200,255,0.15);}
   #ammoIndicator .mult{color:var(--text-dim); font-weight:400; font-size:9px;}
   #hintBar{position:absolute; left:12px; bottom:10px; pointer-events:none; display:none;
     font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-dim); opacity:.75; letter-spacing:1px;}
@@ -269,13 +274,16 @@
       <span id="playerHpVal">--</span>
     </div>
     <div id="abilityBtns">
-      <button class="abtn" onclick="cycleAmmo(1)" title="切换弹种 (Q)">↻</button>
-      <button class="abtn" onclick="tryFireSmoke(fireCtx)" title="烟幕弹 (F)">F</button>
-      <button class="abtn" id="btnG" onclick="tryStrike()" title="炮击 (G)">G<span class="cd" id="cdG"></span></button>
-      <button class="abtn" id="btnH" onclick="tryShield(true)" title="护盾 (H, 全向)">H<span class="cd" id="cdH"></span></button>
-      <button class="abtn" id="btnV" onclick="tryOverdrive()" title="超装填 (V)">V<span class="cd" id="cdV"></span></button>
-      <button class="abtn" id="btn4" onclick="tryRepairKit()" title="修理箱 (4)">4<span class="cd" id="cd4"></span></button>
-      <button class="abtn" id="btn5" onclick="tryMedkit()" title="医疗包 (5)">5<span class="cd" id="cd5"></span></button>
+      <button class="abtn ammo-slot" id="slot1" onclick="selectAmmoSlot(0)" title="1号主弹药 (1)"><span class="label">AP</span><span class="num">1</span></button>
+      <button class="abtn ammo-slot" id="slot2" onclick="selectAmmoSlot(1)" title="2号副弹药 (2)"><span class="label">--</span><span class="num">2</span></button>
+      <button class="abtn ammo-slot" id="slot3" onclick="selectAmmoSlot(2)" title="3号备用弹 (3)"><span class="label">--</span><span class="num">3</span></button>
+      <button class="abtn" id="btn4" onclick="tryRepairKit()" title="修理箱 (4)">修<span class="cd" id="cd4"></span><span class="num">4</span></button>
+      <button class="abtn" id="btn5" onclick="tryMedkit()" title="医疗包 (5)">医<span class="cd" id="cd5"></span><span class="num">5</span></button>
+      <button class="abtn" id="btn6" onclick="tryFireSmoke(fireCtx)" title="烟幕弹/应急灭火 (6)">烟<span class="num">6</span></button>
+      <button class="abtn skill-btn" id="btnF" onclick="tryFireSmoke(fireCtx)" title="烟幕弹 (F)" style="display:none;">F</button>
+      <button class="abtn skill-btn" id="btnG" onclick="tryStrike()" title="炮击 (G)" style="display:none;">G<span class="cd" id="cdG"></span></button>
+      <button class="abtn skill-btn" id="btnH" onclick="tryShield(true)" title="护盾 (H)" style="display:none;">H<span class="cd" id="cdH"></span></button>
+      <button class="abtn skill-btn" id="btnV" onclick="tryOverdrive()" title="超装填 (V)" style="display:none;">V<span class="cd" id="cdV"></span></button>
     </div>
   </div>
   <div id="topLeftInfo">ESC 暂停 · TAB 状态 · ` 开发者面板</div>
@@ -2095,17 +2103,22 @@ let fpsLast = last;
 let fpsFrames = 0;
 
 function update(dt){
+  // 节点通关 3 秒缓冲期间冻结全场坦克逻辑，仅推进粒子/炮弹特效与倒计时
+  const isClearing = !!(battleState && battleState.clearing);
+
   // P-08：当前模拟世界尺寸（run 模式 = 节点大世界；未开局 = 画布）
   const worldW = (run && currentNode) ? currentNode.w : canvas.width;
   const worldH = (run && currentNode) ? currentNode.h : canvas.height;
 
-  // 驾驶（转向/加减速/掩体通行/碰撞/履带相位）统一在 js/tank_move.js 的 driveTank
-  driveTank(player, dt, {
-    turn: keys['a'] ? -1 : (keys['d'] ? 1 : 0),
-    move: keys['w'] ? 1 : (keys['s'] ? -1 : 0),
-    // P-35：倒车转向倒置（玩家持久化设置；AI 不传 → 默认关闭零影响）
-    invertTurnWhenReversing: !!(profile.settings && profile.settings.invertReverseTurn)
-  });
+  if(!isClearing){
+    // 驾驶（转向/加减速/掩体通行/碰撞/履带相位）统一在 js/tank_move.js 的 driveTank
+    driveTank(player, dt, {
+      turn: keys['a'] ? -1 : (keys['d'] ? 1 : 0),
+      move: keys['w'] ? 1 : (keys['s'] ? -1 : 0),
+      // P-35：倒车转向倒置（玩家持久化设置；AI 不传 → 默认关闭零影响）
+      invertTurnWhenReversing: !!(profile.settings && profile.settings.invertReverseTurn)
+    });
+  }
   if(player.immobT<=0){ player.immobT=0; player.trackBroken=false; }
   player.x = Math.max(40, Math.min(worldW-40, player.x));
   player.y = Math.max(40, Math.min(worldH-40, player.y));
@@ -2218,14 +2231,16 @@ function update(dt){
   };
 
   // #A7：按住左键持续开火（reloadT 门控在 fireTank 内保证射速间隔）
-  if(mouseFireHeld && flow.state === 'battle' && !statusOpen && !devOpen) tryFire(fireCtx);
-  if(keys[' ']) tryFire(fireCtx);
-  if(keys['f']) tryFireSmoke(fireCtx);   // P-17：F 键发射烟幕弹（玩家专属）
-  if(keys['g']) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
-  if(keys['h']) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
-  if(keys['v']) tryOverdrive();   // P-17：V 键超级装填（爆发装填）
-  if(keys['4']) tryRepairKit();   // #90：4 键修理箱（开局自带）
-  if(keys['5']) tryMedkit();      // #90：5 键医疗包（开局自带）
+  if(!isClearing){
+    if(mouseFireHeld && flow.state === 'battle' && !statusOpen && !devOpen) tryFire(fireCtx);
+    if(keys[' ']) tryFire(fireCtx);
+    if(keys['f']) tryFireSmoke(fireCtx);   // P-17：F 键发射烟幕弹（玩家专属）
+    if(keys['g']) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
+    if(keys['h']) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
+    if(keys['v']) tryOverdrive();   // P-17：V 键超级装填（爆发装填）
+    if(keys['4']) tryRepairKit();   // #90：4 键修理箱（开局自带）
+    if(keys['5']) tryMedkit();      // #90：5 键医疗包（开局自带）
+  }
 
   // keep every tank from overlapping its neighbours
   resolveTankCollisions();
@@ -2233,7 +2248,7 @@ function update(dt){
   // AI 触发重设计：激活判定 = 距离 + 可见性（与摄像机视野彻底解耦），
   // 有效触发距离在实体化时按难度挂 t.aiTriggerDist；友军消极防御不受影响。
   // 玩家保持手动控制；nodeSpawn/Boss/召唤物走 aiDecide 决策。
-  if(run && battleState && flow.state === 'battle'){
+  if(!isClearing && run && battleState && flow.state === 'battle'){
     const aiCtx = {
       player,
       enemies: entities.filter(e => e.team === 'enemy' && e.hp > 0),
@@ -2480,7 +2495,21 @@ function update(dt){
       // Boss 节点无配额：沿用「Boss+summons 全灭」判定。
       const quotaDone = currentNode && !currentNode.boss &&
         Number.isFinite(currentNode.quota) && (battleState.nodeKills || 0) >= currentNode.quota;
-      if(quotaDone || livingNodeEnemies().length === 0) finishNode(true);
+      if(quotaDone || livingNodeEnemies().length === 0){
+        if(!battleState.clearing){
+          battleState.clearing = true;
+          battleState.clearingT = 3.0; // 3秒冻结缓冲
+          pushLog('★ 区域肃清 AREA CLEARED ★', 'COVER');
+        }
+      }
+    }
+  }
+
+  // 通关 3 秒缓冲倒计时推进
+  if(battleState && battleState.clearing && !battleState.cleared){
+    battleState.clearingT = Math.max(0, (battleState.clearingT || 0) - dt);
+    if(battleState.clearingT <= 0){
+      finishNode(true);
     }
   }
 
@@ -2526,8 +2555,16 @@ function updateHud(){
   updateBottomHud();
 }
 
+function selectAmmoSlot(idx){
+  if(!player || !player.ammoLoadout || !player.ammoLoadout.length) return;
+  if(idx < 0 || idx >= player.ammoLoadout.length) return;
+  player.currentAmmoIndex = idx;
+  player.ammoKey = player.ammoLoadout[idx];
+  playSound('ui');
+}
+
 function updateBottomHud(){
-  // 底部常显 HUD：血条 + 能力按钮冷却角标（仅战斗态显示，参照 #quotaHud 显隐先例）
+  // 底部常显 HUD：血条 + 1-6 快捷键槽 + F/G/H/V 战术能力（仅战斗态显示）
   const bh = document.getElementById('bottomHud');
   if(!bh) return;
   if(flow.state !== 'battle'){ bh.style.display = 'none'; return; }
@@ -2538,22 +2575,54 @@ function updateBottomHud(){
   if(hpFill) hpFill.style.width = Math.max(0, player.hp / Math.max(1, s.maxHp) * 100) + '%';
   const hpVal = document.getElementById('playerHpVal');
   if(hpVal) hpVal.textContent = `${Math.ceil(player.hp)} / ${Math.round(s.maxHp)}`;
-  // 冷却角标：G/H/V 共享 abilityCdT；4/5 独立 abilityCds.repair/medkit
+
+  // 1-3 弹种槽位更新
+  const loadout = (player.ammoLoadout && player.ammoLoadout.length) ? player.ammoLoadout : [player.ammoKey || 'ap'];
+  for(let i = 0; i < 3; i++){
+    const slotBtn = document.getElementById(`slot${i+1}`);
+    if(!slotBtn) continue;
+    if(i < loadout.length){
+      const ak = loadout[i];
+      const meta = (typeof RULES !== 'undefined' && RULES.ammoTypes && RULES.ammoTypes[ak]) || {};
+      const labelEl = slotBtn.querySelector('.label');
+      if(labelEl) labelEl.textContent = (meta.label || ak).toUpperCase();
+      slotBtn.style.display = '';
+      slotBtn.classList.toggle('active', player.currentAmmoIndex === i || player.ammoKey === ak);
+    } else {
+      slotBtn.style.display = 'none';
+    }
+  }
+
+  // 4-6 快捷能力冷却角标
   const cd = (id, txt, gray) => {
     const el = document.getElementById(id);
     if(!el) return;
     el.textContent = txt || '';
     el.parentElement.classList.toggle('gray', !!gray);
   };
+  const repairCd = (player.abilityCds && player.abilityCds.repair) || 0;
+  cd('cd4', repairCd > 0 ? repairCd.toFixed(0) : '', repairCd > 0);
+  const medkitCd = (player.abilityCds && player.abilityCds.medkit) || 0;
+  cd('cd5', medkitCd > 0 ? medkitCd.toFixed(0) : '', medkitCd > 0);
+
+  // F/G/H/V 战术技能条件展示（仅当玩家持有对应能力卡牌/属性时显示）
+  const btnF = document.getElementById('btnF');
+  if(btnF) btnF.style.display = hasAbility(player, 'smoke') ? '' : 'none';
+
+  const btnG = document.getElementById('btnG');
+  if(btnG) btnG.style.display = hasAbility(player, 'artillery') ? '' : 'none';
+
+  const btnH = document.getElementById('btnH');
+  if(btnH) btnH.style.display = hasAbility(player, 'shield') ? '' : 'none';
+
+  const btnV = document.getElementById('btnV');
+  if(btnV) btnV.style.display = hasAbility(player, 'overdrive') ? '' : 'none';
+
   const cdShared = (player.abilityCdT || 0) > 0;
   const cdSharedTxt = cdShared ? (player.abilityCdT || 0).toFixed(0) : '';
   cd('cdG', cdSharedTxt, cdShared);
   cd('cdH', cdSharedTxt, cdShared);
   cd('cdV', cdSharedTxt, cdShared);
-  const repairCd = (player.abilityCds && player.abilityCds.repair) || 0;
-  cd('cd4', repairCd > 0 ? repairCd.toFixed(0) : '', repairCd > 0);
-  const medkitCd = (player.abilityCds && player.abilityCds.medkit) || 0;
-  cd('cd5', medkitCd > 0 ? medkitCd.toFixed(0) : '', medkitCd > 0);
 }
 
 // ---------- draw ----------
@@ -2741,7 +2810,6 @@ function draw(){
   });
   drawFoliage(ctx, covers.filter(inView));   // 灌木/树冠层：盖住其下坦克 = 视线遮挡
   drawDrones();                              // P-17：无人机（飞行器视觉，坦克/树冠之上、烟幕之下）
-  drawReloadRing(ctx);                      // 炮口环形装填进度（贴 gunTip 的屏幕坐标）
 
   // P-17 烟幕云：半透明灰团（中心深、边缘淡），画在坦克/树冠之上 = 遮视线语义；
   // alpha 随 life/maxLife 淡出，仅画视口内（aabbInView 剔除）。
@@ -2871,6 +2939,32 @@ function draw(){
 
   // ---- P-17 侦察无人机指示箭头（屏幕空间覆盖层：视口外敌军方向 + 距离） ----
   drawDroneIndicators();
+
+  // 炮口环形装填进度（屏幕空间绘制，贴合玩家炮口屏幕坐标，防二次摄像机变换）
+  drawReloadRing(ctx);
+
+  // 节点通关 3 秒战术冻结横幅（屏幕空间中央渲染）
+  if(battleState && battleState.clearing && !battleState.cleared){
+    const cx = canvas.width / 2, cy = canvas.height / 2 - 40;
+    const tRemain = Math.max(0, battleState.clearingT || 0);
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(12, 14, 10, 0.85)';
+    ctx.strokeStyle = 'rgba(255, 180, 84, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.fillRect(cx - 180, cy - 35, 360, 70);
+    ctx.strokeRect(cx - 180, cy - 35, 360, 70);
+
+    ctx.font = 'bold 16px "JetBrains Mono", monospace';
+    ctx.fillStyle = '#ffb454';
+    ctx.fillText('★ 区域肃清 AREA CLEARED ★', cx, cy - 10);
+
+    ctx.font = '12px "JetBrains Mono", monospace';
+    ctx.fillStyle = '#cfe6cf';
+    ctx.fillText(`结算接入中... ${tRemain.toFixed(1)}s`, cx, cy + 16);
+    ctx.restore();
+  }
 
   // ---- P-08 小地图（屏幕空间覆盖层，右上角） ----
   if(run && currentNode){

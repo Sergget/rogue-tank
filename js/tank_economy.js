@@ -357,7 +357,7 @@ function settleRun(profile, finalScore){
 const RUN_SHOP_DEFS = [
   // ---- 火力 ----
   { id: 'fast_reload',       name: '快速装填',   group: 'firepower', desc: '装填时间 −3%/级（下限 0.5s）',
-    baseCost: 25, costGrowth: 1.6, maxLevel: 3,
+    baseCost: 25, costGrowth: 1.6, maxLevel: 99,
     effects: [{ stat: 'reload', mode: 'mult', value: 0.97 }],
     limit: { stat: 'reload', min: 0.5 }, limitLabel: '已达装填下限' },
   { id: 'penetration_up',    name: '穿深加工',   group: 'firepower', desc: '穿透 +6mm/级',
@@ -368,16 +368,10 @@ const RUN_SHOP_DEFS = [
     effects: [{ stat: 'damage', mode: 'add', value: 4 }] },
   { id: 'precision_gunnery', name: '精密火控',   group: 'firepower', desc: '瞄准散布 −4%/级',
     baseCost: 28, costGrowth: 1.6, maxLevel: 99,
-    // #A4：maxLevel:99 仅作「数值未达界的防御性兜底上限」——真正可升级次数由 limit 按具体数值决定
-    // （spreadMult ×0.96/级降到下限 0.5 约需 17 级，99 远超此数，故达限判定完全交由 limit 主导；
-    // 卡牌叠加把 spreadMult 压得更低时，可购级数随之动态缩小——即「由具体数值决定」而非开局写死）。
     effects: [{ stat: 'spreadMult', mode: 'mult', value: 0.96 }],
     limit: { stat: 'spreadMult', min: 0.5 }, limitLabel: '已达三扩下限' },
-  { id: 'steady_mount',      name: '姿态稳定',   group: 'firepower', desc: '运动散布系数 ×0.85（移动/转向扩圈减轻；不影响瞄准散布）',
-    baseCost: 35, costGrowth: 1.0, maxLevel: 1,
-    // #A1/#A3：改挂独立运动三扩键 motionSpreadMul（mult 语义：按比例缩放、与 precision_gunnery
-    // 的 spreadMult 通道彻底解耦；computeStats 对聚合结果钳 ≥ RULES.spread.multFloor 防穿零）
-    // maxLevel:1 语义保留（单次强效卡，本就只应买一次，不因数值驱动而允许重复购买）
+  { id: 'steady_mount',      name: '姿态稳定',   group: 'firepower', desc: '运动散布系数 −15%/级（移动/转向扩圈减轻）',
+    baseCost: 35, costGrowth: 1.5, maxLevel: 99,
     effects: [{ stat: 'motionSpreadMul', mode: 'mult', value: 0.85 }],
     limit: { stat: 'motionSpreadMul', min: 0.5 }, limitLabel: '已达运动三扩下限' },
   // ---- 防护：六面拆卖合并为两个打包商品（#A1，2026-08-26；原 *_patch id 移除不复用防存档 levels 脏数据）----

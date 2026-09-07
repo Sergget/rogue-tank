@@ -137,8 +137,8 @@ const RULES = {
     kmhFactor: 0.4,            // maxSpeed(px/s) × 0.4 = km/h（HUD 显示）
     pxFactor: 1.6,             // 推进速度 = maxSpeed × pxFactor（px/s）
     effMul: 1.3,               // 运行期有效移动速度乘子（地图尺度提速 ~1.3x）；面板 stats.maxSpeed 不变
-    accelPowerToPxScale: 130,   // 马力/吨 → px/s² 加速度比例（P-修正：由 180 下调至 130，加速 ramp 略迟缓更"肉"，top speed 不变）
-    brakeFactor: 3.5           // 刹车加速度 = 加速 × brakeFactor
+    accelPowerToPxScale: 15,    // 马力/吨 → px/s² 加速度比例（重校：15 px/s²，使轻坦加速~1.2s满速，重坦~3s满速，带来真实的机械重量感）
+    brakeFactor: 2.2            // 刹车加速度 = 加速 × brakeFactor（使滑行减速更具惯性）
   },
 
   // ======================= 起火 =======================

@@ -25,7 +25,7 @@
       "hpTo": 0.66,
       "behavior": "车体披挂反应装甲（armor.hull +60、armor.turret +30），正面摆角近乎免疫；2 台浮游炮（dummy 单位）伴随提供侧翼火力（summons），需优先清理；弹药架（weakspot ammo）被反应块覆盖，仅侧后小角度可击穿——先清浮游炮消除侧翼威胁，再绕侧后用高穿弹打弹药架。",
       "weakspots": ["ammo"],
-      "ai": { "mode": "hold", "params": { "anchorRange": 300 } },
+      "ai": { "mode": "skirmish", "params": { "keepDist": 420 } },
       "onEnter": {
         "modifiers": [
           { "stat": "armor.hull", "mode": "add", "value": 60 },
