@@ -25,13 +25,13 @@ const DENSE = new Set(['forest_dense', 'woodland_line']);
 
 // BASE[templateId][diffIndex] = { cov, con, minw }
 const BASE = {
-  corridor_tutorial:    [{cov:0.064,con:1.000,minw:22.9},{cov:0.075,con:1.000,minw:22.4},{cov:0.073,con:1.000,minw:20.5},{cov:0.067,con:1.000,minw:19.1},{cov:0.075,con:1.000,minw:19.1}],
-  forest_dense:         [{cov:1.135,con:0.875,minw:3.2},{cov:1.143,con:0.875,minw:3.6},{cov:1.146,con:0.746,minw:2.7},{cov:1.169,con:0.375,minw:3.1},{cov:1.157,con:0.625,minw:3.1}],
-  urban_block:          [{cov:0.121,con:0.992,minw:4.3},{cov:0.126,con:0.991,minw:3.5},{cov:0.132,con:0.986,minw:5.6},{cov:0.137,con:0.989,minw:5.7},{cov:0.143,con:0.990,minw:4.5}],
-  crossfire_plaza:      [{cov:0.106,con:0.996,minw:3.1},{cov:0.114,con:0.997,minw:3.5},{cov:0.113,con:0.997,minw:4.7},{cov:0.120,con:0.996,minw:4.5},{cov:0.120,con:0.996,minw:4.5}],
-  mixed_barrier_plaza:  [{cov:0.067,con:1.000,minw:13.6},{cov:0.074,con:1.000,minw:16.7},{cov:0.070,con:1.000,minw:19.6},{cov:0.087,con:1.000,minw:26.8},{cov:0.098,con:1.000,minw:26.7}],
-  village_center:       [{cov:0.149,con:0.979,minw:1.0},{cov:0.150,con:0.979,minw:0.9},{cov:0.173,con:0.982,minw:0.9},{cov:0.177,con:0.966,minw:1.7},{cov:0.186,con:0.973,minw:1.8}],
-  woodland_line:        [{cov:1.091,con:0.875,minw:18.8},{cov:1.127,con:0.625,minw:13.4},{cov:1.096,con:1.000,minw:14.1},{cov:1.115,con:0.625,minw:22.2},{cov:1.120,con:0.625,minw:20.1}],
+  corridor_tutorial: [{"cov":0.032,"con":1,"minw":16.2},{"cov":0.032,"con":1,"minw":12.3},{"cov":0.034,"con":1,"minw":13.1},{"cov":0.031,"con":1,"minw":12.6},{"cov":0.031,"con":1,"minw":13.1}],
+  forest_dense: [{"cov":0.045,"con":1,"minw":2.5},{"cov":0.045,"con":1,"minw":2.5},{"cov":0.045,"con":1,"minw":2.5},{"cov":0.044,"con":1,"minw":2.6},{"cov":0.043,"con":1,"minw":2.5}],
+  urban_block: [{"cov":0.046,"con":1,"minw":2.5},{"cov":0.041,"con":1,"minw":2.2},{"cov":0.044,"con":1,"minw":2.1},{"cov":0.043,"con":1,"minw":2.5},{"cov":0.039,"con":1,"minw":3.1}],
+  crossfire_plaza: [{"cov":0.037,"con":1,"minw":3},{"cov":0.036,"con":1,"minw":2.9},{"cov":0.037,"con":1,"minw":3},{"cov":0.037,"con":1,"minw":2.6},{"cov":0.034,"con":1,"minw":1.9}],
+  mixed_barrier_plaza: [{"cov":0.03,"con":1,"minw":8.3},{"cov":0.028,"con":1,"minw":13.2},{"cov":0.028,"con":1,"minw":11.4},{"cov":0.029,"con":1,"minw":11.3},{"cov":0.029,"con":1,"minw":12.9}],
+  village_center: [{"cov":0.05,"con":0.999,"minw":1.2},{"cov":0.046,"con":0.999,"minw":1.1},{"cov":0.047,"con":0.999,"minw":1},{"cov":0.045,"con":0.999,"minw":1.2},{"cov":0.046,"con":1,"minw":1.3}],
+  woodland_line: [{"cov":0.034,"con":1,"minw":12.6},{"cov":0.033,"con":1,"minw":12.5},{"cov":0.035,"con":1,"minw":10.6},{"cov":0.034,"con":1,"minw":9.1},{"cov":0.033,"con":1,"minw":11.3}],
 };
 const TOL = { cov: 0.02, con: 0.05, minw: 0.5 };
 

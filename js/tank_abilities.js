@@ -106,15 +106,6 @@ function _tryActivateInnate(t, key) {
     return { ok: false, reason: 'cooldown', cd: t.abilityCds[key] };
   }
   if (key === 'repair') {
-    // 前置判定：无任何可修损伤（履带/瘫痪/发动机/炮闩/可修弹药架）则拒绝激活，不消耗不进入冷却
-    const d0 = (t.debuffs = t.debuffs || {});
-    const repairable =
-      t.trackBroken === true ||
-      (t.immobT || 0) > 0 ||
-      (d0.engine || 0) > 0 ||
-      (d0.breech || 0) > 0 ||
-      (!t.ammoBlew && (d0.ammo || 0) > 0);
-    if (!repairable) return { ok: false, reason: 'no-damage' };
     // 弹药架殉爆不可修：保留 ammoBlew 与 ammo debuff，其余照常修复、激活仍成功
     const blew = !!t.ammoBlew;
     t.trackBroken = false;
@@ -125,16 +116,19 @@ function _tryActivateInnate(t, key) {
     delete d.breech;   // P-49 炮闩受损（无法开火）属机械损伤 → 修理箱可修
     if (!blew) delete d.ammo;
     if (_refreshStats) _refreshStats(t);
+    // 恢复 10% 最大耐久
+    const maxHp = (t.stats && t.stats.maxHp) || t.maxHp || 100;
+    if (t.hp > 0) t.hp = Math.min(maxHp, t.hp + maxHp * 0.10);
     t.abilityCds[key] = innateBaseCd(t, key);
     return { ok: true, key: key, repairedAmmoRack: !blew };
   }
   if (key === 'medkit') {
     const d = (t.debuffs = t.debuffs || {});
-    // 前置判定：无任何受伤乘员则拒绝激活，不消耗不进入冷却
-    const anyInjured = MEDKIT_CREW_KEYS.some(function (k) { return (d[k] || 0) > 0; });
-    if (!anyInjured) return { ok: false, reason: 'no-injury' };
     MEDKIT_CREW_KEYS.forEach(function (k) { delete d[k]; });
     if (_refreshStats) _refreshStats(t);
+    // 恢复 10% 最大耐久
+    const maxHp = (t.stats && t.stats.maxHp) || t.maxHp || 100;
+    if (t.hp > 0) t.hp = Math.min(maxHp, t.hp + maxHp * 0.10);
     t.abilityCds[key] = innateBaseCd(t, key);
     return { ok: true, key: key };
   }

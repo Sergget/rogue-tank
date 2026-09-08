@@ -406,6 +406,8 @@ function applyTankConfig(tank, spec){
   }
   if (spec.turret && spec.turret.pivot) {
     tank.turretPivotOffset = spec.turret.pivot;
+  } else {
+    tank.turretPivotOffset = { dx: 8, dy: 0 };
   }
   if (spec.turret && spec.turret.armor) {
     if (!b.armor) b.armor = {};
@@ -485,6 +487,8 @@ function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
     }
     if (spec.turret && spec.turret.pivot) {
       tank.turretPivotOffset = spec.turret.pivot;
+    } else {
+      tank.turretPivotOffset = { dx: 8, dy: 0 };
     }
     if (spec.modules) {
       tank.modules = (typeof _normalizeTankModules === 'function') ? _normalizeTankModules(spec.modules) : null;

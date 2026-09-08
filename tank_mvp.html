@@ -145,12 +145,12 @@
   #settleBody .row{display:flex; justify-content:space-between; gap:10px;}
   #settleBody .row .k{color:var(--text-dim);}
   #settleBody .row.total{border-top:1px solid var(--line); margin-top:6px; padding-top:8px; font-weight:700; color:var(--amber);}
-  #cardRow{display:flex; gap:12px; justify-content:center;}
-  #cardRow .card{width:150px; min-height:120px; border:1px solid var(--line); background:rgba(255,255,255,0.02);
-    padding:12px; cursor:pointer; text-align:center;}
+  #cardRow{display:flex; gap:14px; justify-content:center;}
+  #cardRow .card{width:200px; min-height:140px; border:1px solid var(--line); background:rgba(255,255,255,0.02);
+    padding:14px; cursor:pointer; text-align:center;}
   #cardRow .card:hover{border-color:var(--amber); background:rgba(255,180,84,0.1);}
-  #cardRow .card .cname{font-family:'JetBrains Mono',monospace; color:var(--amber); font-size:12px; font-weight:700; margin-bottom:8px;}
-  #cardRow .card .cdesc{font-size:10px; color:var(--text-dim); line-height:1.6;}
+  #cardRow .card .cname{font-family:'JetBrains Mono',monospace; color:var(--amber); font-size:14px; font-weight:700; margin-bottom:8px;}
+  #cardRow .card .cdesc{font-size:12px; color:var(--text); line-height:1.6;}
 
   /* ---------- M10 局外三界面（Home 存档 / Loadout 整备 / Shop 商店） ---------- */
   #flowOverlay .screen.wide{min-width:560px; max-width:880px;}
@@ -379,6 +379,8 @@
   </div>
   <div id="statusPanel" style="display:none;">
     <div class="sp-title">玩家状态 PLAYER STATUS</div>
+    <div class="row"><span class="k">战局信息</span><span class="v" id="stNode">--</span></div>
+    <div class="row"><span class="k">任务进度</span><span class="v" id="stQuota">--</span></div>
     <div class="hp-row">
       <span class="k" style="font-size:10px; color:var(--text-dim);">HP</span>
       <div class="hp-track"><div class="hp-fill" id="stHpBar" style="width:100%"></div></div>
@@ -386,7 +388,6 @@
     </div>
     <div class="row"><span class="k">火力</span><span class="v" id="stFire">--</span></div>
     <div class="row"><span class="k">机动</span><span class="v" id="stMob">--</span></div>
-    <div class="row"><span class="k">当前散布 σ</span><span class="v" id="stSigma">--</span></div>
     <div class="armor-list" id="stArmor"></div>
     <div class="armor-list" id="stAmmo"></div>
     <div class="hint">按 TAB 关闭 · 数值实时读取（读 stats，不摸 base）</div>
@@ -754,19 +755,24 @@ function armorRows(armor){
 }
 function updateStatusPanel(){
   const s = player.stats;
+  const nodeIdx = currentNode ? (currentNode.index + 1) : 0;
+  const totalNodes = run ? run.nodes.length : 0;
+  const kills = battleState ? battleState.nodeKills : 0;
+  const quota = currentNode ? (currentNode.quota || '全灭') : '—';
   const hpBar = document.getElementById('stHpBar');
   if(hpBar) hpBar.style.width = Math.max(0, player.hp / Math.max(1, s.maxHp) * 100) + '%';
   const hpVal = document.getElementById('stHpVal');
   if(hpVal) hpVal.textContent = `${Math.ceil(player.hp)} / ${Math.round(s.maxHp)}`;
+  const stNode = document.getElementById('stNode');
+  if(stNode) stNode.textContent = `节点 ${nodeIdx}/${totalNodes} · 难度 ${(currentNode ? (currentNode.difficulty * 100).toFixed(0) : 0)}% (Lv.${profile.difficultyLevel || 0})`;
+  const stQuota = document.getElementById('stQuota');
+  if(stQuota) stQuota.textContent = `击杀配额 ${kills} / ${quota}`;
   const stFire = document.getElementById('stFire');
-  if(stFire) stFire.textContent = `穿深 ${Math.round(s.penetration)}mm · 伤害 ${Math.round(s.damage)} · 装填 ${s.reload.toFixed(2)}s · 弹速 ${Math.round(s.shellSpeed)}`;
+  if(stFire) stFire.textContent = `穿透 ${Math.round(s.penetration)}mm · 伤害 ${Math.round(s.damage)} · 装填 ${s.reload.toFixed(2)}s`;
   const stMob = document.getElementById('stMob');
-  if(stMob) stMob.textContent = `极速 ${tankKmh(player)}km/h · 转向 ${s.turnRate.toFixed(2)} · 炮塔 ${s.turretTurnRate.toFixed(2)} · 马力 ${Math.round(s.enginePower)}hp/${Math.round(s.weight)}t`;
-  const stSigma = document.getElementById('stSigma');
-  if(stSigma) stSigma.textContent = player.sigma.toFixed(4);
+  if(stMob) stMob.textContent = `极速 ${tankKmh(player)}km/h · 马力 ${Math.round(s.enginePower)}hp`;
   const stArmor = document.getElementById('stArmor');
   if(stArmor) stArmor.innerHTML = armorRows(s.armor || (player.base && player.base.armor) || {});
-  // #93：分弹种最终属性行（computeAmmoConfig 叠加卡牌弹种改造，与 ammoReadout 同源）
   const stAmmo = document.getElementById('stAmmo');
   if(stAmmo){
     let ammoHtml = '';
@@ -775,9 +781,9 @@ function updateStatusPanel(){
       if(!meta || typeof computeAmmoConfig !== 'function') continue;
       const ac = computeAmmoConfig(player, key);
       if(!ac) continue;
-      const f = v => (typeof v === 'number' ? v.toFixed(2) : '—');
-      const fa = v => (typeof v === 'number' && v !== 0 ? `(+${v.toFixed(0)})` : '');   // #A13: 自然单位追加量（pen=mm）
-      ammoHtml += `<div><b>${(meta.label || key).toUpperCase()}</b> 穿×${f(ac.pen)}${fa(ac.penAdd)} 伤×${f(ac.dmg)}${fa(ac.dmgAdd)} 速×${f(ac.speed)}${fa(ac.speedAdd)}</div>`;
+      const pen = Math.round(ac.pen * s.penetration + (ac.penAdd || 0));
+      const dmg = Math.round(ac.dmg * s.damage + (ac.dmgAdd || 0));
+      ammoHtml += `<div><b>${(meta.label || key).toUpperCase()}</b> 穿透 ${pen}mm · 伤害 ${dmg}</div>`;
     }
     stAmmo.innerHTML = ammoHtml;
   }
@@ -1482,22 +1488,22 @@ document.getElementById('settleShopBtn').addEventListener('click', () => { playS
 document.getElementById('rewardShopBtn').addEventListener('click', () => { playSound('ui'); toggleRunShop(); });
 
 function startNewRun(){
-  removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
-  prepPlayerForRun();                           // M10：出战坦克配置 + 永久升级重挂 + 复活次数（含加购）
-  // P-46：出击时刻冻结玩家基准属性快照（深拷贝，单局内不变）
-  playerAnchorStats = JSON.parse(JSON.stringify(player.stats));
-  // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
-  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: profile.difficultyLevel || 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
-  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
-  pendingLootRounds = 0; pendingLootRarityIdx = -1;   // P-51 Wave2：跨局清 Boss 追加卡牌轮
-  resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
-  profile.stats.runs++;                         // P-14：局数统计
-  profile.difficultyLevel = 0;                  // 难度重置（新开局强制 Lv.0）
-  saveProfile(localStorage, profile);
-  pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.0）`, 'COVER');
-  playSound('ui');
-  transition(flow, 'battle', { nodeIndex: 0 });
-}
+	  profile.difficultyLevel = 0;                  // 难度重置（新开局强制 Lv.0）
+	  saveProfile(localStorage, profile);
+	  removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
+	  prepPlayerForRun();                           // M10：出战坦克配置 + 永久升级重挂 + 复活次数（含加购）
+	  // P-46：出击时刻冻结玩家基准属性快照（深拷贝，单局内不变）
+	  playerAnchorStats = JSON.parse(JSON.stringify(player.stats));
+	  // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
+	  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
+	  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
+	  pendingLootRounds = 0; pendingLootRarityIdx = -1;   // P-51 Wave2：跨局清 Boss 追加卡牌轮
+	  resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
+	  profile.stats.runs++;                         // P-14：局数统计
+	  pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.0）`, 'COVER');
+	  playSound('ui');
+	  transition(flow, 'battle', { nodeIndex: 0 });
+	}
 document.getElementById('startRunBtn').addEventListener('click', startNewRun);
 document.getElementById('settleNextBtn').addEventListener('click', () => {
   playSound('ui');

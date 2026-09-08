@@ -402,7 +402,7 @@ const RUN_SHOP_DEFS = [
     ] },
   // ---- 机动 ----
   { id: 'engine_overdrive',  name: '引擎超压',   group: 'mobility', desc: '极速 +1.2km/h/级（上限 150km/h）',
-    baseCost: 30, costGrowth: 1.8, maxLevel: 2,
+    baseCost: 30, costGrowth: 1.8, maxLevel: 99,
     // 效果值仍为 px/s（+3px/s × kmhFactor 0.4 = +1.2km/h）；desc/预览统一 km/h 口径显示
     effects: [{ stat: 'maxSpeed', mode: 'add', value: 3 }],
     limit: { stat: 'maxSpeed', max: 375 }, limitLabel: '已达极速上限' },
@@ -411,7 +411,7 @@ const RUN_SHOP_DEFS = [
     effects: [{ stat: 'enginePower', mode: 'add', value: 60 }] },
   // ---- 杂项 ----
   { id: 'emergency_repair',  name: '紧急维修',   group: 'misc', desc: '立即恢复 25% 最大耐久（即时生效；可重复购买）',
-    baseCost: 20, costGrowth: 1.5, maxLevel: 9,
+    baseCost: 20, costGrowth: 1.5, maxLevel: 99,
     instant: { type: 'healPct', value: 0.25 }, effects: [] },
   { id: 'repair_kit_cd_run', name: '修理箱速冷', group: 'misc', desc: '修理箱冷却 −3s/级（仅本局；特殊消费；下限 15s）',
     baseCost: 30, costGrowth: 1.5, maxLevel: 5,

@@ -216,8 +216,9 @@
         <button id="modeHull" class="mode-btn edit-tab-btn active">车体 Hull</button>
         <button id="modeTurret" class="mode-btn edit-tab-btn">炮塔 Turret</button>
         <button id="modeAppearance" class="mode-btn edit-tab-btn">外观件 Appearance</button>
+        <button id="modeCover" class="mode-btn edit-tab-btn">掩体 Cover</button>
       </div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">列表选中条目 = 当前可编辑面板与画布编辑目标：车体（顶点+装甲）/ 炮塔（顶点+座圈+多边形预设）/ 外观件（炮管+炮盾+履带）</div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">列表选中条目 = 当前可编辑面板与画布编辑目标：车体（顶点+装甲）/ 炮塔（顶点+座圈+多边形预设）/ 外观件（炮管+炮盾+履带）/ 掩体（地图元素多边形编辑）</div>
       <div class="btnrow" style="margin-top:8px;">
         <button id="modePreview" class="mode-btn">预览瞄准 Preview</button>
       </div>
@@ -226,6 +227,7 @@
         <button id="undoVertBtn">撤销末尾顶点</button>
         <button id="clearPolyBtn" class="danger">清空当前多边形</button>
         <button id="resetDefaultBtn">重置默认形状</button>
+        <button id="copyCoverJsonBtn">拷贝掩体 JSON</button>
       </div>
       <div class="btnrow" style="margin-top:8px;">
         <button id="snapToggleBtn">网格吸附 关</button>
@@ -285,6 +287,28 @@
       </div>
       <div class="btnrow"><button id="turretPresetApplyBtn">应用形状（替换当前炮塔）</button></div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">正多边形以炮塔旋转中心为圆心、外接圆半径 R 生成，应用后覆盖当前炮塔顶点（装甲与旋转中心保留）</div>
+    </div>
+
+    <div class="section panel-cover">
+      <h3>掩体编辑 Cover Editor</h3>
+      <div class="prop-row"><span class="lbl">掩体种类</span>
+        <select id="c-tier">
+          <option value="half">半高掩体 half</option>
+          <option value="full">全高掩体 full</option>
+          <option value="bush">灌木丛 bush</option>
+          <option value="tree">树 tree</option>
+          <option value="soft">栅栏 soft</option>
+          <option value="barricade">沙袋 barricade</option>
+          <option value="mud">烂泥地 mud</option>
+          <option value="rock">岩石 rock</option>
+        </select>
+      </div>
+      <div class="prop-row"><span class="lbl">X (世界)</span><input type="number" id="c-x" value="400"></div>
+      <div class="prop-row"><span class="lbl">Y (世界)</span><input type="number" id="c-y" value="300"></div>
+      <div class="prop-row"><span class="lbl">宽 (W)</span><input type="number" id="c-w" value="60"></div>
+      <div class="prop-row"><span class="lbl">高 (H)</span><input type="number" id="c-h" value="40"></div>
+      <div class="prop-row"><span class="lbl">角度 (°)</span><input type="number" id="c-angle" value="0"></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">掩体编辑用于导出独立掩体对象。点击画布添加多边形顶点，不规则形状顶点将覆盖 W/H 矩形逻辑。</div>
     </div>
 
     <div class="section panel-appearance">
@@ -452,15 +476,22 @@ let state = {
    hull: defaultHull(),
    turret: defaultTurret(),
    barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } },
+   // 覆盖体编辑状态 - 用于 #78 不规则掩体顶点编辑
+   currentCover: {
+     verts: [],           // 世界空间顶点数组 [[x1,y1], [x2,y2], ...]
+     tier: 'rock',        // 默认掩体类型
+     closed: false        // 是否为闭合多边形（至少3个顶点）
+   }
 };
 
 // gun barrel / mantlet presets 已下沉为配置模块 js/tank_presets.js（BARREL_PRESETS / MANTLE_PRESETS）
 
 // ================= state =================
-let mode = 'hull'; // 'hull' | 'turret' | 'pivot' | 'preview'
+let mode = 'hull'; // 'hull' | 'turret' | 'pivot' | 'preview' | 'cover'
 let viewScale = 5;
 let drag = null;
 let selected = null; // { poly:'hull'|'turret', index }
+let selectedCoverVertex = null; // { index } for cover vertex selection
 let hoverEdge = null;   // { poly, index } edge under cursor (canvas highlight)
 let selectedEdge = null; // { poly, index, seam:'front'|'rear' } edge chosen in list/canvas
 let snapToGrid = false;
@@ -588,6 +619,30 @@ function findSeamHitAtScreen(part, sx, sy){
   return null;
 }
 
+// ================= hit testing for cover vertices =================
+function findCoverVertexHit(cover, sx, sy){
+  if(!cover || !cover.verts) return -1;
+  for(let i=0; i<cover.verts.length; i++){
+    const [vx, vy] = cover.verts[i];
+    if(Math.hypot(sx-vx, sy-vy) <= HIT_R) return i;
+  }
+  return -1;
+}
+function findCoverEdgeMidpointHit(cover, sx, sy){
+  if(!cover || !cover.verts || cover.verts.length < 2) return -1;
+  const verts = cover.verts;
+  const n = verts.length;
+  // If polygon has >=3 vertices, check closing edge too
+  const limit = n >= 3 ? n : n - 1;
+  for(let i=0; i<limit; i++){
+    const [ax, ay] = verts[i];
+    const [bx, by] = verts[(i+1)%n];
+    const mx = (ax+bx)/2, my = (ay+by)/2;
+    if(Math.hypot(sx-mx, sy-my) <= EDGE_HIT_R) return i;
+  }
+  return -1;
+}
+
 // ================= mouse interaction =================
 canvas.addEventListener('mousedown', e=>{
   const {x:sx,y:sy} = getCanvasPos(e);
@@ -616,7 +671,7 @@ canvas.addEventListener('mousedown', e=>{
     }
     drag = { poly:'hull', index:-1, moved:false, downX:sx, downY:sy, isNew:true };
   } else if(mode==='turret'){
-    // 炮塔模式：测试是否按住“炮塔座圈圆心”十字标记 (axis.dx, 0)
+    // 炮塔模式：测试是否按住”炮塔座圈圆心”十字标记 (axis.dx, 0)
     const ax = (state.turret.axis && state.turret.axis.dx) || 0;
     const axisPos = turretToScreen([ax, 0], 0);
     if(Math.hypot(sx - axisPos.x, sy - axisPos.y) <= 16){
@@ -633,6 +688,26 @@ canvas.addEventListener('mousedown', e=>{
     drag = { poly:'turret', index:-1, moved:false, downX:sx, downY:sy, isNew:true };
   } else if(mode==='pivot'){
     drag = { poly:'hullPivot', moved:false, downX:sx, downY:sy };
+  } else if(mode==='cover'){
+    // 掩体模式：世界坐标顶点编辑
+    const cover = state.currentCover;
+    const vi = findCoverVertexHit(cover, sx, sy);
+    if(vi>=0){
+      drag = { poly:'cover', index:vi, moved:false, downX:sx, downY:sy };
+      selectCoverVertex(vi);
+      return;
+    }
+    // 点击边中点插入顶点
+    const mid = findCoverEdgeMidpointHit(cover, sx, sy);
+    if(mid>=0){
+      const newPt = [ Math.round(sx*10)/10, Math.round(sy*10)/10 ];
+      cover.verts.splice(mid+1, 0, newPt);
+      selectCoverVertex(mid+1);
+      render();
+      return;
+    }
+    // 点击空白处添加新顶点
+    drag = { poly:'cover', index:-1, moved:false, downX:sx, downY:sy, isNew:true };
   }
 });
 window.addEventListener('mousemove', e=>{
@@ -698,6 +773,12 @@ window.addEventListener('mousemove', e=>{
       let ly = (sy - ringY)/viewScale;
       if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
       acceptVertex('turret', drag.index, constrainVertex('turret', drag.index, lx, ly));
+    } else if(drag.poly==='cover'){
+      // 拖动掩体顶点（世界坐标）
+      let wx = sx, wy = sy;
+      if(snapToGrid){ wx = Math.round(wx); wy = Math.round(wy); }
+      state.currentCover.verts[drag.index] = [Math.round(wx*10)/10, Math.round(wy*10)/10];
+      syncSelectedCoverInputs();
     }
     syncSelectedInputs();
   }
@@ -824,9 +905,18 @@ window.addEventListener('mouseup', e=>{
             selectVertex('turret', poly.half.length-1);
           }
         }
+      } else if(drag.poly==='cover'){
+        // 掩体空白增加顶点
+        const cover = state.currentCover;
+        let wx = sx, wy = sy;
+        if(snapToGrid){ wx = Math.round(wx); wy = Math.round(wy); }
+        const newPt = [ Math.round(wx*10)/10, Math.round(wy*10)/10 ];
+        cover.verts.push(newPt);
+        selectCoverVertex(cover.verts.length-1);
+        pushHint(`掩体添加顶点 #${cover.verts.length-1}`);
       }
-      // P-49 重量闸门：新增顶点使派生重量突破 80t 上限 → 撤销本次新增
-      if(derivedWeightT() > RULES.parameterLimits.weight.max + 1e-9){
+      // P-49 重量闸门：新增顶点使派生重量突破 80t 上限 → 撤销本次新增（仅针对坦克部件）
+      if(drag.poly !== 'cover' && derivedWeightT() > RULES.parameterLimits.weight.max + 1e-9){
         state[drag.poly].half = snapH; state[drag.poly].halfFaces = snapF;
         clearSelection();
         pushHint('已达 80t 设计上限 — 新增顶点会继续增加派生重量，已撤销', 3000);
@@ -875,12 +965,26 @@ function updateReadout(sx,sy){
 function updateZoomReadout(){ document.getElementById('zoomReadout').textContent = `缩放: ${Math.round(viewScale*100)}%`; }
 
 // ================= selected-vertex numeric editor =================
+function selectCoverVertex(index){
+  selectedCoverVertex = { index };
+  selected = null; // Clear tank vertex selection
+  syncSelectedCoverInputs();
+}
+function syncSelectedCoverInputs(){
+  const xEl = document.getElementById('c-x'), yEl = document.getElementById('c-y');
+  if(!selectedCoverVertex || !state.currentCover.verts[selectedCoverVertex.index]) return;
+  const p = state.currentCover.verts[selectedCoverVertex.index];
+  xEl.value = Math.round(p[0]);
+  yEl.value = Math.round(p[1]);
+}
 function selectVertex(poly, index){
   selected = { poly, index };
+  selectedCoverVertex = null; // Clear cover vertex selection
   syncSelectedInputs();
 }
 function clearSelection(){
   selected = null;
+  selectedCoverVertex = null;
   syncSelectedInputs();
 }
 function syncSelectedInputs(){
@@ -930,6 +1034,14 @@ function deleteSelectedVertex(){
   clearSelection();
   render(); renderEdgeLists();
 }
+function deleteSelectedCoverVertex(){
+  if(!selectedCoverVertex) return;
+  const cover = state.currentCover;
+  if(cover.verts.length<=2){ pushHint('掩体至少保留 2 个顶点'); return; }
+  cover.verts.splice(selectedCoverVertex.index,1);
+  selectedCoverVertex = null;
+  render();
+}
 document.getElementById('deleteVertBtn').addEventListener('click', deleteSelectedVertex);
 // keyboard: Delete/Backspace removes the selected vertex; arrows nudge it 1px; Esc clears selection
 window.addEventListener('keydown', e=>{
@@ -955,27 +1067,59 @@ window.addEventListener('keydown', e=>{
       syncSelectedInputs(); render();
     }
   }
+  if(selectedCoverVertex){
+    if(e.key==='Delete' || e.key==='Backspace'){
+      e.preventDefault(); deleteSelectedCoverVertex(); return;
+    }
+    const step = snapToGrid ? 1 : 0.5;
+    let dx=0, dy=0;
+    if(e.key==='ArrowLeft') dx = -step;
+    else if(e.key==='ArrowRight') dx = step;
+    else if(e.key==='ArrowUp') dy = -step;
+    else if(e.key==='ArrowDown') dy = step;
+    if(dx || dy){
+      e.preventDefault();
+      const idx = selectedCoverVertex.index;
+      const p = state.currentCover.verts[idx];
+      const wx = Math.round((p[0]+dx)*10)/10;
+      const wy = Math.round((p[1]+dy)*10)/10;
+      state.currentCover.verts[idx] = [wx, wy];
+      syncSelectedCoverInputs(); render();
+    }
+  }
 });
-document.getElementById('snapToggleBtn').addEventListener('click', ()=>{
-  snapToGrid = !snapToGrid;
-  document.getElementById('snapToggleBtn').textContent = snapToGrid ? '网格吸附 开' : '网格吸附 关';
-  document.getElementById('snapToggleBtn').classList.toggle('active', snapToGrid);
-  pushHint(snapToGrid ? '网格吸附已开启：拖动/新增顶点将对齐到整数格' : '网格吸附已关闭');
+document.getElementById('copyCoverJsonBtn').addEventListener('click', ()=>{
+  const cover = state.currentCover;
+  const tier = document.getElementById('c-tier').value;
+  const jsonStr = JSON.stringify({
+    tier: tier,
+    verts: cover.verts
+  }, null, 2);
+  navigator.clipboard.writeText(jsonStr).then(()=>{
+    pushHint('已将掩体 JSON 复制到剪贴板！', 2500);
+  }).catch(err => {
+    prompt('请复制掩体 JSON:', jsonStr);
+  });
+});
+document.getElementById('c-tier').addEventListener('change', (e)=>{
+  state.currentCover.tier = e.target.value;
+  render();
 });
 
 // ================= mode switching（编辑列表驱动：editTab 控制面板显隐，mode 控制画布） =================
 const HINTS = {
-  hull: '点击空白添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击“车体座圈圆心”标记或在侧栏编辑 pivot (X,Y) 可调整座圈在车体上的相对安装位置',
-  turret: '点击空白添加炮塔顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击“炮塔座圈圆心”标记或在侧栏编辑 axis.dx 可调整座圈在炮塔中的相对横坐标（y 轴固定为 0）· 炮管及附件锚定在前缘装甲交点',
+  hull: '点击空白添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击”车体座圈圆心”标记或在侧栏编辑 pivot (X,Y) 可调整座圈在车体上的相对安装位置',
+  turret: '点击空白添加炮塔顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击”炮塔座圈圆心”标记或在侧栏编辑 axis.dx 可调整座圈在炮塔中的相对横坐标（y 轴固定为 0）· 炮管及附件锚定在前缘装甲交点',
   preview: '移动鼠标预览炮塔瞄准方向；射界 = 180° 时炮塔 360° 全向旋转，低于 180° 时将受限在 ±射界 内',
-  appearance: '外观件编辑：炮管预设（长度/粗细/制退器/抽烟器/护套）、炮盾、履带外观均为整车外观参数；画布处于预览模式，移动鼠标可旋转炮塔查看效果'
+  appearance: '外观件编辑：炮管预设（长度/粗细/制退器/抽烟器/护套）、炮盾、履带外观均为整车外观参数；画布处于预览模式，移动鼠标可旋转炮塔查看效果',
+  cover: '掩体顶点编辑：点击空白添加顶点（世界坐标）· 拖动顶点移动 · 点击边中点插入顶点 · Delete/Backspace 删除选中顶点 · 选择”掩体种类”设置类型'
 };
-// 面板显隐：panel-<tab> 类命中当前 editTab 的面板显示，其余隐藏；顶点编辑按钮仅在车体/炮塔条目可用
+// 面板显隐：panel-<tab> 类命中当前 editTab 的面板显示，其余隐藏；顶点编辑按钮仅在车体/炮塔/掩体条目可用
 function updatePanelVisibility(){
-  document.querySelectorAll('.panel-hull, .panel-turret, .panel-appearance').forEach(el=>{
+  document.querySelectorAll('.panel-hull, .panel-turret, .panel-appearance, .panel-cover').forEach(el=>{
     el.style.display = el.classList.contains('panel-'+editTab) ? '' : 'none';
   });
-  const vertEdit = (editTab==='hull' || editTab==='turret');
+  const vertEdit = (editTab==='hull' || editTab==='turret' || editTab==='cover');
   document.getElementById('undoVertBtn').disabled = !vertEdit;
   document.getElementById('clearPolyBtn').disabled = !vertEdit;
 }
@@ -989,9 +1133,10 @@ function updateModeButtons(){
 function setMode(m){
   mode = m;
   clearSelection();
+  selectedCoverVertex = null;
   hoverEdge = null;
-  // 列表条目 ↔ 画布模式同步：hull/turret/modules 条目直接切换对应编辑模式；preview 不改变条目
-  if(m==='hull' || m==='turret' || m==='modules') editTab = m;
+  // 列表条目 ↔ 画布模式同步：hull/turret/modules/cover 条目直接切换对应编辑模式；preview 不改变条目
+  if(m==='hull' || m==='turret' || m==='modules' || m==='cover') editTab = m;
   updateModeButtons();
   const hintEl = document.getElementById('hint');
   hintEl.textContent = HINTS[m] || '';
@@ -1001,6 +1146,7 @@ function setMode(m){
 }
 document.getElementById('modeHull').addEventListener('click', ()=>setMode('hull'));
 document.getElementById('modeTurret').addEventListener('click', ()=>setMode('turret'));
+document.getElementById('modeCover').addEventListener('click', ()=>setMode('cover'));
 document.getElementById('modeAppearance').addEventListener('click', ()=>{
   // 外观件条目：面板切到外观件组，画布进入预览模式（无顶点编辑目标，便于查看炮管/炮盾/履带效果）
   editTab = 'appearance';
@@ -1735,6 +1881,77 @@ function drawPolygon(poly, center, angle, opts){
     });
   }
 }
+
+// 绘制掩体多边形（world坐标直接绘制，无镜像）
+function drawCoverPolygon(cover){
+  if(!cover || !cover.verts || cover.verts.length < 2) return;
+  const verts = cover.verts;
+  const n = verts.length;
+  const isClosed = n >= 3;
+  const limit = isClosed ? n : n - 1;
+
+  // Tier-specific colors
+  const tierColors = {
+    'half': { stroke: '#ff5c4d', fill: 'rgba(255,92,77,0.15)' },
+    'full': { stroke: '#b98aff', fill: 'rgba(185,138,255,0.15)' },
+    'bush': { stroke: '#7ed957', fill: 'rgba(126,217,87,0.15)' },
+    'tree': { stroke: '#4a7c2a', fill: 'rgba(74,124,42,0.15)' },
+    'soft': { stroke: '#ffb454', fill: 'rgba(255,180,84,0.1)' },
+    'barricade': { stroke: '#b5553f', fill: 'rgba(181,85,63,0.15)' },
+    'mud': { stroke: '#8b7355', fill: 'rgba(139,115,85,0.1)' },
+    'rock': { stroke: '#8a8a7a', fill: 'rgba(138,138,122,0.15)' },
+    'water': { stroke: '#356885', fill: 'rgba(53,104,133,0.2)' },
+    'river': { stroke: '#356885', fill: 'rgba(53,104,133,0.2)' },
+    'ruined': { stroke: '#6b6b6b', fill: 'rgba(107,107,107,0.15)' },
+    'intact': { stroke: '#b5553f', fill: 'rgba(181,85,63,0.15)' }
+  };
+  const colors = tierColors[cover.tier] || tierColors['rock'];
+
+  // Draw edges
+  ctx.strokeStyle = colors.stroke;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for(let i=0; i<limit; i++){
+    const [ax, ay] = verts[i];
+    const [bx, by] = verts[(i+1)%n];
+    if(i===0) ctx.moveTo(ax, ay);
+    else ctx.lineTo(ax, ay);
+    ctx.lineTo(bx, by);
+  }
+  ctx.stroke();
+
+  // Draw fill if closed
+  if(isClosed){
+    ctx.fillStyle = colors.fill;
+    ctx.fill();
+  }
+
+  // Draw vertices
+  verts.forEach((p,i)=>{
+    const isSel = selectedCoverVertex && selectedCoverVertex.index === i;
+    ctx.beginPath();
+    ctx.arc(p[0], p[1], isSel ? 8 : 5, 0, Math.PI*2);
+    ctx.fillStyle = isSel ? '#7ed957' : '#fff';
+    ctx.fill();
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
+    if(isSel){
+      ctx.fillStyle = '#7ed957';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.fillText(`v${i}`, p[0] + 8, p[1] - 8);
+    }
+  });
+
+  // Draw tier label
+  if(isClosed && n >= 3){
+    // Calculate centroid for label
+    let cx = 0, cy = 0;
+    verts.forEach(p => { cx += p[0]; cy += p[1]; });
+    cx /= n; cy /= n;
+    ctx.fillStyle = colors.stroke;
+    ctx.font = '11px "JetBrains Mono", monospace';
+    ctx.fillText(cover.tier.toUpperCase(), cx - 20, cy + 4);
+  }
+}
 function render(){
   ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
   drawGrid();
@@ -1816,6 +2033,11 @@ function render(){
     ctx.moveTo(axisPos.x, axisPos.y);
     ctx.lineTo(axisPos.x+Math.cos(-limit)*90*viewScale, axisPos.y+Math.sin(-limit)*90*viewScale);
     ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // 绘制掩体多边形（world坐标直接绘制，无镜像）
+  if(mode === 'cover'){
+    drawCoverPolygon(state.currentCover);
   }
 
   updateWeightReadout();

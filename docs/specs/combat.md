@@ -24,12 +24,10 @@
   - 发动机命中引发起火 DOT（dps=3.4，5s），并施加机动 debuff。
   - 履带命中 → trackBroken + immobT=8s 锁定。
   - 车长命中 → 全体乘员效果 ×0.85。
-  - **修理箱/医疗包可用性与门控（2026-09-06，本次修复与能力门控落地）**：
-    - tryRepairKit/tryMedkit 的可用性：删除了 immobT > 0 时直接早退拒绝的逻辑，统一移交共享层 `_tryActivateInnate` 的 reason 提示。
-    - **未受损判定门控**：在 `js/tank_abilities.js` 的 `_tryActivateInnate` 中，为了防止在无受损或乘员健康时白白浪费使用，新增了前置损伤判定。
-      - `repair` 触发时，必须满足以下任一条件：`trackBroken === true` 或 `immobT > 0` 或 `debuffs.engine > 0` 或 `debuffs.breech > 0` 或 `(!ammoBlew && debuffs.ammo > 0)`。
-      - `medkit` 触发时，`debuffs` 中必须包含任一受伤乘员键且其值 >0（如 `driver`、`gunner`、`loader`、`commander` 等）。
-      - 若不满足前置条件，拒绝激活、不扣除使用次数、不进入冷却，并分别返回 `'no-damage'` / `'no-injury'`，页面 `kitFailLog` 拦截并显示友好提示。
+  - **修理箱/医疗包回血与随时可用（2026-09-08，优化落地）**：
+    - **移除损伤门控**：删除了 `_tryActivateInnate` 中针对受损/受伤状态的前置判定门控。修理箱与医疗包现在在任何状态下均可激活。
+    - **增加回血效果**：成功使用修理箱或医疗包时，立即恢复坦克 10% 的最大耐久值（`t.hp = Math.min(maxHp, t.hp + maxHp * 0.10)`）。
+    - 修理/移除 debuff 的核心语义保持不变。
 - **防崩落内衬 passive spall_liner 生效（2026-08-26，原 ISSUES #A15 修复定案）**：`tank_physics.js` 经 `passiveValues(target,'spall_liner')` 取多来源最小值 `spallMul`，在 `applyModuleDamage` 乘入最终模块/乘员伤害；多张卡取最强（最小乘子）语义。活浏览器实测 `giveCard('support_spall_liner')` 后敌方 PEN 伤害均值降至无内衬 0.7981 倍（预期 0.8），epic 卡 `spall_liner.json` 当前 value 0.85。
 - **散布下限防负值（2026-08-26，原 ISSUES #A2 修复定案）**：`RULES.spread.multFloor=0.2` 对 spreadMult 加法聚合结果钳下限 + `sigmaFloor` σ 地板；局内商店姿态稳定恢复 maxLevel 判定（applyRunShopPurchase），满级购买按钮禁用置灰。
 - **运动散布与精度基准解耦（2026-08-26，原 ISSUES #A1 修复定案）**：新增独立 stat `motionSpreadMul`（运动三源专用系数）——computeStats 默认继承出厂 `base.spreadMult`（保留设计器对底盘运动散布的标定）并钳 ≥ `spread.multFloor`；motionSigma 消费 `stats.motionSpreadMul ?? stats.spreadMult`（旧运行时快照无该键时回退，向后兼容）。运行期 spreadMult 修饰器（精密火控/卡牌）不再影响运动散布；局内商店姿态稳定改挂 `motionSpreadMul` mult ×0.85（maxLevel 1）。

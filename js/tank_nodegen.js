@@ -167,7 +167,9 @@ const NODE_TEMPLATES = [
       { tier: 'soft', dx: -260, dy: 60, w: 110, h: 10, angle: 0 },
       { tier: 'tree', dx: 220, dy: 60, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: -220, dy: -60, w: 60, h: 32, angle: 0 },
-      { tier: 'bush', dx: 100, dy: -190, w: 60, h: 32, angle: 0 }
+      { tier: 'bush', dx: 100, dy: -190, w: 60, h: 32, angle: 0 },
+      // #78：新增不规则烂泥地
+      { tier: 'mud', dx: 0, dy: 100, w: 100, h: 60, angle: 0, verts: [[-40, -20], [40, -30], [50, 10], [10, 30], [-50, 20]] }
     ]
   },
   {
@@ -289,7 +291,9 @@ const NODE_TEMPLATES = [
       { tier: 'tree', dx: 0, dy: 60, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: -220, dy: 0, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: 220, dy: 0, w: 60, h: 32, angle: 0 },
-      { tier: 'stump', dx: 100, dy: 110, w: 24, h: 18, angle: 0 }
+      { tier: 'stump', dx: 100, dy: 110, w: 24, h: 18, angle: 0 },
+      // #78：新增不规则岩石
+      { tier: 'rock', dx: -240, dy: 120, w: 60, h: 50, angle: 0, verts: [[-30, -10], [10, -25], [30, 0], [10, 25], [-30, 15]] }
     ]
   },
   {
@@ -393,6 +397,40 @@ function pickTemplate(diff, rng) {
   return templates[0];
 }
 
+function obbPts(x, y, w, h, a) {
+  const cs = Math.cos(a || 0), sn = Math.sin(a || 0);
+  const hx = w / 2, hy = h / 2;
+  return [
+    { x: x + cs * hx - sn * hy, y: y + sn * hx + cs * hy },
+    { x: x + cs * hx + sn * hy, y: y + sn * hx - cs * hy },
+    { x: x - cs * hx + sn * hy, y: y - sn * hx - cs * hy },
+    { x: x - cs * hx - sn * hy, y: y - sn * hx + cs * hy }
+  ];
+}
+
+function obbPairHits(pa, aa, pb, ba) {
+  const axes = [[Math.cos(aa), Math.sin(aa)], [-Math.sin(aa), Math.cos(aa)],
+                [Math.cos(ba), Math.sin(ba)], [-Math.sin(ba), Math.cos(ba)]];
+  for (const [ax, ay] of axes) {
+    let aMin = Infinity, aMax = -Infinity, bMin = Infinity, bMax = -Infinity;
+    for (const p of pa) { const d = p.x * ax + p.y * ay; if (d < aMin) aMin = d; if (d > aMax) aMax = d; }
+    for (const p of pb) { const d = p.x * ax + p.y * ay; if (d < bMin) bMin = d; if (d > bMax) bMax = d; }
+    if (aMax <= bMin || bMax <= aMin) return false;
+  }
+  return true;
+}
+
+function obbHitsCover(covers, x, y, w, h, angle, pad) {
+  const pa = obbPts(x, y, w + (pad || 0) * 2, h + (pad || 0) * 2, angle || 0);
+  const aa = angle || 0;
+  for (let i = 0; i < covers.length; i++) {
+    const c = covers[i];
+    const pb = obbPts(c.x, c.y, c.w, c.h, c.angle || 0);
+    if (obbPairHits(pa, aa, pb, c.angle || 0)) return true;
+  }
+  return false;
+}
+
 /**
  * AABB 重叠检测：矩形（中心 x,y + 尺寸 w,h）是否击中任一已放置掩体的外接框。
  * 用于水体/桥梁拒绝采样，避免水体/桥梁压在已放置掩体上（P-20 修复 / ISSUES #62 衍生）。
@@ -451,17 +489,19 @@ function convexHull(pts) {
 function placeCentralPond(rng, tpl, scale, centerX, centerY, outCovers) {
   const R = rng.range(0.10, 0.14) * Math.min(tpl.w, tpl.h) * scale;
   const D = R * 2;
-  // 确定性拒绝采样：以节点中心为基准的 5x5 相位网格找不压掩体的落点；全失败则强制居中
+  // 确定性拒绝采样：以节点中心为基准的 5x5 相位网格找不压掩体的落点；全失败则不放置
   const phaseX = rng(), phaseY = rng();
-  let px = centerX, py = centerY;
+  let px = centerX, py = centerY, found = false;
   pondSearch:
   for (let gi = 0; gi < 5; gi++) {
     for (let gj = 0; gj < 5; gj++) {
       const fx = centerX + ((gi + phaseX) / 5 - 0.5) * tpl.w * scale * 0.3;
       const fy = centerY + ((gj + phaseY) / 5 - 0.5) * tpl.h * scale * 0.3;
-      if (!rectHitsCover(outCovers, fx, fy, D, D, 8)) { px = fx; py = fy; break pondSearch; }
+      if (!rectHitsCover(outCovers, fx, fy, D, D, 8)) { px = fx; py = fy; found = true; break pondSearch; }
     }
   }
+  if (!found) return null;
+
   const rot = rng() * Math.PI * 2;
   // ISSUE 7(b)：更平滑的凸 blob——14~18 顶点 + 轻微半径噪声，经凸包收敛为凸形；
   // w/h 取实际外接 bbox（按轴分别计算最大半幅）。
@@ -503,8 +543,16 @@ function placeEdgeRiver(rng, tpl, scale, centerX, centerY) {
   // 实例锚点取首段中心，w/h 记录外接范围（供 rectHitsCover/小地图通绘参考）
   const s0 = segments[0];
   const cx = centerX + s0.dx, cy = centerY + s0.dy;
-  const extX = Math.max.apply(null, segments.map(s => Math.abs(s.dx) + s.w / 2));
-  const extY = Math.max.apply(null, segments.map(s => Math.abs(s.dy) + s.h / 2));
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const s of segments) {
+    minX = Math.min(minX, s.dx - s.w / 2);
+    maxX = Math.max(maxX, s.dx + s.w / 2);
+    minY = Math.min(minY, s.dy - s.h / 2);
+    maxY = Math.max(maxY, s.dy + s.h / 2);
+  }
+  const extX = Math.max(Math.abs(minX - s0.dx), Math.abs(maxX - s0.dx));
+  const extY = Math.max(Math.abs(minY - s0.dy), Math.abs(maxY - s0.dy));
+
   return { x: cx, y: cy, w: extX * 2, h: extY * 2, angle: 0, tier: 'river',
            segments, groupId: 'river' }; // groupId：同一生成调用产出的连通水体标识
 }
@@ -535,6 +583,70 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
     for (const [vx, vy] of verts) { maxx = Math.max(maxx, Math.abs(vx)); maxy = Math.max(maxy, Math.abs(vy)); }
     out.push({ x: centerX + Math.cos(ang) * rr, y: centerY + Math.sin(ang) * rr,
                w: maxx * 2, h: maxy * 2, angle: rng.range(-0.2, 0.2), tier: 'mud', verts });
+  }
+  return out;
+}
+
+// #A11: Map-level Road Network generation
+// Generates 2-3 main roads (polyline) + branches.
+// Returns an array of road cover objects.
+function placeRoadNetwork(rng, tpl, scale, centerX, centerY) {
+  const roadW = rng.range(64, 84); // 街道条带宽（世界px）
+  const nMain = rng.int(2, 3);
+  const out = [];
+  const halfW = tpl.w * scale / 2, halfH = tpl.h * scale / 2;
+
+  for (let i = 0; i < nMain; i++) {
+    // Determine start and end sides (Roughly opposite)
+    const startEdge = rng.int(0, 3); // 0:N, 1:S, 2:W, 3:E
+    const endEdge = (startEdge + 2 + (rng() < 0.5 ? 1 : -1)) % 4;
+
+    const getEdgePos = (edge) => {
+      if (edge === 0) return { x: centerX + rng.range(-halfW * 0.8, halfW * 0.8), y: centerY - halfH };
+      if (edge === 1) return { x: centerX + rng.range(-halfW * 0.8, halfW * 0.8), y: centerY + halfH };
+      if (edge === 2) return { x: centerX - halfW, y: centerY + rng.range(-halfH * 0.8, halfH * 0.8) };
+      return { x: centerX + halfW, y: centerY + rng.range(-halfH * 0.8, halfH * 0.8) };
+    };
+
+    const p1 = getEdgePos(startEdge);
+    const p2 = getEdgePos(endEdge);
+
+    // Create a 1-2 segment polyline (mid point jittered)
+    const mid = {
+      x: (p1.x + p2.x) / 2 + rng.range(-150, 150) * scale,
+      y: (p1.y + p2.y) / 2 + rng.range(-150, 150) * scale
+    };
+
+    const points = [p1, mid, p2];
+    for (let j = 0; j < points.length - 1; j++) {
+      const a = points[j], b = points[j+1];
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      const angle = Math.atan2(b.y - a.y, b.x - a.x);
+      out.push({
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2,
+        w: dist + roadW * 0.5,
+        h: roadW,
+        angle: angle,
+        tier: 'road',
+        groupId: 'main-road-' + i
+      });
+    }
+
+    // Branch: 50% chance to add a branch from the mid point
+    if (rng() < 0.6) {
+      const bang = rng() * Math.PI * 2;
+      const blen = rng.range(120, 240) * scale;
+      out.push({
+        x: mid.x + Math.cos(bang) * blen / 2,
+        y: mid.y + Math.sin(bang) * blen / 2,
+        w: blen + roadW * 0.4,
+        h: roadW,
+        angle: bang,
+        tier: 'road',
+        groupId: 'branch-road-' + i
+      });
+    }
   }
   return out;
 }
@@ -991,6 +1103,14 @@ function generateNode(difficulty, options) {
   const outCovers = [];
   const items = selectedTemplate.items || [];
 
+  // #A11: Phase 0 - Map-level Road Network (Deterministic, before items/village/forest)
+  // Use a dedicated sub-stream to ensure roads are stable across difficulty levels.
+  const rrng = createRNG(((Number(seed) ^ 0x11A11A11) + 0x6D2B79F5) >>> 0);
+  const networkRoads = placeRoadNetwork(rrng, selectedTemplate, scale, centerX, centerY);
+  for (const r of networkRoads) {
+    outCovers.push(r);
+  }
+
   // tier 表提前查询（P-40）：地形类（liquid/ground）不参与难度升降级
   const coverTiers = (typeof RULES !== 'undefined' && RULES.coverTiers)
     ? RULES.coverTiers
@@ -1032,7 +1152,9 @@ function generateNode(difficulty, options) {
     const itemBoxes = items.map(it => ({
       x: centerX + (it.dx || 0) * scale, y: centerY + (it.dy || 0) * scale,
       w: it.w * scale, h: it.h * scale
-    }));
+    })).concat(networkRoads.map(r => ({
+      x: r.x, y: r.y, w: r.w, h: r.h, angle: r.angle // Some may use OBB but AABB is safe here
+    })));
     forestCovers = placeForestClusters(itemBoxes, rng, {
       cx: centerX, cy: centerY, scale,
       minClusters: fcfg.minClusters, maxClusters: fcfg.maxClusters,
@@ -1101,11 +1223,21 @@ function generateNode(difficulty, options) {
     const jitterY = rng.range(-4, 4) * scale;
     const angleJitter = rng.range(-0.05, 0.05);
 
+    const ix = centerX + item.dx * scale + jitterX;
+    const iy = centerY + item.dy * scale + jitterY;
+    const iw = itemW * scale;
+    const ih = itemH * scale;
+
+    // #A11: Template items avoid roads
+    if (obbHitsCover(networkRoads, ix, iy, iw, ih, (item.angle || 0) + angleJitter, 4)) {
+      continue;
+    }
+
     const coverObj = {
-      x: centerX + item.dx * scale + jitterX,
-      y: centerY + item.dy * scale + jitterY,
-      w: itemW * scale,
-      h: itemH * scale,
+      x: ix,
+      y: iy,
+      w: iw,
+      h: ih,
       angle: (item.angle || 0) + angleJitter,
       tier: tier
     };
@@ -1156,7 +1288,8 @@ function generateNode(difficulty, options) {
   const terrainTags = selectedTemplate.terrainTags || [];
   for (const tag of terrainTags) {
     if (tag === 'centralPond') {
-      outCovers.push(placeCentralPond(rng, selectedTemplate, scale, centerX, centerY, outCovers));
+      const pond = placeCentralPond(rng, selectedTemplate, scale, centerX, centerY, outCovers);
+      if (pond) outCovers.push(pond);
     } else if (tag === 'edgeRiver') {
       outCovers.push(placeEdgeRiver(rng, selectedTemplate, scale, centerX, centerY));
     } else if (tag === 'mudPatch') {
@@ -1303,13 +1436,31 @@ function generateNode(difficulty, options) {
     const playArea = w * h;
 
     // --- coverCoverage：Σ(w*h) / 可玩面积（AABB 近似，旋转忽略；可 >1） ---
+    // #A11: Ground/Liquid terrain tiers (road, mud, river, water) do not count toward cover coverage.
     let coverArea = 0;
-    for (const c of covers) coverArea += (c.w || 0) * (c.h || 0);
+    let forestArea = 0;
+    const coverTiers = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers : null;
+    for (const c of covers) {
+      const tierDef = coverTiers && coverTiers[c.tier];
+      const isGroundOrLiquid = tierDef ? (tierDef.tierGroup === 'ground' || tierDef.tierGroup === 'liquid') : (c.tier === 'road' || c.tier === 'mud' || c.tier === 'river' || c.tier === 'water');
+      if (isGroundOrLiquid) continue;
+
+      const area = (c.w || 0) * (c.h || 0);
+      coverArea += area;
+      if (c.tier === 'tree' || c.tier === 'bush' || c.tier === 'forest') {
+        forestArea += area;
+      }
+    }
     const coverCoverage = playArea > 0 ? coverArea / playArea : 0;
+    const forestCoverage = playArea > 0 ? forestArea / playArea : 0;
 
     // --- 自包含 OBB 点测试（旋转矩形 + verts/collisionVerts 多边形） ---
     const isBlocked = (x, y) => {
       for (const c of covers) {
+        const tierDef = coverTiers && coverTiers[c.tier];
+        const isGround = tierDef ? (tierDef.tierGroup === 'ground') : (c.tier === 'road' || c.tier === 'mud');
+        if (isGround) continue; // Roads and mud patches do not block physical movement
+
         if (c.verts || c.collisionVerts) {
           if (_pointInCoverPoly(c, x, y, 0)) return true;
         } else {
@@ -1424,7 +1575,9 @@ function generateNode(difficulty, options) {
 
     return {
       coverCoverage,
+      forestCoverage,
       connectivityRatio,
+      openness: connectivityRatio, // #A11 alias
       losSymmetry,
       minPassageWidth,
       coverCount: covers.length,

@@ -107,7 +107,7 @@ const RULES = {
     road:       { label: '道路',     fill: 'rgba(122,120,114,0.55)', stroke: '#6e6c66', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'road',        tierGroup: 'ground' }, // 村庄街道：可自由通行、不挡弹、不遮视线（纯地面标识）
     intact:     { label: '完整建筑', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure' },
     ruined:     { label: '残破建筑', fill: 'rgba(122,114,100,0.5)',  stroke: '#7a7264', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'half',      destructible: 1,        crushable: false, vision: false, drawStyle: 'rubble-box',  tierGroup: 'structure', toTier: 'rubble', driveBy: { heavy: true, medium: false } },
-    rock:       { label: '岩石',     fill: 'rgba(138,138,132,0.85)', stroke: '#6f6f68', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'rock-poly',   tierGroup: 'structure' },
+    rock:       { label: '岩石',     fill: 'rgba(138,138,132,0.85)', stroke: '#6f6f68', passability: 0,    shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'rock-poly',   tierGroup: 'structure' },
     bridge:     { label: '桥梁',     fill: 'rgba(139,92,25,0.8)',    stroke: '#8b5c1a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' }
   },
 

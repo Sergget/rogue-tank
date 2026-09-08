@@ -254,6 +254,14 @@ function drawCover(ctx, cov){
   } else if(typeof ASSET_DEFS !== 'undefined' && ASSET_DEFS[tier.draw]){
     // 资产层：soft/barricade/stump/rubble/bush/tree/fallen（依赖 js/tank_assets.js 先加载）
     drawAsset(ctx, tier.draw, cov.x, cov.y, cov.w, cov.h, cov.angle||0);
+  } else {
+    // 兜底渲染逻辑：资产缺失或未知 drawStyle 时，绘制半透明彩色框，确保物理存在即视觉可见
+    const c = coverCorners(cov);
+    ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
+    for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
+    ctx.closePath();
+    ctx.fillStyle = tier.fill || 'rgba(128,128,128,0.5)'; ctx.fill();
+    ctx.strokeStyle = tier.stroke || '#888'; ctx.lineWidth=1.5; ctx.stroke();
   }
 }
 
@@ -573,7 +581,8 @@ function drawTank(ctx, t){
 
   // 血条阈值用实例 maxHp（t.maxHp 由 makeTank/applyHp 同步），stats.maxHp 可能是旧的塔载默认值
   const maxHp = (t.maxHp && t.maxHp > 0) ? t.maxHp : (t.stats?.maxHp || 100);
-  if(t.hp < maxHp && t.hp > 0){
+  const isEnemy = t.team === 'enemy';
+  if((t.hp < maxHp || isEnemy) && t.hp > 0){
     const barW = 44, barH = 5;
     const bx = t.x - barW/2, by = t.y + (t.hullWid||38)/2 + 14;
     // 血条左侧重/中型标志（不遮挡坦克本体）
@@ -585,6 +594,14 @@ function drawTank(ctx, t){
     ctx.fillRect(bx, by, barW * hpPct, barH);
     ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
     ctx.strokeRect(bx, by, barW, barH);
+
+    // 敌方等级标示 (Lv.X)
+    if(isEnemy){
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.font = 'bold 9px "JetBrains Mono", monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Lv.${(t.aiTier || 0) + 1}`, bx + barW + 5, by + barH);
+    }
   }
 }
 

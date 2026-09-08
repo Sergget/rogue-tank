@@ -119,7 +119,9 @@
 - **掩体尺寸与配色**：`RULES.nodeMap.coverWorldScale` 调小为 {half:0.42, full:0.42, barricade:0.32}（相对坦克更协调）；`coverTiers` 改用高对比色（建筑砖红 #b5553f、半高墙深描边 #2e2410、灌木/树提高饱和度）以区别于地表。水体新增 `draw` 分支，现已可见。
 - **自然化形状**：mud 改为径向噪声凸 blob；central pond 改为 14–18 边凸 blob；建筑经 `placeVillage` 以 5–9 个小矩形松散聚成村落（部分 L 形）。碰撞核心已支持凸多边形 SAT。
 - **水域涉水通行**：`RULES.coverTiers.water` 与 `river` 的 `passability` 由 `0.0` 调整为 `0.4`（减速可通行，不再被 MTV 硬推出卡死），炮弹维持 `shellBlock:false`（`mode:'pass'` 飞越不拦截）。
-- **贴图资产管线（后续规划）**：`tank_assets.js` 的 `ASSET_DEFS` 与 `drawAsset` 图片优先/程序化烘焙兜底管线已就绪，后续将建筑、岩石、残骸接入真实 PNG 贴图（取代纯色平涂），提升地形识别度。
+- **地图级路网生成 (#A11/P-43)**：`generateNode` 增加 `placeRoadNetwork` 阶段，在模板 items 放置前先行生成 2-3 条贯穿战场的 `road` 主干道与随机分支。后续元素（村落、树林、模板物件）均经 `obbHitsCover` 检测避让路网骨架，解决道路不贯穿、与建筑水域无序叠加的问题。
+	- **自然化不规则地形 (#78)**：新增 `rock` (岩石) 与 `mud` (泥地) tier。岩石具备 solid 碰撞、 `rock-poly` 棱线绘制与遮挡视线能力；泥地具备 0.4 减速且不挡弹能力。支持 `verts` 多边形几何，使掩体不再局限于矩形。
+	- **贴图资产管线**：`tank_assets.js` 的 `ASSET_DEFS` 与 `drawAsset` 图片优先/程序化烘焙兜底管线已就绪，建筑、岩石、残骸已接入真实 PNG 贴图（或程序化烘焙），提升地形识别度。
 - **敌军聚集生成**：`makeNode` 改为两层级——先按难度选 1–4 个聚集中心，每中心在 `enemyClusterRadius` 内生成 2–5 辆（保持 minPlayerDist / enemyMinDist），网格兜底仅作最后手段。
 
 ---
