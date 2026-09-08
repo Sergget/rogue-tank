@@ -185,6 +185,18 @@ const RULES = {
       cooldown: 25       // 冷却（秒）
     },
     // 无人机体系（子目标 4）
+    super_fire_control: {
+      duration: 8,
+      spreadMult: 0.3,    // 70% reduction in spread (above multFloor 0.2)
+      aimSpeedMult: 3.0,  // 3x aiming speed
+      cooldown: 25
+    },
+    super_speed: {
+      duration: 6,
+      accelMult: 3.0,     // 3x engine power / accel
+      maxSpeedMult: 1.5,  // +50% top speed
+      cooldown: 20
+    },
     drone: {
       scoutRange: 700,     // 侦察指示范围（px）：视口外敌军位置指示箭头（默认视口 960×600，半对角线 ≈566，取 700 覆盖视口外一圈）
       strikeRange: 260,    // 打击无人机近身自动索敌攻击范围（px）
@@ -625,7 +637,13 @@ const RULES = {
 
   // 运行时重量绝对上限（吨）：卡牌/局内升级可突破 parameterLimits.weight.max(80t) 设计上限，
   // 但 computeStats 聚合后的最终 s.weight 一律钳 ≤ 此值（2026-08-26 用户裁定）。
-  weightRuntimeCap: 240
+  weightRuntimeCap: 240,
+
+  // ======================= 武器与槽位解耦 (R-1) =======================
+  weaponTypes: {
+    primary: ['standard', 'autocannon', 'double_barrel', 'railgun', 'howitzer'],
+    secondary: ['none', 'mortar', 'missile', 'rocket', 'mine_layer']
+  }
 };
 
 // 距离分档函数已移除（A1 双档模型见 coverHugDist，掩体遮挡不再有连续渐变）

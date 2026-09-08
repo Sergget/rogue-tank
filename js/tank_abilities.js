@@ -46,7 +46,7 @@ let _refreshStats = (typeof refreshStats === 'function') ? refreshStats : null;
 
 // 本模块支持的运行时能力键（其余 ABILITY_KEYS 如 smoke/recon 属烟幕/侦察等
 // 其他系统，不在本入口分发范围）
-const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield'];
+const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'super_fire_control', 'super_speed'];
 
 // innate 内置能力键：开局自带、绕过卡牌持有检查（独立冷却池 t.abilityCds）
 const ABILITY_KEYS_INNATE = ['repair', 'medkit', 'extinguish'];
@@ -190,6 +190,32 @@ function tryActivateAbility(t, key, ctx) {
       t.reloadT = 0;   // 爆发装填：立即打完当前装填（决策见模块头注释）
       t.abilityCdT = _cooldownFor(cfg, 'overdrive');
       return { ok: true, key: key, reloadMult: mult, duration: dur };
+    }
+    case 'super_fire_control': {
+      const sfc = cfg.super_fire_control || {};
+      const spreadMult = _d(sfc, 'spreadMult', 0.1);
+      const aimSpeedMult = _d(sfc, 'aimSpeedMult', 3.0);
+      const dur = _d(sfc, 'duration', 8);
+      if (_removeModifierBySource) _removeModifierBySource(t, 'ability:super_fire_control');
+      if (_addTimedModifier) {
+        _addTimedModifier(t, { stat: 'spreadMult', mode: 'mult', value: spreadMult, source: 'ability:super_fire_control' }, dur * 1000);
+        _addTimedModifier(t, { stat: 'aimSpeed', mode: 'mult', value: aimSpeedMult, source: 'ability:super_fire_control' }, dur * 1000);
+      }
+      t.abilityCdT = _cooldownFor(cfg, 'super_fire_control');
+      return { ok: true, key: key, spreadMult, aimSpeedMult, duration: dur };
+    }
+    case 'super_speed': {
+      const spd = cfg.super_speed || {};
+      const accelMult = _d(spd, 'accelMult', 3.0);
+      const maxSpeedMult = _d(spd, 'maxSpeedMult', 1.5);
+      const dur = _d(spd, 'duration', 6);
+      if (_removeModifierBySource) _removeModifierBySource(t, 'ability:super_speed');
+      if (_addTimedModifier) {
+        _addTimedModifier(t, { stat: 'enginePower', mode: 'mult', value: accelMult, source: 'ability:super_speed' }, dur * 1000);
+        _addTimedModifier(t, { stat: 'maxSpeed', mode: 'mult', value: maxSpeedMult, source: 'ability:super_speed' }, dur * 1000);
+      }
+      t.abilityCdT = _cooldownFor(cfg, 'super_speed');
+      return { ok: true, key: key, accelMult, maxSpeedMult, duration: dur };
     }
   }
   return { ok: false, reason: 'unsupported' };

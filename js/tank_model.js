@@ -4,6 +4,7 @@
 // 提供。浏览器端它是全局函数（geometry 先于 model 加载）；Node 测试端在下方 export 块内
 // require tank_geometry.js 兜底赋值，保证 applyTankConfig 两侧行为一致。
 let _normalizeTankModules = (typeof normalizeTankModules === 'function') ? normalizeTankModules : null;
+let _normalizeTankWeapons = (typeof normalizeTankWeapons === 'function') ? normalizeTankWeapons : null;
 
 // ---------- three-layer attribute system (base / modifiers / stats) ----------
 // Combat code reads ONLY tank.stats. `tank.base` holds the untuned values; `tank.modifiers`
@@ -295,6 +296,10 @@ function makeTank(opts){
     },
     modifiers: [],
     modules: null,                  // 线段挂载模块（设计器导出；null/无字段 = 旧数据，走 zones 退化）
+    weapons: { primary: { type: 'standard', stats: {} }, secondary: { type: 'none', stats: {} } },
+    moduleSlots: [],
+    _visualVersion: 0,
+    _lastDrawnVersion: -1,
     sigma:0, prevHullAngle:0, prevTurretAngle:0
   }, opts);
 
@@ -420,6 +425,15 @@ function applyTankConfig(tank, spec){
   if (spec.modules){
     tank.modules = (typeof _normalizeTankModules === 'function') ? _normalizeTankModules(spec.modules) : null;
   }
+
+  if (spec.weapons || spec.primary || spec.secondary) {
+    tank.weapons = (typeof _normalizeTankWeapons === 'function') ? _normalizeTankWeapons(spec) : (spec.weapons || tank.weapons);
+  }
+  if (spec.moduleSlots) {
+    tank.moduleSlots = [...spec.moduleSlots];
+  }
+
+  tank._visualVersion = (tank._visualVersion || 0) + 1;
 
   refreshStats(tank);
   tank.hp = tank.stats.maxHp;
