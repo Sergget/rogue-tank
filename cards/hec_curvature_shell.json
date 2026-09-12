@@ -1,0 +1,11 @@
+{
+  "id": "hec_curvature_shell",
+  "name": "曲射爆破弹",
+  "rarity": "epic",
+  "tags": ["爆破"],
+  "desc": "将高爆弹(HE)升级为 HEC 曲射爆破弹，可越过全高掩体并造成 110px 范围溅射。",
+  "effects": [
+    { "type": "ammo", "key": "hec", "replaceAmmo": "he", "field": "dmg", "mode": "mult", "value": 1.20 }
+  ],
+  "maxStacks": 1
+}

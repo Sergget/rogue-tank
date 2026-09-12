@@ -625,8 +625,9 @@ renderAmmoIndicator();
 document.addEventListener('keydown', e=>{
   if(inMenuState()) return;   // 局外界面：弹种热键不响应
   const k = e.key;
-  if(k >= '1' && k <= '9') setAmmoSlot(k.charCodeAt(0) - 49);   // '1'→槽0 …；越界自动忽略
-  else if(k === 'q' || k === 'Q') cycleAmmo(1);
+  if(k >= '1' && k <= '3') setAmmoSlot(k.charCodeAt(0) - 49);   // '1'~'3'→对应槽位0~2；仅允许3槽
+  else if(k === 'q' || k === 'Q') cycleAmmo(1);                  // Q 键顺时针切弹
+  else if(k === 'e' || k === 'E') cycleAmmo(-1);                 // E 键逆时针切弹
 });
 window.addEventListener('wheel', e=>{
   if(inMenuState()) return;   // 局外界面：滚轮不调缩放（不拦截列表滚动默认行为）

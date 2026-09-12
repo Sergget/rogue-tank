@@ -28,7 +28,7 @@ const MODIFIER_STATS = [
 ];
 
 // 弹种改造：key = 弹种（RULES.ammoTypes），field = 可改字段
-const AMMO_KEYS = ['ap', 'apcr', 'he', 'heat'];
+const AMMO_KEYS = ['ap', 'apcr', 'he', 'heat', 'apfsds', 'hec'];
 const AMMO_FIELDS = ['pen', 'dmg', 'speed'];
 
 // 主动装置（ability，运行时在对应里程碑接入按键触发；schema 先行）
@@ -161,6 +161,24 @@ function applyCardEffects(tank, card, ctx) {
       if (!tank.cardEffects) tank.cardEffects = [];
       tank.cardEffects.push(Object.assign({}, ef, { cardId: card.id }));
       applied.push(ef);
+
+      // 特殊机制：获得高级/特种弹种卡牌（replaceAmmo 字段指定被替换的基础弹种，或自动直系演变）
+      if (ef.type === 'ammo' && tank && Array.isArray(tank.ammoLoadout)) {
+        const replaceTarget = ef.replaceAmmo || (ef.key === 'apfsds' ? 'ap' : (ef.key === 'hec' ? 'he' : null));
+        if (replaceTarget) {
+          const idx = tank.ammoLoadout.indexOf(replaceTarget);
+          if (idx >= 0) {
+            tank.ammoLoadout[idx] = ef.key;
+            if (tank.ammoKey === replaceTarget) tank.ammoKey = ef.key;
+          } else if (!tank.ammoLoadout.includes(ef.key)) {
+            if (tank.ammoLoadout.length < 3) {
+              tank.ammoLoadout.push(ef.key);
+            } else {
+              tank.ammoLoadout[0] = ef.key; // 槽满则替换首槽
+            }
+          }
+        }
+      }
     }
   }
   return applied;
