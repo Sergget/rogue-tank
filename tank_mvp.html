@@ -838,7 +838,7 @@ document.getElementById('devResetStatsBtn').addEventListener('click', ()=>{ rese
 // 卡牌池（P-09 真实卡池；reward 三选一与 dev 面板共用）
 let cardPool = [];
 function loadCardPool(){
-  fetch('api/cards')
+  fetch('/api/cards')
     .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
     .then(list => { cardPool = Object.values(list || {}); })
     .catch(err => { console.warn('无法读取 cards/ 列表:', err.message); cardPool = []; });
@@ -848,7 +848,7 @@ loadCardPool();
 // Boss 池（P-09；链尾节点随机指定一个 Boss）
 let bossPool = [];
 function loadBossPool(){
-  fetch('api/bosses')
+  fetch('/api/bosses')
     .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
     .then(list => { bossPool = Object.values(list || {}); })
     .catch(err => { console.warn('无法读取 bosses/ 列表:', err.message); bossPool = []; });

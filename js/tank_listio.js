@@ -11,7 +11,7 @@
 // 纯 fetch + DOM 下载，无其他依赖。
 
 function apiTanksUrl(id){
-  return 'api/tanks' + (id !== undefined ? '/' + encodeURIComponent(id) : '');
+  return '/api/tanks' + (id !== undefined ? '/' + encodeURIComponent(id) : '');
 }
 
 function fetchTankList(onDone){

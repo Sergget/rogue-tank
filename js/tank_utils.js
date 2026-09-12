@@ -15,10 +15,19 @@ function angDiff(a, b) {
 }
 
 function gaussian(sigma) {
+  if (!sigma || sigma <= 0) return 0;
   let u = 0, v = 0;
   while (u === 0) u = Math.random();
   while (v === 0) v = Math.random();
-  return sigma * Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v);
+  let val = sigma * Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v);
+  // 95% 置信区间截断与重分布（2σ 边界）：
+  // 标准高斯分布约有 4.55% 概率散布在 ±2σ 之外。
+  // 若随机结果落在 2σ（95%）之外，则在 [-2σ, 2σ] 夹角内均匀重新分布，确保 100% 炮弹落在瞄准夹角内
+  const limit = 2 * sigma;
+  if (Math.abs(val) > limit) {
+    val = (Math.random() * 2 - 1) * limit;
+  }
+  return val;
 }
 
 function rotate(dx, dy, theta) {

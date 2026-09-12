@@ -300,7 +300,9 @@ const RULES = {
     ap:   { label: 'AP',   color: '#5cc8ff', speed: 1.0, pen: 1.0, dmg: 1.0, tail: 'rgba(92,200,255,0.6)' },
     apcr: { label: 'APCR', color: '#ff6c5c', speed: 1.2, pen: 1.2, dmg: 0.8, tail: 'rgba(255,106,92,0.6)' },
     heat: { label: 'HEAT', color: '#ffd23c', speed: 0.8, pen: 1.4, dmg: 1.0, spread: 1.2, noBounce: true, tail: 'rgba(255,210,60,0.6)' },
-    he:   { label: 'HE',   color: '#ffb454', speed: 0.95, pen: 0.7, dmg: 1.0, noBounce: true, splashRadius: 90, tail: 'rgba(255,180,84,0.6)' }
+    he:   { label: 'HE',   color: '#ffb454', speed: 0.95, pen: 0.7, dmg: 1.0, noBounce: true, splashRadius: 90, tail: 'rgba(255,180,84,0.6)' },
+    apfsds: { label: 'APFSDS', color: '#d8f8ff', speed: 1.8, pen: 2.0, dmg: 0.9, noBounce: true, doubleModule: true, tail: 'rgba(216,248,255,0.8)' },
+    hec:    { label: 'HEC',    color: '#ff9040', speed: 0.85, pen: 1.1, dmg: 1.2, noBounce: true, splashRadius: 110, ignoreCover: true, arc: true, tail: 'rgba(255,144,64,0.7)' }
   },
 
   // ======================= 弹种增益软上限（ISSUE 19） =======================

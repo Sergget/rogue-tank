@@ -10,11 +10,11 @@ const WEAPON_DEFAULTS = {
     autocannon:  { reloadMult: 0.3, damageMult: 0.35, penMult: 0.8, shellSpeedMult: 0.9, burst: 3 },
     double_barrel: { reloadMult: 1.4, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0, count: 2, stagger: 0.15 },
     railgun:     { reloadMult: 2.2, damageMult: 1.5, penMult: 2.0, shellSpeedMult: 2.5, burst: 1 },
-    howitzer:    { reloadMult: 2.5, damageMult: 2.0, penMult: 0.7, shellSpeedMult: 0.7, splashRadius: 100 }
+    howitzer:    { reloadMult: 2.5, damageMult: 2.0, penMult: 0.7, shellSpeedMult: 0.7, splashRadius: 100, isArc: true, range: 500, accuracySpread: 0.04 }
   },
   secondary: {
     none:        { reload: 0, damage: 0 },
-    mortar:      { range: 450, aoe: 90, reload: 8, damage: 60 },
+    mortar:      { range: 450, aoe: 90, reload: 8, damage: 60, isArc: true, accuracySpread: 0.05 },
     missile:     { guided: true, reload: 12, damage: 140 },
     rocket:      { count: 4, reload: 10, damage: 35 },
     mine_layer:  { duration: 30, reload: 15, damage: 100 }

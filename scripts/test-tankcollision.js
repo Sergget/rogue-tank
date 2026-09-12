@@ -129,10 +129,12 @@ function residualOverlap(a, b){
 // 3) 推挤：A 全速推向静止 B —— B 被推动前进，A 不穿模
 {
   clear();
-  const A = freshTank('A3', 300, 320, 0, 'player');
+  // 注：A 初始 x=600（贴近 B 的 700）、跑 400 帧——f9ac4f7 把 accelPowerToPxScale 从 130
+  // 降到 15 后，A 从 300 加速到接触需要 ~243 帧，旧参数 (300/150帧) 下 A 根本没碰到 B。
+  const A = freshTank('A3', 600, 320, 0, 'player');
   const B = freshTank('B3', 700, 320, Math.PI, 'enemy');
   let maxResidual = 0;
-  for(let f=0; f<150; f++){
+  for(let f=0; f<400; f++){
     MV.driveTank(A, dt, { turn:0, move:1 });
     MV.driveTank(B, dt, { turn:0, move:0 });
     EN.resolveTankCollisions();

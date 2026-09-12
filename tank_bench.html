@@ -155,7 +155,7 @@
     <canvas id="c"></canvas>
     <div id="reloadWrap">
       装填 RELOAD
-      <span id="ammoIndicator"><span class="dot"></span><span class="label"></span></span>
+      <span id="ammoIndicator" style="display:inline-flex; align-items:center; gap:8px; margin-left:12px;"></span>
       <div id="reloadTrack"><div id="reloadFill"></div></div>
     </div>
   </div>
@@ -185,21 +185,21 @@
     </div>
 
     <div class="section">
-      <h3>目标 Target Dummy</h3>
-      <div class="bar-row"><span class="bar-label">HULL HP</span><div class="bar-track"><div class="bar-fill" id="eHpBar" style="background:var(--green); width:100%"></div></div><span class="bar-val" id="eHpVal">100</span></div>
-      <div class="bar-row"><span class="bar-label">STATUS</span><span class="mono" id="eStatus" style="font-size:11px; color:var(--text-dim);">正常</span></div>
-      <div class="bar-row"><span class="bar-label">身高等级</span><span class="mono" id="eHeightClass" style="font-size:11px; color:var(--amber);">重坦(高车体)</span></div>
-      <button id="heightBtn" style="margin-top:4px;">切换靶车身高等级</button>
-      <div class="bar-row" style="margin-top:8px; align-items:center;">
-        <span class="bar-label">满血值</span>
-        <input id="dummyHpInput" type="number" min="1" max="99999" value="100" style="width:70px; background:#0c0d09; border:1px solid var(--line); color:var(--text); font-family:'JetBrains Mono',monospace; font-size:11px; padding:3px 5px;">
-        <button id="applyHpBtn" style="padding:4px 7px;">应用</button>
+      <h3>功能测试扩展 Panel Test (R-1/R-2/R-3)</h3>
+      <div class="bar-row"><span class="bar-label">主动技能</span>
+        <div class="btnrow" style="flex:1;">
+          <button id="skillFireCtrlBtn" style="padding:4px 6px;">超级火控</button>
+          <button id="skillSpeedBtn" style="padding:4px 6px;">超级速度</button>
+        </div>
       </div>
-      <div class="bar-row" style="align-items:center;">
-        <span class="bar-label">自动复活</span>
-        <button id="autoReviveBtn" style="padding:4px 7px;">开启 AUTO-REVIVE</button>
-        <span class="mono" id="autoReviveHint" style="font-size:10px; color:var(--text-dim);">摧毁后 1.5s 满血复活</span>
+      <div class="bar-row" style="margin-top:6px;"><span class="bar-label">战术部署</span>
+        <div class="btnrow" style="flex:1;">
+          <button id="spawnTurretBtn" style="padding:4px 6px;">布设炮塔</button>
+          <button id="spawnMineBtn" style="padding:4px 6px;">放置地雷</button>
+          <button id="spawnCoverBtn" style="padding:4px 6px;">战术护盾</button>
+        </div>
       </div>
+      <div class="mono" style="font-size:10px; color:var(--text-dim); margin-top:4px;">测试主动技能激活、零移速炮塔、地雷布撒与战术护盾掩体部署</div>
     </div>
 
     <div class="section controls">
@@ -208,6 +208,24 @@
       <div><b>左键 / 空格</b> 开火（有装填时间）</div>
       <div><b>1/2/3</b> 弹种切换（AP / APCR / HE）</div>
       <div><b>方向键</b> 手动移动测试靶 — 掩体已移到默认射线上方；把靶车开到掩体后面测试露头概率</div>
+    </div>
+
+    <div class="section">
+      <h3>靶车状态 Dummy Status</h3>
+      <div class="bar-row"><span class="bar-label">HP</span>
+        <div class="bar-track"><div class="bar-fill" id="eHpBar" style="width:100%"></div></div>
+        <span class="bar-val" id="eHpVal">100</span></div>
+      <div class="bar-row"><span class="bar-label">车体</span>
+        <span class="bar-val" id="eHeightClass">重坦(高车体)</span></div>
+      <div class="bar-row"><span class="bar-label">状态</span>
+        <span class="bar-val" id="eStatus">正常</span></div>
+      <div class="btnrow" style="margin-top:4px;">
+        <button id="heightBtn">切换车高</button>
+        <button id="applyHpBtn">应用血量</button>
+        <button id="autoReviveBtn">开启 AUTO-REVIVE</button>
+      </div>
+      <div class="bar-row"><span class="bar-label">血量值</span>
+        <input type="number" id="dummyHpInput" value="100" min="1" max="99999" style="width:80px;"></div>
     </div>
 
     <div class="btnrow">
@@ -239,6 +257,8 @@
   <script src="js/tank_dmgtext.js"></script>
   <!-- P-17 护盾模块：fireCtx 引用 hasShield/shieldAbsorbs/absorbDamage，缺失会导致 update 首帧 ReferenceError → rAF 循环断裂 → 页面冻结 -->
   <script src="js/tank_shield.js"></script>
+  <script src="js/tank_deployables.js"></script>
+  <script src="js/tank_abilities.js"></script>
   <script src="js/tank_fire.js"></script>
 <script>
 (() => {
@@ -274,6 +294,10 @@ dummy.turretSwing = 0;
 dummy.invuln = false;       // when true: hp is locked, dummy never takes damage
 dummy.autoRevive = true;    // when true: dummy respawns full 1.5s after being destroyed
 dummy.reviveT = 0;          // countdown to auto-revive
+
+// 显式导出到全局供脚本/console 使用（js/tank_entity.js 已定义 const entities = []）
+window.player = player;
+window.dummy = dummy;
 
 // 从 tanks/ 目录（一型一文件，经 /api/tanks 聚合）加载坦克配置数据
 let tankListData = null;
@@ -363,30 +387,48 @@ window.addEventListener('keydown', e=>{
 });
 window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
 
-// ---------- ammo type selection (特性4 / P-16：1/2/3/4 → ap/apcr/he/heat) ----------
-const AMMO_KEYS = { '1':'ap', '2':'apcr', '3':'he', '4':'heat' };
+// ---------- ammo type selection (特性4 / P-16：动态从 RULES.ammoTypes 获取) ----------
+function getAmmoKeys() {
+  return Object.keys(RULES.ammoTypes || { 'ap':{}, 'apcr':{}, 'he':{}, 'heat':{} });
+}
 player.ammoKey = 'ap';
+
 function renderAmmoIndicator(){
   const el = document.getElementById('ammoIndicator');
   if(!el) return;
-  const ammo = RULES.ammoTypes[player.ammoKey] || RULES.ammoTypes.ap;
-  const dot = el.querySelector('.dot');
-  const label = el.querySelector('.label');
-  if(dot) dot.style.background = ammo.color;
-  if(label) label.textContent = ammo.label;
+  const keys = getAmmoKeys();
+  let html = '';
+  keys.forEach((k, idx) => {
+    const ammo = RULES.ammoTypes[k];
+    const active = player.ammoKey === k;
+    html += `<span style="display:inline-flex; align-items:center; gap:3px; opacity:${active?1:0.4}; font-weight:${active?700:400}; color:${active?'var(--text)':'var(--text-dim)'}">` +
+            `<span style="width:8px; height:8px; border-radius:50%; background:${ammo.color}; border:1px solid rgba(255,255,255,0.2)"></span>` +
+            `<span>${idx+1}:${ammo.label}</span></span>`;
+  });
+  el.innerHTML = html;
 }
+
 function setAmmo(key){
   if(!RULES.ammoTypes[key]) return;
   player.ammoKey = key;
   renderAmmoIndicator();
-  playSound('ui'); // M1：弹种切换（数字键 1/2/3）
+  playSound('ui');
   pushLog(`弹种切换：${RULES.ammoTypes[key].label}`,'COVER');
 }
+
 renderAmmoIndicator();
+
 document.addEventListener('keydown', e=>{
   const k = e.key;
-  if(AMMO_KEYS[k]) setAmmo(AMMO_KEYS[k]);
+  const keys = getAmmoKeys();
+  const idx = parseInt(k, 10) - 1;
+  if (idx >= 0 && idx < keys.length) {
+    setAmmo(keys[idx]);
+  }
 });
+
+// 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用
+let fireCtx = null;
 
 let mouseWorld = {x:player.x+100,y:player.y};
 canvas.addEventListener('mousemove', e=>{
@@ -487,9 +529,10 @@ document.getElementById('applyCardBtn').addEventListener('click', ()=>{
   const id = document.getElementById('cardSelect').value;
   const card = cardPool[id];
   if(!card){ pushLog(`卡牌不存在: ${id}`,'COVER'); return; }
-  // 叠加式：每次点击都重新应用全部效果（modifier 走 addModifier、装置入 cardEffects 队列），
-  // 可重复点击模拟叠层（受 maxStacks 约束的卡由消费端语义处理）
+  // 叠加式：每次点击都重新应用全部效果
   const applied = applyCardEffects(player, card);
+  // 重要：应用卡牌（modifiers）后必须刷新 stats 才能生效
+  refreshStats(player);
   playSound('ui');
   pushLog(`应用卡牌「${card.name || id}」(${card.rarity}) ×${cardStackCount(player, id)} 层 — ${applied.length} 条效果生效`,'PEN');
 });
@@ -510,7 +553,41 @@ document.getElementById('clearCardsBtn').addEventListener('click', ()=>{
   playSound('ui');
   pushLog(`清除全部卡牌效果 — 移除 ${removedMods} 条 modifier / ${removedFx} 条装置效果，玩家属性已还原`,'COVER');
 });
-loadCardPool();
+document.getElementById('skillFireCtrlBtn').addEventListener('click', ()=>{
+  // 测试台特权：若无卡则自动补一张，确保护理逻辑 hasAbility 检查通过
+  if(!hasAbility(player, 'super_fire_control')){
+    player.cardEffects = player.cardEffects || [];
+    player.cardEffects.push({ type:'ability', key:'super_fire_control', cardId:'bench_debug' });
+  }
+  const res = tryActivateAbility(player, 'super_fire_control', {});
+  pushLog(res.ok ? '激活超级火控成功（散布大幅降低）' : `超级火控激活失败: ${res.reason}`, res.ok ? 'PEN' : 'CRIT');
+  playSound('ui');
+});
+document.getElementById('skillSpeedBtn').addEventListener('click', ()=>{
+  // 测试台特权：若无卡则自动补一张
+  if(!hasAbility(player, 'super_speed')){
+    player.cardEffects = player.cardEffects || [];
+    player.cardEffects.push({ type:'ability', key:'super_speed', cardId:'bench_debug' });
+  }
+  const res = tryActivateAbility(player, 'super_speed', {});
+  pushLog(res.ok ? '激活超级速度成功（极速与加速度提升）' : `超级速度激活失败: ${res.reason}`, res.ok ? 'PEN' : 'CRIT');
+  playSound('ui');
+});
+document.getElementById('spawnTurretBtn').addEventListener('click', ()=>{
+  spawnFixedTurret({ x: player.x + 60, y: player.y, team: 'player', range: 400, reload: 1.0 });
+  pushLog('在玩家前方部署固定炮塔成功', 'PEN');
+  playSound('ui');
+});
+document.getElementById('spawnMineBtn').addEventListener('click', ()=>{
+  spawnMine({ x: player.x, y: player.y + 40, team: 'player', armDelay: 0.5, triggerRadius: 35 });
+  pushLog('在脚下布设触发地雷成功', 'PEN');
+  playSound('ui');
+});
+document.getElementById('spawnCoverBtn').addEventListener('click', ()=>{
+  spawnDeployableCover({ x: player.x + 50, y: player.y + 50, team: 'player', shieldHp: 150, duration: 15 });
+  pushLog('部署战术护盾掩体成功', 'PEN');
+  playSound('ui');
+});
 
 // ---------- firing ----------
 let shells = [];   // 炮弹飞行动画（沿弹道逐段推进）
@@ -519,8 +596,7 @@ let bounceFx = []; // ricochet spark visuals
 
 // [P-28] 战斗发射管线已收敛到 js/tank_fire.js
 // [P-28] updateSolution 已收敛到 js/tank_fire.js
-// 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用
-let fireCtx = null;
+// 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用（声明在上方，此处仅注释）
 
 // ---------- update ----------
 let last = performance.now();
@@ -555,6 +631,9 @@ function update(dt){
   updateSigma(player, dt, keys);   // ISSUES #15 修复：传入 keys，移动散布源（moveMax）生效
   player.prevHullAngle = player.hullAngle;
   player.prevTurretAngle = player.turretAngle;
+
+  // 必须每帧推进，否则限时 Buff（超级火控/速度）到期后不会被移除，也不会重新计算 Stats
+  refreshStats(player);
 
   if(player.reloadT>0) player.reloadT = Math.max(0, player.reloadT-dt);
   if(player.fireDebuffT>0) player.fireDebuffT -= dt;
@@ -600,10 +679,12 @@ function update(dt){
     gaussian,
     debuffReloadRate,
     computeAmmoConfig,
+    spawnMuzzleFlash,
+    spawnTracer,
     devAim: { zeroSpread: false },
     fireTank,
     fireSmokeShell,
-    bounceAngle: BOUNCE_ANGLE,
+    bounceAngle: (typeof BOUNCE_ANGLE !== 'undefined' ? BOUNCE_ANGLE : (RULES.ballistics ? RULES.ballistics.bounceAngle : Math.PI*70/180)),
     worldW: worldW,
     worldH: worldH,
     random: Math.random
@@ -626,7 +707,34 @@ function update(dt){
   // keep every tank from overlapping its neighbours (player vs dummy)
   resolveTankCollisions();
 
+  // 推进战术部署物（炮塔索敌、地雷触发等）
+  const events = updateDeployables(dt, { entities });
+  events.forEach(ev => {
+    if (ev.type === 'fixedTurretFire') {
+      // 炮塔开火：调用核心发射函数
+      fireTank(ev.turret, ev.target, 'auto', fireCtx);
+    } else if (ev.type === 'mineExplode') {
+      // 地雷爆炸：视觉特效 + 范围伤害
+      burstExplosion(ev.mine.x, ev.mine.y, ev.blastRadius / 40, 22, 14, 11);
+      playSound('fire');
+      pushLog('地雷爆炸！', 'CRIT');
+      entities.forEach(t => {
+        if (t.hp <= 0) return;
+        const d = Math.hypot(t.x - ev.mine.x, t.y - ev.mine.y);
+        if (d <= ev.blastRadius) {
+          const dmg = ev.damage * (1 - d / (ev.blastRadius * 1.2));
+          t.hp = Math.max(0, t.hp - dmg);
+          spawnDmgText(t.x, t.y - 20, Math.round(dmg), 'he');
+        }
+      });
+    }
+  });
+
   entities.forEach(e=>{
+    // 定期刷新属性（处理限时修饰器到期）
+    if (e.modifiers && e.modifiers.some(m => m.expiresAt !== Infinity)) {
+      refreshStats(e);
+    }
     // 非玩家实体装填倒计时（靶车无开火路径恒 0；统一递减防未来接入 AI 时重蹈 ISSUES #23）
     if(e.id !== 'player' && e.reloadT > 0) e.reloadT = Math.max(0, e.reloadT - dt);
     // invulnerable：测试靶车无敌（dummy.invuln）或复活后短暂无敌（invulnT>0）——DoT/直击/殉爆均不掉血
@@ -739,6 +847,12 @@ function updateHud(){
   const rf = document.getElementById('reloadFill');
   const reloadDur = player.stats.reload / debuffReloadRate(player);
   rf.style.width = (100 - (player.reloadT/reloadDur*100)) + '%';
+
+  // 玩家状态反馈（仅测试台）：将穿深、伤害、缩圈速度等实时显示在提示区
+  const hint = document.getElementById('tankSelectHint');
+  if(hint){
+    hint.innerHTML = `<span style="color:var(--amber)">玩家实时属性:</span> 穿深 ${Math.round(player.stats.penetration)} / 伤害 ${Math.round(player.stats.damage)} / 装填 ${player.stats.reload.toFixed(2)}s / 精度Mult ${player.stats.spreadMult.toFixed(2)} / 极速 ${Math.round(player.stats.maxSpeed*0.4)}kmh`;
+  }
 }
 
 // ---------- draw ----------
@@ -758,6 +872,50 @@ function draw(){
   for(let y = 0; y <= canvas.height; y += gs){ ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
 
   covers.forEach(cov => drawCover(ctx, cov));
+
+  // 绘制战术部署物
+  deployables.forEach(d => {
+    if (d.isFixedTurret) {
+      // 专门为固定炮塔设计的轻量级渲染（不使用 drawTank 以免因缺失字段崩溃）
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      ctx.rotate(d.hullAngle);
+      // 底座
+      ctx.fillStyle = '#3a3f2c'; ctx.strokeStyle = d.team === 'player' ? '#7ed957' : '#ff5c4d';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, 15, 0, TAU); ctx.fill(); ctx.stroke();
+      // 炮塔旋转
+      ctx.rotate(d.turretAngle - d.hullAngle);
+      ctx.fillStyle = '#4a4f3c';
+      ctx.fillRect(-8, -8, 20, 16); ctx.strokeRect(-8, -8, 20, 16);
+      // 炮管
+      ctx.strokeStyle = '#7a8065'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(28, 0); ctx.stroke();
+      ctx.restore();
+    } else if (d.isMine) {
+      ctx.fillStyle = d.armed ? '#ff3300' : '#888';
+      ctx.beginPath(); ctx.arc(d.x, d.y, 4, 0, TAU); ctx.fill();
+      if (d.armed) {
+        ctx.strokeStyle = 'rgba(255,50,0,0.4)';
+        ctx.beginPath(); ctx.arc(d.x, d.y, 6 + Math.sin(performance.now()/100)*2, 0, TAU); ctx.stroke();
+      }
+    } else if (d.isDeployableCover) {
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      ctx.rotate(d.hullAngle);
+      ctx.fillStyle = 'rgba(92,200,255,0.2)';
+      ctx.strokeStyle = 'rgba(92,200,255,0.8)';
+      ctx.lineWidth = 2;
+      ctx.fillRect(-d.hullLen/2, -d.hullWid/2, d.hullLen, d.hullWid);
+      ctx.strokeRect(-d.hullLen/2, -d.hullWid/2, d.hullLen, d.hullWid);
+      if (d.shield) {
+        ctx.strokeStyle = 'rgba(92,200,255,0.4)'; ctx.setLineDash([4, 4]);
+        ctx.strokeRect(-d.hullLen/2-4, -d.hullWid/2-4, d.hullLen+8, d.hullWid+8);
+      }
+      ctx.restore();
+    }
+  });
+
   entities.forEach(t => {
     if(t.invulnT > 0){ ctx.globalAlpha = 0.5 + 0.4 * Math.sin(performance.now() / 60); }   // 复活无敌闪烁
     drawTank(ctx, t);
@@ -810,18 +968,25 @@ function draw(){
   ctx.strokeStyle='rgba(255,180,84,0.3)'; ctx.setLineDash([8,8]); ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.moveTo(gp.x,gp.y); ctx.lineTo(gp.x+aimU*900, gp.y+aimV*900); ctx.stroke();
 
-  // dispersion cones — shortened boundaries (length 250px) to keep UI clean
-  function drawCone(sigma, color, dash){
-    const L = 250;
+  // dispersion cones — 动态长度：反映当前弹种实际散布
+  // 实线为 1σ 范围（约 68% 落点），外层虚线为 2σ 范围（约 95% 置信区间边界）
+  // 经算法截断与重分布后，所有超出 2σ 边界的炮弹都会重新均匀映射在 2σ 夹角内，确保 100% 炮弹落在虚线夹角内
+  function drawCone(coneSigma, color, dash){
+    // 长度取：视野半径、炮弹最大飞行距离、画布对角线中的最小值
+    const L = Math.min(RULES.ballistics.shellMaxDist, Math.hypot(canvas.width, canvas.height));
     ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash(dash);
     ctx.beginPath();
     ctx.moveTo(gp.x,gp.y);
-    ctx.lineTo(gp.x+Math.cos(aimA-sigma)*L, gp.y+Math.sin(aimA-sigma)*L);
+    ctx.lineTo(gp.x+Math.cos(aimA-coneSigma)*L, gp.y+Math.sin(aimA-coneSigma)*L);
     ctx.moveTo(gp.x,gp.y);
-    ctx.lineTo(gp.x+Math.cos(aimA+sigma)*L, gp.y+Math.sin(aimA+sigma)*L);
+    ctx.lineTo(gp.x+Math.cos(aimA+coneSigma)*L, gp.y+Math.sin(aimA+coneSigma)*L);
     ctx.stroke();
   }
-  drawCone(player.sigma,          'rgba(255,180,84,0.5)',  [2,4]);  // live cone — brighter, short dash
+  const ammo = RULES.ammoTypes[player.ammoKey] || RULES.ammoTypes.ap;
+  const effectiveSigma = player.sigma * (ammo.spread || 1);
+  // 画 1σ（实线，68% 核心区）和 2σ（虚线，100% 截断包络边界）
+  drawCone(effectiveSigma * 1.0, 'rgba(255,180,84,0.75)', []);      // 1σ 实线
+  drawCone(effectiveSigma * 2.0, 'rgba(255,180,84,0.4)',  [4,4]);  // 2σ 虚线
   ctx.setLineDash([]);
   ctx.restore();
 }
@@ -845,6 +1010,9 @@ function loop(now){
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
+
+// 初始化：加载卡池
+loadCardPool();
 })();
 </script>
 </body>

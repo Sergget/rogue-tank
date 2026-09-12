@@ -78,6 +78,19 @@ declare function coverCollisionParts(cov: any): any[][];
 declare function getPartZRange(t: any, part: any): any;
 
 declare var entities: any[];
+declare var deployables: any[];
+declare function livingEnemiesOf(tank: any): any[];
+declare function isHostile(a: string, b: string): boolean;
+declare function normalizeTankWeapons(w: any): any;
+
+// 测试钩子（仅在 test 环境挂载）
+interface Window {
+  __TEST__: {
+    getVisualVersion: (t: any) => number;
+    getWeaponState: (t: any) => any;
+    triggerSkill: (t: any, key: string) => boolean;
+  };
+}
 declare function spawnTank(cfg: any, team: any, x: any, y: any): any;
 declare function isHostile(teamA: any, teamB: any): boolean;
 declare function nearestEnemyTo(t: any): any;

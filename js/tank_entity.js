@@ -74,12 +74,24 @@ function resolveTankCollisions(iterations){
         const cornersB = partCorners(b.x,b.y,b.hullAngle, b.hullLen/2, b.hullWid/2);
         const candidates = obbMTVs(cornersA, cornersB);
         if(!candidates) continue;
+        // 去重冗余候选轴：obbMTVs 可能返回方向相同 (u 平行) 的重复候选，
+        // 留同方向里深度最小者即可——重复轴会污染 tie-break 的"近最小深度"集合，
+        // 导致浅穿透轴被错误排除（交叉擦碰残余穿模 #A19 的根源之一）。
+        const seenDirs = new Set();
+        const uniqCandidates = [];
+        for(const c of candidates){
+          // 用方向键去重（u 与 -u 视为同轴；本约定下 u 恒指向 A 一侧，不会出现 -u）
+          const key = (c.ux >= 0 ? c.ux : -c.ux).toFixed(6) + ',' + (c.uy >= 0 ? c.uy : -c.uy).toFixed(6);
+          if(seenDirs.has(key)) continue;
+          seenDirs.add(key);
+          uniqCandidates.push(c);
+        }
         // 稳定选轴：先按最小深度定基准，再在近基准轴里用"相对速度投影"决胜。
         // 注意 u=(ux,uy) 约定：从 B 质心指向 A 质心（推 A 远离 B 的方向，与掩体 obbMTV 一致）
         let minD = Infinity;
-        for(const c of candidates) if(c.depth < minD) minD = c.depth;
-        let best = candidates[0];
-        const tie = candidates.filter(c => c.depth <= minD * 1.15);
+        for(const c of uniqCandidates) if(c.depth < minD) minD = c.depth;
+        let best = uniqCandidates[0];
+        const tie = uniqCandidates.filter(c => c.depth <= minD * 1.15);
         if(tie.length > 1){
           const vAx = Math.cos(a.hullAngle) * a.speed, vAy = Math.sin(a.hullAngle) * a.speed;
           const vBx = Math.cos(b.hullAngle) * b.speed, vBy = Math.sin(b.hullAngle) * b.speed;
@@ -93,7 +105,10 @@ function resolveTankCollisions(iterations){
           best = tie[0];
         }
         const depth = best.depth;
-        if(depth <= 0.05) continue;
+        // #A19：阈值从 0.05 降到 1e-6——任何正深度都必须推出。旧阈值会跳过交叉擦碰时
+        // 仅 ~0.03px 的浅穿透轴，B 车得以沿另一轴持续深入 A 车（残余重叠可达 18.7px）。
+        // 0.1px 分离缓冲本身已防止精度粘连，无需再靠深度阈值兜底。
+        if(depth <= 1e-6) continue;
         // 沿解析后的 MTV 等量分离（0.1px 缓冲防精度粘连）：A 沿 +u、B 沿 -u
         const separation = depth + 0.1;
         const pushX = best.ux * separation;

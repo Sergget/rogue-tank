@@ -87,8 +87,10 @@ function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-9); }
 
 // ---- 4) 暴露 window.__TEST__ 调试钩子断言 ----
 {
-  global.window = global.window || {};
-  global.window.__TEST__ = {
+  // Node test 环境中模拟 window 对象
+  const testWindow = /** @type {any} */ ({ __TEST__: {} });
+  global.window = testWindow;
+  testWindow.__TEST__ = {
     getWeaponState(tank) {
       return tank.weapons;
     },
@@ -103,14 +105,14 @@ function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-9); }
   const testTank = model.makeTank({ team: 'player' });
   model.applyTankConfig(testTank, { weapons: { primary: { type: 'howitzer' } } });
 
-  ok(global.window.__TEST__.getVisualVersion(testTank) === testVisualVersionCheck(testTank), 'window.__TEST__.getVisualVersion 钩子正常');
+  ok(testWindow.__TEST__.getVisualVersion(testTank) === testVisualVersionCheck(testTank), 'window.__TEST__.getVisualVersion 钩子正常');
   function testVisualVersionCheck(tk) { return tk._visualVersion; }
 
-  const wState = global.window.__TEST__.getWeaponState(testTank);
+  const wState = testWindow.__TEST__.getWeaponState(testTank);
   ok(wState.primary.type === 'howitzer', 'window.__TEST__.getWeaponState 钩子正常');
 
   testTank.cardEffects = [{ type: 'ability', key: 'super_speed', cardId: 'x' }];
-  const trig = global.window.__TEST__.triggerSkill(testTank, 'super_speed');
+  const trig = testWindow.__TEST__.triggerSkill(testTank, 'super_speed');
   ok(trig.ok === true, 'window.__TEST__.triggerSkill 钩子正常');
 }
 

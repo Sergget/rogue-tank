@@ -192,8 +192,29 @@ function resolveHit(shell, target, hit, allowBounce, opts){
 // opts（可选）：{ dmgMul } — 最终伤害乘算（P-51 弱点命中；#A15 起固定传入 dmgMul×spallMul，
 // 含内衬整车减伤）；不传时 ×1（行为不变）。
 function applyModuleDamage(shell, target, hit, opts){
-  const mod = moduleFromHit(target, hit, shell ? shell.shooter : null);
-  const modKey = (mod && mod.key) || null;
+  const ammoKey = shellAmmoKey(shell);
+  const ammoCfg = (ammoKey && RULES.ammoTypes[ammoKey]) || shell.ammo || null;
+  const isApfsds = !!(ammoCfg && ammoCfg.doubleModule);
+
+  const mod1 = moduleFromHit(target, hit, shell ? shell.shooter : null);
+  const mod2 = isApfsds ? moduleFromHit(target, hit, shell ? shell.shooter : null) : null;
+
+  const modKey1 = (mod1 && mod1.key) || null;
+  const modKey2 = (mod2 && mod2.key) || null;
+
+  const getMultForKey = (k, shooter) => {
+    if(k === 'ammo') return moduleMult(shooter, 'ammo');
+    if(k === 'engine' || k === 'gunner' || k === 'loader' || k === 'driver' || k === 'commander' || k === 'breech') return moduleMult(shooter, 'crew');
+    return 1.0;
+  };
+
+  const mult1 = getMultForKey(modKey1, shell ? shell.shooter : null);
+  const mult2 = isApfsds ? getMultForKey(modKey2, shell ? shell.shooter : null) : 1.0;
+
+  const effectiveMult = Math.max(mult1, mult2);
+  const modKey = modKey1 !== null ? modKey1 : modKey2;
+  const mod = modKey === modKey2 ? mod2 : mod1;
+
   const DB = RULES.modules;
   const invuln = !!(target.invuln) || (target.invulnT > 0);
   let cls = 'PEN', extra = '';
@@ -204,88 +225,79 @@ function applyModuleDamage(shell, target, hit, opts){
   } else if(target.hp <= 0){
     extra = '（目标已摧毁）';
   } else {
-    dmg = shell.dmg * ((opts && opts.dmgMul) || 1) * (0.85 + Math.random()*0.3);
-    if(modKey === 'ammo'){
-      dmg *= moduleMult(shell.shooter, 'ammo');
-    } else if(modKey === 'engine' || modKey === 'gunner' || modKey === 'loader' ||
-              modKey === 'driver' || modKey === 'commander' || modKey === 'breech'){
-      dmg *= moduleMult(shell.shooter, 'crew');
-    }
-    // 所有倍率乘完后再取整：日志/显示与实际扣血用同一整数 dmg，
-    // 消除"显示 100、实际 99.5、残 0.5HP 不死"的浮点不一致
+    dmg = shell.dmg * ((opts && opts.dmgMul) || 1) * effectiveMult * (0.85 + Math.random()*0.3);
     dmg = Math.round(dmg);
     applyDamage(target, dmg);
     const alive = target.hp > 0;
 
-    switch(modKey){
-      case 'ammo':
-        if(alive){
-          setDebuff(target, 'ammo', DB.debuffSeconds);
-          extra = `（弹药架受伤：装填速度降低 ${DB.debuffSeconds}s）`; cls='CRIT';
-        } else {
+    const applySingleModEffect = (mk) => {
+      if(!mk || !alive) {
+        if(mk === 'ammo' && !alive){
           target.ammoBlew = true;
           target.fireT = RULES.fire.fireVisualSeconds;
           target.blowHitPoint = { x:hit.x, y:hit.y };
-          extra = '（弹药架殉爆！炮塔被掀飞）'; cls='CRIT';
+          extra += '（弹药架殉爆！炮塔被掀飞）'; cls='CRIT';
         }
-        break;
-      case 'track':
-        target.trackBroken = true;
-        target.trackFxPoint = { x:hit.x, y:hit.y };
-        const lock = (target.stats && target.stats.trackLock !== undefined) ? target.stats.trackLock : DB.trackLockDefault;
-        target.immobT = Math.max(target.immobT||0, lock);
-        extra = `（履带被击断，锁定 ${lock.toFixed(0)}s）`;
-        break;
-      case 'engine':
-        // 起火 DOT = 攻击方标准伤害 × dotRatio（升级可放大倍率），持续 dotSeconds（升级可延长）
-        {
-          const s = (shell.shooter && shell.shooter.stats) || {};
-          const stdDmg = (s.damage !== undefined && s.damage > 0) ? s.damage : shell.dmg;
-          const ratioMult = s.dotRatioMult !== undefined ? s.dotRatioMult : 1;
-          const durMult = s.dotDurationMult !== undefined ? s.dotDurationMult : 1;
-          target.dotDps = stdDmg * RULES.fire.dotRatio * ratioMult;
-          target.dotSeconds = RULES.fire.dotSeconds * durMult;
-          target.dotT = target.dotSeconds;
-          target.fireT = RULES.fire.fireVisualSeconds;
-          if(alive) setDebuff(target, 'engine', DB.debuffSeconds);
-          extra = alive
-            ? `（发动机起火：每秒 ${target.dotDps.toFixed(1)} 灼烧 ${target.dotSeconds.toFixed(1)}s，最大速度降低 ${DB.debuffSeconds}s）`
-            : '（发动机被毁，车体起火）';
-        }
-        break;
-      case 'gunner':
-        if(alive){ setDebuff(target, 'gunner', DB.debuffSeconds); extra = `（炮手受伤：移动扩圈增大 ${DB.debuffSeconds}s）`; }
-        else extra = '（炮手阵亡）';
-        break;
-      case 'loader':
-        if(alive){ setDebuff(target, 'loader', DB.debuffSeconds); extra = `（装填手受伤：装填速度降低 ${DB.debuffSeconds}s）`; }
-        else extra = '（装填手阵亡）';
-        break;
-      case 'driver':
-        if(alive){ setDebuff(target, 'driver', DB.debuffSeconds); extra = `（驾驶员受伤：转向速度降低 ${DB.debuffSeconds}s）`; }
-        else extra = '（驾驶员阵亡）';
-        break;
-      case 'commander':
-        if(alive){ setDebuff(target, 'commander', DB.debuffSeconds); extra = `（车长受伤：全体成员性能-15% ${DB.debuffSeconds}s）`; }
-        else extra = '（车长阵亡）';
-        break;
-      case 'breech':
-        // P-49 炮闩：短时完全无法开火（门控在 tank_fire.js fireTank/tryFire/fireSmokeShell；
-        // 修理箱 repair 清除表含 breech）。debuff 计时风格与其他模块一致。
-        if(alive){ setDebuff(target, 'breech', DB.debuffSeconds); extra = `（炮闩受损：无法开火 ${DB.debuffSeconds}s）`; }
-        else extra = '（炮闩被毁）';
-        break;
-      case null:
-        // P-49 zonesV2 概率余量：正常结算伤害，无 debuff、无倍率加成
-        break;
-    }
+        return;
+      }
+      switch(mk){
+        case 'ammo':
+          setDebuff(target, 'ammo', DB.debuffSeconds);
+          extra += `（弹药架受伤：装填速度降低 ${DB.debuffSeconds}s）`; cls='CRIT';
+          break;
+        case 'track':
+          target.trackBroken = true;
+          target.trackFxPoint = { x:hit.x, y:hit.y };
+          const lock = (target.stats && target.stats.trackLock !== undefined) ? target.stats.trackLock : DB.trackLockDefault;
+          target.immobT = Math.max(target.immobT||0, lock);
+          extra += `（履带被击断，锁定 ${lock.toFixed(0)}s）`;
+          break;
+        case 'engine':
+          {
+            const s = (shell.shooter && shell.shooter.stats) || {};
+            const stdDmg = (s.damage !== undefined && s.damage > 0) ? s.damage : shell.dmg;
+            const ratioMult = s.dotRatioMult !== undefined ? s.dotRatioMult : 1;
+            const durMult = s.dotDurationMult !== undefined ? s.dotDurationMult : 1;
+            target.dotDps = stdDmg * RULES.fire.dotRatio * ratioMult;
+            target.dotSeconds = RULES.fire.dotSeconds * durMult;
+            target.dotT = target.dotSeconds;
+            target.fireT = RULES.fire.fireVisualSeconds;
+            setDebuff(target, 'engine', DB.debuffSeconds);
+            extra += `（发动机起火）`;
+          }
+          break;
+        case 'gunner':
+          setDebuff(target, 'gunner', DB.debuffSeconds);
+          extra += `（炮手受伤）`;
+          break;
+        case 'loader':
+          setDebuff(target, 'loader', DB.debuffSeconds);
+          extra += `（装填手受伤）`;
+          break;
+        case 'driver':
+          setDebuff(target, 'driver', DB.debuffSeconds);
+          extra += `（驾驶员受伤）`;
+          break;
+        case 'commander':
+          setDebuff(target, 'commander', DB.debuffSeconds);
+          extra += `（车长受伤）`;
+          break;
+        case 'breech':
+          setDebuff(target, 'breech', DB.debuffSeconds);
+          extra += `（炮闩受损）`;
+          break;
+      }
+    };
+
+    applySingleModEffect(modKey1);
+    if(isApfsds) applySingleModEffect(modKey2);
   }
-  // dmg：实际扣血整数（飘字显示用；invuln/已摧毁目标为 0）
-  // modKey：命中部位类别（#A6 飘字颜色分类：弹药架红 / 成员与其他模块黄 / 无模块白）
+
+  const labelStr = mod ? mod.label : '';
   return { cls,
     modKey,
     text: modKey
-      ? `击穿！命中 ${mod.label}，造成 ${dmg} 伤害 ${extra}`
+      ? `击穿！命中 ${labelStr}${isApfsds && modKey2 && modKey2 !== modKey1 ? ' 及 '+mod2.label : ''}，造成 ${dmg} 伤害 ${extra}`
       : `击穿！造成 ${dmg} 伤害 ${extra}`,
     dmg };
 }

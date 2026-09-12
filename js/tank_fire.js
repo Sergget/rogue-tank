@@ -341,7 +341,11 @@ function stepShells(dt, ctx){
       const bh=shellPartHit&&hits?shellPartHit(hits,step,s.hitPref):null;
       if(bh&&bh.t<bestDist){ bestDist=bh.t; bestTank=e; bestHit=bh; bestCover=null; }
     }
-    const covs=find?find(sx,sy,nx,ny):[];
+    // #R3：HEC 曲射弹（ignoreCover: true）越障直飞——掩体不参与拦截/曝光判定，
+    // 弹体沿直线直奔目标，仅在命中坦克时结算（炮管贯穿的 barrel solid 判定在
+    // fireTank 发射阶段已处理，不在此处；开火时无遮挡即正常发射）。
+    const ignoreCover = !!(s.ammo && s.ammo.ignoreCover);
+    const covs=find&&!ignoreCover?find(sx,sy,nx,ny):[];
     for(const cov of covs){
       const tier=T[cov.cover.tier]||{mode:'solid'};
       if(s.dead) break;
@@ -386,7 +390,7 @@ function stepShells(dt, ctx){
         return;
       }
       s.x=hx; s.y=hy;
-      const exposure = s.dec ? (s.dec.exposure!==undefined ? s.dec.exposure : 1) : (getExp&&getZ ? getExp(s.fx,s.fy,hx,hy,s.shooter,hitTank,s.dec?s.dec.z.zMin:getZ(hitTank,hitT.part).zMin,s.dec?s.dec.z.zMax:getZ(hitTank,hitT.part).zMax,s.dist+hitDist) : 1);
+      const exposure = (ignoreCover || s.dec) ? (s.dec ? (s.dec.exposure!==undefined ? s.dec.exposure : 1) : 1) : (getExp&&getZ ? getExp(s.fx,s.fy,hx,hy,s.shooter,hitTank,s.dec?s.dec.z.zMin:getZ(hitTank,hitT.part).zMin,s.dec?s.dec.z.zMax:getZ(hitTank,hitT.part).zMax,s.dist+hitDist) : 1);
       if(exposure<=0||rnd()>exposure){
         let stopX=hx, stopY=hy;
         if(find){ const iCovs=find(s.fx,s.fy,hx,hy); for(const cov of iCovs){ const tc=T[cov.cover.tier]||{mode:'solid'}; if(tc.mode==='solid'||tc.mode==='single') continue; if(tc.mode==='none'||tc.mode==='pass') continue; if(cov.distExit<s.dist+bestDist+16){ stopX=cov.point.x; stopY=cov.point.y; break; } } }

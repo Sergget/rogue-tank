@@ -30,3 +30,29 @@
 1. **分支初始化**：已切换至 `feature/rogue-tank-rework`，归档旧架构核心文档。
 2. **最小原型验证**：实现“炮管延长 + 护盾加装”与“主副武器切换/主动技能基础”的跑通。
 3. **实体与视觉热重载对接**。
+
+---
+
+## 4. R-1/R-2/R-3 阶段落地结论（2026-09-12）
+
+### 4.1 R-1 主副武器与主动技能
+- 主副武器双槽位（`weapons.primary`/`weapons.secondary`，`tank_weapons.js` `WEAPON_DEFAULTS`）与 `moduleSlots` 挂载经 `applyTankConfig` 接入实体。
+- 主动技能：超级火控（`super_fire_control` 散布 ×0.3）与超级速度（`super_speed` 极速 ×1.5）落地 `tank_abilities.js`，冷却与 HUD 状态条接线。
+- 视觉热重载：实体 `_visualVersion`/`_lastDrawnVersion` 脏标记管线，战斗中改配即触发重绘；`window.__TEST__` 暴露 `getVisualVersion`/`getWeaponState`/`triggerSkill` 测试钩子。
+
+### 4.2 R-2 召唤物与战术部署
+- 固定炮塔（`isDeployableTurret`，极速 0 + 自动索敌开火，`fixedTurretFire` 事件）、地雷（武装延迟 + `mineExplode` 触发爆炸）、战术护盾掩体（护盾吸收池）全部注册进 `deployables`，测试台 `tank_bench.html` 面板按钮可直接生成。
+
+### 4.3 R-3 特种弹药与曲射
+- `RULES.ammoTypes` 新增：**APFSDS**（`doubleModule: true` — 命中结算 `applyModuleDamage` 双次模块抽取，取两 roll 倍率最大值）与 **HEC**（`ignoreCover: true` 越障曲射 + `noBounce` + `arc` + `splashRadius: 110`）。
+- `stepShells`（`js/tank_fire.js`）消费 `ignoreCover`：HEC 弹道完全跳过掩体拦截/曝光判定，直飞目标；曝光结算处 `ignoreCover` 时恒 exposure=1（曲射抛物线越过掩体顶不遮挡）。
+- 2σ 高斯散布截断：`tank_utils.js` `gaussian(sigma)` 拒绝采样保证 100% 弹着点在 ±2σ 内。
+- 曲射武器配置：榴弹炮（`isArc: true`，射程 ≥400）与迫击炮副武器（`isArc: true`，`aoe ≥ 80`）。
+
+### 4.4 #A19 坦克碰撞回归修复
+- 根因：`resolveTankCollisions`（`js/tank_entity.js`）的 MTV 候选轴存在同方向重复向量污染 tie-break 集合，且 `depth<=0.05` 跳过阈值把擦碰浅穿透全部放行 → 交叉场景残留 ~18.72px 深叠、推挤分支退化。
+- 修复：候选轴按方向去重（保留首个）+ 阈值降为 `depth<=1e-6`。全部 21 项碰撞检查通过，未触碰任何手感常数。
+
+### 4.5 测试基线
+- 新增 `scripts/test-rework-r3.js`（APFSDS 双模块/HEC 越障/2σ 散布行为断言）与 `scripts/test-browser-r3.cjs`（Edge headless `channel=msedge` 冒烟：测试台按钮/5·6 弹种键/mvp Home 态，8 项全 PASS）。
+- 已知遗留：`test-nodegen.js` 16 项失败为基线预置问题（`git stash` 后在 bae560a 同样复现，主因道路条带宽断言与校准漂移），与本次改动无关；#A11 已备案同类"nodegen 重构需专轮实施"。
