@@ -201,6 +201,9 @@ interface GeneratedNodeResult {
     segments?: Array<{ dx: number; dy: number; w: number; h: number; angle?: number }>;
     groupId?: string;
   }>;
+  // v2（2026-09-16）：路口中心列表（局部系）——渲染层据此在路口断开中心虚线，
+  // 使交叉处读作「路口」而非「两条路叠加」。见 docs/specs/map.md §10.2。
+  roadJunctions?: Array<{ x: number; y: number; r: number }>;
   seed: number | string;
   difficulty: number;
   w: number;            // #24：#26 补全——缩放后的节点世界尺寸（tank_map.js 读取）

@@ -3227,28 +3227,60 @@ function bakeNodeGroundLayer(node){
   // 使落在节点边界线上的路头呈「延伸出画面」而非「圆弧尽头」（ground 层由 drawImage 裁剪）。
   g.lineCap = 'butt'; g.lineJoin = 'round';
 
-  for(const p of paths){
-    if(p.pts.length < 2) continue;
-    // 1. 路床基底与暗色路缘（外扩 8px）
-    g.strokeStyle = '#32302b';
-    g.lineWidth = p.w + 8;
+  // ===== v2「路口感」分层渲染（2026-09-16）=====
+  // v1 逐链独立描边三遍（路基→沥青→中心虚线），后画的链把前一条整幅盖掉，
+  // 且两条链的中心虚线都笔直穿过交点 → 视觉上就是「两条路叠在一起」。
+  // v2 改为两遍：
+  //   第 1 遍 —— 所有链的路基 + 沥青（交叉处自然合并为一片连续沥青广场）
+  //   第 2 遍 —— 统一画中心虚线，并在路口（node.roadJunctions）处断开
+  // 这样交叉点才是「路口」：路面连续、标线让位。
+  const tracePath = (p) => {
     g.beginPath();
     g.moveTo(p.pts[0].x, p.pts[0].y);
     for(let i = 1; i < p.pts.length; i++) g.lineTo(p.pts[i].x, p.pts[i].y);
-    g.stroke();
+  };
 
-    // 2. 连续平滑沥青主路面
-    g.strokeStyle = '#58554e';
-    g.lineWidth = p.w;
+  // --- 第 1 遍：路床基底与暗色路缘（外扩 8px）---
+  g.strokeStyle = '#32302b';
+  for(const p of paths){
+    if(p.pts.length < 2) continue;
+    g.lineWidth = p.w + 8;
+    tracePath(p);
     g.stroke();
-
-    // 3. 道路中心虚线标线
-    g.strokeStyle = 'rgba(235, 220, 160, 0.6)';
-    g.lineWidth = 2.5;
-    g.setLineDash([18, 14]);
-    g.stroke();
-    g.setLineDash([]);
   }
+  // --- 第 1 遍：连续平滑沥青主路面（交叉处互相合并）---
+  g.strokeStyle = '#58554e';
+  for(const p of paths){
+    if(p.pts.length < 2) continue;
+    g.lineWidth = p.w;
+    tracePath(p);
+    g.stroke();
+  }
+
+  // --- 路口让位挖空：在路口范围内涂回「无标线」的沥青色，抹掉穿过的中心虚线 ---
+  // （用与主路面同色填充，保证只擦标线不动路面。）
+  const junctions = (node && Array.isArray(node.roadJunctions)) ? node.roadJunctions : [];
+  const clearMarks = () => {
+    if(!junctions.length) return;
+    g.fillStyle = '#58554e';
+    for(const j of junctions){
+      const r = (j.r || 60);
+      g.beginPath(); g.arc(j.x, j.y, r, 0, Math.PI * 2); g.fill();
+    }
+  };
+
+  // --- 第 2 遍：中心虚线（先整条画，再在路口挖掉）---
+  g.strokeStyle = 'rgba(235, 220, 160, 0.6)';
+  g.lineWidth = 2.5;
+  g.setLineDash([18, 14]);
+  for(const p of paths){
+    if(p.pts.length < 2) continue;
+    tracePath(p);
+    g.stroke();
+  }
+  g.setLineDash([]);
+  clearMarks();   // 路口处断线 → 「路口」而不是「两条线交叉」
+
   groundLayerCanvas = cv;
 }
 

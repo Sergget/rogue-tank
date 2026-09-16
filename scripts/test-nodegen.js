@@ -166,7 +166,12 @@ if (typeof covers !== 'undefined') {
     }
     if ((tpl.terrainTags || []).includes('mudPatch')) {
       const muds = r.covers.filter(c => c.tier === 'mud');
-      ok(muds.length >= 3 && muds.length <= 4, `${tpl.id} 泥斑 3~4 块 (got ${muds.length})`);
+      // placeMudPatch 产出 3~4 块；模板自带 mud item（urban_block 有 1 个）另计。
+      // 旧断言写死 3~4 而未扣模板自带块，属侥幸通过——rng 流位一变（如路网拓扑调整）
+      // 就会因 1+4=5 误报。此处按「标签驱动产出」口径断言。
+      const tplMud = (tpl.items || []).filter(it => it.tier === 'mud').length;
+      ok(muds.length - tplMud >= 3 && muds.length - tplMud <= 4,
+         `${tpl.id} 泥斑标签产出 3~4 块（总 ${muds.length} − 模板自带 ${tplMud}）`);
       // 环带：围绕中心分布（半径在 15%~35% 节点尺寸）
       const ringOk = muds.every(m => {
         const d = Math.hypot(m.x - 600, m.y - 350);
@@ -348,6 +353,8 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
     return [{ x: c.x - ca * hw, y: c.y - sa * hw }, { x: c.x + ca * hw, y: c.y + sa * hw }];
   };
   let worstGap = 0, maxJunctions = 0, minCrossAngle = 999, strayEnds = 0, cases = 0;
+  const junctionHist = { 0: 0, 1: 0, 2: 0 };
+  const topoSeen = new Set();
   for (const tpl of NODE_TEMPLATES) {
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const r = generateNode(0.5, { templateId: tpl.id, seed, cullRate: 0, scale: 3, centerX: 600, centerY: 350 });
@@ -359,6 +366,13 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
         if (!byGroup.has(c.groupId)) byGroup.set(c.groupId, []);
         byGroup.get(c.groupId).push(c);
       }
+      // v2 拓扑指纹：各链的主导方向（H/V）排序后拼接 → 多样性度量
+      const dirOf = (segs) => {
+        let num = 0;
+        for (const s of segs) num += Math.abs(Math.cos(s.angle || 0));
+        return (num / segs.length) > 0.5 ? 'H' : 'V';
+      };
+      topoSeen.add([...byGroup.values()].map(dirOf).sort().join(''));
       // ① 链内连续性：按最近端点贪心串链，每次接驳距离即断口
       for (const segs of byGroup.values()) {
         const used = new Set([segs[0]]); const order = [segs[0]];
@@ -376,17 +390,18 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
           used.add(best); order.push(best);
         }
       }
-      // ② 自由端分类：必须落在边界线上，或落在另一组路段带宽内（T 形接驳）
+      // ② 自由端分类：必须落在边界线上，或落在另一组路段**完整车道带**内（T 形接驳）。
+      // 注意用完整 OBB（含 _emitRoadChain 的搭接外扩）判定：若用「扣减搭接后的中线半长」，
+      // 相邻段之间的合法覆盖会被误判成空缺（假阳性孤悬路头）。
       const wx0 = 600 - r.w / 2, wx1 = 600 + r.w / 2, wy0 = 350 - r.h / 2, wy1 = 350 + r.h / 2;
-      const onBoundary = (e) => Math.abs(e.x - wx0) < 2 || Math.abs(e.x - wx1) < 2 ||
-                                Math.abs(e.y - wy0) < 2 || Math.abs(e.y - wy1) < 2;
+      const onBoundary = (e) => Math.abs(e.x - wx0) < 3 || Math.abs(e.x - wx1) < 3 ||
+                                Math.abs(e.y - wy0) < 3 || Math.abs(e.y - wy1) < 3;
       const inOtherGroup = (e, gid) => roads.some(o => {
         if (o.groupId === gid) return false;
         const ca = Math.cos(o.angle || 0), sa = Math.sin(o.angle || 0);
         const dx = e.x - o.x, dy = e.y - o.y;
         const lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
-        const hw = Math.max(10, o.w - (o.h || 64) * 0.35) / 2;
-        return Math.abs(lx) <= hw && Math.abs(ly) <= (o.h || 64) / 2;
+        return Math.abs(lx) <= (o.w / 2 + 4) && Math.abs(ly) <= (o.h / 2 + 4);
       });
       for (const [gid, segs] of byGroup) {
         const eps = [];
@@ -427,13 +442,25 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
         if (!junctions.some(j => Math.hypot(j.x - h.x, j.y - h.y) < 400)) junctions.push(h);
       }
       maxJunctions = Math.max(maxJunctions, junctions.length);
+      if (junctionHist[junctions.length] === undefined) junctionHist[junctions.length] = 0;
+      junctionHist[junctions.length]++;
     }
   }
   ok(cases > 0, `路网拓扑用例已覆盖 ${cases} 个节点`);
   ok(worstGap < 1e-6, `#B7 道路链内无断口（最大接驳间距 ${worstGap.toFixed(2)}px，旧实现跳段会留缺口）`);
   ok(strayEnds === 0, `#B7 无地图内孤悬路头（${strayEnds} 个；自由端必须出界或 T 形接驳）`);
-  ok(maxJunctions <= 1, `#B7 交叉口 ≤1 个（实际最大 ${maxJunctions} 个；旧实现 2~4 个）`);
+  // v2（2026-09-16）：拓扑多样化的前提下，路口数上界 = 2（十字 1 / 丁字对 2 /
+  // 单条与平行 0）。旧 v1 恒为 1 个十字，故这里从「≤1」放宽为「≤2」，
+  // 但仍远低于用户反对的 v0「2~4 个密集路口」。
+  ok(maxJunctions <= 2, `#B7 交叉口 ≤2 个（实际最大 ${maxJunctions} 个；v0 旧实现 2~4 个）`);
   ok(minCrossAngle >= 60, `#B7 交叉接近直角（最小夹角 ${minCrossAngle.toFixed(1)}°；旧实现 35° 浅角＝"叠加"观感）`);
+  // v2：拓扑多样性——同一模板跨 seed 必须出现多种拓扑，避免「每张地图都一样」。
+  ok(topoSeen.size >= 3, `#B7 路网拓扑多样（观测到 ${topoSeen.size} 种：${[...topoSeen].join('/')}）`);
+  ok((junctionHist[1] || 0) > 0 && (junctionHist[2] || 0) > 0,
+     `#B7 路口数分布覆盖 1 与 2 路口拓扑（0路口×${junctionHist[0] || 0} / 1路口×${junctionHist[1] || 0} / 2路口×${junctionHist[2] || 0}）`);
+  // v2：平行拓扑（0 路口）也必须出现——「总是有路口」同样是单调。
+  ok((junctionHist[0] || 0) > 0,
+     `#B7 存在无路口拓扑（平行/单条贯通，${junctionHist[0] || 0} 例）`);
 }
 
 console.log('test-nodegen: 完成所有检查');

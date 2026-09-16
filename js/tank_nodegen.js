@@ -671,72 +671,181 @@ function _emitRoadChain(out, pts, roadW, groupId, isSegOk) {
   }
 }
 
-// 2026-09-16 路网重做（用户反馈三条：① 道路被其他物体截断 ② 道路尽头都是圆弧形
-// ③ 交叉口太多、道路互相叠加）——重做为「正交双干道」拓扑：
-//   ① 连通：不再按模板建筑逐段跳段（旧签名曾接收 avoidBoxes）。道路属 ground 层、
-//      先于一切元素绘制，建筑/植被天然盖在路面之上；跳段只会让路面出现缺口，
-//      正是「被物体截断」的根因。
-//   ② 路头：端点严格落在节点边界线上（旧实现内缩 12px，圆弧端帽整个可见 → 「圆弧尽头」）；
-//      端帽被节点画布裁掉 → 视觉上道路延伸出画面。渲染层同步改用 lineCap:'butt'。
-//   ③ 交叉：恒为「1 条横干道 + 0~1 条纵干道」，且*每条干道的端点偏移量远小于跨度*
-//      （沿轴 ≤13% 半幅），故两条干道实际接近轴对齐 → 交叉口恒为 0 或 1 个
-//      **接近直角**的十字，绝不出现平行叠加或浅角互穿。旧实现端点偏移达 ±0.42、控制点
-//      横向偏移 ±0.18×跨度，导致纵向"干道"斜成 139° 以上、与横向干道以 35° 浅角互穿，
-//      正是「道路看起来叠加在一起」的根因。同时不生成斜向支线（支线沿干道法向引出即与
-//      另一轴干道平行 → 平行道路 = 叠加观感 + 地图内死头）。
+// 2026-09-16 路网重做 v2（用户反馈：① 交叉处没有「路口」感、只是机械叠加
+// ② 所有地图看起来都是横竖各一条公路）——在 v1「正交双干道」基础上再修两点：
+//
+// 【v1 已解决并保留】连通（不再按建筑逐段跳段）、路头（端点落节点边界 + lineCap:'butt'）、
+//   避免浅角互穿（端点漂移 ±0.42→±0.13、控制点 ±0.18→±0.04）。
+//
+// 【v2-a 拓扑多样性】旧拓扑恒为「1 横 + 0~1 纵」，即每次都是同一个十字（实测 70/84），
+//   且 `wide = halfW >= halfH` 恒 true（7 个模板全为横向）→ 纵干道永为配角、最多 1 条。
+//   v2 改为按 rng 从 **6 种拓扑** 抽取：单条贯通 / 十字 / 单侧 T 形 / 双侧 T 形 /
+//   双同向平行（错位）/ 三岔。主轴不再绑定地图长边（横纵各由 rng 掷出）。
+//   关键设计：**T 形支道锚定在干道上**（起点 = 干道上的点，终点 = 垂直边的边界线），
+//   因此恒为「真 T 形 + 恰好 1 个路口」，不会像「另一条贯穿道路」那样与其它路再次相交
+//   （否则同一节点会出现 3 个路口 = 用户反对的「路口太多」）。
+//   **平行拓扑用错位端点**：两条同向道的沿轴位置分居两个半区（不相交）→ 0 路口，
+//   提供「错位街区」的另一种地貌。
+//
+// 【v2-b 路口感=渲染问题，不只是几何】v1 把每条链**各自独立描边三遍**，后画的链
+//   整幅（路基+沥青+中心虚线）盖在前一条之上，且两条链的中心虚线都笔直穿过交点
+//   → 视觉上就是「两条路叠在一起」。v2 改为**分两遍**渲染（见 mvp bakeNodeGroundLayer）：
+//   第 1 遍所有链的路基+沥青（交叉处自然合并为一片连续沥青广场），
+//   第 2 遍统一画中心虚线并**在路口处断线**（roadJunctions 由本函数返回）——这才是
+//   真实交叉路口的读法。故本函数额外返回 junctions。
+//
 // 道路仍以「短 OBB 链段」写回（tier 'road'、同链共享 groupId）供村庄贴边/碰撞等既有
-// OBB 消费方零改动复用；渲染层按 groupId 重建折线后整条预烘焙（mvp bakeNodeGroundLayer）。
+// OBB 消费方零改动复用。
+//
+// 返回 { covers, junctions }：junctions = [{x,y,r}] 路口中心与半径（供渲染层断标线）。
 function placeRoadNetwork(rng, tpl, scale, centerX, centerY) {
   const roadW = rng.range(60, 80); // 街道条带宽（世界px，与 village 街道契约 60~80 对齐）
   const out = [];
   const halfW = tpl.w * scale / 2, halfH = tpl.h * scale / 2;
 
-  // 世界边界（节点局部坐标基准 centerX/centerY + 半幅）
   const worldMinX = centerX - halfW, worldMaxX = centerX + halfW;
   const worldMinY = centerY - halfH, worldMaxY = centerY + halfH;
-  // 路段中心越世界界 → 跳过（test-map「掩体在界内」契约按中心点判定；
-  // 端点本身落在边界线上，故末段中心仍在界内）。
   const segInBounds = (seg) =>
     seg.x >= worldMinX && seg.x <= worldMaxX && seg.y >= worldMinY && seg.y <= worldMaxY;
   const isSegOk = (seg) => segInBounds(seg);
 
-  const ROAD_SAMPLE_STEP = 110;   // 样条采样步长（世界px）：≈曲线平滑度与链段数量的折衷
+  const ROAD_SAMPLE_STEP = 110;
+  const chains = [];   // { groupId }：供渲染层分两遍描绘 + 路口求交
 
-  // 干道：贯穿相对两边。**端点漂移量刻意取小**（横向干道 ≤13% 半宽、纵向干道 ≤13% 半高），
-  // 使两条干道接近轴对齐、交叉角接近 90°；再叠加 ≤4% 跨度的轻微控制点弯曲保持自然感。
-  // edgeA/edgeB ∈ {0:N, 1:S, 2:W, 3:E}；垂直方向 = 沿轴向，垂直方向 = 沿轴向。
-  const emitTrunk = (edgeA, edgeB, groupId) => {
-    const vertical = (edgeA === 0 || edgeA === 1);   // 纵干道（南北贯穿，主导轴 = y）
-    // 沿轴端点位置偏移（相对半幅的比例）：±0.13 而非旧版 ±0.42
-    const tA = rng.range(-0.13, 0.13), tB = rng.range(-0.13, 0.13);
-    const p1 = vertical
-      ? { x: centerX + tA * halfW, y: (edgeA === 0 ? worldMinY : worldMaxY) }
-      : { x: (edgeA === 2 ? worldMinX : worldMaxX), y: centerY + tA * halfH };
-    const p2 = vertical
-      ? { x: centerX + tB * halfW, y: (edgeB === 0 ? worldMinY : worldMaxY) }
-      : { x: (edgeB === 2 ? worldMinX : worldMaxX), y: centerY + tB * halfH };
+  // 边 → 端点（严格落在节点边界线上，端帽被画布裁掉 = 延伸出画面）
+  // edge ∈ {0:N, 1:S, 2:W, 3:E}；t = 沿边位置（-1..1，相对该边半长）
+  const edgePoint = (edge, t) => {
+    if (edge === 0) return { x: centerX + t * halfW, y: worldMinY };
+    if (edge === 1) return { x: centerX + t * halfW, y: worldMaxY };
+    if (edge === 2) return { x: worldMinX, y: centerY + t * halfH };
+    return { x: worldMaxX, y: centerY + t * halfH };
+  };
+
+  // 由「两端点 + 轻微弯曲」构建一条道路并铺设链段，**返回实际采样折线**。
+  // 返回折线很关键：T 形支道必须锚定在干道**真实折线上**的某点。若只按「干道端点连线的
+  // 猜测 y」取锚点，会因干道自身 ±4% 跨度的弯曲（≈±96px > 半个路宽）而错开，
+  // 支道起点悬空 → 路面出现缺口（实测 210 张里 118 处孤悬路头）。
+  const buildFromPoints = (p1, p2, groupId, amp) => {
     const span = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
     const ux = (p2.x - p1.x) / span, uy = (p2.y - p1.y) / span;
     const nx = -uy, ny = ux;
+    const a = (amp === undefined) ? 0.04 : amp;
     const nCtrl = rng.int(1, 2);
     const ctrl = [p1];
     for (let c = 1; c <= nCtrl; c++) {
       const t = c / (nCtrl + 1);
-      const off = rng.range(-0.04, 0.04) * span;   // 旧版 ±0.18 → 收紧到 ±0.04
+      // 弯曲幅度必须小：局部斜率偏移会把正交路口变成浅角互穿（v1 的 35° 病根）
+      const off = rng.range(-a, a) * span;
       ctrl.push({ x: p1.x + ux * span * t + nx * off, y: p1.y + uy * span * t + ny * off });
     }
     ctrl.push(p2);
-    _emitRoadChain(out, _catmullRomSample(ctrl, ROAD_SAMPLE_STEP), roadW, groupId, isSegOk);
-    return { p1, p2, ux, uy, groupId };
+    const pts = _catmullRomSample(ctrl, ROAD_SAMPLE_STEP);
+    // 强制首末端点精确落在指定位置（样条采样可能因步长对齐产生微小偏差）
+    pts[0] = { x: p1.x, y: p1.y };
+    pts[pts.length - 1] = { x: p2.x, y: p2.y };
+    _emitRoadChain(out, pts, roadW, groupId, isSegOk);
+    chains.push({ groupId: groupId, pts: pts });
+    return pts;
   };
 
-  // 拓扑：地图长边方向为横向干道（恒有），短边方向为纵向干道（0~1 条）——两者正交。
-  const wide = halfW >= halfH;
-  emitTrunk(wide ? 2 : 0, wide ? 3 : 1, 'main-road-0');
-  if (rng() < 0.85) {
-    emitTrunk(wide ? 0 : 2, wide ? 1 : 3, 'main-road-1');
+  const R = () => rng.range(-0.13, 0.13);
+  const H = (i) => buildFromPoints(edgePoint(2, R()), edgePoint(3, R()), 'main-road-h' + i);   // 西→东
+  const V = (i) => buildFromPoints(edgePoint(0, R()), edgePoint(1, R()), 'main-road-v' + i);   // 北→南
+  // 在一条已有道路的真实折线上取锚点（按沿程比例 u∈(0,1)，避开两端 8%）
+  const anchorOn = (pts, u) => {
+    const k = Math.min(pts.length - 1, Math.max(0, Math.round(u * (pts.length - 1))));
+    return { x: pts[k].x, y: pts[k].y };
+  };
+  // T 形支道：从横干道折线上的锚点向北或南延伸至该侧边界线 → 恒为 1 个 T 形路口
+  const TH = (i, trunkPts, u) => {
+    const side = rng() < 0.5 ? 0 : 1;                       // 0:向北 1:向南
+    const ay = (side === 0) ? worldMinY : worldMaxY;
+    const a = anchorOn(trunkPts, u);
+    buildFromPoints(a, { x: a.x + R() * halfW * 0.5, y: ay }, 'main-road-t' + i);
+  };
+  // T 形支道：从纵干道折线上的锚点向东或西延伸至该侧边界线
+  const TV = (i, trunkPts, u) => {
+    const side = rng() < 0.5 ? 2 : 3;                       // 2:向西 3:向东
+    const ax = (side === 2) ? worldMinX : worldMaxX;
+    const a = anchorOn(trunkPts, u);
+    buildFromPoints(a, { x: ax, y: a.y + R() * halfH * 0.5 }, 'main-road-t' + i);
+  };
+
+  // 直接构造「贯穿路」的两端点（供平行拓扑用错位半区端点）
+  const spanH = (tA, tB) => [edgePoint(2, tA), edgePoint(3, tB)];
+  const spanV = (tA, tB) => [edgePoint(0, tA), edgePoint(1, tB)];
+
+  // 拓扑：每种最多 2 个路口（用户明确反对「路口太多」，故不设三岔拓扑）。
+  const topoRoll = rng();
+  if (topoRoll < 0.16) {
+    // A 单条贯通（16%）：只有一条主路，0 路口，最稀疏
+    if (rng() < 0.5) H(0); else V(0);
+  } else if (topoRoll < 0.42) {
+    // B 十字（26%）：横纵各一条 → 1 个直角路口
+    H(0); V(0);
+  } else if (topoRoll < 0.60) {
+    // C 单侧 T 形（18%）：一条贯通干道 + 一条锚定支道 → 1 个 T 形路口
+    if (rng() < 0.5) {
+      const t = H(0); TH(0, t, rng.range(0.25, 0.75));
+    } else {
+      const t = V(0); TV(0, t, rng.range(0.25, 0.75));
+    }
+  } else if (topoRoll < 0.78) {
+    // E 双侧 T 形（18%）：干道两侧各一条锚定支道 → 2 个分离的 T 形路口
+    const t = H(0);
+    TH(0, t, rng.range(0.18, 0.40));
+    TH(1, t, rng.range(0.60, 0.82));
+  } else if (topoRoll < 0.92) {
+    // D 双同向平行（14%）：两条道分居上下/左右半区（错位、不相交）→ 0 路口，街区感
+    if (rng() < 0.5) {
+      const [a1, b1] = spanH(rng.range(-0.62, -0.24), rng.range(-0.62, -0.24));
+      const [a2, b2] = spanH(rng.range(0.24, 0.62), rng.range(0.24, 0.62));
+      buildFromPoints(a1, b1, 'main-road-h0'); buildFromPoints(a2, b2, 'main-road-h1');
+    } else {
+      const [a1, b1] = spanV(rng.range(-0.62, -0.24), rng.range(-0.62, -0.24));
+      const [a2, b2] = spanV(rng.range(0.24, 0.62), rng.range(0.24, 0.62));
+      buildFromPoints(a1, b1, 'main-road-v0'); buildFromPoints(a2, b2, 'main-road-v1');
+    }
+  } else {
+    // F 错位丁字对（8%）：两条同向干道 + 各自一条反向支道 → 2 个 T 形路口，错位对称
+    const t1 = H(0);
+    TH(0, t1, rng.range(0.20, 0.40));
+    TH(1, t1, rng.range(0.60, 0.80));
   }
-  return out;
+
+  // 路口：两两链的**采样折线**求交（聚类半径 = 路宽，同一路口只报一次）。
+  // 用折线（而非链段 OBB）判定：T 形支道的锚点恰好落在干道折线上的某点，若改用
+  // 「段中心 ± 半跨」的 OBB 口径，交点参数正好压在容差边界上，浮点噪声会让判定
+  // 随机漏报（实测部分节点 junctions=0，即 T 形路口未被识别 → 标线不断开 = 没有路口感）。
+  // 折线段求交是精确的：锚点必然同时位于两条折线上。
+  const junctions = [];
+  const segIntersect = (p1, p2, p3, p4) => {
+    const d1x = p2.x - p1.x, d1y = p2.y - p1.y;
+    const d2x = p4.x - p3.x, d2y = p4.y - p3.y;
+    const den = d1x * d2y - d1y * d2x;
+    if (Math.abs(den) < 1e-9) return null;
+    const dx = p3.x - p1.x, dy = p3.y - p1.y;
+    const t = (dx * d2y - dy * d2x) / den;
+    const u = (dx * d1y - dy * d1x) / den;
+    if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+    return { x: p1.x + d1x * t, y: p1.y + d1y * t };
+  };
+  // 容差外扩：折线段首尾相接处交点常落在端点（t≈0/1），允许 2px 溢出以吸收浮点误差
+  for (let i = 0; i < chains.length; i++) {
+    for (let j = i + 1; j < chains.length; j++) {
+      const A = chains[i].pts, B = chains[j].pts;
+      if (!A || !B) continue;
+      for (let ai = 0; ai < A.length - 1; ai++) {
+        for (let bi = 0; bi < B.length - 1; bi++) {
+          const p = segIntersect(A[ai], A[ai + 1], B[bi], B[bi + 1]);
+          if (p && !junctions.some(q => Math.hypot(q.x - p.x, q.y - p.y) < roadW)) {
+            junctions.push({ x: p.x, y: p.y, r: roadW * 0.85 });
+          }
+        }
+      }
+    }
+  }
+  return { covers: out, junctions: junctions };
 }
 
 // ISSUE 7(c) 重做 + #87 村庄分层生成：
@@ -1355,7 +1464,11 @@ function pruneOverlappingCovers(covers) {
   // 实测留下 202~246px 路面缺口（＝用户反馈的「道路被其他物体截断」根因）。道路属 ground 层、
   // 先于一切元素绘制并被其覆盖，跳段纯属有害，故 placeRoadNetwork 不再接收避让盒。
   const rrng = createRNG(((Number(seed) ^ 0x11A11A11) + 0x6D2B79F5) >>> 0);
-  const networkRoads = placeRoadNetwork(rrng, selectedTemplate, scale, centerX, centerY);
+  // v2：placeRoadNetwork 返回 { covers, junctions }——junctions 供渲染层在路口断开中心虚线
+  // （「路口感」的关键：两条路的中心线不能都笔直穿过交点）。
+  const roadNet = placeRoadNetwork(rrng, selectedTemplate, scale, centerX, centerY);
+  const networkRoads = roadNet.covers;
+  const roadJunctions = roadNet.junctions;
   for (const r of networkRoads) {
     outCovers.push(r);
   }
@@ -1668,6 +1781,9 @@ function pruneOverlappingCovers(covers) {
     template: selectedTemplate,
     biome: selectedTemplate.biome || null,   // P-36/#81：biome 地面主题标签（makeNode 透传到 run.nodes）
     covers: outCovers,
+    // v2（2026-09-16）：路口中心列表 [{x,y,r}]——渲染层据此在路口断开中心虚线，
+    // 使交叉处读作「路口」而非「两条路机械叠加」。见 spec map.md §10.2。
+    roadJunctions: roadJunctions,
     seed: seed,
     difficulty: diff,
     w: selectedTemplate.w * scale,   // 缩放后的节点世界尺寸（P-08：摄像机/小地图用）

@@ -459,6 +459,9 @@ function makeNode(index, rng, env) {
     template: { id: templateResult.template.id, name: templateResult.template.name },
     biome: templateResult.biome || null,   // P-36/#81：地面主题标签（mvp drawGround 消费）
     covers: templateResult.covers,
+    // v2（2026-09-16）：路口中心（已随 covers 一起从 generateNode 局部系平移到世界系）。
+    // 渲染层 bakeNodeGroundLayer 据此在路口断开中心虚线，使交叉处读作「路口」。
+    roadJunctions: (templateResult.roadJunctions || []).map(j => ({ x: j.x + centerX, y: j.y + centerY, r: j.r })),
     playerSpawn: playerSpawn,
     enemyClusters: enemyClusters,
     enemies: enemies,
