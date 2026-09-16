@@ -101,14 +101,27 @@ const RULES = {
     stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'graduated', destructible: 1,        crushable: true,  vision: false, drawStyle: 'stump',       tierGroup: 'structure' },
     rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'graduated', destructible: 1,        crushable: true,  vision: false, drawStyle: 'rubble',      tierGroup: 'structure' },
     // ======================= P-20/P-40：水体/桥梁 + 新地形 =======================
-    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water',       tierGroup: 'liquid' }, // #85：炮弹越飞；#16 改为可涉水（passability 0.4 慢速通行，不再硬阻断）
-    river:      { label: '河流',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water-chain', tierGroup: 'liquid' }, // 多段连通水体（segments）；#16 同改为可涉水
-    mud:        { label: '烂泥地',   fill: 'rgba(96,72,44,0.45)',    stroke: '#60482c', passability: 0.35, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'mud',         tierGroup: 'ground' }, // 减速不阻挡、不进弹道遮蔽
+    // 水系裁定（2026-09-14 重做）：水潭/河流可缓速通行（passability 0.4，与烂泥地同级）；
+    // 完全浸入（整车四角入水）触发溺毙倒计时（RULES.drowning.seconds，缺省 8s）——
+    // 玩家/敌人/Boss 一视同仁；AI 移动决策带绕水转向（tank_ai.applyWaterAvoidance）。
+    // 炮弹维持越飞（shellBlock:false，#85 裁定不回退）。
+    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water',       tierGroup: 'liquid' }, // #85：炮弹越飞；减速通行 + 完全浸入溺毙
+    river:      { label: '河流',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water-chain', tierGroup: 'liquid' }, // 多段连通水体（segments）；同 water 减速通行 + 溺毙
+    mud:        { label: '烂泥地',   fill: 'rgba(96,72,44,0.45)',    stroke: '#60482c', passability: 0.4, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'mud',         tierGroup: 'ground' }, // 减速不阻挡、不进弹道遮蔽（复查处置：0.35→0.4，与半高掩体同级）
     road:       { label: '道路',     fill: 'rgba(122,120,114,0.55)', stroke: '#6e6c66', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'road',        tierGroup: 'ground' }, // 村庄街道：可自由通行、不挡弹、不遮视线（纯地面标识）
     intact:     { label: '完整建筑', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure' },
     ruined:     { label: '残破建筑', fill: 'rgba(122,114,100,0.5)',  stroke: '#7a7264', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'half',      destructible: 1,        crushable: false, vision: false, drawStyle: 'rubble-box',  tierGroup: 'structure', toTier: 'rubble', driveBy: { heavy: true, medium: false } },
     rock:       { label: '岩石',     fill: 'rgba(138,138,132,0.85)', stroke: '#6f6f68', passability: 0,    shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'rock-poly',   tierGroup: 'structure' },
     bridge:     { label: '桥梁',     fill: 'rgba(139,92,25,0.8)',    stroke: '#8b5c1a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' }
+  },
+
+  // ======================= 溺毙（2026-09-14 水域行为重做） =======================
+  // 完全浸入水体（车体四角均位于 water/river 覆盖内）后开始溺毙倒计时；
+  // 归零即沉没摧毁（hp 归零走正常死亡管线：玩家可复活、敌人计分）。出口即复位。
+  // 消费方：tank_mvp.html 战斗主循环（drownT 累计）+ tank_cover.js tankFullyInWater。
+  drowning: {
+    seconds: 8,            // 溺毙倒计时（秒）
+    warnAt: 3              // 剩余该秒数时播报警告音/强化提示
   },
 
   // ======================= 破障（可破坏地图元素） =======================
@@ -195,6 +208,12 @@ const RULES = {
       duration: 6,
       accelMult: 3.0,     // 3x engine power / accel
       maxSpeedMult: 1.5,  // +50% top speed
+      cooldown: 20
+    },
+    deploy_cover: {
+      hp: 200,
+      shieldHp: 150,
+      duration: 30,
       cooldown: 20
     },
     drone: {
@@ -296,13 +315,72 @@ const RULES = {
   //       spread×散布（缺省 1）/ noBounce 确定性不跳弹（HEAT 破甲弹 / HE 高爆弹）/
   //       splashRadius HE 爆炸半径（px）——逻辑范围伤害与爆轰特效共用同一数值
   //       （消费方：js/tank_physics.js resolveHit/applySplashAt + mvp 爆轰特效 scale=splashRadius/40）。
+  //
+  // ======================= 弹种体系扩展（2026-09-13 弹种链定案，PLAN.md 阶段五/六） =======================
+  // 14 弹种三链（用户数值总表 2026-09-13，唯一权威）：
+  //   KE 链：  ap → apcr → apds → apfsds → apfsds-ad
+  //   HEAT 链：heat → heatfs → tandem_heat → heavy_tandem_heat
+  //   HE 链：  he → aphe / hesh / proximity_he / blast_he（he 处四向分岔，可并存取用）
+  // 升级语义：开局仅 ap/he，卡牌升级 = 弹种在 loadout 槽位内替换（Q/E 循环切换不变）。
+  // per-ammo 扩展字段（缺省回退全局 ballistics/modules 基准）：
+  //   bounceAngle   强制跳弹角（rad；θ>该值即跳弹，noBounce 弹种忽略）
+  //   moduleDraws   模块抽取数量（1/2/3：applyModuleDamage 抽取次数）
+  //   ammoMult      弹药架伤害倍率；crewMult 成员和其他模块倍率（缺省回退 stats/modules 基准）
+  //   spreadAcc     精度系数（散布 σ ×该值；与卡牌 spread× 相乘）
+  //   nonPenRatio   未击穿伤害系数（0=无；>0 走「伤害×(1−(eff−pen)/eff)×k」装甲吸收公式）
+  //   nonPenFloor   未击穿伤害下限比例（缺省 0.25）
+  //   splashRadius  溅射半径（px，HE 家族；proximity_he 近炸引信按当时 he 基准半径）
+  //   proximity     近炸引信（true：弹道不命中目标时，接近率变负处空爆溅射）
   ammoTypes: {
-    ap:   { label: 'AP',   color: '#5cc8ff', speed: 1.0, pen: 1.0, dmg: 1.0, tail: 'rgba(92,200,255,0.6)' },
-    apcr: { label: 'APCR', color: '#ff6c5c', speed: 1.2, pen: 1.2, dmg: 0.8, tail: 'rgba(255,106,92,0.6)' },
-    heat: { label: 'HEAT', color: '#ffd23c', speed: 0.8, pen: 1.4, dmg: 1.0, spread: 1.2, noBounce: true, tail: 'rgba(255,210,60,0.6)' },
-    he:   { label: 'HE',   color: '#ffb454', speed: 0.95, pen: 0.7, dmg: 1.0, noBounce: true, splashRadius: 90, tail: 'rgba(255,180,84,0.6)' },
-    apfsds: { label: 'APFSDS', color: '#d8f8ff', speed: 1.8, pen: 2.0, dmg: 0.9, noBounce: true, doubleModule: true, tail: 'rgba(216,248,255,0.8)' },
-    hec:    { label: 'HEC',    color: '#ff9040', speed: 0.85, pen: 1.1, dmg: 1.2, noBounce: true, splashRadius: 110, ignoreCover: true, arc: true, tail: 'rgba(255,144,64,0.7)' }
+    ap:   { label: 'AP',   color: '#5cc8ff', speed: 1.0, pen: 1.0, dmg: 1.0, bounceAngle: 70, moduleDraws: 1, ammoMult: 2,   crewMult: 1.5, spreadAcc: 1,   nonPenRatio: 0, tail: 'rgba(92,200,255,0.6)' },
+    apcr: { label: 'APCR', color: '#ff6c5c', speed: 1.2, pen: 1.2, dmg: 1.0, bounceAngle: 65, moduleDraws: 1, ammoMult: 2,   crewMult: 1.5, spreadAcc: 1,   nonPenRatio: 0, tail: 'rgba(255,106,92,0.6)' },
+    apds: { label: 'APDS', color: '#ffa25c', speed: 1.4, pen: 1.4, dmg: 1.2, bounceAngle: 75, moduleDraws: 2, ammoMult: 2,   crewMult: 2,   spreadAcc: 0.9, nonPenRatio: 0, tail: 'rgba(255,162,92,0.7)' },
+    apfsds: { label: 'APFSDS', color: '#d8f8ff', speed: 1.8, pen: 1.8, dmg: 1.2, bounceAngle: 85, moduleDraws: 2, ammoMult: 2.5, crewMult: 2,   spreadAcc: 0.8, nonPenRatio: 0, doubleModule: true, tail: 'rgba(216,248,255,0.8)' },
+    apfsds_ad: { label: 'APFSDS-AD', color: '#b8f0ff', speed: 1.8, pen: 2.0, dmg: 1.4, bounceAngle: 87, moduleDraws: 2, ammoMult: 2.5, crewMult: 2,   spreadAcc: 0.7, nonPenRatio: 0, doubleModule: true, tail: 'rgba(184,240,255,0.9)' },
+    he:   { label: 'HE',   color: '#ffb454', speed: 0.8, pen: 0.5, dmg: 1.5, noBounce: true, splashRadius: 90, moduleDraws: 3, ammoMult: 3,   crewMult: 2,   spreadAcc: 1.2, nonPenRatio: 0.6, tail: 'rgba(255,180,84,0.6)' },
+    heat: { label: 'HEAT', color: '#ffd23c', speed: 0.9, pen: 1.5, dmg: 1.0, noBounce: true, bounceAngle: 87, moduleDraws: 1, ammoMult: 2,   crewMult: 1.5, spreadAcc: 1.2, nonPenRatio: 0, tail: 'rgba(255,210,60,0.6)' },
+    heatfs: { label: 'HEAT-FS', color: '#ffe27a', speed: 1.2, pen: 1.75, dmg: 1.0, noBounce: true, bounceAngle: 87, moduleDraws: 1, ammoMult: 2,   crewMult: 1.5, spreadAcc: 1.1, nonPenRatio: 0, tail: 'rgba(255,226,122,0.7)' },
+    tandem_heat: { label: 'T-HEAT', color: '#ffec9e', speed: 1.2, pen: 2.0, dmg: 1.2, noBounce: true, bounceAngle: 87, moduleDraws: 2, ammoMult: 2,   crewMult: 1.5, spreadAcc: 1.05, nonPenRatio: 0, tail: 'rgba(255,236,158,0.75)' },
+    heavy_tandem_heat: { label: 'HT-HEAT', color: '#fff6c0', speed: 1.2, pen: 2.0, dmg: 1.4, noBounce: true, bounceAngle: 87, moduleDraws: 2, ammoMult: 2.5, crewMult: 2,   spreadAcc: 1.1, nonPenRatio: 0, tail: 'rgba(255,246,192,0.85)' },
+    aphe: { label: 'APHE', color: '#ffc9a0', speed: 1.0, pen: 1.1, dmg: 1.2, bounceAngle: 70, moduleDraws: 2, ammoMult: 2,   crewMult: 1.5, spreadAcc: 1.1, nonPenRatio: 0, tail: 'rgba(255,201,160,0.6)' },
+    hesh: { label: 'HESH', color: '#e8a0ff', speed: 0.8, pen: 0.7, dmg: 1.5, noBounce: true, splashRadius: 100, moduleDraws: 2, ammoMult: 2,   crewMult: 1.8, spreadAcc: 1.1, nonPenRatio: 0.8, tail: 'rgba(232,160,255,0.7)' },
+    proximity_he: { label: 'HE-VT', color: '#ffd0b0', speed: 0.9, pen: 0.9, dmg: 1.5, noBounce: true, splashRadius: 90, moduleDraws: 2, ammoMult: 2.5, crewMult: 2,   spreadAcc: 1.1, nonPenRatio: 0.8, proximity: true, tail: 'rgba(255,208,176,0.7)' },
+    blast_he: { label: 'HE-OP', color: '#ff9a6c', speed: 0.9, pen: 0.8, dmg: 1.8, noBounce: true, splashRadius: 110, moduleDraws: 3, ammoMult: 3,   crewMult: 2,   spreadAcc: 1.1, nonPenRatio: 0.8, tail: 'rgba(255,154,108,0.8)' }
+    // 注：legacy HEC 曲射弹种已按用户裁定移除（2026-09-14）——曲射越障能力由榴弹炮/迫击炮
+    // 武器层（isArc + ignoreCover）承担，不再占用独立弹种键。
+  },
+  // 近炸引信（proximity_he）：弹道沿直线飞行不命中任何目标时，对每个敌方实体计算「接近率」
+  // （径向距离变化率 dotProduct，负值=接近）。当最近目标的接近率开始变负（由接近转远离）
+  // 时立即空爆，在爆点按 splashRadius 施加溅射伤害。细节见 tank_fire.js stepShells。
+  proximityFuze: {
+    enabled: true,        // 总开关
+    maxTravel: 1400,      // 引信激活最大飞行距离（px，超过按普通未命中处理）
+    armRadius: 120,       // 引信武装半径（px）：进入该半径且正在接近才武装（原硬编码 120 收口，2026-09-13）
+    minDist: 40           // 空爆点与目标最小距离（px，防贴脸爆自己视野内一帧爆）
+  },
+
+  // ======================= 弹种升级链（2026-09-13 阶段六定案；2026-09-15 用户修订为定案三链） =======================
+  // key → 链上直接前驱（applyCardEffects 弹种升级卡的自动替换目标；PLAN.md 阶段五表 1）。
+  // 用户 2026-09 定案三链（唯一权威）：
+  //   KE 链：   ap → apcr → apds → apfsds → apfsds-ad
+  //   HE 榴弹链：he → aphe → hesh → proximity_he(he-vt) → blast_he(he-op)
+  //   HEAT 链： he → heat → heatfs → tandem_heat(t-heat) → heavy_tandem_heat(ht-heat)
+  // 升级语义（用户裁定）：链内升级 = loadout 槽内「直系前驱」原地替换（KE 链替换原 KE 弹种）；
+  // HE 处双分支（he→heat / he→aphe）：首条分支「先新增」一个弹种保留 he，槽满后第二条分支再替换 he；
+  // 禁止跳级——前驱不在 loadout 时升级卡不生效、不抽到。
+  ammoChain: {
+    apcr:               'ap',
+    apds:               'apcr',
+    apfsds:             'apds',
+    apfsds_ad:          'apfsds',
+    heat:               'he',
+    heatfs:             'heat',
+    tandem_heat:        'heatfs',
+    heavy_tandem_heat:  'tandem_heat',
+    aphe:               'he',
+    hesh:               'aphe',
+    proximity_he:       'hesh',
+    blast_he:           'proximity_he'
   },
 
   // ======================= 弹种增益软上限（ISSUE 19） =======================
@@ -437,6 +515,13 @@ const RULES = {
     sideSwingAngleMin: 0.78,      // 最小侧摆角（≈45°）
     sideSwingAngleMax: 1.57,      // 最大侧摆角（≈90°）
 
+    // --- 绕水转向（2026-09-14 水域行为重做）：AI 前向探水 + 侧向绕行 ---
+    // 水域不再硬阻断（passability 0.4 + 溺毙），AI 移动输出前做避水修正：
+    // 前向探点入水且侧向有干地 → 转向干地侧；三探点全水 → 停驶防自杀。
+    // 消费方：js/tank_ai.js applyWaterAvoidance（ctx.covers 注入）。
+    waterProbeDist: 140,          // 前向探点距离（px，≈1s 车程）
+    waterProbeAngle: 0.6,         // 侧向探点偏角（rad）
+
     // --- classProfiles（P-46 类别化敌军）：按实体 t.tankClass 的行为档案覆盖 ---
     //   与 tierProfiles 正交：先按 aiTier 取档位、再按 tankClass 叠加类型行为修正。
     //   engageMul   — 接战距离乘数（轻型远距试探/重型近距钢猛）
@@ -513,10 +598,10 @@ const RULES = {
     // 终值校准说明：生存端 maxHp/armorAll 抬升最高（拖长 TTK、鼓励玩家绕侧打背面），
     // 输出端 damage/penetration 温和（避免一击必杀挫败），机动/火控端小幅强化（更难风筝）。
     entityMults: {
-      maxHp:         [0.8, 1.4],   // 生命（易弱难强，下限<1）
+      maxHp:         [0.45, 1.4],  // 生命（易弱难强，开局平滑）
       penetration:   [0.75, 1.25], // 穿深
       damage:        [0.75, 1.2],  // 单发伤害
-      armorAll:      [0.7, 1.3],   // 装甲全面乘（遍历 hull/turret 各面叠乘）
+      armorAll:      [0.6, 1.3],   // 装甲全面乘（遍历 hull/turret 各面叠乘）
       reload:        [1.25, 0.82], // 装填时间（易慢难快）
       spreadMult:    [1.3, 0.78],  // 三扩系数（易散难准）
       aimSpeed:      [0.8, 1.35],  // 缩圈速度
@@ -605,7 +690,7 @@ const RULES = {
   // weight 上限 80t 为用户裁定（P-49，2026-08-26 细化：仅约束设计器出厂校验）。
   // 设计器保存校验消费方应把输入钳到 [min,max] 区间。
   parameterLimits: {
-    maxHp:            { min: 50,  max: 160 },  // 存量 hp 包络 80~120（±30% → 56~156，取整）
+        maxHp:            { min: 50,  max: 9999 }, // 存量 hp 包络 80~120（±30% → 56~156，取整）；max=9999=无上限（B3 #73 修复：hp_up 升级「无上限」，与装甲同级）。仅 runShopLimitBlocked #A4 派生消费；设计器出厂校验只约束 weight.max。
     penetration:      { min: 80,  max: 9999 }, // 穿深无上限（用户需求：火力/穿深/装甲不设上限）
     damage:           { min: 25,  max: 9999 }, // 单发伤害无上限（用户需求：火力/穿深/装甲不设上限）
     reload:           { min: 0.5, max: 3.0 },  // 装填秒数：下限 0.5s 用户既定需求；上限包络 2.0×1.3≈2.6 → 圆整 3.0
@@ -613,7 +698,7 @@ const RULES = {
     maxSpeed:         { min: 60,  max: 375 },  // px/s；max=150km/h÷kmhFactor0.4=375（用户裁定 ≤150km/h）；min 对应 24km/h
     turnRate:         { min: 1.0, max: 3.5 },  // 车体转速 rad/s 包络 1.6~2.5（±30% → 1.12~3.25）
     turretTurnRate:   { min: 1.0, max: 4.0 },  // 炮塔转速 rad/s 包络 1.5~3.0（±30% → 1.05~3.9）
-    enginePower:      { min: 200, max: 1200 }, // 马力包络 300~900（±30% → 210~1170）
+        enginePower:      { min: 200, max: 9999 }, // 马力包络 300~900（±30% → 210~1170）；max=9999=无上限（B3 #73 修复：engine_power_up 升级「受运行时重量上限间接约束」，不受马力封顶）。仅 runShopLimitBlocked #A4 派生消费。
     spreadMult:       { min: 0.5, max: 3.0 },  // 三扩系数包络 0.8~2.0（±30% → 0.56~2.6）；min 与 RULES.spread.multFloor 同级防穿零
     motionSpreadMul:  { min: 0.5, max: 3.0 },  // 对齐 spreadMult 边界（用户 2026 决定：姿态稳定 steady_mount 的达限判定与三扩系数同级）
     weight:           { min: 10,  max: 80 },   // 吨：max=80t 为【设计上限】，仅设计器出厂校验（卡牌/局内升级可突破）；下限给超轻底盘留余地
@@ -643,8 +728,8 @@ const RULES = {
 
   // ======================= 武器与槽位解耦 (R-1) =======================
   weaponTypes: {
-    primary: ['standard', 'autocannon', 'double_barrel', 'railgun', 'howitzer'],
-    secondary: ['none', 'mortar', 'missile', 'rocket', 'mine_layer']
+    primary: ['standard', 'autocannon', 'double_barrel', 'railgun'],
+    secondary: ['none', 'mortar', 'missile', 'rocket', 'mine_layer', 'turret']
   }
 };
 
