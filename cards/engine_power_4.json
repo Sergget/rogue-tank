@@ -1,0 +1,12 @@
+{
+  "id": "engine_power_4",
+  "name": "复合动力总成",
+  "rarity": "legendary",
+  "tags": ["机动"],
+  "desc": "大功率发动机与轻量化传动，发动机功率 +35%，极速 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "enginePower", "mode": "mult", "value": 1.35 },
+    { "type": "modifier", "stat": "maxSpeed", "mode": "mult", "value": 1.10 }
+  ],
+  "maxStacks": 1
+}

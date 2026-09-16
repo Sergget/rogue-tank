@@ -1,0 +1,23 @@
+{
+  "id": "weapon_primary_railgun",
+  "name": "主武器：电磁轨道炮",
+  "rarity": "epic",
+  "tags": ["狙击", "机动"],
+  "desc": "主武器改装为电磁轨道炮：极高弹速与穿透（弹速×2.5、穿深×2.0、伤害×1.5，装填时间×2.2）。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "install",
+      "slot": "primary",
+      "weaponType": "railgun",
+      "statOverrides": {
+        "reloadMult": 2.2,
+        "damageMult": 1.5,
+        "penMult": 2.0,
+        "shellSpeedMult": 2.5,
+        "burst": 1
+      }
+    }
+  ],
+  "maxStacks": 1
+}

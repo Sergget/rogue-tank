@@ -1,0 +1,18 @@
+{
+  "id": "ability_artillery_barrage",
+  "name": "炮击扩增",
+  "rarity": "rare",
+  "tags": ["支援", "爆破"],
+  "desc": "战术炮击增强：单次呼叫的落弹数提升至 5 枚。",
+  "effects": [
+    {
+      "type": "ability",
+      "key": "artillery",
+      "requiresAbility": "artillery",
+      "params": {
+        "shellCount": 5
+      }
+    }
+  ],
+  "maxStacks": 1
+}

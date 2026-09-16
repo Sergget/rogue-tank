@@ -1,0 +1,12 @@
+{
+  "id": "hull_hp_boost_4",
+  "name": "战列装甲构形",
+  "rarity": "legendary",
+  "tags": ["重甲"],
+  "desc": "重型战列舰规格结构，最大耐久 +50%，重量 +10%。",
+  "effects": [
+    { "type": "modifier", "stat": "maxHp", "mode": "mult", "value": 1.50 },
+    { "type": "modifier", "stat": "weight", "mode": "mult", "value": 1.10 }
+  ],
+  "maxStacks": 1
+}

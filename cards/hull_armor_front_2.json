@@ -1,0 +1,11 @@
+{
+  "id": "hull_armor_front_2",
+  "name": "复合间隙装甲",
+  "rarity": "rare",
+  "tags": ["重甲"],
+  "desc": "加装复合间隙装甲板，车体正面装甲 +18mm。",
+  "effects": [
+    { "type": "modifier", "stat": "armor.hull.front", "mode": "add", "value": 18 }
+  ],
+  "maxStacks": 2
+}

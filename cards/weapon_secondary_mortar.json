@@ -1,0 +1,22 @@
+{
+  "id": "weapon_secondary_mortar",
+  "name": "副武器：车载迫击炮",
+  "rarity": "epic",
+  "tags": ["爆破"],
+  "desc": "安装副武器车载迫击炮：曲射攻击（射程 450，溅射范围 90，装填 8秒，伤害 60）。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "install",
+      "slot": "secondary",
+      "weaponType": "mortar",
+      "statOverrides": {
+        "range": 450,
+        "aoe": 90,
+        "reload": 8,
+        "damage": 60
+      }
+    }
+  ],
+  "maxStacks": 1
+}

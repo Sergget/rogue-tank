@@ -1,0 +1,21 @@
+{
+  "id": "weapon_secondary_mortar_upgrade",
+  "name": "迫击炮性能改装",
+  "rarity": "rare",
+  "tags": ["爆破", "支援"],
+  "desc": "车载迫击炮强化：射程提升至 550，爆炸杀伤范围扩大至 120，装填时间缩短至 6秒。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "mortar",
+      "statOverrides": {
+        "range": 550,
+        "aoe": 120,
+        "reload": 6
+      }
+    }
+  ],
+  "maxStacks": 1
+}

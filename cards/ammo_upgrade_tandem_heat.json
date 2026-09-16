@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_tandem_heat",
+  "name": "串联破甲弹改造",
+  "rarity": "epic",
+  "tags": ["爆破"],
+  "desc": "将翼稳破甲弹(HEATFS)升级为串联破甲弹(Tandem HEAT)，穿深 +25%。",
+  "effects": [
+    { "type": "ammo", "key": "tandem_heat", "replaceAmmo": "heatfs", "field": "pen", "mode": "mult", "value": 1.25 }
+  ],
+  "maxStacks": 1
+}

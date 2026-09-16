@@ -1,0 +1,11 @@
+{
+  "id": "aim_speed_2",
+  "name": "瞄准传动 II",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "高倍率瞄准具，瞄准速度 +25%。",
+  "effects": [
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.25 }
+  ],
+  "maxStacks": 2
+}

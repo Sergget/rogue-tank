@@ -1,0 +1,29 @@
+{
+  "id": "weapon_primary_autocannon",
+  "name": "主武器：速射机炮",
+  "rarity": "epic",
+  "tags": ["机动"],
+  "desc": "主武器改装为速射机炮：单发伤害=标准 1/5、穿深=标准 85%（弹种系数机制不变）；射击间隔=装填时间×0.25。每发积累 10% 热量，每秒冷却 15%，达到 100% 过热并强制冷却 2 秒。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "install",
+      "slot": "primary",
+      "weaponType": "autocannon",
+      "statOverrides": {
+        "reloadMult": 0.25,
+        "damageMult": 0.2,
+        "penMult": 0.85,
+        "shellSpeedMult": 1.0,
+        "heatPerShot": 10,
+        "coolPerSec": 15,
+        "heatMax": 100,
+        "overheatLock": 2.0,
+        "barrelWidthMult": 0.6,
+        "barrelLenMult": 0.8,
+        "fxScale": 0.55
+      }
+    }
+  ],
+  "maxStacks": 1
+}

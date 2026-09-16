@@ -1,0 +1,19 @@
+{
+  "id": "weapon_primary_alt_reload",
+  "name": "交替装填系统",
+  "rarity": "legendary",
+  "tags": ["机动", "重甲"],
+  "desc": "双联火炮装填优化：两管交替上弹机构，单管装填时间 ×1.0 → ×0.8。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "double_barrel",
+      "statOverrides": {
+        "reloadMult": 0.8
+      }
+    }
+  ],
+  "maxStacks": 1
+}

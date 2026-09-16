@@ -1,0 +1,11 @@
+{
+  "id": "engine_power_3",
+  "name": "发动机调校 III",
+  "rarity": "epic",
+  "tags": ["机动"],
+  "desc": "高压缩比强化缸体，发动机功率 +35%。",
+  "effects": [
+    { "type": "modifier", "stat": "enginePower", "mode": "mult", "value": 1.35 }
+  ],
+  "maxStacks": 2
+}

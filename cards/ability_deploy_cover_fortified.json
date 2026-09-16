@@ -1,0 +1,19 @@
+{
+  "id": "ability_deploy_cover_fortified",
+  "name": "加固战术掩体",
+  "rarity": "epic",
+  "tags": ["重甲", "支援"],
+  "desc": "战术掩体加固：部署的便携掩体耐久提升至 350，护盾吸收值提升至 250。",
+  "effects": [
+    {
+      "type": "ability",
+      "key": "deploy_cover",
+      "requiresAbility": "deploy_cover",
+      "params": {
+        "hp": 350,
+        "shieldHp": 250
+      }
+    }
+  ],
+  "maxStacks": 1
+}

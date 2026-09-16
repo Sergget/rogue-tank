@@ -1,0 +1,11 @@
+{
+  "id": "reload_speed_3",
+  "name": "装填机优化 III",
+  "rarity": "epic",
+  "tags": ["狙击"],
+  "desc": "自动装弹机，装填时间 -20%。",
+  "effects": [
+    { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.80 }
+  ],
+  "maxStacks": 2
+}

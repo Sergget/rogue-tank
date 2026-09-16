@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_aphe",
+  "name": "穿甲高爆弹改造",
+  "rarity": "rare",
+  "tags": ["爆破"],
+  "desc": "将高爆弹(HE)升级为穿甲高爆弹(APHE)，伤害 +20%。",
+  "effects": [
+    { "type": "ammo", "key": "aphe", "replaceAmmo": "he", "field": "dmg", "mode": "mult", "value": 1.2 }
+  ],
+  "maxStacks": 1
+}

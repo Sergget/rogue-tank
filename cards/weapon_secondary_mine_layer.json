@@ -1,0 +1,21 @@
+{
+  "id": "weapon_secondary_mine_layer",
+  "name": "副武器：布雷器",
+  "rarity": "epic",
+  "tags": ["支援"],
+  "desc": "安装副武器车载布雷器：投放持续 30秒的地雷（装填 15秒，伤害 100）。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "install",
+      "slot": "secondary",
+      "weaponType": "mine_layer",
+      "statOverrides": {
+        "duration": 30,
+        "reload": 15,
+        "damage": 100
+      }
+    }
+  ],
+  "maxStacks": 1
+}

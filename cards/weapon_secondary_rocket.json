@@ -1,0 +1,21 @@
+{
+  "id": "weapon_secondary_rocket",
+  "name": "副武器：火箭发射器",
+  "rarity": "epic",
+  "tags": ["爆破"],
+  "desc": "安装副武器火箭发射器：4 连发齐射（装填 10秒，单发伤害 35）。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "install",
+      "slot": "secondary",
+      "weaponType": "rocket",
+      "statOverrides": {
+        "count": 4,
+        "reload": 10,
+        "damage": 35
+      }
+    }
+  ],
+  "maxStacks": 1
+}

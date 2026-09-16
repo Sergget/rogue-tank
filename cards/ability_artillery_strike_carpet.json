@@ -1,0 +1,21 @@
+{
+  "id": "ability_artillery_strike_carpet",
+  "name": "空袭·地毯轰炸",
+  "rarity": "legendary",
+  "tags": ["爆破", "支援"],
+  "desc": "空袭升级形态：沿炮塔朝向 240x80 矩形区域投放 8 发连续地毯式轰炸。",
+  "effects": [
+    {
+      "type": "ability",
+      "key": "artillery",
+      "requiresAbility": "artillery",
+      "params": {
+        "shape": "carpet",
+        "delay": 3.5,
+        "shellCount": 8,
+        "dmgMult": 1.0
+      }
+    }
+  ],
+  "maxStacks": 1
+}

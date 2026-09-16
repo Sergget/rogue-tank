@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_blast_he",
+  "name": "超压爆轰榴弹改造",
+  "rarity": "legendary",
+  "tags": ["爆破"],
+  "desc": "将近炸高爆弹(HE-VT)升级为超压榴弹(HE-OP)，伤害 +40%。",
+  "effects": [
+    { "type": "ammo", "key": "blast_he", "replaceAmmo": "proximity_he", "field": "dmg", "mode": "mult", "value": 1.4 }
+  ],
+  "maxStacks": 1
+}

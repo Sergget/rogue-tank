@@ -1,0 +1,25 @@
+{
+  "id": "weapon_primary_double_barrel",
+  "name": "主武器：双联火炮",
+  "rarity": "epic",
+  "tags": ["重甲", "爆破"],
+  "desc": "主武器改装为双联火炮：炮盾并排 2 根炮管，装填时间 ×1.0 应用于单管；单击发射 1 根已装填炮管，空格齐射全部就绪炮管；换管时间 0.5s。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "install",
+      "slot": "primary",
+      "weaponType": "double_barrel",
+      "statOverrides": {
+        "reloadMult": 1.0,
+        "damageMult": 1.0,
+        "penMult": 1.0,
+        "shellSpeedMult": 1.0,
+        "count": 2,
+        "switchSeconds": 0.5,
+        "barrelOffset": 0.9
+      }
+    }
+  ],
+  "maxStacks": 1
+}

@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_apfsds_ad",
+  "name": "先进长杆毒刺改造",
+  "rarity": "legendary",
+  "tags": ["狙击"],
+  "desc": "将翼稳脱壳穿甲弹(APFSDS)升级为先进长杆毒刺弹(APFSDS-AD)，穿深 +30%。",
+  "effects": [
+    { "type": "ammo", "key": "apfsds_ad", "replaceAmmo": "apfsds", "field": "pen", "mode": "mult", "value": 1.3 }
+  ],
+  "maxStacks": 1
+}

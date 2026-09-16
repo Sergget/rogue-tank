@@ -1,0 +1,22 @@
+{
+  "id": "ability_artillery_strike_point",
+  "name": "空袭·斩首定点",
+  "rarity": "legendary",
+  "tags": ["狙击", "支援"],
+  "desc": "空袭升级形态：呼叫高精确定点打击（延迟降至1.5s，单发高爆 300% 伤害，半径60px）。",
+  "effects": [
+    {
+      "type": "ability",
+      "key": "artillery",
+      "requiresAbility": "artillery",
+      "params": {
+        "shape": "point",
+        "delay": 1.5,
+        "dmgMult": 3.0,
+        "radius": 60,
+        "shellCount": 1
+      }
+    }
+  ],
+  "maxStacks": 1
+}

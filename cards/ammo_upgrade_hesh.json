@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_hesh",
+  "name": "碎甲弹改造",
+  "rarity": "rare",
+  "tags": ["爆破"],
+  "desc": "将高爆榴弹链分支升级：碎甲弹(HESH)由 APHE 升级而来，伤害 +25%。",
+  "effects": [
+    { "type": "ammo", "key": "hesh", "replaceAmmo": "aphe", "field": "dmg", "mode": "mult", "value": 1.25 }
+  ],
+  "maxStacks": 1
+}

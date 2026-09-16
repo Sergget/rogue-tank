@@ -1,0 +1,11 @@
+{
+  "id": "hull_hp_boost_1",
+  "name": "结构强化 I",
+  "rarity": "common",
+  "tags": ["重甲"],
+  "desc": "强化车体龙骨与装甲骨架，最大耐久 +12%。",
+  "effects": [
+    { "type": "modifier", "stat": "maxHp", "mode": "mult", "value": 1.12 }
+  ],
+  "maxStacks": 3
+}

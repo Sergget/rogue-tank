@@ -1,0 +1,19 @@
+{
+  "id": "weapon_primary_burst_tune",
+  "name": "机炮散热强化",
+  "rarity": "rare",
+  "tags": ["机动"],
+  "desc": "速射机炮散热系统强化：冷却速率由 15%/s 提升至 22%/s，持续射击窗口更长。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "autocannon",
+      "statOverrides": {
+        "coolPerSec": 22
+      }
+    }
+  ],
+  "maxStacks": 1
+}

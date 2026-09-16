@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_apds",
+  "name": "脱壳穿甲弹改造",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "将硬芯穿甲弹(APCR)升级为脱壳穿甲弹(APDS)，穿深 +15%。",
+  "effects": [
+    { "type": "ammo", "key": "apds", "replaceAmmo": "apcr", "field": "pen", "mode": "mult", "value": 1.15 }
+  ],
+  "maxStacks": 1
+}

@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_apfsds",
+  "name": "翼稳脱壳穿甲弹改造",
+  "rarity": "epic",
+  "tags": ["狙击"],
+  "desc": "将脱壳穿甲弹(APDS)升级为翼稳脱壳穿甲弹(APFSDS)，穿深 +28%。",
+  "effects": [
+    { "type": "ammo", "key": "apfsds", "replaceAmmo": "apds", "field": "pen", "mode": "mult", "value": 1.28 }
+  ],
+  "maxStacks": 1
+}

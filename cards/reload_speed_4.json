@@ -1,0 +1,11 @@
+{
+  "id": "reload_speed_4",
+  "name": "极速装填弹仓",
+  "rarity": "legendary",
+  "tags": ["狙击"],
+  "desc": "双弹药架轮换供弹，装填时间 -28%。",
+  "effects": [
+    { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.72 }
+  ],
+  "maxStacks": 1
+}

@@ -1,0 +1,19 @@
+{
+  "id": "weapon_primary_sync_fire",
+  "name": "同步击发装置",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "双联火炮火控同步：换管时间 0.5s → 0.1s（两管切换近乎零延迟）。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "double_barrel",
+      "statOverrides": {
+        "switchSeconds": 0.1
+      }
+    }
+  ],
+  "maxStacks": 1
+}

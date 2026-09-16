@@ -1,0 +1,11 @@
+{
+  "id": "engine_power_2",
+  "name": "发动机调校 II",
+  "rarity": "rare",
+  "tags": ["机动"],
+  "desc": "加装涡轮增压器，发动机功率 +25%。",
+  "effects": [
+    { "type": "modifier", "stat": "enginePower", "mode": "mult", "value": 1.25 }
+  ],
+  "maxStacks": 2
+}

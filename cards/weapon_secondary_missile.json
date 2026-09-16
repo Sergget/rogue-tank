@@ -1,0 +1,21 @@
+{
+  "id": "weapon_secondary_missile",
+  "name": "副武器：反坦克导弹",
+  "rarity": "epic",
+  "tags": ["狙击"],
+  "desc": "安装副武器反坦克导弹：制导打击（装填 12秒，伤害 140）。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "install",
+      "slot": "secondary",
+      "weaponType": "missile",
+      "statOverrides": {
+        "guided": true,
+        "reload": 12,
+        "damage": 140
+      }
+    }
+  ],
+  "maxStacks": 1
+}

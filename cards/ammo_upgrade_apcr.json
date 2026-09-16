@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_apcr",
+  "name": "次口径高速穿甲弹改造",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "将基础穿甲弹(AP)升级为硬芯穿甲弹(APCR)，穿深 +20%。",
+  "effects": [
+    { "type": "ammo", "key": "apcr", "replaceAmmo": "ap", "field": "pen", "mode": "mult", "value": 1.2 }
+  ],
+  "maxStacks": 1
+}

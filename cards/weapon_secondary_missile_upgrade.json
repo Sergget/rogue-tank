@@ -1,0 +1,20 @@
+{
+  "id": "weapon_secondary_missile_upgrade",
+  "name": "导弹敏捷火控",
+  "rarity": "rare",
+  "tags": ["狙击", "支援"],
+  "desc": "反坦克导弹强化：重新装填时间缩短至 9秒，单发导弹杀伤提升至 160。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "missile",
+      "statOverrides": {
+        "reload": 9,
+        "damage": 160
+      }
+    }
+  ],
+  "maxStacks": 1
+}

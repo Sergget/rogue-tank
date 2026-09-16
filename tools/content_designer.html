@@ -189,7 +189,22 @@
             paramTd.appendChild(key); paramTd.appendChild(fld); paramTd.appendChild(mode); paramTd.appendChild(val);
             break;
           }
-          case 'ability': paramTd.appendChild(selInput(ABILITY_KEYS, ef.key)); break;
+          case 'ability': {
+            // #A28：key + 可选 requiresAbility（升级卡必须先持有同 key 基础能力）+ 可选 params
+            // 覆写。三者都必须能被 __collect 读回，否则经由本编辑器保存会静默丢字段
+            //（丢 requiresAbility 会直接把「升级卡提前发放」这个 bug 重新引回来）。
+            const key = selInput(ABILITY_KEYS, ef.key);
+            const req = selInput(['', ...ABILITY_KEYS], ef.requiresAbility || '');
+            const reqWrap = document.createElement('label');
+            reqWrap.appendChild(document.createTextNode('requiresAbility（升级卡必填，基础卡留空）'));
+            reqWrap.appendChild(req);
+            const pt = document.createElement('textarea');
+            pt.placeholder = 'params JSON（可选，如 {"shellCount":5}）';
+            pt.value = ef.params ? JSON.stringify(ef.params) : '';
+            pt.className = 'params';
+            paramTd.appendChild(key); paramTd.appendChild(reqWrap); paramTd.appendChild(pt);
+            break;
+          }
           case 'passive': { const key = selInput(PASSIVE_KEYS, ef.key); const val = numInput(ef.value); paramTd.appendChild(key); paramTd.appendChild(val); break; }
           case 'drone': paramTd.appendChild(document.createTextNode('—')); break;
           case 'economy': { const fld = selInput(ECONOMY_FIELDS, ef.field); const val = numInput(ef.value); paramTd.appendChild(fld); paramTd.appendChild(val); break; }
@@ -224,7 +239,19 @@
         const sels = [...tr.querySelectorAll('select')];
         if(t === 'modifier') effs.push({ type:'modifier', stat: inputs[0].value, mode: sels[1].value, value: Number(inputs[1].value) });
         else if(t === 'ammo') effs.push({ type:'ammo', key: sels[1].value, field: sels[2].value, mode: sels[3].value, value: Number(inputs[0].value) });
-        else if(t === 'ability') effs.push({ type:'ability', key: sels[1].value });
+        else if(t === 'ability') {
+          // #A28：ability 效果全字段往返（key / requiresAbility / params）——params 为手写
+          // JSON，解析失败时置 undefined 而非抛出，避免静默写入非法数据（validateCard 会拦）。
+          const out = { type:'ability', key: sels[1].value };
+          const req = sels[2] ? sels[2].value : '';
+          if(req) out.requiresAbility = req;
+          const pRaw = (tr.querySelector('textarea.params') || {}).value || '';
+          if(pRaw.trim()){
+            try { out.params = JSON.parse(pRaw); }
+            catch(e) { out.params = pRaw; }   // 非法 JSON → 保留原文，validateCardEffect 报「params 应为对象」
+          }
+          effs.push(out);
+        }
         else if(t === 'passive') effs.push({ type:'passive', key: sels[1].value, value: Number(inputs[0].value) || undefined });
         else if(t === 'drone') effs.push({ type:'drone' });
         else if(t === 'economy') effs.push({ type:'economy', field: sels[1].value, value: Number(inputs[0].value) });

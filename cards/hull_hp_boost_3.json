@@ -1,0 +1,11 @@
+{
+  "id": "hull_hp_boost_3",
+  "name": "结构强化 III",
+  "rarity": "epic",
+  "tags": ["重甲"],
+  "desc": "装甲骨架整体淬火与密闭承力舱，最大耐久 +35%。",
+  "effects": [
+    { "type": "modifier", "stat": "maxHp", "mode": "mult", "value": 1.35 }
+  ],
+  "maxStacks": 2
+}

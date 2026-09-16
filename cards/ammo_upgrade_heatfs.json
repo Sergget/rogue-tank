@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_heatfs",
+  "name": "翼稳破甲弹改造",
+  "rarity": "rare",
+  "tags": ["爆破"],
+  "desc": "将破甲弹(HEAT)升级为翼稳破甲弹(HEATFS)，穿深 +16%。",
+  "effects": [
+    { "type": "ammo", "key": "heatfs", "replaceAmmo": "heat", "field": "pen", "mode": "mult", "value": 1.16 }
+  ],
+  "maxStacks": 1
+}

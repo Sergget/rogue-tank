@@ -1,0 +1,11 @@
+{
+  "id": "hull_hp_boost_2",
+  "name": "结构强化 II",
+  "rarity": "rare",
+  "tags": ["重甲"],
+  "desc": "重型支撑横梁与多重防损舱壁，最大耐久 +20%。",
+  "effects": [
+    { "type": "modifier", "stat": "maxHp", "mode": "mult", "value": 1.20 }
+  ],
+  "maxStacks": 2
+}

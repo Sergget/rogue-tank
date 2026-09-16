@@ -3,9 +3,9 @@
   "name": "长杆穿甲弹改造",
   "rarity": "epic",
   "tags": ["狙击"],
-  "desc": "将基础穿甲弹(AP)改造为翼稳脱壳穿甲弹(APFSDS)，具备极高穿深与双重模块判定。",
+  "desc": "将脱壳穿甲弹(APDS)改造为翼稳脱壳穿甲弹(APFSDS)，具备极高穿深与双重模块判定。",
   "effects": [
-    { "type": "ammo", "key": "apfsds", "replaceAmmo": "ap", "field": "pen", "mode": "mult", "value": 1.25 }
+    { "type": "ammo", "key": "apfsds", "replaceAmmo": "apds", "field": "pen", "mode": "mult", "value": 1.25 }
   ],
   "maxStacks": 1
 }

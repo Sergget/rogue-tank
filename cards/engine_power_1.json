@@ -1,0 +1,11 @@
+{
+  "id": "engine_power_1",
+  "name": "发动机调校 I",
+  "rarity": "common",
+  "tags": ["机动"],
+  "desc": "进气道优化与油门调节，发动机功率 +15%。",
+  "effects": [
+    { "type": "modifier", "stat": "enginePower", "mode": "mult", "value": 1.15 }
+  ],
+  "maxStacks": 3
+}

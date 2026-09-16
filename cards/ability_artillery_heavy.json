@@ -1,0 +1,19 @@
+{
+  "id": "ability_artillery_heavy",
+  "name": "饱和轰炸",
+  "rarity": "epic",
+  "tags": ["支援", "爆破"],
+  "desc": "战术炮击重型化：轰炸半径扩大至 140px，伤害系数提升至 1.5 倍。",
+  "effects": [
+    {
+      "type": "ability",
+      "key": "artillery",
+      "requiresAbility": "artillery",
+      "params": {
+        "radius": 140,
+        "dmgMult": 1.5
+      }
+    }
+  ],
+  "maxStacks": 1
+}

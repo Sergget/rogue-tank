@@ -1,0 +1,11 @@
+{
+  "id": "ability_deploy_cover",
+  "name": "战术掩体布设",
+  "rarity": "epic",
+  "tags": ["支援"],
+  "desc": "主动装置：布设耐受 200 点伤害的战术掩体，冷却 20秒。",
+  "effects": [
+    { "type": "ability", "key": "deploy_cover" }
+  ],
+  "maxStacks": 1
+}

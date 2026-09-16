@@ -1,0 +1,11 @@
+{
+  "id": "aim_speed_4",
+  "name": "弹道计算机",
+  "rarity": "legendary",
+  "tags": ["狙击"],
+  "desc": "全弹道解算计算机，瞄准速度 +60%。",
+  "effects": [
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.60 }
+  ],
+  "maxStacks": 1
+}

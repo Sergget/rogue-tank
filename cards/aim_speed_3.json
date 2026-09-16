@@ -1,0 +1,11 @@
+{
+  "id": "aim_speed_3",
+  "name": "瞄准传动 III",
+  "rarity": "epic",
+  "tags": ["狙击"],
+  "desc": "伺服火控联动，瞄准速度 +40%。",
+  "effects": [
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.40 }
+  ],
+  "maxStacks": 2
+}

@@ -1,0 +1,11 @@
+{
+  "id": "aim_speed_1",
+  "name": "瞄准传动 I",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "润滑瞄准齿轮，瞄准速度 +15%。",
+  "effects": [
+    { "type": "modifier", "stat": "aimSpeed", "mode": "mult", "value": 1.15 }
+  ],
+  "maxStacks": 3
+}

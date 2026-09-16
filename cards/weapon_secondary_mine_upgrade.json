@@ -1,0 +1,20 @@
+{
+  "id": "weapon_secondary_mine_upgrade",
+  "name": "高爆战术地雷",
+  "rarity": "rare",
+  "tags": ["重甲", "支援"],
+  "desc": "布雷器强化：布设的地雷爆炸伤害提升至 150，地雷存续时间延长至 45秒。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "mine_layer",
+      "statOverrides": {
+        "damage": 150,
+        "duration": 45
+      }
+    }
+  ],
+  "maxStacks": 1
+}

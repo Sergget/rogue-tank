@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_heat",
+  "name": "破甲弹升级",
+  "rarity": "rare",
+  "tags": ["爆破"],
+  "desc": "将 HE 升级为 HEAT 破甲弹，穿深 +20%。",
+  "effects": [
+    { "type": "ammo", "key": "heat", "replaceAmmo": "he", "field": "pen", "mode": "mult", "value": 1.20 }
+  ],
+  "maxStacks": 1
+}

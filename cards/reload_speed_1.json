@@ -1,0 +1,11 @@
+{
+  "id": "reload_speed_1",
+  "name": "装填机优化 I",
+  "rarity": "common",
+  "tags": ["狙击"],
+  "desc": "改良装填机构，装填时间 -7%。",
+  "effects": [
+    { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.93 }
+  ],
+  "maxStacks": 3
+}

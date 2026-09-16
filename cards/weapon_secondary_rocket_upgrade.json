@@ -1,0 +1,20 @@
+{
+  "id": "weapon_secondary_rocket_upgrade",
+  "name": "火箭巢容量扩充",
+  "rarity": "rare",
+  "tags": ["爆破"],
+  "desc": "火箭巢强化：单轮发射齐射数提升至 5发，装填时间缩短至 9秒。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "rocket",
+      "statOverrides": {
+        "count": 5,
+        "reload": 9
+      }
+    }
+  ],
+  "maxStacks": 1
+}

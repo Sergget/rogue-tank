@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_heavy_tandem_heat",
+  "name": "重型串联破甲弹改造",
+  "rarity": "legendary",
+  "tags": ["爆破"],
+  "desc": "将串联破甲弹(Tandem HEAT)升级为重型串联破甲弹，伤害 +35%。",
+  "effects": [
+    { "type": "ammo", "key": "heavy_tandem_heat", "replaceAmmo": "tandem_heat", "field": "dmg", "mode": "mult", "value": 1.35 }
+  ],
+  "maxStacks": 1
+}

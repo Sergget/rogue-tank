@@ -1,0 +1,11 @@
+{
+  "id": "ammo_upgrade_proximity_he",
+  "name": "近炸引信高爆弹改造",
+  "rarity": "epic",
+  "tags": ["爆破"],
+  "desc": "将碎甲弹(HESH)升级为近炸高爆弹(HE-VT)，伤害 +30%。",
+  "effects": [
+    { "type": "ammo", "key": "proximity_he", "replaceAmmo": "hesh", "field": "dmg", "mode": "mult", "value": 1.3 }
+  ],
+  "maxStacks": 1
+}

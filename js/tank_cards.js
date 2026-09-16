@@ -27,12 +27,12 @@ const MODIFIER_STATS = [
   'dotRatioMult', 'dotDurationMult', 'spreadMult', 'aimSpeed'
 ];
 
-// 弹种改造：key = 弹种（RULES.ammoTypes），field = 可改字段
-const AMMO_KEYS = ['ap', 'apcr', 'he', 'heat', 'apfsds', 'hec'];
+// 弹种改造：key = 弹种（RULES.ammoTypes 14 键，弹种链 2026-09-13；hec 已移除 2026-09-14）
+const AMMO_KEYS = ['ap', 'apcr', 'apds', 'apfsds', 'apfsds_ad', 'he', 'heat', 'heatfs', 'tandem_heat', 'heavy_tandem_heat', 'aphe', 'hesh', 'proximity_he', 'blast_he'];
 const AMMO_FIELDS = ['pen', 'dmg', 'speed'];
 
 // 主动装置（ability，运行时在对应里程碑接入按键触发；schema 先行）
-const ABILITY_KEYS = ['smoke', 'repair', 'extinguish', 'recon', 'track_repair', 'artillery', 'overdrive', 'shield'];
+const ABILITY_KEYS = ['repair', 'extinguish', 'recon', 'track_repair', 'artillery', 'overdrive', 'shield', 'deploy_cover'];
 
 // 无人机种类（drone）：scout=侦察指示（视口外敌军位置箭头）/ striker=近身自动索敌打击。
 // kind 缺失时兼容旧数据（默认 striker，伴随浮游炮语义）。
@@ -44,12 +44,18 @@ const PASSIVE_KEYS = ['reactive_armor', 'angle_boost', 'overmatch', 'spall_liner
 // 经济效果（M10 落地；schema 先行）
 const ECONOMY_FIELDS = ['scoreMul', 'shopDiscount', 'startScore', 'reviveCount'];
 
+// 副武器槽位与类型（R-1 / 阶段四）；主武器类型（阶段七 7.3）与 RULES.weaponTypes 对齐
+const WEAPON_SLOTS = ['primary', 'secondary'];
+const WEAPON_SECONDARY_TYPES = ['mortar', 'missile', 'rocket', 'mine_layer', 'turret'];
+const WEAPON_PRIMARY_TYPES = ['standard', 'autocannon', 'double_barrel', 'railgun'];
+const ALL_WEAPON_TYPES = WEAPON_SECONDARY_TYPES.concat(WEAPON_PRIMARY_TYPES);
+
 // 装甲路径：part ∈ hull/turret，face ∈ front/side/rear
 const ARMOR_PARTS = ['hull', 'turret'];
 const ARMOR_FACES = ['front', 'side', 'rear'];
 
 // 效果类型：type 决定 params 的校验 schema
-const CARD_EFFECT_TYPES = ['modifier', 'ammo', 'ability', 'passive', 'drone', 'economy'];
+const CARD_EFFECT_TYPES = ['modifier', 'ammo', 'ability', 'passive', 'drone', 'economy', 'weapon'];
 
 // ---------- 校验 ----------
 
@@ -98,6 +104,15 @@ function validateCardEffect(ef, path) {
       break;
     case 'ability':
       if (!ABILITY_KEYS.includes(ef.key)) errs.push(`${p}: key 非法 ${ef.key}`);
+      if (ef.params !== undefined && (typeof ef.params !== 'object' || Array.isArray(ef.params) || ef.params === null)) {
+        errs.push(`${p}: params 应为对象`);
+      }
+      // #A28：requiresAbility 可选——声明本卡为「主动技能 upgrade 卡」，抽取期必须已持有该能力
+      //（语义由 cardEligible 消费，见 §「武器/能力资格过滤」）。显式白名单校验：拼写错误
+      //（如 'artilery'）会让资格过滤静默失效，进而把升级卡发给未持有基础能力的玩家。
+      if (ef.requiresAbility !== undefined && !ABILITY_KEYS.includes(ef.requiresAbility)) {
+        errs.push(`${p}: requiresAbility 非法 ${ef.requiresAbility}（应为 ${ABILITY_KEYS.join('/')} 之一）`);
+      }
       break;
     case 'passive':
       if (!PASSIVE_KEYS.includes(ef.key)) errs.push(`${p}: key 非法 ${ef.key}`);
@@ -110,6 +125,12 @@ function validateCardEffect(ef, path) {
     case 'economy':
       if (!ECONOMY_FIELDS.includes(ef.field)) errs.push(`${p}: field 非法 ${ef.field}`);
       if (typeof ef.value !== 'number' || !Number.isFinite(ef.value)) errs.push(`${p}: value 应为有限数值`);
+      break;
+    case 'weapon':
+      if (!ef.action || (ef.action !== 'install' && ef.action !== 'upgrade')) errs.push(`${p}: action 应为 install/upgrade`);
+      if (ef.slot !== undefined && !WEAPON_SLOTS.includes(ef.slot)) errs.push(`${p}: slot 非法 ${ef.slot}`);
+      if (ef.weaponType && !ALL_WEAPON_TYPES.includes(ef.weaponType)) errs.push(`${p}: weaponType 非法 ${ef.weaponType}`);
+      if (ef.statOverrides && (typeof ef.statOverrides !== 'object' || Array.isArray(ef.statOverrides))) errs.push(`${p}: statOverrides 应为对象`);
       break;
   }
   return errs;
@@ -152,6 +173,16 @@ function cardStackCount(tank, cardId) {
 // 对应里程碑（弹种/主动装置/被动/浮游炮/经济）消费。ctx 可注入自定义处理（测试/编辑器用）。
 // 返回已应用的效果数组。
 function applyCardEffects(tank, card, ctx) {
+  // maxStacks 最终防线 (#A23 d)：拒绝「已叠到上限」的卡牌再应用——按「应用次数」`_cardApplyCount` 计数，
+  // 而非 cardStackCount（后者对 modifier 卡计数的是修饰器条数，会误判多效果卡的上限）。
+  // 语义（ISSUE #A23 定案）：
+  //   - ammo 弹种升级卡豁免：chain 链路本身幂等且允许「首次 no-op（前驱未携）→ 次次真正替换」，
+  //     （见 test-cards apfsds 链测试）；不按此防线截断。
+  //   - modifier/weapon/ability/drone/passive/economy：仅允许应用 ≤ maxStacks 次，第 maxStacks+1 次拒绝。
+  if (tank && !tank._cardApplyCount) tank._cardApplyCount = {};
+  const isAmmoCard = card && Array.isArray(card.effects) && card.effects.every(e => !e || e.type === 'ammo');
+  if (card && card.maxStacks && !isAmmoCard && tank && (tank._cardApplyCount[card.id] || 0) >= card.maxStacks) return [];
+
   const applied = [];
   for (const ef of card.effects) {
     if (ef.type === 'modifier') {
@@ -162,24 +193,92 @@ function applyCardEffects(tank, card, ctx) {
       tank.cardEffects.push(Object.assign({}, ef, { cardId: card.id }));
       applied.push(ef);
 
-      // 特殊机制：获得高级/特种弹种卡牌（replaceAmmo 字段指定被替换的基础弹种，或自动直系演变）
-      if (ef.type === 'ammo' && tank && Array.isArray(tank.ammoLoadout)) {
-        const replaceTarget = ef.replaceAmmo || (ef.key === 'apfsds' ? 'ap' : (ef.key === 'hec' ? 'he' : null));
-        if (replaceTarget) {
-          const idx = tank.ammoLoadout.indexOf(replaceTarget);
-          if (idx >= 0) {
-            tank.ammoLoadout[idx] = ef.key;
-            if (tank.ammoKey === replaceTarget) tank.ammoKey = ef.key;
-          } else if (!tank.ammoLoadout.includes(ef.key)) {
-            if (tank.ammoLoadout.length < 3) {
-              tank.ammoLoadout.push(ef.key);
-            } else {
-              tank.ammoLoadout[0] = ef.key; // 槽满则替换首槽
+      // 阶段四 4b / #A22：weapon 安装 / 升级（#A22 单槽不变量：删除 secondarySlots/activeSecondaryIndex 双槽路径）
+      if (ef.type === 'weapon' && tank) {
+        if (!tank.weapons) {
+          tank.weapons = { primary: { type: 'standard', stats: {} }, secondary: { type: 'none', stats: {} } };
+        }
+        const slot = ef.slot || 'secondary';
+        const wType = ef.weaponType || ef.typeKey;
+        const action = ef.action;
+        if (slot === 'primary') {
+          if (!tank.weapons.primary) tank.weapons.primary = { type: 'standard', stats: {} };
+          if (action === 'install') {
+            if (wType) tank.weapons.primary.type = wType;
+            if (ef.statOverrides && typeof ef.statOverrides === 'object') {
+              tank.weapons.primary.stats = Object.assign({}, tank.weapons.primary.stats || {}, ef.statOverrides);
+            }
+            tank.weapons.primary._spec = null;
+            tank._dbState = null;   // 2026-09-15 W4：主武器换装后双管状态重置
+          } else if (action === 'upgrade') {
+            // upgrade：仅当 weapons.primary.type===wType 时合并 statOverrides 并清缓存
+            if (wType && tank.weapons.primary.type === wType && ef.statOverrides && typeof ef.statOverrides === 'object') {
+              tank.weapons.primary.stats = Object.assign({}, tank.weapons.primary.stats || {}, ef.statOverrides);
+              tank.weapons.primary._spec = null;
+              tank._dbState = null;
+            }
+            // type!==wType → no-op，不写入
+          }
+        } else {
+          // secondary：统一 weapons.secondary 单槽
+          if (!tank.weapons.secondary) tank.weapons.secondary = { type: 'none', stats: {} };
+          if (action === 'install') {
+            // 仅当 secondary.type==='none'/'undefined' 时写入；槽已有其他类型 → no-op（effect 仍入 cardEffects）
+            if (wType && (tank.weapons.secondary.type === 'none' || tank.weapons.secondary.type === undefined)) {
+              const defStats = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults('secondary', wType) : {};
+              tank.weapons.secondary = {
+                type: wType,
+                stats: Object.assign({}, defStats, ef.statOverrides || {})
+              };
+            }
+          } else if (action === 'upgrade') {
+            // 仅当 secondary.type===wType 时合并 statOverrides；type 不匹配 → no-op
+            if (wType && tank.weapons.secondary.type === wType && ef.statOverrides && typeof ef.statOverrides === 'object') {
+              tank.weapons.secondary.stats = Object.assign({}, tank.weapons.secondary.stats || {}, ef.statOverrides);
+              if (tank.weapons.secondary._spec) tank.weapons.secondary._spec = null;
             }
           }
         }
       }
+
+      // 弹种链 2026-09-13 + 2026-09-15 用户修订：升级替换语义 —— 弹种升级卡把 loadout 槽位内的
+      // 「链上直系前驱」原地替换（PLAN.md 阶段六）。链表（用户定案三链）：
+      //   KE：      ap→apcr→apds→apfsds→apfsds_ad
+      //   HE 榴弹链：he→aphe→hesh→proximity_he(he-vt)→blast_he(he-op)
+      //   HEAT 链： he→heat→heatfs→tandem_heat(t-heat)→heavy_tandem_heat(ht-heat)
+      // HE 双分支（he→heat / he→aphe）：首条分支升级「先新增」弹种并保留 he（用户裁定）；
+      // 第二条分支到达时再把 he 槽替换为第二条分支的弹种；之后按各链直系前驱继续替换。
+      // 禁止跳级（用户裁定）：直系前驱不在 loadout 时本效果不新增、不替换首槽（无操作）。
+      // replaceAmmo 字段仍可显式指定被替换者；未指定时按链上直接后继自动演变。
+      // 阶段六 6.3：链上升级成功时把目标弹种写入 tank.unlockedAmmo（解锁标记，接线层负责持久化）。
+      if (ef.type === 'ammo' && tank && Array.isArray(tank.ammoLoadout)) {
+        const CHAIN = (typeof RULES !== 'undefined' && RULES.ammoChain) ? RULES.ammoChain : null;
+        const pred = ef.replaceAmmo || (CHAIN && CHAIN[ef.key]) || null;   // 直系前驱
+        let applied = false;
+        if (pred) {
+          const idx = tank.ammoLoadout.indexOf(pred);
+          if (idx >= 0 && !tank.ammoLoadout.includes(ef.key)) {
+            // HE 双分支：首条分支新增保留 he；槽满（第二条分支）把 he 槽替换为该分支弹种
+            if (pred === 'he' && tank.ammoLoadout.length < 3) {
+              tank.ammoLoadout.push(ef.key);
+            } else {
+              tank.ammoLoadout[idx] = ef.key;
+              if (tank.ammoKey === pred) tank.ammoKey = ef.key;
+            }
+            applied = true;
+          }
+          // pred 不在 loadout（或目标已在 loadout）→ 禁止跳级 / 幂等：无操作
+        }
+        if (applied) {
+          if (!Array.isArray(tank.unlockedAmmo)) tank.unlockedAmmo = ['ap', 'he'];
+          if (tank.unlockedAmmo.indexOf(ef.key) < 0) tank.unlockedAmmo.push(ef.key);   // 解锁目标弹种
+        }
+      }
     }
+  }
+  // #A23 d：非 ammo 且带 maxStacks 的卡牌，记录一次「应用」（供下次拒绝超限）
+  if (card && card.maxStacks && !isAmmoCard && tank) {
+    tank._cardApplyCount[card.id] = (tank._cardApplyCount[card.id] || 0) + 1;
   }
   return applied;
 }
@@ -190,8 +289,9 @@ function applyCardEffects(tank, card, ctx) {
 // #A13 语义定案（2026-08-26）：mode:'mult' 作用于弹种倍率刻度（base 即 RULES.ammoTypes[key]
 // 的比率），mode:'add' 在乘算之后以字段自然单位追加（pen=mm / dmg=伤害数值 / speed=px/s）：
 //   最终属性 = 坦克基础值(base stat) × Π(mult) + Σ(add)
-// 返回约定：cfg[field] = 弹种基准 × multAggr（倍率部分，供消费方乘算）；
-//           cfg[field+'Add'] = Σ(add)（自然单位追加量，消费方在乘算结果上加上，见 tank_fire.js）。
+// 弹种链换算语义（2026-09-13，用户定案）：add 量按**弹种基准倍率**换算后生效与显示——
+// 「基础穿深 +10mm」卡在 apds（pen 1.4）上实际 +14mm，卡牌/状态面板一律显示换算后值。
+//   cfg[field+'Add'] = Σ(add) × base[field]（换算在 add pass 内完成，消费方零改动）。
 // mult 聚合沿用全局加法语义 1 + Σ(value−1)（#97，与 computeStats 对齐）；多条聚合钳 ≥0。
 function computeAmmoConfig(shooter, ammoKey) {
   const key = ammoKey || (shooter && shooter.ammoKey) || 'ap';
@@ -214,12 +314,14 @@ function computeAmmoConfig(shooter, ammoKey) {
     const val = typeof cfg[field] === 'number' ? cfg[field] : 1;
     cfg[field] = val * mul;
   }
-  // add pass（#A13）：乘算之后追加，单独存放不混入倍率刻度
+  // add pass（#A13 → 弹种链换算）：乘算之后追加；追加量按弹种基准倍率换算
+  //（+10mm 基础穿深 × apds pen1.4 = +14mm）。base[field] 缺省 1（ap 基准卡不换算）。
   for (const ef of effects) {
     if (!ef || ef.type !== 'ammo' || ef.key !== key || ef.mode !== 'add') continue;
     if (ef.field === 'pen' || ef.field === 'dmg' || ef.field === 'speed') {
       const addKey = ef.field + 'Add';
-      cfg[addKey] = (typeof cfg[addKey] === 'number' ? cfg[addKey] : 0) + ef.value;
+      const scale = (typeof base[ef.field] === 'number') ? base[ef.field] : 1;
+      cfg[addKey] = (typeof cfg[addKey] === 'number' ? cfg[addKey] : 0) + ef.value * scale;
     }
   }
   // 倍率部分钳 ≥0；追加量为自然单位（可负），非负钳制由消费方在最终值上执行
@@ -227,11 +329,11 @@ function computeAmmoConfig(shooter, ammoKey) {
   if (typeof cfg.dmg === 'number') cfg.dmg = Math.max(0, cfg.dmg);
   if (typeof cfg.speed === 'number') cfg.speed = Math.max(0, cfg.speed);
 
-  // 软上限（P-19）：仅对 HE 生效 —— 上限 = 该弹种基础倍率 × 全局系数（RULES.ammoTypeCap，
-  // tank-model 注入）。#A13：作用点核查——软上限应作用于最终值（含 add 追加量）。有坦克 stats
-  // 时把 add 折算成等效倍率参与钳制，超限按比例同时缩放倍率与追加量；无 stats（纯单测环境）
-  // 退化为仅钳倍率部分（当前 HE 卡均为纯 mult，不受影响）。
-  if (key === 'he' && RULES && RULES.ammoTypeCap) {
+  // 软上限（P-19 → 弹种链 2026-09-13 扩展）：作用于全部 HE 家族溅射弹种（splashRadius>0）——
+  // 上限 = 该弹种基础倍率 × 全局系数（RULES.ammoTypeCap）。#A13：作用点——软上限作用于最终值
+  // （含 add 追加量）。有坦克 stats 时把 add 折算成等效倍率参与钳制；无 stats（纯单测环境）
+  // 退化为仅钳倍率部分。
+  if (RULES && RULES.ammoTypeCap && base && base.splashRadius > 0) {
     const FIELD_STAT = { pen: 'penetration', dmg: 'damage', speed: 'shellSpeed' };
     for (const field of ['pen', 'dmg', 'speed']) {
       const baseR = base[field] === undefined ? 1 : base[field];
@@ -253,38 +355,136 @@ function computeAmmoConfig(shooter, ammoKey) {
   return cfg;
 }
 
+// ---------- 武器/能力资格过滤 (#A23) ----------
+
+// 检查卡牌是否对玩家当前状态合法（武器/能力资格 + maxStacks draw-time）。
+// 纯函数：不修改任何输入。owned = { abilities: string[], primaryWeapon: string,
+//   secondaryWeapon: string, cards?: { [id]: count } }；
+//   缺 primaryWeapon 时当 'standard'，缺 secondaryWeapon 时当 undefined。
+// 规则：
+//   - weapon 效果 action install: primary → eligible if (owned.primaryWeapon||'standard') !== weaponType；
+//     secondary → eligible if !owned.secondaryWeapon || owned.secondaryWeapon==='none'；
+//     action upgrade: primary → eligible if (owned.primaryWeapon||'standard') === weaponType；
+//     secondary → eligible if owned.secondaryWeapon === weaponType；
+//     任一 weapon 效果 ineligible → 卡牌 ineligible。
+//   - ability 效果：若 ef.requiresAbility 存在则判 owned.abilities 包含之。
+//   - slot secondary 但 action 缺 / weapon 缺 weaponType → ineligible（防御性）。
+//   - maxStacks draw-time: 若 owned.cards && card.maxStacks && (owned.cards[card.id]||0) >= card.maxStacks → ineligible。
+//   - 无 weapon/ability 效果（modifier/ammo/passive/drone/economy）→ eligible（ammo 交给 chain 过滤）。
+function cardEligible(card, owned) {
+  if (!card || !Array.isArray(card.effects)) return true;
+  const o = (owned && typeof owned === 'object') ? owned : {};
+  const abil = Array.isArray(o.abilities) ? o.abilities : [];
+  const primaryW = o.primaryWeapon || 'standard';
+  const secondaryW = o.secondaryWeapon;
+  const cardsOwned = o.cards;
+
+  // maxStacks draw-time
+  if (cardsOwned && card.maxStacks && (cardsOwned[card.id] || 0) >= card.maxStacks) {
+    return false;
+  }
+
+  for (const ef of card.effects) {
+    if (!ef) continue;
+    if (ef.type === 'weapon') {
+      const slot = ef.slot || 'secondary';
+      const wType = ef.weaponType || ef.typeKey;
+      const action = ef.action;
+      // defensive: secondary with missing action or weaponType → ineligible
+      if (slot === 'secondary' && (!action || !wType)) return false;
+      if (slot === 'primary' && wType && action) {
+        if (action === 'install') {
+          if (primaryW === wType) return false;
+        } else if (action === 'upgrade') {
+          if (primaryW !== wType) return false;
+        }
+      } else if (slot === 'secondary') {
+        if (action === 'install') {
+          if (secondaryW && secondaryW !== 'none') return false;
+        } else if (action === 'upgrade') {
+          if (secondaryW !== wType) return false;
+        }
+      }
+    }
+    if (ef.type === 'ability') {
+      if (ef.requiresAbility && abil.indexOf(ef.requiresAbility) < 0) return false;
+    }
+  }
+  return true;
+}
+
 // ---------- 抽卡 ----------
 
-// 按稀有度权重抽取 n 张不重复卡。pool 为卡数组。optsOrRng 可为 createRNG 实例或 { rng, ammoLoadout } 配置对象。
+// 按稀有度权重抽取 n 张不重复卡。pool 为卡数组。optsOrRng 可为 createRNG 实例或
+// { rng, ammoLoadout, owned } 配置对象。
+//
+// owned（2026-09-14 装备优先定案 + #A23）：{ abilities: string[], secondaryWeapon: string,
+//   primaryWeapon?: string, cards?: { [id]: count } }——
+//   玩家当前持有的主动技能 key 列表、副武器类型、主武器类型与已拥卡牌计数。
+//   当玩家「没有任何主动技能」或「副武器为 none」时，优先保证候选中含 1 张对应装备卡
+//     （ability 卡 / 副武器安装卡），避免候选全是无主之 upgrade（升级卡对未持有者语义莫名其妙）。
+//   weapon/ability/maxStacks eligibility 过滤在 small-pool early return 之前执行。
 function drawCardChoices(pool, n, optsOrRng) {
   const count = n || 3;
   let r = Math.random;
   let ammoLoadout = null;
+  let owned = null;
 
   if (typeof optsOrRng === 'function') {
     r = optsOrRng;
   } else if (optsOrRng && typeof optsOrRng === 'object') {
     if (typeof optsOrRng.rng === 'function') r = optsOrRng.rng;
     if (Array.isArray(optsOrRng.ammoLoadout)) ammoLoadout = optsOrRng.ammoLoadout;
+    if (optsOrRng.owned && typeof optsOrRng.owned === 'object') owned = optsOrRng.owned;
   }
 
   let usable = (pool || []).slice();
 
-  // P-27: 过滤掉包含玩家未携带弹种改造的卡牌
+  // P-27: 过滤掉包含玩家未携带弹种改造的卡牌（2026-09-15 修订：升级卡按「直系前驱」资格判定，
+  // 不再按目标弹种是否已携带——否则 `ammo_upgrade_*` 永远抽不到；前驱未携带则禁止跳级、不放行）
   if (ammoLoadout) {
+    const CHAIN = (typeof RULES !== 'undefined' && RULES.ammoChain) ? RULES.ammoChain : null;
     usable = usable.filter(card => {
       if (!card || !Array.isArray(card.effects)) return true;
       for (const ef of card.effects) {
-        if (ef && ef.type === 'ammo' && !ammoLoadout.includes(ef.key)) {
-          return false;
+        if (ef && ef.type === 'ammo') {
+          if (ammoLoadout.includes(ef.key)) continue;   // 已携带目标弹种（普通改造/已有升级卡）
+          const pred = ef.replaceAmmo || (CHAIN && CHAIN[ef.key]) || null;
+          if (!pred || !ammoLoadout.includes(pred)) return false;   // 升级卡：前驱未携带 → 不放行
         }
       }
       return true;
     });
   }
 
+  // #A23：武器/能力资格过滤 + maxStacks draw-time 过滤（在 small-pool early return 之前执行，
+  // 顺序：chain-filter → weapon/ability/maxStacks-filter → THEN early return + guarantee + weighted sample）
+  if (owned) {
+    usable = usable.filter(card => cardEligible(card, owned));
+  }
+
   if (usable.length <= count) return usable.slice();
+
+  // 2026-09-14 装备优先：无主动技能 → 保证 1 张 ability 卡；副武器 none → 保证 1 张副武器安装卡。
   const picked = [];
+  const pickCardAt = (idx) => { picked.push(usable[idx]); usable.splice(idx, 1); };
+  const firstIdxWhere = (pred) => {
+    for (let i = 0; i < usable.length; i++) if (pred(usable[i])) return i;
+    return -1;
+  };
+  if (owned) {
+    const hasAbility = Array.isArray(owned.abilities) && owned.abilities.length > 0;
+    const lacksSecondary = !owned.secondaryWeapon || owned.secondaryWeapon === 'none';
+    // 索引在每次 splice 后动态求值——避免静态下标在抽走 ability 卡后错位（误把被动卡当武器卡）
+    if (!hasAbility) {
+      const i = firstIdxWhere(c => (c.effects || []).some(ef => ef && ef.type === 'ability'));
+      if (i >= 0 && picked.length < count) pickCardAt(i);
+    }
+    if (lacksSecondary) {
+      const j = firstIdxWhere(c => (c.effects || []).some(ef => ef && ef.type === 'weapon' && (ef.slot || 'secondary') === 'secondary'));
+      if (j >= 0 && picked.length < count) pickCardAt(j);
+    }
+  }
   while (picked.length < count && usable.length > 0) {
     // 权重抽样：先按稀有度权重选稀有度，再在该稀有度内随机取一张
     let rarity = weightedRarity(r);
@@ -324,12 +524,17 @@ if (typeof module !== 'undefined' && module.exports) {
     ARMOR_PARTS,
     ARMOR_FACES,
     CARD_EFFECT_TYPES,
+    WEAPON_SLOTS,
+    WEAPON_SECONDARY_TYPES,
+    WEAPON_PRIMARY_TYPES,
+    ALL_WEAPON_TYPES,
     validateCard,
     validateCardEffect,
     validateCardSet,
     isArmorPath,
     applyCardEffects,
     cardStackCount,
+    cardEligible,
     computeAmmoConfig,
     drawCardChoices,
     weightedRarity
