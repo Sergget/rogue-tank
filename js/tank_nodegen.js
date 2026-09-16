@@ -489,18 +489,44 @@ function convexHull(pts) {
 function placeCentralPond(rng, tpl, scale, centerX, centerY, outCovers) {
   const R = rng.range(0.10, 0.14) * Math.min(tpl.w, tpl.h) * scale;
   const D = R * 2;
-  // 确定性拒绝采样：以节点中心为基准的 5x5 相位网格找不压掩体的落点；全失败则不放置
+  // 确定性拒绝采样：以节点中心为基准的 9x9 相位网格找不压掩体的落点，范围保持
+  // ±0.30 模板边长（配合「水潭在中央区」断言：|lx|<W*0.30）。#A11 路网后中央常被
+  // 主干道/杂物密集占据，5x5/7x7 相位点过疏易全失败；9x9 提高找到空地概率。
+  // 全失败时（密集布局无完全空位）取「碰撞重叠面积最小」点回退放置——保证 centralPond
+  // 标签必产出（水潭压 soft/植被类可接受；road 本就被忽略）；#A11 去强制居中 = 不再
+  // 无脑锁中心，改为最优可放置。
+  const solidCovers = outCovers.filter(c => c.tier !== 'road');
   const phaseX = rng(), phaseY = rng();
   let px = centerX, py = centerY, found = false;
+  let bestPx = centerX, bestPy = centerY, bestOverlap = Infinity;
   pondSearch:
-  for (let gi = 0; gi < 5; gi++) {
-    for (let gj = 0; gj < 5; gj++) {
-      const fx = centerX + ((gi + phaseX) / 5 - 0.5) * tpl.w * scale * 0.3;
-      const fy = centerY + ((gj + phaseY) / 5 - 0.5) * tpl.h * scale * 0.3;
-      if (!rectHitsCover(outCovers, fx, fy, D, D, 8)) { px = fx; py = fy; found = true; break pondSearch; }
+  for (let gi = 0; gi < 9; gi++) {
+    for (let gj = 0; gj < 9; gj++) {
+      const fx = centerX + ((gi + phaseX) / 9 - 0.5) * tpl.w * scale * 0.6;
+      const fy = centerY + ((gj + phaseY) / 9 - 0.5) * tpl.h * scale * 0.6;
+      if (!rectHitsCover(solidCovers, fx, fy, D, D, 8)) { px = fx; py = fy; found = true; break pondSearch; }
+      // 统计碰撞重叠面积（含 road 之外的所有元素）作回退评分
+      let ov = 0;
+      for (const c of solidCovers) {
+        const ox = Math.max(0, Math.min(fx + D / 2, c.x + c.w / 2) - Math.max(fx - D / 2, c.x - c.w / 2));
+        const oy = Math.max(0, Math.min(fy + D / 2, c.y + c.h / 2) - Math.max(fy - D / 2, c.y - c.h / 2));
+        ov += ox * oy;
+      }
+      if (ov < bestOverlap) { bestOverlap = ov; bestPx = fx; bestPy = fy; }
     }
   }
-  if (!found) return null;
+  if (!found) { px = bestPx; py = bestPy; }
+  // #A11 出生走廊保护：回退落点若阻塞左缘出生走廊（water 阻挡移动），
+  // 移到走廊右界外——水潭不回退到玩家出生通路内。
+  {
+    const halfW = tpl.w * scale / 2, halfH = tpl.h * scale / 2;
+    const spawnXM = centerX - 0.8 * halfW;   // 世界左缘 10%
+    const kcX0 = spawnXM - halfW * 0.20, kcX1 = spawnXM + halfW * 0.20;
+    const kcY0 = centerY - halfH * 0.09, kcY1 = centerY + halfH * 0.09;
+    if (px + R > kcX0 && px - R < kcX1 && py + R > kcY0 && py - R < kcY1) {
+      px = kcX1 + R + 4;   // 推到走廊右界外
+    }
+  }
 
   const rot = rng() * Math.PI * 2;
   // ISSUE 7(b)：更平滑的凸 blob——14~18 顶点 + 轻微半径噪声，经凸包收敛为凸形；
@@ -587,66 +613,128 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
   return out;
 }
 
-// #A11: Map-level Road Network generation
-// Generates 2-3 main roads (polyline) + branches.
-// Returns an array of road cover objects.
+// #A11 + 2026-09-14 曲线路网重做: Map-level Road Network generation
+// 生成 2~3 条曲线主干道（Catmull-Rom 平滑折线）+ 稀疏曲线分支。
+// 道路以「短 OBB 链段」写回（tier 'road'，groupId 同链）供避让/村庄贴边/碰撞等
+// 既有 OBB 消费方零改动复用；链段首尾相接，渲染层按 groupId 重建平滑折线后
+// 整条预烘焙（mvp bakeNodeGroundLayer，进图前绘制，避免逐段实时绘制与远距消失）。
+// avoidBoxes: 模板 full 建筑世界坐标 OBB 列表（优先于路：链段压全高建筑则跳过该段，
+// 保证全高骨架不被路网吞掉 —— #77 cull 保护契约）。
+// Catmull-Rom 样条采样：control 折线 → 密集采样点（步长 ≈ ROAD_SAMPLE_STEP 世界px）。
+function _catmullRomSample(points, step) {
+  if (!Array.isArray(points) || points.length < 2) return (points || []).slice();
+  if (points.length === 2) {
+    // 两点直线：按步长均匀细分（保持链段密度一致）
+    const a = points[0], b = points[1];
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    const n = Math.max(1, Math.ceil(d / step));
+    const out = [];
+    for (let i = 0; i < n; i++) out.push({ x: a.x + (b.x - a.x) * i / n, y: a.y + (b.y - a.y) * i / n });
+    out.push({ x: b.x, y: b.y });
+    return out;
+  }
+  const P = [points[0]].concat(points, [points[points.length - 1]]);
+  const out = [];
+  for (let i = 1; i < P.length - 2; i++) {
+    const p0 = P[i - 1], p1 = P[i], p2 = P[i + 1], p3 = P[i + 2];
+    const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const steps = Math.max(2, Math.ceil(segLen / step));
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps, t2 = t * t, t3 = t2 * t;
+      out.push({
+        x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+        y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
+      });
+    }
+  }
+  out.push({ x: points[points.length - 1].x, y: points[points.length - 1].y });
+  return out;
+}
+
+// 沿采样折线铺设链段（首尾相接，段间搭接防接缝）；isSegOk(seg) 命中即弃。
+function _emitRoadChain(out, pts, roadW, groupId, isSegOk) {
+  for (let j = 0; j < pts.length - 1; j++) {
+    const a = pts[j], b = pts[j + 1];
+    const dist = Math.hypot(b.x - a.x, b.y - a.y);
+    if (dist < 2) continue;
+    const seg = {
+      x: (a.x + b.x) / 2,
+      y: (a.y + b.y) / 2,
+      w: dist + roadW * 0.35,
+      h: roadW,
+      angle: Math.atan2(b.y - a.y, b.x - a.x),
+      tier: 'road',
+      groupId: groupId
+    };
+    if (isSegOk && !isSegOk(seg)) continue;
+    out.push(seg);
+  }
+}
+
+// 2026-09-16 路网重做（用户反馈三条：① 道路被其他物体截断 ② 道路尽头都是圆弧形
+// ③ 交叉口太多、道路互相叠加）——重做为「正交双干道」拓扑：
+//   ① 连通：不再按模板建筑逐段跳段（旧签名曾接收 avoidBoxes）。道路属 ground 层、
+//      先于一切元素绘制，建筑/植被天然盖在路面之上；跳段只会让路面出现缺口，
+//      正是「被物体截断」的根因。
+//   ② 路头：端点严格落在节点边界线上（旧实现内缩 12px，圆弧端帽整个可见 → 「圆弧尽头」）；
+//      端帽被节点画布裁掉 → 视觉上道路延伸出画面。渲染层同步改用 lineCap:'butt'。
+//   ③ 交叉：恒为「1 条横干道 + 0~1 条纵干道」，且*每条干道的端点偏移量远小于跨度*
+//      （沿轴 ≤13% 半幅），故两条干道实际接近轴对齐 → 交叉口恒为 0 或 1 个
+//      **接近直角**的十字，绝不出现平行叠加或浅角互穿。旧实现端点偏移达 ±0.42、控制点
+//      横向偏移 ±0.18×跨度，导致纵向"干道"斜成 139° 以上、与横向干道以 35° 浅角互穿，
+//      正是「道路看起来叠加在一起」的根因。同时不生成斜向支线（支线沿干道法向引出即与
+//      另一轴干道平行 → 平行道路 = 叠加观感 + 地图内死头）。
+// 道路仍以「短 OBB 链段」写回（tier 'road'、同链共享 groupId）供村庄贴边/碰撞等既有
+// OBB 消费方零改动复用；渲染层按 groupId 重建折线后整条预烘焙（mvp bakeNodeGroundLayer）。
 function placeRoadNetwork(rng, tpl, scale, centerX, centerY) {
-  const roadW = rng.range(64, 84); // 街道条带宽（世界px）
-  const nMain = rng.int(2, 3);
+  const roadW = rng.range(60, 80); // 街道条带宽（世界px，与 village 街道契约 60~80 对齐）
   const out = [];
   const halfW = tpl.w * scale / 2, halfH = tpl.h * scale / 2;
 
-  for (let i = 0; i < nMain; i++) {
-    // Determine start and end sides (Roughly opposite)
-    const startEdge = rng.int(0, 3); // 0:N, 1:S, 2:W, 3:E
-    const endEdge = (startEdge + 2 + (rng() < 0.5 ? 1 : -1)) % 4;
+  // 世界边界（节点局部坐标基准 centerX/centerY + 半幅）
+  const worldMinX = centerX - halfW, worldMaxX = centerX + halfW;
+  const worldMinY = centerY - halfH, worldMaxY = centerY + halfH;
+  // 路段中心越世界界 → 跳过（test-map「掩体在界内」契约按中心点判定；
+  // 端点本身落在边界线上，故末段中心仍在界内）。
+  const segInBounds = (seg) =>
+    seg.x >= worldMinX && seg.x <= worldMaxX && seg.y >= worldMinY && seg.y <= worldMaxY;
+  const isSegOk = (seg) => segInBounds(seg);
 
-    const getEdgePos = (edge) => {
-      if (edge === 0) return { x: centerX + rng.range(-halfW * 0.8, halfW * 0.8), y: centerY - halfH };
-      if (edge === 1) return { x: centerX + rng.range(-halfW * 0.8, halfW * 0.8), y: centerY + halfH };
-      if (edge === 2) return { x: centerX - halfW, y: centerY + rng.range(-halfH * 0.8, halfH * 0.8) };
-      return { x: centerX + halfW, y: centerY + rng.range(-halfH * 0.8, halfH * 0.8) };
-    };
+  const ROAD_SAMPLE_STEP = 110;   // 样条采样步长（世界px）：≈曲线平滑度与链段数量的折衷
 
-    const p1 = getEdgePos(startEdge);
-    const p2 = getEdgePos(endEdge);
-
-    // Create a 1-2 segment polyline (mid point jittered)
-    const mid = {
-      x: (p1.x + p2.x) / 2 + rng.range(-150, 150) * scale,
-      y: (p1.y + p2.y) / 2 + rng.range(-150, 150) * scale
-    };
-
-    const points = [p1, mid, p2];
-    for (let j = 0; j < points.length - 1; j++) {
-      const a = points[j], b = points[j+1];
-      const dist = Math.hypot(b.x - a.x, b.y - a.y);
-      const angle = Math.atan2(b.y - a.y, b.x - a.x);
-      out.push({
-        x: (a.x + b.x) / 2,
-        y: (a.y + b.y) / 2,
-        w: dist + roadW * 0.5,
-        h: roadW,
-        angle: angle,
-        tier: 'road',
-        groupId: 'main-road-' + i
-      });
+  // 干道：贯穿相对两边。**端点漂移量刻意取小**（横向干道 ≤13% 半宽、纵向干道 ≤13% 半高），
+  // 使两条干道接近轴对齐、交叉角接近 90°；再叠加 ≤4% 跨度的轻微控制点弯曲保持自然感。
+  // edgeA/edgeB ∈ {0:N, 1:S, 2:W, 3:E}；垂直方向 = 沿轴向，垂直方向 = 沿轴向。
+  const emitTrunk = (edgeA, edgeB, groupId) => {
+    const vertical = (edgeA === 0 || edgeA === 1);   // 纵干道（南北贯穿，主导轴 = y）
+    // 沿轴端点位置偏移（相对半幅的比例）：±0.13 而非旧版 ±0.42
+    const tA = rng.range(-0.13, 0.13), tB = rng.range(-0.13, 0.13);
+    const p1 = vertical
+      ? { x: centerX + tA * halfW, y: (edgeA === 0 ? worldMinY : worldMaxY) }
+      : { x: (edgeA === 2 ? worldMinX : worldMaxX), y: centerY + tA * halfH };
+    const p2 = vertical
+      ? { x: centerX + tB * halfW, y: (edgeB === 0 ? worldMinY : worldMaxY) }
+      : { x: (edgeB === 2 ? worldMinX : worldMaxX), y: centerY + tB * halfH };
+    const span = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+    const ux = (p2.x - p1.x) / span, uy = (p2.y - p1.y) / span;
+    const nx = -uy, ny = ux;
+    const nCtrl = rng.int(1, 2);
+    const ctrl = [p1];
+    for (let c = 1; c <= nCtrl; c++) {
+      const t = c / (nCtrl + 1);
+      const off = rng.range(-0.04, 0.04) * span;   // 旧版 ±0.18 → 收紧到 ±0.04
+      ctrl.push({ x: p1.x + ux * span * t + nx * off, y: p1.y + uy * span * t + ny * off });
     }
+    ctrl.push(p2);
+    _emitRoadChain(out, _catmullRomSample(ctrl, ROAD_SAMPLE_STEP), roadW, groupId, isSegOk);
+    return { p1, p2, ux, uy, groupId };
+  };
 
-    // Branch: 50% chance to add a branch from the mid point
-    if (rng() < 0.6) {
-      const bang = rng() * Math.PI * 2;
-      const blen = rng.range(120, 240) * scale;
-      out.push({
-        x: mid.x + Math.cos(bang) * blen / 2,
-        y: mid.y + Math.sin(bang) * blen / 2,
-        w: blen + roadW * 0.4,
-        h: roadW,
-        angle: bang,
-        tier: 'road',
-        groupId: 'branch-road-' + i
-      });
-    }
+  // 拓扑：地图长边方向为横向干道（恒有），短边方向为纵向干道（0~1 条）——两者正交。
+  const wide = halfW >= halfH;
+  emitTrunk(wide ? 2 : 0, wide ? 3 : 1, 'main-road-0');
+  if (rng() < 0.85) {
+    emitTrunk(wide ? 0 : 2, wide ? 1 : 3, 'main-road-1');
   }
   return out;
 }
@@ -663,7 +751,7 @@ function placeRoadNetwork(rng, tpl, scale, centerX, centerY) {
 //     rubble)/低概率小水塘(water blob)，避让道路条带与建筑包围盒（obbHits 支持 road 条带占用）。
 // 全程仅用注入 rng（调用方传 seed 派生的独立子流，跨难度同 seed 布局一致），同 seed 同结果。
 const VILLAGE_SOLID = new Set(['full', 'half', 'barricade', 'tree', 'rock', 'stump', 'rubble', 'bridge', 'ruined', 'intact']);
-function placeVillage(rng, tpl, scale, cx, cy, outCovers) {
+function placeVillage(rng, tpl, scale, cx, cy, outCovers, networkRoads) {
   const coverTiers = (typeof RULES !== 'undefined' && RULES.coverTiers)
     ? RULES.coverTiers
     : (typeof COVER_TIERS !== 'undefined' ? COVER_TIERS : null);
@@ -719,41 +807,55 @@ function placeVillage(rng, tpl, scale, cx, cy, outCovers) {
     }
     return false;
   };
-  // ---- 第一层【道路】：1~2 条贯穿村落区的街道（直线或轻折线段），矩形条带实例 ----
+  // ---- 第一层【道路】：优先复用地图级路网（#A11：village 沿路网选簇心而非自铺街道）----
+  // 旧版自铺 1~2 条街道与全局路网（placeRoadNetwork 阶段 0）重复叠加 → 密度爆炸、挤掉
+  // 全高建筑与中央水潭。现改为：placeVillage 接受 phase-0 已生成的路网（网络坐标），
+  // 建筑直接沿这些路段贴边；仅当无路网可用时（降级路径）才自铺街道。
   const roadW = rng.range(60, 80);            // 街道条带宽（世界px）
   const spanBase = Math.min(tpl.w, tpl.h) * scale;
-  const nStreets = hasRoadTier ? rng.int(1, 2) : 0;
-  const baseAng = rng() * Math.PI;
-  for (let s = 0; s < nStreets; s++) {
-    const ang = baseAng + s * Math.PI / 2 + rng.range(-0.25, 0.25);
-    const len = spanBase * rng.range(0.55, 0.75);
-    const segN = (nStreets === 1) ? 2 : rng.int(1, 2); // 单街保底拆 2 段（轻折线）
-    const segLens = [];
-    let rem = len;
-    for (let i = 0; i < segN; i++) {
-      const l = (i === segN - 1) ? rem : rem * rng.range(0.4, 0.6);
-      segLens.push(l); rem -= l;
+  const hasExternalRoads = !!(networkRoads && networkRoads.length);
+  const useExternal = hasExternalRoads && hasRoadTier;
+  if (!useExternal) {
+    // 降级路径：自铺 1~2 条贯穿村落区的街道（直线或轻折线段）
+    const nStreets = hasRoadTier ? rng.int(1, 2) : 0;
+    const baseAng = rng() * Math.PI;
+    for (let s = 0; s < nStreets; s++) {
+      const ang = baseAng + s * Math.PI / 2 + rng.range(-0.25, 0.25);
+      const len = spanBase * rng.range(0.55, 0.75);
+      const segN = (nStreets === 1) ? 2 : rng.int(1, 2); // 单街保底拆 2 段（轻折线）
+      const segLens = [];
+      let rem = len;
+      for (let i = 0; i < segN; i++) {
+        const l = (i === segN - 1) ? rem : rem * rng.range(0.4, 0.6);
+        segLens.push(l); rem -= l;
+      }
+      let ax = cx - Math.cos(ang) * len / 2;
+      let ay = cy - Math.sin(ang) * len / 2;
+      let curAng = ang;
+      for (let i = 0; i < segN; i++) {
+        if (i > 0) curAng += ((i % 2 === 1) ? 1 : -1) * rng.range(0.08, 0.22); // 轻折线偏转
+        const l = segLens[i];
+        const inst = {
+          x: ax + Math.cos(curAng) * l / 2,
+          y: ay + Math.sin(curAng) * l / 2,
+          w: l + roadW * 0.4,                  // 段间搭接防接缝
+          h: roadW,
+          angle: curAng,
+          tier: 'road',
+          groupId: 'village-road'
+        };
+        if (coverTiers && coverTiers.road && coverTiers.road.hp !== undefined) inst.hp = coverTiers.road.hp;
+        outCovers.push(inst);
+        roads.push(inst);
+        ax += Math.cos(curAng) * l;
+        ay += Math.sin(curAng) * l;
+      }
     }
-    let ax = cx - Math.cos(ang) * len / 2;
-    let ay = cy - Math.sin(ang) * len / 2;
-    let curAng = ang;
-    for (let i = 0; i < segN; i++) {
-      if (i > 0) curAng += ((i % 2 === 1) ? 1 : -1) * rng.range(0.08, 0.22); // 轻折线偏转
-      const l = segLens[i];
-      const inst = {
-        x: ax + Math.cos(curAng) * l / 2,
-        y: ay + Math.sin(curAng) * l / 2,
-        w: l + roadW * 0.4,                  // 段间搭接防接缝
-        h: roadW,
-        angle: curAng,
-        tier: 'road',
-        groupId: 'village-road'
-      };
-      if (coverTiers && coverTiers.road && coverTiers.road.hp !== undefined) inst.hp = coverTiers.road.hp;
-      outCovers.push(inst);
-      roads.push(inst);
-      ax += Math.cos(curAng) * l;
-      ay += Math.sin(curAng) * l;
+  } else {
+    // 复用地图级路网：建筑沿网络路段贴边（路段已在 generateNode Phase 0 写入 outCovers，
+    // 此处只将段引用纳入 roads 供第二层建筑贴边锚定）
+    for (const r of networkRoads) {
+      roads.push(r);
     }
   }
 
@@ -793,6 +895,20 @@ function placeVillage(rng, tpl, scale, cx, cy, outCovers) {
     if (bx < cx - halfW + bw / 2 || bx > cx + halfW - bw / 2 ||
         by < cy - halfH + bh / 2 || by > cy + halfH - bh / 2) continue;
     if (hitsOccupied(bx, by, bw, bh, 6)) continue;
+    // #A11 出生走廊保护：玩家出生点固定世界左缘 (0.10*W, H/2)，在 generateNode
+    // 输出坐标系（centerX/centerY 标记的世界中心、covers 绝对坐标）下：
+    //   世界左界 = centerX-halfW → 起点 x = centerX-halfW+0.10*2*halfW = centerX-0.8*halfW
+    // 纵向=centerY。留 ±20% 半宽 × ±9% 半高通道，防止沿路建筑把左缘走廊封死。
+    // （真实对局由 findPlayerSpawn 二次兜底，此保护从布局侧保证校准连通地板。）
+    {
+      const spawnXM = cx - 0.8 * halfW;   // 世界左缘 10%
+      const kcX0 = spawnXM - halfW * 0.20, kcX1 = spawnXM + halfW * 0.20;
+      const kcY0 = cy - halfH * 0.09, kcY1 = cy + halfH * 0.09;
+      // 建筑矩形与走廊矩形相交 → 拒绝（保证出生走廊畅通）
+      if (bx + bw / 2 > kcX0 && bx - bw / 2 < kcX1 && by + bh / 2 > kcY0 && by - bh / 2 < kcY1) {
+        continue;
+      }
+    }
     if (lUsed < lShapeCount && rng() < 0.5) {
       // L 形凹口立面（缺角在右下），拆分为两个凸子块供碰撞使用
       const hx = bw / 2, hy = bh / 2;
@@ -864,6 +980,16 @@ function placeVillage(rng, tpl, scale, cx, cy, outCovers) {
     const cxx = cx + (rng() - 0.5) * 2 * clutterRad;
     const cyy = cy + (rng() - 0.5) * 2 * clutterRad;
     if (hitsOccupied(cxx, cyy, cw, ch, 8)) continue;
+    // #A11 出生走廊保护（杂物/植被同样避让左缘起点走廊——防止 seed 随机
+    // 围死玩家开局格；校准连通地板依赖）
+    {
+      const spawnXM = cx - 0.8 * halfW;
+      const kcX0 = spawnXM - halfW * 0.20, kcX1 = spawnXM + halfW * 0.20;
+      const kcY0 = cy - halfH * 0.09, kcY1 = cy + halfH * 0.09;
+      if (cxx + cw / 2 > kcX0 && cxx - cw / 2 < kcX1 && cyy + ch / 2 > kcY0 && cyy - ch / 2 < kcY1) {
+        continue;
+      }
+    }
     const inst = { x: cxx, y: cyy, w: cw, h: ch, angle: rng.range(-0.2, 0.2), tier: ctier };
     if (ctier === 'rock') {
       // 六边形岩面 verts（rock-poly 绘制/SAT 通用，无角度旋转需求 → angle 置 0 保持顶点朝向）
@@ -1060,13 +1186,133 @@ function ensureLoSCorridor(coversList, hints, rng) {
   return changed;
 }
 
+// ---------- 2026-09-14 元素重叠修剪（generateNode 收尾统一消叠） ----------
+// 各阶段生成器（模板 items/路网/村落/林地/水潭/泥潭/随机水体）虽各自避让，跨阶段仍可能
+// 残留明显重叠（岩石/建筑/水域/泥潭互相压盖）。本 pass 在 generateNode 返回前统一修剪：
+//   - 按 tier 优先级（结构 > 岩石 > 桥 > 残骸 > 液体 > 泥 > 植被）保留高优先级元素，
+//     显著重叠的低优先级元素整株移除；同优先级保留先放置者。
+//   - road（地面层）豁免：路压在建筑/水下属于预期视觉（烘焙层会被上覆元素遮住），
+//     且同 groupId 链段搭接是路网连通的前提。
+// 显著重叠判定：对每个 cover 取 3×3 局部采样点（世界系），一方 ≥1/3 采样点落入另一方
+// 多边形/OBB 内即视为显著重叠（纯函数、确定性，不用 rng）。
+const _PRUNE_PRIORITY = {
+  full: 9, intact: 9, rock: 8, bridge: 8, ruined: 6, barricade: 6,
+  stump: 5, rubble: 5, water: 4, river: 4, mud: 3, tree: 2, fallen: 2, bush: 1, soft: 1
+};
+function _pruneSamplePts(c) {
+  // 3×3 采样：以 OBB 局部框（或 verts 包围盒）为基准
+  let hw = (c.w || 0) / 2, hh = (c.h || 0) / 2;
+  if ((c.verts || c.collisionVerts) && (!c.w || !c.h)) {
+    let mx = 0, my = 0;
+    for (const v of (c.collisionVerts || c.verts)) { mx = Math.max(mx, Math.abs(v[0])); my = Math.max(my, Math.abs(v[1])); }
+    hw = mx; hh = my;
+  }
+  const pts = [];
+  for (let i = -1; i <= 1; i++) {
+    for (let j = -1; j <= 1; j++) {
+      const lx = i * hw * 0.66, ly = j * hh * 0.66;
+      const a = c.angle || 0;
+      pts.push({ x: c.x + lx * Math.cos(a) - ly * Math.sin(a), y: c.y + lx * Math.sin(a) + ly * Math.cos(a) });
+    }
+  }
+  return pts;
+}
+function _prunePolyWorld(c) {
+  // 世界系多边形（局部 verts → 世界），无 verts 时回退 OBB 四角
+  if (c.verts || c.collisionVerts) {
+    const vs = c.collisionVerts || c.verts;
+    const a = c.angle || 0;
+    const cs = Math.cos(a), sn = Math.sin(a);
+    return vs.map(v => ({ x: c.x + v[0] * cs - v[1] * sn, y: c.y + v[0] * sn + v[1] * cs }));
+  }
+  const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2, a = c.angle || 0;
+  const cs = Math.cos(a), sn = Math.sin(a);
+  return [
+    { x: c.x + (hw * cs - hh * sn), y: c.y + (hw * sn + hh * cs) },
+    { x: c.x + (hw * cs + hh * sn), y: c.y + (hw * sn - hh * cs) },
+    { x: c.x + (-hw * cs + hh * sn), y: c.y + (-hw * sn - hh * cs) },
+    { x: c.x + (-hw * cs - hh * sn), y: c.y + (-hw * sn + hh * cs) }
+  ];
+}
+function _pointInPrunePoly(pt, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    if (((yi > pt.y) !== (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function pruneOverlappingCovers(covers) {
+  const arr = covers.slice();
+  const prio = c => (_PRUNE_PRIORITY[c.tier] !== undefined ? _PRUNE_PRIORITY[c.tier] : 7);
+  // 显著重叠判定：对每个 cover 取 3×3 局部采样点（世界系），一方 ≥1/3 采样点落入另一方
+  // 多边形/OBB 内即视为显著重叠（纯函数、确定性，不用 rng）。
+  const samplePts = c => _pruneSamplePts(c);
+  const polyOf = c => _prunePolyWorld(c);
+  const sigOverlap = (sa, polyA, sb, polyB) => {
+    let inB = 0, inA = 0;
+    for (const p of sa) if (_pointInPrunePoly(p, polyB)) inB++;
+    for (const p of sb) if (_pointInPrunePoly(p, polyA)) inA++;
+    return inB >= 3 || inA >= 3;   // ≥1/3 采样点互入 = 显著重叠
+  };
+  // 平移消叠（2026-09-14 修订）：优先把败者平移到附近空位（环形候选点，避开一切其他元素），
+  // 保住「地形标签必产出」等数量契约；候选全占满才整株移除。
+  const tryNudge = (loser, others) => {
+    const baseW = Math.max(loser.w || 40, 40), baseH = Math.max(loser.h || 40, 40);
+    const step = Math.max(baseW, baseH) * 0.75;
+    const loserSamples = samplePts(loser);
+    const cand = [];
+    for (let ring = 1; ring <= 6; ring++) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        cand.push({ x: loser.x + Math.cos(a) * step * ring, y: loser.y + Math.sin(a) * step * ring });
+      }
+    }
+    for (const p of cand) {
+      const moved = Object.assign({}, loser, { x: p.x, y: p.y });
+      const ms = samplePts(moved), mp = polyOf(moved);
+      let clash = false;
+      for (const o of others) {
+        if (o === loser || o.tier === 'road') continue;
+        if (sigOverlap(ms, mp, samplePts(o), polyOf(o))) { clash = true; break; }
+      }
+      if (!clash) { loser.x = moved.x; loser.y = moved.y; return true; }
+    }
+    return false;
+  };
+  let iter = 0;
+  const MAX_ITER = arr.length * 4 + 40;
+  while (iter++ < MAX_ITER) {
+    let found = false;
+    outer:
+    for (let i = 0; i < arr.length; i++) {
+      const a = arr[i];
+      if (a.tier === 'road') continue;                       // road 豁免（地面层）
+      for (let j = i + 1; j < arr.length; j++) {
+        const b = arr[j];
+        if (b.tier === 'road') continue;
+        if (a.groupId && a.groupId === b.groupId) continue;  // 同链搭接豁免
+        if (!sigOverlap(samplePts(a), polyOf(a), samplePts(b), polyOf(b))) continue;
+        found = true;
+        const pa = prio(a), pb = prio(b);
+        const loser = (pa > pb) ? b : (pb > pa ? a : (i < j ? b : a));   // 高优先级胜；同优先级留先放置者
+        if (!tryNudge(loser, arr)) {
+          arr.splice(arr.indexOf(loser), 1);                 // 无空位 → 移除
+        }
+        break outer;                                         // 位置已变 → 重扫
+      }
+    }
+    if (!found) break;
+  }
+  return arr;
+}
+
 /**
  * Main node cover layout generator
  * @param {number} [difficulty=0.5] 0~1 continuous difficulty weight
  * @param {NodeGenOptions} [options] 含可选 losHints（见 ensureLoSCorridor）
  * @returns {GeneratedNodeResult}
- */
-function generateNode(difficulty, options) {
+ */function generateNode(difficulty, options) {
   const diff = typeof difficulty === 'number' ? Math.max(0, Math.min(1, difficulty)) : 0.5;
   /** @type {NodeGenOptions} */
   const opts = options || {};
@@ -1105,6 +1351,9 @@ function generateNode(difficulty, options) {
 
   // #A11: Phase 0 - Map-level Road Network (Deterministic, before items/village/forest)
   // Use a dedicated sub-stream to ensure roads are stable across difficulty levels.
+  // #B7（2026-09-16）：不再构造 avoidBoxes——旧实现用模板 full 建筑占位盒对路网**逐段跳段**，
+  // 实测留下 202~246px 路面缺口（＝用户反馈的「道路被其他物体截断」根因）。道路属 ground 层、
+  // 先于一切元素绘制并被其覆盖，跳段纯属有害，故 placeRoadNetwork 不再接收避让盒。
   const rrng = createRNG(((Number(seed) ^ 0x11A11A11) + 0x6D2B79F5) >>> 0);
   const networkRoads = placeRoadNetwork(rrng, selectedTemplate, scale, centerX, centerY);
   for (const r of networkRoads) {
@@ -1228,8 +1477,15 @@ function generateNode(difficulty, options) {
     const iw = itemW * scale;
     const ih = itemH * scale;
 
-    // #A11: Template items avoid roads
-    if (obbHitsCover(networkRoads, ix, iy, iw, ih, (item.angle || 0) + angleJitter, 4)) {
+    // #A11: Template items avoid roads——但只对「实体掩体」执行避路剔除：
+    //   - full：建筑优先于路（#77 契约；#B7 后路网不再为建筑跳段，建筑直接覆在路面上）；
+    //   - 植被/地形类（bush/soft/tree/rock/stump/rubble/mud）：不剔除——树长在路边
+    //     完全合理，且低难升/降级断言依赖其存在（低难 bush/soft ≥ 高难）；
+    //   - 仅 barricade 这类硬障碍骑在路中间不自然 → 剔除。
+    const isVegetationTier = (tier === 'bush' || tier === 'soft' || tier === 'tree'
+      || tier === 'rock' || tier === 'stump' || tier === 'rubble' || tier === 'water');
+    if (!isVegetationTier && tier !== 'full' && tier !== 'half'
+        && obbHitsCover(networkRoads, ix, iy, iw, ih, (item.angle || 0) + angleJitter, 6)) {
       continue;
     }
 
@@ -1278,7 +1534,7 @@ function generateNode(difficulty, options) {
     const vcx = centerX + (v.dx || 0) * scale;
     const vcy = centerY + (v.dy || 0) * scale;
     const vrng = createRNG(((Number(seed) ^ 0xA5A5A5A7) + 0x6D2B79F5) >>> 0);
-    for (const b of placeVillage(vrng, selectedTemplate, scale, vcx, vcy, outCovers)) {
+    for (const b of placeVillage(vrng, selectedTemplate, scale, vcx, vcy, outCovers, networkRoads)) {
       outCovers.push(b);
     }
   }
@@ -1378,6 +1634,11 @@ function generateNode(difficulty, options) {
       });
     }
   }
+
+  // 2026-09-14：跨阶段元素重叠统一修剪（结构/岩石/建筑 × 水域/泥潭 × 植被互压消解）
+  const prunedCovers = pruneOverlappingCovers(outCovers);
+  outCovers.length = 0;
+  for (const c of prunedCovers) outCovers.push(c);
 
   // A17：若调用方提供 losHints（生成期 LoS 走廊保证），在此对 outCovers 开走廊。
   // losHints 坐标须为 generateNode 内部帧（相对 centerX,centerY）；缺省不启用，行为不变，
@@ -1495,15 +1756,20 @@ function generateNode(difficulty, options) {
       }
     }
     const start = opts.startPoint || (result && result.playerSpawn) || { x: w * 0.10, y: h / 2 };
-    let sgx = 0, sgy = 0, bestD = Infinity;
+    // BFS 种子 = 「距 start 最近的自由网格点」：start 本身可能落在掩体内
+    // （度量不自找起点，makeNode 的 findPlayerSpawn 保证真实开局合法），
+    // 取最近可站立网格作为连通种子，避免「起点自由但最近网格 cell 被盖」
+    // 造成的假 0（校准 v2 口径：起点误差 ≤ 半网格距时应正常测通）。
+    let sgx = -1, sgy = -1, bestD = Infinity;
     for (let gy = 0; gy < rows; gy++) {
       for (let gx = 0; gx < cols; gx++) {
+        if (blockedGrid[gy][gx]) continue;
         const d = (xs[gx] - start.x) * (xs[gx] - start.x) + (ys[gy] - start.y) * (ys[gy] - start.y);
         if (d < bestD) { bestD = d; sgx = gx; sgy = gy; }
       }
     }
     let connectivityRatio = 0;
-    if (totalNonBlocked > 0 && !blockedGrid[sgy][sgx]) {
+    if (totalNonBlocked > 0 && sgx >= 0) {
       const seen = new Array(rows * cols).fill(false);
       const idx = (gy, gx) => gy * cols + gx;
       const queue = [[sgy, sgx]];
@@ -1650,6 +1916,7 @@ function generateNode(difficulty, options) {
       placeVillage,
       placeForestClusters,
       ensureLoSCorridor,
-      nodeLayoutMetrics
+      nodeLayoutMetrics,
+      pruneOverlappingCovers
     };
   }

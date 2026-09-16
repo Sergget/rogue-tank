@@ -24,18 +24,44 @@ const OPEN = new Set(['corridor_tutorial', 'urban_block', 'crossfire_plaza', 'mi
 const DENSE = new Set(['forest_dense', 'woodland_line']);
 
 // BASE[templateId][diffIndex] = { cov, con, minw }
+// #A11 重锚（2026-09-13，绝对出生起点口径）：路网密度收敛（分支 0.6→0.35、
+// roadW 60~80、full 避让）+ village 沿路网选簇心 + pond 忽略 road 且 9x9+回退 +
+// 植被不避路剔除 + 出生走廊保护（建筑/杂物/水潭避让左缘起点）+ nodeLayoutMetrics
+// BFS 种子取最近自由网格后，7 模板×5 难度连通性全线 1.000（开阔≥0.85/密林≥0.35
+// 地板显著富余）、coverCoverage 整体上移（道路计入覆盖剖面）。
+// #A17 重锚（2026-09-14）：道路曲线化（Catmull-Rom 平滑 + 35% 分支）+ 跨相重叠消解
+// （pruneOverlappingCovers：nudge 平移优先、无空位才移除）后——元素保留取代旧"移除"，
+// 实际元素更多 → minPassageWidth 整体收窄（corridor 18→2.9 量级）；forest_dense
+// 个别 seed 连通性 0.875（仍 ≥ 地板 0.35）。coverCoverage 剖面基本不变。
+// #B7 重锚（2026-09-16，路网重做为「正交双干道」）：道路不再按模板建筑逐段跳段
+// （被截断根因）、端点落节点边界（圆弧路头根因）、干道端点漂移 ±0.42→±0.13 且
+// 控制点横向偏移 ±0.18→±0.04（浅角互穿＝"叠加"观感根因）、取消斜向支线。
+// 影响：路网更完整且不再切割布局 → **全部模板连通性升到 1.000**（forest_dense 的
+// 0.875 一并消除）；minPassageWidth 随道路不再被跳段打断而整体上移
+// （corridor 2.9→4.8 量级、woodland 2.6→5.0 量级）；coverCoverage 基本不变（道路不计入）。
 const BASE = {
-  corridor_tutorial: [{"cov":0.032,"con":1,"minw":16.2},{"cov":0.032,"con":1,"minw":12.3},{"cov":0.034,"con":1,"minw":13.1},{"cov":0.031,"con":1,"minw":12.6},{"cov":0.031,"con":1,"minw":13.1}],
-  forest_dense: [{"cov":0.045,"con":1,"minw":2.5},{"cov":0.045,"con":1,"minw":2.5},{"cov":0.045,"con":1,"minw":2.5},{"cov":0.044,"con":1,"minw":2.6},{"cov":0.043,"con":1,"minw":2.5}],
-  urban_block: [{"cov":0.046,"con":1,"minw":2.5},{"cov":0.041,"con":1,"minw":2.2},{"cov":0.044,"con":1,"minw":2.1},{"cov":0.043,"con":1,"minw":2.5},{"cov":0.039,"con":1,"minw":3.1}],
-  crossfire_plaza: [{"cov":0.037,"con":1,"minw":3},{"cov":0.036,"con":1,"minw":2.9},{"cov":0.037,"con":1,"minw":3},{"cov":0.037,"con":1,"minw":2.6},{"cov":0.034,"con":1,"minw":1.9}],
-  mixed_barrier_plaza: [{"cov":0.03,"con":1,"minw":8.3},{"cov":0.028,"con":1,"minw":13.2},{"cov":0.028,"con":1,"minw":11.4},{"cov":0.029,"con":1,"minw":11.3},{"cov":0.029,"con":1,"minw":12.9}],
-  village_center: [{"cov":0.05,"con":0.999,"minw":1.2},{"cov":0.046,"con":0.999,"minw":1.1},{"cov":0.047,"con":0.999,"minw":1},{"cov":0.045,"con":0.999,"minw":1.2},{"cov":0.046,"con":1,"minw":1.3}],
-  woodland_line: [{"cov":0.034,"con":1,"minw":12.6},{"cov":0.033,"con":1,"minw":12.5},{"cov":0.035,"con":1,"minw":10.6},{"cov":0.034,"con":1,"minw":9.1},{"cov":0.033,"con":1,"minw":11.3}],
+  corridor_tutorial: [{"cov":0.051,"con":1,"minw":4.8},{"cov":0.051,"con":1,"minw":4.6},{"cov":0.053,"con":1,"minw":6.0},{"cov":0.049,"con":1,"minw":4.8},{"cov":0.049,"con":1,"minw":4.8}],
+  forest_dense: [{"cov":0.060,"con":1,"minw":2.2},{"cov":0.061,"con":1,"minw":2.2},{"cov":0.059,"con":1,"minw":2.4},{"cov":0.058,"con":1,"minw":1.4},{"cov":0.057,"con":1,"minw":1.4}],
+  urban_block: [{"cov":0.057,"con":1,"minw":2.4},{"cov":0.057,"con":1,"minw":2.2},{"cov":0.058,"con":1,"minw":1.2},{"cov":0.055,"con":1,"minw":1.9},{"cov":0.052,"con":1,"minw":1.5}],
+  crossfire_plaza: [{"cov":0.049,"con":1,"minw":3.4},{"cov":0.048,"con":1,"minw":3.3},{"cov":0.047,"con":1,"minw":3.2},{"cov":0.048,"con":1,"minw":3.1},{"cov":0.045,"con":1,"minw":3.3}],
+  mixed_barrier_plaza: [{"cov":0.044,"con":1,"minw":2.6},{"cov":0.042,"con":1,"minw":2.3},{"cov":0.041,"con":1,"minw":2.7},{"cov":0.040,"con":1,"minw":2.0},{"cov":0.040,"con":1,"minw":2.2}],
+  village_center: [{"cov":0.069,"con":1,"minw":2.0},{"cov":0.068,"con":1,"minw":1.6},{"cov":0.065,"con":1,"minw":2.0},{"cov":0.064,"con":1,"minw":1.7},{"cov":0.064,"con":1,"minw":1.4}],
+  woodland_line: [{"cov":0.043,"con":1,"minw":3.6},{"cov":0.042,"con":1,"minw":4.5},{"cov":0.044,"con":1,"minw":5.4},{"cov":0.043,"con":1,"minw":3.9},{"cov":0.043,"con":1,"minw":5.0}],
 };
 const TOL = { cov: 0.02, con: 0.05, minw: 0.5 };
 
 const opts2 = { step: 40, margin: 40, losSamples: 40, hasLineOfSight: coverMod.hasLineOfSight };
+
+// 校准度量坐标系说明（重要）：
+//   generateNode(d, {centerX:600, centerY:350}) 输出 covers 以 (600,350) 为世界中心、
+//   尺寸 w×h（节点坐标覆盖 [600-w/2, 600+w/2]×[350-h/2, 350+h/2]）。
+//   玩家出生点 = 世界左缘 10% 与垂直中点 —— 绝对（生成）坐标：
+//     spawn = (600 - w/2 + 0.10*w, 350) = (600 - 0.4*w, 350)
+//   （nodeLayoutMetrics 默认 startPoint=(0.1w, h/2) 是 [0,w] 原点假设，与
+//   centerX=600 的 covers 错位 —— 必须显式传入真实出生绝对坐标。）
+function spawnPoint(raw) {
+  return { x: 600 - raw.w * 0.4, y: 350 };
+}
 
 const templates = nodegen.getTemplates().filter(t => BASE[t.id]);
 for (const t of templates) {
@@ -46,7 +72,7 @@ for (const t of templates) {
     let cov = 0, con = 0, minw = 0, n = 0;
     for (const s of SEEDS) {
       const a = nodegen.generateNode(d, { seed: s, templateId: t.id, scale: 3, centerX: 600, centerY: 350 });
-      const m = nodegen.nodeLayoutMetrics(a, opts2);
+      const m = nodegen.nodeLayoutMetrics(a, Object.assign({ startPoint: spawnPoint(a) }, opts2));
       cov += m.coverCoverage; con += m.connectivityRatio; minw += m.minPassageWidth; n++;
     }
     cov /= n; con /= n; minw /= n; covSeries.push(cov);

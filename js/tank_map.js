@@ -90,7 +90,7 @@ function aiTierForDifficulty(diff) {
 function entityMultsForDifficulty(diff) {
   const cfg = difficultyConfig() || {};
   const table = cfg.entityMults || {
-    maxHp: [0.8, 1.4], penetration: [0.75, 1.25], damage: [0.75, 1.2], armorAll: [0.7, 1.3],
+    maxHp: [0.45, 1.4], penetration: [0.75, 1.25], damage: [0.75, 1.2], armorAll: [0.6, 1.3],
     reload: [1.25, 0.82], spreadMult: [1.3, 0.78], aimSpeed: [0.8, 1.35],
     maxSpeed: [0.7, 1.15], turnRate: [0.7, 1.2], turretTurnRate: [0.7, 1.25]
   };
@@ -260,20 +260,27 @@ function makeNode(index, rng, env) {
   const trigDist = triggerDistForDifficulty(diff);
   const minPlayerDist = Math.max(cfg.enemyMinPlayerDist || 250, Math.round(trigDist * 1.05));
 
-  // P-46 敌军生成优化（多方向环带生成代替右侧单向聚簇）：
-  // 以 playerSpawn 为原点，根据难度 diffNorm 划分多向扇区（ringSectorsBase~ringSectorsMax 向包围），
-  // 在环带半径 [minPlayerDist, maxPlayerDist] 内拒绝采样敌军落点（避开掩体、世界边界及彼此重叠）。
+  // P-46 敌军生成优化 + #B4 敌军聚簇生成（消费 RULES.nodeMap.enemyCluster*）：
+  // 以 playerSpawn 为原点，根据难度与配置确定聚簇中心数（1~4 个），
+  // 在环带半径 [minPlayerDist, maxPlayerDist] 内划分扇区采样簇中心，
+  // 随后在各簇中心周围 enemyClusterRadius 范围内拒绝采样生成敌人（避开掩体、世界边界及彼此重叠）。
   // 若因极端密集掩体未填满，由下方全图网格兜底补满。
   const enemyCount = enemyCountForDifficulty(diff);
   const diffCfg = difficultyConfig() || {};
   const diffMax = diffCfg.diffMax !== undefined ? diffCfg.diffMax : 1.15;
   const diffNorm = Math.min(1, Math.max(0, diff / diffMax));
 
-  const sectorsCount = Math.min(cfg.ringSectorsMax || 4, Math.max(cfg.ringSectorsBase || 2, Math.round((cfg.ringSectorsBase || 2) + diffNorm * 2)));
   const maxWorldDim = Math.max(w, h);
   const maxPlayerDist = Math.min(maxWorldDim * (cfg.ringMaxDistMult || 0.85), Math.max(minPlayerDist + 300, maxWorldDim * 0.7));
 
-  // P-43：构成随深度演进——compose 一次，环带与兜底两处共用同一 spec 数组（按 enemies.length 顺序消费）。
+  // 聚簇参数消费 (#B4)
+  const clusterRadius = cfg.enemyClusterRadius || 150;
+  const clusterCountBase = cfg.enemyClusterCountBase !== undefined ? cfg.enemyClusterCountBase : 2;
+  const targetClusterCount = Math.min(enemyCount, Math.max(1, Math.round(clusterCountBase + diffNorm * 2)));
+
+  const sectorsCount = Math.min(cfg.ringSectorsMax || 4, Math.max(targetClusterCount, cfg.ringSectorsBase || 2));
+
+  // P-43：构成随深度演进——compose 一次，环带聚簇与兜底两处共用同一 spec 数组（按 enemies.length 顺序消费）。
   const composition = enemyCompositionForDepth(index, diff, rng, cfg);
   const enemies = [];
   const clusterCentroids = [];
@@ -285,20 +292,29 @@ function makeNode(index, rng, env) {
     sectorAngles.push(baseAngleOffset + (s * (Math.PI * 2) / sectorsCount));
   }
 
-  // 轮流在各扇区放置敌人，直到放满或尝试用尽
-  let sectorIdx = 0;
+  // 先在各扇区建立候选聚簇中心（1 ~ targetClusterCount 个）
+  const centroids = [];
+  for (let c = 0; c < targetClusterCount; c++) {
+    const sAng = sectorAngles[c % sectorsCount];
+    const cAng = sAng + rng.range(-Math.PI / 6, Math.PI / 6);
+    const cDist = rng.range(minPlayerDist, maxPlayerDist);
+    centroids.push({
+      x: Math.max(60, Math.min(w - 60, playerSpawn.x + Math.cos(cAng) * cDist)),
+      y: Math.max(60, Math.min(h - 60, playerSpawn.y + Math.sin(cAng) * cDist))
+    });
+  }
+
+  // 围绕聚簇中心分发放置敌人，直到放满或尝试用尽
   let attempts = 0;
   const maxAttempts = enemyCount * 80;
   while (enemies.length < enemyCount && attempts < maxAttempts) {
     attempts++;
-    const targetAngle = sectorAngles[sectorIdx % sectorsCount];
-    sectorIdx++;
-
-    // 在扇区中心角 ± 35 度范围及环带内径到外径之间随机采样
-    const angle = targetAngle + rng.range(-Math.PI / 5, Math.PI / 5);
-    const dist = rng.range(minPlayerDist, maxPlayerDist);
-    const ex = playerSpawn.x + Math.cos(angle) * dist;
-    const ey = playerSpawn.y + Math.sin(angle) * dist;
+    const cluster = centroids[enemies.length % centroids.length];
+    // 在簇中心周围 clusterRadius 范围内散布，若单车首发则贴近中心
+    const inClusterDist = rng.range(0, clusterRadius);
+    const inClusterAng = rng.range(0, Math.PI * 2);
+    const ex = cluster.x + Math.cos(inClusterAng) * inClusterDist;
+    const ey = cluster.y + Math.sin(inClusterAng) * inClusterDist;
 
     // 边界检测：必须在地图有效边界 [margin, w-margin] 内
     const margin = 50;
@@ -762,10 +778,11 @@ function reinforcementTick(state) {
  *   env.configureTank(tank, tankId)  —— 应用坦克配置（浏览器：applyTankConfig+resetEntity；测试可 no-op）
  *   env.applyDifficulty(tank, mults) —— 应用难度乘子表（#76 A：敌军全属性随 effDiff 插值叠乘；
  *      mults = entityMultsForDifficulty 产出；旧 statMult 敌军数据自动降级为三项表；测试可 no-op）
- * @param {any} node makeNode/generateRun 产出的节点
- * @param {any} env 运行环境注入
- * @returns {{ spawned: any[], outpost: any }}
- */
+  * @param {any} node makeNode/generateRun 产出的节点
+  * @param {any} env 运行环境注入
+  * @returns {{ spawned: any[], outpost: any }}
+  */
+
 function materializeNode(node, env) {
   if (typeof env.setCovers === 'function') env.setCovers(node.covers);
 

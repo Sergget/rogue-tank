@@ -689,13 +689,13 @@ C.resetCovers();
   const baseLen = C.covers.length;
   const T = C.COVER_TIERS;
 
-  // 34) tier schema 矩阵：新六属性 + 派生旧字段一致
+  // 34) tier schema 矩阵：新六属性 + 派生旧字段一致（2026-09-14 水系重做：减速通行 + 溺毙）
   ok(T.water.passability === 0.4 && T.water.shellBlock === false && T.water.exposureProfile === 'none' && T.water.tierGroup === 'liquid',
-    'water: passability 0.4 / shellBlock false / profile none / liquid');
+    'water: passability 0.4（减速通行）/ shellBlock false（炮弹越飞）/ profile none / liquid');
   ok(T.river.shellBlock === false && T.river.drawStyle === 'water-chain' && T.river.passability === 0.4,
-    'river: 越飞 + water-chain + passability 0.4');
-  ok(T.mud.passability === 0.35 && T.mud.shellBlock === false && T.mud.tierGroup === 'ground' && T.mud.move === 0.35,
-    'mud: 0.35 减速 / 越飞 / ground / move 别名同步');
+    'river: 越飞 + water-chain + passability 0.4（减速通行）');
+  ok(T.mud.passability === 0.4 && T.mud.shellBlock === false && T.mud.tierGroup === 'ground' && T.mud.move === 0.4,
+    'mud: 0.4 减速 / 越飞 / ground / move 别名同步');
   ok(T.rock.shellBlock === true && T.rock.exposureProfile === 'full' && T.rock.destructible === Infinity && T.rock.drawStyle === 'rock-poly',
     'rock: solid 全遮不可毁 rock-poly');
   ok(T.intact.shellBlock === true && T.intact.exposureProfile === 'full' && T.intact.passability === 1.0,
@@ -748,14 +748,26 @@ C.resetCovers();
   ok(mdTank.x===mx && mdTank.y===my, 'mud 不推出坦克（仅减速）');
   ok(C.getCoverUnderTank(mdTank) === mud, 'getCoverUnderTank 命中泥地（通行系数来源）');
 
-  // 38) water/river 不再硬阻断移动（passability 0.4 可涉水慢速，同 mud 0.35 只减速不推出）
+  // 38) water/river 减速通行（2026-09-14 水系重做：passability 0.4，与 mud 同级——
+  //     不推出仅减速；完全浸入溺毙由 tankFullyInWater + 主循环 drownT 承担）
   for(const wt of [{t:water,label:'water'},{t:river,label:'river'}]){
     const tk = { x:wt.t.x, y:wt.t.y, hullAngle:0, hullLen:64, hullWid:38, hp:10, heightClass:'medium' };
     const bx=tk.x, by=tk.y;
     C.resolveCoverCollisions(tk);
-    ok(tk.x===bx && tk.y===by, `${wt.label} 不阻断移动（passability>0 可涉水，只减速不推出）`);
-    ok(C.getCoverUnderTank(tk) === wt.t, `getCoverUnderTank 命中${wt.label}（通行系数来源）`);
+    ok(tk.x===bx && tk.y===by, `${wt.label} 不推出坦克（减速通行 0.4）`);
+    ok(C.getCoverUnderTank({x:bx,y:by,hullAngle:0,hullLen:64,hullWid:38,heightClass:'medium'}) === wt.t, `getCoverUnderTank 命中${wt.label}（减速来源）`);
   }
+
+  // 38b) tankFullyInWater：整车四角入水才算完全浸入（溺毙判定源）
+  const dwWater = { x:5000, y:500, w:300, h:200, angle:0, tier:'water', hp:Infinity };
+  C.covers.push(dwWater);
+  const dIn  = { x:dwWater.x, y:dwWater.y, hullAngle:0, hullLen:64, hullWid:38, heightClass:'medium' };
+  const dEdge = { x:dwWater.x + dwWater.w/2 + 4, y:dwWater.y, hullAngle:0, hullLen:64, hullWid:38, heightClass:'medium' };  // 部分出界
+  const dDry = { x:dwWater.x + dwWater.w + 200, y:dwWater.y, hullAngle:0, hullLen:64, hullWid:38, heightClass:'medium' };
+  ok(C.tankFullyInWater(dIn) === true, 'tankFullyInWater：车体完全位于水域内 → true');
+  ok(C.tankFullyInWater(dEdge) === false, 'tankFullyInWater：车体越出水缘 → false');
+  ok(C.tankFullyInWater(dDry) === false, 'tankFullyInWater：干燥地面 → false');
+  C.covers.splice(C.covers.indexOf(dwWater), 1);
 
   // 39) ruined：半剖面插值 + 摧毁转 rubble 残骸链
   const ruined = { x:3200, y:1300, w:100, h:50, angle:0, tier:'ruined', hp:1 };

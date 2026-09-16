@@ -204,6 +204,7 @@ function getCoverUnderTank(tank) {
   const tankCorners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
   for (const cov of covers) {
     if(cov.hp <= 0) continue;
+    if(cov.tier === 'road') continue;   // 2026-09-14 曲线路网链段：纯地面标识，不参与通行系数查询
     const parts = coverCollisionParts(cov);
     for (const part of parts) {
       if (obbOverlap(tankCorners, part)) {
@@ -212,6 +213,34 @@ function getCoverUnderTank(tank) {
     }
   }
   return null;
+}
+
+// 溺毙判定（2026-09-14 水域行为重做）：坦克车体四角是否「完全浸入」水体
+// （每角均位于任一 water|river 覆盖凸块内，允许跨相邻水体拼接）。
+// 纯函数、无 DOM；消费方：tank_mvp.html 战斗主循环 drownT 累计。
+function tankFullyInWater(tank) {
+  const corners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
+  const parts = [];
+  for (const cov of covers) {
+    if (cov.hp <= 0) continue;
+    if (cov.tier !== 'water' && cov.tier !== 'river') continue;
+    for (const poly of coverCollisionParts(cov)) parts.push(poly);
+  }
+  if (!parts.length) return false;
+  const pointInPoly = (p, poly) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      if (((a.y > p.y) !== (b.y > p.y)) && (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)) inside = !inside;
+    }
+    return inside;
+  };
+  for (const c of corners) {
+    let inside = false;
+    for (const poly of parts) { if (pointInPoly(c, poly)) { inside = true; break; } }
+    if (!inside) return false;
+  }
+  return true;
 }
 
 // ---------- OBB / SAT collision helpers ----------
@@ -289,6 +318,7 @@ function resolveCoverCollisions(tank) {
   const tankCorners = () => partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
   for (const cov of covers) {
     if (cov.hp <= 0) continue;
+    if (cov.tier === 'road') continue;   // 2026-09-14 曲线路网链段：纯地面标识，零物理（抵消链段数量增长的热路径开销）
     const tier = COVER_TIERS[cov.tier];
     const parts = coverCollisionParts(cov);
     for (const part of parts) {
@@ -491,6 +521,7 @@ if (typeof module !== 'undefined' && module.exports) {
     tierShellBlock,
     splashCoversAt,
     getCoverUnderTank,
+    tankFullyInWater,
     obbOverlap,
     obbMTVs,
     obbMTV,
