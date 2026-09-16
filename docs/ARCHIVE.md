@@ -18,6 +18,10 @@
 
 | 归档日期 | 来源文档 | 条目 | 完结状态 |
 |---|---|---|---|
+| 2026-09-14 | `PLAN.md` | 副武器手动开火与真曲射弹道物理（抛物线高度/跳过沿途碰撞/落点AOE/地面阴影）+ 直射火箭巢与线导/锁定反坦克导弹 | 已实现并验证（见 DEVELOPMENT §4.3、archive/2026-09.md） |
+| 2026-09-15 | `PLAN.md` | 副武器弹种机制绑定（迫击炮固定 HESH；线导/锁定导弹与火箭伤害跟随玩家 HEAT 升级链，无升级回退 HE） | 已实现并验证（见 DEVELOPMENT §4.3、archive/2026-09.md） |
+| 2026-09-13 | `PLAN.md` | 阶段七：技能/主副武器卡牌体系闭环（params 覆写通道 + 进阶技能卡 + 副武器全类型运行时 + 主武器机制与卡牌） | 已实现并验证（见 DEVELOPMENT §4.11、specs/cards.md §8.3/8.4、archive/2026-09.md） |
+| 2026-09-13 | `PLAN.md` | 阶段四 4a/4b/4c 卡牌三板块 + 阶段六 6.1/6.2/6.3 开局弹种/副炮塔 + 阶段五 5.4 键位重排与浏览器复跑 | 已实现并验证（见 DEVELOPMENT §4.9、specs/cards.md §8、archive/2026-09.md） |
 | 2026-09-08 | 会话修复/商店/UI | 局内商店规则调优、修理箱/医疗包随时可用与回血、新局难度重置与炮塔漂移修复、Tab 面板与卡牌 UI 扩展、敌人等级与掩体渲染兜底 | 已实现并验证（见 archive/2026-09.md） |
 | 2026-08-08 | `PLAN.md` | 全文（特性 1~5 规划 + 第 0/6/7/8/9 节 + 第 10 节 地图元素 A1~A3） | 已全部实现（见 DEVELOPMENT §3、§2.7、§5.5） |
 | 2026-08-08 | `ISSUES.md` | #1~#8（含修复记录）+ 附：本轮新增特性 | #1~#8 已解决并验证；附注内容已并入 DEVELOPMENT §3 |
@@ -105,5 +109,19 @@
 | 2026-09-06 | 交互/修复 | #A19. HUD弹种清理与修理箱医疗包损伤门控 | 已完成并验证（精简 HUD 并彻底隔离修理箱医疗包损伤门控，见 specs/combat.md §2） |
 | 2026-09-08 | `PLAN.md` / `ISSUES.md` | P-42 卡牌平衡调优、P-43/#A11 地图级路网与占位冲突重构、#78 不规则岩石与泥地地形层 | 已完成并验证（见 2026-09 分卷） |
 | 2026-09-12 | `ISSUES.md` / rework | #A19 坦克碰撞回归修复（候选轴去重+浅穿透阈值）+ R-3 特种弹药与曲射（APFSDS 双模块/HEC 越障/2σ 散布）+ Edge 浏览器冒烟测试 | 已实现并验证（见 2026-09 分卷） |
+| 2026-09-13 | `ISSUES.md` | #A11. 地形占位冲突：道路/水域任意叠加 + 道路不贯穿 | 已修复并验证（地图级路网专轮：先路后物 + OBB 避让全高优先 + 村落单一路网 + 水潭回退/出生走廊保护 + 度量口径修正；7 模板×5 难度校准重锚、连通性全线 1.000、回放 hash→`d60b9022`，check/test/browser 三链全绿；见 specs/map.md §6） |
+| 2026-09-13 | `ISSUES.md` | #A20. HUD 静态按钮内联 onclick 引用 IIFE 内函数 → 点击必然 ReferenceError | 已修复并验证（8 按钮改 addEventListener 绑定；test-browser-run.cjs 17 项全 PASS + 本轮回归复验，见 DEVELOPMENT §4.6） |
 ------
 
+| 2026-09-13 | `ISSUES.md` | #B1~#B5 + #78（结算/缓冲/商店/速度封顶+聚簇/面板/设计器多边形） | 已全部修复并验证（npm check/test/browser 全绿；test-panels 难度封顶断言通过；tank_map 聚簇接入；designers verts UI 完整） |
+
+| 2026-09-13 | 会话方案 | 操作/设置/面板解耦（mvp⇄测试台同源键位 tank_bindings.js + 测试台专用面板 #benchPanel + 切弹语义对齐 Q/E/点选） | 已实现并验证（check/test 全绿含新增 test-bindings；browser 三链待 Edge 环境回归，test-browser-r3 已同步新语义；见 DEVELOPMENT §4.10） |
+| 2026-09-14 | `PLAN.md` | 阶段五 5.1 旧 15 键弹种链（含 legacy HEC）、阶段六 6.1/6.3 旧开局弹种方案与解锁持久化 | 已按 2026-09-14 定案修订移除（HEC 弹种删除→14 键、开局弹种选配 UI 移除、弹种解锁不跨局；结论见 DEVELOPMENT.md §4.13 / specs/map.md §10/11 / specs/combat.md §3/5 / specs/cards.md §8.3/9） |
+| 2026-09-14 | 七项用户定案 | HEC 移除 / 局内商店回归（基础参数+硬上限+装甲合一）/ 受击即警觉（任意来源+Boss 破 hold）/ 地图重做（曲线路+预烘焙+重叠消解）/ 水域溺毙+AI 避水 / 装备优先抽卡 / 开局弹种 UI 移除+新局归零 | 已全部实现并验证（check/test 40 脚本+browser 三链全绿，含新断言与校准重锚；结论见 DEVELOPMENT.md §4.13） |
+| 2026-09-15 | `ISSUES.md` | #A26. 弹种升级链语义错误：链结构/分支替换与跳级 / #A27. he-vt 原地静止不飞 | 已修复并验证（三链线性化 + 禁跳+HE 先增后替 + drawCardChoices 前驱放行 + stepShells 飞行推进；check/test 全绿，回归见 2026-09 分卷） |
+| 2026-09-15 | `PLAN.md` | 阶段九 主武器系统改版五项（曲射移除/烟幕删除+F 切换+导弹锁定/双管重做/炮塔前移/卡牌硬限）+ W6 速射机炮热量重做 | 已全部实现并验证（check/test 全绿；结论见 DEVELOPMENT.md §4.15，规范见 specs/combat·cards·map） |
+| 2026-09-16 | `ISSUES.md` | #A21~#A25（F 切换/左键按激活槽位分发、副武器单槽不变量、升级卡资格过滤+install/upgrade+maxStacks 防线、面板四层分层+卡牌事务、独立左下角日志面板） | 已修复并验证（npm test + tsc + test:browser 三链全绿；结论见 DEVELOPMENT.md §4.16，规范见 specs/combat.md §4 / specs/cards.md §8.3·§9，原文见 archive/2026-09.md） |
+| 2026-09-16 | `PLAN.md` | 阶段八 §8.1.1 副武器 rare 升级卡数值复核 + §8.1.2 玩家侧副炮塔挂载 UI（第二炮塔绘制 + HUD 指示） | 已实现并验证（升级卡增益带收敛 1.33/1.52/1.39/1.50，新增 test-weapon-upgrade-balance；副炮塔 secondaryTurretPose/drawSecondaryTurret，见 DEVELOPMENT.md §4.16） |
+| 2026-09-16 | `ISSUES.md` | #A28 主动技能 upgrade 卡在玩家持有基础能力之前即可被抽到（`requiresAbility` 语义已实现但内容侧零落地） | 已修复并验证（5 张升级卡标注 requiresAbility≡自身 key + `validateCardEffect` 白名单校验 + 11 张基础卡零声明防死锁 + 保底不复活不合格卡 + 修复 content_designer 保存丢 `params`/`requiresAbility`；test-cards/validate-content/test-qa/test-card-effects/`node --check` 五链全绿；见 DEVELOPMENT.md §4.17 / specs/cards.md §8.4·§8.5·§9，原文见 archive/2026-09.md） |
+| 2026-09-16 | 用户反馈（会话） | #B6 坦克炮塔随节点推进逐渐前移（Boss scale 原地污染 tankListData 共享 spec 指数雪球 + W3「节点推进炮塔前移」有意特性） | 已修复并验证（pivot/anchors 改拷贝、Boss 缩放整体替换、W3 特性整体删除含 RULES.progress/两函数/mvp 调用点/test-rework-w3.js；新增 test-boss §16 #B6 回归；check/test/browser 三链全绿；见 DEVELOPMENT.md §4.18 / specs/map.md §10.1，原文见 archive/2026-09.md） |
+| 2026-09-16 | 用户反馈（会话） | #B7 道路被其他物体截断 / 尽头是圆弧形 / 交叉口太多且看起来叠加（逐段跳段 + 端点内缩+round 端帽 + ±0.42 端点漂移与 ±0.18 控制点造成 35° 浅角互穿） | 已修复并验证（路网重做为「正交双干道」：取消跳段、端点落边界+lineCap butt、拓扑 1 横+0~1 纵且取消斜向支线；断口 240→0px、交叉 2~4→≤1、夹角 35°→68.8°、全模板连通性 1.000；新增 test-nodegen §16 #B7 四护栏 + 校准重锚；见 DEVELOPMENT.md §4.18 / specs/map.md §10/§10.1，原文见 archive/2026-09.md） |

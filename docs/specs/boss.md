@@ -6,7 +6,7 @@
 ---
 
 ## 1. Boss 战设计定位
-- 线性节点推进链的终关首领（assignBossNode 放置于 run.nodes 最后一关；Boss 战不混普通敌军）。
+- 周期首领机制：每第 `RULES.nodeMap.bossInterval`（默认 5）个节点为 Boss 关卡（由 `js/tank_map.js` 的 `isBossNodeIndex` 周期标记并在进入战斗时懒指定定义；Boss 战清空常规敌人，不混编杂兵）。
 - 设计范式：FTL 多阶段 + Into the Breach 弱点机制——阶段切换制造节奏变化，弱点部位制造瞄准博弈。
 
 ## 2. 数据契约 (bosses/<id>.json)

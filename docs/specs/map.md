@@ -53,22 +53,22 @@
 - `drawStyle`：渲染风格（box/bush/tree/soft/barricade/stump/rubble/water/rock-poly/structure...）
 - `tierGroup`：语义分组（cover/structure/foliage/liquid/ground）
 
-### 5.2 具体地形映射（设计值）
+### 5.2 具体地形映射（设计与实装值）
 | 具体地形 | passability | shellBlock | exposureProfile | destructible | drawStyle | tierGroup |
 |---|---|---|---|---|---|---|
 | 全高掩体(建筑墙) | 1.0 | true(solid) | full | ∞ | box | structure |
 | 半高掩体(矮墙) | 0.4 | grad | half | ∞ | box | cover |
-| 水潭 | 0.0 | false(越飞) | none | null | water | liquid |
-| 河流 | 0.0 | false(越飞) | none | null | water-chain | liquid |
-| 烂泥地 | 0.35 | false | none | null | mud | ground |
-| 水潭周围烂泥地 | 0.35 | false | none | null | mud | ground |
+| 水潭 | 0.4 | false(越飞) | none | null | water | liquid |
+| 河流 | 0.4 | false(越飞) | none | null | water-chain | liquid |
+| 烂泥地 | 0.4 | false | none | null | mud | ground |
+| 水潭周围烂泥地 | 0.4 | false | none | null | mud | ground |
 | 残破建筑 | 0.6 | grad | half | hp=1 | rubble-box | structure |
 | 完整建筑 | 1.0 | true(solid) | full | ∞ | box | structure |
-| 岩石 | 1.0 | true(solid) | full | ∞ | rock-poly | structure |
+| 岩石 | 0.0 | true(solid) | full | ∞ | rock-poly | structure |
 | 灌木 | 1.0 | false(vision) | none | null | bush | foliage |
 | 树木 | 1.0 | true(tree) | full | 1→fallen | tree | foliage |
 
-> 关键设计：(1) 水潭/河流 `shellBlock=false`（炮弹越飞、仅挡坦克）+ `passability=0`；(2) 河流为**多段连通**水体（见 5.3）；(3) 岩石/完整建筑复用 `solid`+`full` 但 `drawStyle` 走多边形；(4) 残破建筑=`graduated`+`half`+`destructible`。
+> 关键设计：(1) 水潭/河流 `shellBlock=false`（炮弹越飞不拦截）+ `passability=0.4`（**2026-09-14 水系重做：减速通行**，与泥地同级——不再硬阻断推出；完全浸入触发溺毙见 §11）；(2) 河流为**多段连通**水体（见 5.3）；(3) 岩石具备 `solid`+`full` 且 `passability=0`（不可通行且阻挡直射实弹，`drawStyle` 走多边形）；(4) 烂泥地具备 `passability=0.4` 减速通行且不挡弹；(5) 残破建筑=`graduated`+`half`+`destructible`。
 
 ### 5.3 河流作为连通多段地形
 河流由共享同一逻辑体的多个 water 段链接而成（连续 movement 阻断 + 单次笔触绘制），需在 cover 实例 schema 增加 `segments[]`/parent-link 字段（当前实例 schema 无此字段，见 §5.4-9）。
@@ -118,22 +118,19 @@
 
 - **掩体尺寸与配色**：`RULES.nodeMap.coverWorldScale` 调小为 {half:0.42, full:0.42, barricade:0.32}（相对坦克更协调）；`coverTiers` 改用高对比色（建筑砖红 #b5553f、半高墙深描边 #2e2410、灌木/树提高饱和度）以区别于地表。水体新增 `draw` 分支，现已可见。
 - **自然化形状**：mud 改为径向噪声凸 blob；central pond 改为 14–18 边凸 blob；建筑经 `placeVillage` 以 5–9 个小矩形松散聚成村落（部分 L 形）。碰撞核心已支持凸多边形 SAT。
-- **水域涉水通行**：`RULES.coverTiers.water` 与 `river` 的 `passability` 由 `0.0` 调整为 `0.4`（减速可通行，不再被 MTV 硬推出卡死），炮弹维持 `shellBlock:false`（`mode:'pass'` 飞越不拦截）。
-- **地图级路网生成 (#A11/P-43)**：`generateNode` 增加 `placeRoadNetwork` 阶段，在模板 items 放置前先行生成 2-3 条贯穿战场的 `road` 主干道与随机分支。后续元素（村落、树林、模板物件）均经 `obbHitsCover` 检测避让路网骨架，解决道路不贯穿、与建筑水域无序叠加的问题。
+- **水系与岩石通行性裁定（2026-09-13 复查落地）**：`RULES.coverTiers.water` 与 `river` 的 `passability` 统一定为 `0.0`（不可通行、实体碰撞推出硬阻断），炮弹维持 `shellBlock:false`（`mode:'pass'` 飞越不拦截）；`rock` 维持 `passability: 0` 且 `shellBlock: true`（不可通行，阻挡直射实弹）；`mud` 确定为 `passability: 0.4`（减速不挡弹）。
+- **地图级路网与占位冲突重构 (#A11/P-43，2026-09 专轮落地)**：`generateNode` Phase 0 先调 `placeRoadNetwork` 生成贯穿战场的 `road` 主干道与分支，随后的模板物件/村落/树林/地形全部避让路网骨架。专轮收敛要点：
+  - **密度收敛**：主干段数受模板控制，分支概率 `0.35`（旧 0.6 会「路网爆炸」）；道路条带宽恒为 `rng.range(60, 80)` 世界 px（`test-nodegen.js` 断言 60~80）。
+  - **避让与优先级**：路段 OBB 经 SAT（`obbSegmentHitsAvoid`）与模板 `full` 占位盒求交，命中即弃段——**全高建筑骨架优先于路**；`full` 建筑自身不被路剔除（旧实现会把模板 `full` 吃掉）；植被层（tree/bush/rock/water 等）不参与避让，路压植被属预期。
+  - **村落单一路网**：`placeVillage` 在存在网络道路时**不再自铺街道**，核心建筑直接沿网络路段贴边锚定（消除旧版「村庄自铺街道 + 全局路网」双轨）；仅无网络道路时降级自铺 1~2 条。
+  - **中央水潭**：`placeCentralPond` 相位网格 9×9（±0.30 模板边长内），忽略 `road` 层（路为地面层，水潭压路即「广场水池」）；全相位失败时取「碰撞重叠面积最小」点回退（保证标签必产出），并把落点移出出生走廊。
+  - **出生走廊保护**：玩家出生点固定于世界左缘 10%、垂直中点；建筑/杂物/回退水潭一律避让该点周围通道（半宽 ±20% × 半高 ±9%），消除「随机杂物把出生点围死」类节点。运行期仍有 `findPlayerSpawn` + `ensureLoSCorridor` 二线兜底。
+  - **度量口径修正**：`nodeLayoutMetrics` 的 BFS 种子改为「距起点最近的自由网格点」，消除「起点自由但最近网格被盖」导致的假 0 连通；校准测试显式传入绝对出生坐标（`centerX=600` 口径下 `600−0.4·w`）。
+  - **校准重锚**：7 模板 × 5 难度 × 8 seed 全量重锚（`test-nodegen-calibration.js` BASE），连通性全线 `1.000`——开阔模板地板 ≥0.85、密林 ≥0.35 均显著富余，`coverCoverage` 随难度非降保持成立。
+  - **回放重锚**：布局变更使五节点回放 hash 重锚为 `d60b9022`（`test-replay.js` 仅校验确定性/异 seed 分叉，不钉常量）。
 	- **自然化不规则地形 (#78)**：新增 `rock` (岩石) 与 `mud` (泥地) tier。岩石具备 solid 碰撞、 `rock-poly` 棱线绘制与遮挡视线能力；泥地具备 0.4 减速且不挡弹能力。支持 `verts` 多边形几何，使掩体不再局限于矩形。
 	- **贴图资产管线**：`tank_assets.js` 的 `ASSET_DEFS` 与 `drawAsset` 图片优先/程序化烘焙兜底管线已就绪，建筑、岩石、残骸已接入真实 PNG 贴图（或程序化烘焙），提升地形识别度。
 - **敌军聚集生成**：`makeNode` 改为两层级——先按难度选 1–4 个聚集中心，每中心在 `enemyClusterRadius` 内生成 2–5 辆（保持 minPlayerDist / enemyMinDist），网格兜底仅作最后手段。
-
----
-
-## 9. P-46 类别化敌军与生成机制优化（2026-09-06 落地）
-- **类别化与生成机制优化已全线实施**：
-  - `tanks/*.json` 增加可选 `class` 字段（light/medium/heavy/spg），缺省按数值启发式自动推导；`tanks/dummy.json` 标 `"target": true` 退出敌池。
-  - `RULES.ai.classProfiles` 四类行为档案落地（轻型侧绕强化、中型基线、重型只进不退且抗晕、SPG 保持距离防逼近）。
-  - `aiDecideEnemy` 类别分发落地：tier与class乘性合成 engage/aimTol，flankBias 调制 flank 窗口，moveLock/keepRange 调制移动语义，stunResist 决定抗晕。
-  - 敌军「数值锚定制」落地（外观与数值彻底分离）：敌军彻底仅取几何外观与 class，数值统一锚定玩家出战时刻的 frozenstats 快照 `playerAnchorStats` × `enemyClassProfiles[class]` × 难度系数。
-  - 多方向环带生成：废除旧右侧单向聚簇生成，改为以玩家出生点为原点，随难度递增的多扇区（2~4向）环带分布布点，保障全方位压制，带全网格净空兜底。
-  - 战局确定性测试及 sim 回放全线接通，五节点回放 hash 重锚为 `b4208e48`。
 
 ---
 
@@ -169,7 +166,48 @@
 
 - **校准结论与带宽**：
   - 开阔模板（corridor/mixed/crossfire/urban/village）：con≈0.97–1.0，cov 随 diff **单调非降**（~0.06→0.19），难度曲线健康；回归带 `con≥0.85` 且 `cov[d=0.9] ≥ cov[d=0.1]`。
+
+---
+
+## 9. P-46 类别化敌军与生成机制优化（2026-09-06 落地）
+- **类别化与生成机制优化已全线实施**：
+  - `tanks/*.json` 增加可选 `class` 字段（light/medium/heavy/spg），缺省按数值启发式自动推导；`tanks/dummy.json` 标 `"target": true` 退出敌池。
+  - `RULES.ai.classProfiles` 四类行为档案落地（轻型侧绕强化、中型基线、重型只进不退且抗晕、SPG 保持距离防逼近）。
+  - `aiDecideEnemy` 类别分发落地：tier与class乘性合成 engage/aimTol，flankBias 调制 flank 窗口，moveLock/keepRange 调制移动语义，stunResist 决定抗晕。
+  - 敌军「数值锚定制」落地（外观与数值彻底分离）：敌军彻底仅取几何外观与 class，数值统一锚定玩家出战时刻的 frozenstats 快照 `playerAnchorStats` × `enemyClassProfiles[class]` × 难度系数。
+  - 多方向环带生成：废除旧右侧单向聚簇生成，改为以玩家出生点为原点，随难度递增的多扇区（2~4向）环带分布布点，保障全方位压制，带全网格净空兜底。
+  - 战局确定性测试及 sim 回放全线接通，五节点回放 hash 重锚为 `d60b9022`（#A11 路网专轮后）。
   - 密林模板（forest_dense/woodland_line）：cov≈1.1（设计即密），con 随 rng 抖动 0.35–1.0（自然空间分区）；真实对局由 `makeNode` 的 `findPlayerSpawn` + `ensureLoSCorridor` 兜底可玩性。回归带 `con≥0.35`，**不做强行降密**以免破坏林相设计。
   - 当前参数**未做破坏性调整**（实测已满足难度曲线意图）。本切片交付 = 把实测剖面**锁定为回归锚点** + 文档化，使未来任何布局/难度旋钮改动都能被 `test-nodegen-calibration.js` 捕获劣化。
-  - 注：密林模板若后续要做「高难更通透」可调 `placeForestClusters` 的簇数/spacing（属 #A11 路网重构范畴，不在本切片）。
+  - 注：密林模板若后续要做「高难更通透」可调 `placeForestClusters` 的簇数/spacing（机制已随 #A11 路网专轮落地，作为后续平衡调节旋钮保留）。
+
+---
+
+## 10. 道路曲线化 + 预烘焙 + 跨相重叠消解（2026-09-14 落地；2026-09-16 路网重做见 §10.1）
+- **道路曲线化（用户定案：曲线+直线结合）**：`placeRoadNetwork` 重写——道路控制点经 **Catmull-Rom 平滑**（`_catmullRomSample(points, step=110)`，端点 p1/p2 + 1–2 个横向抖动中点）生成曲线路径点。道路以**短 OBB 链段**写回（`_emitRoadChain`：`w = 段长 + roadW×0.35` 搭接、`h = roadW`、`tier:'road'`、同链共享 `groupId`），角度沿段方向 `atan2(dy,dx)`。
+- **进入地图前预烘焙（修复"远距整段消失"）**：旧实现道路为**旋转长 OBB**，横跨大距离时被 `aabbInView` 轴对齐包围盒剔除（长段旋转后 AABB 覆盖视口外）→ 视觉上"离开一段距离整段消失"。修复分两层：
+  1. 生成端改为**短链段**（每段 ~110px，AABB 与 OBB 差异极小）；
+  2. 运行时 `tank_mvp.html` 在 `enterBattle` 实体化节点后调 **`bakeNodeGroundLayer(node)`**——按 `groupId` 从几何中线端点自适应贪心串联，把同链段重连为完整平滑多段线，全节点预烘到一块 node 尺寸画布（`groundLayerCanvas`），分层描画路基/沥青路面/中心虚线，`draw()` 整图 blit（`drawImage`）替代逐段实时渲染，**彻底消除胶囊串联感与远距消失**。端帽 `lineCap:'butt'`（见 §10.1）、连接 `lineJoin:'round'`。dev 随机场按钮重置画布（回退逐段绘制路径仍可用）。
+- **跨相重叠消解（道路/岩石/建筑/水域/泥潭互不重叠）**：`pruneOverlappingCovers(covers)`（generateNode 尾部统一执行）——对每对元素取 **3×3 局部采样点**（66% 范围世界系），任一元素 ≥3/9 采样点落入另一方多边形/OBB 内 = 显著重叠；**优先级高者胜**（`_PRUNE_PRIORITY`：岩石 > 完整建筑 > 半高/路障 > 水/泥 > 植被；road 与同 `groupId` 链段豁免）。败者 **nudge 平移优先**（环形候选 6 环×8 向，避开其余所有元素；保住地形标签数量契约，`test-nodegen.js` 的"标签必产出"），无空位才整株移除。纯函数确定性（`_pointInPrunePoly` 局部点测，无 rng）；实际剖面见 `test-nodegen-calibration.js`。
+
+### 10.1 路网重做：正交双干道（#B7，2026-09-16 用户反馈修复）
+用户反馈三条：**① 道路被其他物体截断 ② 道路尽头都是圆弧形 ③ 交叉口太多、道路之间看起来像叠加在一起**。三者对应三个独立根因，逐一处理。
+
+| 反馈 | 根因 | 修复 |
+|---|---|---|
+| ① 被截断 | 旧实现对模板 `full` 建筑（`avoidBoxes`）**逐链段跳段**（`obbSegmentHitsAvoid` 命中即弃该段），实测留下 **202~246px** 缺口（≈建筑尺寸） | **取消跳段**：`isSegOk` 只保留界内判定。道路属 `ground` 层、先于一切元素绘制，建筑/岩石天然盖在路面之上，跳段纯属有害。`avoidBoxes` 参数保留仅为兼容调用签名。实测链内最大接驳间距 **202–246px → 0.00px** |
+| ② 圆弧尽头 | 端点内缩 `0.5*roadW + 12`px + 渲染层 `lineCap:'round'` → 完整圆弧端帽整个可见 | 端点**严格落在节点边界线上**（沿轴偏移 ±0.13），端帽被节点画布裁掉一半 = 道路延伸出画面；`bakeNodeGroundLayer` 的 `lineCap` 改 **`'butt'`**（保留 `lineJoin:'round'`）。实测孤悬路头 **0 个** |
+| ③ 交叉太多/像叠加 | 端点偏移 ±0.42×半幅、控制点横向偏移 ±0.18×跨度 → 纵向"干道"斜成 139°+，与横干道以 **35° 浅角**互穿；再叠加 2~3 主干 + 35% 斜向分支 → 组间交叉 2~4 处 | 拓扑收敛为「**1 条横干道 + 0~1 条纵干道**」；端点偏移 ±0.42→**±0.13**、控制点横向偏移 ±0.18→**±0.04**×跨度；**取消斜向支线**（沿干道法向引出即与另一轴干道平行 = 叠加观感 + 地图内死头）。实测交叉恒 **≤1 个**、夹角 **35.0° → 68.8°** |
+
+- **拓扑**：`wide = halfW >= halfH` 决定主轴——长边方向为横向干道（恒有），短边方向为纵向干道（85% 概率）——两者正交。干道端点沿轴漂移 ±0.13、控制点法向偏移 ±0.04×跨度，保持轻微自然弯曲而不产生浅角互穿。
+- **回归**：`scripts/test-nodegen.js` §16——链内无断口（<1e-6）/ 无孤悬路头（必须出界或 T 形接驳）/ 交叉口 ≤1 / 交叉夹角 ≥60°，7 模板 × 8 seed。`test-nodegen-calibration.js` 重锚：全模板连通性升至 **1.000**（`forest_dense` 原 0.875 消除）、`minPassageWidth` 整体上移（corridor 2.9→4.8、woodland 2.6→5.0 量级）、`coverCoverage` 基本不变（道路不计入）。
+
+## 11. 水域溺毙 + AI 避水（2026-09-14 落地）
+- **完全浸入溺毙**：`tank_cover.js` 新增 `tankFullyInWater(tank)`——车体四个角点（hullOBB 四角世界系）**全部**落在任一 `water`/`river` 凸部分内（点-in-多边形射线法）才算完全浸入；四角之一出水即复位。主循环（`tank_mvp.html`）对每实体累计 `drownT += dt`；`drownT >= RULES.drowning.seconds(8)` → 经 `applyDamage` 沉没摧毁（玩家/敌人/Boss/友军一视同仁；结算缓冲期 `isClearing` 不累计防清场误杀）。玩家警示：`warnAt(3s)` 倒计时临界音 + 头顶 `≋ 溺毙 x.xs` 倒计时 HUD（<3s 红字）；出水 `drownT` 复位。
+- **敌人也会溺毙（AI 绕水寻路）**：`tank_ai.js` 新增 `applyWaterAvoidance(t, out, ctx)`（`aiDecide` 敌方分支输出后套用）——沿 `hullAngle` 前向探 140px（`RULES.ai.waterProbeDist`）：
+  - 前向入水 + 至少一侧（±0.6rad 侧探）为干地 → `turn` 转向干地侧（move 保持 = 沿岸绕行）；
+  - 前向+双侧全湿 → `move=0` 停驶（防 AI 冲水自杀溺毙）；
+  - 前向干地 → 原样返回（零行为漂移）。
+  - 入水判定 = cover 实例的 OBB / `verts` 多边形局部点测（自包含纯函数，`ctx.covers` 注入，covers 缺失时原样返回）。水区通行由 passability 0.4 经 `getCoverUnderTank` 减速，不另行阻断。
+- **update §5.4 checklist #3**：AI 读地形避水已由 `applyWaterAvoidance` 承担（绕行而非找掩体）；§6 覆盖 `shellBlock` 语义不受影响。
 

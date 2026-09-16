@@ -35,21 +35,32 @@
 - **局内商店可升级次数由具体数值决定（2026-08-28 定案，取代写死 maxLevel）**：有自然数值边界的商品改为按 `RULES.parameterLimits` 动态判定达限，而非需求出生时写死整数上限（因局内卡牌经 addModifier 也会改 reload/spreadMult/motionSpreadMul/装甲值，会改变真实可升级空间）。`runShopLimitBlocked(def, curVal, stats)` 三分支：① `def.limit` 存在（fast_reload / engine_overdrive / precision_gunnery / steady_mount）走显式单键判定；② `def.limit` 缺失但多条 effects（多面打包装甲包 hull/turret × front/side/rear）逐面按点分路径 `parameterLimits.armor.*` 推导达限，**读 `stats` 对象各面真实现值**（非 UI 传入的单一 curVal），任一穿越边界即 true；③ 无边界/缺省容错返回 false（放行）。`motionSpreadMul` 边界本轮新增于 `parameterLimits`（min 0.5 / max 3.0，对齐 spreadMult）；商品 `maxLevel` 统一 99 作防御性兜底，`computeStats` 的 `multFloor` 物理钳底不动。测试：test-economy 新增装甲包逐面达限/precision_gunnery 数值驱动/steady_mount 边界对齐断言（164 条全绿）。
 
 ## 3. 弹种系统 (Ammo Types)
-唯一数据源：RULES.ammoTypes（js/tank_rules.js，机制参数唯一配置源）
-- **AP**：标准穿甲弹（基准 pen 1.0× / dmg 1.0× / speed 1.0×）。
-- **APCR**：高速穿甲弹（pen 1.2× / dmg 0.8× / speed 1.2×）。
-- **HEAT**：破甲弹（pen 1.4× / dmg 1.0× / speed 0.8× / spread 1.2×，noBounce 确定性不跳弹）。
-- **HE**：高爆弹（pen 0.7× / dmg 1.0× / speed 0.95×，noBounce，splashRadius=90px）。
+唯一数据源：`RULES.ammoTypes`（`js/tank_rules.js`，机制参数唯一配置源；完整升级链与 15 弹种总表见 `docs/PLAN.md` §5.2）。
+- **AP**：标准穿甲弹（基准 pen 1.0× / dmg 1.0× / speed 1.0× / 跳弹角 70°）。
+- **APCR**：高速穿甲弹（pen 1.2× / dmg 1.0× / speed 1.2× / 跳弹角 65°）。
+- **HEAT**：破甲弹（pen 1.5× / dmg 1.0× / speed 0.9× / 精度系数 1.2，noBounce 确定性不跳弹）。
+- **HE**：高爆弹（pen 0.5× / dmg 1.5× / speed 0.8× / 精度系数 1.2，noBounce，splashRadius=90px，未击穿残余 nonPenRatio=0.6，地板 25%）。
   - HE 击穿与未击穿均触发范围溅射（贴脸50%→边缘衰减到0）；未击穿走残余爆轰分支（地板 25%）。
   - HE 破障（A3）：HE 销毁时对落点半径 24px 内可破坏掩体造成 1 点独立破坏伤（与 90px 坦克溅射两套并存）。
   - 特效对齐约定：爆轰视觉特效半径与逻辑 splashRadius 严格一致，杜绝视觉误导。
+- **更多升级演进**（APDS、APFSDS、HEAT-FS、T-HEAT、HT-HEAT、APHE、HESH、HE-VT、HE-OP 等）全面继承 `RULES.ammoTypes` 对应数值矩阵，全部使用规范军事缩写。
+- **2026-09-14 定案：HEC 弹种移除**——`RULES.ammoTypes` 现 14 键（ap/apcr/apds/apfsds/apfsds_ad/he/heat/heatfs/tandem_heat/heavy_tandem_heat/aphe/hesh/proximity_he/blast_he）。**2026-09-15 用户裁定：主武器曲射机制移除**（howitzer 主武器类型删除，主炮一律平射直线弹道）；曲射/越障由副武器迫击炮承担（mortar `isArc` + `ignoreCover`，见 cards.md §8.3 与 DEVELOPMENT.md §4.13）。
 
-## 4. 战术能力与主动装备 (Abilities & Drones)
-统一入口 tryActivateAbility（G 炮击 / H 护盾 / V 超装填，共享冷却 abilityCdT）
-- **烟幕弹 (F键)**：生成区域动态视线掩体（smokeClouds），只阻断 AI 索敌视线（hasLineOfSight=false），不阻挡实弹弹道。
-- **战术炮击 (G键)**：呼叫延迟 AOE 覆盖（callStrike / updateStrikes，maxStrikes=3）。
-- **战术护盾 (H键 定向 / Shift+H 全向)**：累计吸收伤害池（applyShield，入射角弧度判定吸收）。
-- **超装填 (V键)**：reload ×0.45 爆发装填 + 立即清零 reloadT，timed modifier 到期自动恢复。
+## 4. 战术能力、副武器与主动装备 (Abilities & Secondary Weapons)
+统一入口 `tryActivateAbility` + 武器系统 `tank_weapons.js`
+- **副武器系统（F 键切换主/副武器；左键/空格按激活槽位手动击发；2026-09-15 #A21 修订）**：
+  - 副武器**单槽**（`player.weapons.secondary`；单槽不变量见 #A22 / DEVELOPMENT.md §4.16）。
+  - `F` 键（`switchWeapon`）在主炮 / 副武器间切换（`player.activeWeaponSlot: 'primary'|'secondary'`，新局复位为主炮）；**左键 / 空格按激活槽位分发**（`tryFireWeaponSlot`）——primary → 主炮 `tryFire`，secondary → `fireActiveSecondary(target=鼠标世界点)` 手动击发；`primary` 空格为双管齐射（salvo）。
+  - **例外**：副武器类型为 `turret`（副炮塔）时不响应点击（自瞄，由主循环 `updateSecondaryWeapon` 逐帧驱动）；副武器为 `none`/未装时点击回退主炮路径。
+  - 切回主炮时副武器装填计时继续递减（不再「激活即自动运作」）。
+  - **锁定式反坦克导弹**（secondary `missile`）：手动击发沿光标方向直飞（`target=null`，不再自动寻的）；AI/Boss 实体的副武器仍走 `updateSecondaryWeapon` 自主索敌（`updateMissileLock` ±30° 扇形/1.0s 锁定/自动发射；参数 `WEAPON_DEFAULTS.secondary.missile.lockArcDeg=30/lockSeconds=1.0`）。
+- **主动技能快捷键池 (1~3 数字键)**：
+  - 快捷键 1/2/3 动态对应玩家当前装备的主动技能（掩体/炮击/护盾/超装填/无人机指令），按顺序快捷施放。
+- **独立按键备用**：
+  - 战术炮击 (G键)：呼叫延迟 AOE 覆盖（callStrike / updateStrikes）。
+  - 战术护盾 (H键 定向 / Shift+H 全向)：累计吸收伤害池（applyShield）。
+  - 超装填 (V键)：爆发装填 + 立即清零 reloadT。
+  - **烟幕弹已移除**（2026-09-15 W2 用户裁定）：`fireSmokeShell`/`tryFireSmoke`/stepShells smoke 分支/烟幕卡（smoke_screen、ability_smoke_dense）整链删除；`tank_cover.js` smokeClouds 动态烟幕基础设施保留备用（当前无生产者）。
 - **无人机体系**：
   - scout 侦察型：标记视口外敌军位置指示（scoutRange=700px）。
   - striker 打击型：近身环绕索敌开火（strikeRange=260px，fireInterval=2s），不消耗玩家弹药。
@@ -65,7 +76,7 @@
   - 距离达标但无视线 → 提前进入 search 推进；
   - LoS 仅在距离达标时评估（patrol 早退路径零射线开销）。
 - **生成点约束**：敌军与 Boss summons 的局内生成点必须位于该敌有效触发距离 × 1.05 之外（径向外推优先，越出敌区时确定性重掷，不消耗额外 rng——同 seed 结果稳定）。
-- **受击警觉（同日补充定案）**：敌对实体被命中即惊醒——`alertEntity(t, srcX, srcY)` 置 `aiEngaged=true`、记录来弹方向 `lastKnownPlayerPos`（search 态朝该点推进，到达 ~140px 或重获视线后清除）并立即解除进行中的 stunned；`propagateAlert(entities, x, y)` 将警觉传播至 `RULES.ai.alertRadius`(600px) 内存活友邻。钩子位于炮弹命中结算与无人机直伤两处（仅敌方生效）。
+- **受击警觉（任意来源，2026-09-14 定案）**：敌对实体被命中即惊醒——`applyDamage`（`tank_physics.js` 唯一伤害收口）统一触发 `alertEntity(t, srcX, srcY)`（置 `aiEngaged=true`、记录来弹方向 `lastKnownPlayerPos`，search 态朝该点推进，到达 ~140px 或重获视线后清除）并立即解除进行中的 stunned；来源坐标由调用方传入，缺省回退玩家当前位置（搜索玩家语义），再兜底自身位置。`propagateAlert(entities, x, y)` 将警觉传播至 `RULES.ai.alertRadius`(600px) 内存活友邻。**覆盖任意伤害来源**：直射/溅射/炮击轰炸（strike）/DOT/地雷/碾压/溺毙——凡经 `applyDamage` 均触发（敌对存活非无人机；玩家/友军 no-op）。**Boss hold 受击破防**：`alertEntity` 对 `isBoss && stageAI.mode==='hold'` 实体清 `stageAI=null`（立即解除 hold 转常规接战）。注意：玩家对敌直射在 fireCtx 命中结算处另有前置警觉（与 applyDamage 钩子幂等重复，无害）。
 - **stun 免疫窗**：stunned 自然苏醒后授予 `RULES.ai.stunImmunityAfter`(2.0s) 免疫期，期间不再进入 stunned——防高射速武器无限连控。（附带修复：mvp 主循环此前遗漏 `aiUpdateStateTimer` 调用导致 stun 计时器永不递减、敌人永久呆滞，已补上。）
 - **难度全面分化（2026-08-24 落地）**：`RULES.difficulty.entityMults` 十键乘子表（maxHp/penetration/damage/armorAll/reload/spreadMult/aimSpeed/maxSpeed/turnRate/turretTurnRate），按 diffNorm 线性插值，经 materializeNode→env.applyDifficulty 仅作用于敌军 stats（玩家隔离）；`entityMultsForDifficulty(diff)` 纯函数可测。
 - **AI tier 分层**：`RULES.ai.tierProfiles` 三档（0 标准 / 1 engageMul1.1+aimTolMul0.8 / 2 再加 stunResist），实体 `aiTier` 注入后由 `aiTierProfile(tier)` 消费；engage 以触发距离比值为难度代理调制。
@@ -99,10 +110,10 @@
   - 飘字显示 min(res.dmg, 击杀前剩余HP)，击杀伤害不再溢出虚高；
   - DOT tick 加存活检查，目标死亡即清 dot 字段（mvp + bench 双页一致），尸体不再持续跳字；
   - 颜色语义：普通伤害白(plain) / 成员与非弹药架模块黄(module) / 弹药架红(ammoRack)；pen 色保留为 legacy 别名。
-- **开火后坐与装填/底部 HUD（2026-08-28 落地）**：
-  - **开火后坐回弹**：`fireTank`/`fireSmokeShell` 成功开火分支写 `shooter.recoilT = 0.08`（被掩体阻挡分支不写）；主循环 player 与非玩家实体各自递减 `recoilT`（沿用 reloadT 递减模式）。`drawTank` 炮管段按 `sin(π·recoilT/0.08)` 生成出击-回弹位移，仅把视觉炮管 baseX/baseY 沿炮管反向平移（炮盾/护套/制退器随 baseX/baseY 自然跟随），**不改 gunRoot()/gunTip() 判定坐标**；位移量随口径 `barrelWid/18` 轻微缩放。
-  - **装填进度环形化**：废除原屏幕底部横向装填条（`#reloadWrap` 的 `#reloadTrack/#reloadFill`），改为 `drawReloadRing(ctx)` 贴炮口 `gunTip(player)` 世界坐标的环形弧（世界坐标经 `worldToScreen`，半径固定 13px），从 -90° 顺时针扫 360°×进度，**满值(≥1)即消失**（仅战斗态、装填中、玩家存活时绘制），挂入战斗绘制循环（drawDrones 后、烟幕云前）。
-  - **底部常显 HUD**：新增 `#bottomHud`（战斗态门控 `flow.state==='battle'`）——常显玩家血条 `#playerHpTrack/Fill/Val`（同 updateStatusPanel 口径）+ 能力按钮行 `#abilityBtns`：↻弹种循环(cycleAmmo)/F 烟幕(tryFireSmoke)/G 炮击/H 护盾全向/V 超装填/4 修理箱/5 医疗包，`updateBottomHud()`（挂入 updateHud）刷新冷却角标——G/H/V 读共享 `abilityCdT`、4/5 读独立 `abilityCds.repair/medkit`，冷却中置灰+角标秒数。纯 UI 薄包装接线，能力逻辑仍走既有 tryActivateAbility/tryRepairKit/tryMedkit。
+- **开火后坐与装填/底部 HUD（2026-08-28 落地；2026-09-15 W2 更新键位）**：
+  - **开火后坐回弹**：`fireTank` 成功开火分支写 `shooter.recoilT = 0.08`（被掩体阻挡分支不写；2026-09-15 W2 后烟幕弹已删除，`fireSmokeShell` 不再存在）；主循环 player 与非玩家实体各自递减 `recoilT`（沿用 reloadT 递减模式）。`drawTank` 炮管段按 `sin(π·recoilT/0.08)` 生成出击-回弹位移，仅把视觉炮管 baseX/baseY 沿炮管反向平移（炮盾/护套/制退器随 baseX/baseY 自然跟随），**不改 gunRoot()/gunTip() 判定坐标**；位移量随口径 `barrelWid/18` 轻微缩放。
+  - **装填进度环形化**：废除原屏幕底部横向装填条（`#reloadWrap` 的 `#reloadTrack/#reloadFill`），改为 `drawReloadRing(ctx)` 贴炮口 `gunTip(player)` 世界坐标的环形弧（世界坐标经 `worldToScreen`，半径固定 13px），从 -90° 顺时针扫 360°×进度，**满值(≥1)即消失**（仅战斗态、装填中、玩家存活时绘制），挂入战斗绘制循环（drawDrones 后、烟幕云前）。**2026-09-15 W6：主武器 autocannon 时该环改为热量表**——弧长 = heatPct/100，三态配色 绿 <50% / 黄 50–<100% / 红 ≥100%（过热锁定期间红色闪烁）；冷却由 `updatePrimaryHeat` 逐帧驱动，热量归零后环消失（详见 cards.md §8.3）。
+  - **底部常显 HUD**：新增 `#bottomHud`（战斗态门控 `flow.state==='battle'`）——常显玩家血条 `#playerHpTrack/Fill/Val`（同 updateStatusPanel 口径）+ 能力按钮行 `#abilityBtns`：↻弹种循环(cycleAmmo)/**F 切换主/副武器(toggleWeaponSlot，2026-09-15 W2 取代烟幕)**/G 炮击/H 护盾全向/V 超装填/4 修理箱/5 医疗包，`updateBottomHud()`（挂入 updateHud）刷新冷却角标——G/H/V 读共享 `abilityCdT`、4/5 读独立 `abilityCds.repair/medkit`，冷却中置灰+角标秒数。纯 UI 薄包装接线，能力逻辑仍走既有 tryActivateAbility/tryRepairKit/tryMedkit。
 ## 7. 音频与声效表现规范 (Audio Visual Standards)
 
 - **声音总线与并发管理 (Busses & Concurrency)**：
