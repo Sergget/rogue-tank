@@ -125,22 +125,46 @@ function realErrorsOf(errs) {
     });
     check('战术部署物生成（炮塔/地雷/掩体注册进 deployables）', deployRes.after === deployRes.before + 3, `count: ${deployRes.before} -> ${deployRes.after}`);
 
-    // 测试 5/6 数字键弹种切换（APFSDS & HEC）
-    await page.keyboard.press('5');
+    // 弹种切换（解耦轮：测试台与正式游戏对齐 — 鼠标点击弹种格 + Q/E 环形循环；
+    // 数字键 1~N 直选已摘除，改为点击 data-ammo 格验证 APFSDS/HEC 两条 R-3 弹种路径）
+    await page.evaluate(() => {
+      const cell = document.querySelector('#ammoIndicator [data-ammo="apfsds"]');
+      if (cell) cell.click();
+    });
     await page.waitForTimeout(150);
     const ammo5 = await page.evaluate(() => {
       const el = document.getElementById('ammoIndicator');
       return { text: el ? el.textContent : '' };
     });
-    check('按 5 键切换至 APFSDS 弹种', ammo5.text.includes('APFSDS'), ammo5.text);
+    check('点击弹种格切换至 APFSDS（鼠标选择路径）', ammo5.text.includes('APFSDS'), ammo5.text);
 
-    await page.keyboard.press('6');
+    await page.evaluate(() => {
+      const cell = document.querySelector('#ammoIndicator [data-ammo="blast_he"]');
+      if (cell) cell.click();
+    });
     await page.waitForTimeout(150);
     const ammo6 = await page.evaluate(() => {
       const el = document.getElementById('ammoIndicator');
       return { text: el ? el.textContent : '' };
     });
-    check('按 6 键切换至 HEC 曲射弹种', ammo6.text.includes('HEC'), ammo6.text);
+    check('点击弹种格切换至 BLAST_HE（2026-09-14 hec 移除后由 blast_he 接替）', ammo6.text.includes('HE-OP') || ammo6.text.includes('超压榴弹'), ammo6.text);
+
+    // Q 键环形循环（与正式游戏同语义：font-weight:700 的格子为当前激活弹种）
+    const qRes = await page.evaluate(() => {
+      const cells = Array.from(document.querySelectorAll('#ammoIndicator [data-ammo]'));
+      const active = cells.find(c => c.style.fontWeight === '700');
+      return { active: active ? active.getAttribute('data-ammo') : null, total: cells.length };
+    });
+    await page.keyboard.press('q');
+    await page.waitForTimeout(150);
+    const qRes2 = await page.evaluate(() => {
+      const cells = Array.from(document.querySelectorAll('#ammoIndicator [data-ammo]'));
+      const active = cells.find(c => c.style.fontWeight === '700');
+      return { active: active ? active.getAttribute('data-ammo') : null };
+    });
+    check('Q 键环形切换弹种（与正式游戏同语义）',
+      qRes.active && qRes2.active && qRes.active !== qRes2.active,
+      `${qRes.active} -> ${qRes2.active} (total=${qRes.total})`);
 
     // 测试开火（空格键）生成炮弹
     await page.keyboard.press('Space');

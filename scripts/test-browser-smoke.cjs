@@ -156,27 +156,21 @@ function startServer(port) {
     await page.waitForFunction(() => document.querySelectorAll('#loadTankList .tank-card').length > 0, { timeout: 10000 });
     const loadoutInfo = await page.evaluate(() => ({
       tankCards: document.querySelectorAll('#loadTankList .tank-card').length,
-      ammoBoxes: document.querySelectorAll('#loadAmmoList input[type=checkbox]').length
+      ammoBoxes: document.querySelectorAll('#loadAmmoList, #loadAmmoList input[type=checkbox]').length
     }));
-    check('M10 Loadout 列出坦克卡片与弹药复选框', loadoutInfo.tankCards > 0 && loadoutInfo.ammoBoxes >= 4, JSON.stringify(loadoutInfo));
+    check('M10 Loadout 列出坦克卡片；2026-09-14 开局弹药选配界面已移除（loadAmmoList 不存在）',
+      loadoutInfo.tankCards > 0 && loadoutInfo.ammoBoxes === 0, JSON.stringify(loadoutInfo));
 
-    // 选定第一辆坦克 + 勾选前三种弹药；第 4 种应被上限拒绝（勾选态回退）
+    // 选定第一辆坦克（开局弹药恒 [ap,he]，prepPlayerForRun 强制复位，无需手动选配）
     const sel = await page.evaluate(() => {
       document.querySelector('#loadTankList .tank-card').click();
-      const boxes = [...document.querySelectorAll('#loadAmmoList input[type=checkbox]')];
-      boxes[0].click(); boxes[1].click(); boxes[2].click();
-      const before = boxes.filter(b => b.checked).length;
-      if (boxes[3]) { boxes[3].click(); }
-      const after = boxes.filter(b => b.checked).length;
       return {
-        before, after,
         selectedCard: !!document.querySelector('#loadTankList .tank-card.selected'),
         startDisabled: document.getElementById('loadStartBtn').disabled
       };
     });
     console.log('=== M10 整备选择 ===', JSON.stringify(sel));
     check('M10 坦克卡片点击选定', sel.selectedCard);
-    check('M10 弹药 ≤3 上限生效', sel.before === 3 && sel.after === 3, JSON.stringify(sel));
     check('M10 校验通过后出击按钮可用', !sel.startDisabled);
 
     // Shop 界面冒烟：整备 ⇄ 商店往返（新档 0 点：升级卡应全置灰、复活按钮应禁用）
@@ -218,7 +212,7 @@ function startServer(port) {
     });
     console.log('=== M10 出击写档 ===', JSON.stringify(savedProf));
     check('M10 selectedTankId 持久化并作用于 player 实体',
-      typeof savedProf.selectedTankId === 'string' && savedProf.playerAmmoLoadout === 3, JSON.stringify(savedProf));
+      typeof savedProf.selectedTankId === 'string' && savedProf.playerAmmoLoadout === 2, JSON.stringify(savedProf));
     check('M10 局数统计随出击递增', savedProf.runs >= 1, `runs=${savedProf.runs}`);
     check('M10 复活次数 = 基础值（无加购时）', savedProf.playerRevives === savedProf.reviveBase,
       `revives=${savedProf.playerRevives} base=${savedProf.reviveBase}`);
@@ -361,9 +355,9 @@ function startServer(port) {
     await page.keyboard.press('Backquote');
     await page.waitForTimeout(100);
 
-    // ---- 特性4 §2.2 出战配备索引切换：数字键 1/2/3 → ammoLoadout[i]，Q 环形循环 ----
-    // 旧断言（按 2/3/4 断言固定 APCR/HE/HEAT 直选）已随全局直选一起退役：
-    // 战斗内弹种由 loadout 决定，断言全部按 player.ammoLoadout 内容动态推导。
+    // ---- 阶段六 6.1 出战配备切换：Q/E 环形循环切弹，数字键 1/2/3 让位技能快捷键 ----
+    // 旧断言（按 1/2/3 直选）随阶段六键位重排退役：键盘只保留 Q/E 循环与槽位点击，
+    // 断言全部按 player.ammoLoadout 内容动态推导。
     const readAmmoHud = () => page.evaluate(() => {
       const p = entities.find(e => e.id === 'player');
       // 弹种面板 #ammoIndicator 已移除（弹种切换改由底部 HUD 按钮承担），
@@ -380,50 +374,43 @@ function startServer(port) {
       };
     });
 
-    await page.keyboard.press('1');
-    await page.waitForTimeout(150);
     let a = await readAmmoHud();
-    console.log('=== 弹药槽位组（按 1）===', JSON.stringify(a));
+    console.log('=== 弹药槽位组（初始）===', JSON.stringify(a));
     check('(c) 弹药组 HUD 格数 === ammoLoadout.length(≤3)',
       a.count === a.loadout.length && a.loadout.length >= 1 && a.loadout.length <= 3,
       `cells=${a.count} loadout=${JSON.stringify(a.loadout)}`);
     check('(c) 各格标签/顺序按配备渲染', JSON.stringify(a.labels) === JSON.stringify(a.expectLabels),
       `labels=${JSON.stringify(a.labels)} expect=${JSON.stringify(a.expectLabels)}`);
-    check('(a) 按 1 → 高亮/索引/ammoKey 对齐 loadout[0]',
+    check('(a) 战斗初始 ammoKey 对齐 loadout[0]',
       a.activeIdx === 0 && a.idx === 0 && a.ammoKey === a.loadout[0],
       `active=${a.activeIdx} idx=${a.idx} key=${a.ammoKey} loadout[0]=${a.loadout[0]}`);
 
-    await page.keyboard.press('2');
-    await page.waitForTimeout(120);
-    a = await readAmmoHud();
-    check('(a) 按 2 → 对齐 loadout[1]', a.activeIdx === 1 && a.idx === 1 && a.ammoKey === a.loadout[1],
-      `active=${a.activeIdx} idx=${a.idx} key=${a.ammoKey} loadout[1]=${a.loadout[1]}`);
-
-    await page.keyboard.press('3');
+    await page.keyboard.press('q');   // Q = 上一发 → 从槽 0 反向回绕末位（2026-09-14 定案）
     await page.waitForTimeout(120);
     a = await readAmmoHud();
     const lastIdx = a.loadout.length - 1;
-    check('(a) 按 3 → 对齐 loadout[末位]', a.activeIdx === lastIdx && a.idx === lastIdx && a.ammoKey === a.loadout[lastIdx],
+    check('(a) Q 反向回绕到末位', a.activeIdx === lastIdx && a.idx === lastIdx && a.ammoKey === a.loadout[lastIdx],
       `active=${a.activeIdx} idx=${a.idx} key=${a.ammoKey} last=${lastIdx}`);
 
-    await page.keyboard.press('4');   // 第 4 槽未配备（上限 3）：按键无效果
+    await page.keyboard.press('e');   // E = 下一发 → 从末位正向回绕槽 0
     await page.waitForTimeout(120);
     a = await readAmmoHud();
-    check('(b) 按 4（未配备槽）无效果',
-      a.activeIdx === lastIdx && a.idx === lastIdx && a.ammoKey === a.loadout[lastIdx],
+    check('E 正向回绕到槽 0', a.activeIdx === 0 && a.idx === 0 && a.ammoKey === a.loadout[0],
       `active=${a.activeIdx} idx=${a.idx} key=${a.ammoKey}`);
 
-    await page.keyboard.press('q');   // Q 环形循环：末位 → 回绕槽 0
+    // 数字键 1/2/3 不再切弹（阶段六：让位主动技能快捷键池）
+    await page.keyboard.press('1');
     await page.waitForTimeout(120);
     a = await readAmmoHud();
-    check('Q 环形循环回绕到槽 0', a.activeIdx === 0 && a.idx === 0 && a.ammoKey === a.loadout[0],
+    check('(b) 数字键 1 不再切弹（技能池让位）',
+      a.activeIdx === 0 && a.idx === 0 && a.ammoKey === a.loadout[0],
       `active=${a.activeIdx} idx=${a.idx} key=${a.ammoKey}`);
 
     // ---- (d) 开火后炮弹携带所选槽位 ammoKey ----
     // shells 数组在主脚本 IIFE 内不可直接采样，改经 resolveHit 包装器记录玩家命中弹的
     // shell.ammoKey（P-16 契约字段）。敌人放到玩家右侧固定距离 + 鼠标移到其屏幕位置，
     // 炮塔每帧追踪 mouseWorld 自然对准；Space 按住跨多个 rAF 帧（keys[' '] 为轮询采样）。
-    await page.keyboard.press('3');   // 切到末位弹种再开火
+    await page.keyboard.press('e');   // E = 下一发 → 切到下一弹种再开火
     await page.waitForTimeout(120);
     a = await readAmmoHud();
     const firedExpect = a.ammoKey;

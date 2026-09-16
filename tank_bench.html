@@ -116,9 +116,14 @@
     width:220px; text-align:center; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim);}
   #reloadTrack{height:5px; background:#0c0d09; border:1px solid var(--line); margin-top:4px;}
   #reloadFill{height:100%; background:var(--amber); width:100%;}
-  #ammoIndicator{display:inline-flex; align-items:center; gap:5px; margin-left:8px;
+  /* 2026-09-14：弹种条独立悬浮于屏幕底部中央，随选中项平移 → 选中弹种恒居屏幕中央 */
+  #ammoIndicator{position:fixed; bottom:44px; left:50%; transform:translateX(0);
+    display:inline-flex; align-items:center; gap:14px; white-space:nowrap;
     font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700;
-    color:var(--text); vertical-align:middle;}
+    color:var(--text); z-index:50; pointer-events:none;
+    background:linear-gradient(90deg, rgba(10,14,18,0) 0%, rgba(10,14,18,0.85) 18%, rgba(10,14,18,0.85) 82%, rgba(10,14,18,0) 100%);
+    padding:4px 26px; border-radius:6px;}
+  #ammoIndicator [data-ammo]{pointer-events:auto;}
   #ammoIndicator .dot{width:9px; height:9px; border-radius:50%; display:inline-block;
     border:1px solid rgba(255,255,255,0.3);}
 
@@ -151,13 +156,45 @@
       </div>
       <div id="logOverlay"></div>
     </div>
+  <div id="benchPanel" style="display:none; position:fixed; top:52px; right:12px; z-index:60; width:236px; background:rgba(10,14,18,0.95); border:1px solid rgba(255,255,255,0.14); border-radius:8px; padding:10px; font-size:11px; box-shadow:0 6px 24px rgba(0,0,0,0.55);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <b style="color:var(--text);">测试面板 TEST PANEL</b>
+      <button id="benchPanelCloseBtn" style="background:none;border:1px solid rgba(255,255,255,0.2);color:var(--text-dim);border-radius:4px;cursor:pointer;padding:0 6px;">×</button>
+    </div>
+    <div class="section" style="padding:0; margin-bottom:8px;">
+      <h3 style="margin:2px 0 6px;">作弊开关 Cheats</h3>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+        <input type="checkbox" id="benchInvulnChk"> 无敌常驻（玩家）
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+        <input type="checkbox" id="benchInstantReloadChk"> 秒装填（reloadT 恒 0）
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+        <input type="checkbox" id="benchInvertChk"> 倒车转向倒置（与正式游戏同源设置）
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
+        <input type="checkbox" id="benchFpsChk"> 显示帧率 FPS
+      </label>
+      <div class="btnrow" style="margin-top:6px;">
+        <button id="benchResetHpBtn" style="flex:1;">满血重置</button>
+        <button id="benchClearCardsBtn" style="flex:1;">清空卡牌</button>
+        <button id="benchClearEnemiesBtn" style="flex:1;">清场</button>
+      </div>
+    </div>
+    <div class="section" style="padding:0;">
+      <h3 style="margin:2px 0 6px;">键位 Bindings</h3>
+      <div id="benchBindings" style="display:flex; flex-direction:column; gap:3px;"></div>
+      <div class="hint-text" style="font-size:9px; color:var(--text-dim); margin-top:4px;">` 键开/关本面板；设置与正式游戏同源共享</div>
+    </div>
+  </div>
+  <div id="benchFps" style="display:none; position:fixed; top:34px; right:12px; z-index:60; font-size:10px; color:#9fd48a; background:rgba(10,14,18,0.8); padding:2px 6px; border-radius:4px;"></div>
   <div id="stage-wrap">
     <canvas id="c"></canvas>
     <div id="reloadWrap">
       装填 RELOAD
-      <span id="ammoIndicator" style="display:inline-flex; align-items:center; gap:8px; margin-left:12px;"></span>
       <div id="reloadTrack"><div id="reloadFill"></div></div>
     </div>
+    <span id="ammoIndicator"></span>
   </div>
   <div id="hud">
     <div class="title">装甲测试台 <b>ARMOR TEST RIG</b> · 靶场独立页（P-15）</div>
@@ -172,6 +209,13 @@
         <button id="reloadTankListBtn">重新加载列表</button>
       </div>
       <div class="mono" id="tankSelectHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">从 tanks/ 目录载入坦克配置并替换玩家 / 靶车（含炮管预设、多边形装甲）</div>
+    </div>
+
+    <div class="section">
+      <h3>驾驶设置 Driving</h3>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; color:var(--text);">
+        <input type="checkbox" id="benchInvertMainChk"> 倒车转向倒置（S 倒车时 A/D 转向反置）
+      </label>
     </div>
 
     <div class="section">
@@ -200,6 +244,24 @@
         </div>
       </div>
       <div class="mono" style="font-size:10px; color:var(--text-dim); margin-top:4px;">测试主动技能激活、零移速炮塔、地雷布撒与战术护盾掩体部署</div>
+    </div>
+
+    <div class="section">
+      <h3>敌人实验室 Enemy Lab (bench-only)</h3>
+      <div class="bar-row"><span class="bar-label">敌人坦克</span><select id="enemyTankSelect"></select></div>
+      <div class="bar-row"><span class="bar-label">等级 Lv.</span><input id="enemyLevelInput" type="number" min="1" max="99" value="1" style="width:70px;font-size:11px;"></div>
+      <div class="btnrow" style="margin-top:4px;">
+        <button id="spawnEnemyBtn" style="padding:4px 6px;">生成敌人 SPAWN</button>
+        <button id="spawnBatchBtn" style="padding:4px 6px;">生成一批</button>
+        <span style="font-size:10px;color:var(--text-dim);">批量数量：</span>
+        <input id="enemyCountInput" type="number" min="1" max="12" value="3" style="width:50px;font-size:11px;">
+      </div>
+      <div class="mono" style="font-size:10px; color:var(--text-dim); margin-top:4px;">在鼠标指针处 / 玩家正前生成敌人；等级修改 → 重新生成实体承载新难度乘子。敌人列表中点击选中以查看数据。</div>
+      <div style="border-top:1px dashed var(--line); margin-top:8px; padding-top:6px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--text-dim);margin-bottom:4px;">生存敌军 LIVE ENEMIES</div>
+        <div id="enemyDataList" style="max-height:150px;overflow:auto;font-family:'JetBrains Mono',monospace;font-size:9px;"></div>
+        <div id="enemyDataDetail" style="margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:9px;line-height:1.6;color:var(--text-dim);"></div>
+      </div>
     </div>
 
     <div class="section controls">
@@ -260,6 +322,12 @@
   <script src="js/tank_deployables.js"></script>
   <script src="js/tank_abilities.js"></script>
   <script src="js/tank_fire.js"></script>
+  <!-- P-15/P-46: 共享 UI 纯逻辑 —— pushLog/卡牌/能力/敌人生成/敌人数据共用 → mvp 复用 -->
+  <!-- #A24 分层：core（纯逻辑）→ dom（DOM 适配）→ facade（re-export） -->
+  <script src="js/tank_panels_core.js"></script>
+  <script src="js/tank_panels_dom.js"></script>
+  <script src="js/tank_panels.js"></script>
+  <script src="js/tank_bindings.js"></script>
 <script>
 (() => {
 const canvas = document.getElementById('c');
@@ -350,6 +418,7 @@ function loadTankList(){
   fetchTankList(data => {
     tankListData = data;
     populateTankSelect();
+    populateEnemySelect();            // P-15/P-46：Enemy Lab 下拉也走 shared tankListData
     if(!tankListData) return;
     // Only auto-apply on FIRST load so both tanks show their real model/armor;
     // reloading afterwards must not clobber a user's custom config.
@@ -380,52 +449,79 @@ document.getElementById('reloadTankListBtn').addEventListener('click', ()=>{
 });
 loadTankList();
 
-const keys = {};
-window.addEventListener('keydown', e=>{
-  keys[e.key.toLowerCase()]=true;
-  if(e.key===' ') e.preventDefault();
+// ---------- 输入控制器（js/tank_bindings.js 共享层；键位/设置与正式游戏同源） ----------
+// 边沿动作：Q/E 切弹（对齐 mvp 语义，数字直选已摘除）、G/V 技能（对应测试台按钮）、
+// ` 开关测试面板。持续键（空格开火）由 update() 经 input.isDown('fire') 读取。
+// 方向键经 altDriveArgs() 驱动靶车（bench 专用第二驾驶位）；倒车倒置设置两边共用。
+const benchSettings = loadSettings(localStorage);
+const input = createInputController({
+  preventKeys: [' '],
+  allowAltMove: true,
+  settings: () => benchSettings,
+  gate: () => true,
+  actions: {
+    ammoNext: () => benchCycleAmmo(1),               // Q
+    ammoPrev: () => benchCycleAmmo(-1),              // E
+    abilityStrike: () => benchAbilityFireControl(),  // G：超级火控（与按钮同路）
+    abilityOverdrive: () => benchAbilitySpeed(),     // V：超级速度（与按钮同源语义）
+    panelDev: () => toggleBenchPanel()               // `：测试面板
+  }
 });
-window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
+const keys = input.keys;   // 既有消费方（updateSigma 等）沿用同形对象，零改动
+const benchCheats = { invuln: false, instantReload: false };   // 测试面板作弊开关（会话内有效，不持久化）
 
-// ---------- ammo type selection (特性4 / P-16：动态从 RULES.ammoTypes 获取) ----------
+// ---------- ammo type selection（与 mvp 对齐：Q/E 环形循环 + 鼠标点击选择） ----------
+// 键位解耦轮（2026-09-13）：数字键 1~N 直选已摘除——两边切弹语义统一为
+// Q（下）/ E（上）环形循环 + 鼠标点击弹种格选择；全弹种表即测试台 loadout。
 function getAmmoKeys() {
   return Object.keys(RULES.ammoTypes || { 'ap':{}, 'apcr':{}, 'he':{}, 'heat':{} });
 }
 player.ammoKey = 'ap';
+player.currentAmmoIndex = 0;
 
 function renderAmmoIndicator(){
   const el = document.getElementById('ammoIndicator');
   if(!el) return;
-  const keys = getAmmoKeys();
+  const list = getAmmoKeys();
+  const cur = ((player.currentAmmoIndex | 0) % list.length + list.length) % list.length;
   let html = '';
-  keys.forEach((k, idx) => {
+  list.forEach((k, idx) => {
     const ammo = RULES.ammoTypes[k];
-    const active = player.ammoKey === k;
-    html += `<span style="display:inline-flex; align-items:center; gap:3px; opacity:${active?1:0.4}; font-weight:${active?700:400}; color:${active?'var(--text)':'var(--text-dim)'}">` +
+    const dirHint = (idx === (cur + 1) % list.length) ? 'Q' : ((idx === (cur - 1 + list.length) % list.length) ? 'E' : '');
+    const active = idx === cur;
+    html += `<span data-ammo="${k}" class="ammo-cell${active?' ammo-active':''}" style="display:inline-flex; align-items:center; gap:3px; opacity:${active?1:0.4}; font-weight:${active?700:400}; color:${active?'var(--text)':'var(--text-dim)'}; cursor:pointer;">` +
             `<span style="width:8px; height:8px; border-radius:50%; background:${ammo.color}; border:1px solid rgba(255,255,255,0.2)"></span>` +
-            `<span>${idx+1}:${ammo.label}</span></span>`;
+            `<span>${dirHint || (active ? '★' : '')}</span><span>${ammo.label}</span></span>`;
   });
   el.innerHTML = html;
+  el.querySelectorAll('[data-ammo]').forEach(c => c.addEventListener('click', () => setAmmo(c.getAttribute('data-ammo'))));
+  // 2026-09-14：始终将选中的弹种放在屏幕中央——按激活格中心计算平移量
+  // （#ammoIndicator 为 fixed + left:50%，translateX(−activeCenter) 即把激活格中心钉在屏幕中线）
+  const activeEl = el.querySelector('[data-ammo].ammo-active') || el.children[cur];
+  if(activeEl){
+    const center = activeEl.offsetLeft + activeEl.offsetWidth / 2;
+    el.style.transform = `translateX(${-center}px)`;
+  }
 }
 
 function setAmmo(key){
   if(!RULES.ammoTypes[key]) return;
   player.ammoKey = key;
+  const i = getAmmoKeys().indexOf(key);
+  if(i >= 0) player.currentAmmoIndex = i;   // 激活索引与键同步（与 mvp setAmmo 语义一致）
   renderAmmoIndicator();
   playSound('ui');
   pushLog(`弹种切换：${RULES.ammoTypes[key].label}`,'COVER');
 }
 
-renderAmmoIndicator();
+function benchCycleAmmo(dir){
+  const list = getAmmoKeys();
+  if(list.length < 2) return;
+  const cur = ((player.currentAmmoIndex | 0) % list.length + list.length) % list.length;
+  setAmmo(list[(cur + dir + list.length) % list.length]);
+}
 
-document.addEventListener('keydown', e=>{
-  const k = e.key;
-  const keys = getAmmoKeys();
-  const idx = parseInt(k, 10) - 1;
-  if (idx >= 0 && idx < keys.length) {
-    setAmmo(keys[idx]);
-  }
-});
+renderAmmoIndicator();
 
 // 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用
 let fireCtx = null;
@@ -437,7 +533,12 @@ canvas.addEventListener('mousemove', e=>{
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });
-canvas.addEventListener('mousedown', e=>{ if(e.button===0 && fireCtx) tryFire(fireCtx); });
+// 2026-09-15：按住左键持续开火（与 mvp 同源 #A7 语义——mousedown 置位，mouseup/移出/失焦复位）
+let benchMouseFireHeld = false;
+canvas.addEventListener('mousedown', e=>{ if(e.button===0){ benchMouseFireHeld = true; if(fireCtx) tryFire(fireCtx); } });
+window.addEventListener('mouseup', e=>{ if(e.button===0) benchMouseFireHeld = false; });
+canvas.addEventListener('mouseleave', ()=>{ benchMouseFireHeld = false; });
+window.addEventListener('blur', ()=>{ benchMouseFireHeld = false; });
 
 document.getElementById('genNodeBtn').addEventListener('click', ()=>{
   const randomDiff = Math.random();
@@ -480,18 +581,11 @@ document.getElementById('autoReviveBtn').addEventListener('click', (e)=>{
   const ab = document.getElementById('autoReviveBtn'); ab.textContent = dummy.autoRevive ? '开启 AUTO-REVIVE' : '关闭 AUTO-REVIVE'; ab.classList.toggle('active', dummy.autoRevive);
 })();
 
-// ---------- log ----------
+// ---------- log（P-15/P-46 共享 makeLogSink，行为与原内联一致） ----------
 const logEl = document.getElementById('logOverlay');
-function logClear(){ if(logEl) logEl.innerHTML=''; }
-function pushLog(text, cls){
-  if(!logEl) return;
-  const d = document.createElement('div');
-  d.className = cls||'';
-  const time = new Date().toLocaleTimeString('en-GB',{hour12:false});
-  d.textContent = `[${time}] ${text}`;
-  logEl.prepend(d);
-  while(logEl.children.length>25) logEl.removeChild(logEl.lastChild);
-}
+const log = makeLogSink(logEl);   // js/tank_panels.js
+function logClear(){ log.clear(); }
+function pushLog(text, cls){ log.push(text, cls); }
 
 // ---------- #32 卡牌测试面板：加载卡池 → applyCardEffects 叠加到玩家坦克 ----------
 let cardPool = null;
@@ -527,52 +621,115 @@ function loadCardPool(){
 document.getElementById('applyCardBtn').addEventListener('click', ()=>{
   if(!cardPool){ pushLog('卡池未加载，无法应用卡牌','CRIT'); return; }
   const id = document.getElementById('cardSelect').value;
-  const card = cardPool[id];
+  // P-15/P-46：兼容卡池为 id→spec 映射（bench 原始形态）
+  const card = (typeof cardPool === 'object' && !Array.isArray(cardPool) && cardPool) ? cardPool[id] : null;
   if(!card){ pushLog(`卡牌不存在: ${id}`,'COVER'); return; }
-  // 叠加式：每次点击都重新应用全部效果
-  const applied = applyCardEffects(player, card);
-  // 重要：应用卡牌（modifiers）后必须刷新 stats 才能生效
-  refreshStats(player);
+  // P-15/P-46：共享 applyCardToTank（applyCardEffects + refreshStats），与 mvp 复用
+  const applied = applyCardToTank(player, card);
+  const stacks = cardStackCount(player, card.id);
   playSound('ui');
-  pushLog(`应用卡牌「${card.name || id}」(${card.rarity}) ×${cardStackCount(player, id)} 层 — ${applied.length} 条效果生效`,'PEN');
+  pushLog(`应用卡牌「${card.name || id}」(${card.rarity}) ×${stacks} 层 — ${applied.length} 条效果生效`,'PEN');
 });
-document.getElementById('clearCardsBtn').addEventListener('click', ()=>{
-  // 清除全部卡牌效果：剔除 source 以 'card:' 开头的 modifiers + 清空 cardEffects 队列，
-  // 再 refreshStats 还原属性。不重建实体——bench 的 player/dummy 是被 update/draw/fireCtx
-  // 跨帧持有的常量引用，重建会断链。
-  let removedMods = 0;
-  if(Array.isArray(player.modifiers)){
-    for(let i=player.modifiers.length-1;i>=0;i--){
-      const m = player.modifiers[i];
-      if(m && typeof m.source==='string' && m.source.indexOf('card:')===0){ player.modifiers.splice(i,1); removedMods++; }
-    }
-  }
-  const removedFx = Array.isArray(player.cardEffects) ? player.cardEffects.length : 0;
-  player.cardEffects = [];
-  refreshStats(player);
+// 技能触发抽成具名函数：面板按钮与 G/V 键位共用同一入口（键位来自共享 bindings）
+function benchClearCards(){
+  // P-15/P-46：共享 clearCardsFromTank — 清除 card:* modifiers + cardEffects + refreshStats
+  // 不重建实体——bench 的 player/dummy 是被 update/draw/fireCtx 跨帧持有的常量引用，重建会断链。
+  const info = clearCardsFromTank(player);
   playSound('ui');
-  pushLog(`清除全部卡牌效果 — 移除 ${removedMods} 条 modifier / ${removedFx} 条装置效果，玩家属性已还原`,'COVER');
-});
-document.getElementById('skillFireCtrlBtn').addEventListener('click', ()=>{
-  // 测试台特权：若无卡则自动补一张，确保护理逻辑 hasAbility 检查通过
-  if(!hasAbility(player, 'super_fire_control')){
-    player.cardEffects = player.cardEffects || [];
-    player.cardEffects.push({ type:'ability', key:'super_fire_control', cardId:'bench_debug' });
-  }
-  const res = tryActivateAbility(player, 'super_fire_control', {});
+  pushLog(`清除全部卡牌效果 — 移除 ${info.removedMods} 条 modifier / ${info.removedEffects} 条装置效果，玩家属性已还原`,'COVER');
+}
+function benchAbilityFireControl(){
+  // P-15/P-46：共享 activateAbilityForTest（无卡自动补 cardId:'bench_debug' + tryActivateAbility）
+  const res = activateAbilityForTest(player, 'super_fire_control', {});
   pushLog(res.ok ? '激活超级火控成功（散布大幅降低）' : `超级火控激活失败: ${res.reason}`, res.ok ? 'PEN' : 'CRIT');
   playSound('ui');
-});
-document.getElementById('skillSpeedBtn').addEventListener('click', ()=>{
-  // 测试台特权：若无卡则自动补一张
-  if(!hasAbility(player, 'super_speed')){
-    player.cardEffects = player.cardEffects || [];
-    player.cardEffects.push({ type:'ability', key:'super_speed', cardId:'bench_debug' });
-  }
-  const res = tryActivateAbility(player, 'super_speed', {});
+}
+function benchAbilitySpeed(){
+  const res = activateAbilityForTest(player, 'super_speed', {});
   pushLog(res.ok ? '激活超级速度成功（极速与加速度提升）' : `超级速度激活失败: ${res.reason}`, res.ok ? 'PEN' : 'CRIT');
   playSound('ui');
+}
+document.getElementById('clearCardsBtn').addEventListener('click', benchClearCards);
+document.getElementById('skillFireCtrlBtn').addEventListener('click', benchAbilityFireControl);
+document.getElementById('skillSpeedBtn').addEventListener('click', benchAbilitySpeed);
+
+// ---------- 测试专用面板（` 键开关；与正式游戏同源键位/设置） ----------
+function toggleBenchPanel(force){
+  const el = document.getElementById('benchPanel');
+  if(!el) return;
+  const open = (force !== undefined) ? !!force : (el.style.display === 'none');
+  el.style.display = open ? 'block' : 'none';
+  benchSettings.benchPanelOpen = open;
+  saveSettings(localStorage, benchSettings);
+  if(open) renderBenchBindings();
+  playSound('ui');
+}
+function renderBenchBindings(){
+  const el = document.getElementById('benchBindings');
+  if(!el) return;
+  el.innerHTML = '';
+  describeBindings({ move:1, altMove:1, fire:1, ammoCycle:1, abilityStrike:1, abilityOverdrive:1, panelDev:1 }).forEach(b => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; justify-content:space-between; gap:8px;';
+    const k = document.createElement('span');
+    k.style.cssText = 'color:var(--text); font-weight:700; white-space:nowrap;';
+    k.textContent = b.keys;
+    const d = document.createElement('span');
+    d.style.cssText = 'color:var(--text-dim); text-align:right;';
+    d.textContent = b.desc;
+    row.appendChild(k); row.appendChild(d);
+    el.appendChild(row);
+  });
+}
+function benchSyncSettingsUi(){
+  const inv = document.getElementById('benchInvertChk');
+  const invMain = document.getElementById('benchInvertMainChk');
+  const fps = document.getElementById('benchFpsChk');
+  const fp = document.getElementById('benchFps');
+  if(inv) inv.checked = !!benchSettings.invertReverseTurn;
+  if(invMain) invMain.checked = !!benchSettings.invertReverseTurn;
+  if(fps) fps.checked = !!benchSettings.showFps;
+  if(fp) fp.style.display = benchSettings.showFps ? 'block' : 'none';
+}
+document.getElementById('benchPanelCloseBtn').addEventListener('click', () => toggleBenchPanel(false));
+document.getElementById('benchInvulnChk').addEventListener('change', e => { benchCheats.invuln = e.target.checked; });
+document.getElementById('benchInstantReloadChk').addEventListener('change', e => { benchCheats.instantReload = e.target.checked; });
+const onInvertChange = e => {
+  benchSettings.invertReverseTurn = e.target.checked;
+  saveSettings(localStorage, benchSettings);   // 独立设置键（正式游戏走 profile.settings，字段语义一致）
+  benchSyncSettingsUi();
+  pushLog(`倒车转向倒置：${e.target.checked ? '开' : '关'}（与正式游戏共享语义）`, 'COVER');
+  playSound('ui');
+};
+if(document.getElementById('benchInvertChk')) document.getElementById('benchInvertChk').addEventListener('change', onInvertChange);
+if(document.getElementById('benchInvertMainChk')) document.getElementById('benchInvertMainChk').addEventListener('change', onInvertChange);
+document.getElementById('benchFpsChk').addEventListener('change', e => {
+  benchSettings.showFps = e.target.checked;
+  saveSettings(localStorage, benchSettings);
+  benchSyncSettingsUi();
+  playSound('ui');
 });
+document.getElementById('benchResetHpBtn').addEventListener('click', () => {
+  player.hp = player.stats.maxHp;
+  player._dead = false;
+  dummy.hp = dummy.maxHp;
+  dummy._dead = false; dummy.reviveT = 0; dummy.ammoBlew = false;
+  playSound('ui');
+  pushLog('满血重置：玩家与靶车恢复满状态', 'COVER');
+});
+document.getElementById('benchClearCardsBtn').addEventListener('click', benchClearCards);
+document.getElementById('benchClearEnemiesBtn').addEventListener('click', () => {
+  let n = 0;
+  for(let i = entities.length - 1; i >= 0; i--){
+    const e = entities[i];
+    if(e.id === 'dummy') continue;                       // 靶车保留
+    if(e.team === 'enemy' && e.nodeSpawn){ entities.splice(i, 1); n++; }
+  }
+  playSound('ui');
+  pushLog(`清场：移除 ${n} 辆测试敌军（靶车保留）`, 'CRIT');
+});
+benchSyncSettingsUi();
+if(benchSettings.benchPanelOpen) toggleBenchPanel(true);   // 恢复上次面板开合（独立设置存储）
 document.getElementById('spawnTurretBtn').addEventListener('click', ()=>{
   spawnFixedTurret({ x: player.x + 60, y: player.y, team: 'player', range: 400, reload: 1.0 });
   pushLog('在玩家前方部署固定炮塔成功', 'PEN');
@@ -587,6 +744,102 @@ document.getElementById('spawnCoverBtn').addEventListener('click', ()=>{
   spawnDeployableCover({ x: player.x + 50, y: player.y + 50, team: 'player', shieldHp: 150, duration: 15 });
   pushLog('部署战术护盾掩体成功', 'PEN');
   playSound('ui');
+});
+
+// ---------- Enemy Lab (P-15/P-46 共享 js/tank_panels.js) ----------
+// 共享物：spawnEnemyAt（等级→难度乘子+锚定+AI）/ buildTankDataVM（敌人数据视图）/ liveEnemies。
+function populateEnemySelect(){
+  var sel = document.getElementById('enemyTankSelect');
+  if(!sel) return;
+  sel.innerHTML = '';
+  if(!tankListData){ sel.innerHTML = '<option>加载失败</option>'; return; }
+  // 默认排除测试台靶车本体 'dummy'，其它坦克全部可作为敌人模板
+  Object.keys(tankListData).filter(function(id){ return id !== 'dummy'; }).forEach(function(id){
+    var opt = document.createElement('option');
+    opt.value = id; opt.textContent = id;
+    sel.appendChild(opt);
+  });
+}
+function spawnEnemyAtPointer(){
+  var sel = document.getElementById('enemyTankSelect');
+  var level = Math.max(1, parseInt(document.getElementById('enemyLevelInput').value,10) || 1);
+  if(!sel || !tankListData[sel.value]){ pushLog('请选择敌人坦克','COVER'); return; }
+  // 生成点：鼠标世界坐标（鼠标永远在 canvas 上）；回退到玩家正前
+  var mx = mouseWorld.x, my = mouseWorld.y;
+  var t = spawnEnemyAt(mx, my, { tankId: sel.value, level: level, anchorStats: player.stats }, { tankListData });
+  pushLog(`生成Lv.${level}敌军「${sel.value}」@(${Math.round(t.x)},${Math.round(t.y)}) — hp=${Math.ceil(t.hp)} pen=${Math.round(t.stats.penetration)} dmg=${Math.round(t.stats.damage)}`,'PEN');
+  pushLog(`Lv.${level} 乘子: ${JSON.stringify(enemyLevelMults(level))}`,'COVER');
+}
+function spawnEnemyBatch(){
+  var sel = document.getElementById('enemyTankSelect');
+  var level = Math.max(1, parseInt(document.getElementById('enemyLevelInput').value,10) || 1);
+  var count = Math.max(1, Math.min(12, parseInt(document.getElementById('enemyCountInput').value,10) || 3));
+  if(!sel || !tankListData[sel.value]){ pushLog('请选择敌人坦克','COVER'); return; }
+  for(var i=0;i<count;i++){
+    var ang = Math.random()*Math.PI*2;
+    var dist = 300 + Math.random()*200;
+    spawnEnemyAt(player.x + Math.cos(ang)*dist, player.y + Math.sin(ang)*dist, { tankId: sel.value, level: level, difficulty: Math.min(0.95, level/12), anchorStats: player.stats }, { tankListData });
+  }
+  pushLog(`生成一批 ${count} 名 Lv.${level}「${sel.value}」敌军（环散于玩家周围）`,'PEN');
+}
+document.getElementById('spawnEnemyBtn').addEventListener('click', spawnEnemyAtPointer);
+document.getElementById('spawnBatchBtn').addEventListener('click', spawnEnemyBatch);
+
+// 敌人列表 + 数据 inspector：每帧刷新生存敌军，点击选中后在 detail 区展示 buildTankDataVM
+let enemySelectedId = null;
+function renderEnemyList(){
+  var el = document.getElementById('enemyDataList');
+  if(!el) return;
+  var enemies = liveEnemies('enemy');
+  if(!enemies.length){ el.innerHTML = '<div style="color:var(--text-dim);">暂无生存敌军</div>'; return; }
+  var html = '';
+  for(var i=0;i<enemies.length;i++){
+    var e = enemies[i];
+    var selHighlight = enemySelectedId === e.id ? 'background:rgba(126,217,87,0.12);' : '';
+    var hpPct = e.maxHp ? Math.round(e.hp/Math.max(1,e.maxHp)*100) : 0;
+    var color = e.hp > 0 ? 'var(--red)' : 'var(--text-dim)';
+    html += '<div style="padding:3px 4px;cursor:pointer;border-bottom:1px dashed #2a2d20;' + selHighlight + '">'
+      + '<span style="color:' + color + '">' + e.id + '</span> '
+      + (e.tankClass ? e.tankClass : '—') + ' Lv.' + (e._benchLevel||1) + ' HP' + Math.ceil(e.hp) + '(' + hpPct + '%)'
+      + '</div>';
+  }
+  el.innerHTML = html;
+}
+function renderEnemyData(){
+  var el = document.getElementById('enemyDataDetail');
+  if(!el) return;
+  if(!enemySelectedId){ el.textContent = '选中敌人以查看数据'; return; }
+  var e = (typeof entities !== 'undefined' ? entities : []).find(function(x){ return x.id === enemySelectedId; });
+  if(!e){ el.textContent = '敌人已死/移除'; return; }
+  var vm = buildTankDataVM(e);
+  if(!vm){ el.textContent = '（无法构建视图）'; return; }
+  el.innerHTML =
+    '<div><b>ID:</b> '+vm.id+'  <b>阵营:</b> '+vm.team+'  <b>类别:</b> '+vm.tankClass+'</div>'
+    + '<div><b>Lv:</b> '+(vm._benchLevel||e._benchLevel||1)+'  <b>车体:</b> '+vm.heightClass+'  <b>AI档:</b> '+(e.aiTier!=null?e.aiTier:'—')+'</div>'
+    + '<div><b>HP:</b> '+Math.ceil(vm.hp)+'/'+Math.ceil(vm.maxHp)+'  <b>状态:</b> '+vm.status+'</div>'
+    + '<div><b>穿深:</b> '+Math.round(vm.penetration)+'  <b>伤害:</b> '+Math.round(vm.damage)+'  <b>装填:</b> '+(vm.reload?vm.reload.toFixed(2):'—')+'s  <b>极速:</b> '+(vm.speedKmh||Math.round(vm.maxSpeed))+'km/h</div>'
+    + '<div><b>正面:</b> '+vm.armorFront+'mm  <b>侧:</b> '+vm.armorSide+'mm  <b>后:</b> '+vm.armorRear+'mm  <b>炮塔正面:</b> '+vm.turretArmorFront+'mm</div>'
+    + (vm.mods.length ? '<div><b>修饰器:</b><br>· '+vm.mods.map(function(m){return m.source+' '+m.stat+' '+m.mode+' '+m.value+(m.ttl!=null?' ('+m.ttl.toFixed(1)+'s)':'')}).join('<br>· ') +'</div>' : '')
+    + (debuffLines(vm).length ? '<div><b>模块损伤:</b> '+debuffLines(vm).join(' / ')+'</div>' : '');
+}
+function debuffLines(vm){
+  return (vm.debuffs||[]).map(function(d){ return d.label+' '+d.ttl.toFixed(1)+'s'; });
+}
+// 点击敌人行选中
+document.getElementById('enemyDataList').addEventListener('click', function(ev){
+  var t = ev.target;
+  while(t && t.parentNode !== this && t !== this){ t = t.parentNode; }
+  var row = t && t.tagName === 'DIV' ? t : null;
+  var match = row && row.textContent.match(/^[^\s]+/);
+  if(row){
+    var firstText = row.children[0] ? row.children[0].textContent.trim() : '';
+    var id = firstText;
+    if(id){ enemySelectedId = id; renderEnemyData(); renderEnemyList(); }
+  }
+});
+document.getElementById('enemyDataList').addEventListener('wheel', function(ev){
+  // allow scroll wheel on list when pointer is over it (prevent game canvas steal)
+  ev.preventDefault();
 });
 
 // ---------- firing ----------
@@ -605,12 +858,22 @@ function update(dt){
   const worldW = canvas.width;
   const worldH = canvas.height;
 
-  // 驾驶（转向/加减速/掩体通行/碰撞/履带相位）统一在 js/tank_move.js 的 driveTank
+  // 驾驶（转向/加减速/掩体通行/碰撞/履带相位）统一在 js/tank_move.js 的 driveTank；
+  // 键位与倒车倒置设置由共享输入控制器统一产出（与正式游戏同源，tank_bindings.js）。
+  const drvP = input.driveArgs();
   driveTank(player, dt, {
-    turn: keys['a'] ? -1 : (keys['d'] ? 1 : 0),
-    move: keys['w'] ? 1 : (keys['s'] ? -1 : 0)
+    turn: drvP.turn,
+    move: drvP.move,
+    invertTurnWhenReversing: drvP.invertTurnWhenReversing   // 解耦轮：测试台此前缺失该设置
   });
   if(player.immobT<=0){ player.immobT=0; player.trackBroken=false; }
+  // 2026-09-15 W6：autocannon 热量冷却驱动（与正式游戏同源；非机炮 no-op）
+  if(typeof updatePrimaryHeat === 'function'){
+    updatePrimaryHeat(player, dt);
+    if(typeof dummy !== 'undefined' && dummy) updatePrimaryHeat(dummy, dt);
+  }
+  // 测试面板作弊开关（bench 专用，会话内有效）
+  if(benchCheats.invuln) player.invulnT = Math.max(player.invulnT, 0.5);
   player.x = Math.max(40, Math.min(worldW-40, player.x));
   player.y = Math.max(40, Math.min(worldH-40, player.y));
 
@@ -636,6 +899,7 @@ function update(dt){
   refreshStats(player);
 
   if(player.reloadT>0) player.reloadT = Math.max(0, player.reloadT-dt);
+  if(benchCheats.instantReload) player.reloadT = 0;   // 测试面板：秒装填
   if(player.fireDebuffT>0) player.fireDebuffT -= dt;
   tickDebuffs(player, dt);
 
@@ -683,19 +947,21 @@ function update(dt){
     spawnTracer,
     devAim: { zeroSpread: false },
     fireTank,
-    fireSmokeShell,
     bounceAngle: (typeof BOUNCE_ANGLE !== 'undefined' ? BOUNCE_ANGLE : (RULES.ballistics ? RULES.ballistics.bounceAngle : Math.PI*70/180)),
     worldW: worldW,
     worldH: worldH,
     random: Math.random
   };
 
-  if(keys[' ']) tryFire(fireCtx);
+  if(input.isDown('fire')) tryFire(fireCtx);
+  if(benchMouseFireHeld) tryFire(fireCtx);   // 2026-09-15：按住左键持续开火（reloadT/热量/炮管门控在 fireTank 内）
 
-  // 靶车：同 player 的运动学（方向键输入），turnRate 统一走 stats（与 player 一致）
+  // 靶车：同 player 的运动学（方向键第二驾驶位，经共享控制器 altDriveArgs）
+  const drvD = input.altDriveArgs();
   driveTank(dummy, dt, {
-    turn: keys['arrowleft'] ? -1 : (keys['arrowright'] ? 1 : 0),
-    move: keys['arrowup'] ? 1 : (keys['arrowdown'] ? -1 : 0)
+    turn: drvD.turn,
+    move: drvD.move,
+    invertTurnWhenReversing: drvD.invertTurnWhenReversing
   });
   if(dummy.immobT<=0){ dummy.immobT=0; dummy.trackBroken=false; }
   dummy.x = Math.max(40, Math.min(worldW-40, dummy.x));
@@ -853,6 +1119,9 @@ function updateHud(){
   if(hint){
     hint.innerHTML = `<span style="color:var(--amber)">玩家实时属性:</span> 穿深 ${Math.round(player.stats.penetration)} / 伤害 ${Math.round(player.stats.damage)} / 装填 ${player.stats.reload.toFixed(2)}s / 精度Mult ${player.stats.spreadMult.toFixed(2)} / 极速 ${Math.round(player.stats.maxSpeed*0.4)}kmh`;
   }
+  // P-15/P-46：同步 Enemy Lab 生存敌军列表 + 选中 inspector
+  renderEnemyList();
+  if(enemySelectedId) renderEnemyData();
 }
 
 // ---------- draw ----------
@@ -994,6 +1263,8 @@ function draw(){
 // ---------- loop with fixed timestep ----------
 const STEP_TIME = 1 / 120; // 120Hz fixed physics step
 let accumulator = 0;
+let fpsFrames = 0;             // FPS 统计（benchFpsChk 控制）
+let fpsLast = performance.now();
 
 function loop(now){
   let dt = (now - last) / 1000;
@@ -1007,6 +1278,16 @@ function loop(now){
   }
 
   draw();
+
+  // FPS 统计（benchFpsChk / 设置 showFps 控制；与 mvp 显示帧率语义一致）
+  fpsFrames++;
+  if (now - fpsLast >= 500) {
+    const fps = Math.round(fpsFrames * 1000 / (now - fpsLast));
+    fpsFrames = 0; fpsLast = now;
+    const el = document.getElementById('benchFps');
+    if (el) el.textContent = fps + ' FPS';
+  }
+
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

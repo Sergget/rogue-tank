@@ -83,6 +83,41 @@ declare function livingEnemiesOf(tank: any): any[];
 declare function isHostile(a: string, b: string): boolean;
 declare function normalizeTankWeapons(w: any): any;
 
+// 武器与槽位解耦（js/tank_weapons.js R-1 / 阶段七 7.2-7.3）
+declare var WEAPON_DEFAULTS: any;
+declare function getWeaponDefaults(category: string, type: string): any;
+declare function updateSecondaryTurret(t: any, dt: number, ctx?: any): boolean;
+declare function updateSecondaryMount(t: any, dt: number, ctx?: any): boolean;
+declare function updateSecondaryWeapon(t: any, dt: number, ctx?: any): boolean;
+declare function fireActiveSecondary(t: any, ctx?: any, targetPos?: any): boolean;
+declare function tryFireWeaponSlot(ctx?: any, salvo?: boolean): boolean;   // #A21：F 切换后左键/空格按激活槽位分发
+declare function primaryWeaponSpec(shooter: any): any;
+declare function firePrimaryShell(shooter: any, target: any, hitPref: any, ctx?: any, lateralOffsetPx?: number): any;
+declare function updatePrimaryHeat(t: any, dt: number): boolean;   // 2026-09-15 W6：autocannon 热量冷却（替代 updatePrimaryBurst）
+declare function fireDoubleBarrel(shooter: any, target: any, hitPref: any, ctx?: any, spec?: any, salvo?: boolean): any;
+declare function updatePrimaryBarrels(t: any, dt: number): boolean;
+declare function updateMissileLock(t: any, dt: number, ctx?: any): boolean;
+declare function toggleWeaponSlot(): void;
+
+// #A24 面板分层（tank_panels_core.js / tank_panels_dom.js / tank_panels.js 门面 → 全局脚本）
+declare function makeLogSink(el: any): { clear(): void, push(text: string, cls?: string): void };
+declare function createLogPanel(root: any, opts?: any): any;                    // #A25：独立日志面板（open/close/toggle）
+declare function createDevPanelController(els: any, hooks: any): any;           // #A24：参数面板 DOM 适配
+declare function applyCardToTank(tank: any, card: any): any[];
+declare function clearCardsFromTank(tank: any): { removedMods: number, removedEffects: number };
+declare function applyCardTx(tank: any, card: any, ctx?: any): { ok: boolean, applied: any[], receipt: any };
+declare function rollbackCardTx(tank: any, receipt: any): any;
+declare function parameterClamp(stat: string, value: number): { value: any, clamped: boolean };
+declare function clampParameterMap(map: any): { values: any, clamped: any, any: boolean };
+declare function heldCardsVM(tank: any, cardPool: any): any[];
+declare function buildTankDataVM(t: any, opts?: any): any;
+declare function liveEnemies(team?: string): any[];
+declare function enemyLevelMults(level: number): any;
+declare function spawnEnemyAt(x: number, y: number, opts: any, ctx?: any): any;
+declare function activateAbilityForTest(tank: any, key: string, ctx?: any): any;
+declare function secondaryTurretPose(t: any): any;                              // PLAN §8.1.2：副炮塔位姿
+declare function drawSecondaryTurret(ctx: any, t: any): boolean;
+
 // 测试钩子（仅在 test 环境挂载）
 interface Window {
   __TEST__: {
@@ -354,6 +389,13 @@ declare function updateShield(t: any, dt: number): void;
 declare function shieldAbsorbs(t: any, shell: any): boolean;
 declare function absorbDamage(t: any, dmg: number): number;
 declare function hasShield(t: any): boolean;
+
+// 召唤物与战术部署（js/tank_deployables.js，R-2）
+declare var deployables: any[];
+declare function spawnFixedTurret(opts?: any): any;
+declare function spawnMine(opts?: any): any;
+declare function spawnDeployableCover(opts?: any): any;
+declare function updateDeployables(dt: number, ctx?: any): any[];
 
 // 主动能力统一入口（js/tank_abilities.js，P-17 子目标 3 阶段 2）
 declare var ABILITY_KEYS_RUNTIME: string[];

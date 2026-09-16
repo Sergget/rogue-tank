@@ -145,21 +145,16 @@
   #settleBody .row{display:flex; justify-content:space-between; gap:10px;}
   #settleBody .row .k{color:var(--text-dim);}
   #settleBody .row.total{border-top:1px solid var(--line); margin-top:6px; padding-top:8px; font-weight:700; color:var(--amber);}
-  #cardRow{display:flex; gap:14px; justify-content:center;}
-  #cardRow .card{width:200px; min-height:140px; border:1px solid var(--line); background:rgba(255,255,255,0.02);
-    padding:14px; cursor:pointer; text-align:center;}
+  #cardRow{display:flex; gap:14px; justify-content:center; flex-wrap:wrap;}
+  #cardRow .card{width:180px; min-height:140px; border:1px solid var(--line); background:rgba(255,255,255,0.02);
+    padding:12px; cursor:pointer; text-align:center; transition:all 0.15s ease;}
   #cardRow .card:hover{border-color:var(--amber); background:rgba(255,180,84,0.1);}
-  #cardRow .card .cname{font-family:'JetBrains Mono',monospace; color:var(--amber); font-size:14px; font-weight:700; margin-bottom:8px;}
-  #cardRow .card .cdesc{font-size:12px; color:var(--text); line-height:1.6;}
+  #cardRow .card.selected{border-color:var(--amber); background:rgba(255,180,84,0.18); box-shadow:0 0 12px rgba(255,180,84,0.4); position:relative;}
+  #cardRow .card.selected::before{content:'✓ 已选择'; position:absolute; top:6px; right:8px; font-size:10px; font-weight:bold; color:var(--amber); font-family:'JetBrains Mono',monospace;}
+  #cardRow .card .cname{font-family:'JetBrains Mono',monospace; color:var(--amber); font-size:13px; font-weight:700; margin-bottom:8px;}
+  #cardRow .card .cdesc{font-size:11px; color:var(--text); line-height:1.5;}
 
   /* ---------- M10 局外三界面（Home 存档 / Loadout 整备 / Shop 商店） ---------- */
-  #flowOverlay .screen.wide{min-width:560px; max-width:880px;}
-  /* P-41：局内商店浮层——叠在当前 screen（settlement/reward）之上，不占用 flow 状态 */
-  #runShopPanel{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:30;
-    background:rgba(18,20,15,0.98); border:1px solid var(--line); padding:18px 22px;
-    min-width:480px; max-width:680px; max-height:80vh; overflow:auto; display:none;
-    pointer-events:auto;}
-  #runShopPanel .row{display:flex; align-items:center;}
 
   #homeSlotList{display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto;}
   #homeSlotList .slot-row{display:flex; align-items:center; gap:10px; border:1px solid var(--line);
@@ -190,6 +185,8 @@
     color:var(--text-dim); line-height:1.7;}
   #loadAmmoList{display:flex; flex-direction:column; gap:5px; margin-top:6px;}
   #loadAmmoList .ammo-row{display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;}
+  #loadAmmoList .ammo-row.locked{opacity:0.45; cursor:not-allowed; filter:grayscale(0.6);}
+  #loadAmmoList .ammo-row .alock{font-size:9px; color:var(--amber-dim); margin-left:auto;}
   #loadAmmoList .ammo-row .dot{width:9px; height:9px; border-radius:50%; display:inline-block;
     border:1px solid rgba(255,255,255,0.3); flex-shrink:0;}
   #loadAmmoList .ammo-row .aname{font-family:'JetBrains Mono',monospace; color:var(--text);
@@ -250,6 +247,19 @@
   #devPanel .dev-log .BLOCK{color:var(--text-dim);}
   #devPanel .dev-log .COVER{color:var(--amber);}
   #devPanel .dev-log .CRIT{color:var(--red); font-weight:700;}
+  /* #A25：独立日志面板（左下角浮层，与 Tab 状态面板一同呼入/呼出；不再嵌在 #devPanel 内） */
+  #logPanel{position:absolute; left:12px; bottom:12px; z-index:29; width:360px;
+    background:rgba(8,9,6,0.85); border:1px solid var(--line); padding:6px 8px;}
+  #logPanel .log-title{font-size:10px; letter-spacing:2px; color:var(--amber-dim); margin-bottom:4px;}
+  #logPanel .log-list{height:132px; overflow-y:auto; display:flex; flex-direction:column-reverse;
+    font-size:9px; line-height:1.6;}
+  #logPanel .log-list div{border-bottom:1px dotted #2a2d20; padding:2px 0; opacity:.9;}
+  #logPanel .log-list .PEN{color:var(--green);}
+  #logPanel .log-list .BOUNCE{color:var(--blue);}
+  #logPanel .log-list .BLOCK{color:var(--text-dim);}
+  #logPanel .log-list .COVER{color:var(--amber);}
+  #logPanel .log-list .CRIT{color:var(--red); font-weight:700;}
+  .rt-log-hidden{display:none;}
   #devPanel .card-list{display:flex; flex-direction:column; gap:4px; max-height:180px; overflow-y:auto;}
   #devPanel .card-list button{text-align:left; font-size:9px; padding:4px 6px; letter-spacing:0;}
   #devPanel .mod-list{display:flex; flex-direction:column; gap:4px; max-height:200px; overflow-y:auto;}
@@ -274,16 +284,16 @@
       <span id="playerHpVal">--</span>
     </div>
     <div id="abilityBtns">
-      <button class="abtn ammo-slot" id="slot1" onclick="selectAmmoSlot(0)" title="1号主弹药 (1)"><span class="label">AP</span><span class="num">1</span></button>
-      <button class="abtn ammo-slot" id="slot2" onclick="selectAmmoSlot(1)" title="2号副弹药 (2)"><span class="label">--</span><span class="num">2</span></button>
-      <button class="abtn ammo-slot" id="slot3" onclick="selectAmmoSlot(2)" title="3号备用弹 (3)"><span class="label">--</span><span class="num">3</span></button>
-      <button class="abtn" id="btn4" onclick="tryRepairKit()" title="修理箱 (4)">修<span class="cd" id="cd4"></span><span class="num">4</span></button>
-      <button class="abtn" id="btn5" onclick="tryMedkit()" title="医疗包 (5)">医<span class="cd" id="cd5"></span><span class="num">5</span></button>
-      <button class="abtn" id="btn6" onclick="tryExtinguish()" title="自动灭火器 (6)">灭<span class="cd" id="cd6"></span><span class="num">6</span></button>
-      <button class="abtn skill-btn" id="btnF" onclick="tryFireSmoke(fireCtx)" title="烟幕弹 (F)" style="display:none;">F</button>
-      <button class="abtn skill-btn" id="btnG" onclick="tryStrike()" title="炮击 (G)" style="display:none;">G<span class="cd" id="cdG"></span></button>
-      <button class="abtn skill-btn" id="btnH" onclick="tryShield(true)" title="护盾 (H)" style="display:none;">H<span class="cd" id="cdH"></span></button>
-      <button class="abtn skill-btn" id="btnV" onclick="tryOverdrive()" title="超装填 (V)" style="display:none;">V<span class="cd" id="cdV"></span></button>
+      <button class="abtn ammo-slot" id="slot1" title="1号主弹药 (1)"><span class="label">AP</span><span class="num">1</span></button>
+      <button class="abtn ammo-slot" id="slot2" title="2号副弹药 (2)"><span class="label">--</span><span class="num">2</span></button>
+      <button class="abtn ammo-slot" id="slot3" title="3号备用弹 (3)"><span class="label">--</span><span class="num">3</span></button>
+      <button class="abtn" id="btn4" title="修理箱 (4)">修<span class="cd" id="cd4"></span><span class="num">4</span></button>
+      <button class="abtn" id="btn5" title="医疗包 (5)">医<span class="cd" id="cd5"></span><span class="num">5</span></button>
+      <button class="abtn" id="btn6" title="自动灭火器 (6)">灭<span class="cd" id="cd6"></span><span class="num">6</span></button>
+      <button class="abtn skill-btn" id="btnF" title="切换主/副武器 (F)" style="display:none;">F</button>
+      <button class="abtn skill-btn" id="btnG" title="炮击 (G)" style="display:none;">G<span class="cd" id="cdG"></span></button>
+      <button class="abtn skill-btn" id="btnH" title="护盾 (H)" style="display:none;">H<span class="cd" id="cdH"></span></button>
+      <button class="abtn skill-btn" id="btnV" title="超装填 (V)" style="display:none;">V<span class="cd" id="cdV"></span></button>
     </div>
   </div>
   <div id="topLeftInfo">ESC 暂停 · TAB 状态 · ` 开发者面板</div>
@@ -302,18 +312,30 @@
     <div id="settleScreen" class="screen" style="display:none;">
       <div class="screen-title">节点结算 NODE CLEARED</div>
       <div id="settleBody"></div>
+      <!-- 2026-09-14 局内商店回归：节点结算界面内嵌，升级基础参数（余额 = 本局得分 − 已花费） -->
+      <div id="runShopBox" style="margin-top:14px; border-top:1px solid var(--line); padding-top:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <b style="font-family:'JetBrains Mono',monospace; color:var(--amber);">局内商店 RUN SHOP — 基础参数升级</b>
+          <span id="runShopBalance" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text);"></span>
+        </div>
+        <div id="runShopList" style="display:flex; flex-direction:column; gap:4px; max-height:220px; overflow-y:auto;"></div>
+        <div class="screen-hint" style="margin-top:6px;">极速硬上限 150km/h · 装填硬下限 0.5s/发 · 装甲为炮塔+车体同时加强。升级仅本局有效。</div>
+      </div>
       <div class="btnrow">
         <button id="settleSaveBtn">结算并保存 SAVE</button>
-        <button id="settleShopBtn">局内商店 SHOP</button>
         <button id="settleNextBtn">继续 CONTINUE</button>
         <button id="settleHomeBtn" style="display:none;">返回首页 HOME</button>
       </div>
     </div>
-    <div id="rewardScreen" class="screen" style="display:none;">
-      <div class="screen-title">卡牌奖励 CARD REWARD</div>
+    <div id="rewardScreen" class="screen wide" style="display:none;">
+      <div class="screen-title" id="rewardTitle">卡牌强化 CARD SELECTION</div>
+      <div id="rewardStatus" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--amber); margin-bottom:12px; text-align:center;">请选择 2 张卡牌（已选择 <span id="selectedCardCount">0</span>/2）</div>
       <div id="cardRow"></div>
-      <div class="screen-hint">三选一：卡牌直接给玩家加修饰器（内容池在 M10 经济里程碑持续扩充）。</div>
-      <div class="btnrow"><button id="rewardShopBtn">局内商店 SHOP</button></div>
+      <div class="btnrow" style="margin-top:14px; justify-content:center;">
+        <button id="rewardRefreshBtn">刷新卡牌 (免费 1/1)</button>
+        <button id="rewardConfirmBtn" disabled style="opacity:0.5;">确认选择 CONFIRM (0/2)</button>
+      </div>
+      <div id="rewardHint" class="screen-hint" style="margin-top:8px;">普通节点 5 选 2（Boss 节点 5 选 3）。不可重复选择。</div>
     </div>
     <div id="gameoverScreen" class="screen" style="display:none;">
       <div class="screen-title">阵亡 KIA</div>
@@ -337,10 +359,7 @@
     <div id="loadoutScreen" class="screen wide" style="display:none;">
       <div class="screen-title">出战整备 LOADOUT</div>
       <div id="loadTankList"></div>
-      <div class="section">
-        <h3>弹药选配（最多 3 种 · 至少 1 种）</h3>
-        <div id="loadAmmoList"></div>
-      </div>
+      <!-- 2026-09-14：开局弹种选择界面已按用户裁定移除 —— 开局恒 [AP, HE]，局内经弹种升级卡链式替换 -->
       <div id="loadHint" class="screen-hint"></div>
       <div class="btnrow">
         <button id="loadShopBtn">强化整备 SHOP</button>
@@ -368,13 +387,8 @@
       <div class="btnrow">
         <button id="pauseResumeBtn">继续 RESUME</button>
         <button id="pauseControlsBtn">控制 CONTROLS</button>
-        <button id="pauseShopBtn">局内商店 RUN SHOP</button>
         <button id="pauseEndBtn">终止游戏并结算 END &amp; SETTLE</button>
       </div>
-    </div>
-    <div id="runShopPanel">
-      <div id="runShopBody"></div>
-      <div class="btnrow"><button onclick="toggleRunShop(false)">关闭 CLOSE</button></div>
     </div>
   </div>
   <div id="statusPanel" style="display:none;">
@@ -388,6 +402,8 @@
     </div>
     <div class="row"><span class="k">火力</span><span class="v" id="stFire">--</span></div>
     <div class="row"><span class="k">机动</span><span class="v" id="stMob">--</span></div>
+    <div class="row"><span class="k">重量</span><span class="v" id="stWeight">--</span></div>
+    <div class="row"><span class="k">武器</span><span class="v" id="stWeapon">--</span></div>
     <div class="armor-list" id="stArmor"></div>
     <div class="armor-list" id="stAmmo"></div>
     <div class="hint">按 TAB 关闭 · 数值实时读取（读 stats，不摸 base）</div>
@@ -463,13 +479,14 @@
       <div class="mod-list" id="devModList"></div>
     </div>
 
-    <div class="dev-sec">
-      <h4>调试日志</h4>
-      <div class="dev-log" id="devLog"></div>
-    </div>
-
     <div class="hint">按 ` 关闭 · 超级精度与数值调整仅影响玩家，敌我弹道/结算逻辑不变</div>
   </div>
+</div>
+
+<!-- #A25：独立日志面板（左下角）——与 Tab 状态面板共用呼入/呼出策略，关闭开发者面板不再隐藏日志 -->
+<div id="logPanel" style="display:none;">
+  <div class="log-title">战斗日志 LOG</div>
+  <div class="log-list" id="devLog"></div>
 </div>
 
 <script src="js/tank_rules.js"></script>
@@ -483,10 +500,15 @@
   <script src="js/tank_flow.js"></script>
   <script src="js/tank_map.js"></script>
   <script src="js/tank_minimap.js"></script>
+  <!-- R-1 武器槽位解耦 + 阶段六 6.2 副炮塔运行时（tank_cards 的 weapon 效果依赖 WEAPON_DEFAULTS，须先加载） -->
+  <script src="js/tank_weapons.js"></script>
   <script src="js/tank_cards.js"></script>
   <script src="js/tank_boss.js"></script>
   <script src="js/tank_physics.js"></script>
   <script src="js/tank_entity.js"></script>
+  <!-- #A21：召唤物与战术部署注册表（tank_deployables.js 顶层 typeof 捕获 spawnTank/livingEnemiesOf/isHostile，
+       须晚于 tank_entity.js 加载；mvp 侧用于 mine_layer 手动布雷的 spawnMine/deployables 注入 fireCtx） -->
+  <script src="js/tank_deployables.js"></script>
   <script src="js/tank_move.js"></script>
   <script src="js/tank_ai.js"></script>
   <script src="js/tank_revive.js"></script>
@@ -504,6 +526,12 @@
   <script src="js/tank_abilities.js"></script>
   <script src="js/tank_drone.js"></script>
   <script src="js/tank_fire.js"></script>
+  <!-- P-15/P-46 共享 UI 纯逻辑（status/dev/log 共用 → tank_bench 复用） -->
+  <!-- #A24 分层：core（纯逻辑）→ dom（DOM 适配）→ facade（re-export，消费方 API 不变） -->
+  <script src="js/tank_panels_core.js"></script>
+  <script src="js/tank_panels_dom.js"></script>
+  <script src="js/tank_panels.js"></script>
+  <script src="js/tank_bindings.js"></script>
   <script src="js/tank_screens.js"></script>
 <script>
 (() => {
@@ -522,10 +550,7 @@ let currentNode = null;    // 当前节点数据（makeNode 产出）
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
 let runScore = 0;          // 本局累计得分（§4.5 结算累加）
 let runKills = 0;          // 本局累计击杀数（P-34 终局汇总展示）
-// P-41 账本模型：可花余额 = runScore（total）− runScoreSpent（已花）；购买只加 spent，
-// 消费不减损终局转化得分；runShopLevels 由 UI 独立存储（新开局随 spent 一并归零）。
 let runScoreSpent = 0;
-let runShopLevels = {};
 let runFinished = false;   // P-34 开放式链后恒为 false（链不再收束，终局走 gameover/voluntaryEnd）
 let profile = loadProfile(localStorage);   // P-14：跨局存档（商店点数 + 永久升级 + 统计）
 let playerAnchorStats = null; // P-46: 玩家出击时刻冻结的基准属性快照（敌军数值锚定基数）
@@ -567,13 +592,40 @@ loadTankList();
 const MENU_STATES = ['home', 'loadout', 'shop'];
 function inMenuState(){ return MENU_STATES.indexOf(flow.state) >= 0; }
 
-const keys = {};
-window.addEventListener('keydown', e=>{
-  if(inMenuState()) return;   // 局外界面：不注册战斗移动键（Tab 焦点导航等浏览器默认行为放行）
-  keys[e.key.toLowerCase()]=true;
-  if(e.key===' ' || e.key==='Tab') e.preventDefault();
+// ---------- 输入控制器（js/tank_bindings.js 共享层；键位/设置与测试台同源） ----------
+// 边沿动作（切弹/技能池/面板/暂停）经 controller 路由；持续键（驾驶/开火/技能轮询）
+// 由 update() 经 input.isDown(...) 读取。局外菜单（home/loadout/shop）不登记战斗键、
+// 不触发热键（gate 门控，语义同旧内联监听）；ESC 暂停切换不受菜单门控。
+const input = createInputController({
+  preventKeys: [' ', 'tab'],
+  settings: () => profile.settings,
+  gate: (action) => action === 'pauseToggle' ? true : !inMenuState(),
+  actions: {
+    ammoNext: () => cycleAmmo(1),                    // E：下一个弹种
+    ammoPrev: () => cycleAmmo(-1),                   // Q：上一个弹种
+    skill1: () => skillHotkey(1),                    // 阶段六：技能池（1~3 对应玩家装备的主动技能）
+    skill2: () => skillHotkey(2),
+    skill3: () => skillHotkey(3),
+    switchWeapon: () => toggleWeaponSlot(),          // F：切换主炮/副武器（左键/空格按激活槽位击发，#A21）
+    panelStatus: () => {                              // Tab：状态面板（与 dev/log 组互斥，共用呼入/呼出策略）
+      const willOpen = !statusOpen;
+      showPanelGroup(willOpen ? 'status' : 'none');
+    },
+    panelDev: () => {                                 // `：开发者面板 + 独立日志面板（#A25 联动）
+      const willOpen = !devOpen;
+      showPanelGroup(willOpen ? 'dev' : 'none');
+    },
+    panelDevAlt: () => {                              // F12：同上（别名）
+      const willOpen = !devOpen;
+      showPanelGroup(willOpen ? 'dev' : 'none');
+    },
+    pauseToggle: () => {                             // ESC：battle⇄pause（P-35）
+      if (flow.state === 'battle') transition(flow, 'pause', { nodeIndex: currentNode ? currentNode.index : 0 });
+      else if (flow.state === 'pause') transition(flow, 'battle');
+    }
+  }
 });
-window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
+const keys = input.keys;   // 既有消费方（updateSigma 等）沿用同形对象，零改动
 
 // ---------- 弹种切换（特性4 §2.2：出战配备 loadout 索引化） ----------
 // 数字键 1/2/3 → 选 player.ammoLoadout[0/1/2]；Q 键 / 鼠标滚轮环形循环（同样走索引逻辑）。
@@ -582,6 +634,7 @@ window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
 // 不触碰 reloadT：沿用旧版 setAmmo 语义（保留装填进度，不静默改变手感）。
 player.ammoKey = 'ap';
 player.currentAmmoIndex = 0;
+player.activeWeaponSlot = 'primary';   // 2026-09-15 W2：F 键切换主/副武器（'primary' | 'secondary'）
 function activeLoadout(){
   if(Array.isArray(player.ammoLoadout) && player.ammoLoadout.length) return player.ammoLoadout;
   return Object.keys(RULES.ammoTypes);   // 兜底：全弹种表
@@ -594,9 +647,10 @@ function renderAmmoIndicator(){
   let html = '';
   for(let i = 0; i < lo.length; i++){
     const a = RULES.ammoTypes[lo[i]] || RULES.ammoTypes.ap;
+    const dirHint = (i === (cur + 1) % lo.length) ? 'E' : ((i === (cur - 1 + lo.length) % lo.length) ? 'Q' : '');
     html += `<span class="ammo-cell${i === cur ? ' active' : ''}" data-ammo="${lo[i]}">`
       + `<span class="dot" style="background:${a.color}"></span>`
-      + `<span class="key">${i + 1}</span><span class="label">${a.label}</span>`
+      + `<span class="key">${dirHint || (i === cur ? '★' : '')}</span><span class="label">${a.label}</span>`
       + `<span class="mult">穿×${a.pen}/伤×${a.dmg}</span></span>`;
   }
   el.innerHTML = html;
@@ -621,14 +675,93 @@ function cycleAmmo(dir){
   const cur = ((player.currentAmmoIndex | 0) % lo.length + lo.length) % lo.length;
   setAmmoSlot((cur + dir + lo.length) % lo.length);
 }
+// 弹种链 2026-09-13：卡牌面板换算注解——ammo add 效果按玩家 loadout 内目标弹种的
+// 基准倍率换算（+12mm 基础穿深 × apds pen1.4 → 「APDS 实效 +16.8mm」）；mult 效果
+// 显示乘算后倍率刻度。无 loadout/无对应弹种 → 返回空串（不显示注解行）。
+function ammoCardScaledDesc(card, tank){
+  if(!card || !Array.isArray(card.effects) || !tank) return '';
+  const lo = activeLoadout();
+  if(!lo.length) return '';
+  const bits = [];
+  for(const ef of card.effects){
+    if(!ef || ef.type !== 'ammo') continue;
+    if(lo.indexOf(ef.key) < 0) continue;   // 玩家未携带该弹种 → 不注解
+    const meta = RULES.ammoTypes[ef.key];
+    if(!meta) continue;
+    const label = meta.label || ef.key;
+    if(ef.mode === 'add'){
+      const scale = (typeof meta[ef.field] === 'number') ? meta[ef.field] : 1;
+      const unit = ef.field === 'pen' ? 'mm' : (ef.field === 'speed' ? 'px/s' : '');
+      bits.push(`${label} ${ef.field==='pen'?'穿深':ef.field==='dmg'?'伤害':'弹速'} 实效 +${(ef.value*scale).toFixed(0)}${unit}`);
+    } else if(ef.mode === 'mult'){
+      bits.push(`${label} ${ef.field==='pen'?'穿深':ef.field==='dmg'?'伤害':'弹速'} ×${ef.value}`);
+    }
+  }
+  return bits.join(' · ');
+}
 renderAmmoIndicator();
-document.addEventListener('keydown', e=>{
-  if(inMenuState()) return;   // 局外界面：弹种热键不响应
-  const k = e.key;
-  if(k >= '1' && k <= '3') setAmmoSlot(k.charCodeAt(0) - 49);   // '1'~'3'→对应槽位0~2；仅允许3槽
-  else if(k === 'q' || k === 'Q') cycleAmmo(1);                  // Q 键顺时针切弹
-  else if(k === 'e' || k === 'E') cycleAmmo(-1);                 // E 键逆时针切弹
-});
+
+// HUD 静态按钮统一走 IIFE 内 addEventListener（原内联 onclick 无法访问闭包函数，
+// 点击会 ReferenceError：tryStrike is not defined 等——商店按钮函数已显式挂 window，
+// HUD 按钮漏挂，此处补齐等价绑定）。语义与旧 inline 完全一致。
+// 阶段六（2026-09-13 第二批裁定）：1/2/3 数字键摘除切弹职责、让位主动技能快捷键池，
+// slot1~3 仅保留鼠标点击切换（Q/E 键盘环形切弹，见下方 keydown）。
+document.getElementById('slot1')?.addEventListener('click', () => selectAmmoSlot(0));
+document.getElementById('slot2')?.addEventListener('click', () => selectAmmoSlot(1));
+document.getElementById('slot3')?.addEventListener('click', () => selectAmmoSlot(2));
+document.getElementById('btn4')?.addEventListener('click', tryRepairKit);
+document.getElementById('btn5')?.addEventListener('click', tryMedkit);
+document.getElementById('btn6')?.addEventListener('click', tryExtinguish);
+document.getElementById('btnF')?.addEventListener('click', toggleWeaponSlot);
+document.getElementById('btnG')?.addEventListener('click', tryStrike);
+document.getElementById('btnH')?.addEventListener('click', () => tryShield(true));
+document.getElementById('btnV')?.addEventListener('click', tryOverdrive);
+
+// 2026-09-15 #A21：F 键 = 切换主炮/副武器（activeWeaponSlot toggle）。
+// 左键/空格按激活槽位分发击发：primary → 主炮（W4 单发/齐射），secondary → 向鼠标光标手动击发；
+// 玩家副武器不再「激活即自动运作」——仅 turret 型为设计例外（PLAN 6.2 自主副炮塔，见主循环更新块）。
+function toggleWeaponSlot(){
+  if(!player || !player.weapons) return;
+  const sec = player.weapons.secondary;
+  if(!sec || sec.type === 'none'){
+    pushLog('未安装副武器（可在卡牌奖励中选择副武器），F 切换无效', 'COVER');
+    return;
+  }
+  player.activeWeaponSlot = (player.activeWeaponSlot === 'secondary') ? 'primary' : 'secondary';
+  // #A21：玩家不再走导弹锁定自动流（手动击发沿鼠标方向直飞），切换时统一清除锁定状态
+  player._missileLock = null;
+  const S_LABEL = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹', rocket:'火箭巢', mine_layer:'布雷器' };
+  pushLog(player.activeWeaponSlot === 'secondary'
+    ? `副武器就绪：${S_LABEL[sec.type] || sec.type}${sec.type === 'turret' ? '（副炮塔自主开火）' : '（鼠标左键/空格向光标击发）'}`
+    : '切回主炮（左键/空格按主炮开火）', 'PEN');
+  playSound('ui');
+  if(statusOpen) updateStatusPanel();
+}
+
+// 阶段六 6.1：数字键 1/2/3 → 主动技能快捷键池（优先映射玩家已装备的主动技能）
+function skillHotkey(num){
+  if(!player) return;
+  const owned = Array.from(new Set((player.cardEffects || []).filter(ef => ef && ef.type === 'ability' && ef.key).map(ef => ef.key)));
+  const DISPATCH = {
+    deploy_cover: () => tryDeployCover(),
+    artillery: () => tryStrike(),
+    shield: () => tryShield(true),
+    overdrive: () => tryOverdrive(),
+    recon: () => { if(typeof tryDroneCommand === 'function') tryDroneCommand(); }
+  };
+  let key = owned[num - 1];
+  if(!key){
+    const fallbackList = ['deploy_cover', 'artillery'];
+    key = fallbackList[(num - 1) % fallbackList.length];
+  }
+  if(DISPATCH[key] && hasAbility(player, key)){
+    DISPATCH[key]();
+  } else if(DISPATCH[key]){
+    pushLog(`未装备第 ${num} 个主动技能（${key}）`, 'COVER');
+  }
+}
+
+// 切弹/技能热键已收敛至输入控制器（上方 createInputController actions）。
 window.addEventListener('wheel', e=>{
   if(inMenuState()) return;   // 局外界面：滚轮不调缩放（不拦截列表滚动默认行为）
   e.preventDefault();          // 战斗中滚轮专属缩放，阻止页面滚动
@@ -653,20 +786,23 @@ canvas.addEventListener('mousemove', e=>{
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });
-// #A7：按住左键持续开火——mousedown/mouseup 维护按下标志，主循环 battle 态逐帧 tryFire
-// （tryFire 内建 reloadT/breech 门控，天然保证射速间隔）；ESC 暂停（flow!=='battle'）与
-// 面板打开（statusOpen/devOpen）时不连发；窗口失焦/鼠标移出画布复位防卡住。
+// #A7：按住左键持续开火（tryFireWeaponSlot 内建 reloadT/breech/secondaryReloadT 门控，天然保证射速间隔）；
+// 2026-09-15 #A21：左键按激活槽位分发（primary→主炮 / secondary→向光标击发副武器）；
+// ESC 暂停（flow!=='battle'）与面板打开（statusOpen/devOpen）时不连发；窗口失焦/鼠标移出画布复位防卡住。
 let mouseFireHeld = false;
+canvas.addEventListener('contextmenu', e => { e.preventDefault(); return false; });
 canvas.addEventListener('mousedown', e=>{
   if(inMenuState()) return;
-  if(e.button===0){ mouseFireHeld = true; if(fireCtx) tryFire(fireCtx); }
+  if(e.button===0){ mouseFireHeld = true; if(fireCtx) tryFireWeaponSlot(fireCtx); }
 });
 window.addEventListener('mouseup', e=>{ if(e.button===0) mouseFireHeld = false; });
 canvas.addEventListener('mouseleave', ()=>{ mouseFireHeld = false; });
 window.addEventListener('blur', ()=>{ mouseFireHeld = false; });
 
-// ---------- P-15 玩家状态面板（Tab）/ 开发者面板（`） ----------
-let statusOpen = false, devOpen = false;
+// ---------- P-15 玩家状态面板（Tab）/ 开发者面板（`）/ #A25 独立日志面板 ----------
+let statusOpen = false, devOpen = false, logOpen = false;
+// #A25：独立日志面板对象（DOM 适配层 createLogPanel）——位置左下角由 #logPanel CSS 决定。
+let mvpLogPanel = null;
 function togglePanel(id){
   const el = document.getElementById(id);
   if(!el) return;
@@ -677,12 +813,24 @@ function togglePanel(id){
     devOpen = open;
     if(open){ syncDevInputs(); renderDevCards(); renderDevMods(); updateSolution(); }
   }
+  if(id === 'logPanel'){ logOpen = open; }
 }
-document.addEventListener('keydown', e=>{
-  if(inMenuState()) return;   // 局外界面：Tab/` 面板热键不响应
-  if(e.key === 'Tab'){ e.preventDefault(); togglePanel('statusPanel'); }
-  if(e.key === '`' || e.key === 'F12'){ e.preventDefault(); togglePanel('devPanel'); }
-});
+// #A25：Tab 状态面板与「开发者面板 + 独立日志面板」共用呼入/呼出策略——开一组关另一组，
+// 日志与开发者面板一同呼入/呼出（关闭开发者面板时日志仍可被 Tab 呼出，不再随之隐藏）。
+function showPanelGroup(which){
+  const wantStatus = which === 'status';
+  const wantDev = which === 'dev';
+  const elS = document.getElementById('statusPanel');
+  const elD = document.getElementById('devPanel');
+  const elL = document.getElementById('logPanel');
+  if(elS) elS.style.display = wantStatus ? 'block' : 'none';
+  if(elD) elD.style.display = wantDev ? 'block' : 'none';
+  if(elL) elL.style.display = wantStatus ? 'none' : (wantDev ? 'block' : 'none');
+  statusOpen = wantStatus; devOpen = wantDev; logOpen = !!(elL && elL.style.display !== 'none');
+  if(wantStatus){ if(elS) updateStatusPanel(); }
+  if(wantDev){ syncDevInputs(); renderDevCards(); renderDevMods(); updateSolution(); }
+}
+// Tab/`/F12 面板热键已收敛至输入控制器（panelStatus / panelDev / panelDevAlt）。
 
 // ---------- P-35：ESC 暂停/设置面板（battle ⇄ pause；局外三态与其他状态不响应） ----------
 // battle→pause：冻结战场（loop 的 simulating 门控自动停更），显示暂停覆盖层；
@@ -690,7 +838,15 @@ document.addEventListener('keydown', e=>{
 // pause→settlement（终止游戏并结算）：voluntaryEnd 终局语义由 P-34 完善，本条目仅保证转移合法。
 function renderPause(){
   const vm = buildPausePanel({ settings: profile.settings });
-  document.getElementById('pauseBindings').innerHTML = vm.bindings.map(b =>
+  // 键位说明改为从共享键位表渲染（js/tank_bindings.js）——与测试台测试面板同源，
+  // 增改键位只改 KEY_BINDINGS/ACTION_INFO 一处。
+  const bindRows = describeBindings({
+    move:1, fire:1, ammoCycle:1, skillPool:1, switchWeapon:1,
+    abilityStrike:1, abilityShield:1, abilityOverdrive:1,
+    supportRepair:1, supportMedkit:1, supportExtinguish:1,
+    panelStatus:1, panelDev:1, pauseToggle:1
+  });
+  document.getElementById('pauseBindings').innerHTML = bindRows.map(b =>
     `<div class="row" style="justify-content:flex-start; gap:10px;"><span class="k" style="min-width:150px;">${b.keys}</span><span style="font-size:11px;color:var(--text-dim);">${b.desc}</span></div>`
   ).join('');
   const s = vm.settings;
@@ -714,16 +870,7 @@ function renderPause(){
     playSound('ui');
   });
 }
-document.addEventListener('keydown', e=>{
-  if(e.key !== 'Escape') return;
-  if(flow.state === 'battle'){
-    e.preventDefault();
-    transition(flow, 'pause', { nodeIndex: currentNode ? currentNode.index : 0 });
-  } else if(flow.state === 'pause'){
-    e.preventDefault();
-    transition(flow, 'battle');   // 恢复战斗（payload 无需 nodeIndex，prev==='pause' 不重新实体化）
-  }
-});
+// ESC 暂停切换已收敛至输入控制器（pauseToggle 动作，battle⇄pause 语义不变）。
 document.getElementById('pauseResumeBtn').addEventListener('click', () => {
   playSound('ui');
   transition(flow, 'battle');
@@ -732,10 +879,6 @@ document.getElementById('pauseControlsBtn').addEventListener('click', () => {
   const pc = document.getElementById('pauseControls');
   if(pc) pc.style.display = (pc.style.display === 'none') ? 'block' : 'none';
   playSound('ui');
-});
-document.getElementById('pauseShopBtn').addEventListener('click', () => {
-  playSound('ui');
-  toggleRunShop();   // 复用局内商店浮层（独立叠加于暂停之上）
 });
 document.getElementById('pauseEndBtn').addEventListener('click', () => {
   playSound('ui');
@@ -755,38 +898,57 @@ function armorRows(armor){
   return html;
 }
 function updateStatusPanel(){
-  const s = player.stats;
+  // P-15/P-46：共享视图模型 buildTankDataVM（mvp status + bench inspector 同源），
+  // 读 stats（经 refreshStats 实时；不读 base），修正 #B5 缺重量/弹种滞留/Armor 退回 base 三个问题。
+  const vm = (typeof buildTankDataVM === 'function') ? buildTankDataVM(player) : null;
+  const s = (vm && vm.armor) ? vm.armor : (player && player.stats && player.stats.armor) || (player && player.base && player.base.armor) || {};
   const nodeIdx = currentNode ? (currentNode.index + 1) : 0;
   const totalNodes = run ? run.nodes.length : 0;
   const kills = battleState ? battleState.nodeKills : 0;
   const quota = currentNode ? (currentNode.quota || '全灭') : '—';
   const hpBar = document.getElementById('stHpBar');
-  if(hpBar) hpBar.style.width = Math.max(0, player.hp / Math.max(1, s.maxHp) * 100) + '%';
+  if(hpBar) hpBar.style.width = Math.max(0, player.hp / Math.max(1, vm ? vm.maxHp : s.maxHp) * 100) + '%';
   const hpVal = document.getElementById('stHpVal');
-  if(hpVal) hpVal.textContent = `${Math.ceil(player.hp)} / ${Math.round(s.maxHp)}`;
+  if(hpVal) hpVal.textContent = `${Math.ceil(player.hp)} / ${Math.round(vm ? vm.maxHp : s.maxHp)}`;
   const stNode = document.getElementById('stNode');
   if(stNode) stNode.textContent = `节点 ${nodeIdx}/${totalNodes} · 难度 ${(currentNode ? (currentNode.difficulty * 100).toFixed(0) : 0)}% (Lv.${profile.difficultyLevel || 0})`;
   const stQuota = document.getElementById('stQuota');
   if(stQuota) stQuota.textContent = `击杀配额 ${kills} / ${quota}`;
   const stFire = document.getElementById('stFire');
-  if(stFire) stFire.textContent = `穿透 ${Math.round(s.penetration)}mm · 伤害 ${Math.round(s.damage)} · 装填 ${s.reload.toFixed(2)}s`;
+  if(stFire) stFire.textContent = `穿透 ${Math.round(vm.penetration)}mm · 伤害 ${Math.round(vm.damage)} · 装填 ${vm.reload.toFixed(2)}s`;
+  // 阶段七 7.4：主/副武器型号展示（buildTankDataVM 无此字段，直接读 player.weapons）
+  const stWeapon = document.getElementById('stWeapon');
+  if(stWeapon){
+    const wpn = (player && player.weapons) || {};
+    const pType = (wpn.primary && wpn.primary.type) || 'standard';
+    const sType = (wpn.secondary && wpn.secondary.type) || 'none';
+    const P_LABEL = { standard:'标准主炮', autocannon:'速射机炮', double_barrel:'双联火炮', railgun:'电磁轨道炮' };
+    const S_LABEL = { none:'无', turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹', rocket:'火箭巢', mine_layer:'布雷器' };
+    const activeSlot = (player && player.activeWeaponSlot === 'secondary') ? '【激活】' : '';
+    stWeapon.textContent = `主武器 ${P_LABEL[pType] || pType} · 副武器 ${S_LABEL[sType] || sType}${activeSlot}（F 切换，左键/空格击发${sType === 'turret' ? '，副炮塔自主' : ''}）`;
+  }
   const stMob = document.getElementById('stMob');
-  if(stMob) stMob.textContent = `极速 ${tankKmh(player)}km/h · 马力 ${Math.round(s.enginePower)}hp`;
+  if(stMob) stMob.textContent = `极速 ${vm.speedKmh > 0 ? vm.speedKmh : tankKmh(player)}km/h · 马力 ${Math.round(vm.enginePower)}hp`;
+  const stWeight = document.getElementById('stWeight');
+  if(stWeight) stWeight.textContent = `${vm.weight != null ? Math.round(vm.weight) : '—'} t`;
   const stArmor = document.getElementById('stArmor');
-  if(stArmor) stArmor.innerHTML = armorRows(s.armor || (player.base && player.base.armor) || {});
+  if(stArmor){
+    // 优先走共享视图模型的 armor（live），回退到本地 armorRows 兼容
+    const arm = (vm && vm.armor) ? vm.armor : s;
+    stArmor.innerHTML = (typeof armorRows === 'function') ? armorRows(arm) : '';
+  }
   const stAmmo = document.getElementById('stAmmo');
   if(stAmmo){
-    let ammoHtml = '';
-    for(const key of ['ap','apcr','heat','he']){
-      const meta = RULES.ammoTypes[key];
-      if(!meta || typeof computeAmmoConfig !== 'function') continue;
-      const ac = computeAmmoConfig(player, key);
-      if(!ac) continue;
-      const pen = Math.round(ac.pen * s.penetration + (ac.penAdd || 0));
-      const dmg = Math.round(ac.dmg * s.damage + (ac.dmgAdd || 0));
-      ammoHtml += `<div><b>${(meta.label || key).toUpperCase()}</b> 穿透 ${pen}mm · 伤害 ${dmg}</div>`;
-    }
-    stAmmo.innerHTML = ammoHtml;
+    // #B5：只显示当前 Loadout（≤3 种），以 player.ammoKey 高亮当前弹种；与 ammoReadout (3022) 同源。
+    const keys = (vm && vm.ammoLoadout && vm.ammoLoadout.length) ? vm.ammoLoadout
+      : (vm && vm.ammoKey ? [vm.ammoKey] : []);
+    const byKey = {};
+    (vm && vm.ammo ? vm.ammo : []).forEach(a => { byKey[a.key] = a; });
+    stAmmo.innerHTML = keys.map(key => {
+      const a = byKey[key];
+      const active = (vm && vm.ammoKey === key);
+      return a ? `<div><b${active ? ' style="color:var(--amber)"' : ''}>${a.label || key}</b> 穿透 ${a.pen}mm · 伤害 ${a.dmg}${active ? ' （当前）' : ''}</div>` : '';
+    }).join('') || '<div style="color:var(--text-dim);">—</div>';
   }
 }
 
@@ -909,6 +1071,7 @@ function enterBattle(nodeIndex){
     },
     applyDifficulty(t, mults){ applyDifficultyMults(t, mults); }   // P-38：页级函数，增援生成复用
   });
+  bakeNodeGroundLayer(node);   // 2026-09-14：进图前预烘焙道路地面层（曲线道路整条绘制，避免逐段实时绘制与远距消失）
 
   // P-37/P-09：Boss 战——周期 Boss 节点（node.boss=true 由 map 模块预标）在进入战斗时
   // 懒指定 Boss 定义；普通节点该字段为 null 不进此分支。
@@ -982,6 +1145,8 @@ function livingNodeEnemies(){
 function finishNode(cleared){
   if(!battleState || battleState.cleared) return;
   battleState.cleared = true;
+  // B2（2026-09）：结算前清扫残留炮弹/命中/弹迹，避免缓冲后残弹延续到结算/下一场。
+  shells.length = 0; impacts.length = 0; bounceFx.length = 0;
   const clearMs = performance.now() - battleState.startMs;
   const outpostEntity = entities.find(e => e.team === 'ally' && e.nodeSpawn);
   const outpostAlive = !outpostEntity || outpostEntity.hp > 0;
@@ -1019,10 +1184,13 @@ function applyDifficultyMults(t, mults, applyPlayerCap){
     addModifier(t, { stat: 'armor.turret', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
   }
   t.hp = t.stats.maxHp; t.maxHp = t.stats.maxHp;
-  // P-46: 旧三键封顶（penCapVsPlayer/dmgFloorVsPlayer/dmgCapAmmoMult）与速度直写已被
-  // 「玩家出击基准锚定制」（applyEnemyAppearanceAndStats）统一收编；
-  // 此处仅在未注入基准快照且显式开启 applyPlayerCap 的兜底场景保留。
-  if(applyPlayerCap && !playerAnchorStats && typeof player !== 'undefined' && player && player.stats){
+  // P-46: 三键封顶（penCapVsPlayer/dmgFloorVsPlayer/dmgCapAmmoMult）+ 速度封顶（speedVsPlayer）
+  // 统一在此处通过 difficultyCapMuls 派生差量 mult 注入（source 'difficulty-cap'），
+  // 经 addModifier/scope:'run' 生命周期收敛 —— 不再绕过 modifiers 三层结构。
+  // B4（2026-09）：此前 guard `!playerAnchorStats` 使封顶只在「无快照兜底」时触发；而快照模式
+  //（playerAnchorStats 总被设值）下封顶永远跳过 → 高难敌人速度超越玩家。移除该死码条件，
+  // 快照/非快照均封顶（Boss 仍传 applyPlayerCap=false 跳过）。
+  if(applyPlayerCap && typeof player !== 'undefined' && player && player.stats){
     let strongest = 0;
     if(typeof computeAmmoConfig === 'function'){
       for(const key of ['ap', 'apcr', 'heat']){
@@ -1106,14 +1274,8 @@ function bossLootPool(){
 // P-51 Wave2：卡牌选择后的推进——仍有追加轮 → reward→reward 再开一轮（白名单合法）；
 // 抽完所有轮次 → 清空 pending 并走正常节点推进。
 function advanceRewardFlow(){
-  if(pendingLootRounds > 0){
-    pendingLootRounds--;
-    playSound('ui');
-    transition(flow, 'reward');
-  } else {
-    pendingLootRounds = 0; pendingLootRarityIdx = -1;
-    nextNodeAfterReward();
-  }
+  pendingLootRounds = 0; pendingLootRarityIdx = -1;
+  nextNodeAfterReward();
 }
 
 function pickCard(card){
@@ -1126,8 +1288,131 @@ function pickCard(card){
   }
   // P-17：无人机卡 → 立即按 cardEffects 部署（重复取卡由模块 countMax 兜底拒绝）
   if(applied.some(ef => ef.type === 'drone')) deployDronesFromCards();
+  // 2026-09-14：弹种解锁进度不再跨局（新局从 0 开始）——链上升级只改本局 loadout，
+  // 不回写 profile.unlockedAmmo。
   playSound('ui');
 }
+
+// ---------- 卡牌选择（2026-09-14 定案）----------
+// 普通节点 5 选 2 / Boss 追加轮 5 选 3；不可重复选同一张；每轮 1 次免费刷新，
+// 后续刷新消耗局内得分（RULES.economy.refreshCost，走 P-41 花费账本——不减终局转化得分）。
+let currentRewardCards = [];        // 本轮展示的候选卡（刷新即整批重抽）
+let selectedRewardIdx = new Set();  // 已选下标集合（唯一、可取消再改选）
+let freeRefreshLeft = 1;            // 本轮剩余免费刷新次数
+
+function rewardPickTarget(){
+  return pendingLootRounds > 0 ? 3 : 2;   // Boss 追加轮 3 张；普通节点 2 张
+}
+
+function drawRewardCards(){
+  // P-51 Wave2：Boss 追加轮 → 按保底稀有度过滤抽取池；普通轮 → 全池
+  const drawPool = pendingLootRounds > 0 ? bossLootPool() : cardPool;
+  // 2026-09-14 装备优先：玩家没有任何主动技能 / 副武器未安装时，候选保底含对应装备卡
+  const ownedAbilities = Array.from(new Set((player.cardEffects || [])
+    .filter(ef => ef && ef.type === 'ability' && ef.key).map(ef => ef.key)));
+  const secondaryType = (player.weapons && player.weapons.secondary && player.weapons.secondary.type) || 'none';
+  const primaryType = (player.weapons && player.weapons.primary && player.weapons.primary.type) || 'standard';
+  // #A23：owned.cards 供 drawCardChoices 做 maxStacks 抽卡期截断（拒绝抽到已叠满上限的重复卡）
+  const ownedCardCounts = {};
+  if (typeof cardStackCount === 'function' && Array.isArray(cardPool)) {
+    for (const c of cardPool) {
+      const n = cardStackCount(player, c.id);
+      if (n > 0) ownedCardCounts[c.id] = n;
+    }
+  }
+  return drawPool.length ? drawCardChoices(drawPool, 5, {
+    ammoLoadout: player.ammoLoadout,
+    owned: { abilities: ownedAbilities, secondaryWeapon: secondaryType, primaryWeapon: primaryType, cards: ownedCardCounts }
+  }) : [];
+}
+
+function openRewardScreen(){
+  currentRewardCards = drawRewardCards();
+  selectedRewardIdx = new Set();
+  freeRefreshLeft = 1;
+  renderRewardCards();
+}
+
+function renderRewardCards(){
+  const row = document.getElementById('cardRow');
+  if(!row) return;
+  const statusEl = document.getElementById('rewardStatus');
+  const refreshBtn = document.getElementById('rewardRefreshBtn');
+  const confirmBtn = document.getElementById('rewardConfirmBtn');
+  const hintEl = document.getElementById('rewardHint');
+  const need = rewardPickTarget();
+  if(hintEl) hintEl.textContent = pendingLootRounds > 0
+    ? 'Boss 追加卡牌轮：5 选 3。不可重复选择。'
+    : '普通节点：5 选 2。不可重复选择。';
+  if(statusEl) statusEl.innerHTML =
+    `请选择 ${need} 张卡牌（已选择 <span id="selectedCardCount">${selectedRewardIdx.size}</span>/${need}）`;
+  row.innerHTML = '';
+  if(!currentRewardCards.length){
+    row.innerHTML = '<div class="screen-hint">卡池为空——请确认 cards/ 目录与 /api/cards 可用。</div>';
+  }
+  const rarityLabel = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇' };
+  currentRewardCards.forEach((c, i) => {
+    const d = document.createElement('div');
+    d.className = 'card' + (selectedRewardIdx.has(i) ? ' selected' : '');
+    // 弹种链 2026-09-13：卡牌面板换算显示——ammo 效果的 add 量按玩家 loadout 内该弹种
+    // 基准倍率换算展示（与 computeAmmoConfig 生效语义一致；+10mm 基础穿深卡在 apds 上显示 +14mm）。
+    const scaledBit = (typeof ammoCardScaledDesc === 'function') ? ammoCardScaledDesc(c, player) : '';
+    d.innerHTML = `<div class="cname">${c.name}</div><div class="cdesc">${c.desc || ''}</div>` +
+      (scaledBit ? `<div class="mono" style="font-size:10px;color:#5cc8ff;margin-top:4px;">${scaledBit}</div>` : '') +
+      `<div class="mono" style="font-size:10px;color:var(--amber-dim);margin-top:6px;">${rarityLabel[c.rarity] || c.rarity} · ${(c.tags||[]).join('/')}</div>`;
+    d.addEventListener('click', () => {
+      if(selectedRewardIdx.has(i)){
+        selectedRewardIdx.delete(i);               // 取消已选，允许改选
+      } else {
+        if(selectedRewardIdx.size >= need) return; // 选满上限：先取消一张才能换
+        selectedRewardIdx.add(i);
+      }
+      playSound('ui');
+      renderRewardCards();
+    });
+    row.appendChild(d);
+  });
+  if(refreshBtn){
+    const cost = (typeof RULES !== 'undefined' && RULES.economy && RULES.economy.refreshCost) || 10;
+    const free = freeRefreshLeft > 0;
+    const balance = Math.max(0, runScore - runScoreSpent);
+    refreshBtn.textContent = free ? '刷新卡牌 (免费 1/1)' : `刷新卡牌 (−${cost} 分)`;
+    refreshBtn.disabled = !free && balance < cost;
+    refreshBtn.style.opacity = refreshBtn.disabled ? '0.4' : '';
+  }
+  if(confirmBtn){
+    const done = selectedRewardIdx.size >= need;
+    confirmBtn.textContent = `确认选择 CONFIRM (${selectedRewardIdx.size}/${need})`;
+    confirmBtn.disabled = !done;
+    confirmBtn.style.opacity = done ? '' : '0.5';
+  }
+}
+
+document.getElementById('rewardRefreshBtn').addEventListener('click', () => {
+  const cost = (typeof RULES !== 'undefined' && RULES.economy && RULES.economy.refreshCost) || 10;
+  if(freeRefreshLeft > 0){
+    freeRefreshLeft--;
+  } else {
+    if(runScore - runScoreSpent < cost) return;  // 余额不足（按钮已禁用，此处双保险）
+    runScoreSpent += cost;                       // P-41 账本：花费不减终局转化得分
+    pushLog(`刷新卡牌：−${cost} 分`, 'COVER');
+  }
+  currentRewardCards = drawRewardCards();
+  selectedRewardIdx = new Set();
+  playSound('ui');
+  renderRewardCards();
+});
+
+document.getElementById('rewardConfirmBtn').addEventListener('click', () => {
+  const need = rewardPickTarget();
+  if(selectedRewardIdx.size < need) return;      // 选满才可确认（按钮已禁用，此处防御）
+  const picks = Array.from(selectedRewardIdx).sort((a, b) => a - b)
+    .map(i => currentRewardCards[i]).filter(Boolean);
+  for(const c of picks) pickCard(c);
+  currentRewardCards = [];
+  selectedRewardIdx = new Set();
+  advanceRewardFlow();
+});
 
 function nextNodeAfterReward(){
   // P-34 开放式节点链：不再有"末节点收束"——超出当前链长时经 extendRun 追加下一节点继续推进；
@@ -1177,7 +1462,6 @@ function renderMapList(){
 
 // 流程监听：状态切换 → UI 显隐 + 战场搭建（纯逻辑在 tank_flow.js，UI 消费在本函数）
 watchFlow(flow, (state, payload) => {
-  toggleRunShop(false);                  // P-41：任何 flow 转移都收起局内商店浮层
   // M10 局外三界面：不依赖 run（可在任意局外时机进入），先于战斗路由处理
   if(state === 'home'){ renderHome(); showScreen('homeScreen'); setOverlayVisible(true); return; }
   if(state === 'loadout'){ renderLoadout(); showScreen('loadoutScreen'); setOverlayVisible(true); return; }
@@ -1213,8 +1497,8 @@ watchFlow(flow, (state, payload) => {
       // 终局面板按钮切换：隐藏继续/保存/局内商店，显示返回首页（settlement→home 白名单合法）
       document.getElementById('settleNextBtn').style.display = 'none';
       document.getElementById('settleSaveBtn').style.display = 'none';
-      document.getElementById('settleShopBtn').style.display = 'none';
       document.getElementById('settleHomeBtn').style.display = '';
+      const _rsBox = document.getElementById('runShopBox'); if(_rsBox) _rsBox.style.display = 'none';   // 终局不开放局内商店
     } else {
       // P-51 Wave2：每次进入 settlement 先清 pending，再按本次 payload 捕获 Boss 战利品追加轮
       pendingLootRounds = 0; pendingLootRarityIdx = -1;
@@ -1240,32 +1524,16 @@ watchFlow(flow, (state, payload) => {
         rows.push(`<div class="row total"><span class="k">本节点得分</span><span>${s.total}</span></div>`);
         document.getElementById('settleBody').innerHTML = rows.join('');
       }
-      // 普通节点结算：继续 + 手动存档可见，终局按钮隐藏（局内商店入口可见）
+      // 普通节点结算：继续 + 手动存档可见，终局按钮隐藏
       document.getElementById('settleNextBtn').style.display = '';
       document.getElementById('settleSaveBtn').style.display = '';
-      document.getElementById('settleShopBtn').style.display = '';
       document.getElementById('settleHomeBtn').style.display = 'none';
+      renderRunShop();   // 2026-09-14：局内商店（基础参数升级）随结算界面展示
     }
     showScreen('settleScreen'); setOverlayVisible(true);
   } else if(state === 'reward'){
-    const row = document.getElementById('cardRow');
-    row.innerHTML = '';
-    // P-51 Wave2：Boss 追加轮 → 按保底稀有度过滤抽取池；普通轮 → 全池
-    const bonusRound = pendingLootRounds > 0;
-    const drawPool = bonusRound ? bossLootPool() : cardPool;
-    const cards = drawPool.length ? drawCardChoices(drawPool, 3, { ammoLoadout: player.ammoLoadout }) : [];
-    if(cards.length === 0){
-      row.innerHTML = '<div class="screen-hint">卡池为空——请确认 cards/ 目录与 /api/cards 可用。</div>';
-    }
-    const rarityLabel = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇' };
-    for(const c of cards){
-      const d = document.createElement('div');
-      d.className = 'card';
-      d.innerHTML = `<div class="cname">${c.name}</div><div class="cdesc">${c.desc || ''}</div>` +
-        `<div class="mono" style="font-size:10px;color:var(--amber-dim);margin-top:6px;">${rarityLabel[c.rarity] || c.rarity} · ${(c.tags||[]).join('/')}</div>`;
-      d.addEventListener('click', () => { pickCard(c); advanceRewardFlow(); });
-      row.appendChild(d);
-    }
+    // 2026-09-14 定案：普通节点 5 选 2 / Boss 追加轮 5 选 3——抽取 + 选中态渲染（openRewardScreen）
+    openRewardScreen();
     showScreen('rewardScreen'); setOverlayVisible(true);
   } else if(state === 'gameover'){
     const diedAt = payload ? payload.nodeIndex : 0;
@@ -1289,6 +1557,88 @@ watchFlow(flow, (state, payload) => {
     showScreen('gameoverScreen'); setOverlayVisible(true);
   }
 });
+
+// ==================== 局内商店（2026-09-14 回归 · 基础参数升级） ====================
+// 节点结算界面内嵌；升级基础参数（RUN_SHOP_DEFS），购买消耗「本局得分 − 已花费」余额。
+// 硬上限：极速 ≤150km/h（maxSpeed ≤375px/s）、装填 ≥0.5s/发（RULES.parameterLimits 同源，
+// runShopLimitBlocked 逐条 effect 推导达限）；装甲 = 炮塔+车体同时加强单一升级项。
+// levels 挂 runShopLevels（beginRunFromMenu 归零，不跨局）；effects 走 run scope 修饰器
+// （source 'runshop:<id>'，removeRunModifiers 新局清除）；instant 项购买时直接消费。
+let runShopLevels = {};
+function runShopBalance(){ return Math.max(0, runScore - runScoreSpent); }
+
+function buyRunShopItem(defId){
+  const def = getRunShopDef(defId);
+  if(!def) return false;
+  const lv = runShopLevels[defId] | 0;
+  if(lv >= def.maxLevel) return false;
+  const blocked = runShopLimitBlocked(def, lv, player.stats);
+  if(blocked){ pushLog(`${def.name}：${def.limitLabel || '已达硬上限'}`, 'COVER'); playSound('block'); return false; }
+  const cost = runShopPriceFor(def, lv);
+  if(runShopBalance() < cost){ playSound('block'); return false; }
+  runScoreSpent += cost;
+  runShopLevels[defId] = lv + 1;
+  if(def.instant){
+    if(def.instant.type === 'healPct'){
+      const heal = Math.round(player.stats.maxHp * def.instant.value);
+      player.hp = Math.min(player.stats.maxHp, player.hp + heal);
+      spawnDmgText(player.x, player.y - 20, heal, 'plain');
+    } else if(def.instant.type === 'cdReduce'){
+      player.runKitCdBonus = player.runKitCdBonus || { repair: 0, medkit: 0 };
+      if(player.runKitCdBonus[def.instant.ability] !== undefined){
+        player.runKitCdBonus[def.instant.ability] += def.instant.value;
+      }
+    }
+  } else {
+    for(const ef of def.effects){
+      addModifier(player, { stat: ef.stat, mode: ef.mode, value: ef.value, scope: 'run', source: 'runshop:' + def.id });
+    }
+  }
+  pushLog(`局内商店：${def.name} → Lv${lv + 1}（−${cost} 分）`, 'PEN');
+  playSound('ui');
+  renderRunShop();
+  return true;
+}
+
+function renderRunShop(){
+  const listEl = document.getElementById('runShopList');
+  const balEl = document.getElementById('runShopBalance');
+  const box = document.getElementById('runShopBox');
+  if(!listEl || !box) return;
+  box.style.display = (run && flow.state === 'settlement' && !runFinished) ? '' : 'none';
+  if(box.style.display === 'none') return;
+  if(balEl) balEl.textContent = `余额 ${runShopBalance()} 分（本局 ${runScore} − 已花 ${runScoreSpent}）`;
+  const GROUP_NAMES = { firepower: '火力', armor: '防护', mobility: '机动', misc: '杂项' };
+  listEl.innerHTML = '';
+  let lastGroup = null;
+  for(const def of RUN_SHOP_DEFS){
+    if(def.group !== lastGroup){
+      lastGroup = def.group;
+      const h = document.createElement('div');
+      h.style.cssText = 'font-size:10px;color:var(--amber-dim);margin-top:4px;';
+      h.textContent = '— ' + (GROUP_NAMES[def.group] || def.group) + ' —';
+      listEl.appendChild(h);
+    }
+    const lv = runShopLevels[def.id] | 0;
+    const blocked = runShopLimitBlocked(def, lv, player.stats);
+    const cost = runShopPriceFor(def, lv);
+    const can = !blocked && lv < def.maxLevel && runShopBalance() >= cost;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:11px;';
+    const label = document.createElement('span');
+    label.style.cssText = 'flex:1; color:' + (blocked ? 'var(--text-dim)' : 'var(--text)') + ';';
+    label.innerHTML = `<b>${def.name}</b> <span style="color:var(--amber-dim);">Lv${lv}${def.maxLevel < 99 ? '/' + def.maxLevel : ''}</span><br><span style="font-size:9px;color:var(--text-dim);">${def.desc}</span>`;
+    const btn = document.createElement('button');
+    btn.textContent = blocked ? (def.limitLabel || '已达上限') : `${cost} 分`;
+    btn.disabled = !can;
+    btn.style.opacity = can ? '' : '0.4';
+    btn.style.padding = '3px 8px';
+    btn.addEventListener('click', () => buyRunShopItem(def.id));
+    row.appendChild(label);
+    row.appendChild(btn);
+    listEl.appendChild(row);
+  }
+}
 
 // P-14：死亡后商店（永久升级 + 复活次数，用商店点数购买）— 薄包装：buildDeathShopViewModel
 function renderDeathShop(){
@@ -1345,148 +1695,15 @@ window.buyReviveAndRefresh = function(){
   }
 };
 
-// ==================== P-41 局内商店（run 内属性升级 · 账本模型） ====================
-// 浮层叠在 settlement/reward 屏之上（不占用 flow 状态）；数据面消费 tank_economy.js
-// 的 RUN_SHOP_DEFS / runShopPriceFor / canAfford / applyRunShopPurchase 纯 API。
-
-function runShopBalance(){ return Math.max(0, runScore - runScoreSpent); }
-
-function resetRunShopState(){
-  runScoreSpent = 0;
-  runShopLevels = {};
-  toggleRunShop(false);
-}
-
-// 购买效果应用：instant 类直接改 hp / 冷却账本（不走修饰器）；effects 类 push scope='run' 修饰器，
-// source='runshop:<id>'——addModifier 内部 refreshStats 立即重算 stats；
-// removeRunModifiers（startNewRun / gameoverRestart / beginRunFromMenu 三路径）负责清除。
-function applyRunShopEffects(def){
-  if(def.instant && def.instant.type === 'healPct' && player.hp > 0){
-    const before = Math.ceil(player.hp);
-    player.hp = Math.min(player.stats.maxHp, player.hp + player.stats.maxHp * def.instant.value);
-    pushLog(`紧急维修：HP ${before} → ${Math.ceil(player.hp)}`, 'COVER');
-  }
-  // #90：修理箱/医疗包局内速冷——维护 run 级冷却减免账本（供能力冷却消费：基础45s − 永久×1 − 局内×3）
-  if(def.instant && def.instant.type === 'cdReduce'){
-    const ab = def.instant.ability;
-    if(!player.runShopCdBonus || typeof player.runShopCdBonus !== 'object') player.runShopCdBonus = { repair:0, medkit:0 };
-    player.runShopCdBonus[ab] = (player.runShopCdBonus[ab] || 0) - def.instant.value;
-    pushLog(`${ab === 'repair' ? '修理箱' : '医疗包'}冷却减免 −${def.instant.value}s（当前有效 ${effectiveKitCd(ab)}s）`, 'COVER');
-  }
-  for(const ef of (def.effects || [])){
-    addModifier(player, { stat: ef.stat, mode: ef.mode, value: ef.value, source: 'runshop:' + def.id, scope: 'run' });
-  }
-}
-
-// ==================== #90 修理箱/医疗包冷却账本（永久 ×1 + 局内 ×3） ====================
+// ==================== #90 修理箱/医疗包冷却账本（永久级数减免） ====================
+// 2026-09-14 局内商店回归：冷却 = 基础 45s − 永久级数 − 局内商店 cdReduce（下限 15s）。
 const KIT_BASE_CD = 45;   // 基础冷却（秒）
-const KIT_CD_FLOOR = 15;  // #A1：冷却下限显式钳底——满投入（永久 15 级 + 局内 5 级）恰 45−15−15=15s，防未来参数漂移破下限
+const KIT_CD_FLOOR = 15;  // #A1：冷却下限显式钳底（防未来参数漂移破下限）
 function kitPermLv(key){ return upgradeLevel(profile, key === 'repair' ? 'repair_kit_cd' : 'medkit_cd') | 0; }
-function kitRunLv(key){ return runShopLevels[key === 'repair' ? 'repair_kit_cd_run' : 'medkit_cd_run'] | 0; }
-function effectiveKitCd(key){ return Math.max(KIT_CD_FLOOR, KIT_BASE_CD - kitPermLv(key) - kitRunLv(key) * 3); }
-
-// #90/#A1：「当前值 → 购买后值」预览文本——逐商品独立现算（数值从 player.stats 与该商品自己的
-// def.effects/instant 取得），字段解耦后不存在跨商品联动。多面打包商品（装甲包）取首面现算并标注面数。
-function _statPathVal(path){
-  return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), player.stats);
+function effectiveKitCd(key){
+  const runBonus = (player && player.runKitCdBonus && player.runKitCdBonus[key]) || 0;
+  return Math.max(KIT_CD_FLOOR, KIT_BASE_CD - kitPermLv(key) - runBonus);
 }
-// 统一口径格式化：maxSpeed 以 km/h 显示（kmhFactor 唯一换算源）；系数类两位小数；其余整数+单位
-function _fmtStat(ef, v){
-  if(ef.stat === 'reload') return v.toFixed(2) + 's';
-  if(ef.stat === 'maxSpeed') return Math.round(v * RULES.speed.kmhFactor) + 'km/h';
-  if(String(ef.stat).indexOf('armor.') === 0) return Math.round(v) + 'mm';
-  if(ef.stat === 'penetration') return Math.round(v) + 'mm';
-  if(ef.stat === 'enginePower') return Math.round(v) + 'hp';
-  return v.toFixed(2);   // spreadMult / motionSpreadMul 等系数类
-}
-function runShopPreviewText(def){
-  if(def.instant && def.instant.type === 'healPct') return `维修 ${Math.round(def.instant.value * 100)}%HP`;
-  if(def.instant && def.instant.type === 'cdReduce'){
-    const cur = effectiveKitCd(def.instant.ability);
-    const next = Math.max(KIT_CD_FLOOR, cur - def.instant.value);
-    return cur <= KIT_CD_FLOOR ? `冷却已到下限 ${cur}s` : `冷却 ${cur}s→${next}s`;
-  }
-  const efs = def.effects || [];
-  if(!efs.length) return def.desc;
-  const ef = efs[0];
-  const cur = _statPathVal(ef.stat);
-  if(typeof cur !== 'number') return def.desc;
-  // 打包商品标注（同值多面）：按 stat 路径第二段推导部位名
-  const packTag = efs.length > 1 ? `（${ef.stat.split('.')[1] === 'hull' ? '车体' : '炮塔'}三面同步）` : '';
-  // #A1：达限商品只显示当前值 + 达限文案（与满级同款禁用先例）
-  // 传入 player.stats 使多面打包商品（装甲包）逐面按真实各面值判定达限
-  if(runShopLimitBlocked(def, cur, player.stats)) return `${_fmtStat(ef, cur)} ${def.limitLabel || '已达上限'}`;
-  // D3 #A2：满级商品只显示当前值（不再展示不可达的 →next 预览，避免误导）
-  const curLv = runShopLevels[def.id] || 0;
-  if(def.maxLevel !== undefined && def.maxLevel !== null && curLv >= def.maxLevel){
-    return `已满级 ${_fmtStat(ef, cur)}${packTag}`;
-  }
-  const next = ef.mode === 'mult' ? cur * ef.value : cur + ef.value;
-  return `${_fmtStat(ef, cur)}→${_fmtStat(ef, next)}${packTag}`;
-}
-
-const RUN_SHOP_GROUPS = [
-  { id: 'firepower', title: '🔥 火力 FIREPOWER' },
-  { id: 'armor',     title: '🛡 防护 ARMOR' },
-  { id: 'mobility',  title: '⚙ 机动 MOBILITY' },
-  { id: 'misc',      title: '🧰 杂项 MISC' }
-];
-
-function renderRunShopPanel(){
-  const el = document.getElementById('runShopBody');
-  if(!el) return;
-  let html = `<div class="screen-title">局内商店 RUN SHOP</div>` +
-    `<div style="font-size:11px;color:var(--amber-dim);margin-bottom:10px;">可用得分 <b id="runShopBalance">${runShopBalance()}</b>（总得分 ${runScore} − 已花 ${runScoreSpent}；花费不减终局转化得分）</div>`;
-  for(const g of RUN_SHOP_GROUPS){
-    const defs = RUN_SHOP_DEFS.filter(d => d.group === g.id);
-    if(!defs.length) continue;
-    html += `<div style="font-size:10px;letter-spacing:2px;color:var(--amber);border-bottom:1px solid var(--line);margin:10px 0 6px;padding-bottom:4px;">${g.title}</div>`;
-    for(const d of defs){
-      const lv = runShopLevels[d.id] || 0;
-      const price = runShopPriceFor(d, lv);
-      // D3 #A2：恢复 maxLevel 上限判定——满级商品按钮禁用（未定义 maxLevel 的商品仍无限购买）
-      const maxed = d.maxLevel !== undefined && d.maxLevel !== null && lv >= d.maxLevel;
-      // #A1：达限商品按钮禁用（reload 下限 / maxSpeed 上限），文案沿用 #A2 禁用先例
-      const ef0 = (d.effects || [])[0];
-      const blocked = !maxed && !!ef0 && runShopLimitBlocked(d, _statPathVal(ef0.stat));
-      const afford = !maxed && !blocked && canAfford(runShopBalance(), price);
-      const btnLabel = maxed ? '已满级' : blocked ? (d.limitLabel || '已达上限') : (price + ' 分');
-      html += `<div class="row" style="justify-content:space-between;">
-        <span class="k">${d.name} <span style="color:var(--text-dim);font-weight:normal;font-size:10px;">${runShopPreviewText(d)}</span></span>
-        <span>Lv ${lv}${d.maxLevel != null ? '/' + d.maxLevel : ''} · <button ${afford ? '' : 'disabled style="opacity:0.4"'} onclick="buyRunShopItem('${d.id}')">${btnLabel}</button></span>
-      </div>`;
-    }
-  }
-  el.innerHTML = html;
-}
-
-window.toggleRunShop = function(force){
-  const el = document.getElementById('runShopPanel');
-  if(!el) return;
-  const open = force !== undefined ? force : el.style.display === 'none';
-  el.style.display = open ? 'block' : 'none';
-  if(open) renderRunShopPanel();
-};
-
-window.buyRunShopItem = function(id){
-  const def = getRunShopDef(id);
-  if(!def) return;
-  // #A1：达限防御（reload 下限/maxSpeed 上限；按钮已禁用，此处双保险）
-  const ef0 = (def.effects || [])[0];
-  if(ef0 && runShopLimitBlocked(def, _statPathVal(ef0.stat), player.stats)) return;
-  const st = { total: runScore, spent: runScoreSpent, levels: runShopLevels };
-  const priceBefore = runShopPriceFor(def, runShopLevels[id] || 0);
-  if(!applyRunShopPurchase(st, id)) return;      // 余额不足/满级：按钮已禁用，此处防御
-  runScoreSpent = st.spent;
-  runShopLevels = st.levels;
-  applyRunShopEffects(def);
-  pushLog(`局内商店：购入「${def.name}」（−${priceBefore} 分）`, 'COVER');
-  playSound('ui');
-  renderRunShopPanel();
-};
-
-document.getElementById('settleShopBtn').addEventListener('click', () => { playSound('ui'); toggleRunShop(); });
-document.getElementById('rewardShopBtn').addEventListener('click', () => { playSound('ui'); toggleRunShop(); });
 
 function startNewRun(){
 	  profile.difficultyLevel = 0;                  // 难度重置（新开局强制 Lv.0）
@@ -1499,7 +1716,7 @@ function startNewRun(){
 	  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
 	  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
 	  pendingLootRounds = 0; pendingLootRarityIdx = -1;   // P-51 Wave2：跨局清 Boss 追加卡牌轮
-	  resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
+	  runScoreSpent = 0;                              // P-41 账本：新局归零（刷新卡牌等花费记账用）
 	  profile.stats.runs++;                         // P-14：局数统计
 	  pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.0）`, 'COVER');
 	  playSound('ui');
@@ -1526,7 +1743,7 @@ document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   restartRun(flow);                              // gameover → map（runId 自增）
   run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });  // 新的一局：难度强制重置 Lv.0
   runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
-  resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
+  runScoreSpent = 0;                              // P-41 账本：新局归零（刷新卡牌等花费记账用）
   removeRunModifiers(player);                   // P-12：清除上一局单局修饰器
   prepPlayerForRun();                            // M10：坦克配置 + 升级重挂 + 复活次数（含加购）
   // P-46：出击时刻冻结玩家基准属性快照
@@ -1696,18 +1913,17 @@ function deploymentReady(){
   const _f = (typeof TankScreens !== 'undefined' ? TankScreens.deploymentReady : null);
   if(_f) return _f(profile, tankListData);
   return !!(profile.selectedTankId && tankListData && tankListData[profile.selectedTankId]) &&
-         Array.isArray(profile.ammoLoadout) && profile.ammoLoadout.length >= 1;
+         Array.isArray(profile.ammoLoadout) && profile.ammoLoadout.length >= 1;   // 2026-09-14：开局恒 [ap,he]，prepPlayerForRun 保证
 }
 function refreshLoadHint(){
   const _bLoad = (typeof buildLoadoutViewModel === 'function' ? buildLoadoutViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildLoadoutViewModel : null));
   const hint = document.getElementById('loadHint');
-  if(hint){
+    if(hint){
     if(_bLoad){ hint.textContent = _bLoad({ profile, tankListData, ammoTypes: (typeof RULES !== 'undefined' ? RULES.ammoTypes : {}) }).hint; }
     else {
       hint.textContent = !profile.selectedTankId ? '请选择一辆出战坦克。'
         : (!tankListData || !tankListData[profile.selectedTankId]) ? '所选坦克不在当前 tanks/ 列表中，请重新选择。'
-        : (!(profile.ammoLoadout || []).length ? '请至少选配 1 种弹药。'
-        : `已选弹种 ${(profile.ammoLoadout).length}/3 · 配置在出击时写入存档。`);
+        : '开局弹种固定 [AP, HE]，局内经弹种升级卡解锁替换。';
     }
   }
   const ready = deploymentReady();
@@ -1739,27 +1955,7 @@ function renderLoadout(){
         grid.appendChild(card);
       }
     }
-    const ammoBox = document.getElementById('loadAmmoList');
-    ammoBox.innerHTML = '';
-    for(const r of vm.ammoRows){
-      const rowL = document.createElement('label'); rowL.className = 'ammo-row';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox'; cb.dataset.ammo = r.key;
-      cb.checked = r.checked;
-      cb.addEventListener('change', () => {
-        const arr = profile.ammoLoadout = profile.ammoLoadout || [];
-        if(cb.checked){
-          if(arr.length >= 3){ cb.checked = false; pushLog('弹种选配已达上限（最多 3 种）', 'COVER'); playSound('block'); return; }
-          if(arr.indexOf(r.key) < 0) arr.push(r.key);
-        } else { const i = arr.indexOf(r.key); if(i >= 0) arr.splice(i, 1); }
-        refreshLoadHint(); playSound('ui');
-      });
-      const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = r.color;
-      const nm = document.createElement('b'); nm.className = 'aname'; nm.textContent = r.label;
-      const st = document.createElement('span'); st.className = 'astat'; st.textContent = r.bits;
-      rowL.appendChild(cb); rowL.appendChild(dot); rowL.appendChild(nm); rowL.appendChild(st);
-      ammoBox.appendChild(rowL);
-    }
+    // 2026-09-14：开局弹种选择界面已移除——vm.ammoRows 不再渲染
     refreshLoadHint();
     return;
   }
@@ -1772,25 +1968,6 @@ function renderLoadout(){
     card.innerHTML = `<div class="tname">${id}</div><div class="tstat">${tankSummary(tankListData[id])}</div>`;
     card.addEventListener('click', () => { profile.selectedTankId = id; for(const el of grid.querySelectorAll('.tank-card')) el.classList.toggle('selected', el.dataset.tankId === id); refreshLoadHint(); playSound('ui'); });
     grid.appendChild(card);
-  }
-  const ammoBox = document.getElementById('loadAmmoList');
-  ammoBox.innerHTML = '';
-  for(const key of Object.keys(RULES.ammoTypes)){
-    const a = RULES.ammoTypes[key];
-    const rowL = document.createElement('label'); rowL.className = 'ammo-row';
-    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.dataset.ammo = key;
-    cb.checked = (profile.ammoLoadout || []).indexOf(key) >= 0;
-    cb.addEventListener('change', () => {
-      const arr = profile.ammoLoadout = profile.ammoLoadout || [];
-      if(cb.checked){ if(arr.length >= 3){ cb.checked = false; pushLog('弹种选配已达上限（最多 3 种）', 'COVER'); playSound('block'); return; } if(arr.indexOf(key) < 0) arr.push(key); }
-      else { const i = arr.indexOf(key); if(i >= 0) arr.splice(i, 1); }
-      refreshLoadHint(); playSound('ui');
-    });
-    const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = a.color;
-    const nm = document.createElement('b'); nm.className = 'aname'; nm.textContent = a.label;
-    const bits = [`穿深×${a.pen}`, `伤害×${a.dmg}`, `弹速×${a.speed}`]; if(a.noBounce) bits.push('无跳弹'); if(a.splashRadius) bits.push(`溅射${a.splashRadius}px`);
-    const st = document.createElement('span'); st.className = 'astat'; st.textContent = bits.join(' · ');
-    rowL.appendChild(cb); rowL.appendChild(dot); rowL.appendChild(nm); rowL.appendChild(st); ammoBox.appendChild(rowL);
   }
   refreshLoadHint();
 }
@@ -1845,30 +2022,46 @@ function renderShop(){
 function prepPlayerForRun(){
   const spec = (profile.selectedTankId && tankListData) ? tankListData[profile.selectedTankId] : null;
   if(spec) applyTankConfig(player, spec);            // selectedTankId → 玩家实体配置（找不到则保持默认车）
+  // 2026-09-14 新局从 0 开始（除永久升级）：上一局的卡牌升级（cardEffects：主动技能/
+  // 无人机/被动/副武器安装/弹种改造）不得带入 —— 全部清零。
+  player.cardEffects = [];
+  clearDrones(player);                               // 随行无人机属 cardEffects 派生，一并清
+  player.unlockedAmmo = ['ap', 'he'];                // 弹种解锁进度不跨局（开局恒 ap/he）
+  // 卡牌安装的副武器/主武器不跨局：坦克 spec 未显式定义 weapons 时回落出厂默认
+  if(!(spec && spec.weapons)){
+    player.weapons = { primary: { type: 'standard', stats: {} }, secondary: { type: 'none', stats: {} } };
+  }
+  // 开局弹种恒 [ap, he]（开局弹种选择界面已按用户裁定移除；局内经弹种升级卡链式替换）
+  profile.ammoLoadout = ['ap', 'he'];
+  player.ammoLoadout = ['ap', 'he'];
+  player.currentAmmoIndex = 0;
   player.modifiers = player.modifiers.filter(m => String(m.source || '').indexOf('upgrade:') !== 0);
   refreshStats(player);
-  applyUpgrades(player, profile);                    // P-14：永久升级（permanent scope）
+  applyUpgrades(player, profile);                    // P-14：永久升级（permanent scope，唯一跨局成长）
   player.revives = RULES.revive.baseRevives + (profile.bonusRevives | 0);   // P-11 基础 + M10 加购
-  player.ammoLoadout = (profile.ammoLoadout || []).slice();  // 特性4 预挂载（本任务只带数据上战场）
-  player.currentAmmoIndex = 0;
   // §2.2 索引化切换：初始弹种必须同步槽 0 —— resetEntity 不清 ammoKey，
   // 不补这行的话上一局切到 heat，下一局 HUD 高亮槽 0 实际却发射旧弹种。
   player.ammoKey = activeLoadout()[0];
   renderAmmoIndicator();                             // 槽位组随本局配备重建（≤3 格）
   resetEntity(player);                               // 恢复 spawn 快照（hp 已随 applyTankConfig 同步 maxHp）
   player.hp = player.stats.maxHp;                    // #99：满血出击（resetEntity 后兜底，防快照 hp 陈旧）
-  // #90 修理箱/医疗包（开局自带）：基础冷却 45s − 永久级数×1；run 级减免账本随新局归零
+  player.runKitCdBonus = { repair: 0, medkit: 0 };   // 局内商店 cdReduce 不跨局
+  // #90 修理箱/医疗包（开局自带）：基础冷却 45s − 永久级数×1
   player.abilityBaseCd = { repair: effectiveKitCd('repair'), medkit: effectiveKitCd('medkit') };
-  player.runShopCdBonus = { repair: 0, medkit: 0 };
+  player.drownT = 0; player._drownWarned = false;
+  // 2026-09-15 W2：主/副武器槽位选择不跨局——新局恒回主炮；锁定状态一并清
+  player.activeWeaponSlot = 'primary';
+  player._missileLock = null;
 }
 
 function beginRunFromMenu(){
   if(!deploymentReady()){
-    pushLog('出击被拒绝：请先选择出战坦克并至少选配 1 种弹药', 'CRIT');
+    pushLog('出击被拒绝：请先选择出战坦克', 'CRIT');
     refreshLoadHint();
     return false;
   }
   removeRunModifiers(player);                        // P-12：清上一局残留单局修饰器
+  runShopLevels = {};                                // 2026-09-14：局内商店升级不跨局
   prepPlayerForRun();
   // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
   // P-46：出击时刻冻结玩家基准属性快照（深拷贝，单局内不变）
@@ -1876,7 +2069,7 @@ function beginRunFromMenu(){
   // P-34：env.difficultyLevel 注入跨局难度等级（新开局强制重置 Lv.0）
   run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });   // __TEST__.setSeed 一次性透传
   runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
-  resetRunShopState();                           // P-41：spent/levels 归零 + 收起商店浮层
+  runScoreSpent = 0;                              // P-41 账本：新局归零（刷新卡牌等花费记账用）
   profile.stats.runs++;                              // P-14：局数统计
   profile.difficultyLevel = 0;                  // 难度重置
   saveActiveProfile(localStorage, profile);          // 配置与统计落盘（active 槽）
@@ -1891,24 +2084,22 @@ document.getElementById('loadShopBtn').addEventListener('click', () => { playSou
 document.getElementById('loadHomeBtn').addEventListener('click', () => { playSound('ui'); transition(flow, 'home'); });
 document.getElementById('shopLoadoutBtn').addEventListener('click', () => { playSound('ui'); transition(flow, 'loadout'); });
 
-// ---------- log（P-15：收纳至开发者面板） ----------
+// ---------- log（P-15/P-46/#A25：独立日志面板 createLogPanel，位置左下角由 #logPanel CSS 决定） ----------
 const logEl = document.getElementById('devLog');
-function logClear(){ if(logEl) logEl.innerHTML=''; }
-function pushLog(text, cls){
-  if(!logEl) return;
-  const d = document.createElement('div');
-  d.className = cls||'';
-  const time = new Date().toLocaleTimeString('en-GB',{hour12:false});
-  d.textContent = `[${time}] ${text}`;
-  logEl.prepend(d);
-  while(logEl.children.length>25) logEl.removeChild(logEl.lastChild);
-}
+// #A25：日志拆成独立面板对象（open/close/toggle 生命周期）；未提供 createLogPanel 时回退既有 makeLogSink。
+mvpLogPanel = (typeof createLogPanel === 'function')
+  ? createLogPanel(document.getElementById('logPanel'), { list: logEl, hiddenClass: 'rt-log-hidden' })
+  : null;
+const log = mvpLogPanel || makeLogSink(logEl);   // js/tank_panels.js 门面 — 与 tank_bench 共享同一行为
+function logClear(){ log.clear(); }
+function pushLog(text, cls){ log.push(text, cls); }
 
 // ---------- 调试按钮（P-15：收纳至开发者面板；战斗态禁用防破坏节点） ----------
 document.getElementById('genNodeBtn').addEventListener('click', ()=>{
   if(run && flow.state === 'battle'){ pushLog('战斗中不可随机生成（会破坏节点掩体）','COVER'); return; }
   const randomDiff = Math.random();
   const res = generateNode(randomDiff, { applyToCovers: true });
+  groundLayerCanvas = null;   // dev 随机场：道路回退逐段绘制
   pushLog(`随机生成战场: [${res.template.name}] 难度=${(randomDiff*100).toFixed(0)}% 元素数=${res.covers.length}`,'COVER');
 });
 document.getElementById('resetBtn').addEventListener('click', ()=>{
@@ -1986,7 +2177,7 @@ let bounceFx = []; // ricochet spark visuals
 // [P-28] 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用
 let fireCtx = null;
 
-// [P-28] 战斗发射管线已收敛到 js/tank_fire.js（fireTank/fireSmokeShell/tryFire/tryFireSmoke 由共享模块提供）
+// [P-28] 战斗发射管线已收敛到 js/tank_fire.js（fireTank/tryFire 由共享模块提供；烟幕弹已于 2026-09-15 移除）
 // ---------- P-17 玩家主动能力（战术炮击 G / 战术护盾 H / 超级装填 V） ----------
 // 统一入口 js/tank_abilities.js tryActivateAbility：持有对应卡（cardEffects 含 {type:'ability',key}）
 // 才可激活；共享冷却 abilityCdT（模块内递减，mvp 主循环 updateAbilityCd 驱动）。按键处不做冷却
@@ -2036,6 +2227,17 @@ function tryOverdrive(){
     pushLog(`超级装填 — 装填立即完成，${res.duration}s 内装填 ×${res.reloadMult}`, 'PEN');
   } else {
     abilityFailLog('超级装填', res);
+  }
+}
+
+function tryDeployCover(){
+  if(!player || player.hp <= 0 || player.immobT > 0) return;
+  const res = tryActivateAbility(player, 'deploy_cover');
+  if(res.ok){
+    playSound('ui');
+    pushLog('战术掩体部署 — 充能护盾掩体已设立', 'PEN');
+  } else {
+    abilityFailLog('战术掩体', res);
   }
 }
 
@@ -2130,12 +2332,13 @@ function update(dt){
   const worldH = (run && currentNode) ? currentNode.h : canvas.height;
 
   if(!isClearing){
-    // 驾驶（转向/加减速/掩体通行/碰撞/履带相位）统一在 js/tank_move.js 的 driveTank
+    // 驾驶（转向/加减速/掩体通行/碰撞/履带相位）统一在 js/tank_move.js 的 driveTank；
+    // 键位与倒车倒置设置由共享输入控制器统一产出（与测试台同源，tank_bindings.js）。
+    const drv = input.driveArgs();
     driveTank(player, dt, {
-      turn: keys['a'] ? -1 : (keys['d'] ? 1 : 0),
-      move: keys['w'] ? 1 : (keys['s'] ? -1 : 0),
-      // P-35：倒车转向倒置（玩家持久化设置；AI 不传 → 默认关闭零影响）
-      invertTurnWhenReversing: !!(profile.settings && profile.settings.invertReverseTurn)
+      turn: drv.turn,
+      move: drv.move,
+      invertTurnWhenReversing: drv.invertTurnWhenReversing   // P-35：玩家持久化设置；AI 不传 → 默认关闭零影响
     });
   }
   if(player.immobT<=0){ player.immobT=0; player.trackBroken=false; }
@@ -2242,24 +2445,55 @@ function update(dt){
     computeAmmoConfig,
     devAim,
     fireTank,
-    fireSmokeShell,
+    // #A21：显式注入（P-28 约定对齐）——spawnMuzzleFlash（tank_fx.js，此前仅靠全局回退）；
+    // spawnMine/deployables 来自 tank_deployables.js（mine_layer 手动布雷的注册表与入口，
+    // 缺失时 fireActiveSecondary 的 mine 分支会静默返回 false）。
+    spawnMuzzleFlash,
+    spawnMine,
+    deployables,
     bounceAngle: BOUNCE_ANGLE,
     worldW: worldW,
     worldH: worldH,
     random: Math.random
   };
 
-  // #A7：按住左键持续开火（reloadT 门控在 fireTank 内保证射速间隔）
+  // #A7：按住左键持续开火（门控在 fireTank/fireActiveSecondary 内保证射速间隔）
+  // 2026-09-15 #A21：左键/空格按激活槽位分发——primary→tryFire（空格=齐射，双管全就绪管；
+  // 左键=单发 1 管，W4 语义），secondary→fireActiveSecondary（目标=鼠标世界点）。
   if(!isClearing){
-    if(mouseFireHeld && flow.state === 'battle' && !statusOpen && !devOpen) tryFire(fireCtx);
-    if(keys[' ']) tryFire(fireCtx);
-    if(keys['f']) tryFireSmoke(fireCtx);   // P-17：F 键发射烟幕弹（玩家专属）
-    if(keys['g']) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
-    if(keys['h']) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
-    if(keys['v']) tryOverdrive();   // P-17：V 键超级装填（爆发装填）
-    if(keys['4']) tryRepairKit();   // #90：4 键修理箱（开局自带）
-    if(keys['5']) tryMedkit();      // #90：5 键医疗包（开局自带）
-    if(keys['6']) tryExtinguish();  // 自动灭火器（开局自带）
+    if(mouseFireHeld && flow.state === 'battle' && !statusOpen && !devOpen) tryFireWeaponSlot(fireCtx);
+    if(input.isDown('fire')) tryFireWeaponSlot(fireCtx, true);
+    if(input.isDown('abilityStrike')) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
+    if(input.isDown('abilityShield')) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
+    if(input.isDown('abilityOverdrive')) tryOverdrive();   // P-17：V 键超级装填（爆发装填）
+    if(input.isDown('supportRepair')) tryRepairKit();   // #90：4 键修理箱（开局自带）
+    if(input.isDown('supportMedkit')) tryMedkit();      // #90：5 键医疗包（开局自带）
+    if(input.isDown('supportExtinguish')) tryExtinguish();  // 自动灭火器（开局自带）
+  }
+
+  // 2026-09-15 #A21：玩家副武器不再「F 激活即自动运作」——左键/空格按激活槽位手动击发
+  // （tryFireWeaponSlot → fireActiveSecondary，目标=鼠标世界点）；副武器装填计时 secondaryReloadT
+  // 恒递减（待机冷却，与主炮 reloadT 对称）。仅 turret 型为设计例外：激活槽位下继续逐帧
+  // updateSecondaryWeapon 自主开火（PLAN 6.2 副炮塔定义——带独立炮塔角的自瞄武器系统，玩家卡池
+  // 暂无 turret 安装卡，保留自主例外书面注明；点击分发对 turret 不起作用）。
+  if(!isClearing && player && player.hp > 0 && player.weapons && player.weapons.secondary && player.weapons.secondary.type !== 'none'){
+    const secW = player.weapons.secondary;
+    if(player.activeWeaponSlot === 'secondary' && secW.type === 'turret'){
+      if(typeof updateSecondaryWeapon === 'function') updateSecondaryWeapon(player, dt, fireCtx);
+    } else if(player.secondaryReloadT > 0){
+      player.secondaryReloadT -= dt;
+    }
+  }
+
+  // 2026-09-15 W6：autocannon 热量冷却逐帧驱动（burst 连发路径已删除）
+  // 2026-09-15 W4：双管每管独立装填计时驱动（_dbState）
+  if(!isClearing && player && player.hp > 0){
+    if(typeof updatePrimaryHeat === 'function'){
+      updatePrimaryHeat(player, dt);
+    }
+    if(typeof updatePrimaryBarrels === 'function' && player._dbState){
+      updatePrimaryBarrels(player, dt);
+    }
   }
 
   // keep every tank from overlapping its neighbours
@@ -2295,6 +2529,18 @@ function update(dt){
       if(d.fire){
         const target = e.team === 'ally' ? nearestEnemyTo(e) : player;
         if(target && target.hp > 0) fireTank(e, target, 'auto', fireCtx);
+      }
+      // 2026-09-15 W6：autocannon 热量冷却驱动（敌人/友军同 player 路径）
+      // 2026-09-15 W4：双管每管独立装填计时驱动
+      if(typeof updatePrimaryHeat === 'function'){
+        updatePrimaryHeat(e, dt);
+      }
+      if(typeof updatePrimaryBarrels === 'function' && e._dbState){
+        updatePrimaryBarrels(e, dt);
+      }
+      // 阶段七 7.2：副武器全类型自主更新（turret/mortar/missile/rocket/mine_layer）
+      if(typeof updateSecondaryWeapon === 'function' && e.weapons && e.weapons.secondary && e.weapons.secondary.type !== 'none'){
+        updateSecondaryWeapon(e, dt, fireCtx);
       }
     }
   }
@@ -2334,18 +2580,48 @@ function update(dt){
     tickDebuffs(e, dt);
     // 起火：DOT 伤害（每秒 = 攻击方标准伤害 × RULES.fire.dotRatio）+ P-15 飘字（0.35s 聚合）
     // #A6：hp>0 门控——目标死亡后 DOT 不再继续扣血/跳字
+    // B2（2026-09）：结算缓冲(isClearing)期间冻结 DOT 伤害与飘字，计时器仍推进使 DOT 自然熄灭。
     if(e.dotT>0 && !invuln && e.hp>0){
       e.dotT -= dt;
-      const dotDmg = (e.dotDps||0)*dt;
-      applyDamage(e, dotDmg);   // 统一经 applyDamage 尊重 dmgTakenMul 减伤（飘字仍用原始 dotDmg）
-      e._dotAcc = (e._dotAcc||0) + dotDmg;
-      e._dotTxt = (e._dotTxt||0) + dt;
-      if(e._dotTxt >= 0.35){
-        spawnDmgText(e.x, e.y - e.hullWid*0.6, Math.round(e._dotAcc), 'dot');
-        e._dotAcc = 0; e._dotTxt = 0;
+      if(!isClearing){
+        const dotDmg = (e.dotDps||0)*dt;
+        applyDamage(e, dotDmg);   // 统一经 applyDamage 尊重 dmgTakenMul 减伤（飘字仍用原始 dotDmg）
+        e._dotAcc = (e._dotAcc||0) + dotDmg;
+        e._dotTxt = (e._dotTxt||0) + dt;
+        if(e._dotTxt >= 0.35){
+          spawnDmgText(e.x, e.y - e.hullWid*0.6, Math.round(e._dotAcc), 'dot');
+          e._dotAcc = 0; e._dotTxt = 0;
+        }
       }
       if(e.dotT<=0){ e.dotT=0; e.dotDps=0; e._dotAcc=0; e._dotTxt=0; }
     }
+    // 溺毙（2026-09-14 水域行为重做）：完全浸入水体 → 倒计时 → 沉没摧毁。
+    // 玩家/敌军/Boss/友军一视同仁；出水即复位。结算缓冲期不累计（防清场帧误杀）。
+    if(e.hp > 0 && !invuln && !isClearing && typeof tankFullyInWater === 'function' && tankFullyInWater(e)){
+      e.drownT = (e.drownT || 0) + dt;
+      const drownSec = (RULES.drowning && RULES.drowning.seconds) || 8;
+      if(e.drownT >= drownSec){
+        applyDamage(e, e.hp + 9999, { x: e.x, y: e.y });   // 沉没：直接摧毁（死亡管线在下方统一处理）
+        if(e === player) pushLog('⚠ 车辆沉没！完全浸水 8 秒 — 溺毙', 'CRIT');
+        else pushLog(`${e.id} 沉没于水域`, 'COVER');
+        e.drownT = 0;
+      } else if(e === player && !e._drownWarned){
+        e._drownWarned = true;
+        playSound('ui');
+        pushLog('⚠ 完全浸水 — 溺毙倒计时开始，立即驶出水域！', 'CRIT');
+      }
+    } else {
+      e.drownT = 0;
+      e._drownWarned = false;
+    }
+    // 溺毙特效：完全浸水时车辆周围冒气泡（火花粒子染蓝作气泡）
+    if(e.hp > 0 && (e.drownT || 0) > 0 && typeof spawnSpark === 'function'){
+      for(let i = 0; i < 2; i++){
+        const a = Math.random() * Math.PI * 2;
+        spawnSpark(e.x + Math.cos(a) * e.hullWid * 0.6, e.y + Math.sin(a) * e.hullWid * 0.6, -Math.PI/2, 30 + Math.random() * 20, 0.5, 1.0, 'cyan');
+      }
+    }
+
     // 起火特效：已摧毁的坦克持续燃烧；存活坦克在 fireT 时间内燃烧
     if(e.hp<=0 && e._dead){
       e.fireT = Math.max(e.fireT, 2);
@@ -2400,10 +2676,11 @@ function update(dt){
     return dec;
   }
 
-  // 炮弹逐帧真实飞行（特性2）：每帧炮口到落点做 swept-segment 检测，
+  // [P-28] 炮弹逐帧真实飞行（特性2）：每帧炮口到落点做 swept-segment 检测，
   // 对敌方坦克与全高掩体取路径上最近障碍；命中后按"命中时刻"结算。
   // [P-28] 炮弹飞行积分已收敛到 js/tank_fire.js stepShells（半高越掩/护盾!s.absorbed/HE破障/烟幕/二次跳弹禁止）
-  stepShells(dt, fireCtx);
+  // B2（2026-09）：结算缓冲(isClearing)期间冻结炮弹飞行，避免缓冲 3 秒内残弹仍击伤玩家（仅粒子/倒计时推进）。
+  if(!isClearing) stepShells(dt, fireCtx);
   // [P-28] 原地过滤保持数组引用稳定——fireCtx.shells/impacts/bounceFx 由事件处理器跨帧持有，
   // 若用 `arr = arr.filter(...)` 重赋值会让 fireCtx 持有过期引用（症状：有火光无炮弹）
   for(let i=shells.length-1;i>=0;i--){ if(shells[i].dead) shells.splice(i,1); }
@@ -2515,7 +2792,13 @@ function update(dt){
       // Boss 节点无配额：沿用「Boss+summons 全灭」判定。
       const quotaDone = currentNode && !currentNode.boss &&
         Number.isFinite(currentNode.quota) && (battleState.nodeKills || 0) >= currentNode.quota;
-      if(quotaDone || livingNodeEnemies().length === 0){
+      // B1（2026-09）：仅在配额已满，或当前无法再增援（Boss / 无配额）时才进入结算缓冲。
+      // 常规节点的「初始全灭但配额未满」不结算 —— 由增援间隔(reinforceInterval=8s)补党继续战斗；
+      // reinforcementTick 在 alive===0 时仍产出 spawn spec（见 js/tank_map.js），故不会软锁。
+      const noEnemies = livingNodeEnemies().length === 0;
+      const canReinforce = !!(currentNode && !currentNode.boss &&
+        Number.isFinite(currentNode.quota) && (battleState.nodeKills || 0) < currentNode.quota);
+      if(quotaDone || (noEnemies && !canReinforce)){
         if(!battleState.clearing){
           battleState.clearing = true;
           battleState.clearingT = 3.0; // 3秒冻结缓冲
@@ -2597,7 +2880,7 @@ function updateBottomHud(){
   const hpVal = document.getElementById('playerHpVal');
   if(hpVal) hpVal.textContent = `${Math.ceil(player.hp)} / ${Math.round(s.maxHp)}`;
 
-  // 1-3 弹种槽位更新
+  // 1-3 弹种槽位更新（数字角标显示当前弹种名与快捷切弹 Q/E 提示，点击仍可切弹）
   const loadout = (player.ammoLoadout && player.ammoLoadout.length) ? player.ammoLoadout : [player.ammoKey || 'ap'];
   for(let i = 0; i < 3; i++){
     const slotBtn = document.getElementById(`slot${i+1}`);
@@ -2607,6 +2890,8 @@ function updateBottomHud(){
       const meta = (typeof RULES !== 'undefined' && RULES.ammoTypes && RULES.ammoTypes[ak]) || {};
       const labelEl = slotBtn.querySelector('.label');
       if(labelEl) labelEl.textContent = (meta.label || ak).toUpperCase();
+      const numEl = slotBtn.querySelector('.num');
+      if(numEl) numEl.textContent = (player.currentAmmoIndex === i || player.ammoKey === ak) ? '●' : '○';
       slotBtn.style.display = '';
       slotBtn.classList.toggle('active', player.currentAmmoIndex === i || player.ammoKey === ak);
     } else {
@@ -2628,9 +2913,9 @@ function updateBottomHud(){
   const extCd = (player.abilityCds && player.abilityCds.extinguish) || 0;
   cd('cd6', extCd > 0 ? extCd.toFixed(0) : '', extCd > 0);
 
-  // F/G/H/V 战术技能条件展示（仅当玩家持有对应能力卡牌/属性时显示）
+  // F/G/H/V 战术技能条件展示（F=切换主/副武器：有副武器即显示；G/H/V 按持有能力卡显示）
   const btnF = document.getElementById('btnF');
-  if(btnF) btnF.style.display = hasAbility(player, 'smoke') ? '' : 'none';
+  if(btnF) btnF.style.display = (player.weapons && player.weapons.secondary && player.weapons.secondary.type !== 'none') ? '' : 'none';
 
   const btnG = document.getElementById('btnG');
   if(btnG) btnG.style.display = hasAbility(player, 'artillery') ? '' : 'none';
@@ -2654,6 +2939,38 @@ function updateBottomHud(){
 // 偏移量：垂直于炮塔方向向外（避免重叠炮管贴图）。
 function drawReloadRing(ctx){
   if(!(flow.state === 'battle' && player.hp > 0)) return;
+  // 2026-09-15 W6：autocannon 玩家——炮管旁同一环形改为热量表（绿 <50% / 黄 50–<100% /
+  // 红 ≥100% 过热，锁定期间红色闪烁）；冷却中热量归零后环消失。
+  const _isAc = player.weapons && player.weapons.primary && player.weapons.primary.type === 'autocannon';
+  if(_isAc){
+    const heat = player.heatPct || 0;
+    const locked = player.heatLockT !== undefined && player.heatLockT > 0;
+    if(!(heat > 0 || locked)) return;
+    const tip = gunTip(player);
+    const OFFSET_DIST = 20;
+    const perpAngle = player.turretAngle - Math.PI / 2;
+    const wp = worldToScreen(cam, tip.x + Math.cos(perpAngle) * OFFSET_DIST, tip.y + Math.sin(perpAngle) * OFFSET_DIST);
+    const R = 13;
+    const p = Math.max(0, Math.min(1, heat / 100));
+    // 背景暗环
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(12,13,9,0.7)';
+    ctx.beginPath();
+    ctx.arc(wp.x, wp.y, R, 0, TAU);
+    ctx.stroke();
+    // 热量弧：-90° 顺时针扫 360°*p；颜色三态
+    const a0 = -Math.PI/2;
+    let col = '#7ed957';                                   // 绿 <50%
+    if(locked) col = (Math.floor(performance.now() / 120) % 2 === 0) ? '#ff5040' : 'rgba(255,80,64,0.35)';
+    else if(heat >= 100) col = '#ff5040';                  // 红 = 过热
+    else if(heat >= 50) col = '#ffd24a';                   // 黄 50–<100%
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(wp.x, wp.y, R, a0, a0 + TAU * Math.max(p, locked ? 1 : 0));
+    ctx.stroke();
+    return;
+  }
   if(!(player.reloadT > 0 && player.stats.reload > 0)) return;
   const dur = player.stats.reload / debuffReloadRate(player);
   if(!(dur > 0)) return;
@@ -2735,6 +3052,47 @@ function drawDrones(){
 // P-17：侦察无人机指示箭头（屏幕空间，摄像机变换之外）：视口外敌军方向 + 距离。
 // 数据由 js/tank_drone.js droneIndicators 产出——仅存在存活 scout 时输出（视口外 + scoutRange 内
 // + 敌对）；无 scout 时返回空数组自动跳过。绘制在无人机实体之上、UI 之下。
+// 2026-09-15 #A21：玩家导弹改手动击发（沿鼠标方向直飞，target=null）不再走锁定自动流——
+// player._missileLock 恒为 null，本指示器仅在实体制导弹锁定流程（AI 侧 updateMissileLock）时绘制。
+// 保留既有绘制逻辑：锁定目标四角括号（红色）+ 顶部进度弧 + 剩余秒数；锁定完成（_missileLock 清空）与未锁定时不画。
+function drawMissileLock(ctx){
+  const lk = player && player._missileLock;
+  if(!lk || !lk.target || lk.target.hp <= 0) return;
+  if(player.activeWeaponSlot !== 'secondary') return;
+  const tgt = lk.target;
+  if(!aabbInView(cam, tgt.x, tgt.y, 80, 80, 20)) return;
+  const wCfg = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults('secondary', 'missile') : {};
+  const wStats = (player.weapons && player.weapons.secondary && player.weapons.secondary.stats) || {};
+  const lockSeconds = (typeof wStats.lockSeconds === 'number') ? wStats.lockSeconds : (wCfg.lockSeconds || 1.0);
+  const p = Math.max(0, Math.min(1, lk.t / Math.max(0.001, lockSeconds)));
+  const r = Math.max(22, (tgt.hullLen || 50) * 0.55);
+  ctx.save();
+  // 四角括号
+  ctx.strokeStyle = 'rgba(255,70,50,0.9)';
+  ctx.lineWidth = 2;
+  const cLen = r * 0.45;
+  for(const [sx, sy] of [[-1,-1],[1,-1],[1,1],[-1,1]]){
+    ctx.beginPath();
+    ctx.moveTo(tgt.x + sx*r, tgt.y + sy*r - sy*cLen);
+    ctx.lineTo(tgt.x + sx*r, tgt.y + sy*r);
+    ctx.lineTo(tgt.x + sx*r - sx*cLen, tgt.y + sy*r);
+    ctx.stroke();
+  }
+  // 进度弧（-90° 起顺时针扫 p 圈）
+  ctx.strokeStyle = 'rgba(255,70,50,0.95)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(tgt.x, tgt.y, r * 0.72, -Math.PI/2, -Math.PI/2 + TAU * p);
+  ctx.stroke();
+  // 剩余秒数
+  ctx.fillStyle = 'rgba(255,120,90,0.95)';
+  ctx.font = 'bold 11px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('锁定 ' + Math.max(0, lockSeconds - lk.t).toFixed(1) + 's', tgt.x, tgt.y - r - 10);
+  ctx.restore();
+}
+
 function drawDroneIndicators(){
   const inds = droneIndicators(cam, entities);
   if(!inds.length) return;
@@ -2788,6 +3146,112 @@ function entityHiddenByVision(e){
   return Math.hypot(e.x - player.x, e.y - player.y) > VISION_CFG.inner * VISION_CFG.radius;   // 贴身内圈恒可见
 }
 
+// ===== 2026-09-14 曲线路网地面预烘焙（平滑连续路面渲染，消除胶囊感） =====
+// 进图前把整条道路平滑折线绘制到离屏画布（节点世界尺寸），draw() 每帧只做一次 drawImage。
+// 从 road 链段（tier 'road'，同 groupId 首尾相接）准确重建完整路径点集，一次性连贯描边绘制。
+let groundLayerCanvas = null;
+function bakeNodeGroundLayer(node){
+  groundLayerCanvas = null;
+  if(!node || !node.w || !node.h) return;
+  // 排除已损毁段（hp === 0）。用 `!== 0` 而非 `> 0`：本函数在 materializeNode 之后调用，
+  // 正常路径下 snapshotCovers 已把 road 的 hp 补为 Infinity，两种写法等价；但若 covers
+  // 尚未快照（缺 hp 字段，如开发者随机场路径），`> 0` 会把全部 road 段静默滤空、
+  // 预烘焙层变空，`!== 0` 则保持健壮。
+  const roadCovs = covers.filter(c => c.tier === 'road' && c.hp !== 0);
+  if(!roadCovs.length) return;
+
+  // 准确计算链段的几何中心线端点（扣除 OBB 占位外扩 overlap）
+  const ends = (c) => {
+    const ca = Math.cos(c.angle || 0), sa = Math.sin(c.angle || 0);
+    const nominalSpan = Math.max(10, c.w - (c.h || 64) * 0.35);
+    const hw = nominalSpan / 2;
+    return [{ x: c.x - ca * hw, y: c.y - sa * hw }, { x: c.x + ca * hw, y: c.y + sa * hw }];
+  };
+
+  // 按 groupId 分组
+  const groups = new Map();
+  roadCovs.forEach((c, i) => {
+    const g = c.groupId || ('__road_' + i);
+    if(!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(c);
+  });
+
+  // 每组串联为平滑连续折线
+  const paths = [];
+  for(const segs of groups.values()){
+    const used = new Set();
+    const matchTol = Math.max(35, (segs[0] ? segs[0].h : 64) * 0.6);
+    for(const s0 of segs){
+      if(used.has(s0)) continue;
+      used.add(s0);
+      const [a0, b0] = ends(s0);
+      const chain = [a0, b0];
+      let extended = true;
+      while(extended){
+        extended = false;
+        const tail = chain[chain.length - 1];
+        const head = chain[0];
+        let bestCandidate = null, bestDist = matchTol, attachAt = null;
+        for(const s of segs){
+          if(used.has(s)) continue;
+          const [a, b] = ends(s);
+          const dTailA = Math.hypot(tail.x - a.x, tail.y - a.y);
+          const dTailB = Math.hypot(tail.x - b.x, tail.y - b.y);
+          const dHeadA = Math.hypot(head.x - a.x, head.y - a.y);
+          const dHeadB = Math.hypot(head.x - b.x, head.y - b.y);
+
+          if(dTailA < bestDist){ bestDist = dTailA; bestCandidate = s; attachAt = 'tail_b'; }
+          if(dTailB < bestDist){ bestDist = dTailB; bestCandidate = s; attachAt = 'tail_a'; }
+          if(dHeadB < bestDist){ bestDist = dHeadB; bestCandidate = s; attachAt = 'head_a'; }
+          if(dHeadA < bestDist){ bestDist = dHeadA; bestCandidate = s; attachAt = 'head_b'; }
+        }
+        if(bestCandidate){
+          used.add(bestCandidate);
+          const [a, b] = ends(bestCandidate);
+          if(attachAt === 'tail_b') chain.push(b);
+          else if(attachAt === 'tail_a') chain.push(a);
+          else if(attachAt === 'head_a') chain.unshift(a);
+          else if(attachAt === 'head_b') chain.unshift(b);
+          extended = true;
+        }
+      }
+      paths.push({ pts: chain, w: s0.h || 70 });
+    }
+  }
+  if(!paths.length) return;
+
+  const cv = document.createElement('canvas');
+  cv.width = node.w; cv.height = node.h;
+  const g = cv.getContext('2d');
+  // 圆角连接（路段转折处平滑）但端帽用 butt：端帽不再外凸半路宽，
+  // 使落在节点边界线上的路头呈「延伸出画面」而非「圆弧尽头」（ground 层由 drawImage 裁剪）。
+  g.lineCap = 'butt'; g.lineJoin = 'round';
+
+  for(const p of paths){
+    if(p.pts.length < 2) continue;
+    // 1. 路床基底与暗色路缘（外扩 8px）
+    g.strokeStyle = '#32302b';
+    g.lineWidth = p.w + 8;
+    g.beginPath();
+    g.moveTo(p.pts[0].x, p.pts[0].y);
+    for(let i = 1; i < p.pts.length; i++) g.lineTo(p.pts[i].x, p.pts[i].y);
+    g.stroke();
+
+    // 2. 连续平滑沥青主路面
+    g.strokeStyle = '#58554e';
+    g.lineWidth = p.w;
+    g.stroke();
+
+    // 3. 道路中心虚线标线
+    g.strokeStyle = 'rgba(235, 220, 160, 0.6)';
+    g.lineWidth = 2.5;
+    g.setLineDash([18, 14]);
+    g.stroke();
+    g.setLineDash([]);
+  }
+  groundLayerCanvas = cv;
+}
+
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
@@ -2826,9 +3290,12 @@ function draw(){
     return tg === 'liquid' || tg === 'ground';
   };
   const inViewCovers = covers.filter(inView);
-  inViewCovers.filter(groundLayerCov).forEach(cov => drawCover(ctx, cov));
+  // 2026-09-14：道路已预烘焙（bakeNodeGroundLayer）→ 地面层跳过 road 逐段绘制
+  inViewCovers.filter(cov => cov.tier !== 'road' && groundLayerCov(cov)).forEach(cov => drawCover(ctx, cov));
+  if(groundLayerCanvas){ ctx.drawImage(groundLayerCanvas, 0, 0); }
+  else inViewCovers.filter(cov => cov.tier === 'road').forEach(cov => drawCover(ctx, cov));   // 无烘焙层（dev 随机场）回退逐段绘制
   inViewCovers.filter(cov => cov.tier === 'bridge').forEach(cov => drawCover(ctx, cov));
-  inViewCovers.filter(cov => !groundLayerCov(cov) && cov.tier !== 'bridge').forEach(cov => drawCover(ctx, cov));
+  inViewCovers.filter(cov => !groundLayerCov(cov) && cov.tier !== 'bridge' && (groundLayerCanvas ? cov.tier !== 'road' : true)).forEach(cov => drawCover(ctx, cov));
   entities.forEach(t => {
     if(t.isDrone) return;   // P-17：无人机无坦克几何，由 drawDrones 单独绘制
     if(entityHiddenByVision(t)) return;   // #89：视野外敌对存活实体跳过绘制（炮弹仍绘制；小地图不受影响）
@@ -2839,6 +3306,20 @@ function draw(){
   });
   drawFoliage(ctx, covers.filter(inView));   // 灌木/树冠层：盖住其下坦克 = 视线遮挡
   drawDrones();                              // P-17：无人机（飞行器视觉，坦克/树冠之上、烟幕之下）
+
+  // 溺毙倒计时 HUD（2026-09-14）：完全浸水的车辆头顶显示倒计时（玩家强化显示）
+  if(typeof tankFullyInWater === 'function'){
+    for(const e of entities){
+      if(e.hp <= 0 || !(e.drownT > 0)) continue;
+      const drownSec = (RULES.drowning && RULES.drowning.seconds) || 8;
+      const remain = Math.max(0, drownSec - e.drownT);
+      const isP = e === player;
+      ctx.font = (isP ? 'bold 15px monospace' : '11px monospace');
+      ctx.textAlign = 'center';
+      ctx.fillStyle = remain < 3 ? 'rgba(255,80,60,0.95)' : 'rgba(140,210,255,0.9)';
+      ctx.fillText('≋ 溺毙 ' + remain.toFixed(1) + 's', e.x, e.y - e.hullWid - 12);
+    }
+  }
 
   // P-17 烟幕云：半透明灰团（中心深、边缘淡），画在坦克/树冠之上 = 遮视线语义；
   // alpha 随 life/maxLife 淡出，仅画视口内（aabbInView 剔除）。
@@ -2851,6 +3332,9 @@ function draw(){
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(sc.x, sc.y, sc.radius, 0, TAU); ctx.fill();
   }
+
+  // 2026-09-15 W2 导弹锁定进度 UI：世界坐标画在锁定目标上——四角括号 + 顶部进度弧 + 秒数。
+  drawMissileLock(ctx);
 
   // P-17 战术炮击预警圈：虚线外圈 = 爆炸范围（固定 radius）；实心内圈随 t/delay 收缩 +
   // 闪烁（越接近落地越紧迫），圆心十字标记 + 倒计时秒数。仅画视口内（aabbInView 剔除）。
@@ -3009,7 +3493,9 @@ function draw(){
     });
   }
 
-  // ISSUE 17-display：当前弹种最终属性读出（computeAmmoConfig 叠加卡牌改造）
+  // ISSUE 17-display → 弹种链 2026-09-13：当前弹种最终属性读出（computeAmmoConfig 叠加卡牌改造）。
+  // 换算显示语义：computeAmmoConfig 在 add pass 内已按弹种基准倍率换算（+10mm 基础穿深卡
+  // 在 apds 上 cfg.penAdd=+14mm），面板/卡牌直接显示换算后 add 值，与实际生效值一致。
   const arEl = document.getElementById('ammoReadout');
   if(arEl){
     if(player && player.ammoKey && typeof computeAmmoConfig === 'function'){
@@ -3019,7 +3505,7 @@ function draw(){
       const pen = (cfg && typeof cfg.pen === 'number') ? cfg.pen : 1;
       const dmg = (cfg && typeof cfg.dmg === 'number') ? cfg.dmg : 1;
       const spd = (cfg && typeof cfg.speed === 'number') ? cfg.speed : 1;
-      const addBit = (v, unit) => (cfg && typeof cfg[v] === 'number' && cfg[v] !== 0) ? `(+${cfg[v].toFixed(0)}${unit})` : '';   // #A13
+      const addBit = (v, unit) => (cfg && typeof cfg[v] === 'number' && cfg[v] !== 0) ? `(+${cfg[v].toFixed(0)}${unit})` : '';   // 已换算值直显
       arEl.textContent = `${label} 穿×${pen.toFixed(1)}${addBit('penAdd','mm')} 伤×${dmg.toFixed(1)}${addBit('dmgAdd','')} 速×${spd.toFixed(1)}${addBit('speedAdd','')}`;
       arEl.style.display = 'block';
     } else {
