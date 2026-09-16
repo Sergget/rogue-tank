@@ -202,8 +202,20 @@ function makeBossEntity(boss, env) {
     t.turLen *= s;  t.turWid *= s;
     if (t.hullSpec)   t.hullSpec.verts   = t.hullSpec.verts.map(([x,y]) => [x*s, y*s]);
     if (t.turretSpec) t.turretSpec.verts = t.turretSpec.verts.map(([x,y]) => [x*s, y*s]);
-    if (t.turretPivotOffset) { t.turretPivotOffset.dx *= s; t.turretPivotOffset.dy *= s; }
-    if (t.anchors) for (const k in t.anchors) { t.anchors[k].dx *= s; t.anchors[k].dy *= s; }
+    // #B6：整体替换为全新对象，绝不原地写（t.turretPivotOffset / anchors[k] 可能仍与
+    // 共享的 tanks/*.json spec 同引用——原地 *= 会把 ×s 永久写回配置缓存，使后续所有
+    // 同型实体（含玩家）跨节点累积前移）。
+    if (t.turretPivotOffset) {
+      t.turretPivotOffset = { dx: (t.turretPivotOffset.dx || 0) * s, dy: (t.turretPivotOffset.dy || 0) * s };
+    }
+    if (t.anchors) {
+      const na = {};
+      for (const k in t.anchors) {
+        const a = t.anchors[k];
+        na[k] = (a && typeof a === 'object') ? { dx: (a.dx || 0) * s, dy: (a.dy || 0) * s } : a;
+      }
+      t.anchors = na;
+    }
     if (t.trackWidth  !== undefined) t.trackWidth  *= s;
     if (t.trackOffset !== undefined) t.trackOffset *= s;
   }

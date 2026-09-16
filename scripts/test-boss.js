@@ -287,6 +287,44 @@ ok(strikeCalls.length === 0, '#91 目标已毁不开火');
 ok(updateBossBehavior(null, 0.016, cmdPlayer).length === 0 && updateBossBehavior(plainEnt, 0.016, cmdPlayer).length === 0,
    '#91 非 Boss/无行为实体 updateBossBehavior 安全返回空');
 
+// 16) #B6 共享 spec 不被 Boss scale 污染（跨节点炮塔逐渐前移的根因回归）
+//   tank_model.applyTankConfig 历史上让 t.turretPivotOffset 直接引用 spec.turret.pivot
+//   （tankListData 缓存常驻），Boss 的 scale ×s 原地 *= 会把 ×s 永久写回配置，使后续
+//   每个 Boss 节点再 ×s，同型敌军与玩家跨节点加载到逐次前移的 pivot。
+{
+  const MD = require('../js/tank_model.js');
+  const sharedSpec = {
+    id: 'shared', hull: { verts: [[-50, -25], [50, -25], [50, 25], [-50, 25]], faces: {} },
+    turret: { verts: [[-20, -15], [20, -15], [20, 15], [-20, 15]], faces: {}, pivot: { dx: 7, dy: 0 } },
+    anchors: { hull_front: { dx: 32, dy: 0 }, gun_root: { dx: 17, dy: 0 } }
+  };
+  const pivot0 = JSON.stringify(sharedSpec.turret.pivot);
+  const anchors0 = JSON.stringify(sharedSpec.anchors);
+  const pollutionEnv = {
+    spawnTank(s) { return MD.makeTank(Object.assign({}, s)); },
+    configureTank(t) { MD.applyTankConfig(t, sharedSpec); }
+  };
+  const scaledBoss = makeBossEntity({ id: 'p', name: 'P', tankId: 'shared', scale: 2, stages: [{ id: 'p1', hpFrom: 1, hpTo: 0 }] }, pollutionEnv);
+  ok(JSON.stringify(sharedSpec.turret.pivot) === pivot0,
+     '#B6 Boss scale 后共享 spec.turret.pivot 未被改写（' + pivot0 + '）');
+  ok(JSON.stringify(sharedSpec.anchors) === anchors0, '#B6 Boss scale 后共享 spec.anchors 未被改写');
+  // 实例自身仍应正确缩放（×2）
+  ok(scaledBoss.turretPivotOffset.dx === 14 && scaledBoss.anchors.hull_front.dx === 64,
+     '#B6 Boss 实例自身几何仍按 scale 缩放（pivot 14 / anchor 64）');
+  // 之后加载同型配置的实体（玩家/普通敌军）必须拿到出厂 pivot，而非累积值
+  const later = MD.makeTank({ id: 'later', team: 'player', x: 0, y: 0 });
+  MD.applyTankConfig(later, sharedSpec);
+  ok(later.turretPivotOffset.dx === 7, '#B6 后续实体（玩家）加载到出厂 pivot dx=7，无跨节点累积前移');
+  // 连续三个 Boss 节点 → 配置保持出厂值，实例各自独立
+  let drift = 0;
+  for (const n of [4, 9, 14]) {
+    const b = makeBossEntity({ id: 'p' + n, name: 'P', tankId: 'shared', scale: 2, stages: [{ id: 'p1', hpFrom: 1, hpTo: 0 }] }, pollutionEnv);
+    drift = b.turretPivotOffset.dx;
+  }
+  ok(drift === 14 && sharedSpec.turret.pivot.dx === 7,
+     '#B6 连续 3 个 Boss 节点后实例 pivot 仍 14、配置仍 7（无 ×2 雪球）');
+}
+
 console.log('test-boss: 完成所有检查');
 if (fails === 0) console.log('test-boss: 全部通过');
 else console.error(`test-boss: ${fails} 项失败`);

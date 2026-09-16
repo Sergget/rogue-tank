@@ -9,6 +9,27 @@ let _normalizeTankWeapons = (typeof normalizeTankWeapons === 'function') ? norma
 // ---------- three-layer attribute system (base / modifiers / stats) ----------
 // Combat code reads ONLY tank.stats. `tank.base` holds the untuned values; `tank.modifiers`
 // (buffs/debuffs from cards, shop, skills) layer on top. Modifiers apply adds first, then mults.
+// 2026-09-15 W5：修饰聚合后的最终 stats 只对「用户明确裁定的运行时硬限」钳制，且仅当
+// modifiers 非空（卡牌奖励/局内升级/难度系数通道）时生效——空 modifiers（出厂 base 直写、
+// 纯计算/extreme 极值基准）不钳，保住纯数学语义。
+// 硬限来源（用户裁定）：装填 reload ≥ 0.5s/发（parameterLimits.reload.min，卡牌加速装填不得
+// 突破下限）；极速 maxSpeed ≤ 150km/h = 375px/s（parameterLimits.maxSpeed.max，卡牌不得超速）。
+// 火控 spreadMult/motionSpreadMul 已是默认 1 且 clamp ≥ multFloor（0.5），无需重复钳制（见 computeStats
+// spreadMult floor 既存钳制、crit 通道另有 [0,critBonusCap]）。
+function applyParameterLimits(s, modifiers){
+  if(!s || typeof s !== 'object') return;
+  const hasMods = Array.isArray(modifiers) && modifiers.length > 0;
+  if(!hasMods) return;
+  const pL = (typeof RULES !== 'undefined' && RULES && RULES.parameterLimits) ? RULES.parameterLimits : null;
+  if(!pL) return;
+  if(pL.reload && typeof pL.reload.min === 'number' && typeof s.reload === 'number' && s.reload < pL.reload.min){
+    s.reload = pL.reload.min;
+  }
+  if(pL.maxSpeed && typeof pL.maxSpeed.max === 'number' && typeof s.maxSpeed === 'number' && s.maxSpeed > pL.maxSpeed.max){
+    s.maxSpeed = pL.maxSpeed.max;
+  }
+}
+
 function computeStats(base, modifiers){
   const s = {
     penetration: base.penetration,
@@ -87,6 +108,9 @@ function computeStats(base, modifiers){
   const critCap = (RULES.modules && RULES.modules.critBonusCap) !== undefined ? RULES.modules.critBonusCap : 0.25;
   s.fireControlCrit = Math.min(critCap, Math.max(0, s.fireControlCrit));
   s.loaderAmmoCrit = Math.min(critCap, Math.max(0, s.loaderAmmoCrit));
+  // 2026-09-15 W5：修饰聚合后的最终参数按「用户裁定运行时硬限」钳制
+  // （装填 ≥0.5s、极速 ≤150km/h；卡牌/局内升级/难度通道，modifiers 非空才生效）。
+  applyParameterLimits(s, modifiers);
 
   // derived mobility: forward acceleration (px/s^2) from horsepower per tonne scaled to game units.
   // derived AFTER modifier loop so cards/upgrades modifying enginePower or weight affect actual accel/brake.
@@ -227,6 +251,8 @@ function removeModifiersByScope(tank, scope){
 
 // 单局结束（gameover / 全链通关回 map）时清除 run 修饰器（卡牌、Boss 阶段、局内临时 buff）
 function removeRunModifiers(tank){
+  // #A23 d：run 结束同时清零卡牌应用计数（maxStacks 防线），避免跨局残留
+  if (tank && tank._cardApplyCount) tank._cardApplyCount = {};
   return removeModifiersByScope(tank, 'run');
 }
 
@@ -321,7 +347,8 @@ function makeTank(opts){
 const SPEED_KMH_FACTOR = RULES.speed.kmhFactor;      // maxSpeed(px/s) × kmhFactor = km/h（与 computeStats.maxSpeedKmh 同源）
 const SPEED_PX_FACTOR  = RULES.speed.pxFactor;
 // convert horsepower-per-tonne into game px/s^2 acceleration; these two set the accel feel.
-// For responsive roguelike action, responsiveness is high (accel x180 scale, quick brake x3.5).
+// For responsive roguelike action, responsiveness is high (accel x180 scale, brake via
+// RULES.speed.brakeFactor — 现值 2.2，唯一来源见同文件 BRAKE_FACTOR 常量)。
 const ACCEL_POWER_TO_PX_SCALE = RULES.speed.accelPowerToPxScale;
 const BRAKE_FACTOR = RULES.speed.brakeFactor;
 function tankKmh(t){ return Math.round((t.stats?.maxSpeed ?? t.maxSpeed) * SPEED_KMH_FACTOR); }
@@ -352,7 +379,14 @@ function applyTankConfig(tank, spec){
     if (spec[f] !== undefined) tank[f] = spec[f];
   }
 
-  if (spec.anchors !== undefined) Object.assign(tank.anchors, spec.anchors);
+  // 锚点深拷贝（#B6）：Object.assign 只复制一层，嵌套的 {dx,dy} 仍与 spec 共享引用，
+  // 下游实例级改写（Boss scale ×s 等）会原地污染共享配置。
+  if (spec.anchors !== undefined) {
+    for (const k in spec.anchors) {
+      const a = spec.anchors[k];
+      tank.anchors[k] = (a && typeof a === 'object') ? { dx: a.dx || 0, dy: a.dy || 0 } : a;
+    }
+  }
   if (spec.barrel){
     // normalize: shared normalizeBarrel from tank_halfgeom.js (loaded on all pages)
     tank.barrel = normalizeBarrel(spec.barrel);
@@ -409,8 +443,11 @@ function applyTankConfig(tank, spec){
     tank.turWid = Math.max(1, maxY - minY);
     tank.turretAxis = { dx: ax, dy: ay };   // recorded for rollout/inspection; already applied above
   }
+  // 拷贝而非引用（#B6）：spec 常驻 tankListData 缓存并被所有实体共享，
+  // 直接引用会让下游的实例级几何改写（Boss scale ×s、炮塔前移等）原地污染源配置，
+  // 导致后续节点/玩家加载到被改过的 pivot（跨节点炮塔逐渐前移的根因）。
   if (spec.turret && spec.turret.pivot) {
-    tank.turretPivotOffset = spec.turret.pivot;
+    tank.turretPivotOffset = { dx: spec.turret.pivot.dx || 0, dy: spec.turret.pivot.dy || 0 };
   } else {
     tank.turretPivotOffset = { dx: 8, dy: 0 };
   }
@@ -470,7 +507,14 @@ function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
     for (const f of instanceFields) {
       if (spec[f] !== undefined) tank[f] = spec[f];
     }
-    if (spec.anchors !== undefined) Object.assign(tank.anchors, spec.anchors);
+    // 锚点深拷贝（#B6）：Object.assign 只复制一层，嵌套的 {dx,dy} 仍与 spec 共享引用，
+  // 下游实例级改写（Boss scale ×s 等）会原地污染共享配置。
+  if (spec.anchors !== undefined) {
+    for (const k in spec.anchors) {
+      const a = spec.anchors[k];
+      tank.anchors[k] = (a && typeof a === 'object') ? { dx: a.dx || 0, dy: a.dy || 0 } : a;
+    }
+  }
     if (spec.barrel) tank.barrel = normalizeBarrel(spec.barrel);
 
     if (spec.hull && spec.hull.verts && spec.hull.faces) {
@@ -500,7 +544,8 @@ function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
       tank.turretAxis = { dx: ax, dy: ay };
     }
     if (spec.turret && spec.turret.pivot) {
-      tank.turretPivotOffset = spec.turret.pivot;
+      // 拷贝而非引用（#B6）：同 applyTankConfig——共享 spec 不得被实例级几何改写污染。
+      tank.turretPivotOffset = { dx: spec.turret.pivot.dx || 0, dy: spec.turret.pivot.dy || 0 };
     } else {
       tank.turretPivotOffset = { dx: 8, dy: 0 };
     }
@@ -885,6 +930,7 @@ if (typeof module !== 'undefined' && module.exports) {
     debuffSpread,
     debuffReloadRate,
     debuffTurnRate,
-    debuffSpeedRate
+    debuffSpeedRate,
+    applyParameterLimits
   };
 }

@@ -106,31 +106,48 @@ function drawShells(ctx, shells){
     const col  = (s.ammo && s.ammo.color) ? s.ammo.color : '#ffb454';
     const tail = (s.ammo && s.ammo.tail) ? s.ammo.tail : 'rgba(255,180,84,0.6)';
     const L = SV.length, W = SV.width, tailLen = SV.tailLen;
+    // 2026-09-15 W6：autocannon 炮弹尺寸跟随 fxScale 缩小（更细炮管的视觉跟随；其他武器 fxScale=1）
+    const sv = (typeof s.fxScale === 'number' && s.fxScale > 0) ? s.fxScale : 1;
+    const _L = L * sv, _W = W * sv, _tailLen = tailLen * sv;
     ctx.save();
-    ctx.translate(s.x, s.y);
+    let drawX = s.x, drawY = s.y, scale = 1;
+    if(s.isArc && s.totalDist > 0){
+      const p = Math.min(1, s.dist / s.totalDist);
+      const z = Math.sin(p * Math.PI) * Math.min(120, s.totalDist * 0.35);
+      drawY -= z;
+      scale = 1 + z / 90;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y, W * 1.5, W * 0.75, ang, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.translate(drawX, drawY);
     ctx.rotate(ang);
+    ctx.scale(scale, scale);
     // 拖尾（沿 -x 渐隐短线）
     ctx.globalCompositeOperation = 'lighter';
-    const tg = ctx.createLinearGradient(-tailLen, 0, 0, 0);
+    const tg = ctx.createLinearGradient(-_tailLen, 0, 0, 0);
     tg.addColorStop(0, 'rgba(255,255,255,0)');
     tg.addColorStop(1, tail);
-    ctx.strokeStyle = tg; ctx.lineWidth = 3; ctx.lineCap='round';
-    ctx.beginPath(); ctx.moveTo(-tailLen, 0); ctx.lineTo(0, 0); ctx.stroke();
+    ctx.strokeStyle = tg; ctx.lineWidth = 3 * sv; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-_tailLen, 0); ctx.lineTo(0, 0); ctx.stroke();
     // 弹体：尖头朝 +x（飞行方向）
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = col;
     ctx.beginPath();
-    ctx.moveTo(L/2, 0);
-    ctx.lineTo(-L/2, -W/2);
-    ctx.lineTo(-L/2 - 2, 0);
-    ctx.lineTo(-L/2, W/2);
+    ctx.moveTo(_L/2, 0);
+    ctx.lineTo(-_L/2, -_W/2);
+    ctx.lineTo(-_L/2 - 2, 0);
+    ctx.lineTo(-_L/2, _W/2);
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(L/2, 0); ctx.lineTo(-L/2, -W/2); ctx.lineTo(-L/2 - 2, 0); ctx.lineTo(-L/2, W/2); ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(_L/2, 0); ctx.lineTo(-_L/2, -_W/2); ctx.lineTo(-_L/2 - 2, 0); ctx.lineTo(-_L/2, _W/2); ctx.closePath(); ctx.stroke();
     // 弹头亮点
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.beginPath(); ctx.arc(L*0.3, 0, 1.3, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(_L*0.3, 0, 1.3 * sv, 0, TAU); ctx.fill();
     ctx.restore();
   }
 }
@@ -303,6 +320,9 @@ function drawTank(ctx, t){
   // 履带被击断：断开处 + 脱落履带节 + 撕裂金属
   if(t.trackBroken) drawBrokenTracks(ctx, t);
 
+  // PLAN §8.1.2：副炮塔（turret 型副武器）——车体后部独立小炮塔，主炮塔之前绘制（层级在下）
+  if(!t.ammoBlew) drawSecondaryTurret(ctx, t);
+
   // turret ring (on the hull, under the turret)
   if(!t.ammoBlew){
   ctx.save();
@@ -351,11 +371,22 @@ function drawTank(ctx, t){
    // Barrel: 炮管根部接在炮塔前缘（=旋转中心 + 前缘偏移 turretFrontDist），长度按设计器口径
    // = 炮塔长 × (len/100)。与 gunRoot() 完全同轴，炮塔转动时根部随前缘一起走，不再从炮塔中心/尾部伸出。
    const barrelRayDx = Math.cos(t.turretAngle), barrelRayDy = Math.sin(t.turretAngle);
-   const bSpec = t.barrel || { len: 120, width: 18, muzzle: 'none', evacPos: 55 };
+   // 2026-09-15 W6：autocannon 专用炮管外观（用户裁定）——更细（barrelWidthMult）略短（barrelLenMult），
+   // 不绘制炮管护套/制退器/抽烟器（muzzle/evac/jacket 强制禁用）；mantlet 炮盾保留。
+   const _isAc = !!(t.weapons && t.weapons.primary && t.weapons.primary.type === 'autocannon');
+   const _bSpec0 = t.barrel || { len: 120, width: 18, muzzle: 'none', evacPos: 55 };
+   const bSpec = _isAc
+     ? Object.assign({}, _bSpec0, { muzzle: 'none', evac: { style: 'none' }, jacket: { len: 0 } })
+     : _bSpec0;
    const barrelPct = Math.max(0, Math.min(3, (bSpec.len || 120) / 100));
-   const barrelLen = t.turLen * barrelPct;
+   let barrelLen = t.turLen * barrelPct;
    const frontOff = turretFrontDist(t);
-   const barrelWid = Math.max(3, t.turWid * ((bSpec.width || 18)/100) * 0.5);
+   let barrelWid = Math.max(3, t.turWid * ((bSpec.width || 18)/100) * 0.5);
+   if(_isAc){
+     const _acSpec = (t.weapons.primary && t.weapons.primary.stats) || {};
+     barrelLen *= (typeof _acSpec.barrelLenMult === 'number') ? _acSpec.barrelLenMult : 0.8;
+     barrelWid = Math.max(2, barrelWid * ((typeof _acSpec.barrelWidthMult === 'number') ? _acSpec.barrelWidthMult : 0.6));
+   }
    const perpX = -barrelRayDy, perpY = barrelRayDx;
 
    // 开火后坐回弹（纯视觉）：recoilT 从 0.08 衰减到 0 时 sin(π·progress) 从 0 升到顶再回 0，
@@ -373,13 +404,28 @@ function drawTank(ctx, t){
    const baseY = turCy + barrelRayDy*frontOff - barrelRayDy*recoilOff;
    const endX = baseX + barrelRayDx*barrelLen, endY = baseY + barrelRayDy*barrelLen;
 
-   // main barrel tube
-   ctx.strokeStyle = t.color; ctx.lineWidth = barrelWid;
-   ctx.lineCap = 'round';
-   ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(endX, endY); ctx.stroke();
-   // barrel highlight
-   ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = Math.max(1, barrelWid*0.4);
-   ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(endX, endY); ctx.stroke();
+   // 2026-09-15 W4：双管并排——主武器 double_barrel 时炮盾上并排绘制 2 根炮管（左右各偏移），
+   // 偏移量与 firePrimaryShell 的弹道横向偏移同源（barrelWid × barrelOffset × 0.5，管 0 左 / 管 1 右）。
+   const _isDb = !!(t.weapons && t.weapons.primary && t.weapons.primary.type === 'double_barrel');
+   let _dbOff = 0;
+   if(_isDb){
+     const _dbSpec = (t.weapons.primary && t.weapons.primary.stats) || {};
+     const _dbMult = (typeof _dbSpec.barrelOffset === 'number') ? _dbSpec.barrelOffset : 0.9;
+     _dbOff = barrelWid * _dbMult * 0.5;
+   }
+   const _tubeOffsets = _isDb ? [-_dbOff, _dbOff] : [0];
+
+   // main barrel tube(s)（双管并排 / 单管居中）
+   for(const _toff of _tubeOffsets){
+     const _tx = baseX + perpX*_toff, _ty = baseY + perpY*_toff;
+     const _ex = endX + perpX*_toff, _ey = endY + perpY*_toff;
+     ctx.strokeStyle = t.color; ctx.lineWidth = barrelWid;
+     ctx.lineCap = 'round';
+     ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+     // barrel highlight
+     ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = Math.max(1, barrelWid*0.4);
+     ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+   }
 
    // 炮盾 mantlet（纯视觉，样式 none/single/double/collar/box/winged/wedge）：
    // 位于炮管根部（可沿炮管前后偏移 pos/%），宽度按炮塔全宽百分比计算；不影响任何判定。
@@ -605,6 +651,43 @@ function drawTank(ctx, t){
   }
 }
 
+// ======================= PLAN §8.1.2 副炮塔（secondary turret）绘制 =======================
+// 副武器类型为 turret 时，在车体后部绘制一座独立的小炮塔（带独立 secondaryTurretAngle 炮管）。
+// 纯位姿计算抽成 secondaryTurretPose（Node 可测），绘制层只消费位姿。
+// 位置：车体尾后偏移（hullAngle 反向 hullLen*0.28），炮管长 = hullWid*0.55。
+function secondaryTurretPose(t){
+  if(!t || !t.weapons || !t.weapons.secondary || t.weapons.secondary.type !== 'turret') return null;
+  const hullLen = t.hullLen || 120, hullWid = t.hullWid || 38;
+  const back = hullLen * 0.28;
+  const px = t.x - Math.cos(t.hullAngle || 0) * back;
+  const py = t.y - Math.sin(t.hullAngle || 0) * back;
+  const angle = (typeof t.secondaryTurretAngle === 'number') ? t.secondaryTurretAngle : (t.hullAngle || 0);
+  return { x: px, y: py, angle: angle, radius: Math.max(5, hullWid * 0.30), barrelLen: hullWid * 0.55 };
+}
+
+function drawSecondaryTurret(ctx, t){
+  const pose = secondaryTurretPose(t);
+  if(!pose) return false;
+  if(t.ammoBlew) return false;   // 殉爆掀飞炮塔后不绘制
+  const r = pose.radius;
+  // 底座阴影 + 环形座圈
+  ctx.save();
+  ctx.translate(pose.x, pose.y);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath(); ctx.arc(2, 3, r, 0, TAU); ctx.fill();
+  ctx.fillStyle = shade(t.color, -22);
+  ctx.strokeStyle = t.color; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill(); ctx.stroke();
+  // 独立转向的炮管
+  ctx.rotate(pose.angle);
+  ctx.strokeStyle = shade(t.color, -10); ctx.lineWidth = Math.max(2, r * 0.5); ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.moveTo(r * 0.2, 0); ctx.lineTo(pose.barrelLen, 0); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = Math.max(1, r * 0.18);
+  ctx.beginPath(); ctx.moveTo(r * 0.4, -r * 0.12); ctx.lineTo(pose.barrelLen * 0.9, -r * 0.12); ctx.stroke();
+  ctx.restore();
+  return true;
+}
+
 // 车型标志：六边形 = 重坦，五边形 = 中坦（显示在血条左侧）
 function drawClassBadge(ctx, t, x, y){
   const n = t.heightClass === 'heavy' ? 6 : 5;
@@ -697,6 +780,8 @@ if (typeof module !== 'undefined' && module.exports) {
     drawCover,
     drawFoliage,
     drawClassBadge,
-    drawGround
+    drawGround,
+    secondaryTurretPose,
+    drawSecondaryTurret
   };
 }
