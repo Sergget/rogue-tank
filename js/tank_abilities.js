@@ -43,10 +43,11 @@ let _applyShield = (typeof applyShield === 'function') ? applyShield : null;
 let _addTimedModifier = (typeof addTimedModifier === 'function') ? addTimedModifier : null;
 let _removeModifierBySource = (typeof removeModifierBySource === 'function') ? removeModifierBySource : null;
 let _refreshStats = (typeof refreshStats === 'function') ? refreshStats : null;
+let _spawnDeployableCover = (typeof spawnDeployableCover === 'function') ? spawnDeployableCover : null;
 
 // 本模块支持的运行时能力键（其余 ABILITY_KEYS 如 smoke/recon 属烟幕/侦察等
 // 其他系统，不在本入口分发范围）
-const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'super_fire_control', 'super_speed'];
+const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'super_fire_control', 'super_speed', 'deploy_cover'];
 
 // innate 内置能力键：开局自带、绕过卡牌持有检查（独立冷却池 t.abilityCds）
 const ABILITY_KEYS_INNATE = ['repair', 'medkit', 'extinguish'];
@@ -69,6 +70,20 @@ function _d(cfg, key, fallback) {
 function _cooldownFor(cfg, key) {
   const c = (cfg && cfg[key]) || {};
   return c.reload !== undefined ? c.reload : (c.cooldown !== undefined ? c.cooldown : 0);
+}
+
+// 聚合能力参数（读取 RULES 基础配置 + 收集 tank.cardEffects 中的 params 覆写）
+function computeAbilityConfig(t, key) {
+  const cfg = abilitiesConfig();
+  const base = (cfg && cfg[key]) ? Object.assign({}, cfg[key]) : {};
+  if (!t || !Array.isArray(t.cardEffects)) return base;
+  for (let i = 0; i < t.cardEffects.length; i++) {
+    const ef = t.cardEffects[i];
+    if (ef && ef.type === 'ability' && ef.key === key && ef.params && typeof ef.params === 'object') {
+      Object.assign(base, ef.params);
+    }
+  }
+  return base;
 }
 
 // 持有查询：tank.cardEffects 是否含 {type:'ability', key}
@@ -158,7 +173,7 @@ function tryActivateAbility(t, key, ctx) {
   if (!hasAbility(t, key)) return { ok: false, reason: 'no-ability' };
   if ((t.abilityCdT || 0) > 0) return { ok: false, reason: 'cooldown', cd: t.abilityCdT };
 
-  const cfg = abilitiesConfig();
+  const abilityCfg = computeAbilityConfig(t, key);
   switch (key) {
     case 'artillery': {
       const target = ctx && ctx.target;
@@ -166,56 +181,99 @@ function tryActivateAbility(t, key, ctx) {
         return { ok: false, reason: 'need-target' };
       }
       if (!_callStrike) return { ok: false, reason: 'strike-unavailable' };
-      const strikes = _callStrike(target.x, target.y, { owner: t, rng: ctx.rng });
-      t.abilityCdT = _cooldownFor(cfg, 'artillery');
-      return { ok: true, key: key, strikes: strikes };
+      const strikeOpts = {
+        owner: t,
+        rng: ctx.rng,
+        delay: abilityCfg.delay,
+        radius: abilityCfg.radius,
+        dmgMult: abilityCfg.dmgMult,
+        shellCount: abilityCfg.shellCount,
+        shape: abilityCfg.shape,
+        maxStrikes: abilityCfg.maxStrikes,
+        stagger: abilityCfg.stagger,
+        dir: (ctx && ctx.dir !== undefined) ? ctx.dir : ((t && t.turretAngle !== undefined) ? t.turretAngle : 0)
+      };
+      const strikes = _callStrike(target.x, target.y, strikeOpts);
+      t.abilityCdT = _cooldownFor({ [key]: abilityCfg }, 'artillery');
+      return { ok: true, key: key, strikes: strikes, config: abilityCfg };
     }
     case 'shield': {
       if (!ctx || (ctx.omni === undefined && ctx.dir === undefined)) {
         return { ok: false, reason: 'need-dir-or-omni' };
       }
       if (!_applyShield) return { ok: false, reason: 'shield-unavailable' };
-      const shield = _applyShield(t, { omni: !!ctx.omni, dir: ctx.dir });
-      t.abilityCdT = _cooldownFor(cfg, 'shield');
-      return { ok: true, key: key, shield: shield };
+      const shield = _applyShield(t, {
+        omni: !!ctx.omni,
+        dir: ctx.dir,
+        hp: abilityCfg.hp,
+        arc: abilityCfg.arc,
+        dirDuration: abilityCfg.dirDuration,
+        omniDuration: abilityCfg.omniDuration
+      });
+      t.abilityCdT = _cooldownFor({ [key]: abilityCfg }, 'shield');
+      return { ok: true, key: key, shield: shield, config: abilityCfg };
     }
     case 'overdrive': {
-      const o = cfg.overdrive || {};
-      const mult = _d(o, 'reloadMult', 0.45);
-      const dur = _d(o, 'duration', 6);
+      const mult = _d(abilityCfg, 'reloadMult', 0.45);
+      const dur = _d(abilityCfg, 'duration', 6);
       if (_removeModifierBySource) _removeModifierBySource(t, 'ability:overdrive');   // 防重复激活叠乘
       if (_addTimedModifier) {
         _addTimedModifier(t, { stat: 'reload', mode: 'mult', value: mult, source: 'ability:overdrive' }, dur * 1000);
       }
       t.reloadT = 0;   // 爆发装填：立即打完当前装填（决策见模块头注释）
-      t.abilityCdT = _cooldownFor(cfg, 'overdrive');
-      return { ok: true, key: key, reloadMult: mult, duration: dur };
+      t.abilityCdT = _cooldownFor({ [key]: abilityCfg }, 'overdrive');
+      return { ok: true, key: key, reloadMult: mult, duration: dur, config: abilityCfg };
+    }
+    case 'deploy_cover': {
+      if (!_spawnDeployableCover) {
+        if (typeof require !== 'undefined') {
+          try { _spawnDeployableCover = require('./tank_deployables.js').spawnDeployableCover; } catch(e) {}
+        }
+      }
+      if (!_spawnDeployableCover) return { ok: false, reason: 'deploy-cover-unavailable' };
+      const hp = _d(abilityCfg, 'hp', 200);
+      const shieldHp = _d(abilityCfg, 'shieldHp', 150);
+      const duration = _d(abilityCfg, 'duration', 30);
+      const dist = 50;
+      const angle = t.hullAngle || 0;
+      const cx = t.x + Math.cos(angle) * dist;
+      const cy = t.y + Math.sin(angle) * dist;
+      const cover = _spawnDeployableCover({
+        team: t.team,
+        x: cx,
+        y: cy,
+        hp: hp,
+        maxHp: hp,
+        shieldHp: shieldHp,
+        duration: duration,
+        hullAngle: angle + Math.PI / 2
+      });
+      t.abilityCdT = _cooldownFor({ [key]: abilityCfg }, 'deploy_cover');
+      return { ok: true, key: key, cover: cover, config: abilityCfg };
     }
     case 'super_fire_control': {
-      const sfc = cfg.super_fire_control || {};
-      const spreadMult = _d(sfc, 'spreadMult', 0.1);
-      const aimSpeedMult = _d(sfc, 'aimSpeedMult', 3.0);
-      const dur = _d(sfc, 'duration', 8);
+      const spreadMult = _d(abilityCfg, 'spreadMult', 0.1);
+      const aimSpeedMult = _d(abilityCfg, 'aimSpeedMult', 3.0);
+      const dur = _d(abilityCfg, 'duration', 8);
       if (_removeModifierBySource) _removeModifierBySource(t, 'ability:super_fire_control');
       if (_addTimedModifier) {
         _addTimedModifier(t, { stat: 'spreadMult', mode: 'mult', value: spreadMult, source: 'ability:super_fire_control' }, dur * 1000);
         _addTimedModifier(t, { stat: 'aimSpeed', mode: 'mult', value: aimSpeedMult, source: 'ability:super_fire_control' }, dur * 1000);
       }
-      t.abilityCdT = _cooldownFor(cfg, 'super_fire_control');
-      return { ok: true, key: key, spreadMult, aimSpeedMult, duration: dur };
+      t.abilityCdT = _cooldownFor({ [key]: abilityCfg }, 'super_fire_control');
+      return { ok: true, key: key, spreadMult, aimSpeedMult, duration: dur, config: abilityCfg };
     }
     case 'super_speed': {
-      const spd = cfg.super_speed || {};
-      const accelMult = _d(spd, 'accelMult', 3.0);
-      const maxSpeedMult = _d(spd, 'maxSpeedMult', 1.5);
-      const dur = _d(spd, 'duration', 6);
+      const accelMult = _d(abilityCfg, 'accelMult', 3.0);
+      const maxSpeedMult = _d(abilityCfg, 'maxSpeedMult', 1.5);
+      const dur = _d(abilityCfg, 'duration', 6);
       if (_removeModifierBySource) _removeModifierBySource(t, 'ability:super_speed');
       if (_addTimedModifier) {
         _addTimedModifier(t, { stat: 'enginePower', mode: 'mult', value: accelMult, source: 'ability:super_speed' }, dur * 1000);
         _addTimedModifier(t, { stat: 'maxSpeed', mode: 'mult', value: maxSpeedMult, source: 'ability:super_speed' }, dur * 1000);
       }
-      t.abilityCdT = _cooldownFor(cfg, 'super_speed');
-      return { ok: true, key: key, accelMult, maxSpeedMult, duration: dur };
+      t.abilityCdT = _cooldownFor({ [key]: abilityCfg }, 'super_speed');
+      return { ok: true, key: key, accelMult, maxSpeedMult, duration: dur, config: abilityCfg };
     }
   }
   return { ok: false, reason: 'unsupported' };
@@ -241,6 +299,7 @@ if (typeof module !== 'undefined' && module.exports) {
     ABILITY_KEYS_RUNTIME,
     ABILITY_KEYS_INNATE,
     abilitiesConfig,
+    computeAbilityConfig,
     hasAbility,
     updateAbilityCd,
     updateAbilityCds,

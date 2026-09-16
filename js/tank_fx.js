@@ -138,10 +138,13 @@ function spawnAmmoBlowFx(t){
   turretFlights.push({
     snap: { verts:(t.turretSpec && t.turretSpec.verts) || (Array.isArray(tPoly) ? tPoly : tPoly.verts), color:t.color, len:t.turLen, wid:t.turWid },
     x:px, y:py, ang,
-    vx: Math.cos(ang) * (50 + Math.random()*80) + (Math.random()-0.5)*70,
-    vy: -280 - Math.random()*150,
+    // 还原原方向动画但缩短飞行距离（vx/vy 减半、spin 适中）
+    vx: Math.cos(ang) * (25 + Math.random()*40) + (Math.random()-0.5)*35,
+    vy: -260 - Math.random()*120,
     spin: (Math.random()-0.5)*9,
-    age:0, max:2.2 + Math.random()*0.6
+    age:0, max:2.2 + Math.random()*0.6,
+    // 记录初始水平线，用于“落回同一水平线即消失”判断
+    baseY: py
   });
 }
 // 履带断裂：破片 + 火花 + 冲击灰尘（小规模）
@@ -253,7 +256,11 @@ function updateFx(dt){
     f.age += dt; f.vy += 260*dt; f.x += f.vx*dt; f.y += f.vy*dt; f.ang += f.spin*dt;
     if(Math.random() < 0.35 && fxParticles.length < FX_MAX_PARTICLES) spawnSmoke(f.x, f.y, 8);
   });
-  turretFlights = turretFlights.filter(f=>f.age < f.max);
+  turretFlights = turretFlights.filter(f=>{
+    // 当炮塔落回与被击毁坦克同一水平线（y >= baseY）即消失
+    if(f.baseY !== undefined && f.y >= f.baseY) return false;
+    return f.age < f.max;
+  });
   
   const activeParticles = [];
   for (let i = 0; i < fxParticles.length; i++) {

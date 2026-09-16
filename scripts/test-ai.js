@@ -1,4 +1,4 @@
-﻿// test-ai.js — 敌人/友军 AI 决策测试（Node 端，Pure Logic）
+// test-ai.js — 敌人/友军 AI 决策测试（Node 端，Pure Logic）
 // 运行：node scripts/test-ai.js
 'use strict';
 
@@ -431,6 +431,39 @@ console.log('--- #88：装填间隙侧摆 ---');
   ok(rb.move === 1 && Number.isFinite(bsw._swingTarget),
      'Boss 基线：侧摆照常掷出，但防风筝保持 move=1 推进');
   Math.random = realRandom;
+}
+
+// ===== 2026-09-14：受击警觉（任意来源） + AI 避水绕行 =====
+
+// D) Boss hold 受击破防：hold 阶段（原地防守）被任何伤害来源命中 → 立即解除 hold 转入常规接战
+{
+  const bh = boss(700, 500, 0, 0, { mode: 'hold', params: {} }, 0);
+  ok(bh.stageAI && bh.stageAI.mode === 'hold', '前置：Boss 处于 hold 阶段');
+  ok(alertEntity(bh, 800, 500) === true, 'alertEntity 对 Boss 生效（返回 true）');
+  ok(bh.stageAI === null, 'Boss hold 受击 → stageAI 清空（解除 hold，2026-09-14 定案）');
+  ok(bh.aiEngaged === true, 'Boss 受击后 aiEngaged 置位');
+  const dAfter = aiDecideEnemy(bh, { player, hasLoS: () => false });
+  ok(dAfter.move === 1 && bh.aiState === 'search', '破 hold 后 → search 态朝玩家推进');
+}
+
+// E) applyWaterAvoidance：水面在前方且一侧有干地 → 转向绕行；全湿 → 原地不动
+{
+  const W = require('../js/tank_ai.js');
+  const base = { move: 1, turn: 0, turretDesired: 0, fire: false };
+  // 全湿分支：水潭中央（400×400，探点 140px 全部落水）→ 停驶防自杀
+  const water = { x: 0, y: 0, w: 400, h: 400, angle: 0, tier: 'water' };
+  const t2 = { team: 'enemy', x: 0, y: 0, hullAngle: 0, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
+  const out2 = W.applyWaterAvoidance(t2, Object.assign({}, base), { covers: [water] });
+  ok(out2.move === 0, '前向+双侧全湿（水潭中央）→ 原地不动（move=0）');
+  // 干地分支：前路通畅 → 零干扰（turn=0, move 保持 1）
+  const t3 = { team: 'enemy', x: -500, y: 0, hullAngle: 0, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
+  const out3 = W.applyWaterAvoidance(t3, Object.assign({}, base), { covers: [water] });
+  ok(out3.turn === 0 && out3.move === 1, '前方干地 → 不干扰原决策（turn=0, move=1）');
+  // 定向绕行：窄河（OBB 偏移使左探点入水、右探点干地）→ 固定右转
+  const river = { x: 20, y: 0, w: 120, h: 400, angle: 0, tier: 'river' };
+  const t4 = { team: 'enemy', x: 0, y: -260, hullAngle: Math.PI / 2, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
+  const out4 = W.applyWaterAvoidance(t4, Object.assign({}, base), { covers: [river] });
+  ok(out4.turn === 1, '左侧湿/右侧干（河岸偏移）→ 固定向右绕行（turn=1）');
 }
 
 if(fails === 0) console.log('test-ai: 完成所有检查，全部通过');

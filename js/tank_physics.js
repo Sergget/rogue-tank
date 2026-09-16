@@ -49,10 +49,35 @@ function passiveValues(tank, key){
 // 统一伤害入口（Issue #6）：尊重 target.dmgTakenMul（玩家更肉时由 node-map 设为 0.85，
 // 缺省 1），并统一做非负钳制。其他模块（tank_strike / mvp DOT 等）也应改走本入口，
 // 便于集中应用受伤减伤，避免散落的直接 hp 减法绕开减伤逻辑。
-function applyDamage(target, amount){
-  if(!target) return;
+//
+// 受击即警觉（2026-09-14 用户定案）：敌对实体被任何伤害来源命中（直射/溅射/炮击轰炸/
+// DOT/地雷/碾压/溺毙）后立即进入搜索玩家状态——本入口是所有伤害的必经收口，在此统一
+// 触发 alertEntity（aiEngaged + lastKnownPlayerPos）+ propagateAlert 友邻告警。
+// src 可选 {x,y} 来源坐标（弹源/爆点/施放者）；缺省回退玩家当前位置（搜索玩家语义）。
+// Node 单测环境无 tank_ai.js 时静默跳过（typeof 守卫）。返回实际造成的伤害值。
+function applyDamage(target, amount, src){
+  if(!target) return 0;
   const mul = (target.dmgTakenMul != null) ? target.dmgTakenMul : 1;
-  target.hp = Math.max(0, target.hp - amount * mul);
+  const dealt = Math.max(0, amount) * mul;
+  target.hp = Math.max(0, target.hp - dealt);
+  // 受击警觉钩子：仅敌对存活非无人机实体；玩家/友军被击中不触发（alertEntity 内部同样有守卫）
+  if(target.team === 'enemy' && target.hp > 0 && !target.isDrone
+     && typeof alertEntity === 'function'){
+    let sx = (src && Number.isFinite(src.x)) ? src.x : null;
+    let sy = (src && Number.isFinite(src.y)) ? src.y : null;
+    // 来源未知 → 记玩家当前位置（搜索玩家语义）；经 globalThis 读取避免 tsc 未声明标识符
+    const _gp = (typeof globalThis !== 'undefined') ? globalThis : null;
+    const _pl = _gp ? _gp.player : null;
+    if(sx === null && _pl && Number.isFinite(_pl.x)){
+      sx = _pl.x; sy = _pl.y;
+    }
+    if(sx === null){ sx = target.x; sy = target.y; }   // 兜底：记自身位置
+    alertEntity(target, sx, sy);
+    if(typeof propagateAlert === 'function' && typeof entities !== 'undefined' && entities){
+      propagateAlert(entities, sx, sy);
+    }
+  }
+  return dealt;
 }
 
 // HE 范围爆轰（P-16）：命中点对周围实体施加随距离衰减伤害。
@@ -60,10 +85,16 @@ function applyDamage(target, amount){
 // 友军/敌军一视同仁（不做阵营区分）；简化直伤——不触发模块效果/debuff；
 // 无敌（invuln/invulnT）与已摧毁（hp≤0）目标免疫；主目标（exclude）由主命中结算，不重复扣血。
 // entities 为全局注册表（js/tank_entity.js 唯一实例；Node 测试经 global.entities 注入）。
-function applySplashAt(x, y, radius, dmg, exclude, shell){
-  if(!(radius > 0)) return;
-  if(typeof entities === 'undefined' || !entities) return;
-  for(const e of entities){
+// 元素被摧毁：一次性消耗（_gone 幂等标志；每帧多辆车压上同一元素只毁一次）。
+// 返回记录了本次溅射命中实体及其「实际受到伤害（ hp 损失）」的数组——消费方可据此
+// 在命中位置飘出伤害数值（取代静态字样如“空爆”/“爆炸”）。对未受伤害（d<=0）的实体
+// 不记录。（2026-09-15 修订：近炸引信分支需要坦克实收伤害。）
+function applySplashAt(x, y, radius, dmg, exclude, shell, entityList){
+  if(!(radius > 0)) return [];
+  const list = entityList || (typeof entities !== 'undefined' ? entities : null) || (typeof globalThis !== 'undefined' && globalThis.entities);
+  if(!list || !Array.isArray(list)) return [];
+  const applied = [];
+  for(const e of list){
     if(!e || e === exclude) continue;
     if(e.hp === undefined || e.hp <= 0) continue;
     if(e.invuln || e.invulnT > 0) continue;
@@ -71,8 +102,48 @@ function applySplashAt(x, y, radius, dmg, exclude, shell){
     if(dist > radius) continue;
     const d = Math.round(dmg * (1 - dist / radius) * 0.5);
     if(d <= 0) continue;
-    applyDamage(e, d);
+    const hpBefore = e.hp;
+    // 溅射来源坐标：有射手实体记射手位置（AI 朝射手搜索），否则记爆点
+    const src = (shell && shell.shooter && Number.isFinite(shell.shooter.x))
+      ? { x: shell.shooter.x, y: shell.shooter.y } : { x: x, y: y };
+    applyDamage(e, d, src);
+    const taken = hpBefore - e.hp;   // 坦克真实受到伤害（经 dmgTakenMul / 击杀上限截断）
+    if(taken > 0) applied.push({ entity: e, dmg: Math.round(taken) });
   }
+  return applied;
+}
+
+// per-ammo 强制跳弹角（弹种链定案 2026-09-13）：ammoCfg.bounceAngle（度）> 全局 BOUNCE_ANGLE。
+// 返回 rad；无 per-ammo 值回退全局。noBounce 弹种完全不进入跳弹分支（调用方先判 noBounce）。
+function ammoBounceAngle(ammoCfg){
+  if(ammoCfg && typeof ammoCfg.bounceAngle === 'number'){
+    return ammoCfg.bounceAngle * Math.PI / 180;
+  }
+  return BOUNCE_ANGLE;
+}
+
+// per-ammo 弹药架/成员模块倍率（弹种链定案 2026-09-13）：弹种覆盖 shooter.stats 基准。
+// 表值 = 弹种权威倍率（RULES.ammoTypes）；未配置时回退 stats.ammoMult/crewMult（旧语义不变）。
+function ammoModuleMults(ammoCfg, shooter){
+  const s = (shooter && shooter.stats) || {};
+  const ammoBase = (s.ammoMult !== undefined && s.ammoMult > 0) ? s.ammoMult : 1;
+  const crewBase = (s.crewMult !== undefined && s.crewMult > 0) ? s.crewMult : 1;
+  return {
+    ammo: ammoCfg && typeof ammoCfg.ammoMult === 'number' ? ammoCfg.ammoMult : ammoBase,
+    crew: ammoCfg && typeof ammoCfg.crewMult === 'number' ? ammoCfg.crewMult : crewBase
+  };
+}
+
+// 未击穿残余伤害（弹种链定案 2026-09-13，用户公式）：
+//   dmg × (1 − (eff − effPen)/eff) × nonPenRatio，即 dmg × (effPen/eff) × nonPenRatio
+//   —— 穿深越接近等效厚度残余越高；完全无法穿透（effPen→0）残余→0。
+//   下限 nonPenFloor（缺省 0.25，与旧 HE 公式地板一致）；带 splashRadius 弹种同时溅射。
+function nonPenSplashDmg(shell, eff, effPen, ammoCfg, dmgMulV, spallMul){
+  const ratio = (typeof ammoCfg.nonPenRatio === 'number') ? ammoCfg.nonPenRatio : 0;
+  if(!(ratio > 0)) return 0;
+  const floor = (typeof ammoCfg.nonPenFloor === 'number') ? ammoCfg.nonPenFloor : 0.25;
+  const frac = Math.max(floor, Math.min(1, effPen / eff));   // effPen/eff ∈ [floor,1]
+  return Math.round(shell.dmg * frac * ratio * dmgMulV * spallMul);
 }
 
 // 命中时刻结算：跳弹 → 反射继续飞；未击穿 → 炮弹销毁；击穿 → 立即施加伤害/模块效果。
@@ -87,6 +158,7 @@ function resolveHit(shell, target, hit, allowBounce, opts){
   const ammoKey = shellAmmoKey(shell);
   const ammoCfg = (ammoKey && RULES.ammoTypes[ammoKey]) || shell.ammo || null;
   const noBounce = !!(ammoCfg && ammoCfg.noBounce);                  // HEAT/HE：确定性不跳弹
+  const bAngle = ammoBounceAngle(ammoCfg);                           // 弹种链：per-ammo 强制跳弹角
   const splashRadius = (ammoCfg && ammoCfg.splashRadius) || 0;       // HE：爆炸半径（px）
   const ignBounce = !!(opts && opts.ignoreBounce);                   // P-51 弱点：跳过跳弹分支
   const effPen = shell.pen + ((opts && opts.penAdd) || 0);           // P-51 弱点：穿深加成
@@ -108,7 +180,7 @@ function resolveHit(shell, target, hit, allowBounce, opts){
   const spallVals = passiveValues(target, 'spall_liner');
   const spallMul = spallVals.length ? Math.min.apply(null, spallVals) : 1;
 
-  if(allowBounce && theta > BOUNCE_ANGLE && !noBounce && !ignBounce && !overmatched){
+  if(allowBounce && theta > bAngle && !noBounce && !ignBounce && !overmatched){
     const r = reflectDir(shell.dx, shell.dy, hit.nx, hit.ny);
     shell.x = hit.x; shell.y = hit.y;
     shell.dx = r.x; shell.dy = r.y;
@@ -123,7 +195,7 @@ function resolveHit(shell, target, hit, allowBounce, opts){
     };
   }
 
-  if(theta > BOUNCE_ANGLE){
+  if(theta > bAngle){
     // noBounce 弹种（heat/he）过陡角度不跳弹：跳过角度 BLOCK，直接按穿深判定
     // （HEAT 高穿深仍可击穿；HE 走未击穿爆轰分支）。#A14b：overmatch 碾压同样跳过本分支。
     if(!noBounce && !ignBounce && !overmatched){
@@ -137,17 +209,16 @@ function resolveHit(shell, target, hit, allowBounce, opts){
 
   if(eff > effPen){
     if(splashRadius > 0){
-      // HE 未击穿 → 残余爆轰伤害（P-16）：
-      // 装甲吸收部分爆轰能量，残余仍以冲击波扣血。
-      // 公式：dmg × max(0.25, 0.5 × pen/eff)
-      //   - 擦边未击穿（eff 略 > pen）→ 接近 50% 伤害（爆炸大半能量灌入车体）；
-      //   - 装甲越厚（eff/pen 越大）→ 吸收越多，残余越低，地板 25%。
+      // 未击穿 → 残余爆轰伤害（P-16 → 弹种链 2026-09-13 泛化）：
+      // 装甲吸收部分爆轰能量，残余仍以冲击波扣血。用户公式（per-ammo nonPenRatio）：
+      //   dmg × (1 − (eff − effPen)/eff) × nonPenRatio = dmg × (effPen/eff) × nonPenRatio
+      //   - 擦边未击穿（eff 略 > pen）→ frac→1，残余接近 dmg×nonPenRatio；
+      //   - 装甲越厚（eff/pen 越大）→ 吸收越多，残余越低；地板 nonPenFloor（缺省 0.25）。
       // 确定性公式（不做 0.85~1.15 随机）便于测试与平衡对照；不触发模块效果（未击穿）。
-      const ratio = Math.max(0.25, 0.5 * effPen / eff);
       let dmg = 0;
       const invuln = !!(target.invuln) || (target.invulnT > 0);
       if(!invuln && target.hp > 0){
-        dmg = Math.round(shell.dmg * ratio * dmgMulV * spallMul);   // #A15：内衬整车减伤乘算
+        dmg = nonPenSplashDmg(shell, eff, effPen, ammoCfg, dmgMulV, spallMul);   // #A15：内衬整车减伤乘算
         applyDamage(target, dmg);
       }
       applySplashAt(hit.x, hit.y, splashRadius, shell.dmg, target, shell);
@@ -194,26 +265,34 @@ function resolveHit(shell, target, hit, allowBounce, opts){
 function applyModuleDamage(shell, target, hit, opts){
   const ammoKey = shellAmmoKey(shell);
   const ammoCfg = (ammoKey && RULES.ammoTypes[ammoKey]) || shell.ammo || null;
-  const isApfsds = !!(ammoCfg && ammoCfg.doubleModule);
+  // 弹种链 2026-09-13：per-ammo 模块抽取数（1/2/3）——doubleModule（APFSDS 系）隐含 2 抽。
+  const draws = (ammoCfg && typeof ammoCfg.moduleDraws === 'number' && ammoCfg.moduleDraws > 0)
+    ? ammoCfg.moduleDraws
+    : ((ammoCfg && ammoCfg.doubleModule) ? 2 : 1);
 
-  const mod1 = moduleFromHit(target, hit, shell ? shell.shooter : null);
-  const mod2 = isApfsds ? moduleFromHit(target, hit, shell ? shell.shooter : null) : null;
+  const mods = [];
+  for(let i = 0; i < draws; i++){
+    mods.push(moduleFromHit(target, hit, shell ? shell.shooter : null));
+  }
 
-  const modKey1 = (mod1 && mod1.key) || null;
-  const modKey2 = (mod2 && mod2.key) || null;
+  // per-ammo 弹药架/成员模块倍率：弹种权威表值优先，无配置回退 shooter.stats（旧语义）。
+  const modMults = ammoModuleMults(ammoCfg, shell ? shell.shooter : null);
 
-  const getMultForKey = (k, shooter) => {
-    if(k === 'ammo') return moduleMult(shooter, 'ammo');
-    if(k === 'engine' || k === 'gunner' || k === 'loader' || k === 'driver' || k === 'commander' || k === 'breech') return moduleMult(shooter, 'crew');
+  const getMultForKey = (k) => {
+    if(k === 'ammo') return modMults.ammo;
+    if(k === 'engine' || k === 'gunner' || k === 'loader' || k === 'driver' || k === 'commander' || k === 'breech') return modMults.crew;
     return 1.0;
   };
 
-  const mult1 = getMultForKey(modKey1, shell ? shell.shooter : null);
-  const mult2 = isApfsds ? getMultForKey(modKey2, shell ? shell.shooter : null) : 1.0;
+  const modKey1 = (mods[0] && mods[0].key) || null;
+  const modKey2 = draws >= 2 ? ((mods[1] && mods[1].key) || null) : null;
+
+  const mult1 = getMultForKey(modKey1);
+  const mult2 = draws >= 2 ? getMultForKey(modKey2) : 1.0;
 
   const effectiveMult = Math.max(mult1, mult2);
   const modKey = modKey1 !== null ? modKey1 : modKey2;
-  const mod = modKey === modKey2 ? mod2 : mod1;
+  const mod = modKey === modKey2 ? mods[1] : mods[0];
 
   const DB = RULES.modules;
   const invuln = !!(target.invuln) || (target.invulnT > 0);
@@ -236,7 +315,7 @@ function applyModuleDamage(shell, target, hit, opts){
           target.ammoBlew = true;
           target.fireT = RULES.fire.fireVisualSeconds;
           target.blowHitPoint = { x:hit.x, y:hit.y };
-          extra += '（弹药架殉爆！炮塔被掀飞）'; cls='CRIT';
+          extra += '（弹药架殉爆）'; cls='CRIT';
         }
         return;
       }
@@ -290,14 +369,17 @@ function applyModuleDamage(shell, target, hit, opts){
     };
 
     applySingleModEffect(modKey1);
-    if(isApfsds) applySingleModEffect(modKey2);
+    if(draws >= 2) applySingleModEffect(modKey2);
+    // 弹种链：moduleDraws ≥ 3（he/blast_he）——第三抽取只施加效果（伤害已由 effectiveMult 覆盖）
+    if(draws >= 3) applySingleModEffect((mods[2] && mods[2].key) || null);
   }
 
   const labelStr = mod ? mod.label : '';
+  const isApfsds = draws >= 2;   // 弹种链：双抽取即双模块语义（APFSDS 系 + apds/aphe/tandem 系）
   return { cls,
     modKey,
     text: modKey
-      ? `击穿！命中 ${labelStr}${isApfsds && modKey2 && modKey2 !== modKey1 ? ' 及 '+mod2.label : ''}，造成 ${dmg} 伤害 ${extra}`
+      ? `击穿！命中 ${labelStr}${isApfsds && modKey2 && modKey2 !== modKey1 ? ' 及 '+mods[1].label : ''}，造成 ${dmg} 伤害 ${extra}`
       : `击穿！造成 ${dmg} 伤害 ${extra}`,
     dmg };
 }
@@ -311,6 +393,9 @@ if (typeof module !== 'undefined' && module.exports) {
     resolveHit,
     applyModuleDamage,
     shellAmmoKey,
+    ammoBounceAngle,
+    ammoModuleMults,
+    nonPenSplashDmg,
     applySplashAt,
     applyDamage
   };

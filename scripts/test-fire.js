@@ -10,6 +10,7 @@ global.segRayIntersect=U.segRayIntersect; global.partCorners=U.partCorners; glob
 global.reflectDir=U.reflectDir; global.distToSegment=U.distToSegment; global.gaussian=U.gaussian;
 global.RULES=R.RULES;
 const G=require('../js/tank_geometry.js');
+const G2=G;
 global.ARMOR=G.ARMOR; global.BOUNCE_ANGLE=G.BOUNCE_ANGLE; global.HEIGHTS=G.HEIGHTS;
 global.getPartZRange=G.getPartZRange; global.getGunHeight=G.getGunHeight;
 global.hullPoly=G.hullPoly; global.turretPoly=G.turretPoly;
@@ -59,7 +60,7 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
   C.covers.splice(C.covers.indexOf(cov),1);
 }
 
-// 2) fireTank: ammo consumption pen scaling & HE noBounce / smoke separate path
+// 2) fireTank: ammo consumption pen scaling & HE noBounce（烟幕弹路径已随 2026-09-15 W2 移除）
 {
   global.shells=[];
   global.devAim={zeroSpread:true};
@@ -73,19 +74,15 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
   global.impacts=[]; global.bounceFx=[];
   const okFire=F.fireTank(shooter,target,'auto');
   ok(okFire===true, 'fireTank HEAT fires');
-  ok(global.shells.length===1 && Math.abs(global.shells[0].pen-140)<1e-9, 'HEAT pen 1.4x (100->140)');
+  ok(global.shells.length===1 && Math.abs(global.shells[0].pen-150)<1e-9, 'HEAT pen 1.5x (100->150)（弹种链 2026-09-13）');
   // HE noBounce
   global.shells.length=0;
   shooter.ammoKey='he';
   shooter.reloadT=0;
   F.fireTank(shooter,target,'auto');
   ok(global.shells[0].ammoKey==='he', 'HE shell ammoKey preserved');
-  // smoke separate path
-  global.shells.length=0;
-  shooter.reloadT=0;
-  shooter.ammoKey='ap';
-  const sm=F.fireSmokeShell(shooter);
-  ok(sm===true && global.shells[0].ammoKey==='smoke' && global.shells[0].smoke===true && global.shells[0].pen===0, 'fireSmokeShell smoke separate path pen 0');
+  // 烟幕弹移除断言：fireSmokeShell/tryFireSmoke 不再存在（2026-09-15 W2 用户裁定）
+  ok(F.fireSmokeShell===undefined && F.tryFireSmoke===undefined, 'fireSmokeShell/tryFireSmoke 已移除');
 }
 
 // 3) stepShells shield absorb guard: HE absorbed should not splashCoversAt
@@ -188,13 +185,12 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
   ok(F.fireTank(shooter,target,'auto')===true && global.shells.length===1, '#95 fireTank fires while immobT>0 (track broken not disarmed)');
   global.shells.length=0;
   shooter.reloadT=0;
-  ok(F.fireSmokeShell(shooter)===true && global.shells[0] && global.shells[0].smoke===true, '#95 fireSmokeShell fires while immobT>0');
   // reloadT still blocks
   shooter.reloadT=2;
   ok(F.fireTank(shooter,target,'auto')===false, 'reloadT>0 still blocks fireTank (gating preserved)');
 }
 
-// 6) P-49: breech debuff（炮闩受损）blocks firing — fireTank / fireSmokeShell / repair clears
+// 6) P-49: breech debuff（炮闩受损）blocks firing — fireTank / repair clears
 {
   const shooter=M.makeTank({id:'p49',team:'player',x:0,y:0,hullAngle:0,turretAngle:0, base:{penetration:100, damage:20, reload:1, shellSpeed:1000, maxHp:100}});
   const target=M.makeTank({id:'e49',team:'enemy',x:500,y:0});
@@ -206,7 +202,6 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
   shooter.reloadT=0;
   shooter.debuffs={ breech: RULES.modules.debuffSeconds };
   ok(F.fireTank(shooter,target,'auto')===false && global.shells.length===0, 'P-49 breech debuff blocks fireTank');
-  ok(F.fireSmokeShell(shooter)===false, 'P-49 breech debuff blocks fireSmokeShell');
   // debuff 到期恢复开火
   shooter.debuffs={};
   global.shells.length=0;
@@ -216,6 +211,332 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
   const A=require('../js/tank_abilities.js');
   const r=A.tryActivateAbility(shooter,'repair');
   ok(r && r.ok===true && !shooter.debuffs.breech && !shooter.debuffs.engine, 'P-49 repair 清除 breech/engine debuff');
+}
+
+// 7) 阶段七 7.3：主武器机制（weapons.primary 倍率 + double_barrel 状态机 + autocannon 热量机制；
+//    2026-09-15 howitzer 曲射移除 / W6 机炮重做）
+{
+  global.shells=[]; global.impacts=[]; global.bounceFx=[];
+  global.devAim={zeroSpread:true};
+  C.covers.length=0;
+  const mkShooter=(ptype, overrides)=>{
+    const t=M.makeTank({id:'pw',team:'player',x:0,y:0,hullAngle:0,turretAngle:0, base:{penetration:100, damage:20, reload:2, shellSpeed:1000, maxHp:100}});
+    t.ammoKey='ap'; t.sigma=0; t.reloadT=0;
+    t.weapons={ primary:{ type: ptype, stats: Object.assign({}, overrides||{}) }, secondary:{ type:'none', stats:{} } };
+    return t;
+  };
+  const target=M.makeTank({id:'pw-t',team:'enemy',x:500,y:0});
+  global.entities=[mkShooter('standard'),target];
+  global.entities[0].weapons.primary._spec=null;
+
+  // 7a) 标准主炮：无倍率、单发
+  global.shells.length=0;
+  const std=global.entities[0];
+  ok(F.fireTank(std,target,'auto')===true && global.shells.length===1, '7a 标准主炮单发');
+  ok(Math.abs(global.shells[0].dmg-20)<1e-9 && Math.abs(global.shells[0].pen-100)<1e-9, '7a 标准主炮无倍率');
+  ok(!std._primaryBurst, '7a 标准主炮无连发登记');
+
+  // 7b) double_barrel（2026-09-15 W4 新机制）：炮盾并排 2 管、每管独立装填 ×1.0；
+  //     单击发射 1 根已装填管（换管 0.5s 门控）；空格齐射全部就绪管。
+  global.shells.length=0;
+  const db=mkShooter('double_barrel');
+  global.entities=[db,target];
+  db._dbState=null;
+  // (1) 单击：发射 1 管（管 0 左偏移管口），换管门控 reloadT=0.5s
+  ok(F.fireTank(db,target,'auto')===true && global.shells.length===1, '7b 单击发射 1 根已装填管');
+  ok(db._dbState && db._dbState.ready[0]===false && db._dbState.ready[1]===true, '7b 管 0 进入装填、管 1 待发');
+  ok(Math.abs(db.reloadT-0.5)<1e-9, '7b 换管时间 0.5s 写入 reloadT 门控');
+  ok(Math.abs(db._dbState.reloadT[0]-2)<1e-9, '7b 管 0 装填 ×1.0（=stats.reload 2s）');
+  ok(global.shells[0].y < G2.gunTip(db).y - 0.5, '7b 管 0 管口左偏移（弹道起点横向偏移）');
+  // (2) 换管门控内不可再射击
+  ok(F.fireTank(db,target,'auto')===false && global.shells.length===1, '7b 换管 0.5s 门控内单击无效');
+  F.updatePrimaryBarrels(db,0.5);   // 换管计时走完（管 0 仍在装填）
+  db.reloadT=0;
+  // (3) 再单击：发射管 1（另一根已装填管）
+  ok(F.fireTank(db,target,'auto')===true && global.shells.length===2, '7b 换管后单击发射另一根管');
+  ok(db._dbState.ready[0]===false && db._dbState.ready[1]===false, '7b 两管均进入装填');
+  // (4) 齐射：两管均未就绪 → 无发射
+  ok(F.fireTank(db,target,'auto',{},true)===false && global.shells.length===2, '7b 齐射时无就绪管不发射');
+  // (5) 两管装填完成 → 空格齐射发射 2 发（左右管口偏移）
+  F.updatePrimaryBarrels(db,2.0);
+  ok(db._dbState.ready[0]===true && db._dbState.ready[1]===true, '7b 两管装填完成');
+  db.reloadT=0;
+  ok(F.fireTank(db,target,'auto',{},true)===true && global.shells.length===4, '7b 空格齐射发射 2 发');
+  // (6) 齐射后换管门控 + 两管重新装填
+  ok(Math.abs(db.reloadT-0.5)<1e-9 && db._dbState.ready[0]===false && db._dbState.ready[1]===false, '7b 齐射后两管装填 + 换管门控');
+  // (7) 无 stagger 连发路径残留：_primaryBurst 不再为 double_barrel 登记
+  ok(!db._primaryBurst, '7b 双管不再登记 stagger 连发队列');
+
+  // 7c) autocannon（2026-09-15 W6 用户裁定重做）：逐发短间隔 + 热量机制——
+  //     伤害=标准 1/5、穿深=标准 85%、射击间隔=装填时间×0.25；
+  //     每发 +10% 热量、每秒冷却 15%、≥100% 过热锁定 2s；burst 连发路径已删除。
+  global.shells.length=0;
+  const ac=mkShooter('autocannon');
+  global.entities=[ac,target];
+  ok(F.fireTank(ac,target,'auto')===true && global.shells.length===1, '7c 机炮首发单发（无 burst 队列）');
+  ok(!ac._primaryBurst, '7c 机炮不再登记 burst 连发队列');
+  ok(Math.abs(ac.reloadT-2*0.25)<1e-9, '7c 机炮射击间隔=装填×0.25');
+  ok(Math.abs(global.shells[0].dmg-20*0.2)<1e-9, '7c 机炮伤害=标准 1/5（×0.2）');
+  ok(Math.abs(global.shells[0].pen-100*0.85)<1e-9, '7c 机炮穿深=标准 85%（×0.85）');
+  ok(Math.abs(global.shells[0].speed-1000*1.0)<1e-6, '7c 机炮弹速×1.0');
+  ok(Math.abs((global.shells[0].fxScale||1)-0.55)<1e-9, '7c 机炮弹体 fxScale=0.55');
+  ok(Math.abs(ac.heatPct-10)<1e-9, '7c 每发积累 10% 热量（首发后 10%）');
+  // 连续射击 10 发 → 100% 过热 → 锁定 2s（期间 reloadT=0 也不可开火）
+  for(let i=0;i<9;i++){ ac.reloadT=0; F.fireTank(ac,target,'auto'); }
+  ok(Math.abs(ac.heatPct-100)<1e-9, '7c 连射 10 发热量 100%');
+  ok(Math.abs(ac.heatLockT-2)<1e-9, '7c 过热触发 2s 惩罚锁定');
+  const shellCountAtLock=global.shells.length;   // 10 发
+  ac.reloadT=0;
+  ok(F.fireTank(ac,target,'auto')===false && global.shells.length===shellCountAtLock, '7c 过热锁定期间禁止开火');
+  // 冷却：updatePrimaryHeat 2s → 锁定结束 + 热量 100−15×2=70
+  F.updatePrimaryHeat(ac, 2.0);
+  ok(ac.heatLockT===0 && Math.abs(ac.heatPct-70)<1e-9, '7c 锁定 2s 后热量冷却至 70%');
+  ac.reloadT=0;
+  ok(F.fireTank(ac,target,'auto')===true && global.shells.length===shellCountAtLock+1, '7c 锁定结束后恢复开火');
+  ok(Math.abs(ac.heatPct-80)<1e-9, '7c 恢复开火后热量 80%');
+  // 卡牌 statOverrides 接入：coolPerSec 22 → 冷却加速
+  const ac2=mkShooter('autocannon', { coolPerSec: 22 });
+  global.entities=[ac2,target];
+  ac2.heatPct=100; ac2.heatLockT=2;
+  F.updatePrimaryHeat(ac2, 1.0);
+  ok(Math.abs(ac2.heatPct-78)<1e-9 && Math.abs(ac2.heatLockT-1)<1e-9, '7c 卡牌 coolPerSec=22 冷却加速生效');
+
+  // 7d) railgun：弹速×2.5 / 穿深×2.0 / 伤害×1.5 / 装填×2.2
+  global.shells.length=0;
+  const rg=mkShooter('railgun');
+  global.entities=[rg,target];
+  ok(F.fireTank(rg,target,'auto')===true && global.shells.length===1, '7d 电磁炮单发');
+  ok(Math.abs(global.shells[0].pen-100*2.0)<1e-9 && Math.abs(global.shells[0].dmg-20*1.5)<1e-9, '7d 电磁炮穿深×2.0 伤害×1.5');
+  ok(Math.abs(global.shells[0].speed-(1000*1.0*2.5))<1e-6, '7d 电磁炮弹速×2.5');
+  ok(Math.abs(rg.reloadT-2*2.2)<1e-9, '7d 电磁炮装填×2.2');
+
+  // 7e) howitzer 曲射移除（2026-09-15 用户裁定）：主炮恢复纯平射——WEAPON_DEFAULTS 无 howitzer、
+  //     WEAPON_PRIMARY_TYPES 白名单不含、主炮弹不再带 isArc/totalDist 落点标记
+  global.shells.length=0;
+  const hw=mkShooter('howitzer');
+  global.entities=[hw,target];
+  ok(F.primaryWeaponSpec(hw)===null || F.primaryWeaponSpec(hw).isArc===undefined, '7e howitzer 主炮不再携带曲射规格');
+  ok(F.fireTank(hw,target,'auto')===true && global.shells.length===1, '7e howitzer 未知类型按标准平射回落（单发）');
+  const hShell=global.shells[0];
+  ok(hShell.isArc===undefined && hShell.totalDist===undefined && hShell.targetX===undefined, '7e 主炮弹无 isArc/totalDist/targetX 曲射落点标记');
+  const W=require('../js/tank_weapons.js');
+  ok(W.WEAPON_DEFAULTS.primary.howitzer===undefined, '7e WEAPON_DEFAULTS.primary 已无 howitzer');
+  const C2=require('../js/tank_cards.js');
+  ok(C2.WEAPON_PRIMARY_TYPES && C2.WEAPON_PRIMARY_TYPES.indexOf('howitzer')===-1, '7e 卡牌白名单已移除 howitzer');
+}
+
+// 8) 按住鼠标左键持续开火（2026-09-15 用户确认要求）：任何主炮类型在按住期间逐帧门控自然释放——
+//    mvp 主循环每帧 tryFire→fireTank，reloadT/热量/炮管状态由 updatePrimaryHeat/updatePrimaryBarrels
+//    逐帧驱动；本段以 dt=1/60 模拟「按住左键」8s 的逐帧链，验证四种主炮类型都能按住连发。
+{
+  global.devAim={zeroSpread:true};
+  C.covers.length=0;
+  const DT=1/60, SPAN=8;
+  const mkHold=(ptype, overrides)=>{
+    global.shells=[]; global.impacts=[]; global.bounceFx=[];
+    const t=M.makeTank({id:'hold',team:'player',x:0,y:0,hullAngle:0,turretAngle:0, base:{penetration:100, damage:20, reload:2, shellSpeed:1000, maxHp:100}});
+    t.ammoKey='ap'; t.sigma=0; t.reloadT=0;
+    t.weapons={ primary:{ type: ptype, stats: Object.assign({}, overrides||{}) }, secondary:{ type:'none', stats:{} } };
+    const target=M.makeTank({id:'hold-t',team:'enemy',x:500,y:0});
+    global.entities=[t,target];
+    return t;
+  };
+  const holdFire=(t)=>{
+    let shots=0;
+    for(let s=DT;s<=SPAN;s+=DT){
+      F.updatePrimaryHeat(t, DT);
+      F.updatePrimaryBarrels(t, DT);
+      if(t.reloadT>0) t.reloadT-=DT;
+      const before=global.shells.length;
+      F.fireTank(t, global.entities[1], 'auto');   // 按住左键：每帧尝试开火，门控未就绪则 no-op
+      if(global.shells.length>before) shots++;
+    }
+    return shots;
+  };
+  const stdShots=holdFire(mkHold('standard'));
+  ok(stdShots>=3 && stdShots<=4, '8a 按住标准炮 8s 连发 3~4 发（间隔 2.0s，got '+stdShots+'）');
+  const rgShots=holdFire(mkHold('railgun'));
+  ok(rgShots>=1 && rgShots<=2, '8b 按住电磁炮 8s 连发 1~2 发（间隔 4.4s，got '+rgShots+'）');
+  const acShots=holdFire(mkHold('autocannon'));
+  const acT=global.entities[0];
+  ok(acShots>=15 && acShots<=16, '8c 按住机炮 8s 连发 15~16 发（间隔 0.5s，got '+acShots+'）');
+  ok((acT.heatPct||0)>0 && (acT.heatPct||0)<100 && !(acT.heatLockT>0), '8c 机炮按住期间热量积累但未过热（heat='+(acT.heatPct||0).toFixed(1)+'%）');
+  const dbShots=holdFire(mkHold('double_barrel'));
+  ok(dbShots>=6 && dbShots<=8, '8d 按住双管 8s 连发 6~8 发（两管并行交替：每管 4s 周期、合计每 2s 一发，got '+dbShots+'）');
+}
+
+// 9) #A21：tryFireWeaponSlot 按激活槽位分发（F 切换 + 左键/空格手动击发；玩家副武器不再激活即自动运作）
+{
+  const W9=require('../js/tank_weapons.js');
+  global.shells=[]; global.impacts=[]; global.bounceFx=[];
+  global.devAim={zeroSpread:true};
+  C.covers.length=0;
+  const ENEMY=M.makeTank({id:'e21',team:'enemy',x:500,y:0});
+  const mkP=(secType)=>{
+    const p=M.makeTank({id:'p21',team:'player',x:0,y:0,hullAngle:0,turretAngle:0, base:{penetration:100, damage:20, reload:2, shellSpeed:1000, maxHp:100}});
+    p.ammoKey='ap'; p.sigma=0; p.reloadT=0;
+    const secStats=(secType==='none')?{}:Object.assign({}, W9.getWeaponDefaults('secondary',secType));
+    p.weapons={ primary:{type:'standard',stats:{}}, secondary:{ type:secType, stats:secStats } };
+    p.activeWeaponSlot='primary';
+    return p;
+  };
+  const mkCtx=(p, mouse, extra)=>{
+    const base={
+      player:p, mouseWorld:mouse, shells:global.shells, impacts:global.impacts, bounceFx:global.bounceFx,
+      entities:global.entities, covers:C.covers, RULES:global.RULES, COVER_TIERS:C.COVER_TIERS,
+      nearestEnemyTo:(t)=>ENEMY, gunRoot:G.gunRoot, gunTip:G.gunTip, raycastTank:G.raycastTank,
+      aimPartPreference:G.aimPartPreference, bestHitForPref:G.bestHitForPref, getPartZRange:G.getPartZRange,
+      getExposure:C.getExposure, findCoversOnPath:C.findCoversOnPath, shellPartHit:G.shellPartHit,
+      coverNormalAt:C.coverNormalAt, reflectDir:U.reflectDir, resolveHit:P.resolveHit,
+      burstExplosion:global.burstExplosion, spawnMuzzleFlash:global.spawnMuzzleFlash,
+      spawnImpactFx:global.spawnImpactFx, spawnDmgText:global.spawnDmgText, playSound:global.playSound,
+      pushLog:global.pushLog, damageCover:C.damageCover, splashCoversAt:C.splashCoversAt,
+      isHostile:(a,b)=>a!==b, gaussian:()=>0, debuffReloadRate:M.debuffReloadRate,
+      computeAmmoConfig:null, fireTank:F.fireTank, fireActiveSecondary:W9.fireActiveSecondary
+    };
+    return Object.assign(base, extra||{});
+  };
+
+  // ① primary 槽位 → 委托 tryFire→fireTank（弹体 ammoKey=ap）；double_barrel 空格齐射 salvo 透传
+  global.entities=[mkP('none'),ENEMY];
+  const pStd=global.entities[0];
+  pStd.activeWeaponSlot='primary';
+  global.shells.length=0;
+  ok(F.tryFireWeaponSlot(mkCtx(pStd,{x:500,y:0}))===true && global.shells.length===1 && global.shells[0].ammoKey==='ap', '9a primary 槽位分发 → fireTank（1 发 ap）');
+  const pDb=mkP('none');
+  pDb.weapons.primary={type:'double_barrel',stats:{}};
+  pDb.activeWeaponSlot='primary';
+  pDb._dbState=null;
+  global.entities=[pDb,ENEMY];
+  global.shells.length=0;
+  ok(F.tryFireWeaponSlot(mkCtx(pDb,{x:500,y:0}), true)===true && global.shells.length===2, '9b primary+double_barrel 空格齐射经分发发射 2 发（salvo 透传）');
+
+  // ② secondary+mortar → isArc 且落点=鼠标世界点方向（min(距离, range 450)）
+  global.entities=[ENEMY];
+  const pMor=mkP('mortar');
+  pMor.activeWeaponSlot='secondary';
+  pMor.secondaryReloadT=0;
+  global.shells.length=0;
+  const ctxMor=mkCtx(pMor,{x:300,y:100});
+  ok(F.tryFireWeaponSlot(ctxMor)===true, '9c secondary+mortar 左键分发击发成功');
+  ok(global.shells.length===1 && global.shells[0].isArc===true, '9c 迫击炮曲射弹生成');
+  const morTip=G.gunTip(pMor);
+  const useDist=Math.min(Math.hypot(300-morTip.x,100-morTip.y),450);
+  ok(Math.abs(global.shells[0].totalDist-useDist)<1e-6 && Math.abs(Math.hypot(global.shells[0].targetX-morTip.x, global.shells[0].targetY-morTip.y)-useDist)<1e-6, '9c 曲射落点=鼠标世界点方向（min(距鼠标,450)）');
+  ok(Math.abs(pMor.secondaryReloadT-8)<1e-9, '9c 迫击炮装填重置 8s');
+
+  // ③ secondary+missile+纯点 → guided 弹、target=null（沿鼠标方向直飞，不再回退 nearestEnemyTo 自动寻的）
+  global.shells.length=0;
+  const pMis=mkP('missile');
+  pMis.activeWeaponSlot='secondary';
+  pMis.secondaryReloadT=0;
+  const ctxMis=mkCtx(pMis,{x:400,y:200});
+  ok(F.tryFireWeaponSlot(ctxMis)===true, '9d secondary+missile 左键分发击发成功');
+  ok(global.shells.length===1 && global.shells[0].guided===true && global.shells[0].mode==='lock', '9d 制导锁定弹生成（mode=lock）');
+  ok(global.shells[0].target===null, '9d 手动击发 target=null（沿鼠标方向直飞，不自动寻的）');
+  const misTip=G.gunTip(pMis);
+  const wantAng=Math.atan2(200-misTip.y,400-misTip.x);
+  const gotAng=Math.atan2(global.shells[0].dy,global.shells[0].dx);
+  ok(Math.abs(gotAng-wantAng)<1e-9, '9d 弹向=朝向鼠标世界点');
+  ok(global.shells[0].ammoKey==='he' && global.shells[0].dmg===Math.round(140*1.5), '9d 导弹按 HE 机制伤害（140×1.5）');
+
+  // ④ secondary 槽位但副武器 none → 回退 tryFire（主炮仍可用）
+  global.entities=[mkP('none'),ENEMY];
+  const pNone=global.entities[0];
+  pNone.activeWeaponSlot='secondary';
+  global.shells.length=0;
+  ok(F.tryFireWeaponSlot(mkCtx(pNone,{x:500,y:0}))===true && global.shells.length===1 && global.shells[0].ammoKey==='ap', '9e 副武器 none → 回退 tryFire（1 发 ap）');
+
+  // ⑤ secondary+mine_layer → 注入 spawnMine 时车尾布雷（hullAngle=0 → x=-45）
+  const placed=[];
+  const pMine=mkP('mine_layer');
+  pMine.activeWeaponSlot='secondary';
+  pMine.secondaryReloadT=0;
+  global.shells.length=0;
+  const ctxMine=mkCtx(pMine,{x:0,y:0},{spawnMine:(o)=>{ placed.push(o); return o; }, deployables:placed});
+  ok(F.tryFireWeaponSlot(ctxMine)===true, '9f secondary+mine_layer 左键分发布雷成功');
+  ok(placed.length===1 && placed[0].damage===100, '9f 地雷入注册表（damage=100）');
+  ok(Math.abs(placed[0].x-(pMine.x-45))<1e-9 && Math.abs(placed[0].y)<1e-9, '9f 车尾 45px 布雷（hullAngle=0 → x=-45）');
+
+  // ⑥ turret 型 → 点击分发不响应（设计例外，自主副炮塔由 updateSecondaryWeapon 驱动）
+  global.shells.length=0;
+  const pTur=mkP('turret');
+  pTur.activeWeaponSlot='secondary';
+  pTur.secondaryReloadT=0;
+  global.entities=[pTur,ENEMY];
+  ok(F.tryFireWeaponSlot(mkCtx(pTur,{x:500,y:0}))===false && global.shells.length===0, '9g turret 型不响应点击分发（不回落主炮）');
+
+  // ⑦ 主武器全类型补全（F 切到 primary → 左键/空格）：autocannon / railgun
+  global.shells.length=0;
+  const pAc=mkP('none');
+  pAc.weapons.primary={type:'autocannon',stats:{}};
+  pAc.activeWeaponSlot='primary';
+  pAc.reloadT=0; pAc.heatPct=0; pAc.heatLockT=0;
+  global.entities=[pAc,ENEMY];
+  ok(F.tryFireWeaponSlot(mkCtx(pAc,{x:500,y:0}))===true && global.shells.length===1, '9h primary+autocannon 槽位分发击发 1 发');
+  ok((pAc.heatPct||0)>0, '9h 机炮击发累计热量（heatPct>0）');
+
+  global.shells.length=0;
+  const pRg=mkP('none');
+  pRg.weapons.primary={type:'railgun',stats:{}};
+  pRg.activeWeaponSlot='primary';
+  pRg.reloadT=0;
+  global.entities=[pRg,ENEMY];
+  ok(F.tryFireWeaponSlot(mkCtx(pRg,{x:500,y:0}))===true && global.shells.length===1, '9i primary+railgun 槽位分发击发 1 发');
+  ok(pRg.reloadT>0, '9i 电磁炮装填计时重置（reloadMult 2.2 → reloadT>0）');
+
+  // ⑧ 副武器全类型补全：rocket（巢式齐射 4 发）/ missile_wire（线导 mode=wire）
+  global.shells.length=0;
+  const pRk=mkP('rocket');
+  pRk.activeWeaponSlot='secondary';
+  pRk.secondaryReloadT=0;
+  global.entities=[pRk,ENEMY];
+  ok(F.tryFireWeaponSlot(mkCtx(pRk,{x:400,y:0}))===true && global.shells.length===4, '9j secondary+rocket 槽位分发齐射 4 发');
+
+  global.shells.length=0;
+  const pWire=mkP('missile_wire');
+  pWire.activeWeaponSlot='secondary';
+  pWire.secondaryReloadT=0;
+  global.entities=[pWire,ENEMY];
+  ok(F.tryFireWeaponSlot(mkCtx(pWire,{x:400,y:200}))===true && global.shells.length===1 && global.shells[0].mode==='wire',
+    '9k secondary+missile_wire 槽位分发击发（线导 mode=wire）');
+}
+
+// ===== #A27（2026-09-15）HE-VT（proximity_he）飞行回归：近炸引信分支必须每帧推进弹体 =====
+{
+  global.shells=[]; if(!global.entities) global.entities=[];
+  const shooter=M.makeTank({ team:'player' });
+  const ammo=R.RULES.ammoTypes.proximity_he;
+  ok(!!ammo && !!ammo.proximity && R.RULES.proximityFuze && R.RULES.proximityFuze.enabled, '#A27: proximity_he 弹种 + 近炸引信开启');
+  const mkShell=function(x,y){ return {x:x,y:y,fx:x,fy:y,dx:1,dy:0,speed:400,pen:100,dmg:50,ammo:ammo,ammoKey:'proximity_he',shooter:shooter,hitPref:'auto',canBounce:true,bounced:false,dist:0,dead:false}; };
+  const ctx={worldW:4000,worldH:4000,random:()=>0.5};
+  // 场景 1：空域飞行（无敌对实体）→ 弹体持续沿 x 正向前进，不静止（之前 dist=0 / x=0）
+  global.entities=[shooter];
+  const s1=mkShell(0,0); global.shells=[s1];
+  for(let i=0;i<20;i++){ F.stepShells(0.05,ctx); }
+  ok(s1.dist>0 && s1.x>0 && s1.dead===false, '#A27: HE-VT 飞行 20 帧推进（dist='+s1.dist.toFixed(1)+' x='+s1.x.toFixed(1)+'）');
+  for(let i=0;i<2000 && !s1.dead;i++){ F.stepShells(0.05,ctx); }
+  ok(s1.dead===true, '#A27: HE-VT 飞行后射程耗尽 / 出界死亡（dist='+s1.dist.toFixed(1)+' dead='+s1.dead+')');
+  // 场景 2：近炸空爆命中敌人 — 弹体飞过敌人（未直接击中，y 偏 85 越过车身）触发引信空爆，
+  // 弹出敌人实际受伤（hp 损失）而非“空爆”字样。applySplashAt 经修订返回实收伤害；
+  // 武器为 proximity_he（splashRadius 90），偏 85 仍落内爆半径 → 敌人受 1 点伤害。
+  const dmgCaptured=[]; global.applySplashAt=P.applySplashAt;
+  const prevDmgText=global.spawnDmgText;
+  global.spawnDmgText=function(x,y,text,kind){ dmgCaptured.push({text:String(text),kind:kind}); };
+  const enemy=M.makeTank({ team:'enemy', x:800, y:0, vx:0, vy:0, hp:10000 });
+  const hpBefore=enemy.hp;
+  global.entities=[shooter,enemy];
+  const ang=Math.atan2(85,800);
+  const s2=Object.assign(mkShell(0,0), {dx:Math.cos(ang), dy:Math.sin(ang), _fuzeArmed:false});
+  global.shells=[s2];
+  let frames=0;
+  while(!s2.dead && frames<400){ F.stepShells(0.05,ctx); frames++; }
+  ok(s2.dead===true && frames<400, '#A27: HE-VT 飞过敌人触发近炸空爆（frames='+frames+' x='+s2.x.toFixed(1)+'）');
+  ok(enemy.hp < hpBefore, '#A27: 敌人受到溅射伤害（hp '+hpBefore+'→'+(hpBefore-enemy.hp)+'）');
+  const nums=dmgCaptured.filter(function(d){return /^\d+$/.test(d.text);}).map(function(d){return Number(d.text);});
+  ok(nums.length>0 && nums[0]>0 && nums[0]===hpBefore-enemy.hp, '#A27: 空爆飘字为敌人实受伤害='+nums[0]+'（而非“空爆”字样，亦非静态 s.dmg）');
+  ok(!dmgCaptured.some(function(d){return d.text==='空爆';}), '#A27: 不再弹出“空爆”字样');
+  if(prevDmgText) global.spawnDmgText=prevDmgText; else delete global.spawnDmgText;
 }
 
 console.log(fails===0?'\nAll fire checks passed.':`\n${fails} FAILED`);

@@ -32,7 +32,7 @@ function readRawMeta(store){ try { return JSON.parse(store.m['rogue-tank-saves-m
 // 1) 存档默认值 + 归一化
 const def = eco.defaultProfile();
 ok(def.version === RULES_MOD.RULES.economy.saveVersion && def.points === 0 && typeof def.upgrades === 'object', 'defaultProfile 结构');
-ok(def.selectedTankId === null && Array.isArray(def.ammoLoadout) && def.ammoLoadout.length === 0 && def.bonusRevives === 0, 'defaultProfile 新字段缺省（M10）');
+ok(def.selectedTankId === null && Array.isArray(def.ammoLoadout) && def.ammoLoadout.join(',') === 'ap,he' && def.bonusRevives === 0, 'defaultProfile 新字段缺省（阶段六 默认 ap,he）');
 ok(eco.normalizeProfile(null).points === 0, 'null profile → 默认');
 ok(eco.normalizeProfile({ version: 999 }).points === 0, '版本不匹配 → 默认（防脏数据）');
 const p2 = eco.normalizeProfile({ version: 1, points: 100, upgrades: { pen_up: 3, bogus: 5 }, stats: { runs: 2, kills: 7 } });
@@ -44,6 +44,15 @@ const legacyShape = eco.normalizeProfile({ version: 1, points: 10 });
 ok(legacyShape.version === RULES_MOD.RULES.economy.saveVersion && legacyShape.selectedTankId === null &&
    Array.isArray(legacyShape.ammoLoadout) && legacyShape.ammoLoadout.length === 0 && legacyShape.bonusRevives === 0,
    'v1 旧档缺新字段 → 缺省填充（saveVersion 不动）');
+
+// 阶段六 6.3：解锁进度归一化（ap/he 保底解锁、非法键剔除、去重保序）
+ok(Array.isArray(eco.defaultProfile().unlockedAmmo) && eco.defaultProfile().unlockedAmmo.join(',') === 'ap,he',
+   'defaultProfile unlockedAmmo 缺省 = [ap,he]');
+const un = eco.normalizeProfile({ version: 1, ammoLoadout: ['ap', 'heat'], unlockedAmmo: ['heat', 'ap', 'bogus', 'heat', 'apcr'] });
+ok(un.unlockedAmmo.join(',') === 'ap,he,heat,apcr',
+   'normalizeProfile unlockedAmmo 保底 ap/he + 去重保序 + 剔非法键');
+ok(eco.normalizeProfile({ version: 1 }).unlockedAmmo.join(',') === 'ap,he', '旧档 unlockedAmmo 缺省 [ap,he]');
+ok(eco.normalizeProfile({ version: 1, unlockedAmmo: 'nope' }).unlockedAmmo.join(',') === 'ap,he', 'unlockedAmmo 非数组 → 缺省 [ap,he]');
 
 // 2) 存档读写（fake storage；多存档语义下经 active 槽位委托往返）
 const store = makeStore();
@@ -354,7 +363,7 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
       armor: { hull: { front: 50 }, turret: { front: 60 } } }, []);
   const validStats = new Set(Object.keys(baseStats));
 
-  ok(eco.RUN_SHOP_DEFS.length === 12, `RUN_SHOP_DEFS 数量 12（D3 #A1/#A3 重构后：火力 5 + 防护包 2 + 机动 2 + 杂项 3；实际 ${eco.RUN_SHOP_DEFS.length}）`);
+  ok(eco.RUN_SHOP_DEFS.length === 12, `RUN_SHOP_DEFS 数量 12（2026-09-14 装甲合一：火力 5 + 防护 2 + 机动 2 + 杂项 3；实际 ${eco.RUN_SHOP_DEFS.length}）`);
   const ids = new Set();
   let structOk = true;
   for (const d of eco.RUN_SHOP_DEFS) {
@@ -384,17 +393,21 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
      grpOf('precision_gunnery') === 'firepower' && grpOf('steady_mount') === 'firepower', '#A1：火力组五商品（含新增穿深加工/火力增强）');
   ok(grpOf('engine_overdrive') === 'mobility' && grpOf('engine_power_up') === 'mobility', '#A1：机动组（引擎超压 + 新增马力强化）');
   ok(grpOf('emergency_repair') === 'misc' && grpOf('repair_kit_cd_run') === 'misc' && grpOf('medkit_cd_run') === 'misc', '杂项组：emergency_repair/双速冷');
-  // #A4（2026）：防护六面拆卖合并为两个打包商品（各三面 +2mm、baseCost 60、costGrowth 1.6、
-  // maxLevel 99=防御性兜底——真正上限由 runShopLimitBlocked 按 parameterLimits.armor.* 逐面动态决定）
+  // #A4 + 2026-09-14 装甲合一：armor_kit 单一商品六面 +2mm、重量 +0.5t、baseCost 90
+  // （炮塔+车体同时加强 = 一个升级项，用户定案）；上限判定仍由 runShopLimitBlocked
+  // 按 parameterLimits 逐条 effect 动态推导（装甲面无上限、重量 80t 生效）
   let armorGroupOk = true;
-  for (const kid of ['hull_armor_kit', 'turret_armor_kit']) {
-    const kd = eco.getRunShopDef(kid);
-    const part = kid.split('_')[0];   // hull / turret
-    if (!kd || kd.group !== 'armor' || !kd.effects || kd.effects.length !== 3 ||
-        !kd.effects.every(ef => ef.mode === 'add' && ef.value === 2 && ef.stat === 'armor.' + part + '.' + ef.stat.split('.')[2]) ||
-        kd.baseCost !== 60 || kd.costGrowth !== 1.6 || kd.maxLevel !== 99) armorGroupOk = false;
-  }
-  ok(armorGroupOk, '#A1 防护打包：hull_armor_kit/turret_armor_kit（三面各 +2mm、baseCost 60、growth 1.6、maxLevel 99 兜底）');
+  const akd = eco.getRunShopDef('armor_kit');
+  const akFaces = (akd && akd.effects || []).filter(ef => ef.stat.indexOf('armor.') === 0);
+  const akWt = (akd && akd.effects || []).find(ef => ef.stat === 'weight');
+  const akFaceOk = akFaces.length === 6 && akFaces.every(ef =>
+    ef.mode === 'add' && ef.value === 2 && ef.stat === 'armor.' + ef.stat.split('.')[1] + '.' + ef.stat.split('.')[2]);
+  const akWtOk = !!akWt && akWt.mode === 'add' && akWt.value === 0.5;
+  if (!akd || akd.group !== 'armor' || !akFaceOk || !akWtOk ||
+      akd.baseCost !== 90 || akd.costGrowth !== 1.55 || akd.maxLevel !== 99) armorGroupOk = false;
+  ok(armorGroupOk, '装甲合一：armor_kit（车体+炮塔六面各 +2mm + 重量 +0.5t、baseCost 90、growth 1.55、maxLevel 99 兜底）');
+  ok(!eco.getRunShopDef('hull_armor_kit') && !eco.getRunShopDef('turret_armor_kit'),
+    '旧 hull_armor_kit/turret_armor_kit 已合并移除（id 不复用防存档 levels 脏数据）');
   // #A1：原六面拆卖 id 与旧 hull_patch 均移除（id 不复用防存档 levels 脏数据）
   ok(['hull_front_patch','hull_side_patch','hull_rear_patch','turret_front_patch','turret_side_patch','turret_rear_patch']
        .every(pid => !eco.getRunShopDef(pid)) && !eco.getRunShopDef('hull_patch'),
@@ -408,11 +421,12 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
      '#A1：火力增强 damage add+4/级（maxLevel 99=无显式上限）');
   ok(epuD && epuD.effects[0].stat === 'enginePower' && epuD.effects[0].mode === 'add' && epuD.effects[0].value === 60,
      '#A1：马力强化 enginePower add+60/级（功重比自然上升，受 weightRuntimeCap 间接约束）');
-  // #A1/#A3：姿态稳定改造——独立运动键 motionSpreadMul、mult 语义、单次购买
+  // #A1/#A3：姿态稳定改造——独立运动键 motionSpreadMul、mult 语义；
+  // 2026-08-28 定案：可升级次数由 limit（motionSpreadMul.min 0.5）动态决定，maxLevel 统一 99 兜底
   const smD = eco.getRunShopDef('steady_mount');
   ok(smD && smD.effects.length === 1 && smD.effects[0].stat === 'motionSpreadMul' &&
-     smD.effects[0].mode === 'mult' && smD.effects[0].value === 0.85 && smD.maxLevel === 1,
-     '#A1/#A3：steady_mount 改挂 motionSpreadMul ×0.85（maxLevel 1，与 spreadMult 解耦）');
+     smD.effects[0].mode === 'mult' && smD.effects[0].value === 0.85 && smD.maxLevel === 99,
+     '#A1/#A3：steady_mount 改挂 motionSpreadMul ×0.85（maxLevel 99 兜底 + limit 驱动，与 spreadMult 解耦）');
 
   // #A1：达限判定 runShopLimitBlocked（reload 下限 0.5s / maxSpeed 上限 375px/s，对照 RULES.parameterLimits 同源数值）
   const frL = eco.getRunShopDef('fast_reload'), eoL = eco.getRunShopDef('engine_overdrive');
@@ -425,17 +439,24 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
   ok(eco.runShopLimitBlocked(eoL, 100) === false, '#A1 maxSpeed 未达限 → 可购');
   ok(eco.runShopLimitBlocked(duD, 30) === false && eco.runShopLimitBlocked(smD, 1) === false, '无 limit 字段商品永不达限');
 
-  // #A4：由具体数值决定上限——多面打包（装甲包）逐面按 parameterLimits 判定，而非写死 maxLevel。
-  const hk = eco.getRunShopDef('hull_armor_kit'), tk = eco.getRunShopDef('turret_armor_kit');
-  ok(hk && hk.maxLevel === 99 && tk && tk.maxLevel === 99, '#A4 装甲包 maxLevel 99（防御性兜底，非写死上限）');
-  // hull.front 默认 110，max=150；side 默认 38，max=105。构造 stats 使 side 已到 104，
-  // +2mm → 106 > 105 达限（逐面真实值判定，而非用 front 值误判）。
-  const pkStats = { armor: { hull: { front: 110, side: 104, rear: 26 } } };
-  ok(eco.runShopLimitBlocked(hk, 110, pkStats) === true,
-    '#A4 装甲包逐面达限：hull.side 104+2=106 > max 105 → blocked（真实各面值，非单 curVal 误判）');
-  const pkStatsOk = { armor: { hull: { front: 110, side: 100, rear: 26 } } };
-  ok(eco.runShopLimitBlocked(hk, 110, pkStatsOk) === false,
-    '#A4 装甲包未达限：三面均在 max 内 → 可购');
+  // B3（2026-09）：hp_up / engine_power_up 「无上限」—— parameterLimits.maxHp.max/enginePower.max 升为 9999，
+  // 不再被 runShopLimitBlocked #A4 派生封顶（旧上限 160/1200 在此数值会被拒购，现放行）。
+  const hpd = eco.getRunShopDef('hp_up');
+  ok(hpd && hpd.effects[0].stat === 'maxHp' && hpd.effects[0].value === 15, '#B3 hp_up 定义：maxHp add+15/级（无上限）');
+  ok(eco.runShopLimitBlocked(hpd, 180) === false, '#B3 hp_up 180+15=195 不达限（旧 max 160 会封顶，现放行）');
+  ok(eco.runShopLimitBlocked(epuD, 1300) === false, '#B3 engine_power_up 1300+60=1360 不达限（旧 max 1200 会封顶，现放行）');
+
+  // #A4 + 294c971：装甲各面按用户需求取消上限（parameterLimits.armor.* max=9999）→ 面值永不达限；
+  // 多面打包的「逐条 effect 按 parameterLimits 动态推导」路径仍经重量上限（weight max=80t）生效。
+  const ak = eco.getRunShopDef('armor_kit');
+  ok(ak && ak.maxLevel === 99, 'armor_kit maxLevel 99（防御性兜底，非写死上限）');
+  const akStats = { armor: { hull: { front: 110, side: 104, rear: 26 }, turret: { front: 120, side: 90, rear: 30 } } };
+  ok(eco.runShopLimitBlocked(ak, 110, akStats) === false,
+    'armor_kit 装甲面无上限：六面各 +2mm 均不达限（parameterLimits.armor.* max=9999）');
+  ok(eco.runShopLimitBlocked(ak, 110, { armor: akStats.armor, weight: 80 }) === true,
+    'armor_kit 重量上限：weight 80 + 0.5 > max 80t → blocked（逐条 effect 按 parameterLimits 动态推导）');
+  ok(eco.runShopLimitBlocked(ak, 110, { armor: akStats.armor, weight: 40 }) === false,
+    'armor_kit 未达限：装甲面无上限 + weight 40 有余量 → 可购');
   // precision_gunnery：spreadMult 由具体数值决定（接近下限 0.5 时达限；不传 stats 回退 curVal）
   const pg = eco.getRunShopDef('precision_gunnery');
   ok(pg && pg.maxLevel === 99 && pg.limit && pg.limit.min === (RLIM ? RLIM.spreadMult.min : 0.5),
@@ -459,8 +480,13 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
   const stPoor = { total: 10, spent: 0, levels: {} };
   ok(eco.applyRunShopPurchase(stPoor, 'engine_overdrive') === false && stPoor.spent === 0, '余额不足 → false 且不改动账本');
   // D3 #A2：恢复 maxLevel 上限判定——满级后第 2 次购买返回 false 且账本不变（未定义 maxLevel 的商品仍无限购买）
-  const stMax = { total: 999999, spent: 0, levels: { steady_mount: 1 } };
-  ok(eco.applyRunShopPurchase(stMax, 'steady_mount') === false && stMax.levels.steady_mount === 1 && stMax.spent === 0, 'maxLevel 上限：steady_mount 满级后第 2 次购买返回 false 且账本不变');
+  // 294c971 后 steady_mount 兜底上限为 99，有限级数商品改用 repair_kit_cd_run（maxLevel 5）验证边界。
+  const stMax = { total: 999999, spent: 0, levels: { repair_kit_cd_run: 5 } };
+  ok(eco.applyRunShopPurchase(stMax, 'repair_kit_cd_run') === false && stMax.levels.repair_kit_cd_run === 5 && stMax.spent === 0,
+    'maxLevel 上限：repair_kit_cd_run（maxLevel 5）满级后第 2 次购买返回 false 且账本不变');
+  const stMax99 = { total: 999999, spent: 0, levels: { steady_mount: 99 } };
+  ok(eco.applyRunShopPurchase(stMax99, 'steady_mount') === false && stMax99.levels.steady_mount === 99 && stMax99.spent === 0,
+    'maxLevel 上限：steady_mount 达兜底上限 99 后购买返回 false 且账本不变');
   ok(eco.RUN_SHOP_DEFS.every(d => d.maxLevel !== undefined && d.maxLevel !== null), '现行 RUN_SHOP_DEFS 全部商品均定义 maxLevel（上限判定全量生效）');
   ok(eco.canAfford(50, 50) && !eco.canAfford(49, 50), 'canAfford 边界（=通过 / <拒绝）');
 

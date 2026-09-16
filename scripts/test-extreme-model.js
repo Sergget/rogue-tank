@@ -45,9 +45,14 @@ function ok(cond, label){
   const s = computeStats(base, []);
   ok(s.maxSpeed===1e6 && s.turnRate===1e6 && s.reload===1e6 && s.maxHp===1e9,
     'computeStats 极端基准 (1e6/1e6/1e6/1e9) 原样保留');
-  // 2026-08-26 P-49 运行时重量硬上限：聚合 weight 一律钳 ≤ RULES.weightRuntimeCap(240)，
-  // 故 900/300×130 的旧基准失效 -> 900/240×130 = 487.5
-  ok(Number.isFinite(s.accel) && s.accel === 487.5, 'computeStats 极端基准 accel 有限 (900/240[cap]×130=487.5)');
+  // 2026-08-26 P-49 运行时重量硬上限：聚合 weight 一律钳 ≤ RULES.weightRuntimeCap(240)；
+  // accel 系数同源 RULES.speed.accelPowerToPxScale（f9ac4f7 由 130 重校为 15）。
+  // 断言按 RULES 推导，避免常量再次重校后过期。
+  const ACCEL_SCALE = R.RULES.speed.accelPowerToPxScale;
+  const WEIGHT_CAP = R.RULES.weightRuntimeCap;
+  const expectAccel = (900 / Math.min(300, WEIGHT_CAP)) * ACCEL_SCALE;
+  ok(Number.isFinite(s.accel) && s.accel === expectAccel,
+    `computeStats 极端基准 accel 有限 (900/${Math.min(300, WEIGHT_CAP)}[cap]×${ACCEL_SCALE}=${expectAccel})`);
   const t = makeTank({ base });
   ok(t.stats.maxSpeed===1e6 && t.stats.turnRate===1e6 && t.stats.reload===1e6 && t.stats.maxHp===1e9,
     'makeTank 极端基准 -> tank.stats 与基准一致');
@@ -69,8 +74,9 @@ function ok(cond, label){
     damage:34, reload:1.3, maxHp:100, weight:w, enginePower:p,
     armor:{ hull:{front:1,side:1,rear:1}, turret:{front:1,side:1,rear:1} } });
   const aHuge = computeStats(mkbase(1, 1e6), []);
-  ok(aHuge.accel === 1.3e8 && Number.isFinite(aHuge.accel),
-    `accel: power=1e6 weight=1 -> 巨大但有限 (${aHuge.accel})`);
+  const expectHuge = 1e6 * R.RULES.speed.accelPowerToPxScale;
+  ok(aHuge.accel === expectHuge && Number.isFinite(aHuge.accel),
+    `accel: power=1e6 weight=1 -> 巨大但有限 (${aHuge.accel}, 期望 1e6×${R.RULES.speed.accelPowerToPxScale}=${expectHuge})`);
   const aTiny = computeStats(mkbase(1e6, 1), []);
   ok(Number.isFinite(aTiny.accel) && !Number.isNaN(aTiny.accel) && aTiny.accel > 0,
     `accel: power=1 weight=1e6 -> 趋近 0 但有限 (>0, ${aTiny.accel})`);
@@ -87,11 +93,15 @@ function ok(cond, label){
   const t = makeTank({});
   const s0 = t.stats.maxSpeed;   // 120
   addModifier(t, { stat:'maxSpeed', mode:'add', value:1e9, source:'add1e9' });
-  ok(t.stats.maxSpeed === s0 + 1e9, `modifier add +1e9 -> maxSpeed 增长 (${s0}->${t.stats.maxSpeed})`);
+  // 2026-09-15 W5：极速运行时硬限（≤150km/h=375px/s）——卡牌/修饰通道聚合后钳制到上限，
+  // 不再允许 add +1e9 无限突破。
+  ok(t.stats.maxSpeed === Math.min(s0 + 1e9, R.RULES.parameterLimits.maxSpeed.max),
+    `W5 modifier add +1e9 -> maxSpeed 钳至运行时上限 (${s0}->${t.stats.maxSpeed})`);
   addModifier(t, { stat:'maxSpeed', mode:'mult', value:0, source:'mult0' });
   ok(t.stats.maxSpeed === 0, 'modifier mult ×0 -> maxSpeed=0');
   removeModifierBySource(t, 'mult0');
-  ok(t.stats.maxSpeed === s0 + 1e9, 'removeModifierBySource(mult) -> 回到 add 后值');
+  ok(t.stats.maxSpeed === Math.min(s0 + 1e9, R.RULES.parameterLimits.maxSpeed.max),
+    'removeModifierBySource(mult) -> 回到 add 后值（钳后）');
   removeModifierBySource(t, 'add1e9');
   ok(t.stats.maxSpeed === s0, 'removeModifierBySource(add) -> 回到基准');
   addModifier(t, { stat:'maxSpeed', mode:'mult', value:-0.5, source:'neg' });
@@ -100,16 +110,16 @@ function ok(cond, label){
   removeModifierBySource(t, 'neg');
 }
 {
-  // 两趟算法：先 add 后 mult，结果与添加顺序无关
+  // 两趟算法：先 add 后 mult，结果与添加顺序无关（W5 极速上限钳制后取 min(440, 375)）
   const t1 = makeTank({});
   addModifier(t1, { stat:'maxSpeed', mode:'add', value:100, source:'A' });
   addModifier(t1, { stat:'maxSpeed', mode:'mult', value:2, source:'B' });
   const t2 = makeTank({});
   addModifier(t2, { stat:'maxSpeed', mode:'mult', value:2, source:'B' });
   addModifier(t2, { stat:'maxSpeed', mode:'add', value:100, source:'A' });
-  const expect = (120+100)*2;   // 440
+  const expect = Math.min((120+100)*2, R.RULES.parameterLimits.maxSpeed.max);   // min(440, 375)
   ok(t1.stats.maxSpeed === expect && t2.stats.maxSpeed === expect && t1.stats.maxSpeed === t2.stats.maxSpeed,
-    `两趟算法: add/mult 顺序无关，结果=(base+100)×2=440 (got ${t1.stats.maxSpeed})`);
+    `两趟算法: add/mult 顺序无关，结果=min((base+100)×2, 375)=${expect} (got ${t1.stats.maxSpeed})`);
 }
 {
   const t = makeTank({});

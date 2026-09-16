@@ -188,7 +188,7 @@ const t16 = model.makeTank({ team: 'player', enginePower: 600, weight: 30 });
 const baseAccel = t16.stats.accel;
 model.addModifier(t16, { stat: 'enginePower', mode: 'mult', value: 1.5 });
 ok(Math.abs(t16.stats.accel - baseAccel * 1.5) < 1e-4, '#61: 升级 enginePower 后 stats.accel 联动放大 1.5 倍');
-ok(Math.abs(t16.stats.brake - t16.stats.accel * 3.5) < 1e-4, '#61: stats.brake 同步联动保持 3.5 倍 accel');
+ok(Math.abs(t16.stats.brake - t16.stats.accel * RULES.speed.brakeFactor) < 1e-4, '#61: stats.brake 同步联动保持 brakeFactor 倍 accel');
 
 // 17) #65 moduleMult 零值与类型判断
 const fakeShooter = { team: 'player', stats: { ammoMult: 0, crewMult: 0 } };

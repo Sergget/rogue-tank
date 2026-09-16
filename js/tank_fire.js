@@ -2,10 +2,12 @@
 
 // tank_fire.js — 战斗核心管线收敛（P-28）。
 // mvp/bench 双份内联副本收口到此：
-//   shellVerticalDecision / fireTank / fireSmokeShell / tryFire / tryFireSmoke
+//   shellVerticalDecision / fireTank / tryFire
 //   computeSolution / updateSolution + shells 飞行积分物理/判定（stepShells）
 // 浏览器：全局脚本按序加载，ctx 缺省回退全局；Node：经 ctx 显式注入（covers/entities/fx/audio/RULES）
-// 保持半高越掩插值/护盾吸收守卫(!s.absorbed)/HE破障(smoke分支)/二次跳弹禁止语义。
+// 保持半高越掩插值/护盾吸收守卫(!s.absorbed)/二次跳弹禁止语义。
+// 2026-09-15 W2（用户裁定）：烟幕弹（fireSmokeShell/tryFireSmoke/stepShells smoke 分支）整链移除；
+// smokeClouds 动态烟幕基础设施（tank_cover.js）保留备用，当前无生产者。
 
 function _ctx(o){ return o || {}; }
 function _G(k, fb){ return (typeof globalThis!=='undefined'&&globalThis[k]!==undefined)?globalThis[k]:fb; }
@@ -38,7 +40,175 @@ function shellVerticalDecision(s, ctx){
   return dec;
 }
 
-function fireTank(shooter, target, hitPref, ctx){
+// 阶段七 7.3：主武器配置读取（weapons.primary 倍率：reloadMult/damageMult/penMult/shellSpeedMult/burst/stagger/count）
+function primaryWeaponSpec(shooter) {
+  const p = shooter && shooter.weapons && shooter.weapons.primary;
+  if (!p || !p.type || p.type === 'standard' || p.type === 'none') {
+    if (p) p._spec = null;
+    return null;
+  }
+  if (p._spec) return p._spec;
+  let base = {};
+  let WD = (typeof WEAPON_DEFAULTS !== 'undefined') ? WEAPON_DEFAULTS : null;
+  if (!WD && typeof require !== 'undefined') {
+    try { WD = require('./tank_weapons.js').WEAPON_DEFAULTS; } catch (e) { WD = null; }
+  }
+  if (WD && WD.primary && WD.primary[p.type]) base = WD.primary[p.type];
+  p._spec = Object.assign({ type: p.type }, base, p.stats || {});
+  return p._spec;
+}
+
+// 阶段七 7.3：按主武器规格发射单发炮弹（2026-09-15 W6：autocannon 改逐发短间隔 + 热量机制，
+// burst 连发次发路径已删除）。共享 fireTank 的弹道计算（倍率 + 弹种 + 散布），返回值 = 生成的 shell 或 null。
+// 2026-09-15 W4：lateralOffsetPx = 炮口横向偏移（双管并排：±offset 各打各的管口）。
+function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
+  const c = _ctx(ctx);
+  const shells = c.shells || _G('shells', null);
+  if (!shells) return null;
+  const R = _rules(c);
+  const gunRoot = c.gunRoot || _G('gunRoot', null);
+  const gunTip = c.gunTip || _G('gunTip', null);
+  const gauss = c.gaussian || _G('gaussian', function () { return 0; });
+  const burst = c.burstExplosion || _G('burstExplosion', function () {});
+  const muzzle = c.spawnMuzzleFlash || _G('spawnMuzzleFlash', function () {});
+  const play = c.playSound || _G('playSound', function () {});
+  const devAim = c.devAim !== undefined ? c.devAim : _G('devAim', null);
+  if (!shooter || !gunRoot || !gunTip) return null;
+  const spec = primaryWeaponSpec(shooter);
+  const dmgMult = (spec && typeof spec.damageMult === 'number') ? spec.damageMult : 1;
+  const penMult = (spec && typeof spec.penMult === 'number') ? spec.penMult : 1;
+  const speedMult = (spec && typeof spec.shellSpeedMult === 'number') ? spec.shellSpeedMult : 1;
+  const rootP = gunRoot(shooter), tipP = gunTip(shooter);
+  const getAmmoCfg = c.computeAmmoConfig || _G('computeAmmoConfig', function (s, k) { return (R.ammoTypes && (R.ammoTypes[k] || R.ammoTypes.ap)) || { speed: 1, pen: 1, dmg: 1, spread: 1 }; });
+  const ammo = getAmmoCfg(shooter, shooter.ammoKey);
+  const zero = devAim && devAim.zeroSpread && shooter.id === 'player';
+  const spreadAcc = (ammo && typeof ammo.spreadAcc === 'number') ? ammo.spreadAcc : 1;
+  const cardSpreadMul = (ammo && typeof ammo.spread === 'number') ? ammo.spread : 1;
+  const sigma = zero ? 0 : ((shooter.sigma || 0) * spreadAcc * cardSpreadMul);
+  const spreadAngle = shooter.turretAngle + gauss(sigma);
+  const dx = Math.cos(spreadAngle), dy = Math.sin(spreadAngle);
+  // 2026-09-15 W4：双管并排——炮口与弹道起点按 lateralOffsetPx 沿炮塔横向平移
+  let ox = tipP.x, oy = tipP.y, fx = rootP.x, fy = rootP.y;
+  if (lateralOffsetPx) {
+    const perpX = -Math.sin(shooter.turretAngle || 0), perpY = Math.cos(shooter.turretAngle || 0);
+    ox += perpX * lateralOffsetPx; oy += perpY * lateralOffsetPx;
+    fx += perpX * lateralOffsetPx; fy += perpY * lateralOffsetPx;
+  }
+  // 2026-09-15 W6：autocannon 视觉炮管略短（barrelLenMult<1）——炮口/特效/弹道起点沿炮塔方向
+  // 回缩 (1−barrelLenMult)×炮管可视长度，与 tank_battledraw.js 绘制同源，避免「炮口悬空」；
+  // tank 级炮管贯穿掩体判定（gunRoot→gunTip 全长）保持不变。
+  if (spec && spec.type === 'autocannon') {
+    const lenMult = (typeof spec.barrelLenMult === 'number') ? spec.barrelLenMult : 0.8;
+    if (lenMult < 1) {
+      const pct = Math.max(0, Math.min(3, ((shooter.barrel && shooter.barrel.len) || 120) / 100));
+      const back = (1 - lenMult) * (shooter.turLen || 0) * pct;
+      ox -= Math.cos(shooter.turretAngle || 0) * back;
+      oy -= Math.sin(shooter.turretAngle || 0) * back;
+      fx -= Math.cos(shooter.turretAngle || 0) * back;
+      fy -= Math.sin(shooter.turretAngle || 0) * back;
+    }
+  }
+  const bMuzzle = (shooter.barrel && shooter.barrel.muzzle) || 'none';
+  // 2026-09-15 W6：autocannon 特效/弹体随 fxScale 缩小（默认 0.55）——更细炮管的视觉跟随
+  const isAC = spec && spec.type === 'autocannon';
+  const fxScale = (isAC && typeof spec.fxScale === 'number') ? spec.fxScale : 1;
+  burst(ox, oy, 0.6 * fxScale, 4, 2, 0);
+  muzzle(ox, oy, spreadAngle || shooter.turretAngle, fxScale, bMuzzle);
+  play('fire');
+  shooter.recoilT = 0.08;
+  const shell = {
+    x: ox, y: oy, fx: fx, fy: fy, dx: dx, dy: dy,
+    speed: Math.max(200, shooter.stats.shellSpeed * (ammo.speed || 1) * speedMult + (ammo.speedAdd || 0)),
+    pen: shooter.stats.penetration * (ammo.pen || 1) * penMult + (ammo.penAdd || 0),
+    dmg: Math.max(0, shooter.stats.damage * (ammo.dmg || 1) * dmgMult + (ammo.dmgAdd || 0)),
+    ammo: ammo, ammoKey: shooter.ammoKey, shooter: shooter, hitPref: hitPref,
+    fxScale: fxScale,
+    canBounce: true, bounced: false, dist: 0, dead: false
+  };
+  // 2026-09-15：主武器曲射机制已移除（howitzer 删除）——主炮一律平射直线弹道；
+  // isArc 落点分支（stepShells）仅保留给曲射副武器弹（mortar，自带 totalDist/targetX）。
+  shells.push(shell);
+  return shell;
+}
+
+// 2026-09-15 W6：速射机炮热量机制（用户裁定，burst 连发路径随之删除）。
+// 每发 +heatPerShot%（fireTank 累积）；每秒冷却 coolPerSec%（本函数逐帧驱动，player/AI/sim 均调用）；
+// ≥heatMax 触发过热：heatLockT = overheatLock 秒内禁止开火（fireTank 门控），冷却继续。
+// 状态字段：t.heatPct（0..heatMax）、t.heatLockT（秒）。updatePrimaryBarrels 同款逐帧驱动模式。
+function updatePrimaryHeat(t, dt) {
+  if (!t || t.hp <= 0) return false;
+  const spec = primaryWeaponSpec(t);
+  if (!spec || spec.type !== 'autocannon') return false;
+  const cool = (typeof spec.coolPerSec === 'number') ? spec.coolPerSec : 15;
+  if (t.heatLockT !== undefined && t.heatLockT > 0) t.heatLockT = Math.max(0, t.heatLockT - dt);
+  if (t.heatPct !== undefined && t.heatPct > 0) t.heatPct = Math.max(0, t.heatPct - cool * dt);
+  return true;
+}
+
+// 2026-09-15 W4：双管状态机（炮盾并排 2 炮管，每管独立装填）。
+// _dbState = { ready: [bool, bool], reloadT: [s, s] }——ready 由 updatePrimaryBarrels 逐帧维护。
+// 装填时间 ×reloadMult（默认 ×1.0）应用于**单根炮管**；单击发射 1 根已装填管；空格齐射（两管就绪才可）。
+// 换管时间 switchSeconds（默认 0.5s）：任一击发后 shooter.reloadT 置为该值，作为下一发的全局门控。
+function ensureDbState(shooter, spec) {
+  const count = (spec && typeof spec.count === 'number' && spec.count >= 1) ? spec.count : 2;
+  if (!shooter._dbState || shooter._dbState.count !== count) {
+    shooter._dbState = { count: count, ready: new Array(count).fill(true), reloadT: new Array(count).fill(0) };
+  }
+  return shooter._dbState;
+}
+
+// 双管每管独立装填计时（主循环逐帧驱动，player 与 AI 实体都调用）
+function updatePrimaryBarrels(t, dt) {
+  if (!t || !t._dbState) return false;
+  const st = t._dbState;
+  for (let i = 0; i < st.count; i++) {
+    if (!st.ready[i] && st.reloadT[i] > 0) {
+      st.reloadT[i] -= dt;
+      if (st.reloadT[i] <= 0) { st.reloadT[i] = 0; st.ready[i] = true; }
+    }
+  }
+  return true;
+}
+
+// 双管击发：salvo=true 时齐射全部就绪管（≥2 根），否则发射 1 根已装填管。
+// 返回 {fired, shells}。命中炮管掩体的 solid 截停在 fireTank 主体已先行处理。
+function fireDoubleBarrel(shooter, target, hitPref, ctx, spec, salvo) {
+  const st = ensureDbState(shooter, spec);
+  const readyIdx = [];
+  for (let i = 0; i < st.count; i++) { if (st.ready[i]) readyIdx.push(i); }
+  if (!readyIdx.length) return { fired: false, shells: 0 };
+  const reloadMult = (typeof spec.reloadMult === 'number') ? spec.reloadMult : 1.0;
+  const switchSeconds = (typeof spec.switchSeconds === 'number') ? spec.switchSeconds : 0.5;
+  const barrelOffset = (typeof spec.barrelOffset === 'number') ? spec.barrelOffset : 0.9;
+  const barrelWid = (shooter.barrel && shooter.barrel.width) || 14;
+  const off = barrelWid * barrelOffset * 0.5;
+  const debuffReload = (ctx && ctx.debuffReloadRate) || (typeof globalThis !== 'undefined' && globalThis.debuffReloadRate) || function(){ return 1; };
+  const perReload = shooter.stats.reload * reloadMult / debuffReload(shooter);
+
+  let toFire;
+  if (salvo) {
+    toFire = readyIdx.slice(0, 2);   // 齐射 = 发射全部就绪管（1 根或 2 根）
+  } else {
+    toFire = [readyIdx[0]];
+  }
+
+  let count = 0;
+  for (let k = 0; k < toFire.length; k++) {
+    const i = toFire[k];
+    // 并排偏移：管 0 → 左（-off），管 1 → 右（+off）
+    const lateral = (i === 0) ? -off : off;
+    const shell = firePrimaryShell(shooter, target, hitPref, ctx, lateral);
+    if (shell) {
+      count++;
+      st.ready[i] = false;
+      st.reloadT[i] = perReload;
+    }
+  }
+  if (count > 0) shooter.reloadT = switchSeconds;   // 换管时间门控（下一发）
+  return { fired: count > 0, shells: count };
+}
+
+function fireTank(shooter, target, hitPref, ctx, salvo){
   const c=_ctx(ctx);
   const shells=c.shells||_G('shells',null);
   if(!shells) return false;
@@ -47,7 +217,6 @@ function fireTank(shooter, target, hitPref, ctx){
   const gunRoot=c.gunRoot||_G('gunRoot',null);
   const gunTip=c.gunTip||_G('gunTip',null);
   const debuffReload=c.debuffReloadRate||_G('debuffReloadRate',function(){return 1;});
-  const gauss=c.gaussian||_G('gaussian',function(){return 0;});
   const burst=c.burstExplosion||_G('burstExplosion',function(){});
   const muzzle=c.spawnMuzzleFlash||_G('spawnMuzzleFlash',function(){});
   const impact=c.spawnImpactFx||_G('spawnImpactFx',function(){});
@@ -60,6 +229,8 @@ function fireTank(shooter, target, hitPref, ctx){
   if(shooter.reloadT>0) return false;
   // P-49 炮闩受损：短时完全无法开火（机械缴械，与装填 debuff 不同）
   if(shooter.debuffs && shooter.debuffs.breech > 0) return false;
+  // 2026-09-15 W6：autocannon 过热锁定——heatLockT>0 期间禁止开火（其他武器无此字段，天然无影响）
+  if(shooter.heatLockT !== undefined && shooter.heatLockT > 0) return false;
   if(!gunRoot||!gunTip||!find) return false;
   const rootP=gunRoot(shooter), tipP=gunTip(shooter);
   const barrelCovers=find(rootP.x,rootP.y,tipP.x,tipP.y);
@@ -77,69 +248,34 @@ function fireTank(shooter, target, hitPref, ctx){
     }
     return false;
   }
-  shooter.reloadT=shooter.stats.reload/debuffReload(shooter);
-  const ox=tipP.x, oy=tipP.y;
-  const getAmmoCfg=c.computeAmmoConfig||_G('computeAmmoConfig',function(s,k){ return (R.ammoTypes&&(R.ammoTypes[k]||R.ammoTypes.ap))||{speed:1,pen:1,dmg:1,spread:1}; });
-  const ammo=getAmmoCfg(shooter,shooter.ammoKey);
-  const zero=devAim&&devAim.zeroSpread&&shooter.id==='player';
-  const sigma=zero?0:((shooter.sigma||0)*(ammo.spread||1));
-  const spreadAngle=shooter.turretAngle+gauss(sigma);
-  const dx=Math.cos(spreadAngle), dy=Math.sin(spreadAngle);
-  const bMuzzle=(shooter.barrel&&shooter.barrel.muzzle)||'none';
-  burst(ox,oy,0.6,4,2,0);
-  muzzle(ox,oy,spreadAngle||shooter.turretAngle,1,bMuzzle);
-  play('fire');
-  shooter.recoilT = 0.08;
-  shells.push({x:ox,y:oy,fx:rootP.x,fy:rootP.y,dx:dx,dy:dy,speed:Math.max(200,shooter.stats.shellSpeed*(ammo.speed||1)+(ammo.speedAdd||0)),pen:shooter.stats.penetration*(ammo.pen||1)+(ammo.penAdd||0),dmg:Math.max(0,shooter.stats.damage*(ammo.dmg||1)+(ammo.dmgAdd||0)),ammo:ammo,ammoKey:shooter.ammoKey,shooter:shooter,hitPref:hitPref,canBounce:true,bounced:false,dist:0,dead:false});
-  return true;
-}
-
-function fireSmokeShell(shooter, ctx){
-  const c=_ctx(ctx);
-  const shells=c.shells||_G('shells',null);
-  if(!shells) return false;
-  const T=_tiers(c);
-  const find=c.findCoversOnPath||_G('findCoversOnPath',null);
-  const gunRoot=c.gunRoot||_G('gunRoot',null);
-  const gunTip=c.gunTip||_G('gunTip',null);
-  const debuffReload=c.debuffReloadRate||_G('debuffReloadRate',function(){return 1;});
-  const gauss=c.gaussian||_G('gaussian',function(){return 0;});
-  const burst=c.burstExplosion||_G('burstExplosion',function(){});
-  const muzzle=c.spawnMuzzleFlash||_G('spawnMuzzleFlash',function(){});
-  const impact=c.spawnImpactFx||_G('spawnImpactFx',function(){});
-  const play=c.playSound||_G('playSound',function(){});
-  const push=c.pushLog||_G('pushLog',function(){});
-  if(!shooter) return false;
-  // #95：烟幕弹经主炮发射（与普通炮弹同管线，含炮管掩体贯穿判定）——履带断不缴械火炮
-  if(shooter.reloadT>0) return false;
-  if(shooter.debuffs && shooter.debuffs.breech > 0) return false; // P-49 炮闩受损
-  if(!gunRoot||!gunTip||!find) return false;
-  const rootP=gunRoot(shooter), tipP=gunTip(shooter);
-  const barrelCovers=find(rootP.x,rootP.y,tipP.x,tipP.y);
-  const solid=barrelCovers.find(function(v){ const m=T[v.cover.tier]&&T[v.cover.tier].mode; return m==='solid'||m==='single'; });
-  if(solid){
-    shooter.reloadT=shooter.stats.reload/debuffReload(shooter);
-    burst(solid.point.x,solid.point.y,0.6,4,2,0);
-    muzzle(tipP.x,tipP.y,shooter.turretAngle,1,(shooter.barrel&&shooter.barrel.muzzle)||'none');
-    impact(solid.point.x,solid.point.y,shooter.turretAngle,'block',0.8);
-    play('block');
-    if(shooter.team==='player') push('烟幕弹发射被掩体阻挡 — 炮管贯穿掩体','COVER');
-    return false;
+  // 阶段七 7.3：装填倍率与连发登记（weapons.primary）
+  const spec=primaryWeaponSpec(shooter);
+  // 2026-09-15 W4/W6：double_barrel 走独立状态机（每管独立装填/单击 1 管/空格齐射/换管 0.5s）；
+  // autocannon 已改逐发短间隔 + 热量机制（2026-09-15 W6），burst 连发路径整体删除。
+  if(spec && spec.type === 'double_barrel'){
+    const db = fireDoubleBarrel(shooter, target, hitPref, ctx, spec, salvo);
+    return db.fired;
   }
-  shooter.reloadT=(shooter.stats.reload/debuffReload(shooter))*0.8;
-  const ox=tipP.x, oy=tipP.y;
-  const spreadAngle=shooter.turretAngle+gauss(shooter.sigma||0);
-  const dx=Math.cos(spreadAngle), dy=Math.sin(spreadAngle);
-  const bMuzzle=(shooter.barrel&&shooter.barrel.muzzle)||'none';
-  burst(ox,oy,0.6,4,2,0);
-  muzzle(ox,oy,spreadAngle,1,bMuzzle);
-  play('fire');
-  shooter.recoilT = 0.08;
-  shells.push({x:ox,y:oy,fx:rootP.x,fy:rootP.y,dx:dx,dy:dy,speed:Math.max(200,shooter.stats.shellSpeed*0.7),pen:0,dmg:0,ammo:{color:'#c8c8c8',tail:'rgba(150,150,150,0.6)'},ammoKey:'smoke',smoke:true,shooter:shooter,hitPref:'auto',canBounce:false,bounced:false,dist:0,dead:false});
+  const reloadMult=(spec&&typeof spec.reloadMult==='number')?spec.reloadMult:1;
+  shooter.reloadT=shooter.stats.reload*reloadMult/debuffReload(shooter);
+  const shell=firePrimaryShell(shooter, target, hitPref, ctx);
+  if(!shell) return false;
+  // 2026-09-15 W6：autocannon 热量累积（用户裁定）——每发 +heatPerShot%，≥heatMax 过热
+  // 并锁定 overheatLock 秒（fireTank 顶部门控）；冷却由 updatePrimaryHeat 逐帧驱动。
+  // burst 连发路径已删除：射击间隔=装填时间×reloadMult(0.25)，逐发持续射击。
+  if(spec && spec.type === 'autocannon'){
+    const heatPer = (typeof spec.heatPerShot === 'number') ? spec.heatPerShot : 10;
+    const heatMax = (typeof spec.heatMax === 'number') ? spec.heatMax : 100;
+    const lock = (typeof spec.overheatLock === 'number') ? spec.overheatLock : 2.0;
+    shooter.heatPct = Math.min(heatMax, (shooter.heatPct || 0) + heatPer);
+    if(shooter.heatPct >= heatMax) shooter.heatLockT = lock;
+  }
   return true;
 }
 
-function tryFire(ctx){
+// 2026-09-15 W2：fireSmokeShell/tryFireSmoke 已随烟幕弹移除（用户裁定）——F 键改为主/副武器切换。
+
+function tryFire(ctx, salvo){
   const c=_ctx(ctx);
   const player=c.player||_G('player',null);
   const mouseWorld=c.mouseWorld||_G('mouseWorld',{x:0,y:0});
@@ -156,20 +292,39 @@ function tryFire(ctx){
   const aimA=player.turretAngle, aimU=Math.cos(aimA), aimV=Math.sin(aimA);
   const aimHits=raycast(tipP.x,tipP.y,aimU,aimV,target);
   const hitPref=aimPref(tipP.x,tipP.y,aimU,aimV,mouseWorld.x,mouseWorld.y,aimHits,(R.aim&&R.aim.partProbe)||12);
-  // 通过显式 ctx 调用，避免闭包隐式 shells 依赖
-  if(c.shells||_G('shells',null)) return ft(player,target,hitPref,c);
-  return ft(player,target,hitPref,ctx);
+  // 通过显式 ctx 调用，避免闭包隐式 shells 依赖（salvo=空格齐射请求，2026-09-15 W4）
+  if(c.shells||_G('shells',null)) return ft(player,target,hitPref,c,salvo);
+  return ft(player,target,hitPref,ctx,salvo);
 }
 
-function tryFireSmoke(ctx){
+// 2026-09-15 #A21：F 键切换 activeWeaponSlot 后，鼠标左键/空格按激活槽位统一分发（共享层，Node 可测）。
+//   primary   → 委托 tryFire(ctx, salvo)（保留 W4 单发/齐射语义）；
+//   secondary → fireActiveSecondary(player, ctx, mouseWorld)（手动向光标世界点击发；
+//               目标=ctx.mouseWorld，缺省回退玩家炮塔前方 +100px）。
+// 玩家副武器不再「F 激活即自动运作」。turret 型为设计例外（PLAN 6.2 多炮塔 Boss 行为基座，
+// 带独立炮塔角的自瞄副炮塔，点击无方向意义，玩家卡池暂无 turret 安装卡）——激活槽位下的点击
+// 不响应、也不回落主炮（避免「点击被主炮路径劫持」的旧病），由 mvp 主循环逐帧 updateSecondaryWeapon
+// 自主驱动；副武器槽位缺省（none/未装）时防御性回退主炮路径。
+function tryFireWeaponSlot(ctx, salvo){
   const c=_ctx(ctx);
   const player=c.player||_G('player',null);
-  const f=c.fireSmokeShell||fireSmokeShell;
-  // #95 语义裁定：烟幕弹虽是能力键位入口，但实际经主炮发射（fireSmokeShell 与普通开火
-  // 同管线、同炮管掩体贯穿判定），非炮击/护盾类「施放」——immobT 门控一并移除；
-  // 炮击(callStrike)/护盾(applyShield) 的施放门控在 tank_strike/tank_shield 接线层，不受此处影响。
-  if(!player||player.reloadT>0) return false;
-  return f(player,c);
+  if(!player||!player.weapons) return false;
+  if(player.activeWeaponSlot==='secondary'){
+    const w=player.weapons.secondary;
+    if(w && w.type && w.type!=='none'){
+      if(w.type==='turret') return false;   // 自瞄副炮塔不响应点击（设计例外）
+      // 惰性取值：Node 用 require('./tank_weapons.js')，浏览器用全局（tank_weapons.js 先于本模块加载，时序安全）
+      let fas=c.fireActiveSecondary||_G('fireActiveSecondary',null);
+      if(!fas && typeof require!=='undefined'){ try{ fas=require('./tank_weapons.js').fireActiveSecondary; }catch(e){ fas=null; } }
+      if(!fas) return false;
+      const mouse=c.mouseWorld||_G('mouseWorld',null);
+      const aim=mouse||{x:player.x+Math.cos(player.turretAngle||0)*100,y:player.y+Math.sin(player.turretAngle||0)*100};
+      return fas(player,c,aim);
+    }
+    // 副武器缺省（none/未装）→ 回退主炮路径（F 切换已拦截，防御性兜底）
+  }
+  const ft=c.tryFire||tryFire;
+  return ft(c,salvo);
 }
 
 // 预测面板纯计算（供 Node 单测与 HTML DOM 胶水共用）
@@ -217,8 +372,11 @@ function computeSolution(ctx){
   const getAmmoCfg=c.computeAmmoConfig||_G('computeAmmoConfig',function(s,k){ return (R.ammoTypes&&(R.ammoTypes[k]||R.ammoTypes.ap))||{pen:1,noBounce:false}; });
   const ammoPred=getAmmoCfg(player,player.ammoKey);
   const predPen=player.stats.penetration*(ammoPred.pen||1)+(ammoPred.penAdd||0);   // #A13: add 为乘算后 mm 追加
+  // 弹种链 2026-09-13：per-ammo 强制跳弹角（度→rad）回退全局基准
+  const bounceAmmoDeg=(ammoPred&&typeof ammoPred.bounceAngle==='number')?ammoPred.bounceAngle:null;
+  const bounceUse=(bounceAmmoDeg!==null)?bounceAmmoDeg*Math.PI/180:bounce;
   let willBounce=false;
-  if(theta>bounce&&!ammoPred.noBounce) willBounce=true;
+  if(theta>bounceUse&&!ammoPred.noBounce) willBounce=true;
   const eff=thickness/Math.cos(theta);
   const canPen=!willBounce&&eff<=predPen;
   return {blocked:null,hitPref:hitPref,hit:hit,target:target,partLabel:(hit.part==='turret'?superLabel(target):'车体')+'·'+faceLabel(hit.faceKey)+'('+modLabel+')',theta:theta,thickness:thickness,eff:eff,willBounce:willBounce,canPen:canPen,predPen:predPen,coverInfo:coverInfo,ammoKey:player.ammoKey};
@@ -299,38 +457,59 @@ function stepShells(dt, ctx){
   const spawnSmoke=c.spawnSmoke||_G('spawnSmoke',function(){});
   const spawnSmokeCloud=c.spawnSmokeCloud||_G('spawnSmokeCloud',function(){});
   const spawnTracer=c.spawnTracer||_G('spawnTracer',function(){});
+  const applySplash=c.applySplashAt||_G('applySplashAt',null);
   const bounceAngle=c.bounceAngle!==undefined?c.bounceAngle:(_G('BOUNCE_ANGLE',R.ballistics?R.ballistics.bounceAngle:Math.PI*70/180));
   const worldW=c.worldW!==undefined?c.worldW:(c.worldWidth!==undefined?c.worldWidth:(_G('canvas',null)?_G('canvas',null).width:2000));
   const worldH=c.worldH!==undefined?c.worldH:(c.worldHeight!==undefined?c.worldHeight:(_G('canvas',null)?_G('canvas',null).height:2000));
   const rnd=c.random||Math.random;
   shells.forEach(function(s){
     if(s.dead) return;
+    if(s.guided){
+      let targetA = 0;
+      if(s.mode === 'wire' && s.shooter && s.shooter._secondaryTargetPos){
+        targetA = Math.atan2(s.shooter._secondaryTargetPos.y - s.y, s.shooter._secondaryTargetPos.x - s.x);
+      } else if(s.target && s.target.hp > 0){
+        targetA = Math.atan2(s.target.y - s.y, s.target.x - s.x);
+      } else {
+        targetA = Math.atan2(s.dy, s.dx);
+      }
+      const curA = Math.atan2(s.dy, s.dx);
+      let diff = targetA - curA;
+      while(diff > Math.PI) diff -= 2 * Math.PI;
+      while(diff < -Math.PI) diff += 2 * Math.PI;
+      const turnStep = 3.5 * dt;
+      const nextA = curA + Math.max(-turnStep, Math.min(turnStep, diff));
+      s.dx = Math.cos(nextA);
+      s.dy = Math.sin(nextA);
+    }
     const step=s.speed*dt, sx=s.x, sy=s.y, nx=sx+s.dx*step, ny=sy+s.dy*step;
-    if(s.ammoKey!=='smoke' && spawnTracer) spawnTracer(sx, sy, nx, ny, (s.ammo&&s.ammo.tracer)||'#ffd24a');
-    if(s.ammoKey==='smoke'){
-      let detX=null, detY=null;
-      for(const e of ents){
-        if(!e||e.hp<=0) continue;
-        if(!isHostile(s.shooter.team,e.team)) continue;
-        const hits=raycast?raycast(sx,sy,s.dx,s.dy,e):null;
-        const bh=shellPartHit&&hits?shellPartHit(hits,step,'auto'):null;
-        if(bh){ detX=sx+s.dx*bh.t; detY=sy+s.dy*bh.t; break; }
-      }
-      if(detX===null&&find){
-        const covs=find(sx,sy,nx,ny);
-        for(const cov of covs){
-          const tier=T[cov.cover.tier]||{mode:'solid'};
-          if(cov.distA>step) break;
-          if(tier.mode==='solid'||tier.mode==='single'){ detX=cov.point.x; detY=cov.point.y; break; }
-          if(tier.mode==='graduated'&&cov.distA<=step){
-            const dec=shellVerticalDecision(s,c);
-            if(dec&&dec.exposure<1&&(dec.exposure<=0||rnd()>dec.exposure)){ detX=cov.point.x; detY=cov.point.y; break; }
-          }
+    if(spawnTracer) spawnTracer(sx, sy, nx, ny, (s.ammo&&s.ammo.tracer)||'#ffd24a');
+
+    if(s.isArc){
+      if(!(s.totalDist > 0)){
+        let tDist = s.range || (s.ammo && s.ammo.range) || 400;
+        if(s.targetX !== undefined && s.targetY !== undefined){
+          tDist = Math.hypot(s.targetX - s.fx, s.targetY - s.fy);
         }
+        s.totalDist = tDist;
+        s.targetX = s.fx + s.dx * s.totalDist;
+        s.targetY = s.fy + s.dy * s.totalDist;
       }
-      if(detX===null){ s.x=nx; s.y=ny; s.dist+=step; const maxD=(R.ballistics&&R.ballistics.shellMaxDist)||1800; if(s.dist>=maxD||nx<-60||nx>worldW+60||ny<-60||ny>worldH+60){ detX=nx; detY=ny; } }
-      if(detX!==null){ s.x=detX; s.y=detY; spawnSmokeCloud(detX,detY); burst(detX,detY,0.5,0,10,0); spawnSmoke(detX,detY,12,1); if(s.shooter.team==='player') push('烟幕弹引爆 — 生成烟雾','COVER'); s.dead=true; }
-      else if(rnd()<0.55) spawnSmoke(nx,ny,12);
+      s.dist += step;
+      s.x = s.fx + s.dx * s.dist;
+      s.y = s.fy + s.dy * s.dist;
+      if(s.dist >= s.totalDist){
+        s.x = s.targetX; s.y = s.targetY;
+        const sc = s.splashRadius || 90;
+        if(impacts) impacts.push({x:s.x, y:s.y, life:0.4, color:'#ffb454'});
+        burst(s.x, s.y, sc/40, Math.round(22*sc/40), Math.round(14*sc/40), Math.round(11*sc/40));
+        impactFx(s.x, s.y, Math.atan2(s.dy, s.dx), 'he', 1);
+        play('pen');
+        dmgText(s.x, s.y - 14, '轰击', 'he');
+        if(applySplash) applySplash(s.x, s.y, sc, s.dmg, null, s, ents);
+        if(splashCovers) splashCovers(s.x, s.y, sc);
+        s.dead = true;
+      }
       return;
     }
     let bestDist=Infinity, bestTank=null, bestHit=null, bestCover=null;
@@ -341,9 +520,9 @@ function stepShells(dt, ctx){
       const bh=shellPartHit&&hits?shellPartHit(hits,step,s.hitPref):null;
       if(bh&&bh.t<bestDist){ bestDist=bh.t; bestTank=e; bestHit=bh; bestCover=null; }
     }
-    // #R3：HEC 曲射弹（ignoreCover: true）越障直飞——掩体不参与拦截/曝光判定，
-    // 弹体沿直线直奔目标，仅在命中坦克时结算（炮管贯穿的 barrel solid 判定在
-    // fireTank 发射阶段已处理，不在此处；开火时无遮挡即正常发射）。
+    // 曲射弹药（武器层 ignoreCover: true，如 mortar 载荷；2026-09-14 HEC 弹种移除）越障直飞——
+    // 掩体不参与拦截/曝光判定，弹体沿直线直奔目标，仅在命中坦克时结算（炮管贯穿的 barrel solid
+    // 判定在 fireTank 发射阶段已处理，不在此处；开火时无遮挡即正常发射）。
     const ignoreCover = !!(s.ammo && s.ammo.ignoreCover);
     const covs=find&&!ignoreCover?find(sx,sy,nx,ny):[];
     for(const cov of covs){
@@ -419,12 +598,64 @@ function stepShells(dt, ctx){
             push(res.text,res.cls); play(isHe?'pen':o); s.dead=true; }
         }
       }
+    } else if(!bestTank && !s.dec && !bestCover && s.ammo && s.ammo.proximity && R.proximityFuze && R.proximityFuze.enabled){
+      // 弹种链 2026-09-13：近炸空爆引信（proximity_he）
+      // 基准（用户裁定）：炮弹飞行路线不命中目标时，计算与最近敌目标的「接近率」
+      // （径向相对速度 = (目标速度 − 弹速)·单位径向向量；简化：弹直线飞行，目标径向
+      // 距离变化率 dot = −(弹速) + 目标速度径向分量。dot>0 = 距离开始拉大 = 接近率变负）。
+      // dot>0 且已进入引信激活距离内 → 立即空爆：在弹当前位置按 splashRadius 溅射。
+      // #A27（2026-09-15 修复）：近炸分支未爆帧也必须按步进推进弹体位置/距离——
+      // 之前只在空爆时写 s.x=nx（炮弹悬停原地不飞行、dist 不增长、射程/出界判定失效）。
+      s.x=nx; s.y=ny; s.dist+=step;
+      const maxD=(R.ballistics&&R.ballistics.shellMaxDist)||1800;
+      if(s.dist>=maxD) s.dead=true;
+      else if(nx<-60||nx>worldW+60||ny<-60||ny>worldH+60) s.dead=true;
+      const fuze=R.proximityFuze;
+      const maxT=fuze&&fuze.maxTravel!==undefined?fuze.maxTravel:1400;
+      if(!s.dead && s.dist<maxT){
+        let nearE=null, nearD=Infinity;
+        for(const e of ents){
+          if(!e||e.hp<=0) continue;
+          if(!isHostile(s.shooter.team,e.team)) continue;
+          const d=Math.hypot(e.x-s.x,e.y-s.y);
+          if(d<nearD){ nearD=d; nearE=e; }
+        }
+        if(nearE){
+          const minD=fuze&&fuze.minDist!==undefined?fuze.minDist:40;
+          // 接近率：目标相对弹的径向距离变化率（>0 → 正在接近；≤0 → 开始远离 → 接近率变负 → 爆）
+          const relVx=(nearE.vx||0)-s.dx*s.speed, relVy=(nearE.vy||0)-s.dy*s.speed;
+          const rx=(nearE.x-s.x)/Math.max(1,nearD), ry=(nearE.y-s.y)/Math.max(1,nearD);
+          const closingRate=-(relVx*rx+relVy*ry);   // >0 = 接近中；≤0 = 开始远离
+          if(nearD>minD && closingRate<=0 && s._fuzeArmed){
+            // 空爆：applySplashAt 对溅射半径内实体施加衰减伤害（无敌/已毁免疫；exclude=null 全体结算）
+            const sc=(s.ammo&&s.ammo.splashRadius)||90;
+            if(impacts) impacts.push({x:s.x,y:s.y,life:0.4,color:'#ffd0b0'});
+            burst(s.x,s.y,sc/40,Math.round(22*sc/40),Math.round(14*sc/40),Math.round(11*sc/40));
+            impactFx(s.x,s.y,Math.atan2(s.dy,s.dx),'he',1);
+            play('pen');
+            let dealt=0;
+            if(typeof applySplash==='function'){
+              const hits=applySplash(s.x,s.y,sc,s.dmg,null,s,ents);   // 2026-09-15：弹出坦克实际受到伤害，替代“空爆”字样
+              if(Array.isArray(hits)){
+                const near=hits.find(function(h){return h.entity===nearE;});
+                const chosen = (near && near.dmg>0) ? near : hits.reduce(function(a,b){return b.dmg>a.dmg?b:a;});
+                if(chosen) dealt=chosen.dmg;
+              }
+            }
+            if(dealt>0) dmgText(s.x,s.y-14,Math.round(dealt),'he');
+            if(s.shooter.team==='player') push('近炸引信触发 — 空爆溅射','HE');
+            s.dead=true;
+          } else if(closingRate>0 && nearD<=(fuze&&fuze.armRadius!==undefined?fuze.armRadius:120)){ s._fuzeArmed=true; }   // 进入引信武装半径（RULES.proximityFuze.armRadius，缺省 120）内且正在接近 → 武装
+        }
+      }
     } else { s.x=nx; s.y=ny; s.dist+=step; const maxD=(R.ballistics&&R.ballistics.shellMaxDist)||1800; if(s.dist>=maxD) s.dead=true; else if(nx<-60||nx>worldW+60||ny<-60||ny>worldH+60) s.dead=true; }
   });
   const breachR=(R.breach&&R.breach.heSplashRadius)||24;
-  shells.forEach(function(s){ if(s.dead&&s.ammoKey==='he'&&!s.absorbed) splashCovers(s.x,s.y,breachR); });
+  // 弹种链：HE 家族（he/hesh/proximity_he/blast_he）销毁瞬间均破障溅射
+  const heFamily=function(k){ const a=k&&R.ammoTypes&&R.ammoTypes[k]; return !!(a&&(a.splashRadius>0||a.nonPenRatio>0)); };
+  shells.forEach(function(s){ if(s.dead&&!s.absorbed&&heFamily(s.ammoKey)) splashCovers(s.x,s.y,breachR); });
 }
 
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={shellVerticalDecision:shellVerticalDecision,fireTank:fireTank,fireSmokeShell:fireSmokeShell,tryFire:tryFire,tryFireSmoke:tryFireSmoke,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells};
+  module.exports={shellVerticalDecision:shellVerticalDecision,fireTank:fireTank,tryFire:tryFire,tryFireWeaponSlot:tryFireWeaponSlot,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels};
 }

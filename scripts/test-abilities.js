@@ -385,6 +385,34 @@ function abilityTank(effects) {
   ok(blew.trackBroken === false && blew.immobT === 0 && blew.debuffs.engine === undefined, '其余（履带/机动/发动机）照常修复');
 }
 
+// ---- 17) 阶段七 7.1：Ability params 覆写与 computeAbilityConfig ----
+{
+  const t = abilityTank([
+    { type: 'ability', key: 'artillery', cardId: 'c_artillery' },
+    { type: 'ability', key: 'artillery', cardId: 'c_point', params: { shape: 'point', delay: 1.5, dmgMult: 3.0, radius: 60, shellCount: 1 } }
+  ]);
+  const cfg = abil.computeAbilityConfig(t, 'artillery');
+  ok(cfg.shape === 'point', 'computeAbilityConfig 覆写 shape 为 point');
+  ok(cfg.delay === 1.5, 'computeAbilityConfig 覆写 delay 为 1.5');
+  ok(cfg.dmgMult === 3.0, 'computeAbilityConfig 覆写 dmgMult 为 3.0');
+  ok(cfg.radius === 60, 'computeAbilityConfig 覆写 radius 为 60');
+  ok(cfg.shellCount === 1, 'computeAbilityConfig 覆写 shellCount 为 1');
+
+  const r = abil.tryActivateAbility(t, 'artillery', { target: { x: 100, y: 100 } });
+  ok(r.ok === true, '斩首定点炮击激活成功');
+  ok(r.strikes && r.strikes.length === 1, '生成 1 个定点落弹');
+  ok(r.strikes[0].radius === 60, '落弹半径 60');
+  ok(r.strikes[0].delay === 1.5, '落弹延迟 1.5');
+
+  // deploy_cover 覆写测试
+  const tCover = abilityTank([
+    { type: 'ability', key: 'deploy_cover', cardId: 'dc1' },
+    { type: 'ability', key: 'deploy_cover', cardId: 'dc2', params: { hp: 350, shieldHp: 250 } }
+  ]);
+  const dcCfg = abil.computeAbilityConfig(tCover, 'deploy_cover');
+  ok(dcCfg.hp === 350, 'deploy_cover hp 覆写为 350');
+  ok(dcCfg.shieldHp === 250, 'deploy_cover shieldHp 覆写为 250');
+}
 
 console.log('test-abilities: 完成所有检查');
 if (fails === 0) console.log('test-abilities: 全部通过');

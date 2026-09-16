@@ -106,6 +106,7 @@ function buildLoadoutViewModel(opts){
     selected: profile.selectedTankId === id
   }));
   const emptyTankList = ids.length === 0;
+  const unlocked = Array.isArray(profile.unlockedAmmo) ? profile.unlockedAmmo : ['ap', 'he'];
   const ammoRows = Object.keys(ammoTypes).map(key => {
     const a = ammoTypes[key];
     const bits = [`穿深×${a.pen}`, `伤害×${a.dmg}`, `弹速×${a.speed}`];
@@ -117,7 +118,9 @@ function buildLoadoutViewModel(opts){
       color: a.color,
       bits: bits.join(' · '),
       bitsArr: bits,
-      checked: (profile.ammoLoadout || []).indexOf(key) >= 0
+      checked: (profile.ammoLoadout || []).indexOf(key) >= 0,
+      // 阶段六 6.3：未解锁弹种置灰锁定（随链上升级卡解锁）
+      locked: unlocked.indexOf(key) < 0
     };
   });
   return { tankCards, ammoRows, hint, ready, emptyTankList };
@@ -205,7 +208,6 @@ function buildPausePanel(opts){
     buttons: [
       { id: 'pauseResumeBtn', label: '继续 RESUME', action: 'resume' },
       { id: 'pauseControlsBtn', label: '控制 CONTROLS', action: 'toggleControls' },
-      { id: 'pauseShopBtn', label: '局内商店 RUN SHOP', action: 'runShop' },
       { id: 'pauseEndBtn', label: '终止游戏并结算 END & SETTLE', action: 'endRun' }
     ]
   };

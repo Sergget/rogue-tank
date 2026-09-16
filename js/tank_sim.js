@@ -121,7 +121,8 @@ function runReplay(opts){
   };
   const FIRE = {
     fireTank: _simGlobal('fireTank'),
-    stepShells: _simGlobal('stepShells')
+    stepShells: _simGlobal('stepShells'),
+    updatePrimaryHeat: _simGlobal('updatePrimaryHeat')   // 2026-09-15 W6：autocannon 热量冷却
   };
   const AI = {
     aiDecide: _simGlobal('aiDecide'),
@@ -353,6 +354,8 @@ function runReplay(opts){
 
         MOVE.driveTank(t, dt, { turn: out.turn, move: out.move });
         if (COVER.resolveCoverCollisions) COVER.resolveCoverCollisions(t);
+        // 2026-09-15 W6：autocannon 热量冷却逐帧驱动（sim 与 mvp 主循环同源；非机炮 no-op）
+        if (FIRE.updatePrimaryHeat) FIRE.updatePrimaryHeat(t, dt);
 
         // 开火判定：AI 决策 + LoS + 装填就绪
         if (out.fire && t.reloadT <= 0){

@@ -159,20 +159,22 @@ ok(FRONT_THICKNESS > 0, `中坦正面名义厚度可读（${FRONT_THICKNESS}）`
   const HE = RULES.ammoTypes && RULES.ammoTypes.he;
   ok(!!HE && HE.splashRadius > 0 && HE.noBounce, '前置：RULES.ammoTypes.he 存在（splashRadius + noBounce）');
 
-  // 未击穿 HE 残余：ratio = max(0.25, 0.5*pen/eff)；pen=50, eff=厚 → 地板 0.25
+  // 未击穿 HE 残余：ratio = max(0.25, effPen/eff) * nonPenRatio(0.6)；pen=10, eff=110 → 地板 0.25 * 0.6 = 0.15 → 15
   const tt = mkTarget({});
   tt.hp = 100000;
-  const sHe = mkShell({ ammoKey:'he', pen: 50, dmg: 100 });
+  const sHe = mkShell({ ammoKey:'he', pen: 10, dmg: 100 });
   const rHe = P.resolveHit(sHe, tt, Object.assign({}, HIT_FRONT), true);
-  const expectFloor = Math.round(100 * 0.25);
+  const expectFloor = Math.round(100 * 0.25 * 0.6);
   ok(rHe.outcome === 'BLOCK' && rHe.dmg === expectFloor,
     `HE 未击穿残余（无 opts）：dmg=${rHe.dmg}（期望地板 ${expectFloor}）`);
 
   // 同参数 + dmgMul=1.5：残余伤害 ×1.5
   const tt2 = mkTarget({});
   tt2.hp = 100000;
-  const sHe2 = mkShell({ ammoKey:'he', pen: 50, dmg: 100 });
+  const sHe2 = mkShell({ ammoKey:'he', pen: 10, dmg: 100 });
   const rHe2 = P.resolveHit(sHe2, tt2, Object.assign({}, HIT_FRONT), true, { dmgMul: 1.5 });
+  ok(rHe2.outcome === 'BLOCK' && rHe2.dmg === Math.round(expectFloor * 1.5),
+    `HE 残余 dmgMul=1.5：dmg=${rHe2.dmg}（期望 ${Math.round(expectFloor*1.5)}）`);
   ok(rHe2.outcome === 'BLOCK' && rHe2.dmg === Math.round(expectFloor * 1.5),
     `HE 残余 dmgMul=1.5：dmg=${rHe2.dmg}（期望 ${Math.round(expectFloor*1.5)}）`);
 

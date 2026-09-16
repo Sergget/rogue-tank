@@ -550,10 +550,72 @@ function aiDecideAlly(t, ctx){
   return _passiveDefend(t, ctx, best);
 }
 
+// --- 绕水转向（2026-09-14 水域行为重做） ---
+// 水域不再硬阻断（passability 0.4 + 完全浸入溺毙 8s），AI 必须主动绕开：
+// 在决策输出 (turn, move) 上叠加避水修正——
+//   1. 前向探点（t 位置沿 hullAngle 前进 waterProbeDist）入水且任一侧探点为干地
+//      → turn 转向干地侧（覆盖原 turn，move 保持前进 = 沿岸绕行）；
+//   2. 前向 + 双侧探点全水 → move=0 停驶（防 AI 直冲水域自杀溺毙）；
+//   3. 前向干地 → 输出原样返回（零行为漂移）。
+// 探点是否"入水"由 ctx.covers 注入 + 本模块内置 point-in-OBB 测试（纯函数、可单测）；
+// covers 缺失 / tier 表缺失时原样返回（不引入行为变化）。
+function applyWaterAvoidance(t, out, ctx){
+  if(!out || out.move <= 0) return out;                       // 停车/倒车不探
+  const coversArr = (ctx && Array.isArray(ctx.covers)) ? ctx.covers : null;
+  if(!coversArr || !coversArr.length) return out;
+  const cfg = aiConfig();
+  const probeDist = cfg.waterProbeDist !== undefined ? cfg.waterProbeDist : 140;
+  const probeAng = cfg.waterProbeAngle !== undefined ? cfg.waterProbeAngle : 0.6;
+  // 入水判定：点位于任一 water/river tier 覆盖的 OBB（或 collisionVerts 多边形）内
+  const isWaterAt = (x, y) => {
+    for(const c of coversArr){
+      if(!c || c.hp <= 0) continue;
+      if(c.tier !== 'water' && c.tier !== 'river') continue;
+      if(c.verts || c.collisionVerts){
+        // 局部多边形点测（与 tank_map.pointInCoverPoly 同构，本模块自包含）
+        const vs = c.collisionVerts || c.verts;
+        const dx = x - c.x, dy = y - c.y;
+        const ang = -(c.angle || 0);
+        const ca = Math.cos(ang), sa = Math.sin(ang);
+        const lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
+        let inside = false;
+        for(let i = 0, j = vs.length - 1; i < vs.length; j = i++){
+          const xi = vs[i][0], yi = vs[i][1], xj = vs[j][0], yj = vs[j][1];
+          if(((yi > ly) !== (yj > ly)) && (lx < (xj - xi) * (ly - yi) / (yj - yi) + xi)) inside = !inside;
+        }
+        if(inside) return true;
+      } else {
+        const dx = x - c.x, dy = y - c.y;
+        const ang = -(c.angle || 0);
+        const ca = Math.cos(ang), sa = Math.sin(ang);
+        const lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
+        if(Math.abs(lx) <= (c.w || 0) / 2 && Math.abs(ly) <= (c.h || 0) / 2) return true;
+      }
+    }
+    return false;
+  };
+  const fx = Math.cos(t.hullAngle), fy = Math.sin(t.hullAngle);
+  const px = -fy, py = fx;                                    // 车体右侧法向
+  const ahead = { x: t.x + fx * probeDist, y: t.y + fy * probeDist };
+  if(!isWaterAt(ahead.x, ahead.y)) return out;                // 前路干燥：不干预
+  const leftPt  = { x: t.x + (fx * Math.cos(-probeAng) - fy * Math.sin(-probeAng)) * probeDist,
+                    y: t.y + (fx * Math.sin(-probeAng) + fy * Math.cos(-probeAng)) * probeDist };
+  const rightPt = { x: t.x + (fx * Math.cos(probeAng) - fy * Math.sin(probeAng)) * probeDist,
+                    y: t.y + (fx * Math.sin(probeAng) + fy * Math.cos(probeAng)) * probeDist };
+  const leftFree = !isWaterAt(leftPt.x, leftPt.y);
+  const rightFree = !isWaterAt(rightPt.x, rightPt.y);
+  if(leftFree && !rightFree){ out.turn = -1; }                // 左干 → 左转
+  else if(rightFree && !leftFree){ out.turn = 1; }            // 右干 → 右转
+  else if(!leftFree && !rightFree){ out.move = 0; }           // 三向全水 → 停驶
+  // 两侧都干：保持原 turn（朝目标方向本身就在绕），仅防直冲（已满足：前向有水会持续修正）
+  return out;
+}
+
 // 通用分发：ally 走消极防御，其余（enemy/Boss/召唤物）走多态状态机。
+// 敌对决策输出统一叠加绕水修正（2026-09-14：水域能淹死 AI，寻路必须绕开）。
 function aiDecide(t, ctx){
   if(t.team === 'ally') return aiDecideAlly(t, ctx);
-  return aiDecideEnemy(t, ctx);
+  return applyWaterAvoidance(t, aiDecideEnemy(t, ctx), ctx);
 }
 
 // AI 状态计时器由主游戏循环统一递减（同 reloadT、invulnT 的模式）。
@@ -579,6 +641,8 @@ function aiUpdateStateTimer(t, dt){
 // alertEntity：命中/告警来源 (srcX,srcY) 触发敌对 AI 立即接战——
 //   置 aiEngaged、记录 lastKnownPlayerPos（来弹方向，search 分支朝其推进）、
 //   清除进行中的 stunned（被击中立即惊醒）。玩家/友军实体为 no-op。
+// 2026-09-14 定案（任何伤害来源被击中即转换状态）：Boss 处于 hold 消极驻守阶段时
+//   被命中 → 立即解除 stageAI 驻守覆盖，回落主动状态机（追击/搜索玩家）。
 // 返回 true 表示该实体被警觉。
 function alertEntity(t, srcX, srcY){
   if(!t || t.team !== 'enemy' || t.isDrone || t.hp <= 0) return false;
@@ -587,6 +651,10 @@ function alertEntity(t, srcX, srcY){
   if(t.aiState === 'stunned'){
     t.aiState = 'patrol';       // 被击中立即惊醒（不给免疫窗——免疫窗只在自然苏醒后授予）
     t.aiStateTimer = 0;
+  }
+  // Boss hold 驻守被打破：被击中即放弃原地驻守，转入主动追击/搜索
+  if(t.isBoss && t.stageAI && t.stageAI.mode === 'hold'){
+    t.stageAI = null;
   }
   return true;
 }
@@ -611,5 +679,5 @@ function propagateAlert(entitiesArr, x, y, radius){
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, _passiveDefend, _bossStageAIModes };
+  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, _passiveDefend, _bossStageAIModes };
 }

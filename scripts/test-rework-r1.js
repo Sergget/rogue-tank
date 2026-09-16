@@ -27,8 +27,12 @@ function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-9); }
 
 // ---- 1) 武器与槽位解耦测试 ----
 {
+  // 2026-09-15 W6：autocannon 重做默认参数（伤害 1/5 / 穿深 85% / 间隔 ×0.25 / 热量机制）
   const def = weapons.getWeaponDefaults('primary', 'autocannon');
-  ok(def.reloadMult === 0.3 && def.burst === 3, '获取 autocannon 默认参数成功');
+  ok(def.reloadMult === 0.25 && def.damageMult === 0.2 && def.penMult === 0.85 &&
+     def.heatPerShot === 10 && def.coolPerSec === 15 && def.heatMax === 100 && def.overheatLock === 2.0,
+     '获取 autocannon 默认参数成功（W6 热量机制版）');
+  ok(def.burst === undefined, 'W6: autocannon 不再携带 burst 连发参数');
 
   const spec = {
     weapons: {
@@ -103,13 +107,13 @@ function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-9); }
   };
 
   const testTank = model.makeTank({ team: 'player' });
-  model.applyTankConfig(testTank, { weapons: { primary: { type: 'howitzer' } } });
+  model.applyTankConfig(testTank, { weapons: { primary: { type: 'railgun' } } });
 
   ok(testWindow.__TEST__.getVisualVersion(testTank) === testVisualVersionCheck(testTank), 'window.__TEST__.getVisualVersion 钩子正常');
   function testVisualVersionCheck(tk) { return tk._visualVersion; }
 
   const wState = testWindow.__TEST__.getWeaponState(testTank);
-  ok(wState.primary.type === 'howitzer', 'window.__TEST__.getWeaponState 钩子正常');
+  ok(wState.primary.type === 'railgun', 'window.__TEST__.getWeaponState 钩子正常');
 
   testTank.cardEffects = [{ type: 'ability', key: 'super_speed', cardId: 'x' }];
   const trig = testWindow.__TEST__.triggerSkill(testTank, 'super_speed');

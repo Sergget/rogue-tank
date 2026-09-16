@@ -68,14 +68,34 @@ function callStrike(x, y, opts) {
   const shellCount = Math.max(1, Math.floor((opts && opts.shellCount !== undefined) ? opts.shellCount : _d(cfg, 'shellCount', 3)));
   const stagger = (opts && opts.stagger !== undefined) ? opts.stagger : 0.15;
   const maxStrikes = Math.max(1, (opts && opts.maxStrikes !== undefined) ? opts.maxStrikes : _d(cfg, 'maxStrikes', 3));
+  const shape = (opts && opts.shape) || 'circle'; // 'circle' | 'point' | 'carpet'
+  const dir = (opts && opts.dir !== undefined) ? opts.dir : ((owner && owner.turretAngle !== undefined) ? owner.turretAngle : 0);
   const dmg = strikeDamage(owner, dmgMult);
   const created = [];
   for (let i = 0; i < shellCount; i++) {
-    const angle = rng() * Math.PI * 2;        // 圆周均匀方向
-    const dist = rng() * radius;              // 半径内均匀散布
+    let sx = x, sy = y;
+    if (shape === 'point') {
+      // 定点空袭：几乎零散布（微抖动防重合），高精度杀伤
+      const jitter = (rng() - 0.5) * 8;
+      const jitterAngle = rng() * Math.PI * 2;
+      sx = x + Math.cos(jitterAngle) * jitter;
+      sy = y + Math.sin(jitterAngle) * jitter;
+    } else if (shape === 'carpet') {
+      // 地毯式空袭：沿指向矩形带状散布（240x80）
+      const forwardT = (shellCount <= 1) ? 0 : ((i / (shellCount - 1)) - 0.5) * 240;
+      const lateralT = (rng() - 0.5) * 80;
+      const cosD = Math.cos(dir), sinD = Math.sin(dir);
+      sx = x + cosD * forwardT - sinD * lateralT;
+      sy = y + sinD * forwardT + cosD * lateralT;
+    } else {
+      const angle = rng() * Math.PI * 2;        // 圆周均匀方向
+      const dist = rng() * radius;              // 半径内均匀散布
+      sx = x + Math.cos(angle) * dist;
+      sy = y + Math.sin(angle) * dist;
+    }
     const s = {
-      x: x + Math.cos(angle) * dist,
-      y: y + Math.sin(angle) * dist,
+      x: sx,
+      y: sy,
       radius: radius,
       delay: delay + i * stagger,
       dmg: dmg,
