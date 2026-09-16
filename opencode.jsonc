@@ -39,7 +39,8 @@
       "mode": "subagent",
       "color": "accent"
     }
-    // 注：orchestrator 不在此配置——其唯一事实源是 .opencode/agents/orchestrator.md（mode: primary，Tab 切换使用）。
+    // 注：orchestrator 不在此配置——其唯一事实源是 .dsh/agents/orchestrator.md（mode: primary，Tab 切换使用）。
     // 此处曾残留一条 mode:subagent 的 orchestrator 条目与 .md frontmatter 冲突，已删除（2026-08-22）。
+    // 2026-09-16：工具目录随 OpenCode→DSH 迁移由 .opencode/ 重命名为 .dsh/。
   }
 }

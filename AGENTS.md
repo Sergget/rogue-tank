@@ -107,16 +107,18 @@
 - **Grep 优先**：先用关键词/章节标题定位行号（如 `Select-String -Pattern "^#### 3\.24"`），再带 offset/limit 切片读取所需片段；**禁止对以上文件全文读取**。
 - **同一文件重复读取 ≤ 3 次**；需要跨节交叉核对时优先 Grep 而非多次全文。
 - **测试输出**：验证只看退出码 + 尾部摘要/失败行，抽查具体断言用定向检索，不把完整输出灌进上下文。
-- **子代理派发**：遵守 `.opencode/agents/orchestrator.md` 的 Dispatch Discipline——预消化证据进提示词、给停止条件与调用上限、不委派已完成的工作。
+- **子代理派发**：遵守 `.dsh/agents/orchestrator.md` 的 Dispatch Discipline——预消化证据进提示词、给停止条件与调用上限、不委派已完成的工作。
 
 ## 4. 架构要点
 
 - **节点式地图**：游戏是节点式地图推进，不是无限波次。每个节点是独立、有边界的战场（详见 docs/DEVELOPMENT.md §2.1）。
-- **掩体系统**：
-  - `full`（全高）掩体：确定性 100% 格挡。
+- **跳弹**：各弹种实行独立跳弹角（`ammoBounceAngle`，65°~90°，AP 基准为 >70°；noBounce 弹种如 HEAT/HE 完全不跳弹）。炮弹跳弹后沿命中面法线方向真实反射，可能造成二次命中；**二次跳弹不允许**。
+- **掩体与地形系统**：
+  - `full`（全高）掩体与 `rock`（岩石）：确定性 100% 格挡直射实弹，阻挡坦克通行（岩石 `passability: 0`）。
+  - `water`（水潭）与 `river`（河流）：炮弹越飞（`shellBlock: false`），但坦克不可通行（`passability: 0` 实体推出硬阻断）。
+  - `mud`（烂泥地）：炮弹越飞，坦克减速通行（`passability: 0.4`）。
   - `half`（半高）掩体：纯垂直剖面 + 越掩插值（炮塔恒露；车体中坦 0% 露/重坦 25%；攻击方贴掩体时车体弹道按射线高度插值越掩，docs/specs/map.md）。
   - 地图元素体系（树/灌木/栅栏/沙袋/残骸，docs/specs/map.md）：行为由 `RULES.coverTiers` 的 tier 描述，运行时 hp/残骸状态挂在 `covers` 实例上。
-- **跳弹**：入射角 >70° 时炮弹沿命中面法线方向真实反射，可能造成二次命中；**二次跳弹不允许**。
 - **属性三层结构**：`base` / `modifiers` / `stats`（`computeStats` 先加后乘，战斗逻辑只读 `tank.stats`，不摸 `base`）。已全面接线：卡牌/Boss 阶段（P-09）、局前永久升级（M10）均经 modifiers 注入，scope 分 permanent/run/timed，run 结束统一清除。
 - **实体注册表**：中央 `entities` 数组（`id`、`team`、`spawn` 快照）管理所有单位，通过 `isHostile` / `nearestEnemyTo` / `resetEntity` 统一操作，不写死玩家/敌人变量引用。
 

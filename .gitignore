@@ -11,3 +11,6 @@ tools/godot-mcp/
 # Godot portable binary + editor cache (local only)
 tools/godot/
 .godot/
+
+# Agent team runtime state (session ids + agent message logs) - local only
+.agent-teams/

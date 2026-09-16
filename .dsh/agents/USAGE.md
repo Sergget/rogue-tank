@@ -1,6 +1,6 @@
 # Rogue Tank — Sub-Agent Usage Guide
 
-This project has **12 configured sub-agents** in `.opencode/agents/` plus **4 skills** in `.opencode/skills/`. Each is specialized for a subsystem of the tank roguelike codebase.
+This project has **12 configured sub-agents** in `.dsh/agents/` plus **6 skills** in `.dsh/skills/`. Each is specialized for a subsystem of the tank roguelike codebase. (2026-09-13 起从 `.opencode/` 迁移至此，后续开发在 dsh 中进行。)
 
 ## 1. Agent vs. Skill — What's the difference?
 
@@ -9,7 +9,7 @@ This project has **12 configured sub-agents** in `.opencode/agents/` plus **4 sk
 | **Invocation** | `/task {agent: tank-combat, description: ...}` or `@tank-combat` | `/skill shared-module-dev` |
 | **Mode** | `subagent` — runs as isolated Task session | Injects instructions into current conversation |
 | **Visibility** | Hidden ones (`test-runner`) run automatically; visible ones appear in `@` autocomplete | Always loaded on demand via `/skill` |
-| **Config file** | `.opencode/agents/<name>.md` (YAML frontmatter) | `.opencode/skills/<name>/SKILL.md` |
+| **Config file** | `.dsh/agents/<name>.md` (YAML frontmatter) | `.dsh/skills/<name>/SKILL.md` |
 
 ## 2. Quick Reference: When to Use Each Agent
 
@@ -90,7 +90,7 @@ The sub-agent configs watch for these **status variables** in the code:
 
 | Variable | Monitored by | Location |
 |---|---|---|
-| `player.ammoKey` (1/2/3/4 → ap/apcr/he/heat) | tank-combat | `tank_mvp.html` / bench |
+| `player.ammoKey` / `player.ammoLoadout`（Q/E 循环切弹，1/2/3 已让位技能池） | tank-combat | `tank_mvp.html` / bench |
 | `flow.state` (map/battle/settlement/reward/gameover) | node-map | `js/tank_flow.js` |
 | `t.aiState`, `t.aiEngaged`, `t.stageAI.mode` | enemy-ai | `js/tank_ai.js` (set by caller/boss runtime) |
 | `RULES.boss.aiModes` | enemy-ai / tank-model | `tank_rules.js` + `tank_ai.js` `_bossStageAIModes` |
@@ -99,6 +99,8 @@ The sub-agent configs watch for these **status variables** in the code:
 | `smokeClouds[]` | map-cover | `tank_cover.js` |
 | `shell.dec`, `bounced`, `canBounce`, `absorbed` | tank-combat | shell object |
 | `debuffs{}`, `cardEffects{}` | tank-combat / node-map | entity object |
+| `profile.unlockedAmmo`（弹种解锁进度持久化） | node-map | `js/tank_economy.js` + `tank_screens.js` + `tank_mvp.html` |
+| `t.weapons.secondary.type === 'turret'` + `updateSecondaryTurret` / `t.secondaryTurretAngle` / `t.secondaryReloadT` | tank-combat / tank-model | `js/tank_weapons.js`（阶段六 6.2 副炮塔） |
 | `turret.pivot`, `turret.axis`, `traverseLimit` | tank-designer | tank JSON |
 | `RULES.*` fields | tank-model | `tank_rules.js` |
 

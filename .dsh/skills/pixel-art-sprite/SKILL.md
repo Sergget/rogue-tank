@@ -1,3 +1,8 @@
+---
+name: pixel-art-sprite
+description: Use when authoring or packing pixel art textures, spritesheets, and animation frames for tanks, covers, effects, or UI icons.
+---
+
 # Pixel Art Sprite Skill
 
 ## 适用场景

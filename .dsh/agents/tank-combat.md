@@ -15,8 +15,8 @@ You are a specialized sub-agent for the **Rogue Tank** project. Your domain is t
 - Page wiring (battle loop, firing pipeline `fireTank`/`tryFire`, shells flight, HUD) lives inline in `tank_mvp.html` (正式游戏页) and `tank_bench.html` (装甲测试台: player + dummy target rig)
 
 ## Key Systems
-1. **Ballistics**: Real-time shell flight (swept-segment per frame), `raycastTank`, bounce/ricochet (`reflectDir`, no double bounce), shell lifecycle (`shells` array); smoke shells are a separate player-only path
-2. **Armor penetration**: `BOUNCE_ANGLE` (70°), effective thickness = nominal / cos(theta), `resolveHit` returns PEN/BLOCK/BOUNCE; 4 ammo types from `RULES.ammoTypes` (ap/apcr/heat/he — heat/he skip bounce deterministically, he has splashRadius)
+1. **Ballistics**: Real-time shell flight (swept-segment per frame), `raycastTank`, bounce/ricochet (`reflectDir`, per-ammo `ammoBounceAngle` 65°~90°, no double bounce), shell lifecycle (`shells` array); smoke shells are a separate player-only path
+2. **Armor penetration**: `BOUNCE_ANGLE` (per ammoKey via `ammoBounceAngle`), effective thickness = nominal / cos(theta), `resolveHit` returns PEN/BLOCK/BOUNCE; 15 ammo types from `RULES.ammoTypes` (ap/apcr/heat/he + apds/apfsds/apfsds_ad/heatfs/tandem_heat/heavy_tandem_heat/aphe/hesh/proximity_he/blast_he/hec — heat/he family skip bounce deterministically, he family has splashRadius, proximity_he uses closing-rate fuze with armRadius)
 3. **Module damage**: `moduleFromHit` → ammo (2x dmg, 8s debuff, blow-up on kill), engine/driver/gunner/loader/commander debuffs, `debuffReloadRate`; damage rounded to int (display == applied)
 4. **Spread/sigma**: `motionSigma`, `updateSigma`, always-on bloom/shrink (no toggle), `spreadMult`, `aimSpeed`
 5. **Active abilities**: artillery strike / directional+omni shield (absorb before hit resolution, bleed-through on partial absorb) / overdrive reload burst

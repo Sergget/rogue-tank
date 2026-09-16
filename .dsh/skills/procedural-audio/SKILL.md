@@ -1,3 +1,8 @@
+---
+name: procedural-audio
+description: Use when designing or extending procedural audio, sound definitions (SOUND_DEFS), Web Audio synthesizers, or spatial audio settings.
+---
+
 # Procedural Audio Skill
 
 ## 适用场景
