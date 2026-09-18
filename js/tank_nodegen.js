@@ -839,7 +839,10 @@ function placeRoadNetwork(rng, tpl, scale, centerX, centerY) {
         for (let bi = 0; bi < B.length - 1; bi++) {
           const p = segIntersect(A[ai], A[ai + 1], B[bi], B[bi + 1]);
           if (p && !junctions.some(q => Math.hypot(q.x - p.x, q.y - p.y) < roadW)) {
-            junctions.push({ x: p.x, y: p.y, r: roadW * 0.85 });
+            // #C1（2026-09-17 修复）：r 收敛到 roadW×0.5——圆内任意点到两条正交路中线的距离
+            // ≤ r×sin(45°)=0.354w < 路半宽，恒在沥青并集内（旧 0.85w 在 45° 方向越过路缘 0.6w，
+            // 形成外溢圆形凸斑）。此 r 供渲染层在路口断开中心虚线（详见 mvp bakeNodeGroundLayer）。
+            junctions.push({ x: p.x, y: p.y, r: roadW * 0.5 });
           }
         }
       }

@@ -367,13 +367,13 @@ function settleRun(profile, finalScore){
 // 击杀 20 分/个——首件定价 20~60 分；可重复购买商品 costGrowth ≥ 1.6（早期可负担、5 级后显著昂贵）；
 // 无上限商品以 maxLevel:99 表示「无显式级数上限」（价格指数增长自然约束，UI 显示 Lv n/99）。
 // limit 字段（#A1）：购买后效果值将穿越 { stat, min?, max? } 硬边界时拒购——数值与
-// RULES.parameterLimits 同源（reload.min=0.5s、maxSpeed.max=375px/s=150km/h），由 runShopLimitBlocked 判定。
+// RULES.parameterLimits 同源（reload.min=1.0s（2026-09-17 #C2）、maxSpeed.max=375px/s=150km/h），由 runShopLimitBlocked 判定。
 const RUN_SHOP_DEFS = [
   // ---- 火力 ----
-  { id: 'fast_reload',       name: '快速装填',   group: 'firepower', desc: '装填时间 −3%/级（下限 0.5s）',
+  { id: 'fast_reload',       name: '快速装填',   group: 'firepower', desc: '装填时间 −3%/级（下限 1.0s，2026-09-17 #C2）',
     baseCost: 25, costGrowth: 1.6, maxLevel: 99,
     effects: [{ stat: 'reload', mode: 'mult', value: 0.97 }],
-    limit: { stat: 'reload', min: 0.5 }, limitLabel: '已达装填下限' },
+    limit: { stat: 'reload', min: 1.0 }, limitLabel: '已达装填下限' },
   { id: 'penetration_up',    name: '穿深加工',   group: 'firepower', desc: '穿透 +6mm/级',
     baseCost: 30, costGrowth: 1.7, maxLevel: 99,
     effects: [{ stat: 'penetration', mode: 'add', value: 6 }] },
@@ -434,7 +434,7 @@ function getRunShopDef(id){ return RUN_SHOP_DEFS.find(d => d.id === id) || null;
 
 // #A1 达限判定（纯函数）：def.limit = { stat, min?, max? }——按首条 effect 计算购买后的结果值，
 // 穿越 [min,max] 硬边界（1e-9 容差防浮点误判）时返回 true。UI 层用于禁用按钮 + 购买前防御，
-// 数值与 RULES.parameterLimits 同源（fast_reload: reload.min=0.5s / engine_overdrive: maxSpeed.max=375px/s）。
+// 数值与 RULES.parameterLimits 同源（fast_reload: reload.min=1.0s（2026-09-17 #C2）/ engine_overdrive: maxSpeed.max=375px/s）。
 //
 // #A4 多面打包扩展（2026）：def.limit 缺失但多条 effects 存在时（装甲包 hull/turret × front/side/rear），
 // 逐条 effect 按其 stat 点分路径从 RULES.parameterLimits 取 {min,max}，用 mode(add 加 / mult 乘)

@@ -365,7 +365,8 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
   ok(dbShots>=6 && dbShots<=8, '8d 按住双管 8s 连发 6~8 发（两管并行交替：每管 4s 周期、合计每 2s 一发，got '+dbShots+'）');
 }
 
-// 9) #A21：tryFireWeaponSlot 按激活槽位分发（F 切换 + 左键/空格手动击发；玩家副武器不再激活即自动运作）
+// 9) #C4e（2026-09-17）：分发拆分——tryFirePrimary（左键/空格=主炮专属）/ tryFireSecondary
+//    （F=副武器专属，按住连发）；activeWeaponSlot 概念移除，副武器 none 不再回落主炮
 {
   const W9=require('../js/tank_weapons.js');
   global.shells=[]; global.impacts=[]; global.bounceFx=[];
@@ -377,7 +378,6 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
     p.ammoKey='ap'; p.sigma=0; p.reloadT=0;
     const secStats=(secType==='none')?{}:Object.assign({}, W9.getWeaponDefaults('secondary',secType));
     p.weapons={ primary:{type:'standard',stats:{}}, secondary:{ type:secType, stats:secStats } };
-    p.activeWeaponSlot='primary';
     return p;
   };
   const mkCtx=(p, mouse, extra)=>{
@@ -397,41 +397,37 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
     return Object.assign(base, extra||{});
   };
 
-  // ① primary 槽位 → 委托 tryFire→fireTank（弹体 ammoKey=ap）；double_barrel 空格齐射 salvo 透传
+  // ① primary 路径 → 委托 tryFire→fireTank（弹体 ammoKey=ap）；double_barrel 空格齐射 salvo 透传
   global.entities=[mkP('none'),ENEMY];
   const pStd=global.entities[0];
-  pStd.activeWeaponSlot='primary';
   global.shells.length=0;
-  ok(F.tryFireWeaponSlot(mkCtx(pStd,{x:500,y:0}))===true && global.shells.length===1 && global.shells[0].ammoKey==='ap', '9a primary 槽位分发 → fireTank（1 发 ap）');
+  ok(F.tryFirePrimary(mkCtx(pStd,{x:500,y:0}))===true && global.shells.length===1 && global.shells[0].ammoKey==='ap', '9a tryFirePrimary → fireTank（1 发 ap）');
   const pDb=mkP('none');
   pDb.weapons.primary={type:'double_barrel',stats:{}};
-  pDb.activeWeaponSlot='primary';
   pDb._dbState=null;
   global.entities=[pDb,ENEMY];
   global.shells.length=0;
-  ok(F.tryFireWeaponSlot(mkCtx(pDb,{x:500,y:0}), true)===true && global.shells.length===2, '9b primary+double_barrel 空格齐射经分发发射 2 发（salvo 透传）');
+  ok(F.tryFirePrimary(mkCtx(pDb,{x:500,y:0}), true)===true && global.shells.length===2, '9b double_barrel 空格齐射经 tryFirePrimary 发射 2 发（salvo 透传）');
 
-  // ② secondary+mortar → isArc 且落点=鼠标世界点方向（min(距离, range 450)）
+  // ② tryFireSecondary+mortar → isArc 且落点=鼠标世界点方向（min(距离, range 450)）
   global.entities=[ENEMY];
   const pMor=mkP('mortar');
-  pMor.activeWeaponSlot='secondary';
   pMor.secondaryReloadT=0;
   global.shells.length=0;
   const ctxMor=mkCtx(pMor,{x:300,y:100});
-  ok(F.tryFireWeaponSlot(ctxMor)===true, '9c secondary+mortar 左键分发击发成功');
+  ok(F.tryFireSecondary(ctxMor)===true, '9c tryFireSecondary+mortar 击发成功');
   ok(global.shells.length===1 && global.shells[0].isArc===true, '9c 迫击炮曲射弹生成');
   const morTip=G.gunTip(pMor);
   const useDist=Math.min(Math.hypot(300-morTip.x,100-morTip.y),450);
   ok(Math.abs(global.shells[0].totalDist-useDist)<1e-6 && Math.abs(Math.hypot(global.shells[0].targetX-morTip.x, global.shells[0].targetY-morTip.y)-useDist)<1e-6, '9c 曲射落点=鼠标世界点方向（min(距鼠标,450)）');
   ok(Math.abs(pMor.secondaryReloadT-8)<1e-9, '9c 迫击炮装填重置 8s');
 
-  // ③ secondary+missile+纯点 → guided 弹、target=null（沿鼠标方向直飞，不再回退 nearestEnemyTo 自动寻的）
+  // ③ tryFireSecondary+missile+纯点 → guided 弹、target=null（沿鼠标方向直飞，不回退 nearestEnemyTo 自动寻的）
   global.shells.length=0;
   const pMis=mkP('missile');
-  pMis.activeWeaponSlot='secondary';
   pMis.secondaryReloadT=0;
   const ctxMis=mkCtx(pMis,{x:400,y:200});
-  ok(F.tryFireWeaponSlot(ctxMis)===true, '9d secondary+missile 左键分发击发成功');
+  ok(F.tryFireSecondary(ctxMis)===true, '9d tryFireSecondary+missile 击发成功');
   ok(global.shells.length===1 && global.shells[0].guided===true && global.shells[0].mode==='lock', '9d 制导锁定弹生成（mode=lock）');
   ok(global.shells[0].target===null, '9d 手动击发 target=null（沿鼠标方向直飞，不自动寻的）');
   const misTip=G.gunTip(pMis);
@@ -440,66 +436,61 @@ function ok(c,l){ if(c) console.log('✓ '+l); else { console.error('✗ '+l); f
   ok(Math.abs(gotAng-wantAng)<1e-9, '9d 弹向=朝向鼠标世界点');
   ok(global.shells[0].ammoKey==='he' && global.shells[0].dmg===Math.round(140*1.5), '9d 导弹按 HE 机制伤害（140×1.5）');
 
-  // ④ secondary 槽位但副武器 none → 回退 tryFire（主炮仍可用）
+  // ④ tryFireSecondary 但副武器 none → 拒绝（不回落主炮——主炮有专属键位）
   global.entities=[mkP('none'),ENEMY];
   const pNone=global.entities[0];
-  pNone.activeWeaponSlot='secondary';
   global.shells.length=0;
-  ok(F.tryFireWeaponSlot(mkCtx(pNone,{x:500,y:0}))===true && global.shells.length===1 && global.shells[0].ammoKey==='ap', '9e 副武器 none → 回退 tryFire（1 发 ap）');
+  ok(F.tryFireSecondary(mkCtx(pNone,{x:500,y:0}))===false && global.shells.length===0, '9e 副武器 none → tryFireSecondary 拒绝（不回落主炮）');
+  // ④' 主炮路径不受影响：空格仍走 tryFire（1 发 ap）
+  ok(F.tryFirePrimary(mkCtx(pNone,{x:500,y:0}))===true && global.shells.length===1 && global.shells[0].ammoKey==='ap', "9e' 副武器 none 时主炮路径照常（1 发 ap）");
 
-  // ⑤ secondary+mine_layer → 注入 spawnMine 时车尾布雷（hullAngle=0 → x=-45）
+  // ⑤ tryFireSecondary+mine_layer → 注入 spawnMine 时车尾布雷（hullAngle=0 → x=-45）
   const placed=[];
   const pMine=mkP('mine_layer');
-  pMine.activeWeaponSlot='secondary';
   pMine.secondaryReloadT=0;
   global.shells.length=0;
   const ctxMine=mkCtx(pMine,{x:0,y:0},{spawnMine:(o)=>{ placed.push(o); return o; }, deployables:placed});
-  ok(F.tryFireWeaponSlot(ctxMine)===true, '9f secondary+mine_layer 左键分发布雷成功');
+  ok(F.tryFireSecondary(ctxMine)===true, '9f tryFireSecondary+mine_layer 布雷成功');
   ok(placed.length===1 && placed[0].damage===100, '9f 地雷入注册表（damage=100）');
   ok(Math.abs(placed[0].x-(pMine.x-45))<1e-9 && Math.abs(placed[0].y)<1e-9, '9f 车尾 45px 布雷（hullAngle=0 → x=-45）');
 
-  // ⑥ turret 型 → 点击分发不响应（设计例外，自主副炮塔由 updateSecondaryWeapon 驱动）
+  // ⑥ turret 型 → tryFireSecondary 不响应（设计例外，自主副炮塔由 updateSecondaryWeapon 驱动）
   global.shells.length=0;
   const pTur=mkP('turret');
-  pTur.activeWeaponSlot='secondary';
   pTur.secondaryReloadT=0;
   global.entities=[pTur,ENEMY];
-  ok(F.tryFireWeaponSlot(mkCtx(pTur,{x:500,y:0}))===false && global.shells.length===0, '9g turret 型不响应点击分发（不回落主炮）');
+  ok(F.tryFireSecondary(mkCtx(pTur,{x:500,y:0}))===false && global.shells.length===0, '9g turret 型不响应击发（自主运作）');
 
-  // ⑦ 主武器全类型补全（F 切到 primary → 左键/空格）：autocannon / railgun
+  // ⑦ 主武器全类型补全（tryFirePrimary）：autocannon / railgun
   global.shells.length=0;
   const pAc=mkP('none');
   pAc.weapons.primary={type:'autocannon',stats:{}};
-  pAc.activeWeaponSlot='primary';
   pAc.reloadT=0; pAc.heatPct=0; pAc.heatLockT=0;
   global.entities=[pAc,ENEMY];
-  ok(F.tryFireWeaponSlot(mkCtx(pAc,{x:500,y:0}))===true && global.shells.length===1, '9h primary+autocannon 槽位分发击发 1 发');
+  ok(F.tryFirePrimary(mkCtx(pAc,{x:500,y:0}))===true && global.shells.length===1, '9h tryFirePrimary+autocannon 击发 1 发');
   ok((pAc.heatPct||0)>0, '9h 机炮击发累计热量（heatPct>0）');
 
   global.shells.length=0;
   const pRg=mkP('none');
   pRg.weapons.primary={type:'railgun',stats:{}};
-  pRg.activeWeaponSlot='primary';
   pRg.reloadT=0;
   global.entities=[pRg,ENEMY];
-  ok(F.tryFireWeaponSlot(mkCtx(pRg,{x:500,y:0}))===true && global.shells.length===1, '9i primary+railgun 槽位分发击发 1 发');
+  ok(F.tryFirePrimary(mkCtx(pRg,{x:500,y:0}))===true && global.shells.length===1, '9i tryFirePrimary+railgun 击发 1 发');
   ok(pRg.reloadT>0, '9i 电磁炮装填计时重置（reloadMult 2.2 → reloadT>0）');
 
   // ⑧ 副武器全类型补全：rocket（巢式齐射 4 发）/ missile_wire（线导 mode=wire）
   global.shells.length=0;
   const pRk=mkP('rocket');
-  pRk.activeWeaponSlot='secondary';
   pRk.secondaryReloadT=0;
   global.entities=[pRk,ENEMY];
-  ok(F.tryFireWeaponSlot(mkCtx(pRk,{x:400,y:0}))===true && global.shells.length===4, '9j secondary+rocket 槽位分发齐射 4 发');
+  ok(F.tryFireSecondary(mkCtx(pRk,{x:400,y:0}))===true && global.shells.length===4, '9j tryFireSecondary+rocket 齐射 4 发');
 
   global.shells.length=0;
   const pWire=mkP('missile_wire');
-  pWire.activeWeaponSlot='secondary';
   pWire.secondaryReloadT=0;
   global.entities=[pWire,ENEMY];
-  ok(F.tryFireWeaponSlot(mkCtx(pWire,{x:400,y:200}))===true && global.shells.length===1 && global.shells[0].mode==='wire',
-    '9k secondary+missile_wire 槽位分发击发（线导 mode=wire）');
+  ok(F.tryFireSecondary(mkCtx(pWire,{x:400,y:200}))===true && global.shells.length===1 && global.shells[0].mode==='wire',
+    '9k tryFireSecondary+missile_wire 击发（线导 mode=wire）');
 }
 
 // ===== #A27（2026-09-15）HE-VT（proximity_he）飞行回归：近炸引信分支必须每帧推进弹体 =====

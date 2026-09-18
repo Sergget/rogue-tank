@@ -229,7 +229,7 @@ function abilityTank(effects) {
   ok(close(t.stats.reload, baseReload), '到期剪除 timed 修饰器 → reload 恢复原速');
 }
 
-// ---- 13) 共享冷却：激活后冷却期内拒绝 / 逐帧递减 / 归零后可再激活 / 去旧防叠乘 ----
+// ---- 13) 按技能独立冷却（#C4c）：激活后各自冷却 / 互不阻塞 / 逐帧递减 / 归零后可再激活 / 去旧防叠乘 ----
 {
   const t = abilityTank([
     { type: 'ability', key: 'overdrive', cardId: 'c1' },
@@ -237,22 +237,22 @@ function abilityTank(effects) {
     { type: 'ability', key: 'shield', cardId: 'c3' }
   ]);
   ok(abil.tryActivateAbility(t, 'overdrive', {}).ok === true, 'overdrive 首次激活');
-  ok(close(t.abilityCdT, RULES.abilities.overdrive.cooldown), '冷却 = overdrive.cooldown = 20');
+  ok(close(t.abilityCds.overdrive, RULES.abilities.overdrive.cooldown), '冷却 = abilityCds.overdrive = 20');
   let r = abil.tryActivateAbility(t, 'overdrive', {});
   ok(r.ok === false && r.reason === 'cooldown', '冷却期内 overdrive 拒绝');
-  r = abil.tryActivateAbility(t, 'artillery', { target: { x: 0, y: 0 } });
-  ok(r.ok === false && r.reason === 'cooldown', '冷却期内 artillery 也拒绝（共享冷却）');
+  // #C4c 核心语义：overdrive 冷却不阻塞其他技能（旧共享 abilityCdT 会顶掉一切）
   r = abil.tryActivateAbility(t, 'shield', { omni: true });
-  ok(r.ok === false && r.reason === 'cooldown', '冷却期内 shield 也拒绝（共享冷却）');
-  abil.updateAbilityCd(t, 5);
-  ok(close(t.abilityCdT, 15), 'updateAbilityCd(5) → 15');
-  abil.updateAbilityCd(t, 30);
-  ok(t.abilityCdT === 0, 'updateAbilityCd 超量 → 钳到 0');
+  ok(r.ok === true, 'shield 不受 overdrive 冷却影响（按技能独立冷却）');
+  ok(close(t.abilityCds.shield, RULES.abilities.shield.cooldown), 'shield 冷却独立写入 abilityCds.shield = 25');
+  abil.updateAbilityCds(t, 5);
+  ok(close(t.abilityCds.overdrive, 15) && close(t.abilityCds.shield, 20), 'updateAbilityCds(5) → 各键独立递减 5');
+  abil.updateAbilityCds(t, 30);
+  ok(t.abilityCds.overdrive === 0 && t.abilityCds.shield === 0, '超量递减 → 各键钳到 0');
   r = abil.tryActivateAbility(t, 'overdrive', {});
   ok(r.ok === true, '冷却归零 → 可再激活');
   ok(t.modifiers.filter(m => m.source === 'ability:overdrive').length === 1, '重复激活先去旧 modifier（不叠乘）');
-  abil.updateAbilityCd(t, -1);                       // dt<0 安全
-  ok(close(t.abilityCdT, RULES.abilities.overdrive.cooldown), 'dt<0 不递减');
+  abil.updateAbilityCds(t, -1);                       // dt<0 安全
+  ok(close(t.abilityCds.overdrive, RULES.abilities.overdrive.cooldown), 'dt<0 不递减');
 }
 
 // ---- 14) cardEffects 持有检查：无卡拒绝 / 缺参拒绝 / unsupported / 多卡同 key 可用 ----
@@ -293,13 +293,13 @@ function abilityTank(effects) {
   const r = abil.tryActivateAbility(t, 'artillery', { target: { x: 100, y: 100 }, rng: seqRng([0, 0.5, 0.25, 0.5, 0.75, 0.5]) });
   ok(r.ok === true && r.strikes.length === 3 && strike.strikes.length === 3, 'artillery 激活 → 3 落弹入共享 strikes');
   ok(r.strikes.every(s => s.owner === t && close(s.dmg, Math.round(1.2 * t.stats.damage))), '落弹 owner/dmg 正确');
-  ok(close(t.abilityCdT, RULES.abilities.artillery.reload), 'artillery 冷却 = reload = 15');
+  ok(close(t.abilityCds.artillery, RULES.abilities.artillery.reload), 'artillery 冷却 = abilityCds.artillery = 15');
   resetAll();
 
   const t2 = abilityTank([{ type: 'ability', key: 'shield', cardId: 's1' }]);
   const rs = abil.tryActivateAbility(t2, 'shield', { dir: 1.0 });
   ok(rs.ok === true && rs.shield === t2.shield && close(rs.shield.dir, 1.0) && rs.shield.omni === false, 'shield 经统一入口激活（dir 透传）');
-  ok(close(t2.abilityCdT, RULES.abilities.shield.cooldown), 'shield 冷却 = cooldown = 25');
+  ok(close(t2.abilityCds.shield, RULES.abilities.shield.cooldown), 'shield 冷却 = abilityCds.shield = 25');
   const t3 = abilityTank([{ type: 'ability', key: 'shield', cardId: 's1' }]);
   const rs2 = abil.tryActivateAbility(t3, 'shield', { omni: true });
   ok(rs2.ok === true && rs2.shield.omni === true, 'shield 经统一入口激活（omni 透传）');
@@ -314,9 +314,9 @@ function abilityTank(effects) {
   let r = abil.tryActivateAbility(bare, 'repair', {});
   ok(r.ok === true && r.key === 'repair', '裸坦克激活 repair 成功（绕过持有检查）');
 
-  // 16b) 独立冷却池：写 abilityCds.repair、不动共享 abilityCdT；medkit 与 repair 互不干扰
+  // 16b) 独立冷却池：innate 写 abilityCds.repair、不影响其他能力键（#C4c 后运行时能力同池按 key 隔离）
   ok(typeof bare.abilityCds === 'object' && close(bare.abilityCds.repair, 45), '激活后 abilityCds.repair = 45（fallback 基础冷却）');
-  ok((bare.abilityCdT || 0) === 0, '共享冷却 abilityCdT 未被 innate 触碰（独立池）');
+  ok(bare.abilityCds.overdrive === undefined, 'innate 激活不触碰其他能力键冷却（按 key 隔离）');
   bare.debuffs = { gunner: 1 };   // 门控前置：有受伤乘员才可激活 medkit
   r = abil.tryActivateAbility(bare, 'medkit', {});
   ok(r.ok === true, 'repair 冷却期内 medkit 仍可激活（独立冷却互不干扰）');
@@ -341,17 +341,17 @@ function abilityTank(effects) {
   abil.tryActivateAbility(partial, 'repair', {});
   ok(close(partial.abilityCds.repair, 45), 'abilityBaseCd 缺该键 → fallback 45');
 
-  // 16e) updateAbilityCds：逐键递减 / 钳 ≥0 / dt<=0 安全 / 与 updateAbilityCd 互不干扰
+  // 16e) updateAbilityCds：逐键递减 / 钳 ≥0 / dt<=0 安全 / 废弃助手 updateAbilityCd 只动旧字段
   const cdT = model.makeTank({ team: 'player' });
-  cdT.abilityCds = { repair: 10, medkit: 1 };
-  cdT.abilityCdT = 99;
+  cdT.abilityCds = { repair: 10, medkit: 1, overdrive: 5 };
+  cdT.abilityCdT = 99;                              // 旧共享字段（废弃，兼容保留）
   abil.updateAbilityCds(cdT, 2);
-  ok(close(cdT.abilityCds.repair, 8) && cdT.abilityCds.medkit === 0, 'updateAbilityCds(2) → repair 8 / medkit 钳到 0');
-  ok(cdT.abilityCdT === 99, 'updateAbilityCds 不触碰共享 abilityCdT');
+  ok(close(cdT.abilityCds.repair, 8) && cdT.abilityCds.medkit === 0 && close(cdT.abilityCds.overdrive, 3), 'updateAbilityCds(2) → repair 8 / medkit 钳到 0 / overdrive 3');
+  ok(cdT.abilityCdT === 99, 'updateAbilityCds 不触碰废弃助手字段 abilityCdT');
   abil.updateAbilityCds(cdT, -5);
   ok(close(cdT.abilityCds.repair, 8), 'dt<0 不递减');
   abil.updateAbilityCd(cdT, 1);
-  ok(cdT.abilityCdT === 98 && close(cdT.abilityCds.repair, 8), 'updateAbilityCd 只动 abilityCdT（两池互不干扰）');
+  ok(cdT.abilityCdT === 98 && close(cdT.abilityCds.repair, 8), '废弃助手 updateAbilityCd 只动 abilityCdT（不影响 abilityCds 池）');
   abil.updateAbilityCds(null, 1);   // 无实体安全
 
   // 16f) repair 效果清除范围：履带/机动状态 + engine/ammo debuff；乘员 debuff 保留
@@ -412,6 +412,42 @@ function abilityTank(effects) {
   const dcCfg = abil.computeAbilityConfig(tCover, 'deploy_cover');
   ok(dcCfg.hp === 350, 'deploy_cover hp 覆写为 350');
   ok(dcCfg.shieldHp === 250, 'deploy_cover shieldHp 覆写为 250');
+}
+
+// ---- 18) #C6（2026-09-17）：灭火器前置改读真实起火状态 dotT；扑灭清 dot 族 + fireT + debuffs.engine ----
+{
+  const t = model.makeTank({ team: 'player' });
+  // 未起火：拒绝且不进冷却
+  let r = abil.tryActivateAbility(t, 'extinguish', {});
+  ok(r.ok === false && r.reason === 'no-fire', '未起火 → extinguish 拒绝 no-fire（前置改读 dotT）');
+  ok((t.abilityCds && t.abilityCds.extinguish) === undefined, '拒绝路径不进冷却');
+  // 起火态（tank_physics resolveHit engine 分支写入的同形字段）→ 激活成功并全量清理
+  t.dotT = 5; t.dotDps = 12; t.dotSeconds = 5; t.fireT = 4; t.debuffs = { engine: 8, gunner: 3 };
+  t._dotAcc = 1.2; t._dotTxt = 0.5;
+  r = abil.tryActivateAbility(t, 'extinguish', {});
+  ok(r.ok === true && r.key === 'extinguish', '起火中 → extinguish 激活成功（#C6 死前置修复）');
+  ok(t.dotT === 0 && t.dotDps === 0 && t.dotSeconds === 0 && t.fireT === 0, '扑灭清 dotT/dotDps/dotSeconds/fireT');
+  ok(t.debuffs.engine === undefined && t.debuffs.gunner === 3, '扑灭连带清 debuffs.engine（其他 debuff 不动）');
+  ok(t._dotAcc === 0 && t._dotTxt === 0, 'DOT 飘字累计同步清零');
+  ok(close(t.abilityCds.extinguish, 45), 'extinguish 进独立冷却 45（fallback）');
+  // 冷却期内再起火 → 拒绝（mvp 自动触发路径尊重冷却）
+  t.dotT = 3;
+  r = abil.tryActivateAbility(t, 'extinguish', {});
+  ok(r.ok === false && r.reason === 'cooldown', '冷却期内再起火 → 拒绝 cooldown（自动触发尊重冷却池）');
+}
+
+// ---- 19) #C4b（2026-09-17）：deploy_cover 炮塔正前方部署 + dist/lenMult 参数化（RULES） ----
+{
+  const t = abilityTank([{ type: 'ability', key: 'deploy_cover', cardId: 'dc1' }]);
+  t.turretAngle = Math.PI / 2;   // 炮塔朝 +y
+  t.hullAngle = 0;               // 车体朝 +x（证明部署方向跟炮塔而非车体）
+  t.hullLen = 50;
+  const r = abil.tryActivateAbility(t, 'deploy_cover', {});
+  ok(r.ok === true && r.cover, 'deploy_cover 激活成功');
+  ok(Math.abs(r.cover.x - t.x) < 1e-9 && Math.abs(r.cover.y - (t.y + 90)) < 1e-9,
+    '部署点 = 炮塔正前方 dist=90（RULES.abilities.deploy_cover.dist，取代旧硬编码 50 + 车体朝向）');
+  ok(Math.abs(r.cover.hullLen - 80) < 1e-9, '掩体加长 hullLen = 50 × lenMult 1.6 = 80');
+  ok(Math.abs(r.cover.hullAngle - Math.PI) < 1e-9, '掩体横置（部署方向 + π/2）');
 }
 
 console.log('test-abilities: 完成所有检查');

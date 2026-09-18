@@ -220,8 +220,8 @@ console.log('difficultyCapMuls (speed cap, #B4):');
 console.log('#A24 card transaction (receipt + rollback) / parameterClamp:');
 {
   // (a) parameterClamp：RULES.parameterLimits 区间钳制（含 armor.* 3 段路径）
-  ok(P.parameterClamp('reload', 0.1).value === 0.5 && P.parameterClamp('reload', 0.1).clamped === true,
-    '#A24 parameterClamp: reload 0.1 → 下限 0.5（clamped）');
+  ok(P.parameterClamp('reload', 0.1).value === 1.0 && P.parameterClamp('reload', 0.1).clamped === true,
+    '#A24/#C2 parameterClamp: reload 0.1 → 下限 1.0（clamped）');
   ok(P.parameterClamp('reload', 99).value === 3.0, '#A24 parameterClamp: reload 99 → 上限 3.0');
   ok(P.parameterClamp('reload', 1.5).value === 1.5 && P.parameterClamp('reload', 1.5).clamped === false,
     '#A24 parameterClamp: 区间内原值返回（clamped=false）');
@@ -306,7 +306,7 @@ console.log('activateAbilityForTest (auto-inject debug card + cooldown):');{
   const t = playerTank();
   const r = P.activateAbilityForTest(t, 'overdrive', {});
   ok(r.ok === true && r.key === 'overdrive', 'overdrive ok (auto-injected card)');
-  ok(t.abilityCdT > 0, 'overdrive set abilityCdT (shared cooldown)');
+  ok(t.abilityCds && t.abilityCds.overdrive > 0, 'overdrive set abilityCds.overdrive (per-key cooldown, #C4c)');
   ok(t.reloadT === 0, 'overdrive cleared reloadT (burst reload)');
   const r2 = P.activateAbilityForTest(t, 'overdrive', {});
   ok(r2.ok === false && r2.reason === 'cooldown', 'second overdrive within CD -> cooldown');

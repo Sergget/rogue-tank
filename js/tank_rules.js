@@ -214,7 +214,9 @@ const RULES = {
       hp: 200,
       shieldHp: 150,
       duration: 30,
-      cooldown: 20
+      cooldown: 20,
+      dist: 90,          // #C4b（2026-09-17 用户裁定）：部署距离（自车体中心沿炮塔方向，px；取代旧硬编码 50）
+      lenMult: 1.6       // #C4b：掩体长度 = 车体 hullLen × lenMult（加长横掩，取代旧缺省 hullLen 50）
     },
     drone: {
       scoutRange: 700,     // 侦察指示范围（px）：视口外敌军位置指示箭头（默认视口 960×600，半对角线 ≈566，取 700 覆盖视口外一圈）
@@ -686,14 +688,14 @@ const RULES = {
 
   // ======================= P-49 全参数极限表（唯一收口） =======================
   // 取值方法：存量四车（tanks/dummy|Leapard_1|Obj 780|tiger-I.json）数值包络 ±30% 后取整；
-  // reload 下限 0.5s 为用户既定需求；maxSpeed 上限按用户裁定 ≤150km/h ÷ kmhFactor(0.4) = 375 px/s；
+  // reload 下限 1.0s 为用户既定需求（2026-09-17 #C2 裁定，取代旧 0.5s；reloadMult<1 通道不受此限）；maxSpeed 上限按用户裁定 ≤150km/h ÷ kmhFactor(0.4) = 375 px/s；
   // weight 上限 80t 为用户裁定（P-49，2026-08-26 细化：仅约束设计器出厂校验）。
   // 设计器保存校验消费方应把输入钳到 [min,max] 区间。
   parameterLimits: {
         maxHp:            { min: 50,  max: 9999 }, // 存量 hp 包络 80~120（±30% → 56~156，取整）；max=9999=无上限（B3 #73 修复：hp_up 升级「无上限」，与装甲同级）。仅 runShopLimitBlocked #A4 派生消费；设计器出厂校验只约束 weight.max。
     penetration:      { min: 80,  max: 9999 }, // 穿深无上限（用户需求：火力/穿深/装甲不设上限）
     damage:           { min: 25,  max: 9999 }, // 单发伤害无上限（用户需求：火力/穿深/装甲不设上限）
-    reload:           { min: 0.5, max: 3.0 },  // 装填秒数：下限 0.5s 用户既定需求；上限包络 2.0×1.3≈2.6 → 圆整 3.0
+    reload:           { min: 1.0, max: 3.0 },  // 装填秒数：下限 1.0s（2026-09-17 #C2 用户裁定，取代旧 0.5s；实际开火间隔=reload×reloadMult，reloadMult<1 通道不受此限）；上限包络 2.0×1.3≈2.6 → 圆整 3.0
     shellSpeed:       { min: 600, max: 2100 }, // 弹速 px/s 包络 1000~1600（±30% → 700~2080）
     maxSpeed:         { min: 60,  max: 375 },  // px/s；max=150km/h÷kmhFactor0.4=375（用户裁定 ≤150km/h）；min 对应 24km/h
     turnRate:         { min: 1.0, max: 3.5 },  // 车体转速 rad/s 包络 1.6~2.5（±30% → 1.12~3.25）

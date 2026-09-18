@@ -603,6 +603,105 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
     '#A28: 池内只剩升级卡时保底不复活（返回 3 张非 upgrade 卡，不崩溃）');
 }
 
+// ===== #B8 副武器替换语义（2026-09-16 用户裁定：新 install 卡替换已装副武器，升级卡随类型接续） =====
+{
+  const W = require('../js/tank_weapons.js');
+  const mkInst = (wt) => ({ id: 'swap_' + wt, name: '安装' + wt, rarity: 'common',
+    effects: [{ type: 'weapon', action: 'install', slot: 'secondary', weaponType: wt }] });
+  const mortarUp = { id: 'swap_mortar_up', name: '迫击炮升级', rarity: 'common', maxStacks: 1,
+    effects: [{ type: 'weapon', action: 'upgrade', slot: 'secondary', weaponType: 'mortar',
+      statOverrides: { range: 550 } }] };
+  const missileUp = { id: 'swap_missile_up', name: '导弹升级', rarity: 'common', maxStacks: 1,
+    effects: [{ type: 'weapon', action: 'upgrade', slot: 'secondary', weaponType: 'missile',
+      statOverrides: { damage: 160 } }] };
+
+  // (a) apply 层：空槽安装 → 换型替换 → 同型幂等
+  const tSwap = model.makeTank({ team: 'player' });
+  tSwap.secondaryReloadT = 5;   // 预置旧装填计时，验证换装重置
+  cardsMod.applyCardEffects(tSwap, mkInst('mortar'));
+  ok(tSwap.weapons.secondary.type === 'mortar'
+    && tSwap.weapons.secondary.stats.reload === 8 && tSwap.weapons.secondary.stats.range === 450,
+    '#B8: 空槽安装 mortar（stats 含 WEAPON_DEFAULTS 兜底）');
+  cardsMod.applyCardEffects(tSwap, mortarUp);
+  ok(tSwap.weapons.secondary.stats.range === 550, '#B8: mortar upgrade 生效（range=550）');
+  cardsMod.applyCardEffects(tSwap, mkInst('missile'));
+  ok(tSwap.weapons.secondary.type === 'missile', '#B8: 非同型 install 替换已装武器（mortar→missile）');
+  ok(tSwap.weapons.secondary.stats.reload === 12 && tSwap.weapons.secondary.stats.range === 600
+    && tSwap.weapons.secondary.stats.aoe === undefined,
+    '#B8: 替换后 stats 全量重建为 missile 默认（旧 mortar upgrade 数值不残留）');
+  ok(tSwap.secondaryReloadT === 0, '#B8: 替换时 secondaryReloadT 重置为 0（装填就绪）');
+  ok(tSwap._missileLock === null, '#B8: 替换写入清空 _missileLock（旧锁定状态复位）');
+  const dmgBefore = JSON.stringify(tSwap.weapons.secondary.stats);
+  cardsMod.applyCardEffects(tSwap, mkInst('missile'));
+  ok(tSwap.weapons.secondary.type === 'missile' && JSON.stringify(tSwap.weapons.secondary.stats) === dmgBefore,
+    '#B8: 同型重复 install 幂等 no-op（stats 不被重置）');
+  // 旧武器 upgrade 卡效果仍挂 cardEffects（保留不清），但 upgrade 应用按类型失配 no-op
+  ok(tSwap.cardEffects.filter(e => e.cardId === 'swap_mortar_up').length === 1,
+    '#B8: 旧 mortar upgrade 的 cardEffects 条目保留（未清除）');
+  // 旧 mortar upgrade 对 missile 槽 re-apply：类型失配 + maxStacks 已计入 → 返回空效果且 stats 不变（双重防线）
+  const rangeAfterMissile = cardsMod.applyCardEffects(tSwap, mortarUp);
+  ok(rangeAfterMissile.length === 0 && tSwap.weapons.secondary.stats.range === 600
+    && tSwap.weapons.secondary.stats.damage === 140,
+    '#B8: 旧 mortar upgrade 对 missile 槽应用被拒（maxStacks 防线，stats 不变）');
+  cardsMod.applyCardEffects(tSwap, missileUp);
+  ok(tSwap.weapons.secondary.stats.damage === 160, '#B8: 新 missile upgrade 就位（damage=160）');
+
+  // (b) 资格层：cardEligible — 非同型 install 放行 / 同型重复拒绝 / 升级卡随 owned.secondaryWeapon 翻转
+  const owned = { abilities: [], primaryWeapon: 'standard', secondaryWeapon: 'mortar' };
+  ok(cardsMod.cardEligible(mkInst('missile'), owned) === true, '#B8: 已装 mortar 时 missile 安装卡 eligible（替换资格）');
+  ok(cardsMod.cardEligible(mkInst('mortar'), owned) === false, '#B8: 同型重复 install 拒绝');
+  const ownedMissile = { abilities: [], primaryWeapon: 'standard', secondaryWeapon: 'missile' };
+  ok(cardsMod.cardEligible(mkInst('missile'), ownedMissile) === false, '#B8: none 槽安装资格不受影响（同型=已装）');
+  ok(cardsMod.cardEligible(mkInst('rocket'), { abilities: [], primaryWeapon: 'standard', secondaryWeapon: 'none' }) === true,
+    '#B8: 空槽（none）安装资格保持');
+  ok(cardsMod.cardEligible(mortarUp, owned) === true && cardsMod.cardEligible(mortarUp, ownedMissile) === false,
+    '#B8: 升级卡资格随 owned.secondaryWeapon 动态翻转（mortar 有/missile 无）');
+
+  // (c) 抽取层：已装 mortar 的玩家可从全池抽到其他型安装卡（替换语义落地到抽卡）
+  const swapPool = [mkInst('missile'), mkInst('rocket'), mkInst('mine_layer'),
+    { id: 'filler1', name: 'f', rarity: 'common', effects: [{ type: 'modifier', stat: 'maxHp', mode: 'add', value: 10 }] },
+    { id: 'filler2', name: 'f', rarity: 'common', effects: [{ type: 'modifier', stat: 'damage', mode: 'add', value: 5 }] },
+    { id: 'filler3', name: 'f', rarity: 'common', effects: [{ type: 'modifier', stat: 'reload', mode: 'mult', value: 0.95 }] },
+    { id: 'filler4', name: 'f', rarity: 'common', effects: [{ type: 'passive', key: 'spall_liner', value: 0.9 }] }];
+  const seenSwap = new Set();
+  for (let seed = 1; seed <= 200; seed++) {
+    const drawn = cardsMod.drawCardChoices(swapPool, 3, {
+      rng: createRNG(seed),
+      owned: { abilities: [], primaryWeapon: 'standard', secondaryWeapon: 'mortar', cards: {} }
+    });
+    for (const c of drawn) if (c.effects[0].type === 'weapon') seenSwap.add(c.effects[0].weaponType);
+  }
+  ok(seenSwap.size >= 2, `#B8: 已装 mortar 时其他型安装卡进入候选（200 种子覆盖类型 ${seenSwap.size} 种）`);
+  ok(!seenSwap.has('mortar'), '#B8: 同型重复 install 不再进候选');
+}
+
+// ===== #C3（2026-09-17）：弹种升级卡保底 — 可解锁升级卡存在时候选必含 1 张（用户裁定「升级卡加权/保底」路线） =====
+{
+  const upPool = [
+    { id: 'up_apcr', name: 'APCR 升级', rarity: 'rare', maxStacks: 1, effects: [{ type: 'ammo', key: 'apcr', replaceAmmo: 'ap', field: 'pen', mode: 'mult', value: 1.1 }] },
+    { id: 'p1', name: '参数卡A', rarity: 'common', effects: [{ type: 'ammo', key: 'ap', field: 'pen', mode: 'add', value: 5 }] },
+    { id: 'p2', name: '参数卡B', rarity: 'common', effects: [{ type: 'ammo', key: 'he', field: 'dmg', mode: 'add', value: 5 }] },
+    { id: 'p3', name: '参数卡C', rarity: 'common', effects: [{ type: 'modifier', stat: 'maxHp', mode: 'add', value: 10 }] },
+    { id: 'p4', name: '参数卡D', rarity: 'common', effects: [{ type: 'modifier', stat: 'damage', mode: 'add', value: 5 }] }
+  ];
+  let guaranteed = 0, overGuarantee = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const drawn = cardsMod.drawCardChoices(upPool, 3, { rng: createRNG(seed), ammoLoadout: ['ap', 'he'] });
+    const ups = drawn.filter(c => c.id === 'up_apcr').length;
+    if (ups >= 1) guaranteed++;
+    if (ups > 1) overGuarantee++;
+  }
+  ok(guaranteed === 200, `#C3: 前驱在 loadout → 升级卡保底进候选（200/200，got ${guaranteed}）`);
+  ok(overGuarantee === 0, '#C3: 保底恰好 1 张（不重复抽入）');
+  // 已持有目标弹种（升级完成）→ 不再保底该卡，恢复稀有度权重抽样
+  let ownedOut = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const drawn = cardsMod.drawCardChoices(upPool, 3, { rng: createRNG(seed), ammoLoadout: ['ap', 'apcr'] });
+    if (!drawn.some(c => c.id === 'up_apcr')) ownedOut++;
+  }
+  ok(ownedOut > 0, `#C3: 已持有 apcr 后该升级卡不再保底（200 种子中 ${ownedOut} 次未出现，恢复权重抽样）`);
+}
+
 console.log('test-cards: 完成所有检查');
 if (fails === 0) console.log('test-cards: 全部通过');
 else console.error(`test-cards: ${fails} 项失败`);

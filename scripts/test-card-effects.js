@@ -117,6 +117,18 @@ function aggregateMultExpected(s, effectsList) {
       s[stat] *= mul;
     }
   }
+  // W5/#C2（2026-09-17）：applyCardEffects→computeStats 对 modifiers 非空结果钳运行时硬限，
+  // 期望值模型同步钳制（reload ≥ parameterLimits.reload.min=1.0s、maxSpeed ≤ 375px/s）——
+  // 必须在 add/mult 全部聚合之后（与 computeStats 聚合尾部的 applyParameterLimits 同位序）
+  const pL = (typeof RULES !== 'undefined' && RULES && RULES.parameterLimits) || null;
+  if (pL && effectsList && effectsList.length) {
+    if (pL.reload && typeof pL.reload.min === 'number' && typeof s.reload === 'number' && s.reload < pL.reload.min) {
+      s.reload = pL.reload.min;
+    }
+    if (pL.maxSpeed && typeof pL.maxSpeed.max === 'number' && typeof s.maxSpeed === 'number' && s.maxSpeed > pL.maxSpeed.max) {
+      s.maxSpeed = pL.maxSpeed.max;
+    }
+  }
   // #61: 派生 mobility 属性必须与 computeStats 对齐，根据 modifier 后的 enginePower/weight 重新计算
   const ACCEL_POWER_TO_PX_SCALE = (typeof RULES !== 'undefined' && RULES.speed && RULES.speed.accelPowerToPxScale) || 180;
   const BRAKE_FACTOR = (typeof RULES !== 'undefined' && RULES.speed && RULES.speed.brakeFactor) || 3.5;

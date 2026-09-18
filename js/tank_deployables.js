@@ -64,6 +64,9 @@ function spawnMine(opts) {
     triggerRadius: o.triggerRadius || 25,
     armed: false,
     armDelay: o.armDelay || 1.0,
+    // #B9（2026-09-16）：布雷器卡面承诺的「地雷存续时间」（mine_layer duration 30/升级 45s）
+    // 在此落地为倒计时；未传 duration（bench 调试布雷等）→ undefined = 永久存续，行为不变。
+    lifeT: (typeof o.duration === 'number' && o.duration > 0) ? o.duration : undefined,
     _dead: false
   };
   deployables.push(m);
@@ -90,6 +93,8 @@ function spawnDeployableCover(opts) {
       maxHp: o.shieldHp || 200,
       t: o.duration || 45
     },
+    // #B11：本体存续倒计时（duration 到期整体撤收，非仅护盾池）；缺省 = 永久
+    lifeT: (typeof o.duration === 'number' && o.duration > 0) ? o.duration : undefined,
     hullLen: o.hullLen || 50,
     hullWid: o.hullWid || 20,
     hullAngle: o.hullAngle || 0,
@@ -160,6 +165,11 @@ function updateDeployables(dt, ctx) {
 
     // 2. 地雷更新
     if (d.isMine) {
+      // 存续倒计时（#B9）：到期自毁（静默失效——布雷器语义「地雷存续时间」）
+      if (d.lifeT !== undefined) {
+        d.lifeT -= dt;
+        if (d.lifeT <= 0) { d._dead = true; continue; }
+      }
       if (d.armDelay > 0) {
         d.armDelay -= dt;
         if (d.armDelay <= 0) d.armed = true;
@@ -191,6 +201,11 @@ function updateDeployables(dt, ctx) {
       if (d.shield && d.shield.t > 0) {
         d.shield.t -= dt;
         if (d.shield.t <= 0) d.shield = null;
+      }
+      // #B11：掩体本体存续倒计时（deploy_cover duration 到期撤收；shield.t 只护盾池，本体永久）
+      if (d.lifeT !== undefined) {
+        d.lifeT -= dt;
+        if (d.lifeT <= 0) d._dead = true;
       }
     }
   }

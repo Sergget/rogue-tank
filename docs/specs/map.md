@@ -12,14 +12,14 @@
 - **摄像机跟随与视口剔除**：js/tank_camera.js 实现指数阻尼平滑跟随 + 世界边界钳制；aabbInView（64px 余量）对掩体、树冠、炮弹进行高效视口剔除。
 - **滚轮缩放（P-39，2026-08-24 落地）**：`RULES.camera`（minZoom 0.5 / maxZoom 2.0 / zoomStep 0.15）+ `createCamera` targetZoom/minZoom/maxZoom 字段 + `setZoom` 钳制入口 + `updateCamera` zoom 指数阻尼；tank_mvp.html 滚轮改绑缩放（passive:false + preventDefault），以光标下世界点为焦点反解相机中心（zoom-to-cursor）。
 - **小地图**：js/tank_minimap.js 右上角等比缩放渲染战场边界、掩体分布、友军据点与敌我动态标记。
-- **水体/桥梁（P-20）**：waterBridgeChance = diff×0.5 概率插入；水体不可通行（move:0）、桥梁通道（move:1）；尺寸封顶节点 40%，边界钳制防越界；玩家出生点 findPlayerSpawn 排除水域。
+- **水体/桥梁（P-20，历史）**：waterBridgeChance = diff×0.5 概率插入；水体不可通行（move:0）、桥梁通道（move:1）；尺寸封顶节点 40%，边界钳制防越界；玩家出生点 findPlayerSpawn 排除水域。**（已被 2026-09-14 水系重做取代：water/river `passability=0.4` 减速通行 + 完全浸入溺毙，现行值见 §5.2 与 §11；本条仅存 P-20 时期的桥梁机制沿革。）**
 
 ## 2. 地图元素体系 (Cover Tiers)
 参数权威收口于 RULES.coverTiers：
 
 | 元素 | tier | 弹道交互 | 坦克通行 | 视线遮挡 | 残骸链 |
 |---|---|---|---|---|---|
-| 半高掩体 | half | 垂直剖面拦截（炮塔恒露；中坦车体100%挡/重坦25%露；贴掩体越掩插值） | 中坦阻挡推出；重坦压过 | 不遮 | ∞ |
+| 半高掩体 | half | 垂直剖面拦截（炮塔恒露；中坦车体100%挡/重坦25%露；贴掩体越掩插值）**——D5 裁定：生成期已屏蔽（不生成 half，仅 ruined 共享其剖面）** | 中坦阻挡推出；重坦压过 | 不遮 | ∞ |
 | 全高掩体 | full | 100% 确定性格挡 | 阻挡推出 | 不遮 | ∞ |
 | 灌木丛 | bush | 穿透（不挡弹） | 自由通行 | 阻挡 AI 视线 | ∞ |
 | 树木 | tree | 树干 1 发截停 | 阻挡推出 | 树冠遮挡视线 | 1 发 → fallen |
@@ -42,7 +42,7 @@
 
 ## 5. 地形类型抽象 (Terrain-Type Abstraction)
 
-> 设计稿（落地计划见 PLAN.md P-33）：将水域/泥潭与全高/半高掩体统一抽象为「地形类型」。每个地形即一个 cover 实例，由一组属性刻画，为后续丰富地图元素（水潭/河流/烂泥地/建筑等）提供一致基座。
+> 设计稿（原 PLAN.md 落地计划已归档）：将水域/泥潭与全高/半高掩体统一抽象为「地形类型」。每个地形即一个 cover 实例，由一组属性刻画，为后续丰富地图元素（水潭/河流/烂泥地/建筑等）提供一致基座。
 
 ### 5.1 统一属性 schema
 每个地形实例携带：
@@ -57,7 +57,7 @@
 | 具体地形 | passability | shellBlock | exposureProfile | destructible | drawStyle | tierGroup |
 |---|---|---|---|---|---|---|
 | 全高掩体(建筑墙) | 1.0 | true(solid) | full | ∞ | box | structure |
-| 半高掩体(矮墙) | 0.4 | grad | half | ∞ | box | cover |
+| 半高掩体(矮墙) | 0.4 | grad | half | ∞ | box | cover **（D5：生成期已屏蔽，仅 ruined 共享剖面）** |
 | 水潭 | 0.4 | false(越飞) | none | null | water | liquid |
 | 河流 | 0.4 | false(越飞) | none | null | water-chain | liquid |
 | 烂泥地 | 0.4 | false | none | null | mud | ground |
@@ -71,18 +71,21 @@
 > 关键设计：(1) 水潭/河流 `shellBlock=false`（炮弹越飞不拦截）+ `passability=0.4`（**2026-09-14 水系重做：减速通行**，与泥地同级——不再硬阻断推出；完全浸入触发溺毙见 §11）；(2) 河流为**多段连通**水体（见 5.3）；(3) 岩石具备 `solid`+`full` 且 `passability=0`（不可通行且阻挡直射实弹，`drawStyle` 走多边形）；(4) 烂泥地具备 `passability=0.4` 减速通行且不挡弹；(5) 残破建筑=`graduated`+`half`+`destructible`。
 
 ### 5.3 河流作为连通多段地形
-河流由共享同一逻辑体的多个 water 段链接而成（连续 movement 阻断 + 单次笔触绘制），需在 cover 实例 schema 增加 `segments[]`/parent-link 字段（当前实例 schema 无此字段，见 §5.4-9）。
+河流由共享同一逻辑体的多个 water 段链接而成（连续 movement 阻断 + 单次笔触绘制），需在 cover 实例 schema 增加 `segments[]`/parent-link 字段。**（已落地：river 实例现携带 `segments[{dx,dy,w,h,angle}]` 相对偏移，经 `coverSegRects()` 展开，见 §5.6。）**
 
 ### 5.4 其他需补充内容（落地前 checklist）
-1. **地面 biome 图层 (#81)**：水/泥需独立于 OBB covers 的铺地图层，才能连续平铺而非孤立方块。
-2. **不规则岩石形态 (#78)**：需 nodegen/designer 的 `verts` 多边形创作（基础设施 `tank_cover.js:143-156` 已具备，但缺编辑器 UI 与 `rock` tier）。
-3. **AI 找掩体钩子 (#76)**：AI 须读取 `exposureProfile`/`shellBlock` 选地形；当前 `aiDecide` 仅用 LoS/距离。
+
+> **状态注记（2026-09-17）**：本 checklist 为 2026-08-24 时期的待办清单，其中第 1/2/7/8/9 条已随后续批次落地（#81 biome 图层→§5.7；#78 不规则岩石与 verts→§6；模板打标→§5.6；`getExposure` 泛化→§5.6；河流 segments→§5.3/§5.6），第 3 条（AI 找掩体）由 coverSeek 态落地（specs/combat.md §5），第 4~6 条（建筑摧毁 FX/小地图/水声）仍属待办。逐条原文保留如下。
+
+1. **地面 biome 图层 (#81)**：水/泥需独立于 OBB covers 的铺地图层，才能连续平铺而非孤立方块。**✅ 已落地（P-36）**
+2. **不规则岩石形态 (#78)**：需 nodegen/designer 的 `verts` 多边形创作（基础设施 `tank_cover.js:143-156` 已具备，但缺编辑器 UI 与 `rock` tier）。**✅ 已落地（#78/设计器 verts UI）**
+3. **AI 找掩体钩子 (#76)**：AI 须读取 `exposureProfile`/`shellBlock` 选地形；当前 `aiDecide` 仅用 LoS/距离。**✅ 已落地（#76 coverSeek 态，specs/combat.md §5）**
 4. **建筑摧毁/特效**：`destroyCover` 当前仅换 `toTier` 残骸（tree→fallen、barricade→rubble）；完整/残破建筑需碎屑 FX + `tierGroup:'structure'` 残骸链。
-5. **小地图表征**：`tank_minimap.js` 须编码 liquid/ground tier（当前仅通用绘制 covers），使水潭/河流读作地形而非障碍。
-6. **音效/特效**：`tank_audio.js`/`tank_fx.js` 需入水溅射、泥地迟滞声（当前无地形步进 SFX）。
-7. **nodegen 模板打标**：模板须携带地形放置标签（中央水潭、沿边河流、泥环）以生成新 tier。
-8. **新地形 half 曝光**：`getExposure` C 插值（`tank_cover.js:361-373`）硬编码 `tier==='half'`；残破建筑/带 half 剖面的岩石需泛化 `exposureProfile` 分发。
-9. **河流连通多段字段**：见 5.3。
+5. **小地图表征**：`tank_minimap.js` 须编码 liquid/ground tier（当前仅通用绘制 covers），使水潭/河流读作地形而非障碍。**✅ 已落地（`tank_minimap.js` 按 tierGroup 编码：liquid 蓝 / ground 褐点 / structure 新地形实心方块）**
+6. **音效/特效**：`tank_audio.js`/`tank_fx.js` 需入水溅射、泥地迟滞声（当前无地形步进 SFX）。**（截至 2026-09-17 未落地，仍属待办。）**
+7. **nodegen 模板打标**：模板须携带地形放置标签（中央水潭、沿边河流、泥环）以生成新 tier。**✅ 已落地（§5.6 模板地形标签分配）**
+8. **新地形 half 曝光**：`getExposure` C 插值（`tank_cover.js:361-373`）硬编码 `tier==='half'`；残破建筑/带 half 剖面的岩石需泛化 `exposureProfile` 分发。**✅ 已落地（§5.6：getExposure 按 exposureProfile 分发）**
+9. **河流连通多段字段**：见 5.3。**✅ 已落地（§5.3/§5.6）**
 
 ### 5.5 地貌 Biome 与环境贴图美术规范 (Biome & Environment Assets Spec)
 
@@ -105,7 +108,7 @@
 
 ### 5.7 批次⑤ 落地注记（2026-08-24）
 
-- **掩体调参（#77 解决）**：`RULES.nodeMap.coverWorldScale`（half 0.55 / full 0.58 / barricade 0.40）收敛世界尺寸——半高墙 ≈105~148px、全高 ≈153~209px、沙袋 ≈72~84px（@nodeScale=3，树维持 72px 不缩）；密度 ×1.57（总元素 120→188）；低难度 full→half 降级帽 30%（diff<0.35 窗口）、每模板前 2 个 full 免 cullRate 剔除；corridor_tutorial/forest_dense/woodland_line 三零全高模板分别补 +2/+3/+2。
+- **掩体调参（#77 解决）**：`RULES.nodeMap.coverWorldScale`（**当时值 half 0.55 / full 0.58 / barricade 0.40**）收敛世界尺寸——半高墙 ≈105~148px、全高 ≈153~209px、沙袋 ≈72~84px（@nodeScale=3，树维持 72px 不缩）；密度 ×1.57（总元素 120→188）；低难度 full→half 降级帽 30%（diff<0.35 窗口）、每模板前 2 个 full 免 cullRate 剔除；corridor_tutorial/forest_dense/woodland_line 三零全高模板分别补 +2/+3/+2。**（现行 coverWorldScale 已调小为 {half:0.42, full:0.42, barricade:0.32}，以 §8 难度旋钮表为准；降级帽/前 2 免剔除条款现行值亦见 §8。）**
 - **Biome 地面层（P-36/#81 解决）**：七模板带 `biome` 标签（urban/crossfire→concrete，forest/woodland/village→meadow，corridor/mixed→steppe），调色板收口 `RULES.biomes`（取自 P-44 底色表）；`tank_battledraw.drawGround(ctx,{cam/viewBounds,biome,seed})` 确定性程序化底色+色斑（alpha≤0.12），battle 态网格前绘制，纯程序化零资产。
 
 ### 5.8 批次⑥ 落地注记（2026-08-24）
@@ -114,14 +117,16 @@
 - 增援落点四重约束：视口 AABB 外扩 reinforceMargin(120px) 外 ∩ 世界边界内 ∩ 距玩家当前位置 ≥ aiTriggerDist×1.05 ∩ 距友军据点 ≥300px，掩体 padding 拒绝采样、rng 注入确定性。
 - 增援实体化后立即 `alertEntity` 警觉并记 lastKnownPlayerPos=玩家当前位——主动推进而非蹲守；Boss 节点 quota=null 完全禁用递增生成（summons 即其机制）。
 
-## 6. 地图元素与生成更新（本轮落地）
+## 6. 地图元素与生成更新（2026-09 落地）
+
+> **历史快照注记（2026-09-17）**：本节水系裁定与路网几何（分支概率/SAT 跳段）已被后续重做取代——水域现行值见 §5.2/§11（passability 0.4 + 溺毙），路网现行见 §10/§10.1/§10.2（无跳段、六拓扑）。村落/水潭/出生走廊/度量/校准/敌群各小节仍为现行机制。
 
 - **掩体尺寸与配色**：`RULES.nodeMap.coverWorldScale` 调小为 {half:0.42, full:0.42, barricade:0.32}（相对坦克更协调）；`coverTiers` 改用高对比色（建筑砖红 #b5553f、半高墙深描边 #2e2410、灌木/树提高饱和度）以区别于地表。水体新增 `draw` 分支，现已可见。
 - **自然化形状**：mud 改为径向噪声凸 blob；central pond 改为 14–18 边凸 blob；建筑经 `placeVillage` 以 5–9 个小矩形松散聚成村落（部分 L 形）。碰撞核心已支持凸多边形 SAT。
-- **水系与岩石通行性裁定（2026-09-13 复查落地）**：`RULES.coverTiers.water` 与 `river` 的 `passability` 统一定为 `0.0`（不可通行、实体碰撞推出硬阻断），炮弹维持 `shellBlock:false`（`mode:'pass'` 飞越不拦截）；`rock` 维持 `passability: 0` 且 `shellBlock: true`（不可通行，阻挡直射实弹）；`mud` 确定为 `passability: 0.4`（减速不挡弹）。
+- **水系与岩石通行性裁定（2026-09-13 复查落地；已被 2026-09-14 水系重做取代）**：~~`RULES.coverTiers.water` 与 `river` 的 `passability` 统一定为 `0.0`（不可通行、实体碰撞推出硬阻断）~~——**现行值 0.4（减速通行 + 完全浸入溺毙，见 §5.2/§11）**；炮弹维持 `shellBlock:false`（`mode:'pass'` 飞越不拦截）；`rock` 维持 `passability: 0` 且 `shellBlock: true`（不可通行，阻挡直射实弹）；`mud` 确定为 `passability: 0.4`（减速不挡弹）。
 - **地图级路网与占位冲突重构 (#A11/P-43，2026-09 专轮落地)**：`generateNode` Phase 0 先调 `placeRoadNetwork` 生成贯穿战场的 `road` 主干道与分支，随后的模板物件/村落/树林/地形全部避让路网骨架。专轮收敛要点：
-  - **密度收敛**：主干段数受模板控制，分支概率 `0.35`（旧 0.6 会「路网爆炸」）；道路条带宽恒为 `rng.range(60, 80)` 世界 px（`test-nodegen.js` 断言 60~80）。
-  - **避让与优先级**：路段 OBB 经 SAT（`obbSegmentHitsAvoid`）与模板 `full` 占位盒求交，命中即弃段——**全高建筑骨架优先于路**；`full` 建筑自身不被路剔除（旧实现会把模板 `full` 吃掉）；植被层（tree/bush/rock/water 等）不参与避让，路压植被属预期。
+  - **密度收敛（已被 §10.1/§10.2 取代）**：主干段数受模板控制，~~分支概率 `0.35`~~（v2 改六拓扑，无独立分支概率）；道路条带宽恒为 `rng.range(60, 80)` 世界 px（`test-nodegen.js` 断言 60~80）。
+  - **避让与优先级（已被 §10.1 取代）**：~~路段 OBB 经 SAT（`obbSegmentHitsAvoid`）与模板 `full` 占位盒求交，命中即弃段~~——2026-09-16 路网重做取消跳段（`isSegOk` 只保留界内判定）；`full` 建筑自身不被路剔除；植被层（tree/bush/rock/water 等）不参与避让，路压植被属预期。
   - **村落单一路网**：`placeVillage` 在存在网络道路时**不再自铺街道**，核心建筑直接沿网络路段贴边锚定（消除旧版「村庄自铺街道 + 全局路网」双轨）；仅无网络道路时降级自铺 1~2 条。
   - **中央水潭**：`placeCentralPond` 相位网格 9×9（±0.30 模板边长内），忽略 `road` 层（路为地面层，水潭压路即「广场水池」）；全相位失败时取「碰撞重叠面积最小」点回退（保证标签必产出），并把落点移出出生走廊。
   - **出生走廊保护**：玩家出生点固定于世界左缘 10%、垂直中点；建筑/杂物/回退水潭一律避让该点周围通道（半宽 ±20% × 半高 ±9%），消除「随机杂物把出生点围死」类节点。运行期仍有 `findPlayerSpawn` + `ensureLoSCorridor` 二线兜底。
@@ -222,7 +227,7 @@
 **（b）路口感=渲染问题，不只是几何**——v1 把每条链**各自独立描边三遍**（路基→沥青→中心虚线），后画的链整幅盖掉前一条，且两条链的中心虚线都笔直穿过交点 → 视觉上就是「两条路叠在一起」。v2 把 `bakeNodeGroundLayer` 改为**两遍绘制**：
 
 1. **第 1 遍**：所有链的路基（外扩 8px 暗色路缘）+ 沥青路面 —— 交叉处自然合并成一片连续沥青广场；
-2. **第 2 遍**：统一画中心虚线，随后**在每个路口处用路面同色圆挖空**（`generateNode` 新增返回 `roadJunctions`，经 `makeNode` 平移到世界系后由 `node.roadJunctions` 传入渲染层）——路面连续、**标线让位**，这才是真实交叉路口的读法。
+2. **第 2 遍**：统一画中心虚线，随后**在每个路口处用路面同色圆挖空**（`generateNode` 新增返回 `roadJunctions`，经 `makeNode` 平移到世界系后由 `node.roadJunctions` 传入渲染层）——路面连续、**标线让位**，这才是真实交叉路口的读法。**挖空圆半径 = roadW×0.5**（2026-09-17 #C1 修复：旧 0.85×roadW 在 45° 方向越过路缘（0.6×roadW > 0.5×roadW 路半宽）→ 圆形沥青凸斑外溢路面；r=0.5×roadW 时圆内任意点到两条正交路中线距离 ≤ 0.354×roadW，恒在沥青并集内，且虚线让位区直径恰为路宽）。回归：`test-nodegen.js` §16 新增「全部路口 r ≤ 40」断言。
 
 - **实测数据**：210 张地图样本——拓扑分布 `HV j=1`×112 / `HVV j=2`×49 / `VV j=0`×28 / `HH j=0`×7 / `V j=0`×7 / `H j=0`×7；平均路口 1.00、**上界 2**；链内最大断口 **0.00px**；孤悬路头 **0 个**。
 - **回归**：`scripts/test-nodegen.js` §16 扩到**七条护栏**——无断口 / 无孤悬路头 / 交叉 ≤2 / 夹角 ≥60° / **拓扑 ≥3 种** / 路口数分布覆盖 1 与 2 / **存在 0 路口拓扑**（防「总是有路口」这一新单调）。渲染顺序另以 mock ctx 复刻验证（路口挖空 `fill` 发生在标线 `stroke` 之后）。剖面见 `test-nodegen-calibration.js`（#B7 重锚 v2，连通性维持 1.000）。

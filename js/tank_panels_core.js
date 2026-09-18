@@ -430,7 +430,7 @@ function buildTankDataVM(t, opts){
     aiTier: t.aiTier,
     position: { x: t.x || 0, y: t.y || 0 },
     reloadT: typeof t.reloadT === 'number' ? t.reloadT : 0,
-    abilityCdT: typeof t.abilityCdT === 'number' ? t.abilityCdT : 0,
+    abilityCds: (t.abilityCds && typeof t.abilityCds === 'object') ? Object.assign({}, t.abilityCds) : {},   // #C4c：按技能独立冷却池（取代旧共享 abilityCdT）
     invulnT: typeof t.invulnT === 'number' ? t.invulnT : 0,
     mods: modVM,
     debuffs: debLines,

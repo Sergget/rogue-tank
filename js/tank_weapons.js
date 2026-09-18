@@ -169,9 +169,9 @@ function updateSecondaryMount(t, dt, ctx) {
 // 2026-09-15 W2：锁定式反坦克导弹锁定机制（用户裁定）。
 // 行为：装填就绪后，在炮管朝向（turretAngle）±lockArcDeg 扇形、射程内选择最近目标开始锁定；
 // 锁定耗时 lockSeconds（期间目标死亡/出扇形/出射程则立即重新选择）；锁定完成自动发射制导弹
-// （guided:true + mode:'lock'，stepShells 既有引导）。切回主武器（activeWeaponSlot!=='secondary'，
-// 仅玩家有此概念）时由调用方停止驱动，锁定自然冻结，targetRef 清理由重新激活时进行。
-// AI 实体无 activeWeaponSlot 概念——副武器始终视为激活。
+// （guided:true + mode:'lock'，stepShells 既有引导）。2026-09-17 #C4e 起玩家已无主/副切换概念
+// （activeWeaponSlot 移除）：玩家与 AI 的副武器导弹锁定均由调用方逐帧驱动 `updateMissileLock`
+//（玩家侧见 tank_mvp.html 主循环；AI 侧见 updateSecondaryWeapon），无「激活槽位」门控。
 function updateMissileLock(t, dt, ctx) {
   const c = ctx || {};
   const w = t && t.weapons && t.weapons.secondary;

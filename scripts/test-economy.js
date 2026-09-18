@@ -428,13 +428,13 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
      smD.effects[0].mode === 'mult' && smD.effects[0].value === 0.85 && smD.maxLevel === 99,
      '#A1/#A3：steady_mount 改挂 motionSpreadMul ×0.85（maxLevel 99 兜底 + limit 驱动，与 spreadMult 解耦）');
 
-  // #A1：达限判定 runShopLimitBlocked（reload 下限 0.5s / maxSpeed 上限 375px/s，对照 RULES.parameterLimits 同源数值）
+  // #A1：达限判定 runShopLimitBlocked（reload 下限 1.0s（2026-09-17 #C2，原 0.5s）/ maxSpeed 上限 375px/s，对照 RULES.parameterLimits 同源数值）
   const frL = eco.getRunShopDef('fast_reload'), eoL = eco.getRunShopDef('engine_overdrive');
   const RLIM = (RULES_MOD && RULES_MOD.RULES) ? RULES_MOD.RULES.parameterLimits : null;
   ok(RLIM && frL.limit && frL.limit.min === RLIM.reload.min, `fast_reload limit.min 与 parameterLimits.reload.min(${RLIM ? RLIM.reload.min : '?'}) 同源`);
   ok(RLIM && eoL.limit && eoL.limit.max === RLIM.maxSpeed.max, `engine_overdrive limit.max 与 parameterLimits.maxSpeed.max(${RLIM ? RLIM.maxSpeed.max : '?'}) 同源`);
-  ok(eco.runShopLimitBlocked(frL, 0.51) === true, '#A1 reload 达限拒购：0.51×0.97≈0.4947 < 0.5 → blocked');
-  ok(eco.runShopLimitBlocked(frL, 0.52) === false, '#A1 reload 未达限：0.52×0.97≈0.5044 ≥ 0.5 → 可购');
+  ok(eco.runShopLimitBlocked(frL, 1.01) === true, '#A1/#C2 reload 达限拒购：1.01×0.97≈0.9797 < 1.0 → blocked');
+  ok(eco.runShopLimitBlocked(frL, 1.04) === false, '#A1/#C2 reload 未达限：1.04×0.97≈1.0088 ≥ 1.0 → 可购');
   ok(eco.runShopLimitBlocked(eoL, 373) === true, '#A1 maxSpeed 达限拒购：373+3=376 > 375px/s(150km/h) → blocked');
   ok(eco.runShopLimitBlocked(eoL, 100) === false, '#A1 maxSpeed 未达限 → 可购');
   ok(eco.runShopLimitBlocked(duD, 30) === false && eco.runShopLimitBlocked(smD, 1) === false, '无 limit 字段商品永不达限');

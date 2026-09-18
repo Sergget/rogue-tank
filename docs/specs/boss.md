@@ -41,9 +41,9 @@ validateBoss 校验；bossStageFor 按 hp 比例取当前阶段：
 - **当前 ai.mode 分配（5 Boss × 3 阶段共 15 个）**：commander hold/skirmish/charge；fortress hold/charge/charge；siege_fort hold/skirmish/charge；sniper skirmish×3（keepDist 900/800/700）；twin_track skirmish/hold/charge。
 - **测试**：scripts/test-boss.js（+16 断言）/ scripts/test-ai.js（+15）/ scripts/test-physics.js（新建，19 断言）；npm run check / npm test 全绿。
 
-## 5. Boss 机制（本轮落地）
+## 5. Boss 机制（P-51 同期批次落地，2026-08-24）
 
-- **几何放大**：`makeBossEntity` 在 `configureTank` 后按 `boss.scale`（现统一 2.0）缩放 hullSpec.verts / turretSpec.verts / hullLen / hullWid / turLen / turWid / turretPivotOffset / anchors / trackWidth / trackOffset；turret barrel.len 不缩放（随 turLen 比例放大）。
+- **几何放大**：`makeBossEntity` 在 `configureTank` 后按 `boss.scale`（现统一 2.0）缩放 hullSpec.verts / turretSpec.verts / hullLen / hullWid / turLen / turWid / turretPivotOffset / anchors / trackWidth / trackOffset；turret barrel.len 不缩放（随 turLen 比例放大）。**（#B6 修订 2026-09-16：缩放为整体替换新对象，绝不原地写共享 spec——曾因原地 `*=` 污染 `tankListData` 缓存导致炮塔跨节点雪球前移，见 DEVELOPMENT.md §4.18。）**
 - **数据驱动调参**：`bosses/*.json` 新增 `tuning` 块（缺省回退 `RULES.boss.tuning`），以 `addModifier source:'boss-base' scope:'run'` 叠乘 maxHp/maxSpeed/turnRate/turretTurnRate/shellSpeed/reload/damage；效果为同级普通敌人基准上降机动（×0.5/0.6）、提射速（reload×0.6）、提伤害（×1.5）、血量×8。
 - **难度叠加**：Boss 生成后经 `applyDifficultyMults(bossEntity, currentNode.entityMults, applyPlayerCap=false)` 叠加同级难度基准（并重设满血），再被 tuning 拉离基准，最终表现为传统 Boss（高血/高伤/高射速、低机动）。
 - **出生即交战与防风筝机制**：`makeBossEntity` 出生即设置 `t.aiTriggerDist = RULES.boss.tuning.engageDist` (99999) + `t.aiEngaged = true` + `t.aiState = 'chase'`；`aiDecideEnemy` 对 Boss 建立快路径：跳过 patrol 早退判定，在非 hold/skirmish 阶段始终以 `move = 1` 朝玩家或最后记忆点主动推进并锁定开火，弱化近距倒车，从机制上根除被玩家远距离无限放风筝。

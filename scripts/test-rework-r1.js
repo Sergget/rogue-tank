@@ -65,14 +65,14 @@ function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-9); }
   const res1 = abilities.tryActivateAbility(t, 'super_fire_control', {});
   ok(res1.ok === true, 'super_fire_control 激活成功');
   ok(close(t.stats.spreadMult, baseSpreadMult * 0.3), 'super_fire_control 散布倍率生效 (×0.3)');
-  ok(close(t.abilityCdT, RULES.abilities.super_fire_control.cooldown), 'super_fire_control 冷却设置正确');
+  ok(close(t.abilityCds.super_fire_control, RULES.abilities.super_fire_control.cooldown), 'super_fire_control 冷却设置正确');
 
   // 触发超级速度
-  t.abilityCdT = 0; // 清除冷却以测试下一个
+  t.abilityCds.super_speed = 0; // 清除冷却以测试下一个
   const res2 = abilities.tryActivateAbility(t, 'super_speed', {});
   ok(res2.ok === true, 'super_speed 激活成功');
   ok(close(t.stats.maxSpeed, baseMaxSpeed * 1.5), 'super_speed 极速倍率生效 (×1.5)');
-  ok(close(t.abilityCdT, RULES.abilities.super_speed.cooldown), 'super_speed 冷却设置正确');
+  ok(close(t.abilityCds.super_speed, RULES.abilities.super_speed.cooldown), 'super_speed 冷却设置正确');
 }
 
 // ---- 3) 炮塔/炮管视觉热重载机制与脏标记测试 ----

@@ -18,26 +18,20 @@
 
 | 归档日期 | 来源文档 | 条目 | 完结状态 |
 |---|---|---|---|
-| 2026-09-14 | `PLAN.md` | 副武器手动开火与真曲射弹道物理（抛物线高度/跳过沿途碰撞/落点AOE/地面阴影）+ 直射火箭巢与线导/锁定反坦克导弹 | 已实现并验证（见 DEVELOPMENT §4.3、archive/2026-09.md） |
-| 2026-09-15 | `PLAN.md` | 副武器弹种机制绑定（迫击炮固定 HESH；线导/锁定导弹与火箭伤害跟随玩家 HEAT 升级链，无升级回退 HE） | 已实现并验证（见 DEVELOPMENT §4.3、archive/2026-09.md） |
-| 2026-09-13 | `PLAN.md` | 阶段七：技能/主副武器卡牌体系闭环（params 覆写通道 + 进阶技能卡 + 副武器全类型运行时 + 主武器机制与卡牌） | 已实现并验证（见 DEVELOPMENT §4.11、specs/cards.md §8.3/8.4、archive/2026-09.md） |
-| 2026-09-13 | `PLAN.md` | 阶段四 4a/4b/4c 卡牌三板块 + 阶段六 6.1/6.2/6.3 开局弹种/副炮塔 + 阶段五 5.4 键位重排与浏览器复跑 | 已实现并验证（见 DEVELOPMENT §4.9、specs/cards.md §8、archive/2026-09.md） |
-| 2026-09-08 | 会话修复/商店/UI | 局内商店规则调优、修理箱/医疗包随时可用与回血、新局难度重置与炮塔漂移修复、Tab 面板与卡牌 UI 扩展、敌人等级与掩体渲染兜底 | 已实现并验证（见 archive/2026-09.md） |
 | 2026-08-08 | `PLAN.md` | 全文（特性 1~5 规划 + 第 0/6/7/8/9 节 + 第 10 节 地图元素 A1~A3） | 已全部实现（见 DEVELOPMENT §3、§2.7、§5.5） |
 | 2026-08-08 | `ISSUES.md` | #1~#8（含修复记录）+ 附：本轮新增特性 | #1~#8 已解决并验证；附注内容已并入 DEVELOPMENT §3 |
-| 2026-08-13 | `PLAN.md` | 重构批次：代码去重 1.1~1.7 + 校验强化 2.1~2.3 + 性能优化 3.1~3.3 + 文档纠偏 4.1 | 全部完成并验证（结论见 DEVELOPMENT §3.6） |
-| 2026-08-13 | 交互/重构 | 重坦/中坦不同车体高度与半高掩体交互关系简化方案 | 简化为 3 规则确定性模型，全部测试与 HTML 校验通过 |
-| 2026-08-13 | `PLAN.md` | P-02（子条目 1~6）模块化重构批次 | 已完成并验证（结论见 DEVELOPMENT §3.6；第 7 条 battledraw 可选延后） |
-| 2026-08-13 | `PLAN.md` | P-03 坦克数据拆分 tanks/ 一型一文件 | 已全部完成并验证（结论见 DEVELOPMENT §3.6；`split-tank-list.js` 保留作维护工具） |
 | 2026-08-10 | `ISSUES.md` | #9. tank_mvp.html 首次加载玩家坦克未从 tanks/ 目录正确应用 | 已修复并验证（玩家默认加载适配 tanks/ 优先存在的配置） |
 | 2026-08-10 | `ISSUES.md` | #12. 坦克交叉碰撞"鬼畜"抖动（MTV 轴歧义 + 幽灵穿模 + 速度模型破坏） | 已重写碰撞解析并验证（结论见 DEVELOPMENT §3「坦克间碰撞」） |
 | 2026-08-11 | `PLAN.md` | P-04 工具链与性能批次（JSDoc/tsc/pre-commit/Skill/性能三件套） | 已全部完成并验证（结论见 DEVELOPMENT §4.7.4 / §4.5.6 等） |
 | 2026-08-11 | `PLAN.md` | P-01 命中部位由鼠标径向意图决定（打炮塔 / 打车体） | 已全部完成并验证（结论见 DEVELOPMENT §3.6 / §2.5；`partProbe=12` 手感标定完成） |
 | 2026-08-11 | `PLAN.md` | P-02（第 7 条 battledraw 绘制层下沉，P-02 完结） | 已完成并验证（结论见 DEVELOPMENT §3.6；顺带修复 `tank_fx.js` 飞头坐标 `p[0]` 取 `undefined` 的潜伏 bug） |
 | 2026-08-12 | `ISSUES.md` | #16. 设计器渲染函数引用未声明的 `ay`，炮塔模式/载入坦克时 ReferenceError | 已修复并验证（结论见 DEVELOPMENT §3「双座圈圆心与炮管前缘交点绑定」） |
+| 2026-08-13 | `PLAN.md` | 重构批次：代码去重 1.1~1.7 + 校验强化 2.1~2.3 + 性能优化 3.1~3.3 + 文档纠偏 4.1 | 全部完成并验证（结论见 DEVELOPMENT §3.6） |
+| 2026-08-13 | 交互/重构 | 重坦/中坦不同车体高度与半高掩体交互关系简化方案 | 简化为 3 规则确定性模型，全部测试与 HTML 校验通过 |
+| 2026-08-13 | `PLAN.md` | P-02（子条目 1~6）模块化重构批次 | 已完成并验证（结论见 DEVELOPMENT §3.6；第 7 条 battledraw 可选延后） |
+| 2026-08-13 | `PLAN.md` | P-03 坦克数据拆分 tanks/ 一型一文件 | 已全部完成并验证（结论见 DEVELOPMENT §3.6；`split-tank-list.js` 保留作维护工具） |
 | 2026-08-13 | `PLAN.md` | P-05a. L形等凹多边形掩体 SAT/OBB 物理碰撞口袋卡住问题 | 已解决，支持 compound convex 碰撞并补充回归测试，并修正了坦克在口袋视觉空闲区的假碰撞（结论见 DEVELOPMENT §2.7） |
-| 2026-08-13 | `PLAN.md` | P-05 节点地图元素生成器（模板库 + 难度加权随机选） | 已完成并验证，支持种子 RNG 与加权选取、参数化变体（结论见 DEVELOPMENT §2.1 / §3.6） |
-| 2026-08-13 | `PLAN.md` | P-05 节点地图元素生成器（模板库 + 难度加权随机选） | 已全部完成并验证（结论见 DEVELOPMENT §2.1 / §3.6） |
+| 2026-08-13 | `PLAN.md` | P-05 节点地图元素生成器（模板库 + 难度加权随机选） | 已全部完成并验证（支持种子 RNG 与加权选取、参数化变体；结论见 DEVELOPMENT §2.1 / §3.6） |
 | 2026-08-13 | `DEVELOPMENT.md` | 历史整理：§1/§2.4 旧决策推翻纠偏、§2.8 排除机制整节、§3 修复历史与过时注记（#12/#14/#15/#16/#17 等）、§4.7 v0.2~v0.7 版本进度（含 v0.4 甲弹对抗核实） | 已归档（当前结论保留于 DEVELOPMENT §1/§2/§3/§4/§6） |
 | 2026-08-14 | `ISSUES.md` | #21. git status 误报大量未修改文件（index stat 记录 LF 大小、工作区为 CRLF） | 已修复并验证（结论见 DEVELOPMENT §3.6「git index stat 重新归一化」） |
 | 2026-08-14 | `ISSUES.md` | #18. 坦克紧贴时炮口伸入对方车体，正面贴脸射击命中后部模块（弹药架）＋车体视觉重叠 | 已修复并验证（结论见 DEVELOPMENT §3.6「#18/#19/#20 修复」） |
@@ -54,8 +48,8 @@
 | 2026-08-19 | `PLAN.md` | P-21 音效与 Web Audio 真实音效库升级 | 已完成并验证（音效库扩展 Panning/距离衰减，结论见 DEVELOPMENT §2.11） |
 | 2026-08-19 | `PLAN.md` | P-27 坦克纹理化接线 | 已完成并验证（全链路接线，结论见 DEVELOPMENT §3.16 / §6 条目 11） |
 | 2026-08-19 | `PLAN.md` | P-16 弹种与击穿机制扩充：HEAT/HE | 已完成并验证（HEAT：1.4×穿深/0.8×速/1.2×散布，确定性不跳弹；HE：splashRadius 90 + 残余爆轰，确定性不跳弹，结论见 DEVELOPMENT §2.6 / §3.19） |
-| 2026-08-20 | `PLAN.md` | P-17 战术卡牌能力与主动装备拓展（战术炮击/护盾/超装填/无人机） | 已完成并验证（mvp 接入 G/H/V 按键、护盾吸收插入 resolveHit、延迟 AOE 炮击、无人机部署+视口外指示；结论见 DEVELOPMENT.md §3.22 / §6 条目 17） |
 | 2026-08-19 | `PLAN.md` | P-15 MVP 架构重构（三入口拆分 + HUD 极简 + 伤害飘字 + 状态/开发者面板） | 已完成并验证（结论见 DEVELOPMENT §2.15 / §3.17 / §6 条目 15） |
+| 2026-08-20 | `PLAN.md` | P-17 战术卡牌能力与主动装备拓展（战术炮击/护盾/超装填/无人机） | 已完成并验证（mvp 接入 G/H/V 按键、护盾吸收插入 resolveHit、延迟 AOE 炮击、无人机部署+视口外指示；结论见 DEVELOPMENT.md §3.22 / §6 条目 17） |
 | 2026-08-20 | `ISSUES.md` | #62. test-map legacy 模式节点 3/4 掩体越界 | 已修复并验证（P-20 水体/桥梁双重缩放 + 尺寸失控，结论见 DEVELOPMENT §2.12 / §6 条目 20） |
 | 2026-08-20 | `ISSUES.md` | #61. bake-assets.js: missing 'playwright' module | 已修复并验证（可选依赖 tryRequire 降级，结论见 DEVELOPMENT §3.20） |
 | 2026-08-22 | `ISSUES.md` | #44 test-flow.js: only 0 edge-case patterns found | 已解决并验证（增加 payload 边缘、转移矩阵拦截、watcher 异常与重复注销隔离、复活与重置状态集成测试，4 种 QA 模式） |
@@ -98,7 +92,6 @@
 | 2026-08-26 | `ISSUES.md` | #A3. 局内商店结构缺陷合集 | 已按用户裁定重构并验证（RUN_SHOP_DEFS 12 项四分组：新增穿深加工/火力增强/马力强化、防护六面改两打包商品、fast_reload 0.5s 下限与 engine_overdrive 150km/h 上限达限拒购、极速 km/h 口径、冷却钳底 15s、可重复购买 growth ≥1.5，见 DEVELOPMENT §2.1） |
 | 2026-08-26 | `ISSUES.md` | #A15. 成员防护内衬两张卡完全未实现（已修复） | 已修复并验证（tank_physics.js 经 passiveValues 消费 spall_liner 乘入模块伤害，活浏览器实测 PEN 伤害均值降至无内衬 0.7981 倍，见 specs/combat.md §2） |
 | 2026-08-26 | `ISSUES.md` | #A17. 批量 seed 回放出现高比例零开火节点 | 已修复并验证（生成期 LoS 走廊 + 运行期侧向绕行落地于 tank_cover.js/tank_nodegen.js/tank_ai.js；零开火节点 9/40→7/40，npm run check / npm test / test:browser 全绿；见 specs/map.md §7） |
-
 | 2026-08-27 | `ISSUES.md` | #A16. 敌方/Boss 参数绑定审计结论 + 配套发现 | 已解决并验证（三处 spawn 直写改经 addModifier 注入 difficulty-cap；纯函数 difficultyCapMuls 收口换算；speedVsPlayer 收口 RULES；test-modifiers.js §21 断言等价；回放 hash 不变；见 DEVELOPMENT §2.1） |
 | 2026-08-27 | `ISSUES.md` | #A14. "全线高爆战术"过强 / "超口径高爆弹"未生效死效果 | 已修复并验证（demo_all_he_doctrine 移除 reload×0.85、demo_overmatch_shell 转 AP 保留 passive overmatch 0.85；tank_physics.js passiveValues + resolveHit overmatch 口径碾压分支；test-cards.js #A14a/#A14b 断言，见 specs/cards.md §6） |
 | 2026-08-28 | `ISSUES.md` | #A5. 自身模块受损/成员受伤无 UI 指示 | 已修复并验证（tank_mvp.html 顶部中央 #moduleStatus 状态条 + updateModuleStatus 读 debuffs/trackBroken，无受伤隐藏；check + test:browser 全绿，见 specs/combat.md §2） |
@@ -107,17 +100,19 @@
 | 2026-09-06 | `PLAN.md` | P-48. 对比器单位标定与分组重构 | 已完成并验证（结论见 specs/editor.md） |
 | 2026-09-06 | `PLAN.md` | P-49. 模块/成员概率分区系统与设计器耦合链 | 已完成并验证（结论见 specs/combat.md 与 specs/editor.md） |
 | 2026-09-06 | 交互/修复 | #A19. HUD弹种清理与修理箱医疗包损伤门控 | 已完成并验证（精简 HUD 并彻底隔离修理箱医疗包损伤门控，见 specs/combat.md §2） |
+| 2026-09-08 | 会话修复/商店/UI | 局内商店规则调优、修理箱/医疗包随时可用与回血、新局难度重置与炮塔漂移修复、Tab 面板与卡牌 UI 扩展、敌人等级与掩体渲染兜底 | 已实现并验证（见 archive/2026-09.md） |
 | 2026-09-08 | `PLAN.md` / `ISSUES.md` | P-42 卡牌平衡调优、P-43/#A11 地图级路网与占位冲突重构、#78 不规则岩石与泥地地形层 | 已完成并验证（见 2026-09 分卷） |
 | 2026-09-12 | `ISSUES.md` / rework | #A19 坦克碰撞回归修复（候选轴去重+浅穿透阈值）+ R-3 特种弹药与曲射（APFSDS 双模块/HEC 越障/2σ 散布）+ Edge 浏览器冒烟测试 | 已实现并验证（见 2026-09 分卷） |
+| 2026-09-13 | `PLAN.md` | 阶段七：技能/主副武器卡牌体系闭环（params 覆写通道 + 进阶技能卡 + 副武器全类型运行时 + 主武器机制与卡牌） | 已实现并验证（见 DEVELOPMENT §4.11、specs/cards.md §8.3/8.4、archive/2026-09.md） |
+| 2026-09-13 | `PLAN.md` | 阶段四 4a/4b/4c 卡牌三板块 + 阶段六 6.1/6.2/6.3 开局弹种/副炮塔 + 阶段五 5.4 键位重排与浏览器复跑 | 已实现并验证（见 DEVELOPMENT §4.9、specs/cards.md §8、archive/2026-09.md） |
 | 2026-09-13 | `ISSUES.md` | #A11. 地形占位冲突：道路/水域任意叠加 + 道路不贯穿 | 已修复并验证（地图级路网专轮：先路后物 + OBB 避让全高优先 + 村落单一路网 + 水潭回退/出生走廊保护 + 度量口径修正；7 模板×5 难度校准重锚、连通性全线 1.000、回放 hash→`d60b9022`，check/test/browser 三链全绿；见 specs/map.md §6） |
 | 2026-09-13 | `ISSUES.md` | #A20. HUD 静态按钮内联 onclick 引用 IIFE 内函数 → 点击必然 ReferenceError | 已修复并验证（8 按钮改 addEventListener 绑定；test-browser-run.cjs 17 项全 PASS + 本轮回归复验，见 DEVELOPMENT §4.6） |
-------
-
 | 2026-09-13 | `ISSUES.md` | #B1~#B5 + #78（结算/缓冲/商店/速度封顶+聚簇/面板/设计器多边形） | 已全部修复并验证（npm check/test/browser 全绿；test-panels 难度封顶断言通过；tank_map 聚簇接入；designers verts UI 完整） |
-
 | 2026-09-13 | 会话方案 | 操作/设置/面板解耦（mvp⇄测试台同源键位 tank_bindings.js + 测试台专用面板 #benchPanel + 切弹语义对齐 Q/E/点选） | 已实现并验证（check/test 全绿含新增 test-bindings；browser 三链待 Edge 环境回归，test-browser-r3 已同步新语义；见 DEVELOPMENT §4.10） |
+| 2026-09-14 | `PLAN.md` | 副武器手动开火与真曲射弹道物理（抛物线高度/跳过沿途碰撞/落点AOE/地面阴影）+ 直射火箭巢与线导/锁定反坦克导弹 | 已实现并验证（见 DEVELOPMENT §4.3、archive/2026-09.md） |
 | 2026-09-14 | `PLAN.md` | 阶段五 5.1 旧 15 键弹种链（含 legacy HEC）、阶段六 6.1/6.3 旧开局弹种方案与解锁持久化 | 已按 2026-09-14 定案修订移除（HEC 弹种删除→14 键、开局弹种选配 UI 移除、弹种解锁不跨局；结论见 DEVELOPMENT.md §4.13 / specs/map.md §10/11 / specs/combat.md §3/5 / specs/cards.md §8.3/9） |
 | 2026-09-14 | 七项用户定案 | HEC 移除 / 局内商店回归（基础参数+硬上限+装甲合一）/ 受击即警觉（任意来源+Boss 破 hold）/ 地图重做（曲线路+预烘焙+重叠消解）/ 水域溺毙+AI 避水 / 装备优先抽卡 / 开局弹种 UI 移除+新局归零 | 已全部实现并验证（check/test 40 脚本+browser 三链全绿，含新断言与校准重锚；结论见 DEVELOPMENT.md §4.13） |
+| 2026-09-15 | `PLAN.md` | 副武器弹种机制绑定（迫击炮固定 HESH；线导/锁定导弹与火箭伤害跟随玩家 HEAT 升级链，无升级回退 HE） | 已实现并验证（见 DEVELOPMENT §4.3、archive/2026-09.md） |
 | 2026-09-15 | `ISSUES.md` | #A26. 弹种升级链语义错误：链结构/分支替换与跳级 / #A27. he-vt 原地静止不飞 | 已修复并验证（三链线性化 + 禁跳+HE 先增后替 + drawCardChoices 前驱放行 + stepShells 飞行推进；check/test 全绿，回归见 2026-09 分卷） |
 | 2026-09-15 | `PLAN.md` | 阶段九 主武器系统改版五项（曲射移除/烟幕删除+F 切换+导弹锁定/双管重做/炮塔前移/卡牌硬限）+ W6 速射机炮热量重做 | 已全部实现并验证（check/test 全绿；结论见 DEVELOPMENT.md §4.15，规范见 specs/combat·cards·map） |
 | 2026-09-16 | `ISSUES.md` | #A21~#A25（F 切换/左键按激活槽位分发、副武器单槽不变量、升级卡资格过滤+install/upgrade+maxStacks 防线、面板四层分层+卡牌事务、独立左下角日志面板） | 已修复并验证（npm test + tsc + test:browser 三链全绿；结论见 DEVELOPMENT.md §4.16，规范见 specs/combat.md §4 / specs/cards.md §8.3·§9，原文见 archive/2026-09.md） |
@@ -125,3 +120,8 @@
 | 2026-09-16 | `ISSUES.md` | #A28 主动技能 upgrade 卡在玩家持有基础能力之前即可被抽到（`requiresAbility` 语义已实现但内容侧零落地） | 已修复并验证（5 张升级卡标注 requiresAbility≡自身 key + `validateCardEffect` 白名单校验 + 11 张基础卡零声明防死锁 + 保底不复活不合格卡 + 修复 content_designer 保存丢 `params`/`requiresAbility`；test-cards/validate-content/test-qa/test-card-effects/`node --check` 五链全绿；见 DEVELOPMENT.md §4.17 / specs/cards.md §8.4·§8.5·§9，原文见 archive/2026-09.md） |
 | 2026-09-16 | 用户反馈（会话） | #B6 坦克炮塔随节点推进逐渐前移（Boss scale 原地污染 tankListData 共享 spec 指数雪球 + W3「节点推进炮塔前移」有意特性） | 已修复并验证（pivot/anchors 改拷贝、Boss 缩放整体替换、W3 特性整体删除含 RULES.progress/两函数/mvp 调用点/test-rework-w3.js；新增 test-boss §16 #B6 回归；check/test/browser 三链全绿；见 DEVELOPMENT.md §4.18 / specs/map.md §10.1，原文见 archive/2026-09.md） |
 | 2026-09-16 | 用户反馈（会话） | #B7 道路被其他物体截断 / 尽头是圆弧形 / 交叉口太多且看起来叠加（逐段跳段 + 端点内缩+round 端帽 + ±0.42 端点漂移与 ±0.18 控制点造成 35° 浅角互穿） | 已修复并验证（路网重做为「正交双干道」：取消跳段、端点落边界+lineCap butt、拓扑 1 横+0~1 纵且取消斜向支线；断口 240→0px、交叉 2~4→≤1、夹角 35°→68.8°、全模板连通性 1.000；新增 test-nodegen §16 #B7 四护栏 + 校准重锚；见 DEVELOPMENT.md §4.18 / specs/map.md §10/§10.1，原文见 archive/2026-09.md） |
+| 2026-09-16 | 用户反馈（会话） | #B8 副武器安装卡无法替换已装副武器（升级卡接续语义） / #B9 布雷器地雷不生效 / #B10 技能获取无 HUD 提示 / #B11 部署掩体不可见 | 已修复并验证（替换语义：apply 非同型覆盖+同型幂等+资格层放行+drawCardChoices 随之放开，升级卡随类型接续、cardEffects 条目保留；部署物运行时接 mvp：updateDeployables+mineExplode AOE+三类绘制+clearDeployables 生命周期+mine/cover duration 落地；技能提示：ABILITY_KEY_HINT 补全 7 键+pickCard 按钮脉冲高亮；check/test（#B8 段 17 断言）/tsc/browser 三链（67 PASS）全绿；见 DEVELOPMENT.md §4.19，原文见 archive/2026-09.md） |
+| 2026-09-17 | `PLAN.md` | 文档整理：阶段一~九已完成条目压缩为归档指针（R-1/R-2/R-3、阶段四/六/七、阶段五 §5.4、阶段八 §8.1.1/8.1.2、阶段九 §9.2）；§5.1~§5.3 弹种升级链/数值总表/平衡回归**内容移交** `specs/combat.md` §3.1~§3.3 | 已归档（原文见 archive/2026-09.md 末节；PLAN.md 仅存待办：难度联动、开发者面板方案、2026-09-17 反馈批次） |
+| 2026-09-17 | `ISSUES.md` | 文档整理：清理历史核验噪音；2026-09-17 用户反馈五条核实为 **#C1~#C5** 写入（路口圆斑 / 射速下限 1s / 弹种卡顺序 / 技能副武器操作链 / 两页 UI 统一） | 新条目见 `docs/ISSUES.md`（待处理；#C2 口径已裁定仅参数层） |
+| 2026-09-17 | `ISSUES.md` | #C1 路口圆斑（r 收敛 roadW×0.5）/ #C2 射速下限 1s（timed 通道豁免）/ #C3 弹种升级卡保底 / #C4 技能副武器操作链五子项（获取提示 + 掩体炮塔锚定 + 按技能独立冷却 + 副武器 HUD 图标 + F=直接击发副武器）/ #C6 灭火器死前置修复+自动触发 | 已全部修复并验证（#C5 暂缓仍在 ISSUES；check/test/browser 三链全绿；见 DEVELOPMENT.md §4.20 / specs/combat.md §4 / specs/cards.md §3·§9 / specs/map.md §10.2，原文见 archive/2026-09.md） |
+

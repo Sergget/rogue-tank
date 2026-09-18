@@ -69,6 +69,22 @@
   #abilityBtns .abtn.ammo-slot .label{font-weight:700;}
   #abilityBtns .abtn.skill-btn{border-color:#5cc8ff; color:#5cc8ff;}
   #abilityBtns .abtn.skill-btn:hover{background:rgba(92,200,255,0.15);}
+  /* #B10：技能卡获得高亮——新技能按钮 3 秒金色脉冲闪烁，提示玩家按键已就位 */
+  #abilityBtns .abtn.skill-gain{animation:skillGainPulse 0.75s ease-in-out 4;}
+  @keyframes skillGainPulse{
+    0%,100%{ border-color:#5cc8ff; color:#5cc8ff; box-shadow:0 0 0 rgba(255,180,84,0);}
+    50%{ border-color:var(--amber); color:var(--amber); box-shadow:0 0 12px rgba(255,180,84,0.75);}
+  }
+  /* #C4a（2026-09-17）：获得技能/副武器的一次性屏幕提示——不依赖底部按钮显隐
+     （updateBottomHud 在非战斗态整栏隐藏，脉冲播放时按钮不可见），奖励页/战斗页均可见 */
+  #gainToast{position:fixed; left:50%; transform:translateX(-50%); bottom:118px; z-index:60;
+    display:none; flex-direction:column; gap:6px; align-items:center; pointer-events:none;}
+  .gain-toast-line{background:rgba(20,22,16,0.92); border:1px solid var(--amber); color:var(--amber);
+    font-size:13px; padding:8px 16px; border-radius:4px; letter-spacing:1px;
+    animation:gainToastIn 0.3s ease-out, gainToastOut 0.5s ease-in 3.0s forwards;
+    text-shadow:0 0 8px rgba(255,180,84,0.4);}
+  @keyframes gainToastIn{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);}}
+  @keyframes gainToastOut{to{opacity:0; transform:translateY(-6px);}}
   #ammoIndicator .mult{color:var(--text-dim); font-weight:400; font-size:9px;}
   #hintBar{position:absolute; left:12px; bottom:10px; pointer-events:none; display:none;
     font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-dim); opacity:.75; letter-spacing:1px;}
@@ -290,12 +306,13 @@
       <button class="abtn" id="btn4" title="修理箱 (4)">修<span class="cd" id="cd4"></span><span class="num">4</span></button>
       <button class="abtn" id="btn5" title="医疗包 (5)">医<span class="cd" id="cd5"></span><span class="num">5</span></button>
       <button class="abtn" id="btn6" title="自动灭火器 (6)">灭<span class="cd" id="cd6"></span><span class="num">6</span></button>
-      <button class="abtn skill-btn" id="btnF" title="切换主/副武器 (F)" style="display:none;">F</button>
+      <button class="abtn skill-btn" id="btnF" title="副武器击发（F，按住连发）" style="display:none;"><span id="btnFIcon">F</span><span class="cd" id="cdF"></span><span class="num">F</span></button>
       <button class="abtn skill-btn" id="btnG" title="炮击 (G)" style="display:none;">G<span class="cd" id="cdG"></span></button>
       <button class="abtn skill-btn" id="btnH" title="护盾 (H)" style="display:none;">H<span class="cd" id="cdH"></span></button>
       <button class="abtn skill-btn" id="btnV" title="超装填 (V)" style="display:none;">V<span class="cd" id="cdV"></span></button>
     </div>
   </div>
+  <div id="gainToast"></div>
   <div id="topLeftInfo">ESC 暂停 · TAB 状态 · ` 开发者面板</div>
   <div id="moduleStatus"></div>
   <div id="hintBar"></div>
@@ -606,7 +623,7 @@ const input = createInputController({
     skill1: () => skillHotkey(1),                    // 阶段六：技能池（1~3 对应玩家装备的主动技能）
     skill2: () => skillHotkey(2),
     skill3: () => skillHotkey(3),
-    switchWeapon: () => toggleWeaponSlot(),          // F：切换主炮/副武器（左键/空格按激活槽位击发，#A21）
+    // #C4e（2026-09-17）：F 键不再注册边沿动作——按住连发由主循环 isDown('fireSecondary') 轮询
     panelStatus: () => {                              // Tab：状态面板（与 dev/log 组互斥，共用呼入/呼出策略）
       const willOpen = !statusOpen;
       showPanelGroup(willOpen ? 'status' : 'none');
@@ -634,7 +651,8 @@ const keys = input.keys;   // 既有消费方（updateSigma 等）沿用同形�
 // 不触碰 reloadT：沿用旧版 setAmmo 语义（保留装填进度，不静默改变手感）。
 player.ammoKey = 'ap';
 player.currentAmmoIndex = 0;
-player.activeWeaponSlot = 'primary';   // 2026-09-15 W2：F 键切换主/副武器（'primary' | 'secondary'）
+// 2026-09-17 #C4e：F 键语义反转（直接击发副武器），activeWeaponSlot 概念移除——
+// 主炮=左键/空格专属，副武器=F 专属，turret 型装上即自主运作。
 function activeLoadout(){
   if(Array.isArray(player.ammoLoadout) && player.ammoLoadout.length) return player.ammoLoadout;
   return Object.keys(RULES.ammoTypes);   // 兜底：全弹种表
@@ -712,30 +730,26 @@ document.getElementById('slot3')?.addEventListener('click', () => selectAmmoSlot
 document.getElementById('btn4')?.addEventListener('click', tryRepairKit);
 document.getElementById('btn5')?.addEventListener('click', tryMedkit);
 document.getElementById('btn6')?.addEventListener('click', tryExtinguish);
-document.getElementById('btnF')?.addEventListener('click', toggleWeaponSlot);
+document.getElementById('btnF')?.addEventListener('click', () => trySecondaryFire());   // #C4e：F 按钮=击发副武器
 document.getElementById('btnG')?.addEventListener('click', tryStrike);
 document.getElementById('btnH')?.addEventListener('click', () => tryShield(true));
 document.getElementById('btnV')?.addEventListener('click', tryOverdrive);
 
-// 2026-09-15 #A21：F 键 = 切换主炮/副武器（activeWeaponSlot toggle）。
-// 左键/空格按激活槽位分发击发：primary → 主炮（W4 单发/齐射），secondary → 向鼠标光标手动击发；
-// 玩家副武器不再「激活即自动运作」——仅 turret 型为设计例外（PLAN 6.2 自主副炮塔，见主循环更新块）。
-function toggleWeaponSlot(){
+// 2026-09-17 #C4e：F 键 = 直接击发副武器（按住连发），不再承担主/副切换。
+// 主炮=左键/空格专属（tryFirePrimary），副武器=F 专属（tryFireSecondary，目标=鼠标世界点）；
+// turret 型为设计例外（自瞄副炮塔由主循环 updateSecondaryWeapon 自主驱动，点击/按 F 不响应）。
+const SECONDARY_LABELS = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹', rocket:'火箭巢', mine_layer:'布雷器' };
+const SECONDARY_ICONS = { turret:'塔', mortar:'迫', missile:'导', rocket:'火', mine_layer:'雷' };
+function trySecondaryFire(){
   if(!player || !player.weapons) return;
   const sec = player.weapons.secondary;
   if(!sec || sec.type === 'none'){
-    pushLog('未安装副武器（可在卡牌奖励中选择副武器），F 切换无效', 'COVER');
+    pushLog('未安装副武器（可在卡牌奖励中选择副武器），F 无效', 'COVER');
     return;
   }
-  player.activeWeaponSlot = (player.activeWeaponSlot === 'secondary') ? 'primary' : 'secondary';
-  // #A21：玩家不再走导弹锁定自动流（手动击发沿鼠标方向直飞），切换时统一清除锁定状态
-  player._missileLock = null;
-  const S_LABEL = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹', rocket:'火箭巢', mine_layer:'布雷器' };
-  pushLog(player.activeWeaponSlot === 'secondary'
-    ? `副武器就绪：${S_LABEL[sec.type] || sec.type}${sec.type === 'turret' ? '（副炮塔自主开火）' : '（鼠标左键/空格向光标击发）'}`
-    : '切回主炮（左键/空格按主炮开火）', 'PEN');
-  playSound('ui');
-  if(statusOpen) updateStatusPanel();
+  if(!fireCtx) return;   // 战斗外无 fireCtx（HUD 按钮也仅在战斗态显示）
+  const fired = tryFireSecondary(fireCtx);
+  if(fired && sec.type !== 'turret') playSound('ui');
 }
 
 // 阶段六 6.1：数字键 1/2/3 → 主动技能快捷键池（优先映射玩家已装备的主动技能）
@@ -747,6 +761,8 @@ function skillHotkey(num){
     artillery: () => tryStrike(),
     shield: () => tryShield(true),
     overdrive: () => tryOverdrive(),
+    super_fire_control: () => trySuperFireControl(),   // #C4a：接入技能池 DISPATCH（此前战斗中无法激活）
+    super_speed: () => trySuperSpeed(),                // #C4a：同上
     recon: () => { if(typeof tryDroneCommand === 'function') tryDroneCommand(); }
   };
   let key = owned[num - 1];
@@ -786,14 +802,14 @@ canvas.addEventListener('mousemove', e=>{
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });
-// #A7：按住左键持续开火（tryFireWeaponSlot 内建 reloadT/breech/secondaryReloadT 门控，天然保证射速间隔）；
-// 2026-09-15 #A21：左键按激活槽位分发（primary→主炮 / secondary→向光标击发副武器）；
+// #A7：按住左键持续开火（fireTank 内建 reloadT/breech 门控，天然保证射速间隔）；
+// 2026-09-17 #C4e：左键=主炮专属（tryFirePrimary；副武器=F 键专属）；
 // ESC 暂停（flow!=='battle'）与面板打开（statusOpen/devOpen）时不连发；窗口失焦/鼠标移出画布复位防卡住。
 let mouseFireHeld = false;
 canvas.addEventListener('contextmenu', e => { e.preventDefault(); return false; });
 canvas.addEventListener('mousedown', e=>{
   if(inMenuState()) return;
-  if(e.button===0){ mouseFireHeld = true; if(fireCtx) tryFireWeaponSlot(fireCtx); }
+  if(e.button===0){ mouseFireHeld = true; if(fireCtx) tryFirePrimary(fireCtx); }
 });
 window.addEventListener('mouseup', e=>{ if(e.button===0) mouseFireHeld = false; });
 canvas.addEventListener('mouseleave', ()=>{ mouseFireHeld = false; });
@@ -841,7 +857,7 @@ function renderPause(){
   // 键位说明改为从共享键位表渲染（js/tank_bindings.js）——与测试台测试面板同源，
   // 增改键位只改 KEY_BINDINGS/ACTION_INFO 一处。
   const bindRows = describeBindings({
-    move:1, fire:1, ammoCycle:1, skillPool:1, switchWeapon:1,
+    move:1, fire:1, ammoCycle:1, skillPool:1, fireSecondary:1,
     abilityStrike:1, abilityShield:1, abilityOverdrive:1,
     supportRepair:1, supportMedkit:1, supportExtinguish:1,
     panelStatus:1, panelDev:1, pauseToggle:1
@@ -924,8 +940,7 @@ function updateStatusPanel(){
     const sType = (wpn.secondary && wpn.secondary.type) || 'none';
     const P_LABEL = { standard:'标准主炮', autocannon:'速射机炮', double_barrel:'双联火炮', railgun:'电磁轨道炮' };
     const S_LABEL = { none:'无', turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹', rocket:'火箭巢', mine_layer:'布雷器' };
-    const activeSlot = (player && player.activeWeaponSlot === 'secondary') ? '【激活】' : '';
-    stWeapon.textContent = `主武器 ${P_LABEL[pType] || pType} · 副武器 ${S_LABEL[sType] || sType}${activeSlot}（F 切换，左键/空格击发${sType === 'turret' ? '，副炮塔自主' : ''}）`;
+    stWeapon.textContent = `主武器 ${P_LABEL[pType] || pType} · 副武器 ${S_LABEL[sType] || sType}${sType !== 'none' ? '（F 击发' + (sType === 'turret' ? '，副炮塔自主' : '') + '）' : ''}`;
   }
   const stMob = document.getElementById('stMob');
   if(stMob) stMob.textContent = `极速 ${vm.speedKmh > 0 ? vm.speedKmh : tankKmh(player)}km/h · 马力 ${Math.round(vm.enginePower)}hp`;
@@ -1042,7 +1057,8 @@ function enterBattle(nodeIndex){
   cam.bounds = { w: node.w, h: node.h };
   clearSmoke();                              // P-17：进节点清空上一战场残留烟雾
   clearStrikes();                            // P-17：进节点清空上一战场预警炮击
-  player.shield = null;                      // P-17：护盾是短时开启状态，不跨节点（冷却 abilityCdT 跨节点保留）
+  if(typeof clearDeployables === 'function') clearDeployables();   // #B9/#B11：部署物不跨节点（地雷/掩体/固定炮塔随战场销毁）
+  player.shield = null;                      // P-17：护盾是短时开启状态，不跨节点（冷却 t.abilityCds 池跨节点保留）
   resetEntity(player);                       // 满状态进入节点
   player.hp = player.stats.maxHp;            // #A12：满血进节点（resetEntity 后兜底，防 spawn 快照 hp 陈旧）
   player.x = node.playerSpawn.x; player.y = node.playerSpawn.y;
@@ -1285,6 +1301,40 @@ function pickCard(card){
   // P-17：主动装置卡获得提示（按键映射与 hintBar 一致）
   for(const ef of applied){
     if(ef.type === 'ability' && ABILITY_KEY_HINT[ef.key]) pushLog(`已获得主动能力：${ABILITY_KEY_HINT[ef.key]}`, 'PEN');
+  }
+  // #C4a（2026-09-17）：获得技能/副武器的一次性屏幕提示（gainToast）——旧 #B10 金色脉冲
+  // 只覆盖 G/H/V 三键且 updateBottomHud 在非战斗态整栏隐藏（脉冲播放时按钮不可见）；
+  // toast 不依赖按钮显隐，奖励页与战斗页均可见；已存在的按钮脉冲保留叠加。
+  const showGainToast = (msg) => {
+    const el = document.getElementById('gainToast');
+    if(!el) return;
+    const line = document.createElement('div');
+    line.className = 'gain-toast-line';
+    line.textContent = msg;
+    el.appendChild(line);
+    el.style.display = 'flex';
+    setTimeout(() => { line.remove(); if(!el.children.length) el.style.display = 'none'; }, 3500);
+  };
+  for(const ef of applied){
+    if(ef.type === 'ability'){
+      showGainToast(`已获得主动技能：${ABILITY_KEY_HINT[ef.key] || ef.key}`);
+    } else if(ef.type === 'weapon' && (ef.slot || 'secondary') === 'secondary' && ef.weaponType){
+      showGainToast(`已安装副武器：${SECONDARY_LABELS[ef.weaponType] || ef.weaponType}（F 键击发）`);
+    }
+  }
+  // #B10（2026-09-16）：获得技能 → 对应底部技能按钮金色脉冲闪烁 3 秒（此前 G/H/V 静默出现、
+  // 其余技能完全无反馈）。按钮显隐仍由 updateBottomHud 逐帧按 hasAbility 刷新，此处只做一次性高亮。
+  const BTN_BY_ABILITY = { artillery:'btnG', shield:'btnH', overdrive:'btnV' };
+  for(const ef of applied){
+    if(ef.type !== 'ability') continue;
+    const btnId = BTN_BY_ABILITY[ef.key];
+    const el = btnId && document.getElementById(btnId);
+    if(!el) continue;
+    el.classList.remove('skill-gain');    // 重启动画（同局重复获得）
+    // 强制 reflow 后再挂类，保证连续获得两次时动画从头播
+    void el.offsetWidth;
+    el.classList.add('skill-gain');
+    setTimeout(() => el.classList.remove('skill-gain'), 3100);   // 4×0.75s 脉冲后清理
   }
   // P-17：无人机卡 → 立即按 cardEffects 部署（重复取卡由模块 countMax 兜底拒绝）
   if(applied.some(ef => ef.type === 'drone')) deployDronesFromCards();
@@ -2049,8 +2099,7 @@ function prepPlayerForRun(){
   // #90 修理箱/医疗包（开局自带）：基础冷却 45s − 永久级数×1
   player.abilityBaseCd = { repair: effectiveKitCd('repair'), medkit: effectiveKitCd('medkit') };
   player.drownT = 0; player._drownWarned = false;
-  // 2026-09-15 W2：主/副武器槽位选择不跨局——新局恒回主炮；锁定状态一并清
-  player.activeWeaponSlot = 'primary';
+  // 2026-09-17 #C4e：F 键直接击发语义——无主/副切换概念，新局仅需清锁定状态
   player._missileLock = null;
 }
 
@@ -2108,6 +2157,7 @@ document.getElementById('resetBtn').addEventListener('click', ()=>{
   resetCovers();
   clearSmoke();                              // P-17：重置战场时清空烟雾云
   clearStrikes();                            // P-17：重置战场时清空预警炮击
+  if(typeof clearDeployables === 'function') clearDeployables();   // #B9/#B11：重置时清空地雷/掩体/固定炮塔
   clearDrones(player);                       // P-17：重置战场时清空随行无人机
   logClear();
   playSound('ui'); // M1：重置
@@ -2180,13 +2230,19 @@ let fireCtx = null;
 // [P-28] 战斗发射管线已收敛到 js/tank_fire.js（fireTank/tryFire 由共享模块提供；烟幕弹已于 2026-09-15 移除）
 // ---------- P-17 玩家主动能力（战术炮击 G / 战术护盾 H / 超级装填 V） ----------
 // 统一入口 js/tank_abilities.js tryActivateAbility：持有对应卡（cardEffects 含 {type:'ability',key}）
-// 才可激活；共享冷却 abilityCdT（模块内递减，mvp 主循环 updateAbilityCd 驱动）。按键处不做冷却
-// 判断——tryActivateAbility 返回 reason 提示。炮击/护盾保留 reloadT/immobT 门控（与烟幕一致）；
+// 才可激活；按技能独立冷却（#C4c 2026-09-17：t.abilityCds[key] 池，mvp 主循环 updateAbilityCds 驱动）。
+// 按键处不做冷却判断——tryActivateAbility 返回 reason 提示。炮击/护盾保留 reloadT/immobT 门控（与烟幕一致）；
 // 超装填例外：其价值正是"立即清零 reloadT"，装填中施放才有意义，故不挡 reloadT（仅 immobT）。
+// #B10（2026-09-16）：能力键提示表补全——pickCard 获得提示与 skillHotkey 1/2/3 技能池 DISPATCH
+// 对齐（此前仅 G/H/V 三键有提示，deploy_cover/super_fire_control/super_speed/recon 获得后零反馈）。
 const ABILITY_KEY_HINT = {
   artillery: '炮击支援（G 键）',
   shield: '战术护盾（H 键，Shift+H 全向）',
-  overdrive: '超级装填（V 键）'
+  overdrive: '超级装填（V 键）',
+  deploy_cover: '战术掩体（2 号技能键，车前部署充能掩体）',
+  super_fire_control: '超级火控（限时精度/瞄准强化，1~3 号技能键触发）',
+  super_speed: '超级速度（限时机动强化，1~3 号技能键触发）',
+  recon: '侦察标记（3 号技能键，侦察无人机协同指示）'
 };
 function abilityFailLog(verb, res){
   if(res.reason === 'no-ability') pushLog(`未装备${verb}卡`, 'COVER');
@@ -2238,6 +2294,29 @@ function tryDeployCover(){
     pushLog('战术掩体部署 — 充能护盾掩体已设立', 'PEN');
   } else {
     abilityFailLog('战术掩体', res);
+  }
+}
+
+// #C4a（2026-09-17）：超级火控/超级速度接入统一入口（此前未接 skillHotkey DISPATCH，
+// ABILITY_KEY_HINT 文案声称「1~3 号技能键触发」但战斗中实际无法激活）。
+function trySuperFireControl(){
+  if(!player || player.immobT > 0) return;
+  const res = tryActivateAbility(player, 'super_fire_control');
+  if(res.ok){
+    playSound('ui');
+    pushLog(`超级火控 — ${res.duration}s 内散布 ×${res.spreadMult}、瞄准速度 ×${res.aimSpeedMult}`, 'PEN');
+  } else {
+    abilityFailLog('超级火控', res);
+  }
+}
+function trySuperSpeed(){
+  if(!player || player.immobT > 0) return;
+  const res = tryActivateAbility(player, 'super_speed');
+  if(res.ok){
+    playSound('ui');
+    pushLog(`超级速度 — ${res.duration}s 内马力 ×${res.accelMult}、极速 ×${res.maxSpeedMult}`, 'PEN');
+  } else {
+    abilityFailLog('超级速度', res);
   }
 }
 
@@ -2458,27 +2537,32 @@ function update(dt){
   };
 
   // #A7：按住左键持续开火（门控在 fireTank/fireActiveSecondary 内保证射速间隔）
-  // 2026-09-15 #A21：左键/空格按激活槽位分发——primary→tryFire（空格=齐射，双管全就绪管；
-  // 左键=单发 1 管，W4 语义），secondary→fireActiveSecondary（目标=鼠标世界点）。
+  // 2026-09-17 #C4e：键位语义反转——左键/空格=主炮专属（tryFirePrimary，空格=双管齐射 salvo）；
+  // F（按住）=副武器专属连发（tryFireSecondary，目标=鼠标世界点），不再切换激活槽。
   if(!isClearing){
-    if(mouseFireHeld && flow.state === 'battle' && !statusOpen && !devOpen) tryFireWeaponSlot(fireCtx);
-    if(input.isDown('fire')) tryFireWeaponSlot(fireCtx, true);
+    if(mouseFireHeld && flow.state === 'battle' && !statusOpen && !devOpen) tryFirePrimary(fireCtx);
+    if(input.isDown('fire')) tryFirePrimary(fireCtx, true);
+    if(input.isDown('fireSecondary')) trySecondaryFire();   // #C4e：F 按住连发副武器
     if(input.isDown('abilityStrike')) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
     if(input.isDown('abilityShield')) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
     if(input.isDown('abilityOverdrive')) tryOverdrive();   // P-17：V 键超级装填（爆发装填）
     if(input.isDown('supportRepair')) tryRepairKit();   // #90：4 键修理箱（开局自带）
     if(input.isDown('supportMedkit')) tryMedkit();      // #90：5 键医疗包（开局自带）
     if(input.isDown('supportExtinguish')) tryExtinguish();  // 自动灭火器（开局自带）
+    // #C6（2026-09-17）：起火自动触发灭火器——起火期间每帧尝试（tryActivateAbility 内
+    // 尊重 innate 独立冷却池 abilityCds.extinguish，冷却中静默拒绝，不刷日志）；保留手动 6 键补充。
+    if(player && player.dotT > 0 && !((player.abilityCds && player.abilityCds.extinguish) > 0)){
+      const res = tryActivateAbility(player, 'extinguish');
+      if(res.ok){ playSound('ui'); pushLog('自动灭火器触发 — 车体起火已扑灭', 'PEN'); }
+    }
   }
 
-  // 2026-09-15 #A21：玩家副武器不再「F 激活即自动运作」——左键/空格按激活槽位手动击发
-  // （tryFireWeaponSlot → fireActiveSecondary，目标=鼠标世界点）；副武器装填计时 secondaryReloadT
-  // 恒递减（待机冷却，与主炮 reloadT 对称）。仅 turret 型为设计例外：激活槽位下继续逐帧
-  // updateSecondaryWeapon 自主开火（PLAN 6.2 副炮塔定义——带独立炮塔角的自瞄武器系统，玩家卡池
-  // 暂无 turret 安装卡，保留自主例外书面注明；点击分发对 turret 不起作用）。
+  // 2026-09-17 #C4e：turret 型副炮塔为设计例外——装上即逐帧 updateSecondaryWeapon 自主开火
+  // （PLAN 6.2 副炮塔定义，不再依赖已移除的 activeWeaponSlot）；其余副武器由 F 键手动击发，
+  // 待机装填计时 secondaryReloadT 恒递减（与主炮 reloadT 对称）。
   if(!isClearing && player && player.hp > 0 && player.weapons && player.weapons.secondary && player.weapons.secondary.type !== 'none'){
     const secW = player.weapons.secondary;
-    if(player.activeWeaponSlot === 'secondary' && secW.type === 'turret'){
+    if(secW.type === 'turret'){
       if(typeof updateSecondaryWeapon === 'function') updateSecondaryWeapon(player, dt, fireCtx);
     } else if(player.secondaryReloadT > 0){
       player.secondaryReloadT -= dt;
@@ -2541,6 +2625,30 @@ function update(dt){
       // 阶段七 7.2：副武器全类型自主更新（turret/mortar/missile/rocket/mine_layer）
       if(typeof updateSecondaryWeapon === 'function' && e.weapons && e.weapons.secondary && e.weapons.secondary.type !== 'none'){
         updateSecondaryWeapon(e, dt, fireCtx);
+      }
+    }
+  }
+
+  // #B9/#B11（2026-09-16）：战场部署物运行时接入 mvp（此前仅 bench 接线，地雷/掩体布雷后
+  // 不可见且永不触发——用户反馈「布雷器无法使用」的根因）。
+  // updateDeployables 推进固定炮塔索敌/地雷武装触发/掩体倒计时；mineExplode 事件在接线层
+  // 结算 AOE（对齐 bench 实现：burstExplosion + applySplashAt 衰减伤害 + 飘字 + 日志），
+  // 伤害统一走 applyDamage（尊重 dmgTakenMul 减伤/无敌免疫），击杀计分由下方 entities.forEach
+  // 统一击杀检测接管（与无人机直伤同构）。固定炮塔开火事件复用 fireTank 全管线。
+  if(!isClearing && typeof updateDeployables === 'function'){
+    const deployEvents = updateDeployables(dt, { entities });
+    for(const ev of deployEvents){
+      if(ev.type === 'mineExplode'){
+        const sc = ev.blastRadius / 40;
+        burstExplosion(ev.mine.x, ev.mine.y, sc, Math.round(22*sc), Math.round(14*sc), Math.round(11*sc));
+        spawnImpactFx(ev.mine.x, ev.mine.y, 0, 'he', 1);
+        playSound('ammoBlewHE');
+        // AOE 衰减结算（applySplashAt：0.5 系数衰减，与 HE 溅射同公式；registry 外的全实体遍历）
+        const hits = applySplashAt(ev.mine.x, ev.mine.y, ev.blastRadius, ev.damage, null, null, entities);
+        for(const h of hits) spawnDmgText(h.entity.x, h.entity.y - 14, h.dmg, 'he');
+        pushLog(`💥 地雷引爆 — 溅射 ${hits.length} 个目标`, 'CRIT');
+      } else if(ev.type === 'fixedTurretFire'){
+        fireTank(ev.turret, ev.target, 'auto', fireCtx);
       }
     }
   }
@@ -2639,7 +2747,7 @@ function update(dt){
     if(e.hp<=0 && !e._dead){
       e._dead=true; e.hp=0; e.fireT = Math.max(e.fireT, 4);
       e.dotT=0; e.dotDps=0; e.dotSeconds=0; e._dotAcc=0; e._dotTxt=0;   // #A6：死亡清 DOT——不再死后跳字
-      if(e === player){ e.shield = null; e.abilityCdT = 0; clearDrones(player); }   // P-17：死亡清空护盾/能力冷却/随行无人机——复活后无盾、按 cardEffects 重建无人机
+      if(e === player){ e.shield = null; e.abilityCds = {}; clearDrones(player); }   // P-17：死亡清空护盾/全部能力冷却（#C4c 独立冷却池）/随行无人机——复活后无盾、按 cardEffects 重建无人机
       // P-14：击杀得分（run 战斗态、敌方；友军击杀五折记分）
       if(run && battleState && e.team === 'enemy'){
         const lastTeam = e.lastHitByTeam || (e.lastHitBy ? e.lastHitBy.team : null);
@@ -2691,8 +2799,9 @@ function update(dt){
   updateSmoke(dt);   // P-17：烟雾云逐帧消散（在 update(dt) 内 → 天然受 simulating 门控）
 
   // P-17：主动能力主循环（与烟雾同处 simulating 门控内）
-  updateAbilityCd(player, dt);    // 共享冷却递减（artillery/shield/overdrive 同一 abilityCdT 字段）
-  updateAbilityCds(player, dt);   // 修理箱/医疗包独立冷却递减（t.abilityCds 池， innate 键 4/5）
+  // #C4c（2026-09-17）：按技能独立冷却——updateAbilityCds 统一递减 t.abilityCds 池
+  // （运行时能力键 + innate 键同池按 key 隔离；旧共享 abilityCdT 助手已废弃，不再调用）
+  updateAbilityCds(player, dt);   // 按技能独立冷却递减（artillery/shield/overdrive/... + repair/medkit/extinguish）
   updateShield(player, dt);       // 护盾时长递减（本版本仅玩家持有护盾，无盾时 no-op）
   // P-17：战术炮击落弹推进（updateStrikes 已按阵营过滤扣血并返回命中明细；接线层播特效/飘字/音效）
   for(const ev of updateStrikes(dt, entities)){
@@ -2913,9 +3022,23 @@ function updateBottomHud(){
   const extCd = (player.abilityCds && player.abilityCds.extinguish) || 0;
   cd('cd6', extCd > 0 ? extCd.toFixed(0) : '', extCd > 0);
 
-  // F/G/H/V 战术技能条件展示（F=切换主/副武器：有副武器即显示；G/H/V 按持有能力卡显示）
+  // #C4e（2026-09-17）：F=副武器击发按钮——有副武器即显示，图标字符随武器类型切换，
+  // .cd 角标显示装填剩余秒数（#C4d：副武器冷却图标，此前 HUD 完全无副武器指示）。
   const btnF = document.getElementById('btnF');
-  if(btnF) btnF.style.display = (player.weapons && player.weapons.secondary && player.weapons.secondary.type !== 'none') ? '' : 'none';
+  const secW = (player.weapons && player.weapons.secondary) ? player.weapons.secondary : null;
+  const hasSec = !!(secW && secW.type && secW.type !== 'none');
+  if(btnF){
+    btnF.style.display = hasSec ? '' : 'none';
+    if(hasSec){
+      const iconEl = document.getElementById('btnFIcon');
+      if(iconEl) iconEl.textContent = SECONDARY_ICONS[secW.type] || 'F';
+      btnF.title = secW.type === 'turret'
+        ? '副炮塔（自主开火，无需操作）'
+        : `副武器击发（F，按住连发）：${SECONDARY_LABELS[secW.type] || secW.type}`;
+    }
+  }
+  const secRl = (hasSec && player.secondaryReloadT > 0) ? player.secondaryReloadT : 0;
+  cd('cdF', secRl > 0 ? secRl.toFixed(1) : '', secRl > 0);
 
   const btnG = document.getElementById('btnG');
   if(btnG) btnG.style.display = hasAbility(player, 'artillery') ? '' : 'none';
@@ -2926,11 +3049,13 @@ function updateBottomHud(){
   const btnV = document.getElementById('btnV');
   if(btnV) btnV.style.display = hasAbility(player, 'overdrive') ? '' : 'none';
 
-  const cdShared = (player.abilityCdT || 0) > 0;
-  const cdSharedTxt = cdShared ? (player.abilityCdT || 0).toFixed(0) : '';
-  cd('cdG', cdSharedTxt, cdShared);
-  cd('cdH', cdSharedTxt, cdShared);
-  cd('cdV', cdSharedTxt, cdShared);
+  // #C4c：G/H/V 冷却角标改读按技能独立冷却池 t.abilityCds（此前三个按钮共享同一文本）
+  const cdA = (player.abilityCds && player.abilityCds.artillery) || 0;
+  cd('cdG', cdA > 0 ? cdA.toFixed(0) : '', cdA > 0);
+  const cdS = (player.abilityCds && player.abilityCds.shield) || 0;
+  cd('cdH', cdS > 0 ? cdS.toFixed(0) : '', cdS > 0);
+  const cdO = (player.abilityCds && player.abilityCds.overdrive) || 0;
+  cd('cdV', cdO > 0 ? cdO.toFixed(0) : '', cdO > 0);
 }
 
 // ---------- draw ----------
@@ -3058,7 +3183,6 @@ function drawDrones(){
 function drawMissileLock(ctx){
   const lk = player && player._missileLock;
   if(!lk || !lk.target || lk.target.hp <= 0) return;
-  if(player.activeWeaponSlot !== 'secondary') return;
   const tgt = lk.target;
   if(!aabbInView(cam, tgt.x, tgt.y, 80, 80, 20)) return;
   const wCfg = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults('secondary', 'missile') : {};
@@ -3258,13 +3382,14 @@ function bakeNodeGroundLayer(node){
   }
 
   // --- 路口让位挖空：在路口范围内涂回「无标线」的沥青色，抹掉穿过的中心虚线 ---
-  // （用与主路面同色填充，保证只擦标线不动路面。）
+  // （用与主路面同色填充，保证只擦标线不动路面。#C1（2026-09-17 修复）：
+  //   nodegen 已把 j.r 收敛到 roadW×0.5（恒在沥青并集内）；兜底 40 同口径。）
   const junctions = (node && Array.isArray(node.roadJunctions)) ? node.roadJunctions : [];
   const clearMarks = () => {
     if(!junctions.length) return;
     g.fillStyle = '#58554e';
     for(const j of junctions){
-      const r = (j.r || 60);
+      const r = (j.r || 40);
       g.beginPath(); g.arc(j.x, j.y, r, 0, Math.PI * 2); g.fill();
     }
   };
@@ -3336,6 +3461,51 @@ function draw(){
     drawTank(ctx, t);
     ctx.globalAlpha = 1;
   });
+
+  // #B9/#B11（2026-09-16）：战场部署物绘制（复用 bench 同款视觉契约——
+  // 固定炮塔底座+炮塔+炮管 / 地雷红点+武装脉冲圈 / 战术掩体半透明蓝块+护盾虚线框）。
+  // 画在坦克之后、树冠之下：部署物是地面设施，被树冠遮挡保持视线遮挡语义一致。
+  for(const d of deployables){
+    if(!aabbInView(cam, d.x, d.y, 60, 60)) continue;
+    if(d.isFixedTurret){
+      // 轻量级渲染（不用 drawTank——部署物缺坦克几何字段）
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      ctx.rotate(d.hullAngle);
+      ctx.fillStyle = '#3a3f2c'; ctx.strokeStyle = d.team === 'player' ? '#7ed957' : '#ff5c4d';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, 15, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.rotate(d.turretAngle - d.hullAngle);
+      ctx.fillStyle = '#4a4f3c';
+      ctx.fillRect(-8, -8, 20, 16); ctx.strokeRect(-8, -8, 20, 16);
+      ctx.strokeStyle = '#7a8065'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(28, 0); ctx.stroke();
+      ctx.restore();
+    } else if(d.isMine){
+      ctx.fillStyle = d.armed ? '#ff3300' : '#888';
+      ctx.beginPath(); ctx.arc(d.x, d.y, 4, 0, TAU); ctx.fill();
+      if(d.armed){
+        ctx.strokeStyle = 'rgba(255,50,0,0.4)';
+        ctx.beginPath(); ctx.arc(d.x, d.y, 6 + Math.sin(performance.now()/100)*2, 0, TAU); ctx.stroke();
+      }
+    } else if(d.isDeployableCover){
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      ctx.rotate(d.hullAngle);
+      ctx.fillStyle = 'rgba(92,200,255,0.2)';
+      ctx.strokeStyle = 'rgba(92,200,255,0.8)';
+      ctx.lineWidth = 2;
+      ctx.fillRect(-d.hullLen/2, -d.hullWid/2, d.hullLen, d.hullWid);
+      ctx.strokeRect(-d.hullLen/2, -d.hullWid/2, d.hullLen, d.hullWid);
+      if(d.shield){
+        ctx.strokeStyle = 'rgba(92,200,255,0.4)'; ctx.setLineDash([4, 4]);
+        ctx.strokeRect(-d.hullLen/2-4, -d.hullWid/2-4, d.hullLen+8, d.hullWid+8);
+        ctx.setLineDash([]);
+      }
+      ctx.restore();
+    }
+  }
+
   drawFoliage(ctx, covers.filter(inView));   // 灌木/树冠层：盖住其下坦克 = 视线遮挡
   drawDrones();                              // P-17：无人机（飞行器视觉，坦克/树冠之上、烟幕之下）
 

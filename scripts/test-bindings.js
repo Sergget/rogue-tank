@@ -44,12 +44,13 @@ ok(Object.keys(B.KEY_BINDINGS).length > 0, 'KEY_BINDINGS 非空');
   ok(dup === null, `键值无重复且全部小写规范化（${dup || 'ok'}）`);
 }
 for (const required of ['moveForward','moveBackward','turnLeft','turnRight','fire','ammoNext','ammoPrev',
-  'switchWeapon','abilityStrike','abilityShield','abilityOverdrive','supportRepair','supportMedkit',
+  'fireSecondary','abilityStrike','abilityShield','abilityOverdrive','supportRepair','supportMedkit',
   'supportExtinguish','panelStatus','panelDev','pauseToggle','altMoveForward']) {
   ok(B.KEY_BINDINGS[required] !== undefined, `必需动作 ${required} 存在`);
 }
 ok(B.KEY_BINDINGS.supportSmoke === undefined, 'supportSmoke（烟幕弹 F 键）已移除（2026-09-15 W2）');
-ok(B.KEY_BINDINGS.switchWeapon === 'f', 'F 键绑定 switchWeapon（切换主/副武器）');
+ok(B.KEY_BINDINGS.switchWeapon === undefined, 'switchWeapon（旧 F 切换语义）已移除（#C4e 2026-09-17）');
+ok(B.KEY_BINDINGS.fireSecondary === 'f', 'F 键绑定 fireSecondary（直接击发副武器，#C4e 反转）');
 ok(B.KEY_BINDINGS.fire === ' ' && B.KEY_BINDINGS.panelDev === '`' && B.KEY_BINDINGS.pauseToggle === 'escape',
   '关键键位形态（空格/反引号/escape）符合 e.key 规范化约定');
 ok(B.KEY_BINDINGS.ammoNext === 'e' && B.KEY_BINDINGS.ammoPrev === 'q',
@@ -160,11 +161,11 @@ ok(B.KEY_BINDINGS.ammoNext === 'e' && B.KEY_BINDINGS.ammoPrev === 'q',
   ok(benchRows.length === 7 && benchRows.some(r => r.action === 'altMove'), '测试台键位说明含方向键行');
 }
 
-// ---------- 6) #A21：ACTION_INFO 文案反映「F 只切换槽位，左键/空格按激活槽位击发」 ----------
+// ---------- 6) #C4e（2026-09-17）：ACTION_INFO 文案反映「F=直接击发副武器（按住连发），主炮=左键/空格」 ----------
 {
-  ok(B.ACTION_INFO.fire.desc.indexOf('副武器') !== -1, 'fire 文案反映左键/空格按激活槽位分发（#A21）');
-  ok(B.ACTION_INFO.switchWeapon.desc.indexOf('自动运作') === -1, 'switchWeapon 文案不再描述副武器自动运作（#A21）');
-  ok(B.ACTION_INFO.switchWeapon.desc.indexOf('击发') !== -1, 'switchWeapon 文案含手动击发语义（#A21）');
+  ok(B.ACTION_INFO.fire.desc.indexOf('副武器') === -1, 'fire 文案不再含副武器（主炮专属，#C4e）');
+  ok(B.ACTION_INFO.fireSecondary.desc.indexOf('副武器') !== -1, 'fireSecondary 文案 = 副武器击发（#C4e 反转）');
+  ok(B.ACTION_INFO.fireSecondary.desc.indexOf('连发') !== -1, 'fireSecondary 文案含按住连发语义（#C4e）');
 }
 
 console.log(fails === 0 ? '\n\u2713 test-bindings 全部通过' : `\n\u2717 ${fails} 项失败`);

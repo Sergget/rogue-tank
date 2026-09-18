@@ -65,6 +65,22 @@ const MS = RULES_MOD.RULES.parameterLimits.maxSpeed;     // { max: 375 }
   ok(Math.abs(t.stats.reload - 1.17) < 1e-9, `温和加速（1.17s）不触下限，原样生效（got ${t.stats.reload}）`);
 }
 
+// === 5) #C2（2026-09-17）：纯 timed 修饰器（超装填等能力爆发通道）不受参数硬限 ===
+{
+  const t = M.makeTank({ team:'player' });
+  const initReload = t.stats.reload;
+  M.addTimedModifier(t, { stat:'reload', mode:'mult', value: 0.45, source:'ability:overdrive' }, 6000);
+  ok(Math.abs(t.stats.reload - initReload * 0.45) < 1e-9,
+    `timed ×0.45 不被 1.0s 下限钳制（got ${t.stats.reload}，期望 ${initReload * 0.45}）——实际开火间隔可继续 <1s`);
+  // 混合通道：run 参数修饰存在时仍钳（timed 不豁免参数通道）
+  const t2 = M.makeTank({ team:'player' });
+  M.addModifier(t2, { stat:'reload', mode:'mult', value: 0.4, source:'card:fast', scope:'run' });
+  M.addTimedModifier(t2, { stat:'reload', mode:'mult', value: 0.45, source:'ability:overdrive' }, 6000);
+  ok(t2.stats.reload === RL.min, `run+timed 混合 → 参数通道硬限仍生效（钳至 ${RL.min}s）`);
+  M.removeRunModifiers(t2);
+  ok(Math.abs(t2.stats.reload - initReload * 0.45) < 1e-9, '移除 run 修饰后回落 timed 聚合值（0.45×，不钳）');
+}
+
 if (fails > 0) {
   console.error(`\n${fails} FAILED`);
   process.exit(1);

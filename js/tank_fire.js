@@ -297,34 +297,35 @@ function tryFire(ctx, salvo){
   return ft(player,target,hitPref,ctx,salvo);
 }
 
-// 2026-09-15 #A21：F 键切换 activeWeaponSlot 后，鼠标左键/空格按激活槽位统一分发（共享层，Node 可测）。
-//   primary   → 委托 tryFire(ctx, salvo)（保留 W4 单发/齐射语义）；
-//   secondary → fireActiveSecondary(player, ctx, mouseWorld)（手动向光标世界点击发；
-//               目标=ctx.mouseWorld，缺省回退玩家炮塔前方 +100px）。
-// 玩家副武器不再「F 激活即自动运作」。turret 型为设计例外（PLAN 6.2 多炮塔 Boss 行为基座，
-// 带独立炮塔角的自瞄副炮塔，点击无方向意义，玩家卡池暂无 turret 安装卡）——激活槽位下的点击
-// 不响应、也不回落主炮（避免「点击被主炮路径劫持」的旧病），由 mvp 主循环逐帧 updateSecondaryWeapon
-// 自主驱动；副武器槽位缺省（none/未装）时防御性回退主炮路径。
-function tryFireWeaponSlot(ctx, salvo){
+// 2026-09-17 #C4e（用户裁定）：F 键语义反转——F = 直接击发副武器（按住连发），不再承担
+// 主/副切换（activeWeaponSlot 概念随之移除）。分发拆为两路（共享层，Node 可测）：
+//   tryFirePrimary(ctx, salvo)   → 主炮（左键/空格），委托 tryFire（保留 W4 单发/齐射语义）；
+//   tryFireSecondary(ctx)        → 副武器（F 按住连发），经 fireActiveSecondary 向光标世界点击发；
+//           目标=ctx.mouseWorld，缺省回退玩家炮塔前方 +100px。
+// turret 型为设计例外（PLAN 6.2 多炮塔 Boss 行为基座，带独立炮塔角的**自瞄自主**副炮塔）：
+// 装上即由 mvp 主循环逐帧 updateSecondaryWeapon 自主驱动，tryFireSecondary 对其恒返回 false
+// （无「点击被主炮路径劫持」问题——主/副已按键位分流）。副武器缺省（none/未装）时
+// tryFireSecondary 返回 false，由页面层提示（不再回落主炮——主炮有专属键位）。
+function tryFirePrimary(ctx, salvo){
+  const c=_ctx(ctx);
+  const ft=c.tryFire||tryFire;
+  return ft(c,salvo);
+}
+
+function tryFireSecondary(ctx){
   const c=_ctx(ctx);
   const player=c.player||_G('player',null);
   if(!player||!player.weapons) return false;
-  if(player.activeWeaponSlot==='secondary'){
-    const w=player.weapons.secondary;
-    if(w && w.type && w.type!=='none'){
-      if(w.type==='turret') return false;   // 自瞄副炮塔不响应点击（设计例外）
-      // 惰性取值：Node 用 require('./tank_weapons.js')，浏览器用全局（tank_weapons.js 先于本模块加载，时序安全）
-      let fas=c.fireActiveSecondary||_G('fireActiveSecondary',null);
-      if(!fas && typeof require!=='undefined'){ try{ fas=require('./tank_weapons.js').fireActiveSecondary; }catch(e){ fas=null; } }
-      if(!fas) return false;
-      const mouse=c.mouseWorld||_G('mouseWorld',null);
-      const aim=mouse||{x:player.x+Math.cos(player.turretAngle||0)*100,y:player.y+Math.sin(player.turretAngle||0)*100};
-      return fas(player,c,aim);
-    }
-    // 副武器缺省（none/未装）→ 回退主炮路径（F 切换已拦截，防御性兜底）
-  }
-  const ft=c.tryFire||tryFire;
-  return ft(c,salvo);
+  const w=player.weapons.secondary;
+  if(!w || !w.type || w.type==='none') return false;
+  if(w.type==='turret') return false;   // 自瞄副炮塔不响应击发（自主运作，设计例外）
+  // 惰性取值：Node 用 require('./tank_weapons.js')，浏览器用全局（tank_weapons.js 先于本模块加载，时序安全）
+  let fas=c.fireActiveSecondary||_G('fireActiveSecondary',null);
+  if(!fas && typeof require!=='undefined'){ try{ fas=require('./tank_weapons.js').fireActiveSecondary; }catch(e){ fas=null; } }
+  if(!fas) return false;
+  const mouse=c.mouseWorld||_G('mouseWorld',null);
+  const aim=mouse||{x:player.x+Math.cos(player.turretAngle||0)*100,y:player.y+Math.sin(player.turretAngle||0)*100};
+  return fas(player,c,aim);
 }
 
 // 预测面板纯计算（供 Node 单测与 HTML DOM 胶水共用）
@@ -657,5 +658,5 @@ function stepShells(dt, ctx){
 }
 
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={shellVerticalDecision:shellVerticalDecision,fireTank:fireTank,tryFire:tryFire,tryFireWeaponSlot:tryFireWeaponSlot,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels};
+  module.exports={shellVerticalDecision:shellVerticalDecision,fireTank:fireTank,tryFire:tryFire,tryFirePrimary:tryFirePrimary,tryFireSecondary:tryFireSecondary,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels};
 }

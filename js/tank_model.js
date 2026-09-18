@@ -12,14 +12,20 @@ let _normalizeTankWeapons = (typeof normalizeTankWeapons === 'function') ? norma
 // 2026-09-15 W5：修饰聚合后的最终 stats 只对「用户明确裁定的运行时硬限」钳制，且仅当
 // modifiers 非空（卡牌奖励/局内升级/难度系数通道）时生效——空 modifiers（出厂 base 直写、
 // 纯计算/extreme 极值基准）不钳，保住纯数学语义。
-// 硬限来源（用户裁定）：装填 reload ≥ 0.5s/发（parameterLimits.reload.min，卡牌加速装填不得
-// 突破下限）；极速 maxSpeed ≤ 150km/h = 375px/s（parameterLimits.maxSpeed.max，卡牌不得超速）。
+// 硬限来源（用户裁定）：装填 reload ≥ 1.0s/发（parameterLimits.reload.min，2026-09-17 #C2 裁定
+// 取代旧 0.5s；卡牌加速装填不得突破下限）；极速 maxSpeed ≤ 150km/h = 375px/s（parameterLimits.maxSpeed.max，卡牌不得超速）。
+// #C2 同轮裁定（2026-09-17）：硬限只约束「参数通道」（卡牌奖励/局内升级/难度系数，scope
+// run/permanent）——**timed 修饰器（超装填 ×0.45 等能力爆发通道）不钳**，其实际开火间隔可继续 <1s
+//（与机炮 reloadMult 0.25 的武器通道同一语义：fireTank 在 stats.reload 之上的二次倍率不受参数下限）。
 // 火控 spreadMult/motionSpreadMul 已是默认 1 且 clamp ≥ multFloor（0.5），无需重复钳制（见 computeStats
 // spreadMult floor 既存钳制、crit 通道另有 [0,critBonusCap]）。
 function applyParameterLimits(s, modifiers){
   if(!s || typeof s !== 'object') return;
   const hasMods = Array.isArray(modifiers) && modifiers.length > 0;
   if(!hasMods) return;
+  // #C2（2026-09-17）：仅参数通道（run/permanent）触发硬限；纯 timed 修饰器（能力爆发）不钳
+  const hasHardLimitChannel = modifiers.some(m => m && m.scope !== 'timed');
+  if(!hasHardLimitChannel) return;
   const pL = (typeof RULES !== 'undefined' && RULES && RULES.parameterLimits) ? RULES.parameterLimits : null;
   if(!pL) return;
   if(pL.reload && typeof pL.reload.min === 'number' && typeof s.reload === 'number' && s.reload < pL.reload.min){

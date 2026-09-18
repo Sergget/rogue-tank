@@ -461,6 +461,21 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
   // v2：平行拓扑（0 路口）也必须出现——「总是有路口」同样是单调。
   ok((junctionHist[0] || 0) > 0,
      `#B7 存在无路口拓扑（平行/单条贯通，${junctionHist[0] || 0} 例）`);
+  // #C1（2026-09-17）：路口遮罩圆半径收敛 ≤ roadW×0.5（roadW ∈ [60,80] → r ≤ 40）——
+  // 恒在沥青并集内；旧 0.85×roadW 在 45° 方向越过路缘（0.6×roadW > 0.5×roadW）→ 圆形凸斑外溢。
+  {
+    let badR = 0, seenJ = 0;
+    for (const tpl of getTemplates()) {
+      for (let seed = 1; seed <= 20; seed++) {
+        const node = generateNode(0.5, { templateId: tpl.id, seed: 3000 + seed, cullRate: 0 });
+        for (const j of (node.roadJunctions || [])) {
+          seenJ++;
+          if (!(j.r <= 40.001)) badR++;
+        }
+      }
+    }
+    ok(seenJ > 0 && badR === 0, `#C1 路口遮罩圆 r ≤ roadW×0.5（${seenJ} 个路口全收敛，越界 ${badR} 个）`);
+  }
 }
 
 console.log('test-nodegen: 完成所有检查');

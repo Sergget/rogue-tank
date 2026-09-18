@@ -1,7 +1,7 @@
 # 战术坦克 Roguelike — 战斗与物理系统规范 (Combat & Physics Spec)
 
 > 权威子文档：由主文档 docs/DEVELOPMENT.md 索引。
-> 涉及模块：js/tank_rules.js, js/tank_physics.js, js/tank_fire.js, js/tank_geometry.js, js/tank_audio.js, js/tank_fx.js, js/tank_shield.js, js/tank_strike.js, js/tank_drone.js
+> 涉及模块：js/tank_rules.js, js/tank_physics.js, js/tank_fire.js, js/tank_geometry.js, js/tank_abilities.js, js/tank_weapons.js, js/tank_shield.js, js/tank_strike.js, js/tank_drone.js, js/tank_audio.js, js/tank_fx.js
 
 ---
 
@@ -10,7 +10,7 @@
 - **实时弹道与发射解算**：炮弹按真实物理速度逐帧推进（js/tank_fire.js 的 stepShells），碰撞在命中瞬间判决，支持提前量与动态掩体拦截。
 
 ## 2. 装甲与跳弹机制 (Armor & Ricochet)
-- **跳弹判定**：入射角 > 70° 时发生跳弹（RULES.ballistics.bounceAngle），沿法线方向真物理反射。
+- **跳弹判定**：各弹种独立跳弹角（per-ammo `ammoBounceAngle`，65°~90°；θ>该值跳弹，90°=不可能跳弹，noBounce 弹种完全不跳弹），数值以 §3.2 总表为唯一口径；跳弹沿法线方向真物理反射。（早期全局 `RULES.ballistics.bounceAngle`=70° 仅为 AP 基准沿革。）
 - **二次跳弹禁止**：跳弹后的炮弹标记 canBounce = false，再次命中不再发生二次反射。
 - **等效厚度计算**：等效厚度 = 实际装甲厚度 / cos(入射角)。
 - **resolveHit 可选增益 opts（P-51）**：`resolveHit(s,target,hit,allowBounce,opts)` 新增可选 opts `{penAdd,dmgMul,ignoreBounce}`——penAdd 在穿透判定前加算；ignoreBounce 跳过跳弹与过陡 BLOCK；dmgMul 最终伤害乘算并传入 applyModuleDamage；不传 opts 行为不变。mvp 包装层对敌方 Boss 弱点命中（isWeakspotHit + moduleFromHit 匹配 RULES.boss.weakspot）注入 dmgMul:1.5 / penAdd:15 / ignoreBounce:true。
@@ -20,14 +20,15 @@
   - **车体纵轴区段**：以座圈圆心 p 与车体几何中心 c 判定前置/后置构型——前置构型 [0,.1){驾驶员 10% / 弹药 10%} / [.1,.5){弹药 50%} / [.5,1]{发动机 40%}；后置构型 [0,.5){发动机 40%} / [.5,.6){驾驶员 5% / 弹药 50%} / [.6,1]{弹药 40%}（区间均为纵轴归一化坐标）。
   - **区内互斥抽取**：同一区间内按上述概率抽取一个模块命中；抽取落空/无对应模块的余量 = 正常结算伤害、无加成。
   - **breech 炮闩效果**：命中 → 8s 完全无法开火（修理箱可清除）。
-  - 弹药架命中造成 2× 伤害；致死命中触发掀飞炮塔（"飞头"殉爆 spawnAmmoBlowFx）；未致死施加 8s 装填 debuff。
-  - 发动机命中引发起火 DOT（dps=3.4，5s），并施加机动 debuff。
+  - 弹药架命中伤害按弹种 `ammoRackMult`（2 / 2.5 / 3，逐弹种见 §3.2 总表）；致死命中触发掀飞炮塔（"飞头"殉爆 spawnAmmoBlowFx）；未致死施加 8s 装填 debuff。
+  - 发动机命中引发起火 DOT（dps = 攻击方标准伤害 × `RULES.fire.dotRatio`，持续 `RULES.fire.dotSeconds`=5s，速度惩罚 speedMul 0.5），并施加机动 debuff。
   - 履带命中 → trackBroken + immobT=8s 锁定。
   - 车长命中 → 全体乘员效果 ×0.85。
   - **修理箱/医疗包回血与随时可用（2026-09-08，优化落地）**：
     - **移除损伤门控**：删除了 `_tryActivateInnate` 中针对受损/受伤状态的前置判定门控。修理箱与医疗包现在在任何状态下均可激活。
     - **增加回血效果**：成功使用修理箱或医疗包时，立即恢复坦克 10% 的最大耐久值（`t.hp = Math.min(maxHp, t.hp + maxHp * 0.10)`）。
     - 修理/移除 debuff 的核心语义保持不变。
+  - **自动灭火器（innate，2026-09-17 #C6 修复定案）**：前置判定**改读真实起火状态 `dotT > 0`**（发动机起火链路写入 dotT/dotDps/dotSeconds/fireT/debuffs.engine，见 resolveHit engine 分支；旧判定读 `fireDebuffT`，但该字段生产代码无任何写入路径——灭火器恒 'no-fire' 死功能）。激活成功：清 dotT/dotDps/dotSeconds/**fireT** 与 **debuffs.engine**（用户裁定连带清除；发动机模块损伤本体仍属修理箱范围）。冷却走独立池 `abilityCds.extinguish`（基础 45s，商店 cdReduce 注入 `abilityBaseCd`）；手动 6 键保留 + **mvp 主循环起火期间自动触发**（每帧尝试、冷却中静默拒绝不刷日志）。字段 `fireDebuffT` 维持现状（仍为死字段，AI stun 分支/起火散布加成未复活——后续清理）。
 - **防崩落内衬 passive spall_liner 生效（2026-08-26，原 ISSUES #A15 修复定案）**：`tank_physics.js` 经 `passiveValues(target,'spall_liner')` 取多来源最小值 `spallMul`，在 `applyModuleDamage` 乘入最终模块/乘员伤害；多张卡取最强（最小乘子）语义。活浏览器实测 `giveCard('support_spall_liner')` 后敌方 PEN 伤害均值降至无内衬 0.7981 倍（预期 0.8），epic 卡 `spall_liner.json` 当前 value 0.85。
 - **散布下限防负值（2026-08-26，原 ISSUES #A2 修复定案）**：`RULES.spread.multFloor=0.2` 对 spreadMult 加法聚合结果钳下限 + `sigmaFloor` σ 地板；局内商店姿态稳定恢复 maxLevel 判定（applyRunShopPurchase），满级购买按钮禁用置灰。
 - **运动散布与精度基准解耦（2026-08-26，原 ISSUES #A1 修复定案）**：新增独立 stat `motionSpreadMul`（运动三源专用系数）——computeStats 默认继承出厂 `base.spreadMult`（保留设计器对底盘运动散布的标定）并钳 ≥ `spread.multFloor`；motionSigma 消费 `stats.motionSpreadMul ?? stats.spreadMult`（旧运行时快照无该键时回退，向后兼容）。运行期 spreadMult 修饰器（精密火控/卡牌）不再影响运动散布；局内商店姿态稳定改挂 `motionSpreadMul` mult ×0.85（maxLevel 1）。
@@ -35,34 +36,74 @@
 - **局内商店可升级次数由具体数值决定（2026-08-28 定案，取代写死 maxLevel）**：有自然数值边界的商品改为按 `RULES.parameterLimits` 动态判定达限，而非需求出生时写死整数上限（因局内卡牌经 addModifier 也会改 reload/spreadMult/motionSpreadMul/装甲值，会改变真实可升级空间）。`runShopLimitBlocked(def, curVal, stats)` 三分支：① `def.limit` 存在（fast_reload / engine_overdrive / precision_gunnery / steady_mount）走显式单键判定；② `def.limit` 缺失但多条 effects（多面打包装甲包 hull/turret × front/side/rear）逐面按点分路径 `parameterLimits.armor.*` 推导达限，**读 `stats` 对象各面真实现值**（非 UI 传入的单一 curVal），任一穿越边界即 true；③ 无边界/缺省容错返回 false（放行）。`motionSpreadMul` 边界本轮新增于 `parameterLimits`（min 0.5 / max 3.0，对齐 spreadMult）；商品 `maxLevel` 统一 99 作防御性兜底，`computeStats` 的 `multFloor` 物理钳底不动。测试：test-economy 新增装甲包逐面达限/precision_gunnery 数值驱动/steady_mount 边界对齐断言（164 条全绿）。
 
 ## 3. 弹种系统 (Ammo Types)
-唯一数据源：`RULES.ammoTypes`（`js/tank_rules.js`，机制参数唯一配置源；完整升级链与 15 弹种总表见 `docs/PLAN.md` §5.2）。
-- **AP**：标准穿甲弹（基准 pen 1.0× / dmg 1.0× / speed 1.0× / 跳弹角 70°）。
-- **APCR**：高速穿甲弹（pen 1.2× / dmg 1.0× / speed 1.2× / 跳弹角 65°）。
-- **HEAT**：破甲弹（pen 1.5× / dmg 1.0× / speed 0.9× / 精度系数 1.2，noBounce 确定性不跳弹）。
-- **HE**：高爆弹（pen 0.5× / dmg 1.5× / speed 0.8× / 精度系数 1.2，noBounce，splashRadius=90px，未击穿残余 nonPenRatio=0.6，地板 25%）。
-  - HE 击穿与未击穿均触发范围溅射（贴脸50%→边缘衰减到0）；未击穿走残余爆轰分支（地板 25%）。
-  - HE 破障（A3）：HE 销毁时对落点半径 24px 内可破坏掩体造成 1 点独立破坏伤（与 90px 坦克溅射两套并存）。
-  - 特效对齐约定：爆轰视觉特效半径与逻辑 splashRadius 严格一致，杜绝视觉误导。
-- **更多升级演进**（APDS、APFSDS、HEAT-FS、T-HEAT、HT-HEAT、APHE、HESH、HE-VT、HE-OP 等）全面继承 `RULES.ammoTypes` 对应数值矩阵，全部使用规范军事缩写。
+唯一数据源：`RULES.ammoTypes`（`js/tank_rules.js`，机制参数唯一配置源）。逐弹种数值（穿深/伤害/弹速/弹药架与模块倍率/跳弹角/精度系数/未击穿）**以 §3.2 数值总表为唯一口径**，本节不再重复罗列；升级链见 §3.1，平衡回归见 §3.3。
+
+- **HE 机制细节**（总表之外的行为差异，唯一需单列的弹种）：击穿与未击穿均触发范围溅射（splashRadius=90px，贴脸 50% → 边缘衰减到 0）；未击穿走残余爆轰分支（地板 25%，公式见 §3.2）。HE 破障（A3）：HE 弹销毁时对落点半径 24px 内可破坏掩体造成 1 点独立破坏伤（与 90px 坦克溅射两套并存）。特效对齐约定：爆轰视觉特效半径与逻辑 splashRadius 严格一致，杜绝视觉误导。
+- **命名规范**：升级演进弹种（APDS、APFSDS、HEAT-FS、T-HEAT、HT-HEAT、APHE、HESH、HE-VT、HE-OP 等）全面继承 `RULES.ammoTypes` 对应数值矩阵，全部使用规范军事缩写。
 - **2026-09-14 定案：HEC 弹种移除**——`RULES.ammoTypes` 现 14 键（ap/apcr/apds/apfsds/apfsds_ad/he/heat/heatfs/tandem_heat/heavy_tandem_heat/aphe/hesh/proximity_he/blast_he）。**2026-09-15 用户裁定：主武器曲射机制移除**（howitzer 主武器类型删除，主炮一律平射直线弹道）；曲射/越障由副武器迫击炮承担（mortar `isArc` + `ignoreCover`，见 cards.md §8.3 与 DEVELOPMENT.md §4.13）。
+
+### 3.1 弹种升级链（14 键 = 14 弹种；HEC 已移除）
+
+> 链内为**升级替换**：升级卡把 loadout 槽内直系前驱弹种原地替换；**禁止跳级**（前驱未持有则不变）。HE 线不再 he 处多向分岔，而是 he 作为分支点形成两条线性链——首张 heat 或 aphe 卡「先新增」（保留 he，占第 3 槽，槽位 <3）；其后同分支/他分支再抽则「替换 he 槽」——heat 与 aphe 得以并存；KE 链与 HEAT 链各为一条线性替换链。（2026-09-13 定案 + 2026-09-15 用户修订；曲射/越障由武器层承担。）
+
+| 链 | 序列 |
+|---|---|
+| KE 穿甲链 | ap → apcr → apds → apfsds → apfsds_ad |
+| HEAT 破甲链 | he → heat → heatfs → tandem_heat → heavy_tandem_heat |
+| HE 榴弹链 | he → aphe → hesh → proximity_he → blast_he |
+
+- `RULES.ammoChain`（key→前驱）为升级替换唯一链源（`js/tank_rules.js`）；`computeAmmoConfig` add pass 按 base 倍率换算（+10mm × apds 1.4 = +14mm）。
+- 卡牌通道运行时硬限（W5）：卡牌 modifiers 聚合后装填 ≥ `parameterLimits.reload.min`、极速 ≤ `parameterLimits.maxSpeed.max`（见 §3 卡牌硬限与 cards.md §3）。
+
+### 3.2 弹种数值总表（用户 2026-09-13 权威表，已落地 `RULES.ammoTypes` per-ammo 字段）
+
+| 弹种（key） | 穿深 | 伤害 | 弹速 | 弹药架倍率 | 成员模块倍率 | 模块抽取 | 跳弹角 | 精度系数 | 未击穿 |
+|---|---|---|---|---|---|---|---|---|---|
+| ap | 1.0 | 1.0 | 1.0 | 2 | 1.5 | 1 | 70 | 1.0 | 0 |
+| apcr | 1.2 | 1.0 | 1.2 | 2 | 1.5 | 1 | 65 | 1.0 | 0 |
+| apds | 1.4 | 1.2 | 1.4 | 2 | 2 | 2 | 75 | 0.9 | 0 |
+| apfsds | 1.8 | 1.2 | 1.8 | 2.5 | 2 | 2 | 85 | 0.8 | 0 |
+| apfsds-ad | 2.0 | 1.4 | 1.8 | 2.5 | 2 | 2 | 87 | 0.7 | 0 |
+| he | 0.5 | 1.5 | 0.8 | 3 | 2 | 3 | 90 | 1.2 | dmg×(effPen/eff)×0.6 |
+| heat | 1.5 | 1.0 | 0.9 | 2 | 1.5 | 1 | 87 | 1.2 | 0 |
+| heatfs | 1.75 | 1.0 | 1.2 | 2 | 1.5 | 1 | 87 | 1.1 | 0 |
+| T-HEAT（tandem_heat） | 2.0 | 1.2 | 1.2 | 2 | 1.5 | 2 | 87 | 1.05 | 0 |
+| HT-HEAT（heavy_tandem_heat） | 2.0 | 1.4 | 1.2 | 2.5 | 2 | 2 | 87 | 1.1 | 0 |
+| aphe | 1.1 | 1.2 | 1.0 | 2 | 1.5 | 2 | 70 | 1.1 | 0 |
+| hesh | 0.7 | 1.5 | 0.8 | 2 | 1.8 | 2 | 90 | 1.1 | ×0.8 |
+| HE-VT（proximity_he） | 0.9 | 1.5 | 0.9 | 2.5 | 2 | 2 | 90 | 1.1 | ×0.8，接近率引信 |
+| HE-OP（blast_he） | 0.8 | 1.8 | 0.9 | 3 | 2 | 3 | 90 | 1.1 | ×0.8 |
+
+- 未击穿公式：`dmg × (1−(eff−pen)/eff) × 系数` = `dmg × (effPen/eff) × nonPenRatio`，地板 0.25；KE 家族（0）无残余。
+- 跳弹角 per-ammo（`ammoBounceAngle`，°）：θ>该值跳弹；90° = 不可能跳弹；noBounce 弹种（heat 系/HE 系）完全不跳弹。
+- 近炸引信（proximity_he，用户定案=**接近率基准**）：弹道不命中目标时，对最近敌目标计算径向接近率；**接近率由正转负（开始远离）瞬间空爆**，按 splashRadius 溅射。已落地 `stepShells`（`RULES.proximityFuze`：maxTravel 1400 / armRadius 武装半径 120px / 最小起爆距离 40px）。**#A27 修复（2026-09-15）**：近炸分支须先执行飞行推进（`s.x/s.y/s.dist+=step` + 射程/出界死亡判定）再判引信——此前近炸分支从不推进弹体，导致 HE-VT 原地静止不飞。
+
+### 3.3 平衡性回归（`scripts/test-ammo-balance.js`，接入 npm test）
+
+真实 `resolveHit` 蒙特卡洛（全弹种 × 4 装甲级 × 3 入射角 × 3 目标速度 × 400 发，基准炮 pen120/dmg100/reload3s），同档弹种集合内中位数偏差 >25% 警告、「完全无效」单独报告。首轮平衡结论（2026-09-13）已按用户裁定全部落地：APHE pen 0.9→1.1（中型档可击穿）、HEAT-FS pen 1.5→1.75（与 heat 拉开 +16% 步幅）、HESH/HE 家族重型档偏弱与链条顶端无效经第二批补测裁定**维持**（距离本身就是平衡维；超重档打不穿为设计预期「不怕打不穿，卡牌升穿深」）。历史裁定过程见 `docs/archive/2026-09.md`。
 
 ## 4. 战术能力、副武器与主动装备 (Abilities & Secondary Weapons)
 统一入口 `tryActivateAbility` + 武器系统 `tank_weapons.js`
-- **副武器系统（F 键切换主/副武器；左键/空格按激活槽位手动击发；2026-09-15 #A21 修订）**：
+- **副武器系统（F 键直接击发副武器；左键/空格=主炮专属；2026-09-17 #C4e 用户裁定反转，取代 #A21 激活槽位分发）**：
   - 副武器**单槽**（`player.weapons.secondary`；单槽不变量见 #A22 / DEVELOPMENT.md §4.16）。
-  - `F` 键（`switchWeapon`）在主炮 / 副武器间切换（`player.activeWeaponSlot: 'primary'|'secondary'`，新局复位为主炮）；**左键 / 空格按激活槽位分发**（`tryFireWeaponSlot`）——primary → 主炮 `tryFire`，secondary → `fireActiveSecondary(target=鼠标世界点)` 手动击发；`primary` 空格为双管齐射（salvo）。
-  - **例外**：副武器类型为 `turret`（副炮塔）时不响应点击（自瞄，由主循环 `updateSecondaryWeapon` 逐帧驱动）；副武器为 `none`/未装时点击回退主炮路径。
-  - 切回主炮时副武器装填计时继续递减（不再「激活即自动运作」）。
+  - `F` 键（`fireSecondary`）= **直接击发副武器（按住连发）**，不再承担主/副切换——`activeWeaponSlot` 概念已移除。键位语义：**左键/空格 = 主炮专属**（`tryFirePrimary`，空格为双管齐射 salvo），**F（按住）= 副武器专属**（`tryFireSecondary` → `fireActiveSecondary(target=鼠标世界点)`，目标缺省回退炮塔前方 +100px）；`tank_bindings.js` keydown 屏蔽 `e.repeat` 重复边沿动作。
+  - **例外**：副武器类型为 `turret`（副炮塔）时**装上即由主循环 `updateSecondaryWeapon` 逐帧自主驱动**（自瞄，不响应击发）；副武器为 `none`/未装时 `tryFireSecondary` 返回 false（页面层提示，**不回落主炮**——主炮有专属键位）。
+  - 副武器待机装填计时 `secondaryReloadT` 恒递减（与主炮 reloadT 对称）。
   - **锁定式反坦克导弹**（secondary `missile`）：手动击发沿光标方向直飞（`target=null`，不再自动寻的）；AI/Boss 实体的副武器仍走 `updateSecondaryWeapon` 自主索敌（`updateMissileLock` ±30° 扇形/1.0s 锁定/自动发射；参数 `WEAPON_DEFAULTS.secondary.missile.lockArcDeg=30/lockSeconds=1.0`）。
 - **主动技能快捷键池 (1~3 数字键)**：
-  - 快捷键 1/2/3 动态对应玩家当前装备的主动技能（掩体/炮击/护盾/超装填/无人机指令），按顺序快捷施放。
+  - 快捷键 1/2/3 动态对应玩家当前装备的主动技能（掩体/炮击/护盾/超装填/超级火控/超级速度/无人机指令，2026-09-17 #C4a 起六类运行时技能全部接入 DISPATCH），按顺序快捷施放。
+- **冷却模型（2026-09-17 #C4c 用户裁定「按技能独立冷却」）**：
+  - 运行时能力键（artillery/shield/overdrive/deploy_cover/super_fire_control/super_speed）与 innate 键（repair/medkit/extinguish）统一走**按 key 隔离的独立冷却池 `t.abilityCds[key]`**（互不顶冷却；旧共享单字段 `t.abilityCdT` 废弃，`updateAbilityCd` 仅作兼容助手保留）；逐帧递减 `updateAbilityCds(t, dt)`（mvp 主循环驱动）。
+  - 获得技能/副武器 → `#gainToast` 屏幕一次性提示（不依赖底部按钮显隐，奖励页/战斗页均可见）+ 已有按钮（G/H/V）金色脉冲（#B10 保留）。
 - **独立按键备用**：
   - 战术炮击 (G键)：呼叫延迟 AOE 覆盖（callStrike / updateStrikes）。
   - 战术护盾 (H键 定向 / Shift+H 全向)：累计吸收伤害池（applyShield）。
   - 超装填 (V键)：爆发装填 + 立即清零 reloadT。
+  - **战术掩体**（1~3 技能键）：**炮塔正前方**部署充能掩体（2026-09-17 #C4b 用户裁定——部署方向读 `turretAngle`，距离/长度参数化 `RULES.abilities.deploy_cover.dist=90` / `lenMult=1.6`（掩体 hullLen=车体×1.6，横置 90°））。
+  - **超级火控 / 超级速度**（1~3 技能键）：限时精度/瞄准强化与机动强化（#C4a 起可从技能池激活）。
   - **烟幕弹已移除**（2026-09-15 W2 用户裁定）：`fireSmokeShell`/`tryFireSmoke`/stepShells smoke 分支/烟幕卡（smoke_screen、ability_smoke_dense）整链删除；`tank_cover.js` smokeClouds 动态烟幕基础设施保留备用（当前无生产者）。
 - **无人机体系**：
-  - scout 侦察型：标记视口外敌军位置指示（scoutRange=700px）。
+  - scout 侦察型：标记视口外敌军位置指示（scoutRange=700px）**（当前 gated 暂不加入游戏，见 §5.1）**。
   - striker 打击型：近身环绕索敌开火（strikeRange=260px，fireInterval=2s），不消耗玩家弹药。
   - 上限 countMax=2，超限拒绝部署；owner 阵亡自动移除。
 
@@ -82,7 +123,7 @@
 - **AI tier 分层**：`RULES.ai.tierProfiles` 三档（0 标准 / 1 engageMul1.1+aimTolMul0.8 / 2 再加 stunResist），实体 `aiTier` 注入后由 `aiTierProfile(tier)` 消费；engage 以触发距离比值为难度代理调制。
 - **行为补齐**：patrol 早退分支输出 wander 微摆动（`patrolWanderSigma/Speed` 消费，ctx.time 或本地相位驱动）；新增 `coverSeek` 态——重甲（aiTier≥1 或车体正面≥100mm）且 hp<60% 时撤至半径 500px 内最近 full/half 掩体背弹面（掩心 − 朝玩家单位向量×(半深+40px)），到位 ≤90px 原地还击；`flankDist` 收口 RULES.ai。
 
-### 5.1 战斗机制更新（本轮落地）
+### 5.1 战斗机制更新（2026-08-24 ~ 08-28 批次）
 - 移动与生存：RULES.speed.effMul=1.3 在 driveTank 与碰撞限速两处消费，实际移速×1.3，但面板显示 stats.maxSpeed 不变；玩家经 applyDamage(target,amount) 统一扣血并乘 dmgTakenMul（玩家=0.85，更肉），面板 HP/装甲数值不变。
 - 炮弹与掩体：修复半高掩体曝光 bug——shell 在 exposure<1 时于掩体处被拦截，不再必然命中后方敌人；mud/water 为 mode:'pass' 飞越（不触发命中）。graduated 掩体入口缓存判决（s.dec）后，结算分支带剩余距离门控——未飞抵 dec.t 前继续正常飞行积分，飞抵当帧才结算；实体直接命中优先（2026-08-26，原 ISSUES #A8 修复定案）。
 - **半高掩体低生效定案（2026-08-28，原 ISSUES #A9 评估）**：三条件互斥分析属实，但 D5 半高禁令（`generateNode` 跳过 `'half'` tier，`test-nodegen-snapshot.js` 断言 halfViolations=0）已从源头中和「实战低生效」；#A8 瞬移修复也使反向意见前提（先修 A8 再观察）达成，而全程无 half 生成故无可观测数据。**彻底剥离 half 子系统延后（D5 裁定，待游玩测试）**——`ruined` 残破建筑共享 `exposureProfile:'half'`+`shellBlock:'grad'`（`tank_rules.js:109`），剥离须同步裁定 ruined 归属，非死代码不可盲删。
@@ -113,7 +154,8 @@
 - **开火后坐与装填/底部 HUD（2026-08-28 落地；2026-09-15 W2 更新键位）**：
   - **开火后坐回弹**：`fireTank` 成功开火分支写 `shooter.recoilT = 0.08`（被掩体阻挡分支不写；2026-09-15 W2 后烟幕弹已删除，`fireSmokeShell` 不再存在）；主循环 player 与非玩家实体各自递减 `recoilT`（沿用 reloadT 递减模式）。`drawTank` 炮管段按 `sin(π·recoilT/0.08)` 生成出击-回弹位移，仅把视觉炮管 baseX/baseY 沿炮管反向平移（炮盾/护套/制退器随 baseX/baseY 自然跟随），**不改 gunRoot()/gunTip() 判定坐标**；位移量随口径 `barrelWid/18` 轻微缩放。
   - **装填进度环形化**：废除原屏幕底部横向装填条（`#reloadWrap` 的 `#reloadTrack/#reloadFill`），改为 `drawReloadRing(ctx)` 贴炮口 `gunTip(player)` 世界坐标的环形弧（世界坐标经 `worldToScreen`，半径固定 13px），从 -90° 顺时针扫 360°×进度，**满值(≥1)即消失**（仅战斗态、装填中、玩家存活时绘制），挂入战斗绘制循环（drawDrones 后、烟幕云前）。**2026-09-15 W6：主武器 autocannon 时该环改为热量表**——弧长 = heatPct/100，三态配色 绿 <50% / 黄 50–<100% / 红 ≥100%（过热锁定期间红色闪烁）；冷却由 `updatePrimaryHeat` 逐帧驱动，热量归零后环消失（详见 cards.md §8.3）。
-  - **底部常显 HUD**：新增 `#bottomHud`（战斗态门控 `flow.state==='battle'`）——常显玩家血条 `#playerHpTrack/Fill/Val`（同 updateStatusPanel 口径）+ 能力按钮行 `#abilityBtns`：↻弹种循环(cycleAmmo)/**F 切换主/副武器(toggleWeaponSlot，2026-09-15 W2 取代烟幕)**/G 炮击/H 护盾全向/V 超装填/4 修理箱/5 医疗包，`updateBottomHud()`（挂入 updateHud）刷新冷却角标——G/H/V 读共享 `abilityCdT`、4/5 读独立 `abilityCds.repair/medkit`，冷却中置灰+角标秒数。纯 UI 薄包装接线，能力逻辑仍走既有 tryActivateAbility/tryRepairKit/tryMedkit。
+  - **底部常显 HUD**：新增 `#bottomHud`（战斗态门控 `flow.state==='battle'`）——常显玩家血条 `#playerHpTrack/Fill/Val`（同 updateStatusPanel 口径）+ 能力按钮行 `#abilityBtns`：↻弹种循环(cycleAmmo)/**F 副武器击发（2026-09-17 #C4e 语义反转，取代 toggleWeaponSlot；图标随武器类型切换 + `#cdF` 装填角标）**/G 炮击/H 护盾（按钮=全向；键盘 H=定向、Shift+H=全向）/V 超装填/4 修理箱/5 医疗包/6 灭火器，`updateBottomHud()`（挂入 updateHud）刷新冷却角标——G/H/V 与 F **按技能独立冷却** `t.abilityCds[key]`（#C4c；F 角标显示 `secondaryReloadT` 装填剩余），冷却中置灰+角标秒数。纯 UI 薄包装接线，能力逻辑仍走既有 tryActivateAbility/tryRepairKit/tryMedkit/tryExtinguish。
+
 ## 7. 音频与声效表现规范 (Audio Visual Standards)
 
 - **声音总线与并发管理 (Busses & Concurrency)**：

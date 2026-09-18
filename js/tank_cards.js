@@ -223,13 +223,26 @@ function applyCardEffects(tank, card, ctx) {
           // secondary：统一 weapons.secondary 单槽
           if (!tank.weapons.secondary) tank.weapons.secondary = { type: 'none', stats: {} };
           if (action === 'install') {
-            // 仅当 secondary.type==='none'/'undefined' 时写入；槽已有其他类型 → no-op（effect 仍入 cardEffects）
-            if (wType && (tank.weapons.secondary.type === 'none' || tank.weapons.secondary.type === undefined)) {
-              const defStats = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults('secondary', wType) : {};
+            // #B8（2026-09-16 用户裁定）：副武器安装卡**替换**已装副武器——非同型（含 none）
+            // 直接覆盖写入（旧武器的升级卡效果挂在 cardEffects 内按类型判定，替换后自动失格，
+            // 旧 upgrade 卡的 cardEffects 条目保留不清，见 cardEligible upgrade 分支的动态判定）；
+            // 同型重复 install → 幂等 no-op（防同一张卡重复应用时重置装填/规格缓存）。
+            const curType = tank.weapons.secondary.type;
+            if (wType && (curType === 'none' || curType === undefined || curType !== wType)) {
+              // getWeaponDefaults 惰性取值：浏览器 = tank_weapons.js 先行加载的全局；
+              // Node = require 兜底（tank_fire.js/tank_abilities.js 同款惯例）
+              let getWD = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults : null;
+              if (!getWD && typeof require !== 'undefined') {
+                try { getWD = require('./tank_weapons.js').getWeaponDefaults; } catch (e) { getWD = null; }
+              }
+              const defStats = getWD ? getWD('secondary', wType) : {};
               tank.weapons.secondary = {
                 type: wType,
                 stats: Object.assign({}, defStats, ef.statOverrides || {})
               };
+              if (typeof tank.secondaryReloadT === 'number') tank.secondaryReloadT = 0;   // 换装后装填立即就绪
+              // 换装清理：锁定状态（missile）与旧武器派生状态一并复位
+              tank._missileLock = null;
             }
           } else if (action === 'upgrade') {
             // 仅当 secondary.type===wType 时合并 statOverrides；type 不匹配 → no-op
@@ -363,7 +376,8 @@ function computeAmmoConfig(shooter, ammoKey) {
 //   缺 primaryWeapon 时当 'standard'，缺 secondaryWeapon 时当 undefined。
 // 规则：
 //   - weapon 效果 action install: primary → eligible if (owned.primaryWeapon||'standard') !== weaponType；
-//     secondary → eligible if !owned.secondaryWeapon || owned.secondaryWeapon==='none'；
+//     secondary → eligible if owned.secondaryWeapon !== weaponType（#B8：非同型=替换资格，none=正常安装，
+//     同型重复=拒绝）；
 //     action upgrade: primary → eligible if (owned.primaryWeapon||'standard') === weaponType；
 //     secondary → eligible if owned.secondaryWeapon === weaponType；
 //     任一 weapon 效果 ineligible → 卡牌 ineligible。
@@ -400,7 +414,9 @@ function cardEligible(card, owned) {
         }
       } else if (slot === 'secondary') {
         if (action === 'install') {
-          if (secondaryW && secondaryW !== 'none') return false;
+          // #B8（2026-09-16 用户裁定）：非同型 = 替换资格（放行）；同型重复 = 拒绝（幂等无意义）。
+          // none/未装 → 正常安装资格。
+          if (secondaryW === wType) return false;
         } else if (action === 'upgrade') {
           if (secondaryW !== wType) return false;
         }
@@ -484,6 +500,16 @@ function drawCardChoices(pool, n, optsOrRng) {
       const j = firstIdxWhere(c => (c.effects || []).some(ef => ef && ef.type === 'weapon' && (ef.slot || 'secondary') === 'secondary'));
       if (j >= 0 && picked.length < count) pickCardAt(j);
     }
+  }
+  // #C3（2026-09-17 用户裁定「升级卡加权/保底」路线）：弹种升级卡保底——当候选池中存在
+  // 「replaceAmmo 链前驱已在 loadout 中」的弹种升级卡（即本回合可解锁/升级的新弹种）时，
+  // 先保底抽 1 张进候选。背景：参数强化卡大量落在 common（最高权重桶），而升级卡最低 rare
+  // 起步、深层链更是 epic/legendary——同池概率长期被压制（ISSUES #C3 核实）。装备优先保底
+  // （ability/副武器）语义不变、优先级更高（先判再判弹种保底）。
+  if (ammoLoadout) {
+    const upIdx = firstIdxWhere(c => (c.effects || []).some(ef =>
+      ef && ef.type === 'ammo' && ef.replaceAmmo && !ammoLoadout.includes(ef.key)));
+    if (upIdx >= 0 && picked.length < count) pickCardAt(upIdx);
   }
   while (picked.length < count && usable.length > 0) {
     // 权重抽样：先按稀有度权重选稀有度，再在该稀有度内随机取一张

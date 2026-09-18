@@ -90,14 +90,15 @@ declare function updateSecondaryTurret(t: any, dt: number, ctx?: any): boolean;
 declare function updateSecondaryMount(t: any, dt: number, ctx?: any): boolean;
 declare function updateSecondaryWeapon(t: any, dt: number, ctx?: any): boolean;
 declare function fireActiveSecondary(t: any, ctx?: any, targetPos?: any): boolean;
-declare function tryFireWeaponSlot(ctx?: any, salvo?: boolean): boolean;   // #A21：F 切换后左键/空格按激活槽位分发
+declare function tryFirePrimary(ctx?: any, salvo?: boolean): boolean;     // #C4e：左键/空格=主炮专属
+declare function tryFireSecondary(ctx?: any): boolean;                    // #C4e：F=副武器击发（按住连发）
 declare function primaryWeaponSpec(shooter: any): any;
 declare function firePrimaryShell(shooter: any, target: any, hitPref: any, ctx?: any, lateralOffsetPx?: number): any;
 declare function updatePrimaryHeat(t: any, dt: number): boolean;   // 2026-09-15 W6：autocannon 热量冷却（替代 updatePrimaryBurst）
 declare function fireDoubleBarrel(shooter: any, target: any, hitPref: any, ctx?: any, spec?: any, salvo?: boolean): any;
 declare function updatePrimaryBarrels(t: any, dt: number): boolean;
 declare function updateMissileLock(t: any, dt: number, ctx?: any): boolean;
-declare function toggleWeaponSlot(): void;
+// #C4e：toggleWeaponSlot 已随 activeWeaponSlot 概念移除（F 直接击发副武器）
 
 // #A24 面板分层（tank_panels_core.js / tank_panels_dom.js / tank_panels.js 门面 → 全局脚本）
 declare function makeLogSink(el: any): { clear(): void, push(text: string, cls?: string): void };

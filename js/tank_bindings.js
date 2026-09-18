@@ -32,7 +32,7 @@
     fire: ' ',
     ammoNext: 'e', ammoPrev: 'q',
     skill1: '1', skill2: '2', skill3: '3',
-    switchWeapon: 'f',
+    fireSecondary: 'f',   // #C4e（2026-09-17）：F=直接击发副武器（按住连发），不再切换主/副（旧 switchWeapon 反转）
     abilityStrike: 'g', abilityShield: 'h', abilityOverdrive: 'v',
     supportRepair: '4', supportMedkit: '5', supportExtinguish: '6',
     panelStatus: 'tab', panelDev: '`', panelDevAlt: 'f12',
@@ -43,10 +43,10 @@
   var ACTION_INFO = {
     move: { keys: 'W / A / S / D', desc: '驾驶（前进 / 转向 / 后退）' },
     altMove: { keys: '↑ / ← / ↓ / →', desc: '方向键驾驶（测试台专用）' },
-    fire: { keys: '空格 / 鼠标左键', desc: '开火（主炮或激活的副武器）' },
+    fire: { keys: '空格 / 鼠标左键', desc: '主炮开火（空格=双管齐射）' },
     ammoCycle: { keys: 'E / Q', desc: '环形切换弹种（下一个 / 上一个）' },
     skillPool: { keys: '1 / 2 / 3', desc: '主动技能池（对应已装备技能 1~3）' },
-    switchWeapon: { keys: 'F', desc: '切换主炮 / 副武器（左键/空格击发激活武器）' },
+    fireSecondary: { keys: 'F（按住）', desc: '副武器击发（按住连发；主炮=左键/空格）' },
     abilityStrike: { keys: 'G', desc: '战术炮击（鼠标指向落点）' },
     abilityShield: { keys: 'H / Shift+H', desc: '护盾（定向 / 全向）' },
     abilityOverdrive: { keys: 'V', desc: '超级装填（爆发装填）' },
@@ -60,7 +60,7 @@
 
   // 说明行规范顺序（describeBindings 按此输出）。
   var ACTION_ORDER = ['move', 'altMove', 'fire', 'ammoCycle', 'skillPool',
-    'switchWeapon', 'abilityStrike', 'abilityShield', 'abilityOverdrive',
+    'fireSecondary', 'abilityStrike', 'abilityShield', 'abilityOverdrive',
     'supportRepair', 'supportMedkit', 'supportExtinguish',
     'panelStatus', 'panelDev', 'pauseToggle'];
 
@@ -108,7 +108,9 @@
       var allowed = gate(action || null);
       if (!allowed) return;   // 门控拒绝（如局外菜单）：不登记按键、不触发动作（与旧 mvp 语义一致，防按键卡死）
       if (k) keys[k] = true;
-      if (action) edgeActions[action]();
+      // #C4e：长按系统自动重复（e.repeat）不重复触发边沿动作（此前 F 切换语义下
+      // 按住 F 会因自动重复快速来回翻转；现为按住连发语义，边沿动作仅需 keydown 首发一次）
+      if (action && !(e && e.repeat)) edgeActions[action]();
       if (preventSet[k]) e.preventDefault();
     }
     function onKeyUp(e) {
