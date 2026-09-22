@@ -39,6 +39,7 @@
   - `tank_assets.js` / `tank_audio.js`：贴图资产层（ASSET_DEFS + 离屏烘焙缓存） / 声音系统（SOUND_DEFS + 惰性 AudioContext，全合成零资产）。
   - `tank_bindings.js`：**键位唯一数据源**（KEY_BINDINGS/ACTION_INFO + createInputController 统一 keydown/keyup + describeBindings + loadSettings/saveSettings）。
   - `tank_panels_core.js` / `tank_panels_dom.js` / `tank_panels.js`：面板分层（纯核心 + 卡牌事务 snapshotCardTx/rollbackCardTx + parameterClamp / DOM 适配 / 门面）。
+  - `tank_devpanel.js`：开发者面板共享模块（`mountDevPanel(host)` 动态构建四 Tab devPanel——实时/卡牌/参数/开关，mvp 与 bench **两页同源**；页面能力经 host 注入：getPlayer/getCardPool/getCtx/cardClick/cheatsInit/onCheatChange/liveData/extraSwitchHTML/hideSolutionSection 等；#F 2026-09-20 抽离，原 mvp 内联面板与 bench 旧 `#benchPanel` 已移除）。
   - `tank_sim.js`：回放代理玩家 harness（仅测试链使用，不影响正式游戏）。
   - `tank_halfgeom.js` / `tank_move.js` / `tank_listio.js` / `tank_presets.js` / `tank_schema.js` / `tank_screens.js`：半侧对称几何+normalizeBarrel / 统一运动 driveTank / tanks/ 读写 / 炮管炮盾预设 / 字段架构表 / 覆盖层 UI 纯逻辑视图模型。
 
@@ -93,7 +94,7 @@
   - `http://127.0.0.1:8000/tank_mvp.html`（正式游戏）/ `tank_bench.html`（装甲测试台）
   - `http://127.0.0.1:8000/tank_designer.html`
   - `http://127.0.0.1:8000/tank_compare.html`
-- 校验：`npm run check` —— 对共享模块、`server.js` 及五个页面的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器冒烟（需系统 Edge，playwright-core 无头）。三者都应全绿。
+- 校验：`npm run check` —— 对共享模块、`server.js` 及五个页面的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器冒烟四链（smoke / r3 / run / r4，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）。三者都应全绿。
 
 ### 3.2 测试坦克战斗
 
@@ -122,7 +123,7 @@
 ## 4. 架构要点
 
 - **节点式地图**：游戏是节点式地图推进，不是无限波次。每个节点是独立、有边界的战场（详见 `docs/specs/map.md` §1）。
-- **主副武器与主动技能**：坦克配置为 `weapons.primary` + `weapons.secondary` 单副武器槽；**左键/空格 = 主炮专属（`tryFirePrimary`，空格齐射）、`F`（按住连发）= 副武器击发（`tryFireSecondary`）**——2026-09-17 #C4e 起取消主/副切换（`activeWeaponSlot` 已移除）；主动技能/装备**按 key 独立冷却**（`abilityCds[key]`，含 innate 修理箱/医疗包/灭火器）（详见 `docs/specs/combat.md` §4）。
+- **主副武器与主动技能**：坦克配置为 `weapons.primary` + `weapons.secondary` 单副武器槽；**左键/空格 = 主炮专属（`tryFirePrimary`，空格齐射）、`F`（按住连发）= 副武器击发（`tryFireSecondary`）**——2026-09-17 #C4e 起取消主/副切换（`activeWeaponSlot` 已移除）；**开关类副武器（`missile` 激活/取消、`mine_layer` 预形态/确认）的 F 一律走原生 `keydown` 边沿**，不得由主循环逐帧轮询（会每帧翻转，见 `docs/specs/combat.md` §8.2「开关类副武器 F 边沿口径」）；主动技能/装备**按 key 独立冷却**（`abilityCds[key]`，含 innate 修理箱/医疗包/灭火器）（详见 `docs/specs/combat.md` §4）。
 - **召唤与部署**：固定炮塔/地雷/战术掩体/无人机注册进 `deployables`/`drones`，Boss summons 走同一敌对 AI（详见 `docs/specs/combat.md` §4）。
 - **跳弹**：各弹种独立跳弹角（per-ammo `ammoBounceAngle`，65°~90°，AP 基准 >70°；noBounce 弹种如 HEAT/HE 系完全不跳弹；数值唯一口径 `docs/specs/combat.md` §3.2）。炮弹跳弹后沿命中面法线方向真实反射，可能造成二次命中；**二次跳弹不允许**。
 - **掩体与地形系统**（现行值以 `docs/specs/map.md` §5.2 为准）：
@@ -138,6 +139,6 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`（§1 待办总览 / §2 非阻塞遗留 / §3 开发者面板方案 / §4 反馈批次完成情况）。
-- **待处理问题**：见 `docs/ISSUES.md`（现存 #C5：mvp⇄bench UI/按键统一 + 开发者面板细化）。
+- **待办与排期**：见 `docs/PLAN.md`（§1 待办总览 / §2 非阻塞遗留（难度联动、HUD 渲染级合并）/ §3 反馈批次完成情况）。
+- **待处理问题**：见 `docs/ISSUES.md`（当前无存量条目；历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。
