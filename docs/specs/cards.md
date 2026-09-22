@@ -34,15 +34,15 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
    - **mode:'add' = 乘算后毫米追加**（2026-08-26，原 ISSUES #A13 修复定案）：最终属性 = base × mult聚合 + Σadd，value 按**字段自然单位**计——pen=mm / dmg=伤害值 / speed=px/s（如「APCR穿深+14mm」即最终穿深加 14mm，而非倍率刻度 +14）。
    - `computeAmmoConfig` 将 Σadd 输出为独立的 `fieldAdd` 字段存放，由消费方（fireTank/computeAmmoConfig 合成端）在乘算聚合之后合成，杜绝把 mm 追加混入倍率刻度。
    - 软上限 `ammoTypeCap` 作用于**最终等效值**且仅钳 HE（AP/APCR/HEAT 不受限）。（接入点见 `js/tank_rules.js` 的 `RULES.ammoTypeCap`）
-3. **ability**：主动装置 {key}，key ∈ `ABILITY_KEYS_RUNTIME`（artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / recon；G/H/V 等按键触发，P-17 接入。smoke 键已于 2026-09-15 W2 随烟幕整链删除）。
-4. **passive**：机制性被动 {key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}。
+3. **ability**：主动装置 {key}，key ∈ `ABILITY_KEYS_RUNTIME`（artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / recon / **aps**；G/H/V 等按键触发，P-17 接入。smoke 键已于 2026-09-15 W2 随烟幕整链删除；`aps`（主动防御系统）为 2026-09-21 #G9 新增，经 1~3 号技能键触发）。`validateCard` 的 `ABILITY_KEYS` 白名单同步包含 innate 键 repair/medkit/extinguish 与全部 runtime 键。
+4. **passive**：机制性被动 {key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}。`commander_sight`（车长潜望镜 rare +15% / 车长观瞄镜 epic +25%）消费点=mvp 视野半径（`entityHiddenByVision`/`visionRadiusEff`，见 combat.md §4.1；2026-09-19 #D2 接线前为死效果）。
 5. **drone**：伴随浮游炮 {kind:'scout'|'striker'}（countMax=2 上限）。
 6. **economy**：{field:'scoreMul'|'shopDiscount'|'startScore'|'reviveCount', value}（运行时消费待接线）。
 
 ## 4. 稀有度分层与流派
-- CARD_RARITIES：common / rare / epic / legendary 四档。
+- CARD_RARITIES（**2026-09-20 #E13 起五档**）：common / rare / epic / legendary / **mythic（神话）**——新增最高档，序号即强度序；抽取权重 `common 50 / rare 30 / epic 15 / legendary 4.5 / mythic 0.5`；Boss 掉落白名单 `LOOT_RARITIES`（tank_boss.js）同步五档；HUD 标签新增「神话」。
 - CARD_TAGS 流派标签：重甲/机动/狙击/支援等，供 drawCardChoices 构筑导向抽卡。
-- 当前分布（2026-09-17 audit-content 实测）：169 张卡——common 61（36.1%）/ rare 55（32.5%）/ epic 37（21.9%）/ legendary 16（9.5%）。
+- 当前分布（2026-09-17 audit-content 实测；**该快照早于 mythic 档与 #E13 稀有度调整**）：169 张卡——common 61（36.1%）/ rare 55（32.5%）/ epic 37（21.9%）/ legendary 16（9.5%）。#E13 后「交替装填系统」由 legendary 升为 mythic；`weapon_primary_double_barrel` 由 epic 调整为 epic（描述重写）。
 - 效果类型分布（效果数）：modifier 128 / ammo 32 / weapon 14 / ability 16 / passive 8 / economy 5 / drone 2。
 - 最新数字以 `node scripts/audit-content.js` 输出为准（本节为快照，卡池随批次增长会过期）。
 
@@ -93,17 +93,22 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 - 已生成 `cards/hull_hp_boost_1~4` / `hull_armor_front_1~2` / `hull_armor_all_3` / `reload_speed_1~4` / `aim_speed_1~4` / `engine_power_1~4`。
 
 ### 8.3 机制卡定案 ✅ Schema 已实现 + 阶段七运行时与卡牌已落地（2026-09-13）
-- **主武器双管**（2026-09-15 W4 重做，`WEAPON_DEFAULTS.double_barrel`: reloadMult ×1.0/管, count 2, switchSeconds 0.5, barrelOffset 0.9）：
-  - epic 安装卡：primary → double_barrel（`cards/weapon_primary_double_barrel`）——炮盾并排 2 炮管渲染（`tank_battledraw.js`，偏移与弹道横向偏移同源），每管独立装填 ×1.0，单击发射 1 根已装填管，空格齐射全部就绪管，换管 0.5s；
+- **主武器双管**（**2026-09-20 #E13 用户裁定重做**，`WEAPON_DEFAULTS.double_barrel`: reloadMult ×1.0/管, count 2, switchSeconds 0.5, barrelOffset **1.85**, altReload false）：
+  - epic 安装卡：primary → double_barrel（`cards/weapon_primary_double_barrel`）——炮盾并排 2 炮管渲染（`tank_battledraw.js`，两根炮管**各自**绘制护套/制退器/抽烟器；偏移与弹道横向偏移同源）；装填时间为**单管**时间，两管**顺序流水线**装填（一个装填时间只装好一根 → 「+5s 第 1 管可单发 / +10s 第 2 管可齐射」）；单击（鼠标）发射 1 根已装填管，空格齐射（仅两管都就绪）；**默认两管装填进度互相干涉**（任一击发 → 两管进度归零）；HUD 显示两根炮管各自的独立进度弧；开火火光 ×1.7 + 音效增益 ×1.6；
   - rare「同步击发」：switchSeconds 0.5→0.1（`cards/weapon_primary_sync_fire`）；
-  - legendary「交替装填」：单管装填 reloadMult ×1.0→×0.8（`cards/weapon_primary_alt_reload`）；
+  - **mythic「交替装填系统」**（2026-09-19 #D3 重定义；**2026-09-20 #E13 升为神话档并解除进度干涉**）：`altReload:true` —— 击发一管**不影响**另一根炮管已累计的装填进度（「+6s 发射时另一管仍是 +1s 进度」）+ 换管间隔 switchSeconds 0.5→0.05 + 单管装填 reloadMult ×1.0→×0.9（`cards/weapon_primary_alt_reload`）；
   - **autocannon 线（2026-09-15 W6 用户裁定重做）**：epic 安装卡 `weapon_primary_autocannon`——伤害=标准 1/5（damageMult 0.2）、穿深=标准 85%（penMult 0.85，弹种系数机制不变）、射击间隔=装填时间×0.25（reloadMult 0.25）；热量机制：每发 +heatPerShot 10%、每秒冷却 coolPerSec 15%、≥heatMax 100% 过热并锁定 overheatLock 2s（`updatePrimaryHeat` 逐帧驱动冷却，`fireTank` 门控过热期开火；旧 burst 连发路径整体删除）；外观：炮管更细（barrelWidthMult 0.6）略短（barrelLenMult 0.8）、不绘护套/制退器/抽烟器、炮口特效与弹体随 fxScale 0.55 缩小（`tank_battledraw.js` 消费）；玩家装填环改热量表（绿 <50% / 黄 50–<100% / 红 ≥100%，锁定红色闪烁）；
   - rare「机炮散热强化」：coolPerSec 15→22（`cards/weapon_primary_burst_tune` 改语义，id 不变保卡池计数）；
-  - 主武器运行时（`fireTank` 消费倍率；双管走 `fireDoubleBarrel`/`updatePrimaryBarrels` 状态机——`_dbState{ready[],reloadT[]}` 每管独立装填，旧 stagger/count 连发路径已删除；autocannon 改逐发短间隔 + 热量机制 `updatePrimaryHeat`，burst 连发已删除）2026-09-15 W4/W6 已落地（DEVELOPMENT.md §4.15）。
+  - 主武器运行时（`fireTank` 消费倍率；双管走 `fireDoubleBarrel`/`updatePrimaryBarrels` 状态机——**`_dbState{count, ready[], loadT[], loader, altReload}`** 顺序流水线装填 + 干涉开关，旧 `reloadT[]` 独立并行装填语义已废弃；autocannon 改逐发短间隔 + 热量机制 `updatePrimaryHeat`，burst 连发已删除）。细则归口 `docs/specs/combat.md` §8.5。
+- **可部署物数量升级卡（#E4，2026-09-20）**：`ability_deploy_cover_fortified`（便携掩体上限 +1）、`weapon_secondary_mine_upgrade`（地雷上限 +1）——数量加成经 `RULES.abilities.deploy_limits.upgradeCards` 按持有卡累计到 `player.deployBonus`，超限时最早部署的可部署物直接消失。细则归口 `docs/specs/combat.md` §8.1。
 - **曲射**：mortar aoe 90→120 / reload 8→6.5 分两卡。**2026-09-14 定案**：独立 HEC 弹种已移除（`RULES.ammoTypes` 删 `hec`、`cards/hec_curvature_shell.json` 删除）。**2026-09-15 用户裁定：主武器曲射机制移除**——`weapon_primary_howitzer` 卡与 `WEAPON_DEFAULTS.primary.howitzer` 删除、`RULES.weaponTypes.primary`/`WEAPON_PRIMARY_TYPES` 白名单同步剔除，主炮一律平射直线弹道（firePrimaryShell 的 isArc 落点块删除，stepShells isArc 分支仅服务副武器迫击炮弹）；曲射/越障由**副武器层**承担：mortar 弹药 `ignoreCover:true` + `isArc` 落点（见 §8.3 副武器安装与 DEVELOPMENT.md §4.13）。HE 系链上代表升级卡为 `cards/ammo_upgrade_blast_he`（**终结点**，前驱 `proximity_he`，HE-OP 超压榴弹，溅射向）。
 - **弹药升级**：走现有 `ammo` effect 通道（mult 聚合 + mm 追加 + `ammoTypeCap` 软上限 dmg 2.5 / pen 1.8 / speed 2.0），只补内容梯度不改机制。
 - **副武器安装/升级（效果类型 `weapon`，2026-09-15 #A22/#A23 定型）**：`{type:'weapon', action:'install'|'upgrade', slot:'primary'|'secondary', weaponType, statOverrides}` —— **`action` 必填**（validateCardEffect 强制）。`install`（epic 安装卡）：primary 换装写入 `weapons.primary.type` + 合并 overrides 并清 `_spec`/`_dbState`；secondary **仅空槽**写入（默认值+overrides 合并），槽已占则 no-op（effect 仍入 `cardEffects`）。`upgrade`（rare/legendary 升级卡）：**仅当同型已持有**时合并 `statOverrides`，否则 no-op。**副武器单槽不变量**（无 `secondarySlots`/`activeSecondaryIndex`）。**抽卡资格**：`cardEligible(card, owned)` 在可用池阶段过滤——install(primary)=未持有该型 / install(secondary)=槽空 / upgrade=已持有同型 / `owned.cards` 达 `maxStacks` 则排除；`owned = {abilities, primaryWeapon, secondaryWeapon, cards?}`。运行时 `updateSecondaryWeapon`（mortar 曲射/missile 制导/rocket 扇形/mine_layer 布雷 + turret 副炮塔）阶段七 7.2 已落地；玩家侧手动击发见 combat.md §4。
 - **武器升级卡数值梯度（2026-09-15 数值复核，原 PLAN 阶段八 §8.1.1 已归档）**：副武器 4 张 rare 升级卡 DPS 增益 mortar 1.333×（reload 6）/ missile 1.524× / rocket 1.389×（count 5、reload 9）/ mine 1.500×，统一带 `[1.25,1.60]`；`scripts/test-weapon-upgrade-balance.js` 锁定。
+- **主武器「弹夹炮」`clip`（#G6，2026-09-21 新增）**：epic 安装卡 `weapon_primary_clip`（primary → clip，`statOverrides` 与 `WEAPON_DEFAULTS.primary.clip` 同源）；rare 扩容卡 `weapon_primary_clip_extended`（`{"clipSize":"+1"}`，maxStacks 2，每 +1 发弹夹间装填 +0.8×标准装填）。机制细则（0.7s 弹夹内固定间隔 / ×3.0 弹夹间整组 / 扩容递减收益）归口 `docs/specs/combat.md` §9.1。
+- **电磁轨道炮重调（#G5，2026-09-21）**：epic 安装卡 `weapon_primary_railgun` 数值更新为 `reloadMult 1.8 / damageMult 1.8 / penMult 2.0 / shellSpeedMult 2.5 / pierce 1 / pierceDmgMul 0.6`（新增贯穿 2 目标）；rare 升级卡 `weapon_primary_railgun_upgrade`（`{reloadMult:1.7, shellSpeedMult:3.0}`）。细则归口 `docs/specs/combat.md` §9.3。
+- **主/副武器 `statOverrides` 支持 `"+N"` 相对增量（#G6，2026-09-21）**：升级卡的 `statOverrides` 值合法类型扩为三类——`number`（绝对值覆盖，原行为）、`boolean`（开关，如 `altReload`/`guided`）、**`"+N"` 字符串（在当前值基础上 +N）**。合并统一走 `mergeStatOverrides(stats, overrides)`（主/副武器两条升级分支同源），`"+N"` 经 `Number(cur) + N` 计算；`validateCard` 对三类放行、其它类型判非法。此前 boolean 值会被校验拒绝（`altReload`/`guided` 升级卡曾报非法）。
+- **主动防御系统 APS（#G9，2026-09-21 新增能力卡）**：epic `ability_aps`（`{type:'ability', key:'aps'}`，maxStacks 1）——经技能池 1~3 号技能键触发（无独立字母键）；参数 `RULES.abilities.aps`（duration 6s / radius 240px / maxIntercepts 3 / cooldown 22s）。机制细则归口 `docs/specs/combat.md` §9.4。
 
 ### 8.4 技能卡定案（锚定现有 RULES.abilities 参数）✅ 已实现（阶段七 7.1 补进阶升级卡）
 | 技能 | 升级梯度 |
@@ -113,6 +118,7 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 | 空袭·地毯（artillery 升级形态） | legendary：delay 2.5→3.5s、沿炮塔朝向矩形 240×80、8 发 dmgMult ×1.0、shape:'carpet' |
 | 伴随无人机 drone | rare：striker dmgMult 0.4→0.55；epic：fireInterval 2.0→1.6 **（countMax 升级未生成，现行场上上限恒为 RULES.abilities.drone.countMax=2）** |
 | 布设掩体 deploy_cover | epic：沙袋/护盾 OBB hp 200、cd 20s —— 接 R-2 deployables（战术护盾掩体已有运行时） |
+| 主动防御 aps | epic 基础卡 `ability_aps`（#G9 2026-09-21 新增）；经 1~3 号技能键触发，参数见 `RULES.abilities.aps` |
 
 - **params 覆写通道（阶段七 7.1 已落地）**：`ability` 效果支持可选 `params` 对象，`tank_abilities.js` `computeAbilityConfig(t, key)` 聚合 `RULES.abilities` 基础 + `cardEffects` 覆写；`tryActivateAbility` 全分支消费聚合参数。已生成进阶卡：`ability_artillery_barrage` / `ability_artillery_heavy` / `ability_artillery_strike_point` / `ability_artillery_strike_carpet` / `ability_deploy_cover_fortified`（DEVELOPMENT.md §4.11）。**（原 `ability_smoke_dense` 已随 2026-09-15 W2 烟幕整链删除。）**
 - 空袭实现集中在 `tank_strike.js` 落点分布函数（point/carpet 两形状）+ artillery 参数卡改写语义（ability 效果 params 覆写通道）。
@@ -152,6 +158,6 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
   - **资格过滤先行**（#A23 / #A28）：`cardEligible` 在可用池阶段剔除「未持有所需武器的 upgrade 卡 / 槽已占的 secondary install 卡 / **未持有 `requiresAbility` 所指能力的 ability 升级卡** / 已叠满 maxStacks 的卡」，**在小池 early-return 与保底之前执行**；普通轮、刷新、Boss 追加轮复用同一规则。
   - `abilities` 为空且池内有 `type:'ability'` 卡 → **保底抽取 1 张** ability 卡；
   - `secondaryWeapon` 为 none/缺省且池内有 `type:'weapon' && slot==='secondary'` 卡 → **保底抽取 1 张**副武器安装卡；
-  - **弹种升级卡保底（2026-09-17 #C3 用户裁定「升级卡加权/保底」路线，排在装备保底之后）**：传入 `ammoLoadout` 时，若池内存在「`replaceAmmo` 链前驱已在 loadout 中」的弹种升级卡（即本回合可解锁/升级的新弹种），**保底抽取 1 张**进候选。动机：参数强化卡大量落在 common（最高权重桶），升级卡最低 rare 起步、深层链 epic/legendary——同池概率长期被压制（#C3 核实），开局阶段出现频率倒挂。升级完成后（目标弹种入 loadout）保底自动消失、恢复稀有度权重抽样。
+  - **弹种升级卡保底（2026-09-17 #C3 用户裁定「升级卡加权/保底」路线 → 2026-09-19 #D5 用户反馈「弹种升级速度太快」下调为概率触发；排在装备保底之后）**：传入 `ammoLoadout` 时，若池内存在「`replaceAmmo` 链前驱已在 loadout 中」的弹种升级卡（即本回合可解锁/升级的新弹种），以 `RULES.cards.ammoUpgradeGuaranteeChance`（现行 **0.4**）概率**保证 1 张**进候选（单次抽取独立掷骰；`opts.ammoGuaranteeChance` 可覆盖，=1 复现 #C3 无条件保底语义）。动机：参数强化卡大量落在 common（最高权重桶），升级卡最低 rare 起步、深层链 epic/legendary——同池概率长期被压制（#C3 核实），开局阶段出现频率倒挂；#D5 实测无条件保底=每节点 1 阶推进过快。升级完成后（目标弹种入 loadout）保底自动消失、恢复稀有度权重抽样。
   - 剩余槽位按稀有度权重从其余可用卡抽样（`weightedRarity`）。保底不足时不改变抽取上限（`picked.length < count` 守卫）。
 - **实现注记**：`abilityIdxs`/`weaponIdxs` 在 ability 卡 splice 之后静态下标会错位（误把被动卡当武器卡抽）——改为 `firstIdxWhere` 动态求值（每次 splice 后重查），`test-cards.js` 装备优先四态断言捕获验证。

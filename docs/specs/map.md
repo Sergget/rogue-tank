@@ -17,16 +17,20 @@
 ## 2. 地图元素体系 (Cover Tiers)
 参数权威收口于 RULES.coverTiers：
 
+> **现行口径指针**：本表为 2026-09 早期版本，其中 `half`（半高掩体）与「越掩插值/exposure 概率遮挡」等列已被 **§12.1** 取代（half tier 已整体删除）；可破坏楼房 `building` 见 **§13.2**。以 §12.1 的 tier 表现行口径为准。
+
 | 元素 | tier | 弹道交互 | 坦克通行 | 视线遮挡 | 残骸链 |
 |---|---|---|---|---|---|
-| 半高掩体 | half | 垂直剖面拦截（炮塔恒露；中坦车体100%挡/重坦25%露；贴掩体越掩插值）**——D5 裁定：生成期已屏蔽（不生成 half，仅 ruined 共享其剖面）** | 中坦阻挡推出；重坦压过 | 不遮 | ∞ |
+| 半高掩体 | half | **已删除**（§12.1）——tier 不再存在 | — | — | — |
 | 全高掩体 | full | 100% 确定性格挡 | 阻挡推出 | 不遮 | ∞ |
+| 可破坏楼房 | building | 100% 确定性格挡（耐久 3） | 阻挡推出 | 遮挡视线 | 3 发 → ruined → 1 发 → rubble |
+| 残破建筑 | ruined | 100% 确定性格挡（耐久 1） | 0.6 减速通过 | 遮挡视线 | 1 发 → rubble |
 | 灌木丛 | bush | 穿透（不挡弹） | 自由通行 | 阻挡 AI 视线 | ∞ |
-| 树木 | tree | 树干 1 发截停 | 阻挡推出 | 树冠遮挡视线 | 1 发 → fallen |
+| 树木 | tree | 树干 1 发截停 | 阻挡推出（可推倒） | 树冠遮挡视线 | 1 发/碾压 → fallen |
 | 倒树 | fallen | 穿透 | 自由通行 | 树冠遮挡视线 | 终态纯视觉残留 |
 | 栅栏 | soft | 穿透（穿透即毁） | 0.45 减速通过，压过即毁 | 不遮 | 无残骸 |
 | 沙袋路障 | barricade | 挡 1 发后摧毁；>70° 可跳弹（不触发摧毁） | 压过即毁 | 不遮 | 1 发/碾压 → rubble |
-| 碎石 | rubble | 半高概率遮挡（0.5m） | 压过即毁 | 不遮 | 终态 |
+| 碎石 | rubble | **不挡弹**（§12.1） | 压过即毁 | 不遮 | 终态 |
 
 ## 3. 掩体核心机制细节
 - **越掩插值（C 实验）**：射线高度在炮口（medium 1.8m/heavy 2.2m）与目标部位中心间线性插值；攻击方贴近半高掩体（距入口 < 约1/3射程）时射线高于掩体顶（1.4m）→ 越掩 exposure=1.0。
@@ -230,14 +234,164 @@
 2. **第 2 遍**：统一画中心虚线，随后**在每个路口处用路面同色圆挖空**（`generateNode` 新增返回 `roadJunctions`，经 `makeNode` 平移到世界系后由 `node.roadJunctions` 传入渲染层）——路面连续、**标线让位**，这才是真实交叉路口的读法。**挖空圆半径 = roadW×0.5**（2026-09-17 #C1 修复：旧 0.85×roadW 在 45° 方向越过路缘（0.6×roadW > 0.5×roadW 路半宽）→ 圆形沥青凸斑外溢路面；r=0.5×roadW 时圆内任意点到两条正交路中线距离 ≤ 0.354×roadW，恒在沥青并集内，且虚线让位区直径恰为路宽）。回归：`test-nodegen.js` §16 新增「全部路口 r ≤ 40」断言。
 
 - **实测数据**：210 张地图样本——拓扑分布 `HV j=1`×112 / `HVV j=2`×49 / `VV j=0`×28 / `HH j=0`×7 / `V j=0`×7 / `H j=0`×7；平均路口 1.00、**上界 2**；链内最大断口 **0.00px**；孤悬路头 **0 个**。
-- **回归**：`scripts/test-nodegen.js` §16 扩到**七条护栏**——无断口 / 无孤悬路头 / 交叉 ≤2 / 夹角 ≥60° / **拓扑 ≥3 种** / 路口数分布覆盖 1 与 2 / **存在 0 路口拓扑**（防「总是有路口」这一新单调）。渲染顺序另以 mock ctx 复刻验证（路口挖空 `fill` 发生在标线 `stroke` 之后）。剖面见 `test-nodegen-calibration.js`（#B7 重锚 v2，连通性维持 1.000）。
+- **回归**：`scripts/test-nodegen.js` §16 扩到**七条护栏**——无断口 / 无孤悬路头 / 交叉 ≤2 / 夹角 ≥60° / **拓扑 ≥3 种** / 路口数分布覆盖 1 与 2 / **存在 0 路口拓扑**（防「总是有路口」这一新单调）。渲染顺序另以 mock ctx 复刻验证（路口挖空 `fill` 发生在标线 `stroke` 之后）。剖面见 `test-nodegen-calibration.js`（#B7 重锚 v2，连通性维持 1.000）。**（拓扑表已被 §13.1 的 v4 取代：F 删除、G/I 新增、概率重排。）**
 
-## 11. 水域溺毙 + AI 避水（2026-09-14 落地）
-- **完全浸入溺毙**：`tank_cover.js` 新增 `tankFullyInWater(tank)`——车体四个角点（hullOBB 四角世界系）**全部**落在任一 `water`/`river` 凸部分内（点-in-多边形射线法）才算完全浸入；四角之一出水即复位。主循环（`tank_mvp.html`）对每实体累计 `drownT += dt`；`drownT >= RULES.drowning.seconds(8)` → 经 `applyDamage` 沉没摧毁（玩家/敌人/Boss/友军一视同仁；结算缓冲期 `isClearing` 不累计防清场误杀）。玩家警示：`warnAt(3s)` 倒计时临界音 + 头顶 `≋ 溺毙 x.xs` 倒计时 HUD（<3s 红字）；出水 `drownT` 复位。
+## 11. 水域溺毙 + AI 避水（2026-09-14 落地）- **完全浸入溺毙**：`tank_cover.js` 新增 `tankFullyInWater(tank)`——车体四个角点（hullOBB 四角世界系）**全部**落在任一 `water`/`river` 凸部分内（点-in-多边形射线法）才算完全浸入；四角之一出水即复位。主循环（`tank_mvp.html`）对每实体累计 `drownT += dt`；`drownT >= RULES.drowning.seconds(8)` → 经 `applyDamage` 沉没摧毁（玩家/敌人/Boss/友军一视同仁；结算缓冲期 `isClearing` 不累计防清场误杀）。玩家警示：`warnAt(3s)` 倒计时临界音 + 头顶 `≋ 溺毙 x.xs` 倒计时 HUD（<3s 红字）；出水 `drownT` 复位。
 - **敌人也会溺毙（AI 绕水寻路）**：`tank_ai.js` 新增 `applyWaterAvoidance(t, out, ctx)`（`aiDecide` 敌方分支输出后套用）——沿 `hullAngle` 前向探 140px（`RULES.ai.waterProbeDist`）：
   - 前向入水 + 至少一侧（±0.6rad 侧探）为干地 → `turn` 转向干地侧（move 保持 = 沿岸绕行）；
   - 前向+双侧全湿 → `move=0` 停驶（防 AI 冲水自杀溺毙）；
   - 前向干地 → 原样返回（零行为漂移）。
   - 入水判定 = cover 实例的 OBB / `verts` 多边形局部点测（自包含纯函数，`ctx.covers` 注入，covers 缺失时原样返回）。水区通行由 passability 0.4 经 `getCoverUnderTank` 减速，不另行阻断。
 - **update §5.4 checklist #3**：AI 读地形避水已由 `applyWaterAvoidance` 承担（绕行而非找掩体）；§6 覆盖 `shellBlock` 语义不受影响。
+
+## 12. 掩体体系收敛：全高=建筑/岩石、半高掩体移除、确定性挡弹（2026-09-20 #E1/#E3 用户裁定）
+
+**用户反馈**：① 炮弹仍然被不可见物体拦截；③ 全高掩体明确衍生为建筑、岩石，半高掩体相关计算代码全部移除不再使用。
+
+### 12.1 tier 表现行口径（唯一事实源 `RULES.coverTiers`）
+- **`half`（半高掩体）tier 定义已删除**——`RULES.coverTiers.half` 不再存在；`RULES.heights.cover.half`（旧 1.4m 越掩高度）一并删除。
+- **`full` 的 label 改为「建筑」**（全高掩体的具体化）；`rock`（岩石）保持 `solid + full + passability 0`。二者即「全高掩体」的全部具象。
+- **`ruined`（残破建筑）归入全高掩体**：`shellBlock: true` / `exposureProfile: 'full'`（旧 `'grad' + 'half'`）——直射实弹 100% 确定性格挡（含炮塔），击毁后转 `rubble` 残骸。
+- **`stump`（树桩）/ `rubble`（碎石）改为不挡弹**：`shellBlock: false` / `exposureProfile: 'none'`（旧 `'grad'`）。
+- **`tree`（树）改为可被坦克推倒**：`crushable: true`（旧 false）——坦克压过即 `tree → fallen`（与炮弹 1 发伐倒同一残骸链）。树木世界尺寸另乘 `RULES.nodeMap.treeWorldScale`（默认 0.6，主循环与林地簇同源）。
+
+### 12.2 弹道拦截模型：确定性唯一入口（#E1 根因修复）
+旧实现的拦截链有三处「不可见拦截」来源，**整链删除**（`js/tank_fire.js` 顶部注记保留根因说明）：
+
+| 来源 | 机制 | 处置 |
+|---|---|---|
+| ① 残骸逻辑体格远大于可见贴图 | `rubble` 逻辑 OBB 90×60 仅绘制 5 颗 2.2~4.2px 石子；`grad` 剖面 + 中坦 exposure=0 ⇒ 100% 拦停 | `stump`/`rubble` 改不挡弹（§12.1） |
+| ② `s.dec` 曝光缓存跨帧失效 | 缓存仅在跳弹时复位；掩体被摧毁后 `findCoversOnPath` 已跳过 `hp<=0`，仍按旧 exposure 拦停 ⇒ 炮弹停在目标车体命中点（隐形墙） | 删除 `s.dec` / `_decCoverId` / `shellVerticalDecision` 缓存链 |
+| ③ 视野圈外实体不绘制却拦弹 | `entityHiddenByVision` 跳过绘制，但 `stepShells` 对全部 `entities` raycast ⇒ 不可见车体拦弹 | 接入层经 `fireCtx.hiddenByVision` 注入判定，弹道命中扫描跳过不可见实体 |
+
+**现行口径**：炮弹只被**确定性**掩体拦截——`shellBlock===true`（建筑/岩石/树/残破建筑，在掩体**入口点**截停）与 `'single'`（沙袋，挡 1 发 / >70° 可跳弹）。`shellBlock: 'grad'` 不再是合法取值（`normalizeCoverTiers` 派生同步收敛）；水/河/泥/路/栅栏/残骸/灌木/倒树一律越飞。`getExposure` 保留为视线/预测用纯函数，但不再有 `half` 越掩插值（`RULES.coverRules.mediumHullExposure/heavyHullExposure` 删除）。
+
+### 12.3 路网 v3：去横平竖直 + 公路加宽 + 公路加速（#E2/#E3）
+- **参数收口** `RULES.nodeMap.road`（旧硬编码 60~80 世界px、amp 0.04）：`widthMin/Max = 92/124`（**公路加宽**）、`curveAmp = 0.16`、`branchCurveAmp = 0.10`、`diagChance = 0.45`、`diagAngleMin/Max = 0.18/0.52 rad`。
+- **斜向干道**：新增 `DH/DV`——倾斜角 θ∈[diagAngleMin, diagAngleMax] 的横/纵干道（端点沿边界按 `tanθ × 跨度` 错开），由 `TRUNK()` 按 `diagChance` 混入六拓扑；B 十字拓扑固定「横（可斜）× 纵」以保证交点必然存在。端点沿边偏移由 ±0.13 放宽到 ±0.20。
+- **公路加速**：`RULES.nodeMap.road.speedBonusKmh = 10`——坦克在 `tier:'road'` 条带上行驶时表速 +10km/h，受 `RULES.parameterLimits.maxSpeed.max`（150km/h，即 375 px/s）上限钳制；加成经 `speedBonusLerp` 指数阻尼平顺生效（进出路面不突跳）。消费方 `js/tank_move.js driveTank`。
+- **村镇街道同步加宽**：`placeVillage` 的 `roadW` 亦改读 `RULES.nodeMap.road`（消除两套硬编码）。
+
+### 12.4 建筑沿路/路口聚集 + 路口沙包（#E3）
+新增 `placeRoadsideBuildings`（`RULES.nodeMap.building`：`roadBand 96 / junctionBias 0.9 / junctionRadius 210 / clusterPerJunction 3~5 / maxPerNode 18`）与 `placeJunctionBarricades`（`RULES.nodeMap.junctionBarricades`：`chance 0.85 / countMin~Max 2~4 / ringMin~Max 0.9~1.9×路宽`）：
+- **路口邻域聚集程度最高**：每个路口先在 `junctionRadius` 内环形布 3~5 栋建筑（避让路面与路口中心）。
+- **沿路成排**：随后沿路链段采样，在路缘外侧 `roadBand` 带内成排布建筑，朝向对齐街道轴。
+- **路口沙包**：每个路口按概率生成 2~4 个 `barricade`，落在路口环外、不压路面的位置。
+- 两者在**统一消叠（`pruneOverlappingCovers`）之前**注入 → 天然参与「建筑/岩石/树/可破坏物/水域/泥潭互不重叠」消解；建筑间与建筑/既有元素间保留 30px 通行间隙（`obbHitsCover` pad）。
+- `generateNode` 新增返回 `roadW`（本节点实际路宽，供渲染/敌人生成/测试读取）。
+
+### 12.5 难度校准重锚（`scripts/test-nodegen-calibration.js`）
+元素变多（沿路/路口建筑 + 沙包）使 `coverCoverage` 整体上移约 +0.005、`minPassageWidth` 进一步收窄（路口邻域建筑把通道压到 1 格 ≈40px，仍 > 车体宽 38px）；**全模板连通性维持 0.999~1.000**。基线表按实测重锚（TOL 不变：cov ±0.02 / con ±0.05 / minw ±0.5）。**（已被 §13.3 重锚取代——路网 v4 与可破坏建筑落地后基线再次更新。）**
+
+---
+
+## 13. 路网 v4 + 可破坏楼房（2026-09-21 #G3/#G4 用户需求）
+
+**用户反馈**：「公路现在有更多形状了，但是我期待更复杂的路网和更多的建筑等物体」。
+
+### 13.1 路网 v4：新增两种街区拓扑 + 删除浅角拓扑
+
+`placeRoadNetwork` 拓扑表由 6 种改为 **7 种**（概率重排：A 12% / B 22% / C 14% / E 14% / D 14% / G 12% / I 14%）：
+
+| 代号 | 拓扑 | 路数 | 路口 | 说明 |
+|---|---|---|---|---|
+| A | 单条贯通 | 1 | 0 | `TRUNK(0)`（横/纵/斜随机） |
+| B | 十字 | 2 | 1 | 横（可斜 `DH`）× 纵 `V` |
+| C | 单侧 T 形 | 2 | 1 | 贯通干道 + 锚定支道（`TH`/`TV`） |
+| E | 双侧 T 形 | 3 | 2 | 一条横干 + 两条锚定支道 |
+| D | 双同向平行 | 2 | 0 | 错位半区、互不相交 |
+| **G** | **网格街区（新增）** | **3** | **2** | 一条正交横干 `H` + 两条贯穿纵路 `VT` → 「日」字形街区 |
+| **I** | **双干贯穿（新增）** | **3** | **2** | 两条近平行横干 + 一条贯穿纵干 `VT` → 环形路网雏形 |
+
+- **新增近正交纵路 `VT`**：端点错位收紧到 ±0.08（干线 `V` 为 ±0.20）——街区拓扑里纵路可达 2 条，沿用干线错位时宽模板（`halfW ≫ halfH`）的纵路会斜到与横干夹角 <60°。
+- **删除旧 F「斜向丁字对」**：斜干线弯曲后与正交支道的实测交角低至 **36.9°**（`urban_block` seed6），无法稳定满足 §10.1 的 ≥60° 护栏。斜干线观感由 B/C/E 的 `diagChance` 分支保留。
+- **T 形支道改直线**：`TH`/`TV` 的构建振幅由 `branchCurveAmp`(0.10) 改为 **0**，终点沿边偏移收紧为 ±0.04。旧实现按**整条干道跨度**折算振幅百分比，而支道自身跨度只有半幅 ⇒ 同样的百分比产生大得多的局部斜率（与斜干相交时实测 36.9°，`#B7` 夹角护栏盲区）。
+- **D 平行拓扑收紧**：端点错位 ±0.05 + 弯曲振幅 0.05（旧实现两端点独立抽取 ±0.62~−0.24，链自身可斜跨半区 → 两条「平行」路以 5.1° 浅角互穿，实测 `urban_block` seed2086）。
+- **`diagAngleMax` 0.52 → 0.34 rad**（≈30°→19°）：斜干 × 正交支道的交角 = 90°−θ−干道链段局部斜率（弯曲引入 ≈7°）；0.42 时实测最小交角 58.2°（低于护栏），0.34 时 ≥62.5°。
+- **附带修复**：林地簇（`placeForestClusters`）此前无节点边界钳制，簇区域贴边时（`village_center` 防风林 `dx=-340`）簇心随机偏移可把树推到边界外（实测 `x=-0.0099`，`test-map`「掩体在界内」失败）。现经 `opts.bounds` 做**放置后修正**（不消耗 rng、不改变采样流，同 seed 确定性不变）。
+
+### 13.2 可破坏楼房 tier `building` + 建筑混合与密度提升
+
+新增 `RULES.coverTiers.building`（可破坏楼房）：
+
+| 字段 | 值 | 说明 |
+|---|---|---|
+| `destructible` | 3 | 耐久 3 发才击毁（`full` 为 `Infinity`） |
+| `toTier` | `ruined` | 击毁后转残破建筑（**再 1 发 → `rubble`**，碎石不挡弹） |
+| `shellBlock` / `exposureProfile` | `true` / `'full'` | 与 `full` 同为全高掩体（确定性 100% 格挡直射） |
+| `drawStyle` | `'box'` | 复用 full 的建筑绘制 |
+| `passability` / `vision` | `1.0` / `true` | 可通行、遮视线 |
+
+破坏链：**`building`(3发) → `ruined`(1发) → `rubble`**。`ruined` 此前在 tier 表中定义但**从未被生成**，本次随建筑混合首次实际进入地图。
+
+- **`placeRoadsideBuildings` 建筑混合配比**：30% `building`（可破坏楼房）/ 10% `ruined`（残破建筑）/ 60% `full`（不可摧毁），由 `pickTier()` 按 rng 抽取。
+- **密度提升**：`clusterPerJunction` 3~5 → **3~6**、`maxPerNode` 18 → **20**、沿路排布采样步 `segs/6` → **`segs/4`**；建筑间/建筑与既有元素的通行间隙 30 → **34px**（密度上升时保证可用通道）。
+- **`coverWorldScale`** 补 `building: 0.42`（与 `full` 同尺度收敛）。
+- 同步点（新增 tier 必须登记处）：`VILLAGE_SOLID`（村庄避让集合）、`_PRUNE_PRIORITY`（building: 9，与 full/intact 同级，消叠时优先保留）、`tank_map.js` 敌军建筑聚集的 `structCovers` 过滤（加入 `building`）。`full` 仍为 `Infinity`（`test-covers.js` 断言不变），`ASSET_DEFS` 不新增建筑条目（复用 full 的贴图路径）。
+
+### 13.3 难度校准重锚（第二次，`scripts/test-nodegen-calibration.js`）
+路网 v4（拓扑重排 + 支道改直线 + 平行收紧）+ 可破坏建筑与密度提升，使 `coverCoverage` 整体下移约 -0.002、`minPassageWidth` 因建筑密度上升而收窄；**全模板连通性维持 0.999~1.000**、开阔模板地板 ≥0.85 全部富余。基线表按实测重锚（TOL 不变：cov ±0.02 / con ±0.05 / minw ±0.5）。
+
+### 13.4 建筑密度再提升 + Boss 战图加成（2026-09-21 #I3，现行口径）
+
+**用户裁定**：「继续增加地图、特别是 boss 战地图的建筑密度」。
+
+- **参数提升**（`RULES.nodeMap.building`）：`clusterPerJunction` 3~5 → **4~8**、`maxPerNode` 18 → **28**；沿路采样数随乘子提升（`wantRoadside = round(segs/4 × den)`）。
+- **Boss 战图加成**：新增 `bossDensity: 1.6`——`makeNode` 用纯函数 `isBossNodeIndex(index)` 提前判定 boss 节点，经 `generateNode(opts.buildingDensity)` → `placeRoadsideBuildings(…, density)` 放大路口簇规模/总量上限/沿路采样密度（普通节点恒 1）。
+- **顺带修复 #E3/#G 遗留缺陷**：`placeRoadsideBuildings` 的 `fits()` 此前对 `outCovers` 用 pad 34 判重叠，而 `outCovers` **含全部道路段**（宽 92~124px 条带）⇒ 沿路/路口建筑几乎全部被拒，函数产出恒为 0、所有密度参数空转（实测同 seed 下仅有模板自带建筑）。现行：道路按 pad 10 判定（不压路面），**非道路**元素才按 pad 34 留通行间隙；`placed` 之间仍 pad 34。
+- **实测**：同模板 8-seed 结构总数 87 → 103（×1.6，`building`/`ruined` 首次实际出现）；连通性维持 **0.999~1.000**、`minPassageWidth` 仍高于可通行下限（≥1.0 格）。
+- **校准重锚（第三次）**：`coverCoverage` 整体上移约 +0.015~0.021（建筑变多），基线表按实测重锚（TOL 不变），见 §13.3 上方基线表与文件内 #I3 注记。
+- 回归：`scripts/test-nodegen.js` #I3 段（参数值/8-seed 聚合乘子生效/沿路建筑实际生成/`buildingDensity=1` 与缺省一致/`bossDensity` 存在）；`scripts/test-nodegen-calibration.js` 重锚通过。
+- 战斗侧影响摘要见 `specs/combat.md` §12.4。
+
+---
+
+## 14. 横向卷轴（strip）节点 —— 设计预留（2026-09-21，**未落地**）
+
+> **状态：设计预留，代码尚未改动。** 本节是 2026-09-21 用户设计征询的**参数与规则口径唯一归口**，实施时以此为准；完成并三链验证后按 AGENTS.md §2.2 去掉「未落地」标注、改写为现行口径，并新增 `DEVELOPMENT.md` §4.x。
+> **在此之前，地图尺寸/生成/视野的现行值仍以 §1~§13 与 `specs/combat.md` §11.1 为准**——本节不得作为「现状描述」引用。
+> 研究依据（file:line 诊断、探针实测数据、已实测排除的路径、分批计划）：`docs/PLAN.md` §10。
+
+### 14.1 节点形态与尺寸
+
+- **基准尺寸**：横向 ≈10 屏 × 纵向 ≈2.2 屏（1920×1080 ⇒ ≈19200×2400 世界 px），面积 ≈现状（5.8k×3.5k）的 2.7 倍。**不做精确数值绑定**（2026-09-21 用户裁定：按可玩性定），允许依实测通道/密度上下浮动。
+- 「屏」按 zoom=1 的视口世界尺寸（`vw × vh`）计，**不**按最远缩放（`minZoom`）口径——后者把地图再放大 1.56 倍，烘焙与遍历成本同步上升。
+- 玩家出生点维持左缘 `w×0.10`（§6 出生走廊保护不变），推进方向 = `+x`。
+
+### 14.2 strip 构造（片拼接）
+
+- **片（chunk）** = 一个现有模板实例，**片内 `scale` 沿用现行 `nodeScaleFor` 口径**（元素世界尺寸与当前版本一致）。不得为凑地图比例去缩放片内元素——实测该做法使相对通道劣化到 0.03px（道路宽等绝对像素参数不随之缩放）。
+- **接缝净空（必需）**：片边界 ±300px 带内移除 `structure`/`foliage`（按 `tierGroup`）元素，保留 `ground`/`liquid`。不做净空时实测最窄通道 4px < 车体宽 38px ⇒ 接缝卡死；净空加宽到 ±500 无额外收益、只掉密度。
+- **横向贯通干道约束（必需）**：每个横向节点的各片必须含一条沿推进轴的贯通干道，端点落在片的左右边界线上（复用 §10.1 的端点口径）。现行 7 拓扑中近半数 seed 可能产出纯纵向贯通（左右边界端点 0~2 个）⇒ `placeRoadNetwork` 需增加该约束。
+- **纵向裁剪**：片高 > 目标高时丢弃上下边缘元素；**不做坐标压缩**（实测压缩使实体重叠对 14→32、最窄通道 3px）。
+- **密度补偿**：裁剪后须维持 ≥ 现状量级（≈13 实体/屏；实测裁剪版仅 6.7/屏）——手段为片内叠加建筑/森林相位，或把边缘元素钳制回界内而非丢弃。验收指标取 `nodeLayoutMetrics`：连通性 ≥0.999、最窄通道 ≥ 车体宽 38px + 余量、`coverCoverage` 不随片数下降。
+
+### 14.3 防线式敌人生成（取代全向环带）
+
+- **防线（defense line）**：沿推进轴把地形锚点分桶（桶宽 1~1.5 屏），每桶 = 一条防线。
+- **锚点来源**（全部为现有产出物，不引入新数据源）：`roadJunctions`（路口）、solid 结构（`full`/`intact`/`building`/`ruined`/`rock`）、liquid（`water`/`river`）、foliage 簇（`tree`/`bush` 连通块）。每线取 1~2 锚点，敌人在锚点周边成批生成（半径沿用 `RULES.nodeMap.enemySpawn.structureRadius` 口径），每批 3~6 辆。
+- **难度调制**：防线数量与每线敌数随难度联动；现行 `enemyCountForDifficulty`（1~4 辆/节点）须按地图面积同比上调。
+- **激活**：保留 `aiTriggerDist`（现行触发距离口径），复用 `engagePropagate`（`RULES.ai.engagePropagateRadius`/`engagePropagateChance`）实现同一防线整体响应。
+- **增援**：仅允许补给玩家**前方**未清空防线（现行「视口外扩 + 距玩家 ≥ 触发距离×1.05」落点约束会把兵刷在玩家后方，横向推进下失效）。
+
+### 14.4 渲染与工程配套
+
+- **敌人渲染/可见范围（临时口径，标记项）**：`R = max(现行屏幕相对公式, 最大 engage × 1.15)`，随难度增长，不再随视口窄轴缩水。**标记点**：`js/tank_camera.js:119-143`（`visionRadiusForViewport`）+ `RULES.vision.screenRadiusRatio`。本条为**临时口径、后续仍需改**（2026-09-21 用户裁定），届时改写 `specs/combat.md` §11.1 并留沿革注记；拉远时的额外绘制由 `aabbInView` 兜底，弹道命中口径经 `fireCtx.hiddenByVision`（`tank_mvp.html:3547`）同步。
+- **地面层分块烘焙**：`bakeNodeGroundLayer`（`tank_mvp.html:3563-3696`）由「整节点单画布」改为**按片 tile 烘焙 + 视口内按需 blit**——整图口径下 12.3 屏宽 ≈223MB RGBA，最远缩放口径 ≈619MB。
+- **空间分桶**：covers 数随片数线性增长（12 屏 ≈ 443~1200）；`draw` 视口过滤、`tank_minimap` 全量遍历、`tank_ai` 避水探针（每敌每帧）、`resolveCoverCollisions` 均按片索引只扫邻近片。
+- **小地图**：等比缩放（`js/tank_minimap.js:15-19`）在 10:2 比例下退化成细线 ⇒ 改「横向条带 + 视口窗口」布局。
+
+### 14.5 结算与推进
+
+- 节点完成条件改为**「抵达右端出口 + 防线清空/配额」双条件**，取代现行单一 `quotaDone || (noEnemies && !canReinforce)`（`tank_mvp.html:3028-3036`）。
+- Boss 节点形态待裁定（方形竞技场 or 横向走廊末端）；默认先沿用「`w×0.7` 生成点 + 走廊末端」。
+
+### 14.6 测试重锚清单
+
+`scripts/test-map.js:105-109`（节点宽高 ≥3 倍视口断言）、`test-nodegen.js` §16 七条护栏、`test-nodegen-calibration.js` 基线表、`test-replay.js` 确定性 hash、`test-browser-smoke/r3/run/r4.cjs` 四链。横向节点需新增专用回归：拼接确定性（同 seed 同布局）/ 接缝无断口 / 最窄通道 ≥ 车体宽 / 防线锚点覆盖全部桶。
+
+### 14.7 第二阶段预留（不限于横线）
+
+strip 生成器与防线生成器一律以「推进轴」参数表达（`advanceAxis: 'x' | 'y' | 路径`）；换竖向、蛇形或环形只换轴，生成相位与结算语义不动。
+
 
