@@ -50,10 +50,26 @@ let _spawnDeployableCover = (typeof spawnDeployableCover === 'function') ? spawn
 
 // 本模块支持的运行时能力键（其余 ABILITY_KEYS 如 smoke/recon 属烟幕/侦察等
 // 其他系统，不在本入口分发范围）
-const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'super_fire_control', 'super_speed', 'deploy_cover'];
+const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'super_fire_control', 'super_speed', 'deploy_cover', 'aps'];
 
 // innate 内置能力键：开局自带、绕过卡牌持有检查（独立冷却池 t.abilityCds）
 const ABILITY_KEYS_INNATE = ['repair', 'medkit', 'extinguish'];
+
+// #G（2026-09-21 用户需求 #7）：能力键 → 中文名称共享表（recon 为无人机指挥技能，同为 runtime 池键）。
+// mvp HUD 常驻技能槽 / gainToast / hintBar / 按钮命名都从本表取名，避免多处文案漂移。
+const ABILITY_LABELS = {
+  artillery: '炮击支援',
+  shield: '战术护盾',
+  overdrive: '超装填',
+  super_fire_control: '超级火控',
+  super_speed: '过载引擎',
+  deploy_cover: '部署掩体',
+  recon: '侦察指令',
+  aps: '主动防御',
+  repair: '修理箱',
+  medkit: '医疗包',
+  extinguish: '灭火器'
+};
 
 // innate 有效冷却（秒）：mvp/node-map 把商店减免注入 t.abilityBaseCd[key]；未注入回退 45
 const INNATE_BASE_CD_FALLBACK = 45;
@@ -258,11 +274,15 @@ function tryActivateAbility(t, key, ctx) {
       // 距离与长度参数化进 RULES.abilities.deploy_cover（dist 缺省 90 / lenMult 缺省 1.6，
       // 取代旧硬编码 dist=50 + 缺省 hullLen 50）；掩体仍旋转 90° 横在车前。
       const dist = _d(abilityCfg, 'dist', 90);
-      const lenMult = _d(abilityCfg, 'lenMult', 1.6);
+      const lenMult = _d(abilityCfg, 'lenMult', 3.2);   // #E4：1.6 → 3.2（长度再加长至当前 2 倍）
       const angle = (t.turretAngle !== undefined) ? t.turretAngle : (t.hullAngle || 0);
       const baseLen = t.hullLen || 50;
       const cx = t.x + Math.cos(angle) * dist;
       const cy = t.y + Math.sin(angle) * dist;
+      // #F6（2026-09-20 用户反馈）：部署前拒绝超限新掩体，保留已部署掩体（不再淘汰最早的）
+      const cap = (typeof deployableCap === 'function') ? deployableCap('cover', t) : null;
+      const count = (typeof deployableCount === 'function') ? deployableCount('cover') : 0;
+      if(cap !== null && count >= cap) return { ok:false, reason:'deploy-cover-limit', cap, count };
       const cover = _spawnDeployableCover({
         team: t.team,
         x: cx,
@@ -272,10 +292,28 @@ function tryActivateAbility(t, key, ctx) {
         shieldHp: shieldHp,
         duration: duration,
         hullLen: baseLen * lenMult,
+        hullWid: _d(abilityCfg, 'width', 22),   // #E4：厚度参数化（旧硬编码 20）
         hullAngle: angle + Math.PI / 2
       });
+      // #E4（2026-09-20）：部署数量上限——超限时最早部署的便携式掩体直接消失。
+      if (typeof enforceDeployLimits === 'function') enforceDeployLimits('cover', t);
+      else if (typeof require !== 'undefined') {
+        try { require('./tank_deployables.js').enforceDeployLimits('cover', t); } catch(e) {}
+      }
       setCd('deploy_cover', 'deploy_cover');
       return { ok: true, key: key, cover: cover, config: abilityCfg };
+    }
+    case 'aps': {
+      // #G（2026-09-21 用户需求 #9）：主动防御系统（APS）——激活后 RULES.abilities.aps.duration
+      // 秒内由拦截层（页面主循环 updateAps）自动销毁进入 radius 的来袭敌方弹药；拦截层读取
+      // t._apsT（>0 开启）与 t._apsHits（已拦截计数，达 maxIntercepts 后仅保持显示不再拦截）。
+      const duration = _d(abilityCfg, 'duration', 6);
+      const radius = _d(abilityCfg, 'radius', 240);
+      const maxIntercepts = _d(abilityCfg, 'maxIntercepts', 3);
+      t._apsT = Math.max(t._apsT || 0, duration);
+      t._apsHits = 0;
+      setCd('aps', 'aps');
+      return { ok: true, key: key, duration: duration, radius: radius, maxIntercepts: maxIntercepts, config: abilityCfg };
     }
     case 'super_fire_control': {
       const spreadMult = _d(abilityCfg, 'spreadMult', 0.1);
@@ -324,6 +362,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     ABILITY_KEYS_RUNTIME,
     ABILITY_KEYS_INNATE,
+    ABILITY_LABELS,
     abilitiesConfig,
     computeAbilityConfig,
     hasAbility,

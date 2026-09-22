@@ -3,15 +3,14 @@
 // 掩体系数统一收口到 js/tank_rules.js（特性5）；此处仅做别名保持调用方兼容
 const COVER_TIERS = RULES.coverTiers;
 // distanceTier 已随 A1 双档模型移除（见 RULES.coverHugDist），不再有距离渐变
-// 半高掩体的"能否开过去"由 RULES.coverTiers.half.driveBy（按 heightClass）门控
-
+// 2026-09-20 #E3：半高掩体（half）与其 driveBy 门控已整体移除——全高掩体 = 建筑/岩石。
 // 地图元素（掩体体系，见 DEVELOPMENT.md §2.7）：每个元素带运行时耐久 hp——
 // hp<=0 即毁（被炮弹/碾压/HE 溅射摧毁），已毁元素从所有判定与绘制中排除。
 // 树伐倒 → 倒树(fallen，横躺树干+树冠，树冠=灌木遮挡效果)；沙袋击毁 → 碎石(rubble)。
 // 掩体可承载任意复杂多边形：实例带 verts（局部坐标顶点数组）时，全部角点计算
 // 走 coverCorners → polyCorners；否则回退矩形 partCorners（w/h 半宽半高）。
 const covers = [
-  { x:470, y:300, w:80, h:34, angle:0, tier:'half' },
+  { x:470, y:300, w:80, h:34, angle:0, tier:'full' },
   { x:660, y:300, w:70, h:34, angle:0, tier:'full' },
   { x:560, y:150, w:24, h:18, angle:0, tier:'tree' },       // 树：挡路+1 发伐倒→倒树
   { x:760, y:470, w:56, h:34, angle:0, tier:'bush' },       // 灌木：靶车可开入隐藏
@@ -19,14 +18,14 @@ const covers = [
   { x:330, y:510, w:170, h:10, angle:0, tier:'soft' },      // 栅栏：穿透即毁 / 压过即毁
   { x:450, y:180, w:64, h:28, angle:0, tier:'barricade' },  // 沙袋路障：挡 1 发
   // 复杂多边形验证实例（需求2，为后续贴图做准备）：verts 为局部坐标顶点数组，
-  // w/h 仅作包围盒参考；L 形凹多边形全高掩体 + 六边形半高掩体。
+  // w/h 仅作包围盒参考；L 形凹多边形建筑 + 六边形建筑（#E3：原六边形半高已改全高）。
   { x:250, y:650, w:90, h:60, angle:0, tier:'full',
     verts: [[-45,-30],[45,-30],[45,-10],[5,-10],[5,30],[-45,30]],
     collisionVerts: [
       [[-45,-30],[5,-30],[5,30],[-45,30]],
       [[5,-30],[45,-30],[45,-10],[5,-10]]
     ] },
-  { x:700, y:650, w:80, h:50, angle:0, tier:'half',
+  { x:700, y:650, w:80, h:50, angle:0, tier:'full',
     verts: [[-40,0],[-20,-25],[20,-25],[40,0],[20,25],[-20,25]] }
 ];
 
@@ -328,10 +327,10 @@ function resolveCoverCollisions(tank) {
         destroyCover(cov, 'crush');
         break; // 已压毁则不再检测其他 collisionVerts
       }
-      // P-40：passability=0（水/河）阻断移动；shellBlock 挡弹类照旧实体推出；泥(0.35)不推只减速
+      // #E3（2026-09-20）：passability=0（水/河）阻断移动；确定性挡弹类照旧实体推出；
+      // 泥(0.4)不推只减速。driveBy 门控（半高掩体重坦可越）已随半高掩体移除。
       const blocked = tier.passability === 0 ||
-        tier.shellBlock === true || tier.shellBlock === 'single' ||
-        (tier.driveBy && tier.driveBy[tank.heightClass] === false);
+        tier.shellBlock === true || tier.shellBlock === 'single';
       if (blocked) {
         tank.x += mtv.dx;
         tank.y += mtv.dy;
@@ -421,40 +420,17 @@ function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
 
   if(validHits.length === 0) return 1.0;
 
-  // 垂直剖面：结合目标车型（heightClass）与判定部位高度决定露出比例
-  // 炮塔（zMin >= 1.2m）恒定 100% 露出
+  // 垂直剖面：炮塔（zMin >= 1.2m）恒定 100% 露出——半高掩体与 C 越掩插值已随
+  // #E1/#E3（2026-09-20）整体移除，车体高度不再参与露出比例计算。
   if (zMin >= 1.2) {
     return 1.0;
   }
 
-  // C 实验——半高掩体越掩过滤：exposureProfile==='half' 的地形（half/ruined 残破建筑）
-  // 参与射线高度插值；射线在掩体入口处高于掩体顶 → 越过（从候选移除）。
-  // stump/rubble 等 graduated 剖面残骸走旧路径（不插值）。RULES.heights.cover.half 缺失 →
-  // 跳过插值（保守回退旧行为）。
-  const halfH = RULES.heights && RULES.heights.cover && RULES.heights.cover.half;
-  if (halfH !== undefined) {
-    const shooterH = (RULES.heights.muzzle && RULES.heights.muzzle[(shooter && shooter.heightClass) || 'medium']) || 1.8;
-    const zMid = (zMin + zMax) / 2; // 目标部位中心高度
-    const filtered = [];
-    for (const h of validHits) {
-      if (COVER_TIERS[h.cover.tier].exposureProfile === 'half') {
-        const t = h.distA / (h.distA + h.distB);
-        const rayH = shooterH + (zMid - shooterH) * t; // 射线在掩体入口处的高度
-        if (rayH > halfH) continue; // 越过掩体 → 不参与遮挡
-      }
-      filtered.push(h);
-    }
-    if (filtered.length === 0) return 1.0;
-    validHits.length = 0;
-    validHits.push(...filtered);
-  }
-
-  // 车体露出比例
-  const hClass = (target && target.heightClass) || 'medium';
-  if (hClass === 'heavy') {
-    return RULES.coverRules.heavyHullExposure; // 重坦车体漏出 25%
-  }
-  return RULES.coverRules.mediumHullExposure; // 中坦车体 0% 漏出（100% 阻挡）
+  // 走到这里说明命中列表里只剩「非确定性」剖面（历史 'grad' tier）。2026-09-20 起
+  // 全部此类 tier（stump/rubble/ruined）已改为确定性挡弹或不挡弹，正常数据下不可达；
+  // 兜底保守返回 0（= 完全遮蔽）。
+  return RULES.coverRules && RULES.coverRules.mediumHullExposure !== undefined
+    ? RULES.coverRules.mediumHullExposure : 0.0;
 }
 
 function coverBlockInfo(ox,oy,tx,ty, shooter, target, part, cutoffDist){

@@ -410,11 +410,10 @@ function drawTank(ctx, t){
    let _dbOff = 0;
    if(_isDb){
      const _dbSpec = (t.weapons.primary && t.weapons.primary.stats) || {};
-     const _dbMult = (typeof _dbSpec.barrelOffset === 'number') ? _dbSpec.barrelOffset : 0.9;
+     const _dbMult = (typeof _dbSpec.barrelOffset === 'number') ? _dbSpec.barrelOffset : 1.85;
      _dbOff = barrelWid * _dbMult * 0.5;
    }
    const _tubeOffsets = _isDb ? [-_dbOff, _dbOff] : [0];
-
    // main barrel tube(s)（双管并排 / 单管居中）
    for(const _toff of _tubeOffsets){
      const _tx = baseX + perpX*_toff, _ty = baseY + perpY*_toff;
@@ -470,12 +469,20 @@ function drawTank(ctx, t){
       ctx.restore();
    }
 
+   // #E13（2026-09-20）：双管时，炮管附件（护套 jacket / 制退器 muzzle brake / 抽烟器 evac）
+   // 必须**逐管**绘制——否则两根炮管只有中线上一套附件，观感与几何都穿模。
+   // _tubeBase = 每根管子的基准点（根部/口部），单管时退化为原基准（行为不变）。
+   const _tubeBase = _tubeOffsets.map(function(o){
+     return { bx: baseX + perpX*o, by: baseY + perpY*o, ex: endX + perpX*o, ey: endY + perpY*o };
+   });
+
    // bore evacuator bulge at configured position (styles: none/ring/bulb/slotted/long)
    const evc = (bSpec.evac && bSpec.evac.style) ? bSpec.evac
      : (bSpec.evacPos !== undefined ? { style: bSpec.evacPos > 0 ? 'ring' : 'none', pos: bSpec.evacPos } : { style: 'none', pos: 30 });
    if(evc.style && evc.style !== 'none'){
-      const ex = baseX + barrelRayDx*(evc.pos/100)*barrelLen;
-      const ey = baseY + barrelRayDy*(evc.pos/100)*barrelLen;
+    for(const _tb of _tubeBase){
+      const ex = _tb.bx + barrelRayDx*(evc.pos/100)*barrelLen;
+      const ey = _tb.by + barrelRayDy*(evc.pos/100)*barrelLen;
       const evacR = barrelWid*0.9;
       if(evc.style === 'ring' || evc.style === 'slotted'){
          ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = Math.max(2, barrelWid*0.35);
@@ -507,11 +514,13 @@ function drawTank(ctx, t){
          ctx.strokeRect(-barrelWid*0.35, -barrelWid*0.75, L, barrelWid*1.5);
          ctx.restore();
       }
-   }
+    }
+    }
 
-   // muzzle brake at the end
+   // muzzle brake at the end（#E13：逐管绘制）
    if(bSpec.muzzle && bSpec.muzzle !== 'none'){
-      const mx = endX, my = endY;
+    for(const _tb of _tubeBase){
+      const mx = _tb.ex, my = _tb.ey;
       ctx.strokeStyle = 'rgba(0,0,0,0.45)';
       if(bSpec.muzzle === 'single'){
          ctx.lineWidth = barrelWid*1.3;
@@ -578,18 +587,22 @@ function drawTank(ctx, t){
          ctx.fillRect(-barrelWid*0.6, barrelWid*0.75, barrelWid*1.2, barrelWid*0.35);
          ctx.restore();
       }
+    }
    }
    // 炮管护套 jacket: thicker rectangle sleeve over part of the barrel (len>0 → active)
+   // #E13（2026-09-20）：逐管绘制护套（双管时两根炮管各自带护套，与制退器/抽烟器同源）。
    const jk = bSpec.jacket || { len: 0, pos: 45 };
    if((jk.len || 0) > 0){
       const jkS = Math.max(0, Math.min(90, jk.pos || 45))/100*barrelLen;
       const jkE = Math.min(100, (jk.pos || 45) + (jk.len || 0))/100*barrelLen;
-      const ax = baseX + barrelRayDx*jkS, ay = baseY + barrelRayDy*jkS;
-      ctx.save(); ctx.translate(ax, ay); ctx.rotate(t.turretAngle);
-      ctx.fillStyle = shade(t.color, -18); ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
-      ctx.fillRect(0, -barrelWid*0.85, Math.max(1, jkE-jkS), barrelWid*1.7);
-      ctx.strokeRect(0, -barrelWid*0.85, Math.max(1, jkE-jkS), barrelWid*1.7);
-      ctx.restore();
+      for(const _tb of _tubeBase){
+        const ax = _tb.bx + barrelRayDx*jkS, ay = _tb.by + barrelRayDy*jkS;
+        ctx.save(); ctx.translate(ax, ay); ctx.rotate(t.turretAngle);
+        ctx.fillStyle = shade(t.color, -18); ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
+        ctx.fillRect(0, -barrelWid*0.85, Math.max(1, jkE-jkS), barrelWid*1.7);
+        ctx.strokeRect(0, -barrelWid*0.85, Math.max(1, jkE-jkS), barrelWid*1.7);
+        ctx.restore();
+      }
    }
    ctx.lineCap = 'butt';
    } // end turret/barrel block (skipped when the ammo rack blew the turret off)

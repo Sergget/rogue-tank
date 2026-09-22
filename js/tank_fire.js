@@ -14,31 +14,41 @@ function _G(k, fb){ return (typeof globalThis!=='undefined'&&globalThis[k]!==und
 function _rules(c){ return (c&&c.rules)||(c&&c.RULES)||_G('RULES',{}); }
 function _tiers(c){ return (c&&c.coverTiers)||_G('COVER_TIERS',(_rules(c).coverTiers||{})); }
 
-// 半高掩体垂直剖面判决：沿整条弹道（fx,fy→前方）解析会命中的目标部位
-function shellVerticalDecision(s, ctx){
-  const c=_ctx(ctx);
-  const ents=c.entities||_G('entities',[]);
-  const isHostile=c.isHostile||_G('isHostile',function(){return true;});
-  const raycast=c.raycastTank||_G('raycastTank',null);
-  const best=c.bestHitForPref||_G('bestHitForPref',null);
-  const getZ=c.getPartZRange||_G('getPartZRange',null);
-  const getExp=c.getExposure||_G('getExposure',null);
-  if(!raycast||!best||!getZ||!getExp) return null;
-  let dec=null;
-  for(const e of ents){
-    if(!e||e.hp<=0) continue;
-    if(!isHostile(s.shooter.team,e.team)) continue;
-    const hits=raycast(s.fx,s.fy,s.dx,s.dy,e);
-    if(!hits) continue;
-    const bh=best(hits,0.001,Infinity,s.hitPref);
-    if(!bh) continue;
-    const hx=s.fx+s.dx*bh.t, hy=s.fy+s.dy*bh.t;
-    const z=getZ(e,bh.part);
-    const exposure=getExp(s.fx,s.fy,hx,hy,s.shooter,e,z.zMin,z.zMax,bh.t);
-    if(!dec||bh.t<dec.hit.t) dec={tank:e,hit:bh,z:z,exposure:exposure,t:bh.t};
-  }
-  return dec;
+// #E4（2026-09-20）便携式掩体的弹道求交：返回弹道段 (sx,sy)→(nx,ny) 与部署掩体 OBB 的首个交点
+// 参数（0~1 的段比例 × 段长 → 直接返回像素距离，便于与 step/掩体 distA 同口径比较）；无交返回 null。
+// 几何口径与绘制同源：中心 (x,y)、尺寸 hullLen×hullWid、朝向 hullAngle。
+function _deployablePathHit(dc, sx, sy, nx, ny){
+  const dx = nx - sx, dy = ny - sy;
+  const segLen = Math.hypot(dx, dy);
+  if(!(segLen > 0)) return null;
+  const ux = dx / segLen, uy = dy / segLen;
+  const ca = Math.cos(-(dc.hullAngle || 0)), sa = Math.sin(-(dc.hullAngle || 0));
+  const ox = sx - dc.x, oy = sy - dc.y;
+  const lox = ox * ca - oy * sa, loy = ox * sa + oy * ca;
+  const lux = ux * ca - uy * sa, luy = ux * sa + uy * ca;
+  const hw = (dc.hullLen || 50) / 2, hh = (dc.hullWid || 20) / 2;
+  let tmin = 0, tmax = segLen;
+  const slab = (o, u, h) => {
+    if(Math.abs(u) < 1e-9) return (o >= -h && o <= h);
+    let t1 = (-h - o) / u, t2 = (h - o) / u;
+    if(t1 > t2) { const tt = t1; t1 = t2; t2 = tt; }
+    tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+    return tmin <= tmax;
+  };
+  if(!slab(lox, lux, hw)) return null;
+  if(!slab(loy, luy, hh)) return null;
+  if(tmax < 0 || tmin > segLen) return null;
+  return Math.max(0, tmin);
 }
+
+// 2026-09-20 #E1（用户反馈「炮弹仍然被不可见物体拦截」）：
+// 旧的 shellVerticalDecision（半高/渐变垂直剖面判决）与 s.dec 曝光缓存拦截链**整体删除**。
+// 该链有三个不可见拦截来源：
+//   ① rubble/stump 等残骸的逻辑 OBB 远大于可见贴图，却按 'grad' 100% 拦停直射实弹；
+//   ② s.dec 曝光缓存只在跳弹时复位 —— 掩体被摧毁后缓存仍生效，炮弹停在目标车体命中点（隐形墙）；
+//   ③ 视野圈外的敌军不绘制，但弹道 raycast 遍历全部实体 → 不可见车体拦弹。
+// 现行口径：炮弹只被**确定性**掩体拦截——shellBlock===true（建筑/岩石/树，在掩体入口点截停）
+// 与 'single'（沙袋，挡 1 发 / >70° 跳弹）；其余（水/泥/路/栅栏/残骸/灌木/倒树）一律越飞。
 
 // 阶段七 7.3：主武器配置读取（weapons.primary 倍率：reloadMult/damageMult/penMult/shellSpeedMult/burst/stagger/count）
 function primaryWeaponSpec(shooter) {
@@ -112,9 +122,14 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
   // 2026-09-15 W6：autocannon 特效/弹体随 fxScale 缩小（默认 0.55）——更细炮管的视觉跟随
   const isAC = spec && spec.type === 'autocannon';
   const fxScale = (isAC && typeof spec.fxScale === 'number') ? spec.fxScale : 1;
-  burst(ox, oy, 0.6 * fxScale, 4, 2, 0);
-  muzzle(ox, oy, spreadAngle || shooter.turretAngle, fxScale, bMuzzle);
-  play('fire');
+  // #E13（2026-09-20）：双联火炮需要**更大的炮口火光与更大的音效**（用户裁定）——
+  // 火光尺寸 ×1.7、爆闪粒子与音效强度同步放大（playSound 的第二参在音频层作为增益倍率）。
+  const isDB = spec && spec.type === 'double_barrel';
+  const dbFx = isDB ? 1.7 : 1;
+  burst(ox, oy, 0.6 * fxScale * dbFx, Math.round(4 * dbFx), Math.round(2 * dbFx), 0);
+  muzzle(ox, oy, spreadAngle || shooter.turretAngle, fxScale * dbFx, bMuzzle);
+  play('fire', isDB ? { gain: 1.6 } : undefined);
+  if (isDB && typeof c.spawnSmoke === 'function') c.spawnSmoke(ox, oy, 1.3);
   shooter.recoilT = 0.08;
   const shell = {
     x: ox, y: oy, fx: fx, fy: fy, dx: dx, dy: dy,
@@ -125,6 +140,14 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
     fxScale: fxScale,
     canBounce: true, bounced: false, dist: 0, dead: false
   };
+  // #G（2026-09-21）：轨道炮「超高速贯穿」——击穿并命中目标后弹体不消失，伤害按 pierceDmgMul
+  // 衰减继续飞行，可命中同一直线上的后续目标（pierce = 剩余可贯穿目标数，stepShells 消费）。
+  // pierceHitIds 防止同一发对同一目标重复结算。
+  if (spec && typeof spec.pierce === 'number' && spec.pierce > 0) {
+    shell.pierceLeft = Math.floor(spec.pierce);
+    shell.pierceDmgMul = (typeof spec.pierceDmgMul === 'number') ? spec.pierceDmgMul : 0.6;
+    shell.pierceHitIds = [];
+  }
   // 2026-09-15：主武器曲射机制已移除（howitzer 删除）——主炮一律平射直线弹道；
   // isArc 落点分支（stepShells）仅保留给曲射副武器弹（mortar，自带 totalDist/targetX）。
   shells.push(shell);
@@ -145,52 +168,77 @@ function updatePrimaryHeat(t, dt) {
   return true;
 }
 
-// 2026-09-15 W4：双管状态机（炮盾并排 2 炮管，每管独立装填）。
-// _dbState = { ready: [bool, bool], reloadT: [s, s] }——ready 由 updatePrimaryBarrels 逐帧维护。
-// 装填时间 ×reloadMult（默认 ×1.0）应用于**单根炮管**；单击发射 1 根已装填管；空格齐射（两管就绪才可）。
-// 换管时间 switchSeconds（默认 0.5s）：任一击发后 shooter.reloadT 置为该值，作为下一发的全局门控。
+// #E13（2026-09-20）双管状态机重做（用户裁定）：
+//   1) 装填时间是「单根炮管」的装填时间；两管按**顺序流水线**装填（同一时刻只有一根在装填）。
+//      例：装填 5s，+0s 齐射两管 → +5s 第 1 管装好（此时可单发射击）→ +10s 第 2 管装好（可齐射）。
+//   2) 默认（无卡）**进度互相干涉**：任意一管击发后，两管的装填进度都归 0，流水线从头开始。
+//   3) 「交替装填系统」卡（spec.altReload=true）解除干涉：击发一管不影响另一管的进度
+//      （例：+6s 发射时另一管仍是 +1s 进度），并附带更短的换管间隔。
+//   4) 鼠标单击 = 发射一根已装填炮管；空格 = 齐射（两管都就绪才双发）。
+// _dbState = { count, ready:[bool], loadT:[progress 秒], loader: idx|null, altReload: bool }
 function ensureDbState(shooter, spec) {
   const count = (spec && typeof spec.count === 'number' && spec.count >= 1) ? spec.count : 2;
+  const altReload = !!(spec && spec.altReload);
   if (!shooter._dbState || shooter._dbState.count !== count) {
-    shooter._dbState = { count: count, ready: new Array(count).fill(true), reloadT: new Array(count).fill(0) };
+    shooter._dbState = {
+      count: count,
+      ready: new Array(count).fill(true),
+      loadT: new Array(count).fill(0),
+      loader: null,
+      altReload: altReload
+    };
   }
+  shooter._dbState.altReload = altReload;
   return shooter._dbState;
 }
 
-// 双管每管独立装填计时（主循环逐帧驱动，player 与 AI 实体都调用）
+// 双管顺序流水线装填（主循环逐帧驱动，player 与 AI 实体都调用）。
+// 返回 true 表示状态有效（调用方据此判断是否需要驱动）。
 function updatePrimaryBarrels(t, dt) {
   if (!t || !t._dbState) return false;
   const st = t._dbState;
-  for (let i = 0; i < st.count; i++) {
-    if (!st.ready[i] && st.reloadT[i] > 0) {
-      st.reloadT[i] -= dt;
-      if (st.reloadT[i] <= 0) { st.reloadT[i] = 0; st.ready[i] = true; }
-    }
+  const spec = primaryWeaponSpec(t);
+  const reloadMult = (typeof spec.reloadMult === 'number') ? spec.reloadMult : 1.0;
+  const debuffReload = (typeof debuffReloadRate === 'function') ? debuffReloadRate : function(){ return 1; };
+  const perReload = Math.max(0.05, (t.stats && t.stats.reload ? t.stats.reload : 3) * reloadMult / debuffReload(t));
+  // 顺序流水线：一次只装一根（升序取第一根未就绪且未完成的）
+  let idx = st.loader;
+  if (idx === null || idx === undefined || st.ready[idx]) {
+    idx = null;
+    for (let i = 0; i < st.count; i++) { if (!st.ready[i]) { idx = i; break; } }
+    st.loader = idx;
+  }
+  if (idx === null) return true;
+  st.loadT[idx] += dt;
+  if (st.loadT[idx] >= perReload) {
+    st.loadT[idx] = perReload;
+    st.ready[idx] = true;
+    st.loader = null;   // 下一帧自动切到下一根未就绪的管
   }
   return true;
 }
 
-// 双管击发：salvo=true 时齐射全部就绪管（≥2 根），否则发射 1 根已装填管。
-// 返回 {fired, shells}。命中炮管掩体的 solid 截停在 fireTank 主体已先行处理。
+// 双管击发：salvo=true 时齐射（**全部**炮管就绪才发射，2026-09-20 用户裁定 #F），
+// 否则发射 1 根已装填管。返回 {fired, shells, reason?}。
+// reason='salvo-not-ready'：空格齐射但仅部分（非全部）炮管就绪——不发射，调用方提请玩家等待。
+// 命中炮管掩体的 solid 截停在 fireTank 主体已先行处理。
 function fireDoubleBarrel(shooter, target, hitPref, ctx, spec, salvo) {
   const st = ensureDbState(shooter, spec);
   const readyIdx = [];
   for (let i = 0; i < st.count; i++) { if (st.ready[i]) readyIdx.push(i); }
-  if (!readyIdx.length) return { fired: false, shells: 0 };
-  const reloadMult = (typeof spec.reloadMult === 'number') ? spec.reloadMult : 1.0;
+  if (!readyIdx.length) return { fired: false, shells: 0, reason: 'none-ready' };
+  // #F（2026-09-20 用户裁定）：空格齐射仅在两管都就绪时发射——只就绪 1 管时
+  // 不发（避免「空格与单击无区别」），等另一管装填完毕。
+  if (salvo && readyIdx.length < st.count) {
+    return { fired: false, shells: 0, reason: 'salvo-not-ready' };
+  }
   const switchSeconds = (typeof spec.switchSeconds === 'number') ? spec.switchSeconds : 0.5;
-  const barrelOffset = (typeof spec.barrelOffset === 'number') ? spec.barrelOffset : 0.9;
+  const barrelOffset = (typeof spec.barrelOffset === 'number') ? spec.barrelOffset : 1.85;
   const barrelWid = (shooter.barrel && shooter.barrel.width) || 14;
   const off = barrelWid * barrelOffset * 0.5;
-  const debuffReload = (ctx && ctx.debuffReloadRate) || (typeof globalThis !== 'undefined' && globalThis.debuffReloadRate) || function(){ return 1; };
-  const perReload = shooter.stats.reload * reloadMult / debuffReload(shooter);
 
-  let toFire;
-  if (salvo) {
-    toFire = readyIdx.slice(0, 2);   // 齐射 = 发射全部就绪管（1 根或 2 根）
-  } else {
-    toFire = [readyIdx[0]];
-  }
+  // 齐射 = 全部炮管就绪后一发射出；单击 = 只发第一根就绪管
+  const toFire = salvo ? readyIdx.slice(0, st.count) : [readyIdx[0]];
 
   let count = 0;
   for (let k = 0; k < toFire.length; k++) {
@@ -201,11 +249,76 @@ function fireDoubleBarrel(shooter, target, hitPref, ctx, spec, salvo) {
     if (shell) {
       count++;
       st.ready[i] = false;
-      st.reloadT[i] = perReload;
+      st.loadT[i] = 0;
     }
   }
-  if (count > 0) shooter.reloadT = switchSeconds;   // 换管时间门控（下一发）
+  if (count > 0) {
+    // #E13：默认「进度互相干涉」——任一管击发后两管进度都归 0，流水线从 0 重新开始；
+    // 持「交替装填系统」卡（altReload）时进度互不干涉，仅被击发的那一管清零。
+    if (!st.altReload) {
+      for (let i = 0; i < st.count; i++) st.loadT[i] = 0;
+      st.loader = null;
+    }
+    shooter.reloadT = switchSeconds;   // 换管时间门控（下一发）
+  }
   return { fired: count > 0, shells: count };
+}
+
+// #G（2026-09-21 用户需求）：弹夹炮状态机。
+//   _clipState = { size: 弹夹容量, rounds: 弹夹内剩余, pendingRefill: 弹夹间装填中（装完回满） }
+//   - 弹夹内发际间隔 = clipCycleSeconds（固定 0.7s，不受任何影响：不乘 reloadMult / debuff / 卡牌）；
+//   - 弹夹间整组装填 = 标准装填 × (reloadMult + clipSizeReloadStep × (size − clipSizeBase))，
+//     受 debuffReloadRate 影响（弹夹间属"装填"，吃装填 debuff；弹夹内不吃）。
+// ensureClipState 在容量变化（扩容卡）或缺失时重建；换装卡牌同样清空（tank_cards.js install/upgrade）。
+function ensureClipState(shooter, spec) {
+  const size = Math.max(1, Math.round((spec && spec.clipSize) || 4));
+  if (!shooter._clipState || shooter._clipState.size !== size) {
+    shooter._clipState = { size: size, rounds: size, pendingRefill: false };
+  }
+  return shooter._clipState;
+}
+
+// 弹夹间整组装填时长（秒）
+function clipMagReloadSeconds(shooter, spec, st) {
+  const debuffReload = (typeof debuffReloadRate === 'function') ? debuffReloadRate : function(){ return 1; };
+  const base = (shooter.stats && shooter.stats.reload) ? shooter.stats.reload : 3;
+  const mult = (spec && typeof spec.reloadMult === 'number') ? spec.reloadMult : 3.0;
+  const step = (spec && typeof spec.clipSizeReloadStep === 'number') ? spec.clipSizeReloadStep : 0.8;
+  const sizeBase = (spec && typeof spec.clipSizeBase === 'number') ? spec.clipSizeBase : 4;
+  const extra = Math.max(0, (st ? st.size : sizeBase) - sizeBase) * step;
+  return Math.max(0.05, base * (mult + extra) / debuffReload(shooter));
+}
+
+// 弹夹炮逐帧驱动（主循环调用，player 与 AI 实体都调）：
+// 弹夹间装填由 reloadT 倒计时（fireTank 顶部 reloadT>0 门控复用），倒计时归零即回满弹夹。
+function updatePrimaryClip(t, dt) {
+  if (!t || t.hp <= 0) return false;
+  const spec = primaryWeaponSpec(t);
+  if (!spec || spec.type !== 'clip') return false;
+  const st = ensureClipState(t, spec);
+  if (st.pendingRefill && !(t.reloadT > 0)) {
+    st.pendingRefill = false;
+    st.rounds = st.size;
+  }
+  return true;
+}
+
+// 弹夹炮击发：弹夹内逐发（clipCycleSeconds 门控）→ 打空后整组装填（弹夹间）。
+// 返回 { fired, shells, reason? }；reason='clip-empty'：状态异常兜底（正常时 reloadT 门控先行拦截）。
+function fireClipWeapon(shooter, target, hitPref, ctx, spec) {
+  const st = ensureClipState(shooter, spec);
+  if (st.rounds <= 0) return { fired: false, shells: 0, reason: 'clip-empty' };
+  const shell = firePrimaryShell(shooter, target, hitPref, ctx);
+  if (!shell) return false;
+  st.rounds--;
+  if (st.rounds > 0) {
+    // 弹夹内发际间隔：固定 0.7s，不受任何影响
+    shooter.reloadT = (typeof spec.clipCycleSeconds === 'number') ? spec.clipCycleSeconds : 0.7;
+  } else {
+    st.pendingRefill = true;
+    shooter.reloadT = clipMagReloadSeconds(shooter, spec, st);
+  }
+  return { fired: true, shells: 1 };
 }
 
 function fireTank(shooter, target, hitPref, ctx, salvo){
@@ -254,7 +367,21 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   // autocannon 已改逐发短间隔 + 热量机制（2026-09-15 W6），burst 连发路径整体删除。
   if(spec && spec.type === 'double_barrel'){
     const db = fireDoubleBarrel(shooter, target, hitPref, ctx, spec, salvo);
+    // #F：空格齐射未就绪 → 首次出现时向玩家提示（按住空格期间不刷屏）
+    if(db.reason === 'salvo-not-ready'){
+      if(shooter._dbLastBlocked !== 'salvo-not-ready'){
+        shooter._dbLastBlocked = 'salvo-not-ready';
+        if(shooter.team === 'player') push('空格齐射需要两管装填完成 — 单击可先发 1 根就绪管','COVER');
+      }
+    } else {
+      shooter._dbLastBlocked = null;
+    }
     return db.fired;
+  }
+  // #G（2026-09-21）：弹夹炮——弹夹内逐发 0.7s / 打空整组装填（reloadMult + 0.8×扩容步进）
+  if(spec && spec.type === 'clip'){
+    const clipRes = fireClipWeapon(shooter, target, hitPref, ctx, spec);
+    return !!(clipRes && clipRes.fired);
   }
   const reloadMult=(spec&&typeof spec.reloadMult==='number')?spec.reloadMult:1;
   shooter.reloadT=shooter.stats.reload*reloadMult/debuffReload(shooter);
@@ -441,6 +568,8 @@ function stepShells(dt, ctx){
   const getZ=c.getPartZRange||_G('getPartZRange',null);
   const getExp=c.getExposure||_G('getExposure',null);
   const isHostile=c.isHostile||_G('isHostile',function(){return true;});
+  // #E1（2026-09-20）：视野外实体判定注入——mvp 传 entityHiddenByVision；缺省不隐藏。
+  const hiddenByVision=c.hiddenByVision||c.isHidden||null;
   const coverNormalAt=c.coverNormalAt||_G('coverNormalAt',null);
   const reflect=c.reflectDir||_G('reflectDir',null);
   const resolveHit=c.resolveHit||_G('resolveHit',null);
@@ -466,11 +595,25 @@ function stepShells(dt, ctx){
   shells.forEach(function(s){
     if(s.dead) return;
     if(s.guided){
+      // #E5（2026-09-20）制导：
+      //   锁定式（mode:'lock'）：追尾 + 比例引导（PN）——横向修正量 ∝ 视线角速度，
+      //     目标机动时提前量更足，比纯追尾更贴实战（纯追尾在横向移动目标前会绕圈）。
+      //   线导式（mode:'wire'）：飞行方向由**鼠标**持续引导（_secondaryTargetPos 每帧更新）
+      //     → 等效「视线角速度 = 0 的比例引导」：导弹始终朝操作者指定的方位收敛。
       let targetA = 0;
+      let losRate = 0;
       if(s.mode === 'wire' && s.shooter && s.shooter._secondaryTargetPos){
         targetA = Math.atan2(s.shooter._secondaryTargetPos.y - s.y, s.shooter._secondaryTargetPos.x - s.x);
       } else if(s.target && s.target.hp > 0){
         targetA = Math.atan2(s.target.y - s.y, s.target.x - s.x);
+        // 视线角速度（LOS rate）：本帧视线角与上一帧之差 / dt（PN 的输入项）
+        if(Number.isFinite(s._lastLosA)){
+          let d = targetA - s._lastLosA;
+          while(d > Math.PI) d -= 2 * Math.PI;
+          while(d < -Math.PI) d += 2 * Math.PI;
+          losRate = d / Math.max(1e-3, dt);
+        }
+        s._lastLosA = targetA;
       } else {
         targetA = Math.atan2(s.dy, s.dx);
       }
@@ -478,8 +621,16 @@ function stepShells(dt, ctx){
       let diff = targetA - curA;
       while(diff > Math.PI) diff -= 2 * Math.PI;
       while(diff < -Math.PI) diff += 2 * Math.PI;
-      const turnStep = 3.5 * dt;
-      const nextA = curA + Math.max(-turnStep, Math.min(turnStep, diff));
+      const R = _rules(c);
+      const mcfg = (R.missiles && R.missiles[s.mode === 'wire' ? 'wire' : 'lock']) || {};
+      const turnRate = (typeof mcfg.turnRate === 'number') ? mcfg.turnRate
+                     : (typeof s.turnRate === 'number' ? s.turnRate : 3.5);
+      // 比例引导系数 N（1~5，典型 3~4）；横向修正项按 N × 视线角速度 × 弹速 归一
+      const N = (typeof mcfg.navConstant === 'number') ? mcfg.navConstant : 3.0;
+      const pnTerm = (s.mode === 'wire') ? 0 : N * losRate * Math.max(1e-3, dt);
+      const turnStep = turnRate * dt;
+      const cmd = diff + pnTerm;
+      const nextA = curA + Math.max(-turnStep, Math.min(turnStep, cmd));
       s.dx = Math.cos(nextA);
       s.dy = Math.sin(nextA);
     }
@@ -517,6 +668,10 @@ function stepShells(dt, ctx){
     for(const e of ents){
       if(!e||e.hp<=0) continue;
       if(!isHostile(s.shooter.team,e.team)) continue;
+      // #E1：视野圈外（不绘制）的实体不参与弹道命中——消除「不可见车体拦弹」。
+      if(hiddenByVision&&hiddenByVision(e)) continue;
+      // #G：轨道炮贯穿——已命中的目标不再重复结算（防同发多杀同一目标）
+      if(s.pierceHitIds && s.pierceHitIds.indexOf(e.id) >= 0) continue;
       const hits=raycast?raycast(sx,sy,s.dx,s.dy,e):null;
       const bh=shellPartHit&&hits?shellPartHit(hits,step,s.hitPref):null;
       if(bh&&bh.t<bestDist){ bestDist=bh.t; bestTank=e; bestHit=bh; bestCover=null; }
@@ -533,15 +688,19 @@ function stepShells(dt, ctx){
         if(dmgCover(cov.cover,1,'shell')){ if(impacts) impacts.push({x:cov.point.x,y:cov.point.y,life:0.4,color:'#96764a'}); impactFx(cov.point.x,cov.point.y,Math.atan2(s.dy,s.dx),'block',0.7); play('block'); }
         continue;
       }
-      if((tier.mode==='solid'||tier.mode==='single')&&cov.distA<=step&&cov.distA<bestDist){ bestDist=cov.distA; bestCover=cov; bestTank=null; bestHit=null; }
-      if(tier.mode==='graduated'&&cov.distA<=step&&cov.distA<bestDist){
-        // #36：s.dec 曝光判定按掩体实例判重——首个半高掩体算出的 dec 不得套用到后续
-        // 不同掩体；_decCoverId 记录缓存归属的 cover 引用，命中不同 cover 时重算。
-        // 同一 cover 跨帧维持缓存（原语义：dec 只在跳弹时经 s.dec=null 复位，见下两处）。
-        if(!s.dec || s._decCoverId !== cov.cover){
-          const dec=shellVerticalDecision(s,c);
-          if(dec){ s.dec=dec; s._decCoverId=cov.cover; }
-        }
+      // #E1：确定性拦截唯一入口——solid/single 掩体在入口点截停（'graduated' 分支已删除）。
+      if((tier.mode==='solid'||tier.mode==='single')&&cov.distA<=step&&cov.distA<bestDist){ bestDist=cov.distA; bestCover=cov; bestTank=null; bestHit=null; s._blockedByDeployable=null; }
+    }
+    // #E4（2026-09-20）便携式掩体「单向透明」：部署方阵营的炮弹可穿过（不拦截），
+    // 对立方炮弹按确定性实体拦截（在掩体入口点截停）。视觉朝向指示见 mvp 绘制层。
+    // 判定用部署物实例几何（hullLen×hullWid OBB）与弹道线段求交。
+    const depCovers = (c.deployables || _G('deployables', null));
+    if(!ignoreCover && Array.isArray(depCovers) && depCovers.length){
+      for(const dc of depCovers){
+        if(!dc || !dc.isDeployableCover || dc._dead || dc.hp <= 0) continue;
+        if(dc.team === s.shooter.team) continue;         // 己方阵营：单向透明，炮弹穿过
+        const seg = _deployablePathHit(dc, sx, sy, nx, ny);
+        if(seg !== null && seg <= step && seg < bestDist){ bestDist = seg; bestCover = null; bestTank = null; bestHit = null; s._blockedByDeployable = dc; }
       }
     }
     if(s.dead){ /* 已在掩体入口被截停 */ }
@@ -553,29 +712,25 @@ function stepShells(dt, ctx){
         const cosT=n?Math.abs(s.dx*n.nx+s.dy*n.ny):0;
         if(s.canBounce&&Math.acos(Math.min(1,Math.max(-1,cosT)))>bounceAngle){
           const r=reflect?reflect(s.dx,s.dy,n.nx,n.ny):{x:-s.dx,y:-s.dy};
-          s.dx=r.x; s.dy=r.y; s.bounced=true; s.canBounce=false; s.fx=s.x; s.fy=s.y; s.dec=null; s._decCoverId=null;
+          s.dx=r.x; s.dy=r.y; s.bounced=true; s.canBounce=false; s.fx=s.x; s.fy=s.y;
           if(bounceFx) bounceFx.push({x:s.x,y:s.y,life:0.5,angle:Math.atan2(r.y,r.x)});
           impactFx(s.x,s.y,Math.atan2(r.y,r.x),'bounce',0.8); play('bounce'); push('跳弹！炮弹在'+tier.label+'表面掠射弹开 — 路障无损','BOUNCE');
         } else { if(impacts) impacts.push({x:s.x,y:s.y,life:0.4,color:'#ffb454'}); impactFx(s.x,s.y,Math.atan2(s.dx,s.dy),'block',0.8); play('block'); dmgCover(bestCover.cover,1,'shell'); s.dead=true; }
       } else { if(impacts) impacts.push({x:s.x,y:s.y,life:0.4,color:'#ffb454'}); impactFx(s.x,s.y,Math.atan2(s.dx,s.dy),'block',0.8); play('block'); if(Number.isFinite(bestCover.cover.hp)){ if(!dmgCover(bestCover.cover,1,'shell')) push('被'+tier.label+'挡住 — 掩体受损（剩余耐久 '+bestCover.cover.hp+'）','COVER'); } else push('被'+tier.label+'挡住 — 炮弹被掩体截停','COVER'); s.dead=true; }
-    } else if(bestTank||s.dec){
-      const hitT=s.dec?s.dec.hit:bestHit, hitTank=s.dec?s.dec.tank:bestTank, hitDist=s.dec?s.dec.t:bestDist, hx=hitT.x, hy=hitT.y;
-      // #A8：graduated 掩体入口当帧缓存的 s.dec.t 是全弹道距离（自炮根起算）——
-      // 剩余飞行距离未到预测命中点时不得瞬移结算，继续按正常飞行积分；本帧若已有
-      // 实体命中（bestTank，t≤步长）则照常优先结算。飞抵 dec.t 的那一帧才进入下方结算。
-      if(!bestTank && s.dec && s.dist + step < s.dec.t){
-        s.x=nx; s.y=ny; s.dist+=step;
-        const maxDG=(R.ballistics&&R.ballistics.shellMaxDist)||1800;
-        if(s.dist>=maxDG) s.dead=true; else if(nx<-60||nx>worldW+60||ny<-60||ny>worldH+60) s.dead=true;
-        return;
-      }
+    } else if(s._blockedByDeployable){
+      // #E4：敌方炮弹被部署掩体挡下（单向透明：部署方可穿过，对立方被挡）
+      const dc = s._blockedByDeployable;
+      s.dead = true;
+      if(impacts) impacts.push({ x: s.x, y: s.y, life: 0.4, color: '#7ed957' });
+      impactFx(s.x, s.y, Math.atan2(s.dy, s.dx), 'block', 0.8);
+      play('block');
+      push('被战术掩体挡下（单向透明：我方炮弹可穿过）', 'COVER');
+      if(Number.isFinite(dc.hp)){ dc.hp = Math.max(0, dc.hp - 1); if(dc.hp <= 0) dc._dead = true; }
+    } else if(bestTank){
+      const hitT=bestHit, hitTank=bestTank, hx=hitT.x, hy=hitT.y;
+      // #E1：曝光/概率拦截链整体删除——命中坦克即结算（掩体拦截只发生在 bestCover 分支）。
       s.x=hx; s.y=hy;
-      const exposure = (ignoreCover || s.dec) ? (s.dec ? (s.dec.exposure!==undefined ? s.dec.exposure : 1) : 1) : (getExp&&getZ ? getExp(s.fx,s.fy,hx,hy,s.shooter,hitTank,s.dec?s.dec.z.zMin:getZ(hitTank,hitT.part).zMin,s.dec?s.dec.z.zMax:getZ(hitTank,hitT.part).zMax,s.dist+hitDist) : 1);
-      if(exposure<=0||rnd()>exposure){
-        let stopX=hx, stopY=hy;
-        if(find){ const iCovs=find(s.fx,s.fy,hx,hy); for(const cov of iCovs){ const tc=T[cov.cover.tier]||{mode:'solid'}; if(tc.mode==='solid'||tc.mode==='single') continue; if(tc.mode==='none'||tc.mode==='pass') continue; if(cov.distExit<s.dist+bestDist+16){ stopX=cov.point.x; stopY=cov.point.y; break; } } }
-        s.x=stopX; s.y=stopY; if(impacts) impacts.push({x:stopX,y:stopY,life:0.4,color:'#ffb454'}); impactFx(stopX,stopY,Math.atan2(s.dy,s.dx),'block',0.7); play('block'); push('未命中 — 被半高掩体拦截','COVER'); s.dead=true;
-      } else {
+      {
         let shieldBlocked=false;
         if(hitTank===player&&hasShield(player)&&shieldAbsorbs(player,s)){
           const bleed=absorbDamage(player,s.dmg);
@@ -586,7 +741,7 @@ function stepShells(dt, ctx){
         if(!shieldBlocked){
           const hpBefore=hitTank.hp;   // #A6：飘字溢出截断基准（击杀前剩余血量）
           const res=resolveHit?resolveHit(s,hitTank,hitT,s.canBounce):{outcome:'PEN',dmg:0,splash:null,text:'',cls:'PEN',bouncePoint:{x:hx,y:hy},bounceAngle:0};
-          if(res.outcome==='BOUNCE'){ s.fx=res.bouncePoint.x; s.fy=res.bouncePoint.y; s.dec=null; s._decCoverId=null; if(bounceFx) bounceFx.push({x:res.bouncePoint.x,y:res.bouncePoint.y,life:0.5,angle:res.bounceAngle}); impactFx(res.bouncePoint.x,res.bouncePoint.y,res.bounceAngle,'bounce',1); dmgText(res.bouncePoint.x,res.bouncePoint.y-10,'跳弹','bounce'); push(res.text,res.cls); play('bounce'); }
+          if(res.outcome==='BOUNCE'){ s.fx=res.bouncePoint.x; s.fy=res.bouncePoint.y; if(bounceFx) bounceFx.push({x:res.bouncePoint.x,y:res.bouncePoint.y,life:0.5,angle:res.bounceAngle}); impactFx(res.bouncePoint.x,res.bouncePoint.y,res.bounceAngle,'bounce',1); dmgText(res.bouncePoint.x,res.bouncePoint.y-10,'跳弹','bounce'); push(res.text,res.cls); play('bounce'); }
           else { const isHe=s.ammoKey==='he', o=res.outcome==='PEN'?(isHe?'he':'pen'):'block'; if(impacts) impacts.push({x:hx,y:hy,life:0.4,color:isHe?'#ffb454':(res.outcome==='PEN'?'#ff6c5c':'#7a8065')}); impactFx(hx,hy,Math.atan2(s.dy,s.dx),o,1); if(res.splash){ const sc=res.splash.radius/40; burst(hx,hy,sc,Math.round(22*sc),Math.round(14*sc),Math.round(11*sc)); }
             if(res.outcome==='PEN'){
               // #A6 飘字：溢出截断（≤击杀前剩余血量）+ 部位颜色分类（弹药架红/成员与其他模块黄/普通白）
@@ -596,10 +751,23 @@ function stepShells(dt, ctx){
             }
             else if(res.dmg>0) dmgText(hx,hy-14,Math.min(res.dmg,Math.ceil(hpBefore)),'he');
             else dmgText(hx,hy-14,'未击穿','block');
-            push(res.text,res.cls); play(isHe?'pen':o); s.dead=true; }
+            push(res.text,res.cls); play(isHe?'pen':o);
+            // #G（2026-09-21）：轨道炮「超高速贯穿」——击穿（PEN）后弹体不消失：伤害按
+            // pierceDmgMul 衰减、记录已命中目标、从命中点继续直线飞行（pierceLeft 归零或
+            // 未击穿/跳弹时仍按旧口径销毁）。物理语义：超高速动能弹穿透轻掩体/薄甲后仍具杀伤。
+            if(s.pierceLeft > 0 && res.outcome === 'PEN'){
+              s.pierceLeft--;
+              s.dmg = s.dmg * s.pierceDmgMul;
+              s.pierceHitIds.push(hitTank.id);
+              s.fx = hx; s.fy = hy;
+              s.dist += step;
+            } else {
+              s.dead = true;
+            }
+          }
         }
       }
-    } else if(!bestTank && !s.dec && !bestCover && s.ammo && s.ammo.proximity && R.proximityFuze && R.proximityFuze.enabled){
+    } else if(!bestTank && !bestCover && s.ammo && s.ammo.proximity && R.proximityFuze && R.proximityFuze.enabled){
       // 弹种链 2026-09-13：近炸空爆引信（proximity_he）
       // 基准（用户裁定）：炮弹飞行路线不命中目标时，计算与最近敌目标的「接近率」
       // （径向相对速度 = (目标速度 − 弹速)·单位径向向量；简化：弹直线飞行，目标径向
@@ -658,5 +826,5 @@ function stepShells(dt, ctx){
 }
 
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={shellVerticalDecision:shellVerticalDecision,fireTank:fireTank,tryFire:tryFire,tryFirePrimary:tryFirePrimary,tryFireSecondary:tryFireSecondary,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels};
+  module.exports={fireTank:fireTank,tryFire:tryFire,tryFirePrimary:tryFirePrimary,tryFireSecondary:tryFireSecondary,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels,ensureClipState:ensureClipState,updatePrimaryClip:updatePrimaryClip,fireClipWeapon:fireClipWeapon,clipMagReloadSeconds:clipMagReloadSeconds};
 }

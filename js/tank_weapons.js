@@ -15,8 +15,24 @@ const WEAPON_DEFAULTS = {
     autocannon:  { reloadMult: 0.25, damageMult: 0.2, penMult: 0.85, shellSpeedMult: 1.0,
                    heatPerShot: 10, coolPerSec: 15, heatMax: 100, overheatLock: 2.0,
                    barrelWidthMult: 0.6, barrelLenMult: 0.8, fxScale: 0.55 },
-    double_barrel: { reloadMult: 1.0, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0, count: 2, switchSeconds: 0.5, barrelOffset: 0.9 },
-    railgun:     { reloadMult: 2.2, damageMult: 1.5, penMult: 2.0, shellSpeedMult: 2.5, burst: 1 }
+    // #E13（2026-09-20 用户裁定）：双联火炮重做——barrelOffset 0.9 → 1.85（炮管间距加大，确保
+    // 两根炮管连同各自附件不穿模）；altReload=false 表示默认两管装填进度互相干涉
+    // （任一管击发 → 两管进度归 0）；switchSeconds 为换管间隔；装填流水线见 tank_fire.js。
+    double_barrel: { reloadMult: 1.0, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0, count: 2, switchSeconds: 0.5, barrelOffset: 1.85, altReload: false },
+    // #G（2026-09-21）电磁轨道炮再平衡（用户反馈「相比双管、机炮不够强力」）：
+    //   旧参数 reloadMult 2.2 / damageMult 1.5 → 持续 DPS = 标准炮的 68%（全类型最低）且零机制补偿。
+    //   现行参数 reloadMult 1.8 / damageMult 1.8 → DPS 与标准炮持平（1.0），单发 alpha 1.8（仅低于双管齐射 2.0）；
+    //   新增专属机制「超高速贯穿」：击穿并命中目标后弹体不消失，以 pierceDmgMul 衰减伤害继续飞行，
+    //   可命中同一直线上的后续目标（pierce = 最大贯穿目标数）。弹速 ×2.5 / 穿深 ×2.0 维持不变。
+    railgun:     { reloadMult: 1.8, damageMult: 1.8, penMult: 2.0, shellSpeedMult: 2.5,
+                   pierce: 1, pierceDmgMul: 0.6, burst: 1 },
+    // #G（2026-09-21 用户需求）：弹夹炮——弹夹内逐发短间隔 + 弹夹间整组装填。
+    //   弹夹内装填 clipCycleSeconds（0.7s，**固定值，不受任何影响**：不乘 reloadMult、不吃装填 debuff）；
+    //   弹夹间装填 = 标准装填 × (reloadMult + clipSizeReloadStep × (容量 − 初始容量))，
+    //   即初始 4 发时 ×3.0、每 +1 发容量再 +0.8×（容量由升级卡提升，WEAPON_DEFAULTS 与卡牌 statOverrides 同步）。
+    //   运行时状态 _clipState = { size, rounds, pendingRefill }（tank_fire.js ensureClipState/fireClipWeapon）。
+    clip:        { reloadMult: 3.0, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0,
+                   clipSize: 4, clipSizeBase: 4, clipCycleSeconds: 0.7, clipSizeReloadStep: 0.8 }
   },
   secondary: {
     none:        { reload: 0, damage: 0 },
@@ -24,7 +40,9 @@ const WEAPON_DEFAULTS = {
     mortar:      { range: 450, aoe: 90, reload: 8, damage: 60, isArc: true, accuracySpread: 0.05 },
     missile:     { guided: true, mode: 'lock', reload: 12, damage: 140, range: 600, lockArcDeg: 30, lockSeconds: 1.0 },
     missile_wire:{ guided: true, mode: 'wire', reload: 10, damage: 150, range: 700 },
-    rocket:      { count: 4, reload: 10, damage: 35, range: 500, direct: true, aoe: 40 },
+    // 2026-09-19 #D4（用户反馈）：火箭巢改连续快速逐发——burstInterval=发际间隔（秒），
+    // count 发逐发射出后才进入整组装填 reload；fxScale=弹体视觉缩放（drawShells 尺寸通道）。
+    rocket:      { count: 4, reload: 10, burstInterval: 0.18, damage: 35, range: 500, direct: true, aoe: 40, fxScale: 1.3 },
     mine_layer:  { duration: 30, reload: 15, damage: 100 }
   }
 };
@@ -149,6 +167,8 @@ function updateSecondaryMount(t, dt, ctx) {
   const w = t && t.weapons && t.weapons.secondary;
   if (!w || !w.type || w.type === 'none' || w.type === 'turret') return false;
   if (t.hp <= 0) return false;
+  // #D4：火箭巢逐发队列优先驱动（burst 进行中接管 secondaryReloadT 计时）
+  if (w.type === 'rocket' && t._rocketBurst) updateRocketBurst(t, dt, ctx);
   // 2026-09-15 W2：锁定式反坦克导弹走锁定流程（±30° 扇形选目标 → 1s 锁定 → 自动发射）
   if (w.type === 'missile') return updateMissileLock(t, dt, ctx);
   if (!(t.secondaryReloadT > 0)) t.secondaryReloadT = 0;
@@ -235,6 +255,95 @@ function updateMissileLock(t, dt, ctx) {
   const fired = fireActiveSecondary(t, ctx, target);
   t._missileLock = null;
   return !!fired;
+}
+
+// #D4（2026-09-19）：火箭巢单发发射原语——fireActiveSecondary rocket 分支与
+// updateRocketBurst 逐发驱动共用。每发独立解算当前 HEAT 弹种状态（伤害跟随主弹种
+// 升级，原语义保留）；口焰/烟/音效逐发触发（旧齐射实现只触发一次）。
+function fireRocketOne(t, ctx, cfg, angle) {
+  const c = ctx || {};
+  const shells = c.shells || (typeof globalThis !== 'undefined' && globalThis.shells);
+  if (!shells || !t || t.hp <= 0) return false;
+  const gaussian = c.gaussian || (typeof globalThis !== 'undefined' && globalThis.gaussian) || (function(){ return 0; });
+  const muzzle = c.spawnMuzzleFlash || (typeof globalThis !== 'undefined' && globalThis.spawnMuzzleFlash) || (function(){});
+  const play = c.playSound || (typeof globalThis !== 'undefined' && globalThis.playSound) || (function(){});
+  const spawnSmoke = c.spawnSmoke || (typeof globalThis !== 'undefined' && globalThis.spawnSmoke) || null;
+  const gunTip = c.gunTip || (typeof globalThis !== 'undefined' && globalThis.gunTip) || (function(u){ return {x: u.x + Math.cos(u.turretAngle||0)*30, y: u.y + Math.sin(u.turretAngle||0)*30}; });
+  const computeAmmoConfig = c.computeAmmoConfig || (typeof globalThis !== 'undefined' && globalThis.computeAmmoConfig) || null;
+  const R = c.RULES || c.rules || (typeof globalThis !== 'undefined' && globalThis.RULES) || {};
+  const tipP = gunTip(t);
+  const heatKey = getEffectiveHeatAmmoKey(t);
+  const heatAmmoCfg = computeAmmoConfig ? computeAmmoConfig(t, heatKey) : ((R.ammoTypes && R.ammoTypes[heatKey]) || (R.ammoTypes && R.ammoTypes.he) || { dmg: 1, pen: 1 });
+  const baseDmg = (typeof cfg.damage === 'number') ? cfg.damage : 35;
+  const basePen = (typeof cfg.pen === 'number') ? cfg.pen : 90;
+  const dmg = Math.round(baseDmg * (heatAmmoCfg.dmg || 1) + (heatAmmoCfg.dmgAdd || 0));
+  const pen = Math.round(basePen * (heatAmmoCfg.pen || 1) + (heatAmmoCfg.penAdd || 0));
+  const aoe = (typeof cfg.aoe === 'number') ? cfg.aoe : 40;
+  const rocketSplash = (heatAmmoCfg.splashRadius > 0) ? heatAmmoCfg.splashRadius : aoe;
+  const spd = (typeof cfg.speed === 'number') ? cfg.speed : 450;
+  const rocketAmmo = Object.assign({}, heatAmmoCfg, {
+    color: '#ffaa33',
+    tail: 'rgba(255,170,60,0.85)',
+    splashRadius: rocketSplash
+  });
+  const a = angle + gaussian(0.02);
+  const dx = Math.cos(a), dy = Math.sin(a);
+  shells.push({
+    x: tipP.x, y: tipP.y, fx: tipP.x, fy: tipP.y, dx: dx, dy: dy,
+    speed: spd, pen: pen, dmg: dmg, direct: true,
+    fxScale: (typeof cfg.fxScale === 'number') ? cfg.fxScale : 1.3,
+    splashRadius: rocketSplash,
+    ammo: rocketAmmo,
+    ammoKey: heatKey, shooter: t, hitPref: 'auto',
+    canBounce: false, bounced: false, dist: 0, dead: false
+  });
+  muzzle(tipP.x, tipP.y, a, 1.0, 'he');
+  if (spawnSmoke) {
+    for (let i = 0; i < 3; i++) spawnSmoke(tipP.x - dx * 12, tipP.y - dy * 12, 45, 0.8);
+  }
+  play('fire');
+  return true;
+}
+
+// #D4（2026-09-19）：火箭巢逐发队列驱动——_rocketBurst = { left, lastAngle }。
+// 由接线层逐帧调用（玩家 mvp 主循环 / AI updateSecondaryMount 顶部）：
+// burst 期间 secondaryReloadT 作为发际间隔（burstInterval），弹指目标优先跟随
+// 当前最近敌人（无目标则保持上一发方向），队列清空后写入整组装填 cfg.reload。
+function updateRocketBurst(t, dt, ctx) {
+  const b = t && t._rocketBurst;
+  if (!b) return false;
+  if (!t.weapons || !t.weapons.secondary || t.weapons.secondary.type !== 'rocket') { t._rocketBurst = null; return false; }
+  if (t.hp <= 0) { t._rocketBurst = null; return false; }
+  const c = ctx || {};
+  const debuffReload = c.debuffReloadRate || (typeof globalThis !== 'undefined' && globalThis.debuffReloadRate) || (function(){ return 1; });
+  const cfg = Object.assign({}, getWeaponDefaults('secondary', 'rocket'), t.weapons.secondary.stats || {});
+  const burstInterval = (typeof cfg.burstInterval === 'number') ? cfg.burstInterval : 0.18;
+  if (t.secondaryReloadT > 0) {
+    t.secondaryReloadT -= dt;
+    if (t.secondaryReloadT > 0) return false;   // 发际间隔未到（dt 跨帧超额则本帧立即发射）
+  }
+  // 瞄准：优先存活目标方向；目标丢失保持上一发角度（committal burst 语义）
+  const nearestEnemyTo = c.nearestEnemyTo || (typeof globalThis !== 'undefined' && globalThis.nearestEnemyTo) || (function(){ return null; });
+  const target = nearestEnemyTo(t);
+  let angle;
+  if (target && target.hp > 0) {
+    const tipFn = c.gunTip || (typeof globalThis !== 'undefined' && globalThis.gunTip) || null;
+    const ox = tipFn ? tipFn(t).x : t.x, oy = tipFn ? tipFn(t).y : t.y;
+    angle = Math.atan2(target.y - oy, target.x - ox);
+  } else {
+    angle = (typeof b.lastAngle === 'number') ? b.lastAngle : (t.turretAngle || 0);
+  }
+  const fired = fireRocketOne(t, c, cfg, angle);
+  b.left -= 1;
+  b.lastAngle = angle;
+  if (!fired || b.left <= 0) {
+    t._rocketBurst = null;
+    const reload = (typeof cfg.reload === 'number') ? cfg.reload : 10;
+    t.secondaryReloadT = reload / debuffReload(t);
+  } else {
+    t.secondaryReloadT = burstInterval / debuffReload(t);
+  }
+  return true;
 }
 
 function getEffectiveHeatAmmoKey(tank) {
@@ -382,41 +491,21 @@ function fireActiveSecondary(t, ctx, targetPos) {
       return true;
     }
     case 'rocket': {
-      if (!shells) return false;
+      // #D4（2026-09-19）：同帧齐射改连续逐发——本次仅发射第 1 发并登记 _rocketBurst
+      // 队列（剩余 count-1 发经 updateRocketBurst 按 burstInterval 逐发驱动），随后进入
+      // 整组装填 reload（队列清空时写入）。旧实现同帧 push 全部 count 发。
       const baseAngle = Math.atan2(target.y - tipP.y, target.x - tipP.x);
       const count = (typeof cfg.count === 'number') ? cfg.count : 4;
-      // 火箭弹伤害机制跟随玩家 HEAT 弹种升级状态
-      const heatKey = getEffectiveHeatAmmoKey(t);
-      const heatAmmoCfg = computeAmmoConfig ? computeAmmoConfig(t, heatKey) : ((R.ammoTypes && R.ammoTypes[heatKey]) || (R.ammoTypes && R.ammoTypes.he) || { dmg: 1, pen: 1 });
-      const baseDmg = (typeof cfg.damage === 'number') ? cfg.damage : 35;
-      const basePen = (typeof cfg.pen === 'number') ? cfg.pen : 90;
-      const dmg = Math.round(baseDmg * (heatAmmoCfg.dmg || 1) + (heatAmmoCfg.dmgAdd || 0));
-      const pen = Math.round(basePen * (heatAmmoCfg.pen || 1) + (heatAmmoCfg.penAdd || 0));
-      const aoe = (typeof cfg.aoe === 'number') ? cfg.aoe : 40;
-      const rocketSplash = (heatAmmoCfg.splashRadius > 0) ? heatAmmoCfg.splashRadius : aoe;
-      const spd = (typeof cfg.speed === 'number') ? cfg.speed : 450;
-      const rocketAmmo = Object.assign({}, heatAmmoCfg, {
-        color: '#ffaa33',
-        tail: 'rgba(255,160,50,0.7)',
-        splashRadius: rocketSplash
-      });
-      for (let i = 0; i < count; i++) {
-        const offset = (count <= 1) ? 0 : (i - (count - 1) / 2) * 0.08;
-        const angle = baseAngle + offset + gaussian(0.02);
-        const dx = Math.cos(angle), dy = Math.sin(angle);
-        shells.push({
-          x: tipP.x, y: tipP.y, fx: tipP.x, fy: tipP.y, dx: dx, dy: dy,
-          speed: spd, pen: pen, dmg: dmg, direct: true,
-          splashRadius: rocketSplash,
-          ammo: rocketAmmo,
-          ammoKey: heatKey, shooter: t, hitPref: 'auto',
-          canBounce: false, bounced: false, dist: 0, dead: false
-        });
+      const fired = fireRocketOne(t, c, cfg, baseAngle);
+      if (!fired) return false;
+      if (count > 1) {
+        t._rocketBurst = { left: count - 1, lastAngle: baseAngle };
+        const burstInterval = (typeof cfg.burstInterval === 'number') ? cfg.burstInterval : 0.18;
+        t.secondaryReloadT = burstInterval / debuffReload(t);
+      } else {
+        const reload = (typeof cfg.reload === 'number') ? cfg.reload : 10;
+        t.secondaryReloadT = reload / debuffReload(t);
       }
-      muzzle(tipP.x, tipP.y, baseAngle, 1.0, 'he');
-      play('fire');
-      const reload = (typeof cfg.reload === 'number') ? cfg.reload : 10;
-      t.secondaryReloadT = reload / debuffReload(t);
       return true;
     }
     case 'mine_layer': {
@@ -439,10 +528,16 @@ function fireActiveSecondary(t, ctx, targetPos) {
         y: my,
         damage: dmg,
         blastRadius: 70,
-        triggerRadius: 30,
+        triggerRadius: 45,
         duration: dur,
         registry: c.deployables || (typeof globalThis !== 'undefined' && globalThis.deployables) || null
       });
+      // #E4（2026-09-20）：布雷器单发路径同样受可部署物数量上限约束——超限时最早布设的地雷直接消失。
+      let enforceFn = (typeof enforceDeployLimits === 'function') ? enforceDeployLimits : null;
+      if (!enforceFn && typeof require !== 'undefined') {
+        try { enforceFn = require('./tank_deployables.js').enforceDeployLimits; } catch (e) {}
+      }
+      if (enforceFn) enforceFn('mine', t);
       play('ui');
       const reload = (typeof cfg.reload === 'number') ? cfg.reload : 15;
       t.secondaryReloadT = reload / debuffReload(t);
@@ -473,6 +568,8 @@ if (typeof module !== 'undefined' && module.exports) {
     updateSecondaryMount,
     updateSecondaryWeapon,
     updateMissileLock,
-    fireActiveSecondary
+    fireActiveSecondary,
+    fireRocketOne,
+    updateRocketBurst
   };
 }

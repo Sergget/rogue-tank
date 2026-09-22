@@ -89,6 +89,32 @@ function applyDamage(target, amount, src){
 // 返回记录了本次溅射命中实体及其「实际受到伤害（ hp 损失）」的数组——消费方可据此
 // 在命中位置飘出伤害数值（取代静态字样如“空爆”/“爆炸”）。对未受伤害（d<=0）的实体
 // 不记录。（2026-09-15 修订：近炸引信分支需要坦克实收伤害。）
+// #E10（2026-09-20）HE 系溅射击退：击退距离与爆炸范围绑定。
+// 世界边界由接入层注入（setSplashWorldBounds；mvp 进节点时写入节点尺寸），缺省不钳制。
+let _splashWorldBounds = null;
+function setSplashWorldBounds(b){
+  _splashWorldBounds = (b && b.w > 0 && b.h > 0) ? { w: b.w, h: b.h } : null;
+}
+function applySplashKnockback(e, x, y, radius, dist, shell){
+  const ammo = shell && shell.ammo;
+  const mul = (ammo && typeof ammo.splashKnockbackMul === 'number') ? ammo.splashKnockbackMul : 0;
+  if(!(mul > 0) || !(radius > 0)) return 0;
+  const dx = e.x - x, dy = e.y - y;
+  const dd = Math.hypot(dx, dy) || 1;
+  const falloff = Math.max(0, 1 - (dist / radius));
+  const push = radius * mul * falloff;
+  if(!(push > 0)) return 0;
+  e.x += (dx / dd) * push;
+  e.y += (dy / dd) * push;
+  if(_splashWorldBounds){
+    const m = 40;
+    e.x = Math.max(m, Math.min(_splashWorldBounds.w - m, e.x));
+    e.y = Math.max(m, Math.min(_splashWorldBounds.h - m, e.y));
+  }
+  e.kbT = Math.max(e.kbT || 0, 0.18);   // 击退视觉计时（坦克绘制可做短暂位移抖动）
+  return push;
+}
+
 function applySplashAt(x, y, radius, dmg, exclude, shell, entityList){
   if(!(radius > 0)) return [];
   const list = entityList || (typeof entities !== 'undefined' ? entities : null) || (typeof globalThis !== 'undefined' && globalThis.entities);
@@ -101,6 +127,11 @@ function applySplashAt(x, y, radius, dmg, exclude, shell, entityList){
     const dist = Math.hypot(e.x - x, e.y - y);
     if(dist > radius) continue;
     const d = Math.round(dmg * (1 - dist / radius) * 0.5);
+    // #E10（2026-09-20）：HE 系击退——击退距离与爆炸范围绑定：
+    //   knockback = radius × ammo.splashKnockbackMul × (1 − dist/radius)
+    // 数值口径见 docs/specs/combat.md §3.2（HE-OP 0.95×110=104px > HE-VT 0.6×90=54px）。
+    // 无 splahKnockbackMul（AP/HEAT 等）→ 零击退，行为不变。Boss/召唤物一视同仁。
+    applySplashKnockback(e, x, y, radius, dist, shell);
     if(d <= 0) continue;
     const hpBefore = e.hp;
     // 溅射来源坐标：有射手实体记射手位置（AI 朝射手搜索），否则记爆点
@@ -397,6 +428,8 @@ if (typeof module !== 'undefined' && module.exports) {
     ammoModuleMults,
     nonPenSplashDmg,
     applySplashAt,
+    applySplashKnockback,
+    setSplashWorldBounds,
     applyDamage
   };
 }
