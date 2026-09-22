@@ -33,7 +33,9 @@
     ammoNext: 'e', ammoPrev: 'q',
     skill1: '1', skill2: '2', skill3: '3',
     fireSecondary: 'f',   // #C4e（2026-09-17）：F=直接击发副武器（按住连发），不再切换主/副（旧 switchWeapon 反转）
-    abilityStrike: 'g', abilityShield: 'h', abilityOverdrive: 'v',
+    // #H3（2026-09-21 用户裁定）：超装填移除 V 专属键——只经技能池 1/2/3 触发（skillHotkey
+    // DISPATCH overdrive）；abilityOverdrive 键位/ACTION_INFO/ACTION_ORDER 同步删除。
+    abilityStrike: 'g', abilityShield: 'h',
     supportRepair: '4', supportMedkit: '5', supportExtinguish: '6',
     panelStatus: 'tab', panelDev: '`', panelDevAlt: 'f12',
     pauseToggle: 'escape'
@@ -49,7 +51,7 @@
     fireSecondary: { keys: 'F（按住）', desc: '副武器击发（按住连发；主炮=左键/空格）' },
     abilityStrike: { keys: 'G', desc: '战术炮击（鼠标指向落点）' },
     abilityShield: { keys: 'H / Shift+H', desc: '护盾（定向 / 全向）' },
-    abilityOverdrive: { keys: 'V', desc: '超级装填（爆发装填）' },
+    // #H3：超装填 V 专属键删除——经技能池 1/2/3 触发（skillPool 行说明覆盖）
     supportRepair: { keys: '4', desc: '修理箱' },
     supportMedkit: { keys: '5', desc: '医疗包' },
     supportExtinguish: { keys: '6', desc: '灭火器' },
@@ -60,7 +62,7 @@
 
   // 说明行规范顺序（describeBindings 按此输出）。
   var ACTION_ORDER = ['move', 'altMove', 'fire', 'ammoCycle', 'skillPool',
-    'fireSecondary', 'abilityStrike', 'abilityShield', 'abilityOverdrive',
+    'fireSecondary', 'abilityStrike', 'abilityShield',
     'supportRepair', 'supportMedkit', 'supportExtinguish',
     'panelStatus', 'panelDev', 'pauseToggle'];
 

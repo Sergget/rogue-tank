@@ -107,6 +107,19 @@ declare function createDevPanelController(els: any, hooks: any): any;           
 declare function applyCardToTank(tank: any, card: any): any[];
 declare function clearCardsFromTank(tank: any): { removedMods: number, removedEffects: number };
 declare function applyCardTx(tank: any, card: any, ctx?: any): { ok: boolean, applied: any[], receipt: any };
+// #F（2026-09-20）：devPanel 共享模块（js/tank_devpanel.js）——mvp/bench 两页同源四 Tab 开发者面板
+declare function mountDevPanel(host?: any): {
+  el: HTMLElement;
+  cheats: { zeroSpread: boolean, noVision: boolean, invuln: boolean, instantReload: boolean };
+  showDevTab(tab: string): void;
+  syncDevInputs(): void;
+  renderDevMods(): void;
+  applyDevOverrides(): void;
+  updateDevParams(): void;
+  updateSolution(): any;
+  refreshAll(): void;
+  isOpen(): boolean;
+};
 declare function rollbackCardTx(tank: any, receipt: any): any;
 declare function parameterClamp(stat: string, value: number): { value: any, clamped: boolean };
 declare function clampParameterMap(map: any): { values: any, clamped: any, any: boolean };
@@ -174,6 +187,8 @@ interface NodeGenOptions {
   scale?: number;       // #24：模板放大倍率（tank_nodegen.js generateNode 消费）
   cullRate?: number;
   applyToCovers?: boolean;
+  // #I3（2026-09-21）：建筑密度乘子（makeNode 对 boss 节点传 RULES.nodeMap.building.bossDensity）
+  buildingDensity?: number;
   losHints?: { spawn: { x: number; y: number }; clusters: Array<{ x: number; y: number }>; bounds?: { w: number; h: number } };
 }
 
@@ -205,6 +220,8 @@ interface GeneratedNodeResult {
   // v2（2026-09-16）：路口中心列表（局部系）——渲染层据此在路口断开中心虚线，
   // 使交叉处读作「路口」而非「两条路叠加」。见 docs/specs/map.md §10.2。
   roadJunctions?: Array<{ x: number; y: number; r: number }>;
+  // #E2（2026-09-20）：本节点实际使用的道路条带宽（世界px，RULES.nodeMap.road 区间内随机）
+  roadW?: number;
   seed: number | string;
   difficulty: number;
   w: number;            // #24：#26 补全——缩放后的节点世界尺寸（tank_map.js 读取）
@@ -345,6 +362,7 @@ declare function bossInStage(boss: any, hpRatio: number, stageId: string): boole
 declare function makeBossEntity(boss: any, env: any): any;
 declare function applyBossStage(entity: any, stage: any): void;
 declare function updateBossStage(entity: any): { changed: boolean; from?: string; to?: string; stage: any };
+declare function updateBossTrackRepair(t: any, dt: number, opts?: any): { repaired: boolean };
 
 // 敌人/友军 AI 决策（js/tank_ai.js，P-10 / §6 条目 7）
 declare function aiConfig(): any;
@@ -400,6 +418,10 @@ declare function spawnFixedTurret(opts?: any): any;
 declare function spawnMine(opts?: any): any;
 declare function spawnDeployableCover(opts?: any): any;
 declare function updateDeployables(dt: number, ctx?: any): any[];
+// #E4（2026-09-20）：可部署物数量上限 + 超限淘汰最早部署
+declare function deployableCap(kind: string, owner?: any): number;
+declare function deployableCount(kind: string): number;
+declare function enforceDeployLimits(kind: string, owner?: any): number;
 
 // 主动能力统一入口（js/tank_abilities.js，P-17 子目标 3 阶段 2）
 declare var ABILITY_KEYS_RUNTIME: string[];

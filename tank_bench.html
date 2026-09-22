@@ -156,37 +156,8 @@
       </div>
       <div id="logOverlay"></div>
     </div>
-  <div id="benchPanel" style="display:none; position:fixed; top:52px; right:12px; z-index:60; width:236px; background:rgba(10,14,18,0.95); border:1px solid rgba(255,255,255,0.14); border-radius:8px; padding:10px; font-size:11px; box-shadow:0 6px 24px rgba(0,0,0,0.55);">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-      <b style="color:var(--text);">测试面板 TEST PANEL</b>
-      <button id="benchPanelCloseBtn" style="background:none;border:1px solid rgba(255,255,255,0.2);color:var(--text-dim);border-radius:4px;cursor:pointer;padding:0 6px;">×</button>
-    </div>
-    <div class="section" style="padding:0; margin-bottom:8px;">
-      <h3 style="margin:2px 0 6px;">作弊开关 Cheats</h3>
-      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
-        <input type="checkbox" id="benchInvulnChk"> 无敌常驻（玩家）
-      </label>
-      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
-        <input type="checkbox" id="benchInstantReloadChk"> 秒装填（reloadT 恒 0）
-      </label>
-      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
-        <input type="checkbox" id="benchInvertChk"> 倒车转向倒置（与正式游戏同源设置）
-      </label>
-      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
-        <input type="checkbox" id="benchFpsChk"> 显示帧率 FPS
-      </label>
-      <div class="btnrow" style="margin-top:6px;">
-        <button id="benchResetHpBtn" style="flex:1;">满血重置</button>
-        <button id="benchClearCardsBtn" style="flex:1;">清空卡牌</button>
-        <button id="benchClearEnemiesBtn" style="flex:1;">清场</button>
-      </div>
-    </div>
-    <div class="section" style="padding:0;">
-      <h3 style="margin:2px 0 6px;">键位 Bindings</h3>
-      <div id="benchBindings" style="display:flex; flex-direction:column; gap:3px;"></div>
-      <div class="hint-text" style="font-size:9px; color:var(--text-dim); margin-top:4px;">` 键开/关本面板；设置与正式游戏同源共享</div>
-    </div>
-  </div>
+  <!-- #F（2026-09-20）：旧测试面板 benchPanel 移除——开发者面板（` 键）统一为共享四 Tab devPanel
+       （js/tank_devpanel.js，mvp/bench 同源）；倒置/FPS/满血重置/清场/键位表经 extraSwitchHTML 并入开关 Tab -->
   <div id="benchFps" style="display:none; position:fixed; top:34px; right:12px; z-index:60; font-size:10px; color:#9fd48a; background:rgba(10,14,18,0.8); padding:2px 6px; border-radius:4px;"></div>
   <div id="stage-wrap">
     <canvas id="c"></canvas>
@@ -267,8 +238,9 @@
     <div class="section controls">
       <div><b>WASD</b> 移动 / 转向车体（W/S 前后，A/D 转向）</div>
       <div><b>鼠标</b> 手动瞄准方位角（炮塔转动有转速与射界限制，射界=车体中线±traverseLimit）</div>
-      <div><b>左键 / 空格</b> 开火（有装填时间）</div>
-      <div><b>1/2/3</b> 弹种切换（AP / APCR / HE）</div>
+      <div><b>左键</b> 主炮单击（双管=发射 1 根就绪管） / <b>空格</b> 主炮齐射（双管仅两管都就绪才双发）</div>
+      <div><b>F（按住）</b> 副武器击发（火箭/导弹/迫击炮/布雷器；副炮塔 turret 自瞄自主）</div>
+      <div><b>E / Q</b> 环形切换弹种（或点击弹种格选择；数字直选已摘除）</div>
       <div><b>方向键</b> 手动移动测试靶 — 掩体已移到默认射线上方；把靶车开到掩体后面测试露头概率</div>
     </div>
 
@@ -319,6 +291,7 @@
   <script src="js/tank_dmgtext.js"></script>
   <!-- P-17 护盾模块：fireCtx 引用 hasShield/shieldAbsorbs/absorbDamage，缺失会导致 update 首帧 ReferenceError → rAF 循环断裂 → 页面冻结 -->
   <script src="js/tank_shield.js"></script>
+  <script src="js/tank_strike.js"></script>   <!-- #C5a：G=战术炮击（callStrike 链路）与正式游戏同语义 -->
   <script src="js/tank_deployables.js"></script>
   <script src="js/tank_abilities.js"></script>
   <script src="js/tank_fire.js"></script>
@@ -327,6 +300,9 @@
   <script src="js/tank_panels_core.js"></script>
   <script src="js/tank_panels_dom.js"></script>
   <script src="js/tank_panels.js"></script>
+  <!-- #F（2026-09-20）：开发者面板共享模块（mvp/bench 同源四 Tab；依赖 applyCardToTank/
+       snapshotCardTx/clearCardsFromTank 等共享层，须在 tank_panels_core 之后加载） -->
+  <script src="js/tank_devpanel.js"></script>
   <script src="js/tank_bindings.js"></script>
 <script>
 (() => {
@@ -450,21 +426,24 @@ document.getElementById('reloadTankListBtn').addEventListener('click', ()=>{
 loadTankList();
 
 // ---------- 输入控制器（js/tank_bindings.js 共享层；键位/设置与正式游戏同源） ----------
-// 边沿动作：Q/E 切弹（对齐 mvp 语义，数字直选已摘除）、G/V 技能（对应测试台按钮）、
+// 边沿动作：Q/E 切弹（对齐 mvp 语义，数字直选已摘除）、G=战术炮击（#C5a 2026-09-19
+// 语义统一：与正式游戏同键同义——旧 bench 把 G/V 挪用为火控/速度 Buff，Buff 保留为面板按钮）、
 // ` 开关测试面板。持续键（空格开火）由 update() 经 input.isDown('fire') 读取。
+// #H3（2026-09-21）：V 键超装填删除（与正式游戏同步）——超装填只经技能池 1/2/3 触发，
+// bench 测试路径 = devPanel 卡牌/技能测试或直接 applyCardEffects。
 // 方向键经 altDriveArgs() 驱动靶车（bench 专用第二驾驶位）；倒车倒置设置两边共用。
+// Tab 无对应动作（bench 无状态面板）→ preventKeys 阻止其落到浏览器焦点遍历（#C5a）。
 const benchSettings = loadSettings(localStorage);
 const input = createInputController({
-  preventKeys: [' '],
+  preventKeys: [' ', 'tab'],
   allowAltMove: true,
   settings: () => benchSettings,
   gate: () => true,
   actions: {
-    ammoNext: () => benchCycleAmmo(1),               // Q
-    ammoPrev: () => benchCycleAmmo(-1),              // E
-    abilityStrike: () => benchAbilityFireControl(),  // G：超级火控（与按钮同路）
-    abilityOverdrive: () => benchAbilitySpeed(),     // V：超级速度（与按钮同源语义）
-    panelDev: () => toggleBenchPanel()               // `：测试面板
+    ammoNext: () => benchCycleAmmo(1),               // E
+    ammoPrev: () => benchCycleAmmo(-1),              // Q
+    abilityStrike: () => benchAbilityStrike(),       // G：战术炮击（与正式游戏同语义）
+    panelDev: () => toggleDevPanel()               // `：开发者面板（共享四 Tab devPanel）
   }
 });
 const keys = input.keys;   // 既有消费方（updateSigma 等）沿用同形对象，零改动
@@ -487,7 +466,7 @@ function renderAmmoIndicator(){
   let html = '';
   list.forEach((k, idx) => {
     const ammo = RULES.ammoTypes[k];
-    const dirHint = (idx === (cur + 1) % list.length) ? 'Q' : ((idx === (cur - 1 + list.length) % list.length) ? 'E' : '');
+    const dirHint = (idx === (cur + 1) % list.length) ? 'E' : ((idx === (cur - 1 + list.length) % list.length) ? 'Q' : '');   // #C5a 修复：E=下一发 / Q=上一发（与 bindings ammoNext='e' 同向；旧提示颠倒）
     const active = idx === cur;
     html += `<span data-ammo="${k}" class="ammo-cell${active?' ammo-active':''}" style="display:inline-flex; align-items:center; gap:3px; opacity:${active?1:0.4}; font-weight:${active?700:400}; color:${active?'var(--text)':'var(--text-dim)'}; cursor:pointer;">` +
             `<span style="width:8px; height:8px; border-radius:50%; background:${ammo.color}; border:1px solid rgba(255,255,255,0.2)"></span>` +
@@ -649,26 +628,72 @@ function benchAbilitySpeed(){
   pushLog(res.ok ? '激活超级速度成功（极速与加速度提升）' : `超级速度激活失败: ${res.reason}`, res.ok ? 'PEN' : 'CRIT');
   playSound('ui');
 }
+// #C5a（2026-09-19）：G/V 键语义与正式游戏统一——G=战术炮击（鼠标落点）/ V=超装填。
+// 旧 bench 把 G/V 挪用为超级火控/超级速度 Buff（与 mvp 同键不同义冲突）；两 Buff 保留为
+// 面板按钮（skillFireCtrlBtn/skillSpeedBtn），不再占用 G/V。
+function benchAbilityStrike(){
+  const res = activateAbilityForTest(player, 'artillery', { target: { x: mouseWorld.x, y: mouseWorld.y } });
+  const n = (res.strikes && res.strikes.length) || 0;
+  pushLog(res.ok ? `炮击支援已呼叫 — ${n} 发落弹将在目标区域着陆` : `炮击激活失败: ${res.reason}`, res.ok ? 'PEN' : 'CRIT');
+  playSound('ui');
+}
+// #H3（2026-09-21）：benchAbilityOverdrive 移除——V 键/超装填测试入口删除（与正式游戏同步），
+// bench 的超装填验证走 devPanel 卡牌测试（giveCard super_reload 后按技能池键）。
 document.getElementById('clearCardsBtn').addEventListener('click', benchClearCards);
 document.getElementById('skillFireCtrlBtn').addEventListener('click', benchAbilityFireControl);
 document.getElementById('skillSpeedBtn').addEventListener('click', benchAbilitySpeed);
 
-// ---------- 测试专用面板（` 键开关；与正式游戏同源键位/设置） ----------
-function toggleBenchPanel(force){
-  const el = document.getElementById('benchPanel');
-  if(!el) return;
-  const open = (force !== undefined) ? !!force : (el.style.display === 'none');
-  el.style.display = open ? 'block' : 'none';
+// ---------- 开发者面板（#F 2026-09-20：移除旧测试面板 benchPanel，` 键切换共享四 Tab devPanel；与正式游戏同源键位/设置） ----------
+const devAim = { zeroSpread: false };   // #F：超级精度开关状态（devPanel 同步，fireCtx 引用同一对象）
+function toggleDevPanel(force){
+  const open = (force !== undefined) ? !!force : (devPanelApi.isOpen() === false);
+  devPanelApi.el.style.display = open ? 'block' : 'none';
+  // #F：devPanel（z-index 31）打开时把 FPS 读数（z-index 60）移出面板右缘，避免重叠遮挡
+  const fpsEl = document.getElementById('benchFps');
+  if(fpsEl) fpsEl.style.right = open ? '508px' : '12px';
   benchSettings.benchPanelOpen = open;
   saveSettings(localStorage, benchSettings);
-  if(open) renderBenchBindings();
+  if(open) devPanelApi.refreshAll();
   playSound('ui');
 }
+// 实时 Tab 数据（node 字段为靶场占位）；发射解算区隐藏——测试台已有常驻 #solutionPanel
+const devPanelApi = mountDevPanel({
+  attach: document.body,
+  getPlayer: () => player,
+  getCardPool: () => cardPool,
+  getCtx: () => fireCtx,
+  isDevOpen: () => devPanelApi ? devPanelApi.isOpen() : false,
+  pushLog: pushLog,
+  playSound: playSound,
+  cheatsInit: { zeroSpread: devAim.zeroSpread, noVision: false, invuln: benchCheats.invuln, instantReload: benchCheats.instantReload },
+  onCheatChange: (k, v) => {
+    if(k === 'zeroSpread'){ devAim.zeroSpread = v; }
+    if(k === 'invuln' || k === 'instantReload') benchCheats[k] = v;
+    // noVision：靶场无视野剔除概念，保持 off（按钮切换仅记录日志）
+  },
+  liveData: (p) => ({
+    sigma: p.sigma,
+    reload: p.stats ? p.stats.reload : 0,
+    pos: '(' + p.x.toFixed(0) + ', ' + p.y.toFixed(0) + ')',
+    speed: tankKmh(p) + 'km/h',
+    entities: entities.filter(e => e.hp > 0).length + ' 存活',
+    node: '靶场 ' + Math.round(worldW) + '×' + Math.round(worldH) + '（测试台无节点地图）',
+    nodeType: '--',
+    enemyCount: entities.filter(e => e.team === 'enemy' && e.hp > 0).length
+  }),
+  hideSolutionSection: true,
+  extraSwitchHTML:
+    '<label class="dev-cheat"><input type="checkbox" id="benchInvertChk"> 倒车转向倒置（与正式游戏同源设置）</label>' +
+    '<label class="dev-cheat"><input type="checkbox" id="benchFpsChk"> 显示帧率 FPS</label>' +
+    '<div class="dev-row"><button id="benchResetHpBtn">满血重置</button><button id="benchClearCardsBtn">清空卡牌</button><button id="benchClearEnemiesBtn">清场</button></div>' +
+    '<div class="dev-row"><span class="k">键位</span><span id="benchBindings" style="font-size:9px;color:var(--text);"></span></div>',
+  onExtraSetup: function(){ benchSyncSettingsUi(); }
+});
 function renderBenchBindings(){
   const el = document.getElementById('benchBindings');
   if(!el) return;
   el.innerHTML = '';
-  describeBindings({ move:1, altMove:1, fire:1, ammoCycle:1, abilityStrike:1, abilityOverdrive:1, panelDev:1 }).forEach(b => {
+  describeBindings({ move:1, altMove:1, fire:1, fireSecondary:1, ammoCycle:1, abilityStrike:1, panelDev:1 }).forEach(b => {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex; justify-content:space-between; gap:8px;';
     const k = document.createElement('span');
@@ -691,9 +716,9 @@ function benchSyncSettingsUi(){
   if(fps) fps.checked = !!benchSettings.showFps;
   if(fp) fp.style.display = benchSettings.showFps ? 'block' : 'none';
 }
-document.getElementById('benchPanelCloseBtn').addEventListener('click', () => toggleBenchPanel(false));
-document.getElementById('benchInvulnChk').addEventListener('change', e => { benchCheats.invuln = e.target.checked; });
-document.getElementById('benchInstantReloadChk').addEventListener('change', e => { benchCheats.instantReload = e.target.checked; });
+// #F7（2026-09-20）：benchInvulnChk/benchInstantReloadChk 复选框随 #F1 旧 #benchPanel 移除——
+// 开关改由共享 devPanel 开关 Tab 渲染，onCheatChange 已同步 benchCheats（:673）；旧接线的
+// getElementById 对 null 元素 addEventListener 导致页面加载即抛错（浏览器实测发现），已删除。
 const onInvertChange = e => {
   benchSettings.invertReverseTurn = e.target.checked;
   saveSettings(localStorage, benchSettings);   // 独立设置键（正式游戏走 profile.settings，字段语义一致）
@@ -728,8 +753,9 @@ document.getElementById('benchClearEnemiesBtn').addEventListener('click', () => 
   playSound('ui');
   pushLog(`清场：移除 ${n} 辆测试敌军（靶车保留）`, 'CRIT');
 });
+renderBenchBindings();
 benchSyncSettingsUi();
-if(benchSettings.benchPanelOpen) toggleBenchPanel(true);   // 恢复上次面板开合（独立设置存储）
+if(benchSettings.benchPanelOpen) toggleDevPanel(true);   // 恢复上次面板开合（独立设置存储）
 document.getElementById('spawnTurretBtn').addEventListener('click', ()=>{
   spawnFixedTurret({ x: player.x + 60, y: player.y, team: 'player', range: 400, reload: 1.0 });
   pushLog('在玩家前方部署固定炮塔成功', 'PEN');
@@ -741,6 +767,14 @@ document.getElementById('spawnMineBtn').addEventListener('click', ()=>{
   playSound('ui');
 });
 document.getElementById('spawnCoverBtn').addEventListener('click', ()=>{
+  // #F6（2026-09-20 用户反馈）：超限拒绝新掩体，保留已部署掩体
+  const cap = (typeof deployableCap === 'function') ? deployableCap('cover', player) : null;
+  const count = (typeof deployableCount === 'function') ? deployableCount('cover') : 0;
+  if(cap !== null && count >= cap){
+    pushLog(`掩体已达上限（${cap}）— 保留已部署掩体`, 'COVER');
+    playSound('ui');
+    return;
+  }
   spawnDeployableCover({ x: player.x + 50, y: player.y + 50, team: 'player', shieldHp: 150, duration: 15 });
   pushLog('部署战术护盾掩体成功', 'PEN');
   playSound('ui');
@@ -851,6 +885,40 @@ let bounceFx = []; // ricochet spark visuals
 // [P-28] updateSolution 已收敛到 js/tank_fire.js
 // 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用（声明在上方，此处仅注释）
 
+// #F（2026-09-20）：bench 副武器击发（F 按住连发，与 mvp #C4e/#E5/#E4 同源语义）。
+// missile 走「激活索敌 → 逐帧锁定 → 锁定完成自动发射」（再按 F 取消）；mine_layer 直接布雷
+//（bench 已有「放置地雷」按钮与两次确认无关，简化直发布雷）；其余副武器经 tryFireSecondary
+// 向光标世界点击发（火箭巢首发作 + _rocketBurst 由主循环 updateRocketBurst 逐发驱动）。
+function tryBenchSecondaryFire(){
+  if(!player || !player.weapons) return;
+  const sec = player.weapons.secondary;
+  if(!sec || sec.type === 'none'){
+    pushLog('未安装副武器（卡牌测试选「副武器安装」卡后生效），F 无效', 'COVER');
+    return;
+  }
+  if(!fireCtx) return;
+  if(sec.type === 'missile'){
+    if(player._missileActivated){
+      player._missileActivated = false;
+      player._missileLock = null;
+      pushLog('导弹锁定已取消', 'COVER');
+      playSound('ui');
+      return;
+    }
+    if(player.secondaryReloadT > 0){
+      pushLog(`导弹装填中 — 剩余 ${player.secondaryReloadT.toFixed(1)}s`, 'COVER');
+      return;
+    }
+    player._missileActivated = true;
+    player._missileLock = null;
+    pushLog('导弹激活 — 索敌中（锁定完成自动发射，再按 F 取消）', 'PEN');
+    playSound('ui');
+    return;
+  }
+  const fired = tryFireSecondary(fireCtx);
+  if(fired && sec.type !== 'turret') playSound('ui');
+}
+
 // ---------- update ----------
 let last = performance.now();
 
@@ -871,6 +939,17 @@ function update(dt){
   if(typeof updatePrimaryHeat === 'function'){
     updatePrimaryHeat(player, dt);
     if(typeof dummy !== 'undefined' && dummy) updatePrimaryHeat(dummy, dt);
+  }
+  // #F（2026-09-20）：双管顺序流水线装填逐帧驱动（无 _dbState 时 no-op）。
+  // 修复「双联火炮发射 2 次后无法发射」——此前 bench 从不推进双管装填（mvp 侧 2026-09-15 W4 已有）。
+  if(typeof updatePrimaryBarrels === 'function'){
+    updatePrimaryBarrels(player, dt);
+    if(typeof dummy !== 'undefined' && dummy) updatePrimaryBarrels(dummy, dt);
+  }
+  // #G（2026-09-21）：弹夹炮整组装填完成检测（无 _clipState 时 no-op）
+  if(typeof updatePrimaryClip === 'function'){
+    if(player && player._clipState) updatePrimaryClip(player, dt);
+    if(typeof dummy !== 'undefined' && dummy && dummy._clipState) updatePrimaryClip(dummy, dt);
   }
   // 测试面板作弊开关（bench 专用，会话内有效）
   if(benchCheats.invuln) player.invulnT = Math.max(player.invulnT, 0.5);
@@ -945,7 +1024,10 @@ function update(dt){
     computeAmmoConfig,
     spawnMuzzleFlash,
     spawnTracer,
-    devAim: { zeroSpread: false },
+    // #F（2026-09-20）：布雷器/manual mine 依赖注入（fireActiveSecondary mine 分支缺此会静默失败）
+    spawnMine,
+    deployables,
+    devAim: devAim,   // #F：超级精度开关（devPanel 同步本对象，避免每帧字面量重置）
     fireTank,
     bounceAngle: (typeof BOUNCE_ANGLE !== 'undefined' ? BOUNCE_ANGLE : (RULES.ballistics ? RULES.ballistics.bounceAngle : Math.PI*70/180)),
     worldW: worldW,
@@ -953,8 +1035,26 @@ function update(dt){
     random: Math.random
   };
 
-  if(input.isDown('fire')) tryFire(fireCtx);
-  if(benchMouseFireHeld) tryFire(fireCtx);   // 2026-09-15：按住左键持续开火（reloadT/热量/炮管门控在 fireTank 内）
+  if(input.isDown('fire')) tryFirePrimary(fireCtx, true);   // #F（2026-09-20）：空格=主炮齐射（双管两管都就绪才双发，与 mvp 同源）
+  if(benchMouseFireHeld) tryFirePrimary(fireCtx);   // #F：左键=主炮单击（双管只发 1 根就绪管；reloadT/热量/炮管门控在 fireTank 内）
+  if(input.isDown('fireSecondary')) tryBenchSecondaryFire();   // #F：F=副武器击发（按住连发，与 mvp #C4e 同源）
+  // #C5a：按技能独立冷却递减（G 炮击 / V 超装填 / 面板 Buff 共用 abilityCds 池，与 mvp 同源）
+  if(typeof updateAbilityCds === 'function') updateAbilityCds(player, dt);
+
+  // #F（2026-09-20）：副武器运行时接线（对齐 mvp #C4e/#E5/#D4）——turret 自瞄自主开火、
+  // missile 由 F 激活后逐帧索敌锁定、rocket 逐发队列驱动、其余副武器待机装填递减。
+  if(player && player.hp > 0 && player.weapons && player.weapons.secondary && player.weapons.secondary.type !== 'none'){
+    const secW = player.weapons.secondary;
+    if(secW.type === 'turret'){
+      if(typeof updateSecondaryWeapon === 'function') updateSecondaryWeapon(player, dt, fireCtx);
+    } else if(secW.type === 'missile' && player._missileActivated && typeof updateMissileLock === 'function'){
+      try { updateMissileLock(player, dt, fireCtx); } catch(err) { /* 导弹锁定异常不阻断主循环 */ }
+    } else if(secW.type === 'rocket' && player._rocketBurst && typeof updateRocketBurst === 'function'){
+      updateRocketBurst(player, dt, fireCtx);
+    } else if(player.secondaryReloadT > 0){
+      player.secondaryReloadT -= dt;
+    }
+  }
 
   // 靶车：同 player 的运动学（方向键第二驾驶位，经共享控制器 altDriveArgs）
   const drvD = input.altDriveArgs();
@@ -996,6 +1096,14 @@ function update(dt){
     }
   });
 
+  // #C5a：G 键战术炮击链路驱动（callStrike 落弹推进 + 命中结算，与 mvp 接线同构——
+  // bench 简化版不做特效/音效，仅日志与伤害结算）
+  if(typeof updateStrikes === 'function'){
+    for(const ev of updateStrikes(dt, entities)){
+      if(ev.hits.length) pushLog(`炮击落弹命中 ${ev.hits.length} 个目标`, 'PEN');
+    }
+  }
+
   entities.forEach(e=>{
     // 定期刷新属性（处理限时修饰器到期）
     if (e.modifiers && e.modifiers.some(m => m.expiresAt !== Infinity)) {
@@ -1003,6 +1111,8 @@ function update(dt){
     }
     // 非玩家实体装填倒计时（靶车无开火路径恒 0；统一递减防未来接入 AI 时重蹈 ISSUES #23）
     if(e.id !== 'player' && e.reloadT > 0) e.reloadT = Math.max(0, e.reloadT - dt);
+    // #F（2026-09-20）：双管顺序流水线装填驱动（敌人/靶车携带双管主武器时推进）
+    if(typeof updatePrimaryBarrels === 'function') updatePrimaryBarrels(e, dt);
     // invulnerable：测试靶车无敌（dummy.invuln）或复活后短暂无敌（invulnT>0）——DoT/直击/殉爆均不掉血
     const invuln = (e.id==='dummy' && dummy.invuln) || e.invulnT > 0;
     if(e.invulnT > 0) e.invulnT = Math.max(0, e.invulnT - dt);
@@ -1055,25 +1165,8 @@ function update(dt){
     }
   });
 
-  // 半高掩体垂直剖面判决：沿整条弹道（弹道起点 fx,fy → 前方）解析会命中的目标部位。
-  // 按 hitPref 意图分类炮弹的“垂直剖面”，只区分——打炮塔（z>=1.2，越过掩体）/ 打车体（被拦截）。
-  // 没有“部位被挡则改打另一部位”的回退：车体被半高掩体挡就是被拦截，不是改打炮塔。
-  function shellVerticalDecision(s){
-    let dec = null;
-    for(const e of entities){
-      if(e.hp <= 0) continue;
-      if(!isHostile(s.shooter.team, e.team)) continue;
-      const hits = raycastTank(s.fx, s.fy, s.dx, s.dy, e);
-      if(!hits) continue;
-      const bh = bestHitForPref(hits, 0.001, Infinity, s.hitPref);
-      if(!bh) continue;
-      const hx = s.fx + s.dx*bh.t, hy = s.fy + s.dy*bh.t;
-      const z = getPartZRange(e, bh.part);
-      const exposure = getExposure(s.fx, s.fy, hx, hy, s.shooter, e, z.zMin, z.zMax, bh.t);
-      if(!dec || bh.t < dec.hit.t) dec = { tank:e, hit:bh, z, exposure, t:bh.t };
-    }
-    return dec;
-  }
+  // 2026-09-20 #E1：半高掩体垂直剖面判决（shellVerticalDecision）已整体删除——
+  // 半高掩体与 'grad' 渐变拦截链不再存在（见 js/tank_fire.js 顶部注释与 RULES.coverRules）。
 
   // 炮弹逐帧真实飞行（特性2）：每帧炮口到落点做 swept-segment 检测，
   // 对敌方坦克与全高掩体取路径上最近障碍；命中后按"命中时刻"结算。
@@ -1111,8 +1204,37 @@ function updateHud(){
     : dbKeys.length ? `${dbList}受损 (${dB[dbKeys[0]].toFixed(1)}s)`
     : '正常';
   const rf = document.getElementById('reloadFill');
-  const reloadDur = player.stats.reload / debuffReloadRate(player);
-  rf.style.width = (100 - (player.reloadT/reloadDur*100)) + '%';
+  // #F（2026-09-20）：双管武器 → 装填条显示「两管顺序流水线总进度」＝(就绪管数+进行中管进度)/count，
+  // 使测试台也能直接观察双管装填（旧实现只看 reloadT＝换管 0.5s 窗口，装填进度不可见）。
+  const _dbx = player._dbState;
+  const _isDbx = player.weapons && player.weapons.primary && player.weapons.primary.type === 'double_barrel';
+  let fillPct;
+  if(_isDbx && _dbx && _dbx.count >= 2){
+    const specI = player.weapons.primary.stats || {};
+    const reloadMultI = (typeof specI.reloadMult === 'number') ? specI.reloadMult : 1.0;
+    const perDurI = Math.max(0.05, player.stats.reload * reloadMultI / debuffReloadRate(player));
+    let accI = 0;
+    for(let i = 0; i < _dbx.count; i++){
+      accI += _dbx.ready[i] ? 1 : Math.max(0, Math.min(1, (_dbx.loadT[i] || 0) / perDurI));
+    }
+    fillPct = accI / _dbx.count * 100;
+  } else if(player.weapons && player.weapons.primary && player.weapons.primary.type === 'clip' && player._clipState){
+    // #G（2026-09-21）：弹夹炮 —— 弹夹间装填进度 / 弹夹内余量按发数比例
+    const st = player._clipState;
+    if(st.pendingRefill && player.reloadT > 0){
+      const magDur = (typeof clipMagReloadSeconds === 'function') ? clipMagReloadSeconds(player, primaryWeaponSpec(player), st) : 1;
+      fillPct = (1 - player.reloadT / Math.max(0.05, magDur)) * 100;
+    } else {
+      fillPct = st.rounds / Math.max(1, st.size) * 100;
+    }
+  } else {
+    // #G（2026-09-21 修复）：单环装填时长此前漏乘武器通道 reloadMult（电磁轨道炮前半程进度恒空）
+    const _specI = (typeof primaryWeaponSpec === 'function') ? primaryWeaponSpec(player) : null;
+    const _multI = (_specI && typeof _specI.reloadMult === 'number') ? _specI.reloadMult : 1;
+    const reloadDur = player.stats.reload * _multI / debuffReloadRate(player);
+    fillPct = 100 - (player.reloadT / reloadDur * 100);
+  }
+  rf.style.width = Math.max(0, Math.min(100, fillPct)) + '%';
 
   // 玩家状态反馈（仅测试台）：将穿深、伤害、缩圈速度等实时显示在提示区
   const hint = document.getElementById('tankSelectHint');

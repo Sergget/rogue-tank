@@ -46,21 +46,35 @@
   #ammoIndicator .key{color:var(--amber-dim);}
   #ammoIndicator .ammo-cell.active .key{color:var(--amber);}
 
-  /* ---------- 底部 HUD：常显血条 + 能力按钮（P-更换装填条后） ---------- */
+  /* ---------- 底部 HUD：三区面板（P-更换装填条后；#G 2026-09-21 重设计） ----------
+     #G（2026-09-21 用户需求 #8）：旧布局 flex column（血条 + 按钮行纵向紧贴，gap 6px）被
+     updateBottomHud 的 display:'block' 破坏 → 血条与按键重叠拥挤且无速度显示。
+     现行：flex row 三分区（vitals 生命/速度 / weapons 弹种与补给 / skills 技能），区间距 26px。 */
   #bottomHud{position:absolute; bottom:18px; left:50%; transform:translateX(-50%);
-    display:flex; flex-direction:column; align-items:center; gap:6px;
+    display:flex; flex-direction:row; align-items:flex-end; gap:26px;
     font-family:'JetBrains Mono',monospace;}
+  .hudZone{display:flex; flex-direction:column; gap:5px; align-items:flex-start;}
+  .hudZoneTitle{font-size:8px; letter-spacing:2px; color:var(--text-dim); opacity:0.7;
+    text-transform:uppercase; line-height:1;}
   #playerHpWrap{display:flex; align-items:center; gap:6px;}
-  #playerHpTrack{width:180px; height:10px; background:#0c0d09; border:1px solid var(--line); position:relative;}
+  #playerHpTrack{width:240px; height:12px; background:#0c0d09; border:1px solid var(--line); position:relative;}
   #playerHpFill{height:100%; background:var(--green); width:100%;}
   #playerHpVal{font-size:10px; color:var(--text); min-width:74px; text-align:left;}
+  /* #G：速度仪表（D/R 档位 + km/h + 速度条 + 公路加成标记） */
+  #hudSpeedRow{display:flex; align-items:center; gap:6px; font-size:10px;}
+  #hudGear{color:var(--amber); font-weight:700; font-size:12px; min-width:12px; text-align:center;}
+  #hudSpeedVal{color:var(--text); font-size:14px; font-weight:700; min-width:34px; text-align:right;}
+  #hudSpeedRow .unit{color:var(--text-dim); font-size:9px;}
+  #hudSpeedTrack{width:110px; height:6px; background:#0c0d09; border:1px solid var(--line); position:relative;}
+  #hudSpeedFill{height:100%; background:var(--amber); width:0%;}
+  #hudRoadBonus{color:var(--green); font-size:9px; letter-spacing:1px;}
   #abilityBtns{display:flex; gap:6px;}
   #abilityBtns .abtn{position:relative; min-width:40px; height:30px;
     background:transparent; border:1px solid var(--amber-dim); color:var(--amber);
     font-family:'JetBrains Mono',monospace; font-size:11px; cursor:pointer; padding:0 6px;}
   #abilityBtns .abtn:hover{background:rgba(255,180,84,0.1); border-color:var(--amber);}
   #abilityBtns .abtn.gray{opacity:0.45; border-color:var(--line); color:var(--text-dim);}
-  #abilityBtns .abtn .cd{position:absolute; top:-8px; right:-8px;
+  #abilityBtns .abtn .cd{position:absolute; top:2px; right:2px;
     background:#0c0d09; border:1px solid var(--amber); color:var(--amber);
     font-size:9px; padding:0 3px; border-radius:3px; line-height:1.2;}
   #abilityBtns .abtn .num{position:absolute; bottom:1px; right:2px;
@@ -69,8 +83,22 @@
   #abilityBtns .abtn.ammo-slot .label{font-weight:700;}
   #abilityBtns .abtn.skill-btn{border-color:#5cc8ff; color:#5cc8ff;}
   #abilityBtns .abtn.skill-btn:hover{background:rgba(92,200,255,0.15);}
+  /* #G（2026-09-21 用户需求 #7）：技能槽常驻显示「技能名 + 按键 + 冷却」——技能区独立于武器区 */
+  #skillBtns{display:flex; gap:6px;}
+  #skillBtns .abtn{position:relative; min-width:52px; height:30px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:1px;
+    background:transparent; border:1px solid #5cc8ff; color:#5cc8ff;
+    font-family:'JetBrains Mono',monospace; font-size:10px; cursor:pointer; padding:0 6px;}
+  #skillBtns .abtn:hover{background:rgba(92,200,255,0.15);}
+  #skillBtns .abtn .slabel{font-size:10px; line-height:1.1; white-space:nowrap;}
+  #skillBtns .abtn .skey{font-size:8px; color:var(--text-dim); line-height:1;}
+  #skillBtns .abtn.gray{opacity:0.45; border-color:var(--line); color:var(--text-dim);}
+  #skillBtns .abtn.empty{opacity:0.3; border-style:dashed; cursor:default;}
+  #skillBtns .abtn .cd{position:absolute; top:2px; right:2px;
+    background:#0c0d09; border:1px solid #5cc8ff; color:#5cc8ff;
+    font-size:9px; padding:0 3px; border-radius:3px; line-height:1.2;}
   /* #B10：技能卡获得高亮——新技能按钮 3 秒金色脉冲闪烁，提示玩家按键已就位 */
-  #abilityBtns .abtn.skill-gain{animation:skillGainPulse 0.75s ease-in-out 4;}
+  .abtn.skill-gain{animation:skillGainPulse 0.75s ease-in-out 4;}
   @keyframes skillGainPulse{
     0%,100%{ border-color:#5cc8ff; color:#5cc8ff; box-shadow:0 0 0 rgba(255,180,84,0);}
     50%{ border-color:var(--amber); color:var(--amber); box-shadow:0 0 12px rgba(255,180,84,0.75);}
@@ -243,26 +271,7 @@
   #statusPanel .armor-list b{color:var(--amber-dim);}
   #statusPanel .hint{font-size:9px; color:var(--text-dim); opacity:.7; margin-top:10px; letter-spacing:1px;}
 
-  /* ---------- P-15 开发者面板（`） ---------- */
-  #devPanel{position:absolute; right:12px; top:12px; z-index:31; width:400px; max-height:calc(100vh - 24px);
-    overflow-y:auto; background:rgba(18,20,15,0.95); border:1px solid var(--line);
-    padding:14px 16px; font-family:'JetBrains Mono',monospace; box-shadow:0 8px 30px rgba(0,0,0,0.6);}
-  #devPanel .sp-title{font-size:11px; letter-spacing:2px; color:var(--amber);
-    text-transform:uppercase; border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:10px;}
-  #devPanel .dev-sec{border:1px solid var(--line); background:rgba(255,255,255,0.015); padding:8px 10px; margin-bottom:10px;}
-  #devPanel .dev-sec h4{margin:0 0 6px; font-size:10px; letter-spacing:2px; color:var(--amber-dim);
-    text-transform:uppercase; font-weight:500;}
-  #devPanel .dev-row{display:flex; align-items:center; gap:6px; margin-bottom:5px; font-size:10px; color:var(--text); flex-wrap:wrap;}
-  #devPanel .dev-row .k{color:var(--text-dim); min-width:56px;}
-  #devPanel .dev-row button{padding:3px 6px; font-size:9px;}
-  #devPanel .dev-log{height:150px; overflow-y:auto; display:flex; flex-direction:column-reverse;
-    background:rgba(8,9,6,0.6); border:1px solid var(--line); padding:6px 8px; font-size:9px; line-height:1.6;}
-  #devPanel .dev-log div{border-bottom:1px dotted #2a2d20; padding:2px 0; opacity:.9;}
-  #devPanel .dev-log .PEN{color:var(--green);}
-  #devPanel .dev-log .BOUNCE{color:var(--blue);}
-  #devPanel .dev-log .BLOCK{color:var(--text-dim);}
-  #devPanel .dev-log .COVER{color:var(--amber);}
-  #devPanel .dev-log .CRIT{color:var(--red); font-weight:700;}
+  /* #F（2026-09-20）：devPanel 视觉样式已随共享模块 js/tank_devpanel.js 挂载时注入 */
   /* #A25：独立日志面板（左下角浮层，与 Tab 状态面板一同呼入/呼出；不再嵌在 #devPanel 内） */
   #logPanel{position:absolute; left:12px; bottom:12px; z-index:29; width:360px;
     background:rgba(8,9,6,0.85); border:1px solid var(--line); padding:6px 8px;}
@@ -276,16 +285,6 @@
   #logPanel .log-list .COVER{color:var(--amber);}
   #logPanel .log-list .CRIT{color:var(--red); font-weight:700;}
   .rt-log-hidden{display:none;}
-  #devPanel .card-list{display:flex; flex-direction:column; gap:4px; max-height:180px; overflow-y:auto;}
-  #devPanel .card-list button{text-align:left; font-size:9px; padding:4px 6px; letter-spacing:0;}
-  #devPanel .mod-list{display:flex; flex-direction:column; gap:4px; max-height:200px; overflow-y:auto;}
-  #devPanel .mod-row{display:flex; align-items:center; gap:4px; font-size:9px; border:1px dashed #2a2d20; padding:3px 5px;}
-  #devPanel .mod-row .m-src{color:var(--amber-dim); max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-  #devPanel .mod-row .m-stat{color:var(--text); min-width:70px;}
-  #devPanel .mod-row select{font-size:9px; padding:1px 2px; width:56px;}
-  #devPanel .mod-row input{width:64px; font-size:9px; padding:1px 3px;}
-  #devPanel .mod-row button{padding:2px 5px; font-size:9px;}
-  #devPanel .hint{font-size:9px; color:var(--text-dim); opacity:.7; margin-top:8px; letter-spacing:1px;}
 </style>
 </head>
 <body>
@@ -295,21 +294,39 @@
     装填 RELOAD
   </div>
   <div id="bottomHud" style="display:none;">
-    <div id="playerHpWrap">
-      <div id="playerHpTrack"><div id="playerHpFill" style="width:100%"></div></div>
-      <span id="playerHpVal">--</span>
+    <div class="hudZone" id="hudVitals">
+      <div id="playerHpWrap">
+        <div id="playerHpTrack"><div id="playerHpFill" style="width:100%"></div></div>
+        <span id="playerHpVal">--</span>
+      </div>
+      <div id="hudSpeedRow">
+        <span id="hudGear">D</span>
+        <span id="hudSpeedVal">0</span><span class="unit">km/h</span>
+        <div id="hudSpeedTrack"><div id="hudSpeedFill" style="width:0%"></div></div>
+        <span id="hudRoadBonus"></span>
+      </div>
     </div>
-    <div id="abilityBtns">
-      <button class="abtn ammo-slot" id="slot1" title="1号主弹药 (1)"><span class="label">AP</span><span class="num">1</span></button>
-      <button class="abtn ammo-slot" id="slot2" title="2号副弹药 (2)"><span class="label">--</span><span class="num">2</span></button>
-      <button class="abtn ammo-slot" id="slot3" title="3号备用弹 (3)"><span class="label">--</span><span class="num">3</span></button>
-      <button class="abtn" id="btn4" title="修理箱 (4)">修<span class="cd" id="cd4"></span><span class="num">4</span></button>
-      <button class="abtn" id="btn5" title="医疗包 (5)">医<span class="cd" id="cd5"></span><span class="num">5</span></button>
-      <button class="abtn" id="btn6" title="自动灭火器 (6)">灭<span class="cd" id="cd6"></span><span class="num">6</span></button>
-      <button class="abtn skill-btn" id="btnF" title="副武器击发（F，按住连发）" style="display:none;"><span id="btnFIcon">F</span><span class="cd" id="cdF"></span><span class="num">F</span></button>
-      <button class="abtn skill-btn" id="btnG" title="炮击 (G)" style="display:none;">G<span class="cd" id="cdG"></span></button>
-      <button class="abtn skill-btn" id="btnH" title="护盾 (H)" style="display:none;">H<span class="cd" id="cdH"></span></button>
-      <button class="abtn skill-btn" id="btnV" title="超装填 (V)" style="display:none;">V<span class="cd" id="cdV"></span></button>
+    <div class="hudZone" id="hudWeapons">
+      <div class="hudZoneTitle">武器 WEAPONS</div>
+      <div id="abilityBtns">
+        <button class="abtn ammo-slot" id="slot1" title="主弹药槽 1（E/Q 环形切换 / 点击选择）"><span class="label">AP</span><span class="num">1</span></button>
+        <button class="abtn ammo-slot" id="slot2" title="副弹药槽 2（E/Q 环形切换 / 点击选择）"><span class="label">--</span><span class="num">2</span></button>
+        <button class="abtn ammo-slot" id="slot3" title="备用弹药槽 3（E/Q 环形切换 / 点击选择）"><span class="label">--</span><span class="num">3</span></button>
+        <button class="abtn" id="btn4" title="修理箱 (4)">修<span class="cd" id="cd4"></span><span class="num">4</span></button>
+        <button class="abtn" id="btn5" title="医疗包 (5)">医<span class="cd" id="cd5"></span><span class="num">5</span></button>
+        <button class="abtn" id="btn6" title="自动灭火器 (6)">灭<span class="cd" id="cd6"></span><span class="num">6</span></button>
+        <button class="abtn skill-btn" id="btnF" title="副武器击发（F，按住连发）" style="display:none;"><span id="btnFIcon">F</span><span class="cd" id="cdF"></span><span class="num">F</span></button>
+      </div>
+    </div>
+    <div class="hudZone" id="hudSkills">
+      <div class="hudZoneTitle">技能 SKILLS</div>
+      <div id="skillBtns">
+        <button class="abtn skill-btn" id="btnG" title="炮击支援 (G)" style="display:none;"><span class="slabel">炮击支援</span><span class="skey">G</span><span class="cd" id="cdG"></span></button>
+        <button class="abtn skill-btn" id="btnH" title="战术护盾 (H)" style="display:none;"><span class="slabel">战术护盾</span><span class="skey">H</span><span class="cd" id="cdH"></span></button>
+        <button class="abtn skill-btn" id="skillSlot1" title="技能池 1" style="display:none;"><span class="slabel">--</span><span class="skey">1</span><span class="cd" id="cdS1"></span></button>
+        <button class="abtn skill-btn" id="skillSlot2" title="技能池 2" style="display:none;"><span class="slabel">--</span><span class="skey">2</span><span class="cd" id="cdS2"></span></button>
+        <button class="abtn skill-btn" id="skillSlot3" title="技能池 3" style="display:none;"><span class="slabel">--</span><span class="skey">3</span><span class="cd" id="cdS3"></span></button>
+      </div>
     </div>
   </div>
   <div id="gainToast"></div>
@@ -425,80 +442,8 @@
     <div class="armor-list" id="stAmmo"></div>
     <div class="hint">按 TAB 关闭 · 数值实时读取（读 stats，不摸 base）</div>
   </div>
-  <div id="devPanel" style="display:none;">
-    <div class="sp-title">开发者面板 DEV PANEL</div>
-
-    <div class="dev-sec">
-      <h4>调试开关</h4>
-      <div class="dev-row">
-        <span class="k">超级精度</span>
-        <button id="zeroSpreadBtn">关闭</button>
-        <span style="color:var(--text-dim);">散布归零（瞬间缩圈，仅玩家）</span>
-      </div>
-      <div class="dev-row">
-        <span class="k">无视野</span>
-        <button id="devVisionBtn">关闭</button>
-        <span style="color:var(--text-dim);">关闭视野剔除（#89 调试）</span>
-      </div>
-      <div class="dev-row">
-        <button id="genNodeBtn">随机生成战场</button>
-        <button id="resetBtn">重置 RESET</button>
-        <span style="color:var(--text-dim);">（战斗态禁用）</span>
-      </div>
-    </div>
-
-    <div class="dev-sec">
-      <h4>数值临时调整（实时改 player.stats，仅本局）</h4>
-      <div class="dev-row"><span class="k">穿深</span><input id="devPen" type="number" step="1" min="0"><span class="k">伤害</span><input id="devDmg" type="number" step="1" min="0"></div>
-      <div class="dev-row"><span class="k">装填</span><input id="devReloadI" type="number" step="0.05" min="0.1"><span class="k">极速</span><input id="devSpeedI" type="number" step="5" min="0"></div>
-      <div class="dev-row"><span class="k">马力</span><input id="devPower" type="number" step="10" min="0">
-        <button id="devApplyBtn">应用</button>
-        <button id="devResetStatsBtn">重置</button>
-      </div>
-    </div>
-
-    <div class="dev-sec">
-      <h4>实时参数</h4>
-      <div class="dev-row"><span class="k">σ</span><span id="devSigma">--</span></div>
-      <div class="dev-row"><span class="k">装填</span><span id="devReload">--</span></div>
-      <div class="dev-row"><span class="k">位置</span><span id="devPos">--</span></div>
-      <div class="dev-row"><span class="k">速度</span><span id="devSpeed">--</span></div>
-      <div class="dev-row"><span class="k">存活</span><span id="devEntities">--</span></div>
-      <div class="dev-row"><span class="k">节点</span><span id="devNode">--</span></div>
-      <div class="dev-row"><span class="k">节点类型</span><span id="devNodeType">--</span></div>
-      <div class="dev-row"><span class="k">敌人数</span><span id="devEnemyCount">--</span></div>
-    </div>
-
-    <div class="dev-sec">
-      <h4>发射解算（实时弹道预测，无散布）</h4>
-      <div id="solution">
-        <div class="dev-row"><span class="k">部位</span><span id="solPart">--</span></div>
-        <div class="dev-row"><span class="k">入射角</span><span id="solAngle">--</span></div>
-        <div class="dev-row"><span class="k">厚度</span><span id="solThick">--</span></div>
-        <div class="dev-row"><span class="k">等效</span><span id="solEff">--</span></div>
-        <div class="dev-row"><span class="k">掩体</span><span id="solCover">--</span></div>
-        <div class="dev-row"><span class="k">判定</span><span id="solResult">--</span></div>
-      </div>
-    </div>
-
-    <div class="dev-sec">
-      <h4>卡牌选择（选中即 applyCardEffects）</h4>
-      <div class="card-list" id="devCardList"></div>
-    </div>
-
-    <div class="dev-sec">
-      <h4>已持有卡牌（区别于上方调试选取器）</h4>
-      <div id="devOwnedCards"></div>
-    </div>
-
-    <div class="dev-sec">
-      <h4>修饰器列表（可编辑 / 删除）</h4>
-      <div class="mod-list" id="devModList"></div>
-    </div>
-
-    <div class="hint">按 ` 关闭 · 超级精度与数值调整仅影响玩家，敌我弹道/结算逻辑不变</div>
   </div>
-</div>
+  <!-- #F（2026-09-20）：devPanel DOM 已改由共享模块 js/tank_devpanel.js 动态构建（mvp/bench 同源） -->
 
 <!-- #A25：独立日志面板（左下角）——与 Tab 状态面板共用呼入/呼出策略，关闭开发者面板不再隐藏日志 -->
 <div id="logPanel" style="display:none;">
@@ -543,6 +488,9 @@
   <script src="js/tank_abilities.js"></script>
   <script src="js/tank_drone.js"></script>
   <script src="js/tank_fire.js"></script>
+  <!-- #F（2026-09-20）：开发者面板共享模块（mvp/bench 同源四 Tab；依赖 applyCardToTank/
+       snapshotCardTx/clearCardsFromTank 等共享层，须在 tank_panels_core 之后晚于卡片运行时加载） -->
+  <script src="js/tank_devpanel.js"></script>
   <!-- P-15/P-46 共享 UI 纯逻辑（status/dev/log 共用 → tank_bench 复用） -->
   <!-- #A24 分层：core（纯逻辑）→ dom（DOM 适配）→ facade（re-export，消费方 API 不变） -->
   <script src="js/tank_panels_core.js"></script>
@@ -565,6 +513,10 @@ const flow = createFlow('home');   // M10：局外三态入口——首页(存�
 let run = null;            // generateRun() 结果：线性节点链
 let currentNode = null;    // 当前节点数据（makeNode 产出）
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
+// #E9（2026-09-20）：Boss 蓄能激光当前帧的绘制数据 { kind:'charge'|'fire', x,y,angle,width,length,progress }
+let bossLaserFx = null;
+// #E4（2026-09-20）：已确认待生成的雷场 [{x,y,radius,count,t}]——t 为剩余延时（秒）
+const pendingMineFields = [];
 let runScore = 0;          // 本局累计得分（§4.5 结算累加）
 let runKills = 0;          // 本局累计击杀数（P-34 终局汇总展示）
 let runScoreSpent = 0;
@@ -580,6 +532,7 @@ setBenchCamera();
 function syncCameraViewport(){
   cam.vw = canvas.width; cam.vh = canvas.height;
   if(!run || !currentNode) setBenchCamera();
+  // #H5：战斗中窗口尺寸变化 → 可见半径随窄半幅/zoom 重算（visionRadiusEff 逐帧自适应当前视口）
 }
 window.addEventListener('resize', syncCameraViewport);
 
@@ -727,20 +680,23 @@ renderAmmoIndicator();
 document.getElementById('slot1')?.addEventListener('click', () => selectAmmoSlot(0));
 document.getElementById('slot2')?.addEventListener('click', () => selectAmmoSlot(1));
 document.getElementById('slot3')?.addEventListener('click', () => selectAmmoSlot(2));
+// #G（2026-09-21）：技能池槽点击 = 按对应数字键（与 skillHotkey 同一路径）
+document.getElementById('skillSlot1')?.addEventListener('click', () => skillHotkey(1));
+document.getElementById('skillSlot2')?.addEventListener('click', () => skillHotkey(2));
+document.getElementById('skillSlot3')?.addEventListener('click', () => skillHotkey(3));
 document.getElementById('btn4')?.addEventListener('click', tryRepairKit);
 document.getElementById('btn5')?.addEventListener('click', tryMedkit);
 document.getElementById('btn6')?.addEventListener('click', tryExtinguish);
-document.getElementById('btnF')?.addEventListener('click', () => trySecondaryFire());   // #C4e：F 按钮=击发副武器
+document.getElementById('btnF')?.addEventListener('click', () => trySecondaryFire(true));   // #C4e：F 按钮=击发副武器（force：绕过键盘边沿）
 document.getElementById('btnG')?.addEventListener('click', tryStrike);
 document.getElementById('btnH')?.addEventListener('click', () => tryShield(true));
-document.getElementById('btnV')?.addEventListener('click', tryOverdrive);
 
 // 2026-09-17 #C4e：F 键 = 直接击发副武器（按住连发），不再承担主/副切换。
 // 主炮=左键/空格专属（tryFirePrimary），副武器=F 专属（tryFireSecondary，目标=鼠标世界点）；
 // turret 型为设计例外（自瞄副炮塔由主循环 updateSecondaryWeapon 自主驱动，点击/按 F 不响应）。
-const SECONDARY_LABELS = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹', rocket:'火箭巢', mine_layer:'布雷器' };
-const SECONDARY_ICONS = { turret:'塔', mortar:'迫', missile:'导', rocket:'火', mine_layer:'雷' };
-function trySecondaryFire(){
+const SECONDARY_LABELS = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹（锁定式）', missile_wire:'反坦克导弹（线导式）', rocket:'火箭巢', mine_layer:'布雷器' };
+const SECONDARY_ICONS = { turret:'塔', mortar:'迫', missile:'导', missile_wire:'线', rocket:'火', mine_layer:'雷' };
+function trySecondaryFire(force){   // #F7：force=true 时绕过 mine_layer 键盘边沿（HUD 按钮入口）
   if(!player || !player.weapons) return;
   const sec = player.weapons.secondary;
   if(!sec || sec.type === 'none'){
@@ -748,8 +704,93 @@ function trySecondaryFire(){
     return;
   }
   if(!fireCtx) return;   // 战斗外无 fireCtx（HUD 按钮也仅在战斗态显示）
+  // #E5（2026-09-20）锁定制反坦克导弹：F = 激活索敌 → 锁定 → 锁定后立即发射。
+  // （线导式 missile_wire 的 F = 直接发射 + 鼠标比例引导，仍走下方 fireActiveSecondary。）
+  // #F7（2026-09-20 浏览器实测发现）：激活是**开关**（再按 F 取消），若走主循环逐帧轮询
+  //（下方 `input.isDown('fireSecondary')`），按住 F 期间会**每帧翻转**——实测按住 250ms
+  // 内出现 9 次 true/false 交替，松手后的最终状态取决于帧数奇偶，玩家轻按一下 F 约有
+  // 一半概率停在「已取消」，表现为「导弹按 F 没反应」。与 mine_layer 同口径处理：
+  // 开关类副武器只认**原生 keydown 边沿**（下方独立监听），帧轮询分支直接 return。
+  if(sec.type === 'missile'){
+    if(force === true) tryActivateMissileLock();
+    return;
+  }
+  // #E4（2026-09-20）布雷器：F 第一次显示雷场预形态，再按一次确认 → 4s 后生成雷场。
+  // #F7（2026-09-20 浏览器实测发现）：主循环对 F 是逐帧轮询（isDown），一次按住跨 ≥2 帧
+  // 会把「预览→确认」在同一次按键内连走（预览名存实亡、体感"一按就预约"）。mine_layer
+  // 改为**原生 keydown 边沿**处理（下方独立监听，靠浏览器 e.repeat 过滤按住自动重复），
+  // 帧轮询分支直接 return；HUD 按钮 click 走 force=true 直调。
+  if(sec.type === 'mine_layer'){
+    if(force === true) handleMineFieldF();
+    return;
+  }
   const fired = tryFireSecondary(fireCtx);
   if(fired && sec.type !== 'turret') playSound('ui');
+}
+
+// #F7（2026-09-20）：mine_layer / missile 的 F 边沿监听——「松手→再按」才算一次
+//（mine_layer 三态：预形态 → 确认 → 拒绝；missile 两态：激活 → 取消），
+// 与主循环的按住连发语义解耦。门控对齐输入控制器（局外菜单/面板打开时不响应）。
+window.addEventListener('keydown', (e) => {
+  if(e && e.repeat) return;                                   // 按住自动重复不算新的一次
+  if(String((e && e.key) || '').toLowerCase() !== 'f') return;
+  if(inMenuState() || statusOpen || devOpen) return;
+  const p = player;
+  const sec = p && p.weapons && p.weapons.secondary;
+  if(!sec || !fireCtx) return;
+  if(sec.type === 'mine_layer') handleMineFieldF();
+  else if(sec.type === 'missile') tryActivateMissileLock();
+});
+
+// ================= #E5 锁定制反坦克导弹（F 激活 → 索敌 → 锁定 → 立即发射） =================
+// 与线导式的区别：锁定式**不需要**玩家手动瞄准/引导——F 一旦按下即进入激活态，逐帧由
+// updateMissileLock 在炮塔 ±lockArcDeg 扇形内索敌并计时；锁定完成立即发射制导弹。
+// 再次按 F 取消激活。HUD 通过 player._missileActivated / _missileLock 反馈状态。
+function tryActivateMissileLock(){
+  if(!player || !player.weapons || !player.weapons.secondary) return;
+  if(player._missileActivated){
+    player._missileActivated = false;
+    player._missileLock = null;
+    pushLog('导弹锁定已取消', 'COVER');
+    playSound('ui');
+    return;
+  }
+  if(player.secondaryReloadT > 0){
+    pushLog(`导弹装填中 — 剩余 ${player.secondaryReloadT.toFixed(1)}s`, 'COVER');
+    return;
+  }
+  player._missileActivated = true;
+  player._missileLock = null;
+  pushLog('导弹激活 — 索敌中（锁定完成自动发射，再按 F 取消）', 'PEN');
+  playSound('ui');
+}
+
+// ================= #E4 布雷器：两次 F 确认 + 4s 雷场 =================
+// 第一次 F：在鼠标位置显示「拟生成的雷场形状」（mineFieldPreview，绘制层消费）；
+// 第二次 F：确认布设 → 延时 mineFieldDelay(4s) 后在预形态位置生成整片雷场。
+// 移动鼠标不改变已确认的落点；雷场位置在确认瞬间定格（RULES.abilities.deploy_limits）。
+function handleMineFieldF(){
+  const dcfg = (RULES.abilities && RULES.abilities.deploy_limits) || {};
+  const delay = dcfg.mineFieldDelay !== undefined ? dcfg.mineFieldDelay : 4;
+  const radius = dcfg.mineFieldRadius !== undefined ? dcfg.mineFieldRadius : 70;
+  const count = dcfg.mineFieldCount !== undefined ? dcfg.mineFieldCount : 5;
+  // #F5（2026-09-20 用户反馈）：同一时刻仅允许一个待生成雷场，禁止连续预约无限布雷
+  if(pendingMineFields.length > 0){
+    pushLog('已有雷场待生成 — 无法重复预约', 'COVER');
+    playSound('ui');
+    return;
+  }
+  if(!player._mineFieldPreview){
+    player._mineFieldPreview = { x: mouseWorld.x, y: mouseWorld.y, radius: radius, count: count, t: 0 };
+    pushLog('雷场预形态已显示 — 再按一次 F 确认布设（4s 后生成）', 'PEN');
+    playSound('ui');
+    return;
+  }
+  const pv = player._mineFieldPreview;
+  player._mineFieldPreview = null;
+  pendingMineFields.push({ x: pv.x, y: pv.y, radius: radius, count: count, t: delay });
+  pushLog(`雷场已确认 — ${delay}s 后在标记点生成 ${count} 枚地雷`, 'CRIT');
+  playSound('ui');
 }
 
 // 阶段六 6.1：数字键 1/2/3 → 主动技能快捷键池（优先映射玩家已装备的主动技能）
@@ -763,6 +804,7 @@ function skillHotkey(num){
     overdrive: () => tryOverdrive(),
     super_fire_control: () => trySuperFireControl(),   // #C4a：接入技能池 DISPATCH（此前战斗中无法激活）
     super_speed: () => trySuperSpeed(),                // #C4a：同上
+    aps: () => tryAps(),                               // #G（2026-09-21）：主动防御系统
     recon: () => { if(typeof tryDroneCommand === 'function') tryDroneCommand(); }
   };
   let key = owned[num - 1];
@@ -778,6 +820,9 @@ function skillHotkey(num){
 }
 
 // 切弹/技能热键已收敛至输入控制器（上方 createInputController actions）。
+// #H5（2026-09-21 用户裁定）：缩放回归**纯视觉偏好**（P-39 原语义）——敌方可见距离已改
+// 屏幕相对（vision.screenRadiusRatio，随 zoom 等比补偿），不再需要 #H2 的「基准×适配值」
+// 深度拉远模型；默认 zoom=1.0 全细节，滚轮自由缩放不受 gameplay 惩罚。
 window.addEventListener('wheel', e=>{
   if(inMenuState()) return;   // 局外界面：滚轮不调缩放（不拦截列表滚动默认行为）
   e.preventDefault();          // 战斗中滚轮专属缩放，阻止页面滚动
@@ -796,9 +841,14 @@ window.addEventListener('wheel', e=>{
 
 // 鼠标瞄准（世界坐标）+ 左键开火（P-15 拆分时保留，与空格键等效）
 let mouseWorld = {x:player.x+100,y:player.y};
+// #E12（2026-09-20）：鼠标屏幕坐标（视口中心为屏幕中心）——摄像机随鼠标向外延伸的输入
+const mouseScreen = { x: canvas.width / 2, y: canvas.height / 2 };
 canvas.addEventListener('mousemove', e=>{
   const r = canvas.getBoundingClientRect();
-  const p = screenToWorld(cam, e.clientX - r.left, e.clientY - r.top);
+  // #E12（2026-09-20）：同时记录鼠标屏幕坐标（摄像机随鼠标向外延伸的输入）
+  mouseScreen.x = e.clientX - r.left;
+  mouseScreen.y = e.clientY - r.top;
+  const p = screenToWorld(cam, mouseScreen.x, mouseScreen.y);
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });
@@ -827,7 +877,8 @@ function togglePanel(id){
   if(id === 'statusPanel'){ statusOpen = open; if(open) updateStatusPanel(); }
   if(id === 'devPanel'){
     devOpen = open;
-    if(open){ syncDevInputs(); renderDevCards(); renderDevMods(); updateSolution(); }
+    // #F：devPanel 已抽离为共享模块（js/tank_devpanel.js）——打开时统一刷新各 Tab
+    if(open){ devPanelApi.refreshAll(); }
   }
   if(id === 'logPanel'){ logOpen = open; }
 }
@@ -844,7 +895,7 @@ function showPanelGroup(which){
   if(elL) elL.style.display = wantStatus ? 'none' : (wantDev ? 'block' : 'none');
   statusOpen = wantStatus; devOpen = wantDev; logOpen = !!(elL && elL.style.display !== 'none');
   if(wantStatus){ if(elS) updateStatusPanel(); }
-  if(wantDev){ syncDevInputs(); renderDevCards(); renderDevMods(); updateSolution(); }
+  if(wantDev){ devPanelApi.refreshAll(); }
 }
 // Tab/`/F12 面板热键已收敛至输入控制器（panelStatus / panelDev / panelDevAlt）。
 
@@ -858,7 +909,7 @@ function renderPause(){
   // 增改键位只改 KEY_BINDINGS/ACTION_INFO 一处。
   const bindRows = describeBindings({
     move:1, fire:1, ammoCycle:1, skillPool:1, fireSecondary:1,
-    abilityStrike:1, abilityShield:1, abilityOverdrive:1,
+    abilityStrike:1, abilityShield:1,
     supportRepair:1, supportMedkit:1, supportExtinguish:1,
     panelStatus:1, panelDev:1, pauseToggle:1
   });
@@ -938,7 +989,7 @@ function updateStatusPanel(){
     const wpn = (player && player.weapons) || {};
     const pType = (wpn.primary && wpn.primary.type) || 'standard';
     const sType = (wpn.secondary && wpn.secondary.type) || 'none';
-    const P_LABEL = { standard:'标准主炮', autocannon:'速射机炮', double_barrel:'双联火炮', railgun:'电磁轨道炮' };
+    const P_LABEL = { standard:'标准主炮', autocannon:'速射机炮', double_barrel:'双联火炮', railgun:'电磁轨道炮', clip:'弹夹炮' };
     const S_LABEL = { none:'无', turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹', rocket:'火箭巢', mine_layer:'布雷器' };
     stWeapon.textContent = `主武器 ${P_LABEL[pType] || pType} · 副武器 ${S_LABEL[sType] || sType}${sType !== 'none' ? '（F 击发' + (sType === 'turret' ? '，副炮塔自主' : '') + '）' : ''}`;
   }
@@ -967,51 +1018,15 @@ function updateStatusPanel(){
   }
 }
 
-// ---------- P-15 开发者面板：超级精度 / 数值覆盖 / 卡牌 / 修饰器 ----------
+// ---------- P-15 开发者面板（#F 2026-09-20 起由共享模块 js/tank_devpanel.js 提供，mvp/bench 两页同源；
+// 本区块仅保留页面级状态对象，面板 DOM/逻辑在下方 mountDevPanel 时挂载） ----------
 const devAim = { zeroSpread: false };
-const devOverrides = {};    // 数值临时覆盖：{ stat → value }，每帧写回 player.stats
-function applyDevOverrides(){
-  for(const k in devOverrides){
-    if(player.stats[k] !== undefined) player.stats[k] = devOverrides[k];
-  }
-}
-const DEV_INPUT_MAP = { devPen:'penetration', devDmg:'damage', devReloadI:'reload', devSpeedI:'maxSpeed', devPower:'enginePower' };
-function syncDevInputs(){
-  for(const id in DEV_INPUT_MAP){
-    const el = document.getElementById(id);
-    if(el) el.value = Math.round(player.stats[DEV_INPUT_MAP[id]] * 100) / 100;
-  }
-}
-function applyDevInputs(){
-  for(const id in DEV_INPUT_MAP){
-    const el = document.getElementById(id);
-    const v = parseFloat(el.value);
-    if(Number.isFinite(v) && v >= 0) devOverrides[DEV_INPUT_MAP[id]] = v;
-  }
-  applyDevOverrides();
-  pushLog('数值覆盖已应用（临时，仅本局）','COVER');
-}
-function resetDevOverrides(){
-  for(const k in devOverrides) delete devOverrides[k];
-  refreshStats(player);
-  if(player.hp > player.stats.maxHp) player.hp = player.stats.maxHp;
-  syncDevInputs();
-  pushLog('数值覆盖已重置','COVER');
-}
-document.getElementById('zeroSpreadBtn').addEventListener('click', (e)=>{
-  devAim.zeroSpread = !devAim.zeroSpread;
-  e.currentTarget.textContent = devAim.zeroSpread ? '开启' : '关闭';
-  e.currentTarget.classList.toggle('active', devAim.zeroSpread);
-  pushLog(`超级精度：${devAim.zeroSpread ? '开（散布归零）' : '关'}`,'COVER');
-});
-document.getElementById('devVisionBtn').addEventListener('click', (e)=>{
-  devNoVision = !devNoVision;
-  e.currentTarget.textContent = devNoVision ? '开启' : '关闭';
-  e.currentTarget.classList.toggle('active', devNoVision);
-  pushLog(`无视野调试：${devNoVision ? '开（跳过视野剔除）' : '关'}`,'COVER');
-});
-document.getElementById('devApplyBtn').addEventListener('click', ()=>{ applyDevInputs(); playSound('ui'); });
-document.getElementById('devResetStatsBtn').addEventListener('click', ()=>{ resetDevOverrides(); playSound('ui'); });
+// #C5（2026-09-19）：测试台独有作弊项对齐进 mvp 开关 Tab（无敌常驻/秒装填，会话内有效不持久化）
+// #F：面板 cheats 状态由共享 API 持有，onCheatChange 同步回本对象供主循环逐帧消费
+const devCheat = { invuln: false, instantReload: false };
+// #F7（2026-09-20）：devNoVision 由 #89 视野系统处上移至此——mountDevPanel 调用先于原定义位置，
+// cheatsInit 直接读取触发 TDZ（页面加载即中断、Home 态不渲染，浏览器实测发现）。
+let devNoVision = false;   // dev 面板开关：跳过视野剔除
 
 // 卡牌池（P-09 真实卡池；reward 三选一与 dev 面板共用）
 let cardPool = [];
@@ -1050,20 +1065,98 @@ function hideAllScreens(){
 function showScreen(id){ hideAllScreens(); document.getElementById(id).style.display = 'block'; }
 function setOverlayVisible(v){ document.getElementById('flowOverlay').style.display = v ? 'flex' : 'none'; }
 
+// #E9（2026-09-20）：Boss 分波次召唤落地——按 bossSummonWave 给出的波次数据在 Boss 周围
+// 环形生成小兵（落在有效触发距离之外，避免「脸刷」）；随难度单波敌数放大（模块侧已算好）。
+function spawnBossSummonWave(bossEntity, wave){
+  if(!bossEntity || !wave || !wave.tankId) return;
+  const sumTrig = (typeof triggerDistForDifficulty === 'function')
+    ? triggerDistForDifficulty(currentNode ? currentNode.difficulty : 0.5) * 1.05 : 700;
+  const rMin = wave.radiusMin || 160, rMax = wave.radiusMax || 320;
+  for(let i = 0; i < wave.count; i++){
+    const a = Math.random() * Math.PI * 2;
+    const r = rMin + Math.random() * Math.max(0, rMax - rMin);
+    let sx = bossEntity.x + Math.cos(a) * r;
+    let sy = bossEntity.y + Math.sin(a) * r;
+    const pdx = sx - player.x, pdy = sy - player.y;
+    const pd = Math.hypot(pdx, pdy);
+    if(pd < sumTrig){
+      const ang = pd > 0 ? Math.atan2(pdy, pdx) : Math.PI;
+      sx = player.x + Math.cos(ang) * sumTrig;
+      sy = player.y + Math.sin(ang) * sumTrig;
+    }
+    sx = Math.max(60, Math.min((currentNode ? currentNode.w : canvas.width) - 60, sx));
+    sy = Math.max(60, Math.min((currentNode ? currentNode.h : canvas.height) - 60, sy));
+    const s = spawnTank({
+      id: `summon_${bossEntity.id}_${wave.waveIndex}_${i}`,
+      team: 'enemy', x: sx, y: sy,
+      hullAngle: Math.PI, turretAngle: Math.PI, heightClass: 'medium'
+    });
+    s.aiTriggerDist = triggerDistForDifficulty(currentNode ? currentNode.difficulty : 0.5);
+    s.aiTier = (currentNode && currentNode.aiTier) || 0;
+    s.aiReactEnabled = true;                      // #E7：召唤物同样有反应延迟
+    const spec = tankListData && tankListData[wave.tankId];
+    // #I5（2026-09-23 用户反馈「boss 召唤的小兵移动速度太快」）：召唤小兵改走与节点敌军/
+    // 增援同一条 P-46 锚定链（applyEnemyAppearanceAndStats：只取外观，数值锚定玩家出击
+    // 基准快照 × 兵种 profile），不再 applyTankConfig 整包照搬 tanks/*.json 的原始机动值。
+    // 难度乘子表同节点敌军口径（applyEnemyAppearanceAndStats 内注入 entityMults）。
+    if(typeof applyEnemyAppearanceAndStats === 'function'){
+      applyEnemyAppearanceAndStats(s, spec, playerAnchorStats || (player ? player.stats : null),
+        currentNode ? currentNode.entityMults : null);
+    } else {
+      if(spec) applyTankConfig(s, spec);
+    }
+    resetEntity(s);
+    s.nodeSpawn = true;
+  }
+  pushLog(`⚠ BOSS 召唤增援 ×${wave.count}（第 ${wave.waveIndex + 1} 波）`, 'CRIT');
+  playSound('ui');
+}
+
+// Boss 履带自动修复反馈（2026-09-23 #I5）：履带位置一小簇火花 + 尘土（复用现有特效原语）
+function spawnTrackRepairFx(t){
+  if(!t) return;
+  const off = (t.hullWid || 34) * 0.4;
+  spawnImpactFx(t.x, t.y + off, (t.hullAngle || 0) + Math.PI / 2, 'he', 0.35);
+  burstExplosion(t.x, t.y + off, 0.25, 3, 2, 2);
+}
+
+// #E4（2026-09-20）：可部署物数量升级——按玩家持有的升级卡累计 deployBonus（供 enforceDeployLimits 消费）。
+function refreshDeployBonus(){
+  const L = (RULES.abilities && RULES.abilities.deploy_limits) || {};
+  const map = L.upgradeCards || {};
+  const bonus = { cover: 0, mine: 0, turret: 0 };
+  for(const ef of (player && player.cardEffects ? player.cardEffects : [])){
+    const cid = ef && ef.cardId;
+    const b = cid ? map[cid] : null;
+    if(!b) continue;
+    for(const k in b) bonus[k] = (bonus[k] || 0) + b[k];
+  }
+  if(player) player.deployBonus = bonus;
+}
+
 function enterBattle(nodeIndex){
   const node = run.nodes[nodeIndex];
   if(!node) return;
   currentNode = node;
   cam.bounds = { w: node.w, h: node.h };
+  // #E10：HE 溅射击退的世界边界（与节点尺寸同源；缺省不钳制）
+  if(typeof setSplashWorldBounds === 'function') setSplashWorldBounds({ w: node.w, h: node.h });
   clearSmoke();                              // P-17：进节点清空上一战场残留烟雾
   clearStrikes();                            // P-17：进节点清空上一战场预警炮击
+  bossLaserFx = null;                        // #E9：激光绘制数据不跨节点
+  pendingMineFields.length = 0;              // #E4：未引爆的待生成雷场不跨节点
+  refreshDeployBonus();                      // #E4：按当前持有卡重算可部署物数量加成
+  if(player){ player._mineFieldPreview = null; player._missileActivated = false; }
   if(typeof clearDeployables === 'function') clearDeployables();   // #B9/#B11：部署物不跨节点（地雷/掩体/固定炮塔随战场销毁）
   player.shield = null;                      // P-17：护盾是短时开启状态，不跨节点（冷却 t.abilityCds 池跨节点保留）
+  player._rocketBurst = null;                // #D4：火箭巢逐发队列不跨节点
+  player._missileLock = null;                // 同上：锁定进度不跨节点（防幽灵续锁）
   resetEntity(player);                       // 满状态进入节点
   player.hp = player.stats.maxHp;            // #A12：满血进节点（resetEntity 后兜底，防 spawn 快照 hp 陈旧）
   player.x = node.playerSpawn.x; player.y = node.playerSpawn.y;
   player.hullAngle = 0; player.turretAngle = 0;
   cam.x = player.x; cam.y = player.y;        // 相机瞬间对齐出生点
+  // #H5（2026-09-21）：进节点缩放不再强制适配（可见距离屏幕相对化）——保留玩家当前缩放偏好
   materializeNode(node, {
     keepIds: ['player'].concat(entities.filter(e => e.isDrone).map(e => e.id)),   // P-17：无人机随行跨节点保留（随行单位语义）
     setCovers(list){ covers.length = 0; covers.push(...list); snapshotCovers(); },
@@ -1111,38 +1204,9 @@ function enterBattle(nodeIndex){
     pushLog(`⚠ BOSS 战：「${node.boss.name}」— ${node.boss.desc || ''}`, 'CRIT');
     applyDifficultyMults(bossEntity, currentNode.entityMults, false);   // false=跳过玩家能力封顶，Boss 可正经超越玩家
 
-    // P-10：Boss summons——伴随单位（浮游炮/护卫/护盾发生器），计入清敌判定
-    // AI 触发重设计：summons 生成点同样必须在有效触发距离之外（沿径向外推保证）。
-    if(node.boss.summons){
-      const sumTrig = triggerDistForDifficulty(node.difficulty) * 1.05;
-      let si = 0;
-      for(const sm of node.boss.summons){
-        for(let i = 0; i < (sm.count || 0); i++){
-          let sx = bossEntity.x + (Math.random() - 0.5) * 220;
-          let sy = bossEntity.y + (Math.random() - 0.5) * 220;
-          const pdx = sx - node.playerSpawn.x, pdy = sy - node.playerSpawn.y;
-          const pd = Math.hypot(pdx, pdy);
-          if(pd < sumTrig){
-            const ang = pd > 0 ? Math.atan2(pdy, pdx) : Math.PI;
-            sx = node.playerSpawn.x + Math.cos(ang) * sumTrig;
-            sy = node.playerSpawn.y + Math.sin(ang) * sumTrig;
-          }
-          const s = spawnTank({
-            id: `summon_${node.index}_${si++}`,
-            team: 'enemy',
-            x: sx, y: sy,
-            hullAngle: Math.PI, turretAngle: Math.PI,
-            heightClass: 'medium'
-          });
-          s.aiTriggerDist = triggerDistForDifficulty(node.difficulty);
-          s.aiTier = node.aiTier || 0;   // P-34 C：Boss summons 同样带 AI 档位（#76 消费）
-          const spec = tankListData && tankListData[sm.tankId];
-          if(spec) applyTankConfig(s, spec);
-          resetEntity(s);
-          s.nodeSpawn = true;
-        }
-      }
-    }
+    // #E9（2026-09-20）：Boss summons 改为**分波次召唤**——不再进节点一次性投放，
+    // 改由主循环按 boss 血量阈值触发（见 spawnBossSummonWave / bossSummonWave）。
+    // 原文保留于此备查：旧实现为 `for(const sm of node.boss.summons){...}` 一次性生成。
   }
 
   // P-38：节点内击杀配额计数 + 递增生成节奏计时器；增援 rng 按节点种子派生（跨节点不串流）
@@ -1272,7 +1336,7 @@ let pendingLootRounds = 0;        // 剩余追加三选一轮数
 let pendingLootRarityIdx = -1;    // 保底稀有度在 CARD_RARITIES 中的下标（-1 = 无保底/全池）
 
 function bossLootRarityLabel(idx){
-  const m = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇' };
+  const m = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' };
   return (typeof CARD_RARITIES !== 'undefined' && CARD_RARITIES[idx]) ? (m[CARD_RARITIES[idx]] || CARD_RARITIES[idx]) : '—';
 }
 
@@ -1322,9 +1386,11 @@ function pickCard(card){
       showGainToast(`已安装副武器：${SECONDARY_LABELS[ef.weaponType] || ef.weaponType}（F 键击发）`);
     }
   }
-  // #B10（2026-09-16）：获得技能 → 对应底部技能按钮金色脉冲闪烁 3 秒（此前 G/H/V 静默出现、
+  // #B10（2026-09-16）：获得技能 → 对应底部技能按钮金色脉冲闪烁 3 秒（此前 G/H 静默出现、
   // 其余技能完全无反馈）。按钮显隐仍由 updateBottomHud 逐帧按 hasAbility 刷新，此处只做一次性高亮。
-  const BTN_BY_ABILITY = { artillery:'btnG', shield:'btnH', overdrive:'btnV' };
+  // #H3（2026-09-21）：overdrive 移除专属按钮（btnV 删除）——技能池槽的获得脉冲走 updateBottomHud
+  // 的 skillSlot 渲染路径（同名技能进入槽位即有常驻显示）。
+  const BTN_BY_ABILITY = { artillery:'btnG', shield:'btnH' };
   for(const ef of applied){
     if(ef.type !== 'ability') continue;
     const btnId = BTN_BY_ABILITY[ef.key];
@@ -1400,7 +1466,7 @@ function renderRewardCards(){
   if(!currentRewardCards.length){
     row.innerHTML = '<div class="screen-hint">卡池为空——请确认 cards/ 目录与 /api/cards 可用。</div>';
   }
-  const rarityLabel = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇' };
+  const rarityLabel = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' };
   currentRewardCards.forEach((c, i) => {
     const d = document.createElement('div');
     d.className = 'card' + (selectedRewardIdx.has(i) ? ' selected' : '');
@@ -2144,80 +2210,67 @@ function logClear(){ log.clear(); }
 function pushLog(text, cls){ log.push(text, cls); }
 
 // ---------- 调试按钮（P-15：收纳至开发者面板；战斗态禁用防破坏节点） ----------
-document.getElementById('genNodeBtn').addEventListener('click', ()=>{
+// #F（2026-09-20）：原 genNodeBtn/resetBtn 由共享 devPanel 开关 Tab 渲染并调用下列回调（战斗态禁用语义不变）
+const devGenNode = () => {
   if(run && flow.state === 'battle'){ pushLog('战斗中不可随机生成（会破坏节点掩体）','COVER'); return; }
   const randomDiff = Math.random();
   const res = generateNode(randomDiff, { applyToCovers: true });
   groundLayerCanvas = null;   // dev 随机场：道路回退逐段绘制
   pushLog(`随机生成战场: [${res.template.name}] 难度=${(randomDiff*100).toFixed(0)}% 元素数=${res.covers.length}`,'COVER');
-});
-document.getElementById('resetBtn').addEventListener('click', ()=>{
+};
+const devReset = () => {
   if(run && flow.state === 'battle'){ pushLog('战斗中不可重置（会破坏节点状态）','COVER'); return; }
   entities.forEach(e=>{ resetEntity(e); e._prevFireT = 0; }); // resetEntity 置 fireT=0，同步清起火音效记录
   resetCovers();
   clearSmoke();                              // P-17：重置战场时清空烟雾云
   clearStrikes();                            // P-17：重置战场时清空预警炮击
   if(typeof clearDeployables === 'function') clearDeployables();   // #B9/#B11：重置时清空地雷/掩体/固定炮塔
+  entities.forEach(e => { e._rocketBurst = null; e._missileLock = null; });   // #D4：逐发队列/锁定进度一并清空
   clearDrones(player);                       // P-17：重置战场时清空随行无人机
   logClear();
   playSound('ui'); // M1：重置
-});
+};
 
-// ---------- P-15 开发者面板：卡牌选择 / 修饰器编辑 ----------
-function renderDevCards(){
-  const el = document.getElementById('devCardList');
-  if(!el) return;
-  el.innerHTML = '';
-  if(!cardPool.length){
-    el.innerHTML = '<div style="font-size:9px;color:var(--text-dim);">卡池为空（检查 cards/ 与 /api/cards）</div>';
-    return;
-  }
-  for(const c of cardPool){
-    const b = document.createElement('button');
-    b.textContent = `${c.name}（${c.rarity}${c.maxStacks ? ' ×' + c.maxStacks : ''}）`;
-    b.title = c.desc || '';
-    b.addEventListener('click', ()=>{ pickCard(c); renderDevMods(); syncDevInputs(); });
-    el.appendChild(b);
-  }
-}
-function renderDevMods(){
-  const el = document.getElementById('devModList');
-  if(!el) return;
-  el.innerHTML = '';
-  if(!player.modifiers.length){
-    el.innerHTML = '<div style="font-size:9px;color:var(--text-dim);">当前无修饰器</div>';
-    return;
-  }
-  player.modifiers.forEach((m, i) => {
-    const row = document.createElement('div');
-    row.className = 'mod-row';
-    row.innerHTML =
-      `<span class="m-src">${m.source}</span>` +
-      `<span class="m-stat">${m.stat}</span>` +
-      `<select class="m-mode"><option value="add" ${m.mode==='add'?'selected':''}>add</option><option value="mult" ${m.mode==='mult'?'selected':''}>mult</option></select>` +
-      `<input class="m-val" type="number" step="0.01" value="${m.value}">`;
-    const apply = document.createElement('button');
-    apply.textContent = '应用';
-    apply.addEventListener('click', ()=>{
-      m.mode = row.querySelector('.m-mode').value;
-      m.value = parseFloat(row.querySelector('.m-val').value);
-      if(!Number.isFinite(m.value)) m.value = 0;
-      refreshStats(player);
-      renderDevMods(); syncDevInputs();
-      pushLog(`修饰器已更新：${m.stat} ${m.mode} ${m.value}`,'COVER');
-    });
-    const del = document.createElement('button');
-    del.textContent = '删除';
-    del.addEventListener('click', ()=>{
-      player.modifiers.splice(i, 1);
-      refreshStats(player);
-      renderDevMods(); syncDevInputs();
-      pushLog(`修饰器已删除：${m.stat}（${m.source}）`,'COVER');
-    });
-    row.appendChild(apply); row.appendChild(del);
-    el.appendChild(row);
-  });
-}
+// ---------- P-15 开发者面板（#F 2026-09-20：抽离为共享模块 js/tank_devpanel.js，mvp/bench 两页同源） ----------
+// 挂载四 Tab 面板（实时/卡牌/参数/开关）：DOM 由模块构建；卡牌点击复用页面 pickCard（技能提示/toast 反馈）；
+// 开关状态经 onCheatChange 同步回 devAim/devNoVision/devCheat；随机生成/重置走页面回调（战斗态禁用语义不变）。
+const devPanelApi = mountDevPanel({
+  attach: document.body,
+  getPlayer: () => player,
+  getCardPool: () => cardPool,
+  getCtx: () => fireCtx,
+  isDevOpen: () => devOpen,
+  pushLog: pushLog,
+  playSound: playSound,
+  cardClick: pickCard,
+  cheatsInit: {
+    zeroSpread: (typeof devAim !== 'undefined') ? devAim.zeroSpread : false,
+    noVision: (typeof devNoVision !== 'undefined') ? devNoVision : false,
+    invuln: (typeof devCheat !== 'undefined') ? devCheat.invuln : false,
+    instantReload: (typeof devCheat !== 'undefined') ? devCheat.instantReload : false
+  },
+  onCheatChange: (k, v) => {
+    if(k === 'zeroSpread') devAim.zeroSpread = v;
+    if(k === 'noVision') devNoVision = v;
+    if(k === 'invuln' || k === 'instantReload') devCheat[k] = v;
+  },
+  onGenNode: devGenNode,
+  onReset: devReset,
+  liveData: (p) => ({
+    sigma: p.sigma,
+    reload: p.stats ? p.stats.reload : 0,
+    pos: '(' + p.x.toFixed(0) + ', ' + p.y.toFixed(0) + ')',
+    speed: tankKmh(p) + 'km/h',
+    entities: entities.filter(e => e.hp > 0).length + ' 存活',
+    node: run && currentNode
+      ? `节点 ${currentNode.index + 1}/${run.nodes.length} · 难度 ${(currentNode.difficulty * 100).toFixed(0)}% · 得分 ${runScore} · seed ${run.seed}`
+      : '未开局（NEW RUN 后进入战斗）',
+    nodeType: run && currentNode
+      ? (currentNode.boss ? 'BOSS' : '普通') + ' (' + (currentNode.template ? currentNode.template.id : '?') + ')'
+      : '--',
+    enemyCount: entities.filter(e => e.team === 'enemy' && e.hp > 0).length
+  })
+});
 
 // ---------- firing ----------
 let shells = [];   // 炮弹飞行动画（沿弹道逐段推进）
@@ -2236,19 +2289,25 @@ let fireCtx = null;
 // #B10（2026-09-16）：能力键提示表补全——pickCard 获得提示与 skillHotkey 1/2/3 技能池 DISPATCH
 // 对齐（此前仅 G/H/V 三键有提示，deploy_cover/super_fire_control/super_speed/recon 获得后零反馈）。
 const ABILITY_KEY_HINT = {
-  artillery: '炮击支援（G 键）',
-  shield: '战术护盾（H 键，Shift+H 全向）',
-  overdrive: '超级装填（V 键）',
-  deploy_cover: '战术掩体（2 号技能键，车前部署充能掩体）',
+  artillery: '炮击支援（G 键 / 1~3 号技能键）',
+  shield: '战术护盾（H 键，Shift+H 全向 / 1~3 号技能键）',
+  overdrive: '超级装填（1~3 号技能键）',
+  deploy_cover: '战术掩体（1~3 号技能键，车前部署充能掩体）',
   super_fire_control: '超级火控（限时精度/瞄准强化，1~3 号技能键触发）',
   super_speed: '超级速度（限时机动强化，1~3 号技能键触发）',
-  recon: '侦察标记（3 号技能键，侦察无人机协同指示）'
+  recon: '侦察标记（1~3 号技能键，侦察无人机协同指示）',
+  aps: '主动防御系统（1~3 号技能键，限时拦截来袭弹药）',
+  // #G（2026-09-21）：innate 装备键提示补全（此前获得即有 HUD 按钮，但日志文案缺位）
+  repair: '修理箱（4 键，修复模块损伤）',
+  medkit: '医疗包（5 键，治疗乘员）',
+  extinguish: '自动灭火器（6 键，扑灭起火）'
 };
 function abilityFailLog(verb, res){
   if(res.reason === 'no-ability') pushLog(`未装备${verb}卡`, 'COVER');
   else if(res.reason === 'cooldown') pushLog(`${verb}冷却中（剩余 ${res.cd.toFixed(1)}s）`, 'COVER');
   else if(res.reason === 'need-target') pushLog('炮击需要目标点 — 请移动鼠标指定落点', 'COVER');
   else if(res.reason === 'need-dir-or-omni') pushLog('护盾需要朝向', 'COVER');
+  else if(res.reason === 'deploy-cover-limit') pushLog(`战术掩体已达上限（${res.cap}）— 保留已部署掩体`, 'COVER');
   else pushLog(`${verb}不可用（${res.reason}）`, 'COVER');
 }
 function tryStrike(){
@@ -2294,6 +2353,44 @@ function tryDeployCover(){
     pushLog('战术掩体部署 — 充能护盾掩体已设立', 'PEN');
   } else {
     abilityFailLog('战术掩体', res);
+  }
+}
+
+// #G（2026-09-21 用户需求 #9）：主动防御系统（APS）——激活后拦截窗口内自动击落来袭敌方弹药。
+function tryAps(){
+  if(!player || player.hp <= 0 || player.immobT > 0) return;
+  const res = tryActivateAbility(player, 'aps');
+  if(res.ok){
+    playSound('ui');
+    pushLog(`主动防御系统开启 — ${res.duration}s 内拦截半径 ${res.radius}px 内来袭弹药（最多 ${res.maxIntercepts} 发）`, 'PEN');
+  } else {
+    abilityFailLog('主动防御', res);
+  }
+}
+
+// APS 拦截层（mvp 主循环逐帧驱动，stepShells 之后）：_apsT>0 时扫描 shells，
+// 敌方弹药进入 radius 即销毁（拦截）。拦截上限 maxIntercepts，达上限后窗口保持但不再拦截。
+function updateAps(t, dt){
+  if(!t || !(t._apsT > 0) || t.hp <= 0) return;
+  t._apsT = Math.max(0, t._apsT - dt);
+  const cfg = (typeof RULES !== 'undefined' && RULES.abilities && RULES.abilities.aps) || {};
+  const radius = cfg.radius || 240;
+  const maxHits = cfg.maxIntercepts || 3;
+  if((t._apsHits || 0) >= maxHits) return;
+  const shellsArr = (typeof shells !== 'undefined' && Array.isArray(shells)) ? shells : null;
+  if(!shellsArr) return;
+  for(const s of shellsArr){
+    if(s.dead || !s.shooter || s.shooter.team === t.team) continue;
+    const d = Math.hypot(s.x - t.x, s.y - t.y);
+    if(d <= radius){
+      s.dead = true;
+      t._apsHits = (t._apsHits || 0) + 1;
+      if(typeof burstExplosion === 'function') burstExplosion(s.x, s.y, 0.5, 6, 4, 6);
+      if(typeof spawnImpactFx === 'function') spawnImpactFx(s.x, s.y, Math.atan2(s.dy, s.dx), 'block', 0.9);
+      playSound('block');
+      pushLog(`主动防御拦截来袭弹药（${t._apsHits}/${maxHits}）`, 'COVER');
+      if((t._apsHits || 0) >= maxHits) break;
+    }
   }
 }
 
@@ -2353,49 +2450,8 @@ function tryExtinguish(){
   else kitFailLog('灭火器', res);
 }
 
-// [P-28] updateSolution/computeSolution 已收敛到 js/tank_fire.js
-// ---------- P-15 开发者面板：实时参数 ----------
-function updateDevParams(){
-  const set = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt; };
-  set('devSigma', player.sigma.toFixed(4));
-  set('devReload', player.stats.reload.toFixed(2) + 's');   // 面板主值：基础装填（受 debuff 时实际更长）
-  set('devPos', `(${player.x.toFixed(0)}, ${player.y.toFixed(0)})`);
-  set('devSpeed', tankKmh(player) + 'km/h');
-  set('devEntities', `${entities.filter(e=>e.hp>0).length} 存活`);
-  set('devNode', run && currentNode
-    ? `节点 ${currentNode.index + 1}/${run.nodes.length} · 难度 ${(currentNode.difficulty * 100).toFixed(0)}% · 得分 ${runScore} · seed ${run.seed}`
-    : '未开局（NEW RUN 后进入战斗）');
-  set('devNodeType', run && currentNode
-    ? (currentNode.boss ? 'BOSS' : '普通') + ' (' + (currentNode.template ? currentNode.template.id : '?') + ')'
-    : '--');
-  set('devEnemyCount', `${entities.filter(e=>e.team==='enemy'&&e.hp>0).length}`);
-  renderDevOwnedCards();
-}
-
-// [P-15] 开发者面板：已持有卡牌（按 cardId 分组计数，经 cardPool 取名称/稀有度）
-function renderDevOwnedCards(){
-  const el = document.getElementById('devOwnedCards');
-  if(!el) return;
-  const effects = (player.cardEffects || []);
-  if(!effects.length){
-    el.innerHTML = '<div style="font-size:9px;color:var(--text-dim);">尚未持有任何卡牌</div>';
-    return;
-  }
-  const counts = {};
-  for(const ef of effects){
-    if(!ef || !ef.cardId) continue;
-    counts[ef.cardId] = (counts[ef.cardId] || 0) + 1;
-  }
-  const rows = Object.keys(counts).map(cardId => {
-    const card = (typeof cardPool !== 'undefined' && cardPool) ? cardPool.find(c => c.id === cardId) : null;
-    const name = card ? card.name : cardId;
-    const rarity = (card && card.rarity) ? '（' + card.rarity + '）' : '';
-    return `<span class="k" style="min-width:auto;margin-right:12px;">${name}${rarity} ×${counts[cardId]}</span>`;
-  });
-  el.innerHTML = rows.length
-    ? rows.join('')
-    : '<div style="font-size:9px;color:var(--text-dim);">尚未持有任何卡牌</div>';
-}
+// #F（2026-09-20）：updateDevParams/rollbackDevCard/renderDevOwnedCards/devClearCardsBtn
+// 已随共享模块 js/tank_devpanel.js 抽离（mvp/bench 同源），本区块不再保留页面副本。
 
 // ---------- update ----------
 let last = performance.now();
@@ -2425,8 +2481,16 @@ function update(dt){
   player.y = Math.max(40, Math.min(worldH-40, player.y));
 
   // P-08：相机跟随（run 战斗态；未开局保持恒等视口）
-  if(run && currentNode && flow.state === 'battle') updateCamera(cam, player, dt);
-  else setBenchCamera();
+  // #E12（2026-09-20）：先按鼠标屏幕偏移更新外延量，再跟随（跟随目标 = 玩家 + 外延）
+  // #H5（2026-09-21）：缩放纯视觉偏好——无每帧 zoom 重算（#H2 的「基准×适配值」模型随
+  // 可见距离屏幕相对化而移除）
+  if(run && currentNode && flow.state === 'battle'){
+    if(typeof updateCameraLead === 'function') updateCameraLead(cam, mouseScreen.x, mouseScreen.y, dt);
+    updateCamera(cam, player, dt);
+  } else {
+    cam.leadX = 0; cam.leadY = 0;
+    setBenchCamera();
+  }
 
   let desired = Math.atan2(mouseWorld.y-player.y, mouseWorld.x-player.x);
 
@@ -2446,6 +2510,52 @@ function update(dt){
   player.prevTurretAngle = player.turretAngle;
 
   if(player.reloadT>0) player.reloadT = Math.max(0, player.reloadT-dt);
+  // ================= #E5（2026-09-20）锁定制反坦克导弹：激活后逐帧索敌/计时/发射 =================
+  // F 激活（_missileActivated）→ updateMissileLock 在 ±lockArcDeg 扇形内索敌并累计 lockSeconds，
+  // 锁定完成立即自动发射（模块内 fireActiveSecondary）；装填期间锁定进度冻结。
+  if(player._missileActivated && player.weapons && player.weapons.secondary &&
+     player.weapons.secondary.type === 'missile' && flow.state === 'battle' && !isClearing){
+    try { updateMissileLock(player, dt, fireCtx); } catch(err) { /* 导弹锁定异常不阻断主循环 */ }
+    const lk = player._missileLock;
+    if(lk && lk.target && lk.target.hp > 0 && !lk._notified){
+      lk._notified = true;
+      pushLog('导弹锁定完成 — 发射！', 'PEN');
+    }
+  }
+  // ================= #E4（2026-09-20）雷场延时生成 =================
+  for(let i = pendingMineFields.length - 1; i >= 0; i--){
+    const pf = pendingMineFields[i];
+    pf.t -= dt;
+    if(pf.t > 0) continue;
+    const n = Math.max(1, Math.min(RULES.abilities.deploy_limits.mineMax || 3, pf.count || 5));
+    // #F6（2026-09-20 用户反馈）：雷场生成前拒绝超限，保留已布地雷（不再淘汰最早的）。
+    // 超限拒绝时该预约取消（不加 splice 提前，否则「旧的失效」——预约被无提示移除）。
+    const cap = (typeof deployableCap === 'function') ? deployableCap('mine', player) : null;
+    const existing = (typeof deployableCount === 'function') ? deployableCount('mine') : 0;
+    if(cap !== null && existing + n > cap){
+      pendingMineFields.splice(i, 1);
+      pushLog(`地雷已达上限（${cap}）— 雷场未生成（保留已布地雷）`, 'COVER');
+      playSound('ui');
+      continue;
+    }
+    pendingMineFields.splice(i, 1);
+    for(let k = 0; k < n; k++){
+      const a = (k / n) * Math.PI * 2 + (k % 2) * 0.4;
+      const rr = pf.radius * (0.35 + 0.65 * ((k + 1) / n));
+      spawnMine({
+        team: 'player',
+        x: pf.x + Math.cos(a) * rr,
+        y: pf.y + Math.sin(a) * rr,
+        damage: (RULES.abilities.deploy_limits.mineDamage || 100),
+        blastRadius: 70, triggerRadius: 45,
+        duration: (player.weapons.secondary.stats && player.weapons.secondary.stats.duration) || 30
+      });
+    }
+    burstExplosion(pf.x, pf.y, 0.4, 6, 4, 6);
+    pushLog(`雷场生成 — ${n} 枚地雷已布设`, 'CRIT');
+    playSound('ui');
+    enforceDeployLimits('mine');
+  }
   if(player.recoilT>0) player.recoilT = Math.max(0, player.recoilT-dt);
   if(player.fireDebuffT>0) player.fireDebuffT -= dt;
   tickDebuffs(player, dt);
@@ -2470,6 +2580,8 @@ function update(dt){
     getPartZRange,
     getExposure,
     findCoversOnPath,
+    // #E1（2026-09-20）：视野圈外不绘制的实体不再拦弹（消除「炮弹被不可见物体拦截」）。
+    hiddenByVision: entityHiddenByVision,
     shellPartHit,
     coverNormalAt,
     reflectDir,
@@ -2497,6 +2609,12 @@ function update(dt){
           }
         }
         const res = raw(s, target, hit, allowBounce, opts);
+        if(res && target && target.isBoss && target.team === 'enemy' && target.hp > 0 &&
+           typeof triggerBossHitReact === 'function'){
+          // #E9（2026-09-20）：Boss 受击反馈——命中即短暂顿挫（弱点命中更明显）；
+          // 早期阶段同样有反应，修复「被击中后很多时候都没有反应」。
+          triggerBossHitReact(target, !!(opts && opts.dmgMul > 1));
+        }
         if(res && target && target.team === 'enemy' && target.hp > 0 && !target.isDrone){
           const sx = (s && s.shooter) ? s.shooter.x : (s ? s.fx : 0);
           const sy = (s && s.shooter) ? s.shooter.y : (s ? s.fy : 0);
@@ -2545,7 +2663,7 @@ function update(dt){
     if(input.isDown('fireSecondary')) trySecondaryFire();   // #C4e：F 按住连发副武器
     if(input.isDown('abilityStrike')) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
     if(input.isDown('abilityShield')) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
-    if(input.isDown('abilityOverdrive')) tryOverdrive();   // P-17：V 键超级装填（爆发装填）
+    // #H3（2026-09-21）：超装填 V 键轮询删除——overdrive 只经技能池 skill1/2/3（skillHotkey DISPATCH）触发
     if(input.isDown('supportRepair')) tryRepairKit();   // #90：4 键修理箱（开局自带）
     if(input.isDown('supportMedkit')) tryMedkit();      // #90：5 键医疗包（开局自带）
     if(input.isDown('supportExtinguish')) tryExtinguish();  // 自动灭火器（开局自带）
@@ -2564,6 +2682,9 @@ function update(dt){
     const secW = player.weapons.secondary;
     if(secW.type === 'turret'){
       if(typeof updateSecondaryWeapon === 'function') updateSecondaryWeapon(player, dt, fireCtx);
+    } else if(secW.type === 'rocket' && player._rocketBurst && typeof updateRocketBurst === 'function'){
+      // 2026-09-19 #D4：火箭巢逐发队列驱动（burst 进行中接管 secondaryReloadT 计时）
+      updateRocketBurst(player, dt, fireCtx);
     } else if(player.secondaryReloadT > 0){
       player.secondaryReloadT -= dt;
     }
@@ -2571,6 +2692,7 @@ function update(dt){
 
   // 2026-09-15 W6：autocannon 热量冷却逐帧驱动（burst 连发路径已删除）
   // 2026-09-15 W4：双管每管独立装填计时驱动（_dbState）
+  // #G（2026-09-21）：弹夹炮整组装填完成检测（_clipState.pendingRefill）
   if(!isClearing && player && player.hp > 0){
     if(typeof updatePrimaryHeat === 'function'){
       updatePrimaryHeat(player, dt);
@@ -2578,6 +2700,12 @@ function update(dt){
     if(typeof updatePrimaryBarrels === 'function' && player._dbState){
       updatePrimaryBarrels(player, dt);
     }
+    if(typeof updatePrimaryClip === 'function' && player._clipState){
+      updatePrimaryClip(player, dt);
+    }
+    // #C5（2026-09-19）：开发者面板作弊项（与测试台 benchCheats 同源语义）
+    if(devCheat.invuln) player.invulnT = Math.max(player.invulnT, 0.5);
+    if(devCheat.instantReload) player.reloadT = 0;
   }
 
   // keep every tank from overlapping its neighbours
@@ -2592,7 +2720,9 @@ function update(dt){
       enemies: entities.filter(e => e.team === 'enemy' && e.hp > 0),
       hasLoS: hasLineOfSight,
       covers,   // #76 C6：掩体查询注入（重坦受创寻掩用；AI 侧遍历比较，无需寻路）
-      dt        // #76 C5：patrol 微摆动本地相位的帧步长（性能无关）
+      dt,       // #76 C5：patrol 微摆动本地相位的帧步长（性能无关）
+      // #E6（2026-09-20）：敌军世界边界（修复「敌人跑到地图范围之外」）——AI 与玩家同口径钳制
+      worldBounds: currentNode ? { minX: 0, minY: 0, maxX: currentNode.w, maxY: currentNode.h } : null
     };
     for(const e of entities){
       if(e.id === 'player') continue;   // 手动控制
@@ -2600,15 +2730,42 @@ function update(dt){
       if(e.hp <= 0) continue;
       aiUpdateStateTimer(e, dt);   // stun 计时/免疫窗倒计时（主循环统一递减，同 reloadT 模式）
       const d = aiDecide(e, aiCtx);
-      // 车体转向 + 移动（统一 driveTank）
-      driveTank(e, dt, { turn: d.turn, move: d.move });
-      // 炮塔转向（转速限制 + 射界限制，与玩家同口径）
+      // #H4（2026-09-21）：Boss 激光期炮塔由 updateBossLaser 固定角速度直驱（bossLaserHoldTurret）
+      // ——跳过 AI 转炮（含射界钳制后的期望方向），避免两套驱动叠加。
+      // #I1（2026-09-21 用户裁定）：激光期**车体不能移动**（bossLaserHoldMove）——连 driveTank
+      // 一并跳过（蓄能+射击全程定桩，走位博弈完全交给玩家）。
+      // #I4（2026-09-21）：Boss 随机走位覆盖——updateBossBehavior 写入 _bossMoveOverride
+      //（环绕玩家的随机航点转向），替换 aiDecide 的车体 turn/move（炮塔仍照常锁定玩家）。
+      const mOverride = (e.isBoss && e._bossMoveOverride) ? e._bossMoveOverride : null;
       const relDesired = angDiff(d.turretDesired, e.hullAngle);
-      const clampedRel = Math.max(-e.traverseLimit, Math.min(e.traverseLimit, relDesired));
-      const desired = e.hullAngle + clampedRel;
-      const diff = angDiff(desired, e.turretAngle);
-      const maxStep = e.stats.turretTurnRate * dt;
-      e.turretAngle = norm(e.turretAngle + Math.max(-maxStep, Math.min(maxStep, diff)));
+      e._aiTurretDesired = e.hullAngle + Math.max(-e.traverseLimit, Math.min(e.traverseLimit, relDesired));
+      if(!e.bossLaserHoldMove){
+        driveTank(e, dt, {
+          turn: mOverride ? mOverride.turn : d.turn,
+          move: mOverride ? mOverride.move : d.move,
+          worldBounds: aiCtx.worldBounds
+        });
+      }
+      if(!e.bossLaserHoldTurret && !e.bossLaserHoldMove){
+        // 炮塔转向（转速限制 + 射界限制，与玩家同口径）
+        const desired = e._aiTurretDesired;
+        const diff = angDiff(desired, e.turretAngle);
+        const maxStep = e.stats.turretTurnRate * dt;
+        e.turretAngle = norm(e.turretAngle + Math.max(-maxStep, Math.min(maxStep, diff)));
+      }
+      // #I5（2026-09-23 用户反馈「boss 频繁断履带后长时间站桩挨打」）：履带断落随机自修
+      // —— 履带断 → (0,8s] 内随机时点 roll 概率 → 命中立即恢复机动（模块侧实现）。
+      // rng 复用节点增援 rng（battleState.reinforceRng，跨节点不串流）。
+      if(e.isBoss && typeof updateBossTrackRepair === 'function'){
+        const trEvts = updateBossTrackRepair(e, dt, { rng: (battleState && battleState.reinforceRng) || Math.random });
+        for(const trEv of trEvts){
+          if(trEv.type === 'trackRepair'){
+            spawnTrackRepairFx(e);
+            playSound('ui');
+            pushLog('⚙ BOSS 履带自动修复 — 恢复机动', 'COVER');
+          }
+        }
+      }
       // 开火：复用 fireTank（敌人打玩家，友军打最近敌人）
       if(d.fire){
         const target = e.team === 'ally' ? nearestEnemyTo(e) : player;
@@ -2621,6 +2778,9 @@ function update(dt){
       }
       if(typeof updatePrimaryBarrels === 'function' && e._dbState){
         updatePrimaryBarrels(e, dt);
+      }
+      if(typeof updatePrimaryClip === 'function' && e._clipState){
+        updatePrimaryClip(e, dt);
       }
       // 阶段七 7.2：副武器全类型自主更新（turret/mortar/missile/rocket/mine_layer）
       if(typeof updateSecondaryWeapon === 'function' && e.weapons && e.weapons.secondary && e.weapons.secondary.type !== 'none'){
@@ -2764,31 +2924,16 @@ function update(dt){
     }
   });
 
-  // 半高掩体垂直剖面判决：沿整条弹道（弹道起点 fx,fy → 前方）解析会命中的目标部位。
-  // 按 hitPref 意图分类炮弹的“垂直剖面”，只区分——打炮塔（z>=1.2，越过掩体）/ 打车体（被拦截）。
-  // 没有“部位被挡则改打另一部位”的回退：车体被半高掩体挡就是被拦截，不是改打炮塔。
-  function shellVerticalDecision(s){
-    let dec = null;
-    for(const e of entities){
-      if(e.hp <= 0) continue;
-      if(!isHostile(s.shooter.team, e.team)) continue;
-      const hits = raycastTank(s.fx, s.fy, s.dx, s.dy, e);
-      if(!hits) continue;
-      const bh = bestHitForPref(hits, 0.001, Infinity, s.hitPref);
-      if(!bh) continue;
-      const hx = s.fx + s.dx*bh.t, hy = s.fy + s.dy*bh.t;
-      const z = getPartZRange(e, bh.part);
-      const exposure = getExposure(s.fx, s.fy, hx, hy, s.shooter, e, z.zMin, z.zMax, bh.t);
-      if(!dec || bh.t < dec.hit.t) dec = { tank:e, hit:bh, z, exposure, t:bh.t };
-    }
-    return dec;
-  }
+  // 2026-09-20 #E1：半高掩体垂直剖面判决（shellVerticalDecision）已整体删除——
+  // 半高掩体与 'grad' 渐变拦截链不再存在（见 js/tank_fire.js 顶部注释与 RULES.coverRules）。
 
   // [P-28] 炮弹逐帧真实飞行（特性2）：每帧炮口到落点做 swept-segment 检测，
   // 对敌方坦克与全高掩体取路径上最近障碍；命中后按"命中时刻"结算。
   // [P-28] 炮弹飞行积分已收敛到 js/tank_fire.js stepShells（半高越掩/护盾!s.absorbed/HE破障/烟幕/二次跳弹禁止）
   // B2（2026-09）：结算缓冲(isClearing)期间冻结炮弹飞行，避免缓冲 3 秒内残弹仍击伤玩家（仅粒子/倒计时推进）。
   if(!isClearing) stepShells(dt, fireCtx);
+  // #G（2026-09-21）：APS 拦截层（stepShells 之后扫描新弹）——仅玩家持有 _apsT 时活动
+  if(!isClearing && player && player._apsT > 0) updateAps(player, dt);
   // [P-28] 原地过滤保持数组引用稳定——fireCtx.shells/impacts/bounceFx 由事件处理器跨帧持有，
   // 若用 `arr = arr.filter(...)` 重赋值会让 fireCtx 持有过期引用（症状：有火光无炮弹）
   for(let i=shells.length-1;i>=0;i--){ if(shells[i].dead) shells.splice(i,1); }
@@ -2855,15 +3000,19 @@ function update(dt){
     if(player.hp < battleState.prevPlayerHp) battleState.damageTaken += battleState.prevPlayerHp - player.hp;
     battleState.prevPlayerHp = player.hp;
     // P-09：Boss 阶段触发（血量跨阈值 → 切换 modifiers + 日志）
+    // #E9（2026-09-20）：阶段切换同时按波次召唤小兵（bossSummonWave 消费血量阈值）。
     for(const e of entities){
       if(e.isBoss && e.hp > 0){
         const r = updateBossStage(e);
         if(r.changed){ pushLog(`BOSS「${e.boss.name}」进入阶段「${r.stage.name || r.stage.id}」：${r.stage.behavior || ''}`, 'CRIT'); playSound('ui'); }
+        const wave = (typeof bossSummonWave === 'function') ? bossSummonWave(e, currentNode ? currentNode.difficulty : 0.5) : null;
+        if(wave) spawnBossSummonWave(e, wave);
       }
     }
     // #91b Boss 顶层行为接线（boss-author 的 updateBossBehavior）：
     //   crush/weave 接触碾压（伤害+击退已由模块经 applyDamage 结算，此处播反馈）、
     //   weave 周期冲刺、command 炮击压制（strikes 已入全局预警数组——落点红圈由 draw() 统一绘制）。
+    // #E9（2026-09-20）追加：resume 蓄能激光（updateBossLaser）——激光事件写入 bossLaserFx 供绘制层画警示带/光束。
     for(const e of entities){
       if(!(e.isBoss && e.hp > 0)) continue;
       let evts = [];
@@ -2882,6 +3031,24 @@ function update(dt){
           playSound('ui');
           pushLog(`⚠ BOSS 弹幕压制 — ${ev.strikes.length} 发落弹来袭`, 'CRIT');
         }
+      }
+      // #E9 蓄能激光：激光阶段事件写进绘制缓冲（警示带虚线 + 红色透明填充 / 光束）
+      // #H4：传入本帧 AI 期望方向（turretDesired，已含射界钳制）+ 节点 covers（全高掩体遮挡判定）
+      if(typeof updateBossLaser === 'function'){
+        try {
+          const levts = updateBossLaser(e, dt, player, { entities, isHostile, covers, turretDesired: e._aiTurretDesired });
+          for(const ev of levts){
+            if(ev.type === 'laserCharge'){
+              // #I2：blockedDist = 光束被全高掩体截断的距离（虚线警示带绘制层据此截断）
+              bossLaserFx = { kind: 'charge', x: ev.x, y: ev.y, angle: ev.angle, width: ev.width, length: ev.length, blockedDist: ev.blockedDist, progress: ev.progress };
+              if(!e._laserWarned){ e._laserWarned = true; pushLog('⚠ BOSS 主炮蓄能 — 离开炮线区域！', 'CRIT'); playSound('ui'); }
+            } else if(ev.type === 'laserFire'){
+              bossLaserFx = { kind: 'fire', x: ev.x, y: ev.y, angle: ev.angle, width: ev.width, length: ev.length, blockedDist: ev.blockedDist };
+              playSound('pen');
+            }
+          }
+          if(!levts.length && e.bossLaser === null) { e._laserWarned = false; if(bossLaserFx) bossLaserFx = null; }
+        } catch(err) { /* 激光层异常不阻断战斗主循环 */ }
       }
     }
     if(player._dead && !battleState.playerDied){
@@ -2926,7 +3093,7 @@ function update(dt){
   }
 
   refreshStats(player);    // 清理过期的限时修饰器（如 overdrive 装填加速等）
-  applyDevOverrides();     // P-15：数值临时覆盖（每帧重写 devOverrides 到 player.stats）
+  devPanelApi.applyDevOverrides();     // #F：P-15 数值临时覆盖（每帧重写 devOverrides 到 player.stats，逻辑随共享模块）
   updateHud();
 }
 
@@ -2962,7 +3129,7 @@ function updateHud(){
   } else qh.style.display = 'none';
   // 按需面板（P-15）：开启时逐帧刷新
   if(statusOpen) updateStatusPanel();
-  if(devOpen){ updateDevParams(); updateSolution(); }
+  if(devOpen){ devPanelApi.updateDevParams(); devPanelApi.updateSolution(); }
   // #A5：成员/模块受损状态条逐帧刷新
   updateModuleStatus();
   updateBottomHud();
@@ -2977,17 +3144,38 @@ function selectAmmoSlot(idx){
 }
 
 function updateBottomHud(){
-  // 底部常显 HUD：血条 + 1-6 快捷键槽 + F/G/H/V 战术能力（仅战斗态显示）
+  // 底部三区 HUD（#G 2026-09-21 重设计）：vitals（血条+速度）/ weapons（弹种+补给）/ skills（技能），
+  // 仅战斗态显示。display 必须 'flex'（CSS 现行布局为 flex row 三分区；旧 'block' 会杀死 gap 布局）
   const bh = document.getElementById('bottomHud');
   if(!bh) return;
   if(flow.state !== 'battle'){ bh.style.display = 'none'; return; }
-  bh.style.display = 'block';
+  bh.style.display = 'flex';
   // 血条：与 updateStatusPanel 同口径（ceil hp / maxHp）
   const s = player.stats;
   const hpFill = document.getElementById('playerHpFill');
   if(hpFill) hpFill.style.width = Math.max(0, player.hp / Math.max(1, s.maxHp) * 100) + '%';
   const hpVal = document.getElementById('playerHpVal');
   if(hpVal) hpVal.textContent = `${Math.ceil(player.hp)} / ${Math.round(s.maxHp)}`;
+
+  // #G（2026-09-21 用户需求 #8）：速度仪表 —— D/R 档位 + 当前 km/h + 速度条 + 公路加成标记。
+  // km/h 换算必须经 tankCurrentKmh（先除 pxFactor×effMul 再乘 kmhFactor），直接乘 kmhFactor 会读出 ~208km/h。
+  const gearEl = document.getElementById('hudGear');
+  const speedEl = document.getElementById('hudSpeedVal');
+  const spFill = document.getElementById('hudSpeedFill');
+  const roadEl = document.getElementById('hudRoadBonus');
+  const kmh = (typeof tankCurrentKmh === 'function') ? tankCurrentKmh(player) : 0;
+  if(gearEl) gearEl.textContent = (player.speed || 0) < -1 ? 'R' : 'D';
+  if(speedEl) speedEl.textContent = String(Math.round(kmh));
+  if(spFill){
+    const capKmh = (typeof tankKmh === 'function') ? Math.max(1, tankKmh(player)) : 150;
+    spFill.style.width = Math.max(0, Math.min(100, kmh / capKmh * 100)) + '%';
+  }
+  if(roadEl){
+    // 公路加成：roadBonus 是 px/s 增量 → 换算 km/h（同 tankCurrentKmh 口径）
+    const RSp = (typeof RULES !== 'undefined' && RULES.speed) ? RULES.speed : { kmhFactor:0.4, pxFactor:1.6, effMul:1.3 };
+    roadEl.textContent = (player.roadBonus && player.roadBonus > 0)
+      ? '公路 +' + Math.round((player.roadBonus) * RSp.kmhFactor / (RSp.pxFactor * RSp.effMul)) + 'km/h' : '';
+  }
 
   // 1-3 弹种槽位更新（数字角标显示当前弹种名与快捷切弹 Q/E 提示，点击仍可切弹）
   const loadout = (player.ammoLoadout && player.ammoLoadout.length) ? player.ammoLoadout : [player.ammoKey || 'ap'];
@@ -3046,16 +3234,43 @@ function updateBottomHud(){
   const btnH = document.getElementById('btnH');
   if(btnH) btnH.style.display = hasAbility(player, 'shield') ? '' : 'none';
 
-  const btnV = document.getElementById('btnV');
-  if(btnV) btnV.style.display = hasAbility(player, 'overdrive') ? '' : 'none';
+  // #H3（2026-09-21）：btnV 删除——overdrive 常驻显示走技能池槽 skillSlot1~3（下段渲染）
 
-  // #C4c：G/H/V 冷却角标改读按技能独立冷却池 t.abilityCds（此前三个按钮共享同一文本）
+  // #C4c：G/H 冷却角标改读按技能独立冷却池 t.abilityCds（此前按钮共享同一文本）
+  // #H3（2026-09-21）：cdV 角标删除——overdrive 冷却显示走技能池槽（skillSlot 渲染段）
   const cdA = (player.abilityCds && player.abilityCds.artillery) || 0;
   cd('cdG', cdA > 0 ? cdA.toFixed(0) : '', cdA > 0);
   const cdS = (player.abilityCds && player.abilityCds.shield) || 0;
   cd('cdH', cdS > 0 ? cdS.toFixed(0) : '', cdS > 0);
-  const cdO = (player.abilityCds && player.abilityCds.overdrive) || 0;
-  cd('cdV', cdO > 0 ? cdO.toFixed(0) : '', cdO > 0);
+
+  // #G（2026-09-21 用户需求 #7）：技能池 1/2/3 常驻槽 —— 显示「技能名 + 按键 + 冷却」。
+  // 序列必须与 skillHotkey(n) 的实际映射一致：owned = cardEffects ability 键去重列表
+  //（不过滤 artillery/shield/overdrive——数字键同样可触发它们，G/H/V 只是并列的专属键）。
+  const poolKeys = (player.cardEffects || [])
+    .filter(ef => ef && ef.type === 'ability' && ef.key)
+    .map(ef => ef.key)
+    .filter((k, i, a) => a.indexOf(k) === i);
+  const ABL = (typeof ABILITY_LABELS !== 'undefined') ? ABILITY_LABELS : {};
+  for(let n = 1; n <= 3; n++){
+    const slot = document.getElementById('skillSlot' + n);
+    if(!slot) continue;
+    const key = poolKeys[n - 1];
+    if(key && hasAbility(player, key)){
+      slot.style.display = '';
+      const lbl = slot.querySelector('.slabel');
+      if(lbl) lbl.textContent = ABL[key] || key;
+      slot.title = `${ABL[key] || key}（${n}）`;
+      const c = (player.abilityCds && player.abilityCds[key]) || 0;
+      const cdEl = document.getElementById('cdS' + n);
+      if(cdEl) cdEl.textContent = c > 0 ? c.toFixed(0) : '';
+      slot.classList.toggle('gray', c > 0);
+    } else if(key){
+      // 已分配但冷却池里持有检查未过（异常兜底）：隐藏
+      slot.style.display = 'none';
+    } else {
+      slot.style.display = 'none';
+    }
+  }
 }
 
 // ---------- draw ----------
@@ -3096,8 +3311,95 @@ function drawReloadRing(ctx){
     ctx.stroke();
     return;
   }
+  // #F（2026-09-20 用户裁定）：双管分支提前到 reloadT 门控之前——双管装填期 reloadT 恒为 0
+  //（仅击发后 0.5s 换管窗口非零），旧顺序导致两根炮管的装填进度弧从不绘制（无法验证装填机制）。
+  // #E13：双联火炮 → 两根炮管各自的装填进度弧（横向并排两圈：每圈 = 该管 loadT/单管装填时长；
+  // 就绪管画实心亮点）。单管武器仍走下方原有单环逻辑（行为零变化）。
+  {
+    const _db = player._dbState;
+    const _isDb = player.weapons && player.weapons.primary && player.weapons.primary.type === 'double_barrel';
+    if(_isDb && _db && _db.count >= 2){
+      // #F：两管全就绪且不在换管门控窗口 → 无进度弧可画（避免常驻两圈干扰视野）；装填期持续显示
+      if(_db.ready.every(v => v) && !(player.reloadT > 0)) return;
+      const spec = player.weapons.primary.stats || {};
+      const reloadMult = (typeof spec.reloadMult === 'number') ? spec.reloadMult : 1.0;
+      const perDur = Math.max(0.05, player.stats.reload * reloadMult / debuffReloadRate(player));
+      const tip = gunTip(player);
+      const perpX = -Math.sin(player.turretAngle || 0), perpY = Math.cos(player.turretAngle || 0);
+      const barrelWid = (player.barrel && player.barrel.width) || 14;
+      const off = barrelWid * ((typeof spec.barrelOffset === 'number') ? spec.barrelOffset : 1.85) * 0.5;
+      for(let i = 0; i < 2; i++){
+        const sgn = (i === 0) ? -1 : 1;
+        const wp = worldToScreen(cam, tip.x + perpX * off * sgn, tip.y + perpY * off * sgn);
+        const R = 11;
+        const p = _db.ready[i] ? 1 : Math.max(0, Math.min(1, (_db.loadT[i] || 0) / perDur));
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(12,13,9,0.7)';
+        ctx.beginPath(); ctx.arc(wp.x, wp.y, R, 0, TAU); ctx.stroke();
+        if(_db.ready[i]){
+          ctx.fillStyle = '#7ed957';
+          ctx.beginPath(); ctx.arc(wp.x, wp.y, R * 0.45, 0, TAU); ctx.fill();
+        } else {
+          const a0 = -Math.PI / 2;
+          ctx.strokeStyle = '#ffb454';
+          ctx.beginPath(); ctx.arc(wp.x, wp.y, R, a0, a0 + TAU * p); ctx.stroke();
+        }
+        ctx.fillStyle = 'rgba(230,230,220,0.75)';
+        ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(String(i + 1), wp.x, wp.y + 3);
+      }
+      return;
+    }
+  }
+  // #G（2026-09-21）：弹夹炮分支 —— 环显示「弹夹余量」+ 中心数字（rounds/size）；
+  // 弹夹间整组装填期（pendingRefill && reloadT>0）显示装填进度（橙色弧）。
+  {
+    const spec = (typeof primaryWeaponSpec === 'function') ? primaryWeaponSpec(player) : null;
+    if(spec && spec.type === 'clip' && player._clipState){
+      const st = player._clipState;
+      const tip = gunTip(player);
+      const OFFSET_DIST = 20;
+      const perpAngle = player.turretAngle - Math.PI / 2;
+      const wp = worldToScreen(cam, tip.x + Math.cos(perpAngle) * OFFSET_DIST, tip.y + Math.sin(perpAngle) * OFFSET_DIST);
+      const R = 13;
+      const magDur = (typeof clipMagReloadSeconds === 'function') ? clipMagReloadSeconds(player, spec, st) : 1;
+      let p, col, centerText;
+      if(st.pendingRefill && player.reloadT > 0){
+        p = Math.max(0, Math.min(1, 1 - player.reloadT / magDur));
+        col = '#ffb454'; centerText = '装填';
+        if(p >= 1) return;
+      } else if(st.rounds < st.size){
+        // 弹夹内发射间隔（0.7s）进行中的进度 + 余量
+        p = Math.max(0, Math.min(1, 1 - player.reloadT / (spec.clipCycleSeconds || 0.7)));
+        col = '#5cc8ff'; centerText = st.rounds + '/' + st.size;
+        if(p >= 1){ p = 0; }
+      } else {
+        return;   // 满弹且非装填：不画
+      }
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(12,13,9,0.7)';
+      ctx.beginPath(); ctx.arc(wp.x, wp.y, R, 0, TAU); ctx.stroke();
+      const a0 = -Math.PI / 2;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(wp.x, wp.y, R, a0, a0 + TAU * p); ctx.stroke();
+      if(centerText){
+        ctx.fillStyle = 'rgba(230,230,220,0.85)';
+        ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(centerText, wp.x, wp.y + 3);
+      }
+      return;
+    }
+  }
   if(!(player.reloadT > 0 && player.stats.reload > 0)) return;
-  const dur = player.stats.reload / debuffReloadRate(player);
+  // #G（2026-09-21 修复 #5 伴随缺陷）：单环装填时长此前漏乘武器通道 reloadMult ——
+  // 电磁轨道炮（×1.8/旧×2.2）装填前半程进度环恒空、跳变到半程。经 primaryWeaponSpec 取值。
+  const dur = (() => {
+    const base = player.stats.reload / debuffReloadRate(player);
+    const spec = (typeof primaryWeaponSpec === 'function') ? primaryWeaponSpec(player) : null;
+    const mult = (spec && typeof spec.reloadMult === 'number') ? spec.reloadMult : 1;
+    return base * mult;
+  })();
   if(!(dur > 0)) return;
   const tip = gunTip(player);
   // 偏移：垂直于炮塔方向（向左/向右均可，这里取向左 +90°），距离约 20px
@@ -3258,16 +3560,41 @@ function drawDroneIndicators(){
 // 敌对存活实体（含 Boss；不含据点/友军/无人机）若 dist(E,C) > radius 且 dist(E,player) > inner×radius
 // → 主画布跳过绘制（其炮弹仍绘制）。友军/据点/拾取恒可见。小地图敌军点始终绘制不受影响。
 const VISION_CFG = (typeof RULES !== 'undefined' && RULES.vision) ? RULES.vision : { radius: 900, bias: 0.35, inner: 0.45 };
-let devNoVision = false;   // dev 面板开关：跳过视野剔除
+// #F7：devNoVision 定义已上移至 :949（devAim/devCheat 旁）——此处原 let 声明因 mountDevPanel
+// 调用（:2137）先于本行读取而触发 TDZ，页面加载即中断（浏览器实测发现）。
+// #D2（2026-09-19）：视野半径接卡牌被动 commander_sight（车长潜望镜 rare / 车长观瞄镜 epic）。
+// value 为百分比加成（缺省按 25，与 scripts/validate-content.js commander_sight 口径一致）；
+// 多来源取最大（与 spall_liner「取最强」同语义）。此前两张视野卡为死效果（零消费者），
+// 持卡后视野无变化 → 用户体感「升级反而造成视野下降」。
+function visionRadiusEff(){
+  let bonus = 0;
+  const ces = (player && Array.isArray(player.cardEffects)) ? player.cardEffects : [];
+  for(const ef of ces){
+    if(ef && ef.type === 'passive' && ef.key === 'commander_sight'){
+      const v = (typeof ef.value === 'number' && Number.isFinite(ef.value)) ? ef.value : 25;
+      if(v > bonus) bonus = v;
+    }
+  }
+  const nominal = VISION_CFG.radius * (1 + bonus / 100);
+  // #H5（2026-09-21 用户裁定「可见距离不得写死像素」）：有效可见半径 = 屏幕相对
+  // （tank_camera.visionRadiusForViewport：R = screenRadiusRatio × 窄半幅/zoom × 加成，
+  //  R×zoom 恒定 ⇒ 敌人在屏幕上的出现位置与缩放无关，玩家自由缩放看细节/看全局；
+  //  #H1 窄轴收口降级为极扁视口的几何护栏，#H2 深度拉远模型整体移除）。
+  if(typeof visionRadiusForViewport === 'function'){
+    return visionRadiusForViewport(cam, { nominal: nominal });
+  }
+  return nominal;
+}
 function entityHiddenByVision(e){
   if(devNoVision) return false;
   if(!e || e.team !== 'enemy' || e.hp <= 0 || e.isDrone) return false;
+  const radius = visionRadiusEff();
   const vdx = mouseWorld.x - player.x, vdy = mouseWorld.y - player.y;
   const vlen = Math.hypot(vdx, vdy) || 1;
-  const cx = player.x + (vdx / vlen) * VISION_CFG.bias * VISION_CFG.radius;
-  const cy = player.y + (vdy / vlen) * VISION_CFG.bias * VISION_CFG.radius;
-  if(Math.hypot(e.x - cx, e.y - cy) <= VISION_CFG.radius) return false;   // 可视圆内
-  return Math.hypot(e.x - player.x, e.y - player.y) > VISION_CFG.inner * VISION_CFG.radius;   // 贴身内圈恒可见
+  const cx = player.x + (vdx / vlen) * VISION_CFG.bias * radius;
+  const cy = player.y + (vdy / vlen) * VISION_CFG.bias * radius;
+  if(Math.hypot(e.x - cx, e.y - cy) <= radius) return false;   // 可视圆内
+  return Math.hypot(e.x - player.x, e.y - player.y) > VISION_CFG.inner * radius;   // 贴身内圈恒可见
 }
 
 // ===== 2026-09-14 曲线路网地面预烘焙（平滑连续路面渲染，消除胶囊感） =====
@@ -3489,14 +3816,34 @@ function draw(){
         ctx.beginPath(); ctx.arc(d.x, d.y, 6 + Math.sin(performance.now()/100)*2, 0, TAU); ctx.stroke();
       }
     } else if(d.isDeployableCover){
+      // #E4（2026-09-20）：单向透明掩体——朝向指示：我方穿透侧画青色虚线 + 箭头，
+      // 敌方面（对立方被挡）画加粗实线装甲边，玩家据此判断哪一侧可以自由射击。
+      const mine = (d.team === (player ? player.team : 'player'));
       ctx.save();
       ctx.translate(d.x, d.y);
       ctx.rotate(d.hullAngle);
-      ctx.fillStyle = 'rgba(92,200,255,0.2)';
-      ctx.strokeStyle = 'rgba(92,200,255,0.8)';
+      ctx.fillStyle = mine ? 'rgba(92,200,255,0.18)' : 'rgba(255,120,90,0.18)';
+      ctx.strokeStyle = mine ? 'rgba(92,200,255,0.8)' : 'rgba(255,120,90,0.8)';
       ctx.lineWidth = 2;
       ctx.fillRect(-d.hullLen/2, -d.hullWid/2, d.hullLen, d.hullWid);
       ctx.strokeRect(-d.hullLen/2, -d.hullWid/2, d.hullLen, d.hullWid);
+      // 穿透侧（局部 -y 侧 = 部署时朝向部署者的一侧）虚线 + 向外箭头
+      ctx.setLineDash([8, 6]);
+      ctx.strokeStyle = 'rgba(126,217,87,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(-d.hullLen/2, -d.hullWid/2); ctx.lineTo(d.hullLen/2, -d.hullWid/2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for(let ai = -1; ai <= 1; ai++){
+        const ax = ai * d.hullLen * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(ax, -d.hullWid/2);
+        ctx.lineTo(ax - 4, -d.hullWid/2 + 7);
+        ctx.lineTo(ax + 4, -d.hullWid/2 + 7);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(126,217,87,0.85)';
+        ctx.fill();
+      }
       if(d.shield){
         ctx.strokeStyle = 'rgba(92,200,255,0.4)'; ctx.setLineDash([4, 4]);
         ctx.strokeRect(-d.hullLen/2-4, -d.hullWid/2-4, d.hullLen+8, d.hullWid+8);
@@ -3504,6 +3851,64 @@ function draw(){
       }
       ctx.restore();
     }
+  }
+
+  // #E4（2026-09-20）雷场预形态：第一次 F 后在鼠标位置显示「拟生成的雷场形状」（虚线圆 + 5 个雷点），
+  // 第二次 F 确认后转为 pendingMineFields 的延时倒计时标记（同形状 + 倒计时数字）。
+  for(const pf of pendingMineFields){
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,80,60,0.85)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 7]);
+    ctx.beginPath(); ctx.arc(pf.x, pf.y, pf.radius, 0, TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    const n = Math.max(1, Math.min(RULES.abilities.deploy_limits.mineMax || 3, pf.count || 5));
+    for(let k = 0; k < n; k++){
+      const a = (k / n) * Math.PI * 2 + (k % 2) * 0.4;
+      const rr = pf.radius * (0.35 + 0.65 * ((k + 1) / n));
+      ctx.fillStyle = 'rgba(255,60,40,0.9)';
+      ctx.beginPath(); ctx.arc(pf.x + Math.cos(a) * rr, pf.y + Math.sin(a) * rr, 4, 0, TAU); ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(255,180,160,0.95)'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('雷场 ' + pf.t.toFixed(1) + 's', pf.x, pf.y - pf.radius - 8);
+    ctx.restore();
+  }
+  if(player && player._mineFieldPreview){
+    const pv = player._mineFieldPreview;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(126,217,87,0.9)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.arc(pv.x, pv.y, pv.radius, 0, TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    const n = Math.max(1, Math.min(RULES.abilities.deploy_limits.mineMax || 3, pv.count || 5));
+    for(let k = 0; k < n; k++){
+      const a = (k / n) * Math.PI * 2 + (k % 2) * 0.4;
+      const rr = pv.radius * (0.35 + 0.65 * ((k + 1) / n));
+      ctx.fillStyle = 'rgba(126,217,87,0.9)';
+      ctx.beginPath(); ctx.arc(pv.x + Math.cos(a) * rr, pv.y + Math.sin(a) * rr, 4, 0, TAU); ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(200,255,190,0.95)'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('再按 F 确认布设', pv.x, pv.y - pv.radius - 8);
+    ctx.restore();
+  }
+
+  // #D2：视野圈可视化（淡虚线圆）——圆心/半径与 entityHiddenByVision 完全同口径，
+  // 使视野系统边界可读（此前纯隐式剔除，玩家无从得知视野范围与视野卡效果）。
+  if(!devNoVision && player && player.hp > 0){
+    const vR = visionRadiusEff();
+    const vdx = mouseWorld.x - player.x, vdy = mouseWorld.y - player.y;
+    const vlen = Math.hypot(vdx, vdy) || 1;
+    const vcx = player.x + (vdx / vlen) * VISION_CFG.bias * vR;
+    const vcy = player.y + (vdy / vlen) * VISION_CFG.bias * vR;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([10, 14]);
+    ctx.beginPath();
+    ctx.arc(vcx, vcy, vR, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
   }
 
   drawFoliage(ctx, covers.filter(inView));   // 灌木/树冠层：盖住其下坦克 = 视线遮挡
@@ -3537,6 +3942,54 @@ function draw(){
 
   // 2026-09-15 W2 导弹锁定进度 UI：世界坐标画在锁定目标上——四角括号 + 顶部进度弧 + 秒数。
   drawMissileLock(ctx);
+
+  // #E9（2026-09-20）Boss 蓄能激光：蓄能期在炮线上画「虚线警示带 + 红色透明填充」（带宽度随进度
+  // 收紧），射击期画实心光束。玩家据此离开炮线区域规避。
+  if(bossLaserFx){
+    const L = bossLaserFx;
+    const las = (RULES.boss && RULES.boss.laser) || {};
+    const half = (L.width || 34) * 0.5;
+    const ux = Math.cos(L.angle || 0), uy = Math.sin(L.angle || 0);
+    const nx = -uy, ny = ux;
+    // #I2（2026-09-21 用户裁定）：蓄能虚线与光束按全高掩体截断——被建筑/岩石挡住的光束
+    // 只画到掩体入口（blockedDist），玩家可直读「掩体后方安全」。
+    const drawLen = (L.blockedDist !== undefined && L.blockedDist !== null) ? L.blockedDist : (L.length || 1400);
+    const ex = L.x + ux * drawLen, ey = L.y + uy * drawLen;
+    ctx.save();
+    // 红色透明填充带
+    ctx.beginPath();
+    ctx.moveTo(L.x + nx * half, L.y + ny * half);
+    ctx.lineTo(ex + nx * half, ey + ny * half);
+    ctx.lineTo(ex - nx * half, ey - ny * half);
+    ctx.lineTo(L.x - nx * half, L.y - ny * half);
+    ctx.closePath();
+    if(L.kind === 'fire'){
+      ctx.fillStyle = 'rgba(255,40,30,0.55)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,210,190,0.95)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([]);
+    } else {
+      const p = Math.max(0, Math.min(1, L.progress || 0));
+      ctx.fillStyle = (las.telegraphColor || 'rgba(255,64,48,0.28)');
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,80,60,' + (0.4 + 0.5 * p) + ')';   // 越接近发射越亮
+      ctx.lineWidth = 2 + 2 * p;
+      ctx.setLineDash(las.telegraphDash || [16, 12]);                // 虚线警示
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // #I2：被掩体截断时在截断点画「阻挡火花/盾牌标记」——明确光束被建筑/岩石挡住
+    if(L.blockedDist !== undefined && L.blockedDist !== null && L.blockedDist < (L.length || 1400) - 1){
+      const bxp = L.x + ux * L.blockedDist, byp = L.y + uy * L.blockedDist;
+      const blink = 0.5 + 0.5 * Math.sin(performance.now() / 80);
+      ctx.fillStyle = 'rgba(255,170,90,' + (0.5 + 0.4 * blink) + ')';
+      ctx.beginPath();
+      ctx.arc(bxp, byp, half * (0.7 + 0.3 * blink), 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 
   // P-17 战术炮击预警圈：虚线外圈 = 爆炸范围（固定 radius）；实心内圈随 t/delay 收缩 +
   // 闪烁（越接近落地越紧迫），圆心十字标记 + 倒计时秒数。仅画视口内（aabbInView 剔除）。
@@ -3854,6 +4307,12 @@ function nextRunSeed(){
   window.__TEST__ = {
     version: 1,
     player(){ return player; },
+    pendingMineFields(){ return pendingMineFields.length; },
+    mineFieldPreview(){ return !!player._mineFieldPreview; },
+    shells(){ return shells; },
+    strikes(){ return strikes; },
+    profile(){ return profile; },
+    rerenderShop(){ if(typeof renderShop === 'function') renderShop(); },
     entities(){ return entities; },
     flowState(){ return flow.state; },
     currentNode(){ return currentNode ? currentNode.index : null; },
@@ -3887,6 +4346,13 @@ function nextRunSeed(){
       if(!isFinite(v)) throw new Error('__TEST__.setSeed: s 必须是有限数值');
       testPendingSeed = v | 0;
       return testPendingSeed;   // 一次性：下一次 startNewRun/gameoverRestart/beginRunFromMenu 消费后失效
+    },
+    // #H5（2026-09-21）：视野测试钩子——有效可见半径（屏幕相对）+ 缩放状态
+    visionZoom(){
+      return { radiusEff: visionRadiusEff(), radiusBase: VISION_CFG.radius,
+               ratio: VISION_CFG.screenRadiusRatio, zoom: cam.zoom,
+               targetZoom: cam.targetZoom, minZoom: cam.minZoom, maxZoom: cam.maxZoom,
+               narrowHalf: Math.min(cam.vw, cam.vh) / 2 };
     }
   };
 })();
