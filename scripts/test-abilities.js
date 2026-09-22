@@ -446,8 +446,30 @@ function abilityTank(effects) {
   ok(r.ok === true && r.cover, 'deploy_cover 激活成功');
   ok(Math.abs(r.cover.x - t.x) < 1e-9 && Math.abs(r.cover.y - (t.y + 90)) < 1e-9,
     '部署点 = 炮塔正前方 dist=90（RULES.abilities.deploy_cover.dist，取代旧硬编码 50 + 车体朝向）');
-  ok(Math.abs(r.cover.hullLen - 80) < 1e-9, '掩体加长 hullLen = 50 × lenMult 1.6 = 80');
+  ok(Math.abs(r.cover.hullLen - 160) < 1e-9, '#E4：掩体加长 hullLen = 50 × lenMult 3.2 = 160（当前长度 2 倍）');
   ok(Math.abs(r.cover.hullAngle - Math.PI) < 1e-9, '掩体横置（部署方向 + π/2）');
+}
+
+// ---- 20) #F6（2026-09-20）：deploy_cover 超限拒绝——保留已部署掩体（不淘汰最早）----
+{
+  const dep = require('../js/tank_deployables.js');
+  if (typeof globalThis.deployableCap !== 'function') globalThis.deployableCap = dep.deployableCap;
+  if (typeof globalThis.deployableCount !== 'function') globalThis.deployableCount = dep.deployableCount;
+  dep.clearDeployables();
+  const t = abilityTank([{ type: 'ability', key: 'deploy_cover', cardId: 'dc1' }]);
+  t.turretAngle = 0; t.hullAngle = 0; t.hullLen = 50;
+  const L = RULES.abilities.deploy_limits;
+  for (let i = 0; i < L.coverMax; i++) {
+    dep.spawnDeployableCover({ x: i * 10, y: 0, team: 'player' });
+  }
+  const before = dep.deployableCount('cover');
+  const r = abil.tryActivateAbility(t, 'deploy_cover', {});
+  ok(r.ok === false && r.reason === 'deploy-cover-limit', `#F6 超限时 deploy_cover 拒绝（reason=${r.reason}）`);
+  ok(dep.deployableCount('cover') === before, '#F6 拒绝后场上掩体数量不变（保留已部署掩体）');
+  dep.clearDeployables();
+  const r2 = abil.tryActivateAbility(t, 'deploy_cover', {});
+  ok(r2.ok === true && r2.cover, '#F6 未超限时 deploy_cover 正常部署');
+  dep.clearDeployables();
 }
 
 console.log('test-abilities: 完成所有检查');

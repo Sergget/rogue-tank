@@ -151,9 +151,9 @@ function startServer(port) {
     check('M10 新建存档出现槽位卡', slotCount >= 1, `slots=${slotCount}`);
 
     await page.evaluate(() => document.querySelector('#homeSlotList .slot-row .enter-btn').click());
-    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'loadout', { timeout: 5000 });
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'loadout', null, { timeout: 5000 });
     // 等坦克列表异步就绪（fetch /api/tanks → renderLoadout 刷卡片）
-    await page.waitForFunction(() => document.querySelectorAll('#loadTankList .tank-card').length > 0, { timeout: 10000 });
+    await page.waitForFunction(() => document.querySelectorAll('#loadTankList .tank-card').length > 0, null, { timeout: 10000 });
     const loadoutInfo = await page.evaluate(() => ({
       tankCards: document.querySelectorAll('#loadTankList .tank-card').length,
       ammoBoxes: document.querySelectorAll('#loadAmmoList, #loadAmmoList input[type=checkbox]').length
@@ -175,7 +175,7 @@ function startServer(port) {
 
     // Shop 界面冒烟：整备 ⇄ 商店往返（新档 0 点：升级卡应全置灰、复活按钮应禁用）
     await page.evaluate(() => document.getElementById('loadShopBtn').click());
-    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'shop', { timeout: 5000 });
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'shop', null, { timeout: 5000 });
     const shopInfo = await page.evaluate(() => ({
       visible: document.getElementById('shopScreen').style.display !== 'none',
       points: document.getElementById('shopPoints').textContent,
@@ -189,15 +189,15 @@ function startServer(port) {
       shopInfo.visible && shopInfo.cards === shopInfo.defCount && shopInfo.defCount > 0 &&
       shopInfo.offCards === shopInfo.cards && shopInfo.reviveBtnDisabled, JSON.stringify(shopInfo));
     await page.evaluate(() => document.getElementById('shopLoadoutBtn').click());
-    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'loadout', { timeout: 5000 });
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'loadout', null, { timeout: 5000 });
 
     await page.evaluate(() => document.getElementById('loadStartBtn').click());
-    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'map', { timeout: 10000 });
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'map', null, { timeout: 10000 });
     check('M10 出击 → 节点图渲染节点链', await page.evaluate(() =>
       window.__dbg.flow.state === 'map' && document.querySelectorAll('#mapList .node-row').length >= 3));
 
     await page.evaluate(() => document.querySelector('#mapList .node-row').click());
-    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'battle', { timeout: 10000 });
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'battle', null, { timeout: 10000 });
 
     // M10 出击写档断言：active 槽持久化 selectedTankId/ammoLoadout/runs，且作用于 player 实体
     const savedProf = await page.evaluate(() => {
@@ -246,29 +246,43 @@ function startServer(port) {
     check('有敌军实体', info.enemyCount > 0, `enemyCount=${info.enemyCount}`);
     check('节点链 ≥3 节点', info.runNodes >= 3, `nodes=${info.runNodes} seed=${info.seed}`);
 
-    // ---- P-39 缩放观感修正：setZoom(maxZoom) 后经游戏循环阻尼泵帧，
-    //      cam.zoom 应明显 >1 且 viewBounds(cam) 宽度相应收窄（证明缩放作用于视口管线）----
+    // ---- P-39 缩放观感修正（#H5 2026-09-21 起改口径）：缩放回归纯视觉偏好——
+    //      可见距离屏幕相对化（R×zoom 恒定）后，默认 targetZoom=1（全细节）、
+    //      setZoom 管线照旧（zoom 阻尼收敛 + 视口宽度随缩放变化）。
+    //      旧 #H2 断言（适配 zoom<1 / setVisionUserZoom）已随适配模型移除。----
     const zBefore = await page.evaluate(() => {
       const cam = window.__dbg.cam;
       if (!cam) return null;
       const vb = viewBounds(cam);
-      return { zoom: cam.zoom, targetZoom: cam.targetZoom, vw: Math.round(vb.maxX - vb.minX), maxZoom: cam.maxZoom };
+      const z = window.__TEST__.visionZoom();
+      return { zoom: cam.zoom, targetZoom: cam.targetZoom, vw: Math.round(vb.maxX - vb.minX), maxZoom: cam.maxZoom, minZoom: z.minZoom, radiusEff: z.radiusEff };
     });
+    // 适配口径断言（#H5）：默认 targetZoom=1（不强制拉远）；可见半径 = ratio×窄半幅（屏幕相对）
+    check('P-39 默认缩放 = 1（#H5：可见距离屏幕相对化，玩家不再被迫最高倍率）',
+      !!zBefore && Math.abs(zBefore.targetZoom - 1) < 1e-9 &&
+      !!zBefore.radiusEff && zBefore.radiusEff > 0,
+      JSON.stringify(zBefore));
+    // 缩放管线断言：setZoom(maxZoom) → targetZoom=maxZoom → 阻尼收敛 zoom>1 且视口收窄
     await page.evaluate(() => { setZoom(window.__dbg.cam, RULES.camera.maxZoom); });
     await page.waitForTimeout(900);   // 泵若干帧：主循环 updateCamera 指数阻尼收敛到 targetZoom
     const zAfter = await page.evaluate(() => {
       const cam = window.__dbg.cam;
       const vb = viewBounds(cam);
-      return { zoom: Math.round(cam.zoom * 1000) / 1000, targetZoom: cam.targetZoom, vw: Math.round(vb.maxX - vb.minX) };
+      const z = window.__TEST__.visionZoom();
+      return { zoom: Math.round(cam.zoom * 1000) / 1000, targetZoom: cam.targetZoom, vw: Math.round(vb.maxX - vb.minX), maxZoom: cam.maxZoom, radiusEff: Math.round(z.radiusEff) };
     });
     console.log('=== P-39 缩放探针 ===', JSON.stringify({ before: zBefore, after: zAfter }));
-    check('P-39 setZoom 生效：targetZoom=maxZoom、zoom 明显 >1、视口宽度收窄',
+    check('P-39 缩放生效：targetZoom=maxZoom、zoom 明显 >1、视口宽度收窄',
       !!zBefore && !!zAfter &&
-      zAfter.targetZoom === zBefore.maxZoom && zAfter.zoom > 1.05 &&
+      Math.abs(zAfter.targetZoom - zBefore.maxZoom) < 1e-9 && zAfter.zoom > 1.05 &&
       zAfter.vw < zBefore.vw * 0.95,
       JSON.stringify(zAfter));
-    await page.evaluate(() => { setZoom(window.__dbg.cam, 1); });   // 还原缩放，避免影响后续采样
-    await page.waitForTimeout(400);
+    // #H5 核心断言：放大后可见半径按 zoom 反比补偿（R×zoom 恒定 → 敌人屏幕出现位置不变）
+    check('P-39 可见距离屏幕相对（#H5）：R×zoom 恒定，缩放不改变敌人出现位置',
+      !!zBefore && !!zAfter &&
+      Math.abs(zAfter.radiusEff * zAfter.zoom - zBefore.radiusEff * zBefore.zoom) < Math.max(2, zBefore.radiusEff * 0.02),
+      JSON.stringify({ rBefore: zBefore.radiusEff, rAfter: zAfter.radiusEff }));
+    await page.waitForTimeout(200);
 
     // ---- #23 敌人开火循环：把敌人瞬移到玩家旁（距离足够近以确定为交火），
     //      多次采样装填计时（reloadT>0 出现即装填循环生效）+ 玩家被命中数增长 ----
@@ -485,7 +499,8 @@ function startServer(port) {
     check('测试台有玩家+靶车实体', bench.hasPlayer && bench.hasDummy, JSON.stringify(bench));
     check('测试台无 startRunBtn（非正式游戏页）', !bench.hasStartRunBtn, JSON.stringify(bench));
     check('测试台保留 solutionPanel/坦克选择', bench.hasSolutionPanel && bench.hasPlayerTankSelect, JSON.stringify(bench));
-    check('测试台无状态/开发者面板与提示条', !bench.hasStatusPanel && !bench.hasDevPanel && !bench.hasHintBar, JSON.stringify(bench));
+    check('测试台无状态面板与提示条（devPanel 已按 #F1 同源挂载，应有 devPanel）',
+      !bench.hasStatusPanel && bench.hasDevPanel && !bench.hasHintBar, JSON.stringify(bench));
     const benchErrors = errors.filter(e => !e.includes('Failed to load resource'));
     check('测试台无 console/page 错误', benchErrors.length === 0, JSON.stringify(benchErrors.slice(0, 5)));
     console.log('测试台 404 资源请求（仅供噪音参考）:', JSON.stringify(notFound));

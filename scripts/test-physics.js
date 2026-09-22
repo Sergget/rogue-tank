@@ -197,6 +197,40 @@ ok(FRONT_THICKNESS > 0, `中坦正面名义厚度可读（${FRONT_THICKNESS}）`
   ok(true, 'HE splash：Node 无 entities 注册表 → applySplashAt 安全跳过（未抛错）');
 }
 
+// ================= #E10（2026-09-20）HE 系击退：与爆炸范围绑定，HE-OP > HE-VT =================
+{
+  const T = R.RULES.ammoTypes;
+  ok(typeof T.proximity_he.splashKnockbackMul === 'number' && typeof T.blast_he.splashKnockbackMul === 'number',
+     '#E10 HE-VT / HE-OP 均声明 splashKnockbackMul');
+  // 击退距离 = splashRadius × mul，故 HE-OP > HE-VT（用户要求）
+  const kbVT = T.proximity_he.splashRadius * T.proximity_he.splashKnockbackMul;
+  const kbOP = T.blast_he.splashRadius * T.blast_he.splashKnockbackMul;
+  ok(kbOP > kbVT, `#E10 HE-OP 击退(${kbOP.toFixed(1)}px) > HE-VT(${kbVT.toFixed(1)}px)`);
+  ok(typeof T.he.splashKnockbackMul === 'number' && T.he.splashKnockbackMul < T.blast_he.splashKnockbackMul,
+     '#E10 普通 HE 击退系数 < HE-OP');
+  // AP 等无该字段 → 零击退（行为回归）
+  ok(T.ap.splashKnockbackMul === undefined, '#E10 AP 无击退字段（不产生位移）');
+
+  // 位移量：满半径命中 = radius×mul；边缘命中按 (1−dist/radius) 线性衰减
+  const ent = { x: 0, y: 0, hp: 100, maxHp: 100, hullLen: 64, hullWid: 38 };
+  const shellOP = { ammo: T.blast_he, shooter: { x: -500, y: 0, team: 'player' } };
+  const pushFull = P.applySplashKnockback(ent, 0, 0, 110, 0, shellOP);
+  ok(Math.abs(pushFull - 110 * T.blast_he.splashKnockbackMul) < 1e-6,
+     `#E10 爆心命中击退 = radius×mul（${pushFull.toFixed(1)}px）`);
+  const ent2 = { x: 55, y: 0, hp: 100, maxHp: 100 };
+  const pushEdge = P.applySplashKnockback(ent2, 0, 0, 110, 55, shellOP);
+  ok(pushEdge > 0 && Math.abs(pushEdge - 110 * T.blast_he.splashKnockbackMul * 0.5) < 1e-6,
+     `#E10 半径中点击退线性衰减（${pushEdge.toFixed(1)}px）`);
+  ok(ent2.x > 55, '#E10 击退方向沿爆心→目标方向（远离爆心）');
+
+  // 世界边界钳制（setSplashWorldBounds）
+  P.setSplashWorldBounds({ w: 100, h: 100 });
+  const ent3 = { x: 90, y: 50, hp: 100, maxHp: 100 };
+  P.applySplashKnockback(ent3, 0, 50, 110, 0, shellOP);
+  ok(ent3.x <= 60 + 1e-6, `#E10 击退受世界边界钳制（x=${ent3.x.toFixed(1)} ≤ w-40）`);
+  P.setSplashWorldBounds(null);
+}
+
 console.log('----------------------------------------------------------------');
 if(fails === 0){ console.log(`test-physics: 全部通过（${pass} 断言）`); process.exit(0); }
 else { console.error(`test-physics: ${fails} 失败 / ${pass} 通过`); process.exit(1); }

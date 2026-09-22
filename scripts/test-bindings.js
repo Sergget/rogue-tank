@@ -44,12 +44,13 @@ ok(Object.keys(B.KEY_BINDINGS).length > 0, 'KEY_BINDINGS 非空');
   ok(dup === null, `键值无重复且全部小写规范化（${dup || 'ok'}）`);
 }
 for (const required of ['moveForward','moveBackward','turnLeft','turnRight','fire','ammoNext','ammoPrev',
-  'fireSecondary','abilityStrike','abilityShield','abilityOverdrive','supportRepair','supportMedkit',
+  'fireSecondary','abilityStrike','abilityShield','supportRepair','supportMedkit',
   'supportExtinguish','panelStatus','panelDev','pauseToggle','altMoveForward']) {
   ok(B.KEY_BINDINGS[required] !== undefined, `必需动作 ${required} 存在`);
 }
 ok(B.KEY_BINDINGS.supportSmoke === undefined, 'supportSmoke（烟幕弹 F 键）已移除（2026-09-15 W2）');
 ok(B.KEY_BINDINGS.switchWeapon === undefined, 'switchWeapon（旧 F 切换语义）已移除（#C4e 2026-09-17）');
+ok(B.KEY_BINDINGS.abilityOverdrive === undefined, 'abilityOverdrive（超装填 V 专属键）已移除（#H3 2026-09-21——只经技能池 1/2/3）');
 ok(B.KEY_BINDINGS.fireSecondary === 'f', 'F 键绑定 fireSecondary（直接击发副武器，#C4e 反转）');
 ok(B.KEY_BINDINGS.fire === ' ' && B.KEY_BINDINGS.panelDev === '`' && B.KEY_BINDINGS.pauseToggle === 'escape',
   '关键键位形态（空格/反引号/escape）符合 e.key 规范化约定');
@@ -157,8 +158,8 @@ ok(B.KEY_BINDINGS.ammoNext === 'e' && B.KEY_BINDINGS.ammoPrev === 'q',
   ok(all[0].action === 'move' && all[0].keys === 'W / A / S / D', '顺序与文案（move 行）');
   const none = B.describeBindings({});
   ok(none.length === 0, '无可用动作 → 空输出');
-  const benchRows = B.describeBindings({ move:1, altMove:1, fire:1, ammoCycle:1, abilityStrike:1, abilityOverdrive:1, panelDev:1 });
-  ok(benchRows.length === 7 && benchRows.some(r => r.action === 'altMove'), '测试台键位说明含方向键行');
+  const benchRows = B.describeBindings({ move:1, altMove:1, fire:1, ammoCycle:1, abilityStrike:1, panelDev:1 });
+  ok(benchRows.length === 6 && benchRows.some(r => r.action === 'altMove'), '测试台键位说明含方向键行（#H3 起 abilityOverdrive 行删除）');
 }
 
 // ---------- 6) #C4e（2026-09-17）：ACTION_INFO 文案反映「F=直接击发副武器（按住连发），主炮=左键/空格」 ----------

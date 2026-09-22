@@ -291,8 +291,9 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
   if (hasRoadTier) {
     const roads = r.covers.filter(c => c.tier === 'road');
     ok(roads.length >= 2, `村庄 road 实例 ≥2（实际 ${roads.length}）`);
-    ok(roads.every(rd => rd.h >= 60 - 1e-6 && rd.h <= 80 + 1e-6),
-       `道路条带宽 ${roads.map(rd => Math.round(rd.h)).join(',')} 在 60~80 世界px`);
+    const rwCfg = RULES.nodeMap.road || { widthMin: 92, widthMax: 124 };
+    ok(roads.every(rd => rd.h >= rwCfg.widthMin - 1e-6 && rd.h <= rwCfg.widthMax + 1e-6),
+       `道路条带宽 ${roads.map(rd => Math.round(rd.h)).join(',')} 在 ${rwCfg.widthMin}~${rwCfg.widthMax} 世界px（#E2 加宽）`);
     // 建筑中心到最近 road 条带的距离 ≤ 路半宽(≤40) + 建筑半宽 + 50px → 沿路分布
     const distToRoad = (b) => Math.min.apply(null, roads.map(rd => {
       const dx = b.x - rd.x, dy = b.y - rd.y;
@@ -339,6 +340,43 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
   const fgTrees = rv.covers.filter(c => c.tier === 'tree' &&
     typeof c.groupId === 'string' && c.groupId.indexOf('forest') === 0);
   ok(fgTrees.length >= 4, `village_center 防风林簇 tree ≥4（实际 ${fgTrees.length}）`);
+}
+
+// ================= #I3（2026-09-21）建筑密度：全局提升 + Boss 战图加成 =================
+// 用户裁定：「继续增加地图、特别是 boss 战地图的建筑密度」。
+// 密度乘子经 makeNode → generateNode(opts.buildingDensity) → placeRoadsideBuildings 生效。
+{
+  const STRUCT = new Set(['full', 'building', 'intact', 'ruined']);
+  const countStruct = (r) => r.covers.filter(c => STRUCT.has(c.tier)).length;
+  // 1) 全局密度提升：参数已在 RULES 内（cluster 3~5→4~8、maxPerNode 18→28）
+  const cfgB = /** @type {any} */ ((RULES.nodeMap && RULES.nodeMap.building) || {});
+  ok(cfgB.clusterPerJunction === 4 && cfgB.clusterPerJunctionMax === 8 && cfgB.maxPerNode === 28,
+     `#I3 建筑密度参数提升（cluster ${cfgB.clusterPerJunction}~${cfgB.clusterPerJunctionMax}、maxPerNode ${cfgB.maxPerNode}）`);
+  // 2) 同模板多 seed 聚合：density 1.6（Boss 图）结构数 > density 1（普通图）。
+  //    单 seed 因 rng 流随参数分叉会有波动（非单调），故用 8-seed 总量判定趋势。
+  const tpl = getTemplates().find(t => t.id === 'urban_block') || getTemplates()[0];
+  const seeds = [1, 2, 3, 4, 5, 6, 7, 8];
+  let sumBase = 0, sumBoss = 0;
+  for (const sd of seeds) {
+    sumBase += countStruct(generateNode(0.5, { templateId: tpl.id, seed: sd, cullRate: 0, scale: 3 }));
+    sumBoss += countStruct(generateNode(0.5, { templateId: tpl.id, seed: sd, cullRate: 0, scale: 3, buildingDensity: 1.6 }));
+  }
+  ok(sumBoss > sumBase,
+     `#I3 Boss 战图建筑密度乘子 1.6 生效：8-seed 结构总数 ${sumBase} → ${sumBoss}（同模板聚合）`);
+  // 2b) 沿路/路口建筑确实被生成（#I3 顺带修复 #E3/#G 遗留缺陷：此前 fits() 对 outCovers
+  //     ——含全部道路段——用 pad 34 判重叠，把建筑几乎全部拒绝；placeRoadsideBuildings
+  //     产出恒为 0，密度参数完全空转。现行：道路按 pad 10、非道路元素才按 pad 34。）
+  const probeBase = generateNode(0.5, { templateId: tpl.id, seed: 4242, cullRate: 0, scale: 3 });
+  const probe = generateNode(0.5, { templateId: tpl.id, seed: 4242, cullRate: 0, scale: 3, buildingDensity: 2.5 });
+  const hasNewTier = probe.covers.some(c => c.tier === 'building' || c.tier === 'ruined');
+  ok(hasNewTier && countStruct(probe) >= countStruct(probeBase),
+     `#I3 沿路/路口建筑实际生成：高乘子下出现 building/ruined（结构 ${countStruct(probeBase)} → ${countStruct(probe)}，密度参数不再空转）`);
+  // 3) 乘子语义：1.0 与缺省一致（不产生意外缩放）
+  const one = generateNode(0.5, { templateId: tpl.id, seed: 4242, cullRate: 0, scale: 3, buildingDensity: 1 });
+  const def = generateNode(0.5, { templateId: tpl.id, seed: 4242, cullRate: 0, scale: 3 });
+  ok(countStruct(one) === countStruct(def), '#I3 buildingDensity=1 与缺省一致（无意外缩放）');
+  // 4) Boss 密度配置存在
+  ok((cfgB.bossDensity || 0) >= 1, `#I3 bossDensity 配置存在（${cfgB.bossDensity}）`);
 }
 
 // ================= #B7 路网拓扑（2026-09-16 重做） =================
@@ -467,10 +505,11 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
     let badR = 0, seenJ = 0;
     for (const tpl of getTemplates()) {
       for (let seed = 1; seed <= 20; seed++) {
-        const node = generateNode(0.5, { templateId: tpl.id, seed: 3000 + seed, cullRate: 0 });
+        const node = /** @type {any} */ (generateNode(0.5, { templateId: tpl.id, seed: 3000 + seed, cullRate: 0 }));
+        const rw = node.roadW || ((RULES.nodeMap.road && RULES.nodeMap.road.widthMax) || 124);
         for (const j of (node.roadJunctions || [])) {
           seenJ++;
-          if (!(j.r <= 40.001)) badR++;
+          if (!(j.r <= rw * 0.5 + 0.001)) badR++;
         }
       }
     }

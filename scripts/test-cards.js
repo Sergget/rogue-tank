@@ -25,7 +25,10 @@ ok(cardsMod.validateCard({ id: 'a', name: 'A', rarity: 'common', effects: [{ typ
 
 // 2) 各字段非法
 ok(cardsMod.validateCard({ name: 'x', rarity: 'common', effects: [] }).length > 0, '缺 id 报错');
-ok(cardsMod.validateCard({ id: 'a', name: 'x', rarity: 'mythic', effects: [{ type: 'modifier', stat: 'penetration', mode: 'add', value: 1 }] }).length > 0, '非法 rarity 报错');
+ok(cardsMod.validateCard({ id: 'a', name: 'x', rarity: 'supermythic', effects: [{ type: 'modifier', stat: 'penetration', mode: 'add', value: 1 }] }).length > 0, '非法 rarity 报错');
+// #E13（2026-09-20）：神话档（mythic）为 CARD_RARITIES 末位（最高稀有度），且为合法值
+ok(cardsMod.CARD_RARITIES[cardsMod.CARD_RARITIES.length - 1] === 'mythic',
+   '#E13: mythic 为最高稀有度（CARD_RARITIES 末位）');
 ok(cardsMod.validateCard({ id: 'a', name: 'x', rarity: 'common', tags: ['魔法'], effects: [{ type: 'modifier', stat: 'penetration', mode: 'add', value: 1 }] }).length > 0, '非法 tag 报错');
 ok(cardsMod.validateCard({ id: 'a', name: 'x', rarity: 'common', effects: [] }).length > 0, '空 effects 报错');
 
@@ -675,7 +678,8 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
   ok(!seenSwap.has('mortar'), '#B8: 同型重复 install 不再进候选');
 }
 
-// ===== #C3（2026-09-17）：弹种升级卡保底 — 可解锁升级卡存在时候选必含 1 张（用户裁定「升级卡加权/保底」路线） =====
+// ===== #C3（2026-09-17）→ #D5（2026-09-19 用户反馈「弹种升级速度太快」改概率触发）=====
+// 保底语义保留：chance=1 时 200/200 命中且恰 1 张；默认概率（RULES.cards 0.4）统计区间断言。
 {
   const upPool = [
     { id: 'up_apcr', name: 'APCR 升级', rarity: 'rare', maxStacks: 1, effects: [{ type: 'ammo', key: 'apcr', replaceAmmo: 'ap', field: 'pen', mode: 'mult', value: 1.1 }] },
@@ -686,13 +690,24 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
   ];
   let guaranteed = 0, overGuarantee = 0;
   for (let seed = 1; seed <= 200; seed++) {
-    const drawn = cardsMod.drawCardChoices(upPool, 3, { rng: createRNG(seed), ammoLoadout: ['ap', 'he'] });
+    const drawn = cardsMod.drawCardChoices(upPool, 3, { rng: createRNG(seed), ammoLoadout: ['ap', 'he'], ammoGuaranteeChance: 1 });
     const ups = drawn.filter(c => c.id === 'up_apcr').length;
     if (ups >= 1) guaranteed++;
     if (ups > 1) overGuarantee++;
   }
-  ok(guaranteed === 200, `#C3: 前驱在 loadout → 升级卡保底进候选（200/200，got ${guaranteed}）`);
-  ok(overGuarantee === 0, '#C3: 保底恰好 1 张（不重复抽入）');
+  ok(guaranteed === 200, `#C3/#D5: chance=1 保底语义不变（200/200，got ${guaranteed}）`);
+  ok(overGuarantee === 0, '#C3/#D5: 保底恰好 1 张（不重复抽入）');
+  // 默认概率（RULES.cards.ammoUpgradeGuaranteeChance=0.4）→ 保底存在性增量断言：
+  // 命中数必须严格高于 chance=0 的纯权重抽样基线（同 seed 集确定性，基线 147/200），
+  // 且低于 chance=1 的全保底（200/200）——小池子里权重抽样本身高命中，此处只锚定「保底生效」。
+  let base0 = 0, midHits = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const d0 = cardsMod.drawCardChoices(upPool, 3, { rng: createRNG(seed), ammoLoadout: ['ap', 'he'], ammoGuaranteeChance: 0 });
+    if (d0.some(c => c.id === 'up_apcr')) base0++;
+    const dm = cardsMod.drawCardChoices(upPool, 3, { rng: createRNG(seed), ammoLoadout: ['ap', 'he'] });
+    if (dm.some(c => c.id === 'up_apcr')) midHits++;
+  }
+  ok(base0 < midHits && midHits < 200, `#D5: 默认概率保底生效（纯抽样 ${base0}/200 < 概率保底 ${midHits}/200 < 全保底 200）`);
   // 已持有目标弹种（升级完成）→ 不再保底该卡，恢复稀有度权重抽样
   let ownedOut = 0;
   for (let seed = 1; seed <= 200; seed++) {

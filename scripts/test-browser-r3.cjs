@@ -124,6 +124,19 @@ function realErrorsOf(errs) {
       return { before, after };
     });
     check('战术部署物生成（炮塔/地雷/掩体注册进 deployables）', deployRes.after === deployRes.before + 3, `count: ${deployRes.before} -> ${deployRes.after}`);
+    // #F6（2026-09-20 用户反馈）：掩体按钮超限拒绝，保留已部署掩体
+    const coverLimitRes = await page.evaluate(() => {
+      const before = (window.deployables && window.deployables.length) || 0;
+      document.getElementById('spawnCoverBtn').click(); // 第 2 个掩体（应成功）
+      const count1 = (typeof deployableCount === 'function') ? deployableCount('cover') : 0;
+      document.getElementById('spawnCoverBtn').click(); // 第 3 个掩体（应拒绝）
+      const count2 = (typeof deployableCount === 'function') ? deployableCount('cover') : 0;
+      const after = (window.deployables && window.deployables.length) || 0;
+      return { before, after, count1, count2 };
+    });
+    check('#F6 掩体按钮超限拒绝（保留已部署掩体）',
+      coverLimitRes.count1 === 2 && coverLimitRes.count2 === 2 && coverLimitRes.after === coverLimitRes.before + 1,
+      JSON.stringify(coverLimitRes));
 
     // 弹种切换（解耦轮：测试台与正式游戏对齐 — 鼠标点击弹种格 + Q/E 环形循环；
     // 数字键 1~N 直选已摘除，改为点击 data-ammo 格验证 APFSDS/HEC 两条 R-3 弹种路径）
@@ -165,6 +178,31 @@ function realErrorsOf(errs) {
     check('Q 键环形切换弹种（与正式游戏同语义）',
       qRes.active && qRes2.active && qRes.active !== qRes2.active,
       `${qRes.active} -> ${qRes2.active} (total=${qRes.total})`);
+
+    // #C5a（2026-09-19）：弹种格方向提示与键位同向——激活格的下一格提示 E（ammoNext='e'）、
+    // 上一格提示 Q（旧实现颠倒：下一格标 Q，按提示按键得到反向弹种）。
+    const hintRes = await page.evaluate(() => {
+      const cells = Array.from(document.querySelectorAll('#ammoIndicator [data-ammo]'));
+      const idx = cells.findIndex(c => c.style.fontWeight === '700');
+      if (idx < 0 || cells.length < 3) return null;
+      const n = cells.length;
+      const nextHint = cells[(idx + 1) % n].textContent.trim()[0];
+      const prevHint = cells[(idx - 1 + n) % n].textContent.trim()[0];
+      return { nextHint, prevHint };
+    });
+    check('弹种格方向提示与键位同向（下一格=E / 上一格=Q）',
+      hintRes && hintRes.nextHint === 'E' && hintRes.prevHint === 'Q', JSON.stringify(hintRes));
+
+    // #C5a：G/V 键语义与正式游戏统一——G=战术炮击（logOverlay 出现炮击日志，callStrike 链路通）
+    await page.keyboard.press('g');
+    await page.waitForTimeout(250);
+    const gLog = await page.evaluate(() => {
+      const el = document.getElementById('logOverlay');
+      return el ? el.textContent : '';
+    });
+    check('bench G 键 = 战术炮击（与正式游戏同语义，callStrike 链路）',
+      gLog.includes('炮击支援已呼叫') || gLog.includes('炮击落弹命中'),
+      gLog.slice(-120));
 
     // 测试开火（空格键）生成炮弹
     await page.keyboard.press('Space');

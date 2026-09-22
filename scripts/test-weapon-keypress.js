@@ -179,7 +179,7 @@ console.log('\n—— 副武器（按住 F → tryFireSecondary） ——');
 const SECONDARY_CASES = [
   { type: 'mortar',       label: '车载迫击炮', expectShells: 1 },
   { type: 'missile',      label: '反坦克导弹', expectShells: 1 },
-  { type: 'rocket',       label: '火箭巢',     expectShells: 4 },
+  { type: 'rocket',       label: '火箭巢',     expectShells: 1, burstLeft: 3 },   // #D4 逐发 burst：首发 1 发 + 队列 3
   { type: 'mine_layer',   label: '布雷器',     expectShells: 0 },   // 布雷不产生 shell，产生 deployable
   { type: 'missile_wire', label: '线导导弹',   expectShells: 1 }
 ];
@@ -195,6 +195,12 @@ for (const c of SECONDARY_CASES){
     ok(fired >= 1 && (global.deployables || []).length === 1, `${c.label}: 按住 F 布雷成功（deployable 入注册表）`);
   } else {
     ok(fired >= 1 && global.shells.length >= c.expectShells, `${c.label}: 按住 F 击发产生 ${global.shells.length} 发（按键链路）`);
+    if (c.burstLeft){
+      // #D4：逐发队列驱动——dt=1s 逐帧补完剩余发数，队列清空后进入整组装填
+      for (let i = 0; i < c.burstLeft; i++) W.updateRocketBurst(PLAYER, 1, fireCtx.current);
+      ok(global.shells.length === 1 + c.burstLeft && PLAYER._rocketBurst === null && PLAYER.secondaryReloadT > 5,
+        `${c.label}: 逐发驱动补完（共 ${global.shells.length} 发，队列清空、整组装填 ${PLAYER.secondaryReloadT.toFixed(1)}s）`);
+    }
   }
 }
 

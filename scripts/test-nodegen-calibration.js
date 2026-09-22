@@ -39,14 +39,39 @@ const DENSE = new Set(['forest_dense', 'woodland_line']);
 // 影响：路网走向组合更丰富 → minPassageWidth 随机型浮动（T 形/平行型道路更少→通行更宽）；
 // **全模板连通性维持 1.000**、coverCoverage 基本不变（道路不计入覆盖剖面）。
 // 校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
+// #E2/#E3 重锚（2026-09-20，路网去横平竖直 + 公路加宽 + 沿路/路口建筑与路口沙包）：
+//   路宽 60~80 → 92~124（RULES.nodeMap.road）、干线弯曲 0.04→0.16 且混入斜向干道（diagChance 0.45）、
+//   新增 placeRoadsideBuildings（路口邻域聚集最多 + 沿路成排）与 placeJunctionBarricades。
+//   影响：7 模板 coverCoverage 整体上移约 +0.005（建筑变多）；minPassageWidth 进一步收窄
+//   （路口邻域建筑与沙包把通道压到 1 格 ≈40px，仍 > 车体宽 38px；**全模板连通性维持 0.999~1.000**）。
+//   校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
+// #G 重锚（2026-09-21，用户需求 #4「更复杂的路网 + 更多建筑物体」）：
+//   · 路网 v3：新增两种街区拓扑（G 网格街区 = 正交横干 + 两条贯穿纵路；I 双干贯穿 =
+//     两条近平行横干 + 一条贯穿纵干），删除旧 F「斜向丁字对」（斜干 × 正交支道实测交角
+//     低至 36.9°，无法满足 #B7 的 ≥60° 护栏）；T 形支道改直线（amp 0）+ 终点偏移 ±0.04；
+//     平行拓扑端点/弯曲双收紧；diagAngleMax 0.52→0.34。
+//   · 建筑：新增可破坏楼房 tier `building`（耐久 3 → ruined → rubble 破坏链）与 `ruined`
+//     首次实际生成；路口聚集上限 3~5→3~6、沿路排布采样步 /6→/4（数量上升，但通行间隙
+//     30→34 保证可用通道）。7 模板 coverCoverage 整体下移约 -0.002（可破坏建筑尺寸与
+//     残破建筑剖面差异），minPassageWidth 因建筑密度上升而收窄。
+//   校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5；**全模板连通性维持 0.999~1.000**。
+// #I3 重锚（2026-09-21，用户裁定「继续增加建筑密度，特别是 boss 战地图」；顺带修复 #E3/#G
+// 遗留缺陷：fits() 对含道路的 outCovers 用 pad 34 判重叠 → 沿路/路口建筑恒被拒绝，密度参数
+// 空转）。路网 v4 拓扑与可破坏楼房 `building` 之外，本次落地：
+//   · 建筑密度参数提升（clusterPerJunction 3~5→4~8、maxPerNode 18→28）；
+//   · Boss 战图密度乘子（nodeMap.building.bossDensity=1.6，makeNode 对 boss 节点传入）；
+//   · fits() 重叠判定修正：道路按 pad 10（不压路面）、**非道路**元素才按 pad 34 留通行间隙
+//     ⇒ placeRoadsideBuildings 首次真正产出建筑（实测 8-seed 结构 87→103 @×1.6）。
+// 影响：coverCoverage 整体明显上移（约 +0.015~0.021，建筑变多）；连通性维持 0.999~1.000、
+// minPassageWidth 仍高于可通行下限。校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
 const BASE = {
-  corridor_tutorial: [{"cov":0.051,"con":1,"minw":5.6},{"cov":0.050,"con":1,"minw":5.5},{"cov":0.053,"con":1,"minw":3.8},{"cov":0.049,"con":1,"minw":4.5},{"cov":0.049,"con":1,"minw":5.3}],
-  forest_dense: [{"cov":0.059,"con":1,"minw":2.5},{"cov":0.059,"con":1,"minw":2.4},{"cov":0.059,"con":1,"minw":2.2},{"cov":0.057,"con":1,"minw":2.7},{"cov":0.056,"con":1,"minw":2.7}],
-  urban_block: [{"cov":0.055,"con":1,"minw":2.5},{"cov":0.056,"con":1,"minw":2.1},{"cov":0.058,"con":1,"minw":2.2},{"cov":0.055,"con":1,"minw":3.0},{"cov":0.051,"con":1,"minw":2.9}],
-  crossfire_plaza: [{"cov":0.050,"con":1,"minw":4.6},{"cov":0.049,"con":1,"minw":3.7},{"cov":0.048,"con":1,"minw":3.3},{"cov":0.048,"con":1,"minw":3.8},{"cov":0.046,"con":1,"minw":4.6}],
-  mixed_barrier_plaza: [{"cov":0.044,"con":1,"minw":3.4},{"cov":0.042,"con":1,"minw":3.3},{"cov":0.041,"con":1,"minw":4.5},{"cov":0.040,"con":1,"minw":3.2},{"cov":0.039,"con":1,"minw":3.4}],
-  village_center: [{"cov":0.068,"con":0.999,"minw":1.3},{"cov":0.067,"con":1,"minw":1.4},{"cov":0.067,"con":1,"minw":1.1},{"cov":0.065,"con":1,"minw":2.3},{"cov":0.066,"con":1,"minw":1.9}],
-  woodland_line: [{"cov":0.044,"con":1,"minw":3.6},{"cov":0.043,"con":1,"minw":3.9},{"cov":0.044,"con":1,"minw":3.8},{"cov":0.044,"con":1,"minw":4.9},{"cov":0.043,"con":1,"minw":3.1}],
+  corridor_tutorial: [{"cov":0.074,"con":1,"minw":2.1},{"cov":0.073,"con":1,"minw":2.1},{"cov":0.075,"con":1,"minw":2.3},{"cov":0.071,"con":1,"minw":2.6},{"cov":0.072,"con":1,"minw":2.6}],
+  forest_dense: [{"cov":0.068,"con":1,"minw":1},{"cov":0.067,"con":1,"minw":1},{"cov":0.068,"con":1,"minw":1},{"cov":0.068,"con":1,"minw":1.1},{"cov":0.061,"con":1,"minw":1.1}],
+  urban_block: [{"cov":0.076,"con":1,"minw":1.3},{"cov":0.075,"con":1,"minw":1.3},{"cov":0.076,"con":1,"minw":1.8},{"cov":0.075,"con":1,"minw":1.1},{"cov":0.072,"con":1,"minw":2}],
+  crossfire_plaza: [{"cov":0.064,"con":1,"minw":1.7},{"cov":0.062,"con":1,"minw":1.9},{"cov":0.061,"con":1,"minw":1.6},{"cov":0.064,"con":1,"minw":1.9},{"cov":0.062,"con":1,"minw":1.5}],
+  mixed_barrier_plaza: [{"cov":0.066,"con":1,"minw":1.8},{"cov":0.063,"con":1,"minw":2.1},{"cov":0.062,"con":1,"minw":1.9},{"cov":0.063,"con":1,"minw":1.6},{"cov":0.063,"con":1,"minw":1.7}],
+  village_center: [{"cov":0.073,"con":1,"minw":1.6},{"cov":0.071,"con":1,"minw":1.4},{"cov":0.073,"con":1,"minw":2},{"cov":0.071,"con":1,"minw":2.7},{"cov":0.073,"con":0.999,"minw":1.9}],
+  woodland_line: [{"cov":0.048,"con":1,"minw":1.2},{"cov":0.048,"con":1,"minw":1.7},{"cov":0.05,"con":1,"minw":1.3},{"cov":0.049,"con":1,"minw":1.7},{"cov":0.047,"con":1,"minw":1.6}],
 };
 const TOL = { cov: 0.02, con: 0.05, minw: 0.5 };
 

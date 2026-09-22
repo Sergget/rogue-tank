@@ -35,8 +35,13 @@ const {
   applyBossStage,
   updateBossStage,
   updateBossBehavior,
+  bossSummonWave,
+  triggerBossHitReact,
+  updateBossTrackRepair,
+  updateBossLaser,
   bossCurrentStage,
-  isWeakspotHit
+  isWeakspotHit,
+  LOOT_RARITIES
 } = require('../js/tank_boss.js');
 
 let fails = 0;
@@ -44,6 +49,8 @@ function ok(cond, label) {
   if (cond) console.log(`✓ ${label}`);
   else { console.error(`✗ ${label}`); fails++; }
 }
+// #I1/I2：浮点近似的统一助手（本文件此前无 close）
+function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-9); }
 
 const boss = {
   id: 'b1', name: 'B',
@@ -81,7 +88,9 @@ const bad3 = { id: 'x', name: 'X', stages: [{ id: 'p1', hpFrom: 1, hpTo: 0.4 }] 
 ok(validateBoss(bad3).length > 0, '末阶段 hpTo ≠ 0 报错');
 
 // 5) loot 校验
-ok(validateBoss({ id: 'x', name: 'X', stages: [{ id: 'p1', hpFrom: 1, hpTo: 0 }], loot: { cardRarity: 'mythic' } }).length > 0, '非法 loot.cardRarity 报错');
+ok(validateBoss({ id: 'x', name: 'X', stages: [{ id: 'p1', hpFrom: 1, hpTo: 0 }], loot: { cardRarity: 'supermythic' } }).length > 0, '非法 loot.cardRarity 报错');
+// #E13（2026-09-20）：神话档（mythic）已并入 loot 稀有度白名单（最高档）
+ok(LOOT_RARITIES[LOOT_RARITIES.length - 1] === 'mythic', '#E13: loot 稀有度最高档为 mythic');
 
 // 6) 枚举
 ok(BOSS_WEAKSPOT_KEYS.includes('track') && BOSS_WEAKSPOT_KEYS.includes('ammo'), '弱点枚举含履带/弹药架');
@@ -287,6 +296,50 @@ ok(strikeCalls.length === 0, '#91 目标已毁不开火');
 ok(updateBossBehavior(null, 0.016, cmdPlayer).length === 0 && updateBossBehavior(plainEnt, 0.016, cmdPlayer).length === 0,
    '#91 非 Boss/无行为实体 updateBossBehavior 安全返回空');
 
+// --- #I4（2026-09-21 用户裁定「boss 几乎完全是站桩等玩家」）：Boss 随机走位层 ---
+{
+  const wanderDef = Object.assign({}, behBossDef, { id: 'bw' });
+  const wEnt = makeBossEntity(wanderDef, mkEnv());
+  wEnt.x = 0; wEnt.y = 0; wEnt.hullAngle = 0;
+  const pAlive = { hp: 800, maxHp: 800, x: 300, y: 0, hullLen: 64 };
+  const bounds = { minX: -2000, maxX: 2000, minY: -2000, maxY: 2000 };
+  // 确定性 rng 桩（避免 Math.random 抖动）
+  let seedN = 1;
+  const rngStub = () => { seedN = (seedN * 1103515245 + 12345) % 2147483648; return seedN / 2147483648; };
+  // 1) 生成走位覆盖：turn ∈ {-1,0,1}、move ∈ {0,1}，且有航点
+  let anyMove = false;
+  for (let i = 0; i < 40; i++) {
+    updateBossBehavior(wEnt, 0.1, pAlive, { bounds, rng: rngStub });
+    const ov = wEnt._bossMoveOverride;
+    if (ov && ov.move === 1) anyMove = true;
+  }
+  const ov1 = wEnt._bossMoveOverride;
+  ok(!!ov1 && (ov1.turn === -1 || ov1.turn === 0 || ov1.turn === 1) && (ov1.move === 0 || ov1.move === 1),
+     `#I4 Boss 随机走位：产生 _bossMoveOverride {turn,move}（turn=${ov1 && ov1.turn} move=${ov1 && ov1.move}）`);
+  ok(anyMove, '#I4 走位层在若干帧内产生前进指令（move=1，不再站桩）');
+  // 2) 航点环绕玩家：距离落在 [distMin, distMax]（含边界钳制）
+  const wc = RULES.ai.bossWander;
+  const dWP = Math.hypot((wEnt._bw ? wEnt._bw.x : 0) - pAlive.x, (wEnt._bw ? wEnt._bw.y : 0) - pAlive.y);
+  ok(dWP >= (wc.distMin - 1) && dWP <= (wc.distMax + 1),
+     `#I4 航点环绕玩家且保持交战距离（${dWP.toFixed(0)}px ∈ [${wc.distMin}, ${wc.distMax}]）`);
+  // 3) 航点被钳制在节点边界内
+  ok(wEnt._bw.x >= bounds.minX && wEnt._bw.x <= bounds.maxX && wEnt._bw.y >= bounds.minY && wEnt._bw.y <= bounds.maxY,
+     '#I4 航点钳制进节点边界内');
+  // 4) 激光期冻结 → 不产生走位覆盖（车体静止由接入层保证）
+  wEnt.bossLaserHoldMove = true;
+  updateBossBehavior(wEnt, 0.1, pAlive, { bounds, rng: rngStub });
+  ok(wEnt._bossMoveOverride === null, '#I4 激光期（bossLaserHoldMove）不产生走位覆盖');
+  wEnt.bossLaserHoldMove = false;
+  // 5) crush 风格豁免（冲撞碾压为身份，保持原追击语义）
+  const crushW = makeBossEntity(crushDef, mkEnv());
+  updateBossBehavior(crushW, 0.1, pAlive, { bounds, rng: rngStub });
+  ok(crushW._bossMoveOverride === null, '#I4 crush 风格豁免走位覆盖（保留冲撞追击）');
+  // 6) 目标死亡 → 无走位
+  const pDead = { hp: 0, maxHp: 800, x: 300, y: 0, hullLen: 64 };
+  updateBossBehavior(wEnt, 0.1, pDead, { bounds, rng: rngStub });
+  ok(wEnt._bossMoveOverride === null, '#I4 目标已毁不产生走位覆盖');
+}
+
 // 16) #B6 共享 spec 不被 Boss scale 污染（跨节点炮塔逐渐前移的根因回归）
 //   tank_model.applyTankConfig 历史上让 t.turretPivotOffset 直接引用 spec.turret.pivot
 //   （tankListData 缓存常驻），Boss 的 scale ×s 原地 *= 会把 ×s 永久写回配置，使后续
@@ -323,6 +376,269 @@ ok(updateBossBehavior(null, 0.016, cmdPlayer).length === 0 && updateBossBehavior
   }
   ok(drift === 14 && sharedSpec.turret.pivot.dx === 7,
      '#B6 连续 3 个 Boss 节点后实例 pivot 仍 14、配置仍 7（无 ×2 雪球）');
+}
+
+// ================= #E9（2026-09-20）Boss 修订：分波召唤 / 蓄能激光 / 受击反馈 / 残血减速 =================
+{
+  // --- 分波次召唤：按血量阈值逐波触发，难度放大单波敌数 ---
+  const waveBoss = {
+    id: 'bw', name: 'BW', tankId: 'dummy',
+    summons: [{ tankId: 'panzer-IV', count: 2 }, { tankId: 'tiger-I', count: 1 }],
+    stages: [{ id: 'p1', hpFrom: 1, hpTo: 0 }]
+  };
+  const wEnt = makeBossEntity(waveBoss, mkEnv());
+  wEnt.maxHp = 1000; wEnt.hp = 1000;
+  ok(bossSummonWave(wEnt, 0.5) === null, '#E9 满血时不召唤（未跨阈值）');
+  wEnt.hp = 700;   // 70% < hpFrom[0]=0.75 → 第 1 波
+  const w1 = bossSummonWave(wEnt, 0.5);
+  ok(w1 && w1.waveIndex === 0 && w1.tankId === 'panzer-IV', '#E9 血量跨 75% → 触发第 1 波');
+  ok(bossSummonWave(wEnt, 0.5) === null, '#E9 同一波不重复触发');
+  wEnt.hp = 400;   // 40% < hpFrom[1]=0.5 → 第 2 波
+  const w2 = bossSummonWave(wEnt, 1.0);
+  ok(w2 && w2.waveIndex === 1 && w2.tankId === 'tiger-I', '#E9 血量跨 50% → 触发第 2 波');
+  // 难度放大：同一波 count ×(1 + (countDiffMul-1)×diffNorm)
+  const hi = makeBossEntity(waveBoss, mkEnv());
+  hi.maxHp = 1000; hi.hp = 700;
+  const wHi = bossSummonWave(hi, 1.0);
+  const lo = makeBossEntity(waveBoss, mkEnv());
+  lo.maxHp = 1000; lo.hp = 700;
+  const wLo = bossSummonWave(lo, 0.0);
+  ok(wHi.count > wLo.count, `#E9 难度越高单波敌数越多（${wHi.count} > ${wLo.count}）`);
+
+  // --- 蓄能激光：蓄能期发 laserCharge（含 progress），射击期发 laserFire 并对带内目标掉血 ---
+  const laserBoss = {
+    id: 'bl', name: 'BL', tankId: 'dummy',
+    stages: [{ id: 'p1', hpFrom: 1, hpTo: 0 }]
+  };
+  const lEnt = makeBossEntity(laserBoss, mkEnv());
+  lEnt.x = 0; lEnt.y = 0; lEnt.turretAngle = 0;
+  lEnt.stats.damage = 100;
+  lEnt.hp = lEnt.maxHp * 0.9;   // #E9：激光在首阶段阈值（ranges[0]=0.98）以下才解锁
+  const inBeam = { id: 'p', team: 'player', x: 300, y: 0, hp: 1000, maxHp: 1000, hullWid: 34, hullLen: 64 };
+  const offBeam = { id: 'o', team: 'player', x: 300, y: 400, hp: 1000, maxHp: 1000, hullWid: 34, hullLen: 64 };
+  const ents = [inBeam, offBeam, lEnt];
+  const isH = (a, b) => a !== b;
+  lEnt.bossLaserCdT = 0;
+  let sawCharge = false, sawFire = false;
+  const chargeS = RULES.boss.laser.chargeSeconds, fireS = RULES.boss.laser.fireSeconds;
+  for (let i = 0; i < Math.ceil((chargeS + fireS + 0.2) / 0.1); i++) {
+    const evs = updateBossLaser(lEnt, 0.1, inBeam, { entities: ents, isHostile: isH });
+    for (const e of evs) { if (e.type === 'laserCharge') sawCharge = true; if (e.type === 'laserFire') sawFire = true; }
+  }
+  ok(sawCharge, '#E9 蓄能期发出 laserCharge 事件（供渲染层画虚线警示带）');
+  ok(sawFire, '#E9 蓄能完毕进入射击期发出 laserFire 事件');
+  ok(inBeam.hp < 1000, `#E9 炮线带内目标持续掉血（hp=${inBeam.hp.toFixed(1)}）`);
+  ok(offBeam.hp === 1000, '#E9 炮线带外目标不受伤害');
+  ok(lEnt.bossLaserCdT > 0, '#E9 射击结束进入冷却');
+
+  // --- #H4（2026-09-21）：激光期炮塔固定角速度直驱（用户裁定「固定、较慢的速度转动」）---
+  {
+    const tEnt = makeBossEntity(laserBoss, mkEnv());
+    tEnt.x = 0; tEnt.y = 0; tEnt.turretAngle = 0;
+    tEnt.stats.damage = 100;
+    tEnt.hp = tEnt.maxHp * 0.9;
+    tEnt.bossLaserCdT = 0;   // 立即进入蓄能（makeBossEntity 初始冷却 = chargeSeconds×2）
+    const tgt = { id: 'p', team: 'player', x: 0, y: -600, hp: 1000, maxHp: 1000, hullWid: 34 };  // 目标在正上方（angle -π/2）
+    const cfgL = RULES.boss.laser;
+    const expectStep = (cfgL.laserTurnSpeed !== undefined ? cfgL.laserTurnSpeed : 0.55) * 0.1;
+    // 目标方向 -π/2（与当前 0 差 -π/2）→ 每帧向目标转 expectStep，到向即停。
+    // #I1：转速由 0.55 降到 0.35 ⇒ 需帧数按 cfg 动态计算（0.35 时需 ≈45 帧转过 π/2）。
+    let turned = 0, holdSeen = false;
+    const needFrames = Math.ceil((Math.PI / 2) / Math.max(1e-6, expectStep)) + 8;
+    for (let i = 0; i < needFrames; i++) {
+      const evs = updateBossLaser(tEnt, 0.1, tgt, { entities: [tEnt], isHostile: (a, b) => a !== b });
+      for (const ev of evs) if (ev.type === 'laserCharge' || ev.type === 'laserFire') holdSeen = holdSeen || tEnt.bossLaserHoldTurret === true;
+      turned = tEnt.turretAngle;
+    }
+    // 期望：固定角速度持续转（不是 0 冻结），且 #I1 降速后**单次激光周期内转不满** π/2
+    //（41 帧 × 0.035 = 1.435 rad < 1.571）——这正是「给玩家走位机会」的量化表达。
+    ok(holdSeen, '#H4 激光期 bossLaserHoldTurret=true（接入层据此跳过 AI 转炮）');
+    const laserFrames = Math.ceil((RULES.boss.laser.chargeSeconds + RULES.boss.laser.fireSeconds) / 0.1);
+    const capTurn = Math.min(laserFrames * expectStep, Math.PI / 2);
+    ok(Math.abs(turned) > 1.0 && Math.abs(turned) <= (Math.PI / 2) + 1e-6 && close(Math.abs(turned), capTurn, 0.06),
+       `#H4/#I1 固定角速度直驱：turretAngle ${turned.toFixed(3)}（限速转 ${capTurn.toFixed(3)}，转速 ${cfgL.laserTurnSpeed}rad/s 恒定；降速后单周期转不满 π/2 ⇒ 走位窗口）`);
+    // 转速恒定断言：单帧转角 = laserTurnSpeed×dt（未对齐时）；到向即停后不再越摆
+    const tEnt2 = makeBossEntity(laserBoss, mkEnv());
+    tEnt2.x = 0; tEnt2.y = 0; tEnt2.turretAngle = 0; tEnt2.stats.damage = 100;
+    tEnt2.hp = tEnt2.maxHp * 0.9; tEnt2.bossLaserCdT = 0;
+    updateBossLaser(tEnt2, 0.1, tgt, { entities: [tEnt2], isHostile: (a, b) => a !== b });
+    ok(Math.abs(tEnt2.turretAngle - (-expectStep)) < 1e-9,
+       `#H4 单帧转角 = laserTurnSpeed×dt（${tEnt2.turretAngle.toFixed(4)} ≈ -${expectStep.toFixed(4)}，固定较慢、不受难度乘子影响）`);
+    // 激光结束后 hold 释放：推进 charge+fire 全程 + 余量（冷却期 hold 必须 = false）
+    let endHold = null;
+    for (let i = 0; i < Math.ceil((chargeS + fireS + 0.4) / 0.1); i++) {
+      updateBossLaser(tEnt, 0.1, tgt, { entities: [tEnt], isHostile: (a, b) => a !== b });
+      endHold = tEnt.bossLaserHoldTurret;
+    }
+    ok(endHold === false, '#H4 激光结束 hold 释放（AI 转炮恢复）');
+
+    // --- #I1（2026-09-21）：激光期车体冻结标志（bossLaserHoldMove，接入层据此跳过 driveTank）---
+    {
+      const mEnt = makeBossEntity(laserBoss, mkEnv());
+      mEnt.x = 0; mEnt.y = 0; mEnt.turretAngle = 0; mEnt.stats.damage = 100;
+      mEnt.hp = mEnt.maxHp * 0.9; mEnt.bossLaserCdT = 0;
+      let sawHoldMove = false;
+      for (let i = 0; i < 5; i++) {
+        updateBossLaser(mEnt, 0.1, { id: 'p', team: 'player', x: 300, y: 0, hp: 1000, hullWid: 34 },
+          { entities: [mEnt], isHostile: (a, b) => a !== b });
+        if (mEnt.bossLaserHoldMove === true) sawHoldMove = true;
+      }
+      ok(sawHoldMove, '#I1 蓄能期 bossLaserHoldMove=true（接入层据此冻结车体）');
+      // 转速再降低：单帧转角 = laserTurnSpeed(0.35)×dt
+      const stepCfg = RULES.boss.laser.laserTurnSpeed;
+      ok(close(stepCfg, 0.35, 1e-9), `#I1 laserTurnSpeed 0.55 → 0.35（实际 ${stepCfg}）`);
+      // 激光结束 move 释放
+      for (let i = 0; i < Math.ceil((RULES.boss.laser.chargeSeconds + RULES.boss.laser.fireSeconds + 0.4) / 0.1); i++) {
+        updateBossLaser(mEnt, 0.1, { id: 'p', team: 'player', x: 300, y: 0, hp: 1000, hullWid: 34 },
+          { entities: [mEnt], isHostile: (a, b) => a !== b });
+      }
+      ok(mEnt.bossLaserHoldMove === false, '#I1 激光结束 bossLaserHoldMove 释放（车体恢复 AI 驱动）');
+    }
+
+    // --- #I2（2026-09-21）：蓄能虚线/光束事件携带 blockedDist（绘制层据此截断）---
+    {
+      const bEnt = makeBossEntity(laserBoss, mkEnv());
+      bEnt.x = 0; bEnt.y = 0; bEnt.turretAngle = 0; bEnt.stats.damage = 100;
+      bEnt.hp = bEnt.maxHp * 0.9; bEnt.bossLaserCdT = 0;
+      const tv = { id: 'p', team: 'player', x: 300, y: 0, hp: 1000, maxHp: 1000, hullWid: 34, hullLen: 64 };
+      const wall = { tier: 'building', x: 150, y: 0, w: 60, h: 120, angle: 0, hp: 3 };
+      let sawChargeB = null, sawFireB = null, sawBlockedEvt = false;
+      for (let i = 0; i < Math.ceil((RULES.boss.laser.chargeSeconds + RULES.boss.laser.fireSeconds + 0.2) / 0.1); i++) {
+        const evs = updateBossLaser(bEnt, 0.1, tv, { entities: [tv], isHostile: (a, b) => a !== b, covers: [wall] });
+        for (const ev of evs) {
+          if (ev.type === 'laserCharge') sawChargeB = ev;
+          if (ev.type === 'laserFire') sawFireB = ev;
+          if (ev.type === 'laserBlocked') sawBlockedEvt = true;
+        }
+      }
+      // 建筑入口 = 150-30 = 120（光束从炮口 x≈32 出发，入口距离相对炮口 ≈ 88）
+      const muzzle = (bEnt.hullLen || 64) * 0.5;
+      const expect = 120 - muzzle;
+      ok(sawChargeB && sawChargeB.blockedDist !== undefined && close(sawChargeB.blockedDist, expect, 3),
+         `#I2 蓄能虚线 blockedDist=${sawChargeB && sawChargeB.blockedDist !== undefined ? sawChargeB.blockedDist.toFixed(1) : 'null'} ≈ 建筑入口 ${expect.toFixed(1)}（虚线截断到掩体）`);
+      ok(sawFireB && sawFireB.blockedDist !== undefined && close(sawFireB.blockedDist, expect, 3),
+         `#I2 光束 blockedDist 同口径（${sawFireB && sawFireB.blockedDist !== undefined ? sawFireB.blockedDist.toFixed(1) : 'null'}）`);
+      ok(sawBlockedEvt, '#I2 掩体后方目标收到 laserBlocked（不掉血）');
+      ok(tv.hp === 1000, `#I2 被建筑遮挡的目标不掉血（hp=${tv.hp}）`);
+      // 无掩体：blockedDist = 全长
+      let sawFull = null;
+      const bEnt2 = makeBossEntity(laserBoss, mkEnv());
+      bEnt2.x = 0; bEnt2.y = 0; bEnt2.turretAngle = 0; bEnt2.stats.damage = 100;
+      bEnt2.hp = bEnt2.maxHp * 0.9; bEnt2.bossLaserCdT = 0;
+      for (let i = 0; i < Math.ceil((RULES.boss.laser.chargeSeconds + 0.2) / 0.1); i++) {
+        const evs = updateBossLaser(bEnt2, 0.1, tv, { entities: [tv], isHostile: (a, b) => a !== b, covers: [] });
+        for (const ev of evs) if (ev.type === 'laserCharge') sawFull = ev;
+      }
+      ok(sawFull && close(sawFull.blockedDist, RULES.boss.laser.length, 1e-6),
+         '#I2 无掩体时 blockedDist = 光束全长（不截断）');
+    }
+  }
+
+  // --- #H4：全高掩体阻挡光束（用户裁定「会被建筑、岩石等全高掩体阻挡」）---
+  {
+    const cEnt = makeBossEntity(laserBoss, mkEnv());
+    cEnt.x = 0; cEnt.y = 0; cEnt.turretAngle = 0;
+    cEnt.stats.damage = 100;
+    cEnt.hp = cEnt.maxHp * 0.9; cEnt.bossLaserCdT = 0;
+    const behind = { id: 'b', team: 'player', x: 300, y: 0, hp: 1000, maxHp: 1000, hullWid: 34, hullLen: 64 };
+    const inOpen = { id: 'o', team: 'player', x: 300, y: 0, hp: 1000, maxHp: 1000, hullWid: 34, hullLen: 64 };
+    // 建筑掩体（structure+vision）横在炮口与目标之间；岩石同判据
+    const wall = { tier: 'building', x: 150, y: 0, w: 60, h: 120, angle: 0, hp: 3 };
+    const rock = { tier: 'rock', x: 150, y: 0, w: 60, h: 120, angle: 0, hp: Infinity, verts: null };
+    const bush = { tier: 'bush', x: 150, y: 0, w: 60, h: 120, angle: 0, hp: 1 };
+    const coversB = [wall];
+    // 蓄能 2.6s → 射击 1.5s：先驱动进 fire 期，再采 2 帧伤害
+    const runFire = (covers) => {
+      const e2 = makeBossEntity(laserBoss, mkEnv());
+      e2.x = 0; e2.y = 0; e2.turretAngle = 0; e2.stats.damage = 100;
+      e2.hp = e2.maxHp * 0.9; e2.bossLaserCdT = 0;
+      const v = { id: 'v', team: 'player', x: 300, y: 0, hp: 1000, maxHp: 1000, hullWid: 34, hullLen: 64 };
+      const ents2 = [v];
+      for (let i = 0; i < Math.ceil(RULES.boss.laser.chargeSeconds / 0.1); i++)
+        updateBossLaser(e2, 0.1, v, { entities: ents2, isHostile: (a, b) => a !== b, covers });
+      updateBossLaser(e2, 0.1, v, { entities: ents2, isHostile: (a, b) => a !== b, covers });
+      updateBossLaser(e2, 0.1, v, { entities: ents2, isHostile: (a, b) => a !== b, covers });
+      return v.hp;
+    };
+    const hpWall = runFire(coversB);
+    ok(hpWall === 1000, `#H4 建筑（building）挡住光束：被挡目标不掉血（hp=${hpWall}）`);
+    const hpRock = runFire([rock]);
+    ok(hpRock === 1000, `#H4 岩石（rock）同样阻挡（hp=${hpRock}）`);
+    const hpBush = runFire([bush]);
+    ok(hpBush < 1000, `#H4 灌木不阻挡光束（hp=${hpBush.toFixed(1)} < 1000）`);
+    const hpNone = runFire([]);
+    ok(hpNone < 1000, `#H4 无掩体时正常掉血（hp=${hpNone.toFixed(1)}）`);
+    void behind; void inOpen;
+  }
+
+  // --- 受击反馈：命中触发短暂顿挫 + 冷却门控 ---
+  const hEnt = makeBossEntity(laserBoss, mkEnv());
+  hEnt.hp = hEnt.maxHp;
+  hEnt.bossHitReactCdT = 0;
+  ok(triggerBossHitReact(hEnt, false) === true, '#E9 命中触发受击反馈');
+  ok(hEnt.bossHitReactT > 0, '#E9 受击反馈窗口 > 0');
+  ok(triggerBossHitReact(hEnt, false) === false, '#E9 冷却期内不重复触发（防高射速抖动）');
+
+  // --- 残血减速：阶段机动倍率受 stageSpeedCapMul 上限约束 ---
+  const fastBoss = {
+    id: 'bf', name: 'BF', tankId: 'dummy',
+    stages: [
+      { id: 'p1', hpFrom: 1, hpTo: 0.5 },
+      { id: 'p2', hpFrom: 0.5, hpTo: 0, onEnter: { modifiers: [{ stat: 'maxSpeed', mode: 'mult', value: 5.0 }] } }
+    ]
+  };
+  const fEnt = makeBossEntity(fastBoss, mkEnv());
+  applyBossStage(fEnt, fastBoss.stages[1]);
+  const speedMod = fEnt.modifiers.filter(m => m.source === 'boss-stage:p2' && m.stat === 'maxSpeed')[0];
+  ok(speedMod && speedMod.value === RULES.boss.stageSpeedCapMul.maxSpeed,
+     `#E9 残血阶段机动倍率被上限钳制（${speedMod && speedMod.value} = cap）`);
+}
+
+// ================= 2026-09-23 用户反馈：Boss 履带断落随机自修 =================
+{
+  const trDef = { id: 'btr', name: 'TR', tankId: 'dummy', stages: [{ id: 'p1', hpFrom: 1, hpTo: 0 }] };
+  const mkTr = () => {
+    const t = makeBossEntity(trDef, mkEnv());
+    t.x = 0; t.y = 0; t.hp = t.maxHp;
+    return t;
+  };
+  // 确定性 rng 桩：可注入「时点 / roll」序列
+  const seqRng = (vals) => { let i = 0; return () => vals[Math.min(i++, vals.length - 1)]; };
+  // 1) 未断履带 → 无事件、无调度
+  const t1 = mkTr();
+  ok(updateBossTrackRepair(t1, 0.1, {}).length === 0 && t1._trackRepairAt === undefined,
+     'trackRepair 未断履带 → 无事件无调度');
+  // 2) 断履带（trackBroken+immobT）→ 预定随机时点；roll 成功 → 到点立即修复
+  const t2 = mkTr();
+  t2.trackBroken = true; t2.immobT = 8;
+  const evs2 = updateBossTrackRepair(t2, 0.1, { rng: seqRng([0.5, 0.0]) }); // 时点 4s，roll 必成
+  ok(evs2.length === 0 && t2._trackRepairAt !== undefined && t2._trackRepairAt <= 4 + 1e-9,
+     'trackRepair 断履带即预定 (0,8s] 内随机时点');
+  // 推进 4.05s → 触发修复事件 + 状态清零
+  let sawRepair = false;
+  for (let i = 0; i < 41; i++) {
+    const evs = updateBossTrackRepair(t2, 0.1, { rng: seqRng([0.5, 0.0]) });
+    if (evs.some(e => e.type === 'trackRepair')) sawRepair = true;
+  }
+  ok(sawRepair && t2.trackBroken === false && t2.immobT === 0 && t2._trackRepairAt === undefined,
+     'trackRepair 到达决策点 roll 成功 → 立即修复（trackBroken/immobT 清零）');
+  // 3) roll 失败 → 保持锁定，等 trackLock 自然归零
+  const t3 = mkTr();
+  t3.trackBroken = true; t3.immobT = 8;
+  let repaired3 = false;
+  for (let i = 0; i < 41; i++) {
+    const evs = updateBossTrackRepair(t3, 0.1, { rng: seqRng([0.5, 0.99]) }); // roll 必败
+    if (evs.some(e => e.type === 'trackRepair')) repaired3 = true;
+  }
+  ok(!repaired3 && t3.trackBroken === true && t3.immobT > 0 && t3._trackRepairAt === undefined,
+     'trackRepair roll 失败 → 保持锁定（不重复 roll，等自然归零）');
+  // 4) 修复后再次被击断 → 重新独立决策
+  t2.trackBroken = true; t2.immobT = 8;
+  updateBossTrackRepair(t2, 0.1, { rng: seqRng([0.9, 0.0]) });
+  ok(t2._trackRepairAt !== undefined && t2._trackRepairAt <= 8 + 1e-9,
+     'trackRepair 再次断裂 → 重新预定新时点（每次断裂独立决策）');
+  // 5) 非 Boss 实体安全
+  ok(updateBossTrackRepair(null, 0.1, {}).length === 0, 'trackRepair 非 Boss/空实体安全返回空');
 }
 
 console.log('test-boss: 完成所有检查');

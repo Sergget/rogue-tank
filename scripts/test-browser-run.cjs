@@ -225,19 +225,117 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
     });
     check('giveCard HE 分支逐级：he→aphe→hesh→proximity_he→blast_he', evo2.after === 'apfsds,he,blast_he', JSON.stringify(evo2));
 
-    // 能力入口 G/H/V 在 battle 态可调用（按钮存在；未持对应卡返回 reason 提示，不抛错）
+    // 能力入口 G/H 在 battle 态可调用（按钮存在；未持对应卡返回 reason 提示，不抛错）
+    // #H3（2026-09-21）：btnV 删除——超装填只经技能池 1/2/3 触发
     const abilityCalls = await page.evaluate(() => {
       const r = {};
-      for (const id of ['btnG', 'btnH', 'btnV']) {
+      for (const id of ['btnG', 'btnH']) {
         const btn = document.getElementById(id);
         r[id] = btn ? 'present' : 'missing';
         if (btn) {
           try { btn.click(); r[id] = 'ok'; } catch (e) { r[id] = 'ERR:' + e.message; }
         }
       }
+      r.btnV = document.getElementById('btnV') ? 'still-present' : 'removed';
       return r;
     });
-    check('G/H/V 能力按钮存在且点击不抛错', Object.values(abilityCalls).every(v => v === 'ok'), JSON.stringify(abilityCalls));
+    check('G/H 能力按钮存在且点击不抛错（btnV 已移除，#H3）',
+      abilityCalls.btnG === 'ok' && abilityCalls.btnH === 'ok' && abilityCalls.btnV === 'removed',
+      JSON.stringify(abilityCalls));
+
+    // #F6（2026-09-20 用户反馈）：雷场预约门控 —— 有 pending 时再按 F 被拒绝（不新增、不替换旧预约）
+    const mineFieldGate = await page.evaluate(() => {
+      window.__TEST__.giveCard('weapon_secondary_mine_layer');
+      const p = window.__TEST__.player();
+      return { installed: !!(p.weapons && p.weapons.secondary && p.weapons.secondary.type === 'mine_layer') };
+    });
+    check('#F6 布雷器安装成功', mineFieldGate.installed, JSON.stringify(mineFieldGate));
+    await page.keyboard.press('f');   // 第一次 F：预览（真实键盘，走 input controller）
+    await waitFor(150);
+    const hasPreview = await page.evaluate(() => window.__TEST__.mineFieldPreview());
+    await page.keyboard.press('f');   // 第二次 F：确认预约
+    await waitFor(150);
+    const pending1 = await page.evaluate(() => window.__TEST__.pendingMineFields());
+    await page.keyboard.press('f');   // 第三次 F：应拒绝
+    await waitFor(150);
+    const pending2 = await page.evaluate(() => window.__TEST__.pendingMineFields());
+    check('#F6 有雷场待生成时再按 F 被拒绝（预约不新增、不替换）',
+      mineFieldGate.installed && hasPreview && pending1 === 1 && pending2 === 1,
+      `installed=${mineFieldGate.installed} preview=${hasPreview} pending=${pending1}->${pending2}`);
+
+    // ===== #C5/PLAN§3（2026-09-19）：devPanel Tab 分页 + 卡牌选择器重构 =====
+    const devTabs = await page.evaluate(() => {
+      // 打开开发者面板（` 键）
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: '`', bubbles: true }));
+      const panel = document.getElementById('devPanel');
+      const tabs = Array.from(document.querySelectorAll('#devPanel .dev-tab')).map(b => b.dataset.tab);
+      // 切到卡牌 Tab → 分组选择器应渲染出分组头与卡牌项；搜索过滤生效
+      const cardsTab = document.querySelector('#devPanel .dev-tab[data-tab="cards"]');
+      if (cardsTab) cardsTab.click();
+      const groups = document.querySelectorAll('#devPanel .dev-card-group').length;
+      const items = document.querySelectorAll('#devPanel .dev-card-items button').length;
+      const search = document.getElementById('devCardSearch');
+      if (search) {
+        search.value = 'apfsds';
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      const filtered = document.querySelectorAll('#devPanel .dev-card-items button').length;
+      if (search) { search.value = ''; search.dispatchEvent(new Event('input', { bubbles: true })); }
+      // 切到开关 Tab → 新增作弊项应存在
+      const swTab = document.querySelector('#devPanel .dev-tab[data-tab="switch"]');
+      if (swTab) swTab.click();
+      const invuln = !!document.getElementById('devInvulnChk');
+      const instant = !!document.getElementById('devInstantReloadChk');
+      return {
+        open: panel && panel.style.display !== 'none',
+        tabs, groups, items, filtered, invuln, instant,
+        width480: panel ? panel.getBoundingClientRect().width > 460 : false
+      };
+    });
+    check('devPanel Tab 分页打开且含实时/卡牌/参数/开关四页',
+      devTabs.open && devTabs.tabs.join(',') === 'live,cards,params,switch' && devTabs.width480,
+      JSON.stringify(devTabs));
+    check('卡牌选择器分组渲染 + 搜索过滤生效',
+      devTabs.groups > 3 && devTabs.items > 20 && devTabs.filtered < devTabs.items && devTabs.filtered > 0,
+      `groups=${devTabs.groups} items=${devTabs.items} filtered=${devTabs.filtered}`);
+    check('开关 Tab 含无敌/秒装填作弊项（bench 独有功能对齐）', devTabs.invuln && devTabs.instant);
+
+    // 选择器点击应用路径 + `/` 聚焦搜索 + 已持有 ×N 角标 + −1 单卡回滚（清空后重放语义）
+    // 步骤：清空全部卡牌 → `/` 聚焦 → 搜索「双联」→ 点击候选项安装 → 校验武器已换装且已持有行出现
+    //       → 点击行内 −1 → 校验完整还原 standard 且已持有区清空。
+    const pickerApply = await page.evaluate(() => {
+      const clearBtn = document.getElementById('devClearCardsBtn');
+      if (clearBtn) clearBtn.click();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true }));
+      const focused = document.activeElement ? document.activeElement.id : null;
+      const search = document.getElementById('devCardSearch');
+      search.value = '双联';
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      const hits = Array.from(document.querySelectorAll('#devPanel .dev-card-items button'));
+      const target = hits.find(b => b.textContent.indexOf('双联火炮') >= 0);
+      if (target) target.click();
+      return { focused, hits: hits.length, clicked: !!target };
+    });
+    check('`/` 聚焦卡牌搜索 + 搜索命中 + 点击候选项应用卡牌',
+      pickerApply.focused === 'devCardSearch' && pickerApply.clicked && pickerApply.hits >= 1,
+      JSON.stringify(pickerApply));
+
+    await waitFor(250);   // 等待 updateDevParams 逐帧刷新「已持有」区
+    const rollbackRes = await page.evaluate(() => {
+      const wp = (window.__TEST__.player().weapons || {}).primary || {};
+      const owned = document.getElementById('devOwnedCards');
+      const row = owned ? owned.querySelector('.dev-owned-row') : null;
+      const before = { type: wp.type, rowText: row ? row.textContent : null };
+      const btn = row ? row.querySelector('button') : null;
+      if (btn) btn.click();
+      const wp2 = (window.__TEST__.player().weapons || {}).primary || {};
+      return { before, after: wp2.type, cleared: !owned.querySelector('.dev-owned-row') };
+    });
+    check('卡牌应用后已持有 ×N 行渲染 + −1 单卡回滚（完整还原 standard 且该行消失）',
+      rollbackRes.before.type === 'double_barrel'
+      && !!rollbackRes.before.rowText && rollbackRes.before.rowText.indexOf('×1') >= 0
+      && rollbackRes.after === 'standard' && rollbackRes.cleared,
+      JSON.stringify(rollbackRes));
 
     const realErr = realErrorsOf(errors);
     check('全程无 console error / page error', realErr.length === 0, `errors=${JSON.stringify(realErr)}`);

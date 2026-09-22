@@ -8,7 +8,7 @@ const U = require('../js/tank_utils.js');
 global.angDiff = U.angDiff;
 global.norm = U.norm;
 global.TAU = U.TAU;
-const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile, aiClassForTank } = require('../js/tank_ai.js');
+const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile, aiClassForTank, _reactionSeconds, _propagateEngage } = require('../js/tank_ai.js');
 
 let fails = 0;
 function ok(cond, label) {
@@ -50,7 +50,14 @@ ok(d5.fire === true, '对准+视线+装填好 → 开火');
 const blocked = enemy(800, 500, Math.PI, 0, 0);
 const d6 = aiDecideEnemy(blocked, { player, hasLoS: () => false });
 ok(d6.fire === false, '视线遮挡 → 不开火');
-ok(blocked.aiState === 'search' && d6.move === 1, '距离达标但无视线 → search 态推进');
+// #E8（2026-09-20）：无视线 + 无警觉记忆 → 不激活（保持 patrol）；不再「进入范围立即行动」。
+ok(blocked.aiState === 'patrol' && blocked.aiEngaged !== true,
+   '#E8: 全高掩体遮挡视线且无警觉记忆 → 不进入接战（保持 patrol）');
+// #E8：被击中/友邻告警后（aiEngaged + lastKnownPlayerPos）即使无视线也进入 search 推进
+const alerted = enemy(800, 500, Math.PI, 0, 0);
+alertEntity(alerted, alerted.x + 400, alerted.y);
+const d6b = aiDecideEnemy(alerted, { player, hasLoS: () => false });
+ok(alerted.aiState === 'search' && d6b.move === 1, '警觉记忆 + 无视线 → search 态推进');
 const reloading = enemy(800, 500, Math.PI, 0, 1.0);
 const d7 = aiDecideEnemy(reloading, { player, hasLoS: () => true });
 ok(d7.fire === false, '装填中 → 不开火');
@@ -464,6 +471,61 @@ console.log('--- #88：装填间隙侧摆 ---');
   const t4 = { team: 'enemy', x: 0, y: -260, hullAngle: Math.PI / 2, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
   const out4 = W.applyWaterAvoidance(t4, Object.assign({}, base), { covers: [river] });
   ok(out4.turn === 1, '左侧湿/右侧干（河岸偏移）→ 固定向右绕行（turn=1）');
+}
+
+// ================= #E7/#E8（2026-09-20）反应延迟 + engage 状态传播 =================
+{
+  const cfg = aiTierProfile ? RULES.ai : RULES.ai;   // #E7：直接读机制唯一配置源
+  // 反应延迟：距离越远/越接近触发边界越慢；档位 reactionMul 降低延迟
+  const sNear = _reactionSeconds({}, cfg, {}, 100, 700);
+  const sFar = _reactionSeconds({}, cfg, {}, 690, 700);
+  ok(sFar >= sNear, `#E7 反应延迟随距离增大（near=${sNear.toFixed(2)} ≤ far=${sFar.toFixed(2)}）`);
+  const sElite = _reactionSeconds({}, cfg, { reactionMul: 0.65 }, 350, 700);
+  const sBase = _reactionSeconds({}, cfg, {}, 350, 700);
+  ok(sElite < sBase, `#E7 高 AI 档位反应更快（elite=${sElite.toFixed(2)} < base=${sBase.toFixed(2)}）`);
+  ok(sBase >= 0.2, '#E7 反应延迟有下限（不小于 0.2s）');
+
+  // 反应延迟只对「正式对局生成的敌军」生效（aiReactEnabled）
+  const raw = enemy(800, 500, Math.PI, 0, 0);
+  aiDecideEnemy(raw, { player, hasLoS: () => true });
+  ok(!(raw.aiReactT > 0), '#E7 未打 aiReactEnabled 标的实体无反应延迟（bench/单测语义保留）');
+  const spawned = enemy(800, 500, Math.PI, 0, 0);
+  spawned.aiReactEnabled = true;
+  const dReact = aiDecideEnemy(spawned, { player, hasLoS: () => true, dt: 0.05 });
+  ok(spawned.aiReactT > 0 && dReact.fire === false && dReact.move === 0 && spawned.aiState === 'react',
+     '#E7 生成期敌军首次接战进入 react 态（不移动、不开火，只转炮塔）');
+  // 受击惊醒：剩余反应延迟 ×reactionAlertMul
+  const before = spawned.aiReactT;
+  alertEntity(spawned, player.x, player.y);
+  ok(spawned.aiReactT < before, '#E7 受击惊醒缩短剩余反应延迟（不瞬发但更快）');
+  // 延迟走完 → 恢复正常行动
+  for (let i = 0; i < 40; i++) aiDecideEnemy(spawned, { player, hasLoS: () => true, dt: 0.1 });
+  ok(!(spawned.aiReactT > 0), '#E7 反应延迟走完后清零');
+
+  // engage 传播：首个接战者唤醒半径内友邻（含 1 跳级联）
+  const src = enemy(800, 500, Math.PI, 0, 0);
+  src.aiReactEnabled = true;
+  const near1 = enemy(1000, 500, Math.PI, 0, 0);
+  near1.aiReactEnabled = true;
+  const near2 = enemy(1200, 500, Math.PI, 0, 0);
+  const far1 = enemy(2400, 500, Math.PI, 0, 0);
+  const list = [src, near1, near2, far1];
+  const realRandom = Math.random;
+  Math.random = () => 0;   // 传播概率判定恒通过（确定性）
+  const n = _propagateEngage(src, { player, enemies: list }, cfg);
+  Math.random = realRandom;
+  ok(n >= 2 && near1.aiEngaged === true && near2.aiEngaged === true,
+     `#E8 engage 传播：半径内友邻接战（传播 ${n} 个，含级联）`);
+  ok(far1.aiEngaged !== true, '#E8 传播半径外的友军不被唤醒（不整图连锁）');
+
+  // aiDecideEnemy 在首次接战时自动触发传播（ctx.enemies 注入）
+  const s2 = enemy(800, 500, Math.PI, 0, 0);
+  s2.aiReactEnabled = true;
+  const buddy = enemy(900, 500, Math.PI, 0, 0);
+  Math.random = () => 0;
+  aiDecideEnemy(s2, { player, hasLoS: () => true, enemies: [s2, buddy], dt: 0.05 });
+  Math.random = realRandom;
+  ok(buddy.aiEngaged === true, '#E8 接战决策内联触发 engage 传播（无需外部调用）');
 }
 
 if(fails === 0) console.log('test-ai: 完成所有检查，全部通过');

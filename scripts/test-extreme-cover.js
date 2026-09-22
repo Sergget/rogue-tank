@@ -30,20 +30,20 @@ function findTier(tier) { return C.covers.find(x => x.tier === tier); }
 // 31) getExposure: non-null `shooter` parameter is part of the public signature
 //     (coverBlockInfo forwards it) but is intentionally inert — same result as null.
 {
-  const half = C.covers.find(c => c.tier === 'half' && !c.verts);
+  const bld = C.covers.find(c => c.tier === 'full' && !c.verts);
   const target = { heightClass: 'heavy' };
-  const shooter = { x: half.x - 400, y: half.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10 };
-  const eNull = C.getExposure(half.x - 400, half.y, half.x + 120, half.y, null, target, 0, 1.8);
-  const eShooter = C.getExposure(half.x - 400, half.y, half.x + 120, half.y, shooter, target, 0, 1.8);
-  ok(eShooter === eNull && eShooter === 0.25,
+  const shooter = { x: bld.x - 400, y: bld.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10 };
+  const eNull = C.getExposure(bld.x - 400, bld.y, bld.x + 120, bld.y, null, target, 0, 1.8);
+  const eShooter = C.getExposure(bld.x - 400, bld.y, bld.x + 120, bld.y, shooter, target, 0, 1.8);
+  ok(eShooter === eNull && eShooter === 0,
     `shooter parameter is inert in getExposure (null=${eNull} shooter=${eShooter})`);
 }
 
 // 32) getExposure with zero-length segment (ox==tx && oy==ty, at a cover center):
 //     findCoversOnPath guards dist=1 + ux=uy=0 -> segRayIntersect denom=0 -> no hits -> exposure 1.0
 {
-  const half = C.covers.find(c => c.tier === 'half' && !c.verts);
-  const e = C.getExposure(half.x, half.y, half.x, half.y, null, { heightClass: 'medium' }, 0, 1.4);
+  const bld = C.covers.find(c => c.tier === 'full' && !c.verts);
+  const e = C.getExposure(bld.x, bld.y, bld.x, bld.y, null, { heightClass: 'medium' }, 0, 1.4);
   ok(e === 1.0, `zero-length exposure path = 1.0 (no segment crosses cover, got ${e})`);
 }
 
@@ -121,16 +121,16 @@ function findTier(tier) { return C.covers.find(x => x.tier === tier); }
   ok(findTier('fallen') !== undefined && findTier('rubble') !== undefined &&
      findTier('tree') === undefined && findTier('barricade') === undefined && soft && soft.hp === 0,
     'tree->fallen, barricade->rubble, soft->hp 0 (residue chain intact)');
-  const full = findTier('full'), half = findTier('half'), bush = findTier('bush');
-  ok(full.hp === Infinity && half.hp === Infinity && bush.hp === Infinity,
-    'full/half/bush survive huge splash (hp Infinity)');
+  const full = findTier('full'), bush = findTier('bush');
+  ok(full.hp === Infinity && bush.hp === Infinity,
+    'full/bush survive huge splash (hp Infinity)');
   C.resetCovers();
 }
 
 // 38) coverNormalAt at the exact center of a polygonal cover (hexagon + triangle):
 //     closest-edge selection still returns a unit normal.
 {
-  const hex = C.covers.find(c => c.tier === 'half' && c.verts);
+  const hex = C.covers.find(c => c.tier === 'full' && c.verts && c.x > 600);
   const nHexC = C.coverNormalAt(hex, hex.x, hex.y);
   ok(nHexC && Math.abs(Math.hypot(nHexC.nx, nHexC.ny) - 1) < 1e-6,
     `coverNormalAt at hexagon center returns unit normal (${nHexC && Math.hypot(nHexC.nx, nHexC.ny).toFixed(3)})`);

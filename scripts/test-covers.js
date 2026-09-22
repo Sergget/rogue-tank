@@ -28,7 +28,14 @@ function findTier(tier) { return C.covers.find(x => x.tier === tier); }
 ok(findTier('tree').hp === 1, 'tree derives hp from tier (1)');
 ok(findTier('barricade').hp === 1, 'barricade hp=1');
 ok(findTier('full').hp === Infinity, 'full cover hp=Infinity');
-ok(findTier('half').hp === Infinity, 'half cover hp=Infinity');
+// #E3（2026-09-20）：半高掩体 tier 已整体移除；残破建筑并入全高确定性挡弹；残骸不再挡弹。
+ok(C.COVER_TIERS.half === undefined, '#E3: half tier removed from RULES.coverTiers');
+ok(C.COVER_TIERS.ruined.shellBlock === true && C.COVER_TIERS.ruined.exposureProfile === 'full',
+  '#E3: ruined building joins full-height deterministic blocking');
+ok(C.COVER_TIERS.stump.shellBlock === false && C.COVER_TIERS.rubble.shellBlock === false,
+  '#E1: debris (stump/rubble) no longer blocks shells');
+ok(C.COVER_TIERS.half === undefined && C.COVER_TIERS.tree.crushable === true,
+  '#E11: tree crushable by tanks (push-down)');
 
 // 2) damage/destroy + felled-to-fallen chain (1 发伐倒 → 倒树)
 const tree = findTier('tree');
@@ -82,85 +89,41 @@ C.resolveCoverCollisions({ x: soft.x + 30, y: soft.y, hullAngle: 0, hullLen: 64,
 ok(soft.hp === 0, `tank crush destroys soft fence (was ${softHp}, now ${soft.hp})`);
 C.resetCovers();
 
-// 5b) driveBy: 半高掩体重坦可越（不推不毁），中坦被推出
-const half = findTier('half');
-const halfCov = { x: half.x, y: half.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10 };
-const heavyT = Object.assign({}, halfCov, { heightClass: 'heavy' });
-const mx0 = half.x, my0 = half.y;
-C.resolveCoverCollisions(heavyT);
-ok(heavyT.x === mx0 && heavyT.y === my0 && half.hp === Infinity,
-  `heavy tank drives over half cover (pos unchanged, cover intact)`);
-C.resetCovers();
-const mediumT = Object.assign({}, halfCov, { heightClass: 'medium' });
-C.resolveCoverCollisions(mediumT);
-ok(mediumT.x !== mx0 || mediumT.y !== my0, `medium tank pushed out of half cover (moved)`);
-C.resetCovers();
-
-// 5c) 纯垂直剖面掩体模型：重坦/中坦车体与炮塔在半高掩体后的露出比例
-const ox = half.x - 400;
-const targetFarX = half.x + 120; // 掩体在 (half.x, half.y)，攻击方在 half.x-400，目标在 half.x+120：目标离掩体近
-const heavyHullFar = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'heavy' }, 0, 1.8);
-ok(heavyHullFar === 0.25, `heavy hull exposes 25% behind half cover (got ${heavyHullFar})`);
-
-const medHullFar = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'medium' }, 0, 1.4);
-ok(medHullFar === 0.0, `medium hull exposes 0% behind half cover (got ${medHullFar})`);
-
-const turretExposed = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'medium' }, 1.4, 2.3);
-ok(turretExposed === 1.0, `turret is 100% exposed behind half cover (got ${turretExposed})`);
-
-// 5d) 贴掩体遮挡（C 实验 2026-08-14：贴掩体越掩）：弹道射线高度在炮口（1.8）与目标
-//     部位中心（zMid）间线性插值；攻击方紧贴掩体时射线在掩体入口处仍高于 1.4m 掩体顶 →
-//     越过掩体、车体全露（exposure 1.0）。两用例均传 null shooter → 验证回退 medium 炮口高 1.8。
-const half1 = findTier('half');
-const attackerHugX = half1.x - 45; // 攻击方紧贴掩体左侧（掩体左缘 x=430，射程 5px 即达入口）
-const targetBehindX = half1.x + 120; // 目标在掩体右侧后方
-const heavyHug = C.getExposure(attackerHugX, half1.y, targetBehindX, half1.y, null, { heightClass: 'heavy' }, 0, 1.8);
-ok(heavyHug === 1.0, `heavy hull exposed while attacker hugs cover (C 实验 2026-08-14：贴掩体越掩, got ${heavyHug})`);
-const medHug = C.getExposure(attackerHugX, half1.y, targetBehindX, half1.y, null, { heightClass: 'medium' }, 0, 1.4);
-ok(medHug === 1.0, `medium hull exposed while attacker hugs cover (C 实验 2026-08-14：贴掩体越掩, got ${medHug})`);
-// 目标紧贴掩体背面（贴掩体全藏）：射手远（t≈0.81 → 射线已降至掩体以下）→ 仍按垂直剖面全藏
-const targetHugX = half1.x + 45;
-const medHugTarget = C.getExposure(ox, half1.y, targetHugX, half1.y, null, { heightClass: 'medium' }, 0, 1.4);
-ok(medHugTarget === 0.0, `medium hull covered while target hugs cover (got ${medHugTarget})`);
-
-// 5e) 方向判据：骑上/包住掩体的坦克不被全方向遮蔽（cutoffDist 早于掩体出口 → 不参与）
-const onCover = C.getExposure(ox, half.y, half.x, half.y, null, { heightClass: 'heavy' }, 0, 1.8, 400);
-ok(onCover === 1.0, `tank riding cover not shielded from flank (got ${onCover.toFixed(2)})`);
-const behindCover = C.getExposure(ox, half.y, targetFarX, half.y, null, { heightClass: 'heavy' }, 0, 1.8, 520);
-ok(behindCover === 0.25, `tank behind cover shielded with cutoff (got ${behindCover})`);
-C.resetCovers();
-
-// 5f) C 实验 2026-08-14——半高掩体越掩判定（距离因素）：射线高度
-//     rayH = shooterH + (zMid - shooterH) * t 在掩体入口处高于 1.4 即越过。
-//     几何：half 掩体 (470,300) w=80 → x∈[430,510]；目标贴右侧 x=542；distB=112 固定。
-//     射手高度 medium=1.8，目标 zMid：medium 车体 0.7 / heavy 车体 0.9。
+// 5b) #E3（2026-09-20）：半高掩体与 driveBy 门控已移除——建筑对重/中坦一律实体推出
+const bldg = findTier('full');
 {
-  const tgtX = 542, ty = 300;
-  const mShooter = { heightClass: 'medium' };
-  // 射手 x=400（贴掩体，t=30/142≈0.211）：rayH=1.8-1.1*0.211≈1.57>1.4 → 越过
-  ok(C.getExposure(400, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 0, 1.4) === 1.0,
-    `C 实验: medium hull 1.0 at xs=400 (t≈0.211, rayH≈1.57>1.4)`);
-  // 射手 x=300（t=130/242≈0.537）：rayH=1.8-1.1*0.537≈1.21<1.4 → 仍被挡
-  ok(C.getExposure(300, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 0, 1.4) === 0.0,
-    `C 实验: medium hull 0.0 at xs=300 (t≈0.537, rayH≈1.21<1.4)`);
-  // 重坦目标（zMid=0.9）、射手 x=400：rayH=1.8-0.9*0.211≈1.61>1.4 → 越过
-  ok(C.getExposure(400, ty, tgtX, ty, mShooter, { heightClass: 'heavy' }, 0, 1.8) === 1.0,
-    `C 实验: heavy hull 1.0 at xs=400 (rayH≈1.61>1.4)`);
-  // 重坦目标、射手 x=300：rayH=1.8-0.9*0.537≈1.32<1.4 → 分类概率不变（0.25）
-  ok(C.getExposure(300, ty, tgtX, ty, mShooter, { heightClass: 'heavy' }, 0, 1.8) === 0.25,
-    `C 实验: heavy hull 0.25 at xs=300 (rayH≈1.32<1.4)`);
-  // 炮塔（zMin=1.4 ≥ 1.2 恒露 clamp）：无论射手远近 → 1.0
-  ok(C.getExposure(400, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 1.4, 2.3) === 1.0 &&
-     C.getExposure(300, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 1.4, 2.3) === 1.0,
-    `C 实验: turret 恒露 1.0 不受越掩插值影响 (xs=400/300)`);
-  // 边界：临界 t=(1.8-1.4)/(1.8-0.7)=0.364 → xs=(430-0.364*542)/(1-0.364)≈366；
-  // 两侧各取一点验证插值连续性：xs=370 → t≈0.349, rayH≈1.416>1.4；xs=360 → t≈0.385, rayH≈1.377<1.4
-  ok(C.getExposure(370, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 0, 1.4) === 1.0,
-    `C 实验: 临界点左侧 xs=370 (t≈0.349, rayH≈1.416>1.4) → 1.0`);
-  ok(C.getExposure(360, ty, tgtX, ty, mShooter, { heightClass: 'medium' }, 0, 1.4) === 0.0,
-    `C 实验: 临界点右侧 xs=360 (t≈0.385, rayH≈1.377<1.4) → 0.0`);
+  const mx0 = bldg.x, my0 = bldg.y;
+  const heavyT = { x: bldg.x, y: bldg.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'heavy' };
+  C.resolveCoverCollisions(heavyT);
+  ok(heavyT.x !== mx0 || heavyT.y !== my0, 'heavy tank pushed out of building (driveBy removed)');
+  ok(bldg.hp === Infinity, 'building intact after push');
+  C.resetCovers();
+  const mediumT = { x: bldg.x, y: bldg.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'medium' };
+  C.resolveCoverCollisions(mediumT);
+  ok(mediumT.x !== mx0 || mediumT.y !== my0, 'medium tank pushed out of building');
+  C.resetCovers();
 }
 
+// 5c) #E1 确定性遮挡：建筑后车体 100% 被挡（exposure 0，无概率/半高插值），炮塔恒露
+const ox = bldg.x - 400;
+const targetFarX = bldg.x + 120;
+{
+  const expHullMed = C.getExposure(ox, bldg.y, targetFarX, bldg.y, null, { heightClass: 'medium' }, 0, 1.4);
+  ok(expHullMed === 0.0, `medium hull fully blocked behind building (deterministic, got ${expHullMed})`);
+  const expHullHeavy = C.getExposure(ox, bldg.y, targetFarX, bldg.y, null, { heightClass: 'heavy' }, 0, 1.8);
+  ok(expHullHeavy === 0.0, `heavy hull fully blocked behind building (deterministic, got ${expHullHeavy})`);
+  const turretExposed = C.getExposure(ox, bldg.y, targetFarX, bldg.y, null, { heightClass: 'medium' }, 1.4, 2.3);
+  ok(turretExposed === 0.0, `turret also fully blocked behind building (solid = 100% deterministic, got ${turretExposed})`);
+}
+
+// 5e) 方向判据：骑上/包住掩体的坦克不被全方向遮蔽（cutoffDist 早于掩体出口 → 不参与）
+{
+  const onCover = C.getExposure(ox, bldg.y, bldg.x, bldg.y, null, { heightClass: 'heavy' }, 0, 1.8, 400);
+  ok(onCover === 1.0, `tank riding cover not shielded from flank (got ${onCover.toFixed(2)})`);
+  const behindCover = C.getExposure(ox, bldg.y, targetFarX, bldg.y, null, { heightClass: 'heavy' }, 0, 1.8, 520);
+  ok(behindCover === 0.0, `tank behind cover shielded with cutoff (got ${behindCover})`);
+}
+C.resetCovers();
 // 6) solid non-crushable pushes tank out
 const fullHpBefore = full.hp;
 C.resolveCoverCollisions({ x: full.x, y: full.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10 });
@@ -182,11 +145,11 @@ ok(findTier('tree').hp === 1 && findTier('barricade').hp === 1 && findTier('barr
   'resetCovers restores hp/tier for all elements');
 
 // 10) 复杂多边形掩体（需求2）：verts 顶点数组承载任意多边形，全部角点计算走 coverCorners
-const lFull  = C.covers.find(c => c.tier === 'full' && c.verts);   // L 形凹多边形全高（x:250 y:650）
-const hexHalf = C.covers.find(c => c.tier === 'half' && c.verts);  // 六边形半高（x:700 y:650）
-ok(!!lFull && !!hexHalf, 'polygonal covers present (L-full + hex-half)');
+const lFull  = C.covers.find(c => c.tier === 'full' && c.verts);          // L 形凹多边形建筑（x:250 y:650）
+const hexBldg = C.covers.find(c => c.tier === 'full' && c.verts && c.x > 600); // 六边形建筑（x:700 y:650）
+ok(!!lFull && !!hexBldg, 'polygonal covers present (L-building + hex-building)');
 const lCorners = C.coverCorners(lFull);
-const hexCorners = C.coverCorners(hexHalf);
+const hexCorners = C.coverCorners(hexBldg);
 ok(lCorners.length === 6 && hexCorners.length === 6, 'coverCorners returns N corners for polygonal covers');
 ok(C.coverCorners(findTier('barricade')).length === 4, 'coverCorners falls back to 4 rect corners');
 
@@ -197,34 +160,31 @@ ok(lhits.length === 1 && lhits[0].cover === lFull, 'ray through L body hits the 
 let vhits = C.findCoversOnPath(270, 650, 280, 670); // 完全落在凹槽缺口内
 ok(vhits.length === 0, 'ray inside L concavity misses (no edge crossing)');
 
-// 10b) getExposure：solid 多边形全挡；half 六边形半高（C 实验 2026-08-14：贴掩体越掩）
+// 10b) getExposure：多边形实心建筑全挡（确定性；半高插值已移除）
 const expLPoly = C.getExposure(100, 630, 400, 630, null, { heightClass: 'medium' }, 0, 1.4);
 ok(expLPoly === 0, `solid polygonal cover fully occludes (got ${expLPoly})`);
-// 六边形入口 x=660，射手 x=500 → distA=160, t=0.4；重坦 zMid=0.9 → rayH=1.8-0.9*0.4=1.44>1.4
-// → 射线越过掩体（行为变更，非错误）
-const expHexHeavy = C.getExposure(hexHalf.x - 200, hexHalf.y, hexHalf.x + 200, hexHalf.y, null, { heightClass: 'heavy' }, 0, 1.8);
-ok(expHexHeavy === 1.0, `heavy hull exposed behind hex-half (C 实验 2026-08-14：t=0.4, rayH=1.44>1.4 → 越掩, got ${expHexHeavy})`);
-// 中坦 zMid=0.7 → rayH=1.8-1.1*0.4=1.36<1.4 → 仍按垂直剖面全挡
-const expHexMed = C.getExposure(hexHalf.x - 200, hexHalf.y, hexHalf.x + 200, hexHalf.y, null, { heightClass: 'medium' }, 0, 1.4);
-ok(expHexMed === 0.0, `medium hull exposes 0% behind hex-half (got ${expHexMed})`);
-const expHexTurret = C.getExposure(hexHalf.x - 200, hexHalf.y, hexHalf.x + 200, hexHalf.y, null, { heightClass: 'medium' }, 1.4, 2.3);
-ok(expHexTurret === 1.0, `turret 100% exposed behind hex-half (got ${expHexTurret})`);
+const expHexHeavy = C.getExposure(hexBldg.x - 200, hexBldg.y, hexBldg.x + 200, hexBldg.y, null, { heightClass: 'heavy' }, 0, 1.8);
+ok(expHexHeavy === 0.0, `heavy hull fully blocked behind hex-building (got ${expHexHeavy})`);
+const expHexMed = C.getExposure(hexBldg.x - 200, hexBldg.y, hexBldg.x + 200, hexBldg.y, null, { heightClass: 'medium' }, 0, 1.4);
+ok(expHexMed === 0.0, `medium hull fully blocked behind hex-building (got ${expHexMed})`);
+const expHexTurret = C.getExposure(hexBldg.x - 200, hexBldg.y, hexBldg.x + 200, hexBldg.y, null, { heightClass: 'medium' }, 1.4, 2.3);
+ok(expHexTurret === 0.0, `turret blocked behind hex-building (solid = 100%, got ${expHexTurret})`);
 
 // 10c) coverNormalAt：多边形边上取点返回单位法线
-const nHex = C.coverNormalAt(hexHalf, hexHalf.x, hexHalf.y - 25); // 六边形顶边中点（局部 y=-25）
+const nHex = C.coverNormalAt(hexBldg, hexBldg.x, hexBldg.y - 25); // 六边形顶边中点（局部 y=-25）
 ok(nHex && Math.abs(Math.hypot(nHex.nx, nHex.ny) - 1) < 1e-6, 'coverNormalAt on polygon edge returns unit normal');
 
-// 10d) resolveCoverCollisions：solid 多边形推出坦克；half 多边形 driveBy 行为不变
+// 10d) resolveCoverCollisions：多边形建筑对重/中坦一律推出（driveBy 已移除）
 const tLPoly = { x: lFull.x, y: lFull.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'medium' };
 C.resolveCoverCollisions(tLPoly);
 ok(tLPoly.x !== lFull.x || tLPoly.y !== lFull.y, 'solid polygonal cover pushes tank out');
-const tHexHeavy = { x: hexHalf.x, y: hexHalf.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'heavy' };
+const tHexHeavy = { x: hexBldg.x, y: hexBldg.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'heavy' };
 const hx0 = tHexHeavy.x, hy0 = tHexHeavy.y;
 C.resolveCoverCollisions(tHexHeavy);
-ok(tHexHeavy.x === hx0 && tHexHeavy.y === hy0, 'hex-half: heavy tank drives over (no push)');
-const tHexMed = { x: hexHalf.x, y: hexHalf.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'medium' };
+ok(tHexHeavy.x !== hx0 || tHexHeavy.y !== hy0, 'hex-building: heavy tank pushed out (no driveBy)');
+const tHexMed = { x: hexBldg.x, y: hexBldg.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10, heightClass: 'medium' };
 C.resolveCoverCollisions(tHexMed);
-ok(tHexMed.x !== hexHalf.x || tHexMed.y !== hexHalf.y, 'hex-half: medium tank pushed out');
+ok(tHexMed.x !== hexBldg.x || tHexMed.y !== hexBldg.y, 'hex-building: medium tank pushed out');
 
 // 10e) obbOverlap / obbMTV：任意顶点数仍正确（SAT 对顶点数无假设）
 ok(C.obbOverlap(lCorners, hexCorners) === false, 'separated 6-gons do not overlap');
@@ -277,10 +237,10 @@ C.resetCovers();
 
 // 13) Very small cover (near-zero dimensions)
 {
-  const tiny = { x: 1000, y: 1000, w: 1, h: 1, angle: 0, tier: 'half', hp: Infinity };
+  const tiny = { x: 1000, y: 1000, w: 1, h: 1, angle: 0, tier: 'full', hp: Infinity };
   C.covers.push(tiny);
   const exp = C.getExposure(999, 1000, 1001, 1000, null, { heightClass: 'heavy' }, 0, 1.8);
-  ok(exp === 0.25 || exp === 0, 'tiny half cover handled without crash');
+  ok(exp === 0, 'tiny solid cover handled without crash (deterministic block)');
   const corners = C.coverCorners(tiny);
   ok(corners.length === 4 && corners.every(c => Number.isFinite(c.x) && Number.isFinite(c.y)), 'tiny cover corners finite');
   C.covers.pop();
@@ -288,27 +248,23 @@ C.resetCovers();
 
 // 14) Extreme distance exposure (very far attacker/target)
 {
-  const half = C.covers.find(c => c.tier === 'half' && !c.verts);
-  if (half) {
-    // Attacker far away, target AT the half cover position - only half cover on path
-    const exp = C.getExposure(-10000, half.y, half.x, half.y, null, { heightClass: 'medium' }, 0, 1.4);
-    ok(exp === 0, 'extreme distance: medium hull at half cover position fully covered');
-    // Heavy at extreme distance
-    const expHeavy = C.getExposure(-10000, half.y, half.x, half.y, null, { heightClass: 'heavy' }, 0, 1.8);
-    ok(expHeavy === 0.25, 'extreme distance: heavy hull at half cover position 25% exposed');
+  const bld = C.covers.find(c => c.tier === 'full' && !c.verts);
+  if (bld) {
+    const exp = C.getExposure(-10000, bld.y, bld.x, bld.y, null, { heightClass: 'medium' }, 0, 1.4);
+    ok(exp === 0, 'extreme distance: medium hull at building position fully covered');
+    const expHeavy = C.getExposure(-10000, bld.y, bld.x, bld.y, null, { heightClass: 'heavy' }, 0, 1.8);
+    ok(expHeavy === 0, 'extreme distance: heavy hull at building position fully covered');
   }
 }
 
-// 15) Multiple overlapping covers on same path
+// 15) 路径上多个建筑 → 确定性全挡（无曝光连乘：遮挡不再有概率）
 C.resetCovers();
 {
-  const c1 = C.covers.find(c => c.tier === 'half' && c.x < 400);
-  const c2 = C.covers.find(c => c.tier === 'half' && c.x > 400 && c.x < 800);
+  const c1 = C.covers.find(c => c.tier === 'full' && !c.verts && c.x < 400);
+  const c2 = C.covers.find(c => c.tier === 'full' && !c.verts && c.x > 400 && c.x < 800);
   if (c1 && c2) {
-    // Ray through both half covers
     const exp = C.getExposure(c1.x - 400, c1.y, c2.x + 400, c2.y, null, { heightClass: 'heavy' }, 0, 1.8);
-    // Multiple half covers multiply exposure (1 - (1-0.25)*(1-0.25)) = 0.4375
-    ok(Math.abs(exp - 0.4375) < 0.01, `multiple half covers multiply exposure (got ${exp.toFixed(4)})`);
+    ok(exp === 0, `multiple buildings fully block (deterministic, got ${exp})`);
   }
   C.resetCovers();
 }
@@ -374,14 +330,12 @@ C.resetCovers();
   C.covers.pop();
 
   // Concave polygon with many vertices
-  const star = { x: 3200, y: 3000, w: 100, h: 100, angle: 0, tier: 'half', hp: Infinity, verts: [[0, -50], [10, -10], [50, -10], [15, 10], [25, 50], [0, 20], [-25, 50], [-15, 10], [-50, -10], [-10, -10]] };
+  const star = { x: 3200, y: 3000, w: 100, h: 100, angle: 0, tier: 'full', hp: Infinity, verts: [[0, -50], [10, -10], [50, -10], [15, 10], [25, 50], [0, 20], [-25, 50], [-15, 10], [-50, -10], [-10, -10]] };
   C.covers.push(star);
   const starCorners = C.coverCorners(star);
   ok(starCorners.length === 10, 'star polygon has 10 corners');
   const expStar = C.getExposure(3100, 3000, 3300, 3000, null, { heightClass: 'heavy' }, 0, 1.8);
-  // C 实验 2026-08-14：射手距掩体入口 distA=67.5/200 → t=0.3375；
-  // rayH=1.8-0.9*0.3375=1.496>1.4 → 射线越过半高星形掩体（行为变更，非错误）
-  ok(expStar === 1.0, `star half cover: heavy hull exposed (C 实验 2026-08-14：t=0.34, rayH=1.50>1.4 → 越掩, got ${expStar})`);
+  ok(expStar === 0, `star solid cover: fully blocks (deterministic, got ${expStar})`);
   C.covers.pop();
 }
 
@@ -644,10 +598,10 @@ C.resetCovers();
     // 不穿灌木的路径 → 视线畅通
     ok(C.hasLineOfSight(bush.x - 100, bush.y + 300, bush.x + 100, bush.y + 300) === true, '不穿灌木 → 视线畅通');
   }
-  const half = C.covers.find(c => c.tier === 'half');
-  if (half) {
-    // 半高掩体 vision=false → 不遮视线（炮弹遮挡与视线遮挡是两套判定）
-    ok(C.hasLineOfSight(half.x - 100, half.y, half.x + 100, half.y) === true, '半高掩体 → 不遮视线（vision=false）');
+  const bld = C.covers.find(c => c.tier === 'full');
+  if (bld) {
+    // 全高建筑 vision=true → 遮视线（炮弹遮挡与视线遮挡是两套判定）
+    ok(C.hasLineOfSight(bld.x - 100, bld.y, bld.x + 100, bld.y) === false, '建筑 → 遮视线（vision=true）');
   }
 }
 
@@ -700,12 +654,13 @@ C.resetCovers();
     'rock: solid 全遮不可毁 rock-poly');
   ok(T.intact.shellBlock === true && T.intact.exposureProfile === 'full' && T.intact.passability === 1.0,
     'intact: solid 全遮自由通行');
-  ok(T.ruined.shellBlock === 'grad' && T.ruined.exposureProfile === 'half' && T.ruined.destructible === 1 && T.ruined.toTier === 'rubble',
-    'ruined: grad 半剖面可毁 → rubble');
-  ok(T.half.mode === 'graduated' && T.tree.mode === 'solid' && T.bush.mode === 'none' && T.soft.mode === 'pass' && T.barricade.mode === 'single',
+  ok(T.ruined.shellBlock === true && T.ruined.exposureProfile === 'full' && T.ruined.destructible === 1 && T.ruined.toTier === 'rubble',
+    'ruined: 全高确定性格挡（建筑衍生）可毁 → rubble');
+  ok(T.half === undefined, 'half tier 已移除（#E3 2026-09-20）');
+  ok(T.tree.mode === 'solid' && T.bush.mode === 'none' && T.soft.mode === 'pass' && T.barricade.mode === 'single',
     '派生旧字段 mode 与既有值一致（回归保障）');
-  ok(T.half.exposureProfile === 'half' && T.stump.exposureProfile === 'graduated' && T.rubble.exposureProfile === 'graduated',
-    'exposureProfile 分发矩阵：half 插值 / stump·rubble 渐变不插值');
+  ok(T.stump.exposureProfile === 'none' && T.rubble.exposureProfile === 'none' && T.stump.shellBlock === false,
+    '残骸剖面：stump·rubble 不挡弹（移除 grad 渐变拦弹）');
 
   // 35) 弹道零遮蔽（#85）：water/river/mud 炮弹越飞
   const water = { x:3000, y:500, w:200, h:120, angle:0, tier:'water' };
@@ -769,15 +724,17 @@ C.resetCovers();
   ok(C.tankFullyInWater(dDry) === false, 'tankFullyInWater：干燥地面 → false');
   C.covers.splice(C.covers.indexOf(dwWater), 1);
 
-  // 39) ruined：半剖面插值 + 摧毁转 rubble 残骸链
+  // 39) ruined：全高确定性挡弹 + 摧毁转 rubble 残骸链（#E3：不再有半剖面插值）
   const ruined = { x:3200, y:1300, w:100, h:50, angle:0, tier:'ruined', hp:1 };
   C.covers.push(ruined);
   const rFar = C.getExposure(ruined.x-400, ruined.y, ruined.x+120, ruined.y, null, {heightClass:'medium'}, 0, 1.4);
-  ok(rFar === 0, `ruined 半剖面：中坦车体远距全藏 (got ${rFar})`);
+  ok(rFar === 0, `ruined 全高：中坦车体远距全藏 (got ${rFar})`);
   const rTurret = C.getExposure(ruined.x-400, ruined.y, ruined.x+120, ruined.y, null, {heightClass:'medium'}, 1.4, 2.3);
-  ok(rTurret === 1, `ruined 后炮塔恒露 (got ${rTurret})`);
+  ok(rTurret === 0, `ruined 全高：炮塔同样被挡（确定性 100%，got ${rTurret}）`);
   C.damageCover(ruined, 1, 'shell');
   ok(ruined.tier === 'rubble' && ruined.hp === 1, `ruined 摧毁 → rubble 残骸 (got ${ruined.tier}/${ruined.hp})`);
+  const rPost = C.getExposure(ruined.x-400, ruined.y, ruined.x+120, ruined.y, null, {heightClass:'medium'}, 0, 1.4);
+  ok(rPost === 1, `rubble 残骸不再挡弹 (#E1：炮弹越飞, got ${rPost})`);
 
   C.covers.length = baseLen;   // 移除本节临时实例
   C.resetCovers();

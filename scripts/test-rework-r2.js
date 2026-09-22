@@ -6,7 +6,8 @@ const U = require('../js/tank_utils.js');
 global.TAU = U.TAU;
 
 const assert = require('assert');
-const { spawnFixedTurret, spawnMine, spawnDeployableCover, updateDeployables, clearDeployables } = require('../js/tank_deployables.js');
+const { spawnFixedTurret, spawnMine, spawnDeployableCover, updateDeployables, clearDeployables,
+        deployableCap, deployableCount, enforceDeployLimits } = require('../js/tank_deployables.js');
 
 let fails = 0;
 function ok(cond, label) {
@@ -34,9 +35,10 @@ console.log('✓ 固定炮塔索敌与开火触发测试通过');
 
 // 2. 地雷布撒测试
 clearDeployables();
-const mine = spawnMine({ x: 200, y: 200, team: 'player', armDelay: 0.1, triggerRadius: 30 });
+const mine = spawnMine({ x: 200, y: 200, team: 'player', armDelay: 0.1, triggerRadius: 45 });
 ok(mine.isMine === true, '地雷标记应为 true');
 ok(mine.armed === false, '初始应处于未激活态');
+ok(mine.triggerRadius === 45, '地雷布撒触发半径 = 45px（与雷场一致）');
 
 // 经过解除布防延迟
 const dummyEnemy2 = { id: 'dummy-2', team: 'enemy', x: 210, y: 200, hp: 100 };
@@ -52,11 +54,50 @@ console.log('✓ 地雷布撒与触发爆炸测试通过');
 
 // 3. 战术护盾掩体测试
 clearDeployables();
+const defaultMine = spawnMine({ x: 0, y: 0, team: 'player' });
+ok(defaultMine.triggerRadius === 40, '地雷默认触发半径 = 40px（bench 手动布雷同样受益）');
+clearDeployables();
 const cover = spawnDeployableCover({ x: 300, y: 300, team: 'player', shieldHp: 150, duration: 10 });
 ok(cover.isDeployableCover === true, '战术掩体标记应为 true');
 ok(cover.shield.hp === 150, '护盾吸收池应初始化正确');
 console.log('✓ 战术护盾掩体初始化测试通过');
 
 ok(fails === 0, '所有 R-2 测试项均断言通过');
+
+// ================= #E4（2026-09-20）可部署物数量上限 + 超限淘汰最早 =================
+clearDeployables();
+{
+  const L = RULES.abilities.deploy_limits;
+  const owner = { deployBonus: { cover: 0, mine: 0 } };
+  ok(deployableCap('cover', owner) === L.coverMax, `#E4 掩体基础上限 = ${L.coverMax}`);
+  ok(deployableCap('mine', owner) === L.mineMax, `#E4 地雷基础上限 = ${L.mineMax}`);
+  owner.deployBonus.cover = 2;
+  ok(deployableCap('cover', owner) === L.coverMax + 2 * L.coverMaxUpgradeStep,
+     '#E4 升级卡提供部署数量加成（+n×步长）');
+  owner.deployBonus.cover = 99;
+  ok(deployableCap('cover', owner) === L.coverMaxHardCap, '#E4 加成的硬上限封顶');
+
+  // 超限淘汰：spawn 顺序即部署先后，超限时最早部署的直接消失
+  clearDeployables();
+  const owner0 = { deployBonus: { cover: 0 } };
+  const ids = [];
+  for (let i = 0; i < L.coverMax + 2; i++) {
+    const c = spawnDeployableCover({ x: i * 10, y: 0, team: 'player' });
+    ids.push(c.id);
+    enforceDeployLimits('cover', owner0);
+  }
+  ok(deployableCount('cover') === L.coverMax, `#E4 掩体数量收敛到上限（${deployableCount('cover')}）`);
+  const alive = require('../js/tank_deployables.js').deployables.map(d => d.id);
+  ok(alive.indexOf(ids[0]) < 0 && alive.indexOf(ids[1]) < 0 && alive.indexOf(ids[ids.length - 1]) >= 0,
+     '#E4 超限时最早部署的掩体直接消失（最新保留）');
+
+  // 类型独立计数：地雷不受掩体上限影响
+  clearDeployables();
+  for (let i = 0; i < L.mineMax + 1; i++) { spawnMine({ x: i, y: 0, team: 'player' }); enforceDeployLimits('mine', owner0); }
+  ok(deployableCount('mine') === L.mineMax && deployableCount('cover') === 0,
+     '#E4 按类型独立计数（地雷/掩体互不影响）');
+  clearDeployables();
+}
+
 console.log('test-rework-r2: 完成所有检查');
 console.log('test-rework-r2: 全部通过');

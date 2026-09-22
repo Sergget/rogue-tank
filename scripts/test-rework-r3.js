@@ -262,12 +262,16 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
   ok(W.updateSecondaryWeapon(shooter, 1/60, ctx) === false && shooter._missileLock === null, '扇形外目标不锁定');
   shooter.turretAngle = 0;
 
-  // 火箭巢（同跟随 HE 弹种：35×1.5≈53/发）
+  // 火箭巢（同跟随 HE 弹种：35×1.5≈53/发；#D4 逐发 burst：首发 1 发 + 队列 3）
   shells.length = 0;
   shooter.weapons = { secondary: { type: 'rocket', stats: { count: 4, reload: 10, damage: 35 } } };
   shooter.secondaryReloadT = 0;
-  ok(W.updateSecondaryWeapon(shooter, 1/60, ctx) === true, '火箭巢开火成功');
-  ok(shells.length === 4 && shells[0].ammoKey === 'he' && shells[0].dmg === Math.round(35 * 1.5), '火箭巢发射4发火箭（伤害按 HE 机制）');
+  ok(W.updateSecondaryWeapon(shooter, 1/60, ctx) === true, '火箭巢开火成功（#D4 首发逐发）');
+  ok(shells.length === 1 && !!shooter._rocketBurst && shooter._rocketBurst.left === 3
+    && shells[0].ammoKey === 'he' && shells[0].dmg === Math.round(35 * 1.5),
+    '#D4 火箭巢首发 1 发 + burst 队列 3（伤害按 HE 机制）');
+  for (let i = 0; i < 3; i++) W.updateRocketBurst(shooter, 1, ctx);
+  ok(shells.length === 4 && !shooter._rocketBurst, '#D4 逐发驱动补完 4 发（队列清空）');
 
   // 布雷器
   shooter.weapons = { secondary: { type: 'mine_layer', stats: { reload: 15, damage: 100 } } };
@@ -350,7 +354,8 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
     shooter.weapons.secondary = { type: 'rocket', stats: { count: 4, reload: 10, damage: 35 } };
     shooter.secondaryReloadT = 0;
     W.fireActiveSecondary(shooter, ctx, enemy);
-    ok(shells.length === 4 && shells[0].ammoKey === 'he', '未升级 HEAT 时火箭按主武器 HE 计算');
+    for (let i = 0; i < 3; i++) W.updateRocketBurst(shooter, 1, ctx);
+    ok(shells.length === 4 && shells[0].ammoKey === 'he', '未升级 HEAT 时火箭按主武器 HE 计算（#D4 逐发补完）');
 
     // (c) 升级到 tandem_heat (T-HEAT) 后，导弹与火箭按 tandem_heat 机制
     shooter.ammoLoadout = ['ap', 'tandem_heat'];
@@ -364,7 +369,8 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
     shooter.weapons.secondary = { type: 'rocket', stats: { count: 4, reload: 10, damage: 35 } };
     shooter.secondaryReloadT = 0;
     W.fireActiveSecondary(shooter, ctx, enemy);
-    ok(shells.length === 4 && shells[0].ammoKey === 'tandem_heat', '升级到 T-HEAT 时火箭按 tandem_heat 计算');
+    for (let i = 0; i < 3; i++) W.updateRocketBurst(shooter, 1, ctx);
+    ok(shells.length === 4 && shells[0].ammoKey === 'tandem_heat', '升级到 T-HEAT 时火箭按 tandem_heat 计算（#D4 逐发补完）');
   }
 }
 
