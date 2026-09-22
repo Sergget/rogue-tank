@@ -224,13 +224,19 @@ function makeNode(index, rng, env) {
     scale = nodeScaleFor(viewport, tpl);
   }
 
+  // #I3（2026-09-21 用户裁定「特别是 boss 战地图的建筑密度」）：Boss 节点建筑密度乘子
+  // （isBossNodeIndex 为纯函数，可在 generateNode 前判定）
+  const bossDensity = (RULES.nodeMap.building && RULES.nodeMap.building.bossDensity) || 1.6;
+  const buildingDensity = isBossNodeIndex(index) ? bossDensity : 1;
+
   // 掩体布局：模板按 scale 放大，世界坐标 (0,0)~(w,h)，中心 (w/2,h/2)
   const templateResult = generateNode(diff, {
     seed: rng.int(0, 1000000),
     scale: scale,
     centerX: 0,
     centerY: 0,
-    templateId: templateId
+    templateId: templateId,
+    buildingDensity: buildingDensity
   });
   const w = templateResult.w, h = templateResult.h;
   const centerX = w / 2, centerY = h / 2;
@@ -292,9 +298,48 @@ function makeNode(index, rng, env) {
     sectorAngles.push(baseAngleOffset + (s * (Math.PI * 2) / sectorsCount));
   }
 
+  // ================= #E6（2026-09-20）敌军生成点位改造 =================
+  // 用户反馈：敌人生成太靠近边缘；要在部分建筑、路口生成；随难度加大，集中生成的敌人数量增加。
+  // 实现：聚簇中心优先取「建筑/岩石中心 + 路口中心」候选点（junctionChance 进一步偏向路口），
+  // 落在结构点的簇比例随难度从 structureChance → structureChanceMax 上升——
+  // 在敌军总数仍由 enemyCountForDifficulty 决定（数量契约不变）的前提下，
+  // 「集中在建筑/路口的敌人数」随难度单调增加。
+  const spawnCfg = cfg.enemySpawn || {};
+  const structChanceBase = spawnCfg.structureChance !== undefined ? spawnCfg.structureChance : 0.55;
+  const structChanceMax = spawnCfg.structureChanceMax !== undefined ? spawnCfg.structureChanceMax : 0.85;
+  const structChance = structChanceBase + (structChanceMax - structChanceBase) * diffNorm;
+  const structRadius = spawnCfg.structureRadius !== undefined ? spawnCfg.structureRadius : 130;
+  const junctionPickChance = spawnCfg.junctionChance !== undefined ? spawnCfg.junctionChance : 0.35;
+  // #G（2026-09-21）：建筑聚集掩体集合加入可破坏楼房 building（与 full/intact/ruined 同类结构体）
+  const structCovers = templateResult.covers.filter(c =>
+    (c.tier === 'full' || c.tier === 'intact' || c.tier === 'building' || c.tier === 'rock' || c.tier === 'ruined'));
+  const junctions = templateResult.roadJunctions || [];
+  const clampX = (v) => Math.max(60, Math.min(w - 60, v));
+  const clampY = (v) => Math.max(60, Math.min(h - 60, v));
+  const pickStructureCenter = () => {
+    const farJunctions = junctions.filter(j => Math.hypot(j.x - playerSpawn.x, j.y - playerSpawn.y) >= minPlayerDist);
+    if (farJunctions.length && rng() < junctionPickChance) {
+      const j = farJunctions[Math.floor(rng() * farJunctions.length)];
+      return { x: clampX(j.x), y: clampY(j.y) };
+    }
+    if (!structCovers.length) return null;
+    for (let i = 0; i < 24; i++) {
+      const c = structCovers[Math.floor(rng() * structCovers.length)];
+      if (Math.hypot(c.x - playerSpawn.x, c.y - playerSpawn.y) < minPlayerDist) continue;
+      // 建筑周边环形散布（不压在建筑体内，保留掩体可读性）
+      const a = rng() * Math.PI * 2;
+      const r = Math.max(c.w || 40, c.h || 40) * 0.5 + rng.range(10, structRadius);
+      return { x: clampX(c.x + Math.cos(a) * r), y: clampY(c.y + Math.sin(a) * r) };
+    }
+    return null;
+  };
+
   // 先在各扇区建立候选聚簇中心（1 ~ targetClusterCount 个）
   const centroids = [];
   for (let c = 0; c < targetClusterCount; c++) {
+    // #E6：按难度比例把簇中心放到建筑/路口（junctionChance 优先路口）
+    const st = (rng() < structChance) ? pickStructureCenter() : null;
+    if (st) { centroids.push(st); continue; }
     const sAng = sectorAngles[c % sectorsCount];
     const cAng = sAng + rng.range(-Math.PI / 6, Math.PI / 6);
     const cDist = rng.range(minPlayerDist, maxPlayerDist);
@@ -347,7 +392,10 @@ function makeNode(index, rng, env) {
       elite: spec.elite,               // P-43：精英标记
       statMult: statMult,              // 兼容保留
       entityMults: spec.entityMults,   // 全属性乘子表
-      aiTier: spec.aiTier              // AI 档位
+      aiTier: spec.aiTier,             // AI 档位
+      // #E7（2026-09-20）：正式对局生成的敌军启用「反应延迟」（首次接战后察觉/起转期），
+      // 详见 RULES.ai.reactionSecondsBase；bench/单测裸实体不打此标 → 保持即时响应。
+      aiReactEnabled: true
     });
     clusterCentroids.push({ x: Math.round(ex), y: Math.round(ey) });
   }

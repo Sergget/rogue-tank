@@ -139,6 +139,57 @@ function _passiveDefend(t, ctx, target){
   return out;
 }
 
+// #E7（2026-09-20）反应延迟计算：基线 + 距离项（越远/越接近触发边界越慢）× 档位乘子 × 随机抖动。
+// #E7 反应延迟说明：仅对「正式对局生成的敌军」生效（tank_map.makeNode 打标 aiReactEnabled=true），
+// 这样 bench/单元测试的裸实体保持原有即时响应语义，避免把「生成期属性」混进决策单测。
+function _reactionSeconds(t, cfg, prof, dist, enterD){
+  const base = cfg.reactionSecondsBase !== undefined ? cfg.reactionSecondsBase : 1.15;
+  const maxS = cfg.reactionSecondsMax !== undefined ? cfg.reactionSecondsMax : 1.9;
+  const ratio = (enterD > 0) ? Math.max(0, Math.min(1, dist / enterD)) : 0;
+  let s = base + (maxS - base) * ratio * 0.5;
+  s *= (prof && prof.reactionMul) || 1;
+  const jitter = cfg.reactionJitter !== undefined ? cfg.reactionJitter : 0.25;
+  s *= 1 + (Math.random() * 2 - 1) * jitter;
+  return Math.max(0.2, s);
+}
+
+// #E8（2026-09-20）engage 状态传播：某敌人首次进入接战时，把「已接战 + 已知玩家位置」
+// 传播给半径 engagePropagateRadius 内的友邻（按 engagePropagateChance 概率），
+// 每跳半径衰减 0.7、最多 2 跳（避免一处暴露唤醒全图）。被传播者各自按反应延迟行动。
+function _propagateEngage(t, ctx, cfg){
+  const r0 = cfg.engagePropagateRadius !== undefined ? cfg.engagePropagateRadius : 420;
+  const chance = cfg.engagePropagateChance !== undefined ? cfg.engagePropagateChance : 0.7;
+  const list = (ctx && Array.isArray(ctx.enemies)) ? ctx.enemies : null;
+  if(!list || !list.length) return 0;
+  const px = (ctx && ctx.player && Number.isFinite(ctx.player.x)) ? ctx.player.x : t.x;
+  const py = (ctx && ctx.player && Number.isFinite(ctx.player.y)) ? ctx.player.y : t.y;
+  const visited = new Set([t]);
+  let frontier = [{ e: t, r: r0 }];
+  let count = 0;
+  for(let hop = 0; hop < 2; hop++){
+    const next = [];
+    for(const node of frontier){
+      for(const e of list){
+        if(!e || visited.has(e) || e.hp <= 0) continue;
+        if(e.team !== 'enemy' || e.isBoss) continue;
+        if(Math.hypot(e.x - node.e.x, e.y - node.e.y) > node.r) continue;
+        if(Math.random() > chance) continue;
+        visited.add(e);
+        e.aiEngaged = true;
+        e.lastKnownPlayerPos = { x: px, y: py };
+        if(e.aiReactEnabled === true) {
+          e.aiReactT = _reactionSeconds(e, cfg, aiTierProfile(e.aiTier), node.r, Math.max(1, node.r));
+        }
+        count++;
+        next.push({ e: e, r: node.r * 0.7 });
+      }
+    }
+    frontier = next;
+    if(!frontier.length) break;
+  }
+  return count;
+}
+
 // 状态机主决策 —— 敌人（含 Boss/召唤物）。输出格式完全向后兼容：
 //   { turn: number, move: number, turretDesired: number, fire: boolean }
 function aiDecideEnemy(t, ctx){
@@ -222,7 +273,7 @@ function aiDecideEnemy(t, ctx){
   const clsMoveLock = !!clsProf.moveLock;
   const clsKeepRange = !!clsProf.keepRange;
 
-  // --- 激活触发（重设计）：距离 + 可见性，与摄像机视野彻底解耦 ---
+  // --- 激活触发（#E8 修订）：距离达标 **且** 有视线 ---
   // 有效触发距离：实体字段 aiTriggerDist（生成时按难度算好，见 tank_map.js
   // triggerDistForDifficulty）优先，缺省回退 RULES.ai.triggerDistBase。
   // 滞回防抖：进入阈值 = 有效触发距离；脱离阈值 = 进入阈值 × triggerHysteresis。
@@ -231,13 +282,29 @@ function aiDecideEnemy(t, ctx){
   const trigDist = (t.aiTriggerDist && t.aiTriggerDist > 0) ? t.aiTriggerDist : baseTrig;
   const enterD = trigDist, exitD = trigDist * hyst;
   if(t.aiEngaged === undefined) t.aiEngaged = false;
+
+  // LoS 评估：激活门控与开火判定共用（patrol 早退路径也做一次射线；有 ctx.hasLoS 缺省 true）
+  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y) : true;
+  // #E8：全高掩体（建筑/岩石/树，tier.vision===true）遮挡视线时，敌人不再「进入范围就行动」。
+  // 受击/友邻告警（alertEntity 置 aiEngaged + lastKnownPlayerPos）不受此门控限制。
+  const needLoS = cfg.engageRequiresLoS !== false;
+
   if(!t.aiEngaged){
-    if(dist > enterD){
+    const inRange = dist <= enterD;
+    const canSee = (!needLoS || los) || !!t.lastKnownPlayerPos;
+    if(!(inRange && canSee)){
       // #76 C5：激活门控外的 patrol 早退不再全零——微摆动摆头（远处敌人不死板）
       t.aiState = 'patrol';
       out.turn = _patrolWanderTurn(t, ctx);
       if(!t.isBoss) return out;                       // ISSUE 21b：Boss 不回 patrol，继续追击
-    }                                                   // 触发距离外：patrol 不活动
+    } else {
+      // 首次进入接战：#E7 设置反应延迟 + #E8 向附近友邻传播 engage 状态
+      t.aiEngaged = true;
+      if(t.aiReactEnabled === true && !t.isBoss) {
+        t.aiReactT = _reactionSeconds(t, cfg, profEff, dist, enterD);
+      }
+      _propagateEngage(t, ctx, cfg);
+    }
   } else if(dist > exitD){                                   // 滞回带内保持接战，超出才脱离
     // 警觉记忆（被击中/友邻告警）：持有 lastKnownPlayerPos 时即使超出滞回带也保持
     // 接战——朝记忆点 search 推进，直到到达附近或重新获得视线后清除（见 LoS/search 分支）。
@@ -250,8 +317,20 @@ function aiDecideEnemy(t, ctx){
   }
   t.aiEngaged = true;
 
-  // LoS 节流：仅距离达标时才评估（上方 patrol 早退路径不做射线），避免逐帧全图射线开销。
-  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y) : true;
+  // #E7（2026-09-20）：反应延迟——首次获得目标后先「察觉/起转」，其间只转炮塔、不移动不开火。
+  // 受击惊醒（alertEntity）把剩余延迟 ×reactionAlertMul，因此被打醒的敌人明显更快但不瞬发。
+  // Boss 不受反应延迟限制（其开场预热由 RULES.boss.openingSeconds 单独承担）。
+  if(t.aiReactT > 0){
+    const rdt = Number.isFinite(ctx.dt) ? ctx.dt : 1 / 60;
+    t.aiReactT = Math.max(0, t.aiReactT - rdt);
+    if(!t.isBoss){
+      out.turretDesired = desired;   // 炮塔缓慢起转（有可读动作）
+      out.move = 0;
+      out.fire = false;
+      t.aiState = 'react';
+      return out;
+    }
+  }
 
   // 重新获得视线 → 警觉记忆已确认目标位置，清除
   if(los && t.lastKnownPlayerPos) t.lastKnownPlayerPos = null;
@@ -648,6 +727,12 @@ function alertEntity(t, srcX, srcY){
   if(!t || t.team !== 'enemy' || t.isDrone || t.hp <= 0) return false;
   t.aiEngaged = true;
   t.lastKnownPlayerPos = { x: srcX, y: srcY };
+  // #E7（2026-09-20）：被打醒的敌人反应更快（剩余反应延迟 ×reactionAlertMul），但不瞬发。
+  if(t.aiReactT > 0){
+    const cfg = aiConfig();
+    const mul = cfg.reactionAlertMul !== undefined ? cfg.reactionAlertMul : 0.5;
+    t.aiReactT *= mul;
+  }
   if(t.aiState === 'stunned'){
     t.aiState = 'patrol';       // 被击中立即惊醒（不给免疫窗——免疫窗只在自然苏醒后授予）
     t.aiStateTimer = 0;
@@ -679,5 +764,5 @@ function propagateAlert(entitiesArr, x, y, radius){
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, _passiveDefend, _bossStageAIModes };
+  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage };
 }

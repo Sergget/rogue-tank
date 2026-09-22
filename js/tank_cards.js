@@ -14,8 +14,10 @@
 
 // ---------- 枚举与白名单（唯一 schema 来源） ----------
 
-const CARD_RARITIES = ['common', 'rare', 'epic', 'legendary'];
-const RARITY_WEIGHTS = { common: 50, rare: 30, epic: 15, legendary: 5 };
+// #E13（2026-09-20 用户裁定）：新增「神话」稀有度（在传奇之上）——「交替装填系统」升入该档。
+// 序号即强度序：common < rare < epic < legendary < mythic（Boss 保底池 / 卡池权重 / 保底过滤均按此序）。
+const CARD_RARITIES = ['common', 'rare', 'epic', 'legendary', 'mythic'];
+const RARITY_WEIGHTS = { common: 50, rare: 30, epic: 15, legendary: 4.5, mythic: 0.5 };
 
 // 5 大流派标签（构筑方向，卡牌可多标签；后续流派构筑/加成按此聚合）
 const CARD_TAGS = ['重甲', '狙击', '机动', '爆破', '支援'];
@@ -32,7 +34,9 @@ const AMMO_KEYS = ['ap', 'apcr', 'apds', 'apfsds', 'apfsds_ad', 'he', 'heat', 'h
 const AMMO_FIELDS = ['pen', 'dmg', 'speed'];
 
 // 主动装置（ability，运行时在对应里程碑接入按键触发；schema 先行）
-const ABILITY_KEYS = ['repair', 'extinguish', 'recon', 'track_repair', 'artillery', 'overdrive', 'shield', 'deploy_cover'];
+// #G（2026-09-21）：+ super_fire_control / super_speed / aps——runtime 技能键全集（与
+// tank_abilities.ABILITY_KEYS_RUNTIME 及 skillHotkey DISPATCH 对齐；medkit 为 innate 键）
+const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'recon', 'track_repair', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'super_fire_control', 'super_speed', 'aps'];
 
 // 无人机种类（drone）：scout=侦察指示（视口外敌军位置箭头）/ striker=近身自动索敌打击。
 // kind 缺失时兼容旧数据（默认 striker，伴随浮游炮语义）。
@@ -47,7 +51,7 @@ const ECONOMY_FIELDS = ['scoreMul', 'shopDiscount', 'startScore', 'reviveCount']
 // 副武器槽位与类型（R-1 / 阶段四）；主武器类型（阶段七 7.3）与 RULES.weaponTypes 对齐
 const WEAPON_SLOTS = ['primary', 'secondary'];
 const WEAPON_SECONDARY_TYPES = ['mortar', 'missile', 'rocket', 'mine_layer', 'turret'];
-const WEAPON_PRIMARY_TYPES = ['standard', 'autocannon', 'double_barrel', 'railgun'];
+const WEAPON_PRIMARY_TYPES = ['standard', 'autocannon', 'double_barrel', 'railgun', 'clip'];
 const ALL_WEAPON_TYPES = WEAPON_SECONDARY_TYPES.concat(WEAPON_PRIMARY_TYPES);
 
 // 装甲路径：part ∈ hull/turret，face ∈ front/side/rear
@@ -131,9 +135,37 @@ function validateCardEffect(ef, path) {
       if (ef.slot !== undefined && !WEAPON_SLOTS.includes(ef.slot)) errs.push(`${p}: slot 非法 ${ef.slot}`);
       if (ef.weaponType && !ALL_WEAPON_TYPES.includes(ef.weaponType)) errs.push(`${p}: weaponType 非法 ${ef.weaponType}`);
       if (ef.statOverrides && (typeof ef.statOverrides !== 'object' || Array.isArray(ef.statOverrides))) errs.push(`${p}: statOverrides 应为对象`);
+      // #G：statOverrides 值必须为有限数值 / 布尔 / "+N" 相对增量字符串（mergeStatOverrides 消费）
+      if (ef.statOverrides && typeof ef.statOverrides === 'object' && !Array.isArray(ef.statOverrides)) {
+        for (const k of Object.keys(ef.statOverrides)) {
+          const v = ef.statOverrides[k];
+          if (typeof v === 'boolean') continue;
+          const isRel = typeof v === 'string' && /^\+\d+(\.\d+)?$/.test(v);
+          if (typeof v !== 'number' || !Number.isFinite(v)) {
+            if (!isRel) errs.push(`${p}: statOverrides.${k} 应为有限数值/布尔或 "+N" 增量`);
+          }
+        }
+      }
       break;
   }
   return errs;
+}
+
+// #G（2026-09-21）：upgrade 卡 statOverrides 的合并语义——数值直接覆盖；字符串 "+N"（如 "+1"）
+// 表示在**当前值**上增量（扩容弹夹等「每张 +1、可叠多次」的升级卡必需，纯覆盖值叠两次会退回同值）。
+function mergeStatOverrides(stats, overrides) {
+  const merged = Object.assign({}, stats || {});
+  for (const k of Object.keys(overrides || {})) {
+    const v = overrides[k];
+    if (typeof v === 'string' && v[0] === '+') {
+      const base = (typeof merged[k] === 'number') ? merged[k] : 0;
+      const d = parseFloat(v.slice(1));
+      merged[k] = base + (Number.isFinite(d) ? d : 0);
+    } else {
+      merged[k] = v;
+    }
+  }
+  return merged;
 }
 
 // 是否装甲路径：armor.hull / armor.hull.front / armor.turret.side 等
@@ -183,6 +215,16 @@ function applyCardEffects(tank, card, ctx) {
   const isAmmoCard = card && Array.isArray(card.effects) && card.effects.every(e => !e || e.type === 'ammo');
   if (card && card.maxStacks && !isAmmoCard && tank && (tank._cardApplyCount[card.id] || 0) >= card.maxStacks) return [];
 
+  // #G（2026-09-21）：按序施加日志——modifier 卡只写 tank.modifiers（source 'card:<id>'）、
+  // 其余卡只写 tank.cardEffects，两份数据都不含「跨类型施加顺序」。开发者面板的「−1」回滚
+  // （tank_devpanel.js rollbackDevCard）需要**完整施加序列**做「清空后按原序重放」，
+  // 旧实现只取 cardEffects ⇒ 任意一次 −1 会把 96 张纯 modifier 卡的效果永久抹掉。
+  // 本日志与 _cardApplyCount 同生命周期（clearCardsFromTank / removeRunModifiers 一并清空）。
+  if (tank) {
+    if (!Array.isArray(tank._cardApplyLog)) tank._cardApplyLog = [];
+    tank._cardApplyLog.push(card.id);
+  }
+
   const applied = [];
   for (const ef of card.effects) {
     if (ef.type === 'modifier') {
@@ -210,12 +252,14 @@ function applyCardEffects(tank, card, ctx) {
             }
             tank.weapons.primary._spec = null;
             tank._dbState = null;   // 2026-09-15 W4：主武器换装后双管状态重置
+            tank._clipState = null; // #G（2026-09-21）：主武器换装后弹夹状态重置
           } else if (action === 'upgrade') {
             // upgrade：仅当 weapons.primary.type===wType 时合并 statOverrides 并清缓存
             if (wType && tank.weapons.primary.type === wType && ef.statOverrides && typeof ef.statOverrides === 'object') {
-              tank.weapons.primary.stats = Object.assign({}, tank.weapons.primary.stats || {}, ef.statOverrides);
+              tank.weapons.primary.stats = mergeStatOverrides(tank.weapons.primary.stats, ef.statOverrides);
               tank.weapons.primary._spec = null;
               tank._dbState = null;
+              tank._clipState = null;   // #G：扩容卡改变 clipSize → 弹夹状态重建
             }
             // type!==wType → no-op，不写入
           }
@@ -247,7 +291,7 @@ function applyCardEffects(tank, card, ctx) {
           } else if (action === 'upgrade') {
             // 仅当 secondary.type===wType 时合并 statOverrides；type 不匹配 → no-op
             if (wType && tank.weapons.secondary.type === wType && ef.statOverrides && typeof ef.statOverrides === 'object') {
-              tank.weapons.secondary.stats = Object.assign({}, tank.weapons.secondary.stats || {}, ef.statOverrides);
+              tank.weapons.secondary.stats = mergeStatOverrides(tank.weapons.secondary.stats, ef.statOverrides);
               if (tank.weapons.secondary._spec) tank.weapons.secondary._spec = null;
             }
           }
@@ -501,15 +545,20 @@ function drawCardChoices(pool, n, optsOrRng) {
       if (j >= 0 && picked.length < count) pickCardAt(j);
     }
   }
-  // #C3（2026-09-17 用户裁定「升级卡加权/保底」路线）：弹种升级卡保底——当候选池中存在
-  // 「replaceAmmo 链前驱已在 loadout 中」的弹种升级卡（即本回合可解锁/升级的新弹种）时，
-  // 先保底抽 1 张进候选。背景：参数强化卡大量落在 common（最高权重桶），而升级卡最低 rare
-  // 起步、深层链更是 epic/legendary——同池概率长期被压制（ISSUES #C3 核实）。装备优先保底
-  // （ability/副武器）语义不变、优先级更高（先判再判弹种保底）。
+  // #C3（2026-09-17 用户裁定「升级卡加权/保底」路线）→ 2026-09-19 #D5 用户反馈
+  // 「弹种升级速度太快」：无条件保底改**概率触发**（RULES.cards.ammoUpgradeGuaranteeChance，
+  // 单次抽取独立掷骰；测试可经 opts.ammoGuaranteeChance 覆盖为 1 复现确定性保底）。
+  // 装备优先保底（ability/副武器）语义不变、优先级更高（先判再判弹种保底）。
   if (ammoLoadout) {
-    const upIdx = firstIdxWhere(c => (c.effects || []).some(ef =>
-      ef && ef.type === 'ammo' && ef.replaceAmmo && !ammoLoadout.includes(ef.key)));
-    if (upIdx >= 0 && picked.length < count) pickCardAt(upIdx);
+    const cfgCards = (typeof RULES !== 'undefined' && RULES.cards) ? RULES.cards : {};
+    const chance = (optsOrRng && typeof optsOrRng === 'object' && typeof optsOrRng.ammoGuaranteeChance === 'number')
+      ? optsOrRng.ammoGuaranteeChance
+      : (typeof cfgCards.ammoUpgradeGuaranteeChance === 'number' ? cfgCards.ammoUpgradeGuaranteeChance : 0.4);
+    if (r() < chance) {
+      const upIdx = firstIdxWhere(c => (c.effects || []).some(ef =>
+        ef && ef.type === 'ammo' && ef.replaceAmmo && !ammoLoadout.includes(ef.key)));
+      if (upIdx >= 0 && picked.length < count) pickCardAt(upIdx);
+    }
   }
   while (picked.length < count && usable.length > 0) {
     // 权重抽样：先按稀有度权重选稀有度，再在该稀有度内随机取一张

@@ -30,7 +30,10 @@ function createCamera(opts) {
     targetZoom: zoom0,                       // 阻尼收敛目标（updateCamera 内平滑趋近）
     minZoom: opts.minZoom || rc.minZoom || 0.8,
     maxZoom: opts.maxZoom || rc.maxZoom || 1.3,
-    bounds: opts.bounds || null
+    bounds: opts.bounds || null,
+    // #E12：鼠标外延量（世界 px），由 updateCameraLead 逐帧更新；updateCamera 叠加到跟随目标上
+    leadX: 0,
+    leadY: 0
   };
 }
 
@@ -67,10 +70,76 @@ function updateCamera(cam, target, dt, opts) {
     if (Math.abs(cam.targetZoom - cam.zoom) < 1e-4) cam.zoom = cam.targetZoom;
   }
   if (target) {
-    cam.x += (target.x - cam.x) * k;
-    cam.y += (target.y - cam.y) * k;
+    // #E12（2026-09-20）：摄像机随鼠标向外延伸——在跟随目标中心的基础上叠加「朝鼠标方向的
+    // 构图前移量」，使朝向鼠标一侧的可见范围更大（瞄准/引导线导导弹时更舒服）。
+    // 延伸距离 = RULES.vision.radius × mouseLeadRatio × 归一化鼠标偏移（0~1），
+    // 再按 cam.zoom 反向补偿（zoomComp，默认开）——缩放不改变世界侧外延量。
+    // 由 updateCameraLead 逐帧更新 cam.leadX/leadY（阻尼收敛，切线时平滑）。
+    const lx = (cam.leadX || 0), ly = (cam.leadY || 0);
+    cam.x += (target.x + lx - cam.x) * k;
+    cam.y += (target.y + ly - cam.y) * k;
   }
   clampCamera(cam);
+}
+
+// #E12（2026-09-20）鼠标外延量更新：screenX/screenY 为鼠标屏幕坐标（视口中心为屏幕中心）。
+// 返回更新后的 {leadX, leadY}（同时写回 cam）。与视野半径绑定，zoom 反向补偿。
+// 缺 RULES.camera.mouseLeadRatio 时为零外延（行为与旧版一致）。
+function updateCameraLead(cam, screenX, screenY, dt) {
+  const rc = (typeof RULES !== 'undefined' && RULES.camera) || {};
+  const ratio = rc.mouseLeadRatio !== undefined ? rc.mouseLeadRatio : 0.30;
+  const vR = (typeof RULES !== 'undefined' && RULES.vision && RULES.vision.radius) || 900;
+  const maxLead = vR * ratio;
+  const hw = Math.max(1, (cam.vw || 960) / 2);
+  const hh = Math.max(1, (cam.vh || 600) / 2);
+  // 归一化偏移（0~1，越靠屏幕边缘越大）；对角方向按向量长度钳到 1
+  let nx = (screenX - hw) / hw;
+  let ny = (screenY - hh) / hh;
+  const nlen = Math.hypot(nx, ny);
+  if (nlen > 1) { nx /= nlen; ny /= nlen; }
+  const zoomComp = rc.mouseLeadZoomComp !== false ? (1 / Math.max(0.2, cam.zoom || 1)) : 1;
+  const tx = nx * maxLead * zoomComp;
+  const ty = ny * maxLead * zoomComp;
+  const lk = 1 - Math.exp(-((rc.leadLerp !== undefined ? rc.leadLerp : 5)) * (dt || 0));
+  cam.leadX = (cam.leadX || 0) + (tx - (cam.leadX || 0)) * lk;
+  cam.leadY = (cam.leadY || 0) + (ty - (cam.leadY || 0)) * lk;
+  return { leadX: cam.leadX, leadY: cam.leadY };
+}
+
+// #H5（2026-09-21 用户裁定：可见距离不得写死像素、缩放必须自由）：敌方可见半径重定义为
+// **屏幕相对**——R = screenRadiusRatio × 窄半幅/zoom × (1+卡牌加成)，即 R×zoom 恒定：
+// 敌人在屏幕上的出现位置与缩放无关，玩家自由缩放（看细节/看全局）不再被「固定像素可见距离」
+// 绑架（#H2 的深度拉远与 #H1 的窄轴收口都因此失去必要性，二者降级/删除，见下）。
+// 收口上限保留为几何护栏：R 仍须 ≤ 窄轴屏幕前向容量/(1+bias)（圆心偏移 bias×R 后，
+// 前向边界才能落在屏幕容量内、各方向等距）。注意该上限在「窄半幅≫外延」的常见视口下
+// 通常不绑定（容量 ≈ R×(1+bias) ≥ R×(1+bias)），仅极扁视口时兜底。
+// @param {any} cam 摄像机状态（vw/vh/zoom）
+// @param {any} [opts] { nominal=含卡牌加成的基准半径（供上限式外延项）, bias, leadRatio, leadBase, ratio=screenRadiusRatio }
+// @returns {number} 有效可见半径（世界 px，恒 ≥ 1）
+function visionRadiusForViewport(cam, opts) {
+  const o = opts || {};
+  const vcfg = (typeof RULES !== 'undefined' && RULES.vision) || {};
+  const ratio = o.ratio !== undefined ? o.ratio : (vcfg.screenRadiusRatio !== undefined ? vcfg.screenRadiusRatio : 1.0);
+  const nominal = o.nominal !== undefined ? o.nominal : (vcfg.radius || 900);
+  const bias = Math.max(0, o.bias !== undefined ? o.bias : (vcfg.bias !== undefined ? vcfg.bias : 0.35));
+  const rc = (typeof RULES !== 'undefined' && RULES.camera) || {};
+  const leadRatio = o.leadRatio !== undefined ? o.leadRatio
+    : (rc.mouseLeadRatio !== undefined ? rc.mouseLeadRatio : 0.30);
+  // 外延基准半径：与 updateCameraLead 同源（RULES.vision.radius，**不含**卡牌加成），
+  // 保证镜头外延量与收口上限使用同一口径
+  const leadBase = o.leadBase !== undefined ? o.leadBase : (vcfg.radius || 900);
+  const zoom = Math.max(0.2, (cam && cam.zoom) || 1);
+  const vw = (cam && cam.vw) || 960, vh = (cam && cam.vh) || 600;
+  const narrowHalf = Math.min(vw, vh) / 2;
+  // ① 屏幕相对半径：R×zoom 恒定（缩放自由的核心）——卡牌加成按比例放大屏幕占比
+  //    （nominal = RULES.vision.radius × (1+加成%)，与基准半径之比即加成系数）
+  const base = vcfg.radius || 900;
+  const bonusK = base > 0 ? nominal / base : 1;
+  const screenRelative = ratio * bonusK * narrowHalf / zoom;
+  // ② 几何护栏：前向边界 (1+bias)×R ≤ 窄轴屏幕前向容量（窄半幅/zoom + 外延/zoom）
+  const screenReach = narrowHalf / zoom + (leadBase * leadRatio) / zoom;
+  const cap = screenReach / (1 + bias);
+  return Math.max(1, Math.min(screenRelative, cap));
 }
 
 /**
@@ -143,6 +212,8 @@ if (typeof module !== 'undefined' && module.exports) {
     createCamera,
     setZoom,
     updateCamera,
+    updateCameraLead,
+    visionRadiusForViewport,
     clampCamera,
     worldToScreen,
     screenToWorld,

@@ -149,9 +149,21 @@ function clearCardsFromTank(tank){
         w.secondary = { type: 'none', stats: {} };
       }
     }
-    if (Array.isArray(tank.unlockedAmmo) && tank.unlockedAmmo.length > 2) tank.unlockedAmmo = ['ap', 'he'];
+    // #G（2026-09-21）：弹种升级卡是**原地替换** loadout 槽位（ap→apcr，tank_cards.js ammo 分支），
+    // 旧实现只还原 unlockedAmmo 且仅当 length>2 ⇒ 单分支升级（['apcr','he']，长度不变）会残留
+    // ⇒ 开发者面板「−1」回滚 ammo 卡后升级弹仍出战、链式重放全部失效。改按「是否含非初始键」判定。
+    if (Array.isArray(tank.ammoLoadout)){
+      const tainted = tank.ammoLoadout.some(k => k !== 'ap' && k !== 'he');
+      if (tainted || tank.ammoLoadout.length > 2) tank.ammoLoadout = ['ap', 'he'];
+    }
+    if (Array.isArray(tank.unlockedAmmo)){
+      const tainted2 = tank.unlockedAmmo.some(k => k !== 'ap' && k !== 'he');
+      if (tainted2 || tank.unlockedAmmo.length > 2) tank.unlockedAmmo = ['ap', 'he'];
+    }
     tank.cardEffects = [];
     if (tank._cardApplyCount) tank._cardApplyCount = {};
+    // #G：按序施加日志（tank_cards.applyCardEffects 写入）与计数同生命周期
+    if (tank._cardApplyLog) tank._cardApplyLog = [];
     // 无人机：卡牌部署的伴随机（tank_drone 模块数组）在完整取消时清空
     var clearDrones = _dep('clearDrones');
     if (typeof clearDrones === 'function'){ try { clearDrones(); } catch(e){} }

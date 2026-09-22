@@ -61,7 +61,7 @@ function spawnMine(opts) {
     hp: o.hp || 1,
     damage: o.damage || 100,
     blastRadius: o.blastRadius || 70,
-    triggerRadius: o.triggerRadius || 25,
+    triggerRadius: o.triggerRadius || 40,
     armed: false,
     armDelay: o.armDelay || 1.0,
     // #B9（2026-09-16）：布雷器卡面承诺的「地雷存续时间」（mine_layer duration 30/升级 45s）
@@ -213,6 +213,58 @@ function updateDeployables(dt, ctx) {
   return events;
 }
 
+// ================= #E4（2026-09-20）可部署物数量上限与「最早部署直接消失」 =================
+// 用户裁定：便携式掩体、地雷等可部署物提供部署数量升级；超过可部署数量时，最早部署的直接消失。
+// 口径（RULES.abilities.deploy_limits，唯一配置源）：按类型独立计数，cap = 基础上限 + 升级加成×步长
+// （硬上限封顶）。deployables 数组的 push 顺序即部署先后 → 超限时从数组头部（最早）移除。
+function deployableLimits(){
+  return (typeof RULES !== 'undefined' && RULES.abilities && RULES.abilities.deploy_limits) || {};
+}
+function deployableKind(d){
+  if(!d) return null;
+  if(d.isDeployableCover) return 'cover';
+  if(d.isMine) return 'mine';
+  if(d.isFixedTurret) return 'turret';
+  return null;
+}
+// owner.deployBonus = { cover:n, mine:n } —— 由接入层按卡牌/升级累计（缺省 0）
+function deployableCap(kind, owner){
+  const L = deployableLimits();
+  const base = kind === 'cover' ? (L.coverMax !== undefined ? L.coverMax : 2)
+             : kind === 'mine' ? (L.mineMax !== undefined ? L.mineMax : 3)
+             : Infinity;
+  if(!Number.isFinite(base)) return Infinity;
+  const step = kind === 'cover' ? (L.coverMaxUpgradeStep !== undefined ? L.coverMaxUpgradeStep : 1)
+             : (L.mineMaxUpgradeStep !== undefined ? L.mineMaxUpgradeStep : 1);
+  const hard = kind === 'cover' ? (L.coverMaxHardCap !== undefined ? L.coverMaxHardCap : 6)
+             : (L.mineMaxHardCap !== undefined ? L.mineMaxHardCap : 8);
+  const bonus = (owner && owner.deployBonus && owner.deployBonus[kind]) || 0;
+  return Math.max(0, Math.min(hard, base + bonus * step));
+}
+function deployableCount(kind){
+  let n = 0;
+  for(const d of deployables) if(deployableKind(d) === kind) n++;
+  return n;
+}
+// 超限即移除最早部署的同类部署物；返回被移除的数量。
+function enforceDeployLimits(kind, owner){
+  const cap = deployableCap(kind, owner);
+  if(!Number.isFinite(cap)) return 0;
+  let n = deployableCount(kind);
+  let removed = 0;
+  for(let i = 0; i < deployables.length && n > cap; i++){
+    if(deployableKind(deployables[i]) !== kind) continue;
+    deployables.splice(i, 1);
+    i--;
+    n--;
+    removed++;
+  }
+  if(removed > 0 && typeof pushLog === 'function'){
+    pushLog(`部署上限 ${cap} — 最早部署的${kind === 'cover' ? '掩体' : '地雷'} ×${removed} 已撤收`, 'COVER');
+  }
+  return removed;
+}
+
 function clearDeployables() {
   deployables.length = 0;
 }
@@ -224,6 +276,11 @@ if (typeof module !== 'undefined' && module.exports) {
     spawnMine,
     spawnDeployableCover,
     updateDeployables,
-    clearDeployables
+    clearDeployables,
+    deployableLimits,
+    deployableKind,
+    deployableCap,
+    deployableCount,
+    enforceDeployLimits
   };
 }
