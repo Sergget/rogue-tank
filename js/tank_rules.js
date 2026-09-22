@@ -40,12 +40,20 @@ const RULES = {
   },
 
   // ======================= 视野系统（offset-circle 视野模型） =======================
-  // 可视圆心 = 车身位置向鼠标方向偏移 bias × radius，半径 radius；
-  // 车内圈 inner × radius 恒常可见（不受偏移影响）。
+  // 敌方可见圆（2026-09-21 #H5 重定义——现行口径）：
+  //   可见半径 R = min( screenRadiusRatio × 窄半幅/zoom × (1+视野卡加成), 窄轴前向容量/(1+bias) )
+  //   其中窄半幅 = min(vw,vh)/2（屏幕 px）、窄轴前向容量 = (窄半幅 + radius×mouseLeadRatio)/zoom。
+  //   ⇒ R 随 zoom 等比补偿（R×zoom 恒定）：敌人在屏幕上的出现位置与缩放无关，
+  //     玩家自由缩放（看细节/看全局）不再被「固定像素可见距离」绑架（#H5 用户裁定）。
+  //   圆心仍向鼠标方向偏移 bias×R（朝指向侧更远）；车内圈 inner×R 恒常可见。
+  //   radius 字段保留为**镜头外延基准**（updateCameraLead）与收口上限的外延项，不再直接定可见距离。
   vision: {
-    radius: 900,   // 视野半径（px）
-    bias: 0.35,    // 圆心朝鼠标方向偏移量（×radius）
-    inner: 0.45    // 车内圈恒显半径（×radius）
+    radius: 900,   // 镜头外延基准（世界 px）；#H5 起不再作为敌方可见距离
+    bias: 0.35,    // 圆心朝鼠标方向偏移量（×R）
+    inner: 0.45,   // 车内圈恒显半径（×R）
+    // #H5：可见半径的屏幕相对比例——1.0 = 恰好内切视口窄轴（前向边界在屏幕容量内、
+    // 留外延余量）；<1 留更多反应余量；卡牌加成受同式上限钳制（保持各方向等距）。
+    screenRadiusRatio: 1.0
   },
 
   // ======================= 高度系统 =======================
@@ -54,8 +62,8 @@ const RULES = {
     medium: { hull: 1.4, turret: 0.9 },   // 总高 2.3m
     heavy:  { hull: 1.8, turret: 1.0 },   // 总高 2.8m
     // 掩体相对高度（与车体高度比较决定露出程度）
+    // 2026-09-20 #E3：`half`（半高掩体）高度项随半高掩体整体移除，不再参与任何判定。
     cover: {
-      half: 1.4,  // 与中坦车体齐平
       full: 3.0,   // 完全遮蔽一切
       bush: 1.1,   // 灌木丛（纯视线元素，不参与遮挡判定）
       soft: 0.8,   // 栅栏（可穿透软掩体）
@@ -65,41 +73,46 @@ const RULES = {
       stump: 0.6,  // 树桩（残骸，低矮；地图作者可手动放置）
       rubble: 0.5  // 碎石（残骸，更矮）
     },
-    // 炮口高度（米）：弹道射线起点高度（本游戏无弹道下坠）。2026-08-14 C 实验——
-    // 半高掩体越掩判定用：攻击方离掩体越近，射线在掩体入口处越高，越容易越过 1.4m 掩体。
-    // 旋钮：调高 → 越掩带宽更大（更激进）；调低接近 1.4 → 只有贴掩体才能越掩。
+    // 炮口高度（米）：弹道射线的参考高度（本游戏无弹道下坠）。2026-09-20 #E3 起
+    // 不再用于「越掩插值」（半高掩体已移除），仅作高度语义记录。
     muzzle: { medium: 1.8, heavy: 2.2 }
   },
 
-  // ======================= 掩体遮挡（纯垂直剖面模型） =======================
-  // 1. 中坦在半高掩体后车体 100% 被挡（仅露炮塔）；重坦车体露 25%（75% 被挡），双方炮塔均 100% 露出且可穿过掩体射击。
-  // 2. 方向判据（cutoffDist）：掩体须在命中车体前被射线完整穿过，贴掩体时按 16px 容差判定（骑上/压入掩体不遮蔽）。
-  // 3. 通行（driveBy）：重坦可开过半高掩体，中坦被挡（MTV 推出）。
+  // ======================= 掩体遮挡（确定性模型，2026-09-20 #E1 定案） =======================
+  // 炮弹拦截只由确定性掩体承担：shellBlock===true（建筑/岩石/树，含残破建筑）→ 入口点 100% 截停；
+  // 'single'（沙袋）→ 挡 1 发（>70° 可跳弹）。概率/剖面（'grad'/'half'）与越掩插值全部移除——
+  // 修复用户反馈「炮弹被不可见物体拦截」。
   coverRules: {
-    mediumHullExposure: 0.0,   // 中坦车体在半高掩体后的露出比例（0 = 100% 阻挡）
-    heavyHullExposure: 0.25    // 重坦车体在半高掩体后的露出比例（0.25 = 75% 阻挡，25% 漏出）
+    deterministicOnly: true   // 保留字段示意：弹道不再有概率拦截（消费方：tank_fire.stepShells）
   },
 
   // ======================= 掩体 / 地图元素（P-40 地形类型抽象，docs/specs/map.md §5） =======================
   // 每个 tier 是一个"行为描述"，统一 schema 六属性（§5.1）：
   //   passability     坦克通行系数（0=不可入 / 0.35·0.6=减速 / 1=自由）——旧字段 move 由归一化同步
-  //   shellBlock      弹道交互：true=solid 确定性挡弹 / 'single'=挡 1 发 / 'grad'=渐变垂直剖面 / false=炮弹越飞（不入弹道遮蔽查询，#85 裁定）
-  //   exposureProfile 遮蔽剖面：'full'=全遮 / 'half'=半高垂直剖面+C 越掩插值 / 'graduated'=渐变无插值 / 'none'=不参与
+  //   shellBlock      弹道交互：true=solid 确定性挡弹 / 'single'=挡 1 发 / false=炮弹越飞（不入弹道遮蔽查询）
+  //                   （2026-09-20 #E1：'grad' 渐变剖面已废除，确定性挡弹是唯一拦截来源）
+  //   exposureProfile 遮蔽剖面：'full'=全遮 / 'none'=不参与（'half'/'graduated' 已随半高掩体移除）
   //   destructible    耐久语义：数值=可毁 / Infinity=不可毁结构 / null=非结构（水/泥/植被）；运行时 hp 由归一化回填
   //   drawStyle       渲染风格（box/bush/tree/soft/barricade/stump/rubble/water/water-chain/mud/rock-poly/rubble-box）——旧字段 draw 由归一化同步
   //   tierGroup       语义分组（cover/structure/foliage/liquid/ground）——小地图/AI 找掩体消费
   // 其余字段：vision 遮视线 / crushable 压过即毁 / toTier 摧毁残骸链 / driveBy 按 heightClass 门控越障。
   // 旧字段 mode/move/draw 由下方 normalizeCoverTiers 从新 schema 单向派生，供未迁移消费方过渡。
+  // 2026-09-20 #E3 用户裁定：全高掩体明确衍生为「建筑 / 岩石」，半高掩体（half）及其
+  // 垂直剖面/越掩插值计算整体移除（定义删除 + 生成早已屏蔽 + 弹道管线不再消费 grad/half）。
+  // 现状：确定性挡弹只由 shellBlock===true（建筑 full/intact/rock/tree）与 'single'（沙袋）承担。
   coverTiers: {
-    half:       { label: '半高掩体', fill: 'rgba(150,128,72,0.45)',  stroke: '#2e2410', passability: 0.4,  shellBlock: 'grad',   exposureProfile: 'half',      destructible: Infinity, crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'cover',     driveBy: { heavy: true, medium: false } },
-    full:       { label: '全高掩体', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure' },
+    full:       { label: '建筑', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure' },
     bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#3f9a2e', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'bush',        tierGroup: 'foliage' },
-    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#2e6e28', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: false, vision: true,  drawStyle: 'tree',        tierGroup: 'foliage', toTier: 'fallen' },
+    // 2026-09-20 #E11：树木缩小并由坦克可直接推倒（crushable=true → 压过即倒，转为 fallen）；
+    // 逻辑尺寸收敛见 RULES.nodeMap.treeWorldScale（生成期）。仍保留「炮弹 1 发伐倒」。
+    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#2e6e28', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: true,  vision: true,  drawStyle: 'tree',        tierGroup: 'foliage', toTier: 'fallen' },
     fallen:     { label: '倒树',     fill: 'rgba(56,72,44,0.35)',    stroke: '#4a5c3a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'fallen',      tierGroup: 'foliage', residueW: 2.4, residueH: 0.5 },
     soft:       { label: '栅栏',     fill: 'rgba(150,118,70,0.4)',   stroke: '#96764a', passability: 0.45, shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'soft',        tierGroup: 'structure' },
     barricade:  { label: '沙袋路障', fill: 'rgba(158,128,72,0.55)',  stroke: '#9e8048', passability: 1.0,  shellBlock: 'single', exposureProfile: 'full',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'barricade',   tierGroup: 'structure', toTier: 'rubble' },
-    stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'graduated', destructible: 1,        crushable: true,  vision: false, drawStyle: 'stump',       tierGroup: 'structure' },
-    rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'graduated', destructible: 1,        crushable: true,  vision: false, drawStyle: 'rubble',      tierGroup: 'structure' },
+    // #E1/#E3（2026-09-20）：树桩/碎石改为**不挡弹**（shellBlock false）——旧 'grad' 渐变剖面是
+    // 「炮弹被不可见小物件拦截」的主要来源之一；残骸类低矮杂物不再参与弹道遮蔽。
+    stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', passability: 0.6,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'stump',       tierGroup: 'structure' },
+    rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', passability: 0.6,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'rubble',      tierGroup: 'structure' },
     // ======================= P-20/P-40：水体/桥梁 + 新地形 =======================
     // 水系裁定（2026-09-14 重做）：水潭/河流可缓速通行（passability 0.4，与烂泥地同级）；
     // 完全浸入（整车四角入水）触发溺毙倒计时（RULES.drowning.seconds，缺省 8s）——
@@ -109,8 +122,13 @@ const RULES = {
     river:      { label: '河流',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water-chain', tierGroup: 'liquid' }, // 多段连通水体（segments）；同 water 减速通行 + 溺毙
     mud:        { label: '烂泥地',   fill: 'rgba(96,72,44,0.45)',    stroke: '#60482c', passability: 0.4, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'mud',         tierGroup: 'ground' }, // 减速不阻挡、不进弹道遮蔽（复查处置：0.35→0.4，与半高掩体同级）
     road:       { label: '道路',     fill: 'rgba(122,120,114,0.55)', stroke: '#6e6c66', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'road',        tierGroup: 'ground' }, // 村庄街道：可自由通行、不挡弹、不遮视线（纯地面标识）
+    // #G（2026-09-21 用户需求 #4）：可破坏楼房——完整但可摧毁的砖混建筑：耐久 3，
+    // 摧毁后转 ruined 残破建筑（再 1 发 → rubble 碎石， rubble 不挡弹）。链：building→ruined→rubble。
+    building:   { label: '楼房',     fill: 'rgba(150,96,78,0.66)',  stroke: '#a24a34', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 3,        crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure', toTier: 'ruined' },
     intact:     { label: '完整建筑', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure' },
-    ruined:     { label: '残破建筑', fill: 'rgba(122,114,100,0.5)',  stroke: '#7a7264', passability: 0.6,  shellBlock: 'grad',   exposureProfile: 'half',      destructible: 1,        crushable: false, vision: false, drawStyle: 'rubble-box',  tierGroup: 'structure', toTier: 'rubble', driveBy: { heavy: true, medium: false } },
+    // #E3（2026-09-20）：残破建筑归入全高掩体（建筑衍生）——shellBlock true / exposureProfile 'full'，
+    // 直射实弹 100% 确定性格挡；hp 1 被击毁后转 rubble 残骸（残骸不再挡弹）。
+    ruined:     { label: '残破建筑', fill: 'rgba(122,114,100,0.5)',  stroke: '#7a7264', passability: 0.6,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: false, vision: true,  drawStyle: 'rubble-box',  tierGroup: 'structure', toTier: 'rubble' },
     rock:       { label: '岩石',     fill: 'rgba(138,138,132,0.85)', stroke: '#6f6f68', passability: 0,    shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'rock-poly',   tierGroup: 'structure' },
     bridge:     { label: '桥梁',     fill: 'rgba(139,92,25,0.8)',    stroke: '#8b5c1a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' }
   },
@@ -141,6 +159,16 @@ const RULES = {
     shrinkRate: 0.15,         // 缩圈（集中）速度 — 坦克级设置：三扩系数×散布上限 / 缩圈速度走 base.spreadMult / base.aimSpeed
     multFloor: 0.2,           // D3 #A2（2026-08-26）：stats.spreadMult 聚合后的下限钳制——卡牌/升级叠加不得使三扩系数穿越 0 变负
     sigmaFloor: 0.01          // D3 #A2（2026-08-26）：最终生效 σ 下限——floor 作用在合成结果上，负中间值不外泄
+  },
+
+  // ======================= #E5（2026-09-20）反坦克导弹制导参数 =======================
+  // 两种制导方式（消费方 tank_fire.stepShells guided 分支 / tank_weapons.updateMissileLock）：
+  //   lock（锁定式）：F 激活 → 自动索敌（炮塔 ±lockArcDeg 扇形）→ 锁定 lockSeconds → 立即发射；
+  //                   飞行用「追尾 + 比例引导（PN）」。
+  //   wire（线导式）：F 直接发射 → 鼠标持续引导飞行方向（比例引导，操作者即导引源）。
+  missiles: {
+    lock: { turnRate: 3.5, navConstant: 3.0 },   // 锁定式：转向率 rad/s + PN 系数 N
+    wire: { turnRate: 4.5, navConstant: 0.0 }    // 线导式：转向更快（手动操舵手感），N=0（纯视线跟随鼠标）
   },
 
   // ======================= 速度 / 机动换算 =======================
@@ -210,13 +238,45 @@ const RULES = {
       maxSpeedMult: 1.5,  // +50% top speed
       cooldown: 20
     },
+    // #G（2026-09-21 用户需求 #9）：主动防御系统（APS，Active Protection System）——
+    // 激活后 duration 秒内自动拦截进入 radius 的来袭敌方弹药（炮弹/导弹）：
+    // 弹体直接销毁并触发小型拦截特效。maxIntercepts 限制单次激活的拦截数（雷达/发射器弹匣），
+    // 拦截满上限后系统仍保持开启但不再拦截。冷却独立（abilityCds.aps）。
+    aps: {
+      duration: 6,          // 拦截窗口（秒）
+      radius: 240,          // 拦截半径（px，车体中心）
+      maxIntercepts: 3,     // 单次激活最多拦截数
+      cooldown: 22          // 冷却（秒）
+    },
     deploy_cover: {
       hp: 200,
       shieldHp: 150,
       duration: 30,
       cooldown: 20,
       dist: 90,          // #C4b（2026-09-17 用户裁定）：部署距离（自车体中心沿炮塔方向，px；取代旧硬编码 50）
-      lenMult: 1.6       // #C4b：掩体长度 = 车体 hullLen × lenMult（加长横掩，取代旧缺省 hullLen 50）
+      // #E4（2026-09-20 用户裁定）：掩体长度再加长至当前 2 倍（1.6 → 3.2）。
+      lenMult: 3.2,
+      // #E4 单向透明：部署方阵营的炮弹可穿过掩体，对立方炮弹被 100% 格挡；
+      // 视觉上以朝向指示（部署面虚线 + 箭头）标明「我方穿透侧」。
+      oneWay: true,
+      width: 22          // 掩体厚度（px，旧硬编码 20）
+    },
+    deploy_limits: {     // #E4 可部署物数量上限（按类型独立计数）+ 升级增量
+      coverMax: 2,       // 战术掩体基础上限（升级卡/局内升级各 +1）
+      mineMax: 3,        // 地雷基础上限（雷场单次布设的雷数也受此约束）
+      coverMaxUpgradeStep: 1,
+      mineMaxUpgradeStep: 1,
+      coverMaxHardCap: 6,
+      mineMaxHardCap: 8,
+      mineFieldCount: 5,   // #E4 单次雷场布设的地雷数（受 mineMax 上限约束）
+      mineFieldRadius: 70, // 雷场半径（px，预形态与最终布设一致）
+      mineFieldDelay: 4,   // #E4 确认布设后到雷场生成的延时（秒）
+      // #E4 部署数量升级来源：持有该卡即按 listed 增量累加 deployBonus（可叠多张）
+      upgradeCards: {
+        ability_deploy_cover_fortified: { cover: 1 },
+        weapon_secondary_mine_upgrade: { mine: 1 },
+        turret_bunker: { turret: 1 }
+      }
     },
     drone: {
       scoutRange: 700,     // 侦察指示范围（px）：视口外敌军位置指示箭头（默认视口 960×600，半对角线 ≈566，取 700 覆盖视口外一圈）
@@ -339,15 +399,17 @@ const RULES = {
     apds: { label: 'APDS', color: '#ffa25c', speed: 1.4, pen: 1.4, dmg: 1.2, bounceAngle: 75, moduleDraws: 2, ammoMult: 2,   crewMult: 2,   spreadAcc: 0.9, nonPenRatio: 0, tail: 'rgba(255,162,92,0.7)' },
     apfsds: { label: 'APFSDS', color: '#d8f8ff', speed: 1.8, pen: 1.8, dmg: 1.2, bounceAngle: 85, moduleDraws: 2, ammoMult: 2.5, crewMult: 2,   spreadAcc: 0.8, nonPenRatio: 0, doubleModule: true, tail: 'rgba(216,248,255,0.8)' },
     apfsds_ad: { label: 'APFSDS-AD', color: '#b8f0ff', speed: 1.8, pen: 2.0, dmg: 1.4, bounceAngle: 87, moduleDraws: 2, ammoMult: 2.5, crewMult: 2,   spreadAcc: 0.7, nonPenRatio: 0, doubleModule: true, tail: 'rgba(184,240,255,0.9)' },
-    he:   { label: 'HE',   color: '#ffb454', speed: 0.8, pen: 0.5, dmg: 1.5, noBounce: true, splashRadius: 90, moduleDraws: 3, ammoMult: 3,   crewMult: 2,   spreadAcc: 1.2, nonPenRatio: 0.6, tail: 'rgba(255,180,84,0.6)' },
+    he:   { label: 'HE',   color: '#ffb454', speed: 0.8, pen: 0.5, dmg: 1.5, noBounce: true, splashRadius: 90, splashKnockbackMul: 0.55, moduleDraws: 3, ammoMult: 3,   crewMult: 2,   spreadAcc: 1.2, nonPenRatio: 0.6, tail: 'rgba(255,180,84,0.6)' },
     heat: { label: 'HEAT', color: '#ffd23c', speed: 0.9, pen: 1.5, dmg: 1.0, noBounce: true, bounceAngle: 87, moduleDraws: 1, ammoMult: 2,   crewMult: 1.5, spreadAcc: 1.2, nonPenRatio: 0, tail: 'rgba(255,210,60,0.6)' },
     heatfs: { label: 'HEAT-FS', color: '#ffe27a', speed: 1.2, pen: 1.75, dmg: 1.0, noBounce: true, bounceAngle: 87, moduleDraws: 1, ammoMult: 2,   crewMult: 1.5, spreadAcc: 1.1, nonPenRatio: 0, tail: 'rgba(255,226,122,0.7)' },
     tandem_heat: { label: 'T-HEAT', color: '#ffec9e', speed: 1.2, pen: 2.0, dmg: 1.2, noBounce: true, bounceAngle: 87, moduleDraws: 2, ammoMult: 2,   crewMult: 1.5, spreadAcc: 1.05, nonPenRatio: 0, tail: 'rgba(255,236,158,0.75)' },
     heavy_tandem_heat: { label: 'HT-HEAT', color: '#fff6c0', speed: 1.2, pen: 2.0, dmg: 1.4, noBounce: true, bounceAngle: 87, moduleDraws: 2, ammoMult: 2.5, crewMult: 2,   spreadAcc: 1.1, nonPenRatio: 0, tail: 'rgba(255,246,192,0.85)' },
     aphe: { label: 'APHE', color: '#ffc9a0', speed: 1.0, pen: 1.1, dmg: 1.2, bounceAngle: 70, moduleDraws: 2, ammoMult: 2,   crewMult: 1.5, spreadAcc: 1.1, nonPenRatio: 0, tail: 'rgba(255,201,160,0.6)' },
-    hesh: { label: 'HESH', color: '#e8a0ff', speed: 0.8, pen: 0.7, dmg: 1.5, noBounce: true, splashRadius: 100, moduleDraws: 2, ammoMult: 2,   crewMult: 1.8, spreadAcc: 1.1, nonPenRatio: 0.8, tail: 'rgba(232,160,255,0.7)' },
-    proximity_he: { label: 'HE-VT', color: '#ffd0b0', speed: 0.9, pen: 0.9, dmg: 1.5, noBounce: true, splashRadius: 90, moduleDraws: 2, ammoMult: 2.5, crewMult: 2,   spreadAcc: 1.1, nonPenRatio: 0.8, proximity: true, tail: 'rgba(255,208,176,0.7)' },
-    blast_he: { label: 'HE-OP', color: '#ff9a6c', speed: 0.9, pen: 0.8, dmg: 1.8, noBounce: true, splashRadius: 110, moduleDraws: 3, ammoMult: 3,   crewMult: 2,   spreadAcc: 1.1, nonPenRatio: 0.8, tail: 'rgba(255,154,108,0.8)' }
+    hesh: { label: 'HESH', color: '#e8a0ff', speed: 0.8, pen: 0.7, dmg: 1.5, noBounce: true, splashRadius: 100, splashKnockbackMul: 0.7, moduleDraws: 2, ammoMult: 2,   crewMult: 1.8, spreadAcc: 1.1, nonPenRatio: 0.8, tail: 'rgba(232,160,255,0.7)' },
+    // #E10（2026-09-20）：HE-VT / HE-OP 增加击退——击退距离 = splashRadius × splashKnockbackMul
+    // （「数值和爆炸范围绑定」）。HE-OP(0.95×110=104.5px) > HE-VT(0.6×90=54px)，满足用户要求。
+    proximity_he: { label: 'HE-VT', color: '#ffd0b0', speed: 0.9, pen: 0.9, dmg: 1.5, noBounce: true, splashRadius: 90, splashKnockbackMul: 0.6, moduleDraws: 2, ammoMult: 2.5, crewMult: 2,   spreadAcc: 1.1, nonPenRatio: 0.8, proximity: true, tail: 'rgba(255,208,176,0.7)' },
+    blast_he: { label: 'HE-OP', color: '#ff9a6c', speed: 0.9, pen: 0.8, dmg: 1.8, noBounce: true, splashRadius: 110, splashKnockbackMul: 0.95, moduleDraws: 3, ammoMult: 3,   crewMult: 2,   spreadAcc: 1.1, nonPenRatio: 0.8, tail: 'rgba(255,154,108,0.8)' }
     // 注：legacy HEC 曲射弹种已按用户裁定移除（2026-09-14）——曲射越障能力由榴弹炮/迫击炮
     // 武器层（isArc + ignoreCover）承担，不再占用独立弹种键。
   },
@@ -398,6 +460,15 @@ const RULES = {
     tailLen: 18   // 拖尾长度（px）
   },
 
+  // ======================= 卡牌抽取（2026-09-19 #D5 调参） =======================
+  // 消费方：js/tank_cards.js drawCardChoices。
+  cards: {
+    // #C3 弹种升级卡保底触发概率：候选池存在「链上前驱已在 loadout」的可解锁升级卡时，
+    // 以该概率保证 1 张进入候选（单次抽取独立掷骰）。2026-09-19 #D5 用户反馈「弹种升级
+    // 速度太快」——#C3 无条件保底（每节点 1 阶推进）下调为概率触发。
+    ammoUpgradeGuaranteeChance: 0.4
+  },
+
   // P-36/#81 biome 地面配色板（取自 P-44 底色表；water 本批不做背景水体）。
   // 消费方：js/tank_battledraw.js drawGround（底色 + 种子确定性低频色斑）。
   biomes: {
@@ -416,7 +487,61 @@ const RULES = {
     // 调参理由：nodeScale=3 下旧掩体世界尺寸过大（半高墙 240~270px ≈4× 车长、沙袋 180~210px），
     // 收敛到 半高≈1.5~2×车长(100~150px)/全高≈2~3×(150~220px)/沙袋≈1×(60~90px)；
     // 地形标签生成物（pond/river/mud）与树丛不在此表 → 尺寸不受影响。
-    coverWorldScale: { half: 0.42, full: 0.42, barricade: 0.32 },
+    coverWorldScale: { half: 0.42, full: 0.42, building: 0.42, barricade: 0.32 },
+    // 2026-09-20 #E11：树木单独收敛（用户反馈树太大）——树/倒树/树桩在模板单位 × nodeScale
+    // 之外再乘该系数；树冠视觉（tank_assets.bakeCanopy）同步乘同一系数保持视觉-逻辑同源。
+    treeWorldScale: 0.6,
+    // ======================= 2026-09-20 #E2 路网重做（去横平竖直 + 加宽 + 公路加速） =======================
+    // 用户反馈：路网太单调，都是横平竖直。v3 拓扑在保持「贯穿/支路」骨架的同时引入
+    // 斜向干道与更强的曲线弯曲，并按权重混入多种朝向。
+    road: {
+      widthMin: 92,            // 街道条带宽下限（世界 px，旧 60 → 加宽；#E3 公路加宽）
+      widthMax: 124,           // 街道条带宽上限（旧 80）
+      curveAmp: 0.16,          // 干线弯曲幅度（相对跨度比例，旧 0.04 → 明显弯曲）
+      diagChance: 0.45,        // 干线走小角度斜向（而非正东西/正南北）的概率
+      diagAngleMin: 0.18,      // 斜向偏角下限（rad ≈10°）
+      // #G（2026-09-21）：0.52→0.42→0.34 —— 斜干 × 正交支道的交角 = 90°−θ−干道链段局部斜率
+      // （弯曲引入 ≈7°）。实测 0.42 时最小交角 58.2°（<#B7 的 60° 护栏）；0.34(≈19.5°) 留 ≥63° 余量。
+      diagAngleMax: 0.34,      // 斜向偏角上限（rad ≈19°）
+      branchCurveAmp: 0.10,    // 支路弯曲幅度
+      junctionClearR: 0.85,    // 路口清空半径系数（×路宽）：路口内不生成实体掩体
+      speedBonusKmh: 10,       // 在公路上行驶的速度加成（km/h，受 maxSpeed 150km/h 上限钳制）
+      speedBonusLerp: 6        // 公路上加成生效/失效的阻尼速率（1/s）
+    },
+    // ======================= 2026-09-20 #E3 建筑沿路聚集 / 路口最密 =======================
+    // 建筑（tier 'full'）落位优先级：路口邻域 > 沿路两侧 > 自由散布。
+    building: {
+      roadBand: 96,            // 「沿路」判定的路缘外扩带（px）：建筑中心在该带内计为沿路
+      roadBias: 0.62,          // 非模板建筑的落位被拉向最近路段的概率
+      junctionBias: 0.9,       // 建筑落位在路口邻域的概率（高于 roadBias → 路口最密）
+      junctionRadius: 210,     // 路口邻域半径（px）
+      // #I3（2026-09-21 用户裁定「继续增加建筑密度」）：3~5/18 → 4~8/28
+      clusterPerJunction: 4,   // 每个路口额外聚集的建筑数下限
+      clusterPerJunctionMax: 8, // 每个路口额外聚集的建筑数上限
+      maxPerNode: 28,          // 单节点沿路/路口新增建筑总数的硬上限（防密度失控）
+      // #I3：Boss 战图建筑密度乘子（makeNode 对 boss 节点传入 generateNode.buildingDensity）
+      bossDensity: 1.6
+    },
+    // ======================= 2026-09-20 #E3 路口沙包 + 敌人生成点位 =======================
+    junctionBarricades: {
+      chance: 0.85,            // 路口生成沙包（barricade）阵的概率
+      countMin: 2,             // 单路口沙包数下限
+      countMax: 4,             // 单路口沙包数上限
+      ringMin: 0.9,            // 沙包距路口中心的半径系数（×路宽）下限
+      ringMax: 1.9             // 上限（环形布防，留出通行口）
+    },
+    // 敌方生成候选：优先建筑旁/路口，且随难度提高「集中生成」的敌数（#E6）。
+    enemySpawn: {
+      structureChance: 0.55,   // 单簇中心落在建筑邻域的概率（低难度基线）
+      structureChanceMax: 0.85,// 高难度上限（难度越高越偏向建筑/路口）
+      junctionChance: 0.35,    // 在建筑候选中进一步偏向路口的概率
+      structureRadius: 130,    // 建筑邻域判定半径（px）
+      clusterBonusMin: 0,      // 高难度追加敌簇数下限（#E6：难度越高集中生成数量越多）
+      clusterBonusMax: 3       // 上限（diff=1 时追加 3 簇）
+    },
+    // 敌军世界边界内缩（#E6：修复「敌人跑到地图范围之外」）。AI 移动输出由 mvp 注入
+    // worldBounds 钳制；本值为距节点边界的最小内缩量（px，含车体半长余量）。
+    enemyBoundsMargin: 56,
     // #83 敌方集群生成：把同节点的敌军按"簇"布置（而非均匀散点），地图观感更像战术编队
     enemyClusterRadius: 150,       // 簇内成员彼此最大间距（px）
     enemyClusterSizeMin: 3,        // 单簇最小敌数（2026-08-25 数量上调 2→3）
@@ -479,6 +604,24 @@ const RULES = {
     aimTolerance: 0.12,     // 炮塔对准容差（rad）才开火
     allyEngageRange: 460,   // 友军据点射程（消极防御，只打射程内敌人）
 
+    // --- 2026-09-20 #E7 敌人反应速度（用户反馈「反应太快」） ---
+    // 进入接战（首次获得目标）后，敌人需经过 reactionSeconds 的「察觉/炮塔起转」延迟
+    // 才会移动与开火；受击警觉（alertEntity）只把延迟减半（被打醒更快，但不瞬发）。
+    // 延迟按 AI 档位递减（tierProfiles.reactionMul），按难度不叠加——难度只影响数量与强度。
+    reactionSecondsBase: 1.15,   // 基线反应延迟（秒）
+    reactionSecondsMax: 1.9,     // 低难度/低档位上限（秒）
+    reactionAlertMul: 0.5,       // 受击警觉后的延迟倍率（被打醒的反应更快）
+    reactionJitter: 0.25,        // 每辆车的随机抖动比例（±25%，避免整簇同时开火）
+
+    // --- 2026-09-20 #E8 全高掩体遮挡视野 + engage 状态传播 ---
+    // 1) 激活（进入接战）必须「距离达标 **且** 有视线」——建筑/岩石/树等 vision:true 掩体
+    //    挡住视线时敌人不再就地激活；受击/友邻告警不受此限（被打醒是合法通道）。
+    engageRequiresLoS: true,
+    // 2) engage 状态传播：某个敌人首次进入接战时，把状态传播给 engagePropagateRadius 内的友邻
+    //    （它们同样进入接战并按各自反应延迟行动）。
+    engagePropagateRadius: 420,
+    engagePropagateChance: 0.7,  // 传播成功率（避免一次暴露唤醒整张图）
+
     // --- P-19 多态状态机参数 ---
     flankZoneAngle: Math.PI / 2,    // 90度：判定" flank 侧向"的角度窗口（相对于目标朝向）
     flankMinDist: 400,              // 开始尝试 flank 状态的最小玩家距离（px）
@@ -495,8 +638,8 @@ const RULES = {
     //   stunResist — 抗晕：dazedProbability 减半 + stun 阈值 +0.2
     tierProfiles: [
       {},                                  // tier 0：基础行为，无修正
-      { engageMul: 1.1, aimTolMul: 0.8 },  // tier 1：更警觉、更准
-      { engageMul: 1.2, aimTolMul: 0.6, stunResist: true }  // tier 2：精英——远距压制、高精度、抗晕
+      { engageMul: 1.1, aimTolMul: 0.8, reactionMul: 0.82 },  // tier 1：更警觉、更准、反应更快
+      { engageMul: 1.2, aimTolMul: 0.6, stunResist: true, reactionMul: 0.65 }  // tier 2：精英——远距压制、高精度、抗晕、反应最快
     ],
     defensiveHQRadius: 200,         // 友军据点防御半径（px），保持在该半径内优先驻守
     searchOscillationSpeed: 0.25,   // 搜索状态扫描摆动速度（rad/s），来回扫视的频率
@@ -506,6 +649,19 @@ const RULES = {
     stunImmunityAfter: 2.0,         // stunned 自然结束后免疫窗时长（秒）：期间不再被压入 stunned（防高射速无限连控）
     dazedProbability: 0.3,          // 模块伤害触发惊慌而非直接进入 stun 的概率
     alertRadius: 600,               // 警觉传播半径（px）：敌对 AI 被击中时，该半径内友邻一并警觉（propagateAlert）
+    // #I4（2026-09-21 用户裁定「boss 几乎完全是站桩等玩家」）：Boss 随机走位层——
+    // 周期性在玩家周围随机选点（环绕/侧移），车体驶向该点（炮塔照常锁定玩家开火），
+    // 消费方 updateBossBehavior 写 _bossMoveOverride、mvp AI 循环覆盖 d.turn/d.move。
+    // crush 风格（冲撞碾压为身份）豁免；激光期走 hold 冻结不叠加。
+    bossWander: {
+      enabled: true,
+      intervalMin: 2.2,       // 换点间隔下限（秒）——到点/超时即重选走位目标
+      intervalMax: 4.6,       // 换点间隔上限（秒）
+      distMin: 240,           // 走位点距玩家的最小半径（px，保持交战距离）
+      distMax: 520,           // 走位点距玩家的最大半径（px）
+      waypointReach: 90,      // 到达判定半径（px，进入即视为到位/提前换点）
+      clampMargin: 140        // 走位点钳制进节点边界的内缩量（px）
+    },
     patrolSpeedFactor: 0.8,         // 巡逻/行军状态移动速度因子（相对于基准速度的比例）
     patrolWanderSigma: 0.02,        // 巡逻状态正弦摆动幅度（rad），轻微摆动路径
     patrolWanderSpeed: 1.5,       // 巡逻状态摆动周期频率（rad/s）
@@ -551,11 +707,18 @@ const RULES = {
   // 摄像机缩放（P-39 镜头滚轮缩放）。
   // 消费方：js/tank_camera.js（createCamera 缺省 / setZoom 钳制 / updateCamera 阻尼）+ tank_mvp.html（滚轮乘法步进）。
   camera: {
+    // #H5（2026-09-21 用户裁定）：0.45 → 0.8 回退——敌方可见距离已改为屏幕相对
+    // （vision.screenRadiusRatio，随 zoom 补偿），不再需要 #H2 的深度拉远来装入固定视野圆；
+    // 缩放回归纯视觉偏好（默认 1.0 = 全细节，玩家自由缩放不受 gameplay 惩罚）。
     minZoom: 0.8,            // 最小缩放（拉远下限，视野最大）
     maxZoom: 1.3,            // 最大缩放（推近上限）
-    zoomStep: 0.15           // 每格滚轮的乘法步进系数（targetZoom *= 1±zoomStep）
-    // 设计理由：区间收敛防不对称优势（拉远信息/拉近瞄准）；步进取 0.15 保证
-    // [0.8,1.3] 区间内每格缩放有可感知的观感变化（0.1 时用户反馈"看不出变了"）。
+    zoomStep: 0.15,          // 每格滚轮的乘法步进系数（targetZoom *= 1±zoomStep）
+    // 2026-09-20 #E12：摄像机随鼠标向外延伸（构图前移，扩大朝向鼠标一侧的可见范围）。
+    // 延伸距离 = RULES.vision.radius × leadRatio × 鼠标偏移归一化值（0~1，视口半宽/半高为满值），
+    // 即「距离和视野绑定」：视野越大，可外延的距离越远；再乘 cam.zoom 反向补偿（缩小时外延更远）。
+    mouseLeadRatio: 0.30,
+    mouseLeadZoomComp: true, // true = 外延距离 ÷ cam.zoom（缩放不改变世界侧外延量）
+    leadLerp: 5              // 外延量的阻尼收敛速率（1/s）
   },
 
   // 难度曲线表（P-13 / DEVELOPMENT.md §6 条目 12 / 开放问题 6；P-34 开放式链参数化改造）。
@@ -638,6 +801,70 @@ const RULES = {
       dmgMul: 1.5,         // 单发伤害 ×1.5
       penMul: 1.4,         // 穿深 ×1.4（2026-08-25 新增：Boss 穿深独立乘子，不受敌军 penCapVsPlayer 封顶）
       engageDist: 99999    // #21：Boss 出生即进入交战（巨大触发半径，绕过常规 trigDist 700 / 巡逻/风筝）
+    },
+    // ======================= 2026-09-20 #E9 Boss 修订（用户反馈） =======================
+    // 1) 残血减速上限：阶段 onEnter.modifiers 里的 maxSpeed/turnRate 倍率过猛会让残血 Boss
+    //    快到无法处理。聚合后对 Boss 的车体机动施加硬上限（相对 boss 出战配置的基准倍率）。
+    stageSpeedCapMul: { maxSpeed: 1.15, turnRate: 1.1, turretTurnRate: 1.15 },
+    // 2) 早期行动：Boss 出生后先有一小段「展开/预热」窗口，期间有可见动作（慢速前压 + 炮塔扫描），
+    //    之后进入正常阶段行为；避免开场站着不动。
+    openingSeconds: 1.6,
+    openingScanRate: 0.9,      // 开场炮塔扫描角速度（rad/s）
+    // 3) 受击反馈：命中 Boss 时（非弱点）触发一次短暂受击反应——炮塔抖动 + 轻微车体顿挫，
+    //    有冷却，避免高射速下抖动到无法瞄准。弱点命中只给更强的顿挫。
+    hitReact: {
+      enabled: true,
+      seconds: 0.35,           // 单次反应时长（秒）
+      cooldown: 0.45,          // 反应冷却（秒）
+      turretJitter: 0.10,      // 炮塔抖动幅度（rad）
+      stunSlowSeconds: 0.25,   // 短暂减速时长（秒）
+      slowMul: 0.35            // 顿挫期速度倍率
+    },
+    // 4) 分波次召唤：boss.summons 不再一次性投放——按 Boss 血量阈值分波（hpFrom 为该波触发血量比例），
+    //    每波的敌数随难度放大（难度越高集中生成越多）。
+    //    #G（2026-09-21）：新增 defaultPool/defaultWaves —— 正式 Boss 漏写 summons 时按默认池回退，
+    //    杜绝「该 Boss 整场不召唤任何敌人」的静默失效（旧实现 list 为空直接 return null）。
+    summonWaves: {
+      enabled: true,
+      tolerance: 0.02,         // 血量跨过阈值的判定容差
+      hpFrom: [0.75, 0.5, 0.25],  // 默认波次触发血量比例（boss.summons[i].hpFrom 可覆盖）
+      countDiffMul: 1.6,       // 难度对单波敌数的放大上限（diff=1 时 ×1.6）
+      spawnRadiusMin: 160,     // 波次生成点距 Boss 的半径下限（px）
+      spawnRadiusMax: 320,     // 上限
+      defaultPool: [{ tankId: 'dummy', count: 2 }],  // 漏写 summons 的正式 Boss 的回退池
+      defaultWaves: 3          // 回退池铺满 3 波（对应 hpFrom 三段阈值）
+    },
+    // 5) 蓄能激光（主炮发射）：蓄能期炮塔转速大幅下降 + 在炮线上生成虚线警示带与红色透明填充，
+    //    蓄能完毕对带内目标持续快速掉血。数值与「坦克主炮」无关，是 Boss 专属机制。
+    laser: {
+      enabled: true,
+      ranges: [0.98, 0.72, 0.45, 0.18],  // 各阶段启用/加强激光的血量比例阈值（从首阶段起依次）
+      chargeSeconds: 2.6,      // 蓄能时长（秒）——期间给出警示带
+      fireSeconds: 1.5,        // 射击持续时长（秒）
+      cooldown: 9,             // 两次激光之间的冷却（秒）
+      width: 34,               // 光束/警示带宽度（px，沿炮线法向的半宽 ×2）
+      length: 1400,            // 光束长度（px）
+      dpsRatio: 0.55,          // 每秒伤害 = Boss 标准伤害 × dpsRatio
+      // #H4（2026-09-21 用户裁定）：激光期炮塔**固定角速度直驱**（rad/s，绝对值），取代
+      // charge/fireTurretTurnMul 乘数方案——乘数方案下 Boss 基础 turretTurnRate 已被 tuning
+      // （×0.6）与难度乘子压低，再乘 0.15~0.18 后实际角速度趋近 0（用户实测「又不转动了」）。
+      // 固定转速不受任何 modifier/难度乘子影响；激光期 AI 转炮被抑制（bossLaserHoldTurret）。
+      // #I1（2026-09-21 用户裁定「炮塔转速再降低」）：0.55 → 0.35 rad/s（≈20°/s，走位窗口更宽）。
+      laserTurnSpeed: 0.35,    // 激光期炮塔转向角速度（rad/s，固定、较慢——给玩家走位机会）
+      blockByFullCover: true,  // 光束被建筑/岩石等全高掩体（tierGroup:'structure' 且 vision）阻挡：被挡目标不掉血
+      // #I2（2026-09-21 用户裁定）：蓄能虚线与光束在绘制层反映全高掩体阻挡（截断到阻挡点）
+      telegraphDash: [16, 12], // 虚线参数 [实线长, 间隔]（px）
+      telegraphColor: 'rgba(255,64,48,0.28)' // 红色透明填充
+    },
+    // 6) Boss 履带断落随机自修（2026-09-23 用户裁定）：
+    //    被击毁履带后，在锁定时间（trackLock, 缺省 8s）内，boss 会在一个随机时点、
+    //    以随机概率立即修复履带——而非整场被动站桩等锁自然归零，缓解「频繁断履带」。
+    //    单次决策：履带断时预定一个 (0, windowSeconds] 内的随机时点 → 到点 roll chance →
+    //    命中立即修复（trackBroken/immobT 清零）；不命中则保持锁定直至 trackLock 自然结束。
+    trackRepair: {
+      enabled: true,
+      windowSeconds: 8,   // 修复决策窗口上限（s）
+      chance: 0.4         // 到达决策点时立即修复的概率（0~1）
     }
   },
 
@@ -730,8 +957,9 @@ const RULES = {
 
   // ======================= 武器与槽位解耦 (R-1) =======================
   weaponTypes: {
-    primary: ['standard', 'autocannon', 'double_barrel', 'railgun'],
-    secondary: ['none', 'mortar', 'missile', 'rocket', 'mine_layer', 'turret']
+    // #G（2026-09-21）：新增 clip（弹夹炮）——弹夹内 0.7s 固定发际间隔 / 弹夹间 ×3.0 起步整组装填
+    primary: ['standard', 'autocannon', 'double_barrel', 'railgun', 'clip'],
+    secondary: ['none', 'mortar', 'missile', 'missile_wire', 'rocket', 'mine_layer', 'turret']
   }
 };
 
@@ -740,8 +968,9 @@ const RULES = {
 // P-40 tier schema 归一化：新六属性（passability/shellBlock/exposureProfile/destructible/
 // drawStyle/tierGroup）为唯一事实源；旧字段 move/draw/mode/hp 单向派生，供未迁移消费方
 // （tank_move 的 move、渲染层的 draw、tank_fire 等的 mode）过渡使用。派生规则：
-//   mode = solid（shellBlock true）/ single / graduated（grad）/ none（vision 遮视线穿透弹）/
-//          pass（其余 shellBlock false：栅栏/水/河/泥——炮弹越飞；移动阻断由 passability=0 承担）
+//   mode = solid（shellBlock true）/ single / none（vision 遮视线穿透弹）/
+//          pass（其余 shellBlock false：栅栏/水/河/泥/残骸——炮弹越飞；移动阻断由 passability=0 承担）
+//   （2026-09-20 #E1：'graduated' 派生已废除——grad 不再是合法 shellBlock 取值。）
 (function normalizeCoverTiers(){
   for(const k of Object.keys(RULES.coverTiers)){
     const t = RULES.coverTiers[k];
@@ -751,8 +980,7 @@ const RULES = {
     t.draw = t.drawStyle;                         // 旧别名：渲染层分支
     if(t.shellBlock === undefined){
       // 兜底：自定义/未迁移 tier 按旧 mode 推导
-      t.shellBlock = t.mode === 'solid' ? true : t.mode === 'single' ? 'single'
-                   : t.mode === 'graduated' ? 'grad' : false;
+      t.shellBlock = t.mode === 'solid' ? true : t.mode === 'single' ? 'single' : false;
     }
     if(t.destructible === undefined) t.destructible = t.hp;
     t.hp = (t.destructible === null || t.destructible === undefined) ? Infinity : t.destructible;
@@ -760,7 +988,6 @@ const RULES = {
     if(t.mode === undefined){
       t.mode = t.shellBlock === true ? 'solid'
              : t.shellBlock === 'single' ? 'single'
-             : t.shellBlock === 'grad' ? 'graduated'
              : (t.vision ? 'none' : 'pass');
     }
   }

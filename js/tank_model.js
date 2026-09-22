@@ -259,6 +259,10 @@ function removeModifiersByScope(tank, scope){
 function removeRunModifiers(tank){
   // #A23 d：run 结束同时清零卡牌应用计数（maxStacks 防线），避免跨局残留
   if (tank && tank._cardApplyCount) tank._cardApplyCount = {};
+  // #G（2026-09-21）：按序施加日志与计数同生命周期
+  if (tank && tank._cardApplyLog) tank._cardApplyLog = [];
+  // #G（2026-09-21）：APS 拦截窗口跨局不残留（mvp updateAps 消费）
+  if (tank) { tank._apsT = 0; tank._apsHits = 0; }
   return removeModifiersByScope(tank, 'run');
 }
 
@@ -890,6 +894,17 @@ function debuffSpeedRate(t){
   return mul;
 }
 
+// #G（2026-09-21 用户需求 #8）：t.speed（px/s，带符号）→ 当前仪表 km/h（区别于 tankKmh = 最大速度上限读数）。
+// 换算口径：RULES.speed 的 kmhFactor 是按「最大速度 = stats.maxSpeed × pxFactor × effMul 像素速度」
+// 标定的（driveTank 的 effMul=1.3 生效路径），HUD 直接用 t.speed×kmhFactor 会读出 ~208km/h
+// （超过 150 上限），必须先除以 pxFactor×effMul 还原到「基准最大速度像素速度」再乘 kmhFactor。
+function tankCurrentKmh(t){
+  if(!t) return 0;
+  const spd = Math.abs(t.speed || 0);
+  const cfg = (typeof RULES !== 'undefined' && RULES.speed) ? RULES.speed : { kmhFactor: 0.4, pxFactor: 1.6, effMul: 1.3 };
+  return spd / ((cfg.pxFactor || 1.6) * (cfg.effMul || 1.3)) * (cfg.kmhFactor || 0.4);
+}
+
 // Export for Node.js if running in test environment
 if (typeof module !== 'undefined' && module.exports) {
   // Node 测试端兜底：浏览器端 normalizeTankModules 是 tank_geometry.js 的全局函数，
@@ -937,6 +952,7 @@ if (typeof module !== 'undefined' && module.exports) {
     debuffReloadRate,
     debuffTurnRate,
     debuffSpeedRate,
+    tankCurrentKmh,
     applyParameterLimits
   };
 }

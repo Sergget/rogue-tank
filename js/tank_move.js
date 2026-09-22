@@ -34,13 +34,28 @@ function driveTank(t, dt, input){
   }
   const p0x = t.x, p0y = t.y, p0a = t.hullAngle;
 
+  // #E3（2026-09-20）：公路加速——在 road 条带上行驶 +10km/h（RULES.nodeMap.road.speedBonusKmh），
+  // 且最终「表速」不超过 RULES.parameterLimits.maxSpeed.max（150km/h）上限。
+  // 平顺生效/失效：roadBonus 以 speedBonusLerp 指数阻尼趋近目标值（进出路面不突跳）。
+  const onRoad = !!(cover && cover.tier === 'road');
+  const roadCfg = (RULES.nodeMap && RULES.nodeMap.road) || {};
+  const bonusKmh = roadCfg.speedBonusKmh !== undefined ? roadCfg.speedBonusKmh : 10;
+  const kmhFactor = (RULES.speed && RULES.speed.kmhFactor) || 0.4;
+  const bonusPx = bonusKmh / kmhFactor;                    // km/h → HUD 表速单位（px/s）
+  const rbLerp = roadCfg.speedBonusLerp !== undefined ? roadCfg.speedBonusLerp : 6;
+  const rbK = 1 - Math.exp(-rbLerp * dt);
+  t.roadBonus = (t.roadBonus || 0) + ((onRoad ? bonusPx : 0) - (t.roadBonus || 0)) * rbK;
+  const maxSpeedCap = (RULES.parameterLimits && RULES.parameterLimits.maxSpeed && RULES.parameterLimits.maxSpeed.max) || 375;
+  const baseMax = t.stats.maxSpeed || 0;
+  const boostedMax = Math.min(maxSpeedCap, baseMax + t.roadBonus);
+
   // 驾驶员受伤 → 转向速度降低（debuff）
   t.hullAngle += effTurn * t.stats.turnRate * dt * turnModifier * debuffTurnRate(t);
   // Mobility: accel / decel 来自 enginePower ÷ weight（makeTank 算过一次 → t.stats.accel/brake）
   const pAccel = t.stats.accel * speedModifier;
   const pBrake = t.stats.brake * speedModifier;
   // 发动机受伤 → 最大速度降低（debuff）
-  const pTarget = mv * t.stats.maxSpeed * RULES.speed.pxFactor * speedModifier * fireMul(t) * debuffSpeedRate(t) * RULES.speed.effMul;
+  const pTarget = mv * boostedMax * RULES.speed.pxFactor * speedModifier * fireMul(t) * debuffSpeedRate(t) * RULES.speed.effMul;
   t.speed = t.speed || 0;
   if(mv === 0){
     // 松键：快速停止/中性滑行减速
