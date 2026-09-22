@@ -1,0 +1,20 @@
+{
+  "id": "weapon_primary_railgun_upgrade",
+  "name": "轨道炮超导线圈",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "电磁轨道炮升级：装填时间×1.7（原×1.8），弹速×3.0（原×2.5）——飞行时间进一步缩短，远距命中更稳。仅对电磁轨道炮生效。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "railgun",
+      "statOverrides": {
+        "reloadMult": 1.7,
+        "shellSpeedMult": 3.0
+      }
+    }
+  ],
+  "maxStacks": 1
+}

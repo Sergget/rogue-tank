@@ -1,0 +1,26 @@
+{
+  "id": "weapon_primary_clip",
+  "name": "主武器：弹夹炮",
+  "rarity": "epic",
+  "tags": ["机动", "爆破"],
+  "desc": "主武器改装为弹夹供弹机构：弹夹容量 4 发，弹夹内逐发间隔固定 0.7 秒（不受装填 debuff / 装填倍率影响）；打空弹夹后整组装填，时间 = 标准装填×3。爆发节奏极强，适合抓窗口打一波齐射。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "install",
+      "slot": "primary",
+      "weaponType": "clip",
+      "statOverrides": {
+        "reloadMult": 3.0,
+        "damageMult": 1.0,
+        "penMult": 1.0,
+        "shellSpeedMult": 1.0,
+        "clipSize": 4,
+        "clipSizeBase": 4,
+        "clipCycleSeconds": 0.7,
+        "clipSizeReloadStep": 0.8
+      }
+    }
+  ],
+  "maxStacks": 1
+}

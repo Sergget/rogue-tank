@@ -15,8 +15,9 @@
     "dmgMul": 1.5
   },
   "summons": [
-    { "tankId": "dummy", "count": 2 },
-    { "tankId": "tiger-I", "count": 1 }
+    { "tankId": "dummy", "count": 2, "hpFrom": 1.0 },
+    { "tankId": "tiger-I", "count": 1, "hpFrom": 0.66 },
+    { "tankId": "panzer-IV", "count": 2, "hpFrom": 0.33 }
   ],
   "stages": [
     {

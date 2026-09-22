@@ -1,0 +1,19 @@
+{
+  "id": "weapon_primary_clip_extended",
+  "name": "扩容弹夹",
+  "rarity": "rare",
+  "tags": ["机动"],
+  "desc": "弹夹炮扩容：弹夹容量 +1 发。每 +1 发容量，弹夹间整组装填时间相应增加（+0.8×标准装填）——容量与换弹时间此消彼长。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "clip",
+      "statOverrides": {
+        "clipSize": "+1"
+      }
+    }
+  ],
+  "maxStacks": 2
+}

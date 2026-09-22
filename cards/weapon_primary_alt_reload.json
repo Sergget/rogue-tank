@@ -1,9 +1,9 @@
 {
   "id": "weapon_primary_alt_reload",
   "name": "交替装填系统",
-  "rarity": "legendary",
+  "rarity": "mythic",
   "tags": ["机动", "重甲"],
-  "desc": "双联火炮装填优化：两管交替上弹机构，单管装填时间 ×1.0 → ×0.8。",
+  "desc": "双联火炮交替装填机构：两根炮管的装填进度互不干涉——击发其中一根不会清零另一根的进度（+6s 发射时另一管仍是 +1s 进度），换管间隔几乎为零。仅对双联火炮生效。",
   "effects": [
     {
       "type": "weapon",
@@ -11,7 +11,9 @@
       "slot": "primary",
       "weaponType": "double_barrel",
       "statOverrides": {
-        "reloadMult": 0.8
+        "switchSeconds": 0.05,
+        "reloadMult": 0.9,
+        "altReload": true
       }
     }
   ],

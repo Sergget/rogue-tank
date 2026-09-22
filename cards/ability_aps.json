@@ -1,0 +1,11 @@
+{
+  "id": "ability_aps",
+  "name": "主动防御系统",
+  "rarity": "epic",
+  "tags": ["重甲"],
+  "desc": "安装主动防御系统（APS）：激活后 6 秒内自动拦截半径 240px 内的来袭敌方弹药（炮弹/导弹），单次激活最多拦截 3 发。冷却 22 秒，1~3 号技能键触发。",
+  "effects": [
+    { "type": "ability", "key": "aps" }
+  ],
+  "maxStacks": 1
+}

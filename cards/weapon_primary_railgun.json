@@ -3,7 +3,7 @@
   "name": "主武器：电磁轨道炮",
   "rarity": "epic",
   "tags": ["狙击", "机动"],
-  "desc": "主武器改装为电磁轨道炮：极高弹速与穿透（弹速×2.5、穿深×2.0、伤害×1.5，装填时间×2.2）。",
+  "desc": "主武器改装为电磁轨道炮：极高弹速与穿透（弹速×2.5、穿深×2.0、伤害×1.8，装填时间×1.8，持续输出与标准炮持平）。专属机制「超高速贯穿」：击穿并命中目标后弹体继续飞行，可再命中同一直线上的下一个目标（该次伤害×0.6）。",
   "effects": [
     {
       "type": "weapon",
@@ -11,10 +11,12 @@
       "slot": "primary",
       "weaponType": "railgun",
       "statOverrides": {
-        "reloadMult": 2.2,
-        "damageMult": 1.5,
+        "reloadMult": 1.8,
+        "damageMult": 1.8,
         "penMult": 2.0,
         "shellSpeedMult": 2.5,
+        "pierce": 1,
+        "pierceDmgMul": 0.6,
         "burst": 1
       }
     }

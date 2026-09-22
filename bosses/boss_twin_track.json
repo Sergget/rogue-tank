@@ -14,6 +14,11 @@
     "fireRateMul": 0.6,
     "dmgMul": 1.5
   },
+  "summons": [
+    { "tankId": "dummy", "count": 2, "hpFrom": 1.0 },
+    { "tankId": "Leapard_1", "count": 1, "hpFrom": 0.66 },
+    { "tankId": "tiger-I", "count": 1, "hpFrom": 0.33 }
+  ],
   "stages": [
     {
       "id": "p1_linked",
