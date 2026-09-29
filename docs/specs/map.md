@@ -274,6 +274,8 @@
 
 ### 12.4 建筑沿路/路口聚集 + 路口沙包（#E3）
 新增 `placeRoadsideBuildings`（`RULES.nodeMap.building`：`roadBand 96 / junctionBias 0.9 / junctionRadius 210 / clusterPerJunction 3~5 / maxPerNode 18`）与 `placeJunctionBarricades`（`RULES.nodeMap.junctionBarricades`：`chance 0.85 / countMin~Max 2~4 / ringMin~Max 0.9~1.9×路宽`）：
+
+> **沿革注记（2026-09-23 核实）**：本段括号内的 `clusterPerJunction 3~5 / maxPerNode 18` 为 #E3 落地时值，**已被 §13.4（#I3）取代**为 `4~8 / 28`（另加 `bossDensity: 1.6`）。另 `RULES.nodeMap.road.junctionClearR`（0.85）**为死配置**——全仓库除 `js/tank_rules.js:507` 定义处外零消费，生成器实际以 `roadW × 0.5` 硬编码路口清空半径（`js/tank_nodegen.js` `junctions.push({r: roadW * 0.5})`）；该键待清理或接线，不作为现行口径引用（见 `DEVELOPMENT.md` §3.1 长期债务）。
 - **路口邻域聚集程度最高**：每个路口先在 `junctionRadius` 内环形布 3~5 栋建筑（避让路面与路口中心）。
 - **沿路成排**：随后沿路链段采样，在路缘外侧 `roadBand` 带内成排布建筑，朝向对齐街道轴。
 - **路口沙包**：每个路口按概率生成 2~4 个 `barricade`，落在路口环外、不压路面的位置。
@@ -325,7 +327,7 @@
 破坏链：**`building`(3发) → `ruined`(1发) → `rubble`**。`ruined` 此前在 tier 表中定义但**从未被生成**，本次随建筑混合首次实际进入地图。
 
 - **`placeRoadsideBuildings` 建筑混合配比**：30% `building`（可破坏楼房）/ 10% `ruined`（残破建筑）/ 60% `full`（不可摧毁），由 `pickTier()` 按 rng 抽取。
-- **密度提升**：`clusterPerJunction` 3~5 → **3~6**、`maxPerNode` 18 → **20**、沿路排布采样步 `segs/6` → **`segs/4`**；建筑间/建筑与既有元素的通行间隙 30 → **34px**（密度上升时保证可用通道）。
+- **密度提升（2026-09-21 #G4）**：`clusterPerJunction` 3~5 → 3~6、`maxPerNode` 18 → 20、沿路排布采样步 `segs/6` → **`segs/4`**；建筑间/建筑与既有元素的通行间隙 30 → **34px**（密度上升时保证可用通道）。**（本行参数已被 §13.4 的 #I3 再次上调取代——现行值为 `clusterPerJunction` 4~8、`maxPerNode` 28，另加 Boss 战图 `bossDensity: 1.6`；以 §13.4 为唯一口径。）**
 - **`coverWorldScale`** 补 `building: 0.42`（与 `full` 同尺度收敛）。
 - 同步点（新增 tier 必须登记处）：`VILLAGE_SOLID`（村庄避让集合）、`_PRUNE_PRIORITY`（building: 9，与 full/intact 同级，消叠时优先保留）、`tank_map.js` 敌军建筑聚集的 `structCovers` 过滤（加入 `building`）。`full` 仍为 `Infinity`（`test-covers.js` 断言不变），`ASSET_DEFS` 不新增建筑条目（复用 full 的贴图路径）。
 
@@ -350,7 +352,7 @@
 
 > **状态：设计预留，代码尚未改动。** 本节是 2026-09-21 用户设计征询的**参数与规则口径唯一归口**，实施时以此为准；完成并三链验证后按 AGENTS.md §2.2 去掉「未落地」标注、改写为现行口径，并新增 `DEVELOPMENT.md` §4.x。
 > **在此之前，地图尺寸/生成/视野的现行值仍以 §1~§13 与 `specs/combat.md` §11.1 为准**——本节不得作为「现状描述」引用。
-> 研究依据（file:line 诊断、探针实测数据、已实测排除的路径、分批计划）：`docs/PLAN.md` §10。
+> 研究依据（file:line 诊断、探针实测数据、已实测排除的路径、分批计划）：`docs/PLAN.md` §3。
 
 ### 14.1 节点形态与尺寸
 
@@ -376,7 +378,7 @@
 
 ### 14.4 渲染与工程配套
 
-- **敌人渲染/可见范围（临时口径，标记项）**：`R = max(现行屏幕相对公式, 最大 engage × 1.15)`，随难度增长，不再随视口窄轴缩水。**标记点**：`js/tank_camera.js:119-143`（`visionRadiusForViewport`）+ `RULES.vision.screenRadiusRatio`。本条为**临时口径、后续仍需改**（2026-09-21 用户裁定），届时改写 `specs/combat.md` §11.1 并留沿革注记；拉远时的额外绘制由 `aabbInView` 兜底，弹道命中口径经 `fireCtx.hiddenByVision`（`tank_mvp.html:3547`）同步。
+- **敌人渲染/可见范围 —— ⚠️ 原预留口径已被 2026-09-23 用户裁定作废**：原预留的 `R = max(现行屏幕相对公式, 最大 engage × 1.15)`（随难度增长、不随视口窄轴缩水）**不再实施**；可见半径口径**保持不变**（`js/tank_camera.js:119-143` 屏幕相对式），「敌人开火时看不见」改走**视野卡 + 镜头外延做强**（几何上限、已核实数值与配套约束见 `specs/combat.md` §11.5 与 `docs/PLAN.md` §4.2）。（原注记保留追溯：拉远时的额外绘制由 `aabbInView` 兜底，弹道命中口径经 `fireCtx.hiddenByVision`（`tank_mvp.html:3547`）同步。）
 - **地面层分块烘焙**：`bakeNodeGroundLayer`（`tank_mvp.html:3563-3696`）由「整节点单画布」改为**按片 tile 烘焙 + 视口内按需 blit**——整图口径下 12.3 屏宽 ≈223MB RGBA，最远缩放口径 ≈619MB。
 - **空间分桶**：covers 数随片数线性增长（12 屏 ≈ 443~1200）；`draw` 视口过滤、`tank_minimap` 全量遍历、`tank_ai` 避水探针（每敌每帧）、`resolveCoverCollisions` 均按片索引只扫邻近片。
 - **小地图**：等比缩放（`js/tank_minimap.js:15-19`）在 10:2 比例下退化成细线 ⇒ 改「横向条带 + 视口窗口」布局。

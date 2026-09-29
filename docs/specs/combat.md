@@ -75,7 +75,7 @@
 | HE-OP（blast_he） | 0.8 | 1.8 | 0.9 | 3 | 2 | 3 | 90 | 1.1 | ×0.8 |
 
 - 未击穿公式：`dmg × (1−(eff−pen)/eff) × 系数` = `dmg × (effPen/eff) × nonPenRatio`，地板 0.25；KE 家族（0）无残余。
-- 跳弹角 per-ammo（`ammoBounceAngle`，°）：θ>该值跳弹；90° = 不可能跳弹；noBounce 弹种（heat 系/HE 系）完全不跳弹。
+- 跳弹角 per-ammo（`ammoBounceAngle`，°）：θ>该值跳弹；90° = 不可能跳弹；noBounce 弹种（heat 系/HE 系）完全不跳弹。**注意（2026-09-23 核实）**：`RULES.ammoTypes` 对 `noBounce: true` 的 8 个弹种（he / heat / heatfs / tandem_heat / heavy_tandem_heat / hesh / proximity_he / blast_he）**不写 `bounceAngle` 字段**，本表 90° 为「不可能跳弹」的语义表达，权威判据是 `noBounce` 标记本身。
 - 近炸引信（proximity_he，用户定案=**接近率基准**）：弹道不命中目标时，对最近敌目标计算径向接近率；**接近率由正转负（开始远离）瞬间空爆**，按 splashRadius 溅射。已落地 `stepShells`（`RULES.proximityFuze`：maxTravel 1400 / armRadius 武装半径 120px / 最小起爆距离 40px）。**#A27 修复（2026-09-15）**：近炸分支须先执行飞行推进（`s.x/s.y/s.dist+=step` + 射程/出界死亡判定）再判引信——此前近炸分支从不推进弹体，导致 HE-VT 原地静止不飞。
 
 ### 3.3 平衡性回归（`scripts/test-ammo-balance.js`，接入 npm test）
@@ -93,14 +93,14 @@
   - **火箭发射器逐发 burst（2026-09-19 #D4 用户反馈「同帧齐射改连续快速逐发」）**：`fireActiveSecondary` rocket 分支只发射第 1 发并登记 `t._rocketBurst={left, lastAngle}`；`updateRocketBurst`（tank_weapons.js，mvp 主循环玩家侧 / `updateSecondaryMount` AI 侧逐帧驱动）按 `burstInterval`（WEAPON_DEFAULTS.secondary.rocket.burstInterval=0.18s）逐发补完，队列清空后写入整组装填 `reload`（10s）。瞄准：存活目标方向优先，目标丢失保持上一发角度（committal）。视觉：逐发口焰 `muzzle`+粒子烟 `spawnSmoke`×3+音效（旧齐射仅一次）、弹体 `fxScale=1.3` 放大 + 拖尾增亮（drawShells 消费）。队列不跨节点：enterBattle 清 `player._rocketBurst`/`_missileLock`，重置按钮清全员。
   - **视野系统 v2（2026-09-19 #D2 接线，取代 2026-09-14 #89 v1）**：基础模型不变——`RULES.vision{radius:900, bias:0.35, inner:0.45}` 鼠标锚定偏移圆，敌对存活实体在圆外且不在贴身内圈 → 主画布隐藏（炮弹/小地图恒显）。#D2 增量：① 半径接卡牌被动 `commander_sight`（`visionRadiusEff`：读 `player.cardEffects`，value=百分比加成，缺省 25，多来源取最大）——潜望镜 rare +15% / 观瞄镜 epic +25% 生效（此前两张视野卡为死效果）；② 主画布绘制视野圈淡虚线描边（与剔除判定同口径，系统边界可读）。dev 面板「无视野」开关跳过剔除与圈绘制。
 - **主动技能快捷键池 (1~3 数字键)**：
-  - 快捷键 1/2/3 动态对应玩家当前装备的主动技能（掩体/炮击/护盾/超装填/超级火控/超级速度/无人机指令，2026-09-17 #C4a 起六类运行时技能全部接入 DISPATCH），按顺序快捷施放。
+  - 快捷键 1/2/3 动态对应玩家当前装备的主动技能（掩体/炮击/护盾/超装填/超级火控/超级速度/无人机指令/主动防御，2026-09-17 #C4a 起运行时技能全部接入 DISPATCH；`aps` 于 2026-09-21 #G9 新增、`recon` 归运行时池键），按顺序快捷施放。**现行运行时能力键全集（7 个）以 `js/tank_abilities.js` 的 `ABILITY_KEYS_RUNTIME` 为唯一口径**（`artillery / overdrive / shield / super_fire_control / super_speed / deploy_cover / aps`）。
 - **冷却模型（2026-09-17 #C4c 用户裁定「按技能独立冷却」）**：
-  - 运行时能力键（artillery/shield/overdrive/deploy_cover/super_fire_control/super_speed）与 innate 键（repair/medkit/extinguish）统一走**按 key 隔离的独立冷却池 `t.abilityCds[key]`**（互不顶冷却；旧共享单字段 `t.abilityCdT` 废弃，`updateAbilityCd` 仅作兼容助手保留）；逐帧递减 `updateAbilityCds(t, dt)`（mvp 主循环驱动）。
+  - 运行时能力键（artillery/shield/overdrive/deploy_cover/super_fire_control/super_speed/aps）与 innate 键（repair/medkit/extinguish）统一走**按 key 隔离的独立冷却池 `t.abilityCds[key]`**（互不顶冷却；旧共享单字段 `t.abilityCdT` 废弃，`updateAbilityCd` 仅作兼容助手保留）；逐帧递减 `updateAbilityCds(t, dt)`（mvp 主循环驱动）。
   - 获得技能/副武器 → `#gainToast` 屏幕一次性提示（不依赖底部按钮显隐，奖励页/战斗页均可见）+ 已有按钮（G/H/V）金色脉冲（#B10 保留）。
 - **独立按键备用**：
   - 战术炮击 (G键)：呼叫延迟 AOE 覆盖（callStrike / updateStrikes）。
   - 战术护盾 (H键 定向 / Shift+H 全向)：累计吸收伤害池（applyShield）。
-  - 超装填 (V键)：爆发装填 + 立即清零 reloadT。
+  - 超装填（**1~3 号技能键**）：爆发装填 + 立即清零 reloadT。**V 专属键已于 2026-09-21 #H3 用户裁定删除**（`tank_bindings.js` 无 `abilityOverdrive`、mvp 无 `btnV`/`cdV`），激活路径唯一化为 `skillHotkey(n) → DISPATCH`，常驻显示走技能池槽 `#skillSlot1~3`（见 §11.2）。
   - **战术掩体**（1~3 技能键）：**炮塔正前方**部署充能掩体（2026-09-17 #C4b 用户裁定——部署方向读 `turretAngle`，距离/长度参数化 `RULES.abilities.deploy_cover.dist=90` / `lenMult=1.6`（掩体 hullLen=车体×1.6，横置 90°））。
   - **超级火控 / 超级速度**（1~3 技能键）：限时精度/瞄准强化与机动强化（#C4a 起可从技能池激活）。
   - **烟幕弹已移除**（2026-09-15 W2 用户裁定）：`fireSmokeShell`/`tryFireSmoke`/stepShells smoke 分支/烟幕卡（smoke_screen、ability_smoke_dense）整链删除；`tank_cover.js` smokeClouds 动态烟幕基础设施保留备用（当前无生产者）。
@@ -283,9 +283,9 @@
 | 技能 SKILLS | `#hudSkills` | 专属键 `#btnG/H/V`（`.slabel` 中文技能名 + `.skey` 字母） + 技能池槽 `#skillSlot1~3`（技能名 + 数字键 + 冷却） |
 
 - **速度读数**：`tankCurrentKmh(t) = |t.speed| ÷ (RULES.speed.pxFactor × effMul) × kmhFactor`（`tank_model.js`，已导出）。**必须先除 `pxFactor×effMul` 再乘 `kmhFactor`**——直接乘会得到 ~208km/h 的虚高读数（`tank.speed` 已含 ×1.3 有效乘子）。速度条以 `tankKmh(t)`（极速上限）为满值。
-- **技能池槽位映射**：`#skillSlot1~3` 显示序列**与 `skillHotkey(n)` 完全一致**——`cardEffects` 中 `type:'ability'` 的 key 去重列表（**不过滤** artillery/shield/overdrive：数字键同样可触发它们，G/H/V 是并列的专属键）。名称取 `ABILITY_LABELS`，冷却取 `abilityCds[key]`；点击槽位等价于按对应数字键。
-- **元素 id 为测试契约**：`#reloadWrap` / `#bottomHud` / `#hintBar` 保留（smoke 依赖）；`btnG/btnH/btnV` 必须可点击（run/r4 断言）；bench 页**不得**出现 `#hintBar`。
-- **技能获得提示补全**：`ABILITY_KEY_HINT` 补 `repair`/`medkit`/`extinguish`（4/5/6 键）与 `aps`，并把 G/H/V 条目文案改为「G 键 / 1~3 号技能键」（数字键与专属键并列可用）。
+- **技能池槽位映射**：`#skillSlot1~3` 显示序列**与 `skillHotkey(n)` 完全一致**——`cardEffects` 中 `type:'ability'` 的 key 去重列表（**不过滤** artillery/shield/overdrive：数字键同样可触发它们，G/H 是并列的专属键）。名称取 `ABILITY_LABELS`，冷却取 `abilityCds[key]`；点击槽位等价于按对应数字键。
+- **元素 id 为测试契约**：`#reloadWrap` / `#bottomHud` / `#hintBar` 保留（smoke 依赖）；`btnG/btnH` 必须可点击（run/r4 断言）；`btnV` **必须不存在**（#H3 删除，`test-browser-run.cjs` 断言 `removed`）；bench 页**不得**出现 `#hintBar`。
+- **技能获得提示补全**：`ABILITY_KEY_HINT` 补 `repair`/`medkit`/`extinguish`（4/5/6 键）与 `aps`，并把 G/H/V 条目文案改为「G 键 / 1~3 号技能键」（数字键与专属键并列可用）。**#H3 后仅 G/H 仍为专属字母键**，超装填（overdrive）经 1~3 号技能键。
 
 ### 9.7 装填进度环漏乘武器 `reloadMult` 的修复（#G5 附带）
 
@@ -342,7 +342,7 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 
 ### 11.1 敌方可见距离：屏幕相对化（#H5 现行口径）——取代 #H1/#H2
 
-> ⚠️ **待改标记（2026-09-21 用户裁定）**：「暂时锚定接战距离，后需要改」。横向卷轴节点批次（`docs/PLAN.md` §10 批次 1，参数口径 `specs/map.md` §14.4）实施时，本节改写为 `R = max(现行屏幕相对公式, 最大 engage × 1.15)`（随难度增长、不再随视口窄轴缩水），并在原处留沿革注记。**在此之前现行口径不变**（仍为下方屏幕相对式，`R×zoom` 恒定）。
+> ⚠️ **待改标记状态更新（2026-09-23 用户裁定）**：原「暂时锚定接战距离、后续再改」的预留口径（即 `R = max(屏幕相对式, 最大 engage × 1.15)`，原登记于 `docs/PLAN.md` §3.1 与 `specs/map.md` §14.4）**已被否决**——可见半径口径**保持不变**（仍为下方屏幕相对式，`R×zoom` 恒定）。「敌人开火时看不见」改走**视野卡 + 镜头外延做强**，做法、几何上限与已核实数值见下方 **§11.5**。
 
 **用户裁定（#H5）**：「目前敌方渲染的距离写死成了像素，会受缩放影响，迫使玩家始终以最高倍率游玩，失去一些细节」——#H1 窄轴收口与 #H2 深度拉远都以「固定像素可见距离」为前提，与自由缩放根本冲突，二者废弃。
 
@@ -376,6 +376,18 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 ### 11.4 敌方可见距离不得写死像素（#H5，见 §11.1）
 
 **用户裁定**：「目前敌方渲染的距离写死成了像素，会受缩放影响，迫使玩家始终以最高倍率游玩，失去一些细节」——本条即 §11.1 屏幕相对化的直接动机：#H1/#H2 系列以固定像素（900px 世界半径）定义可见距离，缩放直接改变敌人的屏幕出现位置，#H2 只能靠强制拉远补偿。现行口径 = §11.1（屏幕相对，R×zoom 恒定，缩放纯视觉偏好）。
+
+### 11.5 前向可见距离的几何上限与「视野卡/镜头外延做强」路径（2026-09-23 裁定）
+
+> **状态**：裁定已定（用户 2026-09-23：「接受现状，只把视野卡与镜头外延做强」），**参数与卡牌尚未改动**——上半为**已核实几何事实**（现行口径），下半为**已裁定待实施的方案**（实施前不得作为现状引用）。
+
+- **现行公式**（`js/tank_camera.js:119-143`；参数 `js/tank_rules.js` §vision/§camera）：`R = min( screenRadiusRatio × 窄半幅/zoom × (1+视野卡加成), ((窄半幅 + radius×mouseLeadRatio)/zoom) / (1+bias) )`，视野圆心再朝鼠标方向偏移 `bias×R`。
+- **前向可见距离 = `R×(1+bias)`，其硬上限 = 窄半幅 + 外延量**（与 `bias` 取值无关——圆心后移量恰好抵消偏移量）：1080p/zoom=1 实算 `窄半幅 540 + 外延 900×0.30 = 270` ⇒ 上限 **810px**，对应 `R ≤ 600`。无卡时 `R = 540`（前向 729px）。
+- **由此得出的现行边界**：接战距离 `engageRange 520 × 难度比 ≤1.25 = 650px < 810px` ⇒ **开火时可见**；触发距离 `triggerDistBase 700（难度乘数上限 1.6 ⇒ 最高 1120px）> 810px` ⇒ **敌人「激活→可见」之间存在无信息窗口**——2026-09-23 用户裁定**接受该边界**，不改口径。
+- **视野卡收益被 cap 截断（已核实）**：`cap = 810/1.35 = 600` 为几何护栏固定值，卡牌加成只放大 `screenRelative` ⇒ `support_commander_periscope`（`commander_sight` 15）与 `sniper_commander_sight`（25，`cards/sniper_commander_sight.json:8`）在 1080p 下**同为 `R = 600`**（卡面 +15%/+25%，实得同为 **+11.1%**）。⇒ **只抬卡面数值无效，必须同步放宽 cap**。
+- **唯一有效手段 = 抬镜头外延量**（`RULES.camera.mouseLeadRatio`，现行 `0.30`）：`cap` 与前向硬上限同步上移。**待实施建议值** `0.30 → 0.40~0.45`（外延 270 → 360~405px，前向上限 810 → 900~945px，`R` 上限 600 → 666~700）：`0.45` 时 +25% 视野卡可足额生效（`R = 675`、前向 911px ≤ 945px）。
+- **代价与配套（必须同批落地）**：外延加大 ⇒ 玩家在屏幕上更靠后 ⇒ 后向可见 = `min(窄半幅 − 外延, R×(1−bias))`，现行 **270px → 约 135px**。故须与 **B 档「增援只在前方」**（口径归口 `specs/map.md` §14.3 第 4 条 / `docs/PLAN.md` §3.6 第 6 条）同批实施，否则「背后被偷袭且看不见」会显著恶化。
+- **回归锚点**：`scripts/test-camera.js`（#H5 段：`R×zoom` 恒定 / 屏幕相对等距 / 卡牌护栏 / `minZoom`）、`test-browser-smoke.cjs` P-39 探针（默认 zoom=1 + 放大后 `R×zoom` 恒定）——改 `mouseLeadRatio` 后 cap 值变化，两处基线需同步重锚。
 
 ---
 

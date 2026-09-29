@@ -24,7 +24,7 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
       "maxStacks": 3
     }
 
-## 3. 六大效果类型 (type 决定 params)
+## 3. 七大效果类型 (type 决定 params)
 1. **modifier**：{stat, mode:'add'|'mult', value}——stat 白名单（穿透/伤害/装填/弹速/极速/转向/炮塔转速/装甲路径 armor.hull.front 等）或履带锁/模块倍率/DOT倍率/散布。立即生效（走 addModifier 管道，§5.1 三层属性系统）。
    - **运行时参数硬限（2026-09-15 W5 用户裁定；2026-09-17 #C2 修订）**：卡牌 modifiers 聚合后受 `RULES.parameterLimits` 两张硬限钳制——装填 **reload ≥ 1.0s/发**（2026-09-17 #C2 裁定，取代旧 0.5s；加速装填卡不得突破下限）、极速 **maxSpeed ≤ 150km/h（375px/s）**（超速卡不得突破上限）；实现于 `js/tank_model.js` `applyParameterLimits(s, modifiers)`（computeStats 尾部，仅 modifiers 非空时生效，空修饰器出厂/纯计算不钳）。**#C2 同轮细化**：硬限只约束参数通道（scope run/permanent）——**纯 timed 修饰器（超装填 ×0.45 等能力爆发通道）不钳**，其实际开火间隔可继续 <1s（与机炮 reloadMult 0.25 武器通道同语义）。火控系另有既有钳制（spreadMult/motionSpreadMul ≥ multFloor、crit ≤ critBonusCap）。消费链 `applyCardEffects`→`addModifier`→`refreshStats`→`computeStats` 天然接入，商店另有 `runShopLimitBlocked` 购买拦截（§8.3，`fast_reload` limit.min=1.0 同步）。回归见 `scripts/test-rework-w5.js`（§5 timed 不钳 / 混合通道仍钳）。
 2. **ammo**：弹种改造或弹种替换（完整弹种键与升级总表见 `docs/specs/combat.md` §3.1/§3.2 与 `js/tank_rules.js` 的 `RULES.ammoTypes` / `RULES.ammoChain`）。
@@ -34,17 +34,19 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
    - **mode:'add' = 乘算后毫米追加**（2026-08-26，原 ISSUES #A13 修复定案）：最终属性 = base × mult聚合 + Σadd，value 按**字段自然单位**计——pen=mm / dmg=伤害值 / speed=px/s（如「APCR穿深+14mm」即最终穿深加 14mm，而非倍率刻度 +14）。
    - `computeAmmoConfig` 将 Σadd 输出为独立的 `fieldAdd` 字段存放，由消费方（fireTank/computeAmmoConfig 合成端）在乘算聚合之后合成，杜绝把 mm 追加混入倍率刻度。
    - 软上限 `ammoTypeCap` 作用于**最终等效值**且仅钳 HE（AP/APCR/HEAT 不受限）。（接入点见 `js/tank_rules.js` 的 `RULES.ammoTypeCap`）
-3. **ability**：主动装置 {key}，key ∈ `ABILITY_KEYS_RUNTIME`（artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / recon / **aps**；G/H/V 等按键触发，P-17 接入。smoke 键已于 2026-09-15 W2 随烟幕整链删除；`aps`（主动防御系统）为 2026-09-21 #G9 新增，经 1~3 号技能键触发）。`validateCard` 的 `ABILITY_KEYS` 白名单同步包含 innate 键 repair/medkit/extinguish 与全部 runtime 键。
+3. **ability**：主动装置 {key}，key ∈ `ABILITY_KEYS_RUNTIME`（artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / **aps**；经 1~3 号技能键触发，P-17 接入。smoke 键已于 2026-09-15 W2 随烟幕整链删除；`aps`（主动防御系统）为 2026-09-21 #G9 新增）。`validateCard` 的 `ABILITY_KEYS` 白名单同步包含 innate 键 repair/medkit/extinguish 与全部 runtime 键。
+   - **已知死效果（2026-09-23 核实，待处理）**：`ABILITY_KEYS` 含 `recon`，但 `ABILITY_KEYS_RUNTIME` **不含**它，且 mvp 技能池 DISPATCH 的 `recon` 分支调用 `tryDroneCommand()`——该函数**全仓库无定义**，`typeof` 守卫使其恒为 no-op（`tank_mvp.html:808`）。故 `support_recon` / `sniper_recon_mark` 两张卡的 `recon` 能力当前**不产生任何效果**（历史沿革：2026-08 归档与 #D2 均已记录该死卡，`#D2` 明确把 recon 接线排除在本批之外）。另 `track_repair` 亦在 `ABILITY_KEYS` 而不在 runtime/innate 池中（`emergency_track` / `mobile_track_repair` / `support_track_repair` 三卡同上）。两者已登记于 `DEVELOPMENT.md` §3.1 长期债务。
 4. **passive**：机制性被动 {key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}。`commander_sight`（车长潜望镜 rare +15% / 车长观瞄镜 epic +25%）消费点=mvp 视野半径（`entityHiddenByVision`/`visionRadiusEff`，见 combat.md §4.1；2026-09-19 #D2 接线前为死效果）。
 5. **drone**：伴随浮游炮 {kind:'scout'|'striker'}（countMax=2 上限）。
 6. **economy**：{field:'scoreMul'|'shopDiscount'|'startScore'|'reviveCount', value}（运行时消费待接线）。
+7. **weapon**：主/副武器安装与升级 `{type:'weapon', action:'install'|'upgrade', slot:'primary'|'secondary', weaponType, statOverrides?}`（2026-09-15 #A22/#A23 定型；完整语义见 §8.3）。**（类型枚举以 `js/tank_cards.js` 的 `CARD_EFFECT_TYPES` 为唯一口径——共 7 类；本节此前误标「六大」并漏列 `weapon`，2026-09-23 修正。）**
 
 ## 4. 稀有度分层与流派
 - CARD_RARITIES（**2026-09-20 #E13 起五档**）：common / rare / epic / legendary / **mythic（神话）**——新增最高档，序号即强度序；抽取权重 `common 50 / rare 30 / epic 15 / legendary 4.5 / mythic 0.5`；Boss 掉落白名单 `LOOT_RARITIES`（tank_boss.js）同步五档；HUD 标签新增「神话」。
 - CARD_TAGS 流派标签：重甲/机动/狙击/支援等，供 drawCardChoices 构筑导向抽卡。
-- 当前分布（2026-09-17 audit-content 实测；**该快照早于 mythic 档与 #E13 稀有度调整**）：169 张卡——common 61（36.1%）/ rare 55（32.5%）/ epic 37（21.9%）/ legendary 16（9.5%）。#E13 后「交替装填系统」由 legendary 升为 mythic；`weapon_primary_double_barrel` 由 epic 调整为 epic（描述重写）。
-- 效果类型分布（效果数）：modifier 128 / ammo 32 / weapon 14 / ability 16 / passive 8 / economy 5 / drone 2。
-- 最新数字以 `node scripts/audit-content.js` 输出为准（本节为快照，卡池随批次增长会过期）。
+- 当前分布（**2026-09-23 `node scripts/audit-content.js` 实测**）：**173 张卡**——common 61（35.3%）/ rare 57（32.9%）/ epic 39（22.5%）/ legendary 15（8.7%）/ mythic 1（0.6%）。沿革：2026-09-17 快照为 169 张（common 61 / rare 55 / epic 37 / legendary 16），其后随 #E13（「交替装填系统」升 mythic）、#G5/#G6（轨道炮升级卡、弹夹炮与其扩容卡）、#G9（`ability_aps`）等批次增长。
+- 效果类型分布（**效果数**，2026-09-23 实测）：modifier 128 / ammo 32 / weapon 17 / ability 17 / passive 8 / economy 5 / drone 2（合计 209）——与 `CARD_EFFECT_TYPES` 的 **7 类**（modifier / ammo / ability / passive / drone / economy / weapon）一一对应。
+- 最新数字以 `node scripts/audit-content.js` 输出为准（本节为带日期的快照，卡池随批次增长会过期）。
 
 ## 5. 堆叠与验证工具链
 - maxStacks：同卡最大持有数，cardStackCount 计数，选择阶段硬性截断。

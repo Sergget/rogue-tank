@@ -21,7 +21,7 @@
   - `tank_entity.js`：实体注册表（`entities` 数组全局唯一实例、spawnTank/isHostile/nearestEnemyTo/resolveTankCollisions/resetEntity）。
   - `tank_weapons.js`：主/副武器定义与运行时（`WEAPON_DEFAULTS` 双槽缺省表、`updateSecondaryWeapon` 分发 mortar/missile/rocket/mine_layer/turret 五类副武器、`updateMissileLock`）。
   - `tank_fire.js`：开火通用层（fireTank 通用开火 + `tryFirePrimary`（左键/空格=主炮专属，salvo 齐射）/`tryFireSecondary`（F=副武器击发）双入口 + `primaryWeaponSpec`/`firePrimaryShell` + stepShells：曳光/近炸引信/溅射/掩体交互；经 computeAmmoConfig 接入卡牌弹种改造）。
-  - `tank_abilities.js`：主动能力统一入口（`tryActivateAbility`：runtime 键 artillery/shield/overdrive/deploy_cover/super_fire_control/super_speed/recon 与 innate 键 repair/medkit/extinguish **统一按 key 独立冷却池 `abilityCds[key]`**，逐帧 `updateAbilityCds`；旧共享字段 `abilityCdT`/`updateAbilityCd` 为废弃兼容助手）。
+  - `tank_abilities.js`：主动能力统一入口（`tryActivateAbility`：runtime 键 **artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / aps**（`ABILITY_KEYS_RUNTIME`，7 个）与 innate 键 repair/medkit/extinguish **统一按 key 独立冷却池 `abilityCds[key]`**，逐帧 `updateAbilityCds`；旧共享字段 `abilityCdT`/`updateAbilityCd` 为废弃兼容助手。**注意**：`recon` / `track_repair` 在 `tank_cards.js` 的 `ABILITY_KEYS` 白名单内但不在 runtime/innate 池中，当前为死效果，见 `docs/DEVELOPMENT.md` §3.1 长期债务）。
   - `tank_shield.js`：累计吸收护盾（applyShield/入射角吸收判定）；`tank_strike.js`：延迟 AOE 炮击（callStrike：circle/point/carpet 三形状/updateStrikes）。
   - `tank_deployables.js`：战场部署物注册表（`deployables`：固定炮塔/地雷/战术掩体，spawn/update/duration 生命周期 + mineExplode 事件）。
   - `tank_drone.js`：伴随无人机体系（模块级 `drones` 数组单一数据源，scout 侦察/striker 打击两型，countMax 上限）。
@@ -30,7 +30,7 @@
   - `tank_ai.js`：敌人/友军 AI 决策（`aiDecide` 双态 + 受击警觉/避水/找掩体 coverSeek + 消极防御，输出 `{turn, move, turretDesired, fire}`）。
   - `tank_revive.js`：死亡/复活状态机（满状态复活 + 无敌 + 友军据点旁随机点，依赖 `RULES.revive`）。
   - `tank_economy.js`：经济/存档/多存档槽位（元索引 + 槽位键 CRUD + migrateLegacySave；UPGRADE_DEFS 永久升级树 + scoreToPoints/buyUpgrade/applyUpgrades/buyExtraRevive）。
-  - `tank_nodegen.js`：节点地图元素生成器（7 内置模板 + `generateNode(difficulty,{seed,templateId,scale})` 确定性生成 + placeRoadNetwork 路网 v2 六拓扑 + 重叠消解）。
+  - `tank_nodegen.js`：节点地图元素生成器（7 内置模板 + `generateNode(difficulty,{seed,templateId,scale})` 确定性生成 + `placeRoadNetwork` 路网 **v4 七拓扑**（A 贯通 / B 十字 / C 单侧 T / E 双侧 T / D 双平行 / G 网格街区 / I 双干贯穿）+ 建筑与路口沙包 + 重叠消解）。
   - `tank_map.js`：线性节点链生成 + 难度曲线 + 节点实体化（generateRun/makeNode/scoreNode/materializeNode）。
   - `tank_flow.js`：全局流程状态机（map/battle/settlement/reward/gameover + home/loadout/shop，白名单转移 + watchFlow）。
   - `tank_camera.js` / `tank_minimap.js`：摄像机跟随与视口剔除 / 小地图绘制（均纯逻辑可 Node 测试）。
@@ -49,7 +49,7 @@
 
 | 文档 | 角色 | 职责 | 更新时机 | 生命周期 |
 |---|---|---|---|---|
-| `docs/DEVELOPMENT.md` | 长期权威 | §0 文档体系索引与目录 / §1 核心方向 / §2 架构演进 / §3 当前状态与下一步 / **§4 批次落地结论（4.1~4.x 按编号递增）**。 | 每个批次实现并验证后新增一个 §4.x 编号条目；路线顺序变化时更新 §3。 | 长期维护，唯一内容权威；§4 只增不回改（被推翻的旧结论以注记指向新节，不删原文）。 |
+| `docs/DEVELOPMENT.md` | 长期权威 | §0 文档体系索引与目录 / §1 核心方向 / §2 架构演进 / §3 当前状态与下一步 / **§4 批次落地结论（按编号递增）**——§4.0 为已归档条目的编号索引表，§4.27 起为正文。 | 每个批次实现并验证后新增一个 §4.x 编号条目（**续写在 §4 正文末尾、编号递增**）；路线顺序变化时更新 §3。 | 长期维护，唯一内容权威；§4 只增不回改（被推翻的旧结论以注记指向新节，不删原文）。**§4.1~§4.26 逐条正文已于 2026-09-23 归档**（原文快照见 `docs/archive/2026-09.md`），编号与归口保留在 §4.0 索引表；**禁止再让 §4 出现编号缺号或降序排列**。 |
 | `docs/specs/*.md` | 系统子文档 | 各系统规范的**现行口径唯一权威**：combat（战斗/弹种/能力/AI/特效/音频）/ map（地图/掩体/路网/水域）/ cards（卡牌）/ boss / editor（编辑器工具链）。 | 对应系统设计定型或实现落地时。 | 长期维护；旧值被取代时加「已被 X 取代」注记后改写为现行值。 |
 | `docs/PLAN.md` | **临时** | 近期待办与计划：待办总览表 + 执行方案（是计划，非承诺）。 | 规划近期工作或更新条目状态时。 | 条目实现并验证后**删除并归档**；只保留未完成项。 |
 | `docs/ISSUES.md` | **临时** | **仅已核实的问题**：每条必须有 `file:line` 证据、根因/影响、复现条件、状态（`待处理`/`处理中`）。 | 确认新问题（新增编号条目）或修复既有条目时。 | 修复验证有效后**删除并归档**。 |
@@ -130,8 +130,8 @@
   - `full`（全高）掩体与 `rock`（岩石）：确定性 100% 格挡直射实弹；岩石不可通行且挡弹。
   - `water`/`river`：炮弹越飞（`shellBlock: false`），坦克**减速通行（`passability: 0.4`，2026-09-14 重做）**；完全浸入触发溺毙倒计时（`RULES.drowning`，8s 沉没摧毁），AI 具备避水绕行。
   - `mud`：炮弹越飞，坦克减速通行（0.4）。
-  - `half`（半高）掩体：纯垂直剖面 + 越掩插值；**D5 裁定生成期已屏蔽**（仅残破建筑 `ruined` 共享其剖面），剥离延后待实测数据。
-  - 路网：`placeRoadNetwork` v2 六拓扑 + `bakeNodeGroundLayer` 预烘焙 + 路口标线挖空（详见 `docs/specs/map.md` §10.1/§10.2）。
+  - `half`（半高）掩体**已整体删除**（2026-09-20 #E3 用户裁定）：`RULES.coverTiers.half` 定义、`RULES.heights.cover.half`、`getExposure` 的越掩插值、`shellBlock:'grad'` 拦截链与 `s.dec` 曝光缓存**全部移除**；`ruined`（残破建筑）归入全高确定性挡弹，`stump`/`rubble` 残骸不再挡弹。**现行 tier 全集与取值以 `RULES.coverTiers`（`js/tank_rules.js`）为唯一口径**，详见 `docs/specs/map.md` §12。
+  - 路网：`placeRoadNetwork` **v4 七拓扑**（A 贯通 / B 十字 / C 单侧 T / E 双侧 T / D 双平行 / G 网格街区 / I 双干贯穿）+ `bakeNodeGroundLayer` 预烘焙 + 路口标线挖空；**可破坏楼房 tier `building`**（3 发 → `ruined` → `rubble`）（详见 `docs/specs/map.md` §10.1/§10.2、§13）。
   - 地图元素体系（树/灌木/栅栏/沙袋/残骸）：行为由 `RULES.coverTiers` 的 tier 描述，运行时 hp/残骸状态挂在 `covers` 实例上。
 - **属性三层结构**：`base` / `modifiers` / `stats`（`computeStats` 先加后乘，战斗逻辑只读 `tank.stats`，不摸 `base`）。卡牌/Boss 阶段/局前永久升级/局内商店均经 modifiers 注入，scope 分 permanent/run/timed，run 结束统一清除；卡牌通道受 `RULES.parameterLimits` 硬限钳制（装填/极速）。
 - **实体注册表**：中央 `entities` 数组（`id`、`team`、`spawn` 快照）管理所有单位，通过 `isHostile` / `nearestEnemyTo` / `resetEntity` 统一操作，不写死玩家/敌人变量引用。
@@ -139,6 +139,6 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`（§1 待办总览 / §2 非阻塞遗留（难度联动、HUD 渲染级合并）/ §3 反馈批次完成情况）。
+- **待办与排期**：见 `docs/PLAN.md`（§1 待办总览（A 档清账 / B 档推进轴玩法 / C 档横向卷轴节点 / 难度联动 / HUD 渲染级合并）/ §2 非阻塞遗留 / §3 C 档横向卷轴设计研究 / §4 2026-09-23 路线裁定）。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。
 - **待处理问题**：见 `docs/ISSUES.md`（当前无存量条目；历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。
