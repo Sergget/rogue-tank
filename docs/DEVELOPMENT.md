@@ -72,7 +72,7 @@
 
 **A 档（清账）已于 2026-09-23 完成并验证**（见 §4.35）——现行顺序如下：
 
-1. **B 档·推进轴玩法**（2 批次）：防线式敌人生成 ＋ 增援只在前方 ＋ 推进式节点完成条件 ＋ 视野卡/镜头外延做强——**地图尺寸不变**，不引 strip。
+1. **B 档·推进轴玩法**（2 批次）：防线式敌人生成 ＋ 增援只在前方 ＋ 推进式节点完成条件 ＋ ~~视野卡/镜头外延做强~~（**④ 已于 2026-09-23 落地**，§4.36）——**地图尺寸不变**，不引 strip。
 2. **C 档·横向卷轴节点**（4 批次，方案已定案、未开工）：方案与实测见 `docs/PLAN.md` §3，参数口径预留见 `docs/specs/map.md` §14（**尚未落地，不得作为现状引用**）。
 3. **难度联动**：新弹种是否进敌军池（`parameterLimits` / `enemyClassProfiles` 与弹种表联动）——非阻塞开放问题，见 `docs/PLAN.md` §2.1。
 4. **HUD 渲染实现级合并**：mvp⇄bench 同功能仍有两套渲染实现（血条/装填指示/弹种条/日志/散布锥/FPS 读数等 9 处）——非阻塞遗留，见 `docs/PLAN.md` §2.2。
@@ -233,4 +233,15 @@
 - **验证（三链）**：① `npm run check` 两部实测等价——`node scripts/check-html.js` **EXIT=0（All checks passed）** + `node node_modules/typescript/bin/tsc --noEmit` **EXIT=0**（注：`check-html.js` 已重构为 `fs`+`vm` 实现、不含 spawn，沙箱内可直接运行，与 `sandbox-verify` 早期的 EPERM 记录不同）；② `npm test` 全链 **EXIT=0**；③ `npm run test:browser` 四链**本次未在沙箱内实跑**（需系统 Edge + 放宽进程权限），**待正常环境补跑**——本次改动面（卡牌白名单 / 能力键 / 地图死参数）不在 smoke / r3 / run / r4 既有断言路径上。
 - **同轮发现的既有 flaky（非本次引入）**：`scripts/test-ai.js` 的 `#E7 反应延迟随距离增大` 为**随机抖动采样**断言——首次全链运行出现 1 次失败，随后单跑 3 次与全链复跑均通过（`§4.32` 已记录同款现象）。
 - **文档同步**：`specs/cards.md` §3/§4/§8.4/§8.5、`specs/combat.md` §4（技能快捷键池行）、`specs/map.md` §12.4、`AGENTS.md` §1/§5、本文件 §3.1（长期债务 2/3 结清）/§3.2（顺序重排）。
+
+### 4.36 2026-09-23 B 档（1/2）：镜头外延上调 0.30 → 0.40 —— 视野卡收益解除截断（已完成）
+
+> 现行细则归口 `specs/combat.md` §11.5（镜头外延量与视野卡收益的几何关系）；参数唯一口径 `js/tank_rules.js` 的 `RULES.camera.mouseLeadRatio`。
+
+- **动机**：2026-09-23 视野裁定（同日，见 `docs/PLAN.md` §4）确认「可见半径口径不改，改走**视野卡 + 镜头外延做强**」。核实发现视野卡收益被几何护栏吃掉：`cap = (窄半幅 + radius×mouseLeadRatio)/(1+bias)`，`mouseLeadRatio 0.30` ⇒ `cap = 600` ⇒ `support_commander_periscope`（+15%）与 `sniper_commander_sight`（+25%）在 1080p 下**同被压到 `R = 600`**（卡面不同、实得同为 +11.1%）。
+- **改动**：`RULES.camera.mouseLeadRatio` **0.30 → 0.40**（**单字段**——该值既是 `cap` 的分子外延项，又是 `updateCameraLead` 的外延量来源，两处同源自动一致）。未改视野卡数值、未改 `bias`/`screenRadiusRatio`/`minZoom`。
+- **效果（`test-camera` #H5 实测输出）**：`cap` 600 → **667**；+25% 卡 `R = 666.7 = min(×1.25=675, 护栏 667)`（原 600）；+15% 卡足额 621；**无卡 `R = 540` 不变**（前向可见 729px 不变——外延上调只改构图与前向屏幕容量，不改无卡可见距离）。
+- **代价**：鼠标顶在屏幕前缘时后向可见 270 → **180px**；外延按鼠标偏移归一化，**鼠标回屏幕中心即恢复满幅**（非单向收窄）。B 档余下项「增援只在前方」落地后可进一步抵消。
+- **验证（三链）**：`node scripts/check-html.js` **EXIT=0（All checks passed）** / `node node_modules/typescript/bin/tsc --noEmit` **EXIT=0** / `npm test` 全链 **EXIT=0**（含 `test-camera` #H5 段——该段 cap 与卡牌护栏断言按 `RULES.camera.mouseLeadRatio` **动态计算**，改值自动跟随，无需重锚）。`npm run test:browser` 待正常环境补跑。
+- **文档同步**：`specs/combat.md` §11.5 由「裁定待实施」改写为现行口径；`docs/PLAN.md` §1/§4.2 标注 B 档子项④完成。
 - **验证（三链）**：`npm run check` EXIT=0；`npm test` EXIT=0；`npm run test:browser` 四链 ALL PASS（沙箱内 `spawn EPERM` 属管道捕获限制，按 `sandbox-verify` 需一次性放宽进程权限后实跑）。本条为纯文档改动，无代码路径变更——三链用于确认文档未误伤任何被引用的实现。

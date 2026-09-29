@@ -717,7 +717,14 @@ const RULES = {
     // 2026-09-20 #E12：摄像机随鼠标向外延伸（构图前移，扩大朝向鼠标一侧的可见范围）。
     // 延伸距离 = RULES.vision.radius × leadRatio × 鼠标偏移归一化值（0~1，视口半宽/半高为满值），
     // 即「距离和视野绑定」：视野越大，可外延的距离越远；再乘 cam.zoom 反向补偿（缩小时外延更远）。
-    mouseLeadRatio: 0.30,
+    // 2026-09-23（B 档·视野做强）：0.30 → **0.40**。外延量同时是可见半径的收口上限之分子
+    // （tank_camera.visionRadiusForViewport 的 cap = (窄半幅 + radius×leadRatio)/(1+bias)），
+    // 故抬它即可放宽 cap、让视野卡收益不再被截断：原 0.30 ⇒ cap=600，`commander_sight` 的
+    // +15%（support_commander_periscope）与 +25%（sniper_commander_sight）在 1080p 下**同被压到
+    // R=600**（卡面不同、实得同为 +11.1%）；现行 0.40 ⇒ cap≈667 ⇒ +15% 足额（R=621）、
+    // +25% 近足额（R=667，实得 +23.5%）。无卡时 R 仍由窄半幅绑定（540，前向可见 729px 不变）。
+    // 代价：鼠标指正前时后向可见 540 → 180px——外延按鼠标偏移归一化，鼠标回屏幕中心即恢复满幅。
+    mouseLeadRatio: 0.40,
     mouseLeadZoomComp: true, // true = 外延距离 ÷ cam.zoom（缩放不改变世界侧外延量）
     leadLerp: 5              // 外延量的阻尼收敛速率（1/s）
   },

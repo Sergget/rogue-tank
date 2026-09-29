@@ -230,7 +230,9 @@ ok(close(bB.x, sB.x) && close(bB.y, sB.y), 'zoom=1.7：屏幕→世界→屏幕 
      '#H5 21:9 超宽屏与竖屏窄半幅同为 540 → 同一可见半径');
 
   // 6) 卡牌加成：nominal +25% → 屏幕占比等比放大；但前向边界 (1+bias)R 受护栏截断
-  //    （cap = (窄半幅+外延)/(1+bias) = 600——圆心偏移 bias×R 后前向仍须落在屏幕容量内）
+  //    （cap = (窄半幅+外延)/(1+bias)——按 RULES.camera.mouseLeadRatio **动态**计算：
+  //     0.30 ⇒ 600（两卡同被压到 600）；2026-09-23 起 0.40 ⇒ ≈667（视野卡收益解除截断，
+  //     见 specs/combat.md §11.5 / DEVELOPMENT.md §4.36））
   const RB = visionRadiusForViewport(camL, { nominal: baseR * 1.25 });
   const capL = (540 + baseR * ratio) / (1 + bias);
   ok(close(RB, Math.min(scrRatio * 540 * 1.25, capL), 1e-6),
