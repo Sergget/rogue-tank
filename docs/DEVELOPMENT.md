@@ -70,12 +70,11 @@
 
 **用户裁定（2026-09-23）**：路线取 **A 清账 → B 推进轴玩法**；完整 strip 横向卷轴降级为 **C 档**（待 A/B 完成后评估）；可见半径口径**不变**，「敌人开火时看不见」改走**视野卡 + 镜头外延做强**。待办总览与裁定理由见 `docs/PLAN.md` §1/§4；镜头外延与视野卡的几何上限见 `docs/specs/combat.md` §11.5。
 
-**A 档（清账）已于 2026-09-23 完成并验证**（见 §4.35）——现行顺序如下：
+**A 档（清账）与 B 档（推进轴玩法）已于 2026-09-23 完成并验证**（见 §4.35~§4.38）——现行顺序如下：
 
-1. **B 档·推进轴玩法**（2 批次）：防线式敌人生成 ＋ 增援只在前方 ＋ 推进式节点完成条件 ＋ ~~视野卡/镜头外延做强~~（**④ 已于 2026-09-23 落地**，§4.36）——**地图尺寸不变**，不引 strip。
-2. **C 档·横向卷轴节点**（4 批次，方案已定案、未开工）：方案与实测见 `docs/PLAN.md` §3，参数口径预留见 `docs/specs/map.md` §14（**尚未落地，不得作为现状引用**）。
-3. **难度联动**：新弹种是否进敌军池（`parameterLimits` / `enemyClassProfiles` 与弹种表联动）——非阻塞开放问题，见 `docs/PLAN.md` §2.1。
-4. **HUD 渲染实现级合并**：mvp⇄bench 同功能仍有两套渲染实现（血条/装填指示/弹种条/日志/散布锥/FPS 读数等 9 处）——非阻塞遗留，见 `docs/PLAN.md` §2.2。
+1. **C 档·横向卷轴节点**（4 批次，方案已定案、未开工）：方案与实测见 `docs/PLAN.md` §3，参数口径预留见 `docs/specs/map.md` §14（**尚未落地，不得作为现状引用**）。
+2. **难度联动**：新弹种是否进敌军池（`parameterLimits` / `enemyClassProfiles` 与弹种表联动）——非阻塞开放问题，见 `docs/PLAN.md` §2.1。
+3. **HUD 渲染实现级合并**：mvp⇄bench 同功能仍有两套渲染实现（血条/装填指示/弹种条/日志/散布锥/FPS 读数等 9 处）——非阻塞遗留，见 `docs/PLAN.md` §2.2。
 
 ---
 
@@ -264,4 +263,19 @@
   2. **`test-ai` #E7 反应延迟断言 flaky**：`_reactionSeconds` 内含 ±25% `Math.random` 抖动（不可注入），near/far 真值差仅 26% ⇒ 单次采样约 1/4 概率误判（实测连续 2/3 次失败）——改为 **25 次采样均值**（标准误 ≈ 5% ≪ 真值差），断言语义不变，改后连跑 5 次全绿。
 - **验证（三链）**：`node scripts/check-html.js` **EXIT=0** / `node node_modules/typescript/bin/tsc --noEmit` **EXIT=0** / `npm test` 全链 **EXIT=0**（含 `test-map` 新增「B 档① 防线式敌人生成」段断言、`test-replay` 同 seed 摘要一致、`test-nodegen` 七护栏与校准基线全绿）。`npm run test:browser` 待正常环境补跑。
 - **文档与测试同步**：`specs/map.md` 新增 §15（现行口径）；`docs/PLAN.md` §1/§4.2 标注子项①完成；`scripts/test-map.js` 数量断言重锚（原「敌数 ≡ `enemyCountForDifficulty`」→「落在 `[难度基线, maxPerNode]`」，并新增防线专项断言段）。
+
+### 4.38 2026-09-23 B 档（2/2 之二）：增援只补前方防线 + 推进式节点完成条件（已完成）
+
+> 现行细则归口 `specs/map.md` §15.9（增援前方约束）/ §15.10（完成条件）；参数唯一来源 `RULES.nodeMap.reinforceFrontOnly` 与 `RULES.nodeMap.exitZone.xFraction`；判定纯函数 `nodeClearance`（`js/tank_map.js`）。
+
+- **用户裁定**：节点完成条件改「**抵达右端出口 +（防线清空 或 配额达成）**」双条件（`docs/PLAN.md` §4.2-③）。旧口径（P-38）为「击杀数 ≥ 配额」单条件，**与推进正交**——玩家原地不动刷够配额即通关。
+- **改动**：
+  1. `js/tank_map.js` 新增纯函数 `nodeClearance(state)` → `{ exitReached, linesCleared, quotaDone, done, reason }`；常规节点要求 `exitReached && (linesCleared || quotaDone)`；**Boss 节点沿用「Boss + summons 全灭」**（不要求出口）；
+  2. `reinforcementTick` 新增 `state.defenseLines` 消费：候选 x 区间限定为「`x1 > 玩家 x`」的**前方防线桶**（沿推进轴由近至远；先选区间再取 x，rng 消耗序列固定 ⇒ 确定性不变）；**玩家越过全部防线时不再增援**；未提供 `defenseLines` 或 `reinforceFrontOnly=false` 时回退旧全向行为；
+  3. `makeNode` 输出 `defenseLines`（各防线 x 区间）与 `exitX`（= `w × exitZone.xFraction`）供运行时消费；
+  4. mvp 完成判定改调 `nodeClearance`（统一 Boss / 常规两分支，替换原 `quotaDone || (noEnemies && !canReinforce)`），`#quotaHud` 文案改推进式提示（`推进 N% → 出口 M% ｜ 配额 k/q`）。
+- **参数**：`RULES.nodeMap.reinforceFrontOnly: true`、`RULES.nodeMap.exitZone.xFraction: 0.93`。
+- **效果**：增援不再出现在玩家身后；通关必须沿 +x 推进到出口线（`w×0.93`）且清空防线（或达成配额）。
+- **验证（三链）**：`node scripts/check-html.js` **EXIT=0** / `node node_modules/typescript/bin/tsc --noEmit` **EXIT=0** / `npm test` 全链 **EXIT=0**——`test-map` 新增「B 档②③」段 22 项断言（双条件真值表含出口边界与 Boss 分支 / `reason` 语义 / 增援落点**全在玩家前方**且落在防线区间 / 越过全部防线不增援 / 前方无防线不增援 / 无 `defenseLines` 回退旧行为 / `makeNode` 输出 `defenseLines` 与 `exitX` / 初始敌军全在出口线内）。`npm run test:browser` 待正常环境补跑——**本批触及 mvp 完成判定与 HUD 文案，建议正常环境优先补跑 run 链**。
+- **文档同步**：`specs/map.md` §15 扩为「防线式推进体系」并新增 §15.9/§15.10；`docs/PLAN.md` B 档条目按生命周期归档；本文件 §3.2 下一步顺序更新（B 档收尾 ⇒ 下一步只剩 C 档/难度联动/HUD 合并）。
 - **验证（三链）**：`npm run check` EXIT=0；`npm test` EXIT=0；`npm run test:browser` 四链 ALL PASS（沙箱内 `spawn EPERM` 属管道捕获限制，按 `sandbox-verify` 需一次性放宽进程权限后实跑）。本条为纯文档改动，无代码路径变更——三链用于确认文档未误伤任何被引用的实现。

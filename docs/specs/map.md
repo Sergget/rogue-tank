@@ -398,7 +398,7 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 
 ---
 
-## 15. 防线式敌人生成（B 档①，2026-09-23 落地，现行口径）
+## 15. 防线式推进体系（B 档①②③，2026-09-23 落地，现行口径）
 
 > **现行口径**：参数唯一来源 `RULES.nodeMap.defenseLine`（`js/tank_rules.js`）；实现 `planDefenseLines` / `collectDefenseAnchors` / `pickDefenseLineAnchor`（`js/tank_map.js`），消费方 `makeNode`。本节取代旧口径「以玩家出生点为原点的全向环带撒簇」（该路径保留为 `enabled=false` 的回退，见 §15.6）。
 
@@ -454,5 +454,24 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 ### 15.8 回归锚点
 
 `scripts/test-map.js`「B 档① 防线式敌人生成」段：敌军全部位于推进方向前方 / 敌数落在 `[难度基线, maxPerNode]` / 同 seed 逐字段确定性 / `targetCount` 随难度单调非降 / 高难防线数与每锚点敌数 ≥ 低难 / 锚点落在所属桶区间内 / 锚点来源合法 / 视口模式敌军不越右缘。`test-replay.js`（同 seed 摘要一致）与 `test-nodegen*.js`（元素生成）保持全绿。
+
+### 15.9 增援只补前方未清空防线（B 档②）
+
+- `reinforcementTick` 消费新增的 `state.defenseLines`（`makeNode` 输出的各防线 `{x0,x1}`）：候选 x 区间限定为「`x1 > playerPos.x`」的**前方防线桶**（先随机选区间、再在区间内取 x，rng 消耗序列固定 ⇒ 确定性不变）；y 仍全高随机。
+- **玩家越过全部防线 ⇒ 不增援**（`frontRanges` 为空即返回空数组），避免在出口区反复刷兵。
+- 原有落点约束全部保留（视口外扩 `reinforceMargin` 之外 / 距玩家 ≥ `aiTriggerDist×1.05` / 距据点 ≥ `reinforceOutpostDist` / 避 solid 掩体 60px）。因「距玩家 ≥ 触发距离」仍然生效，若前方防线可采区间已被玩家贴近到可见范围，则本次增援自然为空——符合「不刷不可见兵」原则。
+- **回退**：`RULES.nodeMap.reinforceFrontOnly = false` 或未提供 `defenseLines` ⇒ 旧全向随机落点。
+
+### 15.10 推进式节点完成条件（B 档③）
+
+- 纯逻辑 `nodeClearance(state)`（`js/tank_map.js`），mvp 逐帧消费：`state = { playerX, nodeW, exitX, alive, quota, kills, canReinforce, boss }`。
+- **常规节点**：`done = exitReached && (linesCleared || quotaDone)`：
+  - `exitReached`：`playerX ≥ exitX`（`exitX = w × RULES.nodeMap.exitZone.xFraction(0.93)`，边界含）；
+  - `linesCleared`：场上无存活敌军且已无法增援；
+  - `quotaDone`：`kills ≥ quota`（并列条件：抵达出口后即使有残敌也可凭配额通关）。
+- **Boss 节点**：`done = 场上无敌`（沿用「Boss + summons 全灭」，不要求出口）。
+- `reason` 取值：`pushing`（未到出口且仍有敌）/ `advance`（未到出口且已清空）/ `clearing`（到出口但仍在交战）/ `exit+cleared` / `exit+quota` / `boss` / `boss-cleared`；mvp 据此写结算日志（「抵达出口 · 区域肃清」/「BOSS 击破」）。
+- HUD：`#quotaHud` 显示 `推进 N% → 出口 M% ｜ 配额 k/q`（推进百分比 = `playerX / w`）。
+- **沿革**：旧口径为「`kills ≥ quota`」单条件（P-38），与推进正交（原地刷够配额即通关）。
 
 

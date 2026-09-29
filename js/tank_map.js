@@ -689,6 +689,10 @@ function makeNode(index, rng, env) {
     playerSpawn: playerSpawn,
     enemyClusters: enemyClusters,
     enemies: enemies,
+    // B 档②/③（2026-09-23）：防线布局（推进轴 x 区间）与出口线——运行时用于「增援只补前方防线」
+    // 与推进式完成判定（nodeClearance）。防线制关闭时为空数组。
+    defenseLines: defense.enabled ? defense.lines.map(l => ({ x0: l.x0, x1: l.x1 })) : [],
+    exitX: w * ((cfg.exitZone && cfg.exitZone.xFraction !== undefined) ? cfg.exitZone.xFraction : 0.93),
     outpost: outpost,
     cleared: false
   };
@@ -965,13 +969,35 @@ function reinforcementTick(state) {
   const covers = Array.isArray(s.covers) ? s.covers : [];
   const pool = (Array.isArray(s.tankPool) && s.tankPool.length) ? s.tankPool : ['dummy'];
 
+  // B 档②（2026-09-23）：增援只补玩家**前方**的防线——候选 x 区间限定为「x1 > 玩家 x」的防线桶
+  // （沿推进轴由近至远累积；旧口径为全图随机，会把兵刷在玩家身后）。玩家已越过全部防线
+  // （或调用方未提供 defenseLines / 显式关闭 reinforceFrontOnly）时按旧全向行为。
+  const frontRanges = [];
+  if (cfg.reinforceFrontOnly !== false && Array.isArray(s.defenseLines) && s.defenseLines.length) {
+    for (const line of s.defenseLines) {
+      if (!line || !Number.isFinite(line.x0) || !Number.isFinite(line.x1)) continue;
+      if (line.x1 <= s.playerPos.x) continue;               // 玩家已越过该防线
+      const rx0 = Math.max(margin, line.x0 - 60);
+      const rx1 = Math.min(w - margin, line.x1 + 60);
+      if (rx1 > rx0) frontRanges.push([rx0, rx1]);
+    }
+    if (!frontRanges.length) return out;                    // 已推进到全部防线前方尽头 → 不再增援
+  }
+
   let n = Math.min(2, s.quota - killed - alive, maxAlive - alive);   // 预算钳制
   if (n <= 0) return out;
   n = Math.min(n, s.rng.int(1, 2));                                  // 每次生成 1~2 个（rng 确定性）
 
   for (let i = 0; i < n; i++) {
     for (let tries = 0; tries < 60; tries++) {
-      const x = s.rng.range(margin, w - margin);
+      // B 档②：有前方防线区间时在其中随机取（先选区间再取 x，rng 消耗序列固定、确定性不变）
+      let x;
+      if (frontRanges.length) {
+        const fr = frontRanges[s.rng.int(0, frontRanges.length - 1)];
+        x = s.rng.range(fr[0], fr[1]);
+      } else {
+        x = s.rng.range(margin, w - margin);
+      }
       const y = s.rng.range(margin, h - margin);
       if (x >= vb.minX - margin && x <= vb.maxX + margin &&
           y >= vb.minY - margin && y <= vb.maxY + margin) continue;  // 视口外扩区内拒绝
@@ -993,6 +1019,40 @@ function reinforcementTick(state) {
     }
   }
   return out;
+}
+
+/**
+ * 推进式节点完成判定（B 档③，2026-09-23）。纯逻辑，供 mvp 逐帧消费、可 Node 测试。
+ * 常规节点：**抵达右端出口 +（防线清空 或 配额达成）**双条件——取代旧「击杀数 ≥ 配额」单条件
+ * （旧口径与推进正交：玩家原地不动刷够配额即通关）。
+ * Boss 节点：沿用「Boss + summons 全灭」（无配额、不增援），不要求出口。
+ * @param {any} s { playerX, nodeW, exitX?, alive, quota, kills, canReinforce?, boss? }
+ * @returns {{ exitReached:boolean, linesCleared:boolean, quotaDone:boolean, done:boolean, reason:string }}
+ */
+function nodeClearance(s) {
+  const st = s || {};
+  const cfg = nodeConfig();
+  const alive = Math.max(0, st.alive | 0);
+  if (st.boss) {
+    const cleared = alive === 0;
+    return { exitReached: false, linesCleared: cleared, quotaDone: false, done: cleared,
+      reason: cleared ? 'boss-cleared' : 'boss' };
+  }
+  const elemCfg = cfg.exitZone || {};
+  const exitFrac = elemCfg.xFraction !== undefined ? elemCfg.xFraction : 0.93;
+  const nodeW = Number.isFinite(st.nodeW) ? st.nodeW : 0;
+  const exitX = Number.isFinite(st.exitX) ? st.exitX : nodeW * exitFrac;
+  const exitReached = nodeW > 0 && Number.isFinite(st.playerX) && st.playerX >= exitX;
+  const kills = Math.max(0, st.kills | 0);
+  const quota = Number.isFinite(st.quota) ? st.quota : 0;
+  const quotaDone = quota > 0 && kills >= quota;
+  const linesCleared = alive === 0 && !st.canReinforce;      // 场上清空且已无法增援
+  const done = exitReached && (linesCleared || quotaDone);
+  let reason = '';
+  if (done) reason = linesCleared ? 'exit+cleared' : 'exit+quota';
+  else if (!exitReached) reason = alive > 0 ? 'pushing' : 'advance';
+  else reason = 'clearing';
+  return { exitReached: exitReached, linesCleared: linesCleared, quotaDone: quotaDone, done: done, reason: reason };
 }
 
 // ---------- 节点实体化（注入浏览器全局） ----------
@@ -1071,6 +1131,7 @@ if (typeof module !== 'undefined' && module.exports) {
     quotaForDifficulty,
     planDefenseLines,
     defenseLineConfig,
+    nodeClearance,
     reinforcementTick,
     makeNode,
     generateRun,

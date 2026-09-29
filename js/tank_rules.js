@@ -592,7 +592,16 @@ const RULES = {
     quotaDiffScale: 6,            // 配额难度系数（effDiff 为该节点有效难度）
     desiredAliveRatio: 0.6,       // 补兵阈值：desiredAlive = ceil(初始敌数×ratio) + floor(effDiff×3)，封顶 maxAlive
     reinforceMargin: 120,         // 增援落点必须在视口 AABB 外扩该值之外（玩家不可见刷兵）
-    reinforceOutpostDist: 300     // 增援落点距友军据点最小间距（px）
+    reinforceOutpostDist: 300,    // 增援落点距友军据点最小间距（px）
+    // B 档②（2026-09-23）：增援只补玩家**前方**未清空防线——落点限定在「x1 > 玩家 x」的防线区间内
+    // （沿推进轴由近至远），玩家已越过全部防线时不再增援。false = 回退旧全向随机落点。
+    reinforceFrontOnly: true,
+    // B 档③（2026-09-23）：推进式节点完成——**抵达右端出口 + （防线清空 或 配额达成）**双条件。
+    // 旧口径为「击杀数 ≥ 配额」单条件（与推进正交），现要求玩家沿 +x 推进到出口线。
+    // 消费方：js/tank_map.js nodeClearance（纯逻辑）+ tank_mvp.html 完成判定/HUD。
+    exitZone: {
+      xFraction: 0.93             // 出口线位置（× 节点宽 w；玩家 x ≥ 该线即视为抵达出口）
+    }
   },
 
   // P-46 类别化敌军（玩家基准锚定制，2026-08-26 第三批裁定，取代旧构筑预算制）：

@@ -2984,6 +2984,8 @@ function update(dt){
       aiTier: currentNode.aiTier || 0,
       statMult: currentNode.statMult,
       entityMults: currentNode.entityMults,
+      // B 档②（2026-09-23）：防线布局 → 增援只补玩家前方未清空防线（旧口径全图随机会刷在身后）
+      defenseLines: currentNode.defenseLines || [],
       tankPool: (RULES.nodeMap && RULES.nodeMap.enemyTankPool) || ['dummy']
     });
     if(specs.length){
@@ -3062,22 +3064,26 @@ function update(dt){
         finishNode(false);               // 复活次数耗尽 → gameover（真 Roguelike 永久死亡）
       }
     } else if(!player._dead){
-      // P-38：常规节点改配额制——节点内击杀数 ≥ quota 即通关；
-      // 初始全灭但配额未满时不结算，由递增生成（reinforcementTick）补兵继续战斗。
-      // Boss 节点无配额：沿用「Boss+summons 全灭」判定。
-      const quotaDone = currentNode && !currentNode.boss &&
-        Number.isFinite(currentNode.quota) && (battleState.nodeKills || 0) >= currentNode.quota;
-      // B1（2026-09）：仅在配额已满，或当前无法再增援（Boss / 无配额）时才进入结算缓冲。
-      // 常规节点的「初始全灭但配额未满」不结算 —— 由增援间隔(reinforceInterval=8s)补党继续战斗；
-      // reinforcementTick 在 alive===0 时仍产出 spawn spec（见 js/tank_map.js），故不会软锁。
-      const noEnemies = livingNodeEnemies().length === 0;
+      // B 档③（2026-09-23）：推进式节点完成——「抵达右端出口 +（防线清空 或 配额达成）」双条件。
+      // Boss 节点沿用「Boss + summons 全灭」（nodeClearance 的 boss 分支）。
+      // 旧口径（P-38）为「击杀数 ≥ 配额」单条件，与推进正交（原地刷够配额即通关）。
       const canReinforce = !!(currentNode && !currentNode.boss &&
         Number.isFinite(currentNode.quota) && (battleState.nodeKills || 0) < currentNode.quota);
-      if(quotaDone || (noEnemies && !canReinforce)){
+      const clearance = nodeClearance({
+        playerX: player.x,
+        nodeW: currentNode ? currentNode.w : 0,
+        exitX: currentNode ? currentNode.exitX : undefined,
+        alive: livingNodeEnemies().length,
+        quota: currentNode ? currentNode.quota : null,
+        kills: battleState.nodeKills || 0,
+        canReinforce: canReinforce,
+        boss: !!(currentNode && currentNode.boss)
+      });
+      if(clearance.done){
         if(!battleState.clearing){
           battleState.clearing = true;
           battleState.clearingT = 3.0; // 3秒冻结缓冲
-          pushLog('★ 区域肃清 AREA CLEARED ★', 'COVER');
+          pushLog(clearance.reason === 'boss-cleared' ? '★ BOSS 击破 ★' : '★ 抵达出口 · 区域肃清 AREA CLEARED ★', 'COVER');
         }
       }
     }
@@ -3124,7 +3130,12 @@ function updateHud(){
   if(run && battleState && !battleState.cleared && flow.state === 'battle' &&
      currentNode && !currentNode.boss && Number.isFinite(currentNode.quota)){
     qh.style.display = 'block';
-    qh.textContent = `剩余敌人配额 ${Math.max(0, currentNode.quota - (battleState.nodeKills||0))} / ${currentNode.quota}`;
+    // B 档③（2026-09-23）：推进式提示——出口进度 + 配额（完成 = 抵达出口 且 防线清空/配额达成）
+    const nodeWTotal = currentNode.w || 1;
+    const pushPct = Math.max(0, Math.min(100, Math.round(player.x / nodeWTotal * 100)));
+    const exitPct = Math.round((currentNode.exitX !== undefined ? currentNode.exitX / nodeWTotal : 0.93) * 100);
+    const killedNow = battleState.nodeKills || 0;
+    qh.textContent = `推进 ${pushPct}% → 出口 ${exitPct}% ｜ 配额 ${killedNow} / ${currentNode.quota}`;
   } else qh.style.display = 'none';
   // 按需面板（P-15）：开启时逐帧刷新
   if(statusOpen) updateStatusPanel();

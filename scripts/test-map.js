@@ -17,6 +17,7 @@ const {
   isBossNodeIndex,
   enemyCountForDifficulty,
   planDefenseLines,
+  nodeClearance,
   aiTierForDifficulty,
   statMultForDifficulty,
   entityMultsForDifficulty,
@@ -479,6 +480,63 @@ console.log('--- B 档① 防线式敌人生成 ---');
   ok(nV.enemies.every(e => e.x > nV.playerSpawn.x), '防线：视口模式敌军全在推进方向前方');
   ok(nV.enemies.every(e => e.x <= nV.w * 0.98),
     `防线：视口模式敌军不越过节点右缘（max x=${Math.round(Math.max.apply(null, nV.enemies.map(e => e.x)))}）`);
+}
+
+// ================= B 档②③（2026-09-23）：增援只补前方防线 + 推进式完成条件 =================
+console.log('--- B 档②③ 增援前方防线 + 推进式完成 ---');
+{
+  // ③ nodeClearance：抵达出口 +（防线清空 或 配额达成）双条件
+  const W = 5760, EXIT = W * 0.93;
+  ok(nodeClearance({ playerX: 1000, nodeW: W, alive: 5, quota: 10, kills: 2, canReinforce: true }).done === false,
+    '完成条件：未抵达出口 → 未完成（配额未满时不再单条件通关）');
+  ok(nodeClearance({ playerX: EXIT + 1, nodeW: W, alive: 3, quota: 10, kills: 2, canReinforce: true }).done === false,
+    '完成条件：抵达出口但仍有敌军且可增援 → 未完成');
+  ok(nodeClearance({ playerX: EXIT + 1, nodeW: W, alive: 0, quota: 10, kills: 3, canReinforce: false }).done === true,
+    '完成条件：抵达出口 + 防线清空 → 完成');
+  ok(nodeClearance({ playerX: EXIT + 1, nodeW: W, alive: 4, quota: 5, kills: 5, canReinforce: false }).done === true,
+    '完成条件：抵达出口 + 配额达成 → 完成（即使仍有残敌）');
+  ok(nodeClearance({ playerX: EXIT - 1, nodeW: W, alive: 0, quota: 5, kills: 5, canReinforce: false }).exitReached === false,
+    '完成条件：恰在出口线之前 → 未抵达');
+  ok(nodeClearance({ playerX: EXIT, nodeW: W, alive: 0, quota: 5, kills: 0, canReinforce: false }).exitReached === true,
+    '完成条件：恰在出口线 → 抵达（边界含）');
+  ok(nodeClearance({ boss: true, playerX: 100, nodeW: W, alive: 0, quota: null, kills: 0 }).done === true,
+    '完成条件：Boss 节点全灭即完成（不要求出口，沿用旧口径）');
+  ok(nodeClearance({ boss: true, playerX: EXIT + 1, nodeW: W, alive: 1, quota: null, kills: 0 }).done === false,
+    '完成条件：Boss 未灭 → 未完成');
+  ok(nodeClearance({ playerX: EXIT + 1, nodeW: W, alive: 0, quota: 9, kills: 1, canReinforce: false }).reason === 'exit+cleared',
+    '完成条件：reason = exit+cleared');
+  ok(nodeClearance({ playerX: EXIT + 1, nodeW: W, alive: 2, quota: 3, kills: 3, canReinforce: false }).reason === 'exit+quota',
+    '完成条件：reason = exit+quota');
+  ok(nodeClearance({ playerX: 500, nodeW: W, alive: 2, quota: 9, kills: 1 }).reason === 'pushing',
+    '完成条件：reason = pushing（未到出口且仍有敌）');
+
+  // ② reinforcementTick：增援只补玩家前方防线
+  const baseState = {
+    alive: 1, killedThisNode: 0, quota: 12, effDiff: 0.3, initialCount: 8,
+    playerPos: { x: 1200, y: 1650 }, viewBounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+    worldSize: { w: 5760, h: 3300 }, covers: [], rng: createRNG(31), timer: 9,
+    aiTriggerDist: 800, defenseLines: [{ x0: 1422, x1: 3360 }, { x0: 3360, x1: 5299 }]
+  };
+  const specsFront = reinforcementTick(baseState);
+  ok(specsFront.length > 0, `增援前方防线：产出 ${specsFront.length} 个`);
+  ok(specsFront.every(sp => sp.x > baseState.playerPos.x), '增援落点全部在玩家前方（不再刷身后）');
+  ok(specsFront.every(sp => sp.x >= 1422 - 61 && sp.x <= 5299 + 61), '增援落点落在防线区间内');
+  const pastAll = Object.assign({}, baseState, { playerPos: { x: 5400, y: 1650 }, rng: createRNG(31) });
+  ok(reinforcementTick(pastAll).length === 0, '增援：玩家已越过全部防线 → 不再增援');
+  const behindOnly = Object.assign({}, baseState, {
+    playerPos: { x: 3400, y: 1650 }, defenseLines: [{ x0: 1422, x1: 3360 }], rng: createRNG(31)
+  });
+  ok(reinforcementTick(behindOnly).length === 0, '增援：前方无防线（全在身后）→ 不增援');
+  const noLines = Object.assign({}, baseState, { defenseLines: [], rng: createRNG(31) });
+  ok(reinforcementTick(noLines).length > 0, '增援：未提供 defenseLines → 回退旧全向行为（仍产出）');
+
+  // makeNode 输出防线布局与出口线（供运行时消费）
+  const nD = makeNode(1, createRNG(77), { viewport: { vw: 1920, vh: 1080 } });
+  ok(Array.isArray(nD.defenseLines) && nD.defenseLines.length > 0,
+    `makeNode 输出 defenseLines（${nD.defenseLines.length} 条）`);
+  ok(nD.defenseLines.every(l => l.x1 > l.x0), 'makeNode defenseLines 区间合法（x1 > x0）');
+  ok(Math.abs(nD.exitX - nD.w * 0.93) < 1e-6, `makeNode exitX = w×0.93（${Math.round(nD.exitX)} / ${Math.round(nD.w)}）`);
+  ok(nD.enemies.every(e => e.x < nD.exitX), 'makeNode 初始敌军全部位于出口线之内');
 }
 
 console.log('test-map: 完成所有检查');
