@@ -460,8 +460,8 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
     ok(!!c && abilEffects(c).some(ef => ef.requiresAbility === ef.key && ef.params),
       `#A28: 升级卡 ${id} 声明 requiresAbility=自身 key 且带 params 覆写`);
   }
+  // 2026-09-23 A 档：recon / track_repair 死效果键与 5 张对应卡已摘除（原 11 张 → 现 6 张）
   const EXPECT_BASE = ['artillery_strike', 'tactical_shield', 'super_reload', 'ability_deploy_cover',
-    'mobile_track_repair', 'support_track_repair', 'emergency_track', 'support_recon', 'sniper_recon_mark',
     'repair_kit', 'support_extinguisher'];
   for (const id of EXPECT_BASE) {
     const c = byId[id];

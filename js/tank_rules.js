@@ -504,7 +504,8 @@ const RULES = {
       // （弯曲引入 ≈7°）。实测 0.42 时最小交角 58.2°（<#B7 的 60° 护栏）；0.34(≈19.5°) 留 ≥63° 余量。
       diagAngleMax: 0.34,      // 斜向偏角上限（rad ≈19°）
       branchCurveAmp: 0.10,    // 支路弯曲幅度
-      junctionClearR: 0.85,    // 路口清空半径系数（×路宽）：路口内不生成实体掩体
+      // 2026-09-23 A 档：删除死配置 junctionClearR（0.85）——全仓库零消费，生成器实际用
+      // roadW × 0.5 硬编码路口清空半径（js/tank_nodegen.js junctions.push({r: roadW * 0.5})）。
       speedBonusKmh: 10,       // 在公路上行驶的速度加成（km/h，受 maxSpeed 150km/h 上限钳制）
       speedBonusLerp: 6        // 公路上加成生效/失效的阻尼速率（1/s）
     },

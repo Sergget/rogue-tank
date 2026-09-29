@@ -36,7 +36,9 @@ const AMMO_FIELDS = ['pen', 'dmg', 'speed'];
 // 主动装置（ability，运行时在对应里程碑接入按键触发；schema 先行）
 // #G（2026-09-21）：+ super_fire_control / super_speed / aps——runtime 技能键全集（与
 // tank_abilities.ABILITY_KEYS_RUNTIME 及 skillHotkey DISPATCH 对齐；medkit 为 innate 键）
-const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'recon', 'track_repair', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'super_fire_control', 'super_speed', 'aps'];
+// 2026-09-23 A 档：剔除死效果键 recon / track_repair（两者无任何激活路径，对应 5 张卡已删除，
+// 见 DEVELOPMENT.md §4.35）——本白名单现恒等于「innate 3 键 + runtime 7 键」，无死键。
+const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'super_fire_control', 'super_speed', 'aps'];
 
 // 无人机种类（drone）：scout=侦察指示（视口外敌军位置箭头）/ striker=近身自动索敌打击。
 // kind 缺失时兼容旧数据（默认 striker，伴随浮游炮语义）。

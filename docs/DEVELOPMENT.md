@@ -62,18 +62,20 @@
 - **批次史**：R-1/R-2/R-3 起步（§4.1~§4.3）→ 卡牌三板块与开局弹种/副炮塔（§4.9）→ 面板解耦（§4.10）→ 阶段七卡牌闭环（§4.11）→ 2026-09-14 三批定案（§4.12~§4.14）→ 主武器改版五项 + W6 机炮热量（§4.15）→ 输入分发/卡牌资格/面板分层（§4.16）→ 技能 upgrade 资格闭环（§4.17）→ 炮塔前移根治 + 路网重做（§4.18）→ #B8~#B11（§4.19）→ #C 批（§4.20）→ #D 批（§4.21）→ 开发者面板两页统一（§4.22）→ #E 批掩体体系收敛（§4.23）→ #F 批（§4.24~§4.27）→ #G 批（§4.28）→ #H 批视野/激光（§4.29~§4.31）→ #I 批（§4.32）→ #J 批（§4.33）→ 文档整改（§4.34）。**§4.1~§4.26 逐条正文已归档**（见上方 §4 编号说明与索引表）。
 - **长期债务**：
   1. 友军击杀五折记分留待经济里程碑。
-  2. `RULES.nodeMap.road.junctionClearR`（0.85）为**死配置**——生成器实际使用 `roadW × 0.5` 硬编码，全仓库零消费；待清理或接线（`js/tank_rules.js:507`）。
-  3. **`recon` / `track_repair` 两个能力键为死效果**（均属 `js/tank_cards.js` 的 `ABILITY_KEYS` 白名单，故对应卡牌能正常抽取与持有，但激活路径缺失）：`recon` 不在 `ABILITY_KEYS_RUNTIME`（`js/tank_abilities.js:53`）中，mvp 技能池 DISPATCH 的 `recon` 分支调用 `tryDroneCommand()`——该函数**全仓库无定义**，`typeof` 守卫使其恒为 no-op（`tank_mvp.html:808`）；`track_repair` 既不在 runtime 池也不在 innate 池，`tryActivateAbility` 返回 `{reason:'unsupported'}`，且不在 DISPATCH 表中 ⇒ 静默无反应。受影响卡牌：`support_recon` / `sniper_recon_mark`（recon）、`emergency_track` / `mobile_track_repair` / `support_track_repair`（track_repair）。待接线或从白名单摘除。
+  2. ~~`RULES.nodeMap.road.junctionClearR`（0.85）为死配置~~ —— **已于 2026-09-23 A 档删除**（见 §4.35）。
+  3. ~~`recon` / `track_repair` 两个能力键为死效果（对应 5 张卡能抽不能用）~~ —— **已于 2026-09-23 A 档整体摘除**（两键 + 5 张对应卡，见 §4.35）。
+  （截至 2026-09-23 A 档收尾，长期债务仅剩第 1 条。）
 
 ### 3.2 下一步顺序（2026-09-23 路线裁定后）
 
 **用户裁定（2026-09-23）**：路线取 **A 清账 → B 推进轴玩法**；完整 strip 横向卷轴降级为 **C 档**（待 A/B 完成后评估）；可见半径口径**不变**，「敌人开火时看不见」改走**视野卡 + 镜头外延做强**。待办总览与裁定理由见 `docs/PLAN.md` §1/§4；镜头外延与视野卡的几何上限见 `docs/specs/combat.md` §11.5。
 
-1. **A 档·清账**（1 轮）：`recon` / `track_repair` 死效果卡处理（接线或摘除）＋ `road.junctionClearR` 死配置清理 ＋ 未提交文档提交。
-2. **B 档·推进轴玩法**（2 批次）：防线式敌人生成 ＋ 增援只在前方 ＋ 推进式节点完成条件 ＋ 视野卡/镜头外延做强——**地图尺寸不变**，不引 strip。
-3. **C 档·横向卷轴节点**（4 批次，方案已定案、未开工）：方案与实测见 `docs/PLAN.md` §3，参数口径预留见 `docs/specs/map.md` §14（**尚未落地，不得作为现状引用**）。
-4. **难度联动**：新弹种是否进敌军池（`parameterLimits` / `enemyClassProfiles` 与弹种表联动）——非阻塞开放问题，见 `docs/PLAN.md` §2.1。
-5. **HUD 渲染实现级合并**：mvp⇄bench 同功能仍有两套渲染实现（血条/装填指示/弹种条/日志/散布锥/FPS 读数等 9 处）——非阻塞遗留，见 `docs/PLAN.md` §2.2。
+**A 档（清账）已于 2026-09-23 完成并验证**（见 §4.35）——现行顺序如下：
+
+1. **B 档·推进轴玩法**（2 批次）：防线式敌人生成 ＋ 增援只在前方 ＋ 推进式节点完成条件 ＋ 视野卡/镜头外延做强——**地图尺寸不变**，不引 strip。
+2. **C 档·横向卷轴节点**（4 批次，方案已定案、未开工）：方案与实测见 `docs/PLAN.md` §3，参数口径预留见 `docs/specs/map.md` §14（**尚未落地，不得作为现状引用**）。
+3. **难度联动**：新弹种是否进敌军池（`parameterLimits` / `enemyClassProfiles` 与弹种表联动）——非阻塞开放问题，见 `docs/PLAN.md` §2.1。
+4. **HUD 渲染实现级合并**：mvp⇄bench 同功能仍有两套渲染实现（血条/装填指示/弹种条/日志/散布锥/FPS 读数等 9 处）——非阻塞遗留，见 `docs/PLAN.md` §2.2。
 
 ---
 
@@ -214,4 +216,21 @@
   5. `specs/combat.md` §3.2 弹种表补注 5 个 noBounce 弹种（he/hesh/proximity_he/blast_he/heat 系）在 `RULES.ammoTypes` 中**不设** `bounceAngle` 字段（表内 90° 为「不可能跳弹」的语义值，由 `noBounce` 承载）。
 - **临时文档生命周期清理**：`docs/PLAN.md` 原有 8 个「✅ 已完成」章节、`docs/ISSUES.md` 原有 10 个「核验记录」章节，均违反 `AGENTS.md` §2.2「实现并验证后**完全删除**」。已完成条目原文按 §2.2 第 3 步归档至 `docs/archive/2026-09.md`，正文只保留未完成项（PLAN §1 待办总览 3 项 + §2 非阻塞遗留 + §10 横向卷轴设计研究；ISSUES 无存量条目）。
 - **改后一致性自检**：`AGENTS.md` §5 指针（`DEVELOPMENT.md` §3 / §4）与 §2 章节号描述复位；§4 编号升序；specs 数值与 `node scripts/audit-content.js` 实测一致；全部 `§4.x` 交叉引用可解析。
+
+### 4.35 2026-09-23 A 档清账：recon/track_repair 死效果键整体摘除 + junctionClearR 死配置清理（已完成）
+
+> 现行细则归口 `specs/cards.md` §3（死效果键摘除与现行不变量）/ §4（卡池快照）/ §8.4~§8.5（能力卡分类），地图侧归口 `specs/map.md` §12.4（沿革注记）。
+
+- **用户裁定**：死效果键**不接线、整体摘除**（2026-09-23）。
+- **摘除内容（两键 + 5 张卡 + 3 处接线点）**：
+  1. `js/tank_cards.js` `ABILITY_KEYS` 剔除 `recon` / `track_repair` ⇒ 现恒等于「innate 3 键（repair/medkit/extinguish）+ runtime 7 键」，**无死键**；
+  2. `tank_mvp.html` 技能池 DISPATCH 删除 `recon` 分支（其调用的 `tryDroneCommand()` **全仓库无定义**，靠 `typeof` 守卫恒为 no-op）；
+  3. `tank_mvp.html` `ABILITY_KEY_HINT` 与 `js/tank_abilities.js` `ABILITY_LABELS` 删除 `recon` 词条（原表内 `recon: '侦察指令'` 与提示「侦察标记」）；
+  4. 删除 5 张只带单一 `ability` 效果、卡面自述「占位」的卡：`cards/support_recon.json`（rare）、`cards/sniper_recon_mark.json`（epic）、`cards/emergency_track.json`（epic）、`cards/mobile_track_repair.json`（common）、`cards/support_track_repair.json`（common）。
+- **连带清理**：`RULES.nodeMap.road.junctionClearR`（0.85；全仓库零消费，生成器实际用 `roadW × 0.5` 硬编码路口清空半径）从 `js/tank_rules.js` 删除。
+- **卡池与统计（实测）**：`node scripts/audit-content.js` —— **173 → 168 张**（common 61→59 / rare 57→56 / epic 39→37 / legendary 15 / mythic 1）；效果数 209 → 204（`ability` 17→12）。
+- **测试夹具同步**：`scripts/test-cards.js` 的 `EXPECT_BASE`（#A28 死锁防线清单）由 11 张缩为 6 张。
+- **验证（三链）**：① `npm run check` 两部实测等价——`node scripts/check-html.js` **EXIT=0（All checks passed）** + `node node_modules/typescript/bin/tsc --noEmit` **EXIT=0**（注：`check-html.js` 已重构为 `fs`+`vm` 实现、不含 spawn，沙箱内可直接运行，与 `sandbox-verify` 早期的 EPERM 记录不同）；② `npm test` 全链 **EXIT=0**；③ `npm run test:browser` 四链**本次未在沙箱内实跑**（需系统 Edge + 放宽进程权限），**待正常环境补跑**——本次改动面（卡牌白名单 / 能力键 / 地图死参数）不在 smoke / r3 / run / r4 既有断言路径上。
+- **同轮发现的既有 flaky（非本次引入）**：`scripts/test-ai.js` 的 `#E7 反应延迟随距离增大` 为**随机抖动采样**断言——首次全链运行出现 1 次失败，随后单跑 3 次与全链复跑均通过（`§4.32` 已记录同款现象）。
+- **文档同步**：`specs/cards.md` §3/§4/§8.4/§8.5、`specs/combat.md` §4（技能快捷键池行）、`specs/map.md` §12.4、`AGENTS.md` §1/§5、本文件 §3.1（长期债务 2/3 结清）/§3.2（顺序重排）。
 - **验证（三链）**：`npm run check` EXIT=0；`npm test` EXIT=0；`npm run test:browser` 四链 ALL PASS（沙箱内 `spawn EPERM` 属管道捕获限制，按 `sandbox-verify` 需一次性放宽进程权限后实跑）。本条为纯文档改动，无代码路径变更——三链用于确认文档未误伤任何被引用的实现。

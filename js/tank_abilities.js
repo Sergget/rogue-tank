@@ -48,14 +48,16 @@ let _removeModifierBySource = (typeof removeModifierBySource === 'function') ? r
 let _refreshStats = (typeof refreshStats === 'function') ? refreshStats : null;
 let _spawnDeployableCover = (typeof spawnDeployableCover === 'function') ? spawnDeployableCover : null;
 
-// 本模块支持的运行时能力键（其余 ABILITY_KEYS 如 smoke/recon 属烟幕/侦察等
-// 其他系统，不在本入口分发范围）
+// 本模块支持的运行时能力键。2026-09-23 A 档后本表与 tank_cards.ABILITY_KEYS 之间存在
+// 完整闭环：卡池可抽的 ability 键 = innate 3 键（repair/medkit/extinguish）+ 本表 7 键；
+// 死效果键 recon / track_repair 已从两侧白名单与卡池一并摘除（见 DEVELOPMENT.md §4.35）。
 const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'super_fire_control', 'super_speed', 'deploy_cover', 'aps'];
 
 // innate 内置能力键：开局自带、绕过卡牌持有检查（独立冷却池 t.abilityCds）
 const ABILITY_KEYS_INNATE = ['repair', 'medkit', 'extinguish'];
 
-// #G（2026-09-21 用户需求 #7）：能力键 → 中文名称共享表（recon 为无人机指挥技能，同为 runtime 池键）。
+// #G（2026-09-21 用户需求 #7）：能力键 → 中文名称共享表（表内键 ≡ runtime 7 键 + innate 3 键；
+// 2026-09-23 A 档摘除死键 recon）。
 // mvp HUD 常驻技能槽 / gainToast / hintBar / 按钮命名都从本表取名，避免多处文案漂移。
 const ABILITY_LABELS = {
   artillery: '炮击支援',
@@ -64,7 +66,6 @@ const ABILITY_LABELS = {
   super_fire_control: '超级火控',
   super_speed: '过载引擎',
   deploy_cover: '部署掩体',
-  recon: '侦察指令',
   aps: '主动防御',
   repair: '修理箱',
   medkit: '医疗包',

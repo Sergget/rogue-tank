@@ -35,7 +35,7 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
    - `computeAmmoConfig` 将 Σadd 输出为独立的 `fieldAdd` 字段存放，由消费方（fireTank/computeAmmoConfig 合成端）在乘算聚合之后合成，杜绝把 mm 追加混入倍率刻度。
    - 软上限 `ammoTypeCap` 作用于**最终等效值**且仅钳 HE（AP/APCR/HEAT 不受限）。（接入点见 `js/tank_rules.js` 的 `RULES.ammoTypeCap`）
 3. **ability**：主动装置 {key}，key ∈ `ABILITY_KEYS_RUNTIME`（artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / **aps**；经 1~3 号技能键触发，P-17 接入。smoke 键已于 2026-09-15 W2 随烟幕整链删除；`aps`（主动防御系统）为 2026-09-21 #G9 新增）。`validateCard` 的 `ABILITY_KEYS` 白名单同步包含 innate 键 repair/medkit/extinguish 与全部 runtime 键。
-   - **已知死效果（2026-09-23 核实，待处理）**：`ABILITY_KEYS` 含 `recon`，但 `ABILITY_KEYS_RUNTIME` **不含**它，且 mvp 技能池 DISPATCH 的 `recon` 分支调用 `tryDroneCommand()`——该函数**全仓库无定义**，`typeof` 守卫使其恒为 no-op（`tank_mvp.html:808`）。故 `support_recon` / `sniper_recon_mark` 两张卡的 `recon` 能力当前**不产生任何效果**（历史沿革：2026-08 归档与 #D2 均已记录该死卡，`#D2` 明确把 recon 接线排除在本批之外）。另 `track_repair` 亦在 `ABILITY_KEYS` 而不在 runtime/innate 池中（`emergency_track` / `mobile_track_repair` / `support_track_repair` 三卡同上）。两者已登记于 `DEVELOPMENT.md` §3.1 长期债务。
+   - **死效果键已整体摘除（2026-09-23 A 档）**：`recon` / `track_repair` 原在 `ABILITY_KEYS` 白名单内、却在 `ABILITY_KEYS_RUNTIME` 与 `ABILITY_KEYS_INNATE` 两池之外，**无任何激活路径**（`recon` 的 mvp 技能池 DISPATCH 分支调用全仓库无定义的 `tryDroneCommand()`，靠 `typeof` 守卫恒为 no-op）⇒ 对应 5 张卡（`support_recon` / `sniper_recon_mark` / `emergency_track` / `mobile_track_repair` / `support_track_repair`，均只带单一 `ability` 效果、卡面自述「占位」）能正常抽取但激活零反应。**用户裁定（2026-09-23）：整体摘除**——两键从 `ABILITY_KEYS`、mvp DISPATCH 表、`ABILITY_LABELS` / `ABILITY_KEY_HINT` 一并删除，5 张卡文件删除（卡池 173 → 168）。**现行不变量**：`ABILITY_KEYS` ≡ innate 3 键（repair/medkit/extinguish）+ runtime 7 键，**无死键**。细则归口本节与 `DEVELOPMENT.md` §4.35。
 4. **passive**：机制性被动 {key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}。`commander_sight`（车长潜望镜 rare +15% / 车长观瞄镜 epic +25%）消费点=mvp 视野半径（`entityHiddenByVision`/`visionRadiusEff`，见 combat.md §4.1；2026-09-19 #D2 接线前为死效果）。
 5. **drone**：伴随浮游炮 {kind:'scout'|'striker'}（countMax=2 上限）。
 6. **economy**：{field:'scoreMul'|'shopDiscount'|'startScore'|'reviveCount', value}（运行时消费待接线）。
@@ -44,8 +44,8 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 ## 4. 稀有度分层与流派
 - CARD_RARITIES（**2026-09-20 #E13 起五档**）：common / rare / epic / legendary / **mythic（神话）**——新增最高档，序号即强度序；抽取权重 `common 50 / rare 30 / epic 15 / legendary 4.5 / mythic 0.5`；Boss 掉落白名单 `LOOT_RARITIES`（tank_boss.js）同步五档；HUD 标签新增「神话」。
 - CARD_TAGS 流派标签：重甲/机动/狙击/支援等，供 drawCardChoices 构筑导向抽卡。
-- 当前分布（**2026-09-23 `node scripts/audit-content.js` 实测**）：**173 张卡**——common 61（35.3%）/ rare 57（32.9%）/ epic 39（22.5%）/ legendary 15（8.7%）/ mythic 1（0.6%）。沿革：2026-09-17 快照为 169 张（common 61 / rare 55 / epic 37 / legendary 16），其后随 #E13（「交替装填系统」升 mythic）、#G5/#G6（轨道炮升级卡、弹夹炮与其扩容卡）、#G9（`ability_aps`）等批次增长。
-- 效果类型分布（**效果数**，2026-09-23 实测）：modifier 128 / ammo 32 / weapon 17 / ability 17 / passive 8 / economy 5 / drone 2（合计 209）——与 `CARD_EFFECT_TYPES` 的 **7 类**（modifier / ammo / ability / passive / drone / economy / weapon）一一对应。
+- 当前分布（**2026-09-23 `node scripts/audit-content.js` 实测**）：**168 张卡**——common 59（35.1%）/ rare 56（33.3%）/ epic 37（22.0%）/ legendary 15（8.9%）/ mythic 1（0.6%）。沿革：2026-09-17 快照为 169 张（common 61 / rare 55 / epic 37 / legendary 16）；其后随 #E13（「交替装填系统」升 mythic）、#G5/#G6（轨道炮升级卡、弹夹炮与其扩容卡）、#G9（`ability_aps`）等批次增至 173，再于 **2026-09-23 A 档摘除 5 张死效果卡**（recon ×2 / track_repair ×3）回落至 168。
+- 效果类型分布（**效果数**，2026-09-23 实测）：modifier 128 / ammo 32 / weapon 17 / **ability 12** / passive 8 / economy 5 / drone 2（合计 204）——与 `CARD_EFFECT_TYPES` 的 **7 类**（modifier / ammo / ability / passive / drone / economy / weapon）一一对应。其中 `ability` 由 17 降为 12 即上述 5 张死效果卡摘除的结果。
 - 最新数字以 `node scripts/audit-content.js` 输出为准（本节为带日期的快照，卡池随批次增长会过期）。
 
 ## 5. 堆叠与验证工具链
@@ -128,12 +128,14 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 
 - **ability 升级卡的持有资格 `requiresAbility`（#A28，2026-09-16 定型）**：`{type:'ability', key, requiresAbility?, params?}` —— `requiresAbility` 可选，**值恒等于自身 `key`**（ability 的「升级」语义 = 同一 key 的 `params` 覆写，经 `computeAbilityConfig` 按 key 聚合；故不引入 weapon 那样的 `action` 字段）。语义由 `cardEligible` 消费：`requiresAbility` 存在且不在 `owned.abilities` 中 → 该卡抽取期不合格。**`validateCardEffect` 显式校验**（必须是 `ABILITY_KEYS` 内的字符串，缺省合法）——拼写错误会让资格过滤静默失效。
   - **已标记（5 张升级卡，均为 `params` 覆写卡）**：`ability_artillery_barrage` / `ability_artillery_heavy` / `ability_artillery_strike_point` / `ability_artillery_strike_carpet`（`requiresAbility:'artillery'`）、`ability_deploy_cover_fortified`（`requiresAbility:'deploy_cover'`）。
-  - **不得标记（11 张基础/安装卡，死锁防线）**：`artillery_strike` / `tactical_shield` / `super_reload` / `ability_deploy_cover` / `mobile_track_repair` / `support_track_repair` / `emergency_track` / `support_recon` / `sniper_recon_mark` / `repair_kit` / `support_extinguisher`。**通用不变量**（`test-cards.js` 守门）：每个出现过的 ability key 至少有一张未标记卡作为获取途径；否则该能力永远无法获得。`repair`/`extinguish` 属 `ABILITY_KEYS_INNATE`（开局自带、绕过持有检查），其卡不受影响。
+  - **不得标记（6 张基础/安装卡，死锁防线）**：`artillery_strike` / `tactical_shield` / `super_reload` / `ability_deploy_cover` / `repair_kit` / `support_extinguisher`（原 11 张，2026-09-23 A 档摘除 5 张死效果卡后缩减）。**通用不变量**（`test-cards.js` 守门）：每个出现过的 ability key 至少有一张未标记卡作为获取途径；否则该能力永远无法获得。`repair`/`extinguish` 属 `ABILITY_KEYS_INNATE`（开局自带、绕过持有检查），其卡不受影响。
   - **语义闭环**：`applyCardEffects` 非 modifier 分支 `Object.assign({}, ef, {cardId})` 保留 `ef.key` → 基础卡 key 落入 `player.cardEffects` → mvp `drawRewardCards` 组装 `owned.abilities` → 同 key 升级卡转为合格。
   - **保底路径**：资格过滤在 small-pool early-return 与保底**之前**执行，保底只在已过滤的 `usable` 上取卡，**不复活**不合格升级卡；池内只剩升级卡时宁缺毋滥。
   - **实况注意**：传奇档位池的 2 张 ability 卡（point/carpet）**全为升级卡** → 未持 `artillery` 者在该池抽不到能力卡（正确行为：artillery 基础卡在 common/rare/epic 池）。作者经 `tools/content_designer.html` 编辑能力卡时须保留 `params`/`requiresAbility`（该编辑器已补全三字段往返）。
 
 ### 8.5 技能卡总表（#A28 分类：base=可独立获取 / upgrade=需先持有同 key）
+
+> **2026-09-23 A 档**：原 `recon` / `track_repair` 两键的 5 行（`support_recon` / `sniper_recon_mark` / `emergency_track` / `mobile_track_repair` / `support_track_repair`）已随死效果键整体摘除，不在下表。
 | 卡 id | key | 分类 | requiresAbility |
 |---|---|---|---|
 | `artillery_strike` | artillery | base | — |
@@ -145,11 +147,6 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 | `ability_deploy_cover_fortified` | deploy_cover | upgrade | `deploy_cover` |
 | `tactical_shield` | shield | base | — |
 | `super_reload` | overdrive | base | — |
-| `emergency_track` | track_repair | base | — |
-| `mobile_track_repair` | track_repair | base | — |
-| `support_track_repair` | track_repair | base | — |
-| `support_recon` | recon | base | — |
-| `sniper_recon_mark` | recon | base | — |
 | `repair_kit` | repair（innate） | base | — |
 | `support_extinguisher` | extinguish（innate） | base | — |
 

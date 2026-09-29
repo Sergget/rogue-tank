@@ -21,7 +21,7 @@
   - `tank_entity.js`：实体注册表（`entities` 数组全局唯一实例、spawnTank/isHostile/nearestEnemyTo/resolveTankCollisions/resetEntity）。
   - `tank_weapons.js`：主/副武器定义与运行时（`WEAPON_DEFAULTS` 双槽缺省表、`updateSecondaryWeapon` 分发 mortar/missile/rocket/mine_layer/turret 五类副武器、`updateMissileLock`）。
   - `tank_fire.js`：开火通用层（fireTank 通用开火 + `tryFirePrimary`（左键/空格=主炮专属，salvo 齐射）/`tryFireSecondary`（F=副武器击发）双入口 + `primaryWeaponSpec`/`firePrimaryShell` + stepShells：曳光/近炸引信/溅射/掩体交互；经 computeAmmoConfig 接入卡牌弹种改造）。
-  - `tank_abilities.js`：主动能力统一入口（`tryActivateAbility`：runtime 键 **artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / aps**（`ABILITY_KEYS_RUNTIME`，7 个）与 innate 键 repair/medkit/extinguish **统一按 key 独立冷却池 `abilityCds[key]`**，逐帧 `updateAbilityCds`；旧共享字段 `abilityCdT`/`updateAbilityCd` 为废弃兼容助手。**注意**：`recon` / `track_repair` 在 `tank_cards.js` 的 `ABILITY_KEYS` 白名单内但不在 runtime/innate 池中，当前为死效果，见 `docs/DEVELOPMENT.md` §3.1 长期债务）。
+  - `tank_abilities.js`：主动能力统一入口（`tryActivateAbility`：runtime 键 **artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / aps**（`ABILITY_KEYS_RUNTIME`，7 个）与 innate 键 repair/medkit/extinguish **统一按 key 独立冷却池 `abilityCds[key]`**，逐帧 `updateAbilityCds`；旧共享字段 `abilityCdT`/`updateAbilityCd` 为废弃兼容助手。**`ABILITY_KEYS` 现恒等于 innate 3 键 + runtime 7 键、无死键**——原死效果键 `recon` / `track_repair` 及 5 张对应卡已于 2026-09-23 A 档整体摘除，见 `docs/DEVELOPMENT.md` §4.35）。
   - `tank_shield.js`：累计吸收护盾（applyShield/入射角吸收判定）；`tank_strike.js`：延迟 AOE 炮击（callStrike：circle/point/carpet 三形状/updateStrikes）。
   - `tank_deployables.js`：战场部署物注册表（`deployables`：固定炮塔/地雷/战术掩体，spawn/update/duration 生命周期 + mineExplode 事件）。
   - `tank_drone.js`：伴随无人机体系（模块级 `drones` 数组单一数据源，scout 侦察/striker 打击两型，countMax 上限）。
@@ -139,6 +139,6 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`（§1 待办总览（A 档清账 / B 档推进轴玩法 / C 档横向卷轴节点 / 难度联动 / HUD 渲染级合并）/ §2 非阻塞遗留 / §3 C 档横向卷轴设计研究 / §4 2026-09-23 路线裁定）。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。
+- **待办与排期**：见 `docs/PLAN.md`（§1 待办总览（B 档推进轴玩法 / C 档横向卷轴节点 / 难度联动 / HUD 渲染级合并）/ §2 非阻塞遗留 / §3 C 档横向卷轴设计研究 / §4 2026-09-23 路线裁定）。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。
 - **待处理问题**：见 `docs/ISSUES.md`（当前无存量条目；历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

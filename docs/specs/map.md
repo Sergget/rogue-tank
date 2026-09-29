@@ -275,7 +275,7 @@
 ### 12.4 建筑沿路/路口聚集 + 路口沙包（#E3）
 新增 `placeRoadsideBuildings`（`RULES.nodeMap.building`：`roadBand 96 / junctionBias 0.9 / junctionRadius 210 / clusterPerJunction 3~5 / maxPerNode 18`）与 `placeJunctionBarricades`（`RULES.nodeMap.junctionBarricades`：`chance 0.85 / countMin~Max 2~4 / ringMin~Max 0.9~1.9×路宽`）：
 
-> **沿革注记（2026-09-23 核实）**：本段括号内的 `clusterPerJunction 3~5 / maxPerNode 18` 为 #E3 落地时值，**已被 §13.4（#I3）取代**为 `4~8 / 28`（另加 `bossDensity: 1.6`）。另 `RULES.nodeMap.road.junctionClearR`（0.85）**为死配置**——全仓库除 `js/tank_rules.js:507` 定义处外零消费，生成器实际以 `roadW × 0.5` 硬编码路口清空半径（`js/tank_nodegen.js` `junctions.push({r: roadW * 0.5})`）；该键待清理或接线，不作为现行口径引用（见 `DEVELOPMENT.md` §3.1 长期债务）。
+> **沿革注记（2026-09-23）**：本段括号内的 `clusterPerJunction 3~5 / maxPerNode 18` 为 #E3 落地时值，**已被 §13.4（#I3）取代**为 `4~8 / 28`（另加 `bossDensity: 1.6`）。另 `RULES.nodeMap.road.junctionClearR`（0.85）原为**死配置**（全仓库除定义处外零消费，生成器实际以 `roadW × 0.5` 硬编码路口清空半径，`js/tank_nodegen.js` `junctions.push({r: roadW * 0.5})`）——**已于 2026-09-23 A 档从 `js/tank_rules.js` 删除**，现行 `RULES` 不再含该键（见 `DEVELOPMENT.md` §4.35）。
 - **路口邻域聚集程度最高**：每个路口先在 `junctionRadius` 内环形布 3~5 栋建筑（避让路面与路口中心）。
 - **沿路成排**：随后沿路链段采样，在路缘外侧 `roadBand` 带内成排布建筑，朝向对齐街道轴。
 - **路口沙包**：每个路口按概率生成 2~4 个 `barricade`，落在路口环外、不压路面的位置。
