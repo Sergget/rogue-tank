@@ -18,6 +18,7 @@ const {
   enemyCountForDifficulty,
   planDefenseLines,
   nodeClearance,
+  reinforcementPossible,
   aiTierForDifficulty,
   statMultForDifficulty,
   entityMultsForDifficulty,
@@ -537,6 +538,25 @@ console.log('--- B 档②③ 增援前方防线 + 推进式完成 ---');
   ok(nD.defenseLines.every(l => l.x1 > l.x0), 'makeNode defenseLines 区间合法（x1 > x0）');
   ok(Math.abs(nD.exitX - nD.w * 0.93) < 1e-6, `makeNode exitX = w×0.93（${Math.round(nD.exitX)} / ${Math.round(nD.w)}）`);
   ok(nD.enemies.every(e => e.x < nD.exitX), 'makeNode 初始敌军全部位于出口线之内');
+
+  // ③b 软锁回归（2026-09-23 修复）：canReinforce 必须与 tick 的落点门控同源。
+  // 场景：玩家冲过全部防线 → 清光残敌但配额未达 ⇒ 必须判定为「不可再增援」从而完成节点。
+  const lines = [{ x0: 1422, x1: 3360 }, { x0: 3360, x1: 5299 }];
+  const nodeStub = { quota: 12, boss: null, defenseLines: lines };
+  ok(reinforcementPossible(nodeStub, 1200, 3) === true, '软锁回归：玩家在防线后方 → 仍可增援');
+  ok(reinforcementPossible(nodeStub, 5400, 3) === false, '软锁回归：越过全部防线且配额未满 → 不可再增援');
+  ok(reinforcementPossible(nodeStub, 5400, 12) === false, '软锁回归：配额已满 → 不可再增援');
+  ok(reinforcementPossible({ quota: null, boss: {}, defenseLines: lines }, 1200, 0) === false,
+    '软锁回归：Boss 节点 → 不可增援');
+  ok(reinforcementPossible({ quota: 12, boss: null, defenseLines: [] }, 5400, 3) === true,
+    '软锁回归：无 defenseLines（回退旧行为）→ 仍可增援');
+  // 端到端：越过全部防线 + 无敌军 + 配额未满 ⇒ done（不再软锁）
+  const stuck = nodeClearance({
+    playerX: 5400, nodeW: W, alive: 0, quota: 12, kills: 3,
+    canReinforce: reinforcementPossible(nodeStub, 5400, 3)
+  });
+  ok(stuck.done === true && stuck.reason === 'exit+cleared',
+    `软锁回归：越过全部防线 + 清光残敌 + 配额未满 → 节点可完成（reason=${stuck.reason}）`);
 }
 
 console.log('test-map: 完成所有检查');

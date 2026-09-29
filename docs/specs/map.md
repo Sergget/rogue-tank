@@ -460,6 +460,7 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 - `reinforcementTick` 消费新增的 `state.defenseLines`（`makeNode` 输出的各防线 `{x0,x1}`）：候选 x 区间限定为「`x1 > playerPos.x`」的**前方防线桶**（先随机选区间、再在区间内取 x，rng 消耗序列固定 ⇒ 确定性不变）；y 仍全高随机。
 - **玩家越过全部防线 ⇒ 不增援**（`frontRanges` 为空即返回空数组），避免在出口区反复刷兵。
 - 原有落点约束全部保留（视口外扩 `reinforceMargin` 之外 / 距玩家 ≥ `aiTriggerDist×1.05` / 距据点 ≥ `reinforceOutpostDist` / 避 solid 掩体 60px）。因「距玩家 ≥ 触发距离」仍然生效，若前方防线可采区间已被玩家贴近到可见范围，则本次增援自然为空——符合「不刷不可见兵」原则。
+- **「是否还可能增援」的判定必须与 tick 门控同源**：纯函数 `reinforcementPossible(node, playerX, kills)`（`js/tank_map.js`）——Boss / 配额已满 / 无前方防线时返回 false。mvp 的 `canReinforce` 消费此函数；**不得**再按旧口径（仅 `kills < quota`）计算，否则「越过全部防线 + 清残敌 + 配额未达」会因 `linesCleared` 恒假而**永久无法完成节点**（已核实的软锁，2026-09-23 修复）。
 - **回退**：`RULES.nodeMap.reinforceFrontOnly = false` 或未提供 `defenseLines` ⇒ 旧全向随机落点。
 
 ### 15.10 推进式节点完成条件（B 档③）

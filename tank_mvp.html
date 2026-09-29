@@ -3067,8 +3067,12 @@ function update(dt){
       // B 档③（2026-09-23）：推进式节点完成——「抵达右端出口 +（防线清空 或 配额达成）」双条件。
       // Boss 节点沿用「Boss + summons 全灭」（nodeClearance 的 boss 分支）。
       // 旧口径（P-38）为「击杀数 ≥ 配额」单条件，与推进正交（原地刷够配额即通关）。
-      const canReinforce = !!(currentNode && !currentNode.boss &&
-        Number.isFinite(currentNode.quota) && (battleState.nodeKills || 0) < currentNode.quota);
+      // B 档②③（2026-09-23）：canReinforce 必须与 reinforcementTick 的落点门控同源——否则
+      // 「越过全部防线后清光残敌但配额未达」会永久无法完成（软锁，见 tank_map.reinforcementPossible）。
+      const canReinforce = (typeof reinforcementPossible === 'function')
+        ? reinforcementPossible(currentNode, player.x, battleState.nodeKills || 0)
+        : !!(currentNode && !currentNode.boss && Number.isFinite(currentNode.quota) &&
+             (battleState.nodeKills || 0) < currentNode.quota);
       const clearance = nodeClearance({
         playerX: player.x,
         nodeW: currentNode ? currentNode.w : 0,

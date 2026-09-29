@@ -1055,6 +1055,30 @@ function nodeClearance(s) {
   return { exitReached: exitReached, linesCleared: linesCleared, quotaDone: quotaDone, done: done, reason: reason };
 }
 
+/**
+ * 「本节点是否还可能产生增援」——**必须与 reinforcementTick 的落点门控同源**（B 档②/③，2026-09-23）。
+ * 动机（已核实的软锁）：tick 在「玩家越过全部防线」（frontRanges 为空）时不再增援，而 mvp 侧
+ * `canReinforce` 若仍只按 `kills < quota` 计算，则玩家冲过全部防线后清光残敌、但配额未达时
+ * `linesCleared` 恒假（canReinforce 为真）且不会再有敌人 ⇒ 节点永久无法完成。
+ * @param {any} node 节点（含 quota / boss / defenseLines）
+ * @param {number} playerX 玩家推进轴坐标
+ * @param {number} kills 本节点已击杀数
+ * @returns {boolean}
+ */
+function reinforcementPossible(node, playerX, kills) {
+  const cfg = nodeConfig();
+  if (!node || node.boss) return false;
+  const quota = Number.isFinite(node.quota) ? node.quota : 0;
+  if (!(quota > 0)) return false;
+  if (Math.max(0, kills | 0) >= quota) return false;              // 配额已满 ⇒ 不再增援
+  const lines = Array.isArray(node.defenseLines) ? node.defenseLines : [];
+  if (cfg.reinforceFrontOnly !== false && lines.length) {
+    const px = Number.isFinite(playerX) ? playerX : 0;
+    return lines.some(l => l && Number.isFinite(l.x1) && l.x1 > px);   // 仍有前方防线
+  }
+  return true;
+}
+
 // ---------- 节点实体化（注入浏览器全局） ----------
 
 /**
@@ -1132,6 +1156,7 @@ if (typeof module !== 'undefined' && module.exports) {
     planDefenseLines,
     defenseLineConfig,
     nodeClearance,
+    reinforcementPossible,
     reinforcementTick,
     makeNode,
     generateRun,
