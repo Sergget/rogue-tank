@@ -548,6 +548,25 @@ const RULES = {
     enemyClusterSizeMin: 3,        // 单簇最小敌数（2026-08-25 数量上调 2→3）
     enemyClusterSizeMax: 6,        // 单簇最大敌数（2026-08-25 数量上调 5→6）
     enemyClusterCountBase: 2,      // 基础簇数（随难度线性叠加；2026-08-25 上调 1→2）
+    // B 档①（2026-09-23）：防线式敌人生成——取代旧「以玩家出生点为原点的全向环带撒簇」。
+    // 沿推进轴（+x，与玩家左缘出生 / Boss 生成点同向）把节点切成若干「防线」桶，每线取 1 个
+    // 地形锚点（路口 > 结构 > 水体/林地簇），敌人在锚点周边成批生成（每批 perAnchorMin~Max 辆）。
+    // 防线间距随难度收紧 ⇒ 难度越高防线越密；`enabled=false` 回退旧全向环带（对照/调试用）。
+    // 消费方：js/tank_map.js planDefenseLines / makeNode。现行总量 4~9 辆/节点（原 1~4）。
+    defenseLine: {
+      enabled: true,             // false = 回退旧全向环带撒簇路径
+      spacingScreens: 0.9,       // 防线基准间距（× 视口宽 vw；1080p ⇒ ≈1728px）
+      spacingDiff: [1.15, 0.85], // 间距难度系数（低→高）：难度越高间距越窄 ⇒ 防线数越多
+      linesMin: 2,               // 防线数下限（低难度）
+      linesMax: 3,               // 防线数上限（高难度；仍受可用推进距离约束）
+      anchorsPerLine: 1,         // 每线锚点数（调 2 ⇒ 单节点敌数翻倍，供后续调参）
+      perAnchorMin: 2,           // 单锚点敌数下限（低难度）
+      perAnchorMax: 3,           // 单锚点敌数上限（高难度）
+      maxPerNode: 12,            // 单节点初始敌数上限（防爆炸；现行实际 4~9）
+      anchorJunctionChance: 0.45,// 锚点取「路口」的概率（其余取结构/水体/林地簇）
+      axisTopFraction: 0.92,     // 推进轴可用终点（× 节点宽 w）
+      lineMargin: 300            // 首条防线距出生点的最小推进距离（px；与 minPlayerDist 取大者）
+    },
     // #77 低难度 full→half 降级帽：单节点最多降 floor(full数×帽值) 个（≤30%），
     // 保证低难度下每节点仍保留 ≥70% 全高建筑（掩体骨架可读性）。
     fullDowngradeCap: 0.30,

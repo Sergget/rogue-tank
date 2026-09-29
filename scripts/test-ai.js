@@ -477,12 +477,17 @@ console.log('--- #88：装填间隙侧摆 ---');
 {
   const cfg = aiTierProfile ? RULES.ai : RULES.ai;   // #E7：直接读机制唯一配置源
   // 反应延迟：距离越远/越接近触发边界越慢；档位 reactionMul 降低延迟
-  const sNear = _reactionSeconds({}, cfg, {}, 100, 700);
-  const sFar = _reactionSeconds({}, cfg, {}, 690, 700);
-  ok(sFar >= sNear, `#E7 反应延迟随距离增大（near=${sNear.toFixed(2)} ≤ far=${sFar.toFixed(2)}）`);
-  const sElite = _reactionSeconds({}, cfg, { reactionMul: 0.65 }, 350, 700);
-  const sBase = _reactionSeconds({}, cfg, {}, 350, 700);
-  ok(sElite < sBase, `#E7 高 AI 档位反应更快（elite=${sElite.toFixed(2)} < base=${sBase.toFixed(2)}）`);
+  // （B 档① 附带修正 2026-09-23：原为**单次采样**对比，而 _reactionSeconds 内含 ±25% 抖动
+  //  且用 Math.random（不可注入）⇒ near/far 真值差仅 26%，单次采样约 1/4 概率误判——
+  //  实测 npm test 连续 2/3 次停在本题。改为 25 次采样均值（标准误 ≈ 抖动/√25 ≈ 5% ≪ 真值差），
+  //  断言语义不变，只消除采样噪声。）
+  const avgOf = (fn, n) => { let acc = 0; for (let i = 0; i < n; i++) acc += fn(); return acc / n; };
+  const sNear = avgOf(() => _reactionSeconds({}, cfg, {}, 100, 700), 25);
+  const sFar = avgOf(() => _reactionSeconds({}, cfg, {}, 690, 700), 25);
+  ok(sFar >= sNear, `#E7 反应延迟随距离增大（near=${sNear.toFixed(2)} ≤ far=${sFar.toFixed(2)}，25 次均值）`);
+  const sElite = avgOf(() => _reactionSeconds({}, cfg, { reactionMul: 0.65 }, 350, 700), 25);
+  const sBase = avgOf(() => _reactionSeconds({}, cfg, {}, 350, 700), 25);
+  ok(sElite < sBase, `#E7 高 AI 档位反应更快（elite=${sElite.toFixed(2)} < base=${sBase.toFixed(2)}，25 次均值）`);
   ok(sBase >= 0.2, '#E7 反应延迟有下限（不小于 0.2s）');
 
   // 反应延迟只对「正式对局生成的敌军」生效（aiReactEnabled）

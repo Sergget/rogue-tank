@@ -244,4 +244,24 @@
 - **代价**：鼠标顶在屏幕前缘时后向可见 270 → **180px**；外延按鼠标偏移归一化，**鼠标回屏幕中心即恢复满幅**（非单向收窄）。B 档余下项「增援只在前方」落地后可进一步抵消。
 - **验证（三链）**：`node scripts/check-html.js` **EXIT=0（All checks passed）** / `node node_modules/typescript/bin/tsc --noEmit` **EXIT=0** / `npm test` 全链 **EXIT=0**（含 `test-camera` #H5 段——该段 cap 与卡牌护栏断言按 `RULES.camera.mouseLeadRatio` **动态计算**，改值自动跟随，无需重锚）。`npm run test:browser` 待正常环境补跑。
 - **文档同步**：`specs/combat.md` §11.5 由「裁定待实施」改写为现行口径；`docs/PLAN.md` §1/§4.2 标注 B 档子项④完成。
+
+### 4.37 2026-09-23 B 档（2/2 之一）：防线式敌人生成（已完成）
+
+> 现行细则归口 `specs/map.md` §15（防线式敌人生成：分桶与间距 / 锚点来源 / 敌人数 / 兜底约束 / Boss 例外 / 回退路径）；参数唯一来源 `RULES.nodeMap.defenseLine`。
+
+- **动机**：旧生成以玩家出生点为原点做**全向环带撒簇**（1~4 辆/节点），玩家没有推进方向感。B 档改为沿推进轴（+x，与玩家左缘出生 `w×0.10`、Boss 生成点 `w×0.7` 同向）分桶的**防线**；因 AI 激活受 `aiTriggerDist` 限制，玩家通常一次只遭遇前方一条防线 ⇒「推进—遭遇—清剿」节奏。
+- **改动**（`js/tank_map.js`）：
+  1. 新增纯函数 `planDefenseLines` / `collectDefenseAnchors` / `pickDefenseLineAnchor`（确定性，只消费注入 rng）；
+  2. `makeNode` 的簇中心来源由「全向扇区环带」改为「防线锚点」（锚点优先级：路口 > 结构 full/intact/building/rock/ruined > 水体 > 林地簇（240px 网格聚合、≥3 成员）> 桶中心兜底）；
+  3. `enemyCompositionForDepth` 新增第 5 参 `countOverride`（防线制目标数；缺省回退旧公式，向后兼容）；
+  4. 兜底补满网格限定在推进轴防线区间内、按「离最近锚点距离」升序补位（旧口径按「离玩家最远」排序，会把未放满的敌人全推到地图最右缘成一列、破坏防线结构）；
+  5. **Boss 节点强制走旧路径**（其常规敌人随后即清空，但敌簇质心驱动 A17 LoS 走廊——改锚点会连带改变 Boss 战地图，实测打破「掩体在界内」断言）。
+- **参数**（`RULES.nodeMap.defenseLine`）：`spacingScreens 0.9` / `spacingDiff [1.15, 0.85]` / `linesMin 2` / `linesMax 3` / `anchorsPerLine 1` / `perAnchorMin 2` / `perAnchorMax 3` / `maxPerNode 12` / `anchorJunctionChance 0.45` / `axisTopFraction 0.92` / `lineMargin 300`；`enabled=false` 回退旧全向环带。
+- **实测数值**（1080p 视口）：低难 **4 辆/节点**（2 防线 × 2 辆，quota 6）、高难 **9 辆/节点**（3 防线 × 3 辆，quota 11~17）；**敌军 100% 位于推进方向前方**（旧口径四周随机）；同 seed 逐字段确定性保持。
+- **连带影响**：`quotaForDifficulty(initialCount, effDiff)` 公式未改动 ⇒ 击杀配额随初始敌数上升，**单节点战斗时长较旧版上升约 1.3~1.5 倍**（待子项③「推进式节点完成条件」重塑）。
+- **附带修复（同轮发现并核实）**：
+  1. **路口沙包越界**：`placeJunctionBarricades`（`js/tank_nodegen.js`）原无节点边界检查，路口靠近边界且 `r` 取到 `ringMax×路宽` 时沙包会生成到节点外（实测 `run-seed` 节点 4 三个 `barricade` 落在 `y≈1509 > 半高 720`）——新增 `bounds` 参数（调用方传模板 w/h × scale ÷ 2）+ 含半个外接圆余量的边界拒绝；
+  2. **`test-ai` #E7 反应延迟断言 flaky**：`_reactionSeconds` 内含 ±25% `Math.random` 抖动（不可注入），near/far 真值差仅 26% ⇒ 单次采样约 1/4 概率误判（实测连续 2/3 次失败）——改为 **25 次采样均值**（标准误 ≈ 5% ≪ 真值差），断言语义不变，改后连跑 5 次全绿。
+- **验证（三链）**：`node scripts/check-html.js` **EXIT=0** / `node node_modules/typescript/bin/tsc --noEmit` **EXIT=0** / `npm test` 全链 **EXIT=0**（含 `test-map` 新增「B 档① 防线式敌人生成」段断言、`test-replay` 同 seed 摘要一致、`test-nodegen` 七护栏与校准基线全绿）。`npm run test:browser` 待正常环境补跑。
+- **文档与测试同步**：`specs/map.md` 新增 §15（现行口径）；`docs/PLAN.md` §1/§4.2 标注子项①完成；`scripts/test-map.js` 数量断言重锚（原「敌数 ≡ `enemyCountForDifficulty`」→「落在 `[难度基线, maxPerNode]`」，并新增防线专项断言段）。
 - **验证（三链）**：`npm run check` EXIT=0；`npm test` EXIT=0；`npm run test:browser` 四链 ALL PASS（沙箱内 `spawn EPERM` 属管道捕获限制，按 `sandbox-verify` 需一次性放宽进程权限后实跑）。本条为纯文档改动，无代码路径变更——三链用于确认文档未误伤任何被引用的实现。

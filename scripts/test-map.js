@@ -16,6 +16,7 @@ const {
   difficultyForIndex,
   isBossNodeIndex,
   enemyCountForDifficulty,
+  planDefenseLines,
   aiTierForDifficulty,
   statMultForDifficulty,
   entityMultsForDifficulty,
@@ -123,7 +124,14 @@ for (const n of run1.nodes) {
     ok(n.enemies.length === 0, `Boss 节点 ${n.index} 不混普通敌军`);
   } else {
     ok(!n.boss, `普通节点 ${n.index} 无 Boss 标记`);
-    ok(n.enemies.length === enemyCountForDifficulty(n.difficulty), `节点 ${n.index} 敌军数量匹配难度`);
+    // B 档①（2026-09-23）：敌人数改由防线容量决定（≥ 难度基线、≤ maxPerNode），不再恒等于难度公式
+    /** @type {any} */
+    const dlCfg = (RULES_MOD.RULES.nodeMap && RULES_MOD.RULES.nodeMap.defenseLine) || {};
+    ok(n.enemies.length >= enemyCountForDifficulty(n.difficulty) &&
+       n.enemies.length <= (dlCfg.maxPerNode || 12),
+       `节点 ${n.index} 敌军数量落在防线容量区间（实际 ${n.enemies.length}，难度基线 ${enemyCountForDifficulty(n.difficulty)}）`);
+    // 防线核心不变量：全部敌军位于推进方向（+x）前方
+    ok(n.enemies.every(e => e.x > n.playerSpawn.x), `节点 ${n.index} 敌军全部在推进方向前方（防线制）`);
   }
   // P-13/#76 A：三杠杆字段（AI 档位 + 数值强度）落在节点与每个敌人上
   ok(typeof n.aiTier === 'number' && n.aiTier >= 0 && n.aiTier <= 2, `节点 ${n.index} aiTier 合法`);
@@ -237,7 +245,10 @@ const rng = NG.createRNG(42);
 const solo = makeNode(0, rng);
 ok(solo.index === 0 && solo.difficulty === 0.15, 'makeNode 单节点基础字段');
 ok(Array.isArray(solo.covers) && solo.covers.length > 0, 'makeNode 有掩体');
-ok(solo.enemies.length === enemyCountForDifficulty(0.15), 'makeNode 敌军数量匹配难度');
+// B 档①：无视口时 vw 回退 = w/3，防线仍启用 ⇒ 数量落在 [难度基线, maxPerNode]
+ok(solo.enemies.length >= enemyCountForDifficulty(0.15) &&
+   solo.enemies.length <= (RULES_MOD.RULES.nodeMap.defenseLine.maxPerNode || 12),
+   `makeNode 敌军数量落在防线容量区间（实际 ${solo.enemies.length}）`);
 ok(!solo.boss, 'index 0 非 Boss 节点');
 // #24：makeNode 显式注入视口 → 世界尺寸 ≥ 视口 3 倍
 const rngV = NG.createRNG(42);
@@ -412,6 +423,63 @@ ok(reinforcementTick(baseTickState({ covers: [{ x: 1500, y: 1000, w: 3000, h: 20
   ok(JSON.stringify(a) === JSON.stringify(b) && a.length > 0, '同 seed 确定性复现');
   ok(reinforcementTick(baseTickState({ rng: null })).length === 0, '缺 rng 注入安全返回空');
 })();
+
+// ================= B 档①（2026-09-23）：防线式敌人生成 =================
+console.log('--- B 档① 防线式敌人生成 ---');
+{
+  const vp = { vw: 1920, vh: 1080 };
+  /** @type {any} */
+  const dl = (RULES_MOD.RULES.nodeMap && RULES_MOD.RULES.nodeMap.defenseLine) || {};
+  const runA = generateRun(4242, 5, { viewport: vp });
+  const runB = generateRun(4242, 5, { viewport: vp });
+  let normalNodes = 0;
+  for (const n of runA.nodes) {
+    if (n.boss) continue;
+    normalNodes++;
+    ok(n.enemies.length >= dl.perAnchorMin, `防线：节点 ${n.index} 敌数 ≥ perAnchorMin（${n.enemies.length}）`);
+    ok(n.enemies.length <= (dl.maxPerNode || 12), `防线：节点 ${n.index} 敌数 ≤ maxPerNode`);
+    ok(n.enemies.every(e => e.x > n.playerSpawn.x), `防线：节点 ${n.index} 敌军全在推进方向前方`);
+  }
+  ok(normalNodes > 0, `防线：样本含 ${normalNodes} 个常规节点`);
+  ok(JSON.stringify(runA.nodes.map(n => n.enemies)) === JSON.stringify(runB.nodes.map(n => n.enemies)),
+    '防线：同 seed 两次生成敌军布局逐字段一致（确定性）');
+
+  // 纯函数：难度越高 ⇒ 防线数 / 每锚点敌数不降 ⇒ targetCount 单调非降
+  const counts = [];
+  for (const dn of [0, 0.25, 0.5, 0.75, 1]) {
+    const plan = planDefenseLines({
+      w: 5760, h: 3300, playerSpawn: { x: 576, y: 1650 },
+      minPlayerDist: 800 + 400 * dn, diff: 0.15 + 0.8 * dn, diffNorm: dn,
+      viewport: vp, covers: [], roadJunctions: [], rng: createRNG(9)
+    });
+    counts.push(plan.targetCount);
+  }
+  ok(counts.every((c, i) => i === 0 || c >= counts[i - 1]),
+    `防线：targetCount 随难度单调非降（${counts.join(' → ')}）`);
+  const planLo = planDefenseLines({ w: 5760, h: 3300, playerSpawn: { x: 576, y: 1650 }, minPlayerDist: 800, diff: 0.15, diffNorm: 0, viewport: vp, covers: [], roadJunctions: [], rng: createRNG(3) });
+  const planHi = planDefenseLines({ w: 5760, h: 3300, playerSpawn: { x: 576, y: 1650 }, minPlayerDist: 1200, diff: 0.95, diffNorm: 1, viewport: vp, covers: [], roadJunctions: [], rng: createRNG(3) });
+  ok(planLo.enabled === true, '防线：缺省启用');
+  ok(planHi.lineCount >= planLo.lineCount, `防线：高难防线数 ${planHi.lineCount} ≥ 低难 ${planLo.lineCount}`);
+  ok(planHi.perAnchor >= planLo.perAnchor, `防线：高难每锚点敌数 ${planHi.perAnchor} ≥ 低难 ${planLo.perAnchor}`);
+  ok(planHi.targetCount <= (dl.maxPerNode || 12), `防线：高难 targetCount ${planHi.targetCount} ≤ maxPerNode`);
+  // 桶分桶自洽：锚点落在所属防线区间内（clamp 到节点内边界的情形留容差）
+  for (const line of planHi.lines) {
+    for (const a of line.anchors) {
+      ok(a.x >= Math.min(line.x0, 60) - 1 && a.x <= Math.max(line.x1, 60) + 1,
+        `防线：锚点落在防线区间（${Math.round(a.x)} ∈ [${Math.round(line.x0)}, ${Math.round(line.x1)}]）`);
+    }
+  }
+  const kinds = new Set();
+  for (const line of planHi.lines) for (const a of line.anchors) kinds.add(a.kind);
+  ok([...kinds].every(k => ['junction', 'structure', 'liquid', 'foliage', 'fallback'].indexOf(k) >= 0),
+    `防线：锚点来源合法（${[...kinds].join('/')}）`);
+
+  // 视口模式：敌军落在推进轴前方且不越过节点右缘
+  const nV = makeNode(1, createRNG(66), { viewport: vp });
+  ok(nV.enemies.every(e => e.x > nV.playerSpawn.x), '防线：视口模式敌军全在推进方向前方');
+  ok(nV.enemies.every(e => e.x <= nV.w * 0.98),
+    `防线：视口模式敌军不越过节点右缘（max x=${Math.round(Math.max.apply(null, nV.enemies.map(e => e.x)))}）`);
+}
 
 console.log('test-map: 完成所有检查');
 if (fails === 0) console.log('test-map: 全部通过');

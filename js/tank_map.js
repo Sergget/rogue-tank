@@ -136,8 +136,10 @@ function triggerDistForDifficulty(diff) {
  * @param {any} cfg nodeConfig()
  * @returns {Array} 长度 = enemyCountForDifficulty(diff) 的 spec 数组
  */
-function enemyCompositionForDepth(index, diff, rng, cfg) {
-  const count = enemyCountForDifficulty(diff);
+function enemyCompositionForDepth(index, diff, rng, cfg, countOverride) {
+  // B 档①（2026-09-23）：countOverride 供防线制传入实际目标敌数；缺省回退旧难度公式（向后兼容）。
+  const count = (Number.isFinite(countOverride) && countOverride > 0)
+    ? Math.round(countOverride) : enemyCountForDifficulty(diff);
   const diffCfg = difficultyConfig() || {};
   const diffMax = diffCfg.diffMax !== undefined ? diffCfg.diffMax : 1.15;
   const aiTierMax = diffCfg.aiTierMax !== undefined ? diffCfg.aiTierMax : 2;
@@ -173,6 +175,137 @@ function enemyCompositionForDepth(index, diff, rng, cfg) {
     out.push({ tankId, heightClass, tankClass, role, elite, aiTier, entityMults });
   }
   return out;
+}
+
+// ---------- B 档①（2026-09-23）：防线式敌人生成 ----------
+// 动机：旧实现以玩家出生点为原点做「全向环带撒簇」——敌人在四周随机分布，玩家没有推进方向感。
+// 现行：沿推进轴（+x，与玩家左缘出生 w×0.10 / Boss 生成点 w×0.7 同向）把节点切成若干「防线」桶，
+// 每桶取 1 个地形锚点（路口 > 结构 > 水体 / 林地簇），敌人在锚点周边成批生成。
+// 因 AI 激活受 aiTriggerDist 限制，玩家通常一次只遭遇前方一条防线 ⇒ 自然形成「推进—遭遇—清剿」节奏。
+// 全部为纯逻辑：只消费传入 rng，同 seed 结果确定（回放 hash 稳定）。
+
+function defenseLineConfig() {
+  const cfg = nodeConfig();
+  return (cfg && cfg.defenseLine) ? cfg.defenseLine : {};
+}
+
+// 单桶内的锚点候选池（按 kind 分类，供 pickDefenseLineAnchor 抽取）
+function collectDefenseAnchors(o) {
+  const s = o || {};
+  const covers = Array.isArray(s.covers) ? s.covers : [];
+  const junctions = Array.isArray(s.roadJunctions) ? s.roadJunctions : [];
+  const x0 = s.x0, x1 = s.x1;
+  const inBucket = (x) => x >= x0 && x <= x1;
+  const out = { junction: [], structure: [], liquid: [], foliage: [] };
+  for (const j of junctions) {
+    if (j && inBucket(j.x)) out.junction.push({ x: j.x, y: j.y, kind: 'junction' });
+  }
+  const STRUCT = ['full', 'intact', 'building', 'rock', 'ruined'];
+  const LIQUID = ['water', 'river'];
+  const FOLIAGE = ['tree', 'bush'];
+  const foliageCells = new Map();   // 林地簇：240px 网格聚合，≥3 个成员视为一簇
+  for (const c of covers) {
+    if (!c || !Number.isFinite(c.x) || !inBucket(c.x)) continue;
+    if (STRUCT.indexOf(c.tier) >= 0) out.structure.push({ x: c.x, y: c.y, kind: 'structure' });
+    else if (LIQUID.indexOf(c.tier) >= 0) out.liquid.push({ x: c.x, y: c.y, kind: 'liquid' });
+    else if (FOLIAGE.indexOf(c.tier) >= 0) {
+      const key = Math.floor(c.x / 240) + ':' + Math.floor(c.y / 240);
+      let cell = foliageCells.get(key);
+      if (!cell) { cell = { sx: 0, sy: 0, n: 0 }; foliageCells.set(key, cell); }
+      cell.sx += c.x; cell.sy += c.y; cell.n++;
+    }
+  }
+  for (const cell of foliageCells.values()) {
+    if (cell.n >= 3) out.foliage.push({ x: cell.sx / cell.n, y: cell.sy / cell.n, kind: 'foliage' });
+  }
+  return out;
+}
+
+// 单条防线的锚点：优先路口（anchorJunctionChance），否则结构/水体/林地簇随机取；
+// 桶内无候选 ⇒ 退化到桶中心 + 纵向随机（仍钳在节点内）。
+function pickDefenseLineAnchor(cands, o) {
+  const s = o || {};
+  const rng = s.rng, w = s.w, h = s.h;
+  const clampX = (v) => Math.max(60, Math.min(w - 60, v));
+  const clampY = (v) => Math.max(60, Math.min(h - 60, v));
+  const other = cands.structure.concat(cands.liquid, cands.foliage);
+  if (cands.junction.length && rng() < s.anchorJunctionChance) {
+    const j = cands.junction[Math.floor(rng() * cands.junction.length)];
+    return { x: clampX(j.x), y: clampY(j.y), kind: 'junction' };
+  }
+  if (other.length) {
+    const c = other[Math.floor(rng() * other.length)];
+    return { x: clampX(c.x), y: clampY(c.y), kind: c.kind };
+  }
+  return { x: clampX(s.center), y: clampY(rng.range(h * 0.22, h * 0.78)), kind: 'fallback' };
+}
+
+/**
+ * 防线规划（纯逻辑、确定性）。
+ * 推进轴区间 = [playerSpawn.x + max(lineMargin, minPlayerDist), w × axisTopFraction]，按「间距」等分：
+ *   间距 = spacingScreens × 视口宽 × lerp(spacingDiff[0], spacingDiff[1], diffNorm)
+ *   ⇒ 难度越高间距越窄 ⇒ 防线越多（受 linesMin/linesMax 约束）。
+ * 总数 targetCount = 防线数 × anchorsPerLine × perAnchor，钳制到 [enemyCountForDifficulty, maxPerNode]。
+ * @param {any} o { w, h, playerSpawn, minPlayerDist, diff, diffNorm, viewport:{vw,vh},
+ *                  covers, roadJunctions, rng }
+ * @returns {{ lines: Array<{x0,x1,center,anchors:Array<{x,y,kind}>}>,
+ *             lineCount:number, perAnchor:number, targetCount:number, enabled:boolean }}
+ */
+function planDefenseLines(o) {
+  const s = o || {};
+  const cfg = defenseLineConfig();
+  const w = s.w, h = s.h;
+  const ps = s.playerSpawn || { x: w * 0.10, y: h / 2 };
+  const rng = s.rng;
+  const enabled = cfg.enabled !== false;
+  const vw = (s.viewport && s.viewport.vw > 0) ? s.viewport.vw : Math.max(1, w / 3);
+  const diffNorm = Math.min(1, Math.max(0, Number.isFinite(s.diffNorm) ? s.diffNorm : 0));
+  const sd = Array.isArray(cfg.spacingDiff) ? cfg.spacingDiff : [1.15, 0.85];
+  const spacingBase = (cfg.spacingScreens !== undefined ? cfg.spacingScreens : 0.9) * vw;
+  const spacing = Math.max(160, spacingBase * (sd[0] + (sd[1] - sd[0]) * diffNorm));
+  const linesMin = cfg.linesMin !== undefined ? cfg.linesMin : 2;
+  const linesMax = cfg.linesMax !== undefined ? cfg.linesMax : 3;
+  const perAnchorMin = cfg.perAnchorMin !== undefined ? cfg.perAnchorMin : 2;
+  const perAnchorMax = cfg.perAnchorMax !== undefined ? cfg.perAnchorMax : 3;
+  const anchorsPerLine = Math.max(1, cfg.anchorsPerLine || 1);
+  const margin = Math.max(cfg.lineMargin !== undefined ? cfg.lineMargin : 300,
+    Number.isFinite(s.minPlayerDist) ? s.minPlayerDist : 0);
+  const x0 = Math.min(w * 0.92, ps.x + margin);
+  const x1 = w * (cfg.axisTopFraction !== undefined ? cfg.axisTopFraction : 0.92);
+  const span = Math.max(0, x1 - x0);
+  const linesWanted = Math.round(linesMin + (linesMax - linesMin) * diffNorm);
+  // B 档①（2026-09-23）：以「难度期望的防线数」为主（难度越高越密），仅受几何上限约束——
+  // 每道防线至少 minBucketWidth 宽（≈锚点散布半径 + 余量），避免桶重叠到无意义。
+  // （若用 round(span/spacing) 当上限，高难度永远拿不到 linesMax 条防线：探针实测 diff=0.95 仍为 2。）
+  const minBucketWidth = 240;
+  const maxLinesBySpan = span > 0
+    ? Math.max(1, Math.floor(span / Math.max(minBucketWidth, spacing * 0.5))) : 1;
+  const lineCount = Math.max(1, Math.min(Math.max(linesMin, linesWanted), maxLinesBySpan));
+  const perAnchor = Math.max(1, Math.round(perAnchorMin + (perAnchorMax - perAnchorMin) * diffNorm));
+  const lines = [];
+  for (let i = 0; i < lineCount; i++) {
+    const bx0 = x0 + (span * i) / lineCount;
+    const bx1 = x0 + (span * (i + 1)) / lineCount;
+    const anchors = [];
+    if (enabled) {
+      const cands = collectDefenseAnchors({
+        covers: s.covers, roadJunctions: s.roadJunctions, x0: bx0, x1: bx1, w: w, h: h
+      });
+      for (let k = 0; k < anchorsPerLine; k++) {
+        anchors.push(pickDefenseLineAnchor(cands, {
+          rng: rng, w: w, h: h, center: (bx0 + bx1) / 2,
+          anchorJunctionChance: cfg.anchorJunctionChance !== undefined ? cfg.anchorJunctionChance : 0.45
+        }));
+      }
+    }
+    lines.push({ x0: bx0, x1: bx1, center: (bx0 + bx1) / 2, anchors: anchors });
+  }
+  const floorCount = enemyCountForDifficulty(Number.isFinite(s.diff) ? s.diff : 0);
+  const cap = cfg.maxPerNode !== undefined ? cfg.maxPerNode : 12;
+  const targetCount = enabled
+    ? Math.max(1, Math.min(cap, Math.max(floorCount, lineCount * anchorsPerLine * perAnchor)))
+    : floorCount;
+  return { lines: lines, lineCount: lineCount, perAnchor: perAnchor, targetCount: targetCount, enabled: enabled };
 }
 
 // ---------- 节点生成 ----------
@@ -286,8 +419,21 @@ function makeNode(index, rng, env) {
 
   const sectorsCount = Math.min(cfg.ringSectorsMax || 4, Math.max(targetClusterCount, cfg.ringSectorsBase || 2));
 
-  // P-43：构成随深度演进——compose 一次，环带聚簇与兜底两处共用同一 spec 数组（按 enemies.length 顺序消费）。
-  const composition = enemyCompositionForDepth(index, diff, rng, cfg);
+  // B 档①（2026-09-23）：防线规划（纯逻辑、确定性）——沿推进轴分桶取地形锚点，
+  // 敌人在锚点周边成批生成；targetCount = 防线容量（现行 4~9 辆/节点，取代原 1~4）。
+  // Boss 节点例外：其常规敌人随后即被清空（Boss 战不混普通敌军），但敌簇质心仍驱动 A17 LoS 走廊
+  // ⇒ 若改用防线锚点会连带改变 Boss 战地图布局（实测「掩体在界内」断言被打破）。故 Boss 节点
+  // 保持旧全向路径，零回归。
+  const defenseEnabled = (cfg.defenseLine ? cfg.defenseLine.enabled !== false : true) && !isBossNodeIndex(index);
+  const defense = defenseEnabled ? planDefenseLines({
+    w: w, h: h, playerSpawn: playerSpawn, minPlayerDist: minPlayerDist,
+    diff: diff, diffNorm: diffNorm, viewport: viewport,
+    covers: templateResult.covers, roadJunctions: templateResult.roadJunctions, rng: rng
+  }) : { lines: [], lineCount: 0, perAnchor: 0, targetCount: enemyCountForDifficulty(diff), enabled: false };
+  const targetCount = defense.targetCount;
+
+  // P-43：构成随深度演进——compose 一次，防线聚簇与兜底两处共用同一 spec 数组（按 enemies.length 顺序消费）。
+  const composition = enemyCompositionForDepth(index, diff, rng, cfg, targetCount);
   const enemies = [];
   const clusterCentroids = [];
 
@@ -302,8 +448,11 @@ function makeNode(index, rng, env) {
   // 用户反馈：敌人生成太靠近边缘；要在部分建筑、路口生成；随难度加大，集中生成的敌人数量增加。
   // 实现：聚簇中心优先取「建筑/岩石中心 + 路口中心」候选点（junctionChance 进一步偏向路口），
   // 落在结构点的簇比例随难度从 structureChance → structureChanceMax 上升——
-  // 在敌军总数仍由 enemyCountForDifficulty 决定（数量契约不变）的前提下，
   // 「集中在建筑/路口的敌人数」随难度单调增加。
+  // **B 档①（2026-09-23）变更**：本段（enemySpawn.structureChance/ structureChanceMax /
+  // junctionChance / structRadius）现仅服务**回退路径**（defenseLine.enabled = false 的旧全向环带）；
+  // 防线模式下锚点抽取由 RULES.nodeMap.defenseLine 承担（anchorJunctionChance + 结构/水体/林地簇候选池），
+  // 敌人数改由防线容量 targetCount 决定，**不再恒等于 enemyCountForDifficulty**。
   const spawnCfg = cfg.enemySpawn || {};
   const structChanceBase = spawnCfg.structureChance !== undefined ? spawnCfg.structureChance : 0.55;
   const structChanceMax = spawnCfg.structureChanceMax !== undefined ? spawnCfg.structureChanceMax : 0.85;
@@ -334,25 +483,34 @@ function makeNode(index, rng, env) {
     return null;
   };
 
-  // 先在各扇区建立候选聚簇中心（1 ~ targetClusterCount 个）
+  // B 档①（2026-09-23）：簇中心 = 各防线的地形锚点（沿推进轴由左至右排列），玩家逐条防线推进；
+  // 配合 aiTriggerDist，一次通常只激活前方一条防线 ⇒ 「推进—遭遇—清剿」节奏。
   const centroids = [];
-  for (let c = 0; c < targetClusterCount; c++) {
-    // #E6：按难度比例把簇中心放到建筑/路口（junctionChance 优先路口）
-    const st = (rng() < structChance) ? pickStructureCenter() : null;
-    if (st) { centroids.push(st); continue; }
-    const sAng = sectorAngles[c % sectorsCount];
-    const cAng = sAng + rng.range(-Math.PI / 6, Math.PI / 6);
-    const cDist = rng.range(minPlayerDist, maxPlayerDist);
-    centroids.push({
-      x: Math.max(60, Math.min(w - 60, playerSpawn.x + Math.cos(cAng) * cDist)),
-      y: Math.max(60, Math.min(h - 60, playerSpawn.y + Math.sin(cAng) * cDist))
-    });
+  if (defense.enabled) {
+    for (const line of defense.lines) {
+      for (const a of line.anchors) centroids.push({ x: a.x, y: a.y });
+    }
+  }
+  // 回退路径（RULES.nodeMap.defenseLine.enabled = false）：旧全向环带扇区撒簇（原逻辑不变）
+  if (!centroids.length) {
+    for (let c = 0; c < targetClusterCount; c++) {
+      // #E6：按难度比例把簇中心放到建筑/路口（junctionChance 优先路口）
+      const st = (rng() < structChance) ? pickStructureCenter() : null;
+      if (st) { centroids.push(st); continue; }
+      const sAng = sectorAngles[c % sectorsCount];
+      const cAng = sAng + rng.range(-Math.PI / 6, Math.PI / 6);
+      const cDist = rng.range(minPlayerDist, maxPlayerDist);
+      centroids.push({
+        x: Math.max(60, Math.min(w - 60, playerSpawn.x + Math.cos(cAng) * cDist)),
+        y: Math.max(60, Math.min(h - 60, playerSpawn.y + Math.sin(cAng) * cDist))
+      });
+    }
   }
 
   // 围绕聚簇中心分发放置敌人，直到放满或尝试用尽
   let attempts = 0;
-  const maxAttempts = enemyCount * 80;
-  while (enemies.length < enemyCount && attempts < maxAttempts) {
+  const maxAttempts = targetCount * 80;
+  while (enemies.length < targetCount && attempts < maxAttempts) {
     attempts++;
     const cluster = centroids[enemies.length % centroids.length];
     // 在簇中心周围 clusterRadius 范围内散布，若单车首发则贴近中心
@@ -400,13 +558,21 @@ function makeNode(index, rng, env) {
     clusterCentroids.push({ x: Math.round(ex), y: Math.round(ey) });
   }
 
-  // 兜底补满：若多方向环带因掩体极度密集未能凑齐 enemyCount，
-  // 改用确定性网格扫描，挑选离掩体与玩家净空最大区域补足。
-  if (enemies.length < enemyCount) {
+  // 兜底补满：若防线锚点周边因掩体密集/贴边未能凑齐 targetCount，用确定性网格扫描补足。
+  // B 档①（2026-09-23）：防线模式下候选**限定在推进轴防线区间内**，并按「离最近防线锚点的距离」
+  // 升序取点（贴防线补位）——旧口径按「离玩家最远」排序，会把未放满的敌人全推到地图最右缘成一列，
+  // 破坏防线结构（探针实测 idx=3 四个敌人同列 x=5625 ⇒ 全部来自旧兜底）。
+  if (enemies.length < targetCount) {
     const minDist = cfg.enemyMinDist || 150;
     const step = Math.max(20, minDist * 0.7);
+    const anchors = [];
+    if (defense.enabled) {
+      for (const line of defense.lines) for (const a of line.anchors) anchors.push(a);
+    }
+    const gx0 = anchors.length ? Math.max(60, defense.lines[0].x0 - 60) : 60;
+    const gx1 = anchors.length ? Math.min(w - 60, defense.lines[defense.lines.length - 1].x1 + 60) : w - 60;
     const cands = [];
-    for (let gx = 60; gx <= w - 60; gx += step) {
+    for (let gx = gx0; gx <= gx1; gx += step) {
       for (let gy = 60; gy <= h - 60; gy += step) {
         if (Math.hypot(gx - playerSpawn.x, gy - playerSpawn.y) < minPlayerDist) continue;
         let ok = true;
@@ -415,14 +581,24 @@ function makeNode(index, rng, env) {
         }
         if (!ok) continue;
         if (pointInCover(templateResult.covers, gx, gy, 60)) continue;
-        let clear = Math.hypot(gx - playerSpawn.x, gy - playerSpawn.y) - minPlayerDist;
-        for (const e of enemies) clear = Math.min(clear, Math.hypot(gx - e.x, gy - e.y) - minDist);
-        cands.push({ x: gx, y: gy, clear });
+        let score;
+        if (anchors.length) {
+          // 防线模式：越贴近防线锚点越优先（score 越大越靠前）
+          let near = Infinity;
+          for (const a of anchors) near = Math.min(near, Math.hypot(gx - a.x, gy - a.y));
+          score = -near;
+        } else {
+          // 回退模式（旧口径）：净空最大者优先
+          let clear = Math.hypot(gx - playerSpawn.x, gy - playerSpawn.y) - minPlayerDist;
+          for (const e of enemies) clear = Math.min(clear, Math.hypot(gx - e.x, gy - e.y) - minDist);
+          score = clear;
+        }
+        cands.push({ x: gx, y: gy, clear: score });
       }
     }
     cands.sort((a, b) => b.clear - a.clear);
     for (const c of cands) {
-      if (enemies.length >= enemyCount) break;
+      if (enemies.length >= targetCount) break;
       let ok = true;
       for (const e of enemies) {
         if (Math.hypot(c.x - e.x, c.y - e.y) < minDist) { ok = false; break; }
@@ -893,6 +1069,8 @@ if (typeof module !== 'undefined' && module.exports) {
     triggerDistForDifficulty,
     nodeScaleFor,
     quotaForDifficulty,
+    planDefenseLines,
+    defenseLineConfig,
     reinforcementTick,
     makeNode,
     generateRun,

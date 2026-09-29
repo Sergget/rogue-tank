@@ -396,4 +396,63 @@
 
 strip 生成器与防线生成器一律以「推进轴」参数表达（`advanceAxis: 'x' | 'y' | 路径`）；换竖向、蛇形或环形只换轴，生成相位与结算语义不动。
 
+---
+
+## 15. 防线式敌人生成（B 档①，2026-09-23 落地，现行口径）
+
+> **现行口径**：参数唯一来源 `RULES.nodeMap.defenseLine`（`js/tank_rules.js`）；实现 `planDefenseLines` / `collectDefenseAnchors` / `pickDefenseLineAnchor`（`js/tank_map.js`），消费方 `makeNode`。本节取代旧口径「以玩家出生点为原点的全向环带撒簇」（该路径保留为 `enabled=false` 的回退，见 §15.6）。
+
+### 15.1 设计动机
+
+旧生成按难度扇区把敌人撒在玩家四周，玩家没有推进方向感。B 档改为**沿推进轴分桶的防线**：玩家从左侧出生（`w×0.10`）、Boss 生成点 `w×0.7`，故推进轴取 **+x**，敌人在每道防线的地形锚点周边成批生成。因 AI 激活受 `aiTriggerDist` 限制，玩家通常**一次只遭遇前方一条防线**，形成「推进—遭遇—清剿」节奏。
+
+### 15.2 分桶与间距
+
+- 推进轴区间 = `[playerSpawn.x + max(lineMargin, minPlayerDist), w × axisTopFraction(0.92)]`。
+- 间距 = `spacingScreens(0.9) × 视口宽 × lerp(spacingDiff[0]=1.15, spacingDiff[1]=0.85, diffNorm)` ⇒ **难度越高间距越窄、防线越密**。
+- 防线数 = `clamp(max(linesMin, round(linesMin + (linesMax-linesMin) × diffNorm)), 1, floor(span / max(240, spacing×0.5)))`——以难度期望值为主，仅受「每桶至少 240px」的几何上限约束（若用 `round(span/spacing)` 当上限，高难度永远拿不到 `linesMax` 条）。
+- 视口缺省时 `vw` 回退为 `w/3`（与 `nodeScaleFor` 保证的「节点宽 ≥ 3 屏」一致）。
+
+### 15.3 锚点来源与优先级
+
+`collectDefenseAnchors` 在桶内聚合四类候选，`pickDefenseLineAnchor` 按 `anchorJunctionChance(0.45)` **优先路口**，否则从其余候选随机取：
+
+| 类别 | 来源 | kind |
+|---|---|---|
+| 路口 | `roadJunctions`（桶内） | `junction` |
+| 结构 | tier `full` / `intact` / `building` / `rock` / `ruined` | `structure` |
+| 水体 | tier `water` / `river` | `liquid` |
+| 林地簇 | tier `tree` / `bush` 按 240px 网格聚合、成员 ≥3 视为一簇 | `foliage` |
+| 兜底 | 桶内无候选 ⇒ 桶中心 + 纵向随机 | `fallback` |
+
+锚点坐标钳制在节点内 `[60, w-60] × [60, h-60]`。
+
+### 15.4 敌人数（现行值）
+
+`targetCount = clamp(lineCount × anchorsPerLine × perAnchor, [enemyCountForDifficulty(diff), maxPerNode(12)])`，其中 `perAnchor = round(lerp(perAnchorMin 2, perAnchorMax 3, diffNorm))`。
+
+- 低难度（1080p 视口）：2 条防线 × 1 锚点 × 2 辆 = **4 辆/节点**（quota 6）。
+- 高难度：3 条 × 1 × 3 = **9 辆/节点**（quota 11~17）。
+- **沿革**：旧口径恒为 `enemyCountForDifficulty` = 1~4 辆/节点；该函数保留为**下界**（仍由 `test-map` 独立断言）。
+- **连带影响**：`quotaForDifficulty(initialCount, effDiff)` 公式未改动，故节点内击杀配额随初始敌数上升 ⇒ 单节点战斗时长较旧版上升约 1.3~1.5 倍。**待 B 档子项③（推进式节点完成条件）重塑**。
+- `enemyCompositionForDepth(index, diff, rng, cfg, countOverride)` 新增第 5 参以接受防线制目标数（缺省回退旧公式，向后兼容）。
+
+### 15.5 兜底补满的防线约束
+
+锚点周边因掩体密集/贴边放不满时，兜底网格扫描**限定在推进轴防线区间内**，并按「离最近锚点距离」升序取点（贴防线补位）。旧口径按「离玩家最远」排序，会把未放满的敌人全推到地图最右缘成一列、破坏防线结构（实测同一 x 列四个敌人）。
+
+### 15.6 Boss 节点与回退路径
+
+- **Boss 节点强制走旧全向环带**：其常规敌人随后即被清空，但敌簇质心仍驱动 A17 LoS 走廊 ⇒ 若改用防线锚点会连带改变 Boss 战地图（实测打破「掩体在界内」断言）。`defenseLine.enabled` 对 Boss 节点不生效。
+- `RULES.nodeMap.defenseLine.enabled = false` ⇒ 全节点回退旧全向环带，`targetCount` 回到 `enemyCountForDifficulty`。
+- 旧参数 `enemySpawn.structureChance / structureChanceMax / junctionChance / structRadius` **现仅服务回退路径**；防线模式下锚点抽取由 `defenseLine.anchorJunctionChance` 承担。
+
+### 15.7 附带修复：路口沙包越界（2026-09-23）
+
+`placeJunctionBarricades`（`js/tank_nodegen.js`）原无节点边界检查，路口靠近边界且 `r` 取到 `ringMax×路宽` 时沙包会生成到节点外（实测 `run-seed` 节点 4 有三个 `barricade` 落在 `y≈1509 > 半高 720`）。现新增 `bounds` 参数（调用方传模板 w/h × scale ÷ 2），沙包含半个外接圆余量做边界拒绝。
+
+### 15.8 回归锚点
+
+`scripts/test-map.js`「B 档① 防线式敌人生成」段：敌军全部位于推进方向前方 / 敌数落在 `[难度基线, maxPerNode]` / 同 seed 逐字段确定性 / `targetCount` 随难度单调非降 / 高难防线数与每锚点敌数 ≥ 低难 / 锚点落在所属桶区间内 / 锚点来源合法 / 视口模式敌军不越右缘。`test-replay.js`（同 seed 摘要一致）与 `test-nodegen*.js`（元素生成）保持全绿。
+
 

@@ -1487,7 +1487,10 @@ function placeRoadsideBuildings(rng, tpl, scale, centerX, centerY, roadCovers, j
   return placed;
 }
 
-function placeJunctionBarricades(rng, roadCovers, junctions, roadW, outCovers) {
+// bounds（2026-09-23，B 档①附带修复）：节点局部系的半宽/半高（= 模板 w/h × scale ÷ 2）。
+// 传入后沙包被拒绝生成在节点边界外——原实现无边界检查，路口靠近边界且 r 取到 ringMax×路宽 时
+// 沙包会落到节点外（实测 run-seed 节点 4 有三个 barricade 落在 y≈1509 > 半高 720）。
+function placeJunctionBarricades(rng, roadCovers, junctions, roadW, outCovers, bounds) {
   const cfg = (typeof RULES !== 'undefined' && RULES.nodeMap && RULES.nodeMap.junctionBarricades) || {};
   const chance = cfg.chance !== undefined ? cfg.chance : 0.85;
   const cMin = cfg.countMin !== undefined ? cfg.countMin : 2;
@@ -1504,6 +1507,12 @@ function placeJunctionBarricades(rng, roadCovers, junctions, roadW, outCovers) {
       const r = roadW * rng.range(rMin, rMax);
       const x = j.x + Math.cos(a) * r, y = j.y + Math.sin(a) * r;
       const w = 62, h = 26;
+      // 边界拒绝（2026-09-23）：沙包（含半个外接圆余量）必须落在节点内
+      if (bounds) {
+        const m = Math.hypot(w, h) / 2;
+        if (x < -bounds.halfW + m || x > bounds.halfW - m ||
+            y < -bounds.halfH + m || y > bounds.halfH - m) continue;
+      }
       // 沙包布防在「路口环外侧、且不压路面」的位置
       if (obbHitsCover(roadCovers, x, y, w, h, a, 2)) continue;
       if (obbHitsCover(outCovers, x, y, w, h, a, 6)) continue;
@@ -1981,7 +1990,8 @@ function pruneOverlappingCovers(covers) {
     placeRoadsideBuildings(brng, selectedTemplate, scale, centerX, centerY,
                            networkRoads, roadJunctions, roadWidth, outCovers,
                            (opts.buildingDensity !== undefined) ? opts.buildingDensity : 1);
-    placeJunctionBarricades(brng, networkRoads, roadJunctions, roadWidth, outCovers);
+    placeJunctionBarricades(brng, networkRoads, roadJunctions, roadWidth, outCovers,
+      { halfW: selectedTemplate.w * scale / 2, halfH: selectedTemplate.h * scale / 2 });
   }
 
   // 2026-09-14：跨阶段元素重叠统一修剪（结构/岩石/建筑 × 水域/泥潭 × 植被互压消解）
