@@ -281,4 +281,18 @@
 - **验证（三链）**：`node scripts/check-html.js` **EXIT=0** / `node node_modules/typescript/bin/tsc --noEmit` **EXIT=0** / `npm test` 全链 **EXIT=0**——`test-map` 新增「B 档②③」段 28 项断言（双条件真值表含出口边界与 Boss 分支 / `reason` 语义 / 增援落点**全在玩家前方**且落在防线区间 / 越过全部防线不增援 / 前方无防线不增援 / 无 `defenseLines` 回退旧行为 / `makeNode` 输出 `defenseLines` 与 `exitX` / 初始敌军全在出口线内 / 软锁回归 6 项）。
 - **浏览器四链**：`npm run test:browser` **四链（smoke / r3 / run / r4）ALL PASS、EXIT=0**（2026-09-23 实跑；沙箱内需一次性放宽进程权限才能 spawn headless Edge，`spawn EPERM` 为已知固定限制）。**覆盖边界（已核实）**：四链**不含**完成判定 / 增援前方约束 / 推进 HUD 的专项断言（`test-browser-run.cjs` 无 `quota`/`exit`/`clearance` 用例），其价值为**回归证据**（新生成与判定路径未破坏既有浏览器断言、节点流程可跑通）；新语义的**直接**覆盖在 `test-map` 的 `nodeClearance` / `reinforcementPossible` / `reinforcementTick` 纯函数断言段。
 - **文档同步**：`specs/map.md` §15 扩为「防线式推进体系」并新增 §15.9/§15.10；`docs/PLAN.md` B 档条目按生命周期归档（`archive/2026-09.md` + `ARCHIVE.md` 索引）；本文件 §3.2 下一步顺序更新（B 档收尾 ⇒ 下一步只剩 C 档 / 难度联动 / HUD 合并）。
+
+### 4.39 2026-09-29 #K 批次：视野圆心口径修正（#K1）+ 出口/目标 UI（#K2）+ Boss 循环缩短（#K3）
+
+> 现行细则归口 `specs/combat.md` §11.1/#K1（视野圆心与半径，§11.5 降为沿革）、`specs/map.md` §15.10（出口可视化与 HUD 目标卡）/ §15.11（Boss 循环）。
+
+- **用户反馈**：① 敌人渲染出来的距离似乎还是短于视野距离；② 一个节点的完成目标和出口没有 UI 提示；③ 节点略长，缩短 boss 循环 5→3。
+- **#K1 视野圆心口径修正（根因修复，非调参）**：旧圆心 = 玩家 + `bias×R`（鼠标向量被归一化 ⇒ 偏移恒 ≈189px），而摄像机另有**独立**外延量（`RULES.camera.mouseLeadRatio`，随鼠标偏移 0~360px）⇒ 两者几乎总不相等 ⇒ **视野圆探出视口**（外延 < 189 时向前探出，鼠标居中时达 189px）；探出带内的敌人「`entityHiddenByVision` 判定为可见，却被 `aabbInView` 视口剔除 ⇒ 不渲染」= 反馈①的成因。
+  - 修复：`visionCenter(cam, player, R)` 圆心改取**摄像机中心**；半径 ≤ 窄半幅/zoom ⇒ **圆恰好内切视口** ⇒ **渲染边界 ≡ 视野边界**（新增不变量，与鼠标偏移、缩放均无关）。同时**取消原收口上限 cap**（圆既已内切便无需护栏）⇒ 视野卡加成由被削的 ≈667 恢复为**全额 675**（附带治好「+15%/+25% 两卡近乎同效」）。
+  - 边界：镜头被 `clampCamera` 钳住时圆心向玩家收敛至偏移 ≤ `R×0.85`，**保证玩家恒在圆内**（贴身威胁可见）。持视野卡时半径 675 > 窄半幅 540 ⇒ 纵向被屏幕裁掉，属长宽比的几何必然，已在 specs 诚实记录。
+- **#K2 出口与完成目标 UI**：新增世界层出口带（`exitX` 后 220px 绿色渐变 + 出口线 + 3 枚脉动箭头 + `EXIT 出口` 字样）、小地图出口标记（`drawMinimap` 新增 `opts.exitZone`）、HUD 显式目标卡（「目标 OBJECTIVE」+ 两条件状态 + 进度行）。参数 `RULES.nodeMap.exitZone = { xFraction: 0.93, bandWidth: 220, draw: true }`。
+- **#K3 Boss 循环缩短**：`RULES.nodeMap.bossInterval` **5 → 3** ⇒ Boss 索引 2/5/8/11/14；一局 5 节点内含 1 个 Boss（index 2）。Boss 节点无配额、不生成常规敌军 ⇒ 以 Boss 战替代部分常规节点的配额 grind，这是缓解「节点略长」的机制本身。
+- **验证（三链）**：`node scripts/check-html.js` **EXIT=0** / `tsc --noEmit` **EXIT=0** / `npm test` **EXIT=0**——`test-camera` 新增 #K1 段（圆心 ≡ 摄像机中心且圆内切视口：无外延/满外延/斜向外延/临界 R×0.85 四种镜头状态；镜头被钳时玩家恒在圆内；卡牌半径可超窄半幅），并重锚卡牌加成断言（675 无截断）；`test-map` 重锚 #K3 Boss 周期断言（12 节点内恰 4 个 Boss）。
+- **浏览器四链**：`npm run test:browser` **四链 ALL PASS、EXIT=0**（本批改了 mvp 绘制层与 HUD DOM，全程无 console/page error）。覆盖边界沿用 §4.38 记录：四链不含完成判定/出口 UI 的专项断言，其价值为回归证据。
+- **遗留（不记为问题）**：#K2 的世界出口标记与 HUD 属**观感**，需实机确认（字号/带透明度/箭头位置）；#K1 后玩家在鼠标居中时前向可见为 540（< 高难接战 650），「激活→可见」窗口仍在（用户此前已接受该边界，且朝推进方向瞄准时可见 900）。
 - **验证（三链）**：`npm run check` EXIT=0；`npm test` EXIT=0；`npm run test:browser` 四链 ALL PASS（沙箱内 `spawn EPERM` 属管道捕获限制，按 `sandbox-verify` 需一次性放宽进程权限后实跑）。本条为纯文档改动，无代码路径变更——三链用于确认文档未误伤任何被引用的实现。

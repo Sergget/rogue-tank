@@ -109,6 +109,30 @@ function drawMinimap(ctx, opts) {
     }
   }
 
+  // #K2（2026-09-29）：出口区标记——小地图上把「节点完成目标」画出来（绿色竖带 + EXIT 字样），
+  // 与推进式完成条件（specs/map.md §15.10）配套，解决「完成目标和出口没有 UI 提示」。
+  if (opts.exitZone) {
+    const ex = Number.isFinite(opts.exitZone.x) ? opts.exitZone.x : world.w * 0.93;
+    const w0 = worldToMinimap(layout, 0, 0);                       // 世界原点在小地图框内的位置
+    const exr = worldToMinimap(layout, Math.max(0, Math.min(world.w, ex)), 0);
+    const wpx = world.w * layout.scale, hpx = world.h * layout.scale;
+    const bandX = opts.x + exr.x, bandY = opts.y + w0.y;
+    ctx.save();
+    ctx.fillStyle = 'rgba(126,217,87,0.22)';                       // 出口区（exitX → 右边界）
+    ctx.fillRect(bandX, bandY, Math.max(2, opts.x + w0.x + wpx - bandX), hpx);
+    ctx.strokeStyle = 'rgba(126,217,87,0.9)';                      // 出口线
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(bandX, bandY);
+    ctx.lineTo(bandX, bandY + hpx);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(126,217,87,0.95)';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('EXIT', opts.x + w0.x + wpx - 2, bandY + 8);
+    ctx.restore();
+  }
+
   // 摄像机视口矩形
   if (opts.cam) {
     const vb = viewBounds(opts.cam);

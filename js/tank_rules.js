@@ -573,7 +573,9 @@ const RULES = {
     // #77 cullRate 剔除保护：每模板至少前 N 个全高建筑不被随机剔除（保底掩体骨架）。
     fullCullProtect: 2,
     runNodeCount: 5,              // 一局初始节点数（线性链长度；开放式链下仅作起点，后续 extendRun 追加）
-    bossInterval: 5,              // 每第 5 个节点为 Boss 节点（(index+1) % 5 === 0 → index 4/9/14…）
+    // #K3（2026-09-29 用户反馈「节点略长，缩短 boss 循环：5->3」）：Boss 循环由 5 缩短为 3
+    // ⇒ 一局内更早遇到 Boss（index 2/5/8…），以 Boss 战（无配额 grind）替代部分常规节点的拉长感。
+    bossInterval: 3,              // 每第 3 个节点为 Boss 节点（(index+1) % 3 === 0 → index 2/5/8/11/14…）
     speedClearMs: 120000,         // 限时通关阈值（ms）→ 结算速通 +20%
     outpostChance: 0.7,           // 节点出现友军据点的概率
     enemyTankPool: ['tiger-I', 'Leapard_1', 'Obj 780', 'panzer-IV', 'hummel'], // P-46: 敌军车型池（dummy 标 target 退出）
@@ -599,8 +601,11 @@ const RULES = {
     // B 档③（2026-09-23）：推进式节点完成——**抵达右端出口 + （防线清空 或 配额达成）**双条件。
     // 旧口径为「击杀数 ≥ 配额」单条件（与推进正交），现要求玩家沿 +x 推进到出口线。
     // 消费方：js/tank_map.js nodeClearance（纯逻辑）+ tank_mvp.html 完成判定/HUD。
+    // #K2（2026-09-29）：新增出口区可视化参数（此前只有底部一行小字，玩家无从得知出口在哪）。
     exitZone: {
-      xFraction: 0.93             // 出口线位置（× 节点宽 w；玩家 x ≥ 该线即视为抵达出口）
+      xFraction: 0.93,            // 出口线位置（× 节点宽 w；玩家 x ≥ 该线即视为抵达出口）
+      bandWidth: 220,             // 出口带宽度（px，画在 exitX 之后作为目标区）
+      draw: true                  // 绘制出口带/箭头标记（false = 仅 HUD 文案，不画世界标记）
     }
   },
 

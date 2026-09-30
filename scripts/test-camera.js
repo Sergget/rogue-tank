@@ -13,6 +13,8 @@ const {
   updateCamera,
   updateCameraLead,
   visionRadiusForViewport,
+  visionCenter,
+  visionClamped,
   clampCamera,
   worldToScreen,
   screenToWorld,
@@ -233,10 +235,39 @@ ok(close(bB.x, sB.x) && close(bB.y, sB.y), 'zoom=1.7：屏幕→世界→屏幕 
   //    （cap = (窄半幅+外延)/(1+bias)——按 RULES.camera.mouseLeadRatio **动态**计算：
   //     0.30 ⇒ 600（两卡同被压到 600）；2026-09-23 起 0.40 ⇒ ≈667（视野卡收益解除截断，
   //     见 specs/combat.md §11.5 / DEVELOPMENT.md §4.36））
+  // 6) 卡牌加成：nominal +25% → 屏幕占比等比放大。
+  //    #K1（2026-09-29）：**取消原 bias×R 圆心偏移与收口上限 cap**——圆心改取摄像机中心后
+  //    圆恒内切视口（半径 ≤ 窄半幅/zoom），不再需要护栏，卡牌加成**全额生效**（675 而非被削到 667）。
+  //    半径超过窄半幅后纵向被屏幕裁掉是几何必然，横向全额受益。
   const RB = visionRadiusForViewport(camL, { nominal: baseR * 1.25 });
-  const capL = (540 + baseR * ratio) / (1 + bias);
-  ok(close(RB, Math.min(scrRatio * 540 * 1.25, capL), 1e-6),
-     `#H5 卡牌视野加成 → R=${RB.toFixed(1)} = min(×1.25=${(scrRatio * 540 * 1.25).toFixed(0)}, 护栏 ${capL.toFixed(0)})（前向边界恒在屏幕容量内）`);
+  ok(close(RB, scrRatio * 540 * 1.25, 1e-6),
+     `#H5/#K1 卡牌视野加成 → R=${RB.toFixed(1)} = ×1.25=${(scrRatio * 540 * 1.25).toFixed(0)}（无护栏截断，全额生效）`);
+  // #K1 核心回归：圆心 ≡ 摄像机中心 ⇒ 圆内切视口 ⇒ 圆不探出视口（渲染边界 ≡ 视野边界）。
+  // 关键场景 = 镜头外延量（lead，随鼠标 0~360px）与玩家位置的各种组合：
+  //   只要圆心偏移 ≤ R×0.85（=459），圆心就等于摄像机中心 ⇒ 圆恒内切，inside = true。
+  {
+    const R0 = visionRadiusForViewport(createCamera({ vw: 1920, vh: 1080 }), {});   // 540
+    /** @type {Array<[number, number, string]>} */
+    const cases = [[0, 0, '无外延'], [360, 0, '满外延(横)'], [255, 255, '斜向外延'], [459, 0, '临界外延=R×0.85']];
+    for (const [lx, ly, tag] of cases) {
+      const c0 = createCamera({ vw: 1920, vh: 1080, bounds: { w: 20000, h: 20000 } });
+      const px = 5000, py = 5000;
+      c0.x = px + lx; c0.y = py + ly;                      // 摄像机 = 玩家 + 外延
+      const ctr = visionCenter(c0, { x: px, y: py }, R0);
+      const cl = visionClamped(c0, ctr, R0);
+      ok(cl.inside && Math.abs(ctr.x - c0.x) < 1e-6 && Math.abs(ctr.y - c0.y) < 1e-6,
+         `#K1 圆心 ≡ 摄像机中心且圆内切视口（${tag}）：渲染边界 ≡ 视野边界`);
+    }
+    // 镜头被世界边界钳住（玩家远离视口中心）时：圆心向玩家收敛 ⇒ 玩家恒在圆内（贴身威胁可见）
+    const cEdge = createCamera({ vw: 1920, vh: 1080, bounds: { w: 20000, h: 20000 } });
+    const ex = 5000, ey = 5000;
+    cEdge.x = ex + 900; cEdge.y = ey;                      // 偏移 900 > R×0.85 ⇒ 触发收敛
+    const ctrEdge = visionCenter(cEdge, { x: ex, y: ey }, R0);
+    ok(Math.hypot(ctrEdge.x - ex, ctrEdge.y - ey) <= R0 + 1e-6,
+       `#K1 镜头被钳时玩家仍恒在视野圆内（偏移 ${Math.round(Math.hypot(ctrEdge.x - ex, ctrEdge.y - ey))} ≤ R=${R0}）`);
+    const Rp = visionRadiusForViewport(cEdge, { nominal: baseR * 1.25 });   // 带卡（675 > 窄半幅 540）
+    ok(Rp > 540, `#K1 卡牌半径可超过窄半幅（R=${Rp.toFixed(0)} > 540），纵向由屏幕裁掉属几何必然`);
+  }
 
   // 7) 几何护栏（#H1 遗产）：极扁视口下外延占比大 → 收口兜底仍保持各方向等距
   {

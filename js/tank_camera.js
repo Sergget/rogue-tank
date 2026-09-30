@@ -106,40 +106,79 @@ function updateCameraLead(cam, screenX, screenY, dt) {
   return { leadX: cam.leadX, leadY: cam.leadY };
 }
 
-// #H5（2026-09-21 用户裁定：可见距离不得写死像素、缩放必须自由）：敌方可见半径重定义为
-// **屏幕相对**——R = screenRadiusRatio × 窄半幅/zoom × (1+卡牌加成)，即 R×zoom 恒定：
-// 敌人在屏幕上的出现位置与缩放无关，玩家自由缩放（看细节/看全局）不再被「固定像素可见距离」
-// 绑架（#H2 的深度拉远与 #H1 的窄轴收口都因此失去必要性，二者降级/删除，见下）。
-// 收口上限保留为几何护栏：R 仍须 ≤ 窄轴屏幕前向容量/(1+bias)（圆心偏移 bias×R 后，
-// 前向边界才能落在屏幕容量内、各方向等距）。注意该上限在「窄半幅≫外延」的常见视口下
-// 通常不绑定（容量 ≈ R×(1+bias) ≥ R×(1+bias)），仅极扁视口时兜底。
+// #H5（2026-09-21 用户裁定：可见距离不得写死像素、缩放必须自由）：敌方可见半径为
+// **屏幕相对**——R = screenRadiusRatio × 窄半幅/zoom × 卡牌加成系数，即 R×zoom 恒定。
+// 2026-09-29 #K1 修订（根因修复，见下方 visionCenter）：**取消原 bias×R 圆心偏移与收口上限 cap**。
+//   旧圆心 = 玩家 + bias×R（鼠标向量被归一化 ⇒ 偏移恒 ≈189px），而摄像机另有独立外延量
+//   （mouseLeadRatio，随鼠标屏幕偏移 0~1，最多 360px）——两者几乎总不相等 ⇒ **视野圆探出视口**：
+//   外延 < bias×R 时向前探出（最多 189px）、外延 > bias×R 时向后探出；探出部分内的敌人
+//   「视野判定可见但被 aabbInView 视口剔除 ⇒ 不渲染」 ⇒ 体感「敌人渲染距离短于视野距离」。
+//   现行：圆心 ≡ 摄像机中心（visionCenter），半径 = 窄半幅/zoom ⇒ 圆**恰好内切视口** ⇒
+//   渲染边界 ≡ 视野边界，且与鼠标偏移、缩放无关。卡牌加成不再被 cap 削掉（R×zoom 恒定不变）；
+//   半径超过窄半幅后纵向被屏幕裁掉是 1920×1080 的几何必然，横向仍全额生效。
 // @param {any} cam 摄像机状态（vw/vh/zoom）
-// @param {any} [opts] { nominal=含卡牌加成的基准半径（供上限式外延项）, bias, leadRatio, leadBase, ratio=screenRadiusRatio }
+// @param {any} [opts] { nominal=含卡牌加成的基准半径（供加成系数）, ratio=screenRadiusRatio }
 // @returns {number} 有效可见半径（世界 px，恒 ≥ 1）
 function visionRadiusForViewport(cam, opts) {
   const o = opts || {};
   const vcfg = (typeof RULES !== 'undefined' && RULES.vision) || {};
   const ratio = o.ratio !== undefined ? o.ratio : (vcfg.screenRadiusRatio !== undefined ? vcfg.screenRadiusRatio : 1.0);
   const nominal = o.nominal !== undefined ? o.nominal : (vcfg.radius || 900);
-  const bias = Math.max(0, o.bias !== undefined ? o.bias : (vcfg.bias !== undefined ? vcfg.bias : 0.35));
-  const rc = (typeof RULES !== 'undefined' && RULES.camera) || {};
-  const leadRatio = o.leadRatio !== undefined ? o.leadRatio
-    : (rc.mouseLeadRatio !== undefined ? rc.mouseLeadRatio : 0.30);
-  // 外延基准半径：与 updateCameraLead 同源（RULES.vision.radius，**不含**卡牌加成），
-  // 保证镜头外延量与收口上限使用同一口径
-  const leadBase = o.leadBase !== undefined ? o.leadBase : (vcfg.radius || 900);
   const zoom = Math.max(0.2, (cam && cam.zoom) || 1);
   const vw = (cam && cam.vw) || 960, vh = (cam && cam.vh) || 600;
   const narrowHalf = Math.min(vw, vh) / 2;
-  // ① 屏幕相对半径：R×zoom 恒定（缩放自由的核心）——卡牌加成按比例放大屏幕占比
-  //    （nominal = RULES.vision.radius × (1+加成%)，与基准半径之比即加成系数）
+  // 屏幕相对半径：R×zoom 恒定（缩放自由）；卡牌加成按与基准半径之比放大屏幕占比。
   const base = vcfg.radius || 900;
   const bonusK = base > 0 ? nominal / base : 1;
-  const screenRelative = ratio * bonusK * narrowHalf / zoom;
-  // ② 几何护栏：前向边界 (1+bias)×R ≤ 窄轴屏幕前向容量（窄半幅/zoom + 外延/zoom）
-  const screenReach = narrowHalf / zoom + (leadBase * leadRatio) / zoom;
-  const cap = screenReach / (1 + bias);
-  return Math.max(1, Math.min(screenRelative, cap));
+  return Math.max(1, ratio * bonusK * narrowHalf / zoom);
+}
+
+/**
+ * 视野圆心（#K1，2026-09-29）：**取摄像机中心**，使视野圆内切视口 ⇒ 渲染边界 ≡ 视野边界。
+ * 世界边缘摄像机被 clampCamera 钳住时（玩家远离视口中心），圆心向玩家收敛至
+ * 半径×0.85 的偏移上限，**保证玩家恒在视野圆内**（贴身威胁不会因镜头被钳而不可见）。
+ * @param {any} cam 摄像机（x/y）
+ * @param {{x:number,y:number}} player 玩家实体
+ * @param {number} radius 有效可见半径
+ * @returns {{x:number, y:number}} 视野圆心（世界坐标）
+ */
+function visionCenter(cam, player, radius) {
+  const px = (player && Number.isFinite(player.x)) ? player.x : 0;
+  const py = (player && Number.isFinite(player.y)) ? player.y : 0;
+  const cx = (cam && Number.isFinite(cam.x)) ? cam.x : px;
+  const cy = (cam && Number.isFinite(cam.y)) ? cam.y : py;
+  const dx = cx - px, dy = cy - py;
+  const d = Math.hypot(dx, dy);
+  const maxOff = Math.max(0, (Number.isFinite(radius) ? radius : 0) * 0.85);
+  if (d <= maxOff || d < 1e-6) return { x: cx, y: cy };
+  const k = maxOff / d;
+  return { x: px + dx * k, y: py + dy * k };
+}
+
+/**
+ * #K1 不变量校验（2026-09-29）：视野圆是否**完全落在视口内**。
+ * 半径 ≤ 窄半幅/zoom 且圆心取摄像机中心 ⇒ 圆内切视口 ⇒ inside = true，即
+ * 「视野判定可见」与「实际渲染（aabbInView）」边界一致 ⇒ 敌人渲染距离 ≡ 视野距离。
+ * @param {any} cam 摄像机（vw/vh/zoom/x/y）
+ * @param {{x:number,y:number}} center 视野圆心（世界坐标）
+ * @param {number} radius 视野半径
+ * @returns {{r:number, halfW:number, halfH:number, clipped:boolean, inside:boolean}}
+ */
+function visionClamped(cam, center, radius) {
+  const zoom = Math.max(0.2, (cam && cam.zoom) || 1);
+  const halfW = ((cam && cam.vw) || 960) / 2 / zoom;
+  const halfH = ((cam && cam.vh) || 600) / 2 / zoom;
+  const r = Math.max(0, Number.isFinite(radius) ? radius : 0);
+  const cx0 = (cam && Number.isFinite(cam.x)) ? cam.x : 0;
+  const cy0 = (cam && Number.isFinite(cam.y)) ? cam.y : 0;
+  const cx = (center && Number.isFinite(center.x)) ? center.x : cx0;
+  const cy = (center && Number.isFinite(center.y)) ? center.y : cy0;
+  const offX = Math.abs(cx - cx0), offY = Math.abs(cy - cy0);
+  return {
+    r: r, halfW: halfW, halfH: halfH,
+    clipped: r > Math.min(halfW, halfH) + 1e-6,          // 半径超出窄半幅 ⇒ 纵向被屏幕裁掉（几何必然）
+    inside: offX + r <= halfW + 1e-6 && offY + r <= halfH + 1e-6   // 圆完全在视口内
+  };
 }
 
 /**
@@ -214,6 +253,8 @@ if (typeof module !== 'undefined' && module.exports) {
     updateCamera,
     updateCameraLead,
     visionRadiusForViewport,
+    visionCenter,
+    visionClamped,
     clampCamera,
     worldToScreen,
     screenToWorld,

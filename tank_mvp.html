@@ -3134,12 +3134,24 @@ function updateHud(){
   if(run && battleState && !battleState.cleared && flow.state === 'battle' &&
      currentNode && !currentNode.boss && Number.isFinite(currentNode.quota)){
     qh.style.display = 'block';
-    // B 档③（2026-09-23）：推进式提示——出口进度 + 配额（完成 = 抵达出口 且 防线清空/配额达成）
+    // #K2（2026-09-29）：把「完成目标」写成显式目标卡——目标是什么、还差什么、出口还剩多远。
+    // 旧文案（推进%/出口%/配额 一行小字）信息齐但读不出「条件关系」，玩家反馈「没有 UI 提示」。
     const nodeWTotal = currentNode.w || 1;
     const pushPct = Math.max(0, Math.min(100, Math.round(player.x / nodeWTotal * 100)));
     const exitPct = Math.round((currentNode.exitX !== undefined ? currentNode.exitX / nodeWTotal : 0.93) * 100);
     const killedNow = battleState.nodeKills || 0;
-    qh.textContent = `推进 ${pushPct}% → 出口 ${exitPct}% ｜ 配额 ${killedNow} / ${currentNode.quota}`;
+    const quotaNow = currentNode.quota;
+    const remainingDist = Math.max(0, Math.round((Number.isFinite(currentNode.exitX) ? currentNode.exitX : nodeWTotal * 0.93) - player.x));
+    const aliveNow = (typeof livingNodeEnemies === 'function') ? livingNodeEnemies().length : 0;
+    const atExit = remainingDist <= 0;
+    const quotaDone = killedNow >= quotaNow;
+    const remainKills = Math.max(0, quotaNow - killedNow);
+    // 目标行：抵达出口（✓/还差 Npx）+ 防线清空（✓/还差 N）
+    const exitTxt = atExit ? '✓ 已抵达出口' : `① 推进至出口（还差 ${remainingDist}px）`;
+    const clearTxt = quotaDone ? '✓ 防线已清空' : `② 清空防线（配额 ${killedNow}/${quotaNow}${aliveNow ? `，场上 ${aliveNow}` : ''}）`;
+    qh.innerHTML = `<div style="color:#7ed957;letter-spacing:2px;">目标 OBJECTIVE</div>` +
+                   `<div>${exitTxt}　${clearTxt}</div>` +
+                   `<div style="opacity:.8;">推进 ${pushPct}% / 出口线 ${exitPct}%　残敌 ${aliveNow}　待击杀 ${remainKills}</div>`;
   } else qh.style.display = 'none';
   // 按需面板（P-15）：开启时逐帧刷新
   if(statusOpen) updateStatusPanel();
@@ -3603,11 +3615,11 @@ function entityHiddenByVision(e){
   if(devNoVision) return false;
   if(!e || e.team !== 'enemy' || e.hp <= 0 || e.isDrone) return false;
   const radius = visionRadiusEff();
-  const vdx = mouseWorld.x - player.x, vdy = mouseWorld.y - player.y;
-  const vlen = Math.hypot(vdx, vdy) || 1;
-  const cx = player.x + (vdx / vlen) * VISION_CFG.bias * radius;
-  const cy = player.y + (vdy / vlen) * VISION_CFG.bias * radius;
-  if(Math.hypot(e.x - cx, e.y - cy) <= radius) return false;   // 可视圆内
+  // #K1（2026-09-29）：圆心改为**摄像机中心**（圆内切视口 ⇒ 渲染边界 ≡ 视野边界），
+  // 取代旧的「玩家 + bias×R 朝鼠标偏移」（该圆心会使圆探出视口最多 189px，探出部分内的敌人
+  // 判定为可见却被视口剔除 ⇒ 体感「敌人渲染距离短于视野距离」）。贴身内圈恒可见逻辑不变。
+  const center = (typeof visionCenter === 'function') ? visionCenter(cam, player, radius) : { x: player.x, y: player.y };
+  if(Math.hypot(e.x - center.x, e.y - center.y) <= radius) return false;   // 可视圆内
   return Math.hypot(e.x - player.x, e.y - player.y) > VISION_CFG.inner * radius;   // 贴身内圈恒可见
 }
 
@@ -3907,20 +3919,59 @@ function draw(){
     ctx.restore();
   }
 
+  // #K2（2026-09-29）：出口区世界标记——右端绿色出口带 + 沿线箭头 + 「EXIT 出口」字样。
+  // 推进式完成条件（B 档③）此前只有底部一行小字 ⇒ 玩家无从得知「往哪推进 / 目标是什么」。
+  if(run && currentNode && !currentNode.boss && !(battleState && battleState.clearing)){
+    const ez = (RULES.nodeMap && RULES.nodeMap.exitZone) || {};
+    if(ez.draw !== false){
+      const ex = Number.isFinite(currentNode.exitX) ? currentNode.exitX : currentNode.w * (ez.xFraction || 0.93);
+      const band = ez.bandWidth || 220;
+      const x0 = Math.min(currentNode.w, ex), x1 = Math.min(currentNode.w, ex + band);
+      ctx.save();
+      // 出口带（半透明绿，读作「可通行目标区」）
+      const g = ctx.createLinearGradient(x0, 0, x1, 0);
+      g.addColorStop(0, 'rgba(126,217,87,0.16)');
+      g.addColorStop(1, 'rgba(126,217,87,0.34)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, 0, x1 - x0, currentNode.h);
+      // 出口线（实线 + 虚影）
+      ctx.strokeStyle = 'rgba(126,217,87,0.85)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x0, 0); ctx.lineTo(x0, currentNode.h);
+      ctx.stroke();
+      // 沿线三枚「>>」箭头（脉动，指向右＝推进方向）
+      const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 420);
+      ctx.fillStyle = `rgba(126,217,87,${0.35 + 0.45 * pulse})`;
+      for(let i = 0; i < 3; i++){
+        const ay = currentNode.h * (0.28 + i * 0.22);
+        ctx.beginPath();
+        ctx.moveTo(x0 + 34, ay);
+        ctx.lineTo(x0 + 14, ay - 14);
+        ctx.lineTo(x0 + 14, ay + 14);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // 出口字样（世界空间，随镜头缩放）
+      ctx.fillStyle = 'rgba(190,255,170,0.9)';
+      ctx.font = 'bold 22px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('EXIT 出口', (x0 + x1) / 2, 46);
+      ctx.restore();
+    }
+  }
+
   // #D2：视野圈可视化（淡虚线圆）——圆心/半径与 entityHiddenByVision 完全同口径，
   // 使视野系统边界可读（此前纯隐式剔除，玩家无从得知视野范围与视野卡效果）。
   if(!devNoVision && player && player.hp > 0){
     const vR = visionRadiusEff();
-    const vdx = mouseWorld.x - player.x, vdy = mouseWorld.y - player.y;
-    const vlen = Math.hypot(vdx, vdy) || 1;
-    const vcx = player.x + (vdx / vlen) * VISION_CFG.bias * vR;
-    const vcy = player.y + (vdy / vlen) * VISION_CFG.bias * vR;
+    const center = (typeof visionCenter === 'function') ? visionCenter(cam, player, vR) : { x: player.x, y: player.y };
     ctx.save();
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = 1.5;
     ctx.setLineDash([10, 14]);
     ctx.beginPath();
-    ctx.arc(vcx, vcy, vR, 0, TAU);
+    ctx.arc(center.x, center.y, vR, 0, TAU);
     ctx.stroke();
     ctx.restore();
   }
@@ -4158,7 +4209,9 @@ function draw(){
       w: MM.w,
       h: MM.h,
       covers,
-      entities
+      entities,
+      // #K2：出口区标记（Boss 节点无出口概念 ⇒ 不画）
+      exitZone: currentNode.boss ? null : { x: currentNode.exitX }
     });
   }
 

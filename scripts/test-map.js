@@ -261,13 +261,13 @@ ok(Array.isArray(soloV.covers) && soloV.covers.length > 0, 'makeNode 视口模�
 // #25：单节点掩体数量在加密后的合理区间（低难教学节点剔除后也 ≥ 3）
 ok(soloV.covers.length >= 3, `makeNode 视口模式掩体数量合理（${soloV.covers.length}）`);
 
-// 8) P-37：Boss 周期标记 —— (index+1)%5===0 → index 4/9/14…
-ok(isBossNodeIndex(4) && isBossNodeIndex(9) && isBossNodeIndex(14), 'isBossNodeIndex 周期判定 4/9/14');
-ok(!isBossNodeIndex(0) && !isBossNodeIndex(3) && !isBossNodeIndex(8), '非周期索引不标 Boss');
+// 8) P-37：Boss 周期标记 —— #K3（2026-09-29）：bossInterval 5 → 3 ⇒ (index+1)%3===0 → index 2/5/8/11/14…
+ok(isBossNodeIndex(2) && isBossNodeIndex(5) && isBossNodeIndex(14), 'isBossNodeIndex 周期判定 2/5/14（interval=3）');
+ok(!isBossNodeIndex(0) && !isBossNodeIndex(1) && !isBossNodeIndex(3), '非周期索引不标 Boss（interval=3）');
 const runB = generateRun('boss-seed', 12);   // 上限 12 节点
-ok(runB.nodes[4].boss === true && runB.nodes[4].enemies.length === 0, 'generateRun 节点 5（index 4）为 Boss 节点且清敌');
-ok(runB.nodes[9].boss === true && runB.nodes[9].enemies.length === 0, 'generateRun 节点 10（index 9）为 Boss 节点且清敌');
-ok(runB.nodes.filter(n => n.boss).length === 2, '12 节点内恰有 2 个 Boss 节点');
+ok(runB.nodes[2].boss === true && runB.nodes[2].enemies.length === 0, 'generateRun 节点 3（index 2）为 Boss 节点且清敌');
+ok(runB.nodes[5].boss === true && runB.nodes[5].enemies.length === 0, 'generateRun 节点 6（index 5）为 Boss 节点且清敌');
+ok(runB.nodes.filter(n => n.boss).length === 4, '12 节点内恰有 4 个 Boss 节点（index 2/5/8/11）');
 
 // 9) P-34：extendRun 开放式链追加 —— 增长、确定性、Boss 周期延续
 const runX1 = generateRun('ext-seed', 3);

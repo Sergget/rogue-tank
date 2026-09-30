@@ -472,7 +472,18 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
   - `quotaDone`：`kills ≥ quota`（并列条件：抵达出口后即使有残敌也可凭配额通关）。
 - **Boss 节点**：`done = 场上无敌`（沿用「Boss + summons 全灭」，不要求出口）。
 - `reason` 取值：`pushing`（未到出口且仍有敌）/ `advance`（未到出口且已清空）/ `clearing`（到出口但仍在交战）/ `exit+cleared` / `exit+quota` / `boss` / `boss-cleared`；mvp 据此写结算日志（「抵达出口 · 区域肃清」/「BOSS 击破」）。
-- HUD：`#quotaHud` 显示 `推进 N% → 出口 M% ｜ 配额 k/q`（推进百分比 = `playerX / w`）。
+- **HUD（#K2 2026-09-29 重写为显式目标卡）**：`#quotaHud` 三行——首行「目标 OBJECTIVE」；次行两个条件状态（`① 推进至出口（还差 Npx）` / `✓ 已抵达出口` ＋ `② 清空防线（配额 k/q，场上 N）` / `✓ 防线已清空`）；末行进度（`推进 % / 出口线 % / 残敌 / 待击杀`）。**沿革**：旧文案 `推进 N% → 出口 M% ｜ 配额 k/q` 信息齐但读不出**条件关系**，用户反馈「一个节点的完成目标和出口没有 UI 提示」（#K2）。
+- **#K2 出口可视化（2026-09-29）**：
+  - **世界层**（`tank_mvp.html` 绘制循环）：`exitX` 之后的绿色出口带（`exitZone.bandWidth = 220px` 横向渐变）+ 出口竖线 + 沿线 3 枚脉动 `>>` 箭头 + `EXIT 出口` 字样；Boss 节点与结算缓冲期（`battleState.clearing`）不画。
+  - **小地图**（`js/tank_minimap.js` `drawMinimap`）：出口区半透明绿带 + 出口线 + `EXIT` 标签——传 `opts.exitZone = { x }`；Boss 节点传 `null` 不画。
+  - **参数**：`RULES.nodeMap.exitZone = { xFraction: 0.93, bandWidth: 220, draw: true }`；`draw = false` 时只保留 HUD 文案、不画世界标记。
 - **沿革**：旧口径为「`kills ≥ quota`」单条件（P-38），与推进正交（原地刷够配额即通关）。
+
+### 15.11 Boss 循环（#K3，2026-09-29）
+
+- **现行值**：`RULES.nodeMap.bossInterval = 3`（由 5 缩短，用户反馈「节点略长，缩短 boss 循环：5->3」）⇒ `(index+1) % 3 === 0` 的节点为 Boss：**index 2 / 5 / 8 / 11 / 14…**（沿革：interval 5 ⇒ index 4/9/14）。
+- 一局初始 5 节点（`runNodeCount: 5`）内含 **1 个 Boss**（index 2）；开放式链（`extendRun`）下每 3 个节点循环一次。
+- Boss 节点无配额（`quota = null`）且不生成常规敌军 ⇒ **以 Boss 战替代常规节点的配额 grind**，这是本次缩短循环缓解「节点略长」体感的机制。
+- 回归锚点：`scripts/test-map.js` #K3 段（`isBossNodeIndex` 周期 2/5/14、非周期索引、12 节点内恰 4 个 Boss、`extendRun` 后周期延续）。
 
 

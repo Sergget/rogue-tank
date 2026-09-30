@@ -48,7 +48,8 @@ function difficultyForIndex(index, difficultyLevel) {
   return Math.round(Math.min(max, base + bonus) * 100) / 100;
 }
 
-// Boss 节点判定（P-37）：每第 bossInterval 个节点为 Boss 节点（(index+1) % interval === 0 → index 4/9/14…）。
+// Boss 节点判定（P-37）：每第 bossInterval 个节点为 Boss 节点
+// （#K3 2026-09-29 起 interval=3 ⇒ (index+1) % 3 === 0 → index 2/5/8/11/14…）。
 // makeNode 预标 node.boss=true 并清空常规敌人；Boss 具体定义由 UI 层在进入战斗时从 Boss 池懒指定。
 function isBossNodeIndex(index) {
   const interval = (typeof RULES !== 'undefined' && RULES.nodeMap && RULES.nodeMap.bossInterval) || 5;
