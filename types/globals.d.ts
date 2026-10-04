@@ -110,7 +110,7 @@ declare function applyCardTx(tank: any, card: any, ctx?: any): { ok: boolean, ap
 // #F（2026-09-20）：devPanel 共享模块（js/tank_devpanel.js）——mvp/bench 两页同源四 Tab 开发者面板
 declare function mountDevPanel(host?: any): {
   el: HTMLElement;
-  cheats: { zeroSpread: boolean, noVision: boolean, invuln: boolean, instantReload: boolean };
+  cheats: { zeroSpread: boolean, invuln: boolean, instantReload: boolean };   // #J3：noVision 随视野系统退役移除
   showDevTab(tab: string): void;
   syncDevInputs(): void;
   renderDevMods(): void;
@@ -375,6 +375,30 @@ declare function aiUpdateStateTimer(t: any, dt: number): void;
 // 警觉系统（被击中/友邻告警）：敌对 AI 立即接战并记录来弹方向
 declare function alertEntity(t: any, srcX: number, srcY: number): boolean;
 declare function propagateAlert(entitiesArr: any[], x: number, y: number, radius?: number): number;
+// #M 接战机动随机化（2026-10-01）：直线/斜线/曲线/弧线/后撤 + 随机短停，实体上挂 t._mv
+declare var _MV_MODES: string[];
+declare function _maneuverSetRng(fn?: (() => number) | null): void;
+declare function _maneuverPickMode(rng: () => number, cfg?: any): string;
+declare function _maneuverShouldHold(rng: () => number, cfg?: any): boolean;
+declare function _maneuverRoll(rng: () => number, cfg?: any): any;
+declare function _applyManeuver(t: any, mv: any, dt: number | undefined, desired: number, cfg?: any, keepMove?: number, reloadGap?: boolean): { turn: number; move: number; aimTolMul: number };
+// #N 交战带 / 分离力 / flank 站位 / 装填脱离（2026-10-01）
+declare function _engageBandKey(t: any, clsProf?: any): string;
+declare function _engageBand(t: any, cfg: any, engage: number, bandKey: string | null): { min: number; max: number };
+declare function _separationTurn(t: any, ctx: any, desired: number): number;
+declare function _flankStation(p: any, bearing: number, flankRadius: number, side: number, cfg?: any, seedKey?: any): { x: number; y: number };
+declare function _flankRadius(band: { min: number; max: number }, cfg?: any): number;
+declare function _retreatReloadSpot(t: any, p: any, dist: number, ctx: any, cfg: any): { x: number; y: number } | null;
+declare function _maneuverReloadGap(t: any, cfg: any): boolean;
+
+// 敌军攻守分工协调器（js/tank_ai_squad.js，#N2 / 2026-10-01）
+declare function squadConfig(): any;
+declare function flankConfig(): any;
+declare function resetSquad(): void;
+declare function pressSlotsFor(cfg: any, diff: number, aliveCount: number): number;
+declare function candidateScore(e: any, player: any, cfg: any, hasLoS: boolean): number;
+declare function updateSquad(ctx: any): { press: number; flank: number; hold: number; pressSlots: number };
+declare function holdGate(e: any, dist: number, baseTol: number, player: any): { fire: boolean; aimTolMul: number };
 
 // 死亡/复活状态机（js/tank_revive.js，P-11 / §2.3 / §6 条目 8）
 declare function reviveConfig(): any;

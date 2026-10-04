@@ -6,7 +6,7 @@
   "scale": 2.0,
   "behavior": { "style": "weave", "chargeInterval": 7, "chargeSpeed": 1.6 },
   "tuning": {
-    "hpMul": 8,
+    "hpMul": 9,
     "moveMul": 0.5,
     "turnMul": 0.6,
     "turretTurnMul": 0.6,

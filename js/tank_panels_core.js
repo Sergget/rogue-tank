@@ -307,8 +307,9 @@ function spawnEnemyAt(x, y, opts, ctx){
   if (!spec) throw new Error('spawnEnemyAt: unknown tankId: ' + opts.tankId);
 
   var id = opts.id || ('enemy_' + Date.now() + '_' + Math.random().toString(36).slice(2,6));
-  var playerTank = _dep('player') || null;
-  var anchor = opts.anchorStats || (playerTank && playerTank.stats) || null;
+  // #H1（2026-09-30）：敌人数值基准改为固定基准 RULES.enemyAnchorBase（applyAppearance 内部读
+  // RULES，不再消费 anchorStats）——故此处**不再取玩家 stats**。opts.anchorStats 形参保留但已无意义。
+  var anchor = null;
 
   var t = spawn({
     id: id,
@@ -347,8 +348,11 @@ function spawnEnemyAt(x, y, opts, ctx){
   t.benchSpawn = true;
   t._benchLevel = lv;
 
-  if (opts.alert !== false && typeof alertEntity === 'function' && playerTank){
-    alertEntity(t, playerTank.x, playerTank.y);
+  // #H1（2026-09-30）：玩家实体仅用于「立即警觉」的目标点，与敌军数值基准无关
+  //   （数值改锚固定基准 RULES.enemyAnchorBase，见 applyEnemyAppearanceAndStats）。
+  if (opts.alert !== false && typeof alertEntity === 'function'){
+    var playerTank = _dep('player') || null;
+    if (playerTank) alertEntity(t, playerTank.x, playerTank.y);
   }
   return t;
 }

@@ -8,7 +8,7 @@ const U = require('../js/tank_utils.js');
 global.angDiff = U.angDiff;
 global.norm = U.norm;
 global.TAU = U.TAU;
-const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile, aiClassForTank, _reactionSeconds, _propagateEngage } = require('../js/tank_ai.js');
+const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile, aiClassForTank, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverSetRng, _engageBand, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot } = require('../js/tank_ai.js');
 
 let fails = 0;
 function ok(cond, label) {
@@ -63,13 +63,16 @@ const d7 = aiDecideEnemy(reloading, { player, hasLoS: () => true });
 ok(d7.fire === false, '装填中 → 不开火');
 
 // 4b) 滞回防抖：进入阈值 700，脱离阈值 = 700 × 1.25 = 875。
-//     进入后拉到 dist 800（>700 但 ≤875）→ 保持接战继续靠近；>875 → 才回落 patrol
+//     进入后拉到 dist 800（>700 但 ≤875）→ 保持接战；>875 → 才回落 patrol
+// 注：#M 机动层启用后，接近途中的 move 可为 ±1 或 0（前进/后撤/短停均属合法机动），
+//     故只断言「滞回带内不脱离接战」这一状态不变量，不对具体 move/aiState 取值写死。
 const hystE = enemy(300, 500, Math.PI, Math.PI, 0);   // dist 700 → 进入接战
 aiDecideEnemy(hystE, { player, hasLoS: () => true });
 ok(hystE.aiEngaged === true, '进入阈值上 → 接战标记置位');
 hystE.x = 200;                                        // dist 800，滞回带内
 const dh1 = aiDecideEnemy(hystE, { player, hasLoS: () => true });
-ok(hystE.aiEngaged === true && dh1.move === 1, '滞回带内不脱离（仍主动靠近）');
+ok(hystE.aiEngaged === true && dh1.move >= -1 && dh1.move <= 1,
+   `滞回带内不脱离接战（engaged=true，move=${dh1.move} ∈ [-1,1]）`);
 hystE.x = -200;                                       // dist 1200 > 875 → 脱离
 const dh2 = aiDecideEnemy(hystE, { player, hasLoS: () => true });
 ok(hystE.aiEngaged === false && dh2.move === 0 && hystE.aiState === 'patrol', '超出滞回阈值 → 回落 patrol');
@@ -184,15 +187,20 @@ console.log('--- 警觉系统 ---');
 console.log('--- #76 B/C：参数化/tier/摆动/寻掩 ---');
 
 // E) flankDist 读 cfg（RULES.ai 收口，原 tank_ai.js 硬编码 300）
+// #N3（2026-10-01）：flank 改由「角色 + 侧翼站位」驱动（见下方 #N 段），旧分支降级为
+//   回退路径（flankRewrite.enabled=false 时启用）。本段保留旧分支的回归覆盖。
 {
   const saveFD = RULES.ai.flankDist;
+  const saveRewrite = RULES.ai.flankRewrite.enabled;
+  RULES.ai.flankRewrite.enabled = false;             // 切到旧分支（回退路径）
   const fl = enemy(420, 500, Math.PI, Math.PI, 0);   // dist 580 ∈ (engage 520, flankMinDist×1.5=600)
   const rDefault = aiDecideEnemy(fl, { player, hasLoS: () => true });
-  ok(fl.aiState === 'flank' && rDefault.move === 1, 'flank 态触发（距离窗口内）');
+  ok(fl.aiState === 'flank' && rDefault.move === 1, 'flank 回退路径：距离窗口内触发旧 flank 态');
   RULES.ai.flankDist = -saveFD;   // 取负 → 侧翼目标点翻到对侧 → 车体转向翻转（证明消费 cfg）
   const rFlip = aiDecideEnemy(fl, { player, hasLoS: () => true });
   ok(rFlip.turn === -rDefault.turn, `flankDist 读 cfg：取负后转向翻转（${rDefault.turn}→${rFlip.turn}）`);
   RULES.ai.flankDist = saveFD;
+  RULES.ai.flankRewrite.enabled = saveRewrite;
 }
 
 // F) aiTierProfile 档位表 + engageMul/aimTolMul 消费
@@ -200,10 +208,11 @@ console.log('--- #76 B/C：参数化/tier/摆动/寻掩 ---');
   ok(aiTierProfile(2).stunResist === true && aiTierProfile(1).engageMul > 1, 'tierProfiles 档位定义可读');
   ok(Object.keys(aiTierProfile(99)).length === 0 && Object.keys(aiTierProfile(undefined)).length === 0,
     'tier 越界/缺省回退空 profile（tier 0 基础行为）');
-  // engageMul：dist 580 —— tier0 接战距离 520（超距 → flank 靠近）；tier2 接战距离 520×1.2=624（已接战）
+  // engageMul：dist 580 —— tier0 带外沿 520×1.10=572 < 580 → 接近；tier2 带外沿 624×1.10=686 ≥ 580 → 带内驻停
+  // （#N1 起判据由单点 engage 改为交战带上沿 band.max，见下方 #N 段）
   const te0 = enemy(420, 500, Math.PI, 0, 0);
-  aiDecideEnemy(te0, { player, hasLoS: () => true });
-  ok(te0.aiState === 'flank' , 'tier0：580 > engage 520 → flank 机动');
+  const rte0 = aiDecideEnemy(te0, { player, hasLoS: () => true });
+  ok(rte0.move === 1 , `tier0：580 > 带上沿 572 → 接近（move=${rte0.move}）`);
   const te2 = enemy(420, 500, Math.PI, 0, 0);
   te2.aiTier = 2;
   const rte2 = aiDecideEnemy(te2, { player, hasLoS: () => true });
@@ -400,7 +409,10 @@ function boss(x, y, hullAngle, turretAngle, stageAI, reloadT) {
 console.log('--- #88：装填间隙侧摆 ---');
 {
   const realRandom = Math.random;
-  Math.random = () => 0.99;   // 受控随机：压制 peek/repos/daze，方向固定取 +maxA 侧
+  Math.random = () => 0.99;   // 受控随机：压制 peek/repos/daze
+  // #M：机动层走独立 RNG 注入通道（_maneuverSetRng），此处固定抽 slant（前进类）
+  // ——使本段只验证「装填期偏置」，不被机动模式的随机性污染。
+  _maneuverSetRng(() => 0.30);
   // 场景：dist 1100（>engage 520、<defensive 阈值、flank 窗口外），实体 aiTriggerDist=1200 保持接战；
   // 装填前段：reloadT=3.5 > stats.reload(4) × 0.3(1.2)
   const sw = enemy(-100, 500, Math.PI, Math.PI, 3.5);
@@ -408,36 +420,267 @@ console.log('--- #88：装填间隙侧摆 ---');
   sw.aiTriggerDist = 1200;
   const rsw = aiDecideEnemy(sw, { player, hasLoS: () => true, dt: 0.016 });
   ok(sw.aiState === 'patrol', '侧摆场景落在基线 patrol 态');
-  ok(Number.isFinite(sw._swingTarget) && (sw._swingT || 0) >= 1.5,
-     `侧摆计时初始化：_swingTarget 已掷出、_swingT=${sw._swingT && sw._swingT.toFixed(2)}（≥1.5s 持续）`);
-  const mag = Math.abs(angDiff(sw._swingTarget, Math.PI));
-  ok(mag >= RULES.ai.sideSwingAngleMin - 1e-9 && mag <= RULES.ai.sideSwingAngleMax + 1e-9,
-     `侧摆目标角幅度 ${mag.toFixed(3)} ∈ [sideSwingAngleMin, sideSwingAngleMax]（消费 RULES.ai）`);
-  ok(rsw.turn === 1 || rsw.turn === -1, '装填前段车体朝侧摆目标角转向');
-  ok(rsw.move === 0.3, '前进机动微降至 0.3');
+  // #M：普通敌人的装填期机动改由机动层承担（旧 sideSwing 仅留 Boss 路径）——
+  // 断言「抽到非 direct 的机动 + 前进类机动被压为蠕行」，语义等价于旧侧摆的躲避机动，但更丰富。
+  const nonDirect = sw._mv && sw._mv.mode !== 'direct';
+  ok(nonDirect,
+     `装填前段抽到侧向机动（mode=${sw._mv && sw._mv.mode}，非 direct 直冲）`);
+  // 前进类机动（direct/slant/curve/arc）压为蠕行；retreat 为后撤，方向相反但同样有效
+  if(sw._mv && sw._mv.mode === 'retreat'){
+    ok(rsw.move === -1, `装填前段抽到后撤机动（move=${rsw.move}，反向拉开）`);
+  } else {
+    ok(rsw.move > 0 && rsw.move < 1, `装填前段前进微降至蠕行（move=${rsw.move}）`);
+  }
   ok(Math.abs(rsw.turretDesired) < 1e-9 && rsw.fire === false, '炮塔照常锁玩家；装填中不开火');
-  // 方向换向：_swingT 到期后重掷（_swingT 回到 ≥1.5）
-  sw._swingT = 0;
-  aiDecideEnemy(sw, { player, hasLoS: () => true, dt: 0.016 });
-  ok((sw._swingT || 0) >= 1.5, '侧摆持续到期 → 重掷新方向与持续时长');
-  // 装填完成恢复常规：reloadT=0 → 清侧摆状态、move 恢复基线
+  // 装填完成恢复常规：reloadT=0 → 前进满速（无 creep 压低）
   sw.reloadT = 0;
   const rDone = aiDecideEnemy(sw, { player, hasLoS: () => true, dt: 0.016 });
-  ok(!Number.isFinite(sw._swingTarget) && rDone.move === 1, 'reloadT 归零恢复常规（清 _swingTarget、move 回基线 1）');
-  // 装填后段（reloadT ≤ 时长×30%）：不触发侧摆
+  ok(rDone.move === 1, `reloadT 归零恢复常规（move=${rDone.move}，无蠕行压低）`);
+  // 装填后段（reloadT ≤ 时长×30%）：无 creep 压低（与常规表同权重的方向机动即可）
   const late = enemy(-100, 500, Math.PI, Math.PI, 1.0);
   late.stats.reload = 4;
   late.aiTriggerDist = 1200;
   const rLate = aiDecideEnemy(late, { player, hasLoS: () => true, dt: 0.016 });
-  ok(!Number.isFinite(late._swingTarget) && rLate.move === 1, '装填后段（≤30%）不侧摆');
+  ok(rLate.move === 0 || rLate.move === 1,
+     `装填后段（≤30%）无蠕行压低（move=${rLate.move} ∈ {0,1}）`);
   // Boss 基线同样侧摆转向，但防风筝 move=1 优先级更高
   const bsw = boss(-100, 500, Math.PI, 0, null, 3.5);
   bsw.stats.reload = 4;
   bsw.aiTriggerDist = 1200;
   const rb = aiDecideEnemy(bsw, { player, hasLoS: () => true, dt: 0.016 });
   ok(rb.move === 1 && Number.isFinite(bsw._swingTarget),
-     'Boss 基线：侧摆照常掷出，但防风筝保持 move=1 推进');
+     'Boss 基线：旧 sideSwing 照常掷出，防风筝保持 move=1 推进');
   Math.random = realRandom;
+  _maneuverSetRng(null);   // 还原机动层 RNG 为惰性 Math.random
+}
+
+// ============================================================
+// #M：接战机动随机化（2026-10-01）——直线/斜线/曲线/弧线/后撤 + 随机短停
+// ============================================================
+console.log('--- #M：接战机动随机化 ---');
+{
+  const mcfg = RULES.ai.maneuver;
+  ok(mcfg.enabled === true, '机动系统默认启用（RULES.ai.maneuver.enabled）');
+  const modes = new Set();
+
+  // 权重抽样：大量抽样式应覆盖全部 5 种机动类型（确认配置表无死权重）
+  let seq = 0;
+  const cyc = () => { const v = (seq % 97) / 97; seq++; return v; };
+  for(let i = 0; i < 400; i++) modes.add(_maneuverRoll(cyc, mcfg).mode);
+  ok(modes.size === 5, `5 种机动类型均可达（实测 ${modes.size} 种：${[...modes].join('/')}）`);
+
+  // 偏角有界：slant/arc/curve 的起始偏角落在配置区间内
+  let angleOk = true;
+  seq = 0;
+  for(let i = 0; i < 300; i++){
+    const mv = _maneuverRoll(cyc, mcfg);
+    const a = Math.abs(mv.angle);
+    if(mv.mode === 'slant' && !(a >= mcfg.slantAngleMin - 1e-9 && a <= mcfg.slantAngleMax + 1e-9)) angleOk = false;
+    if(mv.mode === 'arc' && !(a >= mcfg.arcAngleMin - 1e-9 && a <= mcfg.arcAngleMax + 1e-9)) angleOk = false;
+    if(mv.mode === 'curve' && !(a >= mcfg.curveAngleMin - 1e-9 && a <= mcfg.curveAngleMax + 1e-9)) angleOk = false;
+  }
+  ok(angleOk, '偏角均落在 slant/arc/curve 各自的配置区间内');
+
+  // curve 的 sweep 与起始偏角反号 ⇒ 偏角必然穿过 0（S 形回正，不会单向甩开）
+  seq = 0;
+  let curveOk = true;
+  for(let i = 0; i < 200; i++){
+    const mv = _maneuverRoll(cyc, mcfg);
+    if(mv.mode === 'curve' && mv.sweep !== 0 && Math.sign(mv.sweep) === Math.sign(mv.angle)) curveOk = false;
+  }
+  ok(curveOk, 'curve 偏角渐变与起始偏角反号（S 形接近）');
+
+  // 禁用开关：enabled=false 时完全退回旧直冲语义（回退路径可用）
+  const disabled = _applyManeuver(enemy(0, 0, 0, 0, 0), _maneuverRoll(cyc, mcfg), 1 / 60, 0,
+                                  Object.assign({}, mcfg, { enabled: false }), 1, false);
+  ok(disabled.move === 1 && disabled.aimTolMul === 1, 'maneuver.enabled=false → 回退基准 move、容差无放宽');
+
+  // 短停：holdChance=1 时脚本结束后必进短停，且短停期间 move=0（原地驻停但可开火）
+  seq = 0;
+  const holdCfg = Object.assign({}, mcfg, { holdChance: 1, reRollDist: 0, holdMin: 0.5, holdMax: 0.5 });
+  const holdT = enemy(0, 0, 0, 0, 0);
+  holdT._mv = _maneuverRoll(cyc, holdCfg);
+  const hOut = _applyManeuver(holdT, holdT._mv, 1 / 60, 0, holdCfg, 1, false);
+  ok(hOut.move === 0 && holdT._mv.hold === true, '脚本结束按概率进入短停（短停期间 move=0）');
+
+  // 短停结束：给放宽的开火窗口并重掷新脚本（开火节奏错开的关键）
+  holdT._mv.holdT = 0.001;
+  const afterHold = _applyManeuver(holdT, holdT._mv, 1 / 60, 0, holdCfg, 1, false);
+  ok(afterHold.aimTolMul > 1 && holdT._mv.hold === false,
+     `短停结束 → 开火容差放宽 ×${afterHold.aimTolMul.toFixed(2)} 且重掷新脚本`);
+
+  // 装填前段：前进被压为微速蠕行（承接 #88 侧摆的 move 微降语义）
+  const creepT = enemy(0, 0, 0, 0, 3.5);
+  creepT.stats.reload = 4;
+  const creepMv = _maneuverRoll(() => 0.0, mcfg, false);   // rng=0 → 落在权重首项（direct，前进）
+  const cOut = _applyManeuver(creepT, creepMv, 1 / 60, 0, mcfg, 1, true);
+  ok(cOut.move > 0 && cOut.move < 1,
+     `装填前段前进压为微速蠕行（move=${cOut.move} ∈ (0,1)）`);
+
+  // 装填期权重偏置：direct 被压低 ⇒ 直冲占比显著低于常规表
+  let gapDirect = 0, normalDirect = 0;
+  for(let i = 0; i < 600; i++){
+    if(_maneuverRoll(Math.random, mcfg, true).mode === 'direct') gapDirect++;
+    if(_maneuverRoll(Math.random, mcfg, false).mode === 'direct') normalDirect++;
+  }
+  ok(gapDirect / 600 < normalDirect / 600,
+     `装填期直冲占比下降（${(gapDirect/600*100).toFixed(1)}% < 常规 ${(normalDirect/600*100).toFixed(1)}%）`);
+
+  // 集成：接战中的普通敌人按机动脚本输出（前进/转向/短停混杂，而非恒定直冲）
+  // 注：#N1 起带内（dist ≤ 带外沿）驻停，故取样距离取**带外**以确保处于接近机动。
+  let sawTurn = false, sawMove0 = false, sawMoveFwd = false;
+  for(let i = 0; i < 200; i++){
+    const e = enemy(280 + i, 500, Math.PI, Math.PI, 0);   // dist 720~919，均 > 带外沿 572
+    e.aiTriggerDist = 1400;                               // 抬高触发距离以保持接战
+    const r = aiDecideEnemy(e, { player, hasLoS: () => true, dt: 0.016 });
+    if(r.turn !== 0) sawTurn = true;
+    if(r.move === 0) sawMove0 = true;
+    if(r.move > 0) sawMoveFwd = true;
+  }
+  ok(sawTurn && sawMove0 && sawMoveFwd,
+     '集成：接战敌人输出含转向/短停/前进三类（轨迹与节奏非恒定）');
+
+  // 脱离接战后脚本被清空 → 下次接战重新抽取（不留陈旧偏角）
+  // 场景需「先接战、再脱离」：只有已分配过脚本的实体才有 _mv 可清。
+  // 注：#N1 起机动层只在「需要移动（baseMove≠0）且为 press 角色」时生效，
+  //     故用**带外距离**（dist > 带外沿）确保处于接近状态。
+  const forget = enemy(300, 500, Math.PI, Math.PI, 0);   // dist 700 > 带外沿 572 → 接近并接战
+  aiDecideEnemy(forget, { player, hasLoS: () => true, dt: 0.016 });
+  ok(!!forget._mv, '接战且处于接近状态 → 分配机动脚本');
+  forget.x = 0;                                        // dist 1000 > exitD 875 → 脱离接战
+  aiDecideEnemy(forget, { player, hasLoS: () => true, dt: 0.016 });
+  ok(forget._mv === null, '脱离接战 → 清空机动脚本（下次接战重新抽取）');
+
+  // Boss 不吃机动层（保持「始终推进」角色语义）
+  const bsManeuver = boss(-100, 500, Math.PI, 0, null, 0);
+  bsManeuver.aiTriggerDist = 1200;
+  aiDecideEnemy(bsManeuver, { player, hasLoS: () => true, dt: 0.016 });
+  ok(bsManeuver._mv === undefined || bsManeuver._mv === null, 'Boss 不启用机动层（始终推进语义保留）');
+}
+
+// ============================================================
+// #N：交战距离带（#N1）/ flank 侧翼站位重写（#N3）/ 分离力（#N4）/ 装填脱离（#N6）
+// ============================================================
+console.log('--- #N：交战带 / flank 站位 / 分离力 / 装填脱离 ---');
+{
+  const ncfg = RULES.ai;
+  // 固定机动层随机源为 direct（rng=0 → 权重首项）：本段验证的是**交战带/角色**语义，
+  // 不应被 #M 机动的随机模式（如 retreat）污染（否则「带外 → 接近」会随机变成后撤）。
+  _maneuverSetRng(() => 0);
+
+  // --- #N1 交战距离带：按类别分档 ---
+  const bands = {};
+  for(const cls of ['light', 'medium', 'heavy', 'spg']){
+    bands[cls] = _engageBand({ hullLen: 40 }, ncfg, 520, cls);
+  }
+  ok(bands.light.max > bands.medium.max, `轻坦带外沿更远（light ${bands.light.max.toFixed(0)} > medium ${bands.medium.max.toFixed(0)}）`);
+  ok(bands.heavy.max < bands.medium.max, `重坦带外沿更近（heavy ${bands.heavy.max.toFixed(0)} < medium ${bands.medium.max.toFixed(0)}）`);
+  ok(bands.spg.max > bands.medium.max, `SPG 带外沿最远（${bands.spg.max.toFixed(0)}）`);
+  ok(Object.values(bands).every(b => b.min < b.max), '各档 min < max（无死区）');
+
+  // 带内下界受「车体尺度」兜底（退让距离不得小于车长）
+  const shortBand = _engageBand({ hullLen: 200 }, ncfg, 520, 'heavy');
+  ok(shortBand.min >= 200 * 2.2 - 1e-9, `带内下界不小于车体尺度兜底（min=${shortBand.min.toFixed(0)}）`);
+
+  // 开关回退：enabled=false → 旧单点语义（min=closeRange, max=engage）
+  const savedBand = ncfg.engageBand.enabled;
+  ncfg.engageBand.enabled = false;
+  const fb = _engageBand({ hullLen: 40 }, ncfg, 520, 'medium');
+  ok(fb.min === ncfg.closeRange && fb.max === 520, `engageBand.enabled=false → 回退单点语义（${fb.min}/${fb.max}）`);
+  ncfg.engageBand.enabled = savedBand;
+
+  // 集成：带内驻停、带外接近、贴脸脱离（以 medium 档验证）
+  const medBand = _engageBand({ hullLen: 40 }, ncfg, 520, 'medium');
+  const inBand = enemy(1000 - Math.round((medBand.min + medBand.max) / 2), 500, Math.PI, Math.PI, 0);
+  inBand.aiTriggerDist = 1400;
+  const rIn = aiDecideEnemy(inBand, { player, hasLoS: () => true, dt: 0.016 });
+  ok(rIn.move === 0, `带内 → 原地驻停（dist=${(medBand.min+medBand.max)/2|0}，move=${rIn.move}）`);
+
+  const outBand = enemy(1000 - Math.round(medBand.max) - 200, 500, Math.PI, Math.PI, 0);
+  outBand.aiTriggerDist = 1400;
+  const rOut = aiDecideEnemy(outBand, { player, hasLoS: () => true, dt: 0.016 });
+  ok(rOut.move === 1, `带外 → 接近（move=${rOut.move}）`);
+
+  const tooNear = enemy(1000 - Math.round(medBand.min) + 40, 500, Math.PI, Math.PI, 0);
+  tooNear.aiTriggerDist = 1400;
+  const rNear = aiDecideEnemy(tooNear, { player, hasLoS: () => true, dt: 0.016 });
+  ok(rNear.move === -1 || rNear.move === 1, `贴脸（<带内沿）→ 脱离/退让（move=${rNear.move}）`);
+
+  // heavy 绝不后撤（P-46 moveLock 角色特性保留）
+  const heavyNear = enemy(1000 - Math.round(bands.heavy.min) + 30, 500, Math.PI, Math.PI, 0);
+  heavyNear.tankClass = 'heavy';
+  heavyNear.heightClass = 'heavy';
+  heavyNear.aiTriggerDist = 1400;
+  const rHeavy = aiDecideEnemy(heavyNear, { player, hasLoS: () => true, dt: 0.016 });
+  ok(rHeavy.move !== -1, `重坦绝不后撤（move=${rHeavy.move}，moveLock 语义保留）`);
+
+  // --- #N3 flank 侧翼站位 ---
+  const flankR = _flankRadius(medBand, ncfg.flankRewrite);
+  const station = _flankStation(player, Math.PI, flankR, 1, ncfg.flankRewrite, 'e1');   // 敌人位于玩家左侧
+  const stationDist = Math.hypot(station.x - player.x, station.y - player.y);
+  ok(Math.abs(stationDist - flankR) < 1,
+     `站位点落在玩家周围指定半径上（实测 ${stationDist.toFixed(1)} = ${flankR.toFixed(1)}）`);
+  ok(stationDist > medBand.max,
+     `站位半径(${stationDist.toFixed(0)}) > 交战带外沿(${medBand.max.toFixed(0)}) ⇒ 绕行不进入带内侧`);
+  // 站位点相对「玩家→敌人」连线形成侧向夹角（不是正对方向）
+  const enemyBearing = Math.PI;                                    // 敌人位于玩家左侧（方位角 π）
+  const stBearing = Math.atan2(station.y - player.y, station.x - player.x);
+  let angSep = Math.abs(angDiff(stBearing, enemyBearing));
+  ok(angSep >= ncfg.flankRewrite.sectorMin - 1e-6 && angSep <= ncfg.flankRewrite.sectorMax + 1e-6,
+     `站位点位于扇区角内（实测 ${angSep.toFixed(2)} rad ∈ [${ncfg.flankRewrite.sectorMin}, ${ncfg.flankRewrite.sectorMax}]）`);
+  // 同一实体稳定（不逐帧抖动）
+  const station2 = _flankStation(player, Math.PI, flankR, 1, ncfg.flankRewrite, 'e1');
+  ok(station.x === station2.x && station.y === station2.y, '同实体站位点稳定（不逐帧抖动）');
+  // 左右两侧站位不同（避免全部挤同一侧）
+  const stationL = _flankStation(player, Math.PI, flankR, -1, ncfg.flankRewrite, 'e1');
+  ok(Math.abs(stationL.y - station.y) > 1, '左右侧站位分属不同方位（避免同侧拥挤）');
+
+  // 集成：flank 角色朝站位点机动（而非直冲玩家）
+  const flanker = enemy(400, 500, 0, Math.PI, 0);   // 位于玩家左侧，车体朝 +x（正对玩家）
+  flanker.aiRole = 'flank';
+  flanker.aiTriggerDist = 1400;
+  const rFlank = aiDecideEnemy(flanker, { player, hasLoS: () => true, dt: 0.016 });
+  ok(rFlank.move === 1 && rFlank.turn !== 0,
+     `flank 角色朝侧翼站位机动（turn=${rFlank.turn}，非直冲）`);
+  ok(Math.abs(rFlank.turretDesired) < 1e-9, 'flank 绕行中炮塔仍锁定玩家');
+
+  // --- #N4 群体分离力 ---
+  const solo = enemy(700, 500, Math.PI, Math.PI, 0);
+  const sepSolo = _separationTurn(solo, { enemies: [solo], player: player }, 0);
+  ok(sepSolo === 0, '无邻近同伴 → 无分离偏置');
+  // 同伴挤在同一处 → 产生侧向偏置
+  const crowded = enemy(700, 500, Math.PI, Math.PI, 0);
+  const mate = enemy(720, 510, Math.PI, Math.PI, 0);
+  const sepCrowd = _separationTurn(crowded, { enemies: [crowded, mate], player: player }, 0);
+  ok(Math.abs(sepCrowd) === 1, `邻近拥挤 → 产生侧向分离偏置（${sepCrowd}）`);
+
+  // --- #N6 装填脱离 ---
+  const cover = { x: 700, y: 500, w: 80, h: 80, tier: 'full', hp: 100 };
+  const seeker = { x: 400, y: 500, hullLen: 40, hullAngle: 0, turretAngle: 0, hp: 100, maxHp: 100 };
+  const spot = _retreatReloadSpot(seeker, player, 600, { covers: [cover] }, ncfg);
+  ok(!!spot, '装填期且距离合适 → 找到掩体背弹面');
+  if(spot){
+    // 背弹面应位于掩体「背离玩家」的一侧（玩家在右侧 ⇒ 目标点 x 小于掩体中心）
+    ok(spot.x < cover.x, `背弹面位于背离玩家一侧（spot.x=${spot.x.toFixed(0)} < cover.x=${cover.x}）`);
+  }
+  ok(_retreatReloadSpot(seeker, player, 600, { covers: [] }, ncfg) === null, '无掩体 → 返回 null（静默落回原行为）');
+  ok(_retreatReloadSpot(seeker, player, 100, { covers: [cover] }, ncfg) === null, '距离过近（来不及退）→ 返回 null');
+  ok(_retreatReloadSpot(seeker, player, 2000, { covers: [cover] }, ncfg) === null, '距离过远（没必要退）→ 返回 null');
+
+  // 回归锚点（#N 缺陷防复发）：flank 站位半径必须 ≥ 交战带外沿（radiusRatio ≥ 1）。
+  // 沿革：初版 radiusRatio=0.95（以 engage 为基准）< 带外沿 ⇒ flank 绕行把敌人带进交战带
+  //   内侧，与 press 名额交替时形成「棘轮内移」逐次逼近玩家（探针实测 700→395→273px）。
+  ok(ncfg.flankRewrite.radiusRatio >= 1,
+     `flank 站位半径比例(${ncfg.flankRewrite.radiusRatio}) ≥ 1（相对交战带外沿，不进入带内侧）`);
+  // 各档次均满足「站位半径 > 带外沿」
+  let allOutside = true;
+  for(const cls of ['light', 'medium', 'heavy', 'spg']){
+    const b = _engageBand({ hullLen: 40 }, ncfg, 520, cls);
+    if(_flankRadius(b, ncfg.flankRewrite) <= b.max) allOutside = false;
+  }
+  ok(allOutside, '各类别（light/medium/heavy/spg）的 flank 站位半径均 > 自身交战带外沿');
+
+  _maneuverSetRng(null);   // 还原机动层随机源
 }
 
 // ===== 2026-09-14：受击警觉（任意来源） + AI 避水绕行 =====

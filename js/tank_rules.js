@@ -263,14 +263,26 @@ const RULES = {
     },
     deploy_limits: {     // #E4 可部署物数量上限（按类型独立计数）+ 升级增量
       coverMax: 2,       // 战术掩体基础上限（升级卡/局内升级各 +1）
-      mineMax: 3,        // 地雷基础上限（雷场单次布设的雷数也受此约束）
+      // #J1（2026-09-30 用户反馈「地雷在 1 个节点内似乎只能部署 1 次」）：mineMax 3 → 6。
+      //   mineMax 是「**场上同时存在**的地雷数」上限，而地雷存续 30s（升级 45s）、单节点战斗
+      //   通常远长于此 —— cap 3 恰好等于单次雷场数量 mineFieldCount(3)，导致首轮布满后
+      //   「一个节点只能布 1 次」。上调基础上限使节点内可连续布设多轮（每轮 3 枚），
+      //   上限语义仍是「同时在场数」，不是「本局总数」。
+      mineMax: 6,
       coverMaxUpgradeStep: 1,
       mineMaxUpgradeStep: 1,
       coverMaxHardCap: 6,
-      mineMaxHardCap: 8,
-      mineFieldCount: 5,   // #E4 单次雷场布设的地雷数（受 mineMax 上限约束）
+      mineMaxHardCap: 12,
+      mineFieldCount: 3,   // #E4 单次雷场布设的地雷数。#H2（2026-09-30）：原值 5 > mineMax(3)，
+                           //   与「existing + n ≤ cap」的拒收判据互相矛盾（首轮布满后后续雷场恒被丢弃），
+                           //   改为与基础上限自洽；实际落雷数再按**生成时刻的可用余量**裁剪
+                           //   n = clamp(count, 0, cap − existing)（tank_mvp.html mineFieldCountNow）。
+                           //   想要更大的单次雷场应同步上调 mineMax，而非只调本值。
       mineFieldRadius: 70, // 雷场半径（px，预形态与最终布设一致）
       mineFieldDelay: 4,   // #E4 确认布设后到雷场生成的延时（秒）
+      // #H2（2026-09-30）布雷装填冷却：确认预约后写入 player.secondaryReloadT，
+      //   冷却中再次按 F 直接拒绝（与单发布雷路径 js/tank_weapons.js 同口径，specs/combat.md §8.1）。
+      mineFieldReload: 15,
       // #E4 部署数量升级来源：持有该卡即按 listed 增量累加 deployBonus（可叠多张）
       upgradeCards: {
         ability_deploy_cover_fortified: { cover: 1 },
@@ -609,11 +621,28 @@ const RULES = {
     }
   },
 
-  // P-46 类别化敌军（玩家基准锚定制，2026-08-26 第三批裁定，取代旧构筑预算制）：
-  //   敌军各项属性 = 玩家出战坦克对应属性 × enemyClassProfiles[class] 比例 × 难度系数(entityMults)。
-  //   四类比例向量（相对玩家基准 1.0 的比例）收口于此，绝对值不落地——保证节点 1 与玩家出厂配置匹配、
-  //   且两类成长线（玩家卡牌成长 vs 敌人难度成长）独立。消费方预留：js/tank_map.js 生成 + mvp
-  //   beginRun 冻结玩家 stats 快照时按月读取（本期先落地 class 行为分发与配置，数值锚定接线待 P-46 下批）。
+  // #H1（2026-09-30 用户裁定「敌人难度不应随局外商店升级变化，只随节点推进变化」）：
+  //   原 P-46「玩家基准锚定制」把敌军 base 数值与封顶公式全部锚在玩家实际 stats 上，而玩家 stats
+  //   含局外永久升级（applyUpgrades）→ 商店每买一级，下一局全部敌军血/穿/伤/速同比例抬升，
+  //   玩家的成长收益被难度同步抵消。实测（#H1）：五项永久升级买满后同一节点敌军
+  //   穿深 149.96→173.60 / 伤害 35→45.50 / 血量 64.29→104.47 / 速度 40.60→45.63，
+  //   而 node.difficulty 与节点难度序列完全不变（问题不在难度曲线，在数值锚错了玩家）。
+  //   现行口径：敌军数值 = **enemyAnchorBase（与玩家无关的固定基准）** × enemyClassProfiles
+  //   × entityMults(diff) × difficultyCapMuls（改按 enemyAnchorBase 封顶）。玩家选车/永久升级
+  //   一律不影响敌军强度，敌军强度只由节点难度 diff 决定。
+  // 基准取自 tanks/ 中位中坦的典型量级（对应 difficultyForIndex(0)=0.15 首节点的「可打赢」体感）；
+  // armor 为四类共享基准，profile.armor 系数再在其上缩放。
+  enemyAnchorBase: {
+    maxHp: 100, penetration: 120, damage: 34, reload: 1.3, maxSpeed: 120,
+    turnRate: 2.0, turretTurnRate: 2.2, shellSpeed: 1200, weight: 50, enginePower: 700,
+    armor: { hull: { front: 100, side: 40, rear: 25 }, turret: { front: 100, side: 40, rear: 25 } }
+  },
+
+  // P-46 类别化敌军（#H1 起基准改为 enemyAnchorBase，玩家不再参与，见上）：
+  //   敌军各项属性 = 固定基准 enemyAnchorBase × enemyClassProfiles[class] 比例 × 难度系数(entityMults)。
+  //   四类比例向量（相对基准 1.0 的比例）收口于此——保证同一节点对所有玩家难度一致，
+  //   且两条成长线（玩家卡牌/永久升级 vs 敌人难度）彻底解耦。消费方：js/tank_model.js
+  //   applyEnemyAppearanceAndStats / difficultyCapMuls + mvp 接线层。
   enemyClassProfiles: {
     light:  { maxHp: 0.80, penetration: 0.90, damage: 0.90, reload: 0.85, maxSpeed: 1.15, turnRate: 1.20, armor: 0.80 },
     medium: { maxHp: 1.00, penetration: 1.00, damage: 1.00, reload: 1.00, maxSpeed: 1.00, turnRate: 1.00, armor: 1.00 },
@@ -637,6 +666,135 @@ const RULES = {
     closeRange: 200,        // 太近阈值：后退拉开
     aimTolerance: 0.12,     // 炮塔对准容差（rad）才开火
     allyEngageRange: 460,   // 友军据点射程（消极防御，只打射程内敌人）
+
+    // --- 2026-10-01 #M 接战机动随机化（用户反馈「敌人全部尝试贴近玩家」）---
+    // 敌人接近玩家时不再一律直冲：按「机动脚本」执行，每脚本随机决定
+    //   机动类型（直线/斜线/曲线/绕后/后撤/短停）+ 偏角 + 行程距离 + 短停时长，
+    // 单脚本走完（或到时限）后重掷，形成不可预测的接近节奏与开火节奏。
+    // 消费方：js/tank_ai.js _maneuverRoll / _applyManeuver（纯函数、可 Node 测）。
+    maneuver: {
+      enabled: true,              // 总开关；false = 完全退回旧的直冲语义（回退/对照用）
+      reRollDist: 90,             // 接近途中每移动该距离（px）即重掷脚本 ⇒ 轨迹持续碎化
+      reRollTimeMax: 4.5,         // 单脚本最长时间（秒）：超时强制重掷（防极端参数卡死）
+      // 机动类型权重（相对概率；curve/arc 为曲线，flankStep 为斜切侧向，retreat 为后撤）
+      weights: {
+        direct: 3,                // 直线：直冲玩家（保留原始接敌手感，仍是最高权重之一）
+        slant: 4,                 // 斜线：以固定偏角切入
+        curve: 4,                 // 曲线：偏角随时间渐变（S 形接近）
+        arc: 3,                   // 弧线绕行：绕玩家侧向弧线移动，始终不掉出射程
+        retreat: 2                // 后撤：接近途中反向拉开（打断玩家逼近）
+      },
+      // 偏角（rad，相对「指向玩家」方向；正=逆时针）
+      slantAngleMin: 0.35, slantAngleMax: 1.15,
+      curveAngleMin: 0.25, curveAngleMax: 0.95,   // 曲线起始偏角
+      curveSweepMin: 0.5, curveSweepMax: 1.9,    // 曲线全程偏角总变化量
+      arcAngleMin: 0.8, arcAngleMax: 2.0,         // 弧线单侧绕行角
+      // 短停：行进一段后短停（可开火）再继续，是「行进时/短停后开火」的开火节奏来源
+      holdChance: 0.35,           // 每个脚本结束后进入短停的概率
+      holdMin: 0.4, holdMax: 1.8, // 短停时长区间（秒）
+      // 后撤段
+      retreatDistMin: 120, retreatDistMax: 320,   // 后撤的目标后撤距离（px）
+      retreatMinT: 0.5, retreatMaxT: 1.4,         // 后撤最短/最长持续（秒）
+      // 开火节奏：短停结束瞬间给一个「重新瞄准」窗口（对齐后才恢复开火），
+      // 与 reactionJitter 叠加 ⇒ 敌人不会整簇同时开火
+      resumeAimTolMul: 1.8,       // 短停后恢复开火的容差放大倍数（相对常规 aimTolerance）
+      // 装填期偏置（承接旧 #88 sideSwing 的玩法意图，改由机动层统一承担）：
+      //   reloadGapFrac  — 装填前段门槛（× 装填时长；与 sideSwingReloadFrac 同一语义）
+      //   reloadGapCreep — 装填前段前进速度压低为该值（取代旧侧摆的 move 微降 0.3）
+      //   reloadGapWeights — 装填期改用这套权重：压低 direct（不再直冲）、抬高 slant/arc（侧向躲避）
+      reloadGapFrac: 0.3,
+      reloadGapCreep: 0.35,
+      reloadGapWeights: { direct: 1, slant: 4, curve: 3, arc: 4, retreat: 1 }
+    },
+
+    // --- 2026-10-01 #N 交战距离带（取代单点 engageRange，消除「全部贴脸」）---
+    // 改前只有单点 engage(520px)：dist>engage 前进、dist<close(200px) 退，形成
+    // 「200~520px 全静止、<200px 全挤上来」的夹逼结构。改为**按类别分档的区间**：
+    //   dist > maxRange → 接近（进）
+    //   dist < minRange → 脱离（退）
+    //   区间内        → 驻停开火（band 内原地）
+    // 消费方：js/tank_ai.js _engageBand()。
+    engageBand: {
+      enabled: true,              // false = 回退旧单点 engageRange/closeRange 语义
+      // 各档区间（比例相对 engage 基准 520px；min/max 单位 px）
+      //   light  轻坦：远程试探，站得更开
+      //   medium 中坦：基线
+      //   heavy  重坦：近距钢猛，区间最窄且下探最深
+      //   spg    曲射：最远（配合 classProfiles.spg.keepRange 定距语义）
+      classBands: {
+        light:  { minRatio: 0.52, maxRatio: 1.28 },
+        medium: { minRatio: 0.42, maxRatio: 1.10 },
+        heavy:  { minRatio: 0.30, maxRatio: 0.94 },
+        spg:    { minRatio: 0.66, maxRatio: 1.34 }
+      },
+      defaultBand: { minRatio: 0.42, maxRatio: 1.10 }   // 类别缺失/未知时的兜底
+    },
+
+    // --- 2026-10-01 #N2 攻守分工（节点级协调器，消除「一拥而上」）---
+    // 同时只允许 N 辆敌人主动压上（press），其余分配 flank / hold。
+    // 消费方：js/tank_ai_squad.js（纯逻辑、可 Node 测）。
+    squad: {
+      enabled: true,              // false = 全员 press（回退旧行为）
+      pressSlotsBase: 2,          // 基础压上名额
+      pressSlotsPerDiff: 1.5,     // 难度加成系数：slots = base + floor(diff × 该值)
+      pressSlotsMax: 4,           // 名额硬上限
+      reassignInterval: 0.6,       // 名额重分配间隔（秒）——避免逐帧抖动导致角色反复横跳
+      // 候选评分权重：决定谁优先拿到 press 名额
+      scoreWeights: { dist: 1.0, los: 1.2, hp: 0.4 },
+      // 角色粘性：上一轮已是 press 的实体获得该评分加成，避免 press/flank 反复横跳
+      // （#N 实测：无粘性时 flank 与 press 交替会形成敌军「棘轮内移」逼近玩家）
+      roleStickiness: 0.2,
+      // hold 态：留在原地/掩体，只打有把握的射界（不主动接近）
+      holdFireMaxDist: 640,       // hold 态允许开火的最大距离（超出则纯待机）
+      holdFireAimTolMul: 2.0      // hold 态开火容差放宽（远距离命中率低，放宽以保持火力存在感）
+    },
+
+    // --- 2026-10-01 #N3 flank 重写（真正的侧翼站位，取代原横向平移）---
+    // 改前 flank 的触发窗口是 dist>engage && dist<flankMinDist×1.5×flankBias，
+    // heavy（上限 400×1.5×0.6=360 < engage≈478）恒不触发、spg（bias 0）被排除，
+    // medium 高难度下 engage 超过窗口上限 ⇒ 四类里只有 light 偶发，且目标点是
+    // 「自身 + targetRight×300」每帧重算的横向平移，不是绕到侧翼的站位。
+    flankRewrite: {
+      enabled: true,              // false = 回退旧 flank 分支
+      // 注：flank 的**触发**由 #N2 攻守分工的角色决定（squad 按距离/LoS/血量评分），
+      //     不再设距离窗口——进入 flank 角色即驶向站位点；距玩家过远者由评分排到 press/hold。
+      sectorMin: 1.05,            // 侧翼站位相对「玩家→敌人」连线的方位角下限（rad ≈ 60°）
+      sectorMax: 2.10,            // 上限（rad ≈ 120°）
+      // 站位半径 = **交战带外沿 band.max** × 该比例（语义为「相对带外沿的倍数」）。
+      // 必须 ≥ 1：小于 1 会把敌人带进交战带内侧，与 press 名额交替时形成「棘轮内移」
+      // （每次当 flank 往内挪一点、转 press 后驻停，逐次逼近玩家；探针实测 700→395→273）。
+      // 以 band.max 为基准可自动适配各档次（light/heavy/spg 的带宽度不同）。
+      radiusRatio: 1.15,
+      // 左右名额：0 辆时全走右侧，1 时随机，2 时左右各一（避免全部挤同一侧）
+      sideSlots: 1,
+      arriveDist: 70              // 距站位点进入该半径即算到位（转 press/hold）
+    },
+
+    // --- 2026-10-01 #N4 群体分离力（反「挤成肉球」）---
+    // 物理碰撞 resolveTankCollisions 只会沿连线把敌人推开，靠内侧者被推向玩家；
+    // 决策层叠加斥力，在移动输出上产生侧向 turn 分量，先于物理分离生效。
+    separation: {
+      enabled: true,
+      radius: 180,                // 斥力生效半径（px）
+      strength: 1,                // 斥力转角强度（与 turn 同量纲，钳制到 ±1）
+      // 玩家对敌同样有斥力（避免围成一圈贴脸）——半径与力度分别可控：
+      playerRadiusMul: 0.6,       // 玩家斥力半径 = radius × 该比例（=108px，比同类斥力更近）
+      playerFactor: 0.7           // 玩家方向的斥力**力度**权重（相对同类敌人间斥力）
+    },
+
+    // --- 2026-10-01 #N6 装填脱离（Retreat & Reload）---
+    // 装填期主动退到掩体背弹面，而不是在开阔地互相点名。
+    // 扩展 #76 C6 的 coverSeek：原条件仅「重甲 + 血量<60%」，现增加装填期通道，
+    // 使轻中坦在装填期也有战术退避。
+    retreatReload: {
+      enabled: true,
+      // 装填期且距玩家在此距离内才触发（太远没必要退）
+      minDist: 300, maxDist: 760,
+      coverRadius: 620,           // 寻掩搜索半径（px）
+      standoffMargin: 45,         // 背弹面外扩边距（px）
+      hpGate: 0.0                 // 血量门槛（0 = 不额外要求；>0 则需低于该比例才触发）
+      // 到位后一律原地还击、不再前压（行为无条件生效，见 js/tank_ai.js 的 rrArrive 分支）
+    },
 
     // --- 2026-09-20 #E7 敌人反应速度（用户反馈「反应太快」） ---
     // 进入接战（首次获得目标）后，敌人需经过 reactionSeconds 的「察觉/炮塔起转」延迟
@@ -750,12 +908,10 @@ const RULES = {
     // 2026-09-20 #E12：摄像机随鼠标向外延伸（构图前移，扩大朝向鼠标一侧的可见范围）。
     // 延伸距离 = RULES.vision.radius × leadRatio × 鼠标偏移归一化值（0~1，视口半宽/半高为满值），
     // 即「距离和视野绑定」：视野越大，可外延的距离越远；再乘 cam.zoom 反向补偿（缩小时外延更远）。
-    // 2026-09-23（B 档·视野做强）：0.30 → **0.40**。外延量同时是可见半径的收口上限之分子
-    // （tank_camera.visionRadiusForViewport 的 cap = (窄半幅 + radius×leadRatio)/(1+bias)），
-    // 故抬它即可放宽 cap、让视野卡收益不再被截断：原 0.30 ⇒ cap=600，`commander_sight` 的
-    // +15%（support_commander_periscope）与 +25%（sniper_commander_sight）在 1080p 下**同被压到
-    // R=600**（卡面不同、实得同为 +11.1%）；现行 0.40 ⇒ cap≈667 ⇒ +15% 足额（R=621）、
-    // +25% 近足额（R=667，实得 +23.5%）。无卡时 R 仍由窄半幅绑定（540，前向可见 729px 不变）。
+    // 2026-09-23（B 档·视野做强）：0.30 → **0.40**。
+    // #J3（2026-09-30 视野距离系统退役）注：本键**只剩「摄像机外延」一个用途**（鼠标方向构图前移），
+    //   2026-09-23 那段「放宽可见半径收口 cap / 解锁视野卡收益」的说明随视野圆一起失效 ——
+    //   视野卡（commander_sight）已随视野系统删除，本键不再影响任何剔除或命中判定。
     // 代价：鼠标指正前时后向可见 540 → 180px——外延按鼠标偏移归一化，鼠标回屏幕中心即恢复满幅。
     mouseLeadRatio: 0.40,
     mouseLeadZoomComp: true, // true = 外延距离 ÷ cam.zoom（缩放不改变世界侧外延量）
@@ -775,23 +931,33 @@ const RULES = {
   difficulty: {
     curveStart: 0.15,        // 首节点难度（index=0）
     curveSpan: 0.8,          // 难度跨度
-    curvePow: 1.25,          // 曲率（>1 后段加速，模拟"层层推进越打越难"）
+    // 曲率（>1 后段加速，模拟"层层推进越打越难"）。
+    // 2026-10-01 用户裁定「略微提高敌人升级速度」：1.25 → **1.20**（更接近线性 ⇒ 各中间索引的
+    // 难度更高 = 敌人随节点升级更快；端点不变：index=0 仍 0.15、index≥diffSatIndex 仍封顶 curveCap 0.95）。
+    // 方向性提示：本键越接近 1，中段难度越高（升级越快）；调大则中段更低、只有末端陡升。
+    curvePow: 1.20,
     diffSatIndex: 12,        // 曲线饱和索引：index≥12 后基础难度封顶（开放式链的"虚拟末节点"）
     curveCap: 0.95,          // 基础难度封顶值
     crossRunLevelBonus: 0.04,// 每级跨局难度等级对基础难度的线性加成
     diffMax: 1.15,           // 有效难度绝对上限（含跨局加成后钳制）
     // 2026-08-25 敌军难度三键重构（替代旧 enemyStatCapVsPlayer=0.8 单一封顶，旧键已删除；
     // 消费方 tank_mvp.html applyDifficultyMults 需同步接线）。
-    // 2026-08-27 #A16 补第四键 speedVsPlayer：把 maxSpeed 页内硬编码 lerp 收口进 RULES，
+    // 2026-08-27 #A16 补第四键 speedVsBaseline：把 maxSpeed 页内硬编码 lerp 收口进 RULES，
     // 消除与 entityMults.maxSpeed（同函数先行注入）两套机制打架，并改经 modifiers 注入防 refreshStats 回归。
-    // 三键（pen/dmg floor/dmg cap）为相对玩家的封顶/地板绝对值；第四键约束相对玩家速度公式：
-    //   targetSpeed = lerp(baseFloor, baseCeil, diffNorm) × randFactor(randMin~randMax 每辆独立) × player.maxSpeed
-    penCapVsPlayer: 1.2,     // 敌军穿深上限 = 1.2 × 玩家穿深
-    dmgFloorVsPlayer: 0.4,   // 敌军伤害下限 = 0.4 × 玩家伤害
-    dmgCapAmmoMult: 0.7,     // 敌军伤害上限 = 0.7 × 玩家所携 ap/apcr/heat 中最终伤害最高者的伤害值
-    speedVsPlayer: {         // 敌军极速相对玩家公式（消费方 tank_mvp.html applyDifficultyMults）
+    // #H1（2026-09-30）**四键全部由「相对玩家」改为「相对固定基准 enemyAnchorBase」**——
+    // 玩家选车与局外永久升级一律不再抬高敌军上限（实测五项升级买满敌军穿深 +23.7%、伤害 +30%、血量 +62.5%）。
+    // 四键（pen/dmg floor/dmg cap）为基础的封顶/地板绝对值；第四键约束速度公式：
+    //   targetSpeed = lerp(baseFloor, baseCeil, diffNorm) × randFactor(randMin~randMax 每辆独立) × enemyAnchorBase.maxSpeed
+    penCapVsBaseline: 1.2,   // 敌军穿深上限 = 1.2 × 固定基准穿深
+    dmgFloorVsBaseline: 0.4, // 敌军伤害下限 = 0.4 × 固定基准伤害
+    dmgCapAmmoMult: 0.7,     // 敌军伤害上限 = 0.7 × 参照终伤（strongestAnchorMult 推算或调用方传入 strongest）
+    strongestAnchorMult: 2.33, // 参照终伤/基准伤害的等效倍数（缺 strongest 时的天花板推算用；≈ 中坦满血 2 发打死标准敌）
+    speedVsBaseline: {       // 敌军极速相对固定基准的公式（消费方 tank_mvp.html applyDifficultyMults）
       baseFloor: 0.3,        // diffNorm=0 时速度系数下限
-      baseCeil: 0.6,         // diffNorm=1 时速度系数上限
+      // 2026-10-01 用户裁定「降低速度上限倍率」：0.6 → **0.5**（普通敌军极速上限
+      // 0.5×enemyAnchorBase.maxSpeed=60px/s；含每辆 randFactor 上限 1.15 → 69px/s，
+      // 原 0.6 → 72 / 82.8px/s）。下限 0.3 不变，低难度敌军速度不变，曲线更平。
+      baseCeil: 0.5,         // diffNorm=1 时速度系数上限
       randMin: 0.85,         // 每辆独立随机浮动下限
       randMax: 1.15          // 每辆独立随机浮动上限
     },
@@ -803,15 +969,20 @@ const RULES = {
     // 只作用于敌军实体生成（materializeNode 经 env.applyDifficulty 叠乘到 stats），玩家绝不走此路径。
     // 终值校准说明：生存端 maxHp/armorAll 抬升最高（拖长 TTK、鼓励玩家绕侧打背面），
     // 输出端 damage/penetration 温和（避免一击必杀挫败），机动/火控端小幅强化（更难风筝）。
+    // 2026-10-01 用户裁定「提高敌人（包括 boss）血量 + 降低速度上限倍率」：
+    //   maxHp  [0.45, 1.4] → **[0.5, 1.7]**（低难度 +11%、满难度 +21% 血量）；
+    //   maxSpeed [0.7, 1.15] → **[0.7, 1.0]**（满难度极速上限倍率 1.15 → 1.0，-13%）。
+    //   注：普通敌军的极速最终由 speedVsBaseline 封顶覆盖（见上），maxSpeed 上限主要作用于
+    //   **Boss**（mvp applyDifficultyMults 传 applyPlayerCap=false 不走封顶）与其它未封顶路径。
     entityMults: {
-      maxHp:         [0.45, 1.4],  // 生命（易弱难强，开局平滑）
+      maxHp:         [0.5, 1.7],   // 生命（易弱难强，开局平滑；2026-10-01 由 [0.45,1.4] 上调）
       penetration:   [0.75, 1.25], // 穿深
       damage:        [0.75, 1.2],  // 单发伤害
       armorAll:      [0.6, 1.3],   // 装甲全面乘（遍历 hull/turret 各面叠乘）
       reload:        [1.25, 0.82], // 装填时间（易慢难快）
       spreadMult:    [1.3, 0.78],  // 三扩系数（易散难准）
       aimSpeed:      [0.8, 1.35],  // 缩圈速度
-      maxSpeed:      [0.7, 1.15],  // 极速
+      maxSpeed:      [0.7, 1.0],   // 极速（2026-10-01 上限 1.15 → 1.0）
       turnRate:      [0.7, 1.2],   // 车体转速
       turretTurnRate:[0.7, 1.25]   // 炮塔转速
     }
@@ -833,7 +1004,14 @@ const RULES = {
     // #83 Boss 数值调谐（消费方 js/tank_boss.js / materializeNode）：以"体型放大的普通坦克"为基准
     // 再套下列乘子；hpMul 抬血量、move/turn/turretTurn 放慢、shell/fireRate/dmg 调整输出节奏。
     tuning: {
-      hpMul: 8,            // 生命 ×8
+      // 2026-10-01 用户裁定「提高敌人（包括 boss）血量」：8 → **9**（+12.5%）。
+      // Boss 血量 = 出战配置 maxHp × hpMul × entityMults.maxHp(diff)（Boss 跳过速度/穿深封顶）；
+      // 本次 entityMults.maxHp 上限上调（1.4→1.7）与 hpMul 叠加后，Boss 总血量约 **+29%~+36%**
+      // （探针实测 index0 4.59→5.91 = +28.8%、index4 5.91→7.88 = +33.4%、index8 7.76→10.51 = +35.5%），
+      // 高于普通敌军同幅度（+14.5%~+20.4%）。
+      // **各 bosses/*.json 自带 tuning.hpMul 覆盖本缺省**，已同步 5 份 boss 定义；
+      // 改缺省只影响未声明 hpMul 的自定义 Boss。手感偏肉时可回调本键（沿革：×8 → ×9）。
+      hpMul: 9,            // 生命 ×9（2026-10-01 由 ×8 上调）
       moveMul: 0.5,        // 极速 ×0.5
       turnMul: 0.6,        // 车体转速 ×0.6
       turretTurnMul: 0.6,  // 炮塔转速 ×0.6

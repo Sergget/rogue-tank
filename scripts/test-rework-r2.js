@@ -99,5 +99,37 @@ clearDeployables();
   clearDeployables();
 }
 
+// ================= #J1（2026-09-30）地雷：一个节点内可连续布设多轮雷场 =================
+// 用户反馈：「地雷在 1 个节点内似乎只能部署 1 次」。
+// 根因：mineMax(3) 恰等于单次雷场数量 mineFieldCount(3)，首轮即把「场上同时存在」的上限用尽，
+// 而地雷存续 30~45s、单节点战斗远长于此 ⇒ 后续雷场全被拒。
+// 现行口径：mineMax 是**同时在场数**上限，须显著大于单次雷场数量，节点内才能连续布设。
+{
+  const L = RULES.abilities.deploy_limits;
+  const owner = { deployBonus: { cover: 0, mine: 0 } };
+  clearDeployables();
+  ok(L.mineMax > L.mineFieldCount,
+     `#J1 地雷同时上限(${L.mineMax}) > 单次雷场数量(${L.mineFieldCount})——首轮不会把上限用尽`);
+  // 连续布设 2 轮整雷场（模拟 mvp 的「按可用余量裁剪」落雷逻辑）
+  const layField = () => {
+    const room = deployableCap('mine', owner) - deployableCount('mine');
+    const n = Math.max(0, Math.min(L.mineFieldCount, room));
+    for (let k = 0; k < n; k++) spawnMine({ x: k, y: 0, team: 'player' });
+    return n;
+  };
+  const f1 = layField(), f2 = layField();
+  ok(f1 === L.mineFieldCount && f2 === L.mineFieldCount,
+     `#J1 同一节点可连续布设 2 个完整雷场（${f1} + ${f2} = ${deployableCount('mine')} 枚）`);
+  ok(deployableCount('mine') === L.mineMax, `#J1 两轮后正好占满同时上限 ${L.mineMax}`);
+  // 满上限时才拒绝（既有 #F6「超限拒绝且保留已布地雷」语义不变）
+  ok(layField() === 0, '#J1 满上限时新雷场数量为 0（被拒绝，不覆盖已布地雷）');
+  ok(deployableCount('mine') === L.mineMax, '#J1 拒绝后已布地雷保持不变（#F6 语义保留）');
+  // 升级卡仍能把上限推高（可布更多轮）
+  owner.deployBonus.mine = 2;
+  ok(deployableCap('mine', owner) === L.mineMax + 2 * L.mineMaxUpgradeStep,
+     `#J1 升级卡继续抬高同时上限（${deployableCap('mine', owner)}）`);
+  clearDeployables();
+}
+
 console.log('test-rework-r2: 完成所有检查');
 console.log('test-rework-r2: 全部通过');

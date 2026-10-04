@@ -45,7 +45,10 @@ const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive'
 const DRONE_KINDS = ['scout', 'striker'];
 
 // 特殊被动（passive：非数值修饰器的机制性被动）
-const PASSIVE_KEYS = ['reactive_armor', 'angle_boost', 'overmatch', 'spall_liner', 'commander_sight'];
+// #J3（2026-09-30）：`commander_sight`（车长潜望镜/观瞄镜）随**视野距离系统整体退役**而删除 ——
+//   该键的唯一消费者是 mvp 的可视圆半径，视野下线后无任何效果通道，留着即死效果卡
+//   （同 2026-09-23 A 档 `recon`/`track_repair` 处置）。视野卡面「+15%/+25% 观测距离」不再存在。
+const PASSIVE_KEYS = ['reactive_armor', 'angle_boost', 'overmatch', 'spall_liner'];
 
 // 经济效果（M10 落地；schema 先行）
 const ECONOMY_FIELDS = ['scoreMul', 'shopDiscount', 'startScore', 'reviveCount'];
@@ -195,6 +198,17 @@ function validateCardSet(cards) {
 
 // ---------- 应用效果 ----------
 
+// 武器缺省表惰性取值（浏览器 = tank_weapons.js 先行加载的全局；Node = require 兜底）。
+// #J2（2026-09-30）：抽成共用解析器，供**主武器**换装重置基线与副武器安装共用，
+// 避免两处各自实现一遍依赖解析（tank_cards 位于 tank_weapons 之前，必须惰性）。
+function _weaponDefaultsResolver() {
+  let getWD = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults : null;
+  if (!getWD && typeof require !== 'undefined') {
+    try { getWD = require('./tank_weapons.js').getWeaponDefaults; } catch (e) { getWD = null; }
+  }
+  return getWD;
+}
+
 // 卡牌已叠加次数（支持修饰器卡与纯机制卡统计）
 function cardStackCount(tank, cardId) {
   if (!tank) return 0;
@@ -248,6 +262,18 @@ function applyCardEffects(tank, card, ctx) {
         if (slot === 'primary') {
           if (!tank.weapons.primary) tank.weapons.primary = { type: 'standard', stats: {} };
           if (action === 'install') {
+            // #J2（2026-09-30 用户反馈「获得电磁炮后再获得其他主炮，会继承可穿透弹药特性」）：
+            //   **换型安装必须重置 stats 基线**。旧实现 `Object.assign({}, 旧 stats, overrides)`
+            //   把旧武器的专有键一并带进新武器 —— 最典型的是 railgun 的 `pierce`/`pierceDmgMul`
+            //   （js/tank_fire.js firePrimaryShell 据此赋予弹体贯穿能力），于是装上任何其他主炮
+            //   后仍能贯穿两辆坦克。同型安装走原合并语义（幂等，不丢 tanks/*.json 自定义数值）。
+            const prevType = tank.weapons.primary.type;
+            if (wType && wType !== prevType){
+              const getWD = _weaponDefaultsResolver();
+              tank.weapons.primary.stats = getWD ? getWD('primary', wType) : {};
+              tank._dbState = null;   // 双管/弹夹等旧型专有状态一并复位
+              tank._clipState = null;
+            }
             if (wType) tank.weapons.primary.type = wType;
             if (ef.statOverrides && typeof ef.statOverrides === 'object') {
               tank.weapons.primary.stats = Object.assign({}, tank.weapons.primary.stats || {}, ef.statOverrides);
@@ -275,12 +301,8 @@ function applyCardEffects(tank, card, ctx) {
             // 同型重复 install → 幂等 no-op（防同一张卡重复应用时重置装填/规格缓存）。
             const curType = tank.weapons.secondary.type;
             if (wType && (curType === 'none' || curType === undefined || curType !== wType)) {
-              // getWeaponDefaults 惰性取值：浏览器 = tank_weapons.js 先行加载的全局；
-              // Node = require 兜底（tank_fire.js/tank_abilities.js 同款惯例）
-              let getWD = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults : null;
-              if (!getWD && typeof require !== 'undefined') {
-                try { getWD = require('./tank_weapons.js').getWeaponDefaults; } catch (e) { getWD = null; }
-              }
+              // getWeaponDefaults 惰性取值（#J2：抽为共用解析器 _weaponDefaultsResolver）
+              const getWD = _weaponDefaultsResolver();
               const defStats = getWD ? getWD('secondary', wType) : {};
               tank.weapons.secondary = {
                 type: wType,
@@ -289,6 +311,12 @@ function applyCardEffects(tank, card, ctx) {
               if (typeof tank.secondaryReloadT === 'number') tank.secondaryReloadT = 0;   // 换装后装填立即就绪
               // 换装清理：锁定状态（missile）与旧武器派生状态一并复位
               tank._missileLock = null;
+              // #J4（2026-09-30）：`_missileActivated` 也必须复位 —— 它是**开关态**，换掉导弹后
+              // 主循环的 `type === 'missile'` 门控只是不再推进它，标志位本身仍为 true；
+              // 之后若再装回导弹，会在玩家没有按 F 的情况下**凭空恢复激活并自动索敌/发射**。
+              tank._missileActivated = false;
+              tank._missileHintT = 0;
+              tank._missileHintShown = false;
             }
           } else if (action === 'upgrade') {
             // 仅当 secondary.type===wType 时合并 statOverrides；type 不匹配 → no-op

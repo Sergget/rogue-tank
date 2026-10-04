@@ -20,10 +20,10 @@
 | `docs/ISSUES.md` | 临时 | 只存**待处理 / 处理中**的已核实问题（每条须有 `file:line` 证据） |
 | `docs/ARCHIVE.md` | 只读索引 | 完结条目索引表 → `docs/archive/<yyyy-mm>.md` 分卷正文 |
 
-**目录**：§1 核心方向 · §2 架构演进 · §3 当前状态与下一步 · §4 批次落地结论（§4.1~§4.34）
+**目录**：§1 核心方向 · §2 架构演进 · §3 当前状态与下一步 · §4 批次落地结论（§4.1~§4.42）
 
 > **§4 编号说明（2026-09-23 文档整改）**：§0~§3 与 §4.1~§4.26 的**逐条正文**曾于 2026-09-22 提交 `994bdfd` 随 §4.27~§4.33 一并从本文件移除，且该次漏走 `AGENTS.md` §2.2 第 3 步「原文归档」（276 行原文未进归档分卷）。2026-09-23 整改已将该原文快照**补归档**至 `docs/archive/2026-09.md`（见 `docs/ARCHIVE.md` 索引 2026-09-23 行），本文件重建精简骨架并保留下方**§4 编号索引表**，使全部历史交叉引用可解析。
-> **续写规则**：新增批次一律在 §4 正文末尾按编号递增续写（当前最大编号 §4.34）；§4 正文只增不回改，被推翻的旧结论以注记指向新节。
+> **续写规则**：新增批次一律在 §4 正文末尾按编号递增续写（当前最大编号 §4.42）；§4 正文只增不回改，被推翻的旧结论以注记指向新节。
 
 ---
 
@@ -296,3 +296,137 @@
 - **浏览器四链**：`npm run test:browser` **四链 ALL PASS、EXIT=0**（本批改了 mvp 绘制层与 HUD DOM，全程无 console/page error）。覆盖边界沿用 §4.38 记录：四链不含完成判定/出口 UI 的专项断言，其价值为回归证据。
 - **遗留（不记为问题）**：#K2 的世界出口标记与 HUD 属**观感**，需实机确认（字号/带透明度/箭头位置）；#K1 后玩家在鼠标居中时前向可见为 540（< 高难接战 650），「激活→可见」窗口仍在（用户此前已接受该边界，且朝推进方向瞄准时可见 900）。
 - **验证（三链）**：`npm run check` EXIT=0；`npm test` EXIT=0；`npm run test:browser` 四链 ALL PASS（沙箱内 `spawn EPERM` 属管道捕获限制，按 `sandbox-verify` 需一次性放宽进程权限后实跑）。本条为纯文档改动，无代码路径变更——三链用于确认文档未误伤任何被引用的实现。
+
+### 4.40 2026-09-30 #H 批次：敌军基准解耦（#H1）+ 布雷器可用性（#H2）+ 技能槽指派体系（#H3/#H4）
+
+> 现行细则归口 `specs/combat.md` §12（敌军数值基准与技能槽指派体系）。
+
+- **用户反馈（四条，均浏览器实测复现后立项）**：① 敌人难度似乎会随着**全局商店升级**变化，不应该，只应随节点推进变化；② 地雷无法释放；③ 获得便携掩体卡牌时 UI 栏出现 2 个按钮且占用的数字键不正确；④（举一反三）检查其他 UI 组件同类问题。核查后拆为 #H1~#H4 四条已核实问题，用户裁定 #H3 采用「**循环复用，按玩家选择顶替某个槽位的技能**」。
+
+- **#H1 敌军数值基准由「玩家锚定」改为「固定基准」（核心平衡修复）**
+  - **根因（实测定位）**：难度曲线本身干净——`difficultyForIndex` 只吃 `index` + 跨局等级，`difficultyLevel` 亦确认每次新局强制归零，同 seed 下买满五项永久升级后 `node0.difficulty` 与节点难度序列**完全不变**。真凶是两条**以玩家为锚**的放大链：① `applyEnemyAppearanceAndStats` 把敌军 `base` 全部写成 `玩家 anchorStats × enemyClassProfiles`，而锚点快照在 `applyUpgrades()` **之后**冻结；② `difficultyCapMuls` 的穿深封顶/伤害地板与天花板/速度目标全部乘 `player.stats`。⇒ 商店每买一级，下一局全部敌军血/穿/伤/速同比例抬升，玩家成长收益被同步抵消（实测：五项升级买满后敌军穿深 149.96→173.60、伤害 35→45.50、血量 64.29→104.47）。
+  - **修复**：新增 `RULES.enemyAnchorBase`（与玩家无关的固定基准，取中位中坦量级）；`applyEnemyAppearanceAndStats` 第三参 `anchorStats` **正式废弃并忽略**（保留形参仅为兼容旧调用方），`difficultyCapMuls` 四键改按固定基准计算并改名 `penCapVsBaseline` / `dmgFloorVsBaseline` / `speedVsBaseline`（+ 新增 `strongestAnchorMult`，使「不传 strongest」时天花板有确定值而非退化为 `Infinity`）；mvp 三处调用（Boss 召唤 / 节点敌军 / 增援）不再传玩家快照，`playerAnchorStats` 整体退役。
+  - **净效果**：敌军强度只由节点难度 `diff` 决定，玩家选车与局外永久升级**一律不影响**敌军；数值曲线形状不变（entityMults 难度表未动）。
+
+- **#H2 布雷器「只能放一次」+ 装填冷却失效**
+  - **根因**：`RULES.abilities.deploy_limits` 里 `mineFieldCount(5) > mineMax(3)`，而生成侧 `n = min(mineMax, count)` 把 5 钳成 3，再配上「`existing + n > cap` 即拒绝」的判据 ⇒ 首轮布满 3 枚后**所有后续雷场 100% 静默丢弃**（实测第 2/3 轮均 0 新增）；叠加 `handleMineFieldF` 既不检查也不写入 `player.secondaryReloadT`，15s 装填完全失效（可无冷却连点）。绘制层二次用 `mineMax` 钳制，预形态与实际落点数也对不上。
+  - **修复**：① 落雷数改按**可用余量裁剪** `n = clamp(count, 0, cap − existing)`（预约时与生成时各裁一次），余量为 0 才拒绝并**即时**提示（不再让玩家白等 4s）；② `mineFieldCount` 由 5 改为 3 与基础上限自洽；③ 补装填门控：冷却中拒绝并提示，确认后写入 `secondaryReloadT = reload / debuffReloadRate`（与单发路径同口径）；④ 绘制层直取预约时的数量，所见即所得。#F6「超限拒绝且保留已布地雷」的原意保留——上限仍是硬约束，但满上限时能立即得到反馈。
+
+- **#H3/#H4 技能槽由「自动推导」改为「玩家指派」**
+  - **根因**：旧 `skillHotkey` 用 `owned[num-1]`（`owned` = cardEffects 去重顺序），带来三个互为因果的缺陷：① `artillery`/`shield` 既有专属键按钮（`btnG`/`btnH`）又自动进槽 ⇒ **同一技能两个按钮**；② 运行时技能键 7 个（`ABILITY_KEYS_RUNTIME`）而槽位固定 3 个，TAB 面板无激活入口 ⇒ **第 4 个及以后的技能彻底无法激活**；③ `owned[num-1]` 缺失时回落 `fallbackList(['deploy_cover','artillery'])` ⇒ 按隐藏的 3 号键会**实际触发 1 号槽的技能**（部署掩体）。此外弹种槽角标写死 1/2/3，与「数字键已归技能池、弹种走 Q/E」矛盾。
+  - **修复（用户裁定口径）**：槽位改为 `player.skillSlots`（长度 3，玩家可指派）——新技能先自动填入空槽；**槽满时弹「选槽位」面板由玩家指定顶替哪一格**（循环复用），待指派技能进入队列逐个弹出，不静默丢弃；数字键**严格映射槽位、无 fallback**（#H4 消除隐藏键误触发）；专属键按钮仅在该技能未入槽时显示（#H3a 消除双按钮）；`Shift+点击`槽位可随时改指，面板 `Esc` 关闭并吞键（不误触发暂停/施放）；弹种槽角标改为纯选中指示（`●/○`），title 对齐 `Q/E`。
+  - **效果**：7 个运行时技能键不再有「死键」——超出 3 个时由玩家决定谁上槽；任一技能都至少有一个可见入口。
+
+- **验证（三链）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **EXIT=0**——`test-modifiers` 新增 #H1 段 7 项断言（2026-10-04 实测；`enemyAnchorBase` 已定义、**强弱玩家下封顶系数逐值相同**、`applyEnemyAppearanceAndStats` 传玩家基准不改变敌军 base、缺 `strongest` 时天花板有确定值），并把原 #A16 段 4 项断言重锚到新键名与固定基准。
+- **浏览器四链**：`npm run test:browser` **四链 ALL PASS、EXIT=0**（97 PASS / 0 FAIL）。`test-browser-r4.cjs` 新增 **E 段 10 项 #H 回归断言**：布雷确认后入冷却 / 冷却中拒绝 / 第二次雷场可再生成、`btnG`/`btnH` 不重复显示、槽满弹选槽位面板、玩家指定顶替、槽位循环复用不产生重复入口、空槽按数字键不触发、数字键 3 精确命中第 3 槽。
+- **实机对照（同 seed、无升级 vs 五项升级买满）**：`node0.difficulty` 0.15 → 0.15、节点难度序列完全相同；玩家穿深 160→185（对照组，确认升级确实生效）；敌军穿深 112.47 → **112.47**、伤害 31.551 → **31.551**、血量 80.36 → **80.36**（完全不变）。
+- **遗留（不记为问题）**：敌军速度仍每辆有 `randFactor(0.85~1.15)` 的独立随机浮动（与玩家无关，属难度设计内的个体差异）；`enemyAnchorBase` 的绝对量级为中位中坦取值，若实机体感偏易/偏难应调该表（而非回退玩家锚定）。
+- **文档同步**：`specs/combat.md` 新增 §12（敌军数值基准与技能槽指派体系）；`docs/ISSUES.md` #H1~#H4 按生命周期归档（`archive/2026-09.md` + `ARCHIVE.md` 索引）。
+
+### 4.41 2026-10-01 敌人难度数值调优（用户裁定 3 项：速度上限↓ / 血量↑含 Boss / 升级略快）
+
+> 现行细则归口 `specs/combat.md` §13.4（敌人数值乘子与极速封顶）、`specs/map.md` §16（难度成长曲线）、`specs/boss.md` §5（Boss 血量倍率）；参数唯一口径 `js/tank_rules.js` 的 `RULES.difficulty` 与 `RULES.boss.tuning`。
+
+- **用户裁定（三项）**：① 降低敌人**速度上限倍率**；② 提高敌人（**包括 Boss**）**血量**；③ **略微提高敌人升级速度**（敌人随节点推进变强更快）。口径经用户确认：作用于**正式游戏随节点推进的敌人强度**（节点难度 `diff` → `entityMults`），**不是** bench「Enemy Lab 等级 Lv.」曲线（`js/tank_panels_core.js` `enemyLevelMults`，本次未动）。
+- **改动（纯参数变更，公式结构未改）**：
+
+  | 参数 | 沿革 | 现行 | 效果 |
+  |---|---|---|---|
+  | `RULES.difficulty.curvePow` | 1.25 | **1.20** | 越接近 1 中段难度越高 ⇒ 敌人升级更快；端点不变（index 0 = 0.15 / index ≥ 12 = 0.95） |
+  | `RULES.difficulty.entityMults.maxHp` | [0.45, 1.4] | **[0.5, 1.7]** | 血量低难度端 +11%、满难度端 +21% |
+  | `RULES.difficulty.entityMults.maxSpeed` | [0.7, 1.15] | **[0.7, 1.0]** | 满难度极速上限倍率 −13%；普通敌人被 `speedVsBaseline` 封顶覆盖 ⇒ 主要作用于 Boss |
+  | `RULES.difficulty.speedVsBaseline.baseCeil` | 0.6 | **0.5** | 普通敌军极速上限系数（`baseFloor 0.3` 不变 ⇒ 低难度速度不变、曲线更平） |
+  | `RULES.boss.tuning.hpMul` + 5×`bosses/*.json` | 8 | **9** | Boss 血量（5 份 boss 定义自带 `tuning.hpMul` 覆盖缺省，两侧同改） |
+
+- **同步的回退默认值（防脱离 RULES 的纯函数走旧值）**：`js/tank_map.js` `difficultyForIndex` 缺省块（curvePow）与 `entityMultsForDifficulty` 回退表（maxHp/maxSpeed）；`js/tank_model.js` `difficultyCapMuls` 的 `speedVsBaseline` 缺省字面量（baseCeil）。
+- **实测增幅（2026-10-01 探针，脚本用后即删）**：普通敌人血量 **+14.5%（index 0）→ +20.4%（index 8）**；普通敌人极速上限（高难度、含每辆 `randFactor` 上限 1.15）**82.8 → 69.0 px/s**；Boss 血量 **+28.8% ~ +35.5%**（高于普通敌人幅度，对应「包括 Boss」的裁定）；难度曲线中段 index3 0.29 → 0.30、index6 0.49 → 0.50、index8 0.63 → 0.64。
+- **验证（三链）**：`node scripts/check-html.js` **EXIT=0（All checks passed）** / `node node_modules/typescript/bin/tsc --noEmit` **EXIT=0** / `npm test` 全链 **EXIT=0**（含 `test-map` 新增「升级速度基线」断言：`curvePow === 1.20`、`index3 === 0.30`、`index6 === 0.50`；`test-panels` 速度封顶断言重锚 **72 → 60 px/s**）。`npm run test:browser` **待正常环境补跑**（沙箱内 `spawn EPERM`，见 `sandbox-verify` skill）。
+  - **同轮顺带修复**：`scripts/test-cards.js` 块内重复 `const model = require('../js/tank_model.js')` 触发 `tsc` **TS2300 Duplicate identifier**（由前序会话未提交改动引入，非本次改动），改为复用文件顶部 require ⇒ `npm run check` 恢复 EXIT=0。
+- **归口与生命周期**：`specs/combat.md` 新增 §13.4 并改写 §13.1 现行值（`baseCeil 0.5`，原处留沿革）；`specs/map.md` 新增 §16；`specs/boss.md` §5 血量 ×9 + 沿革；测试同步 `test-map` / `test-panels` / `test-modifiers`。本次无 `PLAN.md` / `ISSUES.md` 条目需删除或归档，故不产生归档分卷条目。
+
+### 4.42 2026-10-01 #J 批次：地雷可连布（#J1）+ 换装不继承（#J2）+ 视野退役（#J3）+ 导弹反馈（#J4）
+
+> 现行细则归口 `specs/combat.md` §13.5（视野距离系统退役）·§13.6（地雷可连续布设与主武器换装重置）·§4 副武器条目（导弹口径与反馈）。
+
+- **用户反馈（四条）**：① 地雷在 1 个节点内似乎只能部署 1 次；② 获得电磁炮后再获得其他主炮，似乎会继承可穿透弹药的特性；③ **裁定**「改为全屏幕渲染敌人，不再计算视野距离的问题。敌人 AI 是否被触发维持为距离 + 是否有直线视野（建筑或草丛、树冠等）」；④ 导弹无法发射（附带指出卡面未写明「伤害跟随 HEAT」）。
+
+- **#J1 地雷只能布 1 次 → `mineMax` 3→6、硬上限 8→12**
+  - **根因**：`mineMax`（**场上同时存在**的地雷数上限）恰等于单次雷场数量 `mineFieldCount`（均为 3），首轮雷场即把上限用尽；地雷存续 30~45s、单节点战斗远长于此 ⇒ 后续雷场全部被 #F6 的「超限拒绝」判据拒收。**口径澄清**：`mineMax` 是同时在场数，不是本局总数。
+
+- **#J2 换装继承 `pierce` → 换型安装先重置为新类型基准**
+  - **根因**：`js/tank_cards.js` 主武器 `install` 用 `Object.assign({}, 旧 stats, overrides)` 合并，**旧武器专有键被带进新武器** —— 最典型的是 `railgun` 的 `pierce`/`pierceDmgMul`（`js/tank_fire.js firePrimaryShell` 据此赋予贯穿能力），实测换上 `double_barrel` 后仍 `pierce=1 / pierceDmgMul=0.6`。
+  - **修复**：换型时先 `getWeaponDefaults('primary', wType)` 重建基准再合并卡牌覆写；同型安装保持合并语义（幂等，不丢 `tanks/*.json` 自定义值）。副武器 install 原本就构造新对象，无此缺陷；两条路径共用新增的 `_weaponDefaultsResolver()`。
+
+- **#J3 视野距离系统整体退役（改为全屏渲染）**
+  - **退役范围（不留死开关）**：`js/tank_camera.js` 的 `visionRadiusForViewport`/`visionCenter`/`visionClamped`；mvp 的剔除逻辑（`entityHiddenByVision` 保留同名函数恒返回 `false`）、视野虚线圈、`visionRadiusEff` 的卡牌加成与屏幕相对计算；dev 面板「无视野」开关（`tank_devpanel.js` + mvp/bench 接线 + `types/globals.d.ts`）；两张视野卡 `support_commander_periscope`（+15%）与 `sniper_commander_sight`（+25%）按 2026-09-23 A 档死效果卡先例删除，`PASSIVE_KEYS` 移除 `commander_sight`（**卡池 168 → 166**）。
+  - **现行口径**：敌对实体一律渲染、一律可被命中，只剩 `aabbInView` 视口剔除（纯性能）。`tank_fire.js` 的 `hiddenByVision` 命中剔除钩子一并移除（否则「看得见却打不中」）。`RULES.vision` 仅作历史配置留档。
+  - **明确不受影响（用户要求的第二半）**：AI 接战判定一直是 **「距离 + 直线视野」**——`RULES.ai.engageRequiresLoS` + `js/tank_ai.js` 的 `hasLoS`，遮挡由 `js/tank_cover.js hasLineOfSight` 按掩体的 `vision: true` 键判定（建筑/岩石/树/灌木/倒树遮视线；栅栏/沙袋/残骸/水/泥/路不遮）。
+
+- **#J4 导弹「无法发射」→ 实为激活后零反馈 + 状态残留**
+  - **核实（两条都成立）**：导弹**本身能发射**（条件为「炮塔 ±30° 扇形内、600px 内、持续锁定 1s」，实测对准后 `shots:1`）；真缺陷是 `_missileActivated` 激活后**UI 零指示**（锁定指示器仅在 `_missileLock` 存在时绘制），炮塔没对准或目标在射程外时既不发也不提示。
+  - **附带状态残留缺陷**：`_missileActivated` 是**开关态**，换掉副武器时未复位（主循环的 `type==='missile'` 门控只是不再推进它）⇒ 实测「激活 → 换成布雷器 → 再装回导弹」会在玩家没按 F 的情况下**自动索敌并发射**。
+  - **卡面/规格不一致**：代码实现「伤害跟随当前 HEAT 弹种系数」（`getEffectiveHeatAmmoKey` → `computeAmmoConfig`），卡面只写「伤害 140」；`specs/combat.md` §4 原写「手动击发沿光标直飞、不自动寻的」（#A21 旧口径）与 §8.2 的「激活→锁定→自动发射」互相矛盾。
+  - **修复**：HUD `btnF` 加「索」（已激活未锁定，琥珀脉动 `.lock-hunting`）/「n%」（锁定中，绿色 `.lock-on`）+ `title` 写明条件；激活后 0.6s 仍无目标 → 一次性提示**缺哪一条**（射程内无敌人 / 炮塔未对准）；激活日志写明条件；换装复位 `_missileActivated`/`_missileLock`/提示标志；两张导弹卡面同步写明锁定流程与 HEAT 跟随；`specs/combat.md` §4 改为现行口径并标注 #A21 旧口径作废。
+
+- **验证（三链）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **EXIT=0** / `node scripts/validate-content.js` **EXIT=0**——`test-cards` 新增 #J2 段 7 项；`test-rework-r2` 新增 #J1 段 6 项；`test-camera` 删除原 #H5/#K1 视野圆断言段（被测对象已不存在），保留 `aabbInView` 与 `minZoom`。
+- **浏览器四链**：`npm run test:browser` **四链 ALL PASS、EXIT=0**。`test-browser-r4.cjs` 新增 **F 段 10 项 #J 回归断言**（地雷同节点连布 2 轮 / 电磁炮换装不继承 pierce / 视野剔除恒 false 且 LoS 原语仍在 / 换装复位激活态 / 无目标「索」+ lock-hunting / 日志说明原因 / 对准 lock-on 并发射）；`test-browser-smoke.cjs` P-39 段由「R×zoom 恒定」改写为**退役断言**（`visionRadiusEff` 恒为名义常数、不随 zoom 补偿；无隐藏实体）。
+- **遗留（不记为问题）**：`RULES.vision` 四键（`radius`/`bias`/`inner`/`screenRadiusRatio`）保留为历史留档并仅供调试钩子 `__TEST__.visionZoom()` 读取，不再参与任何判定；若后续确定无调试价值可整键删除（届时同步 `test-browser-smoke` P-39 探针）。
+- **文档同步**：`specs/combat.md` 新增 §13.5/§13.6 并改写 §4（导弹）与「视野系统」段；`docs/archive/2026-10.md` 新建（本批次为该分卷首条）+ `ARCHIVE.md` 索引与分卷列表登记。
+
+### 4.43 2026-10-01 #M 接战机动随机化（敌人接近玩家时的多形态轨迹 + 开火节奏）
+
+> 现行细则归口 `specs/combat.md` §13.7（唯一口径：机动类型/权重、偏角与行程随机、短停与开火节奏、装填期偏置、不覆盖语义、回退开关）。
+
+- **用户裁定**：「敌人接近玩家时，要有多种行为：直线/斜线/曲线行进或后退，行进时/短停后开火，其行进的角度、距离、短停的时间也随机，以增加随机性。」
+- **问题定位（实测）**：改前接近轨迹单一——`js/tank_ai.js` 按单点 `engage`(520px) 决策 `dist>engage→move=1`，**恒定直线冲脸**；偏航仅来自 #83 peek（±0.5rad 单帧叠加）与 #88 侧摆（装填期 ±0.78~1.57rad），都不是持续轨迹，开火时刻也只由装填结束决定 ⇒ 整簇敌人同节奏逼近。
+- **实现（`RULES.ai.maneuver` + `js/tank_ai.js` `_maneuverRoll` / `_applyManeuver` / `_maneuverReloadGap`）**：
+  - 敌人接战时懒分配**机动脚本**（挂 `t._mv`），一次随机决定**类型 + 偏角 + 行程 + 短停时长**，走完/超时即**重掷**；五类：`direct` 直线 / `slant` 斜线 / `curve` 曲线 / `arc` 弧线绕行 / `retreat` 后撤。
+  - 偏角与行程分档随机；曲线 `sweep` 与起始偏角**反号** ⇒ 偏角穿过 0，轨迹 **S 形回正**而非单向甩开。
+  - 每段结束按 `holdChance` 进入**短停**：短停中 `move=0` 但炮塔照锁敌、可开火 ⇒ 形成「行进时开火 / 短停后开火」双节奏；短停结束瞬间放宽开火容差 `resumeAimTolMul` 再收回，与 `reactionJitter` 叠加错开齐射。
+  - **装填期偏置承接 #88**：装填前段改用偏置权重（压低直冲、抬高侧向）并压为微速蠕行；**普通敌人的装填期躲避由此统一承担，旧 `sideSwing` 仅保留 Boss 路径**（沿革：#88 原对普通敌与 Boss 均生效）。
+- **刻意不覆盖的语义**：① 已在射程内（`baseMove===0`）保持原地驻停，「进入射程即停下开火」不被随机化推翻（**沿革：被 §4.44 修订并收窄**——初版仅保护 `baseMove===0`，`baseMove<0` 的退让曾被覆盖；§4.44 起判据改称「交战带」，驻停与退让一律确定性）；② **Boss 与 SPG 定距车不启用机动层**（角色定位为始终推进/保持距离）；③ `flank`/`coverSeek`/`stunned` 优先；④ 脱离接战即 `t._mv = null`。
+- **回退**：`RULES.ai.maneuver.enabled = false` 完全退回改前直冲语义。
+- **实现期修正的三处缺陷（均由测试暴露，非推测）**：`_MV_RNG` 初版存 `Math.random` **引用**导致测试的随机替换失效（改惰性求值）；`reloadGap` 未传入 `_maneuverPickMode` 使装填期权重偏置失效；机动层一度覆盖 `baseMove===0` 的驻停语义（已按上条①收窄）。
+- **验证（三链）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **EXIT=0**（全链 0 项失败）/ `node scripts/test-ai.js` **全部通过**。新增 `#M 段 13 项` 断言；`#88 段` 改为断言「装填期抽到非 direct 机动 + 前进压为蠕行」，Boss 路径断言不变；滞回带断言由写死 `move===1` 改为状态不变量（机动后 `move` 可为 ±1 或 0）。
+- **文档同步**：`specs/combat.md` 新增 §13.7；本条为 §4 正文延续（编号 4.43）。
+
+### 4.44 2026-10-02 #N 交战结构重做（交战带 / 攻守分工 / flank 重写 / 分离力 / 来袭提示 / 装填脱离）
+
+> 现行细则归口 `specs/combat.md` §13.8（唯一口径：6 个子系统参数、4 处实现期缺陷、量化对照表、回归清单）。
+
+- **用户反馈**：「敌人全部尝试贴近玩家、又在屏幕边缘被动受击，玩家像打靶」→ 先给出诊断与方案（会话第一轮），再要求「再结合你建议的方案落地」。**用户裁定 2 项（2026-10-01）**：① 反打靶可见性**仅做玩家侧提示**（不给敌人加视口门控，保留 #J3「全屏可命中」口径与边缘压迫感）；② 实施范围 = 全部落地（交战带 / 攻守分工 / flank 重写 / 分离力 / 装填脱离）。
+- **实现（6 项，配置全收口 `RULES.ai`，见 §13.8）**：
+  1. **交战距离带** `engageBand`：单点 `engage/close` → 按类别 `[minRatio,maxRatio]×engage`（light/medium/heavy/spg 四档 + 车体尺度下界兜底）；`dist>max` 接近 / `dist<min` 脱离 / 带内驻停开火。heavy「只进不退」的 `moveLock` 角色特性保留。
+  2. **攻守分工** `squad` + 新模块 **`js/tank_ai_squad.js`**（纯逻辑、可 Node 测）：节点级协调器每 0.6s 按「距离/LoS/血量」评分 + 角色粘性，分配 `press`（压上，名额 2~4 随难度）/ `flank` / `hold`；`hold` 走 `holdGate` 射界门控。协调器只写 `t.aiRole`，不产生位移。
+  3. **flank 重写** `flankRewrite`：站位点改为**玩家为圆心的定点扇区站位**（半径 = 交战带外沿 ×1.15、方位 ±60°~120°、按实体稳定哈希分左右），进入时锁定、到位转 press。旧 flank 分支降级为回退路径。
+  4. **群体分离力** `separation`：同类（180px）+ 玩家（108px×0.7）线性衰减斥力 → 相对朝向的 ±1 转向偏置，**仅作用于 press**。
+  5. **视口外来袭方向提示** `threatIndicators`：筛选「已接战 + 视口外 + ≤engage×1.4」前 6 条，mvp 画**琥珀色边缘箭头**（与无人机红箭头区分）。纯玩家侧信息层，不改任何 AI/命中判定。
+  6. **装填脱离** `retreatReload`：装填期中距离退到掩体背弹面，与 #76 C6 `coverSeek`（重甲残血）构成两条独立退避通道。
+  - **回退**：5 个子系统各自 `enabled` 开关，全关即回到 #M 及更早的单点直冲行为。
+- **实现期修正的 4 处缺陷（均由量化探针 `scripts/diagnose-ai-crowd.js` 暴露，非推测）**——这是本轮最值得留档的部分：
+  1. **退让被机动层覆盖**：#M 初版只保护 `baseMove===0`，`baseMove=-1` 的退让被机动层 `move=+1` 覆盖 ⇒ 退着退着又贴上。→ 机动层收窄为**只接管 `baseMove>0`**。
+  2. **旧 `repos`（#83）在驻停帧复活**：守卫条件 `!maneuverOn` 依赖逐帧变化的 `baseMove`/`role`，驻停帧为真 ⇒ `repos` 重新接管 `move` 随机 ±1 冲向玩家。→ 改为**静态判据** `legacyMicroOn`（仅 Boss / SPG 定距车 / 整体关闭机动层 走旧 `sideSwing`+`peek`+`repos`）。
+  3. **flank 站位「棘轮内移」**（最隐蔽的一处）：站位半径 0.95×engage 落在交战带**内侧**，且站位点按当前方位角**每帧重算**（目标绕玩家转 ⇒ 螺旋内收），叠加 0.6s 角色重排 ⇒「当 flank 内移、转 press 驻停」逐次逼近（实测 700→395→**273px**=带内沿）。→ 站位点**进入时锁定一次** + 半径改以 `band.max×1.15` 为基准（恒在带外）+ `roleStickiness` 抑制横跳。已加防复发断言。
+  4. **分离力干扰 flank 定点到达**：斥力改写 `turn` 使敌人进不了 `arriveDist` 圈，持续前进螺旋贴脸。→ 分离力**仅作用于 press**。
+- **量化对照（决策层探针，同初始态势：6 辆环形 700px、30 秒、固定随机种子）**：
+
+  | 指标 | 改前 | 改后 | 变化 |
+  |---|---|---|---|
+  | 同时压上（press）车辆数 | 6.00 | **2.00** | −67% |
+  | 近身圈内（≤engage×0.9）敌人数 | 0.71 | **0.00** | −100% |
+  | 最近敌人距离 | 447px | **522px** | +17% |
+
+  ⇒ 「全员贴脸」与「一拥而上」同时消除。`fanout` 3.33→1.87 属预期：改前六辆均匀包围（全方位压迫），改后 2 压上 / 3 驻守 / 1 绕行 ⇒ 玩家不再同时面对所有方向。
+- **新增/修订测试**：`scripts/test-squad.js` **新增 25 项**（已接入 `npm test` 链）；`scripts/test-ai.js` 新增 **#N 段 26 项**（两项计数均为 2026-10-04 实测 `ok()`），旧 flank 断言改为「回退路径」语义（`flankRewrite.enabled=false` 下验证），滞回带断言改为状态不变量。
+- **验证（三链，2026-10-02；2026-10-04 复核）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **EXIT=0**（全链 0 项失败）/ `npm run test:browser` **四链 ALL PASS、EXIT=0**。
+- **文档同步**：`specs/combat.md` 新增 §13.8 并给 §13.7 的被修订项加沿革注记；`js/tank_ai_squad.js` 已按加载顺序接入 `tank_mvp.html`（在 `tank_ai.js` 之前），`types/globals.d.ts` 补齐 **14 个** `declare`（`js/tank_ai.js` 侧 7 + `js/tank_ai_squad.js` 侧 7；2026-10-04 实测）。
+- **2026-10-04 复核修正（文档↔代码一致性审计 + 死代码清理）**：对 §4.41~§4.44 / `specs/combat.md` §13.4~§13.8 / `specs/map.md` / `specs/boss.md` 逐条比对代码后修正 6 项：
+  1. **死配置清理（4 键，无任何消费方）**：`engageBand.breakAwayTurn`、`flankRewrite.distMinRatio`/`distMaxRatio`、`retreatReload.holdAfterArrive` —— 四键在 `js/tank_rules.js` 声明但全仓无消费者，其中 `breakAwayTurn` 的注释还描述了并未实现的行为并引用了 §4.44 中不存在的内容。按 2026-09-23 A 档死配置清理先例**整体删除**（行为零变化；flank 的触发本由 #N2 角色评分决定、无距离窗口，到位后原地还击亦为无条件行为）。
+  2. **死钩子清理**：`js/tank_fire.js` 的 `hiddenByVision` 命中剔除钩子与其在 mvp `fireCtx` 的注入补齐删除（#J3 声明「不留死开关」但当时漏删）——该钩子注入的是恒 `false` 的 `entityHiddenByVision`，属纯死开关；`entityHiddenByVision` 函数本体**保留**（渲染剔除调用点 + `__TEST__` 探针，`test-browser-r4` F3 仍断言其恒 false）。至此 §13.5/§4.42 所述「钩子已移除」与代码一致。
+  3. **魔数收口**：分离力的玩家斥力半径原为硬编码 `radius × 0.6`，新增 `RULES.ai.separation.playerRadiusMul`(0.6) 收口（与力度权重 `playerFactor` 语义区分：前者管半径、后者管力度）。
+  4. **保留项核对（非缺陷）**：`RULES.ai.retreatReload.hpGate`(0.0) 与 `classProfiles`/`tierProfiles` 等开关有明确消费者，仅默认值使其不生效，不属死配置。
+  5. **文档计数实测更正**：`test-ai.js` #N 段 30→**26** 项、`test-squad.js` 24→**25** 项、`test-modifiers` #H1 段 6→**7** 项、`types/globals.d.ts` declare 9→**14** 个、`RULES.vision`「三键」→**四键**（键名本列了 4 个）。
+  6. **文档措辞更正**：`resumeAimTolMul` 原写「放宽后再线性收回」，实为**单帧峰值**（无衰减逻辑），§13.7 与 `js/tank_ai.js` 注释同步改写；分离力「玩家（×0.7，半径 108px）」混淆半径与力度两个系数，改为分别引用 `playerRadiusMul`/`playerFactor`。
+  7. **沿革注记补登**：`specs/combat.md` §10.2 / §11.1 / §11.4 / §11.5 四节仍把已退役的视野距离体系标为「现行口径」，补加「已被 §13.5（#J3）取代，仅作沿革」注记（§11.5 原仅有 #K1 注记）。
+  8. **编号重叠说明**：`docs/ISSUES.md` 归档清单中 `#H1~#H5`（2026-09-21）与 `#H1~#H4`（2026-09-30）为**两个批次共用编号**，与 `AGENTS.md` §2「编号不复用」相悖；因归档原文按纪律不可回改且编号已被 §4.40 与 §13.1~§13.4 交叉引用，采取**保留原编号 + 按批次日期与主题区分**并就地加说明。
+  - **复核验证**：`npm run check` **EXIT=0** / `npm test` **EXIT=0**（0 项失败）/ `npm run test:browser` **四链 ALL PASS、EXIT=0**；`node scripts/diagnose-ai-crowd.js` 数字与 §13.8 对照表逐格一致（6.00→2.00 / 0.71→0.00 / 447→522px / 3.33→1.87），确认上述清理**行为零变化**。

@@ -487,6 +487,213 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
       check('C3 overdrive：技能池数字键 → 装填归零 + 冷却入池（>0）', od.reloadT === 0 && od.cd && od.cd > 0, JSON.stringify(od));
     }
 
+    // ---- E：#H1~#H4 修复回归（2026-09-30）----
+    // E1 #H2：布雷器装填门控 + 余量裁剪（旧实现确认后不入冷却、可无冷却连点；且 mineFieldCount(5)
+    //    被 mineMax(3) 钳死 + 「existing+n>cap」判据导致首轮之后所有雷场 100% 静默丢弃）。
+    {
+      await fireReady();
+      await page.evaluate(() => { entities.find(e => e.id === 'player').secondaryReloadT = 0; window.deployables.length = 0; });
+      const b1 = await page.evaluate(() => document.getElementById('btnF').click());
+      await waitFor(150);
+      const b2 = await page.evaluate(() => document.getElementById('btnF').click());
+      await waitFor(150);
+      const st1 = await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        return { pending: window.__TEST__.pendingMineFields(), reloadT: p.secondaryReloadT };
+      });
+      check('#H2 布雷确认后进入装填冷却（原恒为 0）', st1.pending === 1 && st1.reloadT > 0, JSON.stringify(st1));
+      // 冷却中按 F 应被拒（不产生预形态）
+      const b3 = await page.evaluate(() => document.getElementById('btnF').click());
+      await waitFor(150);
+      const st2 = await page.evaluate(() => window.__TEST__.mineFieldPreview());
+      check('#H2 装填冷却中拒绝布雷（无预形态）', st2 === false, `preview=${st2}`);
+      // 清空冷却与余量后可再次布设
+      await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        p.secondaryReloadT = 0; window.deployables.length = 0;
+      });
+      const s0 = await page.evaluate(() => window.__minesSpawned);
+      await page.evaluate(() => document.getElementById('btnF').click()); await waitFor(120);
+      await page.evaluate(() => document.getElementById('btnF').click());
+      await waitFor(4800);
+      const s1 = await page.evaluate(() => ({ spawned: window.__minesSpawned, pending: window.__TEST__.pendingMineFields() }));
+      check('#H2 第二次雷场可正常生成（旧实现恒为 0 新增）', s1.spawned > s0 && s1.pending === 0, `spawned ${s0} → ${s1.spawned}`);
+    }
+    // E2 #H3(a)：已入槽的技能不再重复显示专属键按钮
+    {
+      const dup = await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        const vis = id => { const e = document.getElementById(id); return e ? (e.style.display !== 'none') : null; };
+        return { slots: window.__TEST__.skillSlots(), g: vis('btnG'), h: vis('btnH') };
+      });
+      const artyInSlot = dup.slots.indexOf('artillery') >= 0;
+      const shieldInSlot = dup.slots.indexOf('shield') >= 0;
+      check('#H3(a) artillery 入槽后 btnG 不重复显示', artyInSlot ? dup.g === false : true, JSON.stringify(dup));
+      check('#H3(a) shield 入槽后 btnH 不重复显示', shieldInSlot ? dup.h === false : true, JSON.stringify(dup));
+    }
+    // E3 #H3(b)：槽满后新技能弹「选槽位」面板，由玩家指定顶替；队列中后续技能继续弹
+    {
+      const owned0 = await page.evaluate(() => window.__TEST__.skillSlots().filter(Boolean).length);
+      await page.evaluate(() => window.__TEST__.giveCard('ability_aps'));   // 第 4 个（此时 3 槽已满）
+      await waitFor(300);
+      const pk = await page.evaluate(() => ({
+        open: window.__TEST__.skillSlotPickerOpen(),
+        rows: document.querySelectorAll('#skillSlotPickerList .picker-row').length
+      }));
+      check('#H3(b) 槽满时新技能弹选槽位面板', owned0 >= 3 ? pk.open === true : pk.open === false, `owned=${owned0} ${JSON.stringify(pk)}`);
+      if (pk.open) {
+        const before = await page.evaluate(() => window.__TEST__.skillSlots().slice());
+        await page.evaluate(() => window.__TEST__.pickSkillSlotRow(2));
+        await waitFor(250);
+        const after = await page.evaluate(() => ({ slots: window.__TEST__.skillSlots(), open: window.__TEST__.skillSlotPickerOpen() }));
+        check('#H3(b) 玩家可指定顶替第 3 槽', after.slots[2] === 'aps' && after.slots[0] === before[0], JSON.stringify(after));
+      }
+      // 任意技能都可经 Shift+点击槽位改指 —— 直接验接口：把第 1 槽改指为 shield
+      const reassign = await page.evaluate(() => window.__TEST__.assignSkillSlot(0, 'shield'));
+      await waitFor(200);
+      const slots2 = await page.evaluate(() => window.__TEST__.skillSlots());
+      check('#H3(b) 槽位可循环复用（改指不产生重复入口）', reassign === true && slots2.filter(x => x === 'shield').length === 1, JSON.stringify(slots2));
+    }
+    // E4 #H4：数字键严格映射槽位，空槽不触发任何技能（旧实现回落 fallbackList 会误触发 deploy_cover）
+    {
+      const cleared = await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        p.abilityCds = {}; p.reloadT = 0; p.immobT = 0;
+        // 清空第 3 槽制造「有技能但槽为空」的场景
+        window.__TEST__.setSkillSlot(2, null);
+        return window.__TEST__.skillSlots();
+      });
+      await page.keyboard.press('3'); await waitFor(300);
+      const cdEmpty = await page.evaluate(() => JSON.parse(JSON.stringify(entities.find(e => e.id === 'player').abilityCds)));
+      check('#H4 空槽按数字键不误触发任何技能', Object.keys(cdEmpty).length === 0, `slots=${JSON.stringify(cleared)} cd=${JSON.stringify(cdEmpty)}`);
+      // 恢复第 3 槽为 aps 并验证命中
+      await page.evaluate(() => { const p = entities.find(e => e.id === 'player'); p.abilityCds = {}; window.__TEST__.assignSkillSlot(2, 'aps'); });
+      await page.keyboard.press('3'); await waitFor(300);
+      const cdHit = await page.evaluate(() => JSON.parse(JSON.stringify(entities.find(e => e.id === 'player').abilityCds)));
+      check('#H4 数字键 3 精确命中第 3 槽技能', Object.keys(cdHit).length === 1 && cdHit.aps !== undefined, JSON.stringify(cdHit));
+    }
+
+    // ---- F：#J 批次（2026-09-30 用户反馈三项）----
+    // F1 #J1 地雷：一个节点内可连续布设多轮雷场（此前 mineMax === 单场数，首轮即用尽上限）
+    {
+      await fireReady();
+      // #J1 稳健化（2026-10-04）：雷场延时 RULES.abilities.deploy_limits.mineFieldDelay=4s，
+      // 原固定 waitFor(4800) 仅余 800ms 余量，页面负载高时偶发「第1轮 0 枚」误报
+      // （2026-10-04 实测一次失败、复跑通过）⇒ 改为轮询到本场真正生成（上限 12s）再断言。
+      const snapMines = () => page.evaluate(() => ({
+        mines: window.deployables.filter(d => d.isMine).length,
+        spawned: window.__minesSpawned
+      }));
+      const lay = async (baseline) => {
+        await page.evaluate(() => { const p = entities.find(e => e.id === 'player'); p.secondaryReloadT = 0; });
+        await page.evaluate(() => document.getElementById('btnF').click()); await waitFor(120);
+        await page.evaluate(() => document.getElementById('btnF').click());
+        let snap = await snapMines();
+        for(let i = 0; i < 60 && snap.mines <= baseline; i++){
+          await waitFor(200);
+          snap = await snapMines();
+        }
+        return snap;
+      };
+      await page.evaluate(() => { window.deployables.length = 0; });
+      const r1 = await lay(0);
+      const r2 = await lay(r1.mines);     // 关键回归：不清理场地，直接再布一轮
+      check('#J1 同一节点可连续布设 2 轮雷场（无清理）',
+        r1.mines > 0 && r2.mines > r1.mines,
+        `第1轮 ${r1.mines} 枚 → 第2轮 ${r2.mines} 枚（累计生成 ${r2.spawned}）`);
+    }
+    // F2 #J2 主武器换装不继承旧武器专有机制（电磁炮 pierce → 其他主炮仍可贯穿）
+    {
+      const swap = await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        // 前置用例（A 段）已用过 double_barrel / autocannon 卡，maxStacks=1 会让 applyCardEffects 直接 return []
+        // —— 本用例测的是「换装语义」，故先复位应用计数（只影响本用例，不改变产品行为）。
+        p._cardApplyCount = {};
+        const rail = window.__TEST__.findCard('weapon_primary_railgun');
+        const dbl = window.__TEST__.findCard('weapon_primary_double_barrel');
+        const res = { hasRail: !!rail, hasDbl: !!dbl, before: p.weapons.primary.type };
+        if (rail) { window.__TEST__.applyCard(rail); res.afterRail = { type: p.weapons.primary.type, pierce: p.weapons.primary.stats.pierce }; }
+        if (dbl) { window.__TEST__.applyCard(dbl); res.afterDbl = { type: p.weapons.primary.type, pierce: p.weapons.primary.stats.pierce, pdm: p.weapons.primary.stats.pierceDmgMul }; }
+        return res;
+      });
+      check('#J2 装上电磁炮后具备 pierce', swap.hasRail && swap.afterRail && swap.afterRail.pierce >= 1, JSON.stringify(swap.afterRail));
+      check('#J2 换装其他主炮后不继承 pierce',
+        swap.hasDbl && swap.afterDbl && swap.afterDbl.type === 'double_barrel'
+        && swap.afterDbl.pierce === undefined && swap.afterDbl.pdm === undefined,
+        JSON.stringify(swap.afterDbl));
+    }
+    // F3 #J3 全屏幕渲染敌人：不再有视野距离剔除（远处敌人仍被绘制 / 可被命中）
+    {
+      const vis = await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        const far = entities.find(e => e.team === 'enemy' && e.hp > 0);
+        const dist = far ? Math.round(Math.hypot(far.x - p.x, far.y - p.y)) : -1;
+        // entityHiddenByVision 恒 false ⇒ 视野圆不再剔除任何敌人（函数在 IIFE 闭包内，经测试钩子访问）
+        const hidden = window.__TEST__.hiddenByVision(far);
+        return { dist: dist, hidden: hidden };
+      });
+      check('#J3 视野剔除恒不生效（远处敌人不被隐藏）', vis.hidden === false, `敌人距离 ${vis.dist}px，hidden=${vis.hidden}`);
+      const los = await page.evaluate(() => ({
+        hasLoS: typeof hasLineOfSight === 'function',
+        // 注意：tank_rules.js 顶层 `const RULES` 是**全局词法绑定**，不是 window 属性 ——
+        // 只能在页面作用域内用裸标识符访问（window.RULES 为 undefined）。
+        reqLoS: !!(typeof RULES !== 'undefined' && RULES.ai && RULES.ai.engageRequiresLoS)
+      }));
+      check('#J3 敌人 AI 仍需距离+直线视野（LoS 原语可用）',
+        los.hasLoS === true && los.reqLoS === true, JSON.stringify(los));
+    }
+    // F4 #J4 导弹：激活反馈（无目标时可见「索」+ 一次性原因提示），对准后可发射
+    {
+      await page.evaluate(() => window.__TEST__.giveCard('weapon_secondary_missile'));
+      await waitFor(300);
+      // 关键前置：B3 段激活过导弹且激活态是**开关**，装回导弹前须显式复位，
+      // 否则会在玩家没按 F 的情况下自动索敌发射（这也正是 #J4 修复的产品侧状态残留缺陷）。
+      const armed = await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        p._missileActivated = false; p._missileLock = null; p._missileHintT = 0; p._missileHintShown = false;
+        p.secondaryReloadT = 0; p.invulnT = 9999;
+        for (const e of entities) if (e.team === 'enemy') { e.x = p.x + 6000; e.y = p.y; }   // 全部移出射程
+        return { type: p.weapons.secondary.type, act: !!p._missileActivated };
+      });
+      await waitFor(120);
+      await page.keyboard.press('f');
+      await waitFor(160);                       // 尽早采样：锁定需 1s，此刻必为「未锁定」
+      const hunt = await page.evaluate(() => {
+        const b = document.getElementById('btnF');
+        return { act: !!window.__TEST__.missileState().activated, badge: (document.getElementById('cdF') || {}).textContent,
+                 cls: b ? b.className : '' };
+      });
+      await waitFor(900);                       // 越过 0.6s 提示阈值
+      const logs = await page.evaluate(() => window.__TEST__.logs());
+      check('#J4 换装导弹后激活态已复位（不凭空自动索敌）', armed.type === 'missile' && armed.act === false, JSON.stringify(armed));
+      check('#J4 激活后无目标 → 角标「索」+ lock-hunting 态',
+        hunt.act && hunt.badge === '索' && /lock-hunting/.test(hunt.cls), JSON.stringify(hunt));
+      check('#J4 无目标时日志说明原因（射程内无敌人 / 炮塔未对准）',
+        logs.some(t => t.indexOf('射程内没有敌对目标') >= 0 || t.indexOf('炮塔需指向目标') >= 0),
+        JSON.stringify(logs.slice(0, 3)));
+      // 把敌人移到炮塔正前方 → 锁定并发射（轮询捕获 lock-on 态，避免采样时机抖动）
+      const shotsBefore = await page.evaluate(() => window.__shots.secondary);
+      await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        const a = p.turretAngle || 0;
+        const en = entities.find(e => e.team === 'enemy' && e.hp > 0);
+        if (en) { en.x = p.x + Math.cos(a) * 200; en.y = p.y + Math.sin(a) * 200; en.immobT = 9999; en.reloadT = 9999; }
+      });
+      let sawLockOn = false;
+      for (let i = 0; i < 12; i++) {
+        await waitFor(180);
+        const s = await page.evaluate(() => {
+          const b = document.getElementById('btnF');
+          return { cls: b ? b.className : '', badge: (document.getElementById('cdF') || {}).textContent, hasLock: !!window.__TEST__.missileState().lock };
+        });
+        if (s.hasLock && /lock-on/.test(s.cls) && /%/.test(s.badge || '')) { sawLockOn = true; break; }
+      }
+      await waitFor(1200);
+      const shotsAfter = await page.evaluate(() => window.__shots.secondary);
+      check('#J4 对准后进入 lock-on（百分比）并成功发射',
+        sawLockOn && shotsAfter > shotsBefore, `lockOn=${sawLockOn} shots ${shotsBefore} → ${shotsAfter}`);
+    }
+
     // ---- 收尾：无 console/page 错误 ----
     await waitFor(400);
     check('全程无 console error / page error', realErrorsOf(errors).length === 0, JSON.stringify(realErrorsOf(errors).slice(0, 5)));

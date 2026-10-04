@@ -568,8 +568,8 @@ function stepShells(dt, ctx){
   const getZ=c.getPartZRange||_G('getPartZRange',null);
   const getExp=c.getExposure||_G('getExposure',null);
   const isHostile=c.isHostile||_G('isHostile',function(){return true;});
-  // #E1（2026-09-20）：视野外实体判定注入——mvp 传 entityHiddenByVision；缺省不隐藏。
-  const hiddenByVision=c.hiddenByVision||c.isHidden||null;
+  // #J3（2026-09-30）：原 #E1 的 hiddenByVision 命中剔除钩子已随视野距离系统整体退役删除
+  // —— 视野系统退役后不存在「看得见却打不中」的剔除源，保留该死钩子只会误导（不留死开关）。
   const coverNormalAt=c.coverNormalAt||_G('coverNormalAt',null);
   const reflect=c.reflectDir||_G('reflectDir',null);
   const resolveHit=c.resolveHit||_G('resolveHit',null);
@@ -668,8 +668,6 @@ function stepShells(dt, ctx){
     for(const e of ents){
       if(!e||e.hp<=0) continue;
       if(!isHostile(s.shooter.team,e.team)) continue;
-      // #E1：视野圈外（不绘制）的实体不参与弹道命中——消除「不可见车体拦弹」。
-      if(hiddenByVision&&hiddenByVision(e)) continue;
       // #G：轨道炮贯穿——已命中的目标不再重复结算（防同发多杀同一目标）
       if(s.pierceHitIds && s.pierceHitIds.indexOf(e.id) >= 0) continue;
       const hits=raycast?raycast(sx,sy,s.dx,s.dy,e):null;

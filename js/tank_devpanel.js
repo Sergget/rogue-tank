@@ -23,7 +23,8 @@
 //   pushLog / playSound 页面日志与音效（默认全局同名函数）
 //   cardClick(card)    卡牌点击回调（默认 applyCardEffects + 日志 + 刷新；mvp 传 pickCard 以
 //                      得到技能提示/toast 反馈）
-//   cheatsInit         { zeroSpread, noVision, invuln, instantReload } 初始值（默认全 false）
+//   cheatsInit         { zeroSpread, invuln, instantReload } 初始值（默认全 false）
+//                        （#J3：原 noVision「无视野」开关随视野距离系统退役删除）
 //   onCheatChange(k,v) 开关变更回调（mvp 同步 devAim.zeroSpread / devNoVision；bench 同步自身）
 //   onGenNode / onReset 随机生成战场 / 重置按钮回调（null 则不渲染该行；缺省渲染仅当回调存在）
 //   liveData()         实时参数（缺省从全局 player/entities/tankKmh 派生，节点字段 '--'）
@@ -122,7 +123,7 @@ function mountDevPanel(host) {
     '<div class="dev-page" data-page="switch" style="display:none;">' +
       '<div class="dev-sec"><h4>调试开关</h4>' +
         '<div class="dev-row"><span class="k">超级精度</span><button id="zeroSpreadBtn">关闭</button><span style="color:#8a8678;">散布归零（瞬间缩圈，仅玩家）</span></div>' +
-        '<div class="dev-row"><span class="k">无视野</span><button id="devVisionBtn">关闭</button><span style="color:#8a8678;">关闭视野剔除（#89 调试）</span></div>' +
+        // #J3：「无视野」开关已随视野距离系统退役删除
         '<label class="dev-cheat"><input type="checkbox" id="devInvulnChk"> 无敌常驻（invulnT 恒续，与测试台同源语义）</label>' +
         '<label class="dev-cheat"><input type="checkbox" id="devInstantReloadChk"> 秒装填（reloadT 恒 0，与测试台同源语义）</label>' +
         genResetRow +
@@ -135,7 +136,7 @@ function mountDevPanel(host) {
   const $ = function (id) { return wrap.querySelector('#' + id); };
 
   // ---- 状态 ----
-  const cheats = Object.assign({ zeroSpread: false, noVision: false, invuln: false, instantReload: false }, H.cheatsInit || {});
+  const cheats = Object.assign({ zeroSpread: false, invuln: false, instantReload: false }, H.cheatsInit || {});
   const onCheat = H.onCheatChange || function () {};
   let devActiveTab = H.defaultTab || 'live';
   let devCardQuery = '';
@@ -165,20 +166,10 @@ function mountDevPanel(host) {
     onCheat('zeroSpread', cheats.zeroSpread);
     log('超级精度：' + (cheats.zeroSpread ? '开（散布归零）' : '关'), 'COVER');
   });
-  $('devVisionBtn').addEventListener('click', function (e) {
-    cheats.noVision = !cheats.noVision;
-    const vBtn = e.currentTarget;
-    if (vBtn instanceof HTMLElement) {
-      vBtn.textContent = cheats.noVision ? '开启' : '关闭';
-      vBtn.classList.toggle('active', cheats.noVision);
-    }
-    onCheat('noVision', cheats.noVision);
-    log('无视野调试：' + (cheats.noVision ? '开（跳过视野剔除）' : '关'), 'COVER');
-  });
+  // #J3（2026-09-30）：「无视野」开关随视野距离系统退役**删除**（它控制的正是已下线的
+  // 可视圆剔除，现在恒不隐藏 ⇒ 开关是死开关，留着会误导调试者以为还有视野机制）。
   $('zeroSpreadBtn').textContent = cheats.zeroSpread ? '开启' : '关闭';
   $('zeroSpreadBtn').classList.toggle('active', cheats.zeroSpread);
-  $('devVisionBtn').textContent = cheats.noVision ? '开启' : '关闭';
-  $('devVisionBtn').classList.toggle('active', cheats.noVision);
   const invEl = $('devInvulnChk');
   const irEl = $('devInstantReloadChk');
   if (invEl instanceof HTMLInputElement) invEl.checked = !!cheats.invuln;

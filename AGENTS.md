@@ -27,7 +27,8 @@
   - `tank_drone.js`：伴随无人机体系（模块级 `drones` 数组单一数据源，scout 侦察/striker 打击两型，countMax 上限）。
   - `tank_cards.js`：卡牌系统（CARD_RARITIES/CARD_TAGS/效果类型 + `validateCard`/`applyCardEffects`/`drawCardChoices` 含装备优先保底与 `cardEligible` 资格过滤/`cardStackCount`）。
   - `tank_boss.js`：Boss 系统（validateBoss/bossStageFor + makeBossEntity/applyBossStage/updateBossStage，缩放整体替换不污染共享 spec）。
-  - `tank_ai.js`：敌人/友军 AI 决策（`aiDecide` 双态 + 受击警觉/避水/找掩体 coverSeek + 消极防御，输出 `{turn, move, turretDesired, fire}`）。
+  - `tank_ai_squad.js`：敌军攻守分工协调器（`updateSquad` 按「距离/LoS/血量」评分分配 press/flank/hold 角色 + `holdGate` 射界门控 + `threatIndicators` 视口外来袭方位提示；纯逻辑、可 Node 测试，**须先于 `tank_ai.js` 加载**——后者运行时调用 `holdGate`；2026-10-02 #N 新增）。
+  - `tank_ai.js`：敌人/友军 AI 决策（`aiDecide` 双态 + 受击警觉/避水/找掩体 coverSeek + 消极防御，输出 `{turn, move, turretDesired, fire}`；#M 接战机动随机化、#N 交战距离带 / flank 侧翼站位 / 群体分离力 / 装填脱离）。
   - `tank_revive.js`：死亡/复活状态机（满状态复活 + 无敌 + 友军据点旁随机点，依赖 `RULES.revive`）。
   - `tank_economy.js`：经济/存档/多存档槽位（元索引 + 槽位键 CRUD + migrateLegacySave；UPGRADE_DEFS 永久升级树 + scoreToPoints/buyUpgrade/applyUpgrades/buyExtraRevive）。
   - `tank_nodegen.js`：节点地图元素生成器（7 内置模板 + `generateNode(difficulty,{seed,templateId,scale})` 确定性生成 + `placeRoadNetwork` 路网 **v4 七拓扑**（A 贯通 / B 十字 / C 单侧 T / E 双侧 T / D 双平行 / G 网格街区 / I 双干贯穿）+ 建筑与路口沙包 + 重叠消解）。
@@ -139,6 +140,6 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`（§1 待办总览（C 档横向卷轴节点 / 难度联动 / HUD 渲染级合并）/ §2 非阻塞遗留 / §3 C 档横向卷轴设计研究 / §4 2026-09-23 路线裁定）。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。
+- **待办与排期**：见 `docs/PLAN.md`（§1 待办总览（C 档横向卷轴节点 / 难度联动 / HUD 渲染级合并 / #N 交战结构真实对局验证与参数调优）/ §2 非阻塞遗留 / §3 C 档横向卷轴设计研究 / §4 2026-09-23 路线裁定）。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。
 - **待处理问题**：见 `docs/ISSUES.md`（当前无存量条目；历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

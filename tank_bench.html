@@ -665,11 +665,10 @@ const devPanelApi = mountDevPanel({
   isDevOpen: () => devPanelApi ? devPanelApi.isOpen() : false,
   pushLog: pushLog,
   playSound: playSound,
-  cheatsInit: { zeroSpread: devAim.zeroSpread, noVision: false, invuln: benchCheats.invuln, instantReload: benchCheats.instantReload },
+  cheatsInit: { zeroSpread: devAim.zeroSpread, invuln: benchCheats.invuln, instantReload: benchCheats.instantReload },
   onCheatChange: (k, v) => {
     if(k === 'zeroSpread'){ devAim.zeroSpread = v; }
     if(k === 'invuln' || k === 'instantReload') benchCheats[k] = v;
-    // noVision：靶场无视野剔除概念，保持 off（按钮切换仅记录日志）
   },
   liveData: (p) => ({
     sigma: p.sigma,

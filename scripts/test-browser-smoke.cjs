@@ -277,11 +277,19 @@ function startServer(port) {
       Math.abs(zAfter.targetZoom - zBefore.maxZoom) < 1e-9 && zAfter.zoom > 1.05 &&
       zAfter.vw < zBefore.vw * 0.95,
       JSON.stringify(zAfter));
-    // #H5 核心断言：放大后可见半径按 zoom 反比补偿（R×zoom 恒定 → 敌人屏幕出现位置不变）
-    check('P-39 可见距离屏幕相对（#H5）：R×zoom 恒定，缩放不改变敌人出现位置',
+    // #J3（2026-09-30）视野距离系统退役：`visionRadiusEff` 不再随 zoom 反比补偿（原 #H5 的
+    // 「R×zoom 恒定 ⇒ 敌人屏幕出现位置不变」随视野剔除一并作废）。现断言**退役语义**：
+    // 返回名义常数、与 zoom 无关；敌人一律渲染，只受 aabbInView 视口剔除。
+    check('P-39 视野距离系统已退役（visionRadiusEff 恒为名义常数，不随 zoom 补偿）',
       !!zBefore && !!zAfter &&
-      Math.abs(zAfter.radiusEff * zAfter.zoom - zBefore.radiusEff * zBefore.zoom) < Math.max(2, zBefore.radiusEff * 0.02),
-      JSON.stringify({ rBefore: zBefore.radiusEff, rAfter: zAfter.radiusEff }));
+      Math.abs(zAfter.radiusEff - zBefore.radiusEff) < 1e-9,
+      JSON.stringify({ rBefore: zBefore.radiusEff, rAfter: zAfter.radiusEff, zoomAfter: zAfter.zoom }));
+    const hiddenAll = await page.evaluate(() => {
+      const es = entities.filter(e => e.team === 'enemy');
+      return { total: es.length, hidden: es.filter(e => window.__TEST__.hiddenByVision(e)).length };
+    });
+    check('#J3 敌人在视口外也不被视野剔除（无隐藏实体）',
+      hiddenAll.hidden === 0, JSON.stringify(hiddenAll));
     await page.waitForTimeout(200);
 
     // ---- #23 敌人开火循环：把敌人瞬移到玩家旁（距离足够近以确定为交火），

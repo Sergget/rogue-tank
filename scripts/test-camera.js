@@ -12,9 +12,7 @@ const {
   setZoom,
   updateCamera,
   updateCameraLead,
-  visionRadiusForViewport,
-  visionCenter,
-  visionClamped,
+  // #J3：visionRadiusForViewport / visionCenter / visionClamped 随视野距离系统退役删除
   clampCamera,
   worldToScreen,
   screenToWorld,
@@ -161,128 +159,20 @@ ok(close(bB.x, sB.x) && close(bB.y, sB.y), 'zoom=1.7：屏幕→世界→屏幕 
   ok(Math.abs(c5.x - 1400) < 0.5, '#E12 缺省零外延 → 跟随中心等于目标（回归保障）');
 }
 
-// ================= #H5（2026-09-21）可见距离屏幕相对化：缩放完全自由 =================
-// 用户裁定：「目前敌方渲染的距离写死成了像素，会受缩放影响，迫使玩家始终以最高倍率游玩，
-// 失去一些细节」——#H1 窄轴收口与 #H2 深度拉远均以「固定像素可见距离」为前提，二者废弃；
-// 可见半径改为屏幕相对：R = screenRadiusRatio × 窄半幅/zoom × (1+卡牌加成)，R×zoom 恒定。
+// ================= #J3（2026-09-30）视野距离系统退役 =================
+// 用户裁定：「改为全屏幕渲染敌人，不再计算视野距离的问题」——`visionRadiusForViewport` /
+// `visionCenter` / `visionClamped` 三个视野圆几何函数及其消费方（mvp 可视圆剔除 + 视野虚线圈 +
+// 视野卡 commander_sight）整体删除，原 #H5/#K1 断言段一并移除（被测对象已不存在）。
+// 敌人现在只受 `aabbInView` 视口剔除（纯性能，非玩法机制）；AI 的「距离 + 直线视野」
+// 接战判定在 js/tank_ai.js + js/tank_cover.js，不在本文件，回归见 test-ai / test-covers。
 {
-  const bias = (RULES.vision && RULES.vision.bias) || 0.35;
-  const ratio = (RULES.camera && RULES.camera.mouseLeadRatio) || 0.30;
-  const baseR = (RULES.vision && RULES.vision.radius) || 900;
-  const scrRatio = (RULES.vision && RULES.vision.screenRadiusRatio !== undefined)
-    ? RULES.vision.screenRadiusRatio : 1.0;
-  const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1], [0.7071, 0.7071], [-0.7071, 0.7071]];
-  // 屏幕从玩家出发沿方向 u 的前向边界（世界 px，含相机外延 zoomComp）
-  const screenReach = (cam, ux, uy) => {
-    const hw = cam.vw / 2 / cam.zoom, hh = cam.vh / 2 / cam.zoom;
-    const lead = (baseR * ratio) / cam.zoom;
-    const dx = Math.abs(ux) < 1e-9 ? Infinity : (hw + lead * Math.abs(ux)) / Math.abs(ux);
-    const dy = Math.abs(uy) < 1e-9 ? Infinity : (hh + lead * Math.abs(uy)) / Math.abs(uy);
-    return Math.min(dx, dy);
-  };
-
-  // 1) 核心公式：1080p/zoom1 → R = 1.0×540 = 540（屏幕相对；radius 900 不再决定可见距离）
-  const camL = createCamera({ vw: 1920, vh: 1080, bounds: { w: 8000, h: 8000 } });
-  const R1 = visionRadiusForViewport(camL, {});
-  ok(close(R1, scrRatio * 540, 1e-6),
-     `#H5 1080p/zoom1 可见半径 R=${R1.toFixed(1)} = ratio×窄半幅（固定像素 900 不再参与）`);
-
-  // 2) 核心断言：R×zoom 恒定——zoom 0.8/1.0/1.3 下屏幕占比不变（缩放自由，无 gameplay 惩罚）
-  {
-    let okZoom = true;
-    const ratios = [];
-    for (const z of [0.8, 1.0, 1.3]) {
-      const cz = createCamera({ vw: 1920, vh: 1080, bounds: { w: 8000, h: 8000 } });
-      cz.zoom = z; cz.targetZoom = z;
-      const Rz = visionRadiusForViewport(cz, {});
-      ratios.push(Rz * z);
-      if (!close(Rz * z, scrRatio * 540, 1e-6)) okZoom = false;
-    }
-    ok(okZoom, `#H5 R×zoom 恒定（${ratios.map(v => v.toFixed(1)).join(' / ')}）——缩放不改变敌人的屏幕出现位置`);
-  }
-
-  // 3) 各方向等距：6 鼠标方向的前向可见边界（屏幕相对）一致（屏幕相对圆与屏幕同比例缩放）
-  {
-    let isoOk = true;
-    for (const [ux, uy] of dirs) {
-      // 有效前向距离 = min((1+bias)R, 屏幕容量)；屏幕相对下两者均 ∝ 1/zoom → 同比例缩放
-      const effZoom1 = Math.min((1 + bias) * R1, screenReach(camL, ux, uy));
-      const cz = createCamera({ vw: 1920, vh: 1080, bounds: { w: 8000, h: 8000 } });
-      cz.zoom = 1.3; cz.targetZoom = 1.3;
-      const Rz = visionRadiusForViewport(cz, {});
-      const effZoom13 = Math.min((1 + bias) * Rz, screenReach(cz, ux, uy));
-      // 屏幕相对性：zoom 1.3 的世界距离 = zoom 1 的距离 / 1.3（同一屏幕位置）
-      if (!close(effZoom13 * 1.3, effZoom1, 1e-6)) isoOk = false;
-    }
-    ok(isoOk, '#H5 6 方向前向可见边界屏幕相对一致（zoom 1.3 世界距离 = zoom 1 ÷ 1.3，同屏位）');
-  }
-
-  // 4) 轴向等距（#H1 目标在屏幕相对口径下保持）：同一 zoom 下横向/纵向/斜向的
-  //    「屏幕占比」一致（R×zoom 同值，min(视野, 屏幕) 的屏幕位恒定）
-  {
-    const eff1 = Math.min((1 + bias) * R1, screenReach(camL, 1, 0));
-    const eff2 = Math.min((1 + bias) * R1, screenReach(camL, 0, 1));
-    ok(close(eff1, eff2, 1e-6), '#H5 同 zoom 下横向/纵向可见边界一致（等距目标保持）');
-  }
-
-  // 5) 超宽屏/竖屏同规则（窄半幅同为 540 → 同一 R；更宽的屏幕不获得距离优势）
-  const camUW = createCamera({ vw: 2560, vh: 1080, bounds: { w: 8000, h: 8000 } });
-  const camP = createCamera({ vw: 1080, vh: 1920, bounds: { w: 8000, h: 8000 } });
-  ok(close(visionRadiusForViewport(camUW, {}), R1, 1e-6) && close(visionRadiusForViewport(camP, {}), R1, 1e-6),
-     '#H5 21:9 超宽屏与竖屏窄半幅同为 540 → 同一可见半径');
-
-  // 6) 卡牌加成：nominal +25% → 屏幕占比等比放大；但前向边界 (1+bias)R 受护栏截断
-  //    （cap = (窄半幅+外延)/(1+bias)——按 RULES.camera.mouseLeadRatio **动态**计算：
-  //     0.30 ⇒ 600（两卡同被压到 600）；2026-09-23 起 0.40 ⇒ ≈667（视野卡收益解除截断，
-  //     见 specs/combat.md §11.5 / DEVELOPMENT.md §4.36））
-  // 6) 卡牌加成：nominal +25% → 屏幕占比等比放大。
-  //    #K1（2026-09-29）：**取消原 bias×R 圆心偏移与收口上限 cap**——圆心改取摄像机中心后
-  //    圆恒内切视口（半径 ≤ 窄半幅/zoom），不再需要护栏，卡牌加成**全额生效**（675 而非被削到 667）。
-  //    半径超过窄半幅后纵向被屏幕裁掉是几何必然，横向全额受益。
-  const RB = visionRadiusForViewport(camL, { nominal: baseR * 1.25 });
-  ok(close(RB, scrRatio * 540 * 1.25, 1e-6),
-     `#H5/#K1 卡牌视野加成 → R=${RB.toFixed(1)} = ×1.25=${(scrRatio * 540 * 1.25).toFixed(0)}（无护栏截断，全额生效）`);
-  // #K1 核心回归：圆心 ≡ 摄像机中心 ⇒ 圆内切视口 ⇒ 圆不探出视口（渲染边界 ≡ 视野边界）。
-  // 关键场景 = 镜头外延量（lead，随鼠标 0~360px）与玩家位置的各种组合：
-  //   只要圆心偏移 ≤ R×0.85（=459），圆心就等于摄像机中心 ⇒ 圆恒内切，inside = true。
-  {
-    const R0 = visionRadiusForViewport(createCamera({ vw: 1920, vh: 1080 }), {});   // 540
-    /** @type {Array<[number, number, string]>} */
-    const cases = [[0, 0, '无外延'], [360, 0, '满外延(横)'], [255, 255, '斜向外延'], [459, 0, '临界外延=R×0.85']];
-    for (const [lx, ly, tag] of cases) {
-      const c0 = createCamera({ vw: 1920, vh: 1080, bounds: { w: 20000, h: 20000 } });
-      const px = 5000, py = 5000;
-      c0.x = px + lx; c0.y = py + ly;                      // 摄像机 = 玩家 + 外延
-      const ctr = visionCenter(c0, { x: px, y: py }, R0);
-      const cl = visionClamped(c0, ctr, R0);
-      ok(cl.inside && Math.abs(ctr.x - c0.x) < 1e-6 && Math.abs(ctr.y - c0.y) < 1e-6,
-         `#K1 圆心 ≡ 摄像机中心且圆内切视口（${tag}）：渲染边界 ≡ 视野边界`);
-    }
-    // 镜头被世界边界钳住（玩家远离视口中心）时：圆心向玩家收敛 ⇒ 玩家恒在圆内（贴身威胁可见）
-    const cEdge = createCamera({ vw: 1920, vh: 1080, bounds: { w: 20000, h: 20000 } });
-    const ex = 5000, ey = 5000;
-    cEdge.x = ex + 900; cEdge.y = ey;                      // 偏移 900 > R×0.85 ⇒ 触发收敛
-    const ctrEdge = visionCenter(cEdge, { x: ex, y: ey }, R0);
-    ok(Math.hypot(ctrEdge.x - ex, ctrEdge.y - ey) <= R0 + 1e-6,
-       `#K1 镜头被钳时玩家仍恒在视野圆内（偏移 ${Math.round(Math.hypot(ctrEdge.x - ex, ctrEdge.y - ey))} ≤ R=${R0}）`);
-    const Rp = visionRadiusForViewport(cEdge, { nominal: baseR * 1.25 });   // 带卡（675 > 窄半幅 540）
-    ok(Rp > 540, `#K1 卡牌半径可超过窄半幅（R=${Rp.toFixed(0)} > 540），纵向由屏幕裁掉属几何必然`);
-  }
-
-  // 7) 几何护栏（#H1 遗产）：极扁视口下外延占比大 → 收口兜底仍保持各方向等距
-  {
-    const camFlat = createCamera({ vw: 3840, vh: 600, bounds: { w: 20000, h: 20000 } });  // 窄半幅 300 < 外延 270 占比高
-    camFlat.zoom = 1.3;
-    const Rf = visionRadiusForViewport(camFlat, {});
-    let flatOk = true;
-    for (const [ux, uy] of dirs) {
-      if (Math.min((1 + bias) * Rf, screenReach(camFlat, ux, uy)) < (1 + bias) * Rf - 1e-6) flatOk = false;
-    }
-    ok(flatOk, `#H5 极扁视口（窄半幅 300/zoom1.3）收口兜底 R=${Rf.toFixed(1)} 仍全方向等距`);
-  }
-
-  // 8) 缩放回归纯视觉偏好：minZoom 回 0.8（#H2 的 0.45 深度拉远下限不再需要）
-  ok(close(RULES.camera.minZoom, 0.8, 1e-9), '#H5 minZoom 回 0.8（#H2 深度拉远移除，默认 zoom=1 全细节）');
+  // 缩放回归纯视觉偏好：minZoom 0.8（#H2 的 0.45 深度拉远下限不再需要）
+  ok(close(RULES.camera.minZoom, 0.8, 1e-9), '#H5 minZoom = 0.8（#H2 深度拉远移除，默认 zoom=1 全细节）');
+  // 视口剔除仍按缩放正确工作（#J3 之后唯一的绘制边界，纯性能）
+  const camJ = createCamera({ vw: 1920, vh: 1080, bounds: { w: 20000, h: 20000 } });
+  camJ.x = 1000; camJ.y = 1000; camJ.zoom = 1;
+  ok(aabbInView(camJ, 1000, 1000, 40, 40) === true, '#J3 视口中心实体在视口内');
+  ok(aabbInView(camJ, 5000, 5000, 40, 40) === false, '#J3 远离视口的实体被视口剔除（纯性能）');
 }
 
 console.log('test-camera: 完成所有检查');

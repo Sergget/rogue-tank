@@ -159,48 +159,60 @@ function computeStats(base, modifiers){
 // stats.X 设为 target」逐值等价，且不依赖 base 之外的其他修饰器。
 //
 // 入参 t：敌人坦克（含 .base 与 .stats，stats 已含先行 entityMults）；
-//   opts.player：玩家坦克（读 .stats）；opts.strongest：最强弹种终伤（mvp 由 computeAmmoConfig
-//   预计算传入，避免本文件倒序依赖 tank_cards）；opts.diffNorm：归一难度 0~1；opts.randFactor：
-//   每辆车独立随机浮动（0.85~1.15，运行期随机非 RNG 流，mvp 用 Math.random 生成）。
+//   opts.player：**已废弃（#H1）**——原为玩家基准，现封顶一律改按 RULES.enemyAnchorBase 固定基准，
+//     保留字段仅为兼容旧调用方（传了也忽略）。
+//   opts.strongest：最强弹种终伤（mvp 由 computeAmmoConfig 预计算传入，避免本文件倒序依赖
+//   tank_cards）；#H1 起缺省改用固定基准伤害推算，见 strongestAnchorDmg。
+//   opts.diffNorm：归一难度 0~1；opts.randFactor：每辆车独立随机浮动（0.85~1.15，运行期随机非 RNG 流，mvp 用 Math.random 生成）。
 // 返回「需要注入的 mult 字典」：只在真正要封顶/抬升时才出现对应键（penMul | dmgFloorMul |
 // dmgCapMul | speedMul），无关键不存在——调用方据此遍历 addModifier，避免无谓注入。
 function difficultyCapMuls(t, opts){
   const out = {};
   const D = (typeof RULES !== 'undefined' && RULES.difficulty) || {};
   opts = opts || {};
-  const player = opts.player;
-  if(!t || !t.base || !t.stats || !player || !player.stats) return out;
+  // #H1：敌军封顶/地板的参照基准 = RULES.enemyAnchorBase（与玩家无关的固定基准）。
+  // 缺 RULES 时回退到模块内字面常量（与 enemyAnchorBase 同值），保证纯函数可脱离 RULES 测试。
+  const A = (typeof RULES !== 'undefined' && RULES.enemyAnchorBase) || {
+    maxHp: 100, penetration: 120, damage: 34, reload: 1.3, maxSpeed: 120,
+    turnRate: 2.0, turretTurnRate: 2.2
+  };
+  if(!t || !t.base || !t.stats) return out;
 
-  // 穿深封顶：penCap = player.penetration × penCapVsPlayer；仅当当前生效值超限才压
-  if(typeof t.stats.penetration === 'number' && typeof player.stats.penetration === 'number'
+  // 穿深封顶：penCap = 固定基准穿深 × penCapVsBaseline；仅当当前生效值超限才压
+  if(typeof t.stats.penetration === 'number' && typeof A.penetration === 'number'
      && typeof t.base.penetration === 'number' && t.base.penetration > 0){
-    const penCap = player.stats.penetration * (D.penCapVsPlayer !== undefined ? D.penCapVsPlayer : 1.2);
+    const penCap = A.penetration * (D.penCapVsBaseline !== undefined ? D.penCapVsBaseline : 1.2);
     if(t.stats.penetration > penCap){
       out.penMul = (penCap - t.stats.penetration) / t.base.penetration + 1;
     }
   }
-  // 伤害地板/天花板（天花板 = 最强弹种终伤 × dmgCapAmmoMult）。floor < cap 恒成立（强弹种
-  // dmg ≥ 玩家 dmg），故二选一注入：低于地板抬升、高于天花板压制，中间不动。
-  if(typeof t.stats.damage === 'number' && typeof player.stats.damage === 'number'
+  // 伤害地板/天花板（天花板 = 参照终伤 × dmgCapAmmoMult）。floor < cap 恒成立（参照终伤
+  // ≥ 基准伤害），故二选一注入：低于地板抬升、高于天花板压制，中间不动。
+  if(typeof t.stats.damage === 'number' && typeof A.damage === 'number'
      && typeof t.base.damage === 'number' && t.base.damage > 0){
-    const floor = player.stats.damage * (D.dmgFloorVsPlayer !== undefined ? D.dmgFloorVsPlayer : 0.4);
-    const strongest = typeof opts.strongest === 'number' ? opts.strongest : 0;
-    const cap = strongest > 0 ? strongest * (D.dmgCapAmmoMult !== undefined ? D.dmgCapAmmoMult : 0.7) : Infinity;
+    const floor = A.damage * (D.dmgFloorVsBaseline !== undefined ? D.dmgFloorVsBaseline : 0.4);
+    // 参照终伤：调用方显式传入 strongest（玩家最强弹种终伤）时按其 × dmgCapAmmoMult；
+    // 缺省（#H1 纯模块/测试路径）改用固定基准伤害 × strongestAnchorMult 推算等效终伤，
+    // 再 × dmgCapAmmoMult —— 保证不传 strongest 时天花板仍有确定值，而非 Infinity。
+    const strongest = typeof opts.strongest === 'number' && opts.strongest > 0 ? opts.strongest : 0;
+    const capRef = strongest > 0 ? strongest
+                 : A.damage * (D.strongestAnchorMult !== undefined ? D.strongestAnchorMult : 2.33);
+    const cap = capRef * (D.dmgCapAmmoMult !== undefined ? D.dmgCapAmmoMult : 0.7);
     if(t.stats.damage < floor){
       out.dmgFloorMul = (floor - t.stats.damage) / t.base.damage + 1;
     } else if(t.stats.damage > cap){
       out.dmgCapMul = (cap - t.stats.damage) / t.base.damage + 1;
     }
   }
-  // ★速度：targetSpeed = lerp(baseFloor, baseCeil, diffNorm) × randFactor × player.maxSpeed。
+  // ★速度：targetSpeed = lerp(baseFloor, baseCeil, diffNorm) × randFactor × 固定基准 maxSpeed。
   // 旧实现直写 t.stats.maxSpeed（完全覆盖 entityMults.maxSpeed）；注入差量系数后同样逐值等价。
-  if(typeof t.stats.maxSpeed === 'number' && typeof player.stats.maxSpeed === 'number' && player.stats.maxSpeed > 0
+  if(typeof t.stats.maxSpeed === 'number' && typeof A.maxSpeed === 'number' && A.maxSpeed > 0
      && typeof t.base.maxSpeed === 'number' && t.base.maxSpeed > 0){
-    const SV = D.speedVsPlayer || { baseFloor: 0.3, baseCeil: 0.6, randMin: 0.85, randMax: 1.15 };
+    const SV = D.speedVsBaseline || { baseFloor: 0.3, baseCeil: 0.5, randMin: 0.85, randMax: 1.15 };
     const diffNorm = typeof opts.diffNorm === 'number' ? Math.max(0, Math.min(1, opts.diffNorm)) : 0;
     const randFactor = typeof opts.randFactor === 'number' ? opts.randFactor : 1;
     const speedFactor = SV.baseFloor + (SV.baseCeil - SV.baseFloor) * diffNorm;
-    const targetSpeed = speedFactor * randFactor * player.stats.maxSpeed;
+    const targetSpeed = speedFactor * randFactor * A.maxSpeed;
     out.speedMul = (targetSpeed - t.stats.maxSpeed) / t.base.maxSpeed + 1;
   }
   return out;
@@ -499,13 +511,14 @@ function applyTankConfig(tank, spec){
 }
 
 /**
- * P-46 敌军专属配置应用（只取外观与类型，不取数值）：
+ * 敌军专属配置应用（只取外观与类型，不取数值）：
  *   1. 复制外观几何（hull/turret/barrel/texture/track 等）与 class 类型；
- *   2. 数值基准由出击时冻结的玩家基准快照 anchorStats × RULES.enemyClassProfiles[class] 设定；
+ *   2. 数值基准由 **固定基准 RULES.enemyAnchorBase** × RULES.enemyClassProfiles[class] 设定；
  *   3. 难度乘子 entityMults 在初始化后注入。
  * @param {any} tank 敌军实体
  * @param {any} spec tanks/*.json 规格
- * @param {any} anchorStats 玩家出击基准 stats 快照（或 null 回退自身基础）
+ * @param {any} [anchorStats] **已废弃（#H1）**——原为玩家基准快照入参，现一律忽略；
+ *   保留该形参仅为兼容旧调用方（mvp/bench/测试仍按位置传第三参）。见 RULES.enemyAnchorBase。
  * @param {any} [entityMults] 难度乘子表
  */
 function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
@@ -574,21 +587,25 @@ function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
     maxHp: 1.0, penetration: 1.0, damage: 1.0, reload: 1.0, maxSpeed: 1.0, turnRate: 1.0, armor: 1.0
   };
 
+  // #H1：数值锚定基准 = RULES.enemyAnchorBase（与玩家无关的固定基准）。
+  // 原实参 anchorStats（玩家出战快照）已废弃并忽略——它含局外永久升级，会让商店购买同比例
+  // 抬高全部敌军，抵消玩家成长收益（#H1 实测：升级买满后敌军穿深 +23.7%/伤害 +30%/血量 +62.5%）。
+  // 缺 RULES 时回退到与 enemyAnchorBase 同值的字面常量（纯函数可脱离 RULES 测试）。
   const b = tank.base;
-  const p = anchorStats || {
+  const p = (typeof RULES !== 'undefined' && RULES.enemyAnchorBase) || {
     maxHp: 100, penetration: 120, damage: 34, reload: 1.3, maxSpeed: 120, turnRate: 2.0, turretTurnRate: 2.2,
     shellSpeed: 1200, weight: 50, enginePower: 700,
     armor: { hull: { front: 100, side: 40, rear: 25 }, turret: { front: 100, side: 40, rear: 25 } }
   };
 
-  // 核心 6 维比例计算
-  b.maxHp = Math.round((p.maxHp !== undefined ? p.maxHp : 100) * (prof.maxHp || 1.0));
-  b.penetration = Math.round((p.penetration !== undefined ? p.penetration : 120) * (prof.penetration || 1.0));
-  b.damage = Math.round((p.damage !== undefined ? p.damage : 34) * (prof.damage || 1.0));
-  b.reload = Math.round((p.reload !== undefined ? p.reload : 1.3) * (prof.reload || 1.0) * 100) / 100;
-  b.maxSpeed = Math.round((p.maxSpeed !== undefined ? p.maxSpeed : 120) * (prof.maxSpeed || 1.0));
-  b.turnRate = Math.round((p.turnRate !== undefined ? p.turnRate : 2.0) * (prof.turnRate || 1.0) * 100) / 100;
-  b.turretTurnRate = Math.round((p.turretTurnRate !== undefined ? p.turretTurnRate : 2.2) * (prof.turnRate || 1.0) * 100) / 100;
+  // 核心 6 维比例计算（相对固定基准的比例缩放）
+  b.maxHp = Math.round(p.maxHp * (prof.maxHp || 1.0));
+  b.penetration = Math.round(p.penetration * (prof.penetration || 1.0));
+  b.damage = Math.round(p.damage * (prof.damage || 1.0));
+  b.reload = Math.round(p.reload * (prof.reload || 1.0) * 100) / 100;
+  b.maxSpeed = Math.round(p.maxSpeed * (prof.maxSpeed || 1.0));
+  b.turnRate = Math.round(p.turnRate * (prof.turnRate || 1.0) * 100) / 100;
+  b.turretTurnRate = Math.round(p.turretTurnRate * (prof.turnRate || 1.0) * 100) / 100;
 
   // 杂项属性兜底保留
   b.shellSpeed = p.shellSpeed || 1200;

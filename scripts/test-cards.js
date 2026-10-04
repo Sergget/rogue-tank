@@ -678,6 +678,45 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
   ok(!seenSwap.has('mortar'), '#B8: 同型重复 install 不再进候选');
 }
 
+// ===== #J2（2026-09-30）主武器换装必须重置 stats 基线（不继承旧武器专有机制）=====
+// 用户反馈：「获得电磁炮后再获得其他主炮，似乎会继承可穿透弹药的特性」。
+// 根因：install 用 `Object.assign({}, 旧 stats, overrides)` 合并，railgun 的
+// `pierce`/`pierceDmgMul`（js/tank_fire.js firePrimaryShell 据此赋予弹体贯穿）被带进新武器。
+{
+  // 复用文件顶部已 require 的 model（块内重复声明同名 const 会触发 tsc TS2300 重复标识符）
+  const mkPrimaryInstall = (id, wType, overrides) => ({
+    id: id, name: id, rarity: 'epic', maxStacks: 1,
+    effects: [Object.assign({ type: 'weapon', action: 'install', slot: 'primary', weaponType: wType }, overrides ? { statOverrides: overrides } : {})]
+  });
+
+  const t = model.makeTank({ team: 'player' });
+  cardsMod.applyCardEffects(t, mkPrimaryInstall('p_railgun', 'railgun'));
+  ok(t.weapons.primary.type === 'railgun' && t.weapons.primary.stats.pierce === 1,
+    `#J2: 装上 railgun 后带 pierce=${t.weapons.primary.stats.pierce}（贯穿能力生效）`);
+
+  // 换装成普通标准炮 —— 不得继承 pierce/pierceDmgMul
+  cardsMod.applyCardEffects(t, mkPrimaryInstall('p_standard', 'standard'));
+  ok(t.weapons.primary.type === 'standard', '#J2: 主武器换装为 standard');
+  ok(t.weapons.primary.stats.pierce === undefined,
+    `#J2: 换装后**不继承** pierce（实际 ${t.weapons.primary.stats.pierce}）——旧实现的缺陷已修`);
+  ok(t.weapons.primary.stats.pierceDmgMul === undefined,
+    `#J2: 换装后**不继承** pierceDmgMul（实际 ${t.weapons.primary.stats.pierceDmgMul}）`);
+
+  // 换装成双联火炮 —— 旧弹夹/贯穿键都不得残留，且新类型自己的键写入正确
+  cardsMod.applyCardEffects(t, mkPrimaryInstall('p_db', 'double_barrel', { count: 2 }));
+  ok(t.weapons.primary.type === 'double_barrel' && t.weapons.primary.stats.count === 2,
+    `#J2: 换装双联火炮并应用卡牌覆写（count=${t.weapons.primary.stats.count}）`);
+  ok(t.weapons.primary.stats.pierce === undefined && t.weapons.primary.stats.pierceDmgMul === undefined,
+    '#J2: 换装双联后仍无任何 pierce 残留键');
+
+  // 同型安装保持幂等合并语义（不重置 tanks/*.json 自定义数值）
+  const t2 = model.makeTank({ team: 'player' });
+  cardsMod.applyCardEffects(t2, mkPrimaryInstall('p_c1', 'autocannon', { heatPerShot: 99 }));
+  cardsMod.applyCardEffects(t2, mkPrimaryInstall('p_c2', 'autocannon', { fxScale: 0.42 }));
+  ok(t2.weapons.primary.stats.heatPerShot === 99 && t2.weapons.primary.stats.fxScale === 0.42,
+    `#J2: 同型重复安装为合并语义，两张卡的覆写都保留（heat=${t2.weapons.primary.stats.heatPerShot} fx=${t2.weapons.primary.stats.fxScale}）`);
+}
+
 // ===== #C3（2026-09-17）→ #D5（2026-09-19 用户反馈「弹种升级速度太快」改概率触发）=====
 // 保底语义保留：chance=1 时 200/200 命中且恰 1 张；默认概率（RULES.cards 0.4）统计区间断言。
 {

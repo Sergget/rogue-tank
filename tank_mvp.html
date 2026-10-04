@@ -83,6 +83,14 @@
   #abilityBtns .abtn.ammo-slot .label{font-weight:700;}
   #abilityBtns .abtn.skill-btn{border-color:#5cc8ff; color:#5cc8ff;}
   #abilityBtns .abtn.skill-btn:hover{background:rgba(92,200,255,0.15);}
+  /* #J4（2026-09-30 用户反馈「导弹无法发射」）：锁定式导弹的激活/锁定状态可视化。
+     此前 `_missileActivated` 激活后**没有任何 UI 反馈**——玩家按 F 之后若炮塔没对准目标
+     （±30° 扇形）或目标在 600px 射程外，导弹既不发也不提示，表现为「按了没反应」。
+     两态：lock-hunting = 已激活但未锁定（琥珀脉动，「在找目标」）；lock-on = 锁定计时中（绿色）。 */
+  #abilityBtns .abtn.lock-hunting{border-color:var(--amber); color:var(--amber);
+    animation:lockHuntPulse 0.9s ease-in-out infinite;}
+  @keyframes lockHuntPulse{ 0%,100%{box-shadow:0 0 0 rgba(255,180,84,0);} 50%{box-shadow:0 0 10px rgba(255,180,84,0.7);} }
+  #abilityBtns .abtn.lock-on{border-color:var(--green); color:var(--green); background:rgba(126,217,87,0.12);}
   /* #G（2026-09-21 用户需求 #7）：技能槽常驻显示「技能名 + 按键 + 冷却」——技能区独立于武器区 */
   #skillBtns{display:flex; gap:6px;}
   #skillBtns .abtn{position:relative; min-width:52px; height:30px; display:flex; flex-direction:column;
@@ -94,6 +102,27 @@
   #skillBtns .abtn .skey{font-size:8px; color:var(--text-dim); line-height:1;}
   #skillBtns .abtn.gray{opacity:0.45; border-color:var(--line); color:var(--text-dim);}
   #skillBtns .abtn.empty{opacity:0.3; border-style:dashed; cursor:default;}
+  /* #H3（2026-09-30）：技能槽选择面板——槽满时由玩家指定顶替哪一格 */
+  #skillSlotPicker{position:absolute; inset:0; z-index:60;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.55); font-family:'JetBrains Mono',monospace;}
+  #skillSlotPicker .picker-box{min-width:280px; padding:14px 16px;
+    background:#14150f; border:1px solid #5cc8ff; box-shadow:0 0 24px rgba(0,0,0,0.6);}
+  #skillSlotPicker .picker-title{font-size:12px; letter-spacing:2px; color:#5cc8ff; margin-bottom:8px;}
+  #skillSlotPicker .picker-hint{font-size:10px; color:var(--text-dim); margin-bottom:10px; line-height:1.5;}
+  #skillSlotPicker .picker-row{display:flex; align-items:center; gap:8px; width:100%;
+    padding:7px 9px; margin-bottom:5px; background:transparent; border:1px solid var(--line);
+    color:var(--text); font-family:'JetBrains Mono',monospace; font-size:11px;
+    text-align:left; cursor:pointer;}
+  #skillSlotPicker .picker-row:hover{border-color:#5cc8ff; color:#5cc8ff; background:rgba(92,200,255,0.12);}
+  #skillSlotPicker .picker-row .pkey{width:14px; color:var(--amber); font-weight:700;}
+  #skillSlotPicker .picker-row .pnow{color:var(--text-dim); font-size:10px;}
+  #skillSlotPicker .picker-row .pnew{color:var(--green); font-size:10px;}
+  #skillSlotPicker .picker-foot{margin-top:8px; text-align:right;}
+  #skillSlotPicker .picker-foot button{padding:4px 12px; background:transparent;
+    border:1px solid var(--line); color:var(--text-dim); font-family:'JetBrains Mono',monospace;
+    font-size:10px; cursor:pointer;}
+  #skillSlotPicker .picker-foot button:hover{border-color:var(--text-dim); color:var(--text);}
   #skillBtns .abtn .cd{position:absolute; top:2px; right:2px;
     background:#0c0d09; border:1px solid #5cc8ff; color:#5cc8ff;
     font-size:9px; padding:0 3px; border-radius:3px; line-height:1.2;}
@@ -309,9 +338,9 @@
     <div class="hudZone" id="hudWeapons">
       <div class="hudZoneTitle">武器 WEAPONS</div>
       <div id="abilityBtns">
-        <button class="abtn ammo-slot" id="slot1" title="主弹药槽 1（E/Q 环形切换 / 点击选择）"><span class="label">AP</span><span class="num">1</span></button>
-        <button class="abtn ammo-slot" id="slot2" title="副弹药槽 2（E/Q 环形切换 / 点击选择）"><span class="label">--</span><span class="num">2</span></button>
-        <button class="abtn ammo-slot" id="slot3" title="备用弹药槽 3（E/Q 环形切换 / 点击选择）"><span class="label">--</span><span class="num">3</span></button>
+        <button class="abtn ammo-slot" id="slot1" title="主弹药槽 1（Q/E 环形切换 / 点击选择）"><span class="label">AP</span><span class="num">●</span></button>
+        <button class="abtn ammo-slot" id="slot2" title="副弹药槽 2（Q/E 环形切换 / 点击选择）"><span class="label">--</span><span class="num">○</span></button>
+        <button class="abtn ammo-slot" id="slot3" title="备用弹药槽 3（Q/E 环形切换 / 点击选择）"><span class="label">--</span><span class="num">○</span></button>
         <button class="abtn" id="btn4" title="修理箱 (4)">修<span class="cd" id="cd4"></span><span class="num">4</span></button>
         <button class="abtn" id="btn5" title="医疗包 (5)">医<span class="cd" id="cd5"></span><span class="num">5</span></button>
         <button class="abtn" id="btn6" title="自动灭火器 (6)">灭<span class="cd" id="cd6"></span><span class="num">6</span></button>
@@ -327,6 +356,16 @@
         <button class="abtn skill-btn" id="skillSlot2" title="技能池 2" style="display:none;"><span class="slabel">--</span><span class="skey">2</span><span class="cd" id="cdS2"></span></button>
         <button class="abtn skill-btn" id="skillSlot3" title="技能池 3" style="display:none;"><span class="slabel">--</span><span class="skey">3</span><span class="cd" id="cdS3"></span></button>
       </div>
+    </div>
+  </div>
+  <!-- #H3（2026-09-30）：技能槽选择面板——槽满时由玩家指定新技能顶替哪一格（循环复用）。
+       默认隐藏；openSkillSlotPicker() 填充候选后显示，点击某格即完成顶替。 -->
+  <div id="skillSlotPicker" style="display:none;">
+    <div class="picker-box">
+      <div class="picker-title">技能槽指派 SKILL SLOTS</div>
+      <div class="picker-hint" id="skillSlotPickerHint">选择要装配到哪个槽位（顶替该槽当前技能）</div>
+      <div id="skillSlotPickerList"></div>
+      <div class="picker-foot"><button id="skillSlotPickerCancel">取消</button></div>
     </div>
   </div>
   <div id="gainToast"></div>
@@ -472,6 +511,7 @@
        须晚于 tank_entity.js 加载；mvp 侧用于 mine_layer 手动布雷的 spawnMine/deployables 注入 fireCtx） -->
   <script src="js/tank_deployables.js"></script>
   <script src="js/tank_move.js"></script>
+  <script src="js/tank_ai_squad.js"></script>
   <script src="js/tank_ai.js"></script>
   <script src="js/tank_revive.js"></script>
   <script src="js/tank_economy.js"></script>
@@ -513,6 +553,8 @@ const flow = createFlow('home');   // M10：局外三态入口——首页(存�
 let run = null;            // generateRun() 结果：线性节点链
 let currentNode = null;    // 当前节点数据（makeNode 产出）
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
+// #N5（2026-10-01）：存活敌军缓存（AI 循环每帧填充），供屏幕外来袭方向提示复用。
+let aiEnemiesCache = [];
 // #E9（2026-09-20）：Boss 蓄能激光当前帧的绘制数据 { kind:'charge'|'fire', x,y,angle,width,length,progress }
 let bossLaserFx = null;
 // #E4（2026-09-20）：已确认待生成的雷场 [{x,y,radius,count,t}]——t 为剩余延时（秒）
@@ -522,7 +564,10 @@ let runKills = 0;          // 本局累计击杀数（P-34 终局汇总展示）
 let runScoreSpent = 0;
 let runFinished = false;   // P-34 开放式链后恒为 false（链不再收束，终局走 gameover/voluntaryEnd）
 let profile = loadProfile(localStorage);   // P-14：跨局存档（商店点数 + 永久升级 + 统计）
-let playerAnchorStats = null; // P-46: 玩家出击时刻冻结的基准属性快照（敌军数值锚定基数）
+// #H1（2026-09-30）：原 P-46「玩家出击时刻冻结的基准属性快照」已整体退役 —— 敌军数值改锚定
+// 固定基准 RULES.enemyAnchorBase，玩家 stats（含局外永久升级）不再参与敌军强度。
+// 保留此变量仅为兼容可能引用它的调试钩子，恒为 null，不再被赋值或消费。
+let playerAnchorStats = null;
 const MM = { w: 170, h: 120, x: 0, y: 10 };   // 小地图框（右上角，x 绘制时按 canvas 宽算）
 function setBenchCamera(){
   cam.bounds = { w: canvas.width, h: canvas.height };
@@ -569,7 +614,13 @@ function inMenuState(){ return MENU_STATES.indexOf(flow.state) >= 0; }
 const input = createInputController({
   preventKeys: [' ', 'tab'],
   settings: () => profile.settings,
-  gate: (action) => action === 'pauseToggle' ? true : !inMenuState(),
+  gate: (action) => {
+    // #H3（2026-09-30）：技能槽选择面板打开时吞掉全部按键（Esc 由面板自身监听器处理），
+    //   否则按 1/2/3 会同时「关面板」又「施放槽位技能」。
+    const pk = document.getElementById('skillSlotPicker');
+    if(pk && pk.style.display !== 'none') return false;
+    return action === 'pauseToggle' ? true : !inMenuState();
+  },
   actions: {
     ammoNext: () => cycleAmmo(1),                    // E：下一个弹种
     ammoPrev: () => cycleAmmo(-1),                   // Q：上一个弹种
@@ -681,13 +732,20 @@ document.getElementById('slot1')?.addEventListener('click', () => selectAmmoSlot
 document.getElementById('slot2')?.addEventListener('click', () => selectAmmoSlot(1));
 document.getElementById('slot3')?.addEventListener('click', () => selectAmmoSlot(2));
 // #G（2026-09-21）：技能池槽点击 = 按对应数字键（与 skillHotkey 同一路径）
-document.getElementById('skillSlot1')?.addEventListener('click', () => skillHotkey(1));
-document.getElementById('skillSlot2')?.addEventListener('click', () => skillHotkey(2));
-document.getElementById('skillSlot3')?.addEventListener('click', () => skillHotkey(3));
+// #H3（2026-09-30）：槽位改为**玩家可指派**——点击空槽，或 Shift+点击已装备槽，
+//   打开选择面板挑一个已获得但未入槽的技能顶替该格（槽满时新技能也走此路径循环复用）。
+document.getElementById('skillSlot1')?.addEventListener('click', (e) => onSkillSlotClick(1, e));
+document.getElementById('skillSlot2')?.addEventListener('click', (e) => onSkillSlotClick(2, e));
+document.getElementById('skillSlot3')?.addEventListener('click', (e) => onSkillSlotClick(3, e));
 document.getElementById('btn4')?.addEventListener('click', tryRepairKit);
 document.getElementById('btn5')?.addEventListener('click', tryMedkit);
 document.getElementById('btn6')?.addEventListener('click', tryExtinguish);
 document.getElementById('btnF')?.addEventListener('click', () => trySecondaryFire(true));   // #C4e：F 按钮=击发副武器（force：绕过键盘边沿）
+// #H3（2026-09-30）：技能槽选择面板的取消/关闭（Esc 亦可，走下方 keydown 门控）
+document.getElementById('skillSlotPickerCancel')?.addEventListener('click', () => {
+  closeSkillSlotPicker();
+  playSound('ui');
+});
 document.getElementById('btnG')?.addEventListener('click', tryStrike);
 document.getElementById('btnH')?.addEventListener('click', () => tryShield(true));
 
@@ -733,6 +791,16 @@ function trySecondaryFire(force){   // #F7：force=true 时绕过 mine_layer 键
 // 与主循环的按住连发语义解耦。门控对齐输入控制器（局外菜单/面板打开时不响应）。
 window.addEventListener('keydown', (e) => {
   if(e && e.repeat) return;                                   // 按住自动重复不算新的一次
+  // #H3（2026-09-30）：技能槽选择面板打开时，Esc 关闭面板并吞掉该次按键
+  //   （否则同一 Esc 还会触发 pauseToggle，把面板和暂停菜单一起弹出）。
+  const pickerEl = document.getElementById('skillSlotPicker');
+  if(pickerEl && pickerEl.style.display !== 'none'){
+    if(String((e && e.key) || '') === 'Escape'){
+      closeSkillSlotPicker();
+      e.preventDefault();
+    }
+    return;
+  }
   if(String((e && e.key) || '').toLowerCase() !== 'f') return;
   if(inMenuState() || statusOpen || devOpen) return;
   const p = player;
@@ -743,14 +811,30 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ================= #E5 锁定制反坦克导弹（F 激活 → 索敌 → 锁定 → 立即发射） =================
-// 与线导式的区别：锁定式**不需要**玩家手动瞄准/引导——F 一旦按下即进入激活态，逐帧由
-// updateMissileLock 在炮塔 ±lockArcDeg 扇形内索敌并计时；锁定完成立即发射制导弹。
-// 再次按 F 取消激活。HUD 通过 player._missileActivated / _missileLock 反馈状态。
+// 与线导式的区别：F 一旦按下即进入激活态，逐帧由 updateMissileLock 在炮塔 ±lockArcDeg 扇形内
+// 索敌并计时；锁定完成立即发射制导弹；再次按 F 取消激活。
+// #J4（2026-09-30 用户反馈「导弹无法发射」）：本机制**需要玩家把炮塔对准目标并保持**，
+//   而旧版激活后没有任何可见反馈 —— 炮塔未对准（超出 ±lockArcDeg 扇形）或目标在射程外时
+//   导弹既不发也不提示，玩家只能得到「按了 F 没反应」。现补齐三处反馈：
+//     ① 激活提示直接写明**锁定条件**（扇形角 + 射程 + 锁定耗时）；
+//     ② HUD `btnF` 显示「索（未锁定）/ n%（锁定中）」并变色（见 updateBottomHud）；
+//     ③ 激活后 0.6s 仍无目标 → 一次性提示**缺的是哪一条**（射程内有没有敌人 / 炮塔是否对准）。
+function missileLockParams(){
+  const w = (player && player.weapons && player.weapons.secondary) || null;
+  const cfg = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults('secondary', 'missile') : {};
+  const st = (w && w.stats) || {};
+  return {
+    range: (typeof st.range === 'number') ? st.range : (cfg.range || 600),
+    arcDeg: (typeof st.lockArcDeg === 'number') ? st.lockArcDeg : (cfg.lockArcDeg || 30),
+    lockSeconds: (typeof st.lockSeconds === 'number') ? st.lockSeconds : (cfg.lockSeconds || 1.0)
+  };
+}
 function tryActivateMissileLock(){
   if(!player || !player.weapons || !player.weapons.secondary) return;
   if(player._missileActivated){
     player._missileActivated = false;
     player._missileLock = null;
+    player._missileHintT = 0;
     pushLog('导弹锁定已取消', 'COVER');
     playSound('ui');
     return;
@@ -761,7 +845,10 @@ function tryActivateMissileLock(){
   }
   player._missileActivated = true;
   player._missileLock = null;
-  pushLog('导弹激活 — 索敌中（锁定完成自动发射，再按 F 取消）', 'PEN');
+  player._missileHintT = 0;        // #J4：无目标提示计时（主循环消费）
+  player._missileHintShown = false; // #J4：每次激活只提示一次
+  const p = missileLockParams();
+  pushLog(`导弹激活 — 索敌中：需炮塔 ±${Math.round(p.arcDeg)}° 内、${Math.round(p.range)}px 内目标，锁定 ${p.lockSeconds}s 后自动发射（再按 F 取消）`, 'PEN');
   playSound('ui');
 }
 
@@ -769,54 +856,278 @@ function tryActivateMissileLock(){
 // 第一次 F：在鼠标位置显示「拟生成的雷场形状」（mineFieldPreview，绘制层消费）；
 // 第二次 F：确认布设 → 延时 mineFieldDelay(4s) 后在预形态位置生成整片雷场。
 // 移动鼠标不改变已确认的落点；雷场位置在确认瞬间定格（RULES.abilities.deploy_limits）。
+//
+// #H2（2026-09-30 用户反馈「地雷无法释放」）修复三处：
+//   ① 装填冷却门控缺失：原实现既不检查 player.secondaryReloadT，确认后也不写入 —— 15s 装填
+//      完全失效（可无冷却连点）。现与单发路径（js/tank_weapons.js fireActiveSecondary）同口径：
+//      冷却中拒绝并提示，确认后写入 reload / debuffReload（specs/combat.md §8.1）。
+//   ② 数量/上限自相矛盾：RULES 里 mineFieldCount(5) > mineMax(3)，而生成侧又用
+//      `n = min(mineMax, count)` 钳到 3，配上「existing + n > cap 即拒绝」的判据，
+//      导致**首轮布满 3 枚后所有后续雷场 100% 被丢弃**（实测第 2/3 轮均 0 新增）。
+//      现改为按可用余量裁剪：n = clamp(count, 1, cap − existing)，只在 existing ≥ cap 时拒绝，
+//      剩 2 格就布 2 枚 —— 雷场可多次布设，符合 #F6「超限拒绝且保留已布地雷」的原意。
+//   ③ 预形态绘制与实际落点数量不一致：绘制层同样调用 mineFieldCountNow()，保证所见即所得。
+function mineFieldCountNow(){
+  const dcfg = (RULES.abilities && RULES.abilities.deploy_limits) || {};
+  const want = dcfg.mineFieldCount !== undefined ? dcfg.mineFieldCount : 5;
+  const cap = (typeof deployableCap === 'function') ? deployableCap('mine', player)
+            : (dcfg.mineMax !== undefined ? dcfg.mineMax : 3);
+  const existing = (typeof deployableCount === 'function') ? deployableCount('mine') : 0;
+  if(!isFinite(cap)) return want;                       // 无上限（异常配置）→ 按配置足量
+  return Math.max(0, Math.min(want, cap - existing));   // 按余量裁剪；0 = 无处可布
+}
 function handleMineFieldF(){
   const dcfg = (RULES.abilities && RULES.abilities.deploy_limits) || {};
   const delay = dcfg.mineFieldDelay !== undefined ? dcfg.mineFieldDelay : 4;
   const radius = dcfg.mineFieldRadius !== undefined ? dcfg.mineFieldRadius : 70;
-  const count = dcfg.mineFieldCount !== undefined ? dcfg.mineFieldCount : 5;
   // #F5（2026-09-20 用户反馈）：同一时刻仅允许一个待生成雷场，禁止连续预约无限布雷
   if(pendingMineFields.length > 0){
     pushLog('已有雷场待生成 — 无法重复预约', 'COVER');
     playSound('ui');
     return;
   }
+  // #H2①：装填冷却门控（与副武器通用击发路径同口径）
+  if(player.secondaryReloadT > 0){
+    pushLog(`布雷器装填中 — 剩余 ${player.secondaryReloadT.toFixed(1)}s`, 'COVER');
+    return;
+  }
+  // #H2②：按可用余量决定本次可布数量；余量为 0 时立即拒绝（不再让玩家白等 4s 才发现失败）
+  const count = mineFieldCountNow();
+  if(count <= 0){
+    const cap = deployableCap('mine', player);
+    pushLog(`地雷已达上限（${cap}）— 清除或等待存续结束后再布雷`, 'COVER');
+    playSound('ui');
+    return;
+  }
   if(!player._mineFieldPreview){
     player._mineFieldPreview = { x: mouseWorld.x, y: mouseWorld.y, radius: radius, count: count, t: 0 };
-    pushLog('雷场预形态已显示 — 再按一次 F 确认布设（4s 后生成）', 'PEN');
+    pushLog(`雷场预形态已显示 — 再按一次 F 确认布设（${delay}s 后生成 ${count} 枚地雷）`, 'PEN');
     playSound('ui');
     return;
   }
   const pv = player._mineFieldPreview;
   player._mineFieldPreview = null;
   pendingMineFields.push({ x: pv.x, y: pv.y, radius: radius, count: count, t: delay });
+  // #H2①：确认即进入装填（布雷受 secondaryReloadT 门控，单发 15s —— 与 specs/combat.md §8.1 一致）
+  const secStats = (player.weapons && player.weapons.secondary && player.weapons.secondary.stats) || {};
+  const reload = typeof secStats.reload === 'number' && secStats.reload > 0 ? secStats.reload
+                : (dcfg.mineFieldReload !== undefined ? dcfg.mineFieldReload : 15);
+  const rate = (typeof debuffReloadRate === 'function') ? debuffReloadRate(player) : 1;
+  player.secondaryReloadT = reload / (rate > 0 ? rate : 1);
   pushLog(`雷场已确认 — ${delay}s 后在标记点生成 ${count} 枚地雷`, 'CRIT');
   playSound('ui');
 }
 
 // 阶段六 6.1：数字键 1/2/3 → 主动技能快捷键池（优先映射玩家已装备的主动技能）
+// #H3/#H4（2026-09-30 用户裁定「循环复用，按玩家选择顶替掉某个槽位的技能」）技能槽体系。
+//
+// 旧实现的三个缺陷（均为浏览器实测复现）：
+//   #H3(a) artillery / shield 既有专属键按钮（btnG / btnH），又被自动塞进技能池槽位
+//          → 同一技能在 UI 上出现两个按钮；
+//   #H3(b) 槽位固定 3 个、运行时技能键有 7 个（ABILITY_KEYS_RUNTIME），第 4 个及以后的技能
+//          既无槽位也无键位 → 彻底无法激活（TAB 面板不提供激活入口）；
+//   #H3(c) 技能槽角标写死 1/2/3，而弹种槽 title 又写「主弹药槽 1」暗示数字键切弹 ——
+//          角标与 KEY_BINDINGS（1/2/3 = skill1~3，弹种走 Q/E）语义冲突；
+//   #H4    skillHotkey 的 owned[num-1] 缺失时回落到 fallbackList(['deploy_cover','artillery'])，
+//          按隐藏的 3 号键会**实际触发 1 号槽的技能**（部署掩体）。
+//
+// 现行口径：
+//   · 槽位 = player.skillSlots（长度 3，元素为 ability key 或 null），**只在技能池槽位内触发**；
+//   · 新技能先自动填入空槽；槽满时**弹出选择面板由玩家指定顶替哪一格**（循环复用），不自动顶掉；
+//   · 数字键严格映射槽位，**无 fallback**（#H4 消除隐藏键误触发）；
+//   · 专属键按钮（btnG/btnH）仅在该技能**未被分配到任何槽位**时显示 —— 同一技能只出现一个按钮。
+const SKILL_SLOT_COUNT = 3;
+// 技能键 → 激活动作（唯一派发表；槽位与专属键共用，避免两处实现漂移）
+const SKILL_DISPATCH = {
+  deploy_cover: () => tryDeployCover(),
+  artillery: () => tryStrike(),
+  shield: () => tryShield(true),
+  overdrive: () => tryOverdrive(),
+  super_fire_control: () => trySuperFireControl(),
+  super_speed: () => trySuperSpeed(),
+  aps: () => tryAps()
+  // 2026-09-23 A 档：删除死分支 recon（其调用的 tryDroneCommand 全仓库无定义，恒为 no-op）
+};
+// 专属键按钮 → ability key（该技能不在槽位内时的并列入口）
+const SKILL_DEDICATED_KEYS = { artillery: 'btnG', shield: 'btnH' };
+
+// 玩家已持有的主动技能键（按获得顺序去重）
+function ownedAbilityKeys(){
+  return Array.from(new Set((player && player.cardEffects || [])
+    .filter(ef => ef && ef.type === 'ability' && ef.key)
+    .map(ef => ef.key)));
+}
+// 槽位数组（惰性初始化为长度 3 的 [null,null,null]）
+function skillSlots(){
+  if(!player) return [null, null, null];
+  if(!Array.isArray(player.skillSlots) || player.skillSlots.length !== SKILL_SLOT_COUNT){
+    player.skillSlots = [null, null, null];
+  }
+  return player.skillSlots;
+}
+function resetSkillSlots(){
+  if(player) player.skillSlots = [null, null, null];
+}
+// 对账：清掉已不再持有的槽位，并把新获得的技能填入空槽。
+// 返回「填不进槽位的技能键数组」（长度 > 0 即需玩家选择顶替哪一格）。
+function syncSkillSlots(){
+  const owned = ownedAbilityKeys();
+  const slots = skillSlots();
+  const ownedSet = new Set(owned);
+  // ① 已失效（回滚/dev 面板移除）的槽位清空
+  for(let i = 0; i < SKILL_SLOT_COUNT; i++){
+    if(slots[i] && !ownedSet.has(slots[i])) slots[i] = null;
+  }
+  // ② 同一技能只占一格（去重）
+  const used = new Set();
+  for(let i = 0; i < SKILL_SLOT_COUNT; i++){
+    if(slots[i] && used.has(slots[i])) slots[i] = null;
+    else if(slots[i]) used.add(slots[i]);
+  }
+  // ③ 已获得但未入槽的技能按顺序填入空槽
+  const unassigned = [];
+  for(const key of owned){
+    if(used.has(key)) continue;
+    const free = slots.indexOf(null);
+    if(free >= 0){ slots[free] = key; used.add(key); }
+    else unassigned.push(key);
+  }
+  return unassigned;
+}
+// 把 key 指定到第 idx 槽（顶替）；key 已在其他槽则先移除旧位（不产生重复入口）
+function assignSkillSlot(idx, key){
+  if(idx < 0 || idx >= SKILL_SLOT_COUNT) return false;
+  if(!key) return false;
+  const slots = skillSlots();
+  for(let i = 0; i < SKILL_SLOT_COUNT; i++){
+    if(i !== idx && slots[i] === key) slots[i] = null;
+  }
+  slots[idx] = key;
+  return true;
+}
+// 数字键 1/2/3 → 严格按槽位派发（#H4：删除 fallbackList，空槽不响应）
 function skillHotkey(num){
   if(!player) return;
-  const owned = Array.from(new Set((player.cardEffects || []).filter(ef => ef && ef.type === 'ability' && ef.key).map(ef => ef.key)));
-  const DISPATCH = {
-    deploy_cover: () => tryDeployCover(),
-    artillery: () => tryStrike(),
-    shield: () => tryShield(true),
-    overdrive: () => tryOverdrive(),
-    super_fire_control: () => trySuperFireControl(),   // #C4a：接入技能池 DISPATCH（此前战斗中无法激活）
-    super_speed: () => trySuperSpeed(),                // #C4a：同上
-    aps: () => tryAps()                                // #G（2026-09-21）：主动防御系统
-    // 2026-09-23 A 档：删除死分支 recon（其调用的 tryDroneCommand 全仓库无定义，恒为 no-op）
-  };
-  let key = owned[num - 1];
+  const key = skillSlots()[num - 1];
   if(!key){
-    const fallbackList = ['deploy_cover', 'artillery'];
-    key = fallbackList[(num - 1) % fallbackList.length];
+    pushLog(`技能槽 ${num} 为空 — 点击该槽可选择要装配的技能`, 'COVER');
+    return;
   }
-  if(DISPATCH[key] && hasAbility(player, key)){
-    DISPATCH[key]();
-  } else if(DISPATCH[key]){
-    pushLog(`未装备第 ${num} 个主动技能（${key}）`, 'COVER');
+  const fn = SKILL_DISPATCH[key];
+  if(!fn){ pushLog(`技能槽 ${num} 的能力（${key}）无激活入口`, 'COVER'); return; }
+  if(!hasAbility(player, key)){ syncSkillSlots(); return; }
+  fn();
+}
+
+// ---------- 技能槽选择面板（#H3：循环复用，由玩家指定顶替哪一格） ----------
+// 两种模式：
+//   mode='slot'  —— 「选槽位」：槽已满且又获得新技能时弹出，列出 3 个槽（各显当前技能），
+//                   玩家点哪一格，新技能就顶替哪一格（即「循环复用，由玩家选择顶替」）。
+//   mode='skill' —— 「选技能」：玩家对某个槽改指时弹出，列出全部已获得技能，点谁装谁（可清空）。
+const skillLabelOf = (key) => (typeof ABILITY_LABELS !== 'undefined' && ABILITY_LABELS[key]) || key || '空';
+// 已获得但当前未占用任何槽位的技能
+function unassignedAbilityKeys(){
+  const used = skillSlots().filter(Boolean);
+  return ownedAbilityKeys().filter(k => !used.includes(k));
+}
+function closeSkillSlotPicker(){
+  const el = document.getElementById('skillSlotPicker');
+  if(el) el.style.display = 'none';
+}
+/**
+ * @param {string} mode 'slot' | 'skill'
+ * @param {any} payload 'slot' 模式 = 新技能 key；'skill' 模式 = 目标槽下标
+ */
+function openSkillSlotPicker(mode, payload){
+  const el = document.getElementById('skillSlotPicker');
+  const list = document.getElementById('skillSlotPickerList');
+  const hint = document.getElementById('skillSlotPickerHint');
+  if(!el || !list) return false;
+  const slots = skillSlots();
+  list.innerHTML = '';
+  if(mode === 'slot'){
+    const key = payload;
+    if(!key) return false;
+    if(hint) hint.textContent = `「${skillLabelOf(key)}」需要占用一个槽位 — 点击要顶替的槽位`;
+    for(let i = 0; i < SKILL_SLOT_COUNT; i++){
+      const b = document.createElement('button');
+      b.className = 'picker-row';
+      b.innerHTML = '<span class="pkey">' + (i + 1) + '</span>'
+        + '<span>' + skillLabelOf(slots[i]) + '</span>'
+        + '<span class="pnew">← 顶替为 ' + skillLabelOf(key) + '</span>';
+      b.addEventListener('click', () => {
+        assignSkillSlot(i, key);
+        pushLog(`技能槽 ${i + 1} 已装配「${skillLabelOf(key)}」`, 'PEN');
+        if(skillSlotPendingQueue[0] === key) onSkillSlotAssigned();
+        else closeSkillSlotPicker();
+        playSound('ui');
+      });
+      list.appendChild(b);
+    }
+  } else {
+    const idx = payload;
+    if(typeof idx !== 'number' || idx < 0 || idx >= SKILL_SLOT_COUNT) return false;
+    if(hint) hint.textContent = `为槽位 ${idx + 1} 选择技能（当前「${skillLabelOf(slots[idx])}」）`;
+    for(const key of ownedAbilityKeys()){
+      const b = document.createElement('button');
+      b.className = 'picker-row';
+      b.innerHTML = '<span class="pkey">' + (slots[idx] === key ? '●' : '○') + '</span>'
+        + '<span>' + skillLabelOf(key) + '</span>';
+      b.addEventListener('click', () => {
+        assignSkillSlot(idx, key);
+        pushLog(`技能槽 ${idx + 1} 已装配「${skillLabelOf(key)}」`, 'PEN');
+        closeSkillSlotPicker();
+        playSound('ui');
+      });
+      list.appendChild(b);
+    }
+    const clr = document.createElement('button');
+    clr.className = 'picker-row';
+    clr.innerHTML = '<span class="pkey">×</span><span>清空该槽</span>';
+    clr.addEventListener('click', () => {
+      slots[idx] = null;
+      pushLog(`技能槽 ${idx + 1} 已清空`, 'COVER');
+      closeSkillSlotPicker();
+    });
+    list.appendChild(clr);
   }
+  el.style.display = 'flex';
+  return true;
+}
+// 槽按钮点击：空槽且有可指派技能 → 开面板；否则按数字键施放。Shift+点击 = 改指该槽。
+function onSkillSlotClick(num, ev){
+  if(!player) return;
+  if(ev && ev.shiftKey){ openSkillSlotPicker('skill', num - 1); return; }
+  if(!skillSlots()[num - 1] && unassignedAbilityKeys().length){
+    openSkillSlotPicker('skill', num - 1);
+    return;
+  }
+  skillHotkey(num);
+}
+// 待指派队列：获得技能后装不进槽的技能按序排队，玩家每次选一格顶替，队列自动续上
+// （#H3：此前只弹 leftover[0]，第 2 个起的待指派技能被静默丢弃 —— 玩家永远装配不上它们）。
+let skillSlotPendingQueue = [];
+// 获得技能后的槽位对账：有技能装不进槽（槽满）→ 弹面板让玩家选顶替哪一格（循环复用）
+function reconcileSkillSlotsAfterGain(){
+  const leftover = syncSkillSlots();
+  for(const k of leftover){
+    if(!skillSlotPendingQueue.includes(k)) skillSlotPendingQueue.push(k);
+  }
+  pumpSkillSlotPicker();
+  return leftover;
+}
+// 队列非空且面板未开 → 弹下一个待指派技能
+function pumpSkillSlotPicker(){
+  const el = document.getElementById('skillSlotPicker');
+  if(!skillSlotPendingQueue.length) return false;
+  if(el && el.style.display !== 'none') return false;      // 面板已开，等玩家操作
+  return openSkillSlotPicker('slot', skillSlotPendingQueue[0]);
+}
+// 玩家选定后：出队并继续弹下一个
+function onSkillSlotAssigned(){
+  const next = skillSlotPendingQueue.shift();
+  closeSkillSlotPicker();
+  if(next) pumpSkillSlotPicker();
 }
 
 // 切弹/技能热键已收敛至输入控制器（上方 createInputController actions）。
@@ -1024,9 +1335,8 @@ const devAim = { zeroSpread: false };
 // #C5（2026-09-19）：测试台独有作弊项对齐进 mvp 开关 Tab（无敌常驻/秒装填，会话内有效不持久化）
 // #F：面板 cheats 状态由共享 API 持有，onCheatChange 同步回本对象供主循环逐帧消费
 const devCheat = { invuln: false, instantReload: false };
-// #F7（2026-09-20）：devNoVision 由 #89 视野系统处上移至此——mountDevPanel 调用先于原定义位置，
-// cheatsInit 直接读取触发 TDZ（页面加载即中断、Home 态不渲染，浏览器实测发现）。
-let devNoVision = false;   // dev 面板开关：跳过视野剔除
+// #J3（2026-09-30）：`devNoVision`（dev 面板「无视野」开关）随视野距离系统退役**删除**
+// （它控制的正是已下线的可视圆剔除）；共享 dev 面板中的对应按钮同步移除（tank_devpanel.js）。
 
 // 卡牌池（P-09 真实卡池；reward 三选一与 dev 面板共用）
 let cardPool = [];
@@ -1096,11 +1406,12 @@ function spawnBossSummonWave(bossEntity, wave){
     s.aiReactEnabled = true;                      // #E7：召唤物同样有反应延迟
     const spec = tankListData && tankListData[wave.tankId];
     // #I5（2026-09-23 用户反馈「boss 召唤的小兵移动速度太快」）：召唤小兵改走与节点敌军/
-    // 增援同一条 P-46 锚定链（applyEnemyAppearanceAndStats：只取外观，数值锚定玩家出击
-    // 基准快照 × 兵种 profile），不再 applyTankConfig 整包照搬 tanks/*.json 的原始机动值。
+    // 增援同一条难度链（applyEnemyAppearanceAndStats：只取外观，数值锚定**固定基准**
+    // RULES.enemyAnchorBase × 兵种 profile），不再 applyTankConfig 整包照搬 tanks/*.json 的原始机动值。
     // 难度乘子表同节点敌军口径（applyEnemyAppearanceAndStats 内注入 entityMults）。
+    // #H1（2026-09-30）：第三参 anchorStats 已废弃并忽略——不再传玩家基准快照。
     if(typeof applyEnemyAppearanceAndStats === 'function'){
-      applyEnemyAppearanceAndStats(s, spec, playerAnchorStats || (player ? player.stats : null),
+      applyEnemyAppearanceAndStats(s, spec, null,
         currentNode ? currentNode.entityMults : null);
     } else {
       if(spec) applyTankConfig(s, spec);
@@ -1156,6 +1467,9 @@ function enterBattle(nodeIndex){
   player.x = node.playerSpawn.x; player.y = node.playerSpawn.y;
   player.hullAngle = 0; player.turretAngle = 0;
   cam.x = player.x; cam.y = player.y;        // 相机瞬间对齐出生点
+  // #N2（2026-10-01）：进节点重置攻守分工状态——名额与角色不得跨节点串用
+  // （新节点的敌军集合与难度都不同，沿用旧 pressSlots/roles 会造成首帧角色错配）。
+  if(typeof resetSquad === 'function') resetSquad();
   // #H5（2026-09-21）：进节点缩放不再强制适配（可见距离屏幕相对化）——保留玩家当前缩放偏好
   materializeNode(node, {
     keepIds: ['player'].concat(entities.filter(e => e.isDrone).map(e => e.id)),   // P-17：无人机随行跨节点保留（随行单位语义）
@@ -1169,9 +1483,10 @@ function enterBattle(nodeIndex){
     spawnTank(spec){ return spawnTank(spec); },
     configureTank(t, tankId){
       const spec = tankListData && tankListData[tankId];
-      // P-46: 敌军只取外观与类型，数值锚定玩家出击基准快照
+      // #H1（2026-09-30）：敌军只取外观与类型，数值锚定固定基准 RULES.enemyAnchorBase
+      //   （原传玩家基准快照 playerAnchorStats —— 已废弃并忽略）
       if(typeof applyEnemyAppearanceAndStats === 'function'){
-        applyEnemyAppearanceAndStats(t, spec, playerAnchorStats || player.stats);
+        applyEnemyAppearanceAndStats(t, spec, null);
       } else {
         if(spec) applyTankConfig(t, spec);
         if(spec && typeof deriveTankClass === 'function') t.tankClass = deriveTankClass(spec);
@@ -1242,12 +1557,15 @@ function finishNode(cleared){
 }
 
 // #76 A：敌军属性全面难度分化（原 enterBattle 内联闭包提升为页级函数；P-38 增援同规则应用）
-// applyPlayerCap（缺省 true）：增援/普通敌军遭受 "玩家能力封顶"（#92 新方案，2026-08-25）——
-//   穿深：≤ player.penetration × RULES.difficulty.penCapVsPlayer(1.2)；
-//   伤害：钳入 [player.damage × dmgFloorVsPlayer(0.4), 0.7 × 玩家最强弹种最终伤害(dmgCapAmmoMult)]；
-//   ★速度：maxSpeed = lerp(0.3, 0.6, diffNorm) × player.maxSpeed × randFactor(0.85~1.15/辆独立随机)，
+// applyPlayerCap（缺省 true）：增援/普通敌军遭受 "基准能力封顶"（#A16 → #H1 改为固定基准口径）——
+//   穿深：≤ enemyAnchorBase.penetration × RULES.difficulty.penCapVsBaseline(1.2)；
+//   伤害：钳入 [enemyAnchorBase.damage × dmgFloorVsBaseline(0.4), 0.7 × 参照终伤(dmgCapAmmoMult)]；
+//   ★速度：maxSpeed = lerp(0.3, 0.5, diffNorm) × randFactor(0.85~1.15/辆独立随机)，
+//     × **enemyAnchorBase.maxSpeed**（固定基准，非玩家）；
 //     diffNorm 由 currentNode.difficulty 归一（0.15~0.95 → 0~1）——同节点不同敌速度不同；
 //   turnRate/turretTurnRate 不再封顶（保留 entityMults 缩放）。
+// #H1（2026-09-30）：四键全部改按固定基准 RULES.enemyAnchorBase，不再以玩家 stats 为参照——
+//   局外永久升级/选车一律不影响敌军强度，敌军只随节点难度变化。
 // Boss 调用时传 false 跳封顶（Boss 可正经超越玩家；RULES.boss.tuning.penMul 由 boss-author 消费）。
 function applyDifficultyMults(t, mults, applyPlayerCap){
   if(!mults) return;                                 // 玩家/据点实体绝不走此路径
@@ -1264,25 +1582,19 @@ function applyDifficultyMults(t, mults, applyPlayerCap){
     addModifier(t, { stat: 'armor.turret', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
   }
   t.hp = t.stats.maxHp; t.maxHp = t.stats.maxHp;
-  // P-46: 三键封顶（penCapVsPlayer/dmgFloorVsPlayer/dmgCapAmmoMult）+ 速度封顶（speedVsPlayer）
+  // P-46: 三键封顶（penCapVsBaseline/dmgFloorVsBaseline/dmgCapAmmoMult）+ 速度封顶（speedVsBaseline）
   // 统一在此处通过 difficultyCapMuls 派生差量 mult 注入（source 'difficulty-cap'），
   // 经 addModifier/scope:'run' 生命周期收敛 —— 不再绕过 modifiers 三层结构。
-  // B4（2026-09）：此前 guard `!playerAnchorStats` 使封顶只在「无快照兜底」时触发；而快照模式
-  //（playerAnchorStats 总被设值）下封顶永远跳过 → 高难敌人速度超越玩家。移除该死码条件，
-  // 快照/非快照均封顶（Boss 仍传 applyPlayerCap=false 跳过）。
-  if(applyPlayerCap && typeof player !== 'undefined' && player && player.stats){
-    let strongest = 0;
-    if(typeof computeAmmoConfig === 'function'){
-      for(const key of ['ap', 'apcr', 'heat']){
-        const ac = computeAmmoConfig(player, key);
-        if(ac && typeof ac.dmg === 'number') strongest = Math.max(strongest, ac.dmg * player.stats.damage + (ac.dmgAdd || 0));
-      }
-    }
+  // #H1：difficultyCapMuls 的参照基准已在模块内改为 RULES.enemyAnchorBase —— 此处**不再传 player**
+  //   （传了也会被忽略；保留调用形态最小化 diff）。`strongest` 同步改为固定基准推算的缺省路径：
+  //   传入玩家最强弹种终伤会让卡牌弹种升级抬高敌军伤害天花板，与 #H1 意图冲突，故不再计算。
+  // Boss 仍传 applyPlayerCap=false 跳过。
+  if(applyPlayerCap){
     const diff = (currentNode && typeof currentNode.difficulty === 'number') ? currentNode.difficulty : 0.15;
     const diffNorm = Math.max(0, Math.min(1, (diff - 0.15) / (0.95 - 0.15)));
     const randFactor = 0.85 + Math.random() * 0.30;
     const caps = (typeof difficultyCapMuls === 'function')
-      ? difficultyCapMuls(t, { player: player, strongest: strongest, diffNorm: diffNorm, randFactor: randFactor })
+      ? difficultyCapMuls(t, { diffNorm: diffNorm, randFactor: randFactor })
       : {};
     const CAP_STAT = { penMul: 'penetration', dmgFloorMul: 'damage', dmgCapMul: 'damage', speedMul: 'maxSpeed' };
     for(const key in caps){
@@ -1306,7 +1618,8 @@ function spawnReinforcement(spec){
   t.aiTier = (spec.aiTier !== undefined) ? spec.aiTier : (currentNode.aiTier || 0);
   const td = tankListData && tankListData[spec.tankId];
   if(typeof applyEnemyAppearanceAndStats === 'function'){
-    applyEnemyAppearanceAndStats(t, td, playerAnchorStats || player.stats);
+    // #H1（2026-09-30）：增援同走固定基准口径（第三参玩家快照已废弃并忽略）
+    applyEnemyAppearanceAndStats(t, td, null);
   } else {
     if(td) applyTankConfig(t, td);
     resetEntity(t);
@@ -1386,15 +1699,25 @@ function pickCard(card){
       showGainToast(`已安装副武器：${SECONDARY_LABELS[ef.weaponType] || ef.weaponType}（F 键击发）`);
     }
   }
+  // #H3（2026-09-30）：技能槽对账 —— 新技能先自动填入空槽；**槽满时弹面板由玩家选择顶替哪一格**
+  //   （循环复用：运行时技能键 7 个 > 槽位 3 个，第 4 个起不再是死技能）。
+  if(applied.some(ef => ef.type === 'ability')){
+    reconcileSkillSlotsAfterGain();
+  }
   // #B10（2026-09-16）：获得技能 → 对应底部技能按钮金色脉冲闪烁 3 秒（此前 G/H 静默出现、
   // 其余技能完全无反馈）。按钮显隐仍由 updateBottomHud 逐帧按 hasAbility 刷新，此处只做一次性高亮。
   // #H3（2026-09-21）：overdrive 移除专属按钮（btnV 删除）——技能池槽的获得脉冲走 updateBottomHud
   // 的 skillSlot 渲染路径（同名技能进入槽位即有常驻显示）。
+  // #H3（2026-09-30）：脉冲目标改为「该技能所在槽位」；已入槽的技能专属键按钮隐藏（避免同一技能两按钮），
+  //   故此处优先高亮 skillSlot，未入槽时退回专属键按钮。
   const BTN_BY_ABILITY = { artillery:'btnG', shield:'btnH' };
   for(const ef of applied){
     if(ef.type !== 'ability') continue;
-    const btnId = BTN_BY_ABILITY[ef.key];
-    const el = btnId && document.getElementById(btnId);
+    // 优先高亮该技能所占的技能池槽；未入槽时才退回专属键按钮（btnG/btnH）
+    const slotIdx = skillSlots().indexOf(ef.key);
+    const el = slotIdx >= 0
+      ? document.getElementById('skillSlot' + (slotIdx + 1))
+      : (BTN_BY_ABILITY[ef.key] ? document.getElementById(BTN_BY_ABILITY[ef.key]) : null);
     if(!el) continue;
     el.classList.remove('skill-gain');    // 重启动画（同局重复获得）
     // 强制 reflow 后再挂类，保证连续获得两次时动画从头播
@@ -1826,8 +2149,7 @@ function startNewRun(){
 	  saveProfile(localStorage, profile);
 	  removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
 	  prepPlayerForRun();                           // M10：出战坦克配置 + 永久升级重挂 + 复活次数（含加购）
-	  // P-46：出击时刻冻结玩家基准属性快照（深拷贝，单局内不变）
-	  playerAnchorStats = JSON.parse(JSON.stringify(player.stats));
+	  // #H1（2026-09-30）：原「冻结玩家基准属性快照」已退役（敌军改锚定固定基准 enemyAnchorBase）
 	  // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
 	  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
 	  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
@@ -1862,8 +2184,7 @@ document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   runScoreSpent = 0;                              // P-41 账本：新局归零（刷新卡牌等花费记账用）
   removeRunModifiers(player);                   // P-12：清除上一局单局修饰器
   prepPlayerForRun();                            // M10：坦克配置 + 升级重挂 + 复活次数（含加购）
-  // P-46：出击时刻冻结玩家基准属性快照
-  playerAnchorStats = JSON.parse(JSON.stringify(player.stats));
+  // #H1（2026-09-30）：原「冻结玩家基准属性快照」已退役（敌军改锚定固定基准 enemyAnchorBase）
   profile.difficultyLevel = 0;                  // 难度重置
   saveProfile(localStorage, profile);
   transition(flow, 'battle', { nodeIndex: 0 });
@@ -2140,6 +2461,8 @@ function prepPlayerForRun(){
   if(spec) applyTankConfig(player, spec);            // selectedTankId → 玩家实体配置（找不到则保持默认车）
   // 2026-09-14 新局从 0 开始（除永久升级）：上一局的卡牌升级（cardEffects：主动技能/
   // 无人机/被动/副武器安装/弹种改造）不得带入 —— 全部清零。
+  // #H3（2026-09-30）：技能槽跨局重置——卡牌能力本身不跨局，槽位指派随之归零
+  resetSkillSlots();
   player.cardEffects = [];
   clearDrones(player);                               // 随行无人机属 cardEffects 派生，一并清
   player.unlockedAmmo = ['ap', 'he'];                // 弹种解锁进度不跨局（开局恒 ap/he）
@@ -2179,8 +2502,7 @@ function beginRunFromMenu(){
   runShopLevels = {};                                // 2026-09-14：局内商店升级不跨局
   prepPlayerForRun();
   // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
-  // P-46：出击时刻冻结玩家基准属性快照（深拷贝，单局内不变）
-  playerAnchorStats = JSON.parse(JSON.stringify(player.stats));
+  // #H1（2026-09-30）：原「冻结玩家基准属性快照」已退役（敌军改锚定固定基准 enemyAnchorBase）
   // P-34：env.difficultyLevel 注入跨局难度等级（新开局强制重置 Lv.0）
   run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });   // __TEST__.setSeed 一次性透传
   runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
@@ -2245,13 +2567,11 @@ const devPanelApi = mountDevPanel({
   cardClick: pickCard,
   cheatsInit: {
     zeroSpread: (typeof devAim !== 'undefined') ? devAim.zeroSpread : false,
-    noVision: (typeof devNoVision !== 'undefined') ? devNoVision : false,
     invuln: (typeof devCheat !== 'undefined') ? devCheat.invuln : false,
     instantReload: (typeof devCheat !== 'undefined') ? devCheat.instantReload : false
   },
   onCheatChange: (k, v) => {
     if(k === 'zeroSpread') devAim.zeroSpread = v;
-    if(k === 'noVision') devNoVision = v;
     if(k === 'invuln' || k === 'instantReload') devCheat[k] = v;
   },
   onGenNode: devGenNode,
@@ -2289,13 +2609,13 @@ let fireCtx = null;
 // #B10（2026-09-16）：能力键提示表补全——pickCard 获得提示与 skillHotkey 1/2/3 技能池 DISPATCH
 // 对齐（此前仅 G/H/V 三键有提示，deploy_cover/super_fire_control/super_speed/recon 获得后零反馈）。
 const ABILITY_KEY_HINT = {
-  artillery: '炮击支援（G 键 / 1~3 号技能键）',
-  shield: '战术护盾（H 键，Shift+H 全向 / 1~3 号技能键）',
-  overdrive: '超级装填（1~3 号技能键）',
-  deploy_cover: '战术掩体（1~3 号技能键，车前部署充能掩体）',
-  super_fire_control: '超级火控（限时精度/瞄准强化，1~3 号技能键触发）',
-  super_speed: '超级速度（限时机动强化，1~3 号技能键触发）',
-  aps: '主动防御系统（1~3 号技能键，限时拦截来袭弹药）',
+  artillery: '炮击支援（G 键 / 技能槽数字键）',
+  shield: '战术护盾（H 键，Shift+H 全向 / 技能槽数字键）',
+  overdrive: '超级装填（技能槽数字键）',
+  deploy_cover: '战术掩体（技能槽数字键，车前部署充能掩体）',
+  super_fire_control: '超级火控（限时精度/瞄准强化，技能槽数字键触发）',
+  super_speed: '超级速度（限时机动强化，技能槽数字键触发）',
+  aps: '主动防御系统（技能槽数字键，限时拦截来袭弹药）',
   // #G（2026-09-21）：innate 装备键提示补全（此前获得即有 HUD 按钮，但日志文案缺位）
   repair: '修理箱（4 键，修复模块损伤）',
   medkit: '医疗包（5 键，治疗乘员）',
@@ -2520,18 +2840,37 @@ function update(dt){
       lk._notified = true;
       pushLog('导弹锁定完成 — 发射！', 'PEN');
     }
+    // #J4（2026-09-30）：激活后持续无锁定 → 一次性说明**缺哪一条**（射程外 / 炮塔未对准），
+    //   否则玩家按了 F 看到导弹纹丝不动，只知道「发不出去」而不知为什么。
+    if(!lk && player.secondaryReloadT <= 0){
+      player._missileHintT = (player._missileHintT || 0) + dt;
+      if(player._missileHintT >= 0.6 && !player._missileHintShown){
+        player._missileHintShown = true;
+        const mp = missileLockParams();
+        const anyInRange = entities.some(e => e && e.hp > 0 && e.team === 'enemy' && !e.isDrone
+          && Math.hypot(e.x - player.x, e.y - player.y) <= mp.range);
+        pushLog(anyInRange
+          ? `导弹未锁定 — 炮塔需指向目标 ±${Math.round(mp.arcDeg)}° 扇形内（已有目标在 ${Math.round(mp.range)}px 射程内，转动炮塔对准即可）`
+          : `导弹未锁定 — ${Math.round(mp.range)}px 射程内没有敌对目标（靠近或改用其他武器）`, 'COVER');
+      }
+    }
+  } else if(player._missileHintShown || player._missileHintT){
+    player._missileHintT = 0; player._missileHintShown = false;   // 取消激活 / 换武器 → 复位提示
   }
   // ================= #E4（2026-09-20）雷场延时生成 =================
   for(let i = pendingMineFields.length - 1; i >= 0; i--){
     const pf = pendingMineFields[i];
     pf.t -= dt;
     if(pf.t > 0) continue;
-    const n = Math.max(1, Math.min(RULES.abilities.deploy_limits.mineMax || 3, pf.count || 5));
-    // #F6（2026-09-20 用户反馈）：雷场生成前拒绝超限，保留已布地雷（不再淘汰最早的）。
-    // 超限拒绝时该预约取消（不加 splice 提前，否则「旧的失效」——预约被无提示移除）。
+    // #H2②（2026-09-30）：预约时已按可用余量裁剪过数量，此处按**生成时刻**的余量再裁一次
+    // （预约后 4s 内玩家可能已用掉余量）。余量为 0 才拒绝取消；部分余量则按余量布设——
+    // 不再出现「首轮布满后 100% 全被丢弃」（原判据 existing + min(mineMax,count) > cap 恒真）。
     const cap = (typeof deployableCap === 'function') ? deployableCap('mine', player) : null;
     const existing = (typeof deployableCount === 'function') ? deployableCount('mine') : 0;
-    if(cap !== null && existing + n > cap){
+    const room = (cap === null) ? (pf.count || 5) : (cap - existing);
+    const n = Math.max(0, Math.min(pf.count || 5, room));
+    if(n <= 0){
+      // #F6（2026-09-20 用户反馈）：无处可布时拒绝该预约，保留已布地雷（不淘汰最早的）。
       pendingMineFields.splice(i, 1);
       pushLog(`地雷已达上限（${cap}）— 雷场未生成（保留已布地雷）`, 'COVER');
       playSound('ui');
@@ -2553,7 +2892,7 @@ function update(dt){
     burstExplosion(pf.x, pf.y, 0.4, 6, 4, 6);
     pushLog(`雷场生成 — ${n} 枚地雷已布设`, 'CRIT');
     playSound('ui');
-    enforceDeployLimits('mine');
+    enforceDeployLimits('mine', player);
   }
   if(player.recoilT>0) player.recoilT = Math.max(0, player.recoilT-dt);
   if(player.fireDebuffT>0) player.fireDebuffT -= dt;
@@ -2579,8 +2918,8 @@ function update(dt){
     getPartZRange,
     getExposure,
     findCoversOnPath,
-    // #E1（2026-09-20）：视野圈外不绘制的实体不再拦弹（消除「炮弹被不可见物体拦截」）。
-    hiddenByVision: entityHiddenByVision,
+    // #J3（2026-09-30）：原 #E1 的 hiddenByVision 注入已随视野距离系统退役删除
+    // —— js/tank_fire.js 不再有该命中剔除钩子（`entityHiddenByVision` 仍保留供渲染剔除与 __TEST__ 探针）。
     shellPartHit,
     coverNormalAt,
     reflectDir,
@@ -2723,6 +3062,14 @@ function update(dt){
       // #E6（2026-09-20）：敌军世界边界（修复「敌人跑到地图范围之外」）——AI 与玩家同口径钳制
       worldBounds: currentNode ? { minX: 0, minY: 0, maxX: currentNode.w, maxY: currentNode.h } : null
     };
+    // #N2（2026-10-01）：攻守分工协调 —— 每 reassignInterval 秒按「距离/视线/血量」评分
+    // 重新分配 press（有限名额主动压上）/ flank（侧翼绕行）/ hold（原地掩护）角色。
+    // 目的：消除「一拥而上」——改前所有敌人各自独立算 dist>engage 便全体推进。
+    // 协调器只写 t.aiRole，不产生位移（移动仍由 aiDecide 的交战带/机动层执行）。
+    aiEnemiesCache = aiCtx.enemies;   // #N5：供屏幕外威胁方向提示复用（避免绘制期重复过滤）
+    if(typeof updateSquad === 'function'){
+      updateSquad(Object.assign({}, aiCtx, { diff: (currentNode && currentNode.difficulty) || 0 }));
+    }
     for(const e of entities){
       if(e.id === 'player') continue;   // 手动控制
       if(e.isDrone) continue;           // P-17：无人机无 hull 几何/射界，不参与坦克 AI 与 driveTank（由 tank_drone.js 管理）
@@ -3203,7 +3550,8 @@ function updateBottomHud(){
       ? '公路 +' + Math.round((player.roadBonus) * RSp.kmhFactor / (RSp.pxFactor * RSp.effMul)) + 'km/h' : '';
   }
 
-  // 1-3 弹种槽位更新（数字角标显示当前弹种名与快捷切弹 Q/E 提示，点击仍可切弹）
+  // 弹种槽位更新（#H3：角标只表示「当前选中 ●/○」，**不再显示 1/2/3 数字** ——
+  // 数字键 1/2/3 已归技能池 skill1~3，弹种切换走 Q/E；原角标暗示「按 1 切第一发」与实际键位矛盾）
   const loadout = (player.ammoLoadout && player.ammoLoadout.length) ? player.ammoLoadout : [player.ammoKey || 'ap'];
   for(let i = 0; i < 3; i++){
     const slotBtn = document.getElementById(`slot${i+1}`);
@@ -3238,27 +3586,64 @@ function updateBottomHud(){
 
   // #C4e（2026-09-17）：F=副武器击发按钮——有副武器即显示，图标字符随武器类型切换，
   // .cd 角标显示装填剩余秒数（#C4d：副武器冷却图标，此前 HUD 完全无副武器指示）。
+  // #J4（2026-09-30 用户反馈「导弹无法发射」）：锁定式导弹补**状态反馈**（此前激活后零可见反馈，
+  //   炮塔未对准或超出射程时玩家完全不知道导弹为什么不动）：
+  //     未激活 → 角标显示装填秒数；title 说明「F 激活索敌」
+  //     已激活·未锁定 → 角标 `索` + 琥珀脉动（lock-hunting），title 说明缺少哪个条件
+  //     已激活·锁定中 → 角标显示锁定百分比 + 绿色（lock-on）
   const btnF = document.getElementById('btnF');
   const secW = (player.weapons && player.weapons.secondary) ? player.weapons.secondary : null;
   const hasSec = !!(secW && secW.type && secW.type !== 'none');
+  const isLockMissile = hasSec && secW.type === 'missile';
+  let fBadge = '';
   if(btnF){
     btnF.style.display = hasSec ? '' : 'none';
+    btnF.classList.remove('lock-hunting', 'lock-on');
     if(hasSec){
       const iconEl = document.getElementById('btnFIcon');
       if(iconEl) iconEl.textContent = SECONDARY_ICONS[secW.type] || 'F';
-      btnF.title = secW.type === 'turret'
-        ? '副炮塔（自主开火，无需操作）'
-        : `副武器击发（F，按住连发）：${SECONDARY_LABELS[secW.type] || secW.type}`;
+      const mCfg = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults('secondary', 'missile') : {};
+      const mStats = secW.stats || {};
+      const mRange = Math.round((typeof mStats.range === 'number') ? mStats.range : (mCfg.range || 600));
+      const mArc = Math.round((typeof mStats.lockArcDeg === 'number') ? mStats.lockArcDeg : (mCfg.lockArcDeg || 30));
+      const mLock = (typeof mStats.lockSeconds === 'number') ? mStats.lockSeconds : (mCfg.lockSeconds || 1.0);
+      if(isLockMissile){
+        const act = !!player._missileActivated;
+        const lk = player._missileLock;
+        if(!act){
+          btnF.title = `反坦克导弹（锁定式）：按 F 激活索敌 → 炮塔 ${mArc}° 内、${mRange}px 内目标锁定 ${mLock}s 后自动发射；再按 F 取消`;
+        } else if(lk && lk.target && lk.target.hp > 0){
+          const pct = Math.max(0, Math.min(100, Math.round(lk.t / Math.max(0.001, mLock) * 100)));
+          fBadge = pct + '%';
+          btnF.classList.add('lock-on');
+          btnF.title = `锁定中 ${pct}% — 目标已捕获，锁定完成自动发射（按 F 取消）`;
+        } else {
+          // 已激活但没锁到目标：这是「按了 F 导弹不动」的真实成因，必须说清缺什么
+          fBadge = '索';
+          btnF.classList.add('lock-hunting');
+          btnF.title = `索敌中 — 未找到可锁定目标：需要敌对目标位于炮塔 ±${mArc}° 扇形内且距离 ≤ ${mRange}px（按 F 取消）`;
+        }
+      } else {
+        btnF.title = secW.type === 'turret'
+          ? '副炮塔（自主开火，无需操作）'
+          : `副武器击发（F，按住连发）：${SECONDARY_LABELS[secW.type] || secW.type}`;
+      }
     }
   }
   const secRl = (hasSec && player.secondaryReloadT > 0) ? player.secondaryReloadT : 0;
-  cd('cdF', secRl > 0 ? secRl.toFixed(1) : '', secRl > 0);
+  // 装填中优先显示秒数（锁定态只在装填就绪后才可能出现）
+  cd('cdF', secRl > 0 ? secRl.toFixed(1) : (isLockMissile ? fBadge : ''), secRl > 0);
 
+  // #H3（2026-09-30）：专属键按钮（btnG=炮击 G / btnH=护盾 H）**仅在该技能未占用技能池槽位时**
+  //   显示 —— 修复「同一技能在技能区出现两个按钮」（实测 artillery 同时点亮 btnG 与 skillSlotN）。
+  //   入槽后该技能统一由槽位按钮 + 对应数字键呈现，冷却角标也只在槽位上显示。
+  const slotsNow = skillSlots();
+  const inSlot = (key) => slotsNow.indexOf(key) >= 0;
   const btnG = document.getElementById('btnG');
-  if(btnG) btnG.style.display = hasAbility(player, 'artillery') ? '' : 'none';
+  if(btnG) btnG.style.display = (hasAbility(player, 'artillery') && !inSlot('artillery')) ? '' : 'none';
 
   const btnH = document.getElementById('btnH');
-  if(btnH) btnH.style.display = hasAbility(player, 'shield') ? '' : 'none';
+  if(btnH) btnH.style.display = (hasAbility(player, 'shield') && !inSlot('shield')) ? '' : 'none';
 
   // #H3（2026-09-21）：btnV 删除——overdrive 常驻显示走技能池槽 skillSlot1~3（下段渲染）
 
@@ -3266,34 +3651,37 @@ function updateBottomHud(){
   // #H3（2026-09-21）：cdV 角标删除——overdrive 冷却显示走技能池槽（skillSlot 渲染段）
   const cdA = (player.abilityCds && player.abilityCds.artillery) || 0;
   cd('cdG', cdA > 0 ? cdA.toFixed(0) : '', cdA > 0);
-  const cdS = (player.abilityCds && player.abilityCds.shield) || 0;
-  cd('cdH', cdS > 0 ? cdS.toFixed(0) : '', cdS > 0);
+  const cdSh = (player.abilityCds && player.abilityCds.shield) || 0;
+  cd('cdH', cdSh > 0 ? cdSh.toFixed(0) : '', cdSh > 0);
 
-  // #G（2026-09-21 用户需求 #7）：技能池 1/2/3 常驻槽 —— 显示「技能名 + 按键 + 冷却」。
-  // 序列必须与 skillHotkey(n) 的实际映射一致：owned = cardEffects ability 键去重列表
-  //（不过滤 artillery/shield/overdrive——数字键同样可触发它们，G/H/V 只是并列的专属键）。
-  const poolKeys = (player.cardEffects || [])
-    .filter(ef => ef && ef.type === 'ability' && ef.key)
-    .map(ef => ef.key)
-    .filter((k, i, a) => a.indexOf(k) === i);
+  // #G（2026-09-21 用户需求 #7）+ #H3（2026-09-30）：技能池 1/2/3 常驻槽 —— 显示「技能名 + 键位 + 冷却」。
+  // 槽位内容直接读 player.skillSlots（玩家可指派），**不再**由 cardEffects 顺序自动推导 ——
+  // 后者会导致：同一技能两个按钮、槽满后第 4 个技能无处安放、空槽仍可被数字键误触发。
+  // 槽位语义：空格 = 未指派（可点击指派）；Shift+点击 = 改指该槽。
   const ABL = (typeof ABILITY_LABELS !== 'undefined') ? ABILITY_LABELS : {};
-  for(let n = 1; n <= 3; n++){
+  for(let n = 1; n <= SKILL_SLOT_COUNT; n++){
     const slot = document.getElementById('skillSlot' + n);
     if(!slot) continue;
-    const key = poolKeys[n - 1];
+    const key = skillSlots()[n - 1];
     if(key && hasAbility(player, key)){
       slot.style.display = '';
+      slot.classList.remove('empty');
       const lbl = slot.querySelector('.slabel');
       if(lbl) lbl.textContent = ABL[key] || key;
-      slot.title = `${ABL[key] || key}（${n}）`;
+      const dedicated = (key === 'artillery') ? '，亦可按 G'
+                      : (key === 'shield') ? '，亦可按 H' : '';
+      slot.title = `${ABL[key] || key}（${n}）${dedicated}｜Shift+点击改指`;
       const c = (player.abilityCds && player.abilityCds[key]) || 0;
       const cdEl = document.getElementById('cdS' + n);
       if(cdEl) cdEl.textContent = c > 0 ? c.toFixed(0) : '';
       slot.classList.toggle('gray', c > 0);
     } else if(key){
-      // 已分配但冷却池里持有检查未过（异常兜底）：隐藏
+      // 已分配但冷却池里持有检查未过（异常兜底）：同步清空该槽后隐藏
+      skillSlots()[n - 1] = null;
       slot.style.display = 'none';
     } else {
+      // #H3：空槽**不显示**（保持技能区紧凑）——指派入口在获得新技能时弹面板，
+      // 或 Shift+点击已装备槽改指。空槽隐藏同时保证「数字键按了没反应」= 真的没装。
       slot.style.display = 'none';
     }
   }
@@ -3545,6 +3933,45 @@ function drawMissileLock(ctx){
   ctx.restore();
 }
 
+// #N5（2026-10-01）视口外来袭方向提示（玩家侧信息层）。
+// 背景：视野距离系统 #J3 退役后敌人「一律可被命中」，但绘制仍有 aabbInView 视口剔除，
+//   而 AI 开火只看「距离 + 直线视野」⇒ 视口外敌人可开火而玩家看不到来源（「屏幕边缘被动
+//   受击」的直接机制）。用户裁定：**不给敌人加可见性门控**（保留边缘压迫感），只把威胁
+//   方向告知玩家。筛选/排序由 js/tank_ai_squad.js threatIndicators（纯逻辑、可测）完成，
+//   此处只做屏幕空间几何绘制（复用 worldToScreen + 边缘矩形求交，同 drawDroneIndicators）。
+function drawThreatIndicators(){
+  if(typeof threatIndicators !== 'function') return;
+  const list = threatIndicators(player, aiEnemiesCache, viewBounds(cam), { maxCount: 6, rangeMul: 1.4 });
+  if(!list.length) return;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const margin = 24;
+  const halfW = canvas.width / 2 - margin, halfH = canvas.height / 2 - margin;
+  for(const it of list){
+    const sp = worldToScreen(cam, it.e.x, it.e.y);
+    const dx = sp.x - cx, dy = sp.y - cy;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    // 视口中心 → 目标射线与边缘矩形（margin 内缩）的交点
+    let t = Infinity;
+    if(ux > 0) t = Math.min(t, halfW / ux); else if(ux < 0) t = Math.min(t, -halfW / ux);
+    if(uy > 0) t = Math.min(t, halfH / uy); else if(uy < 0) t = Math.min(t, -halfH / uy);
+    const ax = cx + ux * t, ay = cy + uy * t;
+    // 离屏越近（距离越短）越不透明，给玩家紧迫度层级
+    const near = Math.max(0, Math.min(1, 1 - it.dist / (520 * 1.4)));
+    ctx.save();
+    ctx.globalAlpha = 0.45 + 0.5 * near;
+    ctx.translate(ax, ay);
+    ctx.rotate(Math.atan2(dy, dx));
+    ctx.fillStyle = 'rgba(255,196,64,0.95)';      // 琥珀色：与无人机红箭头区分（那是敌情侦察，这是来袭警告）
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(11, 0); ctx.lineTo(-6, -7); ctx.lineTo(-6, 7); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+}
+
 function drawDroneIndicators(){
   const inds = droneIndicators(cam, entities);
   if(!inds.length) return;
@@ -3581,47 +4008,31 @@ function drawDroneIndicators(){
   }
 }
 
-// ---------- #89 视野系统 v1（用户终版：纯距离，无 LoS 遮挡） ----------
-// 可视圆心 C = player.pos + normalize(mouseWorld − player.pos) × bias × radius（RULES.vision）。
-// 敌对存活实体（含 Boss；不含据点/友军/无人机）若 dist(E,C) > radius 且 dist(E,player) > inner×radius
-// → 主画布跳过绘制（其炮弹仍绘制）。友军/据点/拾取恒可见。小地图敌军点始终绘制不受影响。
+// ---------- 视野系统（#89 v1 → #D2 → #H5 → #K1 → **#J3 退役**） ----------
+// #J3（2026-09-30 用户裁定「改为全屏幕渲染敌人，不再计算视野距离的问题」）：整套「可视圆」机制
+//   （鼠标锚定圆心 bias×R / 屏幕相对半径 / 车内圈 / 视野虚线圈 / 视野卡 commander_sight）**全部下线**。
+//   敌人一律渲染、一律可被命中；画面上不再有看不见的玩法边界。
+//   ⚠ 敌人 AI 的接战判定与之**无关且保持不变**：仍是「距离达标 + 有直线视野」，遮挡由
+//   `js/tank_cover.js hasLineOfSight` 按掩体的 `vision:true` 键（建筑/岩石/树/灌木/树冠）判定
+//   —— 即用户要求的「距离 + 是否有直线视野（建筑或草丛、树冠等）」。
+// 保留 VISION_CFG 仅供调试钩子 `__TEST__.visionZoom()` 读取，不再参与任何渲染/命中判定。
 const VISION_CFG = (typeof RULES !== 'undefined' && RULES.vision) ? RULES.vision : { radius: 900, bias: 0.35, inner: 0.45 };
-// #F7：devNoVision 定义已上移至 :949（devAim/devCheat 旁）——此处原 let 声明因 mountDevPanel
-// 调用（:2137）先于本行读取而触发 TDZ，页面加载即中断（浏览器实测发现）。
-// #D2（2026-09-19）：视野半径接卡牌被动 commander_sight（车长潜望镜 rare / 车长观瞄镜 epic）。
-// value 为百分比加成（缺省按 25，与 scripts/validate-content.js commander_sight 口径一致）；
-// 多来源取最大（与 spall_liner「取最强」同语义）。此前两张视野卡为死效果（零消费者），
-// 持卡后视野无变化 → 用户体感「升级反而造成视野下降」。
 function visionRadiusEff(){
-  let bonus = 0;
-  const ces = (player && Array.isArray(player.cardEffects)) ? player.cardEffects : [];
-  for(const ef of ces){
-    if(ef && ef.type === 'passive' && ef.key === 'commander_sight'){
-      const v = (typeof ef.value === 'number' && Number.isFinite(ef.value)) ? ef.value : 25;
-      if(v > bonus) bonus = v;
-    }
-  }
-  const nominal = VISION_CFG.radius * (1 + bonus / 100);
-  // #H5（2026-09-21 用户裁定「可见距离不得写死像素」）：有效可见半径 = 屏幕相对
-  // （tank_camera.visionRadiusForViewport：R = screenRadiusRatio × 窄半幅/zoom × 加成，
-  //  R×zoom 恒定 ⇒ 敌人在屏幕上的出现位置与缩放无关，玩家自由缩放看细节/看全局；
-  //  #H1 窄轴收口降级为极扁视口的几何护栏，#H2 深度拉远模型整体移除）。
-  if(typeof visionRadiusForViewport === 'function'){
-    return visionRadiusForViewport(cam, { nominal: nominal });
-  }
-  return nominal;
+  // #J3：视野距离已退役，返回名义值仅供调试显示；不参与 entityHiddenByVision 判定。
+  return VISION_CFG.radius;
 }
-function entityHiddenByVision(e){
-  if(devNoVision) return false;
-  if(!e || e.team !== 'enemy' || e.hp <= 0 || e.isDrone) return false;
-  const radius = visionRadiusEff();
-  // #K1（2026-09-29）：圆心改为**摄像机中心**（圆内切视口 ⇒ 渲染边界 ≡ 视野边界），
-  // 取代旧的「玩家 + bias×R 朝鼠标偏移」（该圆心会使圆探出视口最多 189px，探出部分内的敌人
-  // 判定为可见却被视口剔除 ⇒ 体感「敌人渲染距离短于视野距离」）。贴身内圈恒可见逻辑不变。
-  const center = (typeof visionCenter === 'function') ? visionCenter(cam, player, radius) : { x: player.x, y: player.y };
-  if(Math.hypot(e.x - center.x, e.y - center.y) <= radius) return false;   // 可视圆内
-  return Math.hypot(e.x - player.x, e.y - player.y) > VISION_CFG.inner * radius;   // 贴身内圈恒可见
-}
+// #J3（2026-09-30 用户裁定「改为全屏幕渲染敌人，不再计算视野距离」）：**视野距离系统整体退役**。
+  // 原实现按「鼠标锚定可视圆」剔除视口外敌军（渲染与炮弹命中两处），导致：
+  //   ① 敌人「看起来在屏幕内却被隐形」（#K1 圆心/视口不同源的历史包袱）；
+  //   ② 玩家看得见却打不中（炮弹同样按该圆剔除），语义自相矛盾；
+  //   ③ 玩家每局都要重新适应一条看不见的边界（#D2 专门画了虚线圈来暴露它）。
+  // 现行：**敌对实体一律渲染、一律可被命中**，只剩 `aabbInView` 的视口剔除（纯性能，不是玩法机制）。
+  // 敌人 AI 的接战判定**不受影响**，仍是**距离 + 直线视野**：`js/tank_ai.js` 的
+  // `engageRequiresLoS` + `hasLineOfSight`（建筑/岩石/树/灌木等 `vision:true` 掩体遮蔽视线），
+  // 掩体可见性定义见 `RULES.coverTiers` 的 `vision` 键（与本条无关，保持不变）。
+  function entityHiddenByVision(e){
+    return false;   // 视野距离系统已退役；保留函数签名以兼容既有调用点与 dev 面板
+  }
 
 // ===== 2026-09-14 曲线路网地面预烘焙（平滑连续路面渲染，消除胶囊感） =====
 // 进图前把整条道路平滑折线绘制到离屏画布（节点世界尺寸），draw() 每帧只做一次 drawImage。
@@ -3808,8 +4219,8 @@ function draw(){
   inViewCovers.filter(cov => !groundLayerCov(cov) && cov.tier !== 'bridge' && (groundLayerCanvas ? cov.tier !== 'road' : true)).forEach(cov => drawCover(ctx, cov));
   entities.forEach(t => {
     if(t.isDrone) return;   // P-17：无人机无坦克几何，由 drawDrones 单独绘制
-    if(entityHiddenByVision(t)) return;   // #89：视野外敌对存活实体跳过绘制（炮弹仍绘制；小地图不受影响）
-    if(!aabbInView(cam, t.x, t.y, t.hullLen, t.hullWid)) return;
+    if(entityHiddenByVision(t)) return;   // #J3：视野系统已退役，恒为 false（保留调用点以兼容 dev 钩子）
+    if(!aabbInView(cam, t.x, t.y, t.hullLen, t.hullWid)) return;   // 视口剔除：纯性能，非玩法机制
     if(t.invulnT > 0){ ctx.globalAlpha = 0.5 + 0.4 * Math.sin(performance.now() / 60); }   // P-11：复活无敌闪烁
     drawTank(ctx, t);
     ctx.globalAlpha = 1;
@@ -3879,8 +4290,10 @@ function draw(){
     }
   }
 
-  // #E4（2026-09-20）雷场预形态：第一次 F 后在鼠标位置显示「拟生成的雷场形状」（虚线圆 + 5 个雷点），
+  // #E4（2026-09-20）雷场预形态：第一次 F 后在鼠标位置显示「拟生成的雷场形状」（虚线圆 + 雷点），
   // 第二次 F 确认后转为 pendingMineFields 的延时倒计时标记（同形状 + 倒计时数字）。
+  // #H2③（2026-09-30）：雷点数直接取 pf.count（预约时已按可用余量裁剪），绘制与实际落点一致 ——
+  // 旧代码在此二次用 mineMax 钳制，导致预形态/倒计时显示的点数与实际布设数可能对不上。
   for(const pf of pendingMineFields){
     ctx.save();
     ctx.strokeStyle = 'rgba(255,80,60,0.85)';
@@ -3888,7 +4301,7 @@ function draw(){
     ctx.setLineDash([8, 7]);
     ctx.beginPath(); ctx.arc(pf.x, pf.y, pf.radius, 0, TAU); ctx.stroke();
     ctx.setLineDash([]);
-    const n = Math.max(1, Math.min(RULES.abilities.deploy_limits.mineMax || 3, pf.count || 5));
+    const n = Math.max(1, pf.count || 1);
     for(let k = 0; k < n; k++){
       const a = (k / n) * Math.PI * 2 + (k % 2) * 0.4;
       const rr = pf.radius * (0.35 + 0.65 * ((k + 1) / n));
@@ -3907,7 +4320,7 @@ function draw(){
     ctx.setLineDash([6, 6]);
     ctx.beginPath(); ctx.arc(pv.x, pv.y, pv.radius, 0, TAU); ctx.stroke();
     ctx.setLineDash([]);
-    const n = Math.max(1, Math.min(RULES.abilities.deploy_limits.mineMax || 3, pv.count || 5));
+    const n = Math.max(1, pv.count || 1);
     for(let k = 0; k < n; k++){
       const a = (k / n) * Math.PI * 2 + (k % 2) * 0.4;
       const rr = pv.radius * (0.35 + 0.65 * ((k + 1) / n));
@@ -3961,20 +4374,7 @@ function draw(){
     }
   }
 
-  // #D2：视野圈可视化（淡虚线圆）——圆心/半径与 entityHiddenByVision 完全同口径，
-  // 使视野系统边界可读（此前纯隐式剔除，玩家无从得知视野范围与视野卡效果）。
-  if(!devNoVision && player && player.hp > 0){
-    const vR = visionRadiusEff();
-    const center = (typeof visionCenter === 'function') ? visionCenter(cam, player, vR) : { x: player.x, y: player.y };
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([10, 14]);
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, vR, 0, TAU);
-    ctx.stroke();
-    ctx.restore();
-  }
+  // #J3（2026-09-30）：视野虚线圈随视野系统一并移除（#D2 曾为暴露该隐式边界而绘制）。
 
   drawFoliage(ctx, covers.filter(inView));   // 灌木/树冠层：盖住其下坦克 = 视线遮挡
   drawDrones();                              // P-17：无人机（飞行器视觉，坦克/树冠之上、烟幕之下）
@@ -4172,6 +4572,9 @@ function draw(){
 
   // ---- P-17 侦察无人机指示箭头（屏幕空间覆盖层：视口外敌军方向 + 距离） ----
   drawDroneIndicators();
+
+  // ---- #N5 视口外来袭威胁方向（琥珀箭头：已接战且在可开火距离内、但不在视口内的敌人） ----
+  drawThreatIndicators();
 
   // 炮口环形装填进度（屏幕空间绘制，贴合玩家炮口屏幕坐标，防二次摄像机变换）
   drawReloadRing(ctx);
@@ -4393,9 +4796,27 @@ function nextRunSeed(){
       for(const ef of applied){
         if(ef.type === 'drone') deployDronesFromCards();   // 与 pickCard 同路径保持状态一致
       }
+      // #H3（2026-09-30）：与 pickCard 同路径做技能槽对账（测试钩子须与真实链路一致）
+      if(applied.some(ef => ef.type === 'ability')) reconcileSkillSlotsAfterGain();
       pushLog('[TEST] 给予卡牌「' + card.name + '」', 'PEN');
       return applied;
     },
+    // #H3（2026-09-30）技能槽指派测试钩子
+    skillSlots(){ return skillSlots().slice(); },
+    assignSkillSlot(i, key){ return assignSkillSlot(i, key); },
+    // #J3（2026-09-30）：视野剔除恒 false 的测试钩子（函数在 IIFE 闭包内，外部取不到）
+    hiddenByVision(e){ return entityHiddenByVision(e); },
+    visionRadius(){ return visionRadiusEff(); },
+    // #J4：导弹锁定状态钩子
+    missileState(){ return { activated: !!player._missileActivated, lock: player._missileLock ? { t: player._missileLock.t, target: player._missileLock.target && player._missileLock.target.id } : null }; },
+    // #J4：日志内容钩子（日志面板条目是 #devLog 的 div 子节点）
+    logs(){ return Array.from(document.querySelectorAll('#devLog > div')).map(e => e.textContent); },
+    cardPool(){ return cardPool.slice(); },
+    findCard(id){ return cardPool.find(c => c.id === id) || null; },
+    applyCard(card){ const r = applyCardEffects(player, card); if (r.some(ef => ef.type === 'ability')) reconcileSkillSlotsAfterGain(); return r; },
+    setSkillSlot(i, key){ const s = skillSlots(); if(i < 0 || i >= s.length) return false; s[i] = (key === null ? null : key); return true; },
+    skillSlotPickerOpen(){ const e = document.getElementById('skillSlotPicker'); return !!(e && e.style.display !== 'none'); },
+    pickSkillSlotRow(i){ const rows = document.querySelectorAll('#skillSlotPickerList .picker-row'); if(rows[i]) rows[i].click(); return rows.length; },
     skipToNode(n){
       if(flow.state !== 'map') throw new Error('__TEST__.skipToNode: 仅 map 态可用（当前 ' + flow.state + '）');
       if(!run || !run.nodes[n]) throw new Error('__TEST__.skipToNode: 节点不存在 index=' + n);

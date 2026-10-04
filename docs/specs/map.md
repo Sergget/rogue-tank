@@ -486,4 +486,14 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 - Boss 节点无配额（`quota = null`）且不生成常规敌军 ⇒ **以 Boss 战替代常规节点的配额 grind**，这是本次缩短循环缓解「节点略长」体感的机制。
 - 回归锚点：`scripts/test-map.js` #K3 段（`isBossNodeIndex` 周期 2/5/14、非周期索引、12 节点内恰 4 个 Boss、`extendRun` 后周期延续）。
 
+## 16. 敌人难度成长曲线调优（2026-10-01 用户裁定，现行口径）
+
+- **用户裁定**：**略微提高敌人升级速度**——敌人强度随节点推进上升更快（本次三条数值调整之一，其余两条见 `specs/combat.md` §13.4）。
+- **现行值**：`RULES.difficulty.curvePow` **1.20**（沿革 1.25）。曲线口径不变：
+  `diff = min(curveCap 0.95, curveStart 0.15 + curveSpan 0.8 · min(1, index/diffSatIndex 12)^curvePow)`，再叠加跨局等级 `difficultyLevel × crossRunLevelBonus 0.04`（钳 `diffMax 1.15`）。
+- **方向性（易踩坑）**：`curvePow` **越接近 1 中段难度越高**（= 敌人升级越快）；**端点与封顶不变**（index 0 恒 0.15、index ≥ 12 恒 0.95），故本次为「中段上移」，不改变难度上限；跨局叠加 `difficultyLevel` 未改动。
+- **实测（2026-10-01 探针，基础难度）**：index 3：0.29 → **0.30**；index 6：0.49 → **0.50**；index 8：0.63 → **0.64**（index 0/12 两端不变）。
+- **配套**：随难度增长的敌人数值现行值（血量/极速上限）归口 `specs/combat.md` §13.4；Boss 血量归口 `specs/boss.md` §5。
+- **回归锚点**：`scripts/test-map.js` 难度段新增「升级速度基线」断言（`curvePow === 1.20`、`difficultyForIndex(3) === 0.30`、`difficultyForIndex(6) === 0.50`），原端点/单调/封顶/越界断言不变。
+
 

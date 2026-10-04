@@ -88,12 +88,15 @@
   - `F` 键（`fireSecondary`）= **直接击发副武器（按住连发）**，不再承担主/副切换——`activeWeaponSlot` 概念已移除。键位语义：**左键/空格 = 主炮专属**（`tryFirePrimary`，空格为双管齐射 salvo），**F（按住）= 副武器专属**（`tryFireSecondary` → `fireActiveSecondary(target=鼠标世界点)`，目标缺省回退炮塔前方 +100px）；`tank_bindings.js` keydown 屏蔽 `e.repeat` 重复边沿动作。
   - **例外**：副武器类型为 `turret`（副炮塔）时**装上即由主循环 `updateSecondaryWeapon` 逐帧自主驱动**（自瞄，不响应击发）；副武器为 `none`/未装时 `tryFireSecondary` 返回 false（页面层提示，**不回落主炮**——主炮有专属键位）。
   - 副武器待机装填计时 `secondaryReloadT` 恒递减（与主炮 reloadT 对称）。
-  - **锁定式反坦克导弹**（secondary `missile`）：手动击发沿光标方向直飞（`target=null`，不再自动寻的）；AI/Boss 实体的副武器仍走 `updateSecondaryWeapon` 自主索敌（`updateMissileLock` ±30° 扇形/1.0s 锁定/自动发射；参数 `WEAPON_DEFAULTS.secondary.missile.lockArcDeg=30/lockSeconds=1.0`）。
+  - **锁定式反坦克导弹**（secondary `missile`）：**F = 激活索敌**（不是直接发射）——激活后逐帧由 `updateMissileLock` 在炮塔 ±`lockArcDeg` 扇形内、`range` 射程内索敌，锁定计时满 `lockSeconds` 后**自动发射**制导弹；再按 F 取消。**现行细则归口 §8.2**（参数 `WEAPON_DEFAULTS.secondary.missile.lockArcDeg=30 / lockSeconds=1.0 / range=600`）。
+    - **已作废的旧口径（#A21 时期，勿再引用）**：曾为「按 F 沿光标方向直飞、不做锁定、`target=null`」，该口径自 #E5（2026-09-20）起被取代；AI/Boss 侧副武器同样走 `updateMissileLock` 自主索敌。
+    - **伤害口径（#J4 2026-09-30 明文化）**：基础伤害 `damage`（140；升级卡 160）**再乘当前 HEAT 弹种系数** —— `getEffectiveHeatAmmoKey`（优先级 `heavy_tandem_heat > tandem_heat > heatfs > heat`，全部未持有时回退 `he`）→ `computeAmmoConfig` → `dmg = round(base × ammo.dmg + ammo.dmgAdd)`，穿深同理。即**导弹伤害跟随玩家的 HEAT 弹种升级链**，未升级时按 HE 口径计算。
+    - **激活反馈（#J4 2026-09-30 用户反馈「导弹无法发射」）**：旧版激活后**无任何可见反馈** —— 炮塔未对准（超出 ±30° 扇形）或目标在 600px 射程外时，导弹既不发也不提示，玩家只能得到「按了 F 没反应」。现三处反馈：① 激活日志写明锁定条件（扇形角/射程/锁定耗时）；② HUD `btnF` 角标显示「索」（已激活未锁定，琥珀脉动 `.lock-hunting`）/「n%」（锁定中，绿色 `.lock-on`）；③ 激活后 0.6s 仍无目标 → 一次性提示缺少的条件（射程内无敌人 / 炮塔未对准）。
 
   - **火箭发射器逐发 burst（2026-09-19 #D4 用户反馈「同帧齐射改连续快速逐发」）**：`fireActiveSecondary` rocket 分支只发射第 1 发并登记 `t._rocketBurst={left, lastAngle}`；`updateRocketBurst`（tank_weapons.js，mvp 主循环玩家侧 / `updateSecondaryMount` AI 侧逐帧驱动）按 `burstInterval`（WEAPON_DEFAULTS.secondary.rocket.burstInterval=0.18s）逐发补完，队列清空后写入整组装填 `reload`（10s）。瞄准：存活目标方向优先，目标丢失保持上一发角度（committal）。视觉：逐发口焰 `muzzle`+粒子烟 `spawnSmoke`×3+音效（旧齐射仅一次）、弹体 `fxScale=1.3` 放大 + 拖尾增亮（drawShells 消费）。队列不跨节点：enterBattle 清 `player._rocketBurst`/`_missileLock`，重置按钮清全员。
-  - **视野系统 v2（2026-09-19 #D2 接线，取代 2026-09-14 #89 v1）**：基础模型不变——`RULES.vision{radius:900, bias:0.35, inner:0.45}` 鼠标锚定偏移圆，敌对存活实体在圆外且不在贴身内圈 → 主画布隐藏（炮弹/小地图恒显）。#D2 增量：① 半径接卡牌被动 `commander_sight`（`visionRadiusEff`：读 `player.cardEffects`，value=百分比加成，缺省 25，多来源取最大）——潜望镜 rare +15% / 观瞄镜 epic +25% 生效（此前两张视野卡为死效果）；② 主画布绘制视野圈淡虚线描边（与剔除判定同口径，系统边界可读）。dev 面板「无视野」开关跳过剔除与圈绘制。
+  - **视野系统已整体退役（2026-09-30 #J3，用户裁定「改为全屏幕渲染敌人，不再计算视野距离」）**：敌对实体一律渲染、一律可被命中，只剩 `aabbInView` 视口剔除（纯性能，非玩法机制）。原「可视圆」体系（鼠标锚定圆心 / 屏幕相对半径 / 车内圈 / 视野虚线圈 / 视野卡 `commander_sight`）全部下线，现行细则见 **§13.5**。**注**：敌人 AI 的接战判定**从来与视野系统无关**，一直是「距离 + 直线视野」（`engageRequiresLoS` + `hasLineOfSight`），不受本条影响。
 - **主动技能快捷键池 (1~3 数字键)**：
-  - 快捷键 1/2/3 动态对应玩家当前装备的主动技能（掩体/炮击/护盾/超装填/超级火控/超级速度/主动防御，2026-09-17 #C4a 起运行时技能全部接入 DISPATCH；`aps` 于 2026-09-21 #G9 新增），按顺序快捷施放。**现行运行时能力键全集（7 个）以 `js/tank_abilities.js` 的 `ABILITY_KEYS_RUNTIME` 为唯一口径**（`artillery / overdrive / shield / super_fire_control / super_speed / deploy_cover / aps`）。**2026-09-23 A 档**：本段原列的 `recon`（侦察/无人机指令）为死效果键，已随 5 张对应卡整体摘除（归口 `docs/specs/cards.md` §3、`DEVELOPMENT.md` §4.35）——现行 DISPATCH 表与数字键映射**不含任何无激活路径的键**。
+  - 快捷键 1/2/3 **严格对应技能池槽位 `player.skillSlots[0..2]`**（2026-09-30 #H3 重做，取代原「按 `cardEffects` 获得顺序自动推导」口径），按槽位快捷施放；**空槽按数字键无任何效果**（不再回落到任何默认技能）。**现行运行时能力键全集（7 个）以 `js/tank_abilities.js` 的 `ABILITY_KEYS_RUNTIME` 为唯一口径**（`artillery / overdrive / shield / super_fire_control / super_speed / deploy_cover / aps`）——键数多于槽位数，**超出部分由玩家在「技能槽指派」面板中指定顶替**（§13.2），因此 7 个键中不存在无激活路径的死键。**2026-09-23 A 档**：原 `recon`（侦察/无人机指令）已随 5 张对应卡整体摘除（归口 `docs/specs/cards.md` §3、`DEVELOPMENT.md` §4.35）。
 - **冷却模型（2026-09-17 #C4c 用户裁定「按技能独立冷却」）**：
   - 运行时能力键（artillery/shield/overdrive/deploy_cover/super_fire_control/super_speed/aps）与 innate 键（repair/medkit/extinguish）统一走**按 key 隔离的独立冷却池 `t.abilityCds[key]`**（互不顶冷却；旧共享单字段 `t.abilityCdT` 废弃，`updateAbilityCd` 仅作兼容助手保留）；逐帧递减 `updateAbilityCds(t, dt)`（mvp 主循环驱动）。
   - 获得技能/副武器 → `#gainToast` 屏幕一次性提示（不依赖底部按钮显隐，奖励页/战斗页均可见）+ 已有按钮（G/H/V）金色脉冲（#B10 保留）。
@@ -178,8 +181,8 @@
 - **单向透明**：部署方阵营的炮弹可穿过便携式掩体（不拦截），**对立方**炮弹按确定性实体在掩体入口点被挡下（`tank_fire.js stepShells` 的 `_deployablePathHit` 与部署物 OBB 求交）。视觉上以朝向指示标注「我方穿透侧」：穿透侧画青色虚线 + 绿色箭头（`tank_mvp.html` 部署物绘制），对敌面为实线装甲边。
 - **长度**：`RULES.abilities.deploy_cover.lenMult` 1.6 → **3.2**（再加长至当前 2 倍）；掩体厚度参数化为 `width`（22，旧硬编码 20）。
 - **部署数量上限 + 超限拒绝（#F6 2026-09-20，取代 #E4「超限淘汰最早」）**：掩体基础 2 / 地雷基础 3，升级卡各 +1×步长（`upgradeCards`：`ability_deploy_cover_fortified→cover+1`、`weapon_secondary_mine_upgrade→mine+1`），硬上限 6/8。**能力/页面部署路径超限时拒绝新部署并提示，保留已部署物**：`js/tank_abilities.js` `deploy_cover` 与 `tank_bench.html` `spawnCoverBtn` 部署前检查 `deployableCount >= deployableCap` → 拒绝（不生成新掩体）；`tank_mvp.html` `handleMineFieldF` 已有预约（`pendingMineFields.length>0`）时按 F 拒绝；雷场生成前检查 `deployableCount('mine') + n > cap` → 取消该预约并提示，不生成新雷场（保留已布地雷）。共享核心 `enforceDeployLimits` 的「淘汰最早」仅作为兜底（绕过能力路径直接 spawn 时生效）；按类型独立计数。
-- **布雷器两次 F + 4s 雷场**（`RULES.abilities.deploy_limits.mineFieldCount/Radius/Delay` = 5/70/4s）：第一次 F 在鼠标位置显示**拟生成的雷场形状**（虚线圆 + 5 个雷点预览）；第二次 F 确认 → 落点定格 → 4s 后在预形态位置环形生成整片雷场（数量受 `mineMax` 约束，即 `min(mineMax, mineFieldCount)` = 3）。**同一时刻仅允许 1 个待生成雷场**（`pendingMineFields.length>0` 时按 F 拒绝新预约——防连续双击 F 无限预约布雷；#F5 2026-09-20）；生成前超限拒绝（#F6 2026-09-20）。F 的按键语义为**原生 keydown 边沿**（见 §8.2「开关类副武器 F 边沿口径」）。
-- **装填与触发口径（#F5 2026-09-20）**：布雷受 `secondaryReloadT` 装填冷却门控（`fireActiveSecondary` 顶部统一拒绝，单发 15s；按住 F 连发时冷却期内拒绝布雷）；地雷**触发半径** = 单发/雷场 **45px**、`spawnMine` 默认 **40px**（`tank_deployables.js`，bench 手动布雷受益）——判定为敌对实体**中心点**距离 ≤ triggerRadius（坦克 hull 近百 px 级，半径过小会出现「视觉压雷却不爆炸」）；爆炸 AOE `blastRadius` 70，mvp 伤害走 `applySplashAt`（×0.5 衰减）、bench 走事件直算，触发阵营敌对实体生效（玩家自身也会被己方地雷波及）。
+- **布雷器两次 F + 4s 雷场**（`RULES.abilities.deploy_limits.mineFieldCount/Radius/Delay/Reload` = **3**/70/4s/15s；`mineFieldCount` 于 2026-09-30 #H2 由 5 改为 3，原值与 `mineMax(3)` 矛盾，详见 **§13.3**）：第一次 F 在鼠标位置显示**拟生成的雷场形状**（虚线圆 + 雷点预览，数量按当前可用余量裁剪）；第二次 F 确认 → 落点定格 → 4s 后在预形态位置环形生成整片雷场。**同一时刻仅允许 1 个待生成雷场**（`pendingMineFields.length>0` 时按 F 拒绝新预约——#F5 2026-09-20）。F 的按键语义为**原生 keydown 边沿**（见 §8.2「开关类副武器 F 边沿口径」）。
+- **装填与触发口径（#F5 2026-09-20；#H2 2026-09-30 补齐雷场路径）**：布雷受 `secondaryReloadT` 装填冷却门控——**单发路径**由 `fireActiveSecondary` 顶部统一拒绝（单发 15s），**雷场路径**由 `handleMineFieldF` 在确认预约时写入 `secondaryReloadT = reload / debuffReloadRate`、冷却中按 F 拒绝（#H2 前该路径完全漏写，`secondaryReloadT` 恒为 0，15s 冷却形同虚设且可无冷却连点）；地雷**触发半径** = 单发/雷场 **45px**、`spawnMine` 默认 **40px**（`tank_deployables.js`，bench 手动布雷受益）——判定为敌对实体**中心点**距离 ≤ triggerRadius；爆炸 AOE `blastRadius` 70，mvp 伤害走 `applySplashAt`（×0.5 衰减）、bench 走事件直算，触发阵营敌对实体生效（玩家自身也会被己方地雷波及）。
 
 ### 8.2 反坦克导弹两种制导（#E5）+ 开关类副武器 F 边沿口径（#F7）
 `F` 键语义按副武器类型分派（`tank_mvp.trySecondaryFire`）：
@@ -280,10 +283,10 @@
 |---|---|---|
 | 状态 VITALS | `#hudVitals` | `#playerHpWrap`（血条 240×12 + 数值）+ `#hudSpeedRow`（档位 `#hudGear` D/R、`#hudSpeedVal` + km/h 单位、速度条 `#hudSpeedTrack`/`#hudSpeedFill`、公路加成 `#hudRoadBonus`） |
 | 武器 WEAPONS | `#hudWeapons` | 弹种槽 `#slot1~3` + 补给键 `#btn4/5/6` + 副武器 `#btnF` |
-| 技能 SKILLS | `#hudSkills` | 专属键 `#btnG/H/V`（`.slabel` 中文技能名 + `.skey` 字母） + 技能池槽 `#skillSlot1~3`（技能名 + 数字键 + 冷却） |
+| 技能 SKILLS | `#hudSkills` | 专属键 `#btnG/H`（**仅当该技能未占用技能池槽位时显示**，见 §13.2）+ 技能池槽 `#skillSlot1~3`（玩家指派，技能名 + 数字键 + 冷却） |
 
 - **速度读数**：`tankCurrentKmh(t) = |t.speed| ÷ (RULES.speed.pxFactor × effMul) × kmhFactor`（`tank_model.js`，已导出）。**必须先除 `pxFactor×effMul` 再乘 `kmhFactor`**——直接乘会得到 ~208km/h 的虚高读数（`tank.speed` 已含 ×1.3 有效乘子）。速度条以 `tankKmh(t)`（极速上限）为满值。
-- **技能池槽位映射**：`#skillSlot1~3` 显示序列**与 `skillHotkey(n)` 完全一致**——`cardEffects` 中 `type:'ability'` 的 key 去重列表（**不过滤** artillery/shield/overdrive：数字键同样可触发它们，G/H 是并列的专属键）。名称取 `ABILITY_LABELS`，冷却取 `abilityCds[key]`；点击槽位等价于按对应数字键。
+- **技能池槽位映射（#H3 2026-09-30 重做，现行口径见 §13.2）**：`#skillSlot1~3` 的内容**直接读 `player.skillSlots`（玩家可指派）**，不再是 `cardEffects` 的自动去重序列。名称取 `ABILITY_LABELS`，冷却取 `abilityCds[key]`；点击槽位施放，`Shift+点击`改指。**原「自动按获得顺序填槽 + 专属键按钮并存」口径已废弃**（它导致同一技能两个按钮、槽满后第 4 个技能无法激活）。
 - **元素 id 为测试契约**：`#reloadWrap` / `#bottomHud` / `#hintBar` 保留（smoke 依赖）；`btnG/btnH` 必须可点击（run/r4 断言）；`btnV` **必须不存在**（#H3 删除，`test-browser-run.cjs` 断言 `removed`）；bench 页**不得**出现 `#hintBar`。
 - **技能获得提示补全**：`ABILITY_KEY_HINT` 补 `repair`/`medkit`/`extinguish`（4/5/6 键）与 `aps`，并把 G/H/V 条目文案改为「G 键 / 1~3 号技能键」（数字键与专属键并列可用）。**#H3 后仅 G/H 仍为专属字母键**，超装填（overdrive）经 1~3 号技能键。
 
@@ -308,6 +311,8 @@
 ⇒ 横向接近敌人可见距离 1215px vs 纵向 810px（约 **1.5×**，恰为宽高比）——横屏「横向接近最有利」即源于此（镜头外延本身各向同性，不是根因）。
 
 ### 10.2 修正：视口窄轴收口（`tank_camera.visionRadiusForViewport`）
+
+> **已被 §13.5（#J3，2026-09-30 视野距离系统整体退役）取代**：本节描述的 `visionRadiusForViewport` 及其消费方（可视圆剔除/视野虚线圈/视野卡加成）已从代码中整体删除，仅作沿革保留。**现行口径见 §13.5。**
 
 纯函数（Node 可测）：`R = min(nominal, 窄轴屏幕前向容量/(1+bias))`，其中
 
@@ -342,7 +347,9 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 
 ### 11.1 敌方可见距离：屏幕相对化（#H5 现行口径）——取代 #H1/#H2
 
-> ⚠️ **待改标记状态更新（2026-09-23 用户裁定）**：原「暂时锚定接战距离、后续再改」的预留口径（即 `R = max(屏幕相对式, 最大 engage × 1.15)`，原登记于 `docs/PLAN.md` §3.1 与 `specs/map.md` §14.4）**已被否决**——可见半径口径**保持不变**（仍为下方屏幕相对式，`R×zoom` 恒定）。「敌人开火时看不见」改走**视野卡 + 镜头外延做强**，做法、几何上限与已核实数值见下方 **§11.5**。
+> **已被 §13.5（#J3，2026-09-30 视野距离系统整体退役）取代**：本节整节描述的「敌方可见距离」体系（`visionRadiusForViewport`、`visionCenter`、`R×zoom` 恒定、视野卡加成、可见圆剔除）已**从代码中整体删除**——用户裁定改为「全屏幕渲染敌人，不再计算视野距离」。**现行口径见 §13.5**；本节与 §10.2、§11.4、§11.5 一律仅作沿革保留。
+
+> ⚠️ **待改标记状态更新（2026-09-23 用户裁定）**：原「暂时锚定接战距离、后续再改」的预留口径（即 `R = max(屏幕相对式, 最大 engage × 1.15)`，原登记于 `docs/PLAN.md` §3.1 与 `specs/map.md` §14.4）**已被否决**——可见半径口径**保持不变**（仍为下方屏幕相对式，`R×zoom` 恒定）。「敌人开火时看不见」改走**视野卡 + 镜头外延做强**，做法、几何上限与已核实数值见下方 **§11.5**（沿革：该方案随 #J3 一并退役）。
 
 **用户裁定（#H5）**：「目前敌方渲染的距离写死成了像素，会受缩放影响，迫使玩家始终以最高倍率游玩，失去一些细节」——#H1 窄轴收口与 #H2 深度拉远都以「固定像素可见距离」为前提，与自由缩放根本冲突，二者废弃。
 
@@ -376,11 +383,13 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 
 ### 11.4 敌方可见距离不得写死像素（#H5，见 §11.1）
 
+> **已被 §13.5（#J3，2026-09-30）取代**：本条所述「可见距离」机制随视野系统整体退役，`RULES.vision` 仅作历史留档、不再参与任何判定。以下为沿革原文。
+
 **用户裁定**：「目前敌方渲染的距离写死成了像素，会受缩放影响，迫使玩家始终以最高倍率游玩，失去一些细节」——本条即 §11.1 屏幕相对化的直接动机：#H1/#H2 系列以固定像素（900px 世界半径）定义可见距离，缩放直接改变敌人的屏幕出现位置，#H2 只能靠强制拉远补偿。现行口径 = §11.1（屏幕相对，R×zoom 恒定，缩放纯视觉偏好）。
 
 ### 11.5 镜头外延量与「视野卡收益」的几何关系（2026-09-23 B 档落地，现行口径）
 
-> **⚠️ 本节已被 #K1（2026-09-29）取代**：可见半径的**收口上限 cap 与 `bias×R` 圆心偏移已移除**（圆心改取摄像机中心 ⇒ 圆内切视口）。本节保留为**沿革记录**（解释 2026-09-23 那次「抬外延量以放宽 cap」为何只是缓解、且仍残留探出视口的问题），现行口径见 **§11.1**。
+> **⚠️ 本节已被 #K1（2026-09-29）取代**，并随 **#J3（2026-09-30，视野距离系统整体退役）** 一并作废：可见半径的**收口上限 cap 与 `bias×R` 圆心偏移已移除**（圆心改取摄像机中心 ⇒ 圆内切视口），随后整个可见距离体系下线（视野卡 `commander_sight` 亦删除）。本节保留为**沿革记录**，现行口径见 **§13.5**。
 
 - **旧公式（已废止）**：`R = min( screenRadiusRatio × 窄半幅/zoom × (1+视野卡加成), ((窄半幅 + radius×mouseLeadRatio)/zoom) / (1+bias) )`，圆心再朝鼠标偏移 `bias×R`（0.35）。
 - **旧口径的残留缺陷（#K1 根因）**：圆心偏移恒为 `bias×R ≈ 189px`（鼠标向量被归一化），而摄像机外延量独立地随鼠标偏移在 0~360px 变化 ⇒ 两者几乎总不相等 ⇒ **圆探出视口**（外延 < 189 时向前探出、外延 > 189 时向后探出）。外延为 0（鼠标居中）时前向探出达 189px ⇒ 该带内敌人「判定可见却不渲染」= 2026-09-29 用户反馈 #K1。抬 `mouseLeadRatio`（0.30→0.40）只能让**满偏转**时不再探出，鼠标居中时仍探出。
@@ -423,4 +432,149 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 ### 12.4 建筑密度提升与 Boss 战图加成（#I3，地图侧现行口径见 `specs/map.md` §13.4）
 
 **用户裁定**：「继续增加地图、特别是 boss 战地图的建筑密度」——`RULES.nodeMap.building` 参数提升（clusterPerJunction 3~5→4~8、maxPerNode 18→28）+ Boss 节点密度乘子 `bossDensity: 1.6`；并修复 #E3/#G 遗留缺陷（`fits()` 对含道路的 outCovers 用 pad 34 判重叠 ⇒ 沿路/路口建筑恒被拒绝、密度参数完全空转）。实测 8-seed 结构数 87 → 103（×1.6）。校准基线第三次重锚（`test-nodegen-calibration`，连通性维持 0.999~1.000）。
+
+---
+
+## 13. 2026-09-30 #H 批次用户反馈（现行口径）
+
+### 13.1 敌军数值基准：固定基准（#H1）
+
+**用户裁定**：「敌人难度不应随**局外商店升级**变化，只应随节点推进变化」。
+
+- **问题定位（实测）**：难度曲线本身与商店无关——`difficultyForIndex(index, difficultyLevel)` 只吃节点索引与跨局等级，且 `difficultyLevel` 每次新局强制归零。真正的放大来自**两条以玩家为锚的链路**：
+  1. `applyEnemyAppearanceAndStats`（`js/tank_model.js`）把敌军 `base.{maxHp,penetration,damage,reload,maxSpeed,turnRate,turretTurnRate}` 与 `armor.*` 全部写成 `玩家 anchorStats × RULES.enemyClassProfiles[class]`；锚点快照在 `applyUpgrades()` **之后**冻结，故局外永久升级直接乘进全部敌军基准。
+  2. `difficultyCapMuls` 的穿深封顶 / 伤害地板与天花板 / 速度目标全部乘 `player.stats`。
+  ⇒ 商店每买一级，下一局全部敌军同比例抬升，玩家成长收益被难度同步抵消。实测：五项永久升级买满后，同一节点敌军穿深 149.96→173.60、伤害 35→45.50、血量 64.29→104.47，而 `node.difficulty` 与节点难度序列完全不变。
+- **现行口径**：
+  - 新增 **`RULES.enemyAnchorBase`**（与玩家无关的固定基准，取中位中坦量级）：`maxHp 100 / penetration 120 / damage 34 / reload 1.3 / maxSpeed 120 / turnRate 2.0 / turretTurnRate 2.2 / shellSpeed 1200 / weight 50 / enginePower 700 / armor{hull,turret}{front 100, side 40, rear 25}`。
+  - 敌军数值 = `enemyAnchorBase` × `enemyClassProfiles[class]` × `entityMults(diff)` × `difficultyCapMuls`（改按固定基准）。**玩家选车、局内卡牌、局外永久升级一律不影响敌军强度**；敌军强度只由节点难度 `diff` 决定。
+  - 四个封顶键**改按固定基准**并改名：`penCapVsBaseline`(1.2) / `dmgFloorVsBaseline`(0.4) / `speedVsBaseline{baseFloor 0.3, baseCeil **0.5**, randMin .85, randMax 1.15}`；`dmgCapAmmoMult`(0.7) 保留，参照终伤缺省由新键 **`strongestAnchorMult`(2.33)** × 基准伤害推算（**不再退化为 `Infinity` = 无上限**）。（沿革：`speedVsBaseline.baseCeil` 2026-10-01 由 0.6 下调至 **0.5**，见 §13.4。）
+  - **废弃**：`applyEnemyAppearanceAndStats` 第三参 `anchorStats`（保留形参仅为兼容旧调用方，**函数内忽略**）、`applyDifficultyMults` 的 `strongest` 传参、mvp 的 `playerAnchorStats` 及其 3 处赋值、bench/测试中的 `anchorStats: player.stats`。
+- **沿革**：原 P-46「玩家基准锚定制」设计意图（保证节点 1 与玩家出厂配置匹配）已被本条取代——同一节点对所有玩家难度一致优先于该匹配。
+- **回归**：`scripts/test-modifiers.js` #H1 段——`enemyAnchorBase` 已定义、**强弱玩家下 `penMul`/`speedMul` 逐值相同**、传玩家基准不改变敌军 `base`、缺 `strongest` 时天花板有确定值。
+
+### 13.2 技能槽指派体系：玩家选择顶替（#H3/#H4）
+
+**用户裁定**：「循环复用，按玩家选择顶替掉某个槽位的技能」。
+
+- **原缺陷（实测）**：`skillHotkey` 用 `owned[num-1]`（`owned` = `cardEffects` 去重顺序）导致：① `artillery`/`shield` 既有专属键按钮（`btnG`/`btnH`）又自动进槽 ⇒ **同一技能两个按钮**；② 运行时键 7 个 > 槽位 3 个且 TAB 面板无激活入口 ⇒ **第 4 个及以后的技能彻底无法激活**；③ `owned` 不足时回落 `fallbackList(['deploy_cover','artillery'])` ⇒ **按隐藏的 3 号键会实际触发 1 号槽的技能**。
+- **现行口径**：
+  - **槽位 = `player.skillSlots`**（长度 3，元素为 ability key 或 `null`），随局重置（`prepPlayerForRun` 清空）。
+  - **指派流程**：新技能先自动填入空槽；**槽满时弹「技能槽指派」面板（`#skillSlotPicker`）列出 3 个槽各显当前技能，玩家点哪一格，新技能就顶替哪一格**。待指派技能进入队列**逐个弹出**（不静默丢弃）。`Esc` 关闭面板并吞键（不误触发暂停或施放），面板打开期间输入控制器 `gate` 拒绝全部按键。
+  - **随时改指**：`Shift+点击`槽位按钮 → 面板列出全部已获得技能（含「清空该槽」）。
+  - **数字键严格映射槽位**：`skillHotkey(n)` 只读 `skillSlots()[n-1]`，**空槽无任何效果**（**已删除 `fallbackList` 回落**）。技能键 → 激活动作由 `SKILL_DISPATCH` 单一表分发。
+  - **专属键按钮**：仅当该技能**未占用任何槽位**时显示 `btnG`/`btnH`（入槽后由槽位按钮唯一呈现，`title` 标注「亦可按 G/H」）；冷却角标同步只在唯一入口上显示。
+  - **角标语义**：技能槽角标为数字 `1/2/3`（对应 `KEY_BINDINGS.skill1~3`）；**弹种槽角标改为选中指示 `●/○`**，其 `title` 统一为「Q/E 环形切换 / 点击选择」——数字键归技能池，弹种切换走 Q/E（消除「按 1 切第一发」的误导）。
+- **不变量**：7 个运行时技能键中**不存在无激活路径的死键**——任何已获得的技能要么在槽位（可见 + 数字键），要么在专属键按钮上。
+- **回归**：`scripts/test-browser-r4.cjs` E 段——`btnG`/`btnH` 不重复显示、槽满弹选槽位面板、玩家指定顶替、循环复用不产生重复入口、空槽按数字键不触发、数字键精确命中。
+
+### 13.3 布雷器可用性与装填门控（#H2）
+
+**用户反馈**：「地雷无法释放」。
+
+- **原缺陷**：`RULES.abilities.deploy_limits` 中 `mineFieldCount(5) > mineMax(3)`，而生成侧 `n = min(mineMax, count)` 把 5 钳成 3，配上「`existing + n > cap` 即拒绝」的判据 ⇒ **首轮布满 3 枚后所有后续雷场 100% 静默丢弃**；`handleMineFieldF` 既不检查也不写入 `secondaryReloadT`，15s 装填完全失效；绘制层二次用 `mineMax` 钳制，预形态与实际落点数对不上。
+- **现行口径**：
+  - **落雷数按可用余量裁剪** `n = clamp(mineFieldCount, 0, cap − existing)`，预约时与生成时各裁一次；**余量为 0 才拒绝，且在按 F 的瞬间即提示**（不再让玩家白等 4s）。#F6「超限拒绝且保留已布地雷」原意保留。
+  - `mineFieldCount` 由 **5 改为 3**（与基础上限自洽）；若要更大的单次雷场应同步上调 `mineMax`。
+  - **装填门控**：确认预约时写入 `player.secondaryReloadT = reload / debuffReloadRate`（`RULES.abilities.deploy_limits.mineFieldReload = 15` 兜底），冷却中按 F 直接拒绝并提示——与单发布雷路径（`js/tank_weapons.js` `fireActiveSecondary`）同口径。
+  - 绘制层直取预约时的数量（`pf.count`），所见即所得。
+
+### 13.4 敌人难度数值再调优（2026-10-01 用户裁定，现行口径）
+
+**用户裁定（三条）**：① **降低速度上限倍率**；② **提高敌人（包括 Boss）血量**；③ **略微提高敌人升级速度**（敌人随节点推进变强更快 ⇒ 难度曲线现行口径见 `specs/map.md` §16）。
+
+- **现行值（`RULES.difficulty`）**：
+  - `entityMults.maxHp` **[0.5, 1.7]**（沿革 `[0.45, 1.4]`；低难度端 +11%、满难度端 +21%）；
+  - `entityMults.maxSpeed` **[0.7, 1.0]**（沿革 `[0.7, 1.15]`；满难度极速上限倍率 −13%）；
+  - `speedVsBaseline.baseCeil` **0.5**（沿革 0.6；`baseFloor 0.3`、`randMin/randMax 0.85/1.15` 均不变 ⇒ **低难度敌军速度不变、难度曲线更平缓**）。
+- **生效范围（重要）**：普通敌军的极速最终由 `speedVsBaseline` 封顶公式覆盖（`difficultyCapMuls` 与「直写 stats」逐值等价）⇒ `entityMults.maxSpeed` 上限下调**主要作用于 Boss 与其它未封顶路径**（Boss 经 `applyDifficultyMults(..., applyPlayerCap=false)` 跳过封顶）；血量无封顶键，故两端（普通敌人 + Boss）同时受益。
+- **Boss 血量**：归口 `specs/boss.md` §5（`tuning.hpMul` 沿革 ×8 → ×9；Boss 血量 = 出战配置 maxHp × hpMul × `entityMults.maxHp(diff)`，两级叠加）。
+- **实测增幅（2026-10-01 探针；`enemyAnchorBase.maxSpeed = 120`、`randFactor = 1`）**：
+
+  | 节点 index | diff（旧→新） | 普通敌人血量倍率（旧→新） | 普通敌人极速 px/s（旧→新） | Boss 血量倍率（旧→新） |
+  |---|---|---|---|---|
+  | 0 | 0.15 → 0.15 | 0.574 → 0.657（**+14.5%**） | 36.0 → 36.0（不变） | 4.59 → 5.91（**+28.8%**） |
+  | 4 | 0.35 → 0.36 | 0.739 → 0.876（**+18.5%**） | 45.0 → 42.3（−6.0%） | 5.91 → 7.88（**+33.4%**） |
+  | 8 | 0.63 → 0.64 | 0.970 → 1.168（**+20.4%**） | 57.6 → 50.7（−12.0%） | 7.76 → 10.51（**+35.5%**） |
+
+  含每辆 `randFactor` 上限（1.15）时的极速上限：**82.8 → 69.0 px/s**（高难度）。
+- **回归锚点**：`scripts/test-panels.js` 速度封顶断言重锚 **72 → 60 px/s**（= 0.5 × 基准 120）；`scripts/test-modifiers.js` #H1 段的封顶/地板/速度公式按 `RULES.difficulty.speedVsBaseline` **动态自算**（改值自动跟随）；`scripts/test-map.js` 的 `entityMults` 端点断言以 `RULES.difficulty.entityMults` 为唯一真值（同为动态）。
+
+### 13.5 视野距离系统退役（#J3，2026-09-30）
+
+**用户裁定**：「改为全屏幕渲染敌人，不再计算视野距离的问题。敌人 AI 是否被触发维持为距离 + 是否有直线视野（建筑或草丛、树冠等）」。
+
+- **退役范围（全部删除，不留死开关）**：
+  - `js/tank_camera.js`：`visionRadiusForViewport` / `visionCenter` / `visionClamped` 三个视野圆几何函数及其导出。
+  - `tank_mvp.html`：`entityHiddenByVision` 的剔除逻辑（保留同名函数恒返回 `false` 以兼容既有调用点）、视野虚线圈绘制、`visionRadiusEff` 的卡牌加成与屏幕相对计算。
+  - `js/tank_devpanel.js` + mvp/bench 接线 + `types/globals.d.ts`：dev 面板「无视野」开关（`noVision`）——它控制的正是已下线的剔除，留着会误导调试者以为还有视野机制。
+  - `cards/support_commander_periscope.json`（车长潜望镜 +15%）与 `cards/sniper_commander_sight.json`（车长观瞄镜 +25%）：唯一消费者是可见半径，视野下线后成**死效果卡**，按 2026-09-23 A 档先例整体删除；`tank_cards.js` 的 `PASSIVE_KEYS` 移除 `commander_sight`。卡池 168 → 166。
+- **现行口径**：敌对实体**一律渲染、一律可被命中**；画面上只剩 `aabbInView` 视口剔除（纯性能，不是玩法机制）。`RULES.vision` 仅作历史配置留档（`__TEST__.visionZoom()` 调试钩子仍读名义值），不参与任何渲染/命中/剔除判定。
+- **明确不受影响（用户要求的第二半）**：敌人 AI 的接战判定一直是、现在仍是 **「距离 + 直线视野」**——`js/tank_ai.js` 的 `cfg.engageRequiresLoS`（`RULES.ai.engageRequiresLoS = true`）要求激活时 `hasLineOfSight` 通过；遮挡由 `js/tank_cover.js hasLineOfSight` 按掩体的 **`vision: true`** 键判定（建筑 `full`/`building`/`intact`/`ruined`/`rock`、树 `tree`、灌木 `bush`、倒树 `fallen` 遮视线；栅栏 `soft`、沙袋 `barricade`、残骸、水/泥/路**不遮**）。该体系与视野距离系统各自独立，`tank_fire.js` 的 `hiddenByVision` 命中剔除钩子随视野系统一并移除（否则会出现「看得见却打不中」）。
+- **回归锚点**：`scripts/test-camera.js` 删除原 #H5/#K1 视野圆断言段（被测对象已不存在），保留 `aabbInView` 视口剔除与 `minZoom` 断言；`scripts/test-browser-r4.cjs` F3 段断言 `entityHiddenByVision` 恒 `false` 且 `hasLineOfSight` + `engageRequiresLoS` 仍在。
+
+### 13.6 地雷可连续布设（#J1）与主武器换装重置（#J2）
+
+- **#J1（2026-09-30 用户反馈「地雷在 1 个节点内似乎只能部署 1 次」）**：`RULES.abilities.deploy_limits.mineMax` **3 → 6**、`mineMaxHardCap` 8 → 12；`mineFieldCount` 保持 3。
+  - **根因**：`mineMax` 是「**场上同时存在**的地雷数」上限，而它恰等于单次雷场数量（3），首轮即把上限用尽；地雷存续 30~45s、单节点战斗远长于此 ⇒ 后续雷场全部被拒。
+  - **口径澄清**：`mineMax` 是**同时在场数**，不是「本局总数」。调大它才能让一个节点内连续布设多轮；想要更大的单次雷场应同步上调 `mineFieldCount` 与 `mineMax` 两者（#H2 的「按可用余量裁剪」落雷逻辑保持不变）。
+- **#J2（2026-09-30 用户反馈「获得电磁炮后再获得其他主炮，似乎会继承可穿透弹药的特性」）**：`js/tank_cards.js` 主武器 `install` 在**换型**时先重置 `stats` 为该型基准（`getWeaponDefaults('primary', wType)`），再合并卡牌 `statOverrides`。
+  - **根因**：旧实现 `Object.assign({}, 旧 stats, overrides)` 把旧武器专有键一并带进新武器 —— 最典型的是 `railgun` 的 `pierce`/`pierceDmgMul`（`js/tank_fire.js firePrimaryShell` 据此赋予弹体贯穿能力），于是换上任何其他主炮后仍能贯穿两辆坦克。
+  - **同型安装保持合并语义**（幂等，不丢 `tanks/*.json` 自定义数值）；副武器 install 原本就用 `getWeaponDefaults` 构造新对象，无此缺陷（两条路径现共用 `_weaponDefaultsResolver()`）。
+
+### 13.7 接战机动随机化（#M，2026-10-01，现行口径）
+
+**用户裁定**：「敌人接近玩家时，要有多种行为：直线/斜线/曲线行进或后退，行进时/短停后开火，其行进的角度、距离、短停的时间也随机，以增加随机性。」
+
+- **问题定位（实测）**：改前敌人接近玩家只有单一轨迹——`aiDecideEnemy` 按单点 `engage`(520px) 决策 `dist>engage→move=1`，即**恒定直线冲脸**；偏航只来自 #83 peek（±0.5rad 叠加）与 #88 侧摆（装填期 ±0.78~1.57rad），二者都是**单帧叠加角**而非持续轨迹，开火时刻也由装填结束决定 ⇒ 整簇敌人以同节奏逼近，玩家读出「一坨直线压过来」。
+
+- **现行口径（`RULES.ai.maneuver`，消费方 `js/tank_ai.js` `_maneuverRoll` / `_applyManeuver`）**：
+  - **机动脚本**：敌人接战时懒分配一个脚本（挂 `t._mv`），一次性随机决定 **机动类型 + 偏角 + 行程 + 短停时长**；走完或超时即**重掷**，轨迹持续碎化。五种类型与权重：`direct` 直线 3 / `slant` 斜线 4 / `curve` 曲线 4 / `arc` 弧线绕行 3 / `retreat` 后撤 2。
+  - **偏角随机**：斜线 `slantAngle[0.35,1.15]`、弧线 `arcAngle[0.8,2.0]`、曲线起始 `curveAngle[0.25,0.95]`；曲线另有 `sweep∈[0.5,1.9]`，**与起始偏角反号** ⇒ 偏角必然穿过 0，轨迹呈 **S 形回正**而非单向甩开。
+  - **行程与重掷**：`reRollDist`(90px) / `reRollTimeMax`(4.5s) 任一达成即重掷；`retreat` 另有 `retreatDist[120,320]` 与独立时限 `retreatT[0.5,1.4]`。
+  - **短停与开火节奏**：每段脚本结束按 `holdChance`(0.35) 进入短停，时长 `hold[0.4,1.8]`s；**短停期间 `move=0` 但炮塔照常锁敌、可开火** ⇒ 形成「行进时开火 / 短停后开火」两种节奏。短停结束**当帧**把开火容差放宽到 `resumeAimTolMul`(1.8) 倍（单帧峰值，随后即回到常规容差、同时重掷下一段脚本），与既有 `reactionJitter` 叠加 ⇒ 敌人不会整簇同时开火。
+  - **装填期偏置（承接 #88）**：装填前段（`reloadT > stats.reload × reloadGapFrac(0.3)`）改用 `reloadGapWeights{direct:1, slant:4, curve:3, arc:4, retreat:1}`（压低直冲、抬高侧向）并把前进压为 `reloadGapCreep`(0.35) 微速蠕行。**普通敌人的装填期躲避机动由此统一承担，旧 #88 `sideSwing` 仅保留 Boss 路径**（沿革：#88 原对普通敌与 Boss 均生效，见 `DEVELOPMENT.md` §4.43）。
+  - **不覆盖的语义（刻意保留）**：① 机动层只在「需要移动」时改写轨迹方向——**已被 §13.8 #N 修订**：初版仅保护 `baseMove===0`（驻停），`baseMove<0`（退让）仍被机动层 `move=+1` 覆盖，致使敌军「退着退着又贴上来」，现收窄为**只接管 `baseMove>0`**（接近），驻停与退让一律确定性，见 §13.8 实现期缺陷 ①；② **Boss 与 SPG 定距车（`classProfiles.spg.keepRange`）不启用机动层**——二者的角色定位就是「始终推进」/「保持距离」，随机化会破坏角色辨识度；③ `flank`/`coverSeek`/`stunned` 等特殊态优先级高于机动层；④ 脱离接战即 `t._mv = null`，下次接战重新抽取（不留陈旧偏角）。
+  - **回退开关**：`RULES.ai.maneuver.enabled = false` 完全退回改前的直冲语义（`keepMove` 透传原 `baseMove`）。
+- **回归**：`scripts/test-ai.js` 新增 **#M 段 13 项**——5 种类型均可达、偏角落在各自配置区间、曲线 sweep 与起始偏角反号、禁用开关回退、短停进出与开火容差放宽、装填期蠕行与直冲占比下降、集成层输出含转向/短停/前进三类、脱离接战清空脚本、Boss 不启用。#88 段改为断言「装填期抽到非 direct 机动 + 前进压为蠕行」，Boss 路径断言不变。
+
+### 13.8 交战结构重做（#N，2026-10-02，现行口径）
+
+**用户反馈**：「敌人全部尝试贴近玩家、又在屏幕边缘被动受击，玩家像打靶」；并要求「再结合你建议的方案落地」。**用户裁定（2026-10-01，2 项）**：① 反打靶可见性**仅做玩家侧提示**（不给敌人加视口门控，保留 #J3「全屏可命中」口径与边缘推进的压迫感）；② 实施范围 = **全部落地**（交战带 / 攻守分工 / flank 重写 / 分离力 / 装填脱离，不含敌人侧可见性）。
+
+- **问题定位（实测，均有 file:line 证据）**：
+  1. **单点 engage 的夹逼结构**：`aiDecideEnemy` 只有 `dist>engage(520)→前进 / dist<close(200)→后退`，`closeRange=200` 与车体尺度同量级 ⇒ 退让常被物理互推抵消；且四类敌车共用同一组阈值。
+  2. **一拥而上无分工**：每辆车独立决策，全部满足「dist>engage」即全体推进，无名额、无侧翼、无牵制层次。
+  3. **旧 flank 事实上不生效**：窗口 `dist>engage && dist<flankMinDist×1.5×flankBias` 对 heavy 上限 400×1.5×0.6=**360 < engage≈478 恒不触发**、spg `flankBias=0` 被排除、medium 高难度下 engage 超过上限；目标点是「自身 + targetRight×300」**每帧重算的横向平移**（目标恒在自身右侧 300px ⇒ 原地绕圈），非绕后站位。
+  4. **无群体分离**：`resolveTankCollisions`（`js/tank_entity.js`）只沿连线推开，靠内侧那辆被直接推向玩家，人堆贴脸。
+  5. **视口外开火无提示**：#J3 视野退役后敌人一律可命中，但绘制层仍有 `aabbInView` 剔除（`tank_mvp.html`），而 AI 开火只看「距离 + 直线视野」（`RULES.ai.engageRequiresLoS`）⇒ 视口外敌人开火且玩家看不到来源，即「屏幕边缘被动受击」的直接机制。
+  6. **退避仅限重甲残血**：`coverSeek` 原条件为「aiTier≥1 或正面装甲≥100mm」且 `hp<60%`（`js/tank_ai.js`），轻中坦在装填期只能在开阔地对射。
+
+- **现行口径（消费方 `js/tank_ai.js` + 新模块 `js/tank_ai_squad.js`）**：
+  - **#N1 交战距离带**（`RULES.ai.engageBand`）：判据由单点改为按类别的 `[minRatio, maxRatio] × engage` 区间——`dist>max` 接近 / `dist<min` 脱离 / 区间内驻停开火。四类：light 0.52~1.28 / medium 0.42~1.10 / heavy 0.30~0.94 / spg 0.66~1.34；下界另有车体尺度兜底（`max(60, hullLen×2.2)`）。**heavy 的 `moveLock` 角色特性保留**（`dist<min` 时 `baseMove=0` 不后撤）；`engageBand.enabled=false` 回退旧 `closeRange`/`engageRange` 单点语义。
+  - **#N2 攻守分工**（`RULES.ai.squad` + `js/tank_ai_squad.js updateSquad`）：节点级协调器每 `reassignInterval`(0.6s) 按评分（距离/LoS/血量）+ **角色粘性** 分配 `press`（压上，名额 = `pressSlotsBase(2) + floor(diff×1.5)` 钳 ≤4）、`flank`（侧翼）、`hold`（驻守）三种角色；存活数 ≤ 名额时全员 press。`hold` 走 `holdGate`（> `holdFireMaxDist` 640px 纯待机，近距容差放宽 ×2）。协调器**只写 `t.aiRole`**，位移仍由交战带/机动层执行；`enterBattle` 时 `resetSquad()` 防跨节点串用。
+  - **#N3 flank 重写**（`RULES.ai.flankRewrite`）：站位点 = **玩家为圆心、半径 `_flankRadius(band) = band.max × radiusRatio(1.15)`、方位角 = 进入时方位 ± 扇区角 [1.05, 2.10] rad** 的世界坐标点，**进入 flank 时锁定一次**（`t._flankTarget`），驶入 `arriveDist`(70px) 即转 press；角色变更时清除锁定。半径以**交战带外沿**为基准（见下方缺陷 ③）。旧 flank 分支降级为回退路径（`flankRewrite.enabled=false` 启用）。
+  - **#N4 群体分离力**（`RULES.ai.separation`）：同类斥力半径 `radius`(180px)，玩家方向斥力半径 = `radius × playerRadiusMul`(0.6 ⇒ 108px)，两者均按距离**线性衰减**；力度权重 `playerFactor`(0.7) 单独作用于玩家方向。合成斥力换算为相对「朝玩家」方向的 ±1 转向偏置。**仅对 `press` 且 `move≠0` 生效**（见缺陷 ④）。
+  - **#N5 视口外来袭方向提示**（`threatIndicators(player, enemies, viewBounds, opts)`，`js/tank_ai_squad.js`）：筛选「已接战 + 视口外 + 距离 ≤ `engageRange×1.4`」的敌人，按距离取前 6 条输出方位角；mvp `drawThreatIndicators()` 沿用边缘矩形求交绘制**琥珀色箭头**（与无人机红箭头区分），alpha 随距离衰减。**玩家侧信息层，不改变任何 AI 判定与命中判定**（#J3 口径不变）。
+  - **#N6 装填脱离**（`RULES.ai.retreatReload`）：装填期且距离 ∈ [300, 760]px 时退到半径 620px 内最近挡弹掩体的背弹面（掩心 − 朝玩家单位向量×(半深+45px)），到位后原地还击。与 #76 C6 `coverSeek`（重甲残血）并列，构成**两条独立退避通道**。
+  - **回退开关**：`engageBand.enabled` / `squad.enabled` / `flankRewrite.enabled` / `separation.enabled` / `retreatReload.enabled` 独立可关；全部关闭即完全退回 #M 及更早的单点直冲行为。
+
+- **实现期修正的 4 处缺陷（均由 `scripts/diagnose-ai-crowd.js` 探针暴露，非推测）**：
+  1. **退让被机动层覆盖**：#M 初版仅在 `baseMove===0` 时保护，`baseMove=-1` 的退让被机动层 `move=+1` 覆盖 ⇒ 退着退着又贴上。→ 机动层收窄为**只接管 `baseMove>0`**（接近）。
+  2. **旧 repos 在驻停帧复活**：`legacyMicroOn` 初版用 `!maneuverOn`（依赖逐帧变化的 baseMove/role）守卫 ⇒ 驻停/脱离帧 `!maneuverOn` 为真，`repos`（#83）重新接管 `move` 随机 ±1 冲向玩家。→ 改为**静态判据**：只有 Boss / SPG 定距车 / 整体关闭机动层 才走旧 `sideSwing`+`peek`+`repos`。
+  3. **flank 站位形成「棘轮内移」**：站位半径 0.95×engage 落在交战带**内侧**，且站位点初版按「当前方位角」每帧重算（目标绕玩家转 ⇒ 螺旋内收）；叠加角色 0.6s 重排 ⇒ 「当 flank 内移、转 press 驻停」逐次逼近（实测 700→395→**273px**=带内沿）。→ 站位点**进入时锁定一次** + 半径改以 `band.max × 1.15` 为基准（恒在带外）+ `roleStickiness`(0.2) 抑制横跳。
+  4. **分离力干扰 flank 定点到达**：斥力改写 `turn` 使敌人无法进入 `arriveDist` 判定圈，持续前进螺旋贴脸。→ 分离力**仅作用于 `press`**。
+
+- **量化验证（`node scripts/diagnose-ai-crowd.js`，决策层探针：6 辆环形 700px 起始、30 秒、固定随机种子可复现；同初始态势对照「改前 4 开关全关」与「改后现行」两组）**：
+
+  | 指标 | 改前 | 改后 | 变化 |
+  |---|---|---|---|
+  | 同时压上（press）车辆数 | 6.00 | **2.00** | −67% |
+  | 近身圈内（≤engage×0.9）敌人数 | 0.71 | **0.00** | −100% |
+  | 最近敌人距离 | 447px | **522px** | +17% |
+
+  ⇒ 既消除「全员贴脸」，也消除「一拥而上」。**`fanout`（方位集中度）3.33 → 1.87 属预期改善**：改前六辆均匀包围玩家（全方位压迫），改后只有 2 辆压上、3 辆驻守开火、1 辆侧翼绕行 ⇒ 玩家不再同时面对所有方向。
+
+- **回归**：`scripts/test-ai.js` 新增 **#N 段 26 项**（2026-10-04 实测 `ok()` 计数；交战带分档/下界兜底/开关回退/带内驻停/带外接近/重坦不后撤/站位半径与扇区/站位稳定/左右分侧/集成绕行/分离力有无邻居/装填脱离背弹面与四类 null 路径/站位半径 ≥ 带外沿防复发）；`scripts/test-squad.js` **新增 25 项**（2026-10-04 实测；名额难度与上限、角色互斥覆盖、评分优先、节流稳定、换血重分配、开关回退、hold 门控、威胁提示筛选/排序/边界）。`scripts/test-ai.js` 旧 flank 断言改为「回退路径」语义（`flankRewrite.enabled=false` 下验证），`test-squad.js` 已接入 `npm test` 链。
+- **验证（三链，2026-10-02）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **EXIT=0**（全链 0 项失败）/ `npm run test:browser` **四链 ALL PASS、EXIT=0**。
 

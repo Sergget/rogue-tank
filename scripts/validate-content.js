@@ -189,8 +189,8 @@ function checkNumericBounds() {
 //   economy shopDiscount    → 小数语义（0.1 → +10%）
 //   economy startScore/reviveCount → 绝对量（value 本身）
 //   passive angle_boost     → 绝对量（+5°）
-//   passive commander_sight → 直接百分比（+25%）
 //   passive overmatch / reactive_armor / spall_liner → 阈值/标志/系数，不在 desc 展示，跳过
+//   （passive commander_sight 已于 2026-09-30 #J3 随视野距离系统退役而删除）
 //   ability / drone         → 无数值期望，跳过
 // 匹配规则：同期望值的多个 effect 可共享一个 desc 数字（如 bastion_armor
 // "整车等效厚度 +30%" 同时覆盖 hull/turret 两个 ×1.3 效果），因此按期望值分组、
@@ -213,7 +213,6 @@ function checkDescEffectConsistency() {
     }
     if (ef.type === 'passive') {
       if (ef.key === 'angle_boost') return ef.value;       // +5° 绝对量
-      if (ef.key === 'commander_sight') return ef.value;   // +25% 直接百分比
       return null;                                         // 阈值/标志/系数（overmatch 等）
     }
     return null;                                           // ability / drone 无数值期望

@@ -6,7 +6,7 @@
   "scale": 2.0,
   "behavior": { "style": "crush", "contact": { "dmg": 120, "knockback": 260, "cd": 1.5 } },
   "tuning": {
-    "hpMul": 8,
+    "hpMul": 9,
     "moveMul": 0.5,
     "turnMul": 0.6,
     "turretTurnMul": 0.6,

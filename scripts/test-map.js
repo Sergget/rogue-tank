@@ -50,6 +50,12 @@ ok(closeNum(difficultyForIndex(0, 1), 0.19), `Lv.1 首节点 0.15+0.04=0.19（�
 ok(difficultyForIndex(0, 5) === 0.35, `Lv.5 首节点 0.15+0.20=0.35（实际 ${difficultyForIndex(0, 5)}）`);
 ok(difficultyForIndex(12, 10) === 1.15, `Lv.10 高索引触绝对上限 1.15（实际 ${difficultyForIndex(12, 10)}）`);
 ok(difficultyForIndex(0) === difficultyForIndex(0, 0), 'level 0 等价缺省');
+// 2026-10-01 用户裁定「略微提高敌人升级速度」：curvePow 1.25 → 1.20（越接近 1 中段难度越高）——
+// 锁定调整后的中间索引难度基线（防回退；RULES.difficulty 调参时同步更新本行）。
+ok(RULES_MOD.RULES.difficulty.curvePow === 1.20,
+   `curvePow = 1.20（升级速度口径，实际 ${RULES_MOD.RULES.difficulty.curvePow}）`);
+ok(difficultyForIndex(3) === 0.30 && difficultyForIndex(6) === 0.50,
+   `升级速度基线：index3 → ${difficultyForIndex(3)}（0.30）、index6 → ${difficultyForIndex(6)}（0.50）`);
 function closeNum(a, b) { return Math.abs(a - b) < 1e-9; }
 
 // 2) 敌军数量随难度

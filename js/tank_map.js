@@ -24,8 +24,10 @@ function difficultyConfig() {
  * 旧公式 t=i/(count-1) 在无限延长链下失效（count 不再已知），改为索引驱动饱和曲线：
  *   base = min(curveCap, curveStart + curveSpan·min(1, index/diffSatIndex)^curvePow)
  *   eff  = min(diffMax, base + difficultyLevel × crossRunLevelBonus)   ← 跨局等级叠加
- * 参数收口 RULES.difficulty（curveStart 0.15 / curveSpan 0.8 / curvePow 1.25 /
+ * 参数收口 RULES.difficulty（curveStart 0.15 / curveSpan 0.8 / curvePow 1.20 /
  * diffSatIndex 12 / curveCap 0.95 / crossRunLevelBonus 0.04 / diffMax 1.15）。
+ * curvePow 2026-10-01 由 1.25 下调至 1.20（用户裁定「略微提高敌人升级速度」：curvePow 越接近 1
+ * 中段难度越高 ⇒ 敌人随节点升级更快；端点不变——index=0 仍 0.15、index≥diffSatIndex 仍封顶 0.95）。
  * 数值定表说明：index=12 处基础难度封顶 0.95（约等于旧 5 节点链末段强度），
  * 每次终局 difficultyLevel+1 使下一局同索引难度 +0.04，封顶 1.15（敌数/杠杆公式对 >1
  * 的 diff 已有钳制，仅 statMult 触顶 1.5）。
@@ -35,7 +37,7 @@ function difficultyConfig() {
  */
 function difficultyForIndex(index, difficultyLevel) {
   const cfg = difficultyConfig() || {
-    curveStart: 0.15, curveSpan: 0.8, curvePow: 1.25,
+    curveStart: 0.15, curveSpan: 0.8, curvePow: 1.20,
     diffSatIndex: 12, curveCap: 0.95, crossRunLevelBonus: 0.04, diffMax: 1.15
   };
   const i = Math.max(0, index);
@@ -91,9 +93,9 @@ function aiTierForDifficulty(diff) {
 function entityMultsForDifficulty(diff) {
   const cfg = difficultyConfig() || {};
   const table = cfg.entityMults || {
-    maxHp: [0.45, 1.4], penetration: [0.75, 1.25], damage: [0.75, 1.2], armorAll: [0.6, 1.3],
+    maxHp: [0.5, 1.7], penetration: [0.75, 1.25], damage: [0.75, 1.2], armorAll: [0.6, 1.3],
     reload: [1.25, 0.82], spreadMult: [1.3, 0.78], aimSpeed: [0.8, 1.35],
-    maxSpeed: [0.7, 1.15], turnRate: [0.7, 1.2], turretTurnRate: [0.7, 1.25]
+    maxSpeed: [0.7, 1.0], turnRate: [0.7, 1.2], turretTurnRate: [0.7, 1.25]
   };
   const diffMax = cfg.diffMax !== undefined ? cfg.diffMax : 1.15;
   const n = Math.min(1, Math.max(0, (Number.isFinite(diff) ? diff : 0) / diffMax));

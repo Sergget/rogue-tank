@@ -252,38 +252,46 @@ model.addModifier(t20c, { stat: 'maxHp', mode: 'add', value: 30, scope: 'run' })
 model.removeRunModifiers(t20c);                  // 移除 → maxHp 回落 30
 ok(t20c.hp === baseHp20c, '#A12: maxHp 回落后 hp 仅钳回原上限，不额外扣血');
 
-// 21) #A16 difficultyCapMuls：敌军能力封顶/地板/速度 → mult 系数换算（纯函数 + 注入等价性）
+// 21) #A16/#H1 difficultyCapMuls：敌军能力封顶/地板/速度 → mult 系数换算（纯函数 + 注入等价性）
 // 背景：applyDifficultyMults 原直写 t.stats.* 对敌人封顶/抬升，绕过 modifiers 三层，任何后续
 // addModifier/refreshStats 会把直写值抹回未封顶（潜在回归）。现改经 difficultyCapMuls 换算系数
 // + addModifier 注入，本测试固化「逐值等价于旧直写」与「仅超限/越界才注入」。
+// #H1（2026-09-30）：封顶参照基准由「玩家 stats」改为「固定基准 RULES.enemyAnchorBase」——
+// 玩家选车与局外永久升级一律不再抬高敌军上限。四键改名：penCapVsPlayer→penCapVsBaseline、
+// dmgFloorVsPlayer→dmgFloorVsBaseline、speedVsPlayer→speedVsBaseline。
+// 本段另断言**#H1 核心不变量**：传入属性迥异的 player 不改变任何封顶结果（玩家与敌军解耦）。
 (function(){
   const D = global.RULES.difficulty;
+  const A = global.RULES.enemyAnchorBase;
   const em = D.entityMults;
-  // 可控玩家基准
+  ok(!!A && typeof A.penetration === 'number', '#H1: RULES.enemyAnchorBase 固定基准已定义');
+  // 可控玩家基准（#H1 起**不参与**任何封顶计算，仅用于验证解耦性）
   const player = model.makeTank({ team: 'player' });
   player.base.penetration = 200; player.stats.penetration = 200;
   player.base.damage = 50;       player.stats.damage = 50;
   player.base.maxSpeed = 100;    player.stats.maxSpeed = 100;
 
   const diffNorm = 0.5, randFactor = 1.0;
-  const SV = D.speedVsPlayer;
+  const SV = D.speedVsBaseline;
   const speedFactor = SV.baseFloor + (SV.baseCeil - SV.baseFloor) * diffNorm;
-  const targetSpeed = speedFactor * randFactor * player.stats.maxSpeed;   // 0.45*1*100=45
-  const penCap = player.stats.penetration * D.penCapVsPlayer;             // 240
-  const floor = player.stats.damage * D.dmgFloorVsPlayer;                 // 20
+  const targetSpeed = speedFactor * randFactor * A.maxSpeed;   // 0.4*1*120=48（baseCeil 0.5 起，2026-10-01）
+  const penCap = A.penetration * D.penCapVsBaseline;             // 144
+  const floor = A.damage * D.dmgFloorVsBaseline;                 // 13.6
+  // #H1：缺 strongest 时天花板 = A.damage × strongestAnchorMult × dmgCapAmmoMult
+  const capNoStrongest = A.damage * D.strongestAnchorMult * D.dmgCapAmmoMult;
 
   // 21a 正常区间敌人：pen 未超限、dmg 远高于地板，应只注入 speedMul
   const e1 = model.makeTank({ team: 'enemy' });
-  e1.base.penetration = 150; e1.stats.penetration = 150;   // 150*1.25=187.5 < 240
-  e1.base.damage = 80;      e1.stats.damage = 80;
+  e1.base.penetration = 100; e1.stats.penetration = 100;   // 100*1.25=125 < 144（固定基准上限）
+  e1.base.damage = 40;      e1.stats.damage = 40;        // 40*1.2=48 ∈ [13.6, 55.45] 基准区间
   e1.base.maxSpeed = 120;   e1.stats.maxSpeed = 120;
   model.addModifier(e1, { stat: 'penetration', mode: 'mult', value: em.penetration[1], source: 'difficulty', scope: 'run' });
   model.addModifier(e1, { stat: 'damage', mode: 'mult', value: em.damage[1], source: 'difficulty', scope: 'run' });
   model.addModifier(e1, { stat: 'maxSpeed', mode: 'mult', value: em.maxSpeed[1], source: 'difficulty', scope: 'run' });
-  const caps1 = model.difficultyCapMuls(e1, { player: player, strongest: 9999, diffNorm: diffNorm, randFactor: randFactor });
-  ok(caps1.speedMul !== undefined, '#A16: speedMul 恒注入（相对速度公式）');
-  ok(caps1.penMul === undefined, '#A16: pen 未超限时不注入 penMul');
-  ok(caps1.dmgFloorMul === undefined && caps1.dmgCapMul === undefined, '#A16: dmg 正常区间不注入（strongest 高→cap 高）');
+  const caps1 = model.difficultyCapMuls(e1, { diffNorm: diffNorm, randFactor: randFactor });
+  ok(caps1.speedMul !== undefined, '#H1: speedMul 恒注入（相对固定基准速度公式）');
+  ok(caps1.penMul === undefined, '#A16: pen 未超固定基准上限时不注入 penMul');
+  ok(caps1.dmgFloorMul === undefined && caps1.dmgCapMul === undefined, '#H1: dmg 落在基准区间内不注入');
   const CAP_STAT = { penMul: 'penetration', dmgFloorMul: 'damage', dmgCapMul: 'damage', speedMul: 'maxSpeed' };
   for (const k in caps1) model.addModifier(e1, { stat: CAP_STAT[k], mode: 'mult', value: caps1[k], source: 'difficulty-cap', scope: 'run' });
   ok(Math.abs(e1.stats.maxSpeed - targetSpeed) < 1e-6,
@@ -291,9 +299,9 @@ ok(t20c.hp === baseHp20c, '#A12: maxHp 回落后 hp 仅钳回原上限，不额�
 
   // 21b pen 超限场景：直写目标 = penCap，注入后应命中
   const e2 = model.makeTank({ team: 'enemy' });
-  e2.base.penetration = 300; e2.stats.penetration = 300;   // 300*1.25=375 > 240
+  e2.base.penetration = 300; e2.stats.penetration = 300;   // 300*1.25=375 > 144
   model.addModifier(e2, { stat: 'penetration', mode: 'mult', value: em.penetration[1], source: 'difficulty', scope: 'run' });
-  const caps2 = model.difficultyCapMuls(e2, { player: player, strongest: 9999, diffNorm: 0, randFactor: 1 });
+  const caps2 = model.difficultyCapMuls(e2, { diffNorm: 0, randFactor: 1 });
   ok(caps2.penMul !== undefined, '#A16: pen 超限时注入 penMul');
   model.addModifier(e2, { stat: 'penetration', mode: 'mult', value: caps2.penMul, source: 'difficulty-cap', scope: 'run' });
   ok(Math.abs(e2.stats.penetration - penCap) < 1e-6,
@@ -301,10 +309,10 @@ ok(t20c.hp === baseHp20c, '#A12: maxHp 回落后 hp 仅钳回原上限，不额�
 
   // 21c dmg 低于地板场景
   const e3 = model.makeTank({ team: 'enemy' });
-  e3.base.damage = 10; e3.stats.damage = 10;     // 10*1.2=12 < floor 20
+  e3.base.damage = 10; e3.stats.damage = 10;     // 10*1.2=12 < floor 13.6
   model.addModifier(e3, { stat: 'damage', mode: 'mult', value: em.damage[1], source: 'difficulty', scope: 'run' });
-  const caps3 = model.difficultyCapMuls(e3, { player: player, strongest: 9999, diffNorm: 0, randFactor: 1 });
-  ok(caps3.dmgFloorMul !== undefined, '#A16: dmg 低于地板时注入 dmgFloorMul');
+  const caps3 = model.difficultyCapMuls(e3, { diffNorm: 0, randFactor: 1 });
+  ok(caps3.dmgFloorMul !== undefined, '#A16: dmg 低于固定基准地板时注入 dmgFloorMul');
   model.addModifier(e3, { stat: 'damage', mode: 'mult', value: caps3.dmgFloorMul, source: 'difficulty-cap', scope: 'run' });
   ok(Math.abs(e3.stats.damage - floor) < 1e-6,
     `#A16: dmg 地板注入后逐值等价旧直写（${e3.stats.damage.toFixed(3)} vs ${floor}）`);
@@ -314,11 +322,58 @@ ok(t20c.hp === baseHp20c, '#A12: maxHp 回落后 hp 仅钳回原上限，不额�
   e4.base.damage = 200; e4.stats.damage = 200;   // 200*1.2=240
   const cap2 = 100 * D.dmgCapAmmoMult;            // strongest=100 → cap=70
   model.addModifier(e4, { stat: 'damage', mode: 'mult', value: em.damage[1], source: 'difficulty', scope: 'run' });
-  const caps4 = model.difficultyCapMuls(e4, { player: player, strongest: 100, diffNorm: 0, randFactor: 1 });
+  const caps4 = model.difficultyCapMuls(e4, { strongest: 100, diffNorm: 0, randFactor: 1 });
   ok(caps4.dmgCapMul !== undefined, '#A16: dmg 高于天花板时注入 dmgCapMul');
   model.addModifier(e4, { stat: 'damage', mode: 'mult', value: caps4.dmgCapMul, source: 'difficulty-cap', scope: 'run' });
   ok(Math.abs(e4.stats.damage - cap2) < 1e-6,
     `#A16: dmg 天花板注入后逐值等价旧直写（${e4.stats.damage.toFixed(3)} vs ${cap2}）`);
+
+  // 21e #H1 核心不变量：玩家基准（含巨额属性）不影响任何封顶结果
+  //     —— 旧实现全程乘 player.stats，商店升级会同步抬高敌军；新实现必须完全忽略。
+  const mkEnemy = () => {
+    const e = model.makeTank({ team: 'enemy' });
+    e.base.penetration = 300; e.stats.penetration = 300;
+    e.base.damage = 5; e.stats.damage = 5;
+    e.base.maxSpeed = 300; e.stats.maxSpeed = 300;
+    return e;
+  };
+  const weakPlayer = model.makeTank({ team: 'player' });
+  weakPlayer.stats.penetration = 10; weakPlayer.stats.damage = 1; weakPlayer.stats.maxSpeed = 10;
+  const richPlayer = model.makeTank({ team: 'player' });
+  richPlayer.stats.penetration = 9999; richPlayer.stats.damage = 9999; richPlayer.stats.maxSpeed = 9999;
+  const capsWeak = model.difficultyCapMuls(mkEnemy(), { player: weakPlayer, strongest: 5, diffNorm: 0.5, randFactor: 1 });
+  const capsRich = model.difficultyCapMuls(mkEnemy(), { player: richPlayer, strongest: 99999, diffNorm: 0.5, randFactor: 1 });
+  ok(capsWeak.penMul !== undefined && capsRich.penMul !== undefined,
+    '#H1: 强弱玩家下 pen 均走固定基准封顶（非仅弱玩家触发）');
+  ok(Math.abs(capsWeak.penMul - capsRich.penMul) < 1e-9
+     && Math.abs(capsWeak.speedMul - capsRich.speedMul) < 1e-9,
+    `#H1: 玩家属性不影响敌军封顶系数（penMul ${capsWeak.penMul.toFixed(6)} vs ${capsRich.penMul.toFixed(6)}）`);
+
+  // 21f #H1：未传 strongest 时 dmg 天花板仍有确定值（旧实现退化为 Infinity = 无上限）
+  const eNoStrong = model.makeTank({ team: 'enemy' });
+  eNoStrong.base.damage = 500; eNoStrong.stats.damage = 500;
+  const capsNoStrong = model.difficultyCapMuls(eNoStrong, { diffNorm: 0, randFactor: 1 });
+  ok(capsNoStrong.dmgCapMul !== undefined,
+    '#H1: 未传 strongest 时 dmg 天花板仍有确定值（不再退化为 Infinity）');
+  model.addModifier(eNoStrong, { stat: 'damage', mode: 'mult', value: capsNoStrong.dmgCapMul, source: 'difficulty-cap', scope: 'run' });
+  ok(Math.abs(eNoStrong.stats.damage - capNoStrongest) < 1e-6,
+    `#H1: 缺 strongest 天花板 = 基准×strongestAnchorMult×dmgCapAmmoMult（${eNoStrong.stats.damage.toFixed(2)} vs ${capNoStrongest.toFixed(2)}）`);
+
+  // 21g #H1：applyEnemyAppearanceAndStats 忽略传入的玩家基准（数值锚定固定基准）
+  const specA = { class: 'medium', heightClass: 'medium' };
+  const eA = model.makeTank({ team: 'enemy' });
+  const eB = model.makeTank({ team: 'enemy' });
+  const richStats = { maxHp: 9999, penetration: 9999, damage: 9999, reload: 0.1, maxSpeed: 9999,
+    turnRate: 9, turretTurnRate: 9, armor: { hull: { front: 999, side: 999, rear: 999 }, turret: { front: 999, side: 999, rear: 999 } } };
+  model.applyEnemyAppearanceAndStats(eA, specA, null);            // 固定基准
+  model.applyEnemyAppearanceAndStats(eB, specA, richStats);        // 传玩家基准（应被忽略）
+  ok(Math.abs(eA.base.penetration - eB.base.penetration) < 1e-9
+     && Math.abs(eA.base.damage - eB.base.damage) < 1e-9
+     && Math.abs(eA.base.maxHp - eB.base.maxHp) < 1e-9
+     && Math.abs(eA.base.maxSpeed - eB.base.maxSpeed) < 1e-9,
+    `#H1: 传玩家基准不改变敌军 base（pen ${eA.base.penetration} vs ${eB.base.penetration}）`);
+  ok(eA.base.penetration === Math.round(A.penetration * 1.0),
+    `#H1: 敌军 base 锚定固定基准 medium profile（pen=${eA.base.penetration}）`);
 })();
 
 console.log('test-modifiers: 完成所有检查');

@@ -205,10 +205,10 @@ console.log('difficultyCapMuls (speed cap, #B4):');
   MD.addModifier(enemy, { stat:'maxSpeed', mode:'mult', value:2, source:'entity', scope:'run' }); // 240
   const m = MD.difficultyCapMuls(enemy, { player: player, diffNorm: 1, randFactor: 1 });
   ok(typeof m.speedMul === 'number' && m.speedMul < 1, 'fast enemy -> speedMul<1 caps it down (' + (m.speedMul != null ? m.speedMul.toFixed(3) : 'n/a') + ')');
-  // inject the cap mult, recompute -> final ≈ lerp(0.3,0.6,1)*1.0*120 = 72
+  // inject the cap mult, recompute -> final ≈ lerp(0.3,0.5,1)*1.0*120 = 60
   MD.addModifier(enemy, { stat:'maxSpeed', mode:'mult', value: m.speedMul, source:'difficulty-cap', scope:'run' });
   MD.refreshStats(enemy);
-  ok(Math.abs(enemy.stats.maxSpeed - 72) < 1, 'capped enemy maxSpeed ≈ 72px/s (=0.6×120 player), got ' + enemy.stats.maxSpeed.toFixed(2));
+  ok(Math.abs(enemy.stats.maxSpeed - 60) < 1, 'capped enemy maxSpeed ≈ 60px/s (=0.5×120 baseline), got ' + enemy.stats.maxSpeed.toFixed(2));
   const slow = MD.makeTank({ team:'enemy', x:0, y:0 });
   MD.addModifier(slow, { stat:'maxSpeed', mode:'mult', value:0.3, source:'slow', scope:'run' }); // -> 36 (< floor 72)
   const m2 = MD.difficultyCapMuls(slow, { player: player, diffNorm: 1, randFactor: 1 });
