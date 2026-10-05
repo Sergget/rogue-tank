@@ -387,6 +387,10 @@
           <option value="weld_seam">焊缝 Weld Seam</option>
           <option value="rust">锈蚀 Rust</option>
           <option value="camo">迷彩 Camo</option>
+          <option value="camo_dunkelgelb">深黄迷彩 Dunkelgelb Camo</option>
+          <option value="paint_panzergrau">装甲灰 Panzergrau</option>
+          <option value="camo_nato">北约三色迷彩 NATO Camo</option>
+          <option value="paint_soviet">苏军绿 Soviet Green</option>
         </select>
       </div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">灰度/半透明图案平铺叠层，保持坦克主色（车体+炮塔同款）；在「预览」模式下即时可见，保存时写入 tank JSON（texture 字段）</div>
@@ -472,7 +476,7 @@ let state = {
    hp:100, penetration:120, damage:34, reload:1.3, heightClass:'medium',
    spreadMult: 1, aimSpeed: 0.15,
    trackWidth: 8, trackOffset: 0,
-   texture: 'none', // 表面纹理（TEXTURE_DEFS 键：none/armor_plate/weld_seam/rust/camo）
+   texture: 'none', // 表面纹理（TEXTURE_DEFS 键：none/armor_plate/weld_seam/rust/camo/camo_dunkelgelb/paint_panzergrau/camo_nato/paint_soviet）
    hull: defaultHull(),
    turret: defaultTurret(),
    barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } },
@@ -2254,7 +2258,7 @@ function applyTankData(data, opts){
    if(data.barrel) state.barrel = normalizeBarrel(data.barrel);
    if(data.trackWidth !== undefined) state.trackWidth = data.trackWidth;
    if(data.trackOffset !== undefined) state.trackOffset = data.trackOffset;
-   if(data.texture !== undefined && ['none','armor_plate','weld_seam','rust','camo'].includes(data.texture)) state.texture = data.texture;
+   if(data.texture !== undefined && ['none','armor_plate','weld_seam','rust','camo','camo_dunkelgelb','paint_panzergrau','camo_nato','paint_soviet'].includes(data.texture)) state.texture = data.texture;
    else state.texture = 'none'; // 旧数据缺省无纹理
    if(data.spreadMult !== undefined) state.spreadMult = data.spreadMult;
    if(data.aimSpeed !== undefined) state.aimSpeed = data.aimSpeed;

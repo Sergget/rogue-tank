@@ -45,6 +45,7 @@ declare function moduleAllowedParts(key: string): string[];
 declare function makeTank(config?: any): any;
 declare function clearPaintCache(): void;
 declare function paintShade(hex: string, pct?: number): string;
+declare function tankBodyColor(color: string, texture?: string): string;
 declare function paintBounds(verts: any): { minX: number; maxX: number; minY: number; maxY: number };
 declare function paintBeginLocal(ctx: any, verts: any): void;
 declare function paintClipLocal(ctx: any, verts: any): void;
@@ -53,7 +54,7 @@ declare function paintTurretShadow(ctx: any, verts: any, cx: any, cy: any, angle
 declare function getCachedTankSprite(color: any, kind: any, verts: any, hasTurret: any, heightClass: any, texture?: any): any;
 declare function paintPartTextureDirect(ctx: any, verts: any, cx: any, cy: any, angle: any, scale: any, color: any, kind: any, opts?: any): void;
 declare function paintPartTexture(ctx: any, verts: any, cx: any, cy: any, angle: any, scale: any, color: any, kind: any, opts?: any): void;
-declare var TEXTURE_DEFS: Record<string, { name: string; draw: ((ctx: any, bbox: any) => void) | null }>;
+declare var TEXTURE_DEFS: Record<string, { name: string; base?: string; draw: ((ctx: any, bbox: any) => void) | null }>;
 declare function applyTankConfig(t: any, cfg: any): void;
 declare function computeStats(base: any, modifiers?: any): any;
 declare function addModifier(t: any, mod: any): any;
@@ -190,6 +191,22 @@ interface NodeGenOptions {
   // #I3（2026-09-21）：建筑密度乘子（makeNode 对 boss 节点传 RULES.nodeMap.building.bossDensity）
   buildingDensity?: number;
   losHints?: { spawn: { x: number; y: number }; clusters: Array<{ x: number; y: number }>; bounds?: { w: number; h: number } };
+  // C 档 batch 2（2026-10-05）：路网选项透传（§14.2 横向贯通干道约束）
+  roadOpts?: { requireWETrunk?: boolean; trunkAmp?: number; weTrunk?: { entryT?: number; entryTan?: { x: number; y: number } }; externalRoads?: any[]; externalJunctions?: { x: number; y: number; r: number }[]; externalRoadW?: number; externalRivers?: any[] };
+}
+
+// C 档 batch 2（2026-10-05）：strip 生成器选项（specs/map.md §14.2）
+interface StripGenOptions {
+  seed?: number;
+  advanceAxis?: string;   // 本批次仅实现 'x'（§14.7 第二阶段预留）
+  viewport?: { vw: number; vh: number };
+  stripScreensX?: number;
+  stripScreensY?: number;
+  chunkCount?: number;
+  templateIds?: string[];
+  scaleFor: (viewport: { vw: number; vh: number }, tpl: any) => number;  // 片内 scale 沿用 nodeScaleFor 口径
+  buildingDensity?: number;
+  cullRate?: number;
 }
 
 interface GeneratedNodeResult {
@@ -222,6 +239,8 @@ interface GeneratedNodeResult {
   roadJunctions?: Array<{ x: number; y: number; r: number }>;
   // #E2（2026-09-20）：本节点实际使用的道路条带宽（世界px，RULES.nodeMap.road 区间内随机）
   roadW?: number;
+  // C 档 batch 2（2026-10-05）：贯通路端点 t（strip 片间公路连续；非 strip 为 null）
+  weTrunk?: { entryT: number; exitT: number; exitTan?: { x: number; y: number } } | null;
   seed: number | string;
   difficulty: number;
   w: number;            // #24：#26 补全——缩放后的节点世界尺寸（tank_map.js 读取）
@@ -246,6 +265,7 @@ declare function registerTemplate(template: any): void;
 declare function getTemplates(): any[];
 declare function pickTemplate(diff: number, rng: any): any;   // #24：难度加权模板选择（tank_map 预选用）
 declare function generateNode(difficulty?: number, options?: NodeGenOptions): GeneratedNodeResult;
+declare function generateStrip(difficulty?: number, options?: StripGenOptions): any;   // C 档 batch 2（§14.2）
 
 // M0 贴图资产层（js/tank_assets.js，P-06 / §2.10）
 declare var ASSET_DEFS: any;
@@ -313,7 +333,7 @@ declare function aiTierForDifficulty(diff: number): number;
 declare function statMultForDifficulty(diff: number): number;   // #76 A：兼容薄委托 = entityMults.maxHp
 declare function entityMultsForDifficulty(diff: number): Record<string, number>;   // #76 A：全属性难度乘子表（按 diffNorm 线性插值）
 declare function triggerDistForDifficulty(diff: number): number;   // AI 有效触发距离（难度化）
-declare function nodeScaleFor(viewport: any, templateDims: any): number;   // #24：视口 → 节点世界缩放倍率
+declare function nodeScaleFor(viewport: { vw: number; vh: number }, templateDims: any): number;   // #24：视口 → 节点世界缩放倍率
 declare function quotaForDifficulty(initialCount: number, effDiff: number): number;   // P-38：击杀配额公式（max(初始, 初始+base+floor(diff×scale))）
 declare function reinforcementTick(state: any): any[];   // P-38：递增生成节奏 tick → spawn spec 数组（纯逻辑，rng 注入）
 declare function makeNode(index: number, rng: any, env?: any): any;

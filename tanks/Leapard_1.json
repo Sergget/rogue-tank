@@ -17,7 +17,7 @@
   "trackOffset": 1,
   "spreadMult": 0.8,
   "aimSpeed": 2.5,
-  "texture": "camo",
+  "texture": "camo_nato",
   "barrel": {
     "len": 145,
     "width": 10,

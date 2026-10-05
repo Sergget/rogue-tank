@@ -17,7 +17,7 @@
   "trackOffset": -10,
   "spreadMult": 1.2,
   "aimSpeed": 1.5,
-  "texture": "weld_seam",
+  "texture": "camo_dunkelgelb",
   "barrel": {
     "len": 120,
     "width": 10,

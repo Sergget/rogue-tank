@@ -13,7 +13,7 @@ global.RULES = RULES_MOD.RULES;
 global.TAU = U.TAU;
 
 // 表面纹理键（P-27）：优先取 tank_paint.js TEXTURE_DEFS（单一来源），require 失败时静态兜底
-let TEXTURE_KEYS = ['none','armor_plate','weld_seam','rust','camo'];
+let TEXTURE_KEYS = ['none','armor_plate','weld_seam','rust','camo','camo_dunkelgelb','paint_panzergrau','camo_nato','paint_soviet'];
 try {
   const PAINT = require('../js/tank_paint.js');
   if (PAINT && PAINT.TEXTURE_DEFS) TEXTURE_KEYS = Object.keys(PAINT.TEXTURE_DEFS);

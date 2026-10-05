@@ -17,7 +17,7 @@
   "trackOffset": -4,
   "spreadMult": 1.0,
   "aimSpeed": 1.8,
-  "texture": "armor_plate",
+  "texture": "paint_panzergrau",
   "barrel": {
     "len": 105,
     "width": 10,

@@ -16,7 +16,7 @@
   "trackOffset": -7,
   "spreadMult": 2,
   "aimSpeed": 1,
-  "texture": "armor_plate",
+  "texture": "paint_soviet",
   "barrel": {
     "len": 120,
     "width": 18,

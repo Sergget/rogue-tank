@@ -8,7 +8,7 @@
 const MUZZLES = ['none','single','double','multi','slug','pepperpot','heavy_square','cylinder'];
 const EVAC = ['none','ring','bulb','slotted','long'];
 // 表面纹理枚举（与 js/tank_paint.js TEXTURE_DEFS 的键一一对应，P-27 接线）
-const TEXTURES = ['none','armor_plate','weld_seam','rust','camo'];
+const TEXTURES = ['none','armor_plate','weld_seam','rust','camo','camo_dunkelgelb','paint_panzergrau','camo_nato','paint_soviet'];
 
 // 分组语义（对齐局内商店 RUN_SHOP_DEFS 的四分组）：'firepower'(火力) | 'armor'(防护) |
 // 'mobility'(机动) | 'misc'(杂项)。消费方：tank_compare.html 按组分节渲染（组序固定

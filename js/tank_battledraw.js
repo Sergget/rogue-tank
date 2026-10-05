@@ -16,9 +16,13 @@
 
 // thin wrappers delegating to the shared tank_paint.js module
 function shade(hex, pct){ return paintShade(hex, pct); }
+// 车体实色（历史涂装 base；无 base 回退队伍色）——炮管/炮盾/副炮塔等金属件取自实色
+function tankBodyCol(t){ return (typeof tankBodyColor === 'function') ? tankBodyColor(t.color, t.texture) : t.color; }
+// 履带统一深钢色（不再按队伍染色）
+const TRACK_STEEL = '#42454b';
 // rolling tank tracks under the hull, driven by t.trackPhase
 function drawTracks(ctx, t){
-  paintTracks(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 1, t.color, t.trackPhase||0, { trackWidth: t.trackWidth || 8, trackOffset: t.trackOffset || 0 });
+  paintTracks(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 1, TRACK_STEEL, t.trackPhase||0, { trackWidth: t.trackWidth || 8, trackOffset: t.trackOffset || 0 });
 }
 // hull top-down paint.
 function renderHullTexture(ctx, t){
@@ -57,9 +61,9 @@ function drawBrokenTracks(ctx, t){
     ctx.stroke();
     // 脱落的履带节（悬垂在断裂处带条外侧）
     const hangY = outerY*dir + dir*tw*0.9;
-    ctx.strokeStyle = paintShade(t.color, -58); ctx.lineWidth = tw*0.9; ctx.lineCap='round';
+    ctx.strokeStyle = paintShade(TRACK_STEEL, -58); ctx.lineWidth = tw*0.9; ctx.lineCap='round';
     ctx.beginPath(); ctx.moveTo(gapX - tw*1.2, hangY); ctx.lineTo(gapX + tw*0.3, hangY); ctx.stroke();
-    ctx.strokeStyle = paintShade(t.color, -12); ctx.lineWidth = 1.2; ctx.setLineDash([3,4]); ctx.lineDashOffset = -((t.trackPhase||0)%7);
+    ctx.strokeStyle = paintShade(TRACK_STEEL, -12); ctx.lineWidth = 1.2; ctx.setLineDash([3,4]); ctx.lineDashOffset = -((t.trackPhase||0)%7);
     ctx.beginPath(); ctx.moveTo(gapX - tw*1.2, hangY); ctx.lineTo(gapX + tw*0.3, hangY); ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -300,6 +304,7 @@ function drawTank(ctx, t){
   const pOff = turretPivot(t);
   const turCx = pOff.x;
   const turCy = pOff.y;
+  const bCol = tankBodyCol(t);   // 车体实色：炮管/炮盾等金属件取自实色，队伍色只留描边
 
   // rolling tracks (under the hull)
   drawTracks(ctx, t);
@@ -312,10 +317,8 @@ function drawTank(ctx, t){
   ctx.moveTo(hc[0].x,hc[0].y);
   for(let i=1;i<hc.length;i++) ctx.lineTo(hc[i].x,hc[i].y);
   ctx.closePath();
-  ctx.strokeStyle = t.color; ctx.lineWidth=2; ctx.stroke();
-  // bold front: both slant edges FR->tip->FL mark the glacis/front-facing direction
-  ctx.strokeStyle = t.color; ctx.lineWidth=4;
-  ctx.beginPath(); ctx.moveTo(hc[0].x,hc[0].y); ctx.lineTo(hc[1].x,hc[1].y); ctx.lineTo(hc[2].x,hc[2].y); ctx.stroke();
+  // 2026-10-05：亮色队伍描边太丑 → 改暗色勾线（队伍识别走血条/小地图）
+  ctx.strokeStyle = 'rgba(15,15,18,0.60)'; ctx.lineWidth=2; ctx.stroke();
 
   // 履带被击断：断开处 + 脱落履带节 + 撕裂金属
   if(t.trackBroken) drawBrokenTracks(ctx, t);
@@ -327,7 +330,7 @@ function drawTank(ctx, t){
   if(!t.ammoBlew){
   ctx.save();
   ctx.translate(turCx, turCy);
-  ctx.strokeStyle = shade(t.color, -12); ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(15,15,18,0.40)'; ctx.lineWidth = 1.5;
   ctx.setLineDash([3,3]);
   ctx.beginPath(); ctx.arc(0, 0, t.turWid*0.5, 0, TAU); ctx.stroke();
   ctx.setLineDash([]);
@@ -339,7 +342,7 @@ function drawTank(ctx, t){
    if(!t.ammoBlew){
    // 阴影方向固定在世界方向（投影用 t.hullAngle），炮塔自转不改变阴影方向
    if(t.fireT>0) drawFireGlow(ctx, t);
-   paintTurretShadow(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1, 7, 9, t.hullAngle);
+   paintTurretShadow(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1, 9, 12, t.hullAngle);
 
    const structureAngle = superstructureAngle(t);
    const tPoly = turretPoly(t);
@@ -349,10 +352,8 @@ function drawTank(ctx, t){
   ctx.moveTo(tc[0].x,tc[0].y);
   for(let i=1;i<tc.length;i++) ctx.lineTo(tc[i].x,tc[i].y);
   ctx.closePath();
-  ctx.strokeStyle = t.color; ctx.lineWidth=1.5; ctx.stroke();
-  // bold front cheeks (front edge of the turret/fighting room)
-  ctx.strokeStyle = t.color; ctx.lineWidth=3;
-  ctx.beginPath(); ctx.moveTo(tc[0].x,tc[0].y); ctx.lineTo(tc[1].x,tc[1].y); ctx.stroke();
+  // 2026-10-05：亮色队伍描边太丑 → 改暗色勾线
+  ctx.strokeStyle = 'rgba(15,15,18,0.60)'; ctx.lineWidth=1.5; ctx.stroke();
 
   // 炮塔转动射界：±traverseLimit 左右极限射线（仅当射界 < 180° 时有限制；180° = 360° 全向旋转）
   if(t.traverseLimit < Math.PI){
@@ -418,7 +419,7 @@ function drawTank(ctx, t){
    for(const _toff of _tubeOffsets){
      const _tx = baseX + perpX*_toff, _ty = baseY + perpY*_toff;
      const _ex = endX + perpX*_toff, _ey = endY + perpY*_toff;
-     ctx.strokeStyle = t.color; ctx.lineWidth = barrelWid;
+     ctx.strokeStyle = shade(bCol, -45); ctx.lineWidth = barrelWid;
      ctx.lineCap = 'round';
      ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
      // barrel highlight
@@ -436,7 +437,7 @@ function drawTank(ctx, t){
       const d = mW*0.6;
       ctx.save(); ctx.translate(mdx, mdy); ctx.rotate(t.turretAngle);
       ctx.lineWidth = 1;
-      const dark = shade(t.color, -30), dark2 = shade(t.color, -14), edge = 'rgba(255,255,255,0.22)';
+      const dark = shade(bCol, -30), dark2 = shade(bCol, -14), edge = 'rgba(255,255,255,0.22)';
       if(mt.style === 'single'){
          ctx.fillStyle = dark; ctx.strokeStyle = edge;
          ctx.fillRect(-d/2, -mW, d, mW*2); ctx.strokeRect(-d/2, -mW, d, mW*2);
@@ -598,7 +599,7 @@ function drawTank(ctx, t){
       for(const _tb of _tubeBase){
         const ax = _tb.bx + barrelRayDx*jkS, ay = _tb.by + barrelRayDy*jkS;
         ctx.save(); ctx.translate(ax, ay); ctx.rotate(t.turretAngle);
-        ctx.fillStyle = shade(t.color, -18); ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
+        ctx.fillStyle = shade(bCol, -18); ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
         ctx.fillRect(0, -barrelWid*0.85, Math.max(1, jkE-jkS), barrelWid*1.7);
         ctx.strokeRect(0, -barrelWid*0.85, Math.max(1, jkE-jkS), barrelWid*1.7);
         ctx.restore();
@@ -688,12 +689,12 @@ function drawSecondaryTurret(ctx, t){
   ctx.translate(pose.x, pose.y);
   ctx.fillStyle = 'rgba(0,0,0,0.28)';
   ctx.beginPath(); ctx.arc(2, 3, r, 0, TAU); ctx.fill();
-  ctx.fillStyle = shade(t.color, -22);
-  ctx.strokeStyle = t.color; ctx.lineWidth = 1.5;
+  ctx.fillStyle = shade(tankBodyCol(t), -22);
+  ctx.strokeStyle = 'rgba(15,15,18,0.60)'; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill(); ctx.stroke();
   // 独立转向的炮管
   ctx.rotate(pose.angle);
-  ctx.strokeStyle = shade(t.color, -10); ctx.lineWidth = Math.max(2, r * 0.5); ctx.lineCap = 'butt';
+  ctx.strokeStyle = shade(tankBodyCol(t), -10); ctx.lineWidth = Math.max(2, r * 0.5); ctx.lineCap = 'butt';
   ctx.beginPath(); ctx.moveTo(r * 0.2, 0); ctx.lineTo(pose.barrelLen, 0); ctx.stroke();
   ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = Math.max(1, r * 0.18);
   ctx.beginPath(); ctx.moveTo(r * 0.4, -r * 0.12); ctx.lineTo(pose.barrelLen * 0.9, -r * 0.12); ctx.stroke();

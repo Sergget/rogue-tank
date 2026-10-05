@@ -101,19 +101,27 @@ function paintTurretShadow(ctx, verts, cx, cy, angle, scale, ox, oy, worldAng){
   ctx.translate(cx, cy);
   ctx.rotate(angle||0);
   ctx.scale(scale, scale);
+  // 1) 软环境阴影（2026-10-05 加深，便于炮塔/车体区分）
+  ctx.save();
   ctx.translate(offX, offY);
-  const rx = W*1.0, ry = W*0.8;
+  const rx = W*1.05, ry = W*0.85;
   const grad = ctx.createRadialGradient(0,0,0, 0,0,rx);
-  grad.addColorStop(0, 'rgba(0,0,0,0.5)');
-  grad.addColorStop(0.55, 'rgba(0,0,0,0.34)');
+  grad.addColorStop(0, 'rgba(0,0,0,0.55)');
+  grad.addColorStop(0.6, 'rgba(0,0,0,0.30)');
   grad.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2);
   ctx.fill();
-  // faint hard footprint so the shadow reads as a cast, not just a dark blob under the turret
-  ctx.strokeStyle='rgba(0,0,0,0.12)'; ctx.lineWidth=1;
-  ctx.beginPath(); ctx.ellipse(0,0,W*0.92,W*0.74,0,0,Math.PI*2); ctx.stroke();
+  ctx.restore();
+  // 2) 硬投影：炮塔剪影按偏移量平移填充（2026-10-05 新增）——炮塔边缘在车体上
+  //    投出清晰可辨的形状，玩家一眼区分炮塔与车体
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.fillStyle = 'rgba(0,0,0,0.36)';
+  paintBeginLocal(ctx, verts);
+  ctx.fill();
+  ctx.restore();
   ctx.restore();
 }
 
@@ -149,8 +157,73 @@ const TEXTURE_DEFS = {
         ctx.fillStyle = 'rgba(30,40,25,0.25)';
         ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, 0.6, 0, Math.PI*2); ctx.fill();
       }
+  }},
+  // 2026-10-05 历史涂装：二战德军深黄底（Dunkelgelb）+ 橄榄绿/红棕不规则色块
+  // base = 车体实色（队伍色不再参与车体填充，见 paintPartTextureDirect）
+  camo_dunkelgelb: { name: '深黄迷彩', base: '#b89a55', draw: (ctx, b) => {
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      const green = [[0.18,0.22,0.30,0.26],[0.66,0.62,0.34,0.30],[0.45,0.10,0.24,0.20]];
+      ctx.fillStyle = 'rgba(86,96,52,0.55)';
+      for(const [fx,fy,fw,fh] of green){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, 0.5, 0, Math.PI*2); ctx.fill();
+      }
+      const brown = [[0.60,0.16,0.28,0.22],[0.14,0.68,0.30,0.26],[0.82,0.40,0.22,0.24]];
+      ctx.fillStyle = 'rgba(128,66,40,0.55)';
+      for(const [fx,fy,fw,fh] of brown){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, -0.4, 0, Math.PI*2); ctx.fill();
+      }
+  }},
+  // 2026-10-05 历史涂装：德军装甲灰（Panzergrau）单色 + 细微明暗变化
+  paint_panzergrau: { name: '装甲灰', base: '#4a4e54', draw: (ctx, b) => {
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      const dark = [[0.30,0.75,0.44,0.18],[0.72,0.25,0.30,0.16]];
+      ctx.fillStyle = 'rgba(38,40,44,0.20)';
+      for(const [fx,fy,fw,fh] of dark){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, 0.2, 0, Math.PI*2); ctx.fill();
+      }
+      const light = [[0.25,0.20,0.36,0.16],[0.68,0.70,0.34,0.16]];
+      ctx.fillStyle = 'rgba(140,144,150,0.14)';
+      for(const [fx,fy,fw,fh] of light){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, -0.2, 0, Math.PI*2); ctx.fill();
+      }
+  }},
+  // 2026-10-05 历史涂装：北约三色迷彩（绿底 + 棕/黑色块）
+  camo_nato: { name: '北约三色迷彩', base: '#5c6b40', draw: (ctx, b) => {
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      const brown = [[0.16,0.60,0.34,0.28],[0.68,0.14,0.30,0.24]];
+      ctx.fillStyle = 'rgba(96,68,44,0.55)';
+      for(const [fx,fy,fw,fh] of brown){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, 0.7, 0, Math.PI*2); ctx.fill();
+      }
+      const black = [[0.42,0.30,0.26,0.22],[0.78,0.66,0.28,0.24],[0.10,0.14,0.22,0.20]];
+      ctx.fillStyle = 'rgba(26,26,24,0.50)';
+      for(const [fx,fy,fw,fh] of black){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, -0.6, 0, Math.PI*2); ctx.fill();
+      }
+  }},
+  // 2026-10-05 历史涂装：苏军保护绿单色 + 细微明暗变化
+  paint_soviet: { name: '苏军绿', base: '#5e7038', draw: (ctx, b) => {
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      const dark = [[0.32,0.72,0.42,0.18],[0.70,0.28,0.32,0.16]];
+      ctx.fillStyle = 'rgba(48,60,34,0.20)';
+      for(const [fx,fy,fw,fh] of dark){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, 0.2, 0, Math.PI*2); ctx.fill();
+      }
+      const light = [[0.24,0.22,0.36,0.16],[0.66,0.68,0.34,0.16]];
+      ctx.fillStyle = 'rgba(116,130,78,0.14)';
+      for(const [fx,fy,fw,fh] of light){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, -0.2, 0, Math.PI*2); ctx.fill();
+      }
   }}
 };
+
+// 车体实色：TEXTURE_DEFS 的 base（历史涂装）优先，否则回退队伍色 color。
+// 2026-10-05 起车体不再按队伍整车染色（红/绿底 + 迷彩叠层显脏）；队伍识别走
+// 描边/履带/血条/小地图标记，车体保持历史涂装。
+function tankBodyColor(color, texture) {
+  const d = texture && TEXTURE_DEFS[texture];
+  return (d && d.base) || color;
+}
 
 // Offscreen Canvas Cache for procedural tank sprites to optimize render performance
 const PAINT_CACHE = new Map();
@@ -159,7 +232,9 @@ function clearPaintCache() {
 }
 
 function getCachedTankSprite(color, kind, verts, hasTurret, heightClass, texture) {
-  const cacheKey = `${color}_${kind}_${hasTurret}_${heightClass}_${texture||'none'}_${verts.map(v => `${v[0].toFixed(1)},${v[1].toFixed(1)}`).join('|')}`;
+  // 缓存键用车体实色（历史涂装下同纹理跨队伍共享同一 sprite）
+  const bodyCol = tankBodyColor(color, texture);
+  const cacheKey = `${bodyCol}_${kind}_${hasTurret}_${heightClass}_${texture||'none'}_${verts.map(v => `${v[0].toFixed(1)},${v[1].toFixed(1)}`).join('|')}`;
   if (PAINT_CACHE.has(cacheKey)) {
     return PAINT_CACHE.get(cacheKey);
   }
@@ -191,38 +266,49 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
   const L = (maxX-minX)/2, W = (maxY-minY)/2;
   const cxm = (minX+maxX)/2, cym = (minY+maxY)/2;
   const isHull = kind === 'hull';
+  // 车体实色（历史涂装 base 优先）；细节线条/阴影一律取自实色，队伍色只留给描边与标记
+  const bodyCol = tankBodyColor(color, opts.texture);
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(angle||0);
   ctx.scale(scale, scale);
   paintClipLocal(ctx, verts);
   // base paint
-  ctx.fillStyle = paintShade(color, isHull ? -18 : -6);
+  ctx.fillStyle = paintShade(bodyCol, isHull ? -18 : -6);
   if(opts.faded) ctx.globalAlpha = 0.5;
   ctx.fillRect(minX-2, minY-2, (maxX-minX)+4, (maxY-minY)+4);
   ctx.globalAlpha = 1;
   // 纹理叠层（P-27 接线）：clip 内、base 填充后，灰度/半透明图案平铺在部件多边形上，
-  // 保持 color 主色；opts.texture 缺失/'none'/未知键 → 跳过（数据驱动 TEXTURE_DEFS）。
+  // 保持 bodyCol 主色；opts.texture 缺失/'none'/未知键 → 跳过（数据驱动 TEXTURE_DEFS）。
   const texDef = opts.texture && TEXTURE_DEFS[opts.texture];
   if(texDef && texDef.draw && !opts.faded){
     texDef.draw(ctx, { minX, minY, maxX, maxY });
   }
+  // 顶光 + 底阴（2026-10-05 体积感）：柔和纵向渐变，clip 内
+  if(!opts.faded){
+    const grad = ctx.createLinearGradient(0, minY, 0, maxY);
+    grad.addColorStop(0, 'rgba(255,255,255,0.10)');
+    grad.addColorStop(0.55, 'rgba(255,255,255,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.20)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(minX-2, minY-2, (maxX-minX)+4, (maxY-minY)+4);
+  }
   if(!opts.faded && opts.detail !== false){
     if(isHull){
       // inset deck plate (sealed perimeter)
-      ctx.strokeStyle = paintShade(color, 4); ctx.lineWidth = 1.5;
+      ctx.strokeStyle = paintShade(bodyCol, 4); ctx.lineWidth = 1.5;
       paintBeginLocal(ctx, verts.map(([vx,vy]) => [cxm + (vx-cxm)*0.74, cym + (vy-cym)*0.74]));
       ctx.stroke();
       // center ridge
-      ctx.strokeStyle = paintShade(color, 8); ctx.lineWidth = 1.5;
+      ctx.strokeStyle = paintShade(bodyCol, 8); ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(cxm, cym - W*0.72); ctx.lineTo(cxm, cym + W*0.72); ctx.stroke();
       // rear engine grilles (near minX, engine deck)
-      ctx.strokeStyle = paintShade(color, 14); ctx.lineWidth = 2.5;
+      ctx.strokeStyle = paintShade(bodyCol, 14); ctx.lineWidth = 2.5;
       for(const gy of [cym - W*0.34, cym, cym + W*0.34]){
         ctx.beginPath(); ctx.moveTo(minX+1, gy); ctx.lineTo(minX + (maxX-minX)*0.38, gy); ctx.stroke();
       }
       // front glacis chevrons (front = +x, near maxX)
-      ctx.strokeStyle = paintShade(color, 16); ctx.lineWidth = 1.5;
+      ctx.strokeStyle = paintShade(bodyCol, 16); ctx.lineWidth = 1.5;
       for(const fx of [maxX - L*0.22, maxX - L*0.08]){
         ctx.beginPath(); ctx.moveTo(fx, cym - W*0.5); ctx.lineTo(fx + L*0.12, cym); ctx.lineTo(fx, cym + W*0.5); ctx.stroke();
       }
@@ -232,7 +318,7 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
       //   medium tank → 1 cupola. Positioned on the left side (local -y).
       const cupolas = (opts.heightClass === 'heavy' || opts.hasTurret === false) ? 2 : 1;
       const cupCy = cym - W*0.44;
-      ctx.fillStyle = paintShade(color, -28);
+      ctx.fillStyle = paintShade(bodyCol, -28);
       if(cupolas === 1){
         ctx.beginPath(); ctx.arc(cxm - L*0.08, cupCy, W*0.15, 0, Math.PI*2); ctx.fill();
       } else {
@@ -240,7 +326,7 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
         ctx.beginPath(); ctx.arc(cxm + L*0.18, cupCy, W*0.14, 0, Math.PI*2); ctx.fill();
       }
       // cupola rim(s)
-      ctx.strokeStyle = paintShade(color, 18); ctx.lineWidth = 1;
+      ctx.strokeStyle = paintShade(bodyCol, 18); ctx.lineWidth = 1;
       if(cupolas === 1){
         ctx.beginPath(); ctx.arc(cxm - L*0.08, cupCy, W*0.15 + 1.5, 0, Math.PI*2); ctx.stroke();
       } else {
@@ -248,7 +334,7 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
         ctx.beginPath(); ctx.arc(cxm + L*0.18, cupCy, W*0.14 + 1.5, 0, Math.PI*2); ctx.stroke();
       }
       // gunner sight (front-right)
-      ctx.strokeStyle = paintShade(color, 18); ctx.lineWidth = 1.5;
+      ctx.strokeStyle = paintShade(bodyCol, 18); ctx.lineWidth = 1.5;
       ctx.strokeRect(maxX - (maxX-minX)*0.45, cym + W*0.08, W*0.5, W*0.18);
     }
   }

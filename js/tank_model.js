@@ -320,7 +320,7 @@ function makeTank(opts){
     debuffs:{},                      // 模块 debuff（8s 计时）：gunner/loader/driver/engine/commander/ammo
     heightClass:'medium',
     color:'#7ed957',
-    texture:'none',                  // 表面纹理叠层（TEXTURE_DEFS 键：none/armor_plate/weld_seam/rust/camo）
+    texture:'none',                  // 表面纹理叠层（TEXTURE_DEFS 键：none/armor_plate/weld_seam/rust/camo/camo_dunkelgelb/paint_panzergrau/camo_nato/paint_soviet）
     trackPhase:0,
     attachments: [],
     anchors: {
