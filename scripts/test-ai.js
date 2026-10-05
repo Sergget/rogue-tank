@@ -41,7 +41,10 @@ ok(d3.move === 0, '距离在接战范围内 → 不前进（500 < 520）');
 
 const veryFar = enemy(420, 500, Math.PI, Math.PI, 0);   // 距玩家 580 > 520 但 ≤ 700
 const d4 = aiDecideEnemy(veryFar, { player, hasLoS: () => true });
-ok(d4.move === 1, '超过接战距离但仍在触发距离内 → 靠近');
+// #M 机动层启用后，接近途中的 move 可为 ±1 或 0（前进/后撤/短停均属合法机动），
+// 故只断言「已接战（非被动）+ 机动脚本已分配」这一状态不变量，不写死 move=1。
+ok(veryFar.aiEngaged === true && !!veryFar._mv && (d4.move === 1 || d4.move === -1 || d4.move === 0),
+   `超过接战距离但仍在触发距离内 → 接战并机动（engaged，move=${d4.move}，mv=${veryFar._mv && veryFar._mv.mode}）`);
 
 // 4) 对准 + 视线 + 装填好 → fire；视线遮挡 → 不 fire 且走 search 推进
 const ready = enemy(800, 500, Math.PI, 0, 0);   // turretAngle=0 对准玩家（右侧）
@@ -212,7 +215,9 @@ console.log('--- #76 B/C：参数化/tier/摆动/寻掩 ---');
   // （#N1 起判据由单点 engage 改为交战带上沿 band.max，见下方 #N 段）
   const te0 = enemy(420, 500, Math.PI, 0, 0);
   const rte0 = aiDecideEnemy(te0, { player, hasLoS: () => true });
-  ok(rte0.move === 1 , `tier0：580 > 带上沿 572 → 接近（move=${rte0.move}）`);
+  // #M：接近机动可为 ±1/0（合法机动），只断言接战不变量（见上 veryFar 用例注记）
+  ok(te0.aiEngaged === true && !!te0._mv && (rte0.move === 1 || rte0.move === -1 || rte0.move === 0),
+     `tier0：580 > 带上沿 572 → 接战机动（move=${rte0.move}）`);
   const te2 = enemy(420, 500, Math.PI, 0, 0);
   te2.aiTier = 2;
   const rte2 = aiDecideEnemy(te2, { player, hasLoS: () => true });
