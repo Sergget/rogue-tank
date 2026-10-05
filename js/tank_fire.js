@@ -687,7 +687,23 @@ function stepShells(dt, ctx){
         continue;
       }
       // #E1：确定性拦截唯一入口——solid/single 掩体在入口点截停（'graduated' 分支已删除）。
-      if((tier.mode==='solid'||tier.mode==='single')&&cov.distA<=step&&cov.distA<bestDist){ bestDist=cov.distA; bestCover=cov; bestTank=null; bestHit=null; s._blockedByDeployable=null; }
+      if((tier.mode==='solid'||tier.mode==='single')&&cov.distA<=step&&cov.distA<bestDist){
+        // 2026-10-05：桥梁侧面判定——只有射击桥梁侧面（长边）时才被击中。
+        // 炮弹沿桥长轴方向（击中短端）时穿过不拦截。
+        if (cov.cover.tier === 'bridge') {
+          const bw = cov.cover.w || 0, bh = cov.cover.h || 0;
+          const bAngle = cov.cover.angle || 0;
+          // 桥长轴方向
+          let bridgeDir = bAngle;
+          if (bw < bh) bridgeDir += Math.PI / 2;
+          const shellAngle = Math.atan2(s.dy, s.dx);
+          let diff = Math.abs(shellAngle - bridgeDir) % Math.PI;
+          const acute = Math.min(diff, Math.PI - diff);
+          // 锐角<45°=沿长轴（击端），跳过不拦截
+          if (acute < Math.PI / 4) continue;
+        }
+        bestDist=cov.distA; bestCover=cov; bestTank=null; bestHit=null; s._blockedByDeployable=null;
+      }
     }
     // #E4（2026-09-20）便携式掩体「单向透明」：部署方阵营的炮弹可穿过（不拦截），
     // 对立方炮弹按确定性实体拦截（在掩体入口点截停）。视觉朝向指示见 mvp 绘制层。

@@ -130,7 +130,7 @@ const RULES = {
     // 直射实弹 100% 确定性格挡；hp 1 被击毁后转 rubble 残骸（残骸不再挡弹）。
     ruined:     { label: '残破建筑', fill: 'rgba(122,114,100,0.5)',  stroke: '#7a7264', passability: 0.6,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: false, vision: true,  drawStyle: 'rubble-box',  tierGroup: 'structure', toTier: 'rubble' },
     rock:       { label: '岩石',     fill: 'rgba(138,138,132,0.85)', stroke: '#6f6f68', passability: 0,    shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'rock-poly',   tierGroup: 'structure' },
-    bridge:     { label: '桥梁',     fill: 'rgba(139,92,25,0.8)',    stroke: '#8b5c1a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' }
+    bridge:     { label: '桥梁',     fill: 'rgba(139,92,25,0.8)',    stroke: '#8b5c1a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: 2,        crushable: false, vision: false, drawStyle: 'box',         tierGroup: 'structure' }
   },
 
   // ======================= 溺毙（2026-09-14 水域行为重做） =======================

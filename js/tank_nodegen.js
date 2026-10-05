@@ -583,6 +583,220 @@ function placeEdgeRiver(rng, tpl, scale, centerX, centerY) {
            segments, groupId: 'river' }; // groupId：同一生成调用产出的连通水体标识
 }
 
+// 2026-10-05 strip 级一体化河流：横向蜿蜒贯穿整条 strip（参考公路一体化）。
+// 在 strip 坐标 [0,totalW]×[0,stripH] 生成；返回 river covers 数组。
+// 2026-10-05 修订：河段按道路方式沿曲线短段铺设（~120px 步长，带角度），
+// 替代旧的 800px 长直段——旧版如砖块堆砌，视觉粗糙。
+// 2026-10-05 三河形（按种随机）：
+//   H2  双横贯（一条贴北一条贴南，蜿蜒反相）；
+//   H1T 一横贯干流 + 一条短支流（中途汇入干流，或收束成湖）；
+//   V   纵贯（从上边流到下边，1~2 条）。
+function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
+  const rivers = [];
+  const thick = Math.min(totalW, stripH) * rng.range(0.07, 0.15); // 2026-10-05：河宽 2-3 倍（~ stripH 的 7~15%，带变化）
+  let gid = 0;
+  // 由控制点建河：Catmull-Rom 采样 ~120px 短段（带角度，25% 搭接）。
+  // taperFn(t) 可选：t∈[0,1] 沿程比例，返回宽度系数（支流汇入处收分用）。
+  const buildRiver = (ctrl, w, taperFn) => {
+    const pts = _catmullRomSample(ctrl, 120);
+    const segments = [];
+    for (let j = 0; j < pts.length - 1; j++) {
+      const a = pts[j], b = pts[j + 1];
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      if (dist < 5) continue;
+      const t = j / Math.max(1, pts.length - 2);
+      const wf = taperFn ? taperFn(t) : 1;
+      segments.push({
+        dx: (a.x + b.x) / 2, dy: (a.y + b.y) / 2,
+        w: dist * 1.25, h: w * wf,
+        angle: Math.atan2(b.y - a.y, b.x - a.x)
+      });
+    }
+    if (!segments.length) return null;
+    const s0 = segments[0];
+    return { x: s0.dx, y: s0.dy, w: totalW, h: stripH, angle: 0,
+             tier: 'river', segments: segments, groupId: 'strip-river-' + (gid++) };
+  };
+  // 横向控制点：baseY + 正弦蜿蜒
+  const hCtrl = (baseY, amp, phase, freq, x0, x1) => {
+    const ctrl = [];
+    const n = Math.max(4, Math.round((x1 - x0) / 600));
+    for (let i = 0; i <= n; i++) {
+      const cx = x0 + (i / n) * (x1 - x0);
+      const cy = baseY + Math.sin(phase + (i / n) * Math.PI * 2 * freq) * amp;
+      ctrl.push({ x: cx, y: Math.max(thick, Math.min(stripH - thick, cy)) });
+    }
+    return ctrl;
+  };
+  // 纵向控制点：baseX + 正弦蜿蜒
+  const vCtrl = (baseX, amp, phase, freq, y0, y1) => {
+    const ctrl = [];
+    const n = Math.max(4, Math.round((y1 - y0) / 600));
+    for (let i = 0; i <= n; i++) {
+      const cy = y0 + (i / n) * (y1 - y0);
+      const cx = baseX + Math.sin(phase + (i / n) * Math.PI * 2 * freq) * amp;
+      ctrl.push({ x: Math.max(thick, Math.min(totalW - thick, cx)), y: cy });
+    }
+    return ctrl;
+  };
+
+  const pattern = rng.int(0, 2);  // 0=H2, 1=H1T, 2=V
+  // 2026-10-05：路 Y 向密度直方图——横向河选路稀疏带，避免平行重叠
+  const roadYDensity = (y, halfWin) => {
+    let d = 0;
+    for (const r of roadCovers) {
+      const rw = (r.w || 0), rh = (r.h || 0);
+      // 路的 Y 向半宽（考虑旋转）
+      const a = r.angle || 0;
+      const yHalf = (rw * Math.abs(Math.sin(a)) + rh * Math.abs(Math.cos(a))) / 2;
+      const dist = Math.abs(r.y - y);
+      if (dist < yHalf + halfWin) d += 1;
+    }
+    return d;
+  };
+  const pickClearY = (yMin, yMax, halfWin) => {
+    let bestY = (yMin + yMax) / 2, bestD = Infinity;
+    for (let i = 0; i <= 20; i++) {
+      const y = yMin + (yMax - yMin) * i / 20;
+      const d = roadYDensity(y, halfWin);
+      if (d < bestD) { bestD = d; bestY = y; }
+    }
+    return bestY;
+  };
+  // 2026-10-05：平行重叠检测——河段与路平行（<30°）且近距（<120px）的比例
+  const parallelOverlapRatio = (river) => {
+    if (!river || !river.segments) return 0;
+    let bad = 0;
+    const getDir = (c) => {
+      let a = c.angle || 0;
+      if ((c.w || 0) < (c.h || 0)) a += Math.PI / 2;
+      return ((a % Math.PI) + Math.PI) % Math.PI;
+    };
+    for (const s of river.segments) {
+      const sDir = getDir(s);
+      for (const r of roadCovers) {
+        if (r.tier !== 'road') continue;
+        const dx = Math.abs(s.dx - r.x), dy = Math.abs(s.dy - r.y);
+        // 快速 AABB
+        if (dx > 300 || dy > 300) continue;
+        const rDir = getDir(r);
+        let diff = Math.abs(sDir - rDir) % Math.PI;
+        const acute = Math.min(diff, Math.PI - diff) * 180 / Math.PI;
+        // 平行（<30°）且 Y 向接近
+        if (acute < 30 && dy < (s.h + r.h) / 2 + 60) { bad++; break; }
+      }
+    }
+    return river.segments.length ? bad / river.segments.length : 0;
+  };
+  if (pattern === 0) {
+    // H2：双横贯，一北一南，反相蜿蜒——Y 选路稀疏带，平行重叠超30%则重试
+    const amp = stripH * rng.range(0.04, 0.07);
+    const ph = rng() * Math.PI * 2, fr = rng.range(1.5, 2.5);
+    const halfWin = thick / 2 + (roadW || 100) / 2 + 80;
+    const tryBuildH2 = (y1, y2) => {
+      const r1 = buildRiver(hCtrl(y1, amp, ph, fr, 0, totalW), thick);
+      const r2 = buildRiver(hCtrl(y2, amp, ph + Math.PI, fr, 0, totalW), thick * 0.85);
+      return [r1, r2];
+    };
+    let y1 = pickClearY(stripH * 0.15, stripH * 0.45, halfWin);
+    let y2 = pickClearY(stripH * 0.55, stripH * 0.85, halfWin);
+    if (Math.abs(y2 - y1) < thick * 3) {
+      y2 = y1 < stripH / 2 ? Math.min(stripH * 0.85, y1 + thick * 3) : Math.max(stripH * 0.55, y1 - thick * 3);
+    }
+    let [r1, r2] = tryBuildH2(y1, y2);
+    // 重试：平行重叠>30%则换 Y（最多3次）
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const ratio1 = parallelOverlapRatio(r1);
+      const ratio2 = parallelOverlapRatio(r2);
+      if (ratio1 <= 0.3 && ratio2 <= 0.3) break;
+      // 换 Y：在原范围内偏移
+      y1 = stripH * rng.range(0.15, 0.45);
+      y2 = stripH * rng.range(0.55, 0.85);
+      if (Math.abs(y2 - y1) < thick * 3) continue;
+      [r1, r2] = tryBuildH2(y1, y2);
+    }
+    if (r1) rivers.push(r1);
+    if (r2) rivers.push(r2);
+  } else if (pattern === 1) {
+    // H1T：横贯干流 + 短支流汇入（或收束成湖）——干流 Y 选路稀疏带，重试3次
+    const halfWinH1 = thick / 2 + (roadW || 100) / 2 + 80;
+    const amp = stripH * rng.range(0.04, 0.07);
+    const ph = rng() * Math.PI * 2, fr = rng.range(1.5, 2.5);
+    let baseY = pickClearY(stripH * 0.30, stripH * 0.70, halfWinH1);
+    let trunk = buildRiver(hCtrl(baseY, amp, ph, fr, 0, totalW), thick);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (parallelOverlapRatio(trunk) <= 0.3) break;
+      baseY = stripH * rng.range(0.30, 0.70);
+      trunk = buildRiver(hCtrl(baseY, amp, ph, fr, 0, totalW), thick);
+    }
+    if (trunk) rivers.push(trunk);
+    // 支流：从上/下边出发，中途汇入干流
+    const fromNorth = rng() < 0.5;
+    const jx = totalW * rng.range(0.30, 0.70);  // 汇入点 x
+    // 干流在 jx 处的 y（近似：用同参数正弦估算）
+    const jy = Math.max(thick, Math.min(stripH - thick,
+      baseY + Math.sin(ph + (jx / totalW) * Math.PI * 2 * fr) * amp));
+    const sx = jx + rng.range(-400, 400);
+    const startY = fromNorth ? thick * 0.5 : stripH - thick * 0.5;
+    const midX = (sx + jx) / 2 + rng.range(-150, 150);
+    const midY = (startY + jy) / 2;
+    // 50% 概率支流源头有湖：先定湖（blob），支流起点止于湖边（不伸进湖心）
+    let lakeR = 0, lakeX = sx, lakeY = startY;
+    // 2026-10-05：删除湖泊元素，不再生成（用户要求）
+    const hasLake = false;
+    if (hasLake) {
+      lakeR = thick * rng.range(1.8, 2.5);
+      // 湖心略偏离支流起点（自然感），支流从湖边出发
+      lakeX = sx + rng.range(-lakeR * 0.3, lakeR * 0.3);
+      lakeY = startY + (fromNorth ? lakeR * 0.6 : -lakeR * 0.6);
+    }
+    const tribStartY = hasLake
+      ? (fromNorth ? lakeY + lakeR * 0.8 : lakeY - lakeR * 0.8)
+      : startY;
+    // 支流末端收分（汇入干流处 1.0→0.55，避免矩形叠印出戏）；无湖时源头也收分
+    const trib = buildRiver(
+      [{ x: sx, y: tribStartY }, { x: midX, y: midY }, { x: jx, y: jy }],
+      thick * 0.6,
+      (t) => {
+        let f = 1;
+        if (t > 0.75) f = 1 - (t - 0.75) / 0.25 * 0.45;  // 末端收至 0.55
+        if (!hasLake && t < 0.2) f = Math.min(f, 0.55 + t / 0.2 * 0.45);  // 源头收分
+        return f;
+      });
+    if (trib) rivers.push(trib);
+    if (hasLake) {
+      // 湖：14~18 顶点凸包 blob（仿 placeCentralPond），非矩形
+      const N = rng.int(14, 18), rot = rng() * Math.PI * 2, pts = [];
+      for (let i = 0; i < N; i++) {
+        const a = rot + (i / N) * Math.PI * 2;
+        const rr = lakeR * rng.range(0.82, 1.0);
+        pts.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+      }
+      const verts = convexHull(pts);
+      let maxx = 0, maxy = 0;
+      for (const [vx, vy] of verts) { maxx = Math.max(maxx, Math.abs(vx)); maxy = Math.max(maxy, Math.abs(vy)); }
+      rivers.push({
+        x: lakeX, y: lakeY, w: maxx * 2, h: maxy * 2, angle: rng.range(-0.05, 0.05),
+        tier: 'water', verts: verts, groupId: 'strip-lake-' + (gid++),
+        segments: [{ dx: lakeX, dy: lakeY, w: maxx * 2, h: maxy * 2, angle: 0 }]
+      });
+    }
+  } else {
+    // V：纵贯，1~2 条（从上边流到下边）
+    const n = rng.int(1, 2);
+    for (let i = 0; i < n; i++) {
+      const baseX = totalW * (n === 1 ? rng.range(0.35, 0.65)
+        : (i === 0 ? rng.range(0.25, 0.40) : rng.range(0.60, 0.75)));
+      const amp = totalW * 0.015 + stripH * rng.range(0.02, 0.04);
+      const r = buildRiver(
+        vCtrl(baseX, amp, rng() * Math.PI * 2, rng.range(1.0, 2.0), 0, stripH),
+        thick * (i === 0 ? 1 : 0.85));
+      if (r) rivers.push(r);
+    }
+  }
+  return rivers;
+}
+
 function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
   const K = rng.int(3, 4);               // 泥斑数量
   const ringR = Math.min(tpl.w, tpl.h) * scale * rng.range(0.20, 0.28);
@@ -698,7 +912,11 @@ function _emitRoadChain(out, pts, roadW, groupId, isSegOk) {
 // OBB 消费方零改动复用。
 //
 // 返回 { covers, junctions }：junctions = [{x,y,r}] 路口中心与半径（供渲染层断标线）。
-function placeRoadNetwork(rng, tpl, scale, centerX, centerY) {
+function placeRoadNetwork(rng, tpl, scale, centerX, centerY, opts) {
+  // §14.2 横向贯通干道约束（strip 片，additive）：opts.requireWETrunk 为 true 时，
+  // 保证至少一条干道端点落在片的左右（W/E）边界线上（§10.1 端点口径）。
+  // 缺省关闭，既有 7 拓扑行为零变化。
+  opts = opts || {};
   // #E2/#E3（2026-09-20）：路宽/弯曲/斜向参数收口 RULES.nodeMap.road（旧硬编码 60~80、amp 0.04）。
   const rc = (typeof RULES !== 'undefined' && RULES.nodeMap && RULES.nodeMap.road) ? RULES.nodeMap.road : {};
   const roadW = rng.range(rc.widthMin || 92, rc.widthMax || 124); // 公路加宽（90~124 世界px）
@@ -727,18 +945,31 @@ function placeRoadNetwork(rng, tpl, scale, centerX, centerY) {
   // 返回折线很关键：T 形支道必须锚定在干道**真实折线上**的某点。若只按「干道端点连线的
   // 猜测 y」取锚点，会因干道自身 ±4% 跨度的弯曲（≈±96px > 半个路宽）而错开，
   // 支道起点悬空 → 路面出现缺口（实测 210 张里 118 处孤悬路头）。
-  const buildFromPoints = (p1, p2, groupId, amp) => {
+  const buildFromPoints = (p1, p2, groupId, amp, tan1) => {
     const span = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
     const ux = (p2.x - p1.x) / span, uy = (p2.y - p1.y) / span;
     const nx = -uy, ny = ux;
     const a = (amp === undefined) ? (rc.curveAmp !== undefined ? rc.curveAmp : 0.16) : amp;
     const nCtrl = rng.int(1, 2);
     const ctrl = [p1];
-    for (let c = 1; c <= nCtrl; c++) {
-      const t = c / (nCtrl + 1);
-      // 弯曲幅度必须小：局部斜率偏移会把正交路口变成浅角互穿（v1 的 35° 病根）
-      const off = rng.range(-a, a) * span;
-      ctrl.push({ x: p1.x + ux * span * t + nx * off, y: p1.y + uy * span * t + ny * off });
+    if (tan1) {
+      // G1 切线连续（2026-10-05 接缝平滑）：首个控制点沿给定切线方向放置，
+      // 使样条在 p1 处的切线与 tan1 一致，跨片公路视觉平滑无折角
+      const tDist = span * 0.3;
+      const tl = Math.hypot(tan1.x, tan1.y) || 1;
+      ctrl.push({ x: p1.x + (tan1.x / tl) * tDist, y: p1.y + (tan1.y / tl) * tDist });
+      for (let c = 2; c <= nCtrl; c++) {
+        const t = c / (nCtrl + 1);
+        const off = rng.range(-a, a) * span;
+        ctrl.push({ x: p1.x + ux * span * t + nx * off, y: p1.y + uy * span * t + ny * off });
+      }
+    } else {
+      for (let c = 1; c <= nCtrl; c++) {
+        const t = c / (nCtrl + 1);
+        // 弯曲幅度必须小：局部斜率偏移会把正交路口变成浅角互穿（v1 的 35° 病根）
+        const off = rng.range(-a, a) * span;
+        ctrl.push({ x: p1.x + ux * span * t + nx * off, y: p1.y + uy * span * t + ny * off });
+      }
     }
     ctrl.push(p2);
     const pts = _catmullRomSample(ctrl, ROAD_SAMPLE_STEP);
@@ -874,6 +1105,69 @@ function placeRoadNetwork(rng, tpl, scale, centerX, centerY) {
     VT(0);
   }
 
+  // §14.2 横向贯通干道约束（strip 片，additive）：
+  //   opts.requireWETrunk —— 保证至少一条 W→E 干道（端点严格落在左右边界线上，
+  //     §10.1 端点口径）；缺省关闭，既有 7 拓扑零变化。
+  //   opts.trunkAmp —— W→E 干道的弯曲振幅（相对跨度的比例）；缺省 0.16。
+  //     strip 级调用时传小值（如 0.03），避免宽幅模板下曲线跑出界被裁出缺口。
+  //   opts.weTrunk = { entryT, entryTan } —— 贯通路链：强制一条 W→E 干道作为"贯通路"，
+  //     其入口 t 衔接上一片的出口 t、入口切线衔接上一片的出口切线（generateStrip
+  //     逐片传递），解决接缝处公路错位与折角出戏（G0 位置 + G1 切线连续）。
+  //     weTrunk 蕴含 requireWETrunk。
+  // 返回 weTrunk: { entryT, exitT, exitTan }（t 为 edgePoint 口径的边相对偏移；
+  //   exitTan 为出口切线方向向量）。
+  // buildFromPoints 强制首末端点精确落位，故用折线端点 x 判定（容差 1px 吸收浮点误差）。
+  // rrng 子流保证确定性。
+  let weTrunk = null;
+  const isWEChain = (c) => {
+    const p = c.pts;
+    return p && p.length > 1 &&
+      Math.abs(p[0].x - worldMinX) < 1 &&
+      Math.abs(p[p.length - 1].x - worldMaxX) < 1;
+  };
+  const tOfWEChain = (c) => {
+    const p = c.pts;
+    return {
+      entryT: (p[0].y - centerY) / halfH,
+      exitT: (p[p.length - 1].y - centerY) / halfH
+    };
+  };
+  if (opts.weTrunk) {
+    const entryT = opts.weTrunk.entryT;
+    const entryTan = opts.weTrunk.entryTan;  // G1：上一片出口切线（{x,y} 方向向量）
+    const natural = chains.find(isWEChain);
+    if (natural && entryT === undefined) {
+      // 首片：复用拓扑自带的 W→E 干道作贯通路（避免与强制路重复）
+      weTrunk = tOfWEChain(natural);
+      // 补算出口切线（供下一片 G1 连续）
+      const pts = natural.pts;
+      if (pts && pts.length > 1) {
+        const a = pts[pts.length - 2], b = pts[pts.length - 1];
+        weTrunk.exitTan = { x: b.x - a.x, y: b.y - a.y };
+      }
+    } else {
+      const eT = (entryT !== undefined) ? entryT : R();
+      const xT = R();
+      const pts = buildFromPoints(edgePoint(2, eT), edgePoint(3, xT), 'main-road-h' + chains.length,
+        undefined, entryTan);
+      weTrunk = { entryT: eT, exitT: xT };
+      if (pts && pts.length > 1) {
+        const a = pts[pts.length - 2], b = pts[pts.length - 1];
+        weTrunk.exitTan = { x: b.x - a.x, y: b.y - a.y };
+      }
+    }
+  } else if (opts.requireWETrunk) {
+    const found = chains.find(isWEChain);
+    if (found) {
+      weTrunk = tOfWEChain(found);
+    } else {
+      const entryT = R(), exitT = R();
+      const tamp = opts.trunkAmp !== undefined ? opts.trunkAmp : undefined;
+      buildFromPoints(edgePoint(2, entryT), edgePoint(3, exitT), 'main-road-h' + chains.length, tamp);
+      weTrunk = { entryT: entryT, exitT: exitT };
+    }
+  }
+
   // 路口：两两链的**采样折线**求交（聚类半径 = 路宽，同一路口只报一次）。
   // 用折线（而非链段 OBB）判定：T 形支道的锚点恰好落在干道折线上的某点，若改用
   // 「段中心 ± 半跨」的 OBB 口径，交点参数正好压在容差边界上，浮点噪声会让判定
@@ -909,7 +1203,7 @@ function placeRoadNetwork(rng, tpl, scale, centerX, centerY) {
       }
     }
   }
-  return { covers: out, junctions: junctions, roadW: roadW };
+  return { covers: out, junctions: junctions, roadW: roadW, weTrunk: weTrunk };
 }
 
 // ISSUE 7(c) 重做 + #87 村庄分层生成：
@@ -1119,8 +1413,8 @@ function placeVillage(rng, tpl, scale, cx, cy, outCovers, networkRoads) {
   const clutterTries = clutterN * 8 + 30;
   let placedC = 0;
   for (let t = 0; t < clutterTries && placedC < clutterN; t++) {
-    // 低概率一次性小水塘（凸 blob，verts 10~14 与 P-40 校验区间兼容）
-    if (!waterPlaced && rng() < 0.15) {
+    // 2026-10-05：删除湖泊元素，不再生成（用户要求）——水塘禁用
+    if (false && !waterPlaced && rng() < 0.15) {
       waterPlaced = true;
       const wr = rng.range(26, 40) * scale;
       const N = rng.int(10, 14);
@@ -1688,13 +1982,30 @@ function pruneOverlappingCovers(covers) {
   const rrng = createRNG(((Number(seed) ^ 0x11A11A11) + 0x6D2B79F5) >>> 0);
   // v2：placeRoadNetwork 返回 { covers, junctions }——junctions 供渲染层在路口断开中心虚线
   // （「路口感」的关键：两条路的中心线不能都笔直穿过交点）。
-  const roadNet = placeRoadNetwork(rrng, selectedTemplate, scale, centerX, centerY);
-  const networkRoads = roadNet.covers;
-  const roadJunctions = roadNet.junctions;
-  const roadWidth = roadNet.roadW || 100;
-  for (const r of networkRoads) {
-    outCovers.push(r);
+  // 2026-10-05 一体化路网：strip 级已生成路网时（roadOpts.externalRoads），
+  // 本片跳过自生成，仅用外部路做避让；路面 cover 由 strip 统一追加（片内不输出）。
+  const _ro = opts.roadOpts || {};
+  let networkRoads, roadJunctions, roadWidth, roadNet;
+  // 2026-10-05 一体化河流：外部河流（strip 级）参与建筑避让（与道路同逻辑）。
+  const externalRivers = _ro.externalRivers || [];
+  if (_ro.externalRoads) {
+    networkRoads = _ro.externalRoads;
+    roadJunctions = _ro.externalJunctions || [];
+    roadWidth = _ro.externalRoadW || 100;
+  } else {
+    roadNet = placeRoadNetwork(rrng, selectedTemplate, scale, centerX, centerY,
+      opts.roadOpts);
+    networkRoads = roadNet.covers;
+    roadJunctions = roadNet.junctions;
+    roadWidth = roadNet.roadW || 100;
+    for (const r of networkRoads) {
+      outCovers.push(r);
+    }
   }
+  // 避让合并列表：道路 + 河流（#A11 推出逻辑共用）
+  const avoidCovers = externalRivers.length ? networkRoads.concat(externalRivers) : networkRoads;
+  // 2026-10-05：河流单独列表——模板项对河流严格跳过（零容忍），对道路保留推挤
+  const riverCovers = externalRivers.length ? externalRivers : [];
 
   // tier 表提前查询（P-40）：地形类（liquid/ground）不参与难度升降级
   const coverTiers = (typeof RULES !== 'undefined' && RULES.coverTiers)
@@ -1737,9 +2048,17 @@ function pruneOverlappingCovers(covers) {
     const itemBoxes = items.map(it => ({
       x: centerX + (it.dx || 0) * scale, y: centerY + (it.dy || 0) * scale,
       w: it.w * scale, h: it.h * scale
-    })).concat(networkRoads.map(r => ({
-      x: r.x, y: r.y, w: r.w, h: r.h, angle: r.angle // Some may use OBB but AABB is safe here
-    })));
+    })).concat(avoidCovers.map(r => {
+      // 2026-10-05：斜向河段/路段的 AABB 包络（rectHitsCover 不处理 angle，
+      // 用旋转包络保证保守避让）。
+      const a = r.angle || 0;
+      const ca = Math.abs(Math.cos(a)), sa = Math.abs(Math.sin(a));
+      return {
+        x: r.x, y: r.y,
+        w: r.w * ca + r.h * sa,
+        h: r.w * sa + r.h * ca
+      };
+    }));
     forestCovers = placeForestClusters(itemBoxes, rng, {
       cx: centerX, cy: centerY, scale,
       minClusters: fcfg.minClusters, maxClusters: fcfg.maxClusters,
@@ -1824,21 +2143,64 @@ function pruneOverlappingCovers(covers) {
     const iw = itemW * scale;
     const ih = itemH * scale;
 
-    // #A11: Template items avoid roads——但只对「实体掩体」执行避路剔除：
-    //   - full：建筑优先于路（#77 契约；#B7 后路网不再为建筑跳段，建筑直接覆在路面上）；
-    //   - 植被/地形类（bush/soft/tree/rock/stump/rubble/mud）：不剔除——树长在路边
-    //     完全合理，且低难升/降级断言依赖其存在（低难 bush/soft ≥ 高难）；
-    //   - 仅 barricade 这类硬障碍骑在路中间不自然 → 剔除。
-    const isVegetationTier = (tier === 'bush' || tier === 'soft' || tier === 'tree'
-      || tier === 'rock' || tier === 'stump' || tier === 'rubble' || tier === 'water');
-    if (!isVegetationTier && tier !== 'full' && tier !== 'half'
-        && obbHitsCover(networkRoads, ix, iy, iw, ih, (item.angle || 0) + angleJitter, 6)) {
+    // #A11（2026-10-05 修订）：模板物品避路——结构/植被/液体 tier 一律避路。
+    //   ground tier（泥斑等地面贴花）豁免——压路无视觉问题。
+    //   压路时沿远离最近路心的方向最小推出（保建筑数量，满足 cull 保护/降级帽断言）；
+    //   推不出界或仍压路才剔除。确定性（不消耗 rng）。
+    //   修订前：full/half 建筑豁免（#77「建筑优先于路」）、植被/水体豁免。
+    //   修订原因：接缝公路贯通后，建筑/植被/水体压在路面正中非常出戏。
+    //   2026-10-05：一并避开 strip 级河流（avoidCovers = 道路 + 河流）。
+    let px = ix, py = iy;
+    const _tg = (typeof RULES !== 'undefined' && RULES.coverTiers && RULES.coverTiers[tier])
+      ? RULES.coverTiers[tier].tierGroup : null;
+    // 2026-10-05 步骤4：河流零容忍（严格跳过），道路保留推挤（保建筑数）。
+    if (_tg !== 'ground' && riverCovers.length &&
+        obbHitsCover(riverCovers, px, py, iw, ih, (item.angle || 0) + angleJitter, 6)) {
       continue;
+    }
+    // #A11 道路推挤（保留既有行为，满足 cull 保护/降级帽断言）
+    if (_tg !== 'ground' && obbHitsCover(networkRoads, px, py, iw, ih, (item.angle || 0) + angleJitter, 6)) {
+      let best = null, bestD = Infinity;
+      for (const r of networkRoads) {
+        const d = Math.hypot(ix - r.x, iy - r.y);
+        if (d < bestD) { bestD = d; best = r; }
+      }
+      let pushed = false;
+      if (best) {
+        const dx = ix - best.x, dy = iy - best.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const roadHalf = Math.min(best.w, best.h) / 2;
+        const bHalf = Math.max(iw, ih) / 2;
+        const need = roadHalf + bHalf + 24 - bestD;
+        const bx0 = centerX - selectedTemplate.w * scale / 2 + iw / 2;
+        const bx1 = centerX + selectedTemplate.w * scale / 2 - iw / 2;
+        const by0 = centerY - selectedTemplate.h * scale / 2 + ih / 2;
+        const by1 = centerY + selectedTemplate.h * scale / 2 - ih / 2;
+        const tryPos = (nx, ny) => {
+          return nx >= bx0 && nx <= bx1 && ny >= by0 && ny <= by1 &&
+            !obbHitsCover(networkRoads, nx, ny, iw, ih, (item.angle || 0) + angleJitter, 6);
+        };
+        if (need <= 0) {
+          pushed = true;
+        } else if (tryPos(ix + (dx / len) * need, iy + (dy / len) * need)) {
+          px = ix + (dx / len) * need; py = iy + (dy / len) * need; pushed = true;
+        } else {
+          const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+          for (const dist of [80, 160, 280]) {
+            for (const nd of dirs) {
+              const nx = ix + nd[0] * dist, ny = iy + nd[1] * dist;
+              if (tryPos(nx, ny)) { px = nx; py = ny; pushed = true; break; }
+            }
+            if (pushed) break;
+          }
+        }
+      }
+      if (!pushed) continue;
     }
 
     const coverObj = {
-      x: ix,
-      y: iy,
+      x: px,
+      y: py,
       w: iw,
       h: ih,
       angle: (item.angle || 0) + angleJitter,
@@ -1881,7 +2243,7 @@ function pruneOverlappingCovers(covers) {
     const vcx = centerX + (v.dx || 0) * scale;
     const vcy = centerY + (v.dy || 0) * scale;
     const vrng = createRNG(((Number(seed) ^ 0xA5A5A5A7) + 0x6D2B79F5) >>> 0);
-    for (const b of placeVillage(vrng, selectedTemplate, scale, vcx, vcy, outCovers, networkRoads)) {
+    for (const b of placeVillage(vrng, selectedTemplate, scale, vcx, vcy, outCovers, avoidCovers)) {
       outCovers.push(b);
     }
   }
@@ -1891,10 +2253,18 @@ function pruneOverlappingCovers(covers) {
   const terrainTags = selectedTemplate.terrainTags || [];
   for (const tag of terrainTags) {
     if (tag === 'centralPond') {
-      const pond = placeCentralPond(rng, selectedTemplate, scale, centerX, centerY, outCovers);
-      if (pond) outCovers.push(pond);
+      // 2026-10-05：strip 模式及用户要求下不再生成湖泊元素
+      // （_ro.externalRoads 存在即 strip 模式；单节点模式保留）
+      if (!_ro.externalRoads) {
+        const pond = placeCentralPond(rng, selectedTemplate, scale, centerX, centerY, outCovers);
+        if (pond) outCovers.push(pond);
+      }
     } else if (tag === 'edgeRiver') {
-      outCovers.push(placeEdgeRiver(rng, selectedTemplate, scale, centerX, centerY));
+      // 2026-10-05：strip 模式下跳过 per-chunk 河流（strip 级一体化河流已生成，
+      // 避免重复 + 接缝断开）。
+      if (!_ro.externalRoads) {
+        outCovers.push(placeEdgeRiver(rng, selectedTemplate, scale, centerX, centerY));
+      }
     } else if (tag === 'mudPatch') {
       for (const m of placeMudPatch(rng, selectedTemplate, scale, centerX, centerY, outCovers)) {
         outCovers.push(m);
@@ -1904,8 +2274,10 @@ function pruneOverlappingCovers(covers) {
 
   // P-20：随机插入水体/桥梁组合（置于村落/林地之后，避让全部已放置元素）
   // 每个节点最多 1 个水体/桥梁组合；概率随难度递增
+  // 2026-10-05：strip 模式下跳过（_ro.externalRoads 存在时）——strip 级已有
+  // 一体化水系（placeStripRivers），per-node 矩形水体会破坏视觉统一。
   const waterBridgeChance = diff * 0.5;
-  if (rng() < waterBridgeChance) {
+  if (!_ro.externalRoads && rng() < waterBridgeChance) {
     // 生成水体：w/h 受「≤40% 节点尺寸」封顶（scale 已计入），
     // 并按节点世界比例封顶（≤40% 宽/高）——原始区间相对模板尺寸本就占 35%~114%，
     // scale 放大后会把大半个战场吞掉，导致敌军/据点拒绝采样被大片水域耗尽（ISSUES #62）。
@@ -1987,10 +2359,11 @@ function pruneOverlappingCovers(covers) {
   {
     const brng = createRNG(((Number(seed) ^ 0x3C6EF372) + 0x6D2B79F5) >>> 0);
     // #I3（2026-09-21）：建筑密度乘子——makeNode 对 boss 节点传 RULES.building.bossDensity
+    // 2026-10-05：传 avoidCovers（道路+河流）——沿路建筑亦避开河流（定位逻辑过滤 tier==='road'，河流仅参与避让）。
     placeRoadsideBuildings(brng, selectedTemplate, scale, centerX, centerY,
-                           networkRoads, roadJunctions, roadWidth, outCovers,
+                           avoidCovers, roadJunctions, roadWidth, outCovers,
                            (opts.buildingDensity !== undefined) ? opts.buildingDensity : 1);
-    placeJunctionBarricades(brng, networkRoads, roadJunctions, roadWidth, outCovers,
+    placeJunctionBarricades(brng, avoidCovers, roadJunctions, roadWidth, outCovers,
       { halfW: selectedTemplate.w * scale / 2, halfH: selectedTemplate.h * scale / 2 });
   }
 
@@ -2033,10 +2406,721 @@ function pruneOverlappingCovers(covers) {
     // #E2（2026-09-20）：本节点实际使用的道路条带宽（世界px）——供渲染/敌人生成/测试读取
     // （路宽由 RULES.nodeMap.road.widthMin~widthMax 随机取，故必须随节点结果回传）。
     roadW: roadWidth,
+    // C 档 batch 2：贯通路端点（strip 片间公路连续用；非 strip 为 null）
+    weTrunk: (roadNet && roadNet.weTrunk) || null,
     seed: seed,
     difficulty: diff,
     w: selectedTemplate.w * scale,   // 缩放后的节点世界尺寸（P-08：摄像机/小地图用）
     h: selectedTemplate.h * scale
+  };
+}
+
+// ---------- C 档 batch 2：横向 strip 生成器（specs/map.md §14.2） ----------
+// 片（chunk）= 一次 generateNode 调用（现有模板实例），片内 scale 沿用调用方传入的
+// scaleFor 口径（生产环境传 tank_map.nodeScaleFor；§14.2「不得为凑地图比例去缩放片内元素」）。
+// 纵向裁剪 + 接缝净空 + 密度补偿（钳制回界）后拼接为推进轴 strip。
+// 本批次只产出布局（covers/w/h）；防线生成与敌人布置是 batch 3，不在此接 makeNode。
+const STRIP_SEAM_CLEAR = 300;   // 接缝净空半宽：片边界 ±300px（§14.2 必需）
+
+function _stripTierGroup(tier) {
+  const ct = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers[tier] : null;
+  return (ct && ct.tierGroup) || null;
+}
+
+// OBB 相交（SAT）：供「钳制回界」的重叠检测。c 为 cover（x/y 中心、w/h、angle）。
+function _obbOverlap(a, b) {
+  const aa = a.angle || 0, ab = b.angle || 0;
+  const ca = Math.cos(aa), sa = Math.sin(aa), cb = Math.cos(ab), sb = Math.sin(ab);
+  const axes = [[ca, sa], [-sa, ca], [cb, sb], [-sb, cb]];
+  const corners = (c, cc, ss) => {
+    const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2;
+    const pts = [];
+    const ws = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+    for (let i = 0; i < 4; i++) {
+      const sx = ws[i][0], sy = ws[i][1];
+      pts.push([c.x + sx * hw * cc - sy * hh * ss, c.y + sx * hw * ss + sy * hh * cc]);
+    }
+    return pts;
+  };
+  const pa = corners(a, ca, sa), pb = corners(b, cb, sb);
+  for (let i = 0; i < axes.length; i++) {
+    const ax = axes[i][0], ay = axes[i][1];
+    let mna = Infinity, mxa = -Infinity, mnb = Infinity, mxb = -Infinity;
+    for (let k = 0; k < 4; k++) {
+      const da = pa[k][0] * ax + pa[k][1] * ay;
+      if (da < mna) mna = da; if (da > mxa) mxa = da;
+      const db = pb[k][0] * ax + pb[k][1] * ay;
+      if (db < mnb) mnb = db; if (db > mxb) mxb = db;
+    }
+    if (mxa < mnb || mxb < mna) return false;
+  }
+  return true;
+}
+
+/**
+ * 横向 strip 节点布局生成（C 档 batch 2）。
+ * @param {number} difficulty 0~1
+ * @param {Object} options
+ * @param {number} [options.seed] 确定性种子
+ * @param {string} [options.advanceAxis='x'] 推进轴（§14.7；本批次仅实现 'x'）
+ * @param {Object} [options.viewport] { vw, vh }（zoom=1 视口世界 px；缺省 1920×1080）
+ * @param {number} [options.stripScreensX=10] 横向屏数（§14.1 基准 10，不做精确绑定）
+ * @param {number} [options.stripScreensY=2.2] 纵向屏数（§14.1 基准 2.2）
+ * @param {number} [options.chunkCount] 片数（缺省按 ≈3.5 屏/片估算）
+ * @param {string[]} [options.templateIds] 逐片指定模板（测试用；缺省按难度发牌）
+ * @param {Function} options.scaleFor(viewport, tpl) 片内缩放（生产传 nodeScaleFor）
+ * @param {number} [options.buildingDensity] 透传 generateNode
+ * @param {number} [options.cullRate] 透传 generateNode
+ * @returns {Object} { advanceAxis, seed, difficulty, w, h, covers, roadJunctions,
+ *   roadW[], chunks[{templateId,w,h,x0,seed}], chunkCount, seamCleared, densityPerScreen }
+ */
+function generateStrip(difficulty, options) {
+  const diff = typeof difficulty === 'number' ? Math.max(0, Math.min(1, difficulty)) : 0.5;
+  const opts = /** @type {StripGenOptions} */ (options || {});
+  const axis = opts.advanceAxis || 'x';
+  if (axis !== 'x') throw new Error('generateStrip: 本批次仅实现 advanceAxis=\'x\'（§14.7 第二阶段预留）');
+  const seed = opts.seed !== undefined ? opts.seed : Math.floor(Math.random() * 1000000);
+  const rng = createRNG(seed);
+  const viewport = opts.viewport || { vw: 1920, vh: 1080 };
+  const screensX = opts.stripScreensX !== undefined ? opts.stripScreensX : 10;
+  const screensY = opts.stripScreensY !== undefined ? opts.stripScreensY : 2.2;
+  const scaleFor = opts.scaleFor;
+  if (typeof scaleFor !== 'function') {
+    throw new Error('generateStrip: 需要 opts.scaleFor(viewport, tpl)（片内 scale 沿用 nodeScaleFor 口径）');
+  }
+
+  const stripH = screensY * viewport.vh;
+  const halfBand = stripH / 2;
+  // 批量发牌：nodeScaleFor 保证片宽 ≥3 屏，按 ≈3.5 屏/片估算片数，总长 ≈ screensX 屏
+  const chunkCount = opts.chunkCount || Math.max(2, Math.round(screensX / 3.5));
+
+  const chunks = [];
+  const covers = [];
+  const junctions = [];
+  const roadWs = [];
+  let accW = 0;
+  // 2026-10-05 一体化路网：先规划各片模板/宽度，再整条 strip 一次生成路网，
+  // 各片只做避让、不自生成（根治片间公路断开）。
+  const plan = [];
+  let totalW = 0;
+  {
+    let px = 0;
+    for (let i = 0; i < chunkCount; i++) {
+      let tpl = null;
+      if (opts.templateIds && opts.templateIds[i]) {
+        tpl = getTemplates().find(t => t.id === opts.templateIds[i]);
+        if (!tpl) throw new Error('generateStrip: 模板不存在 ' + opts.templateIds[i]);
+      } else {
+        tpl = pickTemplate(diff, rng);
+      }
+      const scale = scaleFor(viewport, tpl);
+      const cw = tpl.w * scale;
+      plan.push({ tpl: tpl, scale: scale, cw: cw, x0: px, seed: rng.int(0, 1000000) });
+      px += cw;
+    }
+    totalW = px;
+  }
+  // ===== 2026-10-05 热点驱动管线（用户四步架构）=====
+  // 步骤1：敌方生成热点——玩法先行，路网/水系围绕热点布局
+  const hotspots = [];
+  {
+    const hsRng = createRNG((seed ^ 0x907) >>> 0);
+    const nHot = Math.max(3, Math.round(totalW / 4000));  // ~每4000px一个热点
+    for (let i = 0; i < nHot; i++) {
+      hotspots.push({
+        x: totalW * (i + 0.5) / nHot + hsRng.range(-800, 800),
+        y: stripH * hsRng.range(0.25, 0.75),
+        id: 'hs-' + i
+      });
+    }
+  }
+  // Strip 级路网（虚拟模板：整条 strip 一次铺路；scale=1，中心在 strip 中央）。
+  // 路宽/拓扑走 placeRoadNetwork 既有逻辑（A–I 拓扑）；横向干道天然贯通整条 strip。
+  const stripRng = createRNG((seed ^ 0x57A17) >>> 0);
+  const stripRoadNet = placeRoadNetwork(stripRng,
+    { w: totalW, h: stripH, id: '__strip__' }, 1, totalW / 2, stripH / 2,
+    { requireWETrunk: true, trunkAmp: 0.03 });
+  const stripRoadW = stripRoadNet.roadW || 100;
+  // 2026-10-05：分支连接点统一间距管理——所有分支（strip-branch/hs-secondary/bridge）
+  // 在主干道上的连接点间距 ≥900px，避免过密。
+  const branchPoints = [];
+  const isBranchPointClear = (x, y, minDist) => {
+    for (const p of branchPoints) {
+      if (Math.hypot(x - p.x, y - p.y) < minDist) return false;
+    }
+    return true;
+  };
+  // 2026-10-05：strip 岔路加密——宽幅下拓扑分支稀疏。沿最长横干每 ~1200px
+  // 加一条短岔路（南北随机，300~500px），丰富路网细节。
+  {
+    // 找最长横向链（按 groupId 聚类，取 x 跨度最大者）
+    const byGroup = {};
+    for (const r of stripRoadNet.covers) {
+      if (r.tier !== 'road') continue;
+      const g = r.groupId || 'x';
+      if (!byGroup[g]) byGroup[g] = [];
+      byGroup[g].push(r);
+    }
+    let best = null, bestSpan = 0;
+    for (const arr of Object.values(byGroup)) {
+      const xs = arr.map(c => c.x);
+      const span = Math.max(...xs) - Math.min(...xs);
+      if (span > bestSpan) { bestSpan = span; best = arr; }
+    }
+    if (best && bestSpan > totalW * 0.5) {
+      const xs = best.map(c => c.x).sort((a, b) => a - b);
+      const branchRng = createRNG((seed ^ 0xB2A4) >>> 0);
+      for (let bx = 800; bx < totalW - 400; bx += 1200) {
+        // 找 bx 处干道的 y（最近段）
+        let by = stripH / 2, bd = Infinity;
+        for (const c of best) {
+          const d = Math.abs(c.x - bx);
+          if (d < bd) { bd = d; by = c.y; }
+        }
+        if (bd > 400) continue;
+        // 统一间距：≥900px
+        if (!isBranchPointClear(bx, by, 900)) continue;
+        const goNorth = branchRng() < 0.5;
+        const len = branchRng.range(300, 500);
+        const y0 = by, y1 = goNorth ? by - len : by + len;
+        if (y1 < 60 || y1 > stripH - 60) continue;  // 出界跳过
+        branchPoints.push({ x: bx, y: by });
+        const nSeg = 3;
+        for (let si = 0; si < nSeg; si++) {
+          const t0 = si / nSeg, t1 = (si + 1) / nSeg;
+          const sy = y0 + (y1 - y0) * (t0 + t1) / 2;
+          // 轻微弯曲
+          const sx = bx + Math.sin(t0 * Math.PI) * branchRng.range(-30, 30);
+          stripRoadNet.covers.push({
+            x: sx, y: sy, w: stripRoadW * 0.7, h: Math.abs(y1 - y0) / nSeg + 20,
+            angle: 0, tier: 'road', groupId: 'strip-branch'
+          });
+        }
+        // 岔路口 junction（供渲染断开中心线）
+        stripRoadNet.junctions.push({ x: bx, y: by, r: stripRoadW * 0.5 });
+      }
+    }
+  }
+  // 2026-10-05 步骤2：热点驱动次要公路——无交叉的热点，从热点向最近主干道
+  // 修一条短次要路（T 形交叉，1 端点接主干道），保证每个热点都是路网节点。
+  {
+    const hsRng = createRNG((seed ^ 0x5EC0) >>> 0);
+    for (const hs of hotspots) {
+      // 检查 600px 内是否已有 junction（拓扑自带或岔路加密）
+      let hasJ = false;
+      for (const j of stripRoadNet.junctions) {
+        if (Math.hypot(j.x - hs.x, j.y - hs.y) < 600) { hasJ = true; break; }
+      }
+      if (hasJ) { hs.hasJunction = true; continue; }
+      // 找最近主干道路段
+      let best = null, bestD = Infinity;
+      for (const r of stripRoadNet.covers) {
+        if (r.tier !== 'road') continue;
+        // 只考虑主干道（非次要路/补缝段）
+        if (r.groupId === 'strip-branch' || r.groupId === 'strip-seam-fix') continue;
+        const d = Math.hypot(r.x - hs.x, r.y - hs.y);
+        if (d < bestD) { bestD = d; best = r; }
+      }
+      if (!best || bestD > 1500) continue;  // 太远则跳过（避免超长次要路）
+      // 2026-10-05 夹角约束：次要路与主干道夹角（锐角）≥45°。
+      // 候选连接点沿主干道方向偏移，选首个满足夹角者。
+      const mainAngle = best.angle || 0;
+      const secAngleFor = (cx, cy) => {
+        const a = Math.atan2(cy - hs.y, cx - hs.x);
+        let diff = Math.abs(a - mainAngle) % Math.PI;
+        return Math.min(diff, Math.PI - diff);
+      };
+      let connX = best.x, connY = best.y;
+      let found = secAngleFor(connX, connY) >= Math.PI / 4;
+      if (!found) {
+        const dxm = Math.cos(mainAngle), dym = Math.sin(mainAngle);
+        for (const off of [200, -200, 400, -400, 600, -600]) {
+          const cx = best.x + dxm * off, cy = best.y + dym * off;
+          if (secAngleFor(cx, cy) >= Math.PI / 4) {
+            connX = cx; connY = cy; found = true; break;
+          }
+        }
+      }
+      if (!found) continue;  // 无满足夹角的连接点，跳过
+      // 2026-10-05：统一间距 ≥900px
+      if (!isBranchPointClear(connX, connY, 900)) continue;
+      // 次要路：从热点到连接点，3 段轻微弯曲
+      const dx = connX - hs.x, dy = connY - hs.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const ux = dx / dist, uy = dy / dist;
+      // 法线方向微弯
+      const nx = -uy, ny = ux;
+      const bend = hsRng.range(-40, 40);
+      const nSeg = 3;
+      for (let si = 0; si < nSeg; si++) {
+        const t0 = si / nSeg, t1 = (si + 1) / nSeg;
+        const tm = (t0 + t1) / 2;
+        const px = hs.x + dx * tm + nx * Math.sin(tm * Math.PI) * bend;
+        const py = hs.y + dy * tm + ny * Math.sin(tm * Math.PI) * bend;
+        const segLen = dist / nSeg;
+        stripRoadNet.covers.push({
+          x: px, y: py, w: segLen + 20, h: stripRoadW * 0.65,
+          angle: Math.atan2(dy, dx), tier: 'road', groupId: 'hs-secondary'
+        });
+      }
+      // T 形交叉点 junction（在连接点）
+      stripRoadNet.junctions.push({ x: connX, y: connY, r: stripRoadW * 0.5 });
+      branchPoints.push({ x: connX, y: connY });
+      hs.hasJunction = true;
+      hs.secondaryRoad = true;
+    }
+  }
+  // 2026-10-05：接缝补路——宽幅模板下拓扑曲线的振幅可能把路带出界（段被裁），
+  // 导致某接缝处无路面。后处理：对每条内部接缝，若 200px 内无 road cover，
+  // 在最近 road 的 y 高度补一条水平直段（保证横向干道真实过缝）。
+  {
+    const seamXs = [];
+    for (const p of plan) seamXs.push(p.x0);
+    // plan[0].x0=0 是 strip 左界，不算内部接缝
+    for (let si = 1; si < seamXs.length; si++) {
+      const bx = seamXs[si];
+      const near = stripRoadNet.covers.some(c => c.tier === 'road' && Math.abs(c.x - bx) < 200);
+      if (!near) {
+        // 找最近的 road y
+        let bestY = stripH / 2, bestD = Infinity;
+        for (const c of stripRoadNet.covers) {
+          if (c.tier !== 'road') continue;
+          const d = Math.abs(c.x - bx);
+          if (d < bestD) { bestD = d; bestY = c.y; }
+        }
+        // 界内钳制：段半宽 200px，y 须在 [200, stripH-200] 内
+        const cy = Math.max(200, Math.min(stripH - 200, bestY));
+        stripRoadNet.covers.push({
+          x: bx, y: cy, w: 400, h: stripRoadW, angle: 0,
+          tier: 'road', groupId: 'strip-seam-fix'
+        });
+      }
+    }
+  }
+  // 2026-10-05：出界路段过滤（置于岔路/补缝之后）——placeRoadNetwork 的 segInBounds
+  // 只查段中心，宽幅下段半幅可能探出界。strip 级严格过滤：整段须在界内。
+  {
+    const kept = [];
+    for (const r of stripRoadNet.covers) {
+      if (r.tier !== 'road') { kept.push(r); continue; }
+      const hw = (r.w || 0) / 2, hh = (r.h || 0) / 2;
+      const ext = Math.max(hw, hh);  // 旋转段用包络近似（保守）
+      if (r.x - ext < 0 || r.x + ext > totalW || r.y - ext < 0 || r.y + ext > stripH) continue;
+      kept.push(r);
+    }
+    stripRoadNet.covers = kept;
+  }
+  // 2026-10-05：平行重叠主干道去重——两路平行（<15°）、X 向重叠、Y 向 <100px 时
+  // 只保留一条（避免路口-端点间 2 条公路的冗余）。
+  {
+    const roads = stripRoadNet.covers.filter(r => r.tier === 'road');
+    const others = stripRoadNet.covers.filter(r => r.tier !== 'road');
+    const getDir = (c) => {
+      let a = c.angle || 0;
+      if ((c.w || 0) < (c.h || 0)) a += Math.PI / 2;
+      return ((a % Math.PI) + Math.PI) % Math.PI;
+    };
+    const toRemove = new Set();
+    for (let i = 0; i < roads.length; i++) {
+      if (toRemove.has(i)) continue;
+      const a = roads[i];
+      // 只处理主干道（非分支/次要路）
+      if (a.groupId === 'strip-branch' || a.groupId === 'hs-secondary' || a.groupId === 'bridge-approach') continue;
+      for (let j = i + 1; j < roads.length; j++) {
+        if (toRemove.has(j)) continue;
+        const b = roads[j];
+        if (b.groupId === 'strip-branch' || b.groupId === 'hs-secondary' || b.groupId === 'bridge-approach') continue;
+        const da = getDir(a), db = getDir(b);
+        let diff = Math.abs(da - db) % Math.PI;
+        const acute = Math.min(diff, Math.PI - diff) * 180 / Math.PI;
+        if (acute > 15) continue;  // 不平行
+        // X 向重叠？
+        const aX0 = a.x - a.w / 2, aX1 = a.x + a.w / 2;
+        const bX0 = b.x - b.w / 2, bX1 = b.x + b.w / 2;
+        const xOverlap = Math.min(aX1, bX1) - Math.max(aX0, bX0);
+        if (xOverlap < 50) continue;  // X 不重叠
+        // Y 向接近？
+        if (Math.abs(a.y - b.y) > 100) continue;
+        // 保留较长的
+        const aLen = Math.max(a.w, a.h), bLen = Math.max(b.w, b.h);
+        toRemove.add(aLen >= bLen ? j : i);
+        if (aLen < bLen) break;  // a 被删，跳出内层
+      }
+    }
+    const keptRoads = roads.filter((_, idx) => !toRemove.has(idx));
+    stripRoadNet.covers = others.concat(keptRoads);
+  }
+  // 2026-10-05 一体化河流：strip 级生成 1–2 条横向蜿蜒河流（贯穿整条 strip，
+  // 根治片间断开；出现率从模板标签的 ~2/7 提升到每条 strip 必有）。
+  const stripRivers = placeStripRivers(createRNG((seed ^ 0x21E2) >>> 0),
+    totalW, stripH, stripRoadNet.covers, stripRoadW);
+  // 2026-10-05：次要公路不过河——删除穿越河流的 hs-secondary / strip-branch。
+  // （主干道可经桥跨河；次要路应绕行。）
+  {
+    const riverSegs = [];
+    for (const rv of stripRivers) {
+      if ((rv.tier || 'river') !== 'river') continue;
+      for (const s of (rv.segments || [])) riverSegs.push(s);
+    }
+    const keptRoads = [];
+    let removedSecondary = 0;
+    for (const r of stripRoadNet.covers) {
+      if (r.tier === 'road' && (r.groupId === 'hs-secondary' || r.groupId === 'strip-branch')) {
+        let crosses = false;
+        for (const s of riverSegs) {
+          // OBB 粗判：中心距
+          const dx = Math.abs(r.x - s.dx), dy = Math.abs(r.y - s.dy);
+          const ra = s.angle || 0;
+          const rw = (s.w * Math.abs(Math.cos(ra)) + s.h * Math.abs(Math.sin(ra))) / 2;
+          const rh = (s.w * Math.abs(Math.sin(ra)) + s.h * Math.abs(Math.cos(ra))) / 2;
+          const rra = r.angle || 0;
+          const rrW = (r.w * Math.abs(Math.cos(rra)) + r.h * Math.abs(Math.sin(rra))) / 2;
+          const rrH = (r.w * Math.abs(Math.sin(rra)) + r.h * Math.abs(Math.cos(rra))) / 2;
+          if (dx < rw + rrW - 10 && dy < rh + rrH - 10) { crosses = true; break; }
+        }
+        if (crosses) { removedSecondary++; continue; }
+      }
+      keptRoads.push(r);
+    }
+    stripRoadNet.covers.length = 0;
+    for (const r of keptRoads) stripRoadNet.covers.push(r);
+    // 同步删除对应的 junction（hs-secondary 的 T 形路口）
+    // （简化：保留 junction，路没了路口标记无害）
+  }
+  for (let i = 0; i < chunkCount; i++) {
+    const { tpl, scale, cw, x0, seed: chunkSeed } = plan[i];
+    // 该片区间的路网切到片内帧（片内帧原点 = strip (x0 + cw/2, halfBand)）。
+    const localRoads = [];
+    for (const r of stripRoadNet.covers) {
+      const rx0 = r.x - (r.w || 0) / 2, rx1 = r.x + (r.w || 0) / 2;
+      if (rx1 < x0 || rx0 > x0 + cw) continue;
+      localRoads.push(Object.assign({}, r, { x: r.x - (x0 + cw / 2), y: r.y - halfBand }));
+    }
+    const localJunctions = [];
+    for (const j of stripRoadNet.junctions) {
+      if (j.x < x0 || j.x > x0 + cw) continue;
+      localJunctions.push({ x: j.x - (x0 + cw / 2), y: j.y - halfBand, r: j.r });
+    }
+    // 该片区间的河流切到片内帧（供建筑避让）。
+    const localRivers = [];
+    for (const rv of stripRivers) {
+      for (const s of rv.segments) {
+        const sx = s.dx, sy = s.dy;  // segments 已在 strip 坐标
+        if (sx + s.w / 2 < x0 || sx - s.w / 2 > x0 + cw) continue;
+        localRivers.push({ x: sx - (x0 + cw / 2), y: sy - halfBand, w: s.w, h: s.h, angle: s.angle || 0, tier: rv.tier || 'river' });
+      }
+    }
+    // 片内帧：generateNode 以 centerX/centerY 为基准（makeNode 同款调用：0,0）。
+    const node = generateNode(diff, {
+      seed: chunkSeed,
+      scale: scale,
+      centerX: 0, centerY: 0,
+      templateId: tpl.id,
+      buildingDensity: opts.buildingDensity,
+      cullRate: opts.cullRate,
+      roadOpts: {
+        externalRoads: localRoads,
+        externalJunctions: localJunctions,
+        externalRoadW: stripRoadW,
+        externalRivers: localRivers
+      }
+    });
+
+    // 纵向裁剪（§14.2）：片高 > 目标高时丢弃上下边缘元素（按中心判定；不做坐标压缩）
+    const kept = [], dropped = [];
+    for (const c of node.covers) {
+      if (Math.abs(c.y) <= halfBand) kept.push(c);
+      else dropped.push(c);
+    }
+    // 密度补偿（§14.2）：带外元素钳制回界内而非直接丢弃——与已保留的非地面元素
+    // 做 OBB 重叠检测，命中则放弃该元素。ground/liquid 不钳制（地形层无所谓）。
+    // 2026-10-05：钳制同时避路（与道路 OBB 重叠则放弃），路面净空优先。
+    const CLAMP_MARGIN = 80;
+    const keptRoads = kept.filter(k => k.tier === 'road');
+    for (const c of dropped) {
+      const tg = _stripTierGroup(c.tier);
+      if (tg === 'ground' || tg === 'liquid') continue;
+      const cy = Math.max(-halfBand + CLAMP_MARGIN, Math.min(halfBand - CLAMP_MARGIN, c.y));
+      const cand = Object.assign({}, c, { y: cy });
+      let hit = false;
+      for (const k of kept) {
+        const ktg = _stripTierGroup(k.tier);
+        if (ktg === 'ground' || ktg === 'liquid') continue;
+        if (_obbOverlap(cand, k)) { hit = true; break; }
+      }
+      if (!hit) {
+        for (const r of keptRoads) {
+          if (_obbOverlap(cand, r)) { hit = true; break; }
+        }
+      }
+      if (!hit) kept.push(cand);
+    }
+
+    // 横向拼接：chunk i 占据 [x0, x0+cw]（规划 pass 已算好），y 平移到 [0, stripH]
+    for (const c of kept) {
+      c.x += x0 + cw / 2;
+      c.y += halfBand;
+      covers.push(c);
+    }
+    for (const j of (node.roadJunctions || [])) {
+      if (Math.abs(j.y) > halfBand) continue;   // 路口标记随纵向裁剪
+      junctions.push({ x: j.x + x0 + cw / 2, y: j.y + halfBand, r: j.r });
+    }
+    roadWs.push(node.roadW);
+    chunks.push({ templateId: tpl.id, w: cw, h: node.h, x0: x0, seed: chunkSeed });
+    accW += cw;
+  }
+  const stripW = accW;
+  // 一体化路网：strip 级路面 cover 与路口直接追加（已在 strip 坐标 [0,totalW]×[0,stripH]）。
+  for (const r of stripRoadNet.covers) covers.push(r);
+  for (const j of stripRoadNet.junctions) junctions.push({ x: j.x, y: j.y, r: j.r });
+  // 一体化河流：strip 级河段追加；路河交叉处用桥替换河段（桥不压河）。
+  // 2026-10-05 修订：短段模式——每段独立判断，压路则替换为桥（不再切分长段）。
+  {
+    const bridgeSeen = new Set();  // 200px 去重，同一交叉只一座桥
+    const bridgePositions = [];  // 2026-10-05：桥间距 ≥800px，避免过渡段过密
+    for (const rv of stripRivers) {
+      // 湖（water）不参与桥替换——湖面宽，路应绕行而非架桥；verts 透传供渲染
+      if ((rv.tier || 'river') !== 'river') {
+        for (const s of rv.segments) {
+          covers.push({
+            x: s.dx, y: s.dy, w: s.w, h: s.h, angle: s.angle || 0,
+            tier: rv.tier || 'river', groupId: rv.groupId,
+            verts: rv.verts || null
+          });
+        }
+        continue;
+      }
+      for (const s of rv.segments) {
+        let hitRoad = null;
+        for (const r of stripRoadNet.covers) {
+          // OBB 粗判：中心距 < 半宽之和（角度已计入段 w 的搭接余量）
+          const dx = Math.abs(s.dx - r.x), dy = Math.abs(s.dy - r.y);
+          if (dx > (s.w + r.w) / 2 * 0.7) continue;
+          if (dy > (s.h + r.h) / 2 + 20) continue;
+          hitRoad = r;
+          break;
+        }
+        // 2026-10-05：平行路不触发桥——仅当路与河夹角>30°（真实交叉）时才处理；
+        // 平行近距的直接保留河段（避免长距离误伤导致河流中断）。
+        // 注：涵洞逻辑已删除——河流必须连续，角度问题由桥过渡段缓解。
+        if (hitRoad) {
+          // 2026-10-05：桥必须垂直于河流中心线，两侧公路平滑过渡。
+          const getDir = (c) => {
+            let a = c.angle || 0;
+            if ((c.w || 0) < (c.h || 0)) a += Math.PI / 2;
+            return ((a % Math.PI) + Math.PI) % Math.PI;
+          };
+          // 局部河向平均（±200px内河段方向平均，避免单段抖动）
+          let sumX = 0, sumY = 0, cnt = 0;
+          for (const s2 of rv.segments) {
+            if (Math.abs(s2.dx - s.dx) > 200 || Math.abs(s2.dy - s.dy) > 200) continue;
+            const d = getDir(s2);
+            // 方向平均（处理 π 周期）：转为向量平均
+            sumX += Math.cos(d * 2); sumY += Math.sin(d * 2); cnt++;
+          }
+          let riverDir;
+          if (cnt > 0) {
+            riverDir = Math.atan2(sumY / cnt, sumX / cnt) / 2;
+            riverDir = ((riverDir % Math.PI) + Math.PI) % Math.PI;
+          } else {
+            riverDir = getDir(s);
+          }
+          const bridgeDir = (riverDir + Math.PI / 2) % Math.PI;  // 垂直于河
+          const roadDir = getDir(hitRoad);
+          // 2026-10-05：不再做涵洞跳过——河流必须连续。桥垂直于河，
+          // 与路夹角由过渡段缓解（>15°时加过渡段）。
+          const key = Math.round(s.dx / 200) + ':' + Math.round(s.dy / 200);
+          if (!bridgeSeen.has(key)) {
+            bridgeSeen.add(key);
+            // 2026-10-05：统一间距 ≥900px（含桥）——过近则不建桥，
+            // 但保留河段（河流连续，路下涉水）。
+            if (!isBranchPointClear(s.dx, s.dy, 900)) {
+              // 保留河段（不建桥）
+              covers.push({
+                x: s.dx, y: s.dy, w: s.w, h: s.h, angle: s.angle || 0,
+                tier: 'river', groupId: rv.groupId
+              });
+            } else {
+              bridgePositions.push({ x: s.dx, y: s.dy });
+              branchPoints.push({ x: s.dx, y: s.dy });
+              const bridgeLen = s.h + 60;  // 跨两岸（沿桥向，长边）
+              const bridgeWid = stripRoadW + 40;  // 路宽（横桥向，短边）
+              const bx = s.dx, by = s.dy;
+              covers.push({
+                x: bx, y: by,
+                w: bridgeLen, h: bridgeWid,
+                angle: bridgeDir,  // 长边沿桥向（垂直于河）
+                tier: 'bridge', groupId: 'strip-bridge', hp: 2
+              });
+              // 平滑过渡：若桥与路夹角>15°，在桥两端加过渡段
+              let dAng = bridgeDir - roadDir;
+              while (dAng > Math.PI / 2) dAng -= Math.PI;
+              while (dAng < -Math.PI / 2) dAng += Math.PI;
+              if (Math.abs(dAng) > Math.PI / 12) {  // >15°
+                const hx = Math.cos(bridgeDir), hy = Math.sin(bridgeDir);
+                for (const side of [1, -1]) {
+                  // 桥端
+                  const ex = bx + hx * bridgeLen / 2 * side;
+                  const ey = by + hy * bridgeLen / 2 * side;
+                  // 过渡段：从桥端向路方向延伸，中点角度渐变
+                  const midA = bridgeDir - dAng * 0.5 * side;
+                  const segLen = 70;
+                  const mx = ex + Math.cos(midA) * segLen * side;
+                  const my = ey + Math.sin(midA) * segLen * side;
+                  covers.push({
+                    x: (ex + mx) / 2, y: (ey + my) / 2,
+                    w: segLen + 20, h: stripRoadW * 0.9,
+                    angle: midA, tier: 'road', groupId: 'bridge-approach'
+                  });
+                }
+              }
+            }
+          }
+          // 该河段被桥替换（或保留），不追加 river（已在上处理）
+        } else {
+          covers.push({
+            x: s.dx, y: s.dy, w: s.w, h: s.h, angle: s.angle || 0,
+            tier: rv.tier || 'river', groupId: rv.groupId
+          });
+        }
+      }
+    }
+  }
+
+  // 2026-10-05：河岸植被加密——河流两侧 40~150px 带内植被更茂密。
+  // 每河段 60% 概率每侧种 1~2 棵树/灌木，避让道路/水体/已有建筑。
+  {
+    const ripRng = createRNG((seed ^ 0x71A5) >>> 0);
+    const vegCovers = [];
+    // 收集所有水体（河+湖）用于避让
+    const allWaters = covers.filter(c => c.tier === 'river' || c.tier === 'water');
+    const allRoads = covers.filter(c => c.tier === 'road' || c.tier === 'bridge');
+    for (const rv of stripRivers) {
+      if ((rv.tier || 'river') !== 'river') continue;  // 湖不加密（已有植被）
+      for (const s of rv.segments) {
+        if (ripRng() > 0.6) continue;  // 60% 概率
+        const sAng = s.angle || 0;
+        // 河段半宽（垂直方向）
+        const riverHalf = s.h / 2;
+        // 法线方向（两侧）
+        const nx = -Math.sin(sAng), ny = Math.cos(sAng);
+        for (const side of [1, -1]) {
+          const nVeg = ripRng.int(1, 2);
+          for (let vi = 0; vi < nVeg; vi++) {
+            const dist = riverHalf + ripRng.range(40, 150);
+            // 沿河段方向随机偏移（避免整齐排列）
+            const along = ripRng.range(-s.w / 2, s.w / 2) * 0.8;
+            const vx = s.dx + Math.cos(sAng) * along + nx * dist * side;
+            const vy = s.dy + Math.sin(sAng) * along + ny * dist * side;
+            // 界内检查
+            if (vx < 50 || vx > totalW - 50 || vy < 50 || vy > stripH - 50) continue;
+            // 避让：道路/桥梁/水体/已有植被（结构）
+            let blocked = false;
+            const vw = ripRng() < 0.6 ? ripRng.range(22, 30) : ripRng.range(50, 65);
+            const vh = vw * ripRng.range(0.7, 0.9);
+            for (const r of allRoads) {
+              const dx = Math.abs(vx - r.x), dy = Math.abs(vy - r.y);
+              if (dx < (vw + r.w) / 2 + 20 && dy < (vh + r.h) / 2 + 20) { blocked = true; break; }
+            }
+            if (blocked) continue;
+            for (const w of allWaters) {
+              const dx = Math.abs(vx - w.x), dy = Math.abs(vy - w.y);
+              const wa = w.angle || 0;
+              const ww = (w.w * Math.abs(Math.cos(wa)) + w.h * Math.abs(Math.sin(wa))) / 2;
+              const wh = (w.w * Math.abs(Math.sin(wa)) + w.h * Math.abs(Math.cos(wa))) / 2;
+              if (dx < vw / 2 + ww + 10 && dy < vh / 2 + wh + 10) { blocked = true; break; }
+            }
+            if (blocked) continue;
+            // 避让已有 structure/foliage（避免重叠）
+            for (const c of covers) {
+              const tg = _stripTierGroup(c.tier);
+              if (tg !== 'structure' && tg !== 'foliage') continue;
+              const dx = Math.abs(vx - c.x), dy = Math.abs(vy - c.y);
+              if (dx < (vw + c.w) / 2 + 10 && dy < (vh + c.h) / 2 + 10) { blocked = true; break; }
+            }
+            if (blocked) continue;
+            // 种树（60%）或灌木（40%）
+            const isTree = ripRng() < 0.6;
+            vegCovers.push({
+              x: vx, y: vy, w: vw, h: vh,
+              angle: ripRng.range(-0.3, 0.3),
+              tier: isTree ? 'tree' : 'bush',
+              groupId: 'riparian',
+              hp: 1
+            });
+          }
+        }
+      }
+    }
+    for (const v of vegCovers) covers.push(v);
+  }
+
+  // 接缝净空（§14.2 必需）：内部片边界 ±300px 带内移除 structure/foliage，保留 ground/liquid
+  // 2026-10-05：bridge 豁免（路河交叉基础设施，清掉会导致河流切断公路）。
+  const seamX = [];
+  for (let i = 1; i < chunks.length; i++) seamX.push(chunks[i].x0);
+  const finalCovers = [];
+  let seamCleared = 0;
+  for (const c of covers) {
+    const tg = _stripTierGroup(c.tier);
+    if ((tg === 'structure' || tg === 'foliage') && c.tier !== 'bridge') {
+      let inSeam = false;
+      for (let s = 0; s < seamX.length; s++) {
+        if (Math.abs(c.x - seamX[s]) < STRIP_SEAM_CLEAR) { inSeam = true; break; }
+      }
+      if (inSeam) { seamCleared++; continue; }
+    }
+    finalCovers.push(c);
+  }
+
+  // 2026-10-05 步骤4最终兜底：删除所有压河/压湖的 structure/foliage
+  // （OBB 精确判定）。保证"水域范围外生成"的绝对性。
+  {
+    const waters = finalCovers.filter(c => c.tier === 'river' || c.tier === 'water');
+    const kept = [];
+    let waterCleared = 0;
+    for (const c of finalCovers) {
+      const tg = _stripTierGroup(c.tier);
+      if ((tg === 'structure' || tg === 'foliage') && c.tier !== 'bridge' && c.tier !== 'road') {
+        let hitsWater = false;
+        for (const w of waters) {
+          // OBB 近似：用 AABB 快速拒收，精确相交用中心距+半宽
+          const dx = Math.abs(c.x - w.x), dy = Math.abs(c.y - w.y);
+          // 考虑旋转：取包络半宽
+          const wa = w.angle || 0;
+          const ww = (w.w * Math.abs(Math.cos(wa)) + w.h * Math.abs(Math.sin(wa))) / 2;
+          const wh = (w.w * Math.abs(Math.sin(wa)) + w.h * Math.abs(Math.cos(wa))) / 2;
+          const ca = c.angle || 0;
+          const cw = (c.w * Math.abs(Math.cos(ca)) + c.h * Math.abs(Math.sin(ca))) / 2;
+          const ch = (c.w * Math.abs(Math.sin(ca)) + c.h * Math.abs(Math.cos(ca))) / 2;
+          if (dx < ww + cw - 10 && dy < wh + ch - 10) { hitsWater = true; break; }
+        }
+        if (hitsWater) { waterCleared++; continue; }
+      }
+      kept.push(c);
+    }
+    finalCovers.length = 0;
+    for (const c of kept) finalCovers.push(c);
+  }
+
+  // 密度（屏 = vw×vh 世界 px）
+  const screens = (stripW * stripH) / (viewport.vw * viewport.vh);
+  const densityPerScreen = screens > 0 ? finalCovers.length / screens : 0;
+
+  return {
+    advanceAxis: 'x',
+    seed: seed,
+    difficulty: diff,
+    w: stripW,
+    h: stripH,
+    covers: finalCovers,
+    roadJunctions: junctions,
+    roadW: roadWs,
+    chunks: chunks,
+    chunkCount: chunks.length,
+    seamCleared: seamCleared,
+    densityPerScreen: densityPerScreen
   };
 }
 
@@ -2086,6 +3170,15 @@ function pruneOverlappingCovers(covers) {
         const tierDef = coverTiers && coverTiers[c.tier];
         const isGround = tierDef ? (tierDef.tierGroup === 'ground') : (c.tier === 'road' || c.tier === 'mud');
         if (isGround) continue; // Roads and mud patches do not block physical movement
+        // 2026-10-05：对齐 tank_cover.js 游戏口径——阻挡 = passability===0 或 shellBlock。
+        // river/water 的 passability=0.4 是减速通行（AGENTS.md §4），不阻断连通性；
+        // bridge 的 passability=1 更不阻断。旧实现把一切非 ground 都当墙，
+        // 导致一体化河流（本就可涉水）的 strip 连通性被严重低估。
+        if (tierDef) {
+          const blocked = tierDef.passability === 0 ||
+            tierDef.shellBlock === true || tierDef.shellBlock === 'single';
+          if (!blocked) continue;
+        }
 
         if (c.verts || c.collisionVerts) {
           if (_pointInCoverPoly(c, x, y, 0)) return true;
@@ -2278,6 +3371,7 @@ function pruneOverlappingCovers(covers) {
       getTemplates,
       pickTemplate,
       generateNode,
+      generateStrip,
       placeRoadNetwork,
       placeRoadsideBuildings,
       placeJunctionBarricades,

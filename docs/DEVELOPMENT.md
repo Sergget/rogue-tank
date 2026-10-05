@@ -430,3 +430,80 @@
   7. **沿革注记补登**：`specs/combat.md` §10.2 / §11.1 / §11.4 / §11.5 四节仍把已退役的视野距离体系标为「现行口径」，补加「已被 §13.5（#J3）取代，仅作沿革」注记（§11.5 原仅有 #K1 注记）。
   8. **编号重叠说明**：`docs/ISSUES.md` 归档清单中 `#H1~#H5`（2026-09-21）与 `#H1~#H4`（2026-09-30）为**两个批次共用编号**，与 `AGENTS.md` §2「编号不复用」相悖；因归档原文按纪律不可回改且编号已被 §4.40 与 §13.1~§13.4 交叉引用，采取**保留原编号 + 按批次日期与主题区分**并就地加说明。
   - **复核验证**：`npm run check` **EXIT=0** / `npm test` **EXIT=0**（0 项失败）/ `npm run test:browser` **四链 ALL PASS、EXIT=0**；`node scripts/diagnose-ai-crowd.js` 数字与 §13.8 对照表逐格一致（6.00→2.00 / 0.71→0.00 / 447→522px / 3.33→1.87），确认上述清理**行为零变化**。
+
+### 4.45 2026-10-04 P0 审计跟进（flaky 测试修复 / LICENSE / README / CI）
+
+- **背景**：第三方视角代码审计指出 4 项 P0 仓库卫生问题（无 LICENSE、无 README、无 CI、flaky 测试中断 `npm test` 链），本批次逐项落地。
+- **flaky 测试修复**（`scripts/test-ai.js`）：#M 机动随机化后两处断言仍写死 `move === 1`（「超过接战距离→靠近」与 F 段「tier0 带外沿→接近」），机动层掷出 `retreat`/`hold` 时约 1/4 概率失败。复现：连续 12 次运行 6 次失败（`move=-1`）。修复：改断言为接战不变量——`aiEngaged === true` + 机动脚本已分配（`_mv` 非空）+ `move ∈ {-1,0,1}`（与 4b 段滞回带断言先例一致：接近机动 ±1/0 均合法）。分布实测（300 次采样）：curve/arc/slant/direct 下 `move=1`、retreat 下 `move=-1`，`engaged` 恒为 true。修复后连续 25 次运行 0 失败。
+- **LICENSE**：新增 MIT（Copyright (c) 2026 qi）。公开仓库此前无许可，他人 technically 无权使用/贡献。
+- **README.md**：新增（项目简介、快速开始五页入口表、三链验证命令、目录结构、文档入口指针、MIT 声明）。
+- **CI**：新增 `.github/workflows/ci.yml`（push/PR/workflow_dispatch；Node 20+22 矩阵；`npm ci` → `npm run check` → `npm test`）。`npm run test:browser` 需系统 Edge，未纳入 CI，合并前本地手动跑。
+- **验证**：`npm run check` EXIT=0 / `npm test` 全链 EXIT=0（0 项失败）/ `test-ai.js` 25 连跑 0 失败。
+
+### 4.46 2026-10-04 P1：npm test 改独立运行 + 汇总（run-tests.js）
+
+- **背景**：§4.45 审计跟进指出 `npm test` 的 41 文件 `&&` 长链任一失败即中断后续，且看不到整体通过率。
+- **实现**：新增 `scripts/run-tests.js`——逐个子进程独立运行（失败不中断后续），每项打印 ✓/✗ + 耗时，失败项附输出尾部（25 行），最后输出汇总表（通过/失败数、失败清单、总耗时）；退出码 0=全绿、1=有失败、2=无匹配。支持按文件名关键词过滤（`node scripts/run-tests.js ai`）与 `RT_EXTRA` 追加调试文件。`package.json` 的 `"test"` 改为 `node scripts/run-tests.js`（单行 diff）。
+- **验证**：全量 `npm test` EXIT=0（41/41 通过）；失败路径用临时 exit(1) 文件验证：汇总正确列出失败项且 EXIT=1；`npm run check` 不受影响。
+
+### 4.47 2026-10-04 CI 首跑失败修复（run-tests.js 类型错误）
+
+- **背景**：§4.46 落地后 GitHub Actions 首次运行即失败（Node 20/22 双 job），均倒在 "Syntax + typecheck" 步骤。根因：`scripts/run-tests.js` 的 `r.error.code`——`spawnSync` 的 `error` 类型为 `Error`，`checkJs` 下直接访问 `.code` 触发 TS2339。本地当时未重跑 `npm run check` 即推送，漏检。
+- **修复**：JSDoc 转型 `/** @type {any} */ (r.error).code` 读取 code。`npm run check` 本地 EXIT=0 复验通过。
+- **教训**：新增/修改 `scripts/**` 后必须重跑 `npm run check`（tsconfig `checkJs` 覆盖该目录），不能只跑 `npm test`。
+
+### 4.48 2026-10-05 C 档 batch 1：小地图条带化
+
+- **背景**：用户拍板启动 C 档（2026-10-05）。按 `docs/PLAN.md` §3.8 分批计划开工 batch 1；其中「视野口径改锚定接战距离」已于 2026-09-23 被用户裁定否决（`docs/PLAN.md` §4），本批次**只做小地图条带化**。
+- **问题**：strip 节点（≈10 屏 × 2.2 屏）按旧等比适配（`minimapLayout` 取 min 缩放）会退化成 ~20px 细线（`docs/PLAN.md` §3.6 风险 #5），推进进度不可读。
+- **实现**（`js/tank_minimap.js`）：`minimapLayout(worldW, worldH, mmW, mmH, opts?)` 按世界宽高比自适应——≤2.5 走旧等比适配（行为零变化，常规节点不受影响）；>2.5 进条带模式：横向占满框宽（`sx = mmW/worldW`，推进轴保真、两端精确映射框左右缘），纵向按 `STRIP_Y_BOOST=2.5` 拉伸后垂直居中（纵向示意性不保真）。`worldToMinimap`/`worldRectToMinimap` 改走 `sx/sy` 双轴；`scale` 字段保留（=sx）兼容旧调用方。`drawMinimap` 内三处 `layout.scale` 改为 `sx/sy`（世界边框、出口区）。
+- **口径同步**：`docs/specs/map.md` §14.4 小地图条目由「设计预留」改写为现行口径（已落地注记）；§14 其余条目仍为预留。
+- **验证**：新增 `scripts/test-minimap.js`（18 断言：常规回归/阈值边界/条带占满/拉伸/居中/推进轴保真/视口矩形/opts 覆盖/旧字段兼容），已注册进 `scripts/run-tests.js`。`npm run check` 待全量复验（与坦克涂装批次合并跑）。
+
+### 4.49 2026-10-05 坦克历史涂装（名实相符贴图）
+
+- **背景**：用户要求「为现有的坦克绘制一些符合其名称的贴图」。坦克为程序化绘制（`js/tank_paint.js` TEXTURE_DEFS 叠层体系，非图片贴图），故以新增历史涂装键 + 逐车指定实现。
+- **实现**（子代理并行，主代理验收）：TEXTURE_DEFS 新增 4 键（仿照既有 `camo`：固定 blob 坐标、确定性、ellipse 半透明叠层，clip 到部件多边形内）——`camo_dunkelgelb`（深黄底+橄榄绿/红棕色块）、`paint_panzergrau`（装甲灰单色+明暗变化）、`camo_nato`（北约绿底+棕/黑色块）、`paint_soviet`（苏军保护绿单色+明暗变化）。分配：tiger-I/hummel→`camo_dunkelgelb`、panzer-IV→`paint_panzergrau`、Leapard_1→`camo_nato`、Obj 780→`paint_soviet`（dummy 保持 rust）。同步 3 处：`js/tank_schema.js` TEXTURES 枚举、`js/tank_model.js` 注释键列表、`scripts/test-tanks.js` 兜底键；设计器 `textureSelect` 下拉 + allowlist + 注释同步。
+- **验证**：`npm run check` EXIT=0；`npm test` 42/42（含新增 `test-minimap.js`）；视觉验收——自包含 file:// 验证页经 `makeTank`/`applyTankConfig`/`paintPartTexture` 真实管线渲染 5 车缩略图，4 种新涂装图案各自可辨、无绘制异常（底色为 teamColor 体系主色，叠层保持之，符合既有设计）。
+
+### 4.50 2026-10-05 C 档 batch 2：`generateStrip`（片拼接生成器）
+
+- **背景**：`docs/PLAN.md` §3.8 batch 2。只产出布局（covers/w/h），不接 `makeNode`/实战（防线生成与敌人布置是 batch 3）。
+- **实现**（`js/tank_nodegen.js`）：
+  - `generateStrip(difficulty, options)`：`advanceAxis` 参数（§14.7；本批次仅实现 `'x'`，其他抛错）；`stripScreensX/Y` 缺省 10/2.2（§14.1，不做精确绑定）；`chunkCount` 缺省按 ≈3.5 屏/片估算；`scaleFor` 必传（生产传 `tank_map.nodeScaleFor`，片内 scale 沿用现行口径）；`templateIds` 可逐片指定（测试用）。
+  - 批量发牌：每片一次 `generateNode`（`centerX/Y=0`，`roadOpts.requireWETrunk: true`），片宽为模板自然宽度（`tpl.w × scale`），总长 ≈10 屏（实测 9.0 屏）。
+  - 纵向裁剪：片高（≥3 屏）> 目标高（2.2 屏）时按中心丢弃带外元素，不做坐标压缩。
+  - 密度补偿：带外 `structure`/`foliage` 钳制回界内（80px 边距 + SAT OBB 重叠检测，命中则放弃）；`ground`/`liquid` 不钳制。实测 ≈20/屏（≥ 现状 13）。
+  - 接缝净空：内部片边界 ±300px 带内移除 `structure`/`foliage`，保留 `ground`/`liquid`（`STRIP_SEAM_CLEAR`）。
+  - `placeRoadNetwork` 新增第 6 参数 `opts.requireWETrunk`（additive；拓扑掷骰后若无 W→E 干道则补一条正交横干，端点严格落左右边界线，§10.1 口径）；`generateNode` 新增 `opts.roadOpts` 透传。缺省关闭，既有 7 拓扑零回归（test-strip 断言同 seed covers 一致）。
+- **口径同步**：`types/globals.d.ts` 新增 `NodeGenOptions.roadOpts`、`StripGenOptions`、`generateStrip` 声明，`nodeScaleFor` 签名收紧；`docs/specs/map.md` §14.2 逐条标注已落地（未接入实战）。
+- **验证**：新增 `scripts/test-strip.js`（18 断言）：拼接确定性/seed 敏感/尺寸/裁剪/接缝净空/每片横向贯通干道/密度≥10/连通性≥0.999/38px 通道≥0.999/零回归/参数校验。**「最窄通道 ≥38px」操作化说明**：`nodeLayoutMetrics` 原始 minGap 对装饰性贴靠对极敏感（常规节点基线仅 1~3px），故以「阻挡掩体按车体半宽 19px 膨胀后连通性 ≥0.999」验收（3 seed 实测 0.9997~1.0）。
+- `npm run check` EXIT=0；`npm test` 43/43 全绿（含新增 `test-strip.js`）。
+
+### §4.51 C 档反馈修复批（2026-10-05）：接缝公路贯通 + 历史涂装体系 + 路面净空
+- **接缝公路连续**：`placeRoadNetwork` 新增 `opts.weTrunk = { entryT }`——强制一条 W→E 贯通路，入口 t 衔接上一片出口 t；`generateNode` 回传 `weTrunk`，`generateStrip` 逐片传递。首片复用拓扑自带横干（避免重复）。`test-strip.js` 新增链式断言（出口 t = 下一片入口 t）。
+- **历史涂装体系**：`TEXTURE_DEFS` 4 历史涂装新增 `base` 实色；`paintPartTextureDirect` 车体填充/细节线改取 `tankBodyColor()`（base 优先），队伍色退出车体，仅保留描边/血条/小地图标识。履带统一深钢色，炮管/炮盾取实色深阶。`getCachedTankSprite` 缓存键改按实色（同纹理跨队伍共享）。
+- **体积感**：`paintPartTextureDirect` 新增顶光→底阴纵向渐变；`paintTurretShadow` 加硬投影（炮塔剪影平移填充）+ 软阴影加深，偏移 7,9→9,12，炮塔/车体区分明显。
+- **路面净空（#A11 修订）**：模板物品避路豁免取消（原 #77「建筑优先于路」），压路时沿法线最小推出，推不出才删；ground tier 豁免。strip 密度补偿钳制时亦避路。实测侵入 29→3~4 处（0.1~2.4% 边角轻擦）。
+- **附带修复**：`test-map.js` 河流锚点越界豁免（预存 bug，段坐标才是实际几何）；`test-nodegen-calibration.js` 基线两次重标定（避路致通道变宽，符合预期）。
+- `npm run check` EXIT=0；`npm test` 43/43 全绿。
+
+### §4.52 C 档反馈第二批（2026-10-05）：暗色勾线 + 路网水系 strip 一体化
+- **暗色勾线**：`tank_battledraw.js` 车体/炮塔/炮塔基座环/转向极限虚线圈的亮色描边（`t.color`/`shade(t.color)`）全换为暗色 `'rgba(15,15,18,0.60)'`；删除车体前装甲斜边与炮塔前颊的加粗亮边（方向由车体箭头+炮管表达已足够）。队伍识别只走血条/小地图。
+- **G1 切线连续（后被一体化取代）**：`buildFromPoints` 新增第 5 参数 `tan1`——首个控制点沿 tan1 方向放置，使样条在 p1 处切线与给定一致；`generateStrip` 逐片传递 `exitTan→entryTan`。实测相邻片出口切线夹角最大 25.7°（≤45° 通过）。后因路网改 strip 一体生成，此链式机制退役（保留 `tan1` 参数供单节点调用）。
+- **公路 strip 一体化**：`generateStrip` 增加规划 pass（每片 tpl/scale/cw/x0/seed 预算，`totalW` 累加）；`stripRng` 一次调 `placeRoadNetwork`（虚拟模板 `{w:totalW,h:stripH}`，`{requireWETrunk:true, trunkAmp:0.03}`）；每片按 x 区间裁路网转片内帧，经 `roadOpts.externalRoads/Junctions/RoadW` 传入 `generateNode`（片内跳过自生成，仅避让；路面由 strip 统一追加）。`generateNode` 回传 `weTrunk` 字段保留（单节点模式仍用）。宽幅模板下拓扑曲线振幅致段出界被裁——后处理补缝：在无路面接缝处按最近 road y 补水平直段。`test-strip.js` 6b/6c 改写为一体化断言（接缝两侧有路面、路网横跨 ≥80% 条带宽、河流横贯）。
+- **河流水系 strip 一体化 + 提频**：新增 `placeStripRivers(rng,totalW,stripH)`——每条 strip 必生成 1–2 条横向蜿蜒河流（正弦 meander，段重叠 30% 保连通），贯穿整条 strip（旧 `edgeRiver` 模板标签在 strip 模式下跳过，避免重复+接缝断开）。路河交叉处切出缺口放 `bridge`（缺口宽=路宽+40，桥不压河——游戏内 river 的 passability=0.4 会把桥上坦克推出）。建筑避让（#A11）扩展至河流（`avoidCovers = 道路+河流`）。接缝净空豁免 `bridge`（基础设施）。
+- **连通性口径对齐**：`nodeLayoutMetrics` 的 `isBlocked` 旧实现把一切非 ground 当墙；对齐 `tank_cover.js` 游戏口径（阻挡 = `passability===0` 或 `shellBlock`）——river/water 的 0.4 是减速通行（AGENTS.md §4），不阻断。`test-nodegen-calibration.js` 第三次重标定（urban_block d=0.7 连通性 0.875→1.000）。
+- 细则归口 `docs/specs/map.md` §14（C 档 strip）。`npm run check` EXIT=0；`npm test` 43/43 全绿。改动未 commit/push（等 qi 回电脑审查）。
+- **后续修补（同日）**：河流河段改短段曲线铺设（~120px 步长带角度，替代 800px 砖块段）；村庄/林地/沿路建筑/路口沙包避让列表统一为 `avoidCovers`（道路+河流），修复建筑/岩石压河；路河交叉改"河段被桥替换"（不再切分长段）；strip 路网出界路段严格过滤（整段须在界内，`segInBounds` 只查中心）；沿最长横干每 ~1200px 加短岔路（24 条，`strip-branch`），丰富路网细节。
+- **三河形（同日）**：`placeStripRivers` 按种三选一——H2 双横贯（反相蜿蜒）、H1T（横贯干流+支流汇入/湖）、V 纵贯（1~2 条）。湖改凸包 blob（仿 centralPond），支流止于湖边、末端收分（1.0→0.55）汇入干流；P-20 per-node 矩形水体在 strip 模式禁用。
+- **热点驱动管线（同日，用户四步架构）**：
+  1. 热点：每 ~4000px 一个敌方生成热点（`hotspots`，玩法先行）；
+  2. 中心线：路网拓扑 + 三河形水系；无交叉的热点修次要路（T 形接主干道，`hs-secondary`，夹角≥45°），保证每热点都是路网节点；
+  3. 范围：道路/河流/湖泊带宽度（既有）；
+  4. 范围外生成：模板项对河流严格跳过（零容忍），对道路保留推挤（保建筑数）；林地簇 itemBoxes 用旋转包络；最终后处理删除一切压水实体——四 seed 实测压河 0。
+- **桥梁机制（同日）**：桥必须垂直于河流中心线（`bridgeDir = riverDir + 90°`，`riverDir` 取 ±200px 河段局部平均方向，避免单段抖动）；两侧公路加过渡段平滑连接（夹角>15°时）；桥是路（`tier:'bridge'`，`destructible:2`，hp=2）；河-路（桥）夹角<45°时留涵洞（河段跳过，路不断）；**只有射击桥梁侧面（长边，炮弹方向与桥长轴夹角≥45°）时才被击中**，沿长轴射击穿过不拦截（`tank_fire.js`）。
+- **路河分离（同日）**：H2/H1T 横向河选 Y 时避开路密集带（`roadYDensity` 直方图 + `pickClearY`）；平行重叠（<30°且近距）>30% 则重选 Y（最多3次，`parallelOverlapRatio`），避免平行重叠。
+- **次要路不过河（同日）**：`hs-secondary` / `strip-branch` 在河流生成后删除穿越河段者（主干道可经桥跨河，次要路绕行）。
+- **删除湖泊（同日）**：不再生成湖元素——H1T 湖（`hasLake=false`）、模板水潭（`centralPond` strip 模式跳过）、村庄水塘（`village-pond` 禁用）。四 seed 实测 water=0。
+- **平行主干道去重（同日）**：两主干道平行（<15°）、X 重叠、Y<100px 时只保留较长一条，避免路口-端点间 2 条公路冗余（如 seed 100 的 t0/h2）。
