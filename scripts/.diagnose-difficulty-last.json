@@ -1,0 +1,599 @@
+{
+  "at": "2026-10-05T07:12:03.937Z",
+  "cfg": {
+    "bots": [
+      "reckless",
+      "average",
+      "careful"
+    ],
+    "diffs": [
+      0,
+      3,
+      6
+    ],
+    "seeds": 6,
+    "nodes": 5,
+    "tank": "tiger-I",
+    "cards": 0,
+    "upgrades": null,
+    "cardPool": 0
+  },
+  "rows": [
+    {
+      "bot": "reckless",
+      "diff": 0,
+      "runs": 6,
+      "runWinPct": 0,
+      "nodeWinPct": 0.5,
+      "timeoutPct": 0.06666666666666667,
+      "avgDur": 23.102333333333338,
+      "avgHpPct": 0.4040033333333334,
+      "avgKills": 2.433333333333333,
+      "perNode": {
+        "0": {
+          "win": 4,
+          "timeout": 1,
+          "loss": 1,
+          "dur": 186.87,
+          "hp": 4.7417,
+          "kills": 19,
+          "n": 6,
+          "boss": false
+        },
+        "1": {
+          "win": 5,
+          "timeout": 0,
+          "loss": 1,
+          "dur": 99.13,
+          "hp": 3.3533999999999997,
+          "kills": 21,
+          "n": 6,
+          "boss": false
+        },
+        "2": {
+          "win": 0,
+          "timeout": 0,
+          "loss": 6,
+          "dur": 78,
+          "hp": 0,
+          "kills": 0,
+          "n": 6,
+          "boss": true
+        },
+        "3": {
+          "win": 3,
+          "timeout": 1,
+          "loss": 2,
+          "dur": 234.13,
+          "hp": 1.9917,
+          "kills": 16,
+          "n": 6,
+          "boss": false
+        },
+        "4": {
+          "win": 3,
+          "timeout": 0,
+          "loss": 3,
+          "dur": 94.94,
+          "hp": 2.0333,
+          "kills": 17,
+          "n": 6,
+          "boss": false
+        }
+      },
+      "ms": 12622
+    },
+    {
+      "bot": "reckless",
+      "diff": 3,
+      "runs": 6,
+      "runWinPct": 0,
+      "nodeWinPct": 0.3333333333333333,
+      "timeoutPct": 0.03333333333333333,
+      "avgDur": 19.93066666666667,
+      "avgHpPct": 0.19318333333333332,
+      "avgKills": 2,
+      "perNode": {
+        "0": {
+          "win": 4,
+          "timeout": 0,
+          "loss": 2,
+          "dur": 89.57,
+          "hp": 1.9122,
+          "kills": 18,
+          "n": 6,
+          "boss": false
+        },
+        "1": {
+          "win": 1,
+          "timeout": 0,
+          "loss": 5,
+          "dur": 86.77000000000001,
+          "hp": 1,
+          "kills": 12,
+          "n": 6,
+          "boss": false
+        },
+        "2": {
+          "win": 0,
+          "timeout": 1,
+          "loss": 5,
+          "dur": 183.92000000000002,
+          "hp": 1,
+          "kills": 0,
+          "n": 6,
+          "boss": true
+        },
+        "3": {
+          "win": 4,
+          "timeout": 0,
+          "loss": 2,
+          "dur": 138.59,
+          "hp": 1.5166,
+          "kills": 20,
+          "n": 6,
+          "boss": false
+        },
+        "4": {
+          "win": 1,
+          "timeout": 0,
+          "loss": 5,
+          "dur": 99.07000000000001,
+          "hp": 0.3667,
+          "kills": 10,
+          "n": 6,
+          "boss": false
+        }
+      },
+      "ms": 11447
+    },
+    {
+      "bot": "reckless",
+      "diff": 6,
+      "runs": 6,
+      "runWinPct": 0,
+      "nodeWinPct": 0.2,
+      "timeoutPct": 0.1,
+      "avgDur": 23.94766666666667,
+      "avgHpPct": 0.20749666666666666,
+      "avgKills": 1,
+      "perNode": {
+        "0": {
+          "win": 3,
+          "timeout": 0,
+          "loss": 3,
+          "dur": 103.03999999999999,
+          "hp": 1.5416,
+          "kills": 13,
+          "n": 6,
+          "boss": false
+        },
+        "1": {
+          "win": 1,
+          "timeout": 1,
+          "loss": 4,
+          "dur": 178.7,
+          "hp": 1.75,
+          "kills": 7,
+          "n": 6,
+          "boss": false
+        },
+        "2": {
+          "win": 1,
+          "timeout": 2,
+          "loss": 3,
+          "dur": 289.99,
+          "hp": 2.175,
+          "kills": 1,
+          "n": 6,
+          "boss": true
+        },
+        "3": {
+          "win": 1,
+          "timeout": 0,
+          "loss": 5,
+          "dur": 72.05999999999999,
+          "hp": 0.7583,
+          "kills": 5,
+          "n": 6,
+          "boss": false
+        },
+        "4": {
+          "win": 0,
+          "timeout": 0,
+          "loss": 6,
+          "dur": 74.64,
+          "hp": 0,
+          "kills": 4,
+          "n": 6,
+          "boss": false
+        }
+      },
+      "ms": 16664
+    },
+    {
+      "bot": "average",
+      "diff": 0,
+      "runs": 6,
+      "runWinPct": 0,
+      "nodeWinPct": 0.3333333333333333,
+      "timeoutPct": 0.13333333333333333,
+      "avgDur": 29.00433333333333,
+      "avgHpPct": 0.3442566666666667,
+      "avgKills": 1.9,
+      "perNode": {
+        "0": {
+          "win": 3,
+          "timeout": 1,
+          "loss": 2,
+          "dur": 194.03,
+          "hp": 3.0167,
+          "kills": 17,
+          "n": 6,
+          "boss": false
+        },
+        "1": {
+          "win": 3,
+          "timeout": 1,
+          "loss": 2,
+          "dur": 204.10000000000002,
+          "hp": 3.5457,
+          "kills": 14,
+          "n": 6,
+          "boss": false
+        },
+        "2": {
+          "win": 0,
+          "timeout": 1,
+          "loss": 5,
+          "dur": 184.5,
+          "hp": 0.2069,
+          "kills": 0,
+          "n": 6,
+          "boss": true
+        },
+        "3": {
+          "win": 1,
+          "timeout": 0,
+          "loss": 5,
+          "dur": 80.84,
+          "hp": 0.65,
+          "kills": 11,
+          "n": 6,
+          "boss": false
+        },
+        "4": {
+          "win": 3,
+          "timeout": 1,
+          "loss": 2,
+          "dur": 206.66,
+          "hp": 2.9084,
+          "kills": 15,
+          "n": 6,
+          "boss": false
+        }
+      },
+      "ms": 16797
+    },
+    {
+      "bot": "average",
+      "diff": 3,
+      "runs": 6,
+      "runWinPct": 0,
+      "nodeWinPct": 0.3333333333333333,
+      "timeoutPct": 0.13333333333333333,
+      "avgDur": 29.538999999999994,
+      "avgHpPct": 0.26663,
+      "avgKills": 1.7666666666666666,
+      "perNode": {
+        "0": {
+          "win": 3,
+          "timeout": 1,
+          "loss": 2,
+          "dur": 192.74,
+          "hp": 2.8655,
+          "kills": 14,
+          "n": 6,
+          "boss": false
+        },
+        "1": {
+          "win": 4,
+          "timeout": 0,
+          "loss": 2,
+          "dur": 119.09,
+          "hp": 1.3834,
+          "kills": 17,
+          "n": 6,
+          "boss": false
+        },
+        "2": {
+          "win": 1,
+          "timeout": 1,
+          "loss": 4,
+          "dur": 173.35999999999999,
+          "hp": 1.1083,
+          "kills": 1,
+          "n": 6,
+          "boss": true
+        },
+        "3": {
+          "win": 1,
+          "timeout": 2,
+          "loss": 3,
+          "dur": 317.62,
+          "hp": 2.6167,
+          "kills": 11,
+          "n": 6,
+          "boss": false
+        },
+        "4": {
+          "win": 1,
+          "timeout": 0,
+          "loss": 5,
+          "dur": 83.36,
+          "hp": 0.025,
+          "kills": 10,
+          "n": 6,
+          "boss": false
+        }
+      },
+      "ms": 18726
+    },
+    {
+      "bot": "average",
+      "diff": 6,
+      "runs": 6,
+      "runWinPct": 0,
+      "nodeWinPct": 0.16666666666666666,
+      "timeoutPct": 0.06666666666666667,
+      "avgDur": 21.39166666666667,
+      "avgHpPct": 0.14439333333333335,
+      "avgKills": 1.1,
+      "perNode": {
+        "0": {
+          "win": 3,
+          "timeout": 0,
+          "loss": 3,
+          "dur": 135.9,
+          "hp": 0.8166,
+          "kills": 16,
+          "n": 6,
+          "boss": false
+        },
+        "1": {
+          "win": 1,
+          "timeout": 0,
+          "loss": 5,
+          "dur": 83.82000000000001,
+          "hp": 0.5152,
+          "kills": 9,
+          "n": 6,
+          "boss": false
+        },
+        "2": {
+          "win": 1,
+          "timeout": 0,
+          "loss": 5,
+          "dur": 86.87,
+          "hp": 1,
+          "kills": 1,
+          "n": 6,
+          "boss": true
+        },
+        "3": {
+          "win": 0,
+          "timeout": 1,
+          "loss": 5,
+          "dur": 165.83,
+          "hp": 1,
+          "kills": 4,
+          "n": 6,
+          "boss": false
+        },
+        "4": {
+          "win": 0,
+          "timeout": 1,
+          "loss": 5,
+          "dur": 169.33,
+          "hp": 1,
+          "kills": 3,
+          "n": 6,
+          "boss": false
+        }
+      },
+      "ms": 19979
+    },
+    {
+      "bot": "careful",
+      "diff": 0,
+      "runs": 6,
+      "runWinPct": 0,
+      "nodeWinPct": 0.3,
+      "timeoutPct": 0.13333333333333333,
+      "avgDur": 27.220333333333333,
+      "avgHpPct": 0.35333333333333333,
+      "avgKills": 1.7333333333333334,
+      "perNode": {
+        "0": {
+          "win": 4,
+          "timeout": 1,
+          "loss": 1,
+          "dur": 183.96,
+          "hp": 4.5083,
+          "kills": 20,
+          "n": 6,
+          "boss": false
+        },
+        "1": {
+          "win": 3,
+          "timeout": 1,
+          "loss": 2,
+          "dur": 196.47,
+          "hp": 3.7583,
+          "kills": 14,
+          "n": 6,
+          "boss": false
+        },
+        "2": {
+          "win": 0,
+          "timeout": 1,
+          "loss": 5,
+          "dur": 174.06,
+          "hp": 1,
+          "kills": 0,
+          "n": 6,
+          "boss": true
+        },
+        "3": {
+          "win": 2,
+          "timeout": 0,
+          "loss": 4,
+          "dur": 100.09,
+          "hp": 0.33340000000000003,
+          "kills": 14,
+          "n": 6,
+          "boss": false
+        },
+        "4": {
+          "win": 0,
+          "timeout": 1,
+          "loss": 5,
+          "dur": 162.03000000000003,
+          "hp": 1,
+          "kills": 4,
+          "n": 6,
+          "boss": false
+        }
+      },
+      "ms": 16911
+    },
+    {
+      "bot": "careful",
+      "diff": 3,
+      "runs": 6,
+      "runWinPct": 0,
+      "nodeWinPct": 0.4,
+      "timeoutPct": 0.1,
+      "avgDur": 25.73233333333333,
+      "avgHpPct": 0.37027333333333334,
+      "avgKills": 1.9666666666666666,
+      "perNode": {
+        "0": {
+          "win": 4,
+          "timeout": 0,
+          "loss": 2,
+          "dur": 95.05,
+          "hp": 2.4416,
+          "kills": 17,
+          "n": 6,
+          "boss": false
+        },
+        "1": {
+          "win": 4,
+          "timeout": 0,
+          "loss": 2,
+          "dur": 85.64,
+          "hp": 3.3083,
+          "kills": 17,
+          "n": 6,
+          "boss": false
+        },
+        "2": {
+          "win": 0,
+          "timeout": 0,
+          "loss": 6,
+          "dur": 69.63,
+          "hp": 0,
+          "kills": 0,
+          "n": 6,
+          "boss": true
+        },
+        "3": {
+          "win": 1,
+          "timeout": 2,
+          "loss": 3,
+          "dur": 298.81999999999994,
+          "hp": 2.0583,
+          "kills": 7,
+          "n": 6,
+          "boss": false
+        },
+        "4": {
+          "win": 3,
+          "timeout": 1,
+          "loss": 2,
+          "dur": 222.83,
+          "hp": 3.3,
+          "kills": 18,
+          "n": 6,
+          "boss": false
+        }
+      },
+      "ms": 17573
+    },
+    {
+      "bot": "careful",
+      "diff": 6,
+      "runs": 6,
+      "runWinPct": 0,
+      "nodeWinPct": 0.16666666666666666,
+      "timeoutPct": 0,
+      "avgDur": 12.940333333333335,
+      "avgHpPct": 0.05748666666666667,
+      "avgKills": 1.2333333333333334,
+      "perNode": {
+        "0": {
+          "win": 2,
+          "timeout": 0,
+          "loss": 4,
+          "dur": 109.70999999999998,
+          "hp": 0.4329,
+          "kills": 15,
+          "n": 6,
+          "boss": false
+        },
+        "1": {
+          "win": 2,
+          "timeout": 0,
+          "loss": 4,
+          "dur": 80.41,
+          "hp": 1.0333999999999999,
+          "kills": 11,
+          "n": 6,
+          "boss": false
+        },
+        "2": {
+          "win": 0,
+          "timeout": 0,
+          "loss": 6,
+          "dur": 67.29,
+          "hp": 0,
+          "kills": 0,
+          "n": 6,
+          "boss": true
+        },
+        "3": {
+          "win": 1,
+          "timeout": 0,
+          "loss": 5,
+          "dur": 65.7,
+          "hp": 0.2583,
+          "kills": 7,
+          "n": 6,
+          "boss": false
+        },
+        "4": {
+          "win": 0,
+          "timeout": 0,
+          "loss": 6,
+          "dur": 65.1,
+          "hp": 0,
+          "kills": 4,
+          "n": 6,
+          "boss": false
+        }
+      },
+      "ms": 10899
+    }
+  ]
+}

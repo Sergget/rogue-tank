@@ -60,6 +60,32 @@ function _defaultLoadTankSpec(id){
   return null;
 }
 
+// ---------- 玩家策略 ----------
+// 默认玩家推进策略（#A18 修复）：真实对局中由人操推进 + 瞄准 + 开火。
+// 原实现只向最近敌人机动、从不转炮塔（turret 恒 0）也不开火，导致远距离敌人
+// 持 patrol/engaged=false 不接战、与玩家两相僵持 → 大量 0 开火假超时（#A18 根因）。
+// helpers: { ENT, GEO } 由 runReplay 内部注入（避免顶层耦合加载顺序）。
+// 诊断脚本可经 runReplay 的 playerPolicy 选项整体替换本策略（bot 档位）。
+function _defaultPlayerPolicy(t, aiCtx, out, helpers){
+  const ENT = helpers.ENT, GEO = helpers.GEO;
+  const adv = ENT.nearestEnemyTo(t);
+  if (adv){
+    const dAdv = Math.hypot(adv.x - t.x, adv.y - t.y);
+    const desH = Math.atan2(adv.y - t.y, adv.x - t.x);
+    // 始终把炮塔指向最近敌人（模拟玩家瞄准）
+    out.turretDesired = desH;
+    // 炮塔大致对准（≤~7°）时请求开火；范围/LoS/装填由下方统一开火块门控
+    out.fire = Math.abs(GEO.angDiff(desH, t.turretAngle)) < 0.12;
+    const trig = t.aiTriggerDist || 700;
+    // 距离过远时向最近敌人机动（保留原 P-44 基线推进约定）
+    if (dAdv > trig * 0.75){
+      const hd = GEO.angDiff(desH, t.hullAngle);
+      out.turn = Math.abs(hd) < 0.08 ? 0 : (hd > 0 ? 1 : -1);
+      out.move = Math.abs(hd) < 0.5 ? 1 : 0;
+    }
+  }
+}
+
 // ---------- 回放主入口 ----------
 // opts: {
 //   seed          随机种子（默认 1）
@@ -69,6 +95,11 @@ function _defaultLoadTankSpec(id){
 //   maxNodeTime   单节点模拟时间上限秒（默认 120，超时记 timeout）
 //   loadTankSpec(id) 自定义规格加载器（可选）
 //   onNodeEnd(nodeIndex, result) 逐节点回调（可选）
+//   env           透传给 generateRun 的环境（可选，如 { difficultyLevel }）
+//   playerPolicy(t, aiCtx, out, helpers) 玩家策略钩子（可选；缺省 _defaultPlayerPolicy）
+//   playerBuild   玩家构筑（可选）：{ upgradeLevels: {id: lv}, cards: [card, ...] }；
+//                 每节点玩家生成并 applyTankConfig 后重新应用（永久升级经 applyUpgrades，
+//                 卡牌经 applyCardEffects；两者缺省走同名 global，缺失则跳过）
 // }
 function runReplay(opts){
   const o = opts || {};
@@ -76,6 +107,7 @@ function runReplay(opts){
   const dt = o.dt || 1 / 30;
   const maxNodeTime = o.maxNodeTime || 120;
   const loadSpec = o.loadTankSpec || _defaultLoadTankSpec;
+  const playerPolicy = o.playerPolicy || _defaultPlayerPolicy;
 
   const R = _simGlobal('RULES', {});
   const cfgNM = R.nodeMap || {};
@@ -140,7 +172,7 @@ function runReplay(opts){
   const origRandom = Math.random;
   Math.random = rng;
 
-  const nodes = _simGlobal('generateRun')(seed, nodeCount);
+  const nodes = _simGlobal('generateRun')(seed, nodeCount, o.env);
   const results = [];
 
   try {
@@ -196,6 +228,18 @@ function runReplay(opts){
     const pSpec = loadSpec(o.playerTankId || 'tiger-I');
     if (pSpec && MODEL.applyTankConfig) MODEL.applyTankConfig(player, pSpec);
 
+    // 玩家构筑（难度评估用）：永久升级 + 卡牌，每节点重生后重新应用。
+    // 与 mvp 同源（applyUpgrades / applyCardEffects），保证数值口径一致。
+    const build = o.playerBuild;
+    if (build){
+      const applyUp = _simGlobal('applyUpgrades', null);
+      if (applyUp && build.upgradeLevels) applyUp(player, { points: 1e9, upgrades: build.upgradeLevels });
+      const applyCard = _simGlobal('applyCardEffects', null);
+      if (applyCard && Array.isArray(build.cards)){
+        for (const c of build.cards) applyCard(player, c, {});
+      }
+    }
+
     // P-46: 玩家出击基准 stats 快照（敌军数值锚定基准）
     const playerAnchorStats = JSON.parse(JSON.stringify(player.stats));
 
@@ -220,11 +264,44 @@ function runReplay(opts){
           if (spec && MODEL.deriveTankClass) t.tankClass = MODEL.deriveTankClass(spec);
         }
       },
+      // #76 A 对齐 mvp applyDifficultyMults（2026-10-05 sim 修补）：
+      // 数值乘子走 addModifier（scope 'run'），armorAll 经 armor.hull/armor.turret
+      // 组路径叠乘，另做 P-46 难度封顶（difficultyCapMuls 差量注入）。
+      // 旧直乘 stats 路径静默丢弃 armorAll 且无封顶，会抹平难度梯度——见诊断记录。
       applyDifficulty: function(t, mults){
-        for (const k in mults){
-          if (typeof t.stats[k] === 'number') t.stats[k] *= mults[k];
+        if (!mults) return;
+        if (!Array.isArray(t.modifiers)) t.modifiers = [];
+        const addMod = _simGlobal('addModifier', null);
+        if (!addMod){  // 降级：global 缺 addModifier 时走旧直乘路径
+          for (const k in mults){
+            if (typeof t.stats[k] === 'number') t.stats[k] *= mults[k];
+          }
+          if (mults.maxHp) t.hp = t.stats.maxHp;
+          return;
         }
-        if (mults.maxHp) t.hp = t.stats.maxHp;
+        const STAT_KEYS = ['maxHp','penetration','damage','reload','spreadMult','aimSpeed','maxSpeed','turnRate','turretTurnRate'];
+        for (const k of STAT_KEYS){
+          if (mults[k] !== undefined && mults[k] !== 1){
+            addMod(t, { stat: k, mode: 'mult', value: mults[k], source: 'difficulty', scope: 'run' });
+          }
+        }
+        if (mults.armorAll !== undefined && mults.armorAll !== 1){
+          addMod(t, { stat: 'armor.hull', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
+          addMod(t, { stat: 'armor.turret', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
+        }
+        t.hp = t.stats.maxHp; t.maxHp = t.stats.maxHp;
+        // P-46 难度封顶（对齐 mvp）：penCap/dmgFloor/dmgCap/speed 四键差量注入。
+        // randFactor 走 Math.random——runReplay 内它已被替换为确定性 rng 流，可复现。
+        const capFn = _simGlobal('difficultyCapMuls', null);
+        if (capFn){
+          const diff = (node && typeof node.difficulty === 'number') ? node.difficulty : 0.15;
+          const diffNorm = Math.max(0, Math.min(1, (diff - 0.15) / (0.95 - 0.15)));
+          const caps = capFn(t, { diffNorm: diffNorm, randFactor: 0.85 + Math.random() * 0.30 });
+          const CAP_STAT = { penMul: 'penetration', dmgFloorMul: 'damage', dmgCapMul: 'damage', speedMul: 'maxSpeed' };
+          for (const key in caps){
+            addMod(t, { stat: CAP_STAT[key], mode: 'mult', value: caps[key], source: 'difficulty-cap', scope: 'run' });
+          }
+        }
       }
     });
 
@@ -325,26 +402,9 @@ function runReplay(opts){
 
         let out = AI.aiDecide(t, aiCtx);
 
-        // 玩家推进策略（#A18 修复）：真实对局中由人操推进 + 瞄准 + 开火。
-        // 原实现只向最近敌人机动、从不转炮塔（turret 恒 0）也不开火，导致远距离敌人
-        // 持 patrol/engaged=false 不接战、与玩家两相僵持 → 大量 0 开火假超时（#A18 根因）。
+        // 玩家策略：缺省为 #A18 推进策略；诊断脚本可经 o.playerPolicy 注入 bot 档位。
         if (t === player){
-          const adv = ENT.nearestEnemyTo(t);
-          if (adv){
-            const dAdv = Math.hypot(adv.x - t.x, adv.y - t.y);
-            const desH = Math.atan2(adv.y - t.y, adv.x - t.x);
-            // 始终把炮塔指向最近敌人（模拟玩家瞄准）
-            out.turretDesired = desH;
-            // 炮塔大致对准（≤~7°）时请求开火；范围/LoS/装填由下方统一开火块门控
-            out.fire = Math.abs(GEO.angDiff(desH, t.turretAngle)) < 0.12;
-            const trig = t.aiTriggerDist || 700;
-            // 距离过远时向最近敌人机动（保留原 P-44 基线推进约定）
-            if (dAdv > trig * 0.75){
-              const hd = GEO.angDiff(desH, t.hullAngle);
-              out.turn = Math.abs(hd) < 0.08 ? 0 : (hd > 0 ? 1 : -1);
-              out.move = Math.abs(hd) < 0.5 ? 1 : 0;
-            }
-          }
+          playerPolicy(t, aiCtx, out, { ENT: ENT, GEO: GEO });
         }
 
         // 炮塔旋转（限速追踪 turretDesired）
