@@ -311,5 +311,42 @@
         "mirror": false
       }
     ]
+  },
+  "sprite": {
+    "enabled": false,
+    "hull": {
+      "img": "assets/tanks/Leapard_1_hull.png",
+      "scale": 0.03161,
+      "dx": -0.429,
+      "dy": -0.006,
+      "rot": 0
+    },
+    "turret": {
+      "img": "assets/tanks/leopard1-turret.png",
+      "scale": 0.022834,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0,
+      "pivot": [
+        756.4,
+        566.3
+      ]
+    },
+    "track": {
+      "img": "assets/tanks/track-links.png",
+      "scale": 0,
+      "dx": 0,
+      "dy": 0
+    },
+    "barrel": {
+      "mountDx": 14.32,
+      "mountDy": 0,
+      "embed": 2,
+      "scaleMult": 1,
+      "gap": 3.7,
+      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
+      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"
+    }
   }
 }

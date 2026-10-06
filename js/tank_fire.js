@@ -118,7 +118,9 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
       fy -= Math.sin(shooter.turretAngle || 0) * back;
     }
   }
-  const bMuzzle = (shooter.barrel && shooter.barrel.muzzle) || 'none';
+  const _wType = spec && spec.type;
+  // 2026-10-06：炮口特效跟武器类型走——磁轨炮/机炮换装后特效自动切换，不依赖坦克 JSON 的静态 barrel.muzzle
+  const bMuzzle = _wType === 'railgun' ? 'railgun' : _wType === 'autocannon' ? 'autocannon' : ((shooter.barrel && shooter.barrel.muzzle) || 'none');
   // 2026-09-15 W6：autocannon 特效/弹体随 fxScale 缩小（默认 0.55）——更细炮管的视觉跟随
   const isAC = spec && spec.type === 'autocannon';
   const fxScale = (isAC && typeof spec.fxScale === 'number') ? spec.fxScale : 1;
@@ -352,7 +354,9 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
     shooter.reloadT=shooter.stats.reload/debuffReload(shooter);
     const pt=solid.point, tier=T[solid.cover.tier]||{label:solid.cover.tier};
     burst(pt.x,pt.y,0.6,4,2,0);
-    muzzle(tipP.x,tipP.y,shooter.turretAngle,1,(shooter.barrel&&shooter.barrel.muzzle)||'none');
+    const _bwType = shooter.weapons && shooter.weapons.primary && shooter.weapons.primary.type;
+    const _bMuzzle = _bwType === 'railgun' ? 'railgun' : _bwType === 'autocannon' ? 'autocannon' : ((shooter.barrel&&shooter.barrel.muzzle)||'none');
+    muzzle(tipP.x,tipP.y,shooter.turretAngle,1,_bMuzzle);
     impact(pt.x,pt.y,shooter.turretAngle,'block',0.8);
     play('block');
     if(shooter.team==='player'){

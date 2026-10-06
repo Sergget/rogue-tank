@@ -69,6 +69,10 @@
   - **焊缝 (Weld Seams)**：在装甲边缘与多边形顶点连接处绘制双重微弱高光/阴影线条；
   - **边缘磨损 (Edge Wear)**：车体与炮塔外角处叠加 5%~10% 的露底漆防锈色（dark rust）；
   - **铸造颗粒 (Cast Armor)**：对重型/中型坦克炮塔增加微弱噪点与铸造线。
+- **整车精灵替换 (Full-Sprite Replacement, §4.53)**：
+  - `tanks/<id>.json` 可选 `sprite` 块（`enabled` + 车体/炮塔 `{img,scale,dx,dy,rot}`、炮塔另有 `pivot:[px,py]`），图片存 `assets/tanks/<id>_{hull,turret}.png`（AI 生成，舱盖全关）；
+  - 局内 `drawTank` 在 `sprite.enabled` 且图片就绪时改用精灵绘制（否则回退程序化；殉爆飞头时回退）；
+  - 设计器「整车精灵」面板提供开关 + 缩放/位移/旋转/轴心对齐控件，`sprite.enabled` 默认 false，对齐确认后由设计者手动开启。
 
 ---
 

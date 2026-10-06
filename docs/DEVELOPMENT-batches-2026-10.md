@@ -211,3 +211,12 @@
 - **删除湖泊（同日）**：不再生成湖元素——H1T 湖（`hasLake=false`）、模板水潭（`centralPond` strip 模式跳过）、村庄水塘（`village-pond` 禁用）。四 seed 实测 water=0。
 - **平行主干道去重（同日）**：两主干道平行（<15°）、X 重叠、Y<100px 时只保留较长一条，避免路口-端点间 2 条公路冗余（如 seed 100 的 t0/h2）。
 - **河流连续性修复（同日，seed 700）**：`placeStripRivers` 两处 `continue` 会跳过整个河段——①涵洞逻辑（桥-路夹角<45°时跳过河段）、②桥间距检查（<900px 时 `continue`）；长距离平行/近距公路可使连续 30+ 个河段被跳过，seed 700 实测 strip-river-0 断裂 3783px（31 个河段缺失）、strip-river-1 间隙 930px、全图 0 桥。修复：**删除涵洞跳过逻辑，河流必须连续**；桥间距不足时不建桥但保留河段（路下可涉水，`js/tank_nodegen.js` ~L2906/L2931/L2938）。seed 700 复测两条河最大间隙 89px（正常段间距），连续 ✓；`npm run check` EXIT=0。本条取代上文"桥梁机制"中的"夹角<45°时留涵洞（河段跳过）"结论。
+
+### §4.53 整车精灵替换通道 + 设计器对齐 UI（2026-10-06）
+- **背景**：免费贴图包路线被 qi 否决（Kenney 太卡通、jh2assets 许可不明、CraftPix 禁再分发、Poly Haven 风格不搭）→ 改由 AI 生成 5 辆车整车俯视精灵（车体+炮塔分离，舱盖全关），走 `assets/tanks/<id>_{hull,turret}.png`。
+- **数据**：`tanks/<id>.json` 新增可选 `sprite` 块——`{ enabled, hull:{img,scale,dx,dy,rot}, turret:{img,scale,dx,dy,rot,pivot:[px,py]} }`；scale=模型单位/图片像素，dx/dy=部件局部帧偏移（+x 为前），rot=叠加旋转（度），pivot=炮塔图片像素旋转中心。5 车默认 scale 按多边形包围盒长度/图片宽预计算，`enabled:false`（对齐后由 qi 手动开启）。
+- **局内**：`js/tank_paint.js` 新增 `spriteImage`（Image 缓存，Node 安全）+ `paintPartSprite`（共享绘制：中心/旋转/偏移/轴心）；`tank_model.js applyTankConfig` 深拷贝透传 `sprite`；`tank_battledraw.js drawTank` 顶部加分支——`sprite.enabled && 图片就绪 && !ammoBlew` 时走 `drawTankSprite`（车体精灵对准坦克原点随 hullAngle、炮塔精灵 pivot 对准座圈随炮塔角，另补地面软阴影），否则回退程序化绘制（首帧/殉爆飞头不穿帮）。
+- **设计器**：`tank_designer.html` 右侧新增「整车精灵 Sprite」面板——「游戏中启用精灵」开关（写入 JSON）、「画布显示精灵」开关（仅预览）、车体/炮塔各 缩放/位移X/Y/旋转/轴心（炮塔） 数字控件、「按多边形自动对齐」按钮（包围盒重算缩放、清零位移旋转、保留轴心）；`designer.js` 的 `drawPolygon` 在精灵就绪时用图片替代纯色填充（描边/顶点/装甲色照常绘制以便对齐），`applyTankData`/`buildExport`/`syncSpriteInputs` 全链路读写。
+- **类型**：`types/globals.d.ts` 补 `SPRITE_CACHE/spriteImage/clearSpriteCache/paintPartSprite` 声明（checkJs 跨文件全局）。
+- 架构注记 `js/tank_schema.js`（sprite 字段语义，设计器管理、不进 compare 页 FIELD_ROWS）；视觉规范归口 `docs/specs/editor.md` §6。
+- `npm run check` / `npm test`（43/43）全绿。未 push（等 qi 指令；本地 master=fff2448 未推送）。

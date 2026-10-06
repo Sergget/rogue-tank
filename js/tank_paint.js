@@ -363,6 +363,48 @@ function paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts){
   }
 }
 
+
+// ---------- image sprite overlay (整车精灵替换通道) ----------
+// spriteImage(path): 浏览器 Image 缓存（按路径）；Node/无图时返回 null。
+// paintPartSprite(ctx, img, cx, cy, angle, viewScale, scale, dx, dy, rotDeg, pivot):
+//   在部件中心 (cx,cy) 处绘制图片精灵。
+//   scale   — 模型单位/图片像素（图片显示尺寸 = imgW*scale 模型单位）
+//   dx, dy  — 部件局部帧下的偏移（模型单位，+x 为前）
+//   rotDeg  — 叠加旋转（度）
+//   pivot   — [px,py] 图片像素坐标的旋转中心（缺省为图片中心）；炮塔精灵用座圈中心
+//   viewScale — 屏幕像素/模型单位（游戏内恒为 1）
+// 返回是否实际绘制（图片未就绪时返回 false，调用方可回退程序化绘制）。
+const SPRITE_CACHE = new Map();
+function spriteImage(path){
+  if(!path) return null;
+  if(SPRITE_CACHE.has(path)) return SPRITE_CACHE.get(path);
+  if(typeof Image === 'undefined' || typeof document === 'undefined'){
+    SPRITE_CACHE.set(path, null);
+    return null;
+  }
+  const img = new Image();
+  img.src = path;
+  SPRITE_CACHE.set(path, img);
+  return img;
+}
+function clearSpriteCache(){
+  SPRITE_CACHE.clear();
+}
+function paintPartSprite(ctx, img, cx, cy, angle, viewScale, scale, dx, dy, rotDeg, pivot){
+  if(!img || !img.complete || !img.naturalWidth) return false;
+  const s = (scale || 0) * (viewScale || 1);
+  if(!(s > 0)) return false;
+  const px = pivot ? pivot[0] : img.naturalWidth/2;
+  const py = pivot ? pivot[1] : img.naturalHeight/2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate((angle || 0) + (rotDeg || 0)*Math.PI/180);
+  ctx.translate((dx || 0)*(viewScale || 1), (dy || 0)*(viewScale || 1));
+  ctx.drawImage(img, -px*s, -py*s, img.naturalWidth*s, img.naturalHeight*s);
+  ctx.restore();
+  return true;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     paintShade,
@@ -376,6 +418,10 @@ if (typeof module !== 'undefined' && module.exports) {
     clearPaintCache,
     getCachedTankSprite,
     paintPartTextureDirect,
-    paintPartTexture
+    paintPartTexture,
+    SPRITE_CACHE,
+    spriteImage,
+    clearSpriteCache,
+    paintPartSprite
   };
 }

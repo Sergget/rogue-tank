@@ -400,6 +400,11 @@ function applyTankConfig(tank, spec){
   for (const f of instanceFields) {
     if (spec[f] !== undefined) tank[f] = spec[f];
   }
+  // 整车精灵配置（tanks/<id>.json `sprite`）：深拷贝，防多实例共享引用被下游改写。
+  // 结构：{ enabled, hull:{img,scale,dx,dy,rot}, turret:{img,scale,dx,dy,rot,pivot:[px,py]} }
+  if (spec.sprite !== undefined) {
+    tank.sprite = JSON.parse(JSON.stringify(spec.sprite));
+  }
 
   // 锚点深拷贝（#B6）：Object.assign 只复制一层，嵌套的 {dx,dy} 仍与 spec 共享引用，
   // 下游实例级改写（Boss scale ×s 等）会原地污染共享配置。

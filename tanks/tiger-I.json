@@ -367,5 +367,42 @@
         "mirror": false
       }
     ]
+  },
+  "sprite": {
+    "enabled": false,
+    "hull": {
+      "img": "assets/tanks/tiger-I_hull.png",
+      "scale": 0.036641,
+      "dx": 0.202,
+      "dy": 0.057,
+      "rot": 0
+    },
+    "turret": {
+      "img": "assets/tanks/tiger-I_turret.png",
+      "scale": 0.023988,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0,
+      "pivot": [
+        774.0,
+        640.0
+      ]
+    },
+    "track": {
+      "img": "assets/tanks/track-links.png",
+      "scale": 0,
+      "dx": 0,
+      "dy": 0
+    },
+    "barrel": {
+      "mountDx": 15.76,
+      "mountDy": 0,
+      "embed": 2,
+      "scaleMult": 1,
+      "gap": 3.7,
+      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
+      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"
+    }
   }
 }

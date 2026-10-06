@@ -58,6 +58,8 @@ let state = {
    spreadMult: 1, aimSpeed: 0.15,
    trackWidth: 8, trackOffset: 0,
    texture: 'none', // 表面纹理（TEXTURE_DEFS 键：none/armor_plate/weld_seam/rust/camo/camo_dunkelgelb/paint_panzergrau/camo_nato/paint_soviet）
+   sprite: defaultSprite(), // 整车精灵（AI 生成贴图）：{ enabled, hull:{img,scale,dx,dy,rot}, turret:{img,scale,dx,dy,rot,pivot:[px,py]} }
+   spritePreview: true, // 仅设计器画布叠加显示，不写入存档
    hull: defaultHull(),
    turret: defaultTurret(),
    barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } },
@@ -961,6 +963,146 @@ document.getElementById('textureSelect').addEventListener('change', ()=>{
   state.texture = document.getElementById('textureSelect').value;
   render();
 });
+
+// ================= 整车精灵 Sprite（对齐控件） =================
+function defaultSprite(){
+  return {
+    enabled: false,
+    track:  { img:'assets/tanks/track-links.png', scale:0, dx:0, dy:0 },
+    hull:   { img:'', scale:0, dx:0, dy:0, rot:0 },
+    turret: { img:'', scale:0, dx:0, dy:0, rot:0, pivot:[0,0] },
+    barrel: { mountDx:0, mountDy:0, embed:2, scaleMult:1, gap:3.7,
+              imgStandard:'assets/tanks/barrels/barrel-standard.png',
+              imgAutocannon:'assets/tanks/barrels/barrel-autocannon.png',
+              imgRailgun:'assets/tanks/barrels/barrel-railgun.png' }
+  };
+}
+function normalizeSpritePart(p){
+  p = p || {};
+  const out = { img: p.img || '', scale: +p.scale || 0, dx: +p.dx || 0, dy: +p.dy || 0, rot: +p.rot || 0 };
+  if(p.pivot) out.pivot = [+p.pivot[0] || 0, +p.pivot[1] || 0];
+  return out;
+}
+function normalizeSpriteBarrel(p){
+  p = p || {};
+  return {
+    mountDx: +p.mountDx || 0, mountDy: +p.mountDy || 0,
+    embed: (p.embed !== undefined && p.embed !== null && p.embed !== '') ? +p.embed : 2,
+    scaleMult: +p.scaleMult || 1, gap: +p.gap || 3.7,
+    imgStandard: p.imgStandard || 'assets/tanks/barrels/barrel-standard.png',
+    imgAutocannon: p.imgAutocannon || 'assets/tanks/barrels/barrel-autocannon.png',
+    imgRailgun: p.imgRailgun || 'assets/tanks/barrels/barrel-railgun.png'
+  };
+}
+function normalizeSprite(data){
+  data = data || {};
+  const sp = defaultSprite();
+  sp.enabled = !!data.enabled;
+  sp.track = Object.assign(sp.track, normalizeSpritePart(data.track));
+  if(!sp.track.img) sp.track.img = 'assets/tanks/track-links.png';
+  sp.hull = Object.assign(sp.hull, normalizeSpritePart(data.hull));
+  sp.turret = Object.assign(sp.turret, normalizeSpritePart(data.turret));
+  sp.barrel = Object.assign(sp.barrel, normalizeSpriteBarrel(data.barrel));
+  return sp;
+}
+function syncSpriteInputs(){
+  const sp = state.sprite;
+  document.getElementById('sp-enabled').checked = !!sp.enabled;
+  document.getElementById('sp-preview').checked = !!state.spritePreview;
+  document.getElementById('sp-track-img').textContent = sp.track.img || '—';
+  document.getElementById('sp-track-scale').value = sp.track.scale || 0;
+  document.getElementById('sp-track-dx').value = sp.track.dx || 0;
+  document.getElementById('sp-track-dy').value = sp.track.dy || 0;
+  document.getElementById('sp-hull-img').textContent = sp.hull.img || '—';
+  document.getElementById('sp-hull-scale').value = sp.hull.scale || 0;
+  document.getElementById('sp-hull-dx').value = sp.hull.dx || 0;
+  document.getElementById('sp-hull-dy').value = sp.hull.dy || 0;
+  document.getElementById('sp-hull-rot').value = sp.hull.rot || 0;
+  document.getElementById('sp-turret-img').textContent = sp.turret.img || '—';
+  document.getElementById('sp-turret-scale').value = sp.turret.scale || 0;
+  document.getElementById('sp-turret-dx').value = sp.turret.dx || 0;
+  document.getElementById('sp-turret-dy').value = sp.turret.dy || 0;
+  document.getElementById('sp-turret-rot').value = sp.turret.rot || 0;
+  document.getElementById('sp-turret-pivotx').value = (sp.turret.pivot && sp.turret.pivot[0]) || 0;
+  document.getElementById('sp-turret-pivoty').value = (sp.turret.pivot && sp.turret.pivot[1]) || 0;
+  document.getElementById('sp-barrel-mountdx').value = sp.barrel.mountDx || 0;
+  document.getElementById('sp-barrel-mountdy').value = sp.barrel.mountDy || 0;
+  document.getElementById('sp-barrel-embed').value = sp.barrel.embed;
+  document.getElementById('sp-barrel-scalemult').value = sp.barrel.scaleMult || 1;
+  document.getElementById('sp-barrel-gap').value = sp.barrel.gap || 3.7;
+  document.getElementById('sp-barrel-imgstd').textContent = sp.barrel.imgStandard || '—';
+  document.getElementById('sp-barrel-imgac').textContent = sp.barrel.imgAutocannon || '—';
+  document.getElementById('sp-barrel-imgrg').textContent = sp.barrel.imgRailgun || '—';
+  document.getElementById('sp-barrel-imgstd-in').value = sp.barrel.imgStandard || '';
+  document.getElementById('sp-barrel-imgac-in').value = sp.barrel.imgAutocannon || '';
+  document.getElementById('sp-barrel-imgrg-in').value = sp.barrel.imgRailgun || '';
+}
+function spriteAutoAlign(){
+  // 按车体/炮塔多边形包围盒长度重算缩放，清零位移与旋转（轴心保留）；
+  // 履带缩放默认 = 履带宽/图片高；炮管安装点默认 = 炮塔前缘×0.8。
+  const sp = state.sprite;
+  for(const [part, poly] of [['hull', state.hull], ['turret', state.turret]]){
+    const v = buildFullVerts(poly.half);
+    if(v.length < 3 || !sp[part].img) continue;
+    const img = spriteImage(sp[part].img);
+    if(!img || !img.naturalWidth) continue;
+    let minX=Infinity, maxX=-Infinity;
+    for(const p of v){ minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]); }
+    sp[part].scale = +(((maxX - minX) / img.naturalWidth).toFixed(5));
+    sp[part].dx = 0; sp[part].dy = 0; sp[part].rot = 0;
+  }
+  // 履带：图片高度对应履带宽
+  {
+    const img = spriteImage(sp.track.img);
+    if(img && img.naturalHeight) sp.track.scale = +(((state.trackWidth || 8) / img.naturalHeight).toFixed(5));
+    sp.track.dx = 0; sp.track.dy = 0;
+  }
+  // 炮管：安装点 = 炮塔前缘 ×0.8（炮塔局部 +X 为前）
+  {
+    const v = buildFullVerts(state.turret.half);
+    if(v.length >= 2){
+      let maxX = -Infinity;
+      for(const p of v) maxX = Math.max(maxX, p[0]);
+      sp.barrel.mountDx = +(maxX * 0.8).toFixed(2);
+      sp.barrel.mountDy = 0;
+    }
+  }
+  syncSpriteInputs();
+  render();
+  pushHint('已按多边形包围盒重算精灵缩放（位移/旋转清零，轴心保留）；履带/炮管已给初值');
+}
+document.getElementById('sp-enabled').addEventListener('change', e=>{
+  state.sprite.enabled = e.target.checked; render();
+});
+document.getElementById('sp-preview').addEventListener('change', e=>{
+  state.spritePreview = e.target.checked; render();
+});
+for(const [id, part, key] of [
+  ['sp-track-scale','track','scale'], ['sp-track-dx','track','dx'], ['sp-track-dy','track','dy'],
+  ['sp-hull-scale','hull','scale'], ['sp-hull-dx','hull','dx'], ['sp-hull-dy','hull','dy'], ['sp-hull-rot','hull','rot'],
+  ['sp-turret-scale','turret','scale'], ['sp-turret-dx','turret','dx'], ['sp-turret-dy','turret','dy'], ['sp-turret-rot','turret','rot'],
+  ['sp-turret-pivotx','turret','pivotx'], ['sp-turret-pivoty','turret','pivoty'],
+  ['sp-barrel-mountdx','barrel','mountDx'], ['sp-barrel-mountdy','barrel','mountDy'],
+  ['sp-barrel-embed','barrel','embed'], ['sp-barrel-scalemult','barrel','scaleMult'], ['sp-barrel-gap','barrel','gap']
+]){
+  document.getElementById(id).addEventListener('change', e=>{
+    const v = parseFloat(e.target.value) || 0;
+    if(key === 'pivotx') state.sprite[part].pivot[0] = v;
+    else if(key === 'pivoty') state.sprite[part].pivot[1] = v;
+    else state.sprite[part][key] = v;
+    render();
+  });
+}
+document.getElementById('sp-autoalign').addEventListener('click', spriteAutoAlign);
+for(const [id, key] of [
+  ['sp-barrel-imgstd-in','imgStandard'], ['sp-barrel-imgac-in','imgAutocannon'], ['sp-barrel-imgrg-in','imgRailgun']
+]){
+  document.getElementById(id).addEventListener('change', e=>{
+    state.sprite.barrel[key] = e.target.value.trim() || state.sprite.barrel[key];
+    syncSpriteInputs();
+    render();
+  });
+}
 document.getElementById('barrelMuzzle').addEventListener('change', ()=>{
    state.barrel.muzzle = document.getElementById('barrelMuzzle').value;
    render();
@@ -1332,6 +1474,66 @@ function shade(hex, pct){ return paintShade(hex, pct); }
 function fullVertsBounds(poly){
   return { fullVerts: buildFullVerts(poly.half) };
 }
+// 精灵履带预览（设计器对齐用）：track-links.png 平铺滚动条，画在车体精灵之下
+function drawPreviewSpriteTracks(){
+  const sp = state.sprite;
+  if(!state.spritePreview || !sp.track.img) return;
+  const img = spriteImage(sp.track.img);
+  if(!img || !img.naturalWidth) return;
+  const hc = hullCenter();
+  const v = buildFullVerts(state.hull.half);
+  if(v.length < 3) return;
+  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  for(const p of v){ minX=Math.min(minX,p[0]); maxX=Math.max(maxX,p[0]); minY=Math.min(minY,p[1]); maxY=Math.max(maxY,p[1]); }
+  const hullLen = maxX - minX, hullWid = maxY - minY;
+  const tw = state.trackWidth || 8;
+  const s = (sp.track.scale > 0) ? sp.track.scale : tw / img.naturalHeight;
+  const off = state.trackOffset || 0;
+  const dx = sp.track.dx || 0, dy = sp.track.dy || 0;
+  const tileLen = img.naturalWidth * s * viewScale;
+  const period = 196 * s * viewScale;
+  const phase = (((performance.now()*0.02) % period) + period) % period;
+  ctx.save();
+  ctx.translate(hc.x, hc.y);
+  for(const dir of [-1, 1]){
+    const cy = (dir * (hullWid/2 + off + tw/2) + dy) * viewScale;
+    const x0 = (dx - hullLen/2) * viewScale, x1 = (dx + hullLen/2) * viewScale;
+    const y0 = cy - (tw/2)*viewScale, y1 = cy + (tw/2)*viewScale;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x0, y0, x1-x0, y1-y0); ctx.clip();
+    const drawH = img.naturalHeight * s * viewScale;
+    const yImg = cy - drawH/2;
+    for(let x = x0 - phase - tileLen; x < x1; x += tileLen){
+      ctx.drawImage(img, x, yImg, tileLen, drawH);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+// 精灵炮管预览（设计器对齐用）：标准炮管贴图，安装点由 mountDx/mountDy/embed 决定
+function drawPreviewSpriteBarrel(turretAngle){
+  const sp = state.sprite;
+  if(!state.spritePreview) return;
+  const img = spriteImage(sp.barrel.imgStandard);
+  if(!img || !img.naturalWidth) return;
+  const hc = hullCenter();
+  const ring = { x: hc.x + state.turret.pivot.dx*viewScale, y: hc.y + (state.turret.pivot.dy||0)*viewScale };
+  const b = sp.barrel;
+  const mountDx = +b.mountDx || 0, mountDy = +b.mountDy || 0;
+  const embed = (b.embed !== undefined && b.embed !== null && b.embed !== '') ? +b.embed : 2;
+  const scaleMult = +b.scaleMult || 1;
+  const tv = buildFullVerts(state.turret.half);
+  let turLen = 34;
+  if(tv.length >= 2){
+    let minX=Infinity, maxX=-Infinity;
+    for(const p of tv){ minX=Math.min(minX,p[0]); maxX=Math.max(maxX,p[0]); }
+    turLen = maxX - minX;
+  }
+  const barrelLen = turLen * Math.max(0, Math.min(3, (state.barrel.len || 120) / 100));
+  const scaleUPP = barrelLen / img.naturalWidth * scaleMult;
+  const r = rotate((mountDx - embed)*viewScale, mountDy*viewScale, turretAngle);
+  paintPartSprite(ctx, img, ring.x + r.x, ring.y + r.y, turretAngle, viewScale, scaleUPP, 0, 0, 0, [0, img.naturalHeight/2]);
+}
 // rolling track strips under the hull. `phase` scrolls the links; a slowly-changing phase animates it.
 function drawDesignerTracks(phase, scale){
   const { fullVerts } = fullVertsBounds(state.hull);
@@ -1386,6 +1588,22 @@ function drawPolygon(poly, center, angle, opts){
     if (opts.detail) partOpts.detail = true;
     if (opts.faded) partOpts.faded = true;
     
+    // 整车精灵叠加（设计器对齐用）：图片就绪时替代纯色填充，描边/顶点/装甲色仍绘制以便对齐
+    let spriteDrawn = false;
+    if(state.spritePreview){
+      const sp = state.sprite, part = sp && (isTurret ? sp.turret : sp.hull);
+      if(part && part.img){
+        const img = spriteImage(part.img);
+        if(isTurret){
+          const hc2 = hullCenter();
+          const ring = { x: hc2.x + state.turret.pivot.dx*viewScale, y: hc2.y + (state.turret.pivot.dy||0)*viewScale };
+          spriteDrawn = paintPartSprite(ctx, img, ring.x, ring.y, angle, viewScale, part.scale, part.dx, part.dy, part.rot, part.pivot);
+        } else if(center){
+          spriteDrawn = paintPartSprite(ctx, img, center.x, center.y, angle, viewScale, part.scale, part.dx, part.dy, part.rot);
+        }
+      }
+    }
+    if(!spriteDrawn){
     // Fill background path
     ctx.save();
     ctx.beginPath();
@@ -1396,11 +1614,13 @@ function drawPolygon(poly, center, angle, opts){
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.restore();
+    }
 
     // P-27 纹理叠层：仅预览模式（detail && !faded）下贴与 mvp 同款的 paintPartTexture 纹理，
     // 车体以 hullCenter 为原点、炮塔换算到座圈圆心 + axis 平移帧（与 turretToScreen 同帧约定）；
     // 编辑模式保持纯色填充便于看顶点/边/装甲。切换外观件下拉即时生效。
-    if(opts.detail && !opts.faded && state.texture && state.texture !== 'none'){
+    // 精灵已绘制时跳过（AI 贴图自带涂装，不再叠程序化纹理）。
+    if(!spriteDrawn && opts.detail && !opts.faded && state.texture && state.texture !== 'none'){
       const texOpts = { detail:true, texture: state.texture, heightClass: state.heightClass };
       if(isTurret){
         const ax = (state.turret.axis && state.turret.axis.dx) || 0;
@@ -1558,8 +1778,15 @@ function render(){
   const partOpts = { active:false, detail: fullDetail, faded: !fullDetail };
 
   // 部件可见性：隐藏的部件（含履带/炮管等其附属视觉）不渲染
-  if(partVisible.hull) drawDesignerTracks(fullDetail ? performance.now()*0.02 : trackPhase, viewScale);
-  if(partVisible.turret) drawPolygon(state.turret, null, turretAngle, Object.assign({ active: mode==='turret' || mode==='pivot' }, partOpts));
+  // 精灵预览开时履带改用精灵贴图（对齐用），否则走程序化履带
+  if(partVisible.hull){
+    if(state.spritePreview && state.sprite.track.img) drawPreviewSpriteTracks();
+    else drawDesignerTracks(fullDetail ? performance.now()*0.02 : trackPhase, viewScale);
+  }
+  if(partVisible.turret){
+    drawPolygon(state.turret, null, turretAngle, Object.assign({ active: mode==='turret' || mode==='pivot' }, partOpts));
+    if(state.spritePreview) drawPreviewSpriteBarrel(turretAngle);
+  }
   if(partVisible.hull) drawPolygon(state.hull, hc, 0, Object.assign({ active: mode==='hull' }, partOpts));
 
   // 1. 车体上的炮塔座圈圆心 (pivot) 标记位置：
@@ -1760,6 +1987,15 @@ function buildExport(){
      spreadMult: state.spreadMult,
      aimSpeed: state.aimSpeed,
      texture: state.texture,
+     // 整车精灵：enabled 控制局内是否替换程序化绘制；preview 标志不写入（设计器本地）
+     sprite: {
+       enabled: !!state.sprite.enabled,
+       track: { img: state.sprite.track.img, scale: state.sprite.track.scale, dx: state.sprite.track.dx, dy: state.sprite.track.dy },
+       hull: { img: state.sprite.hull.img, scale: state.sprite.hull.scale, dx: state.sprite.hull.dx, dy: state.sprite.hull.dy, rot: state.sprite.hull.rot },
+       turret: { img: state.sprite.turret.img, scale: state.sprite.turret.scale, dx: state.sprite.turret.dx, dy: state.sprite.turret.dy, rot: state.sprite.turret.rot, pivot: [state.sprite.turret.pivot[0], state.sprite.turret.pivot[1]] },
+       barrel: { mountDx: state.sprite.barrel.mountDx, mountDy: state.sprite.barrel.mountDy, embed: state.sprite.barrel.embed, scaleMult: state.sprite.barrel.scaleMult, gap: state.sprite.barrel.gap,
+                 imgStandard: state.sprite.barrel.imgStandard, imgAutocannon: state.sprite.barrel.imgAutocannon, imgRailgun: state.sprite.barrel.imgRailgun }
+     },
      barrel: {
        len: state.barrel.len,
        width: state.barrel.width,
@@ -1841,11 +2077,13 @@ function applyTankData(data, opts){
    if(data.trackOffset !== undefined) state.trackOffset = data.trackOffset;
    if(data.texture !== undefined && ['none','armor_plate','weld_seam','rust','camo','camo_dunkelgelb','paint_panzergrau','camo_nato','paint_soviet'].includes(data.texture)) state.texture = data.texture;
    else state.texture = 'none'; // 旧数据缺省无纹理
+   state.sprite = normalizeSprite(data.sprite); // 整车精灵（无则默认关闭）
    if(data.spreadMult !== undefined) state.spreadMult = data.spreadMult;
    if(data.aimSpeed !== undefined) state.aimSpeed = data.aimSpeed;
    document.getElementById('trackWidthInput').value = state.trackWidth || 8;
    document.getElementById('trackOffsetInput').value = state.trackOffset || 0;
    document.getElementById('textureSelect').value = state.texture;
+   syncSpriteInputs();
    document.getElementById('t-spreadMult').value = state.spreadMult;
    document.getElementById('t-aimSpeed').value = state.aimSpeed;
    updateTrackRanges();
@@ -1987,6 +2225,7 @@ document.getElementById('mantletPos').value = state.barrel.mantlet.pos;
 document.getElementById('mantletWid').value = state.barrel.mantlet.width;
 document.getElementById('trackWidthInput').value = state.trackWidth;
 document.getElementById('textureSelect').value = state.texture;
+syncSpriteInputs();
 updateTrackRanges();
 setMode('hull');
 updateZoomReadout();

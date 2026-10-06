@@ -26,6 +26,26 @@ const TEXTURES = ['none','armor_plate','weld_seam','rust','camo','camo_dunkelgel
 // 可选 special 元数据（消费方用特殊控件替换普通数字输入框）：
 //   special:'spread100m' — 以「100m 散布范围(m)」口径设定三扩系数 spreadMult
 //                          （映射公式见 tank_compare.html；底层仍写 spreadMult 单参数）
+//
+// ---- 整车精灵 sprite（设计器管理，不进 FIELD_ROWS/compare 页） ----
+// tanks/<id>.json 可选 `sprite` 块：AI 生成的四层俯视贴图替换程序化绘制。
+//   {
+//     enabled: bool,                       // 局内 drawTank 是否改用精灵绘制（默认 false）
+//     track:  { img, scale, dx, dy },      // img: assets/tanks/track-links.png（滚动履带条）
+//     hull:   { img, scale, dx, dy, rot },  // img: assets/tanks/<id>_hull.png（无履带车体）
+//     turret: { img, scale, dx, dy, rot, pivot:[px,py] },  // 无炮管炮塔
+//     barrel: { mountDx, mountDy, embed, scaleMult, gap,
+//               imgStandard, imgAutocannon, imgRailgun }   // 炮管按主武器类型切换
+//   }
+//   scale — 模型单位/图片像素（图片显示尺寸 = 像素×scale 模型单位）
+//   dx,dy — 部件局部帧偏移（模型单位，+x 为前）；rot — 叠加旋转（度）
+//   pivot — 炮塔图片像素坐标的旋转中心（对齐座圈）
+//   mountDx/mountDy — 炮管安装点相对炮塔 pivot 的炮塔局部坐标（+X 为前，模型单位）
+//   embed — 炮管尾端嵌入炮塔的深度（模型单位）；scaleMult — 炮管长度缩放微调
+//   gap — 双管时两炮管横向间距（模型单位，默认 3.7）
+//   imgStandard/imgAutocannon/imgRailgun — 三种炮管贴图路径（默认 assets/tanks/barrels/ 下）
+// 设计器「整车精灵」面板提供开关 + 四层对齐控件与自动对齐，保存时写入；
+// 局内由 tank_battledraw.js drawTank 分支消费（图片未就绪/殉爆飞头时回退程序化）。
 const FIELD_ROWS = [
   // ---- 火力 firepower ----
   { label:'穿深',       path:'penetration',        type:'num', group:'firepower' },

@@ -1,10 +1,11 @@
 {
   "id": "hummel",
+  "name": "莱茵武器运载车",
   "class": "spg",
-  "traverseLimit": 25,
-  "maxSpeed": 90,
-  "turnRate": 1.5,
-  "turretTurnRate": 1.2,
+  "traverseLimit": 180,
+  "maxSpeed": 40,
+  "turnRate": 0.7,
+  "turretTurnRate": 0.5,
   "weight": 24,
   "enginePower": 300,
   "hp": 70,
@@ -38,10 +39,22 @@
   },
   "hull": {
     "verts": [
-      [30.0, -13.0],
-      [-30.0, -13.0],
-      [-30.0, 13.0],
-      [30.0, 13.0]
+      [
+        30.0,
+        -13.0
+      ],
+      [
+        -30.0,
+        -13.0
+      ],
+      [
+        -30.0,
+        13.0
+      ],
+      [
+        30.0,
+        13.0
+      ]
     ],
     "faces": [
       "side",
@@ -57,10 +70,22 @@
   },
   "turret": {
     "verts": [
-      [10.0, -11.0],
-      [-16.0, -11.0],
-      [-16.0, 11.0],
-      [10.0, 11.0]
+      [
+        10.0,
+        -11.0
+      ],
+      [
+        -16.0,
+        -11.0
+      ],
+      [
+        -16.0,
+        11.0
+      ],
+      [
+        10.0,
+        11.0
+      ]
     ],
     "faces": [
       "side",
@@ -80,6 +105,48 @@
     "axis": {
       "dx": -4,
       "dy": 0
+    }
+  },
+  "sprite": {
+    "enabled": false,
+    "hull": {
+      "img": "assets/tanks/hummel_hull.png",
+      "scale": 0.031024,
+      "dx": -0.09,
+      "dy": 0.095,
+      "rot": 0,
+      "pivot": [
+        967.0,
+        456.0
+      ]
+    },
+    "turret": {
+      "img": "assets/tanks/hummel_turret.png",
+      "scale": 0.03413,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0,
+      "pivot": [
+        293.0,
+        273.0
+      ]
+    },
+    "track": {
+      "img": "assets/tanks/track-links.png",
+      "scale": 0,
+      "dx": 0,
+      "dy": 0
+    },
+    "barrel": {
+      "mountDx": 8.0,
+      "mountDy": 0,
+      "embed": 2,
+      "scaleMult": 1,
+      "gap": 3.7,
+      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
+      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
+      "imgHummel": "assets/tanks/barrels/barrel-hummel.png"
     }
   }
 }

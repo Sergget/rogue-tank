@@ -157,19 +157,28 @@ function spawnTrackBreakFx(t){
 function spawnMuzzleFlash(x, y, angle, scale, muzzleType){
   const sc = scale || 1;
   const type = muzzleType || 'none';
-  muzzleFlashes.push({ x, y, ang: angle || 0, life: 0, max: 0.12, big: sc, muzzle: type });
-  spawnShockwave(x, y, 28 * sc, 0.18, 'rgba(255,220,130,0.7)', 2);
+  // 磁轨炮：电磁发射，持续稍长；机炮：高射速，闪光更短促
+  const lifeMax = type === 'railgun' ? 0.18 : type === 'autocannon' ? 0.08 : 0.12;
+  muzzleFlashes.push({ x, y, ang: angle || 0, life: 0, max: lifeMax, big: sc, muzzle: type });
+  const waveCol = type === 'railgun' ? 'rgba(120,220,255,0.7)' : 'rgba(255,220,130,0.7)';
+  spawnShockwave(x, y, 28 * sc, 0.18, waveCol, 2);
 
   // 喷射排气火花粒子
+  const sparkCol = type === 'railgun' ? 'cyan' : 'amber';
   const emitDirSparks = (dirAng, count, spdMin, spdMax, spread) => {
     for(let i = 0; i < count; i++){
       const a = dirAng + (Math.random() - 0.5) * spread;
       const sp = (spdMin + Math.random() * (spdMax - spdMin)) * sc;
-      spawnSpark(x, y, a, sp, 0.12 + Math.random() * 0.18, 1.2 + Math.random() * 0.8, 'amber');
+      spawnSpark(x, y, a, sp, 0.12 + Math.random() * 0.18, 1.2 + Math.random() * 0.8, sparkCol);
     }
   };
 
   emitDirSparks(angle, 6, 120, 240, 0.4);
+  if(type === 'railgun'){
+    // 磁轨炮：沿炮管方向的电弧火花
+    emitDirSparks(angle + Math.PI/2, 5, 100, 200, 0.5);
+    emitDirSparks(angle - Math.PI/2, 5, 100, 200, 0.5);
+  }
   if(type === 'single' || type === 'double' || type === 'heavy_square' || type === 'cylinder'){
     emitDirSparks(angle + Math.PI/2, 4, 90, 180, 0.35);
     emitDirSparks(angle - Math.PI/2, 4, 90, 180, 0.35);
@@ -400,16 +409,51 @@ function drawMuzzleFlashes(ctx){
       drawPlume(0, 0.4, 0.25);
       drawPlume(Math.PI/2, 0.75, 0.65);
       drawPlume(-Math.PI/2, 0.75, 0.65);
+    } else if (type === 'railgun') {
+      // 磁轨炮：青色电磁能量长矛 + 电弧分叉，无火药火舌
+      const railGrad = ctx.createLinearGradient(0, 0, r * 3.2, 0);
+      railGrad.addColorStop(0, `rgba(220,245,255,${0.95*a})`);
+      railGrad.addColorStop(0.35, `rgba(120,220,255,${0.7*a})`);
+      railGrad.addColorStop(1, 'rgba(60,140,255,0)');
+      ctx.fillStyle = railGrad;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, r * 3.2, -0.12, 0.12);
+      ctx.closePath();
+      ctx.fill();
+      // 电弧分叉：锯齿状青色电弧
+      ctx.strokeStyle = `rgba(160,230,255,${0.85*a})`;
+      ctx.lineWidth = 1.5;
+      for(let k = 0; k < 5; k++){
+        const aa = (Math.random() - 0.5) * 1.1;
+        const len = r * (1.2 + Math.random() * 1.4);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        let px = 0, py = 0;
+        for(let sgi = 0; sgi < 4; sgi++){
+          px += Math.cos(aa) * len / 4 + (Math.random() - 0.5) * 6;
+          py += Math.sin(aa) * len / 4 + (Math.random() - 0.5) * 6;
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+    } else if (type === 'autocannon') {
+      // 机炮：小而短促的火舌，高射速感
+      drawPlume(0, 0.55, 0.35);
+      drawPlume(Math.PI/2, 0.25, 0.2);
+      drawPlume(-Math.PI/2, 0.25, 0.2);
     }
 
     // 核心圆斑
-    const coreR = type === 'slug' ? r * 0.75 : r * 0.5;
-    ctx.fillStyle = `rgba(255,255,235,${0.9*a})`;
+    const coreR = type === 'slug' ? r * 0.75 : type === 'railgun' ? r * 0.65 : r * 0.5;
+    const coreCol = type === 'railgun' ? `rgba(230,250,255,${0.95*a})` : `rgba(255,255,235,${0.9*a})`;
+    ctx.fillStyle = coreCol;
     ctx.beginPath(); ctx.arc(0, 0, coreR, 0, TAU); ctx.fill();
 
     // 冲击环
-    const ringR = type === 'slug' ? r * 2.0 : r * 1.5;
-    ctx.strokeStyle = `rgba(255,200,110,${0.7*a})`; ctx.lineWidth = type === 'heavy_square' ? 2.5 : 1.5;
+    const ringR = type === 'slug' ? r * 2.0 : type === 'railgun' ? r * 2.2 : r * 1.5;
+    const ringCol = type === 'railgun' ? `rgba(120,210,255,${0.7*a})` : `rgba(255,200,110,${0.7*a})`;
+    ctx.strokeStyle = ringCol; ctx.lineWidth = type === 'heavy_square' ? 2.5 : 1.5;
     ctx.beginPath(); ctx.arc(0, 0, ringR, 0, TAU); ctx.stroke();
 
     ctx.restore();

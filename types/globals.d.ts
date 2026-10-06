@@ -54,6 +54,10 @@ declare function paintTurretShadow(ctx: any, verts: any, cx: any, cy: any, angle
 declare function getCachedTankSprite(color: any, kind: any, verts: any, hasTurret: any, heightClass: any, texture?: any): any;
 declare function paintPartTextureDirect(ctx: any, verts: any, cx: any, cy: any, angle: any, scale: any, color: any, kind: any, opts?: any): void;
 declare function paintPartTexture(ctx: any, verts: any, cx: any, cy: any, angle: any, scale: any, color: any, kind: any, opts?: any): void;
+declare var SPRITE_CACHE: Map<string, any>;
+declare function spriteImage(path: string): any;
+declare function clearSpriteCache(): void;
+declare function paintPartSprite(ctx: any, img: any, cx: any, cy: any, angle: any, viewScale: any, scale: any, dx: any, dy: any, rotDeg: any, pivot?: any): boolean;
 declare var TEXTURE_DEFS: Record<string, { name: string; base?: string; draw: ((ctx: any, bbox: any) => void) | null }>;
 declare function applyTankConfig(t: any, cfg: any): void;
 declare function computeStats(base: any, modifiers?: any): any;

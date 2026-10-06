@@ -300,7 +300,143 @@ function drawFoliage(ctx, covers){
   }
 }
 
+// ---------- 整车精灵替换通道（四层：履带/车体/炮塔/炮管） ----------
+// spriteBarrelImages(t): 按主武器类型返回炮管图片数组（双管返回两张）。
+//   standard/clip → imgStandard；autocannon → imgAutocannon；railgun → imgRailgun；
+//   double_barrel → 两张 imgStandard（横向偏移绘制）。
+function spriteBarrelImages(t){
+  const sp = t.sprite, b = (sp && sp.barrel) || {};
+  const type = (t.weapons && t.weapons.primary && t.weapons.primary.type) || 'standard';
+  const std = b.imgStandard || 'assets/tanks/barrels/barrel-standard.png';
+  const ac  = b.imgAutocannon || 'assets/tanks/barrels/barrel-autocannon.png';
+  const rg  = b.imgRailgun || 'assets/tanks/barrels/barrel-railgun.png';
+  let paths;
+  if(type === 'autocannon') paths = [ac];
+  else if(type === 'railgun') paths = [rg];
+  else paths = [std];
+  if(type === 'double_barrel') paths = [std, std];
+  return paths.map(p => spriteImage(p)).filter(Boolean);
+}
+// spriteReady(t): 精灵已启用且四层图片都已加载完成。
+function spriteReady(t){
+  const sp = t.sprite;
+  if(!sp || !sp.enabled) return false;
+  const hi = spriteImage(sp.hull && sp.hull.img);
+  const ti = spriteImage(sp.turret && sp.turret.img);
+  if(!(hi && hi.complete && hi.naturalWidth && ti && ti.complete && ti.naturalWidth)) return false;
+  const trk = spriteImage(sp.track && sp.track.img);
+  if(!(trk && trk.complete && trk.naturalWidth)) return false;
+  const bis = spriteBarrelImages(t);
+  if(!bis.length) return false;
+  for(const bi of bis){ if(!(bi.complete && bi.naturalWidth)) return false; }
+  return true;
+}
+// drawSpriteTracks(ctx, t): 四层管线 Layer 0 —— 滚动履带条（车体之下）。
+// 左右各一条 track-links.png 平铺带，随 hullAngle 旋转，用 t.trackPhase 滚动（周期 196px）。
+function drawSpriteTracks(ctx, t){
+  const sp = t.sprite, tr = (sp && sp.track) || {};
+  const img = spriteImage(tr.img || 'assets/tanks/track-links.png');
+  if(!img || !img.complete || !img.naturalWidth) return;
+  const tw = t.trackWidth || 8;
+  const s = (tr.scale > 0) ? tr.scale : tw / img.naturalHeight;
+  const W = (t.hullWid || 30) / 2;
+  const off = t.trackOffset || 0;
+  const L = t.hullLen || 60;
+  const dx = tr.dx || 0, dy = tr.dy || 0;
+  const tileLen = img.naturalWidth * s;
+  const period = 196 * s;
+  const phase = (((t.trackPhase || 0) % period) + period) % period;
+  ctx.save();
+  ctx.translate(t.x, t.y);
+  ctx.rotate(t.hullAngle || 0);
+  for(const dir of [-1, 1]){
+    const cy = dir * (W + off + tw / 2) + dy;
+    const x0 = dx - L / 2, x1 = dx + L / 2;
+    const y0 = cy - tw / 2, y1 = cy + tw / 2;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
+    const drawH = img.naturalHeight * s;
+    const yImg = cy - drawH / 2;
+    for(let x = x0 - phase - tileLen; x < x1; x += tileLen){
+      ctx.drawImage(img, x, yImg, tileLen, drawH);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+// drawSpriteBarrel(ctx, t, img, lateralOff): 四层管线 Layer 3 —— 炮管贴图。
+// 炮管尾端 pivot 对准「座圈中心 + 炮塔局部 (mountDx-embed, mountDy+lateralOff)」旋转 turretAngle，
+// 长度按 t.barrel.len（% turLen）缩放，带开火后座（复用 recoilT 逻辑）。
+function drawSpriteBarrel(ctx, t, img, lateralOff){
+  const sp = t.sprite, b = (sp && sp.barrel) || {};
+  if(!img || !img.complete || !img.naturalWidth) return;
+  const mountDx = +b.mountDx || 0, mountDy = +b.mountDy || 0;
+  const embed = (b.embed !== undefined && b.embed !== null && b.embed !== '') ? +b.embed : 2;
+  const scaleMult = +b.scaleMult || 1;
+  const _bSpec = t.barrel || { len: 120 };
+  let barrelLen = (t.turLen || 34) * Math.max(0, Math.min(3, (_bSpec.len || 120) / 100));
+  const wtype = (t.weapons && t.weapons.primary && t.weapons.primary.type) || 'standard';
+  if(wtype === 'autocannon'){
+    const _ac = (t.weapons.primary.stats) || {};
+    barrelLen *= (typeof _ac.barrelLenMult === 'number') ? _ac.barrelLenMult : 0.8;
+  }
+  const scale = barrelLen / img.naturalWidth * scaleMult;
+  const _recoilT = t.recoilT || 0;
+  let recoilOff = 0;
+  if(_recoilT > 0){
+    const _rc = Math.min(1, Math.max(0, _recoilT / 0.08));
+    recoilOff = 5 * Math.sin(Math.PI * _rc);
+  }
+  const ang = superstructureAngle(t);
+  const pOff = turretPivot(t);
+  const r = rotate(mountDx - embed, mountDy + (lateralOff || 0), ang);
+  const bx = pOff.x + r.x - Math.cos(ang) * recoilOff;
+  const by = pOff.y + r.y - Math.sin(ang) * recoilOff;
+  paintPartSprite(ctx, img, bx, by, ang, 1, scale, 0, 0, 0, [0, img.naturalHeight / 2]);
+}
+// drawTankSprite(ctx, t): 用 AI 生成的四层精灵替换程序化绘制。
+// Layer 0 履带（滚动）→ Layer 1 车体（对准坦克原点、随 hullAngle）→
+// Layer 2 炮塔（pivot 对准座圈中心、随炮塔角）→ Layer 3 炮管（武器类型切换、双管偏移、后座）。
+// 对齐参数由设计器写入 tanks/<id>.json `sprite`。
+function drawTankSprite(ctx, t){
+  const sp = t.sprite, h = sp.hull || {}, s = sp.turret || {};
+  const hi = spriteImage(h.img), ti = spriteImage(s.img);
+  // 地面软阴影（精灵无烘焙阴影，补一块）
+  ctx.save();
+  ctx.translate(t.x, t.y);
+  ctx.rotate(t.hullAngle || 0);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, hi.naturalWidth*(h.scale||0)*0.52, hi.naturalHeight*(h.scale||0)*0.52, 0, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+  drawSpriteTracks(ctx, t);
+  paintPartSprite(ctx, hi, t.x, t.y, t.hullAngle, 1, h.scale, h.dx, h.dy, h.rot);
+  if(t.hasTurret !== false){
+    const pOff = turretPivot(t);
+    paintPartSprite(ctx, ti, pOff.x, pOff.y, superstructureAngle(t), 1,
+      s.scale, s.dx, s.dy, s.rot, s.pivot);
+    if(!t.ammoBlew){
+      const wtype = (t.weapons && t.weapons.primary && t.weapons.primary.type) || 'standard';
+      const imgs = spriteBarrelImages(t);
+      if(wtype === 'double_barrel' && imgs.length >= 2){
+        const gap = (+((sp.barrel || {}).gap) > 0) ? +sp.barrel.gap : 3.7;
+        drawSpriteBarrel(ctx, t, imgs[0], -gap / 2);
+        drawSpriteBarrel(ctx, t, imgs[1], gap / 2);
+      } else if(imgs.length){
+        drawSpriteBarrel(ctx, t, imgs[0], 0);
+      }
+    }
+  }
+}
+
 function drawTank(ctx, t){
+  // 整车精灵替换通道（tanks/<id>.json `sprite.enabled`，设计器对齐后开启）：
+  // 图片未就绪/殉爆飞头时回退程序化绘制，保证首帧与极端状态不穿帮。
+  if(t.sprite && t.sprite.enabled && !t.ammoBlew && spriteReady(t)){
+    drawTankSprite(ctx, t);
+    return;
+  }
   const pOff = turretPivot(t);
   const turCx = pOff.x;
   const turCy = pOff.y;

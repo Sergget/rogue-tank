@@ -307,6 +307,53 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">灰度/半透明图案平铺叠层，保持坦克主色（车体+炮塔同款）；在「预览」模式下即时可见，保存时写入 tank JSON（texture 字段）</div>
     </div>
 
+    <div class="section panel-appearance">
+      <h3>整车精灵 Sprite</h3>
+      <div class="prop-row"><span class="lbl">游戏中启用精灵</span><input type="checkbox" id="sp-enabled" style="width:16px;"></div>
+      <div class="prop-row"><span class="lbl">画布显示精灵</span><input type="checkbox" id="sp-preview" checked style="width:16px;"></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">精灵 = AI 生成的四层俯视贴图（assets/tanks/：履带/车体/炮塔/炮管）。「游戏中启用」写入 tank JSON（sprite.enabled），局内 drawTank 改用精灵绘制；「画布显示」仅设计器叠加预览，用于对齐多边形。</div>
+      <div class="prop-row"><span class="lbl" style="color:var(--amber);">履带 Track</span><span class="mono" id="sp-track-img" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
+      <div class="prop-row"><span class="lbl">缩放 (单位/px)</span><input type="number" id="sp-track-scale" step="0.0005" min="0"></div>
+      <div class="prop-row"><span class="lbl">位移 X / Y</span>
+        <input type="number" id="sp-track-dx" step="0.5" style="width:56px;" title="X：+前">
+        <input type="number" id="sp-track-dy" step="0.5" style="width:56px;" title="Y：+右">
+      </div>
+      <div class="prop-row"><span class="lbl" style="color:var(--amber);">车体 Hull</span><span class="mono" id="sp-hull-img" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
+      <div class="prop-row"><span class="lbl">缩放 (单位/px)</span><input type="number" id="sp-hull-scale" step="0.0005" min="0"></div>
+      <div class="prop-row"><span class="lbl">位移 X / Y</span>
+        <input type="number" id="sp-hull-dx" step="0.5" style="width:56px;" title="X：+前">
+        <input type="number" id="sp-hull-dy" step="0.5" style="width:56px;" title="Y：+右">
+      </div>
+      <div class="prop-row"><span class="lbl">旋转 (°)</span><input type="number" id="sp-hull-rot" step="1"></div>
+      <div class="prop-row"><span class="lbl" style="color:var(--amber);">炮塔 Turret</span><span class="mono" id="sp-turret-img" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
+      <div class="prop-row"><span class="lbl">缩放 (单位/px)</span><input type="number" id="sp-turret-scale" step="0.0005" min="0"></div>
+      <div class="prop-row"><span class="lbl">位移 X / Y</span>
+        <input type="number" id="sp-turret-dx" step="0.5" style="width:56px;" title="X：+前">
+        <input type="number" id="sp-turret-dy" step="0.5" style="width:56px;" title="Y：+右">
+      </div>
+      <div class="prop-row"><span class="lbl">旋转 (°)</span><input type="number" id="sp-turret-rot" step="1"></div>
+      <div class="prop-row"><span class="lbl">轴心 (图片px)</span>
+        <input type="number" id="sp-turret-pivotx" step="1" style="width:56px;" title="旋转中心 X（图片像素）">
+        <input type="number" id="sp-turret-pivoty" step="1" style="width:56px;" title="旋转中心 Y（图片像素）">
+      </div>
+      <div class="prop-row"><span class="lbl" style="color:var(--amber);">炮管 Barrel</span><span class="mono" style="font-size:9px; color:var(--text-dim);">按主武器类型切换贴图</span></div>
+      <div class="prop-row"><span class="lbl">安装点 X / Y</span>
+        <input type="number" id="sp-barrel-mountdx" step="0.5" style="width:56px;" title="相对炮塔轴心的炮塔局部 X（+前）">
+        <input type="number" id="sp-barrel-mountdy" step="0.5" style="width:56px;" title="相对炮塔轴心的炮塔局部 Y（+右）">
+      </div>
+      <div class="prop-row"><span class="lbl">嵌入深度</span><input type="number" id="sp-barrel-embed" step="0.5" title="炮管尾端嵌入炮塔的深度（单位）"></div>
+      <div class="prop-row"><span class="lbl">长度微调</span><input type="number" id="sp-barrel-scalemult" step="0.05" min="0" title="炮管长度缩放系数"></div>
+      <div class="prop-row"><span class="lbl">双管间距</span><input type="number" id="sp-barrel-gap" step="0.1" min="0" title="双管时两炮管横向间距（单位）"></div>
+      <div class="prop-row"><span class="lbl">标准炮管</span><input type="text" id="sp-barrel-imgstd-in" style="width:150px; font-size:10px;" title="标准炮管贴图路径"></div>
+      <div class="prop-row"><span class="lbl">机炮炮管</span><input type="text" id="sp-barrel-imgac-in" style="width:150px; font-size:10px;" title="机炮炮管贴图路径"></div>
+      <div class="prop-row"><span class="lbl">磁轨炮管</span><input type="text" id="sp-barrel-imgrg-in" style="width:150px; font-size:10px;" title="磁轨炮炮管贴图路径"></div>
+      <div class="prop-row"><span class="mono" id="sp-barrel-imgstd" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
+      <div class="prop-row"><span class="mono" id="sp-barrel-imgac" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
+      <div class="prop-row"><span class="mono" id="sp-barrel-imgrg" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
+      <div class="btnrow"><button id="sp-autoalign">按多边形自动对齐</button></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">自动对齐：按车体/炮塔多边形包围盒长度重算缩放，清零位移与旋转（轴心保留）；履带缩放=履带宽/图片高，炮管安装点=炮塔前缘×0.8。缩放语义：贴图像素 × 缩放 = 模型单位。</div>
+    </div>
+
     <div class="section panel-hull panel-turret">
       <h3>选中顶点 Selected Vertex</h3>
       <div id="selInfo">未选中顶点 — 点击画布上一个顶点即可选中并精确编辑坐标</div>
