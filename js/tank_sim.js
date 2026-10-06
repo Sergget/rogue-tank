@@ -368,6 +368,7 @@ function runReplay(opts){
     // --- 主循环 ---
     let time = 0, playerShots = 0, enemyShots = 0;
     let kills = 0, playerHitsTaken = 0;
+    let revives = 0, hpConsumed = 0;  // 2026-10-06：无限复活计数与血量消耗
     const initialEnemies = entitiesArr.filter(e => e.team === 'enemy').length;
     let outcome = null;
 
@@ -376,7 +377,20 @@ function runReplay(opts){
       const enemiesAlive = alive.filter(e => ENT.isHostile('player', e.team));
       const quota = node.quota;
       if (!enemiesAlive.length || (quota && kills >= quota)){ outcome = 'win'; break; }
-      if (player.hp <= 0){ outcome = 'loss'; break; }
+      // 2026-10-06：无限复活模式——玩家死亡时原地满血复活（计数+1），
+      // 战斗仅以 win/timeout 结束；hpConsumed 累计消耗血量作为难度参考。
+      if (player.hp <= 0){
+        if (o.infiniteRevive){
+          revives++;
+          hpConsumed += player.stats.maxHp;  // 死亡消耗一整条血
+          player.hp = player.stats.maxHp;
+          player._dead = false;
+          // 清除 debuff，避免复活后立即再死于 dot
+          player.dotT = 0; player.dotDps = 0;
+        } else {
+          outcome = 'loss'; break;
+        }
+      }
       if (time >= maxNodeTime){ outcome = 'timeout'; break; }
 
       // 诊断钩子（可选）：每 ~1s 回调一次循环快照，供回放调试
@@ -446,6 +460,9 @@ function runReplay(opts){
       time += dt;
     }
 
+    // 2026-10-06：补上最后一条命的消耗（未死亡但掉血的部分）
+    const finalHpLost = Math.max(0, (player.stats.maxHp || 0) - Math.max(0, player.hp));
+    hpConsumed += finalHpLost;
     return {
       index: node.index,
       boss: !!node.boss,
@@ -457,7 +474,10 @@ function runReplay(opts){
       playerShots: playerShots,
       enemyShots: enemyShots,
       aliveAtEnd: entitiesArr.filter(e => e.hp > 0).length,
-      quota: node.quota || null
+      quota: node.quota || null,
+      revives: revives,  // 2026-10-06：无限复活次数
+      hpConsumed: Math.round(hpConsumed),  // 2026-10-06：累计消耗血量
+      hpBarsConsumed: Number((hpConsumed / (player.stats.maxHp || 1)).toFixed(2))  // 消耗的血条数
     };
   }
 }

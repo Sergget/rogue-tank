@@ -6,7 +6,10 @@
 // 目的：把「难度合不合理」变成可比较的数字，而不是凭感觉调参。
 // 方法：tank_sim.runReplay（确定性 headless 全链战斗）× playerPolicy bot 档位
 //   × difficultyLevel（env 透传）× seed，统计每格：整轮通关率 / 节点胜率 /
-//   平均用时 / 平均剩余血量 / 平均击杀。改参数前后跑同一批 seed，直接对比。
+//   平均用时 / 平均剩余血量 / 平均击杀 / 平均复活次数 / 平均消耗血条数。
+//   2026-10-06：代打无限复活，血量消耗（条数）作为难度参考——
+//   死亡不再终结战斗，而是计一次复活+消耗一整条血继续。
+//   改参数前后跑同一批 seed，直接对比。
 //
 // 保真度边界（沿用 tank_sim 已知取舍）：Boss 节点为重坦占位、不模拟复活/卡牌/
 //   Boss 召唤物；结论覆盖常规节点战斗难度，不覆盖 Boss 战与卡牌构筑流派。
@@ -196,7 +199,7 @@ function parseArgs(){
 function runCell(botName, diff, seeds, nodeCount, o){
   const t0 = Date.now();
   let runWins = 0, nodeWins = 0, nodeTotal = 0, timeouts = 0;
-  let durSum = 0, hpSum = 0, killSum = 0;
+  let durSum = 0, hpSum = 0, killSum = 0, reviveSum = 0, hpBarsSum = 0;
   const perNode = {};  // idx -> {win, timeout, loss, dur, hp, kills, n}
   for (let s = 0; s < seeds; s++){
     const seed = 1000 + s * 77;   // 固定 seed 序列：改参数前后可比
@@ -210,13 +213,14 @@ function runCell(botName, diff, seeds, nodeCount, o){
       env: { difficultyLevel: diff },
       playerTankId: o.tank,
       playerPolicy: BOTS[botName],
-      playerBuild: build
+      playerBuild: build,
+      infiniteRevive: true  // 2026-10-06：代打无限复活，血量消耗作为难度参考
     });
     const nodes = res.results || [];
     let allWin = nodes.length > 0;
     for (const n of nodes){
       nodeTotal++;
-      const pn = perNode[n.index] || (perNode[n.index] = { win: 0, timeout: 0, loss: 0, dur: 0, hp: 0, kills: 0, n: 0, boss: !!n.boss });
+      const pn = perNode[n.index] || (perNode[n.index] = { win: 0, timeout: 0, loss: 0, dur: 0, hp: 0, kills: 0, n: 0, boss: !!n.boss, revives: 0, hpBars: 0 });
       pn.n++;
       if (n.outcome === 'win'){ nodeWins++; pn.win++; }
       else {
@@ -227,6 +231,9 @@ function runCell(botName, diff, seeds, nodeCount, o){
       durSum += n.duration || 0; pn.dur += n.duration || 0;
       hpSum += n.playerHpPct || 0; pn.hp += n.playerHpPct || 0;
       killSum += n.kills || 0; pn.kills += n.kills || 0;
+      // 2026-10-06：复活与血量消耗统计
+      reviveSum += n.revives || 0; pn.revives += n.revives || 0;
+      hpBarsSum += n.hpBarsConsumed || 0; pn.hpBars += n.hpBarsConsumed || 0;
     }
     if (allWin) runWins++;
   }
@@ -238,6 +245,8 @@ function runCell(botName, diff, seeds, nodeCount, o){
     avgDur: nodeTotal ? durSum / nodeTotal : 0,
     avgHpPct: nodeTotal ? hpSum / nodeTotal : 0,
     avgKills: nodeTotal ? killSum / nodeTotal : 0,
+    avgRevives: nodeTotal ? reviveSum / nodeTotal : 0,  // 2026-10-06
+    avgHpBars: nodeTotal ? hpBarsSum / nodeTotal : 0,  // 2026-10-06：平均消耗血条数
     perNode: perNode,
     ms: Date.now() - t0
   };
@@ -263,6 +272,8 @@ function main(){
         ` | 用时 ${r.avgDur.toFixed(1)}s` +
         ` | 剩血 ${(r.avgHpPct * 100).toFixed(0)}%` +
         ` | 击杀 ${r.avgKills.toFixed(1)}` +
+        ` | 复活 ${r.avgRevives.toFixed(1)}` +  // 2026-10-06
+        ` | 耗血 ${r.avgHpBars.toFixed(1)}条` +  // 2026-10-06
         ` | ${r.ms}ms`
       );
       // 逐节点明细：定位胜率断崖在第几个节点（boss 节点单独标注）
