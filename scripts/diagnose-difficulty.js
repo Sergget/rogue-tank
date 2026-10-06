@@ -11,8 +11,9 @@
 //   死亡不再终结战斗，而是计一次复活+消耗一整条血继续。
 //   改参数前后跑同一批 seed，直接对比。
 //
-// 保真度边界（沿用 tank_sim 已知取舍）：Boss 节点为重坦占位、不模拟复活/卡牌/
-//   Boss 召唤物；结论覆盖常规节点战斗难度，不覆盖 Boss 战与卡牌构筑流派。
+// 保真度边界：Boss 节点用 bosses/<id>.json 真实模板的基础配置（tankId/scale/
+//   tuning），不模拟多阶段/stages、召唤物/summons、弱点/weakspots、护盾机制；
+//   结论覆盖常规节点战斗难度 + Boss 基础数值强度，不覆盖 Boss 战完整机制与卡牌构筑流派。
 // ============================================================================
 'use strict';
 
@@ -176,7 +177,7 @@ const BOTS = {
 // ---------- CLI ----------
 function parseArgs(){
   const o = { bots: ['reckless', 'average', 'careful'], diffs: [0, 3, 6], seeds: 6, nodes: 5,
-              tank: 'tiger-I', cards: 0, upgrades: null, cardPool: null };
+              tank: 'tiger-I', cards: 0, upgrades: null, cardPool: null, boss: 'boss_commander' };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++){
     const a = argv[i];
@@ -187,6 +188,7 @@ function parseArgs(){
     else if (a === '--tank') o.tank = argv[++i];
     else if (a === '--cards') o.cards = Math.max(0, Number(argv[++i]) | 0);
     else if (a === '--upgrades') o.upgrades = parseUpgrades(argv[++i]);
+    else if (a === '--boss') o.boss = argv[++i];
     else { console.error(`未知参数: ${a}`); process.exit(2); }
   }
   for (const b of o.bots) if (!BOTS[b]){ console.error(`未知 bot 档位: ${b}`); process.exit(2); }
@@ -214,7 +216,8 @@ function runCell(botName, diff, seeds, nodeCount, o){
       playerTankId: o.tank,
       playerPolicy: BOTS[botName],
       playerBuild: build,
-      infiniteRevive: true  // 2026-10-06：代打无限复活，血量消耗作为难度参考
+      infiniteRevive: true,  // 2026-10-06：代打无限复活，血量消耗作为难度参考
+      bossId: o.boss || 'boss_commander'  // 2026-10-06 方案 b：真实 Boss 模板
     });
     const nodes = res.results || [];
     let allWin = nodes.length > 0;

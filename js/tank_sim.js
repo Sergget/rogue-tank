@@ -13,7 +13,8 @@
 //     抖动与 tank_physics 的伤害浮动 [0.85,1.15]），run 结束恢复原实现；
 //   - 固定步长积分（默认 dt=1/30），无帧率依赖。
 // 已知保真度取舍（基线可接受，修补阶段按需细化）：
-//   - Boss 节点以重坦占位实体代替 bosses/<id>.json 多阶段机制；
+//   - Boss 节点用 bosses/<id>.json 真实模板的基础配置（tankId/scale/tuning），
+//     不模拟多阶段/stages、召唤物/summons、弱点/weakspots、护盾机制；
 //   - dot 持续伤害按连续扣血近似（mvp 为离散 tick）；
 //   - 不模拟复活/卡牌/Boss 召唤物。
 // ============================================================================
@@ -55,6 +56,19 @@ function _defaultLoadTankSpec(id){
     if (typeof require === 'function'){
       // eslint-disable-next-line no-undef
       return require('../tanks/' + id + '.json');
+    }
+  } catch (e) { /* fall through */ }
+  return null;
+}
+
+// 真实 Boss 模板加载（2026-10-06 方案 b）：bosses/<id>.json。
+// sim 仅应用基础配置（tankId + scale + tuning 乘子），不模拟多阶段/stages、
+// 召唤物/summons、弱点/weakspots、护盾等机制——保真度边界见文件头。
+function _defaultLoadBossSpec(id){
+  try {
+    if (typeof require === 'function'){
+      // eslint-disable-next-line no-undef
+      return require('../bosses/' + id + '.json');
     }
   } catch (e) { /* fall through */ }
   return null;
@@ -305,18 +319,53 @@ function runReplay(opts){
       }
     });
 
-    // Boss 节点占位（基线取舍：不引入 bosses/<id>.json 多阶段机制）
+    // Boss 节点：真实模板基础配置（2026-10-06 方案 b）。
+    // 加载 bosses/<bossId>.json，应用 tankId + scale + tuning 乘子；
+    // 不模拟 stages/summons/weakspots/护盾（保真度边界见文件头）。
+    // bossId 可经 runReplay opts 覆盖，默认 boss_commander。
     if (node.boss){
+      const bossId = o.bossId || 'boss_commander';
+      const loadBoss = o.loadBossSpec || _defaultLoadBossSpec;
+      const bossSpec = loadBoss(bossId);
       const b = _spawnSimTank({
-        id: `boss_placeholder_${node.index}`, team: 'enemy',
+        id: `boss_${bossId}_${node.index}`, team: 'enemy',
         x: worldW * 0.82, y: worldH * 0.5,
         hullAngle: Math.PI, turretAngle: Math.PI,
         heightClass: 'heavy'
       });
-      const bSpec = loadSpec('tiger-I');
+      const tankId = (bossSpec && bossSpec.tankId) || 'tiger-I';
+      const bSpec = loadSpec(tankId);
       if (bSpec && MODEL.applyTankConfig) MODEL.applyTankConfig(b, bSpec);
-      b.stats.maxHp *= 2.2; b.hp = b.stats.maxHp;
-      b.stats.penetration *= 1.25; b.stats.damage *= 1.25;
+      if (bossSpec){
+        // 几何缩放（沿用 makeBossEntity 逻辑，不缩放炮管长度）
+        const s = bossSpec.scale || 1;
+        if (s !== 1){
+          b.hullLen *= s; b.hullWid *= s;
+          b.turLen *= s;  b.turWid *= s;
+          if (b.hullSpec)   b.hullSpec.verts   = b.hullSpec.verts.map(([x,y]) => [x*s, y*s]);
+          if (b.turretSpec) b.turretSpec.verts = b.turretSpec.verts.map(([x,y]) => [x*s, y*s]);
+          if (b.turretPivotOffset){
+            b.turretPivotOffset = {
+              dx: (b.turretPivotOffset.dx || 0) * s,
+              dy: (b.turretPivotOffset.dy || 0) * s
+            };
+          }
+        }
+        // tuning 乘子
+        const tuning = bossSpec.tuning || {};
+        if (tuning.hpMul)  { b.stats.maxHp *= tuning.hpMul; b.hp = b.stats.maxHp; }
+        if (tuning.dmgMul) { b.stats.damage *= tuning.dmgMul; }
+        if (tuning.moveMul && b.stats.maxSpeed) { b.stats.maxSpeed *= tuning.moveMul; }
+        if (tuning.turnMul && b.stats.turnRate) { b.stats.turnRate *= tuning.turnMul; }
+        if (tuning.turretTurnMul && b.stats.turretTurnRate) { b.stats.turretTurnRate *= tuning.turretTurnMul; }
+        if (tuning.fireRateMul && b.stats.reload) { b.stats.reload *= tuning.fireRateMul; }
+        // shellMul 影响炮弹速度，sim 中炮弹速度由 fire 模块决定，此处记录备用
+        b.bossShellMul = tuning.shellMul || 1;
+      } else {
+        // 模板加载失败时回退到旧占位（保证 sim 不崩）
+        b.stats.maxHp *= 2.2; b.hp = b.stats.maxHp;
+        b.stats.penetration *= 1.25; b.stats.damage *= 1.25;
+      }
       b.aiTier = Math.max(1, node.aiTier || 0);
     }
 
