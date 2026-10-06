@@ -204,16 +204,7 @@
     font-family:'JetBrains Mono',monospace;}
   #flowOverlay .btnrow{display:flex; gap:10px; margin-top:16px; justify-content:center;}
   #flowOverlay button{font-size:12px; padding:9px 18px;}
-  #mapList{display:flex; flex-direction:column; gap:6px; max-height:320px; overflow-y:auto;}
-  #mapList .node-row{display:flex; align-items:center; gap:10px; border:1px solid var(--line);
-    padding:8px 12px; cursor:pointer; background:rgba(255,255,255,0.02);}
-  #mapList .node-row:hover{border-color:var(--amber); background:rgba(255,180,84,0.08);}
-  #mapList .node-row.current{border-color:var(--green);}
-  #mapList .node-row .idx{font-family:'JetBrains Mono',monospace; color:var(--amber-dim); width:46px; flex-shrink:0;}
-  #mapList .node-row .meta{flex:1; font-size:11px; line-height:1.6;}
-  #mapList .node-row .meta b{color:var(--text);}
-  #mapList .node-row .meta span{color:var(--text-dim); font-family:'JetBrains Mono',monospace;}
-  #mapList .node-row .diff{font-family:'JetBrains Mono',monospace; color:var(--red); flex-shrink:0;}
+  /* 2026-10-06：节点列表已移除（难度与地图解耦），保留占位样式 */
   #settleBody{font-family:'JetBrains Mono',monospace; font-size:12px; line-height:2;}
   #settleBody .row{display:flex; justify-content:space-between; gap:10px;}
   #settleBody .row .k{color:var(--text-dim);}
@@ -378,9 +369,8 @@
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
       <div class="screen-title">节点地图 NODE MAP</div>
-      <div id="mapList"></div>
       <div class="btnrow"><button id="startRunBtn">开始新的一局 NEW RUN</button></div>
-      <div class="screen-hint">线性推进：每个节点是独立战场，难度随推进上升。达到击杀配额即通关（敌军会持续增援）；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。</div>
+      <div class="screen-hint">线性推进：每个节点是独立战场。达到击杀配额即通关（敌军会持续增援）；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。</div>
     </div>
     <div id="settleScreen" class="screen" style="display:none;">
       <div class="screen-title">节点结算 NODE CLEARED</div>
@@ -1865,38 +1855,12 @@ function nextNodeAfterReward(){
 }
 
 function renderMapList(){
-  const _builder = (typeof buildMapListViewModel === 'function' ? buildMapListViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildMapListViewModel : null));
-  const vm = _builder ? _builder({ run, currentNodeIndex: currentNode ? currentNode.index : null, runFinished }) : null;
-  const list = document.getElementById('mapList');
-  list.innerHTML = '';
-  if(vm){
-    for(const r of vm.rows){
-      const row = document.createElement('div');
-      row.className = 'node-row' + (r.current ? ' current' : '');
-      row.innerHTML = `<span class="idx">${r.mark}${r.index + 1}</span>` +
-        `<span class="meta"><b>${r.name}</b><br><span>${r.meta}</span></span>` +
-        `<span class="diff">${r.diffText}</span>`;
-      row.addEventListener('click', () => { playSound('ui'); transition(flow, 'battle', { nodeIndex: r.index }); });
-      list.appendChild(row);
-    }
-    const hint = document.querySelector('#mapScreen .screen-hint');
-    if(hint) hint.textContent = vm.hintText;
-  } else {
-    run.nodes.forEach((n, i) => {
-      const row = document.createElement('div');
-      row.className = 'node-row' + (currentNode && currentNode.index === i ? ' current' : '');
-      const mark = (currentNode && currentNode.index === i) ? '▶' : '';
-      row.innerHTML = `<span class="idx">${mark}${i + 1}</span>` +
-        `<span class="meta"><b>${n.template.name}</b><br><span>敌军 ${n.enemies.length} · ${n.outpost ? '有据点' : '无据点'} · ${n.w}×${n.h}</span></span>` +
-        `<span class="diff">难度 ${(n.difficulty * 100).toFixed(0)}%</span>`;
-      row.addEventListener('click', () => { playSound('ui'); transition(flow, 'battle', { nodeIndex: i }); });
-      list.appendChild(row);
-    });
-    const hint = document.querySelector('#mapScreen .screen-hint');
-    hint.textContent = runFinished
-      ? '🎉 全链通关！点「开始新的一局」再战。'
-      : '线性推进：每个节点是独立战场，难度随推进上升。清除全部敌军即通关；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。';
-  }
+  // 2026-10-06：难度与地图解耦，不再列出节点供选择。
+  // 地图屏仅保留"开始新的一局"入口，节点推进由战斗流自动驱动。
+  const hint = document.querySelector('#mapScreen .screen-hint');
+  if(hint) hint.textContent = runFinished
+    ? '🎉 全链通关！点「开始新的一局」再战。'
+    : '线性推进：每个节点是独立战场。达到击杀配额即通关（敌军会持续增援）；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。';
 }
 
 // 流程监听：状态切换 → UI 显隐 + 战场搭建（纯逻辑在 tank_flow.js，UI 消费在本函数）
