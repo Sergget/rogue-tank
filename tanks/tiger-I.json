@@ -1,6 +1,5 @@
 {
   "id": "tiger-I",
-  "class": "heavy",
   "traverseLimit": 180,
   "maxSpeed": 120,
   "turnRate": 1.6,
@@ -18,6 +17,44 @@
   "spreadMult": 1.2,
   "aimSpeed": 1.5,
   "texture": "camo_dunkelgelb",
+  "sprite": {
+    "enabled": true,
+    "track": {
+      "img": "assets/tanks/track-links.png",
+      "scale": 0,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0
+    },
+    "hull": {
+      "img": "assets/tanks/tiger-I_hull.png",
+      "scale": 0.036644,
+      "dx": 0,
+      "dy": -0.018,
+      "rot": 0
+    },
+    "turret": {
+      "img": "assets/tanks/tiger-I_turret.png",
+      "scale": 0.02542,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0,
+      "pivot": [
+        929.4,
+        640
+      ]
+    },
+    "barrel": {
+      "mountDx": 17.7,
+      "mountDy": 0,
+      "embed": 2,
+      "scaleMult": 1,
+      "gap": 3.7,
+      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
+      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"
+    }
+  },
   "barrel": {
     "len": 120,
     "width": 10,
@@ -224,185 +261,6 @@
     "axis": {
       "dx": 4,
       "dy": 0
-    }
-  },
-  "modules": {
-    "driver": [
-      {
-        "part": "hull",
-        "x": 34.4,
-        "y": -6.8,
-        "len": 0.5,
-        "off": 0,
-        "mirror": false
-      },
-      {
-        "part": "hull",
-        "x": -2.6,
-        "y": -19.1,
-        "len": 0.1,
-        "off": -0.45,
-        "mirror": false
-      }
-    ],
-    "ammo": [
-      {
-        "part": "hull",
-        "x": -2.6,
-        "y": -19.1,
-        "len": 0.3,
-        "off": -0.25,
-        "mirror": true
-      },
-      {
-        "part": "turret",
-        "x": -19.3,
-        "y": -2.1,
-        "len": 0.6,
-        "off": 0,
-        "mirror": true
-      },
-      {
-        "part": "turret",
-        "x": -18.6,
-        "y": -5.6,
-        "len": 0.6,
-        "off": 0,
-        "mirror": true
-      },
-      {
-        "part": "turret",
-        "x": -17.5,
-        "y": -8.2,
-        "len": 0.6,
-        "off": 0,
-        "mirror": true
-      },
-      {
-        "part": "turret",
-        "x": -15.5,
-        "y": -10.8,
-        "len": 0.6,
-        "off": 0,
-        "mirror": true
-      },
-      {
-        "part": "turret",
-        "x": -12,
-        "y": -11.6,
-        "len": 1,
-        "off": 0,
-        "mirror": true
-      }
-    ],
-    "engine": [
-      {
-        "part": "hull",
-        "x": -34.5,
-        "y": 0,
-        "len": 0.65,
-        "off": 0,
-        "mirror": true
-      },
-      {
-        "part": "hull",
-        "x": -2.6,
-        "y": -19.1,
-        "len": 0.25,
-        "off": 0.25,
-        "mirror": true
-      }
-    ],
-    "gunner": [
-      {
-        "part": "turret",
-        "x": 18.3,
-        "y": -11.6,
-        "len": 0.6,
-        "off": 0,
-        "mirror": false
-      },
-      {
-        "part": "turret",
-        "x": 19.7,
-        "y": 0,
-        "len": 0.35,
-        "off": 0.3,
-        "mirror": false
-      }
-    ],
-    "loader": [
-      {
-        "part": "turret",
-        "x": -3.1,
-        "y": 15.9,
-        "len": 0.8,
-        "off": 0,
-        "mirror": false
-      },
-      {
-        "part": "turret",
-        "x": 3.8,
-        "y": 17.4,
-        "len": 0.8,
-        "off": 0,
-        "mirror": false
-      }
-    ],
-    "commander": [
-      {
-        "part": "turret",
-        "x": 3.8,
-        "y": -17.3,
-        "len": 0.7,
-        "off": 0,
-        "mirror": false
-      },
-      {
-        "part": "turret",
-        "x": 10.1,
-        "y": -16.8,
-        "len": 0.7,
-        "off": 0,
-        "mirror": false
-      }
-    ]
-  },
-  "sprite": {
-    "enabled": false,
-    "hull": {
-      "img": "assets/tanks/tiger-I_hull.png",
-      "scale": 0.036641,
-      "dx": 0.202,
-      "dy": 0.057,
-      "rot": 0
-    },
-    "turret": {
-      "img": "assets/tanks/tiger-I_turret.png",
-      "scale": 0.023988,
-      "dx": 0,
-      "dy": 0,
-      "rot": 0,
-      "pivot": [
-        774.0,
-        640.0
-      ]
-    },
-    "track": {
-      "img": "assets/tanks/track-links.png",
-      "scale": 0,
-      "dx": 0,
-      "dy": 0
-    },
-    "barrel": {
-      "mountDx": 15.76,
-      "mountDy": 0,
-      "embed": 2,
-      "scaleMult": 1,
-      "gap": 3.7,
-      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
-      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
-      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"
     }
   }
 }

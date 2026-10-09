@@ -69,10 +69,26 @@
   - **焊缝 (Weld Seams)**：在装甲边缘与多边形顶点连接处绘制双重微弱高光/阴影线条；
   - **边缘磨损 (Edge Wear)**：车体与炮塔外角处叠加 5%~10% 的露底漆防锈色（dark rust）；
   - **铸造颗粒 (Cast Armor)**：对重型/中型坦克炮塔增加微弱噪点与铸造线。
-- **整车精灵替换 (Full-Sprite Replacement, §4.53)**：
-  - `tanks/<id>.json` 可选 `sprite` 块（`enabled` + 车体/炮塔 `{img,scale,dx,dy,rot}`、炮塔另有 `pivot:[px,py]`），图片存 `assets/tanks/<id>_{hull,turret}.png`（AI 生成，舱盖全关）；
-  - 局内 `drawTank` 在 `sprite.enabled` 且图片就绪时改用精灵绘制（否则回退程序化；殉爆飞头时回退）；
-  - 设计器「整车精灵」面板提供开关 + 缩放/位移/旋转/轴心对齐控件，`sprite.enabled` 默认 false，对齐确认后由设计者手动开启。
+- **整车精灵替换 (Full-Sprite Replacement, §4.53；四层口径与对齐契约经 §4.54 修订)**：
+  - `tanks/<id>.json` 可选 `sprite` 块，**四层**部件：
+    | 层 | 键 | 附加字段 |
+    |---|---|---|
+    | 履带 | `track` | — |
+    | 车体 | `hull` | `pivot?`（图片像素旋转中心，缺省=图片中心） |
+    | 炮塔 | `turret` | `pivot:[px,py]`（图片像素旋转中心，**必填**） |
+    | 炮管 | `barrel` | `mountDx/mountDy/embed/scaleMult/gap` + `imgStandard/imgAutocannon/imgRailgun` + `imgVehicle?` |
+    各图片层通用字段 `{img, scale, dx, dy, rot}`；`scale` = 模型单位/图片像素（`track.scale:0` 表示按 `trackWidth/naturalHeight` 自动推导）。
+  - 图片路径：车体/炮塔存 `assets/tanks/`（命名不强制 `<id>_{hull,turret}.png`，如 `leopard1-turret.png`、`obj780-turret.png`）；履带条 `assets/tanks/track-links.png`；炮管 `assets/tanks/barrels/barrel-*.png`。`barrel.imgVehicle` = 本车专用炮管贴图（standard/clip/double_barrel 优先，autocannon/railgun 不越权，缺省回退 imgStandard）。
+  - **对齐契约（§4.54 实测口径）**：`pivot`/`dx`/`dy` 使「贴图剪影包围盒中心」与「装甲多边形包围盒中心」重合；`barrel.mountDx − embed` 必须等于 `turretFrontDist()`（即过中轴前缘，按 `axis.dx` 归一化后的口径），否则炮口火焰/弹道起点（`gunRoot()/gunTip()`）与贴图炮管错位。推荐 `mountDx = turretFrontDist + embed`。设计器「按多边形自动对齐」按此口径计算。
+  - 局内 `drawTank` 在 `sprite.enabled` 且**四层图片全部就绪**时改用精灵绘制；否则整体回退程序化（殉爆飞头时亦回退）。精灵分支**只替换车体/炮塔/炮管/履带四层画法**，炮塔座圈、断履带、起火辉光、副炮塔、炮塔投影阴影按程序化层级画在主炮塔之下，射界射线、附件、世界内血条/徽标与程序化分支共用同一段收尾绘制（§4.54 #L1）。
+  - 履带滚动：相位周期 = 整幅贴图宽（不硬编码链节像素距），方向与程序化 `paintTracks`（`lineDashOffset=-phase`）同向。
+  - `sprite` 无该键时必须置 `null`（`applyTankConfig` 无条件赋值），防复用实体残留上一辆车贴图；Boss 缩放会同步缩放 `sprite.*.scale` 与 `barrel.mountDx/mountDy/embed/gap`（`pivot` 为图片像素坐标不缩放，`track.scale=0` 哨兵保持）。
+  - 设计器「整车精灵」面板提供四层对齐控件（履带/车体/炮塔/炮管各自缩放·位移·旋转·轴心）与「按多边形自动对齐」（前缘口径与运行时同源），并可为四类炮管分别指定贴图路径（标准 / **本车专用 `imgVehicle`** / 机炮 / 磁轨）；`sprite.enabled` 与「画布显示精灵」均默认 **false**，对齐确认后由设计者手动开启。
+  - **设计器画布层序（§4.55 #M1）**：必须与局内 `drawTank` 一致——**履带 → 车体 → 炮塔 → 炮管**；座圈/轴线/顶点手柄等编辑辅助标注绘制在最上层。此前炮塔排在车体之前、炮管又随炮塔一起画，被车体整块遮住（贴图与程序化纹理同病）。
+  - **图片预热（§4.55 #M2）**：设计器 `render()` 只在交互时调用、无逐帧循环，故载入坦克 / 勾选画布显示 / 改炮管路径时必须调用 `preloadSpriteImages()` 预热缓存，并给未就绪图片挂 `load → render`（否则异步解码完成后无人唤醒重绘，贴图永远不显示）。
+  - 设计器读写 `sprite` 时必须**保留未知键**（浅拷贝后覆盖面板管理字段），否则会把 `imgVehicle` 等额外字段从 JSON 中删除（§4.54 #L3）。
+  - **贴图资产要求**：正俯视、透明背景（不得残留与边框连通的近白底）、剪影长宽比贴近装甲多边形、内容大致居中。**允许「多块炮塔」**——例如 `hummel_turret.png` 上下两块装甲、中间留出透明炮管槽（枪管从槽中透出）是合法结构，轴心取**内容包围盒中心**（对带槽者即槽中心）。残留白底用 `scripts/clean_sprite_bg.py` 清理（`--dry` 仅探测；判定为「从边框沿透明∪近白可达者 = 背景」，被装甲包围的本体高光一律保留，不做 alpha 羽化）。
+  - **对齐验收指标（§4.56 方法论）**：以「**贴图内容映射长度 = 装甲多边形长度**（比值 0.98~1.02）」+「**旋转轴 = 内容包围盒中心**」+「炮管 `mountDx−embed = turretFrontDist`」为准；**不要用 IoU 验收带透明槽的贴图**（形状正确的多边形覆盖槽位反而降低 IoU）。
 
 ---
 

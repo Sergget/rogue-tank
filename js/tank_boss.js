@@ -219,6 +219,27 @@ function makeBossEntity(boss, env) {
     }
     if (t.trackWidth  !== undefined) t.trackWidth  *= s;
     if (t.trackOffset !== undefined) t.trackOffset *= s;
+    // #L6：精灵通道的缩放参数同样要跟随 boss.scale，否则 Boss 会画 1× 贴图配 2× 判定框。
+    // 这里整体替换为全新对象（同 t.turretPivotOffset 的理由：绝不原地写回共享 spec）。
+    if (t.sprite) {
+      const sp = t.sprite, ns = {};
+      for (const k in sp) ns[k] = (sp[k] && typeof sp[k] === 'object') ? Object.assign({}, sp[k]) : sp[k];
+      // scale 是「模型单位 / 图片像素」，随 Boss 几何等比例放大；dx/dy/mountDx/... 是模型单位，
+      // 同样随 s 放大。track.scale=0 是自动推导哨兵（按 trackWidth/naturalHeight），必须保持 0。
+      for (const part of ['track', 'hull', 'turret']) {
+        if (ns[part] && typeof ns[part].scale === 'number' && ns[part].scale > 0) ns[part].scale *= s;
+        if (ns[part]) { if (ns[part].dx !== undefined) ns[part].dx *= s; if (ns[part].dy !== undefined) ns[part].dy *= s; }
+      }
+      if (ns.barrel) {
+        if (ns.barrel.mountDx !== undefined) ns.barrel.mountDx *= s;
+        if (ns.barrel.mountDy !== undefined) ns.barrel.mountDy *= s;
+        if (ns.barrel.embed !== undefined) ns.barrel.embed *= s;
+        if (ns.barrel.gap !== undefined) ns.barrel.gap *= s;
+      }
+      // 注意：turret.pivot（及 hull.pivot）是**图片像素**坐标，不是模型单位——scale 放大后
+      // 它仍是同一张图上同一个像素位置，因此不随 s 缩放。
+      t.sprite = ns;
+    }
   }
   // (b) Boss 调参：偏离同难度普通单位（血厚/伤害高/射速快，但机动/弹速低）。
   // 难度基线由另一 specialist 稍后调用 applyDifficultyMults 叠加（并重置满血）。

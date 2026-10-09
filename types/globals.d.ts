@@ -157,6 +157,8 @@ declare var pushLog: any;
 
 declare function turretPivot(t: any): { x: number; y: number };
 declare function turretFrontDist(t: any): number;
+// #L2：炮塔前缘距离的纯函数口径（verts 为 axis 归零后的运行时局部帧顶点），设计器自动对齐共用
+declare function frontDistFromVerts(verts: any, fallback?: number): number;
 declare function polyCorners(cx: number, cy: number, angle: number, poly: any): any[];
 declare function superstructureAngle(t: any): number;
 declare function engineLocalX(t: any): number;
@@ -170,6 +172,11 @@ declare function drawCover(ctx: any, cov: any): void;
 declare function drawFoliage(ctx: any, covers: any[]): void;
 declare function drawGround(ctx: any, opts: { viewBounds?: { minX: number; minY: number; maxX: number; maxY: number }; biome?: string; seed?: number | string }): void;   // P-36/#81：biome 地面（底色 + 种子确定性低频色斑）
 declare function drawClassBadge(ctx: any, t: any, x: number, y: number): void;
+// #L1：程序化与精灵两条绘制通道共用的收尾视觉（炮塔座圈 / 射界射线 / 附件 / 世界内 HUD）
+declare function drawTurretRing(ctx: any, t: any, turCx: number, turCy: number): void;
+declare function drawTraverseRays(ctx: any, t: any, turCx: number, turCy: number): void;
+declare function drawAttachments(ctx: any, t: any, turCx: number, turCy: number): void;
+declare function drawTankHud(ctx: any, t: any): void;
 declare function setDebuff(t: any, name: any, sec: any): void;
 declare function debuffTurnRate(t: any): number;
 declare function debuffSpeedRate(t: any): number;

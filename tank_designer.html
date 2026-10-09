@@ -310,8 +310,8 @@
     <div class="section panel-appearance">
       <h3>整车精灵 Sprite</h3>
       <div class="prop-row"><span class="lbl">游戏中启用精灵</span><input type="checkbox" id="sp-enabled" style="width:16px;"></div>
-      <div class="prop-row"><span class="lbl">画布显示精灵</span><input type="checkbox" id="sp-preview" checked style="width:16px;"></div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">精灵 = AI 生成的四层俯视贴图（assets/tanks/：履带/车体/炮塔/炮管）。「游戏中启用」写入 tank JSON（sprite.enabled），局内 drawTank 改用精灵绘制；「画布显示」仅设计器叠加预览，用于对齐多边形。</div>
+      <div class="prop-row"><span class="lbl">画布显示精灵</span><input type="checkbox" id="sp-preview" style="width:16px;"></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">精灵 = AI 生成的四层俯视贴图（assets/tanks/：履带/车体/炮塔/炮管）。「游戏中启用」写入 tank JSON（sprite.enabled），局内 drawTank 改用精灵绘制；「画布显示」仅设计器叠加预览（默认关闭，避免未对齐贴图盖住顶点/装甲判读），用于对齐多边形。</div>
       <div class="prop-row"><span class="lbl" style="color:var(--amber);">履带 Track</span><span class="mono" id="sp-track-img" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
       <div class="prop-row"><span class="lbl">缩放 (单位/px)</span><input type="number" id="sp-track-scale" step="0.0005" min="0"></div>
       <div class="prop-row"><span class="lbl">位移 X / Y</span>
@@ -345,13 +345,15 @@
       <div class="prop-row"><span class="lbl">长度微调</span><input type="number" id="sp-barrel-scalemult" step="0.05" min="0" title="炮管长度缩放系数"></div>
       <div class="prop-row"><span class="lbl">双管间距</span><input type="number" id="sp-barrel-gap" step="0.1" min="0" title="双管时两炮管横向间距（单位）"></div>
       <div class="prop-row"><span class="lbl">标准炮管</span><input type="text" id="sp-barrel-imgstd-in" style="width:150px; font-size:10px;" title="标准炮管贴图路径"></div>
+      <div class="prop-row"><span class="lbl">本车专用炮管</span><input type="text" id="sp-barrel-imgveh-in" style="width:150px; font-size:10px;" title="本车专用炮管贴图路径（standard/clip/double_barrel 优先于标准炮管；留空回退标准炮管）"></div>
       <div class="prop-row"><span class="lbl">机炮炮管</span><input type="text" id="sp-barrel-imgac-in" style="width:150px; font-size:10px;" title="机炮炮管贴图路径"></div>
       <div class="prop-row"><span class="lbl">磁轨炮管</span><input type="text" id="sp-barrel-imgrg-in" style="width:150px; font-size:10px;" title="磁轨炮炮管贴图路径"></div>
       <div class="prop-row"><span class="mono" id="sp-barrel-imgstd" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
+      <div class="prop-row"><span class="mono" id="sp-barrel-imgveh" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
       <div class="prop-row"><span class="mono" id="sp-barrel-imgac" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
       <div class="prop-row"><span class="mono" id="sp-barrel-imgrg" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
       <div class="btnrow"><button id="sp-autoalign">按多边形自动对齐</button></div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">自动对齐：按车体/炮塔多边形包围盒长度重算缩放，清零位移与旋转（轴心保留）；履带缩放=履带宽/图片高，炮管安装点=炮塔前缘×0.8。缩放语义：贴图像素 × 缩放 = 模型单位。</div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">自动对齐：按车体/炮塔多边形包围盒长度重算缩放，清零位移与旋转（轴心保留）；履带缩放=履带宽/图片高，炮管安装点=炮塔前缘（axis 归零帧，与局内 gunRoot 同源）+嵌入深度。缩放语义：贴图像素 × 缩放 = 模型单位。</div>
     </div>
 
     <div class="section panel-hull panel-turret">

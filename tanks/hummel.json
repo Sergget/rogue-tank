@@ -111,9 +111,9 @@
     "enabled": false,
     "hull": {
       "img": "assets/tanks/hummel_hull.png",
-      "scale": 0.031024,
-      "dx": -0.09,
-      "dy": 0.095,
+      "scale": 0.031056,
+      "dx": 0.0,
+      "dy": -0.016,
       "rot": 0,
       "pivot": [
         967.0,
@@ -122,13 +122,13 @@
     },
     "turret": {
       "img": "assets/tanks/hummel_turret.png",
-      "scale": 0.03413,
+      "scale": 0.048059,
       "dx": 0,
       "dy": 0,
       "rot": 0,
       "pivot": [
-        293.0,
-        273.0
+        293.7,
+        271.0
       ]
     },
     "track": {
@@ -138,7 +138,7 @@
       "dy": 0
     },
     "barrel": {
-      "mountDx": 8.0,
+      "mountDx": 16.0,
       "mountDy": 0,
       "embed": 2,
       "scaleMult": 1,
@@ -146,7 +146,7 @@
       "imgStandard": "assets/tanks/barrels/barrel-standard.png",
       "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
       "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
-      "imgHummel": "assets/tanks/barrels/barrel-hummel.png"
+      "imgVehicle": "assets/tanks/barrels/barrel-hummel.png"
     }
   }
 }

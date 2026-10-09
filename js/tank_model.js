@@ -401,10 +401,14 @@ function applyTankConfig(tank, spec){
     if (spec[f] !== undefined) tank[f] = spec[f];
   }
   // 整车精灵配置（tanks/<id>.json `sprite`）：深拷贝，防多实例共享引用被下游改写。
-  // 结构：{ enabled, hull:{img,scale,dx,dy,rot}, turret:{img,scale,dx,dy,rot,pivot:[px,py]} }
-  if (spec.sprite !== undefined) {
-    tank.sprite = JSON.parse(JSON.stringify(spec.sprite));
-  }
+  // 结构：{ enabled, track:{img,scale,dx,dy}, hull:{img,scale,dx,dy,rot},
+  //         turret:{img,scale,dx,dy,rot,pivot:[px,py]}, barrel:{...} }
+  // 注意（#L6）：这里必须**无条件**赋值。applyTankConfig 会作用在复用的实体上
+  //（玩家/靶车换车、prepPlayerForRun），若仅在 spec 有 sprite 时才写，切到无 sprite 的
+  // 配置（如 tanks/dummy.json）会残留上一辆车的贴图，画出错误的车体。
+  tank.sprite = (spec.sprite !== undefined)
+    ? JSON.parse(JSON.stringify(spec.sprite))
+    : null;
 
   // 锚点深拷贝（#B6）：Object.assign 只复制一层，嵌套的 {dx,dy} 仍与 spec 共享引用，
   // 下游实例级改写（Boss scale ×s 等）会原地污染共享配置。

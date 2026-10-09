@@ -551,11 +551,13 @@ function turretPivot(t){
   return { x: t.x + r.x, y: t.y + r.y };
 }
 
-function turretFrontDist(t){
-  const poly = turretPoly(t);
-  if (!poly || !poly.verts || poly.verts.length < 2) return (t.turLen||34)/2;
+// 炮塔前缘距离（过中轴 y=0 的最大交点 x）：炮管根部/`gunRoot()` 的口径。
+// 纯函数（verts 必须是**旋转轴已归零**的运行时局部帧，即 turretSpec.verts），供 turretFrontDist
+// 与设计器「按多边形自动对齐」共用，避免两处口径分叉（#L2：设计器曾用未减 axis 的原始 maxX×0.8）。
+function frontDistFromVerts(verts, fallback){
+  const fb = (typeof fallback === 'number' && isFinite(fallback)) ? fallback : 0;
+  if (!verts || verts.length < 2) return fb;
   let maxInterX = -Infinity;
-  const verts = poly.verts;
   const n = verts.length;
   for (let i = 0; i < n; i++) {
     const p1 = verts[i], p2 = verts[(i + 1) % n];
@@ -573,6 +575,12 @@ function turretFrontDist(t){
     for (const p of verts) maxInterX = Math.max(maxInterX, p[0]);
   }
   return maxInterX;
+}
+
+function turretFrontDist(t){
+  const poly = turretPoly(t);
+  if (!poly || !poly.verts || poly.verts.length < 2) return (t.turLen||34)/2;
+  return frontDistFromVerts(poly.verts, (t.turLen||34)/2);
 }
 
 function gunRoot(t){
@@ -634,6 +642,7 @@ if (typeof module !== 'undefined' && module.exports) {
     faceLabel,
     turretPivot,
     turretFrontDist,
+    frontDistFromVerts,
     gunRoot,
     gunTip
   };

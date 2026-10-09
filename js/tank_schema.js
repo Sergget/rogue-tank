@@ -31,21 +31,28 @@ const TEXTURES = ['none','armor_plate','weld_seam','rust','camo','camo_dunkelgel
 // tanks/<id>.json 可选 `sprite` 块：AI 生成的四层俯视贴图替换程序化绘制。
 //   {
 //     enabled: bool,                       // 局内 drawTank 是否改用精灵绘制（默认 false）
-//     track:  { img, scale, dx, dy },      // img: assets/tanks/track-links.png（滚动履带条）
-//     hull:   { img, scale, dx, dy, rot },  // img: assets/tanks/<id>_hull.png（无履带车体）
+//     track:  { img, scale, dx, dy, rot },  // img: assets/tanks/track-links.png（滚动履带条）
+//     hull:   { img, scale, dx, dy, rot, pivot? },  // img: assets/tanks/<id>_hull.png（无履带车体）
 //     turret: { img, scale, dx, dy, rot, pivot:[px,py] },  // 无炮管炮塔
 //     barrel: { mountDx, mountDy, embed, scaleMult, gap,
-//               imgStandard, imgAutocannon, imgRailgun }   // 炮管按主武器类型切换
+//               imgStandard, imgAutocannon, imgRailgun,
+//               imgVehicle? }               // 本车专用炮管贴图（standard/clip/double_barrel 优先）
 //   }
-//   scale — 模型单位/图片像素（图片显示尺寸 = 像素×scale 模型单位）
+//   scale — 模型单位/图片像素（图片显示尺寸 = 像素×scale 模型单位；track.scale=0 表示按
+//           trackWidth/图片高自动推导）
 //   dx,dy — 部件局部帧偏移（模型单位，+x 为前）；rot — 叠加旋转（度）
-//   pivot — 炮塔图片像素坐标的旋转中心（对齐座圈）
-//   mountDx/mountDy — 炮管安装点相对炮塔 pivot 的炮塔局部坐标（+X 为前，模型单位）
+//   pivot — 部件图片像素坐标的旋转中心（炮塔必须给出：对齐座圈；车体可省=图片中心）
+//   mountDx/mountDy — 炮管安装点相对炮塔 pivot 的炮塔局部坐标（+X 为前，模型单位）。
+//           对齐契约：mountDx - embed 必须等于 turretFrontDist()（过中轴前缘、axis 归零帧），
+//           否则炮口火焰/弹道起点（gunRoot/gunTip）与贴图炮管错位（2026-10-06 #L2 修订）。
 //   embed — 炮管尾端嵌入炮塔的深度（模型单位）；scaleMult — 炮管长度缩放微调
 //   gap — 双管时两炮管横向间距（模型单位，默认 3.7）
-//   imgStandard/imgAutocannon/imgRailgun — 三种炮管贴图路径（默认 assets/tanks/barrels/ 下）
-// 设计器「整车精灵」面板提供开关 + 四层对齐控件与自动对齐，保存时写入；
-// 局内由 tank_battledraw.js drawTank 分支消费（图片未就绪/殉爆飞头时回退程序化）。
+//   imgVehicle — 本车专用炮管贴图路径（缺省回退 imgStandard）；设计器读写时会保留本块
+//           的未知键（2026-10-06 #L3），不再像旧版那样把额外字段删掉。
+// 设计器「整车精灵」面板提供开关 + 四层对齐控件与自动对齐（前缘口径与运行时同源），
+// 保存时写入；局内由 tank_battledraw.js drawTank 分支消费（图片未就绪/殉爆飞头时回退
+// 程序化）。精灵分支只替换四层画法，血条/徽标/断履带/起火辉光/副炮塔/座圈/射界射线/
+// 附件与程序化分支共用同一段收尾绘制（2026-10-06 #L1）。
 const FIELD_ROWS = [
   // ---- 火力 firepower ----
   { label:'穿深',       path:'penetration',        type:'num', group:'firepower' },

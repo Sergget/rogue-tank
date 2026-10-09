@@ -1,6 +1,5 @@
 {
   "id": "panzer-IV",
-  "class": "medium",
   "traverseLimit": 180,
   "maxSpeed": 115,
   "turnRate": 2.2,
@@ -15,44 +14,83 @@
   "heightClass": "medium",
   "trackWidth": 8,
   "trackOffset": -4,
-  "spreadMult": 1.0,
+  "spreadMult": 1,
   "aimSpeed": 1.8,
   "texture": "paint_panzergrau",
+  "sprite": {
+    "enabled": false,
+    "track": {
+      "img": "assets/tanks/track-links.png",
+      "scale": 0,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0
+    },
+    "hull": {
+      "img": "assets/tanks/panzer-IV_hull.png",
+      "scale": 0.031621,
+      "dx": 0,
+      "dy": 0.016,
+      "rot": 0
+    },
+    "turret": {
+      "img": "assets/tanks/panzer-IV_turret.png",
+      "scale": 0.032,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0,
+      "pivot": [
+        630,
+        444.5
+      ]
+    },
+    "barrel": {
+      "mountDx": 16,
+      "mountDy": 0,
+      "embed": 2,
+      "scaleMult": 1,
+      "gap": 3.7,
+      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
+      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
+      "imgVehicle": "assets/tanks/barrels/barrel-panzer-IV.png"
+    }
+  },
   "barrel": {
-    "len": 105,
-    "width": 10,
-    "muzzle": "double",
+    "len": 100,
+    "width": 18,
+    "muzzle": "single",
     "evac": {
       "style": "none",
-      "pos": 0
+      "pos": 30
     },
     "jacket": {
       "len": 0,
-      "pos": 0
+      "pos": 45
     },
     "mantlet": {
-      "style": "box",
+      "style": "none",
       "pos": 0,
-      "width": 30
+      "width": 40
     }
   },
   "hull": {
     "verts": [
       [
-        28.0,
-        -14.0
+        28,
+        -14
       ],
       [
-        -28.0,
-        -14.0
+        -28,
+        -14
       ],
       [
-        -28.0,
-        14.0
+        -28,
+        14
       ],
       [
-        28.0,
-        14.0
+        28,
+        14
       ]
     ],
     "faces": [
@@ -70,20 +108,20 @@
   "turret": {
     "verts": [
       [
-        14.0,
-        -12.0
+        14,
+        -12
       ],
       [
-        -14.0,
-        -12.0
+        -14,
+        -12
       ],
       [
-        -14.0,
-        12.0
+        -14,
+        12
       ],
       [
-        14.0,
-        12.0
+        14,
+        12
       ]
     ],
     "faces": [
@@ -104,45 +142,6 @@
     "axis": {
       "dx": 0,
       "dy": 0
-    }
-  },
-  "sprite": {
-    "enabled": false,
-    "hull": {
-      "img": "assets/tanks/panzer-IV_hull.png",
-      "scale": 0.030483,
-      "dx": -0.198,
-      "dy": 0.039,
-      "rot": 0
-    },
-    "turret": {
-      "img": "assets/tanks/panzer-IV_turret.png",
-      "scale": 0.0201,
-      "dx": 0,
-      "dy": 0,
-      "rot": 0,
-      "pivot": [
-        690.0,
-        603.5
-      ]
-    },
-    "track": {
-      "img": "assets/tanks/track-links.png",
-      "scale": 0,
-      "dx": 0,
-      "dy": 0
-    },
-    "barrel": {
-      "mountDx": 11.2,
-      "mountDy": 0,
-      "embed": 2,
-      "scaleMult": 1,
-      "gap": 3.7,
-      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
-      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
-      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
-      "imgPanzerIV": "assets/tanks/barrels/barrel-panzer-IV.png",
-      "lenPxPanzerIV": 424
     }
   }
 }

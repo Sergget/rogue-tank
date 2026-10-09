@@ -17,6 +17,44 @@
   "spreadMult": 2,
   "aimSpeed": 1,
   "texture": "paint_soviet",
+  "sprite": {
+    "enabled": true,
+    "track": {
+      "img": "assets/tanks/track-links.png",
+      "scale": 0,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0
+    },
+    "hull": {
+      "img": "assets/tanks/Obj780_hull.png",
+      "scale": 0.035405,
+      "dx": 0.05,
+      "dy": 0,
+      "rot": 0
+    },
+    "turret": {
+      "img": "assets/tanks/obj780-turret.png",
+      "scale": 0.029915,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0,
+      "pivot": [
+        860.1,
+        567
+      ]
+    },
+    "barrel": {
+      "mountDx": 21.8,
+      "mountDy": 0,
+      "embed": 2,
+      "scaleMult": 1,
+      "gap": 3.7,
+      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
+      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"
+    }
+  },
   "barrel": {
     "len": 120,
     "width": 18,
@@ -168,43 +206,6 @@
     "axis": {
       "dx": 3,
       "dy": 0
-    }
-  },
-  "sprite": {
-    "enabled": false,
-    "hull": {
-      "img": "assets/tanks/Obj780_hull.png",
-      "scale": 0.036049,
-      "dx": 0.149,
-      "dy": 0.123,
-      "rot": 0
-    },
-    "turret": {
-      "img": "assets/tanks/obj780-turret.png",
-      "scale": 0.03033,
-      "dx": 0,
-      "dy": 0,
-      "rot": 0,
-      "pivot": [
-        844.3,
-        575.0
-      ]
-    },
-    "track": {
-      "img": "assets/tanks/track-links.png",
-      "scale": 0,
-      "dx": 0,
-      "dy": 0
-    },
-    "barrel": {
-      "mountDx": 18.24,
-      "mountDy": 0,
-      "embed": 2,
-      "scaleMult": 1,
-      "gap": 3.7,
-      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
-      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
-      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"
     }
   }
 }

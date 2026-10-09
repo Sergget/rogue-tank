@@ -220,3 +220,52 @@
 - **类型**：`types/globals.d.ts` 补 `SPRITE_CACHE/spriteImage/clearSpriteCache/paintPartSprite` 声明（checkJs 跨文件全局）。
 - 架构注记 `js/tank_schema.js`（sprite 字段语义，设计器管理、不进 compare 页 FIELD_ROWS）；视觉规范归口 `docs/specs/editor.md` §6。
 - `npm run check` / `npm test`（43/43）全绿。未 push（等 qi 指令；本地 master=fff2448 未推送）。
+
+### §4.54 整车精灵四层管线对齐修复批（2026-10-06，#L1~#L7）
+
+- **背景**：§4.53 的 sprite 块只写了 hull/turret 两层注释，但 HEAD（0ce935d）实际已扩展为四层（track/barrel/hull/turret）且 5 车 JSON 均带 `sprite.barrel`——对齐参数与运行时口径存在系统性分叉，开启精灵会穿帮。本批做像素级审计（IoU + 长宽比 + 安装点解算）后修复，**5 车 `enabled` 全部保持 `false`**（参数已修正，待目视确认后再开）。
+- **对齐度实测（剪影 vs 装甲多边形）**：车体 5/5 良好（长宽比之比 0.92~0.99，IoU 0.90~0.95）；炮塔 3/5 良好（tiger-I 0.80 / Leopard_1 0.98 / Obj780 0.96），**panzer-IV 0.42 / hummel 0.50 为贴图本身不合格**（与边框连通的不透明近白残留分别占不透明像素 23.9% / 33.0%，且剪影长宽比与多边形差 1.32× / 2.15×）——后者须重新出图，参数无解（遗留 ISSUES #L8）。
+- **#L1 精灵分支吞掉全部战斗视觉（最高危）**：`drawTank` 精灵分支早 `return`，把血条/重中型徽标/敌方 Lv.X（:778-801）、断履带（:460）、起火辉光（:480）、副炮塔（:463）、座圈（:466-474）、射界射线（:495-506）、附件（:748-776）全部跳过。修复：这些收尾视觉抽成共享函数（`drawTurretRing/drawTraverseRays/drawAttachments/drawTankHud`），断履带/副炮塔/座圈/辉光/炮塔投影阴影并入 `drawTankSprite` 的正确层级（车体之后、主炮塔之前），射界射线/附件/HUD 在两分支收尾统一调用。mock-ctx 回归实测：两分支 `arc` 数、血条矩形(46×7)、`Lv.X` 文本完全一致。
+- **#L2 炮管安装点系统性偏移（5 车全部偏后 1.94~8.00 单位）**：设计器自动对齐用**未减 axis** 的原始炮塔顶点 `maxX×0.8` 写 `mountDx`，而运行时炮塔前缘是 `turretFrontDist()`（axis 归零后过中轴前缘交点）——弹道起点/炮口火焰按 `gunRoot()/gunTip()`（tank_fire.js:91）生成，与贴图炮管错位（hummel 偏 8.00 单位≈0.73m）。修复：`turretFrontDist` 的纯函数体抽成 `frontDistFromVerts`（tank_geometry.js 导出），设计器自动对齐换算到运行时帧后取 `mountDx = frontDist + embed`；5 车 JSON 的 `mountDx` 已按此重算（17.70/16.00/16.00/17.90/21.80），复测 **Δroot=Δtip=0.000（全 5 车）**。
+- **#L3 设计器「读取→保存」删字段**：`normalizeSpriteBarrel` 只回填 8 个固定键、`buildExport` 只写这 8 个 → `imgHummel`/`imgPanzerIV`/`lenPxPanzerIV`（panzer-IV/hummel）被永久删除；`buildExport` 车体不写 `pivot`、履带不写 `rot` → hummel 的 `hull.pivot`、`track.rot` 被删。修复：normalize/buildExport 先浅拷贝原对象再覆盖面板管理字段，未知键全量透传。
+- **#L4 每车专用炮管贴图死配置**：`spriteBarrelImages` 只读 imgStandard/imgAutocannon/imgRailgun，`imgPanzerIV`/`imgHummel`/`lenPxPanzerIV` 全仓库无消费者 → panzer-IV/hummel 一直在用 barrel-standard.png 拉伸。修复：统一为 `imgVehicle`（standard/clip/double_barrel 优先、autocannon/railgun 不越权；设计器预览同口径），两车 JSON 迁移，死键 `imgPanzerIV`/`lenPxPanzerIV`/`imgHummel` 删除。实测：panzer-IV standard→`barrel-panzer-IV.png`、double_barrel→两张专用图、无 imgVehicle 的车回退 imgStandard。
+- **#L5 履带滚动方向相反**：程序化 `paintTracks` 用 `lineDashOffset=-phase`（链节随 phase 向 +x），精灵用 `x=x0-phase-tileLen`（向 −x）——同一 `trackPhase` 两通道反向。修复：精灵侧取 `+phase`，滚动周期改为整幅贴图宽（不硬编码 196，换贴图自洽；track-links.png 2548px=13×196px 整数倍首尾无缝）；设计器预览同步。
+- **#L6 复用实体残留 sprite + Boss 缩放不覆盖**：`applyTankConfig` 的 sprite 拷贝是条件式的，切到无 `sprite` 键的配置（dummy.json）会残留上一辆车贴图；`tank_boss.js` 的 boss.scale 不缩放 `t.sprite` → 1× 贴图配 2× 判定框。修复：`applyTankConfig` 无条件赋值（无 sprite 置 null，实测切 dummy 后 `sprite===null`）；Boss 缩放同步 `sprite.*.scale/dx/dy` 与 `barrel.mountDx/mountDy/embed/gap`（`pivot` 为图片像素坐标不缩放；`track.scale=0` 自动推导哨兵保持 0）。
+- **#L7 设计器预览默认开启误导**：`spritePreview` 默认 true，未对齐（或贴图带残留白底）时叠加直接盖住多边形，顶点/装甲无法判读。修复：默认 false（对齐时手动勾选），面板提示同步。
+- **B 档参数重算（可修的 3 个炮塔 + 5 个车体）**：按「剪影包围盒中心 ↔ 多边形包围盒中心重合」口径重算——tiger-I 炮塔 `scale 0.023988→0.02542`、`pivot [774,640]→[929.4,640]`（IoU 0.795→**0.903**）；Obj 780 炮塔 pivot→[860.1,567]（0.962→0.984）；Leapard_1 炮塔 pivot→[750.3,566.5]（0.981→0.991）；5 车车体 scale/dx/dy 按同口径微调（IoU 变化 −0.018~+0.020，在噪声内）；panzer-IV/hummel 炮塔参数**不写**（贴图须重做，写了对数值也是错的）。
+- **四层管线文档归口**：`docs/specs/editor.md` §6 重写整车精灵条目（四层字段表、对齐契约、回退条件、收尾视觉共用、设计器保留未知键）；`js/tank_schema.js` 架构注记同步（`imgVehicle`、mountDx 对齐契约、#L1/#L3 口径）。
+- 验证：`node scripts/check-html.js` EXIT=0；`tsc --noEmit` EXIT=0；Node 单测 **44/44**（沙箱下 `npm test` 的 `run-tests.js` spawnSync EPERM，逐脚本独立跑全绿；`test:browser` 四链需系统 Edge 待正常环境补跑）；专用脚本回归 #L1/#L2/#L4/#L6 全部断言通过（Δroot=Δtip=0.000 × 5 车）。
+- 遗留：**#L8**（panzer-IV/hummel 炮塔贴图须重新出图：正俯视、无残留白底、长宽比贴近多边形、内容居中——重做后按同口径重算 pivot/scale 即可）；5 车 `sprite.enabled` 仍为 false，待目视确认。
+
+### §4.55 设计器精灵绘制层序修复 + 贴图白底清理（2026-10-08，#M1~#M3）
+
+> 来源：用户反馈（会话）——① 设计器中炮塔贴图被车体遮住（程序化纹理同问题）、炮管贴图似乎没正确加载；② panzer-IV / hummel 贴图里有没清干净的白色部分。
+
+- **#M1 设计器绘制层序错误（炮塔被车体遮住）**：`designer.js render()` 里 `drawPolygon(state.turret,…)` 排在 `drawPolygon(state.hull,…)` **之前**，车体的精灵贴图/程序化纹理/纯色填充（0.85 alpha）整块盖在炮塔之上；`drawPreviewSpriteBarrel` 同处该块内，故炮管精灵也被车体盖住（表现为「炮管贴图没加载」）。修复：层序改为与局内 `drawTank` 一致——履带 → **车体 → 炮塔 → 炮管**（`designer.js` render 三处调用重排）。座圈/轴线/顶点手柄等编辑辅助标注仍绘制在最上层（不影响可编辑性）。
+- **#M2 设计器炮管贴图「不加载」**：两处成因——① 上述层序问题（被车体遮挡）；② `spriteImage()` 只在首次调用时创建 `Image` 并立即返回未就绪对象，而设计器 `render()` 仅在交互时调用、**无逐帧循环**，图片异步解码完成后无人唤醒重绘 ⇒ 首帧之后永远不显示。修复：新增 `preloadSpriteImages()`——载入坦克 / 勾选「画布显示精灵」/ 改炮管路径时预热全部精灵图片缓存，并给未就绪图片挂 `load → render`（`error` 时 `pushHint` 报路径）。另补「本车专用炮管」输入框与显示行（此前面板无 `imgVehicle` 入口，改不了本车专用炮管）。
+- **#M3 贴图白底清理（初版，其两处缺陷已被 §4.56 修正）**：新增 `scripts/clean_sprite_bg.py`——标记近白像素（max RGB≥170 且通道差≤34），从**图片边框**洪泛只穿过近白像素得到「背景板」连通体，板核 alpha→0、边界 1px 羽化。初版清理量见 §4.56。**已知缺陷**：① 只做「边框连通」，漏掉被轮廓包围/夹在两块装甲之间的白底岛；② 边界 `alpha=128` 羽化作用于本为**二值 alpha** 的源图，在深色战场上留下白色辉光边。——**均已在 §4.56 修正**。
+- **形状判断已由 §4.56 撤回**：本节初版称 panzer-IV_turret / hummel_turret「形状不合格、须重新出图」，其中 **hummel_turret 的「上下两块」经用户 2026-10-08 澄清为设计如此（中间过炮管），属误判**；两车炮塔真正的问题是**对齐参数偏小**（见 §4.56）。IoU 数字对 hummel 亦不适用（中间是透明炮管槽）。
+- **验证**：`node scripts/check-html.js` EXIT=0；`tsc --noEmit` EXIT=0；Node 单测 **44/44**（沙箱下 `npm test` 的 `run-tests.js` spawnSync EPERM，逐脚本独立跑；`test:browser` 四链需系统 Edge 待正常环境补跑）。设计器修复用 mock-DOM 执行**真实 designer.js** 断言（12/12 通过）：实际 `drawImage` 序列 `track-links → tiger-I_hull → tiger-I_turret → barrel-standard`（车体在炮塔之前、炮管在炮塔之后）；设 `imgVehicle` 后绘制专用炮管图；关闭预览后不叠加精灵；**未就绪图片 fire('load') 触发 17 次绘制调用**（证明 `onload→render` 生效）、预热缓存命中不重复创建。
+- 文档归口：`docs/specs/editor.md` §6 补设计器层序与图片预热口径。
+
+### §4.56 贴图白底清理修正 + 炮塔对齐参数重算（2026-10-08，#M4；取代 §4.55 的 #M3 与形状判断）
+
+> 来源：用户反馈——「hummel_turret.png 是上下两个互不相连的物体没有问题，炮管架在中间，尝试清理白色部分」。即澄清 §4.55 的形状判断有误，要求继续清白。
+
+- **hummel 结构澄清（撤回 §4.55 误判）**：用户指出 `hummel_turret.png` 上下两块是**设计如此**（中间过炮管）。实测证实：内容段 y=3..214 与 y=326..538，中间 **111px 透明 gap（y=215..325，中心 y=270）**，与内容中心（271）一致。§4.55「两个不相连物体 = 须重做」的结论**作废**。
+- **#M4 清理判定重写（修正 §4.55 #M3 的两处缺陷）**：
+  1. **漏清白底岛**：初版只从**图片边框**洪泛，漏掉「被坦克轮廓包围」或「夹在两块装甲之间的炮管槽」里的白底。hummel 的 78064px 白像素正是**填在炮管槽中的白底**——不清掉，炮管就透不出来。
+  2. **自造羽化伪影**：初版给边界写 `alpha=128`，而这些源图本是**二值 alpha**（半透明像素实测为 **0**），羽化在深色战场上形成白色辉光边。
+  - **新准则（单一可达性，不会误伤本体）**：把「图片外部」定义为从边框沿 **透明像素 ∪ 近白像素** 可达的区域 → 可达的近白 = 背景（清除）；**不可达**的近白 = 被深色装甲完全包围的本体高光/浅色涂装（保留）。移除羽化，不再修改 alpha 中间值。
+- **清理结果**：16 个贴图全部 `background: 0`（外部白清零）。主要量：`panzer-IV_turret` 190918px、`hummel_turret` 78064px(33.0%)、`barrel-railgun` 64066px、`barrel-hummel` 53518px、`tiger-I_turret` 31967px，各车体 0.2~0.4%。保留的「本体近白」（如 `tiger-I_turret` 26974px 的高光块、`hummel_hull` 7216px）均为装甲包围的内部细节。
+- **炮塔对齐参数重算（两车此前显著偏小）**：清理后重算剪影，发现旧 scale 把贴图画小了 18%~29%——
+
+  | 车/部件 | 旧 scale | 旧映射长度 | 新 scale | 新映射长度 | 多边形长 |
+  |---|---|---|---|---|---|
+  | hummel turret | 0.03413 | 18.5 单位 | **0.048059** | 26.0 | 26.0 |
+  | panzer-IV turret | 0.0201 | 23.0 单位 | **0.024476** | 28.0 | 28.0 |
+
+  炮塔轴心同步改为内容中心：`hummel [293.0,273.0]→[293.7,271.0]`、`panzer-IV [690.0,603.5]→[630.0,444.5]`。重算后**全部 10 个部件**的「贴图内容映射长度 ÷ 多边形长度」= **0.999~1.000**；hummel 轴心纵向落在炮管槽中心（偏差 0.048 单位）；5 车炮管 `Δroot=Δtip=0.000` 保持不变。
+- **方法论说明（重要）**：**IoU 不适用于中间带透明槽的贴图**。对 hummel 炮塔，形状正确的多边形覆盖「炮管槽」反而**降低** IoU；扫描出的"IoU 最优"（0.617）实际把轴心推离中心并放大到 1.35×，是错解。故改用几何准则：**映射长度 = 多边形长度**、**旋转轴 = 内容包围盒中心**（hummel 为炮管槽中心）。这也意味 `scripts/clean_sprite_bg.py` 的 `--dry` 报告与映射长度比、轴心偏差应作为对齐验收指标，而非 IoU。
+- **验证**：`node scripts/check-html.js` EXIT=0；`tsc --noEmit` EXIT=0；Node 单测 **44/44**；资产 16/16 PNG CRC 校验通过且**半透明像素 = 0**；专项断言 16/16 通过（5 车炮管 Δ=0.000；10/10 部件映射长度比 0.999~1.000；hummel 轴心偏差 0.048 单位）。`test:browser` 四链需系统 Edge，待正常环境补跑。
+- 遗留：5 车 `sprite.enabled` 仍为 **false**——参数与资产已就绪，待目视确认后开启。文档归口：`docs/specs/editor.md` §6 更新资产要求（允许「中间带炮管槽的多块炮塔」，白底判定改为可达性准则）。

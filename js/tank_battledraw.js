@@ -302,12 +302,13 @@ function drawFoliage(ctx, covers){
 
 // ---------- 整车精灵替换通道（四层：履带/车体/炮塔/炮管） ----------
 // spriteBarrelImages(t): 按主武器类型返回炮管图片数组（双管返回两张）。
-//   standard/clip → imgStandard；autocannon → imgAutocannon；railgun → imgRailgun；
-//   double_barrel → 两张 imgStandard（横向偏移绘制）。
+//   standard/clip → 优先本车专用 imgVehicle（#L4：此前 imgHummel/imgPanzerIV 是死配置），
+//   无则回退 imgStandard；autocannon → imgAutocannon；railgun → imgRailgun；
+//   double_barrel → 两张同一来源图（横向偏移绘制）。
 function spriteBarrelImages(t){
   const sp = t.sprite, b = (sp && sp.barrel) || {};
   const type = (t.weapons && t.weapons.primary && t.weapons.primary.type) || 'standard';
-  const std = b.imgStandard || 'assets/tanks/barrels/barrel-standard.png';
+  const std = b.imgVehicle || b.imgStandard || 'assets/tanks/barrels/barrel-standard.png';
   const ac  = b.imgAutocannon || 'assets/tanks/barrels/barrel-autocannon.png';
   const rg  = b.imgRailgun || 'assets/tanks/barrels/barrel-railgun.png';
   let paths;
@@ -332,7 +333,11 @@ function spriteReady(t){
   return true;
 }
 // drawSpriteTracks(ctx, t): 四层管线 Layer 0 —— 滚动履带条（车体之下）。
-// 左右各一条 track-links.png 平铺带，随 hullAngle 旋转，用 t.trackPhase 滚动（周期 196px）。
+// 左右各一条 track-links.png 平铺带，随 hullAngle 旋转，用 t.trackPhase 滚动。
+// 相位口径：滚动周期 = 整幅贴图宽度（track-links.png 宽 2548px 恰为 13×196px 链节周期的
+// 整数倍，整幅首尾无缝）——不硬编码 196，换贴图后相位仍与平铺栅格自洽。
+// 方向：与程序化 paintTracks 同源（该处 lineDashOffset = -phase，链节随 phase 增大向 +x 移动），
+// 故此处同样取 +phase，否则两通道对同一 trackPhase 反向滚动。
 function drawSpriteTracks(ctx, t){
   const sp = t.sprite, tr = (sp && sp.track) || {};
   const img = spriteImage(tr.img || 'assets/tanks/track-links.png');
@@ -340,24 +345,23 @@ function drawSpriteTracks(ctx, t){
   const tw = t.trackWidth || 8;
   const s = (tr.scale > 0) ? tr.scale : tw / img.naturalHeight;
   const W = (t.hullWid || 30) / 2;
-  const off = t.trackOffset || 0;
+  const trackOff = t.trackOffset || 0;
   const L = t.hullLen || 60;
   const dx = tr.dx || 0, dy = tr.dy || 0;
   const tileLen = img.naturalWidth * s;
-  const period = 196 * s;
-  const phase = (((t.trackPhase || 0) % period) + period) % period;
+  const phase = (((t.trackPhase || 0) % tileLen) + tileLen) % tileLen;
   ctx.save();
   ctx.translate(t.x, t.y);
   ctx.rotate(t.hullAngle || 0);
   for(const dir of [-1, 1]){
-    const cy = dir * (W + off + tw / 2) + dy;
+    const cy = dir * (W + trackOff + tw / 2) + dy;
     const x0 = dx - L / 2, x1 = dx + L / 2;
     const y0 = cy - tw / 2, y1 = cy + tw / 2;
     ctx.save();
     ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
     const drawH = img.naturalHeight * s;
     const yImg = cy - drawH / 2;
-    for(let x = x0 - phase - tileLen; x < x1; x += tileLen){
+    for(let x = x0 + phase - tileLen; x < x1; x += tileLen){
       ctx.drawImage(img, x, yImg, tileLen, drawH);
     }
     ctx.restore();
@@ -412,8 +416,17 @@ function drawTankSprite(ctx, t){
   ctx.restore();
   drawSpriteTracks(ctx, t);
   paintPartSprite(ctx, hi, t.x, t.y, t.hullAngle, 1, h.scale, h.dx, h.dy, h.rot);
+
+  // 与程序化分支保持层级：断履带/副炮塔/座圈/起火辉光都位于主炮塔下方（#L1）。
+  if(t.trackBroken) drawBrokenTracks(ctx, t);
+  drawSecondaryTurret(ctx, t);
+  const pOff = turretPivot(t);
+  drawTurretRing(ctx, t, pOff.x, pOff.y);
+  if(t.fireT>0) drawFireGlow(ctx, t);
+
   if(t.hasTurret !== false){
-    const pOff = turretPivot(t);
+    // 与程序化分支同源的炮塔投影阴影（此前精灵分支只有车体地面软阴影，炮塔层次感偏平）。
+    paintTurretShadow(ctx, turretPoly(t).verts, pOff.x, pOff.y, superstructureAngle(t), 1, 9, 12, t.hullAngle);
     paintPartSprite(ctx, ti, pOff.x, pOff.y, superstructureAngle(t), 1,
       s.scale, s.dx, s.dy, s.rot, s.pivot);
     if(!t.ammoBlew){
@@ -431,16 +444,24 @@ function drawTankSprite(ctx, t){
 }
 
 function drawTank(ctx, t){
-  // 整车精灵替换通道（tanks/<id>.json `sprite.enabled`，设计器对齐后开启）：
-  // 图片未就绪/殉爆飞头时回退程序化绘制，保证首帧与极端状态不穿帮。
-  if(t.sprite && t.sprite.enabled && !t.ammoBlew && spriteReady(t)){
-    drawTankSprite(ctx, t);
-    return;
-  }
   const pOff = turretPivot(t);
   const turCx = pOff.x;
   const turCy = pOff.y;
   const bCol = tankBodyCol(t);   // 车体实色：炮管/炮盾等金属件取自实色，队伍色只留描边
+
+  // 整车精灵替换通道（tanks/<id>.json `sprite.enabled`，设计器对齐后开启）：
+  // 图片未就绪/殉爆飞头时回退程序化绘制，保证首帧与极端状态不穿帮。
+  // 注意（#L1）：精灵只替换「车体/炮塔/炮管/履带」这四层画法，**不得**吞掉断履带、
+  // 起火辉光、副炮塔、射界射线、附件与世界内血条——它们在两个分支中共用同一段收尾绘制。
+  if(t.sprite && t.sprite.enabled && !t.ammoBlew && spriteReady(t)){
+    drawTankSprite(ctx, t);
+    // 精灵主体已在 drawTankSprite 内按程序化层级绘制断履带/副炮塔/座圈/起火辉光；
+    // 这里仅绘制主体之上的通用提示与 HUD。
+    drawTraverseRays(ctx, t, turCx, turCy);
+    drawAttachments(ctx, t, turCx, turCy);
+    drawTankHud(ctx, t);
+    return;
+  }
 
   // rolling tracks (under the hull)
   drawTracks(ctx, t);
@@ -463,15 +484,7 @@ function drawTank(ctx, t){
   if(!t.ammoBlew) drawSecondaryTurret(ctx, t);
 
   // turret ring (on the hull, under the turret)
-  if(!t.ammoBlew){
-  ctx.save();
-  ctx.translate(turCx, turCy);
-  ctx.strokeStyle = 'rgba(15,15,18,0.40)'; ctx.lineWidth = 1.5;
-  ctx.setLineDash([3,3]);
-  ctx.beginPath(); ctx.arc(0, 0, t.turWid*0.5, 0, TAU); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-  }
+  drawTurretRing(ctx, t, turCx, turCy);
 
    // 弹药架殉爆后炮塔被掀飞（飞头），炮塔/炮管全部不再绘制；车体焦黑 + 炽热
    if(t.ammoBlew){ drawCharredHull(ctx, t); if(t.fireT>0) drawFireGlow(ctx, t); }
@@ -492,18 +505,7 @@ function drawTank(ctx, t){
   ctx.strokeStyle = 'rgba(15,15,18,0.60)'; ctx.lineWidth=1.5; ctx.stroke();
 
   // 炮塔转动射界：±traverseLimit 左右极限射线（仅当射界 < 180° 时有限制；180° = 360° 全向旋转）
-  if(t.traverseLimit < Math.PI){
-    ctx.strokeStyle = 'rgba(255,180,84,0.32)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4,4]);
-    ctx.beginPath();
-    ctx.moveTo(turCx,turCy);
-    ctx.lineTo(turCx+Math.cos(t.hullAngle-t.traverseLimit)*80, turCy+Math.sin(t.hullAngle-t.traverseLimit)*80);
-    ctx.moveTo(turCx,turCy);
-    ctx.lineTo(turCx+Math.cos(t.hullAngle+t.traverseLimit)*80, turCy+Math.sin(t.hullAngle+t.traverseLimit)*80);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
+  drawTraverseRays(ctx, t, turCx, turCy);
 
    // Barrel: 炮管根部接在炮塔前缘（=旋转中心 + 前缘偏移 turretFrontDist），长度按设计器口径
    // = 炮塔长 × (len/100)。与 gunRoot() 完全同轴，炮塔转动时根部随前缘一起走，不再从炮塔中心/尾部伸出。
@@ -745,7 +747,44 @@ function drawTank(ctx, t){
    } // end turret/barrel block (skipped when the ammo rack blew the turret off)
 
   // ---- draw attachments ----
-  if(!t.ammoBlew && Array.isArray(t.attachments)) t.attachments.forEach(att => {
+  drawAttachments(ctx, t, turCx, turCy);
+
+  // ---- 世界内 HUD（血条 / 车型徽标 / 敌方 Lv.X）----
+  drawTankHud(ctx, t);
+}
+
+// 炮塔座圈虚线（画在车体上、炮塔之下）。两条绘制通道共用（#L1）。
+function drawTurretRing(ctx, t, turCx, turCy){
+  if(t.ammoBlew) return;
+  ctx.save();
+  ctx.translate(turCx, turCy);
+  ctx.strokeStyle = 'rgba(15,15,18,0.40)'; ctx.lineWidth = 1.5;
+  ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.arc(0, 0, t.turWid*0.5, 0, TAU); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+// 炮塔转动射界指示：±traverseLimit 左右极限射线（仅当射界 < π 时绘制；π = 360° 全向旋转）。
+// 程序化与精灵两条绘制通道共用（#L1：精灵分支此前会吞掉该提示）。
+function drawTraverseRays(ctx, t, turCx, turCy){
+  if(!(t.traverseLimit < Math.PI)) return;
+  ctx.strokeStyle = 'rgba(255,180,84,0.32)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4,4]);
+  ctx.beginPath();
+  ctx.moveTo(turCx,turCy);
+  ctx.lineTo(turCx+Math.cos(t.hullAngle-t.traverseLimit)*80, turCy+Math.sin(t.hullAngle-t.traverseLimit)*80);
+  ctx.moveTo(turCx,turCy);
+  ctx.lineTo(turCx+Math.cos(t.hullAngle+t.traverseLimit)*80, turCy+Math.sin(t.hullAngle+t.traverseLimit)*80);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// 附件（shield/drone）绘制：绑定到车体/炮塔/gun_root 锚点。两条绘制通道共用（#L1）。
+function drawAttachments(ctx, t, turCx, turCy){
+  if(t.ammoBlew || !Array.isArray(t.attachments)) return;
+  t.attachments.forEach(att => {
     if(!att || !att.bindTo) return;
     let basePos = { x: t.x, y: t.y }, baseAngle = t.hullAngle;
     if (att.bindTo.startsWith('turret')) {
@@ -755,15 +794,15 @@ function drawTank(ctx, t){
       basePos = { x: turCx, y: turCy };
       baseAngle = t.turretAngle;
     }
-    
+
     const anchor = (t.anchors && t.anchors[att.bindTo]) ? t.anchors[att.bindTo] : { dx: 0, dy: 0 };
     const r = rotate(anchor.dx, anchor.dy, baseAngle);
     const ax = basePos.x + r.x, ay = basePos.y + r.y;
-    
+
     ctx.save();
     ctx.translate(ax, ay);
     ctx.rotate(baseAngle + (att.relativeAngle || 0));
-    
+
     if (att.type === 'shield') {
       ctx.strokeStyle = 'rgba(92,200,255,0.6)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(0, 0, att.size || 20, -Math.PI/3, Math.PI/3); ctx.stroke();
@@ -774,30 +813,33 @@ function drawTank(ctx, t){
     }
     ctx.restore();
   });
+}
 
+// 世界内 HUD：血条（未满血或敌方时显示）+ 重/中型车型徽标 + 敌方等级 Lv.X。
+// 两条绘制通道共用（#L1：精灵分支此前在血条之前 return，导致开启精灵后血量完全不可见）。
+function drawTankHud(ctx, t){
   // 血条阈值用实例 maxHp（t.maxHp 由 makeTank/applyHp 同步），stats.maxHp 可能是旧的塔载默认值
   const maxHp = (t.maxHp && t.maxHp > 0) ? t.maxHp : (t.stats?.maxHp || 100);
   const isEnemy = t.team === 'enemy';
-  if((t.hp < maxHp || isEnemy) && t.hp > 0){
-    const barW = 44, barH = 5;
-    const bx = t.x - barW/2, by = t.y + (t.hullWid||38)/2 + 14;
-    // 血条左侧重/中型标志（不遮挡坦克本体）
-    drawClassBadge(ctx, t, bx - 9, by + barH/2);
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(bx-1, by-1, barW+2, barH+2);
-    const hpPct = Math.max(0, Math.min(1, t.hp / maxHp));
-    ctx.fillStyle = t.team === 'player' ? '#7ed957' : '#ff5c4d';
-    ctx.fillRect(bx, by, barW * hpPct, barH);
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
-    ctx.strokeRect(bx, by, barW, barH);
+  if(!((t.hp < maxHp || isEnemy) && t.hp > 0)) return;
+  const barW = 44, barH = 5;
+  const bx = t.x - barW/2, by = t.y + (t.hullWid||38)/2 + 14;
+  // 血条左侧重/中型标志（不遮挡坦克本体）
+  drawClassBadge(ctx, t, bx - 9, by + barH/2);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(bx-1, by-1, barW+2, barH+2);
+  const hpPct = Math.max(0, Math.min(1, t.hp / maxHp));
+  ctx.fillStyle = t.team === 'player' ? '#7ed957' : '#ff5c4d';
+  ctx.fillRect(bx, by, barW * hpPct, barH);
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
+  ctx.strokeRect(bx, by, barW, barH);
 
-    // 敌方等级标示 (Lv.X)
-    if(isEnemy){
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
-      ctx.font = 'bold 9px "JetBrains Mono", monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(`Lv.${(t.aiTier || 0) + 1}`, bx + barW + 5, by + barH);
-    }
+  // 敌方等级标示 (Lv.X)
+  if(isEnemy){
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = 'bold 9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Lv.${(t.aiTier || 0) + 1}`, bx + barW + 5, by + barH);
   }
 }
 
@@ -932,6 +974,11 @@ if (typeof module !== 'undefined' && module.exports) {
     drawClassBadge,
     drawGround,
     secondaryTurretPose,
-    drawSecondaryTurret
+    drawSecondaryTurret,
+    // 两条绘制通道共用的收尾视觉（#L1）：炮塔座圈 / 射界射线 / 附件 / 世界内 HUD
+    drawTurretRing,
+    drawTraverseRays,
+    drawAttachments,
+    drawTankHud
   };
 }

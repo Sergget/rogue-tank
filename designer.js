@@ -59,7 +59,10 @@ let state = {
    trackWidth: 8, trackOffset: 0,
    texture: 'none', // 表面纹理（TEXTURE_DEFS 键：none/armor_plate/weld_seam/rust/camo/camo_dunkelgelb/paint_panzergrau/camo_nato/paint_soviet）
    sprite: defaultSprite(), // 整车精灵（AI 生成贴图）：{ enabled, hull:{img,scale,dx,dy,rot}, turret:{img,scale,dx,dy,rot,pivot:[px,py]} }
-   spritePreview: true, // 仅设计器画布叠加显示，不写入存档
+   // 仅设计器画布叠加显示，不写入存档。
+   // #L7：默认关闭——未对齐（或贴图带残留白底）时叠加会直接盖住多边形，让「顶点/装甲」
+   // 编辑变得无法判读；对齐时由用户显式勾选「画布显示精灵」。
+   spritePreview: false,
    hull: defaultHull(),
    turret: defaultTurret(),
    barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } },
@@ -977,22 +980,32 @@ function defaultSprite(){
               imgRailgun:'assets/tanks/barrels/barrel-railgun.png' }
   };
 }
+// #L3：normalizeSprite* 必须**保留未知键**。此前只回填固定键并在 buildExport 只写固定键，
+// 导致设计器「读取→保存」把 tanks/*.json 里的额外字段（imgHummel/imgPanzerIV/lenPxPanzerIV、
+// hull.pivot、track.rot）永久删除。现在先浅拷贝原始对象，再覆盖已知键。
 function normalizeSpritePart(p){
   p = p || {};
-  const out = { img: p.img || '', scale: +p.scale || 0, dx: +p.dx || 0, dy: +p.dy || 0, rot: +p.rot || 0 };
+  const out = Object.assign({}, p);
+  out.img = p.img || '';
+  out.scale = +p.scale || 0;
+  out.dx = +p.dx || 0;
+  out.dy = +p.dy || 0;
+  out.rot = +p.rot || 0;
   if(p.pivot) out.pivot = [+p.pivot[0] || 0, +p.pivot[1] || 0];
   return out;
 }
 function normalizeSpriteBarrel(p){
   p = p || {};
-  return {
-    mountDx: +p.mountDx || 0, mountDy: +p.mountDy || 0,
-    embed: (p.embed !== undefined && p.embed !== null && p.embed !== '') ? +p.embed : 2,
-    scaleMult: +p.scaleMult || 1, gap: +p.gap || 3.7,
-    imgStandard: p.imgStandard || 'assets/tanks/barrels/barrel-standard.png',
-    imgAutocannon: p.imgAutocannon || 'assets/tanks/barrels/barrel-autocannon.png',
-    imgRailgun: p.imgRailgun || 'assets/tanks/barrels/barrel-railgun.png'
-  };
+  const out = Object.assign({}, p);
+  out.mountDx = +p.mountDx || 0;
+  out.mountDy = +p.mountDy || 0;
+  out.embed = (p.embed !== undefined && p.embed !== null && p.embed !== '') ? +p.embed : 2;
+  out.scaleMult = +p.scaleMult || 1;
+  out.gap = +p.gap || 3.7;
+  out.imgStandard = p.imgStandard || 'assets/tanks/barrels/barrel-standard.png';
+  out.imgAutocannon = p.imgAutocannon || 'assets/tanks/barrels/barrel-autocannon.png';
+  out.imgRailgun = p.imgRailgun || 'assets/tanks/barrels/barrel-railgun.png';
+  return out;
 }
 function normalizeSprite(data){
   data = data || {};
@@ -1031,15 +1044,17 @@ function syncSpriteInputs(){
   document.getElementById('sp-barrel-scalemult').value = sp.barrel.scaleMult || 1;
   document.getElementById('sp-barrel-gap').value = sp.barrel.gap || 3.7;
   document.getElementById('sp-barrel-imgstd').textContent = sp.barrel.imgStandard || '—';
+  document.getElementById('sp-barrel-imgveh').textContent = sp.barrel.imgVehicle || '—';
   document.getElementById('sp-barrel-imgac').textContent = sp.barrel.imgAutocannon || '—';
   document.getElementById('sp-barrel-imgrg').textContent = sp.barrel.imgRailgun || '—';
   document.getElementById('sp-barrel-imgstd-in').value = sp.barrel.imgStandard || '';
+  document.getElementById('sp-barrel-imgveh-in').value = sp.barrel.imgVehicle || '';
   document.getElementById('sp-barrel-imgac-in').value = sp.barrel.imgAutocannon || '';
   document.getElementById('sp-barrel-imgrg-in').value = sp.barrel.imgRailgun || '';
 }
 function spriteAutoAlign(){
   // 按车体/炮塔多边形包围盒长度重算缩放，清零位移与旋转（轴心保留）；
-  // 履带缩放默认 = 履带宽/图片高；炮管安装点默认 = 炮塔前缘×0.8。
+  // 履带缩放默认 = 履带宽/图片高；炮管安装点 = 炮塔前缘 + 嵌入深度（axis 归零帧）。
   const sp = state.sprite;
   for(const [part, poly] of [['hull', state.hull], ['turret', state.turret]]){
     const v = buildFullVerts(poly.half);
@@ -1057,25 +1072,35 @@ function spriteAutoAlign(){
     if(img && img.naturalHeight) sp.track.scale = +(((state.trackWidth || 8) / img.naturalHeight).toFixed(5));
     sp.track.dx = 0; sp.track.dy = 0;
   }
-  // 炮管：安装点 = 炮塔前缘 ×0.8（炮塔局部 +X 为前）
+  // 炮管：安装点 = 炮塔前缘（与运行时 turretFrontDist/gunRoot 同源，口径见
+  // js/tank_geometry.js frontDistFromVerts）。#L2：此前用**未减 axis** 的原始顶点 maxX×0.8，
+  // 而运行时的「炮塔前缘」定义在 **axis 归零后**的局部帧上——两者不同源会让贴图炮管
+  // 相对 gunRoot/gunTip（弹道起点与炮口火焰所在）系统性偏后 1.9~8.0 单位。
+  // 这里把设计器作者帧换算到运行时帧（x - axis.dx）后再取前缘；embed 由用户在面板上给。
   {
     const v = buildFullVerts(state.turret.half);
     if(v.length >= 2){
-      let maxX = -Infinity;
-      for(const p of v) maxX = Math.max(maxX, p[0]);
-      sp.barrel.mountDx = +(maxX * 0.8).toFixed(2);
+      const ax = (state.turret.axis && state.turret.axis.dx) || 0;
+      const runtimeVerts = v.map(p => [p[0] - ax, p[1]]);
+      const front = (typeof frontDistFromVerts === 'function')
+        ? frontDistFromVerts(runtimeVerts, 0)
+        : runtimeVerts.reduce((m, p) => Math.max(m, p[0]), -Infinity);
+      const embed = +state.sprite.barrel.embed || 0;
+      sp.barrel.mountDx = +(front + embed).toFixed(2);
       sp.barrel.mountDy = 0;
     }
   }
   syncSpriteInputs();
   render();
-  pushHint('已按多边形包围盒重算精灵缩放（位移/旋转清零，轴心保留）；履带/炮管已给初值');
+  pushHint('已按多边形包围盒重算精灵缩放（位移/旋转清零，轴心保留）；履带/炮管已给初值（炮管安装点 = 炮塔前缘 + 嵌入深度）');
 }
 document.getElementById('sp-enabled').addEventListener('change', e=>{
   state.sprite.enabled = e.target.checked; render();
 });
 document.getElementById('sp-preview').addEventListener('change', e=>{
-  state.spritePreview = e.target.checked; render();
+  state.spritePreview = e.target.checked;
+  preloadSpriteImages(); // #M2：勾选瞬间预热（此刻才开始加载也不至于空白一帧）
+  render();
 });
 for(const [id, part, key] of [
   ['sp-track-scale','track','scale'], ['sp-track-dx','track','dx'], ['sp-track-dy','track','dy'],
@@ -1094,14 +1119,35 @@ for(const [id, part, key] of [
   });
 }
 document.getElementById('sp-autoalign').addEventListener('click', spriteAutoAlign);
+// #M2：炮管贴图路径输入（含本车专用 imgVehicle）。路径变更后必须做两件事：
+// ① 预热 spriteImage 缓存（首次请求才会创建 Image，否则下一帧渲染时图片未就绪 → 空白一帧）；
+// ② 给 Image 挂 onload 触发一次重绘——设计器 render() 只在交互时被调用，没有逐帧循环，
+//    图片异步解码完成后若无人叫醒 render，贴图永远停留在「未加载」状态（用户实测反馈）。
 for(const [id, key] of [
-  ['sp-barrel-imgstd-in','imgStandard'], ['sp-barrel-imgac-in','imgAutocannon'], ['sp-barrel-imgrg-in','imgRailgun']
+  ['sp-barrel-imgstd-in','imgStandard'], ['sp-barrel-imgveh-in','imgVehicle'],
+  ['sp-barrel-imgac-in','imgAutocannon'], ['sp-barrel-imgrg-in','imgRailgun']
 ]){
   document.getElementById(id).addEventListener('change', e=>{
-    state.sprite.barrel[key] = e.target.value.trim() || state.sprite.barrel[key];
+    state.sprite.barrel[key] = e.target.value.trim();
+    preloadSpriteImages();
     syncSpriteInputs();
     render();
   });
+}
+// 预热全部精灵图片缓存并挂载 onload 重绘（幂等：已缓存的图片不会重复创建）。
+function preloadSpriteImages(){
+  const sp = state.sprite;
+  const paths = [sp.hull && sp.hull.img, sp.turret && sp.turret.img, sp.track && sp.track.img,
+                 sp.barrel.imgVehicle, sp.barrel.imgStandard, sp.barrel.imgAutocannon, sp.barrel.imgRailgun];
+  for(const p of paths){
+    if(!p) continue;
+    const img = spriteImage(p);
+    if(img && !img.complete && !img._onloadHooked){
+      img._onloadHooked = true;
+      img.addEventListener('load', render, { once:true });
+      img.addEventListener('error', ()=>{ pushHint('精灵贴图加载失败: ' + p, 3000); }, { once:true });
+    }
+  }
 }
 document.getElementById('barrelMuzzle').addEventListener('change', ()=>{
    state.barrel.muzzle = document.getElementById('barrelMuzzle').value;
@@ -1488,22 +1534,24 @@ function drawPreviewSpriteTracks(){
   const hullLen = maxX - minX, hullWid = maxY - minY;
   const tw = state.trackWidth || 8;
   const s = (sp.track.scale > 0) ? sp.track.scale : tw / img.naturalHeight;
-  const off = state.trackOffset || 0;
+  const trackOff = state.trackOffset || 0;
   const dx = sp.track.dx || 0, dy = sp.track.dy || 0;
+  // 与局内 drawSpriteTracks 同口径：滚动周期 = 整幅贴图宽（不硬编码 196），相位向 +x 推进
+  // （与程序化 paintTracks 的 lineDashOffset=-phase 同向）。
   const tileLen = img.naturalWidth * s * viewScale;
-  const period = 196 * s * viewScale;
+  const period = tileLen;
   const phase = (((performance.now()*0.02) % period) + period) % period;
   ctx.save();
   ctx.translate(hc.x, hc.y);
   for(const dir of [-1, 1]){
-    const cy = (dir * (hullWid/2 + off + tw/2) + dy) * viewScale;
+    const cy = (dir * (hullWid/2 + trackOff + tw/2) + dy) * viewScale;
     const x0 = (dx - hullLen/2) * viewScale, x1 = (dx + hullLen/2) * viewScale;
     const y0 = cy - (tw/2)*viewScale, y1 = cy + (tw/2)*viewScale;
     ctx.save();
     ctx.beginPath(); ctx.rect(x0, y0, x1-x0, y1-y0); ctx.clip();
     const drawH = img.naturalHeight * s * viewScale;
     const yImg = cy - drawH/2;
-    for(let x = x0 - phase - tileLen; x < x1; x += tileLen){
+    for(let x = x0 + phase - tileLen; x < x1; x += tileLen){
       ctx.drawImage(img, x, yImg, tileLen, drawH);
     }
     ctx.restore();
@@ -1514,7 +1562,7 @@ function drawPreviewSpriteTracks(){
 function drawPreviewSpriteBarrel(turretAngle){
   const sp = state.sprite;
   if(!state.spritePreview) return;
-  const img = spriteImage(sp.barrel.imgStandard);
+  const img = spriteImage(sp.barrel.imgVehicle || sp.barrel.imgStandard);
   if(!img || !img.naturalWidth) return;
   const hc = hullCenter();
   const ring = { x: hc.x + state.turret.pivot.dx*viewScale, y: hc.y + (state.turret.pivot.dy||0)*viewScale };
@@ -1779,15 +1827,17 @@ function render(){
 
   // 部件可见性：隐藏的部件（含履带/炮管等其附属视觉）不渲染
   // 精灵预览开时履带改用精灵贴图（对齐用），否则走程序化履带
+  // #M1 绘制顺序（2026-10-08）：必须与局内 drawTank 同层级——履带 → 车体 → 炮塔 → 炮管。
+  // 此前炮塔画在车体之前，车体的精灵贴图/程序化纹理/纯色填充整块盖住炮塔（用户实测反馈）。
   if(partVisible.hull){
     if(state.spritePreview && state.sprite.track.img) drawPreviewSpriteTracks();
     else drawDesignerTracks(fullDetail ? performance.now()*0.02 : trackPhase, viewScale);
   }
+  if(partVisible.hull) drawPolygon(state.hull, hc, 0, Object.assign({ active: mode==='hull' }, partOpts));
   if(partVisible.turret){
     drawPolygon(state.turret, null, turretAngle, Object.assign({ active: mode==='turret' || mode==='pivot' }, partOpts));
     if(state.spritePreview) drawPreviewSpriteBarrel(turretAngle);
   }
-  if(partVisible.hull) drawPolygon(state.hull, hc, 0, Object.assign({ active: mode==='hull' }, partOpts));
 
   // 1. 车体上的炮塔座圈圆心 (pivot) 标记位置：
   const ringCenter = {
@@ -1988,14 +2038,23 @@ function buildExport(){
      aimSpeed: state.aimSpeed,
      texture: state.texture,
      // 整车精灵：enabled 控制局内是否替换程序化绘制；preview 标志不写入（设计器本地）
-     sprite: {
-       enabled: !!state.sprite.enabled,
-       track: { img: state.sprite.track.img, scale: state.sprite.track.scale, dx: state.sprite.track.dx, dy: state.sprite.track.dy },
-       hull: { img: state.sprite.hull.img, scale: state.sprite.hull.scale, dx: state.sprite.hull.dx, dy: state.sprite.hull.dy, rot: state.sprite.hull.rot },
-       turret: { img: state.sprite.turret.img, scale: state.sprite.turret.scale, dx: state.sprite.turret.dx, dy: state.sprite.turret.dy, rot: state.sprite.turret.rot, pivot: [state.sprite.turret.pivot[0], state.sprite.turret.pivot[1]] },
-       barrel: { mountDx: state.sprite.barrel.mountDx, mountDy: state.sprite.barrel.mountDy, embed: state.sprite.barrel.embed, scaleMult: state.sprite.barrel.scaleMult, gap: state.sprite.barrel.gap,
-                 imgStandard: state.sprite.barrel.imgStandard, imgAutocannon: state.sprite.barrel.imgAutocannon, imgRailgun: state.sprite.barrel.imgRailgun }
-     },
+     // #L3：以 state.sprite 的对象为底做浅拷贝（保留 imgHummel/imgPanzerIV/lenPxPanzerIV 等
+     // 本面板未管理的额外键），再覆盖面板管理的字段；hull/turret/track 均对称写出 pivot/rot。
+     sprite: (() => {
+       const s = state.sprite;
+       const part = (src) => Object.assign({}, src);
+       return {
+         enabled: !!s.enabled,
+         track: Object.assign(part(s.track), { img: s.track.img, scale: s.track.scale, dx: s.track.dx, dy: s.track.dy, rot: s.track.rot || 0 }),
+         hull: Object.assign(part(s.hull), { img: s.hull.img, scale: s.hull.scale, dx: s.hull.dx, dy: s.hull.dy, rot: s.hull.rot }),
+         turret: Object.assign(part(s.turret), { img: s.turret.img, scale: s.turret.scale, dx: s.turret.dx, dy: s.turret.dy, rot: s.turret.rot, pivot: [s.turret.pivot[0], s.turret.pivot[1]] }),
+         barrel: Object.assign(part(s.barrel), {
+           mountDx: s.barrel.mountDx, mountDy: s.barrel.mountDy, embed: s.barrel.embed,
+           scaleMult: s.barrel.scaleMult, gap: s.barrel.gap,
+           imgStandard: s.barrel.imgStandard, imgAutocannon: s.barrel.imgAutocannon, imgRailgun: s.barrel.imgRailgun
+         })
+       };
+     })(),
      barrel: {
        len: state.barrel.len,
        width: state.barrel.width,
@@ -2078,6 +2137,7 @@ function applyTankData(data, opts){
    if(data.texture !== undefined && ['none','armor_plate','weld_seam','rust','camo','camo_dunkelgelb','paint_panzergrau','camo_nato','paint_soviet'].includes(data.texture)) state.texture = data.texture;
    else state.texture = 'none'; // 旧数据缺省无纹理
    state.sprite = normalizeSprite(data.sprite); // 整车精灵（无则默认关闭）
+   preloadSpriteImages(); // #M2：载入即预热贴图缓存 + onload 重绘，防「首帧未就绪永远空白」
    if(data.spreadMult !== undefined) state.spreadMult = data.spreadMult;
    if(data.aimSpeed !== undefined) state.aimSpeed = data.aimSpeed;
    document.getElementById('trackWidthInput').value = state.trackWidth || 8;
