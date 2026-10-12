@@ -2591,9 +2591,12 @@ function generateStrip(difficulty, options) {
           const sy = y0 + (y1 - y0) * (t0 + t1) / 2;
           // 轻微弯曲
           const sx = bx + Math.sin(t0 * Math.PI) * branchRng.range(-30, 30);
+          const segLen = Math.abs(y1 - y0) / nSeg + 20;  // 沿路向（竖直）长边
+          const segW = stripRoadW * 0.7;                  // 横向路宽
+          const segAngle = y1 > y0 ? Math.PI / 2 : -Math.PI / 2;  // 竖向
           stripRoadNet.covers.push({
-            x: sx, y: sy, w: stripRoadW * 0.7, h: Math.abs(y1 - y0) / nSeg + 20,
-            angle: 0, tier: 'road', groupId: 'strip-branch'
+            x: sx, y: sy, w: segLen, h: segW,
+            angle: segAngle, tier: 'road', groupId: 'strip-branch'
           });
         }
         // 岔路口 junction（供渲染断开中心线）
@@ -2976,6 +2979,13 @@ function generateStrip(difficulty, options) {
                 }
               }
             }
+          } else {
+            // #P1 修复：key 已见（同一 200px 网格）——bridgeSeen 仅防多座桥，
+            // 不得静默丢弃河段。该段仍需作为 river 落盘，桥面覆盖是渲染层职责。
+            covers.push({
+              x: s.dx, y: s.dy, w: s.w, h: s.h, angle: s.angle || 0,
+              tier: rv.tier || 'river', groupId: rv.groupId
+            });
           }
           // 该河段被桥替换（或保留），不追加 river（已在上处理）
         } else {

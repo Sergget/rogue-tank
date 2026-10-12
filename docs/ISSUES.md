@@ -9,8 +9,41 @@
 
 ## 当前待处理问题
 
-（无。存量条目已全部修复并归档；新问题经核实后按 `AGENTS.md` §2 生命周期新增。）
+### #P1 strip 河流生成不连续：路河交叉段撞键被静默丢弃，80% seed 出现河面空洞（2026-10-11，**已修复 2026-10-12**）
 
+> **修复验证**：`node scripts/audit-river-continuity.js` 60 seed 输出 0 空洞（修复前 339 处）。结论见 `DEVELOPMENT-batches-2026-10.md` §4.67。原文已归档 `docs/archive/2026-10.md`。
+
+- **现象**：横向 strip 战场的河流沿程出现 ~200-300px 的空洞段，河看起来断成几截。
+- **核实结论**：成立，且根因不在渲染而在**生成层丢段**。经 60 seed 实测：**48/60（80%）seed 至少 1 处河水中段空洞**（相邻保留河段中心距 >200px 且连线中点不被任何同组河段/桥覆盖），合计 339 处。
+- **根因**：`js/tank_nodegen.js:2939-2984` 路河交叉处理中，`bridgeSeen` 以 `round(s.dx/200)+':'+round(s.dy/200)` 网格键去重；当第二段命中道路的河段与更早河段/桥**同键**时，`if (!bridgeSeen.has(key))` 整块跳过，**既不建桥也不回填 river**——注释（`tank_nodegen.js:2984`「该河段被桥替换（或保留），不追加 river（已在上处理）」）对撞键分支不成立：该分支什么都没处理。`isBranchPointClear=false` 时保留 river 的兜底（`tank_nodegen.js:2942-2948`）只在**未撞键**路径里。
+- **证据**（插桩实测，60 seed，`generateStrip(0.5)` 全程）：
+  - 撞键静默丢段 **397 段**；339 处空洞 **100%（339/339）** 在 200px 内存在对应丢段日志（逐洞关联）。
+  - 全部空洞处河段均「压路=true」（命中 `hitRoad` 的 OBB 判定后进入该分支）。
+  - 重跑检测：`node scripts/audit-river-continuity.js`（60 seed，输出受影响 seed 数与空洞数；修复后应为 0）。
+  - 河段渲染按 `segments` 逐段绘制（`js/tank_battledraw.js:221-238` water-chain），缺段直接可见为空白。
+- **影响**：河流视觉断裂；溺毙水域（`passability: 0.4` + `RULES.drowning`）沿程覆盖不一致，断口处坦克「走出河」再「走进河」，读图误导。公路不受影响（路网链段每段必落盘，`_emitRoadChain` 无去重丢段逻辑——`js/tank_nodegen.js:874-891`）。
+- **复现**：`node scripts/audit-river-continuity.js`；或任取 seed=4/12/13/34/44/51（strip 左缘 138→398px 处恒定断口 260px，`placeStripRivers` H 形河首段撞键）。
+- **修复方向**（参考公路逻辑）：桥只作**视觉替换**，不删河段数据——先完整生成河链（每段必落盘，等价 `_emitRoadChain` 的「每段必进 out」契约），交叉处打 `bridge` 标记由渲染层压盖；或撞键分支至少回填 river 段（与 `isBranchPointClear=false` 分支同款兜底）。修复后跑 `scripts/audit-river-continuity.js` 应 0 洞，并回归 `scripts/test-strip.js` §6c。
+
+### #P2 公路分支/路口/桥梁绘制粗糙（2026-10-11，(a) 已修复 2026-10-12，b/c 待处理）
+
+> **(a) 子项已于 2026-10-12 修复**（结论见 `DEVELOPMENT-batches-2026-10.md` §4.67）——`js/tank_nodegen.js:2594-2597` strip-branch 链段 `w/h/angle` 修正为与 `_emitRoadChain` 同款约定；`audit-road-draw.js` 验证病链 863→0，平均渲染宽 17px→75px。**原文 (a) 段落归档**至 `docs/archive/2026-10.md`（2026-10-12 行）。
+
+- **现象**：strip 战场的桥梁是无细节的褐色矩形（纯色 box + 文字标签）；路口挖空半径相对于窄支路路宽过宽。
+- **核实结论**：
+  - **(b) 桥梁无桥面绘制**：bridge `drawStyle: 'box'`（`js/tank_rules.js:133`）→ 战斗层画纯色矩形并在桥心 `fillText('桥梁')` 文字标签（`js/tank_battledraw.js:166-174` box 分支）；无桥面/护栏/路面延伸。桥与路的衔接仅靠 `bridge-approach` 过渡段，且**仅当桥路夹角 >15° 才生成**（`js/tank_nodegen.js:2964-2982`），平交时路直接压上桥沿。
+  - **(c) 路口挖空半径不匹配窄支路**：junction 断线圆半径统一 `roadW*0.5`（`js/tank_nodegen.js:1205`、`tank_mvp.html:4099-4104`），strip-branch junction 也用 `stripRoadW*0.5`（`js/tank_nodegen.js:2605`），但分支实际路宽仅 `0.7×stripRoadW`——半径相对分支过宽，多挖掉分支侧标线。
+- **影响**：桥梁缺乏道路语言、路口/桥头衔接生硬。
+- **复现**：`npm start` 后打开 `tank_mvp.html` 进入任一 strip 节点，观察桥梁/路口。
+- **修复方向**：(b) bridge 新增专用 drawStyle（桥面铺装 + 护栏 + 路面色衔接，去文字标签），并放宽 approach 生成条件；(c) junction 半径取相交链路宽的较小者。
+
+### #Q1 平行去重误删同链相邻段 → 斜向公路链内断口（2026-10-12，已修复归档）
+
+> 原文已归档 `docs/archive/2026-10.md`（2026-10-12 行）；结论见 `DEVELOPMENT-batches-2026-10.md` §4.64。审计复跑：`node scripts/audit-map-gen.js` 九类硬检查全零。
+
+> **#Q1~#Q6 已于 2026-10-12 修复并归档**（连同连锁修正：prune 地形层豁免正名「地形标签必产出」契约 + calibration 第五次重锚；验收四链全绿 audit-map-gen 九类硬检查全零 / audit-map-drive 动态跑图全绿 / npm run check EXIT=0 / npm test 43/43）——原文见 `docs/archive/2026-10.md`（2026-10-12 行），结论见 `docs/DEVELOPMENT-batches-2026-10.md` §4.64。
+
+> **#O1/#O4 已于 2026-10-10 解决并归档**——原文见 `docs/archive/2026-10.md`，见 `docs/ARCHIVE.md` 索引表。
 > **#L8 已于 2026-10-08 解决并归档**（白色残留清除 + 两车炮塔对齐参数重算；`hummel_turret` 上下两块经用户澄清为设计如此，误判已撤回）——原文见 `docs/archive/2026-10.md`，结论见 `docs/DEVELOPMENT-batches-2026-10.md` §4.56。
 
 ---

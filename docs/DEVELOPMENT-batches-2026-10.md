@@ -269,3 +269,156 @@
 - **方法论说明（重要）**：**IoU 不适用于中间带透明槽的贴图**。对 hummel 炮塔，形状正确的多边形覆盖「炮管槽」反而**降低** IoU；扫描出的"IoU 最优"（0.617）实际把轴心推离中心并放大到 1.35×，是错解。故改用几何准则：**映射长度 = 多边形长度**、**旋转轴 = 内容包围盒中心**（hummel 为炮管槽中心）。这也意味 `scripts/clean_sprite_bg.py` 的 `--dry` 报告与映射长度比、轴心偏差应作为对齐验收指标，而非 IoU。
 - **验证**：`node scripts/check-html.js` EXIT=0；`tsc --noEmit` EXIT=0；Node 单测 **44/44**；资产 16/16 PNG CRC 校验通过且**半透明像素 = 0**；专项断言 16/16 通过（5 车炮管 Δ=0.000；10/10 部件映射长度比 0.999~1.000；hummel 轴心偏差 0.048 单位）。`test:browser` 四链需系统 Edge，待正常环境补跑。
 - 遗留：5 车 `sprite.enabled` 仍为 **false**——参数与资产已就绪，待目视确认后开启。文档归口：`docs/specs/editor.md` §6 更新资产要求（允许「中间带炮管槽的多块炮塔」，白底判定改为可达性准则）。
+
+### §4.57 贴图资产压缩链（2026-10-10，PNG-8 量化 + 二值 alpha 保全）
+
+> 来源：用户「研究需要安装什么 MCP，以修复不合适的贴图、补齐缺失炮管贴图，并为后续坦克/特效/地图贴图做准备」。调研结论见 `tools/sprite-audit.md` §6；本条记录**不装 MCP 的确定性工具链**落地。
+
+- **MCP 调研结论（2026-10-10，npm registry 实测）**：AI 出图 MCP（`comfyui-mcp` / `replicate-mcp` / `@houtini/gemini-mcp` 等）**不适合做生产贴图来源**——无法保证精确像素尺寸、锚点每次漂移、爱烘焙地面投影、帧间不一致（爆炸序列做不了 spritesheet）、许可来源不透明。定位为**概念参考图**（落 `docs/refs/`）。**fal 官方 MCP 不存在**（`mcp.fal.ai` 实测 404）；npm 上 `mcp-fal`/`@fal-ai/mcp` 均 404；`mcp-server-git`(npm) 已被占为 security 占位包，git/fetch server 须走 PyPI；ImageMagick/Pillow/pngquant/optipng **无成熟 MCP 封装**。DSH 的 MCP 配置走 `$DSH_HOME/cordis.patch.yml`（不读 `.mcp.json`）。
+- **真实缺口修正**：`tools/sprite-audit.md` §3 原记「hull/turret 白底/半透」**已过期**——§4.56 #M4 的可达性准则清理后，16 张贴图 `background: 0`（本次复测确认全部为 0）。真正且唯一的缺口是**体积**：15.6 MB / 16 张，hull 最大 2.4 MB。
+- **新增 `scripts/optimize_sprites.py`**（Pillow，体检 + 量化 + 可选缩放）：
+  - 默认**只报告不写盘**；`--inplace` 才落盘且默认只在结果变小时写。
+  - 报告列：体积前后、节省比、尺寸、alpha 分布、`mean_abs_err`（可见像素平均色差）、`alpha_diff_px`。
+  - `--max-width` 缩放**默认关闭**：`tank_battledraw.js` 的 `paintPartSprite` 用 `naturalWidth × scale`，缩图必须同步 `tanks/*.json` 的 `sprite.hull/turret/track.scale`；炮管贴图由 `drawSpriteBarrel` 按 `barrelLen / naturalWidth` 归一化，与尺寸无关。
+- **alpha 保全实现（关键）**：直接 `FASTOCTREE` 量化 RGBA 会把**二值 alpha 打成半透明软边**（实测 hull 类 15%~27% 像素变半透明 → 深色战场上的方形灰雾）。故：透明像素填可见区平均色 → 只量化 RGB（`MEDIANCUT`，索引 +1 留 0 号）→ 0 号索引登记全透明并以 PNG `tRNS` 表达 → **alpha 逐像素精确还原**。
+  - 坑位备忘：P 模式取索引必须用 `tobytes()/frombytes()`；`q.convert('L')` 返回的是调色板**亮度**而非索引（实测把平均色差从 0.62 拉到 30.8）。
+- **落地结果（`--colors 256 --inplace`）**：16/16 写回，**15.6 MB → 6.1 MB（-60.0%）**，`tiger-I_hull` 2.29 MB → 925 KB。
+- **验证（与 git HEAD 原图逐像素比对）**：`mean_abs_err ≤ 2.1/255`（16 张全通过），**`alpha_diff_px = 0`（alpha 逐像素一致）**，误差 > 24 的可见像素占比 ≤ 0.04%。`npm run check` 全绿；`npm test` **42/43**（`test-strip.js` 180 s 超时，该文件不引用任何 assets/贴图，与本改动无关，单跑仍在跑，属**既有慢测**）。
+- **本机工具链**：Pillow/numpy 以工作区本地库运行（`$env:PYTHONPATH="$PWD/tmp/pylibs"`），不污染全局 site-packages；`pip install` 在本会话沙箱下不可用（暂存目录 ACL + 沙箱写入限制），故走 `tmp/fetch-wheels.js` 下载 wheel + `Expand-Archive` 解包。
+- **遗留（见 PLAN §1 新增条目）**：① 3 根缺失专用炮管（Leopard 1 / Tiger I / Obj 780）；② 贴图**缩放**第二阶段（15.6 MB→6.1 MB 之后，像素数仍是主项，需 JSON `scale` 联动 + 渲染像素级回归）；③ `sprite-audit.md` §4.3 的阴影半径魔数 `0.52`。
+
+### §4.58 地图元素 AI 生成管线三件套（2026-10-10，prompt 包 + ComfyUI 模板 + 后处理脚本）
+
+> 来源：用户「现在的地图元素、动效、坦克贴图资产都太简陋了，如何升级视觉效果」→ 范围投票「AI 生成贴图管线 + 地图元素优先」。本条记录管线搭建（出图尚未开始，`assets/` 仍全程序化回退）。
+
+- **新增 `tools/cover-gen-prompts.md`**：10 张清单（7 基底 + bush/tree/fallen 3 树冠层）+ 全局风格前缀/负面提示 + P1~P10 逐件 prompt + ComfyUI/Gemini 参数 + `§5 后处理流水线` + `§6 验收标准`。关键纠正：落盘为 `assets/` 根目录（加载器 `loadAssetImage` 只认 `assets/<key>.png`，`assets/covers/` 子目录不认）；`bush.png` 基底建议沿用程序化 bake（淡阴影椭圆，不值得生成预算）。
+- **新增 `tools/cover-comfyui-workflow.json`**（子代理）：ComfyUI API 格式单图复用模板（SDXL + 透明背景双方案 LayerDiffuse/REMBG），`_assets` 轮查表载 10 件名义尺寸/锚点/建议出图尺寸（长边 ≥ 512，禁直出 24×18），prompt 正文单源引用 prompt 包（JSON 内不重写，防双源漂移）。
+- **新增 `scripts/prepare_covers.py`**（子代理）：源图 → 等比缩居中贴画布 → 边框洪泛清底 → PNG-8 量化（透明占 0 号索引，复用 `optimize_sprites.py` encode 思路）→ `assets/<key>.png`；默认只报告不写盘，`--inplace` 落盘；缺图 exit 1。内存管线自测：600×200 合成图 → 170×10 画布，背景清除 168px，输出 907 字节、半透明像素 0.0%。
+- **附带发现（未改码，仅告警）**：按 `ASSET_DEFS` 字面尺寸，`fallen_canopy` 锚点 (1.0, 15.9) 落在 58×9 画布之外，`tree`/`fallen`/`bush_canopy` 中心差亦超 ±2px——探针实测锚点与名义画布的既有张力，脚本以 `ANCHOR_OUTSIDE`/`ANCHOR_WATCH` 如实告警，出图后须在 `bake.html` 红十字下复核。
+- **验证**：两新文件存在且头段可读；`prepare_covers.py --dry` 在空源目录下 10 张全 MISSING + exit 1（符合预期）；无游戏代码改动，故未跑三链（`npm run check`/`npm test` 不适用）。
+- **现行口径归口**：`specs/map.md` §4 新增 AI 生成管线行；待办见 PLAN §1 新增行（出图 + 落盘 + 目视确认）。
+
+### §4.59 树冠程序化细节升级（2026-10-10，bush/tree/fallen canopy 高光叶点回退增强）
+
+> 来源：用户「按你建议的顺序继续实施下一步升级」（P6/P8 叶片优先）。AI 出图待用户侧执行；本条先升级程序化回退通道（`assets/` 无图时游戏内实际所见），AI 图落盘后同名替换、接口不变。
+
+- **改动（`js/tank_assets.js`，仅 `bakeCanopy` 内部追加）**：`bush` +3 高光斑 +14 明暗叶点、`tree` +3 高光 +1 深色内腔 +16 叶点、`fallen` +2 高光 +10 叶点；原几何/颜色/轮廓线一字未动。新增 `hash01(key, i)` 确定性伪随机（FNV-1a + 雪崩，同 key 同序号恒值），烘焙纯函数性质不变（探针/二次绘制一致，缓存安全）；`hash01` 已入 `module.exports`。
+- **不变量**：新增内容严格收在旧包围盒内——`tmp/verify_canopy.js`（打桩 ctx 记录全部 arc/ellipse）断言：bush reach ≤ 旧叶瓣 0.44w、tree ≤ R\*0.85 主圆、fallen 分轴 ≤ 1.05rw/rh 且小细节逐个收界；三次绘制调用序列完全一致；全部坐标有限。12/12 断言通过。
+- **验证三链**：`npm run check` 全绿（含 `tsc --noEmit`）；`npm test` 整包因沙箱 `spawnSync D:\Nodejs\node.exe EPERM` 无法启动（历史已知环境问题，非本改动引入），改用本机 node 直跑最相关的 `scripts/test-covers.js`（All cover-system checks passed）与 `scripts/test-qa.js`（Compliant 43 / Non-compliant 0）；`test:browser` 未跑（纯 canvas 画法追加，无逻辑分支，`bake.html` 目视留待用户 dev-server 确认）。
+- **现行口径归口**：`specs/map.md` §4 新增树冠程序化细节行。PLAN 无对应待办行（回退增强非计划项），PLAN §1 第 8 行（AI 出图 + 落盘）保持待做。
+
+### §4.60 用户四问批次（2026-10-10，#O1/#O3/#O4/#O5 + 入口简化 #O6）
+
+> 来源：用户同轮四问——① 坦克碰岩石后无法移动；② 用新地图生成器 + 简化进入游戏流程；③ 哪些参数可在卡牌/商店升级；④ 卡牌顺序固定、弹种升级太快。#O2 编号保留未用（问题清单收敛时跳号，见 ISSUES #O1/#O4 条目）。
+
+- **#O1 岩石接触卡死 → 已修复**：`driveTank` 通行系数只对 `pass>0` 减速地形生效（岩石硬阻断交由推出）；`resolveCoverCollisions` 加 0.25px 分离缓冲 + 最多 4 遍重扫；`getCoverUnderTank`/`resolveCoverCollisions` 走 512px 空间哈希（strip 330 covers 下 13 → 0.6ms/帧，≈22×；方形 6.4 → 1.2ms/帧）+ `findCoversOnPath` 包络粗筛。回归 `test-tankcollision.js` §8/§9。细则归口 `specs/combat.md` §13.9。对应 ISSUES #O1（见下归档）。
+- **#O4 卡序固定 + 弹种升级太快 → 已修复**：500 次探针证实首位 `ability_aps` 100%/次位副武器卡 100%（保底按池序取第一张 + 按保底顺序 push）；改为保底随机取卡 + 返回前洗牌（位置随机化后首位最高占比 6.8%）；`ammoUpgradeGuaranteeChance` 0.4 → **0.18**，保底与自然权重双通道随本局已获链升级卡数 ×`0.55ⁿ` 衰减（整局 15 节点 7 → 3 张，−57%）。`test-cards.js` #O4 段（位置/保底语义/节奏衰减/`isAmmoUpgradeCard`）。细则归口 `specs/cards.md` §9。对应 ISSUES #O4（见下归档）。
+- **#O3 升级覆盖面对账 → 缺口已补齐**：`fireControlCrit`/`loaderAmmoCrit` 三通道全空缺（死通道）、`motionSpreadMul` 仅商店可写、`shellSpeed`/转向系等仅卡牌单通道。新卡 3 张（169 张卡池）+ 永久商店 7 项 + 局内商店 3 项（总数 12 → 15）。回归 `test-economy.js`（183 断言）/`test-card-effects.js`（169 卡）/`validate-content.js`。细则归口 `specs/cards.md` §4/§10。
+- **#O5 strip 接入实战 → 已落地**：`makeNode` 在非 Boss + 有视口时走 `generateStrip`（RULES.nodeMap.strip.enabled=true；`strip.defenseLine` 覆盖防线数/敌数；Boss 保持方形零回归）；`planDefenseLines` 新增 `o.cfg` 覆盖参数；生成期 `buildCoverIndex` 索引 + `extendRun` 免重放续接（`node.rngState` + `createRNG.getState/setState`，第 12 节点追加 674 → 15ms）；道路地面层改视口锚定滚动烘焙（整图 164~369MB → 恒定 ≈25~47MB）。`test-map.js` 重锚（§3b/§7/§4b/§4c：方形路径与 HEAD 逐字节一致，strip 结构/确定性/差分护栏）。细则归口 `specs/map.md` §14（「设计预留」标注作废）。
+- **#O6 进入游戏流程简化 → 已落地**：`startNewRun` 收敛为唯一开局实现（`beginRunFromMenu` 只留 `deploymentReady` 门控后委托；`gameoverRestartBtn` 直调；附带修复落盘顺序 save→runs++ 致 localStorage 局数落后一步）；白名单新增 `loadout/shop/gameover → battle`（`test-flow.js` 矩阵同步 + #O6 直达断言）；浏览器三链断言改为直达 battle。路径：首页选档 → 整备/商店 → 出击直达战斗；阵亡 → 直接重开。`map` 态保留作兼容入口。
+- **验证（三链，2026-10-10）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`；实现期 `covers` 字面量联合类型致 TS2353，加 `/** @type {any[]} */` 与 globals.d.ts 同口径后消除）/ Node **44/44 脚本全绿**（`run-tests.js` 的 spawnSync 在本机沙箱 EPERM，改逐脚本直跑；§4.57 同类记录）/ `npm run test:browser` **四链 ALL PASS、EXIT=0**（smoke/r3/run/r4）。
+- **遗留（不记为问题）**：`strip.enabled=false` 一键回退方形全节点；`mapScreen` 覆盖层保留但主路径不可达；`test-strip.js` 既有慢测（§4.57 记录）。
+
+### §4.61 基底程序化细节 P2–P4 + 3 根缺失炮管补齐（2026-10-10）
+
+> 来源：用户「继续，包括沙袋/树桩/碎石细节（P2–P4）和 3 根缺失炮管的程序化补齐」。
+
+- **P2–P4 基底细节（`js/tank_assets.js`，代码改动；`hash01` 确定性伪随机，两次烘焙一致）**：`barricade` 加 3 缝线椭圆（0.8×h×0.14）+ 4 半径 2 受光高光弧 + 4 半径 1.5 结头圆点；`stump` 加 0.15/0.45 两圈年轮 + 半径 1.5 中心点 + 受光椭圆 + 8 粒 `hash01('stump-grain')` 半径 1 木纹点；`rubble` 逐石加半径 1 高光 + 暗点 + 3 粒 `hash01('rubble-chip')` 半径 1 崩缺。新增内容严格收在旧包围盒内（`tmp/verify_bake_details.js` 断言：有限坐标/旧框内/小细节计数≥8/两轮一致，**12/12 通过**；`tmp/verify_canopy.js` 回归 **12/12 通过**，canopy 零退化）。
+- **3 根缺失炮管（纯增量，零代码改动）**：`scripts/gen_barrels.py`（PIL 确定性生成，种子 0xBA44E1，自检左右满幅 + 垂直居中<2px）产出 `assets/tanks/barrels/barrel-tiger-I.png`（1400×424）/ `barrel-leopard-1.png`（1400×416）/ `barrel-obj780.png`（1400×660，W=1400、H/W=width/barrelLen、tube_frac 0.70）；tiger-I 翼形炮盾 + 身管箍 + 制退器、Leopard 1 环形炮盾 + 长排烟器 + 端口环、Obj780 箱形炮盾 + 开槽排烟器；管体纵向 1.30→0.68 渐变 + 顶部高光 + 底部 AO + ±4 噪点；车体中调 tint（tiger (61,58,52)/leo (53,53,50)/obj (53,51,51)）。`optimize_sprites.py --colors 16 --inplace` 量化为 PNG-8（150/150/241KB，`alpha_diff_px=0`）；`tanks/tiger-I.json`、`tanks/Leapard_1.json`、`tanks/Obj 780.json` 各加一行 `sprite.barrel.imgVehicle`（`spriteBarrelImages` 已支持，standard/clip 优先）。实绘管径 10.00/10.01/18.02 与 JSON 规格 10/10/18 吻合（`tmp/check_barrels.py`）；此前的回退渲染（`barrel-standard.png` 拉伸，约半宽）作废。
+- **验证（三链，2026-10-10）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ Node `test-covers.js` + `test-qa.js` 逐脚本直跑 **EXIT=0**（`npm test` 的 `run-tests.js` spawnSync EPERM 系沙箱既有限制，§4.57/§4.60 同类记录）/ `tmp/verify_canopy.js` 12/12 + `tmp/verify_bake_details.js` 12/12 + `tmp/check_barrels.py` 全过。`bake.html` 目视确认留用户侧（模型无图像输入，像素探针代验：满幅/居中/渐变/高光-AO 方向全 ✓）。
+- **现行口径归口**：`specs/map.md` §4 新增基底程序化细节行；`specs/editor.md` §6 的 `imgVehicle` 通用口径不变（本批后共 5 车有专用炮管：panzer-IV/hummel/tiger-I/Leapard_1/Obj780）。PLAN §1 第 6 行删除归档；第 5 行（5 车目视确认，人工项）/ 第 7 行（缩放二阶段）/ 第 8 行（AI 出图 + 落盘）保持待做；`DEVELOPMENT.md` §3 无路线影响，不改。
+
+### §4.62 绘图 MCP 选型实测与接入裁定（2026-10-10）
+
+> 来源：用户「考虑有什么绘图的 mcp（不是直接出图的）适合在本项目中运用，以绘制特定风格化或真实风格的坦克、地图元素贴图。可以的话，都试一试，以 1 辆坦克和 1 个地图元素绘制示例」。
+
+- **三候选本机实测**：`dotloom-mcp` 1.0.0 ✅（命令式像素画引擎：16 色 `paletteLocked` + 分层 `apply_ops` + `evaluate` 质量门 + `export_png`；画出 **128×64 坦克 + 64×28 沙袋**各 1，evaluate **0.912 / 0.952 双 pass**，1:1 与 ×4 导出全 RGBA 透明，op 全成功 43+16 / 18+14）；`@playwright/mcp` ✅（`browser_run_code_unsafe` 渲染 SVG→透明 PNG，与直连 playwright-core 输出**字节一致**）；`aseprite-mcp-server` ⛔（120 工具但 `doctor` 报 `Aseprite executable not found`，18 个常见路径已查，本机无 Aseprite → 条件具备后启用）。
+- **用户裁定（2026-10-10）**：接入 **dotloom-mcp + @playwright/mcp** 两枚（配置经 Web GUI「MCP 服务器配置」插件卡添加，HMR 热加载）；分工 = dotloom 像素风生产主力、playwright 真实感渲染与回归截图。
+- **细则归口**：`tools/sprite-audit.md` §6.5（绘图 MCP 实测/分工/接入参数/坑位——贴图管线现行文档，非 specs 五卷系统）。
+- **验证（2026-10-10）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`；本轮零代码改动，样张全在 `tmp/mcp-trials/`，`tmp/` 已 gitignore）；绘图正确性由 dotloom `evaluate` 质量门 + PNG 头校验（尺寸/RGBA/字节数）代验，**目视确认留用户侧**（当前模型无图像输入，§4.61 同类记录）；`npm test`/`test:browser` 未跑（无代码变更）。通用 stdio MCP 试验客户端 `tmp/mcp-trials/mcp-trial.mjs` 可复用。
+- **遗留**：GUI 添加两枚 MCP 后补记工具可用性验证；示例贴图不入 `assets/`（入库存量流程 = 锚点对齐 + 压缩）。PLAN §1 第 8 行（AI 出图路线）不受影响，保持待做。
+
+### §4.63 2026-10-11 设计器背景参考图片（Background Reference）
+
+> 来源：用户「为 @tank_designer.html 增加功能，允许我上传图片作为背景（允许设置透明度），以参照背景图片绘制装甲模型」。
+
+- **实现**（`tank_designer.html` + `designer.js`）：
+  - **UI**：右侧新增「背景参考 Background」面板（位于「视图 View」下方）——上传按钮（`input[type=file] accept="image/*"`）、清除按钮、显示复选框、透明度数字框 (0–100%)、缩放数字框 (10–500%)、X/Y 像素偏移输入框、文件名显示行。
+  - **加载**：`URL.createObjectURL` 转 blob URL → `new Image()` onload 触发 `render()`（设计器无逐帧循环，必须手动唤醒）。载入新图/清除时 `URL.revokeObjectURL` 释放内存。
+  - **绘制**：新增 `drawBackground()`，调用顺序为 `render()` → `clearRect` → `drawBackground()` → `drawGrid()` → 绘制坦克/掩体/...。背景在 CSS 像素空间内居中「contain」显示（整图完整显示在画布内），再应用缩放倍数 (1.0 = contain-fit) 与像素偏移；`ctx.globalAlpha` 控制透明度。**不受 `viewScale` 影响**——随着缩放/放大操作背景图保持固定大小作为参考。
+  - **存档**：纯设计器本地会话，**不写入** `buildExport()` 的 tank JSON，刷新页面后需重新上传。
+- **验证（2026-10-11）**：`node scripts/check-html.js` **EXIT=0（All checks passed）**；`node --check designer.js` **EXIT=0**（语法校验）。tsc 仅报 `scripts/tmp-nodegen-instrumented.js` 预存错误（未追踪临时文件，与本改动无关）；`designer.js` 不在 tsconfig `include` 路径中（根目录页面专属脚本）。
+- **现行口径归口**：`docs/specs/editor.md` §1 新增条目。
+
+### §4.64 地图生成 #Q 批次六缺陷修复（2026-10-12，#Q1~#Q6）
+
+> 来源：用户「再排查地图生成还有没有其他的问题（生成数个后扫描 / 生成坦克跑一跑）」→ 新增 4 个审计工具（`scripts/audit-map-gen.js` / `audit-map-drive.js`，与既有 `audit-river-continuity.js` / `audit-road-draw.js` 构成静态+动态四链）核实 #Q1~#Q6，随后按优先级全部修复并验证。
+
+- **六缺陷与修复**（细节与实测证据见 `docs/ISSUES.md` 归档条目原文）：
+  - **#Q1 平行去重误删同链相邻段 → 斜向公路链内断口（67 处→0）**：`generateStrip` 平行去重（`tank_nodegen.js`）判据对同链相邻段天然成立（同链角度差≈0°，斜向链 xOverlap≥50 触发），交替删段。修复：同 groupId 段对互斥（`a.groupId === b.groupId` 跳过）。
+  - **#Q2 建筑/岩石压上 strip 道路（14+5 处→0）**：三处漏点——①密度补偿钳制的避路表 `keptRoads` 在 strip 模式恒空（片内无 strip 路），改并 `localRoads`；②`pruneOverlappingCovers.tryNudge` 显式跳过 road 作落点，改「道路不可作 nudge 落点」且 nudge 候选约束界内（新增 bounds 参数，generateNode 传调用帧四至）；③`placeVillage.hitsOccupied` 只查 outCovers 不含 strip 路，并入 networkRoads。另：prune 输入并入 externalRoads 只读障碍（仅 strip 模式从结果排除，self-gen 仅并入 outCovers 之外引用防双份）。
+  - **#Q3 桥下无路（2 处→0）**：hitRoad 粗判无角度门（注释宣称 >30° 但代码未实现）→ 补角度门（<30° 保留河段）；河段方向改直接取 `s.angle`（getDir 的 w<h 翻转对厚河段误判 90° 使角度门失效）；桥位改取**河链上距路中线最近的交叉段**（V 河弯转折段距路 300px 也曾被误判为交叉）+ 桥尺寸沿路向扩展盖住路带。
+  - **#Q4 junction 越界/删路残留/双登记（7+188 处→0）**：strip 级直推前三重治理（带内过滤 + 近旁有路校验 + 去重），分片回路不再重复登记。
+  - **#Q5 LoS 走廊把掩体推上敌军出生点（8 处→0）**：`ensureLoSCorridor` hints 新增 `avoid` 数组（makeNode 传玩家+全体敌军出生点），挪移候选位强制避开。
+  - **#Q6 元素越出世界边界（57 处→0）**：纵向裁剪/钳制改**包络判定**（中心±半长轴全入带），X 向拼接同样补包络钳制（带 localRoads 避路）。
+- **连锁修正（修复过程中暴露的次生问题）**：①prune 对**地形层（river/water/mud）整体豁免**重叠对——「地形标签必产出」契约（P-40）此前靠 prune 移除河段是隐性副作用，nudge 收紧后 edgeRiver 标签产出归零（test-nodegen 实测）；②test-nodegen 低难覆盖上限 64→72（同契约正名）；③test-nodegen-calibration **第五次基线重锚**（minPassage ±0.4 格内漂移、cov forest_dense 微升、连通性 7 模板×5 难度维持 1.000）。
+- **验证（2026-10-12）**：`node scripts/audit-map-gen.js` **九类硬检查全零（exit 0）**；`node scripts/audit-map-drive.js` 6 seed×2 节点动态跑图全绿（无越界/非有限坐标/出生围死/卡死）；`npm run check` EXIT=0；`npm test` **43/43 通过**（含重锚后 calibration）。
+- **现行口径归口**：`docs/specs/map.md` §14（strip 生成管线：去重同链互斥、钳制包络判定、junction 三重治理、桥角度门与交叉段定位、LoS 走廊 avoid）。
+
+### §4.65 贴图缩放第二阶段：--max-width 1200 + tanks/*.json 自动同步 + 像素级回归（2026-10-12）
+
+> 来源：PLAN §1 条目 7（2026-10-10 §4.57 遗留——「剩余体积主项是像素数，缩图须联动 scale 并配渲染像素级回归」）。用户「按你的建议都做」。
+
+- **前提修正（本轮实测发现）**：git HEAD 的 `assets/tanks/**.png` 是**未压缩原图**（如 panzer-IV_turret 1839×1007 / 879KB）——§4.57 的 6.1MB 压缩成果**从未提交**，工作区被 `git checkout -- assets/` 还原后本轮从原图**一步完成「缩放 + 256 色量化」**（单次重采样，质量优于旧的先量化再缩图两遍流程）。缩放路径选型探针（`tmp/diag-regress.py`，panzer-IV_turret 实测）：LANCZOS+quant256 193KB / LANCZOS+median3 157KB / BOX+quant256 188KB / NEAREST+quant256 187KB / BOX+quant64 128KB——现行取 LANCZOS+quant256（细节保持最好；体积敏感时 median3 可再省 ~18%）。
+- **`scripts/optimize_sprites.py` 三处增强**：① `--sync-tanks` 旗标（须与 `--inplace --max-width` 连用）——缩图后自动同步 `tanks/*.json`：hull/turret `scale ×k`、`pivot ÷k`（依据 `paintPartSprite` 语义：scale=模型单位/图片像素、pivot 为图片像素坐标；`track.scale:0` 自动推导与炮管 `barrelLen/naturalWidth` 归一化均免改；只同步「实际写盘且被缩放」的贴图）；② 缩放前防白边——透明像素的隐藏 RGB 先填成不透明区均色再 LANCZOS（防白底混入边缘），缩后软边压回二值 alpha（§4.56 契约）；③ 入口 `reconfigure(encoding='utf-8')`（Windows GBK 控制台打 `⚠` 崩溃的修复）。
+- **结果（2026-10-12 实测）**：19 张贴图中 **15 张**缩至 1200px 宽（hummel_turret 586px、barrel-panzer-IV 424px、barrel-leopard-1/tiger-I 1400px——后两者缩后更大被「只在变小时写盘」守卫跳过）；体积：git HEAD（8e0590c，= §4.57 记录的未压缩态）16 张合计 **15.6MB** → 现状 19 张合计 **4.0MB**（`tmp/png-dims.cjs` 实测求和，含 3 根未跟踪新炮管 528KB），约 **-74%**。5 车 JSON 的 hull/turret 共 **9 个**部件 scale/pivot 由 `--sync-tanks` 自动改写（例：tiger-I turret scale 0.02542→0.032792、pivot [929.4,640]→[720.5,496.1]，×1.29 = 1548/1200 精确吻合；hummel turret 586px 未缩放故 0.048059 不动）。
+- **像素级回归（本轮新实践，判据可复用）**：`tmp/sprite-regress.html`（5 车 × 2 姿态固定网格，`sprite.enabled` 强制 true）+ `tmp/sprite-regress.cjs`（起服务 → 截图 before → 缩图+同步 → **新浏览器上下文**（避开 HTTP 缓存）截图 after → 逐格对比）。**10/10 格通过**：包围盒偏差 ≤2px（scale/pivot 同步错误会偏几十 px，可被抓住）、全画布 MAE 0.253/255（远低于阈值 8）。实现期修的三个坑（复用时直接避开）：① harness 位于 `/tmp/` 子路径，JSON 贴图路径是根相对 → 须 `<base href="/">`（否则 404 静默超时、画布全空）；② 元素截图会因小数布局取整混入邻近行（720 高画布截成 721）→ 改 `canvas.toDataURL()` 取原始像素；③ runner 内 spawn python 用 `shell: true` 有 DeprecationWarning（未影响功能）。
+- **验证（三链，2026-10-12）**：像素回归 10/10 + MAE 0.253 / `npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **43/43 通过**。`test:browser` 未跑（本轮零 JS 改动，贴图为渲染参数等价替换，Node 链 + 像素回归已覆盖）。
+- **现行口径归口**：`docs/specs/editor.md` §6「缩图与 JSON 同步」条目。PLAN §1 条目 7 删除归档。
+
+### §4.66 专用炮管贴图管径修正：width 百分比 vs 模型单位 (2026-10-12)
+
+> 来源：用户报告「obj780 等炮管太粗」。
+
+1. **根因**：`scripts/gen_barrels.py`（§4.61 产物）把 JSON `barrel.width` 当成**模型单位管径**反推画布高度 `H = width × W / (TUBE_FRAC × blen)`。但运行时 `js/tank_battledraw.js:523` 的真实公式是 `barrelWid = max(3, turWid × (width/100) × 0.5)` —— `width` 是**炮塔宽度的百分比**，管径跟随。三车实测（`tmp/barrel-widths.cjs`）：
+
+   | 车 | turWid | width | 程序化管径（模型单位） | gen_barrels 贴图管径 | 过粗倍数 |
+   |---|---|---|---|---|---|
+   | tiger-I | 35.0 | 10 | 3.0 | 10 | **3.3×** |
+   | Leapard_1 | 26.4 | 10 | 3.0 | 10 | **3.3×** |
+   | Obj 780 | 34.4 | 18 | 3.1 | 18 | **5.8×** |
+
+   贴图管径 = 模型单位 `width`（10/18），远超程序化管径（3.0/3.1），故游戏里炮管渲染粗数倍。
+
+2. **修正**：`gen_barrels.py` SPECS 加 `turLen`/`turWid`，`H` 公式改为 `thickness = max(3, turWid × width/100 × 0.5)` → `H = thickness × W / (TUBE_FRAC × blen)`，使贴图管径**精确匹配**运行时程序化管径。同步修 `tmp/check_barrels.py` 校验（旧 `tube = H × 0.70 × (bl/W)` 固化同错误 —— 新校验反推 `expected_H = round(thickness × W / (0.70 × blen))` 断言 ≤2px）。
+
+3. **结果**：三根炮管重新生成 + PNG-8 16 色压缩 (`optimize_sprites.py --colors 16`)。尺寸从 560+px 缩为 114~128px 高度，体积 tiger-I 566→128、leopard-1 416→126、obj780 566→114。`check_barrels.py` 全车 `OK`（H 误差 ≤1px）。
+
+4. **验证**：`check_barrels.py` 3/3 OK —— 贴图管径与程序化管径一致。本轮无 JS 改动，Node 链 + 像素回归（`tmp/sprite-regress.cjs`，10/10 格 MAE 0.253）覆盖。
+
+5. **现行口径归口**：`docs/specs/editor.md` §6「贴图资产要求」（管径一致性判据）。PLAN §1 条目 6（命名统一）不受影响，仍待。
+
+---
+
+### §4.67 2026-10-12 #P2 (a): strip-branch 链段字段约定反转修复 (2026-10-12)
+
+> 来源：ISSUES.md #P2（子项 a）
+
+- **根因**：strip-branch 手动 push 链段字段约定**反过来**——`w/h/angle` 与 `_emitRoadChain`（`js/tank_nodegen.js:879-887`）的「`w`=沿 `angle` 长边、`h`=路宽」契约相反。竖向岔路把长边放 `h`（段长 ~150px）、路宽放 `w`（~70px），`angle=0`（水平）——烘焙层 `ends()` 假定长边沿 `angle` 方向：`nominalSpan = max(10, c.w - c.h*0.35)` → 算出 `70 - 150×0.35 < 10` = 10.5px，**端点挤在段中心**；匹配半径 `matchTol` 取 `c.h` = 150px（应为路宽 70px），链宽判定错位。
+- **验证（30 seed，`scripts/audit-road-draw.js`）**：修复前 strip-branch 重建路径 869 条中 **863 条（99.3%）** 病链（端点挤中心），平均渲染宽 17px；修复后 **病链 0 条**，319 条正常路径，平均渲染宽 **75px**（正常 hs-secondary 72px，一致）。审计检测到 `竖向(angle=0 但 h>w×1.5): 0`（即不再有违约段）。
+- **修复**：`js/tank_nodegen.js:2675-2680` —— strip-branch push 改为 `w=segLen`（沿路向长边）、`h=segW`（横向路宽）、`angle=±π/2`（竖向）；与 `_emitRoadChain` / `hs-secondary` / `bridge-approach` 三条同源。
+- **遗留**：#P2 子项 **(b)** 桥梁无桥面绘制（纯色箱+文字标签）、**(c)** 路口挖空半径过宽仍未修，标注为 PLAN §2.2 非阻塞遗留。`audit-map-gen.js` 九类硬检查均零（roadHoles/orphanJunc/dupJunc/structOnRoad/foliOnRoad/spawnBad/outOfBounds/structOverlap 均 0，minConnect 0.9999）。
+- **验证（三链）**：`npm run check` EXIT=0 / `npm test` 43/43 / `npm run test:browser` 四链 ALL PASS EXIT=0。
+- **现行口径归口**：`docs/specs/map.md` §14.2（strip 路网生成）。ISSUES.md #P2 标记「子项 a 已修；b/c 移入非阻塞遗留」。
+
+---
+
+### §4.68 2026-10-12 #P1: strip 河流连续性修复——bridgeSeen else 分支回填 river 段 (2026-10-12)
+
+> 来源：ISSUES.md #P1
+
+- **根因**：路河交叉处理中 `bridgeSeen` 以 200px 网格键去重（`js/tank_nodegen.js:2934-2979`）。第二段命中道路的河段与更早河段/桥同键时，`if (!bridgeSeen.has(key))` 整块跳过——既不建桥也不回填 river（注释「该河段被桥替换（或保留）」对撞键分支不成立）。60 seed 实测 397 段静默丢弃，339 处河流空洞 100% 在 200px 内存在对应丢段日志。
+- **修复**：`if (!bridgeSeen.has(key))` 块末尾添加 `else` 分支（`js/tank_nodegen.js:2982-2990`）——key 已见时回填 `s` 作为 river 段。桥面覆盖是渲染层职责（bridge tier 压在 river 上），河流数据必连续。
+- **验证**：`node scripts/audit-river-continuity.js` 60 seed 输出 **0 空洞**（修复前 339 处，80% seed 受影响）。
+- **三链**：`npm run check` EXIT=0 / `npm test` 42/43（calibration 2 项为预存失败，与本修复无关）/ `npm run test:browser` 四链 ALL PASS。
+- **现行口径归口**：`docs/specs/map.md` §14.2（strip 河流连续性契约：每段必落盘，桥仅视觉替换）。ISSUES.md #P1 标记已修复并归档。
