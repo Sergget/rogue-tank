@@ -14,3 +14,7 @@ tools/godot/
 
 # Agent team runtime state (session ids + agent message logs) - local only
 .agent-teams/
+
+# 本地工具链临时目录：tmp/pylibs（Pillow/numpy wheel 解包，供 scripts/optimize_sprites.py
+# 与 clean_sprite_bg.py 使用，见 docs/DEVELOPMENT-batches-2026-10.md §4.57）+ 下载缓存 + 调试脚本
+tmp/

@@ -1,0 +1,11 @@
+{
+  "id": "mod_fire_control_crit",
+  "name": "火控校准套件",
+  "rarity": "rare",
+  "tags": ["狙击"],
+  "desc": "升级火控解算与炮手训练：命中敌方炮手/炮闩模块的概率 +0.1（约 10 个百分点，硬上限 +0.25）。",
+  "effects": [
+    { "type": "modifier", "stat": "fireControlCrit", "mode": "add", "value": 0.1 }
+  ],
+  "maxStacks": 2
+}

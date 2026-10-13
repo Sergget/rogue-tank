@@ -1,0 +1,107 @@
+{
+  "_format": "ComfyUI API 格式 (API-format prompt). 数字键为真实节点,可直接 POST 到 /prompt;下划线开头的键(_usage/_comment/_assets/_outputs 等)为模板注释,导入前可保留(ComfyUI 会忽略非数字键),或删除也不影响执行.",
+  "_usage": [
+    "1. ComfyUI → Load → 导入本 JSON(API 格式),检查 CheckpointLoader(节点1)选中 SDXL 基模.",
+    "2. 把 tools/cover-gen-prompts.md 的全局风格前缀+[P1-P10 之一]贴入节点2,负面提示已预填节点3.",
+    "3. 按 _assets 表改节点4尺寸(长边≥512,见 _comment.sizing),节点5固定 seed 后 Queue 出图(每件至少4选1).",
+    "4. 经脚本后处理(清底→缩到名义尺寸→optimize 16色)→存 assets/<key>.png 根目录,再用 bake.html 目视锚点."
+  ],
+  "_comment": {
+    "pipeline": "地图元素 AI 生成管线 ComfyUI 模板(SDXL + 透明背景)。单图可复用:一次只画一件,10 件靠 _assets/_outputs 表轮换 prompt 与尺寸,不要并行铺 10 条采样链。",
+    "model": "推荐:SDXL 基模(sdxl-base-1.0 / juggernautXL 等 FTL/Into-the-Breach 系微调优先)+ 透明背景扩展二选一:(A)LayerDiffuse(透明图层直接采样,质量最高,需 layer_diffuse 权重);(B)TransparentBG / REMBG 后处理(先画白底再抠,兜底)。本模板默认链路按 (A)写,节点7保留 (B)切换注释。",
+    "sizing": "出图尺寸策略:长边≥512(小物件如 stump 24×18 绝不直出名义尺寸,模型画不出细节)。方形 1024×1024 通吃+后期居中裁最稳;细长件(soft/fallen)用 _assets.work_w/work_h 宽高比出图。后期一律 PIL 缩到 ASSET_DEFS 名义尺寸,禁止拉伸变形(方形 outpaint 再裁)。",
+    "seed": "seed 固定方法:节点5 seed 为定值(如 1234),每件固定一组 seed 出 4 选 1;迭代只改 seed 增量(n+1),prompt 全文存档以便复现。control_after_generate 设为 fixed,切勿用 randomize 做终版。",
+    "pixel_spec": "像素规范(见 .dsh/skills/pixel-art-sprite/SKILL.md):透明底(alpha=0 真透明,禁白底补洞/预烘焙投影)、16 色内、无渐变洗白、锚点误差≤2px。后处理必走 scripts/clean_sprite_bg.py + optimize_sprites.py --colors 16,见 cover-gen-prompts.md §5。",
+    "paths": "加载器只读 assets/<key>.png 根目录(js/tank_assets.js loadAssetImage:'assets/'+key+'.png'),严禁输出到 assets/covers/。canopy 三件(bush/tree/fallen)分 base/canopy 两层,base 画坦克下、canopy 画坦克上。",
+    "prompts": "全部 prompt 正文以 tools/cover-gen-prompts.md 为准:全局风格前缀见 §1,负面提示见 §2,逐件 P1-P10 见 §4。本 JSON 节点2只放占位符 + 引用标注,不重写 prompt,防止双源漂移。"
+  },
+  "_assets": {
+    "_note": "10 件轮查表:filename=落盘名(assets/ 根目录),nominal=ASSET_DEFS 名义尺寸,anchor=锚点,bake=程序化回退,work=建议出图尺寸(长边≥512,宽高比≈名义),prompt_ref=cover-gen-prompts.md 引用。单图复用:每次取一行填节点2/节点4/节点9。",
+    "soft": { "filename": "soft.png", "nominal": "170x10", "anchor": [85.75, 5.75], "work": "1536x128", "prompt_ref": "P1 §4(木栅栏横条,7 立柱,镂空真透明)" },
+    "barricade": { "filename": "barricade.png", "nominal": "64x28", "anchor": [32.75, 14.75], "work": "1024x448", "prompt_ref": "P2 §4(沙袋双排交错,俯视椭圆)" },
+    "stump": { "filename": "stump.png", "nominal": "24x18", "anchor": [12.75, 9.75], "work": "768x768", "prompt_ref": "P3 §4(树桩俯视年轮,小圆居中,方形出图后期裁)" },
+    "rubble": { "filename": "rubble.png", "nominal": "38x17", "anchor": [20.04, 7.75], "work": "1024x512", "prompt_ref": "P4 §4(5 块灰色碎石,椭圆簇)" },
+    "bush": { "filename": "bush.png", "nominal": "56x34", "anchor": [28, 17], "work": "1024x640", "prompt_ref": "P5 §4(淡阴影椭圆无叶;建议不走生成,沿用 bake)" },
+    "bush_canopy": { "filename": "bush_canopy.png", "nominal": "56x34(同 bush)", "anchor": [24.64, 19.2], "work": "1024x640", "prompt_ref": "P6 §4(灌木 5 叶簇,上层遮挡)" },
+    "tree": { "filename": "tree.png", "nominal": "24x18", "anchor": [15.15, 15.15], "work": "768x768", "prompt_ref": "P7 §4(树干俯视小圆,方形出图后期裁)" },
+    "tree_canopy": { "filename": "tree_canopy.png", "nominal": "包围盒≈1.4xmax(w,h),见 tank_assets.js:149", "anchor": [39.26, 39.26], "work": "1024x1024", "prompt_ref": "P8 §4(大圆树冠,冠径≈3x干径,勿贪大)" },
+    "fallen": { "filename": "fallen.png", "nominal": "58x9", "anchor": [33.55, 7.95], "work": "1536x256", "prompt_ref": "P9 §4(倒树横躺,根端左截面年轮,梢右)" },
+    "fallen_canopy": { "filename": "fallen_canopy.png", "nominal": "58x9(同 fallen)", "anchor": [1.0, 15.9], "work": "1024x512", "prompt_ref": "P10 §4(摊扁叶簇盖树干端部,上层)" }
+  },
+  "_outputs": {
+    "_note": "10 个输出占位(单图复用:工作流只保留节点9一个 live SaveImage,跑 10 次逐件改 prompt/尺寸/文件名前缀;以下为每次落盘对照表,不是 10 条并行链)。",
+    "o1": { "file": "assets/soft.png", "from": "P1", "size": "170x10", "node": "9(改 filename_prefix=soft)" },
+    "o2": { "file": "assets/barricade.png", "from": "P2", "size": "64x28", "node": "9(改 filename_prefix=barricade)" },
+    "o3": { "file": "assets/stump.png", "from": "P3", "size": "24x18", "node": "9(改 filename_prefix=stump)" },
+    "o4": { "file": "assets/rubble.png", "from": "P4", "size": "38x17", "node": "9(改 filename_prefix=rubble)" },
+    "o5": { "file": "assets/bush.png", "from": "P5", "size": "56x34", "node": "9(改 filename_prefix=bush;或跳过生成沿用 bake)" },
+    "o6": { "file": "assets/bush_canopy.png", "from": "P6", "size": "56x34", "node": "9(改 filename_prefix=bush_canopy)" },
+    "o7": { "file": "assets/tree.png", "from": "P7", "size": "24x18", "node": "9(改 filename_prefix=tree)" },
+    "o8": { "file": "assets/tree_canopy.png", "from": "P8", "size": "包围盒+锚点约定", "node": "9(改 filename_prefix=tree_canopy)" },
+    "o9": { "file": "assets/fallen.png", "from": "P9", "size": "58x9", "node": "9(改 filename_prefix=fallen)" },
+    "o10": { "file": "assets/fallen_canopy.png", "from": "P10", "size": "58x9", "node": "9(改 filename_prefix=fallen_canopy)" }
+  },
+  "1": {
+    "_comment": "Checkpoint 加载(SDXL)。推荐 sdxl-base-1.0 或同系 FTL/Into-the-Breach 像素风微调;LayerDiffuse 方案需配套 layer_diffuse 权重(见节点7)。只换 ckpt_name,不动链路。",
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": { "ckpt_name": "sdxl-base-1.0.safetensors" }
+  },
+  "2": {
+    "_comment": "正向 prompt。格式=[全局风格前缀(cover-gen-prompts.md §1)]+[P1-P10 之一正文(§4)]。当前占位 P2 barricade;轮换时整段替换并在 _assets 标注行打勾。触发词/LoRA 有则追加尾部。",
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["1", 1],
+      "text": "top-down 2D game sprite, Into the Breach / FTL pixel-art style, flat orthographic, no perspective, no ground shadow baked in, isolated single object, transparent background, crisp 1px outlines, matte colors, max 16 colors, no gradient wash, no photo texture, sandbag barricade, two staggered rows of khaki sandbags, stitched seams, slight sag between bags, oval footprint, centered  // ←占位 P2;轮换 P1-P10 见顶层 _assets.prompt_ref,风格前缀见 tools/cover-gen-prompts.md §1"
+    }
+  },
+  "3": {
+    "_comment": "负面提示。全文照抄 cover-gen-prompts.md §2,不要删减(禁 3/4 视角/透视/投影/白底/多物体等,是俯视小精灵保形关键)。",
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["1", 1],
+      "text": "3/4 view, isometric, perspective distortion, ground plane, drop shadow, white background, vignette, blur, bloom, photorealistic, painterly noise, multiple objects, cropped, off-center"
+    }
+  },
+  "4": {
+    "_comment": "空 Latent(出图尺寸)。默认 1024x1024 方形通吃(小件后期居中裁);细长件按 _assets.work 改(如 soft 1536x128、fallen 1536x256)。原则:长边≥512,宽高比≈名义,绝不直出 24x18/58x9。SDXL 最稳为 1024 一档。",
+    "class_type": "EmptyLatentImage",
+    "inputs": { "width": 1024, "height": 1024, "batch_size": 4 }
+  },
+  "5": {
+    "_comment": "采样器。DPM++ 2M Karras,steps 28-36(默认 32),CFG 5-7(默认 6)。seed 固定(如 1234)+control_after_generate=fixed;每件 4 选 1 靠 batch 4 张或 seed 递增,终版存档 seed。",
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["2", 0],
+      "negative": ["3", 0],
+      "latent_image": ["4", 0],
+      "seed": 1234,
+      "control_after_generate": "fixed",
+      "steps": 32,
+      "cfg": 6.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0
+    }
+  },
+  "6": {
+    "_comment": "VAE 解码(Latent→像素)。直连 ckpt 自带 VAE(node1 slot2);外置 VAE 可换 VAELoader 节点,本模板保持最简。",
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["5", 0], "vae": ["1", 2] }
+  },
+  "7": {
+    "_comment": "透明背景处理(方案 A/B 二选一,默认 A)。A:LayerDiffuse(需装 LayerDiffuse 节点包+权重,采样即带 alpha,质量最高;把本节点换成 LayerDiffuseDecode 并前接 LayerDiffuseSampling)。B:兜底 TransparentBG/REMBG(本节点改为 TransparentImage/RemBg,白底/浅底图进→alpha 出;残留光晕靠 scripts/clean_sprite_bg.py 二值化)。bush 基底(P5)建议跳过生成直接 bake。",
+    "class_type": "TransparentBG",
+    "inputs": { "image": ["6", 0], "note": "占位:未装 LayerDiffuse 时先用 TransparentBG/REMBG 类节点替代,接口(image→image with alpha)保持不变" }
+  },
+  "8": {
+    "_comment": "预览(可选,不落盘)。Queue 前肉眼筛 4 选 1:居中/单体/无投影/边缘干净才进节点9保存;soft/fallen 额外检查横平竖直。",
+    "class_type": "PreviewImage",
+    "inputs": { "images": ["7", 0] }
+  },
+  "9": {
+    "_comment": "唯一落盘节点(单图复用)。filename_prefix 逐件改(soft/barricade/stump/rubble/bush/bush_canopy/tree/tree_canopy/fallen/fallen_canopy),对照顶层 _outputs o1-o10。出图后走后处理(缩到名义尺寸+16 色压缩)再进 assets/ 根目录,直出图禁止直接进游戏。",
+    "class_type": "SaveImage",
+    "inputs": { "images": ["7", 0], "filename_prefix": "cover/barricade" }
+  }
+}

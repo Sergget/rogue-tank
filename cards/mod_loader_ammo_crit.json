@@ -1,0 +1,11 @@
+{
+  "id": "mod_loader_ammo_crit",
+  "name": "弹药整备规程",
+  "rarity": "rare",
+  "tags": ["支援"],
+  "desc": "规范弹药架与装填手防护整备：命中敌方装填手/弹药模块的概率 +0.1（约 10 个百分点，硬上限 +0.25）。",
+  "effects": [
+    { "type": "modifier", "stat": "loaderAmmoCrit", "mode": "add", "value": 0.1 }
+  ],
+  "maxStacks": 2
+}
