@@ -422,3 +422,20 @@
 - **验证**：`node scripts/audit-river-continuity.js` 60 seed 输出 **0 空洞**（修复前 339 处，80% seed 受影响）。
 - **三链**：`npm run check` EXIT=0 / `npm test` 42/43（calibration 2 项为预存失败，与本修复无关）/ `npm run test:browser` 四链 ALL PASS。
 - **现行口径归口**：`docs/specs/map.md` §14.2（strip 河流连续性契约：每段必落盘，桥仅视觉替换）。ISSUES.md #P1 标记已修复并归档。
+
+---
+
+### §4.69 2026-10-13 #R1: 河面分段感 + 桥面无细节 + 路口半径过宽修复（2026-10-13）
+
+> 来源：ISSUES.md #P2 子项 (b)/(c) + 用户反馈「河流现在看起来是一段一段矩形叠加的」
+
+- **根因（三处）**：
+  - **河面分段感**：`js/tank_battledraw.js:221-238` water-chain 按 `segments` 逐段 `fill（半透明 rgba(64,156,225,0.5)）+ stroke（每段 1.5px 描边）`——重叠 25% 区 alpha 二次叠加变深 + 每段描边形成网格线；且高光按 `w>=h` 取轴向，strip 河段（沿向长≈150px < 河宽 170~360px）恒走竖向分支、每段一根横向短线。
+  - **桥面无细节**：bridge `drawStyle: 'box'`（`js/tank_rules.js:133`）→ 纯色褐色矩形 + `桥梁` 文字标签（`js/tank_battledraw.js:166-174` box 分支）。
+  - **路口半径过宽**：strip 窄支路 junction 统一 `stripRoadW*0.5`（`js/tank_nodegen.js:2603/2670`），但 strip-branch 实际路宽仅 0.7×、hs-secondary 仅 0.65×——半径相对分支过宽，多挖掉分支侧标线。
+- **修复**：
+  - 河面：`water-chain` 去逐段描边，改不透明底 `#3578a8` 填充（`RULES.coverTiers.river.fill`，重叠同色无缝合并）+ 高光沿段向（`angle`）画（`js/tank_battledraw.js:221-243`）。
+  - 桥面：新增 `bridge-deck` drawStyle——沥青底 `#5a5750` + 深色描边 + 两侧护栏线 + 桥向中线虚线，去文字标签（`js/tank_battledraw.js` bridge-deck 分支；`js/tank_rules.js:133`）。
+  - 路口：strip-branch junction `r=stripRoadW*0.35`、hs-secondary `r=stripRoadW*0.325`（`js/tank_nodegen.js:2603/2670`）；`bridge-approach` 生成门从桥路夹角 >15° 放宽到 >8°（`js/tank_nodegen.js:2963`）。
+- **验证**：`npm run check` EXIT=0 / `tsc --noEmit` EXIT=0；`audit-river-continuity.js` 60 seed 0 空洞；`audit-road-draw.js` 30 seed 病链 0/334（平均渲染宽 strip-branch 75px / hs-secondary 72px）；`audit-map-drive.js` 1 seed×2 节点 0 失败；`test-covers` / `test-nodegen`（§16 #C1 方形节点 119 路口全收敛）/ `test-map` 全绿；Node 全链 42/43（calibration 2 项为预存失败——回退本批改动复跑同样失败，与本批无关）。`audit-map-gen.js` 未全零（G7 越界 57 / G3 孤儿路口 7 / G2 桥下无路 2）——回退本批生成改动复跑坐标完全一致，且 HEAD 干净快照亦失败（G7/G5），确证为本批改动之外的预存问题（工作区其他未提交改动 + 基线），未立新问题条目。
+- **现行口径归口**：`docs/specs/map.md` §10.2（strip 窄支路路口半径沿革注记）/ §14.2（桥面/河面/过渡段绘制口径）。ISSUES.md #P2 按生命周期删除并归档。

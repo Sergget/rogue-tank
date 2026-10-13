@@ -25,18 +25,6 @@
 - **复现**：`node scripts/audit-river-continuity.js`；或任取 seed=4/12/13/34/44/51（strip 左缘 138→398px 处恒定断口 260px，`placeStripRivers` H 形河首段撞键）。
 - **修复方向**（参考公路逻辑）：桥只作**视觉替换**，不删河段数据——先完整生成河链（每段必落盘，等价 `_emitRoadChain` 的「每段必进 out」契约），交叉处打 `bridge` 标记由渲染层压盖；或撞键分支至少回填 river 段（与 `isBranchPointClear=false` 分支同款兜底）。修复后跑 `scripts/audit-river-continuity.js` 应 0 洞，并回归 `scripts/test-strip.js` §6c。
 
-### #P2 公路分支/路口/桥梁绘制粗糙（2026-10-11，(a) 已修复 2026-10-12，b/c 待处理）
-
-> **(a) 子项已于 2026-10-12 修复**（结论见 `DEVELOPMENT-batches-2026-10.md` §4.67）——`js/tank_nodegen.js:2594-2597` strip-branch 链段 `w/h/angle` 修正为与 `_emitRoadChain` 同款约定；`audit-road-draw.js` 验证病链 863→0，平均渲染宽 17px→75px。**原文 (a) 段落归档**至 `docs/archive/2026-10.md`（2026-10-12 行）。
-
-- **现象**：strip 战场的桥梁是无细节的褐色矩形（纯色 box + 文字标签）；路口挖空半径相对于窄支路路宽过宽。
-- **核实结论**：
-  - **(b) 桥梁无桥面绘制**：bridge `drawStyle: 'box'`（`js/tank_rules.js:133`）→ 战斗层画纯色矩形并在桥心 `fillText('桥梁')` 文字标签（`js/tank_battledraw.js:166-174` box 分支）；无桥面/护栏/路面延伸。桥与路的衔接仅靠 `bridge-approach` 过渡段，且**仅当桥路夹角 >15° 才生成**（`js/tank_nodegen.js:2964-2982`），平交时路直接压上桥沿。
-  - **(c) 路口挖空半径不匹配窄支路**：junction 断线圆半径统一 `roadW*0.5`（`js/tank_nodegen.js:1205`、`tank_mvp.html:4099-4104`），strip-branch junction 也用 `stripRoadW*0.5`（`js/tank_nodegen.js:2605`），但分支实际路宽仅 `0.7×stripRoadW`——半径相对分支过宽，多挖掉分支侧标线。
-- **影响**：桥梁缺乏道路语言、路口/桥头衔接生硬。
-- **复现**：`npm start` 后打开 `tank_mvp.html` 进入任一 strip 节点，观察桥梁/路口。
-- **修复方向**：(b) bridge 新增专用 drawStyle（桥面铺装 + 护栏 + 路面色衔接，去文字标签），并放宽 approach 生成条件；(c) junction 半径取相交链路宽的较小者。
-
 ### #Q1 平行去重误删同链相邻段 → 斜向公路链内断口（2026-10-12，已修复归档）
 
 > 原文已归档 `docs/archive/2026-10.md`（2026-10-12 行）；结论见 `DEVELOPMENT-batches-2026-10.md` §4.64。审计复跑：`node scripts/audit-map-gen.js` 九类硬检查全零。

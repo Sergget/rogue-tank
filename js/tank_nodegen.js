@@ -2600,7 +2600,7 @@ function generateStrip(difficulty, options) {
           });
         }
         // 岔路口 junction（供渲染断开中心线）
-        stripRoadNet.junctions.push({ x: bx, y: by, r: stripRoadW * 0.5 });
+        stripRoadNet.junctions.push({ x: bx, y: by, r: stripRoadW * 0.35 });
       }
     }
   }
@@ -2667,7 +2667,7 @@ function generateStrip(difficulty, options) {
         });
       }
       // T 形交叉点 junction（在连接点）
-      stripRoadNet.junctions.push({ x: connX, y: connY, r: stripRoadW * 0.5 });
+      stripRoadNet.junctions.push({ x: connX, y: connY, r: stripRoadW * 0.325 });
       branchPoints.push({ x: connX, y: connY });
       hs.hasJunction = true;
       hs.secondaryRoad = true;
@@ -2960,7 +2960,7 @@ function generateStrip(difficulty, options) {
               let dAng = bridgeDir - roadDir;
               while (dAng > Math.PI / 2) dAng -= Math.PI;
               while (dAng < -Math.PI / 2) dAng += Math.PI;
-              if (Math.abs(dAng) > Math.PI / 12) {  // >15°
+              if (Math.abs(dAng) > Math.PI / 22) {  // >8°（#R1 放宽：8°~15° 小折角也有可见错位）
                 const hx = Math.cos(bridgeDir), hy = Math.sin(bridgeDir);
                 for (const side of [1, -1]) {
                   // 桥端

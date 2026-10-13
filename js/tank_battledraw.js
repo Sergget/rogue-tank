@@ -219,21 +219,26 @@ function drawCover(ctx, cov){
     ctx.lineTo(cov.x + cov.w*0.22, cov.y - cov.h*0.28);
     ctx.stroke();
   } else if(tier.draw === 'water-chain'){
-    // P-40 河流多段连通绘制：遍历 segments 单笔触连续画水面；普通单块回退自身矩形
+    // #R1 河面连续绘制（2026-10-13）：同组河段在数据层仍逐段落盘（连续性审计口径），
+    // 渲染层不再逐段描边——半透明 fill + 每段 stroke 是「一段一段矩形叠加」观感的根因
+    // （重叠区 alpha 二次叠加变深 + 每段 1.5px 描边形成网格线）。现改为不透明底色填充
+    // （重叠同色无缝合并）+ 无描边 + 沿长轴单线高光；段间 25% 搭接保证外缘台阶为数 px 级。
     const rects = (typeof coverSegRects === 'function') ? coverSegRects(cov) : [cov];
     for(const r of rects){
       const rc = partCorners(r.x, r.y, r.angle||0, r.w/2, r.h/2);
       ctx.beginPath(); ctx.moveTo(rc[0].x,rc[0].y);
       for(let i=1;i<rc.length;i++) ctx.lineTo(rc[i].x,rc[i].y);
       ctx.closePath();
-      ctx.fillStyle = tier.fill; ctx.fill();
-      ctx.strokeStyle = tier.stroke; ctx.lineWidth=1.5; ctx.stroke();
-      // 水面高光：长轴方向的浅色流线
-      const long = r.w >= r.h;
-      ctx.strokeStyle = 'rgba(220,240,255,0.3)'; ctx.lineWidth=1;
+      ctx.fillStyle = tier.fill || '#3578a8'; ctx.fill();
+      // 水面高光：沿段向（angle）的浅色流线（#R1 修正：旧版按 w>=h 取轴向，
+      // strip 河段 w（沿向长≈150px）< h（河宽 170~360px）时恒走竖向分支，且未旋转，
+      // 每段一根横向短线是分段感的来源之一）。现沿 angle 画，段链连成流量虚线。
+      const _ra = r.angle || 0, _rx = Math.cos(_ra), _ry = Math.sin(_ra);
+      const _hl = Math.max(12, (r.w || 0) * 0.30);
+      ctx.strokeStyle = 'rgba(220,240,255,0.35)'; ctx.lineWidth = 2;
       ctx.beginPath();
-      if(long){ ctx.moveTo(r.x - r.w*0.35, r.y); ctx.lineTo(r.x + r.w*0.35, r.y); }
-      else { ctx.moveTo(r.x, r.y - r.h*0.35); ctx.lineTo(r.x, r.y + r.h*0.35); }
+      ctx.moveTo(r.x - _rx * _hl, r.y - _ry * _hl);
+      ctx.lineTo(r.x + _rx * _hl, r.y + _ry * _hl);
       ctx.stroke();
     }
   } else if(tier.draw === 'water'){
@@ -250,6 +255,29 @@ function drawCover(ctx, cov){
     ctx.beginPath();
     ctx.arc(gx, gy, Math.min(cov.w, cov.h)*0.28, 0.4, Math.PI*0.9);
     ctx.stroke();
+  } else if(tier.draw === 'bridge-deck'){
+    // #R1 桥面绘制（2026-10-13）：与 road 同款沥青底（路面语言连续）+ 两侧护栏线 +
+    // 桥向中线虚线（沿桥向=长边，白虚线），去 box 文本标签；mvp 把 bridge 画在河面之上。
+    const c = coverCorners(cov);
+    ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
+    for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
+    ctx.closePath();
+    ctx.fillStyle = tier.fill || '#5a5750'; ctx.fill();
+    ctx.strokeStyle = tier.stroke || '#33312c'; ctx.lineWidth=2; ctx.stroke();
+    ctx.save();
+    ctx.translate(cov.x, cov.y);
+    ctx.rotate(cov.angle || 0);
+    const hl = Math.max(cov.w, cov.h) / 2, hw = Math.min(cov.w, cov.h) / 2;
+    ctx.strokeStyle = 'rgba(235,220,170,0.75)'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-hl*0.92, -hw*0.78); ctx.lineTo(hl*0.92, -hw*0.78);
+    ctx.moveTo(-hl*0.92, hw*0.78); ctx.lineTo(hl*0.92, hw*0.78);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(240,235,210,0.65)'; ctx.lineWidth = 2;
+    ctx.setLineDash([14,10]);
+    ctx.beginPath(); ctx.moveTo(-hl*0.92, 0); ctx.lineTo(hl*0.92, 0); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
   } else if(tier.draw === 'road'){
     // #87 村庄道路：扁平沥青条带（tierGroup='ground' → mvp 地面图层垫底绘制，
     // 画在坦克之下不遮单位；tank_bench 全掩体先于坦克绘制，同样垫底）。
