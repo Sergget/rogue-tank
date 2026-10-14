@@ -270,6 +270,7 @@
 - **参数收口** `RULES.nodeMap.road`（旧硬编码 60~80 世界px、amp 0.04）：`widthMin/Max = 92/124`（**公路加宽**）、`curveAmp = 0.16`、`branchCurveAmp = 0.10`、`diagChance = 0.45`、`diagAngleMin/Max = 0.18/0.52 rad`。
 - **斜向干道**：新增 `DH/DV`——倾斜角 θ∈[diagAngleMin, diagAngleMax] 的横/纵干道（端点沿边界按 `tanθ × 跨度` 错开），由 `TRUNK()` 按 `diagChance` 混入六拓扑；B 十字拓扑固定「横（可斜）× 纵」以保证交点必然存在。端点沿边偏移由 ±0.13 放宽到 ±0.20。
 - **公路加速**：`RULES.nodeMap.road.speedBonusKmh = 10`——坦克在 `tier:'road'` 条带上行驶时表速 +10km/h，受 `RULES.parameterLimits.maxSpeed.max`（150km/h，即 375 px/s）上限钳制；加成经 `speedBonusLerp` 指数阻尼平顺生效（进出路面不突跳）。消费方 `js/tank_move.js driveTank`。
+  > **沿革注记（2026-10-14 #S4/#S14）**：road 为纯地面标识，2026-09-14 起被 `getCoverUnderTank` 显式跳过（零物理优化），导致 #E3 的公路加速判定 `onRoad` 恒 false、加成**从未生效**（2026-09-20~2026-10-14）。修复：`js/tank_cover.js` 新增 `getRoadUnderTank`（同款 OBB 相交 + 空间索引，仅查 road tier），`driveTank` 改走本函数判定 `onRoad`。**道路屏蔽下层减速**（#S14）：road 存在时 `speedModifier/turnModifier` 强制 1.0——压在 river/mud 上的路段不再吃 0.4 减速（此前 `getCoverUnderTank` 返回下层 river/mud 照常减速）。
 - **村镇街道同步加宽**：`placeVillage` 的 `roadW` 亦改读 `RULES.nodeMap.road`（消除两套硬编码）。
 
 ### 12.4 建筑沿路/路口聚集 + 路口沙包（#E3）

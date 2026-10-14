@@ -40,12 +40,17 @@ function driveTank(t, dt, input){
       turnModifier = pass;
     }
   }
+  // #S4 + #S14（2026-10-14）：road 为纯地面标识，被 getCoverUnderTank 跳过，
+  // 此处单独查询。道路存在时屏蔽下层 river/mud 的减速（#S14），并恢复 #E3 公路加速（#S4）。
+  const roadCover = getRoadUnderTank(t);
+  const onRoad = !!roadCover;
+  if(onRoad){ speedModifier = 1.0; turnModifier = 1.0; }
   const p0x = t.x, p0y = t.y, p0a = t.hullAngle;
 
   // #E3（2026-09-20）：公路加速——在 road 条带上行驶 +10km/h（RULES.nodeMap.road.speedBonusKmh），
   // 且最终「表速」不超过 RULES.parameterLimits.maxSpeed.max（150km/h）上限。
   // 平顺生效/失效：roadBonus 以 speedBonusLerp 指数阻尼趋近目标值（进出路面不突跳）。
-  const onRoad = !!(cover && cover.tier === 'road');
+  // （onRoad 已在上方经 getRoadUnderTank 求值，此处复用。）
   const roadCfg = (RULES.nodeMap && RULES.nodeMap.road) || {};
   const bonusKmh = roadCfg.speedBonusKmh !== undefined ? roadCfg.speedBonusKmh : 10;
   const kmhFactor = (RULES.speed && RULES.speed.kmhFactor) || 0.4;

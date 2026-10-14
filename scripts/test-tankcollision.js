@@ -13,6 +13,7 @@ global.HEIGHTS = require('../js/tank_geometry.js').HEIGHTS;
 global.polyCorners = require('../js/tank_geometry.js').polyCorners;   // covers 多边形（verts）几何，浏览器由 tank_geometry 先行加载提供
 const CV = require('../js/tank_cover.js');
 global.getCoverUnderTank = CV.getCoverUnderTank;
+global.getRoadUnderTank = CV.getRoadUnderTank;   // #S4/#S14：driveTank 经本函数单独查询 road
 global.resolveCoverCollisions = CV.resolveCoverCollisions;
 global.COVER_TIERS = CV.COVER_TIERS;
 global.obbMTV = CV.obbMTV;

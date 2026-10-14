@@ -2,7 +2,7 @@
 
 > **临时文档**：只存放**待处理 / 处理中**的已核实问题。每条必须有代码证据（`file:line`）与复现/触发条件；绝不收录未核实项。
 > 条目**修复并验证有效后**按 `AGENTS.md` 4 步生命周期收尾：结论同步 `DEVELOPMENT.md` / `specs/` → 删除本条目 → 原文归档 `docs/archive/<yyyy-mm>.md` → 联动下一步计划。
-> 已解决并归档的历史条目（#1~#26、#44、#49、#60~#101、#A1~#A28、#B1~#B11、#C1~#C4/#C6、#C5、#D1~#D5、#A9、#E1~#E13、#F1~#F6、#G1~#G9、#H1~#H5（2026-09-21 视野批次）、#H1~#H4（2026-09-30 敌军基准/布雷/技能槽批次）、#I1~#I4、#J1~#J4、#K1~#K3、#A16、#L1~#L7（2026-10-06 整车精灵对齐批次）、#M1~#M3（2026-10-08 设计器精灵绘制批次）、#L8 + #M4（2026-10-08 白底清理与炮塔参数重算）、#S8（2026-10-14 CI 校准基线第六次修正））：见 `docs/ARCHIVE.md` 索引表。
+> 已解决并归档的历史条目（#1~#26、#44、#49、#60~#101、#A1~#A28、#B1~#B11、#C1~#C4/#C6、#C5、#D1~#D5、#A9、#E1~#E13、#F1~#F6、#G1~#G9、#H1~#H5（2026-09-21 视野批次）、#H1~#H4（2026-09-30 敌军基准/布雷/技能槽批次）、#I1~#I4、#J1~#J4、#K1~#K3、#A16、#L1~#L7（2026-10-06 整车精灵对齐批次）、#M1~#M3（2026-10-08 设计器精灵绘制批次）、#L8 + #M4（2026-10-08 白底清理与炮塔参数重算）、#S8（2026-10-14 CI 校准基线第六次修正）、#S4 + #S14（2026-10-14 公路加速恢复与道路屏蔽减速））：见 `docs/ARCHIVE.md` 索引表。
 > **编号重叠说明（2026-10-04 核实）**：`#H1~#H5` 与 `#H1~#H4` 分属**两个不同批次**（2026-09-21 视野等距批次 / 2026-09-30 敌军基准批次），编号发生重叠——与 `AGENTS.md` §2「编号不复用、跨批次延续」相悖，属历史遗留。因归档原文按纪律不可回改、且编号已被 `DEVELOPMENT.md` §4.40 与 `specs/combat.md` §13.1~§13.4 交叉引用，故**保留原编号 + 在此按日期与主题区分**（引用时须带批次日期），不再另案重编。
 
 ---
@@ -34,36 +34,32 @@
 > **#O1/#O4 已于 2026-10-10 解决并归档**——原文见 `docs/archive/2026-10.md`，见 `docs/ARCHIVE.md` 索引表。
 > **#L8 已于 2026-10-08 解决并归档**（白色残留清除 + 两车炮塔对齐参数重算；`hummel_turret` 上下两块经用户澄清为设计如此，误判已撤回）——原文见 `docs/archive/2026-10.md`，结论见 `docs/DEVELOPMENT-batches-2026-10.md` §4.56。
 
-> **#S 批次**（2026-10-14 用户反馈 14 项，全部经代码取证核实；核实报告见会话记录）：
+> **#S 批次**（2026-10-14 用户反馈 14 项，全部经代码取证核实；2026-10-14 晚在 2a872a4（8 个新提交之后）**二次复核**，行号与结论已同步新代码；#S8 已修复归档）：
 
 ### #S1 河流"没有闭合"（支流末端悬空）——待处理
-- **证据**：`js/tank_nodegen.js:737-742`（干流汇入点 `jy` 为"近似：用同参数正弦估算"）、`:757-766`（H1T 支流汇入）、`:746`（`hasLake = false`，湖泊闭合已被删除）。
-- **根因**：支流末端坐标用原始正弦控制函数**估算**而非干流实际 Catmull-Rom 采样曲线；全程无"支流末段与干流相交"验证/缝合逻辑；原"收束成湖"闭合设计已被用户要求删除，支流末端只收分至 0.55 宽悬在半空。
+- **证据**：`js/tank_nodegen.js:736`（干流汇入点 `jy`"近似：用同参数正弦估算"）、`:746`（`hasLake = false`，湖泊闭合已被删除）、`:763`（源头收分至 0.55）。
+- **根因**：支流末端坐标用原始正弦控制函数**估算**而非干流实际 Catmull-Rom 采样曲线；无"支流末段与干流相交"验证/缝合逻辑。**2026-10-14 复核**：数据层空洞已随 #P1（b1bf362，`nodegen.js:2982` bridgeSeen else 回填）修复——`audit-river-continuity.js` 60 seed 0 空洞；剩余的是**支流-干流几何缝合**问题（估算代码原样保留）。
 - **复现**：生成含 H1T 支流的节点，观察支流末端与干流不相交。
 
 ### #S2 敌方 AI 警觉层级缺失（5 层级只实现约 1.5）——待处理
-- **证据**：`js/tank_ai.js:1190-1201`（`propagateAlert`：600px 单跳传播，无行为升级）；`js/tank_fire.js:326/440/446` 从不调用 alert；全仓库 grep `shotNoise|muzzleAlert|noiseAlert` 零命中；`js/tank_rules.js:838` `searchMinLoSBlocked` 无消费方；`js/tank_ai.js:671` `oscillate` 为常量死代码；`js/tank_ai.js:668-695` search 实现残缺（一次性走向最后已知点、无扫视、无重搜）；`js/tank_ai.js:620-626` patrol 无 hunt 逻辑。
+- **证据**（2026-10-14 在 2a872a4 复核，`js/tank_ai.js` 未动）：`js/tank_ai.js:1190-1195`（`propagateAlert`：600px 单跳传播，无行为升级）；`js/tank_fire.js` 开火路径从不调用 alert；全仓库 grep `shotNoise|muzzleAlert|noiseAlert` 零命中；`js/tank_rules.js:856` `searchMinLoSBlocked` 无消费方、`:861` `alertRadius: 600`；`js/tank_ai.js:671` `oscillate` 为常量死代码；search（`:668-695`）一次性走向最后已知点、无扫视、无重搜；patrol（`:620-626`）无 hunt 逻辑。
 - **层级现状**：①玩家靠近 ✅（距离+LoS，700~1120px）/ ②玩家射击 ❌完全缺失 / ③射击 AI 附近（近失弹）❌缺失 / ④附近队友被攻击 ⚠️有但弱（600px 单跳、无行为升级）/ ⑤自身被攻击 ⚠️有但弱（仅 engaged+延迟减半，无受击专属行为）。
 - **根因**：警觉唯一输入是"受伤"与"距离+LoS"；无声音/开火暴露通道；`aiEngaged` 二值开关，无"可疑→警戒→交战"渐进状态。
 
 ### #S3 Boss 战难度与 Boss HP 条 UI ——待处理
-- **Boss 血量（参数上不低，体感弱另有根因）**：`js/tank_rules.js:1007` `hpMul: 9`（2026-10-01 由 8 上调）；`bosses/*.json` 5 个 Boss 全显式 9；实战 ≈ 同节点重型敌人 6~9×、玩家 2~3×。体感弱更可能来自弱点 `dmgMul ×1.5`+无视跳弹+穿深+15（`js/tank_rules.js:994-999`）。
-- **搜索欲望低（证实）**：hold 阶段 `js/tank_ai.js:548-552` 原地 `_passiveDefend`；skirmish 阶段 `:558-582` 只后退不接近。
-- **射击频率**：`fireRateMul: 0.6` → 1.67× 已较快；barrage 仅 boss_commander 有（9s 间隔）；`fortify`/`skirmish_long` 风格在 `updateBossBehavior`（`js/tank_boss.js:555-700`）无专属行为分支。
+- **Boss 血量（参数上不低，体感弱另有根因）**：`js/tank_rules.js:1023-1027` `hpMul: 9`（2026-10-01 由 8 上调；另 entityMults.maxHp 上限 1.4→1.7 叠加后总血量约 +29%~+36%）；`bosses/*.json` 5 个 Boss 全显式 9。体感弱更可能来自弱点 `dmgMul ×1.5`+无视跳弹+穿深+15。
+- **搜索欲望低（证实）**：hold 阶段 `js/tank_ai.js:554` 原地 `_passiveDefend`；skirmish 阶段 `:558-560` keepDist=640 只后退不接近。
+- **射击频率**：`fireRateMul: 0.6` → 1.67× 已较快；barrage 仅 boss_commander 有（`bosses/boss_commander.json:7`，9s 间隔）；`fortify`/`skirmish_long` 风格在 `updateBossBehavior` 无专属行为分支。
 - **召唤频率**：`hpFrom: [1.0, 0.66, 0.33]` 3 波血量门控（`js/tank_boss.js:436-473`），非持续生成。
 - **Boss HP 条 UI（证实缺失）**：全仓库 grep `bossHp|bossBar` 零结果；唯一血条是通用浮动条 `js/tank_battledraw.js:781-798`（44×5px，无数字）。需求：屏幕下方中央带条+数字。
 - **实施顺序**：①HP 条 UI → ②追击欲望 → ③炮击/召唤频率 → ④hpMul 微调最后。
 
-### #S4 公路速度加成未落实 ——待处理
-- **证据**：`js/tank_move.js:40`（`onRoad = cover.tier === 'road'`，`cover = getCoverUnderTank(t)`）；`js/tank_cover.js:205`（`getCoverUnderTank` 显式 `if(cov.tier === 'road') continue;`）；`js/tank_rules.js:521-522`（加成参数存在）；`tank_mvp.html:3511-3514`（HUD 显示 `player.roadBonus`）。
-- **根因**：2026-09-14 road 被逐出 `getCoverUnderTank`（零物理优化），#E3 公路加速仍走同一查询 → `onRoad` 恒 false。与 #S14 同根，可一并修复。
-
 ### #S5 弹种升级节奏慢；Boss 战后无"必给 1 个弹种升级选项" ——待处理
-- **证据**：弹种升级卡 12 张（`cards/ammo_upgrade_*.json`），三链串行禁跳级；保底是概率 40%（`RULES.cards.ammoUpgradeGuaranteeChance`，`js/tank_rules.js:481`；`js/tank_cards.js:587-605` 掷骰）；Boss 追加轮走 `bossLootPool()` 稀有度下限过滤（`tank_mvp.html:1648-1656`），legendary 档仅 3 张链顶卡且要求前驱已解锁 → 无卡可选时掷骰命中也静默跳过（`js/tank_cards.js:600-603`）。
-- **根因**：三重门限——(a)串行链一次一阶 (b)40% 概率保底 (c)Boss 轮"稀有度下限 × 链资格"双重过滤且与 (a) 互斥。需在 Boss 追加轮加独立"必含 1 张链上可解锁升级卡"路径（绕开稀有度下限）。
+- **证据**（2026-10-14 在 2a872a4 复核，1ff0b11 #N2 后机制收紧）：弹种升级卡 12 张（`cards/ammo_upgrade_*.json`），三链串行禁跳级；保底概率 **0.4→0.18**（`js/tank_rules.js:481`），新增 `ammoUpgradePace: { decay: 0.55 }`（`:483-484`）——保底概率与权重抽样双通道随本局已获升级数 ×0.55ⁿ 衰减；Boss 追加轮仍走 `bossLootPool()` 稀有度下限过滤（`tank_mvp.html:1648-1650`），"Boss 战后必给 1 个弹种升级选项"机制仍不存在。
+- **根因**：#N2（用户反馈"弹种升级太快"）把节奏压过头——保底 0.18 × 衰减后中后期几乎拿不到升级卡；Boss 轮"稀有度下限 × 链资格"双重过滤与串行链互斥依旧。修复：在 Boss 追加轮加独立"必含 1 张链上可解锁升级卡"路径（绕开稀有度下限与 pace 衰减）。
 
 ### #S6 副武器属性升级卡缺失 ——待处理
-- **现有 8 张**（4 install·epic + 4 upgrade·rare）：迫击炮射程/溅射 ✓、导弹冷却 ✓、火箭发射数量 ✓。
+- **现有 8 张**（4 install·epic + 4 upgrade·rare；2026-10-14 在 2a872a4 复核，1ff0b11 新增 3 张 mod 卡与本条无关，副武器卡仍是 8 张）：迫击炮射程/溅射 ✓、导弹冷却 ✓、火箭发射数量 ✓。
 - **缺失**：导弹锁定速度 `lockSeconds`（`js/tank_weapons.js:41` defaults 已有、`:202-203/251` 消费，无卡用）、火箭飞行速度 `speed`（`:283` 消费 `??450`，无 defaults、无卡用）；同类可调无卡参数还有 missile `lockArcDeg`/`range`、mortar `accuracySpread`、rocket `burstInterval`/`aoe`/`range`；`turret` 副武器零卡牌。
 - **根因**：`mergeStatOverrides` 通用（`js/tank_cards.js:154-171`），缺的是卡牌 JSON 内容，参数通道就绪。
 
@@ -73,15 +69,15 @@
 - **结论**：暂不削 DPS；如调应调爆发体感；待实战/TTK 数据支撑。本条不转入实施，留观察。
 
 ### #S9 ESC 菜单商店按钮缺失 ——待处理
-- **证据**：`tank_mvp.html:444-453` pauseScreen 仅 3 按钮（继续/控制/终止结算）；2026-09-14 §4.12 摘除 `pauseShopBtn`（`js/tank_screens.js` `buildPauseViewModel`）；§4.13 商店回归只落地结算内嵌 `#runShopBox`（`tank_mvp.html:378-381`）。
+- **证据**（2026-10-14 在 2a872a4 复核）：`tank_mvp.html:444-453` pauseScreen 仍仅 3 按钮（继续/控制/终止结算）；2026-09-14 §4.12 摘除 `pauseShopBtn`（`js/tank_screens.js` `buildPauseViewModel`）；§4.13 商店回归只落地结算内嵌版，ESC 菜单入口漏恢复。
 - **根因**：退场时摘除，回归时漏恢复 ESC 菜单入口。
 
 ### #S10(a) HP 升级后显示 250/249 ——待处理（产品决策：购买 hp_up 回满至新上限）
-- **证据**：`buyRunShopItem`（`tank_mvp.html:1974-2004`）→ `addModifier`（`js/tank_model.js:241-251`）→ `refreshStats`（`:280-302`）：`tank.hp = min(maxHp, hp + dHp)`；HUD `tank_mvp.html:3495`。
+- **证据**（2026-10-14 在 2a872a4 复核）：`buyRunShopItem` → `addModifier` → `refreshStats`（`js/tank_model.js:296`）：`tank.hp = min(maxHp, hp + dHp)`；HUD `tank_mvp.html:3497`。
 - **根因**：#A12 差量同步设计——上限提升时当前 hp 只按增量抬升不回满；结算界面不回血（进节点才满血 `tank_mvp.html:1456/2450`）。同步逻辑工作正常，与用户预期冲突。**决策**：购买 hp_up 时 hp 回满至新 maxHp。
 
 ### #S10(b) TAB 面板非战斗态冻结 ——待处理
-- **证据**：`updateStatusPanel`（`tank_mvp.html:1268-1317`）经 battle update 链逐帧刷新（`tank_mvp.html:4612-4628`→`:3417`→`:3468`）；settlement/map 下 loop 只调 `draw()` 不调 `update()`（`:4630-4632`）→ 面板定格在打开瞬间。
+- **证据**（2026-10-14 在 2a872a4 复核）：`updateStatusPanel`（`tank_mvp.html:1268`）刷新仍挂在 battle update 链上；settlement/map 下 loop 只调 `draw()` 不调 `update()` → 面板定格在打开瞬间。
 - **根因**：面板刷新挂在战斗 update 链上，非战斗态无刷新 tick。
 
 ### #S10(c) 商店购买后需退出才看到更新数字 ——待处理（同 #S10(b) 根因）
@@ -89,19 +85,16 @@
 - **根因**：同 #S10(b)——面板不在商店，问题在面板刷新而非商店。
 
 ### #S11 地图边缘道路/河流裁剪错误 ——待处理
-- **证据**：`js/tank_nodegen.js:2700-2712`（strip 出界路段**整段删除**而非裁剪）；`tank_mvp.html:4017-4022`（`ends()` 每段两端各裁 `0.35×路宽`）；`tank_mvp.html:4080`（`lineCap='butt'`）；`js/tank_battledraw.js:221-238`（河流每段独立矩形绘制）。
+- **证据**（2026-10-14 在 2a872a4 复核）：`js/tank_nodegen.js:2703-2715`（strip 出界路段**整段删除**而非裁剪，注释明示"整段须在界内"）；道路端帽 `lineCap='butt'`、河流按段绘制（`js/tank_battledraw.js:221-243`）依旧。
 - **根因**：无"沿地图边缘线裁剪"逻辑；边缘截断面恒为垂直于中心线的端帽，而非沿边界线的裁剪。
 
 ### #S12 河流有中心线、无水流纹理 ——待处理
-- **证据**：`js/tank_battledraw.js:229-236`（"水面高光：长轴方向的浅色流线"——静态中心线）；`:221-238` water-chain 分支纯色 fill+stroke，无纹理/动画。
+- **证据**（2026-10-14 在 2a872a4 复核，#R1 后）：`js/tank_battledraw.js:221-243` water-chain 改为不透明底（`#3578a8`，重叠同色无缝合并）+ 无描边 + **沿段向单线高光**（`:233`，旧版错轴高光已修正为沿段向）——但仍是**静态中心高光线**，无水流纹理、无逐帧动画。
 - **根因**：绘制分支只有平色填充+描边+静态高光中心线。需求：去掉中心线，加水流纹理（或动态）。
 
 ### #S13 树/建筑/沙包纹理过于简单 ——待处理（现状描述，非 bug）
-- **证据**：树 `js/tank_assets.js` `tree.bake`（棕圆树干 + 3 叠加半透明绿圆）；建筑 `js/tank_rules.js:127` `drawStyle:'box'` → `js/tank_battledraw.js:167-175`（纯色矩形+2px 描边+"楼房"文字）；沙包 `js/tank_rules.js:111` `'barricade'` → `js/tank_assets.js` `barricade.bake`（4 堆叠椭圆+顶部凸袋）。
+- **证据**（2026-10-14 在 2a872a4 复核）：§4.59 已升级树冠（bush/tree/fallen 高光叶点）、§4.61 已升级沙袋（缝线/高光/结头）与树桩/碎石；**建筑仍极简**——`js/tank_rules.js:127` `drawStyle:'box'` → `js/tank_battledraw.js:166-175`（纯色矩形+2px 描边+"楼房"文字标签），"不够直观"主要落在这处。
 - **根因**：程序化几何占位绘制。`ASSET_DEFS` 已支持"有图 drawImage / 无图烘焙"双通道，是贴图替换的现成接入点。
 
-### #S14 道路压住河流/泥潭不屏蔽减速 ——待处理
-- **证据**：`js/tank_cover.js:202-213`（`getCoverUnderTank` 跳过 road，返回首个重叠非 road cover，无优先级排序）；`js/tank_rules.js:1197`（`t.move = t.passability`，river/mud 0.4）；`js/tank_move.js:31-32`（`speedModifier = cvTier.move`）。
-- **根因**：脚下地形查询直接跳过 road 层；仅桥替换点（`js/tank_nodegen.js:2980` 附近）能避开。与 #S4 同根，一并修复：road 存在时优先且屏蔽下层减速。
 
 ---

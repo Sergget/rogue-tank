@@ -220,6 +220,24 @@ function getCoverUnderTank(tank) {
   return null;
 }
 
+// #S4 + #S14（2026-10-14）：road 被 getCoverUnderTank 跳过（纯地面标识），
+// 公路加速与"道路屏蔽下层减速"改走本函数单独查询（同款 OBB 相交判定 + 空间索引）。
+function getRoadUnderTank(tank) {
+  if(!tank || !Number.isFinite(tank.x) || !Number.isFinite(tank.y)) return null;
+  const tankCorners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
+  for (const cov of coverQueryCandidates(tank.x, tank.y, tankQueryRadius(tank))) {
+    if(cov.hp <= 0) continue;
+    if(cov.tier !== 'road') continue;
+    const parts = coverCollisionParts(cov);
+    for (const part of parts) {
+      if (obbOverlap(tankCorners, part)) {
+        return cov;
+      }
+    }
+  }
+  return null;
+}
+
 // 溺毙判定（2026-09-14 水域行为重做）：坦克车体四角是否「完全浸入」水体
 // （每角均位于任一 water|river 覆盖凸块内，允许跨相邻水体拼接）。
 // 纯函数、无 DOM；消费方：tank_mvp.html 战斗主循环 drownT 累计。
@@ -669,6 +687,7 @@ if (typeof module !== 'undefined' && module.exports) {
     tierShellBlock,
     splashCoversAt,
     getCoverUnderTank,
+    getRoadUnderTank,
     tankFullyInWater,
     obbOverlap,
     obbMTVs,

@@ -446,3 +446,10 @@
 - **根因**：非代码漂移——2026-10-12 #Q 批次第五次重锚时两处误标：`urban_block d=0.7` 8-seed 实测 0.8988（误标 1.5，注释预期的 "+0.3~0.6" 漂移并未兑现，实测≈第四次基线 1.0）；`mixed_barrier_plaza d=0.3` 8-seed 实测 2.2491（误标 1.7，|2.2-1.7| 浮点边界恰好超出口径 ±0.5）。
 - **修复**：应用 qi 未推送的本地修正 `6d1ae26`（2026-10-14，第六次基线修正）——两处基线值改为实测值，校验口径不变（cov ±0.02 / con ±0.05 / minw ±0.5）。
 - **验证**：`scripts/test-nodegen-calibration.js` 146 项全过；`npm test` **43/43 全绿**。ISSUES.md #S8 按生命周期删除并归档。
+
+### §4.71 2026-10-14 #S4/#S14：公路加速恢复 + 道路屏蔽下层减速
+
+- **根因**：2026-09-14 road 被逐出 `getCoverUnderTank`（`js/tank_cover.js:207-220` `if(cov.tier === 'road') continue;`，零物理优化），但 2026-09-20 #E3 的公路加速仍走同一查询判定 `onRoad`（`js/tank_move.js:48`）→ `onRoad` 恒 false，`roadBonus` 恒衰减到 0，**加成自 #E3 落地起从未生效**；同理 `getCoverUnderTank` 跳过 road 后返回下层首个重叠 cover（river/mud），0.4 减速照常生效（#S14）。
+- **修复**：`js/tank_cover.js` 新增 `getRoadUnderTank`（同款 OBB 相交判定 + `coverQueryCandidates` 空间索引，仅查 road tier，已导出 + `types/globals.d.ts` 声明）；`driveTank` 改走本函数求 `onRoad`，road 存在时 `speedModifier/turnModifier` 强制 1.0（屏蔽下层减速）。AI/玩家共用 `driveTank`，一并受益。
+- **验证**：定向脚本 `/tmp/verify-road-s14.js` 5 项全过（roadBonus→25.0px/s=+10km/h；road 上 302px/s vs 纯 river 100px/s）；`scripts/test-move.js` 新增 5) #S4/#S14 回归段 4 项断言；`npm run check`（含 tsc）EXIT=0；`test-move`/`test-covers`/`test-tankcollision` 全绿。调用 driveTank 的 Node harness（test-move/test-tankcollision）补 `global.getRoadUnderTank`；`Object.assign(global, COV)` 类 harness 自动获得。
+- **现行口径归口**：`docs/specs/map.md` §12.3 沿革注记。ISSUES.md #S4/#S14 按生命周期删除并归档。
