@@ -25,7 +25,7 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
     }
 
 ## 3. 七大效果类型 (type 决定 params)
-1. **modifier**：{stat, mode:'add'|'mult', value}——stat 白名单（穿透/伤害/装填/弹速/极速/转向/炮塔转速/装甲路径 armor.hull.front 等）或履带锁/模块倍率/DOT倍率/散布。立即生效（走 addModifier 管道，§5.1 三层属性系统）。
+1. **modifier**：{stat, mode:'add'|'mult', value}——stat 白名单（穿透/伤害/装填/弹速/极速/转向/炮塔转速/装甲路径 armor.hull.front 等）或履带锁/模块倍率/DOT倍率/散布。立即生效（走 addModifier 管道，§5.1 三层属性系统）。**白名单沿革（2026-10-10 #O3 补入 3 键，唯一口径 `MODIFIER_STATS`）**：`motionSpreadMul`（此前仅局内商店 `steady_mount` 可写）、`fireControlCrit` / `loaderAmmoCrit`（P-49 模块命中概率修正通道，此前三通道全空缺的死升级通道）。
    - **运行时参数硬限（2026-09-15 W5 用户裁定；2026-09-17 #C2 修订）**：卡牌 modifiers 聚合后受 `RULES.parameterLimits` 两张硬限钳制——装填 **reload ≥ 1.0s/发**（2026-09-17 #C2 裁定，取代旧 0.5s；加速装填卡不得突破下限）、极速 **maxSpeed ≤ 150km/h（375px/s）**（超速卡不得突破上限）；实现于 `js/tank_model.js` `applyParameterLimits(s, modifiers)`（computeStats 尾部，仅 modifiers 非空时生效，空修饰器出厂/纯计算不钳）。**#C2 同轮细化**：硬限只约束参数通道（scope run/permanent）——**纯 timed 修饰器（超装填 ×0.45 等能力爆发通道）不钳**，其实际开火间隔可继续 <1s（与机炮 reloadMult 0.25 武器通道同语义）。火控系另有既有钳制（spreadMult/motionSpreadMul ≥ multFloor、crit ≤ critBonusCap）。消费链 `applyCardEffects`→`addModifier`→`refreshStats`→`computeStats` 天然接入，商店另有 `runShopLimitBlocked` 购买拦截（§8.3，`fast_reload` limit.min=1.0 同步）。回归见 `scripts/test-rework-w5.js`（§5 timed 不钳 / 混合通道仍钳）。
 2. **ammo**：弹种改造或弹种替换（完整弹种键与升级总表见 `docs/specs/combat.md` §3.1/§3.2 与 `js/tank_rules.js` 的 `RULES.ammoTypes` / `RULES.ammoChain`）。
    - 弹种属性改造：`{key, field:'pen'|'dmg'|'speed', mode:'mult'|'add', value}`，其中 `key` 支持现有体系下的有效弹种键。
@@ -44,7 +44,7 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 ## 4. 稀有度分层与流派
 - CARD_RARITIES（**2026-09-20 #E13 起五档**）：common / rare / epic / legendary / **mythic（神话）**——新增最高档，序号即强度序；抽取权重 `common 50 / rare 30 / epic 15 / legendary 4.5 / mythic 0.5`；Boss 掉落白名单 `LOOT_RARITIES`（tank_boss.js）同步五档；HUD 标签新增「神话」。
 - CARD_TAGS 流派标签：重甲/机动/狙击/支援等，供 drawCardChoices 构筑导向抽卡。
-- 当前分布（**2026-09-23 `node scripts/audit-content.js` 实测**）：**168 张卡**——common 59（35.1%）/ rare 56（33.3%）/ epic 37（22.0%）/ legendary 15（8.9%）/ mythic 1（0.6%）。沿革：2026-09-17 快照为 169 张（common 61 / rare 55 / epic 37 / legendary 16）；其后随 #E13（「交替装填系统」升 mythic）、#G5/#G6（轨道炮升级卡、弹夹炮与其扩容卡）、#G9（`ability_aps`）等批次增至 173，再于 **2026-09-23 A 档摘除 5 张死效果卡**（recon ×2 / track_repair ×3）回落至 168。
+- 当前分布（**2026-10-10 `node scripts/audit-content.js` 实测**）：**169 张卡**——common 59（34.9%）/ rare 57（33.7%）/ epic 37（21.9%）/ legendary 15（8.9%）/ mythic 1（0.6%）。沿革：2026-09-23 为 168 张；**2026-10-10 #O3 新增 3 张**（rare `mod_fire_control_crit` / rare `mod_loader_ammo_crit` / epic `mod_motion_stabilizer`，补齐 P-49 概率修正死通道与运动三扩卡牌通道）。
 - 效果类型分布（**效果数**，2026-09-23 实测）：modifier 128 / ammo 32 / weapon 17 / **ability 12** / passive 8 / economy 5 / drone 2（合计 204）——与 `CARD_EFFECT_TYPES` 的 **7 类**（modifier / ammo / ability / passive / drone / economy / weapon）一一对应。其中 `ability` 由 17 降为 12 即上述 5 张死效果卡摘除的结果。
 - 最新数字以 `node scripts/audit-content.js` 输出为准（本节为带日期的快照，卡池随批次增长会过期）。
 
@@ -157,6 +157,20 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
   - **资格过滤先行**（#A23 / #A28）：`cardEligible` 在可用池阶段剔除「未持有所需武器的 upgrade 卡 / 槽已占的 secondary install 卡 / **未持有 `requiresAbility` 所指能力的 ability 升级卡** / 已叠满 maxStacks 的卡」，**在小池 early-return 与保底之前执行**；普通轮、刷新、Boss 追加轮复用同一规则。
   - `abilities` 为空且池内有 `type:'ability'` 卡 → **保底抽取 1 张** ability 卡；
   - `secondaryWeapon` 为 none/缺省且池内有 `type:'weapon' && slot==='secondary'` 卡 → **保底抽取 1 张**副武器安装卡；
-  - **弹种升级卡保底（2026-09-17 #C3 用户裁定「升级卡加权/保底」路线 → 2026-09-19 #D5 用户反馈「弹种升级速度太快」下调为概率触发；排在装备保底之后）**：传入 `ammoLoadout` 时，若池内存在「`replaceAmmo` 链前驱已在 loadout 中」的弹种升级卡（即本回合可解锁/升级的新弹种），以 `RULES.cards.ammoUpgradeGuaranteeChance`（现行 **0.4**）概率**保证 1 张**进候选（单次抽取独立掷骰；`opts.ammoGuaranteeChance` 可覆盖，=1 复现 #C3 无条件保底语义）。动机：参数强化卡大量落在 common（最高权重桶），升级卡最低 rare 起步、深层链 epic/legendary——同池概率长期被压制（#C3 核实），开局阶段出现频率倒挂；#D5 实测无条件保底=每节点 1 阶推进过快。升级完成后（目标弹种入 loadout）保底自动消失、恢复稀有度权重抽样。
-  - 剩余槽位按稀有度权重从其余可用卡抽样（`weightedRarity`）。保底不足时不改变抽取上限（`picked.length < count` 守卫）。
-- **实现注记**：`abilityIdxs`/`weaponIdxs` 在 ability 卡 splice 之后静态下标会错位（误把被动卡当武器卡抽）——改为 `firstIdxWhere` 动态求值（每次 splice 后重查），`test-cards.js` 装备优先四态断言捕获验证。
+  - **弹种升级卡保底（2026-09-17 #C3 用户裁定「升级卡加权/保底」路线 → 2026-09-19 #D5 用户反馈「弹种升级速度太快」下调为概率触发 → 2026-10-10 #O4 再调参；排在装备保底之后）**：传入 `ammoLoadout` 时，若池内存在「`replaceAmmo` 链前驱已在 loadout 中」的弹种升级卡（即本回合可解锁/升级的新弹种），以 `RULES.cards.ammoUpgradeGuaranteeChance`（现行 **0.18**，沿革 0.4）概率**保证 1 张**进候选（单次抽取独立掷骰；`opts.ammoGuaranteeChance` 可覆盖，=1 复现 #C3 无条件保底语义）。**节奏衰减（#O4）**：保底概率与稀有度内自然权重同步乘 `0.55ⁿ`（n = 本局已获链升级卡数，经 `owned.cards` 反查 `isAmmoUpgradeCard` 计数），保底与自然抽样双通道随链进度递减（整局探针：15 节点 7 张 → 3 张，−57%）。升级完成后（目标弹种入 loadout）保底自动消失、恢复稀有度权重抽样。
+  - 剩余槽位按稀有度权重从其余可用卡抽样（`weightedRarity` 选稀有度 → 桶内加权随机取，升级卡权重 ×paceFactor）。保底不足时不改变抽取上限（`picked.length < count` 守卫）。
+- **实现注记**：`abilityIdxs`/`weaponIdxs` 在 ability 卡 splice 之后静态下标会错位（误把被动卡当武器卡抽）——改为 `firstIdxWhere` 动态求值（每次 splice 后重查），`test-cards.js` 装备优先四态断言捕获验证；**#O4 起保底改随机取卡（`pickRandomWhere`）+ 返回前统一洗牌（`shufflePicked`）**——保底只决定「在候选集里」、不决定屏幕位置（修复前首位 `ability_aps` 500/500 次固定）。
+
+## 10. 升级覆盖面（2026-10-10 #O3 对账，现行口径）
+
+**问题**：`computeStats` 产物键中 `fireControlCrit` / `loaderAmmoCrit`（P-49 模块命中概率修正，硬上限 0.25）**三通道全空缺**（白名单无、两商店无）——注释明写「玩家侧可随卡牌/技能升级增强」的死升级通道；`motionSpreadMul` 仅局内商店可写；`shellSpeed` / `turnRate` / `turretTurnRate` / `trackLock` / `enginePower` 等仅卡牌单通道。
+
+**补齐（参数唯一口径 `MODIFIER_STATS` / `UPGRADE_DEFS` / `RUN_SHOP_DEFS`）**：
+
+| 通道 | 新增 |
+|---|---|
+| 卡牌白名单 | `motionSpreadMul` / `fireControlCrit` / `loaderAmmoCrit`（+ 3 张新卡：rare `mod_fire_control_crit`（P-49 炮手/炮闩 +0.1，maxStacks 2）、rare `mod_loader_ammo_crit`（装填手/弹药 +0.1，maxStacks 2）、epic `mod_motion_stabilizer`（×0.9，maxStacks 3）） |
+| 局外永久商店 | 7 项：`shell_speed_up`（+30/级）/ `engine_power_up`（+60/级）/ `turn_up`（+0.08/级）/ `turret_turn_up`（+0.08/级）/ `aim_speed_up`（+0.02/级，均为 maxLevel 5）/ `fire_control_crit` / `loader_ammo_crit`（+0.05/级 ×5 叠满达 0.25 钳帽） |
+| 局内商店 | 3 项：`shell_velocity`（shellSpeed +40/级）/ `turret_traverse`（turretTurnRate +0.1/级）/ `track_field_kit`（trackLock −0.5s/级，`limit.min: 5` 拒购防线）——总数 12 → **15**（火力 6 / 防护 2 / 机动 4 / 杂项 3） |
+
+回归：`scripts/test-economy.js`（新增定义完整性 + 上限判定 + `applyUpgrades` 真实生效断言）/ `scripts/test-card-effects.js`（169 张全卡逐卡验证）/ `scripts/validate-content.js`（卡面数字一致性）。

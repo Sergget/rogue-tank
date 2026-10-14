@@ -578,3 +578,14 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 - **回归**：`scripts/test-ai.js` 新增 **#N 段 26 项**（2026-10-04 实测 `ok()` 计数；交战带分档/下界兜底/开关回退/带内驻停/带外接近/重坦不后撤/站位半径与扇区/站位稳定/左右分侧/集成绕行/分离力有无邻居/装填脱离背弹面与四类 null 路径/站位半径 ≥ 带外沿防复发）；`scripts/test-squad.js` **新增 25 项**（2026-10-04 实测；名额难度与上限、角色互斥覆盖、评分优先、节流稳定、换血重分配、开关回退、hold 门控、威胁提示筛选/排序/边界）。`scripts/test-ai.js` 旧 flank 断言改为「回退路径」语义（`flankRewrite.enabled=false` 下验证），`test-squad.js` 已接入 `npm test` 链。
 - **验证（三链，2026-10-02）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **EXIT=0**（全链 0 项失败）/ `npm run test:browser` **四链 ALL PASS、EXIT=0**。
 
+### 13.9 岩石接触卡死修复（#O1，2026-10-10，用户反馈，现行口径）
+
+**现象**：坦克撞上岩石后彻底卡死（倒车/转向均无响应）。**根因（两处叠加，均有 file:line 证据）**：① `driveTank`（`js/tank_move.js:27`）把岩石 `passability: 0` 当通行系数 ⇒ `accel/brake/turnRate` 同时清零；② `resolveCoverCollisions` 只推到恰好贴合，而 SAT 判「触=叠」⇒ 静止接触恒为"压在岩上"，① 的冻结每帧续杯（逐帧诊断：`帧前cover=rock x=552.01 speed=76.88 → 帧后 x=552.01 speed=76.88`，5 帧完全冻结）。
+
+**现行口径**：
+- `driveTank` 的通行系数**只对可通行减速地形生效**（`pass > 0`：水/河/泥 0.4 等）；`passability===0` 的硬阻断（岩石）一律交由推出，accel/brake/turnRate 保持正常 ⇒ 贴岩仍可倒车/转向/沿面滑行（行为与 `full`/`building` 一致：不可穿透、可脱离）。
+- `resolveCoverCollisions`：推出量 = 穿透深度 + **0.25px 分离缓冲**（静止接触为真实分离，`getCoverUnderTank` 不再命中岩石）+ **最多 4 遍重扫**（双硬阻断夹角/贴边界场景下"推离 A 又叠回 B"直至无穿透）。
+- **岩石仍硬阻断不可通行**（推出轴不变；`test-tankcollision.js` 断言全速顶岩 `x ≤ 岩左界+0.5`）。
+
+**回归**：`scripts/test-tankcollision.js` §8（撞岩倒车可变速/持续倒车脱离/贴岩可转向/出生嵌岩可倒出/静止接触分离/岩石仍阻断/泥地减速不变）/ §9（空间哈希语义一致性）。对应 ISSUES #O1。
+

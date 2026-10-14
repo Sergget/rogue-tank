@@ -363,7 +363,7 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
       armor: { hull: { front: 50 }, turret: { front: 60 } } }, []);
   const validStats = new Set(Object.keys(baseStats));
 
-  ok(eco.RUN_SHOP_DEFS.length === 12, `RUN_SHOP_DEFS 数量 12（2026-09-14 装甲合一：火力 5 + 防护 2 + 机动 2 + 杂项 3；实际 ${eco.RUN_SHOP_DEFS.length}）`);
+  ok(eco.RUN_SHOP_DEFS.length === 15, `RUN_SHOP_DEFS 数量 15（#N3 覆盖面对账：火力 6 + 防护 2 + 机动 4 + 杂项 3；实际 ${eco.RUN_SHOP_DEFS.length}）`);
   const ids = new Set();
   let structOk = true;
   for (const d of eco.RUN_SHOP_DEFS) {
@@ -390,8 +390,11 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
   // #90：分组归属抽查
   const grpOf = id => { const d = eco.getRunShopDef(id); return d ? d.group : null; };
   ok(grpOf('fast_reload') === 'firepower' && grpOf('penetration_up') === 'firepower' && grpOf('damage_up') === 'firepower' &&
-     grpOf('precision_gunnery') === 'firepower' && grpOf('steady_mount') === 'firepower', '#A1：火力组五商品（含新增穿深加工/火力增强）');
-  ok(grpOf('engine_overdrive') === 'mobility' && grpOf('engine_power_up') === 'mobility', '#A1：机动组（引擎超压 + 新增马力强化）');
+     grpOf('precision_gunnery') === 'firepower' && grpOf('steady_mount') === 'firepower' &&
+     grpOf('shell_velocity') === 'firepower', '#A1：火力组六商品（含 #N3 弹速强化）');
+  ok(grpOf('engine_overdrive') === 'mobility' && grpOf('engine_power_up') === 'mobility' &&
+     grpOf('turret_traverse') === 'mobility' && grpOf('track_field_kit') === 'mobility',
+     '#A1：机动组（引擎超压 + 马力强化 + #N3 炮塔驱动/履带野战套件）');
   ok(grpOf('emergency_repair') === 'misc' && grpOf('repair_kit_cd_run') === 'misc' && grpOf('medkit_cd_run') === 'misc', '杂项组：emergency_repair/双速冷');
   // #A4 + 2026-09-14 装甲合一：armor_kit 单一商品六面 +2mm、重量 +0.5t、baseCost 90
   // （炮塔+车体同时加强 = 一个升级项，用户定案）；上限判定仍由 runShopLimitBlocked
@@ -466,6 +469,39 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
   // steady_mount：motionSpreadMul 对齐 spreadMult 边界（用户 2026 决定）
   ok(smD.limit && smD.limit.min === (RLIM ? RLIM.motionSpreadMul.min : 0.5),
     '#A4 steady_mount limit.min 对齐 motionSpreadMul.min(0.5) 边界');
+
+  // #N3（2026-10-10 升级覆盖面对账）新增项定义完整性
+  const svD = eco.getRunShopDef('shell_velocity'), ttD = eco.getRunShopDef('turret_traverse'), tfD = eco.getRunShopDef('track_field_kit');
+  ok(svD && svD.group === 'firepower' && svD.effects[0].stat === 'shellSpeed' && svD.effects[0].mode === 'add' && svD.effects[0].value === 40,
+     '#N3：局内商店新增弹速强化（shellSpeed add+40/级）');
+  ok(ttD && ttD.group === 'mobility' && ttD.effects[0].stat === 'turretTurnRate' && ttD.effects[0].mode === 'add' && ttD.effects[0].value === 0.1,
+     '#N3：局内商店新增炮塔驱动（turretTurnRate add+0.1/级）');
+  ok(tfD && tfD.group === 'mobility' && tfD.effects[0].stat === 'trackLock' && tfD.effects[0].value === -0.5 &&
+     tfD.limit && tfD.limit.min === 5 && tfD.limitLabel,
+     '#N3：局内商店新增履带野战套件（trackLock −0.5s/级，下限 5s 带 limitLabel）');
+  ok(eco.runShopLimitBlocked(tfD, 5.0, { trackLock: 5.0 }) === true && eco.runShopLimitBlocked(tfD, 6.0, { trackLock: 6.0 }) === false,
+     '#N3：履带锁定下限判定（现值 5s → 拒购；6s → 放行）');
+  // #N3：永久商店新增 7 项（卡牌可写但商店缺失的补齐 + P-49 死通道）
+  const permNew = ['shell_speed_up', 'engine_power_up', 'turn_up', 'turret_turn_up', 'aim_speed_up', 'fire_control_crit', 'loader_ammo_crit'];
+  ok(permNew.every(id => !!eco.getUpgradeDef(id)), `#N3：永久商店新增 7 项全部存在（${permNew.join('/')}）`);
+  const fcD = eco.getUpgradeDef('fire_control_crit'), laD = eco.getUpgradeDef('loader_ammo_crit');
+  ok(fcD && fcD.stat === 'fireControlCrit' && fcD.value === 0.05 && fcD.maxLevel === 5 &&
+     laD && laD.stat === 'loaderAmmoCrit' && laD.value === 0.05 && laD.maxLevel === 5,
+     '#N3：火控校准/弹药整备 = 概率修正 add+0.05/级 ×5（叠加达 computeStats 的 0.25 钳帽）');
+  // #N3：新永久项经 applyUpgrades 真实生效（permanent scope 修饰器 + refreshStats）
+  {
+    const prevRefresh = global.refreshStats;
+    global.refreshStats = model.refreshStats;   // applyUpgrades 末尾触发一次聚合刷新（浏览器全局惯例）
+    const prof = { version: 1, points: 0, upgrades: { shell_speed_up: 2, turn_up: 1, fire_control_crit: 2 }, stats: {}, selectedTankId: null, ammoLoadout: ['ap'], unlockedAmmo: ['ap'], bonusRevives: 0, difficultyLevel: 0, settings: {} };
+    const tk = model.makeTank({ team: 'player' });
+    model.refreshStats(tk);
+    const baseShell = tk.stats.shellSpeed, baseTurn = tk.stats.turnRate;
+    eco.applyUpgrades(tk, prof);
+    ok(tk.stats.shellSpeed === baseShell + 60, `#N3：弹速强化永久升级生效（${baseShell} → ${tk.stats.shellSpeed}，+60）`);
+    ok(Math.abs(tk.stats.turnRate - (baseTurn + 0.08)) < 1e-9, `#N3：转向机构永久升级生效（+0.08rad/s）`);
+    ok(Math.abs(tk.stats.fireControlCrit - 0.1) < 1e-9, `#N3：火控校准永久升级生效（fireControlCrit=0.1）`);
+    global.refreshStats = prevRefresh;
+  }
 
   // 定价曲线 runShopPriceFor
   const fr = eco.getRunShopDef('fast_reload');

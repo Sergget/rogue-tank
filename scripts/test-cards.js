@@ -756,6 +756,64 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
   ok(ownedOut > 0, `#C3: 已持有 apcr 后该升级卡不再保底（200 种子中 ${ownedOut} 次未出现，恢复权重抽样）`);
 }
 
+// ===== #N2（2026-10-10 用户反馈「卡牌出现的顺序好像是固定的、弹种升级太快」）=====
+// ① 展示顺序随机化（保底只决定候选集成员、不决定屏幕位置）；
+// ② 弹种升级节奏：保底概率 + 自然权重随本局已获链升级卡数衰减。
+{
+  // ① 位置固定回归：500 次抽取中任何单卡占第 1 位的比例必须 < 20%
+  //    （修复前 ability_aps 恒占第 1 位 100%、副武器卡恒占第 2 位 100%——探针实测 500/500）
+  const realPool = [];
+  const cardsDir = path.join(__dirname, '..', 'cards');
+  for (const f of fs.readdirSync(cardsDir).filter(f => f.endsWith('.json'))) {
+    realPool.push(JSON.parse(fs.readFileSync(path.join(cardsDir, f), 'utf8')));
+  }
+  const pos1 = {};
+  for (let seed = 1; seed <= 500; seed++) {
+    const drawn = cardsMod.drawCardChoices(realPool, 5, {
+      rng: createRNG(seed), ammoLoadout: ['ap', 'he'],
+      owned: { abilities: [], secondaryWeapon: 'none', primaryWeapon: 'standard', cards: {} }
+    });
+    pos1[drawn[0].id] = (pos1[drawn[0].id] || 0) + 1;
+  }
+  const maxPos1 = Math.max(...Object.values(pos1));
+  ok(maxPos1 < 100, `#N2: 首位卡牌不再固定（最高占比 ${(maxPos1 / 500 * 100).toFixed(1)}% < 20%）`);
+  const drawnOnce = cardsMod.drawCardChoices(realPool, 5, {
+    rng: createRNG(7), ammoLoadout: ['ap', 'he'],
+    owned: { abilities: [], secondaryWeapon: 'none', primaryWeapon: 'standard', cards: {} }
+  });
+  ok(drawnOnce.some(c => (c.effects || []).some(e => e && e.type === 'ability')),
+    '#N2: 装备优先保底语义不变（无技能时候选仍含 ability 卡）');
+  ok(drawnOnce.some(c => (c.effects || []).some(e => e && e.type === 'weapon' && (e.slot || 'secondary') === 'secondary')),
+    '#N2: 装备优先保底语义不变（无副武器时候选仍含副武器安装卡）');
+
+  // ② 弹种升级节奏：持有升级卡越多 → 剩余链上升级的出现越稀。
+  //    注意：maxStacks 抽卡期截断是另一条独立通道（cardEligible），这里测 pace 衰减本身——
+  //    用真实卡池（166 张，权重抽样有竞争空间）观察 up_apds 的出现率。
+  const apdsAppearRate = (ownedCards) => {
+    let hits = 0;
+    for (let seed = 1; seed <= 400; seed++) {
+      const drawn = cardsMod.drawCardChoices(realPool, 5, {
+        rng: createRNG(seed), ammoLoadout: ['ap', 'apcr'],
+        owned: { abilities: ['artillery_strike'], secondaryWeapon: 'mortar', cards: ownedCards }
+      });
+      if (drawn.some(c => c.id === 'ammo_upgrade_apds')) hits++;
+    }
+    return hits;
+  };
+  const rate0 = apdsAppearRate({});
+  const rate1 = apdsAppearRate({ ammo_upgrade_apcr: 1 });
+  const rate2 = apdsAppearRate({ ammo_upgrade_apcr: 1, ammo_upgrade_apfsds: 1 });
+  ok(rate1 < rate0 && rate2 < rate1,
+    `#N2: 弹种升级节奏随持有数衰减（0 张 ${rate0}/400 > 1 张 ${rate1}/400 > 2 张 ${rate2}/400）`);
+  // isAmmoUpgradeCard 语义：链升级卡 true、纯改造卡 false
+  ok(cardsMod.isAmmoUpgradeCard({ effects: [{ type: 'ammo', key: 'apcr', replaceAmmo: 'ap' }] }) === true,
+    '#N2: isAmmoUpgradeCard 识别链升级卡');
+  ok(cardsMod.isAmmoUpgradeCard({ effects: [{ type: 'ammo', key: 'ap', field: 'pen', mode: 'add', value: 5 }] }) === false,
+    '#N2: isAmmoUpgradeCard 排除纯弹种改造卡');
+  ok(cardsMod.isAmmoUpgradeCard({ effects: [{ type: 'modifier', stat: 'maxHp' }] }) === false,
+    '#N2: isAmmoUpgradeCard 对非 ammo 卡返 false');
+}
+
 console.log('test-cards: 完成所有检查');
 if (fails === 0) console.log('test-cards: 全部通过');
 else console.error(`test-cards: ${fails} 项失败`);

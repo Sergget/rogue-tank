@@ -24,8 +24,11 @@ const FLOW_OUTRUN_STATES = ['home', 'loadout', 'shop'];
 const FLOW_TRANSITIONS = {
   // —— M10 局外闭环 ——
   home:       ['loadout', 'home'],              // 选择存档 → 出战整备；home→home 自环 = 同界面切换存档后刷新
-  loadout:    ['shop', 'map', 'home'],          // 确认配置直接出击 → 节点图；进强化整备 → 商店；返回首页
-  shop:       ['map', 'loadout', 'home'],       // 购买完毕出击 → 节点图；回整备微调；回首页
+  // #N5（2026-10-10 简化进入游戏流程）：loadout/shop 的「出击」直接生成并进入战斗
+  // （旧口径 loadout/shop → map 中转屏 → 再点「开始新的一局」才进 battle，多一层无信息量界面）。
+  // map 态保留：restartRun/放弃节点等既有入口仍可用（mapScreen 仅为兼容入口）。
+  loadout:    ['shop', 'map', 'battle', 'home'],// 确认配置直接出击 → battle；进强化整备 → 商店；返回首页
+  shop:       ['map', 'battle', 'loadout', 'home'], // 购买完毕直接出击 → battle；回整备微调；回首页
   // —— 局内一局流程（P-08；P-35 增 pause）——
   map:        ['battle'],
   battle:     ['settlement', 'gameover', 'map', 'pause'],  // 结算 = 敌全灭/通关；gameover = 阵亡（复活耗尽）；map = 放弃节点/重开；pause = ESC 暂停
@@ -35,7 +38,8 @@ const FLOW_TRANSITIONS = {
   // settlement→home = 终局结算（voluntaryEnd 主动终止）后回首页；settlement→reward/map = 普通节点结算流转
   settlement: ['reward', 'map', 'home'],
   reward:     ['battle', 'map'],            // 选完 → 下一节点；节点链走完 → 回到节点图（一局结束）
-  gameover:   ['map', 'home']               // 阵亡 → 快速重开（重新开始）；或回首页（M10）
+  // #N5：阵亡后「重新开始」直接重开一局进 battle（旧口径经 map 中转屏）
+  gameover:   ['battle', 'map', 'home']     // 阵亡 → 快速重开（重新开始）；或回首页（M10）
 };
 
 /**

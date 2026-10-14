@@ -23,10 +23,15 @@ const RARITY_WEIGHTS = { common: 50, rare: 30, epic: 15, legendary: 4.5, mythic:
 const CARD_TAGS = ['重甲', '狙击', '机动', '爆破', '支援'];
 
 // 可作用 stat 白名单（与 tank_model.js computeStats 对齐；armor 用路径 armor.<part>[.<face>]）
+// #N3（2026-10-10 升级覆盖面对账）：补入 3 个 computeStats 产物键——
+//   motionSpreadMul（独立运动三扩，D3 #A1/#A3 解耦；此前仅局内商店 steady_mount 可写）、
+//   fireControlCrit / loaderAmmoCrit（P-49 模块命中概率修正通道，computeStats 注释原
+//   文「玩家侧可随卡牌/技能升级增强」，但三通道全空缺——死升级通道，本轮补卡+补商店项）。
 const MODIFIER_STATS = [
   'penetration', 'damage', 'reload', 'shellSpeed', 'maxSpeed', 'turnRate', 'turretTurnRate',
   'maxHp', 'weight', 'enginePower', 'trackLock', 'ammoMult', 'crewMult',
-  'dotRatioMult', 'dotDurationMult', 'spreadMult', 'aimSpeed'
+  'dotRatioMult', 'dotDurationMult', 'spreadMult', 'aimSpeed',
+  'motionSpreadMul', 'fireControlCrit', 'loaderAmmoCrit'
 ];
 
 // 弹种改造：key = 弹种（RULES.ammoTypes 14 键，弹种链 2026-09-13；hec 已移除 2026-09-14）
@@ -505,6 +510,28 @@ function cardEligible(card, owned) {
 
 // ---------- 抽卡 ----------
 
+// Fisher-Yates 洗牌（供展示顺序随机化；r 为 [0,1) 随机源，注入以便测试确定性）
+function shufflePicked(arr, r) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(r() * (i + 1));
+    const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+  }
+  return arr;
+}
+
+// 该卡是否为「弹种链升级卡」（ammo 效果带 replaceAmmo 或链上前驱）——弹种节奏调制的对象。
+// 纯弹种改造卡（无前驱，直接改 AP/HE 数值）不算升级卡，不受节奏衰减影响。
+function isAmmoUpgradeCard(card) {
+  if (!card || !Array.isArray(card.effects)) return false;
+  const CHAIN = (typeof RULES !== 'undefined' && RULES.ammoChain) ? RULES.ammoChain : null;
+  for (const ef of card.effects) {
+    if (!ef || ef.type !== 'ammo') continue;
+    if (ef.replaceAmmo) return true;
+    if (CHAIN && CHAIN[ef.key] && CHAIN[ef.key] !== ef.key) return true;
+  }
+  return false;
+}
+
 // 按稀有度权重抽取 n 张不重复卡。pool 为卡数组。optsOrRng 可为 createRNG 实例或
 // { rng, ammoLoadout, owned } 配置对象。
 //
@@ -514,6 +541,13 @@ function cardEligible(card, owned) {
 //   当玩家「没有任何主动技能」或「副武器为 none」时，优先保证候选中含 1 张对应装备卡
 //     （ability 卡 / 副武器安装卡），避免候选全是无主之 upgrade（升级卡对未持有者语义莫名其妙）。
 //   weapon/ability/maxStacks eligibility 过滤在 small-pool early return 之前执行。
+//
+// 2026-10-10 #N2（用户反馈「卡牌出现的顺序好像是固定的、弹种升级太快」）两项修正：
+//   ① **展示顺序随机化**：旧实现按「装备保底 → 弹种保底 → 权重抽样」的顺序 push，
+//      导致第 1 位恒为同一张 ability 卡、第 2 位恒为同一张副武器卡（实测 500/500），
+//      玩家观感就是「顺序固定」。现返回前统一洗牌，保底只决定「在候选集里」不决定位置。
+//   ② **弹种升级节奏**：保底概率 + 权重抽样双通道随「本局已获得的弹种升级卡数」衰减
+//      （RULES.cards.ammoUpgradePace），前几节点正常供弹、链越爬越慢，不再 4~6 节点爬满链。
 function drawCardChoices(pool, n, optsOrRng) {
   const count = n || 3;
   let r = Math.random;
@@ -553,54 +587,93 @@ function drawCardChoices(pool, n, optsOrRng) {
     usable = usable.filter(card => cardEligible(card, owned));
   }
 
-  if (usable.length <= count) return usable.slice();
+  if (usable.length <= count) return shufflePicked(usable.slice(), r);
 
   // 2026-09-14 装备优先：无主动技能 → 保证 1 张 ability 卡；副武器 none → 保证 1 张副武器安装卡。
   const picked = [];
   const pickCardAt = (idx) => { picked.push(usable[idx]); usable.splice(idx, 1); };
-  const firstIdxWhere = (pred) => {
-    for (let i = 0; i < usable.length; i++) if (pred(usable[i])) return i;
-    return -1;
+  // #N2：保底/弹种卡在候选中随机取一张（旧实现取「池内第一张」→ 每节点第 1 位都是同一张卡）
+  const pickRandomWhere = (pred) => {
+    const idxs = [];
+    for (let i = 0; i < usable.length; i++) if (pred(usable[i])) idxs.push(i);
+    if (!idxs.length) return false;
+    const k = idxs[Math.floor(r() * idxs.length)];
+    pickCardAt(k);
+    return true;
   };
   if (owned) {
     const hasAbility = Array.isArray(owned.abilities) && owned.abilities.length > 0;
     const lacksSecondary = !owned.secondaryWeapon || owned.secondaryWeapon === 'none';
-    // 索引在每次 splice 后动态求值——避免静态下标在抽走 ability 卡后错位（误把被动卡当武器卡）
     if (!hasAbility) {
-      const i = firstIdxWhere(c => (c.effects || []).some(ef => ef && ef.type === 'ability'));
-      if (i >= 0 && picked.length < count) pickCardAt(i);
+      if(picked.length < count) pickRandomWhere(c => (c.effects || []).some(ef => ef && ef.type === 'ability'));
     }
     if (lacksSecondary) {
-      const j = firstIdxWhere(c => (c.effects || []).some(ef => ef && ef.type === 'weapon' && (ef.slot || 'secondary') === 'secondary'));
-      if (j >= 0 && picked.length < count) pickCardAt(j);
+      if(picked.length < count) pickRandomWhere(c => (c.effects || []).some(ef => ef && ef.type === 'weapon' && (ef.slot || 'secondary') === 'secondary'));
     }
   }
   // #C3（2026-09-17 用户裁定「升级卡加权/保底」路线）→ 2026-09-19 #D5 用户反馈
   // 「弹种升级速度太快」：无条件保底改**概率触发**（RULES.cards.ammoUpgradeGuaranteeChance，
   // 单次抽取独立掷骰；测试可经 opts.ammoGuaranteeChance 覆盖为 1 复现确定性保底）。
+  // #N2（2026-10-10 用户再次反馈「弹种升级太快」）：概率再降 + 随本局已获弹种升级卡数衰减
+  // （ammoUpgradePace），且权重抽样通道同步降权（此前只压保底、压不住自然抽样）。
   // 装备优先保底（ability/副武器）语义不变、优先级更高（先判再判弹种保底）。
+  let paceFactor = 1;
   if (ammoLoadout) {
     const cfgCards = (typeof RULES !== 'undefined' && RULES.cards) ? RULES.cards : {};
+    const pace = cfgCards.ammoUpgradePace || {};
+    const decay = typeof pace.decay === 'number' ? pace.decay : 0.55;
+    const ownedUpgrades = countOwnedAmmoUpgrades(owned, usable, pool);
+    paceFactor = Math.pow(decay, ownedUpgrades);
+    const baseChance = typeof cfgCards.ammoUpgradeGuaranteeChance === 'number' ? cfgCards.ammoUpgradeGuaranteeChance : 0.18;
     const chance = (optsOrRng && typeof optsOrRng === 'object' && typeof optsOrRng.ammoGuaranteeChance === 'number')
-      ? optsOrRng.ammoGuaranteeChance
-      : (typeof cfgCards.ammoUpgradeGuaranteeChance === 'number' ? cfgCards.ammoUpgradeGuaranteeChance : 0.4);
+      ? optsOrRng.ammoGuaranteeChance * paceFactor
+      : baseChance * paceFactor;
     if (r() < chance) {
-      const upIdx = firstIdxWhere(c => (c.effects || []).some(ef =>
+      if(picked.length < count) pickRandomWhere(c => (c.effects || []).some(ef =>
         ef && ef.type === 'ammo' && ef.replaceAmmo && !ammoLoadout.includes(ef.key)));
-      if (upIdx >= 0 && picked.length < count) pickCardAt(upIdx);
     }
   }
   while (picked.length < count && usable.length > 0) {
-    // 权重抽样：先按稀有度权重选稀有度，再在该稀有度内随机取一张
+    // 权重抽样：先按稀有度权重选稀有度，再在该稀有度内随机取一张。
+    // #N2：稀有度内抽取按卡权重——弹种升级卡乘 paceFactor（本局已获升级越多、自然出现越慢）。
     let rarity = weightedRarity(r);
     let bucket = usable.filter(c => c.rarity === rarity);
     if (bucket.length === 0) bucket = usable;
-    const idx = Math.floor(r() * bucket.length);
-    const card = bucket[idx];
+    const card = weightedPickInBucket(bucket, r, paceFactor);
     picked.push(card);
     usable.splice(usable.indexOf(card), 1);
   }
-  return picked;
+  // #N2：展示顺序随机化——保底只决定候选集成员，不决定屏幕上的位置
+  return shufflePicked(picked, r);
+}
+
+// 本局已获得的弹种升级卡数量（供节奏衰减）：owned.cards 的 id 计数在 usable/pool 中
+// 反查卡定义，只统计「链升级卡」（isAmmoUpgradeCard）。
+function countOwnedAmmoUpgrades(owned, usable, pool) {
+  if (!owned || !owned.cards) return 0;
+  const byId = new Map();
+  for (const c of (pool || [])) if (c && c.id) byId.set(c.id, c);
+  for (const c of (usable || [])) if (c && c.id) byId.set(c.id, c);
+  let n = 0;
+  for (const id of Object.keys(owned.cards)) {
+    const cnt = owned.cards[id] || 0;
+    if (cnt > 0 && isAmmoUpgradeCard(byId.get(id))) n += cnt;
+  }
+  return n;
+}
+
+// 稀有度桶内加权随机取一张（权重：普通卡 1，弹种升级卡 ×paceFactor）
+function weightedPickInBucket(bucket, r, paceFactor) {
+  if (paceFactor >= 1 || bucket.length <= 1) return bucket[Math.floor(r() * bucket.length)];
+  const weights = bucket.map(c => isAmmoUpgradeCard(c) ? Math.max(0.01, paceFactor) : 1);
+  let total = 0;
+  for (const w of weights) total += w;
+  let roll = r() * total;
+  for (let i = 0; i < bucket.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) return bucket[i];
+  }
+  return bucket[bucket.length - 1];
 }
 
 function weightedRarity(r) {
@@ -642,6 +715,7 @@ if (typeof module !== 'undefined' && module.exports) {
     cardEligible,
     computeAmmoConfig,
     drawCardChoices,
-    weightedRarity
+    weightedRarity,
+    isAmmoUpgradeCard
   };
 }

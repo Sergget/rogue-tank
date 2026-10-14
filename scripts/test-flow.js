@@ -61,15 +61,17 @@ try { transition(flow, '不存在'); } catch (e) { threw = true; }
 ok(threw, '未知状态抛错');
 
 // 5) 全转移矩阵越界护栏验证 (矩阵交叉拦截)
+// #N5（2026-10-10 简化进入游戏流程）：loadout/shop 的「出击」与 gameover 的「重新开始」
+// 直接进 battle（旧口径经 map 中转屏）；map 态保留（restartRun/放弃节点入口仍可用）。
 const allInvalidTargets = {
   home:       ['map', 'battle', 'settlement', 'reward', 'gameover'],
-  loadout:    ['battle', 'settlement', 'reward', 'gameover', 'loadout'],
-  shop:       ['battle', 'settlement', 'reward', 'gameover', 'shop'],
+  loadout:    ['settlement', 'reward', 'gameover', 'loadout'],
+  shop:       ['settlement', 'reward', 'gameover', 'shop'],
   map:        ['settlement', 'reward', 'gameover', 'map', 'home', 'loadout', 'shop'],
   battle:     ['reward', 'battle', 'home', 'loadout', 'shop'],
   settlement: ['battle', 'settlement', 'gameover', 'loadout', 'shop'],   // P-34：home 移出非法集（settlement→home 终局回首页）
   reward:     ['settlement', 'gameover', 'reward', 'home', 'loadout', 'shop'],
-  gameover:   ['battle', 'settlement', 'reward', 'gameover', 'loadout', 'shop']
+  gameover:   ['settlement', 'reward', 'gameover', 'loadout', 'shop']
 };
 for (const [fromState, invalidList] of Object.entries(allInvalidTargets)) {
   for (const target of invalidList) {
@@ -248,6 +250,27 @@ transition(flowGoHome, 'battle');
 transition(flowGoHome, 'gameover');
 transition(flowGoHome, 'home');
 ok(flowGoHome.state === 'home' && flowGoHome.prev === 'gameover', 'gameover→home 合法转移成功');
+
+// 15b) #N5：局外/阵亡直达战斗（loadout/shop 出击、gameover 重开——不再经 map 中转屏）
+const flowDirect = createFlow('home');
+transition(flowDirect, 'loadout', { slotId: 's1' });
+transition(flowDirect, 'shop', { points: 50 });
+transition(flowDirect, 'battle', { nodeIndex: 0 });
+ok(flowDirect.state === 'battle' && flowDirect.prev === 'shop', '#N5: shop→battle 直达（购买完毕直接出击）');
+const flowDirect2 = createFlow('home');
+transition(flowDirect2, 'loadout', { slotId: 's1' });
+transition(flowDirect2, 'battle', { nodeIndex: 0 });
+ok(flowDirect2.state === 'battle' && flowDirect2.prev === 'loadout', '#N5: loadout→battle 直达（确认配置直接出击）');
+const flowGoBattle = createFlow();
+transition(flowGoBattle, 'battle');
+transition(flowGoBattle, 'gameover');
+transition(flowGoBattle, 'battle', { nodeIndex: 0 });
+ok(flowGoBattle.state === 'battle' && flowGoBattle.prev === 'gameover', '#N5: gameover→battle 直达（阵亡后直接重开）');
+// map 态本身保留可用（restartRun 等既有入口不受影响）
+const flowMapKeep = createFlow();
+transition(flowMapKeep, 'battle');
+restartRun(flowMapKeep);
+ok(flowMapKeep.state === 'map', '#N5: map 态保留（battle 放弃/重开仍回 map）');
 
 // 16) restartRun 局外 no-op：不抛错、不进 map、runId 不变、返回当前 runId
 const flowOutHome = createFlow('home');

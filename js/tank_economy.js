@@ -40,6 +40,16 @@ const UPGRADE_DEFS = [
   { id: 'speed_up',     name: '机动强化', stat: 'maxSpeed',            mode: 'add',  value: 5,    cost: 25, maxLevel: 5, desc: '极速 +5/级' },
   { id: 'reload_up',    name: '装填优化', stat: 'reload',              mode: 'mult', value: 0.97, cost: 35, maxLevel: 5, desc: '装填时间 −3%/级' },
   { id: 'aim_up',       name: '火控优化', stat: 'spreadMult',          mode: 'mult', value: 0.95, cost: 35, maxLevel: 5, desc: '散布 −5%/级' },
+  // #N3（2026-10-10 升级覆盖面对账）新增 7 项：原永久商店只覆盖 8 个数值键，
+  // 「卡牌可写但商店缺失」的一律补齐（弹速/马力/转向系/观瞄缩圈），
+  // 以及 P-49 概率修正死通道（火控校准/弹药整备，computeStats 内钳 ≤0.25）。
+  { id: 'shell_speed_up',   name: '弹速强化', stat: 'shellSpeed',      mode: 'add',  value: 30,   cost: 30, maxLevel: 5, desc: '炮弹初速 +30px/s/级（飞行时间↓/提前量↓）' },
+  { id: 'engine_power_up',  name: '马力强化', stat: 'enginePower',      mode: 'add',  value: 60,   cost: 25, maxLevel: 5, desc: '引擎马力 +60/级（功重比↑，加速/制动↑）' },
+  { id: 'turn_up',          name: '转向机构', stat: 'turnRate',         mode: 'add',  value: 0.08, cost: 30, maxLevel: 5, desc: '车体转向速度 +0.08rad/s/级' },
+  { id: 'turret_turn_up',   name: '炮塔驱动', stat: 'turretTurnRate',   mode: 'add',  value: 0.08, cost: 30, maxLevel: 5, desc: '炮塔旋转速度 +0.08rad/s/级' },
+  { id: 'aim_speed_up',     name: '观瞄缩圈', stat: 'aimSpeed',         mode: 'add',  value: 0.02, cost: 30, maxLevel: 5, desc: '散布缩圈速度 +0.02/级' },
+  { id: 'fire_control_crit', name: '火控校准', stat: 'fireControlCrit', mode: 'add',  value: 0.05, cost: 40, maxLevel: 5, desc: '命中炮手/炮闩模块概率 +5%/级（上限 +25%）' },
+  { id: 'loader_ammo_crit',  name: '弹药整备', stat: 'loaderAmmoCrit',  mode: 'add',  value: 0.05, cost: 40, maxLevel: 5, desc: '命中装填手/弹药模块概率 +5%/级（上限 +25%）' },
   // 特殊消费项（无 stat/modifier——由 mvp 消费 levels：基础冷却 45s − 级数×1）
   { id: 'repair_kit_cd', name: '修理箱冷却', stat: null, mode: null, value: 0, cost: 20, maxLevel: 15, desc: '修理箱冷却 −1s/级（特殊消费）' },
   { id: 'medkit_cd',     name: '医疗包冷却', stat: null, mode: null, value: 0, cost: 20, maxLevel: 15, desc: '医疗包冷却 −1s/级（特殊消费）' }
@@ -380,6 +390,10 @@ const RUN_SHOP_DEFS = [
   { id: 'damage_up',         name: '火力增强',   group: 'firepower', desc: '单发伤害 +4/级',
     baseCost: 30, costGrowth: 1.7, maxLevel: 99,
     effects: [{ stat: 'damage', mode: 'add', value: 4 }] },
+  // #N3（2026-10-10 覆盖面对账）新增：弹速（卡牌可写、两商店皆缺）
+  { id: 'shell_velocity',    name: '弹速强化',   group: 'firepower', desc: '炮弹初速 +40px/s/级（飞行时间↓/提前量↓）',
+    baseCost: 30, costGrowth: 1.7, maxLevel: 99,
+    effects: [{ stat: 'shellSpeed', mode: 'add', value: 40 }] },
   { id: 'precision_gunnery', name: '精密火控',   group: 'firepower', desc: '瞄准散布 −4%/级',
     baseCost: 28, costGrowth: 1.6, maxLevel: 99,
     effects: [{ stat: 'spreadMult', mode: 'mult', value: 0.96 }],
@@ -418,6 +432,15 @@ const RUN_SHOP_DEFS = [
   { id: 'engine_power_up',   name: '马力强化',   group: 'mobility', desc: '引擎马力 +60/级（功重比↑；受运行时重量上限间接约束）',
     baseCost: 25, costGrowth: 1.6, maxLevel: 99,
     effects: [{ stat: 'enginePower', mode: 'add', value: 60 }] },
+  // #N3（2026-10-10 覆盖面对账）新增两项机动通道：炮塔转速（此前仅卡牌可写）、
+  // 履带修复锁定（此前仅卡牌可写；limit 下限 5s 防把断履惩罚消掉）
+  { id: 'turret_traverse',   name: '炮塔驱动',   group: 'mobility', desc: '炮塔旋转速度 +0.1rad/s/级',
+    baseCost: 25, costGrowth: 1.6, maxLevel: 99,
+    effects: [{ stat: 'turretTurnRate', mode: 'add', value: 0.1 }] },
+  { id: 'track_field_kit',   name: '履带野战套件', group: 'mobility', desc: '履带被击断的锁定时间 −0.5s/级（下限 5s）',
+    baseCost: 30, costGrowth: 1.6, maxLevel: 99,
+    effects: [{ stat: 'trackLock', mode: 'add', value: -0.5 }],
+    limit: { stat: 'trackLock', min: 5 }, limitLabel: '已达履带锁定下限' },
   // ---- 杂项 ----
   { id: 'emergency_repair',  name: '紧急维修',   group: 'misc', desc: '立即恢复 25% 最大耐久（即时生效；可重复购买）',
     baseCost: 20, costGrowth: 1.5, maxLevel: 99,
