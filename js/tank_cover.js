@@ -9,6 +9,10 @@ const COVER_TIERS = RULES.coverTiers;
 // 树伐倒 → 倒树(fallen，横躺树干+树冠，树冠=灌木遮挡效果)；沙袋击毁 → 碎石(rubble)。
 // 掩体可承载任意复杂多边形：实例带 verts（局部坐标顶点数组）时，全部角点计算
 // 走 coverCorners → polyCorners；否则回退矩形 partCorners（w/h 半宽半高）。
+// 类型注解 any[]：与 types/globals.d.ts 的 `declare var covers: any[]` 同口径——
+// 实例在运行期被各页面/测试按需扩展字段（hp/spawn/segments/groupId/_gone…），
+// 收窄成字面量联合类型会让合法 push 报 TS2353。
+/** @type {any[]} */
 const covers = [
   { x:470, y:300, w:80, h:34, angle:0, tier:'full' },
   { x:660, y:300, w:70, h:34, angle:0, tier:'full' },
@@ -105,6 +109,7 @@ function destroyCover(cov, reason){
   if(cov._gone) return;
   cov._gone = true;
   cov.hp = 0;
+  invalidateCoverGrid();   // 残骸链（toTier）改变几何（w/h/verts）→ 空间索引失效重建
   if(typeof burstExplosion === 'function'){
     burstExplosion(cov.x, cov.y, 0.9, 10, 5, 8);
   }
@@ -200,8 +205,9 @@ function splashCoversAt(x, y, radius){
 }
 
 function getCoverUnderTank(tank) {
+  if(!tank || !Number.isFinite(tank.x) || !Number.isFinite(tank.y)) return null;
   const tankCorners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
-  for (const cov of covers) {
+  for (const cov of coverQueryCandidates(tank.x, tank.y, tankQueryRadius(tank))) {
     if(cov.hp <= 0) continue;
     if(cov.tier === 'road') continue;   // 2026-09-14 曲线路网链段：纯地面标识，不参与通行系数查询
     const parts = coverCollisionParts(cov);
@@ -313,30 +319,193 @@ function obbMTV(tankCorners, covCorners) {
 //   solid 不可压毁（全高建筑/树）：MTV 推出，物理隔离；
 //   graduated（半高）/ none（灌木）：只让 update 里做通行系数，不推。
 //   半高掩体另有 driveBy 门控（A1 设定）：重坦可开过去，中坦等同 solid 被推出。
+// 2026-10-10 #N1 两处修正（用户反馈「坦克碰到岩石后无法移动」）：
+//   ① 分离缓冲：推出量 = 穿透深度 + RESOLVE_PUSH_BUFFER(0.25px)。旧实现只推到
+//      「恰好贴合」，而 SAT 判「触=叠」→ 每帧都判为压在岩石上（driveTank 的通行系数
+//      与 getCoverUnderTank 都据此判定）；加缓冲后静止接触是真实分离，不再粘连。
+//   ② 多遍迭代：单遍顺序推出在两个硬阻断体夹角/贴世界边界场景下会把坦克推离 A 又
+//      叠回 B；改为「有推出就重扫，最多 RESOLVE_MAX_PASS 遍」直至无穿透。
+const RESOLVE_PUSH_BUFFER = 0.25;
+const RESOLVE_MAX_PASS = 4;
 function resolveCoverCollisions(tank) {
-  const tankCorners = () => partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
-  for (const cov of covers) {
-    if (cov.hp <= 0) continue;
-    if (cov.tier === 'road') continue;   // 2026-09-14 曲线路网链段：纯地面标识，零物理（抵消链段数量增长的热路径开销）
-    const tier = COVER_TIERS[cov.tier];
-    const parts = coverCollisionParts(cov);
-    for (const part of parts) {
-      const mtv = obbMTV(tankCorners(), part);
-      if (!mtv) continue;
-      if (tier.crushable) {
-        destroyCover(cov, 'crush');
-        break; // 已压毁则不再检测其他 collisionVerts
+  if(!tank || !Number.isFinite(tank.x) || !Number.isFinite(tank.y)) return;
+  for(let pass = 0; pass < RESOLVE_MAX_PASS; pass++){
+    const tankCorners = () => partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
+    let pushed = false;
+    for (const cov of coverQueryCandidates(tank.x, tank.y, tankQueryRadius(tank))) {
+      if (cov.hp <= 0) continue;
+      if (cov.tier === 'road') continue;   // 2026-09-14 曲线路网链段：纯地面标识，零物理（抵消链段数量增长的热路径开销）
+      const tier = COVER_TIERS[cov.tier];
+      const parts = coverCollisionParts(cov);
+      for (const part of parts) {
+        const mtv = obbMTV(tankCorners(), part);
+        if (!mtv) continue;
+        if (tier.crushable) {
+          destroyCover(cov, 'crush');
+          break; // 已压毁则不再检测其他 collisionVerts
+        }
+        // #E3（2026-09-20）：passability=0（水/河）阻断移动；确定性挡弹类照旧实体推出；
+        // 泥(0.4)不推只减速。driveBy 门控（半高掩体重坦可越）已随半高掩体移除。
+        const blocked = tier.passability === 0 ||
+          tier.shellBlock === true || tier.shellBlock === 'single';
+        if (blocked) {
+          // 沿同一 MTV 方向多推 RESOLVE_PUSH_BUFFER（= 深度 + 缓冲），保证分离而非恰好贴合
+          const depth = Math.max(1e-6, mtv.depth);
+          const scale = (mtv.depth + RESOLVE_PUSH_BUFFER) / depth;
+          tank.x += mtv.dx * scale;
+          tank.y += mtv.dy * scale;
+          pushed = true;
+        }
       }
-      // #E3（2026-09-20）：passability=0（水/河）阻断移动；确定性挡弹类照旧实体推出；
-      // 泥(0.4)不推只减速。driveBy 门控（半高掩体重坦可越）已随半高掩体移除。
-      const blocked = tier.passability === 0 ||
-        tier.shellBlock === true || tier.shellBlock === 'single';
-      if (blocked) {
-        tank.x += mtv.dx;
-        tank.y += mtv.dy;
+    }
+    if(!pushed) break;   // 无穿透即收敛（热路径常见情形：一遍退出）
+  }
+}
+
+// ---------- 覆盖物空间哈希（2026-10-10 #N1/strip 性能） ----------
+// C 档 strip 节点 covers 300+（实测 8 实体 × 全表 SAT = 13ms/帧，超 120Hz 预算），
+// 且 getCoverUnderTank / resolveCoverCollisions 是「每实体每模拟步」的热路径。
+// 按固定网格预索引每个 cover 碰撞凸块的 AABB 覆盖格，查询只取坦克 AABB 覆盖格内的候选。
+// 口径：索引仅做候选粗筛（AABB），SAT 精判与语义完全不变；covers 数组长度变化
+// （页面换节点 push/splice）即失效重建；destroyCover 只改 hp/tier/残骸尺寸不改位置，
+// 命中数不变故索引保持有效（残骸 AABB 变化 ≤ 候选放宽方向，无漏检风险）。
+const COVER_GRID_CELL = 512;
+let _coverGrid = null;        // Map<string, number[]>（"cx,cy" → covers 下标数组）
+let _coverGridLen = -1;       // 建索引时的 covers.length
+let _coverGridCell = COVER_GRID_CELL;
+// O(1) 有效性签名：长度 + 首末元素引用。换节点时 `covers.length=0; push(...)` 即使
+// 新旧节点 cover 数相同，首末引用也必然不同 ⇒ 不会被陈旧索引蒙混（漏检=穿模）。
+let _coverGridRef0 = null, _coverGridRefN = null;
+
+// 掩体包络 AABB（世界坐标，恒为实际几何超集）：矩形按旋转包络、verts 多边形逐顶点，
+// 带 segments 的多段取各段并集。供弹道查询做粗筛（宁可宽不可窄，绝不漏检）。
+function coverEnvelope(cov){
+  if(cov.segments && cov.segments.length){
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for(const r of coverSegRects(cov)){
+      const a = r.angle || 0, hw = (r.w || 0) / 2, hh = (r.h || 0) / 2;
+      const ex = Math.abs(Math.cos(a)) * hw + Math.abs(Math.sin(a)) * hh;
+      const ey = Math.abs(Math.sin(a)) * hw + Math.abs(Math.cos(a)) * hh;
+      minX = Math.min(minX, r.x - ex); maxX = Math.max(maxX, r.x + ex);
+      minY = Math.min(minY, r.y - ey); maxY = Math.max(maxY, r.y + ey);
+    }
+    return { minX, minY, maxX, maxY };
+  }
+  const a = cov.angle || 0;
+  if(cov.verts && cov.verts.length >= 3){
+    const ca = Math.cos(a), sa = Math.sin(a);
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for(const v of cov.verts){
+      const wx = cov.x + v[0] * ca - v[1] * sa, wy = cov.y + v[0] * sa + v[1] * ca;
+      if(wx < minX) minX = wx; if(wx > maxX) maxX = wx;
+      if(wy < minY) minY = wy; if(wy > maxY) maxY = wy;
+    }
+    return { minX, minY, maxX, maxY };
+  }
+  const hw = (cov.w || 0) / 2, hh = (cov.h || 0) / 2;
+  const ex = Math.abs(Math.cos(a)) * hw + Math.abs(Math.sin(a)) * hh;
+  const ey = Math.abs(Math.sin(a)) * hw + Math.abs(Math.cos(a)) * hh;
+  return { minX: cov.x - ex, minY: cov.y - ey, maxX: cov.x + ex, maxY: cov.y + ey };
+}
+
+// 射线 AABB 与掩体包络 AABB 是否相交（粗筛；输入非法时保守返真）
+function coverEnvelopeHitsRay(cov, ox, oy, tx, ty){
+  if(!Number.isFinite(ox) || !Number.isFinite(oy) || !Number.isFinite(tx) || !Number.isFinite(ty)) return true;
+  const e = coverEnvelope(cov);
+  const rMinX = Math.min(ox, tx), rMaxX = Math.max(ox, tx);
+  const rMinY = Math.min(oy, ty), rMaxY = Math.max(oy, ty);
+  return e.minX <= rMaxX && e.maxX >= rMinX && e.minY <= rMaxY && e.maxY >= rMinY;
+}
+
+// 覆盖物碰撞块的世界 AABB 列表（河流多段按段展开）
+function coverPartAABBs(cov){
+  const parts = coverCollisionParts(cov);
+  const out = [];
+  for(const p of parts){
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for(const c of p){
+      if(c.x < minX) minX = c.x;
+      if(c.y < minY) minY = c.y;
+      if(c.x > maxX) maxX = c.x;
+      if(c.y > maxY) maxY = c.y;
+    }
+    if(minX <= maxX && minY <= maxY) out.push({ minX, minY, maxX, maxY });
+  }
+  return out;
+}
+
+function invalidateCoverGrid(){
+  _coverGrid = null;
+  _coverGridLen = -1;
+  _coverGridRef0 = null;
+  _coverGridRefN = null;
+}
+
+function rebuildCoverGrid(){
+  _coverGrid = new Map();
+  _coverGridLen = covers.length;
+  _coverGridRef0 = covers.length ? covers[0] : null;
+  _coverGridRefN = covers.length ? covers[covers.length - 1] : null;
+  const cell = _coverGridCell;
+  for(let i = 0; i < covers.length; i++){
+    const cov = covers[i];
+    if(!cov || !Number.isFinite(cov.x) || !Number.isFinite(cov.y)) continue;
+    for(const b of coverPartAABBs(cov)){
+      const x0 = Math.floor(b.minX / cell), x1 = Math.floor(b.maxX / cell);
+      const y0 = Math.floor(b.minY / cell), y1 = Math.floor(b.maxY / cell);
+      // 超大体块（跨 >64 格）时退化为全表索引项，防网格爆炸
+      if((x1 - x0 + 1) * (y1 - y0 + 1) > 64){
+        const key = '*';
+        let arr = _coverGrid.get(key);
+        if(!arr){ arr = []; _coverGrid.set(key, arr); }
+        arr.push(i);
+        continue;
+      }
+      for(let cx = x0; cx <= x1; cx++){
+        for(let cy = y0; cy <= y1; cy++){
+          const key = cx + ',' + cy;
+          let arr = _coverGrid.get(key);
+          if(!arr){ arr = []; _coverGrid.set(key, arr); }
+          arr.push(i);
+        }
       }
     }
   }
+}
+
+// 查询与 (x,y) 半径 r 的圆（AABB 近似）相交的候选 covers（去重、保序）。
+// 索引缺失/长度不匹配时先重建；任何异常输入退化为全表（正确性优先）。
+function coverQueryCandidates(x, y, r){
+  if(!Number.isFinite(x) || !Number.isFinite(y)) return covers;
+  // 有效性签名：长度 + 首末引用（换节点/换场后即使长度相同也能发现）
+  const n = covers.length;
+  if(!_coverGrid || _coverGridLen !== n ||
+     _coverGridRef0 !== (n ? covers[0] : null) || _coverGridRefN !== (n ? covers[n - 1] : null)){
+    rebuildCoverGrid();
+  }
+  if(_coverGrid.size === 0) return covers;
+  const cell = _coverGridCell;
+  const x0 = Math.floor((x - r) / cell), x1 = Math.floor((x + r) / cell);
+  const y0 = Math.floor((y - r) / cell), y1 = Math.floor((y + r) / cell);
+  const seen = new Set();
+  const out = [];
+  const pushIdx = (i) => { if(!seen.has(i)){ seen.add(i); out.push(covers[i]); } };
+  for(let cx = x0; cx <= x1; cx++){
+    for(let cy = y0; cy <= y1; cy++){
+      const arr = _coverGrid.get(cx + ',' + cy);
+      if(arr) for(const i of arr) pushIdx(i);
+    }
+  }
+  const wild = _coverGrid.get('*');
+  if(wild) for(const i of wild) pushIdx(i);
+  return out;
+}
+
+// 坦克碰撞查询半径：旋转车体的 AABB 半幅上界 = (hullLen+hullWid)/2（45° 时最大）
+function tankQueryRadius(tank){
+  const hl = Number.isFinite(tank.hullLen) ? tank.hullLen : 32;
+  const hw = Number.isFinite(tank.hullWid) ? tank.hullWid : 32;
+  return (hl + hw) / 2;
 }
 
 function findCoversOnPath(ox,oy,tx,ty, coversList){
@@ -347,6 +516,9 @@ function findCoversOnPath(ox,oy,tx,ty, coversList){
   const list = (coversList && coversList.length) ? coversList : covers;
   for(const cov of list){
     if(cov.hp <= 0) continue;   // 已摧毁元素不再参与判定/预测
+    // AABB 粗筛（2026-10-10 #N1）：strip 规模 covers（300+）下逐边求交成为热点；
+    // 射线 AABB 与掩体包络 AABB 不相交即不可能命中，先行剔除（包络恒为形状超集 ⇒ 不漏检）。
+    if(!coverEnvelopeHitsRay(cov, ox, oy, tx, ty)) continue;
     // P-40：河流多段——逐段求交，取最早入口段代表整个实例（cover 字段指向父实例）
     let bEntry=null, bExit=null, bPoint=null;
     for(const rect of coverSegRects(cov)){
@@ -503,6 +675,11 @@ if (typeof module !== 'undefined' && module.exports) {
     obbMTV,
     resolveCoverCollisions,
     coverCollisionParts,
+    coverPartAABBs,
+    coverEnvelope,
+    coverEnvelopeHitsRay,
+    coverQueryCandidates,
+    invalidateCoverGrid,
     findCoversOnPath,
     getExposure,
     coverBlockInfo,

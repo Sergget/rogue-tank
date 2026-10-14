@@ -29,8 +29,16 @@ function driveTank(t, dt, input){
   let turnModifier = 1.0;
   if(cover){
     const cvTier = COVER_TIERS[cover.tier];
-    speedModifier = cvTier.move !== undefined ? cvTier.move : 1.0;
-    turnModifier = speedModifier;
+    // 2026-10-10 #N1（用户反馈「坦克碰到岩石后无法移动」）：通行系数只对「可通行但减速」
+    // 地形生效（水/河/泥 0.4 等）。passability===0 的硬阻断地形（岩石）一律交由
+    // resolveCoverCollisions 的 MTV 推出，**不再把 move 打到 0**——否则与岩石接触时
+    // accel/brake/turnRate 被同时清零：SAT 判「触=叠」，推出只到恰好贴合，
+    // 于是每帧都判为压在岩上 → 速度与转向永久冻结（倒车/转向均无响应），坦克彻底卡死。
+    const pass = cvTier.move !== undefined ? cvTier.move : 1.0;
+    if(pass > 0){
+      speedModifier = pass;
+      turnModifier = pass;
+    }
   }
   const p0x = t.x, p0y = t.y, p0a = t.hullAngle;
 

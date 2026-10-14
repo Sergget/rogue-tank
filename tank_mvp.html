@@ -2108,18 +2108,22 @@ function effectiveKitCd(key){
   return Math.max(KIT_CD_FLOOR, KIT_BASE_CD - kitPermLv(key) - runBonus);
 }
 
+// #N5（2026-10-10 简化进入游戏流程）：startNewRun 为「开一局」的唯一实现——
+// 从 loadout/shop「出击」与阵亡后「重新开始」共用，直接生成节点链并进入战斗
+// （旧口径 loadout/shop → map 中转屏 → 再点「开始新的一局」，两道重复入口合一）。
 function startNewRun(){
 	  profile.difficultyLevel = 0;                  // 难度重置（新开局强制 Lv.0）
+	  profile.stats.runs++;                         // P-14：局数统计（先累计再落盘，防旧口径 save→runs++ 顺序 persisted 落后一步）
 	  saveProfile(localStorage, profile);
 	  removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
 	  prepPlayerForRun();                           // M10：出战坦克配置 + 永久升级重挂 + 复活次数（含加购）
+	  runShopLevels = {};                           // 2026-09-14：局内商店升级不跨局（P-41 账本随新局归零）
 	  // #H1（2026-09-30）：原「冻结玩家基准属性快照」已退役（敌军改锚定固定基准 enemyAnchorBase）
 	  // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
 	  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
 	  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
 	  pendingLootRounds = 0; pendingLootRarityIdx = -1;   // P-51 Wave2：跨局清 Boss 追加卡牌轮
 	  runScoreSpent = 0;                              // P-41 账本：新局归零（刷新卡牌等花费记账用）
-	  profile.stats.runs++;                         // P-14：局数统计
 	  pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.0）`, 'COVER');
 	  playSound('ui');
 	  transition(flow, 'battle', { nodeIndex: 0 });
@@ -2142,16 +2146,9 @@ document.getElementById('settleHomeBtn').addEventListener('click', () => {
 });
 document.getElementById('gameoverRestartBtn').addEventListener('click', () => {
   playSound('ui');
-  restartRun(flow);                              // gameover → map（runId 自增）
-  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });  // 新的一局：难度强制重置 Lv.0
-  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
-  runScoreSpent = 0;                              // P-41 账本：新局归零（刷新卡牌等花费记账用）
-  removeRunModifiers(player);                   // P-12：清除上一局单局修饰器
-  prepPlayerForRun();                            // M10：坦克配置 + 升级重挂 + 复活次数（含加购）
-  // #H1（2026-09-30）：原「冻结玩家基准属性快照」已退役（敌军改锚定固定基准 enemyAnchorBase）
-  profile.difficultyLevel = 0;                  // 难度重置
-  saveProfile(localStorage, profile);
-  transition(flow, 'battle', { nodeIndex: 0 });
+  // #N5：阵亡后「重新开始」直接开新局进战斗（gameover → battle 白名单已开）
+  // （旧口径 restartRun → map 中转屏 → 再点开始；本局数据已在 handler 内重建）
+  startNewRun();
 });
 document.getElementById('gameoverHomeBtn').addEventListener('click', () => {
   playSound('ui');
@@ -2462,21 +2459,8 @@ function beginRunFromMenu(){
     refreshLoadHint();
     return false;
   }
-  removeRunModifiers(player);                        // P-12：清上一局残留单局修饰器
-  runShopLevels = {};                                // 2026-09-14：局内商店升级不跨局
-  prepPlayerForRun();
-  // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
-  // #H1（2026-09-30）：原「冻结玩家基准属性快照」已退役（敌军改锚定固定基准 enemyAnchorBase）
-  // P-34：env.difficultyLevel 注入跨局难度等级（新开局强制重置 Lv.0）
-  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });   // __TEST__.setSeed 一次性透传
-  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
-  runScoreSpent = 0;                              // P-41 账本：新局归零（刷新卡牌等花费记账用）
-  profile.stats.runs++;                              // P-14：局数统计
-  profile.difficultyLevel = 0;                  // 难度重置
-  saveActiveProfile(localStorage, profile);          // 配置与统计落盘（active 槽）
-  pushLog(`出击！配置已保存 — ${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.0）`, 'COVER');
-  playSound('ui');
-  transition(flow, 'map');                           // loadout/shop → map（watcher 渲染节点链，点击节点进 battle）
+  // #N5：直接开打——不再经 map 中转屏（loadout/shop → battle 白名单已开）
+  startNewRun();
   return true;
 }
 document.getElementById('loadStartBtn').addEventListener('click', beginRunFromMenu);
@@ -2501,7 +2485,9 @@ const devGenNode = () => {
   if(run && flow.state === 'battle'){ pushLog('战斗中不可随机生成（会破坏节点掩体）','COVER'); return; }
   const randomDiff = Math.random();
   const res = generateNode(randomDiff, { applyToCovers: true });
-  groundLayerCanvas = null;   // dev 随机场：道路回退逐段绘制
+  // dev 随机场：道路回退逐段绘制——滚动烘焙状态一并清空（_groundChains 指向旧节点链路，
+  // 不清会让 ensureGroundBake 把旧道路 blit 到新随机场上）
+  groundLayerCanvas = null; _groundChains = null; _groundBake = null; _groundJunctions = [];
   pushLog(`随机生成战场: [${res.template.name}] 难度=${(randomDiff*100).toFixed(0)}% 元素数=${res.covers.length}`,'COVER');
 };
 const devReset = () => {
@@ -3998,12 +3984,25 @@ function visionRadiusEff(){
     return false;   // 视野距离系统已退役；保留函数签名以兼容既有调用点与 dev 面板
   }
 
-// ===== 2026-09-14 曲线路网地面预烘焙（平滑连续路面渲染，消除胶囊感） =====
-// 进图前把整条道路平滑折线绘制到离屏画布（节点世界尺寸），draw() 每帧只做一次 drawImage。
-// 从 road 链段（tier 'road'，同 groupId 首尾相接）准确重建完整路径点集，一次性连贯描边绘制。
-let groundLayerCanvas = null;
+// ===== 2026-09-14 曲线路网地面预烘焙 → 2026-10-10 #N4 视口锚定滚动烘焙 =====
+// 进图前从 road 链段（tier 'road'，同 groupId 首尾相接）重建完整平滑折线（链路只算一次）。
+// #N4 背景：strip 节点 ≈12 屏宽（17280px）——旧口径按节点世界尺寸建整图画布
+// （41M px ≈164MB RGBA，2560×1440 视口下达 369MB）不可用。改为**视口锚定的滚动烘焙**：
+//   只烘焙「当前视口 + 2×MARGIN」的世界区域，相机越过内半区（迟滞）才重烘焙
+//   （重烘焙仅重描边，链路复用，ms 级）；视口超过 GROUND_BAKE_MAX（大幅缩小看全图）
+//   时对可见链路直接描边，不建超大画布。
+// 与旧口径视觉一致（同一套描边代码、同一组链路），确定性不变。
+const GROUND_BAKE_MARGIN = 320;   // 视口外扩余量（px）
+const GROUND_BAKE_MAX = 4096;     // 单块烘焙画布最大边长（px；内存护栏）
+let groundLayerCanvas = null;     // 兼容旧字段：当前烘焙画布（无烘焙时为 null）
+let _groundChains = null;         // [{pts:[{x,y}...], w}] 世界坐标折线（一次算好）
+let _groundJunctions = [];        // 路口中心（描虚线后挖空）
+let _groundBake = null;           // { canvas, ox, oy, w, h } 世界坐标锚点
 function bakeNodeGroundLayer(node){
   groundLayerCanvas = null;
+  _groundChains = null;
+  _groundJunctions = [];
+  _groundBake = null;
   if(!node || !node.w || !node.h) return;
   // 排除已损毁段（hp === 0）。用 `!== 0` 而非 `> 0`：本函数在 materializeNode 之后调用，
   // 正常路径下 snapshotCovers 已把 road 的 hp 补为 Infinity，两种写法等价；但若 covers
@@ -4047,10 +4046,10 @@ function bakeNodeGroundLayer(node){
         for(const s of segs){
           if(used.has(s)) continue;
           const [a, b] = ends(s);
-          const dTailA = Math.hypot(tail.x - a.x, tail.y - a.y);
-          const dTailB = Math.hypot(tail.x - b.x, tail.y - b.y);
-          const dHeadA = Math.hypot(head.x - a.x, head.y - a.y);
-          const dHeadB = Math.hypot(head.x - b.x, head.y - b.y);
+          const dTailA = Math.hypot(tail.x - a.x, y2(tail, a));
+          const dTailB = Math.hypot(tail.x - b.x, y2(tail, b));
+          const dHeadA = Math.hypot(head.x - a.x, y2(head, a));
+          const dHeadB = Math.hypot(head.x - b.x, y2(head, b));
 
           if(dTailA < bestDist){ bestDist = dTailA; bestCandidate = s; attachAt = 'tail_b'; }
           if(dTailB < bestDist){ bestDist = dTailB; bestCandidate = s; attachAt = 'tail_a'; }
@@ -4071,70 +4070,112 @@ function bakeNodeGroundLayer(node){
     }
   }
   if(!paths.length) return;
+  _groundChains = paths;
+  _groundJunctions = (node && Array.isArray(node.roadJunctions)) ? node.roadJunctions : [];
+}
 
-  const cv = document.createElement('canvas');
-  cv.width = node.w; cv.height = node.h;
-  const g = cv.getContext('2d');
-  // 圆角连接（路段转折处平滑）但端帽用 butt：端帽不再外凸半路宽，
-  // 使落在节点边界线上的路头呈「延伸出画面」而非「圆弧尽头」（ground 层由 drawImage 裁剪）。
+// y 方向差值（链段端点匹配用；x 差在调用处算）
+function y2(p, q){ return q.y - p.y; }
+
+// 把一组链路描到目标 2D 上下文（圆角连接/端帽 butt 口径与旧整图烘焙一致）
+function _strokeGroundPaths(g, chains){
   g.lineCap = 'butt'; g.lineJoin = 'round';
-
-  // ===== v2「路口感」分层渲染（2026-09-16）=====
-  // v1 逐链独立描边三遍（路基→沥青→中心虚线），后画的链把前一条整幅盖掉，
-  // 且两条链的中心虚线都笔直穿过交点 → 视觉上就是「两条路叠在一起」。
-  // v2 改为两遍：
-  //   第 1 遍 —— 所有链的路基 + 沥青（交叉处自然合并为一片连续沥青广场）
-  //   第 2 遍 —— 统一画中心虚线，并在路口（node.roadJunctions）处断开
-  // 这样交叉点才是「路口」：路面连续、标线让位。
   const tracePath = (p) => {
     g.beginPath();
     g.moveTo(p.pts[0].x, p.pts[0].y);
     for(let i = 1; i < p.pts.length; i++) g.lineTo(p.pts[i].x, p.pts[i].y);
   };
-
-  // --- 第 1 遍：路床基底与暗色路缘（外扩 8px）---
+  // 第 1 遍：路床基底与暗色路缘（外扩 8px）+ 连续平滑沥青主路面（交叉处自然合并）
   g.strokeStyle = '#32302b';
-  for(const p of paths){
-    if(p.pts.length < 2) continue;
-    g.lineWidth = p.w + 8;
-    tracePath(p);
-    g.stroke();
-  }
-  // --- 第 1 遍：连续平滑沥青主路面（交叉处互相合并）---
+  for(const p of chains){ if(p.pts.length < 2) continue; g.lineWidth = p.w + 8; tracePath(p); g.stroke(); }
   g.strokeStyle = '#58554e';
-  for(const p of paths){
-    if(p.pts.length < 2) continue;
-    g.lineWidth = p.w;
-    tracePath(p);
-    g.stroke();
-  }
-
-  // --- 路口让位挖空：在路口范围内涂回「无标线」的沥青色，抹掉穿过的中心虚线 ---
-  // （用与主路面同色填充，保证只擦标线不动路面。#C1（2026-09-17 修复）：
-  //   nodegen 已把 j.r 收敛到 roadW×0.5（恒在沥青并集内）；兜底 40 同口径。）
-  const junctions = (node && Array.isArray(node.roadJunctions)) ? node.roadJunctions : [];
-  const clearMarks = () => {
-    if(!junctions.length) return;
-    g.fillStyle = '#58554e';
-    for(const j of junctions){
-      const r = (j.r || 40);
-      g.beginPath(); g.arc(j.x, j.y, r, 0, Math.PI * 2); g.fill();
-    }
-  };
-
-  // --- 第 2 遍：中心虚线（先整条画，再在路口挖掉）---
+  for(const p of chains){ if(p.pts.length < 2) continue; g.lineWidth = p.w; tracePath(p); g.stroke(); }
+  // 第 2 遍：中心虚线，再在路口范围涂回沥青色挖掉（路口读作「路口」而非「两条线交叉」）
   g.strokeStyle = 'rgba(235, 220, 160, 0.6)';
   g.lineWidth = 2.5;
   g.setLineDash([18, 14]);
-  for(const p of paths){
-    if(p.pts.length < 2) continue;
-    tracePath(p);
-    g.stroke();
-  }
+  for(const p of chains){ if(p.pts.length < 2) continue; tracePath(p); g.stroke(); }
   g.setLineDash([]);
-  clearMarks();   // 路口处断线 → 「路口」而不是「两条线交叉」
+  if(_groundJunctions.length){
+    g.fillStyle = '#58554e';
+    for(const j of _groundJunctions){
+      g.beginPath(); g.arc(j.x, j.y, (j.r || 40), 0, Math.PI * 2); g.fill();
+    }
+  }
+}
 
+// 链路 AABB 是否与视口相交（直接描边路径的剔除）
+function _chainInView(p, vb){
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for(const pt of p.pts){
+    if(pt.x < minX) minX = pt.x; if(pt.x > maxX) maxX = pt.x;
+    if(pt.y < minY) minY = pt.y; if(pt.y > maxY) maxY = pt.y;
+  }
+  const pad = (p.w || 70) * 0.5 + 8;
+  return minX - pad <= vb.maxX && maxX + pad >= vb.minX && minY - pad <= vb.maxY && maxY + pad >= vb.minY;
+}
+
+// 以世界坐标 (cx,cy) 为中心烘焙 w×h 区域（链路按需裁剪进画布）
+function _bakeGroundRegion(cx, cy, w, h){
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.ceil(w));
+  cv.height = Math.max(1, Math.ceil(h));
+  const g = cv.getContext('2d');
+  const ox = cx - cv.width / 2, oy = cy - cv.height / 2;
+  const chains = _groundChains.filter(p => _chainInView(p, {
+    minX: ox, minY: oy, maxX: ox + cv.width, maxY: oy + cv.height }));
+  if(chains.length){
+    g.save();
+    g.beginPath(); g.rect(0, 0, cv.width, cv.height); g.clip();
+    g.translate(-ox, -oy);
+    _strokeGroundPaths(g, chains);
+    g.restore();
+  }
+  _groundBake = { canvas: cv, ox: ox, oy: oy, w: cv.width, h: cv.height };
   groundLayerCanvas = cv;
+}
+
+// 每帧调用：保证道路地面层覆盖当前视口（必要时滚动重烘焙/直接描边）。
+// vb = { minX, minY, maxX, maxY }（世界坐标视口边界）
+function ensureGroundBake(vb){
+  if(!_groundChains || !_groundChains.length){ _groundBake = null; groundLayerCanvas = null; return; }
+  const vw = vb.maxX - vb.minX, vh = vb.maxY - vb.minY;
+  // 迟滞：视口仍在内半区（烘焙区外扩 MARGIN/2）内 → 不重烘焙
+  if(_groundBake){
+    const insetX = (_groundBake.w - vw) / 2, insetY = (_groundBake.h - vh) / 2;
+    const halfX = (GROUND_BAKE_MARGIN / 2), halfY = (GROUND_BAKE_MARGIN / 2);
+    if(insetX >= halfX && insetY >= halfY &&
+       vb.minX >= _groundBake.ox + (insetX - halfX) && vb.maxX <= _groundBake.ox + _groundBake.w - (insetX - halfX) &&
+       vb.minY >= _groundBake.oy + (insetY - halfY) && vb.maxY <= _groundBake.oy + _groundBake.h - (insetY - halfY)){
+      groundLayerCanvas = _groundBake.canvas;
+      return;
+    }
+  }
+  const wantW = vw + 2 * GROUND_BAKE_MARGIN, wantH = vh + 2 * GROUND_BAKE_MARGIN;
+  if(wantW <= GROUND_BAKE_MAX && wantH <= GROUND_BAKE_MAX){
+    _bakeGroundRegion((vb.minX + vb.maxX) / 2, (vb.minY + vb.maxY) / 2, wantW, wantH);
+  } else {
+    // 视口超过画布护栏（大幅缩小看全图）：不建超大画布，直接描边可见链路
+    _groundBake = null;
+    groundLayerCanvas = null;
+    const vis = _groundChains.filter(p => _chainInView(p, vb));
+    if(vis.length && !ensureGroundBake._overflow){
+      ensureGroundBake._overflow = document.createElement('canvas');
+    }
+    if(vis.length){
+      const cv = ensureGroundBake._overflow;
+      cv.width = Math.ceil(vw); cv.height = Math.ceil(vh);
+      const g = cv.getContext('2d');
+      g.clearRect(0, 0, cv.width, cv.height);
+      g.save();
+      g.beginPath(); g.rect(0, 0, cv.width, cv.height); g.clip();
+      g.translate(-vb.minX, -vb.minY);
+      _strokeGroundPaths(g, vis);
+      g.restore();
+      _groundBake = { canvas: cv, ox: vb.minX, oy: vb.minY, w: cv.width, h: cv.height };
+      groundLayerCanvas = cv;
+    }
+  }
 }
 
 function draw(){
@@ -4175,9 +4216,12 @@ function draw(){
     return tg === 'liquid' || tg === 'ground';
   };
   const inViewCovers = covers.filter(inView);
-  // 2026-09-14：道路已预烘焙（bakeNodeGroundLayer）→ 地面层跳过 road 逐段绘制
+  // 2026-09-14：道路预烘焙 → 地面层跳过 road 逐段绘制；
+  // #N4（2026-10-10）：改为视口锚定滚动烘焙——每帧先按当前视口补一轮（越界才重烘焙），
+  // 再 blit 烘焙画布（世界坐标锚点，由相机变换定位）。
+  ensureGroundBake(vb);
   inViewCovers.filter(cov => cov.tier !== 'road' && groundLayerCov(cov)).forEach(cov => drawCover(ctx, cov));
-  if(groundLayerCanvas){ ctx.drawImage(groundLayerCanvas, 0, 0); }
+  if(groundLayerCanvas){ ctx.drawImage(groundLayerCanvas, _groundBake ? _groundBake.ox : 0, _groundBake ? _groundBake.oy : 0); }
   else inViewCovers.filter(cov => cov.tier === 'road').forEach(cov => drawCover(ctx, cov));   // 无烘焙层（dev 随机场）回退逐段绘制
   inViewCovers.filter(cov => cov.tier === 'bridge').forEach(cov => drawCover(ctx, cov));
   inViewCovers.filter(cov => !groundLayerCov(cov) && cov.tier !== 'bridge' && (groundLayerCanvas ? cov.tier !== 'road' : true)).forEach(cov => drawCover(ctx, cov));

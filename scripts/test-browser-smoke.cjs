@@ -191,13 +191,12 @@ function startServer(port) {
     await page.evaluate(() => document.getElementById('shopLoadoutBtn').click());
     await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'loadout', null, { timeout: 5000 });
 
+    // #N5（2026-10-10）：出击直接进 battle（map 中转屏已移除）——strip 节点生成 ~0.4s
     await page.evaluate(() => document.getElementById('loadStartBtn').click());
-    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'map', null, { timeout: 10000 });
-    check('M10 出击 → 节点图渲染节点链', await page.evaluate(() =>
-      window.__dbg.flow.state === 'map' && document.querySelectorAll('#mapList .node-row').length >= 3));
-
-    await page.evaluate(() => document.querySelector('#mapList .node-row').click());
-    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'battle', null, { timeout: 10000 });
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'battle', null, { timeout: 20000 });
+    check('#N5: 出击 → 直接 battle（无 map 中转屏）', await page.evaluate(() =>
+      window.__dbg.flow.state === 'battle' && !!(window.__dbg.run && window.__dbg.run.nodes.length >= 1) &&
+      !!(window.__dbg.cam && window.__dbg.cam.bounds)));
 
     // M10 出击写档断言：active 槽持久化 selectedTankId/ammoLoadout/runs，且作用于 player 实体
     const savedProf = await page.evaluate(() => {
@@ -239,9 +238,11 @@ function startServer(port) {
     console.log(JSON.stringify(info, null, 1));
 
     check('#22 战斗态无 dummy', !info.hasDummy, 'entities=' + JSON.stringify(info.entityIds));
-    check('#24 节点 ≥3×画布宽', info.camBounds && info.camBounds.w >= info.canvas.w * 3,
+    // #N4（2026-10-10 strip 接入实战）：常规节点 = ≈10 屏宽 × 2.2 屏高横向条带
+    // （旧 #24 口径「宽高各 ≥3×画布」仅适用于方形节点；Boss 节点仍 ≥3×3，由 test-map 断言）
+    check('#N4 strip 节点 ≥7×画布宽', info.camBounds && info.camBounds.w >= info.canvas.w * 7,
       `bounds.w=${info.camBounds && info.camBounds.w} canvas.w=${info.canvas.w}`);
-    check('#24 节点 ≥3×画布高', info.camBounds && info.camBounds.h >= info.canvas.h * 3,
+    check('#N4 strip 节点纵向 ≈2.2×画布高', info.camBounds && info.camBounds.h >= info.canvas.h * 2 && info.camBounds.h <= info.canvas.h * 2.5,
       `bounds.h=${info.camBounds && info.camBounds.h} canvas.h=${info.canvas.h}`);
     check('有敌军实体', info.enemyCount > 0, `enemyCount=${info.enemyCount}`);
     check('节点链 ≥3 节点', info.runNodes >= 3, `nodes=${info.runNodes} seed=${info.seed}`);

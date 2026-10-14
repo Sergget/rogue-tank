@@ -10,6 +10,7 @@ global.segRayIntersect = U.segRayIntersect; global.partCorners = U.partCorners;
 global.partEdges = U.partEdges; global.reflectDir = U.reflectDir;
 global.RULES = R.RULES;
 global.HEIGHTS = require('../js/tank_geometry.js').HEIGHTS;
+global.polyCorners = require('../js/tank_geometry.js').polyCorners;   // covers 多边形（verts）几何，浏览器由 tank_geometry 先行加载提供
 const CV = require('../js/tank_cover.js');
 global.getCoverUnderTank = CV.getCoverUnderTank;
 global.resolveCoverCollisions = CV.resolveCoverCollisions;
@@ -195,6 +196,95 @@ function residualOverlap(a, b){
   ok(enemy.immobT > 0 && enemy.trackBroken === true, '#70: 倒计时未结束时保持 trackBroken=true');
   MV.driveTank(enemy, 0.4, { turn: 0, move: 1 });
   ok(enemy.immobT === 0 && enemy.trackBroken === false, '#70: immobT 归零时自动清除 trackBroken 状态');
+}
+
+// 8) #N1（2026-10-10 用户反馈「坦克碰到岩石后无法移动」）：硬阻断地形（岩石）接触后
+//    不得锁死速度/转向——旧实现把 passability=0 当通行系数清零 accel/brake/turnRate，
+//    而 SAT 判「触=叠」+ 旧推出只到恰好贴合 ⇒ 每帧都判为压在岩上，坦克永久冻结。
+{
+  // nodegen 同款六边形岩石 verts（cw/ch → rx/ry）
+  const mkRock = (x, y, cw, ch, rot) => {
+    const rx = cw / 2, ry = ch / 2, rv = [];
+    for(let i = 0; i < 6; i++){ const a = rot + (i / 6) * Math.PI * 2; rv.push([Math.cos(a) * rx, Math.sin(a) * ry]); }
+    return { x, y, w: cw, h: ch, angle: 0, tier: 'rock', verts: rv, hp: Infinity };
+  };
+  clear();
+  const rock1 = mkRock(600, 320, 34, 22, 0.7);
+  CV.covers.length = 0;
+  CV.covers.push(rock1);
+  const t = freshTank('rock-stuck', 500, 320, 0, 'player');
+  for(let f = 0; f < 240; f++) MV.driveTank(t, dt, { turn: 0, move: 1 });   // 全速撞岩
+  ok(t.x < 570, `#N1: 撞岩后被推出且未穿模（x=${t.x.toFixed(1)}，岩左界 583）`);
+  const speedBefore = t.speed;
+  const angleBefore = t.hullAngle;
+  for(let f = 0; f < 120; f++) MV.driveTank(t, dt, { turn: 0, move: -1 });  // 倒车
+  ok(t.speed < speedBefore, `#N1: 贴岩后倒车能改变速度（${speedBefore.toFixed(1)} → ${t.speed.toFixed(1)}）`);
+  for(let f = 0; f < 600; f++) MV.driveTank(t, dt, { turn: 0, move: -1 });  // 持续倒车
+  ok(t.x < 520, `#N1: 持续倒车可脱离岩石（x=${t.x.toFixed(1)}）`);
+  // 重新贴岩 → 原地转向不被冻结
+  for(let f = 0; f < 240; f++) MV.driveTank(t, dt, { turn: 0, move: 1 });
+  for(let f = 0; f < 60; f++) MV.driveTank(t, dt, { turn: 1, move: 0 });
+  ok(Math.abs(t.hullAngle - angleBefore) > 0.5,
+    `#N1: 贴岩状态下仍可原地转向（ΔhullAngle=${Math.abs(t.hullAngle - angleBefore).toFixed(2)}rad）`);
+  // 出生嵌在岩石内 → 也能倒出来（spawn overlap）
+  const t2 = freshTank('rock-embed', 605, 322, 0, 'player');
+  for(let f = 0; f < 600; f++) MV.driveTank(t2, dt, { turn: 0, move: -1 });
+  ok(t2.x < 560, `#N1: 出生嵌岩也能倒出（x=${t2.x.toFixed(1)}）`);
+  // 静止接触必须是真实分离（SAT 触=叠，缓冲推出后 getCoverUnderTank 不得命中岩石）
+  const t3 = freshTank('rock-touch', 500, 320, 0, 'player');
+  for(let f = 0; f < 240; f++) MV.driveTank(t3, dt, { turn: 0, move: 1 });
+  ok(CV.getCoverUnderTank(t3) !== rock1, '#N1: 推出带分离缓冲，静止接触不再判为「压在岩上」');
+  // 岩石仍然不可通行：全速顶岩不得穿透左界（583）
+  const t4 = freshTank('rock-block', 540, 320, 0, 'player');
+  for(let f = 0; f < 600; f++) MV.driveTank(t4, dt, { turn: 0, move: 1 });
+  ok(t4.x <= 583.5, `#N1: 岩石仍硬阻断不可通行（x=${t4.x.toFixed(1)} ≤ 583.5）`);
+  // 慢速地形减速语义不变：泥地（passability 0.4）不推 + 通行系数仍来自 tier 表
+  CV.covers.length = 0;
+  CV.covers.push({ x: 600, y: 320, w: 200, h: 200, angle: 0, tier: 'mud', hp: Infinity });
+  const tm = freshTank('rock-mud', 600, 320, 0, 'player');
+  MV.driveTank(tm, dt, { turn: 0, move: 1 });
+  ok(CV.getCoverUnderTank(tm) && CV.getCoverUnderTank(tm).tier === 'mud', '#N1: 泥地仍被 getCoverUnderTank 命中（减速来源）');
+}
+
+// 9) #N1/strip 性能：覆盖物空间哈希——查询结果必须与全表扫描逐条一致（语义零变化）
+{
+  const NG = require('../js/tank_nodegen.js');
+  global.createRNG = NG.createRNG;
+  global.generateNode = NG.generateNode;
+  global.pickTemplate = NG.pickTemplate;
+  const MAP = require('../js/tank_map.js');
+  const VP = { vw: 1920, vh: 1080 };
+  const strip = NG.generateStrip(0.5, { seed: 42, viewport: VP, scaleFor: MAP.nodeScaleFor });
+  CV.covers.length = 0;
+  for(const c of strip.covers) CV.covers.push(Object.assign({}, c, { hp: 1 }));
+  ok(strip.covers.length >= 200, `空间哈希测试前置：strip covers=${strip.covers.length}（≥200）`);
+  const fullScan = (x, y, t) => {
+    const tankCorners = partCorners(x, y, t.hullAngle, t.hullLen / 2, t.hullWid / 2);
+    const found = [];
+    for(const cov of CV.covers){ if(cov.hp <= 0) continue; if(cov.tier === 'road') continue;
+      for(const part of CV.coverCollisionParts(cov)) if(CV.obbOverlap(tankCorners, part)){ found.push(cov); break; } }
+    return found;
+  };
+  let mismatches = 0, probed = 0;
+  const probeRng = (() => { let s = 12345; return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; })();
+  for(let i = 0; i < 300; i++){
+    const x = probeRng() * strip.w, y = probeRng() * strip.h;
+    const t = { x, y, hullAngle: probeRng() * Math.PI * 2, hullLen: 64, hullWid: 38 };
+    probed++;
+    if(CV.coverQueryCandidates(x, y, (64 + 38) / 2).some(cov =>
+        cov.hp > 0 && cov.tier !== 'road' &&
+        CV.coverCollisionParts(cov).some(p => CV.obbOverlap(partCorners(x, y, t.hullAngle, 32, 19), p))) !==
+       (fullScan(x, y, t).length > 0)) mismatches++;
+  }
+  ok(mismatches === 0, `#N1: 空间哈希候选查询与全表扫描一致（${probed} 探针，${mismatches} 处不一致）`);
+  // 索引签名：等长换场（新 covers 数组）必须失效重建（否则命中旧场穿模）
+  const before = CV.coverQueryCandidates(strip.w / 2, strip.h / 2, 60).length;
+  CV.covers.length = 0;
+  CV.covers.push({ x: strip.w / 2, y: strip.h / 2, w: 100, h: 100, angle: 0, tier: 'rock', hp: Infinity });
+  const after = CV.coverQueryCandidates(strip.w / 2, strip.h / 2, 60);
+  ok(after.length === 1 && after[0].tier === 'rock',
+    `#N1: 等长换场后索引失效重建（before=${before} → after=${after.length} 且命中新 cover）`);
+  CV.covers.length = 0;
 }
 
 console.log(fails ? `\n${fails} failure(s).` : '\nAll tank-collision checks passed.');

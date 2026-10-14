@@ -10,6 +10,7 @@ global.RULES = RULES_MOD.RULES;
 const NG = require('../js/tank_nodegen.js');
 global.createRNG = NG.createRNG;
 global.generateNode = NG.generateNode;
+global.generateStrip = NG.generateStrip;   // #N4：strip 节点路径（tank_map 视口模式走它）
 global.pickTemplate = NG.pickTemplate;   // #24：tank_map.js 视口缩放前预选模板
 
 const {
@@ -28,7 +29,11 @@ const {
   extendRun,
   makeNode,
   scoreNode,
-  materializeNode
+  materializeNode,
+  pointInCover,
+  pointInCoverOne,
+  buildCoverIndex,
+  pointInCoverIndexed
 } = require('../js/tank_map.js');
 
 let fails = 0;
@@ -111,11 +116,18 @@ ok(close(s720, 3 * Math.max(1280 / 700, 720 / 400)), `1280×720 → nodeScale ${
 const s1080 = nodeScaleFor({ vw: 1920, vh: 1080 }, { w: 700, h: 400 });
 ok(close(s1080, 3 * Math.max(1920 / 700, 1080 / 400)), `1920×1080 → nodeScale ${s1080.toFixed(4)} ≈ 3×max(vw/tw, vh/th)`);
 ok(s1080 > s720, '视口越大 nodeScale 越大');
-ok(runV.nodes.every(n => n.w >= 3 * 1280 - 1e-3 && n.h >= 3 * 720 - 1e-3),
-   `1280×720 视口：全部节点宽高 ≥ 视口 3 倍（3840×2160，实际 ${runV.nodes[0].w.toFixed(0)}×${runV.nodes[0].h.toFixed(0)} 起）`);
-ok(runW.nodes.every(n => n.w >= 3 * 1920 - 1e-3 && n.h >= 3 * 1080 - 1e-3),
-   `1920×1080 视口：全部节点宽高 ≥ 视口 3 倍（5760×3240，实际 ${runW.nodes[0].w.toFixed(0)}×${runW.nodes[0].h.toFixed(0)} 起）`);
-ok(runV.nodes.every(n => n.w >= 3840 * 0.9 && n.w <= 3840 * 2.5), '视口模式节点宽度在合理区间（3~7.5 倍视口宽）');
+// #N4 口径（2026-10-10 strip 接入实战）：常规节点 = ≈10 屏宽 × 2.2 屏高横向条带；
+// Boss 节点保持方形（宽高各 ≥3 倍视口）。旧「全部节点 ≥3×3」断言按节点类型拆分重锚。
+const vpV = { vw: 1280, vh: 720 }, vpW = { vw: 1920, vh: 1080 };
+const stripCap = (n, vp) => !n.boss;   // 条带节点判定（template.__strip__）
+ok(runV.nodes.filter(n => stripCap(n)).every(n => n.w >= 7 * 1280 && Math.abs(n.h - 2.2 * 720) < 1) &&
+   runV.nodes.filter(n => n.boss).every(n => n.w >= 3 * 1280 - 1e-3 && n.h >= 3 * 720 - 1e-3),
+   `#N4: 1280×720 视口——strip 节点 ≈10×2.2 屏、Boss 节点 ≥3×3 屏（strip 实测 ${runV.nodes[0].w.toFixed(0)}×${runV.nodes[0].h.toFixed(0)}）`);
+ok(runW.nodes.filter(n => stripCap(n)).every(n => n.w >= 7 * 1920 && Math.abs(n.h - 2.2 * 1080) < 1) &&
+   runW.nodes.filter(n => n.boss).every(n => n.w >= 3 * 1920 - 1e-3 && n.h >= 3 * 1080 - 1e-3),
+   `#N4: 1920×1080 视口——strip 节点 ≈10×2.2 屏、Boss 节点 ≥3×3 屏（strip 实测 ${runW.nodes[0].w.toFixed(0)}×${runW.nodes[0].h.toFixed(0)}）`);
+ok(runV.nodes.filter(n => stripCap(n)).every(n => n.w >= 3840 * 0.9 && n.w <= 3840 * 3.7),
+   '#N4: strip 节点宽度区间 = 3~11 倍 720p 视口宽（≈10 屏）');
 
 let totalEnemies = 0, totalOutposts = 0;
 for (const n of run1.nodes) {
@@ -195,6 +207,52 @@ for (const n of run1.nodes.concat(runV.nodes)) {
 // 4) 各节点世界尺寸为放大后的大世界（模板按难度加权选择 → 尺寸可不同，只需都在合理区间）
 ok(run1.nodes.every(n => n.w >= 1800 && n.w <= 3000 && n.h >= 1000 && n.h <= 2000), '整局节点世界尺寸均为大世界（1800~3000 × 1000~2000）');
 
+// 4b) #N4：strip 模式常规节点 = 横向条带（≈10 屏 × 2.2 屏）；Boss 节点保持方形竞技场
+{
+  const vp = { vw: 1920, vh: 1080 };
+  const stripRun = generateRun('strip-seed', 5, { viewport: vp, difficultyLevel: 0 });
+  const stripNodes = stripRun.nodes.filter(n => !n.boss);
+  const bossNodes = stripRun.nodes.filter(n => n.boss);
+  ok(stripNodes.length === 4 && bossNodes.length === 1, `#N4: 5 节点链中 4 strip + 1 Boss（实际 ${stripNodes.length}/${bossNodes.length}）`);
+  ok(stripNodes.every(n => n.w >= 7 * vp.vw && n.w <= 14 * vp.vw && Math.abs(n.h - 2.2 * vp.vh) < 1),
+     `#N4: strip 节点横向 ≈10 屏、纵向 = 2.2 屏（实测 ${stripNodes.map(n => (n.w / vp.vw).toFixed(1) + '×' + (n.h / vp.vh).toFixed(1)).join(' ')}）`);
+  ok(bossNodes.every(n => n.w <= 3.2 * vp.vw && n.h <= 3.2 * vp.vh),
+     `#N4: Boss 节点仍走方形模板路径（实测 ${bossNodes.map(n => (n.w / vp.vw).toFixed(1) + '×' + (n.h / vp.vh).toFixed(1)).join(' ')}）`);
+  ok(stripNodes.every(n => n.template && n.template.id === '__strip__'), '#N4: strip 节点 template 标记 __strip__');
+  ok(stripNodes.every(n => n.defenseLines.length >= 4), `#N4: strip 节点防线数 ≥4（实测 ${stripNodes.map(n => n.defenseLines.length).join(',')}）`);
+  ok(stripNodes.every(n => n.enemies.length >= enemyCountForDifficulty(n.difficulty) && n.enemies.length <= 18),
+     `#N4: strip 敌数在防线容量区间（实测 ${stripNodes.map(n => n.enemies.length).join(',')}）`);
+  ok(stripNodes.every(n => n.enemies.every(e => e.x > n.playerSpawn.x && e.x < n.w && e.y > 0 && e.y < n.h)),
+     '#N4: strip 敌军全部在推进方向前方且界内');
+  ok(stripNodes.every(n => n.covers.every(c => c.x >= -1 && c.x <= n.w + 1 && c.y >= -1 && c.y <= n.h + 1)),
+     '#N4: strip 掩体中心在界内');
+  // 确定性：同 seed 同 env 两次生成结果一致
+  const again = generateRun('strip-seed', 5, { viewport: vp, difficultyLevel: 0 });
+  ok(JSON.stringify(again.nodes[0].covers) === JSON.stringify(stripRun.nodes[0].covers) &&
+     JSON.stringify(again.nodes[3].enemies) === JSON.stringify(stripRun.nodes[3].enemies),
+     '#N4: strip 模式同 seed 确定性（covers/enemies 逐条一致）');
+}
+
+// 4c) #N4：pointInCoverIndexed 与全表 pointInCover 语义一致（差分护栏——
+// 实现期曾因河流 segments 的实例框未并入索引并集造成 11682/120000 处错检 → rng 漂移）
+{
+  const vp = { vw: 1920, vh: 1080 };
+  const stripRun = generateRun('diff-seed', 4, { viewport: vp, difficultyLevel: 0 });
+  let checked = 0, mismatches = 0;
+  const pads = [0, 8, 48, 60, 120, 300];
+  for (const n of stripRun.nodes.concat(run1.nodes)) {
+    const idx = buildCoverIndex(n.covers);
+    for (let i = 0; i < 500; i++) {
+      const x = (i * 733) % n.w, y = (i * 977) % n.h;
+      for (const pad of pads) {
+        checked++;
+        if (pointInCover(n.covers, x, y, pad) !== pointInCoverIndexed(idx, n.covers, x, y, pad)) mismatches++;
+      }
+    }
+  }
+  ok(mismatches === 0, `#N4: 索引化点查询与全表扫描一致（${checked} 次查询，${mismatches} 处不一致）`);
+}
+
 // 5) scoreNode：§4.5 方案
 const node = { index: 2, outpost: { x: 100, y: 100 } };
 const r = scoreNode(node, { damageTaken: 0, clearMs: 60000, outpostAlive: true });
@@ -262,10 +320,14 @@ ok(solo.enemies.length >= enemyCountForDifficulty(0.15) &&
    `makeNode 敌军数量落在防线容量区间（实际 ${solo.enemies.length}）`);
 ok(!solo.boss, 'index 0 非 Boss 节点');
 // #24：makeNode 显式注入视口 → 世界尺寸 ≥ 视口 3 倍
+// #N4（2026-10-10）：常规（非 Boss）节点为 strip 条带（≈10×2.2 屏），Boss 节点仍 ≥3×3 屏
 const rngV = NG.createRNG(42);
 const soloV = makeNode(0, rngV, { viewport: { vw: 1920, vh: 1080 } });
-ok(soloV.w >= 3 * 1920 - 1e-3 && soloV.h >= 3 * 1080 - 1e-3,
-   `makeNode 视口注入 → 5760×3240+（实际 ${soloV.w.toFixed(0)}×${soloV.h.toFixed(0)}）`);
+ok(!soloV.boss && soloV.w >= 7 * 1920 && Math.abs(soloV.h - 2.2 * 1080) < 1,
+   `makeNode 视口注入 → strip 条带 10×2.2 屏（实际 ${soloV.w.toFixed(0)}×${soloV.h.toFixed(0)}）`);
+ok(soloV.enemies.length >= enemyCountForDifficulty(soloV.difficulty) &&
+   soloV.enemies.length <= (RULES_MOD.RULES.nodeMap.strip.defenseLine.maxPerNode || 12),
+   `#N4: strip 敌数落在 strip 防线容量区间（实际 ${soloV.enemies.length}）`);
 ok(Array.isArray(soloV.covers) && soloV.covers.length > 0, 'makeNode 视口模式仍有掩体');
 // #25：单节点掩体数量在加密后的合理区间（低难教学节点剔除后也 ≥ 3）
 ok(soloV.covers.length >= 3, `makeNode 视口模式掩体数量合理（${soloV.covers.length}）`);
@@ -441,6 +503,9 @@ console.log('--- B 档① 防线式敌人生成 ---');
   const vp = { vw: 1920, vh: 1080 };
   /** @type {any} */
   const dl = (RULES_MOD.RULES.nodeMap && RULES_MOD.RULES.nodeMap.defenseLine) || {};
+  // #N4：strip 常规节点的防线容量用 strip.defenseLine 覆盖值（Boss 节点走方形默认值）
+  const capFor = (n) => (!n.boss && RULES_MOD.RULES.nodeMap.strip && RULES_MOD.RULES.nodeMap.strip.defenseLine)
+    ? (RULES_MOD.RULES.nodeMap.strip.defenseLine.maxPerNode || 12) : (dl.maxPerNode || 12);
   const runA = generateRun(4242, 5, { viewport: vp });
   const runB = generateRun(4242, 5, { viewport: vp });
   let normalNodes = 0;
@@ -448,7 +513,7 @@ console.log('--- B 档① 防线式敌人生成 ---');
     if (n.boss) continue;
     normalNodes++;
     ok(n.enemies.length >= dl.perAnchorMin, `防线：节点 ${n.index} 敌数 ≥ perAnchorMin（${n.enemies.length}）`);
-    ok(n.enemies.length <= (dl.maxPerNode || 12), `防线：节点 ${n.index} 敌数 ≤ maxPerNode`);
+    ok(n.enemies.length <= capFor(n), `防线：节点 ${n.index} 敌数 ≤ maxPerNode（${n.enemies.length}/${capFor(n)}）`);
     ok(n.enemies.every(e => e.x > n.playerSpawn.x), `防线：节点 ${n.index} 敌军全在推进方向前方`);
   }
   ok(normalNodes > 0, `防线：样本含 ${normalNodes} 个常规节点`);

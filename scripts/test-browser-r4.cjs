@@ -216,14 +216,11 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
     check('商店返回 loadout', true);
 
     await page.evaluate(() => document.getElementById('loadStartBtn').click());
-    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'map', null, { timeout: 10000 });
-    const battleState = await page.evaluate(() => {
-      if (window.__TEST__.flowState() !== 'map') return null;
-      window.__TEST__.skipToNode(0);
-      return window.__TEST__.flowState();
-    });
-    check('START RUN → map → skipToNode(0) battle', battleState === 'battle', `state=${battleState}`);
-    await waitFor(600);
+    // #N5（2026-10-10）：出击直接进 battle（map 中转屏已移除）——strip 节点生成 ~0.4s
+    await page.waitForFunction(() => window.__dbg && window.__dbg.flow && window.__dbg.flow.state === 'battle', null, { timeout: 20000 });
+    const battleState = await page.evaluate(() => window.__TEST__.flowState());
+    check('#N5: START RUN → battle（直达，无 map 中转）', battleState === 'battle', `state=${battleState}`);
+    await waitFor(800);
 
     // D3：商店升级作用于开局（hp_up Lv1 → stats.maxHp ≥ base + 10）
     const hpBoost = await page.evaluate(() => {

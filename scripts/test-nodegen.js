@@ -82,8 +82,10 @@ for (const tpl of NODE_TEMPLATES) {
   ok(tiers.size >= 4, `模板 ${tpl.id} 混合 ≥4 种 tier（${[...tiers].join('/')}）`);
 }
 for (const tpl of templates) {
-  // #87：分层村庄（道路/建筑/杂物）+ 林地簇运行时生成后，单模板元素峰值上限放宽到 64
-  const maxItems = 64;
+  // #87：分层村庄（道路/建筑/杂物）+ 林地簇运行时生成后，单模板元素峰值上限放宽到 64；
+  // #Q2 补记（2026-10-12）：地形标签产物（river/water/mud，P-40「不受 cullRate 剔除」）
+  // 在 prune 中不再被移除（「地形标签必产出」契约的正名）→ 低难峰值上探，上限 64→72。
+  const maxItems = 72;
   const minItems = 8;  // #25：中高难剔除率低（≤0.044），保留数下界
   const lowDiff = generateNode(0.1, { templateId: tpl.id, seed: 1 });
   ok(lowDiff.covers.length >= 1 && lowDiff.covers.length <= maxItems,

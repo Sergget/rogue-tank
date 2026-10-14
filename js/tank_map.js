@@ -256,7 +256,7 @@ function pickDefenseLineAnchor(cands, o) {
  */
 function planDefenseLines(o) {
   const s = o || {};
-  const cfg = defenseLineConfig();
+  const cfg = s.cfg || defenseLineConfig();
   const w = s.w, h = s.h;
   const ps = s.playerSpawn || { x: w * 0.10, y: h / 2 };
   const rng = s.rng;
@@ -360,26 +360,64 @@ function makeNode(index, rng, env) {
     scale = nodeScaleFor(viewport, tpl);
   }
 
+  // #N4（2026-10-05 C 档 batch 2 → 2026-10-10 #N4 接入实战）：strip 横向条带节点。
+  // 用户 2026-09-21 设计征询 + 2026-10-10「使用新的地图生成器」——常规（非 Boss）节点
+  // 改用 generateStrip（多片拼接 + 一体化路网/水系 + 接缝净空 + 纵向裁剪），
+  // 世界 = ≈10 屏宽 × 2.2 屏高的横向战场；Boss 节点保持方形竞技场（零回归）。
+  // 口径归口 specs/map.md §14；strip 生成器本体见 js/tank_nodegen.js generateStrip。
+  const stripCfg = cfg.strip || {};
+  const stripEnabled = stripCfg.enabled !== false;
+  const stripMode = !!(stripEnabled && !isBossNodeIndex(index) &&
+    viewport && viewport.vw > 0 && viewport.vh > 0 &&
+    typeof generateStrip === 'function');
+
   // #I3（2026-09-21 用户裁定「特别是 boss 战地图的建筑密度」）：Boss 节点建筑密度乘子
-  // （isBossNodeIndex 为纯函数，可在 generateNode 前判定）
+  // （isBossNodeIndex 为纯函数，可在 generateNode 前判定）。strip 模式无单模板歧义，
+  // 建筑密度乘子仅服务方形路径（Boss 节点恒走方形路径）。
   const bossDensity = (RULES.nodeMap.building && RULES.nodeMap.building.bossDensity) || 1.6;
   const buildingDensity = isBossNodeIndex(index) ? bossDensity : 1;
 
-  // 掩体布局：模板按 scale 放大，世界坐标 (0,0)~(w,h)，中心 (w/2,h/2)
-  const templateResult = generateNode(diff, {
-    seed: rng.int(0, 1000000),
-    scale: scale,
-    centerX: 0,
-    centerY: 0,
-    templateId: templateId,
-    buildingDensity: buildingDensity
-  });
-  const w = templateResult.w, h = templateResult.h;
-  const centerX = w / 2, centerY = h / 2;
-  // generateNode 的元素以 (centerX,centerY) 为基准定位 → 平移到以世界原点为基准
-  for (const c of templateResult.covers) {
-    c.x += centerX;
-    c.y += centerY;
+  let templateResult;
+  let centerX = 0, centerY = 0;
+  let w, h;
+  if (stripMode) {
+    // strip 坐标即世界坐标（[0,totalW]×[0,stripH]），无中心平移
+    const stripRes = generateStrip(diff, {
+      seed: rng.int(0, 1000000),
+      viewport: viewport,
+      scaleFor: (vp, tpl) => nodeScaleFor(vp, tpl),   // 片内 scale 沿用现行口径
+      stripScreensX: stripCfg.screensX,
+      stripScreensY: stripCfg.screensY,
+      chunkCount: stripCfg.chunkCount || undefined
+    });
+    w = stripRes.w; h = stripRes.h;
+    templateResult = {
+      covers: stripRes.covers,
+      w: w, h: h,
+      roadJunctions: stripRes.roadJunctions || [],
+      roadW: stripRes.roadW,
+      seed: stripRes.seed,
+      // strip 无单一模板：合成一个与生成器内部路网规划同 id 的占位（UI/调试可读）
+      template: { id: '__strip__', name: `横向条带 ${stripRes.chunkCount} 片` },
+      biome: (stripRes.chunks && stripRes.chunks[0] && stripRes.chunks[0].tpl && stripRes.chunks[0].tpl.biome) || null
+    };
+  } else {
+    // 掩体布局：模板按 scale 放大，世界坐标 (0,0)~(w,h)，中心 (w/2,h/2)
+    templateResult = generateNode(diff, {
+      seed: rng.int(0, 1000000),
+      scale: scale,
+      centerX: 0,
+      centerY: 0,
+      templateId: templateId,
+      buildingDensity: buildingDensity
+    });
+    w = templateResult.w; h = templateResult.h;
+    centerX = w / 2; centerY = h / 2;
+    // generateNode 的元素以 (centerX,centerY) 为基准定位 → 平移到以世界原点为基准
+    for (const c of templateResult.covers) {
+      c.x += centerX;
+      c.y += centerY;
+    }
   }
 
   // 玩家出生点：默认左缘 (0.10w, h/2)；必须远离所有掩体（含水域 tier，见 pointInCover）。
@@ -387,8 +425,11 @@ function makeNode(index, rng, env) {
   // 否则推到违规掩体外缘相邻清空处。最终钳制在节点边界 [margin, w-margin]×[margin, h-margin] 内。
   const spawnMargin = cfg.spawnMargin || 60;
   let playerSpawn = { x: w * 0.10, y: h / 2 };
-  if (pointInCover(templateResult.covers, playerSpawn.x, playerSpawn.y, spawnMargin)) {
-    playerSpawn = findPlayerSpawn(templateResult.covers, w, h, rng, spawnMargin);
+  // #N4：出生点选址也走索引（strip covers 规模下 findPlayerSpawn 内部全表扫描同样昂贵）
+  const spawnIdx = buildCoverIndex(templateResult.covers);
+  const spawnHitsCover = (px, py, pad) => pointInCoverIndexed(spawnIdx, templateResult.covers, px, py, pad);
+  if (spawnHitsCover(playerSpawn.x, playerSpawn.y, spawnMargin)) {
+    playerSpawn = findPlayerSpawn(templateResult.covers, w, h, rng, spawnMargin, spawnIdx);
   }
 
   // 三杠杆（P-13 / §6 条目 12）：敌人数量 / AI 策略复杂度 / 数值强度随 diff 涨
@@ -407,6 +448,10 @@ function makeNode(index, rng, env) {
   // 在环带半径 [minPlayerDist, maxPlayerDist] 内划分扇区采样簇中心，
   // 随后在各簇中心周围 enemyClusterRadius 范围内拒绝采样生成敌人（避开掩体、世界边界及彼此重叠）。
   // 若因极端密集掩体未填满，由下方全图网格兜底补满。
+  // #N4：strip 节点 covers 300~1100 —— 点位选址统一走 buildCoverIndex 空间索引
+  // （pointInCoverIndexed 与 pointInCover 语义一致，只是候选集收窄；CPU profile 实测热点）。
+  const coverIdx = buildCoverIndex(templateResult.covers);
+  const hitsCover = (px, py, pad) => pointInCoverIndexed(coverIdx, templateResult.covers, px, py, pad);
   const enemyCount = enemyCountForDifficulty(diff);
   const diffCfg = difficultyConfig() || {};
   const diffMax = diffCfg.diffMax !== undefined ? diffCfg.diffMax : 1.15;
@@ -428,10 +473,16 @@ function makeNode(index, rng, env) {
   // ⇒ 若改用防线锚点会连带改变 Boss 战地图布局（实测「掩体在界内」断言被打破）。故 Boss 节点
   // 保持旧全向路径，零回归。
   const defenseEnabled = (cfg.defenseLine ? cfg.defenseLine.enabled !== false : true) && !isBossNodeIndex(index);
+  // #N4：strip 节点（≈10 屏宽）沿用方形节点的防线参数会把 4~9 个敌人撒在 7 倍面积上
+  // ⇒ 单节点敌数与防线数按 stripCfg.defenseLine 放大（推进—遭遇—清剿节奏不变）。
+  const defenseCfg = (stripMode && stripCfg.defenseLine)
+    ? Object.assign({}, defenseLineConfig(), stripCfg.defenseLine)
+    : undefined;
   const defense = defenseEnabled ? planDefenseLines({
     w: w, h: h, playerSpawn: playerSpawn, minPlayerDist: minPlayerDist,
     diff: diff, diffNorm: diffNorm, viewport: viewport,
-    covers: templateResult.covers, roadJunctions: templateResult.roadJunctions, rng: rng
+    covers: templateResult.covers, roadJunctions: templateResult.roadJunctions, rng: rng,
+    cfg: defenseCfg
   }) : { lines: [], lineCount: 0, perAnchor: 0, targetCount: enemyCountForDifficulty(diff), enabled: false };
   const targetCount = defense.targetCount;
 
@@ -535,7 +586,7 @@ function makeNode(index, rng, env) {
     if (tooClose) continue;
 
     // 避开掩体
-    if (pointInCover(templateResult.covers, ex, ey, 60)) continue;
+    if (hitsCover(ex, ey, 60)) continue;
 
     const spec = composition[enemies.length] || {
       tankId: (cfg.enemyTankPool && cfg.enemyTankPool[0]) || 'tiger-I',
@@ -583,7 +634,7 @@ function makeNode(index, rng, env) {
           if (Math.hypot(gx - e.x, gy - e.y) < minDist) { ok = false; break; }
         }
         if (!ok) continue;
-        if (pointInCover(templateResult.covers, gx, gy, 60)) continue;
+        if (hitsCover(gx, gy, 60)) continue;
         let score;
         if (anchors.length) {
           // 防线模式：越贴近防线锚点越优先（score 越大越靠前）
@@ -637,7 +688,12 @@ function makeNode(index, rng, env) {
   if (losClusters.length && typeof ensureLoSCorridor === 'function') {
     const losRng = createRNG((((Number(templateResult.seed) >>> 0) ^ 0x4C05A3) + 0x9E3779B9) >>> 0);
     ensureLoSCorridor(templateResult.covers,
-      { spawn: playerSpawn, clusters: losClusters, bounds: { w: w, h: h } }, losRng);
+      {
+        spawn: playerSpawn, clusters: losClusters, bounds: { w: w, h: h },
+        // #Q5（2026-10-12）：挪移候选位避开实体出生点（敌军+玩家）——走廊后置运行，
+        // 掩体侧移不得落到出生点上（实测 8 处违反 60px 净空契约）。
+        avoid: [playerSpawn].concat(enemies.map(e => ({ x: e.x, y: e.y })))
+      }, losRng);
   }
   // 记录 A17 走廊所针对的敌簇质心（供校验/调试；不改变既有字段语义）
   const enemyClusters = losClusters;
@@ -655,7 +711,7 @@ function makeNode(index, rng, env) {
         if (Math.hypot(ox - e.x, oy - e.y) < (cfg.enemyMinPlayerDist || 250) * 0.8) { tooClose = true; break; }
       }
       if (tooClose) continue;
-      if (pointInCover(templateResult.covers, ox, oy, 48)) continue;
+      if (hitsCover(ox, oy, 48)) continue;
       outpost = { x: Math.round(ox), y: Math.round(oy) };
       break;
     }
@@ -697,6 +753,8 @@ function makeNode(index, rng, env) {
     defenseLines: defense.enabled ? defense.lines.map(l => ({ x0: l.x0, x1: l.x1 })) : [],
     exitX: w * ((cfg.exitZone && cfg.exitZone.xFraction !== undefined) ? cfg.exitZone.xFraction : 0.93),
     outpost: outpost,
+    // #N4：本节点生成收尾的 rng 状态（extendRun 免重放续接用；与节点内容同级确定性）
+    rngState: (typeof rng.getState === 'function') ? rng.getState() : undefined,
     cleared: false
   };
 }
@@ -707,17 +765,105 @@ function makeNode(index, rng, env) {
 // 并以到各边距离做 padding 缓冲。纯函数、确定性、无外部依赖。
 function pointInCover(covers, x, y, padding) {
   for (const c of covers) {
-    if (c.verts || c.collisionVerts) {
-      if (pointInCoverPoly(c, x, y, padding)) return true;
+    if (pointInCoverOne(c, x, y, padding)) return true;
+  }
+  return false;
+}
+
+// 单个掩体的点命中（pointInCover 的拆出，供索引化查询复用）
+function pointInCoverOne(c, x, y, padding) {
+  if (!c) return false;
+  if (c.verts || c.collisionVerts) {
+    return pointInCoverPoly(c, x, y, padding);
+  }
+  const dx = x - c.x, dy = y - c.y;
+  const ang = -(c.angle || 0);
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const lx = dx * ca - dy * sa;
+  const ly = dx * sa + dy * ca;
+  return Math.abs(lx) <= (c.w || 0) / 2 + padding && Math.abs(ly) <= (c.h || 0) / 2 + padding;
+}
+
+// ---------- #N4 掩体占位空间索引（strip 节点性能） ----------
+// strip 节点 covers 300~1100：敌人生成（targetCount×80 次尝试）、兜底网格、出生点/据点
+// 选址对 pointInCover 的调用达百万级（CPU profile 实测 pointInCover + makeNode 内联循环
+// 合计 ~50%）。按 256px 网格预索引每个掩体的包络 AABB，点查询只取所在格 ±ring 环
+// （ring = ceil(padding/cell)，保证覆盖半径 padding 内的一切掩体）。
+// 索引只做候选粗筛，精判仍走 pointInCoverOne ⇒ 与全表扫描语义完全一致。
+const COVER_IDX_CELL = 256;
+function buildCoverIndex(covers) {
+  const map = new Map();
+  const cell = COVER_IDX_CELL;
+  const put = (key, i) => { let a = map.get(key); if (!a) { a = []; map.set(key, a); } a.push(i); };
+  for (let i = 0; i < covers.length; i++) {
+    const c = covers[i];
+    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y)) continue;
+    // 包络半幅（旋转矩形解析包络 / 多边形逐顶点 / 多段取并集外包络）
+    let ex, ey;
+    const a = c.angle || 0;
+    if (c.segments && c.segments.length) {
+      // 多段连通（河流）：索引并集 = 实例矩形框（pointInCoverOne 对带 segments 的实例
+      // 仍按 c.x/c.y/c.w/c.h 判矩形命中）∪ 各段 AABB。只取任一会漏检/错检。
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      const say = Math.sin(a), cay = Math.cos(a);
+      const hw0 = (c.w || 0) / 2, hh0 = (c.h || 0) / 2;
+      const ex0 = Math.abs(cay) * hw0 + Math.abs(say) * hh0;
+      const ey0 = Math.abs(say) * hw0 + Math.abs(cay) * hh0;
+      minX = Math.min(minX, c.x - ex0); maxX = Math.max(maxX, c.x + ex0);
+      minY = Math.min(minY, c.y - ey0); maxY = Math.max(maxY, c.y + ey0);
+      for (const s of c.segments) {
+        const hx = (s.w || c.w || 0) / 2, hy = (s.h || c.h || 0) / 2;
+        const sx = c.x + (s.dx || 0), sy = c.y + (s.dy || 0);
+        const sa2 = (s.angle || 0) + a;
+        const sex = Math.abs(Math.cos(sa2)) * hx + Math.abs(Math.sin(sa2)) * hy;
+        const sey = Math.abs(Math.sin(sa2)) * hx + Math.abs(Math.cos(sa2)) * hy;
+        minX = Math.min(minX, sx - sex); maxX = Math.max(maxX, sx + sex);
+        minY = Math.min(minY, sy - sey); maxY = Math.max(maxY, sy + sey);
+      }
+      if (!Number.isFinite(minX)) continue;
+      const x0 = Math.floor(minX / cell), x1 = Math.floor(maxX / cell);
+      const y0 = Math.floor(minY / cell), y1 = Math.floor(maxY / cell);
+      if ((x1 - x0 + 1) * (y1 - y0 + 1) > 64) { put('*', i); continue; }
+      for (let gx = x0; gx <= x1; gx++) for (let gy = y0; gy <= y1; gy++) put(gx + ',' + gy, i);
+      continue;
+    }
+    if (c.verts && c.verts.length >= 3) {
+      const ca = Math.cos(a), sa = Math.sin(a);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const v of c.verts) {
+        const wx = c.x + v[0] * ca - v[1] * sa, wy = c.y + v[0] * sa + v[1] * ca;
+        if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+        if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      }
+      ex = (maxX - minX) / 2; ey = (maxY - minY) / 2;
     } else {
-      const dx = x - c.x, dy = y - c.y;
-      const ang = -(c.angle || 0);
-      const ca = Math.cos(ang), sa = Math.sin(ang);
-      const lx = dx * ca - dy * sa;
-      const ly = dx * sa + dy * ca;
-      if (Math.abs(lx) <= (c.w || 0) / 2 + padding && Math.abs(ly) <= (c.h || 0) / 2 + padding) return true;
+      const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2;
+      ex = Math.abs(Math.cos(a)) * hw + Math.abs(Math.sin(a)) * hh;
+      ey = Math.abs(Math.sin(a)) * hw + Math.abs(Math.cos(a)) * hh;
+    }
+    const x0 = Math.floor((c.x - ex) / cell), x1 = Math.floor((c.x + ex) / cell);
+    const y0 = Math.floor((c.y - ey) / cell), y1 = Math.floor((c.y + ey) / cell);
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 64) { put('*', i); continue; }
+    for (let gx = x0; gx <= x1; gx++) for (let gy = y0; gy <= y1; gy++) put(gx + ',' + gy, i);
+  }
+  return { map: map, cell: cell };
+}
+
+// 索引化点查询（与 pointInCover 语义一致；保守 ring 保证不漏检）
+function pointInCoverIndexed(idx, covers, x, y, padding) {
+  if (!idx || !Number.isFinite(x) || !Number.isFinite(y)) return pointInCover(covers, x, y, padding);
+  const cell = idx.cell;
+  const ring = Math.max(1, Math.ceil((padding || 0) / cell));
+  const cx = Math.floor(x / cell), cy = Math.floor(y / cell);
+  for (let gx = cx - ring; gx <= cx + ring; gx++) {
+    for (let gy = cy - ring; gy <= cy + ring; gy++) {
+      const arr = idx.map.get(gx + ',' + gy);
+      if (!arr) continue;
+      for (const i of arr) if (pointInCoverOne(covers[i], x, y, padding)) return true;
     }
   }
+  const wild = idx.map.get('*');
+  if (wild) for (const i of wild) if (pointInCoverOne(covers[i], x, y, padding)) return true;
   return false;
 }
 
@@ -769,9 +915,10 @@ function segDist(px, py, ax, ay, bx, by) {
  * @param {number} h 节点世界高
  * @param {any} rng createRNG 实例
  * @param {number} margin 与掩体/边界的最小间距
+ * @param {any} [coverIdx] 可选空间索引（buildCoverIndex 产出；strip 规模 covers 下避免全表扫描）
  * @returns {{x:number, y:number}}
  */
-function findPlayerSpawn(covers, w, h, rng, margin) {
+function findPlayerSpawn(covers, w, h, rng, margin, coverIdx) {
   const origX = w * 0.10, origY = h / 2;
   const loX = margin, hiX = w - margin;
   const loY = margin, hiY = h - margin;
@@ -788,9 +935,12 @@ function findPlayerSpawn(covers, w, h, rng, margin) {
   });
 
   let best = null, bestCost = Infinity;
+  const hits = coverIdx
+    ? (x, y, pad) => pointInCoverIndexed(coverIdx, covers, x, y, pad)
+    : (x, y, pad) => pointInCover(covers, x, y, pad);
   const consider = (x, y) => {
     const p = clamp(x, y);
-    if (pointInCover(covers, p.x, p.y, margin)) return;
+    if (hits(p.x, p.y, margin)) return;
     const c = cost(p.x, p.y);
     if (c < bestCost) { bestCost = c; best = p; }
   };
@@ -812,22 +962,23 @@ function findPlayerSpawn(covers, w, h, rng, margin) {
   // 若仍被阻挡则继续沿该方向外推，直到清空（受步数限制）；最后钳制到边界内。
   let offending = null;
   for (const c of covers) {
-    const halfW = c.w / 2 + margin, halfH = c.h / 2 + margin;
+    if (!c || !Number.isFinite(c.x)) continue;
+    const halfW = (c.w || 0) / 2 + margin, halfH = (c.h || 0) / 2 + margin;
     if (Math.abs(origX - c.x) <= halfW && Math.abs(origY - c.y) <= halfH) { offending = c; break; }
   }
   if (offending) {
     let vx = origX - offending.x, vy = origY - offending.y;
     const len0 = Math.hypot(vx, vy);
     if (len0 < 1e-6) { vx = -1; vy = 0; } else { vx /= len0; vy /= len0; }
-    const reachX = offending.w / 2 + margin + 5;
-    const reachY = offending.h / 2 + margin + 5;
+    const reachX = (offending.w || 0) / 2 + margin + 5;
+    const reachY = (offending.h || 0) / 2 + margin + 5;
     const tX = vx !== 0 ? reachX / Math.abs(vx) : Infinity;
     const tY = vy !== 0 ? reachY / Math.abs(vy) : Infinity;
     let t = Math.max(tX, tY);
-    const stepInc = offending.w * 0.25 + offending.h * 0.25 + margin;
+    const stepInc = (offending.w || 0) * 0.25 + (offending.h || 0) * 0.25 + margin;
     for (let step = 0; step < 64; step++) {
       const p = clamp(offending.x + vx * t, offending.y + vy * t);
-      if (!pointInCover(covers, p.x, p.y, margin)) return p;
+      if (!hits(p.x, p.y, margin)) return p;
       t += stepInc;
     }
   }
@@ -870,9 +1021,22 @@ function generateRun(seed, count, env) {
 function extendRun(run, envOverride) {
   if (!run || !Array.isArray(run.nodes)) return null;
   const e = (envOverride !== undefined) ? envOverride : (run.env || null);
+  // #N4（2026-10-10）：免重放续接——makeNode 在每个节点上记录收尾 rng 状态
+  // （node.rngState），从最后一个已知状态恢复即可精确续接，无需重算全部前序节点
+  // （strip 节点 ~80~370ms/个，重放续接在长链下是 O(n²) 冻结；状态恢复为 O(1)）。
+  // 兼容回退：任一节点缺 rngState（旧数据/外部构造）→ 退回逐节点重放（原口径，结果一致）。
+  let resume = null;
+  for (let i = run.nodes.length - 1; i >= 0; i--) {
+    const st = run.nodes[i] && run.nodes[i].rngState;
+    if (Number.isFinite(st)) { resume = { index: i, state: st }; break; }
+  }
   const rng = createRNG(run.seed);
-  for (let i = 0; i < run.nodes.length; i++) {
-    makeNode(i, rng, e);          // 重放 rng 流（丢弃结果）
+  if (resume && resume.index === run.nodes.length - 1) {
+    rng.setState(resume.state);
+  } else {
+    for (let i = 0; i < run.nodes.length; i++) {
+      makeNode(i, rng, e);          // 重放 rng 流（丢弃结果）
+    }
   }
   const next = makeNode(run.nodes.length, rng, e);
   run.env = e;
@@ -1165,6 +1329,11 @@ if (typeof module !== 'undefined' && module.exports) {
     generateRun,
     extendRun,
     scoreNode,
-    materializeNode
+    materializeNode,
+    pointInCover,
+    pointInCoverOne,
+    pointInCoverPoly,
+    buildCoverIndex,
+    pointInCoverIndexed
   };
 }

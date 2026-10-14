@@ -134,7 +134,8 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
     check('Home 显示存档卡片并可点击进入', clickedEnter);
     await waitFor(600);
 
-    // loadout → START RUN（beginRunFromMenu → map）
+    // #N5（2026-10-10）：loadout → START 直接开打（beginRunFromMenu → startNewRun → battle，
+    // 旧口径经 map 中转屏再点「开始新的一局」——已简化移除）
     const started = await page.evaluate(() => {
       const btn = document.getElementById('loadStartBtn');
       if (!btn) return false;
@@ -142,18 +143,10 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
       return true;
     });
     check('loadout 点击 START（beginRunFromMenu）', started);
-    await waitFor(800);
+    await waitFor(2500);   // strip 节点生成 ~0.4s + 实体化 + 地面烘焙
 
     const flowState = await page.evaluate(() => window.__TEST__ ? window.__TEST__.flowState() : null);
-    check('出击后进入 map 态', flowState === 'map', `state=${flowState}`);
-
-    // skipToNode(0) → battle（走状态机，实体化节点战斗）
-    const battleState = await page.evaluate(() => {
-      if (window.__TEST__.flowState() !== 'map') return null;
-      window.__TEST__.skipToNode(0);
-      return window.__TEST__.flowState();
-    });
-    check('skipToNode(0) 进入 battle 态', battleState === 'battle', `state=${battleState}`);
+    check('#N5: 出击后直接进入 battle 态（map 中转屏已移除）', flowState === 'battle', `state=${flowState}`);
     await waitFor(500);
 
     const boot = await page.evaluate(() => {
