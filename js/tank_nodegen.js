@@ -733,9 +733,22 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
     // 支流：从上/下边出发，中途汇入干流
     const fromNorth = rng() < 0.5;
     const jx = totalW * rng.range(0.30, 0.70);  // 汇入点 x
-    // 干流在 jx 处的 y（近似：用同参数正弦估算）
-    const jy = Math.max(thick, Math.min(stripH - thick,
-      baseY + Math.sin(ph + (jx / totalW) * Math.PI * 2 * fr) * amp));
+    // #S1 干流在 jx 处的 y（2026-10-15：改用干流实际 segment 采样，不再用
+    // 同参数正弦估算——Catmull-Rom 采样与原始正弦在控制点之间有偏差）
+    let jy = baseY;
+    if (trunk && trunk.segments && trunk.segments.length) {
+      let _best = null;
+      for (const _sg of trunk.segments) {
+        const _d = Math.abs((_sg.dx || 0) - jx);
+        if (!_best || _d < _best.d) _best = { d: _d, y: _sg.dy };
+      }
+      if (_best) jy = _best.y;
+    } else {
+      jy = baseY + Math.sin(ph + (jx / totalW) * Math.PI * 2 * fr) * amp; // 兜底
+    }
+    jy = Math.max(thick, Math.min(stripH - thick, jy));
+    // #S1 缝合：支流末端伸入干流内部（过中心线 thick*0.25，水体合并），
+    // 取消末端收分——汇入处应是水体合并而非锥形对接
     const sx = jx + rng.range(-400, 400);
     const startY = fromNorth ? thick * 0.5 : stripH - thick * 0.5;
     const midX = (sx + jx) / 2 + rng.range(-150, 150);
@@ -753,13 +766,13 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
     const tribStartY = hasLake
       ? (fromNorth ? lakeY + lakeR * 0.8 : lakeY - lakeR * 0.8)
       : startY;
-    // 支流末端收分（汇入干流处 1.0→0.55，避免矩形叠印出戏）；无湖时源头也收分
+    // #S1：支流末端伸入干流（过中心线 thick*0.25），不收分——水体合并；无湖时源头仍收分
+    const _joinY = jy + (fromNorth ? 1 : -1) * thick * 0.25;
     const trib = buildRiver(
-      [{ x: sx, y: tribStartY }, { x: midX, y: midY }, { x: jx, y: jy }],
+      [{ x: sx, y: tribStartY }, { x: midX, y: midY }, { x: jx, y: _joinY }],
       thick * 0.6,
       (t) => {
         let f = 1;
-        if (t > 0.75) f = 1 - (t - 0.75) / 0.25 * 0.45;  // 末端收至 0.55
         if (!hasLake && t < 0.2) f = Math.min(f, 0.55 + t / 0.2 * 0.45);  // 源头收分
         return f;
       });
@@ -2700,15 +2713,29 @@ function generateStrip(difficulty, options) {
       }
     }
   }
-  // 2026-10-05：出界路段过滤（置于岔路/补缝之后）——placeRoadNetwork 的 segInBounds
-  // 只查段中心，宽幅下段半幅可能探出界。strip 级严格过滤：整段须在界内。
+  // #S11 出界路段裁剪（2026-10-15）：原逻辑整段删除 → 改为沿地图边界裁剪。
+  // 轴对齐段（angle≈0/90°）做精确矩形裁剪；旋转段仍用包络丢弃（strip 内罕见）。
   {
     const kept = [];
     for (const r of stripRoadNet.covers) {
       if (r.tier !== 'road') { kept.push(r); continue; }
-      const hw = (r.w || 0) / 2, hh = (r.h || 0) / 2;
-      const ext = Math.max(hw, hh);  // 旋转段用包络近似（保守）
-      if (r.x - ext < 0 || r.x + ext > totalW || r.y - ext < 0 || r.y + ext > stripH) continue;
+      const ang = ((r.angle || 0) % Math.PI + Math.PI) % Math.PI;
+      const axisAligned = ang < 0.05 || Math.abs(ang - Math.PI / 2) < 0.05;
+      if (!axisAligned) {
+        const hw = (r.w || 0) / 2, hh = (r.h || 0) / 2;
+        const ext = Math.max(hw, hh);
+        if (r.x - ext < 0 || r.x + ext > totalW || r.y - ext < 0 || r.y + ext > stripH) continue;
+        kept.push(r);
+        continue;
+      }
+      // 轴对齐矩形裁剪到 [0,totalW]×[0,stripH]
+      let x0 = r.x - r.w / 2, x1 = r.x + r.w / 2;
+      let y0 = r.y - r.h / 2, y1 = r.y + r.h / 2;
+      x0 = Math.max(0, x0); x1 = Math.min(totalW, x1);
+      y0 = Math.max(0, y0); y1 = Math.min(stripH, y1);
+      if (x1 - x0 < 8 || y1 - y0 < 8) continue; // 裁后太小则丢弃
+      r.x = (x0 + x1) / 2; r.y = (y0 + y1) / 2;
+      r.w = x1 - x0; r.h = y1 - y0;
       kept.push(r);
     }
     stripRoadNet.covers = kept;
@@ -2971,11 +2998,16 @@ function generateStrip(difficulty, options) {
                   const segLen = 70;
                   const mx = ex + Math.cos(midA) * segLen * side;
                   const my = ey + Math.sin(midA) * segLen * side;
-                  covers.push({
-                    x: (ex + mx) / 2, y: (ey + my) / 2,
-                    w: segLen + 20, h: stripRoadW * 0.9,
-                    angle: midA, tier: 'road', groupId: 'bridge-approach'
-                  });
+                  // #S11：引道出界则丢弃（旋转段不做裁剪）
+                  const _ax = (ex + mx) / 2, _ay = (ey + my) / 2;
+                  const _aext = Math.hypot((segLen + 20) / 2, (stripRoadW * 0.9) / 2);
+                  if (_ax - _aext >= 0 && _ax + _aext <= totalW && _ay - _aext >= 0 && _ay + _aext <= stripH) {
+                    covers.push({
+                      x: _ax, y: _ay,
+                      w: segLen + 20, h: stripRoadW * 0.9,
+                      angle: midA, tier: 'road', groupId: 'bridge-approach'
+                    });
+                  }
                 }
               }
             }

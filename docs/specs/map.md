@@ -43,6 +43,7 @@
 - 零外部图片依赖：assets/ 目录为空时自动离屏烘焙缓存（ASSET_CACHE），file:// 离线完整兼容。
 - tools/bake.html 一键导出 PNG 到 assets/，日后真实美术直接替换同名文件接口不变。
 - **树冠视觉-逻辑对齐（#A10）**：`tree.bakeCanopy` 冠径乘数由 `1.9` 降至 `1.4`，使树冠视觉半径更贴近逻辑 OBB（24×18），缓解"所见远大于所挡"的脱节；倒树（fallen）保留根部伐倒断面高亮。如需进一步收紧可继续下调或提为 RULES 参数。
+- **建筑程序化细节（#S13，2026-10-15）**：`drawStyle:'box'`（full/building/intact）不再是纯色块——加屋顶内收（12%，深色）+ 天窗网格（2~3 列，25% 空缺，deterministic hash）+ 墙体左上高光。实现 `js/tank_battledraw.js` `drawCover` box 分支。
 
 ## 5. 地形类型抽象 (Terrain-Type Abstraction)
 
@@ -243,6 +244,8 @@
   - 前向干地 → 原样返回（零行为漂移）。
   - 入水判定 = cover 实例的 OBB / `verts` 多边形局部点测（自包含纯函数，`ctx.covers` 注入，covers 缺失时原样返回）。水区通行由 passability 0.4 经 `getCoverUnderTank` 减速，不另行阻断。
 - **update §5.4 checklist #3**：AI 读地形避水已由 `applyWaterAvoidance` 承担（绕行而非找掩体）；§6 覆盖 `shellBlock` 语义不受影响。
+- **水面渲染（#S12，2026-10-15）**：`water-chain` 去掉单根中心高光线，改为 ① 两岸暗带（深色，暗示水深）② 每段 3 条流向 streak（浅色短线，横向偏移/长度/透明度由位置 hash 确定性派生）③ 经 `performance.now()` 驱动的缓慢漂移（0.03/s，Node 生图时相位 0）。实现 `js/tank_battledraw.js`。
+- **支流缝合（#S1，2026-10-15）**：H1T 支流汇入点 y 改用干流实际 segment 采样（不再用同参数正弦估算）；支流末端伸入干流内部（过中心线 `thick*0.25`），取消末端收分（原 1.0→0.55）——汇入处为水体合并而非锥形对接。实现 `js/tank_nodegen.js`。
 
 ## 12. 掩体体系收敛：全高=建筑/岩石、半高掩体移除、确定性挡弹（2026-09-20 #E1/#E3 用户裁定）
 
@@ -272,6 +275,7 @@
 - **公路加速**：`RULES.nodeMap.road.speedBonusKmh = 10`——坦克在 `tier:'road'` 条带上行驶时表速 +10km/h，受 `RULES.parameterLimits.maxSpeed.max`（150km/h，即 375 px/s）上限钳制；加成经 `speedBonusLerp` 指数阻尼平顺生效（进出路面不突跳）。消费方 `js/tank_move.js driveTank`。
   > **沿革注记（2026-10-14 #S4/#S14）**：road 为纯地面标识，2026-09-14 起被 `getCoverUnderTank` 显式跳过（零物理优化），导致 #E3 的公路加速判定 `onRoad` 恒 false、加成**从未生效**（2026-09-20~2026-10-14）。修复：`js/tank_cover.js` 新增 `getRoadUnderTank`（同款 OBB 相交 + 空间索引，仅查 road tier），`driveTank` 改走本函数判定 `onRoad`。**道路屏蔽下层减速**（#S14）：road 存在时 `speedModifier/turnModifier` 强制 1.0——压在 river/mud 上的路段不再吃 0.4 减速（此前 `getCoverUnderTank` 返回下层 river/mud 照常减速）。
 - **村镇街道同步加宽**：`placeVillage` 的 `roadW` 亦改读 `RULES.nodeMap.road`（消除两套硬编码）。
+- **出界路段裁剪（#S11，2026-10-15）**：strip 级出界路段原整段删除 → 轴对齐段沿地图边界精确矩形裁剪（旋转段仍丢弃）；`bridge-approach` 引道加出界丢弃。20 seed 全量扫描出界道路 0 条。
 
 ### 12.4 建筑沿路/路口聚集 + 路口沙包（#E3）
 新增 `placeRoadsideBuildings`（`RULES.nodeMap.building`：`roadBand 96 / junctionBias 0.9 / junctionRadius 210 / clusterPerJunction 3~5 / maxPerNode 18`）与 `placeJunctionBarricades`（`RULES.nodeMap.junctionBarricades`：`chance 0.85 / countMin~Max 2~4 / ringMin~Max 0.9~1.9×路宽`）：

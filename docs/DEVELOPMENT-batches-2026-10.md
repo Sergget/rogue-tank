@@ -471,3 +471,13 @@
   - **修复**：① `bossLootPool()` 把全池链升级卡（`ef.replaceAmmo`）并入候选（不受稀有度下限过滤）；② `drawCardChoices` 新增 `opts.guaranteeAmmoUpgrade` → 绕开掷骰与 pace 衰减**必抽 1 张**（无链资格卡时静默跳过）；③ `drawRewardCards` 在 `pendingLootRounds > 0` 时传该 flag。链过滤器（前驱资格禁跳级）与 `cardEligible` 照常先行。
 - **验证**：`scripts/test-cards.js` 新增 #S5 回归段 6 项断言（200 种子 200/200 命中恰 1 张、前驱资格非跳级、链毕业不崩）；`npm run check` EXIT=0；`npm test` 43/43。
 - **现行口径归口**：`docs/specs/cards.md` §8.3（副武器卡）+ §9（Boss 保底）。ISSUES.md #S6/#S5 删除并归档。
+
+### §4.74 2026-10-15 #S12/#S1/#S11/#S13：地图视觉四项 + Node 直出生图管线
+
+- **生图管线（用户建议）**：`scripts/lib/mini-canvas.js`（纯 JS Canvas2D 垫片：路径光栅化/渐变/裁剪/drawImage/getImageData/PNG 编码，零依赖）+ `scripts/render-map-shot.js`（生成算法 → 真实 `drawGround/drawCover/drawFoliage`（含 `tank_assets.js` 离屏烘焙）→ PNG；`--focus river|road|village|all`、`--cx/--cy/--cw/--ch` 手动裁剪）。解决无浏览器环境视觉验收问题。
+- **#S12 河面**：`water-chain` 去掉单根中心高光线 → 两岸暗带 + 每段 3 条流向 streak（位置 hash 确定性）+ `performance.now()` 缓慢漂移（0.03/s）。
+- **#S1 支流缝合**：汇入点 y 改用干流实际 segment 采样（替代正弦估算）；支流末端伸入干流（过中心线 `thick*0.25`），取消末端收分——水体合并。
+- **#S11 出界裁剪**：strip 级轴对齐路段沿边界精确矩形裁剪（原整段删除）；`bridge-approach` 引道加出界丢弃；`placeRoadNetwork` 的 `segInBounds` 保持原中心检查（改严格会 RNG 漂移破坏校准基线）。20 seed 出界道路 0 条。
+- **#S13 建筑**：`box` 分支加屋顶内收 + 天窗网格 + 墙体高光（deterministic）。
+- **验证**：生图目视确认 4 项；`npm run check` EXIT=0；`npm test` 43/43。
+- **现行口径归口**：`docs/specs/map.md` §11（水面/支流）§12.3（出界裁剪）§4（建筑）。ISSUES.md #S12/#S1/#S11/#S13 删除并归档。

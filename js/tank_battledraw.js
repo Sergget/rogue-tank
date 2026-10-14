@@ -170,6 +170,40 @@ function drawCover(ctx, cov){
     ctx.closePath();
     ctx.fillStyle = tier.fill; ctx.fill();
     ctx.strokeStyle = tier.stroke; ctx.lineWidth=2; ctx.stroke();
+    // #S13 建筑程序化细节（2026-10-15）：屋顶内收 + 天窗网格 + 墙体高光。
+    // 全部确定性（坐标 hash），不动包围盒。
+    const _bx = cov.x, _by = cov.y, _bw = cov.w || 40, _bh = cov.h || 40;
+    const _bang = cov.angle || 0;
+    const _bh1 = function (n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+    const _bseed = _bx * 0.913 + _by * 0.717;
+    ctx.save();
+    ctx.translate(_bx, _by); ctx.rotate(_bang);
+    const _hw = _bw / 2, _hh = _bh / 2;
+    // 屋顶：内收 12%，稍深色
+    ctx.fillStyle = 'rgba(60,30,22,0.35)';
+    ctx.fillRect(-_hw * 0.88, -_hh * 0.88, _hw * 1.76, _hh * 1.76);
+    ctx.strokeStyle = 'rgba(40,20,14,0.5)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(-_hw * 0.88, -_hh * 0.88, _hw * 1.76, _hh * 1.76);
+    // 天窗：2~4 个小方块，位置 deterministic
+    const _nw = Math.max(1, Math.min(3, Math.floor(_bw / 46)));
+    const _nh = Math.max(1, Math.min(3, Math.floor(_bh / 46)));
+    ctx.fillStyle = 'rgba(30,34,40,0.75)';
+    for (let _ix = 0; _ix < _nw; _ix++) for (let _iy = 0; _iy < _nh; _iy++) {
+      if (_bh1(_bseed + _ix * 3.7 + _iy * 9.1) < 0.25) continue; // 25% 空缺
+      const _wx = -_hw * 0.88 + (_ix + 0.5) * (_hw * 1.76 / _nw);
+      const _wy = -_hh * 0.88 + (_iy + 0.5) * (_hh * 1.76 / _nh);
+      const _ws = Math.min(10, _hw * 1.76 / _nw * 0.32);
+      ctx.fillRect(_wx - _ws / 2, _wy - _ws / 2, _ws, _ws);
+      // 天窗高光
+      ctx.fillStyle = 'rgba(180,200,220,0.35)';
+      ctx.fillRect(_wx - _ws / 2, _wy - _ws / 2, _ws, 2);
+      ctx.fillStyle = 'rgba(30,34,40,0.75)';
+    }
+    // 墙体高光（左上边缘光源）
+    ctx.strokeStyle = 'rgba(255,220,180,0.28)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-_hw, -_hh); ctx.lineTo(_hw, -_hh); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-_hw, -_hh); ctx.lineTo(-_hw, _hh); ctx.stroke();
+    ctx.restore();
     ctx.fillStyle = tier.stroke; ctx.font='10px "JetBrains Mono", monospace';
     ctx.fillText(tier.label, cov.x-24, cov.y-cov.h/2-6);
   } else if(tier.draw === 'mud'){
@@ -230,16 +264,42 @@ function drawCover(ctx, cov){
       for(let i=1;i<rc.length;i++) ctx.lineTo(rc[i].x,rc[i].y);
       ctx.closePath();
       ctx.fillStyle = tier.fill || '#3578a8'; ctx.fill();
-      // 水面高光：沿段向（angle）的浅色流线（#R1 修正：旧版按 w>=h 取轴向，
-      // strip 河段 w（沿向长≈150px）< h（河宽 170~360px）时恒走竖向分支，且未旋转，
-      // 每段一根横向短线是分段感的来源之一）。现沿 angle 画，段链连成流量虚线。
+      // #S12 水流纹理（2026-10-15）：去掉单根中心高光线，改为
+      // ① 两岸暗带（深色，暗示水深/岸影）② 3 条流向 streak（浅色短线，
+      // 横向偏移 deterministic hash，沿流向缓慢漂移）。动画经 performance.now
+      // 驱动（Node 生图时无 performance → 相位 0 静态快照）。
       const _ra = r.angle || 0, _rx = Math.cos(_ra), _ry = Math.sin(_ra);
-      const _hl = Math.max(12, (r.w || 0) * 0.30);
-      ctx.strokeStyle = 'rgba(220,240,255,0.35)'; ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(r.x - _rx * _hl, r.y - _ry * _hl);
-      ctx.lineTo(r.x + _rx * _hl, r.y + _ry * _hl);
-      ctx.stroke();
+      const _nx = -_ry, _ny = _rx; // 法向
+      const _segLen = Math.max(r.w || 0, r.h || 0);
+      const _halfW = Math.min(r.w || 0, r.h || 0) / 2;
+      const _now = (typeof performance !== 'undefined' && performance.now) ? performance.now() / 1000 : 0;
+      const _h1 = function (n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+      const _seed = (r.x || 0) * 0.37 + (r.y || 0) * 0.73;
+      // 岸边暗带
+      ctx.strokeStyle = 'rgba(20,50,80,0.28)'; ctx.lineWidth = Math.max(3, _halfW * 0.28);
+      for (const _side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(r.x - _rx * _segLen * 0.5 + _nx * _side * _halfW * 0.78,
+                   r.y - _ry * _segLen * 0.5 + _ny * _side * _halfW * 0.78);
+        ctx.lineTo(r.x + _rx * _segLen * 0.5 + _nx * _side * _halfW * 0.78,
+                   r.y + _ry * _segLen * 0.5 + _ny * _side * _halfW * 0.78);
+        ctx.stroke();
+      }
+      // 流向 streak（3 条/段，横向偏移 + 纵向相位均由位置 hash 确定性派生）
+      for (let _k = 0; _k < 3; _k++) {
+        const _lat = (_h1(_seed + _k * 7.3) - 0.5) * 1.1 * _halfW; // 横向偏移
+        const _ph = _h1(_seed + _k * 13.7);                          // 纵向相位 0~1
+        const _drift = ((_ph + _now * 0.03) % 1 - 0.5) * _segLen * 0.7; // 缓慢漂移
+        const _sl = _segLen * (0.10 + _h1(_seed + _k * 3.1) * 0.10);  // streak 长
+        const _cx = r.x + _rx * _drift + _nx * _lat;
+        const _cy = r.y + _ry * _drift + _ny * _lat;
+        ctx.strokeStyle = 'rgba(220,240,255,' + (0.22 + _h1(_seed + _k * 5.9) * 0.18).toFixed(2) + ')';
+        ctx.lineWidth = 1.6 + _h1(_seed + _k * 9.2) * 1.4;
+        ctx.beginPath();
+        ctx.moveTo(_cx - _rx * _sl, _cy - _ry * _sl);
+        ctx.lineTo(_cx + _rx * _sl, _cy + _ry * _sl);
+        ctx.stroke();
+      }
     }
   } else if(tier.draw === 'water'){
     // ISSUE 3：水域可见——半透明蓝 blob（verts 多边形或矩形回退），区别于地形绿/褐/灰
