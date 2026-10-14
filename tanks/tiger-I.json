@@ -28,20 +28,20 @@
     },
     "hull": {
       "img": "assets/tanks/tiger-I_hull.png",
-      "scale": 0.036644,
+      "scale": 0.05756,
       "dx": 0,
       "dy": -0.018,
       "rot": 0
     },
     "turret": {
       "img": "assets/tanks/tiger-I_turret.png",
-      "scale": 0.02542,
+      "scale": 0.032792,
       "dx": 0,
       "dy": 0,
       "rot": 0,
       "pivot": [
-        929.4,
-        640
+        720.5,
+        496.1
       ]
     },
     "barrel": {
@@ -50,6 +50,7 @@
       "embed": 2,
       "scaleMult": 1,
       "gap": 3.7,
+      "imgVehicle": "assets/tanks/barrels/barrel-tiger-I.png",
       "imgStandard": "assets/tanks/barrels/barrel-standard.png",
       "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
       "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"

@@ -28,20 +28,20 @@
     },
     "hull": {
       "img": "assets/tanks/Leapard_1_hull.png",
-      "scale": 0.031559,
+      "scale": 0.055386,
       "dx": 0,
       "dy": 0,
       "rot": 0
     },
     "turret": {
       "img": "assets/tanks/leopard1-turret.png",
-      "scale": 0.023088,
+      "scale": 0.027706,
       "dx": -2,
       "dy": 0,
       "rot": 0,
       "pivot": [
-        750.3,
-        566.5
+        625.2,
+        472.1
       ]
     },
     "barrel": {
@@ -50,6 +50,7 @@
       "embed": 2,
       "scaleMult": 1,
       "gap": 3.7,
+      "imgVehicle": "assets/tanks/barrels/barrel-leopard-1.png",
       "imgStandard": "assets/tanks/barrels/barrel-standard.png",
       "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
       "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"

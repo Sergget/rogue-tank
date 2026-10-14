@@ -28,20 +28,20 @@
     },
     "hull": {
       "img": "assets/tanks/panzer-IV_hull.png",
-      "scale": 0.031621,
+      "scale": 0.04672,
       "dx": 0,
       "dy": 0.016,
       "rot": 0
     },
     "turret": {
       "img": "assets/tanks/panzer-IV_turret.png",
-      "scale": 0.032,
+      "scale": 0.04904,
       "dx": 0,
       "dy": 0,
       "rot": 0,
       "pivot": [
-        630,
-        444.5
+        411.1,
+        290.0
       ]
     },
     "barrel": {

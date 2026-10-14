@@ -111,13 +111,13 @@
     "enabled": false,
     "hull": {
       "img": "assets/tanks/hummel_hull.png",
-      "scale": 0.031056,
+      "scale": 0.050053,
       "dx": 0.0,
       "dy": -0.016,
       "rot": 0,
       "pivot": [
-        967.0,
-        456.0
+        600.0,
+        282.9
       ]
     },
     "turret": {

@@ -34,6 +34,15 @@ function tierStyle(key){
   return null;
 }
 
+// 确定性伪随机（烘焙为纯函数：同 key 同序号恒得同值；探针/二次烘焙两次绘制一致，缓存安全）
+function hash01(key, i){
+  let h = 2166136261 >>> 0;
+  const s = key + ':' + i;
+  for(let k=0;k<s.length;k++){ h ^= s.charCodeAt(k); h = Math.imul(h, 16777619); }
+  h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
+
 // 尺寸/锚点为各档名义尺寸（缺省导出尺寸；bake 函数本身按 cov.w/cov.h 参数化绘制）。
 // 锚点 = 名义尺寸下实测内容的几何推导值（bake.html 预览显示实测值，允许 ±1~2px 容差）。
 const ASSET_DEFS = {
@@ -78,6 +87,26 @@ const ASSET_DEFS = {
       const ts = tierStyle('barricade');
       ctx.strokeStyle = (ts && ts.stroke) || '#9e8048'; ctx.lineWidth=1.5;
       ctx.beginPath(); ctx.ellipse(x, y, w/2, h/2, 0, 0, TAU); ctx.stroke();
+      // 袋面细节（P2 程序化先行 2026-10-10：袋间缝线 + 袋顶高光 + 袋底绳结；
+      // 全部收在外圈椭圆 w/2×h/2 内，不动内容包围盒/实测锚点）
+      ctx.fillStyle = 'rgba(90,70,40,0.5)';
+      for(let i=0;i<3;i++){
+        ctx.beginPath();
+        ctx.ellipse(x - w/4 + i*w/4, y + h*0.05, 0.8, h*0.14, 0, 0, TAU);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(180,150,100,0.45)';
+      for(let i=0;i<4;i++){
+        ctx.beginPath();
+        ctx.arc(x - w/2 + (i+0.5)*w/4, y - h*0.15, 2, 0, TAU);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(70,54,30,0.6)';
+      for(let i=0;i<4;i++){
+        ctx.beginPath();
+        ctx.arc(x - w/2 + (i+0.5)*w/4, y + h*0.18, 1.5, 0, TAU);
+        ctx.fill();
+      }
     }
   },
   // 树桩（stump）：木桩椭圆 + 年轮（原 drawCover stump 分支）
@@ -92,6 +121,22 @@ const ASSET_DEFS = {
       // 年轮
       ctx.strokeStyle = 'rgba(60,40,22,0.6)';
       ctx.beginPath(); ctx.ellipse(x, y, w*0.3, h*0.3, 0, 0, TAU); ctx.stroke();
+      // 切面细节（P3 程序化先行 2026-10-10：内外年轮 + 中心髓点 + 外圈木纹点 + 受光高光；
+      // 全部收在外圈椭圆 w/2×h/2 内，不动内容包围盒/实测锚点）
+      ctx.strokeStyle = 'rgba(60,40,22,0.5)';
+      ctx.beginPath(); ctx.ellipse(x, y, w*0.15, h*0.15, 0, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x, y, w*0.45, h*0.45, 0, 0, TAU); ctx.stroke();
+      ctx.fillStyle = 'rgba(46,30,15,0.8)';
+      ctx.beginPath(); ctx.arc(x, y, 1.5, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(150,110,70,0.4)';
+      ctx.beginPath(); ctx.ellipse(x - w*0.12, y - h*0.16, w*0.16, h*0.11, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(66,44,24,0.55)';
+      for(let i=0;i<8;i++){
+        const a = hash01('stump-grain', i)*TAU;
+        ctx.beginPath();
+        ctx.arc(x + Math.cos(a)*w*0.38, y + Math.sin(a)*h*0.38, 1, 0, TAU);
+        ctx.fill();
+      }
     }
   },
   // 碎石（rubble）：5 颗碎石块（原 drawCover rubble 分支）
@@ -104,6 +149,20 @@ const ASSET_DEFS = {
         const oy = (i<2? 1:-1)*h*0.15 + (i===4? 0 : 2);
         ctx.fillStyle = i%2 ? 'rgba(96,92,84,0.75)' : 'rgba(112,108,98,0.7)';
         ctx.beginPath(); ctx.arc(x+ox, y+oy, 2.2 + (i%3), 0, TAU); ctx.fill();
+        // 石块细节（P4 程序化先行 2026-10-10：受光高光 + 暗缝；落在石块半径内，
+        // 不动内容包围盒/实测锚点 anchorX 20.04/anchorY 7.75）
+        ctx.fillStyle = 'rgba(170,165,150,0.5)';
+        ctx.beginPath(); ctx.arc(x+ox-0.8, y+oy-0.8, 1, 0, TAU); ctx.fill();
+        ctx.fillStyle = 'rgba(40,38,34,0.6)';
+        ctx.beginPath(); ctx.arc(x+ox+1, y+oy+1, 1, 0, TAU); ctx.fill();
+      }
+      // 石缝碎屑（同上：中央簇附近确定性小点，不动的旧包围盒内）
+      ctx.fillStyle = 'rgba(88,84,76,0.6)';
+      for(let i=0;i<3;i++){
+        ctx.beginPath();
+        ctx.arc(x + (hash01('rubble-chip', i*2)-0.5)*w*0.5,
+                y + (hash01('rubble-chip', i*2+1)-0.5)*h*0.45, 1, 0, TAU);
+        ctx.fill();
       }
     }
   },
@@ -127,6 +186,23 @@ const ASSET_DEFS = {
       }
       ctx.strokeStyle = 'rgba(92,132,60,0.55)'; ctx.lineWidth=1;
       ctx.beginPath(); ctx.ellipse(x, y, w*0.34, h*0.34, 0, 0, TAU); ctx.stroke();
+      // 叶簇细节（P6 程序化先行 2026-10-10：高光斑 + 明暗叶点；全部收在 0.34 轮廓内，
+      // 不动内容包围盒/实测锚点；AI 图落盘后由图片通道替换，本段仅作回退）
+      for(let i=0;i<3;i++){
+        const a = hash01('bush-hi', i)*TAU;
+        ctx.fillStyle = 'rgba(150,180,100,0.5)';
+        ctx.beginPath();
+        ctx.ellipse(x+Math.cos(a)*w*0.08, y+Math.sin(a)*h*0.08 - h*0.05, w*0.07, h*0.07, a, 0, TAU);
+        ctx.fill();
+      }
+      for(let i=0;i<14;i++){
+        const a = hash01('bush-sp', i)*TAU;
+        const rad = Math.sqrt(hash01('bush-sr', i))*0.28;
+        ctx.fillStyle = (i%3===0) ? 'rgba(150,182,102,0.65)' : 'rgba(40,66,30,0.55)';
+        ctx.beginPath();
+        ctx.arc(x+Math.cos(a)*w*rad, y+Math.sin(a)*h*rad, 0.8 + hash01('bush-ss', i)*1.1, 0, TAU);
+        ctx.fill();
+      }
     }
   },
   // 树（tree）：树干（bake）+ 树冠叶片（bakeCanopy，画在坦克之上遮视线）
@@ -154,6 +230,25 @@ const ASSET_DEFS = {
       ctx.beginPath(); ctx.arc(x-R*0.3, y+R*0.15, R*0.45, 0, TAU); ctx.fill();
       ctx.strokeStyle = 'rgba(48,80,38,0.6)'; ctx.lineWidth=1;
       ctx.beginPath(); ctx.arc(x, y, R*0.85, 0, TAU); ctx.stroke();
+      // 树冠细节（P8 程序化先行 2026-10-10：受光高光 + 叶点 + 深色内腔；全部收在 R*0.85 主圆内，
+      // 不动内容包围盒/实测锚点；冠径乘数保持 #A10 的 1.4 不变）
+      for(let i=0;i<3;i++){
+        const a = hash01('tree-hi', i)*TAU;
+        ctx.fillStyle = 'rgba(120,160,80,0.45)';
+        ctx.beginPath();
+        ctx.arc(x+Math.cos(a)*R*0.3, y+Math.sin(a)*R*0.3 - R*0.12, R*0.14, 0, TAU);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(30,50,24,0.5)';
+      ctx.beginPath(); ctx.arc(x+R*0.1, y+R*0.18, R*0.3, 0, TAU); ctx.fill();
+      for(let i=0;i<16;i++){
+        const a = hash01('tree-sp', i)*TAU;
+        const rad = Math.sqrt(hash01('tree-sr', i))*0.75;
+        ctx.fillStyle = (i%3===0) ? 'rgba(126,166,84,0.6)' : 'rgba(36,60,28,0.5)';
+        ctx.beginPath();
+        ctx.arc(x+Math.cos(a)*R*rad, y+Math.sin(a)*R*rad, Math.max(1, R*0.035 + hash01('tree-ss', i)*R*0.03), 0, TAU);
+        ctx.fill();
+      }
     }
   },
   // 倒树（fallen，残骸）：横躺树干 + 枝杈 + 根部断面（bake）+ 树冠叶片（bakeCanopy）
@@ -200,6 +295,22 @@ const ASSET_DEFS = {
       }
       ctx.strokeStyle = 'rgba(92,132,60,0.55)'; ctx.lineWidth=1;
       ctx.beginPath(); ctx.ellipse(cx, cy, rw, rh, 0, 0, TAU); ctx.stroke();
+      // 叶簇细节（P10 程序化先行 2026-10-10：高光 + 叶点；收在 rw×rh 轮廓内，不动包围盒/锚点）
+      for(let i=0;i<2;i++){
+        const a = hash01('fallen-hi', i)*TAU;
+        ctx.fillStyle = 'rgba(150,180,100,0.5)';
+        ctx.beginPath();
+        ctx.ellipse(cx+Math.cos(a)*rw*0.25, cy+Math.sin(a)*rh*0.25 - rh*0.12, rw*0.16, rh*0.16, a, 0, TAU);
+        ctx.fill();
+      }
+      for(let i=0;i<10;i++){
+        const a = hash01('fallen-sp', i)*TAU;
+        const rad = Math.sqrt(hash01('fallen-sr', i))*0.8;
+        ctx.fillStyle = (i%3===0) ? 'rgba(150,182,102,0.6)' : 'rgba(40,66,30,0.55)';
+        ctx.beginPath();
+        ctx.arc(cx+Math.cos(a)*rw*rad, cy+Math.sin(a)*rh*rad, 0.8 + hash01('fallen-ss', i), 0, TAU);
+        ctx.fill();
+      }
     }
   }
 };
@@ -342,6 +453,7 @@ if (typeof module !== 'undefined' && module.exports) {
     ASSET_DEFS,
     ASSET_CACHE,
     clearAssetCache,
+    hash01,
     assetImage,
     loadAssetImage,
     preloadAssets,

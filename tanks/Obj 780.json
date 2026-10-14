@@ -28,20 +28,20 @@
     },
     "hull": {
       "img": "assets/tanks/Obj780_hull.png",
-      "scale": 0.035405,
+      "scale": 0.057976,
       "dx": 0.05,
       "dy": 0,
       "rot": 0
     },
     "turret": {
       "img": "assets/tanks/obj780-turret.png",
-      "scale": 0.029915,
+      "scale": 0.037968,
       "dx": 0,
       "dy": 0,
       "rot": 0,
       "pivot": [
-        860.1,
-        567
+        677.7,
+        446.7
       ]
     },
     "barrel": {
@@ -50,6 +50,7 @@
       "embed": 2,
       "scaleMult": 1,
       "gap": 3.7,
+      "imgVehicle": "assets/tanks/barrels/barrel-obj780.png",
       "imgStandard": "assets/tanks/barrels/barrel-standard.png",
       "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
       "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"

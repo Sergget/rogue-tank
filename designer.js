@@ -91,6 +91,15 @@ let trackPhase = 0; // scrolling track animation phase for edit modes (driven at
 let editTab = 'hull';
 // 部件可见性开关（纯编辑辅助，不写入任何导出/JSON）：隐藏的部件不渲染、不参与画布命中
 let partVisible = { hull: true, turret: true };
+// 背景参考图片（设计器本地，仅预览，不写入存档）
+let bgImage = null;          // HTMLImageElement，由文件上传的 ObjectURL 加载
+let bgObjectUrl = null;      // 用于释放内存
+let bgOpacity = 0.4;         // 0~1
+let bgScale = 1.0;           // 相对于「整图完整显示在画布内」的缩放倍数
+let bgOffsetX = 0;           // 屏幕像素偏移（仅设计器本地）
+let bgOffsetY = 0;           // 屏幕像素偏移（仅设计器本地）
+let bgEnabled = false;       // 是否显示背景
+let bgFilename = '';
 const HIT_R = 9, EDGE_HIT_R = 8;
 const ZOOM_MIN = 0.3, ZOOM_MAX = 8;
 
@@ -776,6 +785,62 @@ document.getElementById('partVisTurretBtn').addEventListener('click', ()=>{
 document.getElementById('zoomInBtn').addEventListener('click', ()=>{ viewScale=Math.min(ZOOM_MAX,viewScale*1.2); updateZoomReadout(); render(); });
 document.getElementById('zoomOutBtn').addEventListener('click', ()=>{ viewScale=Math.max(ZOOM_MIN,viewScale/1.2); updateZoomReadout(); render(); });
 document.getElementById('zoomResetBtn').addEventListener('click', ()=>{ viewScale=1; updateZoomReadout(); render(); });
+
+// ================= 背景参考图片 Background =================
+document.getElementById('bgUploadBtn').addEventListener('click', ()=>{
+  document.getElementById('bg-file-input').click();
+});
+// 文件上传：读取为 ObjectURL，创建 Image 对象，加载完成后触发重绘
+document.getElementById('bg-file-input').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file){
+    e.target.value = ''; // 清空 input value，便于重复选择同一文件
+    return;
+  }
+  // 释放上一个 ObjectURL 避免内存泄漏
+  if(bgObjectUrl) URL.revokeObjectURL(bgObjectUrl);
+  const url = URL.createObjectURL(file);
+  bgObjectUrl = url;
+  bgFilename = file.name;
+  document.getElementById('bg-filename').textContent = file.name;
+  const img = new Image();
+  img.onload = () => { render(); };
+  img.onerror = () => {
+    pushHint('背景图片加载失败: ' + file.name, 3000);
+  };
+  img.src = url;
+  bgImage = img;
+  bgEnabled = true;
+  document.getElementById('bg-enabled').checked = true;
+  e.target.value = ''; // 清空，便于重复上传
+});
+document.getElementById('bgClearBtn').addEventListener('click', ()=>{
+  if(bgObjectUrl) URL.revokeObjectURL(bgObjectUrl);
+  bgObjectUrl = null;
+  bgImage = null;
+  bgFilename = '';
+  document.getElementById('bg-filename').textContent = '—';
+  bgEnabled = false;
+  document.getElementById('bg-enabled').checked = false;
+  pushHint('背景图片已清除', 2000);
+  render();
+});
+document.getElementById('bg-enabled').addEventListener('change', e=>{
+  bgEnabled = e.target.checked;
+  render();
+});
+// 透明度/缩放/偏移实时更新
+function updateBgControls(){
+  bgOpacity = Math.max(0, Math.min(1, (parseFloat(document.getElementById('bg-opacity').value) || 0) / 100));
+  bgScale = (parseFloat(document.getElementById('bg-scale').value) || 100) / 100;
+  bgOffsetX = parseFloat(document.getElementById('bg-offset-x').value) || 0;
+  bgOffsetY = parseFloat(document.getElementById('bg-offset-y').value) || 0;
+  render();
+}
+['bg-opacity', 'bg-scale', 'bg-offset-x', 'bg-offset-y'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', updateBgControls);
+  document.getElementById(id).addEventListener('change', updateBgControls);
+});
 
 // ================= vertex/polygon bulk ops =================
 document.getElementById('undoVertBtn').addEventListener('click', ()=>{
@@ -1502,6 +1567,26 @@ function drawDesignerBarrel(angle, scale){
    ctx.lineCap = 'butt';
 }
 
+// ================= 背景参考图片绘制 =================
+// 在 CSS 像素空间（非模型单位）里将背景图居中「contain」显示在画布上，
+// 然后应用缩放倍数与偏移。不受 viewScale 影响——随着缩放/缩放操作，背景图
+// 保持固定大小作为参考，便于用户在不同缩放等级下对照绘制装甲模型。
+function drawBackground(){
+  if(!bgEnabled || !bgImage || !bgImage.complete || !bgImage.naturalWidth) return;
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  const iw = bgImage.naturalWidth, ih = bgImage.naturalHeight;
+  // contain-fit：整图完整显示在画布内
+  const containScale = Math.min(cw / iw, ch / ih);
+  const sw = iw * containScale * bgScale;
+  const sh = ih * containScale * bgScale;
+  const x = (cw - sw) / 2 + bgOffsetX;
+  const y = (ch - sh) / 2 + bgOffsetY;
+  ctx.save();
+  ctx.globalAlpha = bgOpacity;
+  ctx.drawImage(bgImage, x, y, sw, sh);
+  ctx.restore();
+}
+
 // ================= render =================
 function drawGrid(){
   ctx.strokeStyle = 'rgba(255,255,255,0.035)'; ctx.lineWidth = 1;
@@ -1807,6 +1892,7 @@ function drawCoverPolygon(cover){
 }
 function render(){
   ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+  drawBackground();
   drawGrid();
   trackPhase = (trackPhase + 0.6) % 1000; // steady rolling-track scroll across static re-renders
 

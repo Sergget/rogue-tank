@@ -122,6 +122,22 @@
     </div>
 
     <div class="section">
+      <h3>背景参考 Background</h3>
+      <div class="btnrow">
+        <button id="bgUploadBtn">上传图片 Upload</button>
+        <button id="bgClearBtn" class="danger">清除 Clear</button>
+      </div>
+      <input type="file" id="bg-file-input" accept="image/*" style="display:none;">
+      <div class="prop-row"><span class="lbl">显示</span><input type="checkbox" id="bg-enabled" style="width:16px;"></div>
+      <div class="prop-row"><span class="lbl">透明度 Opacity</span><input type="number" id="bg-opacity" value="40" min="0" max="100" step="5"></div>
+      <div class="prop-row"><span class="lbl">缩放 Scale</span><input type="number" id="bg-scale" value="100" min="10" max="500" step="5"></div>
+      <div class="prop-row"><span class="lbl">偏移 X (px)</span><input type="number" id="bg-offset-x" value="0" step="1"></div>
+      <div class="prop-row"><span class="lbl">偏移 Y (px)</span><input type="number" id="bg-offset-y" value="0" step="1"></div>
+      <div class="mono" id="bg-filename" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">上传参考图片作为背景，用于参照绘制装甲模型。图片仅在设计器本地预览，不写入存档。缩放 100% = 整图完整显示在画布内；调整缩放偏移可匹配坦克尺寸。</div>
+    </div>
+
+    <div class="section">
       <h3>编辑 Edit</h3>
       <div class="btnrow">
         <button id="modeHull" class="mode-btn edit-tab-btn active">车体 Hull</button>
