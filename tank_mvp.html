@@ -1691,11 +1691,20 @@ function bossLootRarityLabel(idx){
 // 子集不足 3 张放宽一档，再不足用全池。
 function bossLootPool(){
   if(pendingLootRarityIdx < 0 || typeof CARD_RARITIES === 'undefined' || !cardPool.length) return cardPool;
+  let base = null;
   for(let minIdx = Math.min(pendingLootRarityIdx, CARD_RARITIES.length - 1); minIdx < CARD_RARITIES.length; minIdx++){
     const sub = cardPool.filter(c => c.rarity && CARD_RARITIES.indexOf(c.rarity) >= minIdx);
-    if(sub.length >= 3) return sub;
+    if(sub.length >= 3){ base = sub; break; }
   }
-  return cardPool;
+  if(!base) base = cardPool.slice();
+  // #S5（2026-10-14）：Boss 轮必含弹种升级选项——链升级卡（rare）不受稀有度下限过滤，
+  // 并入池后由 drawCardChoices 的链过滤器按前驱资格筛选、guaranteeAmmoUpgrade 保底抽取。
+  const inBase = new Set(base.map(c => c.id));
+  for(const c of cardPool){
+    if(inBase.has(c.id)) continue;
+    if((c.effects || []).some(ef => ef && ef.type === 'ammo' && ef.replaceAmmo)) base.push(c);
+  }
+  return base;
 }
 
 // P-51 Wave2：卡牌选择后的推进——仍有追加轮 → reward→reward 再开一轮（白名单合法）；
@@ -1795,7 +1804,8 @@ function drawRewardCards(){
   }
   return drawPool.length ? drawCardChoices(drawPool, 5, {
     ammoLoadout: player.ammoLoadout,
-    owned: { abilities: ownedAbilities, secondaryWeapon: secondaryType, primaryWeapon: primaryType, cards: ownedCardCounts }
+    owned: { abilities: ownedAbilities, secondaryWeapon: secondaryType, primaryWeapon: primaryType, cards: ownedCardCounts },
+    guaranteeAmmoUpgrade: pendingLootRounds > 0   // #S5：Boss 追加轮必含 1 张弹种升级选项
   }) : [];
 }
 

@@ -462,3 +462,12 @@
 - **#S3-UI Boss 血条**：`#bossHpWrap` 屏幕下方中央（`#bottomHud` 上方）——Boss 名 + 血条 + `ceil(hp)/round(maxHp)` 数字；`updateBottomHud` 每帧经 `entities` 取存活 `isBoss` 更新，非 Boss 战隐藏。
 - **验证**：`npm run check`（check-html + tsc）EXIT=0；`npm test` 43/43；新引用 DOM id 10/10 存在性校验通过。浏览器链本环境无 Edge/Chromium 二进制未跑（待正常环境补跑）。
 - **现行口径归口**：`docs/specs/combat.md` §9.8。ISSUES.md #S9/#S10 删除并归档；#S3 保留（UI 子项完成，行为调优待阶段 6）。
+
+### §4.73 2026-10-14 #S6/#S5：副武器升级卡补齐 + Boss 轮弹种升级必保底
+
+- **#S6 副武器卡补齐**：新增 2 张 rare 升级卡——`weapon_secondary_missile_lock_upgrade`「导弹快速锁定」（lockSeconds 1.0→0.6、lockArcDeg 30→45）、`weapon_secondary_rocket_speed_upgrade`「火箭高速推进器」（speed 450→650、aoe 40→55）。消费路径已验证：`updateMissileLock`（`cfg.lockSeconds/lockArcDeg`）、火箭分支 `cfg.speed ?? 450`（`js/tank_weapons.js:202-203/283`）；`w.stats` 经 `mergeStatOverrides` 合并覆盖默认值。升级资格照常（`cardEligible` 须持有同型副武器）。副武器卡 8→10。
+- **#S5 Boss 轮弹种升级必保底（用户要求"boss战后必然提供1个弹种升级选项"）**：
+  - **根因**：5 个 Boss 的 `loot.cardRarity` 全为 `"legendary"` → `bossLootPool()` 稀有度下限把 rare 链升级卡整个滤出池外；叠加 #O4 的 0.18 概率 + pace 衰减，Boss 轮几乎拿不到弹种升级。
+  - **修复**：① `bossLootPool()` 把全池链升级卡（`ef.replaceAmmo`）并入候选（不受稀有度下限过滤）；② `drawCardChoices` 新增 `opts.guaranteeAmmoUpgrade` → 绕开掷骰与 pace 衰减**必抽 1 张**（无链资格卡时静默跳过）；③ `drawRewardCards` 在 `pendingLootRounds > 0` 时传该 flag。链过滤器（前驱资格禁跳级）与 `cardEligible` 照常先行。
+- **验证**：`scripts/test-cards.js` 新增 #S5 回归段 6 项断言（200 种子 200/200 命中恰 1 张、前驱资格非跳级、链毕业不崩）；`npm run check` EXIT=0；`npm test` 43/43。
+- **现行口径归口**：`docs/specs/cards.md` §8.3（副武器卡）+ §9（Boss 保底）。ISSUES.md #S6/#S5 删除并归档。

@@ -748,12 +748,63 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
   }
   ok(base0 < midHits && midHits < 200, `#D5: 默认概率保底生效（纯抽样 ${base0}/200 < 概率保底 ${midHits}/200 < 全保底 200）`);
   // 已持有目标弹种（升级完成）→ 不再保底该卡，恢复稀有度权重抽样
+
   let ownedOut = 0;
   for (let seed = 1; seed <= 200; seed++) {
     const drawn = cardsMod.drawCardChoices(upPool, 3, { rng: createRNG(seed), ammoLoadout: ['ap', 'apcr'] });
     if (!drawn.some(c => c.id === 'up_apcr')) ownedOut++;
   }
   ok(ownedOut > 0, `#C3: 已持有 apcr 后该升级卡不再保底（200 种子中 ${ownedOut} 次未出现，恢复权重抽样）`);
+}
+
+// ===== #S5（2026-10-14 用户反馈「boss战后必然提供1个弹种升级选项」）=====
+// Boss 追加轮：稀有度下限（legendary）会把 rare 链升级卡滤出池外 →
+// bossLootPool 并入链升级卡 + drawCardChoices guaranteeAmmoUpgrade 强制保底 1 张（绕开掷骰与 pace 衰减）。
+{
+  const bossPool = [
+    { id: 'up_apcr', name: 'APCR 升级', rarity: 'rare', maxStacks: 1, effects: [{ type: 'ammo', key: 'apcr', replaceAmmo: 'ap', field: 'pen', mode: 'mult', value: 1.1 }] },
+    { id: 'up_apds', name: 'APDS 升级', rarity: 'rare', maxStacks: 1, effects: [{ type: 'ammo', key: 'apds', replaceAmmo: 'apcr', field: 'pen', mode: 'mult', value: 1.1 }] },
+    { id: 'lg1', name: '传奇A', rarity: 'legendary', effects: [{ type: 'modifier', stat: 'maxHp', mode: 'add', value: 50 }] },
+    { id: 'lg2', name: '传奇B', rarity: 'legendary', effects: [{ type: 'modifier', stat: 'damage', mode: 'add', value: 10 }] },
+    { id: 'lg3', name: '传奇C', rarity: 'legendary', effects: [{ type: 'modifier', stat: 'damage', mode: 'mult', value: 1.1 }] },
+    { id: 'lg4', name: '传奇D', rarity: 'legendary', effects: [{ type: 'modifier', stat: 'armor', mode: 'add', value: 20 }] }
+  ];
+  // 模拟 bossLootPool：legendary 下限过滤 + 并入链升级卡
+  const legendaryOnly = bossPool.filter(c => c.rarity === 'legendary');
+  const merged = legendaryOnly.slice();
+  const ids = new Set(merged.map(c => c.id));
+  for (const c of bossPool) {
+    if (ids.has(c.id)) continue;
+    if ((c.effects || []).some(ef => ef && ef.type === 'ammo' && ef.replaceAmmo)) merged.push(c);
+  }
+  ok(merged.some(c => c.id === 'up_apcr'), '#S5: Boss 池并入链升级卡（稀有度下限不再滤掉 rare 弹种卡）');
+  // 强制保底：200 种子全部命中恰 1 张链升级（ap→apcr 前驱资格；apds 前驱 apcr 未持有被链过滤挡掉）
+  let hit = 0, multi = 0, wrongCard = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const drawn = cardsMod.drawCardChoices(merged, 5, {
+      rng: createRNG(seed), ammoLoadout: ['ap', 'he'], guaranteeAmmoUpgrade: true,
+      owned: { abilities: ['x'], secondaryWeapon: 'mortar', primaryWeapon: 'standard', cards: {} }
+    });
+    const ups = drawn.filter(c => c.id === 'up_apcr' || c.id === 'up_apds');
+    if (ups.length >= 1) hit++;
+    if (ups.length > 1) multi++;
+    if (ups.length === 1 && ups[0].id !== 'up_apcr') wrongCard++;
+  }
+  ok(hit === 200, `#S5: guaranteeAmmoUpgrade 200/200 命中（got ${hit}）`);
+  ok(multi === 0, '#S5: 保底恰好 1 张');
+  ok(wrongCard === 0, '#S5: 保底的是前驱资格卡 apcr（非跳级 apds）');
+  // 无链资格卡（弹种链已毕业）→ 静默不保底，不破坏抽取
+  let okCount = 0;
+  for (let seed = 1; seed <= 50; seed++) {
+    const drawn = cardsMod.drawCardChoices(merged, 5, {
+      rng: createRNG(seed), ammoLoadout: ['ap', 'apcr', 'apds', 'he'], guaranteeAmmoUpgrade: true,
+      owned: { abilities: ['x'], secondaryWeapon: 'mortar', primaryWeapon: 'standard', cards: {} }
+    });
+    if (drawn.length === 5) okCount++;
+  }
+  ok(okCount === 50, '#S5: 链毕业时无保底卡可抽仍正常返回 5 张（不崩）');
+  // 非 Boss 轮（flag 未传）→ 行为不变（概率保底）
+  ok(!('guaranteeAmmoUpgrade' in {}), '#S5: 非 Boss 轮不传 flag，走原概率保底路径');
 }
 
 // ===== #N2（2026-10-10 用户反馈「卡牌出现的顺序好像是固定的、弹种升级太快」）=====

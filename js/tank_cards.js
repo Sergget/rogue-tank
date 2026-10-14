@@ -628,7 +628,10 @@ function drawCardChoices(pool, n, optsOrRng) {
     const chance = (optsOrRng && typeof optsOrRng === 'object' && typeof optsOrRng.ammoGuaranteeChance === 'number')
       ? optsOrRng.ammoGuaranteeChance * paceFactor
       : baseChance * paceFactor;
-    if (r() < chance) {
+    // #S5（2026-10-14）：Boss 追加轮必含 1 张弹种升级（opts.guaranteeAmmoUpgrade），
+    // 绕开概率掷骰与 pace 衰减；无链资格卡时 pickRandomWhere 静默返回 false，不破坏抽取。
+    const forceAmmo = !!(optsOrRng && typeof optsOrRng === 'object' && optsOrRng.guaranteeAmmoUpgrade);
+    if (forceAmmo || r() < chance) {
       if(picked.length < count) pickRandomWhere(c => (c.effects || []).some(ef =>
         ef && ef.type === 'ammo' && ef.replaceAmmo && !ammoLoadout.includes(ef.key)));
     }
