@@ -79,12 +79,16 @@ const DENSE = new Set(['forest_dense', 'woodland_line']);
 //   urban_block +0.3~0.6、mixed_barrier ±0.3）；coverCoverage forest_dense 微升 +0.001~0.002
 //   （河流不再被移除）；**连通性 7 模板×5 难度维持 1.000**。
 //   校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
+// 2026-10-14 基线修正（第六次，纠正第五次两处误标，非代码漂移）：urban_block d=0.7
+//   8-seed 实测 0.8988（第五次标 1.5，注释预期的 "+0.3~0.6" 漂移并未兑现，实测≈第四次基线 1.0）；
+//   mixed_barrier_plaza d=0.3 8-seed 实测 2.2491（第五次标 1.7；|2.2-1.7|=0.5000000000000002
+//   浮点边界恰好超出口径 ±0.5）。校验口径不变。
 const BASE = {
   corridor_tutorial: [{"cov":0.075,"con":1,"minw":2.8},{"cov":0.075,"con":1,"minw":2.8},{"cov":0.077,"con":1,"minw":2.8},{"cov":0.072,"con":1,"minw":2.4},{"cov":0.073,"con":1,"minw":2.4}],
   forest_dense: [{"cov":0.068,"con":1,"minw":1.1},{"cov":0.067,"con":1,"minw":1.1},{"cov":0.067,"con":1,"minw":1.1},{"cov":0.068,"con":1,"minw":1.2},{"cov":0.061,"con":1,"minw":1.2}],
-  urban_block: [{"cov":0.076,"con":1,"minw":1.6},{"cov":0.075,"con":1,"minw":1.9},{"cov":0.076,"con":1,"minw":1.8},{"cov":0.071,"con":1,"minw":1.5},{"cov":0.068,"con":1,"minw":1.7}],
+  urban_block: [{"cov":0.076,"con":1,"minw":1.6},{"cov":0.075,"con":1,"minw":1.9},{"cov":0.076,"con":1,"minw":1.8},{"cov":0.071,"con":1,"minw":0.9},{"cov":0.068,"con":1,"minw":1.7}],
   crossfire_plaza: [{"cov":0.064,"con":1,"minw":2.2},{"cov":0.062,"con":1,"minw":2},{"cov":0.061,"con":1,"minw":1.9},{"cov":0.062,"con":1,"minw":2.2},{"cov":0.06,"con":1,"minw":2.2}],
-  mixed_barrier_plaza: [{"cov":0.063,"con":1,"minw":1.9},{"cov":0.06,"con":1,"minw":1.7},{"cov":0.06,"con":1,"minw":1.1},{"cov":0.057,"con":1,"minw":2.1},{"cov":0.059,"con":1,"minw":2.4}],
+  mixed_barrier_plaza: [{"cov":0.063,"con":1,"minw":1.9},{"cov":0.06,"con":1,"minw":2.2},{"cov":0.06,"con":1,"minw":1.1},{"cov":0.057,"con":1,"minw":2.1},{"cov":0.059,"con":1,"minw":2.4}],
   village_center: [{"cov":0.072,"con":1,"minw":1.4},{"cov":0.071,"con":1,"minw":1.5},{"cov":0.072,"con":1,"minw":1.9},{"cov":0.071,"con":1,"minw":1.8},{"cov":0.072,"con":1,"minw":2.3}],
   woodland_line: [{"cov":0.046,"con":1,"minw":1},{"cov":0.046,"con":1,"minw":1.2},{"cov":0.048,"con":1,"minw":1.6},{"cov":0.047,"con":1,"minw":1.8},{"cov":0.047,"con":1,"minw":1.7}],
 };

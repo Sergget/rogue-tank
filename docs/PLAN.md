@@ -18,6 +18,7 @@
 | 5 | **坦克精灵目视确认与启用**：白色残留已清除（§4.56 #M4，`scripts/clean_sprite_bg.py`，16 贴图 `background: 0`；hummel 炮管槽白底已清，炮管可从槽中透出）；两车炮塔 scale/轴心已按几何重算（hummel `0.03413→0.048059`、panzer-IV `0.0201→0.024476`；10/10 部件映射长度比 0.999~1.000）。**待做**：在设计器勾「画布显示精灵」逐车目视确认（层序/尺寸/炮管与炮塔衔接/白边），确认后把 5 车 `sprite.enabled` 置 true 保存，并跑一次实战确认无穿帮 | 2026-10-06 精灵对齐审计 → 2026-10-08 §4.56 完成清理与参数 | 待目视确认（人工项；`ISSUES.md` 已无存量条目） |
 | 6 | **贴图命名统一**：`Leapard_1_hull` vs `leopard1-turret` vs `tiger-I_*` 等风格混杂（拼写错误 Leapard/大小写/连字符不一）。统一为 `<id>_<part>.png` 约定并同步 `tanks/*.json` 引用；**坦克 id `Leapard_1` 本身不改**（存档/列表引用，需迁移逻辑，另案评估） | 2026-10-10 审计报告 §3 | 待做（低优先级卫生项） |
 | 8 | **地图元素 AI 生成出图 + 落盘**：管线三件套已就绪（§4.58：`tools/cover-gen-prompts.md` + `tools/cover-comfyui-workflow.json` + `scripts/prepare_covers.py`）。**待做**：按 P1~P10 出图（每件 4 选 1，ComfyUI 本地或 Gemini/Replicate）→ `prepare_covers.py --dry/--inplace` 落 `assets/` 根目录 10 张 → `tools/bake.html` 锚点复核（±2px，`fallen_canopy` 锚点越界已知告警）→ 游戏内 base/canopy 层级目视确认 | 2026-10-10 §4.58（用户「地图元素优先」投票） | 待做（纯增量，有程序化回退，不断档；建议 P6/P8 叶片先行） |
+| 9 | **#S 批次（2026-10-14 用户反馈 14 项）**：CI 修复 → 公路加成/道路屏蔽减速 → ESC 商店按钮/HP 显示/TAB 面板 → Boss HP 条 → 副武器卡/弹种保底 → 河流闭合/边缘裁剪/水流纹理/地物纹理 → AI 五层级警觉 → Boss 行为调优（#S7 双管评估完成暂不改动） | 2026-10-14 用户反馈（核实结论见 `docs/ISSUES.md` #S1~#S14） | 实施中（分 7 阶段，详见 §5） |
 
 ---
 
@@ -140,3 +141,21 @@
 - C 档一次性承担三项高风险（§3.6 第 2/7 条）：测试重锚（`test-map` 尺寸断言 / `test-nodegen` 七护栏 / 校准基线 / `test-replay` hash / 四链）、整图地面烘焙内存（12.3 屏宽 ≈223MB RGBA）、covers 162 → 443~1200 的每帧遍历成本（绘制过滤 / 小地图 / AI 避水 / 碰撞）。宜在 B 档验证生成与结算语义之后再评估。
 
 
+
+---
+
+## 5. #S 批次实施计划（2026-10-14 用户反馈 14 项）
+
+> 核实结论与代码证据见 `docs/ISSUES.md` #S1~#S14。排序原则：**先修验证链（CI）→ 移动基础 → UI 快胜 → 卡牌经济 → 地图视觉 → AI 系统 → Boss 行为**（Boss 行为放在 AI 系统之后，避免 `tank_ai.js` 重复返工；#S7 双管评估完成，暂不改动）。
+
+| 阶段 | 条目 | 内容要点 | 验证 |
+|---|---|---|---|
+| 0 | #S8 CI 失败 | ~~`test-nodegen-calibration` 基线漂移~~ → 实为第五次重锚两处误标，应用 qi 的 `6d1ae26` 第六次修正 | ✅ 完成（2026-10-14，`npm test` 43/43，见 §4.70） |
+| 1 | #S4 + #S14 公路/道路 | road 逐出 `getCoverUnderTank` 的副作用：单独 road 查询恢复 `onRoad` 加成；road 存在时优先且屏蔽下层 river/mud 减速 | `npm run check` + 定向 Node 复现 |
+| 2 | #S9 / #S10 / #S3-UI | ESC 菜单恢复商店按钮；`hp_up` 购买回满至新上限；TAB 面板非战斗态刷新（购买后即时）；Boss HP 条+数字屏幕下方中央 | browser smoke 链 |
+| 3 | #S6 / #S5 卡牌 | 新增副武器卡 JSON（导弹锁定速度、火箭飞行速度等，参数通道已就绪）；Boss 追加轮独立"必含 1 张链上可解锁弹种升级卡"路径（绕开稀有度下限） | `npm test`（卡牌审计脚本） |
+| 4 | #S12 / #S1 / #S11 / #S13 地图视觉 | 河流去中心线+水流纹理（动态）；支流末端与干流实际曲线缝合闭合；道路/河流沿地图边缘线裁剪（非中心线法向端帽）；树/建筑/沙包程序化纹理升级 | `test-nodegen*.js` + 渲染截图 |
+| 5 | #S2 AI 五层级警觉 | 新增 shot-noise 通道（玩家射击暴露位置）、近失弹警觉；`searchMinLoSBlocked` 接线 + search 扫视/重搜修复；`propagateAlert` 行为升级；`aiEngaged` 二值 → 可疑/警戒/交战渐进 | `test-ai.js` + browser run 链 |
+| 6 | #S3 Boss 行为 | hold/skirmish 阶段追击欲望；barrage 下沉到更多 Boss / 间隔缩短；召唤从 3 波血量门控加密；hpMul 微调放最后（先机制后数值） | browser boss 链 + 手感确认 |
+
+**阶段 0~3 为本轮优先落地；阶段 4~6 按序推进。** 每阶段落地后走 `AGENTS.md` §2.2 四步生命周期（specs 同步 → ISSUES 删除 → 归档 `docs/archive/2026-10.md` → PLAN 联动），结论记入 `docs/DEVELOPMENT-batches-2026-10.md` 新增 §4.x 条目（2026-10 批次日志现行约定）。

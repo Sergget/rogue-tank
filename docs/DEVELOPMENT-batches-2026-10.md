@@ -439,3 +439,10 @@
   - 路口：strip-branch junction `r=stripRoadW*0.35`、hs-secondary `r=stripRoadW*0.325`（`js/tank_nodegen.js:2603/2670`）；`bridge-approach` 生成门从桥路夹角 >15° 放宽到 >8°（`js/tank_nodegen.js:2963`）。
 - **验证**：`npm run check` EXIT=0 / `tsc --noEmit` EXIT=0；`audit-river-continuity.js` 60 seed 0 空洞；`audit-road-draw.js` 30 seed 病链 0/334（平均渲染宽 strip-branch 75px / hs-secondary 72px）；`audit-map-drive.js` 1 seed×2 节点 0 失败；`test-covers` / `test-nodegen`（§16 #C1 方形节点 119 路口全收敛）/ `test-map` 全绿；Node 全链 42/43（calibration 2 项为预存失败——回退本批改动复跑同样失败，与本批无关）。`audit-map-gen.js` 未全零（G7 越界 57 / G3 孤儿路口 7 / G2 桥下无路 2）——回退本批生成改动复跑坐标完全一致，且 HEAD 干净快照亦失败（G7/G5），确证为本批改动之外的预存问题（工作区其他未提交改动 + 基线），未立新问题条目。
 - **现行口径归口**：`docs/specs/map.md` §10.2（strip 窄支路路口半径沿革注记）。桥面/河面/过渡段绘制口径见本节修复条 + 代码注释（`js/tank_battledraw.js` water-chain / bridge-deck 分支、`js/tank_rules.js:133`、`js/tank_nodegen.js:2963`）。ISSUES.md #P2 按生命周期删除并归档。
+
+### §4.70 2026-10-14 #S8：GitHub Actions 校准基线第六次修正（CI 恢复）
+
+- **现象**：GitHub Actions run #27（4e3a70e）、#28（2a872a4）`failure`——"Full Node test chain"（`npm test`）exit 1（`npm run check` 通过）。本地复现：`scripts/test-nodegen-calibration.js` 2 项失败——`urban_block d=0.7 minPassage=0.9`（基线 1.5）、`mixed_barrier_plaza d=0.3 minPassage=2.2`（基线 1.7）。
+- **根因**：非代码漂移——2026-10-12 #Q 批次第五次重锚时两处误标：`urban_block d=0.7` 8-seed 实测 0.8988（误标 1.5，注释预期的 "+0.3~0.6" 漂移并未兑现，实测≈第四次基线 1.0）；`mixed_barrier_plaza d=0.3` 8-seed 实测 2.2491（误标 1.7，|2.2-1.7| 浮点边界恰好超出口径 ±0.5）。
+- **修复**：应用 qi 未推送的本地修正 `6d1ae26`（2026-10-14，第六次基线修正）——两处基线值改为实测值，校验口径不变（cov ±0.02 / con ±0.05 / minw ±0.5）。
+- **验证**：`scripts/test-nodegen-calibration.js` 146 项全过；`npm test` **43/43 全绿**。ISSUES.md #S8 按生命周期删除并归档。
