@@ -294,6 +294,13 @@
 
 `drawReloadRing` 单环分支（mvp）与 bench 装填条此前用 `player.stats.reload / debuffReloadRate(player)` 作时长，**漏乘武器通道 `reloadMult`**——电磁轨道炮（×1.8）装填的前 44% 时间内进度环恒空、随后跳变。现统一经 `primaryWeaponSpec(player).reloadMult` 折算（双管/弹夹分支不受影响）。
 
+### 9.8 暂停菜单商店入口 + TAB 面板实时刷新 + Boss 血条（#S9/#S10/#S3-UI，2026-10-14）
+
+- **暂停菜单商店入口（#S9）**：`#pauseScreen` 恢复「商店 SHOP」按钮（2026-09-14 §4.12 摘除后漏恢复）。点击后按钮行收起、`#pauseShopWrap` 内嵌展示局内商店（`buildRunShopInto` 与结算内嵌版 `#runShopBox` 共用列表构建，同 `RUN_SHOP_DEFS` 数据源、同 `buyRunShopItem` 购买链）；战斗中购买即时生效，「返回」回到暂停菜单；每次进入暂停态自动收起商店面板。
+- **TAB 面板实时刷新（#S10b/c）**：新增 `refreshStatusPanel()`（`statusOpen && run && player` 时调 `updateStatusPanel()`）——`buyRunShopItem` 购买后即时调用；主循环 `loop()` 在非战斗态（settlement/map/pause）也调用（battle 态仍走 `updateHud` 链，避免重复）。此前面板刷新只挂在 battle update 链上，非战斗态定格在打开瞬间。
+- **hp_up 购买回满（#S10a，用户决策）**：`buyRunShopItem` 中 `defId === 'hp_up'` 时 `player.hp = player.stats.maxHp`——消除"249/250"式显示（#A12 差量同步只按增量抬升）。
+- **Boss 血条（#S3-UI）**：`#bossHpWrap`（屏幕下方中央，`#bottomHud` 上方 104px）——Boss 名 + 560px 血条 + `ceil(hp) / round(maxHp)` 数字；`updateBottomHud` 每帧经 `entities` 取存活 `isBoss` 更新，非 Boss 战隐藏。此前全仓库无 Boss 专属 HP UI（只有 44×5px 通用浮动条）。
+
 ---
 
 ## 10. 2026-09-21 #H1 视野等距修正（现行口径）

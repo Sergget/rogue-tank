@@ -453,3 +453,12 @@
 - **修复**：`js/tank_cover.js` 新增 `getRoadUnderTank`（同款 OBB 相交判定 + `coverQueryCandidates` 空间索引，仅查 road tier，已导出 + `types/globals.d.ts` 声明）；`driveTank` 改走本函数求 `onRoad`，road 存在时 `speedModifier/turnModifier` 强制 1.0（屏蔽下层减速）。AI/玩家共用 `driveTank`，一并受益。
 - **验证**：定向脚本 `/tmp/verify-road-s14.js` 5 项全过（roadBonus→25.0px/s=+10km/h；road 上 302px/s vs 纯 river 100px/s）；`scripts/test-move.js` 新增 5) #S4/#S14 回归段 4 项断言；`npm run check`（含 tsc）EXIT=0；`test-move`/`test-covers`/`test-tankcollision` 全绿。调用 driveTank 的 Node harness（test-move/test-tankcollision）补 `global.getRoadUnderTank`；`Object.assign(global, COV)` 类 harness 自动获得。
 - **现行口径归口**：`docs/specs/map.md` §12.3 沿革注记。ISSUES.md #S4/#S14 按生命周期删除并归档。
+
+### §4.72 2026-10-14 #S9/#S10/#S3-UI：暂停菜单商店入口 + TAB 面板实时刷新 + Boss 血条
+
+- **#S9 暂停菜单商店入口**：`#pauseScreen` 加「商店 SHOP」按钮（2026-09-14 §4.12 摘除 `pauseShopBtn` 后漏恢复）。`renderRunShop` 抽取 `buildRunShopInto(listEl, balEl)`，结算内嵌版与暂停内嵌版（`#pauseShopWrap`/`#pauseShopList`/`#pauseShopBalance`）共用；购买链 `buyRunShopItem` 不变，战斗中购买即时生效；进暂停态自动收起商店面板。
+- **#S10(a) hp_up 回满**：`buyRunShopItem` 中 `defId==='hp_up'` 时 `player.hp = player.stats.maxHp`（用户决策，消除"249/250"式显示；#A12 差量同步本身工作正常）。
+- **#S10(b)(c) TAB 面板实时刷新**：新增 `refreshStatusPanel()`；购买后即时调用；主循环 `loop()` 非战斗态（settlement/map/pause）也刷新（battle 仍走 `updateHud` 链）。
+- **#S3-UI Boss 血条**：`#bossHpWrap` 屏幕下方中央（`#bottomHud` 上方）——Boss 名 + 血条 + `ceil(hp)/round(maxHp)` 数字；`updateBottomHud` 每帧经 `entities` 取存活 `isBoss` 更新，非 Boss 战隐藏。
+- **验证**：`npm run check`（check-html + tsc）EXIT=0；`npm test` 43/43；新引用 DOM id 10/10 存在性校验通过。浏览器链本环境无 Edge/Chromium 二进制未跑（待正常环境补跑）。
+- **现行口径归口**：`docs/specs/combat.md` §9.8。ISSUES.md #S9/#S10 删除并归档；#S3 保留（UI 子项完成，行为调优待阶段 6）。

@@ -68,6 +68,16 @@
   #hudSpeedTrack{width:110px; height:6px; background:#0c0d09; border:1px solid var(--line); position:relative;}
   #hudSpeedFill{height:100%; background:var(--amber); width:0%;}
   #hudRoadBonus{color:var(--green); font-size:9px; letter-spacing:1px;}
+  /* #S3（2026-10-14）：Boss 血条——屏幕下方中央（bottomHud 上方），条 + 数字 */
+  #bossHpWrap{position:absolute; bottom:104px; left:50%; transform:translateX(-50%);
+    display:none; flex-direction:column; align-items:center; gap:3px;
+    font-family:'JetBrains Mono',monospace; z-index:5;}
+  #bossHpName{font-size:10px; letter-spacing:3px; color:#ff6b6b; font-weight:700;}
+  #bossHpTrack{width:min(560px, 60vw); height:14px; background:#0c0d09;
+    border:1px solid #7a2d2d; position:relative;}
+  #bossHpFill{height:100%; background:linear-gradient(180deg,#e05252,#a02828); width:100%;
+    transition:width 0.15s linear;}
+  #bossHpVal{font-size:11px; color:var(--text);}
   #abilityBtns{display:flex; gap:6px;}
   #abilityBtns .abtn{position:relative; min-width:40px; height:30px;
     background:transparent; border:1px solid var(--amber-dim); color:var(--amber);
@@ -313,6 +323,11 @@
   <div id="reloadWrap">
     装填 RELOAD
   </div>
+  <div id="bossHpWrap">
+    <div id="bossHpName">BOSS</div>
+    <div id="bossHpTrack"><div id="bossHpFill"></div></div>
+    <div id="bossHpVal">--</div>
+  </div>
   <div id="bottomHud" style="display:none;">
     <div class="hudZone" id="hudVitals">
       <div id="playerHpWrap">
@@ -447,10 +462,19 @@
         <div id="pauseBindings"></div>
         <div id="pauseSettings" style="margin-top:12px;"></div>
       </div>
-      <div class="btnrow">
+      <div class="btnrow" id="pauseBtnRow">
         <button id="pauseResumeBtn">继续 RESUME</button>
+        <button id="pauseShopBtn">商店 SHOP</button>
         <button id="pauseControlsBtn">控制 CONTROLS</button>
         <button id="pauseEndBtn">终止游戏并结算 END &amp; SETTLE</button>
+      </div>
+      <div id="pauseShopWrap" style="display:none; margin-top:10px; max-height:46vh; overflow-y:auto; border-top:1px solid var(--line); padding-top:8px;">
+        <div class="row" style="justify-content:space-between; align-items:center;">
+          <span class="mono" style="font-size:11px;color:var(--amber);">局内商店（战斗中购买即时生效）</span>
+          <button id="pauseShopBackBtn" style="padding:3px 10px;">返回 BACK</button>
+        </div>
+        <div id="pauseShopBalance" class="mono" style="font-size:11px;color:var(--text-dim);margin:6px 0;"></div>
+        <div id="pauseShopList"></div>
       </div>
     </div>
   </div>
@@ -1252,6 +1276,21 @@ document.getElementById('pauseEndBtn').addEventListener('click', () => {
   playSound('ui');
   transition(flow, 'settlement', { voluntaryEnd: true });   // P-34 接手终局结算语义
 });
+// #S9（2026-10-14）：暂停菜单恢复局内商店入口（2026-09-14 §4.12 摘除后漏恢复）。
+// 商店面板内嵌于暂停菜单，与结算内嵌版同数据源（RUN_SHOP_DEFS）同购买链（buyRunShopItem），
+// 战斗中购买即时生效；返回后回到暂停菜单。
+document.getElementById('pauseShopBtn').addEventListener('click', () => {
+  playSound('ui');
+  document.getElementById('pauseBtnRow').style.display = 'none';
+  const wrap = document.getElementById('pauseShopWrap');
+  wrap.style.display = '';
+  renderPauseShop();
+});
+document.getElementById('pauseShopBackBtn').addEventListener('click', () => {
+  playSound('ui');
+  document.getElementById('pauseShopWrap').style.display = 'none';
+  document.getElementById('pauseBtnRow').style.display = '';
+});
 
 // 状态面板：读 tank.stats（不摸 base）
 const FACE_LABELS = { front:'正面', side:'侧面', rear:'后部' };
@@ -1264,6 +1303,11 @@ function armorRows(armor){
     html += `<div><b>${part==='hull'?'车体':'炮塔'}</b>：${row}</div>`;
   }
   return html;
+}
+// #S10(b)(c)（2026-10-14）：TAB 状态面板即时刷新入口——购买回调与非战斗主循环共用。
+// 面板刷新原先只挂在 battle 的 update 链上，settlement/map/pause 下定格在打开瞬间。
+function refreshStatusPanel(){
+  if(statusOpen && run && player) updateStatusPanel();
 }
 function updateStatusPanel(){
   // P-15/P-46：共享视图模型 buildTankDataVM（mvp status + bench inspector 同源），
@@ -1870,7 +1914,13 @@ watchFlow(flow, (state, payload) => {
   if(state === 'loadout'){ renderLoadout(); showScreen('loadoutScreen'); setOverlayVisible(true); return; }
   if(state === 'shop'){ renderShop(); showScreen('shopScreen'); setOverlayVisible(true); return; }
   // P-35：战斗内暂停面板（战场冻结，仅覆盖层；恢复/终止经 transition 白名单）
-  if(state === 'pause'){ renderPause(); showScreen('pauseScreen'); setOverlayVisible(true); return; }
+  if(state === 'pause'){
+    renderPause();
+    // #S9：每次进暂停菜单时收起内嵌商店（回到主按钮行，避免上次停留状态残留）
+    const _psw = document.getElementById('pauseShopWrap'); if(_psw) _psw.style.display = 'none';
+    const _pbr = document.getElementById('pauseBtnRow'); if(_pbr) _pbr.style.display = '';
+    showScreen('pauseScreen'); setOverlayVisible(true); return;
+  }
   if(!run) return;                       // 未开局：仅显示封面路由（mapScreen）
   if(state === 'map'){
     showScreen('mapScreen'); setOverlayVisible(true);
@@ -1997,19 +2047,22 @@ function buyRunShopItem(defId){
       addModifier(player, { stat: ef.stat, mode: ef.mode, value: ef.value, scope: 'run', source: 'runshop:' + def.id });
     }
   }
+  // #S10(a)（2026-10-14 用户决策）：购买 hp_up（最大耐久）时回满至新上限，
+  // 消除"249/250"式显示（#A12 差量同步只按增量抬升当前血量）。
+  if(defId === 'hp_up' && player && player.stats && Number.isFinite(player.stats.maxHp)){
+    player.hp = player.stats.maxHp;
+  }
   pushLog(`局内商店：${def.name} → Lv${lv + 1}（−${cost} 分）`, 'PEN');
   playSound('ui');
   renderRunShop();
+  renderPauseShop();   // #S9：暂停菜单内嵌商店同刷
+  refreshStatusPanel(); // #S10(b)(c)：购买后即时刷新 TAB 面板（若开着）
   return true;
 }
 
-function renderRunShop(){
-  const listEl = document.getElementById('runShopList');
-  const balEl = document.getElementById('runShopBalance');
-  const box = document.getElementById('runShopBox');
-  if(!listEl || !box) return;
-  box.style.display = (run && flow.state === 'settlement' && !runFinished) ? '' : 'none';
-  if(box.style.display === 'none') return;
+// #S9（2026-10-14）：局内商店列表构建抽取——结算内嵌版与暂停菜单版共用。
+function buildRunShopInto(listEl, balEl){
+  if(!listEl) return;
   if(balEl) balEl.textContent = `余额 ${runShopBalance()} 分（本局 ${runScore} − 已花 ${runScoreSpent}）`;
   const GROUP_NAMES = { firepower: '火力', armor: '防护', mobility: '机动', misc: '杂项' };
   listEl.innerHTML = '';
@@ -2041,6 +2094,23 @@ function renderRunShop(){
     row.appendChild(btn);
     listEl.appendChild(row);
   }
+}
+
+function renderRunShop(){
+  const listEl = document.getElementById('runShopList');
+  const balEl = document.getElementById('runShopBalance');
+  const box = document.getElementById('runShopBox');
+  if(!listEl || !box) return;
+  box.style.display = (run && flow.state === 'settlement' && !runFinished) ? '' : 'none';
+  if(box.style.display === 'none') return;
+  buildRunShopInto(listEl, balEl);
+}
+
+// #S9（2026-10-14）：暂停菜单内嵌局内商店（与结算内嵌版同数据源/同购买链）。
+function renderPauseShop(){
+  const wrap = document.getElementById('pauseShopWrap');
+  if(!wrap || wrap.style.display === 'none') return;
+  buildRunShopInto(document.getElementById('pauseShopList'), document.getElementById('pauseShopBalance'));
 }
 
 // P-14：死亡后商店（永久升级 + 复活次数，用商店点数购买）— 薄包装：buildDeathShopViewModel
@@ -3500,6 +3570,29 @@ function updateBottomHud(){
       ? '公路 +' + Math.round((player.roadBonus) * RSp.kmhFactor / (RSp.pxFactor * RSp.effMul)) + 'km/h' : '';
   }
 
+  // #S3（2026-10-14）：Boss 血条（屏幕下方中央）——条 + 数字；非 Boss 战隐藏。
+  // Boss 经 entities 取（isBoss，存活者）；maxHp 取 stats（经 refreshStats 实时）。
+  const bossWrap = document.getElementById('bossHpWrap');
+  if(bossWrap){
+    let boss = null;
+    if(typeof entities !== 'undefined'){
+      for(const e of entities){ if(e && e.isBoss && e.hp > 0){ boss = e; break; } }
+    }
+    if(!boss){
+      bossWrap.style.display = 'none';
+    } else {
+      bossWrap.style.display = 'flex';
+      const bMax = (boss.stats && Number.isFinite(boss.stats.maxHp)) ? boss.stats.maxHp : 1;
+      const bHp = Math.max(0, boss.hp);
+      const bFill = document.getElementById('bossHpFill');
+      if(bFill) bFill.style.width = Math.max(0, bHp / bMax * 100) + '%';
+      const bVal = document.getElementById('bossHpVal');
+      if(bVal) bVal.textContent = `${Math.ceil(bHp)} / ${Math.round(bMax)}`;
+      const bName = document.getElementById('bossHpName');
+      if(bName) bName.textContent = '☠ ' + ((boss.boss && boss.boss.name) || boss.name || 'BOSS');
+    }
+  }
+
   // 弹种槽位更新（#H3：角标只表示「当前选中 ●/○」，**不再显示 1/2/3 数字** ——
   // 数字键 1/2/3 已归技能池 skill1~3，弹种切换走 Q/E；原角标暗示「按 1 切第一发」与实际键位矛盾）
   const loadout = (player.ammoLoadout && player.ammoLoadout.length) ? player.ammoLoadout : [player.ammoKey || 'ap'];
@@ -4675,6 +4768,10 @@ function loop(now){
   }
 
   draw();
+
+  // #S10(b)（2026-10-14）：非战斗态（settlement/map/pause）下 TAB 面板也实时刷新，
+  // 否则面板定格在打开瞬间（商店购买后数字不变即此因）。battle 态仍走 updateHud 链。
+  if(!simulating) refreshStatusPanel();
 
   // ISSUE 18：FPS 统计（仅显示用，不影响模拟；~2x/sec 刷新）
   fpsFrames++;
