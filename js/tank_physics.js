@@ -57,6 +57,12 @@ function passiveValues(tank, key){
 // Node 单测环境无 tank_ai.js 时静默跳过（typeof 守卫）。返回实际造成的伤害值。
 function applyDamage(target, amount, src){
   if(!target) return 0;
+  // 「全场伤害关闭」窗口（#MODE 生存模式波次倒计时）：页面经 globalThis.damageSuppressed() 挂判定，
+  // 本入口统一短路——不扣血、不触发受击警觉。与 isClearing 的**逐点门控**不同：这是所有伤害的
+  // 单一收口（炮弹/溅射/炮击/DOT/溺毙/无人机/地雷/碾压全经此处），一处生效即无遗漏。
+  // 缺省无该函数 → 零影响（Node 测试与 bench 路径）。契约见 docs/specs/combat.md §4。
+  const _gpD = (typeof globalThis !== 'undefined') ? globalThis : null;
+  if(_gpD && typeof _gpD.damageSuppressed === 'function' && _gpD.damageSuppressed()) return 0;
   const mul = (target.dmgTakenMul != null) ? target.dmgTakenMul : 1;
   const dealt = Math.max(0, amount) * mul;
   target.hp = Math.max(0, target.hp - dealt);

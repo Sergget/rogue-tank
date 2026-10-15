@@ -439,6 +439,18 @@
         <button id="rewardConfirmBtn" disabled style="opacity:0.5;">确认选择 CONFIRM (0/2)</button>
       </div>
       <div id="rewardHint" class="screen-hint" style="margin-top:8px;">普通节点 5 选 2（Boss 节点 5 选 3）。不可重复选择。</div>
+      <!-- #MODE（2026-10-15 用户裁定）：Boss 模式局内商店——选完卡后在同一屏展开（见 revealRewardShop） -->
+      <div id="rewardShopBox" style="display:none; margin-top:14px; border-top:1px solid var(--line); padding-top:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <b style="font-family:'JetBrains Mono',monospace; color:var(--amber);">战前整备 · 局内商店 RUN SHOP</b>
+          <span id="rewardShopBalance" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text);"></span>
+        </div>
+        <div id="rewardShopList" style="display:flex; flex-direction:column; gap:4px; max-height:220px; overflow-y:auto;"></div>
+        <div class="screen-hint" style="margin-top:6px;">极速硬上限 150km/h · 装填硬下限 0.5s/发 · 装甲为炮塔+车体同时加强。升级仅本局有效。</div>
+        <div class="btnrow" style="margin-top:10px; justify-content:center;">
+          <button id="rewardShopContinueBtn">继续 NEXT BOSS →</button>
+        </div>
+      </div>
     </div>
     <div id="gameoverScreen" class="screen" style="display:none;">
       <div class="screen-title">阵亡 KIA</div>
@@ -1762,16 +1774,21 @@ function livingSurvivalWaveEnemies(){
 }
 
 // 波次清空 → Boss 波快速选卡 / 普通波直接倒计时 → 下一波（不经过 settlement，不重载地图）
+// #MODE（2026-10-15）：清场即调用（不再有 2 秒「区域肃清」缓冲——用户裁定删除该倒计时）。
 function finishSurvivalWave(){
   if(!battleState || battleState.cleared) return;
   battleState.cleared = true;
   battleState.waveActive = false;
+  // 清场即结算：显式清空 clearing 通道（防上一波遗留的 isClearing=true 冻结倒计时期的移动与伤害）
+  battleState.clearing = false;
+  battleState.clearingT = 0;
   const isBossWave = (survivalWave % 3 === 0);
   const waveScore = 100 + survivalWave * 50;
   const bossBonus = isBossWave ? 500 : 0;
   runScore += waveScore + bossBonus;
   runKills += battleState.nodeKills || 0;
   pushLog(`★ 第 ${survivalWave} 波 · 肃清（+${waveScore + bossBonus}分） ★`, 'COVER');
+  playSound('ui');
   if(isBossWave){
     // Boss 波：立即弹出快速选卡（保底 epic），选完后进 5 秒倒计时
     survivalQuickPick = true;
@@ -1786,14 +1803,36 @@ function finishSurvivalWave(){
   }
 }
 
-// 5 秒倒计时（玩家可自由移动，不冻结）
+// 5 秒倒计时（玩家可自由移动，不冻结；期间全场伤害判定关闭）
 function startSurvivalCountdown(){
   if(!battleState) return;
   battleState.waveCountdown = 5.0;
   battleState.waveCountdownActive = true;
-  pushLog('下一波 5 秒后到来…', 'COVER');
+  // 进入准备期即清扫上一波残留弹道/落弹预警：准备期不推进它们（见 update 的 isSurvivalPrep 门控），
+  // 不清理会静止悬停 5 秒、开波瞬间同时爆开。
+  shells.length = 0; impacts.length = 0; bounceFx.length = 0;
+  if(typeof clearStrikes === 'function') clearStrikes();
+  player._missileLock = null; player._missileActivated = false;   // 锁定进度不跨准备期（防幽灵续锁）
+  pushLog('下一波 5 秒后到来…（准备期：可自由移动，暂不受伤害）', 'COVER');
   updateSurvivalHud();
 }
+
+// #MODE（2026-10-15 用户裁定）：「全场伤害判定关闭」的统一判定入口。
+// 窗口 = 生存模式波次间隔倒计时（waveCountdownActive）。两层拦截：
+//   ① 伤害总闸：js/tank_physics.js applyDamage —— 所有伤害的单一收口（炮弹/溅射/炮击/DOT/溺毙/
+//      无人机/地雷/碾压全经此处），经 globalThis.damageSuppressed() 查询后短路，一处生效即无遗漏；
+//   ② 伤害来源门控：update() 内的 isSurvivalPrep —— 拦住"不打伤害但会留下痕迹"的路径：
+//      玩家/AI/副炮塔开火、炮弹飞行、战术炮击落弹、部署物触发、无人机打击、溺毙倒计时累计。
+//      （Boss 行为层无需门控：倒计时全程 battleState.cleared=true，其判定块本就跳过。）
+// 与 isClearing 的区别：clearing 冻结整个战场（含移动），本窗口**只关伤害、不禁移动**
+//（用户明确要求倒计时期间可自由移动）。
+function isSurvivalPrepWindow(){
+  return GAME_MODE === 'survival'
+      && !!battleState
+      && !!battleState.waveCountdownActive
+      && flow.state === 'battle';
+}
+globalThis.damageSuppressed = isSurvivalPrepWindow;
 
 // 倒计时结束 → 下一波
 function onSurvivalCountdownDone(){
@@ -1809,10 +1848,11 @@ function updateSurvivalHud(){
   if(!el) return;
   if(GAME_MODE === 'survival' && run && flow.state === 'battle' && survivalWave > 0){
     el.style.display = 'block';
-    // 波次间隔倒计时
+    // 波次间隔倒计时（#MODE 2026-10-15：去掉「肃清」措辞——该阶段已无区域肃清缓冲，
+    // 只是一个可自由移动、暂不受伤害的准备期）
     if(battleState && battleState.waveCountdownActive){
       const s = Math.ceil(battleState.waveCountdown || 0);
-      el.textContent = `第 ${survivalWave} 波 · 肃清 —— 下一波 ${s} 秒后到来`;
+      el.textContent = `第 ${survivalWave} 波已清 · 准备期 ${s} 秒（可移动 / 暂不受伤害）`;
     } else {
       el.textContent = `第 ${survivalWave} 波${survivalWave % 3 === 0 ? ' · BOSS' : ''}`;
     }
@@ -2085,6 +2125,8 @@ function deployDronesFromCards(){
 let pendingLootRounds = 0;        // 剩余追加三选一轮数
 let pendingLootRarityIdx = -1;    // 保底稀有度在 CARD_RARITIES 中的下标（-1 = 无保底/全池）
 let survivalQuickPick = false;    // 生存模式 Boss 波战斗内快速选卡（不经过 settlement/reward 状态）
+// #MODE（2026-10-15）：Boss 模式 reward 屏内嵌商店已展开（选完卡后展开，点「继续」推进下一场）
+let rewardShopOpen = false;
 
 function bossLootRarityLabel(idx){
   const m = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' };
@@ -2327,6 +2369,56 @@ document.getElementById('rewardConfirmBtn').addEventListener('click', () => {
     startSurvivalCountdown();
     return;
   }
+  // #MODE（2026-10-15 用户裁定）：Boss 模式——卡牌确认后在同一屏展开局内商店，
+  // 玩家买完点「继续 NEXT BOSS」才推进到下一场（此前 fbf7f73 把 Boss 模式商店整体禁用）。
+  if(GAME_MODE === 'boss' && !rewardShopOpen){ revealRewardShop(); return; }
+  advanceRewardFlow();
+});
+
+// #MODE（2026-10-15）：Boss 模式战前整备——选完卡后展开局内商店区。
+// 与结算内嵌商店（runShopBox）/暂停菜单商店（pauseShopList）共用 buildRunShopInto 同一数据源。
+function revealRewardShop(){
+  const box = document.getElementById('rewardShopBox');
+  if(!box) return;
+  rewardShopOpen = true;
+  box.style.display = 'block';
+  // 收起选卡区：卡已选定并即时生效（pickCard 已 applyCardEffects），残留可点卡片会让玩家误以为还能改选
+  const row = document.getElementById('cardRow');
+  if(row) row.innerHTML = '';
+  for(const id of ['rewardRefreshBtn', 'rewardConfirmBtn']){
+    const el = document.getElementById(id); if(el) el.style.display = 'none';
+  }
+  const statusEl = document.getElementById('rewardStatus');
+  if(statusEl) statusEl.innerHTML = '卡牌已生效 — 可在下方商店升级基础参数，然后继续下一场 BOSS';
+  const hintEl = document.getElementById('rewardHint');
+  if(hintEl) hintEl.textContent = '局内商店：用本局得分升级，仅本局有效。';
+  renderRewardShop();
+}
+
+// #MODE（2026-10-15）：进入 reward 时复位商店区（Boss 追加卡牌有多轮，reward→reward 复用同一屏）。
+// 收起商店 + 还原被 revealRewardShop 隐藏的选卡按钮/文案。
+function resetRewardShop(){
+  rewardShopOpen = false;
+  const box = document.getElementById('rewardShopBox');
+  if(box) box.style.display = 'none';
+  for(const id of ['rewardRefreshBtn', 'rewardConfirmBtn']){
+    const el = document.getElementById(id); if(el) el.style.display = '';
+  }
+  const hintEl = document.getElementById('rewardHint');
+  if(hintEl) hintEl.textContent = '普通节点 5 选 2（Boss 节点 5 选 3）。不可重复选择。';
+}
+
+// 刷新 reward 屏内嵌商店（购买后即时回显；未展开时 no-op）
+function renderRewardShop(){
+  const box = document.getElementById('rewardShopBox');
+  if(!box || box.style.display === 'none') return;
+  buildRunShopInto(document.getElementById('rewardShopList'), document.getElementById('rewardShopBalance'));
+}
+
+// 「继续 NEXT BOSS」：形态与普通 reward 确认一致，走同一推进函数（下一 Boss 节点）
+document.getElementById('rewardShopContinueBtn').addEventListener('click', () => {
+  playSound('ui');
+  rewardShopOpen = false;
   advanceRewardFlow();
 });
 
@@ -2440,13 +2532,18 @@ watchFlow(flow, (state, payload) => {
       document.getElementById('settleNextBtn').style.display = '';
       document.getElementById('settleSaveBtn').style.display = '';
       document.getElementById('settleHomeBtn').style.display = 'none';
-      // #MODE：Boss 模式不开放局内商店（每局回满血，不需要升级）
+      // #MODE（2026-10-15 用户裁定修订）：Boss 模式的局内商店**已开放**，改在 reward 屏
+      // 选完卡后展开（revealRewardShop）。结算屏仍不内嵌商店——避免与紧随其后的 reward 屏
+      // 商店重复出现两处入口（结算只做得分展示，购物集中在战前整备那一步）。
       if(GAME_MODE !== 'boss') renderRunShop();   // 2026-09-14：局内商店（基础参数升级）随结算界面展示
       else { const _rsBox = document.getElementById('runShopBox'); if(_rsBox) _rsBox.style.display = 'none'; }
     }
     showScreen('settleScreen'); setOverlayVisible(true);
   } else if(state === 'reward'){
     // 2026-09-14 定案：普通节点 5 选 2 / Boss 追加轮 5 选 3——抽取 + 选中态渲染（openRewardScreen）
+    // #MODE（2026-10-15）：每次进入 reward 复位商店区——Boss 追加卡牌有多轮（reward→reward），
+    // 上一轮展开的商店必须收起，否则新一轮直接跳过选卡。按钮/文案同样按选卡态还原。
+    resetRewardShop();
     openRewardScreen();
     showScreen('rewardScreen'); setOverlayVisible(true);
   } else if(state === 'gameover'){
@@ -2519,6 +2616,7 @@ function buyRunShopItem(defId){
   pushLog(`局内商店：${def.name} → Lv${lv + 1}（−${cost} 分）`, 'PEN');
   playSound('ui');
   renderRunShop();
+  renderRewardShop();  // #MODE：Boss 模式 reward 屏内嵌商店（未展开时 no-op）
   renderPauseShop();   // #S9：暂停菜单内嵌商店同刷
   refreshStatusPanel(); // #S10(b)(c)：购买后即时刷新 TAB 面板（若开着）
   return true;
@@ -3299,6 +3397,10 @@ let fpsState = { frames: 0, last: last };   // tank_hud.js updateFpsCounter 共�
 function update(dt){
   // 节点通关 3 秒缓冲期间冻结全场坦克逻辑，仅推进粒子/炮弹特效与倒计时
   const isClearing = !!(battleState && battleState.clearing);
+  // #MODE（2026-10-15 用户裁定）：生存模式波次间隔倒计时 = 「准备期」——玩家**可自由移动**，
+  // 但**所有伤害判定关闭**。伤害总闸在 applyDamage（js/tank_physics.js，经 globalThis.damageSuppressed），
+  // 本变量只用于拦住绕过 applyDamage 的伤害**来源**：开火、炮弹飞行、部署物触发、Boss 行为层。
+  const isSurvivalPrep = isSurvivalPrepWindow();
 
   // P-08：当前模拟世界尺寸（run 模式 = 节点大世界；未开局 = 画布）
   const worldW = (run && currentNode) ? currentNode.w : canvas.width;
@@ -3533,10 +3635,14 @@ function update(dt){
   // 2026-09-17 #C4e：键位语义反转——左键/空格=主炮专属（tryFirePrimary，空格=双管齐射 salvo）；
   // F（按住）=副武器专属连发（tryFireSecondary，目标=鼠标世界点），不再切换激活槽。
   if(!isClearing){
-    if(mouseFireHeld && flow.state === 'battle' && !statusOpen && !devOpen) tryFirePrimary(fireCtx);
-    if(input.isDown('fire')) tryFirePrimary(fireCtx, true);
-    if(input.isDown('fireSecondary')) trySecondaryFire();   // #C4e：F 按住连发副武器
-    if(input.isDown('abilityStrike')) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
+    // 生存准备期（isSurvivalPrep）同样禁止开火：伤害总闸虽已拦住结算，但放出的炮弹会在倒计时
+    // 结束瞬间同时命中（多波火力叠加），且曳光/爆点视觉会让「无伤」显得可疑。直接不发。
+    if(!isSurvivalPrep){
+      if(mouseFireHeld && flow.state === 'battle' && !statusOpen && !devOpen) tryFirePrimary(fireCtx);
+      if(input.isDown('fire')) tryFirePrimary(fireCtx, true);
+      if(input.isDown('fireSecondary')) trySecondaryFire();   // #C4e：F 按住连发副武器
+      if(input.isDown('abilityStrike')) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
+    }
     if(input.isDown('abilityShield')) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
     // #H3（2026-09-21）：超装填 V 键轮询删除——overdrive 只经技能池 skill1/2/3（skillHotkey DISPATCH）触发
     if(input.isDown('supportRepair')) tryRepairKit();   // #90：4 键修理箱（开局自带）
@@ -3652,7 +3758,8 @@ function update(dt){
       // #5（2026-10-15）：Boss 随机使用携带的技能（每 8-15 秒一次）
       if(e.isBoss && e.hp > 0) updateBossSkills(e, dt);
       // 开火：复用 fireTank（敌人打玩家，友军打最近敌人）
-      if(d.fire){
+      // #MODE：生存准备期（倒计时）不开火——炮口空响会误导玩家以为有威胁（伤害总闸已拦住结算）。
+      if(d.fire && !isSurvivalPrep){
         const target = e.team === 'ally' ? nearestEnemyTo(e) : player;
         if(target && target.hp > 0) fireTank(e, target, 'auto', fireCtx);
       }
@@ -3680,7 +3787,7 @@ function update(dt){
   // 结算 AOE（对齐 bench 实现：burstExplosion + applySplashAt 衰减伤害 + 飘字 + 日志），
   // 伤害统一走 applyDamage（尊重 dmgTakenMul 减伤/无敌免疫），击杀计分由下方 entities.forEach
   // 统一击杀检测接管（与无人机直伤同构）。固定炮塔开火事件复用 fireTank 全管线。
-  if(!isClearing && typeof updateDeployables === 'function'){
+  if(!isClearing && !isSurvivalPrep && typeof updateDeployables === 'function'){
     const deployEvents = updateDeployables(dt, { entities });
     for(const ev of deployEvents){
       if(ev.type === 'mineExplode'){
@@ -3700,7 +3807,8 @@ function update(dt){
 
   // P-17：无人机逐帧行为（环绕跟随 + striker 索敌/开火计时；owner 阵亡自动退场）。
   // 攻击事件直伤结算——击杀计分由下方 entities.forEach 统一击杀检测接管（runScore += killScore）。
-  const droneEvents = updateDrones(dt, { player, entities });
+  // #MODE：生存准备期不推进（打击无人机只开火、伤害会被总闸拦成 0，视觉上像空放）。
+  const droneEvents = isSurvivalPrep ? [] : updateDrones(dt, { player, entities });
   for(const ev of droneEvents){
     const target = ev.target;
     if(!target || target.hp <= 0) continue;
@@ -3749,8 +3857,12 @@ function update(dt){
       if(e.dotT<=0){ e.dotT=0; e.dotDps=0; e._dotAcc=0; e._dotTxt=0; }
     }
     // 溺毙（2026-09-14 水域行为重做）：完全浸入水体 → 倒计时 → 沉没摧毁。
-    // 玩家/敌军/Boss/友军一视同仁；出水即复位。结算缓冲期不累计（防清场帧误杀）。
-    if(e.hp > 0 && !invuln && !isClearing && typeof tankFullyInWater === 'function' && tankFullyInWater(e)){
+    // 玩家/敌军/友军一视同仁；出水即复位。结算缓冲期不累计（防清场帧误杀）。
+    // #MODE（2026-10-15 用户裁定）：**Boss 免疫溺毙**——Boss 走位由 _bossMoveOverride 直驱，
+    //   绕过 AI 的避水修正（js/tank_ai.js 探点判水），故可能停在深水中央；此时溺毙 = 白给，
+    //   与「Boss 是关卡核心对抗」的设计冲突。豁免后 Boss 在深水仅减速通行（passability 0.4）。
+    //   另：生存准备期（!isSurvivalPrep 门控）不累计倒计时——伤害关闭期不应"攒着"到开波瞬间溺死。
+    if(e.hp > 0 && !invuln && !isClearing && !isSurvivalPrep && !e.isBoss && typeof tankFullyInWater === 'function' && tankFullyInWater(e)){
       e.drownT = (e.drownT || 0) + dt;
       const drownSec = (RULES.drowning && RULES.drowning.seconds) || 8;
       if(e.drownT >= drownSec){
@@ -3816,7 +3928,8 @@ function update(dt){
   // 对敌方坦克与全高掩体取路径上最近障碍；命中后按"命中时刻"结算。
   // [P-28] 炮弹飞行积分已收敛到 js/tank_fire.js stepShells（半高越掩/护盾!s.absorbed/HE破障/烟幕/二次跳弹禁止）
   // B2（2026-09）：结算缓冲(isClearing)期间冻结炮弹飞行，避免缓冲 3 秒内残弹仍击伤玩家（仅粒子/倒计时推进）。
-  if(!isClearing) stepShells(dt, fireCtx);
+  // #MODE：生存准备期同样冻结——见 isSurvivalPrep 说明（关伤害且不留残弹到开波瞬间）。
+  if(!isClearing && !isSurvivalPrep) stepShells(dt, fireCtx);
   // #G（2026-09-21）：APS 拦截层（stepShells 之后扫描新弹）——仅玩家持有 _apsT 时活动
   if(!isClearing && player && player._apsT > 0) updateAps(player, dt);
   // [P-28] 原地过滤保持数组引用稳定——fireCtx.shells/impacts/bounceFx 由事件处理器跨帧持有，
@@ -3843,7 +3956,8 @@ function update(dt){
   updateAbilityCds(player, dt);   // 按技能独立冷却递减（artillery/shield/overdrive/... + repair/medkit/extinguish）
   updateShield(player, dt);       // 护盾时长递减（本版本仅玩家持有护盾，无盾时 no-op）
   // P-17：战术炮击落弹推进（updateStrikes 已按阵营过滤扣血并返回命中明细；接线层播特效/飘字/音效）
-  for(const ev of updateStrikes(dt, entities)){
+  // #MODE：生存准备期不推进落弹（否则倒计时结束瞬间多波落弹同时爆开；伤害总闸亦已拦住结算）。
+  for(const ev of (isSurvivalPrep ? [] : updateStrikes(dt, entities))){
     const sc = ev.radius / 40;    // §2.6 特效对齐：burstExplosion scale 以冲击波最大半径标定（maxR=40×scale）
     burstExplosion(ev.x, ev.y, sc, Math.round(22*sc), Math.round(14*sc), Math.round(11*sc));
     spawnImpactFx(ev.x, ev.y, 0, 'he', 1);   // 落弹无方向，径向对称爆轰特效
@@ -3970,12 +4084,13 @@ function update(dt){
       }
     } else if(!player._dead){
       // #MODE（2026-10-15）：生存模式走波次清空判定（无出口/配额概念），跳过标准 nodeClearance
-      if(GAME_MODE === 'survival' && battleState.waveActive && !battleState.clearing && !battleState.cleared){
+      if(GAME_MODE === 'survival' && battleState.waveActive && !battleState.cleared){
+        // #MODE（2026-10-15 用户裁定）：生存模式**不再走 clearing 通道**——原实现先置
+        // clearing=true/clearingT=2.0 走「区域肃清」2 秒缓冲，而 finishSurvivalWave 只复位
+        // waveActive/cleared、**不复位 clearing** ⇒ isClearing 恒真：倒计时期间玩家被冻结
+        // （driveTank 被跳过）且战斗管线全停。现改为清场即结算（直接 finishSurvivalWave）。
         if(livingSurvivalWaveEnemies().length === 0){
-          battleState.clearing = true;
-          battleState.clearingT = 2.0;   // 2 秒缓冲后结算抽卡
-          pushLog(`★ 第 ${survivalWave} 波 · 肃清 ★`, 'COVER');
-          playSound('ui');
+          finishSurvivalWave();
         }
       } else if(GAME_MODE !== 'survival'){
       // B 档③（2026-09-23）：推进式节点完成——「抵达右端出口 +（防线清空 或 配额达成）」双条件。
@@ -4008,16 +4123,12 @@ function update(dt){
     }
   }
 
-  // 通关 3 秒缓冲倒计时推进
-  // #MODE（2026-10-15）：生存模式波次清空走 finishSurvivalWave（快速选卡/倒计时 → 下一波）
+  // 通关 3 秒缓冲倒计时推进（仅常规/Boss 节点——生存模式不经 clearing，清场即走 finishSurvivalWave）
   if(battleState && battleState.clearing && !battleState.cleared){
     battleState.clearingT = Math.max(0, (battleState.clearingT || 0) - dt);
-    if(battleState.clearingT <= 0){
-      if(GAME_MODE === 'survival') finishSurvivalWave();
-      else finishNode(true);
-    }
+    if(battleState.clearingT <= 0) finishNode(true);
   }
-  // 生存模式波次间隔 5 秒倒计时（不冻结，玩家可自由移动；死亡走正常流程）
+  // 生存模式波次间隔 5 秒倒计时（不冻结，玩家可自由移动；期间全场伤害判定关闭）
   if(GAME_MODE === 'survival' && battleState && battleState.waveCountdownActive && !player._dead){
     battleState.waveCountdown = Math.max(0, (battleState.waveCountdown || 0) - dt);
     if(battleState.waveCountdown <= 0){
