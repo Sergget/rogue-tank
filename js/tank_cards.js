@@ -648,6 +648,13 @@ function drawCardChoices(pool, n, optsOrRng) {
       if(picked.length < count) pickRandomWhere(c => (c.effects || []).some(ef =>
         ef && ef.type === 'ammo' && ef.replaceAmmo && !ammoLoadout.includes(ef.key)));
     }
+    // #10（2026-10-15）：Boss 追加轮必含 1 张技能卡（opts.guaranteeSkillCard）
+    const forceSkill = !!(optsOrRng && typeof optsOrRng === 'object' && optsOrRng.guaranteeSkillCard);
+    if (forceSkill) {
+      const ownedAbils = (owned && owned.abilities) || [];
+      if(picked.length < count) pickRandomWhere(c => (c.effects || []).some(ef =>
+        ef && ef.type === 'ability' && !ownedAbils.includes(ef.key)));
+    }
   }
   while (picked.length < count && usable.length > 0) {
     // 权重抽样：先按稀有度权重选稀有度，再在该稀有度内随机取一张。

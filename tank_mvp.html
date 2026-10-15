@@ -2058,7 +2058,8 @@ function drawRewardCards(){
   return drawPool.length ? drawCardChoices(drawPool, 5, {
     ammoLoadout: player.ammoLoadout,
     owned: { abilities: ownedAbilities, secondaryWeapon: secondaryType, primaryWeapon: primaryType, cards: ownedCardCounts },
-    guaranteeAmmoUpgrade: pendingLootRounds > 0   // #S5：Boss 追加轮必含 1 张弹种升级选项
+    guaranteeAmmoUpgrade: pendingLootRounds > 0,   // #S5：Boss 追加轮必含 1 张弹种升级选项
+    guaranteeSkillCard: pendingLootRounds > 0       // #10：Boss 追加轮必含 1 张技能卡
   }) : [];
 }
 
@@ -2229,6 +2230,8 @@ watchFlow(flow, (state, payload) => {
       // P-51 Wave2：每次进入 settlement 先清 pending，再按本次 payload 捕获 Boss 战利品追加轮
       pendingLootRounds = 0; pendingLootRarityIdx = -1;
       const bl = (payload && payload.bossLoot) || null;
+      // #10（2026-10-15）：Boss 卡牌保底——至少 1 轮三选一
+      if(bl && (typeof bl.cards !== 'number' || bl.cards < 1)) bl.cards = 1;
       if(bl && typeof bl.cards === 'number' && bl.cards > 0){
         pendingLootRounds = bl.cards;
         pendingLootRarityIdx = (typeof CARD_RARITIES !== 'undefined') ? CARD_RARITIES.indexOf(bl.cardRarity) : -1;
