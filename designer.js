@@ -718,6 +718,22 @@ function updatePanelVisibility(){
   document.querySelectorAll('.panel-data, .panel-armor, .panel-appearance, .panel-cover').forEach(el=>{
     el.style.display = el.classList.contains('panel-'+editTab) ? '' : 'none';
   });
+  // #3（2026-10-15）：外观标签时，外观件面板移到左栏
+  const leftSidebar = document.getElementById('left-sidebar');
+  if(leftSidebar){
+    const appearancePanels = Array.from(document.querySelectorAll('.panel-appearance'));
+    if(!window._appearancePanelsOrigin){
+      window._appearancePanelsOrigin = appearancePanels.map(el => ({ el, parent: el.parentNode, next: el.nextSibling }));
+    }
+    if(editTab === 'appearance'){
+      for(const el of appearancePanels) leftSidebar.appendChild(el);
+    } else {
+      for(const { el, parent, next } of window._appearancePanelsOrigin){
+        if(next && next.parentNode === parent) parent.insertBefore(el, next);
+        else parent.appendChild(el);
+      }
+    }
+  }
   const vertEdit = (editTab==='armor' || editTab==='cover');
   document.getElementById('undoVertBtn').disabled = !vertEdit;
   document.getElementById('clearPolyBtn').disabled = !vertEdit;
@@ -745,7 +761,7 @@ function setMode(m){
 }
 document.getElementById('modeData').addEventListener('click', ()=>setMode('data'));
 document.getElementById('modeArmor').addEventListener('click', ()=>setMode('armor'));
-document.getElementById('modeCover').addEventListener('click', ()=>setMode('cover'));
+// #3（2026-10-15）：删除掩体形状设计功能（modeCover 按钮已移除）
 document.getElementById('modeAppearance').addEventListener('click', ()=>{
   // 外观件条目：面板切到外观件组，画布进入预览模式（无顶点编辑目标，便于查看炮管/炮盾/履带效果）
   editTab = 'appearance';

@@ -143,7 +143,7 @@
         <button id="modeData" class="mode-btn edit-tab-btn active">数据 Data</button>
         <button id="modeArmor" class="mode-btn edit-tab-btn">装甲模型 Armor</button>
         <button id="modeAppearance" class="mode-btn edit-tab-btn">外观 Appearance</button>
-        <button id="modeCover" class="mode-btn edit-tab-btn">掩体 Cover</button>
+        <!-- #3（2026-10-15）：删除掩体形状设计功能 -->
       </div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">数据（基础+战斗参数）/ 装甲模型（车体+炮塔几何+装甲+座圈）/ 外观（车长塔+发动机舱+炮管+炮盾+履带+纹理）/ 掩体（地图元素多边形编辑）</div>
       <div class="btnrow" style="margin-top:8px;">
@@ -354,8 +354,9 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">相对车体中心的偏移（local 单位）。留空样式=用内置默认位置</div>
     </div>
 
-    <div class="section panel-appearance">
-      <h3>整车精灵 Sprite</h3>
+    <!-- #3（2026-10-15）：暂时停用游戏精灵面板 -->
+    <div class="section panel-appearance" style="display:none !important;">
+      <h3>整车精灵 Sprite（已停用）</h3>
       <div class="prop-row"><span class="lbl">游戏中启用精灵</span><input type="checkbox" id="sp-enabled" style="width:16px;"></div>
       <div class="prop-row"><span class="lbl">画布显示精灵</span><input type="checkbox" id="sp-preview" style="width:16px;"></div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">精灵 = AI 生成的四层俯视贴图（assets/tanks/：履带/车体/炮塔/炮管）。「游戏中启用」写入 tank JSON（sprite.enabled），局内 drawTank 改用精灵绘制；「画布显示」仅设计器叠加预览（默认关闭，避免未对齐贴图盖住顶点/装甲判读），用于对齐多边形。</div>
