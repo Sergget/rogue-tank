@@ -734,14 +734,8 @@ function stepShells(dt, ctx){
       s.x=bestCover.point.x; s.y=bestCover.point.y;
       const tier=T[bestCover.cover.tier]||{label:bestCover.cover.tier,mode:bestCover.cover.tier};
       if(tier.mode==='single'){
-        const n=coverNormalAt?coverNormalAt(bestCover.cover,s.x,s.y):null;
-        const cosT=n?Math.abs(s.dx*n.nx+s.dy*n.ny):0;
-        if(s.canBounce&&Math.acos(Math.min(1,Math.max(-1,cosT)))>bounceAngle){
-          const r=reflect?reflect(s.dx,s.dy,n.nx,n.ny):{x:-s.dx,y:-s.dy};
-          s.dx=r.x; s.dy=r.y; s.bounced=true; s.canBounce=false; s.fx=s.x; s.fy=s.y;
-          if(bounceFx) bounceFx.push({x:s.x,y:s.y,life:0.5,angle:Math.atan2(r.y,r.x)});
-          impactFx(s.x,s.y,Math.atan2(r.y,r.x),'bounce',0.8); play('bounce'); push('跳弹！炮弹在'+tier.label+'表面掠射弹开 — 路障无损','BOUNCE');
-        } else { if(impacts) impacts.push({x:s.x,y:s.y,life:0.4,color:'#ffb454'}); impactFx(s.x,s.y,Math.atan2(s.dx,s.dy),'block',0.8); play('block'); dmgCover(bestCover.cover,1,'shell'); s.dead=true; }
+        // #12（2026-10-15）：沙包（single 模式一次性路障）为软质掩体，不跳弹——直接摧毁
+        if(impacts) impacts.push({x:s.x,y:s.y,life:0.4,color:'#ffb454'}); impactFx(s.x,s.y,Math.atan2(s.dx,s.dy),'block',0.8); play('block'); dmgCover(bestCover.cover,1,'shell'); s.dead=true;
       } else { if(impacts) impacts.push({x:s.x,y:s.y,life:0.4,color:'#ffb454'}); impactFx(s.x,s.y,Math.atan2(s.dx,s.dy),'block',0.8); play('block'); if(Number.isFinite(bestCover.cover.hp)){ if(!dmgCover(bestCover.cover,1,'shell')) push('被'+tier.label+'挡住 — 掩体受损（剩余耐久 '+bestCover.cover.hp+'）','COVER'); } else push('被'+tier.label+'挡住 — 炮弹被掩体截停','COVER'); s.dead=true; }
     } else if(s._blockedByDeployable){
       // #E4：敌方炮弹被部署掩体挡下（单向透明：部署方可穿过，对立方被挡）
