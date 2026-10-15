@@ -61,26 +61,45 @@ function paintTracks(ctx, verts, cx, cy, angle, scale, color, phase, opts){
   const offsetExtra = (opts.trackOffset || 0) / scale;
   const cxm = (minX+maxX)/2, cym = (minY+maxY)/2;
   const yTop = cym - W - tw/2 - offsetExtra, yBot = cym + W + tw/2 + offsetExtra;
+  const x0 = cxm - L*0.98, x1 = cxm + L*0.98;
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(angle||0);
   ctx.scale(scale, scale);
-  // track bodies
-  ctx.strokeStyle = paintShade(color, -52); ctx.lineWidth = tw; ctx.lineCap='butt';
-  ctx.beginPath(); ctx.moveTo(cxm-L*0.98, yTop); ctx.lineTo(cxm+L*0.98, yTop); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cxm-L*0.98, yBot); ctx.lineTo(cxm+L*0.98, yBot); ctx.stroke();
-  // outer edge highlight
-  ctx.strokeStyle = paintShade(color, -22); ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(cxm-L*0.98, yTop - tw/2); ctx.lineTo(cxm+L*0.98, yTop - tw/2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cxm-L*0.98, yBot + tw/2); ctx.lineTo(cxm+L*0.98, yBot + tw/2); ctx.stroke();
-  // rolling links (dash offset scroll)
-  const pitch = 8;
-  ctx.strokeStyle = paintShade(color, 6); ctx.lineWidth = tw+1;
-  ctx.setLineDash([pitch*0.55, pitch*0.45]);
-  ctx.lineDashOffset = -((phase||0) % pitch);
-  ctx.beginPath(); ctx.moveTo(cxm-L*0.98, yTop); ctx.lineTo(cxm+L*0.98, yTop); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cxm-L*0.98, yBot); ctx.lineTo(cxm+L*0.98, yBot); ctx.stroke();
-  ctx.setLineDash([]);
+  // #TEX2-2026-10-15: 履带重做 —— 不再是圆角矩形条，画独立履带节 + 中央导向齿 + 端部弧形
+  for(const yc of [yTop, yBot]){
+    // 履带基体（深色）
+    ctx.fillStyle = paintShade(color, -58);
+    // 主体：胶囊形（两端半圆，模拟主动轮/诱导轮弧度）
+    ctx.beginPath();
+    const r = tw/2;
+    ctx.moveTo(x0 + r, yc - r);
+    ctx.lineTo(x1 - r, yc - r);
+    ctx.arc(x1 - r, yc, r, -Math.PI/2, Math.PI/2);
+    ctx.lineTo(x0 + r, yc + r);
+    ctx.arc(x0 + r, yc, r, Math.PI/2, Math.PI*1.5);
+    ctx.closePath(); ctx.fill();
+    // 外缘高光
+    ctx.strokeStyle = paintShade(color, -20); ctx.lineWidth = 1;
+    ctx.stroke();
+    // 独立履带节：横向分隔线（随 phase 滚动）
+    const pitch = 7;
+    const off = -((phase || 0) % pitch);
+    ctx.strokeStyle = paintShade(color, -34); ctx.lineWidth = 1.2;
+    for(let x = x0 + r + off; x < x1 - r; x += pitch){
+      ctx.beginPath(); ctx.moveTo(x, yc - r + 1); ctx.lineTo(x, yc + r - 1); ctx.stroke();
+    }
+    // 履带节防滑齿（每节中央横条）
+    ctx.strokeStyle = paintShade(color, 10); ctx.lineWidth = 1.6;
+    for(let x = x0 + r + off + pitch/2; x < x1 - r; x += pitch){
+      ctx.beginPath(); ctx.moveTo(x, yc - r + 1.5); ctx.lineTo(x, yc + r - 1.5); ctx.stroke();
+    }
+    // 中央导向齿（一排小凸起）
+    ctx.fillStyle = paintShade(color, -30);
+    for(let x = x0 + r + off + pitch*0.25; x < x1 - r; x += pitch){
+      ctx.beginPath(); ctx.arc(x, yc, 1.1, 0, Math.PI*2); ctx.fill();
+    }
+  }
   ctx.restore();
 }
 
@@ -307,40 +326,108 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
       // center ridge
       ctx.strokeStyle = paintShade(bodyCol, 8); ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(cxm, cym - W*0.72); ctx.lineTo(cxm, cym + W*0.72); ctx.stroke();
-      // rear engine grilles (near minX, engine deck)
-      ctx.strokeStyle = paintShade(bodyCol, 14); ctx.lineWidth = 2.5;
-      for(const gy of [cym - W*0.34, cym, cym + W*0.34]){
-        ctx.beginPath(); ctx.moveTo(minX+1, gy); ctx.lineTo(minX + (maxX-minX)*0.38, gy); ctx.stroke();
+      // #TEX2-2026-10-15: 发动机舱重做 —— 百叶窗散热器 + 排气管 + 检修舱盖
+      // 散热器格栅：两组百叶窗（深色底 + 亮色叶片线）
+      for(const gy of [cym - W*0.34, cym + W*0.34]){
+        const gx0 = minX + L*0.06, gx1 = minX + L*0.42;
+        ctx.fillStyle = paintShade(bodyCol, -34);
+        ctx.fillRect(gx0, gy - W*0.13, gx1 - gx0, W*0.26);
+        ctx.strokeStyle = paintShade(bodyCol, 24); ctx.lineWidth = 0.9;
+        for(let lx = gx0 + 2; lx < gx1 - 1; lx += 3.2){
+          ctx.beginPath(); ctx.moveTo(lx, gy - W*0.11); ctx.lineTo(lx, gy + W*0.11); ctx.stroke();
+        }
+        ctx.strokeStyle = paintShade(bodyCol, -46); ctx.lineWidth = 1.2;
+        ctx.strokeRect(gx0, gy - W*0.13, gx1 - gx0, W*0.26);
       }
+      // 中央检修舱盖（两扇对开）
+      const hx0 = minX + L*0.48, hx1 = minX + L*0.78;
+      ctx.strokeStyle = paintShade(bodyCol, -26); ctx.lineWidth = 1.2;
+      ctx.strokeRect(hx0, cym - W*0.30, hx1 - hx0, W*0.60);
+      ctx.beginPath(); ctx.moveTo((hx0+hx1)/2, cym - W*0.30); ctx.lineTo((hx0+hx1)/2, cym + W*0.30); ctx.stroke();
+      // 舱盖把手
+      ctx.fillStyle = paintShade(bodyCol, 20);
+      ctx.fillRect((hx0+hx1)/2 - 3, cym - 1, 2.4, 2);
+      ctx.fillRect((hx0+hx1)/2 + 0.6, cym - 1, 2.4, 2);
+      // 排气管：尾部两侧（深色管体 + 管口）
+      for(const ey of [cym - W*0.52, cym + W*0.52]){
+        const ex0 = minX + 1, ex1 = minX + L*0.20;
+        ctx.fillStyle = paintShade(bodyCol, -40);
+        ctx.beginPath();
+        ctx.ellipse((ex0+ex1)/2, ey, (ex1-ex0)/2, 2.2, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#141416';
+        ctx.beginPath(); ctx.ellipse(ex0 + 1.5, ey, 1.6, 1.8, 0, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = paintShade(bodyCol, 14); ctx.lineWidth = 0.8;
+        ctx.beginPath(); ctx.ellipse((ex0+ex1)/2, ey, (ex1-ex0)/2, 2.2, 0, 0, Math.PI*2); ctx.stroke();
+      }
+      // 驾驶员舱盖（前左）+ 航向机枪球座（前右）
+      const dhx = maxX - L*0.30;
+      ctx.fillStyle = paintShade(bodyCol, -18);
+      ctx.beginPath(); ctx.arc(dhx, cym - W*0.42, W*0.13, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = paintShade(bodyCol, 18); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(dhx, cym - W*0.42, W*0.13, 0, Math.PI*2); ctx.stroke();
+      // 驾驶员周视镜（3 块）
+      ctx.fillStyle = paintShade(bodyCol, 30);
+      for(let k = -1; k <= 1; k++){
+        ctx.fillRect(dhx + k*3.4 - 1, cym - W*0.42 - W*0.13 - 2.4, 2, 1.8);
+      }
+      // 机枪球座
+      ctx.fillStyle = paintShade(bodyCol, -26);
+      ctx.beginPath(); ctx.arc(dhx, cym + W*0.42, W*0.10, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#1a1a1e';
+      ctx.beginPath(); ctx.arc(dhx, cym + W*0.42, W*0.045, 0, Math.PI*2); ctx.fill();
       // front glacis chevrons (front = +x, near maxX)
       ctx.strokeStyle = paintShade(bodyCol, 16); ctx.lineWidth = 1.5;
       for(const fx of [maxX - L*0.22, maxX - L*0.08]){
         ctx.beginPath(); ctx.moveTo(fx, cym - W*0.5); ctx.lineTo(fx + L*0.12, cym); ctx.lineTo(fx, cym + W*0.5); ctx.stroke();
       }
     } else {
-      // commander cupola(s) — class icon on the turret/fighting room LEFT side:
-      //   turretless (fixed casemate) or heavy tank → 2 cupolas in a row (并列);
-      //   medium tank → 1 cupola. Positioned on the left side (local -y).
+      // #TEX2-2026-10-15: 车长塔重做 —— 装甲围圈 + 周视镜环 + 对开舱盖 + 提手
       const cupolas = (opts.heightClass === 'heavy' || opts.hasTurret === false) ? 2 : 1;
       const cupCy = cym - W*0.44;
-      ctx.fillStyle = paintShade(bodyCol, -28);
+      const cupolaAt = (ccx, cr) => {
+        // 基座（深色）
+        ctx.fillStyle = paintShade(bodyCol, -30);
+        ctx.beginPath(); ctx.arc(ccx, cupCy, cr, 0, Math.PI*2); ctx.fill();
+        // 装甲围圈（亮边）
+        ctx.strokeStyle = paintShade(bodyCol, 22); ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.arc(ccx, cupCy, cr, 0, Math.PI*2); ctx.stroke();
+        // 周视镜：8 块小镜环绕
+        ctx.fillStyle = paintShade(bodyCol, 34);
+        for(let k = 0; k < 8; k++){
+          const a = k * Math.PI/4;
+          const px = ccx + Math.cos(a) * cr * 0.72, py = cupCy + Math.sin(a) * cr * 0.72;
+          ctx.beginPath(); ctx.arc(px, py, cr*0.14, 0, Math.PI*2); ctx.fill();
+        }
+        // 对开舱盖：中线 + 两扇
+        ctx.fillStyle = paintShade(bodyCol, -12);
+        ctx.beginPath(); ctx.arc(ccx, cupCy, cr*0.52, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = paintShade(bodyCol, -38); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(ccx, cupCy, cr*0.52, 0, Math.PI*2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(ccx - cr*0.52, cupCy); ctx.lineTo(ccx + cr*0.52, cupCy); ctx.stroke();
+        // 舱盖提手
+        ctx.strokeStyle = paintShade(bodyCol, 28); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(ccx, cupCy - cr*0.26, cr*0.16, Math.PI, 0); ctx.stroke();
+        ctx.beginPath(); ctx.arc(ccx, cupCy + cr*0.26, cr*0.16, 0, Math.PI); ctx.stroke();
+      };
       if(cupolas === 1){
-        ctx.beginPath(); ctx.arc(cxm - L*0.08, cupCy, W*0.15, 0, Math.PI*2); ctx.fill();
+        cupolaAt(cxm - L*0.08, W*0.17);
       } else {
-        ctx.beginPath(); ctx.arc(cxm - L*0.30, cupCy, W*0.14, 0, Math.PI*2); ctx.fill();
-        ctx.beginPath(); ctx.arc(cxm + L*0.18, cupCy, W*0.14, 0, Math.PI*2); ctx.fill();
+        cupolaAt(cxm - L*0.30, W*0.15);
+        cupolaAt(cxm + L*0.18, W*0.15);
       }
-      // cupola rim(s)
-      ctx.strokeStyle = paintShade(bodyCol, 18); ctx.lineWidth = 1;
-      if(cupolas === 1){
-        ctx.beginPath(); ctx.arc(cxm - L*0.08, cupCy, W*0.15 + 1.5, 0, Math.PI*2); ctx.stroke();
-      } else {
-        ctx.beginPath(); ctx.arc(cxm - L*0.30, cupCy, W*0.14 + 1.5, 0, Math.PI*2); ctx.stroke();
-        ctx.beginPath(); ctx.arc(cxm + L*0.18, cupCy, W*0.14 + 1.5, 0, Math.PI*2); ctx.stroke();
-      }
-      // gunner sight (front-right)
-      ctx.strokeStyle = paintShade(bodyCol, 18); ctx.lineWidth = 1.5;
-      ctx.strokeRect(maxX - (maxX-minX)*0.45, cym + W*0.08, W*0.5, W*0.18);
+      // 炮手瞄具（前右）：镜座 + 镜片
+      const sx = maxX - (maxX-minX)*0.45, sy = cym + W*0.08, sw = W*0.5, sh = W*0.18;
+      ctx.fillStyle = paintShade(bodyCol, -24);
+      ctx.fillRect(sx, sy, sw, sh);
+      ctx.strokeStyle = paintShade(bodyCol, 20); ctx.lineWidth = 1;
+      ctx.strokeRect(sx, sy, sw, sh);
+      ctx.fillStyle = '#1a2530';
+      ctx.fillRect(sx + sw*0.2, sy + sh*0.25, sw*0.6, sh*0.5);
+      // 装填手舱盖（后右小圆）
+      ctx.fillStyle = paintShade(bodyCol, -20);
+      ctx.beginPath(); ctx.arc(cxm + L*0.32, cym + W*0.40, W*0.11, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = paintShade(bodyCol, 16); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(cxm + L*0.32, cym + W*0.40, W*0.11, 0, Math.PI*2); ctx.stroke();
     }
   }
   ctx.restore();

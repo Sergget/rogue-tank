@@ -521,7 +521,7 @@ function drawTankSprite(ctx, t){
 
   if(t.hasTurret !== false){
     // 与程序化分支同源的炮塔投影阴影（此前精灵分支只有车体地面软阴影，炮塔层次感偏平）。
-    paintTurretShadow(ctx, turretPoly(t).verts, pOff.x, pOff.y, superstructureAngle(t), 1, 9, 12, t.hullAngle);
+    paintTurretShadow(ctx, turretPoly(t).verts, pOff.x, pOff.y, superstructureAngle(t), 1, 2.5, 3.5, t.hullAngle);
     paintPartSprite(ctx, ti, pOff.x, pOff.y, superstructureAngle(t), 1,
       s.scale, s.dx, s.dy, s.rot, s.pivot);
     if(!t.ammoBlew){
@@ -586,7 +586,7 @@ function drawTank(ctx, t){
    if(!t.ammoBlew){
    // 阴影方向固定在世界方向（投影用 t.hullAngle），炮塔自转不改变阴影方向
    if(t.fireT>0) drawFireGlow(ctx, t);
-   paintTurretShadow(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1, 9, 12, t.hullAngle);
+   paintTurretShadow(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1, 2.5, 3.5, t.hullAngle);
 
    const structureAngle = superstructureAngle(t);
    const tPoly = turretPoly(t);
