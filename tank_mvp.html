@@ -1567,8 +1567,26 @@ function spawnBossFromDef(bossDef, node, opts){
   });
   bossEntity.nodeSpawn = true;                       // 计入清敌判定（livingNodeEnemies）
   if(o.survivalWaveSpawn) bossEntity.survivalWaveSpawn = true;   // #MODE：生存波次标记
-  bossEntity.x = (o.x !== undefined) ? o.x : node.w * 0.7;
-  bossEntity.y = (o.y !== undefined) ? o.y : node.h / 2;
+  // Boss 出生点：默认 (0.7w, h/2)，避开水体/河流（沿螺旋向外找安全点）
+  let _bx = (o.x !== undefined) ? o.x : node.w * 0.7;
+  let _by = (o.y !== undefined) ? o.y : node.h / 2;
+  if(o.x === undefined && typeof pointInCover === 'function' && node.covers){
+    const _isWaterCover = (c) => c && (c.tier === 'water' || c.tier === 'river');
+    const _waterCovers = node.covers.filter(_isWaterCover);
+    if(_waterCovers.length && pointInCover(_waterCovers, _bx, _by, 60)){
+      let _found = false;
+      for(let _r = 100; _r <= 800 && !_found; _r += 100){
+        for(let _a = 0; _a < 8 && !_found; _a++){
+          const _nx = _bx + Math.cos(_a * Math.PI / 4) * _r;
+          const _ny = _by + Math.sin(_a * Math.PI / 4) * _r;
+          if(_nx < 60 || _nx > node.w - 60 || _ny < 60 || _ny > node.h - 60) continue;
+          if(!pointInCover(_waterCovers, _nx, _ny, 60)){ _bx = _nx; _by = _ny; _found = true; }
+        }
+      }
+    }
+  }
+  bossEntity.x = _bx;
+  bossEntity.y = _by;
   bossEntity.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // 与普通敌军同规则
   // #MODE（2026-10-15）：Boss/生存模式强制接战
   if(GAME_MODE === 'boss' || GAME_MODE === 'survival' || o.survivalWaveSpawn){
