@@ -1204,6 +1204,10 @@ canvas.addEventListener('mousemove', e=>{
 // 2026-09-17 #C4e：左键=主炮专属（tryFirePrimary；副武器=F 键专属）；
 // ESC 暂停（flow!=='battle'）与面板打开（statusOpen/devOpen）时不连发；窗口失焦/鼠标移出画布复位防卡住。
 let mouseFireHeld = false;
+// #11（2026-10-15）：右键按住开镜（zoom 放大 + 视角向准星偏移）
+let aimMode = false;
+canvas.addEventListener('mousedown', e => { if(e.button === 2) aimMode = true; });
+canvas.addEventListener('mouseup', e => { if(e.button === 2) aimMode = false; });
 canvas.addEventListener('contextmenu', e => { e.preventDefault(); return false; });
 canvas.addEventListener('mousedown', e=>{
   if(inMenuState()) return;
@@ -3142,6 +3146,11 @@ function update(dt){
   // 可见距离屏幕相对化而移除）
   if(run && currentNode && flow.state === 'battle'){
     if(typeof updateCameraLead === 'function') updateCameraLead(cam, mouseScreen.x, mouseScreen.y, dt);
+    // #11（2026-10-15）：右键开镜——zoom 放大 1.6×，松开恢复
+    if(typeof setZoom === 'function'){
+      if(aimMode && !cam._aimZoomed){ cam._aimZoomed = true; cam._preAimZoom = cam.targetZoom; setZoom(cam, cam.targetZoom * 1.6); }
+      else if(!aimMode && cam._aimZoomed){ cam._aimZoomed = false; setZoom(cam, cam._preAimZoom || 1); }
+    }
     updateCamera(cam, player, dt);
   } else {
     cam.leadX = 0; cam.leadY = 0;
@@ -3158,9 +3167,16 @@ function update(dt){
   }
 
   const diff = angDiff(desired, player.turretAngle);
-  const maxStep = player.stats.turretTurnRate*dt;
+  // #11（2026-10-15）：炮塔"跟手"——大角度差时加速（最多 2.5×），小角度精调保持原速
+  const absDiff = Math.abs(diff);
+  const accel = absDiff > 0.5 ? Math.min(2.5, 1 + absDiff) : 1;
+  const maxStep = player.stats.turretTurnRate * accel * dt;
   player.turretAngle = norm(player.turretAngle + Math.max(-maxStep, Math.min(maxStep, diff)));
+  // #11（2026-10-15）：玩家缩圈 ×1.5（跟手），敌人不受影响
+  const _origAim = player.stats.aimSpeed;
+  if(_origAim > 0) player.stats.aimSpeed = _origAim * 1.5;
   updateSigma(player, dt, keys);   // ISSUES #15 修复：传入 keys，移动散布源（moveMax）生效
+  player.stats.aimSpeed = _origAim;
   if(devAim.zeroSpread) player.sigma = 0;   // P-15 超级精度：瞬间缩圈/散布归零
   player.prevHullAngle = player.hullAngle;
   player.prevTurretAngle = player.turretAngle;
