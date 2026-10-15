@@ -1257,6 +1257,9 @@ function showPanelGroup(which){
 // pause→battle：恢复现场（watcher 里 prev==='pause' 分支跳过 enterBattle 重新实体化）。
 // pause→settlement（终止游戏并结算）：voluntaryEnd 终局语义由 P-34 完善，本条目仅保证转移合法。
 function renderPause(){
+  // #MODE：生存/ Boss 模式 ESC 菜单商店不可用
+  const _shopBtn = document.getElementById('pauseShopBtn');
+  if(_shopBtn) _shopBtn.style.display = (GAME_MODE === 'survival' || GAME_MODE === 'boss') ? 'none' : '';
   const vm = buildPausePanel({ settings: profile.settings });
   // 键位说明改为从共享键位表渲染（js/tank_bindings.js）——与测试台测试面板同源，
   // 增改键位只改 KEY_BINDINGS/ACTION_INFO 一处。
@@ -1725,22 +1728,46 @@ function livingSurvivalWaveEnemies(){
   return entities.filter(e => e.survivalWaveSpawn && e.team === 'enemy' && e.hp > 0);
 }
 
-// 波次清空 → 结算 → 抽卡
+// 波次清空 → Boss 波快速选卡 / 普通波直接倒计时 → 下一波（不经过 settlement，不重载地图）
 function finishSurvivalWave(){
   if(!battleState || battleState.cleared) return;
   battleState.cleared = true;
   battleState.waveActive = false;
-  const clearMs = performance.now() - battleState.startMs;
   const isBossWave = (survivalWave % 3 === 0);
   const waveScore = 100 + survivalWave * 50;
   const bossBonus = isBossWave ? 500 : 0;
   runScore += waveScore + bossBonus;
   runKills += battleState.nodeKills || 0;
-  const bossLoot = isBossWave ? { score: 0, cards: 1, cardRarity: 'epic' } : null;  // Boss 波追加 1 张保底 epic
-  transition(flow, 'settlement', {
-    nodeIndex: 0, clearMs: clearMs, bossLoot: bossLoot, survivalWave: survivalWave,
-    score: { base: waveScore, bonuses: bossBonus ? [{ label: 'Boss 击破', amount: bossBonus }] : [], total: waveScore + bossBonus }
-  });
+  pushLog(`★ 第 ${survivalWave} 波 · 肃清（+${waveScore + bossBonus}分） ★`, 'COVER');
+  if(isBossWave){
+    // Boss 波：立即弹出快速选卡（保底 epic），选完后进 5 秒倒计时
+    survivalQuickPick = true;
+    pendingLootRounds = 1;
+    pendingLootRarityIdx = (typeof CARD_RARITIES !== 'undefined') ? CARD_RARITIES.indexOf('epic') : -1;
+    openRewardScreen();
+    document.getElementById('rewardScreen').style.display = 'block';
+    setOverlayVisible(true);
+  } else {
+    // 普通波：直接 5 秒倒计时
+    startSurvivalCountdown();
+  }
+}
+
+// 5 秒倒计时（玩家可自由移动，不冻结）
+function startSurvivalCountdown(){
+  if(!battleState) return;
+  battleState.waveCountdown = 5.0;
+  battleState.waveCountdownActive = true;
+  pushLog('下一波 5 秒后到来…', 'COVER');
+  updateSurvivalHud();
+}
+
+// 倒计时结束 → 下一波
+function onSurvivalCountdownDone(){
+  if(!battleState) return;
+  battleState.waveCountdownActive = false;
+  battleState.waveCountdown = 0;
+  startSurvivalWave(survivalWave + 1);
 }
 
 // 生存模式波次计数 HUD（"第 N 波"）
@@ -1946,6 +1973,7 @@ function deployDronesFromCards(){
 // P-51 Wave2：Boss 战利品追加卡牌轮 pending 状态（settlement 进入时捕获，抽完即清，防普通节点误触发）
 let pendingLootRounds = 0;        // 剩余追加三选一轮数
 let pendingLootRarityIdx = -1;    // 保底稀有度在 CARD_RARITIES 中的下标（-1 = 无保底/全池）
+let survivalQuickPick = false;    // 生存模式 Boss 波战斗内快速选卡（不经过 settlement/reward 状态）
 
 function bossLootRarityLabel(idx){
   const m = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' };
@@ -2179,6 +2207,15 @@ document.getElementById('rewardConfirmBtn').addEventListener('click', () => {
   for(const c of picks) pickCard(c);
   currentRewardCards = [];
   selectedRewardIdx = new Set();
+  // 生存模式战斗内快速选卡：隐藏选卡界面 → 5 秒倒计时（不经过 settlement/reward 状态）
+  if(survivalQuickPick){
+    survivalQuickPick = false;
+    pendingLootRounds = 0; pendingLootRarityIdx = -1;
+    document.getElementById('rewardScreen').style.display = 'none';
+    setOverlayVisible(false);
+    startSurvivalCountdown();
+    return;
+  }
   advanceRewardFlow();
 });
 
@@ -2382,6 +2419,8 @@ function buildRunShopInto(listEl, balEl){
   listEl.innerHTML = '';
   let lastGroup = null;
   for(const def of RUN_SHOP_DEFS){
+    // #MODE：Boss 模式移除"紧急维修"选项
+    if(GAME_MODE === 'boss' && def.id === 'emergency_repair') continue;
     if(def.group !== lastGroup){
       lastGroup = def.group;
       const h = document.createElement('div');
@@ -4903,6 +4942,11 @@ function draw(){
 
   // #E9（2026-09-20）Boss 蓄能激光：蓄能期在炮线上画「虚线警示带 + 红色透明填充」（带宽度随进度
   // 收紧），射击期画实心光束。玩家据此离开炮线区域规避。
+  // Boss 死亡后清除残留预警框（死亡时 update 循环跳过，bossLaserFx 未清零）
+  if(bossLaserFx){
+    const _bossAlive = entities.some(e => e.isBoss && e.hp > 0 && e.bossLaser);
+    if(!_bossAlive) bossLaserFx = null;
+  }
   if(bossLaserFx){
     const L = bossLaserFx;
     const las = (RULES.boss && RULES.boss.laser) || {};

@@ -543,7 +543,7 @@ function updateBossLaser(t, dt, target, opts) {
   // blockDist = 光束被最近全高掩体截断的距离（建筑/full/intact/rock/ruined），目标沿光束
   // 投影超过 blockDist 即不掉血（光束与蓄能虚线一致地止于掩体）。灌木/栅栏等不阻挡。
   const ux = Math.cos(ang), uy = Math.sin(ang);
-  const dps = (t.stats && t.stats.damage ? t.stats.damage : 40) * (cfg.dpsRatio !== undefined ? cfg.dpsRatio : 0.55);
+  const dps = (t.stats && t.stats.damage ? t.stats.damage : 40) * (cfg.dpsRatio !== undefined ? cfg.dpsRatio : 0.9);
   const ents = (opts && opts.entities) || (typeof entities !== 'undefined' ? entities : []);
   // 阵营判定：显式注入优先；否则用全局 isHostile（typeof 守卫避免 isHostile 未声明时的 TDZ）
   const hostileFn = (opts && opts.isHostile) ? opts.isHostile
