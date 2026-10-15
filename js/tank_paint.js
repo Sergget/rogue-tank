@@ -785,6 +785,29 @@ const DECORATION_DEFS = {
       ctx.beginPath(); ctx.moveTo(-w/2, y); ctx.lineTo(w/2, y); ctx.stroke();
     }
   },
+  // #3（2026-10-15）：新增 3 种杂物预设
+  oilDrum(ctx, s){
+    const r = 3.2*s;
+    ctx.fillStyle = '#4a5a3a';
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(15,15,18,0.7)'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.strokeStyle = '#3a4a2e'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, r*0.6, 0, Math.PI*2); ctx.stroke();
+  },
+  ropeCoil(ctx, s){
+    ctx.strokeStyle = '#8a7355'; ctx.lineWidth = 1.4*s;
+    for(let r = 3.5*s; r > 0.5*s; r -= 1.1*s){
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.stroke();
+    }
+  },
+  sandbag(ctx, s){
+    const w = 8*s, h = 4*s;
+    ctx.fillStyle = '#9a8a68';
+    ctx.beginPath(); ctx.ellipse(0, 0, w/2, h/2, 0.2, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(15,15,18,0.6)'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.strokeStyle = 'rgba(120,105,80,0.5)'; ctx.lineWidth = 0.6;
+    ctx.beginPath(); ctx.moveTo(-w/3, -h/4); ctx.lineTo(w/3, h/4); ctx.stroke();
+  },
 };
 
 // paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts)
