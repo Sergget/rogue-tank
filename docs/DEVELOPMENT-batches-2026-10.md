@@ -532,3 +532,49 @@
   - 波次系统（`tank_mvp.html`）：`startSurvivalWave(n)`——普通波敌军数 `min(3+floor(n/2),12)` 递增，`aiTriggerDist=99999` 全图主动索敌；每 3 波 Boss 波（复用 `spawnBossFromDef` + `pickBossDef`，按波次 `entityMultsForDifficulty` 缩放强度）；Boss 召唤物继承 `survivalWaveSpawn` 标记计入清空判定。
   - 波次清空 → `finishSurvivalWave()` → settlement（波次标题）→ reward（5 选 1，`rewardPickTarget` 生存分支）→ `advanceRewardFlow` 回同一节点自动开下一波；HUD 顶部显示"第 N 波"（`survivalWaveHud`）；阵亡/终止结算显示存活波次。
 - **验证**：`scripts/test-modes.js` 18 断言全过（Boss 全链/生存大地图/波次规则/标准回归），已接入 `npm test`；`npm run check`（tsc）`js/tank_map.js` 与 `tank_mvp.html` 内联脚本均 ✓（`js/tank_cards.js` 的 5 处 `ef` 未定义错误为并行未提交改动引入，非本批次）。
+
+### §4.79 2026-10-15 拉取后缺陷清理：#8 TAB 面板冻结主循环 + #6 引发的测试夹具失效
+
+- **背景**：拉取 `origin/master`（`6a1908c` → `57c3c8a`，10 提交）后跑三链，`npm test` 44 项中 1 项失败（`scripts/test-modifiers.js` 4 断言），`npm run test:browser` 亦 FAIL。定位为**两个互相独立、且均早于本次拉取**的缺陷（`182ae1d` / `9ca91a5` 已是 `6a1908c` 祖先，即拉取前工作区已存在）。
+
+- **缺陷 1（用户可见，已修复）：TAB 状态面板一开即永久冻结主循环**
+  - **证据**：`tank_mvp.html:1408`（#8 `9ca91a5` 引入）`const foes = (tanks || []).filter(...)` —— 仓库内**不存在** `tanks` 全局，中央实体注册表名为 `entities`（`js/tank_entity.js:12`）。`(tanks || [])` 对**未声明标识符**求值必抛 `ReferenceError`（`||` 不能兜住 ReferenceError），故 `stEnemies` 存在时 `updateStatusPanel` 恒抛。
+  - **影响链**：TAB 面板 `statusOpen=true` → `loop()` 内 `if(statusOpen) updateStatusPanel()`（`:4066`，经 `updateHud` ← `update` ← `loop`）→ 抛错 → `loop()` 末尾的 `requestAnimationFrame(loop)`（`:5353`）**永不执行** ⇒ 战斗态打开 TAB 后整个游戏冻结（无模拟、无绘制）。`loop()` 与 `update`→`updateHud` 全程无 `try/catch`，抛错直接逃逸出 rAF 回调。
+  - **修复**：`(tanks || [])` → `(entities || [])`，并补注释说明全局名与抛错路径。
+  - **验证**：`npm run test:browser` 由 FAIL → **ALL PASS**（4 条链）。该修复同时消除 `PAGEERROR: tanks is not defined ×2` 与断言 `(d) 开火命中弹携带所选槽位 ammoKey` 的失败（**同一根因**：主循环死亡后 `stepShells` 不再推进，炮弹飞不完、`resolveHit` 不触发，故 `firedKey` 恒 `null`）。
+
+- **缺陷 2（测试夹具失效，已修复）：`#6` 上调 `entityMults` 后 `test-modifiers` 4 断言失败**
+  - **证据**：`182ae1d`（#6，2026-10-15 11:49）把 `entityMults.penetration` `[0.75,1.25]→[0.8,1.5]`、`damage` `[0.75,1.2]→[0.8,1.5]`（`js/tank_rules.js:1002-1003`），但 `scripts/test-modifiers.js` 的 #H1 段夹具仍写死旧倍率下的 `base` 值（`e1.base.penetration=100` 注释「100*1.25=125 < 144」、`e1.base.damage=40`、`e3.base.damage=10`）。
+  - **失效机理**：夹具由 `base` 乘 `em[x][1]` 得 `stats`，倍率升到 1.5 后 —— `e1` 穿深 `100→150 > penCap 144`（误入「应封顶」分支）、`e1` 伤害 `40→60 > cap 55.45`（误注入 `dmgCapMul`）、`e3` 伤害 `10→15 > floor 13.6`（误入「应抬升」之上的区间）⇒ 三条「不应注入」断言与一条等价性断言（`NaN vs 13.6`，因 `dmgFloorMul` 未注入而目标值算成 `NaN`）同时失败。**非产品缺陷**，是夹具未随参数档位自适应。
+  - **修复**：夹具改由现行 `penCap` / `floor` / `cap` **反推**（`e1Pen = penCap/em.penetration[1]*0.8`、`e1Dmg = ((floor+capNoStrongest)/2)/em.damage[1]`、`e3Dmg = floor/em.damage[1]*0.8`），不再写死绝对值 ⇒ 未来再调 `entityMults` 档位时夹具自动跟随（与 `test-map.js` 的「以 RULES 为唯一真值」同思路）。
+
+- **顺带核实（记录，非本批次改动）**：`#6` 上调后 `difficultyCapMuls` 的穿深封顶**由「单局内实际不生效」变为「中段即生效」**——旧档位触顶需 `diff ≥ 1.035`，高于单局 `curveCap 0.95`，故单局内敌军穿深永不触顶（仅跨局等级 ≥3 级才可能触及）；新档位触顶阈降至 `diff ≈ 0.657`，对应 **index 8 起穿深锁定 144mm 不再成长**（index 0→7 仍线性 107→141）。伤害天花板仍不触顶（最难档 medium 51.0 < cap 55.45，仅 heavy/spg 类）。
+- **验证（三链）**：`npm run check` **EXIT=0** / `npm test` **44/44 通过** / `npm run test:browser` **ALL PASS**（4 条链）。
+
+### §4.80 2026-10-15 模式玩法四项用户反馈：Boss 商店回归 / 生存准备期 / Boss 免溺毙 / 顶部 HUD 重叠
+
+- **来源**：用户游戏实测四反馈（#MODE 后续）。现行细则归口 `specs/combat.md` §14（模式）与 `specs/map.md` §11（溺毙豁免）。
+
+- **① Boss 战模式：局内商店改在「卡牌选择后」出现（用户裁定）**
+  - **背景**：`fbf7f73`（2026-10-15）曾整体禁用 Boss 模式局内商店，理由「每局回满血，不需要升级」——但 `enterBattle` 对所有模式本就满血进节点（`tank_mvp.html:1939`），该理由不成立，商店被误禁。
+  - **修复**：新增 reward 屏内嵌商店区（`#rewardShopBox`/`#rewardShopList`/`#rewardShopContinueBtn`）。流程改为 `battle → settlement（仅得分，不内嵌商店）→ reward 选卡 → 确认后同屏展开商店（revealRewardShop）→ 点「继续 NEXT BOSS」→ 下一场`。列表复用 `buildRunShopInto`（与结算内嵌版/暂停菜单版同数据源），Boss 模式仍移除「紧急维修」项。
+  - **边界**：Boss 追加卡牌有多轮（`reward→reward`），故每次进入 reward 调 `resetRewardShop()` 收起商店并还原选卡按钮/文案；`buyRunShopItem` 增加 `renderRewardShop()` 回显。
+  - **定向验证**：选完卡 → `#rewardShopBox` display 由 `none` 变 `block`、列表 18 条目；点「继续」→ `flow=battle`、节点 index 0→1；全流程无 page error。
+
+- **② 生存模式：删除「区域肃清」倒计时 + 准备期可移动且关闭伤害（用户裁定）**
+  - **根因（原缺陷）**：波次清空走 `clearing` 通道（`clearing=true; clearingT=2.0`），而 `finishSurvivalWave` **只复位 `waveActive`/`cleared`、不复位 `clearing`** ⇒ `isClearing` 恒真：其后 5 秒波次倒计时里 `driveTank` 被跳过（玩家冻结）、战斗管线全停。
+  - **修复**：① 波次清空**即**调 `finishSurvivalWave()`，删除 2 秒缓冲（该函数内显式复位 `clearing=false/clearingT=0` 防残留）；② 5 秒倒计时界定为「准备期」——**可移动、伤害全关**。
+  - **伤害关闭双层拦截**（缺一不可）：① **总闸** `js/tank_physics.js applyDamage` 开头查 `globalThis.damageSuppressed()`（由 mvp 的 `isSurvivalPrepWindow()` 提供），为真即 `return 0` —— 覆盖所有经 `applyDamage` 的伤害（炮弹/溅射/炮击/DOT/溺毙/无人机/地雷/碾压）；② **来源门控** `isSurvivalPrep` 拦开火（玩家/AI/副炮塔）、`stepShells`、`updateStrikes`、`updateDeployables`、`updateDrones`、溺毙累计；进入准备期另清空残留弹道/落弹预警与导弹锁定（防静止 5 秒后同时爆开）。Boss 行为层无需门控（准备期 `cleared=true` 本就跳过）。
+  - **定向验证**：清场后 0.9s（远小于原 2s）即 `damageSuppressed()===true`；准备期按 W 玩家位移 28px（可移动）；准备期 `applyDamage(player,9999)` 返回 0 且血量不变；倒计时结束后 `damageSuppressed()===false` 且伤害恢复（dealt 8.5）。
+
+- **③ Boss 免疫溺毙（用户裁定）**
+  - **根因**：Boss 走位由 `updateBossBehavior` 的 `_bossMoveOverride` 直驱（`js/tank_boss.js`），绕过 `aiDecide` → 也就绕过 `applyWaterAvoidance` 探点避水，Boss 可能停在深水中央；此时溺毙＝关卡核心对抗白给。
+  - **修复**：溺毙门控加 `!e.isBoss`（`tank_mvp.html`）。Boss 在深水仅减速通行（`passability 0.4`）。玩家/普通敌军/友军不变，仍是「一视同仁」的其余部分。
+  - **定向验证**：扫描水域网格找到「Boss 车体完全浸水」位置，置入 1.2s 后 `drownT` 恒为 0、血量不变；**对照组**同位置普通敌人 `drownT` 累计到 1.22（证明豁免为 Boss 专属，非全场失效）。
+
+- **④ 生存模式顶部 HUD 文本重叠修复**
+  - **根因**：`#moduleStatus`、`#ammoReadout`、`#survivalWaveHud`、`#supplyCdHud` 四个元素各自 `position:absolute; left:50%; transform:translateX(-50%)` 定位到 `top:10~12px`（`#supplyCdHud` 40px）——生存模式下波次文本（18px）压住上方弹种倍率读出（12px）。
+  - **修复**：新增单一定位容器 `#topCenterHud`（`absolute` + `left:50%` + `translateX(-50%)` + 纵向 `flex` + `gap:6px`），四个子元素移入并改 `position:static`，按 DOM 序自上而下自动避让。原先各自的内联定位样式一并删除。
+  - **定向验证**（真实 `getBoundingClientRect` 求交集，非仅看 CSS）：强制 4 元素同时可见（最坏情况）后，两两重叠面积全部为 **0 px²**；纵向序列 top = 12 / 41 / 64 / 95，容器为 `display:flex`。
+
+- **验证（三链）**：`npm run check` **EXIT=0** / `npm test` **44/44 通过** / `npm run test:browser` **ALL PASS**（116 断言）。另有上述四项定向浏览器验证（23 + 8 断言）全绿。

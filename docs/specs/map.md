@@ -237,7 +237,13 @@
 - **实测数据**：210 张地图样本——拓扑分布 `HV j=1`×112 / `HVV j=2`×49 / `VV j=0`×28 / `HH j=0`×7 / `V j=0`×7 / `H j=0`×7；平均路口 1.00、**上界 2**；链内最大断口 **0.00px**；孤悬路头 **0 个**。
 - **回归**：`scripts/test-nodegen.js` §16 扩到**七条护栏**——无断口 / 无孤悬路头 / 交叉 ≤2 / 夹角 ≥60° / **拓扑 ≥3 种** / 路口数分布覆盖 1 与 2 / **存在 0 路口拓扑**（防「总是有路口」这一新单调）。渲染顺序另以 mock ctx 复刻验证（路口挖空 `fill` 发生在标线 `stroke` 之后）。剖面见 `test-nodegen-calibration.js`（#B7 重锚 v2，连通性维持 1.000）。**（拓扑表已被 §13.1 的 v4 取代：F 删除、G/I 新增、概率重排。）**
 
-## 11. 水域溺毙 + AI 避水（2026-09-14 落地）- **完全浸入溺毙**：`tank_cover.js` 新增 `tankFullyInWater(tank)`——车体四个角点（hullOBB 四角世界系）**全部**落在任一 `water`/`river` 凸部分内（点-in-多边形射线法）才算完全浸入；四角之一出水即复位。主循环（`tank_mvp.html`）对每实体累计 `drownT += dt`；`drownT >= RULES.drowning.seconds(8)` → 经 `applyDamage` 沉没摧毁（玩家/敌人/Boss/友军一视同仁；结算缓冲期 `isClearing` 不累计防清场误杀）。玩家警示：`warnAt(3s)` 倒计时临界音 + 头顶 `≋ 溺毙 x.xs` 倒计时 HUD（<3s 红字）；出水 `drownT` 复位。
+## 11. 水域溺毙 + AI 避水（2026-09-14 落地）
+
+- **完全浸入溺毙**：`tank_cover.js` 新增 `tankFullyInWater(tank)`——车体四个角点（hullOBB 四角世界系）**全部**落在任一 `water`/`river` 凸部分内（点-in-多边形射线法）才算完全浸入；四角之一出水即复位。主循环（`tank_mvp.html`）对每实体累计 `drownT += dt`；`drownT >= RULES.drowning.seconds(8)` → 经 `applyDamage` 沉没摧毁。玩家警示：`warnAt(3s)` 倒计时临界音 + 头顶 `≋ 溺毙 x.xs` 倒计时 HUD（<3s 红字）；出水 `drownT` 复位。
+- **适用对象与豁免（2026-10-15 用户裁定，**取代**原「一视同仁」口径）**：
+  - **玩家 / 普通敌军 / 友军**：正常溺毙。
+  - **Boss：完全免疫溺毙**（`tank_mvp.html` 溺毙门控加 `!e.isBoss`）。**根因**：Boss 走位由 `updateBossBehavior` 的 `_bossMoveOverride` 直接驱动（`js/tank_boss.js`），绕过 `aiDecide` → 也就绕过了 `applyWaterAvoidance` 的探点避水；Boss 因而可能停在深水中央。此时溺毙＝关卡核心对抗白给，与设计冲突。豁免后 Boss 在深水仅**减速通行**（`passability 0.4`），不受淹死威胁。
+  - **生存模式准备期**：不累计 `drownT`（`!isSurvivalPrep` 门控）——见 `specs/combat.md` §14「全场伤害关闭窗口」。
 - **敌人也会溺毙（AI 绕水寻路）**：`tank_ai.js` 新增 `applyWaterAvoidance(t, out, ctx)`（`aiDecide` 敌方分支输出后套用）——沿 `hullAngle` 前向探 140px（`RULES.ai.waterProbeDist`）：
   - 前向入水 + 至少一侧（±0.6rad 侧探）为干地 → `turn` 转向干地侧（move 保持 = 沿岸绕行）；
   - 前向+双侧全湿 → `move=0` 停驶（防 AI 冲水自杀溺毙）；
@@ -496,11 +502,11 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 ## 16. 敌人难度成长曲线调优（2026-10-01 用户裁定，现行口径）
 
 - **用户裁定**：**略微提高敌人升级速度**——敌人强度随节点推进上升更快（本次三条数值调整之一，其余两条见 `specs/combat.md` §13.4）。
-- **现行值**：`RULES.difficulty.curvePow` **1.20**（沿革 1.25）。曲线口径不变：
+- **现行值**：`RULES.difficulty.curvePow` **1.0**（沿革 1.25 → 1.20 → **1.0**，2026-10-15 #6 用户反馈「敌方成长太慢」再调）。曲线口径不变：
   `diff = min(curveCap 0.95, curveStart 0.15 + curveSpan 0.8 · min(1, index/diffSatIndex 12)^curvePow)`，再叠加跨局等级 `difficultyLevel × crossRunLevelBonus 0.04`（钳 `diffMax 1.15`）。
-- **方向性（易踩坑）**：`curvePow` **越接近 1 中段难度越高**（= 敌人升级越快）；**端点与封顶不变**（index 0 恒 0.15、index ≥ 12 恒 0.95），故本次为「中段上移」，不改变难度上限；跨局叠加 `difficultyLevel` 未改动。
-- **实测（2026-10-01 探针，基础难度）**：index 3：0.29 → **0.30**；index 6：0.49 → **0.50**；index 8：0.63 → **0.64**（index 0/12 两端不变）。
-- **配套**：随难度增长的敌人数值现行值（血量/极速上限）归口 `specs/combat.md` §13.4；Boss 血量归口 `specs/boss.md` §5。
-- **回归锚点**：`scripts/test-map.js` 难度段新增「升级速度基线」断言（`curvePow === 1.20`、`difficultyForIndex(3) === 0.30`、`difficultyForIndex(6) === 0.50`），原端点/单调/封顶/越界断言不变。
+- **方向性（易踩坑）**：`curvePow` **越接近 1 中段难度越高**（= 敌人升级越快）；**取 1.0 即完全线性，中段难度为各档最高**；**端点与封顶不变**（index 0 恒 0.15、index ≥ 12 恒 0.95），故本次为「中段上移」，不改变难度上限；跨局叠加 `difficultyLevel` 未改动。
+- **实测（2026-10-15 复算，curvePow 1.0）**：index 3：**0.35**；index 6：**0.55**；index 8：**0.68**（index 0/12 两端不变：0.15 / 0.95）。
+- **配套**：随难度增长的敌人数值现行值（血量/穿深/伤害/极速上限）归口 `specs/combat.md` §13.4；Boss 血量归口 `specs/boss.md` §5。
+- **回归锚点**：`scripts/test-map.js` 难度段「升级速度基线」断言随本键同步重锚（`curvePow === 1.0`、`difficultyForIndex(3) === 0.35`、`difficultyForIndex(6) === 0.55`），原端点/单调/封顶/越界断言不变。
 
 

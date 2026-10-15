@@ -305,6 +305,7 @@
 
 - **暂停菜单商店入口（#S9）**：`#pauseScreen` 恢复「商店 SHOP」按钮（2026-09-14 §4.12 摘除后漏恢复）。点击后按钮行收起、`#pauseShopWrap` 内嵌展示局内商店（`buildRunShopInto` 与结算内嵌版 `#runShopBox` 共用列表构建，同 `RUN_SHOP_DEFS` 数据源、同 `buyRunShopItem` 购买链）；战斗中购买即时生效，「返回」回到暂停菜单；每次进入暂停态自动收起商店面板。
 - **TAB 面板实时刷新（#S10b/c）**：新增 `refreshStatusPanel()`（`statusOpen && run && player` 时调 `updateStatusPanel()`）——`buyRunShopItem` 购买后即时调用；主循环 `loop()` 在非战斗态（settlement/map/pause）也调用（battle 态仍走 `updateHud` 链，避免重复）。此前面板刷新只挂在 battle update 链上，非战斗态定格在打开瞬间。
+- **TAB 面板刷新路径的致命性（2026-10-15 修复，务必保持）**：`updateStatusPanel` 经 `updateHud` ← `update` ← `loop` 调用，而 `loop()` 仅在**末行**执行 `requestAnimationFrame(loop)`，且 `loop`/`update`/`updateHud` **全程无 `try/catch`** ⇒ 面板刷新函数内任何抛错都会**永久终止主循环**（游戏冻结：无模拟、无绘制）。已发生实例：#8 敌方信息区误用不存在的全局 `tanks`（正确为 `entities`，`js/tank_entity.js:12`）导致 `ReferenceError`。**约定**：新增面板刷新逻辑必须保证不抛错（未知全局一律 `typeof x !== 'undefined'` 守卫，或改走 `entities` 等既有注册表）。
 - **hp_up 购买回满（#S10a，用户决策）**：`buyRunShopItem` 中 `defId === 'hp_up'` 时 `player.hp = player.stats.maxHp`——消除"249/250"式显示（#A12 差量同步只按增量抬升）。
 - **Boss 血条（#S3-UI）**：`#bossHpWrap`（屏幕下方中央，`#bottomHud` 上方 104px）——Boss 名 + 560px 血条 + `ceil(hp) / round(maxHp)` 数字；`updateBottomHud` 每帧经 `entities` 取存活 `isBoss` 更新，非 Boss 战隐藏。此前全仓库无 Boss 专属 HP UI（只有 44×5px 通用浮动条）。
 
@@ -498,10 +499,13 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 **用户裁定（三条）**：① **降低速度上限倍率**；② **提高敌人（包括 Boss）血量**；③ **略微提高敌人升级速度**（敌人随节点推进变强更快 ⇒ 难度曲线现行口径见 `specs/map.md` §16）。
 
 - **现行值（`RULES.difficulty`）**：
-  - `entityMults.maxHp` **[0.5, 1.7]**（沿革 `[0.45, 1.4]`；低难度端 +11%、满难度端 +21%）；
+  - `entityMults.maxHp` **[0.6, 2.2]**（沿革 `[0.45, 1.4]` → `[0.5, 1.7]`（2026-10-01）→ **`[0.6, 2.2]`**（2026-10-15 #6，成长更快））；
+  - `entityMults.penetration` **[0.8, 1.5]**（沿革 `[0.75, 1.25]`；2026-10-15 #6）；
+  - `entityMults.damage` **[0.8, 1.5]**（沿革 `[0.75, 1.2]`；2026-10-15 #6）；
   - `entityMults.maxSpeed` **[0.7, 1.0]**（沿革 `[0.7, 1.15]`；满难度极速上限倍率 −13%）；
   - `speedVsBaseline.baseCeil` **0.5**（沿革 0.6；`baseFloor 0.3`、`randMin/randMax 0.85/1.15` 均不变 ⇒ **低难度敌军速度不变、难度曲线更平缓**）。
 - **生效范围（重要）**：普通敌军的极速最终由 `speedVsBaseline` 封顶公式覆盖（`difficultyCapMuls` 与「直写 stats」逐值等价）⇒ `entityMults.maxSpeed` 上限下调**主要作用于 Boss 与其它未封顶路径**（Boss 经 `applyDifficultyMults(..., applyPlayerCap=false)` 跳过封顶）；血量无封顶键，故两端（普通敌人 + Boss）同时受益。
+- **#6（2026-10-15）穿深封顶由「单局不生效」转为「中段即生效」（重要副作用）**：`penCapVsBaseline 1.2` 未随 `entityMults.penetration` 上调而调整 ⇒ 触顶阈下移。旧档位触顶需 `diff ≥ 1.035`，**高于单局 `curveCap 0.95`**，故单局内敌军穿深**永不触顶**（仅跨局等级 ≥3 级才可能触及，`diffMax 1.15` 内）；新档位触顶阈降至 `diff ≈ 0.657`（≈ **index 8**），即 **index 8 起敌军穿深锁定 `enemyAnchorBase.penetration(120) × 1.2 = 144mm` 不再成长**（index 0→7 仍线性 107 → 141mm）。伤害天花板仍未触顶（最难档 medium 未封顶值 51.0 < `cap 55.45`；仅 heavy/spg 兵种触及）。
 - **Boss 血量**：归口 `specs/boss.md` §5（`tuning.hpMul` 沿革 ×8 → ×9；Boss 血量 = 出战配置 maxHp × hpMul × `entityMults.maxHp(diff)`，两级叠加）。
 - **实测增幅（2026-10-01 探针；`enemyAnchorBase.maxSpeed = 120`、`randFactor = 1`）**：
 
@@ -511,8 +515,18 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
   | 4 | 0.35 → 0.36 | 0.739 → 0.876（**+18.5%**） | 45.0 → 42.3（−6.0%） | 5.91 → 7.88（**+33.4%**） |
   | 8 | 0.63 → 0.64 | 0.970 → 1.168（**+20.4%**） | 57.6 → 50.7（−12.0%） | 7.76 → 10.51（**+35.5%**） |
 
-  含每辆 `randFactor` 上限（1.15）时的极速上限：**82.8 → 69.0 px/s**（高难度）。
-- **回归锚点**：`scripts/test-panels.js` 速度封顶断言重锚 **72 → 60 px/s**（= 0.5 × 基准 120）；`scripts/test-modifiers.js` #H1 段的封顶/地板/速度公式按 `RULES.difficulty.speedVsBaseline` **动态自算**（改值自动跟随）；`scripts/test-map.js` 的 `entityMults` 端点断言以 `RULES.difficulty.entityMults` 为唯一真值（同为动态）。
+  含每辆 `randFactor` 上限（1.15）时的极速上限：**82.8 → 69.0 px/s**（高难度）。上表为 **2026-10-01 档位的历史探针**，未被 #6 取代的部分（极速封顶链）仍有效；血量/穿深当前值见下。
+
+- **#6 后实测（2026-10-15 复算；`entityMults` 新档 + `curvePow 1.0`）**：
+
+  | 节点 index | diff | `entityMults.maxHp` | 普通敌人血量 = 100 × 倍率 | 敌军穿深未封顶 → 封顶后 |
+  |---|---|---|---|---|
+  | 0 | 0.15 | 0.809 | 80.9 | 107.0 → 107.0 |
+  | 4 | 0.42 | 1.184 | 118.4 | 126.7 → 126.7 |
+  | 8 | 0.68 | 1.546 | 154.6 | 145.7 → **144.0（触顶）** |
+  | 12 | 0.95 | 1.922 | 192.2 | 165.4 → **144.0（触顶）** |
+
+- **回归锚点**：`scripts/test-panels.js` 速度封顶断言重锚 **72 → 60 px/s**（= 0.5 × 基准 120）；`scripts/test-modifiers.js` #H1 段的封顶/地板/速度公式按 `RULES.difficulty.speedVsBaseline` **动态自算**，且其 #H1 分支夹具**由 `penCap`/`floor`/`cap` 反推**（2026-10-15 修复：旧夹具写死 `base` 绝对值，`entityMults` 上调后越出阈值导致 4 断言误失败）；`scripts/test-map.js` 的 `entityMults` 端点断言以 `RULES.difficulty.entityMults` 为唯一真值（同为动态）。
 
 ### 13.5 视野距离系统退役（#J3，2026-09-30）
 
@@ -603,3 +617,29 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 
 **回归**：`scripts/test-tankcollision.js` §8（撞岩倒车可变速/持续倒车脱离/贴岩可转向/出生嵌岩可倒出/静止接触分离/岩石仍阻断/泥地减速不变）/ §9（空间哈希语义一致性）。对应 ISSUES #O1。
 
+
+## 14. 游戏模式：Boss 战 / 生存战（#MODE，2026-10-15 落地，现行口径）
+
+入口：`tank_mvp.html?mode=boss` / `tank_mvp.html?mode=survival`（缺省 `standard`；`GAME_MODE` 解析 URL 参数）。标准模式零改动。
+
+### 14.1 生存模式：「准备期」伤害关闭窗口（2026-10-15 用户裁定）
+
+- **背景（原缺陷）**：波次清空原先走 `clearing` 通道（`clearing=true; clearingT=2.0`，「区域肃清」2 秒缓冲），但 `finishSurvivalWave` 只复位 `waveActive`/`cleared`、**不复位 `clearing`** ⇒ `isClearing` 恒真：随后 5 秒波次倒计时里玩家被冻结（`driveTank` 被跳过）、战斗管线全停。
+- **现行口径**：
+  - **删除「区域肃清」倒计时**——波次清空即调 `finishSurvivalWave()`（不再经 `clearing`）。该函数同时显式复位 `clearing=false/clearingT=0` 防残留。
+  - **波次间隔 5 秒 = 准备期**：玩家**可自由移动**（不禁驾驶），但**全场伤害判定关闭**。
+  - **伤害关闭的两层拦截**（缺一不可）：
+    ① **伤害总闸**：`js/tank_physics.js applyDamage` 开头查询 `globalThis.damageSuppressed()`，为真即 `return 0`——所有伤害的单一收口（炮弹/溅射/炮击/DOT/溺毙/无人机/地雷/碾压），一处生效无遗漏。缺省无该函数 → 零影响（Node 测试/bench）。
+    ② **伤害来源门控**：`tank_mvp.html` 主循环内 `isSurvivalPrep`（`isSurvivalPrepWindow()` 同一判定）拦住「不打伤害但留痕迹」的路径——玩家/AI/副炮塔开火、`stepShells` 炮弹飞行、`updateStrikes` 落弹、`updateDeployables` 触发、`updateDrones` 打击、溺毙倒计时累计。进入准备期时还清空残留弹道/落弹预警（`shells`/`impacts`/`bounceFx`/`clearStrikes()`）与导弹锁定，防静止悬停 5 秒后同时爆开。
+  - **Boss 行为层无需门控**：准备期全程 `battleState.cleared=true`，其判定块本就跳过。
+- **判定窗口**：`isSurvivalPrepWindow() = GAME_MODE==='survival' && battleState.waveCountdownActive && flow.state==='battle'`。
+- **HUD**：`#survivalWaveHud` 显示「第 N 波已清 · 准备期 x 秒（可移动 / 暂不受伤害）」。
+
+### 14.2 Boss 战模式：局内商店改在卡牌选择后（2026-10-15 用户裁定）
+
+- **背景**：`fbf7f73` 曾「完全禁用 Boss 模式局内商店」（理由「每局回满血，不需要升级」，但所有模式本就 `enterBattle` 满血进节点，该理由不成立）。
+- **现行口径**：Boss 模式商店在 **reward 屏（卡牌选择）选完卡后**原地展开（`revealRewardShop`），不与结算屏重复出现。
+  - 流程：`battle → settlement（仅得分展示，不内嵌商店）→ reward（选卡）→ 选完确认 → 同屏展开商店 → 点「继续 NEXT BOSS」→ 下一场`。
+  - 商店列表与结算内嵌版/暂停菜单版**共用** `buildRunShopInto`（同一数据源与购买链）。Boss 模式仍移除「紧急维修」项。
+  - 每次进入 reward 调 `resetRewardShop()`——Boss 追加卡牌有多轮（`reward→reward`），上一轮展开的商店必须收起并还原选卡按钮。
+- **验证**：`scripts/test-modes.js`（生成逻辑）；浏览器定向验证（选完卡商店展开/点继续进下一场/准备期可移动且伤害为 0）。

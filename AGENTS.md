@@ -7,7 +7,7 @@
 - **类型**：节点式地图推进 + 局内得分驱动构筑 的战术坦克 Roguelike（俯视角 2D），方向为技能系统 + 主副武器解耦 + 召唤部署物（详见 `docs/DEVELOPMENT.md` §1）。
 - **核心页面**（均为单文件 HTML，内联大段脚本；共五页，`server.js` '/' 指向首页）：
   - `index.html`：首页封面路由（正式游戏 / 装甲测试台两卡片入口 + 设计器 / 对比链接）。
-  - `tank_mvp.html`：正式游戏页（run 链路：Home 多存档 → Loadout → 商店 → 节点图 → 战斗/结算/卡牌/Boss/AI/复活/经济/小地图；开发者面板 `#devPanel`、日志面板、流程覆盖层 `#flowOverlay`）。
+  - `tank_mvp.html`：正式游戏页（run 链路：Home 多存档 → Loadout → 商店 → 节点图 → 战斗/结算/卡牌/Boss/AI/复活/经济/小地图；开发者面板 `#devPanel`、日志面板、流程覆盖层 `#flowOverlay`）。**游戏模式由 URL 参数 `?mode=` 决定**（`standard` 缺省 / `boss` 全 Boss 链 / `survival` 波次守点，`GAME_MODE`，2026-10-15 #MODE）——现行口径见 `docs/specs/combat.md` §14。
   - `tank_bench.html`：装甲测试台独立页（player + dummy 靶车、发射解算面板、靶场控制台、Enemy Lab、卡牌测试）。
   - `tank_designer.html`：多边形顶点编辑器（车体/炮塔几何、逐边装甲、炮管/炮盾、甲弹对抗测试）。
   - `tank_compare.html`：表格化坦克数据对比/编辑页。
@@ -129,7 +129,7 @@
 - **跳弹**：各弹种独立跳弹角（per-ammo `ammoBounceAngle`，65°~90°，AP 基准 >70°；noBounce 弹种如 HEAT/HE 系完全不跳弹；数值唯一口径 `docs/specs/combat.md` §3.2）。炮弹跳弹后沿命中面法线方向真实反射，可能造成二次命中；**二次跳弹不允许**。
 - **掩体与地形系统**（现行值以 `docs/specs/map.md` §5.2 为准）：
   - `full`（全高）掩体与 `rock`（岩石）：确定性 100% 格挡直射实弹；岩石不可通行且挡弹。
-  - `water`/`river`：炮弹越飞（`shellBlock: false`），坦克**减速通行（`passability: 0.4`，2026-09-14 重做）**；完全浸入触发溺毙倒计时（`RULES.drowning`，8s 沉没摧毁），AI 具备避水绕行。
+  - `water`/`river`：炮弹越飞（`shellBlock: false`），坦克**减速通行（`passability: 0.4`，2026-09-14 重做）**；完全浸入触发溺毙倒计时（`RULES.drowning`，8s 沉没摧毁；**Boss 免疫**——2026-10-15 用户裁定，见 `docs/specs/map.md` §11），AI 具备避水绕行。
   - `mud`：炮弹越飞，坦克减速通行（0.4）。
   - `half`（半高）掩体**已整体删除**（2026-09-20 #E3 用户裁定）：`RULES.coverTiers.half` 定义、`RULES.heights.cover.half`、`getExposure` 的越掩插值、`shellBlock:'grad'` 拦截链与 `s.dec` 曝光缓存**全部移除**；`ruined`（残破建筑）归入全高确定性挡弹，`stump`/`rubble` 残骸不再挡弹。**现行 tier 全集与取值以 `RULES.coverTiers`（`js/tank_rules.js`）为唯一口径**，详见 `docs/specs/map.md` §12。
   - 路网：`placeRoadNetwork` **v4 七拓扑**（A 贯通 / B 十字 / C 单侧 T / E 双侧 T / D 双平行 / G 网格街区 / I 双干贯穿）+ `bakeNodeGroundLayer` 预烘焙 + 路口标线挖空；**可破坏楼房 tier `building`**（3 发 → `ruined` → `rubble`）（详见 `docs/specs/map.md` §10.1/§10.2、§13）。
