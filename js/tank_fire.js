@@ -86,11 +86,15 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
   if (!shooter || !gunRoot || !gunTip) return null;
   const spec = primaryWeaponSpec(shooter);
   const dmgMult = (spec && typeof spec.damageMult === 'number') ? spec.damageMult : 1;
-  const penMult = (spec && typeof spec.penMult === 'number') ? spec.penMult : 1;
+  let penMult = (spec && typeof spec.penMult === 'number') ? spec.penMult : 1;
   const speedMult = (spec && typeof spec.shellSpeedMult === 'number') ? spec.shellSpeedMult : 1;
   const rootP = gunRoot(shooter), tipP = gunTip(shooter);
   const getAmmoCfg = c.computeAmmoConfig || _G('computeAmmoConfig', function (s, k) { return (R.ammoTypes && (R.ammoTypes[k] || R.ammoTypes.ap)) || { speed: 1, pen: 1, dmg: 1, spread: 1 }; });
   const ammo = getAmmoCfg(shooter, shooter.ammoKey);
+  // #7（2026-10-15）：电磁炮的穿透/加穿深只对动能弹生效——HE/HEAT（noBounce）只吃弹速和精度加成
+  const isRailgun = spec && spec.type === 'railgun';
+  const isChemical = !!(ammo && ammo.noBounce);   // HE/HEAT/HEAT-FS
+  if (isRailgun && isChemical) penMult = 1;
   const zero = devAim && devAim.zeroSpread && shooter.id === 'player';
   const spreadAcc = (ammo && typeof ammo.spreadAcc === 'number') ? ammo.spreadAcc : 1;
   const cardSpreadMul = (ammo && typeof ammo.spread === 'number') ? ammo.spread : 1;
@@ -140,12 +144,14 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
     dmg: Math.max(0, shooter.stats.damage * (ammo.dmg || 1) * dmgMult + (ammo.dmgAdd || 0)),
     ammo: ammo, ammoKey: shooter.ammoKey, shooter: shooter, hitPref: hitPref,
     fxScale: fxScale,
+    maxRange: (spec && typeof spec.maxRange === 'number') ? spec.maxRange : 0,   // #7：机炮射程限制
     canBounce: true, bounced: false, dist: 0, dead: false
   };
   // #G（2026-09-21）：轨道炮「超高速贯穿」——击穿并命中目标后弹体不消失，伤害按 pierceDmgMul
   // 衰减继续飞行，可命中同一直线上的后续目标（pierce = 剩余可贯穿目标数，stepShells 消费）。
   // pierceHitIds 防止同一发对同一目标重复结算。
-  if (spec && typeof spec.pierce === 'number' && spec.pierce > 0) {
+  // #7（2026-10-15）：贯穿只对动能弹生效，HE/HEAT 不贯穿
+  if (spec && typeof spec.pierce === 'number' && spec.pierce > 0 && !(isRailgun && isChemical)) {
     shell.pierceLeft = Math.floor(spec.pierce);
     shell.pierceDmgMul = (typeof spec.pierceDmgMul === 'number') ? spec.pierceDmgMul : 0.6;
     shell.pierceHitIds = [];
@@ -648,6 +654,13 @@ function stepShells(dt, ctx){
     }
     const step=s.speed*dt, sx=s.x, sy=s.y, nx=sx+s.dx*step, ny=sy+s.dy*step;
     if(spawnTracer) spawnTracer(sx, sy, nx, ny, (s.ammo&&s.ammo.tracer)||'#ffd24a');
+
+    // #7（2026-10-15）：射程限制——超 maxRange 后炮弹消失
+    if(s.maxRange > 0 && (s.dist + step) >= s.maxRange){
+      s.dead = true;
+      if(impacts) impacts.push({x:nx, y:ny, life:0.3, color:'#8a8f7d'});
+      return;
+    }
 
     if(s.isArc){
       if(!(s.totalDist > 0)){

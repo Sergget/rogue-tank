@@ -13,7 +13,8 @@ const WEAPON_DEFAULTS = {
     // 外观：炮管更细(barrelWidthMult)略短(barrelLenMult)，无护套/制退器/抽烟器（battledraw 消费），
     // 炮口特效与炮弹尺寸随 fxScale 缩小。
     autocannon:  { reloadMult: 0.25, damageMult: 0.2, penMult: 0.85, shellSpeedMult: 1.0,
-                   heatPerShot: 10, coolPerSec: 15, heatMax: 100, overheatLock: 2.0,
+                   heatPerShot: 12, coolPerSec: 15, heatMax: 100, overheatLock: 2.0,
+                   maxRange: 900,   // #7：机炮射程限制 900px
                    barrelWidthMult: 0.6, barrelLenMult: 0.8, fxScale: 0.55 },
     // #E13（2026-09-20 用户裁定）：双联火炮重做——barrelOffset 0.9 → 1.85（炮管间距加大，确保
     // 两根炮管连同各自附件不穿模）；altReload=false 表示默认两管装填进度互相干涉
@@ -198,7 +199,12 @@ function updateMissileLock(t, dt, ctx) {
   if (!w || w.type !== 'missile') return false;
   if (t.hp <= 0) return false;
   const cfg = Object.assign({}, getWeaponDefaults('secondary', 'missile'), w.stats || {});
-  const maxRange = (typeof cfg.range === 'number') ? cfg.range : 600;
+  // #7（2026-10-15）：锁定距离 = 摄像机视角内（视口对角线一半），不再用固定 range
+  let maxRange = (typeof cfg.range === 'number') ? cfg.range : 600;
+  const cam = c.cam || (typeof globalThis !== 'undefined' && globalThis.cam);
+  if (cam && cam.vw > 0 && cam.vh > 0) {
+    maxRange = Math.hypot(cam.vw, cam.vh) / 2;
+  }
   const lockArcDeg = (typeof cfg.lockArcDeg === 'number') ? cfg.lockArcDeg : 30;
   const lockSeconds = (typeof cfg.lockSeconds === 'number') ? cfg.lockSeconds : 1.0;
   const lockArcCos = Math.cos(lockArcDeg * Math.PI / 180);
