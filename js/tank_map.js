@@ -373,7 +373,10 @@ function makeNode(index, rng, env) {
 
   const stripCfg = cfg.strip || {};
   const stripEnabled = stripCfg.enabled !== false;
-  const stripMode = !!(stripEnabled && !isBoss &&
+  // #MODE（2026-10-15）：Boss/生存模式也用新生成器——env.stripForBoss 为真时 Boss 节点走 strip
+  //（方形尺寸由 env.stripScreensX/Y 指定）；生存模式经 generateSurvivalRun 传入 5×5。
+  const useStripForBoss = !!(env && env.stripForBoss);
+  const stripMode = !!(stripEnabled && (!isBoss || useStripForBoss) &&
     viewport && viewport.vw > 0 && viewport.vh > 0 &&
     typeof generateStrip === 'function');
 
@@ -388,12 +391,13 @@ function makeNode(index, rng, env) {
   let w, h;
   if (stripMode) {
     // strip 坐标即世界坐标（[0,totalW]×[0,stripH]），无中心平移
+    // #MODE（2026-10-15）：env 可覆盖 strip 尺寸（Boss 3×3、生存 5×5）
     const stripRes = generateStrip(diff, {
       seed: rng.int(0, 1000000),
       viewport: viewport,
       scaleFor: (vp, tpl) => nodeScaleFor(vp, tpl),   // 片内 scale 沿用现行口径
-      stripScreensX: stripCfg.screensX,
-      stripScreensY: stripCfg.screensY,
+      stripScreensX: (env && env.stripScreensX) || stripCfg.screensX,
+      stripScreensY: (env && env.stripScreensY) || stripCfg.screensY,
       chunkCount: stripCfg.chunkCount || undefined
     });
     w = stripRes.w; h = stripRes.h;
@@ -1026,10 +1030,13 @@ function generateRun(seed, count, env) {
  * @returns {{ nodes: any[], seed: number|string, env: any, difficultyLevel: number }}
  */
 function generateSurvivalRun(seed, env) {
-  const e = Object.assign({}, env || {}, { bossOnly: true });
-  if (e.viewport && e.viewport.vw > 0 && e.viewport.vh > 0) {
-    e.viewport = { vw: e.viewport.vw * 2, vh: e.viewport.vh * 2 };
-  }
+  // #MODE（2026-10-15）：生存模式用新生成器，1:1 方形 5×5 屏（面积 25 平方屏，与标准 strip 22 相近）
+  const e = Object.assign({}, env || {}, {
+    bossOnly: true,
+    stripForBoss: true,   // 强制走 strip 路径（非 Boss 节点标记但用新生成器）
+    stripScreensX: 5,
+    stripScreensY: 5,
+  });
   const run = generateRun(seed, 1, e);
   const node = run.nodes[0];
   node.boss = null;        // 生存模式：Boss 按波次手动生成

@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>Rogue Tank · 正式游戏</title>
+<title>Rogue Tank · 标准模式</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
 
@@ -1569,6 +1569,11 @@ function spawnBossFromDef(bossDef, node, opts){
   bossEntity.x = (o.x !== undefined) ? o.x : node.w * 0.7;
   bossEntity.y = (o.y !== undefined) ? o.y : node.h / 2;
   bossEntity.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // 与普通敌军同规则
+  // #MODE（2026-10-15）：Boss/生存模式强制接战
+  if(GAME_MODE === 'boss' || GAME_MODE === 'survival' || o.survivalWaveSpawn){
+    bossEntity.alertLevel = 3;
+    bossEntity.aiTriggerDist = 99999;
+  }
   bossEntity.hullAngle = Math.PI; bossEntity.turretAngle = Math.PI;
   pushLog(`⚠ BOSS 战：「${bossDef.name}」— ${bossDef.desc || ''}`, 'CRIT');
   applyDifficultyMults(bossEntity, o.entityMults || currentNode.entityMults, false);   // false=跳过玩家能力封顶，Boss 可正经超越玩家
@@ -1650,6 +1655,7 @@ function spawnSurvivalWaveEnemies(count, waveDiff, mults){
     t.nodeSpawn = true;
     t.survivalWaveSpawn = true;      // 波次清敌判定标记
     t.aiTriggerDist = 99999;         // 生存敌军全图主动索敌进攻
+    t.alertLevel = 3;                // #MODE（2026-10-15）：强制接战
     t.aiTier = (typeof aiTierForDifficulty === 'function') ? aiTierForDifficulty(waveDiff) : 1;
     const spec = tankListData && tankListData[tankId];
     if(typeof applyEnemyAppearanceAndStats === 'function'){
@@ -2482,7 +2488,8 @@ function startNewRun(){
 	  // #MODE（2026-10-15）：boss 模式全 Boss 节点链（bossOnly）；survival 模式单个大地图（generateSurvivalRun）
 	  const _vp = { vw: canvas.width, vh: canvas.height };
 	  if(GAME_MODE === 'boss'){
-	    run = generateRun(nextRunSeed(), undefined, { viewport: _vp, difficultyLevel: 0, bossOnly: true });
+	    // #MODE（2026-10-15）：Boss 模式用新生成器，3×3 方形竞技场
+	    run = generateRun(nextRunSeed(), undefined, { viewport: _vp, difficultyLevel: 0, bossOnly: true, stripForBoss: true, stripScreensX: 3, stripScreensY: 3 });
 	  } else if(GAME_MODE === 'survival'){
 	    run = generateSurvivalRun(nextRunSeed(), { viewport: _vp, difficultyLevel: 0 });
 	    survivalWave = 0;
