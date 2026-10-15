@@ -1308,6 +1308,7 @@ function materializeNode(node, env) {
     t.nodeSpawn = true;
     t.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // AI 触发距离（难度化，生成时算好）
     t.aiTier = (e.aiTier !== undefined) ? e.aiTier : (node.aiTier || 0);   // P-34 C：AI 档位注入实体（#76 消费）
+    t.aiReactEnabled = (e.aiReactEnabled === true);   // #2：#E7 反应延迟标记从 spec 传递到实体
     t.tankClass = e.tankClass || (e.heightClass === 'heavy' ? 'heavy' : 'medium');  // P-46：类别注入（浏览器 configureTank 可再覆盖 json class）
     if (typeof env.configureTank === 'function') env.configureTank(t, e.tankId);
     // #76 A：难度乘子应用点集中于此（敌军专属，玩家/据点不走此路径）。
