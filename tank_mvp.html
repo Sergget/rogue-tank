@@ -387,6 +387,8 @@
   <div id="ammoReadout"></div>
   <div id="quotaHud" style="display:none;"></div>
   <div id="survivalWaveHud" style="display:none;position:absolute;top:10px;left:50%;transform:translateX(-50%);font-size:18px;font-weight:bold;color:#ff5c5c;text-shadow:0 0 8px #000;letter-spacing:3px;z-index:5;"></div>
+  <div id="supplyPromptHud" style="display:none;position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:15px;font-weight:bold;color:#7ed957;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;"></div>
+  <div id="supplyCdHud" style="display:none;position:absolute;top:40px;left:50%;transform:translateX(-50%);font-size:13px;color:#ffd24a;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;"></div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
       <div class="screen-title">节点地图 NODE MAP</div>
@@ -590,6 +592,11 @@ let run = null;            // generateRun() 结果：线性节点链
 let currentNode = null;    // 当前节点数据（makeNode 产出）
 // #MODE（2026-10-15）：生存模式波次状态
 let survivalWave = 0;             // 当前波次（0 = 未开始）
+// 补给站（生存模式）：回血 + 商店共用冷却
+const SUPPLY_HEAL_FRAC = 0.5;     // 回血比例（最大生命值）
+const SUPPLY_COOLDOWN_S = 120;    // 回血/商店共享冷却（秒）
+const SUPPLY_RADIUS = 120;        // 交互半径（px）
+let supplyReadyAt = 0;            // performance.now() 时间戳：冷却就绪时刻（0 = 可用）
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
 // #N5（2026-10-01）：存活敌军缓存（AI 循环每帧填充），供屏幕外来袭方向提示复用。
 let aiEnemiesCache = [];
@@ -660,7 +667,10 @@ const input = createInputController({
     return action === 'pauseToggle' ? true : !inMenuState();
   },
   actions: {
-    ammoNext: () => cycleAmmo(1),                    // E：下一个弹种
+    ammoNext: () => {                             // E：下一个弹种；生存模式补给站内 → 用补给站
+      if(typeof tryUseSupplyStation === 'function' && tryUseSupplyStation()) return;
+      cycleAmmo(1);
+    },
     ammoPrev: () => cycleAmmo(-1),                   // Q：上一个弹种
     skill1: () => skillHotkey(1),                    // 阶段六：技能池（1~3 对应玩家装备的主动技能）
     skill2: () => skillHotkey(2),
@@ -1719,6 +1729,8 @@ function startSurvivalWave(n){
     battleState.startMs = performance.now();
     battleState.cleared = false;
     battleState.clearing = false;
+    battleState.waveCountdownActive = false;   // 波次启动时清倒计时
+    battleState.waveCountdown = 0;
   }
   updateSurvivalHud();
 }
@@ -1776,10 +1788,88 @@ function updateSurvivalHud(){
   if(!el) return;
   if(GAME_MODE === 'survival' && run && flow.state === 'battle' && survivalWave > 0){
     el.style.display = 'block';
-    el.textContent = `第 ${survivalWave} 波${survivalWave % 3 === 0 ? ' · BOSS' : ''}`;
+    // 波次间隔倒计时
+    if(battleState && battleState.waveCountdownActive){
+      const s = Math.ceil(battleState.waveCountdown || 0);
+      el.textContent = `第 ${survivalWave} 波 · 肃清 —— 下一波 ${s} 秒后到来`;
+    } else {
+      el.textContent = `第 ${survivalWave} 波${survivalWave % 3 === 0 ? ' · BOSS' : ''}`;
+    }
   } else {
     el.style.display = 'none';
   }
+}
+
+// ---------- 补给站（生存模式，2026-10-15） ----------
+// 玩家附近（SUPPLY_RADIUS 内）的补给站；无则 null
+function nearestSupplyStation(){
+  if(GAME_MODE !== 'survival' || !currentNode || !Array.isArray(currentNode.supplyStations)) return null;
+  if(!player || player.hp <= 0) return null;
+  let best = null, bestD = SUPPLY_RADIUS;
+  for(const st of currentNode.supplyStations){
+    const d = Math.hypot(player.x - st.x, player.y - st.y);
+    if(d < bestD){ bestD = d; best = st; }
+  }
+  return best;
+}
+// 补给站共享冷却剩余秒数（0 = 可用）
+function supplyCooldownRemain(){
+  const r = Math.ceil((supplyReadyAt - performance.now()) / 1000);
+  return r > 0 ? r : 0;
+}
+// 补给站 HUD：站内提示 + 冷却倒计时
+function updateSupplyHud(){
+  const pEl = document.getElementById('supplyPromptHud');
+  const cEl = document.getElementById('supplyCdHud');
+  const active = GAME_MODE === 'survival' && run && flow.state === 'battle';
+  if(pEl){
+    const st = active ? nearestSupplyStation() : null;
+    if(st){
+      const cd = supplyCooldownRemain();
+      pEl.style.display = 'block';
+      pEl.textContent = cd > 0 ? `补给站冷却中（${cd} 秒）` : '按 E 使用补给站';
+      pEl.style.color = cd > 0 ? '#ffd24a' : '#7ed957';
+    } else pEl.style.display = 'none';
+  }
+  if(cEl){
+    const cd = active ? supplyCooldownRemain() : 0;
+    if(cd > 0){
+      cEl.style.display = 'block';
+      cEl.textContent = `补给站冷却 ${cd}s`;
+    } else cEl.style.display = 'none';
+  }
+}
+// E 键在补给站内 → 使用补给站（返回 true 表示吞掉按键，不再切弹）
+function tryUseSupplyStation(){
+  const st = nearestSupplyStation();
+  if(!st || flow.state !== 'battle') return false;
+  const cd = supplyCooldownRemain();
+  if(cd > 0){
+    pushLog(`补给站冷却中（还剩 ${cd} 秒）`, 'COVER');
+    playSound('block');
+    return true;
+  }
+  // 回血 50% 最大生命值
+  const maxHp = player.stats.maxHp;
+  const heal = Math.round(maxHp * SUPPLY_HEAL_FRAC);
+  player.hp = Math.min(maxHp, player.hp + heal);
+  spawnDmgText(player.x, player.y - 30, '+' + heal, 'plain');
+  supplyReadyAt = performance.now() + SUPPLY_COOLDOWN_S * 1000;
+  pushLog(`补给站：恢复 ${heal} 生命（冷却 ${SUPPLY_COOLDOWN_S} 秒）`, 'PEN');
+  playSound('ui');
+  openSupplyShop();
+  return true;
+}
+// 打开补给站商店：暂停游戏并直接展开暂停菜单内嵌商店
+// （ESC 菜单的商店按钮在生存模式已隐藏，此处走程序化展开，不受影响）
+function openSupplyShop(){
+  if(flow.state === 'battle'){
+    transition(flow, 'pause', { nodeIndex: currentNode ? currentNode.index : 0 });
+  }
+  const btnRow = document.getElementById('pauseBtnRow');
+  const wrap = document.getElementById('pauseShopWrap');
+  if(btnRow) btnRow.style.display = 'none';
+  if(wrap){ wrap.style.display = ''; renderPauseShop(); }
 }
 
 function enterBattle(nodeIndex){
@@ -2551,6 +2641,7 @@ function startNewRun(){
 	  } else if(GAME_MODE === 'survival'){
 	    run = generateSurvivalRun(nextRunSeed(), { viewport: _vp, difficultyLevel: 0 });
 	    survivalWave = 0;
+	    supplyReadyAt = 0;   // 补给站冷却重置
 	  } else {
 	    run = generateRun(nextRunSeed(), undefined, { viewport: _vp, difficultyLevel: 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
 	  }
@@ -3836,6 +3927,14 @@ function update(dt){
       }
     }
     if(player._dead && !battleState.playerDied){
+      // 生存模式：死亡时清理波次选卡/倒计时状态（按正常死亡流程处理）
+      if(survivalQuickPick){
+        survivalQuickPick = false;
+        pendingLootRounds = 0; pendingLootRarityIdx = -1;
+        document.getElementById('rewardScreen').style.display = 'none';
+        setOverlayVisible(false);
+      }
+      if(battleState) battleState.waveCountdownActive = false;
       if(canRevive(player)){                                     // P-11：复活次数 > 0 → 满状态复活
         const outpost = entities.find(e => e.team === 'ally' && e.nodeSpawn);
         reviveAt(player, outpost, covers, currentNode.playerSpawn, undefined, entities.filter(e => e.team === 'enemy'));
@@ -3887,12 +3986,21 @@ function update(dt){
   }
 
   // 通关 3 秒缓冲倒计时推进
-  // #MODE（2026-10-15）：生存模式波次清空走 finishSurvivalWave（抽卡 → 下一波）
+  // #MODE（2026-10-15）：生存模式波次清空走 finishSurvivalWave（快速选卡/倒计时 → 下一波）
   if(battleState && battleState.clearing && !battleState.cleared){
     battleState.clearingT = Math.max(0, (battleState.clearingT || 0) - dt);
     if(battleState.clearingT <= 0){
       if(GAME_MODE === 'survival') finishSurvivalWave();
       else finishNode(true);
+    }
+  }
+  // 生存模式波次间隔 5 秒倒计时（不冻结，玩家可自由移动；死亡走正常流程）
+  if(GAME_MODE === 'survival' && battleState && battleState.waveCountdownActive && !player._dead){
+    battleState.waveCountdown = Math.max(0, (battleState.waveCountdown || 0) - dt);
+    if(battleState.waveCountdown <= 0){
+      onSurvivalCountdownDone();
+    } else {
+      updateSurvivalHud();
     }
   }
 
@@ -3950,6 +4058,8 @@ function updateHud(){
   } else qh.style.display = 'none';
   // #MODE（2026-10-15）：生存模式波次计数 HUD 逐帧刷新显隐
   if(typeof updateSurvivalHud === 'function') updateSurvivalHud();
+  // 补给站 HUD（生存模式）：站内提示 + 冷却倒计时
+  if(typeof updateSupplyHud === 'function') updateSupplyHud();
   // 按需面板（P-15）：开启时逐帧刷新
   if(statusOpen) updateStatusPanel();
   if(devOpen){ devPanelApi.updateDevParams(); devPanelApi.updateSolution(); }
@@ -4902,6 +5012,40 @@ function draw(){
       ctx.font = 'bold 22px monospace';
       ctx.textAlign = 'center';
       ctx.fillText('EXIT 出口', (x0 + x1) / 2, 46);
+      ctx.restore();
+    }
+  }
+
+  // 补给站世界标记（生存模式，2026-10-15）：绿色方框 + 十字，脉动提示可交互
+  if(GAME_MODE === 'survival' && run && currentNode && Array.isArray(currentNode.supplyStations)){
+    const _cd = (typeof supplyCooldownRemain === 'function') ? supplyCooldownRemain() : 0;
+    const _near = (typeof nearestSupplyStation === 'function') ? nearestSupplyStation() : null;
+    for(const st of currentNode.supplyStations){
+      if(!aabbInView(cam, st.x, st.y, 120, 120)) continue;
+      const isNear = _near && _near.x === st.x && _near.y === st.y;
+      const onCd = _cd > 0;
+      const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 420);
+      ctx.save();
+      // 交互半径圈（站内时高亮）
+      ctx.strokeStyle = isNear ? `rgba(126,217,87,${0.5 + 0.4 * pulse})` : 'rgba(126,217,87,0.28)';
+      ctx.lineWidth = isNear ? 2.5 : 1.5;
+      ctx.setLineDash(isNear ? [] : [8, 6]);
+      ctx.beginPath(); ctx.arc(st.x, st.y, SUPPLY_RADIUS, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      // 中央方框 + 十字（冷却中变灰）
+      const col = onCd ? 'rgba(150,150,150,0.75)' : `rgba(126,217,87,${0.65 + 0.35 * pulse})`;
+      const R = 26;
+      ctx.strokeStyle = col; ctx.lineWidth = 3;
+      ctx.strokeRect(st.x - R, st.y - R, R * 2, R * 2);
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(st.x - 12, st.y); ctx.lineTo(st.x + 12, st.y);
+      ctx.moveTo(st.x, st.y - 12); ctx.lineTo(st.x, st.y + 12);
+      ctx.stroke();
+      // 字样
+      ctx.fillStyle = onCd ? 'rgba(160,160,160,0.9)' : 'rgba(190,255,170,0.9)';
+      ctx.font = 'bold 15px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(onCd ? `冷却 ${Math.ceil(_cd)}s` : '补给', st.x, st.y - R - 10);
       ctx.restore();
     }
   }

@@ -1020,6 +1020,42 @@ function generateRun(seed, count, env) {
 }
 
 /**
+ * 生存模式补给站放置（2026-10-15）：在节点内生成若干补给站位置。
+ * - 避开一切掩体（含水体/河流，由 pointInCover 统一判定）；
+ * - 远离玩家出生点；站点之间彼此分散。
+ * @param {any} node makeNode 产物（含 w/h/covers/playerSpawn）
+ * @param {number|string} seed 整局种子（派生确定性 rng）
+ * @param {number} [count] 站点数，缺省 3
+ * @returns {{x:number,y:number}[]} 站点世界坐标
+ */
+function placeSupplyStations(node, seed, count) {
+  const n = Math.max(1, count || 3);
+  const rng = createRNG(String(seed !== undefined ? seed : 0) + ':supply');
+  const w = node.w, h = node.h;
+  const covers = node.covers || [];
+  const ps = node.playerSpawn || { x: w * 0.10, y: h / 2 };
+  const margin = 140;
+  const minPlayerDist = 900;    // 距出生点
+  const minStationDist = 1500;  // 站点之间
+  const stations = [];
+  let attempts = 0;
+  while (stations.length < n && attempts < 300) {
+    attempts++;
+    const x = rng.range(margin, w - margin);
+    const y = rng.range(margin, h - margin);
+    if (Math.hypot(x - ps.x, y - ps.y) < minPlayerDist) continue;
+    if (pointInCover(covers, x, y, 80)) continue;   // 避开掩体/水体/河流
+    let tooClose = false;
+    for (const s of stations) {
+      if (Math.hypot(x - s.x, y - s.y) < minStationDist) { tooClose = true; break; }
+    }
+    if (tooClose) continue;
+    stations.push({ x: Math.round(x), y: Math.round(y) });
+  }
+  return stations;
+}
+
+/**
  * 生成生存模式对局（#MODE 2026-10-15）：单个大地图。
  * - 走方形竞技场路径（bossOnly=true 强制 Boss 标记 → 非 strip 路径），视口 2x → 世界约 4x 面积；
  * - 生成后清掉 node.boss（Boss 按波次由 UI 层手动生成，不走节点 Boss 逻辑），
@@ -1042,6 +1078,7 @@ function generateSurvivalRun(seed, env) {
   node.boss = null;        // 生存模式：Boss 按波次手动生成
   node.survival = true;
   node.exitX = Infinity;   // 生存模式：无出口（波次制，无需撤离）
+  node.supplyStations = placeSupplyStations(node, run.seed);  // 补给站（回血+商店）
   return run;
 }
 
@@ -1366,6 +1403,7 @@ if (typeof module !== 'undefined' && module.exports) {
     makeNode,
     generateRun,
     generateSurvivalRun,
+    placeSupplyStations,
     extendRun,
     scoreNode,
     materializeNode,
