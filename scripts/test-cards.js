@@ -865,6 +865,89 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
     '#N2: isAmmoUpgradeCard 对非 ammo 卡返 false');
 }
 
+
+// ===== 2026-10-16 用户要求：Boss 追加轮「至少 1 张传奇 + 2 张史诗，其余随意，非普通卡几率调高」 =====
+// 抽取层契约：opts.guaranteeRarity（按稀有度保底至少 N 张）+ opts.rarityWeights（覆盖稀有度权重）。
+// 池子侧不再做稀有度排他过滤（bossLootPool 返回全池），故本段用真实 cards/ 全池验证。
+{
+  const BR = RULES_MOD.RULES.cards.bossRound;
+  ok(BR && BR.guarantee && BR.guarantee.legendary >= 1 && BR.guarantee.epic >= 2,
+    `#BOSS-ROUND: RULES.cards.bossRound 配比已定义（legendary ${BR && BR.guarantee && BR.guarantee.legendary} / epic ${BR && BR.guarantee && BR.guarantee.epic}）`);
+  const allCards = fs.readdirSync(path.join(__dirname, '../cards'))
+    .filter(f => f.endsWith('.json'))
+    .map(f => JSON.parse(fs.readFileSync(path.join(__dirname, '../cards', f), 'utf8')));
+  const ownedSim = { abilities: ['x'], secondaryWeapon: 'mortar', primaryWeapon: 'standard', cards: {} };
+  const runBossRound = (seed) => cardsMod.drawCardChoices(allCards, 5, {
+    rng: createRNG(seed), ammoLoadout: ['ap', 'he'], owned: ownedSim,
+    guaranteeRarity: BR.guarantee, rarityWeights: BR.rarityWeights
+  });
+  // ① 保底：200 种子全部满足「≥1 传奇(含神话) 且 ≥2 史诗」
+  let sat = 0, missLeg = 0, missEpic = 0, cntBad = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const res = runBossRound(seed);
+    if (res.length !== 5) cntBad++;
+    const leg = res.filter(c => c.rarity === 'legendary' || c.rarity === 'mythic').length;
+    const ep = res.filter(c => c.rarity === 'epic').length;
+    if (leg >= BR.guarantee.legendary && ep >= BR.guarantee.epic) sat++;
+    if (leg < BR.guarantee.legendary) missLeg++;
+    if (ep < BR.guarantee.epic) missEpic++;
+  }
+  ok(cntBad === 0, '#BOSS-ROUND: 候选恒为 5 张（池充足时）');
+  ok(sat === 200, `#BOSS-ROUND: 200/200 满足「≥1 传奇 + ≥2 史诗」保底（got ${sat}；缺传奇 ${missLeg} / 缺史诗 ${missEpic}）`);
+  // ② 非普通卡占比显著高于旧权重（旧：common 50% / legendary 4.5%）
+  const dist = {};
+  let n = 0;
+  for (let seed = 1; seed <= 400; seed++) for (const c of runBossRound(seed)) { dist[c.rarity] = (dist[c.rarity] || 0) + 1; n++; }
+  const commonPct = (dist.common || 0) / n * 100;
+  const legendaryPct = ((dist.legendary || 0) + (dist.mythic || 0)) / n * 100;
+  ok(commonPct < 20, `#BOSS-ROUND: 普通卡占比被压低（${commonPct.toFixed(1)}% < 20%，旧权重约 50%）`);
+  ok(legendaryPct > 15, `#BOSS-ROUND: 传奇及以上占比抬升（${legendaryPct.toFixed(1)}% > 15%，旧权重约 4.4%）`);
+  // ③ 普通轮不受影响（不传新选项 → 走旧权重）
+  const distPlain = {};
+  let n2 = 0;
+  for (let seed = 1; seed <= 400; seed++) {
+    for (const c of cardsMod.drawCardChoices(allCards, 5, { rng: createRNG(seed), ammoLoadout: ['ap', 'he'], owned: ownedSim })) { distPlain[c.rarity] = (distPlain[c.rarity] || 0) + 1; n2++; }
+  }
+  const commonPlain = (distPlain.common || 0) / n2 * 100;
+  ok(commonPlain > 40, `#BOSS-ROUND: 普通轮权重未受影响（普通卡 ${commonPlain.toFixed(1)}% 仍接近旧权重 50%）`);
+  // ④ 池内某档耗尽时保底静默跳过、不崩（只给 epic 空池的极端场景）
+  const noLegendary = allCards.filter(c => c.rarity !== 'legendary' && c.rarity !== 'mythic');
+  const resNoLeg = cardsMod.drawCardChoices(noLegendary, 5, {
+    rng: createRNG(7), ammoLoadout: ['ap', 'he'], owned: ownedSim,
+    guaranteeRarity: BR.guarantee, rarityWeights: BR.rarityWeights
+  });
+  ok(Array.isArray(resNoLeg) && resNoLeg.length === 5,
+    `#BOSS-ROUND: 池内无传奇时保底静默跳过、仍正常返回 5 张（got ${resNoLeg.length}）`);
+  // ⑤ 逐轮消耗后优雅降级（2026-10-16 实测发现）：legendary 全池仅 15 张且 maxStacks=1，
+  //    Boss 模式每节点都是 Boss 轮 ⇒ 约 12 轮后传奇被抽完，保底**降级为 0 传奇**但候选仍满 5 张、不卡死。
+  //    契约：有货必保、无货优雅降级（绝不因池耗尽而返回残缺候选）。
+  {
+    const ownedSim2 = { abilities: ['x'], secondaryWeapon: 'mortar', primaryWeapon: 'standard', cards: {} };
+    let firstStarveRound = null, shrinkRound = null;
+    for (let round = 1; round <= 30; round++) {
+      const res = cardsMod.drawCardChoices(allCards, 5, {
+        rng: createRNG(round * 31 + 7), ammoLoadout: ['ap', 'he'], owned: ownedSim2,
+        guaranteeRarity: BR.guarantee, rarityWeights: BR.rarityWeights
+      });
+      if (res.length !== 5 && shrinkRound === null) shrinkRound = round;
+      const leg = res.filter(c => c.rarity === 'legendary' || c.rarity === 'mythic').length;
+      if (leg === 0 && firstStarveRound === null) firstStarveRound = round;
+      // 模拟玩家每轮取最稀的 3 张（消耗 maxStacks）
+      const order = cardsMod.CARD_RARITIES;
+      const sorted = res.slice().sort((a, b) => order.indexOf(b.rarity) - order.indexOf(a.rarity));
+      for (const c of sorted.slice(0, 3)) if (c.maxStacks) ownedSim2.cards[c.id] = (ownedSim2.cards[c.id] || 0) + 1;
+    }
+    ok(shrinkRound === null, '#BOSS-ROUND: 30 轮逐轮消耗中候选恒为 5 张（池耗尽也不缩水）');
+    ok(firstStarveRound !== null, `#BOSS-ROUND: 传奇耗尽后保底优雅降级（第 ${firstStarveRound} 轮起无传奇，属正常）`);
+    ok(firstStarveRound > 5, `#BOSS-ROUND: 降级不早于第 5 轮（实际第 ${firstStarveRound} 轮）`);
+  }
+  // ⑤ 权重表异常（全 0）不除零、不崩
+  const resZero = cardsMod.drawCardChoices(allCards, 5, {
+    rng: createRNG(9), ammoLoadout: ['ap', 'he'], owned: ownedSim,
+    rarityWeights: { common: 0, rare: 0, epic: 0, legendary: 0, mythic: 0 }
+  });
+  ok(Array.isArray(resZero) && resZero.length === 5, '#BOSS-ROUND: 权重表全 0 时回退（不除零、仍返回 5 张）');
+}
 console.log('test-cards: 完成所有检查');
 if (fails === 0) console.log('test-cards: 全部通过');
 else console.error(`test-cards: ${fails} 项失败`);

@@ -656,28 +656,40 @@ function drawCardChoices(pool, n, optsOrRng) {
         ef && ef.type === 'ability' && !ownedAbils.includes(ef.key)));
     }
   }
-  // 2026-10-15：Boss 追加轮「稀有度保底」——保底**只管下限、不排他**。
-  //   沿革：原实现在 mvp 的 bossLootPool 里按 rarity 下标硬过滤整池，导致 epic 装备卡
-  //   （电磁炮/机炮/双管/弹夹炮与全部副武器安装卡）在 Boss 轮永不可见，且池子被砍到 26 张后
-  //   逐步枯竭、候选不足所需张数而卡死。现改为：池子给全量，另用本选项保底**至少 1 张**
-  //   达到下限的卡 ⇒ 结算界面「稀有度保底」的承诺仍然真实，但不再把低稀有度卡踢出候选。
-  //   默认 -1 = 不启用（普通轮/既有调用零影响）。
-  if (optsOrRng && typeof optsOrRng === 'object' && typeof optsOrRng.guaranteeMinRarityIdx === 'number') {
-    const floorIdx = optsOrRng.guaranteeMinRarityIdx;
-    const RAR = (typeof CARD_RARITIES !== 'undefined') ? CARD_RARITIES : null;
-    if (RAR && floorIdx >= 0) {
-      const atOrAbove = (c) => !!c && typeof c.rarity === 'string' && RAR.indexOf(c.rarity) >= floorIdx;
-      // 已因其它保底/自然抽到高位卡则不重复追加（保底语义是「至少 1 张」）
-      const already = picked.some(atOrAbove);
-      if (!already && picked.length < count) pickRandomWhere(atOrAbove);
+  // 2026-10-16：Boss 追加轮稀有度保底（opts.guaranteeRarity）+ 权重覆盖（opts.rarityWeights）。
+  //   用户口径：「确保至少 1 张传奇、2 张史诗，其余随意，非普通卡抽中几率调高」。
+  //   沿革：2026-10-15 曾用单一 guaranteeMinRarityIdx（«至少 1 张达下限»）修 epic 整档被滤出
+  //   所致的池枯竭；本次按用户要求升级为**按稀有度配比保底**，从稀到常见逐项满足。
+  //   语义：每档「至少」保 N 张——已因装备/技能/弹种保底或自然命中同档则不重复追加；
+  //   池内某档无可用卡（抽完 maxStacks / 资格不符）则该项静默跳过，不破坏抽取。
+  const RAR = (typeof CARD_RARITIES !== 'undefined') ? CARD_RARITIES : null;
+  const rarityOf = (c) => (c && typeof c.rarity === 'string') ? c.rarity : null;
+  if (RAR && optsOrRng && typeof optsOrRng === 'object' && optsOrRng.guaranteeRarity) {
+    const need = optsOrRng.guaranteeRarity;   // { legendary: 1, epic: 2, ... }
+    // 从稀到常见满足（先占高位，避免低位保底挤掉高位名额）
+    const order = RAR.slice().reverse();
+    for (const rar of order) {
+      const want = need[rar] | 0;
+      if (want <= 0 || !RAR.includes(rar)) continue;
+      for (let i = 0; i < want && picked.length < count; i++) {
+        const have = picked.filter(c => rarityOf(c) === rar).length;
+        if (have > i) continue;                // 该项已由其它通道命中
+        pickRandomWhere(c => rarityOf(c) === rar);
+      }
     }
   }
+  const rarityWeights = (optsOrRng && typeof optsOrRng === 'object' && optsOrRng.rarityWeights) || null;
   while (picked.length < count && usable.length > 0) {
     // 权重抽样：先按稀有度权重选稀有度，再在该稀有度内随机取一张。
     // #N2：稀有度内抽取按卡权重——弹种升级卡乘 paceFactor（本局已获升级越多、自然出现越慢）。
-    let rarity = weightedRarity(r);
+    // 2026-10-16：Boss 追加轮经 rarityWeights 覆盖（压低普通、抬高稀有以上）。
+    //   该档在 usable 已空时回退全池，防权重指向空桶导致死循环式空转。
+    let rarity = weightedRarity(r, rarityWeights);
     let bucket = usable.filter(c => c.rarity === rarity);
-    if (bucket.length === 0) bucket = usable;
+    if (bucket.length === 0) {
+      const weightedPool = rarityWeights ? usable.filter(c => rarityWeights[rarityOf(c)] > 0) : [];
+      bucket = weightedPool.length ? weightedPool : usable;
+    }
     const card = weightedPickInBucket(bucket, r, paceFactor);
     picked.push(card);
     usable.splice(usable.indexOf(card), 1);
@@ -715,12 +727,16 @@ function weightedPickInBucket(bucket, r, paceFactor) {
   return bucket[bucket.length - 1];
 }
 
-function weightedRarity(r) {
+// 按稀有度权重掷一个稀有度。weights 可覆盖缺省 RARITY_WEIGHTS（2026-10-16：Boss 追加轮
+// 用 RULES.cards.bossRound.rarityWeights 提高非普通卡占比；缺省/空表回退全局权重）。
+function weightedRarity(r, weights) {
+  const W = (weights && Object.keys(weights).length) ? weights : RARITY_WEIGHTS;
   let total = 0;
-  for (const k in RARITY_WEIGHTS) total += RARITY_WEIGHTS[k];
+  for (const k in W) total += W[k];
+  if (!(total > 0)) return 'common';          // 权重表全 0 → 回退最普通档，防除零
   let roll = r() * total;
-  for (const k in RARITY_WEIGHTS) {
-    roll -= RARITY_WEIGHTS[k];
+  for (const k in W) {
+    roll -= W[k];
     if (roll <= 0) return k;
   }
   return 'common';

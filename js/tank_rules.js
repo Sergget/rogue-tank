@@ -481,7 +481,17 @@ const RULES = {
     ammoUpgradeGuaranteeChance: 0.18,
     //   下调为 0.4 概率触发；2026-10-10 #N2 用户再次反馈同一问题——再降至 0.18 并引入
     //   随局递减（ammoUpgradePace），同时权重抽样通道同步降权（此前只压保底压不住自然抽样）。
-    ammoUpgradePace: { decay: 0.55 }
+    ammoUpgradePace: { decay: 0.55 },
+    // Boss 追加轮专属口径（2026-10-16 用户要求）：「确保至少 1 张传奇、2 张史诗，其余随意，
+    //   并把非普通卡的抽中几率调高」。仅作用于 pendingLootRounds > 0 的追加轮，普通节点不变。
+    //   · guarantee：按稀有度保底**至少**张数（从稀到常见逐项满足；池内无可用卡时该项静默跳过）。
+    //     候选数 5、玩家选 3 ⇒ 这 3 张即可构成「1 传奇 + 2 史诗」，其余 2 张自由。
+    //   · rarityWeights：覆盖 RARITY_WEIGHTS 的局部权重表，专供自由槽位抽样——压低普通卡、
+    //     抬高稀有以上（原 50/30/15/4.5/0.5 → 20/32/30/15/3）。
+    bossRound: {
+      guarantee: { legendary: 1, epic: 2 },
+      rarityWeights: { common: 20, rare: 32, epic: 30, legendary: 15, mythic: 3 }
+    }
   },
 
   // P-36/#81 biome 地面配色板（取自 P-44 底色表；water 本批不做背景水体）。

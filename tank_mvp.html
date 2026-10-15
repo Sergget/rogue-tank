@@ -2133,7 +2133,26 @@ function bossLootRarityLabel(idx){
   return (typeof CARD_RARITIES !== 'undefined' && CARD_RARITIES[idx]) ? (m[CARD_RARITIES[idx]] || CARD_RARITIES[idx]) : '—';
 }
 
-// P-51 Wave2：追加轮抽取池。
+// 2026-10-16：Boss 追加轮的稀有度保底描述——从 RULES.cards.bossRound.guarantee 派生，
+// 避免文案与抽取口径脱节（旧实现写死 Boss 配置的 loot.cardRarity，与实际保底不再一致）。
+// 例：{ legendary: 1, epic: 2 } → 「1 传奇 + 2 史诗」；无配置时退回该 Boss 的 cardRarity 标签。
+function bossRoundGuaranteeLabel(){
+  const g = (typeof RULES !== 'undefined' && RULES.cards && RULES.cards.bossRound)
+    ? RULES.cards.bossRound.guarantee : null;
+  const RAR = (typeof CARD_RARITIES !== 'undefined') ? CARD_RARITIES : null;
+  if(g && RAR){
+    const m = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' };
+    const parts = [];
+    for(const rar of RAR.slice().reverse()){          // 从稀到常见，读起来更顺
+      const n = g[rar] | 0;
+      if(n > 0) parts.push(`${n} ${m[rar] || rar}`);
+    }
+    if(parts.length) return parts.join(' + ');
+  }
+  return bossLootRarityLabel(pendingLootRarityIdx);
+}
+
+// P-51 Wave2：追加轮抽取池——**全池**（不做稀有度排他过滤）。
 // 2026-10-15 修复（用户反馈「电磁炮没进 Boss 卡池 / 打到节点 10 只剩 2 张卡无法继续」）：
 //   原实现按 `CARD_RARITIES.indexOf(c.rarity) >= indexOf(loot.cardRarity)` **硬过滤**——
 //   3 个 Boss 配置 cardRarity='legendary'（下标 3），于是 epic（下标 2）整档被排除，
@@ -2141,17 +2160,11 @@ function bossLootRarityLabel(idx){
 //   而 Boss 模式**每个节点都是 Boss 节点**，每轮都走这个被砍到 26 张的池子，池内又全是
 //   maxStacks=1（拿过即不可再拿）⇒ 实测第 5 轮可用池仅剩 1 张、第 6 轮归零，卡牌选择界面
 //   只能显示 1~2 张，选不满所需张数就无法确认，流程卡死。
-//   现行口径：**保底只管下限、不再排他**——返回全池，另用 `guaranteed` 让「稀有度下限」
-//   只表达「池内确有足量高位卡」的设计意图，不再把低于下限的卡踢出候选。
-// 返回 { pool, guaranteed }：pool 为全池（保底稀有度卡已在其中），guaranteed 为保底子集
-// （供调用方按需加权/校验，当前语义下即 rarity 下标 ≥ 保底下标者）。
+//   现行口径：**池子给全量，稀有度诉求改由抽取层保底表达**——不再把任何稀有度踢出候选；
+//   Boss 轮的「1 传奇 + 2 史诗」保底与抬高非普通卡权重见 drawRewardCards / RULES.cards.bossRound。
+// 返回全池数组（调用方直接用作 drawCardChoices 的 pool）。
 function bossLootPool(){
-  if(pendingLootRarityIdx < 0 || typeof CARD_RARITIES === 'undefined' || !cardPool.length){
-    return { pool: cardPool, guaranteed: [] };
-  }
-  const minIdx = Math.min(pendingLootRarityIdx, CARD_RARITIES.length - 1);
-  const guaranteed = cardPool.filter(c => c.rarity && CARD_RARITIES.indexOf(c.rarity) >= minIdx);
-  return { pool: cardPool, guaranteed };
+  return cardPool;
 }
 
 // P-51 Wave2：卡牌选择后的推进——仍有追加轮 → reward→reward 再开一轮（白名单合法）；
@@ -2259,10 +2272,9 @@ function rewardPickTarget(){
 }
 
 function drawRewardCards(){
-  // P-51 Wave2：Boss 追加轮 → 按保底稀有度确定池（2026-10-15 起保底只管下限、不再排他：
-  // 返回全池，避免 epic 装备卡整档被滤出后池子枯竭卡死——见 bossLootPool 注释）；
-  // 普通轮 → 全池。
-  const drawPool = pendingLootRounds > 0 ? bossLootPool().pool : cardPool;
+  // P-51 Wave2：Boss 追加轮与普通轮**同池**（全池，无稀有度排他过滤——见 bossLootPool 注释）；
+  // 差异只体现在抽取层：Boss 轮带稀有度配比保底 + 抬高非普通卡权重（RULES.cards.bossRound）。
+  const drawPool = cardPool;
   // 2026-09-14 装备优先：玩家没有任何主动技能 / 副武器未安装时，候选保底含对应装备卡
   const ownedAbilities = Array.from(new Set((player.cardEffects || [])
     .filter(ef => ef && ef.type === 'ability' && ef.key).map(ef => ef.key)));
@@ -2276,14 +2288,19 @@ function drawRewardCards(){
       if (n > 0) ownedCardCounts[c.id] = n;
     }
   }
+  // Boss 追加轮配置（2026-10-16 用户要求）：保底 1 传奇 + 2 史诗 + 抬高非普通卡权重。
+  // 归口 RULES.cards.bossRound；缺 RULES 时回退 null（则该轮退回既有权重与无稀有度保底）。
+  const bossRound = pendingLootRounds > 0 && typeof RULES !== 'undefined'
+    && RULES.cards && RULES.cards.bossRound ? RULES.cards.bossRound : null;
   return drawPool.length ? drawCardChoices(drawPool, 5, {
     ammoLoadout: player.ammoLoadout,
     owned: { abilities: ownedAbilities, secondaryWeapon: secondaryType, primaryWeapon: primaryType, cards: ownedCardCounts },
     guaranteeAmmoUpgrade: pendingLootRounds > 0,   // #S5：Boss 追加轮必含 1 张弹种升级选项
     guaranteeSkillCard: pendingLootRounds > 0,      // #10：Boss 追加轮必含 1 张技能卡
-    // 2026-10-15：Boss 追加轮的「稀有度保底」改为**只管下限、不排他**——池子给全量（见上），
-    // 由本项保底至少 1 张达下限的卡，使结算界面「稀有度保底 X」的承诺仍然真实。
-    guaranteeMinRarityIdx: pendingLootRounds > 0 ? pendingLootRarityIdx : -1
+    // 稀有度保底：按配比「至少 N 张」（Boss 轮 = legendary 1 / epic 2）；
+    // 权重覆盖：Boss 轮抬高非普通卡占比，其余槽位自由抽取。
+    guaranteeRarity: bossRound ? bossRound.guarantee : null,
+    rarityWeights: bossRound ? bossRound.rarityWeights : null
   }) : [];
 }
 
@@ -2531,14 +2548,14 @@ watchFlow(flow, (state, payload) => {
         document.getElementById('settleBody').innerHTML = vm.rows.map(r => `<div class="row${r.total ? ' total' : ''}"><span class="k">${r.k}</span><span>${r.v}</span></div>`).join('');
         if(bl && bl.cards > 0){
           document.getElementById('settleBody').insertAdjacentHTML('beforeend',
-            `<div class="row"><span class="k">Boss 追加卡牌</span><span>×${bl.cards}（稀有度保底 ${bossLootRarityLabel(pendingLootRarityIdx)}）</span></div>`);
+            `<div class="row"><span class="k">Boss 追加卡牌</span><span>×${bl.cards}（稀有度保底 ${bossRoundGuaranteeLabel()}）</span></div>`);
         }
       } else {
         const s = payload.score;
         const rows = [`<div class="row"><span class="k">基础奖励</span><span>${s.base}</span></div>`];
         for(const b of s.bonuses) rows.push(`<div class="row"><span class="k">${b.label}</span><span>+${b.amount}</span></div>`);
         if(payload.bossLoot && payload.bossLoot.score) rows.push(`<div class="row"><span class="k">Boss 战利品</span><span>+${payload.bossLoot.score}</span></div>`);
-        if(bl && bl.cards > 0) rows.push(`<div class="row"><span class="k">Boss 追加卡牌</span><span>×${bl.cards}（稀有度保底 ${bossLootRarityLabel(pendingLootRarityIdx)}）</span></div>`);
+        if(bl && bl.cards > 0) rows.push(`<div class="row"><span class="k">Boss 追加卡牌</span><span>×${bl.cards}（稀有度保底 ${bossRoundGuaranteeLabel()}）</span></div>`);
         rows.push(`<div class="row"><span class="k">通关用时</span><span>${(payload.clearMs / 1000).toFixed(1)}s</span></div>`);
         rows.push(`<div class="row total"><span class="k">本节点得分</span><span>${s.total}</span></div>`);
         document.getElementById('settleBody').innerHTML = rows.join('');
