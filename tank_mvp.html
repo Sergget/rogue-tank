@@ -2419,7 +2419,9 @@ watchFlow(flow, (state, payload) => {
       document.getElementById('settleNextBtn').style.display = '';
       document.getElementById('settleSaveBtn').style.display = '';
       document.getElementById('settleHomeBtn').style.display = 'none';
-      renderRunShop();   // 2026-09-14：局内商店（基础参数升级）随结算界面展示
+      // #MODE：Boss 模式不开放局内商店（每局回满血，不需要升级）
+      if(GAME_MODE !== 'boss') renderRunShop();   // 2026-09-14：局内商店（基础参数升级）随结算界面展示
+      else { const _rsBox = document.getElementById('runShopBox'); if(_rsBox) _rsBox.style.display = 'none'; }
     }
     showScreen('settleScreen'); setOverlayVisible(true);
   } else if(state === 'reward'){
