@@ -228,7 +228,51 @@ const TEXTURE_DEFS = {
       for(const [fx,fy,fw,fh] of light){
         ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, -0.2, 0, Math.PI*2); ctx.fill();
       }
-  }}
+  }},
+  // #3（2026-10-15）：新增 5 种纹理预设
+  camo_desert: { name: '沙漠迷彩', base: '#c2a86b', draw: (ctx, b) => {
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      ctx.fillStyle = 'rgba(160,130,80,0.25)';
+      for(const [fx,fy,fw,fh] of [[0.25,0.3,0.4,0.2],[0.65,0.65,0.35,0.18]]){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, 0.3, 0, Math.PI*2); ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(220,200,150,0.18)';
+      for(const [fx,fy,fw,fh] of [[0.4,0.7,0.3,0.15],[0.75,0.25,0.28,0.14]]){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, -0.3, 0, Math.PI*2); ctx.fill();
+      }
+  }},
+  camo_winter: { name: '冬季迷彩', base: '#d8d8d4', draw: (ctx, b) => {
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      ctx.fillStyle = 'rgba(180,180,175,0.3)';
+      for(const [fx,fy,fw,fh] of [[0.3,0.4,0.45,0.22],[0.68,0.6,0.38,0.2]]){
+        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, 0.1, 0, Math.PI*2); ctx.fill();
+      }
+  }},
+  camo_urban: { name: '城市迷彩', base: '#6b6f72', draw: (ctx, b) => {
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      ctx.fillStyle = 'rgba(50,52,55,0.35)';
+      for(let i=0; i<5; i++){
+        const fx = 0.15 + i*0.17, fy = 0.2 + (i%2)*0.45;
+        ctx.fillRect(b.minX+fx*w, b.minY+fy*h, 0.12*w, 0.18*h);
+      }
+  }},
+  paint_olive: { name: '橄榄绿', base: '#5a6238', draw: (ctx, b) => {
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      ctx.fillStyle = 'rgba(70,78,45,0.2)';
+      ctx.fillRect(b.minX+0.2*w, b.minY+0.3*h, 0.6*w, 0.4*h);
+  }},
+  camo_digital: { name: '数码迷彩', base: '#5c6650', draw: (ctx, b) => {
+      const w = b.maxX-b.minX, h = b.maxY-b.minY;
+      const s = Math.min(w, h) / 12;
+      ctx.fillStyle = 'rgba(45,52,38,0.3)';
+      for(let ix=0; ix<12; ix++) for(let iy=0; iy<12; iy++){
+        if((ix*7 + iy*13) % 5 === 0) ctx.fillRect(b.minX+ix*s, b.minY+iy*s, s, s);
+      }
+      ctx.fillStyle = 'rgba(120,125,95,0.2)';
+      for(let ix=0; ix<12; ix++) for(let iy=0; iy<12; iy++){
+        if((ix*11 + iy*7) % 7 === 0) ctx.fillRect(b.minX+ix*s, b.minY+iy*s, s, s);
+      }
+  }},
 };
 
 // 车体实色：TEXTURE_DEFS 的 base（历史涂装）优先，否则回退队伍色 color。
