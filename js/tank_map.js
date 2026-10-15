@@ -1041,6 +1041,7 @@ function generateSurvivalRun(seed, env) {
   const node = run.nodes[0];
   node.boss = null;        // 生存模式：Boss 按波次手动生成
   node.survival = true;
+  node.exitX = Infinity;   // 生存模式：无出口（波次制，无需撤离）
   return run;
 }
 

@@ -4810,7 +4810,8 @@ function draw(){
   // 推进式完成条件（B 档③）此前只有底部一行小字 ⇒ 玩家无从得知「往哪推进 / 目标是什么」。
   if(run && currentNode && !currentNode.boss && !(battleState && battleState.clearing)){
     const ez = (RULES.nodeMap && RULES.nodeMap.exitZone) || {};
-    if(ez.draw !== false){
+    // 生存模式无出口（exitX=Infinity 时不绘制）
+    if(ez.draw !== false && currentNode.exitX !== Infinity){
       const ex = Number.isFinite(currentNode.exitX) ? currentNode.exitX : currentNode.w * (ez.xFraction || 0.93);
       const band = ez.bandWidth || 220;
       const x0 = Math.min(currentNode.w, ex), x1 = Math.min(currentNode.w, ex + band);
@@ -5076,8 +5077,8 @@ function draw(){
       h: MM.h,
       covers,
       entities,
-      // #K2：出口区标记（Boss 节点无出口概念 ⇒ 不画）
-      exitZone: currentNode.boss ? null : { x: currentNode.exitX }
+      // #K2：出口区标记（Boss 节点无出口概念 ⇒ 不画；生存模式 exitX=Infinity ⇒ 不画）
+      exitZone: (currentNode.boss || currentNode.exitX === Infinity) ? null : { x: currentNode.exitX }
     });
   }
 

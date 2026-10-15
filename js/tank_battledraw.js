@@ -651,16 +651,34 @@ function drawTank(ctx, t){
      _dbOff = barrelWid * _dbMult * 0.5;
    }
    const _tubeOffsets = _isDb ? [-_dbOff, _dbOff] : [0];
-   // main barrel tube(s)（双管并排 / 单管居中）
+   // 电磁炮：双轨并排（两根导轨中间留空，一眼可辨）——程序化绘制，与游戏像素风格一致
+   const _isRail = !!(t.weapons && t.weapons.primary && t.weapons.primary.type === 'railgun');
+   // main barrel tube(s)（双管并排 / 单管居中 / 电磁炮双轨）
    for(const _toff of _tubeOffsets){
      const _tx = baseX + perpX*_toff, _ty = baseY + perpY*_toff;
      const _ex = endX + perpX*_toff, _ey = endY + perpY*_toff;
-     ctx.strokeStyle = shade(bCol, -45); ctx.lineWidth = barrelWid;
-     ctx.lineCap = 'round';
-     ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
-     // barrel highlight
-     ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = Math.max(1, barrelWid*0.4);
-     ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+     if(_isRail){
+       // 双轨：上下各一根细轨，中间镂空；青色能量线点缀
+       const _railOff = Math.max(2, barrelWid * 0.28);
+       const _railW = Math.max(1.5, barrelWid * 0.22);
+       for(const _ro of [-_railOff, _railOff]){
+         const _rx0 = _tx + perpX*_ro, _ry0 = _ty + perpY*_ro;
+         const _rx1 = _ex + perpX*_ro, _ry1 = _ey + perpY*_ro;
+         ctx.strokeStyle = shade(bCol, -45); ctx.lineWidth = _railW;
+         ctx.lineCap = 'round';
+         ctx.beginPath(); ctx.moveTo(_rx0, _ry0); ctx.lineTo(_rx1, _ry1); ctx.stroke();
+       }
+       // 轨间青色能量线（细，扁平无发光）
+       ctx.strokeStyle = 'rgba(64,200,220,0.85)'; ctx.lineWidth = Math.max(1, barrelWid*0.12);
+       ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+     } else {
+       ctx.strokeStyle = shade(bCol, -45); ctx.lineWidth = barrelWid;
+       ctx.lineCap = 'round';
+       ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+       // barrel highlight
+       ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = Math.max(1, barrelWid*0.4);
+       ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+     }
    }
 
    // 炮盾 mantlet（纯视觉，样式 none/single/double/collar/box/winged/wedge）：
