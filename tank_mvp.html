@@ -150,6 +150,11 @@
     font-size:13px; padding:8px 16px; border-radius:4px; letter-spacing:1px;
     animation:gainToastIn 0.3s ease-out, gainToastOut 0.5s ease-in 3.0s forwards;
     text-shadow:0 0 8px rgba(255,180,84,0.4);}
+  /* #9（2026-10-15）：玩家模块/乘员损伤的醒目红色警告（断履带/起火/炮塔慢/发动机/弹药架/炮手） */
+  .dmg-toast-line{background:rgba(40,8,8,0.95); border:2px solid var(--red); color:#ff6b6b;
+    font-size:15px; font-weight:bold; padding:10px 20px; border-radius:4px; letter-spacing:2px;
+    animation:gainToastIn 0.2s ease-out, gainToastOut 0.5s ease-in 2.5s forwards;
+    text-shadow:0 0 12px rgba(255,60,60,0.6);}
   @keyframes gainToastIn{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);}}
   @keyframes gainToastOut{to{opacity:0; transform:translateY(-6px);}}
   #ammoIndicator .mult{color:var(--text-dim); font-weight:400; font-size:9px;}
@@ -1978,6 +1983,17 @@ function pickCard(card){
       showGainToast(`已安装副武器：${SECONDARY_LABELS[ef.weaponType] || ef.weaponType}（F 键击发）`);
     }
   }
+// #9（2026-10-15）：玩家模块/乘员损伤的醒目红色警告（复用 gainToast 容器）
+function showDamageAlert(msg){
+  const el = document.getElementById('gainToast');
+  if(!el) return;
+  const line = document.createElement('div');
+  line.className = 'dmg-toast-line';
+  line.textContent = msg;
+  el.appendChild(line);
+  el.style.display = 'flex';
+  setTimeout(() => { line.remove(); if(!el.children.length) el.style.display = 'none'; }, 3000);
+}
   // #H3（2026-09-30）：技能槽对账 —— 新技能先自动填入空槽；**槽满时弹面板由玩家选择顶替哪一格**
   //   （循环复用：运行时技能键 7 个 > 槽位 3 个，第 4 个起不再是死技能）。
   if(applied.some(ef => ef.type === 'ability')){

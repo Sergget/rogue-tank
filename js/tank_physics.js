@@ -403,6 +403,16 @@ function applyModuleDamage(shell, target, hit, opts){
     if(draws >= 2) applySingleModEffect(modKey2);
     // 弹种链：moduleDraws ≥ 3（he/blast_he）——第三抽取只施加效果（伤害已由 effectiveMult 覆盖）
     if(draws >= 3) applySingleModEffect((mods[2] && mods[2].key) || null);
+    // #9（2026-10-15）：玩家模块/乘员损伤的醒目提示
+    const _g = (typeof globalThis !== 'undefined') ? globalThis : null;
+    const _isPlayer = _g && _g.player && target === _g.player;
+    if(_isPlayer && typeof _g.showDamageAlert === 'function'){
+      const alerts = { ammo:'⚠ 弹药架被击中！装填变慢', track:'⚠ 履带被击断！无法移动', engine:'🔥 发动机起火！',
+        gunner:'⚠ 炮手受伤！炮塔转速下降', loader:'⚠ 装填手受伤！装填变慢',
+        driver:'⚠ 驾驶员受伤！机动下降', commander:'⚠ 车长受伤！视野/指挥下降', breech:'⚠ 炮闩受损！无法开火' };
+      const hitKeys = [modKey1, draws >= 2 ? modKey2 : null, draws >= 3 ? (mods[2] && mods[2].key) : null].filter(Boolean);
+      for(const hk of hitKeys){ if(alerts[hk]) _g.showDamageAlert(alerts[hk]); }
+    }
   }
 
   const labelStr = mod ? mod.label : '';
