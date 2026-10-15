@@ -57,8 +57,10 @@ function paintTracks(ctx, verts, cx, cy, angle, scale, color, phase, opts){
   opts = opts || {};
   const { minX, maxX, minY, maxY } = paintBounds(verts);
   const L = (maxX-minX)/2, W = (maxY-minY)/2;
-  const tw = (opts.trackWidth || 7) / scale;
-  const offsetExtra = (opts.trackOffset || 0) / scale;
+  // #3（2026-10-15）：trackWidth/trackOffset 是模型单位，不除以 scale。
+  // 此前除以 scale 导致设计器（scale≠1）与游戏（scale=1）履带位置不一致。
+  const tw = opts.trackWidth || 7;
+  const offsetExtra = opts.trackOffset || 0;
   const cxm = (minX+maxX)/2, cym = (minY+maxY)/2;
   const yTop = cym - W - tw/2 - offsetExtra, yBot = cym + W + tw/2 + offsetExtra;
   const x0 = cxm - L*0.98, x1 = cxm + L*0.98;
@@ -66,37 +68,30 @@ function paintTracks(ctx, verts, cx, cy, angle, scale, color, phase, opts){
   ctx.translate(cx, cy);
   ctx.rotate(angle||0);
   ctx.scale(scale, scale);
-  // #TEX2-2026-10-15: 履带重做 —— 不再是圆角矩形条，画独立履带节 + 中央导向齿 + 端部弧形
+  // #3（2026-10-15）：履带改回矩形（用户要求：不要圆角/胶囊形）
   for(const yc of [yTop, yBot]){
-    // 履带基体（深色）
+    // 履带基体（深色矩形）
     ctx.fillStyle = paintShade(color, -58);
-    // 主体：胶囊形（两端半圆，模拟主动轮/诱导轮弧度）
-    ctx.beginPath();
-    const r = tw/2;
-    ctx.moveTo(x0 + r, yc - r);
-    ctx.lineTo(x1 - r, yc - r);
-    ctx.arc(x1 - r, yc, r, -Math.PI/2, Math.PI/2);
-    ctx.lineTo(x0 + r, yc + r);
-    ctx.arc(x0 + r, yc, r, Math.PI/2, Math.PI*1.5);
-    ctx.closePath(); ctx.fill();
-    // 外缘高光
+    ctx.fillRect(x0, yc - tw/2, x1 - x0, tw);
+    // 外缘描边（矩形）
     ctx.strokeStyle = paintShade(color, -20); ctx.lineWidth = 1;
-    ctx.stroke();
+    ctx.strokeRect(x0, yc - tw/2, x1 - x0, tw);
     // 独立履带节：横向分隔线（随 phase 滚动）
     const pitch = 7;
     const off = -((phase || 0) % pitch);
+    const r = tw/2;
     ctx.strokeStyle = paintShade(color, -34); ctx.lineWidth = 1.2;
-    for(let x = x0 + r + off; x < x1 - r; x += pitch){
+    for(let x = x0 + off; x < x1; x += pitch){
       ctx.beginPath(); ctx.moveTo(x, yc - r + 1); ctx.lineTo(x, yc + r - 1); ctx.stroke();
     }
     // 履带节防滑齿（每节中央横条）
     ctx.strokeStyle = paintShade(color, 10); ctx.lineWidth = 1.6;
-    for(let x = x0 + r + off + pitch/2; x < x1 - r; x += pitch){
+    for(let x = x0 + off + pitch/2; x < x1; x += pitch){
       ctx.beginPath(); ctx.moveTo(x, yc - r + 1.5); ctx.lineTo(x, yc + r - 1.5); ctx.stroke();
     }
     // 中央导向齿（一排小凸起）
     ctx.fillStyle = paintShade(color, -30);
-    for(let x = x0 + r + off + pitch*0.25; x < x1 - r; x += pitch){
+    for(let x = x0 + off + pitch*0.25; x < x1; x += pitch){
       ctx.beginPath(); ctx.arc(x, yc, 1.1, 0, Math.PI*2); ctx.fill();
     }
   }
