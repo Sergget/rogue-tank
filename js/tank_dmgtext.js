@@ -80,8 +80,15 @@ function drawDmgTexts(ctx){
   ctx.restore();
 }
 
+// #4（2026-10-15）：节点切换时清空伤害飘字
+function clearDmgTexts(){
+  dmgTexts.length = 0;
+}
+if (typeof globalThis !== 'undefined') { globalThis.clearDmgTexts = clearDmgTexts; }
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    clearDmgTexts,
     dmgTexts,
     DMG_TEXT,
     spawnDmgText,

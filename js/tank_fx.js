@@ -553,8 +553,7 @@ function drawShockwaves(ctx){
 }
 
 // 地面弹坑与焦痕绘制
-function drawScorchMarks(ctx){
-  for(const sm of scorchMarks){
+function drawScorchMarks(ctx){  for(const sm of scorchMarks){
     const a = Math.max(0, 1 - sm.life / sm.max) * (sm.opacity || 0.45);
     ctx.save();
     ctx.fillStyle = `rgba(20, 18, 15, ${a})`;
@@ -567,8 +566,22 @@ function drawScorchMarks(ctx){
 
 if (typeof globalThis !== 'undefined') { globalThis.spawnMuzzleFlash = spawnMuzzleFlash; globalThis.spawnTracer = spawnTracer; }
 
+// #4（2026-10-15）：节点切换时清空 FX 数组，防止跨节点残留叠加
+function clearFx(){
+  explosions.length = 0;
+  turretFlights.length = 0;
+  fxParticles.length = 0;
+  muzzleFlashes.length = 0;
+  hitFx.length = 0;
+  shockwaves.length = 0;
+  scorchMarks.length = 0;
+  tracers.length = 0;
+}
+if (typeof globalThis !== 'undefined') { globalThis.clearFx = clearFx; }
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    clearFx,
     explosions,
     turretFlights,
     fxParticles,

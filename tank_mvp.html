@@ -1638,6 +1638,8 @@ function enterBattle(nodeIndex){
   if(typeof setSplashWorldBounds === 'function') setSplashWorldBounds({ w: node.w, h: node.h });
   clearSmoke();                              // P-17：进节点清空上一战场残留烟雾
   clearStrikes();                            // P-17：进节点清空上一战场预警炮击
+  if(typeof clearFx === 'function') clearFx();           // #4：FX 特效数组不跨节点
+  if(typeof clearDmgTexts === 'function') clearDmgTexts(); // #4：伤害飘字不跨节点
   bossLaserFx = null;                        // #E9：激光绘制数据不跨节点
   pendingMineFields.length = 0;              // #E4：未引爆的待生成雷场不跨节点
   refreshDeployBonus();                      // #E4：按当前持有卡重算可部署物数量加成
