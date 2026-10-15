@@ -153,11 +153,14 @@ function _tryActivateInnate(t, key) {
     delete d.breech;   // P-49 炮闩受损（无法开火）属机械损伤 → 修理箱可修
     if (!blew) delete d.ammo;
     if (_refreshStats) _refreshStats(t);
-    // 恢复 10% 最大耐久
+    // 应急维修卡（repair_kit）：修复量 10% → 25%，冷却 -40%
+    const hasKit = !!(t.cardEffects && t.cardEffects.some(function(ef){ return ef && ef.cardId === 'repair_kit'; }));
+    const healPct = hasKit ? 0.25 : 0.10;
     const maxHp = (t.stats && t.stats.maxHp) || t.maxHp || 100;
-    if (t.hp > 0) t.hp = Math.min(maxHp, t.hp + maxHp * 0.10);
-    t.abilityCds[key] = innateBaseCd(t, key);
-    return { ok: true, key: key, repairedAmmoRack: !blew };
+    if (t.hp > 0) t.hp = Math.min(maxHp, t.hp + maxHp * healPct);
+    const baseCd = innateBaseCd(t, key);
+    t.abilityCds[key] = hasKit ? baseCd * 0.6 : baseCd;
+    return { ok: true, key: key, repairedAmmoRack: !blew, boosted: hasKit };
   }
   if (key === 'medkit') {
     const d = (t.debuffs = t.debuffs || {});
@@ -184,8 +187,11 @@ function _tryActivateInnate(t, key) {
     if (t._dotAcc !== undefined) t._dotAcc = 0;
     if (t._dotTxt !== undefined) t._dotTxt = 0;
     if (_refreshStats) _refreshStats(t);
-    t.abilityCds[key] = innateBaseCd(t, key);
-    return { ok: true, key: key };
+    // 自动灭火器卡（support_extinguisher）：冷却 -50%
+    const hasExt = !!(t.cardEffects && t.cardEffects.some(function(ef){ return ef && ef.cardId === 'support_extinguisher'; }));
+    const baseCd = innateBaseCd(t, key);
+    t.abilityCds[key] = hasExt ? baseCd * 0.5 : baseCd;
+    return { ok: true, key: key, boosted: hasExt };
   }
   return { ok: false, reason: 'unsupported' };
 }

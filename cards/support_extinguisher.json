@@ -3,7 +3,7 @@
   "name": "自动灭火器",
   "rarity": "common",
   "tags": ["支援"],
-  "desc": "主动装置：扑灭车体起火，解除着火状态（占位）。",
+  "desc": "强化灭火器：灭火冷却 -50%。",
   "effects": [
     { "type": "ability", "key": "extinguish" }
   ],

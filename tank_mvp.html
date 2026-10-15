@@ -381,6 +381,7 @@
   <div id="fpsReadout">FPS --</div>
   <div id="ammoReadout"></div>
   <div id="quotaHud" style="display:none;"></div>
+  <div id="survivalWaveHud" style="display:none;position:absolute;top:10px;left:50%;transform:translateX(-50%);font-size:18px;font-weight:bold;color:#ff5c5c;text-shadow:0 0 8px #000;letter-spacing:3px;z-index:5;"></div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
       <div class="screen-title">节点地图 NODE MAP</div>
@@ -432,6 +433,10 @@
       </div>
       <div id="homeSlotList"></div>
       <div class="btnrow"><button id="homeCreateBtn">＋ 新建存档 NEW SAVE</button></div>
+      <div class="btnrow">
+        <button id="homePresetMaxedBtn" title="saves/preset-maxed.json">载入预设：满级商店</button>
+        <button id="homePreset99999Btn" title="saves/preset-99999.json">载入预设：99999 点数</button>
+      </div>
       <div class="screen-hint">每份档案独立保存：商店点数 / 永久升级 / 统计 / 出战配置。选择进入后前往出战整备。</div>
     </div>
     <div id="loadoutScreen" class="screen wide" style="display:none;">
@@ -562,10 +567,20 @@ resize();
 
 // ---------- P-08 摄像机 / 流程 / 单局状态（js/tank_camera.js · tank_flow.js · tank_map.js） ----------
 // 正式游戏（P-15）：无测试台模式；未开局时保持恒等视口等待 NEW RUN
+// #MODE（2026-10-15）：URL 参数模式——?mode=boss 为 Boss 战模式（全 Boss 节点链），
+// ?mode=survival 为生存模式（单个大地图 + 波次进攻）。缺省 standard（标准流程）。
+const GAME_MODE = (() => {
+  try {
+    const m = new URLSearchParams(window.location.search).get('mode');
+    return (m === 'boss' || m === 'survival') ? m : 'standard';
+  } catch(e){ return 'standard'; }
+})();
 const cam = createCamera({ vw: canvas.width, vh: canvas.height });
 const flow = createFlow('home');   // M10：局外三态入口——首页(存档) → 整备/商店 → 节点图 → 战斗
 let run = null;            // generateRun() 结果：线性节点链
 let currentNode = null;    // 当前节点数据（makeNode 产出）
+// #MODE（2026-10-15）：生存模式波次状态
+let survivalWave = 0;             // 当前波次（0 = 未开始）
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
 // #N5（2026-10-01）：存活敌军缓存（AI 循环每帧填充），供屏幕外来袭方向提示复用。
 let aiEnemiesCache = [];
@@ -1452,6 +1467,8 @@ function spawnBossSummonWave(bossEntity, wave){
     }
     resetEntity(s);
     s.nodeSpawn = true;
+    // #MODE（2026-10-15）：生存 Boss 波的召唤物继承波次标记（计入波次清空判定）
+    if(bossEntity.survivalWaveSpawn) s.survivalWaveSpawn = true;
   }
   pushLog(`⚠ BOSS 召唤增援 ×${wave.count}（第 ${wave.waveIndex + 1} 波）`, 'CRIT');
   playSound('ui');
@@ -1477,6 +1494,139 @@ function refreshDeployBonus(){
     for(const k in b) bonus[k] = (bonus[k] || 0) + b[k];
   }
   if(player) player.deployBonus = bonus;
+}
+
+// #MODE（2026-10-15）：Boss 实体生成（enterBattle 内联逻辑抽取，供生存模式波次 Boss 复用）。
+// bossDef: pickBossDef() 产出；node: 当前节点（提供 w/h/difficulty/entityMults）；
+// opts: { x, y, survivalWaveSpawn, entityMults } —— 生存模式传 survivalWaveSpawn=true 打波次标记，
+ // entityMults 覆盖默认的 currentNode.entityMults（生存波次 Boss 按波次难度缩放）。
+function spawnBossFromDef(bossDef, node, opts){
+  const o = opts || {};
+  const bossEntity = makeBossEntity(bossDef, {
+    spawnTank(spec){ return spawnTank(spec); },
+    configureTank(t, tankId){
+      const spec = tankListData && tankListData[tankId];
+      if(spec) applyTankConfig(t, spec);
+      resetEntity(t);
+    }
+  });
+  bossEntity.nodeSpawn = true;                       // 计入清敌判定（livingNodeEnemies）
+  if(o.survivalWaveSpawn) bossEntity.survivalWaveSpawn = true;   // #MODE：生存波次标记
+  bossEntity.x = (o.x !== undefined) ? o.x : node.w * 0.7;
+  bossEntity.y = (o.y !== undefined) ? o.y : node.h / 2;
+  bossEntity.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // 与普通敌军同规则
+  bossEntity.hullAngle = Math.PI; bossEntity.turretAngle = Math.PI;
+  pushLog(`⚠ BOSS 战：「${bossDef.name}」— ${bossDef.desc || ''}`, 'CRIT');
+  applyDifficultyMults(bossEntity, o.entityMults || currentNode.entityMults, false);   // false=跳过玩家能力封顶，Boss 可正经超越玩家
+  return bossEntity;
+}
+
+// #MODE（2026-10-15）：生存模式波次系统 ————————————————
+// 单个大地图 + 按波次生成敌军主动进攻；每波清空后抽卡（5选1）；每 3 波 1 个 Boss。
+
+// 生存波次敌军生成（普通波）
+function spawnSurvivalWaveEnemies(count, waveDiff, mults){
+  const node = currentNode;
+  const cfg = (typeof nodeConfig === 'function') ? nodeConfig() : {};
+  const pool = (cfg.enemyTankPool && cfg.enemyTankPool.length) ? cfg.enemyTankPool : ['tiger-I'];
+  for(let i = 0; i < count; i++){
+    // 生成点：远离玩家的随机位置（至少 600px，避免脸刷）
+    let x = node.w / 2, y = node.h / 2, tries = 0;
+    do {
+      x = 80 + Math.random() * (node.w - 160);
+      y = 80 + Math.random() * (node.h - 160);
+      tries++;
+    } while(tries < 20 && Math.hypot(x - player.x, y - player.y) < 600);
+    const tankId = pool[Math.floor(Math.random() * pool.length)];
+    const t = spawnTank({
+      id: `surv_w${survivalWave}_${i}`,
+      team: 'enemy',
+      x: x, y: y,
+      hullAngle: Math.atan2(player.y - y, player.x - x),
+      turretAngle: Math.atan2(player.y - y, player.x - x),
+      heightClass: 'medium'
+    });
+    t.nodeSpawn = true;
+    t.survivalWaveSpawn = true;      // 波次清敌判定标记
+    t.aiTriggerDist = 99999;         // 生存敌军全图主动索敌进攻
+    t.aiTier = (typeof aiTierForDifficulty === 'function') ? aiTierForDifficulty(waveDiff) : 1;
+    const spec = tankListData && tankListData[tankId];
+    if(typeof applyEnemyAppearanceAndStats === 'function'){
+      applyEnemyAppearanceAndStats(t, spec, null);
+    } else if(spec){
+      applyTankConfig(t, spec);
+      resetEntity(t);
+    }
+    if(mults) applyDifficultyMults(t, mults);
+  }
+}
+
+// 启动第 n 波（n≥1；n%3==0 为 Boss 波）
+function startSurvivalWave(n){
+  survivalWave = n;
+  const node = currentNode;
+  const isBossWave = (n % 3 === 0);
+  // 波次难度：按波次序号走标准难度曲线，敌军数值随波次成长
+  const waveDiff = (typeof difficultyForIndex === 'function') ? difficultyForIndex(n - 1, 0) : 0.3;
+  const mults = (typeof entityMultsForDifficulty === 'function') ? entityMultsForDifficulty(waveDiff) : null;
+  if(isBossWave){
+    const def = pickBossDef();
+    if(def){
+      const be = spawnBossFromDef(def, node, { survivalWaveSpawn: true, entityMults: mults });
+      be.aiTriggerDist = 99999;   // 生存 Boss 主动进攻
+      pushLog(`⚠ 第 ${n} 波 · BOSS 来袭！`, 'CRIT');
+    } else {
+      pushLog('⚠ Boss 池为空，本波按普通敌军处理', 'CRIT');
+      spawnSurvivalWaveEnemies(6, waveDiff, mults);
+    }
+  } else {
+    const count = Math.min(3 + Math.floor(n / 2), 12);   // 3 → 12 递增封顶
+    spawnSurvivalWaveEnemies(count, waveDiff, mults);
+    pushLog(`第 ${n} 波：${count} 辆敌军来袭！`, 'COVER');
+  }
+  if(battleState){
+    battleState.waveActive = true;
+    battleState.nodeKills = 0;
+    battleState.startMs = performance.now();
+    battleState.cleared = false;
+    battleState.clearing = false;
+  }
+  updateSurvivalHud();
+}
+
+// 生存波次存活敌军（波次标记 + 敌方 + 存活）
+function livingSurvivalWaveEnemies(){
+  return entities.filter(e => e.survivalWaveSpawn && e.team === 'enemy' && e.hp > 0);
+}
+
+// 波次清空 → 结算 → 抽卡
+function finishSurvivalWave(){
+  if(!battleState || battleState.cleared) return;
+  battleState.cleared = true;
+  battleState.waveActive = false;
+  const clearMs = performance.now() - battleState.startMs;
+  const isBossWave = (survivalWave % 3 === 0);
+  const waveScore = 100 + survivalWave * 50;
+  const bossBonus = isBossWave ? 500 : 0;
+  runScore += waveScore + bossBonus;
+  runKills += battleState.nodeKills || 0;
+  const bossLoot = isBossWave ? { score: 0, cards: 1, cardRarity: 'epic' } : null;  // Boss 波追加 1 张保底 epic
+  transition(flow, 'settlement', {
+    nodeIndex: 0, clearMs: clearMs, bossLoot: bossLoot, survivalWave: survivalWave,
+    score: { base: waveScore, bonuses: bossBonus ? [{ label: 'Boss 击破', amount: bossBonus }] : [], total: waveScore + bossBonus }
+  });
+}
+
+// 生存模式波次计数 HUD（"第 N 波"）
+function updateSurvivalHud(){
+  const el = document.getElementById('survivalWaveHud');
+  if(!el) return;
+  if(GAME_MODE === 'survival' && run && flow.state === 'battle' && survivalWave > 0){
+    el.style.display = 'block';
+    el.textContent = `第 ${survivalWave} 波${survivalWave % 3 === 0 ? ' · BOSS' : ''}`;
+  } else {
+    el.style.display = 'none';
+  }
 }
 
 function enterBattle(nodeIndex){
@@ -1538,20 +1688,7 @@ function enterBattle(nodeIndex){
     if(!node.boss){ pushLog('⚠ Boss 池为空，按普通空场节点处理', 'CRIT'); }
   }
   if(node.boss){
-    const bossEntity = makeBossEntity(node.boss, {
-      spawnTank(spec){ return spawnTank(spec); },
-      configureTank(t, tankId){
-        const spec = tankListData && tankListData[tankId];
-        if(spec) applyTankConfig(t, spec);
-        resetEntity(t);
-      }
-    });
-    bossEntity.nodeSpawn = true;                       // 计入清敌判定（livingNodeEnemies）
-    bossEntity.x = node.w * 0.7; bossEntity.y = node.h / 2;
-    bossEntity.aiTriggerDist = triggerDistForDifficulty(node.difficulty);   // 与普通敌军同规则
-    bossEntity.hullAngle = Math.PI; bossEntity.turretAngle = Math.PI;
-    pushLog(`⚠ BOSS 战：「${node.boss.name}」— ${node.boss.desc || ''}`, 'CRIT');
-    applyDifficultyMults(bossEntity, currentNode.entityMults, false);   // false=跳过玩家能力封顶，Boss 可正经超越玩家
+    spawnBossFromDef(node.boss, node);
 
     // #E9（2026-09-20）：Boss summons 改为**分波次召唤**——不再进节点一次性投放，
     // 改由主循环按 boss 血量阈值触发（见 spawnBossSummonWave / bossSummonWave）。
@@ -1711,6 +1848,11 @@ function bossLootPool(){
 // 抽完所有轮次 → 清空 pending 并走正常节点推进。
 function advanceRewardFlow(){
   pendingLootRounds = 0; pendingLootRarityIdx = -1;
+  // #MODE（2026-10-15）：生存模式抽卡确认后回同一节点战斗（battle 处理器自动启动下一波）
+  if(GAME_MODE === 'survival'){
+    transition(flow, 'battle', { nodeIndex: 0 });
+    return;
+  }
   nextNodeAfterReward();
 }
 
@@ -1783,6 +1925,7 @@ let selectedRewardIdx = new Set();  // 已选下标集合（唯一、可取消�
 let freeRefreshLeft = 1;            // 本轮剩余免费刷新次数
 
 function rewardPickTarget(){
+  if(GAME_MODE === 'survival') return 1;   // #MODE：生存模式每波 5 选 1
   return pendingLootRounds > 0 ? 3 : 2;   // Boss 追加轮 3 张；普通节点 2 张
 }
 
@@ -1824,7 +1967,9 @@ function renderRewardCards(){
   const confirmBtn = document.getElementById('rewardConfirmBtn');
   const hintEl = document.getElementById('rewardHint');
   const need = rewardPickTarget();
-  if(hintEl) hintEl.textContent = pendingLootRounds > 0
+  if(hintEl) hintEl.textContent = GAME_MODE === 'survival'
+    ? '生存模式：5 选 1。不可重复选择。'
+    : pendingLootRounds > 0
     ? 'Boss 追加卡牌轮：5 选 3。不可重复选择。'
     : '普通节点：5 选 2。不可重复选择。';
   if(statusEl) statusEl.innerHTML =
@@ -1939,6 +2084,11 @@ watchFlow(flow, (state, payload) => {
     setOverlayVisible(false);
     // P-35：pause→battle = 恢复现场（战场仍在），不得重新实体化节点
     if(flow.prev !== 'pause') enterBattle(payload ? payload.nodeIndex : 0);
+    // #MODE（2026-10-15）：生存模式进战斗后启动波次——新局 survivalWave=0 → 第 1 波；
+    // 抽卡返回（prev=reward）→ 下一波
+    if(GAME_MODE === 'survival' && flow.prev !== 'pause'){
+      startSurvivalWave(survivalWave > 0 ? survivalWave + 1 : 1);
+    }
   } else if(state === 'settlement'){
     const _bSet = (typeof buildSettlementViewModel === 'function' ? buildSettlementViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildSettlementViewModel : null));
     // P-34：终局汇总分支（voluntaryEnd = ESC「终止游戏并结算」）——
@@ -1951,8 +2101,11 @@ watchFlow(flow, (state, payload) => {
     if(payload.voluntaryEnd){
       const res = payload.settleResult || { pointsGained: 0, difficultyLevel: profile.difficultyLevel || 1 };
       const nodesCleared = (currentNode ? currentNode.index : 0) + 1;
-      document.getElementById('settleBody').innerHTML =
-        `<div class="row"><span class="k">推进节点数</span><span>${nodesCleared}</span></div>` +
+      // #MODE（2026-10-15）：生存模式终局显示存活波次
+      const _volFirst = GAME_MODE === 'survival'
+        ? `<div class="row"><span class="k">生存模式</span><span>存活 ${survivalWave} 波</span></div>`
+        : `<div class="row"><span class="k">推进节点数</span><span>${nodesCleared}</span></div>`;
+      document.getElementById('settleBody').innerHTML = _volFirst +
         `<div class="row"><span class="k">本局总击杀</span><span>${runKills}</span></div>` +
         `<div class="row"><span class="k">本局总分</span><span>${runScore}</span></div>` +
         `<div class="row"><span class="k">得分转化商店点数</span><span>+${res.pointsGained}（10%）</span></div>` +
@@ -1987,6 +2140,12 @@ watchFlow(flow, (state, payload) => {
         rows.push(`<div class="row total"><span class="k">本节点得分</span><span>${s.total}</span></div>`);
         document.getElementById('settleBody').innerHTML = rows.join('');
       }
+      // #MODE（2026-10-15）：生存模式结算标题改为波次
+      if(payload && payload.survivalWave){
+        const _sb = document.getElementById('settleBody');
+        if(_sb) _sb.insertAdjacentHTML('afterbegin',
+          `<div class="row total"><span class="k">第 ${payload.survivalWave} 波${payload.survivalWave % 3 === 0 ? ' · BOSS' : ''} · 肃清</span><span>抽卡 → 下一波</span></div>`);
+      }
       // 普通节点结算：继续 + 手动存档可见，终局按钮隐藏
       document.getElementById('settleNextBtn').style.display = '';
       document.getElementById('settleSaveBtn').style.display = '';
@@ -2009,8 +2168,11 @@ watchFlow(flow, (state, payload) => {
     }
     const res = payload.settleResult || { pointsGained: 0 };
     const gained = res.pointsGained;
-    document.getElementById('gameoverBody').innerHTML =
-      `<div class="row"><span class="k">阵亡于节点</span><span>${diedAt + 1}/${run.nodes.length}</span></div>` +
+    // #MODE（2026-10-15）：生存模式显示存活波次
+    const _goFirst = GAME_MODE === 'survival'
+      ? `<div class="row"><span class="k">生存模式</span><span>阵亡于第 ${survivalWave} 波</span></div>`
+      : `<div class="row"><span class="k">阵亡于节点</span><span>${diedAt + 1}/${run.nodes.length}</span></div>`;
+    document.getElementById('gameoverBody').innerHTML = _goFirst +
       `<div class="row"><span class="k">本局总击杀</span><span>${runKills}</span></div>` +
       `<div class="row"><span class="k">本局得分</span><span>${runScore}</span></div>` +
       `<div class="row"><span class="k">转化商店点数</span><span>+${gained}（10%）</span></div>` +
@@ -2200,11 +2362,22 @@ function startNewRun(){
 	  runShopLevels = {};                           // 2026-09-14：局内商店升级不跨局（P-41 账本随新局归零）
 	  // #H1（2026-09-30）：原「冻结玩家基准属性快照」已退役（敌军改锚定固定基准 enemyAnchorBase）
 	  // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
-	  run = generateRun(nextRunSeed(), undefined, { viewport: { vw: canvas.width, vh: canvas.height }, difficultyLevel: 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
+	  // #MODE（2026-10-15）：boss 模式全 Boss 节点链（bossOnly）；survival 模式单个大地图（generateSurvivalRun）
+	  const _vp = { vw: canvas.width, vh: canvas.height };
+	  if(GAME_MODE === 'boss'){
+	    run = generateRun(nextRunSeed(), undefined, { viewport: _vp, difficultyLevel: 0, bossOnly: true });
+	  } else if(GAME_MODE === 'survival'){
+	    run = generateSurvivalRun(nextRunSeed(), { viewport: _vp, difficultyLevel: 0 });
+	    survivalWave = 0;
+	  } else {
+	    run = generateRun(nextRunSeed(), undefined, { viewport: _vp, difficultyLevel: 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
+	  }
 	  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
 	  pendingLootRounds = 0; pendingLootRarityIdx = -1;   // P-51 Wave2：跨局清 Boss 追加卡牌轮
 	  runScoreSpent = 0;                              // P-41 账本：新局归零（刷新卡牌等花费记账用）
-	  pushLog(`新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.0）`, 'COVER');
+	  pushLog(GAME_MODE === 'boss' ? `Boss 战模式：全 Boss 节点链（seed ${run.seed}，难度 Lv.0）`
+	    : GAME_MODE === 'survival' ? `生存模式：守住阵地迎击一波波进攻（seed ${run.seed}，难度 Lv.0）`
+	    : `新的一局：${run.nodes.length} 节点线性链（seed ${run.seed}，难度 Lv.0）`, 'COVER');
 	  playSound('ui');
 	  transition(flow, 'battle', { nodeIndex: 0 });
 	}
@@ -2375,6 +2548,27 @@ function createSaveAndRefresh(){
 document.getElementById('homeCreateBtn').addEventListener('click', createSaveAndRefresh);
 document.getElementById('homeCreateBtnEmpty').addEventListener('click', createSaveAndRefresh);
 
+// 预设存档：从仓库 saves/ 目录加载 JSON，创建为新槽位
+async function loadPresetSave(url, name){
+  try{
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const id = createSaveSlot(localStorage, name);   // 创建槽位并设为 active
+    // 用预设数据覆盖槽位内容
+    localStorage.setItem(saveSlotPrefix() + id, JSON.stringify(data));
+    profile = loadActiveProfile(localStorage);
+    deleteArmSlotId = null; renamingSlotId = null;
+    renderHome();
+    playSound('ui');
+    pushLog('已载入预设存档「' + name + '」', 'COVER');
+  }catch(err){
+    pushLog('预设存档载入失败：' + err.message, 'CRIT');
+  }
+}
+document.getElementById('homePresetMaxedBtn').addEventListener('click', () => loadPresetSave('saves/preset-maxed.json', '满级商店存档'));
+document.getElementById('homePreset99999Btn').addEventListener('click', () => loadPresetSave('saves/preset-99999.json', '99999点数存档'));
+
 // ---------- Loadout（出战整备） ----------
 // 薄包装：tankSummary / deploymentReady 委托 js/tank_screens.js（保留内联兜底）
 function tankSummary(spec){
@@ -2518,7 +2712,7 @@ function prepPlayerForRun(){
   player.modifiers = player.modifiers.filter(m => String(m.source || '').indexOf('upgrade:') !== 0);
   refreshStats(player);
   applyUpgrades(player, profile);                    // P-14：永久升级（permanent scope，唯一跨局成长）
-  player.revives = RULES.revive.baseRevives + (profile.bonusRevives | 0);   // P-11 基础 + M10 加购
+  player.revives = RULES.revive.baseRevives + (profile.bonusRevives | 0) + (player.runReviveBonus | 0);   // P-11 基础 + M10 加购 + 救护协议卡
   // §2.2 索引化切换：初始弹种必须同步槽 0 —— resetEntity 不清 ammoKey，
   // 不补这行的话上一局切到 heat，下一局 HUD 高亮槽 0 实际却发射旧弹种。
   player.ammoKey = activeLoadout()[0];
@@ -3457,6 +3651,15 @@ function update(dt){
         finishNode(false);               // 复活次数耗尽 → gameover（真 Roguelike 永久死亡）
       }
     } else if(!player._dead){
+      // #MODE（2026-10-15）：生存模式走波次清空判定（无出口/配额概念），跳过标准 nodeClearance
+      if(GAME_MODE === 'survival' && battleState.waveActive && !battleState.clearing && !battleState.cleared){
+        if(livingSurvivalWaveEnemies().length === 0){
+          battleState.clearing = true;
+          battleState.clearingT = 2.0;   // 2 秒缓冲后结算抽卡
+          pushLog(`★ 第 ${survivalWave} 波 · 肃清 ★`, 'COVER');
+          playSound('ui');
+        }
+      } else if(GAME_MODE !== 'survival'){
       // B 档③（2026-09-23）：推进式节点完成——「抵达右端出口 +（防线清空 或 配额达成）」双条件。
       // Boss 节点沿用「Boss + summons 全灭」（nodeClearance 的 boss 分支）。
       // 旧口径（P-38）为「击杀数 ≥ 配额」单条件，与推进正交（原地刷够配额即通关）。
@@ -3483,14 +3686,17 @@ function update(dt){
           pushLog(clearance.reason === 'boss-cleared' ? '★ BOSS 击破 ★' : '★ 抵达出口 · 区域肃清 AREA CLEARED ★', 'COVER');
         }
       }
+      }   // #MODE：闭合 else if(GAME_MODE !== 'survival')
     }
   }
 
   // 通关 3 秒缓冲倒计时推进
+  // #MODE（2026-10-15）：生存模式波次清空走 finishSurvivalWave（抽卡 → 下一波）
   if(battleState && battleState.clearing && !battleState.cleared){
     battleState.clearingT = Math.max(0, (battleState.clearingT || 0) - dt);
     if(battleState.clearingT <= 0){
-      finishNode(true);
+      if(GAME_MODE === 'survival') finishSurvivalWave();
+      else finishNode(true);
     }
   }
 
@@ -3546,6 +3752,8 @@ function updateHud(){
                    `<div>${exitTxt}　${clearTxt}</div>` +
                    `<div style="opacity:.8;">推进 ${pushPct}% / 出口线 ${exitPct}%　残敌 ${aliveNow}　待击杀 ${remainKills}</div>`;
   } else qh.style.display = 'none';
+  // #MODE（2026-10-15）：生存模式波次计数 HUD 逐帧刷新显隐
+  if(typeof updateSurvivalHud === 'function') updateSurvivalHud();
   // 按需面板（P-15）：开启时逐帧刷新
   if(statusOpen) updateStatusPanel();
   if(devOpen){ devPanelApi.updateDevParams(); devPanelApi.updateSolution(); }

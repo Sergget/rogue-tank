@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "points": 99999,
+  "upgrades": {},
+  "stats": {
+    "runs": 0,
+    "kills": 0
+  },
+  "selectedTankId": "tiger-I",
+  "ammoLoadout": [
+    "ap",
+    "he"
+  ],
+  "unlockedAmmo": [
+    "ap",
+    "he"
+  ],
+  "bonusRevives": 0,
+  "difficultyLevel": 0,
+  "settings": {
+    "invertReverseTurn": false,
+    "showFps": false
+  }
+}

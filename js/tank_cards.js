@@ -366,8 +366,21 @@ function applyCardEffects(tank, card, ctx) {
           if (tank.unlockedAmmo.indexOf(ef.key) < 0) tank.unlockedAmmo.push(ef.key);   // 解锁目标弹种
         }
       }
+      // economy：经济效果（M10 落地）——run 作用域，直接修改 tank 运行期字段
+      if (ef.type === 'economy' && tank) {
+        if (ef.field === 'reviveCount') {
+          // 战场救护协议：复活次数 +1（run 作用域，叠加到 player.revives）
+          tank.runReviveBonus = (tank.runReviveBonus | 0) + (ef.value | 0);
+        } else if (ef.field === 'scoreMul') {
+          tank.runScoreMul = (tank.runScoreMul || 1) * (1 + ef.value);
+        } else if (ef.field === 'startScore') {
+          tank.runStartScore = (tank.runStartScore | 0) + (ef.value | 0);
+        }
+        // shopDiscount 为跨局字段，由商店 UI 层读取 cardEffects 消费
+      }
     }
   }
+
   // #A23 d：非 ammo 且带 maxStacks 的卡牌，记录一次「应用」（供下次拒绝超限）
   if (card && card.maxStacks && !isAmmoCard && tank) {
     tank._cardApplyCount[card.id] = (tank._cardApplyCount[card.id] || 0) + 1;

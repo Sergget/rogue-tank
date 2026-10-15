@@ -30,6 +30,7 @@ const TESTS = [
   'scripts/test-minimap.js',
   'scripts/test-strip.js',
   'scripts/test-map.js',
+  'scripts/test-modes.js',
   'scripts/test-flow.js',
   'scripts/test-ai.js',
   'scripts/test-squad.js',

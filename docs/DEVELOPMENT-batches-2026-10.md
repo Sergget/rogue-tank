@@ -520,3 +520,15 @@
   - 涂装：沿用 `TEXTURE_DEFS` 9 种（外观标签已有纹理下拉）。
 - **渲染**：`paintAppearancePart(ctx, part, style, x, y, s, bodyCol, {mirror})`；`paintPartTextureDirect` 中 appearance 覆盖时跳过内置绘制；`renderHullTexture`/`renderTurretTexture` 透传 `t.appearance`；设计器预览同款透传。
 - **验证**：`npm run check` 通过；`npm test` 43/43；预设绘制 mock 测试全过。
+
+### §4.78 2026-10-15 #MODE：Boss 战模式 + 生存战模式（URL 参数）
+
+- **入口**：`tank_mvp.html?mode=boss` / `tank_mvp.html?mode=survival`（缺省 `standard`，标准流程零改动；`GAME_MODE` 常量解析 URL 参数，`tank_mvp.html`）。
+- **Boss 战模式**（`mode=boss`）：
+  - `js/tank_map.js` `makeNode` 支持 `env.bossOnly`——全节点强制 Boss 标记（方形竞技场路径、无常规敌人、quota=null）；`generateRun` 的 env 透传 + `extendRun` 复用 `run.env`，无限链延续全 Boss。
+  - Boss 定义沿用现有懒指定流程（`enterBattle` 内 `node.boss===true → pickBossDef()`）；难度随节点 index 递增（`difficultyForIndex` 曲线）。
+- **生存战模式**（`mode=survival`）：
+  - `generateSurvivalRun(seed, env)`（`js/tank_map.js`，已导出）：单个大地图（视口 2x → 面积约 4x，实测 7680x4683 vs 标准 3840x2341）；`node.survival=true`，`node.boss=null`（Boss 按波次手动生成）。
+  - 波次系统（`tank_mvp.html`）：`startSurvivalWave(n)`——普通波敌军数 `min(3+floor(n/2),12)` 递增，`aiTriggerDist=99999` 全图主动索敌；每 3 波 Boss 波（复用 `spawnBossFromDef` + `pickBossDef`，按波次 `entityMultsForDifficulty` 缩放强度）；Boss 召唤物继承 `survivalWaveSpawn` 标记计入清空判定。
+  - 波次清空 → `finishSurvivalWave()` → settlement（波次标题）→ reward（5 选 1，`rewardPickTarget` 生存分支）→ `advanceRewardFlow` 回同一节点自动开下一波；HUD 顶部显示"第 N 波"（`survivalWaveHud`）；阵亡/终止结算显示存活波次。
+- **验证**：`scripts/test-modes.js` 18 断言全过（Boss 全链/生存大地图/波次规则/标准回归），已接入 `npm test`；`npm run check`（tsc）`js/tank_map.js` 与 `tank_mvp.html` 内联脚本均 ✓（`js/tank_cards.js` 的 5 处 `ef` 未定义错误为并行未提交改动引入，非本批次）。

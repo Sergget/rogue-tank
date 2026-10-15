@@ -365,9 +365,15 @@ function makeNode(index, rng, env) {
   // 改用 generateStrip（多片拼接 + 一体化路网/水系 + 接缝净空 + 纵向裁剪），
   // 世界 = ≈10 屏宽 × 2.2 屏高的横向战场；Boss 节点保持方形竞技场（零回归）。
   // 口径归口 specs/map.md §14；strip 生成器本体见 js/tank_nodegen.js generateStrip。
+  // #MODE（2026-10-15）：Boss 战模式——env.bossOnly 为真时全节点强制 Boss 标记
+  // （方形竞技场路径、无常规敌人、难度随 index 递增；generateRun 的 env 透传，
+  // extendRun 复用 run.env 自动延续）。
+  const forceBoss = !!(env && env.bossOnly);
+  const isBoss = isBossNodeIndex(index) || forceBoss;
+
   const stripCfg = cfg.strip || {};
   const stripEnabled = stripCfg.enabled !== false;
-  const stripMode = !!(stripEnabled && !isBossNodeIndex(index) &&
+  const stripMode = !!(stripEnabled && !isBoss &&
     viewport && viewport.vw > 0 && viewport.vh > 0 &&
     typeof generateStrip === 'function');
 
@@ -375,7 +381,7 @@ function makeNode(index, rng, env) {
   // （isBossNodeIndex 为纯函数，可在 generateNode 前判定）。strip 模式无单模板歧义，
   // 建筑密度乘子仅服务方形路径（Boss 节点恒走方形路径）。
   const bossDensity = (RULES.nodeMap.building && RULES.nodeMap.building.bossDensity) || 1.6;
-  const buildingDensity = isBossNodeIndex(index) ? bossDensity : 1;
+  const buildingDensity = isBoss ? bossDensity : 1;
 
   let templateResult;
   let centerX = 0, centerY = 0;
@@ -720,7 +726,8 @@ function makeNode(index, rng, env) {
   // P-37：Boss 节点周期标记 —— 每第 bossInterval 个节点为 Boss 战（index 4/9/14…）。
   // 预标 node.boss=true 并清空常规敌人（沿用原链尾 Boss 处理：Boss 战不混普通敌军）；
   // Boss 具体定义（name/loot/summons）由 UI 层进入战斗时从 Boss 池懒指定（保持本模块零 IO）。
-  const bossMark = isBossNodeIndex(index);
+  // #MODE（2026-10-15）：bossOnly 模式下全节点强制 Boss 标记。
+  const bossMark = isBoss;
   if (bossMark) enemies.length = 0;
 
   // P-38：击杀配额（仅常规节点）——节点结束条件由「初始全灭」改为「节点内击杀数 ≥ quota」。
@@ -1006,6 +1013,28 @@ function generateRun(seed, count, env) {
   }
   const difficultyLevel = (env && Number.isFinite(env.difficultyLevel)) ? env.difficultyLevel : 0;
   return { nodes: nodes, seed: s, env: env || null, difficultyLevel: difficultyLevel };
+}
+
+/**
+ * 生成生存模式对局（#MODE 2026-10-15）：单个大地图。
+ * - 走方形竞技场路径（bossOnly=true 强制 Boss 标记 → 非 strip 路径），视口 2x → 世界约 4x 面积；
+ * - 生成后清掉 node.boss（Boss 按波次由 UI 层手动生成，不走节点 Boss 逻辑），
+ *   挂 node.survival=true 供 UI 层识别；
+ * - 常规敌人已在 makeNode 内清空（bossMark），波次敌人由 UI 层按波次手动生成。
+ * @param {number|string} [seed] 整局确定性种子；缺省随机
+ * @param {any} [env] 环境注入：{ viewport: { vw, vh }, difficultyLevel: number }
+ * @returns {{ nodes: any[], seed: number|string, env: any, difficultyLevel: number }}
+ */
+function generateSurvivalRun(seed, env) {
+  const e = Object.assign({}, env || {}, { bossOnly: true });
+  if (e.viewport && e.viewport.vw > 0 && e.viewport.vh > 0) {
+    e.viewport = { vw: e.viewport.vw * 2, vh: e.viewport.vh * 2 };
+  }
+  const run = generateRun(seed, 1, e);
+  const node = run.nodes[0];
+  node.boss = null;        // 生存模式：Boss 按波次手动生成
+  node.survival = true;
+  return run;
 }
 
 /**
@@ -1327,6 +1356,7 @@ if (typeof module !== 'undefined' && module.exports) {
     reinforcementTick,
     makeNode,
     generateRun,
+    generateSurvivalRun,
     extendRun,
     scoreNode,
     materializeNode,

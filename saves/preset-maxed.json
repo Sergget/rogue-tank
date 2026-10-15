@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "points": 0,
+  "upgrades": {
+    "pen_up": 5,
+    "dmg_up": 5,
+    "armor_up": 5,
+    "turret_armor": 5,
+    "hp_up": 5,
+    "speed_up": 5,
+    "reload_up": 5,
+    "aim_up": 5,
+    "shell_speed_up": 5,
+    "engine_power_up": 5,
+    "turn_up": 5,
+    "turret_turn_up": 5,
+    "aim_speed_up": 5,
+    "fire_control_crit": 5,
+    "loader_ammo_crit": 5,
+    "repair_kit_cd": 15,
+    "medkit_cd": 15
+  },
+  "stats": {
+    "runs": 0,
+    "kills": 0
+  },
+  "selectedTankId": "tiger-I",
+  "ammoLoadout": [
+    "ap",
+    "he"
+  ],
+  "unlockedAmmo": [
+    "ap",
+    "he"
+  ],
+  "bonusRevives": 0,
+  "difficultyLevel": 0,
+  "settings": {
+    "invertReverseTurn": false,
+    "showFps": false
+  }
+}
