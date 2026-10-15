@@ -281,9 +281,14 @@ ok(t20c.hp === baseHp20c, '#A12: maxHp 回落后 hp 仅钳回原上限，不额�
   const capNoStrongest = A.damage * D.strongestAnchorMult * D.dmgCapAmmoMult;
 
   // 21a 正常区间敌人：pen 未超限、dmg 远高于地板，应只注入 speedMul
+  // 夹具按 RULES 现行档位反推（不写死绝对值）：#6（2026-10-15）上调 entityMults 后，旧硬编码
+  // base 值（pen 100 / dmg 40）乘新上限 1.5 会越出封顶线而误入「应封顶」分支，故由 penCap/floor/cap
+  // 反推，保证夹具在新旧档位下都落在「不触发封顶」的目标区间。
+  const e1Pen = penCap / em.penetration[1] * 0.8;              // ×em.penetration[1] 后仍 < penCap
+  const e1Dmg = ((floor + capNoStrongest) / 2) / em.damage[1];  // ×em.damage[1] 后落在 (floor, cap) 内
   const e1 = model.makeTank({ team: 'enemy' });
-  e1.base.penetration = 100; e1.stats.penetration = 100;   // 100*1.25=125 < 144（固定基准上限）
-  e1.base.damage = 40;      e1.stats.damage = 40;        // 40*1.2=48 ∈ [13.6, 55.45] 基准区间
+  e1.base.penetration = e1Pen; e1.stats.penetration = e1Pen;
+  e1.base.damage = e1Dmg;      e1.stats.damage = e1Dmg;
   e1.base.maxSpeed = 120;   e1.stats.maxSpeed = 120;
   model.addModifier(e1, { stat: 'penetration', mode: 'mult', value: em.penetration[1], source: 'difficulty', scope: 'run' });
   model.addModifier(e1, { stat: 'damage', mode: 'mult', value: em.damage[1], source: 'difficulty', scope: 'run' });
@@ -307,9 +312,10 @@ ok(t20c.hp === baseHp20c, '#A12: maxHp 回落后 hp 仅钳回原上限，不额�
   ok(Math.abs(e2.stats.penetration - penCap) < 1e-6,
     `#A16: pen 封顶注入后逐值等价旧直写（${e2.stats.penetration.toFixed(3)} vs ${penCap}）`);
 
-  // 21c dmg 低于地板场景
+  // 21c dmg 低于地板场景（同样由 floor 反推，避免 entityMults.damage 上调后越过地板）
+  const e3Dmg = floor / em.damage[1] * 0.8;      // ×em.damage[1] 后仍 < floor
   const e3 = model.makeTank({ team: 'enemy' });
-  e3.base.damage = 10; e3.stats.damage = 10;     // 10*1.2=12 < floor 13.6
+  e3.base.damage = e3Dmg; e3.stats.damage = e3Dmg;
   model.addModifier(e3, { stat: 'damage', mode: 'mult', value: em.damage[1], source: 'difficulty', scope: 'run' });
   const caps3 = model.difficultyCapMuls(e3, { diffNorm: 0, randFactor: 1 });
   ok(caps3.dmgFloorMul !== undefined, '#A16: dmg 低于固定基准地板时注入 dmgFloorMul');
