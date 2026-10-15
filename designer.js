@@ -1873,6 +1873,22 @@ function drawPolygon(poly, center, angle, opts){
       ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fill();
     });
   }
+  // #3（2026-10-15）：外观件（车长塔/发动机舱）实时渲染——编辑模式也绘制，位置变化即时可见
+  const _app = state.appearance || {};
+  if(!isTurret && _app.engineDeck && _app.engineDeck.style && _app.engineDeck.style !== 'none'){
+    const hc = hullCenter();
+    // 发动机舱在车体坐标系，dx/dy 为模型单位；s=viewScale 按缩放绘制
+    paintAppearancePart(ctx, 'engineDeck', _app.engineDeck.style,
+      hc.x + (_app.engineDeck.dx || 0) * viewScale, hc.y + (_app.engineDeck.dy || 0) * viewScale,
+      viewScale, DESIGN_PAINT, { mirror: !!_app.engineDeck.mirror });
+  }
+  if(isTurret && _app.cupola && _app.cupola.style && _app.cupola.style !== 'none'){
+    const hc = hullCenter();
+    const ring = { x: hc.x + state.turret.pivot.dx*viewScale, y: hc.y + (state.turret.pivot.dy||0)*viewScale };
+    paintAppearancePart(ctx, 'cupola', _app.cupola.style,
+      ring.x + (_app.cupola.dx || 0) * viewScale, ring.y + (_app.cupola.dy || 0) * viewScale,
+      viewScale, DESIGN_PAINT, { mirror: !!_app.cupola.mirror });
+  }
 }
 
 // 绘制掩体多边形（world坐标直接绘制，无镜像）
