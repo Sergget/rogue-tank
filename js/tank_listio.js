@@ -19,8 +19,25 @@ function fetchTankList(onDone){
     .then(res => res.ok ? res.json() : Promise.reject(new Error('HTTP ' + res.status)))
     .then(list => onDone(list))
     .catch(err => {
-      console.warn('无法读取 tanks/ 列表:', err.message);
-      onDone(null);
+      // 静态托管 fallback（无 server.js 时）：读 tanks/index.json + 逐个加载
+      console.warn('无法读取 /api/tanks，尝试静态 fallback:', err.message);
+      fetch('tanks/index.json')
+        .then(res => res.ok ? res.json() : Promise.reject(new Error('HTTP ' + res.status)))
+        .then(ids => Promise.all(ids.map(id =>
+          fetch('tanks/' + encodeURIComponent(id) + '.json')
+            .then(r => r.ok ? r.json() : null)
+            .then(spec => spec ? { id: id, spec: spec } : null)
+            .catch(() => null)
+        )))
+        .then(entries => {
+          const data = {};
+          entries.forEach(e => { if (e && e.spec) data[e.id] = e.spec; });
+          onDone(Object.keys(data).length ? data : null);
+        })
+        .catch(err2 => {
+          console.warn('静态 fallback 也失败:', err2.message);
+          onDone(null);
+        });
     });
 }
 

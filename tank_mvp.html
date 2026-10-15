@@ -1389,11 +1389,26 @@ const devCheat = { invuln: false, instantReload: false };
 
 // 卡牌池（P-09 真实卡池；reward 三选一与 dev 面板共用）
 let cardPool = [];
+function loadStaticPool(dir, onDone){
+  // 静态托管 fallback：读 <dir>/index.json + 逐个加载
+  fetch(dir + '/index.json')
+    .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+    .then(ids => Promise.all(ids.map(id =>
+      fetch(dir + '/' + encodeURIComponent(id) + '.json')
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null)
+    )))
+    .then(specs => onDone(specs.filter(s => s)))
+    .catch(() => onDone([]));
+}
 function loadCardPool(){
   fetch('/api/cards')
     .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
     .then(list => { cardPool = Object.values(list || {}); })
-    .catch(err => { console.warn('无法读取 cards/ 列表:', err.message); cardPool = []; });
+    .catch(err => {
+      console.warn('无法读取 /api/cards，尝试静态 fallback:', err.message);
+      loadStaticPool('cards', specs => { cardPool = specs; });
+    });
 }
 loadCardPool();
 
@@ -1403,7 +1418,10 @@ function loadBossPool(){
   fetch('/api/bosses')
     .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
     .then(list => { bossPool = Object.values(list || {}); })
-    .catch(err => { console.warn('无法读取 bosses/ 列表:', err.message); bossPool = []; });
+    .catch(err => {
+      console.warn('无法读取 /api/bosses，尝试静态 fallback:', err.message);
+      loadStaticPool('bosses', specs => { bossPool = specs; });
+    });
 }
 loadBossPool();
 
