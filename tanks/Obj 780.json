@@ -17,6 +17,20 @@
   "spreadMult": 2,
   "aimSpeed": 1,
   "texture": "paint_soviet",
+  "appearance": {
+    "cupola": {
+      "style": "panoramic",
+      "dx": 0,
+      "dy": 0,
+      "mirror": false
+    },
+    "engineDeck": {
+      "style": "rearGrille",
+      "dx": 0,
+      "dy": 0,
+      "mirror": false
+    }
+  },
   "sprite": {
     "enabled": false,
     "track": {
@@ -50,10 +64,10 @@
       "embed": 2,
       "scaleMult": 1,
       "gap": 3.7,
-      "imgVehicle": "assets/tanks/barrels/barrel-obj780.png",
       "imgStandard": "assets/tanks/barrels/barrel-standard.png",
       "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
-      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
+      "imgVehicle": "assets/tanks/barrels/barrel-obj780.png"
     }
   },
   "barrel": {
@@ -207,20 +221,6 @@
     "axis": {
       "dx": 3,
       "dy": 0
-    }
-  },
-  "appearance": {
-    "cupola": {
-      "style": "panoramic",
-      "dx": 0,
-      "dy": 0,
-      "mirror": false
-    },
-    "engineDeck": {
-      "style": "rearGrille",
-      "dx": 0,
-      "dy": 0,
-      "mirror": false
     }
   }
 }
