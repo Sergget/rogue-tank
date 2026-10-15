@@ -1536,7 +1536,54 @@ function spawnBossFromDef(bossDef, node, opts){
   bossEntity.hullAngle = Math.PI; bossEntity.turretAngle = Math.PI;
   pushLog(`⚠ BOSS 战：「${bossDef.name}」— ${bossDef.desc || ''}`, 'CRIT');
   applyDifficultyMults(bossEntity, o.entityMults || currentNode.entityMults, false);   // false=跳过玩家能力封顶，Boss 可正经超越玩家
+  // #5（2026-10-15）：Boss 血量随遭遇次数成长——第 N 个 Boss 血量 ×(1 + N×0.5)
+  const bossNumber = Math.floor((node.index || 0) / 5);   // Boss 节点每 5 个一轮
+  if (bossNumber > 0) {
+    const growthMult = 1 + bossNumber * 0.5;
+    addModifier(bossEntity, { stat: 'maxHp', mode: 'mult', value: growthMult, source: 'boss-growth', scope: 'run' });
+    bossEntity.hp = bossEntity.stats.maxHp; bossEntity.maxHp = bossEntity.stats.maxHp;
+    pushLog(`BOSS 强度提升：第 ${bossNumber + 1} 次遭遇，血量 ×${growthMult.toFixed(1)}`, 'CRIT');
+  }
+  // #5（2026-10-15）：Boss 随机使用卡牌池技能（增强版）
+  assignBossSkills(bossEntity, bossNumber);
   return bossEntity;
+}
+
+// #5：Boss 随机技能池（增强版：护盾更久、火箭更多）
+function assignBossSkills(boss, bossNumber){
+  const pool = ['shield', 'artillery', 'overdrive', 'aps'];
+  // 随机 1-2 个技能（后续 Boss 更多）
+  const count = Math.min(2, 1 + (bossNumber > 0 ? 1 : 0));
+  const picked = [];
+  const avail = pool.slice();
+  for (let i = 0; i < count && avail.length; i++) {
+    const idx = Math.floor(Math.random() * avail.length);
+    picked.push(avail.splice(idx, 1)[0]);
+  }
+  if (!boss.cardEffects) boss.cardEffects = [];
+  for (const key of picked) {
+    // 增强版参数：护盾时间 ×1.5、炮击数量 +50%
+    const params = {};
+    if (key === 'shield') params.durationMult = 1.5;
+    if (key === 'artillery') params.shellCountMult = 1.5;
+    boss.cardEffects.push({ type: 'ability', key: key, params: params, cardId: 'boss-skill' });
+  }
+  if (picked.length) pushLog(`BOSS 携带技能：${picked.join('、')}（增强版）`, 'CRIT');
+}
+
+// #5：Boss 随机技能使用（每 8-15 秒触发一次携带的技能）
+function updateBossSkills(boss, dt){
+  if(!boss.cardEffects || !boss.cardEffects.length) return;
+  boss._skillT = (boss._skillT || 8 + Math.random() * 7) - dt;
+  if(boss._skillT > 0) return;
+  boss._skillT = 8 + Math.random() * 7;   // 重置计时
+  // 随机选一个可用的技能
+  const skills = boss.cardEffects.filter(ef => ef && ef.type === 'ability' && ef.cardId === 'boss-skill');
+  if(!skills.length) return;
+  const skill = skills[Math.floor(Math.random() * skills.length)];
+  const ctx = { target: player ? { x: player.x, y: player.y } : null };
+  const res = tryActivateAbility(boss, skill.key, ctx);
+  if(res && res.ok) pushLog(`BOSS 使用技能：${skill.key}`, 'CRIT');
 }
 
 // #MODE（2026-10-15）：生存模式波次系统 ————————————————
@@ -3362,6 +3409,8 @@ function update(dt){
           }
         }
       }
+      // #5（2026-10-15）：Boss 随机使用携带的技能（每 8-15 秒一次）
+      if(e.isBoss && e.hp > 0) updateBossSkills(e, dt);
       // 开火：复用 fireTank（敌人打玩家，友军打最近敌人）
       if(d.fire){
         const target = e.team === 'ally' ? nearestEnemyTo(e) : player;
