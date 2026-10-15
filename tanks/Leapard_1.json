@@ -223,5 +223,19 @@
       "dx": 4,
       "dy": 0
     }
+  },
+  "appearance": {
+    "cupola": {
+      "style": "standard",
+      "dx": 0,
+      "dy": 0,
+      "mirror": false
+    },
+    "engineDeck": {
+      "style": "compact",
+      "dx": 0,
+      "dy": 0,
+      "mirror": false
+    }
   }
 }

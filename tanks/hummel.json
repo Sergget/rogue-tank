@@ -148,5 +148,19 @@
       "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
       "imgVehicle": "assets/tanks/barrels/barrel-hummel.png"
     }
+  },
+  "appearance": {
+    "cupola": {
+      "style": "low",
+      "dx": 0,
+      "dy": 0,
+      "mirror": false
+    },
+    "engineDeck": {
+      "style": "standard",
+      "dx": 0,
+      "dy": 0,
+      "mirror": false
+    }
   }
 }

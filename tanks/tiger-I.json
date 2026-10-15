@@ -263,5 +263,19 @@
       "dx": 4,
       "dy": 0
     }
+  },
+  "appearance": {
+    "cupola": {
+      "style": "panoramic",
+      "dx": 0,
+      "dy": 0,
+      "mirror": false
+    },
+    "engineDeck": {
+      "style": "rearGrille",
+      "dx": 0,
+      "dy": 0,
+      "mirror": false
+    }
   }
 }
