@@ -34,7 +34,7 @@
       "rot": 0
     },
     "turret": {
-      "img": "assets/tanks/obj780-turret.png",
+      "img": "assets/tanks/Obj780_turret.png",
       "scale": 0.037968,
       "dx": 0,
       "dy": 0,

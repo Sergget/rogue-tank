@@ -34,7 +34,7 @@
       "rot": 0
     },
     "turret": {
-      "img": "assets/tanks/leopard1-turret.png",
+      "img": "assets/tanks/Leapard_1_turret.png",
       "scale": 0.027706,
       "dx": -2,
       "dy": 0,
