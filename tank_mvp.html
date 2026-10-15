@@ -543,6 +543,7 @@
   <script src="js/tank_revive.js"></script>
   <script src="js/tank_economy.js"></script>
   <script src="js/tank_fx.js"></script>
+  <script src="js/tank_hud.js"></script>
   <script src="js/tank_audio.js"></script>
   <script src="js/tank_assets.js"></script>
   <script src="js/tank_paint.js"></script>
@@ -3122,8 +3123,7 @@ function tryExtinguish(){
 
 // ---------- update ----------
 let last = performance.now();
-let fpsLast = last;
-let fpsFrames = 0;
+let fpsState = { frames: 0, last: last };   // tank_hud.js updateFpsCounter 共享
 
 function update(dt){
   // 节点通关 3 秒缓冲期间冻结全场坦克逻辑，仅推进粒子/炮弹特效与倒计时
@@ -5030,18 +5030,7 @@ function draw(){
   ctx.beginPath(); ctx.moveTo(gp.x,gp.y); ctx.lineTo(gp.x+aimU*900, gp.y+aimV*900); ctx.stroke();
 
   // dispersion cones — shortened boundaries (length 250px) to keep UI clean
-  function drawCone(sigma, color, dash){
-    const L = 250;
-    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash(dash);
-    ctx.beginPath();
-    ctx.moveTo(gp.x,gp.y);
-    ctx.lineTo(gp.x+Math.cos(aimA-sigma)*L, gp.y+Math.sin(aimA-sigma)*L);
-    ctx.moveTo(gp.x,gp.y);
-    ctx.lineTo(gp.x+Math.cos(aimA+sigma)*L, gp.y+Math.sin(aimA+sigma)*L);
-    ctx.stroke();
-  }
-  drawCone(player.sigma,          'rgba(255,180,84,0.5)',  [2,4]);  // live cone — brighter, short dash
-  ctx.setLineDash([]);
+  drawSpreadCones(ctx, gp, aimA, player.sigma, { length: 250 });  // live cone — tank_hud.js 共享
   ctx.restore();
 
   // ---- P-17 侦察无人机指示箭头（屏幕空间覆盖层：视口外敌军方向 + 距离） ----
@@ -5146,15 +5135,9 @@ function loop(now){
   // 否则面板定格在打开瞬间（商店购买后数字不变即此因）。battle 态仍走 updateHud 链。
   if(!simulating) refreshStatusPanel();
 
-  // ISSUE 18：FPS 统计（仅显示用，不影响模拟；~2x/sec 刷新）
-  fpsFrames++;
-  if(now - fpsLast >= 500){
-    const fpsVal = Math.round(fpsFrames * 1000 / (now - fpsLast));
-    fpsFrames = 0; fpsLast = now;
-    testFps = fpsVal;
-    const frEl = document.getElementById('fpsReadout');
-    if(frEl) frEl.textContent = 'FPS ' + fpsVal;
-  }
+  // ISSUE 18：FPS 统计（仅显示用，不影响模拟；~2x/sec 刷新）— tank_hud.js 共享
+  const fpsVal = updateFpsCounter(document.getElementById('fpsReadout'), fpsState, now);
+  if(fpsVal !== null) testFps = fpsVal;
   const frEl2 = document.getElementById('fpsReadout');
   if(frEl2) frEl2.style.display = (profile && profile.settings && profile.settings.showFps) ? 'block' : 'none';
 

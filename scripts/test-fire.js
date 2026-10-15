@@ -306,7 +306,7 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
 
   // 7c) autocannon（2026-09-15 W6 用户裁定重做）：逐发短间隔 + 热量机制——
   //     伤害=标准 1/5、穿深=标准 85%、射击间隔=装填时间×0.25；
-  //     每发 +10% 热量、每秒冷却 15%、≥100% 过热锁定 2s；burst 连发路径已删除。
+  //     每发 +12% 热量、每秒冷却 15%、≥100% 过热锁定 2s；burst 连发路径已删除。
   global.shells.length=0;
   const ac=mkShooter('autocannon');
   global.entities=[ac,target];
@@ -317,7 +317,7 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
   ok(Math.abs(global.shells[0].pen-100*0.85)<1e-9, '7c 机炮穿深=标准 85%（×0.85）');
   ok(Math.abs(global.shells[0].speed-1000*1.0)<1e-6, '7c 机炮弹速×1.0');
   ok(Math.abs((global.shells[0].fxScale||1)-0.55)<1e-9, '7c 机炮弹体 fxScale=0.55');
-  ok(Math.abs(ac.heatPct-10)<1e-9, '7c 每发积累 10% 热量（首发后 10%）');
+  ok(Math.abs(ac.heatPct-12)<1e-9, '7c 每发积累 12% 热量（首发后 12%）');
   // 连续射击 10 发 → 100% 过热 → 锁定 2s（期间 reloadT=0 也不可开火）
   for(let i=0;i<9;i++){ ac.reloadT=0; F.fireTank(ac,target,'auto'); }
   ok(Math.abs(ac.heatPct-100)<1e-9, '7c 连射 10 发热量 100%');
@@ -330,7 +330,7 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
   ok(ac.heatLockT===0 && Math.abs(ac.heatPct-70)<1e-9, '7c 锁定 2s 后热量冷却至 70%');
   ac.reloadT=0;
   ok(F.fireTank(ac,target,'auto')===true && global.shells.length===shellCountAtLock+1, '7c 锁定结束后恢复开火');
-  ok(Math.abs(ac.heatPct-80)<1e-9, '7c 恢复开火后热量 80%');
+  ok(Math.abs(ac.heatPct-82)<1e-9, '7c 恢复开火后热量 82%');
   // 卡牌 statOverrides 接入：coolPerSec 22 → 冷却加速
   const ac2=mkShooter('autocannon', { coolPerSec: 22 });
   global.entities=[ac2,target];

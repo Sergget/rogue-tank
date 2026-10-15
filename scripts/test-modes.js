@@ -16,6 +16,7 @@ const NG = require('../js/tank_nodegen.js');
 global.createRNG = NG.createRNG;
 global.generateNode = NG.generateNode;
 global.pickTemplate = NG.pickTemplate;
+global.generateStrip = NG.generateStrip;
 const MAP = require('../js/tank_map.js');
 
 let pass = 0, fail = 0;
@@ -52,7 +53,8 @@ console.log('== 生存模式：generateSurvivalRun 单个大地图 ==');
   const std = MAP.generateRun(999, 1, { viewport: vp, difficultyLevel: 0 });
   const stdNode = std.nodes[0];
   const areaRatio = (node.w * node.h) / (stdNode.w * stdNode.h);
-  ok(areaRatio > 2.5, `地图面积约为标准 ${areaRatio.toFixed(1)}x（>2.5x）`);
+  // #MODE（2026-10-15）：生存 5×5=25 屏，标准 strip 10×2.2≈22 屏，比值 ≈1.5x
+  ok(areaRatio > 1.0 && areaRatio < 2.0, `地图面积约为标准 ${areaRatio.toFixed(1)}x（≈1.5x）`);
   console.log(`    生存 ${Math.round(node.w)}x${Math.round(node.h)} vs 标准 ${Math.round(stdNode.w)}x${Math.round(stdNode.h)}`);
   const d1 = MAP.difficultyForIndex(0, 0), d5 = MAP.difficultyForIndex(4, 0), d11 = MAP.difficultyForIndex(10, 0);
   ok(d1 < d5 && d5 < d11, `波次难度递增（w1=${d1} w5=${d5} w11=${d11}）`);

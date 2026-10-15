@@ -281,6 +281,7 @@
   <script src="js/tank_entity.js"></script>
   <script src="js/tank_move.js"></script>
   <script src="js/tank_fx.js"></script>
+  <script src="js/tank_hud.js"></script>
   <script src="js/tank_audio.js"></script>
   <script src="js/tank_assets.js"></script>
   <script src="js/tank_paint.js"></script>
@@ -1360,32 +1361,20 @@ function draw(){
 
   // dispersion cones — 动态长度：反映当前弹种实际散布
   // 实线为 1σ 范围（约 68% 落点），外层虚线为 2σ 范围（约 95% 置信区间边界）
-  // 经算法截断与重分布后，所有超出 2σ 边界的炮弹都会重新均匀映射在 2σ 夹角内，确保 100% 炮弹落在虚线夹角内
-  function drawCone(coneSigma, color, dash){
-    // 长度取：视野半径、炮弹最大飞行距离、画布对角线中的最小值
-    const L = Math.min(RULES.ballistics.shellMaxDist, Math.hypot(canvas.width, canvas.height));
-    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash(dash);
-    ctx.beginPath();
-    ctx.moveTo(gp.x,gp.y);
-    ctx.lineTo(gp.x+Math.cos(aimA-coneSigma)*L, gp.y+Math.sin(aimA-coneSigma)*L);
-    ctx.moveTo(gp.x,gp.y);
-    ctx.lineTo(gp.x+Math.cos(aimA+coneSigma)*L, gp.y+Math.sin(aimA+coneSigma)*L);
-    ctx.stroke();
-  }
   const ammo = RULES.ammoTypes[player.ammoKey] || RULES.ammoTypes.ap;
   const effectiveSigma = player.sigma * (ammo.spread || 1);
-  // 画 1σ（实线，68% 核心区）和 2σ（虚线，100% 截断包络边界）
-  drawCone(effectiveSigma * 1.0, 'rgba(255,180,84,0.75)', []);      // 1σ 实线
-  drawCone(effectiveSigma * 2.0, 'rgba(255,180,84,0.4)',  [4,4]);  // 2σ 虚线
-  ctx.setLineDash([]);
+  // 画 1σ（实线，68% 核心区）和 2σ（虚线，100% 截断包络边界）— tank_hud.js 共享
+  drawSpreadCones(ctx, gp, aimA, effectiveSigma, {
+    length: Math.min(RULES.ballistics.shellMaxDist, Math.hypot(canvas.width, canvas.height)),
+    dual: true,
+  });
   ctx.restore();
 }
 
 // ---------- loop with fixed timestep ----------
 const STEP_TIME = 1 / 120; // 120Hz fixed physics step
 let accumulator = 0;
-let fpsFrames = 0;             // FPS 统计（benchFpsChk 控制）
-let fpsLast = performance.now();
+let fpsState = { frames: 0, last: performance.now() };   // tank_hud.js updateFpsCounter 共享（benchFpsChk 控制）
 
 function loop(now){
   let dt = (now - last) / 1000;
@@ -1400,14 +1389,8 @@ function loop(now){
 
   draw();
 
-  // FPS 统计（benchFpsChk / 设置 showFps 控制；与 mvp 显示帧率语义一致）
-  fpsFrames++;
-  if (now - fpsLast >= 500) {
-    const fps = Math.round(fpsFrames * 1000 / (now - fpsLast));
-    fpsFrames = 0; fpsLast = now;
-    const el = document.getElementById('benchFps');
-    if (el) el.textContent = fps + ' FPS';
-  }
+  // FPS 统计（benchFpsChk / 设置 showFps 控制；与 mvp 显示帧率语义一致）— tank_hud.js 共享
+  updateFpsCounter(document.getElementById('benchFps'), fpsState, now);
 
   requestAnimationFrame(loop);
 }
