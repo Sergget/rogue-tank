@@ -93,7 +93,7 @@ function aiTierForDifficulty(diff) {
 function entityMultsForDifficulty(diff) {
   const cfg = difficultyConfig() || {};
   const table = cfg.entityMults || {
-    maxHp: [0.5, 1.7], penetration: [0.75, 1.25], damage: [0.75, 1.2], armorAll: [0.6, 1.3],
+    maxHp: [0.6, 2.2], penetration: [0.8, 1.5], damage: [0.8, 1.5], armorAll: [0.6, 1.3],
     reload: [1.25, 0.82], spreadMult: [1.3, 0.78], aimSpeed: [0.8, 1.35],
     maxSpeed: [0.7, 1.0], turnRate: [0.7, 1.2], turretTurnRate: [0.7, 1.25]
   };
