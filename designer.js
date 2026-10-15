@@ -1040,26 +1040,30 @@ function _getAppearance(){
 // 同步 UI 控件到 state.appearance（载入坦克时调用）
 function _syncAppearanceUI(){
   const app = _getAppearance();
-  for(const [part, styleId, dxId, dyId, mirrorId] of [
-    ['cupola', 'cupolaStyle', 'cupolaDx', 'cupolaDy', 'cupolaMirror'],
-    ['engineDeck', 'engineDeckStyle', 'engineDeckDx', 'engineDeckDy', 'engineDeckMirror'],
-  ]){
-    const cfg = app[part] || { style:'', dx:0, dy:0, mirror:false };
-    document.getElementById(styleId).value = cfg.style || '';
-    document.getElementById(dxId).value = cfg.dx || 0;
-    document.getElementById(dyId).value = cfg.dy || 0;
-    document.getElementById(mirrorId).checked = !!cfg.mirror;
-  }
+  // #3（2026-10-15）：cupola 改为列表 UI
+  _renderCupolaList();
+  // engineDeck 保持单个
+  const cfg = app.engineDeck || { style:'', dx:0, dy:0 };
+  const styleEl = document.getElementById('engineDeckStyle');
+  if(styleEl) styleEl.value = cfg.style || '';
+  const dxEl = document.getElementById('engineDeckDx');
+  if(dxEl) dxEl.value = cfg.dx || 0;
+  const dyEl = document.getElementById('engineDeckDy');
+  if(dyEl) dyEl.value = cfg.dy || 0;
 }
 // 保存时提取外观件配置（全默认则返回 null，不写入 JSON）
 function _appearanceForSave(){
   const app = _getAppearance();
   const out = {};
-  for(const part of ['cupola', 'engineDeck']){
-    const cfg = app[part];
-    if(cfg && (cfg.style || cfg.dx || cfg.dy || cfg.mirror)){
-      out[part] = { style: cfg.style || '', dx: cfg.dx || 0, dy: cfg.dy || 0, mirror: !!cfg.mirror };
-    }
+  // #3（2026-10-15）：cupola 支持数组
+  if(Array.isArray(app.cupola) && app.cupola.length){
+    const list = app.cupola.filter(c => c && (c.style || c.dx || c.dy));
+    if(list.length) out.cupola = list.map(c => ({ style: c.style || '', dx: c.dx || 0, dy: c.dy || 0, mirror: !!c.mirror }));
+  }
+  // engineDeck 保持单个
+  const cfg = app.engineDeck;
+  if(cfg && (cfg.style || cfg.dx || cfg.dy)){
+    out.engineDeck = { style: cfg.style || '', dx: cfg.dx || 0, dy: cfg.dy || 0 };
   }
   return Object.keys(out).length ? out : null;
 }
@@ -1078,12 +1082,79 @@ function _bindAppearancePart(part, styleId, dxId, dyId, mirrorId){
     app[part].dy = parseFloat(e.target.value) || 0;
     render();
   });
-  document.getElementById(mirrorId).addEventListener('change', e=>{
-    app[part].mirror = e.target.checked;
-    render();
+  // #3（2026-10-15）：engineDeck 无镜像选项（mirrorId 可能不存在）
+  const mirrorEl = mirrorId && document.getElementById(mirrorId);
+  if(mirrorEl){
+    mirrorEl.addEventListener('change', e=>{
+      app[part].mirror = e.target.checked;
+      render();
+    });
+  }
+}
+// #3（2026-10-15）：车长塔支持多个——列表 UI
+function _getCupolaList(){
+  const app = _getAppearance();
+  if(!Array.isArray(app.cupola)) app.cupola = app.cupola ? [app.cupola] : [];
+  return app.cupola;
+}
+function _renderCupolaList(){
+  const list = document.getElementById('cupolaList');
+  if(!list) return;
+  const cupolas = _getCupolaList();
+  list.innerHTML = '';
+  cupolas.forEach((c, idx) => {
+    const div = document.createElement('div');
+    div.className = 'prop-row';
+    div.style.cssText = 'border:1px solid var(--line); padding:6px; margin-bottom:4px;';
+    div.innerHTML = `
+      <span class="lbl">车长塔 ${idx + 1}</span>
+      <select data-idx="${idx}" class="cupola-style" style="width:110px;">
+        <option value="">内置默认</option>
+        <option value="standard" ${c.style === 'standard' ? 'selected' : ''}>标准 Standard</option>
+        <option value="low" ${c.style === 'low' ? 'selected' : ''}>低轮廓 Low</option>
+        <option value="panoramic" ${c.style === 'panoramic' ? 'selected' : ''}>全景 Panoramic</option>
+        <option value="none" ${c.style === 'none' ? 'selected' : ''}>无 None</option>
+      </select>
+      <input type="number" data-idx="${idx}" class="cupola-dx" value="${c.dx || 0}" step="1" style="width:48px;" title="X">
+      <input type="number" data-idx="${idx}" class="cupola-dy" value="${c.dy || 0}" step="1" style="width:48px;" title="Y">
+      <button data-idx="${idx}" class="cupola-del" style="font-size:11px;">删除</button>
+    `;
+    list.appendChild(div);
+  });
+  // 绑定事件
+  list.querySelectorAll('.cupola-style').forEach(el => {
+    el.addEventListener('change', e => {
+      _getCupolaList()[+e.target.dataset.idx].style = e.target.value;
+      render();
+    });
+  });
+  list.querySelectorAll('.cupola-dx').forEach(el => {
+    el.addEventListener('input', e => {
+      _getCupolaList()[+e.target.dataset.idx].dx = parseFloat(e.target.value) || 0;
+      render();
+    });
+  });
+  list.querySelectorAll('.cupola-dy').forEach(el => {
+    el.addEventListener('input', e => {
+      _getCupolaList()[+e.target.dataset.idx].dy = parseFloat(e.target.value) || 0;
+      render();
+    });
+  });
+  list.querySelectorAll('.cupola-del').forEach(el => {
+    el.addEventListener('click', e => {
+      _getCupolaList().splice(+e.target.dataset.idx, 1);
+      _renderCupolaList();
+      render();
+    });
   });
 }
-_bindAppearancePart('cupola', 'cupolaStyle', 'cupolaDx', 'cupolaDy', 'cupolaMirror');
+document.getElementById('addCupolaBtn').addEventListener('click', () => {
+  _getCupolaList().push({ style: 'standard', dx: 0, dy: 0, mirror: false });
+  _renderCupolaList();
+  render();
+});
+// 初始化时渲染列表
+_renderCupolaList();
 _bindAppearancePart('engineDeck', 'engineDeckStyle', 'engineDeckDx', 'engineDeckDy', 'engineDeckMirror');
 
 // ================= 整车精灵 Sprite（对齐控件） =================
@@ -1882,12 +1953,17 @@ function drawPolygon(poly, center, angle, opts){
       hc.x + (_app.engineDeck.dx || 0) * viewScale, hc.y + (_app.engineDeck.dy || 0) * viewScale,
       viewScale, DESIGN_PAINT, { mirror: !!_app.engineDeck.mirror });
   }
-  if(isTurret && _app.cupola && _app.cupola.style && _app.cupola.style !== 'none'){
+  if(isTurret && _app.cupola){
     const hc = hullCenter();
     const ring = { x: hc.x + state.turret.pivot.dx*viewScale, y: hc.y + (state.turret.pivot.dy||0)*viewScale };
-    paintAppearancePart(ctx, 'cupola', _app.cupola.style,
-      ring.x + (_app.cupola.dx || 0) * viewScale, ring.y + (_app.cupola.dy || 0) * viewScale,
-      viewScale, DESIGN_PAINT, { mirror: !!_app.cupola.mirror });
+    // #3（2026-10-15）：cupola 支持数组（多个）
+    const cupList = Array.isArray(_app.cupola) ? _app.cupola : [_app.cupola];
+    for(const _cup of cupList){
+      if(!_cup || !_cup.style || _cup.style === 'none') continue;
+      paintAppearancePart(ctx, 'cupola', _cup.style,
+        ring.x + (_cup.dx || 0) * viewScale, ring.y + (_cup.dy || 0) * viewScale,
+        viewScale, DESIGN_PAINT, { mirror: !!_cup.mirror });
+    }
   }
 }
 

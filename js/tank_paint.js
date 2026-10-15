@@ -384,10 +384,16 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
       }
     } else {
       // #TEX3: 车长塔外观件覆盖 —— appearance.cupola 存在时用预设样式+手动位置，跳过内置
+      // #3（2026-10-15）：cupola 支持数组（多个不同样式）
       const _cupApp = opts.appearance && opts.appearance.cupola;
-      if(_cupApp && _cupApp.style && _cupApp.style !== 'none'){
-        paintAppearancePart(ctx, 'cupola', _cupApp.style,
-          cxm + (_cupApp.dx || 0), cym + (_cupApp.dy || 0), 1, bodyCol, { mirror: !!_cupApp.mirror });
+      const _cupList = Array.isArray(_cupApp) ? _cupApp : (_cupApp ? [_cupApp] : []);
+      const _hasCup = _cupList.some(c => c && c.style && c.style !== 'none');
+      if(_hasCup){
+        for(const _cup of _cupList){
+          if(!_cup || !_cup.style || _cup.style === 'none') continue;
+          paintAppearancePart(ctx, 'cupola', _cup.style,
+            cxm + (_cup.dx || 0), cym + (_cup.dy || 0), 1, bodyCol, { mirror: !!_cup.mirror });
+        }
       } else if(!_cupApp || _cupApp.style !== 'none'){
       // #TEX2-2026-10-15: 车长塔重做 —— 装甲围圈 + 周视镜环 + 对开舱盖 + 提手
       const cupolas = (opts.heightClass === 'heavy' || opts.hasTurret === false) ? 2 : 1;

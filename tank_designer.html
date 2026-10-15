@@ -324,24 +324,9 @@
     </div>
 
     <div class="section panel-appearance">
-      <h3>车长塔 Cupola</h3>
-      <div class="prop-row"><span class="lbl">预设样式</span>
-        <select id="cupolaStyle">
-          <option value="">内置默认（按车型）</option>
-          <option value="standard">标准车长塔 Standard</option>
-          <option value="low">低轮廓 Low Profile</option>
-          <option value="panoramic">全景塔 Panoramic</option>
-          <option value="none">无 None</option>
-        </select>
-      </div>
-      <div class="prop-row"><span class="lbl">位置 X/Y</span>
-        <div style="display:flex; gap:4px; align-items:center;">
-          <input type="number" id="cupolaDx" value="0" step="1" style="width:56px;">
-          <input type="number" id="cupolaDy" value="0" step="1" style="width:56px;">
-          <label style="font-size:11px; color:var(--text-dim);"><input type="checkbox" id="cupolaMirror" style="width:auto;"> 镜像</label>
-        </div>
-      </div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">相对炮塔中心的偏移（local 单位）；镜像为 Y 轴翻转。留空样式=用内置默认位置</div>
+      <h3>车长塔 Cupola <button id="addCupolaBtn" style="font-size:11px; margin-left:8px;">+ 添加</button></h3>
+      <div id="cupolaList"></div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">可添加多个不同样式的车长塔；相对炮塔中心的偏移（local 单位）</div>
     </div>
 
     <div class="section panel-appearance">
@@ -359,10 +344,9 @@
         <div style="display:flex; gap:4px; align-items:center;">
           <input type="number" id="engineDeckDx" value="0" step="1" style="width:56px;">
           <input type="number" id="engineDeckDy" value="0" step="1" style="width:56px;">
-          <label style="font-size:11px; color:var(--text-dim);"><input type="checkbox" id="engineDeckMirror" style="width:auto;"> 镜像</label>
         </div>
       </div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">相对车体中心的偏移（local 单位）；镜像为 Y 轴翻转。留空样式=用内置默认位置</div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">相对车体中心的偏移（local 单位）。留空样式=用内置默认位置</div>
     </div>
 
     <div class="section panel-appearance">
