@@ -165,9 +165,13 @@
   #quotaHud{position:absolute; left:12px; bottom:32px; pointer-events:none;
     font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px;
     color:var(--text-dim); text-shadow:0 1px 2px rgba(0,0,0,0.8);}
-  /* #A5：成员/模块受损状态条（顶部中央；无受伤时隐藏） */
-  #moduleStatus{position:absolute; left:50%; top:12px; transform:translateX(-50%);
-    pointer-events:none; display:none; max-width:70%; text-align:center; z-index:25;
+  /* 顶部中央 HUD 栈（#MODE 2026-10-15）：唯一负责定位的容器；子元素一律 position:static，
+     由 flex 纵向排列 + 间距自动避让（原先三者各自 absolute 到 top:10~12px 会重叠）。 */
+  #topCenterHud{position:absolute; left:50%; top:12px; transform:translateX(-50%);
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    pointer-events:none; z-index:25; max-width:90%; text-align:center;}
+  /* #A5：成员/模块受损状态条（无受伤时隐藏） */
+  #moduleStatus{display:none;
     font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px;}
   #moduleStatus .pill{display:inline-block; margin:0 4px; padding:3px 8px; border-radius:3px;
     background:rgba(10,12,9,0.82); border:1px solid var(--red); color:var(--red);
@@ -175,8 +179,16 @@
   #moduleStatus .pill .t{color:var(--amber); font-size:9px; opacity:.9;}
   /* ISSUE 18：帧率读出（右下角，仅 showFps 时显示） */
   #fpsReadout{position:absolute; right:12px; bottom:10px; font-size:12px; color:#6f6; display:none; pointer-events:none;}
-  /* ISSUE 17-display：当前弹种最终属性读出（顶部居中） */
-  #ammoReadout{position:absolute; left:50%; transform:translateX(-50%); top:12px; font-size:12px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; font-family:'JetBrains Mono',monospace; display:none;}
+  /* ISSUE 17-display：当前弹种最终属性读出（顶部中央，位于 #topCenterHud 栈内） */
+  #ammoReadout{font-size:12px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none;
+    font-family:'JetBrains Mono',monospace; display:none;}
+  /* #MODE 2026-10-15：生存模式波次计数 / 准备期倒计时（顶部中央，位于 #topCenterHud 栈内）。
+     原先自带 absolute 定位，会压住上方 #ammoReadout（弹种倍率读出）——改为栈内块级元素。 */
+  #survivalWaveHud{display:none; font-size:18px; font-weight:bold; color:#ff5c5c;
+    text-shadow:0 0 8px #000; letter-spacing:3px;}
+  /* 补给站冷却读数（生存模式；位于 #topCenterHud 栈内，原 top:40px absolute 会与波次文本重叠） */
+  #supplyCdHud{display:none; font-size:13px; color:#ffd24a;
+    text-shadow:0 0 8px #000; letter-spacing:2px;}
 
   /* ---------- 通用控件 ---------- */
   button{
@@ -381,14 +393,19 @@
   </div>
   <div id="gainToast"></div>
   <div id="topLeftInfo">ESC 暂停 · TAB 状态 · ` 开发者面板</div>
-  <div id="moduleStatus"></div>
+  <!-- 顶部中央 HUD 栈（#MODE 2026-10-15）：三个元素原先各自 absolute 定位到
+       top:10~12px + left:50%，互相重叠（生存模式波次文本压住上方弹种倍率读出）。
+       改为单一定位容器 + 纵向 flex 堆叠：子元素按 DOM 序自上而下排列，无需手工调 top。 -->
+  <div id="topCenterHud">
+    <div id="moduleStatus"></div>
+    <div id="ammoReadout"></div>
+    <div id="survivalWaveHud"></div>
+    <div id="supplyCdHud"></div>
+  </div>
   <div id="hintBar"></div>
   <div id="fpsReadout">FPS --</div>
-  <div id="ammoReadout"></div>
   <div id="quotaHud" style="display:none;"></div>
-  <div id="survivalWaveHud" style="display:none;position:absolute;top:10px;left:50%;transform:translateX(-50%);font-size:18px;font-weight:bold;color:#ff5c5c;text-shadow:0 0 8px #000;letter-spacing:3px;z-index:5;"></div>
   <div id="supplyPromptHud" style="display:none;position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:15px;font-weight:bold;color:#7ed957;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;"></div>
-  <div id="supplyCdHud" style="display:none;position:absolute;top:40px;left:50%;transform:translateX(-50%);font-size:13px;color:#ffd24a;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;"></div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
       <div class="screen-title">节点地图 NODE MAP</div>
@@ -1405,7 +1422,11 @@ function updateStatusPanel(){
   // #8（2026-10-15）：敌方信息区（血条/护盾/履带 + Boss 阶段）
   const stEnemies = document.getElementById('stEnemies');
   if(stEnemies){
-    const foes = (tanks || []).filter(t => t && t.team === 'enemy' && t.hp > 0);
+    // 实体注册表全局名是 entities（js/tank_entity.js:12），不存在 tanks 全局——
+    // 原 `(tanks || [])` 会抛 ReferenceError（读未声明标识符必抛），经 updateHud→update→loop
+    // 逐帧路径传播，而 loop() 末尾才是 requestAnimationFrame(loop)，故战斗态一开 TAB 面板
+    // 即永久冻结主循环（#8 回归，2026-10-15 修复）。
+    const foes = (entities || []).filter(t => t && t.team === 'enemy' && t.hp > 0);
     if(!foes.length){
       stEnemies.innerHTML = '<div>— 无存活敌军 —</div>';
     } else {
