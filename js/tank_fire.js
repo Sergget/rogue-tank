@@ -401,6 +401,14 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
     shooter.heatPct = Math.min(heatMax, (shooter.heatPct || 0) + heatPer);
     if(shooter.heatPct >= heatMax) shooter.heatLockT = lock;
   }
+  // #S2：开火 noise —— 射手为玩家/友军时，敌对 AI 听到枪声（suspicious）。
+  // 音量半径按武器类型：railgun/autocannon 更响。
+  const _emitNoise = c.emitShotNoise || _G('emitShotNoise', null);
+  if(_emitNoise && shooter && (shooter.team === 'player' || shooter.team === 'ally')){
+    const _wtype = shooter.weapons && shooter.weapons.primary && shooter.weapons.primary.type;
+    const _loud = (_wtype === 'railgun' || _wtype === 'autocannon') ? 1200 : 900;
+    try { _emitNoise(tipP.x, tipP.y, _loud, 'shot'); } catch(e){}
+  }
   return true;
 }
 
@@ -759,6 +767,7 @@ function stepShells(dt, ctx){
         if(!shieldBlocked){
           const hpBefore=hitTank.hp;   // #A6：飘字溢出截断基准（击杀前剩余血量）
           const res=resolveHit?resolveHit(s,hitTank,hitT,s.canBounce):{outcome:'PEN',dmg:0,splash:null,text:'',cls:'PEN',bouncePoint:{x:hx,y:hy},bounceAngle:0};
+          s._didHit = true;  // #S2：标记已命中（近失弹检测排除）
           if(res.outcome==='BOUNCE'){ s.fx=res.bouncePoint.x; s.fy=res.bouncePoint.y; if(bounceFx) bounceFx.push({x:res.bouncePoint.x,y:res.bouncePoint.y,life:0.5,angle:res.bounceAngle}); impactFx(res.bouncePoint.x,res.bouncePoint.y,res.bounceAngle,'bounce',1); dmgText(res.bouncePoint.x,res.bouncePoint.y-10,'跳弹','bounce'); push(res.text,res.cls); play('bounce'); }
           else { const isHe=s.ammoKey==='he', o=res.outcome==='PEN'?(isHe?'he':'pen'):'block'; if(impacts) impacts.push({x:hx,y:hy,life:0.4,color:isHe?'#ffb454':(res.outcome==='PEN'?'#ff6c5c':'#7a8065')}); impactFx(hx,hy,Math.atan2(s.dy,s.dx),o,1); if(res.splash){ const sc=res.splash.radius/40; burst(hx,hy,sc,Math.round(22*sc),Math.round(14*sc),Math.round(11*sc)); }
             if(res.outcome==='PEN'){

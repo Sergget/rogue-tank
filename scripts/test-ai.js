@@ -8,7 +8,7 @@ const U = require('../js/tank_utils.js');
 global.angDiff = U.angDiff;
 global.norm = U.norm;
 global.TAU = U.TAU;
-const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile, aiClassForTank, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverSetRng, _engageBand, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot } = require('../js/tank_ai.js');
+const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile, aiClassForTank, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverSetRng, _engageBand, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, hearNoise, emitShotNoise } = require('../js/tank_ai.js');
 
 let fails = 0;
 function ok(cond, label) {
@@ -339,11 +339,11 @@ function boss(x, y, hullAngle, turretAngle, stageAI, reloadT) {
   ok(rHold.turretDesired !== undefined && Math.abs(rHold.turretDesired - 0) < 1e-9,
      'Boss hold：炮塔锁定玩家');
   ok(bh.aiState === 'hold', "Boss hold：aiState 置 'hold'");
-  // 射程外（距玩家 600 > 460）：不动不开火
+  // #S3 射程外（距玩家 600 > 460*1.2）：缓慢前压（不再纯站桩）
   const bhFar = boss(400, 500, Math.PI, Math.PI, { mode: 'hold', params: {} });
   const rHoldFar = aiDecideEnemy(bhFar, { player, hasLoS: () => true });
-  ok(rHoldFar.move === 0 && rHoldFar.turn === 0 && rHoldFar.fire === false,
-     'Boss hold：目标超出射程 → 静止不开火');
+  ok(rHoldFar.move === 0.4 && rHoldFar.fire === false,
+     'Boss hold：目标超出射程 → 缓慢前压（#S3 追击欲望）');
 }
 
 // --- skirmish 模式：保持 keepDist，过近倒车 / 达标停火；炮塔照常瞄准开火 ---
@@ -359,11 +359,11 @@ function boss(x, y, hullAngle, turretAngle, stageAI, reloadT) {
   const rSk2 = aiDecideEnemy(skFar, { player, hasLoS: () => true });
   ok(rSk2.move === 0 && rSk2.fire === true,
      'Boss skirmish：dist(800) ≥ keepDist → 停下开火');
-  // params.keepDist 覆盖默认值：keepDist=300 时 dist 400 ≥ 300 → 不再倒车
+  // params.keepDist 覆盖默认值：keepDist=300 时 dist 400 > 300*1.25 → #S3 缓慢接近
   const skOverride = boss(600, 500, Math.PI, Math.PI,
                           { mode: 'skirmish', params: { keepDist: 300 } }, 0);
   const rSk3 = aiDecideEnemy(skOverride, { player, hasLoS: () => true });
-  ok(rSk3.move === 0, 'Boss skirmish：params.keepDist 覆盖生效（dist 400 ≥ 300 → 停）');
+  ok(rSk3.move === 0.7, 'Boss skirmish：params.keepDist 覆盖生效（dist 400 > 375 → 接近）');
   // 视线遮挡 → 不开火但仍倒车
   const skBlocked = boss(500, 500, Math.PI, Math.PI, { mode: 'skirmish' }, 0);
   const rSk4 = aiDecideEnemy(skBlocked, { player, hasLoS: () => false });
@@ -779,6 +779,40 @@ console.log('--- #N：交战带 / flank 站位 / 分离力 / 装填脱离 ---');
   aiDecideEnemy(s2, { player, hasLoS: () => true, enemies: [s2, buddy], dt: 0.05 });
   Math.random = realRandom;
   ok(buddy.aiEngaged === true, '#E8 接战决策内联触发 engage 传播（无需外部调用）');
+}
+
+// #S2 五层级警觉回归
+{
+  // hearNoise：敌对 AI 听到枪声 → suspicious(1)，不直接接战
+  const listener = enemy(0, 0, 0, 0, 0);
+  ok(hearNoise(listener, 500, 0, 'shot') === true, '#S2 hearNoise 生效');
+  ok(listener.alertLevel === 1, '#S2 hearNoise 置 alertLevel=1（suspicious）');
+  ok(listener.aiEngaged !== true, '#S2 suspicious 不直接接战（aiEngaged 仍 false）');
+  ok(listener.aiState === 'suspicious', '#S2 suspicious 置 aiState');
+
+  // 接战中不受声音降级干扰
+  const fighter = enemy(0, 0, 0, 0, 0);
+  fighter.alertLevel = 3;
+  ok(hearNoise(fighter, 500, 0, 'shot') === false, '#S2 接战中 hearNoise 不降级');
+
+  // emitShotNoise：半径内多个 AI 听到
+  const l1 = enemy(0, 0, 0, 0, 0), l2 = enemy(800, 0, 0, 0, 0), l3 = enemy(2000, 0, 0, 0, 0);
+  const n = emitShotNoise([l1, l2, l3], 0, 0, 900, 'shot');
+  ok(n === 2 && l1.alertLevel === 1 && l2.alertLevel === 1 && !l3.alertLevel,
+     '#S2 emitShotNoise 半径内生效（900px 内 2 个）');
+
+  // alertEntity：直接接战置 level 3 + 记录威胁方向
+  const victim = enemy(0, 0, 0, 0, 0);
+  alertEntity(victim, 100, 0);
+  ok(victim.alertLevel === 3 && victim.aiEngaged === true, '#S2 alertEntity 置 level 3');
+  ok(Math.abs(victim._threatDir - 0) < 1e-9, '#S2 alertEntity 记录威胁方向');
+
+  // suspicious 决策：朝声音位置半速推进
+  const sus = enemy(0, 0, 0, 0, 0);
+  hearNoise(sus, 500, 0, 'shot');
+  const farPlayer = { team: 'player', x: 5000, y: 5000, hp: 100 };  // 玩家在触发距离外
+  const d = aiDecideEnemy(sus, { player: farPlayer, hasLoS: () => false, dt: 0.05 });
+  ok(sus.aiState === 'suspicious' && d.move === 0.5, '#S2 suspicious 朝声音半速调查');
 }
 
 if(fails === 0) console.log('test-ai: 完成所有检查，全部通过');

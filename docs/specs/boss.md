@@ -35,7 +35,9 @@ validateBoss 校验；bossStageFor 按 hp 比例取当前阶段：
 - **AI 复用**：Boss 与 summons 走 aiDecideEnemy 同一管线（含 P-19 多态状态机 Stunned/Flank/Defensive/Search&Destroy/Patrol）。
 
 ## 4. 数据驱动行为与弱点实装（P-51，2026-08-24 落地）
-- **阶段声明式行为脚本**：`stages[].ai = { mode:'hold'|'charge'|'skirmish', params }`；`validateBossStage` 校验枚举；`applyBossStage` 设置 `entity.stageAI`；js/tank_ai.js 消费三模式——`hold`=复用友军消极防御 `_passiveDefend`；`skirmish`=keepDist 风筝倒车；`charge`=基线激进。参数源 `RULES.boss.aiModes`（skirmish.keepDist 默认 640），读取带内联 fallback。
+- **阶段声明式行为脚本**：`stages[].ai = { mode:'hold'|'charge'|'skirmish', params }`；`validateBossStage` 校验枚举；`applyBossStage` 设置 `entity.stageAI`；js/tank_ai.js 消费三模式——`hold`=复用友军消极防御 `_passiveDefend`（#S3：超出射程 1.2× 时 0.4 速前压，不再纯站桩）；`skirmish`=keepDist 风筝（#S3：过近倒车 / 超过 keepDist×1.25 时 0.7 速接近 / 之间停）；`charge`=基线激进。参数源 `RULES.boss.aiModes`（skirmish.keepDist 默认 640），读取带内联 fallback。
+- **炮击压制数据驱动（#S3，2026-10-15）**：`behavior.barrage` 去 `style==='command'` 门控，任意 Boss 配置即生效。现行：commander（3 发/9s/半径 110）/ fortress（4 发/14s/半径 160，防御迫击炮）/ sniper（2 发/12s/半径 70，精确打击）。
+- **召唤时间兜底（#S3，2026-10-15）**：`bossSummonWave` 除 hpFrom 阈值外，开战 `RULES.boss.summonWaves.timeTriggerSec`（缺省 75s）后强制触发下一未触发波次（`t.bossFightT` 由 mvp 主循环累计）。防久战磨血无召唤。
 - **弱点命中增益**：命中模块与当前阶段 weakspots 匹配时（`isWeakspotHit` + `moduleFromHit`），从 `RULES.boss.weakspot`（dmgMul:1.5 / penAdd:15 / ignoreBounce:true）构造 `resolveHit` opts 注入增益（物理语义见 specs/combat.md §2「resolveHit 可选增益 opts」）。
 - **Boss 战利品奖励链**：`loot.cards > 0` 时 settlement→reward 追加 N 轮三选一，卡池按 `CARD_RARITIES.indexOf(c.rarity) >= indexOf(loot.cardRarity)` 过滤（不足 3 张逐档放宽至全池兑底）；结算界面显示追加卡牌行。
 - **当前 ai.mode 分配（5 Boss × 3 阶段共 15 个）**：commander hold/skirmish/charge；fortress hold/charge/charge；siege_fort hold/skirmish/charge；sniper skirmish×3（keepDist 900/800/700）；twin_track skirmish/hold/charge。

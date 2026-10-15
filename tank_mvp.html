@@ -2953,6 +2953,11 @@ function update(dt){
     shellPartHit,
     coverNormalAt,
     reflectDir,
+    // #S2：开火 noise → 敌对 AI 听到枪声进入 suspicious（1 级警觉）。
+    emitShotNoise: (x, y, radius, kind) => {
+      if(typeof emitShotNoise === 'function') return emitShotNoise(entities, x, y, radius, kind);
+      return 0;
+    },
     // resolveHit 包装：命中敌对 AI → alertEntity（立即接战+记来弹方向）+ 半径友邻告警。
     // 只对敌方目标生效；玩家/友军被击中不触发。BOUNCE 也算被命中（同样暴露弹源方向）。
     // P-51 Wave2：目标为敌方 Boss 且命中部位属于当前阶段 weakspots → 构造 opts
@@ -3312,7 +3317,16 @@ function update(dt){
   if(!isClearing && player && player._apsT > 0) updateAps(player, dt);
   // [P-28] 原地过滤保持数组引用稳定——fireCtx.shells/impacts/bounceFx 由事件处理器跨帧持有，
   // 若用 `arr = arr.filter(...)` 重赋值会让 fireCtx 持有过期引用（症状：有火光无炮弹）
-  for(let i=shells.length-1;i>=0;i--){ if(shells[i].dead) shells.splice(i,1); }
+  // #S2 近失弹：玩家/友军炮弹死亡（未命中）时，180px 内敌对 AI 听到落点声 → suspicious
+  for(let i=shells.length-1;i>=0;i--){
+    const _s = shells[i];
+    if(_s.dead){
+      if(_s.shooter && (_s.shooter.team === 'player' || _s.shooter.team === 'ally') && !_s._didHit){
+        if(typeof emitShotNoise === 'function') emitShotNoise(entities, _s.x, _s.y, 180, 'impact');
+      }
+      shells.splice(i,1);
+    }
+  }
   impacts.forEach(t=>t.life-=dt);
   for(let i=impacts.length-1;i>=0;i--){ if(impacts[i].life<=0) impacts.splice(i,1); }
   bounceFx.forEach(t=>t.life-=dt);
@@ -3379,8 +3393,10 @@ function update(dt){
     battleState.prevPlayerHp = player.hp;
     // P-09：Boss 阶段触发（血量跨阈值 → 切换 modifiers + 日志）
     // #E9（2026-09-20）：阶段切换同时按波次召唤小兵（bossSummonWave 消费血量阈值）。
+    // #S3（2026-10-15）：bossFightT 累计（召唤时间兜底用）。
     for(const e of entities){
       if(e.isBoss && e.hp > 0){
+        e.bossFightT = (e.bossFightT || 0) + dt;
         const r = updateBossStage(e);
         if(r.changed){ pushLog(`BOSS「${e.boss.name}」进入阶段「${r.stage.name || r.stage.id}」：${r.stage.behavior || ''}`, 'CRIT'); playSound('ui'); }
         const wave = (typeof bossSummonWave === 'function') ? bossSummonWave(e, currentNode ? currentNode.difficulty : 0.5) : null;

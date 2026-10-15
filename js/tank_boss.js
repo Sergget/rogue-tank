@@ -421,6 +421,8 @@ function _laserBeamBlockDist(bx, by, angle, length, coversList) {
 //   blockDist 同时供伤害判定与蓄能虚线/光束绘制截断，二者严格一致。）
 
 // 分波次召唤（#E9）：按 hpFrom 阈值触发；难度越高单波敌数越多。返回 null 表示本帧无波次。
+// #S3（2026-10-15）：加时间兜底 —— 开战 timeTrigger 秒后若仍有未触发波次，强制触发下一波
+// （防久战磨血无召唤的"grindy"体感）。
 function bossSummonWave(t, difficulty) {
   const cfg = (RULES.boss && RULES.boss.summonWaves) || {};
   if (cfg.enabled === false || !t || !t.isBoss || !t.boss) return null;
@@ -432,11 +434,15 @@ function bossSummonWave(t, difficulty) {
   const tol = cfg.tolerance !== undefined ? cfg.tolerance : 0.02;
   const def = cfg.hpFrom || [0.75, 0.5, 0.25];
   if (!Array.isArray(t.bossSummonWavesDone)) t.bossSummonWavesDone = [];
+  // 时间兜底：bossFightT 累计（mvp 主循环经 updateBossBehavior 传入 dt 累加）
+  const timeTrigger = cfg.timeTriggerSec !== undefined ? cfg.timeTriggerSec : 75;
+  if (t.bossFightT === undefined) t.bossFightT = 0;
+  const timeUp = t.bossFightT >= timeTrigger;
   for (let i = 0; i < list.length; i++) {
     if (t.bossSummonWavesDone.indexOf(i) >= 0) continue;
     const thr = (typeof list[i].hpFrom === 'number') ? list[i].hpFrom
       : (def[i] !== undefined ? def[i] : (1 - (i + 1) / (list.length + 1)));
-    if (hpRatio > thr + tol) continue;
+    if (hpRatio > thr + tol && !timeUp) continue;
     t.bossSummonWavesDone.push(i);
     const diffNorm = Math.max(0, Math.min(1, (typeof difficulty === 'number') ? difficulty : 0.5));
     const mul = 1 + (((cfg.countDiffMul !== undefined ? cfg.countDiffMul : 1.6)) - 1) * diffNorm;
@@ -702,11 +708,12 @@ function updateBossBehavior(t, dt, target, opts) {
     }
   }
 
-  // --- command 炮击压制：t.barrageCdT 计时（首延迟 interval，之后每 interval 一轮 shots 连发） ---
+  // --- 炮击压制（#S3：去 style 门控，改为数据驱动 —— 任意 Boss 配 behavior.barrage 即生效） ---
+  // t.barrageCdT 计时（首延迟 interval，之后每 interval 一轮 shots 连发）。
   // 落点 = 玩家当前位置附近散布（callStrike 内部按 radius 圆周均匀散布 shellCount 个落弹点，
   // stagger 缺省连发）；delay/radius/dmgMult 全部经 callStrike 自定义参数传入；
   // 预警红圈由 mvp 层统一画 strikes 数据，这里只负责发数据。
-  if (style === 'command' && bb.barrage && alive && typeof callStrike === 'function') {
+  if (bb.barrage && alive && typeof callStrike === 'function') {
     const br = bb.barrage;
     t.barrageCdT = (t.barrageCdT === undefined ? br.interval : t.barrageCdT - dt);
     if (t.barrageCdT <= 0) {

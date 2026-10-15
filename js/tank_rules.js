@@ -859,6 +859,10 @@ const RULES = {
     stunImmunityAfter: 2.0,         // stunned 自然结束后免疫窗时长（秒）：期间不再被压入 stunned（防高射速无限连控）
     dazedProbability: 0.3,          // 模块伤害触发惊慌而非直接进入 stun 的概率
     alertRadius: 600,               // 警觉传播半径（px）：敌对 AI 被击中时，该半径内友邻一并警觉（propagateAlert）
+    // #S2 五层级警觉（2026-10-15）：声音传播参数
+    shotNoiseRadius: 900,          // 玩家开火枪声传播半径（px）；railgun/autocannon 为 1200
+    impactNoiseRadius: 180,        // 近失弹落点声传播半径（px）
+    suspiciousTimeout: 8.0,        // suspicious 状态无新声音后降级回 calm 的秒数
     // #I4（2026-09-21 用户裁定「boss 几乎完全是站桩等玩家」）：Boss 随机走位层——
     // 周期性在玩家周围随机选点（环绕/侧移），车体驶向该点（炮塔照常锁定玩家开火），
     // 消费方 updateBossBehavior 写 _bossMoveOverride、mvp AI 循环覆盖 d.turn/d.move。

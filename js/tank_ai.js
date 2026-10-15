@@ -110,6 +110,10 @@ function _effectiveEngage(t, cfg, prof){
 // 初始化/确保实体 AI 属性
 function _aiInit(t){
   if(t.aiState === undefined) t.aiState = 'patrol';
+  // #S2 五层级警觉（2026-10-15）：0=calm(patrol) / 1=suspicious(闻声) /
+  // 2=alert(友邻遇袭) / 3=engaged(接战)。替代二值 aiEngaged 的渐进状态。
+  if(t.alertLevel === undefined) t.alertLevel = 0;
+  if(t.lastNoiseT === undefined) t.lastNoiseT = 0;
 }
 
 // P-51：Boss 阶段行为模式参数表（RULES.boss.aiModes，由 js/tank_rules.js 提供）。
@@ -551,7 +555,21 @@ function aiDecideEnemy(t, ctx){
 
     if(t.stageAI.mode === 'hold'){
       t.aiState = 'hold';
-      return _passiveDefend(t, ctx, p);
+      const _defOut = _passiveDefend(t, ctx, p);
+      // #S3：hold 不再纯站桩 —— 玩家超出开火射程时缓慢前压（0.4 速），
+      // 进入射程后恢复原地防御。避免 Boss 在远处等玩家。
+      const _cfg = aiConfig();
+      const _range = _cfg.allyEngageRange !== undefined ? _cfg.allyEngageRange : 460;
+      const _dx = p.x - t.x, _dy = p.y - t.y;
+      const _d = Math.hypot(_dx, _dy);
+      if(_d > _range * 1.2){
+        const _desired = Math.atan2(_dy, _dx);
+        const _hDiff = angDiff(_desired, t.hullAngle);
+        _defOut.turn = _hDiff > 0.05 ? 0.7 : (_hDiff < -0.05 ? -0.7 : 0);
+        _defOut.move = 0.4;
+        _defOut.turretDesired = _desired;
+      }
+      return _defOut;
     }
 
     if(t.stageAI.mode === 'skirmish'){
@@ -567,7 +585,11 @@ function aiDecideEnemy(t, ctx){
       const hullDiff = angDiff(desiredB, t.hullAngle);
       if(hullDiff > 0.05) out.turn = 1;
       else if(hullDiff < -0.05) out.turn = -1;
-      out.move = distB < keepDist ? -1 : 0;
+      // #S3：skirmish 双向距离保持 —— 过近倒车，过远（>keepDist*1.25）接近，
+      // 避免 Boss 在远处站桩等玩家
+      if(distB < keepDist) out.move = -1;
+      else if(distB > keepDist * 1.25) out.move = 0.7;  // 缓慢接近
+      else out.move = 0;
       const cfgA = aiConfig();
       const tol = cfgA.aimTolerance !== undefined ? cfgA.aimTolerance : 0.12;
       const aimErr = Math.abs(angDiff(t.turretAngle, desiredB));
@@ -621,10 +643,43 @@ function aiDecideEnemy(t, ctx){
     const inRange = dist <= enterD;
     const canSee = (!needLoS || los) || !!t.lastKnownPlayerPos;
     if(!(inRange && canSee)){
-      // #76 C5：激活门控外的 patrol 早退不再全零——微摆动摆头（远处敌人不死板）
-      t.aiState = 'patrol';
-      out.turn = _patrolWanderTurn(t, ctx);
-      if(!t.isBoss) return out;                       // ISSUE 21b：Boss 不回 patrol，继续追击
+      // #S2 suspicious 状态（alertLevel 1）：听到声音 → 朝声音位置调查
+      if(t.alertLevel === 1 && t.lastNoisePos){
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const susTimeout = (cfg.suspiciousTimeout !== undefined ? cfg.suspiciousTimeout : 8) * 1000;
+        // 超时无新声音 → 降级回 calm
+        if(now - t.lastNoiseT > susTimeout){
+          t.alertLevel = 0; t.lastNoisePos = null;
+          t.aiState = 'patrol';
+          out.turn = _patrolWanderTurn(t, ctx);
+          if(!t.isBoss) return out;
+        } else {
+          // 朝声音位置缓慢推进，炮塔扫视
+          t.aiState = 'suspicious';
+          const ndx = t.lastNoisePos.x - t.x, ndy = t.lastNoisePos.y - t.y;
+          const ndist = Math.hypot(ndx, ndy);
+          const arrive = cfg.searchArriveDist !== undefined ? cfg.searchArriveDist : 140;
+          if(ndist <= arrive){
+            // 到达：原地扫视（炮塔左右摆动）
+            t.alertLevel = 0; t.lastNoisePos = null;  // 未发现 → 降级
+            t.aiState = 'patrol';
+          } else {
+            const heading = Math.atan2(ndy, ndx);
+            out.move = 0.5;  // 半速调查
+            const hDiff = angDiff(heading, t.hullAngle);
+            out.turn = hDiff > 0.05 ? 0.6 : (hDiff < -0.05 ? -0.6 : 0);
+            // 炮塔扫视：朝声音方向 ±0.5rad 摆动
+            const scan = Math.sin(now / 900) * 0.5;
+            out.turretDesired = heading + scan;
+          }
+          if(!t.isBoss) return out;
+        }
+      } else {
+        // #76 C5：激活门控外的 patrol 早退不再全零——微摆动摆头（远处敌人不死板）
+        t.aiState = 'patrol';
+        out.turn = _patrolWanderTurn(t, ctx);
+        if(!t.isBoss) return out;                       // ISSUE 21b：Boss 不回 patrol，继续追击
+      }
     } else {
       // 首次进入接战：#E7 设置反应延迟 + #E8 向附近友邻传播 engage 状态
       t.aiEngaged = true;
@@ -691,7 +746,12 @@ function aiDecideEnemy(t, ctx){
       const hDiff = angDiff(heading, t.hullAngle);
       out.turn = hDiff > 0.05 ? 1 : (hDiff < -0.05 ? -1 : 0);
     }
-    out.turretDesired = heading;
+    // #S2-⑤：有明确威胁方向（刚被击中）时，炮塔优先指向威胁而非移动方向
+    out.turretDesired = (t._threatDir !== undefined) ? t._threatDir : heading;
+    // 威胁方向已用（炮塔转过去后清除，避免永久锁定）
+    if(t._threatDir !== undefined && Math.abs(angDiff(t.turretAngle, t._threatDir)) < 0.2){
+      t._threatDir = undefined;
+    }
     t.aiState = 'search';
     return out;
   }
@@ -1166,9 +1226,45 @@ function aiUpdateStateTimer(t, dt){
 // 2026-09-14 定案（任何伤害来源被击中即转换状态）：Boss 处于 hold 消极驻守阶段时
 //   被命中 → 立即解除 stageAI 驻守覆盖，回落主动状态机（追击/搜索玩家）。
 // 返回 true 表示该实体被警觉。
+// #S2：hearNoise — AI 听到声音（射击/近失弹/爆炸），进入 suspicious(1)。
+// 已处于更高警觉时不降级；记录声音位置与时间。
+function hearNoise(t, srcX, srcY, kind){
+  if(!t || t.team !== 'enemy' || t.isDrone || t.hp <= 0) return false;
+  _aiInit(t);
+  if(t.alertLevel >= 3) return false;  // 接战中不受声音干扰
+  const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  // 同一位置重复声音不刷新（防机枪连射无限续杯）
+  if(t.lastNoisePos && Math.hypot(t.lastNoisePos.x - srcX, t.lastNoisePos.y - srcY) < 60 &&
+     now - t.lastNoiseT < 2000) return false;
+  t.alertLevel = Math.max(t.alertLevel, 1);
+  t.lastNoisePos = { x: srcX, y: srcY };
+  t.lastNoiseT = now;
+  t.lastKnownPlayerPos = t.lastKnownPlayerPos || { x: srcX, y: srcY };
+  if(t.aiState === 'patrol' || t.aiState === 'stunned') t.aiState = 'suspicious';
+  return true;
+}
+
+// #S2：emitShotNoise — 以 (x,y) 为中心、radius 内敌对 AI 听到射击声。
+// kind: 'shot'(玩家开火) / 'impact'(炮弹落点) / 'explosion'(爆炸)。
+function emitShotNoise(entitiesArr, x, y, radius, kind){
+  const cfg = aiConfig();
+  const defR = cfg.shotNoiseRadius !== undefined ? cfg.shotNoiseRadius : 900;
+  const r = (radius !== undefined && radius > 0) ? radius : defR;
+  let count = 0;
+  const list = entitiesArr || [];
+  for(const e of list){
+    if(!e || e.hp <= 0) continue;
+    if(Math.hypot(e.x - x, e.y - y) > r) continue;
+    if(hearNoise(e, x, y, kind || 'shot')) count++;
+  }
+  return count;
+}
+
 function alertEntity(t, srcX, srcY){
   if(!t || t.team !== 'enemy' || t.isDrone || t.hp <= 0) return false;
+  _aiInit(t);
   t.aiEngaged = true;
+  t.alertLevel = 3;  // #S2：直接接战
   t.lastKnownPlayerPos = { x: srcX, y: srcY };
   // #E7（2026-09-20）：被打醒的敌人反应更快（剩余反应延迟 ×reactionAlertMul），但不瞬发。
   if(t.aiReactT > 0){
@@ -1183,6 +1279,11 @@ function alertEntity(t, srcX, srcY){
   // Boss hold 驻守被打破：被击中即放弃原地驻守，转入主动追击/搜索
   if(t.isBoss && t.stageAI && t.stageAI.mode === 'hold'){
     t.stageAI = null;
+  }
+  // #S2-⑤：受击专属行为 —— 炮塔立即转向威胁方向（来弹/告警源），
+  // 缩短反应延迟（已有 reactionAlertMul），本帧即可开火还击。
+  if(srcX !== undefined && srcY !== undefined){
+    t._threatDir = Math.atan2(srcY - t.y, srcX - t.x);
   }
   return true;
 }
@@ -1207,5 +1308,5 @@ function propagateAlert(entitiesArr, x, y, radius){
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverShouldHold, _maneuverPickMode, _maneuverSetRng, _MV_MODES, _engageBand, _engageBandKey, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _maneuverReloadGap };
+  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverShouldHold, _maneuverPickMode, _maneuverSetRng, _MV_MODES, _engageBand, _engageBandKey, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _maneuverReloadGap, hearNoise, emitShotNoise };
 }

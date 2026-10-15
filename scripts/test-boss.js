@@ -404,6 +404,14 @@ ok(updateBossBehavior(null, 0.016, cmdPlayer).length === 0 && updateBossBehavior
   lo.maxHp = 1000; lo.hp = 700;
   const wLo = bossSummonWave(lo, 0.0);
   ok(wHi.count > wLo.count, `#E9 难度越高单波敌数越多（${wHi.count} > ${wLo.count}）`);
+  // #S3 时间兜底：满血但开战超过 timeTriggerSec → 强制触发下一波
+  const tEnt = makeBossEntity(waveBoss, mkEnv());
+  tEnt.maxHp = 1000; tEnt.hp = 1000; tEnt.bossFightT = 80;
+  const wT = bossSummonWave(tEnt, 0.5);
+  ok(wT && wT.waveIndex === 0, '#S3 久战（80s）满血仍触发第 1 波（时间兜底）');
+  const tEnt2 = makeBossEntity(waveBoss, mkEnv());
+  tEnt2.maxHp = 1000; tEnt2.hp = 1000; tEnt2.bossFightT = 10;
+  ok(bossSummonWave(tEnt2, 0.5) === null, '#S3 未超时满血不触发（时间兜底未到）');
 
   // --- 蓄能激光：蓄能期发 laserCharge（含 progress），射击期发 laserFire 并对带内目标掉血 ---
   const laserBoss = {

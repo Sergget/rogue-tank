@@ -481,3 +481,19 @@
 - **#S13 建筑**：`box` 分支加屋顶内收 + 天窗网格 + 墙体高光（deterministic）。
 - **验证**：生图目视确认 4 项；`npm run check` EXIT=0；`npm test` 43/43。
 - **现行口径归口**：`docs/specs/map.md` §11（水面/支流）§12.3（出界裁剪）§4（建筑）。ISSUES.md #S12/#S1/#S11/#S13 删除并归档。
+
+### §4.75 2026-10-15 #S2/#S3：AI 五层级警觉 + Boss 行为调优
+
+- **#S2 五层级警觉**（`t.alertLevel` 0=calm/1=suspicious/2=alert/3=engaged）：
+  - ②玩家射击：`fireTank` 经 fireCtx.`emitShotNoise` → 半径 900px（railgun/autocannon 1200）内敌对 AI `hearNoise` 置 suspicious。
+  - ③近失弹：玩家/友军炮弹死亡未命中（`s._didHit` 标记），落点 180px 内 AI 听到。
+  - ④友邻遇袭：`propagateAlert` 既有（600px）。
+  - ⑤自身被攻击：`alertEntity` 置 level 3 + `_threatDir`（炮塔立即转向威胁，search 态优先指向）。
+  - suspicious 行为：朝声音半速调查、炮塔扫视，8s 无新声音降级；接战中不受干扰。
+  - RULES 新增 `shotNoiseRadius/impactNoiseRadius/suspiciousTimeout`。
+- **#S3 Boss**：
+  - 追击欲望：hold 超出射程 1.2× 时 0.4 速前压；skirmish 超过 keepDist×1.25 时 0.7 速接近（不再只退不进）。
+  - 炮击：`behavior.barrage` 去 style 门控，fortress（4 发/14s）/sniper（2 发/12s）新增。
+  - 召唤：`bossSummonWave` 加时间兜底（75s 未触发波次强制下一波，`bossFightT` 累计）。
+- **验证**：`scripts/test-ai.js` 新增 #S2 8 断言、`test-boss.js` 新增 #S3 2 断言；`npm run check` EXIT=0；`npm test` 43/43。
+- **现行口径归口**：`docs/specs/combat.md`（五层级警觉）、`docs/specs/boss.md`（行为/炮击/召唤）。ISSUES.md #S2/#S3 删除并归档。
