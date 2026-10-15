@@ -663,6 +663,7 @@ function paintPartSprite(ctx, img, cx, cy, angle, viewScale, scale, dx, dy, rotD
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     paintShade,
+    tankBodyColor,
     paintBounds,
     paintBeginLocal,
     paintClipLocal,
