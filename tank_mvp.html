@@ -498,6 +498,9 @@
     <div class="row"><span class="k">武器</span><span class="v" id="stWeapon">--</span></div>
     <div class="armor-list" id="stArmor"></div>
     <div class="armor-list" id="stAmmo"></div>
+    <!-- #8（2026-10-15）：敌方信息区（血条/护盾/履带 + Boss 阶段） -->
+    <div class="sp-title" style="margin-top:12px;">敌方信息 ENEMY</div>
+    <div id="stEnemies" style="font-size:10px; line-height:1.7; color:var(--text-dim);">--</div>
     <div class="hint">按 TAB 关闭 · 数值实时读取（读 stats，不摸 base）</div>
   </div>
   </div>
@@ -1375,6 +1378,30 @@ function updateStatusPanel(){
       const active = (vm && vm.ammoKey === key);
       return a ? `<div><b${active ? ' style="color:var(--amber)"' : ''}>${a.label || key}</b> 穿透 ${a.pen}mm · 伤害 ${a.dmg}${active ? ' （当前）' : ''}</div>` : '';
     }).join('') || '<div style="color:var(--text-dim);">—</div>';
+  }
+  // #8（2026-10-15）：敌方信息区（血条/护盾/履带 + Boss 阶段）
+  const stEnemies = document.getElementById('stEnemies');
+  if(stEnemies){
+    const foes = (tanks || []).filter(t => t && t.team === 'enemy' && t.hp > 0);
+    if(!foes.length){
+      stEnemies.innerHTML = '<div>— 无存活敌军 —</div>';
+    } else {
+      stEnemies.innerHTML = foes.map(t => {
+        const hpPct = Math.max(0, Math.round(t.hp / Math.max(1, t.maxHp || t.stats?.maxHp || 1) * 100));
+        const name = t.isBoss ? `👑 ${t.bossName || 'BOSS'}` : (t.tankName || t.id || '敌军');
+        const shield = (t.shield && t.shield > 0) ? ' 🛡护盾' : '';
+        const track = (t.trackBroken) ? ' ⚙断履带' : '';
+        let bossStage = '';
+        if(t.isBoss && t.boss && typeof bossStageIndex === 'function'){
+          const ratio = t.hp / Math.max(1, t.maxHp || 1);
+          const idx = bossStageIndex(t.boss, ratio);
+          if(idx >= 0) bossStage = ` · 阶段 ${idx + 1}/${t.boss.stages.length}「${t.boss.stages[idx].name || ''}」`;
+        }
+        const skills = (t.cardEffects || []).filter(ef => ef && ef.cardId === 'boss-skill').map(ef => ef.key).join('/');
+        const skillTxt = skills ? ` · 技能:${skills}` : '';
+        return `<div><b style="color:var(--red)">${name}</b> HP ${hpPct}%${shield}${track}${bossStage}${skillTxt}</div>`;
+      }).join('');
+    }
   }
 }
 
