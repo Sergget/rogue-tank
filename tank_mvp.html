@@ -2133,24 +2133,25 @@ function bossLootRarityLabel(idx){
   return (typeof CARD_RARITIES !== 'undefined' && CARD_RARITIES[idx]) ? (m[CARD_RARITIES[idx]] || CARD_RARITIES[idx]) : '—';
 }
 
-// P-51 Wave2：追加轮抽取池——按保底稀有度过滤（rarity 下标 ≥ 保底下标）；
-// 子集不足 3 张放宽一档，再不足用全池。
+// P-51 Wave2：追加轮抽取池。
+// 2026-10-15 修复（用户反馈「电磁炮没进 Boss 卡池 / 打到节点 10 只剩 2 张卡无法继续」）：
+//   原实现按 `CARD_RARITIES.indexOf(c.rarity) >= indexOf(loot.cardRarity)` **硬过滤**——
+//   3 个 Boss 配置 cardRarity='legendary'（下标 3），于是 epic（下标 2）整档被排除，
+//   电磁炮/机炮/双管/弹夹炮与全部副武器安装卡（共 28 张装备卡）在 Boss 轮永不可见。
+//   而 Boss 模式**每个节点都是 Boss 节点**，每轮都走这个被砍到 26 张的池子，池内又全是
+//   maxStacks=1（拿过即不可再拿）⇒ 实测第 5 轮可用池仅剩 1 张、第 6 轮归零，卡牌选择界面
+//   只能显示 1~2 张，选不满所需张数就无法确认，流程卡死。
+//   现行口径：**保底只管下限、不再排他**——返回全池，另用 `guaranteed` 让「稀有度下限」
+//   只表达「池内确有足量高位卡」的设计意图，不再把低于下限的卡踢出候选。
+// 返回 { pool, guaranteed }：pool 为全池（保底稀有度卡已在其中），guaranteed 为保底子集
+// （供调用方按需加权/校验，当前语义下即 rarity 下标 ≥ 保底下标者）。
 function bossLootPool(){
-  if(pendingLootRarityIdx < 0 || typeof CARD_RARITIES === 'undefined' || !cardPool.length) return cardPool;
-  let base = null;
-  for(let minIdx = Math.min(pendingLootRarityIdx, CARD_RARITIES.length - 1); minIdx < CARD_RARITIES.length; minIdx++){
-    const sub = cardPool.filter(c => c.rarity && CARD_RARITIES.indexOf(c.rarity) >= minIdx);
-    if(sub.length >= 3){ base = sub; break; }
+  if(pendingLootRarityIdx < 0 || typeof CARD_RARITIES === 'undefined' || !cardPool.length){
+    return { pool: cardPool, guaranteed: [] };
   }
-  if(!base) base = cardPool.slice();
-  // #S5（2026-10-14）：Boss 轮必含弹种升级选项——链升级卡（rare）不受稀有度下限过滤，
-  // 并入池后由 drawCardChoices 的链过滤器按前驱资格筛选、guaranteeAmmoUpgrade 保底抽取。
-  const inBase = new Set(base.map(c => c.id));
-  for(const c of cardPool){
-    if(inBase.has(c.id)) continue;
-    if((c.effects || []).some(ef => ef && ef.type === 'ammo' && ef.replaceAmmo)) base.push(c);
-  }
-  return base;
+  const minIdx = Math.min(pendingLootRarityIdx, CARD_RARITIES.length - 1);
+  const guaranteed = cardPool.filter(c => c.rarity && CARD_RARITIES.indexOf(c.rarity) >= minIdx);
+  return { pool: cardPool, guaranteed };
 }
 
 // P-51 Wave2：卡牌选择后的推进——仍有追加轮 → reward→reward 再开一轮（白名单合法）；
@@ -2244,14 +2245,24 @@ let currentRewardCards = [];        // 本轮展示的候选卡（刷新即整�
 let selectedRewardIdx = new Set();  // 已选下标集合（唯一、可取消再改选）
 let freeRefreshLeft = 1;            // 本轮剩余免费刷新次数
 
+// 本轮所需选卡张数。
+// 2026-10-15 修复（用户反馈「只剩 2 张卡无法再继续」）：原实现返回固定 need（Boss 轮 3 张），
+// 但当候选抽取结果不足 need 张时（池内可给卡耗尽），「选满才可确认」的门控永远不成立
+// ⇒ 确认按钮永久禁用、流程卡死。现按**实际候选数**封顶：候选 2 张就只需选 2 张，
+// 候选 0 张时返回 0（由 renderRewardCards 显示空池提示 + 确认按钮直接可用放行）。
 function rewardPickTarget(){
-  if(GAME_MODE === 'survival') return 1;   // #MODE：生存模式每波 5 选 1
-  return pendingLootRounds > 0 ? 3 : 2;   // Boss 追加轮 3 张；普通节点 2 张
+  const base = (GAME_MODE === 'survival') ? 1        // #MODE：生存模式每波 5 选 1
+             : (pendingLootRounds > 0) ? 3           // Boss 追加轮 3 张
+             : 2;                                    // 普通节点 2 张
+  const avail = Array.isArray(currentRewardCards) ? currentRewardCards.length : 0;
+  return Math.min(base, avail);
 }
 
 function drawRewardCards(){
-  // P-51 Wave2：Boss 追加轮 → 按保底稀有度过滤抽取池；普通轮 → 全池
-  const drawPool = pendingLootRounds > 0 ? bossLootPool() : cardPool;
+  // P-51 Wave2：Boss 追加轮 → 按保底稀有度确定池（2026-10-15 起保底只管下限、不再排他：
+  // 返回全池，避免 epic 装备卡整档被滤出后池子枯竭卡死——见 bossLootPool 注释）；
+  // 普通轮 → 全池。
+  const drawPool = pendingLootRounds > 0 ? bossLootPool().pool : cardPool;
   // 2026-09-14 装备优先：玩家没有任何主动技能 / 副武器未安装时，候选保底含对应装备卡
   const ownedAbilities = Array.from(new Set((player.cardEffects || [])
     .filter(ef => ef && ef.type === 'ability' && ef.key).map(ef => ef.key)));
@@ -2269,7 +2280,10 @@ function drawRewardCards(){
     ammoLoadout: player.ammoLoadout,
     owned: { abilities: ownedAbilities, secondaryWeapon: secondaryType, primaryWeapon: primaryType, cards: ownedCardCounts },
     guaranteeAmmoUpgrade: pendingLootRounds > 0,   // #S5：Boss 追加轮必含 1 张弹种升级选项
-    guaranteeSkillCard: pendingLootRounds > 0       // #10：Boss 追加轮必含 1 张技能卡
+    guaranteeSkillCard: pendingLootRounds > 0,      // #10：Boss 追加轮必含 1 张技能卡
+    // 2026-10-15：Boss 追加轮的「稀有度保底」改为**只管下限、不排他**——池子给全量（见上），
+    // 由本项保底至少 1 张达下限的卡，使结算界面「稀有度保底 X」的承诺仍然真实。
+    guaranteeMinRarityIdx: pendingLootRounds > 0 ? pendingLootRarityIdx : -1
   }) : [];
 }
 
@@ -2293,11 +2307,19 @@ function renderRewardCards(){
     : pendingLootRounds > 0
     ? 'Boss 追加卡牌轮：5 选 3。不可重复选择。'
     : '普通节点：5 选 2。不可重复选择。';
-  if(statusEl) statusEl.innerHTML =
-    `请选择 ${need} 张卡牌（已选择 <span id="selectedCardCount">${selectedRewardIdx.size}</span>/${need}）`;
+  // 2026-10-15：候选不足时明确说明并放行（need 已按候选数封顶）——否则玩家看到
+  // 「0/3」的确认按钮永远灰着，误以为卡死。
+  const shortBy = (GAME_MODE === 'survival' ? 1 : (pendingLootRounds > 0 ? 3 : 2)) - need;
+  if(statusEl) statusEl.innerHTML = shortBy > 0
+    ? `可抽卡牌已不足（剩余 ${need} 张）——选完即可继续`
+    : `请选择 ${need} 张卡牌（已选择 <span id="selectedCardCount">${selectedRewardIdx.size}</span>/${need}）`;
   row.innerHTML = '';
   if(!currentRewardCards.length){
-    row.innerHTML = '<div class="screen-hint">卡池为空——请确认 cards/ 目录与 /api/cards 可用。</div>';
+    // 区分两种空：卡池压根没加载（配置/网络故障，需排查）vs 本局可给卡已抽完（正常，放行）
+    const poolLoaded = Array.isArray(cardPool) && cardPool.length > 0;
+    row.innerHTML = poolLoaded
+      ? '<div class="screen-hint">可选卡牌已耗尽（本局卡池已抽完）——直接点「确认选择」继续。</div>'
+      : '<div class="screen-hint">卡池为空——请确认 cards/ 目录与 /api/cards 可用。</div>';
   }
   const rarityLabel = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' };
   currentRewardCards.forEach((c, i) => {
@@ -2336,7 +2358,6 @@ function renderRewardCards(){
     confirmBtn.style.opacity = done ? '' : '0.5';
   }
 }
-
 document.getElementById('rewardRefreshBtn').addEventListener('click', () => {
   const cost = (typeof RULES !== 'undefined' && RULES.economy && RULES.economy.refreshCost) || 10;
   if(freeRefreshLeft > 0){

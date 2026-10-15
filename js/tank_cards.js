@@ -656,6 +656,22 @@ function drawCardChoices(pool, n, optsOrRng) {
         ef && ef.type === 'ability' && !ownedAbils.includes(ef.key)));
     }
   }
+  // 2026-10-15：Boss 追加轮「稀有度保底」——保底**只管下限、不排他**。
+  //   沿革：原实现在 mvp 的 bossLootPool 里按 rarity 下标硬过滤整池，导致 epic 装备卡
+  //   （电磁炮/机炮/双管/弹夹炮与全部副武器安装卡）在 Boss 轮永不可见，且池子被砍到 26 张后
+  //   逐步枯竭、候选不足所需张数而卡死。现改为：池子给全量，另用本选项保底**至少 1 张**
+  //   达到下限的卡 ⇒ 结算界面「稀有度保底」的承诺仍然真实，但不再把低稀有度卡踢出候选。
+  //   默认 -1 = 不启用（普通轮/既有调用零影响）。
+  if (optsOrRng && typeof optsOrRng === 'object' && typeof optsOrRng.guaranteeMinRarityIdx === 'number') {
+    const floorIdx = optsOrRng.guaranteeMinRarityIdx;
+    const RAR = (typeof CARD_RARITIES !== 'undefined') ? CARD_RARITIES : null;
+    if (RAR && floorIdx >= 0) {
+      const atOrAbove = (c) => !!c && typeof c.rarity === 'string' && RAR.indexOf(c.rarity) >= floorIdx;
+      // 已因其它保底/自然抽到高位卡则不重复追加（保底语义是「至少 1 张」）
+      const already = picked.some(atOrAbove);
+      if (!already && picked.length < count) pickRandomWhere(atOrAbove);
+    }
+  }
   while (picked.length < count && usable.length > 0) {
     // 权重抽样：先按稀有度权重选稀有度，再在该稀有度内随机取一张。
     // #N2：稀有度内抽取按卡权重——弹种升级卡乘 paceFactor（本局已获升级越多、自然出现越慢）。
