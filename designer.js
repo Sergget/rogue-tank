@@ -87,8 +87,8 @@ let selectedEdge = null; // { poly, index, seam:'front'|'rear' } edge chosen in 
 let snapToGrid = false;
 let previewAngle = 0;
 let trackPhase = 0; // scrolling track animation phase for edit modes (driven at fixed rate)
-// 编辑列表选中项（驱动面板显隐）：'hull' | 'turret' | 'modules' | 'appearance'
-let editTab = 'hull';
+// 编辑标签（2026-10-15 #TEX3 三标签重构）：'data' | 'armor' | 'appearance' | 'cover'
+let editTab = 'data';
 // 部件可见性开关（纯编辑辅助，不写入任何导出/JSON）：隐藏的部件不渲染、不参与画布命中
 let partVisible = { hull: true, turret: true };
 // 背景参考图片（设计器本地，仅预览，不写入存档）
@@ -713,12 +713,12 @@ const HINTS = {
   appearance: '外观件编辑：炮管预设（长度/粗细/制退器/抽烟器/护套）、炮盾、履带外观均为整车外观参数；画布处于预览模式，移动鼠标可旋转炮塔查看效果',
   cover: '掩体顶点编辑：点击空白添加顶点（世界坐标）· 拖动顶点移动 · 点击边中点插入顶点 · Delete/Backspace 删除选中顶点 · 选择”掩体种类”设置类型'
 };
-// 面板显隐：panel-<tab> 类命中当前 editTab 的面板显示，其余隐藏；顶点编辑按钮仅在车体/炮塔/掩体条目可用
+// 面板显隐：panel-<tab> 类命中当前 editTab 的面板显示，其余隐藏；顶点编辑按钮仅在装甲模型/掩体可用
 function updatePanelVisibility(){
-  document.querySelectorAll('.panel-hull, .panel-turret, .panel-appearance, .panel-cover').forEach(el=>{
+  document.querySelectorAll('.panel-data, .panel-armor, .panel-appearance, .panel-cover').forEach(el=>{
     el.style.display = el.classList.contains('panel-'+editTab) ? '' : 'none';
   });
-  const vertEdit = (editTab==='hull' || editTab==='turret' || editTab==='cover');
+  const vertEdit = (editTab==='armor' || editTab==='cover');
   document.getElementById('undoVertBtn').disabled = !vertEdit;
   document.getElementById('clearPolyBtn').disabled = !vertEdit;
 }
@@ -734,8 +734,8 @@ function setMode(m){
   clearSelection();
   selectedCoverVertex = null;
   hoverEdge = null;
-  // 列表条目 ↔ 画布模式同步：hull/turret/modules/cover 条目直接切换对应编辑模式；preview 不改变条目
-  if(m==='hull' || m==='turret' || m==='modules' || m==='cover') editTab = m;
+  // #TEX3 三标签：data/armor/appearance/cover；armor 合并原 hull+turret
+  if(m==='data' || m==='armor' || m==='appearance' || m==='cover') editTab = m;
   updateModeButtons();
   const hintEl = document.getElementById('hint');
   hintEl.textContent = HINTS[m] || '';
@@ -743,8 +743,8 @@ function setMode(m){
   updatePanelVisibility();
   render();
 }
-document.getElementById('modeHull').addEventListener('click', ()=>setMode('hull'));
-document.getElementById('modeTurret').addEventListener('click', ()=>setMode('turret'));
+document.getElementById('modeData').addEventListener('click', ()=>setMode('data'));
+document.getElementById('modeArmor').addEventListener('click', ()=>setMode('armor'));
 document.getElementById('modeCover').addEventListener('click', ()=>setMode('cover'));
 document.getElementById('modeAppearance').addEventListener('click', ()=>{
   // 外观件条目：面板切到外观件组，画布进入预览模式（无顶点编辑目标，便于查看炮管/炮盾/履带效果）
@@ -1031,6 +1031,60 @@ document.getElementById('textureSelect').addEventListener('change', ()=>{
   state.texture = document.getElementById('textureSelect').value;
   render();
 });
+
+// #TEX3 外观件编辑器：车长塔/发动机舱（样式+位置+镜像）
+function _getAppearance(){
+  if(!state.appearance) state.appearance = {};
+  return state.appearance;
+}
+// 同步 UI 控件到 state.appearance（载入坦克时调用）
+function _syncAppearanceUI(){
+  const app = _getAppearance();
+  for(const [part, styleId, dxId, dyId, mirrorId] of [
+    ['cupola', 'cupolaStyle', 'cupolaDx', 'cupolaDy', 'cupolaMirror'],
+    ['engineDeck', 'engineDeckStyle', 'engineDeckDx', 'engineDeckDy', 'engineDeckMirror'],
+  ]){
+    const cfg = app[part] || { style:'', dx:0, dy:0, mirror:false };
+    document.getElementById(styleId).value = cfg.style || '';
+    document.getElementById(dxId).value = cfg.dx || 0;
+    document.getElementById(dyId).value = cfg.dy || 0;
+    document.getElementById(mirrorId).checked = !!cfg.mirror;
+  }
+}
+// 保存时提取外观件配置（全默认则返回 null，不写入 JSON）
+function _appearanceForSave(){
+  const app = _getAppearance();
+  const out = {};
+  for(const part of ['cupola', 'engineDeck']){
+    const cfg = app[part];
+    if(cfg && (cfg.style || cfg.dx || cfg.dy || cfg.mirror)){
+      out[part] = { style: cfg.style || '', dx: cfg.dx || 0, dy: cfg.dy || 0, mirror: !!cfg.mirror };
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+function _bindAppearancePart(part, styleId, dxId, dyId, mirrorId){
+  const app = _getAppearance();
+  if(!app[part]) app[part] = { style:'', dx:0, dy:0, mirror:false };
+  document.getElementById(styleId).addEventListener('change', e=>{
+    app[part].style = e.target.value;
+    render();
+  });
+  document.getElementById(dxId).addEventListener('input', e=>{
+    app[part].dx = parseFloat(e.target.value) || 0;
+    render();
+  });
+  document.getElementById(dyId).addEventListener('input', e=>{
+    app[part].dy = parseFloat(e.target.value) || 0;
+    render();
+  });
+  document.getElementById(mirrorId).addEventListener('change', e=>{
+    app[part].mirror = e.target.checked;
+    render();
+  });
+}
+_bindAppearancePart('cupola', 'cupolaStyle', 'cupolaDx', 'cupolaDy', 'cupolaMirror');
+_bindAppearancePart('engineDeck', 'engineDeckStyle', 'engineDeckDx', 'engineDeckDy', 'engineDeckMirror');
 
 // ================= 整车精灵 Sprite（对齐控件） =================
 function defaultSprite(){
@@ -1754,7 +1808,8 @@ function drawPolygon(poly, center, angle, opts){
     // 编辑模式保持纯色填充便于看顶点/边/装甲。切换外观件下拉即时生效。
     // 精灵已绘制时跳过（AI 贴图自带涂装，不再叠程序化纹理）。
     if(!spriteDrawn && opts.detail && !opts.faded && state.texture && state.texture !== 'none'){
-      const texOpts = { detail:true, texture: state.texture, heightClass: state.heightClass };
+      const texOpts = { detail:true, texture: state.texture, heightClass: state.heightClass,
+        appearance: state.appearance || undefined };
       if(isTurret){
         const ax = (state.turret.axis && state.turret.axis.dx) || 0;
         const ay = (state.turret.axis && state.turret.axis.dy) || 0;
@@ -2123,6 +2178,8 @@ function buildExport(){
      spreadMult: state.spreadMult,
      aimSpeed: state.aimSpeed,
      texture: state.texture,
+     // #TEX3 外观件配置（仅当用户设置过非默认样式时写入，避免污染旧 JSON）
+     ...(_appearanceForSave() ? { appearance: _appearanceForSave() } : {}),
      // 整车精灵：enabled 控制局内是否替换程序化绘制；preview 标志不写入（设计器本地）
      // #L3：以 state.sprite 的对象为底做浅拷贝（保留 imgHummel/imgPanzerIV/lenPxPanzerIV 等
      // 本面板未管理的额外键），再覆盖面板管理的字段；hull/turret/track 均对称写出 pivot/rot。
@@ -2222,6 +2279,9 @@ function applyTankData(data, opts){
    if(data.trackOffset !== undefined) state.trackOffset = data.trackOffset;
    if(data.texture !== undefined && ['none','armor_plate','weld_seam','rust','camo','camo_dunkelgelb','paint_panzergrau','camo_nato','paint_soviet'].includes(data.texture)) state.texture = data.texture;
    else state.texture = 'none'; // 旧数据缺省无纹理
+   // #TEX3 外观件配置载入
+   state.appearance = data.appearance ? JSON.parse(JSON.stringify(data.appearance)) : {};
+   _syncAppearanceUI();
    state.sprite = normalizeSprite(data.sprite); // 整车精灵（无则默认关闭）
    preloadSpriteImages(); // #M2：载入即预热贴图缓存 + onload 重绘，防「首帧未就绪永远空白」
    if(data.spreadMult !== undefined) state.spreadMult = data.spreadMult;

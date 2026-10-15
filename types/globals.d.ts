@@ -61,6 +61,8 @@ declare function paintPartSprite(ctx: any, img: any, cx: any, cy: any, angle: an
 declare function paintRivets(ctx: any, cxm: number, cym: number, minX: number, maxX: number, W: number, L: number, bodyCol: string): void;
 declare function paintWeathering(ctx: any, cxm: number, cym: number, minX: number, maxX: number, W: number, L: number, level: number, seed?: number): void;
 declare var DECORATION_DEFS: Record<string, (ctx: any, s: number) => void>;
+declare var APPEARANCE_PRESETS: { cupola: Record<string, { name: string; desc: string }>; engineDeck: Record<string, { name: string; desc: string }> };
+declare function paintAppearancePart(ctx: any, part: string, style: string, x: number, y: number, s: number, bodyCol: string, opts?: any): void;
 declare var TEXTURE_DEFS: Record<string, { name: string; base?: string; draw: ((ctx: any, bbox: any) => void) | null }>;
 declare function applyTankConfig(t: any, cfg: any): void;
 declare function computeStats(base: any, modifiers?: any): any;

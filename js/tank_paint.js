@@ -326,6 +326,12 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
       // center ridge
       ctx.strokeStyle = paintShade(bodyCol, 8); ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(cxm, cym - W*0.72); ctx.lineTo(cxm, cym + W*0.72); ctx.stroke();
+      // #TEX3: 发动机舱外观件覆盖 —— appearance.engineDeck 存在时用预设样式+手动位置，跳过内置
+      const _engApp = opts.appearance && opts.appearance.engineDeck;
+      if(_engApp && _engApp.style && _engApp.style !== 'none'){
+        paintAppearancePart(ctx, 'engineDeck', _engApp.style,
+          cxm + (_engApp.dx || 0), cym + (_engApp.dy || 0), 1, bodyCol, { mirror: !!_engApp.mirror });
+      } else if(!_engApp || _engApp.style !== 'none'){
       // #TEX2-2026-10-15: 发动机舱重做 —— 百叶窗散热器 + 排气管 + 检修舱盖
       // 散热器格栅：两组百叶窗（深色底 + 亮色叶片线）
       for(const gy of [cym - W*0.34, cym + W*0.34]){
@@ -359,6 +365,7 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
         ctx.strokeStyle = paintShade(bodyCol, 14); ctx.lineWidth = 0.8;
         ctx.beginPath(); ctx.ellipse((ex0+ex1)/2, ey, (ex1-ex0)/2, 2.2, 0, 0, Math.PI*2); ctx.stroke();
       }
+      } // end #TEX3 engineDeck 内置分支
       // 驾驶员舱盖（前左）+ 航向机枪球座（前右）
       const dhx = maxX - L*0.30;
       ctx.fillStyle = paintShade(bodyCol, -18);
@@ -381,6 +388,12 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
         ctx.beginPath(); ctx.moveTo(fx, cym - W*0.5); ctx.lineTo(fx + L*0.12, cym); ctx.lineTo(fx, cym + W*0.5); ctx.stroke();
       }
     } else {
+      // #TEX3: 车长塔外观件覆盖 —— appearance.cupola 存在时用预设样式+手动位置，跳过内置
+      const _cupApp = opts.appearance && opts.appearance.cupola;
+      if(_cupApp && _cupApp.style && _cupApp.style !== 'none'){
+        paintAppearancePart(ctx, 'cupola', _cupApp.style,
+          cxm + (_cupApp.dx || 0), cym + (_cupApp.dy || 0), 1, bodyCol, { mirror: !!_cupApp.mirror });
+      } else if(!_cupApp || _cupApp.style !== 'none'){
       // #TEX2-2026-10-15: 车长塔重做 —— 装甲围圈 + 周视镜环 + 对开舱盖 + 提手
       const cupolas = (opts.heightClass === 'heavy' || opts.hasTurret === false) ? 2 : 1;
       const cupCy = cym - W*0.44;
@@ -428,6 +441,7 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
       ctx.beginPath(); ctx.arc(cxm + L*0.32, cym + W*0.40, W*0.11, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = paintShade(bodyCol, 16); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(cxm + L*0.32, cym + W*0.40, W*0.11, 0, Math.PI*2); ctx.stroke();
+      } // end #TEX3 cupola 内置分支
     }
   }
   ctx.restore();
@@ -511,6 +525,138 @@ function paintWeathering(ctx, cxm, cym, minX, maxX, W, L, level, seed){
 
 // 装饰件绘制函数表：每个在原点居中绘制，s 为缩放（约坦克 local 尺寸/60）。
 // 风格：深色描边 + 高对比色块，保证 60px 下可读。
+// --- 外观件预设样式（2026-10-15 #TEX3：设计器外观标签）---
+// 每个外观件多种预设样式；tanks/*.json 的 appearance 字段引用：
+//   appearance: { cupola: { style:'standard', dx:0, dy:0, mirror:false },
+//                 engineDeck: { style:'standard', dx:0, dy:0, mirror:false } }
+// dx/dy 为相对默认位置的偏移（local 单位），mirror 为 Y 轴镜像。
+const APPEARANCE_PRESETS = {
+  cupola: {
+    standard: { name: '标准车长塔', desc: '装甲围圈+8周视镜+对开舱盖' },
+    low: { name: '低轮廓', desc: '无围圈矮塔+6周视镜，适合歼击车' },
+    panoramic: { name: '全景塔', desc: '高围圈+10周视镜+单开大舱盖' },
+    none: { name: '无', desc: '不画车长塔' },
+  },
+  engineDeck: {
+    standard: { name: '标准发动机舱', desc: '双百叶窗散热器+检修盖+双排气管' },
+    rearGrille: { name: '尾部大格栅', desc: '整块尾部格栅+单排气管，适合重型' },
+    compact: { name: '紧凑型', desc: '单散热器+单排气管，适合轻型' },
+    none: { name: '无', desc: '不画发动机舱细节' },
+  },
+};
+
+// 外观件绘制：style 预设 + 位置偏移 + 镜像
+// part: 'cupola' | 'engineDeck'；x, y 为部件锚点（local 坐标）；s 缩放；bodyCol 车体实色
+function paintAppearancePart(ctx, part, style, x, y, s, bodyCol, opts){
+  opts = opts || {};
+  if(!style || style === 'none') return;
+  ctx.save();
+  ctx.translate(x, y);
+  if(opts.mirror) ctx.scale(1, -1);
+  ctx.scale(s, s);
+  if(part === 'cupola') _paintCupolaStyle(ctx, style, bodyCol, opts);
+  else if(part === 'engineDeck') _paintEngineDeckStyle(ctx, style, bodyCol, opts);
+  ctx.restore();
+}
+
+function _paintCupolaStyle(ctx, style, bodyCol, opts){
+  const cr = 6;  // 基准半径
+  if(style === 'low'){
+    // 低轮廓：矮圈+6镜
+    ctx.fillStyle = paintShade(bodyCol, -26);
+    ctx.beginPath(); ctx.arc(0, 0, cr*0.8, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = paintShade(bodyCol, 18); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, cr*0.8, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = paintShade(bodyCol, 30);
+    for(let k = 0; k < 6; k++){
+      const a = k * Math.PI/3;
+      ctx.beginPath(); ctx.arc(Math.cos(a)*cr*0.55, Math.sin(a)*cr*0.55, cr*0.12, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle = paintShade(bodyCol, -10);
+    ctx.beginPath(); ctx.arc(0, 0, cr*0.42, 0, Math.PI*2); ctx.fill();
+  } else if(style === 'panoramic'){
+    // 全景塔：高圈+10镜+大单盖
+    ctx.fillStyle = paintShade(bodyCol, -32);
+    ctx.beginPath(); ctx.arc(0, 0, cr*1.15, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = paintShade(bodyCol, 24); ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(0, 0, cr*1.15, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = paintShade(bodyCol, 36);
+    for(let k = 0; k < 10; k++){
+      const a = k * Math.PI/5;
+      ctx.beginPath(); ctx.arc(Math.cos(a)*cr*0.82, Math.sin(a)*cr*0.82, cr*0.13, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle = paintShade(bodyCol, -8);
+    ctx.beginPath(); ctx.arc(0, 0, cr*0.62, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = paintShade(bodyCol, -40); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, cr*0.62, 0, Math.PI*2); ctx.stroke();
+  } else {
+    // standard：装甲围圈+8周视镜+对开舱盖（与现有炮塔车长塔一致）
+    ctx.fillStyle = paintShade(bodyCol, -30);
+    ctx.beginPath(); ctx.arc(0, 0, cr, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = paintShade(bodyCol, 22); ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(0, 0, cr, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = paintShade(bodyCol, 34);
+    for(let k = 0; k < 8; k++){
+      const a = k * Math.PI/4;
+      ctx.beginPath(); ctx.arc(Math.cos(a)*cr*0.72, Math.sin(a)*cr*0.72, cr*0.14, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle = paintShade(bodyCol, -12);
+    ctx.beginPath(); ctx.arc(0, 0, cr*0.52, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = paintShade(bodyCol, -38); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, cr*0.52, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-cr*0.52, 0); ctx.lineTo(cr*0.52, 0); ctx.stroke();
+  }
+}
+
+function _paintEngineDeckStyle(ctx, style, bodyCol, opts){
+  if(style === 'rearGrille'){
+    // 尾部大格栅：整块+横叶片
+    ctx.fillStyle = paintShade(bodyCol, -36);
+    ctx.fillRect(-14, -8, 28, 16);
+    ctx.strokeStyle = paintShade(bodyCol, 22); ctx.lineWidth = 0.9;
+    for(let ly = -6; ly <= 6; ly += 3){
+      ctx.beginPath(); ctx.moveTo(-13, ly); ctx.lineTo(13, ly); ctx.stroke();
+    }
+    ctx.strokeStyle = paintShade(bodyCol, -48); ctx.lineWidth = 1.2;
+    ctx.strokeRect(-14, -8, 28, 16);
+    // 单粗排气管
+    ctx.fillStyle = paintShade(bodyCol, -42);
+    ctx.beginPath(); ctx.ellipse(0, 11, 7, 2.6, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#141416';
+    ctx.beginPath(); ctx.ellipse(-5, 11, 2, 2.2, 0, 0, Math.PI*2); ctx.fill();
+  } else if(style === 'compact'){
+    // 紧凑型：单散热器+单排气管
+    ctx.fillStyle = paintShade(bodyCol, -34);
+    ctx.fillRect(-8, -6, 16, 12);
+    ctx.strokeStyle = paintShade(bodyCol, 24); ctx.lineWidth = 0.9;
+    for(let lx = -6; lx <= 6; lx += 3){
+      ctx.beginPath(); ctx.moveTo(lx, -5); ctx.lineTo(lx, 5); ctx.stroke();
+    }
+    ctx.fillStyle = paintShade(bodyCol, -40);
+    ctx.beginPath(); ctx.ellipse(0, 9, 5, 2, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#141416';
+    ctx.beginPath(); ctx.ellipse(-3.5, 9, 1.4, 1.6, 0, 0, Math.PI*2); ctx.fill();
+  } else {
+    // standard：双百叶窗+检修盖+双排气管（与现有车体发动机舱一致，简化版）
+    for(const gy of [-6, 6]){
+      ctx.fillStyle = paintShade(bodyCol, -34);
+      ctx.fillRect(-12, gy - 3.5, 16, 7);
+      ctx.strokeStyle = paintShade(bodyCol, 24); ctx.lineWidth = 0.8;
+      for(let lx = -10; lx < 2; lx += 2.8){
+        ctx.beginPath(); ctx.moveTo(lx, gy - 3); ctx.lineTo(lx, gy + 3); ctx.stroke();
+      }
+    }
+    ctx.strokeStyle = paintShade(bodyCol, -26); ctx.lineWidth = 1;
+    ctx.strokeRect(6, -7, 10, 14);
+    for(const ey of [-9, 9]){
+      ctx.fillStyle = paintShade(bodyCol, -40);
+      ctx.beginPath(); ctx.ellipse(-14, ey, 5, 2, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#141416';
+      ctx.beginPath(); ctx.ellipse(-17, ey, 1.5, 1.6, 0, 0, Math.PI*2); ctx.fill();
+    }
+  }
+}
+
 const DECORATION_DEFS = {
   // 工具箱：矩形箱体 + 盖缝线 + 提手
   toolbox(ctx, s){
@@ -678,6 +824,8 @@ if (typeof module !== 'undefined' && module.exports) {
     paintRivets,
     paintWeathering,
     DECORATION_DEFS,
+    APPEARANCE_PRESETS,
+    paintAppearancePart,
     SPRITE_CACHE,
     spriteImage,
     clearSpriteCache,

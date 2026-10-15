@@ -310,6 +310,8 @@ function makeTank(opts){
     hullLen:64, hullWid:38,
     turLen:34, turWid:36,
     speed:0,
+    // #TEX3 外观件配置（设计器外观标签）：各部件样式+位置+镜像；缺省走内置默认
+    appearance: null,
     hasTurret:true,              // legacy field kept for backward compat; new specs omit it
     traverseLimit: Math.PI,      // 180° = full 360° rotation by default; < π → limited traverse
     reloadT:0,

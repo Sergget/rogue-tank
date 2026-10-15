@@ -506,3 +506,17 @@
 - **动作 3**：细节层——`paintRivets`（甲板边缘铆钉排+高光点）、`paintWeathering`（level 0~3：划痕/锈斑/泥点/掉漆，seed 确定性）。
 - **动作 4**：动态损伤——`renderHullTexture` 按 hp 比例分 4 级（>75%/50%/25%/≤25% → 0/1/2/3），`weatherSeed` 每车固定防闪烁。
 - **验证**：`npm run check` 通过；`npm test` 43/43；`scripts/test-tanks.js` 新增 #TEX 断言（5 车精灵关闭/6 装饰件/绘制不抛错）；Node 直出装饰件样张可读。
+
+### §4.77 2026-10-15 #TEX3：设计器三标签 + 外观件独立编辑
+
+- **设计器重构**（`tank_designer.html` + `designer.js`）：4 标签（车体/炮塔/外观件/掩体）→ 3 标签（**数据**/装甲模型/外观）+ 掩体保留。
+  - 数据：基础参数 + 战斗参数（`panel-data`）。
+  - 装甲模型：车体/炮塔几何 + 装甲厚度 + 分段装甲 + **座圈位置保留**（`panel-armor`，原 panel-hull/panel-turret 合并；用户要求②）。
+  - 外观：炮管（已在）+ 炮盾 + 履带 + 纹理 + **新增车长塔/发动机舱编辑器**。
+- **外观件数据模型**（`tanks/*.json`）：`appearance: { cupola: {style,dx,dy,mirror}, engineDeck: {...} }`；全默认时不写入（`_appearanceForSave` 返回 null）。
+- **预设样式**（`js/tank_paint.js` `APPEARANCE_PRESETS`）：
+  - 车长塔：standard（8 周视镜+对开盖）/ low（低轮廓 6 镜）/ panoramic（全景 10 镜+大单盖）/ none。
+  - 发动机舱：standard（双百叶窗+双排气管）/ rearGrille（尾部大格栅）/ compact（紧凑单散热器）/ none。
+  - 涂装：沿用 `TEXTURE_DEFS` 9 种（外观标签已有纹理下拉）。
+- **渲染**：`paintAppearancePart(ctx, part, style, x, y, s, bodyCol, {mirror})`；`paintPartTextureDirect` 中 appearance 覆盖时跳过内置绘制；`renderHullTexture`/`renderTurretTexture` 透传 `t.appearance`；设计器预览同款透传。
+- **验证**：`npm run check` 通过；`npm test` 43/43；预设绘制 mock 测试全过。

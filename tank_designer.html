@@ -26,7 +26,7 @@
   <div id="left-sidebar">
     <div class="title">坦克设计器 <b>TANK DESIGNER v0.5</b></div>
 
-    <div class="section">
+    <div class="section panel-data">
       <h3>基础参数 Base</h3>
       <div class="prop-row"><span class="lbl">左右射界 (°)</span><input type="number" id="t-traverse" value="180" min="0" max="180" step="5"></div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">180° = 炮塔可 360° 全向旋转；低于 180° 时炮塔只能在车体中线左右各 ±射界 角度内转动</div>
@@ -44,7 +44,7 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">派生重量 = deriveWeight(装甲几何)（tank_model.js 单一来源）；达到 80t 设计上限后禁止继续提升增重参数（装甲厚度/尺寸/顶点外扩）。下方「重量 kg (base)」为旧版占位字段，不再参与判定。属性耦合链（P-49）：更高穿深/伤害推导出装填与三扩惩罚、车体尺寸限制最大可用马力、车体面积物理缩放内部模块易损因子（0.7x~1.3x：大车体宽敞不易损，小车体紧凑易损）——仅作设计要求提示，不自动改写已保存数值。</div>
     </div>
 
-    <div class="section">
+    <div class="section panel-data">
       <h3>战斗参数 Combat</h3>
       <div class="prop-row"><span class="lbl">满血 HP</span><input type="number" id="t-hp" value="100"></div>
       <div class="prop-row"><span class="lbl">穿深 mm</span><input type="number" id="t-penetration" value="120"></div>
@@ -62,7 +62,7 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">三扩系数：移动/转车体/转炮塔三源散布的统一倍率（1 = 基准）；缩圈速度：瞄准圈收敛速度，越小缩圈越慢</div>
     </div>
 
-    <div class="section panel-hull">
+    <div class="section panel-armor">
       <h3>装甲厚度 Armor — 车体 (mm)</h3>
       <div class="prop-row" style="align-items:flex-start; flex-direction:column; gap:2px; margin-bottom:8px;">
         <span class="lbl">当前装甲段</span>
@@ -79,7 +79,7 @@
       </div>
     </div>
 
-    <div class="section panel-turret">
+    <div class="section panel-armor">
       <h3>装甲厚度 Armor — 炮塔 (mm)</h3>
       <div class="prop-row" style="align-items:flex-start; flex-direction:column; gap:2px; margin-bottom:8px;">
         <span class="lbl">当前装甲段</span>
@@ -96,13 +96,13 @@
       </div>
     </div>
 
-     <div class="section panel-hull">
+     <div class="section panel-armor">
        <h3>装甲分段 Edge Armor — 车体</h3>
        <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">每条边可单独归属 前/侧/后 装甲：在下方列表中选择，或在画布上点击边线中点循环切换（镜像侧自动沿用，无需单独设置）</div>
        <div class="edge-list" id="hullEdgeList"></div>
       </div>
 
-     <div class="section panel-turret">
+     <div class="section panel-armor">
        <h3>装甲分段 Edge Armor — 炮塔</h3>
        <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">每条边可单独归属 前/侧/后 装甲：在下方列表中选择，或在画布上点击边线中点循环切换（镜像侧自动沿用，无需单独设置）</div>
        <div class="edge-list" id="turretEdgeList"></div>
@@ -140,12 +140,12 @@
     <div class="section">
       <h3>编辑 Edit</h3>
       <div class="btnrow">
-        <button id="modeHull" class="mode-btn edit-tab-btn active">车体 Hull</button>
-        <button id="modeTurret" class="mode-btn edit-tab-btn">炮塔 Turret</button>
-        <button id="modeAppearance" class="mode-btn edit-tab-btn">外观件 Appearance</button>
+        <button id="modeData" class="mode-btn edit-tab-btn active">数据 Data</button>
+        <button id="modeArmor" class="mode-btn edit-tab-btn">装甲模型 Armor</button>
+        <button id="modeAppearance" class="mode-btn edit-tab-btn">外观 Appearance</button>
         <button id="modeCover" class="mode-btn edit-tab-btn">掩体 Cover</button>
       </div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">列表选中条目 = 当前可编辑面板与画布编辑目标：车体（顶点+装甲）/ 炮塔（顶点+座圈+多边形预设）/ 外观件（炮管+炮盾+履带）/ 掩体（地图元素多边形编辑）</div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">数据（基础+战斗参数）/ 装甲模型（车体+炮塔几何+装甲+座圈）/ 外观（车长塔+发动机舱+炮管+炮盾+履带+纹理）/ 掩体（地图元素多边形编辑）</div>
       <div class="btnrow" style="margin-top:8px;">
         <button id="modePreview" class="mode-btn">预览瞄准 Preview</button>
       </div>
@@ -168,7 +168,7 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:6px;">Delete/Backspace 删除选中顶点 · 方向键 1px 微调 · Esc 取消选中 · 网格吸附开启后拖动/新增顶点对齐到整数格</div>
     </div>
 
-    <div class="section panel-turret">
+    <div class="section panel-armor">
       <h3>座圈中心 Turret Ring Centers</h3>
       <div class="prop-row">
         <span class="lbl">车体座圈圆心 (pivot)</span>
@@ -193,7 +193,7 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">炮塔坐标系下，座圈圆心的横坐标（y 轴固定为 0，炮塔模式可拖动）</div>
     </div>
 
-    <div class="section panel-turret">
+    <div class="section panel-armor">
       <h3>炮塔多边形预设 Regular Polygon</h3>
       <div class="prop-row"><span class="lbl">边数</span>
         <select id="turretPresetN">
@@ -321,6 +321,48 @@
         </select>
       </div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">灰度/半透明图案平铺叠层，保持坦克主色（车体+炮塔同款）；在「预览」模式下即时可见，保存时写入 tank JSON（texture 字段）</div>
+    </div>
+
+    <div class="section panel-appearance">
+      <h3>车长塔 Cupola</h3>
+      <div class="prop-row"><span class="lbl">预设样式</span>
+        <select id="cupolaStyle">
+          <option value="">内置默认（按车型）</option>
+          <option value="standard">标准车长塔 Standard</option>
+          <option value="low">低轮廓 Low Profile</option>
+          <option value="panoramic">全景塔 Panoramic</option>
+          <option value="none">无 None</option>
+        </select>
+      </div>
+      <div class="prop-row"><span class="lbl">位置 X/Y</span>
+        <div style="display:flex; gap:4px; align-items:center;">
+          <input type="number" id="cupolaDx" value="0" step="1" style="width:56px;">
+          <input type="number" id="cupolaDy" value="0" step="1" style="width:56px;">
+          <label style="font-size:11px; color:var(--text-dim);"><input type="checkbox" id="cupolaMirror" style="width:auto;"> 镜像</label>
+        </div>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">相对炮塔中心的偏移（local 单位）；镜像为 Y 轴翻转。留空样式=用内置默认位置</div>
+    </div>
+
+    <div class="section panel-appearance">
+      <h3>发动机舱 Engine Deck</h3>
+      <div class="prop-row"><span class="lbl">预设样式</span>
+        <select id="engineDeckStyle">
+          <option value="">内置默认（按车型）</option>
+          <option value="standard">标准发动机舱 Standard</option>
+          <option value="rearGrille">尾部大格栅 Rear Grille</option>
+          <option value="compact">紧凑型 Compact</option>
+          <option value="none">无 None</option>
+        </select>
+      </div>
+      <div class="prop-row"><span class="lbl">位置 X/Y</span>
+        <div style="display:flex; gap:4px; align-items:center;">
+          <input type="number" id="engineDeckDx" value="0" step="1" style="width:56px;">
+          <input type="number" id="engineDeckDy" value="0" step="1" style="width:56px;">
+          <label style="font-size:11px; color:var(--text-dim);"><input type="checkbox" id="engineDeckMirror" style="width:auto;"> 镜像</label>
+        </div>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">相对车体中心的偏移（local 单位）；镜像为 Y 轴翻转。留空样式=用内置默认位置</div>
     </div>
 
     <div class="section panel-appearance">

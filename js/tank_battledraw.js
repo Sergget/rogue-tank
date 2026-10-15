@@ -33,11 +33,14 @@ function renderHullTexture(ctx, t){
   const hpRatio = Math.max(0, Math.min(1, (t.hp || 0) / maxHp));
   const damageLevel = hpRatio > 0.75 ? 0 : hpRatio > 0.5 ? 1 : hpRatio > 0.25 ? 2 : 3;
   paintPartTexture(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 1, t.color, 'hull',
-    { detail:true, texture: t.texture, damageLevel, weatherSeed: t.weatherSeed || 1 });
+    { detail:true, texture: t.texture, damageLevel, weatherSeed: t.weatherSeed || 1,
+      appearance: t.appearance || undefined });
 }
 // turret top-down paint.
 function renderTurretTexture(ctx, cx, cy, angle, t){
-  paintPartTexture(ctx, turretPoly(t).verts, cx, cy, angle, 1, t.color, 'turret', { detail:true, heightClass: t.heightClass, texture: t.texture });
+  paintPartTexture(ctx, turretPoly(t).verts, cx, cy, angle, 1, t.color, 'turret',
+    { detail:true, heightClass: t.heightClass, texture: t.texture,
+      appearance: t.appearance || undefined });
 }
 
 // 履带被击断的俯视表现：擦除断开段 + 撕裂金属残端 + 脱落履带节。
