@@ -578,3 +578,21 @@
   - **定向验证**（真实 `getBoundingClientRect` 求交集，非仅看 CSS）：强制 4 元素同时可见（最坏情况）后，两两重叠面积全部为 **0 px²**；纵向序列 top = 12 / 41 / 64 / 95，容器为 `display:flex`。
 
 - **验证（三链）**：`npm run check` **EXIT=0** / `npm test` **44/44 通过** / `npm run test:browser` **ALL PASS**（116 断言）。另有上述四项定向浏览器验证（23 + 8 断言）全绿。
+
+### §4.81 2026-10-16 Boss 追加轮卡池修复与稀有度保底重做
+
+- **来源**：用户实测反馈两轮 —— ①「电磁炮没有加入 boss 战模式的卡池？打到节点 10 后只剩 2 个卡牌可选，无法再继续」；②「boss 战后的卡牌确保至少 1 张传奇、2 张史诗，其余随意，将非普通卡的抽中几率调高即可」。现行细则归口 `specs/cards.md` §9、`specs/boss.md` §5。
+
+- **① 根因（两个现象同一因）：Boss 池按稀有度硬过滤 + 池枯竭**
+  - `bossLootPool()` 原按 `CARD_RARITIES.indexOf(c.rarity) >= indexOf(loot.cardRarity)` **硬过滤**；3 个 Boss 配 `legendary`（下标 3）⇒ `epic`（下标 2）整档被排除——**电磁炮**/机炮/双管/弹夹炮与**全部副武器安装卡**（共 28 张装备卡）在 Boss 轮永不可见。
+  - 且 Boss 模式**每个节点都是 Boss 轮**，每轮都走这个被砍到 26 张的池子，池内又全是 `maxStacks=1`（拿过即不可再拿）⇒ 实测第 5 轮可用池仅剩 1 张、第 6 轮归零。
+  - **卡死的直接机制**：`rewardPickTarget()` 恒返回 3（Boss 轮），而确认按钮要求 `selectedIdx.size >= need`——候选不足 3 张时该条件永不成立 ⇒ **确认按钮永久禁用**，流程无法推进（用户「只剩 2 张卡无法继续」）。
+  - **修复**：㈠ `bossLootPool()` 返回全池（不再排他）；㈡ `rewardPickTarget()` 按**实际候选数**封顶（候选 2 张即只需选 2 张、0 张直接放行），候选不足时 UI 明示「可抽卡牌已耗尽」，空池分支区分「本局已耗尽」与「卡池没加载」（后者是真故障，不被掩盖）。
+- **② 新口径：Boss 轮稀有度保底 + 非普通卡加权（用户要求）**
+  - 参数唯一口径 `RULES.cards.bossRound`：`guarantee: { legendary: 1, epic: 2 }` + `rarityWeights: { common:20, rare:32, epic:30, legendary:15, mythic:3 }`（原全局 `50/30/15/4.5/0.5`）。
+  - `drawCardChoices` 新增两项可选契约：`opts.guaranteeRarity`（按配比保底「至少 N 张」，从稀到常见逐项满足，已命中同档则不重复追加，池内无货静默跳过）与 `opts.rarityWeights`（覆盖稀有度权重，该档抽空时回退加权池再回退全池，防空桶空转）。默认不传 = 既有行为零影响。
+  - `weightedRarity(r, weights)` 加可选权重参数；权重表全 0 时回退 `common` 防除零。
+  - 结算界面「稀有度保底」文案改由 `bossRoundGuaranteeLabel()` 从 RULES 派生（旧实现写死 `loot.cardRarity` 标签，与新保底不再一致）。
+- **实测配比（1000 次抽取）**：满足「≥1 传奇 + ≥2 史诗」**1000/1000**；候选稀有度分布 common 7.6% / rare 15.2% / epic 51.4% / legendary 25.7%（对照旧权重：common 49.6% / legendary 3.9%）。普通轮不受影响（普通卡仍 49.0%）。
+- **容量上限（实测发现的边界，属正常设计约束而非缺陷）**：`legendary` 全池 15 张且全为 `maxStacks=1`，Boss 轮每轮消耗 1 张 ⇒ **约第 12 轮后传奇抽完，保底优雅降级为 0 传奇**（候选仍恒 5 张、不缩水、不卡死）；`epic` 容量约 22 轮。已逐轮消耗模拟 + 端到端浏览器实测双重确认「有货必保、无货降级」。
+- **验证（三链）**：`npm run check` **EXIT=0** / `npm test` **44/44 通过**（`test-cards` 新增 #BOSS-ROUND 段 10 项断言：配比已定义 / 候选恒 5 张 / 保底 200-200 / 普通卡占比 <20% / 传奇占比 >15% / 普通轮不受影响 / 池内无传奇静默跳过 / 30 轮逐轮消耗不缩水 / 降级不早于第 5 轮 / 权重全 0 不除零）/ `npm run test:browser` **ALL PASS**（116 断言）。另有端到端浏览器验证（真实 Home→Loadout→battle→settlement→reward 循环 20 轮，每轮候选均满足保底）6 项断言全绿。

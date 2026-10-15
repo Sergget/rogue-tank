@@ -39,7 +39,7 @@ validateBoss 校验；bossStageFor 按 hp 比例取当前阶段：
 - **炮击压制数据驱动（#S3，2026-10-15）**：`behavior.barrage` 去 `style==='command'` 门控，任意 Boss 配置即生效。现行：commander（3 发/9s/半径 110）/ fortress（4 发/14s/半径 160，防御迫击炮）/ sniper（2 发/12s/半径 70，精确打击）。
 - **召唤时间兜底（#S3，2026-10-15）**：`bossSummonWave` 除 hpFrom 阈值外，开战 `RULES.boss.summonWaves.timeTriggerSec`（缺省 75s）后强制触发下一未触发波次（`t.bossFightT` 由 mvp 主循环累计）。防久战磨血无召唤。
 - **弱点命中增益**：命中模块与当前阶段 weakspots 匹配时（`isWeakspotHit` + `moduleFromHit`），从 `RULES.boss.weakspot`（dmgMul:1.5 / penAdd:15 / ignoreBounce:true）构造 `resolveHit` opts 注入增益（物理语义见 specs/combat.md §2「resolveHit 可选增益 opts」）。
-- **Boss 战利品奖励链**：`loot.cards > 0` 时 settlement→reward 追加 N 轮三选一，卡池按 `CARD_RARITIES.indexOf(c.rarity) >= indexOf(loot.cardRarity)` 过滤（不足 3 张逐档放宽至全池兑底）；结算界面显示追加卡牌行。
+- **Boss 战利品奖励链**：`loot.cards > 0` 时 settlement→reward 追加 N 轮三选一；结算界面显示追加卡牌行。**卡池不再按 `loot.cardRarity` 做稀有度下限过滤**（2026-10-16 用户要求「至少 1 传奇 + 2 史诗、其余随意、非普通卡几率调高」）——现行由抽取层表达：`RULES.cards.bossRound.guarantee`（配比保底）+ `.rarityWeights`（抬高非普通卡权重）。**沿革（被推翻）**：原按 `CARD_RARITIES.indexOf(c.rarity) >= indexOf(loot.cardRarity)` 过滤，3 个 Boss 配 `legendary` ⇒ `epic` 整档（含电磁炮与全部副武器安装卡）在 Boss 轮不可见，且 Boss 模式每节点都是 Boss 轮 ⇒ 池子逐轮枯竭卡死。`loot.cardRarity` 现仅作结算界面文案的兜底标签。现行细则见 `specs/cards.md` §9“Boss 追加轮稀有度保底 + 非普通卡加权”。
 - **当前 ai.mode 分配（5 Boss × 3 阶段共 15 个）**：commander hold/skirmish/charge；fortress hold/charge/charge；siege_fort hold/skirmish/charge；sniper skirmish×3（keepDist 900/800/700）；twin_track skirmish/hold/charge。
 - **测试**：scripts/test-boss.js（+16 断言）/ scripts/test-ai.js（+15）/ scripts/test-physics.js（新建，19 断言）；npm run check / npm test 全绿。
 
