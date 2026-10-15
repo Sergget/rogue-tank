@@ -91,6 +91,18 @@ let trackPhase = 0; // scrolling track animation phase for edit modes (driven at
 let editTab = 'data';
 // 部件可见性开关（纯编辑辅助，不写入任何导出/JSON）：隐藏的部件不渲染、不参与画布命中
 let partVisible = { hull: true, turret: true };
+// 内部模块判定区叠加显示（只读可视化，不写入任何导出/JSON）
+let showModuleZones = false;
+// 模块固定配色（与图例/画布叠加共用）
+const MODULE_COLORS = {
+  driver:    '#4aa8ff',  // 驾驶员 蓝
+  gunner:    '#5fd97a',  // 炮手 绿
+  loader:    '#ffd24a',  // 装填手 黄
+  commander: '#b07aff',  // 车长 紫
+  ammo:      '#ff5040',  // 弹药架 红
+  engine:    '#ff9a3c',  // 发动机 橙
+  breech:    '#40e0d0'   // 炮闩 青
+};
 // 背景参考图片（设计器本地，仅预览，不写入存档）
 let bgImage = null;          // HTMLImageElement，由文件上传的 ObjectURL 加载
 let bgObjectUrl = null;      // 用于释放内存
@@ -718,6 +730,9 @@ function updatePanelVisibility(){
   document.querySelectorAll('.panel-data, .panel-armor, .panel-appearance, .panel-cover').forEach(el=>{
     el.style.display = el.classList.contains('panel-'+editTab) ? '' : 'none';
   });
+  // 内部模块图例：显隐同时受「内部模块」开关控制（避免被上面的 panel-armor 统显覆盖）
+  const _mzl = document.getElementById('moduleZoneLegend');
+  if(_mzl) _mzl.style.display = (editTab==='armor' && showModuleZones) ? '' : 'none';
   // #3（2026-10-15）：外观标签时，外观件面板移到左栏
   const leftSidebar = document.getElementById('left-sidebar');
   if(leftSidebar){
@@ -796,6 +811,183 @@ document.getElementById('partVisTurretBtn').addEventListener('click', ()=>{
   if(partVisible.turret && !partVisible.hull){ pushHint('至少保留一个部件可见'); return; }
   setPartVisible('turret', !partVisible.turret);
 });
+
+// ================= 内部模块判定区叠加（只读可视化，口径 RULES.modules.zonesV2） =================
+document.getElementById('moduleZoneBtn').addEventListener('click', ()=>{
+  showModuleZones = !showModuleZones;
+  document.getElementById('moduleZoneBtn').classList.toggle('active', showModuleZones);
+  if(showModuleZones) renderModuleZoneLegend();
+  updatePanelVisibility(); // 图例显隐经此处统一（含 editTab 门控）
+  render();
+});
+
+// Sutherland–Hodgman：多边形按轴对齐半平面裁剪（pts 为 [x,y] 数组）
+// plane: 'x>=' | 'x<=' | 'y>=' | 'y<='
+function clipPolyHalfPlane(pts, plane, v){
+  const out = [];
+  const inside = (p) => plane==='x>=' ? p[0]>=v-1e-9 : plane==='x<=' ? p[0]<=v+1e-9
+    : plane==='y>=' ? p[1]>=v-1e-9 : p[1]<=v+1e-9;
+  const cross = (a, b) => {
+    const dx = b[0]-a[0], dy = b[1]-a[1];
+    let t = 0.5;
+    if(plane[0]==='x' && Math.abs(dx)>1e-12) t = (v-a[0])/dx;
+    else if(plane[0]==='y' && Math.abs(dy)>1e-12) t = (v-a[1])/dy;
+    return [a[0]+dx*t, a[1]+dy*t];
+  };
+  for(let i=0;i<pts.length;i++){
+    const a = pts[i], b = pts[(i+1)%pts.length];
+    const ain = inside(a), bin = inside(b);
+    if(ain) out.push(a);
+    if(ain !== bin) out.push(cross(a,b));
+  }
+  return out;
+}
+
+// 区内最高权重模块（并列取键序第一；空 → null）
+function dominantModule(weights){
+  let best = null, bv = -1;
+  for(const k of Object.keys(weights||{})){
+    const w = weights[k];
+    if(w > bv){ bv = w; best = k; }
+  }
+  return best;
+}
+
+function moduleLabel(k){
+  return (RULES.modules.labels && RULES.modules.labels[k]) || k;
+}
+
+// 车体当前构型：座圈 dx ≥ 车体 centroid.x → 前置炮塔（与 moduleFromHit 同口径）
+function hullPivotConfig(){
+  const full = buildFullVerts(state.hull.half);
+  const hc = polyCentroidLocal(full);
+  const dx = (state.turret.pivot && Number.isFinite(state.turret.pivot.dx)) ? state.turret.pivot.dx : 8;
+  return (dx >= hc.x) ? 'hullFrontPivot' : 'hullRearPivot';
+}
+
+function fillClippedZone(screenPts, color, labelLines){
+  if(!screenPts || screenPts.length < 3) return;
+  ctx.save();
+  ctx.beginPath();
+  screenPts.forEach((p,i)=>{ if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+  ctx.closePath();
+  ctx.globalAlpha = 0.32;
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // 标签：区域 centroid 处深色底 pill
+  let sx=0, sy=0;
+  for(const p of screenPts){ sx+=p.x; sy+=p.y; }
+  sx/=screenPts.length; sy/=screenPts.length;
+  ctx.font = '10px "JetBrains Mono", monospace';
+  const lineH = 13;
+  const wMax = Math.max(...labelLines.map(l=>ctx.measureText(l).width));
+  const hBox = labelLines.length*lineH + 6;
+  ctx.fillStyle = 'rgba(8,10,12,0.82)';
+  ctx.fillRect(sx-wMax/2-5, sy-hBox/2, wMax+10, hBox);
+  ctx.strokeStyle = color; ctx.lineWidth = 1;
+  ctx.strokeRect(sx-wMax/2-5, sy-hBox/2, wMax+10, hBox);
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  labelLines.forEach((l,i)=>ctx.fillText(l, sx, sy-hBox/2+3+lineH*(i+0.5)));
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.restore();
+}
+
+const QUAD_LABEL = { frontLeft:'前·左', frontRight:'前·右', rearLeft:'后·左', rearRight:'后·右' };
+
+// 内部模块判定区叠加绘制（装甲标签 + 开关打开时由 render() 调用）
+function drawModuleZones(turretAngle){
+  const ZV = (RULES.modules && RULES.modules.zonesV2) || {};
+  turretAngle = turretAngle || 0;
+  // ---- 炮塔四象限（原点 = 炮塔装甲多边形 centroid，炮塔局部系 x=朝向） ----
+  if(partVisible.turret && ZV.turretQuadrants){
+    const full = buildFullVerts(state.turret.half);
+    if(full.length >= 3){
+      const c = polyCentroidLocal(full);
+      const quads = {
+        frontLeft:  [['x>=', c.x], ['y<=', c.y]],
+        frontRight: [['x>=', c.x], ['y>=', c.y]],
+        rearLeft:   [['x<=', c.x], ['y<=', c.y]],
+        rearRight:  [['x<=', c.x], ['y>=', c.y]]
+      };
+      for(const qk of Object.keys(ZV.turretQuadrants)){
+        const weights = ZV.turretQuadrants[qk];
+        const planes = quads[qk];
+        if(!planes) continue;
+        let pts = full.slice();
+        for(const [pl, v] of planes) pts = clipPolyHalfPlane(pts, pl, v);
+        const dom = dominantModule(weights);
+        const color = MODULE_COLORS[dom] || '#ffffff';
+        const lines = Object.keys(weights).map(k=>`${moduleLabel(k)} ${Math.round(weights[k]*100)}%`);
+        lines.unshift('炮塔' + (QUAD_LABEL[qk]||qk));
+        fillClippedZone(pts.map(p=>turretToScreen(p, turretAngle)), color, lines);
+      }
+      // centroid 十字标记（象限原点）
+      const cc = turretToScreen([c.x, c.y], turretAngle);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cc.x-8,cc.y); ctx.lineTo(cc.x+8,cc.y);
+      ctx.moveTo(cc.x,cc.y-8); ctx.lineTo(cc.x,cc.y+8);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+  // ---- 车体纵轴区段（t=0 车头；构型由座圈位置决定） ----
+  if(partVisible.hull){
+    const cfgKey = hullPivotConfig();
+    const segs = ZV[cfgKey] || [];
+    const full = buildFullVerts(state.hull.half);
+    if(full.length >= 3 && segs.length){
+      let minX=Infinity, maxX=-Infinity;
+      for(const v of full){ if(v[0]<minX) minX=v[0]; if(v[0]>maxX) maxX=v[0]; }
+      const range = Math.max(1e-6, maxX-minX);
+      const hc = hullCenter();
+      segs.forEach((seg, si)=>{
+        const xHi = maxX - seg.tMin*range;  // t 小 → 车头(+x)
+        const xLo = maxX - seg.tMax*range;
+        let pts = clipPolyHalfPlane(full.slice(), 'x<=', xHi);
+        pts = clipPolyHalfPlane(pts, 'x>=', xLo);
+        const dom = dominantModule(seg.weights);
+        const color = MODULE_COLORS[dom] || '#ffffff';
+        const lines = Object.keys(seg.weights).map(k=>`${moduleLabel(k)} ${Math.round(seg.weights[k]*100)}%`);
+        lines.unshift(`车体 t∈[${seg.tMin},${seg.tMax}]`);
+        fillClippedZone(pts.map(p=>toScreen(hc, p, 0)), color, lines);
+      });
+    }
+  }
+}
+
+// 图例面板（左栏装甲区）：颜色 = 模块固定色；概率 = zonesV2 原始权重
+function renderModuleZoneLegend(){
+  const body = document.getElementById('moduleZoneLegendBody');
+  if(!body) return;
+  const ZV = (RULES.modules && RULES.modules.zonesV2) || {};
+  const labels = (RULES.modules && RULES.modules.labels) || {};
+  const cfgKey = hullPivotConfig();
+  const cfgName = cfgKey==='hullFrontPivot' ? '前置炮塔' : '后置炮塔';
+  const sw = (k)=>`<span class="sw" style="background:${MODULE_COLORS[k]||'#fff'};"></span>`;
+  let html = `<div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">车体构型：<b style="color:var(--amber);">${cfgName}</b>（<span class="mono">${cfgKey}</span>，由座圈 dx 相对车体 centroid 位置决定）</div>`;
+  html += `<div style="font-size:11px; font-weight:700; margin:6px 0 3px;">炮塔四象限 <span style="font-weight:normal; color:var(--text-dim);">（原点=炮塔装甲 centroid）</span></div>`;
+  for(const qk of Object.keys(ZV.turretQuadrants||{})){
+    const w = ZV.turretQuadrants[qk];
+    const items = Object.keys(w).map(k=>`${sw(k)}${labels[k]||k} <b>${Math.round(w[k]*100)}%</b>`).join('　');
+    html += `<div style="font-size:11px; margin:2px 0;">${QUAD_LABEL[qk]||qk}：${items}</div>`;
+  }
+  html += `<div style="font-size:11px; font-weight:700; margin:8px 0 3px;">车体纵轴区段 <span style="font-weight:normal; color:var(--text-dim);">（t=0 车头）</span></div>`;
+  for(const seg of (ZV[cfgKey]||[])){
+    const items = Object.keys(seg.weights).map(k=>`${sw(k)}${labels[k]||k} <b>${Math.round(seg.weights[k]*100)}%</b>`).join('　');
+    html += `<div style="font-size:11px; margin:2px 0;"><span class="mono">t∈[${seg.tMin},${seg.tMax}]</span>：${items}</div>`;
+  }
+  html += `<div class="legend" style="margin-top:8px;">` +
+    Object.keys(MODULE_COLORS).map(k=>`<div>${sw(k)}${labels[k]||k}</div>`).join('') + `</div>`;
+  html += `<div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:6px;">注：履带走侧面 trackBound（|x|&gt;0.78·半长）恒先截获，不在 zonesV2 着色；各区权重和&lt;1 的余量=正常结算、无模块加成。</div>`;
+  body.innerHTML = html;
+}
 
 // ================= zoom controls =================
 document.getElementById('zoomInBtn').addEventListener('click', ()=>{ viewScale=Math.min(ZOOM_MAX,viewScale*1.2); updateZoomReadout(); render(); });
@@ -2087,6 +2279,9 @@ function render(){
     drawPolygon(state.turret, null, turretAngle, Object.assign({ active: mode==='turret' || mode==='pivot' }, partOpts));
     if(state.spritePreview) drawPreviewSpriteBarrel(turretAngle);
   }
+
+  // 内部模块判定区叠加（只读可视化；装甲标签下经「内部模块」开关开启）
+  if(showModuleZones && editTab==='armor') drawModuleZones(turretAngle);
 
   // 1. 车体上的炮塔座圈圆心 (pivot) 标记位置：
   const ringCenter = {

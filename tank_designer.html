@@ -108,6 +108,12 @@
        <div class="edge-list" id="turretEdgeList"></div>
       </div>
 
+     <div class="section panel-armor" id="moduleZoneLegend" style="display:none;">
+       <h3>内部模块判定区 Module Zones <span style="font-size:10px; color:var(--text-dim); font-weight:normal;">只读</span></h3>
+       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">击穿后模块判定（<span class="mono">moduleFromHit</span>，口径 <span class="mono">RULES.modules.zonesV2</span>）：炮塔按 centroid 四象限、车体按纵轴 t 区段（0=车头）分区抽取；区内按权重互斥抽取，余量概率=正常结算无加成。区域颜色=该区最高权重模块色。</div>
+       <div id="moduleZoneLegendBody"></div>
+      </div>
+
   </div>
 
   <div id="right-sidebar">
@@ -163,6 +169,7 @@
         <span class="lbl" style="font-size:10px; color:var(--text-dim);">部件可见</span>
         <button id="partVisHullBtn" class="part-vis-btn active">车体</button>
         <button id="partVisTurretBtn" class="part-vis-btn active">炮塔</button>
+        <button id="moduleZoneBtn" class="part-vis-btn" title="在装甲模型标签下叠加显示内部模块受击判定区（只读）">内部模块</button>
       </div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">「部件可见」可单独隐藏车体/炮塔（仅编辑辅助，不写入存档）：隐藏的部件不渲染、不参与任何画布命中；仅剩一个部件可见时无法再隐藏</div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:6px;">Delete/Backspace 删除选中顶点 · 方向键 1px 微调 · Esc 取消选中 · 网格吸附开启后拖动/新增顶点对齐到整数格</div>
