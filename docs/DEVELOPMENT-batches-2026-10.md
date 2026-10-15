@@ -497,3 +497,12 @@
   - 召唤：`bossSummonWave` 加时间兜底（75s 未触发波次强制下一波，`bossFightT` 累计）。
 - **验证**：`scripts/test-ai.js` 新增 #S2 8 断言、`test-boss.js` 新增 #S3 2 断言；`npm run check` EXIT=0；`npm test` 43/43。
 - **现行口径归口**：`docs/specs/combat.md`（五层级警觉）、`docs/specs/boss.md`（行为/炮击/召唤）。ISSUES.md #S2/#S3 删除并归档。
+
+### §4.76 2026-10-15 #TEX：回归程序化涂装/纹理/装饰件
+
+- **背景**：用户裁定 AI 生成拟真贴图在 56~70px 渲染尺度下细节不可见（17:1 压缩比）、与地图元素协同困难；且精灵分支做不出履带滚动动画、殉爆/断履带强制回退程序化——两套系统必须共存，AI 路线省不掉程序化代码。
+- **动作 1**：tiger-I/Leapard_1/Obj 780 的 `sprite.enabled` 置 false（5 车全部程序化渲染）。PNG 资源保留（3.5MB），AI 管线文档保留。
+- **动作 2**：程序化装饰件库（`js/tank_paint.js` `DECORATION_DEFS`）：toolbox/spareTrack/jerryCan/log/shovel/camoNet 共 6 类型，深色描边+高对比色块保证小尺度可读。`drawAttachments` 接线（`js/tank_battledraw.js:909`），`assignTankDecorations` 按 tank id hash 确定性分配 2~3 件（车体后部/侧面，避开炮塔座圈）。
+- **动作 3**：细节层——`paintRivets`（甲板边缘铆钉排+高光点）、`paintWeathering`（level 0~3：划痕/锈斑/泥点/掉漆，seed 确定性）。
+- **动作 4**：动态损伤——`renderHullTexture` 按 hp 比例分 4 级（>75%/50%/25%/≤25% → 0/1/2/3），`weatherSeed` 每车固定防闪烁。
+- **验证**：`npm run check` 通过；`npm test` 43/43；`scripts/test-tanks.js` 新增 #TEX 断言（5 车精灵关闭/6 装饰件/绘制不抛错）；Node 直出装饰件样张可读。

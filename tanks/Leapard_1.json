@@ -18,7 +18,7 @@
   "aimSpeed": 2.5,
   "texture": "camo_nato",
   "sprite": {
-    "enabled": true,
+    "enabled": false,
     "track": {
       "img": "assets/tanks/track-links.png",
       "scale": 0,

@@ -104,5 +104,31 @@ for(const f of files){
   }
 }
 
+// #TEX-2026-10-15: 精灵已关闭（回归程序化），装饰件库就绪
+{
+  const PAINT = require('../js/tank_paint.js');
+  // 1) 5 车 sprite.enabled 全部 false
+  for(const f of fs.readdirSync(TANKS_DIR).filter(f => f.endsWith('.json'))){
+    const spec = JSON.parse(fs.readFileSync(path.join(TANKS_DIR, f), 'utf8'));
+    const en = spec.sprite && spec.sprite.enabled;
+    ok(en !== true, `${f}: sprite.enabled 非 true（程序化渲染）`);
+  }
+  // 2) 装饰件库 6 类型齐全
+  const decoKeys = PAINT.DECORATION_DEFS ? Object.keys(PAINT.DECORATION_DEFS) : [];
+  for(const k of ['toolbox','spareTrack','jerryCan','log','shovel','camoNet']){
+    ok(decoKeys.includes(k), `#TEX 装饰件库含 ${k}`);
+  }
+  // 3) paintRivets/paintWeathering 可调用（mock ctx 不抛错）
+  const mockCtx = new Proxy({}, { get: (t, p) => (p === 'canvas' ? {} : () => mockCtx) });
+  try {
+    PAINT.paintRivets(mockCtx, 0, 0, -30, 30, 19, 32, '#4a4e54');
+    PAINT.paintWeathering(mockCtx, 0, 0, -30, 30, 19, 32, 3, 42);
+    for(const k of decoKeys) PAINT.DECORATION_DEFS[k](mockCtx, 1);
+    ok(true, '#TEX paintRivets/paintWeathering/装饰件绘制不抛错');
+  } catch(e){
+    ok(false, '#TEX 绘制函数抛错: ' + e.message);
+  }
+}
+
 console.log(fails === 0 ? 'test-tanks: 全部通过' : `test-tanks: ${fails} 项失败`);
 process.exit(fails === 0 ? 0 : 1);

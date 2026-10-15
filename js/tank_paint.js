@@ -295,6 +295,11 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
   }
   if(!opts.faded && opts.detail !== false){
     if(isHull){
+      // #TEX-2026-10-15: 铆钉排（甲板边缘）+ weathering（损伤分级，opts.damageLevel 0~3）
+      paintRivets(ctx, cxm, cym, minX, maxX, W, L, bodyCol);
+      if(opts.damageLevel > 0){
+        paintWeathering(ctx, cxm, cym, minX, maxX, W, L, opts.damageLevel, opts.weatherSeed || 1);
+      }
       // inset deck plate (sealed perimeter)
       ctx.strokeStyle = paintShade(bodyCol, 4); ctx.lineWidth = 1.5;
       paintBeginLocal(ctx, verts.map(([vx,vy]) => [cxm + (vx-cxm)*0.74, cym + (vy-cym)*0.74]));
@@ -340,6 +345,169 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
   }
   ctx.restore();
 }
+
+// --- 程序化装饰件库（2026-10-15 #TEX：回归程序化，替代 AI 精灵）---
+// 铆钉排：沿甲板边缘一圈铆钉（local 坐标系，cxm/cym 为中心）
+function paintRivets(ctx, cxm, cym, minX, maxX, W, L, bodyCol){
+  const rx0 = minX + L*0.06, rx1 = maxX - L*0.06;
+  const ry = W*0.62;
+  ctx.fillStyle = paintShade(bodyCol, -22);
+  const step = Math.max(6, L*0.055);
+  for(let x = rx0; x <= rx1 + 0.5; x += step){
+    for(const y of [cym - ry, cym + ry]){
+      ctx.beginPath(); ctx.arc(x, y, 1.1, 0, Math.PI*2); ctx.fill();
+    }
+  }
+  // 铆钉高光点
+  ctx.fillStyle = paintShade(bodyCol, 26);
+  for(let x = rx0; x <= rx1 + 0.5; x += step){
+    for(const y of [cym - ry, cym + ry]){
+      ctx.beginPath(); ctx.arc(x - 0.35, y - 0.35, 0.45, 0, Math.PI*2); ctx.fill();
+    }
+  }
+}
+
+// 确定性伪随机（装饰/weathering 用，保证同车同 seed 同结果）
+function _hash2(x, y, seed){
+  let h = (x*374761393 + y*668265263 + seed*974634) | 0;
+  h = (h ^ (h >> 13)) | 0;
+  return ((h * 1274126177) >>> 0) / 4294967295;
+}
+
+// weathering：level 0~3（0=出厂，3=重伤）。划痕/锈斑/泥点，随 level 加重。
+function paintWeathering(ctx, cxm, cym, minX, maxX, W, L, level, seed){
+  if(!(level > 0)) return;
+  seed = seed || 1;
+  const n = level * 4;
+  // 划痕（浅色细线）
+  ctx.strokeStyle = 'rgba(210,200,180,0.5)'; ctx.lineWidth = 0.8;
+  for(let i = 0; i < n; i++){
+    const x = minX + _hash2(i, 7, seed) * (maxX - minX);
+    const y = cym - W*0.5 + _hash2(i, 13, seed) * W;
+    const a = _hash2(i, 29, seed) * Math.PI;
+    const len = 3 + _hash2(i, 41, seed) * 7;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a)*len, y + Math.sin(a)*len);
+    ctx.stroke();
+  }
+  // 锈斑（深棕椭圆，level≥2）
+  if(level >= 2){
+    for(let i = 0; i < level * 3; i++){
+      const x = minX + _hash2(i, 53, seed) * (maxX - minX);
+      const y = cym - W*0.5 + _hash2(i, 67, seed) * W;
+      const r = 1.5 + _hash2(i, 79, seed) * 3;
+      ctx.fillStyle = `rgba(122,72,32,${0.25 + 0.15*level})`;
+      ctx.beginPath(); ctx.ellipse(x, y, r, r*0.7, _hash2(i, 83, seed)*3, 0, Math.PI*2); ctx.fill();
+    }
+  }
+  // 泥点（履带附近，level≥1）
+  ctx.fillStyle = 'rgba(96,74,48,0.55)';
+  for(let i = 0; i < level * 5; i++){
+    const side = i % 2 === 0 ? -1 : 1;
+    const x = minX + _hash2(i, 97, seed) * (maxX - minX);
+    const y = cym + side * (W*0.5 + _hash2(i, 103, seed) * W*0.28);
+    const r = 1 + _hash2(i, 109, seed) * 2.2;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  }
+  // 掉漆露金属（level 3：深色斑块）
+  if(level >= 3){
+    ctx.fillStyle = 'rgba(52,52,58,0.7)';
+    for(let i = 0; i < 6; i++){
+      const x = minX + _hash2(i, 127, seed) * (maxX - minX);
+      const y = cym - W*0.4 + _hash2(i, 131, seed) * W*0.8;
+      const r = 2 + _hash2(i, 137, seed) * 3.5;
+      ctx.beginPath(); ctx.ellipse(x, y, r, r*0.6, 0, 0, Math.PI*2); ctx.fill();
+    }
+  }
+}
+
+// 装饰件绘制函数表：每个在原点居中绘制，s 为缩放（约坦克 local 尺寸/60）。
+// 风格：深色描边 + 高对比色块，保证 60px 下可读。
+const DECORATION_DEFS = {
+  // 工具箱：矩形箱体 + 盖缝线 + 提手
+  toolbox(ctx, s){
+    const w = 10*s, h = 5*s;
+    ctx.fillStyle = '#5a4a33';
+    ctx.fillRect(-w/2, -h/2, w, h);
+    ctx.strokeStyle = 'rgba(15,15,18,0.7)'; ctx.lineWidth = 1;
+    ctx.strokeRect(-w/2, -h/2, w, h);
+    ctx.beginPath(); ctx.moveTo(-w/2, 0); ctx.lineTo(w/2, 0); ctx.stroke();
+    ctx.strokeStyle = '#3a3a3e'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(-2*s, -h/2); ctx.lineTo(-2*s, -h/2 - 1.6*s);
+    ctx.lineTo(2*s, -h/2 - 1.6*s); ctx.lineTo(2*s, -h/2); ctx.stroke();
+  },
+  // 备用履带节：4 节链条
+  spareTrack(ctx, s){
+    ctx.fillStyle = '#2e2e33';
+    for(let i = 0; i < 4; i++){
+      const x = (i - 1.5) * 3.2 * s;
+      ctx.fillRect(x - 1.4*s, -2.2*s, 2.8*s, 4.4*s);
+      ctx.strokeStyle = 'rgba(15,15,18,0.8)'; ctx.lineWidth = 0.8;
+      ctx.strokeRect(x - 1.4*s, -2.2*s, 2.8*s, 4.4*s);
+    }
+    ctx.fillStyle = '#4a4a52';
+    for(let i = 0; i < 4; i++){
+      const x = (i - 1.5) * 3.2 * s;
+      ctx.fillRect(x - 0.5*s, -1.6*s, 1*s, 3.2*s);
+    }
+  },
+  // 油桶：矩形 + X 压纹
+  jerryCan(ctx, s){
+    const w = 5.5*s, h = 7*s;
+    ctx.fillStyle = '#4f5b33';
+    ctx.fillRect(-w/2, -h/2, w, h);
+    ctx.strokeStyle = 'rgba(15,15,18,0.7)'; ctx.lineWidth = 1;
+    ctx.strokeRect(-w/2, -h/2, w, h);
+    ctx.beginPath();
+    ctx.moveTo(-w/2+1, -h/2+1); ctx.lineTo(w/2-1, h/2-1);
+    ctx.moveTo(w/2-1, -h/2+1); ctx.lineTo(-w/2+1, h/2-1);
+    ctx.stroke();
+    ctx.fillStyle = '#3a3a3e';
+    ctx.fillRect(-1*s, -h/2 - 1.2*s, 2*s, 1.2*s);
+  },
+  // 圆木：横置圆柱
+  log(ctx, s){
+    const w = 12*s, h = 3.6*s;
+    ctx.fillStyle = '#6b4e2e';
+    ctx.beginPath(); ctx.ellipse(0, 0, w/2, h/2, 0, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(15,15,18,0.7)'; ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(60,40,20,0.6)'; ctx.lineWidth = 0.7;
+    for(const dx of [-w*0.25, 0, w*0.25]){
+      ctx.beginPath(); ctx.moveTo(dx, -h/2 + 0.5); ctx.lineTo(dx, h/2 - 0.5); ctx.stroke();
+    }
+    ctx.fillStyle = '#8a6a42';
+    ctx.beginPath(); ctx.ellipse(w/2 - 0.5, 0, 1.2*s, h/2 - 0.6, 0, 0, Math.PI*2); ctx.fill();
+  },
+  // 工兵铲：柄 + 铲头
+  shovel(ctx, s){
+    ctx.strokeStyle = '#7a5c38'; ctx.lineWidth = 1.6*s; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-5*s, 0); ctx.lineTo(3*s, 0); ctx.stroke();
+    ctx.fillStyle = '#565660';
+    ctx.beginPath();
+    ctx.moveTo(3*s, -2.2*s); ctx.lineTo(7*s, -2.2*s);
+    ctx.lineTo(7*s, 2.2*s); ctx.lineTo(3*s, 2.2*s);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(15,15,18,0.7)'; ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+  },
+  // 伪装网：半透明网纹方块
+  camoNet(ctx, s){
+    const w = 11*s, h = 8*s;
+    ctx.fillStyle = 'rgba(74,90,52,0.55)';
+    ctx.fillRect(-w/2, -h/2, w, h);
+    ctx.strokeStyle = 'rgba(40,52,28,0.7)'; ctx.lineWidth = 0.7;
+    const step = 2.4*s;
+    for(let x = -w/2; x <= w/2; x += step){
+      ctx.beginPath(); ctx.moveTo(x, -h/2); ctx.lineTo(x, h/2); ctx.stroke();
+    }
+    for(let y = -h/2; y <= h/2; y += step){
+      ctx.beginPath(); ctx.moveTo(-w/2, y); ctx.lineTo(w/2, y); ctx.stroke();
+    }
+  },
+};
 
 // paintPartTexture(ctx, verts, cx, cy, angle, scale, color, kind, opts)
 //   kind : 'hull' | 'turret'
@@ -419,6 +587,9 @@ if (typeof module !== 'undefined' && module.exports) {
     getCachedTankSprite,
     paintPartTextureDirect,
     paintPartTexture,
+    paintRivets,
+    paintWeathering,
+    DECORATION_DEFS,
     SPRITE_CACHE,
     spriteImage,
     clearSpriteCache,

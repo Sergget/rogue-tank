@@ -4,6 +4,8 @@
 // 仿 tank_fx.js 先例：每个 draw 函数显式接收 ctx（tank_paint.js 约定），不触碰 DOM。
 // 测试台专用块（drawRange/addRangeShot/AMMO_KEYS/RANGE_*）留在 tank_mvp.html 不拆。
 //
+// 全局依赖（tank_paint.js，经 <script> 先加载）：paintShade/paintTracks/paintPartTexture/
+//   paintTurretShadow/DECORATION_DEFS/paintRivets/paintWeathering。
 //   drawTank(ctx, t)              — 完整坦克（履带/车体/炮塔/炮管/附件/血条/车型标志）
 //   drawBrokenTracks(ctx, t)      — 履带被击断的俯视表现
 //   drawCharredHull(ctx, t)       — 弹药架殉爆后的焦黑车体
@@ -26,7 +28,12 @@ function drawTracks(ctx, t){
 }
 // hull top-down paint.
 function renderHullTexture(ctx, t){
-  paintPartTexture(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 1, t.color, 'hull', { detail:true, texture: t.texture });
+  // #TEX-2026-10-15: 动态损伤分级（hp 越低 weathering 越重）+ 每车固定 weathering seed
+  const maxHp = (t.maxHp && t.maxHp > 0) ? t.maxHp : 100;
+  const hpRatio = Math.max(0, Math.min(1, (t.hp || 0) / maxHp));
+  const damageLevel = hpRatio > 0.75 ? 0 : hpRatio > 0.5 ? 1 : hpRatio > 0.25 ? 2 : 3;
+  paintPartTexture(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 1, t.color, 'hull',
+    { detail:true, texture: t.texture, damageLevel, weatherSeed: t.weatherSeed || 1 });
 }
 // turret top-down paint.
 function renderTurretTexture(ctx, cx, cy, angle, t){
@@ -884,7 +891,10 @@ function drawAttachments(ctx, t, turCx, turCy){
     }
 
     const anchor = (t.anchors && t.anchors[att.bindTo]) ? t.anchors[att.bindTo] : { dx: 0, dy: 0 };
-    const r = rotate(anchor.dx, anchor.dy, baseAngle);
+    // #TEX-2026-10-15: 装饰件可用 _decoDx/_decoDy 直接指定 local 坐标（不占用 anchors）
+    const dx = (att._decoDx !== undefined) ? att._decoDx : anchor.dx;
+    const dy = (att._decoDy !== undefined) ? att._decoDy : anchor.dy;
+    const r = rotate(dx, dy, baseAngle);
     const ax = basePos.x + r.x, ay = basePos.y + r.y;
 
     ctx.save();
@@ -898,6 +908,9 @@ function drawAttachments(ctx, t, turCx, turCy){
       ctx.fillStyle = t.color;
       ctx.fillRect(-4, -4, 8, 8);
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.strokeRect(-4, -4, 8, 8);
+    } else if (typeof DECORATION_DEFS !== 'undefined' && DECORATION_DEFS[att.type]) {
+      // #TEX-2026-10-15: 程序化装饰件（toolbox/spareTrack/jerryCan/log/shovel/camoNet）
+      DECORATION_DEFS[att.type](ctx, att.scale || 1);
     }
     ctx.restore();
   });

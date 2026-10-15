@@ -363,7 +363,49 @@ function makeTank(opts){
   if (opts.traverseLimitInDeg !== undefined) {
     tank.traverseLimit = opts.traverseLimitInDeg * Math.PI / 180;
   }
+  // #TEX-2026-10-15: 程序化装饰件分配（确定性，同 id 同装饰）
+  assignTankDecorations(tank);
+  // 每车固定 weathering seed（损伤纹理不闪烁）
+  tank.weatherSeed = _tankHash(tank.id || 'unknown') % 100000;
   return tank;
+}
+
+// 简单字符串 hash（装饰分配用）
+function _tankHash(s){
+  let h = 2166136261;
+  for(let i = 0; i < s.length; i++){
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+// 程序化装饰件：每车 2~3 件，位置在车体后部/侧面（避开炮塔座圈）。
+// 以 tank id hash 确定性选择，保证同车同装饰。
+function assignTankDecorations(t){
+  const TYPES = ['toolbox', 'spareTrack', 'jerryCan', 'log', 'shovel', 'camoNet'];
+  const h = _tankHash(t.id || 'unknown');
+  const count = 2 + (h % 2);  // 2~3 件
+  const L = (t.hullLen || 64) / 2, W = (t.hullWid || 38) / 2;
+  // 候选位置：后甲板两侧、车体侧面（local 坐标，前=+x）
+  const spots = [
+    { dx: -L*0.72, dy: -W*0.55 }, { dx: -L*0.72, dy: W*0.55 },
+    { dx: -L*0.45, dy: -W*0.78 }, { dx: -L*0.45, dy: W*0.78 },
+    { dx: L*0.15, dy: -W*0.80 },  { dx: L*0.15, dy: W*0.80 },
+  ];
+  for(let i = 0; i < count; i++){
+    const typeIdx = (h >>> (i*4)) % TYPES.length;
+    const spotIdx = (h >>> (i*4 + 2)) % spots.length;
+    const sp = spots[spotIdx];
+    t.attachments.push({
+      type: TYPES[typeIdx],
+      bindTo: 'hull',
+      // drawAttachments 用 anchors[bindTo] 做基点；这里直接用 dx/dy 做 anchor
+      _decoDx: sp.dx, _decoDy: sp.dy,
+      scale: 0.9 + ((h >>> (i*6)) % 30) / 100,  // 0.9~1.2
+      relativeAngle: ((h >>> (i*8)) % 60) - 30,  // ±30° 随机朝向
+    });
+  }
 }
 
 const SPEED_KMH_FACTOR = RULES.speed.kmhFactor;      // maxSpeed(px/s) × kmhFactor = km/h（与 computeStats.maxSpeedKmh 同源）
