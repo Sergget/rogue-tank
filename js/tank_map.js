@@ -436,6 +436,34 @@ function makeNode(index, rng, env) {
   // 否则推到违规掩体外缘相邻清空处。最终钳制在节点边界 [margin, w-margin]×[margin, h-margin] 内。
   const spawnMargin = cfg.spawnMargin || 60;
   let playerSpawn = { x: w * 0.10, y: h / 2 };
+  // 2026-10-16：#1 密度下左缘出生区可能被堵死（564 covers 的 strip 节点实测）。
+  // 生成后清场：若默认出生点被非道路 cover 占据，直接移除阻挡者（道路豁免），
+  // 保证"出生点在左 1/4"的设计约束。这比在 findPlayerSpawn 里向右找更符合意图，
+  // 且不改变 #1 的整体密度（仅清出生点周围）。
+  {
+    const sx = w * 0.10, sy = h / 2;
+    // 先粗判：是否有 cover 挡住
+    let blocked = false;
+    for (const c of templateResult.covers) {
+      if (!c || c.tier === 'road' || !Number.isFinite(c.x)) continue;
+      const hw = (c.w || 0) / 2 + spawnMargin, hh = (c.h || 0) / 2 + spawnMargin;
+      if (Math.abs(sx - c.x) <= hw && Math.abs(sy - c.y) <= hh) { blocked = true; break; }
+    }
+    if (blocked) {
+      // 精确清场：逐个检查，移除确实阻挡的
+      for (let i = templateResult.covers.length - 1; i >= 0; i--) {
+        const c = templateResult.covers[i];
+        if (!c || c.tier === 'road' || !Number.isFinite(c.x)) continue;
+        // 用单元素数组做精确点查询
+        const hit = (() => {
+          // 简化：AABB 精确到 OBB 中心距（pointInCover 的完整逻辑较重，此处用保守包络）
+          const hw = (c.w || 0) / 2 + spawnMargin, hh = (c.h || 0) / 2 + spawnMargin;
+          return Math.abs(sx - c.x) <= hw && Math.abs(sy - c.y) <= hh;
+        })();
+        if (hit) templateResult.covers.splice(i, 1);
+      }
+    }
+  }
   // #N4：出生点选址也走索引（strip covers 规模下 findPlayerSpawn 内部全表扫描同样昂贵）
   const spawnIdx = buildCoverIndex(templateResult.covers);
   const spawnHitsCover = (px, py, pad) => pointInCoverIndexed(spawnIdx, templateResult.covers, px, py, pad);
