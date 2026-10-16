@@ -610,12 +610,16 @@ function placeEdgeRiver(rng, tpl, scale, centerX, centerY, roadCovers) {
   // 生成河流中心线（带振幅参数，用于 75° 约束迭代）
   const buildRiverPts = (ampScale) => {
     const amp = band * 0.5 * ampScale;
+    // 宽度平滑变化：双正弦叠加（0.75x~1.25x），避免坑洼
+    const wPhase1 = rng() * Math.PI * 2, wPhase2 = rng() * Math.PI * 2;
+    const wFreq1 = rng.range(0.8, 1.5), wFreq2 = rng.range(2.0, 3.5);
     const pts = [];
     for (let i = 0; i <= 40; i++) {
       const t = i / 40 - 0.5;
       const meander = (baseOff + Math.sin(phase + (i / 40) * Math.PI * 2 * freq)) * amp;
-      const wVar = 0.7 + (i * 37 % 100) / 100 * 0.6;  // deterministic 宽度变化
-      const w = baseThick * wVar;
+      const wVar = 1.0 + 0.22 * Math.sin(wPhase1 + (i / 40) * Math.PI * 2 * wFreq1)
+                       + 0.08 * Math.sin(wPhase2 + (i / 40) * Math.PI * 2 * wFreq2);
+      const w = baseThick * Math.max(0.7, Math.min(1.3, wVar));
       let x, y;
       if (edge === 0) { x = centerX + t * span; y = centerY - halfH + band + meander; }
       else if (edge === 1) { x = centerX + t * span; y = centerY + halfH - band + meander; }
