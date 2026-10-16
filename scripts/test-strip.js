@@ -114,18 +114,45 @@ function passage38Connectivity(s) {
 //     路网整体横跨 ≥80% 条带宽。
 {
   let integOk = true;
+  // 2026-10-16：#1 道路改为连续多边形后，单 cover 可能横跨整条 strip，
+  // 中心点判交失效。改判多边形 bbox 是否与接缝区相交。
+  const roadIntersectsX = (c, x0, x1) => {
+    if (c.verts && c.verts.length >= 3) {
+      const a = c.angle || 0, ca = Math.cos(a), sa = Math.sin(a);
+      for (const v of c.verts) {
+        const wx = c.x + v[0] * ca - v[1] * sa;
+        if (wx >= x0 && wx <= x1) return true;
+      }
+      return false;
+    }
+    const hw = (c.w || 0) / 2;
+    return (c.x + hw >= x0) && (c.x - hw <= x1);
+  };
+  const roadMinMaxX = (c) => {
+    if (c.verts && c.verts.length >= 3) {
+      const a = c.angle || 0, ca = Math.cos(a), sa = Math.sin(a);
+      let mn = Infinity, mx = -Infinity;
+      for (const v of c.verts) {
+        const wx = c.x + v[0] * ca - v[1] * sa;
+        if (wx < mn) mn = wx; if (wx > mx) mx = wx;
+      }
+      return [mn, mx];
+    }
+    const hw = (c.w || 0) / 2;
+    return [c.x - hw, c.x + hw];
+  };
   for (const seed of [42, 7, 99]) {
     const s = NG.generateStrip(0.5, stripOpts(seed));
     for (let i = 1; i < s.chunks.length; i++) {
       const bx = s.chunks[i].x0;
-      const near = s.covers.filter(c => c.tier === 'road' && Math.abs(c.x - bx) < 200);
+      const near = s.covers.filter(c => c.tier === 'road' && roadIntersectsX(c, bx - 200, bx + 200));
       if (near.length === 0) integOk = false;
     }
     const roads = s.covers.filter(c => c.tier === 'road');
     let minX = Infinity, maxX = -Infinity;
     for (const r of roads) {
-      minX = Math.min(minX, r.x - (r.w || 0) / 2);
-      maxX = Math.max(maxX, r.x + (r.w || 0) / 2);
+      const [mn, mx] = roadMinMaxX(r);
+      if (mn < minX) minX = mn; if (mx > maxX) maxX = mx;
     }
     if (maxX - minX < s.w * 0.8) integOk = false;
   }
