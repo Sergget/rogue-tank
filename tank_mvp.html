@@ -2573,8 +2573,7 @@ watchFlow(flow, (state, payload) => {
       // #MODE（2026-10-15 用户裁定修订）：Boss 模式的局内商店**已开放**，改在 reward 屏
       // 选完卡后展开（revealRewardShop）。结算屏仍不内嵌商店——避免与紧随其后的 reward 屏
       // 商店重复出现两处入口（结算只做得分展示，购物集中在战前整备那一步）。
-      if(GAME_MODE !== 'boss') renderRunShop();   // 2026-09-14：局内商店（基础参数升级）随结算界面展示
-      else { const _rsBox = document.getElementById('runShopBox'); if(_rsBox) _rsBox.style.display = 'none'; }
+      renderRunShop();   // 2026-09-14：局内商店（基础参数升级）随结算界面展示
     }
     showScreen('settleScreen'); setOverlayVisible(true);
   } else if(state === 'reward'){
