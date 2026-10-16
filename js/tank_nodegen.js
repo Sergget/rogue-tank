@@ -3635,10 +3635,24 @@ function generateStrip(difficulty, options) {
     }
 
     // --- minPassageWidth：两两 OBB「中心距 − 较大半对角线」的最小正值间隙 ---
+    // #1（2026-10-16）：cde3bc3 起道路为连续多边形（整链外接 bbox，半对角线达上千 px）——
+    // 若直接参与两两配对，road↔X 的 gap 几乎全为负被排除，minPassage 被系统性抬高
+    //（woodland_line 1→12）。此处用 roadCoversToSegments() 还原短 OBB 段参与度量，
+    // 与基线标定时的分段道路口径一致（已验证还原与旧分段 0 误差）。
+    const _mpCovers = [];
+    for (const c of covers) {
+      if (c && c.tier === 'road' && c.verts && c.verts.length >= 6) {
+        const _rw = (result && result.roadW) || 100;
+        const _segs = roadCoversToSegments([c], _rw);
+        for (const _s of _segs) _mpCovers.push(_s);
+      } else {
+        _mpCovers.push(c);
+      }
+    }
     let minGap = Infinity;
-    for (let i = 0; i < covers.length; i++) {
-      for (let j = i + 1; j < covers.length; j++) {
-        const a = covers[i], b = covers[j];
+    for (let i = 0; i < _mpCovers.length; i++) {
+      for (let j = i + 1; j < _mpCovers.length; j++) {
+        const a = _mpCovers[i], b = _mpCovers[j];
         const dist = Math.hypot(a.x - b.x, a.y - b.y);
         const ha = Math.hypot(a.w || 0, a.h || 0) / 2;
         const hb = Math.hypot(b.w || 0, b.h || 0) / 2;

@@ -83,14 +83,23 @@ const DENSE = new Set(['forest_dense', 'woodland_line']);
 //   8-seed 实测 0.8988（第五次标 1.5，注释预期的 "+0.3~0.6" 漂移并未兑现，实测≈第四次基线 1.0）；
 //   mixed_barrier_plaza d=0.3 8-seed 实测 2.2491（第五次标 1.7；|2.2-1.7|=0.5000000000000002
 //   浮点边界恰好超出口径 ±0.5）。校验口径不变。
+// 2026-10-16 基线重标定（第七次，#1 地图批次）：
+//   ① cde3bc3 道路改连续多边形——沿路建筑/路口沙包曾因整链 bbox 避让产出恒 0（#I3 回归，
+//      已由 roadCoversToSegments() 修复，还原与旧分段 0 误差）；
+//   ② 248e612 数量按面积缩放（泥斑 3~4→scale=3 时 27~36、村庄建筑 4~7→4~20）；
+//   ③ 5f4758c/33d0e7d 河流连续多边形、1a1292b 多 biome 同图、15a5392 建筑去重。
+//   影响：coverCoverage 整体上移（urban_block +0.02、village_center +0.025，建筑/泥斑变多）；
+//   minPassageWidth 普遍收窄（泥斑 36 块后 mud↔残骸小间隙主导，如 mixed_barrier d=0.9 0.3；
+//   度量口径：minPassage 仍含 road 短段还原配对，与标定口径一致）。
+//   全模板连通性维持 1.000。校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
 const BASE = {
-  corridor_tutorial: [{"cov":0.075,"con":1,"minw":2.8},{"cov":0.075,"con":1,"minw":2.8},{"cov":0.077,"con":1,"minw":2.8},{"cov":0.072,"con":1,"minw":2.4},{"cov":0.073,"con":1,"minw":2.4}],
-  forest_dense: [{"cov":0.068,"con":1,"minw":1.1},{"cov":0.067,"con":1,"minw":1.1},{"cov":0.067,"con":1,"minw":1.1},{"cov":0.068,"con":1,"minw":1.2},{"cov":0.061,"con":1,"minw":1.2}],
-  urban_block: [{"cov":0.076,"con":1,"minw":1.6},{"cov":0.075,"con":1,"minw":1.9},{"cov":0.076,"con":1,"minw":1.8},{"cov":0.071,"con":1,"minw":0.9},{"cov":0.068,"con":1,"minw":1.7}],
-  crossfire_plaza: [{"cov":0.064,"con":1,"minw":2.2},{"cov":0.062,"con":1,"minw":2},{"cov":0.061,"con":1,"minw":1.9},{"cov":0.062,"con":1,"minw":2.2},{"cov":0.06,"con":1,"minw":2.2}],
-  mixed_barrier_plaza: [{"cov":0.063,"con":1,"minw":1.9},{"cov":0.06,"con":1,"minw":2.2},{"cov":0.06,"con":1,"minw":1.1},{"cov":0.057,"con":1,"minw":2.1},{"cov":0.059,"con":1,"minw":2.4}],
-  village_center: [{"cov":0.072,"con":1,"minw":1.4},{"cov":0.071,"con":1,"minw":1.5},{"cov":0.072,"con":1,"minw":1.9},{"cov":0.071,"con":1,"minw":1.8},{"cov":0.072,"con":1,"minw":2.3}],
-  woodland_line: [{"cov":0.046,"con":1,"minw":1},{"cov":0.046,"con":1,"minw":1.2},{"cov":0.048,"con":1,"minw":1.6},{"cov":0.047,"con":1,"minw":1.8},{"cov":0.047,"con":1,"minw":1.7}],
+  corridor_tutorial: [{"cov":0.074,"con":1,"minw":2.1},{"cov":0.073,"con":1,"minw":2.1},{"cov":0.078,"con":1,"minw":2.3},{"cov":0.074,"con":1,"minw":2.7},{"cov":0.074,"con":1,"minw":3}],
+  forest_dense: [{"cov":0.068,"con":1,"minw":0.5},{"cov":0.068,"con":1,"minw":0.5},{"cov":0.071,"con":1,"minw":0.9},{"cov":0.068,"con":1,"minw":0.9},{"cov":0.07,"con":1,"minw":0.8}],
+  urban_block: [{"cov":0.094,"con":1,"minw":0.6},{"cov":0.092,"con":1,"minw":0.5},{"cov":0.096,"con":1,"minw":0.7},{"cov":0.092,"con":1,"minw":0.6},{"cov":0.088,"con":1,"minw":0.5}],
+  crossfire_plaza: [{"cov":0.093,"con":1,"minw":1.2},{"cov":0.091,"con":1,"minw":1.4},{"cov":0.089,"con":1,"minw":1.2},{"cov":0.088,"con":1,"minw":2},{"cov":0.088,"con":1,"minw":1.9}],
+  mixed_barrier_plaza: [{"cov":0.061,"con":1,"minw":0.7},{"cov":0.059,"con":1,"minw":0.5},{"cov":0.06,"con":1,"minw":0.5},{"cov":0.059,"con":1,"minw":0.3},{"cov":0.058,"con":1,"minw":0.3}],
+  village_center: [{"cov":0.097,"con":1,"minw":1},{"cov":0.095,"con":1,"minw":0.9},{"cov":0.096,"con":1,"minw":0.3},{"cov":0.094,"con":1,"minw":0.9},{"cov":0.093,"con":1,"minw":0.6}],
+  woodland_line: [{"cov":0.046,"con":1,"minw":1.6},{"cov":0.044,"con":1,"minw":1.6},{"cov":0.047,"con":1,"minw":1.3},{"cov":0.045,"con":1,"minw":1.7},{"cov":0.046,"con":1,"minw":1.6}],
 };
 const TOL = { cov: 0.02, con: 0.05, minw: 0.5 };
 
