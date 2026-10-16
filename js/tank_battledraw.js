@@ -197,9 +197,9 @@ function drawCover(ctx, cov){
     ctx.fillStyle = 'rgba(45,25,18,0.85)';
     if (_ridgeH) ctx.fillRect(-_hw * 1.06, -_hh * 1.06, _hw * 2.12, _hh * 2.12);
     else ctx.fillRect(-_hw * 1.06, -_hh * 1.06, _hw * 2.12, _hh * 2.12);
-    // 两坡：向阳面浅、背阴面深（光源左上）
-    const _slopeLight = 'rgba(165,110,75,0.95)';
-    const _slopeDark = 'rgba(110,70,48,0.95)';
+    // 两坡：向阳面稍浅、背阴面稍深（微妙明暗，色差收敛）
+    const _slopeLight = 'rgba(148,98,66,0.95)';
+    const _slopeDark = 'rgba(128,84,58,0.95)';
     if (_ridgeH) {
       // 上坡（背阴，深）
       ctx.fillStyle = _slopeDark;
