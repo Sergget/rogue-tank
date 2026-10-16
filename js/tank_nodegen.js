@@ -546,41 +546,67 @@ function placeCentralPond(rng, tpl, scale, centerX, centerY, outCovers) {
 }
 
 function placeEdgeRiver(rng, tpl, scale, centerX, centerY) {
+  // #1（2026-10-16）：河流改为单条连续多边形（不再是多段矩形拼接）。
+  // 沿边生成一条蜿蜒曲线，宽度随机变化，输出 verts 多边形——消除接缝碎片化与深色边缘条。
   const edge = rng.int(0, 3);            // 0=N 1=S 2=W 3=E
-  const segN = rng.int(4, 6);            // 连通段数
   const alongDim = edge < 2 ? tpl.w : tpl.h;
   const span = alongDim * scale * 1.04;  // 河流贯穿整条边（略超出防缺口）
-  const segLen = span / segN * 1.25;     // 段间重叠 25% 保证连通
-  const thick = Math.min(tpl.w, tpl.h) * scale * rng.range(0.08, 0.11);
+  const baseThick = Math.min(tpl.w, tpl.h) * scale * rng.range(0.08, 0.11);
   const halfW = tpl.w * scale / 2, halfH = tpl.h * scale / 2;
-  const band = Math.max(thick * 0.7, Math.min(tpl.w, tpl.h) * scale * 0.08); // 距边距离带
-  const baseOff = rng.range(-0.06, 0.06); // 蜿蜒基准相位
-  const segments = [];
-  for (let i = 0; i < segN; i++) {
-    const t = (i + 0.5) / segN - 0.5;    // -0.5..0.5 沿轴向
-    const meander = (baseOff + Math.sin((i / segN) * Math.PI + baseOff * 6)) * band * 0.5;
-    let dx = 0, dy = 0, w = segLen, h = thick;
-    if (edge === 0) { dx = t * span; dy = -halfH + band + meander; }        // 北缘
-    else if (edge === 1) { dx = t * span; dy = halfH - band + meander; }    // 南缘
-    else if (edge === 2) { w = thick; h = segLen; dx = -halfW + band + meander; dy = t * span; } // 西缘
-    else { w = thick; h = segLen; dx = halfW - band + meander; dy = t * span; }                  // 东缘
-    segments.push({ dx, dy, w, h, angle: 0 });
-  }
-  // 实例锚点取首段中心，w/h 记录外接范围（供 rectHitsCover/小地图通绘参考）
-  const s0 = segments[0];
-  const cx = centerX + s0.dx, cy = centerY + s0.dy;
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const s of segments) {
-    minX = Math.min(minX, s.dx - s.w / 2);
-    maxX = Math.max(maxX, s.dx + s.w / 2);
-    minY = Math.min(minY, s.dy - s.h / 2);
-    maxY = Math.max(maxY, s.dy + s.h / 2);
-  }
-  const extX = Math.max(Math.abs(minX - s0.dx), Math.abs(maxX - s0.dx));
-  const extY = Math.max(Math.abs(minY - s0.dy), Math.abs(maxY - s0.dy));
+  const band = Math.max(baseThick * 0.7, Math.min(tpl.w, tpl.h) * scale * 0.08);
+  const baseOff = rng.range(-0.06, 0.06);
+  const amp = band * 0.5;
+  const freq = rng.range(1.0, 2.0);
+  const phase = rng.range(0, Math.PI * 2);
 
-  return { x: cx, y: cy, w: extX * 2, h: extY * 2, angle: 0, tier: 'river',
-           segments, groupId: 'river' }; // groupId：同一生成调用产出的连通水体标识
+  // 采样中心线（~40 点）
+  const N = 40;
+  const centerPts = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N - 0.5;  // -0.5..0.5
+    const meander = (baseOff + Math.sin(phase + (i / N) * Math.PI * 2 * freq)) * amp;
+    // 宽度随机变化（0.7x ~ 1.3x）
+    const wVar = rng.range(0.7, 1.3);
+    const w = baseThick * wVar;
+    let x, y;
+    if (edge === 0) { x = centerX + t * span; y = centerY - halfH + band + meander; }
+    else if (edge === 1) { x = centerX + t * span; y = centerY + halfH - band + meander; }
+    else if (edge === 2) { x = centerX - halfW + band + meander; y = centerY + t * span; }
+    else { x = centerX + halfW - band + meander; y = centerY + t * span; }
+    centerPts.push({ x, y, w });
+  }
+
+  // 构建多边形：沿中心线两侧偏移
+  const left = [], right = [];
+  for (let i = 0; i <= N; i++) {
+    const p = centerPts[i];
+    // 切线方向
+    const p0 = centerPts[Math.max(0, i - 1)], p1 = centerPts[Math.min(N, i + 1)];
+    const dx = p1.x - p0.x, dy = p1.y - p0.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len;  // 法线
+    const hw = p.w / 2;
+    left.push([p.x + nx * hw, p.y + ny * hw]);
+    right.push([p.x - nx * hw, p.y - ny * hw]);
+  }
+  // 多边形：left 正序 + right 逆序
+  const verts = left.concat(right.reverse());
+
+  // 计算外接 bbox
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [vx, vy] of verts) {
+    minX = Math.min(minX, vx); maxX = Math.max(maxX, vx);
+    minY = Math.min(minY, vy); maxY = Math.max(maxY, vy);
+  }
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+
+  return {
+    x: cx, y: cy,
+    w: maxX - minX, h: maxY - minY,
+    angle: 0, tier: 'river',
+    verts: verts,  // 单条连续多边形，无 segments
+    groupId: 'river'
+  };
 }
 
 // 2026-10-05 strip 级一体化河流：横向蜿蜒贯穿整条 strip（参考公路一体化）。

@@ -162,6 +162,18 @@ if (typeof covers !== 'undefined') {
         ok(nearEdge, `${tpl.id} 河流沿边分布`);
         ok(!!c.groupId, `${tpl.id} 河流携带 groupId`);
       }
+      // #1（2026-10-16）：河流改为单条连续多边形（verts），不再是多段矩形拼接
+      if (c.tier === 'river' && Array.isArray(c.verts) && !c.segments) {
+        ok(c.verts.length >= 20, `${tpl.id} 河流连续多边形顶点数 ≥20（${c.verts.length}）`);
+        // 多边形应沿边分布（至少 80% 顶点在边缘带内）
+        let edgeCount = 0;
+        for (const [vx, vy] of c.verts) {
+          const ax = Math.abs(vx - lx), ay = Math.abs(vy - ly);
+          if (ax > W / 2 - W * 0.18 || ay > H / 2 - H * 0.18) edgeCount++;
+        }
+        ok(edgeCount >= c.verts.length * 0.8, `${tpl.id} 河流多边形沿边分布（${edgeCount}/${c.verts.length}）`);
+        ok(!!c.groupId, `${tpl.id} 河流携带 groupId`);
+      }
       if (c.tier === 'mud') {
         ok(typeof c.x === 'number' && c.w > 0, `${tpl.id} 泥斑实例合法`);
       }
