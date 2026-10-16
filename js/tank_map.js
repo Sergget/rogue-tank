@@ -354,10 +354,26 @@ function makeNode(index, rng, env) {
   const viewport = (env && env.viewport) || null;
   let templateId = undefined;
   let scale = cfg.nodeScale || 1;
+  let _tplW = 0, _tplH = 0;
   if (viewport && viewport.vw > 0 && viewport.vh > 0) {
     const tpl = pickTemplate(diff, rng);
     templateId = tpl.id;
+    _tplW = tpl.w; _tplH = tpl.h;
     scale = nodeScaleFor(viewport, tpl);
+    // 2026-10-16：Boss 节点必须满足 3.0–3.2 屏（测试硬要求）。
+    // 模板长宽比需在 [1.667, 1.896] 内，否则无统一缩放能同时满足上下限。
+    // #1 新增模板改变了 pickTemplate 分布，urban_block（1.6）被选中而超标。
+    // 对 Boss 做确定性修正：越界则改用 mixed_barrier_plaza（1.667，5f4758c 实测通过）。
+    // 不耗 RNG，保证确定性。
+    const _isB = (typeof isBossNodeIndex === 'function' ? isBossNodeIndex(index) : false) || !!(env && env.bossOnly);
+    if (_isB && !(env && env.stripForBoss)) {
+      const aspect = _tplW / _tplH;
+      if (aspect < 1.667 || aspect > 1.896) {
+        templateId = 'mixed_barrier_plaza';
+        _tplW = 800; _tplH = 480;
+        scale = nodeScaleFor(viewport, { w: 800, h: 480 });
+      }
+    }
   }
 
   // #N4（2026-10-05 C 档 batch 2 → 2026-10-10 #N4 接入实战）：strip 横向条带节点。
