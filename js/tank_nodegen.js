@@ -373,10 +373,16 @@ const NODE_TEMPLATES = [
       { tier: 'tree', dx: -280, dy: -120, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: 260, dy: 100, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: -100, dy: 160, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 120, dy: -80, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -220, dy: 40, w: 24, h: 18, angle: 0 },
       { tier: 'rock', dx: 180, dy: -140, w: 30, h: 24, angle: 0 },
       { tier: 'rock', dx: -200, dy: 80, w: 26, h: 20, angle: 0 },
+      { tier: 'rock', dx: 60, dy: 120, w: 28, h: 22, angle: 0 },
       { tier: 'half', dx: 0, dy: 0, w: 80, h: 34, angle: 0 },
-      { tier: 'barricade', dx: -120, dy: -60, w: 66, h: 28, angle: 0 }
+      { tier: 'half', dx: -140, dy: -60, w: 70, h: 30, angle: 0 },
+      { tier: 'barricade', dx: -120, dy: -60, w: 66, h: 28, angle: 0 },
+      { tier: 'barricade', dx: 200, dy: 60, w: 66, h: 28, angle: 0 },
+      { tier: 'bush', dx: -60, dy: 100, w: 50, h: 30, angle: 0 }
     ]
   },
   {
@@ -394,9 +400,15 @@ const NODE_TEMPLATES = [
       { tier: 'rock', dx: 220, dy: 120, w: 30, h: 24, angle: 0 },
       { tier: 'rock', dx: 0, dy: -160, w: 28, h: 22, angle: 0 },
       { tier: 'rock', dx: -80, dy: 140, w: 32, h: 26, angle: 0 },
+      { tier: 'rock', dx: 150, dy: -40, w: 26, h: 20, angle: 0 },
+      { tier: 'rock', dx: -150, dy: 60, w: 30, h: 24, angle: 0 },
       { tier: 'half', dx: 120, dy: 40, w: 78, h: 32, angle: 0 },
+      { tier: 'half', dx: -100, dy: -80, w: 70, h: 30, angle: 0 },
       { tier: 'barricade', dx: -140, dy: 20, w: 66, h: 28, angle: 0 },
-      { tier: 'rubble', dx: 60, dy: -80, w: 40, h: 30, angle: 0 }
+      { tier: 'barricade', dx: 80, dy: 100, w: 66, h: 28, angle: 0 },
+      { tier: 'rubble', dx: 60, dy: -80, w: 40, h: 30, angle: 0 },
+      { tier: 'rubble', dx: -40, dy: 120, w: 36, h: 28, angle: 0 },
+      { tier: 'stump', dx: 200, dy: -100, w: 24, h: 18, angle: 0 }
     ]
   }
 ];
@@ -1797,9 +1809,19 @@ function placeForestClusters(items, rng, opts) {
         const fa = (i / nTree) * Math.PI * 2;
         spot = { x: ccx + Math.cos(fa) * clusterR * 0.6, y: ccy + Math.sin(fa) * clusterR * 0.6 };
       }
+      // #1（2026-10-16）：雪地树两种形态——积雪（白）/ 枯树（stump）
+      let _tier = treeTier, _variant = null;
+      if (biome === 'snow' && treeTier === 'tree') {
+        if (rng() < 0.5) {
+          _tier = 'stump';  // 枯树
+        } else {
+          _variant = 'snowy';  // 积雪
+        }
+      }
       const member = { x: spot.x, y: spot.y,
                        w: treeW * rng.range(0.9, 1.1), h: treeH * rng.range(0.9, 1.1),
-                       angle: rng.range(-0.3, 0.3), tier: treeTier, groupId: gid, hp: hpOf(treeTier, 1) };
+                       angle: rng.range(-0.3, 0.3), tier: _tier, groupId: gid, hp: hpOf(_tier, 1) };
+      if (_variant) member.variant = _variant;
       const tc = clampInside(member.x, member.y, member.w, member.h);
       member.x = tc.x; member.y = tc.y;
       placed.push(member); out.push(member);
@@ -2664,6 +2686,21 @@ function pruneOverlappingCovers(covers) {
     if (_remove.size) {
       for (let i = outCovers.length - 1; i >= 0; i--) {
         if (_remove.has(outCovers[i])) outCovers.splice(i, 1);
+      }
+    }
+  }
+
+  // #1（2026-10-16）：雪地树形态统一——模板自带的绿树也转为积雪/枯树
+  if ((selectedTemplate.biome || '') === 'snow') {
+    const _srng = createRNG((Number(seed) ^ 0x5EED) >>> 0);
+    for (const c of outCovers) {
+      if (c.tier === 'tree' && !c.variant) {
+        if (_srng() < 0.5) {
+          c.tier = 'stump';  // 枯树
+          c.hp = 1;
+        } else {
+          c.variant = 'snowy';  // 积雪
+        }
       }
     }
   }

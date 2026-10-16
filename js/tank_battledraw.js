@@ -488,6 +488,24 @@ function drawFoliage(ctx, covers){
     if(cov.hp === 0) continue;
     const tier = COVER_TIERS[cov.tier];
     if(tier.vision !== true) continue;
+    // #1（2026-10-16）：雪地积雪树——白色树冠
+    if (cov.variant === 'snowy' && cov.tier === 'tree') {
+      ctx.save();
+      ctx.translate(cov.x, cov.y);
+      ctx.fillStyle = 'rgba(235,242,246,0.92)';
+      ctx.strokeStyle = 'rgba(200,215,225,0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, cov.w * 0.55, cov.h * 0.55, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // 积雪高光
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(-cov.w * 0.15, -cov.h * 0.15, cov.w * 0.3, cov.h * 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      continue;
+    }
     if(typeof ASSET_DEFS !== 'undefined' && ASSET_DEFS[tier.draw] && ASSET_DEFS[tier.draw].bakeCanopy){
       drawAssetCanopy(ctx, tier.draw, cov.x, cov.y, cov.w, cov.h);
     }

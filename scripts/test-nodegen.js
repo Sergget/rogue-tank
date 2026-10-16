@@ -184,8 +184,9 @@ if (typeof covers !== 'undefined') {
       // 旧断言写死 3~4 而未扣模板自带块，属侥幸通过——rng 流位一变（如路网拓扑调整）
       // 就会因 1+4=5 误报。此处按「标签驱动产出」口径断言。
       const tplMud = (tpl.items || []).filter(it => it.tier === 'mud').length;
-      ok(muds.length - tplMud >= 3 && muds.length - tplMud <= 4,
-         `${tpl.id} 泥斑标签产出 3~4 块（总 ${muds.length} − 模板自带 ${tplMud}）`);
+      // #1（2026-10-16）：泥斑数量按面积缩放（scaledCount），模板面积越大越多，上限放宽到 6
+      ok(muds.length - tplMud >= 3 && muds.length - tplMud <= 6,
+         `${tpl.id} 泥斑标签产出 3~6 块（总 ${muds.length} − 模板自带 ${tplMud}）`);
       // 环带：围绕中心分布（半径在 12%~40% 节点尺寸；2026-10-05 上限放宽至 45%：
       //   #A11 避路推挤改变了模板物品落位，placeMudPatch 避让 outCovers 时个别泥斑
       //   被挤到环带外 6%，属用户要求的路面净空改动的级联，泥斑为装饰性地面层，无妨）
@@ -302,8 +303,9 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
 {
   const r = generateNode(0.7, { templateId: 'village_center', seed: 20260825, cullRate: 0, scale: 3 });
   const buildings = r.covers.filter(c => c.groupId === 'village-building');
-  ok(buildings.length >= 4 && buildings.length <= 7,
-     `村庄建筑 4~7 栋（实际 ${buildings.length}）`);
+  // #1（2026-10-16）：建筑数量按面积缩放（scaledCount），scale=3 时面积 9x，上限放宽
+  ok(buildings.length >= 4 && buildings.length <= 20,
+     `村庄建筑 4~20 栋（实际 ${buildings.length}）`);
   if (hasRoadTier) {
     const roads = r.covers.filter(c => c.tier === 'road');
     ok(roads.length >= 2, `村庄 road 实例 ≥2（实际 ${roads.length}）`);
