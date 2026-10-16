@@ -409,7 +409,8 @@ function makeNode(index, rng, env) {
       seed: stripRes.seed,
       // strip 无单一模板：合成一个与生成器内部路网规划同 id 的占位（UI/调试可读）
       template: { id: '__strip__', name: `横向条带 ${stripRes.chunkCount} 片` },
-      biome: (stripRes.chunks && stripRes.chunks[0] && stripRes.chunks[0].tpl && stripRes.chunks[0].tpl.biome) || null
+      biome: (stripRes.chunks && stripRes.chunks[0] && stripRes.chunks[0].biome) || null,
+      biomeZones: stripRes.biomeZones || null  // #1（2026-10-16）：多 biome 区段
     };
   } else {
     // 掩体布局：模板按 scale 放大，世界坐标 (0,0)~(w,h)，中心 (w/2,h/2)
@@ -752,6 +753,7 @@ function makeNode(index, rng, env) {
     h: h,
     template: { id: templateResult.template.id, name: templateResult.template.name },
     biome: templateResult.biome || null,   // P-36/#81：地面主题标签（mvp drawGround 消费）
+    biomeZones: templateResult.biomeZones || null,  // #1（2026-10-16）：多 biome 区段
     covers: templateResult.covers,
     // v2（2026-09-16）：路口中心（已随 covers 一起从 generateNode 局部系平移到世界系）。
     // 渲染层 bakeNodeGroundLayer 据此在路口断开中心虚线，使交叉处读作「路口」。

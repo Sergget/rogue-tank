@@ -1147,7 +1147,7 @@ function drawGround(ctx, opts) {
   opts = opts || {};
   const biomes = (typeof RULES !== 'undefined' && RULES.biomes) ? RULES.biomes : {};
   // 缺省调色板：RULES 未加载/未知 biome 时的中性草地回退
-  const pal = biomes[opts.biome] || { base: '#3d4630', alt: ['#353d29', '#46503a'] };
+  const palFor = (b) => biomes[b] || { base: '#3d4630', alt: ['#353d29', '#46503a'] };
   const vb = opts.viewBounds;
   if (!vb || !(vb.maxX > vb.minX) || !(vb.maxY > vb.minY)) return;
 
@@ -1158,12 +1158,40 @@ function drawGround(ctx, opts) {
     return s / 4294967296;
   };
 
+  // #1（2026-10-16）：多 biome——按 x 区段分别填充底色，交界处渐变过渡
+  const zones = opts.biomeZones;
+  const TRANS_W = 260;  // 过渡带半宽（px）
+  ctx.save();
+  if (zones && zones.length) {
+    for (let zi = 0; zi < zones.length; zi++) {
+      const z = zones[zi];
+      const zx0 = Math.max(x0, z.x0), zx1 = Math.min(x0 + w, z.x1);
+      if (zx1 <= zx0) continue;
+      ctx.fillStyle = palFor(z.biome).base;
+      ctx.fillRect(zx0, y0, zx1 - zx0, h);
+    }
+    // 交界渐变：每对相邻区段在边界处画 TRANS_W*2 宽的线性渐变
+    for (let zi = 0; zi + 1 < zones.length; zi++) {
+      const bx = zones[zi].x1;  // 交界 x
+      const gx0 = Math.max(x0, bx - TRANS_W), gx1 = Math.min(x0 + w, bx + TRANS_W);
+      if (gx1 <= gx0) continue;
+      const cA = palFor(zones[zi].biome).base, cB = palFor(zones[zi + 1].biome).base;
+      const grad = ctx.createLinearGradient(gx0, 0, gx1, 0);
+      grad.addColorStop(0, cA);
+      grad.addColorStop(1, cB);
+      ctx.fillStyle = grad;
+      ctx.fillRect(gx0, y0, gx1 - gx0, h);
+    }
+  } else {
+    const pal = palFor(opts.biome);
+    ctx.fillStyle = pal.base;
+    ctx.fillRect(x0, y0, w, h);
+  }
+  // 色斑：用主 biome（或首区段）的 alt 色
+  const pal = palFor((zones && zones.length ? zones[0].biome : opts.biome));
   const alts = (pal.alt && pal.alt.length) ? pal.alt : [pal.base];
   const n = 8 + Math.floor(next() * 7);      // 8~14 个大椭圆色斑
 
-  ctx.save();
-  ctx.fillStyle = pal.base;
-  ctx.fillRect(x0, y0, w, h);
   ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();   // 色斑裁剪在视口区内
   for (let i = 0; i < n; i++) {
     const cx = x0 + next() * w;

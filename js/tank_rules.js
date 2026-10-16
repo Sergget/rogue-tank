@@ -500,7 +500,9 @@ const RULES = {
     concrete: { base: '#6a6d6f', alt: ['#54575a', '#7d8082'] },   // 城镇街区/交叉火力广场
     meadow:   { base: '#4e5c33', alt: ['#42502b', '#5f6d40'] },   // 密林/林地/村落
     steppe:   { base: '#8a7a46', alt: ['#796b3d', '#9b8b55'] },   // 开阔走廊/混合障壁广场
-    mudland:  { base: '#4a3a28', alt: ['#3e3122', '#59482f'] }    // 泥地主题（预留，本批无模板使用）
+    mudland:  { base: '#4a3a28', alt: ['#3e3122', '#59482f'] },   // 泥地主题（预留，本批无模板使用）
+    snow:     { base: '#dfe6ea', alt: ['#cfd8de', '#eef3f6'] },   // 雪地（#1 2026-10-16）
+    desert:   { base: '#d6b87a', alt: ['#c4a664', '#e5cb8d'] }    // 沙漠（#1 2026-10-16）
   },
 
   // 节点地图（P-08 / DEVELOPMENT.md §6 条目 6）：单局线性节点链的构成参数。

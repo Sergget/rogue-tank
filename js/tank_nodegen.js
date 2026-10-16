@@ -357,6 +357,47 @@ const NODE_TEMPLATES = [
       { tier: 'bush', dx: -120, dy: 20, w: 62, h: 32, angle: 0 },
       { tier: 'stump', dx: 180, dy: 120, w: 24, h: 18, angle: 0 }
     ]
+  },
+  {
+    // #1（2026-10-16）：雪原模板
+    id: 'snowfield',
+    name: '雪原',
+    tags: ['low', 'mid'],
+    terrainTags: ['edgeRiver'],
+    biome: 'snow',
+    forest: { minClusters: 2, maxClusters: 3 },
+    w: 780,
+    h: 480,
+    items: [
+      // 雪原：稀疏针叶林 + 冰封岩石
+      { tier: 'tree', dx: -280, dy: -120, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: 260, dy: 100, w: 24, h: 18, angle: 0 },
+      { tier: 'tree', dx: -100, dy: 160, w: 24, h: 18, angle: 0 },
+      { tier: 'rock', dx: 180, dy: -140, w: 30, h: 24, angle: 0 },
+      { tier: 'rock', dx: -200, dy: 80, w: 26, h: 20, angle: 0 },
+      { tier: 'half', dx: 0, dy: 0, w: 80, h: 34, angle: 0 },
+      { tier: 'barricade', dx: -120, dy: -60, w: 66, h: 28, angle: 0 }
+    ]
+  },
+  {
+    // #1（2026-10-16）：荒漠模板
+    id: 'desert_waste',
+    name: '荒漠',
+    tags: ['mid', 'high'],
+    terrainTags: [],
+    biome: 'desert',
+    w: 800,
+    h: 500,
+    items: [
+      // 荒漠：岩石群 + 沙丘掩体，无树木
+      { tier: 'rock', dx: -250, dy: -100, w: 34, h: 28, angle: 0 },
+      { tier: 'rock', dx: 220, dy: 120, w: 30, h: 24, angle: 0 },
+      { tier: 'rock', dx: 0, dy: -160, w: 28, h: 22, angle: 0 },
+      { tier: 'rock', dx: -80, dy: 140, w: 32, h: 26, angle: 0 },
+      { tier: 'half', dx: 120, dy: 40, w: 78, h: 32, angle: 0 },
+      { tier: 'barricade', dx: -140, dy: 20, w: 66, h: 28, angle: 0 },
+      { tier: 'rubble', dx: 60, dy: -80, w: 40, h: 30, angle: 0 }
+    ]
   }
 ];
 
@@ -1525,7 +1566,10 @@ function placeVillage(rng, tpl, scale, cx, cy, outCovers, networkRoads) {
   }
 
   // ---- 第二层【核心建筑】：沿街两侧 4~7 栋（#1：按面积缩放），尺寸 ×coverWorldScale.full 收敛 ----
-  const count = scaledCount(rng, 4, 7, tpl, scale);
+  // #1（2026-10-16）：建筑密度按 biome 微调——城镇更密，沙漠/雪地更疏
+  const _biome = tpl.biome || 'meadow';
+  const _biomeDensity = _biome === 'concrete' ? 1.5 : (_biome === 'desert' || _biome === 'snow') ? 0.6 : 1.0;
+  const count = Math.max(1, Math.round(scaledCount(rng, 4, 7, tpl, scale) * _biomeDensity));
   const minB = 50 * scale, maxB = 80 * scale;          // 模板单位基准
   const marginBase = rng.range(14, 34);                // 贴边间距（世界px）
   const lShapeCount = scaledCount(rng, 1, 2, tpl, scale);
@@ -1684,6 +1728,7 @@ function placeVillage(rng, tpl, scale, cx, cy, outCovers, networkRoads) {
 function placeForestClusters(items, rng, opts) {
   opts = opts || {};
   const scale = opts.scale || 1;
+  const biome = opts.biome || 'meadow';  // #1（2026-10-16）：植被按 biome 切换
   const out = [];
   const coverTiers = (typeof RULES !== 'undefined' && RULES.coverTiers)
     ? RULES.coverTiers
@@ -1741,7 +1786,11 @@ function placeForestClusters(items, rng, opts) {
       return null;
     };
     // 树：中心 1 棵 + 周围 3~7 棵；避让失败回退环位保底 ≥4 棵/簇
-    const nTree = rng.int(4, 8);
+    // #1（2026-10-16）：desert 用岩石代替树；concrete（城镇）树减半
+    const treeTier = (biome === 'desert') ? 'rock' : 'tree';
+    let nTree = rng.int(4, 8);
+    if (biome === 'concrete') nTree = Math.max(1, Math.round(nTree * 0.5));
+    if (biome === 'desert') nTree = Math.max(2, Math.round(nTree * 0.6));  // 沙漠稀疏岩石
     for (let i = 0; i < nTree; i++) {
       let spot = (i === 0) ? { x: ccx, y: ccy } : trySpot(treeW, treeH, 2, 1.0);
       if (!spot) {
@@ -1750,7 +1799,7 @@ function placeForestClusters(items, rng, opts) {
       }
       const member = { x: spot.x, y: spot.y,
                        w: treeW * rng.range(0.9, 1.1), h: treeH * rng.range(0.9, 1.1),
-                       angle: rng.range(-0.3, 0.3), tier: 'tree', groupId: gid, hp: hpOf('tree', 1) };
+                       angle: rng.range(-0.3, 0.3), tier: treeTier, groupId: gid, hp: hpOf(treeTier, 1) };
       const tc = clampInside(member.x, member.y, member.w, member.h);
       member.x = tc.x; member.y = tc.y;
       placed.push(member); out.push(member);
@@ -2259,6 +2308,7 @@ function pruneOverlappingCovers(covers) {
       cx: centerX, cy: centerY, scale,
       minClusters: fcfg.minClusters, maxClusters: fcfg.maxClusters,
       regions: fcfg.regions,
+      biome: selectedTemplate.biome || 'meadow',  // #1（2026-10-16）：植被按 biome 切换
       // #G：节点世界边界（与 centerX/centerY 同帧，半幅 = w*scale/2），供簇内布点钳制
       bounds: {
         x0: centerX - selectedTemplate.w * scale / 2, y0: centerY - selectedTemplate.h * scale / 2,
@@ -3106,7 +3156,7 @@ function generateStrip(difficulty, options) {
       junctions.push({ x: j.x + x0 + cw / 2, y: j.y + halfBand, r: j.r });
     }
     roadWs.push(node.roadW);
-    chunks.push({ templateId: tpl.id, w: cw, h: node.h, x0: x0, seed: chunkSeed });
+    chunks.push({ templateId: tpl.id, biome: tpl.biome || 'meadow', w: cw, h: node.h, x0: x0, seed: chunkSeed });
     accW += cw;
   }
   const stripW = accW;
@@ -3359,6 +3409,9 @@ function generateStrip(difficulty, options) {
   const screens = (stripW * stripH) / (viewport.vw * viewport.vh);
   const densityPerScreen = screens > 0 ? finalCovers.length / screens : 0;
 
+  // #1（2026-10-16）：多 biome——每片的 biome 区段，供渲染层按区段画地面
+  const biomeZones = chunks.map(c => ({ x0: c.x0, x1: c.x0 + c.w, biome: c.biome }));
+
   return {
     advanceAxis: 'x',
     seed: seed,
@@ -3371,7 +3424,8 @@ function generateStrip(difficulty, options) {
     chunks: chunks,
     chunkCount: chunks.length,
     seamCleared: seamCleared,
-    densityPerScreen: densityPerScreen
+    densityPerScreen: densityPerScreen,
+    biomeZones: biomeZones
   };
 }
 
