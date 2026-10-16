@@ -31,6 +31,22 @@ function createRNG(seed) {
   return rng;
 }
 
+// #1（2026-10-16）：地图尺寸自适应——基准面积（750×450 模板），
+// 所有数量类参数按面积比缩放，尺寸类参数按边长比缩放。
+const REF_AREA = 750 * 450;
+function areaRatio(tpl, scale) {
+  const w = (tpl.w || 750) * (scale || 1);
+  const h = (tpl.h || 450) * (scale || 1);
+  return (w * h) / REF_AREA;
+}
+// 数量缩放：按面积比，保底 1
+function scaledCount(rng, baseMin, baseMax, tpl, scale) {
+  const r = areaRatio(tpl, scale);
+  const lo = Math.max(1, Math.round(baseMin * r));
+  const hi = Math.max(lo, Math.round(baseMax * r));
+  return rng.int(lo, hi);
+}
+
 /**
  * Handcrafted Battlefield Templates (7 built-in templates)
  * Template Structure:
@@ -913,8 +929,8 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
       });
     }
   } else {
-    // V：纵贯，1~2 条（从上边流到下边）
-    const n = rng.int(1, 2);
+    // V：纵贯，1~2 条（#1：按宽度缩放，每 ~2500px 一条）
+    const n = Math.max(1, Math.min(4, Math.round(totalW / 2500)));
     for (let i = 0; i < n; i++) {
       const baseX = totalW * (n === 1 ? rng.range(0.35, 0.65)
         : (i === 0 ? rng.range(0.25, 0.40) : rng.range(0.60, 0.75)));
@@ -929,7 +945,7 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
 }
 
 function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
-  const K = rng.int(3, 4);               // 泥斑数量
+  const K = scaledCount(rng, 3, 4, tpl, scale);  // #1：泥斑数量按面积缩放
   const ringR = Math.min(tpl.w, tpl.h) * scale * rng.range(0.20, 0.28);
   const baseAng = rng() * Math.PI * 2;
   const out = [];
@@ -1466,7 +1482,7 @@ function placeVillage(rng, tpl, scale, cx, cy, outCovers, networkRoads) {
   const useExternal = hasExternalRoads && hasRoadTier;
   if (!useExternal) {
     // 降级路径：自铺 1~2 条贯穿村落区的街道（直线或轻折线段）
-    const nStreets = hasRoadTier ? rng.int(1, 2) : 0;
+    const nStreets = hasRoadTier ? scaledCount(rng, 1, 2, tpl, scale) : 0;
     const baseAng = rng() * Math.PI;
     for (let s = 0; s < nStreets; s++) {
       const ang = baseAng + s * Math.PI / 2 + rng.range(-0.25, 0.25);
@@ -1508,11 +1524,11 @@ function placeVillage(rng, tpl, scale, cx, cy, outCovers, networkRoads) {
     }
   }
 
-  // ---- 第二层【核心建筑】：沿街两侧 4~7 栋，尺寸 ×coverWorldScale.full 收敛 ----
-  const count = rng.int(4, 7);
+  // ---- 第二层【核心建筑】：沿街两侧 4~7 栋（#1：按面积缩放），尺寸 ×coverWorldScale.full 收敛 ----
+  const count = scaledCount(rng, 4, 7, tpl, scale);
   const minB = 50 * scale, maxB = 80 * scale;          // 模板单位基准
   const marginBase = rng.range(14, 34);                // 贴边间距（世界px）
-  const lShapeCount = rng.int(1, 2);
+  const lShapeCount = scaledCount(rng, 1, 2, tpl, scale);
   let lUsed = 0;
   const halfW = tpl.w * scale / 2, halfH = tpl.h * scale / 2;
   const tries = count * 16 + 60;
