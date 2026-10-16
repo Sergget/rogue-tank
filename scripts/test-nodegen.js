@@ -413,6 +413,16 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
 //   ③ 交叉口不多、不叠加 → 组间交叉恒 ≤1 个，且交叉夹角接近直角（≥60°）
 {
   const ends = (c) => {
+    // #1（2026-10-16）：道路为连续多边形，从 verts 提取中心线端点
+    if (c.verts && c.verts.length >= 6) {
+      const n = c.verts.length / 2;
+      const p0l = c.verts[0], p0r = c.verts[c.verts.length - 1];
+      const p1l = c.verts[n - 1], p1r = c.verts[n];
+      return [
+        { x: (p0l[0] + p0r[0]) / 2, y: (p0l[1] + p0r[1]) / 2 },
+        { x: (p1l[0] + p1r[0]) / 2, y: (p1l[1] + p1r[1]) / 2 }
+      ];
+    }
     const ca = Math.cos(c.angle || 0), sa = Math.sin(c.angle || 0);
     const hw = Math.max(10, c.w - (c.h || 64) * 0.35) / 2;
     return [{ x: c.x - ca * hw, y: c.y - sa * hw }, { x: c.x + ca * hw, y: c.y + sa * hw }];

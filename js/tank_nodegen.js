@@ -548,68 +548,84 @@ function placeCentralPond(rng, tpl, scale, centerX, centerY, outCovers) {
 function placeEdgeRiver(rng, tpl, scale, centerX, centerY, roadCovers) {
   // #1（2026-10-16）：河流改为单条连续多边形（不再是多段矩形拼接）。
   // 沿边生成一条蜿蜒曲线，宽度随机变化，输出 verts 多边形——消除接缝碎片化与深色边缘条。
-  // 河流与道路可交叉（垂直相交），但不可重叠（平行贴合）——roadCovers 用于检测平行重叠并调整 band。
-  const edge = rng.int(0, 3);            // 0=N 1=S 2=W 3=E
-  const alongDim = edge < 2 ? tpl.w : tpl.h;
-  const span = alongDim * scale * 1.04;  // 河流贯穿整条边（略超出防缺口）
+  // 约束（2026-10-16 用户）：
+  //   - 河流与道路交叉处锐角夹角 ≥75°（近垂直交叉）
+  //   - 非交叉段最小距离 ≥0.6×(河流宽+道路宽)（只交叉不重叠）
+  //   - 若某边有平行道路占据，避开该边
+  const alongDim = (edge) => edge < 2 ? tpl.w : tpl.h;
   const baseThick = Math.min(tpl.w, tpl.h) * scale * rng.range(0.08, 0.11);
   const halfW = tpl.w * scale / 2, halfH = tpl.h * scale / 2;
+
+  // 从道路多边形提取中心线（用于角度/距离检测）
+  const roadCenters = [];
+  if (roadCovers) {
+    for (const road of roadCovers) {
+      if (road.tier !== 'road' || !road.verts || road.verts.length < 6) continue;
+      const n = road.verts.length / 2;
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const l = road.verts[i], r = road.verts[road.verts.length - 1 - i];
+        pts.push({ x: (l[0] + r[0]) / 2, y: (l[1] + r[1]) / 2 });
+      }
+      const mid = Math.floor(n / 2);
+      const lw = road.verts[mid], rw = road.verts[road.verts.length - 1 - mid];
+      const w = Math.hypot(lw[0] - rw[0], lw[1] - rw[1]);
+      roadCenters.push({ pts, w: w || 100 });
+    }
+  }
+
+  // 检查某条边是否被平行道路占据（距离 < 0.6×(河宽+路宽)）
+  const isEdgeBlocked = (edge) => {
+    const isH = edge < 2;
+    const riverPos = edge === 0 ? centerY - halfH : edge === 1 ? centerY + halfH :
+                   edge === 2 ? centerX - halfW : centerX + halfW;
+    for (const road of roadCenters) {
+      // 检查道路是否与该边平行（取道路中心线两端点判断走向）
+      const p0 = road.pts[0], p1 = road.pts[road.pts.length - 1];
+      const dx = Math.abs(p1.x - p0.x), dy = Math.abs(p1.y - p0.y);
+      const roadIsH = dx > dy;
+      if (roadIsH !== isH) continue;  // 不平行，跳过
+      // 平行：检查距离
+      for (const p of road.pts) {
+        const dist = isH ? Math.abs(p.y - riverPos) : Math.abs(p.x - riverPos);
+        if (dist < 0.6 * (baseThick + road.w) / 2 + baseThick) return true;
+      }
+    }
+    return false;
+  };
+
+  // 选边：避开被平行道路占据的边
+  let edge = rng.int(0, 3);
+  for (let t = 0; t < 4; t++) {
+    if (!isEdgeBlocked(edge)) break;
+    edge = (edge + 1) % 4;
+  }
+
+  const span = alongDim(edge) * scale * 1.04;
   const band = Math.max(baseThick * 0.7, Math.min(tpl.w, tpl.h) * scale * 0.08);
   const baseOff = rng.range(-0.06, 0.06);
   const amp = band * 0.5;
   const freq = rng.range(1.0, 2.0);
   const phase = rng.range(0, Math.PI * 2);
 
-  // 检测与道路的平行重叠：如果某条道路与河流走向平行且距离过近，调整 band 避开
-  let bandAdjust = 0;
-  if (roadCovers && roadCovers.length) {
-    const isHorizontal = edge < 2;  // 河流走向：N/S 边为横向，W/E 边为纵向
-    for (const road of roadCovers) {
-      if (road.tier !== 'road') continue;
-      const roadAngle = Math.abs(road.angle || 0);
-      const roadIsHorizontal = roadAngle < Math.PI / 4 || roadAngle > Math.PI * 3 / 4;
-      // 平行检测：走向一致
-      if (roadIsHorizontal === isHorizontal) {
-        // 计算道路与河流基准线的距离
-        let dist;
-        if (isHorizontal) {
-          const riverY = edge === 0 ? centerY - halfH + band : centerY + halfH - band;
-          dist = Math.abs(road.y - riverY);
-        } else {
-          const riverX = edge === 2 ? centerX - halfW + band : centerX + halfW - band;
-          dist = Math.abs(road.x - riverX);
-        }
-        const minDist = baseThick / 2 + (road.w || 100) / 2 + 20;  // 河流半宽 + 道路半宽 + 间隙
-        if (dist < minDist) {
-          // 平行重叠：向内推移 band（远离边缘）
-          bandAdjust = minDist - dist + 10;
-          break;
-        }
-      }
-      // 垂直交叉：允许，不调整
-    }
-  }
-  const effBand = band + bandAdjust;
-
-  // 采样中心线（~40 点）
-  const N = 40;
+  // 生成河流中心线（选边已避开平行道路，直接生成）
   const centerPts = [];
-  for (let i = 0; i <= N; i++) {
-    const t = i / N - 0.5;  // -0.5..0.5
-    const meander = (baseOff + Math.sin(phase + (i / N) * Math.PI * 2 * freq)) * amp;
-    // 宽度随机变化（0.7x ~ 1.3x）
+  for (let i = 0; i <= 40; i++) {
+    const t = i / 40 - 0.5;
+    const meander = (baseOff + Math.sin(phase + (i / 40) * Math.PI * 2 * freq)) * amp;
     const wVar = rng.range(0.7, 1.3);
     const w = baseThick * wVar;
     let x, y;
-    if (edge === 0) { x = centerX + t * span; y = centerY - halfH + effBand + meander; }
-    else if (edge === 1) { x = centerX + t * span; y = centerY + halfH - effBand + meander; }
-    else if (edge === 2) { x = centerX - halfW + effBand + meander; y = centerY + t * span; }
-    else { x = centerX + halfW - effBand + meander; y = centerY + t * span; }
+    if (edge === 0) { x = centerX + t * span; y = centerY - halfH + band + meander; }
+    else if (edge === 1) { x = centerX + t * span; y = centerY + halfH - band + meander; }
+    else if (edge === 2) { x = centerX - halfW + band + meander; y = centerY + t * span; }
+    else { x = centerX + halfW - band + meander; y = centerY + t * span; }
     centerPts.push({ x, y, w });
   }
 
   // 构建多边形：沿中心线两侧偏移
   const left = [], right = [];
+  const N = centerPts.length - 1;
   for (let i = 0; i <= N; i++) {
     const p = centerPts[i];
     // 切线方向
@@ -873,11 +889,40 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
   const ringR = Math.min(tpl.w, tpl.h) * scale * rng.range(0.20, 0.28);
   const baseAng = rng() * Math.PI * 2;
   const out = [];
+  // #1（2026-10-16）：泥潭与道路完全互斥——候选位置若压住道路则跳过（换角度重试）
+  const roads = (outCovers || []).filter(c => c.tier === 'road');
+  const hitsRoad = (x, y, w, h) => {
+    for (const r of roads) {
+      // AABB 粗判 + 多边形精判（road 有 verts）
+      if (Math.abs(x - r.x) > (w + r.w) / 2 || Math.abs(y - r.y) > (h + r.h) / 2) continue;
+      if (r.verts) {
+        // 点在多边形内检测（泥潭中心点）
+        const poly = r.verts;
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const xi = r.x + poly[i][0], yi = r.y + poly[i][1];
+          const xj = r.x + poly[j][0], yj = r.y + poly[j][1];
+          if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+        }
+        if (inside) return true;
+      } else {
+        return true;  // 无 verts，按 AABB 算重叠
+      }
+    }
+    return false;
+  };
   for (let k = 0; k < K; k++) {
-    const ang = baseAng + (k / K) * Math.PI * 2 + rng.range(-0.15, 0.15);
-    const rr = ringR * rng.range(0.85, 1.15);
-    const mw = rng.range(40, 64) * scale;
-    const mh = mw * rng.range(0.6, 0.9);
+    let px = 0, py = 0, mw = 0, mh = 0, placed = false;
+    for (let retry = 0; retry < 8 && !placed; retry++) {
+      const ang = baseAng + (k / K) * Math.PI * 2 + rng.range(-0.15, 0.15) + retry * 0.3;
+      const rr = ringR * rng.range(0.85, 1.15);
+      px = centerX + Math.cos(ang) * rr;
+      py = centerY + Math.sin(ang) * rr;
+      mw = rng.range(40, 64) * scale;
+      mh = mw * rng.range(0.6, 0.9);
+      if (!hitsRoad(px, py, mw, mh)) placed = true;
+    }
+    if (!placed) continue;  // 8 次都压住道路，跳过该泥潭
     // ISSUE 7(a)：径向 blob（12~16 顶点，每顶点半径抖动 0.8~1.2），经凸包收敛为凸形；
     // w/h = 实际外接 bbox（按轴分别计算最大半幅）。mud 不阻挡移动，但保持凸形供 getCoverUnderTank 安全。
     const rx = mw / 2, ry = mh / 2;
@@ -892,7 +937,7 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
     const verts = convexHull(pts);
     let maxx = 0, maxy = 0;
     for (const [vx, vy] of verts) { maxx = Math.max(maxx, Math.abs(vx)); maxy = Math.max(maxy, Math.abs(vy)); }
-    out.push({ x: centerX + Math.cos(ang) * rr, y: centerY + Math.sin(ang) * rr,
+    out.push({ x: px, y: py,
                w: maxx * 2, h: maxy * 2, angle: rng.range(-0.2, 0.2), tier: 'mud', verts });
   }
   return out;
@@ -2356,20 +2401,7 @@ function pruneOverlappingCovers(covers) {
       }
     } else if (tag === 'mudPatch') {
       for (const m of placeMudPatch(rng, selectedTemplate, scale, centerX, centerY, outCovers)) {
-        // #1（2026-10-16）：泥潭与道路交叉时随机决定生效方。
-        // 检查是否与 road 重叠，重叠则 50% 概率泥潭优先（mudPriority=true）。
-        let overlapsRoad = false;
-        for (const r of networkRoads) {
-          if (r.tier !== 'road') continue;
-          // 简化的 AABB 重叠检测
-          if (Math.abs(m.x - r.x) < (m.w + r.w) / 2 && Math.abs(m.y - r.y) < (m.h + r.h) / 2) {
-            overlapsRoad = true;
-            break;
-          }
-        }
-        if (overlapsRoad && rng() < 0.5) {
-          m.mudPriority = true;  // 泥潭优先：覆盖道路，减速生效
-        }
+        // #1（2026-10-16）：泥潭与道路完全互斥——生成时已避开道路，此处不再需要 mudPriority。
         outCovers.push(m);
       }
     }

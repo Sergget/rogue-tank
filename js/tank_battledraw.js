@@ -180,7 +180,7 @@ function drawCover(ctx, cov){
     ctx.closePath();
     ctx.fillStyle = tier.fill; ctx.fill();
     ctx.strokeStyle = tier.stroke; ctx.lineWidth=2; ctx.stroke();
-    // #S13 建筑程序化细节（2026-10-15）：屋顶内收 + 天窗网格 + 墙体高光。
+    // #1（2026-10-16）：建筑屋顶参考真实人字坡屋顶——屋脊线 + 两坡明暗 + 瓦片横纹 + 屋檐。
     // 全部确定性（坐标 hash），不动包围盒。
     const _bx = cov.x, _by = cov.y, _bw = cov.w || 40, _bh = cov.h || 40;
     const _bang = cov.angle || 0;
@@ -189,30 +189,76 @@ function drawCover(ctx, cov){
     ctx.save();
     ctx.translate(_bx, _by); ctx.rotate(_bang);
     const _hw = _bw / 2, _hh = _bh / 2;
-    // 屋顶：内收 12%，稍深色
-    ctx.fillStyle = 'rgba(60,30,22,0.35)';
-    ctx.fillRect(-_hw * 0.88, -_hh * 0.88, _hw * 1.76, _hh * 1.76);
-    ctx.strokeStyle = 'rgba(40,20,14,0.5)'; ctx.lineWidth = 1.5;
-    ctx.strokeRect(-_hw * 0.88, -_hh * 0.88, _hw * 1.76, _hh * 1.76);
-    // 天窗：2~4 个小方块，位置 deterministic
-    const _nw = Math.max(1, Math.min(3, Math.floor(_bw / 46)));
-    const _nh = Math.max(1, Math.min(3, Math.floor(_bh / 46)));
-    ctx.fillStyle = 'rgba(30,34,40,0.75)';
-    for (let _ix = 0; _ix < _nw; _ix++) for (let _iy = 0; _iy < _nh; _iy++) {
-      if (_bh1(_bseed + _ix * 3.7 + _iy * 9.1) < 0.25) continue; // 25% 空缺
-      const _wx = -_hw * 0.88 + (_ix + 0.5) * (_hw * 1.76 / _nw);
-      const _wy = -_hh * 0.88 + (_iy + 0.5) * (_hh * 1.76 / _nh);
-      const _ws = Math.min(10, _hw * 1.76 / _nw * 0.32);
-      ctx.fillRect(_wx - _ws / 2, _wy - _ws / 2, _ws, _ws);
-      // 天窗高光
-      ctx.fillStyle = 'rgba(180,200,220,0.35)';
-      ctx.fillRect(_wx - _ws / 2, _wy - _ws / 2, _ws, 2);
-      ctx.fillStyle = 'rgba(30,34,40,0.75)';
+    // 屋脊方向：沿长边（_bw >= _bh 时屋脊横向，否则纵向）
+    const _ridgeH = _bw >= _bh;
+    const _rl = _ridgeH ? _hw : _hh;  // 屋脊半长
+    const _rw = _ridgeH ? _hh : _hw;  // 坡面半宽
+    // 屋檐：外扩 6% 的深色底
+    ctx.fillStyle = 'rgba(45,25,18,0.85)';
+    if (_ridgeH) ctx.fillRect(-_hw * 1.06, -_hh * 1.06, _hw * 2.12, _hh * 2.12);
+    else ctx.fillRect(-_hw * 1.06, -_hh * 1.06, _hw * 2.12, _hh * 2.12);
+    // 两坡：向阳面浅、背阴面深（光源左上）
+    const _slopeLight = 'rgba(165,110,75,0.95)';
+    const _slopeDark = 'rgba(110,70,48,0.95)';
+    if (_ridgeH) {
+      // 上坡（背阴，深）
+      ctx.fillStyle = _slopeDark;
+      ctx.fillRect(-_hw, -_hh, _hw * 2, _hh);
+      // 下坡（向阳，浅）
+      ctx.fillStyle = _slopeLight;
+      ctx.fillRect(-_hw, 0, _hw * 2, _hh);
+    } else {
+      // 左坡（向阳，浅）
+      ctx.fillStyle = _slopeLight;
+      ctx.fillRect(-_hw, -_hh, _hw, _hh * 2);
+      // 右坡（背阴，深）
+      ctx.fillStyle = _slopeDark;
+      ctx.fillRect(0, -_hh, _hw, _hh * 2);
     }
-    // 墙体高光（左上边缘光源）
-    ctx.strokeStyle = 'rgba(255,220,180,0.28)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(-_hw, -_hh); ctx.lineTo(_hw, -_hh); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-_hw, -_hh); ctx.lineTo(-_hw, _hh); ctx.stroke();
+    // 屋脊线：深色脊
+    ctx.fillStyle = 'rgba(70,42,28,1.0)';
+    if (_ridgeH) ctx.fillRect(-_hw, -2.5, _hw * 2, 5);
+    else ctx.fillRect(-2.5, -_hh, 5, _hh * 2);
+    ctx.strokeStyle = 'rgba(255,220,180,0.25)'; ctx.lineWidth = 1;
+    if (_ridgeH) { ctx.beginPath(); ctx.moveTo(-_hw, -1.5); ctx.lineTo(_hw, -1.5); ctx.stroke(); }
+    else { ctx.beginPath(); ctx.moveTo(-1.5, -_hh); ctx.lineTo(-1.5, _hh); ctx.stroke(); }
+    // 瓦片横纹：沿坡面方向的等距线（确定性间距）
+    ctx.strokeStyle = 'rgba(60,35,22,0.35)'; ctx.lineWidth = 1;
+    const _tileStep = 9;
+    if (_ridgeH) {
+      for (let _ty = _tileStep; _ty < _hh; _ty += _tileStep) {
+        ctx.beginPath(); ctx.moveTo(-_hw, -_ty); ctx.lineTo(_hw, -_ty); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-_hw, _ty); ctx.lineTo(_hw, _ty); ctx.stroke();
+      }
+      // 瓦片竖缝（错缝，deterministic 偏移）
+      for (let _tx = -_hw + 6; _tx < _hw; _tx += 12) {
+        const _off = (_bh1(_bseed + _tx) - 0.5) * 6;
+        ctx.beginPath(); ctx.moveTo(_tx + _off, -_hh); ctx.lineTo(_tx + _off, 0); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(_tx - _off, 0); ctx.lineTo(_tx - _off, _hh); ctx.stroke();
+      }
+    } else {
+      for (let _tx = _tileStep; _tx < _hw; _tx += _tileStep) {
+        ctx.beginPath(); ctx.moveTo(-_tx, -_hh); ctx.lineTo(-_tx, _hh); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(_tx, -_hh); ctx.lineTo(_tx, _hh); ctx.stroke();
+      }
+      for (let _ty = -_hh + 6; _ty < _hh; _ty += 12) {
+        const _off = (_bh1(_bseed + _ty) - 0.5) * 6;
+        ctx.beginPath(); ctx.moveTo(-_hw, _ty + _off); ctx.lineTo(0, _ty + _off); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, _ty - _off); ctx.lineTo(_hw, _ty - _off); ctx.stroke();
+      }
+    }
+    // 烟囱：1~2 个 deterministic 位置
+    const _nChim = 1 + Math.floor(_bh1(_bseed + 7.3) * 2);
+    ctx.fillStyle = 'rgba(90,55,40,1.0)';
+    for (let _ci = 0; _ci < _nChim; _ci++) {
+      const _cx = (_bh1(_bseed + _ci * 13.7) - 0.5) * _hw * 1.2;
+      const _cy = (_bh1(_bseed + _ci * 29.1) - 0.5) * _hh * 1.2;
+      const _cs = Math.min(8, Math.min(_hw, _hh) * 0.18);
+      ctx.fillRect(_cx - _cs/2, _cy - _cs/2, _cs, _cs);
+      ctx.fillStyle = 'rgba(40,25,18,1.0)';
+      ctx.fillRect(_cx - _cs/2, _cy - _cs/2, _cs, 2);
+      ctx.fillStyle = 'rgba(90,55,40,1.0)';
+    }
     ctx.restore();
     ctx.fillStyle = tier.stroke; ctx.font='10px "JetBrains Mono", monospace';
     ctx.fillText(tier.label, cov.x-24, cov.y-cov.h/2-6);

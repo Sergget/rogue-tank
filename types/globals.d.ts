@@ -84,7 +84,6 @@ declare function applyDamage(target: any, amount: number): void;
 declare function resolveCoverCollisions(t: any, dt?: any, moveX?: any, moveY?: any): void;
 declare function getCoverUnderTank(t: any): any;
 declare function getRoadUnderTank(t: any): any;
-declare function getPriorityMudUnderTank(t: any): any;
 declare function coverCorners(cov: any): any[];
 declare function coverCollisionParts(cov: any): any[][];
 declare function getPartZRange(t: any, part: any): any;

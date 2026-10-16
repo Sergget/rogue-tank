@@ -220,24 +220,6 @@ function getCoverUnderTank(tank) {
   return null;
 }
 
-// #1（2026-10-16）：泥潭-道路交叉时随机优先级。mudPriority=true 的泥潭
-// 在交叉处覆盖道路（减速生效，公路加速不生效）。
-function getPriorityMudUnderTank(tank) {
-  if(!tank || !Number.isFinite(tank.x) || !Number.isFinite(tank.y)) return null;
-  const tankCorners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
-  for (const cov of coverQueryCandidates(tank.x, tank.y, tankQueryRadius(tank))) {
-    if(cov.hp <= 0) continue;
-    if(cov.tier !== 'mud' || !cov.mudPriority) continue;
-    const parts = coverCollisionParts(cov);
-    for (const part of parts) {
-      if (obbOverlap(tankCorners, part)) {
-        return cov;
-      }
-    }
-  }
-  return null;
-}
-
 // #S4 + #S14（2026-10-14）：road 被 getCoverUnderTank 跳过（纯地面标识），
 // 公路加速与"道路屏蔽下层减速"改走本函数单独查询（同款 OBB 相交判定 + 空间索引）。
 function getRoadUnderTank(tank) {

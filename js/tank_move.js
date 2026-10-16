@@ -42,11 +42,8 @@ function driveTank(t, dt, input){
   }
   // #S4 + #S14（2026-10-14）：road 为纯地面标识，被 getCoverUnderTank 跳过，
   // 此处单独查询。道路存在时屏蔽下层 river/mud 的减速（#S14），并恢复 #E3 公路加速（#S4）。
-  // #1（2026-10-16）：mudPriority 的泥潭在交叉处覆盖道路——此时不应用公路加速，
-  // 泥潭减速由上方的 getCoverUnderTank 正常生效。
-  const priorityMud = (typeof getPriorityMudUnderTank === 'function') ? getPriorityMudUnderTank(t) : null;
   const roadCover = getRoadUnderTank(t);
-  const onRoad = !!roadCover && !priorityMud;
+  const onRoad = !!roadCover;
   if(onRoad){ speedModifier = 1.0; turnModifier = 1.0; }
   const p0x = t.x, p0y = t.y, p0a = t.hullAngle;
 

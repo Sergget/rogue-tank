@@ -5011,8 +5011,6 @@ function draw(){
   inViewCovers.filter(cov => cov.tier !== 'road' && groundLayerCov(cov)).forEach(cov => drawCover(ctx, cov));
   if(groundLayerCanvas){ ctx.drawImage(groundLayerCanvas, _groundBake ? _groundBake.ox : 0, _groundBake ? _groundBake.oy : 0); }
   else inViewCovers.filter(cov => cov.tier === 'road').forEach(cov => drawCover(ctx, cov));   // 无烘焙层（dev 随机场）回退逐段绘制
-  // #1（2026-10-16）：mudPriority 的泥潭画在道路上层（交叉处泥潭生效）
-  inViewCovers.filter(cov => cov.tier === 'mud' && cov.mudPriority).forEach(cov => drawCover(ctx, cov));
   inViewCovers.filter(cov => cov.tier === 'bridge').forEach(cov => drawCover(ctx, cov));
   inViewCovers.filter(cov => !groundLayerCov(cov) && cov.tier !== 'bridge' && (groundLayerCanvas ? cov.tier !== 'road' : true)).forEach(cov => drawCover(ctx, cov));
   entities.forEach(t => {
