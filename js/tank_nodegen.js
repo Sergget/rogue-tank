@@ -967,22 +967,25 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
       if (!hitsRoad(px, py, mw, mh)) placed = true;
     }
     if (!placed) continue;  // 8 次都压住道路，跳过该泥潭
-    // ISSUE 7(a)：径向 blob（12~16 顶点，每顶点半径抖动 0.8~1.2），经凸包收敛为凸形；
-    // w/h = 实际外接 bbox（按轴分别计算最大半幅）。mud 不阻挡移动，但保持凸形供 getCoverUnderTank 安全。
+    // #1（2026-10-16）：泥潭边界改为平滑曲线——双正弦调制半径（24 顶点），
+    // 不再是逐点随机 + 凸包（多边形感）。
     const rx = mw / 2, ry = mh / 2;
-    const N = rng.int(12, 16);
+    const N = 24;
     const rot = rng() * Math.PI * 2;
-    const pts = [];
+    const rPh1 = rng() * Math.PI * 2, rPh2 = rng() * Math.PI * 2;
+    const rFq1 = rng.range(2, 3), rFq2 = rng.range(4, 6);
+    const verts = [];
     for (let i = 0; i < N; i++) {
       const a = rot + (i / N) * Math.PI * 2;
-      const f = rng.range(0.8, 1.2);
-      pts.push([Math.cos(a) * rx * f, Math.sin(a) * ry * f]);
+      // 平滑半径调制（0.85~1.15）
+      const f = 1.0 + 0.10 * Math.sin(rPh1 + (i / N) * Math.PI * 2 * rFq1)
+                    + 0.05 * Math.sin(rPh2 + (i / N) * Math.PI * 2 * rFq2);
+      verts.push([Math.cos(a) * rx * f, Math.sin(a) * ry * f]);
     }
-    const verts = convexHull(pts);
     let maxx = 0, maxy = 0;
     for (const [vx, vy] of verts) { maxx = Math.max(maxx, Math.abs(vx)); maxy = Math.max(maxy, Math.abs(vy)); }
     out.push({ x: px, y: py,
-               w: maxx * 2, h: maxy * 2, angle: rng.range(-0.2, 0.2), tier: 'mud', verts });
+               w: maxx * 2, h: maxy * 2, angle: 0, tier: 'mud', verts });
   }
   return out;
 }
@@ -2572,6 +2575,30 @@ function pruneOverlappingCovers(covers) {
       : ((typeof global !== 'undefined' && typeof global.snapshotCovers === 'function') ? global.snapshotCovers : null);
     if (snapFn) {
       snapFn();
+    }
+  }
+
+  // #1（2026-10-16）：建筑去重——移除重叠的建筑（保留先放置的）。
+  // 模板自带 items 可能重叠，placeVillage 有 hitsOccupied 但模板项无检查。
+  {
+    const _blds = outCovers.filter(c => c.tier === 'full');
+    const _remove = new Set();
+    for (let i = 0; i < _blds.length; i++) {
+      if (_remove.has(_blds[i])) continue;
+      for (let j = i + 1; j < _blds.length; j++) {
+        if (_remove.has(_blds[j])) continue;
+        const a = _blds[i], b = _blds[j];
+        // OBB 近似：AABB 重叠即视为重叠（建筑极少旋转）
+        if (Math.abs(a.x - b.x) < (a.w + b.w) / 2 * 0.9 &&
+            Math.abs(a.y - b.y) < (a.h + b.h) / 2 * 0.9) {
+          _remove.add(b);
+        }
+      }
+    }
+    if (_remove.size) {
+      for (let i = outCovers.length - 1; i >= 0; i--) {
+        if (_remove.has(outCovers[i])) outCovers.splice(i, 1);
+      }
     }
   }
 
