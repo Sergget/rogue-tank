@@ -2179,8 +2179,34 @@ function pruneOverlappingCovers(covers) {
   const prio = c => (_PRUNE_PRIORITY[c.tier] !== undefined ? _PRUNE_PRIORITY[c.tier] : 7);
   // 显著重叠判定：对每个 cover 取 3×3 局部采样点（世界系），一方 ≥1/3 采样点落入另一方
   // 多边形/OBB 内即视为显著重叠（纯函数、确定性，不用 rng）。
-  const samplePts = c => _pruneSamplePts(c);
-  const polyOf = c => _prunePolyWorld(c);
+  // 性能优化（2026-10-16）：缓存 samplePts/polyOf/AABB（每轮 while 迭代清一次，
+  // tryNudge 改位置后 break outer 重扫，缓存即失效）；AABB 预检跳过远距离对。
+  // AABB 不交 ⇒ 多边形必不交 ⇒ sigOverlap 必 false，跳过不改变输出。
+  let _cache = null;
+  const _ensureCache = () => {
+    if (_cache) return _cache;
+    _cache = new Map();
+    return _cache;
+  };
+  const _getCached = c => {
+    const m = _ensureCache();
+    let e = m.get(c);
+    if (!e) {
+      const poly = _prunePolyWorld(c);
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const p of poly) {
+        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+      }
+      e = { sa: _pruneSamplePts(c), poly, minX, maxX, minY, maxY };
+      m.set(c, e);
+    }
+    return e;
+  };
+  const _aabbOverlap = (a, b) =>
+    a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
+  const samplePts = c => _getCached(c).sa;
+  const polyOf = c => _getCached(c).poly;
   const sigOverlap = (sa, polyA, sb, polyB) => {
     let inB = 0, inA = 0;
     for (const p of sa) if (_pointInPrunePoly(p, polyB)) inB++;
@@ -2215,16 +2241,20 @@ function pruneOverlappingCovers(covers) {
   let iter = 0;
   const MAX_ITER = arr.length * 4 + 40;
   while (iter++ < MAX_ITER) {
+    _cache = null;   // 本轮位置可能已变（上一轮 tryNudge/splice），清缓存
     let found = false;
     outer:
     for (let i = 0; i < arr.length; i++) {
       const a = arr[i];
       if (a.tier === 'road') continue;                       // road 豁免（地面层）
+      const ea = _getCached(a);
       for (let j = i + 1; j < arr.length; j++) {
         const b = arr[j];
         if (b.tier === 'road') continue;
         if (a.groupId && a.groupId === b.groupId) continue;  // 同链搭接豁免
-        if (!sigOverlap(samplePts(a), polyOf(a), samplePts(b), polyOf(b))) continue;
+        const eb = _getCached(b);
+        if (!_aabbOverlap(ea, eb)) continue;                // AABB 不交 ⇒ 必不重叠
+        if (!sigOverlap(ea.sa, ea.poly, eb.sa, eb.poly)) continue;
         found = true;
         const pa = prio(a), pb = prio(b);
         const loser = (pa > pb) ? b : (pb > pa ? a : (i < j ? b : a));   // 高优先级胜；同优先级留先放置者

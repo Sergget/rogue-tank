@@ -848,7 +848,12 @@ function buildCoverIndex(covers) {
         if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
         if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
       }
-      ex = (maxX - minX) / 2; ey = (maxY - minY) / 2;
+      // #1 多边形道路/河流：verts 未必以 c.x/c.y 为中心，直接用世界系 bbox，勿用 c.x±ex
+      const x0 = Math.floor(minX / cell), x1 = Math.floor(maxX / cell);
+      const y0 = Math.floor(minY / cell), y1 = Math.floor(maxY / cell);
+      if ((x1 - x0 + 1) * (y1 - y0 + 1) > 64) { put('*', i); continue; }
+      for (let gx = x0; gx <= x1; gx++) for (let gy = y0; gy <= y1; gy++) put(gx + ',' + gy, i);
+      continue;
     } else {
       const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2;
       ex = Math.abs(Math.cos(a)) * hw + Math.abs(Math.sin(a)) * hh;
