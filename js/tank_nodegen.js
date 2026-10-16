@@ -604,23 +604,63 @@ function placeEdgeRiver(rng, tpl, scale, centerX, centerY, roadCovers) {
   const span = alongDim(edge) * scale * 1.04;
   const band = Math.max(baseThick * 0.7, Math.min(tpl.w, tpl.h) * scale * 0.08);
   const baseOff = rng.range(-0.06, 0.06);
-  const amp = band * 0.5;
   const freq = rng.range(1.0, 2.0);
   const phase = rng.range(0, Math.PI * 2);
 
-  // 生成河流中心线（选边已避开平行道路，直接生成）
-  const centerPts = [];
-  for (let i = 0; i <= 40; i++) {
-    const t = i / 40 - 0.5;
-    const meander = (baseOff + Math.sin(phase + (i / 40) * Math.PI * 2 * freq)) * amp;
-    const wVar = rng.range(0.7, 1.3);
-    const w = baseThick * wVar;
-    let x, y;
-    if (edge === 0) { x = centerX + t * span; y = centerY - halfH + band + meander; }
-    else if (edge === 1) { x = centerX + t * span; y = centerY + halfH - band + meander; }
-    else if (edge === 2) { x = centerX - halfW + band + meander; y = centerY + t * span; }
-    else { x = centerX + halfW - band + meander; y = centerY + t * span; }
-    centerPts.push({ x, y, w });
+  // 生成河流中心线（带振幅参数，用于 75° 约束迭代）
+  const buildRiverPts = (ampScale) => {
+    const amp = band * 0.5 * ampScale;
+    const pts = [];
+    for (let i = 0; i <= 40; i++) {
+      const t = i / 40 - 0.5;
+      const meander = (baseOff + Math.sin(phase + (i / 40) * Math.PI * 2 * freq)) * amp;
+      const wVar = 0.7 + (i * 37 % 100) / 100 * 0.6;  // deterministic 宽度变化
+      const w = baseThick * wVar;
+      let x, y;
+      if (edge === 0) { x = centerX + t * span; y = centerY - halfH + band + meander; }
+      else if (edge === 1) { x = centerX + t * span; y = centerY + halfH - band + meander; }
+      else if (edge === 2) { x = centerX - halfW + band + meander; y = centerY + t * span; }
+      else { x = centerX + halfW - band + meander; y = centerY + t * span; }
+      pts.push({ x, y, w });
+    }
+    return pts;
+  };
+
+  // 验证交叉角 ≥75°：返回最小交叉角（度）
+  const minCrossAngle = (centerPts) => {
+    let minAng = 90;
+    const MIN_DEG = 75;
+    for (let i = 0; i < centerPts.length; i++) {
+      const rp = centerPts[i];
+      const r0 = centerPts[Math.max(0, i - 1)], r1 = centerPts[Math.min(centerPts.length - 1, i + 1)];
+      const rdx = r1.x - r0.x, rdy = r1.y - r0.y;
+      const rlen = Math.hypot(rdx, rdy) || 1;
+      for (const road of roadCenters) {
+        // 找最近点
+        let minD = Infinity, ni = 0;
+        for (let j = 0; j < road.pts.length; j++) {
+          const d = Math.hypot(rp.x - road.pts[j].x, rp.y - road.pts[j].y);
+          if (d < minD) { minD = d; ni = j; }
+        }
+        // 只有实际接近才检查角度（距离 < 宽度和）
+        if (minD > (rp.w + road.w) / 2) continue;
+        const q0 = road.pts[Math.max(0, ni - 1)], q1 = road.pts[Math.min(road.pts.length - 1, ni + 1)];
+        const qdx = q1.x - q0.x, qdy = q1.y - q0.y;
+        const qlen = Math.hypot(qdx, qdy) || 1;
+        const dot = Math.abs((rdx * qdx + rdy * qdy) / (rlen * qlen));
+        let ang = Math.acos(Math.min(1, dot)) * 180 / Math.PI;
+        if (ang > 90) ang = 180 - ang;
+        if (ang < minAng) minAng = ang;
+      }
+    }
+    return minAng;
+  };
+
+  // 迭代：若最小交叉角 <75°，减小蜿蜒振幅使河流更直（交叉更接近垂直）
+  let centerPts = buildRiverPts(1.0);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (minCrossAngle(centerPts) >= 75) break;
+    centerPts = buildRiverPts(1.0 - (attempt + 1) * 0.18);  // 振幅递减
   }
 
   // 构建多边形：沿中心线两侧偏移
