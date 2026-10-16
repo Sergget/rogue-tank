@@ -442,9 +442,22 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
         byGroup.get(c.groupId).push(c);
       }
       // v2 拓扑指纹：各链的主导方向（H/V）排序后拼接 → 多样性度量
+      // #1：多边形道路从 verts 提取方向
       const dirOf = (segs) => {
         let num = 0;
-        for (const s of segs) num += Math.abs(Math.cos(s.angle || 0));
+        for (const s of segs) {
+          if (s.verts && s.verts.length >= 6) {
+            const n = s.verts.length / 2;
+            const p0l = s.verts[0], p0r = s.verts[s.verts.length - 1];
+            const p1l = s.verts[n - 1], p1r = s.verts[n];
+            const x0 = (p0l[0] + p0r[0]) / 2, y0 = (p0l[1] + p0r[1]) / 2;
+            const x1 = (p1l[0] + p1r[0]) / 2, y1 = (p1l[1] + p1r[1]) / 2;
+            const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+            num += dx > dy ? 1 : 0;
+          } else {
+            num += Math.abs(Math.cos(s.angle || 0));
+          }
+        }
         return (num / segs.length) > 0.5 ? 'H' : 'V';
       };
       topoSeen.add([...byGroup.values()].map(dirOf).sort().join(''));
@@ -473,6 +486,17 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
                                 Math.abs(e.y - wy0) < 3 || Math.abs(e.y - wy1) < 3;
       const inOtherGroup = (e, gid) => roads.some(o => {
         if (o.groupId === gid) return false;
+        // #1：多边形道路用点在多边形内检测
+        if (o.verts && o.verts.length >= 6) {
+          const poly = o.verts;
+          let inside = false;
+          for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const xi = poly[i][0], yi = poly[i][1];
+            const xj = poly[j][0], yj = poly[j][1];
+            if (((yi > e.y) !== (yj > e.y)) && (e.x < (xj - xi) * (e.y - yi) / (yj - yi) + xi)) inside = !inside;
+          }
+          return inside;
+        }
         const ca = Math.cos(o.angle || 0), sa = Math.sin(o.angle || 0);
         const dx = e.x - o.x, dy = e.y - o.y;
         const lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
@@ -488,18 +512,34 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
         }
       }
       // ③ 交叉口数与夹角（相交点按 400px 聚类 = 同一路口）
+      // #1（2026-10-16）：道路为多边形，从 verts 提取方向与半长
+      const roadDir = (c) => {
+        if (c.verts && c.verts.length >= 6) {
+          const n = c.verts.length / 2;
+          const p0l = c.verts[0], p0r = c.verts[c.verts.length - 1];
+          const p1l = c.verts[n - 1], p1r = c.verts[n];
+          const x0 = (p0l[0] + p0r[0]) / 2, y0 = (p0l[1] + p0r[1]) / 2;
+          const x1 = (p1l[0] + p1r[0]) / 2, y1 = (p1l[1] + p1r[1]) / 2;
+          const dx = x1 - x0, dy = y1 - y0;
+          const len = Math.hypot(dx, dy) || 1;
+          return { dx: dx / len, dy: dy / len, halfLen: len / 2 };
+        }
+        const ca = Math.cos(c.angle || 0), sa = Math.sin(c.angle || 0);
+        const hl = Math.max(10, c.w - (c.h || 64) * 0.35) / 2;
+        return { dx: ca, dy: sa, halfLen: hl };
+      };
       const groups = [...byGroup.values()];
       const hits = [];
       for (let i = 0; i < groups.length; i++) {
         for (let j = i + 1; j < groups.length; j++) {
           for (const a of groups[i]) {
             for (const b of groups[j]) {
-              const da = { x: Math.cos(a.angle || 0), y: Math.sin(a.angle || 0) };
-              const db = { x: Math.cos(b.angle || 0), y: Math.sin(b.angle || 0) };
+              const ra = roadDir(a), rb = roadDir(b);
+              const da = { x: ra.dx, y: ra.dy };
+              const db = { x: rb.dx, y: rb.dy };
               const den = da.x * db.y - da.y * db.x;
               if (Math.abs(den) < 1e-6) continue;
-              const ha = Math.max(10, a.w - (a.h || 64) * 0.35) / 2;
-              const hb = Math.max(10, b.w - (b.h || 64) * 0.35) / 2;
+              const ha = ra.halfLen, hb = rb.halfLen;
               const dx = b.x - a.x, dy = b.y - a.y;
               const tt = (dx * db.y - dy * db.x) / den, uu = (dx * da.y - dy * da.x) / den;
               if (Math.abs(tt) <= ha && Math.abs(uu) <= hb) {

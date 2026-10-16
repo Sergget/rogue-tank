@@ -186,9 +186,58 @@ function drawCover(ctx, cov){
     const _bang = cov.angle || 0;
     const _bh1 = function (n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
     const _bseed = _bx * 0.913 + _by * 0.717;
+    // #1（2026-10-16）：多种屋顶样式（按 hash 选择）：0=人字坡，1=平顶，2=四坡顶
+    const _roofStyle = Math.floor(_bh1(_bseed + 3.1) * 3);
     ctx.save();
     ctx.translate(_bx, _by); ctx.rotate(_bang);
     const _hw = _bw / 2, _hh = _bh / 2;
+    if (_roofStyle === 1) {
+      // —— 平顶：女儿墙 + 屋面机房/水箱 ——
+      ctx.fillStyle = 'rgba(120,110,100,0.95)';  // 屋面
+      ctx.fillRect(-_hw, -_hh, _hw * 2, _hh * 2);
+      // 女儿墙（内收边框）
+      ctx.strokeStyle = 'rgba(80,70,60,1.0)'; ctx.lineWidth = 4;
+      ctx.strokeRect(-_hw + 2, -_hh + 2, _hw * 2 - 4, _hh * 2 - 4);
+      ctx.strokeStyle = 'rgba(160,150,135,0.6)'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(-_hw + 6, -_hh + 6, _hw * 2 - 12, _hh * 2 - 12);
+      // 屋面机房
+      const _mx = (_bh1(_bseed + 11.7) - 0.5) * _hw * 0.8;
+      const _my = (_bh1(_bseed + 23.3) - 0.5) * _hh * 0.8;
+      const _mw2 = Math.min(22, _hw * 0.35), _mh2 = Math.min(16, _hh * 0.3);
+      ctx.fillStyle = 'rgba(95,88,80,1.0)';
+      ctx.fillRect(_mx - _mw2/2, _my - _mh2/2, _mw2, _mh2);
+      ctx.fillStyle = 'rgba(70,65,58,1.0)';
+      ctx.fillRect(_mx - _mw2/2, _my - _mh2/2, _mw2, 3);  // 阴影边
+      // 水箱/通风管
+      const _vx = (_bh1(_bseed + 37.9) - 0.5) * _hw * 1.2;
+      const _vy = (_bh1(_bseed + 41.2) - 0.5) * _hh * 1.2;
+      ctx.fillStyle = 'rgba(110,120,130,1.0)';
+      ctx.beginPath(); ctx.arc(_vx, _vy, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(80,88,96,1.0)';
+      ctx.beginPath(); ctx.arc(_vx, _vy, 5, Math.PI, Math.PI * 2); ctx.fill();
+    } else if (_roofStyle === 2) {
+      // —— 四坡顶：中心点 + 四面坡 ——
+      const _cx0 = 0, _cy0 = 0;
+      // 四个三角形坡面（上/下/左/右，明暗不同）
+      ctx.fillStyle = 'rgba(128,84,58,0.95)';  // 上（深）
+      ctx.beginPath(); ctx.moveTo(-_hw, -_hh); ctx.lineTo(_hw, -_hh); ctx.lineTo(_cx0, _cy0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(148,98,66,0.95)';  // 下（浅）
+      ctx.beginPath(); ctx.moveTo(-_hw, _hh); ctx.lineTo(_hw, _hh); ctx.lineTo(_cx0, _cy0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(138,91,62,0.95)';  // 左（中）
+      ctx.beginPath(); ctx.moveTo(-_hw, -_hh); ctx.lineTo(-_hw, _hh); ctx.lineTo(_cx0, _cy0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(118,78,54,0.95)';  // 右（中深）
+      ctx.beginPath(); ctx.moveTo(_hw, -_hh); ctx.lineTo(_hw, _hh); ctx.lineTo(_cx0, _cy0); ctx.closePath(); ctx.fill();
+      // 脊线（四条）
+      ctx.strokeStyle = 'rgba(70,42,28,1.0)'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(-_hw, -_hh); ctx.lineTo(_cx0, _cy0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(_hw, -_hh); ctx.lineTo(_cx0, _cy0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-_hw, _hh); ctx.lineTo(_cx0, _cy0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(_hw, _hh); ctx.lineTo(_cx0, _cy0); ctx.stroke();
+      // 中心宝顶
+      ctx.fillStyle = 'rgba(90,55,40,1.0)';
+      ctx.fillRect(_cx0 - 4, _cy0 - 4, 8, 8);
+    } else {
+    // —— 人字坡屋顶（默认） ——
     // 屋脊方向：沿长边（_bw >= _bh 时屋脊横向，否则纵向）
     const _ridgeH = _bw >= _bh;
     const _rl = _ridgeH ? _hw : _hh;  // 屋脊半长
@@ -259,6 +308,7 @@ function drawCover(ctx, cov){
       ctx.fillRect(_cx - _cs/2, _cy - _cs/2, _cs, 2);
       ctx.fillStyle = 'rgba(90,55,40,1.0)';
     }
+    }  // end 人字坡 else
     ctx.restore();
     ctx.fillStyle = tier.stroke; ctx.font='10px "JetBrains Mono", monospace';
     ctx.fillText(tier.label, cov.x-24, cov.y-cov.h/2-6);
