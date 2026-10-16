@@ -545,9 +545,10 @@ function placeCentralPond(rng, tpl, scale, centerX, centerY, outCovers) {
   return { x: px, y: py, w: maxx * 2, h: maxy * 2, angle: rng.range(-0.03, 0.03), tier: 'water', verts };
 }
 
-function placeEdgeRiver(rng, tpl, scale, centerX, centerY) {
+function placeEdgeRiver(rng, tpl, scale, centerX, centerY, roadCovers) {
   // #1（2026-10-16）：河流改为单条连续多边形（不再是多段矩形拼接）。
   // 沿边生成一条蜿蜒曲线，宽度随机变化，输出 verts 多边形——消除接缝碎片化与深色边缘条。
+  // 河流与道路可交叉（垂直相交），但不可重叠（平行贴合）——roadCovers 用于检测平行重叠并调整 band。
   const edge = rng.int(0, 3);            // 0=N 1=S 2=W 3=E
   const alongDim = edge < 2 ? tpl.w : tpl.h;
   const span = alongDim * scale * 1.04;  // 河流贯穿整条边（略超出防缺口）
@@ -559,6 +560,37 @@ function placeEdgeRiver(rng, tpl, scale, centerX, centerY) {
   const freq = rng.range(1.0, 2.0);
   const phase = rng.range(0, Math.PI * 2);
 
+  // 检测与道路的平行重叠：如果某条道路与河流走向平行且距离过近，调整 band 避开
+  let bandAdjust = 0;
+  if (roadCovers && roadCovers.length) {
+    const isHorizontal = edge < 2;  // 河流走向：N/S 边为横向，W/E 边为纵向
+    for (const road of roadCovers) {
+      if (road.tier !== 'road') continue;
+      const roadAngle = Math.abs(road.angle || 0);
+      const roadIsHorizontal = roadAngle < Math.PI / 4 || roadAngle > Math.PI * 3 / 4;
+      // 平行检测：走向一致
+      if (roadIsHorizontal === isHorizontal) {
+        // 计算道路与河流基准线的距离
+        let dist;
+        if (isHorizontal) {
+          const riverY = edge === 0 ? centerY - halfH + band : centerY + halfH - band;
+          dist = Math.abs(road.y - riverY);
+        } else {
+          const riverX = edge === 2 ? centerX - halfW + band : centerX + halfW - band;
+          dist = Math.abs(road.x - riverX);
+        }
+        const minDist = baseThick / 2 + (road.w || 100) / 2 + 20;  // 河流半宽 + 道路半宽 + 间隙
+        if (dist < minDist) {
+          // 平行重叠：向内推移 band（远离边缘）
+          bandAdjust = minDist - dist + 10;
+          break;
+        }
+      }
+      // 垂直交叉：允许，不调整
+    }
+  }
+  const effBand = band + bandAdjust;
+
   // 采样中心线（~40 点）
   const N = 40;
   const centerPts = [];
@@ -569,10 +601,10 @@ function placeEdgeRiver(rng, tpl, scale, centerX, centerY) {
     const wVar = rng.range(0.7, 1.3);
     const w = baseThick * wVar;
     let x, y;
-    if (edge === 0) { x = centerX + t * span; y = centerY - halfH + band + meander; }
-    else if (edge === 1) { x = centerX + t * span; y = centerY + halfH - band + meander; }
-    else if (edge === 2) { x = centerX - halfW + band + meander; y = centerY + t * span; }
-    else { x = centerX + halfW - band + meander; y = centerY + t * span; }
+    if (edge === 0) { x = centerX + t * span; y = centerY - halfH + effBand + meander; }
+    else if (edge === 1) { x = centerX + t * span; y = centerY + halfH - effBand + meander; }
+    else if (edge === 2) { x = centerX - halfW + effBand + meander; y = centerY + t * span; }
+    else { x = centerX + halfW - effBand + meander; y = centerY + t * span; }
     centerPts.push({ x, y, w });
   }
 
@@ -906,22 +938,39 @@ function _catmullRomSample(points, step) {
 
 // 沿采样折线铺设链段（首尾相接，段间搭接防接缝）；isSegOk(seg) 命中即弃。
 function _emitRoadChain(out, pts, roadW, groupId, isSegOk) {
-  for (let j = 0; j < pts.length - 1; j++) {
-    const a = pts[j], b = pts[j + 1];
-    const dist = Math.hypot(b.x - a.x, b.y - a.y);
-    if (dist < 2) continue;
-    const seg = {
-      x: (a.x + b.x) / 2,
-      y: (a.y + b.y) / 2,
-      w: dist + roadW * 0.35,
-      h: roadW,
-      angle: Math.atan2(b.y - a.y, b.x - a.x),
-      tier: 'road',
-      groupId: groupId
-    };
-    if (isSegOk && !isSegOk(seg)) continue;
-    out.push(seg);
+  // #1（2026-10-16）：道路改为单条连续多边形（不再是 110px 短 OBB 段拼接）。
+  // 沿采样折线两侧偏移生成多边形——消除段间接缝碎片化。
+  if (pts.length < 2) return;
+  const hw = roadW / 2;
+  const left = [], right = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[Math.min(pts.length - 1, i + 1)];
+    const dx = p1.x - p0.x, dy = p1.y - p0.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len;
+    left.push([p.x + nx * hw, p.y + ny * hw]);
+    right.push([p.x - nx * hw, p.y - ny * hw]);
   }
+  const verts = left.concat(right.reverse());
+  // 计算外接 bbox
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [vx, vy] of verts) {
+    minX = Math.min(minX, vx); maxX = Math.max(maxX, vx);
+    minY = Math.min(minY, vy); maxY = Math.max(maxY, vy);
+  }
+  const seg = {
+    x: (minX + maxX) / 2,
+    y: (minY + maxY) / 2,
+    w: maxX - minX,
+    h: maxY - minY,
+    angle: 0,
+    tier: 'road',
+    verts: verts,
+    groupId: groupId
+  };
+  if (isSegOk && !isSegOk(seg)) return;
+  out.push(seg);
 }
 
 // 2026-09-16 路网重做 v2（用户反馈：① 交叉处没有「路口」感、只是机械叠加
@@ -2301,11 +2350,26 @@ function pruneOverlappingCovers(covers) {
     } else if (tag === 'edgeRiver') {
       // 2026-10-05：strip 模式下跳过 per-chunk 河流（strip 级一体化河流已生成，
       // 避免重复 + 接缝断开）。
+      // #1（2026-10-16）：传入 networkRoads，河流与道路可交叉但不可平行重叠。
       if (!_ro.externalRoads) {
-        outCovers.push(placeEdgeRiver(rng, selectedTemplate, scale, centerX, centerY));
+        outCovers.push(placeEdgeRiver(rng, selectedTemplate, scale, centerX, centerY, networkRoads));
       }
     } else if (tag === 'mudPatch') {
       for (const m of placeMudPatch(rng, selectedTemplate, scale, centerX, centerY, outCovers)) {
+        // #1（2026-10-16）：泥潭与道路交叉时随机决定生效方。
+        // 检查是否与 road 重叠，重叠则 50% 概率泥潭优先（mudPriority=true）。
+        let overlapsRoad = false;
+        for (const r of networkRoads) {
+          if (r.tier !== 'road') continue;
+          // 简化的 AABB 重叠检测
+          if (Math.abs(m.x - r.x) < (m.w + r.w) / 2 && Math.abs(m.y - r.y) < (m.h + r.h) / 2) {
+            overlapsRoad = true;
+            break;
+          }
+        }
+        if (overlapsRoad && rng() < 0.5) {
+          m.mudPriority = true;  // 泥潭优先：覆盖道路，减速生效
+        }
         outCovers.push(m);
       }
     }

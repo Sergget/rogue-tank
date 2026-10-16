@@ -220,6 +220,24 @@ function getCoverUnderTank(tank) {
   return null;
 }
 
+// #1（2026-10-16）：泥潭-道路交叉时随机优先级。mudPriority=true 的泥潭
+// 在交叉处覆盖道路（减速生效，公路加速不生效）。
+function getPriorityMudUnderTank(tank) {
+  if(!tank || !Number.isFinite(tank.x) || !Number.isFinite(tank.y)) return null;
+  const tankCorners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
+  for (const cov of coverQueryCandidates(tank.x, tank.y, tankQueryRadius(tank))) {
+    if(cov.hp <= 0) continue;
+    if(cov.tier !== 'mud' || !cov.mudPriority) continue;
+    const parts = coverCollisionParts(cov);
+    for (const part of parts) {
+      if (obbOverlap(tankCorners, part)) {
+        return cov;
+      }
+    }
+  }
+  return null;
+}
+
 // #S4 + #S14（2026-10-14）：road 被 getCoverUnderTank 跳过（纯地面标识），
 // 公路加速与"道路屏蔽下层减速"改走本函数单独查询（同款 OBB 相交判定 + 空间索引）。
 function getRoadUnderTank(tank) {
@@ -240,8 +258,11 @@ function getRoadUnderTank(tank) {
 
 // 溺毙判定（2026-09-14 水域行为重做）：坦克车体四角是否「完全浸入」水体
 // （每角均位于任一 water|river 覆盖凸块内，允许跨相邻水体拼接）。
+// #1（2026-10-16）：道路-河流交叉处，道路生效——坦克在 road 上时不判定为浸水（桥）。
 // 纯函数、无 DOM；消费方：tank_mvp.html 战斗主循环 drownT 累计。
 function tankFullyInWater(tank) {
+  // 道路优先：在 road 上即使下方有 river 也不算浸水
+  if (typeof getRoadUnderTank === 'function' && getRoadUnderTank(tank)) return false;
   const corners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
   const parts = [];
   for (const cov of covers) {

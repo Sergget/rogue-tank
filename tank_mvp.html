@@ -4815,15 +4815,8 @@ function bakeNodeGroundLayer(node){
   const roadCovs = covers.filter(c => c.tier === 'road' && c.hp !== 0);
   if(!roadCovs.length) return;
 
-  // 准确计算链段的几何中心线端点（扣除 OBB 占位外扩 overlap）
-  const ends = (c) => {
-    const ca = Math.cos(c.angle || 0), sa = Math.sin(c.angle || 0);
-    const nominalSpan = Math.max(10, c.w - (c.h || 64) * 0.35);
-    const hw = nominalSpan / 2;
-    return [{ x: c.x - ca * hw, y: c.y - sa * hw }, { x: c.x + ca * hw, y: c.y + sa * hw }];
-  };
-
-  // 按 groupId 分组
+  // #1（2026-10-16）：道路已是单条连续多边形（verts），无需多段拼接重建。
+  // 直接按 groupId 分组，每组取 verts 多边形绘制。路口处多边形自然重叠合并。
   const groups = new Map();
   roadCovs.forEach((c, i) => {
     const g = c.groupId || ('__road_' + i);
@@ -4831,46 +4824,24 @@ function bakeNodeGroundLayer(node){
     groups.get(g).push(c);
   });
 
-  // 每组串联为平滑连续折线
+  // 每组直接使用 verts 多边形（单条连续，无需拼接）
   const paths = [];
   for(const segs of groups.values()){
-    const used = new Set();
-    const matchTol = Math.max(35, (segs[0] ? segs[0].h : 64) * 0.6);
-    for(const s0 of segs){
-      if(used.has(s0)) continue;
-      used.add(s0);
-      const [a0, b0] = ends(s0);
-      const chain = [a0, b0];
-      let extended = true;
-      while(extended){
-        extended = false;
-        const tail = chain[chain.length - 1];
-        const head = chain[0];
-        let bestCandidate = null, bestDist = matchTol, attachAt = null;
-        for(const s of segs){
-          if(used.has(s)) continue;
-          const [a, b] = ends(s);
-          const dTailA = Math.hypot(tail.x - a.x, y2(tail, a));
-          const dTailB = Math.hypot(tail.x - b.x, y2(tail, b));
-          const dHeadA = Math.hypot(head.x - a.x, y2(head, a));
-          const dHeadB = Math.hypot(head.x - b.x, y2(head, b));
-
-          if(dTailA < bestDist){ bestDist = dTailA; bestCandidate = s; attachAt = 'tail_b'; }
-          if(dTailB < bestDist){ bestDist = dTailB; bestCandidate = s; attachAt = 'tail_a'; }
-          if(dHeadB < bestDist){ bestDist = dHeadB; bestCandidate = s; attachAt = 'head_a'; }
-          if(dHeadA < bestDist){ bestDist = dHeadA; bestCandidate = s; attachAt = 'head_b'; }
+    for(const s of segs){
+      if(s.verts && s.verts.length >= 6){
+        // 从多边形提取中心线：verts 前半为左侧点，后半为右侧点（逆序）
+        const n = s.verts.length / 2;
+        const centerPts = [];
+        for(let i = 0; i < n; i++){
+          const l = s.verts[i], r = s.verts[s.verts.length - 1 - i];
+          centerPts.push({ x: (l[0] + r[0]) / 2, y: (l[1] + r[1]) / 2 });
         }
-        if(bestCandidate){
-          used.add(bestCandidate);
-          const [a, b] = ends(bestCandidate);
-          if(attachAt === 'tail_b') chain.push(b);
-          else if(attachAt === 'tail_a') chain.push(a);
-          else if(attachAt === 'head_a') chain.unshift(a);
-          else if(attachAt === 'head_b') chain.unshift(b);
-          extended = true;
-        }
+        // 估算路宽：中点处左右距离
+        const mid = Math.floor(n / 2);
+        const lw = s.verts[mid], rw = s.verts[s.verts.length - 1 - mid];
+        const w = Math.hypot(lw[0] - rw[0], lw[1] - rw[1]);
+        paths.push({ pts: centerPts, w: w || 70, poly: s.verts });
       }
-      paths.push({ pts: chain, w: s0.h || 70 });
     }
   }
   if(!paths.length) return;
@@ -4881,24 +4852,37 @@ function bakeNodeGroundLayer(node){
 // y 方向差值（链段端点匹配用；x 差在调用处算）
 function y2(p, q){ return q.y - p.y; }
 
-// 把一组链路描到目标 2D 上下文（圆角连接/端帽 butt 口径与旧整图烘焙一致）
+// 把一组链路描到目标 2D 上下文
+// #1（2026-10-16）：道路为连续多边形，直接填充多边形（交叉处自然合并为路口）。
 function _strokeGroundPaths(g, chains){
-  g.lineCap = 'butt'; g.lineJoin = 'round';
-  const tracePath = (p) => {
+  g.lineJoin = 'round';
+  // 第 1 遍：路床基底（多边形外扩 4px 描边）+ 沥青主路面（多边形填充，交叉处合并）
+  for(const p of chains){
+    if(!p.poly || p.poly.length < 6) continue;
     g.beginPath();
-    g.moveTo(p.pts[0].x, p.pts[0].y);
-    for(let i = 1; i < p.pts.length; i++) g.lineTo(p.pts[i].x, p.pts[i].y);
-  };
-  // 第 1 遍：路床基底与暗色路缘（外扩 8px）+ 连续平滑沥青主路面（交叉处自然合并）
-  g.strokeStyle = '#32302b';
-  for(const p of chains){ if(p.pts.length < 2) continue; g.lineWidth = p.w + 8; tracePath(p); g.stroke(); }
-  g.strokeStyle = '#58554e';
-  for(const p of chains){ if(p.pts.length < 2) continue; g.lineWidth = p.w; tracePath(p); g.stroke(); }
-  // 第 2 遍：中心虚线，再在路口范围涂回沥青色挖掉（路口读作「路口」而非「两条线交叉」）
+    g.moveTo(p.poly[0][0], p.poly[0][1]);
+    for(let i = 1; i < p.poly.length; i++) g.lineTo(p.poly[i][0], p.poly[i][1]);
+    g.closePath();
+    // 路缘：深色描边
+    g.strokeStyle = '#32302b';
+    g.lineWidth = 8;
+    g.stroke();
+    // 沥青：填充
+    g.fillStyle = '#58554e';
+    g.fill();
+  }
+  // 第 2 遍：中心虚线（沿中心线），在路口处断线
   g.strokeStyle = 'rgba(235, 220, 160, 0.6)';
   g.lineWidth = 2.5;
   g.setLineDash([18, 14]);
-  for(const p of chains){ if(p.pts.length < 2) continue; tracePath(p); g.stroke(); }
+  g.lineCap = 'butt';
+  for(const p of chains){
+    if(!p.pts || p.pts.length < 2) continue;
+    g.beginPath();
+    g.moveTo(p.pts[0].x, p.pts[0].y);
+    for(let i = 1; i < p.pts.length; i++) g.lineTo(p.pts[i].x, p.pts[i].y);
+    g.stroke();
+  }
   g.setLineDash([]);
   if(_groundJunctions.length){
     g.fillStyle = '#58554e';
@@ -5027,6 +5011,8 @@ function draw(){
   inViewCovers.filter(cov => cov.tier !== 'road' && groundLayerCov(cov)).forEach(cov => drawCover(ctx, cov));
   if(groundLayerCanvas){ ctx.drawImage(groundLayerCanvas, _groundBake ? _groundBake.ox : 0, _groundBake ? _groundBake.oy : 0); }
   else inViewCovers.filter(cov => cov.tier === 'road').forEach(cov => drawCover(ctx, cov));   // 无烘焙层（dev 随机场）回退逐段绘制
+  // #1（2026-10-16）：mudPriority 的泥潭画在道路上层（交叉处泥潭生效）
+  inViewCovers.filter(cov => cov.tier === 'mud' && cov.mudPriority).forEach(cov => drawCover(ctx, cov));
   inViewCovers.filter(cov => cov.tier === 'bridge').forEach(cov => drawCover(ctx, cov));
   inViewCovers.filter(cov => !groundLayerCov(cov) && cov.tier !== 'bridge' && (groundLayerCanvas ? cov.tier !== 'road' : true)).forEach(cov => drawCover(ctx, cov));
   entities.forEach(t => {

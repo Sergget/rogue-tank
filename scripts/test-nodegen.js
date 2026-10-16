@@ -308,8 +308,19 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
     const roads = r.covers.filter(c => c.tier === 'road');
     ok(roads.length >= 2, `村庄 road 实例 ≥2（实际 ${roads.length}）`);
     const rwCfg = RULES.nodeMap.road || { widthMin: 92, widthMax: 124 };
-    ok(roads.every(rd => rd.h >= rwCfg.widthMin - 1e-6 && rd.h <= rwCfg.widthMax + 1e-6),
-       `道路条带宽 ${roads.map(rd => Math.round(rd.h)).join(',')} 在 ${rwCfg.widthMin}~${rwCfg.widthMax} 世界px（#E2 加宽）`);
+    // #1（2026-10-16）：道路改为连续多边形，宽度从 verts 估算（中点处左右边距离）
+    const roadWidth = (rd) => {
+      if (!rd.verts || rd.verts.length < 4) return rd.h || 0;
+      const n = rd.verts.length / 2;
+      const mid = Math.floor(n / 2);
+      const l = rd.verts[mid], rr = rd.verts[rd.verts.length - 1 - mid];
+      return Math.hypot(l[0] - rr[0], l[1] - rr[1]);
+    };
+    ok(roads.every(rd => {
+      const w = roadWidth(rd);
+      return w >= rwCfg.widthMin - 1e-6 && w <= rwCfg.widthMax + 1e-6;
+    }),
+       `道路条带宽 ${roads.map(rd => Math.round(roadWidth(rd))).join(',')} 在 ${rwCfg.widthMin}~${rwCfg.widthMax} 世界px（#E2 加宽）`);
     // 建筑中心到最近 road 条带的距离 ≤ 路半宽(≤40) + 建筑半宽 + 50px → 沿路分布
     const distToRoad = (b) => Math.min.apply(null, roads.map(rd => {
       const dx = b.x - rd.x, dy = b.y - rd.y;
