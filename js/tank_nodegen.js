@@ -1957,12 +1957,49 @@ function ensureLoSCorridor(coversList, hints, rng) {
 // 消费方：generateNode（#E3 段）。
 function _roadSegAngle(seg) { return seg.angle || 0; }
 
+// #1（2026-10-16）：道路连续多边形（cde3bc3 起：整条链一个 cover，w/h 为整链外接 bbox，
+// 真实形状在 verts）→ 还原为短 OBB 段，供沿路建筑 / 路口沙包的定位与避让逻辑使用
+//（恢复旧逐点对分段语义；此前直接拿 bbox 做 obbHitsCover 会把整片节点判为"压路面"，
+// 沿路建筑与路口沙包产出恒为 0，buildingDensity 乘子空转——#I3 回归）。
+// verts 口径：left.concat(right.reverse())——前半左缘、后半右缘（逆序），
+// 中线点 = 两缘对应点中点（同 scripts/test-nodegen.js #B7 的 ends()/dirOf() 约定）。
+// 纯函数、确定性（不用 rng），同输入同输出。
+function roadCoversToSegments(roadCovers, roadW) {
+  const segs = [];
+  const list = roadCovers || [];
+  for (let ci = 0; ci < list.length; ci++) {
+    const c = list[ci];
+    if (!c || c.tier !== 'road') continue;
+    const v = c.verts;
+    if (!Array.isArray(v) || v.length < 6) { segs.push(c); continue; }  // 旧 OBB 段格式，直接沿用
+    const n = Math.floor(v.length / 2);
+    const cx = new Array(n), cy = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const L = v[i], R = v[v.length - 1 - i];
+      cx[i] = (L[0] + R[0]) / 2; cy[i] = (L[1] + R[1]) / 2;
+    }
+    // 逐点对还原短段——与旧 _emitRoadChain（cde3bc3 之前）逐段 emit 完全同构：
+    // w = 点距 + roadW*0.35，h = roadW，angle = 点对方向（已验证：与旧分段中心距/w/h/夹角差均为 0）
+    for (let i = 1; i < n; i++) {
+      const dx = cx[i] - cx[i - 1], dy = cy[i] - cy[i - 1];
+      const len = Math.hypot(dx, dy);
+      if (len < 2) continue;
+      segs.push({ x: (cx[i - 1] + cx[i]) / 2, y: (cy[i - 1] + cy[i]) / 2,
+                  w: len + roadW * 0.35, h: roadW,
+                  angle: Math.atan2(dy, dx), tier: 'road', groupId: c.groupId });
+    }
+  }
+  return segs;
+}
+
 function placeRoadsideBuildings(rng, tpl, scale, centerX, centerY, roadCovers, junctions, roadW, outCovers, density) {
   const nodeMap = (typeof RULES !== 'undefined' && RULES.nodeMap) ? RULES.nodeMap : {};
   const cfg = nodeMap.building || {};
   // #I3（2026-09-21 用户裁定「继续增加建筑密度，特别是 boss 战地图」）：密度乘子——
   // makeNode 对 boss 节点传 RULES.nodeMap.building.bossDensity（1.6），普通节点 1。
   const den = (density !== undefined) ? density : 1;
+  // #1（2026-10-16）：cde3bc3 起道路为连续多边形——bbox 避让/分段定位须用还原后的短 OBB 段
+  const roadSegs = roadCoversToSegments(roadCovers, roadW);
   const fullHp = (typeof RULES !== 'undefined' && RULES.coverTiers && RULES.coverTiers.full)
     ? RULES.coverTiers.full.hp : Infinity;
   const halfW = tpl.w * scale / 2, halfH = tpl.h * scale / 2;
@@ -1988,7 +2025,7 @@ function placeRoadsideBuildings(rng, tpl, scale, centerX, centerY, roadCovers, j
   const placed = [];
   const fits = (x, y, w, h, ang) => {
     if (x < minX || x > maxX || y < minY || y > maxY) return false;
-    if (obbHitsCover(roadCovers, x, y, w, h, ang, 10)) return false;             // 不压路面
+    if (obbHitsCover(roadSegs, x, y, w, h, ang, 10)) return false;                 // 不压路面（#1：用短段还原，bbox 会误杀整片）
     // #I3 修复（#E3/#G 遗留缺陷）：此前对 outCovers 用 pad 34 判重叠，而 outCovers **含全部
     // 道路段**——道路是宽条带（92~124px），pad 34 的膨胀判定把沿路/路口建筑几乎全部拒绝
     // （实测同 seed 下 placeRoadsideBuildings 产出 0，模板建筑之外无新增建筑，密度参数无效）。
@@ -2028,7 +2065,8 @@ function placeRoadsideBuildings(rng, tpl, scale, centerX, centerY, roadCovers, j
   }
 
   // ---- 2) 沿路两侧散布：贴路缘外侧成排（朝向对齐街道轴）；#I3 密度乘子加成采样密度 ----
-  const segs = (roadCovers || []).slice();
+  // #1（2026-10-16）：roadSegs 为短 OBB 段还原（连续多边形直接迭代会拿整链 bbox 当段用）
+  const segs = roadSegs.slice();
   const wantRoadside = Math.max(2, Math.round(segs.length / 4 * den));
   const step = Math.max(1, Math.floor(segs.length / wantRoadside));
   for (let i = 0; i < segs.length && placed.length < maxPerNode; i += step) {
@@ -2053,6 +2091,8 @@ function placeRoadsideBuildings(rng, tpl, scale, centerX, centerY, roadCovers, j
 // 沙包会落到节点外（实测 run-seed 节点 4 有三个 barricade 落在 y≈1509 > 半高 720）。
 function placeJunctionBarricades(rng, roadCovers, junctions, roadW, outCovers, bounds) {
   const cfg = (typeof RULES !== 'undefined' && RULES.nodeMap && RULES.nodeMap.junctionBarricades) || {};
+  // #1（2026-10-16）：cde3bc3 起道路为连续多边形——避让须用短 OBB 段还原（整链 bbox 会误杀整片）
+  const roadSegs = roadCoversToSegments(roadCovers, roadW);
   const chance = cfg.chance !== undefined ? cfg.chance : 0.85;
   const cMin = cfg.countMin !== undefined ? cfg.countMin : 2;
   const cMax = cfg.countMax !== undefined ? cfg.countMax : 4;
@@ -2075,7 +2115,7 @@ function placeJunctionBarricades(rng, roadCovers, junctions, roadW, outCovers, b
             y < -bounds.halfH + m || y > bounds.halfH - m) continue;
       }
       // 沙包布防在「路口环外侧、且不压路面」的位置
-      if (obbHitsCover(roadCovers, x, y, w, h, a, 2)) continue;
+      if (obbHitsCover(roadSegs, x, y, w, h, a, 2)) continue;
       if (obbHitsCover(outCovers, x, y, w, h, a, 6)) continue;
       if (obbHitsCover(placed, x, y, w, h, a, 6)) continue;
       const b = { x, y, w, h, angle: a, tier: 'barricade' };
@@ -3717,6 +3757,7 @@ function generateStrip(difficulty, options) {
       placeRoadNetwork,
       placeRoadsideBuildings,
       placeJunctionBarricades,
+      roadCoversToSegments,
       placeVillage,
       placeForestClusters,
       ensureLoSCorridor,

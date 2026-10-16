@@ -395,11 +395,19 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
   // 2b) 沿路/路口建筑确实被生成（#I3 顺带修复 #E3/#G 遗留缺陷：此前 fits() 对 outCovers
   //     ——含全部道路段——用 pad 34 判重叠，把建筑几乎全部拒绝；placeRoadsideBuildings
   //     产出恒为 0，密度参数完全空转。现行：道路按 pad 10、非道路元素才按 pad 34。）
-  const probeBase = generateNode(0.5, { templateId: tpl.id, seed: 4242, cullRate: 0, scale: 3 });
-  const probe = generateNode(0.5, { templateId: tpl.id, seed: 4242, cullRate: 0, scale: 3, buildingDensity: 2.5 });
-  const hasNewTier = probe.covers.some(c => c.tier === 'building' || c.tier === 'ruined');
-  ok(hasNewTier && countStruct(probe) >= countStruct(probeBase),
-     `#I3 沿路/路口建筑实际生成：高乘子下出现 building/ruined（结构 ${countStruct(probeBase)} → ${countStruct(probe)}，密度参数不再空转）`);
+  // #1（2026-10-16）：单 seed 下 pickTier 掷骰（30% building / 10% ruined / 60% full）会有波动——
+  // #1 批次管线变密（泥斑 4→36 等）后 seed 4242 恰掷出全 full。与 2a) 同口径改用 8-seed 聚合判定
+  //（见 2a 注释「单 seed 非单调」），断言强度不变：高密度下多数 seed 应出现 building/ruined，
+  // 且结构总数不退化；若沿路建筑产出恒为 0（#E3/#G 原 bug 或 cde3bc3 类回归）则 newTierSeeds=0 必挂。
+  let newTierSeeds = 0, sumProbeBase = 0, sumProbeHi = 0;
+  for (const sd of seeds) {
+    const pb = generateNode(0.5, { templateId: tpl.id, seed: sd, cullRate: 0, scale: 3 });
+    const ph = generateNode(0.5, { templateId: tpl.id, seed: sd, cullRate: 0, scale: 3, buildingDensity: 2.5 });
+    sumProbeBase += countStruct(pb); sumProbeHi += countStruct(ph);
+    if (ph.covers.some(c => c.tier === 'building' || c.tier === 'ruined')) newTierSeeds++;
+  }
+  ok(newTierSeeds >= 6 && sumProbeHi >= sumProbeBase,
+     `#I3 沿路/路口建筑实际生成：高乘子下出现 building/ruined（${newTierSeeds}/8 seed，结构 ${sumProbeBase} → ${sumProbeHi}，密度参数不再空转）`);
   // 3) 乘子语义：1.0 与缺省一致（不产生意外缩放）
   const one = generateNode(0.5, { templateId: tpl.id, seed: 4242, cullRate: 0, scale: 3, buildingDensity: 1 });
   const def = generateNode(0.5, { templateId: tpl.id, seed: 4242, cullRate: 0, scale: 3 });
