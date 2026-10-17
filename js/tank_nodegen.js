@@ -1021,25 +1021,47 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
   //   注意：只避 road/river/water 三类「有实体语义」的地形；mud↔mud 之间的浅搭接仍允许
   //   （同层贴花叠放视觉无害，且硬避会让泥潭无处可放、破坏「地形标签必产出」契约）。
   const avoidCovers = (outCovers || []).filter(c => c.tier === 'road' || c.tier === 'river' || c.tier === 'water');
+  // #U26（2026-10-17 用户反馈「泥潭生效位置和贴图不符合，有错位」）：
+  //   原实现只判**泥潭中心点**是否落在路面多边形内 ⇒ 泥潭（40~64×scale，半径可达 100px+）
+  //   中心落在路边外侧一点点时整块泥仍会压住半条路（实测 mud↔road 多边形相交 13/74 = 18%）。
+  //   现改为**足印采样**：在泥潭椭圆内取中心 + 8 个方位点（0.55×半径），任一点落进多边形即判相交；
+  //   对无 verts 的旋转矩形（river/water 段）同样按「泥潭半幅外扩」做 OBB 判定。
+  const _polyHit = (r, x, y) => {
+    const poly = r.verts;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = r.x + poly[i][0], yi = r.y + poly[i][1];
+      const xj = r.x + poly[j][0], yj = r.y + poly[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  };
   const hitsRoad = (x, y, w, h) => {
+    const rx = Math.max(1, w / 2) * 0.55, ry = Math.max(1, h / 2) * 0.55;
+    // 足印采样点（中心 + 8 向）；半径取 0.55 覆盖椭圆主体（边界处的 1.15 正弦扰动可忽略）
+    const probes = [[0, 0]];
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      probes.push([Math.cos(a) * rx, Math.sin(a) * ry]);
+    }
     for (const r of avoidCovers) {
-      // AABB 粗判 + 多边形精判（road 有 verts）
-      if (Math.abs(x - r.x) > (w + r.w) / 2 || Math.abs(y - r.y) > (h + r.h) / 2) continue;
+      // AABB 粗判：按「泥潭半幅 + 覆盖物半幅」外扩（原实现只比中心，粗判就漏）
+      if (Math.abs(x - r.x) > (w + (r.w || 0)) / 2 || Math.abs(y - r.y) > (h + (r.h || 0)) / 2) continue;
       if (r.verts) {
-        // 点在多边形内检测（泥潭中心点）
-        const poly = r.verts;
-        let inside = false;
-        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-          const xi = r.x + poly[i][0], yi = r.y + poly[i][1];
-          const xj = r.x + poly[j][0], yj = r.y + poly[j][1];
-          if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
-        }
-        if (inside) return true;
+        for (const [dx, dy] of probes) if (_polyHit(r, x + dx, y + dy)) return true;
       } else {
-        // 无 verts：按 OBB 精判（river 段为旋转矩形）
+        // 无 verts：旋转矩形 OBB，把泥潭半幅加进去再判中心（等价于「外扩矩形相交」）
         const a = -(r.angle || 0), ca = Math.cos(a), sa = Math.sin(a);
         const lx = (x - r.x) * ca - (y - r.y) * sa, ly = (x - r.x) * sa + (y - r.y) * ca;
-        if (Math.abs(lx) <= (r.w || 0) / 2 && Math.abs(ly) <= (r.h || 0) / 2) return true;
+        if (Math.abs(lx) <= (r.w || 0) / 2 + rx && Math.abs(ly) <= (r.h || 0) / 2 + ry) return true;
+      }
+      // 反向：覆盖物（多边形）的顶点落在泥潭椭圆内——细长路面切过泥潭一侧时中心与采样点可能都在外侧
+      if (r.verts) {
+        for (const v of r.verts) {
+          const wx = r.x + v[0], wy = r.y + v[1];
+          const ex = (wx - x) / Math.max(1e-6, w / 2), ey = (wy - y) / Math.max(1e-6, h / 2);
+          if (ex * ex + ey * ey <= 1.15 * 1.15) return true;
+        }
       }
     }
     return false;
@@ -2359,8 +2381,15 @@ function pruneOverlappingCovers(covers, opts) {
         const eb = _getCached(b);
         if (!_aabbOverlap(ea, eb)) continue;                // AABB 不交 ⇒ 必不重叠
         // #U16：地形↔水域（ground↔liquid）用更严阈值，其余维持 ≥1/3
+        // #U16：地形↔水域（ground↔liquid）用更严阈值，其余维持 ≥1/3。
+        // #U26（2026-10-17）：mud↔road 同样用严阈值——泥潭压路是用户可感知的「生效位置
+        //   与贴图不符」（路面有 +10km/h 加成，泥 0.4 减速，二者叠加时行为以 road 屏蔽，
+        //   但视觉上是「泥在路中间」）。road 的 tierGroup='ground' 与 mud 同组，
+        //   这里显式按 tier 名把 road 纳入严判（road 优先级 7 > mud 3，败者恒为泥）。
         const _strictPair = (_isGroundTier(a.tier) && _isLiquidTier(b.tier)) ||
-                            (_isLiquidTier(a.tier) && _isGroundTier(b.tier));
+                            (_isLiquidTier(a.tier) && _isGroundTier(b.tier)) ||
+                            (a.tier === 'road' && b.tier === 'mud') ||
+                            (a.tier === 'mud' && b.tier === 'road');
         const _hit = _strictPair
           ? sigOverlapStrict(ea.sa, ea.poly, eb.sa, eb.poly)
           : sigOverlap(ea.sa, ea.poly, eb.sa, eb.poly);
@@ -2715,7 +2744,7 @@ function pruneOverlappingCovers(covers, opts) {
         outCovers.push(placeEdgeRiver(rng, selectedTemplate, scale, centerX, centerY, networkRoads));
       }
     } else if (tag === 'mudPatch') {
-      for (const m of placeMudPatch(rng, selectedTemplate, scale, centerX, centerY, outCovers)) {
+      for (const m of placeMudPatch(rng, selectedTemplate, scale, centerX, centerY, avoidCovers)) {
         // #1（2026-10-16）：泥潭与道路完全互斥——生成时已避开道路，此处不再需要 mudPriority。
         outCovers.push(m);
       }
@@ -3394,27 +3423,28 @@ function generateStrip(difficulty, options) {
   //   placeMudPatch 的避路重试保证（本步只清压水的少数）。
   {
     const _waters = covers.filter(c => c.tier === 'river' || c.tier === 'water');
-    if (_waters.length) {
-      const _obbHit = (c1, c2) => {
-        const cs = (c) => {
-          const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2, a = c.angle || 0;
-          const ca = Math.cos(a), sa = Math.sin(a);
-          return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]]
-            .map(([x, y]) => ({ x: c.x + x * ca - y * sa, y: c.y + x * sa + y * ca }));
-        };
-        const A = cs(c1), B = cs(c2);
-        for (const [P, Q] of [[A, B], [B, A]]) {
-          for (let i = 0; i < 4; i++) {
-            const p1 = P[i], p2 = P[(i + 1) % 4];
-            const ax = -(p2.y - p1.y), ay = (p2.x - p1.x);
-            let mnA = Infinity, mxA = -Infinity, mnB = Infinity, mxB = -Infinity;
-            for (const p of A) { const d = p.x * ax + p.y * ay; if (d < mnA) mnA = d; if (d > mxA) mxA = d; }
-            for (const p of B) { const d = p.x * ax + p.y * ay; if (d < mnB) mnB = d; if (d > mxB) mxB = d; }
-            if (mxA < mnB || mxB < mnA) return false;
-          }
-        }
-        return true;
+    // #U26：mud↔road 收尾复用同一 SAT（road 无 angle 的 verts 多边形，coverCorners 即真边界）
+    const _obbHit = (c1, c2) => {
+      const cs = (c) => {
+        const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2, a = c.angle || 0;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]]
+          .map(([x, y]) => ({ x: c.x + x * ca - y * sa, y: c.y + x * sa + y * ca }));
       };
+      const A = cs(c1), B = cs(c2);
+      for (const [P, Q] of [[A, B], [B, A]]) {
+        for (let i = 0; i < 4; i++) {
+          const p1 = P[i], p2 = P[(i + 1) % 4];
+          const ax = -(p2.y - p1.y), ay = (p2.x - p1.x);
+          let mnA = Infinity, mxA = -Infinity, mnB = Infinity, mxB = -Infinity;
+          for (const p of A) { const d = p.x * ax + p.y * ay; if (d < mnA) mnA = d; if (d > mxA) mxA = d; }
+          for (const p of B) { const d = p.x * ax + p.y * ay; if (d < mnB) mnB = d; if (d > mxB) mxB = d; }
+          if (mxA < mnB || mxB < mnA) return false;
+        }
+      }
+      return true;
+    };
+    if (_waters.length) {
       for (let i = covers.length - 1; i >= 0; i--) {
         const c = covers[i];
         if (!c || c.tier !== 'mud') continue;
@@ -3423,6 +3453,23 @@ function generateStrip(difficulty, options) {
           if (Math.abs(c.x - w.x) > (c.w + w.w) / 2 || Math.abs(c.y - w.y) > (c.h + w.h) / 2) continue;
           if (_obbHit(c, w)) { covers.splice(i, 1); break; }
         }
+      }
+    }
+    // #U26（2026-10-17 用户反馈「泥潭生效位置和贴图不符合」）：**mud↔road strip 级收尾**。
+    //   chunk 内的 placeMudPatch 只避让片内帧的 externalRoads，且片内 prune 看不到 strip 级
+    //   追加的 road cover（路是 chunk 循环之后才 push 进 covers 的）⇒ 泥潭压路在 strip 模式下
+    //   系统性漏网（实测 4 seed 12/116 = 10% 的泥潭与路面多边形相交；mud 0.4 减速 vs road
+    //   +10km/h，物理上 road 屏蔽泥潭减速，但视觉是「泥在路中间」，即用户报的错位感）。
+    //   与上面 mud↔water 收尾同款：OBB SAT 精判，命中即移除泥潭（装饰层，不影响
+    //   「地形标签必产出」——本收尾只删压路的少数块）。
+    const _roads = covers.filter(c => c.tier === 'road' && c.verts);
+    for (let i = covers.length - 1; i >= 0; i--) {
+      const c = covers[i];
+      if (!c || c.tier !== 'mud') continue;
+      for (const r of _roads) {
+        // AABB 粗判后 SAT 精判（road 无 angle，泥 angle 也为 0；SAT 通用）
+        if (Math.abs(c.x - r.x) > (c.w + r.w) / 2 || Math.abs(c.y - r.y) > (c.h + r.h) / 2) continue;
+        if (_obbHit(c, r)) { covers.splice(i, 1); break; }
       }
     }
   }

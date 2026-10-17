@@ -250,8 +250,15 @@ function fireDoubleBarrel(shooter, target, hitPref, ctx, spec, salvo) {
   }
   const switchSeconds = (typeof spec.switchSeconds === 'number') ? spec.switchSeconds : 0.5;
   const barrelOffset = (typeof spec.barrelOffset === 'number') ? spec.barrelOffset : 1.85;
-  const barrelWid = (shooter.barrel && shooter.barrel.width) || 14;
-  const off = barrelWid * barrelOffset * 0.5;
+  // #U25（2026-10-17 用户反馈「双管开火时炮弹出发点与炮管相差很大」）：
+  //   这里原来用 `shooter.barrel.width`（设计器字段，单位是 **%**，典型值 18）× barrelOffset × 0.5
+  //   当像素用 ⇒ off = 18×1.85×0.5 ≈ 16.6px。而绘制侧（tank_battledraw.js）用的是
+  //   `turWid × (width/100) × 0.5 × barrelOffset × 0.5` ≈ 2~4px——两处口径不同源，弹道起点
+  //   比画出来的炮管横向偏出 3~5 倍（双管尤其明显）。现改为与绘制完全同源：
+  //   barrelWid(px) = max(3, turWid × width% × 0.5)，炮管中心偏移 = barrelWid × barrelOffset × 0.5。
+  const _bSpec = shooter.barrel || {};
+  const barrelWidPx = Math.max(3, (shooter.turWid || 34) * ((_bSpec.width || 18) / 100) * 0.5);
+  const off = barrelWidPx * barrelOffset * 0.5;
 
   // 齐射 = 全部炮管就绪后一发射出；单击 = 只发第一根就绪管
   const toFire = salvo ? readyIdx.slice(0, st.count) : [readyIdx[0]];

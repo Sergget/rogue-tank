@@ -92,6 +92,13 @@ const DENSE = new Set(['forest_dense', 'woodland_line']);
 //   minPassageWidth 普遍收窄（泥斑 36 块后 mud↔残骸小间隙主导，如 mixed_barrier d=0.9 0.3；
 //   度量口径：minPassage 仍含 road 短段还原配对，与标定口径一致）。
 //   全模板连通性维持 1.000。校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
+//
+// 第十次重标定（2026-10-17 #U26 泥潭↔道路互斥）：
+//   placeMudPatch 的 hitsRoad 改为足印采样（泥潭半幅 0.55×8 向 + 路多边形顶点反查），
+//   且 strip 级追加 road 后新增 mud↔road SAT 收尾（压路泥潭直接移除）。泥潭离路更远 →
+//   minPassageWidth 由「mud↔残骸小间隙」变为更宽通道：urban_block d=0.7 1.7→1.2、
+//   mixed_barrier_plaza d=0.1 1.1→2.1 / d=0.3 1.0→1.6（其余模板/难度不变）。
+//   coverCoverage / connectivity 全部不变。校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
 // 2026-10-16 基线重标定（第八次，#T3 道路 verts 帧修复）：
 //   #T3 把 _emitRoadChain 的 verts 由「调用方帧绝对坐标」统一为「相对 c.x/c.y 的局部坐标」
 //   （对齐 tank_cover.js 的多边形契约）。这项修正使两处此前因坐标系错位而**恒不生效**的
@@ -114,9 +121,9 @@ const DENSE = new Set(['forest_dense', 'woodland_line']);
 const BASE = {
   corridor_tutorial: [{"cov":0.074,"con":1,"minw":2.1},{"cov":0.073,"con":1,"minw":2.1},{"cov":0.078,"con":1,"minw":2.3},{"cov":0.074,"con":1,"minw":2.7},{"cov":0.074,"con":1,"minw":3}],
   forest_dense: [{"cov":0.068,"con":1,"minw":0.5},{"cov":0.068,"con":1,"minw":0.5},{"cov":0.071,"con":1,"minw":0.9},{"cov":0.068,"con":1,"minw":0.9},{"cov":0.07,"con":1,"minw":0.8}],
-  urban_block: [{"cov":0.093,"con":1,"minw":1.0},{"cov":0.092,"con":1,"minw":1.1},{"cov":0.096,"con":1,"minw":1.0},{"cov":0.090,"con":1,"minw":1.7},{"cov":0.089,"con":1,"minw":1.1}],
+  urban_block: [{"cov":0.093,"con":1,"minw":1.0},{"cov":0.092,"con":1,"minw":1.1},{"cov":0.096,"con":1,"minw":1.0},{"cov":0.090,"con":1,"minw":1.2},{"cov":0.089,"con":1,"minw":1.1}],
   crossfire_plaza: [{"cov":0.093,"con":1,"minw":1.2},{"cov":0.091,"con":1,"minw":1.4},{"cov":0.089,"con":1,"minw":1.2},{"cov":0.088,"con":1,"minw":2},{"cov":0.088,"con":1,"minw":1.9}],
-  mixed_barrier_plaza: [{"cov":0.060,"con":1,"minw":1.1},{"cov":0.057,"con":1,"minw":1.0},{"cov":0.060,"con":1,"minw":1.9},{"cov":0.055,"con":1,"minw":1.6},{"cov":0.055,"con":1,"minw":1.4}],
+  mixed_barrier_plaza: [{"cov":0.060,"con":1,"minw":2.1},{"cov":0.057,"con":1,"minw":1.6},{"cov":0.060,"con":1,"minw":1.9},{"cov":0.055,"con":1,"minw":1.6},{"cov":0.055,"con":1,"minw":1.4}],
   village_center: [{"cov":0.097,"con":1,"minw":0.6},{"cov":0.095,"con":1,"minw":0.8},{"cov":0.094,"con":1,"minw":1.5},{"cov":0.094,"con":1,"minw":1.2},{"cov":0.092,"con":1,"minw":1.1}],
   woodland_line: [{"cov":0.046,"con":1,"minw":1.6},{"cov":0.044,"con":1,"minw":1.6},{"cov":0.047,"con":1,"minw":1.3},{"cov":0.045,"con":1,"minw":1.7},{"cov":0.046,"con":1,"minw":1.6}],
 };

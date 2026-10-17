@@ -1855,6 +1855,11 @@ function spawnSurvivalWaveEnemies(count, waveDiff, mults){
     t.survivalWaveSpawn = true;      // 波次清敌判定标记
     t.aiTriggerDist = 99999;         // 生存敌军全图主动索敌进攻
     t.alertLevel = 3;                // #MODE（2026-10-15）：强制接战
+    // #U29（2026-10-17）：强制接战必须同时置 aiEngaged——原实现只设 alertLevel/aiTriggerDist，
+    //   aiEngaged 仍为 undefined ⇒ aiDecide 首帧走「未接战」分支， reacting 层还会给
+    //   aiReactT 反应延迟（数秒原地起转）；再加上 defensive 站桩（已修），观感即「全员等玩家」。
+    t.aiEngaged = true;
+    t.aiReactT = 0;                  // 波次进攻无反应延迟（开场即压上）
     t.aiTier = (typeof aiTierForDifficulty === 'function') ? aiTierForDifficulty(waveDiff) : 1;
     const spec = tankListData && tankListData[tankId];
     if(typeof applyEnemyAppearanceAndStats === 'function'){
@@ -1880,6 +1885,7 @@ function startSurvivalWave(n){
     if(def){
       const be = spawnBossFromDef(def, node, { survivalWaveSpawn: true, entityMults: mults });
       be.aiTriggerDist = 99999;   // 生存 Boss 主动进攻
+      be.aiEngaged = true; be.aiReactT = 0;   // #U29：同普通波次敌，开场即接战
       pushLog(`⚠ 第 ${n} 波 · BOSS 来袭！`, 'CRIT');
     } else {
       pushLog('⚠ Boss 池为空，本波按普通敌军处理', 'CRIT');
@@ -2433,6 +2439,11 @@ function drawRewardCards(){
       stats: player.stats, cardEffects: player.cardEffects || [] },
     guaranteeAmmoUpgrade: pendingLootRounds > 0,   // #S5：Boss 追加轮必含 1 张弹种升级选项
     guaranteeSkillCard: pendingLootRounds > 0,      // #10：Boss 追加轮必含 1 张技能卡
+    // #U27/#U28（2026-10-17）：Boss 追加轮必含 1 张主武器安装卡 +（未装副武器时）1 张
+    //   副武器安装卡——原权重抽样下主武器 4 张 epic 安装卡期望 0.3 张/轮，实测 3 轮 0/3，
+    //   「换炮」构筑在 Boss 链几乎不可见。
+    guaranteePrimaryInstall: pendingLootRounds > 0,
+    guaranteeSecondaryInstall: pendingLootRounds > 0,
     // 稀有度保底：按配比「至少 N 张」（Boss 轮 = legendary 1 / epic 2）；
     // 权重覆盖：Boss 轮抬高非普通卡占比，其余槽位自由抽取。
     guaranteeRarity: bossRound ? bossRound.guarantee : null,
@@ -2779,6 +2790,10 @@ function buyRunShopItem(defId){
       player.runKitCdBonus = player.runKitCdBonus || { repair: 0, medkit: 0 };
       if(player.runKitCdBonus[def.instant.ability] !== undefined){
         player.runKitCdBonus[def.instant.ability] += def.instant.value;
+        // #U30（2026-10-17）：同步回写 abilityBaseCd——原实现只改 runKitCdBonus 账本，
+        //   冷却消费方（js/tank_abilities.js innateBaseCd 读 abilityBaseCd）感知不到，
+        //   购买「冷却升级」后实际冷却纹丝不动（用户实测）。下限 15s 在 effectiveKitCd 内钳。
+        if(typeof player._syncKitCd === 'function') player._syncKitCd();
       }
     }
   } else {
@@ -3300,6 +3315,12 @@ function prepPlayerForRun(){
   player.runKitCdBonus = { repair: 0, medkit: 0 };   // 局内商店 cdReduce 不跨局
   // #90 修理箱/医疗包（开局自带）：基础冷却 45s − 永久级数×1
   player.abilityBaseCd = { repair: effectiveKitCd('repair'), medkit: effectiveKitCd('medkit') };
+  // #U30（2026-10-17 用户反馈「局内商店修理箱/医疗包冷却升级似乎没有效果」）：
+  //   cdReduce 购买只累加 runKitCdBonus，未同步回 abilityBaseCd ⇒ 冷却仍按出击时的
+  //   基准值走（购买前后无差异）。现购买时同步重算（buyRunShopItem 内，见 2780 附近）。
+  player._syncKitCd = function(){
+    this.abilityBaseCd = { repair: effectiveKitCd('repair'), medkit: effectiveKitCd('medkit') };
+  };
   player.drownT = 0; player._drownWarned = false;
   // 2026-09-17 #C4e：F 键直接击发语义——无主/副切换概念，新局仅需清锁定状态
   player._missileLock = null;
@@ -5796,6 +5817,11 @@ function nextRunSeed(){
   window.__TEST__ = {
     version: 1,
     player(){ return player; },
+    // 调试/自动化：把内部闭包变量只读暴露出来（用于世界→屏幕像素级校验，
+    // 例如核查「河流/泥潭的渲染位置与物理判定是否一致」）
+    cam(){ return cam; },
+    covers(){ return covers; },
+    canvasEl(){ return canvas; },
     pendingMineFields(){ return pendingMineFields.length; },
     mineFieldPreview(){ return !!player._mineFieldPreview; },
     shells(){ return shells; },

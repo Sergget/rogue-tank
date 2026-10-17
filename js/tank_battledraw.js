@@ -193,9 +193,16 @@ function drawRiverChain(ctx, rects, tier){
   return true;
 }
 
-// 段短边中位数（河宽估计；偶数取中间两者均值）
+// 段短边中位数（河宽估计；偶数取中间两者均值）。
+// #U24（2026-10-17 用户反馈「河流生效位置和贴图错位」）：**不能取 min(w,h)**。
+//   strip 河段的几何是 `w = 沿程长度`（dist×1.25）、`h = 河宽`（thick×收分系数），
+//   `angle` 又恰好是**沿程方向**——所以绘制时的「横向」是 h 而不是 min(w,h)。
+//   实测 290/290 段的 min(w,h) 都是 h，但真实河宽中位数 190px 而 min 中位数只有 149px
+//   （短段 w≈101 < h），逐段取 min 会让线的粗细在 101~205px 之间抖动，河面忽宽忽窄、
+//   与物理判定（真实宽度恒为 h）对不上。正确口径：横向 = 段自身的短轴 = h。
 function medianSegWidth(rects){
-  const ws = rects.map(r => Math.min(r.w || 0, r.h || 0)).filter(w => w > 0).sort((a, b) => a - b);
+  const ws = rects.map(r => (r.h > 0 ? r.h : Math.min(r.w || 0, r.h || 0)))
+    .filter(w => w > 0).sort((a, b) => a - b);
   if(!ws.length) return 0;
   const m = ws.length >> 1;
   return ws.length % 2 ? ws[m] : (ws[m - 1] + ws[m]) / 2;

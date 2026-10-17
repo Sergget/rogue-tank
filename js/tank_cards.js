@@ -712,6 +712,27 @@ function drawCardChoices(pool, n, optsOrRng) {
         ef && ef.type === 'ability' && !ownedAbils.includes(ef.key)));
     }
   }
+  // #U27（2026-10-17 用户反馈「电磁炮卡牌在 Boss 战中很难刷出来」）：
+  //   Boss 追加轮必含 1 张**主武器安装卡**（opts.guaranteePrimaryInstall）——主武器只有
+  //   4 张安装卡（全 epic），普通权重抽样下每轮期望出现 0.3 张，实测模拟 3 轮 0/3、
+  //   6 轮 1/6（17%），玩家整个 Boss 链都摸不到换炮机会。装配优先级：主武器安装 >
+  //   副武器安装（既有装备保底）> 弹种升级——「换炮」是构筑核心，应稳定可获取。
+  //   已持有该型（cardEligible 已滤）或池内无货时静默跳过，不破坏抽取。
+  const forcePrimary = !!(optsOrRng && typeof optsOrRng === 'object' && optsOrRng.guaranteePrimaryInstall);
+  if (forcePrimary) {
+    if(picked.length < count) pickRandomWhere(c => (c.effects || []).some(ef =>
+      ef && ef.type === 'weapon' && (ef.slot || 'secondary') === 'primary' && ef.action === 'install'));
+  }
+  // #U28（2026-10-17 同反馈）：Boss 追加轮必含 1 张**副武器安装卡**——与主武器同理由。
+  //   仅在玩家尚未安装副武器时保底（已装则升级卡照常走权重抽样）。
+  const forceSecondary = !!(optsOrRng && typeof optsOrRng === 'object' && optsOrRng.guaranteeSecondaryInstall);
+  if (forceSecondary) {
+    const lacksSec = !owned || !owned.secondaryWeapon || owned.secondaryWeapon === 'none';
+    if (lacksSec && picked.length < count) {
+      pickRandomWhere(c => (c.effects || []).some(ef =>
+        ef && ef.type === 'weapon' && (ef.slot || 'secondary') === 'secondary' && ef.action === 'install'));
+    }
+  }
   // 2026-10-16：Boss 追加轮稀有度保底（opts.guaranteeRarity）+ 权重覆盖（opts.rarityWeights）。
   //   用户口径：「确保至少 1 张传奇、2 张史诗，其余随意，非普通卡抽中几率调高」。
   //   沿革：2026-10-15 曾用单一 guaranteeMinRarityIdx（«至少 1 张达下限»）修 epic 整档被滤出

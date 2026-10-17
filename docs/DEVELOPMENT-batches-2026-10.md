@@ -701,3 +701,20 @@
 
 - **验证（三链）**：`npm run check` **EXIT=0** / `npm test` **45/45 全绿**（新增 `test-cover-gen`）/ `npm run test:browser` **四链 ALL PASS**。另有：mock 全链出图 → 落盘 → 浏览器实机截图（图 1:1、无 404、无 JS 错）；核对后已删除 mock 产物，`assets/` 保持为空（走程序化回退）；`node tools/gen-covers.mjs --provider gemini` 在无凭据时给出明确指引而非静默失败。
 - **遗留**：真正出图需用户在 `.env` 填 `GEMINI_API_KEY`（或 `REPLICATE_API_TOKEN` / `OPENAI_API_KEY`）；本机网络实测 `generativelanguage.googleapis.com` 不可达、`api.replicate.com` 可达（401），选后端时需注意。
+
+### §4.85 2026-10-17 第二轮实机反馈：#U24~#U29（贴图↔物理一致性 / 卡牌保底 / 生存 AI / 商店冷却）
+
+- **来源**：用户实机反馈 5 项（河流/泥潭贴图错位、双管炮口偏移、电磁炮 Boss 轮难刷、生存 AI 等玩家、商店冷却升级无效）。现行细则归口 `specs/map.md` §17.5、`specs/combat.md` §3.1/§13、`specs/cards.md` §9。
+
+- **① 贴图↔物理一致性（#U24/#U25/#U26）**
+  - **#U24 河流**：`medianSegWidth` 取段 `min(w,h)` 当绘制线宽——strip 河段 `w=沿程长度`、`h=河宽`，290/290 段横向都是 h；真实河宽中位 190px vs min 中位 149px 且短段抖动。改取 `r.h`（与物理 OBB 短轴同源）。浏览器内像素采样：河「画了但物理不是」0.16%、「物理是但画不出」0.29%（余项为岸影/水花的正常边缘）。
+  - **#U25 双管炮口**：`fireDoubleBarrel` 把 `barrel.width`（百分比字段，典型 18）当像素 → 横向偏移 16.65px；绘制侧同公式为 2.78px（偏 6 倍）。改为与绘制同源的像素换算。
+  - **#U26 泥潭**：三处叠加缺陷——`hitsRoad` 只判泥潭中心点（半幅 100px+ 的泥潭贴边即漏，18% 相交）；strip 模式 `placeMudPatch` 收到 `outCovers`（此刻不含路）；strip 级路在 chunk 后追加，chunk 内判定与 prune 都看不到。修复：足印采样（中心+8 向）+ 路顶点反查 + 传 `avoidCovers` + strip 级 mud↔road SAT 收尾。实测 4 seed：mud∩road 21%→**0%**、mud∩river 保持 0。校准基线**第十次重标定**（泥潭离路更远 → `urban_block d=0.7` 1.7→1.2、`mixed_barrier_plaza d=0.1/0.3` 1.1→2.1 / 1.0→1.6；cov/con 全部不变）。
+
+- **② 卡牌保底（#U27）**：主武器安装卡仅 4 张（全 epic），Boss 轮权重抽样期望 0.3 张/轮（模拟 3 轮 0/3、6 轮 1/6）。`drawCardChoices` 新增 `guaranteePrimaryInstall` / `guaranteeSecondaryInstall`（未装副武器时）两个保底通道，mvp Boss 追加轮传入。模拟验证：3 轮主/副武器 100% 出现；保底顺序：装备优先 → 弹种 → 技能 → 主武器 → 副武器 → 稀有度配比 → 权重。
+
+- **③ 生存 AI（#U28）**：两处叠加——defensive 触发距离 `engage×3+500` 中 engage 被 `triggerHysteresis` 钳顶恒 ≈650（阈值 ≈2450px），`aiTriggerDist=99999` 只放行触发门、不放大 engage ⇒ 距玩家 >2450px 的生存敌全军站桩；生成时只设 `alertLevel=3` 未置 `aiEngaged/aiReactT` ⇒ 首帧吃反应延迟。修复：「全图主动」实体（`aiTriggerDist` 超钳顶值）不进 defensive（移动交交战带）+ 生成时置 `aiEngaged=true, aiReactT=0`（普通波次与 Boss 波）。Node 探针：`state=defensive move=0` → `move=1` 持续推进。
+
+- **④ 商店冷却（#U29）**：`cdReduce` 购买只累加 `runKitCdBonus` 账本，未回写消费值 `abilityBaseCd`（`innateBaseCd` 的唯一读取源）⇒ 升级无效。购买时经 `_syncKitCd()` 重算（出击注入助手；15s 下限在 `effectiveKitCd` 钳）。
+
+- **验证（三链）**：`npm run check` **EXIT=0** / `npm test` **45/45 全绿**（`test-nodegen-calibration` 第十次重标定通过）/ `npm run test:browser` **四链 ALL PASS**。专项：泥↔路 4 seed 0 相交；Boss 抽卡模拟（主/副武器 100%）；双管偏移 fire↔draw 等值探针；生存 AI 首帧行为探针；浏览器内世界→屏幕像素级采样（河/泥渲染↔物理错位 <0.3%）。

@@ -1021,11 +1021,17 @@ function aiDecideEnemy(t, ctx){
   // 3) Defensive：消极防御——距离非常远且有据点/掩体支撑时守城。
   // 本实现中设置较远阈值，确保正常游戏距离不触发，真正的据点守卫由主循环中
   // 友军据点存在时的状态判定触发。
+  // #U29（2026-10-17 用户反馈「生存模式敌方 AI 没有全员 engage，都在等玩家」）：
+  //   defensive 的触发距离 = engage×3+500，而 engage 被 triggerHysteresis（1.25）钳顶后
+  //   恒为 ~650 ⇒ 阈值 ~2450px。生存模式把 aiTriggerDist 设为 99999（全图主动索敌），
+  //   但 engage 并不随之放大 ⇒ 距玩家 >2450px 的敌军全部落进 defensive（move=0 站桩），
+  //   观感即「全在等玩家」。现改为：**aiTriggerDist 显式大于滞回钳顶值**（即配置了
+  //   「全图主动」语义的实体）不参与 defensive——它们的移动交给交战带（dist>band.max
+  //   → baseMove=1 全速接近），防御职责由 hold 角色承担。
   if(state !== 'stunned' && state !== 'flank'){
-    // 设置极远阈值，确保正常游戏距离不触发 defensive。
-    // 实际项目中会在有友军据点时通过额外标志触发。
     const defensiveTriggerDist = engage * 3 + 500; // 约 2060px，far beyond normal
-    const canDefensive = dist > defensiveTriggerDist;
+    const omniAggro = (t.aiTriggerDist || 0) > hyst * (cfg.triggerDistBase !== undefined ? cfg.triggerDistBase : 700);
+    const canDefensive = dist > defensiveTriggerDist && !omniAggro;
     if(canDefensive){
       // 消极防御：不移动，炮塔对准玩家，在射程内开火
       out.move = 0;
