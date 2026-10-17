@@ -151,11 +151,18 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 | `repair_kit` | repair（innate） | base | — |
 | `support_extinguisher` | extinguish（innate） | base | — |
 
+- **innate 强化卡的卡面语义（2026-10-17 #U21，现行口径）**：`repair_kit` / `support_extinguisher` 以 `type:'ability'` 发放，但 `repair` / `extinguish` 是**开局固有的 innate 键**（`ABILITY_KEYS_INNATE`，`tryActivateAbility` 绕过持有检查）——这两张卡**不会新增技能槽**，只改写该能力的修复量/冷却（`tank_abilities.js` 按 `cardId` 应用）。卡面因此必须写「强化固有技能【修理箱】…（修理箱为开局固有技能，本卡是强化而非新增）」，避免被读成「占了一个技能位却不能激活」。
+
 ## 9. 装备优先抽卡（2026-09-14 用户定案）
 - **动机**：玩家没有任何主动技能 / 副武器未安装时，候选卡若全是"升级类"会语义莫名其妙（升级谁？）。抽卡必须先提供**装备卡**。
 - **规则**（`tank_cards.js` `drawCardChoices(pool, n, { rng, ammoLoadout, owned })`）：
   - `owned = { abilities: string[], primaryWeapon: string, secondaryWeapon: string, cards?: {[id]:count} }` —— 玩家当前持有的主动技能 key 列表、主/副武器类型与已拥卡计数（mvp `drawRewardCards` 从 `player.cardEffects`（type 'ability' 去重 key）、`player.weapons.primary/secondary.type` 与 `cardStackCount` 组装传入；无则空数组 / 'standard' / 'none'）。
-  - **资格过滤先行**（#A23 / #A28）：`cardEligible` 在可用池阶段剔除「未持有所需武器的 upgrade 卡 / 槽已占的 secondary install 卡 / **未持有 `requiresAbility` 所指能力的 ability 升级卡** / 已叠满 maxStacks 的卡」，**在小池 early-return 与保底之前执行**；普通轮、刷新、Boss 追加轮复用同一规则。
+  - **资格过滤先行**（#A23 / #A28；2026-10-16~17 #U18/#U20/#U22 扩充，现行口径）：`cardEligible` 在可用池阶段剔除下列卡，**在小池 early-return 与保底之前执行**；普通轮、刷新、Boss 追加轮复用同一规则：
+    1. 未持有所需武器的 `upgrade` 卡 / 槽已占的 secondary `install` 卡 / 未持有 `requiresAbility` 所指能力的 ability 升级卡（#A23/#A28，原口径）；
+    2. 已达 `maxStacks` 的卡（原口径）；
+    3. **已持技能去重**（#U18）：ability 键玩家已持有，且本卡不带 `requiresAbility`（即非该能力的升级）⇒ 不合格——原行为是抽到零收益的重复技能卡占掉一个候选位；
+    4. **属性达限过滤**（#U20）：按 `RULES.parameterLimits` 点分路径取边界，模拟下一级后越界即不合格（口径同商店侧 `runShopLimitBlocked`）；
+    5. **「取最优」被动去重**（#U22）：`spall_liner`（取 min）/ `overmatch`（取 max）与已持同键被动比较，本卡不更优即不合格（这些被动按「取最强、不叠加」结算，弱档无收益）。
   - `abilities` 为空且池内有 `type:'ability'` 卡 → **保底抽取 1 张** ability 卡；
   - `secondaryWeapon` 为 none/缺省且池内有 `type:'weapon' && slot==='secondary'` 卡 → **保底抽取 1 张**副武器安装卡；
   - **弹种升级卡保底（2026-09-17 #C3 用户裁定「升级卡加权/保底」路线 → 2026-09-19 #D5 用户反馈「弹种升级速度太快」下调为概率触发 → 2026-10-10 #O4 再调参；排在装备保底之后）**：传入 `ammoLoadout` 时，若池内存在「`replaceAmmo` 链前驱已在 loadout 中」的弹种升级卡（即本回合可解锁/升级的新弹种），以 `RULES.cards.ammoUpgradeGuaranteeChance`（现行 **0.18**，沿革 0.4）概率**保证 1 张**进候选（单次抽取独立掷骰；`opts.ammoGuaranteeChance` 可覆盖，=1 复现 #C3 无条件保底语义）。**节奏衰减（#O4）**：保底概率与稀有度内自然权重同步乘 `0.55ⁿ`（n = 本局已获链升级卡数，经 `owned.cards` 反查 `isAmmoUpgradeCard` 计数），保底与自然抽样双通道随链进度递减（整局探针：15 节点 7 张 → 3 张，−57%）。升级完成后（目标弹种入 loadout）保底自动消失、恢复稀有度权重抽样。
@@ -182,3 +189,10 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 | 局内商店 | 3 项：`shell_velocity`（shellSpeed +40/级）/ `turret_traverse`（turretTurnRate +0.1/级）/ `track_field_kit`（trackLock −0.5s/级，`limit.min: 5` 拒购防线）——总数 12 → **15**（火力 6 / 防护 2 / 机动 4 / 杂项 3） |
 
 回归：`scripts/test-economy.js`（新增定义完整性 + 上限判定 + `applyUpgrades` 真实生效断言）/ `scripts/test-card-effects.js`（169 张全卡逐卡验证）/ `scripts/validate-content.js`（卡面数字一致性）。
+
+## 11. 局内卡牌查看器（2026-10-17 #U23，现行口径）
+
+- **入口**：`C` 键随时开关（战斗 / 暂停 / 结算 / 奖励屏均可），与 Tab 状态面板、`` ` `` 开发者面板**互斥**（打开其一即收起其它）。键位登记于 `js/tank_bindings.js` 的 `panelCards`（含 `ACTION_INFO` / `ACTION_ORDER`）。
+- **内容**：列出**本局已持有的卡牌**——名称 ×数量、稀有度中文标签、标签、描述；分类维度三选一：**稀有度**（按 `CARD_RARITIES` 降序分组）/ **标签**（按 `CARD_TAGS` 分组，多标签卡在各组各出现一次）/ **全部**（平铺）。
+- **数据源**：`player.cardEffects`（本局实际生效的卡，权威）+ `cardPool`（静态卡表取名/描述/稀有度）；不使用存档类数据，故不会显示未获得的卡。
+- **稀有度中文标签**：单一常量 `CARD_RARITY_LABELS`（`tank_mvp.html`），替换原先在两处函数内各写一份的字面量。

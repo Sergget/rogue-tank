@@ -90,23 +90,52 @@ function drawMinimap(ctx, opts) {
   ctx.strokeStyle = 'rgba(255,255,255,0.4)';
   ctx.strokeRect(opts.x + wb.x, opts.y + wb.y, world.w * layout.sx, world.h * layout.sy);
 
-  // 掩体点（soft/bush 淡，solid/graduated/其余 亮）
-  // P-40 地形抽象：按 tierGroup 编码——liquid 系(水/河)蓝、ground 系(泥)褐点、
-  // structure 新地形(rock/intact/ruined)实心方块；其余 tier 维持旧配色。
+  // 掩体绘制（#U5 用户裁定 B：**分区着色**）
+  //   原实现逐元素画点：树/灌木数量大时小地图被打成一片噪点（用户反馈「点太多」）。
+  //   现按 tierGroup 分流：
+  //     · 植被（foliage：tree/bush/fallen/soft）→ 累加到**世界网格**，按格内密度铺半透明色块，
+  //       密集处自然聚成「一小片绿色」，稀疏处不着色 —— 不画单点。
+  //     · 其余（liquid 水/河、ground 泥、structure 建筑/岩石）→ 仍逐元素画点/方块
+  //       （数量少且位置关键，保留可读性）。
+  //   网格尺寸按小地图像素取（约 4 屏幕 px 一格），与世界尺寸解耦，缩放时观感稳定。
   if (opts.covers) {
+    const CELL_PX = 4;                                    // 每格小地图像素
+    const cellWorldX = CELL_PX / Math.max(1e-6, layout.sx);  // 换算回世界尺寸
+    const cellWorldY = CELL_PX / Math.max(1e-6, layout.sy);
+    const vegCells = new Map();                           // "gx,gy" -> {n, wx, wy}
     for (const c of opts.covers) {
       if (c.hp <= 0) continue;
-      const p = worldToMinimap(layout, c.x, c.y);
       const tg = (typeof COVER_TIERS !== 'undefined' && COVER_TIERS[c.tier]) ? COVER_TIERS[c.tier].tierGroup : null;
-      let dot = (c.tier === 'soft' || c.tier === 'bush') ? 1 : 1.6;
+      if (tg === 'foliage') {
+        const gx = Math.floor(c.x / cellWorldX), gy = Math.floor(c.y / cellWorldY);
+        const k = gx + ',' + gy;
+        let cell = vegCells.get(k);
+        if (!cell) { cell = { n: 0, sx: 0, sy: 0 }; vegCells.set(k, cell); }
+        cell.n++; cell.sx += c.x; cell.sy += c.y;
+        continue;
+      }
+      const p = worldToMinimap(layout, c.x, c.y);
+      let dot = 1.6;
       let color = (c.tier === 'full' || c.tier === 'barricade') ? 'rgba(210,180,120,0.95)'
-                : (c.tier === 'tree' || c.tier === 'fallen') ? 'rgba(120,160,90,0.9)'
                 : 'rgba(200,200,200,0.55)';
       if (tg === 'liquid') { dot = 2.2; color = 'rgba(64,156,225,0.95)'; }
       else if (tg === 'ground') { dot = 2.2; color = 'rgba(140,102,52,0.9)'; }
       else if (tg === 'structure' && (c.tier === 'rock' || c.tier === 'intact' || c.tier === 'ruined')) { dot = 2.4; color = 'rgba(190,190,185,0.95)'; }
       ctx.fillStyle = color;
       ctx.fillRect(opts.x + p.x - dot / 2, opts.y + p.y - dot / 2, dot, dot);
+    }
+    // 植被密度块：格内只要有植被就着色（α 随密度微增）。
+    //   #U5 调校：窄幅小地图（如 strip 的 600×90）上每格覆盖上百世界 px，
+    //   多株落同格的概率不高；若要求 ≥2 才画，植被几乎全被吞掉（实测仅 37/220 格达标）。
+    //   现改为「有即画」——这正是用户要的「聚集处成片、零散处不着色」的效果。
+    for (const cell of vegCells.values()) {
+      const cx = cell.sx / cell.n, cy = cell.sy / cell.n;
+      const p = worldToMinimap(layout, cx, cy);
+      // #U5：小地图底为深色面板，低 α 绿在暗底上几乎不可见（实测合成后仅 68,91,53）。
+      //   提高亮度与不透明度，确保「植被区」在缩小视图下仍能一眼读出。
+      const a = Math.min(0.85, 0.40 + cell.n * 0.12);
+      ctx.fillStyle = `rgba(150,196,108,${a.toFixed(2)})`;
+      ctx.fillRect(opts.x + p.x - CELL_PX / 2, opts.y + p.y - CELL_PX / 2, CELL_PX, CELL_PX);
     }
   }
 
@@ -171,6 +200,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     minimapLayout,
     worldToMinimap,
-    worldRectToMinimap
+    worldRectToMinimap,
+    drawMinimap     // #U5：供 Node 生图/测试校验小地图渲染
   };
 }

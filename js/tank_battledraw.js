@@ -260,6 +260,66 @@ function drawCoverWaterStreak(ctx, cov){
   }
 }
 
+// 地面投影（#U11，2026-10-17 用户需求「建筑、树木需要有淡淡的阴影」）。
+// 统一光源假定自左上方，影子落在右下（+x,+y），与坦克炮塔影（paintTurretShadow 的
+// 默认偏移）方向一致。只给「立在地上、有体积」的元素投影——建筑/岩石/残骸/植被；
+// 水/河/泥/道路等贴地平面与纯装饰件不投影。
+// 两层叠加做出软边：近层深、远层淡，零模糊开销（避免 shadowBlur 的逐帧模糊成本）。
+//   box / rubble-box / rock-poly → 轮廓多边形投影（按 verts 或 OBB 角点）
+//   tree / bush / fallen         → 椭圆投影（树按树冠半径，与 drawAssetCanopy 的 R 同源）
+//   soft / barricade / stump     → 细长/小件，只在脚下垫一层很淡的接触影
+function drawCoverShadow(ctx, cov){
+  const tier = COVER_TIERS && COVER_TIERS[cov.tier];
+  if(!tier) return;
+  const st = tier.draw;
+  // 贴地/平面类（road/mud/water/water-chain/bridge-deck）不投影：早退避免逐段 save/restore
+  if(st === 'road' || st === 'mud' || st === 'water' || st === 'water-chain' || st === 'bridge-deck') return;
+  const w = cov.w || 24, h = cov.h || 24;
+  const ang = cov.angle || 0;   // 防御：angle 缺失时 coverCorners 会得 NaN，投影直接消失
+  ctx.save();
+  if(st === 'box' || st === 'rubble-box' || st === 'rock-poly'){
+    // 建筑/岩石/残骸：偏移轮廓。偏移量随体量微增（大体块影子更长），上限 26px ——
+    // nodeScale=3 下建筑世界尺寸 150~450px，固定 12px 偏移在体量旁几乎看不出方向感。
+    const off = Math.min(26, 6 + Math.max(w, h) * 0.08);
+    // coverCorners 直接用 cov.angle（undefined→NaN 会让整个投影消失），缺省补 0
+    const c = (cov.angle === undefined || cov.angle === null)
+      ? coverCorners(Object.assign({}, cov, { angle: 0 }))
+      : coverCorners(cov);
+    const silhouette = (dx, dy, alpha) => {
+      ctx.beginPath();
+      ctx.moveTo(c[0].x + dx, c[0].y + dy);
+      for(let i = 1; i < c.length; i++) ctx.lineTo(c[i].x + dx, c[i].y + dy);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+      ctx.fill();
+    };
+    silhouette(off, off * 1.15, 0.16);            // 远层：淡
+    silhouette(off * 0.55, off * 0.62, 0.20);     // 近层：深（接触影）
+  } else if(st === 'tree'){
+    // 树冠投影：树冠绘制半径 R = max(w,h)*1.4*0.85（见 tank_assets ASSET_DEFS.tree.bakeCanopy），
+    // 影子半径取 0.92R，略偏右下，模拟斜射光下的落影。
+    const R = Math.max(w, h) * 1.4 * 0.85 * 0.92;
+    const dy = 4 + Math.min(10, R * 0.16);
+    ctx.fillStyle = 'rgba(0,0,0,0.10)';
+    ctx.beginPath(); ctx.ellipse(cov.x + dy * 0.7, cov.y + dy, R, R * 0.82, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.beginPath(); ctx.ellipse(cov.x + dy * 0.35, cov.y + dy * 0.5, R * 0.78, R * 0.62, 0, 0, TAU); ctx.fill();
+  } else if(st === 'bush' || st === 'fallen'){
+    const rx = w * 0.42, ry = h * 0.42;
+    const dy = 2 + Math.min(6, Math.max(w, h) * 0.08);
+    ctx.fillStyle = 'rgba(0,0,0,0.09)';
+    ctx.beginPath(); ctx.ellipse(cov.x + dy * 0.6, cov.y + dy, rx, ry, (cov.angle || 0), 0, TAU); ctx.fill();
+  } else if(st === 'soft' || st === 'barricade' || st === 'stump'){
+    const dy = 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.10)';
+    ctx.beginPath();
+    ctx.ellipse(cov.x + dy * 0.5, cov.y + dy, Math.max(w, 8) * 0.42, Math.max(h, 6) * 0.42,
+      (cov.angle || 0), 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 // 地图元素分层绘制（§2.7）：box=矩形掩体（含标签）保持程序化；soft/barricade/stump/rubble/
 // bush/tree/fallen 走资产层（js/tank_assets.js：ASSET_DEFS 注册表 + drawAsset——有图
 // drawImage / 无图烘焙缓存，画法与旧内联分支逐字一致）。树冠叶片（bush/tree/fallen 的上层
@@ -267,6 +327,8 @@ function drawCoverWaterStreak(ctx, cov){
 // road（#87）：地面类扁平条带，由 mvp 按 tierGroup='ground' 垫底绘制，不遮单位。
 function drawCover(ctx, cov){
   const tier = COVER_TIERS[cov.tier];
+  // #U11：先落地面投影，再画实体（两层软边影，见 drawCoverShadow）
+  drawCoverShadow(ctx, cov);
   if(tier.draw === 'box'){
     const c = coverCorners(cov);
     ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
@@ -1310,6 +1372,107 @@ function drawGround(ctx, opts) {
     }
   }
   ctx.globalAlpha = 1;
+  // #U11（2026-10-17 用户需求）：biome 地面**材质纹理**——在底色与低频色斑之上叠一层
+  //   细密、世界锚定的程序化纹理（纯 canvas，零资产，与 `assets/` 为空的设计一致）。
+  //   按 biome 分别绘制：草地→短划草丛；雪地→细碎雪粒 + 微弱风纹；沙漠→沙纹涟漪；
+  //   泥地→深色湿斑；城镇→横向铺装线。全部用 cellHash 派生（同格同值、随相机移动不动）。
+  drawGroundTexture(ctx, opts, { x0, y0, w, h, baseSeed });
+  ctx.restore();
+}
+
+// 地面材质纹理（#U11）。opts 同 drawGround；box 为视口世界矩形；seed 为基哈希。
+// 每个 biome 用一套「图元」：位置/角度/尺寸/透明度全部由世界格 hash 派生，确定性且不随视口漂移。
+// 支持 biomeZones：按区段分别取样式（strip 节点一根横向世界会跨多个 biome），
+// 区段裁剪与 drawGround 的底色填充同口径（同一 z.x0/z.x1）。
+function drawGroundTexture(ctx, opts, box){
+  const { x0, y0, w, h, baseSeed } = box;
+  const zones = opts.biomeZones;
+  if(zones && zones.length){
+    for(let i = 0; i < zones.length; i++){
+      const zx0 = Math.max(x0, zones[i].x0), zx1 = Math.min(x0 + w, zones[i].x1);
+      if(zx1 <= zx0) continue;
+      _paintGroundTexture(ctx, zones[i].biome, baseSeed, zx0, y0, zx1 - zx0, h);
+    }
+    return;
+  }
+  _paintGroundTexture(ctx, opts.biome, baseSeed, x0, y0, w, h);
+}
+
+// 单 biome 的纹理落笔（drawGroundTexture 的内层实现，按矩形区段裁剪）。
+function _paintGroundTexture(ctx, biome, baseSeed, x0, y0, w, h){
+  const style = {
+    // #U11 调色：纹理色必须与底色拉开 ≥12 个灰阶，否则在 0.35~0.85 的 globalAlpha 叠加后
+    //   合成为「看不出有纹理」（实测 steppe/desert/mudland/concrete 首版全部踩到这个坑）。
+    meadow:   { cell: 26,  n: 3, col: 'rgba(150,180,96,0.30)',  shape: 'blade' },
+    snow:     { cell: 22,  n: 4, col: 'rgba(255,255,255,0.34)', shape: 'speck' },
+    desert:   { cell: 40,  n: 2, col: 'rgba(170,136,74,0.42)',  shape: 'dune' },
+    steppe:   { cell: 30,  n: 3, col: 'rgba(92,76,40,0.45)',    shape: 'blade' },
+    mudland:  { cell: 34,  n: 2, col: 'rgba(38,28,18,0.42)',    shape: 'patch' },
+    concrete: { cell: 48,  n: 2, col: 'rgba(176,180,186,0.45)', shape: 'pave' }
+  }[biome];
+  if(!style || !(w > 0) || !(h > 0)) return;
+  const CELL = style.cell;
+  // 独立于色斑的 hash 通道（用不同乘子避免与色斑完全同位）
+  const h1 = (gx, gy, k) => {
+    let n = baseSeed ^ Math.imul(gx | 0, 0x27D4EB2F) ^ Math.imul(gy | 0, 0x165667B1) ^ Math.imul(k | 0, 0x9E3779B1);
+    n = Math.imul(n ^ (n >>> 15), 0x85EBCA77);
+    n = Math.imul(n ^ (n >>> 13), 0xC2B2AE3D);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+  };
+  const gx0 = Math.floor(x0 / CELL) - 1, gx1 = Math.floor((x0 + w) / CELL) + 1;
+  const gy0 = Math.floor(y0 / CELL) - 1, gy1 = Math.floor((y0 + h) / CELL) + 1;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();
+  ctx.fillStyle = style.col;
+  ctx.strokeStyle = style.col;
+  for (let gy = gy0; gy <= gy1; gy++) {
+    for (let gx = gx0; gx <= gx1; gx++) {
+      const n = 1 + Math.floor(h1(gx, gy, 0) * style.n);
+      for (let i = 0; i < n; i++) {
+        const b = i * 5;
+        const px = gx * CELL + h1(gx, gy, b + 1) * CELL;
+        const py = gy * CELL + h1(gx, gy, b + 2) * CELL;
+        const s = 0.5 + h1(gx, gy, b + 3);
+        ctx.globalAlpha = 0.35 + h1(gx, gy, b + 4) * 0.5;
+        if (style.shape === 'blade') {
+          // 草丛短划：斜向 3~7px
+          const ang = -1.2 + h1(gx, gy, b + 5) * 0.8;
+          const len = 3 + s * 4;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + Math.cos(ang) * len, py + Math.sin(ang) * len);
+          ctx.stroke();
+        } else if (style.shape === 'speck') {
+          // 雪粒：1~2px 小点
+          ctx.beginPath();
+          ctx.arc(px, py, 0.6 + s * 0.9, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (style.shape === 'dune') {
+          // 沙纹：横向短弧
+          const rw = 8 + s * 10;
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.ellipse(px, py, rw, rw * 0.28, 0, Math.PI * 0.15, Math.PI * 0.85);
+          ctx.stroke();
+        } else if (style.shape === 'patch') {
+          // 湿斑：暗色小椭圆
+          ctx.beginPath();
+          ctx.ellipse(px, py, 4 + s * 7, 3 + s * 5, h1(gx, gy, b + 5) * Math.PI, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (style.shape === 'pave') {
+          // 铺装线：短横向直线
+          const len = 14 + s * 18;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(px - len / 2, py);
+          ctx.lineTo(px + len / 2, py);
+          ctx.stroke();
+        }
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 
@@ -1324,6 +1487,8 @@ if (typeof module !== 'undefined' && module.exports) {
     drawRiverChain,        // #U8：河流整链描边（调用方按 groupId 合并后单次调用）
     drawCoverWaterStreak,  // #U8：水流 streak 叠加（整链描边后逐段调用）
     orderRiverSegs,        // #U8：河流段沿程排序
+    drawCoverShadow,       // #U11：地图元素地面投影
+    drawGroundTexture,     // #U11：biome 地面材质纹理
     drawFoliage,
     drawClassBadge,
     drawGround,

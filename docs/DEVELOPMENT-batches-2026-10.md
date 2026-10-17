@@ -633,3 +633,39 @@
 
 - **验证（三链）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **44/44 全绿**（修复前 43/1；`test-strip.js` 368s→141s，超时冗余恢复）/ 河流连续性审计 60 seed **0 空洞**。其余专项：`prune` 8 seed 与旧实现逐条一致；地形契约 0/112（与修复前持平）；越界 5→0；#T3 幻影命中/漏检双归零。
 - **遗留（未纳入本批次，`audit-map-gen.js` 既有红项）**：该审计 **471 项硬失败为改动前既有**，本批次后 643 项——增量主要来自 ㈠ G4「结构压路中心线」用 `ptInRect` 判 17280px 宽的整链 bbox，**约 85% 为误报**（实测某纵带 177 项中仅 26 项真落在路面多边形内），属审计脚本尚未适配「道路连续多边形」时代的度量口径；㈡ RNG 流变化导致的取样位移（G7 越界率 2.9%→3.3%）。**审计脚本对多边形道路的度量口径需要单独重做**，已登记为后续项，未在本次一并修改（避免与「修复即验证」的批次边界混淆）。
+
+### §4.83 2026-10-17 用户反馈 #U 批次（地图视觉 / AI 感知 / 卡牌资格 / 局内查看器）
+
+- **来源**：用户「拉取最新仓库，先做一遍代码审计」后连续 23 项实机反馈（`docs/ISSUES.md` #U1~#U23）。现行细则分别归口 `specs/map.md` §4/§14.4/§17.5、`specs/combat.md` §2/§3.1/§6/§13、`specs/cards.md` §8/§9/§11、`specs/editor.md` §7.3。
+
+- **① 地图生成（#U2/#U3/#U7/#U9/#U16）**
+  - **#U3 地面纹理随玩家移动**：色斑位置以 `opts.viewBounds`（视口）为基准生成 ⇒ 视口一动整组斑纹平移。改为**世界格锚定**（CELL=640，格内位置/尺寸/角度全部由「格坐标 + seed」hash 派生，与遍历顺序无关），并移除已无用途的 LCG 流。实测同一世界点在不同视口下像素 391/391 一致。
+  - **#U2 泥潭过多且扎堆**：数量原按面积缩放（strip ratio 121× ⇒ 365~487 块）且环带布点半径偏小。改为按面积**平方根**缩放 + 上限 `MUD_MAX=32`；块数 >12 时改全节点网格铺位。实测 272 块 → 44 块，平均最近邻 227 → 561px。
+  - **#U16 元素重合**：根因是**生成顺序**——strip 河流在片（含泥潭）之后追加，`placeMudPatch` 看不到河。改为河流追加后做确定性收尾：SAT 判定移除与 river/water 相交的 mud（26.8% → 1.4%）；`prune` 的 `ground↔liquid` 组合改用更严阈值。river↔river 的叠加属同组 25% 段间搭接（有意设计）。
+  - **#U7 删除桥梁体系（用户裁定）**：P-20「水体+桥」组合与 strip「路河交叉替换为桥」两条路径、桥面/引道/桥位登记/过渡段全部移除；交叉处直接保留河段（车按 `river.passability=0.4` 涉水）。8 seed × 4 节点实测 0 个 bridge；`bridge` tier 定义保留于 RULES 供旧存档/基线读取。
+  - **#U9 路口「两条路一上一下」**：根因在渲染层——`_strokeGroundPaths` 原按组「描边路缘 → 填充沥青」交替，后一组路缘会盖在前一组已铺沥青上。改为**分遍绘制**（先全部路缘、再全部沥青），交叉处沥青自然合并。
+
+- **② 渲染（#U5/#U8/#U11/#U12）**
+  - **#U8 河面双轨线**：岸带按**河段**逐段描边，数百段首尾相接后读作两条贯穿全程的平行粗线。新增 `drawRiverChain`（按 groupId 还原中心线、圆角粗折线一次描边，先岸影后河色）+ `orderRiverSegs`（PCA 主轴沿程排序）+ `drawCoverWaterStreak`；调用方按 groupId 聚类后整链绘制。双轨线与段间鳞片接缝同时消除。
+  - **#U11 地物阴影 + biome 纹理（用户裁定：走仓库既有程序化管线，否决 ComfyUI）**：
+    - 阴影：新增 `drawCoverShadow`，在 `drawCover` 实体前落两层软边影（近深远淡、零模糊开销）。建筑/残骸/岩石走轮廓多边形（偏移 `min(26, 6+max(w,h)×0.08)`）、树走树冠椭圆（与 `bakeCanopy` 的 `R=1.4×0.85×max(w,h)` 同源）、灌木/倒树走 OBB 椭圆、栅栏/沙包/树桩走脚下接触影；road/mud/water/river/bridge-deck 早退不投影。防御：`coverCorners` 遇 `angle` 缺失会得 NaN、投影整体消失，缺省补 0。
+    - 纹理：新增 `drawGroundTexture`（按 biome 分套：草丛短划 / 雪粒 / 沙纹弧 / 湿斑 / 铺装线），世界格 hash 派生、随相机不动；支持 `biomeZones` 按区段分套。**调色经两轮实测修正**——纹理色与底色需拉开 ≥12 灰阶，否则叠加后肉眼不可见（首版 steppe/desert/mudland/concrete 全部踩中）。
+  - **#U12 雪地过白**：`RULES.biomes.snow.base` `#dfe6ea`（相对亮度 0.78）→ `#c2ccd4`（0.59），base↔alt 跨度 10.6% → 22%。
+  - **#U5 小地图元素粒度**：植被（`tierGroup='foliage'`）改为累加到**小地图 4px 网格**铺半透明绿色块（α 随格内株数微增，上限 0.85）——密集处自然成片、零散处不着色；水/河/泥/建筑/岩石仍逐元素画点（数量少、位置关键）。回归 `scripts/test-minimap.js` 新增 5 断言。
+
+- **③ AI（#U4/#U15）**
+  - **#U4 反应迟钝**：感知半径相对交战尺度（`engageRange` 520 / `triggerDistBase` 700）偏小。`shotNoiseRadius` 900→**1100**（heavy 按 1.27× 派生 1400）、`impactNoiseRadius` 180→**420**（近失弹原需几乎贴身才被听见，是主因）；mvp 与 `tank_fire` 的硬编码半径（180/900/1200）统一改读 `RULES.ai.*`。
+  - **#U15 水中 AI 不脱困**：`applyWaterAvoidance` 自身入水时仅 `out.move=0` 停驶 ⇒ 泡满 8s 溺毙。新增 `_escapeWater`（4 环 × 16 向采样，朝最近干地驶出；无岸可探时保持前进不退化为等死）。
+
+- **④ 卡牌与商店（#U10/#U14/#U17~#U22）**
+  - **#U19/#U14 两张死效果卡实现**：`reactive_armor` 在 `resolveHit` 首次命中整体吸收并从 `cardEffects` 消耗该层（一次性，与卡面一致）；`angle_boost` 按 `passiveValues` 求和加算跳弹角（上限 90°）——实测跳弹边界 70°→75°。
+  - **#U18/#U20/#U22 `cardEligible` 三道新滤网**：已持技能去重（无 `requiresAbility` 的重复 ability 卡剔除）、属性达限过滤（按 `parameterLimits` 模拟下一级后越界即不合格）、「取最优」被动去重（`spall_liner` 取 min / `overmatch` 取 max，不更优即剔除）。
+  - **#U17 商店达限文案**：等级制升级（`repair_kit_cd`/`medkit_cd`，`stat=null` 且 `effects=[]` ⇒ `runShopLimitBlocked` 恒 false）此前只禁用按钮、文字仍是价格。按钮文字改为三级优先：属性达限 → `limitLabel`；`lv >= maxLevel` → 「已满级」；否则价格。
+  - **#U10 两通道澄清**：`precision_gunnery` 降 `spreadMult`（静止散布）、`steady_mount` 降 `motionSpreadMul`（运动散布），desc 与达限文案均点明通道。
+  - **#U21 innate 卡卡面**：`repair_kit`/`support_extinguisher` 不新增技能槽（`repair`/`extinguish` 开局固有），卡面改写为「强化固有技能…（本卡是强化而非新增）」。
+
+- **⑤ 局内卡牌查看器（#U23，新功能）**：`C` 键随时开关（战斗/暂停/结算/奖励），与 Tab / `` ` `` 面板互斥；按稀有度 / 标签 / 全部 三类浏览本局已持卡牌（`player.cardEffects` + `cardPool`）。键位登记 `tank_bindings.js` 的 `panelCards`；稀有度中文标签抽成单一常量 `CARD_RARITY_LABELS`。
+
+- **⑥ 其余（#U1/#U6/#U13）**：资产加载加单次目录探针（`assets/` 为空时静默走 bake，404 7→1）；Boss 战后商店按模式门控（只在 reward 屏出现一次）；Boss 血量按实际 Boss 序号计（原硬编码每 5 节点，Boss 模式前 5 个恒为初始血量）+ `RULES.boss.bossDmgTextScale=1.6` 放大 Boss 掉血飘字。
+
+- **验证（三链）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **44/44 全绿**（新增 `drawGroundTexture` 6-biome 序列互异 + `drawCoverShadow` 12 项断言 + `test-minimap` #U5 5 项）/ `npm run test:browser` **四链 ALL PASS**。另有 Node 直出生图逐项目视复核（biome 纹理网格、建筑/树投影、strip 全景）+ 浏览器实机截图（草地纹理与建筑投影可见、无 JS 错误）。

@@ -11,7 +11,8 @@ void U; void RULES_MOD;
 const {
   minimapLayout,
   worldToMinimap,
-  worldRectToMinimap
+  worldRectToMinimap,
+  drawMinimap
 } = require('../js/tank_minimap.js');
 
 let fails = 0;
@@ -76,6 +77,58 @@ function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-9); }
 {
   const l = minimapLayout(19200, 2400, 170, 120);
   ok(l.scale === l.sx, 'scale 字段保留（兼容旧调用方）');
+}
+
+// 6) #U5：植被聚合着色——植被不再逐点，而是按小地图 4px 网格铺色块；
+//    非植被（水/河/泥/建筑/岩石）仍逐点。用 mock ctx 记录 fillRect 次数与颜色。
+{
+  global.COVER_TIERS = {
+    tree:   { tierGroup: 'foliage' },
+    bush:   { tierGroup: 'foliage' },
+    river:  { tierGroup: 'liquid' },
+    mud:    { tierGroup: 'ground' },
+    full:   { tierGroup: 'structure' },
+    rock:   { tierGroup: 'structure' }
+  };
+  function makeCtx() {
+    const rects = [];
+    const noop = () => {};
+    return {
+      rects,
+      save: noop, restore: noop, beginPath: noop, rect: noop, clip: noop,
+      strokeRect: noop, arc: noop, fill: noop, stroke: noop, fillText: noop,
+      moveTo: noop, lineTo: noop,
+      set fillStyle(v) { this._fill = v; }, get fillStyle() { return this._fill; },
+      set strokeStyle(v) { this._stroke = v; }, get strokeStyle() { return this._stroke; },
+      set lineWidth(v) {}, set font(v) {}, set textAlign(v) {},
+      fillRect(x, y, w, h) { rects.push({ x, y, w, h, fill: this._fill }); }
+    };
+  }
+  // 30 棵树聚成 3 个 4px 格 → 期望 3 次绿色块；再加 2 条河 + 1 块泥 + 1 栋建筑 + 1 块岩石
+  const covers = [];
+  for (let i = 0; i < 30; i++) {
+    covers.push({ tier: 'tree', hp: 1, x: 100 + (i % 3) * 8, y: 100 + Math.floor(i / 15) * 8, w: 24, h: 18 });
+  }
+  covers.push({ tier: 'river', hp: 1, x: 500, y: 100, w: 80, h: 80 });
+  covers.push({ tier: 'river', hp: 1, x: 600, y: 100, w: 80, h: 80 });
+  covers.push({ tier: 'mud', hp: 1, x: 700, y: 100, w: 80, h: 80 });
+  covers.push({ tier: 'full', hp: 1, x: 800, y: 100, w: 80, h: 80 });
+  covers.push({ tier: 'rock', hp: 1, x: 900, y: 100, w: 80, h: 80 });
+  // 已毁植被不参与聚合
+  covers.push({ tier: 'tree', hp: 0, x: 1200, y: 100, w: 24, h: 18 });
+
+  const ctx = /** @type {any} */ (makeCtx());
+  drawMinimap(ctx, { world: { w: 2000, h: 800 }, cam: null, x: 0, y: 0, w: 200, h: 80, covers, entities: [] });
+  const body = ctx.rects.filter(r => r.w > 1 && r.h > 1 && r.x >= 0 && r.y >= 0 && r.w < 200 && r.h < 80);
+  const vegRects = body.filter(r => /rgba\(150,196,108/.test(String(r.fill)));
+  ok(vegRects.length > 0 && vegRects.length <= 3,
+    `#U5 植被按网格聚合为色块（30 棵同一批密集树 → ${vegRects.length} 块，非 30 点）`);
+  ok(vegRects.every(r => r.w <= 6 && r.h <= 6), '#U5 植被色块尺寸 = 4px 网格（不超过 6px）');
+  const dots = body.filter(r => !/rgba\(150,196,108/.test(String(r.fill)));
+  ok(dots.length >= 5, `#U5 非植被仍逐元素画点（水×2 + 泥 + 建筑 + 岩石 = ${dots.length}）`);
+  // 面板底（整框）不计入 body 过滤后，仍应存在水量蓝点
+  ok(dots.some(r => /rgba\(64,156,225/.test(String(r.fill))), '#U5 河流仍作蓝点保留');
+  ok(!body.some(r => r.w > 150), '#U5 面板底不参与元素统计（无整框填充进入 body）');
 }
 
 if (fails) { console.error(`\n${fails} 项失败`); process.exit(1); }

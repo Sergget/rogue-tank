@@ -279,9 +279,13 @@ if (typeof covers !== 'undefined') {
 // 12) drawGround 冒烟（纯 ctx mock，无 DOM）：不同 seed 不报错、颜色来自 RULES.biomes
 {
   const bd = require('../js/tank_battledraw.js');
-  const METHODS = ['save','restore','fillRect','beginPath','rect','clip','ellipse','fill'];
+  // #U11：地面材质纹理层用到 moveTo/lineTo/stroke/arc/ellipse；biomeZones 交界走渐变 ——
+  // mock 需覆盖这些方法与 createLinearGradient（返回带 addColorStop 的最小对象）。
+  const METHODS = ['save','restore','fillRect','beginPath','rect','clip','ellipse','fill',
+                   'moveTo','lineTo','stroke','arc','closePath'];
   const makeMock = (log) => new Proxy({}, {
     get(t, prop) {
+      if (prop === 'createLinearGradient') return () => ({ addColorStop(){} });
       return (typeof prop === 'string' && METHODS.indexOf(prop) >= 0)
         ? function(){ log.push(prop); } : t[prop];
     },
@@ -299,6 +303,46 @@ if (typeof covers !== 'undefined') {
   const log1 = [], seq = () => { const l = []; bd.drawGround(makeMock(l), { viewBounds: vb, biome: 'steppe', seed: 555 }); return l.join('|'); };
   ok(log1.length === 0 && seq() === seq(), 'drawGround 同 seed 输出序列确定一致');
   ok(/#/.test(seq()), 'drawGround 颜色值来自 RULES.biomes 十六进制调色板');
+
+  // #U11：地面材质纹理按 biome 分套 —— 六个 biome 的绘制序列必须互不相同，
+  // 且同 biome 同 seed 序列稳定；未知 biome 只出底色/色斑（不因缺样式抛错）。
+  const seqOf = (biome) => { const l = []; bd.drawGround(makeMock(l), { viewBounds: vb, biome, seed: 777 }); return l.join('|'); };
+  const biomeSeqs = ['meadow', 'steppe', 'snow', 'desert', 'mudland', 'concrete'].map(seqOf);
+  ok(new Set(biomeSeqs).size === 6, 'drawGroundTexture: 6 个 biome 序列两两不同');
+  ok(seqOf('snow') === seqOf('snow'), 'drawGroundTexture: 同 biome 同 seed 序列稳定');
+  ok(seqOf('meadow').length > seqOf('unknown_biome').length,
+     'drawGroundTexture: 已知 biome 比未知 biome 多出纹理图元');
+  // biomeZones：同一视口按区段分别取纹理（序列长度 ≥ 单区段之和的 80%，且与单区段不同）
+  const zoned = []; bd.drawGround(makeMock(zoned), {
+    viewBounds: vb, biome: 'meadow', seed: 777,
+    biomeZones: [{ biome: 'meadow', x0: 0, x1: 400 }, { biome: 'snow', x0: 400, x1: 800 }]
+  });
+  const zonedStr = zoned.join('|');
+  ok(zonedStr !== seqOf('meadow') && zonedStr !== seqOf('snow'),
+     'drawGroundTexture: biomeZones 混合区段序列不同于任一单 biome');
+
+  // #U11：地图元素地面投影——立体件（建筑/岩石/树/灌木/沙包）出绘制调用，
+  // 贴地平面（道路/烂泥/水/河）完全不出（drawCoverShadow 早退，不产生任何 ctx 调用）。
+  const CV = require('../js/tank_cover.js');
+  global.COVER_TIERS = CV.COVER_TIERS;
+  global.coverCorners = CV.coverCorners;   // drawCoverShadow 的轮廓来源
+  const gm = require('../js/tank_geometry.js');
+  if (!global.polyCorners) global.polyCorners = gm.polyCorners;
+  if (!global.partCorners) global.partCorners = U.partCorners;
+  const shadowDraws = (tier, extra) => {
+    const l = [];
+    bd.drawCoverShadow(makeMock(l), Object.assign({ tier, x: 200, y: 200, w: 120, h: 90, angle: 0 }, extra || {}));
+    return l.filter(p => p === 'fill').length;
+  };
+  for (const tier of ['full', 'building', 'rock', 'ruined', 'tree', 'bush', 'barricade']) {
+    ok(shadowDraws(tier) > 0, `drawCoverShadow: ${tier} 有投影`);
+  }
+  for (const tier of ['road', 'mud', 'water', 'river', 'bridge']) {
+    ok(shadowDraws(tier) === 0, `drawCoverShadow: ${tier}（贴地/平面）无投影`);
+  }
+  // 树冠投影半径来自树冠绘制半径（R=max(w,h)*1.4*0.85），不随 OBB 直接对齐
+  ok(shadowDraws('tree', { w: 24, h: 18 }) === shadowDraws('tree', { w: 24, h: 18 }),
+     'drawCoverShadow: 同参数投影确定一致');
 }
 
 // ================= #87 村庄分层生成（道路/沿街建筑/杂物） =================

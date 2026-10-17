@@ -12,6 +12,9 @@
 ## 2. 装甲与跳弹机制 (Armor & Ricochet)
 - **跳弹判定**：各弹种独立跳弹角（per-ammo `ammoBounceAngle`，65°~90°；θ>该值跳弹，90°=不可能跳弹，noBounce 弹种完全不跳弹），数值以 §3.2 总表为唯一口径；跳弹沿法线方向真物理反射。（早期全局 `RULES.ballistics.bounceAngle`=70° 仅为 AP 基准沿革。）
 - **二次跳弹禁止**：跳弹后的炮弹标记 canBounce = false，再次命中不再发生二次反射。
+- **被动卡对装甲判定的两个修正（2026-10-16 #U19 实现，现行口径）**：
+  - **`angle_boost`（摆角特训）**：`passiveValues` 求和后**加算到跳弹角** `bAngle = min(π/2, bAngle + Σ×π/180)`，即卡面「+5°」直接抬高跳弹门限（上限 90°＝不可能跳弹）。实测跳弹边界由 70° 抬至 75°，与卡面一致。
+  - **`reactive_armor`（反应装甲）**：`resolveHit` 首次命中时**整体吸收**（不跳弹/不穿深/不扣血），并**从 `cardEffects` 中消耗该层**——一次性，与卡面「抵挡一次命中并消解」一致。实测首击 BLOCK/dmg=0 且消耗、次击正常结算。
 - **等效厚度计算**：等效厚度 = 实际装甲厚度 / cos(入射角)。
 - **resolveHit 可选增益 opts（P-51）**：`resolveHit(s,target,hit,allowBounce,opts)` 新增可选 opts `{penAdd,dmgMul,ignoreBounce}`——penAdd 在穿透判定前加算；ignoreBounce 跳过跳弹与过陡 BLOCK；dmgMul 最终伤害乘算并传入 applyModuleDamage；不传 opts 行为不变。mvp 包装层对敌方 Boss 弱点命中（isWeakspotHit + moduleFromHit 匹配 RULES.boss.weakspot）注入 dmgMul:1.5 / penAdd:15 / ignoreBounce:true。
 - **弹药架与模块**（2026-08-26 P-49 定案：几何概率分区判定，废除自定义挂载）：
@@ -34,6 +37,7 @@
 - **运动散布与精度基准解耦（2026-08-26，原 ISSUES #A1 修复定案）**：新增独立 stat `motionSpreadMul`（运动三源专用系数）——computeStats 默认继承出厂 `base.spreadMult`（保留设计器对底盘运动散布的标定）并钳 ≥ `spread.multFloor`；motionSigma 消费 `stats.motionSpreadMul ?? stats.spreadMult`（旧运行时快照无该键时回退，向后兼容）。运行期 spreadMult 修饰器（精密火控/卡牌）不再影响运动散布；局内商店姿态稳定改挂 `motionSpreadMul` mult ×0.85（maxLevel 1）。
 - **成员/模块受损状态条（2026-08-28，原 ISSUES #A5 修复定案）**：`tank_mvp.html` 顶部中央新增 `#moduleStatus` 状态条（`updateModuleStatus()` 每帧刷新，挂入 `updateHud()`）——读 `player.debuffs`（gunner/loader/driver/commander/engine/ammo/breech 各键，经 `MODULE_LABELS` 译中文标签 + 剩余秒数药丸）与 `player.trackBroken`/`immobT`（履带断裂），无受伤时整体隐藏。纯视觉 HUD，无共享模块/测试链改动；`npm run check` + `test:browser` 全绿（mvp 无 console/page 错误）。
 - **局内商店可升级次数由具体数值决定（2026-08-28 定案，取代写死 maxLevel）**：有自然数值边界的商品改为按 `RULES.parameterLimits` 动态判定达限，而非需求出生时写死整数上限（因局内卡牌经 addModifier 也会改 reload/spreadMult/motionSpreadMul/装甲值，会改变真实可升级空间）。`runShopLimitBlocked(def, curVal, stats)` 三分支：① `def.limit` 存在（fast_reload / engine_overdrive / precision_gunnery / steady_mount）走显式单键判定；② `def.limit` 缺失但多条 effects（多面打包装甲包 hull/turret × front/side/rear）逐面按点分路径 `parameterLimits.armor.*` 推导达限，**读 `stats` 对象各面真实现值**（非 UI 传入的单一 curVal），任一穿越边界即 true；③ 无边界/缺省容错返回 false（放行）。`motionSpreadMul` 边界本轮新增于 `parameterLimits`（min 0.5 / max 3.0，对齐 spreadMult）；商品 `maxLevel` 统一 99 作防御性兜底，`computeStats` 的 `multFloor` 物理钳底不动。测试：test-economy 新增装甲包逐面达限/precision_gunnery 数值驱动/steady_mount 边界对齐断言（164 条全绿）。
+  - **达限/满级按钮文案（2026-10-17 #U17/#U10，现行口径）**：局内商店按钮文字三级优先——① 属性达限 → `def.limitLabel`（如精密火控「已达静止三扩下限」、姿态稳定「已达运动三扩下限」）；② `lv >= maxLevel` → 「已满级」（**无 `stat`/`effects` 的等级制升级**，如 `repair_kit_cd`/`medkit_cd`，此前只禁用按钮、文字仍是价格）；③ 其余 → 价格。**通道语义**：`precision_gunnery` 降 `spreadMult`（静止/瞄准散布）、`steady_mount` 降 `motionSpreadMul`（行进/转向扩圈），两者正交互不叠加，desc 与达限文案均点明所属通道。
 
 ## 3. 弹种系统 (Ammo Types)
 唯一数据源：`RULES.ammoTypes`（`js/tank_rules.js`，机制参数唯一配置源）。逐弹种数值（穿深/伤害/弹速/弹药架与模块倍率/跳弹角/精度系数/未击穿）**以 §3.2 数值总表为唯一口径**，本节不再重复罗列；升级链见 §3.1，平衡回归见 §3.3。
@@ -125,8 +129,9 @@
 - **受击警觉（任意来源，2026-09-14 定案）**：敌对实体被命中即惊醒——`applyDamage`（`tank_physics.js` 唯一伤害收口）统一触发 `alertEntity(t, srcX, srcY)`（置 `aiEngaged=true`、`alertLevel=3`、记录来弹方向 `lastKnownPlayerPos` + 威胁方向 `_threatDir`（炮塔优先指向），search 态朝该点推进，到达 ~140px 或重获视线后清除）并立即解除进行中的 stunned；来源坐标由调用方传入，缺省回退玩家当前位置（搜索玩家语义），再兜底自身位置。`propagateAlert(entities, x, y)` 将警觉传播至 `RULES.ai.alertRadius`(600px) 内存活友邻。**覆盖任意伤害来源**：直射/溅射/炮击轰炸（strike）/DOT/地雷/碾压/溺毙——凡经 `applyDamage` 均触发（敌对存活非无人机；玩家/友军 no-op）。**Boss hold 受击破防**：`alertEntity` 对 `isBoss && stageAI.mode==='hold'` 实体清 `stageAI=null`（立即解除 hold 转常规接战）。注意：玩家对敌直射在 fireCtx 命中结算处另有前置警觉（与 applyDamage 钩子幂等重复，无害）。
 - **五层级警觉（#S2，2026-10-15）**：`t.alertLevel` 0=calm / 1=suspicious / 2=alert / 3=engaged，替代二值 `aiEngaged` 的渐进状态。
   - **①玩家靠近**：距离+LoS（既有，不变）。
-  - **②玩家射击**：`fireTank` 成功开火后经 fireCtx.`emitShotNoise` → `emitShotNoise(entities, x, y, radius, 'shot')`，半径内敌对 AI `hearNoise` 置 level 1（`RULES.ai.shotNoiseRadius`=900，railgun/autocannon=1200）。
-  - **③近失弹**：玩家/友军炮弹死亡未命中时，落点 180px（`impactNoiseRadius`）内敌对 AI `hearNoise`（'impact'）。
+  - **②玩家射击**：`fireTank` 成功开火后经 fireCtx.`emitShotNoise` → `emitShotNoise(entities, x, y, radius, 'shot')`，半径内敌对 AI `hearNoise` 置 level 1（`RULES.ai.shotNoiseRadius`=**1100**，railgun/autocannon 按 ×1.27 派生 ≈1400）。
+  - **③近失弹**：玩家/友军炮弹死亡未命中时，落点 **420px**（`RULES.ai.impactNoiseRadius`）内敌对 AI `hearNoise`（'impact'）。
+  - **沿革注记（2026-10-17 #U4）**：原值 900 / 180。相对交战尺度（`engageRange` 520、`triggerDistBase` 700）偏小，近失弹需几乎贴身才被听见，是「被攻击/开火在很近才反应」的主因。现行值由 `RULES.ai.*` 单一来源提供，`tank_mvp.html` 与 `js/tank_fire.js` 不再内联硬编码半径。
   - **④友邻遇袭**：`propagateAlert`（既有，600px）。
   - **⑤自身被攻击**：`alertEntity` 置 level 3 + `_threatDir`（炮塔立即转向威胁）。
   - **suspicious 行为**：朝声音位置半速（0.5）调查，炮塔 ±0.5rad 扫视；8 秒（`suspiciousTimeout`）无新声音降级回 calm；接战中（level 3）不受声音干扰。
@@ -165,6 +170,7 @@
   - 飘字显示 min(res.dmg, 击杀前剩余HP)，击杀伤害不再溢出虚高；
   - DOT tick 加存活检查，目标死亡即清 dot 字段（mvp + bench 双页一致），尸体不再持续跳字；
   - 颜色语义：普通伤害白(plain) / 成员与非弹药架模块黄(module) / 弹药架红(ammoRack)；pen 色保留为 legacy 别名。
+  - **Boss 飘字放大（2026-10-17 #U13，现行口径）**：`spawnDmgText(x, y, text, kind, scale)` 新增可选 `scale`（字号倍率，缺省 1）。`js/tank_fire.js` 在命中敌对 Boss 时透传 `RULES.boss.bossDmgTextScale`（现行 **1.6**），非 Boss 目标逐字不变；`js/tank_dmgtext.js drawDmgTexts` 按 `t.scale` 缩放字号与上浮距离。
 - **开火后坐与装填/底部 HUD（2026-08-28 落地；2026-09-15 W2 更新键位）**：
   - **开火后坐回弹**：`fireTank` 成功开火分支写 `shooter.recoilT = 0.08`（被掩体阻挡分支不写；2026-09-15 W2 后烟幕弹已删除，`fireSmokeShell` 不再存在）；主循环 player 与非玩家实体各自递减 `recoilT`（沿用 reloadT 递减模式）。`drawTank` 炮管段按 `sin(π·recoilT/0.08)` 生成出击-回弹位移，仅把视觉炮管 baseX/baseY 沿炮管反向平移（炮盾/护套/制退器随 baseX/baseY 自然跟随），**不改 gunRoot()/gunTip() 判定坐标**；位移量随口径 `barrelWid/18` 轻微缩放。
   - **装填进度环形化**：废除原屏幕底部横向装填条（`#reloadWrap` 的 `#reloadTrack/#reloadFill`），改为 `drawReloadRing(ctx)` 贴炮口 `gunTip(player)` 世界坐标的环形弧（世界坐标经 `worldToScreen`，半径固定 13px），从 -90° 顺时针扫 360°×进度，**满值(≥1)即消失**（仅战斗态、装填中、玩家存活时绘制），挂入战斗绘制循环（drawDrones 后、烟幕云前）。**2026-09-15 W6：主武器 autocannon 时该环改为热量表**——弧长 = heatPct/100，三态配色 绿 <50% / 黄 50–<100% / 红 ≥100%（过热锁定期间红色闪烁）；冷却由 `updatePrimaryHeat` 逐帧驱动，热量归零后环消失（详见 cards.md §8.3）。

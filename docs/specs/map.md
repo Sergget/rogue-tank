@@ -44,6 +44,12 @@
 - tools/bake.html 一键导出 PNG 到 assets/，日后真实美术直接替换同名文件接口不变。
 - **树冠视觉-逻辑对齐（#A10）**：`tree.bakeCanopy` 冠径乘数由 `1.9` 降至 `1.4`，使树冠视觉半径更贴近逻辑 OBB（24×18），缓解"所见远大于所挡"的脱节；倒树（fallen）保留根部伐倒断面高亮。如需进一步收紧可继续下调或提为 RULES 参数。
 - **建筑程序化细节（#S13，2026-10-15）**：`drawStyle:'box'`（full/building/intact）不再是纯色块——加屋顶内收（12%，深色）+ 天窗网格（2~3 列，25% 空缺，deterministic hash）+ 墙体左上高光。实现 `js/tank_battledraw.js` `drawCover` box 分支。
+- **地面投影（2026-10-17 #U11，现行口径）**：`drawCoverShadow(ctx, cov)` 在 `drawCover` 实体之前落两层软边影（近层深、远层淡，零模糊开销），统一光源假定左上、影子偏右下（与坦克炮塔影同向）。按绘制风格分流：
+  - `box` / `rubble-box` / `rock-poly`（建筑/残骸/岩石）→ **轮廓多边形**投影，偏移量 `min(26, 6 + max(w,h)×0.08)`（大体块影子更长）；
+  - `tree` → **树冠椭圆**投影，半径随树冠绘制半径 `R = max(w,h)×1.4×0.85` 派生，与 `ASSET_DEFS.tree.bakeCanopy` 同源；
+  - `bush` / `fallen` → OBB 椭圆投影；`soft` / `barricade` / `stump` → 脚下淡接触影；
+  - `road` / `mud` / `water` / `water-chain` / `bridge-deck`（贴地平面）→ **不投影**，函数早退。
+  - **防御**：`coverCorners` 直接用 `cov.angle`（`undefined` 会得 NaN、投影整体消失），缺失时按 0 处理。
 
 ## 5. 地形类型抽象 (Terrain-Type Abstraction)
 
@@ -374,9 +380,9 @@
 ### 14.2 strip 构造（片拼接）—— **部分落地（2026-10-05 C 档 batch 2，`generateStrip`；尚未接入 `makeNode`/实战）**
 
 - **片（chunk）** = 一个现有模板实例 —— **已落地**：`generateStrip` 每片调一次 `generateNode`（`templateId` 按难度发牌或 `templateIds` 指定），**片内 `scale` 沿用现行 `nodeScaleFor` 口径**（调用方经 `opts.scaleFor` 传入；生产传 `tank_map.nodeScaleFor`），元素世界尺寸与当前版本一致。
-- **接缝净空（必需）** —— **已落地**：内部片边界 ±300px 带内移除 `structure`/`foliage`（按 `tierGroup`），保留 `ground`/`liquid`（`STRIP_SEAM_CLEAR`）；`bridge` 豁免（路河交叉基础设施）。
+- **接缝净空（必需）** —— **已落地**：内部片边界 ±300px 带内移除 `structure`/`foliage`（按 `tierGroup`），保留 `ground`/`liquid`；不再有 `bridge` 豁免（桥梁体系已于 2026-10-17 #U7 删除）。
 - **路网 strip 一体化（必需，2026-10-05 修订）** —— **已落地**：废弃逐片生成+接缝链式衔接（`weTrunk`/`tan1` 传递退役，`tan1` 参数保留供单节点调用）。`generateStrip` 规划 pass 预算各片 `x0`/`cw` 后，`stripRng` 一次调 `placeRoadNetwork`（虚拟模板 `{w:totalW,h:stripH}`，`{requireWETrunk:true, trunkAmp:0.03}`）；每片按 x 区间裁路网转片内帧，经 `roadOpts.externalRoads/Junctions/RoadW` 传入（片内跳过自生成，仅避让；路面由 strip 统一追加）。宽幅下拓扑曲线振幅致段出界被裁时，后处理在无路面接缝处按最近 road y 补水平直段。旧 `opts.weTrunk` 链式口径保留（单节点模式）。
-- **水系 strip 一体化（必需，2026-10-05 新增）** —— **已落地**：`placeStripRivers` 每条 strip 必生成 1–2 条横向蜿蜒河流（正弦 meander，段重叠 30%），贯穿整条 strip；旧 `edgeRiver` 模板标签在 strip 模式下跳过。路河交叉处切出缺口放 `bridge`（缺口宽=路宽+40，桥不压河）。建筑避让（#A11）扩展至河流。river 的 `passability=0.4` 为减速通行（§5.2），不阻断连通性。
+- **水系 strip 一体化（必需，2026-10-05 新增）** —— **已落地**：`placeStripRivers` 每条 strip 必生成 1–2 条横向蜿蜒河流（正弦 meander，段重叠 30%），贯穿整条 strip；旧 `edgeRiver` 模板标签在 strip 模式下跳过。**路河交叉处直接保留河段**（2026-10-17 #U7 用户裁定删除桥梁体系——原「切出缺口放 `bridge`」路径已整体移除，交叉处车辆按 `river.passability=0.4` 涉水）。建筑避让（#A11）扩展至河流。river 的 `passability=0.4` 为减速通行（§5.2），不阻断连通性。
 - **纵向裁剪** —— **已落地**：片高 > 目标高（2.2 屏）时按中心丢弃上下边缘元素；**不做坐标压缩**。
 - **密度补偿** —— **已落地**：带外元素钳制回界内（80px 边距 + OBB 重叠检测）而非直接丢弃。实测密度 ≈20/屏（≥ 现状 13/屏）。
 - 验收指标（`nodeLayoutMetrics`）：连通性 ≥0.999（实测 0.9996~1.0）；「最窄通道 ≥ 车体宽 38px」操作化为**阻挡掩体按车体半宽膨胀后连通性 ≥0.999**（实测 0.9997~1.0；原始 minGap 口径对装饰性贴靠对极敏感，常规节点基线仅 1~3px，不直接采用）；`coverCoverage` 不随片数下降（待 batch 3 实战接入后复核）。连通性口径 2026-10-05 对齐游戏（阻挡 = `passability===0` 或 `shellBlock`）。
@@ -395,6 +401,7 @@
 - **地面层分块烘焙**：`bakeNodeGroundLayer`（`tank_mvp.html:3563-3696`）由「整节点单画布」改为**按片 tile 烘焙 + 视口内按需 blit**——整图口径下 12.3 屏宽 ≈223MB RGBA，最远缩放口径 ≈619MB。
 - **空间分桶**：covers 数随片数线性增长（12 屏 ≈ 443~1200）；`draw` 视口过滤、`tank_minimap` 全量遍历、`tank_ai` 避水探针（每敌每帧）、`resolveCoverCollisions` 均按片索引只扫邻近片。
 - **小地图**：~~等比缩放（`js/tank_minimap.js:15-19`）在 10:2 比例下退化成细线 ⇒ 改「横向条带 + 视口窗口」布局~~ —— **已落地（2026-10-05 C 档 batch 1）**：`minimapLayout` 按世界宽高比自适应，>2.5 进条带模式（横向占满、纵向 ×2.5 拉伸后居中，纵向示意不保真）；常规节点保持等比适配零变化。回归：`scripts/test-minimap.js`（18 断言）。
+  - **元素粒度分 tierGroup（2026-10-17 #U5，现行口径）**：**植被**（`tierGroup='foliage'`：tree/bush/fallen/soft 之前的树丛类）不再逐点绘制，改为累加到**小地图像素 4px 网格**（格尺寸由 `layout.sx/sy` 反算世界尺寸，与世界大小解耦），格内有植被即铺半透明绿色块、α 随格内株数微增（`0.40 + n×0.12`，上限 0.85）——密集处自然成片、零散处不着色。**其余**（`liquid` 水/河蓝点、`ground` 泥褐点、`structure` 建筑/岩石浅色方块）仍逐元素绘制：数量少且位置关键，保留可读性。`hp<=0` 的元素一律不参与聚合。
 
 ### 14.5 结算与推进
 
@@ -541,7 +548,11 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 ### 17.5 地形与 Biome
 - **多 Biome 同图**：一张地图可以包含多种地形（草地/城镇/沙漠/雪地），不同区域用不同配色和植被。
 - **交界渐变**：Biome 交界处应有渐变过渡带（约 520px），不能生硬切换。
+- **地面材质纹理（2026-10-17 #U11，现行口径）**：底色与低频色斑之上再叠一层**世界锚定**的程序化纹理，按 biome 分套——草地/草原→短划草丛、雪地→细碎雪粒、沙漠→沙纹弧线、泥地→深色湿斑、城镇→横向铺装线。实现 `js/tank_battledraw.js drawGroundTexture`（`drawGround` 末尾调用），全部由「世界格坐标 + seed」的 hash 派生（与色斑独立的 hash 通道），**随相机移动不动**；`opts.biomeZones` 存在时按区段分别取纹理（与底色填充同口径）。纹理色与底色需拉开 ≥12 个灰阶，否则在 `globalAlpha` 叠加后不可见。
+- **雪地配色（2026-10-17 #U12）**：`RULES.biomes.snow.base` 由 `#dfe6ea` 压暗至 `#c2ccd4`，base↔alt 跨度 10.6%→22%（原近纯白刺眼、纹理被淹没）。
 - **泥潭**：泥潭是减速地形，与道路互斥。泥潭数量随地图面积缩放。
+  - **数量与分布（2026-10-17 #U2）**：数量按**面积平方根**缩放并钳上限 `MUD_MAX=32`；块数 >12 时改**全节点网格铺位**（原环带布点在小半径内扎堆）。实测单节点 272 → 44 块，平均最近邻距 227 → 561px。
+  - **泥潭与水体互斥（2026-10-17 #U16）**：strip 级河流在片（含泥潭）生成**之后**才追加，`placeMudPatch` 运行时看不到河流。现行在河流追加后做确定性收尾：移除与任一 `river`/`water` 段 OBB（SAT）相交的 `mud`（实测 26.8% → 1.4%）；`prune` 对 `ground↔liquid` 组合改用更严阈值（浅交叠亦触发）。`river` 之间的叠加属同组 25% 段间搭接（有意设计），非重叠缺陷。
 
 ### 17.6 地图尺寸与缩放
 - **面积自适应**：地图元素数量应随地图面积缩放，保证不同尺寸的地图密度一致。大地图元素多，小地图元素少，但单位面积密度相同。
