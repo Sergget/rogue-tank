@@ -169,26 +169,63 @@ function drawShells(ctx, shells){
 // #U8（2026-10-16 新增）：河流整链绘制——把沿程铺开的一串段 OBB 还原为**单条中心线折线**，
 // 用圆角连接的粗折线一次描边（先岸影后河色），彻底消除段间鳞片/砖块接缝与「双轨」线。
 // rects 须为同一条河（同 groupId）的段，按沿程顺序传入。河色取 tier.fill（唯一口径
-// RULES.coverTiers[tier].fill）。宽取各段短边的中位数（河宽沿程平滑变化，取中位避免端点收分影响）。
+// RULES.coverTiers[tier].fill）。
+// #U34（2026-10-18 用户「宽度几乎不变」）：原实现取**中位数单线宽**整条描边——即使数据层
+//   有宽度波（buildRiver 的沿程宽度双正弦），渲染也把它抹平成等宽。现改为**可变宽多边形**：
+//   沿中心线逐段取半宽（段自身 h/2，即真实横向），左右两侧各生成一条边线后闭合填充，
+//   岸影以同一多边形外扩 bankW 再填充。宽度沿程连续变化（相邻段 25% 搭接使过渡平顺）。
+function riverHalfWidths(rects){
+  // 半宽序列：每段 h/2；前后各点取相邻均值（点 i 的半宽 = 段 (i-1) 与段 i 的平均）
+  const hw = rects.map(r => Math.max(1, (r.h > 0 ? r.h : Math.min(r.w || 0, r.h || 0)) / 2));
+  const out = hw.map((_, i) => {
+    const a = hw[Math.max(0, i - 1)], b = hw[Math.min(hw.length - 1, i + 1)];
+    return i === 0 || i === hw.length - 1 ? hw[i] : (a + b) / 2;
+  });
+  // 轻平滑（3 点加权），防段间搭接采样带来的小台阶
+  for(let pass = 0; pass < 2; pass++){
+    for(let i = 1; i < out.length - 1; i++) out[i] = out[i] * 0.6 + (out[i - 1] + out[i + 1]) * 0.2;
+  }
+  return out;
+}
+const _riverGeomCache = new WeakMap();
+function riverChainGeom(rects, bankW){
+  // 中心线左/右偏移多边形（世界系）。返回 {left, right} 两个点数组（同序）。
+  const n = rects.length;
+  const hw = riverHalfWidths(rects);
+  const left = [], right = [];
+  for(let i = 0; i < n; i++){
+    const p = rects[i];
+    const a = rects[Math.max(0, i - 1)], b = rects[Math.min(n - 1, i + 1)];
+    let tx = b.x - a.x, ty = b.y - a.y;
+    const tl = Math.hypot(tx, ty) || 1;
+    tx /= tl; ty /= tl;
+    const nx = -ty, ny = tx;              // 左法线
+    const w = hw[i] + (bankW || 0);
+    left.push({ x: p.x + nx * w, y: p.y + ny * w });
+    right.push({ x: p.x - nx * w, y: p.y - ny * w });
+  }
+  return { left, right };
+}
+function _fillVariWidthChain(ctx, geom, fill){
+  const { left, right } = geom;
+  ctx.beginPath();
+  ctx.moveTo(left[0].x, left[0].y);
+  for(let i = 1; i < left.length; i++) ctx.lineTo(left[i].x, left[i].y);
+  for(let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
 function drawRiverChain(ctx, rects, tier){
   if(!rects || rects.length < 2) return false;
-  const wid = medianSegWidth(rects);
-  if(!(wid > 0)) return false;
+  if(!(medianSegWidth(rects) > 0)) return false;
   const bankW = 6;   // 岸影外露宽度（px）
   ctx.save();
-  ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.beginPath();
-  ctx.moveTo(rects[0].x, rects[0].y);
-  for(let i = 1; i < rects.length; i++) ctx.lineTo(rects[i].x, rects[i].y);
-  // 第 1 遍：岸影（深色、加大线宽）
-  ctx.strokeStyle = 'rgba(20,50,80,0.38)';
-  ctx.lineWidth = wid + bankW * 2;
-  ctx.stroke();
-  // 第 2 遍：河色（盖住岸影内半，只留外侧窄边 = 岸影）
-  ctx.strokeStyle = (tier && tier.fill) || '#3578a8';
-  ctx.lineWidth = wid;
-  ctx.stroke();
+  // 第 1 遍：岸影（同一中心线、半宽 +bankW 的多边形）
+  _fillVariWidthChain(ctx, riverChainGeom(rects, bankW), 'rgba(20,50,80,0.38)');
+  // 第 2 遍：河色（真实半宽多边形）
+  _fillVariWidthChain(ctx, riverChainGeom(rects, 0), (tier && tier.fill) || '#3578a8');
   ctx.restore();
   return true;
 }

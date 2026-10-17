@@ -798,9 +798,17 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
   const thick = Math.min(totalW, stripH) * rng.range(0.07, 0.15); // 2026-10-05：河宽 2-3 倍（~ stripH 的 7~15%，带变化）
   let gid = 0;
   // 由控制点建河：Catmull-Rom 采样 ~120px 短段（带角度，25% 搭接）。
-  // taperFn(t) 可选：t∈[0,1] 沿程比例，返回宽度系数（支流汇入处收分用）。
+  // #U34（2026-10-18）：**沿程宽度变化**——此前河宽 = w×taperFn(t)，而 strip 河只有支流
+  //   带 taperFn（干流/纵河恒为 1）⇒ 全链等宽，视觉「宽度几乎不变」。现每段宽度乘一组
+  //   平滑双正弦（低频主波 ±22~34% + 高频微扰 ±6~12%，钳 0.55~1.5×），自然河道的宽窄交替。
+  //   两波相位/频率/振幅均为幂等派生（同一次 buildRiver 调用内固定），段间连续无跳变。
+  //   上限 1.35× 而非 1.5×：峰值过宽会把 strip 通行走廊压到连通性 0.9987（<0.999 验收线）。
+  //   taperFn 仍与宽度波相乘（调用方如需额外收分可继续传）。
   const buildRiver = (ctrl, w, taperFn) => {
     const pts = _catmullRomSample(ctrl, 120);
+    const wvPh1 = rng() * Math.PI * 2, wvPh2 = rng() * Math.PI * 2;
+    const wvFr1 = rng.range(1.2, 2.4), wvFr2 = rng.range(3.0, 5.5);
+    const wvAmp1 = rng.range(0.22, 0.34), wvAmp2 = rng.range(0.06, 0.12);
     const segments = [];
     for (let j = 0; j < pts.length - 1; j++) {
       const a = pts[j], b = pts[j + 1];
@@ -808,9 +816,11 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
       if (dist < 5) continue;
       const t = j / Math.max(1, pts.length - 2);
       const wf = taperFn ? taperFn(t) : 1;
+      const wv = 1 + wvAmp1 * Math.sin(wvPh1 + t * Math.PI * 2 * wvFr1)
+                   + wvAmp2 * Math.sin(wvPh2 + t * Math.PI * 2 * wvFr2);
       segments.push({
         dx: (a.x + b.x) / 2, dy: (a.y + b.y) / 2,
-        w: dist * 1.25, h: w * wf,
+        w: dist * 1.25, h: w * wf * Math.max(0.6, Math.min(1.35, wv)),
         angle: Math.atan2(b.y - a.y, b.x - a.x)
       });
     }
@@ -820,8 +830,8 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
              tier: 'river', segments: segments, groupId: 'strip-river-' + (gid++) };
   };
   // #U33（2026-10-17 用户「河流不应该交叉、干涉」）：河↔河互斥检测——两条河的短段
-  //   OBB 相交即视为交叉/重叠。H1T 支流**设计上汇入干流**（Y 形水体合并），属合法例外；
-  //   H2 双横贯 / V 多纵贯的相互穿越（蜿蜒反相失配时两河中部交织）全部判非法。
+  //   OBB 相交即视为交叉/重叠。H2 双横贯 / V 多纵贯的相互穿越（蜿蜒反相失配时两河中部
+  //   交织）全部判非法；#U34（2026-10-18 用户「删除支流汇入干流的设计」）起**无任何例外**。
   //   检测粒度与 buildRiver 短段一致（25% 搭接已计入 w=dist*1.25，SAT 相交即真重叠）。
   const _riverPairClash = (ra, rb) => {
     const segA = ra.segments || [], segB = rb.segments || [];
@@ -1000,8 +1010,11 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
     if (r1) rivers.push(r1);
     if (r2) rivers.push(r2);
   } else if (pattern === 1) {
-    // H1T：横贯干流 + 短支流汇入（或收束成湖）——干流 Y 选路稀疏带，重试3次
-    const amp = stripH * rng.range(0.04, 0.07);
+    // H1：单条横贯主河（#U34 2026-10-18：原 H1T「干流 + 支流汇入」设计整体删除——
+    //   用户裁定「删除支流汇入干流的设计」；支流与干流的 Y 形合并本身即河流交叉，
+    //   与 #U33「河流不应该交叉、干涉」口径冲突）。现为单条蜿蜒主河，蜿蜒振幅略大、
+    //   无任何分支与汇流。
+    const amp = stripH * rng.range(0.05, 0.08);
     // #U33b：halfWin 计入振幅余量（同 H2；余量收紧防 pickClearY 全带退化）
     const halfWinH1 = thick / 2 + (roadW || 100) / 2 + 20 + amp * 0.5;
     const ph = rng() * Math.PI * 2, fr = rng.range(1.5, 2.5);
@@ -1024,70 +1037,6 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
       }
     }
     if (trunk) rivers.push(trunk);
-    // 支流：从上/下边出发，中途汇入干流
-    const fromNorth = rng() < 0.5;
-    const jx = totalW * rng.range(0.30, 0.70);  // 汇入点 x
-    // #S1 干流在 jx 处的 y（2026-10-15：改用干流实际 segment 采样，不再用
-    // 同参数正弦估算——Catmull-Rom 采样与原始正弦在控制点之间有偏差）
-    let jy = baseY;
-    if (trunk && trunk.segments && trunk.segments.length) {
-      let _best = null;
-      for (const _sg of trunk.segments) {
-        const _d = Math.abs((_sg.dx || 0) - jx);
-        if (!_best || _d < _best.d) _best = { d: _d, y: _sg.dy };
-      }
-      if (_best) jy = _best.y;
-    } else {
-      jy = baseY + Math.sin(ph + (jx / totalW) * Math.PI * 2 * fr) * amp; // 兜底
-    }
-    jy = Math.max(thick, Math.min(stripH - thick, jy));
-    // #S1 缝合：支流末端伸入干流内部（过中心线 thick*0.25，水体合并），
-    // 取消末端收分——汇入处应是水体合并而非锥形对接
-    const sx = jx + rng.range(-400, 400);
-    const startY = fromNorth ? thick * 0.5 : stripH - thick * 0.5;
-    const midX = (sx + jx) / 2 + rng.range(-150, 150);
-    const midY = (startY + jy) / 2;
-    // 50% 概率支流源头有湖：先定湖（blob），支流起点止于湖边（不伸进湖心）
-    let lakeR = 0, lakeX = sx, lakeY = startY;
-    // 2026-10-05：删除湖泊元素，不再生成（用户要求）
-    const hasLake = false;
-    if (hasLake) {
-      lakeR = thick * rng.range(1.8, 2.5);
-      // 湖心略偏离支流起点（自然感），支流从湖边出发
-      lakeX = sx + rng.range(-lakeR * 0.3, lakeR * 0.3);
-      lakeY = startY + (fromNorth ? lakeR * 0.6 : -lakeR * 0.6);
-    }
-    const tribStartY = hasLake
-      ? (fromNorth ? lakeY + lakeR * 0.8 : lakeY - lakeR * 0.8)
-      : startY;
-    // #S1：支流末端伸入干流（过中心线 thick*0.25），不收分——水体合并；无湖时源头仍收分
-    const _joinY = jy + (fromNorth ? 1 : -1) * thick * 0.25;
-    const trib = buildRiver(
-      [{ x: sx, y: tribStartY }, { x: midX, y: midY }, { x: jx, y: _joinY }],
-      thick * 0.6,
-      (t) => {
-        let f = 1;
-        if (!hasLake && t < 0.2) f = Math.min(f, 0.55 + t / 0.2 * 0.45);  // 源头收分
-        return f;
-      });
-    if (trib) rivers.push(trib);
-    if (hasLake) {
-      // 湖：14~18 顶点凸包 blob（仿 placeCentralPond），非矩形
-      const N = rng.int(14, 18), rot = rng() * Math.PI * 2, pts = [];
-      for (let i = 0; i < N; i++) {
-        const a = rot + (i / N) * Math.PI * 2;
-        const rr = lakeR * rng.range(0.82, 1.0);
-        pts.push([Math.cos(a) * rr, Math.sin(a) * rr]);
-      }
-      const verts = convexHull(pts);
-      let maxx = 0, maxy = 0;
-      for (const [vx, vy] of verts) { maxx = Math.max(maxx, Math.abs(vx)); maxy = Math.max(maxy, Math.abs(vy)); }
-      rivers.push({
-        x: lakeX, y: lakeY, w: maxx * 2, h: maxy * 2, angle: rng.range(-0.05, 0.05),
-        tier: 'water', verts: verts, groupId: 'strip-lake-' + (gid++),
-        segments: [{ dx: lakeX, dy: lakeY, w: maxx * 2, h: maxy * 2, angle: 0 }]
-      });
-    }
   } else {
     // V：纵贯，1~2 条（#1：按宽度缩放，每 ~2500px 一条）
     // #U33：双纵贯时逐条避让——后建河与先建河交叉则重试（换 baseX），仍交叉则弃掉后河

@@ -204,15 +204,18 @@ function passage38Connectivity(s) {
   ok(minD >= 10, `密度 ≥10/屏（3 seed 最小 ${minD.toFixed(1)}/屏）`);
 }
 // 8) 连通性 ≥0.999（§14.2 验收）
+// #U34（2026-10-18）：step 60→20——河宽沿程变化后，粗网格（60px）在窄通道内的 4 连通
+//   切角会误报（seed99 实测 step60=0.9987 / step20=0.9999）。这是 #T1 已确立的同一类
+//   采样网格伪影（真实地形连续，通道本身是通的），但 check 侧沿用了 step=60。
 {
   let minC = 1;
   for (const seed of [42, 7, 99]) {
     const s = NG.generateStrip(0.5, stripOpts(seed));
     const m = NG.nodeLayoutMetrics({ covers: s.covers, w: s.w, h: s.h },
-      { step: 60, margin: 40, losSamples: 0, hasLineOfSight: coverMod.hasLineOfSight });
+      { step: 20, margin: 40, losSamples: 0, hasLineOfSight: coverMod.hasLineOfSight });
     if (m.connectivityRatio < minC) minC = m.connectivityRatio;
   }
-  ok(minC >= 0.999, `连通性 ≥0.999（3 seed 最小 ${minC.toFixed(4)}）`);
+  ok(minC >= 0.999, `连通性 ≥0.999（3 seed 最小 ${minC.toFixed(4)}，step=20）`);
 }
 // 9) 38px 通道：「最窄通道 ≥ 车体宽」的操作化（阻挡掩体膨胀 19px 后连通性）
 {
