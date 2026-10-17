@@ -501,7 +501,10 @@ const RULES = {
     meadow:   { base: '#4e5c33', alt: ['#42502b', '#5f6d40'] },   // 密林/林地/村落
     steppe:   { base: '#8a7a46', alt: ['#796b3d', '#9b8b55'] },   // 开阔走廊/混合障壁广场
     mudland:  { base: '#4a3a28', alt: ['#3e3122', '#59482f'] },   // 泥地主题（预留，本批无模板使用）
-    snow:     { base: '#dfe6ea', alt: ['#cfd8de', '#eef3f6'] },   // 雪地（#1 2026-10-16）
+    // #U12（2026-10-17）：雪地过白刺眼、细节被掩盖。原 base #dfe6ea 相对亮度 0.78（近纯白），
+    //   与 alt 色差仅 ~10%，低频色斑与地物对比不足。现整体压暗一档（0.78→0.59）并拉开
+    //   base ↔ alt 的内部跨度（10.6%→22%），使纹理可见且不再刺眼。
+    snow:     { base: '#c2ccd4', alt: ['#aeb9c2', '#dbe4ea'] },   // 雪地（#1 2026-10-16；#U12 2026-10-17 调暗）
     desert:   { base: '#d6b87a', alt: ['#c4a664', '#e5cb8d'] }    // 沙漠（#1 2026-10-16）
   },
 
@@ -1026,6 +1029,9 @@ const RULES = {
   // P-51：Boss 数据驱动机制参数（弱点命中增益 + 阶段声明式行为脚本）。
   // 消费方：js/tank_ai.js（aiModes，阶段行为模式）；tank_mvp.html（weakspot，弱点结算，Wave 2 接线）。
   boss: {
+    // #U13（2026-10-16）：Boss 掉血飘字字号倍率（用户要求「boss 掉血的数字需要加大」）。
+    // 消费方 js/tank_fire.js 的 _bossTextScale（命中敌方 Boss 时透传给 spawnDmgText）。
+    bossDmgTextScale: 1.6,
     weakspot: {
       dmgMul: 1.5,         // 命中当前阶段 weakspots 模块时伤害 ×1.5
       penAdd: 15,          // 穿深 +15mm（穿透判定前加算）

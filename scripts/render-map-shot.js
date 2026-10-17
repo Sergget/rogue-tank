@@ -130,7 +130,32 @@ BD.drawGround(ctx, {
 const groundTiers = new Set(['road', 'river', 'water', 'mud', 'bridge']);
 const ground = covers.filter(c => groundTiers.has(c.tier));
 const above = covers.filter(c => !groundTiers.has(c.tier));
-for (const c of ground) { try { BD.drawCover(ctx, c); } catch (e) { console.error('drawCover ground err', c.tier, e.message); } }
+// #U8：河流按 groupId 合并整条链后单次描边（与 tank_mvp 绘制口径一致）
+{
+  const riverGroups = new Map();
+  for (const c of ground) {
+    if (c.tier === 'river' && c.groupId) {
+      if (!riverGroups.has(c.groupId)) riverGroups.set(c.groupId, []);
+      riverGroups.get(c.groupId).push(c);
+    }
+  }
+  const handled = new Set();
+  for (const segs of riverGroups.values()) {
+    const ordered = BD.orderRiverSegs(segs);
+    if (ordered.length >= 2) {
+      try {
+        if (BD.drawRiverChain(ctx, ordered, { fill: (RULES.coverTiers.river || {}).fill })) {
+          for (const s of ordered) BD.drawCoverWaterStreak(ctx, s);
+          for (const s of ordered) handled.add(s);
+        }
+      } catch (e) { console.error('drawRiverChain err', e.message); }
+    }
+  }
+  for (const c of ground) {
+    if (handled.has(c)) continue;
+    try { BD.drawCover(ctx, c); } catch (e) { console.error('drawCover ground err', c.tier, e.message); }
+  }
+}
 // 上层元素（建筑/树/沙包/岩石…）
 for (const c of above) { try { BD.drawCover(ctx, c); } catch (e) { console.error('drawCover err', c.tier, e.message); } }
 // 树冠层

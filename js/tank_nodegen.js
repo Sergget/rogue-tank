@@ -34,6 +34,9 @@ function createRNG(seed) {
 // #1（2026-10-16）：地图尺寸自适应——基准面积（750×450 模板），
 // 所有数量类参数按面积比缩放，尺寸类参数按边长比缩放。
 const REF_AREA = 750 * 450;
+// #U2（2026-10-17）：泥潭单节点数量上限——防止 strip 节点（面积比可达 120×）泥潭爆量。
+// 32 块在 17280×2376 的 strip 上密度约 0.8 块/千px²，视觉上已足够点出「泥泞地带」。
+const MUD_MAX = 32;
 function areaRatio(tpl, scale) {
   const w = (tpl.w || 750) * (scale || 1);
   const h = (tpl.h || 450) * (scale || 1);
@@ -626,6 +629,7 @@ function placeEdgeRiver(rng, tpl, scale, centerX, centerY, roadCovers) {
   const halfW = tpl.w * scale / 2, halfH = tpl.h * scale / 2;
 
   // 从道路多边形提取中心线（用于角度/距离检测）
+  // #T3：verts 为局部坐标 → 加 c.x/c.y 还原世界系（下方与 centerX/centerY 帧比较）
   const roadCenters = [];
   if (roadCovers) {
     for (const road of roadCovers) {
@@ -634,7 +638,7 @@ function placeEdgeRiver(rng, tpl, scale, centerX, centerY, roadCovers) {
       const pts = [];
       for (let i = 0; i < n; i++) {
         const l = road.verts[i], r = road.verts[road.verts.length - 1 - i];
-        pts.push({ x: (l[0] + r[0]) / 2, y: (l[1] + r[1]) / 2 });
+        pts.push({ x: road.x + (l[0] + r[0]) / 2, y: road.y + (l[1] + r[1]) / 2 });
       }
       const mid = Math.floor(n / 2);
       const lw = road.verts[mid], rw = road.verts[road.verts.length - 1 - mid];
@@ -998,8 +1002,16 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
 }
 
 function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
-  const K = scaledCount(rng, 3, 4, tpl, scale);  // #1：泥斑数量按面积缩放
-  const ringR = Math.min(tpl.w, tpl.h) * scale * rng.range(0.20, 0.28);
+  // #U2（2026-10-17 修复）：泥潭数量按面积缩放后**爆量**——`areaRatio` 以 750×450 为基准，
+  //   strip 节点整条 strip 17280×2376 使比值达 121×，泥潭从 3~4 块放大到 365~487 块
+  //   （实测单节点最多 272 块），观感「密恐」。现做两处收敛：
+  //   ① 数量按**面积平方根**缩放（块数铺开在二维面上，随线性尺度增长更合理，而非随面积），
+  //      并钳上限 MUD_MAX；标称面积（ratio=1）下仍为 3~4 块，与原口径一致。
+  //   ② 布点环半径按**节点尺度**取值，且块数多时跨多环分布，避免全部挤在中心一带。
+  const ar = areaRatio(tpl, scale);
+  const K = Math.max(3, Math.min(MUD_MAX, Math.round(rng.range(3, 4) * Math.sqrt(ar))));
+  const nodeSpan = Math.min(tpl.w * scale, tpl.h * scale);
+  const ringR = nodeSpan * rng.range(0.20, 0.28);
   const baseAng = rng() * Math.PI * 2;
   const out = [];
   // #1（2026-10-16）：泥潭与道路完全互斥——候选位置若压住道路则跳过（换角度重试）
@@ -1026,16 +1038,47 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
   };
   for (let k = 0; k < K; k++) {
     let px = 0, py = 0, mw = 0, mh = 0, placed = false;
-    for (let retry = 0; retry < 8 && !placed; retry++) {
-      const ang = baseAng + (k / K) * Math.PI * 2 + rng.range(-0.15, 0.15) + retry * 0.3;
-      const rr = ringR * rng.range(0.85, 1.15);
+    // #T3b（2026-10-16）：道路 verts 帧修正后 hitsRoad 才真正生效（此前因坐标系错位
+    // 几乎恒不命中），泥潭开始真实避让道路 ⇒ 原 8 次固定环带的尝试在道路密集处会连续失败，
+    // 触发「地形标签必产出」契约违例（mixed_barrier_plaza/village_center 实测少 1~2 块）。
+    // 现扩大搜索：角度铺满 2π，半径在 [0.55, 1.45]×ringR 间逐轮外扩，重试上限提到 24。
+    // #U2（2026-10-17）：块数多时（K 大）按**节点尺度**铺开而非挤在中心环——
+    //   用「网格铺位 + 抖动」保证覆盖整块节点，块数少时退化为原环带（观感一致）。
+    const RETRY_MAX = 24;
+    // 铺位：K 少 → 环带（原行为）；K 多 → 全节点网格抖动铺位，避免扎堆
+    const useGrid = K > 12;
+    for (let retry = 0; retry < RETRY_MAX && !placed; retry++) {
+      let ang, rr;
+      if (!useGrid) {
+        ang = baseAng + (k / K) * Math.PI * 2 + rng.range(-0.15, 0.15) + (retry / RETRY_MAX) * Math.PI * 2;
+        rr = ringR * rng.range(0.55, 1.45);
+      } else {
+        // 网格铺位：按 K 估列数，逐块落格并加格内抖动（确定性 rng）
+        const cols = Math.max(1, Math.round(Math.sqrt(K * (tpl.w / tpl.h))));
+        const rows = Math.max(1, Math.ceil(K / cols));
+        const ci = k % cols, cj = Math.floor(k / cols);
+        const cellW = (tpl.w * scale) / cols, cellH = (tpl.h * scale) / rows;
+        const jx = rng.range(0.15, 0.85), jy = rng.range(0.15, 0.85);
+        px = centerX - tpl.w * scale / 2 + (ci + jx) * cellW + rng.range(-0.12, 0.12) * cellW;
+        py = centerY - tpl.h * scale / 2 + (cj + jy) * cellH + rng.range(-0.12, 0.12) * cellH;
+        ang = null;
+        mw = rng.range(40, 64) * scale;
+        mh = mw * rng.range(0.6, 0.9);
+        // #U2：钳到节点界内（与 _bakeGroundRegion 的边界口径一致）——抖动可能越界，
+        // 实测 strip 上出现 x=-60 的泥潭（越界 60px），破坏「掩体中心在界内」契约。
+        const halfSpanW = tpl.w * scale / 2, halfSpanH = tpl.h * scale / 2;
+        px = Math.max(centerX - halfSpanW, Math.min(centerX + halfSpanW, px));
+        py = Math.max(centerY - halfSpanH, Math.min(centerY + halfSpanH, py));
+        if (!hitsRoad(px, py, mw, mh)) placed = true;
+        continue;
+      }
       px = centerX + Math.cos(ang) * rr;
       py = centerY + Math.sin(ang) * rr;
       mw = rng.range(40, 64) * scale;
       mh = mw * rng.range(0.6, 0.9);
       if (!hitsRoad(px, py, mw, mh)) placed = true;
     }
-    if (!placed) continue;  // 8 次都压住道路，跳过该泥潭
+    if (!placed) continue;  // 仍压住道路则跳过该泥潭（极端密集布局）
     // #1（2026-10-16）：泥潭边界改为平滑曲线——双正弦调制半径（24 顶点），
     // 不再是逐点随机 + 凸包（多边形感）。
     const rx = mw / 2, ry = mh / 2;
@@ -1120,14 +1163,20 @@ function _emitRoadChain(out, pts, roadW, groupId, isSegOk) {
     minX = Math.min(minX, vx); maxX = Math.max(maxX, vx);
     minY = Math.min(minY, vy); maxY = Math.max(maxY, vy);
   }
+  const cx0 = (minX + maxX) / 2, cy0 = (minY + maxY) / 2;
+  // #T3（2026-10-16 修复）：verts 统一为**局部坐标**（相对 c.x/c.y），对齐掩体多边形契约
+  // （tank_cover.js coverCorners「局部坐标顶点数组」）。原实现输出的是调用方帧
+  // （placeRoadNetwork 的 centerX/centerY）的绝对坐标，仅当该原点恰为 0 时 `c.x + verts`
+  // 才偶然正确——方形路径 centerX=0 蒙对，strip 路径 centerX=totalW/2 则整体偏移
+  // 半个地图宽，致 pointInCover / coverCorners / 空间索引 / 公路查询全部错位。
   const seg = {
-    x: (minX + maxX) / 2,
-    y: (minY + maxY) / 2,
+    x: cx0,
+    y: cy0,
     w: maxX - minX,
     h: maxY - minY,
     angle: 0,
     tier: 'road',
-    verts: verts,
+    verts: verts.map(([vx, vy]) => [vx - cx0, vy - cy0]),
     groupId: groupId
   };
   if (isSegOk && !isSegOk(seg)) return;
@@ -1974,12 +2023,14 @@ function roadCoversToSegments(roadCovers, roadW) {
     if (!Array.isArray(v) || v.length < 6) { segs.push(c); continue; }  // 旧 OBB 段格式，直接沿用
     const n = Math.floor(v.length / 2);
     const cx = new Array(n), cy = new Array(n);
+    // #T3：verts 为局部坐标 → 加 c.x/c.y 还原到世界系（本函数消费方按世界系使用）
     for (let i = 0; i < n; i++) {
       const L = v[i], R = v[v.length - 1 - i];
-      cx[i] = (L[0] + R[0]) / 2; cy[i] = (L[1] + R[1]) / 2;
+      cx[i] = c.x + (L[0] + R[0]) / 2; cy[i] = c.y + (L[1] + R[1]) / 2;
     }
     // 逐点对还原短段——与旧 _emitRoadChain（cde3bc3 之前）逐段 emit 完全同构：
     // w = 点距 + roadW*0.35，h = roadW，angle = 点对方向（已验证：与旧分段中心距/w/h/夹角差均为 0）
+    // 注：c.angle 恒为 0（_emitRoadChain 出口），故局部→世界只需平移。
     for (let i = 1; i < n; i++) {
       const dx = cx[i] - cx[i - 1], dy = cy[i] - cy[i - 1];
       const len = Math.hypot(dx, dy);
@@ -2174,8 +2225,16 @@ function _pointInPrunePoly(pt, poly) {
   }
   return inside;
 }
-function pruneOverlappingCovers(covers) {
+/**
+ * 跨阶段元素重叠消解（含 nudge 平移回退）。
+ * @param {Array} covers 元素列表
+ * @param {any} [opts] 可选 `{ bounds: { minX, minY, maxX, maxY } }`——nudge 候选点的
+ *   世界帧边界（#T4b）。缺省不约束（保持旧行为）。
+ * @returns {Array} 消解后的元素列表
+ */
+function pruneOverlappingCovers(covers, opts) {
   const arr = covers.slice();
+  const _nudgeBounds = (opts && opts.bounds) || null;
   const prio = c => (_PRUNE_PRIORITY[c.tier] !== undefined ? _PRUNE_PRIORITY[c.tier] : 7);
   // 显著重叠判定：对每个 cover 取 3×3 局部采样点（世界系），一方 ≥1/3 采样点落入另一方
   // 多边形/OBB 内即视为显著重叠（纯函数、确定性，不用 rng）。
@@ -2203,8 +2262,15 @@ function pruneOverlappingCovers(covers) {
     }
     return e;
   };
-  const _aabbOverlap = (a, b) =>
-    a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
+  const _aabbOverlap = (a, b) => {
+    // 任一方 bbox 退化（非有限）时不做剔除：_prunePolyWorld 对 compound
+    // collisionVerts（多凸包嵌套 [[[x,y]…]…]）算出 NaN，此时 minX=Infinity、
+    // maxX=-Infinity，直接比较会恒判「不相交」而漏掉真正重叠的对（#T2）。
+    // 保守回退到 sigOverlap 精判，语义与不做 AABB 预检时一致。
+    if (!(a.minX <= a.maxX) || !(b.minX <= b.maxX)) return true;
+    if (!Number.isFinite(a.minX) || !Number.isFinite(b.minX)) return true;
+    return a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
+  };
   const samplePts = c => _getCached(c).sa;
   const polyOf = c => _getCached(c).poly;
   const sigOverlap = (sa, polyA, sb, polyB) => {
@@ -2226,8 +2292,25 @@ function pruneOverlappingCovers(covers) {
         cand.push({ x: loser.x + Math.cos(a) * step * ring, y: loser.y + Math.sin(a) * step * ring });
       }
     }
+    // #T4b（2026-10-16）：禁止把**界内**元素 nudge 到**界外**——原实现无边界约束，
+    // 实测 village_center 的一块 water 被推到 x=2533 > 节点宽 2460（越界 559px ≈ 一个 step）。
+    // 注意只在「败者原本在界内」时施加该约束：部分元素（如 placeEdgeRiver 的 river，
+    // 以节点边线为中心，天然半幅越界，test-map.js 对此有显式豁免）本就出界，
+    // 若一律要求界内会导致 nudge 全部失败 → 元素被整株移除，破坏「地形标签必产出」契约。
+    // bounds 由调用方经 opts.bounds 传入（与 centerX/centerY 同帧）；未提供时保持旧行为。
+    const bd = _nudgeBounds;
+    const bboxOf = (m) => {
+      const hw = (m.w || 0) / 2, hh = (m.h || 0) / 2;
+      const ca = Math.abs(Math.cos(m.angle || 0)), sa = Math.abs(Math.sin(m.angle || 0));
+      const ex = ca * hw + sa * hh, ey = sa * hw + ca * hh;
+      return { minX: m.x - ex, maxX: m.x + ex, minY: m.y - ey, maxY: m.y + ey };
+    };
+    const inBounds = (b) => !bd || (b.minX >= bd.minX && b.maxX <= bd.maxX &&
+                                    b.minY >= bd.minY && b.maxY <= bd.maxY);
+    const loserWasInside = inBounds(bboxOf(loser));
     for (const p of cand) {
       const moved = Object.assign({}, loser, { x: p.x, y: p.y });
+      if (loserWasInside && !inBounds(bboxOf(moved))) continue;   // 不得把界内元素推出界
       const ms = samplePts(moved), mp = polyOf(moved);
       let clash = false;
       for (const o of others) {
@@ -2626,8 +2709,8 @@ function pruneOverlappingCovers(covers) {
     // 重叠的水体/桥梁候选；全失败则跳过本节点水体（不放置水体/桥梁）。纯随机 30 次在自由空间
     // 占比极小（高难掩体密集）时几乎必失，故改以网格扫描提升命中率，同时仍只用 rng（确定性）。
     // 桥梁（狭长通道）位于水体北缘，一并做重叠检测（best-effort）。镜像 tank_map.js 的 guard 模式。
+    // #U7（2026-10-17）：桥梁已删除，此处不再做桥向的重叠检测（仅判水体自身）。
     const WATER_PAD = 8;
-    const bridgeW = 6 * scale;
     const WATER_GX = 20, WATER_GY = 14, WATER_SIZE_TRIES = 8;
     let waterDx = null, waterDy = null, waterW = 0, waterH = 0;
     const phaseX = rng(), phaseY = rng();
@@ -2640,7 +2723,7 @@ function pruneOverlappingCovers(covers) {
       const tryW = rng.range(0.5 * capW, capW);
       const tryH = rng.range(0.5 * capH, capH);
       // 确保水体在节点界内：留出边距防止完全贴边；偏移按「模板单位 × scale」约定采样。
-      // 不可先按世界尺寸算 maxDx 再乘 scale（双重缩放会把水体/桥梁中心推出节点界，ISSUES #62）。
+      // 不可先按世界尺寸算 maxDx 再乘 scale（双重缩放会把水体中心推出节点界，ISSUES #62）。
       const marginX = Math.max(30, tryW * 0.1);
       const marginY = Math.max(30, tryH * 0.1);
       const maxDx = Math.max(0, (selectedTemplate.w - tryW / scale - marginX / scale) / 2);
@@ -2651,10 +2734,7 @@ function pruneOverlappingCovers(covers) {
           const tryDy = -maxDy + (2 * maxDy) * ((gj + phaseY) / WATER_GY);
           const tryWX = centerX + tryDx * scale;
           const tryWY = centerY + tryDy * scale;
-          const tryBX = centerX + tryDx * scale;                  // 桥梁对齐水体水平位置
-          const tryBY = centerY + (tryDy - tryH / scale) * scale; // 紧贴水体北缘
-          if (!rectHitsCover(outCovers, tryWX, tryWY, tryW, tryH, WATER_PAD) &&
-              !rectHitsCover(outCovers, tryBX, tryBY, bridgeW, tryH, WATER_PAD)) {
+          if (!rectHitsCover(outCovers, tryWX, tryWY, tryW, tryH, WATER_PAD)) {
             waterDx = tryDx; waterDy = tryDy; waterW = tryW; waterH = tryH;
             break waterSearch;
           }
@@ -2673,24 +2753,9 @@ function pruneOverlappingCovers(covers) {
         tier: 'water'
       });
 
-      // 始终随水体一起插入桥梁：6px 宽的狭长通道，紧贴水体北缘
-      const bridgeH = waterH;  // 与水体同高，作为通行视觉通道
-      const bridgeDx = waterDx;  // 对齐水体水平位置
-      // bridgeDy 用模板单位（与 waterDy 同基准，bridgeH=waterH → waterH/scale），
-      // 并钳到节点半高减去桥梁自身半高内，防止水体贴近节点上边缘时桥梁越界（Fix 2 / ISSUES #62）
-      const halfH = selectedTemplate.h / 2;
-      const bridgeHalfH = waterH / scale / 2;
-      const bridgeClamp = Math.max(0, halfH - bridgeHalfH);
-      const bridgeDy = Math.max(-bridgeClamp, Math.min(bridgeClamp, waterDy - waterH / scale));
-
-      outCovers.push({
-        x: centerX + bridgeDx * scale,
-        y: centerY + bridgeDy * scale,
-        w: bridgeW,
-        h: bridgeH,
-        angle: 0,
-        tier: 'bridge'
-      });
+      // #U7（2026-10-17 用户裁定）：**删除桥梁体系**——原实现「始终随水体一起插入桥梁」
+      //   （6px 宽狭长通道紧贴水体北缘，含 bridgeH/bridgeDx/bridgeDy 钳制）已整体移除。
+      //   水体独立存在即可（本身即 passability=0.4 的减速地形，无需额外通行通道）。
     }
   }
 
@@ -2708,7 +2773,11 @@ function pruneOverlappingCovers(covers) {
   }
 
   // 2026-09-14：跨阶段元素重叠统一修剪（结构/岩石/建筑 × 水域/泥潭 × 植被互压消解）
-  const prunedCovers = pruneOverlappingCovers(outCovers);
+  // #T4b：传入世界帧边界，避免 nudge 把元素推出节点（坐标系与 centerX/centerY 同帧）。
+  const _hw = selectedTemplate.w * scale / 2, _hh = selectedTemplate.h * scale / 2;
+  const prunedCovers = pruneOverlappingCovers(outCovers, {
+    bounds: { minX: centerX - _hw, minY: centerY - _hh, maxX: centerX + _hw, maxY: centerY + _hh }
+  });
   outCovers.length = 0;
   for (const c of prunedCovers) outCovers.push(c);
 
@@ -3253,7 +3322,11 @@ function generateStrip(difficulty, options) {
     }
 
     // 横向拼接：chunk i 占据 [x0, x0+cw]（规划 pass 已算好），y 平移到 [0, stripH]
+    // #U2b（2026-10-17）：横向也须钳到片内 —— 片内坐标 c.x 相对片中心，若超出 ±cw/2
+    //   则拼接后越出 strip 左右界（实测 mud@17406 > strip 宽 17280）。原实现只做纵向裁剪，
+    //   横向依赖生成期的局部钳制，环带路径（半径相对节点尺度）在大片上仍会溢出。
     for (const c of kept) {
+      c.x = Math.max(-cw / 2, Math.min(cw / 2, c.x));
       c.x += x0 + cw / 2;
       c.y += halfBand;
       covers.push(c);
@@ -3270,129 +3343,18 @@ function generateStrip(difficulty, options) {
   // 一体化路网：strip 级路面 cover 与路口直接追加（已在 strip 坐标 [0,totalW]×[0,stripH]）。
   for (const r of stripRoadNet.covers) covers.push(r);
   for (const j of stripRoadNet.junctions) junctions.push({ x: j.x, y: j.y, r: j.r });
-  // 一体化河流：strip 级河段追加；路河交叉处用桥替换河段（桥不压河）。
-  // 2026-10-05 修订：短段模式——每段独立判断，压路则替换为桥（不再切分长段）。
-  {
-    const bridgeSeen = new Set();  // 200px 去重，同一交叉只一座桥
-    const bridgePositions = [];  // 2026-10-05：桥间距 ≥800px，避免过渡段过密
-    for (const rv of stripRivers) {
-      // 湖（water）不参与桥替换——湖面宽，路应绕行而非架桥；verts 透传供渲染
-      if ((rv.tier || 'river') !== 'river') {
-        for (const s of rv.segments) {
-          covers.push({
-            x: s.dx, y: s.dy, w: s.w, h: s.h, angle: s.angle || 0,
-            tier: rv.tier || 'river', groupId: rv.groupId,
-            verts: rv.verts || null
-          });
-        }
-        continue;
-      }
-      for (const s of rv.segments) {
-        let hitRoad = null;
-        for (const r of stripRoadNet.covers) {
-          // OBB 粗判：中心距 < 半宽之和（角度已计入段 w 的搭接余量）
-          const dx = Math.abs(s.dx - r.x), dy = Math.abs(s.dy - r.y);
-          if (dx > (s.w + r.w) / 2 * 0.7) continue;
-          if (dy > (s.h + r.h) / 2 + 20) continue;
-          hitRoad = r;
-          break;
-        }
-        // 2026-10-05：平行路不触发桥——仅当路与河夹角>30°（真实交叉）时才处理；
-        // 平行近距的直接保留河段（避免长距离误伤导致河流中断）。
-        // 注：涵洞逻辑已删除——河流必须连续，角度问题由桥过渡段缓解。
-        if (hitRoad) {
-          // 2026-10-05：桥必须垂直于河流中心线，两侧公路平滑过渡。
-          const getDir = (c) => {
-            let a = c.angle || 0;
-            if ((c.w || 0) < (c.h || 0)) a += Math.PI / 2;
-            return ((a % Math.PI) + Math.PI) % Math.PI;
-          };
-          // 局部河向平均（±200px内河段方向平均，避免单段抖动）
-          let sumX = 0, sumY = 0, cnt = 0;
-          for (const s2 of rv.segments) {
-            if (Math.abs(s2.dx - s.dx) > 200 || Math.abs(s2.dy - s.dy) > 200) continue;
-            const d = getDir(s2);
-            // 方向平均（处理 π 周期）：转为向量平均
-            sumX += Math.cos(d * 2); sumY += Math.sin(d * 2); cnt++;
-          }
-          let riverDir;
-          if (cnt > 0) {
-            riverDir = Math.atan2(sumY / cnt, sumX / cnt) / 2;
-            riverDir = ((riverDir % Math.PI) + Math.PI) % Math.PI;
-          } else {
-            riverDir = getDir(s);
-          }
-          const bridgeDir = (riverDir + Math.PI / 2) % Math.PI;  // 垂直于河
-          const roadDir = getDir(hitRoad);
-          // 2026-10-05：不再做涵洞跳过——河流必须连续。桥垂直于河，
-          // 与路夹角由过渡段缓解（>15°时加过渡段）。
-          const key = Math.round(s.dx / 200) + ':' + Math.round(s.dy / 200);
-          if (!bridgeSeen.has(key)) {
-            bridgeSeen.add(key);
-            // 2026-10-05：统一间距 ≥900px（含桥）——过近则不建桥，
-            // 但保留河段（河流连续，路下涉水）。
-            if (!isBranchPointClear(s.dx, s.dy, 900)) {
-              // 保留河段（不建桥）
-              covers.push({
-                x: s.dx, y: s.dy, w: s.w, h: s.h, angle: s.angle || 0,
-                tier: 'river', groupId: rv.groupId
-              });
-            } else {
-              bridgePositions.push({ x: s.dx, y: s.dy });
-              branchPoints.push({ x: s.dx, y: s.dy });
-              const bridgeLen = s.h + 60;  // 跨两岸（沿桥向，长边）
-              const bridgeWid = stripRoadW + 40;  // 路宽（横桥向，短边）
-              const bx = s.dx, by = s.dy;
-              covers.push({
-                x: bx, y: by,
-                w: bridgeLen, h: bridgeWid,
-                angle: bridgeDir,  // 长边沿桥向（垂直于河）
-                tier: 'bridge', groupId: 'strip-bridge', hp: 2
-              });
-              // 平滑过渡：若桥与路夹角>15°，在桥两端加过渡段
-              let dAng = bridgeDir - roadDir;
-              while (dAng > Math.PI / 2) dAng -= Math.PI;
-              while (dAng < -Math.PI / 2) dAng += Math.PI;
-              if (Math.abs(dAng) > Math.PI / 22) {  // >8°（#R1 放宽：8°~15° 小折角也有可见错位）
-                const hx = Math.cos(bridgeDir), hy = Math.sin(bridgeDir);
-                for (const side of [1, -1]) {
-                  // 桥端
-                  const ex = bx + hx * bridgeLen / 2 * side;
-                  const ey = by + hy * bridgeLen / 2 * side;
-                  // 过渡段：从桥端向路方向延伸，中点角度渐变
-                  const midA = bridgeDir - dAng * 0.5 * side;
-                  const segLen = 70;
-                  const mx = ex + Math.cos(midA) * segLen * side;
-                  const my = ey + Math.sin(midA) * segLen * side;
-                  // #S11：引道出界则丢弃（旋转段不做裁剪）
-                  const _ax = (ex + mx) / 2, _ay = (ey + my) / 2;
-                  const _aext = Math.hypot((segLen + 20) / 2, (stripRoadW * 0.9) / 2);
-                  if (_ax - _aext >= 0 && _ax + _aext <= totalW && _ay - _aext >= 0 && _ay + _aext <= stripH) {
-                    covers.push({
-                      x: _ax, y: _ay,
-                      w: segLen + 20, h: stripRoadW * 0.9,
-                      angle: midA, tier: 'road', groupId: 'bridge-approach'
-                    });
-                  }
-                }
-              }
-            }
-          } else {
-            // #P1 修复：key 已见（同一 200px 网格）——bridgeSeen 仅防多座桥，
-            // 不得静默丢弃河段。该段仍需作为 river 落盘，桥面覆盖是渲染层职责。
-            covers.push({
-              x: s.dx, y: s.dy, w: s.w, h: s.h, angle: s.angle || 0,
-              tier: rv.tier || 'river', groupId: rv.groupId
-            });
-          }
-          // 该河段被桥替换（或保留），不追加 river（已在上处理）
-        } else {
-          covers.push({
-            x: s.dx, y: s.dy, w: s.w, h: s.h, angle: s.angle || 0,
-            tier: rv.tier || 'river', groupId: rv.groupId
-          });
-        }
-      }
+  // 一体化河流：strip 级河段追加。
+  // #U7（2026-10-17 用户裁定）：**桥梁体系整体删除**——原「路河交叉 → 桥替换河段」逻辑
+  //   （含 bridgeSeen 去重、bridgePositions 间距、hitRoad 搜索、桥向计算、引道过渡段）已全部移除。
+  //   交叉处直接保留河段：河流保持连续，车辆按 river 的 passability=0.4 减速涉水通过。
+  //   相应 tier `bridge` 与 `bridge-approach` 不再产出（定义保留于 RULES 以兼容存档/旧基线读取）。
+  for (const rv of stripRivers) {
+    for (const s of rv.segments) {
+      covers.push({
+        x: s.dx, y: s.dy, w: s.w, h: s.h, angle: s.angle || 0,
+        tier: rv.tier || 'river', groupId: rv.groupId,
+        verts: rv.verts || null
+      });
     }
   }
 
@@ -3577,21 +3539,56 @@ function generateStrip(difficulty, options) {
     const forestCoverage = playArea > 0 ? forestArea / playArea : 0;
 
     // --- 自包含 OBB 点测试（旋转矩形 + verts/collisionVerts 多边形） ---
-    const isBlocked = (x, y) => {
-      for (const c of covers) {
-        const tierDef = coverTiers && coverTiers[c.tier];
-        const isGround = tierDef ? (tierDef.tierGroup === 'ground') : (c.tier === 'road' || c.tier === 'mud');
-        if (isGround) continue; // Roads and mud patches do not block physical movement
-        // 2026-10-05：对齐 tank_cover.js 游戏口径——阻挡 = passability===0 或 shellBlock。
-        // river/water 的 passability=0.4 是减速通行（AGENTS.md §4），不阻断连通性；
-        // bridge 的 passability=1 更不阻断。旧实现把一切非 ground 都当墙，
-        // 导致一体化河流（本就可涉水）的 strip 连通性被严重低估。
-        if (tierDef) {
-          const blocked = tierDef.passability === 0 ||
-            tierDef.shellBlock === true || tierDef.shellBlock === 'single';
-          if (!blocked) continue;
+    // #T1（2026-10-16 性能）：连通性网格是 O(格点数 × covers) 的热路径——strip 节点
+    //   covers 达 800、格点达 4.5 万 ⇒ 单次 nodeLayoutMetrics 达 20~38s，三个 seed 叠加
+    //   远超测试超时。此处两处等价化简（输出不变）：
+    //   ① 预筛：把「不阻挡」的 cover（ground/liquid 层 + passability>0 且不挡弹）一次性
+    //      剔除，后续只遍历真正可能阻挡的子集；
+    //   ② AABB 预检：格点落在 cover 包络外时直接跳过精判（与 _pointInCoverPoly 同语义）。
+    const _blockingCovers = [];
+    for (const c of covers) {
+      const tierDef = coverTiers && coverTiers[c.tier];
+      const isGround = tierDef ? (tierDef.tierGroup === 'ground') : (c.tier === 'road' || c.tier === 'mud');
+      if (isGround) continue; // Roads and mud patches do not block physical movement
+      // 2026-10-05：对齐 tank_cover.js 游戏口径——阻挡 = passability===0 或 shellBlock。
+      // river/water 的 passability=0.4 是减速通行（AGENTS.md §4），不阻断连通性；
+      // bridge 的 passability=1 更不阻断。旧实现把一切非 ground 都当墙，
+      // 导致一体化河流（本就可涉水）的 strip 连通性被严重低估。
+      if (tierDef) {
+        const blocked = tierDef.passability === 0 ||
+          tierDef.shellBlock === true || tierDef.shellBlock === 'single';
+        if (!blocked) continue;
+      }
+      // 包络半幅（旋转矩形解析包络 / 多边形逐顶点；compound collisionVerts 取并集）
+      let ex = 0, ey = 0;
+      const a0 = c.angle || 0;
+      const cs0 = Math.cos(a0), sn0 = Math.sin(a0);
+      const vs = c.collisionVerts || c.verts;
+      if (vs) {
+        let mx = 0, my = 0;
+        for (const v of vs) {
+          if (Array.isArray(v[0])) continue;   // compound 环：下方逐环处理
+          mx = Math.max(mx, Math.abs(v[0])); my = Math.max(my, Math.abs(v[1]));
         }
-
+        if (mx === 0 && my === 0 && Array.isArray(vs[0]) && Array.isArray(vs[0][0])) {
+          for (const ring of vs) for (const v of ring) {
+            mx = Math.max(mx, Math.abs(v[0])); my = Math.max(my, Math.abs(v[1]));
+          }
+        }
+        ex = Math.abs(cs0) * mx + Math.abs(sn0) * my;
+        ey = Math.abs(sn0) * mx + Math.abs(cs0) * my;
+      } else {
+        const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2;
+        ex = Math.abs(cs0) * hw + Math.abs(sn0) * hh;
+        ey = Math.abs(sn0) * hw + Math.abs(cs0) * hh;
+      }
+      if (!Number.isFinite(ex) || !Number.isFinite(ey)) { ex = Infinity; ey = Infinity; }
+      _blockingCovers.push({ c, ex, ey });
+    }
+    const isBlocked = (x, y) => {
+      for (const b of _blockingCovers) {
+        const c = b.c;
+        if (Math.abs(x - c.x) > b.ex || Math.abs(y - c.y) > b.ey) continue;  // AABB 预检
         if (c.verts || c.collisionVerts) {
           if (_pointInCoverPoly(c, x, y, 0)) return true;
         } else {
@@ -3699,7 +3696,11 @@ function generateStrip(difficulty, options) {
       if (covers.length === 0) {
         losSymmetry = 1; // 无掩体 → 双向视线恒等
       } else if (w > 0 && h > 0) {
-        const K = opts.losSamples || 200;
+        // #T1（2026-10-16 修复）：原写法 `opts.losSamples || 200` 把显式传入的 0 当作
+        // falsy 吞掉，退回默认 K=200——测试传 losSamples:0 意图「跳过 LoS 采样」却仍
+        // 跑满 19900 对 × 2 次射线，单次度量 ~14s（实测 K=1 仅 131ms），三个 seed 叠加
+        // 直接击穿 180s 测试超时。改为仅在「未显式传入」时回退默认值。
+        const K = (opts.losSamples !== undefined && opts.losSamples !== null) ? opts.losSamples : 200;
         const r = createRNG(((result.seed >>> 0) ^ 0x4C6F53) >>> 0);
         const pts = [];
         for (let i = 0; i < K; i++) pts.push({ x: r() * w, y: r() * h });

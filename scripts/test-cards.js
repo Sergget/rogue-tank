@@ -503,9 +503,14 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
   ok(cardsMod.cardEligible(fortified, { abilities: [], secondaryWeapon: 'mortar' }) === false
     && cardsMod.cardEligible(fortified, { abilities: ['deploy_cover'], secondaryWeapon: 'mortar' }) === true,
     '#A28: cardEligible — 加固战术掩体随 deploy_cover 持有状态翻转');
+  // #U18（2026-10-17 修订）：基础炮击卡在**已持有 artillery** 时不再合格——
+  //   原断言「两态皆合格（安装卡不受限）」编码的是缺陷行为：已持 artillery 后再抽
+  //   artillery_strike 毫无收益（能力已在），却仍占一个三选一位（用户实测「已有的技能卡
+  //   似乎也会重复提供备选」）。现改为：未持 → 合格（正常安装）；已持 → 不合格（去重）。
+  //   注意「炮击扩增」类卡（带 requiresAbility）不受此限——它们是既有能力的升级，见上方断言。
   ok(cardsMod.cardEligible(baseArt, { abilities: [], secondaryWeapon: 'mortar' }) === true
-    && cardsMod.cardEligible(baseArt, { abilities: ['artillery'], secondaryWeapon: 'mortar' }) === true,
-    '#A28: cardEligible — 基础炮击卡两态皆合格（安装卡不受限）');
+    && cardsMod.cardEligible(baseArt, { abilities: ['artillery'], secondaryWeapon: 'mortar' }) === false,
+    '#U18: cardEligible — 基础炮击卡未持合格 / 已持去重不合格');
 
   // 6) 语义闭环（第 3 步确认）：抽到基础卡 → key 入 cardEffects → 升级卡随之合格
   const tSem = model.makeTank({ team: 'player' });

@@ -394,11 +394,17 @@ const RUN_SHOP_DEFS = [
   { id: 'shell_velocity',    name: '弹速强化',   group: 'firepower', desc: '炮弹初速 +40px/s/级（飞行时间↓/提前量↓）',
     baseCost: 30, costGrowth: 1.7, maxLevel: 99,
     effects: [{ stat: 'shellSpeed', mode: 'add', value: 40 }] },
-  { id: 'precision_gunnery', name: '精密火控',   group: 'firepower', desc: '瞄准散布 −4%/级',
+  // #U10（2026-10-17 用户反馈）：精密火控与姿态稳定的作用通道不同，但原 desc 未点明区别，
+  //   玩家（以及达限提示）无从判断二者是否重复。两者实为**正交**通道（见 js/tank_model.js
+  //   的 spreadMult / motionSpreadMul 解耦注释）：
+  //     精密火控 spreadMult      —— 静止/瞄准散布基准（开火前瞄准圈收敛后的大小）
+  //     姿态稳定 motionSpreadMul —— 运动散布（行进/转向时附加的扩圈）
+  //   现把通道差异写进 desc 与 limitLabel，使「已达上限」时也能看出是哪一维到顶。
+  { id: 'precision_gunnery', name: '精密火控',   group: 'firepower', desc: '【静止散布】瞄准/静止时的三扩系数 −4%/级（不影响移动扩圈）',
     baseCost: 28, costGrowth: 1.6, maxLevel: 99,
     effects: [{ stat: 'spreadMult', mode: 'mult', value: 0.96 }],
-    limit: { stat: 'spreadMult', min: 0.5 }, limitLabel: '已达三扩下限' },
-  { id: 'steady_mount',      name: '姿态稳定',   group: 'firepower', desc: '运动散布系数 −15%/级（移动/转向扩圈减轻）',
+    limit: { stat: 'spreadMult', min: 0.5 }, limitLabel: '已达静止三扩下限' },
+  { id: 'steady_mount',      name: '姿态稳定',   group: 'firepower', desc: '【运动散布】行进/转向时的扩圈 −15%/级（不影响静止精度）',
     baseCost: 35, costGrowth: 1.5, maxLevel: 99,
     effects: [{ stat: 'motionSpreadMul', mode: 'mult', value: 0.85 }],
     limit: { stat: 'motionSpreadMul', min: 0.5 }, limitLabel: '已达运动三扩下限' },

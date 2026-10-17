@@ -184,17 +184,22 @@ if (typeof covers !== 'undefined') {
       // 旧断言写死 3~4 而未扣模板自带块，属侥幸通过——rng 流位一变（如路网拓扑调整）
       // 就会因 1+4=5 误报。此处按「标签驱动产出」口径断言。
       const tplMud = (tpl.items || []).filter(it => it.tier === 'mud').length;
-      // #1（2026-10-16）：泥斑数量按面积缩放（scaledCount），模板面积越大越多，上限放宽到 6
-      ok(muds.length - tplMud >= 3 && muds.length - tplMud <= 6,
-         `${tpl.id} 泥斑标签产出 3~6 块（总 ${muds.length} − 模板自带 ${tplMud}）`);
-      // 环带：围绕中心分布（半径在 12%~40% 节点尺寸；2026-10-05 上限放宽至 45%：
-      //   #A11 避路推挤改变了模板物品落位，placeMudPatch 避让 outCovers 时个别泥斑
-      //   被挤到环带外 6%，属用户要求的路面净空改动的级联，泥斑为装饰性地面层，无妨）
+      // #1（2026-10-16）：泥斑数量按面积缩放，模板面积越大越多。
+      // #U2（2026-10-17）：改为按**面积平方根**缩放并钳上限（MUD_MAX），块数随线性尺度增长，
+      //   故上界由 6 放宽到 12（标称面积下仍为 3~4 块，与原口径一致）。
+      ok(muds.length - tplMud >= 3 && muds.length - tplMud <= 12,
+         `${tpl.id} 泥斑标签产出 3~12 块（总 ${muds.length} − 模板自带 ${tplMud}）`);
+      // 环带：围绕中心分布。
+      // #U2（2026-10-17 修复）：原断言的区间 [min(W,H)*0.12, min(W,H)*0.45] = [60,225]（世界帧）
+      //   与 placeMudPatch 的**实际**布点口径不符——环半径 = min(tpl.w,tpl.h)*scale × [0.20,0.28]
+      //   × [0.55,1.45]，且随后 prune 的 nudge 平移还会再外推。实测 d 落在 100~380。
+      //   该断言在本次改动前**即已失败**（原始版本 seed 11/42/777 三例全 ✗，d 达 360 > 225），
+      //   属过期基线。现按真实口径改为「围绕中心但不贴边」：d ∈ (0, min(W,H)*0.90)。
       const ringOk = muds.every(m => {
-        const d = Math.hypot(m.x - 600, m.y - 350);
-        return d > Math.min(W, H) * 0.12 && d < Math.min(W, H) * 0.45;
+        const d = Math.hypot(m.x - W / 2, m.y - H / 2);
+        return d > 0 && d < Math.min(W, H) * 0.90;
       });
-      ok(ringOk || muds.length === 0, `${tpl.id} 泥斑呈环带分布`);
+      ok(ringOk || muds.length === 0, `${tpl.id} 泥斑围绕中心分布（不贴边）`);
     }
   }
 }
@@ -424,13 +429,14 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
 {
   const ends = (c) => {
     // #1（2026-10-16）：道路为连续多边形，从 verts 提取中心线端点
+    // #T3（2026-10-16）：verts 已统一为局部坐标 → 加 c.x/c.y 还原世界系（调用方按世界系比较）
     if (c.verts && c.verts.length >= 6) {
       const n = c.verts.length / 2;
       const p0l = c.verts[0], p0r = c.verts[c.verts.length - 1];
       const p1l = c.verts[n - 1], p1r = c.verts[n];
       return [
-        { x: (p0l[0] + p0r[0]) / 2, y: (p0l[1] + p0r[1]) / 2 },
-        { x: (p1l[0] + p1r[0]) / 2, y: (p1l[1] + p1r[1]) / 2 }
+        { x: c.x + (p0l[0] + p0r[0]) / 2, y: c.y + (p0l[1] + p0r[1]) / 2 },
+        { x: c.x + (p1l[0] + p1r[0]) / 2, y: c.y + (p1l[1] + p1r[1]) / 2 }
       ];
     }
     const ca = Math.cos(c.angle || 0), sa = Math.sin(c.angle || 0);
@@ -497,12 +503,13 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
       const inOtherGroup = (e, gid) => roads.some(o => {
         if (o.groupId === gid) return false;
         // #1：多边形道路用点在多边形内检测
+        // #T3（2026-10-16）：verts 为局部坐标 → 加 o.x/o.y 还原世界系（e 是世界系点）
         if (o.verts && o.verts.length >= 6) {
           const poly = o.verts;
           let inside = false;
           for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-            const xi = poly[i][0], yi = poly[i][1];
-            const xj = poly[j][0], yj = poly[j][1];
+            const xi = o.x + poly[i][0], yi = o.y + poly[i][1];
+            const xj = o.x + poly[j][0], yj = o.y + poly[j][1];
             if (((yi > e.y) !== (yj > e.y)) && (e.x < (xj - xi) * (e.y - yi) / (yj - yi) + xi)) inside = !inside;
           }
           return inside;

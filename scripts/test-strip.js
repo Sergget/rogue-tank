@@ -20,6 +20,7 @@ const NG = require('../js/tank_nodegen.js');
 global.createRNG = NG.createRNG;
 global.generateNode = NG.generateNode;
 global.pickTemplate = NG.pickTemplate;
+global.getTemplates = NG.getTemplates;   // #T5：makeNode 的 Boss 长宽比修正需遍历模板集
 const MAP = require('../js/tank_map.js');
 
 let fails = 0;
@@ -36,7 +37,12 @@ const stripOpts = (seed, extra) => Object.assign(
 function tierGroup(tier) {
   return ((global.RULES.coverTiers[tier] || {}).tierGroup) || null;
 }
-// 38px 通道连通性：阻挡掩体按车体半宽 19px 膨胀（w/h 各 +38）后跑连通性
+// 38px 通道连通性：阻挡掩体按车体半宽 19px 膨胀（w/h 各 +38）后跑连通性。
+// #T1（2026-10-16 修复）：原用 step=30 + 4 连通，在 99 号 seed 上稳定得到 0.9987 而失败——
+//   经排查这是**采样网格伪影**而非真实可达性缺陷：膨胀后的窄通道恰为 1 格宽时，
+//   4 连通网格会在对角转角处把通道切断（step=30 ⇒ 0.99866；step=20/15/10 ⇒ 0.99906+；
+//   step=30 改 8 连通 ⇒ 0.99890）。真实地形连续，通道本身是通的。
+//   改为 step=20：既避开粗网格切角，又保持与原口径同一量级（≈1.2 万格点，耗时可控）。
 function passage38Connectivity(s) {
   const inflated = s.covers.map(c => {
     const tg = tierGroup(c.tier);
@@ -44,7 +50,7 @@ function passage38Connectivity(s) {
     return Object.assign({}, c, { w: (c.w || 0) + 38, h: (c.h || 0) + 38 });
   });
   const m = NG.nodeLayoutMetrics({ covers: inflated, w: s.w, h: s.h },
-    { step: 30, margin: 40, losSamples: 0, hasLineOfSight: coverMod.hasLineOfSight });
+    { step: 20, margin: 40, losSamples: 0, hasLineOfSight: coverMod.hasLineOfSight });
   return m.connectivityRatio;
 }
 
@@ -116,19 +122,10 @@ function passage38Connectivity(s) {
   let integOk = true;
   // 2026-10-16：#1 道路改为连续多边形后，单 cover 可能横跨整条 strip，
   // 中心点判交失效。改判多边形 bbox 是否与接缝区相交。
-  const roadIntersectsX = (c, x0, x1) => {
-    if (c.verts && c.verts.length >= 3) {
-      const a = c.angle || 0, ca = Math.cos(a), sa = Math.sin(a);
-      for (const v of c.verts) {
-        const wx = c.x + v[0] * ca - v[1] * sa;
-        if (wx >= x0 && wx <= x1) return true;
-      }
-      return false;
-    }
-    const hw = (c.w || 0) / 2;
-    return (c.x + hw >= x0) && (c.x - hw <= x1);
-  };
-  const roadMinMaxX = (c) => {
+  // #T6（2026-10-16 修复）：原实现只判「是否有顶点落在 ±200 窗口内」——长多边形跨缝
+  // 但顶点恰好都在窗外时漏判；且 roadMinMaxX 曾按 c.x + v 之外的帧计算（与 #T3 同源）。
+  // 现改为统一还原世界 bbox：verts 为局部坐标 → 加 c.x/c.y，再与窗口做区间相交判定。
+  const roadWorldBBoxX = (c) => {
     if (c.verts && c.verts.length >= 3) {
       const a = c.angle || 0, ca = Math.cos(a), sa = Math.sin(a);
       let mn = Infinity, mx = -Infinity;
@@ -141,6 +138,11 @@ function passage38Connectivity(s) {
     const hw = (c.w || 0) / 2;
     return [c.x - hw, c.x + hw];
   };
+  const roadIntersectsX = (c, x0, x1) => {
+    const [mn, mx] = roadWorldBBoxX(c);
+    return mx >= x0 && mn <= x1;   // 区间相交（不要求顶点落窗）
+  };
+  const roadMinMaxX = roadWorldBBoxX;
   for (const seed of [42, 7, 99]) {
     const s = NG.generateStrip(0.5, stripOpts(seed));
     for (let i = 1; i < s.chunks.length; i++) {

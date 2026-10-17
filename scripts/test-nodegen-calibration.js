@@ -92,13 +92,32 @@ const DENSE = new Set(['forest_dense', 'woodland_line']);
 //   minPassageWidth 普遍收窄（泥斑 36 块后 mud↔残骸小间隙主导，如 mixed_barrier d=0.9 0.3；
 //   度量口径：minPassage 仍含 road 短段还原配对，与标定口径一致）。
 //   全模板连通性维持 1.000。校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
+// 2026-10-16 基线重标定（第八次，#T3 道路 verts 帧修复）：
+//   #T3 把 _emitRoadChain 的 verts 由「调用方帧绝对坐标」统一为「相对 c.x/c.y 的局部坐标」
+//   （对齐 tank_cover.js 的多边形契约）。这项修正使两处此前因坐标系错位而**恒不生效**的
+//   逻辑开始真实工作：① hitsRoad（泥潭避路）此前把 c.x 加了两次、几乎永不命中，修复后
+//   泥潭真正避让道路；② roadCenters/minPassage 的道路短段还原口径同步校正。
+//   影响：**coverCoverage / connectivity 全部不变**（7 模板×5 难度仍为 1.000），仅
+//   minPassageWidth 在含 mudPatch 的模板上收窄（泥潭真实避路后，mud↔残骸等小间隙成为
+//   最小值来源）：urban_block −0.1~0.3、mixed_barrier_plaza +0.5@d=0.1 / −0.3，
+//   village_center d=0.1 1.0→0.4、d=0.3 0.9→0.4、d=0.7 0.9→0.2（三处超出 ±0.5 口径）。
+//   同批 #T4b 新增「nudge 不得把界内元素推出节点」约束，消除 5/2575 的越界元素。
+//   校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
+// 2026-10-17 基线重标定（第九次，#U2 泥潭收敛 + #U7 桥梁删除）：
+//   #U2：泥潭数量由「按面积缩放」（strip 上 ratio 达 121× ⇒ 365~487 块）改为**按面积平方根**
+//     并钳上限 MUD_MAX=32；块数多时改全节点网格铺位（用户反馈环带扎堆「密恐」）。
+//   #U7：桥梁体系整体删除（路河交叉不再替换为 bridge，直接保留河段）。
+//   影响：**coverCoverage / connectivity 基本不变**（7 模板×5 难度仍 1.000，cov 仅 ±0.001），
+//   minPassageWidth 因泥潭数量与分布变化而上涨（泥潭稀疏后 mud↔残骸小间隙不再是唯一最小值来源）：
+//   urban_block 0.3→1.0~1.7、mixed_barrier_plaza 0.4~1.2→1.0~1.9、village_center 0.2~0.4→0.6~1.5。
+//   校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
 const BASE = {
   corridor_tutorial: [{"cov":0.074,"con":1,"minw":2.1},{"cov":0.073,"con":1,"minw":2.1},{"cov":0.078,"con":1,"minw":2.3},{"cov":0.074,"con":1,"minw":2.7},{"cov":0.074,"con":1,"minw":3}],
   forest_dense: [{"cov":0.068,"con":1,"minw":0.5},{"cov":0.068,"con":1,"minw":0.5},{"cov":0.071,"con":1,"minw":0.9},{"cov":0.068,"con":1,"minw":0.9},{"cov":0.07,"con":1,"minw":0.8}],
-  urban_block: [{"cov":0.094,"con":1,"minw":0.6},{"cov":0.092,"con":1,"minw":0.5},{"cov":0.096,"con":1,"minw":0.7},{"cov":0.092,"con":1,"minw":0.6},{"cov":0.088,"con":1,"minw":0.5}],
+  urban_block: [{"cov":0.093,"con":1,"minw":1.0},{"cov":0.092,"con":1,"minw":1.1},{"cov":0.096,"con":1,"minw":1.0},{"cov":0.090,"con":1,"minw":1.7},{"cov":0.089,"con":1,"minw":1.1}],
   crossfire_plaza: [{"cov":0.093,"con":1,"minw":1.2},{"cov":0.091,"con":1,"minw":1.4},{"cov":0.089,"con":1,"minw":1.2},{"cov":0.088,"con":1,"minw":2},{"cov":0.088,"con":1,"minw":1.9}],
-  mixed_barrier_plaza: [{"cov":0.061,"con":1,"minw":0.7},{"cov":0.059,"con":1,"minw":0.5},{"cov":0.06,"con":1,"minw":0.5},{"cov":0.059,"con":1,"minw":0.3},{"cov":0.058,"con":1,"minw":0.3}],
-  village_center: [{"cov":0.097,"con":1,"minw":1},{"cov":0.095,"con":1,"minw":0.9},{"cov":0.096,"con":1,"minw":0.3},{"cov":0.094,"con":1,"minw":0.9},{"cov":0.093,"con":1,"minw":0.6}],
+  mixed_barrier_plaza: [{"cov":0.060,"con":1,"minw":1.1},{"cov":0.057,"con":1,"minw":1.0},{"cov":0.060,"con":1,"minw":1.9},{"cov":0.055,"con":1,"minw":1.6},{"cov":0.055,"con":1,"minw":1.4}],
+  village_center: [{"cov":0.097,"con":1,"minw":0.6},{"cov":0.095,"con":1,"minw":0.8},{"cov":0.094,"con":1,"minw":1.5},{"cov":0.094,"con":1,"minw":1.2},{"cov":0.092,"con":1,"minw":1.1}],
   woodland_line: [{"cov":0.046,"con":1,"minw":1.6},{"cov":0.044,"con":1,"minw":1.6},{"cov":0.047,"con":1,"minw":1.3},{"cov":0.045,"con":1,"minw":1.7},{"cov":0.046,"con":1,"minw":1.6}],
 };
 const TOL = { cov: 0.02, con: 0.05, minw: 0.5 };

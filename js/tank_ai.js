@@ -1178,6 +1178,16 @@ function applyWaterAvoidance(t, out, ctx){
   };
   const fx = Math.cos(t.hullAngle), fy = Math.sin(t.hullAngle);
   const px = -fy, py = fx;                                    // 车体右侧法向
+  // #U15（2026-10-16 修复）：**已入水脱困**——原实现只做「前方有水就转向」，一旦车体本身
+  //   已在水中央，三个探测点全为水 ⇒ `out.move = 0` 停驶，AI 会原地泡满 8s 溺毙（用户实测
+  //   「水中的敌方 ai 不会尝试脱困」）。现优先判定「自身当前位置是否在水里」：若是，则放弃
+  //   常规机动，改为朝**最近干地方向**全速驶出（并优先保持与目标无关的直线逃逸）。
+  if(isWaterAt(t.x, t.y)){
+    if(_escapeWater(out, t, isWaterAt, probeDist)) return out;
+    // 环向全水（极端：身陷大湖中央）——仍朝目标方向驶出，至少产生位移而非原地等死
+    out.move = 1;
+    return out;
+  }
   const ahead = { x: t.x + fx * probeDist, y: t.y + fy * probeDist };
   if(!isWaterAt(ahead.x, ahead.y)) return out;                // 前路干燥：不干预
   const leftPt  = { x: t.x + (fx * Math.cos(-probeAng) - fy * Math.sin(-probeAng)) * probeDist,
@@ -1191,6 +1201,45 @@ function applyWaterAvoidance(t, out, ctx){
   else if(!leftFree && !rightFree){ out.move = 0; }           // 三向全水 → 停驶
   // 两侧都干：保持原 turn（朝目标方向本身就在绕），仅防直冲（已满足：前向有水会持续修正）
   return out;
+}
+
+/**
+ * 已入水脱困：以车体为中心环向采样，找出最近的干地方向并转向驶出。
+ * 采样半径由近及远（probeDist 的 1×/2×/3×），先近后远——近处有干地即朝其转向，
+ * 保证最短脱困路径；同环内若有多个干地方向，取与车头夹角最小者（少转弯即脱困）。
+ * 就地改写传入的机动指令 out（保留其 turretDesired/fire 等字段，仅覆盖 turn/move）。
+ * @param {any} out 待改写的机动指令
+ * @param {any} t 坦克实体（读 hullAngle/x/y）
+ * @param {(x:number,y:number)=>boolean} isWaterAt 入水判定
+ * @param {number} probeDist 基础探测距离
+ * @returns {boolean} 是否找到干地方向（false = 三环全水）
+ */
+function _escapeWater(out, t, isWaterAt, probeDist){
+  const base = t.hullAngle || 0;
+  // #U15：脱困环半径须覆盖「中等水体」——水潭可达 400×400（半幅 200），
+  //   故取 4 环 × probeDist(=140) = 560px，确保站位于常见水体中央时也能探到岸。
+  const RINGS = 4, DIRS = 16;
+  for(let ring = 1; ring <= RINGS; ring++){
+    const dist = probeDist * ring;
+    let bestDelta = null;
+    for(let k = 0; k < DIRS; k++){
+      const a = (k / DIRS) * Math.PI * 2;
+      if(isWaterAt(t.x + Math.cos(a) * dist, t.y + Math.sin(a) * dist)) continue;
+      // 与车头方向的夹角（归一化到 [-π, π]）
+      let delta = a - base;
+      while(delta > Math.PI) delta -= Math.PI * 2;
+      while(delta < -Math.PI) delta += Math.PI * 2;
+      // 取 |Δ| 最小者：转弯量最小、脱困最快
+      if(bestDelta === null || Math.abs(delta) < Math.abs(bestDelta)) bestDelta = delta;
+    }
+    if(bestDelta !== null){
+      // 转向该方向并前进（|Δ| < 阈值即视为已对准，直行；否则按符号给最小转角方向）
+      out.turn = Math.abs(bestDelta) < 0.28 ? 0 : (bestDelta > 0 ? 1 : -1);
+      out.move = 1;
+      return true;
+    }
+  }
+  return false;   // 四环全水
 }
 
 // 通用分发：ally 走消极防御，其余（enemy/Boss/召唤物）走多态状态机。

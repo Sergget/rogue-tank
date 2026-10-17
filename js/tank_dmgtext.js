@@ -34,14 +34,16 @@ const DMG_TEXT = {
  * @param {number} y 世界坐标
  * @param {string|number} text 显示文本（如伤害数值 / '跳弹'）
  * @param {string} [kind] 'pen'|'block'|'bounce'|'he'|'dot'
+ * @param {number} [scale] 字号倍率（缺省 1）。#U13：Boss 伤害用 1.6 放大，便于识别
  */
-function spawnDmgText(x, y, text, kind){
+function spawnDmgText(x, y, text, kind, scale){
   dmgTexts.push({
     x, y,
     text: String(text),
     kind: kind || 'pen',
     age: 0,
-    life: DMG_TEXT.life
+    life: DMG_TEXT.life,
+    scale: (typeof scale === 'number' && scale > 0) ? scale : 1
   });
 }
 
@@ -65,15 +67,18 @@ function drawDmgTexts(ctx){
   if(!dmgTexts.length) return;
   ctx.save();
   ctx.textAlign = 'center';
-  ctx.font = DMG_TEXT.font;
   for(const t of dmgTexts){
     const p = Math.min(1, t.age / t.life);
     const alpha = 1 - p;
     const y = t.y - DMG_TEXT.rise * p;
     ctx.globalAlpha = Math.max(0, alpha);
-    // 深色描边底（1px 偏移双画），保证任何背景上可读
+    // #U13：按 scale 放大字号（Boss 掉血数字加大）；缺省 1 时与原行为逐字一致
+    const sc = t.scale || 1;
+    ctx.font = (sc === 1) ? DMG_TEXT.font : DMG_TEXT.font.replace(/(\d+)px/, (m, n) => `${Math.round(Number(n) * sc)}px`);
+    // 深色描边底（按 scale 加大偏移），保证任何背景上可读
+    const off = Math.max(1, Math.round(sc));
     ctx.fillStyle = 'rgba(10,12,8,0.85)';
-    ctx.fillText(t.text, t.x + 1, y + 1);
+    ctx.fillText(t.text, t.x + off, y + off);
     ctx.fillStyle = DMG_TEXT.colors[t.kind] || DMG_TEXT.colors.pen;
     ctx.fillText(t.text, t.x, y);
   }

@@ -354,24 +354,43 @@ function makeNode(index, rng, env) {
   const viewport = (env && env.viewport) || null;
   let templateId = undefined;
   let scale = cfg.nodeScale || 1;
-  let _tplW = 0, _tplH = 0;
   if (viewport && viewport.vw > 0 && viewport.vh > 0) {
     const tpl = pickTemplate(diff, rng);
     templateId = tpl.id;
-    _tplW = tpl.w; _tplH = tpl.h;
     scale = nodeScaleFor(viewport, tpl);
-    // 2026-10-16：Boss 节点必须满足 3.0–3.2 屏（测试硬要求）。
-    // 模板长宽比需在 [1.667, 1.896] 内，否则无统一缩放能同时满足上下限。
-    // #1 新增模板改变了 pickTemplate 分布，urban_block（1.6）被选中而超标。
-    // 对 Boss 做确定性修正：越界则改用 mixed_barrier_plaza（1.667，5f4758c 实测通过）。
-    // 不耗 RNG，保证确定性。
+    // Boss 节点方形竞技场约束：3.0–3.2 屏（specs/map.md §17）。
+    // #T5（2026-10-16 修复）：原实现把候选长宽比区间硬编码为 [1.667, 1.896]——那是
+    //   A=16/9、base=3、上限 3.2 时的特例，其他视口比例下判据失效（3:2 由 7 个超标
+    //   恶化到 10 个，1:1 最差由 5.00 屏恶化到 5.25 屏）。现改为由视口长宽比推导：
+    //   nodeScaleFor = base·max(vw/tw, vh/th) ⇒
+    //     w/vw = base·max(1, r/A)、h/vh = base·max(1, A/r)，其中 A=vw/vh、r=tw/th。
+    //   要求两者均 ≤ MAX_SCREENS ⇒ r ∈ [A·base/MAX, A·MAX/base]。
+    //   越界时确定性地改选长宽比最接近 A 的模板（不耗 RNG，保证同 seed 复现）。
+    //   注：模板集全为横向（r∈1.6~1.75），故仅在 A≈[1.5,1.87] 时存在可行解；
+    //   极端视口比例（如 1:1）下取最接近者——受单一 scale 缩放所限，无法两轴同时达标。
     const _isB = (typeof isBossNodeIndex === 'function' ? isBossNodeIndex(index) : false) || !!(env && env.bossOnly);
     if (_isB && !(env && env.stripForBoss)) {
-      const aspect = _tplW / _tplH;
-      if (aspect < 1.667 || aspect > 1.896) {
-        templateId = 'mixed_barrier_plaza';
-        _tplW = 800; _tplH = 480;
-        scale = nodeScaleFor(viewport, { w: 800, h: 480 });
+      const MAX_SCREENS = 3.2;
+      const base = cfg.nodeScale || 1;
+      const A = viewport.vw / viewport.vh;
+      const rLo = A * base / MAX_SCREENS;
+      const rHi = A * MAX_SCREENS / base;
+      const rNow = tpl.w / tpl.h;
+      if (rNow < rLo || rNow > rHi) {
+        const tpls = (typeof getTemplates === 'function') ? getTemplates() : [];
+        let best = null, bestErr = Infinity;
+        for (const t of tpls) {
+          if (!(t.w > 0) || !(t.h > 0)) continue;
+          const r = t.w / t.h;
+          // 界内优先；同为界内/界外时取长宽比最接近视口者
+          const inBand = (r >= rLo && r <= rHi) ? 0 : 1;
+          const err = inBand * 1e3 + Math.abs(r - A);
+          if (err < bestErr) { bestErr = err; best = t; }
+        }
+        if (best) {
+          templateId = best.id;
+          scale = nodeScaleFor(viewport, best);
+        }
       }
     }
   }
@@ -447,44 +466,44 @@ function makeNode(index, rng, env) {
     }
   }
 
-  // 玩家出生点：默认左缘 (0.10w, h/2)；必须远离所有掩体（含水域 tier，见 pointInCover）。
-  // 若落在掩体内，确定性重选址（仅用传入 rng，禁止 Math.random）：优先保留左缘意图的最近合法点，
-  // 否则推到违规掩体外缘相邻清空处。最终钳制在节点边界 [margin, w-margin]×[margin, h-margin] 内。
+  // 玩家出生点：默认左缘 (0.10w, h/2)。
+  // 合法出生点 = 不落在**阻挡通行**的元素上。判据与坦克侧碰撞一致（tank_cover.js:370
+  // resolveCoverCollisions 的 blocked 口径）：passability===0 或 shellBlock。地面层
+  // （road）与减速地形（mud/river/water/bush/soft/stump/rubble/bridge）可正常出生。
+  // #T4（2026-10-16 修复）：原实现有两点偏差——
+  //   ① 清场用 c.w/c.h 的 AABB 包络且不按 tier 过滤，把 mud/river/bush 等可通行地形
+  //      一并删除（10 seed 删 14 个全属此类），并在连续河道上凿出空洞；
+  //   ② 选址用 pointInCover（避让**一切**掩体，含可通行地形），与①互相掩盖：清场删掉
+  //      可通行地形后选址才"看起来"正确。
+  //   现两者统一走「只避阻挡物」：既保留减速地形（河流连续），又保证出生点在左 1/4。
   const spawnMargin = cfg.spawnMargin || 60;
   let playerSpawn = { x: w * 0.10, y: h / 2 };
-  // 2026-10-16：#1 密度下左缘出生区可能被堵死（564 covers 的 strip 节点实测）。
-  // 生成后清场：若默认出生点被非道路 cover 占据，直接移除阻挡者（道路豁免），
-  // 保证"出生点在左 1/4"的设计约束。这比在 findPlayerSpawn 里向右找更符合意图，
-  // 且不改变 #1 的整体密度（仅清出生点周围）。
+  const tierBlocksSpawn = (c) => {
+    const tier = RULES.coverTiers && RULES.coverTiers[c.tier];
+    if (!tier) return false;
+    return tier.passability === 0 || tier.shellBlock === true || tier.shellBlock === 'single';
+  };
+  // 只把「阻挡物」交给选址/清场；可通行地形不参与，避免无谓驱逐与误删
+  const _blockers = templateResult.covers.filter(c => c && tierBlocksSpawn(c));
   {
+    // 清场仅针对压在默认出生点的阻挡物（确定性，不耗 rng）
     const sx = w * 0.10, sy = h / 2;
-    // 先粗判：是否有 cover 挡住
-    let blocked = false;
-    for (const c of templateResult.covers) {
-      if (!c || c.tier === 'road' || !Number.isFinite(c.x)) continue;
-      const hw = (c.w || 0) / 2 + spawnMargin, hh = (c.h || 0) / 2 + spawnMargin;
-      if (Math.abs(sx - c.x) <= hw && Math.abs(sy - c.y) <= hh) { blocked = true; break; }
+    const doomed = [];
+    for (let i = 0; i < templateResult.covers.length; i++) {
+      const c = templateResult.covers[i];
+      if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y)) continue;
+      if (!tierBlocksSpawn(c)) continue;
+      if (pointInCoverOne(c, sx, sy, spawnMargin)) doomed.push(i);
     }
-    if (blocked) {
-      // 精确清场：逐个检查，移除确实阻挡的
-      for (let i = templateResult.covers.length - 1; i >= 0; i--) {
-        const c = templateResult.covers[i];
-        if (!c || c.tier === 'road' || !Number.isFinite(c.x)) continue;
-        // 用单元素数组做精确点查询
-        const hit = (() => {
-          // 简化：AABB 精确到 OBB 中心距（pointInCover 的完整逻辑较重，此处用保守包络）
-          const hw = (c.w || 0) / 2 + spawnMargin, hh = (c.h || 0) / 2 + spawnMargin;
-          return Math.abs(sx - c.x) <= hw && Math.abs(sy - c.y) <= hh;
-        })();
-        if (hit) templateResult.covers.splice(i, 1);
-      }
-    }
+    for (let k = doomed.length - 1; k >= 0; k--) templateResult.covers.splice(doomed[k], 1);
   }
   // #N4：出生点选址也走索引（strip covers 规模下 findPlayerSpawn 内部全表扫描同样昂贵）
-  const spawnIdx = buildCoverIndex(templateResult.covers);
-  const spawnHitsCover = (px, py, pad) => pointInCoverIndexed(spawnIdx, templateResult.covers, px, py, pad);
+  // 注：索引/清场后重新取阻挡物集合（清场已改变 covers）
+  const _blockersAfter = templateResult.covers.filter(c => c && tierBlocksSpawn(c));
+  const spawnIdx = buildCoverIndex(_blockersAfter);
+  const spawnHitsCover = (px, py, pad) => pointInCoverIndexed(spawnIdx, _blockersAfter, px, py, pad);
   if (spawnHitsCover(playerSpawn.x, playerSpawn.y, spawnMargin)) {
-    playerSpawn = findPlayerSpawn(templateResult.covers, w, h, rng, spawnMargin, spawnIdx);
+    playerSpawn = findPlayerSpawn(_blockersAfter, w, h, rng, spawnMargin, spawnIdx);
   }
 
   // 三杠杆（P-13 / §6 条目 12）：敌人数量 / AI 策略复杂度 / 数值强度随 diff 涨

@@ -166,6 +166,100 @@ function drawShells(ctx, shells){
   }
 }
 
+// #U8（2026-10-16 新增）：河流整链绘制——把沿程铺开的一串段 OBB 还原为**单条中心线折线**，
+// 用圆角连接的粗折线一次描边（先岸影后河色），彻底消除段间鳞片/砖块接缝与「双轨」线。
+// rects 须为同一条河（同 groupId）的段，按沿程顺序传入。河色取 tier.fill（唯一口径
+// RULES.coverTiers[tier].fill）。宽取各段短边的中位数（河宽沿程平滑变化，取中位避免端点收分影响）。
+function drawRiverChain(ctx, rects, tier){
+  if(!rects || rects.length < 2) return false;
+  const wid = medianSegWidth(rects);
+  if(!(wid > 0)) return false;
+  const bankW = 6;   // 岸影外露宽度（px）
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(rects[0].x, rects[0].y);
+  for(let i = 1; i < rects.length; i++) ctx.lineTo(rects[i].x, rects[i].y);
+  // 第 1 遍：岸影（深色、加大线宽）
+  ctx.strokeStyle = 'rgba(20,50,80,0.38)';
+  ctx.lineWidth = wid + bankW * 2;
+  ctx.stroke();
+  // 第 2 遍：河色（盖住岸影内半，只留外侧窄边 = 岸影）
+  ctx.strokeStyle = (tier && tier.fill) || '#3578a8';
+  ctx.lineWidth = wid;
+  ctx.stroke();
+  ctx.restore();
+  return true;
+}
+
+// 段短边中位数（河宽估计；偶数取中间两者均值）
+function medianSegWidth(rects){
+  const ws = rects.map(r => Math.min(r.w || 0, r.h || 0)).filter(w => w > 0).sort((a, b) => a - b);
+  if(!ws.length) return 0;
+  const m = ws.length >> 1;
+  return ws.length % 2 ? ws[m] : (ws[m - 1] + ws[m]) / 2;
+}
+
+// 河流段沿程排序：段沿曲线单向铺开，需按**真实走向**排序（非包围盒宽高）。
+// #U8b（2026-10-17 修复）：原实现按「包围盒 x 极差 vs y 极差」择轴——对竖直河流（x 几乎不变、
+//   y 跨全图）会误判为「按 x 排序」，导致段被乱序连线，河流被画成锯齿/方块串（实测
+//   strip-river-0 的段 x 极差仅数百、y 极差 2000+，却因包围盒整体偏宽而按 x 排）。
+//   现改为**主成分方向（PCA）投影排序**：对段中心做协方差，取主轴后按投影值排序，
+//   对横/竖/斜向河流一律正确。
+function orderRiverSegs(segs){
+  if(!segs || segs.length < 2) return segs || [];
+  const n = segs.length;
+  let mx = 0, my = 0;
+  for(const s of segs){ mx += s.x; my += s.y; }
+  mx /= n; my /= n;
+  let sxx = 0, syy = 0, sxy = 0;
+  for(const s of segs){
+    const dx = s.x - mx, dy = s.y - my;
+    sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+  }
+  // 主轴：协方差矩阵最大特征向量方向（2×2 解析解）
+  const tr = sxx + syy, det = sxx * syy - sxy * sxy;
+  const disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+  const l1 = tr / 2 + disc;
+  // 特征向量 (l1 - syy, sxy)（sxy≠0 时）；退化情形回退坐标轴
+  let ax, ay;
+  if(Math.abs(sxy) > 1e-9){ ax = l1 - syy; ay = sxy; }
+  else { if(sxx >= syy){ ax = 1; ay = 0; } else { ax = 0; ay = 1; } }
+  const len = Math.hypot(ax, ay) || 1;
+  ax /= len; ay /= len;
+  return segs.slice().sort((a, b) => ((a.x - mx) * ax + (a.y - my) * ay) - ((b.x - mx) * ax + (b.y - my) * ay));
+}
+
+// 水流 streak（浅色短线，横向偏移与相位由位置 hash 确定性派生；沿流向缓慢漂移）。
+// 与河流主体分离导出，供调用方在整链描边后单独叠加（Node 生图时无 performance → 相位 0）。
+function drawCoverWaterStreak(ctx, cov){
+  const rects = (typeof coverSegRects === 'function') ? coverSegRects(cov) : [cov];
+  const _now = (typeof performance !== 'undefined' && performance.now) ? performance.now() / 1000 : 0;
+  const _h1 = function (n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+  for(const r of rects){
+    const _ra = r.angle || 0, _rx = Math.cos(_ra), _ry = Math.sin(_ra);
+    const _nx = -_ry, _ny = _rx; // 法向
+    const _segLen = Math.max(r.w || 0, r.h || 0);
+    const _halfW = Math.min(r.w || 0, r.h || 0) / 2;
+    const _seed = (r.x || 0) * 0.37 + (r.y || 0) * 0.73;
+    for (let _k = 0; _k < 3; _k++) {
+      const _lat = (_h1(_seed + _k * 7.3) - 0.5) * 1.1 * _halfW;      // 横向偏移
+      const _ph = _h1(_seed + _k * 13.7);                             // 纵向相位 0~1
+      const _drift = ((_ph + _now * 0.03) % 1 - 0.5) * _segLen * 0.7; // 缓慢漂移
+      const _sl = _segLen * (0.10 + _h1(_seed + _k * 3.1) * 0.10);    // streak 长
+      const _cx = r.x + _rx * _drift + _nx * _lat;
+      const _cy = r.y + _ry * _drift + _ny * _lat;
+      ctx.strokeStyle = 'rgba(220,240,255,' + (0.22 + _h1(_seed + _k * 5.9) * 0.18).toFixed(2) + ')';
+      ctx.lineWidth = 1.6 + _h1(_seed + _k * 9.2) * 1.4;
+      ctx.beginPath();
+      ctx.moveTo(_cx - _rx * _sl, _cy - _ry * _sl);
+      ctx.lineTo(_cx + _rx * _sl, _cy + _ry * _sl);
+      ctx.stroke();
+    }
+  }
+}
+
 // 地图元素分层绘制（§2.7）：box=矩形掩体（含标签）保持程序化；soft/barricade/stump/rubble/
 // bush/tree/fallen 走资产层（js/tank_assets.js：ASSET_DEFS 注册表 + drawAsset——有图
 // drawImage / 无图烘焙缓存，画法与旧内联分支逐字一致）。树冠叶片（bush/tree/fallen 的上层
@@ -364,49 +458,22 @@ function drawCover(ctx, cov){
     // （重叠区 alpha 二次叠加变深 + 每段 1.5px 描边形成网格线）。现改为不透明底色填充
     // （重叠同色无缝合并）+ 无描边 + 沿长轴单线高光；段间 25% 搭接保证外缘台阶为数 px 级。
     const rects = (typeof coverSegRects === 'function') ? coverSegRects(cov) : [cov];
-    for(const r of rects){
-      const rc = partCorners(r.x, r.y, r.angle||0, r.w/2, r.h/2);
-      ctx.beginPath(); ctx.moveTo(rc[0].x,rc[0].y);
-      for(let i=1;i<rc.length;i++) ctx.lineTo(rc[i].x,rc[i].y);
-      ctx.closePath();
-      ctx.fillStyle = tier.fill || '#3578a8'; ctx.fill();
-      // #S12 水流纹理（2026-10-15）：去掉单根中心高光线，改为
-      // ① 两岸暗带（深色，暗示水深/岸影）② 3 条流向 streak（浅色短线，
-      // 横向偏移 deterministic hash，沿流向缓慢漂移）。动画经 performance.now
-      // 驱动（Node 生图时无 performance → 相位 0 静态快照）。
-      const _ra = r.angle || 0, _rx = Math.cos(_ra), _ry = Math.sin(_ra);
-      const _nx = -_ry, _ny = _rx; // 法向
-      const _segLen = Math.max(r.w || 0, r.h || 0);
-      const _halfW = Math.min(r.w || 0, r.h || 0) / 2;
-      const _now = (typeof performance !== 'undefined' && performance.now) ? performance.now() / 1000 : 0;
-      const _h1 = function (n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
-      const _seed = (r.x || 0) * 0.37 + (r.y || 0) * 0.73;
-      // 岸边暗带
-      ctx.strokeStyle = 'rgba(20,50,80,0.28)'; ctx.lineWidth = Math.max(3, _halfW * 0.28);
-      for (const _side of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(r.x - _rx * _segLen * 0.5 + _nx * _side * _halfW * 0.78,
-                   r.y - _ry * _segLen * 0.5 + _ny * _side * _halfW * 0.78);
-        ctx.lineTo(r.x + _rx * _segLen * 0.5 + _nx * _side * _halfW * 0.78,
-                   r.y + _ry * _segLen * 0.5 + _ny * _side * _halfW * 0.78);
-        ctx.stroke();
-      }
-      // 流向 streak（3 条/段，横向偏移 + 纵向相位均由位置 hash 确定性派生）
-      for (let _k = 0; _k < 3; _k++) {
-        const _lat = (_h1(_seed + _k * 7.3) - 0.5) * 1.1 * _halfW; // 横向偏移
-        const _ph = _h1(_seed + _k * 13.7);                          // 纵向相位 0~1
-        const _drift = ((_ph + _now * 0.03) % 1 - 0.5) * _segLen * 0.7; // 缓慢漂移
-        const _sl = _segLen * (0.10 + _h1(_seed + _k * 3.1) * 0.10);  // streak 长
-        const _cx = r.x + _rx * _drift + _nx * _lat;
-        const _cy = r.y + _ry * _drift + _ny * _lat;
-        ctx.strokeStyle = 'rgba(220,240,255,' + (0.22 + _h1(_seed + _k * 5.9) * 0.18).toFixed(2) + ')';
-        ctx.lineWidth = 1.6 + _h1(_seed + _k * 9.2) * 1.4;
-        ctx.beginPath();
-        ctx.moveTo(_cx - _rx * _sl, _cy - _ry * _sl);
-        ctx.lineTo(_cx + _rx * _sl, _cy + _ry * _sl);
-        ctx.stroke();
+    // #U8（2026-10-16 修复）：河流改由调用方按 groupId 合并整条链后一次性绘制
+    //   （mvp 的 drawRiverChain 调用点）。本分支仅作**单段/退化回退**：dev 随机场或无 groupId
+    //   的孤立水段走这里。原缺陷：每段沿长轴两侧各画一条 rgba(20,50,80,0.28) 深色线且画在
+    //   fill 之后，段段相连后合成两条贯穿全程的平行粗线（用户实测「像铁轨一样」）。
+    if(!drawRiverChain(ctx, rects, tier)){
+      // 退化（<2 段）：直接填充矩形并描岸影，保证水域一定可见
+      for(const r of rects){
+        const rc = partCorners(r.x, r.y, r.angle||0, r.w/2, r.h/2);
+        ctx.beginPath(); ctx.moveTo(rc[0].x,rc[0].y);
+        for(let i=1;i<rc.length;i++) ctx.lineTo(rc[i].x,rc[i].y);
+        ctx.closePath();
+        ctx.strokeStyle = 'rgba(20,50,80,0.38)'; ctx.lineWidth = 12; ctx.stroke();
+        ctx.fillStyle = tier.fill || '#3578a8'; ctx.fill();
       }
     }
+    drawCoverWaterStreak(ctx, cov);
   } else if(tier.draw === 'water'){
     // ISSUE 3：水域可见——半透明蓝 blob（verts 多边形或矩形回退），区别于地形绿/褐/灰
     const c = coverCorners(cov);
@@ -1170,11 +1237,8 @@ function drawGround(ctx, opts) {
   if (!vb || !(vb.maxX > vb.minX) || !(vb.maxY > vb.minY)) return;
 
   const x0 = vb.minX, y0 = vb.minY, w = vb.maxX - vb.minX, h = vb.maxY - vb.minY;
-  let s = _groundSeedHash(opts.seed);
-  const next = () => {                       // LCG（Numerical Recipes 参数），确定性
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
+  // #U3（2026-10-17）：原 LCG 流（`next()`）已随色斑改为世界格 hash 而移除——
+  //   其唯一用途是生成视口相对色斑（缺陷根源）。底色/gradient 不需要随机数。
 
   // #1（2026-10-16）：多 biome——按 x 区段分别填充底色，交界处渐变过渡
   const zones = opts.biomeZones;
@@ -1208,21 +1272,44 @@ function drawGround(ctx, opts) {
   // 色斑：用主 biome（或首区段）的 alt 色
   const pal = palFor((zones && zones.length ? zones[0].biome : opts.biome));
   const alts = (pal.alt && pal.alt.length) ? pal.alt : [pal.base];
-  const n = 8 + Math.floor(next() * 7);      // 8~14 个大椭圆色斑
+
+  // #U3（2026-10-17 修复）：色斑改为**世界坐标锚定**——原实现以视口为基准生成
+  //   （`x0 + next()*w`），视口每移动一点整组色斑随之平移，观感上「地面纹理跟着玩家走」。
+  //   现改为按固定世界格（CELL）铺开：每格的色斑数量/位置/尺寸/角度全部由「格坐标 + seed」
+  //   经 hash 派生（不用 LCG 流，避免顺序依赖），与视口无关 ⇒ 相机移动时色斑纹丝不动。
+  //   只绘制与视口相交的格，成本与格数成正比（与视口面积成正比，同原实现）。
+  const CELL = 640;                        // 世界格边长（px）
+  const baseSeed = _groundSeedHash(opts.seed);
+  const gx0 = Math.floor(x0 / CELL) - 1, gx1 = Math.floor((x0 + w) / CELL) + 1;
+  const gy0 = Math.floor(y0 / CELL) - 1, gy1 = Math.floor((y0 + h) / CELL) + 1;
+  // 格内确定性 hash（同格同值；与遍历顺序无关）
+  const cellHash = (gx, gy, k) => {
+    let n = baseSeed ^ Math.imul(gx | 0, 0x9E3779B1) ^ Math.imul(gy | 0, 0x85EBCA77) ^ Math.imul(k | 0, 0xC2B2AE3D);
+    n = Math.imul(n ^ (n >>> 15), 0x2545F491);
+    n = Math.imul(n ^ (n >>> 13), 0x27D4EB2F);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+  };
 
   ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();   // 色斑裁剪在视口区内
-  for (let i = 0; i < n; i++) {
-    const cx = x0 + next() * w;
-    const cy = y0 + next() * h;
-    const rw = w * (0.10 + next() * 0.16);
-    const rh = rw * (0.45 + next() * 0.5);
-    const rot = next() * Math.PI;
-    ctx.globalAlpha = 0.06 + next() * 0.06;  // alpha ≤0.12 低频色斑
-    ctx.fillStyle = alts[Math.floor(next() * alts.length) % alts.length];
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rw, rh, rot, 0, Math.PI * 2);
-    ctx.fill();
+  for (let gy = gy0; gy <= gy1; gy++) {
+    for (let gx = gx0; gx <= gx1; gx++) {
+      const n = 3 + Math.floor(cellHash(gx, gy, 0) * 4);   // 每格 3~6 个斑（密覆视口，无缝无重叠感）
+      const cxs = gx * CELL, cys = gy * CELL;
+      for (let i = 0; i < n; i++) {
+        const cx = cxs + cellHash(gx, gy, i * 6 + 1) * CELL;
+        const cy = cys + cellHash(gx, gy, i * 6 + 2) * CELL;
+        const rw = CELL * (0.10 + cellHash(gx, gy, i * 6 + 3) * 0.16);
+        const rh = rw * (0.45 + cellHash(gx, gy, i * 6 + 4) * 0.5);
+        const rot = cellHash(gx, gy, i * 6 + 5) * Math.PI;
+        ctx.globalAlpha = 0.06 + cellHash(gx, gy, i * 6 + 6) * 0.06;  // alpha ≤0.12 低频色斑
+        ctx.fillStyle = alts[Math.floor(cellHash(gx, gy, i * 6 + 3) * alts.length) % alts.length];
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rw, rh, rot, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 
@@ -1234,6 +1321,9 @@ if (typeof module !== 'undefined' && module.exports) {
     drawFireGlow,
     drawShells,
     drawCover,
+    drawRiverChain,        // #U8：河流整链描边（调用方按 groupId 合并后单次调用）
+    drawCoverWaterStreak,  // #U8：水流 streak 叠加（整链描边后逐段调用）
+    orderRiverSegs,        // #U8：河流段沿程排序
     drawFoliage,
     drawClassBadge,
     drawGround,

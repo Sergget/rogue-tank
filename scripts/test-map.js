@@ -12,6 +12,7 @@ global.createRNG = NG.createRNG;
 global.generateNode = NG.generateNode;
 global.generateStrip = NG.generateStrip;   // #N4：strip 节点路径（tank_map 视口模式走它）
 global.pickTemplate = NG.pickTemplate;   // #24：tank_map.js 视口缩放前预选模板
+global.getTemplates = NG.getTemplates;   // #T5：makeNode 的 Boss 长宽比修正需遍历模板集
 
 const {
   difficultyForIndex,

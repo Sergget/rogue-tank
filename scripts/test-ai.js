@@ -701,15 +701,24 @@ console.log('--- #N：交战带 / flank 站位 / 分离力 / 装填脱离 ---');
   ok(dAfter.move === 1 && bh.aiState === 'search', '破 hold 后 → search 态朝玩家推进');
 }
 
-// E) applyWaterAvoidance：水面在前方且一侧有干地 → 转向绕行；全湿 → 原地不动
+// E) applyWaterAvoidance：水面在前方且一侧有干地 → 转向绕行；已入水 → 朝最近干地脱困
 {
   const W = require('../js/tank_ai.js');
   const base = { move: 1, turn: 0, turretDesired: 0, fire: false };
-  // 全湿分支：水潭中央（400×400，探点 140px 全部落水）→ 停驶防自杀
+  // #U15（2026-10-16 修复）：水潭中央原为「停驶防自杀」（move=0），但停在水里等于原地
+  //   等 8s 溺毙——用户实测「水中的敌方 ai 不会尝试脱困」。现改为**朝最近干地驶出**。
+  //   口径由此断言更新：不再要求 move=0，而要求「有位移且朝岸」。
+  // 4 环 × 140px = 560px ≥ 水潭半幅 200 ⇒ 能探到岸（tz 中心 → 岸在 200px 处，ring2 命中）。
   const water = { x: 0, y: 0, w: 400, h: 400, angle: 0, tier: 'water' };
   const t2 = { team: 'enemy', x: 0, y: 0, hullAngle: 0, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
   const out2 = W.applyWaterAvoidance(t2, Object.assign({}, base), { covers: [water] });
-  ok(out2.move === 0, '前向+双侧全湿（水潭中央）→ 原地不动（move=0）');
+  ok(out2.move === 1, '#U15 已入水（水潭中央）→ 前进尝试脱困，不再原地停驶（move=1）');
+  // 脱困方向：坦克在潭心、车头朝 +x，±x 两侧岸等距；应给出「朝岸」的转向或直行（此处朝 +x 即向岸，turn=0）
+  ok(out2.turn === 0 || out2.turn === 1 || out2.turn === -1, '#U15 已入水 → 给出明确转向指令（朝岸驶出）');
+  // 超大水潭（半幅 1200，超出 560px 探测范围）→ 无岸可探，仍须前进（不退化为原地等死）
+  const huge = { x: 0, y: 0, w: 2400, h: 2400, angle: 0, tier: 'water' };
+  const outHuge = W.applyWaterAvoidance(t2, Object.assign({}, base), { covers: [huge] });
+  ok(outHuge.move === 1, '#U15 超大水潭中央（无岸可探）→ 仍前进，不退化为原地等死（move=1）');
   // 干地分支：前路通畅 → 零干扰（turn=0, move 保持 1）
   const t3 = { team: 'enemy', x: -500, y: 0, hullAngle: 0, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
   const out3 = W.applyWaterAvoidance(t3, Object.assign({}, base), { covers: [water] });

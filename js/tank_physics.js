@@ -195,7 +195,15 @@ function resolveHit(shell, target, hit, allowBounce, opts){
   const ammoKey = shellAmmoKey(shell);
   const ammoCfg = (ammoKey && RULES.ammoTypes[ammoKey]) || shell.ammo || null;
   const noBounce = !!(ammoCfg && ammoCfg.noBounce);                  // HEAT/HE：确定性不跳弹
-  const bAngle = ammoBounceAngle(ammoCfg);                           // 弹种链：per-ammo 强制跳弹角
+  let bAngle = ammoBounceAngle(ammoCfg);                             // 弹种链：per-ammo 强制跳弹角
+  // #U19（2026-10-16 实现）：被动「摆角特训」angle_boost——摆角度时跳弹角阈值 +5°/层（卡面承诺）。
+  //   原实现只登记 PASSIVE_KEYS 白名单、无消费点 ⇒ 死效果卡。此处按 passiveValues 求和后
+  //   加算到跳弹角（上限钳到 90°——超过 90° 物理上无意义，且 ammoBounceAngle 亦 ≤90°）。
+  const abVals = passiveValues(target, 'angle_boost');
+  if(abVals.length){
+    const abSum = abVals.reduce((a,b)=>a+b, 0);
+    bAngle = Math.min(Math.PI/2, bAngle + abSum * Math.PI / 180);
+  }
   const splashRadius = (ammoCfg && ammoCfg.splashRadius) || 0;       // HE：爆炸半径（px）
   const ignBounce = !!(opts && opts.ignoreBounce);                   // P-51 弱点：跳过跳弹分支
   const effPen = shell.pen + ((opts && opts.penAdd) || 0);           // P-51 弱点：穿深加成
@@ -216,6 +224,25 @@ function resolveHit(shell, target, hit, allowBounce, opts){
   // （对击穿路径与 HE 残余爆轰都生效；applySplashAt 对其他实体的溅射伤害不经此路径）。
   const spallVals = passiveValues(target, 'spall_liner');
   const spallMul = spallVals.length ? Math.min.apply(null, spallVals) : 1;
+
+  // #U19（2026-10-16 实现）：被动「反应装甲」reactive_armor——抵挡一次命中并消解。
+  //   原实现只登记 PASSIVE_KEYS 白名单、无消费点 ⇒ 死效果卡（传奇稀有度却零效果）。
+  //   语义按卡面「抵挡一次命中并消解（被动）」：本次命中整体被吸收（不跳弹、不穿深、不扣血、
+  //   不致溅射），随后**消耗掉该层**（从 target.cardEffects 移除该条目）——一次性，如卡面所述。
+  //   若目标带多层（maxStacks=1 故通常只有 1 层），逐层各挡一次。
+  if(!(opts && opts.ignoreReactive)){
+    const raIdx = (target && Array.isArray(target.cardEffects))
+      ? target.cardEffects.findIndex(e => e && e.type === 'passive' && e.key === 'reactive_armor')
+      : -1;
+    if(raIdx >= 0){
+      target.cardEffects.splice(raIdx, 1);   // 消耗该层（一次性）
+      return {
+        outcome:'BLOCK', cls:'BLOCK',
+        text:`反应装甲起效 — 抵挡本次命中并消解（剩余 ${passiveValues(target, 'reactive_armor').length} 层）`,
+        part:hit.part, faceKey:hit.faceKey, hitPoint, dmg:0, reactive:true
+      };
+    }
+  }
 
   if(allowBounce && theta > bAngle && !noBounce && !ignBounce && !overmatched){
     const r = reflectDir(shell.dx, shell.dy, hit.nx, hit.ny);

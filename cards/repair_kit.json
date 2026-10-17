@@ -2,10 +2,15 @@
   "id": "repair_kit",
   "name": "应急维修",
   "rarity": "rare",
-  "tags": ["支援"],
-  "desc": "强化修理箱：修复量 10%→25% 最大耐久，冷却 -40%。",
+  "tags": [
+    "支援"
+  ],
+  "desc": "强化固有技能【修理箱】：修复量 10%→25% 最大耐久，冷却 −40%。（修理箱为开局固有技能，本卡是强化而非新增）",
   "effects": [
-    { "type": "ability", "key": "repair" }
+    {
+      "type": "ability",
+      "key": "repair"
+    }
   ],
   "maxStacks": 1
 }

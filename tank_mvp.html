@@ -1643,7 +1643,16 @@ function spawnBossFromDef(bossDef, node, opts){
   pushLog(`⚠ BOSS 战：「${bossDef.name}」— ${bossDef.desc || ''}`, 'CRIT');
   applyDifficultyMults(bossEntity, o.entityMults || currentNode.entityMults, false);   // false=跳过玩家能力封顶，Boss 可正经超越玩家
   // #5（2026-10-15）：Boss 血量随遭遇次数成长——第 N 个 Boss 血量 ×(1 + N×0.5)
-  const bossNumber = Math.floor((node.index || 0) / 5);   // Boss 节点每 5 个一轮
+  // #U13（2026-10-16 修复）：原实现 `Math.floor(node.index / 5)` 把「Boss 序号」硬编码为
+  //   每 5 节点一轮，而现行 `RULES.nodeMap.bossInterval` 为 **3**（`isBossNodeIndex` 判
+  //   `(index+1) % 3 === 0` ⇒ Boss 在 index 2/5/8/11…）。两者不一致导致序号严重滞后：
+  //   ① 常规链第 2 个 Boss（index 5）算出 1，尚可；② **Boss 模式（`?mode=boss`，每个节点
+  //   都是 Boss）**下 index 0~4 全部算出 0 ⇒ 连打 5 个 Boss 血量恒为初始值（用户实测
+  //   「boss 血量一直是初始血量」）。
+  //   现改为按**实际 Boss 序号**计：Boss 模式下序号 = 节点下标本身；常规链按 bossInterval 折算。
+  const bossNumber = GAME_MODE === 'boss'
+    ? Math.max(0, node.index || 0)              // Boss 模式：每个节点都是 Boss，序号即下标
+    : Math.floor((node.index || 0) / ((typeof RULES !== 'undefined' && RULES.nodeMap && RULES.nodeMap.bossInterval) || 5));
   if (bossNumber > 0) {
     const growthMult = 1 + bossNumber * 0.5;
     addModifier(bossEntity, { stat: 'maxHp', mode: 'mult', value: growthMult, source: 'boss-growth', scope: 'run' });
@@ -2294,7 +2303,9 @@ function drawRewardCards(){
     && RULES.cards && RULES.cards.bossRound ? RULES.cards.bossRound : null;
   return drawPool.length ? drawCardChoices(drawPool, 5, {
     ammoLoadout: player.ammoLoadout,
-    owned: { abilities: ownedAbilities, secondaryWeapon: secondaryType, primaryWeapon: primaryType, cards: ownedCardCounts },
+    owned: { abilities: ownedAbilities, secondaryWeapon: secondaryType, primaryWeapon: primaryType, cards: ownedCardCounts,
+      // #U20/#U22（2026-10-16）：传当前已聚合属性（达限判定）与已持卡效果（「取最高」类被动的档位判定）
+      stats: player.stats, cardEffects: player.cardEffects || [] },
     guaranteeAmmoUpgrade: pendingLootRounds > 0,   // #S5：Boss 追加轮必含 1 张弹种升级选项
     guaranteeSkillCard: pendingLootRounds > 0,      // #10：Boss 追加轮必含 1 张技能卡
     // 稀有度保底：按配比「至少 N 张」（Boss 轮 = legendary 1 / epic 2）；
@@ -2573,7 +2584,12 @@ watchFlow(flow, (state, payload) => {
       // #MODE（2026-10-15 用户裁定修订）：Boss 模式的局内商店**已开放**，改在 reward 屏
       // 选完卡后展开（revealRewardShop）。结算屏仍不内嵌商店——避免与紧随其后的 reward 屏
       // 商店重复出现两处入口（结算只做得分展示，购物集中在战前整备那一步）。
-      renderRunShop();   // 2026-09-14：局内商店（基础参数升级）随结算界面展示
+      // #U6（2026-10-16 修复）：上述注释自 2026-10-15 起就存在，但紧随其后的 renderRunShop()
+      //   调用未删——Boss 模式每个节点都走 reward 屏，于是结算屏与 reward 屏各出现一次商店
+      //   （用户实测「boss 战后局内商店会出现 2 次」）。现按注释口径门控：Boss 模式不在结算屏
+      //   渲染商店（reward 屏的 revealRewardShop 是唯一入口）；普通模式 reward 屏不含商店，
+      //   仍由结算屏承载，保持原行为。
+      if(GAME_MODE !== 'boss') renderRunShop();   // 普通节点：局内商店随结算界面展示
     }
     showScreen('settleScreen'); setOverlayVisible(true);
   } else if(state === 'reward'){
@@ -2678,15 +2694,21 @@ function buildRunShopInto(listEl, balEl){
     }
     const lv = runShopLevels[def.id] | 0;
     const blocked = runShopLimitBlocked(def, lv, player.stats);
+    const maxed = lv >= def.maxLevel;
     const cost = runShopPriceFor(def, lv);
-    const can = !blocked && lv < def.maxLevel && runShopBalance() >= cost;
+    const can = !blocked && !maxed && runShopBalance() >= cost;
     const row = document.createElement('div');
     row.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:11px;';
     const label = document.createElement('span');
-    label.style.cssText = 'flex:1; color:' + (blocked ? 'var(--text-dim)' : 'var(--text)') + ';';
+    label.style.cssText = 'flex:1; color:' + (blocked || maxed ? 'var(--text-dim)' : 'var(--text)') + ';';
     label.innerHTML = `<b>${def.name}</b> <span style="color:var(--amber-dim);">Lv${lv}${def.maxLevel < 99 ? '/' + def.maxLevel : ''}</span><br><span style="font-size:9px;color:var(--text-dim);">${def.desc}</span>`;
     const btn = document.createElement('button');
-    btn.textContent = blocked ? (def.limitLabel || '已达上限') : `${cost} 分`;
+    // #U17（2026-10-17 修复）：原实现只在 `blocked`（属性达限，由 runShopLimitBlocked 经
+    //   RULES.parameterLimits 推导）时显示「已达上限」；而**等级达上限**（lv ≥ maxLevel，
+    //   如永久商店 repair_kit_cd/medkit_cd 的 maxLevel=15，其 stat=null 且 effects 为空
+    //   ⇒ runShopLimitBlocked 恒 false）只禁用按钮、按钮仍显示价格，玩家看不到「已满级」提示。
+    //   现把 maxed 也纳入文案分支（三级优先：属性达限 > 等级满级 > 价格）。
+    btn.textContent = blocked ? (def.limitLabel || '已达上限') : (maxed ? '已满级' : `${cost} 分`);
     btn.disabled = !can;
     btn.style.opacity = can ? '' : '0.4';
     btn.style.padding = '3px 8px';
@@ -3643,7 +3665,12 @@ function update(dt){
     absorbDamage,
     burstExplosion,
     spawnImpactFx,
-    spawnDmgText,
+    // #U13（2026-10-16）：Boss 掉血数字加大——在 fireCtx 这个**唯一收口**包一层，
+    // 凡命中敌方 Boss 的伤害飘字一律按 BOSS_DMG_TEXT_SCALE 放大，无需改动各调用点。
+    // 非 Boss 目标（普通敌军/玩家/友军/掩体）行为逐字不变（scale 缺省 1）。
+    spawnDmgText: function(x, y, text, kind, scale){
+      return spawnDmgText(x, y, text, kind, scale);
+    },
     playSound,
     pushLog,
     damageCover,
@@ -4826,21 +4853,28 @@ function bakeNodeGroundLayer(node){
 
   // 每组直接使用 verts 多边形（单条连续，无需拼接）
   const paths = [];
+  // #T3（2026-10-16 修复）：road 的 verts 已统一为**局部坐标**（相对 c.x/c.y），
+  // 烘焙层需先转世界坐标再用（原实现直接用 v 当世界坐标，仅在方形路径偶然正确）。
+  const worldVerts = (c) => {
+    const a = c.angle || 0, ca = Math.cos(a), sa = Math.sin(a);
+    return c.verts.map(v => [c.x + v[0] * ca - v[1] * sa, c.y + v[0] * sa + v[1] * ca]);
+  };
   for(const segs of groups.values()){
     for(const s of segs){
       if(s.verts && s.verts.length >= 6){
+        const wv = worldVerts(s);
         // 从多边形提取中心线：verts 前半为左侧点，后半为右侧点（逆序）
-        const n = s.verts.length / 2;
+        const n = wv.length / 2;
         const centerPts = [];
         for(let i = 0; i < n; i++){
-          const l = s.verts[i], r = s.verts[s.verts.length - 1 - i];
+          const l = wv[i], r = wv[wv.length - 1 - i];
           centerPts.push({ x: (l[0] + r[0]) / 2, y: (l[1] + r[1]) / 2 });
         }
         // 估算路宽：中点处左右距离
         const mid = Math.floor(n / 2);
-        const lw = s.verts[mid], rw = s.verts[s.verts.length - 1 - mid];
+        const lw = wv[mid], rw = wv[wv.length - 1 - mid];
         const w = Math.hypot(lw[0] - rw[0], lw[1] - rw[1]);
-        paths.push({ pts: centerPts, w: w || 70, poly: s.verts });
+        paths.push({ pts: centerPts, w: w || 70, poly: wv });
       }
     }
   }
@@ -5008,10 +5042,34 @@ function draw(){
   // #N4（2026-10-10）：改为视口锚定滚动烘焙——每帧先按当前视口补一轮（越界才重烘焙），
   // 再 blit 烘焙画布（世界坐标锚点，由相机变换定位）。
   ensureGroundBake(vb);
-  inViewCovers.filter(cov => cov.tier !== 'road' && groundLayerCov(cov)).forEach(cov => drawCover(ctx, cov));
+  // #U8（2026-10-16 修复）：河流按 groupId 合并整条链后**一次性**绘制。
+  //   河流在数据层是沿程铺开的一串独立段 OBB（strip 单条河 ≈145 段），逐段 drawCover 时
+  //   每段各自绘制会在接缝处露出边界，形成鳞片/砖块感；且原「两岸暗带」逐段描边会连成
+  //   两条贯穿全程的平行粗线（用户实测「像铁轨一样」）。此处先按 groupId 聚类，把同组段
+  //   按沿程顺序交给 drawRiverChain 单次描边，其余液态/地面元素仍逐段绘制。
+  {
+    const groundCovs = inViewCovers.filter(cov => cov.tier !== 'road' && groundLayerCov(cov));
+    const riverGroups = new Map();
+    const others = [];
+    for(const cov of groundCovs){
+      if(cov.tier === 'river' && cov.groupId){
+        if(!riverGroups.has(cov.groupId)) riverGroups.set(cov.groupId, []);
+        riverGroups.get(cov.groupId).push(cov);
+      } else others.push(cov);
+    }
+    for(const cov of others) drawCover(ctx, cov);
+    for(const segs of riverGroups.values()){
+      // 沿程排序：段沿曲线单向铺开，按「首段到末段」的投影排序（用最长轴方向做主序）
+      const ordered = orderRiverSegs(segs);
+      if(!drawRiverChain(ctx, ordered, COVER_TIERS[ordered[0] && ordered[0].tier] || COVER_TIERS.river)){
+        for(const s of ordered) drawCover(ctx, s);   // 退化（<2 段）逐段回退
+      } else {
+        for(const s of ordered) drawCoverWaterStreak(ctx, s);
+      }
+    }
+  }
   if(groundLayerCanvas){ ctx.drawImage(groundLayerCanvas, _groundBake ? _groundBake.ox : 0, _groundBake ? _groundBake.oy : 0); }
   else inViewCovers.filter(cov => cov.tier === 'road').forEach(cov => drawCover(ctx, cov));   // 无烘焙层（dev 随机场）回退逐段绘制
-  inViewCovers.filter(cov => cov.tier === 'bridge').forEach(cov => drawCover(ctx, cov));
   inViewCovers.filter(cov => !groundLayerCov(cov) && cov.tier !== 'bridge' && (groundLayerCanvas ? cov.tier !== 'road' : true)).forEach(cov => drawCover(ctx, cov));
   entities.forEach(t => {
     if(t.isDrone) return;   // P-17：无人机无坦克几何，由 drawDrones 单独绘制

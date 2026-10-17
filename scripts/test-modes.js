@@ -16,6 +16,7 @@ const NG = require('../js/tank_nodegen.js');
 global.createRNG = NG.createRNG;
 global.generateNode = NG.generateNode;
 global.pickTemplate = NG.pickTemplate;
+global.getTemplates = NG.getTemplates;   // #T5：makeNode 的 Boss 长宽比修正需遍历模板集
 global.generateStrip = NG.generateStrip;
 const MAP = require('../js/tank_map.js');
 

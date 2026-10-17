@@ -11,6 +11,14 @@
 
 function _ctx(o){ return o || {}; }
 function _G(k, fb){ return (typeof globalThis!=='undefined'&&globalThis[k]!==undefined)?globalThis[k]:fb; }
+
+// #U13（2026-10-16）：伤害飘字字号倍率——Boss 目标放大（用户要求「boss 掉血的数字需要加大」）。
+// 倍率唯一口径 RULES.hud.bossDmgTextScale（缺省 1.6）；非 Boss 目标返回 1（逐字沿用原行为）。
+function _bossTextScale(target){
+  if(!target || !target.isBoss) return 1;
+  const boss = (typeof RULES !== 'undefined' && RULES.boss) ? RULES.boss : null;
+  return (boss && typeof boss.bossDmgTextScale === 'number') ? boss.bossDmgTextScale : 1.6;
+}
 function _rules(c){ return (c&&c.rules)||(c&&c.RULES)||_G('RULES',{}); }
 function _tiers(c){ return (c&&c.coverTiers)||_G('COVER_TIERS',(_rules(c).coverTiers||{})); }
 
@@ -781,10 +789,11 @@ function stepShells(dt, ctx){
               // #A6 飘字：溢出截断（≤击杀前剩余血量）+ 部位颜色分类（弹药架红/成员与其他模块黄/普通白）
               const shown=Math.min(res.dmg||0, Math.ceil(hpBefore));
               const kind = res.modKey==='ammo' ? 'ammoRack' : (res.modKey ? 'module' : (isHe?'he':'plain'));
-              dmgText(hx,hy-14,shown,kind);
+              // #U13（2026-10-16）：Boss 掉血数字加大（用户要求），倍率取 RULES.hud.bossDmgTextScale
+              dmgText(hx,hy-14,shown,kind,_bossTextScale(hitTank));
             }
-            else if(res.dmg>0) dmgText(hx,hy-14,Math.min(res.dmg,Math.ceil(hpBefore)),'he');
-            else dmgText(hx,hy-14,'未击穿','block');
+            else if(res.dmg>0) dmgText(hx,hy-14,Math.min(res.dmg,Math.ceil(hpBefore)),'he',_bossTextScale(hitTank));
+            else dmgText(hx,hy-14,'未击穿','block',_bossTextScale(hitTank));
             push(res.text,res.cls); play(isHe?'pen':o);
             // #G（2026-09-21）：轨道炮「超高速贯穿」——击穿（PEN）后弹体不消失：伤害按
             // pierceDmgMul 衰减、记录已命中目标、从命中点继续直线飞行（pierceLeft 归零或

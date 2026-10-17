@@ -516,10 +516,66 @@ function cardEligible(card, owned) {
     }
     if (ef.type === 'ability') {
       if (ef.requiresAbility && abil.indexOf(ef.requiresAbility) < 0) return false;
+      // #U18（2026-10-17）：**已持有的技能卡不再重复提供**——若本卡安装的 ability 键玩家已持有，
+      //   且本卡不是「对该能力的升级」（无 requiresAbility 声明），则再抽到毫无收益（能力已在），
+      //   却仍会占掉一个三选一位（用户实测「已有的技能卡似乎也会重复提供备选」）。
+      //   保留 requiresAbility 卡（它们是基础能力的增强，抽到有意义）。仅在调用方传入
+      //   owned.abilities 时生效；未传则保持旧行为（零影响）。
+      if (!ef.requiresAbility && ef.key && abil.indexOf(ef.key) >= 0) return false;
+    }
+    // #U20（2026-10-16）：**属性达限过滤**——modifier 卡的下一级会突破 RULES.parameterLimits 时判不合格。
+    //   原实现缺失此层：装填/极速/散布等属性触顶后，对应升级卡仍进三选一，选中后无收益（用户实测）。
+    //   判定口径与商店侧一致（复用 js/tank_economy.js 的 runShopLimitBlocked 同款比较逻辑），
+    //   仅在调用方传入 owned.stats（当前聚合属性）时生效；未传则保持旧行为（零影响）。
+    if (ef.type === 'modifier' && ef.stat && o.stats) {
+      const lim = _plBoundary(ef.stat);
+      if (lim) {
+        const cur = _plStatVal(o.stats, ef.stat);
+        if (typeof cur === 'number') {
+          const next = (ef.mode === 'mult') ? cur * ef.value : cur + ef.value;
+          if (lim.min !== undefined && next < lim.min - 1e-9) return false;
+          if (lim.max !== undefined && next > lim.max + 1e-9) return false;
+        }
+      }
+    }
+    // #U22（2026-10-16）：**「取最高」类被动不得重复提供低档**——overmatch/spall_liner 等被动
+    //   在结算时按「取最强一个」（js/tank_physics.js passiveValues + min/max），故玩家已持有
+    //   更强的同键被动时，再来一张弱档毫无收益（占卡位）。此处比较同键已持值与本卡值：
+    //   本卡不比已持更强 → 不合格。仅对已知「取最高」语义的键生效（白名单见 _BEST_ONLY_PASSIVE_KEYS）。
+    if (ef.type === 'passive' && _BEST_ONLY_PASSIVE_KEYS[ef.key] !== undefined && Array.isArray(o.cardEffects)) {
+      const held = o.cardEffects.filter(e => e && e.type === 'passive' && e.key === ef.key)
+        .map(e => e.value).filter(v => typeof v === 'number' && Number.isFinite(v));
+      if (held.length && typeof ef.value === 'number') {
+        // 方向由键决定（与 js/tank_physics.js passiveValues 的取值口径一致）：
+        //   spall_liner → 取 min（减伤乘数，越小越强）；overmatch → 取 max（碾压阈值，越大越强）。
+        // 本卡不比已持更优 ⇒ 不合格（选中亦无收益，徒占卡位）。
+        const best = (_BEST_ONLY_PASSIVE_KEYS[ef.key] === 'max')
+          ? Math.max.apply(null, held) : Math.min.apply(null, held);
+        const stronger = (_BEST_ONLY_PASSIVE_KEYS[ef.key] === 'max')
+          ? (ef.value > best + 1e-9) : (ef.value < best - 1e-9);
+        if (!stronger) return false;
+      }
     }
   }
   return true;
 }
+
+// #U20：RULES.parameterLimits 按点分路径取边界（armor.hull.front 等）；无界/未配置 → null
+function _plBoundary(path){
+  if (typeof RULES === 'undefined' || !RULES.parameterLimits) return null;
+  return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), RULES.parameterLimits) || null;
+}
+
+// #U20：从当前聚合属性按点分路径取现值
+function _plStatVal(stats, path){
+  if (!stats || typeof stats !== 'object') return undefined;
+  return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), stats);
+}
+
+// #U22：「取最优 Only」语义的被动键 → 结算侧取值方向（见 js/tank_physics.js passiveValues 消费点）。
+//   spall_liner：整车减伤乘数 → 取 min（越小越强）；overmatch：超口径碾压阈值系数 → 取 max（越大越强）。
+//   两张卡定义了同键不同档位，故低档/同档在已持有更优时无收益，应被 cardEligible 滤除。
+const _BEST_ONLY_PASSIVE_KEYS = { spall_liner: 'min', overmatch: 'max' };
 
 // ---------- 抽卡 ----------
 

@@ -14,7 +14,11 @@ const { spawnSync } = require('child_process');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const PER_TEST_TIMEOUT_MS = 180 * 1000;
+// #U-超时（2026-10-16）：单测上限 180s → 300s。`test-strip.js` 是唯一的重负载 Node 测试
+// （strip 节点 ≈10 屏宽、covers 700~1100，含 generateStrip + 多轮 nodeLayoutMetrics），
+// 实测 141~177s，随机器负载波动；原 180s 上限余量过薄，会把「断言全过但稍慢」误判为失败
+// （runner 只报「超时」并吞掉断言结果）。放宽到 300s 以容忍负载抖动，同时仍能捕获真死循环。
+const PER_TEST_TIMEOUT_MS = 300 * 1000;
 const FAIL_TAIL_LINES = 25;
 
 const TESTS = [
