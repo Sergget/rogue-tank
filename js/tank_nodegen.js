@@ -503,6 +503,17 @@ function obbHitsCover(covers, x, y, w, h, angle, pad) {
   return false;
 }
 
+// #U32（2026-10-17）：点在任意多边形内（ray casting），供模板物品避路的 verts 精判使用。
+// 与 _pointInPrunePoly 同义但输入为 {x,y} 数组（本地无 prune 缓存上下文）。
+function _pointInPolyX(pt, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    if (((yi > pt.y) !== (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
 /**
  * AABB 重叠检测：矩形（中心 x,y + 尺寸 w,h）是否击中任一已放置掩体的外接框。
  * 用于水体/桥梁拒绝采样，避免水体/桥梁压在已放置掩体上（P-20 修复 / ISSUES #62 衍生）。
@@ -2322,6 +2333,36 @@ function pruneOverlappingCovers(covers, opts) {
     for (const p of sb) if (_pointInPrunePoly(p, polyA)) inA++;
     return inB >= 1 || inA >= 1;
   };
+  // #U32（2026-10-17）：nudge 避路用——verts 精确多边形相交（采样点互入 + 边相交）。
+  //   路面允许贴边但不允许踩进。此前 3×3 采样点单判对扁长元素（soft h10~30px）有盲区
+  //   （采样点全在中轴、与路缘浅交不入路 poly，实测漏检 34/134）；纯 OBB SAT 对整链
+  //   大 bbox 道路又过保守（虚警杀贴路缘合法元素，seed42 strip 密度 10.9→9.4 触线）。
+  //   verts 精判两者兼顾：_getCached 已含 AABB 预检，边配对代价可接受。
+  const _segX = (a1, a2, b1, b2) => {
+    const d1 = (a2.x - a1.x) * (b1.y - a1.y) - (a2.y - a1.y) * (b1.x - a1.x);
+    const d2 = (a2.x - a1.x) * (b2.y - a1.y) - (a2.y - a1.y) * (b2.x - a1.x);
+    const d3 = (b2.x - b1.x) * (a1.y - b1.y) - (b2.y - b1.y) * (a1.x - b1.x);
+    const d4 = (b2.x - b1.x) * (a2.y - b1.y) - (b2.y - b1.y) * (a2.x - b1.x);
+    return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+  };
+  const _hitsRoadPoly = (moved, others) => {
+    const e = _getCached(moved);
+    for (const o of others) {
+      if (o.tier !== 'road') continue;
+      const eo = _getCached(o);
+      if (!_aabbOverlap(e, eo)) continue;
+      for (const p of e.sa) if (_pointInPrunePoly(p, eo.poly)) return true;
+      for (const p of eo.sa) if (_pointInPrunePoly(p, e.poly)) return true;
+      const P = e.poly, Q = eo.poly;
+      for (let i = 0; i < P.length; i++) {
+        const a2 = P[(i + 1) % P.length];
+        for (let j = 0; j < Q.length; j++) {
+          if (_segX(P[i], a2, Q[j], Q[(j + 1) % Q.length])) return true;
+        }
+      }
+    }
+    return false;
+  };
   // 平移消叠（2026-09-14 修订）：优先把败者平移到附近空位（环形候选点，避开一切其他元素），
   // 保住「地形标签必产出」等数量契约；候选全占满才整株移除。
   const tryNudge = (loser, others) => {
@@ -2329,7 +2370,9 @@ function pruneOverlappingCovers(covers, opts) {
     const step = Math.max(baseW, baseH) * 0.75;
     const loserSamples = samplePts(loser);
     const cand = [];
-    for (let ring = 1; ring <= 6; ring++) {
+    // #U32（2026-10-17）：nudge 避路后落位难度上升（路面成了禁区），搜索环数 6→12
+    //   挽回密度（实测 seed42 strip 187→?）；候选顺序不变，确定性保持。
+    for (let ring = 1; ring <= 12; ring++) {
       for (let k = 0; k < 8; k++) {
         const a = (k / 8) * Math.PI * 2;
         cand.push({ x: loser.x + Math.cos(a) * step * ring, y: loser.y + Math.sin(a) * step * ring });
@@ -2356,11 +2399,15 @@ function pruneOverlappingCovers(covers, opts) {
       if (loserWasInside && !inBounds(bboxOf(moved))) continue;   // 不得把界内元素推出界
       const ms = samplePts(moved), mp = polyOf(moved);
       let clash = false;
+      // #U32（2026-10-17）：nudge 落点必须避开道路——此前只查非 road 的 others，
+      //   实测 60 seed ×3 scale 有 100 处：推挤/布点阶段合法的元素被 prune 挪上路面。
+      if (_hitsRoadPoly(moved, others)) continue;
+      let clash2 = false;
       for (const o of others) {
         if (o === loser || o.tier === 'road') continue;
-        if (sigOverlap(ms, mp, samplePts(o), polyOf(o))) { clash = true; break; }
+        if (sigOverlap(ms, mp, samplePts(o), polyOf(o))) { clash2 = true; break; }
       }
-      if (!clash) { loser.x = moved.x; loser.y = moved.y; return true; }
+      if (!clash2) { loser.x = moved.x; loser.y = moved.y; return true; }
     }
     return false;
   };
@@ -2635,34 +2682,101 @@ function pruneOverlappingCovers(covers, opts) {
       continue;
     }
     // #A11 道路推挤（保留既有行为，满足 cull 保护/降级帽断言）
-    if (_tg !== 'ground' && obbHitsCover(networkRoads, px, py, iw, ih, (item.angle || 0) + angleJitter, 6)) {
-      let best = null, bestD = Infinity;
+    // #U32（2026-10-17）：触发/复验判定统一为 verts 精确多边形相交——road OBB 是整链
+    //   大 bbox（实测 verts 面积仅 OBB 的 6%），OBB pad 判定虚警率极高，会把贴路缘的
+    //   合法元素当压路推走/剔除（密度损失 + 推挤方向错乱）。相交 = 采样点互入 + 边相交。
+    const _itemPoly = obbPts(px, py, iw, ih, (item.angle || 0) + angleJitter)
+      .map(p => ({ x: p.x, y: p.y }));
+    const _itemHitsRoad = () => {
       for (const r of networkRoads) {
-        const d = Math.hypot(ix - r.x, iy - r.y);
-        if (d < bestD) { bestD = d; best = r; }
+        if (!r.verts) {
+          if (obbHitsCover([r], px, py, iw, ih, (item.angle || 0) + angleJitter, 6)) return r;
+          continue;
+        }
+        const rp = r.verts.map(v => ({ x: r.x + v[0], y: r.y + v[1] }));
+        // 物品角点入路 poly
+        for (const p of _itemPoly) if (_pointInPolyX(p, rp)) return r;
+        // 路采样点入物品 OBB（取样 8 点足够）
+        for (let k = 0; k < 8; k++) {
+          const q = rp[Math.floor(k * rp.length / 8) % rp.length];
+          if (_pointInPolyX(q, _itemPoly)) return r;
+        }
+        // 边相交
+        for (let i = 0; i < 4; i++) {
+          const a1 = _itemPoly[i], a2 = _itemPoly[(i + 1) % 4];
+          for (let j = 0; j < rp.length; j++) {
+            const b1 = rp[j], b2 = rp[(j + 1) % rp.length];
+            const d1 = (a2.x - a1.x) * (b1.y - a1.y) - (a2.y - a1.y) * (b1.x - a1.x);
+            const d2 = (a2.x - a1.x) * (b2.y - a1.y) - (a2.y - a1.y) * (b2.x - a1.x);
+            const d3 = (b2.x - b1.x) * (a1.y - b1.y) - (b2.y - b1.y) * (a1.x - b1.x);
+            const d4 = (b2.x - b1.x) * (a2.y - b1.y) - (b2.y - b1.y) * (a2.x - b1.x);
+            if (((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0))) return r;
+          }
+        }
       }
+      return null;
+    };
+    const _hitRoad = (_tg !== 'ground') ? _itemHitsRoad() : null;
+    if (_hitRoad) {
+      // #U32（2026-10-17）：best 改选「SAT 相交的道路中最近的一条」——旧逻辑选全局最近路心，
+      //   物体可能撞的是另一条整链多边形路（OBB 为整链大 bbox），最近路反而 SAT 不相交，
+      //   推出方向错、need≤0 短路放行，压路元素漏网（实测 60 seed 163 处）。
+      let best = null, bestD = Infinity;
+      best = _hitRoad;
+      bestD = Math.hypot(ix - best.x, iy - best.y);
       let pushed = false;
       if (best) {
         const dx = ix - best.x, dy = iy - best.y;
         const len = Math.hypot(dx, dy) || 1;
-        const roadHalf = Math.min(best.w, best.h) / 2;
+        // #U32：roadHalf 取 min(w,h)/2 是「紧凑路段」假设——cde3bc3 起道路 cover 为整链多边形
+        //   （OBB = 整链大 bbox），物品距链中心很远仍可能压在路身中部。现按推挤方向取道路 OBB
+        //   的支撑距离（hw·|ux|+hh·|uy|）计算真实推出量；need≤0 也不放行，统一走 tryPos 复验。
+        const ux = dx / len, uy = dy / len;
+        const support = (best.w / 2) * Math.abs(ux) + (best.h / 2) * Math.abs(uy);
         const bHalf = Math.max(iw, ih) / 2;
-        const need = roadHalf + bHalf + 24 - bestD;
+        const need = Math.max(0, support + bHalf + 24 - bestD);
         const bx0 = centerX - selectedTemplate.w * scale / 2 + iw / 2;
         const bx1 = centerX + selectedTemplate.w * scale / 2 - iw / 2;
         const by0 = centerY - selectedTemplate.h * scale / 2 + ih / 2;
         const by1 = centerY + selectedTemplate.h * scale / 2 - ih / 2;
         const tryPos = (nx, ny) => {
-          return nx >= bx0 && nx <= bx1 && ny >= by0 && ny <= by1 &&
-            !obbHitsCover(networkRoads, nx, ny, iw, ih, (item.angle || 0) + angleJitter, 6);
+          if (!(nx >= bx0 && nx <= bx1 && ny >= by0 && ny <= by1)) return false;
+          // #U32：verts 精判复验（与触发判定同源），OBB pad 判定虚警过高弃用
+          const pa = obbPts(nx, ny, iw, ih, (item.angle || 0) + angleJitter).map(p => ({ x: p.x, y: p.y }));
+          for (const r of networkRoads) {
+            if (!r.verts) {
+              if (obbHitsCover([r], nx, ny, iw, ih, (item.angle || 0) + angleJitter, 6)) return false;
+              continue;
+            }
+            const rp = r.verts.map(v => ({ x: r.x + v[0], y: r.y + v[1] }));
+            for (const p of pa) if (_pointInPolyX(p, rp)) return false;
+            for (const p of rp) if (_pointInPolyX(p, pa)) return false;
+            for (let i = 0; i < 4; i++) {
+              const a1 = pa[i], a2 = pa[(i + 1) % 4];
+              for (let j = 0; j < rp.length; j++) {
+                const b1 = rp[j], b2 = rp[(j + 1) % rp.length];
+                const d1 = (a2.x - a1.x) * (b1.y - a1.y) - (a2.y - a1.y) * (b1.x - a1.x);
+                const d2 = (a2.x - a1.x) * (b2.y - a1.y) - (a2.y - a1.y) * (b2.x - a1.x);
+                const d3 = (b2.x - b1.x) * (a1.y - b1.y) - (b2.y - b1.y) * (a1.x - b1.x);
+                const d4 = (b2.x - b1.x) * (a2.y - b1.y) - (b2.y - b1.y) * (a2.x - b1.x);
+                if (((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0))) return false;
+              }
+            }
+          }
+          return true;
         };
         if (need <= 0) {
-          pushed = true;
+          // #U32（2026-10-17）：need≤0（按 best 支撑距离已足够远）仍必须经 tryPos 复验——
+          //   best 是「SAT 相交的路中最近一条」，但物品可能同时与另一条路的 verts 多边形
+          //   浅交（整链 OBB bbox 的 SAT 判定抓不到）。复验失败走下方 8 向搜索。
+          pushed = tryPos(px, py);
         } else if (tryPos(ix + (dx / len) * need, iy + (dy / len) * need)) {
           px = ix + (dx / len) * need; py = iy + (dy / len) * need; pushed = true;
         } else {
           const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
-          for (const dist of [80, 160, 280]) {
+          // #U32：搜索距离 280→480——避路收紧后布点期 skip 上升（seed42 strip 1→29），
+          //   加大半径挽回密度。
+          for (const dist of [80, 160, 280, 480]) {
             for (const nd of dirs) {
               const nx = ix + nd[0] * dist, ny = iy + nd[1] * dist;
               if (tryPos(nx, ny)) { px = nx; py = ny; pushed = true; break; }

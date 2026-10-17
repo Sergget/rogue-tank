@@ -726,3 +726,14 @@
 - **② 贴图通道**：`spriteBarrelImages` 对 `railgun` 类型已映射 `barrel-railgun.png`（1200×171 双轨无附件造型；5 车 JSON 均有 `imgRailgun` 引用），非缺陷。浏览器实测（Leapard_1 + `sprite.enabled=true` + 电磁炮卡）：资源请求 `barrel-railgun.png:200`，渲染为双轨贴图。
 - **③ 顺带修复 `normalizeBarrel`**（`js/tank_halfgeom.js`）：返回对象缺 `imgStandard/imgAutocannon/imgRailgun/imgVehicle` 四个贴图路径键 ⇒ `applyTankConfig` 经 normalize 后贴图引用被静默剥离，**设计器「读取→保存」一次即永久删除**（与 §4.55 #L3 的 sprite 未知键同类）。现四键透传保留。这是贴图通道此前「看似未生效」的真实根因之一。
 - **验证（三链）**：`npm run check` EXIT=0 / `npm test` 45/45 / `test:browser` 四链 ALL PASS。专项：程序化渲染探针（standard 带 ring/single/jacket 附件、railgun 纯双轨）；浏览器端到端（贴图通道激活 + 无 JS 错误）。
+
+### §4.87 2026-10-17 布点/修剪避路收紧——「房屋落在道路上」根治（#U32）
+
+- **来源**：用户「现在有房屋会落在道路上，需要改进」。
+- **量化复现**：60 seed × scale 1/2/3，`generateNode` 输出中结构/植被 tier（full/building/ruined/barricade/tree/rock/stump/fallen/soft/bush/rubble）与道路 verts 多边形相交 **163 处**；60 seed ×3 scale 复测 diff∈{0,0.5,1}×buildingDensity∈{1,1.6} 亦全面命中。
+- **根因（四因叠加，皆因 cde3bc3 道路改整链连续多边形后判定口径未跟上）**：road cover 的 OBB = 整链大 bbox（实测 verts 面积仅 OBB 的 ~6%），而 ① 模板物品避路的 `need ≤ 0 → pushed = true` 短路放行（物品距链中心远即认为不压路，实际压在路身中部）；② `best` 选「全局最近路心」而非「实际 SAT 相交的路」（推出方向错）；③ prune `tryNudge` 落点不查 road（把布点期已避开的元素再挪上路面，实测独占 100/134）；④ 布点/复验全程 OBB pad 判定虚警率极高。
+- **修复（`js/tank_nodegen.js`，三处统一 verts 精确多边形相交）**：① 触发判定改 `_itemHitsRoad`（物品角点入路 poly / 路采样点入物品 OBB / 边相交三重；无 verts road 回退 OBB pad 6）；`best` = 精判相交的路中最近一条；`need ≤ 0` 也必须过 `tryPos` verts 复验；8 向搜索 280→480。② `tryNudge` 新增 `_hitsRoadPoly` 落点避路（采样点互入 + 边相交，AABB 预检；候选环 6→12）。③ prune 主循环的 mud↔road 严判（#U26）不变。
+- **效果**：压路 163 → **0**（含 diff/density 全组合扫描 0）；strip 密度 seed42 10.91→11.01/屏、seed99 28.89→29.19（verts 精判下虚警剔除消失，密度不降反升）；7 模板 ×5 难度连通性维持 1.000。
+- **基线联动**：校准第十一次重标定（`scripts/test-nodegen-calibration.js` BASE 表 + 头注，cov +0.003~+0.008、minw 整体上升）；`test-nodegen.js` 两处修正——泥斑环带断言中心由 W/2,H/2（0 原点帧假设，坐标系错位）改为世界帧 (600,350)；村庄建筑上限 20→24（避路收紧后不再被挤删，22 栋）。
+- **细则归口**：`specs/map.md` §19。
+- **验证（三链）**：`npm run check` EXIT=0 / `npm test` 45/45 / `test:browser` 四链 ALL PASS（exit=0）。专项：60 seed ×3 scale 压路扫描 0；strip 3-seed 密度 ≥10/屏恢复达标。

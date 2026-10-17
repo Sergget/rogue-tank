@@ -593,3 +593,15 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 - **后处理**：`python scripts/prepare_covers.py --inplace [--src tmp/covers-src] [--out assets]` —— 清底 → 按内容包围盒裁留白 → 等比缩进 `refs.canvas` → 居中 → PNG-8（16 色）。**不做拉伸变形**。
 - **验收**：`python scripts/covers-anchor-check.py [--src assets]` —— 尺寸 + 内容质心；取代「人眼看 `tools/bake.html` 红十字」（红十字量的是烘焙包围盒内锚点，对图片通道无意义）。
 - **回退**：`assets/` 为空即走 `js/tank_assets.js` 的程序化烘焙，视觉不断档；删除任一 `<key>.png` 即对该档回退。
+
+## 19. 布点/修剪避路收紧（2026-10-17 #U32，现行口径）
+
+> 关联：§10.2 跨相重叠消解（pruneOverlappingCovers）、§13 路网 v4（道路连续多边形）、`js/tank_nodegen.js`。
+
+- **问题**：cde3bc3 起道路 cover 为整链连续多边形（OBB = 整链大 bbox，实测 verts 多边形面积仅 OBB 的 ~6%），但模板物品避路（#A11 推挤）与 prune `tryNudge` 仍按 OBB 判定，且 `need ≤ 0 → pushed = true` 短路放行、`best` 选「全局最近路心」而非「实际相交的路」、nudge 落点不查 road——四因叠加，实测 60 seed ×3 scale 有 **163 处建筑/岩石/树/栅栏压在路面上**（用户反馈「房屋落在道路上」）。
+- **现行判定口径（三处统一为 verts 精确多边形相交）**：
+  1. **模板物品避路**（`generateNode` 主循环）：触发判定 = 物品 OBB 四角/路采样点互入/边相交三重精判（`_itemHitsRoad`，无 verts 的 road 回退 OBB pad 6）；`best` = 精判相交的路中最近一条；`need ≤ 0` 不再放行，仍走 `tryPos` verts 复验；8 向搜索距离 280→480。
+  2. **prune `tryNudge` 落点避路**（`_hitsRoadPoly`）：verts 精判（采样点互入 + 边相交，`_getCached` AABB 预检），候选环 6→12。此前 60 seed ×3 scale 有 100 处：推挤/布点阶段合法的元素被 prune 挪上路面（`o.tier === 'road'` 被无条件跳过）。
+  3. **mud↔road 严判**（#U26 已有）不变。
+- **效果**：压路 163 → **0**；strip 密度 seed42 10.91→11.01/屏（verts 精判下不降反升——虚警剔除消失）；连通性 7 模板 ×5 难度维持 1.000。
+- **基线**：校准第十一次重标定（见 `scripts/test-nodegen-calibration.js` 头注）；test-nodegen 泥斑环带断言中心修正为世界帧 (600,350)（原 W/2,H/2 是 0 原点帧假设）、村庄建筑上限 20→24。

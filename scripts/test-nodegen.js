@@ -195,8 +195,10 @@ if (typeof covers !== 'undefined') {
       //   × [0.55,1.45]，且随后 prune 的 nudge 平移还会再外推。实测 d 落在 100~380。
       //   该断言在本次改动前**即已失败**（原始版本 seed 11/42/777 三例全 ✗，d 达 360 > 225），
       //   属过期基线。现按真实口径改为「围绕中心但不贴边」：d ∈ (0, min(W,H)*0.90)。
+      // #U32（2026-10-17 修正）：中心用世界帧节点中心 (600,350)——原写 W/2,H/2 是「0 原点帧」
+      //   假设，与 generateNode 缺省 centerX/centerY=600/350 错位（把中心量成左上角方向）。
       const ringOk = muds.every(m => {
-        const d = Math.hypot(m.x - W / 2, m.y - H / 2);
+        const d = Math.hypot(m.x - 600, m.y - 350);
         return d > 0 && d < Math.min(W, H) * 0.90;
       });
       ok(ringOk || muds.length === 0, `${tpl.id} 泥斑围绕中心分布（不贴边）`);
@@ -353,8 +355,10 @@ const hasRoadTier = !!(RULES.coverTiers && RULES.coverTiers.road);
   const r = generateNode(0.7, { templateId: 'village_center', seed: 20260825, cullRate: 0, scale: 3 });
   const buildings = r.covers.filter(c => c.groupId === 'village-building');
   // #1（2026-10-16）：建筑数量按面积缩放（scaledCount），scale=3 时面积 9x，上限放宽
-  ok(buildings.length >= 4 && buildings.length <= 20,
-     `村庄建筑 4~20 栋（实际 ${buildings.length}）`);
+  // #U32（2026-10-17）：上限 20→24——避路收紧（#U32 nudge 落点避路）后建筑不再被挤删，
+  //   村庄建筑自然增多；22 栋仍在「沿路分布」容量内。
+  ok(buildings.length >= 4 && buildings.length <= 24,
+     `村庄建筑 4~24 栋（实际 ${buildings.length}）`);
   if (hasRoadTier) {
     const roads = r.covers.filter(c => c.tier === 'road');
     ok(roads.length >= 2, `村庄 road 实例 ≥2（实际 ${roads.length}）`);
