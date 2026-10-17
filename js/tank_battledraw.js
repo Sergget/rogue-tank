@@ -860,9 +860,13 @@ function drawTank(ctx, t){
    const barrelRayDx = Math.cos(t.turretAngle), barrelRayDy = Math.sin(t.turretAngle);
    // 2026-09-15 W6：autocannon 专用炮管外观（用户裁定）——更细（barrelWidthMult）略短（barrelLenMult），
    // 不绘制炮管护套/制退器/抽烟器（muzzle/evac/jacket 强制禁用）；mantlet 炮盾保留。
+   // #U31（2026-10-17 用户要求）：电磁炮同理——轨道炮是纯功能性结构，没有常规火炮的
+   // 护套/制退器/抽烟器这些「火炮专用件」，贴图 barrel-railgun.png 也是无附件的双轨造型；
+   // 程序化分支强制禁用三类附件（mantlet 炮盾保留）。
    const _isAc = !!(t.weapons && t.weapons.primary && t.weapons.primary.type === 'autocannon');
+   const _isRailgun = !!(t.weapons && t.weapons.primary && t.weapons.primary.type === 'railgun');
    const _bSpec0 = t.barrel || { len: 120, width: 18, muzzle: 'none', evacPos: 55 };
-   const bSpec = _isAc
+   const bSpec = (_isAc || _isRailgun)
      ? Object.assign({}, _bSpec0, { muzzle: 'none', evac: { style: 'none' }, jacket: { len: 0 } })
      : _bSpec0;
    const barrelPct = Math.max(0, Math.min(3, (bSpec.len || 120) / 100));

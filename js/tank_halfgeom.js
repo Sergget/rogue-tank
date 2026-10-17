@@ -165,7 +165,12 @@ function normalizeBarrel(b){
     len: b.len || 120, width: b.width || 18, muzzle: b.muzzle || 'none',
     evac,
     jacket: b.jacket ? { len: b.jacket.len||0, pos: b.jacket.pos!==undefined ? b.jacket.pos : 45 } : { len:0, pos:45 },
-    mantlet: b.mantlet ? { style: b.mantlet.style||'none', pos: b.mantlet.pos!==undefined ? b.mantlet.pos : 0, width: b.mantlet.width!==undefined ? b.mantlet.width : 40 } : { style:'none', pos:0, width:40 }
+    mantlet: b.mantlet ? { style: b.mantlet.style||'none', pos: b.mantlet.pos!==undefined ? b.mantlet.pos : 0, width: b.mantlet.width!==undefined ? b.mantlet.width : 40 } : { style:'none', pos:0, width:40 },
+    // #U31（2026-10-17）：保留炮管贴图路径字段——四类主武器各有一张专属炮管贴图，
+    // spriteBarrelImages（tank_battledraw.js）按武器类型消费；normalize 丢掉这些键会让
+    // 设计器「读取→保存」永久删除贴图引用（同 #L3 的 sprite 未知键教训）。
+    imgStandard: b.imgStandard, imgAutocannon: b.imgAutocannon,
+    imgRailgun: b.imgRailgun, imgVehicle: b.imgVehicle
   };
 }
 

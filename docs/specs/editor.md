@@ -8,7 +8,7 @@
 ## 1. 坦克设计器 (tank_designer.html)
 - **多边形顶点编辑**：车体/炮塔多边形自由编辑（半侧对称几何，js/tank_halfgeom.js halfFromFull 镜像重建全形）；逐边装甲厚度设定（front/side/rear faces）。
 - **双中心分离**：turret.axis（炮塔自身旋转轴，局部帧内）与 turret.pivot（绕车体旋转中心，相对车体）完全分开；运行时 applyTankConfig 归一化平移保证"局部原点=旋转轴"不变量；设计器提供青色自身中心标记 + 橙色旋转中心标记 + 一键居中对齐按钮，防旋转甩尾。
-- **炮管/炮盾预设**：js/tank_presets.js BARREL_PRESETS/MANTLE_PRESETS 表；normalizeBarrel 归一化（len/width/muzzle/evac/jacket 缺省兜底）。
+- **炮管/炮盾预设**：js/tank_presets.js BARREL_PRESETS/MANTLE_PRESETS 表；normalizeBarrel 归一化（len/width/muzzle/evac/jacket 缺省兜底；**2026-10-17 #U31 起同时透传 `imgStandard/imgAutocannon/imgRailgun/imgVehicle` 四个贴图路径键**——缺省会令设计器「读取→保存」永久删除炮管贴图引用，#L3 同类教训）。
 - **模块/成员位置不再支持自定义**（2026-08-26 P-49 定案）：命中判定改为几何分区+概率抽取（规范见 specs/combat.md），旧 json 的 modules 字段加载时静默忽略。
 - **属性耦合链实时反馈**（2026-09-06）：设计器「基础参数」面板实时展示基于出厂几何与战斗参数推导的耦合结果——穿深/单发伤害→装填时间与散布惩罚倍率、车体尺寸→最大可用马力上限，以及车体面积物理缩放的内部模块易损因子（`moduleSizeFactor`，0.70x~1.30x，基于 2500 px² 标定：大车体内部宽敞不易损，小车体内部紧凑易损；完整耦合链见 §5）。
 - **甲弹对抗内置测试**：入射角/等效厚度/跳弹判定实时预览。

@@ -718,3 +718,11 @@
 - **④ 商店冷却（#U29）**：`cdReduce` 购买只累加 `runKitCdBonus` 账本，未回写消费值 `abilityBaseCd`（`innateBaseCd` 的唯一读取源）⇒ 升级无效。购买时经 `_syncKitCd()` 重算（出击注入助手；15s 下限在 `effectiveKitCd` 钳）。
 
 - **验证（三链）**：`npm run check` **EXIT=0** / `npm test` **45/45 全绿**（`test-nodegen-calibration` 第十次重标定通过）/ `npm run test:browser` **四链 ALL PASS**。专项：泥↔路 4 seed 0 相交；Boss 抽卡模拟（主/副武器 100%）；双管偏移 fire↔draw 等值探针；生存 AI 首帧行为探针；浏览器内世界→屏幕像素级采样（河/泥渲染↔物理错位 <0.3%）。
+
+### §4.86 2026-10-17 电磁炮外观修正（#U31）
+
+- **来源**：用户「电磁炮需要去掉炮管护套、制退器、抽烟器外观件，使用专门的贴图」。
+- **① 程序化分支**：附件禁用白名单原只含机炮（`_isAc`）——电磁炮炮管上会画出常规火炮的抽烟器环/制退器。现 `_isRailgun` 并入同一覆盖（`muzzle:'none' / evac:none / jacket:len:0`），mantlet 炮盾保留。双轨本体（两条深色导轨 + 轨间青色能量线）不变——那是电磁炮的纯功能性造型。
+- **② 贴图通道**：`spriteBarrelImages` 对 `railgun` 类型已映射 `barrel-railgun.png`（1200×171 双轨无附件造型；5 车 JSON 均有 `imgRailgun` 引用），非缺陷。浏览器实测（Leapard_1 + `sprite.enabled=true` + 电磁炮卡）：资源请求 `barrel-railgun.png:200`，渲染为双轨贴图。
+- **③ 顺带修复 `normalizeBarrel`**（`js/tank_halfgeom.js`）：返回对象缺 `imgStandard/imgAutocannon/imgRailgun/imgVehicle` 四个贴图路径键 ⇒ `applyTankConfig` 经 normalize 后贴图引用被静默剥离，**设计器「读取→保存」一次即永久删除**（与 §4.55 #L3 的 sprite 未知键同类）。现四键透传保留。这是贴图通道此前「看似未生效」的真实根因之一。
+- **验证（三链）**：`npm run check` EXIT=0 / `npm test` 45/45 / `test:browser` 四链 ALL PASS。专项：程序化渲染探针（standard 带 ring/single/jacket 附件、railgun 纯双轨）；浏览器端到端（贴图通道激活 + 无 JS 错误）。
