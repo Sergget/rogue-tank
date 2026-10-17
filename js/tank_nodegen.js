@@ -2381,7 +2381,6 @@ function pruneOverlappingCovers(covers, opts) {
         const eb = _getCached(b);
         if (!_aabbOverlap(ea, eb)) continue;                // AABB 不交 ⇒ 必不重叠
         // #U16：地形↔水域（ground↔liquid）用更严阈值，其余维持 ≥1/3
-        // #U16：地形↔水域（ground↔liquid）用更严阈值，其余维持 ≥1/3。
         // #U26（2026-10-17）：mud↔road 同样用严阈值——泥潭压路是用户可感知的「生效位置
         //   与贴图不符」（路面有 +10km/h 加成，泥 0.4 减速，二者叠加时行为以 road 屏蔽，
         //   但视觉上是「泥在路中间」）。road 的 tierGroup='ground' 与 mud 同组，
