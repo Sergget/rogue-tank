@@ -875,8 +875,12 @@ const RULES = {
     dazedProbability: 0.3,          // 模块伤害触发惊慌而非直接进入 stun 的概率
     alertRadius: 600,               // 警觉传播半径（px）：敌对 AI 被击中时，该半径内友邻一并警觉（propagateAlert）
     // #S2 五层级警觉（2026-10-15）：声音传播参数
-    shotNoiseRadius: 900,          // 玩家开火枪声传播半径（px）；railgun/autocannon 为 1200
-    impactNoiseRadius: 180,        // 近失弹落点声传播半径（px）
+    // #U4（2026-10-17 用户反馈「被攻击、近失弹、玩家开火在很近的距离上才会反应」）：
+    //   原值相对交战尺度偏小（engageRange 520、triggerDistBase 700、strip 节点 17280 宽）——
+    //   近失弹 180px 尤其过紧（炮弹落点需几乎贴身才被听见）。现整体上调一档，使「枪声/落点」
+    //   在常见交战距离即可触发警觉调查；数值仍显著小于节点尺寸，不会全图联动。
+    shotNoiseRadius: 1100,         // 玩家开火枪声传播半径（px）；railgun/autocannon 为 1400
+    impactNoiseRadius: 420,        // 近失弹落点声传播半径（px）——原 180，过紧致「贴近才反应」
     suspiciousTimeout: 8.0,        // suspicious 状态无新声音后降级回 calm 的秒数
     // #I4（2026-09-21 用户裁定「boss 几乎完全是站桩等玩家」）：Boss 随机走位层——
     // 周期性在玩家周围随机选点（环绕/侧移），车体驶向该点（炮塔照常锁定玩家开火），

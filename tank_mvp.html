@@ -3998,12 +3998,15 @@ function update(dt){
   if(!isClearing && player && player._apsT > 0) updateAps(player, dt);
   // [P-28] 原地过滤保持数组引用稳定——fireCtx.shells/impacts/bounceFx 由事件处理器跨帧持有，
   // 若用 `arr = arr.filter(...)` 重赋值会让 fireCtx 持有过期引用（症状：有火光无炮弹）
-  // #S2 近失弹：玩家/友军炮弹死亡（未命中）时，180px 内敌对 AI 听到落点声 → suspicious
+  // #S2 近失弹：玩家/友军炮弹死亡（未命中）时，落点声范围内的敌对 AI 听到 → suspicious
+  // #U4（2026-10-17）：半径改由 RULES.ai.impactNoiseRadius 单一口径提供（原硬编码 180，
+  //   使 RULES 里的配置形同虚设、且过紧导致「贴近才反应」）。
   for(let i=shells.length-1;i>=0;i--){
     const _s = shells[i];
     if(_s.dead){
       if(_s.shooter && (_s.shooter.team === 'player' || _s.shooter.team === 'ally') && !_s._didHit){
-        if(typeof emitShotNoise === 'function') emitShotNoise(entities, _s.x, _s.y, 180, 'impact');
+        const _ir = (typeof RULES !== 'undefined' && RULES.ai && RULES.ai.impactNoiseRadius) || 420;
+        if(typeof emitShotNoise === 'function') emitShotNoise(entities, _s.x, _s.y, _ir, 'impact');
       }
       shells.splice(i,1);
     }
@@ -4890,19 +4893,29 @@ function y2(p, q){ return q.y - p.y; }
 // #1（2026-10-16）：道路为连续多边形，直接填充多边形（交叉处自然合并为路口）。
 function _strokeGroundPaths(g, chains){
   g.lineJoin = 'round';
-  // 第 1 遍：路床基底（多边形外扩 4px 描边）+ 沥青主路面（多边形填充，交叉处合并）
+  // #U9（2026-10-17 修复）：路床/沥青改**分遍绘制**——逐组「描边→填充」交替时，后一组的
+  //   深色路缘会盖在前一组已铺的沥青上，交叉口处形成可见接缝带（用户实测「道路路口又回到了
+  //   2 条路一上一下重叠的状态」）。现改为：先把所有组的路缘一次性描完，再统一填充沥青，
+  //   交叉处沥青自然合并为同一块路面，路缘只在最外缘可见。
+  //   第 1 遍：路缘（深色，外扩 4px）
+  g.strokeStyle = '#32302b';
+  g.lineWidth = 8;
   for(const p of chains){
     if(!p.poly || p.poly.length < 6) continue;
     g.beginPath();
     g.moveTo(p.poly[0][0], p.poly[0][1]);
     for(let i = 1; i < p.poly.length; i++) g.lineTo(p.poly[i][0], p.poly[i][1]);
     g.closePath();
-    // 路缘：深色描边
-    g.strokeStyle = '#32302b';
-    g.lineWidth = 8;
     g.stroke();
-    // 沥青：填充
-    g.fillStyle = '#58554e';
+  }
+  // 第 2 遍：沥青主路面（多边形填充，交叉处合并）
+  g.fillStyle = '#58554e';
+  for(const p of chains){
+    if(!p.poly || p.poly.length < 6) continue;
+    g.beginPath();
+    g.moveTo(p.poly[0][0], p.poly[0][1]);
+    for(let i = 1; i < p.poly.length; i++) g.lineTo(p.poly[i][0], p.poly[i][1]);
+    g.closePath();
     g.fill();
   }
   // 第 2 遍：中心虚线（沿中心线），在路口处断线

@@ -417,10 +417,13 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   }
   // #S2：开火 noise —— 射手为玩家/友军时，敌对 AI 听到枪声（suspicious）。
   // 音量半径按武器类型：railgun/autocannon 更响。
+  // #U4（2026-10-17）：半径改由 RULES.ai.shotNoiseRadius 单一口径派生（原硬编码 900/1200，
+  //   与 RULES 脱钩；上调后此处自动跟随）。重武器倍率保持 1.27×（1200/900 的原始比例）。
   const _emitNoise = c.emitShotNoise || _G('emitShotNoise', null);
   if(_emitNoise && shooter && (shooter.team === 'player' || shooter.team === 'ally')){
     const _wtype = shooter.weapons && shooter.weapons.primary && shooter.weapons.primary.type;
-    const _loud = (_wtype === 'railgun' || _wtype === 'autocannon') ? 1200 : 900;
+    const _base = (typeof RULES !== 'undefined' && RULES.ai && RULES.ai.shotNoiseRadius) || 1100;
+    const _loud = (_wtype === 'railgun' || _wtype === 'autocannon') ? Math.round(_base * 1.27) : _base;
     try { _emitNoise(tipP.x, tipP.y, _loud, 'shot'); } catch(e){}
   }
   return true;

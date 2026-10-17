@@ -1015,9 +1015,14 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
   const baseAng = rng() * Math.PI * 2;
   const out = [];
   // #1（2026-10-16）：泥潭与道路完全互斥——候选位置若压住道路则跳过（换角度重试）
-  const roads = (outCovers || []).filter(c => c.tier === 'road');
+  // #U16（2026-10-17）：**同时避让水域**（river/water）——原实现只避路，泥潭常压在水面上
+  //   （实测 8 局×3 节点残留 mud+river 重叠 180 对，是「元素间大量重合」的最大来源）。
+  //   泥潭为地面贴花，压水无战术意义且视觉突兀；prune 因采样阈值（<1/3 互入）也消不掉浅交叠。
+  //   注意：只避 road/river/water 三类「有实体语义」的地形；mud↔mud 之间的浅搭接仍允许
+  //   （同层贴花叠放视觉无害，且硬避会让泥潭无处可放、破坏「地形标签必产出」契约）。
+  const avoidCovers = (outCovers || []).filter(c => c.tier === 'road' || c.tier === 'river' || c.tier === 'water');
   const hitsRoad = (x, y, w, h) => {
-    for (const r of roads) {
+    for (const r of avoidCovers) {
       // AABB 粗判 + 多边形精判（road 有 verts）
       if (Math.abs(x - r.x) > (w + r.w) / 2 || Math.abs(y - r.y) > (h + r.h) / 2) continue;
       if (r.verts) {
@@ -1031,7 +1036,10 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
         }
         if (inside) return true;
       } else {
-        return true;  // 无 verts，按 AABB 算重叠
+        // 无 verts：按 OBB 精判（river 段为旋转矩形）
+        const a = -(r.angle || 0), ca = Math.cos(a), sa = Math.sin(a);
+        const lx = (x - r.x) * ca - (y - r.y) * sa, ly = (x - r.x) * sa + (y - r.y) * ca;
+        if (Math.abs(lx) <= (r.w || 0) / 2 && Math.abs(ly) <= (r.h || 0) / 2) return true;
       }
     }
     return false;
@@ -2279,6 +2287,19 @@ function pruneOverlappingCovers(covers, opts) {
     for (const p of sb) if (_pointInPrunePoly(p, polyA)) inA++;
     return inB >= 3 || inA >= 3;   // ≥1/3 采样点互入 = 显著重叠
   };
+  // #U16（2026-10-17）：**地形↔水域用更严阈值**（任一采样点互入即算重叠）。
+  //   地面贴花（mud）与 liquid（river/water）的浅交叠在 ≥1/3 阈值下几乎永不触发，
+  //   实测单节点 mud↔river 相交达 64 对，是「元素间大量重合」的最大来源（用户反馈）。
+  //   两者均为低优先地形，浅交叠无战术意义却视觉突兀，故对这类组合降到 ≥1。
+  //   其余组合维持 ≥3（保持既有校准基线与「地形标签必产出」契约不变）。
+  const _isGroundTier = t => !!(RULES && RULES.coverTiers && RULES.coverTiers[t] && RULES.coverTiers[t].tierGroup === 'ground');
+  const _isLiquidTier = t => !!(RULES && RULES.coverTiers && RULES.coverTiers[t] && RULES.coverTiers[t].tierGroup === 'liquid');
+  const sigOverlapStrict = (sa, polyA, sb, polyB) => {
+    let inB = 0, inA = 0;
+    for (const p of sa) if (_pointInPrunePoly(p, polyB)) inB++;
+    for (const p of sb) if (_pointInPrunePoly(p, polyA)) inA++;
+    return inB >= 1 || inA >= 1;
+  };
   // 平移消叠（2026-09-14 修订）：优先把败者平移到附近空位（环形候选点，避开一切其他元素），
   // 保住「地形标签必产出」等数量契约；候选全占满才整株移除。
   const tryNudge = (loser, others) => {
@@ -2337,7 +2358,13 @@ function pruneOverlappingCovers(covers, opts) {
         if (a.groupId && a.groupId === b.groupId) continue;  // 同链搭接豁免
         const eb = _getCached(b);
         if (!_aabbOverlap(ea, eb)) continue;                // AABB 不交 ⇒ 必不重叠
-        if (!sigOverlap(ea.sa, ea.poly, eb.sa, eb.poly)) continue;
+        // #U16：地形↔水域（ground↔liquid）用更严阈值，其余维持 ≥1/3
+        const _strictPair = (_isGroundTier(a.tier) && _isLiquidTier(b.tier)) ||
+                            (_isLiquidTier(a.tier) && _isGroundTier(b.tier));
+        const _hit = _strictPair
+          ? sigOverlapStrict(ea.sa, ea.poly, eb.sa, eb.poly)
+          : sigOverlap(ea.sa, ea.poly, eb.sa, eb.poly);
+        if (!_hit) continue;
         found = true;
         const pa = prio(a), pb = prio(b);
         const loser = (pa > pb) ? b : (pb > pa ? a : (i < j ? b : a));   // 高优先级胜；同优先级留先放置者
@@ -3355,6 +3382,48 @@ function generateStrip(difficulty, options) {
         tier: rv.tier || 'river', groupId: rv.groupId,
         verts: rv.verts || null
       });
+    }
+  }
+
+  // #U16（2026-10-17）：**地形↔水域互斥**——strip 级河流在片生成之后才追加，故 `placeMudPatch`
+  //   运行时看不到河流，泥潭会成片压在水面上（实测 8 局×3 节点 385 块泥潭中 103 块与水域交叠，
+  //   占 26.8%，是「元素间大量重合」的最大来源；用户反馈）。prune 因采样阈值与 nudge 语义
+  //   也消不掉（nudge 只是把泥潭挪走，可能又落到另一段河上）。
+  //   此处做确定性收尾：移除与任一 river/water 段 OBB 相交的 mud（地面贴花压水无战术意义，
+  //   视觉突兀）。泥潭为装饰性地面层，移除不影响可玩性；「地形标签必产出」契约由
+  //   placeMudPatch 的避路重试保证（本步只清压水的少数）。
+  {
+    const _waters = covers.filter(c => c.tier === 'river' || c.tier === 'water');
+    if (_waters.length) {
+      const _obbHit = (c1, c2) => {
+        const cs = (c) => {
+          const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2, a = c.angle || 0;
+          const ca = Math.cos(a), sa = Math.sin(a);
+          return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]]
+            .map(([x, y]) => ({ x: c.x + x * ca - y * sa, y: c.y + x * sa + y * ca }));
+        };
+        const A = cs(c1), B = cs(c2);
+        for (const [P, Q] of [[A, B], [B, A]]) {
+          for (let i = 0; i < 4; i++) {
+            const p1 = P[i], p2 = P[(i + 1) % 4];
+            const ax = -(p2.y - p1.y), ay = (p2.x - p1.x);
+            let mnA = Infinity, mxA = -Infinity, mnB = Infinity, mxB = -Infinity;
+            for (const p of A) { const d = p.x * ax + p.y * ay; if (d < mnA) mnA = d; if (d > mxA) mxA = d; }
+            for (const p of B) { const d = p.x * ax + p.y * ay; if (d < mnB) mnB = d; if (d > mxB) mxB = d; }
+            if (mxA < mnB || mxB < mnA) return false;
+          }
+        }
+        return true;
+      };
+      for (let i = covers.length - 1; i >= 0; i--) {
+        const c = covers[i];
+        if (!c || c.tier !== 'mud') continue;
+        for (const w of _waters) {
+          // AABB 粗判后 SAT 精判
+          if (Math.abs(c.x - w.x) > (c.w + w.w) / 2 || Math.abs(c.y - w.y) > (c.h + w.h) / 2) continue;
+          if (_obbHit(c, w)) { covers.splice(i, 1); break; }
+        }
+      }
     }
   }
 

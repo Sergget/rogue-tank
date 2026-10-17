@@ -321,8 +321,42 @@ const ASSET_DEFS = {
 const ASSET_IMAGES = new Map();  // key（含 '<key>_canopy'）-> HTMLImageElement | null（null=未加载/不可用）
 const ASSET_CACHE  = new Map();  // `${key}:${layer}:${qw}x${qh}` -> { canvas, ax, ay }
 
+// #U1（2026-10-17）：**资产目录探针**——`assets/` 里没有地图元素 PNG 是**预期状态**
+//   （见 assets/README.md「当前为空 = 全部走程序化 bake 占位」），但每个 key 各发一次
+//   `<img>` 请求会让控制台刷满 7~14 条 404（用户反馈「boss 战控制台报错…无法进入游戏」，
+//   实为噪声而非阻塞）。此处先用**单次**探测确认目录是否有资产：命中则正常逐 key 加载，
+//   未命中则标记「本会话无资产」并静默跳过，控制台只剩 1 条 404（或 0 条——探测用 fetch
+//   且吞掉错误）。程序化 bake 回退路径完全不变，视觉零差异。
+let _assetDirHasFiles = null;     // null=未知（探测中/未探测）；true/false=结论
+let _assetProbeStarted = false;
+
+function _probeAssetDir(){
+  if(_assetProbeStarted) return;
+  _assetProbeStarted = true;
+  if(typeof fetch !== 'function') { _assetDirHasFiles = true; return; }   // 无 fetch 环境：按有资产处理
+  // 探测首个注册键（若目录为空，这一次请求即可判定；比逐 key 探测省 13 次 404）
+  const probeKey = Object.keys(ASSET_DEFS)[0];
+  if(!probeKey){ _assetDirHasFiles = false; return; }
+  try {
+    fetch('assets/' + probeKey + '.png', { method: 'HEAD' })
+      .then(res => {
+        _assetDirHasFiles = !!res && res.ok;
+        if(_assetDirHasFiles) preloadAssets();   // 有资产才真正逐键加载
+      })
+      .catch(() => { _assetDirHasFiles = false; });
+  } catch(e){ _assetDirHasFiles = false; }
+}
+
 // 返回已加载图片（无图/未加载/Node 环境返回 null；未加载会发起异步加载）
+// #U1：探针未完成（_assetDirHasFiles === null）期间**一律返回 null**（走程序化 bake、不发请求），
+//   避免「探针还在飞、drawAsset 已发起 <img>」的竞态导致 404 依旧刷屏。探针完成后若目录确有
+//   资产，再逐键加载——首批几帧仍用 bake 占位（与旧行为「图片异步就绪前用 bake」一致）。
 function assetImage(key){
+  if(_assetDirHasFiles === null){
+    _probeAssetDir();
+    return null;
+  }
+  if(_assetDirHasFiles === false) return null;   // 目录为空 → 永久走 bake
   if(!ASSET_IMAGES.has(key)) loadAssetImage(key);
   const img = ASSET_IMAGES.get(key);
   return img || null;
