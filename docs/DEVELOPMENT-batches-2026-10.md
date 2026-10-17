@@ -737,3 +737,16 @@
 - **基线联动**：校准第十一次重标定（`scripts/test-nodegen-calibration.js` BASE 表 + 头注，cov +0.003~+0.008、minw 整体上升）；`test-nodegen.js` 两处修正——泥斑环带断言中心由 W/2,H/2（0 原点帧假设，坐标系错位）改为世界帧 (600,350)；村庄建筑上限 20→24（避路收紧后不再被挤删，22 栋）。
 - **细则归口**：`specs/map.md` §19。
 - **验证（三链）**：`npm run check` EXIT=0 / `npm test` 45/45 / `test:browser` 四链 ALL PASS（exit=0）。专项：60 seed ×3 scale 压路扫描 0；strip 3-seed 密度 ≥10/屏恢复达标。
+
+### §4.88 2026-10-17 strip 河流互斥与避路收尾（#U33）
+
+- **来源**：用户「河流不应该交叉、干涉」。
+- **量化复现**：40 seed strip 扫描，河↔河短段 OBB 相交 **471 段对**（H2 双横贯蜿蜒反相失配交织 / V 多纵贯 x 蜿蜒重叠），40/40 张 strip 全中。
+- **根因**：`placeStripRivers` 的 H2/V 多河形态各自独立生成，无河间互斥；H1T 支流汇入干流（Y 形水体合并）为 #S1 设计内行为，非缺陷。
+- **修复（`js/tank_nodegen.js`）**：
+  - **河↔河互斥** `_riverPairClash`（段级 OBB SAT；AABB 拒收必须用旋转包络半宽——段 w 沿段向，纵河段 w 即纵向，直用 w 判 dx 漏检 V 河交叉）：H2 重试换 Y 后仍交叉弃南河；V 逐条互斥、重试换 baseX 后仍交叉弃后河、**relaxAmp/平移收尾后再查一次**。
+  - **河↔路平行避让**：`relaxAmp` 压河比 >3% 时振幅 ×0.6 重建拉直（保留最低限度蜿蜒）；拉直后仍压路 → `_riverRoadClearance` 算负间隙、`shiftRiver` 整河平移远离最近平行路（间隙 24px 钳界内；**平移判定必须用 `roadCoversToSegments` 短段**——整链 verts 路 OBB 失真，#U32 同源教训）。`pickClearY` halfWin 含 `amp*0.5` 振幅余量、安全余量 80→20（防「全带 d≥1 → pickClearY 退化为贴路选择」）。
+  - **物理极限裁定**：stripH 挤不下双横干道+双横河时弃河（河可缺失，交叉不可接受）。
+- **效果**：河间非法交叉 471 → **0**（残留 3 处逐例核实均为 H1T 设计汇入）；河↔路平行压叠精确口径 6→8/40 seed（量级持平，虚警边缘）。`npm test` 45/45。
+- **细则归口**：`specs/map.md` §20。
+- **验证**：`npm run check` EXIT=0 / `npm test` 45/45 / `test:browser` 四链（见 §4.87 同链）。量化注意：河↔路重叠的粗口径（路 verts 首边角 + 顶点入河段斜 OBB）会虚报 653 段，精确口径（路 verts 世界多边形顶点入河段 OBB）仅个位数——见 specs/map.md §20 验证注意。

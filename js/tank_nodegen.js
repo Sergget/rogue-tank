@@ -819,6 +819,27 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
     return { x: s0.dx, y: s0.dy, w: totalW, h: stripH, angle: 0,
              tier: 'river', segments: segments, groupId: 'strip-river-' + (gid++) };
   };
+  // #U33（2026-10-17 用户「河流不应该交叉、干涉」）：河↔河互斥检测——两条河的短段
+  //   OBB 相交即视为交叉/重叠。H1T 支流**设计上汇入干流**（Y 形水体合并），属合法例外；
+  //   H2 双横贯 / V 多纵贯的相互穿越（蜿蜒反相失配时两河中部交织）全部判非法。
+  //   检测粒度与 buildRiver 短段一致（25% 搭接已计入 w=dist*1.25，SAT 相交即真重叠）。
+  const _riverPairClash = (ra, rb) => {
+    const segA = ra.segments || [], segB = rb.segments || [];
+    for (const sa of segA) {
+      const pa = obbPts(sa.dx, sa.dy, sa.w, sa.h, sa.angle);
+      for (const sb of segB) {
+        // AABB 快速拒收：段 w 沿段向（纵河段 w 即纵向），用旋转包络半宽比较
+        const ea = (sa.w * Math.abs(Math.cos(sa.angle)) + sa.h * Math.abs(Math.sin(sa.angle))) / 2;
+        const eb = (sb.w * Math.abs(Math.cos(sb.angle)) + sb.h * Math.abs(Math.sin(sb.angle))) / 2;
+        const fa = (sa.w * Math.abs(Math.sin(sa.angle)) + sa.h * Math.abs(Math.cos(sa.angle))) / 2;
+        const fb = (sb.w * Math.abs(Math.sin(sb.angle)) + sb.h * Math.abs(Math.cos(sb.angle))) / 2;
+        if (Math.abs(sa.dx - sb.dx) > ea + eb + 4) continue;
+        if (Math.abs(sa.dy - sb.dy) > fa + fb + 4) continue;
+        if (obbPairHits(pa, sa.angle, obbPts(sb.dx, sb.dy, sb.w, sb.h, sb.angle), sb.angle)) return true;
+      }
+    }
+    return false;
+  };
   // 横向控制点：baseY + 正弦蜿蜒
   const hCtrl = (baseY, amp, phase, freq, x0, x1) => {
     const ctrl = [];
@@ -890,11 +911,51 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
     }
     return river.segments.length ? bad / river.segments.length : 0;
   };
+  // #U33b（2026-10-17）：河↔路平行压河收尾——pickClearY 只保证基准 Y 在路稀疏带，但路网
+  //   密集时全带 d≥1（无真稀疏带），选出的 y 本身贴路，蜿蜒 ±amp 摆动即侵入路面。
+  //   两步兜底：① 振幅递减拉直（保留最低限度的自然蜿蜒）；② 拉直后仍压路 → **整河平移**
+  //   远离最近平行路（钳到 strip 界内）。平移量按「路缘到河缘的负间隙」计算。
+  const _riverRoadClearance = (river) => {
+    // 返回 {need: 正=需平移的量, dir: 平移方向(+1/-1)}；以河段中心带为准的保守估计
+    // #U32 同源教训：roadCovers 的 OBB 是整链大 bbox（h 可达 976），直接用 r.y/r.h 判
+    // 「路中心与厚度」完全失真——先还原短段再判。
+    const roadSegs = roadCoversToSegments(roadCovers, roadW || 100);
+    let worst = 0, dir = 1;
+    for (const s of (river.segments || [])) {
+      for (const r of roadSegs) {
+        const sa = s.angle || 0;
+        const ra = r.angle || 0;
+        const dAng = Math.abs(((sa - ra) % Math.PI + Math.PI) % Math.PI);
+        const acute = Math.min(dAng, Math.PI - dAng);
+        if (acute * 180 / Math.PI >= 30) continue;             // 只看平行的路
+        const dy = Math.abs(s.dy - r.y);
+        const need = (s.h + r.h) / 2 + 24 - dy;                // 24px 最小间隙
+        if (need > worst) { worst = need; dir = s.dy > r.y ? 1 : -1; }
+      }
+    }
+    return { need: worst, dir };
+  };
+  const shiftRiver = (river, dy) => {
+    if (!river || !dy) return river;
+    for (const s of river.segments) { s.dy += dy; }
+    return river;
+  };
+  const relaxAmp = (river, buildFn) => {
+    let r = river;
+    for (let k = 0; k < 2 && r; k++) {
+      if (parallelOverlapRatio(r) <= 0.03) break;
+      r = buildFn(k + 1);
+    }
+    return r;
+  };
   if (pattern === 0) {
     // H2：双横贯，一北一南，反相蜿蜒——Y 选路稀疏带，平行重叠超30%则重试
     const amp = stripH * rng.range(0.04, 0.07);
     const ph = rng() * Math.PI * 2, fr = rng.range(1.5, 2.5);
-    const halfWin = thick / 2 + (roadW || 100) / 2 + 80;
+    // #U33b：halfWin 计入蜿蜒振幅余量——否则 pickClearY 只保证基准 Y 清空，河身摆动
+    //   ±amp 后局部仍侵入路面。但余量过宽会把「本可接受的 y」也排除（全带 d≥1 时
+    //   pickClearY 退化为贴路选择）；安全余量收紧到 20，振幅部分交给 relaxAmp 拉直兜底。
+    const halfWin = thick / 2 + (roadW || 100) / 2 + 20 + amp * 0.5;
     const tryBuildH2 = (y1, y2) => {
       const r1 = buildRiver(hCtrl(y1, amp, ph, fr, 0, totalW), thick);
       const r2 = buildRiver(hCtrl(y2, amp, ph + Math.PI, fr, 0, totalW), thick * 0.85);
@@ -906,23 +967,43 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
       y2 = y1 < stripH / 2 ? Math.min(stripH * 0.85, y1 + thick * 3) : Math.max(stripH * 0.55, y1 - thick * 3);
     }
     let [r1, r2] = tryBuildH2(y1, y2);
-    // 重试：平行重叠>30%则换 Y（最多3次）
+    // 重试：平行重叠>30% 或两河交叉（#U33）则换 Y（最多3次）
     for (let attempt = 0; attempt < 3; attempt++) {
       const ratio1 = parallelOverlapRatio(r1);
       const ratio2 = parallelOverlapRatio(r2);
-      if (ratio1 <= 0.3 && ratio2 <= 0.3) break;
+      if (ratio1 <= 0.3 && ratio2 <= 0.3 && !(r1 && r2 && _riverPairClash(r1, r2))) break;
       // 换 Y：在原范围内偏移
       y1 = stripH * rng.range(0.15, 0.45);
       y2 = stripH * rng.range(0.55, 0.85);
       if (Math.abs(y2 - y1) < thick * 3) continue;
       [r1, r2] = tryBuildH2(y1, y2);
     }
+    // #U33：重试后仍交叉 → 弃掉南河（保主河），不再输出交织双河
+    if (r1 && r2 && _riverPairClash(r1, r2)) r2 = null;
+    // #U33b：振幅递减拉直压河段 + 仍压路则整河平移远离最近路
+    r1 = relaxAmp(r1, (k) => buildRiver(hCtrl(y1, amp * Math.pow(0.6, k), ph, fr, 0, totalW), thick));
+    r2 = r2 && relaxAmp(r2, (k) => buildRiver(hCtrl(y2, amp * Math.pow(0.6, k), ph + Math.PI, fr, 0, totalW), thick * 0.85));
+    const _fixShift = (r) => {
+      const cl = _riverRoadClearance(r);
+      if (cl.need > 0) {
+        const ny = r.segments[0].dy + cl.dir * cl.need;
+        const lim = r.segments[0].h / 2;
+        const dy = Math.max(-ny + lim, Math.min(stripH - lim, ny)) - r.segments[0].dy;
+        shiftRiver(r, dy);
+      }
+      return r;
+    };
+    r1 = r1 && _fixShift(r1);
+    r2 = r2 && _fixShift(r2);
+    // 拉直/平移后两河可能重新贴近 → 再查一次交叉
+    if (r1 && r2 && _riverPairClash(r1, r2)) r2 = null;
     if (r1) rivers.push(r1);
     if (r2) rivers.push(r2);
   } else if (pattern === 1) {
     // H1T：横贯干流 + 短支流汇入（或收束成湖）——干流 Y 选路稀疏带，重试3次
-    const halfWinH1 = thick / 2 + (roadW || 100) / 2 + 80;
     const amp = stripH * rng.range(0.04, 0.07);
+    // #U33b：halfWin 计入振幅余量（同 H2；余量收紧防 pickClearY 全带退化）
+    const halfWinH1 = thick / 2 + (roadW || 100) / 2 + 20 + amp * 0.5;
     const ph = rng() * Math.PI * 2, fr = rng.range(1.5, 2.5);
     let baseY = pickClearY(stripH * 0.30, stripH * 0.70, halfWinH1);
     let trunk = buildRiver(hCtrl(baseY, amp, ph, fr, 0, totalW), thick);
@@ -930,6 +1011,17 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
       if (parallelOverlapRatio(trunk) <= 0.3) break;
       baseY = stripH * rng.range(0.30, 0.70);
       trunk = buildRiver(hCtrl(baseY, amp, ph, fr, 0, totalW), thick);
+    }
+    // #U33b：振幅递减拉直压河段 + 仍压路则整河平移
+    trunk = relaxAmp(trunk, (k) => buildRiver(hCtrl(baseY, amp * Math.pow(0.6, k), ph, fr, 0, totalW), thick));
+    if (trunk) {
+      const cl = _riverRoadClearance(trunk);
+      if (cl.need > 0) {
+        const ny = trunk.segments[0].dy + cl.dir * cl.need;
+        const lim = trunk.segments[0].h / 2;
+        const dy = Math.max(-ny + lim, Math.min(stripH - lim, ny)) - trunk.segments[0].dy;
+        shiftRiver(trunk, dy);
+      }
     }
     if (trunk) rivers.push(trunk);
     // 支流：从上/下边出发，中途汇入干流
@@ -998,14 +1090,41 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
     }
   } else {
     // V：纵贯，1~2 条（#1：按宽度缩放，每 ~2500px 一条）
+    // #U33：双纵贯时逐条避让——后建河与先建河交叉则重试（换 baseX），仍交叉则弃掉后河
     const n = Math.max(1, Math.min(4, Math.round(totalW / 2500)));
     for (let i = 0; i < n; i++) {
       const baseX = totalW * (n === 1 ? rng.range(0.35, 0.65)
         : (i === 0 ? rng.range(0.25, 0.40) : rng.range(0.60, 0.75)));
       const amp = totalW * 0.015 + stripH * rng.range(0.02, 0.04);
-      const r = buildRiver(
+      let r = buildRiver(
         vCtrl(baseX, amp, rng() * Math.PI * 2, rng.range(1.0, 2.0), 0, stripH),
         thick * (i === 0 ? 1 : 0.85));
+      // #U33：与已有河交叉 → 重试换 baseX（最多2次），仍交叉弃掉
+      for (let attempt = 0; attempt < 2 && r; attempt++) {
+        const clash = rivers.some(prev => _riverPairClash(prev, r));
+        if (!clash) break;
+        const bx2 = totalW * rng.range(0.30, 0.70);
+        r = buildRiver(
+          vCtrl(bx2, amp, rng() * Math.PI * 2, rng.range(1.0, 2.0), 0, stripH),
+          thick * (i === 0 ? 1 : 0.85));
+      }
+      if (r && rivers.some(prev => _riverPairClash(prev, r))) r = null;
+      // #U33b：振幅递减拉直压河段（vCtrl 需要重掷 phase/fr——为确定性保留原参数，只缩 amp）
+      if (r) {
+        const _ph = rng() * Math.PI * 2, _fr = rng.range(1.0, 2.0);
+        r = relaxAmp(r, (k) => buildRiver(vCtrl(baseX, amp * Math.pow(0.6, k), _ph, _fr, 0, stripH),
+          thick * (i === 0 ? 1 : 0.85)));
+        // 纵河的「平行路」是纵干道：X 向平移远离（_riverRoadClearance 的 dy 对纵河即 dx）
+        const cl = _riverRoadClearance(r);
+        if (cl.need > 0) {
+          const nx = r.segments[0].dx + cl.dir * cl.need;
+          const lim = r.segments[0].w / 2;
+          const dxs = Math.max(lim, Math.min(totalW - lim, nx)) - r.segments[0].dx;
+          for (const sg of r.segments) { sg.dx += dxs; }
+        }
+        // #U33：拉直/平移可能把河推到别的河上——收尾再查一次，命中弃掉
+        if (r && rivers.some(prev => _riverPairClash(prev, r))) r = null;
+      }
       if (r) rivers.push(r);
     }
   }
