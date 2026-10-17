@@ -154,3 +154,50 @@ try {
 
 console.log(fails ? `\n${fails} 项失败` : '\n全部通过');
 process.exitCode = fails ? 1 : 0;
+
+// ---------- (d) 网页端手动出图流程：--pick / --only / 任意文件名 ----------
+// 模拟「网页下载的图名字很乱、也可能只出了其中一张」的真实情况：
+//   --pick 指定 4 选 1 → --only 只处理这一批 → 落盘 → 质心验收通过；
+//   未出的 key 既不报告也不落盘（保持程序化回退）。
+{
+  const manualDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-covergen-manual-'));
+  try {
+    const gen = spawnSync(process.execPath, [
+      path.join(ROOT, 'tools', 'gen-covers.mjs'), '--provider', 'mock', '--force', '--out', manualDir
+    ], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
+    ok(gen.status === 0, 'mock 出图（手动流程夹具）成功');
+    // 名字改成网页下载的典型样子（带空格与括号）——脚本必须原样接受
+    fs.renameSync(path.join(manualDir, 'tree.png'), path.join(manualDir, 'tree v2 (1).png'));
+
+    const env = Object.assign({}, process.env, {
+      PYTHONPATH: process.env.PYTHONPATH || path.join(ROOT, 'tmp', 'pylibs')
+    });
+    const outDir = path.join(manualDir, 'out');
+    const r = spawnSync('python', [
+      path.join(ROOT, 'scripts', 'prepare_covers.py'),
+      '--only', 'tree', '--pick', 'tree=tree v2 (1).png',
+      '--inplace', '--src', manualDir, '--out', outDir
+    ], { cwd: ROOT, encoding: 'utf8', timeout: 120000, env });
+    if (/缺少 (Pillow|numpy)/.test(r.stderr || '')) {
+      console.log('… 跳过手动流程校验：本机未装 Pillow/numpy');
+    } else {
+      ok(r.status === 0, `--pick/--only 手动流程退出码 0（实际 ${r.status}）`);
+      if (r.status !== 0) console.error(r.stdout || r.stderr);
+      const written = fs.existsSync(outDir) ? fs.readdirSync(outDir).filter(f => f.endsWith('.png')) : [];
+      ok(written.length === 1 && written[0] === 'tree.png',
+        `--only 只落盘被选中的 1 张（实际 ${JSON.stringify(written)}）`);
+      const chk = spawnSync('python', [
+        path.join(ROOT, 'scripts', 'covers-anchor-check.py'), '--json', '--src', outDir
+      ], { cwd: ROOT, encoding: 'utf8', timeout: 120000, env });
+      const rows = (chk.stdout || '').split(String.fromCharCode(10))
+        .map(l => l.replace(String.fromCharCode(13), '').trim())
+        .filter(l => l.startsWith('{')).map(l => JSON.parse(l));
+      const tree = rows.find(x => x.key === 'tree');
+      ok(!!tree && tree.status === 'OK', `手动流程产物通过质心验收（${tree ? tree.dist : '?'}px）`);
+      const absent = rows.filter(x => x.status === 'ABSENT').length;
+      ok(absent === 9, `未出的 9 个 key 保持 ABSENT（走程序化回退，不算失败），实际 ${absent}`);
+    }
+  } finally {
+    fs.rmSync(manualDir, { recursive: true, force: true });
+  }
+}

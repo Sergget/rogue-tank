@@ -4,9 +4,14 @@
 > ComfyUI 本地因硬件成本**否决**；走**托管 API**（Gemini / Replicate / OpenAI 图像），
 > 或保持纯程序化（`assets/` 为空即自动走 bake，视觉已由 `#U11` 补齐地面纹理与地物投影）。
 >
-> **一键出图**：`node tools/gen-covers.mjs --provider gemini`（凭据只从进程环境或仓库根
-> `.env` 读取，脚本不打印、不落副本）。不带凭据时用 `--provider mock` 走仓库自己的烘焙
-> 产物，验证「出图 → 后处理 → 落盘 → 游戏渲染」整条链路。
+> **两条路，任选其一**：
+> 1. **网页端手动出图（无需 API Key）** → 见 **`tools/cover-gen-manual.md`**：逐件提示词、
+>    各平台小抄、下载后 30 秒自检、分批出图顺序。
+> 2. **脚本一键出图**：`node tools/gen-covers.mjs --provider gemini`（凭据只从进程环境或
+>    仓库根 `.env` 读取，脚本不打印、不落副本）。不带凭据时用 `--provider mock` 走仓库
+>    自己的烘焙产物，验证「出图 → 后处理 → 落盘 → 游戏渲染」整条链路。
+>
+> 两条路的**后处理与验收完全相同**（`prepare_covers.py` + `covers-anchor-check.py`）。
 > 生产约束见 `tools/sprite-audit.md` §6：生成图只做**美术源图**，必须经过
 > 缩放/清底 → 锚点验收 → 游戏内确认，才能进 `assets/`。
 
@@ -159,14 +164,16 @@ short broken branch stubs, bark texture, centered horizontal
 ## 5. 后处理流水线（必须走完才能进游戏）
 
 ```bash
-# 1) 出图 → tmp/covers-src/<key>.png（不出网的自检：--provider mock）
-node tools/gen-covers.mjs --provider gemini --variants 4
+# 1) 出图 → tmp/covers-src/<key>.png
+#    脚本路径：node tools/gen-covers.mjs --provider gemini --variants 4
+#    手动路径：网页出图下载后放进 tmp/covers-src/（文件名随意，用 --pick 指定）
 
 # 2) 报告：缩放/清底/PNG-8 试算（不写盘）
 PYTHONPATH="$PWD/tmp/pylibs" python scripts/prepare_covers.py --dry
 
 # 3) 落盘到 assets/（git 可回滚；确认后再加 --inplace）
 PYTHONPATH="$PWD/tmp/pylibs" python scripts/prepare_covers.py --inplace
+#    分批出图：加 --only <key> 只处理这一批；4 选 1 用 --pick <key>=<file>
 
 # 4) 锚点/尺寸/质心验收（图片通道的真实对齐基准）
 PYTHONPATH="$PWD/tmp/pylibs" python scripts/covers-anchor-check.py

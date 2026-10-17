@@ -7,7 +7,11 @@
 **A. 纯程序化（默认，零资产）**：本目录留空即可，运行时自动走 `js/tank_assets.js` 的
 离线烘焙回退（2026-10-17 #U11 起地面纹理与地物投影已补齐，空仓观感可接受）。
 
-**B. 托管 API 出图 + 本地后处理**（ComfyUI 已否决）：
+**B. 出图 + 本地后处理**（ComfyUI 已否决）：
+
+- **没有 API Key** → 按 `tools/cover-gen-manual.md` 在网页端手动出图，下载后放进
+  `tmp/covers-src/`，再跑下面第 2~4 行（可加 `--only <key>` 分批、`--pick` 4 选 1）。
+- 有 API Key → 跑完整链：
 
 ```bash
 node tools/gen-covers.mjs --provider gemini --variants 4   # 出到 tmp/covers-src/

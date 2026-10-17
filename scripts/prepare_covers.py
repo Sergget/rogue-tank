@@ -32,7 +32,15 @@ fallen（58x9）；tree_canopy 无固定名义尺寸（§0 按包围盒 + 锚点
     python scripts/prepare_covers.py --dry --json           # 机器可读报告
     python scripts/prepare_covers.py --src tmp/covers-src --colors 16 --inplace
 
-退出码：0 全 OK；1 有 MISSING/ERROR（缺图或源图损坏）。
+网页端手动出图（无 API Key）时：
+    # 把网页下载的图放进 tmp/covers-src/，名字随意（如 tree_canopy_v3.png），
+    # 用 --pick 指定「4 选 1」的结果，用 --only 只处理这一批：
+    python scripts/prepare_covers.py --pick tree_canopy=tree_canopy_v3.png \
+        --only tree_canopy --inplace
+    # 或直接把图改名为 <key>.png（tree_canopy.png）后省略 --pick
+
+退出码：0 全 OK（未给 --only 时 MISSING 也按失败处理，防漏图静默通过）；
+        1 有 MISSING/ERROR。给了 --only 时只校验被选中的 key。
 落盘规则：默认只报告不写盘；--inplace 才写 assets/<key>.png；
 --dry 显式给出时一律不写（--dry 优先于 --inplace）。
 """
@@ -266,6 +274,11 @@ def main():
     ap.add_argument('--dry', action='store_true', help='只报告不写盘（默认行为；显式给出时优先于 --inplace）')
     ap.add_argument('--json', action='store_true', help='以 JSON 行输出（机器可读）')
     ap.add_argument('--out', default='assets', help='落盘目录（相对仓库根，默认 assets；测试用临时目录）')
+    ap.add_argument('--only', action='append', default=[], metavar='KEY',
+                    help='只处理指定 key（可重复）。分批出图时用，未列出的 key 既不报告也不落盘')
+    ap.add_argument('--pick', action='append', default=[], metavar='KEY=FILE',
+                    help='网页端手动出图时按「4 选 1」指定源文件（相对 --src），可重复。'
+                         '例：--pick tree_canopy=tree_canopy_v3.png；未指定的 key 仍回退 <key>.png')
     args = ap.parse_args()
 
     if not (0 <= args.colors <= 256) or args.colors == 1:
@@ -274,10 +287,26 @@ def main():
     write = bool(args.inplace and not args.dry)
 
     src_dir = args.src if os.path.isabs(args.src) else os.path.join(ROOT, args.src)
+    picks = {}
+    for item in args.pick:
+        k, sep, f = item.partition('=')
+        k, f = k.strip(), f.strip()
+        if not sep or not k or not f:
+            sys.exit(f'--pick 格式应为 KEY=FILE，收到：{item}')
+        if k not in NOMINAL:
+            sys.exit(f'--pick 的 key 未知：{k}（可用：{", ".join(ORDER)}）')
+        picks[k] = f
+    only = set()
+    for k in args.only:
+        k = k.strip()
+        if k not in NOMINAL:
+            sys.exit(f'--only 的 key 未知：{k}（可用：{", ".join(ORDER)}）')
+        only.add(k)
+    keys = [k for k in ORDER if not only or k in only]
     rows = []
-    for key in ORDER:
+    for key in keys:
         spec = NOMINAL[key]
-        src_path = os.path.join(src_dir, key + '.png')
+        src_path = os.path.join(src_dir, picks.get(key, key + '.png'))
         info, canvas = process_one(key, spec, src_path)
         info['dst'] = f'{args.out}/{key}.png'
         blob = None
@@ -294,11 +323,14 @@ def main():
             info['written'] = False
         rows.append(info)
 
-    bad = [r for r in rows if r['status'] != 'OK']
+    # 只处理部分 key 时，缺图不算失败（分批出图的正常状态）
+    # 只处理部分 key 时，缺图不算失败（分批出图的正常状态）
+    bad = [r for r in rows if r['status'] not in ('OK', 'MISSING')] if only           else [r for r in rows if r['status'] != 'OK']
+    missing = [r for r in rows if r['status'] == 'MISSING']
     if args.json:
         for r in rows:
             print(json.dumps(r, ensure_ascii=False))
-        print(json.dumps(dict(summary=dict(total=len(rows), ok=len(rows) - len(bad),
+        print(json.dumps(dict(summary=dict(total=len(rows), ok=len(rows) - len(bad) - len(missing),
                                            bad=len(bad), written=write,
                                            colors=args.colors, src=args.src)),
                          ensure_ascii=False))
@@ -318,7 +350,7 @@ def main():
                   f'{ae["err"]:>8.2f}px  {r["status"]}{(" " + flag) if flag else ""}')
         print('-' * len(hdr))
         print(f'源: {args.src}  colors={args.colors}  '
-              f'{"已写回 assets/（git 可回滚）" if write else "（报告模式，未写盘；确认后加 --inplace 落盘）"}')
+              f'{("已写回 " + args.out + "/") if write else "（报告模式，未写盘；确认后加 --inplace 落盘）"}')
         off = [r for r in rows if abs(r['anchor_err']['err']) >= 2.0]
         if off:
             print('锚点偏置（信息项，非缺陷；锚点允许不在画布中心）：')
@@ -328,8 +360,12 @@ def main():
                       f'{"，锚点落在画布外" if ae["outside"] else ""}')
 
     if bad:
-        sys.exit('缺图/坏图 %d 张（%s）：先按 tools/cover-gen-prompts.md §3~§4 出图再跑 --inplace'
+        sys.exit('坏图/缺图 %d 张（%s）：先按 tools/cover-gen-prompts.md §3~§4 出图，'
+                 '或在 --src 目录放 <key>.png 再跑 --inplace'
                  % (len(bad), ', '.join(r['key'] for r in bad)))
+    if missing and not only:
+        print('\n提示：以上 MISSING 项会继续走程序化回退，不影响游戏运行；'
+              '分批出图时可加 --only <key> 只处理已备好的图。')
     return 0
 
 
