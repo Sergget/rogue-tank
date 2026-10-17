@@ -57,26 +57,30 @@ except ImportError:  # pragma: no cover
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# key -> 名义画布宽高 + ASSET_DEFS 实测锚点（§0 表格逐字转录）。
-# 锚点 = 精灵内"掩体中心"应处像素；验收允差 ±2px（cover-gen-prompts.md §6）。
-NOMINAL = {
-    'soft':           dict(w=170, h=10, ax=85.75, ay=5.75),
-    'barricade':      dict(w=64,  h=28, ax=32.75, ay=14.75),
-    'stump':          dict(w=24,  h=18, ax=12.75, ay=9.75),
-    'rubble':         dict(w=38,  h=17, ax=20.04, ay=7.75),
-    'bush':           dict(w=56,  h=34, ax=28.0,  ay=17.0),
-    'bush_canopy':    dict(w=56,  h=34, ax=24.64, ay=19.2),
-    'tree':           dict(w=24,  h=18, ax=15.15, ay=15.15),
-    # tree_canopy：§0 无固定尺寸（包围盒 + 锚点约定）。R = max(24,18)*1.4 = 33.6，
-    # 内容半径 R*0.85 ≈ 28.6；取 78x78 ≈ 2*anchor(39.26)，中心 (39,39) ≈ 锚点。
-    'tree_canopy':    dict(w=78,  h=78, ax=39.26, ay=39.26),
-    'fallen':         dict(w=58,  h=9,  ax=33.55, ay=7.95),
-    'fallen_canopy':  dict(w=58,  h=9,  ax=1.0,   ay=15.9),
-}
+# key -> 图片通道基准（画布宽高 + 画布内锚点）。
+# **单一来源 `tools/cover-refs.json`**（由 `node tools/dump-cover-refs.mjs` 从运行时烘焙
+# 代码导出）：图片通道 `drawAssetSprite` 直接 `drawImage(img, x-ax*sx, …)`，故图片必须
+# 与「程序化 bake 的内容包围盒」同尺寸，锚点也必须是**画布内**坐标。
+# 早期版本这里手抄的是 `ASSET_DEFS.w/h + anchorX/anchorY`（那是 bake 的**输入**口径），
+# 与图片通道不符：tree 实际 30×30（抄成 24×18）、tree_canopy 58×58（抄成 78×78），
+# 导致出图后整体缩放错位；`fallen_canopy` 的声明锚点 ay=15.9 更是落在 9px 画布之外。
+def _load_refs():
+    path = os.path.join(ROOT, 'tools', 'cover-refs.json')
+    if not os.path.isfile(path):
+        sys.exit('缺少 tools/cover-refs.json —— 先运行 node tools/dump-cover-refs.mjs')
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+    out = {}
+    for key, v in data['assets'].items():
+        out[key] = dict(w=v['canvas'][0], h=v['canvas'][1], ax=v['anchor'][0], ay=v['anchor'][1])
+    return out
+
+
+NOMINAL = _load_refs()
 ORDER = ['soft', 'barricade', 'stump', 'rubble', 'bush', 'bush_canopy',
          'tree', 'tree_canopy', 'fallen', 'fallen_canopy']
 
-ANCHOR_TOL = 2.0  # 锚点误差允差 px（§6 验收：bake.html 红十字 ±2px）
+ANCHOR_TOL = 2.0  # 历史常量（bake.html 红十字 ±2px）；本脚本的验收改由 covers-anchor-check.py 用 centroid 判定
 
 # 白底判据与 clean_sprite_bg.py 同口径（THR_LIGHT/SPREAD/ALPHA_OPAQUE）。
 THR_LIGHT = 170
@@ -177,14 +181,53 @@ def encode_p8(im, colors):
 
 
 def anchor_report(spec):
-    """画布中心 vs ASSET_DEFS 实测锚点的像素差。"""
+    """基准画布中心 vs 画布内锚点的偏移（仅供信息展示）。
+
+    注意：**不是缺陷指标**。锚点本来就允许偏离画布中心（树桩的掩体中心在画布
+    的偏左上、倒树在偏左），烘焙通道与图片通道都用同一个 (ax, ay) 定位，只要
+    图片内容与烘焙内容在画布里的相对位置一致就不会错位。真正的验收基准是
+    `tools/cover-refs.json` 的 `centroid`（见 scripts/covers-anchor-check.py）。
+    """
     cx, cy = spec['w'] / 2.0, spec['h'] / 2.0
     dx = round(cx - spec['ax'], 2)
     dy = round(cy - spec['ay'], 2)
     err = round((dx ** 2 + dy ** 2) ** 0.5, 2)
     outside = not (0 <= spec['ax'] <= spec['w'] and 0 <= spec['ay'] <= spec['h'])
-    warn = outside or err > ANCHOR_TOL
-    return dict(dx=dx, dy=dy, err=err, outside=outside, warn=warn)
+    return dict(dx=dx, dy=dy, err=err, outside=outside)
+
+
+def fit_to_canvas(im, spec):
+    """按内容包围盒裁掉留白 → 等比缩进基准画布 → 居中放置。返回 (画布, 缩放比)。
+
+    为什么「缩到基准画布」而不是「缩到 ASSET_DEFS.w/h」：图片通道
+    `drawAssetSprite` 直接 `drawImage(img, x-ax*sx, …)`，图片像素 = 世界像素。
+    烘焙通道 `bakeAssetCanvas` 先把画布裁到**内容包围盒**再用 (ax, ay) 定位，
+    所以图片必须与那个包围盒同尺寸（基准来自 tools/cover-refs.json，由烘焙代码
+    导出）。早期版本手抄 ASSET_DEFS.w/h，让 tree 从 30×30 被当成 24×18，整体
+    缩小 1.25 倍、锚点也随之漂移。
+
+    内容居中而非按锚点摆位：基准画布本身就是「原图内容包围盒」，把新内容按
+    同一规则缩进同一尺寸，相对位置自然与烘焙视觉一致（`covers-anchor-check.py`
+    以 refs.centroid 为准做验收）。
+    """
+    w, h = spec['w'], spec['h']
+    bbox = im.getchannel('A').getbbox()
+    if not bbox:
+        return Image.new('RGBA', (w, h), (0, 0, 0, 0)), 1.0
+    content = im.crop(bbox)
+    cw, ch = content.size
+    scale = min(1.0, w / float(cw), h / float(ch))
+    nw, nh = max(1, int(round(cw * scale))), max(1, int(round(ch * scale)))
+    if (nw, nh) != (cw, ch):
+        content = content.resize((nw, nh), Image.LANCZOS)
+        scale = max(nw / float(cw), nh / float(ch))
+    else:
+        scale = 1.0
+
+    canvas = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    layer = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    layer.paste(content, (int(round((w - nw) / 2.0)), int(round((h - nh) / 2.0))), content)
+    return Image.alpha_composite(canvas, layer), round(scale, 4)
 
 
 def process_one(key, spec, src_path):
@@ -204,11 +247,13 @@ def process_one(key, spec, src_path):
         return info, None
     info['src'] = src_size
     info['src_bytes'] = os.path.getsize(src_path)
-    canvas, scale = fit_contain(im, spec['w'], spec['h'])
+    # 先清底（AI 出图的白底会撑大包围盒），再按锚点摆放
+    im, n_bg0, n_halo0 = clear_bg(im)
+    canvas, scale = fit_to_canvas(im, spec)
     info['scale'] = scale
     canvas, n_bg, n_halo = clear_bg(canvas)
-    info['cleared_bg'] = n_bg
-    info['cleared_halo'] = n_halo
+    info['cleared_bg'] = n_bg0 + n_bg
+    info['cleared_halo'] = n_halo0 + n_halo
     return info, canvas
 
 
@@ -220,6 +265,7 @@ def main():
     ap.add_argument('--inplace', action='store_true', help='真正写到 assets/<key>.png（默认只报告）')
     ap.add_argument('--dry', action='store_true', help='只报告不写盘（默认行为；显式给出时优先于 --inplace）')
     ap.add_argument('--json', action='store_true', help='以 JSON 行输出（机器可读）')
+    ap.add_argument('--out', default='assets', help='落盘目录（相对仓库根，默认 assets；测试用临时目录）')
     args = ap.parse_args()
 
     if not (0 <= args.colors <= 256) or args.colors == 1:
@@ -233,13 +279,13 @@ def main():
         spec = NOMINAL[key]
         src_path = os.path.join(src_dir, key + '.png')
         info, canvas = process_one(key, spec, src_path)
-        info['dst'] = f'assets/{key}.png'
+        info['dst'] = f'{args.out}/{key}.png'
         blob = None
         if canvas is not None:
             blob = encode_p8(canvas, colors)
             info['dst_bytes'] = len(blob)
         if write and blob is not None:
-            dst_path = os.path.join(ROOT, 'assets', key + '.png')
+            dst_path = os.path.join(ROOT, args.out, key + '.png')
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
             with open(dst_path, 'wb') as f:
                 f.write(blob)
@@ -264,11 +310,7 @@ def main():
             src = ('%dx%d' % tuple(r['src'])) if r['src'] else 'MISSING'
             tgt = '%dx%d' % tuple(r['target'])
             ae = r['anchor_err']
-            flag = ''
-            if ae['outside']:
-                flag = 'ANCHOR_OUTSIDE'
-            elif ae['warn']:
-                flag = f'ANCHOR_WATCH>{ANCHOR_TOL}px'
+            flag = 'ANCHOR_OUTSIDE' if ae['outside'] else ''
             scale = ('%.3f' % r['scale']) if 'scale' in r else '-'
             clr = str(r.get('cleared_bg', '-'))
             dst = ('%.1fK' % (r['dst_bytes'] / 1024)) if 'dst_bytes' in r else '-'
@@ -277,15 +319,13 @@ def main():
         print('-' * len(hdr))
         print(f'源: {args.src}  colors={args.colors}  '
               f'{"已写回 assets/（git 可回滚）" if write else "（报告模式，未写盘；确认后加 --inplace 落盘）"}')
-        warned = [r['key'] for r in rows if r['anchor_err']['warn']]
-        if warned:
-            print('锚点提示（画布中心 vs ASSET_DEFS 实测锚点，允差 ±2px）：')
-            for r in rows:
-                if r['anchor_err']['warn']:
-                    ae = r['anchor_err']
-                    print(f'  {r["key"]}: 中心差 (dx={ae["dx"]}, dy={ae["dy"]}) err={ae["err"]}px'
-                          f'{"，锚点落在画布外" if ae["outside"] else ""}'
-                          f' —— 游戏内以 tank_assets.js 锚点绘制，bake.html 红十字复核')
+        off = [r for r in rows if abs(r['anchor_err']['err']) >= 2.0]
+        if off:
+            print('锚点偏置（信息项，非缺陷；锚点允许不在画布中心）：')
+            for r in off:
+                ae = r['anchor_err']
+                print(f'  {r["key"]}: 画布中心与锚点相差 (dx={ae["dx"]}, dy={ae["dy"]})'
+                      f'{"，锚点落在画布外" if ae["outside"] else ""}')
 
     if bad:
         sys.exit('缺图/坏图 %d 张（%s）：先按 tools/cover-gen-prompts.md §3~§4 出图再跑 --inplace'

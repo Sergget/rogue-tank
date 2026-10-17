@@ -1,0 +1,195 @@
+{
+  "_note": "由 node tools/dump-cover-refs.mjs 生成，勿手改。单位：像素（1 世界px = 图片 1px）。",
+  "assets": {
+    "soft": {
+      "layer": "base",
+      "bakeIn": [
+        170,
+        10
+      ],
+      "canvas": [
+        172,
+        12
+      ],
+      "anchor": [
+        86,
+        6
+      ],
+      "centroid": [
+        85.5,
+        5.5
+      ]
+    },
+    "barricade": {
+      "layer": "base",
+      "bakeIn": [
+        64,
+        28
+      ],
+      "canvas": [
+        66,
+        30
+      ],
+      "anchor": [
+        33,
+        15
+      ],
+      "centroid": [
+        32.69,
+        13.46
+      ]
+    },
+    "stump": {
+      "layer": "base",
+      "bakeIn": [
+        24,
+        18
+      ],
+      "canvas": [
+        26,
+        20
+      ],
+      "anchor": [
+        13,
+        10
+      ],
+      "centroid": [
+        12.55,
+        9.5
+      ]
+    },
+    "rubble": {
+      "layer": "base",
+      "bakeIn": [
+        38,
+        17
+      ],
+      "canvas": [
+        37,
+        13
+      ],
+      "anchor": [
+        20,
+        5.5
+      ],
+      "centroid": [
+        15.46,
+        5.74
+      ]
+    },
+    "bush": {
+      "layer": "base",
+      "bakeIn": [
+        56,
+        34
+      ],
+      "canvas": [
+        55,
+        34
+      ],
+      "anchor": [
+        27,
+        17
+      ],
+      "centroid": [
+        27,
+        16.5
+      ]
+    },
+    "bush_canopy": {
+      "layer": "canopy",
+      "bakeIn": [
+        56,
+        34
+      ],
+      "canvas": [
+        46,
+        38
+      ],
+      "anchor": [
+        24,
+        19
+      ],
+      "centroid": [
+        23.88,
+        18.52
+      ]
+    },
+    "tree": {
+      "layer": "base",
+      "bakeIn": [
+        24,
+        18
+      ],
+      "canvas": [
+        30,
+        30
+      ],
+      "anchor": [
+        15,
+        15
+      ],
+      "centroid": [
+        14.51,
+        14.5
+      ]
+    },
+    "tree_canopy": {
+      "layer": "canopy",
+      "bakeIn": [
+        24,
+        18
+      ],
+      "canvas": [
+        58,
+        58
+      ],
+      "anchor": [
+        29,
+        29
+      ],
+      "centroid": [
+        28.54,
+        28.5
+      ]
+    },
+    "fallen": {
+      "layer": "base",
+      "bakeIn": [
+        58,
+        9
+      ],
+      "canvas": [
+        63,
+        15
+      ],
+      "anchor": [
+        33,
+        7.5
+      ],
+      "centroid": [
+        30.89,
+        6.93
+      ]
+    },
+    "fallen_canopy": {
+      "layer": "canopy",
+      "bakeIn": [
+        58,
+        9
+      ],
+      "canvas": [
+        37,
+        31
+      ],
+      "anchor": [
+        1,
+        15.5
+      ],
+      "centroid": [
+        19.52,
+        15.01
+      ]
+    }
+  }
+}

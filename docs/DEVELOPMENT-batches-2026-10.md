@@ -669,3 +669,35 @@
 - **⑥ 其余（#U1/#U6/#U13）**：资产加载加单次目录探针（`assets/` 为空时静默走 bake，404 7→1）；Boss 战后商店按模式门控（只在 reward 屏出现一次）；Boss 血量按实际 Boss 序号计（原硬编码每 5 节点，Boss 模式前 5 个恒为初始血量）+ `RULES.boss.bossDmgTextScale=1.6` 放大 Boss 掉血飘字。
 
 - **验证（三链）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **44/44 全绿**（新增 `drawGroundTexture` 6-biome 序列互异 + `drawCoverShadow` 12 项断言 + `test-minimap` #U5 5 项）/ `npm run test:browser` **四链 ALL PASS**。另有 Node 直出生图逐项目视复核（biome 纹理网格、建筑/树投影、strip 全景）+ 浏览器实机截图（草地纹理与建筑投影可见、无 JS 错误）。
+
+### §4.84 2026-10-17 地图元素出图管线重构（托管 API + 一键校验链）
+
+- **来源**：§4.83 收尾时用户裁定「ComfyUI 太吃硬件，否决；用仓库已有的，并给替代方案」，随后「按建议逐个执行」。现行操作手册归口 `tools/cover-gen-prompts.md` v2 与 `assets/README.md`。
+
+- **① 出图索引层 `tools/gen-covers.mjs`（新增）**
+  - 后端适配：`gemini`（`gemini-2.5-flash-image`，`responseModalities: ['IMAGE']` + `imageConfig.aspectRatio`）、`replicate`（默认 `flux-schnell`，owner/name 可覆盖，`prefer: wait` + 轮询）、`openai`（`gpt-image-1`，`background: transparent`）、`mock`（不出网）。
+  - **prompt 不复制**：运行时从 `tools/cover-gen-prompts.md` 的 §1 风格前缀 + §4 逐件 prompt 现解析，避免「md 改了脚本没改」的双源漂移；`tools/cover-gen-prompts.json` 只存 key → prompt 编号 + 出图分辨率。
+  - **凭据纪律**：只从进程环境或仓库根 `.env` 读取（`process.loadEnvFile`），**不打印、不落副本**；所有报错过 `sanitize()` 掩码（`abcd...wxyz`）；`.env*` 已进 `.gitignore`（`.env.example` 例外）。
+  - **mock 后端**：直接调 `bakeAssetCanvas` 取烘焙产物再整体放大到出图分辨率——注意不能拿 1024 当 bake 的 `w/h`（树冠半径 `R = max(w,h)×1.4` 依赖名义尺寸，会比例全错），这是本轮实测踩到的坑。
+
+- **② 尺寸/锚点基准改由代码导出 `tools/dump-cover-refs.mjs` → `tools/cover-refs.json`（新增）**
+  - **根因**：`ASSET_DEFS.w/h/anchorX/anchorY` 是烘焙函数的**输入**口径（锚点在内容包围盒内），而图片通道 `drawAssetSprite` 直接 `drawImage(img, x-ax*sx, …)`——图片像素 = 世界像素，锚点是**画布内**坐标。手抄 `ASSET_DEFS.w/h` 当落盘尺寸会错：tree 内容实际 30×30（手抄 24×18，整体缩放 1.25 倍）、tree_canopy 58×58（手抄 78×78）、`fallen_canopy` 的声明锚点 `ay=15.9` 更是落在 9px 画布之外。
+  - **现行**：`refs.canvas`（= 烘焙后内容包围盒尺寸）、`refs.anchor`（画布内锚点）、`refs.centroid`（内容质心，验收基准）三组数字由烘焙代码实测导出，`prepare_covers.py` / `covers-anchor-check.py` / `gen-covers.mjs` 全部只读 JSON。
+
+- **③ 后处理修正 `scripts/prepare_covers.py`**
+  - `fit_contain`（居中贴到名义画布）→ `fit_to_canvas`（按内容包围盒裁留白 → 等比缩进 `refs.canvas` → 居中）。清底提前到缩放之前（AI 出图的白底会撑大包围盒）。
+  - 新增 `--out`（落盘目录，测试用临时目录，默认 `assets`）。
+  - `anchor_report` 降级为**信息项**：锚点本来允许偏离画布中心，不再当缺陷告警。
+
+- **④ 新增验收脚本 `scripts/covers-anchor-check.py`**
+  - 取代「人眼看 `tools/bake.html` 红十字」——红十字量的是烘焙内容包围盒内的锚点，对图片通道没有意义。新脚本直接复算运行时粘贴公式：尺寸必须等于 `refs.canvas`、内容质心必须落在 `refs.centroid` ±2px。
+  - 内容触边只报告不判违例（树桩/栅栏本就铺满画布），`--strict-edges` 才升级为违例。
+
+- **⑤ 测试链 `scripts/test-cover-gen.js`（新增，已入 `run-tests.js`）**
+  - 规格 ↔ 运行时基准键集合对账；`dump-cover-refs --check` 保证 JSON 与代码同步；出图宽高比 = 最终画布宽高比（±2%）；10 条 prompt 可解析且均带风格前缀、无重复叠加；mock 端到端出 10 张 → `prepare_covers --inplace` 到临时目录 → `covers-anchor-check` 全绿。
+
+- **⑥ 顺带修复 `scripts/lib/mini-canvas.js`（Node 生图垫片）**
+  - `canvas.width = n` 原本只是普通属性赋值，内部像素缓冲仍是创建时的尺寸（32×32）⇒ `bakeAssetCanvas` 的探针量出的内容包围盒全错（tree 被判成 25×19 而非 30×30）。改为 getter/setter + `resize` + `_buf` 同步，与浏览器语义一致。
+
+- **验证（三链）**：`npm run check` **EXIT=0** / `npm test` **45/45 全绿**（新增 `test-cover-gen`）/ `npm run test:browser` **四链 ALL PASS**。另有：mock 全链出图 → 落盘 → 浏览器实机截图（图 1:1、无 404、无 JS 错）；核对后已删除 mock 产物，`assets/` 保持为空（走程序化回退）；`node tools/gen-covers.mjs --provider gemini` 在无凭据时给出明确指引而非静默失败。
+- **遗留**：真正出图需用户在 `.env` 填 `GEMINI_API_KEY`（或 `REPLICATE_API_TOKEN` / `OPENAI_API_KEY`）；本机网络实测 `generativelanguage.googleapis.com` 不可达、`api.replicate.com` 可达（401），选后端时需注意。

@@ -307,7 +307,21 @@ function createMiniCanvas(w0, h0) {
   ctx.setLineDash = function (d) { this._state.lineDash = d ? d.slice() : []; };
   ctx.getLineDash = function () { return this._state.lineDash.slice(); };
 
-  const canvas = { width: W, height: H, _buf: buf, getContext: () => ctx, toPNGBuffer: () => ctx.toPNGBuffer() };
+  // 画布对象：width/height 必须是**访问器**——浏览器里 `canvas.width = n` 会重分配像素缓冲，
+  // `bakeAssetCanvas` 正是「先 createElement 再赋值 width/height」的写法。早期版本用普通属性，
+  // 赋值只改了对象字段、内部缓冲仍是创建时的尺寸（32×32），导致离屏烘焙量出的内容包围盒
+  // 全是错的（实测 tree 内容被判成 25×19 而非 30×30）。此处补上 resize + _buf 同步。
+  const canvas = { _buf: buf, getContext: () => ctx, toPNGBuffer: () => ctx.toPNGBuffer() };
+  Object.defineProperty(canvas, 'width', {
+    get() { return W; },
+    set(v) { resize(v, H); syncBuf(); }
+  });
+  Object.defineProperty(canvas, 'height', {
+    get() { return H; },
+    set(v) { resize(W, v); syncBuf(); }
+  });
+  // resize 会换新缓冲数组，canvas._buf 需同步（drawImage 之类的调用方直接读 _buf）
+  function syncBuf() { canvas._buf = buf; }
   ctx.canvas = canvas;
   return canvas;
 }

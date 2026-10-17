@@ -18,3 +18,12 @@ tools/godot/
 # 本地工具链临时目录：tmp/pylibs（Pillow/numpy wheel 解包，供 scripts/optimize_sprites.py
 # 与 clean_sprite_bg.py 使用，见 docs/DEVELOPMENT-batches-2026-10.md §4.57）+ 下载缓存 + 调试脚本
 tmp/
+
+# 凭据（本地 .env，禁止提交；样例见 .env.example）
+.env
+.env.*
+!.env.example
+
+# Python 字节码缓存（scripts/*.py 被执行时产生）
+__pycache__/
+*.pyc

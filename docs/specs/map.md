@@ -576,3 +576,18 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 
 
 
+
+## 18. 贴图资产出图管线（2026-10-17 重构，现行口径）
+
+> 关联：§4「贴图资产与烘焙层」（运行时回退与烘焙契约）、`assets/README.md`（目录与文件名约定）、`tools/cover-gen-prompts.md` v2（提示词与操作手册）。
+
+- **三组数字不能混用（本节的唯一要点）**：
+  1. `ASSET_DEFS.w/h/anchorX/anchorY` —— 烘焙函数的**输入**尺寸与「内容包围盒内锚点」；
+  2. `tools/cover-refs.json` 的 `canvas` / `anchor` —— **图片通道基准**：`canvas` = 烘焙后内容包围盒尺寸，`anchor` = 画布内像素；
+  3. `refs.centroid` —— 内容质心，**唯一验收基准**。
+  图片通道 `drawAssetSprite` 直接 `drawImage(img, x-ax*sx, …)`（图片像素 = 世界像素），所以落盘 PNG 必须与 `refs.canvas` 同尺寸，内容质心必须落在 `refs.centroid` ±2px。手抄 `ASSET_DEFS.w/h` 当落盘尺寸会整体缩放错位（tree 实际 30×30、tree_canopy 58×58）。
+- **基准单一来源**：`node tools/dump-cover-refs.mjs` 从烘焙代码导出 `tools/cover-refs.json`；`--check` 供 CI 校验是否漂移。禁止手改该 JSON。
+- **出图**：`node tools/gen-covers.mjs --provider <gemini|replicate|openai|mock>`。Prompt 运行时从 `tools/cover-gen-prompts.md` 现解析（不复制正文）；出图分辨率按 `refs.canvas` 宽高比、最长边 1024；凭据只从进程环境或仓库根 `.env` 读取并按 `abcd...wxyz` 掩码输出。`mock` 走仓库自己的烘焙产物，不出网。
+- **后处理**：`python scripts/prepare_covers.py --inplace [--src tmp/covers-src] [--out assets]` —— 清底 → 按内容包围盒裁留白 → 等比缩进 `refs.canvas` → 居中 → PNG-8（16 色）。**不做拉伸变形**。
+- **验收**：`python scripts/covers-anchor-check.py [--src assets]` —— 尺寸 + 内容质心；取代「人眼看 `tools/bake.html` 红十字」（红十字量的是烘焙包围盒内锚点，对图片通道无意义）。
+- **回退**：`assets/` 为空即走 `js/tank_assets.js` 的程序化烘焙，视觉不断档；删除任一 `<key>.png` 即对该档回退。

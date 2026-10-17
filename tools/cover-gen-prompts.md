@@ -1,28 +1,41 @@
-# 地图元素 AI 生成提示词包（地图优先 · v1 2026-10-10）
+# 地图元素 AI 生成提示词包（地图优先 · v2 2026-10-17）
 
-> 路线：AI 生成贴图管线（用户已选）+ 地图元素优先。
-> 生成后端二选一：**ComfyUI 本地**（可控尺寸首选）/ **Gemini / Replicate**（概念图，需后期处理）。
+> 路线：AI 生成贴图管线 + 地图元素优先。**出图后端已裁定**（2026-10-17 用户）：
+> ComfyUI 本地因硬件成本**否决**；走**托管 API**（Gemini / Replicate / OpenAI 图像），
+> 或保持纯程序化（`assets/` 为空即自动走 bake，视觉已由 `#U11` 补齐地面纹理与地物投影）。
+>
+> **一键出图**：`node tools/gen-covers.mjs --provider gemini`（凭据只从进程环境或仓库根
+> `.env` 读取，脚本不打印、不落副本）。不带凭据时用 `--provider mock` 走仓库自己的烘焙
+> 产物，验证「出图 → 后处理 → 落盘 → 游戏渲染」整条链路。
 > 生产约束见 `tools/sprite-audit.md` §6：生成图只做**美术源图**，必须经过
-> 抠图 → 锚点对齐 → `scripts/optimize_sprites.py` 压缩 → 游戏内目视确认，才能进 `assets/`。
+> 缩放/清底 → 锚点验收 → 游戏内确认，才能进 `assets/`。
 
 ## 0. 本次范围（10 张）
 
-| # | 文件（`assets/` 根目录约定，见 `assets/README.md`） | 名义尺寸 `ASSET_DEFS` | 锚点 |
-|---|---|---|---|
-| 1 | `soft.png`（栅栏基体） | 170×10 | (85.75, 5.75) |
-| 2 | `barricade.png`（沙袋路障） | 64×28 | (32.75, 14.75) |
-| 3 | `stump.png`（树桩） | 24×18 | (12.75, 9.75) |
-| 4 | `rubble.png`（碎石） | 38×17 | (20.04, 7.75) |
-| 5 | `bush.png`（灌木基底阴影） | 56×34 | (28, 17) |
-| 6 | `bush_canopy.png`（灌木叶片，上层） | 同上 | (24.64, 19.2) |
-| 7 | `tree.png`（树干） | 24×18 | (15.15, 15.15) |
-| 8 | `tree_canopy.png`（树冠，上层） | 冠径约 1.4×max(w,h)，见 `tank_assets.js:149` | (39.26, 39.26) |
-| 9 | `fallen.png`（倒树干） | 58×9 | (33.55, 7.95) |
-| 10 | `fallen_canopy.png`（倒树叶簇，上层） | 同上 | (1.0, 15.9) |
+**尺寸与锚点的唯一来源是 `tools/cover-refs.json`**（由 `node tools/dump-cover-refs.mjs`
+从烘焙代码导出）。下表是 2026-10-17 的实跑值，仅供人读；出图脚本与后处理脚本都读 JSON，
+不会因本表过期而错位。
 
-> ⚠️ skill 文档里的 `assets/covers/*.png` 路径与现行加载器不一致：
-> 现行 `loadAssetImage` 读的是 `assets/<key>.png`（`js/tank_assets.js:229`）。
-> **一律输出到 `assets/` 根目录**，不要建 `covers/` 子目录。
+| # | 文件（`assets/` 根目录） | 画布尺寸 | 画布内锚点 | 内容质心（验收基准） |
+|---|---|---|---|---|
+| 1 | `soft.png`（栅栏基体） | 172×12 | (86, 6) | (85.5, 5.5) |
+| 2 | `barricade.png`（沙袋路障） | 66×30 | (33, 15) | (32.7, 13.5) |
+| 3 | `stump.png`（树桩） | 26×20 | (13, 10) | (12.6, 9.5) |
+| 4 | `rubble.png`（碎石） | 37×13 | (20, 5.5) | (15.5, 5.7) |
+| 5 | `bush.png`（灌木基底阴影） | 55×34 | (27, 17) | (27, 16.5) |
+| 6 | `bush_canopy.png`（灌木叶片，上层） | 46×38 | (24, 19) | (23.9, 18.5) |
+| 7 | `tree.png`（树干） | 30×30 | (15, 15) | (14.5, 14.5) |
+| 8 | `tree_canopy.png`（树冠，上层） | 58×58 | (29, 29) | (28.5, 28.5) |
+| 9 | `fallen.png`（倒树干） | 63×15 | (33, 7.5) | (30.9, 6.9) |
+| 10 | `fallen_canopy.png`（倒树叶簇，上层） | 37×31 | (1, 15.5) | (19.5, 15.0) |
+
+> ⚠️ 这三组数字互相**不能混用**：`ASSET_DEFS.w/h` 是烘焙函数的**输入**尺寸，
+> `refs.canvas` 是烘焙后的**内容包围盒**（图片通道按 1:1 贴图，必须与它同尺寸），
+> `refs.anchor` 是画布内锚点，`refs.centroid` 才是「内容该画在哪儿」的验收基准。
+> 早期版本把前两者混为一谈，导致 tree 从 30×30 被当成 24×18、整体缩放 1.25 倍。
+>
+> ⚠️ 加载器只认 `assets/<key>.png`（`js/tank_assets.js` 的 `loadAssetImage`），
+> **不要建 `assets/covers/` 子目录**。
 
 ## 1. 全局风格前缀（每条 prompt 前面都加）
 
@@ -43,13 +56,18 @@ multiple objects, cropped, off-center
 
 ## 3. 生成参数
 
-- ComfyUI：SDXL + `TransparentBG` / `LayerDiffuse` 工作流；出图 ≥ 512px 长边
-  （小物件后期缩到名义尺寸，不要直接出 24×18——太小模型画不出细节）；
-  sampler `DPM++ 2M Karras`，steps 28–36，CFG 5–7。
-- Gemini（`gemini-2.5-flash-image` / Replicate 同类）：`aspect` 取接近名义宽高比
-  的一档（soft 取 16:1 近似用 4:1 两张拼接，或直接方形出图后期裁），
-  `transparent background` 必须写进 prompt，否则默认白底。
-- 每种至少出 **4 选 1**（seed 固定一组，便于迭代）。
+- **分辨率**：一律按基准画布的宽高比出图、最长边 1024（`tools/cover-gen-prompts.json`
+  的 `generateLongest`；实际尺寸由 `gen-covers.mjs` 从 refs 派生并打印在 `--dry` 里）。
+  不要直接出 24×18 —— 模型画不出这个尺度的细节，后期再缩。
+- **托管 API**：
+  - Gemini：`gemini-2.5-flash-image`（`responseModalities: ['IMAGE']`，`imageConfig.aspectRatio`
+    取基准画布最接近的离散档）。
+  - Replicate：默认 `black-forest-labs/flux-schnell`，可 `--model owner/name` 覆盖。
+  - OpenAI：默认 `gpt-image-1`（`background: 'transparent'`）。
+  - `transparent background` 必须写进 prompt，否则多半回白底（后处理会清，但细节会被啃掉）。
+- **每种至少出 4 选 1**（`--variants 4`，产物为 `<key>_v2.png` 等），seed 固定便于迭代。
+- **凭据**：`GEMINI_API_KEY` / `REPLICATE_API_TOKEN` / `OPENAI_API_KEY`（或统一 `COVER_API_KEY`），
+  优先进程环境，其次仓库根 `.env`；脚本只读取、掩码输出、不写任何副本。
 
 ## 4. 逐件 prompt（复制即用）
 
@@ -140,33 +158,36 @@ short broken branch stubs, bark texture, centered horizontal
 
 ## 5. 后处理流水线（必须走完才能进游戏）
 
-```powershell
-# 1) 抠图/清底：白底或半透光晕清零（二值 alpha）
-$env:PYTHONPATH = "$PWD/tmp/pylibs"
-python scripts/clean_sprite_bg.py --dry        # 先看报告
-python scripts/clean_sprite_bg.py --inplace    # 确认后再写
+```bash
+# 1) 出图 → tmp/covers-src/<key>.png（不出网的自检：--provider mock）
+node tools/gen-covers.mjs --provider gemini --variants 4
 
-# 2) 缩到名义尺寸 + 居中锚点（PIL，示例 bush 56×34，锚点 28,17）
-#    —— 小图建议在ComfyUI里 outpaint 到方形再居中裁，不要拉伸变形
+# 2) 报告：缩放/清底/PNG-8 试算（不写盘）
+PYTHONPATH="$PWD/tmp/pylibs" python scripts/prepare_covers.py --dry
 
-# 3) 压缩：调色板 PNG-8（对照坦克批：15.6MB→6.1MB，-60%）
-python scripts/optimize_sprites.py --colors 256            # 试算
-python scripts/optimize_sprites.py --colors 16 --inplace   # 地图小件可用 16 色
+# 3) 落盘到 assets/（git 可回滚；确认后再加 --inplace）
+PYTHONPATH="$PWD/tmp/pylibs" python scripts/prepare_covers.py --inplace
 
-# 4) 落盘：assets/<key>.png + assets/<key>_canopy.png（根目录！）
+# 4) 锚点/尺寸/质心验收（图片通道的真实对齐基准）
+PYTHONPATH="$PWD/tmp/pylibs" python scripts/covers-anchor-check.py
 
-# 5) 目视确认：浏览器开 tools/bake.html（file:// 直开），
-#    看红十字锚点是否落在掩体中心 ±2px；再进游戏看 base/canopy 两层层级
+# 5) 目视确认：浏览器开 tools/bake.html（file:// 直开）看程序化预览，
+#    再进游戏看 base/canopy 两层层级与位置
 ```
+
+> 第 4 步取代了原来「人眼看 bake.html 红十字」——红十字量的是**烘焙内容包围盒**
+> 内的锚点，对图片通道没有意义（图片按 1:1 贴图，锚点是画布内像素）。脚本直接
+> 复算运行时粘贴公式，质心偏离烘焙基准 >2px 即判失败。
 
 ## 6. 验收标准
 
-- [ ] 10 张 PNG 透明底（`clean_sprite_bg --dry` 报 `background: 0`）
-- [ ] 尺寸 = `ASSET_DEFS` 名义尺寸（tree_canopy 例外：按包围盒+锚点约定）
-- [ ] 锚点误差 ≤ 2px（`bake.html` 红十字）
-- [ ] 16 色内、无渐变洗白（`optimize --colors 16` 后 `mean_abs_err ≤ 2`）
+- [ ] 10 张 PNG 尺寸 = `tools/cover-refs.json` 的 `canvas`（`covers-anchor-check.py` 自动判）
+- [ ] 内容质心与 `refs.centroid` 距离 ≤ 2px（同上）
+- [ ] 透明底（`prepare_covers` 报告 `cleared_bg` 只清掉外部白；本体高光保留）
+- [ ] 16 色内、无渐变洗白，单张 ≤ 64KB
 - [ ] 游戏内：base 画在坦克下、canopy 画在坦克上，遮挡关系正确
 - [ ] 无图回退仍可用（删图即回程序化 bake，视觉不断档）
+- [ ] `node scripts/test-cover-gen.js` 全绿（含 mock 端到端 + 质心验收）
 
 ## 7. 不做的事（本批明确排除）
 

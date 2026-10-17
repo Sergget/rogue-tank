@@ -51,6 +51,7 @@ const TESTS = [
   'scripts/test-extreme-model.js',
   'scripts/test-extreme-cover.js',
   'scripts/test-assets.js',
+  'scripts/test-cover-gen.js',
   'scripts/test-audio.js',
   'scripts/test-dmgtext.js',
   'scripts/test-drone.js',
