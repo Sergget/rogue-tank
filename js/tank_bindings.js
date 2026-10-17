@@ -38,6 +38,9 @@
     abilityStrike: 'g', abilityShield: 'h',
     supportRepair: '4', supportMedkit: '5', supportExtinguish: '6',
     panelStatus: 'tab', panelDev: '`', panelDevAlt: 'f12',
+    // #U23（2026-10-17 用户需求）：局内卡牌查看器——任意局内（战斗/暂停/结算/奖励）可开，
+    //   按分类查看已持有的卡牌。C = Cards（与既有键无冲突）。
+    panelCards: 'c',
     pauseToggle: 'escape'
   };
 
@@ -56,6 +59,7 @@
     supportMedkit: { keys: '5', desc: '医疗包' },
     supportExtinguish: { keys: '6', desc: '灭火器' },
     panelStatus: { keys: 'Tab', desc: '状态面板' },
+    panelCards: { keys: 'C', desc: '卡牌查看器（分类查看已持卡牌）' },
     panelDev: { keys: '`（反引号）/ F12', desc: '开发者 / 测试面板' },
     pauseToggle: { keys: 'ESC', desc: '暂停 / 设置' }
   };
@@ -64,7 +68,7 @@
   var ACTION_ORDER = ['move', 'altMove', 'fire', 'ammoCycle', 'skillPool',
     'fireSecondary', 'abilityStrike', 'abilityShield',
     'supportRepair', 'supportMedkit', 'supportExtinguish',
-    'panelStatus', 'panelDev', 'pauseToggle'];
+    'panelStatus', 'panelCards', 'panelDev', 'pauseToggle'];
 
   // 汇总动作 → 说明行。available: { 动作组名: true/false }，false 或缺失则不输出。
   function describeBindings(available) {

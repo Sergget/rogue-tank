@@ -318,6 +318,25 @@
   #statusPanel .armor-list b{color:var(--amber-dim);}
   #statusPanel .hint{font-size:9px; color:var(--text-dim); opacity:.7; margin-top:10px; letter-spacing:1px;}
 
+  /* #U23（2026-10-17 用户需求）：局内卡牌查看器（C 键）——分类查看已持有卡牌。
+     与状态面板/开发者面板共用 showPanelGroup 互斥呼入呼出；居中偏右浮层，可滚动。 */
+  #cardsPanel{position:absolute; right:12px; top:12px; z-index:30; width:380px; max-height:calc(100% - 24px);
+    display:none; flex-direction:column;
+    background:rgba(8,9,6,0.92); border:1px solid var(--line); padding:10px 12px;}
+  #cardsPanel .cp-title{font-size:11px; letter-spacing:2px; color:var(--amber); margin-bottom:6px;}
+  #cardsPanel .cp-tabs{display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;}
+  #cardsPanel .cp-tab{font-size:10px; padding:2px 8px; cursor:pointer;
+    border:1px solid var(--line); color:var(--text-dim); background:transparent;}
+  #cardsPanel .cp-tab.on{color:var(--amber); border-color:var(--amber-dim);}
+  #cardsPanel .cp-list{overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:3px;}
+  #cardsPanel .cp-card{font-size:10px; line-height:1.5; border-left:2px solid var(--amber-dim); padding-left:6px;}
+  #cardsPanel .cp-card .nm{color:var(--text);}
+  #cardsPanel .cp-card .rr{color:var(--amber-dim); font-size:9px; margin-left:4px;}
+  #cardsPanel .cp-card .ct{color:var(--text-dim); font-size:9px; margin-left:4px;}
+  #cardsPanel .cp-card .ds{color:var(--text-dim); font-size:9px;}
+  #cardsPanel .cp-empty{font-size:10px; color:var(--text-dim); padding:8px 0;}
+  #cardsPanel .hint{font-size:9px; color:var(--text-dim); opacity:.7; margin-top:8px; letter-spacing:1px;}
+
   /* #F（2026-09-20）：devPanel 视觉样式已随共享模块 js/tank_devpanel.js 挂载时注入 */
   /* #A25：独立日志面板（左下角浮层，与 Tab 状态面板一同呼入/呼出；不再嵌在 #devPanel 内） */
   #logPanel{position:absolute; left:12px; bottom:12px; z-index:29; width:360px;
@@ -540,6 +559,13 @@
     <div class="hint">按 TAB 关闭 · 数值实时读取（读 stats，不摸 base）</div>
   </div>
   </div>
+  <!-- #U23（2026-10-17 用户需求）：局内卡牌查看器（C 键）——按分类查看本局已持有卡牌 -->
+  <div id="cardsPanel">
+    <div class="cp-title">卡牌查看器 CARDS</div>
+    <div class="cp-tabs" id="cpTabs"></div>
+    <div class="cp-list" id="cpList"></div>
+    <div class="hint">按 C 关闭 · 仅显示本局已持有</div>
+  </div>
   <!-- #F（2026-09-20）：devPanel DOM 已改由共享模块 js/tank_devpanel.js 动态构建（mvp/bench 同源） -->
 
 <!-- #A25：独立日志面板（左下角）——与 Tab 状态面板共用呼入/呼出策略，关闭开发者面板不再隐藏日志 -->
@@ -705,9 +731,14 @@ const input = createInputController({
     skill2: () => skillHotkey(2),
     skill3: () => skillHotkey(3),
     // #C4e（2026-09-17）：F 键不再注册边沿动作——按住连发由主循环 isDown('fireSecondary') 轮询
-    panelStatus: () => {                              // Tab：状态面板（与 dev/log 组互斥，共用呼入/呼出策略）
+    panelStatus: () => {                              // Tab：状态面板（与 dev/log/cards 组互斥，共用呼入/呼出策略）
       const willOpen = !statusOpen;
       showPanelGroup(willOpen ? 'status' : 'none');
+    },
+    // #U23（2026-10-17 用户需求）：C = 卡牌查看器（任意局内可开，按分类查看已持卡牌）
+    panelCards: () => {
+      const willOpen = !cardsOpen;
+      showPanelGroup(willOpen ? 'cards' : 'none');
     },
     panelDev: () => {                                 // `：开发者面板 + 独立日志面板（#A25 联动）
       const willOpen = !devOpen;
@@ -1258,7 +1289,10 @@ canvas.addEventListener('mouseleave', ()=>{ mouseFireHeld = false; });
 window.addEventListener('blur', ()=>{ mouseFireHeld = false; });
 
 // ---------- P-15 玩家状态面板（Tab）/ 开发者面板（`）/ #A25 独立日志面板 ----------
-let statusOpen = false, devOpen = false, logOpen = false;
+let statusOpen = false, devOpen = false, logOpen = false, cardsOpen = false;
+
+// #U23（2026-10-17）：稀有度 → 中文标签的唯一口径（原在两处函数内各写一份字面量）。
+const CARD_RARITY_LABELS = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' };
 // #A25：独立日志面板对象（DOM 适配层 createLogPanel）——位置左下角由 #logPanel CSS 决定。
 let mvpLogPanel = null;
 function togglePanel(id){
@@ -1279,15 +1313,106 @@ function togglePanel(id){
 function showPanelGroup(which){
   const wantStatus = which === 'status';
   const wantDev = which === 'dev';
+  const wantCards = which === 'cards';
   const elS = document.getElementById('statusPanel');
   const elD = document.getElementById('devPanel');
   const elL = document.getElementById('logPanel');
+  const elC = document.getElementById('cardsPanel');
   if(elS) elS.style.display = wantStatus ? 'block' : 'none';
   if(elD) elD.style.display = wantDev ? 'block' : 'none';
-  if(elL) elL.style.display = wantStatus ? 'none' : (wantDev ? 'block' : 'none');
-  statusOpen = wantStatus; devOpen = wantDev; logOpen = !!(elL && elL.style.display !== 'none');
+  // #U23：卡牌查看器与状态面板/开发者面板互斥（同一时刻至多一个浮层）
+  if(elC) elC.style.display = wantCards ? 'flex' : 'none';
+  if(elL) elL.style.display = (wantStatus || wantCards) ? 'none' : (wantDev ? 'block' : 'none');
+  statusOpen = wantStatus; devOpen = wantDev; cardsOpen = wantCards;
+  logOpen = !!(elL && elL.style.display !== 'none');
   if(wantStatus){ if(elS) updateStatusPanel(); }
   if(wantDev){ devPanelApi.refreshAll(); }
+  if(wantCards){ renderCardsPanel(); }
+}
+
+// #U23（2026-10-17 用户需求）：卡牌查看器渲染——读本局已持有卡牌，按分类（稀有度/标签）切换。
+// 数据源：player.cardEffects（本局实际生效的卡效果，含 cardId）+ cardPool（静态卡表取名字/描述）。
+// 分类维度取「稀有度」与「标签」两套（卡表本身即用 CARD_RARITIES / CARD_TAGS 定义）。
+let cardsPanelCat = 'rarity';
+function ownedCardsList(){
+  const byId = {};
+  const pool = (typeof cardPool !== 'undefined' && Array.isArray(cardPool)) ? cardPool : [];
+  const owned = (player && Array.isArray(player.cardEffects)) ? player.cardEffects : [];
+  const seen = {};
+  for(const ef of owned){
+    const id = ef && ef.cardId;
+    if(!id) continue;
+    seen[id] = (seen[id] || 0) + 1;
+  }
+  const out = [];
+  for(const id of Object.keys(seen)){
+    const spec = pool.find(c => c && c.id === id);
+    out.push({ id, count: seen[id], spec: spec || null });
+  }
+  // 排序：有 spec 的按名称，无 spec 的（存档移除/未知）排末尾
+  out.sort((a, b) => {
+    const an = a.spec ? (a.spec.name || a.id) : a.id;
+    const bn = b.spec ? (b.spec.name || b.id) : b.id;
+    return an.localeCompare(bn, 'zh');
+  });
+  return out;
+}
+function renderCardsPanel(){
+  const tabsEl = document.getElementById('cpTabs');
+  const listEl = document.getElementById('cpList');
+  if(!tabsEl || !listEl) return;
+  const cards = ownedCardsList();
+  // 分类页签
+  const cats = [['rarity', '按稀有度'], ['tag', '按标签'], ['all', '全部']];
+  tabsEl.innerHTML = cats.map(([k, label]) =>
+    `<span class="cp-tab${cardsPanelCat === k ? ' on' : ''}" data-cat="${k}">${label}</span>`).join('');
+  tabsEl.querySelectorAll('.cp-tab').forEach(el => {
+    el.addEventListener('click', () => { cardsPanelCat = el.getAttribute('data-cat'); renderCardsPanel(); });
+  });
+  if(!cards.length){
+    listEl.innerHTML = '<div class="cp-empty">本局尚未获得卡牌。</div>';
+    return;
+  }
+  const rarLabel = (r) => ((typeof CARD_RARITY_LABELS !== 'undefined' && CARD_RARITY_LABELS[r]) ||
+                           (typeof CARD_RARITIES !== 'undefined' && CARD_RARITIES[r]) || r || '未知');
+  const cardHTML = (c) => {
+    const spec = c.spec;
+    const nm = spec ? (spec.name || c.id) : c.id;
+    const rr = spec ? rarLabel(spec.rarity) : '（无卡表数据）';
+    const tags = spec && Array.isArray(spec.tags) ? spec.tags.join('/') : '';
+    const ds = spec ? (spec.desc || '') : '';
+    const cnt = c.count > 1 ? ` ×${c.count}` : '';
+    return `<div class="cp-card"><span class="nm">${nm}</span>${cnt}<span class="rr">${rr}</span>` +
+           (tags ? `<span class="ct">${tags}</span>` : '') +
+           (ds ? `<div class="ds">${ds}</div>` : '') + '</div>';
+  };
+  if(cardsPanelCat === 'all'){
+    listEl.innerHTML = cards.map(cardHTML).join('');
+    return;
+  }
+  // 分组
+  const groups = new Map();
+  for(const c of cards){
+    let keys = [];
+    if(cardsPanelCat === 'rarity') keys = [c.spec ? (c.spec.rarity || '未标注') : '未标注'];
+    else if(cardsPanelCat === 'tag') keys = (c.spec && Array.isArray(c.spec.tags) && c.spec.tags.length) ? c.spec.tags : ['无标签'];
+    for(const k of keys){
+      if(!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(c);
+    }
+  }
+  const order = (typeof CARD_RARITIES !== 'undefined' && Array.isArray(CARD_RARITIES)) ? CARD_RARITIES : [];
+  const sortedKeys = [...groups.keys()].sort((a, b) => {
+    const ia = order.indexOf(a), ib = order.indexOf(b);
+    if(ia >= 0 && ib >= 0) return ia - ib;
+    if(ia >= 0) return -1;
+    if(ib >= 0) return 1;
+    return String(a).localeCompare(String(b), 'zh');
+  });
+  listEl.innerHTML = sortedKeys.map(k => {
+    const head = `<div class="cp-title" style="margin-top:6px;">${(cardsPanelCat === 'rarity') ? rarLabel(k) : k}</div>`;
+    return head + groups.get(k).map(cardHTML).join('');
+  }).join('');
 }
 // Tab/`/F12 面板热键已收敛至输入控制器（panelStatus / panelDev / panelDevAlt）。
 
@@ -2138,7 +2263,7 @@ let survivalQuickPick = false;    // 生存模式 Boss 波战斗内快速选卡�
 let rewardShopOpen = false;
 
 function bossLootRarityLabel(idx){
-  const m = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' };
+  const m = CARD_RARITY_LABELS;
   return (typeof CARD_RARITIES !== 'undefined' && CARD_RARITIES[idx]) ? (m[CARD_RARITIES[idx]] || CARD_RARITIES[idx]) : '—';
 }
 
@@ -2150,7 +2275,7 @@ function bossRoundGuaranteeLabel(){
     ? RULES.cards.bossRound.guarantee : null;
   const RAR = (typeof CARD_RARITIES !== 'undefined') ? CARD_RARITIES : null;
   if(g && RAR){
-    const m = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' };
+    const m = CARD_RARITY_LABELS;
     const parts = [];
     for(const rar of RAR.slice().reverse()){          // 从稀到常见，读起来更顺
       const n = g[rar] | 0;
