@@ -188,7 +188,12 @@ function nonPenSplashDmg(shell, eff, effPen, ammoCfg, dmgMulV, spallMul){
 //   未击穿按等效厚度/装甲吸收给残余爆轰伤害，并对命中点周围实体施加范围衰减伤害。
 function resolveHit(shell, target, hit, allowBounce, opts){
   const head = `${hit.part==='turret'?superstructureLabel(target):'车体'} ${faceLabel(hit.faceKey)}`;
-  const { theta, thickness, eff } = impactGeometry(shell, hit, target);
+  const geom = impactGeometry(shell, hit, target);
+  // #W-I（2026-10-19）：榴弹炮曲射直击——调用方（tank_fire.js 落点分支）预先算好
+  //   「目标六面最薄装甲」经 opts.forceEffThickness 注入，**取代**几何等效厚度
+  //   （曲射大角度落弹不适用入射角斜面等效；跳弹链同样被 allowBounce=false 关闭）。
+  const eff = (opts && typeof opts.forceEffThickness === 'number') ? opts.forceEffThickness : geom.eff;
+  const theta = geom.theta, thickness = geom.thickness;
   const deg = (theta*180/Math.PI).toFixed(0);
   const hitPoint = { x:hit.x, y:hit.y };
 

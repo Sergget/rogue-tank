@@ -385,19 +385,43 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
 
   // 7f) railgun 贯穿实战（#G）：一发命中并击穿两个串列目标（第二个受 pierceDmgMul 衰减伤害）
 
-  // 7e) howitzer 曲射移除（2026-09-15 用户裁定）：主炮恢复纯平射——WEAPON_DEFAULTS 无 howitzer、
-  //     WEAPON_PRIMARY_TYPES 白名单不含、主炮弹不再带 isArc/totalDist 落点标记
+  // 7e) howitzer **以模式回归**（#W-I 2026-10-19 用户裁定，取代 2026-09-15 的「曲射移除」）：
+  //     howitzer 不是独立武器类型（卡牌白名单仍不含），而是 `t._howitzerMode` 运行时标记——
+  //     开启后主炮曲射（he 锁定 / aimPoint 落点 / 越掩体）；未开启时主炮行为与此前完全一致。
   global.shells.length=0;
-  const hw=mkShooter('howitzer');
+  const hw=mkShooter('standard');
   global.entities=[hw,target];
-  ok(F.primaryWeaponSpec(hw)===null || F.primaryWeaponSpec(hw).isArc===undefined, '7e howitzer 主炮不再携带曲射规格');
-  ok(F.fireTank(hw,target,'auto')===true && global.shells.length===1, '7e howitzer 未知类型按标准平射回落（单发）');
+  // 未开启模式：普通直射，弹不带曲射标记
+  ok(F.fireTank(hw,target,'auto')===true && global.shells.length===1, '7e 未开模式：标准直射单发');
   const hShell=global.shells[0];
-  ok(hShell.isArc===undefined && hShell.totalDist===undefined && hShell.targetX===undefined, '7e 主炮弹无 isArc/totalDist/targetX 曲射落点标记');
+  ok(hShell.isArc===undefined && hShell.totalDist===undefined && hShell.targetX===undefined, '7e 未开模式：主炮弹无 isArc/totalDist/targetX 曲射标记');
   const W=require('../js/tank_weapons.js');
-  ok(W.WEAPON_DEFAULTS.primary.howitzer===undefined, '7e WEAPON_DEFAULTS.primary 已无 howitzer');
+  ok(W.WEAPON_DEFAULTS.primary.howitzer && W.WEAPON_DEFAULTS.primary.howitzer.isArc===true,
+    '#W-I: WEAPON_DEFAULTS.primary.howitzer 回归（isArc 模式参数载体，reloadMult 2.2 / splashRadius 90 / moveSpeedRatio 1/3）');
   const C2=require('../js/tank_cards.js');
-  ok(C2.WEAPON_PRIMARY_TYPES && C2.WEAPON_PRIMARY_TYPES.indexOf('howitzer')===-1, '7e 卡牌白名单已移除 howitzer');
+  ok(C2.WEAPON_PRIMARY_TYPES && C2.WEAPON_PRIMARY_TYPES.indexOf('howitzer')===-1, '#W-I: 卡牌白名单仍不含 howitzer（模式非武器类型）');
+  // 开启模式：aimPoint 落点 + he 锁定
+  global.shells.length=0;
+  hw._howitzerMode = true;
+  hw.stats.damage = 100; hw.stats.penetration = 200;
+  hw.reloadT = 0;   // 直射后装填中会被 fireTank 门控（正常机制），本块清零以测曲射路径
+  const wiCtx = {
+    player: hw, mouseWorld: { x: 400, y: 0 }, aimPoint: { x: 400, y: 0 },
+    shells: global.shells, impacts: global.impacts, bounceFx: global.bounceFx,
+    entities: global.entities, covers: C.covers, RULES: global.RULES, COVER_TIERS: C.COVER_TIERS,
+    nearestEnemyTo: () => target, gunRoot: G.gunRoot, gunTip: G.gunTip, raycastTank: G.raycastTank,
+    aimPartPreference: G.aimPartPreference, findCoversOnPath: C.findCoversOnPath,
+    resolveHit: P.resolveHit, burstExplosion: () => {}, spawnMuzzleFlash: () => {},
+    spawnImpactFx: () => {}, spawnDmgText: () => {}, playSound: () => {},
+    pushLog: () => {}, damageCover: C.damageCover, splashCoversAt: C.splashCoversAt,
+    isHostile: (a,b)=>a!==b, gaussian: () => 0, debuffReloadRate: M.debuffReloadRate,
+    computeAmmoConfig: null
+  };
+  ok(F.tryFirePrimary(wiCtx)===true && global.shells.length===1, '#W-I: 模式内开火（无需 target 实体）');
+  const wiShell = global.shells[0];
+  ok(wiShell && wiShell.isArc===true && wiShell.howitzer===true, '#W-I: 模式弹携带 isArc/howitzer 标记');
+  ok(wiShell && wiShell.ammoKey==='he', '#W-I: 弹种锁定 he');
+  ok(wiShell && Math.abs((wiShell.targetX||0)-400)<1, '#W-I: 落点 = aimPoint（400,0）');
   // 7f) railgun 贯穿实战（#G）：一发命中并击穿两个串列目标（第二个受 pierceDmgMul 衰减伤害）
   global.shells=[];
   global.raycastTank=G.raycastTank; global.shellPartHit=G.shellPartHit;

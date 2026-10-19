@@ -47,7 +47,9 @@ const AMMO_FIELDS = ['pen', 'dmg', 'speed'];
 // （repair_kit / support_extinguisher 是固有技能的纯强化卡，玩家开局「已持有」该键，
 //  去重会误杀；判定口径与 js/tank_abilities.js ABILITY_KEYS_INNATE 一致，本地复制防循环依赖）。
 const ABILITY_KEYS_INNATE_LOCAL = ['repair', 'medkit', 'extinguish'];
-const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'super_fire_control', 'super_speed', 'aps'];
+const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'super_fire_control', 'super_speed', 'aps',
+  // #W-I（2026-10-19）：榴弹炮曲射模式切换（toggle；运行时键与 tank_abilities.js ABILITY_KEYS_RUNTIME 同步）
+  'howitzer_mode'];
 // 无人机种类（drone）：scout=侦察指示（视口外敌军位置箭头）/ striker=近身自动索敌打击。
 // kind 缺失时兼容旧数据（默认 striker，伴随浮游炮语义）。
 const DRONE_KINDS = ['scout', 'striker'];
@@ -70,6 +72,9 @@ const WEAPON_SLOTS = ['primary', 'secondary'];
 //   WEAPON_DEFAULTS.secondary / fireActiveSecondary 的 wire 分支里，却漏在本白名单外，
 //   导致任何针对线导导弹的 weapon 卡都会被 validateCardEffect 判「weaponType 非法」。
 const WEAPON_SECONDARY_TYPES = ['mortar', 'missile', 'missile_wire', 'rocket', 'mine_layer', 'turret'];
+// #W-I（2026-10-19）：howitzer 为**模式**而非独立武器类型——不进卡牌武器白名单
+//   （安装/升级卡不会引用它），仅作为 WEAPON_DEFAULTS.primary 的参数载体 +
+//   `t._howitzerMode` 运行时标记（js/tank_abilities.js 的挂载卡切换）。
 const WEAPON_PRIMARY_TYPES = ['standard', 'autocannon', 'double_barrel', 'railgun', 'clip'];
 const ALL_WEAPON_TYPES = WEAPON_SECONDARY_TYPES.concat(WEAPON_PRIMARY_TYPES);
 

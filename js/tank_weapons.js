@@ -6,7 +6,21 @@
 
 const WEAPON_DEFAULTS = {
   primary: {
-    standard:    { reloadMult: 1.0, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0, burst: 1 },
+    // 2026-09-15 W6 用户裁定：速射机炮重做——伤害=标准 1/5、穿深=标准 85%（弹种系数机制不变）；
+  standard:    { reloadMult: 1.0, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0, burst: 1 },
+  // #W-I（2026-10-19 用户裁定）：榴弹炮曲射模式——「该模式更改主炮为曲射武器，行进速度将为
+  //   最大速度的 1/3。只能发射当前生效的 he 弹种，未直接命中时按距离计算伤害，直接命中时，
+  //   按坦克最薄的装甲值作为命中部位来计算伤害。可越过掩体，瞄准器变成一个在鼠标位置的
+  //   一个虚线圈，初始半径为 he 的爆炸半径」。**这是一个模式（howitzerMode），不是独立武器
+  //   类型**——挂载卡把当前主炮切进/切出该模式，弹种锁定 he。
+  //   · reloadMult 2.2：曲射重装填（显著慢于直射）；
+  //   · splashRadius：落点爆炸半径（he 系数链可改）；arcSpeed：曲射弹飞行速度（px/s）；
+  //   · moveSpeedRatio 1/3：模式下限速系数（js/tank_move.js 消费，勿走 speedModifier——
+  //     公路会把 speedModifier 强制归 1 静默清零减速）；
+  //   · barrage：急速射升级卡参数（3 发间隔 0.5s，仅模式内生效）。
+  howitzer:    { reloadMult: 2.2, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0,
+                 isArc: true, arcSpeed: 260, splashRadius: 90, minArcRange: 120,
+                 moveSpeedRatio: 1/3, barrage: null },
     // 2026-09-15 W6 用户裁定：速射机炮重做——伤害=标准 1/5、穿深=标准 85%（弹种系数机制不变）；
     // 射击间隔=装填时间×0.25（不再 burst 连发，逐发短间隔持续射击）；
     // 热量机制：每发 +heatPerShot%、每秒冷却 coolPerSec%、≥heatMax 过热并锁定 overheatLock 秒；

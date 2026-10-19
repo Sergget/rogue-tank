@@ -221,6 +221,59 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
   }
   // 2026-09-15：主武器曲射机制已移除（howitzer 删除）——主炮一律平射直线弹道；
   // isArc 落点分支（stepShells）仅保留给曲射副武器弹（mortar，自带 totalDist/targetX）。
+  //
+  // #W-I（2026-10-19 用户裁定，榴弹炮曲射模式回归）：`t._howitzerMode === true` 时主炮切
+  //   曲射——弹种**锁定 he**（忽略玩家当前 ammoKey），瞄准点 = 鼠标世界位置（ctx.aimPoint，
+  //   由 mvp 注入），越掩体（isArc 天然绕路径遮挡），落点分支在 stepShells 的 s.isArc。
+  if (shooter._howitzerMode === true) {
+    const hs = primaryWeaponSpec(shooter) || {};
+    const heKey = 'he';
+    const heCfg = getAmmoCfg(shooter, heKey) || {};
+    // 瞄准点：优先 ctx.aimPoint（鼠标世界位置），缺省沿炮塔方向 minArcRange
+    const minArc = (typeof hs.minArcRange === 'number') ? hs.minArcRange : 120;
+    let aimX, aimY;
+    if (c.aimPoint && Number.isFinite(c.aimPoint.x) && Number.isFinite(c.aimPoint.y)) {
+      aimX = c.aimPoint.x; aimY = c.aimPoint.y;
+    } else {
+      aimX = shooter.x + Math.cos(shooter.turretAngle || 0) * minArc;
+      aimY = shooter.y + Math.sin(shooter.turretAngle || 0) * minArc;
+    }
+    // 最小曲射距离：目标点太近时沿炮塔方向推到 minArcRange（迫击炮死角）
+    const dxa = aimX - rootP.x, dya = aimY - rootP.y;
+    const dAim = Math.hypot(dxa, dya);
+    if (dAim < minArc) {
+      aimX = rootP.x + (dAim > 1e-3 ? dxa / dAim : Math.cos(shooter.turretAngle || 0)) * minArc;
+      aimY = rootP.y + (dAim > 1e-3 ? dya / dAim : Math.sin(shooter.turretAngle || 0)) * minArc;
+    }
+    const dirA = Math.atan2(aimY - fy, aimX - fx);
+    const arcSpeed = (typeof hs.arcSpeed === 'number') ? hs.arcSpeed : 260;
+    const splash = (typeof hs.splashRadius === 'number') ? hs.splashRadius : 90;
+    burst(ox, oy, 0.6, 4, 2, 0);
+    muzzle(ox, oy, dirA, 1, 'howitzer');
+    play('fire');
+    shooter.recoilT = 0.1;
+    const shell = {
+      x: ox, y: oy, fx: fx, fy: fy,
+      dx: Math.cos(dirA), dy: Math.sin(dirA),
+      speed: arcSpeed,
+      // 直击判定用：标记本弹是 howitzer 主炮曲射（stepShells 的落点分支区分直击/近失）
+      howitzer: true,
+      shooter: shooter,
+      // 直击伤害口径：he 弹系数 × 武器 damageMult；最薄装甲判定在落点分支
+      dmg: Math.max(0, shooter.stats.damage * (heCfg.dmg || 1) * (typeof hs.damageMult === 'number' ? hs.damageMult : 1) + (heCfg.dmgAdd || 0)),
+      pen: shooter.stats.penetration * (heCfg.pen || 1),
+      ammo: heCfg, ammoKey: heKey,
+      splashRadius: splash,
+      // 落点三件套**预置**（与 mortar 弹同字段约定）——stepShells 的 isArc 分支只在
+      // `!(s.totalDist > 0)` 时才用 range 兜底；不预置的话 aimPoint 距离会被
+      // `s.range || 400` 的 falsy 兜底吞掉（实测打不到瞄准点）。
+      totalDist: Math.hypot(aimX - fx, aimY - fy),
+      targetX: aimX, targetY: aimY,
+      isArc: true, dist: 0, dead: false, canBounce: false
+    };
+    shells.push(shell);
+    return shell;
+  }
   shells.push(shell);
   return shell;
 }
@@ -415,7 +468,9 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   const push=c.pushLog||_G('pushLog',function(){});
   const dmgCover=c.damageCover||_G('damageCover',function(){return false;});
   const devAim=c.devAim!==undefined?c.devAim:_G('devAim',null);
-  if(!shooter||!target) return false;
+  // #W-I：曲射模式 target=null 合法（落点来自 ctx.aimPoint，不读 target）
+  if(!shooter) return false;
+  if(!target && shooter._howitzerMode !== true) return false;
   // #95：履带断（immobT>0）不再阻止开火——车体机动瘫痪 ≠ 火炮缴械，仅装填门控保留
   if(shooter.reloadT>0) return false;
   // P-49 炮闩受损：短时完全无法开火（机械缴械，与装填 debuff 不同）
@@ -423,8 +478,10 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   // 2026-09-15 W6：autocannon 过热锁定——heatLockT>0 期间禁止开火（其他武器无此字段，天然无影响）
   if(shooter.heatLockT !== undefined && shooter.heatLockT > 0) return false;
   if(!gunRoot||!gunTip||!find) return false;
+  // #W-I（2026-10-19）：榴弹炮曲射**豁免炮口贯穿预检**——弹道是抛物落点，出膛段贴掩体
+  //   不代表落点被挡（可行性结论第 2 问：预检与弹道类型无关，曲射需单独豁免）。
   const rootP=gunRoot(shooter), tipP=gunTip(shooter);
-  const barrelCovers=find(rootP.x,rootP.y,tipP.x,tipP.y);
+  const barrelCovers=(shooter._howitzerMode === true) ? [] : find(rootP.x,rootP.y,tipP.x,tipP.y);
   const solid=barrelCovers.find(function(v){ const m=T[v.cover.tier]&&T[v.cover.tier].mode; return m==='solid'||m==='single'; });
   if(solid){
     shooter.reloadT=shooter.stats.reload/debuffReload(shooter);
@@ -504,6 +561,13 @@ function tryFire(ctx, salvo){
   const R=_rules(c);
   const ft=c.fireTank||fireTank;
   if(!player||!gunTip||!raycast||!aimPref) return false;
+  // #W-I（2026-10-19）：榴弹炮曲射模式**不需要目标实体**——落点 = 鼠标世界位置
+  // （打地面/掩体后都合法）。无敌人时走 aimPoint 直通 fireTank（target=null 合法：
+  // fireTank 的曲射分支不读 target）。
+  if(player._howitzerMode === true){
+    if(!c.shells && !_G('shells',null)) return false;
+    return ft(player, null, null, c, salvo);
+  }
   const target=nearest(player);
   if(!target) return false;
   const tipP=gunTip(player);
@@ -756,12 +820,62 @@ function stepShells(dt, ctx){
         impactFx(s.x, s.y, Math.atan2(s.dy, s.dx), 'he', 1);
         play('pen');
         dmgText(s.x, s.y - 14, '轰击', 'he');
-        if(applySplash) applySplash(s.x, s.y, sc, s.dmg, null, s, ents);
-        if(splashCovers) splashCovers(s.x, s.y, sc);
-        s.dead = true;
+        // #W-I（2026-10-19 用户裁定）：榴弹炮落点分支区分**直击/近失**——
+        //   「直接命中时，按坦克最薄的装甲值作为命中部位来计算伤害；未直接命中时按距离计算伤害」。
+        //   直击判据：落点爆炸半径内有敌对坦克（最近的一辆），且落点在其车体/炮塔 OBB 内。
+        //   · 直击：penetration = he 弹穿深，装甲 = 目标**六面最薄**（min over hull/turret ×
+        //     front/side/rear，**绕过入射角/跳弹链**——曲射大角度落弹物理上就不适用斜面等效）；
+        //     eff ≤ pen → 全伤 + 模块判定照走 resolveHit（保持部位结算一致性）；
+        //     eff > pen → 未击穿，按 nonPen 比例给残伤（与直射 BLOCK 一致的口径）。
+        //   · 近失：伤害 = s.dmg × max(0, 1 − dist/(splashRadius×1.6))（线性衰减，1.6×半径外零伤），
+        //     直接 applyDamage（he 溅射语义，不走装甲）。
+        const entList = ents || _G('entities', null);
+        if(s.howitzer && Array.isArray(entList) && typeof resolveHit === 'function'){
+          const R = _rules(c);
+          let bestT=null, bestD=Infinity;
+          for(const e of entList){
+            if(!e || e.hp === undefined || e.hp <= 0) continue;
+            if(s.shooter && e.team === s.shooter.team) continue;
+            const d = Math.hypot(e.x - s.x, e.y - s.y);
+            if(d < bestD){ bestD = d; bestT = e; }
+          }
+          if(bestT && bestD <= sc * 0.9){
+            // —— 直击分支：六面最薄装甲 ——
+            let minEff = Infinity;
+            const th = (bestT.stats && bestT.stats.armor) || (R.defaultArmor || {});
+            const effOf = (part, face) => {
+              const a = th[part] && th[part][face];
+              if(typeof a !== 'number') return Infinity;
+              return a;   // 曲射落弹近似垂直顶甲，入射角放大忽略（见上注释）
+            };
+            for(const part of ['hull','turret']){
+              for(const face of ['front','side','rear']){
+                const v = effOf(part, face);
+                if(v < minEff) minEff = v;
+              }
+            }
+            if(!isFinite(minEff)) minEff = 0;   // 无装甲数据（dummy）⇒ 视为穿透
+            const hitFake = { part:'hull', faceKey:'side', x:s.x, y:s.y, nx:0, ny:0, edgeName:'side' };
+            const res = resolveHit(s, bestT, hitFake, false, { forceEffThickness: minEff });
+            // resolveHit 内部按 opts.forceEffThickness 结算（见 tank_physics.js 同批改动）；
+            // 返回的 text/dmg 走它自己的口径，这里只补落点溅射：
+            if(applySplash) applySplash(s.x, s.y, sc, s.dmg * 0.35, bestT, s, entList);
+            if(splashCovers) splashCovers(s.x, s.y, sc);
+            s.dead = true;
+          } else {
+            // —— 近失分支：按距离线性衰减 ——
+            if(applySplash) applySplash(s.x, s.y, sc, s.dmg, null, s, entList);
+            if(splashCovers) splashCovers(s.x, s.y, sc);
+            s.dead = true;
+          }
+        } else {
+          if(applySplash) applySplash(s.x, s.y, sc, s.dmg, null, s, ents);
+          if(splashCovers) splashCovers(s.x, s.y, sc);
+          s.dead = true;
+        }
+        return;
       }
-      return;
-    }
+      }   // end if(s.dist >= s.totalDist) — #W-I 补回（替换时吞掉了原闭合行）
     let bestDist=Infinity, bestTank=null, bestHit=null, bestCover=null;
     // #10（2026-10-19）：受击坦克是否躲在敌方便携掩体背面有效区（决定部位改判炮塔）。
     //   声明必须在命中扫描之前——扫描后的判定与最终结算都要读它。
