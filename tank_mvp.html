@@ -4483,13 +4483,28 @@ function update(dt){
         hp: esc.shieldHp,
         duration: esc.durationSeconds
       });
+      // 2026-10-19 用户裁定：「应急护盾在 10s 内应该是**无敌的**」。
+      //   ⇒ 护盾存续期间直接走 `invulnT` 无敌体系（全链路消费：炮弹 resolveHit /
+      //      溅射 / 炮击 / Boss 激光 / 无人机索敌全部检查 invulnT），比「吸收池」更强——
+      //      池只管吸收量，无敌完全免伤。两者并存：invulnT 覆盖持续期，池兜底吸收。
+      //      每帧续期到「护盾剩余时长」，护盾到期/被打爆则无敌随之结束。
+      player.invulnT = Math.max(player.invulnT || 0, player.shield ? player.shield.t : 0);
       player._emergencyShieldCd = (typeof emergencyShieldCooldown === 'function')
         ? emergencyShieldCooldown(player) : 90;
-      pushLog(`应急护盾展开 — 吸收 ${esc.shieldHp} 点伤害，持续 ${esc.durationSeconds}s`, 'PEN');
+      pushLog(`应急护盾展开 — 无敌 ${esc.durationSeconds}s（吸收 ${esc.shieldHp}）`, 'PEN');
       if (typeof playSound === 'function') playSound('shield');
     }
   }
   updateShield(player, dt);       // 护盾时长递减（本版本仅玩家持有护盾，无盾时 no-op）
+  // 2026-10-19 用户裁定：应急护盾存续期间玩家**无敌**（见下方触发点注释）。
+  //   通用递减（:4314）每帧都会扣 invulnT，而应急无敌的权威时长是护盾剩余时间
+  //   （player.shield.t）——所以每帧把 invulnT **续到**护盾剩余时长；护盾消失（到期/
+  //   被打爆）后不再续，无敌随之自然结束。仅当 invulnT 比护盾剩余短才提升（不抢
+  //   复活无敌等更长的既有无敌）。
+  if (player && player.shield && player.shield.t > 0
+    && (player.cardEffects || []).some(e => e && e.type === 'passive' && e.key === 'reactive_armor')) {
+    player.invulnT = Math.max(player.invulnT || 0, player.shield.t);
+  }
   // P-17：战术炮击落弹推进（updateStrikes 已按阵营过滤扣血并返回命中明细；接线层播特效/飘字/音效）
   // #MODE：生存准备期不推进落弹（否则倒计时结束瞬间多波落弹同时爆开；伤害总闸亦已拦住结算）。
   for(const ev of (isSurvivalPrep ? [] : updateStrikes(dt, entities))){

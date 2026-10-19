@@ -1752,13 +1752,16 @@ function secondaryTurretPose(t){
   const s = SECONDARY_TURRET_SCALE;
   const structureA = (typeof superstructureAngle === 'function') ? superstructureAngle(t) : (t.turretAngle || 0);
   // #4（2026-10-19 用户裁定）：「贴图改为固定的一个小型的 dummy 坦克的炮塔，
-  // #4（2026-10-19 用户裁定）→ #4b（同日实测反馈「副炮塔位置不正确，需要**绑定在炮塔上**，
-  //   随炮塔转动一同移动」）：
-  //   ⚠️ 车长塔画在**炮塔顶面**（`paintPartTextureDirect(…, 'turret', …)` 顶点用
-  //   `turretPoly`，随 `turretAngle` 旋转）——所以它的局部坐标是**炮塔系**，必须：
-  //     ① 按 **turretAngle** 旋转（不是 hullAngle）；
-  //     ② 平移到**炮塔座圈中心**（turretPivot，炮塔系原点在世界里的位置）。
-  //   这样副炮塔就「绑在炮塔上」——主炮塔转动时它跟着一起移动。
+  // #4（2026-10-19 用户裁定）→ #4c（同日二次实测反馈「车长塔**为什么绑定在车体上**？
+  //   肯定是绑定在炮塔上的」）：
+  //   **坐标系口径（本函数返回世界坐标）**：
+  //     · `updateSecondaryTurret`（js/tank_weapons.js）直接当世界系用（炮弹 x/y）——正确；
+  //     · `drawSecondaryTurret` 的两处调用点（:1024 精灵 / :1606 程序化）都处于
+  //       `translate(t.x,t.y)+rotate(hullAngle)` 的**车体局部变换**内——消费前必须把
+  //       世界系 pose 逆变换回车体局部（本文件 `drawSecondaryTurret` 内做）。
+  //   ⚠️ 关键事实：`turretPivot(t)` 返回的是**世界坐标**（已含 hullAngle 旋转 + t.x/t.y
+  //   平移；实测 hullAngle=45° 时返回值随车转）——不是车体局部偏移！
+  //   所以世界系合成：座圈世界位置 + cupola（炮塔系）按**世界炮塔角**旋转。
   let px = t.x, py = t.y;
   let anchored = false;
   if(typeof cupolaAnchor === 'function' && typeof turretPoly === 'function'){
@@ -1771,13 +1774,13 @@ function secondaryTurretPose(t){
       cupolaStyle: (t.appearance && t.appearance.cupola && t.appearance.cupola.style) || undefined
     });
     if(cup && isFinite(cup.x) && isFinite(cup.y)){
-      // 座圈中心（炮塔系原点在世界里的位置）
+      // 座圈世界位置
       let rx0 = t.x, ry0 = t.y;
       if(typeof turretPivot === 'function'){
         const off = turretPivot(t);
         if(off && isFinite(off.x) && isFinite(off.y)){ rx0 = off.x; ry0 = off.y; }
       }
-      // 炮塔局部 → 世界：按 turretAngle 旋转 + 座圈平移
+      // 炮塔局部 → 世界：按**世界炮塔角** turretAngle 旋转 + 座圈平移
       const ta = t.turretAngle || 0;
       const ca = Math.cos(ta), sa = Math.sin(ta);
       px = rx0 + cup.x * ca - cup.y * sa;
@@ -1786,7 +1789,7 @@ function secondaryTurretPose(t){
     }
   }
   if(!anchored){
-    // 回退：炮塔旋转中心（turretPivot）
+    // 回退：炮塔旋转中心（turretPivot 本身就是世界系）
     if(typeof turretPivot === 'function'){
       const off = turretPivot(t);
       if(off && isFinite(off.x) && isFinite(off.y)){ px = off.x; py = off.y; }
@@ -1812,6 +1815,16 @@ function drawSecondaryTurret(ctx, t){
   if(t.ammoBlew) return false;   // 殉爆掀飞炮塔后不绘制
   const s = pose.scale;
   const bCol = tankBodyCol(t);
+  // #4c（2026-10-19）：`pose.x/y` 是**世界坐标**，而调用点处于车体局部变换
+  //   （`translate(t.x,t.y)+rotate(hullAngle)`）内 ⇒ 必须先**逆变换**回车体局部再画：
+  //     局部 = R(−hullAngle) · (世界 − t.xy)
+  //   （旧实现把世界坐标直接塞进局部变换 ⇒ 双重叠加，位置随车体角度错动——
+  //    正是用户看到「副炮塔绑在车体上乱跑」的原因。）
+  const dxa = pose.x - t.x, dya = pose.y - t.y;
+  const ha = t.hullAngle || 0;
+  const ch = Math.cos(-ha), sh = Math.sin(-ha);
+  const poseLx = dxa * ch - dya * sh;
+  const poseLy = dxa * sh + dya * ch;
   // 炮塔多边形顶点（相对车体原点的模型坐标）——平移到原点后按 s 缩放
   let verts = null;
   if(typeof turretPoly === 'function'){
@@ -1819,7 +1832,7 @@ function drawSecondaryTurret(ctx, t){
     if(tp && Array.isArray(tp.verts)) verts = tp.verts;
   }
   ctx.save();
-  ctx.translate(pose.x, pose.y);
+  ctx.translate(poseLx, poseLy);
   // 底座投影（与主炮塔同款：世界固定光向右下）
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.beginPath();
@@ -1833,7 +1846,9 @@ function drawSecondaryTurret(ctx, t){
   }
   ctx.closePath(); ctx.fill();
 
-  ctx.rotate(pose.angle);
+  // #4c：pose.angle 是**世界角**，当前变换已含 hullAngle ⇒ 旋转用**相对角**
+  //   （世界副塔角 − hullAngle），保证副炮塔朝向在屏幕上正确。
+  ctx.rotate(pose.angle - (t.hullAngle || 0));
   // 炮塔本体（缩放多边形）+ 侧壁暗边 + 勾线
   ctx.beginPath();
   if(verts){

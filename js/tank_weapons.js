@@ -202,14 +202,21 @@ function updateSecondaryTurret(t, dt, ctx) {
   //   现行：起点取副炮塔位姿（与绘制层 tank_battledraw.secondaryTurretPose 严格同源），
   //   副炮塔未就绪（老数据/无位姿）时回退主炮口，不抛错。
   //   注意加载顺序：tank_battledraw.js 在本模块**之后**加载（浏览器），故惰性取值 + require 兜底。
-  const secPose = _secondaryTurretPoseFn()(t);
-  const secMuzzle = secPose
-    ? {
-        x: secPose.x + Math.cos(secPose.angle) * (secPose.barrelLen + secPose.radius * 0.6),
-        y: secPose.y + Math.sin(secPose.angle) * (secPose.barrelLen + secPose.radius * 0.6),
-        rootX: secPose.x, rootY: secPose.y
-      }
-    : null;
+  // #4c（2026-10-19）：`secondaryTurretPose` 现返回**车体局部坐标**（相对车体中心、未含
+  //   hullAngle——与绘制层 `translate(t.x,t.y)+rotate(hullAngle)` 的变换口径一致）。
+  //   炮弹要用**世界坐标**，故在此把 pose（及沿角度伸出的炮口）经 hullAngle 旋转 + 车体平移
+  //   换算到世界；pose 缺失时回退主炮口（gunTip，本就是世界系）。
+  const secPoseRaw = _secondaryTurretPoseFn()(t);
+  let secMuzzle = null;
+  if (secPoseRaw) {
+    const ha = t.hullAngle || 0;
+    const ch = Math.cos(ha), sh = Math.sin(ha);
+    const wx = t.x + secPoseRaw.x * ch - secPoseRaw.y * sh;   // 副炮塔座（世界）
+    const wy = t.y + secPoseRaw.x * sh + secPoseRaw.y * ch;
+    const mx = wx + Math.cos(secPoseRaw.angle) * (secPoseRaw.barrelLen + secPoseRaw.radius * 0.6);
+    const my = wy + Math.sin(secPoseRaw.angle) * (secPoseRaw.barrelLen + secPoseRaw.radius * 0.6);
+    secMuzzle = { x: mx, y: my, rootX: wx, rootY: wy };
+  }
   const muzzleX = secMuzzle ? secMuzzle.x : tipP.x;
   const muzzleY = secMuzzle ? secMuzzle.y : tipP.y;
   let solid = null;
