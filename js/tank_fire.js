@@ -732,6 +732,13 @@ function stepShells(dt, ctx){
     for(const e of ents){
       if(!e||e.hp<=0) continue;
       if(!isHostile(s.shooter.team,e.team)) continue;
+      // #14（2026-10-19 用户反馈「命中炮塔的跳弹极大概率再次命中车体」）：
+      //   炮弹刚从这辆车的炮塔跳开时，不得立刻再命中它的车体。`tank_physics.js` 的
+      //   跳弹分支已把它沿反射方向推出安全距离（修法①），此处是修法②——
+      //   对该**同一辆车**跳过命中判定（只限这一辆，允许跳弹后打到别的目标）。
+      //   注意语义：这**不是**「禁止二次命中」（打穿一辆车再命中旁边队友是合法机制），
+      //   而是「不从自己刚跳开的那辆车上连续结算」。
+      if(s._bouncedFrom != null && e.id === s._bouncedFrom) continue;
       // #G：轨道炮贯穿——已命中的目标不再重复结算（防同发多杀同一目标）
       if(s.pierceHitIds && s.pierceHitIds.indexOf(e.id) >= 0) continue;
       const hits=raycast?raycast(sx,sy,s.dx,s.dy,e):null;

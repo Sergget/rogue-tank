@@ -28,30 +28,30 @@ function drawTracks(ctx, t){
 }
 // hull top-down paint.
 function renderHullTexture(ctx, t){
-  // #TEX-2026-10-15: 动态损伤分级（hp 越低 weathering 越重）+ 每车固定 weathering seed
-  const maxHp = (t.maxHp && t.maxHp > 0) ? t.maxHp : 100;
-  const hpRatio = Math.max(0, Math.min(1, (t.hp || 0) / maxHp));
-  const damageLevel = hpRatio > 0.75 ? 0 : hpRatio > 0.5 ? 1 : hpRatio > 0.25 ? 2 : 3;
+  // #3（2026-10-19 用户反馈「坦克因被击中掉血而发生的外观变化删除，以优化性能」）：
+  //   此前按 hp 比分 4 档（0/1/2/3）驱动 weathering，而 `damageLevel` 在**贴图缓存键**内
+  //   （js/tank_paint.js 的 `${...}_d${damageLevel}_w${weatherSeed}_...`）⇒ **每掉 1 档就
+  //   车体/炮塔各重烘焙一次**，每次约 4.5 万像素完整重栅格化。叠加残骸问题（#2）后更糟：
+  //   生存敌人 id 逐波不同 ⇒ weatherSeed 逐具不同 ⇒ 193 残骸 × 4 档 × 2 部件 ≈ 1544 个
+  //   缓存键，远超 LRU 上限 512，导致残骸还在屏幕上就要被反复重烤。
+  //   ⇒ 固定 damageLevel = 0（所有坦克恒为"崭新"外观）。weatherSeed 保留（每车固定，
+  //   不随血量变化，不是缓存抖动源），因此涂装差异仍在，只是不再随掉血变化。
   const hv = hullPoly(t).verts;
   // #TEX11：贴图图案框锚在车体 bbox（+每车固定平移），炮塔复用同一框以保持色块尺度/连续性
   const texBox = paintPatternBox(hv, 'hull', null, t.weatherSeed || 1);
   paintPartTexture(ctx, hv, t.x, t.y, t.hullAngle, 1, t.color, 'hull',
-    { detail:true, texture: t.texture, damageLevel, weatherSeed: t.weatherSeed || 1,
+    { detail:true, texture: t.texture, damageLevel: 0, weatherSeed: t.weatherSeed || 1,
       appearance: t.appearance || undefined, texBox });
 }
 // turret top-down paint.
-// #TEX8-2026-10-18：炮塔同样传 damageLevel / weatherSeed（此前漏传 → 炮塔永远崭新）。
-//   损伤分级由车体相同的 hp 比推导，保证「车体锈到哪、炮塔锈到哪」一致。
+// #3（2026-10-19）：炮塔同样固定 damageLevel = 0（取消掉血外观变化，理由见 renderHullTexture）。
 function renderTurretTexture(ctx, cx, cy, angle, t){
-  const maxHp = (t.maxHp && t.maxHp > 0) ? t.maxHp : 100;
-  const hpRatio = Math.max(0, Math.min(1, (t.hp || 0) / maxHp));
-  const damageLevel = hpRatio > 0.75 ? 0 : hpRatio > 0.5 ? 1 : hpRatio > 0.25 ? 2 : 3;
   // #TEX11：炮塔复用**车体**的图案框（平移 −座圈偏移），不再用自己的 32px 小框——
   //   否则同一套迷彩在炮塔上的色块只有车体的一半大，交界处图案还断开。
   const texBox = paintPatternBox(hullPoly(t).verts, 'turret', t.turretPivotOffset, t.weatherSeed || 1);
   paintPartTexture(ctx, turretPoly(t).verts, cx, cy, angle, 1, t.color, 'turret',
     { detail:true, heightClass: t.heightClass, texture: t.texture,
-      damageLevel, weatherSeed: (t.weatherSeed || 1) + 17,   // +17：炮塔磨损相位与车体错开
+      damageLevel: 0, weatherSeed: (t.weatherSeed || 1) + 17,   // +17：炮塔磨损相位与车体错开
       appearance: t.appearance || undefined, texBox });
 }
 
@@ -1117,7 +1117,9 @@ function drawTank(ctx, t){
     // 精灵主体已在 drawTankSprite 内按程序化层级绘制断履带/副炮塔/座圈/起火辉光；
     // 这里仅绘制主体之上的通用提示与 HUD。
     drawTraverseRays(ctx, t, turCx, turCy);
-    drawAttachments(ctx, t, turCx, turCy);
+    // #17：精灵分支同样分层——车体件在下、炮塔/炮管件在上（与程序化分支同口径）。
+    drawAttachments(ctx, t, t.x, t.y, 'hull');
+    drawAttachments(ctx, t, turCx, turCy, 'turret');
     drawTankHud(ctx, t);
     return;
   }
@@ -1155,6 +1157,12 @@ function drawTank(ctx, t){
   // #W2（2026-10-19 用户反馈「需要绘制在顶层贴图」）：此处原在主炮塔**之前**绘制，
   //   导致副炮塔被主炮塔整块盖住（位姿中心与座圈重合、scale 0.62，只剩一圈边缘）。
   //   现移到主炮塔/炮管绘制完成之后（见 drawTank 尾部 "#W2" 调用点）。
+
+  // #17（2026-10-19）：车体绑定（bindTo:'hull'）的装饰件在**炮塔之前**绘制——
+  //   它们挂在车体上（工具箱/备用履带/油桶/原木/铁锹/伪装网），落点 dy≈±0.40·hullWid
+  //   正落在炮塔投影范围内；此前整组画在最后会盖住炮塔与副炮塔。
+  //   炮塔/炮管绑定的附件仍画在最后（见 drawTank 尾部的 'turret' 分层调用）。
+  drawAttachments(ctx, t, t.x, t.y, 'hull');
 
   // turret ring (on the hull, under the turret)
   // #TEX13：座圈凸台放在炮塔阴影之后、侧壁之前，确保不被软影整块盖掉
@@ -1586,7 +1594,9 @@ function drawTank(ctx, t){
   if(!t.ammoBlew) drawSecondaryTurret(ctx, t);
 
   // ---- draw attachments ----
-  drawAttachments(ctx, t, turCx, turCy);
+  // #17（2026-10-19）：炮塔/炮管绑定的附件画在最后（理应盖在炮塔上）；
+  //   `bindTo:'hull'` 的车体装饰件已在炮塔之前画完（见上方 drawAttachments(...,'hull')）。
+  drawAttachments(ctx, t, turCx, turCy, 'turret');
 
   // ---- 世界内 HUD（血条 / 车型徽标 / 敌方 Lv.X）----
   drawTankHud(ctx, t);
@@ -1633,10 +1643,21 @@ function drawTraverseRays(ctx, t, turCx, turCy){
 }
 
 // 附件（shield/drone）绘制：绑定到车体/炮塔/gun_root 锚点。两条绘制通道共用（#L1）。
-function drawAttachments(ctx, t, turCx, turCy){
+// #17（2026-10-19 用户反馈「部分外观杂项 z 轴高度不正确，如车体小组件会挡住炮塔
+//   甚至是最高的副炮塔」）：附件此前**整组固定画在最后一层**（车体→座圈→炮塔→炮管
+//   →副炮塔→附件），因此 `bindTo:'hull'` 的车体装饰件（工具箱/备用履带/油桶/原木/
+//   铁锹/伪装网，由 `js/tank_model.js` 的 `assignTankDecorations` 生成，落点 dy=±0.40·hullWid，
+//   **正落在炮塔投影范围内**）会盖住炮塔乃至已提到顶层的副炮塔。
+//   ⇒ 新增 `layer` 参数按 bindTo 分层：
+//     'hull'   —— 只画 bindTo==='hull' 的件（在炮塔**之前**调用，压在炮塔下）
+//     'turret' —— 只画 turret*/gun_root 的件（在炮塔之后、副炮塔之前/之后均可）
+//     省略     —— 画全部（向后兼容旧调用）
+function drawAttachments(ctx, t, turCx, turCy, layer){
   if(t.ammoBlew || !Array.isArray(t.attachments)) return;
   t.attachments.forEach(att => {
     if(!att || !att.bindTo) return;
+    if(layer === 'hull' && att.bindTo !== 'hull') return;
+    if(layer === 'turret' && att.bindTo === 'hull') return;
     let basePos = { x: t.x, y: t.y }, baseAngle = t.hullAngle;
     if (att.bindTo.startsWith('turret')) {
       basePos = { x: turCx, y: turCy };

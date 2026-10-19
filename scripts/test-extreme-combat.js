@@ -128,7 +128,16 @@ ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret ===
     '法线(1,0) 反射：x 分量反号、y 分量不变');
   ok(sh.bounced === true, 'shell.bounced=true');
   ok(sh.canBounce === false, 'shell.canBounce=false（禁二次跳弹标记）');
-  ok(sh.x === HIT_FRONT.x && sh.y === HIT_FRONT.y, '跳弹后 shell 停靠命中点');
+  // #14（2026-10-19 用户裁定）：跳弹后炮弹**不再停靠命中点**，而是沿反射方向推出安全距离。
+  //   旧断言 `sh.x === HIT_FRONT.x` 固化的正是 bug 本身——停在炮塔表面会让炮弹必然
+  //   再命中同一辆车的车体（实测 148/148 必现）。现改为断言「已离开命中点、且前移方向
+  //   等于反射方向」。
+  const movedDist = Math.hypot(sh.x - HIT_FRONT.x, sh.y - HIT_FRONT.y);
+  ok(movedDist > 0, `跳弹后 shell 已离开命中点（前移 ${movedDist.toFixed(1)}px）`);
+  const dirDot = (movedDist > 0) ? ((sh.x - HIT_FRONT.x) * sh.dx + (sh.y - HIT_FRONT.y) * sh.dy) / movedDist : 0;
+  ok(Math.abs(dirDot - 1) < 1e-9, `跳弹后前移方向 = 反射方向（点积 ${dirDot.toFixed(6)} ≈ 1）`);
+  ok(sh._bouncedFrom === (t && t.id !== undefined ? t.id : null),
+    '跳弹后记录 _bouncedFrom（供调用方跳过对该车的二次命中）');
   ok(res.hitPoint.x === HIT_FRONT.x && res.hitPoint.y === HIT_FRONT.y, 'hitPoint 记录命中点');
   ok(Math.abs(res.bounceAngle - Math.atan2(sh.dy, sh.dx)) < 1e-12, 'bounceAngle 与反射后航向一致');
 }

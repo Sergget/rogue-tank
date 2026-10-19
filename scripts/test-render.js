@@ -112,8 +112,12 @@ function drawTurret(t) {
   const t0 = mkTank({ hp: 100 });
   const a = drawHull(t0), b = drawHull(t3);
   ok(opaque(a) > 1000 && opaque(b) > 1000, `车体渲染有内容（${opaque(a)} px）`);
+  // #3（2026-10-19 用户裁定）：取消「掉血外观变化」以优化性能。
+  //   旧断言是 `damageLevel 全血 vs 残血像素不同`——那正是要删掉的行为（每掉 1 档会让
+  //   车体/炮塔各重烘焙一次、约 4.5 万像素，且把 LRU 512 撑爆）。现改为**反向**断言：
+  //   满血与残血渲染必须逐字节一致（即 damageLevel 已固定，不再进缓存键变化）。
   const dmgDiff = diffPx(a._buf, b._buf);
-  ok(dmgDiff > 20, `①-damageLevel：全血 vs 残血车体像素不同（差 ${dmgDiff} px，旧缓存键丢字段时为 0）`);
+  ok(dmgDiff === 0, `①-损伤外观已取消：满血 vs 残血车体渲染逐字节一致（差 ${dmgDiff} px，应为 0）`);
 
   // 缓存命中必须**稳定**（同一入参两次 → 逐字节相同），否则说明键退化成了随机
   const again = drawHull(t3);
@@ -182,7 +186,9 @@ function drawTurret(t) {
   const t3 = mkTank({ hp: 12 });
   const a = drawTurret(t0), b = drawTurret(t3);
   const d = diffPx(a._buf, b._buf);
-  ok(d > 10, `②炮塔 weathering：全血 vs 残血炮塔像素不同（差 ${d} px，修复前恒为 0）`);
+  // #3（2026-10-19 用户裁定）：取消掉血外观变化 ⇒ 炮塔同样固定 damageLevel，
+  //   满血与残血必须逐字节一致（旧断言要求"不同"，正是被删掉的行为）。
+  ok(d === 0, `②炮塔损伤外观已取消：满血 vs 残血炮塔渲染逐字节一致（差 ${d} px，应为 0）`);
 
   // 炮塔 appearance.cupola 样式必须生效
   const low = mkTank({ hp: 100 }); low.appearance = { cupola: { style: 'low' } };

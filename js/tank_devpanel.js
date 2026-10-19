@@ -47,39 +47,39 @@ function mountDevPanel(host) {
   // ---- DOM 构建（与 mvp 原面板结构逐字段一致，两页同源） ----
   const wrap = document.createElement('div');
   wrap.id = 'devPanel';
-  wrap.style.cssText = 'position:absolute; right:12px; top:12px; z-index:31; width:480px; max-height:calc(100vh - 24px); overflow-y:auto; background:rgba(18,20,15,0.95); border:1px solid rgba(255,255,255,0.12); padding:14px 16px; font-family:monospace; box-shadow:0 8px 30px rgba(0,0,0,0.6);';
+  wrap.style.cssText = 'position:absolute; right:12px; top:12px; z-index:31; width:560px; max-height:calc(100vh - 24px); overflow-y:auto; background:rgba(18,20,15,0.95); border:1px solid rgba(255,255,255,0.12); padding:14px 16px; font-family:monospace; box-shadow:0 8px 30px rgba(0,0,0,0.6);';
   wrap.style.display = 'none';
   const CSS_G = ['.sp-title','.dev-sec','.dev-sec h4','.dev-row','.dev-row .k','.dev-row button','.hint','.dev-tabs','.dev-tab','.dev-tab.active','input.dev-search','.dev-card-group','.dev-card-group-h','.dev-card-items','.card-list','.card-list button','.dev-owned-row','.dev-picked','.dev-cheat','.mod-list','.mod-row','.mod-row .m-src','.mod-row .m-stat','.mod-row select','.mod-row input','.mod-row button'];
   const CSS_DEFS = [
-    'font-size:11px;letter-spacing:2px;color:#e8c86a;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:8px;margin-bottom:10px;',
+    'font-size:14px;letter-spacing:2px;color:#e8c86a;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:8px;margin-bottom:10px;',
     'border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.015);padding:8px 10px;margin-bottom:10px;',
-    'margin:0 0 6px;font-size:10px;letter-spacing:2px;color:#c9a45c;text-transform:uppercase;font-weight:500;',
-    'display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:10px;color:#ddd7c4;flex-wrap:wrap;',
+    'margin:0 0 6px;font-size:13px;letter-spacing:2px;color:#c9a45c;text-transform:uppercase;font-weight:500;',
+    'display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:13px;color:#ddd7c4;flex-wrap:wrap;',
     'color:#8a8678;min-width:56px;',
-    'padding:3px 6px;font-size:9px;',
-    'font-size:9px;color:#8a8678;opacity:.7;margin-top:8px;letter-spacing:1px;',
+    'padding:3px 6px;font-size:12px;',
+    'font-size:12px;color:#8a8678;opacity:.7;margin-top:8px;letter-spacing:1px;',
     'display:flex;gap:4px;margin-bottom:8px;',
-    'flex:1;padding:4px 0;font-size:10px;letter-spacing:2px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);color:#8a8678;cursor:pointer;',
+    'flex:1;padding:4px 0;font-size:13px;letter-spacing:2px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);color:#8a8678;cursor:pointer;',
     'color:#e8c86a;border-color:#c9a45c;background:rgba(255,255,255,0.06);',
-    'width:100%;box-sizing:border-box;margin-bottom:5px;font-size:10px;padding:3px 5px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.12);color:#ddd7c4;',
+    'width:100%;box-sizing:border-box;margin-bottom:5px;font-size:13px;padding:3px 5px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.12);color:#ddd7c4;',
     'margin-bottom:4px;',
-    'display:flex;justify-content:space-between;align-items:center;width:100%;padding:3px 5px;font-size:9px;letter-spacing:1px;color:#c9a45c;background:rgba(255,255,255,0.02);border:1px dashed #2a2d20;cursor:pointer;text-align:left;',
+    'display:flex;justify-content:space-between;align-items:center;width:100%;padding:3px 5px;font-size:12px;letter-spacing:1px;color:#c9a45c;background:rgba(255,255,255,0.02);border:1px dashed #2a2d20;cursor:pointer;text-align:left;',
     'display:flex;flex-direction:column;gap:3px;margin-top:3px;',
     'display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto;',
-    'text-align:left;font-size:9px;padding:4px 6px;letter-spacing:0;',
-    'display:flex;align-items:center;gap:6px;font-size:9px;border:1px dashed #2a2d20;padding:3px 5px;margin-bottom:3px;',
+    'text-align:left;font-size:12px;padding:4px 6px;letter-spacing:0;',
+    'display:flex;align-items:center;gap:6px;font-size:12px;border:1px dashed #2a2d20;padding:3px 5px;margin-bottom:3px;',
     'outline:2px solid #7ed957;',
-    'display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:10px;color:#ddd7c4;cursor:pointer;',
+    'display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:13px;color:#ddd7c4;cursor:pointer;',
     'display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;',
-    'display:flex;align-items:center;gap:4px;font-size:9px;border:1px dashed #2a2d20;padding:3px 5px;',
+    'display:flex;align-items:center;gap:4px;font-size:12px;border:1px dashed #2a2d20;padding:3px 5px;',
     'color:#c9a45c;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
     'color:#ddd7c4;min-width:70px;',
-    'font-size:9px;padding:1px 2px;width:56px;',
-    'width:64px;font-size:9px;padding:1px 3px;',
-    'padding:2px 5px;font-size:9px;'
+    'font-size:12px;padding:1px 2px;width:56px;',
+    'width:64px;font-size:12px;padding:1px 3px;',
+    'padding:2px 5px;font-size:12px;'
   ];
   const styleEl = document.createElement('style');
-  styleEl.textContent = '#devPanel{position:absolute;right:12px;top:12px;z-index:31;width:480px;max-height:calc(100vh - 24px);overflow-y:auto;background:rgba(18,20,15,0.95);border:1px solid rgba(255,255,255,0.12);padding:14px 16px;font-family:monospace;box-shadow:0 8px 30px rgba(0,0,0,0.6);}' +
+  styleEl.textContent = '#devPanel{position:absolute;right:12px;top:12px;z-index:31;width:560px;max-height:calc(100vh - 24px);overflow-y:auto;background:rgba(18,20,15,0.95);border:1px solid rgba(255,255,255,0.12);padding:14px 16px;font-family:monospace;box-shadow:0 8px 30px rgba(0,0,0,0.6);}' +
     CSS_G.map((sel, i) => `#devPanel ${sel}{${CSS_DEFS[i]}}`).join('\n');
   styleEl.id = 'devPanelCss';
   (H.attach || document.body).appendChild(styleEl);
@@ -224,7 +224,7 @@ function mountDevPanel(host) {
     el.innerHTML = '';
     const pool = getCardPool() || [];
     if (!pool.length) {
-      el.innerHTML = '<div style="font-size:9px;color:#8a8678;">卡池为空（检查 cards/ 与 /api/cards）</div>';
+      el.innerHTML = '<div style="font-size:12px;color:#8a8678;">卡池为空（检查 cards/ 与 /api/cards）</div>';
       return;
     }
     const q = devCardQuery.trim().toLowerCase();
@@ -273,7 +273,7 @@ function mountDevPanel(host) {
       }
       el.appendChild(box);
     }
-    if (!total) el.innerHTML = '<div style="font-size:9px;color:#8a8678;">无匹配卡牌（调整搜索词）</div>';
+    if (!total) el.innerHTML = '<div style="font-size:12px;color:#8a8678;">无匹配卡牌（调整搜索词）</div>';
   }
   function pickDevCard(card) {
     if (!card) return;
@@ -376,7 +376,7 @@ function mountDevPanel(host) {
       // 先置 sig='' 再调用本函数）残留的 .dev-owned-row 永不被清除，浏览器用例 cleared=false。
       // 现改用独立 devOwnedDirty 标记：脏标记或旧签名非空或容器为空都重画空态。
       if (devOwnedDirty || devOwnedSig !== '' || !el.firstChild) {
-        el.innerHTML = '<div style="font-size:9px;color:#8a8678;">尚未持有任何卡牌</div>';
+        el.innerHTML = '<div style="font-size:12px;color:#8a8678;">尚未持有任何卡牌</div>';
       }
       devOwnedSig = ''; devOwnedDirty = false;
       return;
@@ -432,7 +432,7 @@ function mountDevPanel(host) {
     el.innerHTML = '';
     const p = getPlayer();
     if (!p || !p.modifiers || !p.modifiers.length) {
-      el.innerHTML = '<div style="font-size:9px;color:#8a8678;">当前无修饰器</div>';
+      el.innerHTML = '<div style="font-size:12px;color:#8a8678;">当前无修饰器</div>';
       return;
     }
     p.modifiers.forEach(function (m, i) {

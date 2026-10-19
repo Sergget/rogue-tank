@@ -253,10 +253,29 @@ function resolveHit(shell, target, hit, allowBounce, opts){
 
   if(allowBounce && theta > bAngle && !noBounce && !ignBounce && !overmatched){
     const r = reflectDir(shell.dx, shell.dy, hit.nx, hit.ny);
-    shell.x = hit.x; shell.y = hit.y;
+    // #14（2026-10-19 用户反馈「命中炮塔发生的跳弹极大概率再次命中车体，显然不正确」）：
+    //   根因有两条，缺一不可：
+    //   ① 炮弹被留在**命中点本身**（`shell.x = hit.x`），没有沿反射方向推出任何距离。
+    //      炮塔坐在车体上，从炮塔表面出发的反射线往里打，必然进入同一辆车的车体多边形。
+    //      实测：炮塔跳弹后下一帧 `bestTankHit` 距离 **0.00px**、同帧再命中 `hull`，
+    //      入射角 ~3.7° ⇒ 直接 PEN。
+    //   ② `canBounce=false` 只禁「二次跳弹」，**完全不阻止二次命中**（tank_fire 的 BOUNCE
+    //      分支不置 s.dead，炮弹继续存活）。
+    //   修法 ①：把起点沿反射方向推出一段「安全距离」，越过本车包围盒后再继续飞。
+    //     步长取本车 hullLen/turLen 的较大者（足以离开车身），并做上限保护。
+    //   修法 ② 在调用方（js/tank_fire.js 的 BOUNCE 分支）实现：给炮弹挂 `_bouncedFrom`
+    //      记录命中过的坦克 id，同帧/后续对该 id 跳过命中判定。
+    const safeStep = Math.max(
+      (target && target.hullLen) || 0, (target && target.hullWid) || 0,
+      (target && target.turLen) || 0, (target && target.turWid) || 0, 20
+    ) * 1.15;   // 留 15% 余量，确保完全离开车体/炮塔多边形
+    shell.x = hit.x + r.x * safeStep;
+    shell.y = hit.y + r.y * safeStep;
     shell.dx = r.x; shell.dy = r.y;
     shell.bounced = true;
     shell.canBounce = false;      // 二次跳弹不允许（第一次后的任何命中按正常穿/不穿判定）
+    // #14：记录「从哪辆车跳开的」——调用方据此跳过对该车的二次命中。
+    shell._bouncedFrom = (target && target.id !== undefined) ? target.id : null;
     return {
       outcome:'BOUNCE', cls:'BOUNCE',
       text:`跳弹！${head} 入射角 ${deg}° 超过跳弹角 — 炮弹沿反射方向飞离`,

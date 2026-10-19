@@ -3632,6 +3632,21 @@ let shells = [];   // 炮弹飞行动画（沿弹道逐段推进）
 let impacts = [];
 let bounceFx = []; // ricochet spark visuals
 
+// #2（2026-10-19 用户反馈）：残骸生命周期管理。
+//   背景：坦克死亡只置 `_dead=true`，**从不从 `entities` 移除**；唯一的 `entities.splice`
+//   清理点（materializeNode → clearEntities）只在**换节点**时触发，而**生存模式不换节点**
+//   ⇒ 残骸无限累积。实测第 5/12/20/30 波累计 18/50/117/193 具，全部常驻：
+//     · 主循环每帧为每具残骸跑 tickDebuffs/reload/debuff 等全套；
+//     · 每具残骸每帧 emitTankFire（5 挂点 × 概率 spawn），把 FX 池顶到上限 1200；
+//     · drawTank 无 `_dead` 早退，视口内残骸每帧全量重绘（约 40+ ctx 调用/辆）；
+//     · resolveTankCollisions 外层 O(n²) 空转（193 具 ⇒ ~7.4 万次配对/帧）。
+//   策略：① 燃烧特效只保留 CORPSE_BURN_SECONDS 秒（视觉冲击已表达完）；
+//        ② 残骸保留 CORPSE_KEEP_SECONDS 秒后从 entities 移除（留出观察/舔包时间）；
+//        ③ 同时设上限 CORPSE_MAX，避免单波内密集死亡时仍堆积。
+const CORPSE_BURN_SECONDS = 3.0;   // 残骸持续燃烧时长（秒）
+const CORPSE_KEEP_SECONDS = 12.0;  // 残骸保留时长（秒，之后移除）
+const CORPSE_MAX = 24;             // 残骸数量上限（超出则移除最老的）
+
 // [P-28] 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用
 let fireCtx = null;
 
@@ -4252,6 +4267,15 @@ function update(dt){
 
   entities.forEach(e=>{
     if(e.isDrone) return;   // P-17：无人机生命周期由 tank_drone.js 管理（fireT 是打击计时器，不参与装填/起火等坦克逻辑）
+    // #2（2026-10-19）：残骸不再需要任何"活体"逻辑——装填倒计时、模块 debuff、DOT、
+    //   护盾/无敌计时、AI 相关字段对它都无意义。此处只推进 `_corpseAge` 与燃烧窗口
+    //   （后者在下方的起火分支），其余整套逐帧计算全部跳过。
+    //   **保留 `_dead` 的敌人仍参与**：绘制（视口内残骸）与残骸回收计时。
+    if(e._dead && e !== player){
+      // 燃烧窗口内的 fireT 由下方起火分支推进；此处不提前 return，让该分支能跑到。
+      // 其余逻辑以 tickDebuffs 等为主，对残骸无副作用但纯浪费 ⇒ 仅在非起火期提前退出。
+      if((e._corpseAge || 0) >= CORPSE_BURN_SECONDS) return;
+    }
     // ISSUES #23：非玩家实体装填倒计时——fireTank 只负责"开火时设置 reloadT"，
     // 递减统一在本循环完成（player 已在上面单独递减，按 id 跳过避免双递减）。
     if(e.id !== 'player' && e.reloadT > 0) e.reloadT = Math.max(0, e.reloadT - dt);
@@ -4312,8 +4336,15 @@ function update(dt){
 
     // 起火特效：已摧毁的坦克持续燃烧；存活坦克在 fireT 时间内燃烧
     if(e.hp<=0 && e._dead){
-      e.fireT = Math.max(e.fireT, 2);
-      emitTankFire(e);
+      // #2（2026-10-19 用户反馈「残骸残留是生存模式中后期性能下降的主因」）：
+      //   残骸此前每帧都无条件 emitTankFire（5 个挂点 × 35% 概率 spawn），而 FX 池上限
+      //   1200 会让粒子数组长期顶格 ⇒ updateFx 每帧全量 filter。生存模式第 30 波可达
+      //   193 具残骸，等于每帧近千次 spawn 尝试。现改为**只在死亡后有限时间内燃烧**。
+      //   （残骸本身的回收见下方 #2 的 corpseT 计时。）
+      if((e._corpseAge || 0) < CORPSE_BURN_SECONDS){
+        e.fireT = Math.max(e.fireT, 2);
+        emitTankFire(e);
+      }
     } else if(e.fireT>0){
       // M1：起火音效只在"起火开始 / 复燃"帧触发一次（fireT 上升沿），不逐帧循环
       if(e.fireT > (e._prevFireT||0)){ playSound('fireDOT'); }
@@ -4344,6 +4375,32 @@ function update(dt){
       pushLog(`${e.id==='player'?'玩家':e.id} 已摧毁 — 车体起火`,'CRIT');
     }
   });
+
+  // #2（2026-10-19）：残骸计时与回收。
+  //   `e._corpseAge` 在下方每帧累加；超 CORPSE_KEEP_SECONDS 或数量超 CORPSE_MAX 时
+  //   从 `entities` 移除（反向遍历 splice，与 materializeNode 的 clearEntities 同款写法）。
+  //   **只回收非玩家、且已死亡的实体**——玩家死亡走复活流程，不能出队。
+  if(entities.some(e => e._dead && e !== player)){
+    for(const e of entities){
+      if(e._dead && e !== player) e._corpseAge = (e._corpseAge || 0) + dt;
+    }
+    // ① 先按存活时长回收
+    for(let i = entities.length - 1; i >= 0; i--){
+      const e = entities[i];
+      if(e !== player && e._dead && (e._corpseAge || 0) >= CORPSE_KEEP_SECONDS) entities.splice(i, 1);
+    }
+    // ② 再按数量上限回收最老的（保留玩家；只对残骸计数）
+    let corpses = entities.filter(e => e !== player && e._dead);
+    if(corpses.length > CORPSE_MAX){
+      // 按 _corpseAge 降序（最老优先删）
+      corpses.sort((a, b) => (b._corpseAge || 0) - (a._corpseAge || 0));
+      const overflow = corpses.slice(0, corpses.length - CORPSE_MAX);
+      for(const old of overflow){
+        const idx = entities.indexOf(old);
+        if(idx >= 0) entities.splice(idx, 1);
+      }
+    }
+  }
 
   // 2026-09-20 #E1：半高掩体垂直剖面判决（shellVerticalDecision）已整体删除——
   // 半高掩体与 'grad' 渐变拦截链不再存在（见 js/tank_fire.js 顶部注释与 RULES.coverRules）。
