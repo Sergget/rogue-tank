@@ -1336,3 +1336,71 @@
 
 `9e8bf20` 提交了 #W1/#W4/#W5/#W6（含 `tank_mvp.html`、`js/tank_model.js`、`js/tank_boss.js` 与两个测试文件）。
 **#W2/#W3/#W12 的改动保留在工作区未提交**——因为 `js/tank_battledraw.js` / `js/tank_fx.js` / `js/tank_weapons.js` 中混有外部进程的在途改动（#U42 等），且 #W3 与外部改动落在**同一代码块**（同一 hunk 内 `muzzleX`、`0.55`、`fromSecondaryTurret` 与本次修正交织），无法按 hunk 干净分离；强行拆分会产生编译不通过的中间态。
+
+---
+
+## §4.108 PLAN 逐条落实 + 第三批用户反馈 11 项 + 实测三修（2026-10-19）
+
+> 本节综合登记 2026-10-19 下半日三个连续批次（7 个 commit + 1 个修复 commit）。
+> 全程 `npm test` **49/49 全绿**（本日首次全链无红）。
+
+### 批次 A：PLAN 条目落实（commit `0d9dbd9`）
+
+| 条目 | 结论 |
+|---|---|
+| 条目 1（C 档 strip 接缝） | **已修**：`drawGround` 的 biome 过渡带此前只处理 x 方向（左右相邻），多行片（生存 `chunkRows=2`）的**上下行交界是硬切**。抽出 `drawSeam(axis)` 双轴对偶绘制；`test-render` ⑨f 采样点改为 ±150px 验证色彩方向性（上冷下暖）。C 档剩余项审核：分块地面烘焙已由视口锚定滚动烘焙**等价替代**，空间分桶/小地图条带化/推进式结算均已实现；仅「strip 密度校准重锚」未做（用户 2026-10-15 已裁定告一段落）。 |
+| 条目 2（敌军弹种联动） | **已实施**（用户口径：每 3 级沿 AP 链升一档、Boss 除外）。`js/tank_model.js` 新增 `AP_AMMO_CHAIN` + `enemyAmmoKeyForLevel`（纯函数）+ `applyEnemyAmmoByLevel`；mvp 4 处敌军生成点（节点/波次/增援/召唤物）经 `applyEnemyAmmoForNode` 注入。难度→等级线性映射 0.15~0.95 → **lv1~13**。实测 lv1-3→ap、lv4-6→apcr、lv7-9→apds、lv10-12→apfsds、lv13+→apfsds_ad，全链落在 AP 链内。 |
+| 条目 4（#N 交战结构） | 用户裁定**当前可接受**，关闭。 |
+| 条目 5（坦克精灵） | **维持不启用**；新增开发者面板开关「游戏内显示精灵」（默认关，写 `_spriteOverride` 不写档）；新增判据 `spriteEnabled(t)`（override 优先、无 sprite 数据一律 false），导出供测试。 |
+| 条目 6（贴图命名） | **已完成**：10 个贴图统一 `<id>_<part>.png` 全小写（`Leapard_1→leopard1`、`Obj780→obj780`、`panzer-IV→panzer-iv`、`tiger-I→tiger-i`、`barrel-*` 同步），`git mv` 保留历史，19 处 JSON 引用全部有效。坦克 id 本身不改（存档主键）。 |
+| 条目 8（出图管线） | 新增 **`docs/ASSETS-PIPELINE.md`**（唯一备查：两条资产链路区别/五步链/三坐标口径/排错表/文件索引/维护纪律；提示词正文不复制）。 |
+| 条目 9（#S 批次） | 复核确认已实施（`tank_move.js:46` 公路加成 / Boss HP 条 / `tank_ai.js:115` 五层级警觉）。 |
+
+### 批次 B：第三批反馈修复（commits `ba95e09`/`2c7c105`/`8f2006f`/`8920013`/`35a376e`/`65d071f`）
+
+| 项 | 结论 | 关键实测 |
+|---|---|---|
+| **#V1** | `bakeAssetCanvas` 移除负锚点补边；`test-cover-gen` 锚点断言放宽为「有界有限值」 | 全链首次 49/49 |
+| **#2 残骸** | `CORPSE_BURN_SECONDS=3`/`KEEP=12`/`MAX=24`；燃烧限窗 + 主循环早退 + 反向 splice 回收（保留玩家） | 第 30 波 193 具常驻 → 上限回收 |
+| **#3 掉血外观** | `damageLevel:0` 硬编码（缓存键不再含血量档）；`weatherSeed` 保留 | 193 残骸支撑 1544 缓存键超 LRU 512 的问题消除 |
+| **#14 跳弹** | 跳弹推出安全距离 `max(hull,turret,20)×1.15` + `_bouncedFrom` 跳过同车再命中 | 再命中 **148/148 → 0/56** |
+| **#17 z 序** | `drawAttachments` 加 `layer` 参数；车体件画在炮塔前、炮塔件在后 | — |
+| **#1 文案** | 串联 HEAT→高热穿深破甲弹 / overmatch 条件句式 / 导弹卡删「破反应装甲」/ Boss「反应装甲」→「复合附加装甲」（共 5 处承诺不符修正） | — |
+| **#W7** | `applyShield` 死参数修复：`opts.hp/duration/arc` 生效，兼容旧键 `dirDuration/omniDuration` | `{hp:999,duration:10}` → 生效 |
+| **W-G 应急护盾** | 「反应装甲」机制整体重做：`RULES.cards.emergencyShield`（HP<10% 触发/10s/90s 冷却/下限 60s/池 150）；`tank_physics` 拦截分支删除；mvp 主循环低血触发；`test-cards` 3 条旧断言改写为 10 条新断言 | specs combat/cards 已同步 |
+| **W-H 防御卡** | `getMultForKey` 新增**防御方减伤通道**（此前只有攻击方乘子）；新卡 `wet_ammo_rack`（-30%）/`crew_liner`（-20%）入 PASSIVE_KEYS | 弹药架 200→140、炮手 150→120、履带不受影响 |
+| **#4 副炮塔** | ① 待机正弦游走（`idleWanderRate 0.6`/±0.9rad，不受装填门控）② 固定 AP（不走 `computeAmmoConfig`）③ 伤害=`t.base.damage×0.5`（`ignoreModifiers`，读 `t.base` 非 `t.stats`）④ `cupolaAnchor()` 抽取共享 | 主炮 300 时副炮塔仍 50 |
+| **#9 车高** | `RULES.heights` 整块删除 + `HEIGHTS` 导出删除；`getPartZRange/getGunHeight` 返回固定常量（车体 0~1.4/炮塔 1.4~2.3）；**`heightClass` 字段保留**（AI 分类/徽章/车长塔数/难度比例仍消费） | 零行为变化（数值本已死） |
+| **#10 掩体** | 便携掩体改**椭圆弧**造型（用户从「中括号」改口径）；新增 `perm_block` 永久掩体 tier（solid/不可摧毁/不可碾）；新增 `behindCoverOnlyTurretHit`（掩体装甲侧后方 `behindValidDist=220px` 内 ⇒ 车体命中改判炮塔） | 正后 100px✓/超距✗/穿透侧✗/横偏✗ |
+| **#11/#12** | 栅栏俯视/树冠贴端**取证确认已存在**（#TEX17/#TEX15）；**切面**由正圆改斜向扁椭圆（`cutRot 0.22`、短轴 0.55 压扁），重导出烘焙基准 | `fallen` 62×17，cover-gen 全绿 |
+| **#5 副武器** | pen/speed 字面量收口进 `WEAPON_DEFAULTS.secondary`（mortar 60/350、rocket 90/450、missile 250/320、wire 260）；**修复 missile range 升级卡恒失效**（视口对角线无条件覆盖 → `max(卡面, 视口/2)`） | — |
+| **#16 tags** | 方案 A：字段保留（audit-content 流派体检依赖），删「按标签」页签与卡面 tag 徽章 | — |
+
+### 批次 C：实机反馈三修（commit `6c54340`）
+
+| 问题 | 根因 | 修复 | 实测 |
+|---|---|---|---|
+| 掩体形状不对 | 「中括号」造型不达意 | 改**椭圆弧**（下半弧 + 端臂 + 穿透侧虚线） | 视觉，无逻辑改动 |
+| 副炮塔不随炮塔转 | **坐标系错误**：车长塔画在 `paintPartTextureDirect(…,'turret',…)` 用 `turretPoly` 顶点随 `turretAngle` 转，我此前按车体系（`hullPoly`+`hullAngle`）处理 | `cupolaAnchor` 改用 `turretPoly`；`secondaryTurretPose` 按 `turretAngle` 旋转 + 平移到座圈 `turretPivot` | 炮塔转 90° 副炮塔 `(6.7,-7.6)→(15.6,-1.3)` |
+| 护盾不挡激光 | Boss 激光伤害直接 `applyDamage`，**绕过护盾吸收链** | `updateBossLaser` 结算前查 `hasShield`+`shieldAbsorbs`（光束方向）⇒ 走 `absorbDamage`；溢出部分照常结算；mvp 注入三函数 | 池 150 吸收 58.1、本体零掉血 |
+
+> **附注（应急护盾「血量限制」）**：HP<10% 触发是**设计本身**（`triggerHpRatio 0.10`），非缺陷；
+> 用户若要求改口径（常驻/其他阈值）另行裁定。
+
+### 归口
+
+- `specs/combat.md`：反应装甲→应急护盾（§2 passive）、跳弹二次命中防护、副炮塔口径
+- `specs/cards.md`：应急护盾（#W-G 重做）、新卡 wet_ammo_rack/crew_liner
+- `specs/map.md`：`perm_block` tier（待补——本批先落在 `RULES.coverTiers` 唯一口径）
+- PLAN §9 有本批逐项的用户口径与执行细节，条目关闭后 PLAN 将在下次整理时删除归档
+
+### 验证（每批次提交前均实测）
+
+- `node scripts/check-html.js` → EXIT=0（每批）
+- `node node_modules/typescript/bin/tsc --noEmit` → EXIT=0（每批）
+- `npm test` → **49 通过 / 0 失败**（批次 A/B/C 各跑一轮全绿）
+- `npm run test:browser` → ALL PASS（2026-10-19 会话内实测）
+
+### 提交说明
+
+`ba95e09`(#V1) → `2c7c105`(#2/#3/#14/#17) → `0d9dbd9`(PLAN 条目) → `8f2006f`(#1/#W7/W-G/W-H) → `8920013`(#4/#9) → `35a376e`(#10/#11/#12) → `65d071f`(#5/#16) → `6c54340`(实测三修)，共 8 个 commit，已推送 `origin/master`（`3f69448..65d071f` 后又补推 `6c54340`）。
