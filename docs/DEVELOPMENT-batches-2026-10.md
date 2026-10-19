@@ -1420,3 +1420,41 @@
 | 副炮塔开火不打当前目标 | 装填就绪**不等转到位**就击发；目标切换/初始偏航时炮弹沿旧朝向飞出 | 转向后加**瞄角闸**：角差 > `max(本帧最大转角, 0.05rad)` 不开火（只转不打） | 初始偏差 90° ⇒ 首发延至 **0.62s**、弹道误差 **0.00°**（旧行为帧 0 开火误差 90°）；双目标索敌取更近者首发误差 0.00° |
 
 验证：`check-html` EXIT=0 / `tsc` EXIT=0 / `npm test` **49/49**。
+---
+
+## §4.109 #W-I 榴弹炮曲射模式回归（2026-10-20）
+
+**用户口径**（PLAN §6.2 W-I）：「该模式更改主炮为曲射武器，行进速度将为最大速度的 1/3。
+只能发射当前生效的 he 弹种，未直接命中时按距离计算伤害，直接命中时，按坦克最薄的装甲值
+作为命中部位来计算伤害。可越过掩体，瞄准器变成一个在鼠标位置的一个虚线圈，初始半径为
+he 的爆炸半径」。卡牌（爆炸范围/急速射）后补。
+
+### 设计裁定：**模式**（`t._howitzerMode`）而非独立武器类型
+
+2026-09-15 曾删除主炮 howitzer（test-fire 7e 固化）。本批以运行时 toggle 回归：
+不进 `WEAPON_PRIMARY_TYPES` 卡牌白名单；参数载体 `WEAPON_DEFAULTS.primary.howitzer`
+（reloadMult 2.2 / arcSpeed 260 / splashRadius 90 / minArcRange 120 / moveSpeedRatio 1/3）；
+挂载卡 `cards/howitzer_mode.json`（epic ability key `howitzer_mode`，无冷却 toggle，
+进 `ABILITY_KEYS`/`ABILITY_KEYS_RUNTIME`）。
+
+### 四条链实现
+
+| 链 | 要点 |
+|---|---|
+| 开火 | `tryFire` 模式分支**无需目标实体**（落点=aimPoint）；`fireTank` 允许 target=null；`firePrimaryShell` he **锁定** + 落点三件套**预置**（否则 `s.range\|\|400` falsy 兜底吞掉 aimPoint 距离——实测踩坑修正）+ **豁免炮口贯穿预检**（曲射出膛贴掩体≠落点被挡） |
+| 落点 | `stepShells` isArc 分支区分**直击/近失**：直击走 `resolveHit` + 新 opts `forceEffThickness`（**六面最薄装甲**取代几何等效厚度——曲射大角度落弹不适用斜面等效；allowBounce=false），伤害走 he 弹既有模块链（与直射 HE 同口径）；近失 `applySplash` 距离衰减 |
+| 移动 | `tank_move.js` 链尾 `howitzerMul`——**不并入 speedModifier**（公路判定强制归 1 会静默清零减速） |
+| 瞄准 | mvp 绘制层：鼠标位置虚线圈（半径=splashRadius）+ 中心点 + minArcRange 死角红圈提示；`fireCtx` 注入 `aimPoint: mouseWorld` |
+
+### 测试同步与实测
+
+- `test-fire.js` 7e 两条旧断言按新口径**改写为 7 条**（未开模式零变化 / 缺省表回归 /
+  白名单仍不含 / 模式内开火 / isArc+howitzer 标记 / he 锁定 / 落点=aimPoint）。
+- E2E：toggle ✓ / 弹字段 ✓ / 落点=aimPoint ✓ / 直击 pen200 vs 最薄24 穿透掉血 257（he
+  模块链同口径）✓ / 近失 150px 零伤 ✓ / moveSpeedRatio 1/3 ✓。
+
+### 验证与提交
+
+`check-html` EXIT=0 / `tsc` EXIT=0 / `validate-content` EXIT=0（194 卡）/ `npm test` **49/49**。
+commit `e81bdfb`（9 文件）。**未做**（登记 PLAN）：爆炸范围升级卡 / 急速射卡
+（barrage 3 发 0.5s 参数已预留）。
