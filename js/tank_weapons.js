@@ -194,6 +194,15 @@ function updateSecondaryTurret(t, dt, ctx) {
   const maxStep = turnRate * dt;
   t.secondaryTurretAngle = t.secondaryTurretAngle + Math.max(-maxStep, Math.min(maxStep, diff));
 
+  // #4d（2026-10-19 用户反馈「副炮塔在遇敌时会射击，但是**没有射击最近的敌人**」）：
+  //   根因：装填就绪后**不等转到位就开火**——上一帧瞄着 A，这帧索敌切到更近的 B，
+  //   本帧只转了一小步就照旧击发，炮弹沿旧朝向飞出去（散布再叠加），观感即「开火但
+  //   不打当前目标」。现加**瞄角闸**：只有当炮口与目标的角差 ≤ 本帧最大转角 +
+  //   小容差（0.05 rad ≈ 2.9°，吸收散布前的硬性对准要求）才允许开火；
+  //   否则本帧只转向不射击（下一帧继续追）。目标切换时天然经过此闸，弹道不再漂移。
+  const aimTol = Math.max(maxStep, 0.05);
+  if (Math.abs(diff) > aimTol) return false;   // 尚未对准：只转不打
+
   // 炮管掩体贯穿判定（复用主炮同款：barrelCovers solid → 截停计装填）
   const rootP = gunRoot(t), tipP = gunTip(t);
   // #U42（2026-10-19 用户反馈「副炮塔似乎没有效果」）：**弹道起点必须来自副炮塔本身**。

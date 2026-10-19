@@ -5643,32 +5643,37 @@ function draw(){
       // 掩体主体（半透明填充，提示实际占位 = OBB）
       ctx.fillStyle = col + '0.12)';
       ctx.fillRect(-L2, -W2, d.hullLen, d.hullWid);
-      // 椭圆弧：圆心在掩体中心、纵向半径 arcRy —— 画**下半段弧**（开口朝上/穿透侧）
-      //   起止角：0.15π → 0.85π（下半弧），让弧的两端翘到掩体两端附近
+      // 椭圆弧（#10 三修 2026-10-19：**方向反了**）：
+      //   弹道语义（behindCoverOnlyTurretHit / _deployablePathHit）：局部 **−y = 穿透侧
+      //   （部署方/玩家）**、**+y = 装甲侧（敌方被挡）**。上一版画 `0.12π→0.88π`（canvas
+      //   角度经 π/2 = 局部 +y）⇒ 弧凸面朝**玩家**、开口朝敌——光栅化实测 472:0，
+      //   与用户「凸的超前、凹的朝后」的体感吻合（反了）。
+      //   现改为 `1.12π→1.88π`（经 3π/2 = 局部 **−y**）：凸面朝**装甲侧（敌方）**、
+      //   开口（+竖臂 + 虚线）朝**玩家**，与「己方可穿过、敌方被挡」的弹道行为一致。
       ctx.strokeStyle = col + '0.95)';
       ctx.lineWidth = th;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.ellipse(0, 0, L2, arcRy, 0, Math.PI * 0.12, Math.PI * 0.88, false);
+      ctx.ellipse(0, 0, L2, arcRy, 0, Math.PI * 1.12, Math.PI * 1.88, false);
       ctx.stroke();
-      // 弧两端的小竖臂（指向开口方向，强化「这一侧敞开」）
+      // 弧两端的小竖臂（指向开口方向 = −y/玩家侧，强化「这一侧敞开」）
       ctx.lineWidth = Math.max(1.5, th * 0.7);
       for(const sx of [-1, 1]){
         const ex = sx * L2 * 0.99;
-        const ey = Math.sin(Math.PI * 0.12) * arcRy;   // 弧端点的 y
+        const ey = Math.sin(Math.PI * 1.12) * arcRy;   // 弧端点的 y（负值，−y 侧）
         ctx.beginPath();
         ctx.moveTo(ex, ey);
-        ctx.lineTo(ex, ey - arm2());
+        ctx.lineTo(ex, ey + arm2());
         ctx.stroke();
       }
       function arm2(){ return Math.max(4, W2 * 0.8); }
-      // 开口侧虚线（穿透侧提示）
+      // 开口侧虚线（穿透侧提示，−y/玩家侧）
       ctx.setLineDash([6, 5]);
       ctx.lineWidth = Math.max(1, th * 0.5);
       ctx.strokeStyle = 'rgba(126,217,87,0.8)';
       ctx.beginPath();
-      ctx.moveTo(-L2 * 0.92, -W2 - Math.max(4, W2 * 0.8));
-      ctx.lineTo(L2 * 0.92, -W2 - Math.max(4, W2 * 0.8));
+      ctx.moveTo(-L2 * 0.92, W2 + Math.max(4, W2 * 0.8));
+      ctx.lineTo(L2 * 0.92, W2 + Math.max(4, W2 * 0.8));
       ctx.stroke();
       ctx.setLineDash([]);
       if(d.shield){
