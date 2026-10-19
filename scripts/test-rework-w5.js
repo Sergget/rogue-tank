@@ -2,7 +2,7 @@
 'use strict';
 // scripts/test-rework-w5.js — W5 卡牌/修饰通道运行时参数硬限（2026-09-15 用户裁定）
 // 断言目标：
-//   1. 卡牌级加速装填修饰无法突破 reload 下限 0.5s（add/mult 聚合后计算）；
+//   1. 卡牌级加速装填修饰无法突破 reload 下限 1.0s（add/mult 聚合后计算）；
 //   2. 卡牌级超速修饰无法突破 maxSpeed 上限 375px/s（150km/h）；
 //   3. 无修饰器（出厂 base 直写 / extreme 极值）不钳——纯计算语义保留；
 //   4. 移除修饰器后可回落（钳制是最终生效值，不是 base 直写污染）。
@@ -22,7 +22,7 @@ function ok(cond, label) {
   else { fails++; console.error('\u2717 ' + label); }
 }
 
-const RL = RULES_MOD.RULES.parameterLimits.reload;       // { min: 0.5 }
+const RL = RULES_MOD.RULES.parameterLimits.reload;       // { min: 1.0 }（2026-09-17 #C2 由 0.5 改 1.0）
 const MS = RULES_MOD.RULES.parameterLimits.maxSpeed;     // { max: 375 }
 
 // === 1) 加速装填卡牌聚合无法突破 reload 下限 ===
@@ -33,7 +33,7 @@ const MS = RULES_MOD.RULES.parameterLimits.maxSpeed;     // { max: 375 }
   // 模拟多张加速装填卡叠加：add −0.7（超装填改造）+ mult ×0.8（速射弹架）→ 1.3×0.8−0.7=0.34
   M.addModifier(t, { stat:'reload', mode:'add', value: -0.7, source:'card:fast1', scope:'run' });
   M.addModifier(t, { stat:'reload', mode:'mult', value: 0.8, source:'card:fast2', scope:'run' });
-  ok(t.stats.reload === RL.min, `装填下限强制生效：聚合后钳至 0.5s（got ${t.stats.reload}）`);
+  ok(t.stats.reload === RL.min, `装填下限强制生效：聚合后钳至 ${RL.min}s（got ${t.stats.reload}）`);
   M.removeRunModifiers(t);
   ok(Math.abs(t.stats.reload - initReload) < 1e-9, `移除卡牌修饰后 reload 回落基准 ${initReload}`);
 }
@@ -72,11 +72,15 @@ const MS = RULES_MOD.RULES.parameterLimits.maxSpeed;     // { max: 375 }
   M.addTimedModifier(t, { stat:'reload', mode:'mult', value: 0.45, source:'ability:overdrive' }, 6000);
   ok(Math.abs(t.stats.reload - initReload * 0.45) < 1e-9,
     `timed ×0.45 不被 1.0s 下限钳制（got ${t.stats.reload}，期望 ${initReload * 0.45}）——实际开火间隔可继续 <1s`);
-  // 混合通道：run 参数修饰存在时仍钳（timed 不豁免参数通道）
+  // 混合通道：#W1（2026-10-19 用户裁定）「技能只是临时突破」——
+  //   参数通道（卡牌×0.4）自身先把 base 压到下限，再乘能力 timed ×0.45。
+  //   旧断言是「run+timed 混合 → 钳至 RL.min」，那等于把能力倍率一起钳掉
+  //   （1.3s 恒为 1.0s），正是用户报的「超级装填没生效」根因，已按新口径改写。
   const t2 = M.makeTank({ team:'player' });
   M.addModifier(t2, { stat:'reload', mode:'mult', value: 0.4, source:'card:fast', scope:'run' });
   M.addTimedModifier(t2, { stat:'reload', mode:'mult', value: 0.45, source:'ability:overdrive' }, 6000);
-  ok(t2.stats.reload === RL.min, `run+timed 混合 → 参数通道硬限仍生效（钳至 ${RL.min}s）`);
+  ok(Math.abs(t2.stats.reload - RL.min * 0.45) < 1e-9,
+    `run+timed 混合 → 卡牌通道钳至 ${RL.min}s 后，能力再 ×0.45（临时突破，got ${t2.stats.reload}）`);
   M.removeRunModifiers(t2);
   ok(Math.abs(t2.stats.reload - initReload * 0.45) < 1e-9, '移除 run 修饰后回落 timed 聚合值（0.45×，不钳）');
 }

@@ -19,7 +19,7 @@ let _normalizeTankWeapons = (typeof normalizeTankWeapons === 'function') ? norma
 //（与机炮 reloadMult 0.25 的武器通道同一语义：fireTank 在 stats.reload 之上的二次倍率不受参数下限）。
 // 火控 spreadMult/motionSpreadMul 已是默认 1 且 clamp ≥ multFloor（0.5），无需重复钳制（见 computeStats
 // spreadMult floor 既存钳制、crit 通道另有 [0,critBonusCap]）。
-function applyParameterLimits(s, modifiers){
+function applyParameterLimits(s, modifiers, base){
   if(!s || typeof s !== 'object') return;
   const hasMods = Array.isArray(modifiers) && modifiers.length > 0;
   if(!hasMods) return;
@@ -28,11 +28,72 @@ function applyParameterLimits(s, modifiers){
   if(!hasHardLimitChannel) return;
   const pL = (typeof RULES !== 'undefined' && RULES && RULES.parameterLimits) ? RULES.parameterLimits : null;
   if(!pL) return;
-  if(pL.reload && typeof pL.reload.min === 'number' && typeof s.reload === 'number' && s.reload < pL.reload.min){
-    s.reload = pL.reload.min;
+  // #W1（2026-10-19 用户反馈「超级装填没生效」）：硬限此前是对**聚合完毕的最终值**一刀切，
+  //   而 timed 能力倍率（overdrive reload ×0.45）早已聚合进 s.reload ⇒ 只要玩家持有任意一张
+  //   run/permanent 修饰器，能力爆发就被同一刀切掉（实测 1.3s → 恒 1.0s，只快 23% vs 设计 ×0.45）。
+  //   这偏离了本函数上方注释与 docs/specs/combat.md §3 的既定口径：
+  //     「硬限只约束参数通道；fireTank 在 stats.reload 之上的二次倍率不受参数下限」。
+  //   修法：按 scope 把 mult 拆成「参数通道」与「timed 通道」两个乘子（各自按 computeStats 的
+  //   **加法聚合语义** 1 + Σ(v−1) 计算）。先由 base 直接算出**参数通道的独立结果**并对它施加硬限，
+  //   再把 timed 乘子乘上去 ⇒ 卡牌/升级无法把装填压破 1.0s，能力爆发可在生效期间突破。
+  //   注意不能"从聚合值反推"：add 型修饰器已在 pass1 累进 base，除法剥离不可逆。
+  // 注意：count===0 时返回 1（无该 stat 的 timed/参数乘子）；count>0 时必须保留原值——
+  // 包括 0（`maxSpeed ×0` 的「归零」语义是 test-modifiers 的既有断言，不能被吞成 1）。
+  const scopeMult = (stat, wantTimed) => {
+    let sum = 1, count = 0;
+    for (let i = 0; i < modifiers.length; i++) {
+      const mod = modifiers[i];
+      if (!mod || mod.stat !== stat || mod.mode !== 'mult') continue;
+      if ((mod.scope === 'timed') !== wantTimed) continue;
+      if (typeof mod.value !== 'number' || !isFinite(mod.value)) continue;
+      sum += mod.value - 1;
+      count++;
+    }
+    if (count === 0) return 1;
+    const mul = count > 1 ? Math.max(0, sum) : sum;
+    return isFinite(mul) ? mul : 1;
+  };
+  const scopeAdd = (stat, wantTimed) => {
+    let sum = 0;
+    for (let i = 0; i < modifiers.length; i++) {
+      const mod = modifiers[i];
+      if (!mod || mod.stat !== stat || mod.mode !== 'add') continue;
+      if ((mod.scope === 'timed') !== wantTimed) continue;
+      if (typeof mod.value !== 'number' || !isFinite(mod.value)) continue;
+      sum += mod.value;
+    }
+    return sum;
+  };
+  // 参数通道（不含 timed）的独立结果 = (base + 参数add) × 参数mul
+  // 返回 null 表示拿不到 base（退化路径），调用方按旧口径处理。
+  const channelValue = (stat) => {
+    if (!base || typeof base[stat] !== 'number') return null;
+    return (base[stat] + scopeAdd(stat, false)) * scopeMult(stat, false);
+  };
+  if(pL.reload && typeof pL.reload.min === 'number' && typeof s.reload === 'number'){
+    const timedAdd = scopeAdd('reload', true);
+    const timedMul = scopeMult('reload', true);
+    const cv = channelValue('reload');
+    if (cv !== null) {
+      // 参数通道低于下限 → 抬到下限，再叠加 timed 通道（能力爆发可继续压低）
+      const clamped = cv < pL.reload.min ? pL.reload.min : cv;
+      s.reload = (clamped + timedAdd) * timedMul;
+    } else if (s.reload < pL.reload.min) {
+      s.reload = pL.reload.min;   // 退化口径：宁可多钳不漏钳
+    }
   }
-  if(pL.maxSpeed && typeof pL.maxSpeed.max === 'number' && typeof s.maxSpeed === 'number' && s.maxSpeed > pL.maxSpeed.max){
-    s.maxSpeed = pL.maxSpeed.max;
+  if(pL.maxSpeed && typeof pL.maxSpeed.max === 'number' && typeof s.maxSpeed === 'number'){
+    const timedAdd = scopeAdd('maxSpeed', true);
+    const timedMul = scopeMult('maxSpeed', true);
+    const cv = channelValue('maxSpeed');
+    if (cv !== null) {
+      // 只钳上限（极小值/负值属 test-extreme-model 刻意覆盖的边界，此处不额外夹 0——
+      // 加 Math.max(0,…) 会改变既有极值语义并让该用例失败）
+      const clamped = cv > pL.maxSpeed.max ? pL.maxSpeed.max : cv;
+      s.maxSpeed = (clamped + timedAdd) * timedMul;
+    } else if (s.maxSpeed > pL.maxSpeed.max) {
+      s.maxSpeed = pL.maxSpeed.max;
+    }
   }
 }
 
@@ -114,9 +175,22 @@ function computeStats(base, modifiers){
   const critCap = (RULES.modules && RULES.modules.critBonusCap) !== undefined ? RULES.modules.critBonusCap : 0.25;
   s.fireControlCrit = Math.min(critCap, Math.max(0, s.fireControlCrit));
   s.loaderAmmoCrit = Math.min(critCap, Math.max(0, s.loaderAmmoCrit));
+  // #U40（2026-10-19 卡牌审计）：aimSpeed / trackLock 聚合边界——与 RULES.parameterLimits 新增
+  //   边界同源（aimSpeed.max 6 / trackLock.min 3）。此前两参数无聚合钳制且无 parameterLimits
+  //   条目 ⇒ cardEligible 的 #U20 达限过滤对精度/履带卡永不触发，满级卡反复出现（用户反馈）。
+  //   注意：与 reload/maxSpeed 硬限不同，本钳制是无条件的（对齐 crit 通道既有行为——真实
+  //   坦克 base.aimSpeed 包络 1.0~2.5、base.trackLock 8s 均在界内，钳制只影响越界叠加值）。
+  const aimLimU40 = (RULES.parameterLimits && RULES.parameterLimits.aimSpeed) ? RULES.parameterLimits.aimSpeed : null;
+  if(aimLimU40 && typeof aimLimU40.max === 'number' && typeof s.aimSpeed === 'number' && s.aimSpeed > aimLimU40.max){
+    s.aimSpeed = aimLimU40.max;
+  }
+  const tlLimU40 = (RULES.parameterLimits && RULES.parameterLimits.trackLock) ? RULES.parameterLimits.trackLock : null;
+  if(tlLimU40 && typeof tlLimU40.min === 'number' && typeof s.trackLock === 'number' && s.trackLock < tlLimU40.min){
+    s.trackLock = tlLimU40.min;
+  }
   // 2026-09-15 W5：修饰聚合后的最终参数按「用户裁定运行时硬限」钳制
   // （装填 ≥0.5s、极速 ≤150km/h；卡牌/局内升级/难度通道，modifiers 非空才生效）。
-  applyParameterLimits(s, modifiers);
+  applyParameterLimits(s, modifiers, base);
 
   // derived mobility: forward acceleration (px/s^2) from horsepower per tonne scaled to game units.
   // derived AFTER modifier loop so cards/upgrades modifying enginePower or weight affect actual accel/brake.
@@ -275,6 +349,17 @@ function removeRunModifiers(tank){
   if (tank && tank._cardApplyLog) tank._cardApplyLog = [];
   // #G（2026-09-21）：APS 拦截窗口跨局不残留（mvp updateAps 消费）
   if (tank) { tank._apsT = 0; tank._apsHits = 0; }
+  // #W6（2026-10-19）：economy 运行期字段同样必须归零。
+  //   根因：player 是 mvp 模块级单例，runScoreMul / runReviveBonus 只由 applyCardEffects 写入，
+  //   而 removeRunModifiers 与 prepPlayerForRun 都只清 modifiers/cardEffects，不清这两个字段 ⇒
+  //   拿过一次「后勤保障」（scoreMul 1.15）之后，**以后每一局结算分永久 ×1.15 并继续复乘**；
+  //   「战场救护协议」的 +1 复活同样永久累积。长期档因此单调膨胀。
+  //   注意 runStartScore 也属单局 economy 通道（当前无卡消费，但清掉以防将来加了卡就泄漏）。
+  if (tank) {
+    tank.runScoreMul = 1;
+    tank.runReviveBonus = 0;
+    tank.runStartScore = 0;
+  }
   return removeModifiersByScope(tank, 'run');
 }
 
@@ -348,6 +433,12 @@ function makeTank(opts){
     modules: null,                  // 线段挂载模块（设计器导出；null/无字段 = 旧数据，走 zones 退化）
     weapons: { primary: { type: 'standard', stats: {} }, secondary: { type: 'none', stats: {} } },
     moduleSlots: [],
+    // #W6（2026-10-19）：economy 单局字段的显式初值。此前为 undefined，靠消费方
+    // `|| 1` / `| 0` 兜底；显式初始化后与 removeRunModifiers 的归零值一致，
+    // 避免「未持有卡 → undefined」与「持有后又清除 → 1」两种等价状态在断言里漂移。
+    runScoreMul: 1,
+    runReviveBonus: 0,
+    runStartScore: 0,
     _visualVersion: 0,
     _lastDrawnVersion: -1,
     sigma:0, prevHullAngle:0, prevTurretAngle:0

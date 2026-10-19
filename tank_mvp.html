@@ -337,6 +337,30 @@
   #cardsPanel .cp-empty{font-size:10px; color:var(--text-dim); padding:8px 0;}
   #cardsPanel .hint{font-size:9px; color:var(--text-dim); opacity:.7; margin-top:8px; letter-spacing:1px;}
 
+  /* #U43（2026-10-19 用户要求）：Boss 进场简报——居中卡，进场时自动弹出一次。
+     三块信息：主/副武器（含改装数值摘要）、改装卡列表、技能列表。 */
+  #bossBriefing{position:absolute; inset:0; z-index:70; display:none;
+    align-items:center; justify-content:center; background:rgba(6,7,4,0.72);}
+  #bossBriefing .brief-box{width:min(560px, 86vw); max-height:80vh; overflow-y:auto;
+    background:rgba(12,13,9,0.97); border:1px solid #7a2d2d; padding:16px 20px;
+    font-family:'JetBrains Mono',monospace; box-shadow:0 0 40px rgba(160,40,40,0.35);}
+  #bossBriefing .brief-title{font-size:15px; letter-spacing:4px; color:#ff6b6b; font-weight:700;
+    padding-bottom:6px; border-bottom:1px solid #7a2d2d; text-shadow:0 0 10px rgba(255,60,60,0.4);}
+  #bossBriefing .brief-desc{font-size:10px; line-height:1.6; color:var(--text-dim); margin:8px 0 10px;}
+  #bossBriefing .bf-row{display:flex; gap:8px; font-size:11px; line-height:1.9; color:var(--text);}
+  #bossBriefing .bf-row .k{color:var(--amber-dim); min-width:64px; letter-spacing:1px;}
+  #bossBriefing .bf-row .v{flex:1;}
+  #bossBriefing .bf-item{display:block; color:var(--text);}
+  #bossBriefing .bf-item .nm{color:var(--amber);}
+  #bossBriefing .bf-item .st{color:var(--text-dim); font-size:10px; margin-left:6px;}
+  #bossBriefing .bf-empty{color:var(--text-dim); font-size:10px;}
+  #bossBriefing .bf-tag{display:inline-block; font-size:9px; padding:0 4px; margin-left:4px;
+    border:1px solid var(--amber-dim); color:var(--amber-dim);}
+  #bossBriefing .brief-foot{margin-top:12px; display:flex; justify-content:flex-end;}
+  #bossBriefing button{background:transparent; border:1px solid var(--amber-dim); color:var(--amber);
+    font-family:'JetBrains Mono',monospace; font-size:11px; padding:5px 14px; cursor:pointer;}
+  #bossBriefing button:hover{background:rgba(255,180,84,0.12); border-color:var(--amber);}
+
   /* #F（2026-09-20）：devPanel 视觉样式已随共享模块 js/tank_devpanel.js 挂载时注入 */
   /* #A25：独立日志面板（左下角浮层，与 Tab 状态面板一同呼入/呼出；不再嵌在 #devPanel 内） */
   #logPanel{position:absolute; left:12px; bottom:12px; z-index:29; width:360px;
@@ -392,8 +416,9 @@
     <div class="hudZone" id="hudSkills">
       <div class="hudZoneTitle">技能 SKILLS</div>
       <div id="skillBtns">
-        <button class="abtn skill-btn" id="btnG" title="炮击支援 (G)" style="display:none;"><span class="slabel">炮击支援</span><span class="skey">G</span><span class="cd" id="cdG"></span></button>
-        <button class="abtn skill-btn" id="btnH" title="战术护盾 (H)" style="display:none;"><span class="slabel">战术护盾</span><span class="skey">H</span><span class="cd" id="cdH"></span></button>
+        <!-- #U42（2026-10-19）：G/H 专属键按钮删除（同 #H3 删 V 先例）——炮击/护盾统一走
+             技能池 skillSlot1~3（数字键 1/2/3 触发）。此前 artillery/shield 保留 G/H 专属键 +
+             技能池双通道：同一技能两个键位，且 H 键（定向）与技能池（全向）行为还不一致。 -->
         <button class="abtn skill-btn" id="skillSlot1" title="技能池 1" style="display:none;"><span class="slabel">--</span><span class="skey">1</span><span class="cd" id="cdS1"></span></button>
         <button class="abtn skill-btn" id="skillSlot2" title="技能池 2" style="display:none;"><span class="slabel">--</span><span class="skey">2</span><span class="cd" id="cdS2"></span></button>
         <button class="abtn skill-btn" id="skillSlot3" title="技能池 3" style="display:none;"><span class="slabel">--</span><span class="skey">3</span><span class="cd" id="cdS3"></span></button>
@@ -411,6 +436,16 @@
     </div>
   </div>
   <div id="gainToast"></div>
+  <!-- #U43（2026-10-19 用户要求「进入 boss 节点时，需要提示 boss 持有的技能和主、副武器」）：
+       Boss 进场简报卡——进入 Boss 节点时居中弹出，列出主/副武器、改装卡与技能，可点击/按键关闭。 -->
+  <div id="bossBriefing" style="display:none;">
+    <div class="brief-box">
+      <div class="brief-title" id="bossBriefingName">BOSS</div>
+      <div class="brief-desc" id="bossBriefingDesc"></div>
+      <div class="brief-body" id="bossBriefingBody"></div>
+      <div class="brief-foot"><button id="bossBriefingOk">进入战斗（点击 / 空格关闭）</button></div>
+    </div>
+  </div>
   <div id="topLeftInfo">ESC 暂停 · TAB 状态 · ` 开发者面板</div>
   <!-- 顶部中央 HUD 栈（#MODE 2026-10-15）：三个元素原先各自 absolute 定位到
        top:10~12px + left:50%，互相重叠（生存模式波次文本压住上方弹种倍率读出）。
@@ -854,8 +889,13 @@ document.getElementById('skillSlotPickerCancel')?.addEventListener('click', () =
   closeSkillSlotPicker();
   playSound('ui');
 });
-document.getElementById('btnG')?.addEventListener('click', tryStrike);
-document.getElementById('btnH')?.addEventListener('click', () => tryShield(true));
+// #U42（2026-10-19）：btnG/btnH 按钮监听删除——G/H 专属键退役（同 #H3 删 btnV 先例），
+//   炮击/护盾统一走技能池槽位按钮 skillSlot1~3 + 数字键 1/2/3。
+// #U43（2026-10-19）：Boss 进场简报的关闭——按钮 / 点击遮罩（遮罩本身不作为子元素命中按钮）
+document.getElementById('bossBriefingOk')?.addEventListener('click', () => closeBossBriefing());
+document.getElementById('bossBriefing')?.addEventListener('click', (e) => {
+  if(e.target && e.target.id === 'bossBriefing') closeBossBriefing();
+});
 
 // 2026-09-17 #C4e：F 键 = 直接击发副武器（按住连发），不再承担主/副切换。
 // 主炮=左键/空格专属（tryFirePrimary），副武器=F 专属（tryFireSecondary，目标=鼠标世界点）；
@@ -1056,8 +1096,8 @@ const SKILL_DISPATCH = {
   aps: () => tryAps()
   // 2026-09-23 A 档：删除死分支 recon（其调用的 tryDroneCommand 全仓库无定义，恒为 no-op）
 };
-// 专属键按钮 → ability key（该技能不在槽位内时的并列入口）
-const SKILL_DEDICATED_KEYS = { artillery: 'btnG', shield: 'btnH' };
+// #U42（2026-10-19）：SKILL_DEDICATED_KEYS 常量删除——G/H 专属键退役后该表无消费方
+//   （原 { artillery:'btnG', shield:'btnH' }），btnG/btnH 元素已从 HUD 移除。
 
 // 玩家已持有的主动技能键（按获得顺序去重）
 function ownedAbilityKeys(){
@@ -1078,7 +1118,14 @@ function resetSkillSlots(){
 }
 // 对账：清掉已不再持有的槽位，并把新获得的技能填入空槽。
 // 返回「填不进槽位的技能键数组」（长度 > 0 即需玩家选择顶替哪一格）。
-function syncSkillSlots(){
+//
+// #U44（2026-10-19 用户反馈「技能顶替时的顺序似乎不正确」）：本函数现在只报**真正新获得**的技能。
+//   旧口径把「全部已持有但当前不在槽里的技能」统统当作待指派（`owned` 按 cardEffects 顺序展开），
+//   于是每次顶替都会先弹出**被顶掉的那个旧技能**（它同样"已持有但不在槽里"，且它在 cardEffects
+//   里排在新技能之前）——玩家刚做完一次顶替，迎面又被问「这个旧技能要放哪一格」，
+//   顺序读起来就是反的。现行：待指派只保留「本次新增、且槽位里确实没有」的 key（见 changedKey），
+//   其余已持有但未入槽的技能视为「玩家主动放弃」，可随时用 Shift+点击某槽手动装回。
+function syncSkillSlots(changedKey){
   const owned = ownedAbilityKeys();
   const slots = skillSlots();
   const ownedSet = new Set(owned);
@@ -1098,7 +1145,9 @@ function syncSkillSlots(){
     if(used.has(key)) continue;
     const free = slots.indexOf(null);
     if(free >= 0){ slots[free] = key; used.add(key); }
-    else unassigned.push(key);
+    // #U44：只有「本次新增的那个技能」需要玩家选格顶替；其余历史遗留（玩家自己换下来的）
+    //   不排队，避免旧技能插队到新技能前面。
+    else if(changedKey && key === changedKey) unassigned.push(key);
   }
   return unassigned;
 }
@@ -1216,8 +1265,10 @@ function onSkillSlotClick(num, ev){
 // （#H3：此前只弹 leftover[0]，第 2 个起的待指派技能被静默丢弃 —— 玩家永远装配不上它们）。
 let skillSlotPendingQueue = [];
 // 获得技能后的槽位对账：有技能装不进槽（槽满）→ 弹面板让玩家选顶替哪一格（循环复用）
-function reconcileSkillSlotsAfterGain(){
-  const leftover = syncSkillSlots();
+// #U44（2026-10-19）：把「本次新增的技能键」传给 syncSkillSlots —— 只有它需要玩家选格，
+//   避免被顶掉的旧技能插队到新技能前面（详见 syncSkillSlots 头注）。
+function reconcileSkillSlotsAfterGain(newKey){
+  const leftover = syncSkillSlots(newKey);
   for(const k of leftover){
     if(!skillSlotPendingQueue.includes(k)) skillSlotPendingQueue.push(k);
   }
@@ -1429,7 +1480,6 @@ function renderPause(){
   // 增改键位只改 KEY_BINDINGS/ACTION_INFO 一处。
   const bindRows = describeBindings({
     move:1, fire:1, ammoCycle:1, skillPool:1, fireSecondary:1,
-    abilityStrike:1, abilityShield:1,
     supportRepair:1, supportMedkit:1, supportExtinguish:1,
     panelStatus:1, panelDev:1, pauseToggle:1
   });
@@ -1580,7 +1630,18 @@ function updateStatusPanel(){
         }
         const skills = (t.cardEffects || []).filter(ef => ef && ef.cardId === 'boss-skill').map(ef => ef.key).join('/');
         const skillTxt = skills ? ` · 技能:${skills}` : '';
-        return `<div><b style="color:var(--red)">${name}</b> HP ${hpPct}%${shield}${track}${bossStage}${skillTxt}</div>`;
+        // #U39（2026-10-18）：Boss 随机武备行——让玩家能读到 Boss 的主/副武器与改装卡，
+        // 否则「这辆 Boss 为什么打得更痛」在界面上无从得知。
+        let weaponTxt = '';
+        if(t.isBoss && t.weapons){
+          const _P = { standard:'标准主炮', autocannon:'速射机炮', double_barrel:'双联火炮', railgun:'电磁轨道炮', clip:'弹夹炮' };
+          const _S = { none:'无', turret:'副炮塔', mortar:'迫击炮', missile:'锁定弹', missile_wire:'线导弹', rocket:'火箭巢', mine_layer:'布雷器' };
+          const _pt = (t.weapons.primary && t.weapons.primary.type) || 'standard';
+          const _st = (t.weapons.secondary && t.weapons.secondary.type) || 'none';
+          const mods = (t.cardEffects || []).filter(ef => ef && ef.type === 'weapon').length;
+          weaponTxt = ` · 武备:${_P[_pt] || _pt}${_st !== 'none' ? '+' + (_S[_st] || _st) : ''}${mods ? '·改装×' + mods : ''}`;
+        }
+        return `<div><b style="color:var(--red)">${name}</b> HP ${hpPct}%${shield}${track}${bossStage}${skillTxt}${weaponTxt}</div>`;
       }).join('');
     }
   }
@@ -1679,6 +1740,17 @@ function spawnBossSummonWave(bossEntity, wave){
     s.aiTriggerDist = triggerDistForDifficulty(currentNode ? currentNode.difficulty : 0.5);
     s.aiTier = (currentNode && currentNode.aiTier) || 0;
     s.aiReactEnabled = true;                      // #E7：召唤物同样有反应延迟
+    // #W4（2026-10-19 用户反馈「boss 局中，召唤的小兵也全局进入交战状态」）：
+    //   此前召唤物只设 aiTriggerDist（= triggerDist × 1.0），而生成点被推到 sumTrig
+    //   = triggerDist × 1.05 之外 ⇒ **每次召唤出来的小兵都必在自身接战半径外 5%**，
+    //   玩家不主动走过去它们就永远站桩。Boss 本体出生即全局交战（tank_boss.js makeBossEntity
+    //   设 aiTriggerDist=99999 / aiEngaged=true），召唤物应继承同一语义。
+    //   对齐生存模式波次的既有正确做法（见 spawnSurvivalWave 的 #U29 注释）。
+    s.aiTriggerDist = RULES.boss && RULES.boss.tuning && RULES.boss.tuning.engageDist !== undefined
+      ? RULES.boss.tuning.engageDist : 99999;
+    s.aiEngaged = true;                           // 全局交战：不依赖玩家进入视野
+    s.alertLevel = 3;                             // #S2 五层级警觉的最高档（已交战）
+    s.aiReactT = 0;                               // 首次反应延迟清零，召唤即参战
     const spec = tankListData && tankListData[wave.tankId];
     // #I5（2026-09-23 用户反馈「boss 召唤的小兵移动速度太快」）：召唤小兵改走与节点敌军/
     // 增援同一条难度链（applyEnemyAppearanceAndStats：只取外观，数值锚定**固定基准**
@@ -1690,6 +1762,15 @@ function spawnBossSummonWave(bossEntity, wave){
         currentNode ? currentNode.entityMults : null);
     } else {
       if(spec) applyTankConfig(s, spec);
+    }
+    // #W4（2026-10-19 用户反馈「后期敌方 ai 移动速度太快」的真因）：
+    //   上面 applyEnemyAppearanceAndStats 只注入了 entityMults，**没有**走
+    //   applyDifficultyMults 的 `speedVsBaseline` 封顶（该封顶在 applyPlayerCap=true 分支里）。
+    //   结果召唤物直跑 base=120×prof（light 1.15 → 138px/s），是同节点普通敌军的 2 倍、
+    //   也高于玩家基础值。节点敌军（applyDifficulty 接线）与增援（:2413 附近）都调了封顶，
+    //   唯独 Boss 召唤物漏了 —— 这里补齐，与同节点敌军同口径。
+    if(typeof applyDifficultyMults === 'function' && currentNode && currentNode.entityMults){
+      applyDifficultyMults(s, currentNode.entityMults);
     }
     resetEntity(s);
     s.nodeSpawn = true;
@@ -1786,7 +1867,43 @@ function spawnBossFromDef(bossDef, node, opts){
   }
   // #5（2026-10-15）：Boss 随机使用卡牌池技能（增强版）
   assignBossSkills(bossEntity, bossNumber);
+  // #U39（2026-10-18 用户反馈「boss 似乎还不会随机到这些武器和升级」）：Boss 随机武备——
+  //   随机换主炮 / 装副武器，并随机挂 1~2 张对应类型的升级卡。此前 Boss 恒为标准主炮 + 空副武器，
+  //   主/副武器安装卡与升级卡对 Boss 完全不可见。选择逻辑在 js/tank_cards.js pickBossArmament，
+  //   施加走 applyCardEffects —— 与玩家卡牌**同一语义通道**（换装重置 stats 基线、升级仅同型合并）。
+  assignBossArmament(bossEntity, bossNumber);
+  // #U43（2026-10-19 用户要求「进入 boss 节点时，需要提示 boss 持有的技能和主、副武器」）：
+  //   武备与技能都已落定，此刻弹进场简报——数据取自**实体本身**（含随机结果），不是配置。
+  showBossBriefing(bossEntity);
   return bossEntity;
+}
+
+// #U39：Boss 随机武备施加。cards 为 pickBossArmament 选出的卡（已含安装卡与升级卡，按序）。
+// 与玩家侧差异：不改 boss._cardApplyCount（Boss 属性独立、不存在跨局残留），
+// 且安装/升级失败静默跳过（不写日志噪音）。
+function assignBossArmament(boss, bossNumber){
+  if(!boss) return [];
+  const pool = (typeof cardPool !== 'undefined' && Array.isArray(cardPool)) ? cardPool : [];
+  if(!pool.length) return [];                       // 卡池尚未加载（Boss 模式下首帧前已 fetch 完成）
+  const picker = (typeof pickBossArmament === 'function') ? pickBossArmament : null;
+  if(!picker) return [];
+  const picked = picker(pool, { bossNumber: bossNumber || 0 });
+  const applied = [];
+  for(const card of picked){
+    if(!card) continue;
+    const res = applyCardEffects(boss, card) || [];
+    if(res.length) applied.push(card);
+  }
+  if(applied.length){
+    const names = applied.map(c => c.name || c.id).join('、');
+    const w = boss.weapons || {};
+    const pType = (w.primary && w.primary.type) || 'standard';
+    const sType = (w.secondary && w.secondary.type) || 'none';
+    const P_LABEL = { standard:'标准主炮', autocannon:'速射机炮', double_barrel:'双联火炮', railgun:'电磁轨道炮', clip:'弹夹炮' };
+    const S_LABEL = { none:'无', turret:'副炮塔', mortar:'车载迫击炮', missile:'锁定式导弹', missile_wire:'线导式导弹', rocket:'火箭巢', mine_layer:'布雷器' };
+    pushLog(`BOSS 武备：${P_LABEL[pType] || pType} + ${S_LABEL[sType] || sType}｜改装 ${names}`, 'CRIT');
+  }
+  return applied;
 }
 
 // #5：Boss 随机技能池（增强版：护盾更久、火箭更多）
@@ -1811,6 +1928,61 @@ function assignBossSkills(boss, bossNumber){
   if (picked.length) pushLog(`BOSS 携带技能：${picked.join('、')}（增强版）`, 'CRIT');
 }
 
+// ================= #U43（2026-10-19 用户要求）Boss 进场简报 =================
+// 「进入 boss 节点时，需要提示 boss 持有的技能和主、副武器」。
+// 数据侧完全由 js/tank_boss.js bossBriefing(entity) 产出（纯函数、可 Node 测试）；
+// 本段只做 DOM 呈现 + 一次性的弹出/关闭接线。
+// 关闭方式：点击按钮 / 空格 / Esc / 点击遮罩。Boss 战并不暂停——简报是覆盖层而非流程状态，
+// 因此不进 flow 状态机（避免与白名单转移冲突），玩家关掉即继续打。
+let bossBriefingOpen = false;
+
+function renderBossBriefing(entity){
+  const el = document.getElementById('bossBriefing');
+  if(!el) return false;
+  const view = (typeof bossBriefing === 'function') ? bossBriefing(entity) : null;
+  if(!view){ el.style.display = 'none'; bossBriefingOpen = false; return false; }
+  const nameEl = document.getElementById('bossBriefingName');
+  if(nameEl) nameEl.textContent = '☠ ' + (view.name || 'BOSS') + (view.stageCount ? ` · ${view.stageCount} 阶段` : '');
+  const descEl = document.getElementById('bossBriefingDesc');
+  if(descEl) descEl.textContent = view.desc || '';
+  const body = document.getElementById('bossBriefingBody');
+  if(!body) return false;
+  const rows = [];
+  // 主/副武器行
+  rows.push(`<div class="bf-row"><span class="k">主武器</span><span class="v">${view.weapons.primary.label}</span></div>`);
+  rows.push(`<div class="bf-row"><span class="k">副武器</span><span class="v">${view.weapons.secondary.type === 'none' ? '<span class="bf-empty">无</span>' : view.weapons.secondary.label}</span></div>`);
+  // 改装卡：每条列名字 + 数值摘要（只列对决策有意义的字段，内部开关不显示）
+  const upHtml = view.upgrades.length
+    ? view.upgrades.map(u => `<span class="bf-item"><span class="nm">${u.name}</span>${u.lines.length ? `<span class="st">${u.lines.join(' · ')}</span>` : ''}</span>`).join('')
+    : '<span class="bf-empty">无改装（出厂武备）</span>';
+  rows.push(`<div class="bf-row"><span class="k">改装</span><span class="v">${upHtml}</span></div>`);
+  // 技能：增强版标 [强化] 标签
+  const skHtml = view.skills.length
+    ? view.skills.map(s => `<span class="bf-item"><span class="nm">${s.label}</span>${s.boosted ? '<span class="bf-tag">强化</span>' : ''}</span>`).join('')
+    : '<span class="bf-empty">无主动技能</span>';
+  rows.push(`<div class="bf-row"><span class="k">技能</span><span class="v">${skHtml}</span></div>`);
+  body.innerHTML = rows.join('');
+  el.style.display = 'flex';
+  bossBriefingOpen = true;
+  return true;
+}
+
+function showBossBriefing(entity){
+  if(!renderBossBriefing(entity)) return false;
+  playSound('ui');
+  // 日志留一份纯文本兜底（面板被关掉/事后回看，仍能在日志里找到同一份信息）
+  const lines = (typeof bossBriefingLines === 'function') ? bossBriefingLines(entity) : [];
+  for(const ln of lines) pushLog('☠ ' + ln, 'CRIT');
+  return true;
+}
+
+function closeBossBriefing(){
+  const el = document.getElementById('bossBriefing');
+  if(el) el.style.display = 'none';
+  if(bossBriefingOpen) playSound('ui');
+  bossBriefingOpen = false;
+}
+
 // #5：Boss 随机技能使用（每 8-15 秒触发一次携带的技能）
 function updateBossSkills(boss, dt){
   if(!boss.cardEffects || !boss.cardEffects.length) return;
@@ -1827,7 +1999,9 @@ function updateBossSkills(boss, dt){
 }
 
 // #MODE（2026-10-15）：生存模式波次系统 ————————————————
-// 单个大地图 + 按波次生成敌军主动进攻；每波清空后抽卡（5选1）；每 3 波 1 个 Boss。
+// 单个大地图 + 按波次生成敌军主动进攻；**每一波清空后抽卡**（普通波 5 选 2 / Boss 波 5 选 3，
+// 与标准模式的普通节点 / Boss 节点同口径）；每 3 波 1 个 Boss。补给站只提供回血 + 参数升级商店，
+// **不再承担选卡**（2026-10-18 用户裁定）。
 
 // 生存波次敌军生成（普通波）
 function spawnSurvivalWaveEnemies(count, waveDiff, mults){
@@ -1913,8 +2087,12 @@ function livingSurvivalWaveEnemies(){
   return entities.filter(e => e.survivalWaveSpawn && e.team === 'enemy' && e.hp > 0);
 }
 
-// 波次清空 → Boss 波快速选卡 / 普通波直接倒计时 → 下一波（不经过 settlement，不重载地图）
+// 波次清空 → 快速选卡 → 5 秒准备期 → 下一波（不经过 settlement，不重载地图）
 // #MODE（2026-10-15）：清场即调用（不再有 2 秒「区域肃清」缓冲——用户裁定删除该倒计时）。
+// 2026-10-18 用户裁定：**卡牌挑选移到每一波结束时**（不再与补给点关联），张数与标准模式同源——
+//   普通波 = 普通节点 5 选 2（pendingLootRounds=0）；Boss 波（每 3 波）= Boss 节点 5 选 3
+//   （pendingLootRounds=1，连带启用 RULES.cards.bossRound 的稀有度保底与装备保底）。
+//   故本函数不再区分「Boss 波才选卡」，两种波都先选卡再进入准备期倒计时。
 function finishSurvivalWave(){
   if(!battleState || battleState.cleared) return;
   battleState.cleared = true;
@@ -1925,22 +2103,23 @@ function finishSurvivalWave(){
   const isBossWave = (survivalWave % 3 === 0);
   const waveScore = 100 + survivalWave * 50;
   const bossBonus = isBossWave ? 500 : 0;
-  runScore += waveScore + bossBonus;
+  // #U40（2026-10-19）：economy.scoreMul 接线——结算类计分统一乘 runScoreMultiplier(player)
+  //（支援后勤/军功章等卡的「结算得分 +x%」在此生效；坦克快照字段经 helpers 聚合）
+  runScore += Math.round((waveScore + bossBonus) * runScoreMultiplier(player));
   runKills += battleState.nodeKills || 0;
   pushLog(`★ 第 ${survivalWave} 波 · 肃清（+${waveScore + bossBonus}分） ★`, 'COVER');
   playSound('ui');
-  if(isBossWave){
-    // Boss 波：立即弹出快速选卡（保底 epic），选完后进 5 秒倒计时
-    survivalQuickPick = true;
-    pendingLootRounds = 1;
-    pendingLootRarityIdx = (typeof CARD_RARITIES !== 'undefined') ? CARD_RARITIES.indexOf('epic') : -1;
-    openRewardScreen();
-    document.getElementById('rewardScreen').style.display = 'block';
-    setOverlayVisible(true);
-  } else {
-    // 普通波：直接 5 秒倒计时
-    startSurvivalCountdown();
-  }
+  // 每一波结束都弹出快速选卡（战斗内，不切 flow 状态）。
+  // 张数口径与标准模式完全一致：普通波用 0 轮标记 → rewardPickTarget 得 2 张；
+  // Boss 波置 1 轮标记 → 得 3 张，并走 Boss 追加轮的稀有度/装备保底抽取。
+  survivalQuickPick = true;
+  pendingLootRounds = isBossWave ? 1 : 0;
+  pendingLootRarityIdx = isBossWave && (typeof CARD_RARITIES !== 'undefined')
+    ? CARD_RARITIES.indexOf('epic') : -1;
+  resetRewardShop();   // 防御：收起可能残留的商店区/还原选卡按钮（本函数也复用 Boss 模式 reward 屏）
+  openRewardScreen();
+  document.getElementById('rewardScreen').style.display = 'block';
+  setOverlayVisible(true);
 }
 
 // 5 秒倒计时（玩家可自由移动，不冻结；期间全场伤害判定关闭）
@@ -2083,6 +2262,7 @@ function enterBattle(nodeIndex){
   clearSmoke();                              // P-17：进节点清空上一战场残留烟雾
   clearStrikes();                            // P-17：进节点清空上一战场预警炮击
   if(typeof clearFx === 'function') clearFx();           // #4：FX 特效数组不跨节点
+  if(typeof clearTrackMarks === 'function') clearTrackMarks();   // #U41：履带痕迹不跨节点
   if(typeof clearDmgTexts === 'function') clearDmgTexts(); // #4：伤害飘字不跨节点
   bossLaserFx = null;                        // #E9：激光绘制数据不跨节点
   pendingMineFields.length = 0;              // #E4：未引爆的待生成雷场不跨节点
@@ -2092,6 +2272,13 @@ function enterBattle(nodeIndex){
   player.shield = null;                      // P-17：护盾是短时开启状态，不跨节点（冷却 t.abilityCds 池跨节点保留）
   player._rocketBurst = null;                // #D4：火箭巢逐发队列不跨节点
   player._missileLock = null;                // 同上：锁定进度不跨节点（防幽灵续锁）
+  // #U40（2026-10-19）：反应装甲就绪状态跨节点重置——装甲模块满电进入每个战场
+  //（拦截冷却只在单场战斗内走 updateReactiveArmorRearm 逐帧递减，不跨节点携带）
+  if(player && typeof reactiveArmorRecharge === 'function'
+    && (player.cardEffects || []).some(e => e && e.type === 'passive' && e.key === 'reactive_armor')){
+    player._reactiveRearmT = 0;
+    player._reactiveReady = true;
+  }
   resetEntity(player);                       // 满状态进入节点
   player.hp = player.stats.maxHp;            // #A12：满血进节点（resetEntity 后兜底，防 spawn 快照 hp 陈旧）
   player.x = node.playerSpawn.x; player.y = node.playerSpawn.y;
@@ -2126,6 +2313,7 @@ function enterBattle(nodeIndex){
     applyDifficulty(t, mults){ applyDifficultyMults(t, mults); }   // P-38：页级函数，增援生成复用
   });
   bakeNodeGroundLayer(node);   // 2026-09-14：进图前预烘焙道路地面层（曲线道路整条绘制，避免逐段实时绘制与远距消失）
+  clearGroundCache();          // #GT：换节点 ⇒ biome/seed/区段全变，地面纹理烘焙缓存必须失效
 
   // P-37/P-09：Boss 战——周期 Boss 节点（node.boss=true 由 map 模块预标）在进入战斗时
   // 懒指定 Boss 定义；普通节点该字段为 null 不进此分支。
@@ -2164,11 +2352,12 @@ function finishNode(cleared){
   const outpostAlive = !outpostEntity || outpostEntity.hp > 0;
   const score = scoreNode(currentNode, { damageTaken: battleState.damageTaken, clearMs, outpostAlive });
   let bossLoot = null;
+  // #U40（2026-10-19）：economy.scoreMul 接线——节点结算得分乘 runScoreMultiplier(player)
   if(cleared && currentNode.boss){                     // P-09：Boss 掉落（score + 卡牌稀有度）
     bossLoot = currentNode.boss.loot || null;
     if(bossLoot && bossLoot.score) score.total += bossLoot.score;
   }
-  runScore += score.total;
+  runScore += Math.round(score.total * runScoreMultiplier(player));
   if(cleared) transition(flow, 'settlement', { nodeIndex: currentNode.index, score, clearMs, bossLoot });
   else transition(flow, 'gameover', { nodeIndex: currentNode.index, score });
 }
@@ -2264,7 +2453,7 @@ function deployDronesFromCards(){
 // P-51 Wave2：Boss 战利品追加卡牌轮 pending 状态（settlement 进入时捕获，抽完即清，防普通节点误触发）
 let pendingLootRounds = 0;        // 剩余追加三选一轮数
 let pendingLootRarityIdx = -1;    // 保底稀有度在 CARD_RARITIES 中的下标（-1 = 无保底/全池）
-let survivalQuickPick = false;    // 生存模式 Boss 波战斗内快速选卡（不经过 settlement/reward 状态）
+let survivalQuickPick = false;    // 生存模式**每一波结束**的战斗内快速选卡（不经过 settlement/reward 状态）
 // #MODE（2026-10-15）：Boss 模式 reward 屏内嵌商店已展开（选完卡后展开，点「继续」推进下一场）
 let rewardShopOpen = false;
 
@@ -2323,6 +2512,11 @@ function pickCard(card){
   if(!card) return;
   const applied = applyCardEffects(player, card);   // P-09：走卡牌效果管道（modifier 立即生效，其余挂 cardEffects 供对应里程碑消费）
   pushLog(`获得卡牌「${card.name}」— ${card.desc}`, 'PEN');
+  // #U40（2026-10-19）：economy.reviveCount（战场救护协议卡）即时生效——applyCardEffects 写
+  //   runReviveBonus，但 revives 只在 prepPlayerForRun（新局）重算，局内获得后复活次数纹丝不动。
+  if(applied.some(ef => ef.type === 'economy' && ef.field === 'reviveCount') && typeof RULES !== 'undefined'){
+    player.revives = RULES.revive.baseRevives + (profile.bonusRevives | 0) + (player.runReviveBonus | 0);
+  }
   // P-17：主动装置卡获得提示（按键映射与 hintBar 一致）
   for(const ef of applied){
     if(ef.type === 'ability' && ABILITY_KEY_HINT[ef.key]) pushLog(`已获得主动能力：${ABILITY_KEY_HINT[ef.key]}`, 'PEN');
@@ -2361,22 +2555,22 @@ function showDamageAlert(msg){
   // #H3（2026-09-30）：技能槽对账 —— 新技能先自动填入空槽；**槽满时弹面板由玩家选择顶替哪一格**
   //   （循环复用：运行时技能键 7 个 > 槽位 3 个，第 4 个起不再是死技能）。
   if(applied.some(ef => ef.type === 'ability')){
-    reconcileSkillSlotsAfterGain();
+    // #U44：把本张卡新增的第一个技能键传进去——只有它需要玩家选格顶替，
+    //   避免被顶掉的旧技能插队（详见 syncSkillSlots 头注）。
+    const _newKey = (applied.find(ef => ef.type === 'ability' && ef.key) || {}).key;
+    reconcileSkillSlotsAfterGain(_newKey);
   }
   // #B10（2026-09-16）：获得技能 → 对应底部技能按钮金色脉冲闪烁 3 秒（此前 G/H 静默出现、
   // 其余技能完全无反馈）。按钮显隐仍由 updateBottomHud 逐帧按 hasAbility 刷新，此处只做一次性高亮。
   // #H3（2026-09-21）：overdrive 移除专属按钮（btnV 删除）——技能池槽的获得脉冲走 updateBottomHud
   // 的 skillSlot 渲染路径（同名技能进入槽位即有常驻显示）。
-  // #H3（2026-09-30）：脉冲目标改为「该技能所在槽位」；已入槽的技能专属键按钮隐藏（避免同一技能两按钮），
-  //   故此处优先高亮 skillSlot，未入槽时退回专属键按钮。
-  const BTN_BY_ABILITY = { artillery:'btnG', shield:'btnH' };
+  // #U42（2026-10-19）：G/H 专属键退役——脉冲目标恒为该技能所在技能池槽
+  // （reconcileSkillSlotsAfterGain 已先对账，新技能必然已入槽或已排队待指派）。
   for(const ef of applied){
     if(ef.type !== 'ability') continue;
-    // 优先高亮该技能所占的技能池槽；未入槽时才退回专属键按钮（btnG/btnH）
     const slotIdx = skillSlots().indexOf(ef.key);
-    const el = slotIdx >= 0
-      ? document.getElementById('skillSlot' + (slotIdx + 1))
-      : (BTN_BY_ABILITY[ef.key] ? document.getElementById(BTN_BY_ABILITY[ef.key]) : null);
+    if(slotIdx < 0) continue;
+    const el = document.getElementById('skillSlot' + (slotIdx + 1));
     if(!el) continue;
     el.classList.remove('skill-gain');    // 重启动画（同局重复获得）
     // 强制 reflow 后再挂类，保证连续获得两次时动画从头播
@@ -2403,10 +2597,11 @@ let freeRefreshLeft = 1;            // 本轮剩余免费刷新次数
 // 但当候选抽取结果不足 need 张时（池内可给卡耗尽），「选满才可确认」的门控永远不成立
 // ⇒ 确认按钮永久禁用、流程卡死。现按**实际候选数**封顶：候选 2 张就只需选 2 张，
 // 候选 0 张时返回 0（由 renderRewardCards 显示空池提示 + 确认按钮直接可用放行）。
+// 2026-10-18 用户裁定：生存模式与标准模式**同口径**——普通波 2 张、Boss 波 3 张
+// （原生存模式恒为 1 张的特例随「选卡移到每波结束」一并撤销）。
 function rewardPickTarget(){
-  const base = (GAME_MODE === 'survival') ? 1        // #MODE：生存模式每波 5 选 1
-             : (pendingLootRounds > 0) ? 3           // Boss 追加轮 3 张
-             : 2;                                    // 普通节点 2 张
+  const base = (pendingLootRounds > 0) ? 3           // Boss 追加轮（含生存 Boss 波）3 张
+             : 2;                                    // 普通节点 / 生存普通波 2 张
   const avail = Array.isArray(currentRewardCards) ? currentRewardCards.length : 0;
   return Math.min(base, avail);
 }
@@ -2466,14 +2661,19 @@ function renderRewardCards(){
   const confirmBtn = document.getElementById('rewardConfirmBtn');
   const hintEl = document.getElementById('rewardHint');
   const need = rewardPickTarget();
-  if(hintEl) hintEl.textContent = GAME_MODE === 'survival'
-    ? '生存模式：5 选 1。不可重复选择。'
+  // 2026-10-18：生存模式文案与标准模式同源（普通波 5 选 2 / Boss 波 5 选 3），
+  // 仅在措辞上点明「本波」，不再有独立的 5 选 1 分支。
+  const hintText = GAME_MODE === 'survival'
+    ? (pendingLootRounds > 0
+        ? '生存 · Boss 波奖励：5 选 3（含稀有度与装备保底）。不可重复选择。'
+        : '生存 · 本波奖励：5 选 2。不可重复选择。')
     : pendingLootRounds > 0
     ? 'Boss 追加卡牌轮：5 选 3。不可重复选择。'
     : '普通节点：5 选 2。不可重复选择。';
+  if(hintEl) hintEl.textContent = hintText;
   // 2026-10-15：候选不足时明确说明并放行（need 已按候选数封顶）——否则玩家看到
   // 「0/3」的确认按钮永远灰着，误以为卡死。
-  const shortBy = (GAME_MODE === 'survival' ? 1 : (pendingLootRounds > 0 ? 3 : 2)) - need;
+  const shortBy = ((pendingLootRounds > 0) ? 3 : 2) - need;
   if(statusEl) statusEl.innerHTML = shortBy > 0
     ? `可抽卡牌已不足（剩余 ${need} 张）——选完即可继续`
     : `请选择 ${need} 张卡牌（已选择 <span id="selectedCardCount">${selectedRewardIdx.size}</span>/${need}）`;
@@ -2777,7 +2977,9 @@ function buyRunShopItem(defId){
   if(lv >= def.maxLevel) return false;
   const blocked = runShopLimitBlocked(def, lv, player.stats);
   if(blocked){ pushLog(`${def.name}：${def.limitLabel || '已达硬上限'}`, 'COVER'); playSound('block'); return false; }
-  const cost = runShopPriceFor(def, lv);
+  // #U40（2026-10-19）：economy.shopDiscount 接线——后勤保障/补给线卡（−10%/张，聚合上限 50%）
+  //   对局内商店价格生效。余额账本照旧按折后价扣减。
+  const cost = Math.max(1, Math.round(runShopPriceFor(def, lv) * (1 - runShopDiscount(player))));
   if(runShopBalance() < cost){ playSound('block'); return false; }
   runScoreSpent += cost;
   runShopLevels[defId] = lv + 1;
@@ -2835,7 +3037,8 @@ function buildRunShopInto(listEl, balEl){
     const lv = runShopLevels[def.id] | 0;
     const blocked = runShopLimitBlocked(def, lv, player.stats);
     const maxed = lv >= def.maxLevel;
-    const cost = runShopPriceFor(def, lv);
+    // #U40（2026-10-19）：与 buyRunShopItem 同口径——展示价也带 economy.shopDiscount 折扣
+    const cost = Math.max(1, Math.round(runShopPriceFor(def, lv) * (1 - runShopDiscount(player))));
     const can = !blocked && !maxed && runShopBalance() >= cost;
     const row = document.createElement('div');
     row.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:11px;';
@@ -3293,6 +3496,13 @@ function prepPlayerForRun(){
   resetSkillSlots();
   player.cardEffects = [];
   clearDrones(player);                               // 随行无人机属 cardEffects 派生，一并清
+  // #W6（2026-10-19）：economy 单局字段归零。player 是模块级单例，这几个字段只由
+  // applyCardEffects 写入，若不在此清零会跨局累积（拿过一次「后勤保障」= 此后每局结算
+  // 永久 ×1.15 并继续复乘；「战场救护协议」的 +1 复活同样永久累积）。
+  // removeRunModifiers 已同步清零，此处是**新局入口的防御性重置**（不依赖上一局是否走过收尾）。
+  player.runScoreMul = 1;
+  player.runReviveBonus = 0;
+  player.runStartScore = 0;
   player.unlockedAmmo = ['ap', 'he'];                // 弹种解锁进度不跨局（开局恒 ap/he）
   // 卡牌安装的副武器/主武器不跨局：坦克 spec 未显式定义 weapons 时回落出厂默认
   if(!(spec && spec.weapons)){
@@ -3361,6 +3571,8 @@ const devGenNode = () => {
   // dev 随机场：道路回退逐段绘制——滚动烘焙状态一并清空（_groundChains 指向旧节点链路，
   // 不清会让 ensureGroundBake 把旧道路 blit 到新随机场上）
   groundLayerCanvas = null; _groundChains = null; _groundBake = null; _groundJunctions = [];
+  clearGroundCache();   // #GT：dev 随机场换了 biome/seed ⇒ 地面纹理烘焙缓存同样失效
+  if(typeof clearTrackMarks === 'function') clearTrackMarks();   // #U41：履带痕迹不跨随机场
   pushLog(`随机生成战场: [${res.template.name}] 难度=${(randomDiff*100).toFixed(0)}% 元素数=${res.covers.length}`,'COVER');
 };
 const devReset = () => {
@@ -3432,8 +3644,9 @@ let fireCtx = null;
 // #B10（2026-09-16）：能力键提示表补全——pickCard 获得提示与 skillHotkey 1/2/3 技能池 DISPATCH
 // 对齐（此前仅 G/H/V 三键有提示，deploy_cover/super_fire_control/super_speed/recon 获得后零反馈）。
 const ABILITY_KEY_HINT = {
-  artillery: '炮击支援（G 键 / 技能槽数字键）',
-  shield: '战术护盾（H 键，Shift+H 全向 / 技能槽数字键）',
+  // #U42（2026-10-19）：G/H 专属键退役——全部运行时技能统一「技能槽数字键」文案
+  artillery: '炮击支援（技能槽数字键，鼠标指向落点）',
+  shield: '战术护盾（技能槽数字键，展开全向护盾）',
   overdrive: '超级装填（技能槽数字键）',
   deploy_cover: '战术掩体（技能槽数字键，车前部署充能掩体）',
   super_fire_control: '超级火控（限时精度/瞄准强化，技能槽数字键触发）',
@@ -3851,9 +4064,9 @@ function update(dt){
       if(mouseFireHeld && flow.state === 'battle' && !statusOpen && !devOpen) tryFirePrimary(fireCtx);
       if(input.isDown('fire')) tryFirePrimary(fireCtx, true);
       if(input.isDown('fireSecondary')) trySecondaryFire();   // #C4e：F 按住连发副武器
-      if(input.isDown('abilityStrike')) tryStrike();      // P-17：G 键呼叫战术炮击（鼠标指向落点）
+      // #U42（2026-10-19）：G/H 专属键轮询删除（同 #H3 删 V 轮询先例）——artillery/shield
+      //   统一经技能池 skill1/2/3（skillHotkey DISPATCH）触发，键位单一来源。
     }
-    if(input.isDown('abilityShield')) tryShield(!!keys['shift']);   // P-17：H 键定向护盾（朝炮塔）；Shift+H 全向护盾
     // #H3（2026-09-21）：超装填 V 键轮询删除——overdrive 只经技能池 skill1/2/3（skillHotkey DISPATCH）触发
     if(input.isDown('supportRepair')) tryRepairKit();   // #90：4 键修理箱（开局自带）
     if(input.isDown('supportMedkit')) tryMedkit();      // #90：5 键医疗包（开局自带）
@@ -4118,10 +4331,11 @@ function update(dt){
       // P-14：击杀得分（run 战斗态、敌方；友军击杀五折记分）
       if(run && battleState && e.team === 'enemy'){
         const lastTeam = e.lastHitByTeam || (e.lastHitBy ? e.lastHitBy.team : null);
+        // #U40（2026-10-19）：击杀得分同乘 runScoreMultiplier（economy.scoreMul 全计分通道生效）
         if(lastTeam === 'ally') {
-          runScore += Math.round(killScore() * 0.5);
+          runScore += Math.round(killScore() * 0.5 * runScoreMultiplier(player));
         } else {
-          runScore += killScore();
+          runScore += Math.round(killScore() * runScoreMultiplier(player));
         }
         runKills++;
         battleState.nodeKills++;   // P-38：节点内击杀数（配额判定用）
@@ -4167,6 +4381,8 @@ function update(dt){
   // #C4c（2026-09-17）：按技能独立冷却——updateAbilityCds 统一递减 t.abilityCds 池
   // （运行时能力键 + innate 键同池按 key 隔离；旧共享 abilityCdT 助手已废弃，不再调用）
   updateAbilityCds(player, dt);   // 按技能独立冷却递减（artillery/shield/overdrive/... + repair/medkit/extinguish）
+  // #U40（2026-10-19）：反应装甲再充能计时逐帧递减（拦截一次后写 _reactiveRearmT，归零恢复可拦截）
+  if (typeof updateReactiveArmorRearm === 'function') updateReactiveArmorRearm(player, dt);
   updateShield(player, dt);       // 护盾时长递减（本版本仅玩家持有护盾，无盾时 no-op）
   // P-17：战术炮击落弹推进（updateStrikes 已按阵营过滤扣血并返回命中明细；接线层播特效/飘字/音效）
   // #MODE：生存准备期不推进落弹（否则倒计时结束瞬间多波落弹同时爆开；伤害总闸亦已拦住结算）。
@@ -4564,25 +4780,8 @@ function updateBottomHud(){
   // 装填中优先显示秒数（锁定态只在装填就绪后才可能出现）
   cd('cdF', secRl > 0 ? secRl.toFixed(1) : (isLockMissile ? fBadge : ''), secRl > 0);
 
-  // #H3（2026-09-30）：专属键按钮（btnG=炮击 G / btnH=护盾 H）**仅在该技能未占用技能池槽位时**
-  //   显示 —— 修复「同一技能在技能区出现两个按钮」（实测 artillery 同时点亮 btnG 与 skillSlotN）。
-  //   入槽后该技能统一由槽位按钮 + 对应数字键呈现，冷却角标也只在槽位上显示。
-  const slotsNow = skillSlots();
-  const inSlot = (key) => slotsNow.indexOf(key) >= 0;
-  const btnG = document.getElementById('btnG');
-  if(btnG) btnG.style.display = (hasAbility(player, 'artillery') && !inSlot('artillery')) ? '' : 'none';
-
-  const btnH = document.getElementById('btnH');
-  if(btnH) btnH.style.display = (hasAbility(player, 'shield') && !inSlot('shield')) ? '' : 'none';
-
-  // #H3（2026-09-21）：btnV 删除——overdrive 常驻显示走技能池槽 skillSlot1~3（下段渲染）
-
-  // #C4c：G/H 冷却角标改读按技能独立冷却池 t.abilityCds（此前按钮共享同一文本）
-  // #H3（2026-09-21）：cdV 角标删除——overdrive 冷却显示走技能池槽（skillSlot 渲染段）
-  const cdA = (player.abilityCds && player.abilityCds.artillery) || 0;
-  cd('cdG', cdA > 0 ? cdA.toFixed(0) : '', cdA > 0);
-  const cdSh = (player.abilityCds && player.abilityCds.shield) || 0;
-  cd('cdH', cdSh > 0 ? cdSh.toFixed(0) : '', cdSh > 0);
+  // #U42（2026-10-19）：btnG/btnH 显隐与冷却角标删除——G/H 专属键退役（同 #H3 删 btnV/cdV 先例），
+  //   artillery/shield 的常显入口与冷却角标统一走技能池槽 skillSlot1~3（下段渲染）。
 
   // #G（2026-09-21 用户需求 #7）+ #H3（2026-09-30）：技能池 1/2/3 常驻槽 —— 显示「技能名 + 键位 + 冷却」。
   // 槽位内容直接读 player.skillSlots（玩家可指派），**不再**由 cardEffects 顺序自动推导 ——
@@ -4598,9 +4797,7 @@ function updateBottomHud(){
       slot.classList.remove('empty');
       const lbl = slot.querySelector('.slabel');
       if(lbl) lbl.textContent = ABL[key] || key;
-      const dedicated = (key === 'artillery') ? '，亦可按 G'
-                      : (key === 'shield') ? '，亦可按 H' : '';
-      slot.title = `${ABL[key] || key}（${n}）${dedicated}｜Shift+点击改指`;
+      slot.title = `${ABL[key] || key}（${n}）｜Shift+点击改指`;
       const c = (player.abilityCds && player.abilityCds[key]) || 0;
       const cdEl = document.getElementById('cdS' + n);
       if(cdEl) cdEl.textContent = c > 0 ? c.toFixed(0) : '';
@@ -4762,12 +4959,30 @@ function drawReloadRing(ctx){
   ctx.arc(wp.x, wp.y, R, 0, TAU);
   ctx.stroke();
   // 进度弧：-90° 顺时针扫 360°*p
+  // #U38（2026-10-18）：电磁轨道炮的装填环改**充能弧**——它是唯一「装填 = 充能」的武器，
+  //   进度环与炮身导轨上的充能电弧（railChargeProgress）同源，读作一件事而不是两条信息。
+  // #U39（2026-10-19 用户裁定）：配色改为**白**（弧光白），与炮身弧光一致，不再用青蓝。
+  const _isRailRing = !!(player.weapons && player.weapons.primary && player.weapons.primary.type === 'railgun');
   const a0 = -Math.PI/2;
-  ctx.strokeStyle = '#ffb454';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(wp.x, wp.y, R, a0, a0 + TAU * p);
-  ctx.stroke();
+  if(_isRailRing){
+    // 外层冷白晕（越接近充满越亮）+ 内层纯白芯
+    ctx.strokeStyle = `rgba(226,238,255,${0.16 + 0.30 * p})`;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(wp.x, wp.y, R, a0, a0 + TAU * p);
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(255,255,255,${0.75 + 0.25 * p})`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(wp.x, wp.y, R, a0, a0 + TAU * p);
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = '#ffb454';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(wp.x, wp.y, R, a0, a0 + TAU * p);
+    ctx.stroke();
+  }
 }
 // 战斗场景绘制层（drawTank/drawShells/drawCover/drawFoliage/drawClassBadge）在
 // js/tank_battledraw.js；mvp 只负责按帧调用。P-15 新增 drawDmgTexts（js/tank_dmgtext.js）。
@@ -5163,24 +5378,42 @@ function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
   // ---- P-08 摄像机变换：世界绘制全部在视口变换内（玩家居中，1:9 大世界可巡航） ----
+  // #GT（2026-10-18）：渲染使用**像素对齐**的相机位置（renderCamPos）。
+  //   原因：cam.x/cam.y 是阻尼跟随的浮点值，相当于把整个世界推进亚像素位置；地面上
+  //   1~2px 的高对比细图元（雪粒/沙纹/草丛短划）会因此每帧被不同相位重采样，亮度逐帧
+  //   跳变 —— 用户看到的「雪地/沙漠纹理随玩家移动变化」。实测相机 0→0.5px 即 3.10%
+  //   采样点变色，取整到同一整数格后为 0.00%，整数平移错位比对 0/78208（纯平移零重采样）。
+  //   物理/AI/命中仍读浮点 cam.x/cam.y（不受影响）；vb 也改用对齐后的中心，保持地物
+  //   与地面的剔除口径一致。
+  const rcam = renderCamPos(cam);
   ctx.save();
   ctx.translate(canvas.width/2, canvas.height/2);
   ctx.scale(cam.zoom, cam.zoom);
-  ctx.translate(-cam.x, -cam.y);
+  ctx.translate(-rcam.x, -rcam.y);
 
   // 网格：只画视口内的线（大世界全图划线不可行）
-  const vb = viewBounds(cam);
+  const vb = viewBounds({ x: rcam.x, y: rcam.y, vw: cam.vw, vh: cam.vh, zoom: cam.zoom });
 
   // P-36/#81 biome 地面：battle 态且局内时按当前节点 biome 绘制程序化地面
   // （底色 + 种子确定性低频色斑）；其他态维持原 clearRect + 淡网格观感。
+  // #GT（2026-10-18）：改走 drawGroundCached——地面层（底色+色斑+材质纹理）按世界坐标
+  //   烘焙到离屏画布，相机在内半区移动时只 blit 1 次。修两件事：
+  //   ① 性能：旧实现每帧按世界格 hash 重描绘全部纹理图元（1920×1080 实测算 4.8k~14k 图元，
+  //      zoom 0.5 看全图时雪地 45k / 泥地 24k，单帧 31~85ms ⇒ 一移动就掉帧）；
+  //   ② 观感：程序化细图元在亚像素相机位移下被重采样（实测 0.5px 位移即 1.5~2.9% 采样点变色），
+  //      雪地/沙漠这类高对比细纹理最明显，读作「纹理随玩家移动而变化」。
   if(run && currentNode && flow.state === 'battle'){
-    drawGround(ctx, { viewBounds: vb, biome: currentNode.biome, biomeZones: currentNode.biomeZones, seed: currentNode.seed });
+    drawGroundCached(ctx, { viewBounds: vb, biome: currentNode.biome, biomeZones: currentNode.biomeZones, seed: currentNode.seed, zoom: cam.zoom });
   }
 
   const gs = 40;
+  // #TEX9-2026-10-18：网格线合批——原实现每条线一次 beginPath/stroke，1920×1080 实测
+  //   154 次调用/帧（纯装饰线条，完全是可合并的重复劳动）。改为一条 path + 一次 stroke。
   ctx.strokeStyle = 'rgba(255,255,255,0.035)'; ctx.lineWidth=1;
-  for(let x = Math.floor(vb.minX/gs)*gs; x <= vb.maxX; x += gs){ ctx.beginPath(); ctx.moveTo(x, vb.minY); ctx.lineTo(x, vb.maxY); ctx.stroke(); }
-  for(let y = Math.floor(vb.minY/gs)*gs; y <= vb.maxY; y += gs){ ctx.beginPath(); ctx.moveTo(vb.minX, y); ctx.lineTo(vb.maxX, y); ctx.stroke(); }
+  ctx.beginPath();
+  for(let x = Math.floor(vb.minX/gs)*gs; x <= vb.maxX; x += gs){ ctx.moveTo(x, vb.minY); ctx.lineTo(x, vb.maxY); }
+  for(let y = Math.floor(vb.minY/gs)*gs; y <= vb.maxY; y += gs){ ctx.moveTo(vb.minX, y); ctx.lineTo(vb.maxX, y); }
+  ctx.stroke();
 
   // 节点世界边界（run 模式）
   if(run && currentNode){
@@ -5230,6 +5463,12 @@ function draw(){
   if(groundLayerCanvas){ ctx.drawImage(groundLayerCanvas, _groundBake ? _groundBake.ox : 0, _groundBake ? _groundBake.oy : 0); }
   else inViewCovers.filter(cov => cov.tier === 'road').forEach(cov => drawCover(ctx, cov));   // 无烘焙层（dev 随机场）回退逐段绘制
   inViewCovers.filter(cov => !groundLayerCov(cov) && cov.tier !== 'bridge' && (groundLayerCanvas ? cov.tier !== 'road' : true)).forEach(cov => drawCover(ctx, cov));
+  // #FX2（2026-10-18）：地面焦痕/弹坑层。scorchMarks 由 spawnImpactFx / spawnAmmoBlowFx 生成、
+  //   updateFx 推进寿命，但此前**没有任何绘制点**——高爆的「地面深色弹坑」在实机里从未出现。
+  //   画在地物/道路之后、坦克之前：焦痕是地面贴花，必须被车体压住。
+  drawScorchMarks(ctx);
+  // #U41（2026-10-19）：地面履带痕迹层——与焦痕同层（地物/道路之后、坦克之前），被车体压住。
+  if(typeof drawTrackMarks === 'function') drawTrackMarks(ctx);
   entities.forEach(t => {
     if(t.isDrone) return;   // P-17：无人机无坦克几何，由 drawDrones 单独绘制
     if(entityHiddenByVision(t)) return;   // #J3：视野系统已退役，恒为 false（保留调用点以兼容 dev 钩子）
@@ -5566,6 +5805,14 @@ function draw(){
   drawTurretFlights(ctx);
   drawFxParticles(ctx);
   drawMuzzleFlashes(ctx);
+  // #FX2（2026-10-18）：补齐冲击波环与曳光拖尾的绘制点（此前只有 spawn，没有 draw：
+  //   spawnShockwave 在炮口闪光/命中/殉爆各路径都在 push，spawnTracer 由 tank_fire.js 每帧调用，
+  //   但 drawShockwaves / drawTracers 从未被任何页面调用 → 两类特效完全不可见）。
+  //   顺序：冲击波在粒子之上（能量环压住烟尘）、曳光最上层（出膛亮线要穿过炮口火焰）。
+  drawShockwaves(ctx);
+  drawTracers(ctx);
+  // #U38（2026-10-18）：电磁炮击发放电弧——炮身甩出的电离折线，画在曳光之上（电弧要压住出膛亮线）
+  if(typeof drawRailArcs === 'function') drawRailArcs(ctx);
   drawHitFx(ctx);
 
   impacts.forEach(im=>{
@@ -5646,6 +5893,11 @@ function draw(){
 
   // ---- P-08 小地图（屏幕空间覆盖层，右上角） ----
   if(run && currentNode){
+    // 2026-10-18 用户需求：生存模式的补给点必须显示在小地图上（此前只在世界里画世界标记，
+    // 小地图上毫无提示，玩家不知道该往哪开）。补给站是节点数据（currentNode.supplyStations），
+    // 由 generateSurvivalRun/placeSupplyStations 放置；非生存模式该字段不存在 ⇒ 传 null 零回归。
+    const _mmSupplies = (GAME_MODE === 'survival' && Array.isArray(currentNode.supplyStations))
+      ? currentNode.supplyStations : null;
     drawMinimap(ctx, {
       world: { w: currentNode.w, h: currentNode.h },
       cam,
@@ -5655,6 +5907,9 @@ function draw(){
       h: MM.h,
       covers,
       entities,
+      supplyStations: _mmSupplies,
+      // 冷却中的补给站以灰色标记（与世界里「冷却中变灰」同一语义）
+      supplyOnCooldown: (typeof supplyCooldownRemain === 'function') ? supplyCooldownRemain() > 0 : false,
       // #K2：出口区标记（Boss 节点无出口概念 ⇒ 不画；生存模式 exitX=Infinity ⇒ 不画）
       exitZone: (currentNode.boss || currentNode.exitX === Infinity) ? null : { x: currentNode.exitX }
     });
@@ -5697,7 +5952,11 @@ function loop(now){
   // P-08 模拟门控：run 模式下只有 battle 状态推进战斗循环（节点图/结算/卡牌/阵亡冻结战场）；
   // 未开局恒模拟（封面路由下仍可自由驾驶预览）。
   // P-35：pause 态显式冻结（跳过所有 update，仅 draw 渲染当前战场快照）。
-  const paused = flow.state === 'pause';
+  // 2026-10-18：生存模式「每波结束选卡」走的是战斗内快速选卡（不切 flow 状态，故上面这条
+  // battle 门控拦不住）——卡牌是模态遮罩，玩家看不见战场却仍能驾驶/开火，标准模式的 reward
+  // 屏冻结战场而生存模式不冻结，两模式手感不一致。此处显式把选卡窗口并入冻结条件
+  // （只跳 update，draw 照常渲染冻结快照，与 pause 同款）。
+  const paused = flow.state === 'pause' || survivalQuickPick;
   const simulating = !paused && (!run || flow.state === 'battle');
   if(simulating){
     while (accumulator >= STEP_TIME) {
@@ -5842,7 +6101,10 @@ function nextRunSeed(){
         if(ef.type === 'drone') deployDronesFromCards();   // 与 pickCard 同路径保持状态一致
       }
       // #H3（2026-09-30）：与 pickCard 同路径做技能槽对账（测试钩子须与真实链路一致）
-      if(applied.some(ef => ef.type === 'ability')) reconcileSkillSlotsAfterGain();
+      // #U44：同样传入本卡新增的技能键（否则待指派队列会被旧技能插队）
+      if(applied.some(ef => ef.type === 'ability')){
+        reconcileSkillSlotsAfterGain((applied.find(ef => ef.type === 'ability' && ef.key) || {}).key);
+      }
       pushLog('[TEST] 给予卡牌「' + card.name + '」', 'PEN');
       return applied;
     },
@@ -5858,7 +6120,7 @@ function nextRunSeed(){
     logs(){ return Array.from(document.querySelectorAll('#devLog > div')).map(e => e.textContent); },
     cardPool(){ return cardPool.slice(); },
     findCard(id){ return cardPool.find(c => c.id === id) || null; },
-    applyCard(card){ const r = applyCardEffects(player, card); if (r.some(ef => ef.type === 'ability')) reconcileSkillSlotsAfterGain(); return r; },
+    applyCard(card){ const r = applyCardEffects(player, card); if (r.some(ef => ef.type === 'ability')) reconcileSkillSlotsAfterGain((r.find(ef => ef.type === 'ability' && ef.key) || {}).key); return r; },
     setSkillSlot(i, key){ const s = skillSlots(); if(i < 0 || i >= s.length) return false; s[i] = (key === null ? null : key); return true; },
     skillSlotPickerOpen(){ const e = document.getElementById('skillSlotPicker'); return !!(e && e.style.display !== 'none'); },
     pickSkillSlotRow(i){ const rows = document.querySelectorAll('#skillSlotPickerList .picker-row'); if(rows[i]) rows[i].click(); return rows.length; },

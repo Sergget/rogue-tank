@@ -382,6 +382,43 @@ ok(t20c.hp === baseHp20c, '#A12: maxHp 回落后 hp 仅钳回原上限，不额�
     `#H1: 敌军 base 锚定固定基准 medium profile（pen=${eA.base.penetration}）`);
 })();
 
+// ── #W1（2026-10-19）：装填硬限只约束参数通道，能力 timed 通道可在生效期间突破 1.0s ──
+// 回归背景：此前 applyParameterLimits 对聚合最终值一刀切，只要存在任意 run/permanent 修饰器，
+// overdrive（reload ×0.45）就被同一刀切掉（1.3s → 恒 1.0s），"超级装填"看起来没生效。
+(function testW1TimedBreaksReloadFloor(){
+  const mk = (v, scope) => ({ stat: 'reload', mode: 'mult', value: v, scope });
+  const probe = model.makeTank({ team: 'player' });
+  const baseReload = probe.base.reload;
+  ok(baseReload > 1.0, `#W1: 前置——出厂装填 ${baseReload}s 高于 1.0s 下限`);
+
+  // 1) 仅 timed 能力（单测环境）：×0.45 正常生效
+  const t1 = model.makeTank({ team: 'player' });
+  model.addModifier(t1, mk(0.45, 'timed'));
+  ok(Math.abs(t1.stats.reload - baseReload * 0.45) < 1e-6,
+    `#W1: 仅能力通道 ×0.45 生效（${t1.stats.reload.toFixed(3)} ≈ ${(baseReload*0.45).toFixed(3)}）`);
+
+  // 2) 关键回归：能力 + 任意一张 run 卡 —— 能力必须仍达 ×0.45（旧实现此处恒为 1.0）
+  const t2 = model.makeTank({ team: 'player' });
+  model.addModifier(t2, mk(0.8, 'run'));
+  model.addModifier(t2, mk(0.45, 'timed'));
+  const expected2 = Math.max(baseReload * 0.8, 1.0) * 0.45;
+  ok(Math.abs(t2.stats.reload - expected2) < 1e-6,
+    `#W1: 卡牌+能力同场时能力仍达 ×0.45（${t2.stats.reload.toFixed(3)} ≈ ${expected2.toFixed(3)}）`);
+
+  // 3) 卡牌通道自身仍不得破 1.0s
+  const t3 = model.makeTank({ team: 'player' });
+  model.addModifier(t3, mk(0.5, 'run'));
+  ok(Math.abs(t3.stats.reload - 1.0) < 1e-6,
+    `#W1: 卡牌通道仍被钳在 1.0s（${t3.stats.reload.toFixed(3)}）`);
+
+  // 4) 卡牌把 base 拉到下限之下后再叠能力：钳 1.0 后 ×0.45 = 0.45
+  const t4 = model.makeTank({ team: 'player' });
+  model.addModifier(t4, mk(0.5, 'run'));
+  model.addModifier(t4, mk(0.45, 'timed'));
+  ok(Math.abs(t4.stats.reload - 0.45) < 1e-6,
+    `#W1: 卡牌触底 1.0s 后能力继续压到 0.45（${t4.stats.reload.toFixed(3)}）`);
+})();
+
 console.log('test-modifiers: 完成所有检查');
 if (fails === 0) console.log('test-modifiers: 全部通过');
 else console.error(`test-modifiers: ${fails} 项失败`);

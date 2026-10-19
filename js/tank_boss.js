@@ -469,11 +469,15 @@ function triggerBossHitReact(t, weak) {
   t.bossHitReactT = weak ? base * 1.6 : base;
   t.bossHitReactWeak = !!weak;
   if (typeof addModifier === 'function') {
+    const slowSec = (cfg.stunSlowSeconds !== undefined ? cfg.stunSlowSeconds : 0.25);
+    // #W5：记录减速窗口的绝对到期时刻，供 updateBossStage 显式回收（视觉窗口 base/1.6×base
+    // 与减速窗口不同长，不能拿 bossHitReactT 当回收条件——它比减速窗口长 0.1s）。
+    t.bossHitSlowUntil = Date.now() + slowSec * 1000;
     addModifier(t, {
       stat: 'maxSpeed', mode: 'mult',
       value: cfg.slowMul !== undefined ? cfg.slowMul : 0.35,
       source: 'boss-hitreact', scope: 'timed',
-      expiresAt: Date.now() + ((cfg.stunSlowSeconds !== undefined ? cfg.stunSlowSeconds : 0.25) * 1000)
+      expiresAt: t.bossHitSlowUntil
     });
   }
   return true;
@@ -599,6 +603,16 @@ function updateBossBehavior(t, dt, target, opts) {
   // --- #E9 受击反馈计时（顿挫窗口 + 冷却）---
   if (t.bossHitReactCdT > 0) t.bossHitReactCdT = Math.max(0, t.bossHitReactCdT - dt);
   if (t.bossHitReactT > 0) t.bossHitReactT = Math.max(0, t.bossHitReactT - dt);
+  // #W5（2026-10-19）：受击减速 timed 修饰器必须**显式回收**。
+  //   原先只靠 addModifier 写入 expiresAt，指望 `refreshStats` 的到期过滤剪除；
+  //   但非玩家实体**没有任何逐帧 refreshStats**（tank_mvp 只对 player 调用）⇒
+  //   玩家打完一发停手 >0.25s 后，Boss 会永久保持 0.35× 极速（≈44px/s），直到下次被命中。
+  //   此处按 `boss-charge` 的既有做法（updateBossStage 内到期 removeModifierBySource）回收，
+  //   判据用减速窗口自己的 bossHitSlowUntil（与视觉窗口 bossHitReactT 不同长）。
+  if (t.bossHitSlowUntil !== undefined && Date.now() >= t.bossHitSlowUntil) {
+    if (typeof removeModifierBySource === 'function') removeModifierBySource(t, 'boss-hitreact');
+    delete t.bossHitSlowUntil;
+  }
 
   // --- #E9 开场预热：炮塔持续扫描（有动作、不站桩），窗口结束后进入常规阶段行为 ---
   // 直接改写 turretAngle（而非发事件），避免污染 updateBossBehavior 的事件流契约。
