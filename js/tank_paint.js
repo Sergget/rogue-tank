@@ -1437,17 +1437,21 @@ function paintPartSprite(ctx, img, cx, cy, angle, viewScale, scale, dx, dy, rotD
   return true;
 }
 
-// #4（2026-10-19 用户裁定）：车长塔位置此前**只存在于绘制公式里**（见上方 `cupolaAt` 的
-//   调用点），没有运行时 API。副炮塔要求「位置放在第一个车长塔上，如果没有车长塔就放在
-//   炮塔旋转中心」⇒ 把该公式抽成共享纯函数，供绘制层与 `secondaryTurretPose` 共用。
+// #4（2026-10-19 用户裁定）→ #4b（同日用户实测反馈「副炮塔位置不正确，需要**绑定在炮塔上**，
+//   随炮塔转动一同移动」）：车长塔的位置**只存在于绘制公式里**（见上方 `cupolaAt` 的调用点），
+//   没有运行时 API。副炮塔要求锚定车长塔 ⇒ 把该公式抽成共享纯函数。
+//
+//   ⚠️ **坐标系是炮塔系**（不是车体系）：车长塔画在 `paintPartTextureDirect(…, 'turret', …)`
+//   里，顶点用 `turretPoly(t).verts`，随 `turretAngle` 旋转。调用方必须把返回的局部坐标
+//   按 **turretAngle** 旋转、再平移到**炮塔座圈中心**（`turretPivot`）——而不是车体中心。
 //
 //   口径（与绘制公式完全一致）：
 //     · 重坦 或 无炮塔车型 → 2 个车长塔；否则 1 个
-//     · 纵向共用 `cupCy = cym - W*0.44`（注意绘制调用里传的第二个参数是半径 cr，不是 y）
+//     · 纵向共用 `cupCy = cym - W*0.44`
 //     · 单塔 `ccx = cxm - L*0.08`；双塔第 1 个 `ccx = cxm - L*0.30`、第 2 个 `cxm + L*0.18`
 //
 //   @param {{verts?:number[][], heightClass?:string, hasTurret?:boolean, cupolaStyle?:string}} opts
-//   @returns {{x:number,y:number}|null} 第一个车长塔的**车体局部坐标**（相对车体中心）；
+//   @returns {{x:number,y:number}|null} 第一个车长塔的**炮塔局部坐标**（相对炮塔包围盒中心）；
 //     无车长塔（样式 none / 无顶点）时返回 null，调用方回退到炮塔旋转中心。
 function cupolaAnchor(opts) {
   var o = opts || {};

@@ -565,6 +565,32 @@ function updateBossLaser(t, dt, target, opts) {
       evts.push({ type: 'laserBlocked', entity: e });
       continue;
     }
+    // #W-G 修复（2026-10-19 用户实测反馈「应急护盾不能阻挡 boss 的激光」）：
+    //   激光伤害此前直接走 `applyDamage`，**绕过了护盾吸收链**（`hasShield`/`absorbDamage`）
+    //   ——炮弹路径在 tank_fire.js 里先查护盾再结算，激光旁路了它 ⇒ 持盾玩家照样掉血。
+    //   现改为：目标持盾且入射方向落在吸收弧内 → 走 `absorbDamage`（与炮弹同一条链），
+    //   否则照常 `applyDamage`。入射方向 = 激光方向（Boss → 目标，即 光束方向 ux/uy）。
+    //   函数来源优先 opts（页面注入），回退全局（浏览器端 tank_shield.js 是全局脚本）。
+    const _hs = (typeof opts.hasShield === 'function') ? opts.hasShield
+      : (typeof hasShield !== 'undefined' ? hasShield : null);
+    const _sa = (typeof opts.shieldAbsorbs === 'function') ? opts.shieldAbsorbs
+      : (typeof shieldAbsorbs !== 'undefined' ? shieldAbsorbs : null);
+    const _ad = (typeof opts.absorbDamage === 'function') ? opts.absorbDamage
+      : (typeof absorbDamage !== 'undefined' ? absorbDamage : null);
+    const shldOk = (_hs && _sa && _hs(e) && _sa(e, { dx: ux, dy: uy }));
+    if (shldOk) {
+      const bleed = _ad ? _ad(e, dps * dt) : dps * dt;
+      if (bleed <= 0) {
+        // 吸收池完全吃下本帧伤害
+        evts.push({ type: 'laserBlocked', entity: e, blocked: 'shield' });
+        continue;
+      }
+      // 部分吸收（吸收池耗尽溢出部分）：剩余伤害照常扣血
+      if (typeof applyDamage === 'function') applyDamage(e, bleed);
+      else e.hp = Math.max(0, e.hp - bleed);
+      evts.push({ type: 'laserHit', entity: e, dmg: bleed, shielded: true });
+      continue;
+    }
     if (typeof applyDamage === 'function') applyDamage(e, dps * dt);
     else e.hp = Math.max(0, e.hp - dps * dt);
     evts.push({ type: 'laserHit', entity: e, dmg: dps * dt });

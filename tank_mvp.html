@@ -4583,7 +4583,9 @@ function update(dt){
       // #H4：传入本帧 AI 期望方向（turretDesired，已含射界钳制）+ 节点 covers（全高掩体遮挡判定）
       if(typeof updateBossLaser === 'function'){
         try {
-          const levts = updateBossLaser(e, dt, player, { entities, isHostile, covers, turretDesired: e._aiTurretDesired });
+          const levts = updateBossLaser(e, dt, player, { entities, isHostile, covers, turretDesired: e._aiTurretDesired,
+            // #W-G（2026-10-19）：护盾吸收链注入——激光伤害必须过护盾（用户实测反馈「护盾不能挡激光」）
+            hasShield, shieldAbsorbs, absorbDamage });
           for(const ev of levts){
             if(ev.type === 'laserCharge'){
               // #I2：blockedDist = 光束被全高掩体截断的距离（虚线警示带绘制层据此截断）
@@ -5611,39 +5613,47 @@ function draw(){
         ctx.beginPath(); ctx.arc(d.x, d.y, 6 + Math.sin(performance.now()/100)*2, 0, TAU); ctx.stroke();
       }
     } else if(d.isDeployableCover){
-      // #10（2026-10-19 用户反馈）：「便携掩体难以看清箭头方向，直接使用类似中括号形状以明确区分掩体」。
-      //   旧实现是「矩形 + 一侧虚线 + 3 个向外三角箭头」，在 2~3px 线宽下箭头几乎不可辨。
-      //   现改为**中括号 `[` / `]` 形状**：开口侧 = 可穿透侧（己方炮弹穿过），
-      //   闭合侧 = 装甲侧（对立阵营被挡）。开口方向即箭头方向，一眼可辨。
+      // #10（2026-10-19 用户反馈「掩体形状不正确，需要是无底梯形的形状」→ 同日改为「也可改为
+      //   椭圆弧形」）：改用**椭圆弧**——一条开口朝穿透侧（-y）的弧线 + 两条侧边收尾，
+      //   读作「一道弧形挡墙」，比中括号更明确表达「弧面装甲挡在那一侧」。
+      //   几何与弹道判定（OBB）无关，纯视觉；开口方向即「可穿过的一侧」。
       const mine = (d.team === (player ? player.team : 'player'));
       const col = mine ? 'rgba(92,200,255,' : 'rgba(255,120,90,';
       const L2 = d.hullLen/2, W2 = d.hullWid/2;
-      const arm = Math.min(W2 * 1.6, 10);      // 括号「臂」伸出长度
-      const th = Math.max(2, W2 * 0.22);       // 括号线宽（按掩体厚度缩放，保证可见）
+      const arcRy = Math.max(W2, 8);           // 弧的纵向半径（≈掩体厚度）
+      const th = Math.max(2.5, W2 * 0.28);     // 弧线粗细
       ctx.save();
       ctx.translate(d.x, d.y);
       ctx.rotate(d.hullAngle);
-      // 掩体主体（半透明填充，提示实际占位）
-      ctx.fillStyle = col + '0.14)';
+      // 掩体主体（半透明填充，提示实际占位 = OBB）
+      ctx.fillStyle = col + '0.12)';
       ctx.fillRect(-L2, -W2, d.hullLen, d.hullWid);
-      // 中括号形状：闭合侧（+y，装甲侧）实线，两端向 -y 折出「臂」，开口朝 -y（穿透侧）
+      // 椭圆弧：圆心在掩体中心、纵向半径 arcRy —— 画**下半段弧**（开口朝上/穿透侧）
+      //   起止角：0.15π → 0.85π（下半弧），让弧的两端翘到掩体两端附近
       ctx.strokeStyle = col + '0.95)';
       ctx.lineWidth = th;
       ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.moveTo(-L2, -W2 - arm);   // 左上臂端
-      ctx.lineTo(-L2, W2);          // 左下角
-      ctx.lineTo(L2, W2);           // 右下角
-      ctx.lineTo(L2, -W2 - arm);    // 右上臂端
+      ctx.ellipse(0, 0, L2, arcRy, 0, Math.PI * 0.12, Math.PI * 0.88, false);
       ctx.stroke();
-      // 开口侧虚线短边（提示「这一侧可穿过」）
+      // 弧两端的小竖臂（指向开口方向，强化「这一侧敞开」）
+      ctx.lineWidth = Math.max(1.5, th * 0.7);
+      for(const sx of [-1, 1]){
+        const ex = sx * L2 * 0.99;
+        const ey = Math.sin(Math.PI * 0.12) * arcRy;   // 弧端点的 y
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(ex, ey - arm2());
+        ctx.stroke();
+      }
+      function arm2(){ return Math.max(4, W2 * 0.8); }
+      // 开口侧虚线（穿透侧提示）
       ctx.setLineDash([6, 5]);
-      ctx.lineWidth = Math.max(1, th * 0.6);
-      ctx.strokeStyle = 'rgba(126,217,87,0.85)';
+      ctx.lineWidth = Math.max(1, th * 0.5);
+      ctx.strokeStyle = 'rgba(126,217,87,0.8)';
       ctx.beginPath();
-      ctx.moveTo(-L2, -W2 - arm);
-      ctx.lineTo(L2, -W2 - arm);
+      ctx.moveTo(-L2 * 0.92, -W2 - Math.max(4, W2 * 0.8));
+      ctx.lineTo(L2 * 0.92, -W2 - Math.max(4, W2 * 0.8));
       ctx.stroke();
       ctx.setLineDash([]);
       if(d.shield){

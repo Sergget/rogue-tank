@@ -1752,25 +1752,36 @@ function secondaryTurretPose(t){
   const s = SECONDARY_TURRET_SCALE;
   const structureA = (typeof superstructureAngle === 'function') ? superstructureAngle(t) : (t.turretAngle || 0);
   // #4（2026-10-19 用户裁定）：「贴图改为固定的一个小型的 dummy 坦克的炮塔，
-  //   位置放在**第一个车长塔**上，如果**没有车长塔就放在炮塔旋转中心**」。
-  //   车长塔位置由 `js/tank_paint.js` 的 `cupolaAnchor()` 提供（纯函数，与绘制公式同源）。
-  //   车长塔是**车体局部坐标**，需按 hullAngle 旋到世界。
+  // #4（2026-10-19 用户裁定）→ #4b（同日实测反馈「副炮塔位置不正确，需要**绑定在炮塔上**，
+  //   随炮塔转动一同移动」）：
+  //   ⚠️ 车长塔画在**炮塔顶面**（`paintPartTextureDirect(…, 'turret', …)` 顶点用
+  //   `turretPoly`，随 `turretAngle` 旋转）——所以它的局部坐标是**炮塔系**，必须：
+  //     ① 按 **turretAngle** 旋转（不是 hullAngle）；
+  //     ② 平移到**炮塔座圈中心**（turretPivot，炮塔系原点在世界里的位置）。
+  //   这样副炮塔就「绑在炮塔上」——主炮塔转动时它跟着一起移动。
   let px = t.x, py = t.y;
   let anchored = false;
-  if(typeof cupolaAnchor === 'function' && typeof hullPoly === 'function'){
-    let hv = null;
-    try { hv = hullPoly(t).verts; } catch(_) { hv = null; }
+  if(typeof cupolaAnchor === 'function' && typeof turretPoly === 'function'){
+    let tv = null;
+    try { tv = turretPoly(t).verts; } catch(_) { tv = null; }
     const cup = cupolaAnchor({
-      verts: hv,
+      verts: tv,
       heightClass: t.heightClass,
       hasTurret: t.hasTurret !== false,
       cupolaStyle: (t.appearance && t.appearance.cupola && t.appearance.cupola.style) || undefined
     });
     if(cup && isFinite(cup.x) && isFinite(cup.y)){
-      const r = (typeof rotate === 'function') ? rotate(cup.x, cup.y, t.hullAngle || 0)
-        : { x: cup.x * Math.cos(t.hullAngle || 0) - cup.y * Math.sin(t.hullAngle || 0),
-            y: cup.x * Math.sin(t.hullAngle || 0) + cup.y * Math.cos(t.hullAngle || 0) };
-      px = t.x + r.x; py = t.y + r.y;
+      // 座圈中心（炮塔系原点在世界里的位置）
+      let rx0 = t.x, ry0 = t.y;
+      if(typeof turretPivot === 'function'){
+        const off = turretPivot(t);
+        if(off && isFinite(off.x) && isFinite(off.y)){ rx0 = off.x; ry0 = off.y; }
+      }
+      // 炮塔局部 → 世界：按 turretAngle 旋转 + 座圈平移
+      const ta = t.turretAngle || 0;
+      const ca = Math.cos(ta), sa = Math.sin(ta);
+      px = rx0 + cup.x * ca - cup.y * sa;
+      py = ry0 + cup.x * sa + cup.y * ca;
       anchored = true;
     }
   }
