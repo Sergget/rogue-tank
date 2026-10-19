@@ -903,8 +903,7 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
       } else {
         cupolaAt(cxm - L*0.30, W*0.15);
         cupolaAt(cxm + L*0.18, W*0.15);
-      }
-      // 炮手瞄具（前右）：镜座 + 镜片
+      }      // 炮手瞄具（前右）：镜座 + 镜片
       const sx = maxX - (maxX-minX)*0.45, sy = cym + W*0.08, sw = W*0.5, sh = W*0.18;
       ctx.fillStyle = 'rgba(0,0,0,0.16)';
       ctx.fillRect(sx + 0.8, sy + 1.0, sw, sh);
@@ -1438,8 +1437,43 @@ function paintPartSprite(ctx, img, cx, cy, angle, viewScale, scale, dx, dy, rotD
   return true;
 }
 
+// #4（2026-10-19 用户裁定）：车长塔位置此前**只存在于绘制公式里**（见上方 `cupolaAt` 的
+//   调用点），没有运行时 API。副炮塔要求「位置放在第一个车长塔上，如果没有车长塔就放在
+//   炮塔旋转中心」⇒ 把该公式抽成共享纯函数，供绘制层与 `secondaryTurretPose` 共用。
+//
+//   口径（与绘制公式完全一致）：
+//     · 重坦 或 无炮塔车型 → 2 个车长塔；否则 1 个
+//     · 纵向共用 `cupCy = cym - W*0.44`（注意绘制调用里传的第二个参数是半径 cr，不是 y）
+//     · 单塔 `ccx = cxm - L*0.08`；双塔第 1 个 `ccx = cxm - L*0.30`、第 2 个 `cxm + L*0.18`
+//
+//   @param {{verts?:number[][], heightClass?:string, hasTurret?:boolean, cupolaStyle?:string}} opts
+//   @returns {{x:number,y:number}|null} 第一个车长塔的**车体局部坐标**（相对车体中心）；
+//     无车长塔（样式 none / 无顶点）时返回 null，调用方回退到炮塔旋转中心。
+function cupolaAnchor(opts) {
+  var o = opts || {};
+  if (o.cupolaStyle === 'none') return null;
+  var verts = o.verts;
+  if (!Array.isArray(verts) || !verts.length) return null;
+  var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (var i = 0; i < verts.length; i++) {
+    var v = verts[i];
+    if (!v) continue;
+    if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+    if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+  }
+  if (!isFinite(minX) || !isFinite(maxX)) return null;
+  var L = (maxX - minX) / 2, W = (maxY - minY) / 2;
+  var cxm = (minX + maxX) / 2, cym = (minY + maxY) / 2;
+  var twoCupolas = (o.heightClass === 'heavy' || o.hasTurret === false);
+  var cupCy = cym - W * 0.44;
+  var ccx = twoCupolas ? (cxm - L * 0.30) : (cxm - L * 0.08);
+  return { x: ccx, y: cupCy };
+}
+if (typeof globalThis !== 'undefined') { globalThis.cupolaAnchor = cupolaAnchor; }
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    cupolaAnchor,
     paintShade,
     tankBodyColor,
     paintBounds,

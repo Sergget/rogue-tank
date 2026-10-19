@@ -566,3 +566,15 @@ declare function upgradeLevel(profile: any, id: string): number;
 declare function canBuyUpgrade(profile: any, id: string): boolean;
 declare function buyUpgrade(profile: any, id: string): boolean;
 declare function applyUpgrades(tank: any, profile: any): number;
+
+// #4（2026-10-19）：车长塔锚点（js/tank_paint.js 导出；副炮塔定位用）
+declare function cupolaAnchor(opts: { verts?: number[][], heightClass?: string, hasTurret?: boolean, cupolaStyle?: string }): { x: number, y: number } | null;
+
+// #W-G（2026-10-19）：应急护盾（原反应装甲）——js/tank_cards.js 导出
+declare function emergencyShieldCooldown(tank?: any): number;
+declare function emergencyShieldConfig(): { triggerHpRatio: number, durationSeconds: number, shieldHp: number };
+declare function updateEmergencyShieldRearm(tank: any, dt: number): void;
+
+// 2026-10-19：敌军弹种分级（js/tank_model.js 导出）
+declare function enemyAmmoKeyForLevel(level: number): string;
+declare function applyEnemyAmmoByLevel(tank: any, level: number): void;

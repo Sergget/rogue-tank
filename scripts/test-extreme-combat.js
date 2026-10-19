@@ -17,7 +17,8 @@ global.partEdges = U.partEdges; global.reflectDir = U.reflectDir; global.distToS
 global.gaussian = U.gaussian; global.angDiff = U.angDiff;
 global.RULES = R.RULES;
 const G = require('../js/tank_geometry.js');
-global.HEIGHTS = G.HEIGHTS; global.ARMOR = G.ARMOR; global.BOUNCE_ANGLE = G.BOUNCE_ANGLE;
+// #9（2026-10-19）：`G.HEIGHTS` 已随 RULES.heights 一并删除
+global.ARMOR = G.ARMOR; global.BOUNCE_ANGLE = G.BOUNCE_ANGLE;
 global.faceLabel = G.faceLabel; global.superstructureLabel = G.superstructureLabel;
 global.moduleFromHit = G.moduleFromHit; global.moduleLabelOf = G.moduleLabelOf;
 global.polyCorners = G.polyCorners; global.polyEdges = G.polyEdges; global.hullPoly = G.hullPoly; global.turretPoly = G.turretPoly;
@@ -61,8 +62,10 @@ const HIT_TRACK_SIDE = { part:'hull', faceKey:'side', x:31, y:0, nx:1, ny:0, edg
 // ============================================================================
 ok(BOUNCE_ANGLE === RULES.ballistics.bounceAngle, 'BOUNCE_ANGLE 常量与 RULES.ballistics.bounceAngle 同源');
 ok(Math.abs(BOUNCE_ANGLE - 70*Math.PI/180) < 1e-15, 'BOUNCE_ANGLE = 70°（跳弹阈值）');
-ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret === RULES.heights.heavy.turret,
-  'HEIGHTS 与 RULES.heights 同源');
+// #9（2026-10-19 用户裁定）：`RULES.heights` 已整体删除（车高数值不再影响任何行为）。
+//   原断言「HEIGHTS 与 RULES.heights 同源」随之作废，改为断言**新口径**：
+//   z 值是固定常量，且「炮塔恒过 1.2 阈值、车体不低于阈值」这一语义不变。
+ok(RULES.heights === undefined, '#9: RULES.heights 已删除（车高体系退役）');
 
 // ============================================================================
 // 1) impactGeometry 极端角度：正入射 → 等效厚度≈名义厚度；擦过跳弹角（69.9°）
@@ -275,17 +278,19 @@ ok(HEIGHTS.medium.hull === RULES.heights.medium.hull && HEIGHTS.heavy.turret ===
 }
 
 // ============================================================================
-// 11) 身高极端（中/重两端）：getPartZRange / getGunHeight 有限且单调
+// 11) 部位 z 值（#9 2026-10-19：车高体系已删，改为固定常量）
 // ============================================================================
 {
   const mid = mkTarget({ heightClass:'medium' });
   const hvy = mkTarget({ heightClass:'heavy' });
   const zh = G.getPartZRange(hvy, 'hull');
   const zt = G.getPartZRange(hvy, 'turret');
-  ok(zh.zMin === 0 && zh.zMax === HEIGHTS.heavy.hull, 'getPartZRange(hull): z∈[0, 车体高]');
-  ok(zt.zMin === HEIGHTS.heavy.hull && zt.zMax === HEIGHTS.heavy.hull + HEIGHTS.heavy.turret,
-    'getPartZRange(turret): z∈[车体高, 总高]');
-  ok(G.getGunHeight(hvy) > G.getGunHeight(mid), '重坦炮管高度 > 中坦（身高合法两端）');
+  // #9：z 值不再随 heightClass 变化（固定常量）。断言「语义不变」：
+  //   车体从 0 起、炮塔紧接车体顶、炮塔恒过 1.2 阈值（这是 getExposure 唯一在用的判据）。
+  ok(zh.zMin === 0 && zh.zMax > 0, `getPartZRange(hull): z∈[0, ${zh.zMax}]`);
+  ok(zt.zMin === zh.zMax && zt.zMax > zt.zMin, `getPartZRange(turret): z∈[${zt.zMin}, ${zt.zMax}]`);
+  ok(zt.zMin >= 1.2, `#9: 炮塔 zMin(${zt.zMin}) ≥ 1.2 —— getExposure 的「炮塔恒露出」语义不变`);
+  ok(G.getGunHeight(hvy) === G.getGunHeight(mid), '#9: 炮管高度不再随车高变化（固定常量）');
 }
 
 // ============================================================================

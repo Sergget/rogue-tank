@@ -1750,17 +1750,37 @@ function secondaryTurretPose(t){
   const hullLen = t.hullLen || 120;
   const turLen = t.turLen || 38, turWid = t.turWid || 34;
   const s = SECONDARY_TURRET_SCALE;
-  // 锚点：主炮塔座圈中心（与 drawTurretRing / turretPivot 同源）。
-  // #W2（2026-10-19 用户反馈「位置在主炮塔后半部分」）：此前沿主炮塔朝向**前移**
-  //   （`+= cos/sin`），副炮塔落在主炮塔前半/正前方，与要求相反。现改为后移。
-  let px = t.x, py = t.y;
-  if(typeof turretPivot === 'function'){
-    const off = turretPivot(t);
-    if(off && isFinite(off.x) && isFinite(off.y)){ px = off.x; py = off.y; }
-  }
   const structureA = (typeof superstructureAngle === 'function') ? superstructureAngle(t) : (t.turretAngle || 0);
-  px -= Math.cos(structureA) * (turLen * s * 0.45);
-  py -= Math.sin(structureA) * (turLen * s * 0.45);
+  // #4（2026-10-19 用户裁定）：「贴图改为固定的一个小型的 dummy 坦克的炮塔，
+  //   位置放在**第一个车长塔**上，如果**没有车长塔就放在炮塔旋转中心**」。
+  //   车长塔位置由 `js/tank_paint.js` 的 `cupolaAnchor()` 提供（纯函数，与绘制公式同源）。
+  //   车长塔是**车体局部坐标**，需按 hullAngle 旋到世界。
+  let px = t.x, py = t.y;
+  let anchored = false;
+  if(typeof cupolaAnchor === 'function' && typeof hullPoly === 'function'){
+    let hv = null;
+    try { hv = hullPoly(t).verts; } catch(_) { hv = null; }
+    const cup = cupolaAnchor({
+      verts: hv,
+      heightClass: t.heightClass,
+      hasTurret: t.hasTurret !== false,
+      cupolaStyle: (t.appearance && t.appearance.cupola && t.appearance.cupola.style) || undefined
+    });
+    if(cup && isFinite(cup.x) && isFinite(cup.y)){
+      const r = (typeof rotate === 'function') ? rotate(cup.x, cup.y, t.hullAngle || 0)
+        : { x: cup.x * Math.cos(t.hullAngle || 0) - cup.y * Math.sin(t.hullAngle || 0),
+            y: cup.x * Math.sin(t.hullAngle || 0) + cup.y * Math.cos(t.hullAngle || 0) };
+      px = t.x + r.x; py = t.y + r.y;
+      anchored = true;
+    }
+  }
+  if(!anchored){
+    // 回退：炮塔旋转中心（turretPivot）
+    if(typeof turretPivot === 'function'){
+      const off = turretPivot(t);
+      if(off && isFinite(off.x) && isFinite(off.y)){ px = off.x; py = off.y; }
+    }
+  }
   const angle = (typeof t.secondaryTurretAngle === 'number') ? t.secondaryTurretAngle : (t.turretAngle || 0);
   return {
     x: px, y: py, angle: angle,

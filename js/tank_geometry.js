@@ -4,20 +4,27 @@ const ARMOR = RULES.defaultArmor || {
   hull:   { front:110, side:38, rear:26 },
   turret: { front:140, side:50, rear:24 }
 };
-// 跳弹角 / 身高统一收口到 js/tank_rules.js（特性5：机制参数集中化）
+// 跳弹角统一收口到 js/tank_rules.js（特性5：机制参数集中化）
 const BOUNCE_ANGLE = RULES.ballistics.bounceAngle;
-const HEIGHTS = RULES.heights;
+// #9（2026-10-19 用户裁定）：「车高的设定已经不再使用，彻底删除半高掩体、车高相关代码」。
+//   `RULES.heights` 与 `getPartZRange`/`getGunHeight` 的**数值**其实早已不影响行为——
+//   半高掩体体系已于 2026-09-20 #E3 整体删除，`getExposure` 只剩 `zMin >= 1.2` 一条阈值，
+//   而 medium.hull(1.4) 与 heavy.hull(1.8) **都过阈值** ⇒ 车高数值是死数据，只有
+//   「车体/炮塔」的二值区分在起作用。现改按**部位**直接判定并删除 heights 体系。
+//
+//   保留 `getPartZRange`/`getGunHeight` 的**函数签名**（返回近似 z 值）仅为兼容既有调用方
+//   （tank_fire/mvp/bench/tank_sim 注入），但不再读 RULES.heights —— 返回值是固定常量。
+//   车体恒 0~1.4、炮塔恒 1.4~2.3（取原 medium 档：任何车都「过 1.2 阈值」）。
+const PART_Z = { hull: { zMin: 0, zMax: 1.4 }, turret: { zMin: 1.4, zMax: 2.3 } };
 
 function getPartZRange(tank, partKey) {
-  const h = HEIGHTS[tank.heightClass];
-  if (partKey === 'hull') return { zMin: 0, zMax: h.hull };
-  if (partKey === 'turret') return { zMin: h.hull, zMax: h.hull + h.turret };
+  if (partKey === 'hull') return { zMin: PART_Z.hull.zMin, zMax: PART_Z.hull.zMax };
+  if (partKey === 'turret') return { zMin: PART_Z.turret.zMin, zMax: PART_Z.turret.zMax };
   return { zMin: 0, zMax: 1.0 };
 }
 
 function getGunHeight(tank) {
-  const h = HEIGHTS[tank.heightClass];
-  return h.hull + h.turret * 0.5;
+  return PART_Z.turret.zMin + 0.45;   // ≈1.85，与旧 heavy/medium 的中位量级一致
 }
 
 // partCorners & partEdges are provided globally by tank_utils.js
@@ -609,7 +616,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     ARMOR,
     BOUNCE_ANGLE,
-    HEIGHTS,
+    // #9（2026-10-19）：HEIGHTS 已随 RULES.heights 删除（车高体系退役）
     getPartZRange,
     getGunHeight,
     partCorners: U.partCorners,

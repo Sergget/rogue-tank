@@ -37,7 +37,19 @@ const WEAPON_DEFAULTS = {
   },
   secondary: {
     none:        { reload: 0, damage: 0 },
-    turret:      { reloadMult: 1.6, damageMult: 0.6, penMult: 0.75, spreadMult: 1.3, range: 400, turretTurnRate: 2.5 },
+    // #4（2026-10-19 用户裁定，副炮塔全面重做）：
+    //   「待机时随机方向摆动、进入交战范围后立即转动攻击距离最近的敌人，固定使用 ap 弹、
+    //     伤害为基础参数的 1/2、其他参数与主炮基础参数绑定、不受其他技能影响」。
+    //   · damageFromBaseRatio：伤害不再走 `damageMult × ammo.dmg` 链，而是
+    //     `t.base.damage × 0.5` —— **只看主炮基础参数**，不吃任何 modifier/技能/弹种改造。
+    //   · idleWanderRate / idleWanderRange：待机摆动（进入射程前炮塔缓慢随机摆动）。
+    //   · ignoreModifiers：显式标记「本武器读取 t.base 而非 t.stats」。
+    turret:      { reloadMult: 1.6, damageMult: 0.6, penMult: 0.75, spreadMult: 1.3, range: 400,
+                   turretTurnRate: 2.5,
+                   damageFromBaseRatio: 0.5,   // 伤害 = t.base.damage × 0.5
+                   ignoreModifiers: true,      // 参数绑主炮基础，不受技能/卡牌影响
+                   idleWanderRate: 0.6,        // 待机摆动角速度（rad/s）
+                   idleWanderRange: 0.9 },     // 待机摆动幅度（±rad，约 ±51°）
     mortar:      { range: 450, aoe: 90, reload: 8, damage: 60, isArc: true, accuracySpread: 0.05 },
     missile:     { guided: true, mode: 'lock', reload: 12, damage: 140, range: 600, lockArcDeg: 30, lockSeconds: 1.0 },
     // #U39（2026-10-18）：补 speed（飞行速度，fireActiveSecondary 的 wire 分支消费；
@@ -122,21 +134,52 @@ function updateSecondaryTurret(t, dt, ctx) {
   // 独立装填计时（秒级递减；与主炮 reloadT 互不干扰）
   if (!(t.secondaryReloadT > 0)) t.secondaryReloadT = 0;
   if (t.secondaryReloadT > 0) t.secondaryReloadT -= dt;
+
+  const cfg = w.stats || {};
+  const maxRange = (typeof cfg.range === 'number') ? cfg.range : 400;
+  const turnRate = (typeof cfg.turretTurnRate === 'number') ? cfg.turretTurnRate : 2.5;
+  if (typeof t.secondaryTurretAngle !== 'number') t.secondaryTurretAngle = t.turretAngle || 0;
+
+  // #4（2026-10-19 用户裁定）：「**待机时随机方向摆动**，进入交战范围后立即转动攻击
+  //   距离最近的敌人」。⇒ 待机摆动必须在**索敌之前**、且**不受装填门控**（装填中也要摆）。
+  //   摆动实现：以 `_secondaryIdleBase`（首次进入待机时的角度）为中心做正弦游走，
+  //   而非纯随机 —— 正弦保证「缓慢连续」，随机会导致抖动。
+  const target0 = t;   // 占位，真正索敌在下方
+  {
+    // 先算「最近敌人是否在射程内」以决定是否待机
+    let inRange = false;
+    if (nearestEnemyTo) {
+      const near = nearestEnemyTo(t);
+      if (near && near.hp > 0) {
+        const dx0 = near.x - t.x, dy0 = near.y - t.y;
+        if (dx0 * dx0 + dy0 * dy0 <= maxRange * maxRange) inRange = true;
+      }
+    }
+    if (!inRange) {
+      // 待机：缓慢摆动。基准角度取「首次待机角度」，保证来回摆而不是单向漂。
+      if (typeof t._secondaryIdleBase !== 'number') t._secondaryIdleBase = t.secondaryTurretAngle;
+      if (typeof t._secondaryIdlePhase !== 'number') t._secondaryIdlePhase = Math.random() * Math.PI * 2;
+      const rate = (typeof cfg.idleWanderRate === 'number') ? cfg.idleWanderRate : 0.6;
+      const range = (typeof cfg.idleWanderRange === 'number') ? cfg.idleWanderRange : 0.9;
+      t._secondaryIdlePhase += rate * dt;
+      t.secondaryTurretAngle = t._secondaryIdleBase + Math.sin(t._secondaryIdlePhase) * range;
+      return false;   // 待机不索敌、不开火
+    }
+    // 进入交战范围 ⇒ 清除待机状态，立刻转向最近敌人（下方逻辑）
+    delete t._secondaryIdleBase;
+    delete t._secondaryIdlePhase;
+  }
+
   if (t.secondaryReloadT > 0) return false;
 
   const target = nearestEnemyTo(t);
   if (!target || target.hp <= 0) return false;
 
-  // 射程门控（turret 削弱系数表 range）
-  const cfg = w.stats || {};
-  const maxRange = (typeof cfg.range === 'number') ? cfg.range : 400;
   const d2 = (target.x - t.x) * (target.x - t.x) + (target.y - t.y) * (target.y - t.y);
   if (d2 > maxRange * maxRange) return false;
 
   // 炮塔向目标转向（独立副塔角；转速来自削弱系数 turretTurnRate）
   const desired = Math.atan2(target.y - t.y, target.x - t.x);
-  if (typeof t.secondaryTurretAngle !== 'number') t.secondaryTurretAngle = t.turretAngle || 0;
-  const turnRate = (typeof cfg.turretTurnRate === 'number') ? cfg.turretTurnRate : 2.5;
   let diff = desired - t.secondaryTurretAngle;
   while (diff > Math.PI) diff -= 2 * Math.PI;
   while (diff < -Math.PI) diff += 2 * Math.PI;
@@ -180,8 +223,14 @@ function updateSecondaryTurret(t, dt, ctx) {
   const dmgMult = (typeof cfg.damageMult === 'number') ? cfg.damageMult : 0.6;
   const penMult = (typeof cfg.penMult === 'number') ? cfg.penMult : 0.75;
   const spreadMult = (typeof cfg.spreadMult === 'number') ? cfg.spreadMult : 1.3;
-  const baseStats = t.stats || { reload: 1, damage: 1, penetration: 1, shellSpeed: 1, spread: 1 };
-  const ammo = computeAmmoConfig ? computeAmmoConfig(t, t.ammoKey) : (R.ammoTypes && (R.ammoTypes[t.ammoKey] || R.ammoTypes.ap)) || {};
+  // #4（2026-10-19 用户裁定）：「固定使用 ap 弹、伤害为基础参数的 1/2、其他参数与主炮基础
+  //   参数绑定、**不受其他技能影响**」。
+  //   ⇒ 用 `t.base`（出厂/配置基础值，**不含任何 modifier**）而非 `t.stats`
+  //     （后者已聚合技能 timed / 卡牌 run / 升级 permanent）。这就是「不受技能影响」的实现。
+  const baseStats = (cfg.ignoreModifiers !== false && t.base) ? t.base
+    : (t.stats || { reload: 1, damage: 1, penetration: 1, shellSpeed: 1, spread: 1 });
+  // #4：固定 AP——不读 `t.ammoKey`、不走 `computeAmmoConfig`（后者会叠加玩家的弹种改造卡）
+  const ammo = (R.ammoTypes && R.ammoTypes.ap) || {};
   const ox = muzzleX, oy = muzzleY;
   // #W3（2026-10-19）：散布此前读 `baseStats.sigma`，但 **tank.stats 没有 sigma 字段**
   //   （sigma 是实体运行时字段、由 updateSigma 维护，主炮 tank_fire.js 读的是 shooter.sigma）
@@ -191,6 +240,8 @@ function updateSecondaryTurret(t, dt, ctx) {
   // #U42：炮口特效同样落在副炮塔口（0.55 缩放，与「缩小版炮塔」体量匹配；主炮是 0.8）
   muzzle(ox, oy, spreadAngle, 0.55, (t.barrel && t.barrel.muzzle) || 'none');
   play('fire');
+  // #4：伤害 = 主炮基础伤害 × 0.5（不乘 damageMult、不乘 ammo.dmg、不加 ammo.dmgAdd）
+  const dmgRatio = (typeof cfg.damageFromBaseRatio === 'number') ? cfg.damageFromBaseRatio : 0.5;
   shells.push({
     x: ox, y: oy,
     // #W3（2026-10-19）：曳光起点此前用 secMuzzle.rootX/Y —— 那是副炮塔**座圈中心**，
@@ -201,8 +252,8 @@ function updateSecondaryTurret(t, dt, ctx) {
     fromSecondaryTurret: !!secMuzzle,
     speed: Math.max(200, (baseStats.shellSpeed || 1) * (ammo.speed || 1)),
     pen: (baseStats.penetration || 1) * (ammo.pen || 1) * penMult + (ammo.penAdd || 0),
-    dmg: Math.max(0, (baseStats.damage || 1) * (ammo.dmg || 1) * dmgMult + (ammo.dmgAdd || 0)),
-    ammo: ammo, ammoKey: t.ammoKey, shooter: t, hitPref: 'auto',
+    dmg: Math.max(0, (baseStats.damage || 1) * dmgRatio),
+    ammo: ammo, ammoKey: 'ap', shooter: t, hitPref: 'auto',
     canBounce: true, bounced: false, dist: 0, dead: false
   });
   t.secondaryReloadT = (baseStats.reload * reloadMult) / debuffReload(t);
