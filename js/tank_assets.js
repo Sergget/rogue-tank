@@ -855,14 +855,21 @@ function bakeAssetCanvas(key, w, h, layer){
   if(maxX < 0){ // 空内容兜底：按名义尺寸矩形
     minX = PAD; minY = PAD; maxX = PAD + Math.ceil(W); maxY = PAD + Math.ceil(H);
   }
-  // 锚点 = 探针中掩体中心 (px,py) 相对内容包围盒的位置；负锚点补边保证 ≥1px
+  // 锚点 = 探针中掩体中心 (px,py) 相对内容包围盒的位置。
+  // #V1（2026-10-19 修复）：**不再补边**。此前 `shiftX = max(0, 1-ax0)` 会在锚点落到内容
+  //   左侧/上侧之外时强行补边、把画布左边缘推到内容之外——效果是**破坏内容在画布内居中**。
+  //   实测全仓只有 `fallen/canopy` 触发（ax0=-5 → shiftX=6），补边后内容只占列 6~24、
+  //   画布 25 宽，内容中心 15.00 而画布中心 12.50；`prepare_covers.fit_contain` 又把内容
+  //   居中放置，最终产物质心与烘焙基准差 3.06px，`test-cover-gen` 的 ±2px 验收恒红。
+  //   负锚点本身是合法的：运行时 `ctx.drawImage(spr.canvas, x-spr.ax, y-spr.ay)` 只是偏移，
+  //   画布外的部分由 Canvas 自动裁剪；`covers-anchor-check.py` 也明确「基准是烘焙内容质心，
+  //   不是 anchor」。去掉补边后该层画布 19×22、内容中心 8.85 vs 画布中心 9.50（差 0.65）。
   const ax0 = px - minX, ay0 = py - minY;
-  const shiftX = Math.max(0, 1 - ax0), shiftY = Math.max(0, 1 - ay0);
-  const cw = Math.ceil(maxX - minX + 1 + shiftX), ch = Math.ceil(maxY - minY + 1 + shiftY);
+  const cw = Math.ceil(maxX - minX + 1), ch = Math.ceil(maxY - minY + 1);
   const canvas = document.createElement('canvas');
   canvas.width = cw; canvas.height = ch;
   const ctx = canvas.getContext('2d');
-  const ax = ax0 + shiftX, ay = ay0 + shiftY;
+  const ax = ax0, ay = ay0;
   bakeFn(ctx, { x: ax, y: ay, w: W, h: H });
   return { canvas, ax, ay, w: W, h: H, layer: layer || 'base' };
 }

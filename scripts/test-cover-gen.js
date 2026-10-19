@@ -55,8 +55,17 @@ for (const a of spec.assets) {
   ok(Math.abs(genAr - refAr) / refAr < 0.02,
     `${a.key} 出图宽高比 = 最终画布（${gen.join('x')} vs ${r.canvas.join('x')}）`);
 }
-ok(Object.values(refs.assets).every(r => r.anchor[0] >= 0 && r.anchor[0] <= r.canvas[0]
-  && r.anchor[1] >= 0 && r.anchor[1] <= r.canvas[1]), '运行时锚点全部落在画布内');
+// #V1（2026-10-19）：锚点不再要求「必须落在画布内」。
+//   原断言 `0 <= anchor <= canvas` 假设锚点总是画布内坐标，但烘焙几何允许锚点落在
+//   内容包围盒**之外**（例：`fallen_canopy` 的 ax=-5 —— 倒树树冠的"掩体中心"在树冠
+//   左端之外）。这完全合法：运行时 `drawImage(spr.canvas, x-spr.ax, y-spr.ay)` 把
+//   ax 当**偏移量**用，负值只是让图右移，画布外部分由 Canvas 自动裁剪；
+//   `covers-anchor-check.py` 也明确「基准是烘焙内容质心（refs.centroid），不是 anchor」。
+//   现改为断言「锚点是有界的有限数」——防止 NaN/Infinity 与荒谬的量级，但不排除负值。
+ok(Object.values(refs.assets).every(r =>
+  Number.isFinite(r.anchor[0]) && Number.isFinite(r.anchor[1])
+  && Math.abs(r.anchor[0]) <= r.canvas[0] * 2 && Math.abs(r.anchor[1]) <= r.canvas[1] * 2
+), '运行时锚点为有界有限值（允许负值：锚点可在内容框外，见 #V1）');
 ok(Object.values(refs.assets).every(r => Array.isArray(r.centroid) && r.centroid.length === 2),
   '运行时基准含内容质心（图片通道验收基准）');
 
