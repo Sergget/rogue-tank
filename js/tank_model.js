@@ -801,6 +801,44 @@ function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
   }
 }
 
+// ================= 敌军弹种分级（2026-10-19 用户裁定） =================
+// 口径（用户原话）：「敌人等级每提升 3 个等级，敌人可用的弹种也跟随升一级，
+//   且除了 boss，其他敌人只使用 ap 链的弹种」。
+//
+// 背景：此前敌军**从不设置 `ammoKey`**，`tank_fire.js` 的 `getAmmoCfg` 兜底成
+//   `RULES.ammoTypes[k] || RULES.ammoTypes.ap` ⇒ 全部敌军恒定打 AP，难度对弹种零调制。
+//
+// 实现要点：
+//   · **只走 AP 链**：`ap → apcr → apds → apfsds → apfsds_ad`（`RULES.ammoChain` 的动能支）。
+//     表格顺序即升级顺序；不碰 heat/he 化学链（Boss 仍可自由配任何弹种，不回退）。
+//   · **每 3 级升一档**：`step = floor((level - 1) / 3)`，钳到链长-1。
+//     例：lv1~3 → ap，lv4~6 → apcr，lv7~9 → apds，lv10~12 → apfsds，lv13+ → apfsds_ad。
+//   · 纯函数、无副作用，供 mvp/bench/图鉴共用（单一数据源）。
+const AP_AMMO_CHAIN = ['ap', 'apcr', 'apds', 'apfsds', 'apfsds_ad'];
+
+/**
+ * 按敌军等级返回应使用的 AP 链弹种键。
+ * @param {number} level 敌人等级（1 起；缺省/非法按 1 处理）
+ * @returns {string} 弹种键（恒为 AP 链之一）
+ */
+function enemyAmmoKeyForLevel(level) {
+  const lv = (typeof level === 'number' && isFinite(level) && level >= 1) ? Math.floor(level) : 1;
+  const step = Math.floor((lv - 1) / 3);
+  const idx = Math.max(0, Math.min(AP_AMMO_CHAIN.length - 1, step));
+  return AP_AMMO_CHAIN[idx];
+}
+
+/**
+ * 给敌军实体按等级套用弹种（Boss 可跳过由调用方控制）。
+ * 只写 `ammoKey`，不触碰 `ammoLoadout`（敌军不走玩家那套 Q/E 轮换）。
+ * @param {any} tank 实体（任意带 ammoKey 字段的坦克对象）
+ * @param {number} level 敌人等级
+ */
+function applyEnemyAmmoByLevel(tank, level) {
+  if (!tank) return;
+  tank.ammoKey = enemyAmmoKeyForLevel(level);
+}
+
 // ---------- P-49 派生重量（纯函数，双端可用） ----------
 // 设计裁定（2026-08-26）：weight 一律按装甲几何派生，不允许自定义。本函数是唯一派生源，
 // 作为设计器保存校验与显示的数据源；computeStats 不受影响（weight 仍读 base/stats）。
@@ -1096,6 +1134,10 @@ if (typeof module !== 'undefined' && module.exports) {
     moduleLabel,
     applyTankConfig,
     applyEnemyAppearanceAndStats,
+  // 2026-10-19：敌军弹种分级（AP 链、每 3 级升一档）——纯函数 + 套用助手
+  enemyAmmoKeyForLevel,
+  applyEnemyAmmoByLevel,
+  AP_AMMO_CHAIN,
     deriveWeight,
     weightLimitInfo,
     deriveCoupledStats,

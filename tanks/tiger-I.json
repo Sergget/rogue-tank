@@ -50,7 +50,7 @@
       "embed": 2,
       "scaleMult": 1,
       "gap": 3.7,
-      "imgVehicle": "assets/tanks/barrels/barrel-tiger-I.png",
+      "imgVehicle": "assets/tanks/barrels/barrel-tiger-i.png",
       "imgStandard": "assets/tanks/barrels/barrel-standard.png",
       "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
       "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"

@@ -53,7 +53,7 @@
       "imgStandard": "assets/tanks/barrels/barrel-standard.png",
       "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
       "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
-      "imgVehicle": "assets/tanks/barrels/barrel-panzer-IV.png"
+      "imgVehicle": "assets/tanks/barrels/barrel-panzer-iv.png"
     }
   },
   "barrel": {

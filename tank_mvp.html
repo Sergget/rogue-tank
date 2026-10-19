@@ -1773,6 +1773,8 @@ function spawnBossSummonWave(bossEntity, wave){
       applyDifficultyMults(s, currentNode.entityMults);
     }
     resetEntity(s);
+    // 2026-10-19：召唤物不是 Boss，同样按等级分级弹种（只走 AP 链）
+    applyEnemyAmmoForNode(s, currentNode);
     s.nodeSpawn = true;
     // #MODE（2026-10-15）：生存 Boss 波的召唤物继承波次标记（计入波次清空判定）
     if(bossEntity.survivalWaveSpawn) s.survivalWaveSpawn = true;
@@ -2043,6 +2045,8 @@ function spawnSurvivalWaveEnemies(count, waveDiff, mults){
       resetEntity(t);
     }
     if(mults) applyDifficultyMults(t, mults);
+    // 2026-10-19：生存波次同样按难度分级弹种（每 3 级沿 AP 链升一档）
+    applyEnemyAmmoForNode(t, { difficulty: waveDiff });
   }
 }
 
@@ -2252,6 +2256,25 @@ function openSupplyShop(){
   if(wrap){ wrap.style.display = ''; renderPauseShop(); }
 }
 
+// 2026-10-19 用户裁定：敌军弹种按等级分级——「敌人等级每提升 3 个等级，敌人可用的
+//   弹种也跟随升一级，且除了 boss，其他敌人只使用 ap 链的弹种」。
+//   节点没有显式的 level 字段，只有 difficulty ∈ [0.15, 0.95]（曲线见 difficultyForIndex）。
+//   换算：把难度线性映射到 1~13 级（diff 0.15 → lv1，diff 0.95 → lv13），
+//   这样首节点是 ap、中后期逐步升到 apcr/apds/apfsds，与「每 3 级升一档」的节奏一致。
+//   （lv13 正好覆盖满 4 档升级；再高也钳在 apfsds_ad。）
+const ENEMY_LEVEL_MIN = 1, ENEMY_LEVEL_MAX = 13;
+function enemyLevelForDifficulty(diff){
+  const d = (typeof diff === 'number' && isFinite(diff)) ? diff : 0.15;
+  const t = Math.max(0, Math.min(1, (d - 0.15) / (0.95 - 0.15)));
+  return ENEMY_LEVEL_MIN + Math.round(t * (ENEMY_LEVEL_MAX - ENEMY_LEVEL_MIN));
+}
+function applyEnemyAmmoForNode(t, node){
+  if(!t || !node) return;
+  if(t.isBoss) return;   // Boss 不受此规则约束（可自由配任何弹种）
+  if(typeof applyEnemyAmmoByLevel !== 'function') return;
+  applyEnemyAmmoByLevel(t, enemyLevelForDifficulty(node.difficulty));
+}
+
 function enterBattle(nodeIndex){
   const node = run.nodes[nodeIndex];
   if(!node) return;
@@ -2309,6 +2332,9 @@ function enterBattle(nodeIndex){
         if(spec && typeof deriveTankClass === 'function') t.tankClass = deriveTankClass(spec);
         resetEntity(t);
       }
+      // 2026-10-19 用户裁定：敌军弹种按等级分级（每 3 级沿 AP 链升一档）。
+      //   此前的敌军**从不设 ammoKey**，tank_fire 的 getAmmoCfg 兜底成 ap ⇒ 全部恒定打 AP。
+      applyEnemyAmmoForNode(t, node);
     },
     applyDifficulty(t, mults){ applyDifficultyMults(t, mults); }   // P-38：页级函数，增援生成复用
   });
@@ -2431,6 +2457,8 @@ function spawnReinforcement(spec){
     resetEntity(t);
   }
   applyDifficultyMults(t, spec.entityMults);
+  // 2026-10-19：增援同样按节点难度分级弹种
+  applyEnemyAmmoForNode(t, currentNode);
   alertEntity(t, player.x, player.y);       // 立即警觉 + 持有玩家位置记忆
   return t;
 }

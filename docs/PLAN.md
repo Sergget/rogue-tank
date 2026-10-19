@@ -11,22 +11,24 @@
 
 | 序 | 条目 | 来源 | 状态 |
 |---|---|---|---|
-| 1 | **C 档·横向卷轴节点**：strip 生成器（多片拼接 + 接缝净空 + 纵向裁剪）＋ 分块地面烘焙 ＋ 空间分桶 ＋ 小地图条带化 ＋ 推进式结算 | 2026-09-21 用户设计征询（研究已定案，2026-09-23 **降级**：待 A/B 完成后评估——**A/B 已于 2026-09-23 完成**） | **部分实施（2026-10-10 #O5，见 DEVELOPMENT-batches-2026-10.md §4.60）**：`generateStrip` + 小地图条带化 + **常规节点实战接入**（`makeNode` strip 路径，Boss 保持方形）+ 视口锚定滚动烘焙（代替分块烘焙）+ 战斗/生成双空间索引 + `extendRun` 免重放续接；推进式结算（B 档③）沿用。剩余：strip 密度/难度校准重锚（batch 4）。~~`test-strip.js` 既有慢测~~ **已于 2026-10-16 #T1 解决**（`losSamples:0` 被当 falsy 致 200× 多余射线；368s→141s）。方案与实测见 §3（`specs/map.md` §14 已是现行口径，预留标注作废）。**2026-10-15 用户裁定：告一段落，当前状态可接受，暂不继续投入。** |
-| 2 | **难度联动**：新弹种是否进敌军池（`parameterLimits` / `enemyClassProfiles` 与弹种表联动） | 原阶段五 §5.4.3（唯一遗留项） | 非阻塞，开放问题（见 §2.1） |
-| 3 | **HUD 渲染实现级合并**：mvp⇄bench 同功能两套渲染实现（血条/装填指示/弹种条/日志/散布锥/FPS 读数等 9 处） | 2026-09-19 #C5 专轮未纳入范围（按键/文案/面板粒度已统一，见 `specs/editor.md` §7.3/§7.4；bench 卡牌选择器已随 #F（2026-09-20）共享 devPanel 同源） | 非阻塞遗留（见 §2.2） |
-| 4 | **#N 交战结构真实对局验证与参数调优**：交战带四档区间、press 名额（2~4）、flank 站位半径 1.15、分离力半径、来袭箭头噪音水平 —— 需在真实节点战斗（含 driveTank 转向速率 / 掩体碰撞 / 玩家移动）中手感确认后微调 | 2026-10-02 #N 批次（`DEVELOPMENT.md` §4.44 已完成实现与三链验证） | 待实测（量化探针 `scripts/diagnose-ai-crowd.js` 仅覆盖决策层，未含物理/掩体/玩家机动） |
-| 5 | **坦克精灵目视确认与启用**：白色残留已清除（§4.56 #M4，`scripts/clean_sprite_bg.py`，16 贴图 `background: 0`；hummel 炮管槽白底已清，炮管可从槽中透出）；两车炮塔 scale/轴心已按几何重算（hummel `0.03413→0.048059`、panzer-IV `0.0201→0.024476`；10/10 部件映射长度比 0.999~1.000）。**待做**：在设计器勾「画布显示精灵」逐车目视确认（层序/尺寸/炮管与炮塔衔接/白边），确认后把 5 车 `sprite.enabled` 置 true 保存，并跑一次实战确认无穿帮 | 2026-10-06 精灵对齐审计 → 2026-10-08 §4.56 完成清理与参数 | 待目视确认（人工项；`ISSUES.md` 已无存量条目） |
-| 6 | **贴图命名统一**：`Leapard_1_hull` vs `leopard1-turret` vs `tiger-I_*` 等风格混杂（拼写错误 Leapard/大小写/连字符不一）。统一为 `<id>_<part>.png` 约定并同步 `tanks/*.json` 引用；**坦克 id `Leapard_1` 本身不改**（存档/列表引用，需迁移逻辑，另案评估） | 2026-10-10 审计报告 §3 | 待做（低优先级卫生项） |
-| 8 | **地图元素 AI 生成出图 + 落盘**：管线已从「手工跑 ComfyUI + 手工落盘」升级为**一键脚本链**（2026-10-17）：`node tools/gen-covers.mjs --provider <gemini\|replicate\|openai>`（凭据只读 `.env`，掩码输出）→ `python scripts/prepare_covers.py --inplace`（按 `tools/cover-refs.json` 的运行时基准缩放/清底/PNG-8）→ `python scripts/covers-anchor-check.py`（尺寸 + 内容质心验收）→ `tools/bake.html` / 游戏内目视确认。**mock 后端已端到端跑通**（`test-cover-gen.js` 12 项断言：规格↔烘焙基准对账、10 条 prompt 解析、mock 出图 → 后处理 → 质心全绿）。 | 2026-10-10 §4.58（用户「地图元素优先」投票）→ 2026-10-17 管线重构 | **待出图**（唯一阻塞项是 API 凭据：ComfyUI 已否决，需在 `.env` 填 `GEMINI_API_KEY` 等）。**纯增量、有程序化回退、不断档**；建议先出 P6/P8 叶片层（视觉增益最大，P5 建议直接沿用 bake）。手册见 `tools/cover-gen-prompts.md` v2。 |
-| 9 | **#S 批次（2026-10-14 用户反馈 14 项）**：CI 修复 → 公路加成/道路屏蔽减速 → ESC 商店按钮/HP 显示/TAB 面板 → Boss HP 条 → 副武器卡/弹种保底 → 河流闭合/边缘裁剪/水流纹理/地物纹理 → AI 五层级警觉 → Boss 行为调优（#S7 双管评估完成暂不改动） | 2026-10-14 用户反馈（核实结论见 `docs/ISSUES.md` #S1~#S14） | ✅ 全部完成（2026-10-15，§4.70~§4.75，ISSUES 已清空） |
+| 1 | **C 档·横向卷轴节点**：strip 生成器（多片拼接 + 接缝净空 + 纵向裁剪）＋ 分块地面烘焙 ＋ 空间分桶 ＋ 小地图条带化 ＋ 推进式结算 | 2026-09-21 用户设计征询（研究已定案，2026-09-23 **降级**：待 A/B 完成后评估——**A/B 已于 2026-09-23 完成**） | **部分实施（2026-10-10 #O5，见 DEVELOPMENT-batches-2026-10.md §4.60）**：`generateStrip` + 小地图条带化 + **常规节点实战接入**（`makeNode` strip 路径，Boss 保持方形）+ 视口锚定滚动烘焙（代替分块烘焙）+ 战斗/生成双空间索引 + `extendRun` 免重放续接；推进式结算（B 档③）沿用。~~`test-strip.js` 既有慢测~~ **已于 2026-10-16 #T1 解决**。**2026-10-15 用户裁定：告一段落，当前状态可接受。** **2026-10-19 补充修复**：生存模式**上下两行片间接缝无渐变**（`drawGround` 的 biome 过渡带此前只处理 x 方向、漏了 y 方向）已修，见 §9.1。 |
+| 2 | **难度联动**：新弹种是否进敌军池 | 原阶段五 §5.4.3（唯一遗留项） | ✅ **已实施（2026-10-19）**：敌军弹种按等级分级——每 3 级沿 **AP 链**（`ap→apcr→apds→apfsds→apfsds_ad`）升一档，**Boss 除外**。见 §9.2。 |
+| 3 | **HUD 渲染实现级合并**：mvp⇄bench 同功能两套渲染实现（9 处） | 2026-09-19 #C5 专轮未纳入范围 | **未实施**——需先定「bench 是否需要独立简版 HUD」的产品口径（见 §2.2）。属重构级，非缺陷。 |
+| 4 | **#N 交战结构真实对局验证与参数调优** | 2026-10-02 #N 批次 | ✅ **用户已确认可接受（2026-10-19）**，不再投入。 |
+| 5 | **坦克精灵目视确认与启用** | 2026-10-06 精灵对齐审计 → §4.56 | ✅ **已决议（2026-10-19）**：**维持不启用**；设计器默认也不启用；相关面板已加开关且**默认关**（设计器 `#sp-enabled`/`#sp-preview`、mvp/bench 开发者面板「游戏内显示精灵」→ `_spriteOverride` 运行时不写档）。见 §9.3。 |
+| 6 | **贴图命名统一** | 2026-10-10 审计报告 §3 | ✅ **已完成（2026-10-19）**：全部收敛为 `<id>_<part>.png` + 全小写，19 个引用全部有效。坦克 id 本身未改（存档主键）。见 §9.4。 |
+| 8 | **地图元素 AI 生成出图 + 落盘** | 2026-10-10 §4.58 → 2026-10-17 管线重构 | **管线已就绪、待出图**（唯一阻塞 = API 凭据）。**2026-10-19 已汇编独立备查文档 `docs/ASSETS-PIPELINE.md`**（流程/契约/校验/排错/文件索引一站式）。 |
+| 9 | **#S 批次（2026-10-14 用户反馈 14 项）** | 2026-10-14 用户反馈 | ✅ **已实施并复核（2026-10-19 抽查三处均落地）**：`tank_move.js:46` 公路加成、`tank_mvp.html` Boss HP 条（`#bossHpWrap`）、`tank_ai.js:115` 五层级警觉（`alertLevel`）。 |
 
 ---
 
 ## 2. 非阻塞遗留
 
-### 2.1 难度联动（原阶段五 §5.4.3）
+### 2.1 难度联动（原阶段五 §5.4.3）—— ✅ 已实施（2026-10-19）
 
-`parameterLimits` / `enemyClassProfiles` 与 14 弹种表的难度联动——**新弹种是否进敌军池**（敌军是否按难度配发升级弹种、按节点深度解锁层级）。开放问题，非阻塞；此前多轮会话结论均为「剩余非阻塞项不变」。
+> **已落实，本节保留作沿革**。结论见 §9.2：敌军弹种按等级分级（每 3 级沿 AP 链升一档，
+> Boss 除外），实现于 `js/tank_model.js` 的 `enemyAmmoKeyForLevel` / `applyEnemyAmmoByLevel`，
+> 接线于 mvp 的 4 处敌军生成点。
 
 ### 2.2 HUD 渲染实现级合并（2026-09-19 立项，非阻塞）
 
@@ -332,3 +334,123 @@
 
 **验证**：`node scripts/test-cover-gen.js` → **EXIT=0，全部通过**（含「10 张产物质心
 均在烘焙基准 ±2px 内」与「covers-anchor-check 全部通过」）；`npm test` 全链见下。
+
+---
+
+## 9. 2026-10-19 第四批：PLAN 逐条落实（条目 1/2/5/6/8/9 + 全部遗留项复核）
+
+> 用户指示：「依次完成 `docs/PLAN.md`」，并对每个条目给了具体口径。本节记录**已实施结论**；
+> 仍未完成的条目（#3 HUD 合并）保留在 §2.2。
+
+### 9.1 条目 1 · C 档 strip：上下行间接缝渐变（已修复）
+
+**用户口径**：「生存模式下，上下 2 个地图分片间似乎没有渐变过渡，解决后审核还有哪些内容没有实现」。
+
+**根因**：`js/tank_battledraw.js` 的 `drawGround` 里，biome 过渡带**只沿相邻 zone 的公共
+`x` 边界**绘制（左右相邻），完全没有处理 `y` 方向。而多行片（`opts.chunkRows >= 2`，
+生存模式取 2）的地貌交界正是**上下两行**⇒ 行与行之间是硬切色块。
+
+**修复**：抽出 `drawSeam(axis)` 按轴分派，`x` 与 `y` 各跑一遍。
+`y` 方向判据与 `x` 完全对偶（`x` 区间相接/重叠 + `y` 边界相等），过渡带几何同样对偶。
+两个方向都用「公共边界 + 区间交集」判据，**对角相邻不会误画**。
+
+**测试同步**：`test-render.js` 的 ⑨f「2 维 zone 分区正确」原在分界 ±60px 采样，
+而过渡带半宽 260px ⇒ 采样点落在渐变内、两侧被混合。改为在 ±150px 采样并验证
+**色彩方向性**（上侧雪色偏冷、下侧沙色偏暖），既证分区正确、也顺带证交界有过渡。
+实测：上 `rgb(198,204,206)` 冷 / 下 `rgb(213,191,141)` 暖。
+
+**C 档剩余未实现项**（审核结果，均属设计取舍而非缺陷）：
+- **分块地面烘焙** → 已由**视口锚定滚动烘焙**替代（`drawGroundCached`，每帧 blit 1 次），
+  原方案的「按 tile 烘焙 + 视口内 blit」在效果上等价且实现更简单，**不需要再做**。
+- **空间分桶** → 已实现（战斗/生成双空间索引）。
+- **小地图条带化** → 已实现。
+- **推进式结算（B 档③）** → 已沿用在常规节点；生存模式按波次清空，不需要推进轴。
+- **strip 密度/难度校准重锚（原 batch 4）** → **仍未做**。属数值校准而非功能缺失；
+  2026-10-15 用户裁定「告一段落，当前状态可接受」，故保持不做。
+
+### 9.2 条目 2 · 敌军弹种难度联动（已实施）
+
+**用户口径**：「进入，敌人等级每提升 3 个等级，敌人可用的弹种也跟随升一级，且除了 boss，
+其他敌人只使用 ap 链的弹种」。
+
+**此前状态**：敌军**从不设置 `ammoKey`**，`tank_fire.js` 的 `getAmmoCfg` 兜底成
+`RULES.ammoTypes[k] || RULES.ammoTypes.ap` ⇒ 全部敌军恒定打 AP，难度对弹种零调制。
+
+**实现**（`js/tank_model.js`，纯函数可 Node 测试）：
+```js
+const AP_AMMO_CHAIN = ['ap', 'apcr', 'apds', 'apfsds', 'apfsds_ad'];
+enemyAmmoKeyForLevel(lv) { step = floor((lv-1)/3); return AP_AMMO_CHAIN[min(step, 4)]; }
+applyEnemyAmmoByLevel(tank, level) { tank.ammoKey = enemyAmmoKeyForLevel(level); }
+```
+实测：lv1~3→`ap`，lv4~6→`apcr`，lv7~9→`apds`，lv10~12→`apfsds`，lv13+→`apfsds_ad`；
+lv1~30 全部落在 AP 链内、等级递增档位单调不降。
+
+**接线**（4 处生成点，全部走同一个 `applyEnemyAmmoForNode(t, node)` 助手）：
+节点敌军（`configureTank`）、生存波次、增援、Boss 召唤物。
+**Boss 本体显式跳过**（`if(t.isBoss) return`），仍可自由配任何弹种。
+
+**难度→等级换算**：节点只有 `difficulty ∈ [0.15, 0.95]`，无显式 level 字段。
+取 `enemyLevelForDifficulty(d)`：线性映射到 **1~13 级**（0.15→lv1、0.95→lv13），
+正好覆盖 4 档升级。首节点 `ap`、中后期逐步升到 `apcr`/`apds`/`apfsds`。
+
+### 9.3 条目 5 · 坦克精灵（维持不启用 + 面板开关）
+
+**用户口径**：「维持当前不启用的状态，设计器中也默认不启用，为相关面板增加一个开关，默认为关」。
+
+- 5 车 `sprite.enabled` **全部保持 `false`**，`dummy.json` 无 sprite 字段（未动）。
+- 设计器：`defaultSprite().enabled = false`（已是）；现有 `#sp-enabled` / `#sp-preview` 两开关保留。
+- **新增**：mvp/bench 共享开发者面板（`` ` `` 键 → 开关 Tab）加「游戏内显示精灵」，
+  **默认关**，运行时写 `t._spriteOverride`，**不写回 `tanks/*.json`**。
+- 新增判据 `spriteEnabled(t)`（`js/tank_battledraw.js`，已导出）：
+  `_spriteOverride` 优先，否则回落 `sprite.enabled`；**没有 `sprite` 对象一律 false**
+  （override 不能凭空造贴图）。
+
+### 9.4 条目 6 · 贴图命名统一（已完成）
+
+统一为 **`<id>_<part>.png` + 全小写**：
+
+| 改前 | 改后 |
+|---|---|
+| `Leapard_1_hull.png` / `Leapard_1_turret.png` | `leopard1_hull.png` / `leopard1_turret.png` |
+| `Obj780_hull.png` / `Obj780_turret.png` | `obj780_hull.png` / `obj780_turret.png` |
+| `panzer-IV_hull.png` / `-turret` | `panzer-iv_hull.png` / `panzer-iv_turret.png` |
+| `tiger-I_hull.png` / `-turret` | `tiger-i_hull.png` / `tiger-i_turret.png` |
+| `barrels/barrel-panzer-IV.png` | `barrels/barrel-panzer-iv.png` |
+| `barrels/barrel-tiger-I.png` | `barrels/barrel-tiger-i.png` |
+
+- 用 `git mv`（经临时名绕开 Windows 大小写不敏感文件系统）保留 git 历史。
+- `tanks/*.json` 的 19 处引用同步；**实测 19 个引用全部能找到对应文件**。
+- **坦克 id 本身未改**（`Leapard_1` / `Obj 780` 是存档与列表主键，改名需迁移逻辑，另案）。
+
+### 9.5 条目 8 · 出图管线文档（已完成）
+
+新增 **`docs/ASSETS-PIPELINE.md`**——把散在 `tools/cover-gen-manual.md`、
+`tools/cover-gen-prompts.md`、`specs/map.md` §18、各处代码注释与 PLAN 条目里的信息
+收敛为**单一流程备查文档**：两条资产链路的区别、五步链、三个坐标口径的坑、
+验收基准（`centroid` 而非 `anchor`）、排错对照表、文件索引、维护纪律。
+
+**提示词正文不复制**（仍在 `cover-gen-prompts.md`，运行时被 `gen-covers.mjs` 现解析），
+避免双份不同步。
+
+### 9.6 条目 9 · #S 批次复核（已确认实施）
+
+抽查三处代表性改动，均已在代码中落地：
+- `js/tank_move.js:46` —— 公路加成 `if(onRoad){ speedModifier = 1.0; turnModifier = 1.0; }`
+- `tank_mvp.html` —— Boss HP 条（`#bossHpWrap` / `#bossHpTrack`）
+- `js/tank_ai.js:115` —— 五层级警觉（`alertLevel` 初始化与 suspicious 分支）
+
+### 9.7 其余遗留项状态复核
+
+| 项 | 复核结论 |
+|---|---|
+| §2.1 难度联动 | **已实施**，见 §9.2；本节可视为关闭 |
+| §2.2 HUD 渲染级合并 | **仍未实施**。前置条件未变：需先定「bench 是否需要独立简版 HUD」 |
+| §2.3 正常环境补跑验证 | **已闭环**。本会话实测 `npm run test:browser` **ALL PASS**；`npm test` **49/49** |
+| §2.4 `audit-map-gen.js` 度量口径 | **未修**（审计脚本口径问题，非生成器缺陷）。G4 误报率待按 `verts` 多边形点测重写 |
+| §2.5 烘焙基准重导出 | **已闭环**：#V1 修复（负锚点不再补边）后 `test-cover-gen` **EXIT=0**，全链首次 49/49 |
+
+### 9.8 验证（2026-10-19）
+
+- `node scripts/check-html.js` → **EXIT=0**
+- `node node_modules/typescript/bin/tsc --noEmit` → **EXIT=0**
+- `npm test` → **49 通过 / 0 失败（49 项）**

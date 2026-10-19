@@ -1103,6 +1103,17 @@ function drawTankRimLight(ctx, corners){
   ctx.restore();
 }
 
+// #5（2026-10-19 用户裁定）：坦克精灵**维持不启用**，但开发者面板给了一个运行时开关
+//   （`_spriteOverride`，默认关，不写回 tanks/*.json）。
+//   本函数是「是否走精灵分支」的唯一判据：
+//     · `_spriteOverride` 已设置（true/false）→ 优先用它（调试开关）；
+//     · 否则回落 tank JSON 的 `sprite.enabled`（现行全部为 false）。
+function spriteEnabled(t){
+  if(!t || !t.sprite) return false;   // 没有精灵数据 ⇒ 一律走程序化分支（override 也不能凭空造贴图）
+  if(t._spriteOverride !== undefined) return !!t._spriteOverride;
+  return !!t.sprite.enabled;
+}
+
 function drawTank(ctx, t){
   const pOff = turretPivot(t);
   const turCx = pOff.x;
@@ -1112,7 +1123,8 @@ function drawTank(ctx, t){
   // 图片未就绪/殉爆飞头时回退程序化绘制，保证首帧与极端状态不穿帮。
   // 注意（#L1）：精灵只替换「车体/炮塔/炮管/履带」这四层画法，**不得**吞掉断履带、
   // 起火辉光、副炮塔、射界射线、附件与世界内血条——它们在两个分支中共用同一段收尾绘制。
-  if(t.sprite && t.sprite.enabled && !t.ammoBlew && spriteReady(t)){
+  // #5：`_spriteOverride` 由开发者面板写入（默认关），优先于 JSON 的 sprite.enabled
+  if(spriteEnabled(t) && !t.ammoBlew && spriteReady(t)){
     drawTankSprite(ctx, t);
     // 精灵主体已在 drawTankSprite 内按程序化层级绘制断履带/副炮塔/座圈/起火辉光；
     // 这里仅绘制主体之上的通用提示与 HUD。
@@ -1898,24 +1910,51 @@ function drawGround(ctx, opts) {
       ctx.fillStyle = palFor(z.biome).base;
       ctx.fillRect(z.x0, z.y0, z.x1 - z.x0, z.y1 - z.y0);
     }
-    // 交界渐变：沿相邻两 zone 的**公共 x 边界**画过渡带。
-    //   #GT（2026-10-18）：只对「y 区间确实相接/重叠」的邻居做渐变——2 维 zone 下同列不同行
-    //   的邻居 x 边界相同但 y 不相接，那不是地貌交界（旧口径会给它们也画一条渐变，把整片刷一遍）。
-    for (let zi = 0; zi + 1 < zones.length; zi++) {
-      const a = clampZone(zones[zi]), b = clampZone(zones[zi + 1]);
-      if (a.x1 !== b.x0 && b.x1 !== a.x0) continue;          // 不是水平相邻
-      const gy0 = Math.max(a.y0, b.y0), gy1 = Math.min(a.y1, b.y1);
-      if (gy1 <= gy0) continue;                              // y 不相交 ⇒ 不是地貌交界
-      const bx = (a.x1 === b.x0) ? a.x1 : b.x1;              // 交界 x
-      const gx0 = Math.max(x0, bx - TRANS_W), gx1 = Math.min(x0 + w, bx + TRANS_W);
-      if (gx1 <= gx0) continue;
-      const cA = palFor(a.biome).base, cB = palFor(b.biome).base;
-      const grad = ctx.createLinearGradient(gx0, 0, gx1, 0);
-      grad.addColorStop(0, cA);
-      grad.addColorStop(1, cB);
-      ctx.fillStyle = grad;
-      ctx.fillRect(gx0, gy0, gx1 - gx0, gy1 - gy0);
-    }
+    // 交界渐变：沿相邻两 zone 的**公共边界**画过渡带。
+    //   #GT（2026-10-18）：只对「垂直方向区间确实相接/重叠」的邻居做渐变——2 维 zone 下同列
+    //   不同行的邻居 x 边界相同但 y 不相接，那不是地貌交界（旧口径会给它们也画一条渐变，把整片刷一遍）。
+    //
+    // #1（2026-10-19 用户反馈「生存模式下上下 2 个地图分片间似乎没有渐变过渡」）：
+    //   上面这段原本**只处理 x 方向**（左右相邻），而多行片（`opts.chunkRows >= 2`，生存模式用 2）
+    //   的地貌交界是 **y 方向**（上下两行）⇒ 行与行之间是硬切色块，没有过渡。
+    //   现补齐 `y` 方向：判据与 x 方向对偶（x 区间相接/重叠 + y 边界相等），
+    //   过渡带几何同样对偶（沿公共 y 边界上下各 TRANS_W，横向覆盖两 zone 的交集）。
+    //   两个方向都用「公共边界 + 区间交集」判据，因此对角相邻（既不接 x 也不接 y）不会误画。
+    const drawSeam = (axis) => {
+      for (let zi = 0; zi + 1 < zones.length; zi++) {
+        const a = clampZone(zones[zi]), b = clampZone(zones[zi + 1]);
+        if (axis === 'x') {
+          if (a.x1 !== b.x0 && b.x1 !== a.x0) continue;       // 不是水平相邻
+          const gy0 = Math.max(a.y0, b.y0), gy1 = Math.min(a.y1, b.y1);
+          if (gy1 <= gy0) continue;                            // y 不相交 ⇒ 不是地貌交界
+          const bx = (a.x1 === b.x0) ? a.x1 : b.x1;            // 交界 x
+          const gx0 = Math.max(x0, bx - TRANS_W), gx1 = Math.min(x0 + w, bx + TRANS_W);
+          if (gx1 <= gx0) continue;
+          const cA = palFor(a.biome).base, cB = palFor(b.biome).base;
+          const grad = ctx.createLinearGradient(gx0, 0, gx1, 0);
+          grad.addColorStop(0, cA);
+          grad.addColorStop(1, cB);
+          ctx.fillStyle = grad;
+          ctx.fillRect(gx0, gy0, gx1 - gx0, gy1 - gy0);
+        } else {
+          // y 方向（上下相邻）：判据与 x 完全对偶
+          if (a.y1 !== b.y0 && b.y1 !== a.y0) continue;        // 不是上下相邻
+          const gx0b = Math.max(a.x0, b.x0), gx1b = Math.min(a.x1, b.x1);
+          if (gx1b <= gx0b) continue;                          // x 不相交 ⇒ 不是地貌交界
+          const by = (a.y1 === b.y0) ? a.y1 : b.y1;            // 交界 y
+          const gy0b = Math.max(y0, by - TRANS_W), gy1b = Math.min(y0 + h, by + TRANS_W);
+          if (gy1b <= gy0b) continue;
+          const cA = palFor(a.biome).base, cB = palFor(b.biome).base;
+          const grad = ctx.createLinearGradient(0, gy0b, 0, gy1b);
+          grad.addColorStop(0, cA);
+          grad.addColorStop(1, cB);
+          ctx.fillStyle = grad;
+          ctx.fillRect(Math.max(x0, gx0b), gy0b, gx1b - Math.max(x0, gx0b), gy1b - gy0b);
+        }
+      }
+    };
+    drawSeam('x');
+    drawSeam('y');
   } else {
     const pal = palFor(opts.biome);
     ctx.fillStyle = pal.base;
@@ -2267,6 +2306,7 @@ function _paintGroundTexture(ctx, biome, baseSeed, x0, y0, w, h){
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     drawTank,
+    spriteEnabled,         // #5：精灵分支判据（_spriteOverride 优先，回落 JSON sprite.enabled）
     drawBrokenTracks,
     drawCharredHull,
     drawFireGlow,

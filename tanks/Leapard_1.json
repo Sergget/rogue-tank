@@ -16,7 +16,14 @@
   "trackOffset": -1,
   "spreadMult": 0.8,
   "aimSpeed": 2.5,
-  "texture": "camo_nato",
+  "texture": "camo_urban",
+  "appearance": {
+    "engineDeck": {
+      "style": "compact",
+      "dx": 0,
+      "dy": 0
+    }
+  },
   "sprite": {
     "enabled": false,
     "track": {
@@ -27,14 +34,14 @@
       "rot": 0
     },
     "hull": {
-      "img": "assets/tanks/Leapard_1_hull.png",
+      "img": "assets/tanks/leopard1_hull.png",
       "scale": 0.055386,
       "dx": 0,
       "dy": 0,
       "rot": 0
     },
     "turret": {
-      "img": "assets/tanks/Leapard_1_turret.png",
+      "img": "assets/tanks/leopard1_turret.png",
       "scale": 0.027706,
       "dx": -2,
       "dy": 0,
@@ -50,10 +57,10 @@
       "embed": 2,
       "scaleMult": 1,
       "gap": 3.7,
-      "imgVehicle": "assets/tanks/barrels/barrel-leopard-1.png",
       "imgStandard": "assets/tanks/barrels/barrel-standard.png",
       "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
-      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
+      "imgVehicle": "assets/tanks/barrels/barrel-leopard-1.png"
     }
   },
   "barrel": {
@@ -216,26 +223,12 @@
       "rear": 24
     },
     "pivot": {
-      "dx": 10,
+      "dx": 13,
       "dy": 0
     },
     "axis": {
-      "dx": 10,
+      "dx": 4,
       "dy": 0
-    }
-  },
-  "appearance": {
-    "cupola": {
-      "style": "standard",
-      "dx": 0,
-      "dy": 0,
-      "mirror": false
-    },
-    "engineDeck": {
-      "style": "compact",
-      "dx": 0,
-      "dy": 0,
-      "mirror": false
     }
   }
 }

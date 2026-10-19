@@ -126,6 +126,10 @@ function mountDevPanel(host) {
         // #J3：「无视野」开关已随视野距离系统退役删除
         '<label class="dev-cheat"><input type="checkbox" id="devInvulnChk"> 无敌常驻（invulnT 恒续，与测试台同源语义）</label>' +
         '<label class="dev-cheat"><input type="checkbox" id="devInstantReloadChk"> 秒装填（reloadT 恒 0，与测试台同源语义）</label>' +
+        // #5（2026-10-19 用户裁定）：坦克精灵**维持不启用**，但在面板里给一个开关（**默认关**）。
+        //   精灵（assets/tanks/*.png 四层俯视贴图）目前仍未逐车目视确认对齐，故默认关闭；
+        //   需要对比时可临时打开，勾选状态不写回 tanks/*.json（纯运行时调试开关）。
+        '<label class="dev-cheat"><input type="checkbox" id="devSpriteChk"> 游戏内显示精灵（默认关；需贴图已对齐）</label>' +
         genResetRow +
         (H.extraSwitchHTML || '') +
       '</div>' +
@@ -139,6 +143,22 @@ function mountDevPanel(host) {
   const cheats = Object.assign({ zeroSpread: false, invuln: false, instantReload: false }, H.cheatsInit || {});
   const onCheat = H.onCheatChange || function () {};
   let devActiveTab = H.defaultTab || 'live';
+
+  // #5：精灵显示开关——遍历场上实体逐个翻转 `_spriteOverride`。
+  //   绘制层（js/tank_battledraw.js 的 `spriteEnabled(t)`）优先读该字段，
+  //   未设置时回落到 tank JSON 的 `sprite.enabled`（现行全部为 false）。
+  //   这样既不写回存档，也不影响「默认不启用」的产品口径。
+  //   ⚠ typecheck：`$()` 的返回类型是 Element，取 `.checked` 需转成 HTMLInputElement
+  //   （本项目用 tsc --noEmit + JSDoc 做类型检查，见 tsconfig.json）。
+  const spriteChk = /** @type {HTMLInputElement|null} */ ($('devSpriteChk'));
+  if (spriteChk) {
+    spriteChk.checked = false;                 // 默认关
+    spriteChk.addEventListener('change', function () {
+      const on = !!spriteChk.checked;
+      const ents = H.getEntities ? H.getEntities() : (typeof entities !== 'undefined' ? entities : []);
+      if (Array.isArray(ents)) for (const e of ents) { if (e) e._spriteOverride = on; }
+    });
+  }
   let devCardQuery = '';
   // 数值临时覆盖（仅本局）：{ stat → value }，由页面主循环每帧写回 player.stats（applyDevInputs 反向）
   const devOverrides = {};
