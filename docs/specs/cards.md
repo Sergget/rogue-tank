@@ -29,7 +29,8 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
    - **运行时参数硬限（2026-09-15 W5 用户裁定；2026-09-17 #C2 修订）**：卡牌 modifiers 聚合后受 `RULES.parameterLimits` 两张硬限钳制——装填 **reload ≥ 1.0s/发**（2026-09-17 #C2 裁定，取代旧 0.5s；加速装填卡不得突破下限）、极速 **maxSpeed ≤ 150km/h（375px/s）**（超速卡不得突破上限）；实现于 `js/tank_model.js` `applyParameterLimits(s, modifiers)`（computeStats 尾部，仅 modifiers 非空时生效，空修饰器出厂/纯计算不钳）。**#C2 同轮细化**：硬限只约束参数通道（scope run/permanent）——**纯 timed 修饰器（超装填 ×0.45 等能力爆发通道）不钳**，其实际开火间隔可继续 <1s（与机炮 reloadMult 0.25 武器通道同语义）。火控系另有既有钳制（spreadMult/motionSpreadMul ≥ multFloor、crit ≤ critBonusCap）。消费链 `applyCardEffects`→`addModifier`→`refreshStats`→`computeStats` 天然接入，商店另有 `runShopLimitBlocked` 购买拦截（§8.3，`fast_reload` limit.min=1.0 同步）。回归见 `scripts/test-rework-w5.js`（§5 timed 不钳 / 混合通道仍钳）。
 2. **ammo**：弹种改造或弹种替换（完整弹种键与升级总表见 `docs/specs/combat.md` §3.1/§3.2 与 `js/tank_rules.js` 的 `RULES.ammoTypes` / `RULES.ammoChain`）。
    - 弹种属性改造：`{key, field:'pen'|'dmg'|'speed', mode:'mult'|'add', value}`，其中 `key` 支持现有体系下的有效弹种键。
-   - 弹种升级替换：`{type:'ammo', key, replaceAmmo?}`。`replaceAmmo` 为直系前驱弹种（显式）；省略时按 `RULES.ammoChain[key]` 推断。替换前提：**前驱必须在 loadout 中**（`replaceAmmo`/`CHAIN[key]` ∈ ammoLoadout），否则视为跳级—拒绝变更；HE 线 `he→(heat|aphe)` 首张时「先新增」（保留 he，占第 3 槽）、其后再抽则「替换 he 槽」。KE/HEAT 链皆在前驱槽位原位替换，`ammoKey` 同步。三链语义详见 `docs/specs/combat.md` §3.1（#A26 已归档）。
+   - 弹种升级替换：`{type:'ammo', key, replaceAmmo?}`。`replaceAmmo` 为直系前驱弹种（显式）；**省略时仅对「无 field 的旧式演变效果」按 `RULES.ammoChain[key]` 推断（#U40 口径，2026-10-19）**。替换前提：**前驱必须在 loadout 中**（`replaceAmmo`/`CHAIN[key]` ∈ ammoLoadout），否则视为跳级—拒绝变更；HE 线 `he→(heat|aphe)` 首张时「先新增」（保留 he，占第 3 槽）、其后再抽则「替换 he 槽」。KE/HEAT 链皆在前驱槽位原位替换，`ammoKey` 同步。三链语义详见 `docs/specs/combat.md` §3.1（#A26 已归档）。
+   - **调校效果与升级效果的严格分界（#U40，2026-10-19 用户反馈「获取新弹种和参数升级搞混淆了」）**：带 `field` 的 ammo 效果是**纯数值调校**（demo_apcr_round「APCR 穿深 +20%」等）——只改数值，**绝不触发链替换**（旧实现按 CHAIN 回退推断前驱，导致 AP 槽被隐形改名 APCR/HEAT 且可随 maxStacks 2~4 反复触发）。判定口径三处同源（`applyCardEffects` 替换分支 / `isAmmoUpgradeCard` / `drawCardChoices` 链过滤）：升级效果 = 显式 `replaceAmmo` ∨（无 field 且 CHAIN 有前驱）；调校效果 = 带 field。回归 `scripts/test-cards.js` #U40 段。
    - **mode:'mult'**：对 RULES 基准倍率做乘算聚合。
    - **mode:'add' = 乘算后毫米追加**（2026-08-26，原 ISSUES #A13 修复定案）：最终属性 = base × mult聚合 + Σadd，value 按**字段自然单位**计——pen=mm / dmg=伤害值 / speed=px/s（如「APCR穿深+14mm」即最终穿深加 14mm，而非倍率刻度 +14）。
    - `computeAmmoConfig` 将 Σadd 输出为独立的 `fieldAdd` 字段存放，由消费方（fireTank/computeAmmoConfig 合成端）在乘算聚合之后合成，杜绝把 mm 追加混入倍率刻度。
@@ -37,14 +38,16 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 3. **ability**：主动装置 {key}，key ∈ `ABILITY_KEYS_RUNTIME`（artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / **aps**；经 1~3 号技能键触发，P-17 接入。smoke 键已于 2026-09-15 W2 随烟幕整链删除；`aps`（主动防御系统）为 2026-09-21 #G9 新增）。`validateCard` 的 `ABILITY_KEYS` 白名单同步包含 innate 键 repair/medkit/extinguish 与全部 runtime 键。
    - **死效果键已整体摘除（2026-09-23 A 档）**：`recon` / `track_repair` 原在 `ABILITY_KEYS` 白名单内、却在 `ABILITY_KEYS_RUNTIME` 与 `ABILITY_KEYS_INNATE` 两池之外，**无任何激活路径**（`recon` 的 mvp 技能池 DISPATCH 分支调用全仓库无定义的 `tryDroneCommand()`，靠 `typeof` 守卫恒为 no-op）⇒ 对应 5 张卡（`support_recon` / `sniper_recon_mark` / `emergency_track` / `mobile_track_repair` / `support_track_repair`，均只带单一 `ability` 效果、卡面自述「占位」）能正常抽取但激活零反应。**用户裁定（2026-09-23）：整体摘除**——两键从 `ABILITY_KEYS`、mvp DISPATCH 表、`ABILITY_LABELS` / `ABILITY_KEY_HINT` 一并删除，5 张卡文件删除（卡池 173 → 168）。**现行不变量**：`ABILITY_KEYS` ≡ innate 3 键（repair/medkit/extinguish）+ runtime 7 键，**无死键**。细则归口本节与 `DEVELOPMENT.md` §4.35。
 4. **passive**：机制性被动 {key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}。`commander_sight`（车长潜望镜 rare +15% / 车长观瞄镜 epic +25%）消费点=mvp 视野半径（`entityHiddenByVision`/`visionRadiusEff`，见 combat.md §4.1；2026-09-19 #D2 接线前为死效果）。
+   - **反应装甲 `reactive_armor`（#U40，2026-10-19 用户裁定重做）**：从「一次性消耗（拦截 1 发即从 cardEffects 消解 ⇒ 传奇卡整局只生效一次，不合理）」改为**拦截后进入再充能**——拦截一次成功（整体吸收、不跳弹不扣血不溅射）后冷却 `RULES.cards.reactiveArmor.rechargeSeconds`（**60s，唯一口径**）秒，冷却期内照常按装甲/跳弹结算，冷却结束恢复可拦截；同一时刻恒 1 层（maxStacks=1，重复抽取被 maxStacks 拒绝）。就绪状态挂实体字段 `_reactiveReady` / `_reactiveRearmT`：`applyCardEffects` 获得时立即可用；mvp `enterBattle` 每节点重置就绪（冷却不跨节点携带）；主循环 `updateReactiveArmorRearm`（`js/tank_cards.js`）逐帧递减；`resolveHit` 拦截后写 `_reactiveRearmT`。卡面（`cards/reactive_armor.json`）已同步改写。
 5. **drone**：伴随浮游炮 {kind:'scout'|'striker'}（countMax=2 上限）。
-6. **economy**：{field:'scoreMul'|'shopDiscount'|'startScore'|'reviveCount', value}（运行时消费待接线）。
+6. **economy**：{field:'scoreMul'|'shopDiscount'|'startScore'|'reviveCount', value}。
+   - **接线现状（#U40，2026-10-19 全通道落地）**：`scoreMul`（value 即**最终乘数**：1.15 = +15%；旧实现 `(1+value)` 曾错算 ×2.15）——结算类计分（节点分/波次分/击杀分）统一乘 `runScoreMultiplier(tank)`（`js/tank_cards.js`，mvp 三处计分点接入）；`shopDiscount`（value 即折扣率：0.1 = −10%，多张相加、防御上限 0.5）——局内商店价格乘 `(1 − runShopDiscount(tank))`（`runShopPriceFor` 调用方 `buyRunShopItem` 与 `buildRunShopInto` 展示同口径）；`reviveCount`——`applyCardEffects` 写 `runReviveBonus`，mvp `pickCard` 即时回算 `player.revives`（旧实现只在下局 `prepPlayerForRun` 生效，局内获得零反馈）；`startScore` 写 `runStartScore`（无消费方，预留）。
 7. **weapon**：主/副武器安装与升级 `{type:'weapon', action:'install'|'upgrade', slot:'primary'|'secondary', weaponType, statOverrides?}`（2026-09-15 #A22/#A23 定型；完整语义见 §8.3）。**（类型枚举以 `js/tank_cards.js` 的 `CARD_EFFECT_TYPES` 为唯一口径——共 7 类；本节此前误标「六大」并漏列 `weapon`，2026-09-23 修正。）**
 
 ## 4. 稀有度分层与流派
 - CARD_RARITIES（**2026-09-20 #E13 起五档**）：common / rare / epic / legendary / **mythic（神话）**——新增最高档，序号即强度序；抽取权重 `common 50 / rare 30 / epic 15 / legendary 4.5 / mythic 0.5`；Boss 掉落白名单 `LOOT_RARITIES`（tank_boss.js）同步五档；HUD 标签新增「神话」。
 - CARD_TAGS 流派标签：重甲/机动/狙击/支援等，供 drawCardChoices 构筑导向抽卡。
-- 当前分布（**2026-10-10 `node scripts/audit-content.js` 实测**）：**169 张卡**——common 59（34.9%）/ rare 57（33.7%）/ epic 37（21.9%）/ legendary 15（8.9%）/ mythic 1（0.6%）。沿革：2026-09-23 为 168 张；**2026-10-10 #O3 新增 3 张**（rare `mod_fire_control_crit` / rare `mod_loader_ammo_crit` / epic `mod_motion_stabilizer`，补齐 P-49 概率修正死通道与运动三扩卡牌通道）。
+- 当前分布（**2026-10-19 `node scripts/audit-content.js` 实测，#U40 批次复核**）：**191 张卡**——common 59（30.9%）/ rare 74（38.7%）/ epic 42（22.0%）/ legendary 15（7.9%）/ mythic 1（0.5%）。沿革：2026-10-10 #O3 时 169 张；2026-10-18 #U39 新增 20 张武器卡达 191（详见 `DEVELOPMENT.md` §4.99）。
 - 效果类型分布（**效果数**，2026-09-23 实测）：modifier 128 / ammo 32 / weapon 17 / **ability 12** / passive 8 / economy 5 / drone 2（合计 204）——与 `CARD_EFFECT_TYPES` 的 **7 类**（modifier / ammo / ability / passive / drone / economy / weapon）一一对应。其中 `ability` 由 17 降为 12 即上述 5 张死效果卡摘除的结果。
 - 最新数字以 `node scripts/audit-content.js` 输出为准（本节为带日期的快照，卡池随批次增长会过期）。
 
@@ -55,6 +58,7 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 - test-card-effects.js：442 断言全卡池全链路执行验证。
 - **P-42 扩展审计维度（2026-08-28，audit-content.js）**：新增四个报告型维度——① 流派×稀有度覆盖率；② 流派→效果类型构成；③ 同稀有度强度曲线（`multDev = Σ|mult值−1|`，仅统计 mult 效果，passive/ability/economy/add 单独列出以避量纲混淆；含离群警示 + 跨档单调性检查，仅在高稀有度含 ≥3 张 mult 卡时比较防假失衡）；④ tag 组合矩阵 + `heat_*`/`he_*`/`demo_*` 定点交叉对比表。
 - **P-42 首轮审计结论（2026-08-28）**：修正单调性检查后无 red 级 mult 失衡（0 警告）；唯一可观测缺口为**内容覆盖**——HEAT 弹种仅 3 张卡（heat_composite_pen/heat_overpressure common、heat_precision rare），无 epic/legendary 档，明显薄于 HE/AP/APCR；属 card-author 补卡范畴（内容前置），非数值调优，暂缓。
+- **审计警告现状（2026-10-19 #U40 批次复核，存量内容项）**：`⚠ 稀有度单调性破坏：epic 最强 multDev=0.65 > legendary 含 mult 卡中位 0.50`（主因 epic `demo_walking_fire` 三效果 multDev 0.35）。属内容强度曲线项而非缺陷（exit=0 不挂链），#U39 补卡后的卡面再平衡留待内容批次。
 
 ## 6. 被动卡接线结论（2026-08-26，#A14/#A15）
 - **passive 统一消费入口** `passiveValues(tank, key)`（`js/tank_physics.js`）：收集 cardEffects 中 `type:'passive'` 的数值数组，多来源聚合语义由消费方自决——`overmatch` 取最大阈值、`spall_liner` 取最小乘数（取最强）。
@@ -111,6 +115,21 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 - **主武器「弹夹炮」`clip`（#G6，2026-09-21 新增）**：epic 安装卡 `weapon_primary_clip`（primary → clip，`statOverrides` 与 `WEAPON_DEFAULTS.primary.clip` 同源）；rare 扩容卡 `weapon_primary_clip_extended`（`{"clipSize":"+1"}`，maxStacks 2，每 +1 发弹夹间装填 +0.8×标准装填）。机制细则（0.7s 弹夹内固定间隔 / ×3.0 弹夹间整组 / 扩容递减收益）归口 `docs/specs/combat.md` §9.1。
 - **电磁轨道炮重调（#G5，2026-09-21）**：epic 安装卡 `weapon_primary_railgun` 数值更新为 `reloadMult 1.8 / damageMult 1.8 / penMult 2.0 / shellSpeedMult 2.5 / pierce 1 / pierceDmgMul 0.6`（新增贯穿 2 目标）；rare 升级卡 `weapon_primary_railgun_upgrade`（`{reloadMult:1.7, shellSpeedMult:3.0}`）。细则归口 `docs/specs/combat.md` §9.3。
 - **主/副武器 `statOverrides` 支持 `"+N"` 相对增量（#G6，2026-09-21）**：升级卡的 `statOverrides` 值合法类型扩为三类——`number`（绝对值覆盖，原行为）、`boolean`（开关，如 `altReload`/`guided`）、**`"+N"` 字符串（在当前值基础上 +N）**。合并统一走 `mergeStatOverrides(stats, overrides)`（主/副武器两条升级分支同源），`"+N"` 经 `Number(cur) + N` 计算；`validateCard` 对三类放行、其它类型判非法。此前 boolean 值会被校验拒绝（`altReload`/`guided` 升级卡曾报非法）。
+- **武器升级卡全覆盖（#U39，2026-10-18 用户要求「主/副武器每种 2~3 张升级卡」）**：清理了 4 处「升级卡写了不生效」的通道断点，并把覆盖面补齐到**每种武器 2~4 张**（实测 2026-10-18，`scripts/test-weapon-upgrade-balance.js` 的覆盖面段自动复核）。
+  - **① 标准主炮通道从死到活**（`js/tank_fire.js` `primaryWeaponSpec`）：原实现对 `type==='standard'` **恒返回 null**，`weapons.primary.stats` 里的任何 `statOverrides` 都被忽略 ⇒ 所有 `weapon_primary_standard_*` 卡天然无效。现行：**无 stats 覆写时仍返回 null（与既有行为逐字节一致）**，有覆写才产出规格（缺省表由 `WEAPON_DEFAULTS.primary.standard` 兜底，倍率全 1.0）。新增 3 张 standard 升级卡（rare 硬芯穿甲弹 dmg ×1.15/pen ×1.08、rare 快速装填机 reload ×0.85/speed ×1.15、epic 锥膛炮管 pen ×1.22/speed ×1.25）。
+  - **② `missile_wire` 进入卡牌白名单**：它一直在 `RULES.weaponTypes.secondary` / `WEAPON_DEFAULTS.secondary` / `fireActiveSecondary` 的 wire 分支里，却漏在 `WEAPON_SECONDARY_TYPES` 外 ⇒ 任何线导导弹卡都被 `validateCardEffect` 判「weaponType 非法」。现补入，并新增**安装卡** `weapon_secondary_missile_wire`（此前该型没有任何获取途径）+ 2 张升级卡（rare 双级推力 speed 340→560/reload 10→8、rare 串联战斗部 damage 150→220/range 700→900）。
+  - **③ `mine_layer` 的爆炸/触发半径收口进缺省表**：`fireActiveSecondary` 原把 `blastRadius 70` / `triggerRadius 45` 写死在字面量里，升级卡无法覆盖。现 `WEAPON_DEFAULTS.secondary.mine_layer` 补这两个字段并改读 `cfg`，新增 rare 阔域雷场（105/70）。
+  - **④ `missile_wire` 的 speed 收口**：原只在 wire 分支写死 `340`，现缺省表补 `speed: 340` 并由 `cfg.speed` 消费。
+  - **⑤ 新增安装卡 `weapon_secondary_turret`（副炮塔）**：`turret` 型此前同样无任何安装卡（只在 Boss/bench 内部使用）。配套 3 张升级卡（rare 加长身管 / rare 伺服传动 / epic 重炮塔座）。
+  - **新增/补齐清单（共 20 张）**：主武器 9 张——standard ×3（`_damage`/`_reload`/`_pen`）、autocannon ×3（`_damage` rare / `_heat` rare / `_feed` epic）、railgun ×1（`_damage` rare，含 pierce 1→2）、clip ×1（`_capacity` rare，`"+2"` 容量 + 发际 0.55s）、double_barrel ×1（`_turret` rare）；副武器 11 张——turret 安装 ×1 + 升级 ×3、missile_wire 安装 ×1 + 升级 ×2、mortar ×1（`_accuracy` rare）、mine_layer ×1（`_radius` rare）、rocket ×1（`_warhead` rare）、missile ×1（`_damage` rare）。
+  - **复核带（`scripts/test-weapon-upgrade-balance.js` 扩面）**：复核面从原 4 张副武器 rare 卡扩到**卡池内全部 weapon upgrade 卡**并按通道分三档——① 纯 DPS 通道增益 ∈ [1.15, 1.75]；② 混合通道 DPS ≥ 1.0 且功能字段实际变化；③ 纯功能性通道 DPS 不变且有 ≥1 字段相对基础规格变化（防「写了等于没写」）。原 4 张（#S6 定案）另按历史紧带 [1.25, 1.60] + 极差 ≤0.35 复核，结论不回退（实测增益 1.333/1.524/1.389/1.500，极差 0.190）。同时新增「每张升级卡的 weaponType 必须有对应安装卡（standard 豁免）」契约断言。
+  - **机制型豁免**：`clip` 属「弹夹容量 + 发际间隔」的非线性改造，DPS 公式不适用，只校验字段实际变化。
+- **Boss 随机武备（#U39，2026-10-18 用户反馈「boss 似乎还不会随机到这些武器和升级」）**：Boss 此前只有 `assignBossSkills` 随机技能，`weapons` 恒为 `standard` + `none` ⇒ 主/副武器安装卡与升级卡对 Boss 完全不可见。现行：
+  - **选择逻辑**（纯函数 `pickBossArmament(pool, {rng, bossNumber})`，`js/tank_cards.js`）：① 以 `primaryChance` 掷骰从 `slot=primary && action=install` 随机取 1 张；② 以 `secondaryChance` 掷骰从 `slot=secondary && action=install` 随机取 1 张；③ 对**已选中**的主/副武器类型，从 `action=upgrade && weaponType 匹配` 里逐张独立掷骰抽取，最多 `upgradeMax` 张（概率 `upgradeChance + bossNumber × upgradeChancePerBoss`）。任何一步无货静默跳过。
+  - **参数唯一口径 `RULES.boss.armament`**：`{ enabled, primaryChance 0.9, secondaryChance 0.7, upgradeMax 2, upgradeChance 0.55, upgradeChancePerBoss 0.1 }`。
+  - **施加通道**：mvp `assignBossArmament`（`tank_mvp.html`，在 `assignBossSkills` 之后调用）经 `applyCardEffects` 施加 —— 与玩家卡牌**同一语义通道**（换装重置 stats 基线、升级仅同型合并），不另开旁路。
+  - **实测分布（2026-10-18，500 次探针，真实卡池 191 张）**：平均每 Boss 携带 **3.27 张**卡（含升级卡 830 次），`applyCardEffects` 失败 0 次；主武器 five-way 均匀（各 22.2%~22.8%）、仍为标准主炮 9.8%；副武器 6 型各 10.8%~12.2%、空槽 29.6%。
+  - **可读性**：TAB 状态面板 Boss 行新增「武备:主武器+副武器·改装×N」，出生时日志输出 `BOSS 武备：…｜改装 …`。
 - **主动防御系统 APS（#G9，2026-09-21 新增能力卡）**：epic `ability_aps`（`{type:'ability', key:'aps'}`，maxStacks 1）——经技能池 1~3 号技能键触发（无独立字母键）；参数 `RULES.abilities.aps`（duration 6s / radius 240px / maxIntercepts 3 / cooldown 22s）。机制细则归口 `docs/specs/combat.md` §9.4。
 
 ### 8.4 技能卡定案（锚定现有 RULES.abilities 参数）✅ 已实现（阶段七 7.1 补进阶升级卡）
@@ -152,6 +171,7 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 | `support_extinguisher` | extinguish（innate） | base | — |
 
 - **innate 强化卡的卡面语义（2026-10-17 #U21，现行口径）**：`repair_kit` / `support_extinguisher` 以 `type:'ability'` 发放，但 `repair` / `extinguish` 是**开局固有的 innate 键**（`ABILITY_KEYS_INNATE`，`tryActivateAbility` 绕过持有检查）——这两张卡**不会新增技能槽**，只改写该能力的修复量/冷却（`tank_abilities.js` 按 `cardId` 应用）。卡面因此必须写「强化固有技能【修理箱】…（修理箱为开局固有技能，本卡是强化而非新增）」，避免被读成「占了一个技能位却不能激活」。
+- **innate 键豁免 #U18 已持去重（#U40，2026-10-19）**：`cardEligible` 的「已持技能去重」（#U18）对 `repair` / `medkit` / `extinguish` 三个 innate 键**豁免**（判定键 `ABILITY_KEYS_INNATE_LOCAL`，`js/tank_cards.js`，与 `tank_abilities.ABILITY_KEYS_INNATE` 同源）——玩家开局即「持有」固有键，若照 #U18 去重则这两张纯强化卡永远抽不到（#U21 改卡面仅解决语义误读，没解决抽取资格）。runtime 键照旧去重，口径不变。回归 `scripts/test-cards.js` #U40 段。
 
 ## 9. 装备优先抽卡（2026-09-14 用户定案）
 - **动机**：玩家没有任何主动技能 / 副武器未安装时，候选卡若全是"升级类"会语义莫名其妙（升级谁？）。抽卡必须先提供**装备卡**。
@@ -159,9 +179,9 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
   - `owned = { abilities: string[], primaryWeapon: string, secondaryWeapon: string, cards?: {[id]:count} }` —— 玩家当前持有的主动技能 key 列表、主/副武器类型与已拥卡计数（mvp `drawRewardCards` 从 `player.cardEffects`（type 'ability' 去重 key）、`player.weapons.primary/secondary.type` 与 `cardStackCount` 组装传入；无则空数组 / 'standard' / 'none'）。
   - **资格过滤先行**（#A23 / #A28；2026-10-16~17 #U18/#U20/#U22 扩充，现行口径）：`cardEligible` 在可用池阶段剔除下列卡，**在小池 early-return 与保底之前执行**；普通轮、刷新、Boss 追加轮复用同一规则：
     1. 未持有所需武器的 `upgrade` 卡 / 槽已占的 secondary `install` 卡 / 未持有 `requiresAbility` 所指能力的 ability 升级卡（#A23/#A28，原口径）；
-    2. 已达 `maxStacks` 的卡（原口径）；
+    2. 已达 `maxStacks` 的卡（原口径）。**#U44（2026-10-19 用户反馈「出现过、但不再持有的主、副武器、技能似乎就不再出现了，可以再次出现，允许玩家再次选择」）——安装类卡豁免**：`maxStacks` 只约束「当前仍在生效」的卡；**weapon `install` 卡与 ability 基础卡（无 `requiresAbility`）** 的重复资格改由「当前是否持有该型/该技能」动态判定（即第 1、3 条），达历史 `maxStacks` 不再一刀切拉黑。判定助手 `_isSwapBackCard(card)`（`js/tank_cards.js`），`cardEligible` 与 `applyCardEffects` 首行**两处同源**。语义：换掉双联火炮后双联安装卡重新进入候选、放下护盾后基础盾卡重新可抽（`install` 同型幂等、ability 重复入 `cardEffects` 无副作用）。**仍受 `maxStacks` 约束**：weapon `upgrade`、ability 升级卡（`requiresAbility`）、modifier/ammo/passive/drone/economy（叠加有上限，重复无收益）。回归 `scripts/test-cards.js` #U44 段；
     3. **已持技能去重**（#U18）：ability 键玩家已持有，且本卡不带 `requiresAbility`（即非该能力的升级）⇒ 不合格——原行为是抽到零收益的重复技能卡占掉一个候选位；
-    4. **属性达限过滤**（#U20）：按 `RULES.parameterLimits` 点分路径取边界，模拟下一级后越界即不合格（口径同商店侧 `runShopLimitBlocked`）；
+    4. **属性达限过滤**（#U20）：按 `RULES.parameterLimits` 点分路径取边界，模拟下一级后越界即不合格（口径同商店侧 `runShopLimitBlocked`）。**边界补齐（#U40，2026-10-19）**：`parameterLimits` 新增 `aimSpeed`（0.1~6；真实坦克 spec 基准包络 1.0~2.5，与 makeTank 缺省 0.15 两套量纲并存）/ `trackLock`（3~20s，基准 8s）/ `fireControlCrit` / `loaderAmmoCrit`（0~0.25 = critBonusCap 同源）——此前四参数无 limits ⇒ 满级精度/履带/暴击卡仍反复出现（用户反馈「射速、精度等升级满级后不该再出现」）；`computeStats` 聚合侧同步补 aimSpeed.max / trackLock.min 无条件钳制（对齐 crit 通道既有行为）。
     5. **「取最优」被动去重**（#U22）：`spall_liner`（取 min）/ `overmatch`（取 max）与已持同键被动比较，本卡不更优即不合格（这些被动按「取最强、不叠加」结算，弱档无收益）。
   - `abilities` 为空且池内有 `type:'ability'` 卡 → **保底抽取 1 张** ability 卡；
   - `secondaryWeapon` 为 none/缺省且池内有 `type:'weapon' && slot==='secondary'` 卡 → **保底抽取 1 张**副武器安装卡；

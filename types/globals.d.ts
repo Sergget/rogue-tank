@@ -18,6 +18,8 @@ declare function segRayIntersect(ox: any, oy: any, dx: any, dy: any, ax: any, ay
 declare function partCorners(t: any, partKey?: any, x?: any, y?: any, angle?: any): any;
 declare function partEdges(corners: any): any;
 declare function reflectDir(dirX: any, dirY: any, normalX: any, normalY: any): any;
+// #U38（2026-10-18）：确定性电弧/闪电折线（纯函数，抖动由 seed 哈希派生，绘制期无 Math.random）
+declare function lightningPath(x0: number, y0: number, ang: number, len: number, amp: number, segs: number, seed: number): { x: number; y: number }[];
 
 declare function hullPoly(t: any): any;
 declare function turretPoly(t: any): any;
@@ -54,6 +56,8 @@ declare function paintTurretShadow(ctx: any, verts: any, cx: any, cy: any, angle
 declare function getCachedTankSprite(color: any, kind: any, verts: any, hasTurret: any, heightClass: any, texture?: any): any;
 declare function paintPartTextureDirect(ctx: any, verts: any, cx: any, cy: any, angle: any, scale: any, color: any, kind: any, opts?: any): void;
 declare function paintPartTexture(ctx: any, verts: any, cx: any, cy: any, angle: any, scale: any, color: any, kind: any, opts?: any): void;
+declare function paintPatternBox(hullVerts: any, kind: any, pivotOffset?: any, seed?: number): { minX: number; minY: number; maxX: number; maxY: number; originX: number; originY: number };
+declare function paintEdgeWear(ctx: any, verts: any, isHull: any, minX: any, maxX: any, W: any, L: any, level: number, seed?: number): void;
 declare var SPRITE_CACHE: Map<string, any>;
 declare function spriteImage(path: string): any;
 declare function clearSpriteCache(): void;
@@ -159,6 +163,13 @@ declare function obbMTVs(polyA: any, polyB: any): any;
 declare function spawnMuzzleFlash(x: any, y: any, angle: any, style?: any): void;
 declare function spawnImpactFx(x: any, y: any, type: any, angle?: any): void;
 declare function burstExplosion(x?: any, y?: any, r?: any, count?: any, speed?: any, color?: any): void;
+// #U38（2026-10-18）：电磁轨道炮放电弧（炮身/炮口）+ 绘制入口
+declare function spawnRailDischarge(x0: number, y0: number, ang: number, len: number, scale?: number): void;
+declare function drawRailArcs(ctx: any): void;
+// #U38：tank_fx.js 的烘焙径向 sprite 贴图（绘制期零渐变分配的共用通道）
+declare function _radialSprite(kind: string, radius: number): any;
+declare function _blitRadial(ctx: any, img: any, x: number, y: number, radius: number, alpha: number, composite?: string): boolean;
+declare function spawnShockwave(x: any, y: any, maxR: any, dur: any, color: any, width: any): void;
 declare var pushLog: any;
 
 declare function turretPivot(t: any): { x: number; y: number };
@@ -174,6 +185,7 @@ declare function drawBrokenTracks(ctx: any, t: any): void;
 declare function drawCharredHull(ctx: any, t: any): void;
 declare function drawFireGlow(ctx: any, t: any): void;
 declare function drawShells(ctx: any, shells: any[]): void;
+declare function railChargeProgress(t: any): number;   // #U38：电磁炮充能进度 0..1（0=刚开火，1=满电待机）
 declare function drawCover(ctx: any, cov: any): void;
 declare function drawFoliage(ctx: any, covers: any[]): void;
 declare function drawGround(ctx: any, opts: { viewBounds?: { minX: number; minY: number; maxX: number; maxY: number }; biome?: string; seed?: number | string }): void;   // P-36/#81：biome 地面（底色 + 种子确定性低频色斑）
@@ -220,6 +232,7 @@ interface StripGenOptions {
   stripScreensX?: number;
   stripScreensY?: number;
   chunkCount?: number;
+  chunkRows?: number;     // #U35 多行片：1=单行（缺省），2=生存模式两行
   templateIds?: string[];
   scaleFor: (viewport: { vw: number; vh: number }, tpl: any) => number;  // 片内 scale 沿用 nodeScaleFor 口径
   buildingDensity?: number;
@@ -295,6 +308,10 @@ declare function getBakedSprite(key: string, w: number, h: number, layer?: strin
 declare function bakeAssetCanvas(key: string, w: number, h: number, layer?: string): any;
 declare function drawAsset(ctx: any, key: string, x: number, y: number, w: number, h: number, angle?: number): void;
 declare function drawAssetCanopy(ctx: any, key: string, x: number, y: number, w: number, h: number): void;
+// 有机轮廓路径（树冠/灌木等，js/tank_assets.js 顶层函数；tank_battledraw 以
+// `typeof blobPath === 'function'` 守卫调用，checkJs 下仍需声明）
+declare function blobPath(ctx: any, x: number, y: number, rx: number, ry: number, rot: number,
+  radiusFn: any, segs: number): void;
 
 // M1 声音占位系统（js/tank_audio.js，P-07 / §2.11）
 declare var SOUND_DEFS: any;
@@ -387,6 +404,8 @@ declare function cardStackCount(tank: any, cardId: string): number;
 declare function computeAmmoConfig(shooter: any, ammoKey?: string): any;
 declare function drawCardChoices(pool: any[], n?: number, optsOrRng?: any): any[];
 declare function weightedRarity(r: any): string;
+declare function pickBossArmament(pool: any[], opts?: any): any[];
+declare function cardEligible(card: any, owned: any): boolean;
 
 // Boss 系统（js/tank_boss.js，P-09 / §2.14）
 declare var BOSS_WEAKSPOT_KEYS: string[];
@@ -400,6 +419,9 @@ declare function makeBossEntity(boss: any, env: any): any;
 declare function applyBossStage(entity: any, stage: any): void;
 declare function updateBossStage(entity: any): { changed: boolean; from?: string; to?: string; stage: any };
 declare function updateBossTrackRepair(t: any, dt: number, opts?: any): { repaired: boolean };
+// #U43（2026-10-19）：Boss 进场简报（纯函数，js/tank_boss.js）
+declare function bossBriefing(entity: any): any;
+declare function bossBriefingLines(entity: any): string[];
 
 // 敌人/友军 AI 决策（js/tank_ai.js，P-10 / §6 条目 7）
 declare function aiConfig(): any;
@@ -492,6 +514,8 @@ declare function updateAbilityCd(t: any, dt: number): void;
 declare function updateAbilityCds(t: any, dt: number): void;
 declare var ABILITY_KEYS_INNATE: string[];
 declare function tryActivateAbility(t: any, key: string, ctx?: any): any;
+// 能力键 → 中文名（tank_abilities.js 顶层常量；Boss 技能标签消费）
+declare var ABILITY_LABELS: Record<string, string>;
 
 // 覆盖层视图模型（js/tank_screens.js，P-29）
 declare var SCREENS: string[];

@@ -762,3 +762,577 @@
 - **宽上限取 1.35× 而非 1.5×**：峰值过宽会压 strip 通行走廊（实测 1.5× 时峰值 469px）。
 - **效果**：河间交叉 **0**（无例外）；每 strip 河流数 ≤4（此前 H1T 恒多一条）；宽度沿程 cv≈0.2；`npm test` 45/45。
 - **细则归口**：`specs/map.md` §21（§20 的「H1T 设计内例外」已被 §21 取代）。
+
+### §4.90 2026-10-18 贴图/特效/阴影质量与渲染管线修复（#TEX6~#TEX9 / #FX3 / #MC1~#MC2）
+
+- **来源**：用户「检查项目中贴图的生成方式，优化它们，增强实现、提高贴图质量和效果，包括不限于坦克贴图、开火特效、地图贴图、阴影、纹理等」。全链路审计 + 实现，覆盖 `js/tank_paint.js` / `js/tank_fx.js` / `js/tank_battledraw.js` / `js/tank_assets.js` / `scripts/lib/mini-canvas.js` / 两页接线。
+- **① 贴图缓存键致命缺陷（两个）**：`getCachedTankSprite` 的键漏 `damageLevel` / `weatherSeed` / `appearance`，导致 ㈠ `renderHullTexture` 每帧算出的损伤分级**永不生效**（weathering 划痕/锈斑/掉漆全是死代码）；㈡ `tanks/*.json` 的 cupola / engineDeck 样式被静默忽略、全部画成内置默认件。现键含 `d{level}_w{seed}_c[…]e[…]`（`_appearanceKey` 定序拼接，cupola 支持对象与数组）。实测 damage0 vs damage3 车体差 357px、seed 换值差 609px、engineDeck 三态两两差 486/571px。
+- **② 炮塔永远不显示损伤**：`paintWeathering` 被 `if(isHull)` 包住，且 `renderTurretTexture` 不传 `damageLevel` ⇒ 残血时车体锈迹斑斑、炮塔锃亮如新。现炮塔按同一 hp 比推导分级，`weatherSeed = 车体 seed + 17`（相位错开），画在车长塔/瞄具之前。实测 dmg0 vs dmg3 炮塔差 411px（修复前恒为 **0**）。
+- **③ 光源方向被旋转两次（同屏两个光源）**：`paintTurretShadow` 先按 `worldAng` 旋转偏移，又在 `R(angle)` 局部系里 `translate` —— 净效果 `R(angle)·R(worldAng)·off`。实测 `hull=0`、炮塔 0→90° 时影方位从 54° 摆到 144°，而掩体投影恒 54°。改为「偏移是世界向量、局部平移取 `R(−angle)`」，漂移降到 **0.54px**。
+- **④ 车底影完全缺失**：程序化分支（实机唯一路径，所有车 `sprite.enabled=false`）根本没有车底影，履带直接压在地面纹理上、车体像贴纸。新增 `drawTankGroundShadow`：两层椭圆，**形状随车体转、偏移不随车体转**（先在世界坐标平移、再 `rotate(hullAngle)`）。漂移 0.04px。
+- **⑤ 掩体/植被投影升级为三层软边**（零模糊开销，禁用 `shadowBlur`）：建筑/岩石/残骸加墙脚接触暗带（消除两块偏移多边形之间的亮缝）；树加一层外扩椭圆 + 树干脆影；灌木/倒树加外扩柔和影 + 根部接触暗斑。不投影档位（road/mud/water/river/bridge）早退不变——`test-nodegen` 有强制断言。
+- **⑥ 三套从未绘制的特效接线**：`drawScorchMarks`（地面贴花层，坦克之下）、`drawShockwaves` 与 `drawTracers`（炮口闪光之后）此前**两页都没调用**，是彻底死代码。现按正确层级接入 `tank_mvp.html` / `tank_bench.html`。
+- **⑦ 特效重做（#FX3）**：炮口闪光 = 炮口烟 + **双层火舌**（外焰+白热芯）+ 径向渐变核心 + 外发光 + 冲击环；殉爆 = 外烟壳 + 地面受光晕 + 四段色阶主火球 + 白热核 + **12 段不规则冲击边缘**；焦痕三层（尘土光晕/10 段不规则焦体/弹坑内核）+ 淡入；冲击波双层环。
+- **⑧ 绘制期零渐变分配**：按「色阶名 + 半径档」把径向/线性渐变烘焙为离屏 sprite（`_radialSprite` / `_explosionSprite` / `_plumeSprite` / `_flameGlowSprite`），绘制期只 `drawImage` + `globalAlpha`。实测 20 个殉爆的 `createRadialGradient` 从 **60 → 0**、10 类炮口从 **61 → 1**（剩 1 次是磁轨炮长矛，非热点）。**自查抓到并修掉一处自伤**：`_plumeSprite` 画布高度误按 `len` 定，而外层扇形半径是 `R = len×2.4`，`wa=0.65` 时外焰垂直方向被切掉 58px（炮口焰像被水平削平的梯形）；改按 `R·sin(wa)`/`R` 派生包围盒，并加断言「烘焙 sprite 四边无触边像素」（对旧公式实测触发 54/56/178 个边缘像素⇒断言非空转）。
+- **⑨ 绘制期确定性**：移除 `drawFxParticles` 火花、磁轨炮电弧、`drawFireGlow` 闪烁里的 `Math.random()`，改用 `_fxHash` / `_fxNow` 时间量子。约定写入 `js/tank_fx.js` 头部：**spawn 可随机、draw 必须确定性**。实测同帧重绘逐字节一致（差 0px）。
+- **⑩ 贴图质感**：新增 `_texGrain`（0.5~1.5px 表面颗粒）与 `_texPatch`（**硬边多边形**迷彩色块），全部由固定种子哈希派生。迷彩由此前的「椭圆晕染」变为硬边色块；单色涂装（装甲灰/苏军绿/橄榄绿）补暗部+受光部+颗粒+掉漆/泥渍；数码迷彩 12×12 → 18×18 + 三色；焊缝加鱼鳞纹。量化：`camo_dunkelgelb` 颜色数 105 / 对比度 21.4（`none` 基线 27 / 10.9），`weld_seam` 对比度 26.6。
+- **⑪ 植被烘焙**：灌木 `bakeCanopy` 5 正圆 → 9 叶团环；树 `bakeCanopy` 3 大圆 → 暗腔 + 11 叶团环 + 受光侧亮叶团 + 24 道枝叶短弧 + 叶点。**包络硬约束**：新图元外沿必须 ≤ 原最大包络，否则烘焙包围盒涨大 ⇒ `cover-refs.json` 图片通道基准失效（`tree_canopy` 仍 58×58、`bush_canopy` 仍 46×38，仅 centroid 微调并已同步）。
+- **⑫ 资产缓存与烘焙开销**：`ASSET_CACHE` FIFO → **真 LRU**（原删最早插入者、命中不刷新，视口常用键照样被踢）；`PAINT_CACHE` 加上限 **512** + LRU（键加字段后单车条目从 1 抬到 4~12 条且全仓库无 `clearPaintCache` 调用点）；烘焙探针改「自适应 PAD + 触边加倍重试」，10 个资产层探针像素量降 **59%**（1,216,006 → 497,422）。
+- **⑬ 离线生图不可信的两个垫片缺陷（必须修，否则视觉无法验证）**：`mini-canvas.drawImage` 完全忽略 CTM ⇒ `render-map-shot.js` 默认 `--scale≠1` 下掩体/树冠**位置全错**；改成逆变换采样后平移/缩放/旋转/斜切全对。`globalCompositeOperation='lighter'` 只存状态不生效 ⇒ 所有发光在离线图里发灰；改成真加法混合。
+- **⑭ 地面纹理开销**：色斑逐斑 `beginPath/ellipse/fill` → 按 (alpha 档 × 颜色) 合批（≤8 次 fill）；两页网格线逐线 `stroke` → 一条 path 一次 `stroke`。1920×1080 实测 ctx 调用：meadow 26,973→**13,451**、snow 35,315→**11,795**、desert 7,184→**4,695**、concrete 6,749→**3,339**。
+- **⑮ 新增回归测试 `scripts/test-render.js`**：既有 `test-tanks.js` 的绘制断言是 `mock ctx + 不抛错`（mock 让任何调用恒返回自身，NaN/漏画/键丢字段一律测不出），`test-assets.js` 同理。新测试用**真实光栅化**逐像素断言 **23 项**（实测 `node scripts/test-render.js` 输出 23 个 ✓）：缓存键三字段生效 + 有界/LRU、炮塔 weathering + cupola 样式、两处阴影方向世界固定 + 落右下、`drawImage` 跟随 CTM、`lighter` 加法合成、source-over 未回归、特效绘制期确定性、烘焙 sprite 不自裁切（火舌 7 组 × 径向 5 类 × 3 半径）。已接入 `run-tests.js`，`npm run test:render` 可直接跑。
+- **验证**：三链——① `node scripts/check-html.js` EXIT=0「All checks passed」；② `node node_modules/typescript/bin/tsc --noEmit` TSC=0；③ 单测逐条跑 **46/47 通过**。唯一失败的 `test-cover-gen.js` 是**环境限制**：该测试用 `spawnSync` 捕获子进程 stdout，本沙箱下 `spawnSync` 一律 `EPERM`（`status=null`），与代码无关；其纯逻辑部分（出图宽高比 10/10、prompt 解析 10/10、锚点/质心字段齐全）全部通过，`node tools/dump-cover-refs.mjs --check` 单独跑 EXIT=0「✓ 与烘焙代码一致」。`npm run test:browser` 需系统 Edge + 更宽进程权限，本沙箱无法执行，**待人工补跑**。
+- **细则归口**：`specs/map.md` §22（贴图/阴影/植被/地面材质/垫片语义/回归保护）+ `specs/combat.md` §6「特效分层规范（#FX3）」。
+
+## §4.91 坦克贴图审核标准 v2 + 三处迷彩可读性重做（2026-10-18）
+
+- **起因**：用户问「目前生成的坦克贴图符合你的审美吗」，并要求**先定标准再改**。本会话 `read_image` 无图像输入能力（模型未声明 image input），无法靠肉眼判定——因此把「好看」操作化为可测量、可回归的指标，而不是凭印象打分。
+- **旧标准的两个实证失效模式（这是本批最重要的产出）**：
+  - **放大审美陷阱**：`hullPoly` 本地 bbox 实测 **73.5×38** 世界像素，`renderHullTexture` 以 `scale=1` 贴回，相机 `RULES.camera` zoom 0.8~1.3 ⇒ 屏幕只有 **59~96px** 宽。任何在 300×300 探针上「越看越精细」的改动实机可能完全不可见。**所有指标必须在离屏 sprite 的 1:1 像素上测**。
+  - **指标可作弊**：v1 标准用「颜色数」与「相邻像素对比度」判定成功，两个指标都被 1px 颗粒噪点刷高——颗粒越密分数越高，但玩家看到的只是「脏」，迷彩块反而更读不出来。**单指标一律可被作弊**，标准必须含互相制衡的**区间**（过高过低都扣分）。
+- **标准 v2 的七条指标**（`scripts/audit-textures.js`，可执行、可 `require`）：① `tones` 8 级量化后占比 >3% 的色调数；② `valueSpan` p5~p95 亮度跨度；③ `shadeAmp` r=10 平滑后的 std（体积感）；④ `blockAmp` 去趋势残差 6px 分块 std（★迷彩块对比）；⑤ `blockRatio` = blockAmp/shadeAmp（★涂装是否被光照渐变淹没）；⑥ `patchScale` 平滑残差连通域中位直径 / 车宽（★色块尺寸）；⑦ `mipSurvival` 2×2 降采样后块级振幅 / 原图同频段振幅（★结构能否活过缩放）。加权 100 分，**达标线 80**。
+- **按设计意图分类评分（关键设计决定）**：用一套标准评判迷彩与单色涂装是**错的**——迷彩的目的就是高块级对比 + 明确色块周期；单色涂装靠蚀刻细节与光影体积感取胜。拿迷彩的 `blockAmp` 区间卡 `paint_panzergrau` 只会逼出「给灰漆加假迷彩」这种错误改法。故分三类：`plain`（单色/蚀刻，看 shadeAmp/mipSurvival/tonesSpread）、`camo`（迷彩，看 blockAmp/blockRatio/patchScale）、`digital`（数码迷彩，**第三类**——设计语言就是小像素簇，用块状迷彩的 patchScale 目标卡它等于「要求数码迷彩别那么数码」，改用更严的 mipSurvival + 更小的簇尺寸区间）。
+- **指标自身的 5 次返工记录（留档避免重犯）**：为「噪点 vs 结构」先后试过 ① `microContrast/blockAmp` 颗粒比 → 全部贴图 2.4~3.3，零区分度；②「邻居是否也显著」→ 全部 1.00（密集颗粒的邻居当然显著，方向反了）；③ `L − blockMeans(6px)` 同号邻域 → 全部 1.00（块均值是分段常数，块内残留是平滑渐变，符号一致）；④ 中值残差同号邻域 → 0.18~0.38 有数值但 `weld_seam`（最该是「线」）反而最低，量的其实是「厚度」；⑤ 最终改用 **mip 存活率**——这问题本来就有标准答案，看它能否活过降采样。同理 `patchScale` 也返工 4 次：块均值连通域全 0.08（网格切碎）→ 块均值自相关全 0.22（量到网格周期）→ 平滑残差自相关全 0.12（量到最快振荡）→ 同号游程全 0.11（被 1px 翻转切碎）→ **最终平滑残差连通域**才得到真实值。
+- **修掉的三处真实缺陷**（缺陷均先量化再动手）：
+  - `camo_winter`：白块 `rgba(255,255,255,0.35)` 叠在亮度 216 的近白底上，落色仅 229，**只差 13** ⇒ 几乎不可见。改为 4 块深灰掉漆区（−45 级）作骨架 + 2 小块纯白高光 + 掉漆边缘聚集深斑。`patchScale` 0.09→0.17，分 85→96。
+  - `camo_urban`：5 个深 `fillRect` + 4 个浅 `fillRect`，**轴对齐矩形**在菱形车体上像 UI 色块；且深块只差 −21、浅块 +16，低于车体自身光照渐变。改为硬边多边形（与其他迷彩统一 `_texPatch`）、明度差拉到 −38/+36、并沿车身长轴分布。分 85→90。
+  - `camo_digital`：18×18 网格 ⇒ 单元 **2.56px**（已是单像素噪点级，0.8 缩放下被平均掉）；色2/色3 与底色只差 **+5/−5** 等于没画；三套 `%5/%7/%11` 散点没形成数码迷彩的「成簇」结构。改为 10×10 网格（单元 4.6px）+ 三色差 −24/+22/−12 + **簇生长**（每簇 2~5 个相邻格，优先横向延伸）。分 76→100（按 digital 意图评）。
+- **顺带修掉的两处**：`armor_plate` 与裸装甲差异块仅 **1.5%**（全部笔画压在 1px 网格线上，实机被淹没）⇒ 板缝 2px 加深至 0.26 + 每板交错明度偏移 + 板缘倒角高光，差异升到 **85.3%**；`paintWeathering` 锈斑半径 1.5~4.5px 在 73px 车体上只占 ~1% 面积 ⇒ 放大到 2.5~6.5px、alpha 提到 0.38+0.17×level，`paint_soviet` 的 dmg0→dmg3 差异块 3.0%→5.5%、`rust` 13.4%→16.5%。
+- **标准纳入强制回归**：`scripts/audit-textures.js` 支持 `require`（`require.main !== module` 时**完全静默**，避免污染调用方测试日志）、`--json` 与 CLI 报表三模式。`scripts/test-render.js` 新增 **6 项断言**（实测总数 **23→29**）：覆盖全部 14 个 `TEXTURE_DEFS` 键、全部 ≥80 分、无 C 级指标、核心指标无 C、与裸装甲可区分（≥10% 差异块，`armor_plate` 按设计豁免）、`rust` 损伤 0→3 可见。**为什么必须进测试**：本轮三处缺陷在旧的 test-render 里全部不可见——旧断言只看「画了没画 / 抛不抛错」。
+- **验证**：`node scripts/audit-textures.js` 平均 **97/100、14/14 达标**（13 个 S、1 个 A）；三链 ① `check-html.js` EXIT=0 ② `tsc --noEmit` TSC=0 ③ 单测 **46/47**（`test-cover-gen.js` 仍为沙箱 `spawnSync` EPERM 环境限制，与代码无关）；地图渲染两次 SHA256 一致（确认只动坦克涂装、未碰地面管线）。
+- **细则归口**：`specs/map.md` §23「坦克贴图审核标准」。
+
+## §4.92 坦克贴图 v3：1:1 视觉审阅 + 整车图案坐标系 / 同型车变体 / 边缘磨损（2026-10-18）
+
+- **起因**：用户再次要求「先定标准、审阅、再改算法」。与 §4.91 不同，本会话**具备图像输入能力**——不再把「好看」完全退化成数字矩阵，而是用 `mini-canvas` 把真实绘制代码在**实机 1:1 / 5× / 10× / 6 种 biome 背景**下出图，逐张目视复核，再用 §4.91 的 v2 指标交叉验证。
+- **审阅看到、而 v2 量不到的三个问题**（这是 v3 标准的来源）：
+  - **炮塔图案缩水**：旧 `TEXTURE_DEFS.draw(ctx, bbox)` 的 bbox 是**本部件自己的**。车体 73.5px 宽、炮塔 32.3px 宽 ⇒ 同一条 `fx=0.30` 的色块在炮塔上只有一半大；炮塔与车体交界的迷彩断开。
+  - **同型车完全同图**：图案种子全是常量。同屏两辆 Tiger 的迷彩像素级相同。
+  - **边缘没有战损**：`paintWeathering` 的划痕/锈斑只撒在装甲面内，10 倍图里是「彩色碎屑」；棱边（真实战车最先掉漆的位置）干净得像刚出厂。
+- **v3 标准（3 条通过/不通过，不并进 v2 的 100 分）**：
+  - `variation`：同贴图 × weatherSeed 5 / 98765 的画面差异占比 **≥8%**（只对 camo/digital；单色涂装没有图案布局可言）。
+  - `edgeWear`：dmg0→dmg2 在**轮廓内侧 2px 带**上的亮度改变占比 **≥17%**。
+  - `continuity`：**涂装层**（`detail:false`）在车体/炮塔同一像素坐标的高通残差比 `stdΔ/stdHull` **≤0.85**（≈1.4 = 两套独立图案，≈0.3 = 同一套漆）。
+  - `scripts/audit-textures.js` 新增 `v3Checks` / `continuityScore` / `fieldDiffRatio` / `edgeMask`，CLI 增加 v3 表；`scripts/test-render.js` 新增 **3 项断言**（⑦b）覆盖全 14 键、全员 PASS、迷彩连续性最差值 ≤0.85。
+- **算法改动**：
+  - **整车图案框 `paintPatternBox()`**：车体用 hull bbox；炮塔用车体 bbox 平移到炮塔局部系（减 `turretPivotOffset`），色块绝对尺度一致、跨座圈连续。网格类贴图（`armor_plate`/`weld_seam`）额外使用 `bbox.originX/originY` 对齐板缝（否则 14px 网格在炮塔上错开 `pivot mod 14`）。`texBox` 纳入 sprite 缓存键。
+  - **逐车图案平移**：图案框按 `weatherSeed` 平移 ±8/±5px ⇒ 同型多车不再共用一套迷彩，同车像素仍完全确定。
+  - **喷涂边缘**：`_texPatch` 增加错位 lobe、1px 同色 overspray 描边与边缘散点，顶点抖动 0.66~1.20。
+  - **边缘磨损 `paintEdgeWear()`**：沿多边形边界内侧 1.0~3.0px 布掉漆（亮金属/深褐锈底两色）+ 缺口阴影 + 等级 ≥2 的锈水下渗；dmg0 不画。
+  - **机械件亮度收敛**：铆钉高光 +26→+14、周视镜 +34→+22、散热器叶片 +24→+15、瞄具边框 +20→+12。1:1 下过亮的 1px 结构会连成 LED 点阵，抢走涂装层级。
+  - **履带去 LED 化**：旧「防滑齿 +10% + 导向齿圆点」在 1:1 下是一条等距亮灰点阵。改为深基体 + 上缘受光 / 下缘蔽光 + 每节暗缝 + 短横纹 + 压暗导向齿。
+- **过程中修掉的一个测量陷阱**：`paintPatternBox` 原来只在 `t.turretPivotOffset` 存在时减座圈偏移；默认实体（未 `applyTankConfig`）该字段为 `undefined`，测得的图案框与实机差 8px，`continuity` 恒 ≈1.4。改为缺省 `{dx:8,dy:0}`（与 `turretPivot()` 同口径）后，涂装层相关性从 0.13~0.48 升到 **0.96~0.99**，`armor_plate` 的 `continuity` 1.29→0.16。**这条留档的原因**：它说明 v3 指标必须先证明「能量到正确的东西」，否则会拿一个错误口径去验收。
+- **验证**：`node scripts/audit-textures.js` → v2 平均 **97/100、14/14 ≥80**；v3 **14/14 PASS**（`continuity` 最差 0.57，`edgeWear` 18.0%~27.8%，`variation` 14.0%~32.2%）。`npm run check` EXIT=0（含 `tsc --noEmit`）；`node scripts/test-render.js` 全部通过；`test-tanks` / `test-assets` / `test-qa` / `test-map` / `test-nodegen` / `test-audio` / `test-dmgtext` 逐条 EXIT=0。`npm test` 整体运行器在本沙箱因 `spawnSync EPERM` 全部无法启动（环境限制，与代码无关，§4.90 已记录同一问题）；`test-cover-gen` 同样受此限制。`npm run test:browser` 需系统 Edge，本沙箱未执行，**待人工补跑**。
+- **细则归口**：`specs/map.md` §22.1（纹理层新增工具与图案坐标系）+ §23.8（v3 三条检查、阈值、代码依据与基线）。
+
+## §4.93 坦克材质化：3× 超采样烘焙 + 材质光照层（2026-10-18）
+
+- **起因**：用户反馈「纯像素风格感觉不够好看，更改材质和纹理使其更有质感」。这不是再加几种迷彩能解决的——**像素感的根因是 1× 离屏烘焙 + 相机 zoom 0.8~1.3 放大一张 73×38 位图**，贴图再精细也会在放大时变成硬边像素。
+- **方案（两层）**：
+  - **3× 超采样烘焙（`SPRITE_SCALE=3`）**：`getCachedTankSprite` 以 3× 渲染（约 246×138），`paintPartTexture` 绘制时 `scale(1/3)` + `imageSmoothingEnabled` 双线性降采样到 1×；新增 `spriteView1x(entry)` 供审计/测试取得「玩家实际看到的 1:1 一张」。典型 <100 条缓存 ≈ 20MB，上限 512 条最坏 ≈ 70MB。
+  - **材质光照层 `paintMaterialPass`**：内侧 AO（3 圈内缩描边）+ 渐变倒角 + 左上暖边/右下暗边 + 受光侧高光池 + 沿车体长轴的拉丝 + 亚像素细颗粒 + 下缘积尘。全部在烘焙期完成，运行时零成本。
+  - **细节立体化**：车长塔/驾驶员舱盖/装填手舱盖/瞄具增加右下软投影（凸起件与光源同向）；炮管改为 4 条平行带（深底→中间调→受光高光→背光暗边，偏移方向取世界光在炮管法线上的投影），不再是一根平色线；车体/炮塔暗色勾线之外再加一条**暖色轮廓光**（左上受光边 1px 级渐变），把车从地面「立」起来。
+  - **底色抬亮**：车体 `paintShade(bodyCol, -18)` → `-12`；旧暗底在 1:1 下会把迷彩读成湿泥。
+- **离线验证链同步修复（否则这次改动无法验收）**：
+  - `mini-canvas.drawImage` 增加**双线性降采样**（仅设备像素/图像像素 <1 时启用；1:1 与放大保持 nearest，既有逐像素断言不受影响）。没有它，3× 超采样的收益在离线图里会被 nearest 采样全部丢掉。
+  - `MiniGradient` 改为**捕获创建时 CTM、采样时逆变换回用户空间**。旧实现直接在设备像素上套原始坐标：3× 烘焙时顶光渐变只覆盖左上 1/9，离线图与浏览器不等价（实测 1× 直出 vs 3× 降采样平均亮度差 8.2，修复后 0.2）。
+- **审核标准校准（v2 的可测量基准变了，必须重标定）**：
+  - 所有指标改在 `spriteView1x` 的 1:1 视图上测（不是 3× 原图）。
+  - `patchScale`：超采样/材质平滑后连通域只保留色块核心，读数整体下降 ~35%；且材质倒角在轮廓内侧形成高振幅亮/暗带，必须**排除轮廓 3px 带**再量（否则 NATO 被量成 0.08 的边缘带厚度）。目标区 0.18~0.45 → **0.08~0.26**。
+  - `tones`：平滑顶光/倒角把亮度铺满 8 个量化级，不再等于「脏」；plain/camo/digital 的 tones 上限放宽到 8（S）。
+  - `mipSurvival`：平滑材质使比值可略 >1（大尺度结构保留），上界 1.0→1.15（S）。
+  - `continuity`：材质层是逐部件独立生成的光照，不是涂装图案；测量时临时 `setPaintMaterial(false)`，只比涂装层（否则 plain 贴图残差比 2.4）。
+- **验证**：`node scripts/audit-textures.js` → v2 **97/100、14/14 ≥80**，v3 **14/14 PASS**；`test-render.js` 新增 3 项断言（`SPRITE_SCALE≥2`、`spriteView1x` 尺寸 = 烘焙/3、材质层关/开像素差 >100）并全部通过（实测 1739px）；`npm run check` EXIT=0；全部 Node 测试 46/47（`test-cover-gen` 仍为沙箱 `spawnSync`/临时文件 rename 环境限制）；`npm test` 整体运行器与 `test:browser` 在本沙箱分别因 `spawnSync EPERM` 与 Edge `spawn EPERM` 无法执行，**待人工补跑浏览器实机**。
+- **未采用的更写实路线（留待有浏览器的会话）**：`assets/tanks/*.png` 的 AI 渲染精灵（1200×672 车体/炮塔）质感更强，但需要逐车确认比例/轴心/层序、给队伍色与损伤分级补适配；本沙箱无法启动 Edge，不能目视验收，因此**不擅自启用**。
+- **细则归口**：`specs/map.md` §22.1（超采样/材质层/炮管/轮廓光）+ §22.2（3× 缓存）+ §22.6（mini-canvas 双线性/渐变 CTM）+ §23.2/§23.8（重标定后的区间与 v3）。
+
+## §4.94 生存模式四项实机反馈 + 小地图公路/补给点（#U35，2026-10-18）
+
+用户四项要求：生存模式①补给点显示在小地图上 ②卡牌挑选在**每一波结束**（与标准模式同张数）③地图生成算法参考最新标准模式、**道路上不能有房屋树木**；任意模式④小地图上显示公路。
+
+- **④ 小地图公路（根因是坐标语义，不是「没写绘制」）**：`tier='road'` 的 cover 自 `cde3bc3` 起是**整链连续多边形**——`w/h` 只是整链外接 bbox（实测某链 1030×4645）、`angle` 恒 0、真实形状在 `verts`（局部坐标）。旧 `drawMinimap` 把 road 归到 `tierGroup='ground'`，按 **bbox 中心画一个 2.2px 点** ⇒ 一条横贯 17000px 的公路在小地图上只有一个点。改为 `roadCoverPolygonPoints` 逐 vert 平移后**逐点**过 `worldToMinimap`（strip 模式 `sx≠sy`，统一 scale 会画歪）→ path 填充浅灰；顺序在建筑/植被之前，且 `vegCells` 跳过 road 避免重复点；无 verts 的旧 OBB 段回退画点。真实数据光栅化抽查：standard seed=42 最大链 216 verts，小地图 x 跨度 `[-0.1, 170.1]` 满框贯穿。性能 0.21 ms/帧（极端 8 链×1200 verts 0.72 ms）⇒ 不抽稀。
+- **① 小地图补给点**：新增 `opts.supplyStations` + 纯函数 `minimapSupplyMarks`——5px 方块 + 十字 + 细描边、色 `rgba(190,255,150)`，与玩家绿点（`#7ed957` 圆 r=3）**异色异形**；`opts.supplyOnCooldown` 变灰。缺省不传零回归。mvp 侧仅生存模式传 `currentNode.supplyStations`。
+- **② 选卡移到每波结束**：原口径**只有 Boss 波**弹抽卡且固定 **5 选 1**，普通波整场无卡。现 `finishSurvivalWave` 对**每一波**都弹选卡：普通波 `pendingLootRounds=0` → **5 选 2**；Boss 波 `=1` → **5 选 3** 并启用 `RULES.cards.bossRound` 的稀有度/弹种/技能/主副武器保底。`rewardPickTarget()` 删除 `GAME_MODE==='survival' ? 1` 特例，文案与 `shortBy` 同步统一。补给站职责收窄为「回血 + 参数升级商店」。
+  - **顺带修掉一个模态穿帮**：生存快速选卡不切 `flow` 态，`loop()` 的 battle 门控拦不住 ⇒ 卡片遮罩后面玩家仍能驾驶/开火（标准模式 reward 屏是冻结的）。把 `survivalQuickPick` 并入 `paused`（只跳 `update`，`draw` 照常渲染冻结快照，与 pause 同款）。
+- **③ 生存地图改标准生成链**：删掉 `bossOnly` + `stripForBoss` 两个 hack，改走**标准 `makeNode` + `env.noEnemies`**（不生成常规敌、`quota=null`、`defenseLines=[]`、`boss=null`），尺寸唯一归口 `RULES.nodeMap.strip.survival = {screensX:5, screensY:5, chunkRows:2}`。旧实现在 5×5 屏的 strip 里片高只有 ≈3.05 屏 ⇒ 纵向裁剪后**上下大块空白**（底部 400px 带内元素数 **0**）。新增 `opts.chunkRows` 行×列网格（缺省 1 逐字节零回归，sha1 验证）：`stripH=Σ行高`、纵向不再裁剪 ⇒ 实测 **6.0×6.5~6.6 屏**、349 covers / 8.89 屏⁻¹、底部空白 525→26px。
+- **③ 道路上不得有房屋/树木（核心缺陷）**：strip 级路网 cover 在**所有片生成完之后**才 push 进 `covers`，而逐片 `pruneOverlappingCovers`（含 #U32 避路）在片内跑，**看不到 strip 级路面** ⇒ 片内建筑/树/灌木压路无人清理。新增 `clearCoversOnRoads`（verts 精判：顶点互入 + 边相交；旧 OBB 段退化为 SAT），在 `generateNode` 返回前与 `generateStrip` 收尾各跑一次；命中先确定性最小推出、推不出才移除、不耗 rng。实测 8 seed：**压路 0 个**（改前 seed=999 有 9 棵树、seed=7 有 3 栋楼 + 1 个 `soft`、seed=2024 有 1 楼 + 1 灌木；标准 seed=42 有 10 棵）。AABB + 256px 边网格粗筛 ⇒ `test-strip` 8.7s。
+- **Lead review 拦下的一个真实退化（值得记的教训）**：实现方初版把「行间接缝净空」做成**行界 ±300px 整带删除 structure/foliage**，在地图上劈出**整条 600px 横贯空白带**（seed=999 y2000~2600 连续 6 个 100px 细带元素数全 0），且其测试断言用「3 seed 取**并集**」把单 seed 空带掩盖了。判定：**行方向不是推进轴，x 向接缝那套「留出可通行竖带」语义不能照搬到行方向**。改为只推「世界 AABB 真正跨过行界」的元素（推不出才删）+ `fillEmptyBands()` 确定性补植，断言收紧为**逐 seed 逐带**。终态逐 seed 400px 空带 **0 个**（100px 仅剩「整带为路面」「<50px 薄片」两类合法情况）。
+- **校准基线**：与 HEAD 逐格对照——`coverCoverage` 漂移 **0.000000**、`connectivity` **0.000000**（7 模板×5 难度仍全 1.000）、`minPassageWidth` 最大 **0.168**（口径 ±0.5）⇒ BASE 未改，仅追加带日期的重锚记录。当前最紧 `village_center d=0.1` 0.884→0.716（窗口下沿余 0.316）。
+- **三链验证**：① `node scripts/check-html.js` EXIT=0 ② `node node_modules/typescript/bin/tsc --noEmit` EXIT=0 ③ 逐个直跑 `run-tests.js` 列出的 45 项单测：**44 / 45 通过**（`test-cover-gen.js` 为沙箱 `spawnSync`/临时文件 rename 的 EPERM 环境限制，与本批无关——该文件与 `tools/gen-covers.mjs` 均无改动；`run-tests.js` 整体运行器本身也因 `spawnSync EPERM` 无法在本沙箱跑，故改为逐项直跑）。`test:browser` 需系统 Edge，**待正常环境补跑**。
+- **细则归口**：`specs/map.md` §24（生存生成链/多行片/道路净空/校准）+ §14.4（小地图公路与补给点）；`specs/combat.md` §14.1b（每波结束选卡与张数口径）。
+
+## §4.95 坦克与地图元素的立体感：侧壁/座圈/树冠球体/岩石多面体（2026-10-18）
+
+- **起因**：用户反馈「炮塔车体没有立体感，地图上的树岩石等缺少阴影，也没有立体感」。
+- **核实到的根因**（不是「再加点高光」能解决的）：
+  - **坦克**：顶面是平涂多边形 + 一圈暗勾线，没有**高度**；炮塔只是「贴」在车体上。上一轮材质层只改了表面明暗，没有改变轮廓的 2.5D 关系。
+  - **树**：`bakeCanopy` 的受光叶团放在**右上方**，而全局影子落**右下**——受光方向与投影方向相反，这是树冠读起来「平」的直接原因；树冠本身也没有整体球面渐变。
+  - **岩石**：`rock-poly` 是「平涂灰多边形 + 两条浅色棱线」，没有逐面法线、没有侧壁；投影偏淡。
+- **实现**：
+  - **坦克侧壁 `drawPartSideWall`**：按世界光反向偏移轮廓实心填充（外层深 + 内层中暗），顶面盖住其余部分，露出背光侧 2~3px 的立面。偏移在世界坐标里固定（局部 `R(−angle)`），车体任意朝向都同光源。**绘制顺序改为「地面影 → 车体侧壁 → 履带 → 车体顶面」**——侧壁若画在履带之后，会把履带链节整块盖掉，像坦克垫了一块黑板。
+  - **炮塔座圈**：`drawTurretRing` 改为凸台（右下偏移暗环 + 顶面 + 受光描边 + 虚线座圈缝），放在炮塔软影之后、侧壁之前；炮塔坐在凸台上而不是贴在车体上。
+  - **树冠**：`bakeCanopy` 在叶团之上叠左上受光→右下蔽光的线性渐变 + 右下暗冠缘，受光叶团从右上方改到**左上方**；树冠投影三层加深并放大（0.14/0.15/0.17，偏移 5~18px）。
+  - **岩石**：逐边三角面按「边法线·光向」着色（暗 `rgb(74,74,71)` → 亮 `rgb(188,188,180)`），加右下侧壁、受光棱边高光、2 条裂缝；`drawCoverShadow` 的 box/rock 三层影 0.13/0.11/0.18 → 0.17/0.14/0.24。
+  - **建筑/全高掩体**：`box` 分支在屋顶前画右下偏移 4.5/5.6px 的暗色体块，屋顶盖住其余部分，露出背光侧墙体。
+- **回归**：`test-render.js` 新增 ⑧ 五项——⑧a 树冠左上受光 > 右下背光（实测 +38.5）、树冠右下投影 < 裸地（90.8 < 120.9）；⑧b 岩石顶面 ≥3 个量化色阶（实测 7）、左上 > 右下（163.2 > 90.1）、右下外缘有影（72.5 < 120.9）。
+- **验证**：`node scripts/test-render.js` 全部通过；`npm run check` EXIT=0；全部 Node 测试 46/47（`test-cover-gen.js` 仍为沙箱 `spawnSync`/临时文件 rename 环境限制）；`npm test` 运行器与 `test:browser` 在本沙箱分别因 `spawnSync EPERM` / Edge `spawn EPERM` 无法执行，**待人工浏览器补跑**。
+- **细则归口**：`specs/map.md` §22.8（2.5D 高度与方向光）+ §22.1（炮管/轮廓光）+ §22.4（树冠烘焙）。
+
+## §4.96 地面纹理抖动与掉帧：视口锚定烘焙 + 相机屏幕像素对齐（#GT/#U36，2026-10-18）
+
+用户反馈：「部分地图 biome（如雪地、沙漠）的纹理会随着玩家移动变化，相应的帧率也大幅下降。」——**两个互相独立的成因**，只修一个只能解决一半。
+
+- **先证伪了最直觉的猜测**：地面纹理由「世界格 hash」派生，几何层本就世界锚定。用 `Proxy` 记录全部 path 图元的世界坐标做集合比对（相机位移取 biome 自己的 cell 整数倍，避免格边界干扰）：6 个 biome 的 Jaccard 相似度 0.75~0.87，差集完全来自视口裁剪 ⇒ **不是「纹理跟着相机生成」**，问题在别处。这一步避免了去改本该正确的 hash 逻辑。
+- **成因一（性能）：每帧重画世界锚定纹理**。`_paintGroundTexture` 每帧重算并重描全部图元，而这些图元与相机无关。1920×1080 实测：snow **11,717 图元**、meadow 14,047、desert 4,777、mudland 6,455；zoom 0.5 看全图时 snow **45,087**、mudland 23,641 —— 单帧地面纹理 31~85ms，而 60fps 总预算只有 16.7ms。**此前的「alpha 分桶合批」只把每图元 5 次调用压到每桶 2 次，图元数本身没变，所以仍然掉帧**。
+  - 修法：`ensureGroundCache`/`drawGroundCached` 把地面层烘焙进视口大小的离屏画布、按世界坐标锚定；相机在内半区移动时只 blit 1 次，过迟滞才重烘焙。实测每帧 ctx 调用 **11,742 → 6**（snow@zoom1）、**45,112 → 6**（snow@zoom0.5），烘焙 1/40 帧（97.5% 命中）。
+  - **返工记录**：首版护栏按「世界尺寸 > 4096 不烘焙」，而 zoom 0.5 时世界视口 3840×2160 +MARGIN = 4480×2800 ⇒ 被误拒，**正好掉在最需要优化的场景**。现改为按缓冲**像素数**判定，并把烘焙缓冲区按「世界尺寸 × zoom」建，使任何 zoom 下缓冲成本恒为视口像素级。
+- **成因二（观感）：亚像素重采样**。`cam.x/cam.y` 是阻尼跟随的浮点值，`translate(-cam.x,-cam.y)` 把世界推进亚像素位置；1~2px 的高对比细图元（雪粒、沙纹 1.2px 描边）每帧以不同相位重采样 ⇒ 亮度逐帧跳变。**这解释了为什么只有雪地/沙漠这类细纹理 biome 明显**。
+  - 修法：`renderCamPos(cam)` 给出屏幕像素对齐的渲染位置 `round(cam.x·zoom)/zoom`。
+  - **关键教训——量化必须在屏幕空间**：屏幕位移 = `δ·zoom`，须 `δ·zoom ∈ ℤ`。我第一版写成 `round(camX)`（世界整数），在 zoom≠1 时屏幕位移仍带小数：实测 zoom 1.6 时残差 **0.80%，比不取整的 0.41% 更差**（zoom 0.8 也退化到 0.31%）。改为 `round(camX·zoom)/zoom` 后 6 个 zoom 全部 **0.00%**。端到端终验（3 zoom × 2 biome × 360 世界点）：**像素对齐后最大通道差 0**，旧行为最大 27。
+  - 纯渲染取值：物理/AI/命中继续用浮点 `cam.x/cam.y`。
+- **成因三（同批发现）：biomeZones 1 维 x 带的区段重叠（#U36）**。上一批 #U35 引入 `chunkRows=2` 后，`chunks` 是行×列展开而 zone 只有 x 区间 ⇒ 同列不同行 x 相同、biome 不同；`drawGround` 又按视口全高填充 ⇒ 后画整片盖住先画，两个 biome 的**纹理层叠在同一片像素上**（alpha 叠加偏亮 + 纹理密一倍），视口边缘切换时同样读作「纹理在变」。改为 2 维矩形 `{x0,x1,y0,y1,biome}`，`y1` 取**行带高**（不是 chunk 自身 `c.h`——那会在行间留 37~147px 纵缝）。
+- **一个踩过的度量陷阱（写进 specs 防复犯）**：不能用 `mini-canvas` 的墙钟时间去判断缓存是否生效——它的 `drawImage` 是纯 JS 逐像素拷贝，与浏览器 GPU blit 差几个数量级，实测「直绘 vs 缓存」比值恒为 **1x**，完全掩盖了真实收益。正确指标是与实现无关的量：每帧 ctx 调用数（Proxy 计数）/ 烘焙次数 / 像素一致性。
+- **三链验证**：① `node scripts/check-html.js` EXIT=0 ② `node node_modules/typescript/bin/tsc --noEmit` EXIT=0 ③ 逐个直跑 `run-tests.js` 列出的 45 项单测 **45 / 45 全绿**（本次沙箱下 `test-cover-gen.js` 亦通过）。`test-render.js` 新增 ⑨a~⑨f 共 8 条断言，并对 ⑨a/⑨c/⑨e 做了**变异测试**确认非空转（分别改回世界取整 / 缓存 key 去掉 biome / 强制直绘，三条全部变红）。`test:browser` 需系统 Edge，**待正常环境补跑**。
+- **细则归口**：`specs/map.md` §25（地面烘焙 + 相机对齐 + 2 维 zone）+ §22.5b（drawImage 不可互换的度量教训）。
+
+## §4.97 河流三修：道路免疫几何误判 / 河宽上限 / AI 敢涉水（#U37，2026-10-18）
+
+用户反馈三件事：①「河流贴图和实际『溺毙』生效的范围不一致，有的贴图有河流但是没有减速+溺毙效果」②「河流的宽度需要限制，不能造成坦克无法涉水过河」③「敌方 AI 的避水算法造成他们也不敢涉水追击玩家」。三条各有独立根因，且都不在最初怀疑的地方。
+
+- **① 贴图 vs 物理不一致 —— 根因是「道路免疫」的整链凸包 SAT 误判**。`tankFullyInWater` 有「道路优先」豁免（桥/路口语义：在路上不算浸水），`driveTank` 也在 `roadCover` 存在时跳过 river 减速。问题在 `getRoadUnderTank` 的判定本身：道路自 `cde3bc3` 起是**整链连续多边形**（`w/h` 只是 bbox、真实形状在 `verts`），旧实现拿**整条曲折路链的凸包**做 SAT。
+  - 实测 `main-road-d0` bbox **1030×4645**，真实路面仅占 bbox **12.3%**；距路心 **894~1109px** 的河面点被判「在路上」⇒ 成片河面获得溺毙免疫 + 丢失减速。
+  - 河内取样点 **16.8%** 被判在路上，其中**车体完全碰不到那条路**的真误判 **8.3%**。
+  - 修法：带 `verts` 的路链改走**真实多边形**判定（射线法点测 + 车体边/多边形边相交 + WeakMap 缓存 + AABB 两级粗筛）；无 verts 的旧式矩形路段保留 SAT。
+  - 结果：真误判 **8.3% → 0%**（Lead 独立复核 360 个命中位置，几何不相交 = 0）。**性能反而变好**（标准 strip 8.7 vs 旧 284.9 µs/次——旧凸包在 318 顶点链上的 SAT 本就极贵）。
+- **② 河宽上限** `RULES.drowning.wadeMaxWidth = 260`：口径 = 8s 溺毙倒计时内**最慢可用车**能渡过的宽度（水中速度 = `maxSpeed×1.6×0.4×1.3`，hummel maxSpeed 40 ⇒ 266px，取 260 留余量）。改前河宽 p50 573 / max 805 ⇒ **hummel 穿 446px 河要 9.8s > 8s 必溺毙**（中坦 5.1s 可过）。改后 `thick` 基准 7~15%→**4~9%** + `buildRiver` 出口逐段钳制 ⇒ p50 237.7 / **max 260**，保留沿程宽窄变化。端到端（5 车型 × 8 seed × 4885 河段）：**溺毙 0 次**，最险 hummel 5.7s/8s（余量 2.3s）。
+- **③ AI 敢涉水**：`isWaterAt` 原把 **water 与 river 一视同仁**，于是 AI 把 `passability=0.4` 的可涉水河当禁区——前向探点落河就转向、三向全水就 `move=0`，**玩家过河即脱离追击**。改为 `_waterHazardTier()` 分档：`water` 恒危险，`river` 以 `RULES.coverTiers.river.passability > 0` 判可涉水（判据不写死 tier 名）。water 的三条既有语义（绕行/潭心脱困/与河重叠时生效）全部保留。真·追击样本里被避水打断直线追击 **100% → 0%**。
+- **两个我实测踩到的度量陷阱（已写进 specs 防复犯）**：
+  1. 用 `aiDecide` 量「AI 敢不敢过河」**必须固定机动随机源**（`_maneuverSetRng(()=>0.5)`）——`_applyManeuver` 按 `Math.random` 抽 `retreat` 模式会输出 `move=-1`，与河流毫无关系。我第一版没固定，量出 **21.3% 假阳性**；固定后为 **0%**。
+  2. 样本必须筛「基线本身在前进」——AI 在交战带内沿本就会驻停（`move=0`），那不属避水。原 `probe-river-final.js` 第③段把 AI 与目标只放 580px（落在交战带内沿），修前修后都是 100%，对修复完全不敏感。
+- **三链验证**：① `node scripts/check-html.js` EXIT=0 ② `node node_modules/typescript/bin/tsc --noEmit` EXIT=0 ③ 逐个直跑 `run-tests.js` 列出的 45 项单测 **45 / 45 全绿**。`test-covers.js` 新增 ∩ 形路链凹口等 6 条（改前红、改后绿）；`test-ai.js` 新增 5 条分档断言——其中原「河岸偏移→固定右转」一条用的是 river，与新语义**直接冲突**，已按分档语义替换（water 的三条全部保留，未放宽任何既有语义）。`test-strip.js` / `test-nodegen.js` 因河宽变窄**未变红，未放宽任何断言**。`test:browser` 需系统 Edge，**待正常环境补跑**。
+- **细则归口**：`specs/map.md` §11.1（三处修复的现行口径与实测数字）。
+
+## §4.98 电磁轨道炮细节与专属射击特效（#U38，2026-10-18）
+
+> **已被 §4.102（#U41，2026-10-19）取代的部分**：本节确立的「青蓝电磁弧光」配色、「电弧尾迹跟随炮弹」与 `shellTrailArcs` 弹体电弧通道**均已废除**——用户裁定**电弧只挂炮身**且配色改为**灰炮管 / 蓝基底 / 白弧光**。其余结论（三段视效骨架、`railChargeProgress` 与 fireTank 同源、`lightningPath` 共享工具、`firerail` 音效、`railArcCount` 访问器）继续有效。
+
+用户需求原文：「为电磁炮增加细节和特殊的射击特效，包括充电的电弧等」。
+
+改前状态：电磁炮与标准主炮共享同一套弹体画法（琥珀色尖头弹 + 琥珀拖尾）、同一个开火音效（`fire`）、同一个装填环配色（`#ffb454` 琥珀）；炮身只有「两根细轨 + 一条青色能量线」，`spawnMuzzleFlash('railgun')` 虽是专属分支但只有一支能量锥 + 5 条手写 zigzag。整条视效链**除了炮口焰之外没有任何一处读作电磁武器**。
+
+- **参数唯一口径**：新增 `RULES.railgunFx`（`js/tank_rules.js`）——`chargeArcs` / `chargeArcSegs` / `chargeArcWidth` / `chargeBreechGlow` / `chargeIdleAlpha` / `dischargeArcs` / `dischargeLife` / `dischargeLenMult` / `shellTrailArcs` / `shellGlowScale` / `shellLenMult` 共 11 项。三段视效（充能 / 击发 / 弹道）共用一张表，改数值只改一处。
+- **共享几何工具** `js/tank_utils.js lightningPath(x0,y0,ang,len,amp,segs,seed)`：确定性折线、两端收敛到轴线（`sin(πt)` 权重）、抖动由 seed 哈希派生。`tank_fx`（炮口/放电弧）与 `tank_battledraw`（炮身充能弧/弹体尾迹）两处消费，避免各写一套 zigzag（旧代码在炮口焰里手写过一份）。
+- **① 充能（装填期）**：`tank_battledraw.js railChargeProgress(t)` 纯函数，时长口径**与 `fireTank` / HUD 装填环完全同源**（`stats.reload × reloadMult ÷ debuffReloadRate`，即 2026-09-21 #G5 修正过的那条）——不新开一个进度源，避免出现「环满了电弧还没满」。充能进度驱动四个量：轨间能量芯亮度、后膛能量核呼吸、充能电弧**条数与振幅**；满电后切「微光待机」（`chargeIdleAlpha`）而非全灭。炮身在原双轨基础上补到**六层结构**（导轨本体 + 内侧受光 + 3 圈横向箍环 + 能量芯 + 后膛核 + 充能电弧），箍环是「读作一根炮管」的关键。
+- **② 击发放电**：`tank_fx.js spawnRailDischarge` 在 `firePrimaryShell` 的 railgun 分支自 `gunRoot` 沿炮管全长生成 `dischargeArcs` 条电离折线（`railArcs` 数组，上限 24 防堆积），0.22s 内沿炮向收束淡出；炮口额外一圈青白电离冲击波。绘制走**双层结构**（宽而淡的青蓝晕 + 1px 白热芯），与既有炮口焰的分层纪律一致。
+- **③ 弹道**：`drawShells` 新增 `s.wType` 通道（`firePrimaryShell` 只写武器**类型**，不挂整个 spec）。电磁炮弹改为**针状白热电离弹**（长 ×1.9 / 宽 ×0.55）+ `shellTrailArcs` 条电弧尾迹 + 径向外发光，与琥珀色普通弹一眼可分。
+- **音效**：新增 `SOUND_DEFS.firerail`（高频方波放电下扫 + 带通噪声横扫电离空气 + 延迟低频炮身共鸣 4 层）；`fireTank` 的 railgun 分支改播该键。电磁发射没有火药爆燃，「砰」这个采样本身就是错的。
+- **HUD**：mvp 单环装填分支对 railgun 改青蓝双层充能弧（外层微光随进度升高 + 内层白热芯），与炮身充能同色系；其他武器单弧行为零变化。
+- **纪律遵守**：新增绘制**零逐帧渐变分配**（弹体外发光与后膛核一律走 `tank_fx._radialSprite('haloR')` + `_blitRadial`，不新建 `createRadialGradient`）；draw 期**无 `Math.random`**（电弧抖动全部走 `lightningPath` 的 seed 哈希 / `_fxHash` / `_flickerAt` 时间量子）。
+- **三链验证**：
+  - `node scripts/check-html.js` → `All checks passed`（EXIT=0）
+  - `node node_modules/typescript/bin/tsc --noEmit` → EXIT=0
+  - 逐个直跑 `run-tests.js` 列出的 46 项单测 **45 / 46 全绿**；唯一红项 `test-cover-gen.js` 的两条失败（`tools/cover-refs.json` 一致性、`gen-covers --provider mock` 退出码 null）在本轮**未触碰相关文件**，单独复跑 `node tools/dump-cover-refs.mjs --check` 得 **EXIT=0**、且该测试的 `spawnSync` 在沙箱下会 `EPERM`（同 `run-tests.js` 自身 `spawnSync ... EPERM` 的表现）——判定为**沙箱环境限制**，非本轮回归；`npm test`（经 `run-tests.js` 转发）因此整体报 exit=1，需在正常环境复跑确认。
+  - `test-render.js` 新增 ⑩ 小节 15 条断言：电弧确定性/随 seed 变化/端点收敛/中段抖动、充能进度同源（0 / 0.5 / 1）、非电磁炮恒为 1、炮身青蓝像素 +59、充能阶段可辨、放电弧生成 9 条 / 上限 24 / 有内容 / 重绘逐字节一致、弹体青蓝像素 237 / 形态差 308px / 长度 48 vs 24px / 重绘一致。
+  - `npm run test:browser` 需系统 Edge + 放宽进程权限（沙箱 `spawn EPERM`），**待正常环境补跑**；浏览器目视确认（电弧动感、充能节奏手感）同样留用户侧。
+- **一个测试基础设施陷阱**（已固化为 `railArcCount()`）：`updateFx` 用 `railArcs = railArcs.filter(...)` **重新赋值**数组，因此 `module.exports` 里导出的 `railArcs` 只是导出那一刻的引用，过滤一次后外部读到的永远是陈旧长度（`tracers` / `shockwaves` 等既有数组有同一陷阱）。要读「当前有几条」必须走访问器，不能直接读导出数组。
+- **细则归口**：`specs/combat.md` §6「电磁轨道炮三段视效」。
+
+## §4.99 主/副武器升级卡全覆盖 + Boss 随机武备（#U39，2026-10-18）
+
+用户需求原文：「检查主武器、副武器的升级卡牌有哪些？要增加这些武器的性能，boss 似乎还不会随机到这些武器和升级」。
+用户裁定（同轮两问）：① 升级卡做法 = **新增更多升级卡（每种武器 2~3 张）**；② Boss 随机范围 = **主武器 + 副武器 + 对应升级卡**。
+
+### 改前实测（2026-10-18，171 张卡）
+
+- **主武器 5 型共 9 张**：`standard` **0 张**、`autocannon` 1、`double_barrel` 2、`railgun` 1、`clip` 1（+4 张安装卡）。
+- **副武器 6 型共 10 张**：`mortar` 1、`missile` 2、`rocket` 2、`mine_layer` 1、`missile_wire` **0**、`turret` **0**；且 `turret` / `missile_wire` **连安装卡都没有**（`turret` 只在 Boss/bench 内部使用）。
+- **Boss 侧**：`assignBossSkills` 只随机 4 个**技能**键，`spawnBossFromDef` 全程不写 `weapons.*` ⇒ Boss 永远用标准主炮 + 空副武器，也从不吃任何武器升级卡。
+
+### 修掉的 4 处「升级卡写了不生效」通道断点
+
+1. **标准主炮通道是死的**（`js/tank_fire.js:62` `primaryWeaponSpec`）：对 `type==='standard'` **恒返回 null** ⇒ `weapons.primary.stats` 里的 `statOverrides` 全被忽略。这是「主武器升级卡感觉没提升」的结构性根因，也是此前没有任何 standard 升级卡的原因。现改为「无 stats 覆写仍返回 null（零回归）、有覆写才产出规格」。
+2. **`missile_wire` 不在卡牌白名单**（`js/tank_cards.js` `WEAPON_SECONDARY_TYPES`）：该型一直在 `RULES.weaponTypes.secondary` / `WEAPON_DEFAULTS` / `fireActiveSecondary` 的 wire 分支里，却漏在白名单外 ⇒ 任何线导导弹卡都会被 `validateCardEffect` 判「weaponType 非法」。
+3. **`mine_layer` 半径是写死的字面量**（`js/tank_weapons.js` `fireActiveSecondary`）：`blastRadius 70` / `triggerRadius 45` 直接写在 `spawnMineFn` 参数里，升级卡无法覆盖。
+4. **`missile_wire` 速度是写死的字面量**：wire 分支 `cfg.speed ?? 340` 读不到缺省表里的 `speed`（该字段此前根本不存在）。
+
+### 落地内容
+
+- **新增 20 张武器卡**（15 升级 + 2 安装 + 3 已计入上面分类），卡池 **171 → 191 张**：
+  - 主武器 9 张：standard ×3（rare `_damage` / rare `_reload` / epic `_pen`）、autocannon ×3（rare `_damage` / rare `_heat` / epic `_feed`）、railgun ×1（rare `_damage`，含 `pierce` 1→2）、clip ×1（rare `_capacity`，`"+2"` 容量 + 发际 0.55s）、double_barrel ×1（rare `_turret`）。
+  - 副武器 11 张：turret **安装** ×1 + 升级 ×3（rare `_upgrade` / rare `_traverse` / epic `_heavy`）、missile_wire **安装** ×1 + 升级 ×2（rare `_upgrade` / rare `_warhead`）、mortar ×1（rare `_accuracy`）、mine_layer ×1（rare `_radius`）、rocket ×1（rare `_warhead`）、missile ×1（rare `_damage`）。
+  - **覆盖结果**：主武器 `standard 3 / autocannon 4 / double_barrel 3 / railgun 2 / clip 2`；副武器 `mortar 2 / missile 3 / missile_wire 2 / rocket 3 / mine_layer 2 / turret 3` —— 无「只有 1 张」的类型。
+- **Boss 随机武备**：新增纯函数 `pickBossArmament(pool, {rng, bossNumber})`（`js/tank_cards.js`）+ mvp 侧 `assignBossArmament`（在 `assignBossSkills` 之后调用，经 `applyCardEffects` 施加 —— 与玩家卡牌**同一语义通道**）。参数唯一口径 `RULES.boss.armament`（`primaryChance 0.9` / `secondaryChance 0.7` / `upgradeMax 2` / `upgradeChance 0.55` 逐 Boss +0.1）。升级卡只挂在**已选中**的主/副武器类型上，任一步无货静默跳过。
+- **可读性**：TAB 状态面板 Boss 行追加 `· 武备:主武器+副武器·改装×N`；出生日志 `BOSS 武备：…｜改装 …`。
+
+### 实测（2026-10-18）
+
+- **Boss 武备分布**（500 次探针 / 真实卡池 191 张）：平均每 Boss **3.27 张**武备卡（升级卡 830 次），`applyCardEffects` 失败 **0** 次；主武器五型各 **22.2%~22.8%**（仍标准炮 9.8%）；副武器六型 **10.8%~12.2%**（空槽 29.6%）。
+- **复核带（`test-weapon-upgrade-balance.js` 从 4 张扩到全部 upgrade 卡）**：分三档——纯 DPS 通道增益 ∈ [1.15, 1.75]；混合通道 DPS ≥ 1.0 且功能字段实际变化；纯功能性通道 DPS = 1.0 且有 ≥1 字段相对基础规格变化。原 4 张（#S6 定案）另按历史紧带 [1.25, 1.60] + 极差 ≤0.35 复核，**结论不回退**（1.333 / 1.524 / 1.389 / 1.500，极差 0.190）。另加「升级卡的 weaponType 必须有对应安装卡（standard 豁免）」契约断言。
+
+### 三链验证
+
+- `node scripts/check-html.js` → **All checks passed**（EXIT=0）；`node node_modules/typescript/bin/tsc --noEmit` → **EXIT=0**（`npm run check` 等价）。
+- **46 个 Node 单测逐个直跑全部 EXIT=0**（含 `test-cards` / `test-fire` / `test-weapon-keypress` / `test-weapon-upgrade-balance` / `test-boss` / `test-render` / `validate-content` / `audit-content`）。`npm test`（`run-tests.js` 转发）在本沙箱因 `spawnSync ... EPERM` 无法启动子进程，故改用等价直跑（同 §4.90/§4.98 记录的环境限制）。
+- **新增断言**：`test-cards.js` #U39 段 20 条（配置就位 / 升级卡只挂已选型 / 张数 ≤ upgradeMax / 300 轮分布覆盖主副武器与升级卡 / `turret` 与 `missile_wire` 可被随机到 / `enabled=false` 恒空 / 空池与 null 安全 / 施加通道 / 20 张新卡 schema / 全型有升级卡）；`test-fire.js` 7a2 段 6 条（standard 无覆写 → null、有覆写 → dmg/pen/reload/speed 四通道生效）；`test-weapon-keypress.js` #U39 段 5 条（地雷半径缺省 70/45 与升级 105/70、线导弹速 340→560、装填覆写）。
+- `npm run test:browser` 需系统 Edge + 放宽进程权限（沙箱 `spawn EPERM`），**待正常环境补跑**；浏览器内目视（Boss 随机换炮的实际手感、TAB 面板武备行）留用户侧。
+
+### 细则归口
+
+`specs/cards.md` §8.3「武器升级卡全覆盖」+「Boss 随机武备」、`specs/boss.md` §4「Boss 随机武备」、`specs/combat.md` §8.6b「标准主炮的规格通道」+ §8.1 地雷半径收口注记 + §8.2 线导弹 speed 收口注记。
+
+### §4.100 植被立体感：树/灌木/倒树方向光与体积（#TEX14，2026-10-18）
+
+**用户反馈**：树（含树冠和倒下的树干）、灌木绘制缺乏立体感。
+
+**根因**：§4.95（#TEX13）只给树冠/岩石/建筑补了方向光，但 `js/tank_assets.js` 的植被 bake 仍是**平涂 + i%2/i%3 循环色**：① 灌木/倒树树冠的 5 大叶团 + 9/11 小叶团颜色只按序号奇偶/取模轮换，与光照方向无关，读作「一坨均匀的绿」；② 树干（tree.bake）与倒树树干（fallen.bake）是单色圆/椭圆，无受光面；③ 灌木没有冠层体积渐变（只有树有）。
+
+**修法（全部只改颜色/渐变/线宽，不改几何包络——`tools/cover-refs.json` 尺寸基准不动）**：
+
+- **叶团方向光**：灌木/倒树树冠的全部叶团与叶点改按「叶团中心相对全局光源（左上 L=(-0.7071,-0.7071)）方向的连续插值」取色（受光侧亮绿、背光侧暗绿，alpha 同步随 lit 0.36~0.54）；树的 11 叶团同改。
+- **树干圆柱受光**（tree.bake）：底部接触影 + 左上→右下线性渐变（rgb(96,72,40)→rgb(34,24,12)）+ 左上受光月牙弧 + 7 道受光半弧树皮纵纹（明暗 hash 确定性）。
+- **倒树树干**（fallen.bake）：接触影 + 上下受光渐变（上缘 rgb(94,68,40)→下缘 rgb(30,20,10)）+ 上缘受光细线 + 9 道沿干树皮横纹（根部密梢部疏）+ 枝杈受光/背光两档明暗 + 伐倒断面受光渐变。
+- **冠层体积**：灌木补 clip 在 0.42 包络内的球面体积渐变 + 左上受光叶团两枚 + 右下暗冠缘弧；倒树树冠同套；树冠体积渐变对比加深（0.28/0.40）+ 右下自阴影加深 + 左上追加小亮叶团。
+
+**验证**：`node scripts/check-html.js` + `tsc --noEmit` EXIT=0；`test-assets`/`test-render`（⑧a 树冠左上 127.4 > 右下 61.8、投影 90.8 < 裸地 120.9）/ `test-covers`/`test-tanks`/`test-map`/`test-nodegen`/`test-minimap` 全 EXIT=0；`render-map-shot.js --focus village` 1.2×/3× 出图目视确认叶团明暗、树干受光与落影方向一致。
+
+**细则归口**：`specs/map.md` §22.4 + §22.8。
+
+## §4.101 卡牌系统审计五修：调校/升级混淆 · 反应装甲再充能 · 达限补齐 · innate 豁免 · economy 接线（#U40，2026-10-19）
+
+**用户反馈原文**：「获取新弹种的卡和弹药参数升级的卡牌似乎没有正确分类，搞混淆了。另有一些卡是只生效一次如反应装甲，显然不合理；有些升级卡牌在相应参数满级达限后就不该再出现了，比如射速、精度等升级。检查其他卡牌是否有需要改动的地方」。
+
+### ① 调校卡/升级卡混淆（结构性根因，最高优先）
+
+**根因**（`js/tank_cards.js` `applyCardEffects` 弹种链分支）：链前驱推断为 `ef.replaceAmmo || CHAIN[ef.key]` **无条件回退**——带 `field` 的纯数值调校效果（`demo_apcr_round`「APCR 穿深 +20%」/ `sniper_sabot_round` / `demo_shaped_liner` / `he_overpressure` / `heat_composite_pen` / `sniper_apcbc` / `sniper_hard_core` 等 8 张）只要「CHAIN 前驱在 loadout」就被**误判为升级卡**，把玩家槽位里的 AP 原地改名成 APCR/HEAT 等（弹种变了、卡面只承诺 +数值），且这批卡 `maxStacks` 2~4 可反复触发。`isAmmoUpgradeCard` 与 `drawCardChoices` 链过滤同一回退口径（节奏衰减误伤调校卡）。
+
+**修法（三处同源口径）**：升级效果 = 显式 `replaceAmmo` ∨（**无 field** 且 CHAIN 有前驱，兼容阶段六遗留的无 field 演变数据）；带 `field` 的调校效果**绝不触发替换**、不写 `unlockedAmmo`、不参与链前驱资格判定与升级节奏衰减。`ammo_upgrade_*` 12 张链升级卡照常工作（显式 `replaceAmmo`）。
+
+### ② 反应装甲一次性消耗 → 拦截后进入再充能
+
+**改前**（`js/tank_physics.js` `resolveHit` #U19）：拦截 1 发即将条目从 `cardEffects` **splice 消解** ⇒ 传奇卡整局只生效一次。**改后**：拦截后条目保留、写 `_reactiveRearmT = RULES.cards.reactiveArmor.rechargeSeconds`（**60s，唯一口径**）并置 `_reactiveReady=false`；冷却期内照常按装甲/跳弹结算；`updateReactiveArmorRearm`（`js/tank_cards.js` 新增，mvp 主循环接入）逐帧递减、归零恢复就绪；`applyCardEffects` 获得时立即可用；mvp `enterBattle` 每节点重置就绪（冷却不跨节点携带）。卡面 `cards/reactive_armor.json` 同步改写。同一时刻恒 1 层（maxStacks=1）。
+
+### ③ parameterLimits 补齐（满级参数卡不再出现）
+
+`RULES.parameterLimits` 此前无 `aimSpeed` / `trackLock` / `fireControlCrit` / `loaderAmmoCrit` 条目 ⇒ `cardEligible` 的 #U20 达限过滤对精度/履带/暴击卡**永不触发**，满级卡反复占用三选一位。补齐：`aimSpeed 0.1~6`（⚠ 实测 `tanks/*.json` 基准包络 **1.0~2.5**，与 makeTank 缺省 `RULES.spread.shrinkRate=0.15` 是**两套量纲**——首版 0.9 上限曾把 Obj 780 等真实坦克的基础值都钳爆，`test-card-effects` 22 项失败后修正）、`trackLock 3~20`（基准 8s；局内商店 `track_field_kit` 限 5s，卡牌稀有通道允许压到 3s）、crit 双通道 `0~0.25`（= `RULES.modules.critBonusCap` 同源）。`computeStats` 聚合侧同步补 `aimSpeed.max` / `trackLock.min` **无条件钳制**（对齐 crit 通道既有行为——reload/maxSpeed 硬限只钳参数通道，这两项跟随 crit 走无条件）。
+
+### ④ innate 强化卡被 #U18 已持去重误杀
+
+#U18（2026-10-17）「已持技能去重」没有豁免 innate 键 ⇒ `repair_kit`（应急维修）与 `support_extinguisher`（自动灭火器）在 `abilities` 含固有键时**永远不合格**——而玩家开局就「持有」repair/medkit/extinguish，这两张纯强化卡自此死卡（#U21 只改了卡面文案，没解决抽取资格）。修法：`cardEligible` 去重分支加 `ABILITY_KEYS_INNATE_LOCAL`（`js/tank_cards.js`，与 `tank_abilities.ABILITY_KEYS_INNATE` 同源）豁免；runtime 键照旧去重。
+
+### ⑤ economy 卡接线补全（原「运行时消费待接线」）
+
+- `scoreMul`：**语义修复**——旧实现 `(runScoreMul||1) × (1+value)` 把 `value=1.15` 错算成 **×2.15**；现行 value 即最终乘数（×1.15）。接线三处计分点（`finishNode` 节点分 / `finishSurvivalWave` 波次分 / 击杀分）统一乘 `runScoreMultiplier(tank)`（`js/tank_cards.js` 新增）。
+- `shopDiscount`：接线局内商店——`buyRunShopItem` 实付价与 `buildRunShopInto` 展示价同口径乘 `(1 − runShopDiscount(tank))`（多张相加、防御上限 0.5；原注释「跨局字段」为误注）。
+- `reviveCount`：mvp `pickCard` 即时回算 `player.revives`（原只在下局 `prepPlayerForRun` 生效，局内获得零反馈）。
+- `startScore`：写 `runStartScore`（卡池内无该卡，消费方仍预留）。
+
+### 三链验证（2026-10-19）
+
+- `npm run check`（check-html + tsc --noEmit）→ **All checks passed / EXIT=0**。
+- `npm test` → **46 通过 / 0 失败**（含 `test-cards` 新增 #U40 段 31 条：调校不改 loadout / 升级照常替换 / 旧式无 field 兼容 / isAmmoUpgradeCard 口径 / 链过滤放行 / 反应装甲拦截·条目保留·再充能·冷却期不重复拦截 / parameterLimits 三组达限过滤翻转 / innate 豁免 + runtime 去重口径不变 / economy 助手与 ×1.15 语义）。
+- `npm run test:browser` 四链（smoke/r3/run/r4）→ **全部通过**（r4 全程无 console/page error）。
+- 存量问题顺手修复：`test-cover-gen` 的 `tools/cover-refs.json --check` 失败系**他批次贴图重烘焙后基准未重导出**（stash 验证与本批次改动无关），重跑 `node tools/dump-cover-refs.mjs` 重导出 9 键基准后全绿。
+
+### 细则归口
+
+`specs/cards.md` §3（ammo 调校/升级分界 + passive 反应装甲 + economy 接线现状）、§8.5 后（innate 豁免）、§9（#U20 边界补齐）；`specs/combat.md` §3.1（弹种链替换口径指针）；参数唯一口径 `js/tank_rules.js` `RULES.parameterLimits` / `RULES.cards.reactiveArmor`。
+
+## §4.102 电磁炮三色口径与电弧归属修正（#U41，2026-10-19）
+
+用户反馈原文三条：①「电弧是加在炮身上而非炮弹上」②「炮管要是灰色炮身」③「蓝色基底」④「白色弧光」。本质是对 §4.98 的两点否定：**电弧放错了对象**、**配色口径完全不对**（旧实现炮身取车体涂装色 `shade(bCol, …)`、弧光是青蓝 `rgba(110,205,255)`、弹体还带 3 条青蓝电弧尾迹）。
+
+- **① 电弧只挂炮身（归属修正）**：`drawShells` 的 railgun 分支**删掉整个电弧尾迹段**（旧 `shellTrailArcs` 3 条 `lightningPath`），只保留针状弹体 + 白热渐隐拖尾 + 冷白外发光。`RULES.railgunFx.shellTrailArcs` 配置键**一并删除**（不留死键）。炮身侧则加强：`spawnRailDischarge` 新增 `startT`（起点沿炮管轴向 `0~0.55` 铺开），弧不再全挤在根部；`drawRailArcs` 起点按 `startT` 前移、横向振幅压到炮身量级，读作「炮身放电」而非「向四周喷射电光」。
+- **② 三色口径（配色修正，现行唯一口径）**：`RULES.railgunFx` 新增 8 个颜色键，炮身六层按角色取色——
+  - **炮管 = 灰**：`barrelGrey #787d84` / `barrelGreyDark #4a4e55` / `barrelGreyLit #a8aeb6`。双轨本体画成**三层明度**（暗边、中间调、内侧受光高光），3 圈箍环同样取灰。**与车体涂装色彻底解耦**——旧实现 `shade(bCol, -48)` 会让电磁炮跟着车体变色，这是「不是灰炮管」的根因。
+  - **基底 = 蓝**：`baseBlue #2f5d8c` / `baseBlueDeep #1b3550` / `baseBlueLit #4d8ec4`。新增**⓪ 蓝色基底衬底**层（比导轨更宽，含端部底座外延），用 `source-over` 实色绘制——基底是**固体结构**不是光，不进 `lighter`，否则会被叠加成发白。
+  - **弧光 = 白**：`arcWhite #ffffff`（弧芯）+ `arcHalo rgba(214,232,255,1)`（冷白晕，`b−r=41`）。充能弧、能量芯、后膛核、放电弧、炮口核心/光晕/冲击环、电离烟、HUD 装填环**全部改白**。
+- **③ 配套 sprite**：`_radialSprite` 新增 `coreW`（冷白核心）与 `haloW`（冷白晕），与既有 `core`/`halo`（琥珀）/`haloR`（青蓝）并列。青蓝 `haloR` 保留给跳弹/护盾等既有语义，**不再被电磁炮消费**。
+- **④ 炮口同步收白**：`spawnMuzzleFlash('railgun')` 的能量锥、白热长矛、残余分叉（5 条 → **3 条且更短**，不喧宾夺主）、核心、光晕、冲击环全部转白；`tank_fire.js` 的炮口冲击波 `rgba(140,225,255)` → `rgba(235,244,255)`。
+- **⑤ 实机 1:1 出图复核发现的两个结构缺陷（不靠猜，逐像素定位）**：
+  1. **蓝色基底连 1 个像素都画不出来**。实测电磁炮 `barrelWid` 仅 **3.24px**（= `turWid 36 × width% 18 ÷ 2`），而两根导轨各 1.5px 已把 `railOff − railW×0.45` 算出的 0.7px 缝隙**完全盖掉**——逐列采样 x=165 处炮管中段 `y=99,100` 是**全透明**，炮管读作「空管」。修法不是继续在 3px 里硬塞，而是**加宽炮管本身**：`RULES.railgunFx.barrelWidMult = 2.2`（电磁炮本就是笨重的电磁加速器，加宽符合设定）。**纯视觉**，只影响 `drawTank` 局部变量，不改 `gunRoot`/`gunTip` 与炮口特效坐标。修正后同一列读出 `(124,177,232)` 蓝缝 + 上下 `(168,174,182)` / `(74,78,85)` 灰轨。
+  2. **白色吃掉蓝色基底**。首版待机态白芯 `alpha 0.95`、线宽盖满整条缝，实机是一根通体发白的炮管——与「蓝基底 + 白弧光」正相反。改为**白/蓝配比纪律**：待机白芯压到 **0.18**、后膛核半径 ×2.4→×1.6 且 alpha 减半；**「白」的主载体是充能电弧与击发放电**，不是那条连续的轨间芯。修正后炮管区域颜色直方图：灰 `120,125,132` 22px / 蓝 `47,93,140` 及变体 24px / 白仅作点缀。
+  3. 同批把线宽按实测量级重配：`chargeArcWidth 1.6→1.2`、新增 `dischargeWidth 0.9` 与 `dischargeAmp 2.2`——早期 `2.4× 外晕` 叠在 3px 炮管上糊成一条白斑，而不是「电弧」。
+- **⑥ 回归断言重写（两次修正，记录踩坑）**：
+  - 第一次：⑩ 从「量青蓝像素多不多」改为**按三色分别量测**。但接着遇到第二个坑——「白弧压在蓝基底上」经 `lighter` 必然产生浅蓝像素，我按像素断言「青蓝必须少于白」，实测 121 vs 59 **误报**。那不是配色回退，而是正确叠色的光学结果。→ 判据补上**直查唯一口径的色值**（`arcWhite` 三通道 >240 且极差 ≤12；`arcHalo` `b−r ≤ 45`；`baseBlue` `b−r > 60`；`barrelGrey` 极差 ≤24）。
+  - 第二次：白色断言原本在**满电待机**态取真，实机校色后待机白被压到 2px，断言变红。这不是回归而是**预期目标**（待机本就不该白）。→ 改为在**充能中（35%）**取真（44 px），并追加「待机白 < 充能白」把配比纪律也锁死。
+  - 归属侧：「弧锁在炮身走廊」——走廊内 491 px / 走廊外 **0 px**（外溢 0% < 35% 门槛）；弹体侧反断言「青蓝像素 0 < 20」。
+- **三链验证**：`node scripts/check-html.js` → `All checks passed`（EXIT=0）；`node node_modules/typescript/bin/tsc --noEmit` → EXIT=0；46 项单测逐个直跑 **46/46 全绿**。`test-render.js` ⑩ 现为 26 条断言（三色分工 + 配置值直查 + 待机/充能白配比 + 弧锁炮身 + 弹体无电弧 + 确定性）。**目视复核**：本轮具备图像输入，用 7× 离屏出图（idle / 充能 45% / 击发放电三态）逐张确认——灰轨、蓝缝、白弧三者可辨，电弧贴着炮身不飞散。`npm run test:browser` 需系统 Edge（沙箱 `spawn EPERM`），**待正常环境补跑**；实机动态手感（充能节奏、放电拖尾）仍留用户侧。
+- **顺手补一处类型缺口**：`tank_boss.js` 的 `_abilityLabel` 引用 `ABILITY_LABELS`（`tank_abilities.js` 顶层常量）但 `types/globals.d.ts` 缺声明，`tsc` 报 TS2552。该文件属**工作区他批次未提交改动**，非本批次引入；按项目惯例（第 2 节：新增全局去 `globals.d.ts` 补 `declare`）补齐声明。
+- **细则归口**：`specs/combat.md` §6「电磁轨道炮三段视效」（三色口径表 + 电弧归属约束）。
+
+## §4.103 技能键位单一来源：炮击 G / 护盾 H 专属键退役（#U42，2026-10-19）
+
+**用户反馈原文**：「炮击、空袭卡有时还会以 G 键触发、进入 UI，检查当前还有没有其他错误绑定键位的卡牌、技能等」。（⚠ 编号说明：本条目编号 #U42，与 §4.102 电磁炮批次的 #U41 区分——两批次同日并行，各自独立编号。）
+
+### 全仓键位审计结论（#U42 排查面）
+
+对 `KEY_BINDINGS`（js/tank_bindings.js）× mvp/bench 两页 × 7 个运行时技能 + 3 个 innate 键全量核对：
+
+- **artillery / shield 双通道残留（用户反馈实证）**：#H3（2026-09-30）重做技能槽时对 artillery/shield 采取「未占用槽位时显示 btnG/btnH」的折中，专属键**没有**像 overdrive 的 V 键那样删除 ⇒ 同一技能两个键位（技能池数字键 + G/H）。更糟的是**两个键行为不一致**：H 键 = `tryShield(!!keys['shift'])`（默认**定向**护盾、Shift+H 全向），而技能池/btnH = `SKILL_DISPATCH.shield: () => tryShield(true)`（恒**全向**）——按 H 与按 1 出的技能不是同一个东西。
+- **其余技能无残留**：overdrive（V 键已随 #H3 删除）、deploy_cover / aps / super_fire_control / super_speed 只经技能池；innate 三键（repair/medkit/extinguish → 4/5/6）是设计上正确的专属键（开局固有、不占技能槽）；Q/E 切弹、F 副武器、数字键让位技能池、F1 调试 HUD、Esc 暂停、Tab/C/` 面板组——均无冲突或泄漏。
+- **bench 的 G 键是测试入口**（`activateAbilityForTest` 无卡自动补卡），与正式游戏键位语义解耦，**保留**（r3 链断言依赖）。
+
+### 修法（同 #H3 删 V 先例，技能键位单一来源）
+
+1. **mvp**：删除 `btnG`/`btnH` HUD 按钮（HTML + click 监听 + `updateBottomHud` 显隐与 `cdG`/`cdH` 冷却角标）、主循环 `input.isDown('abilityStrike')`/`isDown('abilityShield')` 轮询、`SKILL_DEDICATED_KEYS` 死常量、获得技能脉冲回退表 `BTN_BY_ABILITY`（脉冲恒走技能池槽）、槽位 title 的「亦可按 G/H」尾注；`ABILITY_KEY_HINT` 文案统一「技能槽数字键」。
+2. **键位唯一数据源**（js/tank_bindings.js）：`KEY_BINDINGS` 删 `abilityStrike:'g'`/`abilityShield:'h'`；`ACTION_INFO` 删两行说明；`ACTION_ORDER` 同步；文件头键位摘要更新。新增 `benchTestStrike:'g'`（**仅供测试台显式注册**的键值，正式游戏不注册该动作）。
+3. **bench**：G 键动作改经 `benchTestStrike` 注册（键值不变、语义不变——测试炮击入口）；键位说明行删除 `abilityStrike`。
+4. **ESC 键位说明**：`renderPause` 的 `describeBindings` 可用集删去 `abilityStrike`/`abilityShield` 两行。
+
+### 全链验证（2026-10-19）
+
+- `npm run check`（check-html + tsc --noEmit）→ **EXIT=0**；`npm test` → **46 通过 / 0 失败**（`test-bindings.js` 更新：`abilityStrike`/`abilityShield` 键位已删除断言、ACTION_ORDER 不含 G/H 行、bench 键位行 6→5；`tools/cover-refs.json` 基准再次漂移（烘焙侧批次改动未重导出，非本批次引入），重跑 `node tools/dump-cover-refs.mjs` 修复——同 §4.101 存量问题的重发，见 `PLAN.md` §2.5 提示项）。
+- `npm run test:browser` 四链 → **ALL PASS**。测试同步改写：`test-browser-run.cjs`「G/H 按钮存在可点击」改为「**btnG/btnH/btnV 三者均 removed**」；`test-browser-r4.cjs` C1（artillery）/C2（shield）改经**技能池数字键**触发（动态定位槽位，同 C3 overdrive 模式），E2 段改为断言 btnG/btnH 从 DOM 移除；`test-browser-r3.cjs` bench G 键断言不变（仍走 benchAbilityStrike）。
+
+### 细则归口
+
+`specs/combat.md` §13.2（技能槽体系：专属键按钮章节改写为「已被 #U42 取代」+ §13.1 键位契约 + §9.6 HUD 按钮行现状）；键位唯一口径 `js/tank_bindings.js` `KEY_BINDINGS`（#U42 后：运行时技能无专属字母键，仅 innate 4/5/6 + bench 测试键 `benchTestStrike`）。
+
+## §4.104 Boss 进场简报 + 副炮塔可视化 + 技能顶替顺序 + 换装回退（#U43/#U44，2026-10-19）
+
+**用户需求原文（两条）**：
+1. （#U43）「进入 boss 节点时，需要提示 boss 持有的技能和主、副武器」
+2. （#U44）「① 副炮塔似乎没有效果，贴图方面使用 1 个缩小版的自身炮塔叠在当前炮塔上方自主攻击；② 战术护盾还在使用 R 触发，要加到技能按键组（1-3）中，具体根据获取时的空位；③ 技能顶替时的顺序似乎不正确；④ 出现过、但不再持有的主、副武器、技能似乎就不再出现了，可以再次出现，允许玩家再次选择」
+
+> **编号说明**：#U40（§4.101 卡牌审计五修）/ #U41（§4.102 电磁炮校色）/ #U42（§4.103 G/H 键退役）为同日并行批次。本条两个子项分别记作 #U43 / #U44，节号续在 §4.103 之后。
+
+### #U43 Boss 进场简报
+
+- **数据层（纯逻辑，可 Node 测试）**：`js/tank_boss.js` 新增 `bossBriefing(entity)` / `bossBriefingLines(entity)` + `BOSS_WEAPON_LABELS` + `_weaponStatLines`。信息全部从**实体本身**读（不是 Boss 配置/卡池），因此与随机武备、随机技能的**实际结果**严格一致。
+  - `cardEffects` 条目新增 `cardName`（`applyCardEffects` 写入时一并带上，`js/tank_cards.js`）——简报是纯函数、不持有卡池，靠它把「改装」显示成中文卡名。
+  - 数值摘要只列对决策有意义的字段（伤害/穿深/装填/弹速/射程/溅射/容量/热量/转向/锁定），内部开关（`altReload`/`guided`/`pierceDmgMul` 等）不显示。
+  - 增强版技能（`assignBossSkills` 写入 `params` 的那些）在简报里带 `[强化]` 标签。
+- **呈现层（mvp）**：`#bossBriefing` 居中覆盖层 + `renderBossBriefing` / `showBossBriefing` / `closeBossBriefing`；`spawnBossFromDef` 在 `assignBossSkills` + `assignBossArmament` **之后**调用。关闭 = 按钮 / 点击遮罩 / Esc。**它不是 flow 状态**（不进状态机 ⇒ 不暂停、不与白名单转移冲突），同时把 `bossBriefingLines` 打进日志作纯文本兜底。
+
+### #U44 ① 副炮塔：机制本就生效，问题在于「看不出来」
+
+- **核实结论**：`updateSecondaryTurret` 一直在自瞄/独立转向/独立装填/入 shells（探针 10s 打出 4 发，穿深 ×0.75、伤害 ×0.6、装填 ×1.6 全部正确）。真正的问题是两个**呈现**缺陷：
+  1. **弹道起点复用主炮**：`updateSecondaryTurret` 直接用主炮的 `gunRoot`/`gunTip`，实测炮弹起点与主炮口**逐位相同**（`x=64.9`）⇒ 玩家看到的是「主炮又打了一发」，而不是「副炮塔在打」。
+  2. **外观与主炮塔无关联**：旧 `secondaryTurretPose` 把副炮塔画在**车体尾后** `hullLen×0.28`，造型是半径 `hullWid×0.30 ≈ 11px` 的纯几何圆盘 + 一根棍子。
+- **修法**：
+  - `secondaryTurretPose` 锚点改为**主炮塔座圈中心（`turretPivot`）沿主炮塔朝向前移 `turLen×0.62×0.45`**，`scale = 0.62`；`drawSecondaryTurret` 复用本车 `turretPoly` 顶点（同一套涂装/勾线/受光），读作「同一辆车上多装的一座小炮塔」。
+  - `updateSecondaryTurret` 弹道起点改为副炮塔炮口 = `pose 位置 + 朝向 × (barrelLen + radius×0.6)`（与绘制层**严格同源**）；炮管掩体截停判定同步改用该线段；弹体打 `fromSecondaryTurret: true`，`drawShells` 据此缩到 0.7 档、炮口特效缩放 0.55。
+  - **加载顺序**：位姿函数在 `tank_battledraw.js`（晚于 `tank_weapons.js` 加载）⇒ 新增 `_secondaryTurretPoseFn()` 惰性解析（浏览器全局 → Node `require` → 回退 `null`，回退时弹道退回主炮口，不抛错）。
+- **实测**：弹道起点 `64.9 → 35.2`（与主炮口分离 29.8px）。
+
+### #U44 ② 护盾的键位：代码中已无 R 键
+
+- **核实结论**：全仓检索 `KeyR` / `'r'` 键位 / `abilityShield` ⇒ **不存在**。护盾自 #H3 起走技能池，G/H 专属键已在**同日的 #U42** 一并退役（`js/tank_bindings.js` 无 `abilityShield` 键位与说明行；mvp `btnG`/`btnH` 按钮与 G/H 轮询已删）。
+- **「按获取时空位入池」已是现行口径**：`syncSkillSlots` 第 ③ 步逐项填 `slots.indexOf(null)`，槽满才弹顶替面板。**用户所见 R 键属浏览器缓存了旧 `tank_bindings.js`**，强制刷新即消失——本条不改代码，改文档与排查口径（`specs/combat.md` §4 新增键位小注）。
+
+### #U44 ③ 技能顶替顺序：旧技能插队
+
+- **根因**：`syncSkillSlots()` 把「**全部**已持有但当前不在槽里的技能」都算作待指派（按 `cardEffects` 顺序展开）。而被顶替掉的旧技能同样满足该条件、且在 `cardEffects` 里排在**新技能之前** ⇒ 玩家刚做完一次顶替，面板立刻又追问「旧技能要放哪一格」，观感就是顺序反了。
+- **修法**：`syncSkillSlots(changedKey)` 只把**本次新获得且装不进槽**的那个 key 放进队列；`reconcileSkillSlotsAfterGain(newKey)` 由 `pickCard` / `__TEST__.giveCard` / `__TEST__.applyCard` 三处传入新增的技能键。「已持有但未入槽」改判为玩家主动放弃，随时可用 **Shift+点击某槽**手动装回。
+
+### #U44 ④ 换掉的武器/技能可以再拿回来
+
+- **根因**：`cardEligible` 与 `applyCardEffects` 首行都按「历史已应用次数 ≥ maxStacks」一刀切拦截 ⇒ 换掉双联火炮后双联安装卡**永久消失**，放下护盾后基础盾卡也不再出现——「曾经拿过」等于永久拉黑，与构筑自由相悖。
+- **修法**：新增 `_isSwapBackCard(card)`（安装类 weapon 卡 + ability 基础卡），**两处同源豁免** maxStacks 截断；它们的重复资格回归**动态判定**（`owned.primaryWeapon/secondaryWeapon/abilities`）。
+  - **仍受 maxStacks 约束**：weapon `upgrade`、ability 升级卡（`requiresAbility`）、modifier / ammo / passive / drone / economy（叠加有上限，重复无收益）。
+  - 幂等性由各 install 分支自身保证（同型 install no-op、同 key ability 重复入 `cardEffects` 无副作用）。
+
+### 顺手修一处类型缺口
+
+`js/tank_battledraw.js` 以 `typeof blobPath === 'function'` 守卫调用 `blobPath`（定义在 `js/tank_assets.js`），但 `types/globals.d.ts` 缺声明 ⇒ `checkJs` 报 4 处 TS2304（并行批次引入）。已补声明，`tsc --noEmit` 回到 EXIT=0。
+
+### 三链验证（2026-10-19）
+
+- `node scripts/check-html.js` → **All checks passed**（EXIT=0）；`node node_modules/typescript/bin/tsc --noEmit` → **EXIT=0**。
+- **45 项 Node 单测逐个直跑全部 EXIT=0**（含 `test-strip` / `test-nodegen-calibration` 两项重负载；`npm test` 转发器在本沙箱 `spawnSync EPERM`，沿用 §4.90/§4.98 的等价直跑）。
+- 新增断言：
+  - `scripts/test-cards.js` #U44 段 11 条（换掉双联后安装卡重新合格 / 换回成功且 `cardEligible` 与 `applyCardEffects` 两处一致 / weapon upgrade 仍受 maxStacks / 基础盾卡可再抽 / ability 升级卡仍受约束 / modifier 零影响）。
+  - `scripts/test-rework-r3.js`：位姿断言改写为 #U44 新口径（锚定主炮塔座圈、沿朝向前移、`scale 0.62`）+ 新增 4 条弹道起点断言（**弹道起点不在主炮口，实测距主炮口 29.8px**、`fromSecondaryTurret` 标记）。
+  - 既有 r3 断言「尾部偏移 = hullLen×0.28」等 3 条随口径改写（旧值已被推翻，加沿革注记）。
+- `npm run test:browser` 需系统 Edge + 放宽进程权限（沙箱 `spawn EPERM`），**待正常环境补跑**；副炮塔外观与 Boss 简报的实际观感留用户侧目视。
+
+### 细则归口
+
+`specs/boss.md` §4「Boss 随机武备 → 进场简报」、`specs/combat.md` §4（副炮塔外观与弹道来源 / 槽满顶替排队顺序 / 护盾键位小注）、`specs/cards.md` §9 资格过滤第 2 条（安装类卡 maxStacks 豁免）。
+
+### §4.101 植被轮廓重做：blobPath 波浪轮廓取代椭圆拼贴（#TEX15，2026-10-19）
+
+**用户反馈**：「椭圆组成的树冠太难绷了，倒下的树干形状也很诡异」——§4.100 只改了颜色/渐变，轮廓仍是「多个椭圆拼贴」：树冠 = 底层整圆 + 11 枚椭圆叶团、灌木 = 5 正圆 + 9 椭圆、倒树 = 两段平涂椭圆（读作哑铃）、倒树树冠按 w 派生尺寸悬在树梢外。
+
+**修法（几何重做，包络不变）**：
+
+- 新增共享工具 `blobPath(ctx, x, y, rx, ry, rot, radiusFn, segs)`（`js/tank_assets.js` 导出）：单条 N 段波浪折线闭合路径，`radiusFn(i, t)` 提供 0..1 相对半径，双频正弦 + hash 抖动、确定性无随机；`mini-canvas` 的 lineTo 路径直接支持（浏览器/离线生图一致）。
+- **树冠**（tree.bakeCanopy）：单条 40 段波浪轮廓（包络 ≤ R*0.85 不变）；体积渐变/自阴影 clip 在波浪轮廓内；内侧 7 枚不规则小叶团按光源方向连续取色；包络描边走波浪轮廓；树干（tree.bake）同步改不规则折线轮廓（不再正圆）。
+- **灌木**（bush.bakeCanopy）：5 正圆 + 9 椭圆 + 中心描边圆整体废弃 → 单条 36 段波浪轮廓（包络 ≤ 0.44 不变）+ 内部 5 枚 / 边缘 7 枚不规则叶团 + 体积渐变 + 左上受光团/右下背光团。
+- **倒树**（fallen.bake）：两段椭圆哑铃 → 单条连续波浪原木轮廓（上缘受光/下缘背光渐变、逐段 hash 抖动、锥度根部粗梢部细）+ 椭圆接触影 + 上缘受光细线 + 9 道**短竖向树皮刻痕**（旧整弧横纹在原木上读成「一串圆环」，废弃）+ 波浪圆伐倒断面。
+- **倒树树冠**（fallen.bakeCanopy）：波浪轮廓；锚点贴回树干端部（cx = x + w*0.24，旧 x + w*0.32 悬空）、尺寸改由干径 h 派生（rw = h*1.1 / rh = h*1.3，旧按 w 派生在 242px 原木上膨成 130px 方块冠）。
+- **雪地树冠**（tank_battledraw.js drawFoliage snowy 分支）：整椭圆 → blobPath 波浪轮廓 + 波浪积雪高光团。
+
+**验证**：`node --check` 两模块 EXIT=0；`check-html` / `tsc --noEmit` / `test-render`（⑧a 121.8 > 55.3）/ `test-assets` 全 EXIT=0；`render-map-shot` seed=7 树丛 1.4×/倒树 1.6× 目视确认：树冠轮廓参差无椭圆拼贴感、倒树为连续原木且树冠贴合树梢。
+
+**细则归口**：`specs/map.md` §22.4 + §22.8。
+
+## §4.105 道路单弓形弯：杜绝正弦/S 形道路（#U45，2026-10-19）
+
+**用户反馈原文**：「修改道路生成算法，目前有些道路看起来像正弦函数，在地图内的弯太多」。（⚠ 编号说明：#U40~#U44 已被同日并行批次占用（§4.101~§4.104），本条顺延记作 #U45。）
+
+### 根因（已核实）
+
+`placeRoadNetwork` → `buildFromPoints`（`js/tank_nodegen.js:1373`）旧实现随机放 1~2 个内部控制点（`nCtrl = rng.int(1,2)`），每个控制点独立 `rng.range(-curveAmp, +curveAmp) × span` 横向偏移（`curveAmp=0.16`）：
+
+- 两控制点**反号**时样条横向偏移沿跨度正负交替 = **S 形**（「像正弦函数」的直接来源）；
+- 同号时也是「中段两处渐变弯」+ 端部天然反拐，观感即「弯太多」。
+
+### 修法
+
+1. **单弓形重做**（`js/tank_nodegen.js` `buildFromPoints`）：只放 1 个内部控制点（弓顶 `t=0.5`，偏移 `±rng.range(0.55,1.0) × curveAmp × span`）；两端点各加与弓顶**同号、1/4 幅**的预弯点（`t=0.08/0.92`）消除端部反拐 → 横向偏移沿跨度恒同号、单调过渡。`tan1` G1 切线分支保留同结构（切线控制点并入弓顶偏移）。
+2. **参数收口**（`js/tank_rules.js` `RULES.nodeMap.road`）：`curveAmp` 0.16 → **0.075**（语义改为「单弓形弓顶偏移相对跨度比例」，2100px 节点弓顶横移 ≈158px ≈ 1.4 条路宽）；`branchCurveAmp` **删除**（#G 起 T 形支道固定 amp=0，全仓库唯一残留是生成器死变量，按 `junctionClearR` 死配置先例删除）。`diagChance`/`diagAngleMin/Max` 不变；D/I 拓扑显式振幅 0.05 不变。
+3. **`test-strip.js` §6c 接缝断言修正判定盲区**：旧实现以「cover 中心距接缝 <800px」近似「横贯河应跨接缝」——纵贯（V）河链恰好从接缝旁经过时误报（注释早已声明「纵贯河形不强制」，实现未兑现；#U45 rng 重掷后 seed42 河形 H→V 首次踩中）。改按 groupId 聚类：仅「x 跨度 > y 跨度的横贯链且 bbox 实际覆盖接缝 x」才要求接缝 300px 内有水系（strip 河流整链一次生成，接缝结构上不可能断链）。
+4. **`tank_sim.js` 代理玩家补「被挡继续逼近」**：布局重排使 seed=1 回放暴露策略盲区——目标进入接敌距离即停车，停车点恰在建筑后死角时全程 0 开火假超时（实测玩家 120s 停在 (735,675)、最近敌 422px 恒无 LoS）。`_defaultPlayerPolicy` 增补：接敌距离内 LoS 被挡时继续向目标开进（与 `tank_ai.js` #M 失去 LoS 突进 patch 同语义），直至重现 LoS。仅测试链 harness，不影响正式游戏。
+
+### 实测数据
+
+- **弯形验证**（9 模板 × 30 seed × scale3，648 条道路链）：横向偏移符号变化 **max=0**（全部单弓形）；弓顶横移封顶 7.50% 跨度；路身中段出界 0（两端 ≤29px 端帽探出属 §10.1 设计行为）。
+- `test-nodegen.js` §16 七护栏全过，最小交叉夹角 **81.8°**（旧 60° 护栏富余进一步放大——单弓形端点切线即端点连线方向）。
+- **校准第十三次重锚**（`test-nodegen-calibration.js`）：rng 消耗序列变化（`nCtrl`+逐点偏移 → `side`+`bowOff`）重排路网走向，connectivity 维持 0.9999~1.000、cov 漂移 ±0.004 内；minPassageWidth 为纯流位差重排（无系统性收窄）。BASE 表按实测重锚，TOL 不变。
+- `test-replay.js` 修复后 seed=1 有真实交战（总开火 36 次），确定性/分化断言全过。
+- 视觉：`render-map-shot` seed=7/12 生图目视均为单弓形缓弯。
+
+### 验证（2026-10-19）
+
+- `npm run check` → EXIT=0；`npm test` → **47 通过 / 1 失败**——唯一失败 `test-cover-gen.js` 为**既有环境+存量问题**（9 项失败全部源于 `spawnSync` 子进程 `status:null`（沙箱 EPERM，最小复现：`spawnSync(node,-e)` 必然 EPERM）+ `tools/cover-refs.json` 基准漂移存量项，见 `docs/ISSUES.md` #V1——与本批次无关，改动前后同样失败）。
+- `npm run test:browser` 需系统 Edge + 放宽进程权限（沙箱 `spawn EPERM`），**待正常环境补跑**。
+
+### 细则归口
+
+`specs/map.md` §26（现行口径：根因 / 单弓形结构 / 参数表 / 弯形实测）+ §12.3 沿革注记；校准基线沿革 `scripts/test-nodegen-calibration.js` 第十三次重锚注释；回放代理口径 `js/tank_sim.js` 文件头注释。
+
+## §4.106 Agent 工作台治理：死配置清理 + 角色重建 + 测试链自证（2026-10-19）
+
+> **本节性质**：**工程流程/工具链**批次，不改游戏逻辑。现行口径归口 `AGENTS.md` §3.6/§3.7 与 `.dsh/skills/rogue-tank-roles/SKILL.md`。
+
+### 起因（用户提问）
+「本项目需不需要在 dsh 中专门设置一个模式来开发？子 agent 和工作范围是否需要调整优化？」→ 调查后确认**不需要新建 preset**，但存在三类真实缺陷，逐项修复。
+
+### 三条根因（均带证据）
+
+1. **`.dsh/agents/` 14 份角色定义是死配置**。对 dsh 安装包（`app.asar`，182MB）全量扫描 `dsh/agents`、`subagentType`、`agentDefinitions`、`.opencode` → **0 命中**；dsh 只发现 `.dsh/skills/`（`@deepseek-ai/dsh-skill-filesystem`，rank 100）。而 `USAGE.md` 却指导用户用 `/task {agent:...}`、`@tank-combat`、Tab 切 `orchestrator`——这些在 dsh 中**全部不存在**（dsh 的编排只有 `subagent` 工具与 Agent Teams）。
+2. **角色卡内容腐烂，会主动误导**。实测 7 处：`tank-combat.md` 写 `artillery G / shield H`（#U42 已退役）、"数字键 1/2/3/4 切弹"（现为 Q/E，1/2/3 是技能槽）、指向 `DEVELOPMENT.md §5.5`（该章节已不存在）；`map-cover.md` 仍列 `half` tier（#E3 已删）；`test-runner.md` 写 "~24 suites"（实为 47）；`docs-agent.md` 描述 §1~§6 结构（现行 §0~§4+specs）。另有 **14 个文件被 ≥2 个角色同时声明所有权**（`tank_mvp.html` 三方、`tank_bench.html` 三方、`js/tank_cards.js` 三方、`js/tank_ai.js` 两方）——并行派发必然撞车。
+3. **agent 无法在沙箱内自证**。`run-tests.js:89` 的 `spawnSync({encoding:'utf8'})` 依赖**管道捕获**，沙箱禁止 → `npm test` 每一项都以 `spawnSync ... EPERM` 失败，断言根本没跑。叠加测试链漏登记 `test-move.js` / `test-physics.js`（孤儿测试，永不执行），以及 `check-html.js` 只冒烟 28 个脚本（磁盘 47 个 `test-*.js`）。
+
+### 修复
+
+- **P0 角色重建**：14 份 `.dsh/agents/*.md` → **6 张角色卡 + 1 份索引**（`.dsh/skills/rogue-tank-roles` 定写域矩阵，`role-combat` / `role-mapgen` / `role-systems` / `role-content` / `role-render-fx` / `role-verify-docs`）。按**写域互斥**而非概念分片合并。删除 `.dsh/agents/`、`.claude/`（4 份重复副本）、`opencode.jsonc`、两个 `.trash` 残留技能目录。
+- **P0 知识抢救**：删除前先核对——`ASSET_DEFS` schema 已由 `specs/map.md` §18 覆盖；但 **`SOUND_DEFS` 层/包络 schema 在 specs 中完全没有**，故先收编为 `specs/combat.md` §7.1。收编时**按实现校正**：旧角色卡描述的 `priority`/`maxConcurrent`/`spatial{...}`/`env.type`(perc/exp/adsr/gate)/`bufferKey` **均未实现**，实际是 `label/bus/gain/layers[{kind,wave,f0,f1,dur,gain,attack,filter,filterFreq}]`；空间化固定 `HRTF`/`maxDistance 500`/`refDistance 24`，与 §7 正文的 `equalpower`/1200/100 不一致——已在 §7.1 留 ⚠️ 注记。
+- **P1 测试链自证**：`run-tests.js` 改**文件句柄重定向**（`stdio:['ignore',fd,fd]`）替代管道，行为等价（仍拿退出码+全量输出+超时语义）；补登 2 个孤儿测试；`check-html.js` 改**递归自动发现** `scripts/**/*.{js,cjs}`（含 `scripts/lib/`）并新增**测试链登记一致性断言**；四条浏览器链共用 `scripts/lib/browser-launch.cjs`，EPERM 时打印单行 `INCONCLUSIVE` 提示并以**退出码 86** 退出，不再吐 20 行 call log。
+- **P2 纪律固化**：`AGENTS.md` 新增 §3.6（多 agent 写域纪律：页面/specs 单写者、`RULES` 单写者、验证统一收口、测试文件必须登记）与 §3.7（沙箱验证边界表）。
+- **基准重导出**：按 `PLAN.md` §2.5 跑 `node tools/dump-cover-refs.mjs`，`barricade` 质心断言由此转 OK。
+
+### 验证（2026-10-19 实测）
+
+- `node scripts/check-html.js` → **EXIT=0**，`All checks passed`（1.5s；递归覆盖含 `scripts/lib/`，并断言「47 个 test-*.js 全部在 TESTS 中」）。
+- `node node_modules/typescript/bin/tsc --noEmit` → **EXIT=0**。
+- `npm test` → **47 通过 / 1 失败（48 项，334~336s）**。唯一失败 `test-cover-gen.js` 已核实为**既有缺陷**（`dump-cover-refs.mjs:49` 用基础层尺寸烘焙 canopy 层 → `fallen_canopy` 基准质心偏 3.06px），记入 `docs/ISSUES.md` #V1，与本批次无关。
+- `npm run test:browser` → **ALL PASS**（四条链，133s）。**首次实测通过**——此前因沙箱 EPERM 一直标注「待正常环境补跑」。
+
+### 经验（写入 skill）
+
+- **别假设配置目录被加载**：dsh 只认 `.dsh/skills/`；`.dsh/agents/` 这类「看起来像配置」的目录必须先拿证据（扫安装包 / 查发现路径）再依赖。
+- **别信角色卡里的 API**：本次核对发现 `SOUND_DEFS` 真实现与文档差了一整套字段。收编任何文档前必须回读源码。
+- **沙箱内能自证是效率关键**：`npm test` 修好前，每个批次都要人肉判断「EPERM 还是真失败」。
+
+### 细则归口
+
+`AGENTS.md` §3.6（写域纪律）/ §3.7（沙箱验证边界）；`.dsh/skills/rogue-tank-roles/SKILL.md`（角色与写域唯一权威）；`docs/specs/combat.md` §7.1（`SOUND_DEFS` schema）；`docs/ISSUES.md` #V1（canopy 基准缺陷）；`.dsh/skills/sandbox-verify|test-runner/SKILL.md`（验证命令与判定）。
+
+### §4.103 俯视栅栏/沙包重做 + 影子归口 + mini-canvas drawImage CTM 修复（#TEX17，2026-10-19）
+
+**用户反馈**：栅栏、沙包俯视图不正确——「栅栏俯视图就是薄薄的水泥墙或木板，按对应颜色渲染，同时在地面绘制正确的阴影（与其他物体的阴影方向、长度一致）」。
+
+**修法**：
+
+- **栅栏 `soft.bake`**（`js/tank_assets.js`）：#TEX16 的「横板+立柱+斜撑」是立面画法，俯视不存在——重做为**整个 OBB 即墙顶面**：沿长轴木板拼缝（hash 相位、竖放自适应）、长轴两段明暗、左上受光/右下背光长缘、木纹短划、path 外缘描边。包络 w×h 不变。
+- **沙包 `barricade.bake`**：重做为俯视沙袋堆——两排错缝圆角袋顶（`roundedRectPath`）+ 堆底背光暗带；每袋左上受光/右下背光弧 + 布纹短缝；删整排椭圆接触影。包络 w×h 不变。
+- **投影 `drawCoverShadow`**（`js/tank_battledraw.js`）：soft/barricade 从「脚下小椭圆」改为与建筑（box）**同源的三层偏移轮廓投影**——同一 `off = min(26, 6+max(w,h)*0.08)`、同一右下 +x/+y 方向，alpha 0.10/0.13/0.18（体量小故比建筑淡）；`stump` 保留接触影。全套地图元素投影方向/长度自此一致。
+- **mini-canvas `drawImage` CTM 修复**（`scripts/lib/mini-canvas.js`，§22.6 口径收口）：旧实现**完全忽略变换**（注释自认「只处理平移+缩放」，实测连平移都丢——scale(2) 下 10×10 图仍画在原点）。现改为**逆 CTM 采样**：目标矩形四角（含 dx/dy 原点）经 CTM 得设备包围盒 → 逆矩阵映射回图片 uv（最近邻；缩小按 §22.6 用 alpha 预乘双线性）。实测 1:1/scale(2) 双用例正确；`render-map-shot --scale≠1` 的离线图自此可信。
+- **并行批次收尾（类型声明级，不碰语义）**：`types/globals.d.ts` 补 `StripGenOptions.chunkRows`（#U35）与 `lightningPath` 全局声明（#U38）——tsc 6 处遗留错误清零；`scripts/test-assets.js` mock ctx 补 `rect`/`strokeRect` no-op。
+- **battledraw exports 补回**：`renderHullTexture`/`renderTurretTexture`（函数在、导出缺失——test-render ①② 入口）。
+
+**验证**：`check-html` / `tsc --noEmit` / `test-assets` / `test-covers` / `test-tanks` / `test-map` / `test-hitpart` / `test-tankcollision` 全 EXIT=0；定向 mini-canvas 像素探针 9 条全过（本体与 bg 色差>24 / 受光缘>背光缘 / 投影右下比 bg 暗 / TL 对照方向性）；`render-map-shot` 1.2× 目视确认薄墙顶面 + 右下落影。`test-render` 仍红——预存回归 #V2（HEAD 缺 #TEX12/13 的 paint 符号），与本批无关（stash 对照排除），见 `docs/ISSUES.md` #V2。
+
+**细则归口**：`specs/map.md` §22.4（#TEX17 段）+ §22.6（drawImage CTM）。
+
+### §4.104 地面履带痕迹（#U41，2026-10-19）
+
+**用户需求**（本会话首轮即提出，中途被植被/栅栏批次顺延）：「增加坦克履带痕迹」。
+
+**实现（数据纯逻辑 + 绘制纯 ctx，零新模块）**：
+
+- **`js/tank_fx.js` 新增地面贴花系统**：`trackMarks` 段数组（左右履带各一条线段 `{x1,y1,x2,y2,w,life,max}`），上限 `FX_MAX_TRACK_MARKS=600`（超限丢最老）、寿命 `TRACK_MARK_LIFE=12s`。
+- **盖章节流**：`emitTankTracks(t)` 由 `js/tank_move.js` `driveTank` 末尾经 `globalThis.emitTankTracks` **可选调用**（Node 测试链/未加载 FX 环境自动 no-op，不引入 move→fx 依赖）；左右履带中心 = local `±(hullWid/2 + trackOffset + trackWidth/2)` 旋转 hullAngle（与 `paintTracks` 同源），与各侧上次盖章点位移 ≥ `TRACK_MARK_STEP=9px` 才盖章——原地转向时两侧位移不同，自然画出差速弧线。
+- **寿命推进**：并入 `updateFx`（与 scorchMarks 同款 filter 模式；bench 调 updateFx 但无 emit → 空数组 no-op）。
+- **绘制层**：`drawTrackMarks(ctx)` 在 mvp `draw()` 的 `drawScorchMarks` 之后（地物/道路之后、坦克之前的地面贴花层），深土色 rgba(30,26,20)、前 8% 淡入 → 线性淡出、lineCap round、宽度 = trackWidth×0.9。
+- **清理**：`clearFx()` 并入履带痕迹清空；mvp `enterBattle` 与 `devGenNode` 显式调 `clearTrackMarks()`（换节点/换随机场不跨场）。`trackEmitState`（WeakMap 上次盖章点）在 clear 时换新表，避免跨节点首帧拖出长线。
+- **回归**：新增 `scripts/test-trackmarks.js` 9 断言（9px 盖双侧 / 1px 不盖 / 原地转差速盖章 / 寿命到期清零 / 600 上限精确触顶 / clear / 死车不发射），已登记 `run-tests.js`（避免孤儿测试）。
+
+**验证**：`check-html` / `tsc --noEmit` / `test-trackmarks` / `test-move` / `test-assets` / `test-covers` / `test-tanks` 全 EXIT=0。浏览器实机目视（开车转圈看地面弧线）留用户侧；`test:browser` 需 Edge 放权（§3.7）。
+
+**细则归口**：`specs/combat.md` §6「特效分层规范」追加地面履带痕迹条目。
+
+
+## §4.107 #W 批次前八项修复：装填硬限 / Boss 召唤物 / 受击减速 / economy 泄漏 / 副炮塔 / 履带拖尾（2026-10-19）
+
+> **现行细则归口**：`specs/combat.md` §3（参数硬限通道）、§8.2（副武器 F 边沿）；`specs/boss.md` §4（召唤物与受击反馈）。
+> **条目原文**已按 4 步生命周期归档至 `docs/archive/2026-10.md`（#W1/#W2/#W3/#W4/#W5/#W6/#W10/#W12），索引见 `ARCHIVE.md` 2026-10-19 行。
+
+### 起因
+用户实机反馈 8 项（「超级装填没有生效」「boss 召唤的小兵也要全局交战」「后期敌方 AI 移速太快」「boss 机炮射程」「副炮塔绘制顶层与后半」「履带后面疑似小拖尾」等），另有 5 个只读子代理并行代码审计产出的同级问题。全部 20 条写入 `ISSUES.md` #W1~#W18，**本批修复其中 8 条**。
+
+### 关键结论（每条均有复现与实测）
+
+**#W1 装填硬限只约束参数通道（P0，含 #W10 连带）**
+- 根因：`js/tank_model.js` 的 `applyParameterLimits` 用粗判门控 `hasHardLimitChannel = modifiers.some(m => m.scope !== 'timed')` 后，对**聚合完毕的最终值**统一钳制。timed 能力倍率早已聚合进去 ⇒ 只要玩家持有任意一张 run/permanent 修饰器，overdrive 的 ×0.45 就被同一刀切掉。
+- 实测（`base.reload=1.3`）：仅 timed → **0.585**（×0.45，正常）；叠加任意 run 卡 → **1.000**（只快 23%）。静默无日志，`tryActivateAbility` 仍返回 ok。
+- **命名陷阱**：用户口语「超级装填」= `cards/super_reload.json` → `ability.key='overdrive'`；`super_fire_control` 中文名是「超级火控」，只管精度。
+- 修法：按 scope 拆成「参数通道 / timed 通道」两个乘子，各自按 computeStats 的**加法聚合语义**（`1 + Σ(v−1)`）计算；由 `base` 直接算参数通道结果并施硬限，再叠加 timed。**不能从聚合值反推**（add 已在 pass1 累进 base，除法剥离不可逆）。
+- 连带修复：`boss.tuning.fireRateMul` 0.6 以 `scope:'run'` 注入，tiger-I 类底盘设计值 0.96s 被钳到 1.000s；`boss_fortress.p3_core` 的「狂暴连射」（设计 0.576s）此前**恒为 1.000s，整阶段机制空转**，现已恢复。
+- 口径（用户 2026-10-19 裁定）：「技能只是临时突破」——卡牌/升级仍不得破 1.0s，能力生效期间可突破。
+
+**#W6 economy 跨局泄漏（P0）**
+- `player` 是 mvp 模块级单例；`runScoreMul`/`runReviveBonus` 只由 `applyCardEffects` 写，而 `removeRunModifiers` 与 `prepPlayerForRun` 都只清 modifiers/cardEffects ⇒ 拿过一次「后勤保障」(1.15) 后**每局结算永久 ×1.15 并继续复乘**。
+- 修法：`removeRunModifiers` 归零（收尾）+ `prepPlayerForRun` 防御性归零（新局入口）+ `makeTank` 补显式初值（此前 `undefined`，靠消费方 `|| 1` 兜底）。
+
+**#W5 Boss 受击减速永不剪除（P1）**
+- `boss-hitreact`（maxSpeed ×0.35, `expiresAt=now+0.25s`）靠 `refreshStats` 到期过滤清理，但**非玩家实体没有任何逐帧 refreshStats**（mvp 只对 player 调用）⇒ 玩家停手 >0.25s 后 Boss 永久 0.35× 极速（≈44px/s）。
+- 修法：记录减速窗口绝对到期时刻 `bossHitSlowUntil`，`updateBossBehavior` 内到期显式 `removeModifierBySource`（对齐 `boss-charge` 既有做法）。判据用减速窗口而非视觉窗口（两者 0.25s vs 0.35s 不同长）。
+
+**#W4 Boss 召唤物出生即脱战 + 绕过速度封顶（P1）**
+- ① 召唤物只设 `aiTriggerDist = triggerDist × 1.0`，而生成点被推到 `sumTrig = triggerDist × 1.05` 之外 ⇒ **每波召唤的小兵都必在自身接战半径外 5%**，玩家不靠近就不动。
+- ② `spawnBossSummonWave` 只调 `applyEnemyAppearanceAndStats`、**从不调 `applyDifficultyMults`** ⇒ 不吃 `speedVsBaseline` 封顶，直跑 120×prof（light 1.15 → **138px/s**，同节点敌军 2 倍）。节点敌军与增援都调了封顶，唯独召唤物漏了。
+- 修法：对齐生存模式波次的正确做法（`aiTriggerDist=99999`/`aiEngaged=true`/`alertLevel=3`/`aiReactT=0`）+ 补调 `applyDifficultyMults`。
+- 顺带核实：`applyEnemyAppearanceAndStats` 的 `entityMults` **形参在函数体内从未使用**（死参数）。
+
+**#W12 履带「小拖尾」真因（P1，非相位错位）**
+- 相位与绘制本身没错位（`paintTracks` 局部 `-phase`、精灵侧 `+phase` 已同向）。真因是 `emitTankTracks` 只按「位移 ≥9px」补线段、**无跨距上限**，而 `trackEmitState` 只在 `clearTrackMarks()` 换新（仅进节点/dev 调用）——**复活、`resetEntity` 传送、Boss 召唤定位都不重置** ⇒ 下一帧在死亡点与复活点之间画一条长痕。
+- 修法：`TRACK_MARK_MAX_STEP = 48`，超距只重锚定不盖章。实测：正常移动盖章、传送 400px 增量 0、传送后恢复盖章。
+
+**#W2 副炮塔层级与位置（P1）**
+- 层级：两条绘制分支都在主炮塔**之前**调用（`tank_battledraw.js:999`/`:1151`）⇒ 被主炮塔整块盖住，只露一圈边缘。
+- 位置：位姿沿主炮塔朝向前移 `+turLen*s*0.45` ⇒ 落在**前半部分**，与用户要求「后半部分」相反。
+- 修法：两处调用移到主炮塔/炮管绘制之后；位姿 `+=` 改 `-=`。
+
+**#W3 turret 副武器曳光起点与散布（P2×2）**
+- 曳光起点 `fx/fy` 取 `secMuzzle.rootX/Y`（**座圈中心**）而非炮口 ⇒ 弹道起点正确、拖尾起点错。
+- 散布读 `baseStats.sigma`，但 **`tank.stats` 没有 `sigma` 字段**（运行时字段，主炮读 `shooter.sigma`）⇒ 副炮塔散布恒 `gaussian(0)`，比主炮还准。
+- 修法：`fx/fy` 改用炮口；散布改读 `t.sigma`。
+
+### 验证（实测退出码，2026-10-19）
+
+- `node scripts/check-html.js` → **EXIT=0**，`All checks passed`
+- `npm test` → **48 通过 / 1 失败（49 项）**。唯一失败 `test-cover-gen.js` 为**既有 #V1**（canopy 基准），改动前后同样失败。
+- `node scripts/test-browser-run.cjs` → **ALL PASS**
+- 新增/改写断言：`test-modifiers.js` +5 条 #W1；`test-rework-w5.js` 改写 1 条（原「run+timed 混合 → 钳至 1.0s」正是 bug 本身）+ 修正 2 处过期注释。
+
+### 未修（仍留在 ISSUES.md，共 12 条）
+
+`#V1` `#V2`（既有）· `#W7`（`applyShield` 死参数，阻断应急护盾）· `#W8`（`replaceAmmo` 零校验）· `#W9`（死键 super_speed/super_fire_control）· `#W11`（文件级事实）· `#W13`（`anchorRange` 死配置）· `#W14`（aimSpeed 两套量纲）· `#W15`（死配置清单 14 项）· `#W16`（地图生成侧口径）· `#W17`（`getExposure` 等契约）· `#W18`（文档与代码冲突 7 处）。
+
+### 提交说明
+
+`9e8bf20` 提交了 #W1/#W4/#W5/#W6（含 `tank_mvp.html`、`js/tank_model.js`、`js/tank_boss.js` 与两个测试文件）。
+**#W2/#W3/#W12 的改动保留在工作区未提交**——因为 `js/tank_battledraw.js` / `js/tank_fx.js` / `js/tank_weapons.js` 中混有外部进程的在途改动（#U42 等），且 #W3 与外部改动落在**同一代码块**（同一 hunk 内 `muzzleX`、`0.55`、`fromSecondaryTurret` 与本次修正交织），无法按 hunk 干净分离；强行拆分会产生编译不通过的中间态。

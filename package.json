@@ -9,7 +9,8 @@
     "check": "node scripts/check-html.js && npm run typecheck",
     "typecheck": "tsc --noEmit",
     "test:browser": "node scripts/test-browser-smoke.cjs && node scripts/test-browser-r3.cjs && node scripts/test-browser-run.cjs && node scripts/test-browser-r4.cjs",
-    "test": "node scripts/run-tests.js"
+    "test": "node scripts/run-tests.js",
+    "test:render": "node scripts/test-render.js"
   },
   "engines": {
     "node": ">=18"

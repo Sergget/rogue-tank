@@ -45,6 +45,12 @@
 
 **未在 #T 批次一并修改**（避免与「修复即验证」的批次边界混淆）。属审计脚本口径问题，不是生成器缺陷。
 
+### 2.5 贴图烘焙基准 `tools/cover-refs.json` 需随烘焙代码改动同步重导出（2026-10-19 提示项，非阻塞）
+
+`test-cover-gen.js` 的 `dump-cover-refs.mjs --check` 断言要求 `tools/cover-refs.json` 与烘焙代码一致——#TEX 批次（§4.95~§4.100）多轮改烘焙后**未重跑 `node tools/dump-cover-refs.mjs`**，基准漂移 9 键（2026-10-19 #U40 批次顺手重导出修复，见 §4.101）。后续任何改 `tank_assets.js` 烘焙几何/包络的批次，**收尾前必须重导出该基准**，否则 Node 链挂一条假失败。
+
+> **2026-10-19 §4.106 补**：本项**已重导出**（`barricade` 质心断言转 OK）。但重导出后 `test-cover-gen.js` **仍有 1 项失败**——`fallen_canopy` 基准质心偏 3.06px，根因是 `tools/dump-cover-refs.mjs:49` 用**基础层**尺寸烘焙 canopy 层，与本项（基准陈旧）性质不同，已单独立为 `docs/ISSUES.md` **#V1**。出 canopy 贴图前必须先修 #V1。
+
 
 ---
 
@@ -167,5 +173,82 @@
 | 4 | #S12 / #S1 / #S11 / #S13 地图视觉 | 河流去中心线+水流纹理（动态）；支流末端与干流实际曲线缝合闭合；道路/河流沿地图边缘线裁剪（非中心线法向端帽）；树/建筑/沙包程序化纹理升级 | ✅ 完成（2026-10-15，见 §4.74；Node 直出生图验证） |
 | 5 | #S2 AI 五层级警觉 | 新增 shot-noise 通道（玩家射击暴露位置）、近失弹警觉；`searchMinLoSBlocked` 接线 + search 扫视/重搜修复；`propagateAlert` 行为升级；`aiEngaged` 二值 → 可疑/警戒/交战渐进 | ✅ 完成（2026-10-15，见 §4.75） |
 | 6 | #S3 Boss 行为 | hold/skirmish 阶段追击欲望；barrage 下沉到更多 Boss / 间隔缩短；召唤从 3 波血量门控加密；hpMul 微调放最后（先机制后数值） | ✅ 完成（2026-10-15，见 §4.75） |
+
+---
+
+## 6. 2026-10-19 #W 批次实施计划（用户需求 4 项 + 缺陷 8 项）
+
+> 需求原文（2026-10-19）见本节各阶段的「用户口径」。核实证据见 `docs/ISSUES.md` #W1~#W18。
+> **排序原则：先修会让机制空转的根因（P0）→ 再修用户直接可见的缺陷 → 最后做新功能**。理由：#W1 的钳制缺陷同时吃掉 Boss 阶段机制，先修它才能让后续 Boss/AI 调参的验证有意义。
+>
+> **进度（2026-10-19）**：W-A ~ W-F **已完成并归档**（见 `DEVELOPMENT-batches-2026-10.md` §4.107、`ARCHIVE.md` 2026-10-19 行）。下表只保留**未完成**项。
+
+### 6.0 已完成（已移出待办，仅留索引）
+
+| 阶段 | 条目 | 结论归口 |
+|---|---|---|
+| ~~W-A~~ | #W1 装填硬限只钳参数通道（含 #W10 Boss 阶段连带） | §4.107 · `specs/combat.md` §3 |
+| ~~W-B~~ | #W6 economy 跨局泄漏 | §4.107 |
+| ~~W-C~~ | #W4 Boss 召唤物出生即脱战 + 绕过速度封顶 | §4.107 · `specs/boss.md` §4 |
+| ~~W-D~~ | #W5 Boss 受击减速修饰器永不剪除 | §4.107 · `specs/boss.md` §4 |
+| ~~W-E~~ | #W12 履带拖尾（传送后跨距盖章） | §4.107 |
+| ~~W-F~~ | #W2 + #W3 副炮塔层级/位置/曳光/散布 | §4.107 · `specs/combat.md` §8 |
+
+### 6.1 阶段一览（未完成）
+
+| 阶段 | 条目 | 类型 | 依赖 | 验证 |
+|---|---|---|---|---|
+| **W-G** | 应急护盾（原反应装甲）：改名 + 低血触发 + 90s→60s | 新功能 | #W7（`applyShield` 死参数） | `test-cards` + `test-abilities` |
+| **W-H** | 新卡：湿式弹药架 / 成员内衬 | 新功能 | 需新增防御方减伤通道 | `validate-content` + `test-physics` |
+| **W-I** | 新副武器：榴弹炮曲射模式 | 新功能 | W-A（速度通道） | 5 问可行性已验证，见 §6.2 |
+| **W-J** | Boss 机炮射程 900→1200（只影响 Boss） | 调参 | 无 | `test-boss` |
+
+### 6.2 各阶段执行要点
+
+**W-A 装填硬限（#W1/#W10）**
+- 用户口径：「超级装填没有生效；装填时间不便，该技能生效期间**可以突破 1s 的装填极限**」。
+- ⚠️ **先记住命名**：用户说的「超级装填」= `cards/super_reload.json` → `ability.key='overdrive'`；**不是** `super_fire_control`（那是「超级火控」，管精度）。
+- 改法二选一：① `applyParameterLimits` 只在**不含 timed** 的聚合值上钳制，再乘 timed 倍率；② overdrive 改走运行时二次倍率（`js/tank_fire.js:240` 的 `perReload`，该处本就不受参数下限约束）。
+- **必须同时验证**：`boss_fortress` `p3_core` 的「狂暴连射」（设计 0.576s）与 `p2_strip`（0.816s）是否恢复生效。
+
+**W-C Boss 召唤物（#W4）**
+- 用户口径：「boss 需要全局进入交战状态、尝试靠近玩家后按战斗模式移动。boss 局中，**召唤的小兵也全局进入交战状态**」。
+- Boss 本体已达（`tank_boss.js:271-273`）；**缺的是召唤物**：补 `aiTriggerDist`（对齐 `tank_mvp.html:2010-2016` 生存模式范例）+ 补调 `applyDifficultyMults`。
+
+**W-E 履带拖尾（#W12）**
+- 用户口径：「履带的动画在履带贴图后面似乎有个小拖尾，疑似动画组件错位」。
+- **真因不是错位**：是复活/传送后 `emitTankTracks` 跨距盖章画长痕。修 `js/tank_fx.js:1049-1053` + 在 `reviveTank`/`resetEntity` 重置 `trackEmitState`。
+
+**W-F 副炮塔（#W2/#W3）**
+- 用户口径：「副炮塔需要绘制在顶层贴图，位置在主炮塔后半部分」。
+- 三改：① `js/tank_battledraw.js:999` 与 `:1151` 两处调用移到主炮塔绘制**之后**；② `:1716-1718` 的 `+=` 改 `-=`（后半）；③ 顺修 `js/tank_weapons.js:193` 曳光起点用炮口、`:186` 的 `baseStats.sigma` 改读 `shooter.sigma`。
+
+**W-G 应急护盾**
+- 用户口径：「反应装甲改名为『应急护盾』，当玩家血量低于 10% 时，生成 1 个持续 10s 的护盾，冷却时间 90 秒，可由卡牌升级、最少 60s」。
+- **前置**：先修 #W7（`applyShield` 的 hp/时长是死参数，实测传 999/10 得到 150/8）。
+- 需新增：低血逐帧触发（无现成钩子，参照 `tank_mvp.html:4047-4052` 自动灭火器）、冷却参数化为可升级字段（当前 `parameterLimits` 无冷却类字段）。
+- 改名影响：代码侧 5 个文件（`cards/reactive_armor.json` 需连文件名一起改）。⚠️ `bosses/boss_fortress.json` 与 `weapon_secondary_missile_wire_warhead.json` 里的「反应装甲」是**剧情描述**，**不得连带改**。
+
+**W-H 两张新卡**
+- 用户口径：「湿式弹药架（弹药架受伤时伤害降低 30%）」「成员内衬（成员受到伤害时伤害降低 20%）」。
+- **两张共用同一改造**：`js/tank_physics.js:336 applyModuleDamage` 的 `getMultForKey`（`:352`）**只有攻击方乘子、防御方零入口**。需新增防御方通道。
+- ⚠️ **不可复用** `ammoMult`/`crewMult`——它们语义是**攻击加成**（`tank_model.js:55-56` 缺省取 `RULES.modules.*.player`），反向使用会分不清「我打得更痛」与「我挨得不痛」。
+- 需新增 2 个 `PASSIVE_KEYS`；并确认 `_BEST_ONLY_PASSIVE_KEYS`（`tank_cards.js:643`）是否要给它们「取最优」语义。
+
+**W-I 榴弹炮曲射模式**
+- 用户口径：「该模式更改主炮为曲射武器，行进速度将为最大速度的 1/3。只能发射当前生效的 he 单种，未直接命中时按距离计算伤害，直接命中时，按坦克最薄的装甲值作为命中部位来计算伤害。可越过掩体，瞄准器变成一个在鼠标位置的一个虚线圈，初始半径为 he 的爆炸半径，升级卡牌提供爆炸范围升级（仅对该模式生效，直射模式时不生效）、急速射（连续发射 3 发炮弹，间隔 0.5s）」。
+- 可行性已核查（5 问全部有答案）：
+  1. **曲射可复用** `js/tank_fire.js:704-730` 的 `isArc` 落点分支（迫击炮在用）；但该分支 `return` 早退 ⇒ 想同时要「落点溅射 + 直接命中」必须在落点分支内自行区分直击/近失。
+  2. **越过掩体**：`isArc` 天然绕过路径遮挡；但 `js/tank_fire.js:393-409` 的**炮口贯穿预检与弹道类型无关**，贴掩体时曲射弹也会被拦住 ⇒ 需单独豁免。
+  3. **最薄装甲**：**无现成接口**，需遍历 `['hull','turret'] × ['front','side','rear']` 取 min；注意这会绕过入射角/跳弹链，建议只对新路径生效。
+  4. **减速 1/3**：给 `driveTank` 的 `input` 加独立乘子（`js/tank_move.js:71` 链尾）。⚠️ **不可走 `speedModifier`**——`:45-47` 在公路上强制归 1，会把减速静默清零。
+  5. **瞄准圈**：需新增画圆函数（`js/tank_hud.js:88-111` 现只有射线）；`updateSolution` 受 `devOpen` 门控（`js/tank_fire.js:572-573`），默认对局不执行最后一跳，不能假定它每帧在跑。
+
+**W-J Boss 机炮射程**
+- 用户口径：「boss 使用机炮时射程更长（900→1200px）」。
+- ⚠️ **直接改 `js/tank_weapons.js:17` 的 `900` 会连带改到玩家**（Boss 与玩家共用 `WEAPON_DEFAULTS.primary.autocannon.maxRange`，代码无 Boss 专属分支）。
+- 正确做法：在 `js/tank_boss.js:246-255` 的 Boss 专属调参注入处加一项，写进 `t.weapons.primary.stats.maxRange`（`primaryWeaponSpec` 的 `Object.assign` 会覆盖缺省表）。
+- ⚠️ **不要**在 `bosses/*.json` 塞 `weapons`——`validateBoss` 不认，会被静默忽略。
+- **前置确认**：Boss 实际用什么主武器尚未坐实（`bosses/*.json` 与 `tanks/*.json` 均不含主武器定义），建议先浏览器实测 Boss 实体的 `weapons.primary.type`。
 
 **阶段 0~3 为本轮优先落地；阶段 4~6 按序推进。** 每阶段落地后走 `AGENTS.md` §2.2 四步生命周期（specs 同步 → ISSUES 删除 → 归档 `docs/archive/2026-10.md` → PLAN 联动），结论记入 `docs/DEVELOPMENT-batches-2026-10.md` 新增 §4.x 条目（2026-10 批次日志现行约定）。

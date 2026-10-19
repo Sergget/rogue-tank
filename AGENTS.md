@@ -13,7 +13,7 @@
   - `tank_compare.html`：表格化坦克数据对比/编辑页。
 - **共享模块**（`js/`，浏览器端以全局脚本按序加载、非 ES Module；每个模块底部带 `module.exports` 以支持 Node 测试）：
   - `tank_rules.js`：**机制参数唯一配置源**（RULES），必须最先加载，其他模块依赖它。
-  - `tank_utils.js`：数学工具（norm/angDiff/gaussian/rotate/distToSegment/segRayIntersect/partCorners/partEdges/reflectDir），最先可加载的纯工具层。
+  - `tank_utils.js`：数学工具（norm/angDiff/gaussian/rotate/distToSegment/segRayIntersect/partCorners/partEdges/reflectDir + **`lightningPath`** 确定性电弧/闪电折线，2026-10-18 #U38），最先可加载的纯工具层。
   - `tank_geometry.js`：多边形/射线/命中部位（hullPoly/turretPoly/raycastTank/bestTankHit/moduleFromHit/gunRoot）。
   - `tank_model.js`：坦克配置与属性系统（makeTank/applyTankConfig/computeStats 三层属性/SPREAD 散布/debuff 函数/parameterLimits 钳制）。
   - `tank_physics.js`：命中时刻结算（resolveHit：入射角/等效厚度/跳弹/穿透/模块几何概率分区伤害）。
@@ -25,18 +25,18 @@
   - `tank_shield.js`：累计吸收护盾（applyShield/入射角吸收判定）；`tank_strike.js`：延迟 AOE 炮击（callStrike：circle/point/carpet 三形状/updateStrikes）。
   - `tank_deployables.js`：战场部署物注册表（`deployables`：固定炮塔/地雷/战术掩体，spawn/update/duration 生命周期 + mineExplode 事件）。
   - `tank_drone.js`：伴随无人机体系（模块级 `drones` 数组单一数据源，scout 侦察/striker 打击两型，countMax 上限）。
-  - `tank_cards.js`：卡牌系统（CARD_RARITIES/CARD_TAGS/效果类型 + `validateCard`/`applyCardEffects`/`drawCardChoices` 含装备优先保底与 `cardEligible` 资格过滤/`cardStackCount`）。
+  - `tank_cards.js`：卡牌系统（CARD_RARITIES/CARD_TAGS/效果类型 + `validateCard`/`applyCardEffects`/`drawCardChoices` 含装备优先保底与 `cardEligible` 资格过滤/`cardStackCount`；#U40 2026-10-19 起含**调校/升级分界**——带 field 的 ammo 效果绝不触发链替换、`isAmmoUpgradeCard` 同口径；反应装甲再充能助手 `reactiveArmorRecharge`/`updateReactiveArmorRearm`；经济聚合 `runScoreMultiplier`/`runShopDiscount`）。
   - `tank_boss.js`：Boss 系统（validateBoss/bossStageFor + makeBossEntity/applyBossStage/updateBossStage，缩放整体替换不污染共享 spec）。
   - `tank_ai_squad.js`：敌军攻守分工协调器（`updateSquad` 按「距离/LoS/血量」评分分配 press/flank/hold 角色 + `holdGate` 射界门控 + `threatIndicators` 视口外来袭方位提示；纯逻辑、可 Node 测试，**须先于 `tank_ai.js` 加载**——后者运行时调用 `holdGate`；2026-10-02 #N 新增）。
   - `tank_ai.js`：敌人/友军 AI 决策（`aiDecide` 双态 + 受击警觉/避水/找掩体 coverSeek + 消极防御，输出 `{turn, move, turretDesired, fire}`；#M 接战机动随机化、#N 交战距离带 / flank 侧翼站位 / 群体分离力 / 装填脱离）。
   - `tank_revive.js`：死亡/复活状态机（满状态复活 + 无敌 + 友军据点旁随机点，依赖 `RULES.revive`）。
   - `tank_economy.js`：经济/存档/多存档槽位（元索引 + 槽位键 CRUD + migrateLegacySave；UPGRADE_DEFS 永久升级树 + scoreToPoints/buyUpgrade/applyUpgrades/buyExtraRevive）。
-  - `tank_nodegen.js`：节点地图元素生成器（7 内置模板 + `generateNode(difficulty,{seed,templateId,scale})` 确定性生成 + `placeRoadNetwork` 路网 **v4 七拓扑**（A 贯通 / B 十字 / C 单侧 T / E 双侧 T / D 双平行 / G 网格街区 / I 双干贯穿）+ 建筑与路口沙包 + 重叠消解）。
+  - `tank_nodegen.js`：节点地图元素生成器（7 内置模板 + `generateNode(difficulty,{seed,templateId,scale})` 确定性生成 + `placeRoadNetwork` 路网 **v4 七拓扑**（A 贯通 / B 十字 / C 单侧 T / E 双侧 T / D 双平行 / G 网格街区 / I 双干贯穿）+ 建筑与路口沙包 + 重叠消解 + `generateStrip` 横向条带（`opts.chunkRows` 多行片网格 + 每行横向路面保证 + 行间接缝推出 + `fillEmptyBands` 补植）+ `clearCoversOnRoads` 道路上不得有房屋/树木的 verts 精判收尾（2026-10-18 #U35））。
   - `tank_map.js`：线性节点链生成 + 难度曲线 + 节点实体化（generateRun/makeNode/scoreNode/materializeNode）。
   - `tank_flow.js`：全局流程状态机（map/battle/settlement/reward/gameover + home/loadout/shop，白名单转移 + watchFlow）。
-  - `tank_camera.js` / `tank_minimap.js`：摄像机跟随与视口剔除 / 小地图绘制（均纯逻辑可 Node 测试）。
-  - `tank_battledraw.js`：mvp 战斗场景绘制层（drawTank/drawShells/drawCover/drawFoliage/部署物绘制），ctx 显式传参。
-  - `tank_fx.js` / `tank_paint.js` / `tank_dmgtext.js`：战斗特效 / 程序化坦克渲染 / 伤害飘字（纯 ctx，无 DOM 依赖）。
+  - `tank_camera.js` / `tank_minimap.js`：摄像机跟随与视口剔除 / 小地图绘制（均纯逻辑可 Node 测试；小地图含**公路整链多边形**（`roadCoverPolygonPoints`，road 的 `verts` 是局部坐标，逐点经 `worldToMinimap` 换算以适配 strip 的 `sx≠sy`）与**补给点标记**（`minimapSupplyMarks`，`opts.supplyStations`）——2026-10-18 #U35。**`renderCamPos` 为渲染专用相机位置（屏幕像素对齐 `round(x·zoom)/zoom`），物理/AI/命中仍读浮点 `cam.x/cam.y`**——#GT 2026-10-18）。
+  - `tank_battledraw.js`：mvp 战斗场景绘制层（drawTank/drawShells/drawCover/drawFoliage/部署物绘制 + **`railChargeProgress`** 电磁炮充能进度 0..1，2026-10-18 #U38），ctx 显式传参。
+  - `tank_fx.js` / `tank_paint.js` / `tank_dmgtext.js`：战斗特效 / 程序化坦克渲染 / 伤害飘字（纯 ctx，无 DOM 依赖；`tank_fx` 含电磁炮放电弧 `spawnRailDischarge`/`drawRailArcs`/`railArcCount`——注意 `updateFx` 会**重新赋值** FX 数组，读当前长度必须走访问器，不能读导出的数组引用）。
   - `tank_assets.js` / `tank_audio.js`：贴图资产层（ASSET_DEFS + 离屏烘焙缓存） / 声音系统（SOUND_DEFS + 惰性 AudioContext，全合成零资产）。
   - `tank_bindings.js`：**键位唯一数据源**（KEY_BINDINGS/ACTION_INFO + createInputController 统一 keydown/keyup + describeBindings + loadSettings/saveSettings）。
   - `tank_panels_core.js` / `tank_panels_dom.js` / `tank_panels.js`：面板分层（纯核心 + 卡牌事务 snapshotCardTx/rollbackCardTx + parameterClamp / DOM 适配 / 门面）。
@@ -121,6 +121,29 @@
 - **测试输出**：验证只看退出码 + 尾部摘要/失败行，抽查具体断言用定向检索，不把完整输出灌进上下文。
 - **子代理派发**：预消化证据进提示词、给停止条件与调用上限、只读调查类任务明确「不得修改任何文件」、不委派已完成的工作。
 
+### 3.6 多 Agent 写域纪律（2026-10-19 起）
+
+本项目的角色与写域**唯一权威是 `.dsh/skills/rogue-tank-roles/SKILL.md`**（索引）+ `.dsh/skills/role-*/SKILL.md`（6 张角色卡：combat / mapgen / systems / content / render-fx / verify-docs）。
+
+> **历史沿革**：2026-09-13 起曾用 `.dsh/agents/*.md` 定义 14 个 specialist。**dsh 运行时不加载该目录**（它只发现 `.dsh/skills/`），那套定义自迁移起即为死配置，已于 2026-10-19 删除并转为 skill。不要再按 `@tank-combat`、`/task {agent:...}`、Tab 切 `orchestrator` 这类旧用法操作——dsh 的编排只有 `subagent` 工具与 Agent Teams 两条路。
+
+**并行派发前必须确认：**
+
+1. **写集合两两不相交**。同一批次内，`tank_mvp.html` / `tank_bench.html` / `docs/specs/*.md` 各只允许**一个**角色写；其余角色只交付 `js/` 模块。
+2. **`RULES` 只有一个写者**（`role-systems`）。需要新调参的角色提需求，不直接改 `js/tank_rules.js`。
+3. **验证统一收口**：任何角色完成改动后不自称验证通过，由 `role-verify-docs` 跑三链（见 §3.1）。
+4. **测试文件必须登记**：新增 `scripts/test-*.js` 时必须同时加入 `scripts/run-tests.js` 的 `TESTS` 数组——`check-html.js` 会以「孤儿测试」直接判红。
+
+### 3.7 沙箱内验证的已知边界（2026-10-19 实测）
+
+| 链 | 沙箱 workspace-write | 权限放宽后 |
+|---|---|---|
+| `npm run check`（语法 + tsc） | ✅ 全绿 | ✅ |
+| `npm test`（47 项 Node 链） | ✅ 全绿（`run-tests.js` 已改文件句柄重定向，不再依赖管道） | ✅ |
+| `npm run test:browser`（四链） | ⚠️ 报 `spawn EPERM`（命名管道被禁）并输出 `INCONCLUSIVE` + 退出码 86 | ✅ 全绿 |
+
+**不要把 `INCONCLUSIVE`/86 当成代码失败**；它明确表示环境未放开。历史上该噪音被误读为「浏览器链坏了」，导致多轮无效排查。
+
 ## 4. 架构要点
 
 - **节点式地图**：游戏是节点式地图推进，不是无限波次。每个节点是独立、有边界的战场（详见 `docs/specs/map.md` §1）。
@@ -134,7 +157,7 @@
   - `half`（半高）掩体**已整体删除**（2026-09-20 #E3 用户裁定）：`RULES.coverTiers.half` 定义、`RULES.heights.cover.half`、`getExposure` 的越掩插值、`shellBlock:'grad'` 拦截链与 `s.dec` 曝光缓存**全部移除**；`ruined`（残破建筑）归入全高确定性挡弹，`stump`/`rubble` 残骸不再挡弹。**现行 tier 全集与取值以 `RULES.coverTiers`（`js/tank_rules.js`）为唯一口径**，详见 `docs/specs/map.md` §12。
   - 路网：`placeRoadNetwork` **v4 七拓扑**（A 贯通 / B 十字 / C 单侧 T / E 双侧 T / D 双平行 / G 网格街区 / I 双干贯穿）+ `bakeNodeGroundLayer` 预烘焙 + 路口标线挖空；**可破坏楼房 tier `building`**（3 发 → `ruined` → `rubble`）（详见 `docs/specs/map.md` §10.1/§10.2、§13）。
   - 地图元素体系（树/灌木/栅栏/沙袋/残骸）：行为由 `RULES.coverTiers` 的 tier 描述，运行时 hp/残骸状态挂在 `covers` 实例上。
-- **属性三层结构**：`base` / `modifiers` / `stats`（`computeStats` 先加后乘，战斗逻辑只读 `tank.stats`，不摸 `base`）。卡牌/Boss 阶段/局前永久升级/局内商店均经 modifiers 注入，scope 分 permanent/run/timed，run 结束统一清除；卡牌通道受 `RULES.parameterLimits` 硬限钳制（装填/极速）。
+- **属性三层结构**：`base` / `modifiers` / `stats`（`computeStats` 先加后乘，战斗逻辑只读 `tank.stats`，不摸 `base`）。卡牌/Boss 阶段/局前永久升级/局内商店均经 modifiers 注入，scope 分 permanent/run/timed，run 结束统一清除；卡牌通道受 `RULES.parameterLimits` 硬限钳制（装填 ≥1.0s / 极速 ≤150km/h 参数通道硬限；#U40 2026-10-19 起 aimSpeed/trackLock/crit 聚合边界无条件钳制，抽卡侧 #U20 据同表达限过滤满级卡）。
 - **实体注册表**：中央 `entities` 数组（`id`、`team`、`spawn` 快照）管理所有单位，通过 `isHostile` / `nearestEnemyTo` / `resetEntity` 统一操作，不写死玩家/敌人变量引用。
 
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
