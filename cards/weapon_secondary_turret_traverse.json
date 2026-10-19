@@ -1,0 +1,20 @@
+{
+  "id": "weapon_secondary_turret_traverse",
+  "name": "副炮塔：伺服传动",
+  "rarity": "rare",
+  "tags": ["支援", "机动"],
+  "desc": "副炮塔强化：转向速率 2.5 → 4.0 rad/s，装填倍率 ×1.6 → ×1.3。追打绕侧的高机动目标时不再一直被甩开。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "turret",
+      "statOverrides": {
+        "turretTurnRate": 4.0,
+        "reloadMult": 1.3
+      }
+    }
+  ],
+  "maxStacks": 1
+}

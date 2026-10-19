@@ -1,0 +1,20 @@
+{
+  "id": "weapon_secondary_missile_wire_warhead",
+  "name": "线导弹：串联战斗部",
+  "rarity": "rare",
+  "tags": ["爆破", "重甲"],
+  "desc": "线导导弹强化：单发伤害 150 → 220、射程 700 → 900px。一发打断重甲目标的反应装甲层，是破甲窗口的开场手段。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "missile_wire",
+      "statOverrides": {
+        "damage": 220,
+        "range": 900
+      }
+    }
+  ],
+  "maxStacks": 1
+}

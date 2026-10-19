@@ -1,0 +1,20 @@
+{
+  "id": "weapon_secondary_mine_radius",
+  "name": "布雷器：阔域雷场",
+  "rarity": "rare",
+  "tags": ["爆破", "支援"],
+  "desc": "布雷器强化：爆炸半径 70 → 105、触发半径 45 → 70px。地雷从「单点陷阱」变为「走廊封锁」，窄路口一颗即可覆盖整条通路。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "mine_layer",
+      "statOverrides": {
+        "blastRadius": 105,
+        "triggerRadius": 70
+      }
+    }
+  ],
+  "maxStacks": 1
+}

@@ -1,0 +1,20 @@
+{
+  "id": "weapon_primary_standard_reload",
+  "name": "标准主炮：快速装填机",
+  "rarity": "rare",
+  "tags": ["机动", "支援"],
+  "desc": "标准主炮强化：装填时间 ×0.85（更快 15%）、弹速 ×1.15（飞行时间更短，远距提前量更小）。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "standard",
+      "statOverrides": {
+        "reloadMult": 0.85,
+        "shellSpeedMult": 1.15
+      }
+    }
+  ],
+  "maxStacks": 1
+}

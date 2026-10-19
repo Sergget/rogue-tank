@@ -1,0 +1,20 @@
+{
+  "id": "weapon_secondary_missile_wire_upgrade",
+  "name": "线导弹：双级推力",
+  "rarity": "rare",
+  "tags": ["爆破", "机动"],
+  "desc": "线导导弹强化：飞行速度 340 → 560 px/s、装填 10 → 8 秒。制导响应更快、手感更跟手，连续换目标时不再浪费半发。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "missile_wire",
+      "statOverrides": {
+        "speed": 560,
+        "reload": 8
+      }
+    }
+  ],
+  "maxStacks": 1
+}

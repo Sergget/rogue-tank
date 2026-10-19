@@ -1,0 +1,20 @@
+{
+  "id": "weapon_primary_clip_capacity",
+  "name": "弹夹炮：扩容弹仓",
+  "rarity": "rare",
+  "tags": ["爆破", "支援"],
+  "desc": "弹夹炮强化：弹夹容量 +2 发（4 → 6）、弹夹内发际间隔 0.7 → 0.55 秒。代价是弹夹间整组装填再 +1.6 × 标准装填（每多发 +0.8 的既有规则不变）。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "clip",
+      "statOverrides": {
+        "clipSize": "+2",
+        "clipCycleSeconds": 0.55
+      }
+    }
+  ],
+  "maxStacks": 1
+}

@@ -3,7 +3,7 @@
   "name": "反应装甲",
   "rarity": "legendary",
   "tags": ["重甲"],
-  "desc": "首层反应装甲：抵挡一次命中并消解（被动）。",
+  "desc": "反应装甲模块：拦截一次命中后进入再充能（60s），冷却结束恢复可拦截（被动）。",
   "effects": [
     { "type": "passive", "key": "reactive_armor", "value": 1 }
   ],

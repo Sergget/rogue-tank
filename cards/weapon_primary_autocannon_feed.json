@@ -1,0 +1,21 @@
+{
+  "id": "weapon_primary_autocannon_feed",
+  "name": "机炮：双路供弹",
+  "rarity": "epic",
+  "tags": ["机动", "爆破"],
+  "desc": "速射机炮强化：射击间隔（装填倍率）0.25 → 0.19、单发伤害倍率 0.2 → 0.24、冷却 15 → 20%/s。射速与续航同时上调，是机炮流的核心升级。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "autocannon",
+      "statOverrides": {
+        "reloadMult": 0.19,
+        "damageMult": 0.24,
+        "coolPerSec": 20
+      }
+    }
+  ],
+  "maxStacks": 1
+}

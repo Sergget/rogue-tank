@@ -1,0 +1,22 @@
+{
+  "id": "weapon_secondary_turret_heavy",
+  "name": "副炮塔：重炮塔座",
+  "rarity": "epic",
+  "tags": ["支援", "重甲"],
+  "desc": "副炮塔强化：伤害倍率 ×0.6 → ×1.0（与主炮同档）、穿深倍率 ×0.75 → ×1.0、装填倍率 ×1.6 → ×1.4、射程 400 → 520px。副炮塔成为第二门真炮。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "turret",
+      "statOverrides": {
+        "damageMult": 1.0,
+        "penMult": 1.0,
+        "reloadMult": 1.4,
+        "range": 520
+      }
+    }
+  ],
+  "maxStacks": 1
+}
