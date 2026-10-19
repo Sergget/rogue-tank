@@ -56,7 +56,10 @@ const DRONE_KINDS = ['scout', 'striker'];
 // #J3（2026-09-30）：`commander_sight`（车长潜望镜/观瞄镜）随**视野距离系统整体退役**而删除 ——
 //   该键的唯一消费者是 mvp 的可视圆半径，视野下线后无任何效果通道，留着即死效果卡
 //   （同 2026-09-23 A 档 `recon`/`track_repair` 处置）。视野卡面「+15%/+25% 观测距离」不再存在。
-const PASSIVE_KEYS = ['reactive_armor', 'angle_boost', 'overmatch', 'spall_liner'];
+const PASSIVE_KEYS = ['reactive_armor', 'angle_boost', 'overmatch', 'spall_liner',
+  // #W-H（2026-10-19）：模块级防御减伤（消费方 js/tank_physics.js 的 getMultForKey）
+  'wet_ammo_rack',   // 湿式弹药架：弹药架受伤 -30%
+  'crew_liner'];     // 成员内衬：成员（crew 6 键）受伤 -20%
 
 // 经济效果（M10 落地；schema 先行）
 const ECONOMY_FIELDS = ['scoreMul', 'shopDiscount', 'startScore', 'reviveCount'];
@@ -416,11 +419,10 @@ function applyCardEffects(tank, card, ctx) {
   if (card && card.maxStacks && !isAmmoCard && tank) {
     tank._cardApplyCount[card.id] = (tank._cardApplyCount[card.id] || 0) + 1;
   }
-  // #U40：反应装甲获得时立即可用（再充能冷却参数见 RULES.cards.reactiveArmor；
-  // 运行时拦截后写 _reactiveRearmT 并由 mvp 主循环 updateReactiveArmorRearm 逐帧递减）
+  // #W-G（2026-10-19）：应急护盾（原 reactive_armor）获得时冷却清零 —— 立即可用。
+  //   低血触发判定在 tank_mvp.html 主循环；冷却时长见 emergencyShieldCooldown。
   if (tank && Array.isArray(tank.cardEffects) && tank.cardEffects.some(e => e && e.type === 'passive' && e.key === 'reactive_armor')) {
-    tank._reactiveRearmT = 0;
-    tank._reactiveReady = true;
+    tank._emergencyShieldCd = 0;
   }
   return applied;
 }
@@ -642,30 +644,42 @@ function _plStatVal(stats, path){
 //   两张卡定义了同键不同档位，故低档/同档在已持有更优时无收益，应被 cardEligible 滤除。
 const _BEST_ONLY_PASSIVE_KEYS = { spall_liner: 'min', overmatch: 'max' };
 
-// #U40（2026-10-19）：反应装甲（passive reactive_armor）的再充能冷却。
-//   唯一口径 RULES.cards.reactiveArmor（rechargeSeconds，缺省 60）；RULES 缺失时回退 60s。
-//   消费方：① applyCardEffects（获得卡时立即可用：仅清计时器）；② tank_mvp.html 每次进入
-//   战斗（startNodeBattle）对 player 重置就绪；③ tank_physics.js resolveHit 拦截一次后写
-//   _reactiveRearmT 并由 mvp 主循环逐帧递减（updateReactiveArmorRearm，本文件导出）。
-//   语义（用户裁定）：不再是「整局只生效一次」的一次性消耗品——拦截后进入再充能，冷却结束
-//   恢复可拦截；同一时刻恒只有 1 层（maxStacks=1，超额拦截请求在冷却期内直接落正常结算）。
-function reactiveArmorRecharge() {
-  if (typeof RULES !== 'undefined' && RULES.cards && RULES.cards.reactiveArmor
-    && typeof RULES.cards.reactiveArmor.rechargeSeconds === 'number'
-    && RULES.cards.reactiveArmor.rechargeSeconds >= 0) {
-    return RULES.cards.reactiveArmor.rechargeSeconds;
-  }
-  return 60;
+// #W-G（2026-10-19 用户裁定）：「反应装甲」改名为「**应急护盾**」，机制重做为
+//   「HP < 10% 时自动生成 1 个持续 10s 的护盾，冷却 90s，可由卡牌升级缩短、最少 60s」。
+//   —— 与 #U40 的「命中驱动拦截 + 60s 再充能」是**不同机制**，旧语义已整体替换。
+//
+//   唯一口径：RULES.cards.emergencyShield（triggerHpRatio / durationSeconds /
+//   cooldownSeconds / cooldownMinSeconds / shieldHp）。RULES 缺失时用内置缺省。
+//
+//   本文件负责「冷却时长」与「冷却计时递减」；实际的低血触发判定在 tank_mvp.html 主循环
+//   （需要 player.hp / maxHp 与 applyShield，而那些是页面层职责）。
+//
+//   卡牌升级：通过 `t._emergencyShieldCdDelta`（秒，负值=缩短）叠加，钳到 cooldownMinSeconds。
+
+// 应急护盾的当前冷却时长（秒）——含卡牌升级折扣，钳到下限。
+function emergencyShieldCooldown(t) {
+  const cfg = (typeof RULES !== 'undefined' && RULES.cards && RULES.cards.emergencyShield) || {};
+  const base = (typeof cfg.cooldownSeconds === 'number') ? cfg.cooldownSeconds : 90;
+  const min = (typeof cfg.cooldownMinSeconds === 'number') ? cfg.cooldownMinSeconds : 60;
+  const delta = (t && typeof t._emergencyShieldCdDelta === 'number') ? t._emergencyShieldCdDelta : 0;
+  return Math.max(min, base + delta);
 }
 
-// 再充能计时器逐帧递减（mvp 主循环调用；纯函数式遍历，无副作用）
-function updateReactiveArmorRearm(t, dt) {
+// 应急护盾配置的其余字段（供 mvp 主循环读取，避免在多处硬编码）
+function emergencyShieldConfig() {
+  const cfg = (typeof RULES !== 'undefined' && RULES.cards && RULES.cards.emergencyShield) || {};
+  return {
+    triggerHpRatio: (typeof cfg.triggerHpRatio === 'number') ? cfg.triggerHpRatio : 0.10,
+    durationSeconds: (typeof cfg.durationSeconds === 'number') ? cfg.durationSeconds : 10,
+    shieldHp: (typeof cfg.shieldHp === 'number') ? cfg.shieldHp : 150
+  };
+}
+
+// 冷却计时器逐帧递减（mvp 主循环调用）。减到 0 即可再次触发。
+function updateEmergencyShieldRearm(t, dt) {
   if (!t || dt <= 0) return;
-  if (t._reactiveRearmT > 0) {
-    t._reactiveRearmT = Math.max(0, t._reactiveRearmT - dt);
-    if (t._reactiveRearmT === 0) {
-      t._reactiveReady = true;   // 再充能完成 → 恢复可拦截
-    }
+  if (t._emergencyShieldCd > 0) {
+    t._emergencyShieldCd = Math.max(0, t._emergencyShieldCd - dt);
   }
 }
 
@@ -1044,8 +1058,13 @@ if (typeof module !== 'undefined' && module.exports) {
     weightedRarity,
     pickBossArmament,
     isAmmoUpgradeCard,
-    reactiveArmorRecharge,
-    updateReactiveArmorRearm,
+    // #W-G（2026-10-19）：应急护盾（原 reactive_armor —— 机制已从「拦截驱动」改为「低血触发」）
+    emergencyShieldCooldown,
+    emergencyShieldConfig,
+    updateEmergencyShieldRearm,
+    // 旧名保留为别名（外部脚本/归档文档仍可能引用；语义已改为应急护盾冷却）
+    reactiveArmorRecharge: emergencyShieldCooldown,
+    updateReactiveArmorRearm: updateEmergencyShieldRearm,
     runScoreMultiplier,
     runShopDiscount
   };

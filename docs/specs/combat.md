@@ -14,7 +14,7 @@
 - **二次跳弹禁止**：跳弹后的炮弹标记 canBounce = false，再次命中不再发生二次反射。
 - **被动卡对装甲判定的两个修正（2026-10-16 #U19 实现，现行口径）**：
   - **`angle_boost`（摆角特训）**：`passiveValues` 求和后**加算到跳弹角** `bAngle = min(π/2, bAngle + Σ×π/180)`，即卡面「+5°」直接抬高跳弹门限（上限 90°＝不可能跳弹）。实测跳弹边界由 70° 抬至 75°，与卡面一致。
-  - **`reactive_armor`（反应装甲）**：`resolveHit` 首次命中时**整体吸收**（不跳弹/不穿深/不扣血），并**从 `cardEffects` 中消耗该层**——一次性，与卡面「抵挡一次命中并消解」一致。实测首击 BLOCK/dmg=0 且消耗、次击正常结算。
+  - **`reactive_armor`（应急护盾，2026-10-19 #W-G 用户裁定改版）**：**不再是命中驱动的拦截**。现行机制为「**HP 比例低于 10% 时自动生成 1 个持续 10s 的护盾**（吸收 150 点），冷却 90s、卡牌升级可缩到最少 60s」。因此 `resolveHit` 中**已不存在该被动的任何分支**（旧的一次性拦截 + #U40 的再充能拦截均已移除）。现行消费点：① 触发判定与生成在 `tank_mvp.html` 主循环（逐帧读 `player.hp/maxHp` → `applyShield`）；② 护盾吸收走 `js/tank_shield.js` 的 `hasShield`/`absorbDamage`（与战术护盾同一套）；③ 冷却时长与递减见 `js/tank_cards.js` 的 `emergencyShieldCooldown`/`updateEmergencyShieldRearm`；④ 参数唯一口径 `RULES.cards.emergencyShield`。
 - **等效厚度计算**：等效厚度 = 实际装甲厚度 / cos(入射角)。
 - **resolveHit 可选增益 opts（P-51）**：`resolveHit(s,target,hit,allowBounce,opts)` 新增可选 opts `{penAdd,dmgMul,ignoreBounce}`——penAdd 在穿透判定前加算；ignoreBounce 跳过跳弹与过陡 BLOCK；dmgMul 最终伤害乘算并传入 applyModuleDamage；不传 opts 行为不变。mvp 包装层对敌方 Boss 弱点命中（isWeakspotHit + moduleFromHit 匹配 RULES.boss.weakspot）注入 dmgMul:1.5 / penAdd:15 / ignoreBounce:true。
 - **弹药架与模块**（2026-08-26 P-49 定案：几何概率分区判定，废除自定义挂载）：

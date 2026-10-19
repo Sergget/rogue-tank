@@ -2295,12 +2295,11 @@ function enterBattle(nodeIndex){
   player.shield = null;                      // P-17：护盾是短时开启状态，不跨节点（冷却 t.abilityCds 池跨节点保留）
   player._rocketBurst = null;                // #D4：火箭巢逐发队列不跨节点
   player._missileLock = null;                // 同上：锁定进度不跨节点（防幽灵续锁）
-  // #U40（2026-10-19）：反应装甲就绪状态跨节点重置——装甲模块满电进入每个战场
-  //（拦截冷却只在单场战斗内走 updateReactiveArmorRearm 逐帧递减，不跨节点携带）
-  if(player && typeof reactiveArmorRecharge === 'function'
+  // #W-G（2026-10-19）：应急护盾（原反应装甲）冷却跨节点重置——每个战场满冷却进入。
+  //   机制已改为「HP < 10% 自动生成 10s 护盾、冷却 90s（卡牌可缩到 60s）」，不再是命中拦截。
+  if(player && typeof emergencyShieldCooldown === 'function'
     && (player.cardEffects || []).some(e => e && e.type === 'passive' && e.key === 'reactive_armor')){
-    player._reactiveRearmT = 0;
-    player._reactiveReady = true;
+    player._emergencyShieldCd = 0;
   }
   resetEntity(player);                       // 满状态进入节点
   player.hp = player.stats.maxHp;            // #A12：满血进节点（resetEntity 后兜底，防 spawn 快照 hp 陈旧）
@@ -4466,8 +4465,29 @@ function update(dt){
   // #C4c（2026-09-17）：按技能独立冷却——updateAbilityCds 统一递减 t.abilityCds 池
   // （运行时能力键 + innate 键同池按 key 隔离；旧共享 abilityCdT 助手已废弃，不再调用）
   updateAbilityCds(player, dt);   // 按技能独立冷却递减（artillery/shield/overdrive/... + repair/medkit/extinguish）
-  // #U40（2026-10-19）：反应装甲再充能计时逐帧递减（拦截一次后写 _reactiveRearmT，归零恢复可拦截）
-  if (typeof updateReactiveArmorRearm === 'function') updateReactiveArmorRearm(player, dt);
+  // #W-G（2026-10-19 用户裁定）：应急护盾（原反应装甲）——低血自动生成 + 冷却递减。
+  //   「HP < 10% 时生成 1 个持续 10s 的护盾，冷却 90s，卡牌可缩到 60s」。
+  //   参数唯一口径 RULES.cards.emergencyShield（经 emergencyShieldConfig 读取）。
+  if (typeof updateEmergencyShieldRearm === 'function') updateEmergencyShieldRearm(player, dt);
+  if (typeof emergencyShieldConfig === 'function'
+    && (player.cardEffects || []).some(e => e && e.type === 'passive' && e.key === 'reactive_armor')
+    && !hasShield(player)                       // 已持盾时不重复生成（一次只 1 层）
+    && !(player._emergencyShieldCd > 0)         // 冷却中不触发
+    && player.hp > 0) {                         // 已阵亡不触发
+    const esc = emergencyShieldConfig();
+    const hpRatio = (player.maxHp > 0) ? (player.hp / player.maxHp) : 1;
+    if (hpRatio < esc.triggerHpRatio) {
+      applyShield(player, {
+        omni: true,                             // 全向护盾：应急场景不挑方向
+        hp: esc.shieldHp,
+        duration: esc.durationSeconds
+      });
+      player._emergencyShieldCd = (typeof emergencyShieldCooldown === 'function')
+        ? emergencyShieldCooldown(player) : 90;
+      pushLog(`应急护盾展开 — 吸收 ${esc.shieldHp} 点伤害，持续 ${esc.durationSeconds}s`, 'PEN');
+      if (typeof playSound === 'function') playSound('shield');
+    }
+  }
   updateShield(player, dt);       // 护盾时长递减（本版本仅玩家持有护盾，无盾时 no-op）
   // P-17：战术炮击落弹推进（updateStrikes 已按阵营过滤扣血并返回命中明细；接线层播特效/飘字/音效）
   // #MODE：生存准备期不推进落弹（否则倒计时结束瞬间多波落弹同时爆开；伤害总闸亦已拦住结算）。

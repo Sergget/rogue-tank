@@ -1,9 +1,9 @@
 {
   "id": "reactive_armor",
-  "name": "反应装甲",
+  "name": "应急护盾",
   "rarity": "legendary",
   "tags": ["重甲"],
-  "desc": "反应装甲模块：拦截一次命中后进入再充能（60s），冷却结束恢复可拦截（被动）。",
+  "desc": "应急护盾（被动）：当装甲耐久低于 10% 时自动展开一个持续 10s 的护盾，吸收 150 点伤害；冷却 90s。",
   "effects": [
     { "type": "passive", "key": "reactive_armor", "value": 1 }
   ],

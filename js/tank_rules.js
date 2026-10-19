@@ -535,12 +535,23 @@ const RULES = {
     //   下调为 0.4 概率触发；2026-10-10 #N2 用户再次反馈同一问题——再降至 0.18 并引入
     //   随局递减（ammoUpgradePace），同时权重抽样通道同步降权（此前只压保底压不住自然抽样）。
     ammoUpgradePace: { decay: 0.55 },
-    // #U40（2026-10-19）：反应装甲（passive reactive_armor，传奇卡 reactive_armor.json）从
-    //   「一次性消耗（挡一发即从 cardEffects 消解，整局只生效一次）」改为「拦截后进入再充能」——
-    //   拦截一次成功后冷却 rechargeSeconds 秒，期间照常受击、冷却结束恢复可拦截；同一时刻恒 1 层。
-    //   消费方：js/tank_cards.js（reactiveArmorRecharge / updateReactiveArmorRearm）、
-    //   js/tank_physics.js resolveHit（拦截后写 _reactiveRearmT）、tank_mvp.html（战斗开始重置就绪）。
-    reactiveArmor: { rechargeSeconds: 60 },
+    // #W-G（2026-10-19 用户裁定）：「反应装甲改名为『应急护盾』，当玩家血量低于 10% 时，
+    //   生成 1 个持续 10s 的护盾，冷却时间 90 秒，可由卡牌升级、最少 60s」。
+    //   ⇒ 机制由 #U40 的「命中驱动拦截 + 60s 再充能」改为「**低血主动生成护盾**」：
+    //     · triggerHpRatio：HP 比例低于此值触发（0.10 = 10%）
+    //     · durationSeconds：生成的护盾持续时长（10s）
+    //     · cooldownSeconds / cooldownMinSeconds：冷却（90s，卡牌可升到最少 60s）
+    //     · shieldHp：护盾吸收池
+    //   消费方：js/tank_cards.js（emergencyShieldCooldown / updateEmergencyShieldRearm）、
+    //   tank_mvp.html 主循环逐帧判定、js/tank_shield.js applyShield（生成护盾）。
+    //   ⚠️ 旧键 reactiveArmor.rechargeSeconds 已被取代；保留键名兼容读取见 tank_cards.js。
+    emergencyShield: {
+      triggerHpRatio: 0.10,     // 血量低于 10% 触发
+      durationSeconds: 10,      // 护盾持续 10s
+      cooldownSeconds: 90,      // 基础冷却 90s
+      cooldownMinSeconds: 60,   // 卡牌升级后的冷却下限 60s
+      shieldHp: 150             // 护盾吸收池
+    },
     // Boss 追加轮专属口径（2026-10-16 用户要求）：「确保至少 1 张传奇、2 张史诗，其余随意，
     //   并把非普通卡的抽中几率调高」。仅作用于 pendingLootRounds > 0 的追加轮，普通节点不变。
     //   · guarantee：按稀有度保底**至少**张数（从稀到常见逐项满足；池内无可用卡时该项静默跳过）。

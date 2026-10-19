@@ -225,31 +225,13 @@ function resolveHit(shell, target, hit, allowBounce, opts){
   const spallVals = passiveValues(target, 'spall_liner');
   const spallMul = spallVals.length ? Math.min.apply(null, spallVals) : 1;
 
-  // #U19（2026-10-16 实现）→ #U40（2026-10-19 用户裁定重做）：被动「反应装甲」reactive_armor。
-  //   旧语义「抵挡一次命中并消解」把该条目从 cardEffects 整体删除 ⇒ 传奇卡整局只生效一次，
-  //   显然不合理。现行语义：**拦截一次后进入再充能**（RULES.cards.reactiveArmor.rechargeSeconds，
-  //   缺省 60s）——冷却期内照常按装甲/跳弹结算，冷却结束恢复可拦截；同一时刻恒 1 层（maxStacks=1）。
-  //   就绪判定：条目 `_reactiveReady !== false` 且 `target._reactiveRearmT <= 0`（未初始化视为就绪，
-  //   兼容 bench/单测无卡牌接线环境）。拦截成功写 `_reactiveRearmT` 并由 mvp 主循环
-  //   updateReactiveArmorRearm（js/tank_cards.js）逐帧递减；进入战斗时 mvp 重置就绪（跨节点不携带冷却）。
-  if(!(opts && opts.ignoreReactive)){
-    const rearm = (typeof RULES !== 'undefined' && RULES.cards && RULES.cards.reactiveArmor
-      && typeof RULES.cards.reactiveArmor.rechargeSeconds === 'number'
-      && RULES.cards.reactiveArmor.rechargeSeconds >= 0) ? RULES.cards.reactiveArmor.rechargeSeconds : 60;
-    const raIdx = (target && Array.isArray(target.cardEffects))
-      ? target.cardEffects.findIndex(e => e && e.type === 'passive' && e.key === 'reactive_armor'
-          && e._reactiveReady !== false && !(target._reactiveRearmT > 0))
-      : -1;
-    if(raIdx >= 0){
-      target._reactiveRearmT = rearm;      // 进入再充能（条目保留，冷却结束恢复）
-      target._reactiveReady = false;
-      return {
-        outcome:'BLOCK', cls:'BLOCK',
-        text:`反应装甲拦截 — 本次命中被吸收，进入再充能（${rearm}s）`,
-        part:hit.part, faceKey:hit.faceKey, hitPoint, dmg:0, reactive:true
-      };
-    }
-  }
+  // #W-G（2026-10-19 用户裁定）：原「反应装甲 reactive_armor」的**命中驱动拦截**分支已整体移除。
+  //   该被动已改名为「**应急护盾**」，机制改为「HP < 10% 时自动生成 1 个持续 10s 的护盾」——
+  //   属于**主动生成**而非「命中时拦截」，因此不再出现在命中结算链里：
+  //     · 触发判定与生成：tank_mvp.html 主循环（逐帧读 player.hp / applyShield）
+  //     · 护盾吸收：js/tank_shield.js 的 hasShield / absorbDamage（与战术护盾同一套）
+  //     · 冷却：js/tank_cards.js 的 emergencyShieldCooldown / updateEmergencyShieldRearm
+  //   保留 `opts.ignoreReactive` 的**入参兼容**（调用方可能仍传），但已无消费方。
 
   if(allowBounce && theta > bAngle && !noBounce && !ignBounce && !overmatched){
     const r = reflectDir(shell.dx, shell.dy, hit.nx, hit.ny);
@@ -369,9 +351,28 @@ function applyModuleDamage(shell, target, hit, opts){
   const modMults = ammoModuleMults(ammoCfg, shell ? shell.shooter : null);
 
   const getMultForKey = (k) => {
-    if(k === 'ammo') return modMults.ammo;
-    if(k === 'engine' || k === 'gunner' || k === 'loader' || k === 'driver' || k === 'commander' || k === 'breech') return modMults.crew;
-    return 1.0;
+    let base;
+    if(k === 'ammo') base = modMults.ammo;
+    else if(k === 'engine' || k === 'gunner' || k === 'loader' || k === 'driver' || k === 'commander' || k === 'breech') base = modMults.crew;
+    else return 1.0;
+    // #W-H（2026-10-19）：**防御方减伤通道**。此前 `getMultForKey` 只有攻击方乘子
+    //   （`modMults` 来自 `shell.shooter.stats.ammoMult/crewMult`），防御方零入口 ——
+    //   所以「湿式弹药架：弹药架受伤 -30%」「成员内衬：成员受伤 -20%」这类卡无从挂钩。
+    //   现按 modKey 查**受击方**（target）的 passive：
+    //     · ammo      → `wet_ammo_rack`（value = 减伤比例，0.30 = -30%）
+    //     · 6 个 crew 键 → `crew_liner`（value = 减伤比例，0.20 = -20%）
+    //   注意与 `ammoMult`/`crewMult` 的**语义区别**：那两个是「我打得痛」（攻击方），
+    //   本通道是「我挨得不痛」（防御方），不可复用。
+    //   取值口径：多张卡取**最强**（与 spall_liner 同口径，用 min 方向的减伤 → 取 max value）。
+    let defense = 1.0;
+    if(k === 'ammo'){
+      const v = passiveValues(target, 'wet_ammo_rack');
+      if(v.length){ const dmgReduction = Math.max.apply(null, v); defense = Math.max(0, 1 - dmgReduction); }
+    } else {
+      const v = passiveValues(target, 'crew_liner');
+      if(v.length){ const dmgReduction = Math.max.apply(null, v); defense = Math.max(0, 1 - dmgReduction); }
+    }
+    return base * defense;
   };
 
   const modKey1 = (mods[0] && mods[0].key) || null;

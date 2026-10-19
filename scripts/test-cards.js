@@ -1110,6 +1110,7 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
     global.setDebuff = model.setDebuff; global.moduleMult = model.moduleMult;
     global.reflectDir = U.reflectDir; global.rotate = U.rotate;
     const PHYS = require('../js/tank_physics.js');
+    const SHIELD = require('../js/tank_shield.js');
     const HIT = { part: 'hull', faceKey: 'front', x: 32, y: 0, nx: 1, ny: 0, edgeName: 'front' };
     const realRandom = Math.random;
     Math.random = function () { return 0.5; };
@@ -1117,26 +1118,42 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
       const mkTgt = () => {
         const t = model.makeTank({ team: 'enemy', hullAngle: 0, turretAngle: 0 });
         t.cardEffects = [{ type: 'passive', key: 'reactive_armor', value: 1, cardId: 'reactive_armor' }];
-        t._reactiveRearmT = 0; t._reactiveReady = true;
+        t._emergencyShieldCd = 0;
         return t;
       };
+      // #W-G（2026-10-19 用户裁定）：原「命中驱动拦截」已整体移除，改为「应急护盾」——
+      //   HP < 10% 时自动生成 10s 护盾、冷却 90s（卡牌可缩到 60s）。
+      //   因此这里断言的是**新机制**：命中不再被拦截，但护盾参数与冷却口径必须正确。
       const shell = { x: 0, y: 0, dx: 1, dy: 0, pen: 1e9, dmg: 100, ammoKey: 'ap', shooter: null, canBounce: false };
       const t1 = mkTgt();
       const r1 = PHYS.resolveHit(shell, t1, Object.assign({}, HIT), false);
-      ok(r1.reactive === true && r1.dmg === 0, '#U40: 反应装甲拦截（BLOCK、零伤害）');
-      ok(t1.cardEffects.some(e => e && e.type === 'passive' && e.key === 'reactive_armor'),
-        '#U40: 拦截后条目保留（不再一次性消解）');
-      ok(t1._reactiveRearmT > 0 && t1._reactiveReady === false, '#U40: 拦截后进入再充能（_reactiveRearmT>0）');
-      // 再充能递减：60s 冷却 → 递减 60s 后恢复就绪
-      cardsMod.updateReactiveArmorRearm(t1, cardsMod.reactiveArmorRecharge());
-      ok(t1._reactiveRearmT === 0 && t1._reactiveReady === true, '#U40: 再充能计时归零后恢复就绪');
-      // 冷却期内第二次命中 → 照常穿深结算（不再拦截）
-      const t2 = mkTgt();
-      PHYS.resolveHit(shell, t2, Object.assign({}, HIT), false);   // 第一发：拦截
-      const r2b = PHYS.resolveHit(shell, t2, Object.assign({}, HIT), false);
-      ok(r2b.reactive === undefined && r2b.dmg > 0, '#U40: 冷却期内第二发照常结算（不重复拦截）');
-      ok(cardsMod.reactiveArmorRecharge() === RULES.cards.reactiveArmor.rechargeSeconds,
-        '#U40: reactiveArmorRecharge 读 RULES.cards.reactiveArmor（60s 唯一口径）');
+      ok(r1.reactive === undefined, '#W-G: 命中不再被「反应装甲」拦截（机制已改为低血主动生成）');
+
+      // 配置口径：低血触发 10% / 持续 10s / 冷却 90s / 下限 60s / 吸收 150
+      const esc = cardsMod.emergencyShieldConfig();
+      ok(esc.triggerHpRatio === 0.10, `#W-G: 触发阈值为 HP 10%（${esc.triggerHpRatio}）`);
+      ok(esc.durationSeconds === 10, `#W-G: 护盾持续 10s（${esc.durationSeconds}）`);
+      ok(esc.shieldHp === 150, `#W-G: 护盾吸收池 150（${esc.shieldHp}）`);
+      ok(cardsMod.emergencyShieldCooldown(mkTgt()) === 90,
+        `#W-G: 基础冷却 90s（${cardsMod.emergencyShieldCooldown(mkTgt())}）`);
+
+      // 卡牌升级缩短冷却，下限 60s
+      const tUp = mkTgt();
+      tUp._emergencyShieldCdDelta = -20;
+      ok(cardsMod.emergencyShieldCooldown(tUp) === 70, `#W-G: 升级 -20s → 70s（${cardsMod.emergencyShieldCooldown(tUp)}）`);
+      tUp._emergencyShieldCdDelta = -100;
+      ok(cardsMod.emergencyShieldCooldown(tUp) === 60, `#W-G: 升级过度 → 钳到下限 60s（${cardsMod.emergencyShieldCooldown(tUp)}）`);
+
+      // applyShield 现在能接受 hp / duration 覆盖（#W7 修复）
+      const sh = SHIELD.applyShield(t1, { omni: true, hp: esc.shieldHp, duration: esc.durationSeconds });
+      ok(sh.hp === 150 && sh.t === 10, `#W-G: 护盾按配置生成（hp=${sh.hp} t=${sh.t}）`);
+      ok(SHIELD.hasShield(t1) === true, '#W-G: 生成的护盾处于生效状态');
+
+      // 冷却递减：归零后可再次触发
+      const tCd = mkTgt();
+      tCd._emergencyShieldCd = 5;
+      cardsMod.updateEmergencyShieldRearm(tCd, 5);
+      ok(tCd._emergencyShieldCd === 0, '#W-G: 冷却递减归零');
     } finally {
       Math.random = realRandom;
     }

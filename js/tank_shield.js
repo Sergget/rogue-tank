@@ -37,21 +37,36 @@ function hasShield(t) {
 }
 
 /**
- * 开启护盾。opts: { dir?, omni? }
+ * 开启护盾。opts: { dir?, omni?, hp?, duration?, arc? }
  *   omni → 全向：弧 2π、时长 omniDuration；否则定向：弧 = RULES arc、时长 dirDuration，
  *   dir 缺省取 t.turretAngle（护盾朝向炮塔，接线层如需固定朝向上传 ctx.dir）。
  * 重复施放：刷新时长与吸收池（hp = absorbCap）。
+ *
+ * #W7（2026-10-19）：**修复死参数**。此前本函数只读 `opts.omni`/`opts.dir`，其余全部硬取
+ *   `RULES.abilities.shield`，而调用方 `js/tank_abilities.js` 明明传了
+ *   `hp/arc/dirDuration/omniDuration` ⇒ 那四个参数**传了不生效**（实测传 hp:999/时长:10
+ *   仍得到 hp:150/t:8）。这让「应急护盾」等一切需要可调参数的护盾卡无法实现。
+ *   现改为：显式 opts 优先，缺省回落 RULES。
+ *   兼容：旧调用方传的是 `dirDuration`/`omniDuration`（按方向分两个键），此处同时接受
+ *   统一的 `duration` 与这两个分键，避免改坏既有调用。
  * @returns {any} 护盾对象（已挂载 t.shield）
  */
 function applyShield(t, opts) {
   const cfg = shieldConfig();
   const omni = !!(opts && opts.omni);
   const dir = (opts && opts.dir !== undefined) ? opts.dir : (t.turretAngle || 0);
+  // #W7：opts 覆盖（缺省回落 RULES）
+  const optHp = (opts && typeof opts.hp === 'number') ? opts.hp : null;
+  const optArc = (opts && typeof opts.arc === 'number') ? opts.arc : null;
+  const optDur = (opts && typeof opts.duration === 'number') ? opts.duration
+    : (opts && typeof opts.dirDuration === 'number' && !omni) ? opts.dirDuration
+    : (opts && typeof opts.omniDuration === 'number' && omni) ? opts.omniDuration
+    : null;
   const sh = {
     dir: omni ? 0 : dir,
-    arc: omni ? Math.PI * 2 : _d(cfg, 'arc', Math.PI / 3),
-    hp: _d(cfg, 'absorbCap', 150),
-    t: omni ? _d(cfg, 'omniDuration', 4) : _d(cfg, 'dirDuration', 8),
+    arc: omni ? Math.PI * 2 : (optArc !== null ? optArc : _d(cfg, 'arc', Math.PI / 3)),
+    hp: optHp !== null ? optHp : _d(cfg, 'absorbCap', 150),
+    t: optDur !== null ? optDur : (omni ? _d(cfg, 'omniDuration', 4) : _d(cfg, 'dirDuration', 8)),
     omni: omni
   };
   t.shield = sh;
