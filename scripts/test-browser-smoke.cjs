@@ -18,6 +18,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { chromium } = require('playwright-core');
+const { launchBrowser } = require('./lib/browser-launch.cjs');
 
 const ROOT = path.join(__dirname, '..');
 const DEFAULT_PORT = 8000;
@@ -99,7 +100,7 @@ function startServer(port) {
     }
 
     // ---- 浏览器启动：系统 Edge，无头 ----
-    browser = await chromium.launch({ channel: 'msedge', headless: true });
+    browser = await launchBrowser(chromium);
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     const errors = [];
     const notFound = [];

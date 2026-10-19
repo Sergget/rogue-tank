@@ -27,6 +27,9 @@ const TESTS = [
   'scripts/test-tanks.js',
   'scripts/test-hitpart.js',
   'scripts/test-tankcollision.js',
+  // 2026-10-19 #AGENT：这两个文件早就在磁盘上却从未登记，属「孤儿测试」——永不执行、坏了没人发现。
+  'scripts/test-move.js',
+  'scripts/test-physics.js',
   'scripts/test-nodegen.js',
   'scripts/test-nodegen-snapshot.js',
   'scripts/test-nodegen-calibration.js',
@@ -83,24 +86,43 @@ function pickTests() {
   return list;
 }
 
+// 沙箱兼容的子进程捕获（2026-10-19 #AGENT）：
+// 原先用 spawnSync({encoding:'utf8'}) 让 Node 通过**管道**拿 stdout/stderr，但 DSH 沙箱
+// （workspace-write）禁止子进程打开命名管道，于是每一项都以 `spawnSync ... EPERM` 失败
+// ——断言根本没跑就被判红。改为把子进程 stdout/stderr **重定向到临时文件**（普通文件句柄，
+// 沙箱允许），退出后读回。行为与原实现等价：仍拿到退出码 + 全部输出 + 超时语义。
+const fs = require('fs');
+const os = require('os');
+
 function runOne(test) {
   const t0 = Date.now();
-  const r = spawnSync(process.execPath, [test], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    timeout: PER_TEST_TIMEOUT_MS,
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  const tmpFile = path.join(os.tmpdir(), `rt-${process.pid}-${Math.random().toString(36).slice(2)}.log`);
+  const fd = fs.openSync(tmpFile, 'w');
+  let r;
+  try {
+    r = spawnSync(process.execPath, [test], {
+      cwd: ROOT,
+      timeout: PER_TEST_TIMEOUT_MS,
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', fd, fd],
+    });
+  } finally {
+    fs.closeSync(fd);
+  }
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
+  let output = '';
+  try {
+    output = fs.readFileSync(tmpFile, 'utf8');
+    fs.unlinkSync(tmpFile);
+  } catch (_) { /* 读不到就当作空输出，不掩盖退出码 */ }
   if (r.error) {
     // spawnSync 的 error 类型为 Error，无 code 字段；checkJs 下用 JSDoc 转型读取
     const errCode = /** @type {any} */ (r.error).code;
     const reason = errCode === 'ETIMEDOUT'
       ? `超时（>${PER_TEST_TIMEOUT_MS / 1000}s）`
       : `启动失败：${r.error.message}`;
-    return { test, ok: false, secs, output: reason };
+    return { test, ok: false, secs, output: reason + (output ? `\n${output}` : '') };
   }
-  const output = (r.stdout || '') + (r.stderr || '');
   return { test, ok: r.status === 0, secs, output, code: r.status };
 }
 

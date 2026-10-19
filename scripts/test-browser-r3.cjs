@@ -6,6 +6,7 @@ const http = require('http');
 const path = require('path');
 const { spawn } = require('child_process');
 const { chromium } = require('playwright-core');
+const { launchBrowser } = require('./lib/browser-launch.cjs');
 
 const ROOT = path.join(__dirname, '..');
 const DEFAULT_PORT = 8000;
@@ -85,7 +86,7 @@ function realErrorsOf(errs) {
       console.log(`[server] spawned: ${base}`);
     }
 
-    browser = await chromium.launch({ channel: 'msedge', headless: true });
+    browser = await launchBrowser(chromium);
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     const benchErrors = [];
     page.on('console', m => { if (m.type() === 'error') benchErrors.push(m.text()); });

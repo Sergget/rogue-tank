@@ -8,17 +8,19 @@ description: Use when running pwsh verification commands inside the DSH sandbox 
 本 skill 固化本会话在 DSH 沙箱（workspace-write 模式、pwsh 受限模式）下实测的验证命令经验。
 **目的**：让后续 agent 不再被沙箱策略拒绝和 PowerShell 编码问题误导，把"真失败"与"环境误报"分开。
 
-## 1. 沙箱限制（2026-09-23 复测更新）
+## 1. 沙箱限制（2026-10-19 复测更新）
 
 | 操作 | 结果 | 原因 |
 |---|---|---|
-| `node scripts/check-html.js` | **可直接跑**（2026-09-23 复测 EXIT=0 / `All checks passed`） | 该脚本已重构为 `fs` + `vm.Script` 实现，**不再有 spawnSync** ⇒ 不触发「禁止管道捕获」限制。早期「check-html 必然全量误报」的记录已失效 |
-| `npm run check` | 可用（= `check-html.js` + `npm run typecheck`） | 同上；typecheck 需 `node_modules` 已存在（见 §3） |
-| `node node_modules/typescript/bin/tsc --noEmit` | **仓库已装 node_modules 时可直接跑**（2026-09-23 实测 EXIT=0） | 不写 npm 缓存、不捕获子进程 ⇒ **不需要** `npm ci` |
+| `node scripts/check-html.js` | **可直接跑**（2026-10-19 复测 EXIT=0 / `All checks passed`，约 1.5s） | `fs` + `vm.Script` 实现，**无 spawnSync** ⇒ 不触发「禁止管道捕获」限制 |
+| `npm run check` | ✅ 可直接跑（2026-10-19 实测 EXIT=0，约 7s） | = `check-html.js` + `npm run typecheck` |
+| `node node_modules/typescript/bin/tsc --noEmit` | ✅ 可直接跑 | 不写 npm 缓存、不捕获子进程 ⇒ **不需要** `npm ci` |
+| `npm test` | ✅ **可直接跑**（2026-10-19 修复后 EXIT=0） | `run-tests.js` 已把子进程 stdout/stderr 重定向到**临时文件句柄**（不再用管道），绕开沙箱禁令 |
 | `npm install` / `npx tsc` / 任何 `npx` 远程拉包 | EPERM，写 `C:\Users\...\npm-cache` 失败 | 沙箱禁止写工作区外的 npm 缓存目录 ⇒ **不要用 npx**，改为直接调 `node node_modules/...` |
-| `npm run test:browser` | 需系统 Edge + 放宽进程权限（`spawn EPERM`） | 唯一必须「正常环境补跑」的验证项 |
+| `npm run test:browser` | ⚠️ workspace-write 下 `spawn EPERM`（Edge 需 `--remote-debugging-pipe`）；**放宽权限后四链全绿**（2026-10-19 实测 ALL PASS / 133s） | playwright 启动浏览器需命名管道，沙箱禁止 |
+| pwsh 写 `docs/`、`js/`、`scripts/`、`.dsh/` | workspace-write 下 **denied** | 改用 `write`/`edit` 工具（它们不受该限制），或一次性放宽权限 |
 
-**结论**：沙箱内可实测的验证 = `node scripts/check-html.js` + `node node_modules/typescript/bin/tsc --noEmit`（两者合起来等价 `npm run check`）+ `npm test`；只有浏览器四链需补跑。
+**结论**：沙箱内三条主链（`npm run check` / `npm test`）现在**全部可直接跑通**；只有浏览器四链需要放宽进程权限，且失败时会打印 `INCONCLUSIVE` 并以**退出码 86** 退出（`scripts/lib/browser-launch.cjs`），不会伪装成代码失败。
 
 ## 2. 可用的验证命令
 
@@ -30,7 +32,10 @@ description: Use when running pwsh verification commands inside the DSH sandbox 
 | 启动服务器 | `node server.js`（端口被占 → `PORT=8123 node server.js`；EADDRINUSE 是「已有实例在跑」，不是失败） | — |
 | HTTP 冒烟 | PowerShell `Invoke-WebRequest -UseBasicParsing`（可用） | — |
 
-**跑 `npm test` 的注意点**：它用 `&&` 串联数十个脚本 ⇒ **任一失败即中断，后续脚本根本没跑**，日志尾部会停在失败处——别把「跑到 test-ai 就结束」误读为「后面全部通过」。定位 flaky 应单跑该脚本（例：`node scripts/test-ai.js`）。
+**跑 `npm test` 的注意点（2026-10-19 起）**：`run-tests.js` 已改为**逐项独立运行**，单项失败**不中断**后续，末行给 `N 通过 / M 失败` 汇总并列出失败项。所以：
+- 不要再按「跑到 test-ai 就结束 ⇒ 后面全过」的旧逻辑推断（那是当年 `&&` 长链的行为）。
+- 看到汇总里的 `✗` 就单跑那一项定位：`node scripts/test-<name>.js`。
+- 已知既有失败：`scripts/test-cover-gen.js` 会因 `tools/cover-refs.json` 基准漂移而红（`docs/PLAN.md` §2.5 记录），与本轮改动无关；修法是 `node tools/dump-cover-refs.mjs` 重导出。
 
 ## 3. typecheck 细节
 
