@@ -596,10 +596,15 @@ function drawTurret(t) {
       BD.drawGround(c, { viewBounds: { minX: 5000 - fhw2, minY: camY - fhh2, maxX: 5000 + fhw2, maxY: camY + fhh2 }, biomeZones: zones, seed: 7 });
       c.restore();
     });
-    const yTop = Math.round((camY - 60) - camY + VH / 2);   // 世界 y = camY-60（雪）
-    const yBot = Math.round((camY + 60) - camY + VH / 2);   // 世界 y = camY+60（沙）
-    const top = sampleAt(cvB, Math.round(VW / 2), yTop) || [0, 0, 0];
-    const bot = sampleAt(cvB, Math.round(VW / 2), yBot) || [0, 0, 0];
+    // #1（2026-10-19）：y 方向的 biome 交界现在也画过渡带（宽 TRANS_W=260px，见
+    //   drawGround 的 drawSeam('y')）。视口高仅 360px（半高 180），而过渡带 260px 覆盖
+    //   整个视口 ⇒ 「在过渡带外采样」不可行。改为验证**渐变的方向性**：靠近上侧的点
+    //   应更接近雪色、靠近下侧的点更接近沙色（同一条纵向渐变上的单调趋势），
+    //   这既验证「上雪下沙分区正确」，也顺带验证「交界确有过渡而非硬切」。
+    const yNear = Math.round((camY - 150) - camY + VH / 2);  // 世界 y=camY-150（偏雪侧）
+    const yFar = Math.round((camY + 150) - camY + VH / 2);   // 世界 y=camY+150（偏沙侧）
+    const top = sampleAt(cvB, Math.round(VW / 2), yNear) || [0, 0, 0];
+    const bot = sampleAt(cvB, Math.round(VW / 2), yFar) || [0, 0, 0];
     // 雪的蓝通道偏高（冷色），沙的红通道偏高（暖色）
     ok(top[2] >= top[0] - 10 && bot[0] > bot[2],
       `⑨f2维zone分区正确：上(雪) rgb=${top.join(',')} 下(沙) rgb=${bot.join(',')}`);

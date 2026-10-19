@@ -44,20 +44,28 @@ const WEAPON_DEFAULTS = {
     //     `t.base.damage × 0.5` —— **只看主炮基础参数**，不吃任何 modifier/技能/弹种改造。
     //   · idleWanderRate / idleWanderRange：待机摆动（进入射程前炮塔缓慢随机摆动）。
     //   · ignoreModifiers：显式标记「本武器读取 t.base 而非 t.stats」。
+    // #5（2026-10-19 用户反馈「检查副武器伤害等参数…升级卡牌是否能生效」）：
+    //   **把此前散落在 fireActiveSecondary 各分支的字面量全部收口进缺省表**（#U39 的延续）——
+    //   此前 `pen`（除 turret 外 5/6 类都没有键）与 mortar/rocket 的 `speed` 只存在于
+    //   `typeof cfg.pen === 'number' ? cfg.pen : 硬编码` 的回退里，升级卡写 `statOverrides`
+    //   **理论上能覆盖**，但缺省表里查不到这些键 ⇒ 数据审计/文档都会漏掉它们的存在。
+    //   数值与原字面量逐一对应（零行为变化）：
+    //     mortar pen 60 / speed 350 · rocket pen 90 / speed 450 · missile pen 250 / speed 320
+    //     missile_wire pen 260 / speed 340（原已收口，此处为完整性列出）
     turret:      { reloadMult: 1.6, damageMult: 0.6, penMult: 0.75, spreadMult: 1.3, range: 400,
                    turretTurnRate: 2.5,
                    damageFromBaseRatio: 0.5,   // 伤害 = t.base.damage × 0.5
                    ignoreModifiers: true,      // 参数绑主炮基础，不受技能/卡牌影响
                    idleWanderRate: 0.6,        // 待机摆动角速度（rad/s）
                    idleWanderRange: 0.9 },     // 待机摆动幅度（±rad，约 ±51°）
-    mortar:      { range: 450, aoe: 90, reload: 8, damage: 60, isArc: true, accuracySpread: 0.05 },
-    missile:     { guided: true, mode: 'lock', reload: 12, damage: 140, range: 600, lockArcDeg: 30, lockSeconds: 1.0 },
+    mortar:      { range: 450, aoe: 90, reload: 8, damage: 60, pen: 60, speed: 350, isArc: true, accuracySpread: 0.05 },
+    missile:     { guided: true, mode: 'lock', reload: 12, damage: 140, range: 600, speed: 320, pen: 250, lockArcDeg: 30, lockSeconds: 1.0 },
     // #U39（2026-10-18）：补 speed（飞行速度，fireActiveSecondary 的 wire 分支消费；
     //   此前缺省只在代码里写死 340，升级卡无法覆盖）。range 目前仅供 AI/面板展示。
-    missile_wire:{ guided: true, mode: 'wire', reload: 10, damage: 150, range: 700, speed: 340 },
+    missile_wire:{ guided: true, mode: 'wire', reload: 10, damage: 150, range: 700, speed: 340, pen: 260 },
     // 2026-09-19 #D4（用户反馈）：火箭巢改连续快速逐发——burstInterval=发际间隔（秒），
     // count 发逐发射出后才进入整组装填 reload；fxScale=弹体视觉缩放（drawShells 尺寸通道）。
-    rocket:      { count: 4, reload: 10, burstInterval: 0.18, damage: 35, range: 500, direct: true, aoe: 40, fxScale: 1.3 },
+    rocket:      { count: 4, reload: 10, burstInterval: 0.18, damage: 35, range: 500, speed: 450, pen: 90, direct: true, aoe: 40, fxScale: 1.3 },
     // #U39（2026-10-18）：blastRadius/triggerRadius 由硬编码收口进缺省表，升级卡可覆盖
     //（此前 fireActiveSecondary 的 mine_layer 分支直接写死 70/45，"阔域地雷"类升级卡无处生效）。
     mine_layer:  { duration: 30, reload: 15, damage: 100, blastRadius: 70, triggerRadius: 45 }
@@ -296,10 +304,17 @@ function updateMissileLock(t, dt, ctx) {
   if (t.hp <= 0) return false;
   const cfg = Object.assign({}, getWeaponDefaults('secondary', 'missile'), w.stats || {});
   // #7（2026-10-15）：锁定距离 = 摄像机视角内（视口对角线一半），不再用固定 range
+  //
+  // #5（2026-10-19 用户反馈「升级卡牌是否能生效」取证发现的缺陷）：
+  //   旧实现**只要 `cam` 存在就无条件用视口对角线覆盖 `cfg.range`** —— 而 mvp 的 fireCtx
+  //   总是带 cam ⇒ 「射程 600→780」这类 range 升级卡在玩家侧**恒失效**（卡面数字是假的）。
+  //   现改为：锁定距离 = **max(卡面 range, 视口对角线一半)**——升级卡把 range 抬高到超出
+  //   视口时才真正生效；不升级时视口仍占优（维持 #7 的「不锁视野外敌人」语义）。
   let maxRange = (typeof cfg.range === 'number') ? cfg.range : 600;
   const cam = c.cam || (typeof globalThis !== 'undefined' && globalThis.cam);
   if (cam && cam.vw > 0 && cam.vh > 0) {
-    maxRange = Math.hypot(cam.vw, cam.vh) / 2;
+    const viewRange = Math.hypot(cam.vw, cam.vh) / 2;
+    if (viewRange > maxRange) maxRange = viewRange;
   }
   const lockArcDeg = (typeof cfg.lockArcDeg === 'number') ? cfg.lockArcDeg : 30;
   const lockSeconds = (typeof cfg.lockSeconds === 'number') ? cfg.lockSeconds : 1.0;

@@ -1413,8 +1413,9 @@ function renderCardsPanel(){
   const listEl = document.getElementById('cpList');
   if(!tabsEl || !listEl) return;
   const cards = ownedCardsList();
-  // 分类页签
-  const cats = [['rarity', '按稀有度'], ['tag', '按标签'], ['all', '全部']];
+  // 分类页签 —— #16（2026-10-19 用户裁定）：删除「按标签」维度（tags 玩法零消费，
+  // 仅保留字段供 audit-content.js 的流派覆盖度体检使用）。
+  const cats = [['rarity', '按稀有度'], ['all', '全部']];
   tabsEl.innerHTML = cats.map(([k, label]) =>
     `<span class="cp-tab${cardsPanelCat === k ? ' on' : ''}" data-cat="${k}">${label}</span>`).join('');
   tabsEl.querySelectorAll('.cp-tab').forEach(el => {
@@ -1430,23 +1431,23 @@ function renderCardsPanel(){
     const spec = c.spec;
     const nm = spec ? (spec.name || c.id) : c.id;
     const rr = spec ? rarLabel(spec.rarity) : '（无卡表数据）';
-    const tags = spec && Array.isArray(spec.tags) ? spec.tags.join('/') : '';
+    // #16（2026-10-19 用户裁定）：「卡牌的角色设定没有意义，删除相关的字段」。
+    //   采纳的方案 A：**保留 `tags` 字段**（audit-content.js 的流派覆盖度体检仍靠它），
+    //   但**删除玩家可见的流派展示与分类维度**——它们对玩法零影响，只增加界面噪音。
     const ds = spec ? (spec.desc || '') : '';
     const cnt = c.count > 1 ? ` ×${c.count}` : '';
     return `<div class="cp-card"><span class="nm">${nm}</span>${cnt}<span class="rr">${rr}</span>` +
-           (tags ? `<span class="ct">${tags}</span>` : '') +
            (ds ? `<div class="ds">${ds}</div>` : '') + '</div>';
   };
   if(cardsPanelCat === 'all'){
     listEl.innerHTML = cards.map(cardHTML).join('');
     return;
   }
-  // 分组
+  // 分组（#16：只剩「稀有度」一个维度；标签维度已删除）
   const groups = new Map();
   for(const c of cards){
     let keys = [];
     if(cardsPanelCat === 'rarity') keys = [c.spec ? (c.spec.rarity || '未标注') : '未标注'];
-    else if(cardsPanelCat === 'tag') keys = (c.spec && Array.isArray(c.spec.tags) && c.spec.tags.length) ? c.spec.tags : ['无标签'];
     for(const k of keys){
       if(!groups.has(k)) groups.set(k, []);
       groups.get(k).push(c);
