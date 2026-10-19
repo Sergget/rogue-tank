@@ -239,6 +239,19 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
   ok(F.fireTank(std,target,'auto')===true && global.shells.length===1, '7a 标准主炮单发');
   ok(Math.abs(global.shells[0].dmg-20)<1e-9 && Math.abs(global.shells[0].pen-100)<1e-9, '7a 标准主炮无倍率');
   ok(!std._primaryBurst, '7a 标准主炮无连发登记');
+  // 7a2) #U39（2026-10-18）：标准主炮**有** statOverrides 时必须生效（此前 primaryWeaponSpec 对
+  //      standard 恒返回 null ⇒ 所有 standard 升级卡永远无效）。无 stats 时仍返回 null（零回归）。
+  ok(F.primaryWeaponSpec(std)===null, '#U39 标准主炮无 stats 覆写时 spec 仍为 null（零回归）');
+  const stdUp = mkShooter('standard', { damageMult: 1.15, penMult: 1.08, reloadMult: 0.85, shellSpeedMult: 1.15 });
+  ok(F.primaryWeaponSpec(stdUp) && F.primaryWeaponSpec(stdUp).damageMult===1.15,
+    '#U39 标准主炮带 stats 覆写时产出 spec（升级卡可生效）');
+  global.shells.length=0;
+  global.entities=[stdUp,target];
+  ok(F.fireTank(stdUp,target,'auto')===true && global.shells.length===1, '#U39 标准主炮升级后仍单发');
+  ok(Math.abs(global.shells[0].dmg-20*1.15)<1e-9 && Math.abs(global.shells[0].pen-100*1.08)<1e-9,
+    `#U39 标准主炮升级生效（dmg ${global.shells[0].dmg}≈23 / pen ${global.shells[0].pen}≈108）`);
+  ok(Math.abs(stdUp.reloadT-2*0.85)<1e-9, `#U39 装填倍率生效（reloadT ${stdUp.reloadT} = 2×0.85）`);
+  ok(Math.abs(global.shells[0].speed-1000*1.15)<1e-6, `#U39 弹速倍率生效（speed ${global.shells[0].speed}）`);
 
   // 7b) #E13（2026-09-20 用户裁定重做）：双联火炮——单管装填时间、两管顺序流水线装填，
   //     默认「两管进度互相干涉」（任一击发 → 两管进度归 0）；单击发 1 管、空格齐射 2 管。

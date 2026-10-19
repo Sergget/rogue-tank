@@ -423,12 +423,20 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
     }
 
     // ---- C：主动技能实战效果 ----
+    // #U41（2026-10-19）：G/H 专属键退役——技能触发统一走技能池数字键（同 C3 overdrive 路径）
     {
       await page.evaluate(() => window.__TEST__.giveCard('artillery_strike'));
       const en = await placeEnemy(200);
       await mouseTo(en.x, en.y);
+      const artySlot = await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        const keys = (p.cardEffects || []).filter(ef => ef && ef.type === 'ability' && ef.key)
+          .map(ef => ef.key).filter((k, i, a) => a.indexOf(k) === i);
+        return keys.indexOf('artillery');
+      });
+      if (artySlot < 0) throw new Error('artillery 不在技能池（artillery_strike 卡未生效）');
       const st0 = await page.evaluate(() => window.__TEST__.strikes().length);
-      await page.evaluate(() => document.getElementById('btnG').click());
+      await page.keyboard.press(String(artySlot + 1));
       await waitFor(200);
       const st1 = await page.evaluate(() => window.__TEST__.strikes().length);
       await waitFor(400);
@@ -448,19 +456,27 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
       });
       const posTxt = strikePos.sx === null ? 'strike=none'
         : `strike=(${strikePos.sx.toFixed(0)},${strikePos.sy.toFixed(0)})`;
-      check('C1 artillery：G 呼叫 → strikes +3 登记 + 落弹后敌人掉血',
+      check('C1 artillery：技能池数字键呼叫 → strikes +3 登记 + 落弹后敌人掉血',
         st1 - st0 >= 3 && hp.hp < strikePos.before,
         `strikes ${st0}→${st1} hp ${strikePos.before.toFixed(1)}→${hp.hp.toFixed(1)} ${posTxt}`);
     }
     {
       await page.evaluate(() => window.__TEST__.giveCard('tactical_shield'));
-      await page.evaluate(() => document.getElementById('btnH').click());
+      // #U41：H 专属键退役——shield 经技能池数字键触发（owned 序列动态定位）
+      const shieldSlot = await page.evaluate(() => {
+        const p = entities.find(e => e.id === 'player');
+        const keys = (p.cardEffects || []).filter(ef => ef && ef.type === 'ability' && ef.key)
+          .map(ef => ef.key).filter((k, i, a) => a.indexOf(k) === i);
+        return keys.indexOf('shield');
+      });
+      if (shieldSlot < 0) throw new Error('shield 不在技能池（tactical_shield 卡未生效）');
+      await page.keyboard.press(String(shieldSlot + 1));
       await waitFor(180);
       const sh = await page.evaluate(() => {
         const p = entities.find(e => e.id === 'player');
         return p.shield ? { hp: p.shield.hp, t: p.shield.t } : null;
       });
-      check('C2 shield：H 展开 → 吸收池 hp>0 且存活', sh && sh.hp > 0 && sh.t > 0, JSON.stringify(sh));
+      check('C2 shield：技能池数字键展开 → 吸收池 hp>0 且存活', sh && sh.hp > 0 && sh.t > 0, JSON.stringify(sh));
     }
     {
       await page.evaluate(() => window.__TEST__.giveCard('super_reload'));
@@ -517,17 +533,18 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
       const s1 = await page.evaluate(() => ({ spawned: window.__minesSpawned, pending: window.__TEST__.pendingMineFields() }));
       check('#H2 第二次雷场可正常生成（旧实现恒为 0 新增）', s1.spawned > s0 && s1.pending === 0, `spawned ${s0} → ${s1.spawned}`);
     }
-    // E2 #H3(a)：已入槽的技能不再重复显示专属键按钮
+    // E2 #U41：G/H 专属键已彻底退役——btnG/btnH 元素不存在于 DOM，无任何重复入口可言
     {
       const dup = await page.evaluate(() => {
-        const p = entities.find(e => e.id === 'player');
         const vis = id => { const e = document.getElementById(id); return e ? (e.style.display !== 'none') : null; };
-        return { slots: window.__TEST__.skillSlots(), g: vis('btnG'), h: vis('btnH') };
+        return {
+          slots: window.__TEST__.skillSlots(),
+          g: document.getElementById('btnG') ? 'present' : 'removed',
+          h: document.getElementById('btnH') ? 'present' : 'removed'
+        };
       });
-      const artyInSlot = dup.slots.indexOf('artillery') >= 0;
-      const shieldInSlot = dup.slots.indexOf('shield') >= 0;
-      check('#H3(a) artillery 入槽后 btnG 不重复显示', artyInSlot ? dup.g === false : true, JSON.stringify(dup));
-      check('#H3(a) shield 入槽后 btnH 不重复显示', shieldInSlot ? dup.h === false : true, JSON.stringify(dup));
+      check('#U41 btnG 已从 DOM 移除（G 键专属通道退役）', dup.g === 'removed', JSON.stringify(dup));
+      check('#U41 btnH 已从 DOM 移除（H 键专属通道退役）', dup.h === 'removed', JSON.stringify(dup));
     }
     // E3 #H3(b)：槽满后新技能弹「选槽位」面板，由玩家指定顶替；队列中后续技能继续弹
     {

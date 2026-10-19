@@ -44,13 +44,15 @@ ok(Object.keys(B.KEY_BINDINGS).length > 0, 'KEY_BINDINGS 非空');
   ok(dup === null, `键值无重复且全部小写规范化（${dup || 'ok'}）`);
 }
 for (const required of ['moveForward','moveBackward','turnLeft','turnRight','fire','ammoNext','ammoPrev',
-  'fireSecondary','abilityStrike','abilityShield','supportRepair','supportMedkit',
+  'fireSecondary','supportRepair','supportMedkit',
   'supportExtinguish','panelStatus','panelDev','pauseToggle','altMoveForward']) {
   ok(B.KEY_BINDINGS[required] !== undefined, `必需动作 ${required} 存在`);
 }
 ok(B.KEY_BINDINGS.supportSmoke === undefined, 'supportSmoke（烟幕弹 F 键）已移除（2026-09-15 W2）');
 ok(B.KEY_BINDINGS.switchWeapon === undefined, 'switchWeapon（旧 F 切换语义）已移除（#C4e 2026-09-17）');
 ok(B.KEY_BINDINGS.abilityOverdrive === undefined, 'abilityOverdrive（超装填 V 专属键）已移除（#H3 2026-09-21——只经技能池 1/2/3）');
+ok(B.KEY_BINDINGS.abilityStrike === undefined, 'abilityStrike（炮击 G 专属键）已移除（#U41 2026-10-19——同 #H3 先例，只经技能池 1/2/3）');
+ok(B.KEY_BINDINGS.abilityShield === undefined, 'abilityShield（护盾 H 专属键）已移除（#U41 2026-10-19——同 #H3 先例，只经技能池 1/2/3）');
 ok(B.KEY_BINDINGS.fireSecondary === 'f', 'F 键绑定 fireSecondary（直接击发副武器，#C4e 反转）');
 ok(B.KEY_BINDINGS.fire === ' ' && B.KEY_BINDINGS.panelDev === '`' && B.KEY_BINDINGS.pauseToggle === 'escape',
   '关键键位形态（空格/反引号/escape）符合 e.key 规范化约定');
@@ -93,7 +95,7 @@ ok(B.KEY_BINDINGS.ammoNext === 'e' && B.KEY_BINDINGS.ammoPrev === 'q',
   ok(prevented, 'preventKeys 空格被 preventDefault（防页面滚动）');
   ok(input2.keys[' '] === true, '空格登记为持续键（isDown 可读）');
   ok(input2.isDown('fire') === true, "isDown('fire') 读持续键");
-  ok(input2.isDown('abilityShield') === false, '未按下动作 isDown=false');
+  ok(input2.isDown('supportMedkit') === false, '未按下动作 isDown=false');
   input2.detach();
 
   // 未注册动作键失效（页面能力差异 = 注册差异）
@@ -158,8 +160,13 @@ ok(B.KEY_BINDINGS.ammoNext === 'e' && B.KEY_BINDINGS.ammoPrev === 'q',
   ok(all[0].action === 'move' && all[0].keys === 'W / A / S / D', '顺序与文案（move 行）');
   const none = B.describeBindings({});
   ok(none.length === 0, '无可用动作 → 空输出');
-  const benchRows = B.describeBindings({ move:1, altMove:1, fire:1, ammoCycle:1, abilityStrike:1, panelDev:1 });
-  ok(benchRows.length === 6 && benchRows.some(r => r.action === 'altMove'), '测试台键位说明含方向键行（#H3 起 abilityOverdrive 行删除）');
+  const benchRows = B.describeBindings({ move:1, altMove:1, fire:1, ammoCycle:1, panelDev:1 });
+  ok(benchRows.length === 5 && benchRows.some(r => r.action === 'altMove'), '测试台键位说明含方向键行（#U41 起 abilityStrike 行也删除，5 行）');
+  // #U41（2026-10-19）：abilityStrike/abilityShield 说明行已删除——ACTION_ORDER 不再含 G/H 行
+  ok(B.ACTION_ORDER.indexOf('abilityStrike') < 0 && B.ACTION_ORDER.indexOf('abilityShield') < 0,
+    'ACTION_ORDER 不再含 abilityStrike/abilityShield（#U41 G/H 退役）');
+  ok(B.ACTION_INFO.abilityStrike === undefined && B.ACTION_INFO.abilityShield === undefined,
+    'ACTION_INFO 不再含 G/H 说明行（#U41）');
 }
 
 // ---------- 6) #C4e（2026-09-17）：ACTION_INFO 文案反映「F=直接击发副武器（按住连发），主炮=左键/空格」 ----------

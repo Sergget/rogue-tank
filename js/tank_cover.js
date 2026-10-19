@@ -220,14 +220,124 @@ function getCoverUnderTank(tank) {
   return null;
 }
 
+// ---------- 精确多边形点测 / 车体⇄路面多边形相交（#U37，2026-10-18） ----------
+// 背景（用户「河流贴图和实际溺毙生效范围不一致」的根因）：道路 cover 自 cde3bc3 起是
+// **整链连续多边形**——`verts` = 沿中心线左右各偏移半宽的「左链 + 反向右链」。而
+// coverCorners / coverCollisionParts 对它返回的是**整链凸包**，SAT（obbOverlap）是凸多边形
+// 相交测试，对细长弯曲路链会产生大面积误判：实测 main-road-d0 的 bbox 1030×4645，真实路面
+// 多边形只占该 bbox 的 12.3%；距 bbox 中心 894~1109px 的河面点都被判「在路上」。后果：
+// tankFullyInWater 开头的「道路优先」直接 return false（整片河面获得溺毙免疫）+
+// driveTank 的 roadCover 分支跳过 river 的 0.4 减速 ⇒「贴图有河但不减速不溺毙」。
+// 修法：对带 verts 的路链改用**真实多边形**判定（角点射线点测 + 车体边/多边形边相交），
+// 无 verts 的旧式矩形路段（hs-secondary / strip-row-trunk 等 w×h 直路段）仍走 SAT（矩形正确）。
+// 性能：getRoadUnderTank 每帧被 driveTank 与 tankFullyInWater 各调一次，整链 verts 可达 146 点
+// ⇒ ① 多边形顶点与逐边 AABB 只建一次（WeakMap 按 cover 缓存，几何变更即失效重建）；
+//    ② 每次查询先做「车体 AABB vs 多边形 AABB」粗筛，再逐边 AABB 预筛。
+function pointInPolygon(p, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if (((a.y > p.y) !== (b.y > p.y)) && (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)) inside = !inside;
+  }
+  return inside;
+}
+
+// 凸多边形（角点按序）包含点判定：叉积符号一致即在内
+function pointInConvexPolygon(p, corners) {
+  let sign = 0;
+  for (let i = 0; i < corners.length; i++) {
+    const a = corners[i], b = corners[(i + 1) % corners.length];
+    const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    if (Math.abs(cross) < 1e-9) continue;
+    const s = cross > 0 ? 1 : -1;
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return true;
+}
+
+// 线段严格交叉（共线/端点相接不计——由「角点落入多边形」「多边形顶点落入车体」两条覆盖）
+function _segSegCross(ax, ay, bx, by, cx, cy, dx, dy) {
+  const d1 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  const d2 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
+  const d3 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx);
+  const d4 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+// verts 路链 → 世界坐标多边形缓存（WeakMap: cover → {sig, poly, edges, bbox}）
+// 失效条件：verts 引用/长度、cover 的 x/y/angle 变化（残骸降级/换节点/挪位）。
+const _coverPolyCache = new WeakMap();
+
+function coverWorldPolygon(cov) {
+  const verts = cov.verts;
+  const sig = { vref: verts, vlen: verts.length, x: cov.x, y: cov.y, angle: cov.angle || 0 };
+  const hit = _coverPolyCache.get(cov);
+  if (hit && hit.sig.vref === sig.vref && hit.sig.vlen === sig.vlen &&
+      hit.sig.x === sig.x && hit.sig.y === sig.y && hit.sig.angle === sig.angle) return hit;
+  const poly = polyCorners(cov.x, cov.y, sig.angle, { verts });
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of poly) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const edges = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    edges.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y,
+                 minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x),
+                 minY: Math.min(a.y, b.y), maxY: Math.max(a.y, b.y) });
+  }
+  const entry = { sig, poly, edges, minX, minY, maxX, maxY };
+  _coverPolyCache.set(cov, entry);
+  return entry;
+}
+
+// 车体 OBB（凸四角）与 verts 路链真实多边形是否相交：
+// 角点落入多边形 / 车体边与多边形边相交 / 多边形完全落在车体内（短路段）。
+function obbIntersectsCoverPolygon(tankCorners, cov) {
+  const poly = coverWorldPolygon(cov);
+  // 粗筛：车体 AABB vs 多边形 AABB（不相交 ⇒ 不可能相交，直接跳过）
+  let tMinX = Infinity, tMinY = Infinity, tMaxX = -Infinity, tMaxY = -Infinity;
+  for (const c of tankCorners) {
+    if (c.x < tMinX) tMinX = c.x;
+    if (c.x > tMaxX) tMaxX = c.x;
+    if (c.y < tMinY) tMinY = c.y;
+    if (c.y > tMaxY) tMaxY = c.y;
+  }
+  if (tMaxX < poly.minX || tMinX > poly.maxX || tMaxY < poly.minY || tMinY > poly.maxY) return false;
+  for (const c of tankCorners) {
+    if (pointInPolygon(c, poly.poly)) return true;
+  }
+  for (let i = 0; i < tankCorners.length; i++) {
+    const a = tankCorners[i], b = tankCorners[(i + 1) % tankCorners.length];
+    const exMinX = Math.min(a.x, b.x), exMaxX = Math.max(a.x, b.x);
+    const exMinY = Math.min(a.y, b.y), exMaxY = Math.max(a.y, b.y);
+    for (const e of poly.edges) {
+      if (exMaxX < e.minX || exMinX > e.maxX || exMaxY < e.minY || exMinY > e.maxY) continue;
+      if (_segSegCross(a.x, a.y, b.x, b.y, e.ax, e.ay, e.bx, e.by)) return true;
+    }
+  }
+  // 短路段完全落在车体内（无角点、无边相交）——取多边形首个顶点做车体局部判定
+  return pointInConvexPolygon(poly.poly[0], tankCorners);
+}
+
 // #S4 + #S14（2026-10-14）：road 被 getCoverUnderTank 跳过（纯地面标识），
-// 公路加速与"道路屏蔽下层减速"改走本函数单独查询（同款 OBB 相交判定 + 空间索引）。
+// 公路加速与"道路屏蔽下层减速"改走本函数单独查询（空间索引 + 相交判定）。
+// #U37（2026-10-18）：带 verts 的整链路带改用**真实多边形**判定（见上方 note）；
+// 无 verts 的旧式矩形路段保持 SAT（矩形下 SAT 正确，零回归）。
 function getRoadUnderTank(tank) {
   if(!tank || !Number.isFinite(tank.x) || !Number.isFinite(tank.y)) return null;
   const tankCorners = partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
   for (const cov of coverQueryCandidates(tank.x, tank.y, tankQueryRadius(tank))) {
     if(cov.hp <= 0) continue;
     if(cov.tier !== 'road') continue;
+    if (cov.verts && cov.verts.length >= 3) {
+      if (obbIntersectsCoverPolygon(tankCorners, cov)) return cov;
+      continue;
+    }
     const parts = coverCollisionParts(cov);
     for (const part of parts) {
       if (obbOverlap(tankCorners, part)) {
@@ -253,17 +363,9 @@ function tankFullyInWater(tank) {
     for (const poly of coverCollisionParts(cov)) parts.push(poly);
   }
   if (!parts.length) return false;
-  const pointInPoly = (p, poly) => {
-    let inside = false;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const a = poly[i], b = poly[j];
-      if (((a.y > p.y) !== (b.y > p.y)) && (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)) inside = !inside;
-    }
-    return inside;
-  };
   for (const c of corners) {
     let inside = false;
-    for (const poly of parts) { if (pointInPoly(c, poly)) { inside = true; break; } }
+    for (const poly of parts) { if (pointInPolygon(c, poly)) { inside = true; break; } }
     if (!inside) return false;
   }
   return true;
@@ -693,6 +795,9 @@ if (typeof module !== 'undefined' && module.exports) {
     getRoadUnderTank,
     tankFullyInWater,
     obbOverlap,
+    pointInPolygon,
+    coverWorldPolygon,
+    obbIntersectsCoverPolygon,
     obbMTVs,
     obbMTV,
     resolveCoverCollisions,

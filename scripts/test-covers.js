@@ -740,5 +740,135 @@ C.resetCovers();
   C.resetCovers();
 }
 
+// ================= #U37（2026-10-18）河流三修：道路免疫几何精确性 =================
+// 40) 道路免疫不得外溢到河面：
+//     road 的几何真身是「沿中心线左右各偏移半宽」的细长折带多边形（tank_nodegen
+//     _emitRoadChain：verts = 左链 + 反向右链）。coverCorners/coverCollisionParts 对它
+//     返回的是**整链凸包**，而 getRoadUnderTank 用 SAT（凸多边形相交）判「车体是否在路上」
+//     ——对细长弯曲路链会大面积高估：实测一条 1030×4645 主干道路链，真实路面只占其凸包
+//     bbox 的 12.3%，距 bbox 中心 894~1109px 的河面点都被判「在路上」。
+//     后果链：tankFullyInWater 开头的「道路优先」直接 return false（整片河面获得溺毙免疫）
+//     + driveTank 的 roadCover 分支跳过 river 的 0.4 减速 ⇒ 用户报的「贴图有河但不减速不溺毙」。
+//     本组用一条 ∩ 形路链（中心线 (-300,600)→(-300,-300)→(300,-300)→(300,600)，带宽 92）
+//     把语义钉死：**路带上的车体仍判在路上**（桥/路口语义），**凹口内离路缘 254px 的车体
+//     必须判 null**（该点落在整链凸包内、但在真实路面多边形外）。
+C.resetCovers();
+{
+  const OX = 8000, OY = 3000;          // 远离默认掩体阵列，避免互相干扰
+  const ROAD_W = 92;
+  // 沿中心线左右偏移半宽生成折带多边形（与 _emitRoadChain 同款算法）
+  const bandPoly = (centerline, roadW) => {
+    const hw = roadW / 2, left = [], right = [];
+    for (let i = 0; i < centerline.length; i++) {
+      const p = centerline[i];
+      const p0 = centerline[Math.max(0, i - 1)], p1 = centerline[Math.min(centerline.length - 1, i + 1)];
+      const dx = p1.x - p0.x, dy = p1.y - p0.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len;
+      left.push([p.x + nx * hw, p.y + ny * hw]);
+      right.push([p.x - nx * hw, p.y - ny * hw]);
+    }
+    return left.concat(right.reverse());
+  };
+  const cl = [[-300, 600], [-300, -300], [300, -300], [300, 600]]
+    .map(([x, y]) => ({ x: OX + x, y: OY + y }));
+  const verts = bandPoly(cl, ROAD_W);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [vx, vy] of verts) {
+    if (vx < minX) minX = vx; if (vx > maxX) maxX = vx;
+    if (vy < minY) minY = vy; if (vy > maxY) maxY = vy;
+  }
+  const cx0 = (minX + maxX) / 2, cy0 = (minY + maxY) / 2;
+  const uRoad = {
+    x: cx0, y: cy0, w: maxX - minX, h: maxY - minY, angle: 0,
+    tier: 'road', hp: Infinity, groupId: 'u37-test-road',
+    verts: verts.map(([vx, vy]) => [vx - cx0, vy - cy0])
+  };
+  // 覆盖整条 ∩ + 凹口的河面（水体本身不挡判定，用于 tankFullyInWater）
+  const uRiver = { x: OX, y: OY + 100, w: 800, h: 800, angle: 0, tier: 'river', hp: Infinity };
+  C.covers.push(uRoad, uRiver);
+  C.invalidateCoverGrid();
+  const mkTank = (x, y, ang) => ({ x, y, hullAngle: ang || 0, hullLen: 69, hullWid: 38, hp: 100, heightClass: 'medium' });
+  // 凹口内（车体中心距左右两侧路缘各 254px、距顶臂 600px）——真实路面外
+  const pocketTank = mkTank(OX, OY + 300, 0);
+  // 顶臂上（车体完全落在 92px 路带内）
+  const topTank = mkTank(OX, OY - 300, 0);
+  // 左臂上（顺臂朝向）
+  const armTank = mkTank(OX - 300, OY + 100, Math.PI / 2);
+  // 路链 AABB 之外
+  const farTank = mkTank(OX, OY + 1400, 0);
+
+  ok(C.getRoadUnderTank(topTank) === uRoad,
+    '#U37 道路免疫：车体压在路带上 → 仍判在路上（顶臂，零回归）');
+  ok(C.getRoadUnderTank(armTank) === uRoad,
+    '#U37 道路免疫：车体压在侧臂上 → 仍判在路上（零回归）');
+  ok(C.getRoadUnderTank(farTank) === null,
+    '#U37 道路免疫：路链 AABB 之外 → null');
+  const pocketHit = C.getRoadUnderTank(pocketTank);
+  ok(pocketHit === null,
+    `#U37 道路免疫：∩ 凹口内（真实路面外 254px、落在整链凸包内）→ 必须 null（实际返回 ${pocketHit ? pocketHit.groupId : 'null'}）`);
+  ok(C.tankFullyInWater(topTank) === false,
+    '#U37 溺毙语义：车体压在「路带 + 河面」上 → 道路优先，不算完全浸入（桥/路口语义保留）');
+  ok(C.tankFullyInWater(pocketTank) === true,
+    '#U37 溺毙语义：河面离路面 254px → 恢复「完全浸入」判定（道路免疫不得外溢到河面）');
+
+  C.covers.splice(C.covers.indexOf(uRoad), 1);
+  C.covers.splice(C.covers.indexOf(uRiver), 1);
+  C.invalidateCoverGrid();   // 索引按 length/首末引用做签名，push+splice 后必须显式失效
+  C.resetCovers();
+}
+
+// ================= #U37（2026-10-18）河宽硬上限 =================
+// 41) 河宽上限：任何河段的垂直宽度 s.h 不得超过 RULES.drowning.wadeMaxWidth。
+//   语义（唯一配置源 RULES.drowning.wadeMaxWidth，推导见 tank_rules.js 注释）：
+//   「溺毙倒计时内最慢可用车能渡过的宽度」——水中速度 = maxSpeed × speed.pxFactor ×
+//   river.passability × speed.effMul，8s 可渡 ≈ hummel(maxSpeed 40) 的 266px，配置取 260。
+//   改前实测河宽 min 325 / p50 573 / p90 756 / max 805 ⇒ hummel 穿 446px 河需 9.8s > 8s
+//   必溺毙（用户报「河流宽度需要限制，不能造成坦克无法涉水过河」）。
+//   生成侧钳制在 js/tank_nodegen.js（placeStripRivers 的 thick 基准 + buildRiver 出口钳制），
+//   本断言是其回归护栏：只要任一 seed 产出的河段超限即失败。
+//   注：河段可能以 segs（segments 展开）或独立 OBB 两种形态出现——本断言覆盖两种。
+{
+  const wadeMax = RULES.drowning && RULES.drowning.wadeMaxWidth;
+  ok(Number.isFinite(wadeMax) && wadeMax > 0,
+    `#U37 RULES.drowning.wadeMaxWidth 存在且为正数（got ${wadeMax}）`);
+  if (Number.isFinite(wadeMax)) {
+    // generateStrip 走浏览器全局口径：先补齐其依赖的全局符号（与 test-strip.js 同源）
+    const NG = require('../js/tank_nodegen.js');
+    global.createRNG = NG.createRNG;
+    global.generateNode = NG.generateNode;
+    global.pickTemplate = NG.pickTemplate;
+    global.getTemplates = NG.getTemplates;
+    global.generateStrip = NG.generateStrip;
+    const MAP = require('../js/tank_map.js');
+    const savedCovers = C.covers.slice();
+    let segCount = 0, maxH = 0, worst = null;
+    for (const seed of [7, 42, 999, 2024, 12345]) {
+      // strip 级生成参数（含 chunkRows：多行片，生存口径）——nodegen 的 JSDoc 选项类型
+      // 只列到 chunkCount，chunkRows 为后续新增字段，故这里显式 any 断言避免 TS2353。
+      const s = NG.generateStrip(0.5, /** @type {any} */ ({
+        seed: seed, viewport: { vw: 1280, vh: 720 }, scaleFor: MAP.nodeScaleFor,
+        stripScreensX: 5, stripScreensY: 2.2, chunkRows: 2
+      }));
+      for (const c of s.covers) {
+        if (c.tier !== 'river') continue;
+        for (const seg of (c.segments && c.segments.length ? c.segments : [c])) {
+          const h = seg.h > 0 ? seg.h : Math.min(seg.w || 0, seg.h || 0);
+          segCount++;
+          if (h > maxH) { maxH = h; worst = `seed=${seed} ${c.groupId || ''} h=${h.toFixed(1)}`; }
+        }
+      }
+    }
+    ok(segCount > 0, `#U37 河宽采样非空（${segCount} 段，5 seed）`);
+    ok(maxH <= wadeMax + 1e-6,
+      `#U37 所有河段宽度 ≤ wadeMaxWidth（max=${maxH.toFixed(1)} ≤ ${wadeMax}，${worst}）`);
+    // 恢复全局 covers（generateStrip 全程用自身局部 covers，此处只防御性还原）
+    C.covers.length = 0;
+    for (const c of savedCovers) C.covers.push(c);
+    C.invalidateCoverGrid();
+    C.resetCovers();
+  }
+}
+
 console.log(fails ? `\n${fails} failure(s).` : '\nAll cover-system checks passed.');
 process.exitCode = fails ? 1 : 0;

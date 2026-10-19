@@ -99,6 +99,11 @@ function driveTank(t, dt, input){
   resolveCoverCollisions(t);
   // 履带相位：由真实位移（平移 + 车体转向角差）累积（ISSUES #14：传完整参数，勿用 Math.hypot 简写）
   advanceTracks(t, t.x-p0x, t.y-p0y, t.hullAngle-p0a);
+  // #U41（2026-10-19）：地面履带痕迹——发射钩子经 globalThis 可选调用（页面加载 js/tank_fx.js
+  // 后注册；Node 测试链/未加载 FX 的环境自动 no-op，不引入 tank_move → tank_fx 依赖）。
+  if (typeof globalThis !== 'undefined' && typeof globalThis.emitTankTracks === 'function') {
+    globalThis.emitTankTracks(t);
+  }
 }
 
 if (typeof module !== 'undefined' && module.exports) {

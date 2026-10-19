@@ -181,15 +181,26 @@ function passage38Connectivity(s) {
     const spanX = maxX - minX, spanY = maxY - minY;
     // 横向或纵向至少一向贯穿 ≥70%
     if (spanX < s.w * 0.7 && spanY < s.h * 0.7) riverOk = false;
-    // 接缝处不断：300px 内有水系或桥
+    // 接缝处不断：仅对「横贯河形」强制（#U45 2026-10-19 修正判定盲区）。
+    // 旧实现用「cover 中心距接缝 <800px」近似横跨判定——纵贯（V）河链恰好从接缝旁
+    // 800px 内经过时被误判为「应跨接缝」→ 300px 窗内无水系误报（上行注释早已声明
+    // 「纵贯河形不强制」，实现未兑现；#U45 路网 rng 重掷后 seed42 河形 H→V 首次踩中）。
+    // 现按 groupId 聚类：链 x 跨度 > y 跨度 = 横贯链，且链 bbox 实际覆盖接缝 x 时
+    // 才要求接缝 300px 内有水系；纵贯链跳过。strip 河流为整链一次生成，接缝结构上
+    // 不可能断链；本检查只兜底横贯河的水平断口。
     const ww = s.covers.filter(c => c.tier === 'river' || c.tier === 'water' || c.tier === 'bridge');
+    const chains = {};
+    for (const c of ww) (chains[c.groupId || 'x'] ||= []).push(c);
     for (let i = 1; i < s.chunks.length; i++) {
       const bx = s.chunks[i].x0;
-      // 仅当水系横跨该接缝 x 区间时才要求（纵贯河形不强制）
-      const crosses = ww.some(c => Math.abs(c.x - bx) < 800);
-      if (!crosses) continue;
-      const near = ww.filter(c => Math.abs(c.x - bx) < 300);
-      if (near.length === 0) riverOk = false;
+      for (const arr of Object.values(chains)) {
+        const xs = arr.map(c => c.x), ys = arr.map(c => c.y);
+        if (Math.max(...xs) - Math.min(...xs) <= Math.max(...ys) - Math.min(...ys)) continue; // 纵贯链不强制
+        const mnX = Math.min(...arr.map(c => c.x - (c.w || 0) / 2));
+        const mxX = Math.max(...arr.map(c => c.x + (c.w || 0) / 2));
+        if (!(mxX >= bx && mnX <= bx)) continue;              // 该链不跨此接缝
+        if (!arr.some(c => Math.abs(c.x - bx) < 300)) riverOk = false;
+      }
     }
   }
   ok(riverOk, '一体化河流（三河形：水系存在且贯穿，接缝不断）');
@@ -243,6 +254,122 @@ function passage38Connectivity(s) {
   ok(!!e2, '缺 scaleFor 抛错');
   const s = NG.generateStrip(0.5, stripOpts(5, { chunkCount: 2 }));
   ok(s.chunkCount === 2, 'chunkCount 显式覆盖生效');
+}
+// 12) #U35（2026-10-18）chunkRows 零回归：chunkRows 缺省（1）= 显式传 1，逐字段一致
+{
+  const a = NG.generateStrip(0.5, stripOpts(42));
+  const b = NG.generateStrip(0.5, stripOpts(42, { chunkRows: 1 }));
+  ok(JSON.stringify(a.covers) === JSON.stringify(b.covers),
+     'chunkRows 缺省 = 显式传 1（covers 逐字节一致，零回归）');
+  ok(a.h === b.h && a.w === b.w && a.chunkCount === b.chunkCount,
+     `chunkRows 缺省 = 1 时尺寸/片数一致（${Math.round(a.w)}×${Math.round(a.h)} / ${a.chunkCount} 片）`);
+  ok(a.chunkRows === 1 && a.rowHeights.length === 1, 'chunkRows 元数据 = 1 行（缺省路径）');
+  const cfgRows = (RULES_MOD.RULES.nodeMap.strip.chunkRows !== undefined)
+    ? RULES_MOD.RULES.nodeMap.strip.chunkRows : 1;
+  ok(cfgRows === 1, `RULES.nodeMap.strip.chunkRows 缺省 = 1（实测 ${cfgRows}）`);
+}
+// 13) #U35 多行片（chunkRows=2）：片数翻倍 / 片 y0 分两行 / 行间接缝净空生效
+{
+  const one = NG.generateStrip(0.5, stripOpts(42, { chunkRows: 1, chunkCount: 3 }));
+  const two = NG.generateStrip(0.5, stripOpts(42, { chunkRows: 2, chunkCount: 3 }));
+  ok(two.chunkCount === 6, `chunkRows=2 片数翻倍（${one.chunkCount} → ${two.chunkCount}）`);
+  const rows0 = new Set(one.chunks.map(c => c.row));
+  const rows2 = new Set(two.chunks.map(c => c.row));
+  ok(rows0.size === 1 && rows2.size === 2, `片 row 元数据：1 行 → 2 行（${rows0.size}/${rows2.size}）`);
+  const y0s = [...new Set(two.chunks.map(c => c.y0))].sort((a, b) => a - b);
+  ok(y0s.length === 2 && y0s[0] === 0 && y0s[1] > 1000,
+     `chunkRows=2 片 y0 分两行（${y0s.map(v => Math.round(v)).join(',')}）`);
+  ok(two.chunks.every(c => c.col >= 0 && c.col < 3 && c.row >= 0 && c.row < 2), '片 col/row 元数据完备');
+  // 纵向不再裁剪：世界高 = 行高之和，且 > 单行 2.2 屏
+  const sumRow = two.rowHeights.reduce((a, b) => a + b, 0);
+  ok(Math.abs(two.h - sumRow) < 1e-6, `strip 高 = 各行高之和（${Math.round(two.h)} = ${two.rowHeights.map(h => Math.round(h)).join('+')}）`);
+  ok(two.h > one.h * 1.5, `chunkRows=2 世界高显著大于单行（${Math.round(one.h)} → ${Math.round(two.h)}）`);
+  // 行间接缝：**跨行界**的 structure/foliage 必须为 0（用户 review 定稿口径）——
+  // 只处理「AABB 真正跨过行边界」的元素（两行边缘物件对撞），完全落在某一行内部的元素不动。
+  // 这样既有净空语义，又不会把行间劈出 600px（旧 ±300 整带删除）/220px（第二版 ±110 推出）空白带。
+  const seamY = two.rowHeights.slice(0, -1).reduce((acc, h, i) => {
+    acc.push(acc[i] + h); return acc;
+  }, [0]).slice(1);
+  let viol = 0;
+  for (const c of two.covers) {
+    const tg = tierGroup(c.tier);
+    if (tg !== 'structure' && tg !== 'foliage') continue;
+    if (c.tier === 'bridge') continue;
+    // 世界 AABB 的 y 半幅（verts/OBB 通用，用旋转包络近似即可：只判跨不跨边界）
+    const ca = c.angle || 0;
+    const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2;
+    const extY = Math.abs(Math.sin(ca)) * hw + Math.abs(Math.cos(ca)) * hh;
+    for (const by of seamY) if (c.y - extY < by && c.y + extY > by) { viol++; break; }
+  }
+  ok(viol === 0, `行间接缝净空生效（行边界 ${seamY.map(v => Math.round(v)).join(',')} 上跨界的 structure/foliage ${viol} 个）`);
+  // 逐 400px 带检查：多行片每个带都要有非 road 元素（防止把行间劈成空白带）
+  const band400 = [];
+  const nB = Math.ceil(two.h / 400);
+  for (let i = 0; i < nB; i++) {
+    const lo = i * 400, hi = Math.min(two.h, lo + 400);
+    band400.push(two.covers.filter(c => c.tier !== 'road' && c.y >= lo && c.y < hi).length);
+  }
+  ok(band400.every(n => n > 0), `chunkRows=2 无 400px 空白带（各带元素数 ${band400.join(' ')}）`);
+  // 每行 y 带内都有横向路面（400px 采样）
+  let rowRoadOk = true;
+  for (let r = 0; r < two.rowHeights.length; r++) {
+    const rowChunk = two.chunks.find(c => c.row === r);
+    const yc = rowChunk.y0 + two.rowHeights[r] / 2;
+    let covered = 0;
+    for (let x = 200; x <= two.w - 200; x += 400) {
+      if (two.covers.some(c => c.tier === 'road' &&
+        Math.abs(c.y - yc) < (c.h || 0) / 2 + 40 &&
+        Math.abs(c.x - x) < (c.w || 0) / 2)) covered++;
+    }
+    if (covered === 0) rowRoadOk = false;
+  }
+  ok(rowRoadOk, 'chunkRows=2：每行 y 带内都有横向路面（strip-row-trunk 补偿生效）');
+  // 压路：多行片同样零压路
+  const roadPolys = two.covers.filter(c => c.tier === 'road').map(c => {
+    if (c.verts) {
+      const a = c.angle || 0, ca = Math.cos(a), sa = Math.sin(a);
+      return c.verts.map(v => ({ x: c.x + v[0] * ca - v[1] * sa, y: c.y + v[0] * sa + v[1] * ca }));
+    }
+    const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2, a = c.angle || 0;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]]
+      .map(([x, y]) => ({ x: c.x + x * ca - y * sa, y: c.y + x * sa + y * ca }));
+  });
+  const inPoly = (p, P) => {
+    let ins = false;
+    for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+      if (((P[i].y > p.y) !== (P[j].y > p.y)) &&
+          (p.x < (P[j].x - P[i].x) * (p.y - P[i].y) / (P[j].y - P[i].y) + P[i].x)) ins = !ins;
+    }
+    return ins;
+  };
+  const segX = (a1, a2, b1, b2) => {
+    const d1 = (a2.x - a1.x) * (b1.y - a1.y) - (a2.y - a1.y) * (b1.x - a1.x);
+    const d2 = (a2.x - a1.x) * (b2.y - a1.y) - (a2.y - a1.y) * (b2.x - a1.x);
+    const d3 = (b2.x - b1.x) * (a1.y - b1.y) - (b2.y - b1.y) * (a1.x - b1.x);
+    const d4 = (b2.x - b1.x) * (a2.y - b1.y) - (b2.y - b1.y) * (a2.x - b1.x);
+    return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+  };
+  const inter = (A, B) => {
+    for (const p of A) if (inPoly(p, B)) return true;
+    for (const p of B) if (inPoly(p, A)) return true;
+    for (let i = 0; i < A.length; i++) {
+      const a1 = A[i], a2 = A[(i + 1) % A.length];
+      for (let j = 0; j < B.length; j++) if (segX(a1, a2, B[j], B[(j + 1) % B.length])) return true;
+    }
+    return false;
+  };
+  let onRoad = 0;
+  for (const c of two.covers) {
+    if (c.tier === 'road') continue;
+    const tg = tierGroup(c.tier);
+    if (tg !== 'structure' && tg !== 'foliage') continue;
+    const P = c.verts
+      ? (() => { const a = c.angle || 0, ca = Math.cos(a), sa = Math.sin(a); return c.verts.map(v => ({ x: c.x + v[0] * ca - v[1] * sa, y: c.y + v[0] * sa + v[1] * ca })); })()
+      : (() => { const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2, a = c.angle || 0, ca = Math.cos(a), sa = Math.sin(a); return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y]) => ({ x: c.x + x * ca - y * sa, y: c.y + x * sa + y * ca })); })();
+    for (const R of roadPolys) if (inter(P, R)) { onRoad++; break; }
+  }
+  ok(onRoad === 0, `chunkRows=2 无压路 structure/foliage（${onRoad} 个）`);
 }
 
 if (fails) { console.error(`\n${fails} 项失败`); process.exit(1); }

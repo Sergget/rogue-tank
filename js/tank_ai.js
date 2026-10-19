@@ -1138,15 +1138,35 @@ function aiDecideAlly(t, ctx){
   return _passiveDefend(t, ctx, best);
 }
 
-// --- 绕水转向（2026-09-14 水域行为重做） ---
-// 水域不再硬阻断（passability 0.4 + 完全浸入溺毙 8s），AI 必须主动绕开：
+// --- 绕水转向（2026-09-14 水域行为重做；#U37 2026-10-18 分档） ---
+// 水域不再硬阻断（passability 0.4 + 完全浸入溺毙 8s），AI 必须主动处理：
 // 在决策输出 (turn, move) 上叠加避水修正——
-//   1. 前向探点（t 位置沿 hullAngle 前进 waterProbeDist）入水且任一侧探点为干地
+//   1. 前向探点（t 位置沿 hullAngle 前进 waterProbeDist）在**危险水体**内且任一侧探点为干地
 //      → turn 转向干地侧（覆盖原 turn，move 保持前进 = 沿岸绕行）；
-//   2. 前向 + 双侧探点全水 → move=0 停驶（防 AI 直冲水域自杀溺毙）；
+//   2. 前向 + 双侧探点全危险水体 → move=0 停驶（防 AI 直冲水域自杀溺毙）；
 //   3. 前向干地 → 输出原样返回（零行为漂移）。
 // 探点是否"入水"由 ctx.covers 注入 + 本模块内置 point-in-OBB 测试（纯函数、可单测）；
 // covers 缺失 / tier 表缺失时原样返回（不引入行为变化）。
+//
+// #U37（2026-10-18 用户「敌方 AI 避水算法造成他们不敢涉水追击玩家」）：**water 与 river 分档**。
+//   改前 `isWaterAt` 把两者一视同仁（`c.tier !== 'water' && c.tier !== 'river'` continue）——
+//   但语义完全不同：
+//     · water（水潭）   = 不可进入的真正危险水域，必须绕行/脱困；
+//     · river（河流）   = passability 0.4 的**可涉水减速带**，河宽另有硬上限
+//                         （RULES.drowning.wadeMaxWidth = 最慢车 8s 可渡宽度，见 tank_rules.js），
+//                         涉水本身不会溺毙，AI 应当**直线涉水穿河**追击对岸目标。
+//   改前把可涉水的河当危险水域规避 ⇒ 玩家只要过河就能脱离追击（实测停驶/绕行）。
+//   现判据不写死 tier 名：**可涉水 = RULES.coverTiers[tier].passability > 0 的 river**；
+//   water（水潭）恒为危险——它才是会把 AI 泡死的水体。将来改 river 语义只改 RULES。
+function _waterHazardTier(tier){
+  if(!tier) return false;
+  if(tier === 'water') return true;                 // 水潭：危险，恒规避
+  if(tier !== 'river') return false;
+  const T = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers.river : null;
+  // 河：passability > 0 ⇒ 可涉水通行（配合河宽上限，涉水不致死）⇒ 不规避
+  return !(T && Number.isFinite(T.passability) && T.passability > 0);
+}
+
 function applyWaterAvoidance(t, out, ctx){
   if(!out || out.move <= 0) return out;                       // 停车/倒车不探
   const coversArr = (ctx && Array.isArray(ctx.covers)) ? ctx.covers : null;
@@ -1154,24 +1174,30 @@ function applyWaterAvoidance(t, out, ctx){
   const cfg = aiConfig();
   const probeDist = cfg.waterProbeDist !== undefined ? cfg.waterProbeDist : 140;
   const probeAng = cfg.waterProbeAngle !== undefined ? cfg.waterProbeAngle : 0.6;
-  // 入水判定：点位于任一 water/river tier 覆盖的 OBB（或 collisionVerts 多边形）内
+  // 入水判定：点位于任一 **危险水体** 覆盖的 OBB（或 collisionVerts 多边形）内
+  // （#U37：可涉水的 river 不算危险水体，见 _waterHazardTier）
   const isWaterAt = (x, y) => {
     for(const c of coversArr){
       if(!c || c.hp <= 0) continue;
-      if(c.tier !== 'water' && c.tier !== 'river') continue;
+      if(!_waterHazardTier(c.tier)) continue;
       if(c.verts || c.collisionVerts){
         // 局部多边形点测（与 tank_map.pointInCoverPoly 同构，本模块自包含）
         const vs = c.collisionVerts || c.verts;
+        // #U37：多段连通水体（collisionVerts 为「子块数组」时 vs 是数组的数组）——
+        // 逐子块点测，任一命中即视为在该水体内（与 tank_cover.coverCollisionParts 同构）。
+        const polys = Array.isArray(vs[0]) && Array.isArray(vs[0][0]) ? vs : [vs];
         const dx = x - c.x, dy = y - c.y;
         const ang = -(c.angle || 0);
         const ca = Math.cos(ang), sa = Math.sin(ang);
         const lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
-        let inside = false;
-        for(let i = 0, j = vs.length - 1; i < vs.length; j = i++){
-          const xi = vs[i][0], yi = vs[i][1], xj = vs[j][0], yj = vs[j][1];
-          if(((yi > ly) !== (yj > ly)) && (lx < (xj - xi) * (ly - yi) / (yj - yi) + xi)) inside = !inside;
+        for(const poly of polys){
+          let inside = false;
+          for(let i = 0, j = poly.length - 1; i < poly.length; j = i++){
+            const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+            if(((yi > ly) !== (yj > ly)) && (lx < (xj - xi) * (ly - yi) / (yj - yi) + xi)) inside = !inside;
+          }
+          if(inside) return true;
         }
-        if(inside) return true;
       } else {
         const dx = x - c.x, dy = y - c.y;
         const ang = -(c.angle || 0);
@@ -1363,5 +1389,5 @@ function propagateAlert(entitiesArr, x, y, radius){
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverShouldHold, _maneuverPickMode, _maneuverSetRng, _MV_MODES, _engageBand, _engageBandKey, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _maneuverReloadGap, hearNoise, emitShotNoise };
+  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, _waterHazardTier, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverShouldHold, _maneuverPickMode, _maneuverSetRng, _MV_MODES, _engageBand, _engageBandKey, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _maneuverReloadGap, hearNoise, emitShotNoise };
 }

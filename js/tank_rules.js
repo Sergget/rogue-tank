@@ -139,7 +139,17 @@ const RULES = {
   // 消费方：tank_mvp.html 战斗主循环（drownT 累计）+ tank_cover.js tankFullyInWater。
   drowning: {
     seconds: 8,            // 溺毙倒计时（秒）
-    warnAt: 3              // 剩余该秒数时播报警告音/强化提示
+    warnAt: 3,             // 剩余该秒数时播报警告音/强化提示
+    // #U37（2026-10-18 用户「河流宽度需要限制，不能造成坦克无法涉水过河」）：
+    //   河宽硬上限 = 最慢可用车在溺毙倒计时内能渡过的宽度。唯一口径，消费方
+    //   js/tank_nodegen.js placeStripRivers/buildRiver（逐段钳制）。
+    //   推导：水中速度 = maxSpeed × speed.pxFactor(1.6) × river.passability(0.4) × speed.effMul(1.3)
+    //         8s 可渡 = 该速度 × drowning.seconds(8)
+    //         · hummel（最慢，maxSpeed 40）⇒ 40×1.6×0.4×1.3 = 33.3px/s ⇒ 8s = 266px
+    //         · tiger-I（120）⇒ 249.6×0.4 = 99.8px/s ⇒ 8s = 799px
+    //   取 260（比最慢车的能力再留 6px 余量）。实测改前河宽 p50=573 / max=805，
+    //   hummel 穿 446px 河需 9.8s > 8s ⇒ 必溺毙；钳到 260 后任何车都能安全涉水。
+    wadeMaxWidth: 260
   },
 
   // ======================= 破障（可破坏地图元素） =======================
@@ -472,6 +482,49 @@ const RULES = {
     tailLen: 18   // 拖尾长度（px）
   },
 
+  // ======================= 电磁轨道炮视效（#U38，2026-10-18；#U39 2026-10-19 配色口径） =======================
+  // 消费方：js/tank_fx.js（击发放电弧）、js/tank_battledraw.js（炮身细节/充能电弧/弹体）、
+  //   js/tank_fire.js（开火瞬间放弧）。
+  // **配色三色口径（2026-10-19 用户裁定，现行）**：炮管 = 灰（金属本体）、基底 = 蓝（能量底座/
+  //   导轨间衬底）、弧光 = 白（充能弧 + 放电弧）。三者一一对应下方 grey / base / arc 三组，
+  //   **不得**再把弧光画成青蓝、把炮身画成车体色。
+  // 三段视效 = ①充能（装填期，导轨间爬行白弧）②击发放电（炮身甩白弧）③弹道（电离针状弹）。
+  //   ⚠ 电弧**只在炮身上**：炮弹本身不带电弧尾迹（2026-10-19 用户裁定，旧 shellTrailArcs 已删）。
+  railgunFx: {
+    // —— 炮管（灰）：金属本体的三档明度，与车体涂装色无关 ——
+    barrelGrey:     '#787d84',   // 导轨/炮管主体（中性灰，略偏冷）
+    barrelGreyDark: '#4a4e55',   // 背光侧/缝隙
+    barrelGreyLit:  '#a8aeb6',   // 受光侧高光
+    // #U45（2026-10-19 实机校色）：**炮管可视宽度倍率**。电磁炮在实机上按常规口径算出
+    //   barrelWid ≈ 3.24px，两根导轨 + 中间蓝缝的「双轨结构」在 3px 里放不下——
+    //   实测两根 1.5px 灰轨直接盖掉 0.7px 缝隙，蓝色基底连 1 个像素都画不出来（炮管读作空管）。
+    //   电磁炮本就是笨重的电磁加速器，加宽到 2.2× 才装得下双轨 + 蓝缝 + 白弧三层。
+    //   只影响**视觉宽度**（drawTank 局部变量），不改 gunRoot/gunTip 判定与炮口坐标。
+    barrelWidMult: 2.2,
+    // —— 基底（蓝）：导轨之间缝隙里的能量衬底 ——
+    baseBlue:       '#2f5d8c',   // 能量衬底（导轨间长条）
+    baseBlueDeep:   '#1b3550',   // 衬底阴影
+    baseBlueLit:    '#4d8ec4',   // 衬底受光边
+    // —— 弧光（白）：充能弧与击发放电弧共用 ——
+    arcWhite:       '#ffffff',   // 弧芯（最亮）
+    arcHalo:        'rgba(214,232,255,1)', // 弧晕（冷白，非青蓝）
+    // —— 充能（#U45 2026-10-19 实测校色：railgun 的 barrelWid 仅约 3.2px，线宽必须按 1px 级配） ——
+    chargeArcs: 6,          // 充能期：导轨间电弧条数
+    chargeArcSegs: 5,       // 每条电弧折线段数（越大越细碎）
+    chargeArcWidth: 1.2,    // 电弧线宽（px）；1.6 在 3px 炮管上会糊成白斑（实机复核）
+    chargeBreechGlow: 0.55, // 后膛能量核亮度（× 进度）
+    chargeIdleAlpha: 0.16,  // 满电待机时的微光强度（不闪烁到 0，避免炮口「死掉」）
+    // —— 击发放电（也在炮身上，不跟随炮弹）——
+    dischargeArcs: 9,       // 击发瞬间：沿炮身的放电弧条数
+    dischargeLife: 0.22,    // 放电弧寿命（秒）
+    dischargeLenMult: 1.5,  // 放电弧沿炮身方向的伸展（× 炮管长）
+    dischargeAmp: 2.2,      // 放电弧横向振幅（px，**炮身量级**——大了就飞散成电光球）
+    dischargeWidth: 0.9,    // 放电弧芯线宽（px）；外晕 = ×3.2
+    // —— 弹体（不含电弧）——
+    shellGlowScale: 1.35,   // 弹体发光半径相对弹宽的倍率
+    shellLenMult: 1.9       // 针状弹体长度相对 RULES.shellVisual.length 的倍率
+  },
+
   // ======================= 卡牌抽取（2026-09-19 #D5 调参 → 2026-10-10 #N2 再调参） =======================
   // 消费方：js/tank_cards.js drawCardChoices。
   cards: {
@@ -482,6 +535,12 @@ const RULES = {
     //   下调为 0.4 概率触发；2026-10-10 #N2 用户再次反馈同一问题——再降至 0.18 并引入
     //   随局递减（ammoUpgradePace），同时权重抽样通道同步降权（此前只压保底压不住自然抽样）。
     ammoUpgradePace: { decay: 0.55 },
+    // #U40（2026-10-19）：反应装甲（passive reactive_armor，传奇卡 reactive_armor.json）从
+    //   「一次性消耗（挡一发即从 cardEffects 消解，整局只生效一次）」改为「拦截后进入再充能」——
+    //   拦截一次成功后冷却 rechargeSeconds 秒，期间照常受击、冷却结束恢复可拦截；同一时刻恒 1 层。
+    //   消费方：js/tank_cards.js（reactiveArmorRecharge / updateReactiveArmorRearm）、
+    //   js/tank_physics.js resolveHit（拦截后写 _reactiveRearmT）、tank_mvp.html（战斗开始重置就绪）。
+    reactiveArmor: { rechargeSeconds: 60 },
     // Boss 追加轮专属口径（2026-10-16 用户要求）：「确保至少 1 张传奇、2 张史诗，其余随意，
     //   并把非普通卡的抽中几率调高」。仅作用于 pendingLootRounds > 0 的追加轮，普通节点不变。
     //   · guarantee：按稀有度保底**至少**张数（从稀到常见逐项满足；池内无可用卡时该项静默跳过）。
@@ -527,13 +586,22 @@ const RULES = {
     road: {
       widthMin: 92,            // 街道条带宽下限（世界 px，旧 60 → 加宽；#E3 公路加宽）
       widthMax: 124,           // 街道条带宽上限（旧 80）
-      curveAmp: 0.16,          // 干线弯曲幅度（相对跨度比例，旧 0.04 → 明显弯曲）
+      // #U45（2026-10-19 用户反馈「有些道路看起来像正弦函数，在地图内的弯太多」）：
+      // curveAmp 语义已改为「单一弓形弯的弓顶偏移相对跨度比例」（tank_nodegen.js
+      // buildFromPoints——旧版 1~2 个内部控制点独立随机偏移会叠出 S 形/正弦观感，
+      // 已重做为全程恒定符号的单弓形）。0.16 → 0.075：弓顶最大横移 ≈7.5% 跨度
+      // （2100 宽节点 ≈158px ≈ 1.4 条路宽），仍是可感知的平滑弯道，但一条路
+      // 全程只弯一次、无中途回拐。D（平行）/I（双干）拓扑显式传 0.05 维持原收紧。
+      curveAmp: 0.075,         // 干线弓形弯顶幅度（相对跨度比例，旧 0.16 → #U45 收敛）
       diagChance: 0.45,        // 干线走小角度斜向（而非正东西/正南北）的概率
       diagAngleMin: 0.18,      // 斜向偏角下限（rad ≈10°）
       // #G（2026-09-21）：0.52→0.42→0.34 —— 斜干 × 正交支道的交角 = 90°−θ−干道链段局部斜率
       // （弯曲引入 ≈7°）。实测 0.42 时最小交角 58.2°（<#B7 的 60° 护栏）；0.34(≈19.5°) 留 ≥63° 余量。
+      // #U45 注：弯曲改为单弓形后端点切线即端点连线方向（无旧版端部反向弯），
+      //   局部斜率仅由弓顶偏移贡献，浅角护栏余量进一步放大。
       diagAngleMax: 0.34,      // 斜向偏角上限（rad ≈19°）
-      branchCurveAmp: 0.10,    // 支路弯曲幅度
+      branchCurveAmp: 0.10,    // （#U45 2026-10-19 已成死配置待删）旧支路弯曲幅度——T 形支道
+                               // TH/TV 自 #G 起固定走直线 amp=0，全仓库已无消费点
       // 2026-09-23 A 档：删除死配置 junctionClearR（0.85）——全仓库零消费，生成器实际用
       // roadW × 0.5 硬编码路口清空半径（js/tank_nodegen.js junctions.push({r: roadW * 0.5})）。
       speedBonusKmh: 10,       // 在公路上行驶的速度加成（km/h，受 maxSpeed 150km/h 上限钳制）
@@ -614,9 +682,15 @@ const RULES = {
       screensX: 10,               // 横向目标屏数（不做精确绑定，按 ≈3.5 屏/片估算片数）
       screensY: 2.2,              // 纵向目标屏数（片高 ≥3 屏，按中心裁剪）
       chunkCount: 0,              // 片数（0 = 按 screensX 自动估算）
+      chunkRows: 1,               // 片行数（1 = 单行条带；>1 = 行×列网格，纵向不再裁剪）
       // 防线参数覆盖：strip 面积 ≈ 方形节点 7 倍，防线数与单线敌数同步放大
       // （每线 3~4 辆成批遭遇，maxAlive 7 仍封顶同时接战数；节奏不变）
-      defenseLine: { linesMin: 4, linesMax: 6, perAnchorMin: 3, perAnchorMax: 4, maxPerNode: 18 }
+      defenseLine: { linesMin: 4, linesMax: 6, perAnchorMin: 3, perAnchorMax: 4, maxPerNode: 18 },
+      // #MODE（2026-10-15）生存模式单图口径 —— 2026-10-18 改走「标准 strip 生成链 + 多行片」：
+      //   与标准模式共用同一套生成器（不再用 bossOnly/stripForBoss 两个 hack），但保留更大的
+      //   单图：2 行 × round(5/3.5)=2 列网格 ⇒ 世界 ≈6×6 屏（片高 ≥3 屏 × 2 行），
+      //   纵向完全填满、无上下空白带。唯一配置源；generateSurvivalRun 只读这里。
+      survival: { screensX: 5, screensY: 5, chunkRows: 2 }
     },
     // #K3（2026-09-29 用户反馈「节点略长，缩短 boss 循环：5->3」）：Boss 循环由 5 缩短为 3
     // ⇒ 一局内更早遇到 Boss（index 2/5/8…），以 Boss 战（无配额 grind）替代部分常规节点的拉长感。
@@ -1129,6 +1203,22 @@ const RULES = {
       enabled: true,
       windowSeconds: 8,   // 修复决策窗口上限（s）
       chance: 0.4         // 到达决策点时立即修复的概率（0~1）
+    },
+    // 7) Boss 随机武备（#U39，2026-10-18 用户反馈「boss 似乎还不会随机到这些武器和升级」）：
+    //    此前 spawnBossFromDef 只随机技能（assignBossSkills），Boss 永远用标准主炮 + 空副武器，
+    //    主/副武器与它们的升级卡对 Boss 完全不可见。本表控制随机换装强度：
+    //    ① primaryChance/secondaryChance = 分别随机换主炮/装副武器的概率（逐 Boss 独立掷骰）；
+    //    ② upgradeChance = 每张升级卡的抽取概率，随遭遇序号按 upgradeChancePerBoss 递增
+    //       （后续 Boss 更可能带满），张数上限 upgradeMax。
+    //    消费方：js/tank_cards.js pickBossArmament（纯选择）+ tank_mvp.html assignBossArmament
+    //    （经 applyCardEffects 应用，与玩家卡牌同一语义通道）。
+    armament: {
+      enabled: true,
+      primaryChance: 0.9,
+      secondaryChance: 0.7,
+      upgradeMax: 2,
+      upgradeChance: 0.55,
+      upgradeChancePerBoss: 0.1
     }
   },
 
@@ -1194,6 +1284,21 @@ const RULES = {
         enginePower:      { min: 200, max: 9999 }, // 马力包络 300~900（±30% → 210~1170）；max=9999=无上限（B3 #73 修复：engine_power_up 升级「受运行时重量上限间接约束」，不受马力封顶）。仅 runShopLimitBlocked #A4 派生消费。
     spreadMult:       { min: 0.5, max: 3.0 },  // 三扩系数包络 0.8~2.0（±30% → 0.56~2.6）；min 与 RULES.spread.multFloor 同级防穿零
     motionSpreadMul:  { min: 0.5, max: 3.0 },  // 对齐 spreadMult 边界（用户 2026 决定：姿态稳定 steady_mount 的达限判定与三扩系数同级）
+    // #U40（2026-10-19 卡牌审计）：补 3 个「卡牌单通道」参数的边界——此前无 limits ⇒ #U20 属性
+    //   达限过滤（cardEligible）对它们永不触发，满级参数卡仍反复出现（用户反馈「射速、精度等
+    //   升级在满级后不该再出现」的一部分）。口径：
+    //   · aimSpeed：缩圈速度。**两套基准并存**——makeTank 缺省走 RULES.spread.shrinkRate(0.15)，
+    //     真实坦克 spec 直写 base.aimSpeed（存量包络 1.0~2.5，实测 tanks/*.json 6 型）。
+    //     max=6：从最低基准 1.0 起允许 ×6 叠加（全精度卡远超此值，实际对局 2~4 倍即触顶）；
+    //     min=0.1 防负值。
+    //   · trackLock：履带锁定秒数，基准 RULES.modules.trackLockDefault 8s（spec 均不覆写）；
+    //     下限 3s（局内商店 track_field_kit 限 5s，卡牌稀有通道允许再压到 3s）；上限 20s 容错。
+    //   · fireControlCrit / loaderAmmoCrit：P-49 概率修正加值，上限 = RULES.modules.critBonusCap
+    //     （0.25）——与 computeStats 的 [0, cap] 钳制同源，越界卡牌被 #U20 过滤。
+    aimSpeed:         { min: 0.1, max: 6 },
+    trackLock:        { min: 3,   max: 20 },
+    fireControlCrit:  { min: 0,   max: 0.25 },
+    loaderAmmoCrit:   { min: 0,   max: 0.25 },
     weight:           { min: 10,  max: 80 },   // 吨：max=80t 为【设计上限】，仅设计器出厂校验（卡牌/局内升级可突破）；下限给超轻底盘留余地
     armor: {                                   // 各面装甲厚度 mm：无上限（用户需求：装甲不设上限）
       hull: {

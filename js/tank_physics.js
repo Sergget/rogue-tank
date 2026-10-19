@@ -225,20 +225,27 @@ function resolveHit(shell, target, hit, allowBounce, opts){
   const spallVals = passiveValues(target, 'spall_liner');
   const spallMul = spallVals.length ? Math.min.apply(null, spallVals) : 1;
 
-  // #U19（2026-10-16 实现）：被动「反应装甲」reactive_armor——抵挡一次命中并消解。
-  //   原实现只登记 PASSIVE_KEYS 白名单、无消费点 ⇒ 死效果卡（传奇稀有度却零效果）。
-  //   语义按卡面「抵挡一次命中并消解（被动）」：本次命中整体被吸收（不跳弹、不穿深、不扣血、
-  //   不致溅射），随后**消耗掉该层**（从 target.cardEffects 移除该条目）——一次性，如卡面所述。
-  //   若目标带多层（maxStacks=1 故通常只有 1 层），逐层各挡一次。
+  // #U19（2026-10-16 实现）→ #U40（2026-10-19 用户裁定重做）：被动「反应装甲」reactive_armor。
+  //   旧语义「抵挡一次命中并消解」把该条目从 cardEffects 整体删除 ⇒ 传奇卡整局只生效一次，
+  //   显然不合理。现行语义：**拦截一次后进入再充能**（RULES.cards.reactiveArmor.rechargeSeconds，
+  //   缺省 60s）——冷却期内照常按装甲/跳弹结算，冷却结束恢复可拦截；同一时刻恒 1 层（maxStacks=1）。
+  //   就绪判定：条目 `_reactiveReady !== false` 且 `target._reactiveRearmT <= 0`（未初始化视为就绪，
+  //   兼容 bench/单测无卡牌接线环境）。拦截成功写 `_reactiveRearmT` 并由 mvp 主循环
+  //   updateReactiveArmorRearm（js/tank_cards.js）逐帧递减；进入战斗时 mvp 重置就绪（跨节点不携带冷却）。
   if(!(opts && opts.ignoreReactive)){
+    const rearm = (typeof RULES !== 'undefined' && RULES.cards && RULES.cards.reactiveArmor
+      && typeof RULES.cards.reactiveArmor.rechargeSeconds === 'number'
+      && RULES.cards.reactiveArmor.rechargeSeconds >= 0) ? RULES.cards.reactiveArmor.rechargeSeconds : 60;
     const raIdx = (target && Array.isArray(target.cardEffects))
-      ? target.cardEffects.findIndex(e => e && e.type === 'passive' && e.key === 'reactive_armor')
+      ? target.cardEffects.findIndex(e => e && e.type === 'passive' && e.key === 'reactive_armor'
+          && e._reactiveReady !== false && !(target._reactiveRearmT > 0))
       : -1;
     if(raIdx >= 0){
-      target.cardEffects.splice(raIdx, 1);   // 消耗该层（一次性）
+      target._reactiveRearmT = rearm;      // 进入再充能（条目保留，冷却结束恢复）
+      target._reactiveReady = false;
       return {
         outcome:'BLOCK', cls:'BLOCK',
-        text:`反应装甲起效 — 抵挡本次命中并消解（剩余 ${passiveValues(target, 'reactive_armor').length} 层）`,
+        text:`反应装甲拦截 — 本次命中被吸收，进入再充能（${rearm}s）`,
         part:hit.part, faceKey:hit.faceKey, hitPoint, dmg:0, reactive:true
       };
     }

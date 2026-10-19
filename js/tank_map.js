@@ -405,6 +405,11 @@ function makeNode(index, rng, env) {
   // extendRun 复用 run.env 自动延续）。
   const forceBoss = !!(env && env.bossOnly);
   const isBoss = isBossNodeIndex(index) || forceBoss;
+  // #U35（2026-10-18）生存模式口径：env.noEnemies 为真时不生成常规敌军
+  // （敌人由 UI 层按波次手动生成）。与 bossOnly 的区别：**不标记 boss**——地图仍走
+  // 标准 strip 路径，covers/roadJunctions/敌簇质心外的字段全部照常；quota 置 null、
+  // defenseLines 置空，避免 standard 的 nodeClearance/reinforcement 逻辑被污染。
+  const noEnemies = !!(env && env.noEnemies);
 
   const stripCfg = cfg.strip || {};
   const stripEnabled = stripCfg.enabled !== false;
@@ -433,6 +438,9 @@ function makeNode(index, rng, env) {
       scaleFor: (vp, tpl) => nodeScaleFor(vp, tpl),   // 片内 scale 沿用现行口径
       stripScreensX: (env && env.stripScreensX) || stripCfg.screensX,
       stripScreensY: (env && env.stripScreensY) || stripCfg.screensY,
+      // #U35（2026-10-18）：多行片——缺省 1（单行条带，零回归）；生存模式经
+      // generateSurvivalRun 传 RULES.nodeMap.strip.survival.chunkRows（2 行）。
+      chunkRows: (env && env.stripChunkRows) || undefined,
       chunkCount: stripCfg.chunkCount || undefined
     });
     w = stripRes.w; h = stripRes.h;
@@ -445,7 +453,11 @@ function makeNode(index, rng, env) {
       // strip 无单一模板：合成一个与生成器内部路网规划同 id 的占位（UI/调试可读）
       template: { id: '__strip__', name: `横向条带 ${stripRes.chunkCount} 片` },
       biome: (stripRes.chunks && stripRes.chunks[0] && stripRes.chunks[0].biome) || null,
-      biomeZones: stripRes.biomeZones || null  // #1（2026-10-16）：多 biome 区段
+      biomeZones: stripRes.biomeZones || null,  // #1（2026-10-16）：多 biome 区段
+      // #U35（2026-10-18）：多行片元数据透传（tests/调试读 node.chunks 判断行数）
+      chunks: stripRes.chunks || null,
+      chunkRows: stripRes.chunkRows || 1,
+      rowHeights: stripRes.rowHeights || null
     };
   } else {
     // 掩体布局：模板按 scale 放大，世界坐标 (0,0)~(w,h)，中心 (w/2,h/2)
@@ -546,7 +558,8 @@ function makeNode(index, rng, env) {
   // Boss 节点例外：其常规敌人随后即被清空（Boss 战不混普通敌军），但敌簇质心仍驱动 A17 LoS 走廊
   // ⇒ 若改用防线锚点会连带改变 Boss 战地图布局（实测「掩体在界内」断言被打破）。故 Boss 节点
   // 保持旧全向路径，零回归。
-  const defenseEnabled = (cfg.defenseLine ? cfg.defenseLine.enabled !== false : true) && !isBossNodeIndex(index);
+  const defenseEnabled = (cfg.defenseLine ? cfg.defenseLine.enabled !== false : true) &&
+    !isBossNodeIndex(index) && !noEnemies;   // #U35：noEnemies 时防线恒空（无敌人可布防）
   // #N4：strip 节点（≈10 屏宽）沿用方形节点的防线参数会把 4~9 个敌人撒在 7 倍面积上
   // ⇒ 单节点敌数与防线数按 stripCfg.defenseLine 放大（推进—遭遇—清剿节奏不变）。
   const defenseCfg = (stripMode && stripCfg.defenseLine)
@@ -558,10 +571,11 @@ function makeNode(index, rng, env) {
     covers: templateResult.covers, roadJunctions: templateResult.roadJunctions, rng: rng,
     cfg: defenseCfg
   }) : { lines: [], lineCount: 0, perAnchor: 0, targetCount: enemyCountForDifficulty(diff), enabled: false };
-  const targetCount = defense.targetCount;
+  const targetCount = noEnemies ? 0 : defense.targetCount;
 
   // P-43：构成随深度演进——compose 一次，防线聚簇与兜底两处共用同一 spec 数组（按 enemies.length 顺序消费）。
-  const composition = enemyCompositionForDepth(index, diff, rng, cfg, targetCount);
+  // #U35：noEnemies 时跳过构成抽样（不消耗 rng，敌数恒 0）。
+  const composition = noEnemies ? [] : enemyCompositionForDepth(index, diff, rng, cfg, targetCount);
   const enemies = [];
   const clusterCentroids = [];
 
@@ -620,7 +634,8 @@ function makeNode(index, rng, env) {
     }
   }
   // 回退路径（RULES.nodeMap.defenseLine.enabled = false）：旧全向环带扇区撒簇（原逻辑不变）
-  if (!centroids.length) {
+  // #U35：noEnemies（生存模式）不撒簇——敌人为 0，簇心无意义且会白耗 rng。
+  if (!centroids.length && !noEnemies) {
     for (let c = 0; c < targetClusterCount; c++) {
       // #E6：按难度比例把簇中心放到建筑/路口（junctionChance 优先路口）
       const st = (rng() < structChance) ? pickStructureCenter() : null;
@@ -800,7 +815,10 @@ function makeNode(index, rng, env) {
 
   // P-38：击杀配额（仅常规节点）——节点结束条件由「初始全灭」改为「节点内击杀数 ≥ quota」。
   // Boss 节点不定义配额（summons 即其机制，禁用递增生成）。
-  const quota = bossMark ? null : quotaForDifficulty(enemies.length, diff);
+  // #U35（2026-10-18）：noEnemies（生存模式）同样 quota=null —— 否则 standard 的
+  // nodeClearance / reinforcementTick / reinforcementPossible 会把「无敌人可打」误读成
+  // 「配额未达成 ⇒ 节点未完成」（生存模式由波次 UI 自行判定清场，不走节点完成链路）。
+  const quota = (bossMark || noEnemies) ? null : quotaForDifficulty(enemies.length, diff);
 
   return {
     index: index,
@@ -817,6 +835,10 @@ function makeNode(index, rng, env) {
     template: { id: templateResult.template.id, name: templateResult.template.name },
     biome: templateResult.biome || null,   // P-36/#81：地面主题标签（mvp drawGround 消费）
     biomeZones: templateResult.biomeZones || null,  // #1（2026-10-16）：多 biome 区段
+    // #U35（2026-10-18）：strip 片的行/列元数据（多行片测试与调试用；方形路径为 null）
+    chunks: templateResult.chunks || null,
+    chunkRows: templateResult.chunkRows || 1,
+    rowHeights: templateResult.rowHeights || null,
     covers: templateResult.covers,
     // v2（2026-09-16）：路口中心（已随 covers 一起从 generateNode 局部系平移到世界系）。
     // 渲染层 bakeNodeGroundLayer 据此在路口断开中心虚线，使交叉处读作「路口」。
@@ -1126,28 +1148,37 @@ function placeSupplyStations(node, seed, count) {
 }
 
 /**
- * 生成生存模式对局（#MODE 2026-10-15）：单个大地图。
- * - 走方形竞技场路径（bossOnly=true 强制 Boss 标记 → 非 strip 路径），视口 2x → 世界约 4x 面积；
- * - 生成后清掉 node.boss（Boss 按波次由 UI 层手动生成，不走节点 Boss 逻辑），
- *   挂 node.survival=true 供 UI 层识别；
- * - 常规敌人已在 makeNode 内清空（bossMark），波次敌人由 UI 层按波次手动生成。
+ * 生成生存模式对局（#MODE 2026-10-15；#U35 2026-10-18 重写）：单个大地图。
+ * 现行口径（用户 2026-10-18 裁定）：**与标准模式共用同一套 strip 生成器**，只保留更大的
+ * 单图（≈5×5 屏），并且不再使用 bossOnly / stripForBoss 两个 hack：
+ *   · 走标准路径 generateRun(seed, 1, { noEnemies: true, stripChunkRows })——
+ *     env.noEnemies 让常规敌军不生成（enemies=[]、quota=null、defenseLines=[]、boss=null），
+ *     covers/roadJunctions/exitX/supplyStations 等其余字段全部走标准逻辑；
+ *   · chunkRows 来自 RULES.nodeMap.strip.survival（唯一配置源）：2 行片 ⇒ 世界高 = 2×片高
+ *     （≈6 屏），纵向填满、无上下空白带（旧实现单片 2196 高塞进 3600 高的 strip，
+ *     底部 400px 带元素数 = 0）；
+ *   · 波次敌人与 Boss 由 UI 层按波次手动生成（node.survival=true 供识别，exitX=Infinity
+ *     表示无出口、不走推进式完成判定）。
  * @param {number|string} [seed] 整局确定性种子；缺省随机
  * @param {any} [env] 环境注入：{ viewport: { vw, vh }, difficultyLevel: number }
  * @returns {{ nodes: any[], seed: number|string, env: any, difficultyLevel: number }}
  */
 function generateSurvivalRun(seed, env) {
-  // #MODE（2026-10-15）：生存模式用新生成器，1:1 方形 5×5 屏（面积 25 平方屏，与标准 strip 22 相近）
+  const cfg = nodeConfig();
+  const surv = (cfg.strip && cfg.strip.survival) || {};
   const e = Object.assign({}, env || {}, {
-    bossOnly: true,
-    stripForBoss: true,   // 强制走 strip 路径（非 Boss 节点标记但用新生成器）
-    stripScreensX: 5,
-    stripScreensY: 5,
+    noEnemies: true,                                     // 常规敌军不生成（波次手动生成）
+    stripScreensX: surv.screensX !== undefined ? surv.screensX : 5,
+    stripScreensY: surv.screensY !== undefined ? surv.screensY : 5,
+    stripChunkRows: surv.chunkRows !== undefined ? surv.chunkRows : 2
   });
   const run = generateRun(seed, 1, e);
   const node = run.nodes[0];
-  node.boss = null;        // 生存模式：Boss 按波次手动生成
   node.survival = true;
+  node.boss = null;        // 生存模式：Boss 按波次手动生成
   node.exitX = Infinity;   // 生存模式：无出口（波次制，无需撤离）
+  node.quota = null;       // 波次制不走节点配额/清场链路（makeNode 已置 null，显式固化）
+  node.defenseLines = [];
   node.supplyStations = placeSupplyStations(node, run.seed);  // 补给站（回血+商店）
   return run;
 }

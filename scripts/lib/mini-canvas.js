@@ -38,27 +38,42 @@ function parseColor(s) {
 
 // ---------- 渐变 ----------
 class MiniGradient {
-  constructor(type, args) { this.type = type; this.args = args; this.stops = []; }
+  // #MC3-2026-10-18：渐变的坐标是**创建时的用户空间**，绘制时随 CTM 变换（Canvas 规范）。
+  //   旧实现直接在设备像素上套用原始坐标 —— scale=2 的超采样 sprite 里渐变只覆盖
+  //   左上四分之一，离线图与浏览器不等价（实测 2× 降采样 vs 1× 直出平均亮度差 8.2）。
+  //   这里在创建时捕获 CTM，at() 时把设备像素中心反变换回用户空间再求值。
+  constructor(type, args, ctm) {
+    this.type = type; this.args = args; this.stops = [];
+    this.ctm = ctm ? ctm.slice() : [1, 0, 0, 1, 0, 0];
+  }
   addColorStop(off, color) { this.stops.push([off, parseColor(color)]); this.stops.sort((a, b) => a[0] - b[0]); }
-  at(x, y) {
+  at(dx, dy) {
     if (!this.stops.length) return [0, 0, 0, 0];
+    const [a, b, c, d, e, f] = this.ctm;
+    const det = a * d - b * c;
+    let x = dx + 0.5, y = dy + 0.5;
+    if (det) {
+      const px = x - e, py = y - f;
+      x = (d * px - c * py) / det;
+      y = (-b * px + a * py) / det;
+    }
     let t;
     if (this.type === 'linear') {
       const [x0, y0, x1, y1] = this.args;
-      const dx = x1 - x0, dy = y1 - y0, len2 = dx * dx + dy * dy || 1;
-      t = ((x - x0) * dx + (y - y0) * dy) / len2;
+      const dx2 = x1 - x0, dy2 = y1 - y0, len2 = dx2 * dx2 + dy2 * dy2 || 1;
+      t = ((x - x0) * dx2 + (y - y0) * dy2) / len2;
     } else {
       const [x0, y0, r0, x1, y1, r1] = this.args;
-      const d = Math.hypot(x - x1, y - y1);
-      t = r1 > r0 ? (d - r0) / (r1 - r0) : 0;
+      const dd = Math.hypot(x - x1, y - y1);
+      t = r1 > r0 ? (dd - r0) / (r1 - r0) : 0;
     }
     t = Math.max(0, Math.min(1, t));
-    let a = this.stops[0], b = this.stops[this.stops.length - 1];
+    let a0 = this.stops[0], b0 = this.stops[this.stops.length - 1];
     for (let i = 0; i < this.stops.length - 1; i++) {
-      if (t >= this.stops[i][0] && t <= this.stops[i + 1][0]) { a = this.stops[i]; b = this.stops[i + 1]; break; }
+      if (t >= this.stops[i][0] && t <= this.stops[i + 1][0]) { a0 = this.stops[i]; b0 = this.stops[i + 1]; break; }
     }
-    const k = (b[0] > a[0]) ? (t - a[0]) / (b[0] - a[0]) : 0;
-    return [0, 1, 2, 3].map(i => Math.round(a[1][i] + (b[1][i] - a[1][i]) * k));
+    const k = (b0[0] > a0[0]) ? (t - a0[0]) / (b0[0] - a0[0]) : 0;
+    return [0, 1, 2, 3].map(i => Math.round(a0[1][i] + (b0[1][i] - a0[1][i]) * k));
   }
 }
 
@@ -199,9 +214,21 @@ function createMiniCanvas(w0, h0) {
       x = Math.round(x); y = Math.round(y);
       if (x < 0 || y < 0 || x >= W || y >= H) return;
       if (!this._inClip(x + 0.5, y + 0.5)) return;
-      const a = (rgba[3] / 255) * this._state.globalAlpha * (alphaMul == null ? 1 : alphaMul);
+      const st = this._state;
+      const a = (rgba[3] / 255) * st.globalAlpha * (alphaMul == null ? 1 : alphaMul);
       if (a <= 0) return;
       const i = I(x, y);
+      if (st.globalCompositeOperation === 'lighter') {
+        // #MC2-2026-10-18：'lighter' 此前只是被存进状态、从不生效——代价是**所有发光特效**
+        //   在离线生图里都按 source-over 合成（暗部被压掉、火焰/曳光/爆闪全都发灰），
+        //   离线图与实机视觉不可互验。此处按 Canvas 规范实现加法混合（AlphaComposite.PLUS）：
+        //   Cs·as + Cb·ab 分量相加，alpha 也相加（钳制到 1）。
+        buf[i]     = Math.min(255, Math.round(rgba[0] * a + buf[i]));
+        buf[i + 1] = Math.min(255, Math.round(rgba[1] * a + buf[i + 1]));
+        buf[i + 2] = Math.min(255, Math.round(rgba[2] * a + buf[i + 2]));
+        buf[i + 3] = Math.min(255, Math.round(255 * a + buf[i + 3]));
+        return;
+      }
       const ia = 1 - a;
       buf[i] = Math.round(rgba[0] * a + buf[i] * ia);
       buf[i + 1] = Math.round(rgba[1] * a + buf[i + 1] * ia);
@@ -259,19 +286,69 @@ function createMiniCanvas(w0, h0) {
     },
 
     // ----- 图像 -----
+    // #MC1-2026-10-18 修复：旧实现完全忽略 CTM（只按 dx/dy 原始坐标落点），
+    //   而 scripts/render-map-shot.js 等工具都用 ctx.scale/translate 做全局缩放 ——
+    //   于是「--scale≠1 时掩体/树冠位置全错」：图形（路径/填充）跟着缩放走，
+    //   贴图（bake 精灵、掩体资产）停在未缩放坐标，离线生图无法当视觉基线。
+    //   现改为**逆变换采样**：遍历设备像素包围盒，用逆 CTM 映射回图片 uv；
+    //   平移/缩放/旋转/斜切全部正确，代价是每像素一次逆变换（离线工具可接受）。
     drawImage(img, dx, dy, dw, dh) {
       if (!img || !img._buf) return;
       if (dw === undefined) { dw = img.width; dh = img.height; }
       const s = this._state;
-      // 简化：忽略旋转的 drawImage（bake 贴图均为轴对齐粘贴），只处理平移+缩放
+      const a = s.transform[0], b = s.transform[1], c = s.transform[2],
+            d = s.transform[3], e = s.transform[4], f = s.transform[5];
+      const det = a * d - b * c;
+      if (!det) return;
+      // 目标四角（user space）→ 设备空间包围盒
+      const corners = [[dx, dy], [dx + dw, dy], [dx + dw, dy + dh], [dx, dy + dh]]
+        .map(([x, y]) => [a * x + c * y + e, b * x + d * y + f]);
+      const mins = [0, 1].map(k => Math.min(...corners.map(p => p[k])));
+      const maxs = [0, 1].map(k => Math.max(...corners.map(p => p[k])));
+      const X0 = Math.max(0, Math.floor(mins[0])), X1 = Math.min(W - 1, Math.ceil(maxs[0]));
+      const Y0 = Math.max(0, Math.floor(mins[1])), Y1 = Math.min(H - 1, Math.ceil(maxs[1]));
       const sx = dw / img.width, sy = dh / img.height;
-      const x0 = Math.max(0, Math.floor(dx)), y0 = Math.max(0, Math.floor(dy));
-      const x1 = Math.min(W, Math.ceil(dx + dw)), y1 = Math.min(H, Math.ceil(dy + dh));
-      for (let y = y0; y < y1; y++) for (let x = x0; x <= x1; x++) {
-        const u = Math.min(img.width - 1, Math.max(0, Math.floor((x - dx) / sx)));
-        const v = Math.min(img.height - 1, Math.max(0, Math.floor((y - dy) / sy)));
-        const si = (v * img.width + u) * 4;
-        this._blend(x, y, [img._buf[si], img._buf[si + 1], img._buf[si + 2], img._buf[si + 3]]);
+      const iw = img.width, ih = img.height, ib = img._buf;
+      // #MC2-2026-10-18：**缩小采样必须双线性**。2× 超采样 sprite（#TEX12）靠
+      //   drawImage 降到 1× 显示；旧 nearest 采样会把超采样的收益全部丢掉（离线图
+      //   与浏览器不等价）。仅在「设备像素/图像像素 < 1」时启用，1:1 与放大保持
+      //   nearest，既有逐像素断言（10× 放大 100px 等）不受影响。
+      const devScale = Math.sqrt(Math.abs(det)) * sx;
+      const bilinear = devScale < 0.999;
+      const clampX = v => v < 0 ? 0 : (v >= iw ? iw - 1 : v);
+      const clampY = v => v < 0 ? 0 : (v >= ih ? ih - 1 : v);
+      const texel = (x, y) => {
+        const si = (clampY(y) * iw + clampX(x)) * 4;
+        return [ib[si], ib[si + 1], ib[si + 2], ib[si + 3]];
+      };
+      for (let Y = Y0; Y <= Y1; Y++) {
+        for (let X = X0; X <= X1; X++) {
+          // 设备像素中心 → user space
+          const px = X + 0.5 - e, py = Y + 0.5 - f;
+          const ux = (d * px - c * py) / det;
+          const uy = (-b * px + a * py) / det;
+          const u = (ux - dx) / sx;
+          const v = (uy - dy) / sy;
+          if (u < 0 || v < 0 || u >= iw || v >= ih) continue;
+          if (!bilinear) {
+            const si = (Math.floor(v) * iw + Math.floor(u)) * 4;
+            this._blend(X, Y, [ib[si], ib[si + 1], ib[si + 2], ib[si + 3]]);
+            continue;
+          }
+          // 双线性：以 texel 中心为采样点，先乘 alpha 插值再还原（避免透明边缘发黑）
+          const fx = u - 0.5, fy = v - 0.5;
+          const x0 = Math.floor(fx), y0 = Math.floor(fy);
+          const tx = fx - x0, ty = fy - y0;
+          const c00 = texel(x0, y0), c10 = texel(x0 + 1, y0);
+          const c01 = texel(x0, y0 + 1), c11 = texel(x0 + 1, y0 + 1);
+          const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty);
+          const w01 = (1 - tx) * ty, w11 = tx * ty;
+          const alpha = c00[3] * w00 + c10[3] * w10 + c01[3] * w01 + c11[3] * w11;
+          if (alpha < 0.5) continue;
+          const ch = k => (c00[k] * c00[3] * w00 + c10[k] * c10[3] * w10 +
+                           c01[k] * c01[3] * w01 + c11[k] * c11[3] * w11) / alpha;
+          this._blend(X, Y, [ch(0), ch(1), ch(2), alpha]);
+        }
       }
     },
     getImageData(sx, sy, sw, sh) {
@@ -284,8 +361,8 @@ function createMiniCanvas(w0, h0) {
       }
       return { data, width: sw, height: sh };
     },
-    createLinearGradient(x0, y0, x1, y1) { return new MiniGradient('linear', [x0, y0, x1, y1]); },
-    createRadialGradient(x0, y0, r0, x1, y1, r1) { return new MiniGradient('radial', [x0, y0, r0, x1, y1, r1]); },
+    createLinearGradient(x0, y0, x1, y1) { return new MiniGradient('linear', [x0, y0, x1, y1], this._state.transform); },
+    createRadialGradient(x0, y0, r0, x1, y1, r1) { return new MiniGradient('radial', [x0, y0, r0, x1, y1, r1], this._state.transform); },
     fillText() { /* 文字在生图验证中跳过 */ },
     strokeText() { },
     measureText() { return { width: 0 }; },

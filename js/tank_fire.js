@@ -59,10 +59,18 @@ function _deployablePathHit(dc, sx, sy, nx, ny){
 // 与 'single'（沙袋，挡 1 发 / >70° 跳弹）；其余（水/泥/路/栅栏/残骸/灌木/倒树）一律越飞。
 
 // 阶段七 7.3：主武器配置读取（weapons.primary 倍率：reloadMult/damageMult/penMult/shellSpeedMult/burst/stagger/count）
+// #U39（2026-10-18 用户反馈「主武器升级卡没有覆盖标准主炮」）：标准主炮此前一律返回 null ⇒
+//   `weapon_primary_standard_*` 这类升级卡（statOverrides 写进 weapons.primary.stats）永远不生效。
+//   现行：标准主炮**无任何 statOverrides 时仍返回 null**（与既有行为逐字节一致，零回归），
+//   一旦有 stats 覆写才产出规格（缺省表由 WEAPON_DEFAULTS.primary.standard 兜底，倍率全 1.0）。
 function primaryWeaponSpec(shooter) {
   const p = shooter && shooter.weapons && shooter.weapons.primary;
-  if (!p || !p.type || p.type === 'standard' || p.type === 'none') {
+  if (!p || !p.type || p.type === 'none') {
     if (p) p._spec = null;
+    return null;
+  }
+  if (p.type === 'standard' && (!p.stats || Object.keys(p.stats).length === 0)) {
+    p._spec = null;
     return null;
   }
   if (p._spec) return p._spec;
@@ -90,6 +98,7 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
   const burst = c.burstExplosion || _G('burstExplosion', function () {});
   const muzzle = c.spawnMuzzleFlash || _G('spawnMuzzleFlash', function () {});
   const play = c.playSound || _G('playSound', function () {});
+  const railDischarge = c.spawnRailDischarge || _G('spawnRailDischarge', function () {});
   const devAim = c.devAim !== undefined ? c.devAim : _G('devAim', null);
   if (!shooter || !gunRoot || !gunTip) return null;
   const spec = primaryWeaponSpec(shooter);
@@ -142,7 +151,16 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
   const dbFx = isDB ? 1.7 : 1;
   burst(ox, oy, 0.6 * fxScale * dbFx, Math.round(4 * dbFx), Math.round(2 * dbFx), 0);
   muzzle(ox, oy, spreadAngle || shooter.turretAngle, fxScale * dbFx, bMuzzle);
-  play('fire', isDB ? { gain: 1.6 } : undefined);
+  // #U38（2026-10-18）：电磁轨道炮击发——沿**炮管全长**（gunRoot→炮口）甩出一束放电弧。
+  //   #U39（2026-10-19 用户裁定）：弧**挂炮身**（不是跟随炮弹），配色为**白**（弧芯白 + 冷白晕）；
+  //   炮口补一圈白色电离冲击波。参数唯一口径 RULES.railgunFx。
+  if (isRailgun) {
+    const _blen = Math.max(8, Math.hypot(ox - rootP.x, oy - rootP.y));
+    railDischarge(rootP.x, rootP.y, spreadAngle || shooter.turretAngle, _blen, 1);
+    const wave = c.spawnShockwave || _G('spawnShockwave', function () {});
+    wave(ox, oy, 46, 0.26, 'rgba(235,244,255,0.85)', 2.4);
+  }
+  play(isRailgun ? 'firerail' : 'fire', isDB ? { gain: 1.6 } : undefined);
   if (isDB && typeof c.spawnSmoke === 'function') c.spawnSmoke(ox, oy, 1.3);
   shooter.recoilT = 0.08;
   const shell = {
@@ -152,6 +170,9 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
     dmg: Math.max(0, shooter.stats.damage * (ammo.dmg || 1) * dmgMult + (ammo.dmgAdd || 0)),
     ammo: ammo, ammoKey: shooter.ammoKey, shooter: shooter, hitPref: hitPref,
     fxScale: fxScale,
+    // #U38（2026-10-18）：弹体视效通道——drawShells 据此绘制电磁炮的针状电离弹 + 电弧尾迹。
+    //   只存武器**类型**（不存整个 spec，避免炮弹长期持有武器对象）。
+    wType: (spec && spec.type) || 'standard',
     maxRange: (spec && typeof spec.maxRange === 'number') ? spec.maxRange : 0,   // #7：机炮射程限制
     canBounce: true, bounced: false, dist: 0, dead: false
   };

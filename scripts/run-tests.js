@@ -54,6 +54,8 @@ const TESTS = [
   'scripts/test-extreme-model.js',
   'scripts/test-extreme-cover.js',
   'scripts/test-assets.js',
+  'scripts/test-trackmarks.js',   // #U41（2026-10-19）履带痕迹：盖章节流/差速/寿命/上限/clear
+  'scripts/test-render.js',
   'scripts/test-cover-gen.js',
   'scripts/test-audio.js',
   'scripts/test-dmgtext.js',

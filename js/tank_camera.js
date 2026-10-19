@@ -159,6 +159,40 @@ function viewBounds(cam) {
 }
 
 /**
+ * 渲染用相机位置（**屏幕像素对齐**，#GT 2026-10-18）。
+ *
+ * 背景（用户反馈「部分 biome（雪地、沙漠）纹理会随玩家移动变化，帧率也大幅下降」）：相机
+ * `cam.x/cam.y` 是**浮点**（阻尼跟随 lerp 后常态带小数），渲染时 `translate(-cam.x, -cam.y)`
+ * 会把整个世界推进亚像素位置。地面上有大量 1~2px 的高对比细图元（雪粒、沙纹 1.2px 描边、
+ * 草丛短划），亚像素位移让它们每帧以**不同相位重采样** —— 亮度逐帧跳变，读起来就是
+ * 「纹理在动」。
+ *
+ * **量化必须做在屏幕空间，不是世界空间**：世界点 x 的屏幕位置 =
+ * `(x - camX)·zoom + W/2`，相机移动 δ 对应屏幕位移 `δ·zoom`。要让屏幕位移恒为整数，
+ * 须令 `δ·zoom ∈ ℤ`，即 `camX` 量化为 `1/zoom` 的整数倍 ⇒ `round(camX·zoom)/zoom`。
+ * 若直接 `round(camX)`（世界整数），在 zoom≠1 时屏幕位移仍带小数，反而更差。
+ * 实测（`tmp/probe-snap-space.js`，1920×1080，相机 0→+0.5px 的地面像素残差）：
+ *   | zoom | 浮点 | 世界取整 | 屏幕取整 |
+ *   | 0.8  | 1.80% | 0.02~0.31% | **0.00%** |
+ *   | 1.0  | 0.00% | 0.00% | **0.00%** |
+ *   | 1.3  | 0.00% | 0.00% | **0.00%** |
+ *   | 1.6  | 0.41% | **0.80%（更差）** | **0.00%** |
+ *   连续移动 12 帧（zoom 0.8）：浮点 0.00/世界取整 0.50~0.56%/屏幕取整 **0.00%**。
+ *
+ * 注意：这是**纯渲染**取值——物理/AI/命中判定仍用 `cam.x/cam.y` 的浮点值，不得替换。
+ * @param {any} cam 摄像机状态
+ * @returns {{x:number, y:number}} 屏幕像素对齐后的相机中心（世界坐标，带 1/zoom 粒度）
+ */
+function renderCamPos(cam) {
+  const z = (cam && cam.zoom) || 1;
+  if (!(z > 0)) return { x: Math.round(cam.x || 0), y: Math.round(cam.y || 0) };
+  return {
+    x: Math.round((cam.x || 0) * z) / z,
+    y: Math.round((cam.y || 0) * z) / z
+  };
+}
+
+/**
  * 世界 AABB 剔除查询：以 (x,y) 为中心、w/h 为全尺寸的物体是否与视口相交。
  * @param {any} cam 摄像机状态
  * @param {number} x 中心 x
@@ -188,6 +222,7 @@ if (typeof module !== 'undefined' && module.exports) {
     worldToScreen,
     screenToWorld,
     viewBounds,
+    renderCamPos,     // #GT：渲染用像素对齐相机位置（修亚像素重采样导致的地面纹理抖动）
     aabbInView
   };
 }

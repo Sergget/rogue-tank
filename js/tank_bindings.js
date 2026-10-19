@@ -2,7 +2,8 @@
 // tank_bindings.js — 操作键位/输入控制器/设置 的共享层（mvp 正式游戏 ⇄ bench 测试台）
 // ----------------------------------------------------------------------------
 // 背景（2026-09-13 解耦轮）：两页此前各自内联 keydown/keyup 与设置读写——
-//   · mvp：WASD + 空格/鼠标 + Q/E 切弹 + 1/2/3 技能池 + F/G/H/V + 4/5/6 + Tab/`/ESC，
+//   · mvp：WASD + 空格/鼠标 + Q/E 切弹 + 1/2/3 技能池 + F + 4/5/6 + Tab/`/ESC
+//     （#U42 2026-10-19：G/H 专属键退役；#H3：V 专属键退役——技能统一走技能池 1/2/3），
 //     设置（倒车转向倒置/FPS）走 profile.settings 持久化；
 //   · bench：WASD + 方向键 + 空格 + 数字 1~N 直选弹种，无任何设置存储，
 //     driveTank 不传 invertTurnWhenReversing（倒车倒置在测试台无效）。
@@ -35,13 +36,19 @@
     fireSecondary: 'f',   // #C4e（2026-09-17）：F=直接击发副武器（按住连发），不再切换主/副（旧 switchWeapon 反转）
     // #H3（2026-09-21 用户裁定）：超装填移除 V 专属键——只经技能池 1/2/3 触发（skillHotkey
     // DISPATCH overdrive）；abilityOverdrive 键位/ACTION_INFO/ACTION_ORDER 同步删除。
-    abilityStrike: 'g', abilityShield: 'h',
+    // #U42（2026-10-19 用户裁定）：炮击 G / 护盾 H 专属键同样退役（同 #H3 先例）——
+    //   abilityStrike/abilityShield 键位、说明行、ACTION_ORDER 同步删除；全部运行时技能
+    //   统一走技能池 1/2/3。mvp 的 btnG/btnH 按钮与 G/H 轮询已删；bench 的 G 键为
+    //   测试入口（activateAbilityForTest 无卡自动补卡）保留、经 actions 显式注册。
     supportRepair: '4', supportMedkit: '5', supportExtinguish: '6',
     panelStatus: 'tab', panelDev: '`', panelDevAlt: 'f12',
     // #U23（2026-10-17 用户需求）：局内卡牌查看器——任意局内（战斗/暂停/结算/奖励）可开，
     //   按分类查看已持有的卡牌。C = Cards（与既有键无冲突）。
     panelCards: 'c',
-    pauseToggle: 'escape'
+    pauseToggle: 'escape',
+    // #U42（2026-10-19）：bench 测试专用 G 键（战术炮击测试入口，无卡自动补卡；仅测试台注册，
+    //   正式游戏不注册该动作——KEY_BINDINGS 保留键值以便 bench createInputController 路由）。
+    benchTestStrike: 'g'
   };
 
   // 动作说明（键位说明面板 / ESC 暂停面板共用渲染源）。
@@ -52,9 +59,8 @@
     ammoCycle: { keys: 'E / Q', desc: '环形切换弹种（下一个 / 上一个）' },
     skillPool: { keys: '1 / 2 / 3', desc: '主动技能池（对应已装备技能 1~3）' },
     fireSecondary: { keys: 'F（按住）', desc: '副武器击发（按住连发；主炮=左键/空格）' },
-    abilityStrike: { keys: 'G', desc: '战术炮击（鼠标指向落点）' },
-    abilityShield: { keys: 'H / Shift+H', desc: '护盾（定向 / 全向）' },
-    // #H3：超装填 V 专属键删除——经技能池 1/2/3 触发（skillPool 行说明覆盖）
+    // #U42（2026-10-19）：abilityStrike（G）/ abilityShield（H）说明行删除——技能统一走技能池
+    //   （同 #H3 删 abilityOverdrive 行先例）。#H3 后曾有「仅 G/H 仍为专属字母键」的过渡口径，已终结。
     supportRepair: { keys: '4', desc: '修理箱' },
     supportMedkit: { keys: '5', desc: '医疗包' },
     supportExtinguish: { keys: '6', desc: '灭火器' },
@@ -66,7 +72,7 @@
 
   // 说明行规范顺序（describeBindings 按此输出）。
   var ACTION_ORDER = ['move', 'altMove', 'fire', 'ammoCycle', 'skillPool',
-    'fireSecondary', 'abilityStrike', 'abilityShield',
+    'fireSecondary',
     'supportRepair', 'supportMedkit', 'supportExtinguish',
     'panelStatus', 'panelCards', 'panelDev', 'pauseToggle'];
 

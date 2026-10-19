@@ -80,6 +80,17 @@ function _defaultLoadBossSpec(id){
 // 持 patrol/engaged=false 不接战、与玩家两相僵持 → 大量 0 开火假超时（#A18 根因）。
 // helpers: { ENT, GEO } 由 runReplay 内部注入（避免顶层耦合加载顺序）。
 // 诊断脚本可经 runReplay 的 playerPolicy 选项整体替换本策略（bot 档位）。
+//
+// #U42（2026-10-19）：**卡死检测 + 绕行转向**——直线推进策略无避障，地图布局一变就复现
+// 死锁：seed=1 首节点玩家沿 y=675 直线推进，撞上 (859,700) 的 179×139 大建筑正面；
+// 最近敌人恰在正右方（desH≈0）⇒ turn=0/move=1 恒定顶墙，120s 零位移零开火假超时
+//（前作 #U45 补丁只覆盖 dAdv≤trig×0.75 的逼近分支，本例 dAdv>trig×0.75 主推进分支
+//  同样顶墙——两个分支共用本卡死检测）。
+// 机制：跟踪玩家位移（每 1s 采样）；若连续 3s 位移 < 8px（顶墙/卡死）→ 后续 2.5s 内
+//   强制「转向偏航 + 前进」（偏航方向朝目标侧向 ±60°，首次随机定侧后保持，防左右振荡）；
+//   绕行期内正常开火判定不受影响。位移恢复（>15px/采样）即退出绕行回常规推进。
+// ⚠ 状态必须**每次 runReplay 重建**（闭包内 let）——模块级单例会把上次回放的绕行方向/
+//   采样窗泄漏进下一次，破坏「同 seed 确定性」断言（两次 runReplay 必须逐字节一致）。
 function _defaultPlayerPolicy(t, aiCtx, out, helpers){
   const ENT = helpers.ENT, GEO = helpers.GEO;
   const adv = ENT.nearestEnemyTo(t);
@@ -90,12 +101,44 @@ function _defaultPlayerPolicy(t, aiCtx, out, helpers){
     out.turretDesired = desH;
     // 炮塔大致对准（≤~7°）时请求开火；范围/LoS/装填由下方统一开火块门控
     out.fire = Math.abs(GEO.angDiff(desH, t.turretAngle)) < 0.12;
+    const stuck = aiCtx.__stuckState;
+    if (stuck.lastX === null){ stuck.lastX = t.x; stuck.lastY = t.y; }
+    stuck.stillFrames += 1;
+    if (stuck.stillFrames >= 30){   // ≈1s @dt=1/30
+      const moved = Math.hypot(t.x - stuck.lastX, t.y - stuck.lastY);
+      if (moved < 8){
+        stuck.detourFrames = 75;    // ≈2.5s @dt=1/30
+        if (!stuck.detourDir) stuck.detourDir = (t.y <= adv.y) ? 1 : -1;   // 朝目标同侧优先（确定性）
+      }
+      stuck.lastX = t.x; stuck.lastY = t.y;
+      stuck.stillFrames = 0;
+    }
     const trig = t.aiTriggerDist || 700;
-    // 距离过远时向最近敌人机动（保留原 P-44 基线推进约定）
-    if (dAdv > trig * 0.75){
+    if (stuck.detourFrames > 0){
+      // 绕行：朝目标的侧向 ±60° 开进（脱墙后位移恢复自然退出）
+      stuck.detourFrames -= 1;
+      const detourH = desH + stuck.detourDir * (Math.PI / 3);
+      const hd = GEO.angDiff(detourH, t.hullAngle);
+      out.turn = Math.abs(hd) < 0.08 ? 0 : (hd > 0 ? 1 : -1);
+      out.move = 1;
+      if (Math.hypot(t.x - stuck.lastX, t.y - stuck.lastY) > 15) stuck.detourFrames = 0;   // 已脱困
+    } else if (dAdv > trig * 0.75){
+      // 距离过远时向最近敌人机动（保留原 P-44 基线推进约定）
       const hd = GEO.angDiff(desH, t.hullAngle);
       out.turn = Math.abs(hd) < 0.08 ? 0 : (hd > 0 ? 1 : -1);
       out.move = Math.abs(hd) < 0.5 ? 1 : 0;
+    } else {
+      // #U45（2026-10-19）：目标已进入接敌距离但 LoS 被挡时**继续逼近**——
+      // 真玩家看不见目标不会原地停车；旧策略在此停车，地图布局重排后一旦停在
+      // 建筑背后的死角即全程 0 开火假超时（#U45 路网 rng 重排后 seed=1 五节点
+      // 全线复现，实测玩家 120s 停在 (735,675)，最近敌 422px 恒无 LoS）。
+      // 与 tank_ai.js 的 #M「失去 LoS 突进 patch」同语义：向目标开进直至重现 LoS。
+      const los = (aiCtx && aiCtx.hasLoS) ? aiCtx.hasLoS(t.x, t.y, adv.x, adv.y) : true;
+      if (!los){
+        const hd = GEO.angDiff(desH, t.hullAngle);
+        out.turn = Math.abs(hd) < 0.08 ? 0 : (hd > 0 ? 1 : -1);
+        out.move = 1;
+      }
     }
   }
 }
@@ -408,6 +451,8 @@ function runReplay(opts){
     const aiCtx = {
       player: player,
       covers: COVER.covers,
+      // #U42：卡死检测状态**每节点重建**（挂 aiCtx 随节点生命周期走，绝不跨 runReplay 泄漏）
+      __stuckState: { lastX: null, lastY: null, stillFrames: 0, detourFrames: 0, detourDir: 0 },
       hasLoS: function(ox, oy, tx, ty){
         return COVER.hasLineOfSight ? COVER.hasLineOfSight(ox, oy, tx, ty) : true;
       },

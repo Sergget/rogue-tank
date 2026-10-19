@@ -219,22 +219,18 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
     });
     check('giveCard HE 分支逐级：he→aphe→hesh→proximity_he→blast_he', evo2.after === 'apfsds,he,blast_he', JSON.stringify(evo2));
 
-    // 能力入口 G/H 在 battle 态可调用（按钮存在；未持对应卡返回 reason 提示，不抛错）
-    // #H3（2026-09-21）：btnV 删除——超装填只经技能池 1/2/3 触发
+    // #U41（2026-10-19）：G/H 专属键退役——btnG/btnH 元素已从 HUD 移除，技能统一走技能池 1/2/3
+    //（同 #H3 删 btnV 先例：btnV/btnG/btnH 三者都必须是 removed）
     const abilityCalls = await page.evaluate(() => {
       const r = {};
       for (const id of ['btnG', 'btnH']) {
-        const btn = document.getElementById(id);
-        r[id] = btn ? 'present' : 'missing';
-        if (btn) {
-          try { btn.click(); r[id] = 'ok'; } catch (e) { r[id] = 'ERR:' + e.message; }
-        }
+        r[id] = document.getElementById(id) ? 'still-present' : 'removed';
       }
       r.btnV = document.getElementById('btnV') ? 'still-present' : 'removed';
       return r;
     });
-    check('G/H 能力按钮存在且点击不抛错（btnV 已移除，#H3）',
-      abilityCalls.btnG === 'ok' && abilityCalls.btnH === 'ok' && abilityCalls.btnV === 'removed',
+    check('G/H/V 专属键按钮全部移除（#U41 同 #H3 先例，技能统一技能池）',
+      abilityCalls.btnG === 'removed' && abilityCalls.btnH === 'removed' && abilityCalls.btnV === 'removed',
       JSON.stringify(abilityCalls));
 
     // #F6（2026-09-20 用户反馈）：雷场预约门控 —— 有 pending 时再按 F 被拒绝（不新增、不替换旧预约）

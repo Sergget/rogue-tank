@@ -723,11 +723,44 @@ console.log('--- #N：交战带 / flank 站位 / 分离力 / 装填脱离 ---');
   const t3 = { team: 'enemy', x: -500, y: 0, hullAngle: 0, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
   const out3 = W.applyWaterAvoidance(t3, Object.assign({}, base), { covers: [water] });
   ok(out3.turn === 0 && out3.move === 1, '前方干地 → 不干扰原决策（turn=0, move=1）');
-  // 定向绕行：窄河（OBB 偏移使左探点入水、右探点干地）→ 固定右转
-  const river = { x: 20, y: 0, w: 120, h: 400, angle: 0, tier: 'river' };
-  const t4 = { team: 'enemy', x: 0, y: -260, hullAngle: Math.PI / 2, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
-  const out4 = W.applyWaterAvoidance(t4, Object.assign({}, base), { covers: [river] });
-  ok(out4.turn === 1, '左侧湿/右侧干（河岸偏移）→ 固定向右绕行（turn=1）');
+  // #U37（2026-10-18 用户「敌方 AI 避水算法造成他们不敢涉水追击玩家」）：
+  //   **river 与 water 分档**——water（水潭）才是危险水域必须绕行；river 是
+  //   passability 0.4 的可涉水减速带（河宽另有 RULES.drowning.wadeMaxWidth 硬上限 =
+  //   最慢车 8s 可渡宽度 ⇒ 涉水不致死），AI 应当**直线涉水穿河**追击对岸目标。
+  //   改前 isWaterAt 把两者一视同仁，河岸边的 AI 被迫转向上岸或停驶，玩家过河即脱离追击。
+  // 判据不写死 tier 名：可涉水 = RULES.coverTiers[river].passability > 0（改语义只改 RULES）。
+  {
+    // a) 河（passability>0）：前向探点落在河上 → **不触发规避**（保持原 turn/move）
+    const riverBand = { x: 20, y: 0, w: 120, h: 400, angle: 0, tier: 'river' };
+    const tR = { team: 'enemy', x: 0, y: -260, hullAngle: Math.PI / 2, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
+    const outR = W.applyWaterAvoidance(tR, Object.assign({}, base, { turn: 0 }), { covers: [riverBand] });
+    ok(outR.turn === 0 && outR.move === 1,
+      `#U37 河（passability>0）不触发避水：直线涉水（turn=${outR.turn}, move=${outR.move}）`);
+    ok(RULES.coverTiers.river.passability > 0 === true,
+      '#U37 判据来自 RULES.coverTiers.river.passability > 0（不写死 tier 名）');
+    // b) 三向全河的极端情形也不再停驶（河可涉水，停驶=白等）
+    const riverHuge = { x: 0, y: 0, w: 800, h: 800, angle: 0, tier: 'river' };
+    const tR2 = { team: 'enemy', x: 0, y: 0, hullAngle: 0, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
+    const outR2 = W.applyWaterAvoidance(tR2, Object.assign({}, base), { covers: [riverHuge] });
+    ok(outR2.move === 1, `#U37 身在河中不触发脱困绕行（河可涉水，move=${outR2.move} 继续穿河）`);
+    // c) water（水潭）仍触发规避：窄潭偏移 → 一侧干地 → 转向干地侧（回归保护）
+    const pond = { x: 20, y: 0, w: 120, h: 400, angle: 0, tier: 'water' };
+    const tW = { team: 'enemy', x: 0, y: -260, hullAngle: Math.PI / 2, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
+    const outW = W.applyWaterAvoidance(tW, Object.assign({}, base, { turn: 0 }), { covers: [pond] });
+    ok(outW.turn === 1, `#U37 water（水潭）仍触发规避 → 转向干地侧（turn=${outW.turn}）`);
+    // d) 潭心（#U15 语义回归保护）：朝最近干地脱困而非停驶等死——water 的危险语义不变
+    const pondWide = { x: 0, y: 0, w: 800, h: 800, angle: 0, tier: 'water' };
+    const tW2 = { team: 'enemy', x: 0, y: 0, hullAngle: 0, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
+    const outW2 = W.applyWaterAvoidance(tW2, Object.assign({}, base), { covers: [pondWide] });
+    ok(outW2.move === 1,
+      `#U37 water 潭心（#U15 语义）：朝最近干地脱困而非停驶等死（move=${outW2.move}）`);
+    // e) 河与潭同场：潭仍按危险水体规避（分档不互相污染）
+    const mixed = [{ x: 20, y: 0, w: 120, h: 400, angle: 0, tier: 'river' },
+                   { x: 20, y: 0, w: 120, h: 400, angle: 0, tier: 'water' }];
+    const tM = { team: 'enemy', x: 0, y: -260, hullAngle: Math.PI / 2, hp: 100, stats: { turretTurnRate: 2.2 }, traverseLimit: Math.PI };
+    const outM = W.applyWaterAvoidance(tM, Object.assign({}, base, { turn: 0 }), { covers: mixed });
+    ok(outM.turn === 1, `#U37 河+潭重叠：潭的危险语义生效（转向干地 turn=${outM.turn}）`);
+  }
 }
 
 // ================= #E7/#E8（2026-09-20）反应延迟 + engage 状态传播 =================

@@ -19,6 +19,20 @@ const STRIP_ASPECT_THRESHOLD = 2.5;
 // 条带纵向拉伸系数：条带模式下 sy = min(mmH/worldH, sx * STRIP_Y_BOOST)
 const STRIP_Y_BOOST = 2.5;
 
+// ---- 公路（2026-10-18 小地图公路/补给）：整链多边形上小地图 ----
+// 道路 cover 自 cde3bc3 起是「整链连续多边形」：c.w/c.h 只是整条链的外接 bbox、
+// c.angle 恒为 0（`_emitRoadChain` 出口），真实路面形状在 c.verts——**局部坐标**，
+// 加 c.x/c.y 才是世界系（口径见 tank_nodegen.js `_emitRoadChain` / `roadCoversToSegments`
+// 与 tank_cover.js `coverCorners`）。旧实现把 road 归入 tierGroup='ground' 按 bbox 中心
+// 画一个 2.2px 点 ⇒ 一条横贯 17000px 的公路在小地图上只有一个点，读不出走向。
+// 现按多边形逐点换算填充；strip 布局 sx≠sy，故**每个世界点都必须单独过
+// worldToMinimap**，不能用统一 scale 自算。
+const ROAD_FILL = 'rgba(150,148,142,0.9)';
+// 多边形最少顶点数：低于此值视为退化（旧 OBB 段无 verts / 采样过短的链）→ 回退画点
+const ROAD_POLY_MIN_VERTS = 6;
+// 补给点标记边长（小地图 px）：170×120 框内一眼可辨，且明显大于实体圆点（r ≤ 3）
+const SUPPLY_MARK_SIZE = 5;
+
 /**
  * 小地图布局换算（纯函数）：
  * 常规世界：(0,0)~(worldW,worldH) 按等比缩放居中放进 (mmW×mmH) 框（与旧行为一致）。
@@ -61,12 +75,72 @@ function worldRectToMinimap(layout, minX, minY, maxX, maxY) {
 }
 
 /**
+ * 整链道路多边形 → 小地图顶点数组（纯函数）。
+ *
+ * 输入 cover 的 `verts` 是**局部坐标**（相对 c.x/c.y），`angle` 恒为 0（_emitRoadChain 出口）。
+ * 输出每个点都单独经 worldToMinimap 换算（strip 模式 sx≠sy，不能统一 scale）。
+ *
+ * @param {any} layout minimapLayout 的返回值
+ * @param {any} cov 道路 cover（{x,y,verts}）
+ * @returns {{x:number,y:number}[]|null} 小地图顶点数组；无 verts / verts 不足（旧 OBB 段、
+ *   退化短链）返回 null，调用方回退为单点绘制
+ */
+function roadCoverPolygonPoints(layout, cov) {
+  if (!cov) return null;
+  const verts = cov.verts;
+  if (!Array.isArray(verts) || verts.length < ROAD_POLY_MIN_VERTS) return null;
+  const cx = Number.isFinite(cov.x) ? cov.x : 0;
+  const cy = Number.isFinite(cov.y) ? cov.y : 0;
+  const pts = [];
+  for (let i = 0; i < verts.length; i++) {
+    const v = verts[i];
+    if (!v || v.length < 2) continue;
+    const vx = Number(v[0]), vy = Number(v[1]);
+    if (!Number.isFinite(vx) || !Number.isFinite(vy)) continue;
+    // 局部 → 世界（angle 恒 0，只需平移）→ 小地图（逐点，保留 sx/sy 不等比）
+    pts.push(worldToMinimap(layout, cx + vx, cy + vy));
+  }
+  return pts.length >= ROAD_POLY_MIN_VERTS ? pts : null;
+}
+
+/**
+ * 补给点标记集合（纯函数）：把世界坐标补给站换算成小地图标记矩形（生存模式）。
+ *
+ * 标记 = 居中的小方块（边长 SUPPLY_MARK_SIZE），另在 drawMinimap 里叠十字 + 细描边。
+ * 与玩家绿点（r=3 圆）在形状与尺寸上都可区分。
+ *
+ * @param {any} layout minimapLayout 的返回值
+ * @param {any[]|null|undefined} stations [{x,y}] 世界坐标；缺省/非数组 ⇒ 返回空数组（零回归）
+ * @returns {{x:number,y:number,size:number,cx:number,cy:number}[]} 标记列表
+ */
+function minimapSupplyMarks(layout, stations) {
+  const out = [];
+  if (!Array.isArray(stations)) return out;
+  for (const st of stations) {
+    if (!st) continue;
+    const wx = Number(st.x), wy = Number(st.y);
+    if (!Number.isFinite(wx) || !Number.isFinite(wy)) continue;
+    const p = worldToMinimap(layout, wx, wy);
+    out.push({
+      x: p.x - SUPPLY_MARK_SIZE / 2,
+      y: p.y - SUPPLY_MARK_SIZE / 2,
+      size: SUPPLY_MARK_SIZE,
+      cx: p.x,
+      cy: p.y
+    });
+  }
+  return out;
+}
+
+/**
  * 绘制小地图。屏幕空间调用（摄像机变换之外）。
  * @param {CanvasRenderingContext2D} ctx
  * @param {any} opts 绘制选项（#26：宽松类型，避免 checkJs 对属性访问误报）：
  *   opts.world 世界尺寸 { w, h }；opts.cam 摄像机（读 viewBounds）；
  *   opts.x/opts.y/opts.w/opts.h 小地图框（屏幕 px）；opts.covers 掩体列表；
- *   opts.entities 实体列表；opts.alpha 面板背景不透明度，默认 0.55
+ *   opts.entities 实体列表；opts.alpha 面板背景不透明度，默认 0.55；
+ *   opts.supplyStations 可选 [{x,y}] 补给点世界坐标（生存模式；缺省不画，零回归）；
+ *   opts.supplyOnCooldown 可选 boolean：补给冷却中 ⇒ 标记变灰（与世界标记同语义）
  */
 function drawMinimap(ctx, opts) {
   const world = opts.world;
@@ -90,6 +164,32 @@ function drawMinimap(ctx, opts) {
   ctx.strokeStyle = 'rgba(255,255,255,0.4)';
   ctx.strokeRect(opts.x + wb.x, opts.y + wb.y, world.w * layout.sx, world.h * layout.sy);
 
+  // ---- 公路（2026-10-18 小地图公路/补给）：底图语义，必须先于建筑/植被/实体绘制 ----
+  //   tier 'road' 的 cover 自 cde3bc3 起是「整链连续多边形」（verts 局部坐标 + c.x/c.y）。
+  //   带 verts → 逐点经 worldToMinimap 换算后 path 填充（strip 模式 sx≠sy，绝不能统一 scale）；
+  //   无 verts（旧 OBB 道路段 / 极短退化链）→ 回退为原来的单点，兼容旧数据。
+  //   注意：road 不参与下方植被聚合网格（vegCells 只收 foliage）。
+  if (opts.covers) {
+    for (const c of opts.covers) {
+      if (c.tier !== 'road') continue;
+      if (c.hp <= 0) continue;
+      const poly = roadCoverPolygonPoints(layout, c);
+      if (poly) {
+        ctx.fillStyle = ROAD_FILL;
+        ctx.beginPath();
+        ctx.moveTo(opts.x + poly[0].x, opts.y + poly[0].y);
+        for (let i = 1; i < poly.length; i++) ctx.lineTo(opts.x + poly[i].x, opts.y + poly[i].y);
+        ctx.closePath();
+        ctx.fill();
+        continue;
+      }
+      // 旧式 OBB 段（无 verts）→ 原 point 方式
+      const p = worldToMinimap(layout, c.x, c.y);
+      ctx.fillStyle = 'rgba(140,102,52,0.9)';
+      ctx.fillRect(opts.x + p.x - 1.1, opts.y + p.y - 1.1, 2.2, 2.2);
+    }
+  }
+
   // 掩体绘制（#U5 用户裁定 B：**分区着色**）
   //   原实现逐元素画点：树/灌木数量大时小地图被打成一片噪点（用户反馈「点太多」）。
   //   现按 tierGroup 分流：
@@ -105,6 +205,8 @@ function drawMinimap(ctx, opts) {
     const vegCells = new Map();                           // "gx,gy" -> {n, wx, wy}
     for (const c of opts.covers) {
       if (c.hp <= 0) continue;
+      // 公路已在上一段按整链多边形画完（底图层）——此处跳过，避免再叠一个 ground 点。
+      if (c.tier === 'road') continue;
       const tg = (typeof COVER_TIERS !== 'undefined' && COVER_TIERS[c.tier]) ? COVER_TIERS[c.tier].tierGroup : null;
       if (tg === 'foliage') {
         const gx = Math.floor(c.x / cellWorldX), gy = Math.floor(c.y / cellWorldY);
@@ -161,6 +263,38 @@ function drawMinimap(ctx, opts) {
     }
   }
 
+  // ---- 补给点标记（2026-10-18，生存模式）----
+  //   补给站是节点数据（currentNode.supplyStations / placeSupplyStations），此前只在世界里
+  //   画标记，小地图上毫无提示 ⇒ 玩家不知道该往哪开。画法：小方块 + 十字 + 细描边，
+  //   尺寸 5px（实体圆点 r≤3）+ 十字臂总长 10px ⇒ 形状与体量都与玩家绿点可区分；
+  //   绿色取世界标记「补给」字样的亮薄荷绿（190,255,150），也与玩家点的 #7ed957 不同色。
+  //   opts.supplyStations 缺省/非数组 ⇒ 一个都不画（零回归）。冷却中传
+  //   opts.supplyOnCooldown=true ⇒ 与世界里「冷却变灰」同语义。
+  if (opts.supplyStations) {
+    const marks = minimapSupplyMarks(layout, opts.supplyStations);
+    if (marks.length) {
+      const onCd = opts.supplyOnCooldown === true;
+      const fill = onCd ? 'rgba(150,150,150,0.85)' : 'rgba(190,255,150,0.95)';
+      const stroke = onCd ? 'rgba(200,200,200,0.9)' : 'rgba(235,255,220,0.95)';
+      for (const m of marks) {
+        ctx.fillStyle = fill;
+        ctx.fillRect(opts.x + m.x, opts.y + m.y, m.size, m.size);
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(opts.x + m.x + 0.5, opts.y + m.y + 0.5, m.size - 1, m.size - 1);
+        // 十字：臂长 = size（总长 2*size），明确「补给/医疗」语义
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(opts.x + m.cx - m.size, opts.y + m.cy);
+        ctx.lineTo(opts.x + m.cx + m.size, opts.y + m.cy);
+        ctx.moveTo(opts.x + m.cx, opts.y + m.cy - m.size);
+        ctx.lineTo(opts.x + m.cx, opts.y + m.cy + m.size);
+        ctx.stroke();
+      }
+    }
+  }
+
   // #K2（2026-09-29）：出口区标记——小地图上把「节点完成目标」画出来（绿色竖带 + EXIT 字样），
   // 与推进式完成条件（specs/map.md §15.10）配套，解决「完成目标和出口没有 UI 提示」。
   if (opts.exitZone) {
@@ -201,6 +335,9 @@ if (typeof module !== 'undefined' && module.exports) {
     minimapLayout,
     worldToMinimap,
     worldRectToMinimap,
+    // 2026-10-18：公路整链多边形 / 补给点标记的纯换算（Node 可测）
+    roadCoverPolygonPoints,
+    minimapSupplyMarks,
     drawMinimap     // #U5：供 Node 生图/测试校验小地图渲染
   };
 }

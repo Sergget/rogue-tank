@@ -40,11 +40,15 @@ const WEAPON_DEFAULTS = {
     turret:      { reloadMult: 1.6, damageMult: 0.6, penMult: 0.75, spreadMult: 1.3, range: 400, turretTurnRate: 2.5 },
     mortar:      { range: 450, aoe: 90, reload: 8, damage: 60, isArc: true, accuracySpread: 0.05 },
     missile:     { guided: true, mode: 'lock', reload: 12, damage: 140, range: 600, lockArcDeg: 30, lockSeconds: 1.0 },
-    missile_wire:{ guided: true, mode: 'wire', reload: 10, damage: 150, range: 700 },
+    // #U39（2026-10-18）：补 speed（飞行速度，fireActiveSecondary 的 wire 分支消费；
+    //   此前缺省只在代码里写死 340，升级卡无法覆盖）。range 目前仅供 AI/面板展示。
+    missile_wire:{ guided: true, mode: 'wire', reload: 10, damage: 150, range: 700, speed: 340 },
     // 2026-09-19 #D4（用户反馈）：火箭巢改连续快速逐发——burstInterval=发际间隔（秒），
     // count 发逐发射出后才进入整组装填 reload；fxScale=弹体视觉缩放（drawShells 尺寸通道）。
     rocket:      { count: 4, reload: 10, burstInterval: 0.18, damage: 35, range: 500, direct: true, aoe: 40, fxScale: 1.3 },
-    mine_layer:  { duration: 30, reload: 15, damage: 100 }
+    // #U39（2026-10-18）：blastRadius/triggerRadius 由硬编码收口进缺省表，升级卡可覆盖
+    //（此前 fireActiveSecondary 的 mine_layer 分支直接写死 70/45，"阔域地雷"类升级卡无处生效）。
+    mine_layer:  { duration: 30, reload: 15, damage: 100, blastRadius: 70, triggerRadius: 45 }
   }
 };
 
@@ -74,6 +78,19 @@ function normalizeTankWeapons(spec) {
     primary: { type: 'standard', stats: getWeaponDefaults('primary', 'standard') },
     secondary: { type: 'none', stats: getWeaponDefaults('secondary', 'none') }
   };
+}
+
+// #U42（2026-10-19）：副炮塔位姿解析器——纯位姿函数定义在 js/tank_battledraw.js（绘制层），
+//   但浏览器端本模块先加载 ⇒ 惰性取值；Node 端 require 兜底；两处都取不到时返回 null（回退主炮口）。
+function _secondaryTurretPoseFn() {
+  if (typeof secondaryTurretPose === 'function') return secondaryTurretPose;
+  if (typeof require !== 'undefined') {
+    try {
+      const bd = require('./tank_battledraw.js');
+      if (bd && typeof bd.secondaryTurretPose === 'function') return bd.secondaryTurretPose;
+    } catch (e) { /* 绘制层不可用（纯逻辑测试环境）→ 走回退 */ }
+  }
+  return function () { return null; };
 }
 
 // 阶段六 6.2：副炮塔（secondary turret）自主开火循环（机制验证，Boss 侧先行）。
@@ -128,9 +145,27 @@ function updateSecondaryTurret(t, dt, ctx) {
 
   // 炮管掩体贯穿判定（复用主炮同款：barrelCovers solid → 截停计装填）
   const rootP = gunRoot(t), tipP = gunTip(t);
+  // #U42（2026-10-19 用户反馈「副炮塔似乎没有效果」）：**弹道起点必须来自副炮塔本身**。
+  //   旧实现直接复用主炮的 gunRoot/gunTip ⇒ 子弹与炮口特效都从**主炮口**飞出，与主炮
+  //   完全无法区分（实测 tip 与主炮 gunTip 逐位相同），玩家看到的就是「多了个装饰、没多一门炮」。
+  //   现行：起点取副炮塔位姿（与绘制层 tank_battledraw.secondaryTurretPose 严格同源），
+  //   副炮塔未就绪（老数据/无位姿）时回退主炮口，不抛错。
+  //   注意加载顺序：tank_battledraw.js 在本模块**之后**加载（浏览器），故惰性取值 + require 兜底。
+  const secPose = _secondaryTurretPoseFn()(t);
+  const secMuzzle = secPose
+    ? {
+        x: secPose.x + Math.cos(secPose.angle) * (secPose.barrelLen + secPose.radius * 0.6),
+        y: secPose.y + Math.sin(secPose.angle) * (secPose.barrelLen + secPose.radius * 0.6),
+        rootX: secPose.x, rootY: secPose.y
+      }
+    : null;
+  const muzzleX = secMuzzle ? secMuzzle.x : tipP.x;
+  const muzzleY = secMuzzle ? secMuzzle.y : tipP.y;
   let solid = null;
   if (find && rootP && tipP) {
-    const barrelCovers = find(rootP.x, rootP.y, tipP.x, tipP.y);
+    const bRootX = secMuzzle ? secMuzzle.rootX : rootP.x;
+    const bRootY = secMuzzle ? secMuzzle.rootY : rootP.y;
+    const barrelCovers = find(bRootX, bRootY, muzzleX, muzzleY);
     if (barrelCovers && barrelCovers.length) {
       solid = barrelCovers.find(function(v){ const m = T[v.cover.tier] && T[v.cover.tier].mode; return m === 'solid' || m === 'single'; }) || null;
     }
@@ -147,13 +182,23 @@ function updateSecondaryTurret(t, dt, ctx) {
   const spreadMult = (typeof cfg.spreadMult === 'number') ? cfg.spreadMult : 1.3;
   const baseStats = t.stats || { reload: 1, damage: 1, penetration: 1, shellSpeed: 1, spread: 1 };
   const ammo = computeAmmoConfig ? computeAmmoConfig(t, t.ammoKey) : (R.ammoTypes && (R.ammoTypes[t.ammoKey] || R.ammoTypes.ap)) || {};
-  const ox = tipP.x, oy = tipP.y;
-  const spreadAngle = t.secondaryTurretAngle + gaussian((baseStats.sigma || 0) * spreadMult);
+  const ox = muzzleX, oy = muzzleY;
+  // #W3（2026-10-19）：散布此前读 `baseStats.sigma`，但 **tank.stats 没有 sigma 字段**
+  //   （sigma 是实体运行时字段、由 updateSigma 维护，主炮 tank_fire.js 读的是 shooter.sigma）
+  //   ⇒ 副炮塔散布恒为 gaussian(0)，比主炮还准。改读实体上的 sigma。
+  const spreadAngle = t.secondaryTurretAngle + gaussian(((t.sigma || 0)) * spreadMult);
   const dx = Math.cos(spreadAngle), dy = Math.sin(spreadAngle);
-  muzzle(ox, oy, spreadAngle, 0.8, (t.barrel && t.barrel.muzzle) || 'none');
+  // #U42：炮口特效同样落在副炮塔口（0.55 缩放，与「缩小版炮塔」体量匹配；主炮是 0.8）
+  muzzle(ox, oy, spreadAngle, 0.55, (t.barrel && t.barrel.muzzle) || 'none');
   play('fire');
   shells.push({
-    x: ox, y: oy, fx: rootP.x, fy: rootP.y, dx: dx, dy: dy,
+    x: ox, y: oy,
+    // #W3（2026-10-19）：曳光起点此前用 secMuzzle.rootX/Y —— 那是副炮塔**座圈中心**，
+    //   不是炮口 ⇒ 弹道起点 (x,y) 正确、拖尾起点错，抛物曳光从炮塔中心冒出。改用炮口。
+    fx: ox, fy: oy,
+    dx: dx, dy: dy,
+    // #U42：标记来源，绘制层可据此把副炮塔弹画细一档（不与主炮弹混淆）
+    fromSecondaryTurret: !!secMuzzle,
     speed: Math.max(200, (baseStats.shellSpeed || 1) * (ammo.speed || 1)),
     pen: (baseStats.penetration || 1) * (ammo.pen || 1) * penMult + (ammo.penAdd || 0),
     dmg: Math.max(0, (baseStats.damage || 1) * (ammo.dmg || 1) * dmgMult + (ammo.dmgAdd || 0)),
@@ -528,13 +573,17 @@ function fireActiveSecondary(t, ctx, targetPos) {
       const my = t.y + Math.sin(angle) * 45;
       const dmg = (typeof cfg.damage === 'number') ? cfg.damage : 100;
       const dur = (typeof cfg.duration === 'number') ? cfg.duration : 30;
+      // #U39（2026-10-18）：爆炸/触发半径走 cfg（缺省表 + 升级卡 statOverrides），
+      //   不再写死 70/45——「阔域地雷」类升级卡据此生效。
+      const blastRadius = (typeof cfg.blastRadius === 'number') ? cfg.blastRadius : 70;
+      const triggerRadius = (typeof cfg.triggerRadius === 'number') ? cfg.triggerRadius : 45;
       spawnMineFn({
         team: t.team,
         x: mx,
         y: my,
         damage: dmg,
-        blastRadius: 70,
-        triggerRadius: 45,
+        blastRadius: blastRadius,
+        triggerRadius: triggerRadius,
         duration: dur,
         registry: c.deployables || (typeof globalThis !== 'undefined' && globalThis.deployables) || null
       });

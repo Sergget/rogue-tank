@@ -205,6 +205,49 @@ for (const c of SECONDARY_CASES){
 }
 
 // ============================================================================
+// #U39（2026-10-18）：升级卡 statOverrides 真正到达运行时参数
+//   —— 此前 mine_layer 的 blastRadius/triggerRadius 与 missile_wire 的 speed 都是
+//   写死在 fireActiveSecondary 里的字面量，升级卡写了也不生效（"性能无法提升"的根因之一）。
+// ============================================================================
+console.log('\n—— #U39 升级卡参数贯通（地雷半径 / 线导弹速） ——');
+{
+  // (a) 地雷：无覆写 → 缺省表 70/45；带覆写 → 卡牌数值生效
+  PLAYER = makePlayer('mine_layer', 'standard');
+  global.player = PLAYER;
+  global.entities = [PLAYER, ENEMY];
+  fireCtx.current = makeFireCtx(PLAYER);
+  global.deployables.length = 0;
+  holdF_fire();
+  ok(global.deployables.length === 1 && global.deployables[0].blastRadius === 70 && global.deployables[0].triggerRadius === 45,
+    `#U39 地雷缺省半径走 WEAPON_DEFAULTS（blast ${global.deployables[0] && global.deployables[0].blastRadius} / trigger ${global.deployables[0] && global.deployables[0].triggerRadius}）`);
+  PLAYER.weapons.secondary.stats = Object.assign({}, W.getWeaponDefaults('secondary', 'mine_layer'),
+    { blastRadius: 105, triggerRadius: 70 });
+  PLAYER.secondaryReloadT = 0;
+  global.deployables.length = 0;
+  holdF_fire();
+  ok(global.deployables.length === 1 && global.deployables[0].blastRadius === 105 && global.deployables[0].triggerRadius === 70,
+    `#U39 地雷升级卡生效（blastRadius 105 / triggerRadius 70）`);
+
+  // (b) 线导导弹：speed 覆写生效
+  PLAYER = makePlayer('missile_wire', 'standard');
+  global.player = PLAYER;
+  global.entities = [PLAYER, ENEMY];
+  fireCtx.current = makeFireCtx(PLAYER);
+  global.shells.length = 0;
+  holdF_fire();
+  ok(global.shells.length === 1 && global.shells[0].speed === 340,
+    `#U39 线导弹缺省弹速 340（实际 ${global.shells[0] && global.shells[0].speed}）`);
+  PLAYER.weapons.secondary.stats = Object.assign({}, W.getWeaponDefaults('secondary', 'missile_wire'), { speed: 560, reload: 8 });
+  PLAYER.secondaryReloadT = 0;
+  global.shells.length = 0;
+  holdF_fire();
+  ok(global.shells.length === 1 && global.shells[0].speed === 560,
+    `#U39 线导弹升级卡生效（speed ${global.shells[0] && global.shells[0].speed}）`);
+  ok(Math.abs(PLAYER.secondaryReloadT - 8) < 1e-9,
+    `#U39 线导弹装填覆写生效（secondaryReloadT ${PLAYER.secondaryReloadT} = 8）`);
+}
+
+// ============================================================================
 // 边界语义：空副武器槽拒绝 / turret 设计例外 / F 不改武器数据 / e.repeat 不重复边沿动作
 // ============================================================================
 console.log('\n—— 边界语义 ——');

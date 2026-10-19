@@ -86,6 +86,37 @@ function reflectDir(dx, dy, nx, ny) {
   return { x: dx - 2 * dot * nx, y: dy - 2 * dot * ny };
 }
 
+// 确定性折线「闪电/电弧」路径（#U38，2026-10-18）。
+//   · 起点 (x0,y0)，沿 ang 方向总长 len，横向随机偏移上限 amp，共 segs 段。
+//   · 抖动由**纯哈希**派生（同一 (seed, i) 恒得同一值）：绘制期不含 Math.random，
+//     因此同一帧重绘逐字节一致（特效确定性硬约束，见 docs/specs/combat.md §6）。
+//   · 返回点数组（含起点），调用方自行 stroke —— 不碰任何 canvas/DOM 状态。
+//   · 两端收敛到轴线（0 振幅），中段最大，视觉上是「电弧贴在同一条血管上」而不是乱线。
+function lightningPath(x0, y0, ang, len, amp, segs, seed) {
+  const n = Math.max(2, Math.round(segs || 5));
+  const s = (seed || 0) * 1000;
+  const hash = (i) => {
+    let v = Math.imul(Math.round((s + i * 37.13) * 1000) | 0, 0x9E3779B1);
+    v = Math.imul(v ^ (v >>> 15), 0x85EBCA77);
+    v = Math.imul(v ^ (v >>> 13), 0xC2B2AE3D);
+    return ((v ^ (v >>> 16)) >>> 0) / 4294967296;
+  };
+  const ca = Math.cos(ang || 0), sa = Math.sin(ang || 0);
+  // 法线（-sin, cos）
+  const nx = -sa, ny = ca;
+  const pts = [{ x: x0, y: y0 }];
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    // 端点收敛：sin(πt) 在 t=0/1 处为 0，中段最大
+    const taper = Math.sin(Math.PI * t);
+    const off = (hash(i) - 0.5) * 2 * (amp || 0) * taper;
+    // 沿程也带一点非均匀推进（电弧不是等距折线）
+    const along = t + (i < n ? (hash(i + 101) - 0.5) * 0.16 : 0);
+    pts.push({ x: x0 + ca * len * along + nx * off, y: y0 + sa * len * along + ny * off });
+  }
+  return pts;
+}
+
 // Export for Node.js if running in test environment
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -98,6 +129,7 @@ if (typeof module !== 'undefined' && module.exports) {
     segRayIntersect,
     partCorners,
     partEdges,
-    reflectDir
+    reflectDir,
+    lightningPath
   };
 }

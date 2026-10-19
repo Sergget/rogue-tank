@@ -147,6 +147,20 @@ const SOUND_DEFS = {
       { kind: 'osc',   wave: 'sine',     f0: 85,  f1: 22, dur: 0.95, gain: 0.68, attack: 0.003 },
       { kind: 'noise', dur: 0.60, gain: 0.48, attack: 0.002, filter: 'lowpass', filterFreq: 950 }
     ]
+  },
+
+  // 电磁轨道炮开火（#U38，2026-10-18）。
+  // 为什么单独一个键：电磁发射没有火药爆燃，声学特征完全不同——不是「砰」而是
+  //   ① 高频电流充能的「嗞」→ ② 瞬间放电的尖锐撕拉（宽频噪声横扫）→ ③ 剩下的低腔共鸣。
+  // 三层正好对应三段：firerail(高频方波下扫 = 电容放电) + 噪声(带通高扫 = 电离空气) + 低频尾(炮身共鸣)。
+  firerail: {
+    label: '电磁炮开火', bus: 'combat', gain: 1.0,
+    layers: [
+      { kind: 'osc',   wave: 'square', f0: 2400, f1: 320, dur: 0.16, gain: 0.55, attack: 0.001 },
+      { kind: 'noise', dur: 0.22, gain: 0.50, attack: 0.001, filter: 'bandpass', filterFreq: 4200 },
+      { kind: 'osc',   wave: 'sawtooth', f0: 190, f1: 40, dur: 0.34, gain: 0.62, attack: 0.004, delay: 0.03 },
+      { kind: 'noise', dur: 0.30, gain: 0.22, attack: 0.01, filter: 'lowpass', filterFreq: 900, delay: 0.04 }
+    ]
   }
 };
 

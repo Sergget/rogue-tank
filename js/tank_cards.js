@@ -43,8 +43,11 @@ const AMMO_FIELDS = ['pen', 'dmg', 'speed'];
 // tank_abilities.ABILITY_KEYS_RUNTIME 及 skillHotkey DISPATCH 对齐；medkit 为 innate 键）
 // 2026-09-23 A 档：剔除死效果键 recon / track_repair（两者无任何激活路径，对应 5 张卡已删除，
 // 见 DEVELOPMENT.md §4.35）——本白名单现恒等于「innate 3 键 + runtime 7 键」，无死键。
+// #U40（2026-10-19）：innate 子集单列——cardEligible 的 #U18 已持去重对 innate 键豁免
+// （repair_kit / support_extinguisher 是固有技能的纯强化卡，玩家开局「已持有」该键，
+//  去重会误杀；判定口径与 js/tank_abilities.js ABILITY_KEYS_INNATE 一致，本地复制防循环依赖）。
+const ABILITY_KEYS_INNATE_LOCAL = ['repair', 'medkit', 'extinguish'];
 const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'super_fire_control', 'super_speed', 'aps'];
-
 // 无人机种类（drone）：scout=侦察指示（视口外敌军位置箭头）/ striker=近身自动索敌打击。
 // kind 缺失时兼容旧数据（默认 striker，伴随浮游炮语义）。
 const DRONE_KINDS = ['scout', 'striker'];
@@ -60,7 +63,10 @@ const ECONOMY_FIELDS = ['scoreMul', 'shopDiscount', 'startScore', 'reviveCount']
 
 // 副武器槽位与类型（R-1 / 阶段四）；主武器类型（阶段七 7.3）与 RULES.weaponTypes 对齐
 const WEAPON_SLOTS = ['primary', 'secondary'];
-const WEAPON_SECONDARY_TYPES = ['mortar', 'missile', 'rocket', 'mine_layer', 'turret'];
+// #U39（2026-10-18）：补入 `missile_wire`——它一直在 RULES.weaponTypes.secondary 与
+//   WEAPON_DEFAULTS.secondary / fireActiveSecondary 的 wire 分支里，却漏在本白名单外，
+//   导致任何针对线导导弹的 weapon 卡都会被 validateCardEffect 判「weaponType 非法」。
+const WEAPON_SECONDARY_TYPES = ['mortar', 'missile', 'missile_wire', 'rocket', 'mine_layer', 'turret'];
 const WEAPON_PRIMARY_TYPES = ['standard', 'autocannon', 'double_barrel', 'railgun', 'clip'];
 const ALL_WEAPON_TYPES = WEAPON_SECONDARY_TYPES.concat(WEAPON_PRIMARY_TYPES);
 
@@ -232,9 +238,14 @@ function applyCardEffects(tank, card, ctx) {
   //   - ammo 弹种升级卡豁免：chain 链路本身幂等且允许「首次 no-op（前驱未携）→ 次次真正替换」，
   //     （见 test-cards apfsds 链测试）；不按此防线截断。
   //   - modifier/weapon/ability/drone/passive/economy：仅允许应用 ≤ maxStacks 次，第 maxStacks+1 次拒绝。
+  //   - #U44（2026-10-19，用户反馈「出现过但不再持有的武器/技能应可再次出现」）：**安装类卡豁免**——
+  //     weapon install 与 ability 基础卡的「重复」由调用方按当前持有状态判定（不在持 = 可再拿回），
+  //     这里不再按历史计数一刀切（否则换掉双联后永远拿不回来）。幂等性由各 install 分支自身保证
+  //     （同型 install 为 no-op、同 key ability 重复入 cardEffects 无副作用）。
   if (tank && !tank._cardApplyCount) tank._cardApplyCount = {};
   const isAmmoCard = card && Array.isArray(card.effects) && card.effects.every(e => !e || e.type === 'ammo');
-  if (card && card.maxStacks && !isAmmoCard && tank && (tank._cardApplyCount[card.id] || 0) >= card.maxStacks) return [];
+  if (card && card.maxStacks && !isAmmoCard && !_isSwapBackCard(card) && tank
+      && (tank._cardApplyCount[card.id] || 0) >= card.maxStacks) return [];
 
   // #G（2026-09-21）：按序施加日志——modifier 卡只写 tank.modifiers（source 'card:<id>'）、
   // 其余卡只写 tank.cardEffects，两份数据都不含「跨类型施加顺序」。开发者面板的「−1」回滚
@@ -253,7 +264,10 @@ function applyCardEffects(tank, card, ctx) {
       applied.push(ef);
     } else {
       if (!tank.cardEffects) tank.cardEffects = [];
-      tank.cardEffects.push(Object.assign({}, ef, { cardId: card.id }));
+      // #U43（2026-10-19）：条目额外带 `cardName` —— Boss 进场简报要把「改装」读成卡牌中文名，
+      //   而简报是纯函数（js/tank_boss.js bossBriefing，不持有卡池）。原条目只有 cardId，
+      //   页面侧就得再拿卡池反查一次；把名字随条目带走，纯逻辑层自足。
+      tank.cardEffects.push(Object.assign({}, ef, { cardId: card.id, cardName: card.name }));
       applied.push(ef);
 
       // 阶段四 4b / #A22：weapon 安装 / 升级（#A22 单槽不变量：删除 secondarySlots/activeSecondaryIndex 双槽路径）
@@ -343,9 +357,20 @@ function applyCardEffects(tank, card, ctx) {
       // 禁止跳级（用户裁定）：直系前驱不在 loadout 时本效果不新增、不替换首槽（无操作）。
       // replaceAmmo 字段仍可显式指定被替换者；未指定时按链上直接后继自动演变。
       // 阶段六 6.3：链上升级成功时把目标弹种写入 tank.unlockedAmmo（解锁标记，接线层负责持久化）。
+      //
+      // #U40（2026-10-19 用户反馈「获取新弹种的卡和弹药参数升级的卡搞混淆了」）：**升级替换
+      // 只对「升级效果」触发**——判定口径（三处同源，isAmmoUpgradeCard / drawCardChoices 链过滤
+      // 与此处一致）：① 效果显式带 replaceAmmo；② 旧式无 field 的纯演变效果（阶段六遗留数据兼容）。
+      // **带 field 的调校效果不再按 CHAIN 回退推断前驱**——旧实现让 demo_apcr_round（APCR 穿深
+      // +20%）、sniper_sabot_round、he_overpressure、heat_composite_pen、sniper_apcbc、
+      // sniper_hard_core 这类纯数值卡在「前驱在 loadout」时被误当换弹卡，把玩家槽位里的
+      // AP 原地改名成 APCR/HEAT 等（隐形换弹：弹种变了、卡面只承诺 +数值），且这批卡
+      // maxStacks 2~4 可反复触发。现行：调校效果只调数值，绝不改 loadout 弹种组成。
       if (ef.type === 'ammo' && tank && Array.isArray(tank.ammoLoadout)) {
         const CHAIN = (typeof RULES !== 'undefined' && RULES.ammoChain) ? RULES.ammoChain : null;
-        const pred = ef.replaceAmmo || (CHAIN && CHAIN[ef.key]) || null;   // 直系前驱
+        const pred = ef.replaceAmmo
+          || (!ef.field && CHAIN && CHAIN[ef.key])
+          || null;   // 直系前驱（仅升级效果推断；调校效果恒 null）
         let applied = false;
         if (pred) {
           const idx = tank.ammoLoadout.indexOf(pred);
@@ -367,16 +392,22 @@ function applyCardEffects(tank, card, ctx) {
         }
       }
       // economy：经济效果（M10 落地）——run 作用域，直接修改 tank 运行期字段
+      // #U40（2026-10-19）：scoreMul 语义修复——卡面「结算得分 +15%」= ×1.15，旧实现
+      //   (tank.runScoreMul||1) × (1+value) 把 value=1.15 算成 ×2.15（value 字段口径本就是
+      //   「最终乘数」，与 ECONOMY_FIELDS 消费方 tank_mvp 结算链约定一致）。接线（mvp
+      //   finishNode / finishSurvivalWave / 击杀计分）：runScoreMultiplier(t) 聚合后应用。
       if (ef.type === 'economy' && tank) {
         if (ef.field === 'reviveCount') {
-          // 战场救护协议：复活次数 +1（run 作用域，叠加到 player.revives）
+          // 战场救护协议：复活次数 +1（run 作用域，叠加到 player.revives；mvp pickCard 即时回算）
           tank.runReviveBonus = (tank.runReviveBonus | 0) + (ef.value | 0);
         } else if (ef.field === 'scoreMul') {
-          tank.runScoreMul = (tank.runScoreMul || 1) * (1 + ef.value);
+          // 结算得分乘数：value 即最终乘数（1.15 = +15%），多卡直接叠乘
+          tank.runScoreMul = (tank.runScoreMul || 1) * ef.value;
         } else if (ef.field === 'startScore') {
           tank.runStartScore = (tank.runStartScore | 0) + (ef.value | 0);
         }
-        // shopDiscount 为跨局字段，由商店 UI 层读取 cardEffects 消费
+        // shopDiscount 为局内商店折扣（0.1 = −10% 价格），消费方 runShopPriceFor 调用方
+        // （mvp buyRunShopItem 经 runShopDiscount(tank) 取聚合折扣）
       }
     }
   }
@@ -384,6 +415,12 @@ function applyCardEffects(tank, card, ctx) {
   // #A23 d：非 ammo 且带 maxStacks 的卡牌，记录一次「应用」（供下次拒绝超限）
   if (card && card.maxStacks && !isAmmoCard && tank) {
     tank._cardApplyCount[card.id] = (tank._cardApplyCount[card.id] || 0) + 1;
+  }
+  // #U40：反应装甲获得时立即可用（再充能冷却参数见 RULES.cards.reactiveArmor；
+  // 运行时拦截后写 _reactiveRearmT 并由 mvp 主循环 updateReactiveArmorRearm 逐帧递减）
+  if (tank && Array.isArray(tank.cardEffects) && tank.cardEffects.some(e => e && e.type === 'passive' && e.key === 'reactive_armor')) {
+    tank._reactiveRearmT = 0;
+    tank._reactiveReady = true;
   }
   return applied;
 }
@@ -462,6 +499,21 @@ function computeAmmoConfig(shooter, ammoKey) {
 
 // ---------- 武器/能力资格过滤 (#A23) ----------
 
+// #U44（2026-10-19）：该卡是否为「可以换回来」的卡——安装类 weapon 卡与 ability 基础卡。
+//   · weapon install：换回旧武器是合法构筑操作（其资格由当前 weapons.*.type 动态判定）。
+//   · ability 基础卡（无 requiresAbility）：重复获得无意义的是「已持有该技能」，
+//     而「曾经有过、现在没有」应允许再拿（其资格由 owned.abilities 动态判定）。
+//   · ability 升级卡（requiresAbility）与 weapon upgrade 仍按 maxStacks 截断（叠加有上限）。
+//   · 其它类型（modifier/ammo/passive/drone/economy）不受影响。
+function _isSwapBackCard(card) {
+  if (!card || !Array.isArray(card.effects)) return false;
+  const weaponEfs = card.effects.filter(ef => ef && ef.type === 'weapon');
+  if (weaponEfs.length) return weaponEfs.every(ef => ef.action === 'install');
+  const abilEfs = card.effects.filter(ef => ef && ef.type === 'ability');
+  if (abilEfs.length) return abilEfs.every(ef => !ef.requiresAbility);
+  return false;
+}
+
 // 检查卡牌是否对玩家当前状态合法（武器/能力资格 + maxStacks draw-time）。
 // 纯函数：不修改任何输入。owned = { abilities: string[], primaryWeapon: string,
 //   secondaryWeapon: string, cards?: { [id]: count } }；
@@ -486,7 +538,15 @@ function cardEligible(card, owned) {
   const cardsOwned = o.cards;
 
   // maxStacks draw-time
-  if (cardsOwned && card.maxStacks && (cardsOwned[card.id] || 0) >= card.maxStacks) {
+  // #U44（2026-10-19 用户反馈「出现过、但不再持有的主、副武器、技能似乎就不再出现了，可以再次出现，
+  //   允许玩家再次选择」）：**maxStacks 只该约束「当前确实还在生效」的卡**。
+  //   旧实现只按 `_cardApplyCount` 的历史计数截断 ⇒ 玩家换掉双联火炮后双联安装卡仍被永久排除，
+  //   换掉某个技能后技能卡也不再出现——即「曾经拿过」= 永久拉黑，与构筑自由相悖。
+  //   现行：**安装类卡（weapon install / ability 基础卡）的重复资格由「当前是否持有该型/该技能」决定**
+  //   （下面的 weapon/ability 分支已按 owned.primaryWeapon/secondaryWeapon/abilities 动态判定），
+  //   maxStacks 对它们不再额外截断；「换回来」是合法操作（applyCardEffects 的 install 是幂等覆盖）。
+  //   升级卡与 modifier/ammo/passive/drone/economy 保持原口径（叠加有上限，重复无收益）。
+  if (cardsOwned && card.maxStacks && (cardsOwned[card.id] || 0) >= card.maxStacks && !_isSwapBackCard(card)) {
     return false;
   }
 
@@ -521,7 +581,12 @@ function cardEligible(card, owned) {
       //   却仍会占掉一个三选一位（用户实测「已有的技能卡似乎也会重复提供备选」）。
       //   保留 requiresAbility 卡（它们是基础能力的增强，抽到有意义）。仅在调用方传入
       //   owned.abilities 时生效；未传则保持旧行为（零影响）。
-      if (!ef.requiresAbility && ef.key && abil.indexOf(ef.key) >= 0) return false;
+      // #U40（2026-10-19）：**innate 键豁免去重**——repair/medkit/extinguish 是开局固有键
+      //   （ABILITY_KEYS_INNATE，与 js/tank_abilities.js 同源），不占技能槽、其卡（repair_kit /
+      //   support_extinguisher）是**纯强化**（修复量/冷却改写，tank_abilities 按 cardId 消费），
+      //   「已持有」不构成去重理由——否则 #U18 之后这两张卡永远抽不到，而强化本身并未生效
+      //   （用户反馈「只生效一次入反应装甲显然不合理」同批次的死卡问题）。
+      if (!ef.requiresAbility && ABILITY_KEYS_INNATE_LOCAL.indexOf(ef.key) < 0 && ef.key && abil.indexOf(ef.key) >= 0) return false;
     }
     // #U20（2026-10-16）：**属性达限过滤**——modifier 卡的下一级会突破 RULES.parameterLimits 时判不合格。
     //   原实现缺失此层：装填/极速/散布等属性触顶后，对应升级卡仍进三选一，选中后无收益（用户实测）。
@@ -577,6 +642,33 @@ function _plStatVal(stats, path){
 //   两张卡定义了同键不同档位，故低档/同档在已持有更优时无收益，应被 cardEligible 滤除。
 const _BEST_ONLY_PASSIVE_KEYS = { spall_liner: 'min', overmatch: 'max' };
 
+// #U40（2026-10-19）：反应装甲（passive reactive_armor）的再充能冷却。
+//   唯一口径 RULES.cards.reactiveArmor（rechargeSeconds，缺省 60）；RULES 缺失时回退 60s。
+//   消费方：① applyCardEffects（获得卡时立即可用：仅清计时器）；② tank_mvp.html 每次进入
+//   战斗（startNodeBattle）对 player 重置就绪；③ tank_physics.js resolveHit 拦截一次后写
+//   _reactiveRearmT 并由 mvp 主循环逐帧递减（updateReactiveArmorRearm，本文件导出）。
+//   语义（用户裁定）：不再是「整局只生效一次」的一次性消耗品——拦截后进入再充能，冷却结束
+//   恢复可拦截；同一时刻恒只有 1 层（maxStacks=1，超额拦截请求在冷却期内直接落正常结算）。
+function reactiveArmorRecharge() {
+  if (typeof RULES !== 'undefined' && RULES.cards && RULES.cards.reactiveArmor
+    && typeof RULES.cards.reactiveArmor.rechargeSeconds === 'number'
+    && RULES.cards.reactiveArmor.rechargeSeconds >= 0) {
+    return RULES.cards.reactiveArmor.rechargeSeconds;
+  }
+  return 60;
+}
+
+// 再充能计时器逐帧递减（mvp 主循环调用；纯函数式遍历，无副作用）
+function updateReactiveArmorRearm(t, dt) {
+  if (!t || dt <= 0) return;
+  if (t._reactiveRearmT > 0) {
+    t._reactiveRearmT = Math.max(0, t._reactiveRearmT - dt);
+    if (t._reactiveRearmT === 0) {
+      t._reactiveReady = true;   // 再充能完成 → 恢复可拦截
+    }
+  }
+}
+
 // ---------- 抽卡 ----------
 
 // Fisher-Yates 洗牌（供展示顺序随机化；r 为 [0,1) 随机源，注入以便测试确定性）
@@ -590,13 +682,16 @@ function shufflePicked(arr, r) {
 
 // 该卡是否为「弹种链升级卡」（ammo 效果带 replaceAmmo 或链上前驱）——弹种节奏调制的对象。
 // 纯弹种改造卡（无前驱，直接改 AP/HE 数值）不算升级卡，不受节奏衰减影响。
+// #U40（2026-10-19）：判定口径与 applyCardEffects 替换分支同源——① 显式 replaceAmmo；
+// ② 旧式无 field 的纯演变效果（阶段六遗留数据兼容）。带 field 的调校效果（如
+// demo_apcr_round「APCR 穿深 +20%」）是纯数值卡，不算升级卡、不受节奏衰减、更不触发替换。
 function isAmmoUpgradeCard(card) {
   if (!card || !Array.isArray(card.effects)) return false;
   const CHAIN = (typeof RULES !== 'undefined' && RULES.ammoChain) ? RULES.ammoChain : null;
   for (const ef of card.effects) {
     if (!ef || ef.type !== 'ammo') continue;
     if (ef.replaceAmmo) return true;
-    if (CHAIN && CHAIN[ef.key] && CHAIN[ef.key] !== ef.key) return true;
+    if (!ef.field && CHAIN && CHAIN[ef.key] && CHAIN[ef.key] !== ef.key) return true;
   }
   return false;
 }
@@ -635,6 +730,10 @@ function drawCardChoices(pool, n, optsOrRng) {
 
   // P-27: 过滤掉包含玩家未携带弹种改造的卡牌（2026-09-15 修订：升级卡按「直系前驱」资格判定，
   // 不再按目标弹种是否已携带——否则 `ammo_upgrade_*` 永远抽不到；前驱未携带则禁止跳级、不放行）
+  // #U40（2026-10-19）：前驱推断口径与 applyCardEffects 替换分支同源——只有升级效果
+  //（显式 replaceAmmo 或无 field 的旧式演变效果）才按 CHAIN 推断前驱做资格判定；
+  // 带 field 的调校卡（demo_apcr_round 等）不参与该判定（其 key 已在 loadout 时上面一行放行，
+  // 否则也只是普通改造资格问题，不再因「CHAIN 前驱不在」被整卡滤除）。
   if (ammoLoadout) {
     const CHAIN = (typeof RULES !== 'undefined' && RULES.ammoChain) ? RULES.ammoChain : null;
     usable = usable.filter(card => {
@@ -642,7 +741,9 @@ function drawCardChoices(pool, n, optsOrRng) {
       for (const ef of card.effects) {
         if (ef && ef.type === 'ammo') {
           if (ammoLoadout.includes(ef.key)) continue;   // 已携带目标弹种（普通改造/已有升级卡）
-          const pred = ef.replaceAmmo || (CHAIN && CHAIN[ef.key]) || null;
+          const pred = ef.replaceAmmo
+            || (!ef.field && CHAIN && CHAIN[ef.key])
+            || null;                                    // 升级卡：仅升级效果推断前驱
           if (!pred || !ammoLoadout.includes(pred)) return false;   // 升级卡：前驱未携带 → 不放行
         }
       }
@@ -819,6 +920,99 @@ function weightedRarity(r, weights) {
   return 'common';
 }
 
+// ---------- Boss 随机武备（#U39，2026-10-18） ----------
+
+// 从卡池里抽一组「Boss 随机武备」，返回按施加顺序排列的卡对象数组。
+// 纯函数：不改任何输入、不触碰坦克状态（施加交给 applyCardEffects）。
+//
+// 背景：Boss 此前只有 assignBossSkills 随机技能，weapons 永远是 standard + none，
+//   主/副武器安装卡与升级卡对它完全不可见（用户反馈「boss 似乎还不会随机到这些武器和升级」）。
+//
+// 选取规则（cfg = RULES.boss.armament）：
+//   ① 主武器：以 primaryChance 掷骰，从池内 `slot=primary && action=install` 随机取 1 张；
+//   ② 副武器：以 secondaryChance 掷骰，从 `slot=secondary && action=install` 随机取 1 张；
+//      `turret`/`missile_wire` 等无安装卡的型别天然不会被选中（池内没有它们的安装卡）。
+//   ③ 升级卡：对**已选中的主/副武器类型**，从 `action=upgrade && weaponType 匹配` 里随机取，
+//      最多 upgradeMax 张；每张的抽取概率 = upgradeChance + bossNumber × upgradeChancePerBoss
+//      （逐张独立掷骰，已被选中的卡不再重复）。
+//   任何一步池内无货都静默跳过，不抛错、不破坏其余步骤。
+function pickBossArmament(pool, opts) {
+  const o = opts || {};
+  const cfg = (typeof RULES !== 'undefined' && RULES.boss && RULES.boss.armament) || {};
+  if (cfg.enabled === false) return [];
+  const r = (typeof o.rng === 'function') ? o.rng : Math.random;
+  const all = Array.isArray(pool) ? pool.filter(c => c && Array.isArray(c.effects)) : [];
+  if (!all.length) return [];
+  const pickFrom = (list) => list.length ? list[Math.floor(r() * list.length)] : null;
+  const weaponOf = (card) => {
+    const ef = (card.effects || []).find(e => e && e.type === 'weapon');
+    return ef ? { slot: ef.slot || 'secondary', weaponType: ef.weaponType, action: ef.action } : null;
+  };
+  const out = [];
+  const owned = { primary: null, secondary: null };
+
+  // ① 主武器安装
+  const pChance = (typeof cfg.primaryChance === 'number') ? cfg.primaryChance : 0.9;
+  if (r() < pChance) {
+    const card = pickFrom(all.filter(c => {
+      const w = weaponOf(c);
+      return w && w.slot === 'primary' && w.action === 'install' && w.weaponType;
+    }));
+    if (card) { out.push(card); owned.primary = weaponOf(card).weaponType; }
+  }
+  // ② 副武器安装
+  const sChance = (typeof cfg.secondaryChance === 'number') ? cfg.secondaryChance : 0.7;
+  if (r() < sChance) {
+    const card = pickFrom(all.filter(c => {
+      const w = weaponOf(c);
+      return w && w.slot === 'secondary' && w.action === 'install' && w.weaponType;
+    }));
+    if (card) { out.push(card); owned.secondary = weaponOf(card).weaponType; }
+  }
+  // ③ 对应类型的升级卡
+  const maxUp = (typeof cfg.upgradeMax === 'number') ? cfg.upgradeMax : 2;
+  const baseChance = (typeof cfg.upgradeChance === 'number') ? cfg.upgradeChance : 0.55;
+  const perBoss = (typeof cfg.upgradeChancePerBoss === 'number') ? cfg.upgradeChancePerBoss : 0.1;
+  const bossNumber = (typeof o.bossNumber === 'number' && o.bossNumber > 0) ? o.bossNumber : 0;
+  const chance = Math.max(0, Math.min(1, baseChance + bossNumber * perBoss));
+  const used = new Set(out.map(c => c.id));
+  for (let i = 0; i < maxUp; i++) {
+    if (r() >= chance) continue;                     // 逐张独立掷骰：未命中就跳过该名额
+    const cands = all.filter(c => {
+      const w = weaponOf(c);
+      if (!w || w.action !== 'upgrade' || used.has(c.id)) return false;
+      return (w.slot === 'primary' && owned.primary === w.weaponType)
+          || (w.slot === 'secondary' && owned.secondary === w.weaponType);
+    });
+    if (!cands.length) break;
+    const card = pickFrom(cands);
+    out.push(card);
+    used.add(card.id);
+  }
+  return out;
+}
+
+// #U40（2026-10-19）：经济卡聚合助手（接线层专用；applyCardEffects 已写 runScoreMul，
+//   shopDiscount 落在 cardEffects 内按效果条数聚合）。
+//   runScoreMultiplier(t)：结算得分乘数（economy.scoreMul value 直接叠乘；缺省 1）。
+//   runShopDiscount(t)：局内商店价格折扣率 0..0.5（economy.shopDiscount 各卡 value 相加，
+//     上限 0.5 防御性钳制——纯折扣卡叠加不应把商店变免费；mvp buyRunShopItem 消费）。
+function runScoreMultiplier(t) {
+  const v = (t && typeof t.runScoreMul === 'number') ? t.runScoreMul : 1;
+  return v > 0 ? v : 1;
+}
+
+function runShopDiscount(t) {
+  const efs = (t && Array.isArray(t.cardEffects)) ? t.cardEffects : [];
+  let d = 0;
+  for (const ef of efs) {
+    if (ef && ef.type === 'economy' && ef.field === 'shopDiscount' && typeof ef.value === 'number' && ef.value > 0) {
+      d += ef.value;
+    }
+  }
+  return Math.min(0.5, d);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     CARD_RARITIES,
@@ -848,6 +1042,11 @@ if (typeof module !== 'undefined' && module.exports) {
     computeAmmoConfig,
     drawCardChoices,
     weightedRarity,
-    isAmmoUpgradeCard
+    pickBossArmament,
+    isAmmoUpgradeCard,
+    reactiveArmorRecharge,
+    updateReactiveArmorRearm,
+    runScoreMultiplier,
+    runShopDiscount
   };
 }

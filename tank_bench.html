@@ -443,7 +443,9 @@ const input = createInputController({
   actions: {
     ammoNext: () => benchCycleAmmo(1),               // E
     ammoPrev: () => benchCycleAmmo(-1),              // Q
-    abilityStrike: () => benchAbilityStrike(),       // G：战术炮击（与正式游戏同语义）
+    benchTestStrike: () => benchAbilityStrike(),     // G：战术炮击测试入口（#C5a 与正式游戏同语义；
+                                                     // #U41 正式游戏 G 键已退役，bench 保留为测试快捷键，
+                                                     // 经 KEY_BINDINGS.benchTestStrike 路由）
     panelDev: () => toggleDevPanel()               // `：开发者面板（共享四 Tab devPanel）
   }
 });
@@ -693,7 +695,7 @@ function renderBenchBindings(){
   const el = document.getElementById('benchBindings');
   if(!el) return;
   el.innerHTML = '';
-  describeBindings({ move:1, altMove:1, fire:1, fireSecondary:1, ammoCycle:1, abilityStrike:1, panelDev:1 }).forEach(b => {
+  describeBindings({ move:1, altMove:1, fire:1, fireSecondary:1, ammoCycle:1, panelDev:1 }).forEach(b => {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex; justify-content:space-between; gap:8px;';
     const k = document.createElement('span');
@@ -1040,6 +1042,8 @@ function update(dt){
   if(input.isDown('fireSecondary')) tryBenchSecondaryFire();   // #F：F=副武器击发（按住连发，与 mvp #C4e 同源）
   // #C5a：按技能独立冷却递减（G 炮击 / V 超装填 / 面板 Buff 共用 abilityCds 池，与 mvp 同源）
   if(typeof updateAbilityCds === 'function') updateAbilityCds(player, dt);
+  // #U40（2026-10-19）：反应装甲再充能计时逐帧递减（与 mvp 同语义——拦截一次后冷却 60s 恢复）
+  if(typeof updateReactiveArmorRearm === 'function') updateReactiveArmorRearm(player, dt);
 
   // #F（2026-09-20）：副武器运行时接线（对齐 mvp #C4e/#E5/#D4）——turret 自瞄自主开火、
   // missile 由 F 激活后逐帧索敌锁定、rocket 逐发队列驱动、其余副武器待机装填递减。
@@ -1257,12 +1261,17 @@ function draw(){
   ctx.translate(-cam.x, -cam.y);
 
   // 网格
+  // #TEX9-2026-10-18：合批为一条 path + 一次 stroke（原每条线一次 beginPath/stroke）
   const gs = 40;
   ctx.strokeStyle = 'rgba(255,255,255,0.035)'; ctx.lineWidth=1;
-  for(let x = 0; x <= canvas.width; x += gs){ ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
-  for(let y = 0; y <= canvas.height; y += gs){ ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+  ctx.beginPath();
+  for(let x = 0; x <= canvas.width; x += gs){ ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); }
+  for(let y = 0; y <= canvas.height; y += gs){ ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); }
+  ctx.stroke();
 
   covers.forEach(cov => drawCover(ctx, cov));
+  // #FX2（2026-10-18）：焦痕层（与 mvp 同口径：地面贴花，压在单位之下）
+  drawScorchMarks(ctx);
 
   // 绘制战术部署物
   deployables.forEach(d => {
@@ -1318,6 +1327,11 @@ function draw(){
   drawTurretFlights(ctx);
   drawFxParticles(ctx);
   drawMuzzleFlashes(ctx);
+  // #FX2（2026-10-18）：补齐冲击波 / 曳光绘制点（与 mvp 同序）
+  drawShockwaves(ctx);
+  drawTracers(ctx);
+  // #U38（2026-10-18）：电磁炮击发放电弧（与 mvp 同序，画在曳光之上）
+  if(typeof drawRailArcs === 'function') drawRailArcs(ctx);
   drawHitFx(ctx);
 
   impacts.forEach(im=>{

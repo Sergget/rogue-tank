@@ -32,15 +32,27 @@ function renderHullTexture(ctx, t){
   const maxHp = (t.maxHp && t.maxHp > 0) ? t.maxHp : 100;
   const hpRatio = Math.max(0, Math.min(1, (t.hp || 0) / maxHp));
   const damageLevel = hpRatio > 0.75 ? 0 : hpRatio > 0.5 ? 1 : hpRatio > 0.25 ? 2 : 3;
-  paintPartTexture(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 1, t.color, 'hull',
+  const hv = hullPoly(t).verts;
+  // #TEX11：贴图图案框锚在车体 bbox（+每车固定平移），炮塔复用同一框以保持色块尺度/连续性
+  const texBox = paintPatternBox(hv, 'hull', null, t.weatherSeed || 1);
+  paintPartTexture(ctx, hv, t.x, t.y, t.hullAngle, 1, t.color, 'hull',
     { detail:true, texture: t.texture, damageLevel, weatherSeed: t.weatherSeed || 1,
-      appearance: t.appearance || undefined });
+      appearance: t.appearance || undefined, texBox });
 }
 // turret top-down paint.
+// #TEX8-2026-10-18：炮塔同样传 damageLevel / weatherSeed（此前漏传 → 炮塔永远崭新）。
+//   损伤分级由车体相同的 hp 比推导，保证「车体锈到哪、炮塔锈到哪」一致。
 function renderTurretTexture(ctx, cx, cy, angle, t){
+  const maxHp = (t.maxHp && t.maxHp > 0) ? t.maxHp : 100;
+  const hpRatio = Math.max(0, Math.min(1, (t.hp || 0) / maxHp));
+  const damageLevel = hpRatio > 0.75 ? 0 : hpRatio > 0.5 ? 1 : hpRatio > 0.25 ? 2 : 3;
+  // #TEX11：炮塔复用**车体**的图案框（平移 −座圈偏移），不再用自己的 32px 小框——
+  //   否则同一套迷彩在炮塔上的色块只有车体的一半大，交界处图案还断开。
+  const texBox = paintPatternBox(hullPoly(t).verts, 'turret', t.turretPivotOffset, t.weatherSeed || 1);
   paintPartTexture(ctx, turretPoly(t).verts, cx, cy, angle, 1, t.color, 'turret',
     { detail:true, heightClass: t.heightClass, texture: t.texture,
-      appearance: t.appearance || undefined });
+      damageLevel, weatherSeed: (t.weatherSeed || 1) + 17,   // +17：炮塔磨损相位与车体错开
+      appearance: t.appearance || undefined, texBox });
 }
 
 // 履带被击断的俯视表现：擦除断开段 + 撕裂金属残端 + 脱落履带节。
@@ -95,6 +107,17 @@ function drawCharredHull(ctx, t){
   ctx.beginPath(); ctx.arc(t.x+r2.x, t.y+r2.y, t.hullWid*0.22, 0, TAU); ctx.fill();
 }
 // 起火坦克的炽热辉光（叠加在车体上）
+// #FX2-2026-10-18：闪烁值派生自时钟哈希，不再用 Math.random——绘制期随机会让「同一帧重绘
+//   （暂停/离线生图/回归快照）结果不同」，且 Node 生图无法复现。这里用 8Hz 量化时间做种子，
+//   视觉上仍是摇曳火光，但同一时刻恒得同一值。
+function _flickerAt(rate, seed){
+  const t = (typeof performance !== 'undefined' && performance && performance.now) ? performance.now() : 0;
+  const q = Math.floor(t * rate);
+  let n = Math.imul((q ^ (seed || 0)) | 0, 0x9E3779B1);
+  n = Math.imul(n ^ (n >>> 15), 0x85EBCA77);
+  n = Math.imul(n ^ (n >>> 13), 0xC2B2AE3D);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+}
 function drawFireGlow(ctx, t){
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -102,7 +125,7 @@ function drawFireGlow(ctx, t){
   const ex = engineLocalX(t);
   const gx = t.x + Math.cos(t.hullAngle)*(ex*0.8);
   const gy = t.y + Math.sin(t.hullAngle)*(ex*0.8);
-  const flick = 0.7 + Math.random()*0.3;
+  const flick = 0.7 + _flickerAt(7.5, 0x51ed) * 0.3;
   const grad = ctx.createRadialGradient(gx,gy,0, gx,gy,W*1.3);
   grad.addColorStop(0,   `rgba(255,150,45,${0.34*flick})`);
   grad.addColorStop(0.55,`rgba(255,110,35,${0.16*flick})`);
@@ -113,15 +136,44 @@ function drawFireGlow(ctx, t){
 }
 
 // 炮弹渲染：细长尖头弹体沿飞行方向 + 弹种色拖尾 + 弹头亮点
+// ---------- 电磁轨道炮视效（#U38，2026-10-18） ----------
+// 充能进度 0..1（纯函数，绘制期确定性）：1 = 已装填完毕（满电待机），0 = 刚开完火。
+//   时长口径与 HUD 装填环 / fireTank 完全同源：
+//     dur = stats.reload × primaryWeaponSpec(t).reloadMult ÷ debuffReloadRate(t)
+//   （2026-09-21 #G5 修正过的那条：曾漏乘 reloadMult，导致电磁炮前半程进度恒空。）
+//   无 reloadT / 无 stats（测试探针、非战斗实体）时返回 1（满电），不会画成半充能。
+function railChargeProgress(t){
+  if(!t) return 1;
+  const spec = (typeof primaryWeaponSpec === 'function') ? primaryWeaponSpec(t) : null;
+  if(!spec || spec.type !== 'railgun') return 1;
+  const base = (t.stats && t.stats.reload) ? t.stats.reload : 0;
+  if(!(base > 0)) return 1;
+  const mult = (typeof spec.reloadMult === 'number') ? spec.reloadMult : 1;
+  const debuff = (typeof debuffReloadRate === 'function') ? debuffReloadRate(t) : 1;
+  const dur = base * mult / (debuff || 1);
+  if(!(dur > 0)) return 1;
+  const rl = (typeof t.reloadT === 'number') ? t.reloadT : 0;
+  if(!(rl > 0)) return 1;
+  return Math.max(0, Math.min(1, 1 - rl / dur));
+}
+
 function drawShells(ctx, shells){
   const SV = RULES.shellVisual;
+  const RFx = (RULES.railgunFx) || {};
   for(const s of shells){
     const ang = Math.atan2(s.dy, s.dx);
     const col  = (s.ammo && s.ammo.color) ? s.ammo.color : '#ffb454';
     const tail = (s.ammo && s.ammo.tail) ? s.ammo.tail : 'rgba(255,180,84,0.6)';
-    const L = SV.length, W = SV.width, tailLen = SV.tailLen;
+    // #U38（2026-10-18）：电磁轨道炮弹体——针状白热电离弹（更长更细）。
+    //   #U39（2026-10-19 用户裁定）：**电弧只加在炮身上，不跟随炮弹**——旧的 shellTrailArcs
+    //   电弧尾迹已删除，弹体只保留针状外形 + 白热芯晕 + 普通渐隐拖尾。
+    const isRail = s.wType === 'railgun';
+    const L = SV.length * (isRail ? (RFx.shellLenMult || 1.9) : 1);
+    const W = SV.width * (isRail ? 0.55 : 1), tailLen = SV.tailLen * (isRail ? 1.8 : 1);
     // 2026-09-15 W6：autocannon 炮弹尺寸跟随 fxScale 缩小（更细炮管的视觉跟随；其他武器 fxScale=1）
-    const sv = (typeof s.fxScale === 'number' && s.fxScale > 0) ? s.fxScale : 1;
+    // #U42（2026-10-19）：副炮塔弹再缩一档（0.7）——它是「小炮塔」，弹体与主炮同大反而看不出是它打的。
+    const sv = ((typeof s.fxScale === 'number' && s.fxScale > 0) ? s.fxScale : 1)
+      * (s.fromSecondaryTurret ? 0.7 : 1);
     const _L = L * sv, _W = W * sv, _tailLen = tailLen * sv;
     ctx.save();
     let drawX = s.x, drawY = s.y, scale = 1;
@@ -140,6 +192,45 @@ function drawShells(ctx, shells){
     ctx.translate(drawX, drawY);
     ctx.rotate(ang);
     ctx.scale(scale, scale);
+    if(isRail){
+      // ① 弹体外发光（白热芯晕，lighter 叠加）。
+      //   渲染纪律（specs/combat.md §6「零逐帧渐变分配约束」）：这里**不得**每帧 createRadialGradient，
+      //   改走 tank_fx.js 已烘焙的径向 sprite（haloW = 冷白外发光），绘制期只做 drawImage。
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const gr = (RFx.shellGlowScale || 1.35) * Math.max(6, _W * 2.4);
+      if (!(typeof _blitRadial === 'function' &&
+            _blitRadial(ctx, _radialSprite('haloW', gr), 0, 0, gr, 0.85, 'lighter'))) {
+        // 无 canvas 环境（Node 纯逻辑）回退：平涂圆，避免每帧渐变分配
+        ctx.fillStyle = 'rgba(255,255,255,0.42)';
+        ctx.beginPath(); ctx.arc(0, 0, gr, 0, TAU); ctx.fill();
+      }
+      ctx.restore();
+      // ② 渐隐拖尾（普通弹同款手法，白热色）——**不再画电弧**：弧光属于炮身。
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const tgR = ctx.createLinearGradient(-_tailLen, 0, 0, 0);
+      tgR.addColorStop(0, 'rgba(255,255,255,0)');
+      tgR.addColorStop(1, 'rgba(226,240,255,0.80)');
+      ctx.strokeStyle = tgR; ctx.lineWidth = Math.max(1.6, _W * 1.1); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-_tailLen, 0); ctx.lineTo(0, 0); ctx.stroke();
+      ctx.restore();
+      // ③ 针状弹体（白热芯 + 冷白边）
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(_L * 0.5, 0);
+      ctx.lineTo(-_L * 0.5, -_W * 0.5);
+      ctx.lineTo(-_L * 0.5, _W * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(210,232,255,0.9)'; ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+      ctx.restore();   // 与外层 ctx.save()（进入弹体绘制前的那次）配对
+      continue;
+    }
     // 拖尾（沿 -x 渐隐短线）
     ctx.globalCompositeOperation = 'lighter';
     const tg = ctx.createLinearGradient(-_tailLen, 0, 0, 0);
@@ -337,24 +428,57 @@ function drawCoverShadow(ctx, cov){
       ctx.fillStyle = `rgba(0,0,0,${alpha})`;
       ctx.fill();
     };
-    silhouette(off, off * 1.15, 0.16);            // 远层：淡
-    silhouette(off * 0.55, off * 0.62, 0.20);     // 近层：深（接触影）
+    silhouette(off * 1.0,  off * 1.15, 0.17);     // 远层：最淡，撑出影子长度
+    silhouette(off * 0.78, off * 0.90, 0.14);     // 中层：过渡，把 2 层硬边磨成 3 层渐变
+    silhouette(off * 0.45, off * 0.52, 0.24);     // 近层：深（接触影，贴墙脚）
+    // #U11-2026-10-18：墙脚接地面加一层「接触暗带」——只在轮廓内侧一圈，让体块与地面
+    //   有明确接触关系（旧版两块偏移多边形之间总有一条亮缝，看起来像浮在地上）。
+    ctx.strokeStyle = 'rgba(0,0,0,0.14)';
+    ctx.lineWidth = Math.min(10, 3 + Math.max(w, h) * 0.03);
+    ctx.beginPath();
+    ctx.moveTo(c[0].x, c[0].y);
+    for(let i = 1; i < c.length; i++) ctx.lineTo(c[i].x, c[i].y);
+    ctx.closePath();
+    ctx.stroke();
   } else if(st === 'tree'){
     // 树冠投影：树冠绘制半径 R = max(w,h)*1.4*0.85（见 tank_assets ASSET_DEFS.tree.bakeCanopy），
     // 影子半径取 0.92R，略偏右下，模拟斜射光下的落影。
-    const R = Math.max(w, h) * 1.4 * 0.85 * 0.92;
-    const dy = 4 + Math.min(10, R * 0.16);
-    ctx.fillStyle = 'rgba(0,0,0,0.10)';
-    ctx.beginPath(); ctx.ellipse(cov.x + dy * 0.7, cov.y + dy, R, R * 0.82, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    // #U11-2026-10-18：三层同心椭圆（远/中/近）+ 树干脆影点，靠叠加而不是模糊实现软边。
+    const R = Math.max(w, h) * 1.4 * 0.85 * 0.98;
+    const dy = 5 + Math.min(13, R * 0.20);
+    ctx.fillStyle = 'rgba(0,0,0,0.14)';
+    ctx.beginPath(); ctx.ellipse(cov.x + dy * 0.85, cov.y + dy * 1.1, R * 1.06, R * 0.90, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.beginPath(); ctx.ellipse(cov.x + dy * 0.7, cov.y + dy, R * 1.02, R * 0.84, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.17)';
     ctx.beginPath(); ctx.ellipse(cov.x + dy * 0.35, cov.y + dy * 0.5, R * 0.78, R * 0.62, 0, 0, TAU); ctx.fill();
+    // 树干脆影：长椭圆沿光向拉出，把树冠影与树干位置连起来
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    ctx.beginPath();
+    ctx.ellipse(cov.x + dy * 0.28, cov.y + dy * 0.30, Math.max(2.5, w * 0.10), Math.max(2, h * 0.07),
+      Math.PI * 0.25, 0, TAU);
+    ctx.fill();
   } else if(st === 'bush' || st === 'fallen'){
     const rx = w * 0.42, ry = h * 0.42;
     const dy = 2 + Math.min(6, Math.max(w, h) * 0.08);
+    ctx.fillStyle = 'rgba(0,0,0,0.07)';
+    ctx.beginPath();
+    ctx.ellipse(cov.x + dy * 0.85, cov.y + dy * 1.15, rx * 1.12, ry * 1.12, (cov.angle || 0), 0, TAU);
+    ctx.fill();
     ctx.fillStyle = 'rgba(0,0,0,0.09)';
     ctx.beginPath(); ctx.ellipse(cov.x + dy * 0.6, cov.y + dy, rx, ry, (cov.angle || 0), 0, TAU); ctx.fill();
+    // 接触影：中心再压一层小的暗斑，灌木根部才不「飘」
+    ctx.fillStyle = 'rgba(0,0,0,0.10)';
+    ctx.beginPath();
+    ctx.ellipse(cov.x + dy * 0.3, cov.y + dy * 0.4, rx * 0.55, ry * 0.5, (cov.angle || 0), 0, TAU);
+    ctx.fill();
   } else if(st === 'soft' || st === 'barricade' || st === 'stump'){
     const dy = 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.07)';
+    ctx.beginPath();
+    ctx.ellipse(cov.x + dy * 0.9, cov.y + dy * 1.2, Math.max(w, 8) * 0.48, Math.max(h, 6) * 0.48,
+      (cov.angle || 0), 0, TAU);
+    ctx.fill();
     ctx.fillStyle = 'rgba(0,0,0,0.10)';
     ctx.beginPath();
     ctx.ellipse(cov.x + dy * 0.5, cov.y + dy, Math.max(w, 8) * 0.42, Math.max(h, 6) * 0.42,
@@ -375,6 +499,13 @@ function drawCover(ctx, cov){
   drawCoverShadow(ctx, cov);
   if(tier.draw === 'box'){
     const c = coverCorners(cov);
+    // #TEX13：建筑/全高掩体的侧壁（右下偏移暗色体块），顶面（屋顶）盖住其余部分；
+    //   不然俯视建筑就是一块平色矩形，只有影子没有高度。
+    ctx.fillStyle = 'rgba(58,44,36,0.88)';
+    ctx.beginPath();
+    ctx.moveTo(c[0].x + 4.5, c[0].y + 5.6);
+    for(let i = 1; i < c.length; i++) ctx.lineTo(c[i].x + 4.5, c[i].y + 5.6);
+    ctx.closePath(); ctx.fill();
     ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
     for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
     ctx.closePath();
@@ -527,19 +658,70 @@ function drawCover(ctx, cov){
       ctx.beginPath(); ctx.arc(hx, hy, Math.max(1.5, Math.min(cov.w,cov.h)*0.06), 0, TAU); ctx.fill();
     }
   } else if(tier.draw === 'rock-poly'){
-    // P-40 岩石：verts 多边形灰岩 + 棱线（无 verts 回退矩形）
+    // P-40 岩石：verts 多边形灰岩。
+    // #TEX13-2026-10-18：从「平涂多边形 + 两条棱线」升级为**多面体**：
+    //   ① 右下偏移的暗色侧壁（高度）；② 以质心为顶点、逐边三角面按法线·光向着色
+    //   （左上亮、右下暗）；③ 受光棱边高光；④ 2 条裂缝。全部由 cover 顶点确定性派生。
     const c = coverCorners(cov);
-    ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
-    for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
-    ctx.closePath();
-    ctx.fillStyle = tier.fill; ctx.fill();
-    ctx.strokeStyle = tier.stroke; ctx.lineWidth=2; ctx.stroke();
-    // 棱线：各顶点向质心连浅色线，营造多面体感
-    let gx=0, gy=0; for(const p of c){ gx+=p.x; gy+=p.y; } gx/=c.length; gy/=c.length;
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth=1;
-    for(let i=0;i<c.length;i+=2){
-      ctx.beginPath(); ctx.moveTo((c[i].x+gx)/2, (c[i].y+gy)/2); ctx.lineTo(gx, gy); ctx.stroke();
+    const n = c.length;
+    let gx = 0, gy = 0;
+    for(const p of c){ gx += p.x; gy += p.y; }
+    gx /= n; gy /= n;
+    // ① 侧壁（世界光反向偏移）
+    const swx = 3.5, swy = 4.6;
+    ctx.fillStyle = 'rgba(62,62,58,0.95)';
+    ctx.beginPath();
+    ctx.moveTo(c[0].x + swx, c[0].y + swy);
+    for(let i = 1; i < n; i++) ctx.lineTo(c[i].x + swx, c[i].y + swy);
+    ctx.closePath(); ctx.fill();
+    // ② 逐边三角面
+    const Lx = -0.7071, Ly = -0.7071;
+    for(let i = 0; i < n; i++){
+      const a = c[i], b = c[(i + 1) % n];
+      let nx = b.y - a.y, ny = -(b.x - a.x);
+      const nl = Math.hypot(nx, ny) || 1;
+      nx /= nl; ny /= nl;
+      // 外向法线
+      const mx = (a.x + b.x) / 2 - gx, my = (a.y + b.y) / 2 - gy;
+      if(nx * mx + ny * my < 0){ nx = -nx; ny = -ny; }
+      const lit = Math.max(0, nx * Lx + ny * Ly);
+      const t = 0.22 + 0.62 * lit;
+      const tone = Math.round(74 + (188 - 74) * t);
+      ctx.fillStyle = `rgba(${tone},${tone},${Math.round(tone*0.96)},0.95)`;
+      ctx.beginPath();
+      ctx.moveTo(gx, gy); ctx.lineTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      ctx.closePath(); ctx.fill();
     }
+    // ③ 受光棱边高光
+    ctx.strokeStyle = 'rgba(232,232,222,0.28)';
+    ctx.lineWidth = 1.2;
+    for(let i = 0; i < n; i++){
+      const a = c[i], b = c[(i + 1) % n];
+      let nx = b.y - a.y, ny = -(b.x - a.x);
+      const nl = Math.hypot(nx, ny) || 1;
+      nx /= nl; ny /= nl;
+      const mx = (a.x + b.x) / 2 - gx, my = (a.y + b.y) / 2 - gy;
+      if(nx * mx + ny * my < 0){ nx = -nx; ny = -ny; }
+      if(nx * Lx + ny * Ly > 0.25){
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+    }
+    // ④ 裂缝
+    ctx.strokeStyle = 'rgba(48,48,44,0.55)';
+    ctx.lineWidth = 1;
+    for(let k = 0; k < 2; k++){
+      const i = (k * 3 + 1) % n;
+      ctx.beginPath();
+      ctx.moveTo(gx + (c[i].x - gx) * 0.15, gy + (c[i].y - gy) * 0.15);
+      ctx.lineTo(gx + (c[i].x - gx) * 0.55 + 2, gy + (c[i].y - gy) * 0.55 - 1);
+      ctx.lineTo(gx + (c[i].x - gx) * 0.82, gy + (c[i].y - gy) * 0.82);
+      ctx.stroke();
+    }
+    // ⑤ 暗色勾线
+    ctx.strokeStyle = tier.stroke; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(c[0].x, c[0].y);
+    for(let i = 1; i < n; i++) ctx.lineTo(c[i].x, c[i].y);
+    ctx.closePath(); ctx.stroke();
   } else if(tier.draw === 'rubble-box'){
     // P-40 残破建筑（ruined）：破损轮廓 box——主体 box + 缺口锯齿线
     const c = coverCorners(cov);
@@ -665,16 +847,26 @@ function drawFoliage(ctx, covers){
     if (cov.variant === 'snowy' && cov.tier === 'tree') {
       ctx.save();
       ctx.translate(cov.x, cov.y);
+      // #TEX15-2026-10-19：雪地树冠同样弃用整椭圆——波浪轮廓 + 积雪高光团
       ctx.fillStyle = 'rgba(235,242,246,0.92)';
       ctx.strokeStyle = 'rgba(200,215,225,0.8)';
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, cov.w * 0.55, cov.h * 0.55, 0, 0, Math.PI * 2);
+      const sb = (j) => 0.88 + 0.08*Math.sin(j*3 + 0.7) + 0.05*Math.sin(j*7 + 1.9);
+      if(typeof blobPath === 'function'){
+        blobPath(ctx, 0, 0, cov.w * 0.55, cov.h * 0.55, 0, sb, 28);
+      } else {
+        ctx.beginPath();
+        ctx.ellipse(0, 0, cov.w * 0.55, cov.h * 0.55, 0, 0, Math.PI * 2);
+      }
       ctx.fill(); ctx.stroke();
       // 积雪高光
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.beginPath();
-      ctx.ellipse(-cov.w * 0.15, -cov.h * 0.15, cov.w * 0.3, cov.h * 0.25, 0, 0, Math.PI * 2);
+      if(typeof blobPath === 'function'){
+        blobPath(ctx, -cov.w * 0.15, -cov.h * 0.15, cov.w * 0.3, cov.h * 0.25, -0.3, (j)=>0.85 + 0.15*Math.sin(j*2.9), 12);
+      } else {
+        ctx.beginPath();
+        ctx.ellipse(-cov.w * 0.15, -cov.h * 0.15, cov.w * 0.3, cov.h * 0.25, 0, 0, Math.PI * 2);
+      }
       ctx.fill();
       ctx.restore();
       continue;
@@ -802,9 +994,9 @@ function drawTankSprite(ctx, t){
   drawSpriteTracks(ctx, t);
   paintPartSprite(ctx, hi, t.x, t.y, t.hullAngle, 1, h.scale, h.dx, h.dy, h.rot);
 
-  // 与程序化分支保持层级：断履带/副炮塔/座圈/起火辉光都位于主炮塔下方（#L1）。
+  // 与程序化分支保持层级：断履带/座圈/起火辉光位于主炮塔下方（#L1）。
+  // #W2：副炮塔改到主炮塔之后绘制（见本函数末尾），与程序化分支同口径。
   if(t.trackBroken) drawBrokenTracks(ctx, t);
-  drawSecondaryTurret(ctx, t);
   const pOff = turretPivot(t);
   drawTurretRing(ctx, t, pOff.x, pOff.y);
   if(t.fireT>0) drawFireGlow(ctx, t);
@@ -826,13 +1018,95 @@ function drawTankSprite(ctx, t){
       }
     }
   }
+
+  // #W2（2026-10-19 用户反馈「副炮塔需要绘制在顶层贴图」）：移到主炮塔之后，
+  // 与程序化分支同口径（原在 :999 主炮塔之前画，被子炮塔盖住）。
+  drawSecondaryTurret(ctx, t);
+}
+
+// 车底地面软阴影（程序化分支）。精灵分支在 drawTankSprite 里手绘了一块椭圆阴影，
+// 但**程序化分支（当前实机唯一路径，所有车 sprite.enabled=false）从来没有车底影**：
+// 履带直接压在地面纹理上，车体像「贴纸」。这里按车体 OBB 画两层椭圆
+// （远层淡 + 近层深，方向与光源一致：右下）。
+//
+// #TEX8-2026-10-18：**形状随车体转、偏移不随车体转**。
+//   缩放/旋转要分开：先按世界坐标平移偏移量，再 rotate(hullAngle) 画车体形状轮廓。
+//   若把偏移量放进旋转后的坐标系（旧精灵分支的写法），车头转 90° 影子也跟着转 90°，
+//   同一屏里就和掩体投影（固定右下）打了两个光源。
+function drawTankGroundShadow(ctx, t){
+  const L = (t.hullLen || 64), W = (t.hullWid || 38);
+  const off = Math.min(14, 3 + Math.max(L, W) * 0.05);
+  ctx.save();
+  // 偏移在**世界**坐标里（右下 = +x,+y），与 drawCoverShadow 同向
+  ctx.translate(t.x + off * 0.55, t.y + off * 0.75);
+  ctx.rotate(t.hullAngle || 0);
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, L * 0.60, W * 0.64, 0, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+  // 近层：接触影贴车体本身（偏移更小、更深），让履带与地面有接触感
+  ctx.save();
+  ctx.translate(t.x + off * 0.25, t.y + off * 0.35);
+  ctx.rotate(t.hullAngle || 0);
+  ctx.fillStyle = 'rgba(0,0,0,0.20)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, L * 0.52, W * 0.56, 0, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+}
+
+// #TEX13-2026-10-18：俯视 2.5D 的「侧壁」。纯顶面 + 投影永远读不出高度——真实俯视图里，
+//   凸起物在背光侧会露出一条**实体侧壁**（不是半透明影子）。做法：把部件轮廓按**世界光**
+//   的反方向偏移 (dx,dy)，用暗色实心填充，再画顶面盖住其余部分；露出的窄带就是高度。
+//   偏移必须世界固定（先 R(−angle) 转到局部），否则车体转 90° 侧壁会跑到受光侧。
+function drawPartSideWall(ctx, verts, cx, cy, angle, dxWorld, dyWorld, color){
+  if(!verts || verts.length < 3) return;
+  const r = rotate(dxWorld, dyWorld, -(angle || 0));
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle || 0);
+  ctx.beginPath();
+  for(let i = 0; i < verts.length; i++){
+    const [vx, vy] = verts[i];
+    const px = vx + r.x, py = vy + r.y;
+    if(i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+// #TEX12：暖色轮廓光（世界左上受光）。传入世界坐标多边形角点，沿轮廓外侧 0.5px
+//   画一条从左上暖白到右下透明的渐变细线——只亮受光边，不形成整圈描边。
+function drawTankRimLight(ctx, corners){
+  if(!corners || corners.length < 3) return;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for(const p of corners){
+    if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
+    if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
+  }
+  const g = ctx.createLinearGradient(minX, minY, maxX, maxY);
+  g.addColorStop(0, 'rgba(255,240,208,0.42)');
+  g.addColorStop(0.42, 'rgba(255,240,208,0.06)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.save();
+  ctx.translate(-0.55, -0.55);
+  ctx.strokeStyle = g;
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for(let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawTank(ctx, t){
   const pOff = turretPivot(t);
   const turCx = pOff.x;
-  const turCy = pOff.y;
-  const bCol = tankBodyCol(t);   // 车体实色：炮管/炮盾等金属件取自实色，队伍色只留描边
+  const turCy = pOff.y;  const bCol = tankBodyCol(t);   // 车体实色：炮管/炮盾等金属件取自实色，队伍色只留描边
 
   // 整车精灵替换通道（tanks/<id>.json `sprite.enabled`，设计器对齐后开启）：
   // 图片未就绪/殉爆飞头时回退程序化绘制，保证首帧与极端状态不穿帮。
@@ -848,6 +1122,15 @@ function drawTank(ctx, t){
     return;
   }
 
+  // 车底软阴影（#TEX8-2026-10-18）：程序化分支此前完全没有车底投影，履带直接压在
+  // 地面纹理上，车体看起来像「贴纸」。与掩体投影同光源（左上 → 落在右下）。
+  drawTankGroundShadow(ctx, t);
+
+  // #TEX13：车体侧壁（世界固定右下偏移）——先于履带绘制：履带从两侧压住侧壁，
+  //   只在车头/车尾露出厚度；否则侧壁会盖掉履带链节，像给坦克垫了一块黑板。
+  drawPartSideWall(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 4.0, 5.2, paintShade(bCol, -52));
+  drawPartSideWall(ctx, hullPoly(t).verts, t.x, t.y, t.hullAngle, 2.3, 3.1, paintShade(bCol, -18));
+
   // rolling tracks (under the hull)
   drawTracks(ctx, t);
 
@@ -861,15 +1144,21 @@ function drawTank(ctx, t){
   ctx.closePath();
   // 2026-10-05：亮色队伍描边太丑 → 改暗色勾线（队伍识别走血条/小地图）
   ctx.strokeStyle = 'rgba(15,15,18,0.60)'; ctx.lineWidth=2; ctx.stroke();
+  // #TEX12：暖色轮廓光（左上受光边）。1px 级、只出现在受光侧，让车体从地面「立」起来；
+  //   与暗色勾线一明一暗，是手绘微缩模型最常见的高光处理。
+  drawTankRimLight(ctx, hc);
 
   // 履带被击断：断开处 + 脱落履带节 + 撕裂金属
   if(t.trackBroken) drawBrokenTracks(ctx, t);
 
-  // PLAN §8.1.2：副炮塔（turret 型副武器）——车体后部独立小炮塔，主炮塔之前绘制（层级在下）
-  if(!t.ammoBlew) drawSecondaryTurret(ctx, t);
+  // PLAN §8.1.2：副炮塔（turret 型副武器）
+  // #W2（2026-10-19 用户反馈「需要绘制在顶层贴图」）：此处原在主炮塔**之前**绘制，
+  //   导致副炮塔被主炮塔整块盖住（位姿中心与座圈重合、scale 0.62，只剩一圈边缘）。
+  //   现移到主炮塔/炮管绘制完成之后（见 drawTank 尾部 "#W2" 调用点）。
 
   // turret ring (on the hull, under the turret)
-  drawTurretRing(ctx, t, turCx, turCy);
+  // #TEX13：座圈凸台放在炮塔阴影之后、侧壁之前，确保不被软影整块盖掉
+  // （调用点移入下方 if(!t.ammoBlew) 分支）
 
    // 弹药架殉爆后炮塔被掀飞（飞头），炮塔/炮管全部不再绘制；车体焦黑 + 炽热
    if(t.ammoBlew){ drawCharredHull(ctx, t); if(t.fireT>0) drawFireGlow(ctx, t); }
@@ -877,6 +1166,10 @@ function drawTank(ctx, t){
    // 阴影方向固定在世界方向（投影用 t.hullAngle），炮塔自转不改变阴影方向
    if(t.fireT>0) drawFireGlow(ctx, t);
    paintTurretShadow(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1, 2.5, 3.5, t.hullAngle);
+   drawTurretRing(ctx, t, turCx, turCy);
+   // #TEX13：炮塔侧壁——比车体略薄（炮塔相对低矮），外层深 + 内层中暗
+   drawPartSideWall(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 3.0, 4.0, paintShade(bCol, -48));
+   drawPartSideWall(ctx, turretPoly(t).verts, turCx, turCy, superstructureAngle(t), 1.8, 2.4, paintShade(bCol, -14));
 
    const structureAngle = superstructureAngle(t);
    const tPoly = turretPoly(t);
@@ -888,6 +1181,7 @@ function drawTank(ctx, t){
   ctx.closePath();
   // 2026-10-05：亮色队伍描边太丑 → 改暗色勾线
   ctx.strokeStyle = 'rgba(15,15,18,0.60)'; ctx.lineWidth=1.5; ctx.stroke();
+  drawTankRimLight(ctx, tc);
 
   // 炮塔转动射界：±traverseLimit 左右极限射线（仅当射界 < 180° 时有限制；180° = 360° 全向旋转）
   drawTraverseRays(ctx, t, turCx, turCy);
@@ -914,6 +1208,13 @@ function drawTank(ctx, t){
      const _acSpec = (t.weapons.primary && t.weapons.primary.stats) || {};
      barrelLen *= (typeof _acSpec.barrelLenMult === 'number') ? _acSpec.barrelLenMult : 0.8;
      barrelWid = Math.max(2, barrelWid * ((typeof _acSpec.barrelWidthMult === 'number') ? _acSpec.barrelWidthMult : 0.6));
+   }
+   // #U41（2026-10-19）：电磁炮炮管加宽——「双轨 + 蓝缝 + 白弧」三层在常规口径算出的
+   //   barrelWid ≈ 3.2px 里放不下（实测蓝缝被两根灰轨完全盖掉，炮管读作空管）。
+   //   **纯视觉**：只影响本函数内的绘制宽度，不改 gunRoot()/gunTip() 与炮口特效坐标。
+   if(_isRailgun){
+     const _rgMult = (RULES && RULES.railgunFx && RULES.railgunFx.barrelWidMult) || 2.2;
+     barrelWid *= _rgMult;
    }
    const perpX = -barrelRayDy, perpY = barrelRayDx;
 
@@ -949,26 +1250,152 @@ function drawTank(ctx, t){
      const _tx = baseX + perpX*_toff, _ty = baseY + perpY*_toff;
      const _ex = endX + perpX*_toff, _ey = endY + perpY*_toff;
      if(_isRail){
-       // 双轨：上下各一根细轨，中间镂空；青色能量线点缀
-       const _railOff = Math.max(2, barrelWid * 0.28);
-       const _railW = Math.max(1.5, barrelWid * 0.22);
+       // #U31（2026-10-17）：双轨——两根导轨中间镂空。
+       // #U38（2026-10-18）结构细节：导轨 + 箍环 + 能量芯 + 后膛核 + 充能电弧。
+       // #U39（2026-10-19 用户裁定）**三色口径**：炮管 = **灰**（金属本体，与车体涂装无关）、
+       //   基底 = **蓝**（导轨之间缝隙里的能量衬底）、弧光 = **白**（充能弧）。
+       //   三色全部取自 RULES.railgunFx（唯一口径），不得再写死车体色 shade(bCol, …) 当炮管色。
+       // #U41（2026-10-19 实机校色）：**实测量级修正**——railgun 的 barrelWid 只有约 3.2px，
+       //   原实现把蓝色基底画成 `railOff+railW*1.25` 半宽（全宽 ≈7px）的**整条外包带**，
+       //   结果是整根炮管被蓝带包住、灰导轨被埋掉、弧光糊成白斑（实机 1:1 出图复核确认）。
+       //   现改为**缝隙内衬**：蓝色只铺在两根灰导轨之间的**空隙**里（不做外包边），
+       //   灰导轨画在最上层且比缝隙更宽 → 「灰炮管 + 蓝基底」读得出来；弧光也压细压短。
+       const _railOff = Math.max(1.5, barrelWid * 0.21);
+       const _railW = Math.max(1.1, barrelWid * 0.17);
+       const _rfx = (RULES && RULES.railgunFx) || {};
+       const _charge = railChargeProgress(t);
+       // 三色（缺省值兜底，保证无 RULES 环境也能画）
+       const _greyMid  = _rfx.barrelGrey     || '#787d84';
+       const _greyDark = _rfx.barrelGreyDark || '#4a4e55';
+       const _greyLit  = _rfx.barrelGreyLit  || '#a8aeb6';
+       const _blue     = _rfx.baseBlue       || '#2f5d8c';
+       const _blueDeep = _rfx.baseBlueDeep   || '#1b3550';
+       const _arcWhite = _rfx.arcWhite       || '#ffffff';
+       const _arcHalo  = _rfx.arcHalo        || 'rgba(214,232,255,1)';
+       ctx.lineCap = 'round';
+       // ⓪ 蓝色基底：**只填两根导轨之间的缝隙**（半宽 = railOff − railW*0.5），
+       //   不再向外包边。source-over 实色——基底是固体结构不是光，进 lighter 会发白。
+       const _gapHalf = Math.max(0.6, _railOff - _railW * 0.45);
+       ctx.strokeStyle = _blueDeep; ctx.lineWidth = _gapHalf * 2;
+       ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+       ctx.strokeStyle = _blue; ctx.lineWidth = Math.max(0.8, _gapHalf * 1.35);
+       ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+       // ① 灰色导轨本体（压在蓝基底之上）：暗边 → 中间调 → 内侧受光，三层明度
        for(const _ro of [-_railOff, _railOff]){
+         const _sgn = _ro > 0 ? 1 : -1;
          const _rx0 = _tx + perpX*_ro, _ry0 = _ty + perpY*_ro;
          const _rx1 = _ex + perpX*_ro, _ry1 = _ey + perpY*_ro;
-         ctx.strokeStyle = shade(bCol, -45); ctx.lineWidth = _railW;
-         ctx.lineCap = 'round';
+         ctx.strokeStyle = _greyDark; ctx.lineWidth = _railW * 1.25;
          ctx.beginPath(); ctx.moveTo(_rx0, _ry0); ctx.lineTo(_rx1, _ry1); ctx.stroke();
+         ctx.strokeStyle = _greyMid; ctx.lineWidth = _railW * 0.86;
+         ctx.beginPath(); ctx.moveTo(_rx0, _ry0); ctx.lineTo(_rx1, _ry1); ctx.stroke();
+         const _hi = _railW * 0.24 * _sgn;
+         ctx.strokeStyle = _greyLit;
+         ctx.lineWidth = Math.max(0.6, _railW * 0.30);
+         ctx.beginPath();
+         ctx.moveTo(_rx0 + perpX*_hi, _ry0 + perpY*_hi);
+         ctx.lineTo(_rx1 + perpX*_hi, _ry1 + perpY*_hi);
+         ctx.stroke();
        }
-       // 轨间青色能量线（细，扁平无发光）
-       ctx.strokeStyle = 'rgba(64,200,220,0.85)'; ctx.lineWidth = Math.max(1, barrelWid*0.12);
+       // ② 横向箍环：灰（炮身金属件），沿炮管 3 圈（避开炮口与炮尾）。
+       //   宽度只略超导轨外缘——早期版本用 railOff+railW*0.9 跨度过大，实机上像贴了三条白杠。
+       for(let _bi = 1; _bi <= 3; _bi++){
+         const _bt = _bi / 4;
+         const _bx = _tx + barrelRayDx * barrelLen * _bt;
+         const _by = _ty + barrelRayDy * barrelLen * _bt;
+         const _hw = _railOff + _railW * 0.35;
+         ctx.strokeStyle = _greyDark; ctx.lineWidth = Math.max(0.9, _railW * 0.80);
+         ctx.beginPath();
+         ctx.moveTo(_bx + perpX*_hw, _by + perpY*_hw);
+         ctx.lineTo(_bx - perpX*_hw, _by - perpY*_hw);
+         ctx.stroke();
+         ctx.strokeStyle = _greyLit; ctx.lineWidth = Math.max(0.5, _railW * 0.24);
+         ctx.beginPath();
+         ctx.moveTo(_bx + perpX*_hw, _by + perpY*_hw);
+         ctx.lineTo(_bx - perpX*_hw, _by - perpY*_hw);
+         ctx.stroke();
+       }
+       ctx.save();
+       ctx.globalCompositeOperation = 'lighter';
+       // ③ 轨间能量芯：**白**，但必须**让蓝基底读得出来**（#U41 实机校色）。
+       //   旧实现 idle 时 alpha 已达 0.95、线宽盖满整条缝 → 炮管中段通体发白，蓝色基底被吃掉，
+       //   实机读作「白炮管」而不是「蓝基底 + 白弧光」。现改为：
+       //   · idle（charge=1）只留一道**很淡**的白芯（0.18）——蓝仍是基底主色；
+       //   · 充能中（charge<1）白芯随进度增强，是「正在充能」的读数；
+       //   · 「白」的主载体是 ⑤ 的**间歇电弧**，不是这条连续的芯。
+       const _coreW = Math.max(0.5, _gapHalf * 0.55);
+       const _coreA = (_charge >= 0.999) ? 0.18 : (0.16 + 0.42 * (1 - _charge));
+       ctx.strokeStyle = `rgba(226,238,255,${_coreA * 0.55})`;
+       ctx.lineWidth = _coreW * 1.5;
        ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+       ctx.strokeStyle = `rgba(255,255,255,${_coreA})`;
+       ctx.lineWidth = _coreW;
+       ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+       // ④ 后膛能量核：冷白晕，呼吸 = 进度 + 时间量子哈希（确定性，不碰 Math.random）。
+       //   #U41：半径与亮度双双收敛——旧 ×2.4 半径 + 0.85 alpha 在实机是一颗压住整个炮尾、
+       //   糊进炮塔前缘的白球；现在只作为「炮尾一点点能量」的读数。走烘焙 sprite（零逐帧渐变分配）。
+       const _breechR = Math.max(1.1, barrelWid * 0.16) * (0.75 + 0.25 * _charge);
+       const _pulse = 0.75 + 0.25 * _flickerAt(9, 0x7a11);
+       const _breechA = ((_charge >= 0.999) ? 0.16 : (0.14 + 0.30 * (1 - _charge))) * _pulse;
+       if (!(typeof _blitRadial === 'function' &&
+             _blitRadial(ctx, _radialSprite('haloW', _breechR * 1.6), _tx, _ty, _breechR * 1.6,
+               _breechA, 'lighter'))) {
+         ctx.fillStyle = `rgba(255,255,255,${_breechA * 0.8})`;
+         ctx.beginPath(); ctx.arc(_tx, _ty, _breechR * 1.6, 0, TAU); ctx.fill();
+       }
+       // ⑤ 充能电弧：装填期在两根导轨之间爬行的**白色**折线。
+       //   条数 = 1 + floor(progress×(chargeArcs−1))：越接近装满爬得越多；
+       //   满电切换到「微光待机」（chargeIdleAlpha），避免装满后炮身彻底死板。
+       //   #U41 校色：振幅压到**缝内**（原 _railOff*1.15 会甩出炮身）、线宽收到 1px 级——
+       //   早期版本 2.4× 外晕叠在 3px 炮管上，实机糊成一条白斑而不是「电弧」。
+       const _arcN = (_charge >= 0.999)
+         ? 2
+         : 1 + Math.floor(_charge * ((_rfx.chargeArcs || 6) - 1) + 1e-6);
+       const _arcAmp = Math.max(0.8, _gapHalf * 1.05) * (0.55 + 0.45 * _charge);
+       const _q = Math.floor(((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0) * 22) | 0;
+       const _alphaBase = (_charge >= 0.999) ? (_rfx.chargeIdleAlpha || 0.16) : (0.12 + 0.60 * _charge);
+       const _cw = _rfx.chargeArcWidth || 1.2;
+       for(let _ai = 0; _ai < _arcN; _ai++){
+         const _t0 = Math.max(0.05, 0.08 + 0.84 * ((_ai + 0.5) / Math.max(1, _arcN)) - 0.24);
+         const _ax = _tx + barrelRayDx * barrelLen * _t0;
+         const _ay = _ty + barrelRayDy * barrelLen * _t0;
+         const _alen = barrelLen * (0.18 + 0.16 * _charge);
+         const _pts = (typeof lightningPath === 'function')
+           ? lightningPath(_ax, _ay, t.turretAngle, _alen, _arcAmp, (_rfx.chargeArcSegs || 5), _q * 0.011 + _ai * 3.7)
+           : [{ x: _ax, y: _ay }, { x: _ax + barrelRayDx * _alen, y: _ay + barrelRayDy * _alen }];
+         // 外层冷白晕（1.7×，薄）
+         ctx.strokeStyle = _arcHalo;
+         ctx.globalAlpha = _alphaBase * 0.34;
+         ctx.lineWidth = _cw * 1.7;
+         ctx.beginPath();
+         ctx.moveTo(_pts[0].x, _pts[0].y);
+         for(let _i = 1; _i < _pts.length; _i++) ctx.lineTo(_pts[_i].x, _pts[_i].y);
+         ctx.stroke();
+         // 内层纯白芯（0.7×）
+         ctx.strokeStyle = _arcWhite;
+         ctx.globalAlpha = _alphaBase;
+         ctx.lineWidth = Math.max(0.5, _cw * 0.7);
+         ctx.stroke();
+         ctx.globalAlpha = 1;
+       }
+       ctx.restore();
      } else {
-       ctx.strokeStyle = shade(bCol, -45); ctx.lineWidth = barrelWid;
+       // #TEX12：炮管按**圆柱**画，而不是一根平色线 + 一条高光。
+       //   4 条平行带：深底 → 中间调 → 受光高光 → 背光暗边；偏移方向取世界光
+       //   （左上）在炮管法线上的投影，炮管转到任何角度高光都在受光侧。
        ctx.lineCap = 'round';
-       ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
-       // barrel highlight
-       ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = Math.max(1, barrelWid*0.4);
-       ctx.beginPath(); ctx.moveTo(_tx, _ty); ctx.lineTo(_ex, _ey); ctx.stroke();
+       const side = (perpX * -0.7071 + perpY * -0.7071) >= 0 ? 1 : -1;
+       const band = (off, style, width) => {
+         ctx.strokeStyle = style; ctx.lineWidth = width;
+         ctx.beginPath();
+         ctx.moveTo(_tx + perpX*off, _ty + perpY*off);
+         ctx.lineTo(_ex + perpX*off, _ey + perpY*off);
+         ctx.stroke();
+       };
+       band(0, shade(bCol, -52), barrelWid);
+       band(barrelWid * 0.18 * side, shade(bCol, -14), Math.max(1.2, barrelWid * 0.66));
+       band(barrelWid * 0.30 * side, 'rgba(255,255,255,0.22)', Math.max(1, barrelWid * 0.20));
+       band(-barrelWid * 0.30 * side, shade(bCol, -60), Math.max(1, barrelWid * 0.20));
      }
    }
 
@@ -1153,6 +1580,11 @@ function drawTank(ctx, t){
    ctx.lineCap = 'butt';
    } // end turret/barrel block (skipped when the ammo rack blew the turret off)
 
+  // #W2（2026-10-19 用户反馈「副炮塔需要绘制在顶层贴图」）：
+  //   程序化分支此前在 :1151（主炮塔之前）画副炮塔 ⇒ 被主炮塔整块盖住，只露一圈边缘。
+  //   现移到主炮塔/炮管绘制完成之后，读作「叠在主炮塔上的第二座炮塔」。
+  if(!t.ammoBlew) drawSecondaryTurret(ctx, t);
+
   // ---- draw attachments ----
   drawAttachments(ctx, t, turCx, turCy);
 
@@ -1163,11 +1595,23 @@ function drawTank(ctx, t){
 // 炮塔座圈虚线（画在车体上、炮塔之下）。两条绘制通道共用（#L1）。
 function drawTurretRing(ctx, t, turCx, turCy){
   if(t.ammoBlew) return;
+  const bCol = (typeof tankBodyCol === 'function') ? tankBodyCol(t) : (t.color || '#555');
+  const r = t.turWid * 0.5;
   ctx.save();
   ctx.translate(turCx, turCy);
+  // #TEX13：座圈凸台——炮塔不是「贴在车体上的贴纸」，而是坐在一圈凸起的座圈上。
+  //   先画一圈右下偏移的暗色环形（凸台侧壁），再画座圈顶面；炮塔随后盖住中心，
+  //   只露出背光侧 2~3px 的凸台厚度 + 座圈缝。
+  ctx.fillStyle = paintShade(bCol, -52);
+  ctx.beginPath(); ctx.ellipse(1.8, 2.4, r * 1.18, r * 1.13, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = paintShade(bCol, -24);
+  ctx.beginPath(); ctx.ellipse(0, 0, r * 1.14, r * 1.09, 0, 0, TAU); ctx.fill();
+  ctx.strokeStyle = paintShade(bCol, 16); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.ellipse(0, 0, r * 1.14, r * 1.09, 0, 0, TAU); ctx.stroke();
+  // 座圈缝（原虚线保留为机械缝）
   ctx.strokeStyle = 'rgba(15,15,18,0.40)'; ctx.lineWidth = 1.5;
   ctx.setLineDash([3,3]);
-  ctx.beginPath(); ctx.arc(0, 0, t.turWid*0.5, 0, TAU); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.stroke();
   ctx.setLineDash([]);
   ctx.restore();
 }
@@ -1257,39 +1701,99 @@ function drawTankHud(ctx, t){
 }
 
 // ======================= PLAN §8.1.2 副炮塔（secondary turret）绘制 =======================
-// 副武器类型为 turret 时，在车体后部绘制一座独立的小炮塔（带独立 secondaryTurretAngle 炮管）。
+// 副武器类型为 turret 时绘制一座**缩小版的自身炮塔**，叠在主炮塔上方（沿用本车炮塔多边形外观件）。
 // 纯位姿计算抽成 secondaryTurretPose（Node 可测），绘制层只消费位姿。
-// 位置：车体尾后偏移（hullAngle 反向 hullLen*0.28），炮管长 = hullWid*0.55。
+//
+// #U42（2026-10-19 用户反馈「副炮塔似乎没有效果，贴图方面使用1个缩小版的自身炮塔叠在当前炮塔上方自主攻击」）：
+//   旧实现是「车体尾部一个小圆盘 + 一根棍子」——① 位置在**车尾**（hullAngle 反向 hullLen*0.28），
+//   玩家看不到它跟着主炮塔；② 造型是纯几何圆盘，与本车观感无关；③ 半径 hullWid*0.30 ≈ 11px，
+//   在 73×38 的车体上小到几乎不可见 ⇒ 玩家主观结论就是「副炮塔没效果」。
+//   现行：位姿 = 主炮塔 **座圈中心**（turretPivot）+ 沿主炮塔朝向再前移一点，缩放 = 主炮塔的 0.62，
+//   外观直接复用本车炮塔顶点（turretPoly）——读作「同一辆车上多装了一座小炮塔」。
+const SECONDARY_TURRET_SCALE = 0.62;
+
 function secondaryTurretPose(t){
   if(!t || !t.weapons || !t.weapons.secondary || t.weapons.secondary.type !== 'turret') return null;
-  const hullLen = t.hullLen || 120, hullWid = t.hullWid || 38;
-  const back = hullLen * 0.28;
-  const px = t.x - Math.cos(t.hullAngle || 0) * back;
-  const py = t.y - Math.sin(t.hullAngle || 0) * back;
-  const angle = (typeof t.secondaryTurretAngle === 'number') ? t.secondaryTurretAngle : (t.hullAngle || 0);
-  return { x: px, y: py, angle: angle, radius: Math.max(5, hullWid * 0.30), barrelLen: hullWid * 0.55 };
+  const hullLen = t.hullLen || 120;
+  const turLen = t.turLen || 38, turWid = t.turWid || 34;
+  const s = SECONDARY_TURRET_SCALE;
+  // 锚点：主炮塔座圈中心（与 drawTurretRing / turretPivot 同源）。
+  // #W2（2026-10-19 用户反馈「位置在主炮塔后半部分」）：此前沿主炮塔朝向**前移**
+  //   （`+= cos/sin`），副炮塔落在主炮塔前半/正前方，与要求相反。现改为后移。
+  let px = t.x, py = t.y;
+  if(typeof turretPivot === 'function'){
+    const off = turretPivot(t);
+    if(off && isFinite(off.x) && isFinite(off.y)){ px = off.x; py = off.y; }
+  }
+  const structureA = (typeof superstructureAngle === 'function') ? superstructureAngle(t) : (t.turretAngle || 0);
+  px -= Math.cos(structureA) * (turLen * s * 0.45);
+  py -= Math.sin(structureA) * (turLen * s * 0.45);
+  const angle = (typeof t.secondaryTurretAngle === 'number') ? t.secondaryTurretAngle : (t.turretAngle || 0);
+  return {
+    x: px, y: py, angle: angle,
+    scale: s,
+    // 缩放后的「炮塔半径」（供血条/命中提示等消费方估算体量）
+    radius: Math.max(5, turWid * 0.5 * s),
+    // 副炮塔炮管：比主炮短一截（按副武器削弱系数 0.75 的观感刻意略短）
+    barrelLen: Math.max(10, t.turLen * 0.9 * s),
+    barrelWid: Math.max(2, turWid * 0.18 * s)
+  };
 }
 
+// 画一座「缩放版自身炮塔」：复用本车炮塔多边形顶点（turretPoly），按 pose.scale 缩放 + 平移到 pose 位置，
+// 朝 pose.angle 旋转——外观件（涂装/勾线/受光）与主炮塔同源，读作同一辆车上多装的一座小炮塔。
 function drawSecondaryTurret(ctx, t){
   const pose = secondaryTurretPose(t);
   if(!pose) return false;
   if(t.ammoBlew) return false;   // 殉爆掀飞炮塔后不绘制
-  const r = pose.radius;
-  // 底座阴影 + 环形座圈
+  const s = pose.scale;
+  const bCol = tankBodyCol(t);
+  // 炮塔多边形顶点（相对车体原点的模型坐标）——平移到原点后按 s 缩放
+  let verts = null;
+  if(typeof turretPoly === 'function'){
+    const tp = turretPoly(t);
+    if(tp && Array.isArray(tp.verts)) verts = tp.verts;
+  }
   ctx.save();
   ctx.translate(pose.x, pose.y);
-  ctx.fillStyle = 'rgba(0,0,0,0.28)';
-  ctx.beginPath(); ctx.arc(2, 3, r, 0, TAU); ctx.fill();
-  ctx.fillStyle = shade(tankBodyCol(t), -22);
-  ctx.strokeStyle = 'rgba(15,15,18,0.60)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill(); ctx.stroke();
-  // 独立转向的炮管
+  // 底座投影（与主炮塔同款：世界固定光向右下）
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  if(verts){
+    for(let i = 0; i < verts.length; i++){
+      const vx = verts[i][0] * s + 2, vy = verts[i][1] * s + 3;
+      i ? ctx.lineTo(vx, vy) : ctx.moveTo(vx, vy);
+    }
+  } else {
+    ctx.arc(2, 3, pose.radius, 0, TAU);
+  }
+  ctx.closePath(); ctx.fill();
+
   ctx.rotate(pose.angle);
-  ctx.strokeStyle = shade(tankBodyCol(t), -10); ctx.lineWidth = Math.max(2, r * 0.5); ctx.lineCap = 'butt';
-  ctx.beginPath(); ctx.moveTo(r * 0.2, 0); ctx.lineTo(pose.barrelLen, 0); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = Math.max(1, r * 0.18);
-  ctx.beginPath(); ctx.moveTo(r * 0.4, -r * 0.12); ctx.lineTo(pose.barrelLen * 0.9, -r * 0.12); ctx.stroke();
+  // 炮塔本体（缩放多边形）+ 侧壁暗边 + 勾线
+  ctx.beginPath();
+  if(verts){
+    for(let i = 0; i < verts.length; i++){
+      const vx = verts[i][0] * s, vy = verts[i][1] * s;
+      i ? ctx.lineTo(vx, vy) : ctx.moveTo(vx, vy);
+    }
+  } else {
+    ctx.arc(0, 0, pose.radius, 0, TAU);
+  }
+  ctx.closePath();
+  ctx.fillStyle = shade(bCol, -6);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(15,15,18,0.60)'; ctx.lineWidth = 1.2; ctx.stroke();
+  // 副炮塔炮管（沿 pose.angle，从炮塔前缘伸出）
+  const frontX = (verts ? (verts[0][0] * s) : pose.radius) * 0.6;
+  ctx.strokeStyle = shade(bCol, -12); ctx.lineWidth = pose.barrelWid; ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.moveTo(frontX, 0); ctx.lineTo(frontX + pose.barrelLen, 0); ctx.stroke();
+  // 受光高光（与主炮塔 rim light 同向，避免「一块死色斑」）
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = Math.max(1, pose.barrelWid * 0.35);
+  ctx.beginPath(); ctx.moveTo(frontX, -pose.barrelWid * 0.5); ctx.lineTo(frontX + pose.barrelLen * 0.9, -pose.barrelWid * 0.5); ctx.stroke();
   ctx.restore();
+  // 炮口闪光/曳光由开火路径（updateSecondaryTurret → fireActiveSecondary → shell）统一处理，
+  // 这里只画静态外观，不额外叠特效（避免与主炮特效混淆）。
   return true;
 }
 
@@ -1350,29 +1854,46 @@ function drawGround(ctx, opts) {
   // #U3（2026-10-17）：原 LCG 流（`next()`）已随色斑改为世界格 hash 而移除——
   //   其唯一用途是生成视口相对色斑（缺陷根源）。底色/gradient 不需要随机数。
 
-  // #1（2026-10-16）：多 biome——按 x 区段分别填充底色，交界处渐变过渡
+  // #1（2026-10-16）：多 biome——按区段分别填充底色，交界处渐变过渡
+  // #GT（2026-10-18）：区段升级为**2 维矩形带** `{x0,x1,y0,y1,biome}`（见 specs/map.md §25）。
+  //   旧口径只有 x 带、且 fillRect 用**视口全高** ⇒ 多行片（chunkRows>1）时同列不同行的 zone
+  //   x 区间完全相同、biome 却不同，后画的整片盖掉先画的，两个 biome 的纹理层还会**叠在同一片
+  //   像素上**（alpha 叠加 → 偏亮 + 纹理密一倍），视口边缘来回切换时就读成「纹理随玩家移动变化」。
+  //   现按矩形裁剪；兼容旧的「只有 x0/x1」zone（y0/y1 缺省 = 视口全高）。
+  const zoneY0 = (z) => (Number.isFinite(z.y0) ? z.y0 : y0);
+  const zoneY1 = (z) => (Number.isFinite(z.y1) ? z.y1 : y0 + h);
+  const clampZone = (z) => ({
+    x0: Math.max(x0, z.x0), x1: Math.min(x0 + w, z.x1),
+    y0: Math.max(y0, zoneY0(z)), y1: Math.min(y0 + h, zoneY1(z)),
+    biome: z.biome
+  });
   const zones = opts.biomeZones;
   const TRANS_W = 260;  // 过渡带半宽（px）
   ctx.save();
   if (zones && zones.length) {
     for (let zi = 0; zi < zones.length; zi++) {
-      const z = zones[zi];
-      const zx0 = Math.max(x0, z.x0), zx1 = Math.min(x0 + w, z.x1);
-      if (zx1 <= zx0) continue;
+      const z = clampZone(zones[zi]);
+      if (z.x1 <= z.x0 || z.y1 <= z.y0) continue;
       ctx.fillStyle = palFor(z.biome).base;
-      ctx.fillRect(zx0, y0, zx1 - zx0, h);
+      ctx.fillRect(z.x0, z.y0, z.x1 - z.x0, z.y1 - z.y0);
     }
-    // 交界渐变：每对相邻区段在边界处画 TRANS_W*2 宽的线性渐变
+    // 交界渐变：沿相邻两 zone 的**公共 x 边界**画过渡带。
+    //   #GT（2026-10-18）：只对「y 区间确实相接/重叠」的邻居做渐变——2 维 zone 下同列不同行
+    //   的邻居 x 边界相同但 y 不相接，那不是地貌交界（旧口径会给它们也画一条渐变，把整片刷一遍）。
     for (let zi = 0; zi + 1 < zones.length; zi++) {
-      const bx = zones[zi].x1;  // 交界 x
+      const a = clampZone(zones[zi]), b = clampZone(zones[zi + 1]);
+      if (a.x1 !== b.x0 && b.x1 !== a.x0) continue;          // 不是水平相邻
+      const gy0 = Math.max(a.y0, b.y0), gy1 = Math.min(a.y1, b.y1);
+      if (gy1 <= gy0) continue;                              // y 不相交 ⇒ 不是地貌交界
+      const bx = (a.x1 === b.x0) ? a.x1 : b.x1;              // 交界 x
       const gx0 = Math.max(x0, bx - TRANS_W), gx1 = Math.min(x0 + w, bx + TRANS_W);
       if (gx1 <= gx0) continue;
-      const cA = palFor(zones[zi].biome).base, cB = palFor(zones[zi + 1].biome).base;
+      const cA = palFor(a.biome).base, cB = palFor(b.biome).base;
       const grad = ctx.createLinearGradient(gx0, 0, gx1, 0);
       grad.addColorStop(0, cA);
       grad.addColorStop(1, cB);
       ctx.fillStyle = grad;
-      ctx.fillRect(gx0, y0, gx1 - gx0, h);
+      ctx.fillRect(gx0, gy0, gx1 - gx0, gy1 - gy0);
     }
   } else {
     const pal = palFor(opts.biome);
@@ -1401,22 +1922,41 @@ function drawGround(ctx, opts) {
   };
 
   ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();   // 色斑裁剪在视口区内
-  for (let gy = gy0; gy <= gy1; gy++) {
-    for (let gx = gx0; gx <= gx1; gx++) {
-      const n = 3 + Math.floor(cellHash(gx, gy, 0) * 4);   // 每格 3~6 个斑（密覆视口，无缝无重叠感）
-      const cxs = gx * CELL, cys = gy * CELL;
-      for (let i = 0; i < n; i++) {
-        const cx = cxs + cellHash(gx, gy, i * 6 + 1) * CELL;
-        const cy = cys + cellHash(gx, gy, i * 6 + 2) * CELL;
-        const rw = CELL * (0.10 + cellHash(gx, gy, i * 6 + 3) * 0.16);
-        const rh = rw * (0.45 + cellHash(gx, gy, i * 6 + 4) * 0.5);
-        const rot = cellHash(gx, gy, i * 6 + 5) * Math.PI;
-        ctx.globalAlpha = 0.06 + cellHash(gx, gy, i * 6 + 6) * 0.06;  // alpha ≤0.12 低频色斑
-        ctx.fillStyle = alts[Math.floor(cellHash(gx, gy, i * 6 + 3) * alts.length) % alts.length];
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, rw, rh, rot, 0, Math.PI * 2);
-        ctx.fill();
+  // #U11-2026-10-18：逐斑 beginPath/fill → **按 (alpha档 × 颜色) 合批**。
+  //   旧实现每斑 4 次调用（globalAlpha/fillStyle/beginPath/ellipse/fill ≈ 5 次），
+  //   视口 1920×1080 实测 107 个斑 → 约 535 次 ctx 调用/帧，全是可合并的纯填充。
+  //   斑的不透明度只有 0.06~0.12 一个窄带，量化成 2 档后视觉无差异（同色同档共用一次 fill）。
+  //   alpha 档与颜色作为桶键：桶数 ≤ 2×alt.length（实测 ≤ 8），远小于斑数。
+  {
+    const BUCKETS = new Map();
+    for (let gy = gy0; gy <= gy1; gy++) {
+      for (let gx = gx0; gx <= gx1; gx++) {
+        const n = 3 + Math.floor(cellHash(gx, gy, 0) * 4);   // 每格 3~6 个斑（密覆视口，无缝无重叠感）
+        const cxs = gx * CELL, cys = gy * CELL;
+        for (let i = 0; i < n; i++) {
+          const cx = cxs + cellHash(gx, gy, i * 6 + 1) * CELL;
+          const cy = cys + cellHash(gx, gy, i * 6 + 2) * CELL;
+          const rw = CELL * (0.10 + cellHash(gx, gy, i * 6 + 3) * 0.16);
+          const rh = rw * (0.45 + cellHash(gx, gy, i * 6 + 4) * 0.5);
+          const rot = cellHash(gx, gy, i * 6 + 5) * Math.PI;
+          const aTier = cellHash(gx, gy, i * 6 + 6) < 0.5 ? 0 : 1;
+          const col = alts[Math.floor(cellHash(gx, gy, i * 6 + 3) * alts.length) % alts.length];
+          const bk = aTier + '|' + col;
+          let bucket = BUCKETS.get(bk);
+          if (!bucket) { bucket = { alpha: aTier ? 0.115 : 0.075, col, items: [] }; BUCKETS.set(bk, bucket); }
+          bucket.items.push([cx, cy, rw, rh, rot]);
+        }
       }
+    }
+    for (const b of BUCKETS.values()) {
+      ctx.globalAlpha = b.alpha;
+      ctx.fillStyle = b.col;
+      ctx.beginPath();
+      for (const [cx, cy, rw, rh, rot] of b.items) {
+        // ellipse 会 push 独立子路径（mini-canvas 与浏览器一致），故一条 beginPath 内可累积多斑
+        ctx.ellipse(cx, cy, rw, rh, rot, 0, Math.PI * 2);
+      }
+      ctx.fill();
     }
   }
   ctx.globalAlpha = 1;
@@ -1428,18 +1968,151 @@ function drawGround(ctx, opts) {
   ctx.restore();
 }
 
+// ============ 地面层视口锚定滚动烘焙（#GT，2026-10-18） ============
+// 动机（用户报「部分 biome（雪地、沙漠）纹理会随玩家移动变化，帧率也大幅下降」）——两个独立成因：
+//   ① **性能**：`_paintGroundTexture` 每帧按「世界格 hash」重算并重描全部图元。实测 1920×1080
+//      单帧：雪地 11,717 图元 / 沙漠 4,777 / 草地 14,047 / 泥地 6,455；zoom 0.5（看全图，
+//      视口 3840×2160）雪地 45,087、泥地 23,641 图元，单帧地面纹理耗时 **31.6~84.6ms**
+//      —— 60fps 预算只有 16.7ms，于是「一移动就掉帧」。这些图元与相机无关（世界锚定），
+//      **每帧重画纯属浪费**。
+//   ② **观感抖动**：即使几何完全世界锚定，程序化细图元（雪粒 1~2px / 沙纹 1.2px 描边）在
+//      **亚像素**相机位移下会被重采样成不同亮度；实测相机移动 0.5px 时 1.5%~2.9% 的采样点
+//      亮度变化 >3 —— 雪地/沙漠这类高对比细纹理最明显，读起来就是「纹理随玩家移动而变」。
+// 解法：把地面（底色 + 色斑 + 材质纹理）**烘焙成视口大小的离屏画布**，按世界坐标锚定，
+//   相机在内半区移动时直接 blit（每次 1 次 drawImage），越过迟滞才重烘焙；
+//   烘焙发生在整数化的世界原点上，所以亚像素位移被完全吸收。
+//   与道路的 `ensureGroundBake`（tank_mvp.html）同款迟滞思路，但只覆盖地面层、成本更低。
+const GROUND_CACHE_MARGIN = 320;    // 烘焙区相对视口的外扩余量（世界 px，迟滞带 = 该值的一半）
+// 单块烘焙画布的**像素**上限（不是世界尺寸上限）：决定内存与 blit 成本的是缓冲的像素数，
+//   与世界覆盖范围无关。1966 万 px ≈ 75MB RGBA，是安全上限。
+//   #GT 修正：旧判据用「世界尺寸 > 4096 就不烘焙」，而 zoom 0.5 看全图时世界视口 3840×2160
+//   +MARGIN 达 4480×2800 ⇒ 被误拒，缩小视角时又退回每帧 45k 图元直绘（正掉帧最严重的场景）。
+//   现按「世界尺寸 × zoom = 缓冲像素」判定：zoom 0.5 时 4480×2800 世界 ⇒ 2240×1400 缓冲，
+//   远在预算内，可以正常烘焙。
+const GROUND_CACHE_MAX_PX = 4096 * 4096;
+
+// 地面纹理层的「代数」计数：biome/seed/zones 变化即失效（供调试与测试断言）
+let _groundCache = null;            // { canvas, ctx, ox, oy, w, h, key }
+
+function _groundCacheKey(opts, vb) {
+  // seed + biome + zones 的紧凑指纹（zone 只取区间与 biome，数量少，直接拼串）
+  const zs = opts.biomeZones;
+  let z = '';
+  if (zs && zs.length) {
+    for (let i = 0; i < zs.length; i++) {
+      const q = zs[i];
+      z += Math.round(q.x0) + ',' + Math.round(q.x1) + ','
+        + Math.round(Number.isFinite(q.y0) ? q.y0 : -1) + ','
+        + Math.round(Number.isFinite(q.y1) ? q.y1 : -1) + ',' + q.biome + ';';
+    }
+  }
+  return _groundSeedHash(opts.seed) + '|' + (opts.biome || '') + '|' + z;
+}
+
+/**
+ * 取（必要时重建）与当前视口匹配的地面烘焙缓存。
+ * 缓存命中条件：key 相同 + 视口仍在「外扩 MARGIN 后、再内缩 MARGIN/2」的迟滞区内。
+ *
+ * 烘焙缓冲区按**屏幕像素**尺寸建（世界尺寸 × zoom），画的时候再以 zoom 放大回世界变换里——
+ * 这样无论 zoom 多少，缓冲成本恒为「视口像素 + 余量」，缩小看全图时不会因世界范围变大而爆内存。
+ * @param {any} ctx 目标 ctx（仅用于读取尺寸；缺省用 document.createElement 建画布）
+ * @param {any} opts drawGround 的 opts（含 viewBounds/biome/biomeZones/seed；`opts.zoom` 缺省 1）
+ * @param {Function|null} makeCanvas (w,h)=>CanvasLike 工厂；缺省用 document.createElement
+ * @returns {any|null} { canvas, ox, oy, w, h, z } 或 null（不能/无需烘焙）
+ */
+function ensureGroundCache(ctx, opts, makeCanvas) {
+  const vb = opts && opts.viewBounds;
+  if (!vb || !(vb.maxX > vb.minX) || !(vb.maxY > vb.minY)) return null;
+  const zoom = (opts.zoom > 0) ? opts.zoom : 1;
+  const vw = vb.maxX - vb.minX, vh = vb.maxY - vb.minY;
+  // 世界尺寸的烘焙区（含余量）
+  const wantW = vw + 2 * GROUND_CACHE_MARGIN, wantH = vh + 2 * GROUND_CACHE_MARGIN;
+  // 缓冲像素尺寸（= 世界尺寸 × zoom）
+  const bufW = Math.ceil(wantW * zoom), bufH = Math.ceil(wantH * zoom);
+  if (!(bufW > 0) || !(bufH > 0)) return null;
+  // 像素护栏：过大的视口（极端缩小）才回退直绘，避免几百 MB RGBA
+  if (bufW * bufH > GROUND_CACHE_MAX_PX || bufW > 8192 || bufH > 8192) return null;
+  const key = _groundCacheKey(opts) + '|z' + Math.round(zoom * 1000);
+  if (_groundCache && _groundCache.key === key) {
+    const c = _groundCache;
+    const halfX = GROUND_CACHE_MARGIN / 2, halfY = GROUND_CACHE_MARGIN / 2;
+    const insetX = ((c.w / zoom) - vw) / 2, insetY = ((c.h / zoom) - vh) / 2;
+    if (insetX >= halfX && insetY >= halfY &&
+        vb.minX >= c.ox + (insetX - halfX) && vb.maxX <= c.ox + (c.w / zoom) - (insetX - halfX) &&
+        vb.minY >= c.oy + (insetY - halfY) && vb.maxY <= c.oy + (c.h / zoom) - (insetY - halfY)) {
+      return c;
+    }
+  }
+  // 重烘焙：以**整数化**的世界原点建画布（吸收亚像素抖动）
+  const ox = Math.floor((vb.minX + vb.maxX) / 2 - wantW / 2);
+  const oy = Math.floor((vb.minY + vb.maxY) / 2 - wantH / 2);
+  const w = bufW, h = bufH;
+  let canvas = null;
+  if (typeof makeCanvas === 'function') canvas = makeCanvas(w, h);
+  else if (typeof document !== 'undefined' && document.createElement) {
+    canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+  }
+  if (!canvas) return null;
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
+  const g = canvas.getContext('2d');
+  if (!g) return null;
+  if (typeof g.clearRect === 'function') g.clearRect(0, 0, w, h);
+  // 在烘焙画布的坐标系里：先把 zoom 放大（世界→缓冲像素），再把世界原点平移到 (ox, oy)
+  g.save();
+  g.scale(zoom, zoom);
+  g.translate(-ox, -oy);
+  drawGround(g, {
+    viewBounds: { minX: ox, minY: oy, maxX: ox + wantW, maxY: oy + wantH },
+    biome: opts.biome, biomeZones: opts.biomeZones, seed: opts.seed,
+    _skipCache: true                 // 防止递归（drawGround 内部不再走缓存）
+  });
+  g.restore();
+  _groundCache = { canvas: canvas, ctx: g, ox: ox, oy: oy, w: w, h: h, z: zoom, key: key };
+  return _groundCache;
+}
+
+// 清空地面烘焙缓存（换节点 / dev 随机场 / 改 seed 时调用）
+function clearGroundCache() { _groundCache = null; }
+
+/**
+ * 绘制地面层（带烘焙缓存）。世界坐标锚定；相机在内半区移动时直接 blit。
+ * @param {any} ctx 世界系 ctx（已经过相机变换与 cam.zoom 缩放）
+ * @param {any} opts 同 drawGround，另支持 `opts.noCache=true` 强制直绘（测试/调试）；
+ *   `opts.zoom` 为当前 cam.zoom（缺省 1）——烘焙缓冲按屏幕像素建，必须传入才与屏幕 1:1
+ * @param {Function|null} [makeCanvas] 离屏画布工厂（Node 测试注入）
+ * @returns {boolean} true = 走了缓存 blit，false = 每帧直绘
+ */
+function drawGroundCached(ctx, opts, makeCanvas) {
+  opts = opts || {};
+  if (opts.noCache) { drawGround(ctx, opts); return false; }
+  const cache = ensureGroundCache(ctx, opts, makeCanvas);
+  if (!cache) { drawGround(ctx, opts); return false; }
+  // 缓冲是「屏幕像素」分辨率，画回世界变换里要除以 zoom 还原世界尺寸
+  ctx.drawImage(cache.canvas, cache.ox, cache.oy, cache.w / cache.z, cache.h / cache.z);
+  return true;
+}
+
 // 地面材质纹理（#U11）。opts 同 drawGround；box 为视口世界矩形；seed 为基哈希。
 // 每个 biome 用一套「图元」：位置/角度/尺寸/透明度全部由世界格 hash 派生，确定性且不随视口漂移。
 // 支持 biomeZones：按区段分别取样式（strip 节点一根横向世界会跨多个 biome），
-// 区段裁剪与 drawGround 的底色填充同口径（同一 z.x0/z.x1）。
+// 区段裁剪与 drawGround 的底色填充同口径（2 维矩形 `{x0,x1,y0,y1}`）。
 function drawGroundTexture(ctx, opts, box){
   const { x0, y0, w, h, baseSeed } = box;
   const zones = opts.biomeZones;
   if(zones && zones.length){
+    // #GT（2026-10-18）：2 维矩形 zone `{x0,x1,y0,y1,biome}`；兼容旧的只用 x0/x1 的 1 维 zone
+    //   （y0/y1 缺省 = 视口全高）。**必须按矩形裁剪**：旧实现在多行片下同一 x 被两个 biome 各画
+    //   一遍纹理，两层 alpha 叠在同一片像素上 ⇒ 纹理密一倍、整体偏亮，且视口边缘切换时像是
+    //   「纹理随玩家移动变化」。
     for(let i = 0; i < zones.length; i++){
-      const zx0 = Math.max(x0, zones[i].x0), zx1 = Math.min(x0 + w, zones[i].x1);
-      if(zx1 <= zx0) continue;
-      _paintGroundTexture(ctx, zones[i].biome, baseSeed, zx0, y0, zx1 - zx0, h);
+      const z = zones[i];
+      const zx0 = Math.max(x0, z.x0), zx1 = Math.min(x0 + w, z.x1);
+      const zy0 = Math.max(y0, Number.isFinite(z.y0) ? z.y0 : y0);
+      const zy1 = Math.min(y0 + h, Number.isFinite(z.y1) ? z.y1 : y0 + h);
+      if(zx1 <= zx0 || zy1 <= zy0) continue;
+      _paintGroundTexture(ctx, z.biome, baseSeed, zx0, zy0, zx1 - zx0, zy1 - zy0);
     }
     return;
   }
@@ -1447,6 +2120,16 @@ function drawGroundTexture(ctx, opts, box){
 }
 
 // 单 biome 的纹理落笔（drawGroundTexture 的内层实现，按矩形区段裁剪）。
+// #TEX5-2026-10-18 性能重做：原实现**每个图元一组 beginPath/moveTo/lineTo/stroke**，
+//   1920×1080 实测（`tmp/bench-ground.js`，mini-canvas 计数）雪地 35,315 次 ctx 调用/帧、
+//   草地 26,973 次、草原 21,061 次——纯地面纹理就吃掉上千次状态切换，是绘制层最大热点。
+//   改为「按透明度分桶批处理」：同一 alpha 桶内所有图元合成**一条路径**，4 桶 → 每帧
+//   最多 4 次 fill + 4 次 stroke。视觉几乎无差（alpha 由连续量化到 4 档），
+//   图元位置/角度/尺寸仍逐格由 hash 派生，世界锚定与确定性完全不变。
+const _GT_BUCKETS = 4;          // alpha 量化档数
+const _GT_SCRATCH = [];         // 每档一个扁平数组（模块级复用，避免每帧分配）
+for(let i = 0; i < _GT_BUCKETS; i++) _GT_SCRATCH.push([]);
+
 function _paintGroundTexture(ctx, biome, baseSeed, x0, y0, w, h){
   const style = {
     // #U11 调色：纹理色必须与底色拉开 ≥12 个灰阶，否则在 0.35~0.85 的 globalAlpha 叠加后
@@ -1469,10 +2152,10 @@ function _paintGroundTexture(ctx, biome, baseSeed, x0, y0, w, h){
   };
   const gx0 = Math.floor(x0 / CELL) - 1, gx1 = Math.floor((x0 + w) / CELL) + 1;
   const gy0 = Math.floor(y0 / CELL) - 1, gy1 = Math.floor((y0 + h) / CELL) + 1;
-  ctx.save();
-  ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();
-  ctx.fillStyle = style.col;
-  ctx.strokeStyle = style.col;
+
+  // ---- 第一遍：按 alpha 桶收集图元几何（不触碰 ctx，零 canvas 调用）----
+  for(let i = 0; i < _GT_BUCKETS; i++) _GT_SCRATCH[i].length = 0;
+  const isFill = (style.shape === 'speck' || style.shape === 'patch');
   for (let gy = gy0; gy <= gy1; gy++) {
     for (let gx = gx0; gx <= gx1; gx++) {
       const n = 1 + Math.floor(h1(gx, gy, 0) * style.n);
@@ -1481,43 +2164,79 @@ function _paintGroundTexture(ctx, biome, baseSeed, x0, y0, w, h){
         const px = gx * CELL + h1(gx, gy, b + 1) * CELL;
         const py = gy * CELL + h1(gx, gy, b + 2) * CELL;
         const s = 0.5 + h1(gx, gy, b + 3);
-        ctx.globalAlpha = 0.35 + h1(gx, gy, b + 4) * 0.5;
+        // alpha 0.35~0.85 → 4 档（取档中值，桶内统一 globalAlpha）
+        const aRaw = 0.35 + h1(gx, gy, b + 4) * 0.5;
+        const bi = Math.min(_GT_BUCKETS - 1, Math.floor((aRaw - 0.35) / 0.5 * _GT_BUCKETS));
+        const bucket = _GT_SCRATCH[bi];
         if (style.shape === 'blade') {
-          // 草丛短划：斜向 3~7px
+          // 草丛短划：斜向 3~7px → [x1,y1,x2,y2]
           const ang = -1.2 + h1(gx, gy, b + 5) * 0.8;
           const len = 3 + s * 4;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(px, py);
-          ctx.lineTo(px + Math.cos(ang) * len, py + Math.sin(ang) * len);
-          ctx.stroke();
+          bucket.push(px, py, px + Math.cos(ang) * len, py + Math.sin(ang) * len);
         } else if (style.shape === 'speck') {
-          // 雪粒：1~2px 小点
-          ctx.beginPath();
-          ctx.arc(px, py, 0.6 + s * 0.9, 0, Math.PI * 2);
-          ctx.fill();
+          // 雪粒：1~2px 小点 → [x,y,r]
+          bucket.push(px, py, 0.6 + s * 0.9);
         } else if (style.shape === 'dune') {
-          // 沙纹：横向短弧
-          const rw = 8 + s * 10;
-          ctx.lineWidth = 1.2;
-          ctx.beginPath();
-          ctx.ellipse(px, py, rw, rw * 0.28, 0, Math.PI * 0.15, Math.PI * 0.85);
-          ctx.stroke();
+          // 沙纹：横向短弧 → [x,y,rw,rot]
+          bucket.push(px, py, 8 + s * 10, 0);
         } else if (style.shape === 'patch') {
-          // 湿斑：暗色小椭圆
-          ctx.beginPath();
-          ctx.ellipse(px, py, 4 + s * 7, 3 + s * 5, h1(gx, gy, b + 5) * Math.PI, 0, Math.PI * 2);
-          ctx.fill();
+          // 湿斑：暗色小椭圆 → [x,y,rx,ry,rot]
+          bucket.push(px, py, 4 + s * 7, 3 + s * 5, h1(gx, gy, b + 5) * Math.PI);
         } else if (style.shape === 'pave') {
-          // 铺装线：短横向直线
+          // 铺装线：短横向直线 → [x1,y1,x2,y2]
           const len = 14 + s * 18;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(px - len / 2, py);
-          ctx.lineTo(px + len / 2, py);
-          ctx.stroke();
+          bucket.push(px - len / 2, py, px + len / 2, py);
         }
       }
+    }
+  }
+
+  // ---- 第二遍：每档一次 path + 一次 fill/stroke ----
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();
+  ctx.fillStyle = style.col;
+  ctx.strokeStyle = style.col;
+  if (isFill) {
+    for (let bi = 0; bi < _GT_BUCKETS; bi++) {
+      const bucket = _GT_SCRATCH[bi];
+      if (!bucket.length) continue;
+      ctx.globalAlpha = 0.35 + (bi + 0.5) / _GT_BUCKETS * 0.5;
+      ctx.beginPath();
+      if (style.shape === 'speck') {
+        // 雪粒：1~2px 的点用方点近似（1~2px 尺度下圆/方肉眼无差，但路径点数少一个数量级）
+        for (let i = 0; i < bucket.length; i += 3) {
+          const px = bucket[i], py = bucket[i + 1], r = bucket[i + 2];
+          ctx.rect(px - r, py - r, r * 2, r * 2);
+        }
+      } else {
+        for (let i = 0; i < bucket.length; i += 5) {
+          const px = bucket[i], py = bucket[i + 1], rx = bucket[i + 2], ry = bucket[i + 3], rot = bucket[i + 4];
+          ctx.moveTo(px + rx * Math.cos(rot), py + rx * Math.sin(rot));
+          ctx.ellipse(px, py, rx, ry, rot, 0, Math.PI * 2);
+        }
+      }
+      ctx.fill();
+    }
+  } else {
+    ctx.lineWidth = (style.shape === 'dune') ? 1.2 : 1;
+    for (let bi = 0; bi < _GT_BUCKETS; bi++) {
+      const bucket = _GT_SCRATCH[bi];
+      if (!bucket.length) continue;
+      ctx.globalAlpha = 0.35 + (bi + 0.5) / _GT_BUCKETS * 0.5;
+      ctx.beginPath();
+      if (style.shape === 'dune') {
+        for (let i = 0; i < bucket.length; i += 4) {
+          const px = bucket[i], py = bucket[i + 1], rw = bucket[i + 2];
+          ctx.moveTo(px + Math.cos(Math.PI * 0.15) * rw, py + Math.sin(Math.PI * 0.15) * rw * 0.28);
+          ctx.ellipse(px, py, rw, rw * 0.28, 0, Math.PI * 0.15, Math.PI * 0.85);
+        }
+      } else {
+        for (let i = 0; i < bucket.length; i += 4) {
+          ctx.moveTo(bucket[i], bucket[i + 1]);
+          ctx.lineTo(bucket[i + 2], bucket[i + 3]);
+        }
+      }
+      ctx.stroke();
     }
   }
   ctx.globalAlpha = 1;
@@ -1531,12 +2250,20 @@ if (typeof module !== 'undefined' && module.exports) {
     drawCharredHull,
     drawFireGlow,
     drawShells,
+    railChargeProgress,    // #U38：电磁炮充能进度（0..1，与 fireTank/HUD 同源）
     drawCover,
     drawRiverChain,        // #U8：河流整链描边（调用方按 groupId 合并后单次调用）
     drawCoverWaterStreak,  // #U8：水流 streak 叠加（整链描边后逐段调用）
     orderRiverSegs,        // #U8：河流段沿程排序
     drawCoverShadow,       // #U11：地图元素地面投影
+    drawTankGroundShadow,  // #TEX8：车底软阴影（程序化分支）
+    renderHullTexture,     // #TEX8：车体纹理入口（供测试验证 weathering/外观件生效）
+    renderTurretTexture,   // #TEX8：炮塔纹理入口（同上，炮塔 weathering 回归保护）
     drawGroundTexture,     // #U11：biome 地面材质纹理
+    drawGroundCached,      // #GT：地面层视口锚定烘焙缓存（性能 + 亚像素抖动修复）
+    ensureGroundCache,     // #GT：取/重建烘焙缓存（纯逻辑可测）
+    clearGroundCache,      // #GT：换节点/改 seed 时失效
+    _groundSeedHash,       // #GT：种子哈希（测试比对用）
     drawFoliage,
     drawClassBadge,
     drawGround,

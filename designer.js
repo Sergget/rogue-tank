@@ -2089,13 +2089,18 @@ function drawPolygon(poly, center, angle, opts){
     if(!spriteDrawn && opts.detail && !opts.faded && state.texture && state.texture !== 'none'){
       const texOpts = { detail:true, texture: state.texture, heightClass: state.heightClass,
         appearance: state.appearance || undefined };
+      // #TEX11：设计器预览与局内同口径——车体/炮塔共用「整车图案框」，炮塔按座圈偏移平移。
+      // 否则预览里炮塔迷彩色块只有车体一半大，改完进游戏才发现比例不对。
+      const hullV = (poly === state.hull) ? fullVerts : buildFullVerts(state.hull.half);
       if(isTurret){
         const ax = (state.turret.axis && state.turret.axis.dx) || 0;
         const ay = (state.turret.axis && state.turret.axis.dy) || 0;
         const hc = hullCenter();
         const ring = { x: hc.x + state.turret.pivot.dx*viewScale, y: hc.y + (state.turret.pivot.dy||0)*viewScale };
+        texOpts.texBox = paintPatternBox(hullV, 'turret', state.turret.pivot, 1);
         paintPartTexture(ctx, fullVerts.map(([vx,vy]) => [vx-ax, vy-ay]), ring.x, ring.y, angle, viewScale, DESIGN_PAINT, 'turret', texOpts);
       } else {
+        texOpts.texBox = paintPatternBox(hullV, 'hull', null, 1);
         paintPartTexture(ctx, fullVerts, center.x, center.y, angle, viewScale, DESIGN_PAINT, 'hull', texOpts);
       }
     }

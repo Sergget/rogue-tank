@@ -953,6 +953,306 @@ ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 
   });
   ok(Array.isArray(resZero) && resZero.length === 5, '#BOSS-ROUND: 权重表全 0 时回退（不除零、仍返回 5 张）');
 }
+
+// ===== #U39（2026-10-18）Boss 随机武备 pickBossArmament =====
+// 用户反馈「boss 似乎还不会随机到这些武器和升级」——Boss 此前恒为 standard + none，
+// 武器安装卡/升级卡对它完全不可见。本段锁住纯选择逻辑的契约。
+{
+  const A = /** @type {any} */ ((require('../js/tank_rules.js').RULES.boss || {}).armament) || {};
+  const allCards = fs.readdirSync(path.join(__dirname, '../cards'))
+    .filter(f => f.endsWith('.json'))
+    .map(f => JSON.parse(fs.readFileSync(path.join(__dirname, '../cards', f), 'utf8')));
+  const byId = {};
+  for (const c of allCards) byId[c.id] = c;
+  ok(A && A.primaryChance !== undefined && A.upgradeMax !== undefined,
+    `#U39 RULES.boss.armament 配置就位（primaryChance=${A.primaryChance} upgradeMax=${A.upgradeMax}）`);
+
+  // ① 每次调用都产出「主武器安装卡在前、副武器安装卡次之」的顺序，且升级卡只挂在已选型上
+  const arm1 = cardsMod.pickBossArmament(allCards, { rng: createRNG(11), bossNumber: 0 });
+  const wOf = (c) => (c.effects || []).find(e => e && e.type === 'weapon') || {};
+  ok(Array.isArray(arm1) && arm1.length >= 1, `#U39 抽到武备（${arm1.length} 张）`);
+  const installs = arm1.filter(c => wOf(c).action === 'install');
+  const upgrades = arm1.filter(c => wOf(c).action === 'upgrade');
+  ok(installs.every(c => ['primary', 'secondary'].includes(wOf(c).slot)),
+    '#U39 安装卡只取 primary/secondary 两槽');
+  const ownedTypes = new Set(installs.map(c => wOf(c).weaponType));
+  ok(upgrades.every(c => ownedTypes.has(wOf(c).weaponType)),
+    `#U39 升级卡只挂在已选中的武器型上（已装 ${[...ownedTypes].join('/') || '无'}）`);
+  ok(upgrades.length <= (A.upgradeMax || 2), `#U39 升级卡张数 ≤ upgradeMax（${upgrades.length}）`);
+
+  // ② 统计口径：多次抽样必须同时覆盖到主武器与副武器安装卡，且升级卡确实会出现
+  let nPrimary = 0, nSecondary = 0, nUpgrade = 0, nTurret = 0, nWire = 0;
+  const seenPrimaryTypes = new Set(), seenSecondaryTypes = new Set();
+  const ROUNDS = 300;
+  for (let seed = 1; seed <= ROUNDS; seed++) {
+    for (const c of cardsMod.pickBossArmament(allCards, { rng: createRNG(seed), bossNumber: 3 })) {
+      const w = wOf(c);
+      if (w.action === 'install' && w.slot === 'primary') { nPrimary++; seenPrimaryTypes.add(w.weaponType); }
+      if (w.action === 'install' && w.slot === 'secondary') { nSecondary++; seenSecondaryTypes.add(w.weaponType); }
+      if (w.action === 'upgrade') nUpgrade++;
+      if (w.weaponType === 'turret') nTurret++;
+      if (w.weaponType === 'missile_wire') nWire++;
+    }
+  }
+  ok(nPrimary > 0 && nSecondary > 0, `#U39 ${ROUNDS} 轮内主武器 ${nPrimary} 次 / 副武器 ${nSecondary} 次都被随机到`);
+  ok(nUpgrade > 0, `#U39 ${ROUNDS} 轮内升级卡被随机到 ${nUpgrade} 次（不再是 0）`);
+  ok(seenPrimaryTypes.size >= 3, `#U39 主武器型别覆盖 ${seenPrimaryTypes.size} 种（≥3，不只是标准炮）`);
+  ok(seenSecondaryTypes.size >= 3, `#U39 副武器型别覆盖 ${seenSecondaryTypes.size} 种（≥3）`);
+  ok(nTurret > 0, `#U39 副炮塔（此前无安装卡）可被 Boss 随机到（${nTurret} 次）`);
+  ok(nWire > 0, `#U39 线导导弹（此前无安装卡）可被 Boss 随机到（${nWire} 次）`);
+
+  // ③ 开关关闭 → 恒返回空数组
+  const savedEnabled = A.enabled;
+  A.enabled = false;
+  ok(cardsMod.pickBossArmament(allCards, { rng: createRNG(1) }).length === 0,
+    '#U39 armament.enabled=false 时恒返回空（可一键关闭）');
+  A.enabled = savedEnabled;
+
+  // ④ 空池/非法输入不抛错
+  ok(Array.isArray(cardsMod.pickBossArmament([], {})) && cardsMod.pickBossArmament([], {}).length === 0,
+    '#U39 空池返回空数组（不抛错）');
+  ok(cardsMod.pickBossArmament(null, {}).length === 0, '#U39 pool=null 安全返回空');
+
+  // ⑤ 施加层：applyCardEffects 与玩家同一语义通道（安装写 weapons、升级合并同型 stats）
+  const BD = require('../js/tank_weapons.js');
+  const bTank = model.makeTank({ id: 'bossU39', team: 'enemy' });
+  const pInstall = allCards.find(c => c.id === 'weapon_primary_railgun');
+  const pUp = allCards.find(c => c.id === 'weapon_primary_railgun_upgrade');
+  cardsMod.applyCardEffects(bTank, pInstall);
+  ok(bTank.weapons.primary.type === 'railgun' && bTank.weapons.primary.stats.pierce === 1,
+    '#U39 Boss 装上电磁炮（weapons.primary.type=railgun + pierce）');
+  cardsMod.applyCardEffects(bTank, pUp);
+  ok(bTank.weapons.primary.stats.reloadMult === 1.7 && bTank.weapons.primary.stats.shellSpeedMult === 3.0,
+    '#U39 Boss 的轨道炮升级卡生效（reloadMult 1.7 / shellSpeedMult 3.0）');
+  const specB = BD.getWeaponDefaults('primary', 'railgun');
+  ok(specB && specB.pierce === 1, '#U39 WEAPON_DEFAULTS.primary.railgun 基线未被 Boss 应用污染');
+
+  // ⑥ 新增卡面全部通过 schema（防止手写 JSON 漏字段）
+  const NEW_CARDS = [
+    'weapon_primary_standard_damage', 'weapon_primary_standard_reload', 'weapon_primary_standard_pen',
+    'weapon_primary_autocannon_damage', 'weapon_primary_autocannon_heat', 'weapon_primary_autocannon_feed',
+    'weapon_primary_railgun_damage', 'weapon_primary_clip_capacity', 'weapon_primary_double_barrel_turret',
+    'weapon_secondary_turret', 'weapon_secondary_turret_upgrade', 'weapon_secondary_turret_traverse',
+    'weapon_secondary_turret_heavy', 'weapon_secondary_missile_wire', 'weapon_secondary_missile_wire_upgrade',
+    'weapon_secondary_missile_wire_warhead', 'weapon_secondary_mortar_accuracy', 'weapon_secondary_mine_radius',
+    'weapon_secondary_rocket_warhead', 'weapon_secondary_missile_damage'
+  ];
+  let badNew = 0;
+  for (const id of NEW_CARDS) {
+    const c = byId[id];
+    if (!c) { badNew++; console.error(`  ✗ #U39 卡池缺 ${id}`); continue; }
+    const errs = cardsMod.validateCard(c);
+    if (errs.length) { badNew++; console.error(`  ✗ #U39 ${id}: ${errs.join('; ')}`); }
+  }
+  ok(badNew === 0, `#U39 新增 ${NEW_CARDS.length} 张武器卡全部通过 schema`);
+
+  // ⑦ 每种主/副武器型都至少有 1 张升级卡（"每种武器 2~3 张"的覆盖契约）
+  const upByType = {};
+  for (const c of allCards) {
+    const w = wOf(c);
+    if (w.action === 'upgrade' && w.weaponType) upByType[w.weaponType] = (upByType[w.weaponType] || 0) + 1;
+  }
+  const PRIMARY_TYPES = cardsMod.WEAPON_PRIMARY_TYPES;
+  const SECONDARY_TYPES = cardsMod.WEAPON_SECONDARY_TYPES.filter(t => t !== 'none');
+  const missingP = PRIMARY_TYPES.filter(t => !(upByType[t] > 0));
+  const missingS = SECONDARY_TYPES.filter(t => !(upByType[t] > 0));
+  ok(missingP.length === 0, `#U39 主武器全型有升级卡（缺 ${missingP.join('/') || '无'}）`);
+  ok(missingS.length === 0, `#U39 副武器全型有升级卡（缺 ${missingS.join('/') || '无'}）`);
+}
+
+// ===== #U40（2026-10-19 用户反馈卡牌审计）=====
+// ① 调校卡/升级卡混淆：带 field 的 ammo 效果不得触发链替换（demo_apcr_round 等曾把 AP 槽隐形改名 APCR）；
+// ② 反应装甲从一次性消耗改为「拦截后进入再充能」；
+// ③ parameterLimits 补 aimSpeed/trackLock/crit 边界（#U20 达限过滤对精度/履带/crit 卡生效）；
+// ④ innate 强化卡（repair_kit/support_extinguisher）不被 #U18 已持去重误杀；
+// ⑤ economy 助手：runScoreMultiplier / runShopDiscount。
+{
+  const mk = (id, effects) => ({ id, name: id, rarity: 'common', effects });
+
+  // ①a 调校卡绝不改 loadout：APCR pen +20% 卡在 [ap, he] 上只调数值、AP 槽保持 AP
+  const tTune = model.makeTank({ team: 'player' });
+  tTune.ammoLoadout = ['ap', 'he']; tTune.ammoKey = 'ap';
+  cardsMod.applyCardEffects(tTune, mk('demo_apcr_round', [{ type: 'ammo', key: 'apcr', field: 'pen', mode: 'mult', value: 1.2 }]));
+  ok(tTune.ammoLoadout.join(',') === 'ap,he' && tTune.ammoKey === 'ap',
+    '#U40: 带 field 调校效果不改 loadout（ap 槽保持 AP，不再被链回退隐形改名 APCR）');
+  ok((tTune.unlockedAmmo || []).indexOf('apcr') < 0, '#U40: 调校卡不写入 unlockedAmmo');
+
+  // ①b 升级卡照常替换：显式 replaceAmmo 的链升级卡仍然生效
+  const tUp = model.makeTank({ team: 'player' });
+  tUp.ammoLoadout = ['ap', 'he']; tUp.ammoKey = 'ap';
+  cardsMod.applyCardEffects(tUp, mk('ammo_upgrade_apcr', [{ type: 'ammo', key: 'apcr', replaceAmmo: 'ap', field: 'pen', mode: 'mult', value: 1.2 }]));
+  ok(tUp.ammoLoadout[0] === 'apcr' && tUp.ammoKey === 'apcr',
+    '#U40: 显式 replaceAmmo 升级卡照常替换（ammo_upgrade_apcr：ap→apcr）');
+
+  // ①c 旧式无 field 演变效果（阶段六遗留兼容）仍按 CHAIN 替换
+  const tLegacy = model.makeTank({ team: 'player' });
+  tLegacy.ammoLoadout = ['ap', 'he']; tLegacy.ammoKey = 'ap';
+  cardsMod.applyCardEffects(tLegacy, mk('legacy_chain', [{ type: 'ammo', key: 'apcr' }]));
+  ok(tLegacy.ammoLoadout[0] === 'apcr', '#U40: 无 field 旧式演变效果仍按 CHAIN 前驱替换（向后兼容）');
+
+  // ①d isAmmoUpgradeCard 与替换口径同源：调校卡 false（不参与节奏衰减）、升级卡 true
+  ok(cardsMod.isAmmoUpgradeCard(mk('tune', [{ type: 'ammo', key: 'apcr', field: 'pen', mode: 'mult', value: 1.2 }])) === false,
+    '#U40: isAmmoUpgradeCard 对带 field 调校效果返 false');
+  ok(cardsMod.isAmmoUpgradeCard(mk('up', [{ type: 'ammo', key: 'apcr', replaceAmmo: 'ap' }])) === true,
+    '#U40: isAmmoUpgradeCard 对 replaceAmmo 升级效果返 true');
+
+  // ①e 抽卡链过滤不再误杀调校卡：ammoLoadout=['ap'] 时 demo_apcr_round（key=apcr 无前驱资格）
+  //     应被过滤（未携 apcr），而 key=ap 的调校卡不受 CHAIN 前驱判定影响、照常通过
+  const tuneAP = cardsMod.drawCardChoices([mk('tune_ap', [{ type: 'ammo', key: 'ap', field: 'pen', mode: 'mult', value: 1.1 }])], 3, { ammoLoadout: ['ap'], rng: createRNG(3) });
+  ok(tuneAP.length === 1, '#U40: key 已携带的调校卡照常通过链过滤');
+
+  // ② 反应装甲再充能：resolveHit 拦截后条目保留 + 写 _reactiveRearmT；冷却期内不重复拦截
+  {
+    const G2 = require('../js/tank_geometry.js');
+    global.ARMOR = G2.ARMOR; global.BOUNCE_ANGLE = G2.BOUNCE_ANGLE;
+    global.faceLabel = G2.faceLabel; global.superstructureLabel = G2.superstructureLabel;
+    global.moduleFromHit = G2.moduleFromHit;
+    global.setDebuff = model.setDebuff; global.moduleMult = model.moduleMult;
+    global.reflectDir = U.reflectDir; global.rotate = U.rotate;
+    const PHYS = require('../js/tank_physics.js');
+    const HIT = { part: 'hull', faceKey: 'front', x: 32, y: 0, nx: 1, ny: 0, edgeName: 'front' };
+    const realRandom = Math.random;
+    Math.random = function () { return 0.5; };
+    try {
+      const mkTgt = () => {
+        const t = model.makeTank({ team: 'enemy', hullAngle: 0, turretAngle: 0 });
+        t.cardEffects = [{ type: 'passive', key: 'reactive_armor', value: 1, cardId: 'reactive_armor' }];
+        t._reactiveRearmT = 0; t._reactiveReady = true;
+        return t;
+      };
+      const shell = { x: 0, y: 0, dx: 1, dy: 0, pen: 1e9, dmg: 100, ammoKey: 'ap', shooter: null, canBounce: false };
+      const t1 = mkTgt();
+      const r1 = PHYS.resolveHit(shell, t1, Object.assign({}, HIT), false);
+      ok(r1.reactive === true && r1.dmg === 0, '#U40: 反应装甲拦截（BLOCK、零伤害）');
+      ok(t1.cardEffects.some(e => e && e.type === 'passive' && e.key === 'reactive_armor'),
+        '#U40: 拦截后条目保留（不再一次性消解）');
+      ok(t1._reactiveRearmT > 0 && t1._reactiveReady === false, '#U40: 拦截后进入再充能（_reactiveRearmT>0）');
+      // 再充能递减：60s 冷却 → 递减 60s 后恢复就绪
+      cardsMod.updateReactiveArmorRearm(t1, cardsMod.reactiveArmorRecharge());
+      ok(t1._reactiveRearmT === 0 && t1._reactiveReady === true, '#U40: 再充能计时归零后恢复就绪');
+      // 冷却期内第二次命中 → 照常穿深结算（不再拦截）
+      const t2 = mkTgt();
+      PHYS.resolveHit(shell, t2, Object.assign({}, HIT), false);   // 第一发：拦截
+      const r2b = PHYS.resolveHit(shell, t2, Object.assign({}, HIT), false);
+      ok(r2b.reactive === undefined && r2b.dmg > 0, '#U40: 冷却期内第二发照常结算（不重复拦截）');
+      ok(cardsMod.reactiveArmorRecharge() === RULES.cards.reactiveArmor.rechargeSeconds,
+        '#U40: reactiveArmorRecharge 读 RULES.cards.reactiveArmor（60s 唯一口径）');
+    } finally {
+      Math.random = realRandom;
+    }
+  }
+
+  // ③ parameterLimits 新边界 → #U20 达限过滤生效（精度/履带/crit 满级卡不再出现）
+  {
+    const pL = RULES.parameterLimits;
+    ok(pL.aimSpeed && pL.aimSpeed.max === 6 && pL.trackLock && pL.trackLock.min === 3,
+      '#U40: parameterLimits 补 aimSpeed.max=6 / trackLock.min=3');
+    ok(pL.fireControlCrit && pL.fireControlCrit.max === 0.25 && pL.loaderAmmoCrit.max === 0.25,
+      '#U40: parameterLimits 补 crit 双通道 max=0.25（与 critBonusCap 同源）');
+    // aimSpeed 卡：当前 5.2（base 2.5 × 全卡叠加示例）+ ×1.25 = 6.5 越界 → cardEligible 拒绝
+    const aimCard = mk('aim_over', [{ type: 'modifier', stat: 'aimSpeed', mode: 'mult', value: 1.25 }]);
+    ok(cardsMod.cardEligible(aimCard, { stats: { aimSpeed: 5.2 } }) === false, '#U40: aimSpeed 越界卡被 #U20 过滤');
+    ok(cardsMod.cardEligible(aimCard, { stats: { aimSpeed: 2.0 } }) === true, '#U40: aimSpeed 界内卡正常放行');
+    // trackLock 卡：当前 3.0 −10% → 2.7 < 3 → 拒绝
+    const tlCard = mk('tl_over', [{ type: 'modifier', stat: 'trackLock', mode: 'mult', value: 0.9 }]);
+    ok(cardsMod.cardEligible(tlCard, { stats: { trackLock: 3.0 } }) === false, '#U40: trackLock 达下限卡被过滤');
+    ok(cardsMod.cardEligible(tlCard, { stats: { trackLock: 4.0 } }) === true, '#U40: trackLock 界内卡放行');
+    // crit 卡：当前 0.2 + 0.1 → 0.3 > 0.25 → 拒绝
+    const critCard = mk('crit_over', [{ type: 'modifier', stat: 'fireControlCrit', mode: 'add', value: 0.1 }]);
+    ok(cardsMod.cardEligible(critCard, { stats: { fireControlCrit: 0.2 } }) === false, '#U40: crit 达上限卡被过滤');
+    ok(cardsMod.cardEligible(critCard, { stats: { fireControlCrit: 0.1 } }) === true, '#U40: crit 界内卡放行');
+  }
+
+  // ④ innate 强化卡不被 #U18 误杀：开局固有键（repair/extinguish）已持仍合格
+  {
+    const rk = JSON.parse(fs.readFileSync(path.join(__dirname, '../cards/repair_kit.json'), 'utf8'));
+    const se = JSON.parse(fs.readFileSync(path.join(__dirname, '../cards/support_extinguisher.json'), 'utf8'));
+    const art = JSON.parse(fs.readFileSync(path.join(__dirname, '../cards/artillery_strike.json'), 'utf8'));
+    ok(cardsMod.cardEligible(rk, { abilities: ['repair', 'medkit', 'extinguish'] }) === true,
+      '#U40: repair_kit 在 innate 键已持时仍合格（固有技能纯强化卡，不被 #U18 去重）');
+    ok(cardsMod.cardEligible(se, { abilities: ['repair', 'medkit', 'extinguish'] }) === true,
+      '#U40: support_extinguisher 在 innate 键已持时仍合格');
+    ok(cardsMod.cardEligible(art, { abilities: ['artillery'] }) === false,
+      '#U18 口径不变: runtime 键（artillery）已持仍被去重');
+    ok(cardsMod.cardEligible(art, { abilities: [] }) === true, '#U18 口径不变: artillery 未持时合格');
+  }
+
+  // ⑤ economy 聚合助手
+  {
+    const tE = { runScoreMul: 1.15, cardEffects: [
+      { type: 'economy', field: 'shopDiscount', value: 0.1 },
+      { type: 'economy', field: 'shopDiscount', value: 0.1 }
+    ] };
+    ok(cardsMod.runScoreMultiplier(tE) === 1.15, '#U40: runScoreMultiplier 读 runScoreMul');
+    ok(cardsMod.runScoreMultiplier({}) === 1, '#U40: runScoreMultiplier 缺省 1');
+    ok(Math.abs(cardsMod.runShopDiscount(tE) - 0.2) < 1e-9, '#U40: runShopDiscount 聚合两张 −10% = 0.2');
+    const tCap = { cardEffects: [
+      { type: 'economy', field: 'shopDiscount', value: 0.4 },
+      { type: 'economy', field: 'shopDiscount', value: 0.4 }
+    ] };
+    ok(cardsMod.runShopDiscount(tCap) === 0.5, '#U40: runShopDiscount 聚合上限 0.5');
+    ok(cardsMod.runShopDiscount({}) === 0, '#U40: runShopDiscount 无卡返 0');
+  }
+
+  // ⑥ scoreMul 语义（×1.15 而非 ×2.15）：value 即最终乘数
+  {
+    const tS = model.makeTank({ team: 'player' });
+    cardsMod.applyCardEffects(tS, JSON.parse(fs.readFileSync(path.join(__dirname, '../cards/support_logistics.json'), 'utf8')));
+    ok(Math.abs((tS.runScoreMul || 1) - 1.15) < 1e-9,
+      `#U40: 后勤保障 scoreMul=1.15 → runScoreMul ×1.15（旧实现错算 ×2.15，got ${tS.runScoreMul}）`);
+  }
+}
+
+// ===== #U42（2026-10-19）：换下来的武器/技能可以再次出现（不再永久拉黑） =====
+// 用户反馈「出现过、但不再持有的主、副武器、技能似乎就不再出现了，可以再次出现，允许玩家再次选择」。
+// 口径：maxStacks 只约束「当前仍在生效」的卡；安装类卡（weapon install / ability 基础卡）的
+// 重复资格由「当前是否持有该型/该技能」动态判定（见 cardEligible 的 weapon/ability 分支）。
+{
+  const mk = (id, effects, extra) => Object.assign({ id, name: id, rarity: 'common', effects, maxStacks: 1 }, extra || {});
+  const dbInstall = mk('u42_db', [{ type: 'weapon', action: 'install', slot: 'primary', weaponType: 'double_barrel' }]);
+  const dbUpgrade = mk('u42_db_up', [{ type: 'weapon', action: 'upgrade', slot: 'primary', weaponType: 'double_barrel', statOverrides: { switchSeconds: 0.1 } }]);
+  const shieldCard = mk('u42_shield', [{ type: 'ability', key: 'shield' }]);
+  const shieldUp = mk('u42_shield_up', [{ type: 'ability', key: 'shield', requiresAbility: 'shield' }]);
+
+  // ① 抽过双联 → 换成电磁炮 → 双联安装卡重新合格（"换回来"是合法操作）
+  const t = model.makeTank({ team: 'player' });
+  cardsMod.applyCardEffects(t, dbInstall);
+  ok(t.weapons.primary.type === 'double_barrel', '#U42 先装上双联火炮');
+  const ownedHadDb = { abilities: [], primaryWeapon: 'double_barrel', secondaryWeapon: 'none', cards: { u42_db: 1 } };
+  ok(cardsMod.cardEligible(dbInstall, ownedHadDb) === false, '#U42 仍持双联时安装卡不重复提供（同型=已装）');
+  const ownedRail = { abilities: [], primaryWeapon: 'railgun', secondaryWeapon: 'none', cards: { u42_db: 1 } };
+  ok(cardsMod.cardEligible(dbInstall, ownedRail) === true,
+    '#U42 换成电磁炮后，双联安装卡重新合格（旧实现被 maxStacks 永久拉黑）');
+
+  // ② 应用层同样放行（旧实现 applyCardEffects 首行按历史计数直接 return []）
+  cardsMod.applyCardEffects(t, mk('u42_rail', [{ type: 'weapon', action: 'install', slot: 'primary', weaponType: 'railgun' }]));
+  ok(t.weapons.primary.type === 'railgun', '#U42 已换装电磁炮');
+  const back = cardsMod.applyCardEffects(t, dbInstall);
+  ok(back.length > 0 && t.weapons.primary.type === 'double_barrel',
+    '#U42 换回双联火炮成功（applyCardEffects 未被历史计数拦截）');
+
+  // ③ 升级卡仍受 maxStacks 约束（叠加有上限，重复无收益）
+  cardsMod.applyCardEffects(t, dbUpgrade);
+  const upAgain = cardsMod.applyCardEffects(t, dbUpgrade);
+  ok(upAgain.length === 0, '#U42 武器升级卡仍受 maxStacks 约束（重复应用被拒）');
+
+  // ④ 技能卡同理：放下盾 → 重新可抽到基础盾卡；升级卡仍受约束
+  const t2 = model.makeTank({ team: 'player' });
+  cardsMod.applyCardEffects(t2, shieldCard);
+  ok(cardsMod.cardEligible(shieldCard, { abilities: ['shield'], primaryWeapon: 'standard', secondaryWeapon: 'none', cards: {} }) === false,
+    '#U42 仍持护盾时不重复提供基础盾卡');
+  ok(cardsMod.cardEligible(shieldCard, { abilities: [], primaryWeapon: 'standard', secondaryWeapon: 'none', cards: { u42_shield: 1 } }) === true,
+    '#U42 不再持有护盾时基础盾卡重新合格');
+  cardsMod.applyCardEffects(t2, shieldUp);
+  ok(cardsMod.applyCardEffects(t2, shieldUp).length === 0, '#U42 ability 升级卡仍受 maxStacks 约束');
+
+  // ⑤ 其它类型不受影响（纯 modifier 卡仍按 maxStacks 截断）
+  const modCard = mk('u42_mod', [{ type: 'modifier', stat: 'maxHp', mode: 'add', value: 10 }]);
+  const t3 = model.makeTank({ team: 'player' });
+  cardsMod.applyCardEffects(t3, modCard);
+  ok(cardsMod.applyCardEffects(t3, modCard).length === 0, '#U42 modifier 卡照旧受 maxStacks 约束（零影响）');
+}
+
 console.log('test-cards: 完成所有检查');
 if (fails === 0) console.log('test-cards: 全部通过');
 else console.error(`test-cards: ${fails} 项失败`);

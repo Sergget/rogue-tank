@@ -174,6 +174,23 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
   ok(W.updateSecondaryTurret(turret, 1/60, tctx) === false, '装填冷却中副炮塔不开火');
   ok(turretShells.length === before, '冷却中不产生新弹');
 
+  // 5a2. #U42（2026-10-19 用户反馈「副炮塔似乎没有效果」）：弹道起点必须来自副炮塔本身。
+  //   旧实现直接复用主炮 gunRoot/gunTip ⇒ 弹与炮口特效都从主炮口飞出，与主炮无法区分。
+  {
+    const t2 = M.makeTank({ team: 'player', x: 100, y: 100, hullAngle: 0, turretAngle: 0 });
+    t2.weapons = { primary: { type: 'standard', stats: {} }, secondary: { type: 'turret', stats: W.getWeaponDefaults('secondary', 'turret') } };
+    t2.secondaryReloadT = 0;
+    const shells2 = [];
+    const ctx2 = Object.assign({}, tctx, { shells: shells2 });
+    ok(W.updateSecondaryTurret(t2, 1/60, ctx2) === true, '#U42 副炮塔开火');
+    const s2 = shells2[0];
+    const mainTip = G.gunTip(t2);
+    ok(!!s2, '#U42 产生炮弹');
+    ok(s2 && Math.hypot(s2.x - mainTip.x, s2.y - mainTip.y) > 5,
+      `#U42 弹道起点不在主炮口（距主炮口 ${s2 ? Math.hypot(s2.x - mainTip.x, s2.y - mainTip.y).toFixed(1) : 'n/a'}px > 5）`);
+    ok(s2 && s2.fromSecondaryTurret === true, '#U42 弹体带 fromSecondaryTurret 标记（绘制层据此缩小）');
+  }
+
   // 5b. PLAN §8.1.2 玩家侧副炮塔挂载 UI：绘制层纯位姿 secondaryTurretPose + drawSecondaryTurret
   {
     // (a) 非 turret 型 → 无副炮塔位姿（不绘制）
@@ -181,23 +198,29 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
     std.weapons = { primary: { type: 'standard', stats: {} }, secondary: { type: 'mortar', stats: {} } };
     ok(B.secondaryTurretPose(std) === null, '§8.1.2 非 turret 副武器 → secondaryTurretPose 返回 null（不绘制副炮塔）');
 
-    // (b) turret 型 → 位姿在车体尾后偏移，炮塔角跟随独立 secondaryTurretAngle
+    // (b) turret 型 → 位姿叠在主炮塔座圈上方（#U42 新口径），炮塔角跟随独立 secondaryTurretAngle
     const pt = M.makeTank({ team: 'player', x: 100, y: 100, hullAngle: 0, turretAngle: 0 });
     pt.weapons = { primary: { type: 'standard', stats: {} }, secondary: { type: 'turret', stats: W.getWeaponDefaults('secondary', 'turret') } };
     pt.secondaryTurretAngle = Math.PI / 2;
     const pose = B.secondaryTurretPose(pt);
     ok(!!pose, '§8.1.2 turret 型 → secondaryTurretPose 返回位姿');
-    ok(pose.x < pt.x && Math.abs(pose.y - pt.y) < 1e-9, '§8.1.2 副炮塔位于车体尾后（hullAngle=0 → x 负向偏移）');
-    ok(pose.x === pt.x - (pt.hullLen || 120) * 0.28, '§8.1.2 尾部偏移 = hullLen×0.28');
+    // #U42（2026-10-19 用户裁定「用 1 个缩小版的自身炮塔叠在当前炮塔上方」）：
+    //   旧口径是「车体尾后 hullLen×0.28 的小圆盘」，与主炮塔无视觉关联 ⇒ 玩家判定「副炮塔没效果」。
+    //   现行锚点 = 主炮塔座圈中心（turretPivot）沿主炮塔朝向前移一点。
+    const piv = G.turretPivot(pt);
+    ok(Math.abs(pose.x - piv.x) < 1e-6 + Math.abs(pt.turLen * pose.scale * 0.45), '§8.1.2 副炮塔锚定在主炮塔座圈（非车尾）');
+    ok(pose.x > pt.x, '§8.1.2 副炮塔沿主炮塔朝向前移（hullAngle=0 → x 正向，不再在车尾）');
     ok(Math.abs(pose.angle - Math.PI / 2) < 1e-9, '§8.1.2 副炮塔炮管角读取独立 secondaryTurretAngle（与主炮解耦）');
-    ok(Math.abs(pose.barrelLen - (pt.hullWid || 38) * 0.55) < 1e-9, '§8.1.2 副炮塔炮管长 = hullWid×0.55');
+    ok(Math.abs(pose.scale - 0.62) < 1e-9, '§8.1.2 副炮塔缩放 = 主炮塔的 0.62（缩小版自身炮塔）');
+    ok(pose.barrelLen > 0 && pose.barrelLen < (pt.turLen || 34) * 1.2, '§8.1.2 副炮塔炮管按缩放缩短（不超过主炮塔量级）');
 
     // (c) drawSecondaryTurret 以最小 ctx stub 驱动不抛错并消耗位姿
     const calls = [];
     const fake = new Proxy({}, {
       get: (o, k) => {
         if (k === 'save' || k === 'restore' || k === 'beginPath' || k === 'arc' || k === 'fill' ||
-            k === 'stroke' || k === 'moveTo' || k === 'lineTo' || k === 'translate' || k === 'rotate') {
+            k === 'stroke' || k === 'moveTo' || k === 'lineTo' || k === 'translate' || k === 'rotate' ||
+            k === 'closePath') {
           return (...a) => { calls.push(k); };
         }
         return undefined;

@@ -60,11 +60,17 @@ ok(Object.keys(A.ASSET_DEFS).length >= 7, 'ASSET_DEFS has >= 7 entries (6 requir
 function makeMockCtx() {
   const calls = [];
   const noop = name => (...args) => { calls.push({ name, args }); };
+  const grad = () => ({ addColorStop: noop('addColorStop') });
   return {
     calls,
     beginPath: noop('beginPath'), moveTo: noop('moveTo'), lineTo: noop('lineTo'),
     closePath: noop('closePath'), fill: noop('fill'), stroke: noop('stroke'),
-    arc: noop('arc'), ellipse: noop('ellipse')
+    arc: noop('arc'), ellipse: noop('ellipse'),
+    rect: noop('rect'), strokeRect: noop('strokeRect'),   // #TEX17：栅栏/沙包外缘用 path rect
+
+    // #TEX13：冠层体积层会用到 save/clip/fillRect + 渐变（mock 只需 no-op）
+    save: noop('save'), restore: noop('restore'), clip: noop('clip'),
+    fillRect: noop('fillRect'), createLinearGradient: grad, createRadialGradient: grad
   };
 }
 for (const [key, d] of Object.entries(A.ASSET_DEFS)) {
