@@ -49,6 +49,40 @@ function _deployablePathHit(dc, sx, sy, nx, ny){
   return Math.max(0, tmin);
 }
 
+// #10（2026-10-19 用户裁定）：「单向通过性**仅限掩体后一段有效距离**——如果掩体后有效区域
+//   内有坦克，则无法命中车体，只能命中炮塔；如果坦克不在掩体后的有效区域内，则可以命中
+//   炮塔或车体」。
+//
+//   坐标系（与 _deployablePathHit 同源）：掩体局部 `-y` 侧 = **穿透侧（己方可穿过的那面）**，
+//   `+y` 侧 = **装甲侧**（对立阵营被挡）。"掩体后" = 装甲侧(+y) 之后的一片区域。
+//
+//   判据（都要满足）：
+//     ① 坦克中心投影到装甲侧法线上，距离 ∈ (0, behindValidDist]；
+//     ② 坦克中心在掩体**长轴**方向的横向偏移 ≤ hullLen/2 + 坦克半宽（确实躲在这座掩体后，
+//        而不是从旁边绕过）；
+//     ③ 掩体未摧毁。
+//
+//   @param {object} dc 部署物掩体（x/y/hullLen/hullWid/hullAngle/_dead/hp）
+//   @param {object} tank 受击坦克（x/y）
+//   @param {number} maxDist 有效距离（px）
+//   @returns {boolean}
+function behindCoverOnlyTurretHit(dc, tank, maxDist) {
+  if (!dc || !tank || dc._dead || !(dc.hp > 0)) return false;
+  const lim = (typeof maxDist === 'number' && maxDist > 0) ? maxDist : 220;
+  const ca = Math.cos(-(dc.hullAngle || 0)), sa = Math.sin(-(dc.hullAngle || 0));
+  const ox = tank.x - dc.x, oy = tank.y - dc.y;
+  const lox = ox * ca - oy * sa;
+  const loy = ox * sa + oy * ca;
+  // ① 装甲侧（局部 +y）后方，距离落在有效区内
+  if (!(loy > 0) || loy > lim) return false;
+  // ② 横向仍在掩体覆盖范围内（长轴 = 局部 x）
+  const halfLen = (dc.hullLen || 50) / 2;
+  const tankHalf = 22;                    // 坦克车体半宽近似（宽松一点，避免边缘漏判）
+  if (Math.abs(lox) > halfLen + tankHalf) return false;
+  return true;
+}
+if (typeof module !== 'undefined' && module.exports) { /* 导出见文件末尾 */ }
+
 // 2026-09-20 #E1（用户反馈「炮弹仍然被不可见物体拦截」）：
 // 旧的 shellVerticalDecision（半高/渐变垂直剖面判决）与 s.dec 曝光缓存拦截链**整体删除**。
 // 该链有三个不可见拦截来源：
@@ -729,6 +763,9 @@ function stepShells(dt, ctx){
       return;
     }
     let bestDist=Infinity, bestTank=null, bestHit=null, bestCover=null;
+    // #10（2026-10-19）：受击坦克是否躲在敌方便携掩体背面有效区（决定部位改判炮塔）。
+    //   声明必须在命中扫描之前——扫描后的判定与最终结算都要读它。
+    let behindCoverOnlyTurret = false;
     for(const e of ents){
       if(!e||e.hp<=0) continue;
       if(!isHostile(s.shooter.team,e.team)) continue;
@@ -744,6 +781,20 @@ function stepShells(dt, ctx){
       const hits=raycast?raycast(sx,sy,s.dx,s.dy,e):null;
       const bh=shellPartHit&&hits?shellPartHit(hits,step,s.hitPref):null;
       if(bh&&bh.t<bestDist){ bestDist=bh.t; bestTank=e; bestHit=bh; bestCover=null; }
+    }
+    // #10（2026-10-19）：判定「受击坦克是否躲在某座敌方便携掩体的背面有效区内」——
+    //   若是，本次命中不得结算车体，改判炮塔（见下方 effHit）。
+    //   有效距离唯一口径 RULES.abilities.deploy_cover.behindValidDist（缺省 220px）。
+    if (bestTank) {
+      const depList = (c.deployables || _G('deployables', null));
+      if (Array.isArray(depList) && depList.length) {
+        const validDist = (R.abilities && R.abilities.deploy_cover && R.abilities.deploy_cover.behindValidDist) || 220;
+        for (const dc of depList) {
+          if (!dc || !dc.isDeployableCover || dc._dead || !(dc.hp > 0)) continue;
+          if (dc.team === (s.shooter && s.shooter.team)) continue;   // 己方掩体不保护敌人
+          if (behindCoverOnlyTurretHit(dc, bestTank, validDist)) { behindCoverOnlyTurret = true; break; }
+        }
+      }
     }
     // 曲射弹药（武器层 ignoreCover: true，如 mortar 载荷；2026-09-14 HEC 弹种移除）越障直飞——
     // 掩体不参与拦截/曝光判定，弹体沿直线直奔目标，仅在命中坦克时结算（炮管贯穿的 barrel solid
@@ -779,6 +830,16 @@ function stepShells(dt, ctx){
     // #E4（2026-09-20）便携式掩体「单向透明」：部署方阵营的炮弹可穿过（不拦截），
     // 对立方炮弹按确定性实体拦截（在掩体入口点截停）。视觉朝向指示见 mvp 绘制层。
     // 判定用部署物实例几何（hullLen×hullWid OBB）与弹道线段求交。
+    //
+    // #10（2026-10-19 用户裁定）：「单向通过性**仅限掩体后一段有效距离**——即如果掩体后
+    //   有效区域内有坦克，则无法命中车体，只能命中炮塔；如果坦克不在掩体后的有效区域内，
+    //   则可以命中炮塔或车体」。
+    //   ⇒ 两层语义分离：
+    //     ① 物理拦截（原逻辑）：对立方炮弹被掩体截停 —— **保持不变**；
+    //     ② 部位改判（新增）：若受击坦克位于该掩体**背面有效距离内**，则本次命中不得结算
+    //        车体，改判炮塔（"躲在掩体后只露炮塔"）。
+    //   `behindCoverTankHit` 由本文件提供（可 Node 测试），阈值唯一口径
+    //   `RULES.abilities.deploy_cover.behindValidDist`。
     const depCovers = (c.deployables || _G('deployables', null));
     if(!ignoreCover && Array.isArray(depCovers) && depCovers.length){
       for(const dc of depCovers){
@@ -807,6 +868,14 @@ function stepShells(dt, ctx){
       if(Number.isFinite(dc.hp)){ dc.hp = Math.max(0, dc.hp - 1); if(dc.hp <= 0) dc._dead = true; }
     } else if(bestTank){
       const hitT=bestHit, hitTank=bestTank, hx=hitT.x, hy=hitT.y;
+      // #10（2026-10-19 用户裁定）：若受击坦克处在**某座敌方便携掩体的背面有效距离内**，
+      //   则「无法命中车体，只能命中炮塔」——把车体命中改判为炮塔。
+      //   注意：这**不是**拦截（拦截在上方 _blockedByDeployable 分支，已把它打成 dead），
+      //   而是命中**部位**的改判。有效区判定见 behindCoverOnlyTurretHit。
+      let effHit = hitT;
+      if(behindCoverOnlyTurret){
+        effHit = Object.assign({}, hitT, { part: 'turret' });
+      }
       // #E1：曝光/概率拦截链整体删除——命中坦克即结算（掩体拦截只发生在 bestCover 分支）。
       s.x=hx; s.y=hy;
       {
@@ -819,7 +888,7 @@ function stepShells(dt, ctx){
         }
         if(!shieldBlocked){
           const hpBefore=hitTank.hp;   // #A6：飘字溢出截断基准（击杀前剩余血量）
-          const res=resolveHit?resolveHit(s,hitTank,hitT,s.canBounce):{outcome:'PEN',dmg:0,splash:null,text:'',cls:'PEN',bouncePoint:{x:hx,y:hy},bounceAngle:0};
+          const res=resolveHit?resolveHit(s,hitTank,effHit,s.canBounce):{outcome:'PEN',dmg:0,splash:null,text:'',cls:'PEN',bouncePoint:{x:hx,y:hy},bounceAngle:0};
           s._didHit = true;  // #S2：标记已命中（近失弹检测排除）
           if(res.outcome==='BOUNCE'){ s.fx=res.bouncePoint.x; s.fy=res.bouncePoint.y; if(bounceFx) bounceFx.push({x:res.bouncePoint.x,y:res.bouncePoint.y,life:0.5,angle:res.bounceAngle}); impactFx(res.bouncePoint.x,res.bouncePoint.y,res.bounceAngle,'bounce',1); dmgText(res.bouncePoint.x,res.bouncePoint.y-10,'跳弹','bounce'); push(res.text,res.cls); play('bounce'); }
           else { const isHe=s.ammoKey==='he', o=res.outcome==='PEN'?(isHe?'he':'pen'):'block'; if(impacts) impacts.push({x:hx,y:hy,life:0.4,color:isHe?'#ffb454':(res.outcome==='PEN'?'#ff6c5c':'#7a8065')}); impactFx(hx,hy,Math.atan2(s.dy,s.dx),o,1); if(res.splash){ const sc=res.splash.radius/40; burst(hx,hy,sc,Math.round(22*sc),Math.round(14*sc),Math.round(11*sc)); }
@@ -907,5 +976,7 @@ function stepShells(dt, ctx){
 }
 
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={fireTank:fireTank,tryFire:tryFire,tryFirePrimary:tryFirePrimary,tryFireSecondary:tryFireSecondary,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels,ensureClipState:ensureClipState,updatePrimaryClip:updatePrimaryClip,fireClipWeapon:fireClipWeapon,clipMagReloadSeconds:clipMagReloadSeconds};
+  module.exports={fireTank:fireTank,tryFire:tryFire,tryFirePrimary:tryFirePrimary,tryFireSecondary:tryFireSecondary,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels,ensureClipState:ensureClipState,updatePrimaryClip:updatePrimaryClip,fireClipWeapon:fireClipWeapon,clipMagReloadSeconds:clipMagReloadSeconds,
+  // #10（2026-10-19）：便携掩体"后方有效区"判定（纯函数，供测试与页面共用）
+  behindCoverOnlyTurretHit:behindCoverOnlyTurretHit};
 }

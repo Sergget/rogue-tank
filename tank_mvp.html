@@ -5610,37 +5610,45 @@ function draw(){
         ctx.beginPath(); ctx.arc(d.x, d.y, 6 + Math.sin(performance.now()/100)*2, 0, TAU); ctx.stroke();
       }
     } else if(d.isDeployableCover){
-      // #E4（2026-09-20）：单向透明掩体——朝向指示：我方穿透侧画青色虚线 + 箭头，
-      // 敌方面（对立方被挡）画加粗实线装甲边，玩家据此判断哪一侧可以自由射击。
+      // #10（2026-10-19 用户反馈）：「便携掩体难以看清箭头方向，直接使用类似中括号形状以明确区分掩体」。
+      //   旧实现是「矩形 + 一侧虚线 + 3 个向外三角箭头」，在 2~3px 线宽下箭头几乎不可辨。
+      //   现改为**中括号 `[` / `]` 形状**：开口侧 = 可穿透侧（己方炮弹穿过），
+      //   闭合侧 = 装甲侧（对立阵营被挡）。开口方向即箭头方向，一眼可辨。
       const mine = (d.team === (player ? player.team : 'player'));
+      const col = mine ? 'rgba(92,200,255,' : 'rgba(255,120,90,';
+      const L2 = d.hullLen/2, W2 = d.hullWid/2;
+      const arm = Math.min(W2 * 1.6, 10);      // 括号「臂」伸出长度
+      const th = Math.max(2, W2 * 0.22);       // 括号线宽（按掩体厚度缩放，保证可见）
       ctx.save();
       ctx.translate(d.x, d.y);
       ctx.rotate(d.hullAngle);
-      ctx.fillStyle = mine ? 'rgba(92,200,255,0.18)' : 'rgba(255,120,90,0.18)';
-      ctx.strokeStyle = mine ? 'rgba(92,200,255,0.8)' : 'rgba(255,120,90,0.8)';
-      ctx.lineWidth = 2;
-      ctx.fillRect(-d.hullLen/2, -d.hullWid/2, d.hullLen, d.hullWid);
-      ctx.strokeRect(-d.hullLen/2, -d.hullWid/2, d.hullLen, d.hullWid);
-      // 穿透侧（局部 -y 侧 = 部署时朝向部署者的一侧）虚线 + 向外箭头
-      ctx.setLineDash([8, 6]);
-      ctx.strokeStyle = 'rgba(126,217,87,0.9)';
+      // 掩体主体（半透明填充，提示实际占位）
+      ctx.fillStyle = col + '0.14)';
+      ctx.fillRect(-L2, -W2, d.hullLen, d.hullWid);
+      // 中括号形状：闭合侧（+y，装甲侧）实线，两端向 -y 折出「臂」，开口朝 -y（穿透侧）
+      ctx.strokeStyle = col + '0.95)';
+      ctx.lineWidth = th;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.moveTo(-d.hullLen/2, -d.hullWid/2); ctx.lineTo(d.hullLen/2, -d.hullWid/2);
+      ctx.moveTo(-L2, -W2 - arm);   // 左上臂端
+      ctx.lineTo(-L2, W2);          // 左下角
+      ctx.lineTo(L2, W2);           // 右下角
+      ctx.lineTo(L2, -W2 - arm);    // 右上臂端
+      ctx.stroke();
+      // 开口侧虚线短边（提示「这一侧可穿过」）
+      ctx.setLineDash([6, 5]);
+      ctx.lineWidth = Math.max(1, th * 0.6);
+      ctx.strokeStyle = 'rgba(126,217,87,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(-L2, -W2 - arm);
+      ctx.lineTo(L2, -W2 - arm);
       ctx.stroke();
       ctx.setLineDash([]);
-      for(let ai = -1; ai <= 1; ai++){
-        const ax = ai * d.hullLen * 0.3;
-        ctx.beginPath();
-        ctx.moveTo(ax, -d.hullWid/2);
-        ctx.lineTo(ax - 4, -d.hullWid/2 + 7);
-        ctx.lineTo(ax + 4, -d.hullWid/2 + 7);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(126,217,87,0.85)';
-        ctx.fill();
-      }
       if(d.shield){
         ctx.strokeStyle = 'rgba(92,200,255,0.4)'; ctx.setLineDash([4, 4]);
-        ctx.strokeRect(-d.hullLen/2-4, -d.hullWid/2-4, d.hullLen+8, d.hullWid+8);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-L2-4, -W2-4, d.hullLen+8, d.hullWid+8);
         ctx.setLineDash([]);
       }
       ctx.restore();

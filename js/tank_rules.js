@@ -98,6 +98,13 @@ const RULES = {
     fallen:     { label: '倒树',     fill: 'rgba(56,72,44,0.35)',    stroke: '#4a5c3a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'fallen',      tierGroup: 'foliage', residueW: 2.4, residueH: 0.5 },
     soft:       { label: '栅栏',     fill: 'rgba(150,118,70,0.4)',   stroke: '#96764a', passability: 0.45, shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'soft',        tierGroup: 'structure' },
     barricade:  { label: '沙袋路障', fill: 'rgba(158,128,72,0.55)',  stroke: '#9e8048', passability: 1.0,  shellBlock: 'single', exposureProfile: 'full',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'barricade',   tierGroup: 'structure', toTier: 'rubble' },
+  // #10（2026-10-19 用户裁定）：「以相似的形状重绘沙包掩体、**新增永久掩体**（也采用近中括号形状的）」。
+  //   永久掩体 = 不可摧毁、挡到永远的反坦克桩/混凝土块组合，形状沿用沙包的**近中括号轮廓**
+  //   （与便携掩体的视觉语言统一：开口侧=可穿过，闭合侧=装甲）。
+  //   · shellBlock:'solid' ⇒ 确定性挡弹（与 full/rock 同级），不可摧毁；
+  //   · passability 0（不可通行，只能绕行）；
+  //   · 不参与 crushable（坦克碾不动）。
+  perm_block: { label: '永久掩体', fill: 'rgba(120,118,110,0.62)', stroke: '#78766e', passability: 0.0,  shellBlock: 'solid',  exposureProfile: 'full',      destructible: null,     crushable: false, vision: true,  drawStyle: 'barricade',   tierGroup: 'structure' },
     // #E1/#E3（2026-09-20）：树桩/碎石改为**不挡弹**（shellBlock false）——旧 'grad' 渐变剖面是
     // 「炮弹被不可见小物件拦截」的主要来源之一；残骸类低矮杂物不再参与弹道遮蔽。
     stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', passability: 0.6,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'stump',       tierGroup: 'structure' },
@@ -256,9 +263,15 @@ const RULES = {
       // #E4（2026-09-20 用户裁定）：掩体长度再加长至当前 2 倍（1.6 → 3.2）。
       lenMult: 3.2,
       // #E4 单向透明：部署方阵营的炮弹可穿过掩体，对立方炮弹被 100% 格挡；
-      // 视觉上以朝向指示（部署面虚线 + 箭头）标明「我方穿透侧」。
+      // 视觉上以**中括号形状**标明「我方穿透侧」（#10 2026-10-19 用户裁定改形状）。
       oneWay: true,
-      width: 22          // 掩体厚度（px，旧硬编码 20）
+      width: 22,         // 掩体厚度（px，旧硬编码 20）
+      // #10（2026-10-19 用户裁定）：「单向通过性**仅限掩体后一段有效距离**——如果掩体后
+      //   有效区域内有坦克，则无法命中车体，只能命中炮塔；如果坦克不在掩体后的有效区域内，
+      //   则可以命中炮塔或车体」。
+      //   本值是「掩体装甲侧背后多远仍算有效区」（px）。判定见 js/tank_fire.js 的
+      //   behindCoverOnlyTurretHit（纯函数，可 Node 测试）。
+      behindValidDist: 220
     },
     deploy_limits: {     // #E4 可部署物数量上限（按类型独立计数）+ 升级增量
       coverMax: 2,       // 战术掩体基础上限（升级卡/局内升级各 +1）

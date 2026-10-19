@@ -624,21 +624,34 @@ const ASSET_DEFS = {
         ctx.lineTo(bx + dir*h*0.6, y - dir*h*0.8);
         ctx.stroke();
       }
-      // 根部伐倒断面（树干左端）：波浪圆切面 + 年轮
+      // 根部伐倒断面（树干左端）。
+      // #12（2026-10-19 用户反馈「倒下树干的切面直接正视给了玩家，需要改为斜向的角度」）：
+      //   旧实现用 `blobPath(cutX, y, r0*0.9, r0*0.9, 0, …)` 画**正圆**——在俯视 2.5D 视角下，
+      //   这读作「正对镜头的圆盘」，与「树干横躺、断面朝侧上方」的直觉矛盾。
+      //   现改为**斜向扁椭圆**：长轴沿树干横向（y）、短轴压扁到 0.62（透视缩短），
+      //   并整体沿 +x 方向偏移一点（断面在树干端部略内收），再叠阴影/年轮/髓点。
       const cutX = x - L;
-      ctx.fillStyle = 'rgba(46,32,16,0.6)';
-      ctx.beginPath(); ctx.ellipse(cutX + r0*0.12, y + r0*0.16, r0*0.78, r0*0.68, 0, 0, TAU); ctx.fill();
-      const cutG = ctx.createLinearGradient(cutX - r0, y - r0, cutX + r0, y + r0);
-      cutG.addColorStop(0, 'rgba(158,124,80,0.95)');
+      const cutRx = Math.max(1.2, r0 * 0.55);   // 横向（沿干宽）半轴
+      const cutRy = Math.max(1.6, r0 * 0.92);   // 纵向（干截面高）半轴 → 扁椭圆
+      const cutRot = 0.22;                      // 轻微倾角，读作「斜切」而非正圆
+      // 断面投影（右下，与整车光源同向）
+      ctx.fillStyle = 'rgba(46,32,16,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(cutX + r0 * 0.30, y + r0 * 0.26, cutRx * 0.92, cutRy * 0.92, cutRot, 0, TAU);
+      ctx.fill();
+      // 断面木质（渐变沿短轴方向，模拟斜切受光）
+      const cutG = ctx.createLinearGradient(cutX - cutRx, y - cutRy, cutX + cutRx, y + cutRy);
+      cutG.addColorStop(0, 'rgba(172,138,92,0.95)');
       cutG.addColorStop(0.5, 'rgba(126,96,60,0.95)');
       cutG.addColorStop(1, 'rgba(70,48,26,0.95)');
       ctx.fillStyle = cutG;
-      blobPath(ctx, cutX, y, r0*0.9, r0*0.9, 0, (j)=>0.85 + 0.15*Math.sin(j*3.3 + 0.8), 16);
-      ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cutX, y, cutRx, cutRy, cutRot, 0, TAU); ctx.fill();
       ctx.strokeStyle = 'rgba(60,40,22,0.8)'; ctx.lineWidth = 1;
-      blobPath(ctx, cutX, y, r0*0.9, r0*0.9, 0, (j)=>0.85 + 0.15*Math.sin(j*3.3 + 0.8), 16);
-      ctx.stroke();
-      ctx.beginPath(); ctx.arc(cutX, y, r0*0.45, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(cutX, y, cutRx, cutRy, cutRot, 0, TAU); ctx.stroke();
+      // 年轮（同心扁椭圆，按 cutRot 倾斜）
+      ctx.strokeStyle = 'rgba(96,70,42,0.55)'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.ellipse(cutX, y, cutRx * 0.62, cutRy * 0.62, cutRot, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(cutX, y, cutRx * 0.30, cutRy * 0.30, cutRot, 0, TAU); ctx.stroke();
     },
     bakeCanopy(ctx, cov){
       const x = cov.x, y = cov.y, w = cov.w, h = cov.h;
