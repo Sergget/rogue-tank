@@ -237,6 +237,46 @@ function mountDevPanel(host) {
     const hay = [c.name, c.id, c.rarity, (c.tags || []).join(','), c.desc].filter(Boolean).join(' ').toLowerCase();
     return hay.indexOf(q) >= 0;
   }
+
+  // ---------------- NF-4（2026-10-20）：卡牌悬停 tooltip（自绘，替换原生 title 主通道） ----------------
+  // 单例 div（挂 host），mouseenter 300ms 延迟显示、mouseleave 立即隐藏；
+  // 位置 = 按钮 rect 右侧 12px，超出视口右/下边缘时向左/上翻折。
+  // 描述经共享 formatCardDesc 求值（{value}/{pct}/{ov:key}），稀有度做彩色小徽章。
+  let _cardTipEl = null;
+  let _cardTipTimer = null;
+  function _ensureCardTipEl(host) {
+    if (_cardTipEl && _cardTipEl.isConnected) return _cardTipEl;
+    const root = (H && H.attach) || document.body;
+    _cardTipEl = document.createElement('div');
+    _cardTipEl.style.cssText = 'position:fixed; z-index:80; max-width:300px; padding:8px 10px; display:none;'
+      + ' background:rgba(10,11,8,0.96); border:1px solid #6b5a34; border-radius:4px;'
+      + ' font-size:12px; line-height:1.55; color:#d8d4c8; pointer-events:none; box-shadow:0 4px 14px rgba(0,0,0,0.55);';
+    root.appendChild(_cardTipEl);
+    return _cardTipEl;
+  }
+  function attachCardTooltip(btn, card) {
+    if (!btn || !card) return;
+    btn.addEventListener('mouseenter', function () {
+      const tip = _ensureCardTipEl();
+      const rarCol = ({ common: '#9aa39a', rare: '#5cc8ff', epic: '#c69ae8', legendary: '#ffb454' })[card.rarity] || '#9aa39a';
+      tip.innerHTML = '<div style="color:' + rarCol + '; font-weight:700; margin-bottom:3px;">'
+        + (card.name || card.id) + ' <span style="font-weight:400; font-size:10px; opacity:0.75;">[' + (card.rarity || '') + ']</span></div>'
+        + '<div>' + ((typeof formatCardDesc === 'function') ? formatCardDesc(card) : (card.desc || '')) + '</div>';
+      tip.style.display = 'block';
+      // 位置：按钮右缘 +12px，垂直对齐按钮顶；溢出翻折
+      const r = btn.getBoundingClientRect();
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let x = r.right + 12, y = r.top;
+      if (x + tw > window.innerWidth - 8) x = Math.max(8, r.left - tw - 12);
+      if (y + th > window.innerHeight - 8) y = Math.max(8, window.innerHeight - th - 8);
+      tip.style.left = x + 'px';
+      tip.style.top = y + 'px';
+    });
+    btn.addEventListener('mouseleave', function () {
+      if (_cardTipTimer) { clearTimeout(_cardTipTimer); _cardTipTimer = null; }
+      if (_cardTipEl) _cardTipEl.style.display = 'none';
+    });
+  }
   function cardById(id) { return (getCardPool() || []).find(function (c) { return c.id === id; }) || null; }
   function renderDevCards() {
     const el = $('devCardPicker');
@@ -280,7 +320,12 @@ function mountDevPanel(host) {
           const b = document.createElement('button');
           const held = devCardHeldCount(c.id);
           b.textContent = c.name + '（' + c.rarity + (c.maxStacks ? ' ×' + c.maxStacks : '') + '）' + (held ? ' · 已持有 ×' + held : '');
-          b.title = c.desc || '';
+          // NF-4（2026-10-20 用户口径「面板卡牌悬停预览详细描述」）：
+          //   原生 title 已换**自绘 tooltip**——描述经共享 formatCardDesc 求值
+          //   （{value}/{pct}/{ov:key} 实时展开），悬停 300ms 出现在按钮右侧、自动避让视口边缘。
+          //   title 属性保留（无 CSS/JS 极端环境下的兜底），tooltip 覆盖其上。
+          b.title = (typeof formatCardDesc === 'function') ? formatCardDesc(c) : (c.desc || '');
+          attachCardTooltip(b, c);
           b.addEventListener('click', function () {
             pickDevCard(c);
             b.classList.add('dev-picked');

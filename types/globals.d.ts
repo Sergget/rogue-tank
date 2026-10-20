@@ -578,3 +578,5 @@ declare function updateEmergencyShieldRearm(tank: any, dt: number): void;
 // 2026-10-19：敌军弹种分级（js/tank_model.js 导出）
 declare function enemyAmmoKeyForLevel(level: number): string;
 declare function applyEnemyAmmoByLevel(tank: any, level: number): void;
+// NF-1（2026-10-20）：卡面占位符求值（js/tank_cards.js 导出，全局脚本）
+declare function formatCardDesc(card: any): string;
