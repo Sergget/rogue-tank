@@ -1531,3 +1531,31 @@ E2E：splashRadius 135 ✓ / 3 连发（left 2→0）✓ / 队列清空 ✓ / �
 
 `check-html` 0 / `tsc` 0 / `validate-content` 0（196 卡）/ `npm test` **49/49**（每批各自验证）。
 提交：`d298c4c` → `360ebb3` → `f5e4f5d` → `dfbc5b2` → `e5f8968` → `6467775`，均已推送。
+### §4.109 更正：榴弹炮曲射模式是**副武器**而非技能（commit `85d8057`，2026-10-20）
+
+**用户反馈**：「榴弹炮模式被做成了技能而非副武器，且无法激活」。
+PLAN §6 原文即「**新副武器**：榴弹炮曲射模式」——§4.109/§4.110 实现成 `ability`（技能槽 toggle）
+是口径错误；且 `SKILL_DISPATCH` 未注册该键 ⇒ 按技能键只得「无激活入口」。
+
+**重构为副武器**：
+
+| 项 | 旧（技能） | 新（副武器） |
+|---|---|---|
+| 载体 | `t._howitzerMode` + ability key | `weapons.secondary.type === 'howitzer'` |
+| 获取 | `howitzer_mode.json`（ability） | `weapon_secondary_howitzer.json`（weapon install，epic） |
+| 判据 | 8 处分散判断 | 单一 `isHowitzerMode(t)`（`tank_weapons.js` 导出） |
+| 升级 | 写 `t._howitzerStats` | 副武器 upgrade 通道写 `weapons.secondary.stats` |
+| F 键 | 技能键 1~3 | **不响应**（载体，射击走主炮） |
+| 卸下 | 再按 toggle | 换掉副武器即回直射 |
+
+**模块加载顺序坑**：`tank_fire.js` / `tank_move.js` 在 Node 下无全局 `isHowitzerMode`，
+故各加惰性解析器（全局 → `require('./tank_weapons.js')` → 内联等价兜底），
+避免模块顶层 require 顺序依赖（首版直接调用导致 `test-move`/`test-fire`/`test-replay`/
+`test-tankcollision` 四项 ReferenceError）。
+
+**实测**：安装→`isHowitzerMode=true`；卸下→回直射（弹无 isArc）；主炮曲射
+（isArc/he/落点=aimPoint）；F 不响应；升级卡写 secondary.stats 且弹按 135 结算；
+**稳态 1/3 限速** 直射 249.6 vs 曲射 83.2 = **0.333**
+（180 帧测得 0.493 是加速未完成，非缺陷）。`test-fire` 7e 段改写为 **11 条断言**。
+
+验证：`check-html` 0 / `tsc` 0 / `validate-content` 0（196 卡）/ `npm test` **49/49**。
