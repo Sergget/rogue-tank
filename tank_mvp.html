@@ -1422,10 +1422,14 @@ function renderCardsPanel(){
   const tabsEl = document.getElementById('cpTabs');
   const listEl = document.getElementById('cpList');
   if(!tabsEl || !listEl) return;
-  const cards = ownedCardsList();
-  // 分类页签 —— #16（2026-10-19 用户裁定）：删除「按标签」维度（tags 玩法零消费，
-  // 仅保留字段供 audit-content.js 的流派覆盖度体检使用）。
-  const cats = [['rarity', '按稀有度'], ['all', '全部']];
+  // NF-1（2026-10-20 用户口径「按类别列出**所有**卡牌」）：新增「全池」维度——
+  //   数据源从 ownedCardsList()（本局持有）切到 cardPool（静态全表）。
+  const poolMode = (cardsPanelCat === 'pool');
+  const cards = poolMode
+    ? (typeof cardPool !== 'undefined' && Array.isArray(cardPool) ? cardPool : []).map(spec => ({ id: spec.id, count: 1, spec }))
+    : ownedCardsList();
+  // 分类页签 —— #16：删「按标签」；NF-1：加「全池」
+  const cats = [['rarity', '按稀有度'], ['all', '全部'], ['pool', '全池']];
   tabsEl.innerHTML = cats.map(([k, label]) =>
     `<span class="cp-tab${cardsPanelCat === k ? ' on' : ''}" data-cat="${k}">${label}</span>`).join('');
   tabsEl.querySelectorAll('.cp-tab').forEach(el => {
@@ -1435,46 +1439,87 @@ function renderCardsPanel(){
     listEl.innerHTML = '<div class="cp-empty">本局尚未获得卡牌。</div>';
     return;
   }
+  // 全池按稀有度分组排序（ rarity 顺序即 CARD_RARITIES ）
+  if(poolMode){
+    const order = (typeof CARD_RARITIES !== 'undefined' && Array.isArray(CARD_RARITIES)) ? CARD_RARITIES : [];
+    cards.sort((a, b) => {
+      const ra = a.spec ? order.indexOf(a.spec.rarity) : -1;
+      const rb = b.spec ? order.indexOf(b.spec.rarity) : -1;
+      if(ra !== rb) return (ra < 0 ? 99 : ra) - (rb < 0 ? 99 : rb);
+      return String(a.spec ? (a.spec.name || a.id) : a.id).localeCompare(String(b.spec ? (b.spec.name || b.id) : b.id), 'zh');
+    });
+  }
   const rarLabel = (r) => ((typeof CARD_RARITY_LABELS !== 'undefined' && CARD_RARITY_LABELS[r]) ||
                            (typeof CARD_RARITIES !== 'undefined' && CARD_RARITIES[r]) || r || '未知');
+  // NF-1（2026-10-20 用户口径「允许修改文本描述（机制数值用占位符）」）：
+  //   desc 编辑存 `sessionStorage['cardDescOverride']`（id → 新文案，**仅本页会话预览**，
+  //   不写 cards/*.json——写盘是内容批次的职责，这里只是查看器语义）。
+  //   渲染经共享 formatCardDesc（js/tank_cards.js）：{value}/{pct}/{ov:key} 求值。
+  const _descOv = (() => {
+    try { return JSON.parse(sessionStorage.getItem('cardDescOverride') || '{}'); } catch(e){ return {}; }
+  })();
   const cardHTML = (c) => {
     const spec = c.spec;
     const nm = spec ? (spec.name || c.id) : c.id;
     const rr = spec ? rarLabel(spec.rarity) : '（无卡表数据）';
-    // #16（2026-10-19 用户裁定）：「卡牌的角色设定没有意义，删除相关的字段」。
-    //   采纳的方案 A：**保留 `tags` 字段**（audit-content.js 的流派覆盖度体检仍靠它），
-    //   但**删除玩家可见的流派展示与分类维度**——它们对玩法零影响，只增加界面噪音。
-    const ds = spec ? (spec.desc || '') : '';
+    // #16（2026-10-19 用户裁定）：tags 字段保留（audit 体检依赖），仅删玩家可见展示。
+    const ds = spec ? ((_descOv[c.id] !== undefined) ? _descOv[c.id] : (spec.desc || '')) : '';
+    const rendered = (spec && typeof formatCardDesc === 'function') ? formatCardDesc(Object.assign({}, spec, { desc: ds })) : ds;
     const cnt = c.count > 1 ? ` ×${c.count}` : '';
+    const editable = spec ? ` title="点击描述可编辑（占位符 {value}/{pct}/{ov:key}，仅会话预览）" data-edit="${c.id}" style="cursor:text;"` : '';
     return `<div class="cp-card"><span class="nm">${nm}</span>${cnt}<span class="rr">${rr}</span>` +
-           (ds ? `<div class="ds">${ds}</div>` : '') + '</div>';
+           (rendered ? `<div class="ds"${editable}>${rendered}</div>` : '') + '</div>';
   };
-  if(cardsPanelCat === 'all'){
+  if(cardsPanelCat === 'all' || cardsPanelCat === 'pool'){
     listEl.innerHTML = cards.map(cardHTML).join('');
-    return;
-  }
-  // 分组（#16：只剩「稀有度」一个维度；标签维度已删除）
-  const groups = new Map();
-  for(const c of cards){
-    let keys = [];
-    if(cardsPanelCat === 'rarity') keys = [c.spec ? (c.spec.rarity || '未标注') : '未标注'];
-    for(const k of keys){
-      if(!groups.has(k)) groups.set(k, []);
-      groups.get(k).push(c);
+  } else {
+    // 分组（#16：只剩「稀有度」一个维度；标签维度已删除）
+    const groups = new Map();
+    for(const c of cards){
+      let keys = [];
+      if(cardsPanelCat === 'rarity') keys = [c.spec ? (c.spec.rarity || '未标注') : '未标注'];
+      for(const k of keys){
+        if(!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(c);
+      }
     }
+    const order = (typeof CARD_RARITIES !== 'undefined' && Array.isArray(CARD_RARITIES)) ? CARD_RARITIES : [];
+    const sortedKeys = [...groups.keys()].sort((a, b) => {
+      const ia = order.indexOf(a), ib = order.indexOf(b);
+      if(ia >= 0 && ib >= 0) return ia - ib;
+      if(ia >= 0) return -1;
+      if(ib >= 0) return 1;
+      return String(a).localeCompare(String(b), 'zh');
+    });
+    listEl.innerHTML = sortedKeys.map(k => {
+      const head = `<div class="cp-title" style="margin-top:6px;">${(cardsPanelCat === 'rarity') ? rarLabel(k) : k}</div>`;
+      return head + groups.get(k).map(cardHTML).join('');
+    }).join('');
   }
-  const order = (typeof CARD_RARITIES !== 'undefined' && Array.isArray(CARD_RARITIES)) ? CARD_RARITIES : [];
-  const sortedKeys = [...groups.keys()].sort((a, b) => {
-    const ia = order.indexOf(a), ib = order.indexOf(b);
-    if(ia >= 0 && ib >= 0) return ia - ib;
-    if(ia >= 0) return -1;
-    if(ib >= 0) return 1;
-    return String(a).localeCompare(String(b), 'zh');
+  // NF-1：描述编辑（事件委托——点击 .ds[data-edit] 就地换成 textarea，失焦保存回 sessionStorage）
+  listEl.querySelectorAll('.ds[data-edit]').forEach(dsEl => {
+    dsEl.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const id = dsEl.getAttribute('data-edit');
+      const cur = dsEl.textContent || '';
+      const ta = document.createElement('textarea');
+      ta.value = cur;
+      ta.style.cssText = 'width:100%; min-height:52px; font-size:10px; line-height:1.5; background:#0c0d09; color:var(--text); border:1px solid var(--amber-dim);';
+      dsEl.replaceWith(ta);
+      ta.focus();
+      const commit = () => {
+        const nv = ta.value.trim();
+        try {
+          const ov = JSON.parse(sessionStorage.getItem('cardDescOverride') || '{}');
+          if(nv) ov[id] = nv; else delete ov[id];
+          sessionStorage.setItem('cardDescOverride', JSON.stringify(ov));
+        } catch(e){}
+        renderCardsPanel();
+      };
+      ta.addEventListener('blur', commit);
+      ta.addEventListener('keydown', (e) => { if(e.key === 'Escape'){ ta.removeEventListener('blur', commit); renderCardsPanel(); } });
+    });
   });
-  listEl.innerHTML = sortedKeys.map(k => {
-    const head = `<div class="cp-title" style="margin-top:6px;">${(cardsPanelCat === 'rarity') ? rarLabel(k) : k}</div>`;
-    return head + groups.get(k).map(cardHTML).join('');
-  }).join('');
 }
 // Tab/`/F12 面板热键已收敛至输入控制器（panelStatus / panelDev / panelDevAlt）。
 

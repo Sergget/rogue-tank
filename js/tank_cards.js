@@ -1075,6 +1075,7 @@ if (typeof module !== 'undefined' && module.exports) {
     pickBossArmament,
     isAmmoUpgradeCard,
     // #W-G（2026-10-19）：应急护盾（原 reactive_armor —— 机制已从「拦截驱动」改为「低血触发」）
+    formatCardDesc,   // NF-1（2026-10-20）：卡面占位符求值（纯函数）
     emergencyShieldCooldown,
     emergencyShieldConfig,
     updateEmergencyShieldRearm,
@@ -1084,4 +1085,45 @@ if (typeof module !== 'undefined' && module.exports) {
     runScoreMultiplier,
     runShopDiscount
   };
+}
+// ==================== NF-1（2026-10-20）：卡牌描述占位符求值（纯函数） ====================
+// 用户口径：「卡牌查看器：按类别列出所有卡牌，允许修改文本描述（机制数值用占位符）」。
+// 语法（描述文本内嵌）：{value}    → 该卡 effects[0].value（无则空串）
+//                        {value:N}  → effects[N].value（N 从 0 起）
+//                        {pct}      → effects[0].value×100 取整 + '%'（1.25 → '25%'）
+//                        {pct:N}    → effects[N].value×100 + '%'
+//                        {ov:key}   → weapon 卡 statOverrides.key（如 {ov:splashRadius} → '135'）
+//                        {ov:key:N} → effects[N].statOverrides.key
+// 未知占位符原样保留（防呆：编辑器里写错不至于渲染成空）。
+// 只读卡对象，不改任何状态；未知的 effect 类型返回空串。
+function formatCardDesc(card){
+  if(!card || typeof card.desc !== 'string') return '';
+  const efs = Array.isArray(card.effects) ? card.effects : [];
+  const pick = (n, fn) => {
+    const ef = efs[n];
+    if(!ef) return null;
+    return fn(ef);
+  };
+  return card.desc.replace(/\{(value|pct|ov)(?::(\w+))?(?::(\d+))?\}/g, (m, kind, key, nStr) => {
+    const n = (nStr !== undefined && nStr !== '') ? parseInt(nStr, 10) : 0;
+    let out = null;
+    if(kind === 'value'){
+      out = pick(n, ef => (typeof ef.value === 'number') ? String(ef.value) : null);
+    } else if(kind === 'pct'){
+      out = pick(n, ef => (typeof ef.value === 'number') ? Math.round(ef.value * 100) + '%' : null);
+    } else if(kind === 'ov'){
+      // {ov:key}   → 全 effects 扫描，第一个含 statOverrides[key] 的
+      // {ov:key:N} → 限定 effects[N]
+      if(key !== undefined){
+        const scan = (nStr !== undefined && nStr !== '') ? [efs[parseInt(nStr, 10)]] : efs;
+        for(const ef of scan){
+          if(ef && ef.statOverrides && typeof ef.statOverrides === 'object' && ef.statOverrides[key] !== undefined){
+            out = String(ef.statOverrides[key]);
+            break;
+          }
+        }
+      }
+    }
+    return (out === null) ? m : out;
+  });
 }
