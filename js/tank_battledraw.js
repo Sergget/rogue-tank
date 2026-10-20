@@ -938,7 +938,14 @@ function drawSpriteTracks(ctx, t){
     ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
     const drawH = img.naturalHeight * s;
     const yImg = cy - drawH / 2;
-    for(let x = x0 + phase - tileLen; x < x1; x += tileLen){
+    // #15①（2026-10-20 用户反馈「履带的动画长度 > 履带贴图长度」）：
+    //   旧平铺从 `x0 + phase − tileLen` 起步、单向铺到 x1 ⇒ **一端完整、另一端被裁成残块**，
+    //   加上相位漂移，视觉上就是「动画比贴图长、尾部露一截」。现改为**以车体中心对称平铺**：
+    //   两端各铺 ceil(L/2/tileLen) 块，裁切量左右相等，滚动的是一整条连续带。
+    const halfTiles = Math.ceil((L / 2) / tileLen) + 1;
+    for(let k = -halfTiles; k <= halfTiles; k++){
+      const x = dx + k * tileLen - (phase % tileLen) - (phase < 0 ? tileLen : 0);
+      if(x > x1 || x + tileLen < x0) continue;
       ctx.drawImage(img, x, yImg, tileLen, drawH);
     }
     ctx.restore();

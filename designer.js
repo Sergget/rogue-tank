@@ -1969,7 +1969,14 @@ function drawPreviewSpriteTracks(){
     ctx.beginPath(); ctx.rect(x0, y0, x1-x0, y1-y0); ctx.clip();
     const drawH = img.naturalHeight * s * viewScale;
     const yImg = cy - drawH/2;
-    for(let x = x0 + phase - tileLen; x < x1; x += tileLen){
+    // #15①（2026-10-20）：与局内 drawSpriteTracks 同口径——**以车体中心对称平铺**
+    // （旧实现从 x0 + phase − tileLen 单向铺，一端完整一端残块，视觉上「动画比贴图长」）。
+    const halfTiles = Math.ceil((hullLen * viewScale / 2) / tileLen) + 1;
+    const cx0 = dx * viewScale;
+    const ph = ((phase % tileLen) + tileLen) % tileLen;
+    for(let k = -halfTiles; k <= halfTiles; k++){
+      const x = cx0 + k * tileLen - ph;
+      if(x > x1 || x + tileLen < x0) continue;
       ctx.drawImage(img, x, yImg, tileLen, drawH);
     }
     ctx.restore();
@@ -2086,8 +2093,17 @@ function drawPolygon(poly, center, angle, opts){
     // 车体以 hullCenter 为原点、炮塔换算到座圈圆心 + axis 平移帧（与 turretToScreen 同帧约定）；
     // 编辑模式保持纯色填充便于看顶点/边/装甲。切换外观件下拉即时生效。
     // 精灵已绘制时跳过（AI 贴图自带涂装，不再叠程序化纹理）。
-    if(!spriteDrawn && opts.detail && !opts.faded && state.texture && state.texture !== 'none'){
-      const texOpts = { detail:true, texture: state.texture, heightClass: state.heightClass,
+    //
+    // #15②（2026-10-20 用户反馈「发动机舱盖位置不能实时预览」）：
+    //   根因是**门控过严**——上一版要求 `state.texture && state.texture !== 'none'` 才走
+    //   paintPartTexture，而 **appearance（舱盖/车长塔/侧裙等外观件）就画在那个函数里**
+    //   ⇒ 纯色涂装（texture='none'，设计器默认）下外观件模型完全不渲染，改 dx/dy 无反馈。
+    //   现改为：**外观件存在时也走该通道**（texture 传 'none' 时 paintPartTexture 只画外观件
+    //   与几何细节，不叠迷彩——与其内部 `opts.texture` 处理一致）。
+    const _hasAppearance = !!(state.appearance && Object.keys(state.appearance).length);
+    if(!spriteDrawn && opts.detail && !opts.faded && ((state.texture && state.texture !== 'none') || _hasAppearance)){
+      const texOpts = { detail:true, texture: (state.texture && state.texture !== 'none') ? state.texture : 'none',
+        heightClass: state.heightClass,
         appearance: state.appearance || undefined };
       // #TEX11：设计器预览与局内同口径——车体/炮塔共用「整车图案框」，炮塔按座圈偏移平移。
       // 否则预览里炮塔迷彩色块只有车体一半大，改完进游戏才发现比例不对。

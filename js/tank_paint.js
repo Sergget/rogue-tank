@@ -857,14 +857,26 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
       }
       // #TEX3: 车长塔外观件覆盖 —— appearance.cupola 存在时用预设样式+手动位置，跳过内置
       // #3（2026-10-15）：cupola 支持数组（多个不同样式）
+      //
+      // #15③（2026-10-20 用户反馈「存在 2 个基础坐标系不同的车长塔，设置位置时中心对称移动」）：
+      //   根因是**两条分支的坐标基准不同**：
+      //     · 内置分支：`cupolaAt(ccx, cr)` 的纵向基准是 `cupCy = cym − W*0.44`（炮塔前缘带），
+      //       `ccx` 是**绝对炮塔局部 x**（如 `cxm − L*0.08`）；
+      //     · 外观件分支：`paintAppearancePart(…, cxm + dx, cym + dy, …)` 的基准是**炮塔中心**
+      //       —— dy=0 时落在正中，而内置同位置是 `−W*0.44` ⇒ 两者差一个常数偏移，
+      //       玩家在面板里把 dx/dy 设为 0 后看到的位置与「内置位置」不一致，改 dy 时
+      //       又绕着中心对称移动（把「相对前缘」误读成「相对中心」）。
+      //   统一口径：**dx/dy 一律相对炮塔中心**（设计器面板的坐标语义），但纵向补上内置的
+      //   基准偏移 `−W*0.44`，使「dx=内置ccx偏移、dy=0」时与内置位置**重合**。
       const _cupApp = opts.appearance && opts.appearance.cupola;
       const _cupList = Array.isArray(_cupApp) ? _cupApp : (_cupApp ? [_cupApp] : []);
       const _hasCup = _cupList.some(c => c && c.style && c.style !== 'none');
       if(_hasCup){
         for(const _cup of _cupList){
           if(!_cup || !_cup.style || _cup.style === 'none') continue;
+          // 纵向基准：与内置 cupCy 一致（cym − W*0.44），dy 作相对修正
           paintAppearancePart(ctx, 'cupola', _cup.style,
-            cxm + (_cup.dx || 0), cym + (_cup.dy || 0), 1, bodyCol, { mirror: !!_cup.mirror });
+            cxm + (_cup.dx || 0), (cym - W*0.44) + (_cup.dy || 0), 1, bodyCol, { mirror: !!_cup.mirror });
         }
       } else if(!_cupApp || _cupApp.style !== 'none'){
       // #TEX2-2026-10-15: 车长塔重做 —— 装甲围圈 + 周视镜环 + 对开舱盖 + 提手
