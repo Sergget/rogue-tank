@@ -580,3 +580,7 @@ declare function enemyAmmoKeyForLevel(level: number): string;
 declare function applyEnemyAmmoByLevel(tank: any, level: number): void;
 // NF-1（2026-10-20）：卡面占位符求值（js/tank_cards.js 导出，全局脚本）
 declare function formatCardDesc(card: any): string;
+// NF-2（2026-10-20）：坦克配置表 + 敌军外观/数值基准（tank_mvp/bench 全局；tank_panels_core 图鉴消费）
+declare var tankListData: any;
+declare function applyEnemyAppearanceAndStats(tank: any, spec: any, anchorStats?: any, entityMults?: any): void;
+declare function enemyPreviewStats(tankId: string, level: number, opts?: any): any;

@@ -288,6 +288,84 @@ function enemyLevelMults(level){
 }
 
 // ============================================================================
+// NF-2（2026-10-20 用户口径「坦克图鉴：选择坦克等级，查看不同等级敌人（含 Boss）参数」）
+// ============================================================================
+// **纯查询**：创建临时 tank → 套用敌军外观与数值基准 → 注入等级乘子 → 读出 stats，
+// 全程**不触碰实体注册表**（不 push 进 entities、不影响任何在跑实体）。
+//
+// 与实战敌军的口径差异（有意为之）：
+//   · 实战经 `applyDifficultyMults` 还会叠加「难度封顶」（difficultyCapMuls，含 Math.random
+//     抖动）——那是平衡用的运行时钳制；图鉴展示**确定性基准**（无抖动），便于横向对比等级曲线。
+//   · 若传入 opts.boss（bossSpec），额外走 makeBossEntity 的缩放口径。
+//
+// @param {string} tankId  坦克 id（tanks/*.json 的 key）
+// @param {number} level   敌人等级（1 起，对应 enemyLevelMults）
+// @param {object} [opts]  { tanks: 配置表（缺省取全局 tankListData）, boss: bossSpec }
+// @returns {object|null}
+function enemyPreviewStats(tankId, level, opts){
+  var o = opts || {};
+  var tanks = o.tanks || (typeof tankListData !== 'undefined' ? tankListData : null);
+  if (!tanks || !tanks[tankId]) return null;
+  var spec = tanks[tankId];
+  var lv = Math.max(1, Math.min(9999, Math.floor(Number(level) || 1)));
+
+  var tank = null;
+  var mk = (typeof makeTank === 'function') ? makeTank : null;
+  var applyApp = (typeof applyEnemyAppearanceAndStats === 'function') ? applyEnemyAppearanceAndStats : null;
+  var addMod = (typeof addModifier === 'function') ? addModifier : null;
+  if (typeof require !== 'undefined') {
+    try {
+      var M = require('./tank_model.js');
+      mk = mk || M.makeTank;
+      applyApp = applyApp || M.applyEnemyAppearanceAndStats;
+      addMod = addMod || M.addModifier;
+    } catch (e) { /* 纯浏览器环境走全局 */ }
+  }
+  if (!mk) return null;
+  tank = mk({ team: 'enemy', x: 0, y: 0, hullAngle: 0, turretAngle: 0 });
+  if (applyApp) applyApp(tank, spec, null);
+
+  var mults = enemyLevelMults(lv);
+  if (addMod) {
+    var keys = ['maxHp', 'penetration', 'damage', 'reload', 'maxSpeed', 'turnRate', 'turretTurnRate'];
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (mults[k] !== undefined && mults[k] !== 1) {
+        addMod(tank, { stat: k, mode: 'mult', value: mults[k], source: 'level-preview', scope: 'run' });
+      }
+    }
+    if (mults.armorAll !== undefined && mults.armorAll !== 1) {
+      addMod(tank, { stat: 'armor.hull', mode: 'mult', value: mults.armorAll, source: 'level-preview', scope: 'run' });
+      addMod(tank, { stat: 'armor.turret', mode: 'mult', value: mults.armorAll, source: 'level-preview', scope: 'run' });
+    }
+  }
+
+  var st = tank.stats || {};
+  var armor = st.armor || (typeof RULES !== 'undefined' && RULES.defaultArmor) || {};
+  var pick = function (part, face) {
+    return (armor[part] && typeof armor[part][face] === 'number') ? Math.round(armor[part][face]) : null;
+  };
+  return {
+    id: tankId,
+    name: spec.name || tankId,
+    level: lv,
+    maxHp: Math.round(st.maxHp || 0),
+    penetration: Math.round(st.penetration || 0),
+    damage: Math.round(st.damage || 0),
+    reload: Math.round((st.reload || 0) * 100) / 100,
+    maxSpeed: Math.round(st.maxSpeed || 0),
+    turnRate: typeof st.turnRate === 'number' ? st.turnRate : null,
+    turretTurnRate: typeof st.turretTurnRate === 'number' ? st.turretTurnRate : null,
+    armor: {
+      hull:   { front: pick('hull','front'),   side: pick('hull','side'),   rear: pick('hull','rear') },
+      turret: { front: pick('turret','front'), side: pick('turret','side'), rear: pick('turret','rear') }
+    },
+    heightClass: tank.heightClass || spec.heightClass || 'medium',
+    tankClass: tank.tankClass || null
+  };
+}
+
+// ============================================================================
 // Enemy spawning (test bench: "生成敌人 / 生成一批")
 // ============================================================================
 function spawnEnemyAt(x, y, opts, ctx){
@@ -493,6 +571,7 @@ if (typeof module !== 'undefined' && module.exports){
     heldCardsVM: heldCardsVM,
     activateAbilityForTest: activateAbilityForTest,
     enemyLevelMults: enemyLevelMults,
+    enemyPreviewStats: enemyPreviewStats,   // NF-2：图鉴纯查询
     spawnEnemyAt: spawnEnemyAt,
     buildTankDataVM: buildTankDataVM,
     describeEntityStatus: describeEntityStatus,

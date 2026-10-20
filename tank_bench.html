@@ -247,6 +247,18 @@
         <div id="enemyDataList" style="max-height:150px;overflow:auto;font-family:'JetBrains Mono',monospace;font-size:9px;"></div>
         <div id="enemyDataDetail" style="margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:9px;line-height:1.6;color:var(--text-dim);"></div>
       </div>
+      <!-- NF-2（2026-10-20 用户口径「坦克图鉴：选择坦克等级，查看不同等级敌人（含 Boss）参数」）：
+           纯查询预览——enemyPreviewStats 走「临时 tank + 敌军基准 + enemyLevelMults」，
+           不生成任何实体、不影响战场。与上方 LIVE ENEMIES（真实实体）分工：
+           上方=验证 AI/难度实战，此处=对比同一辆车的**等级曲线**。 -->
+      <div style="border-top:1px dashed var(--line); margin-top:8px; padding-top:6px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--text-dim);margin-bottom:4px;">坦克图鉴 CODEX（纯查询，不生成实体）</div>
+        <div class="bar-row"><span class="bar-label">对比等级</span>
+          <input id="codexLevelInput" type="number" min="1" max="9999" value="1" style="width:70px;font-size:11px;">
+          <button id="codexQueryBtn" style="padding:3px 8px;margin-left:6px;">查询</button>
+        </div>
+        <div id="codexTable" style="margin-top:6px;max-height:200px;overflow:auto;font-family:'JetBrains Mono',monospace;font-size:9px;line-height:1.6;"></div>
+      </div>
     </div>
 
     <div class="section controls" style="display:none;">
@@ -408,6 +420,14 @@ function loadTankList(){
     tankListData = data;
     populateTankSelect();
     populateEnemySelect();            // P-15/P-46：Enemy Lab 下拉也走 shared tankListData
+        // NF-2（2026-10-20）：图鉴初始渲染 + 查询按钮/回车绑定
+        (function(){
+          var qb = document.getElementById("codexQueryBtn");
+          var li = document.getElementById("codexLevelInput");
+          if(qb) qb.addEventListener("click", renderCodex);
+          if(li) li.addEventListener("keydown", function(e){ if(e.key === "Enter") renderCodex(); });
+          renderCodex();
+        })();
     if(!tankListData) return;
     // Only auto-apply on FIRST load so both tanks show their real model/armor;
     // reloading afterwards must not clobber a user's custom config.
@@ -809,6 +829,43 @@ window.benchSpawnTurret = benchSpawnTurret;
 window.benchSpawnMine = benchSpawnMine;
 window.benchSpawnCover = benchSpawnCover;
 
+// ---------- NF-2（2026-10-20）：坦克图鉴 CODEX（纯查询预览） ----------
+// 数据源 enemyPreviewStats（js/tank_panels_core.js）——临时 tank + 敌军基准 + 等级乘子，
+// **不生成实体**。与 LIVE ENEMIES（真实实体，验证 AI/难度实战）分工互补。
+function renderCodex(){
+  var el = document.getElementById('codexTable');
+  if(!el) return;
+  var lv = Math.max(1, Math.min(9999, Math.floor(Number(document.getElementById('codexLevelInput').value) || 1)));
+  if(!tankListData){ el.textContent = '坦克列表加载失败'; return; }
+  var ids = Object.keys(tankListData).filter(function(id){ return id !== 'dummy'; }).sort();
+  var rows = [];
+  var header = '<div style="color:var(--amber);">'
+    + pad('坦克', 12) + pad('HP', 6) + pad('穿深', 6) + pad('伤害', 6) + pad('装填', 6)
+    + pad('极速', 6) + pad('装甲(前/侧/后)', 18) + '</div>';
+  rows.push(header);
+  for(var i = 0; i < ids.length; i++){
+    var r = (typeof enemyPreviewStats === 'function') ? enemyPreviewStats(ids[i], lv, { tanks: tankListData }) : null;
+    if(!r) continue;
+    var ar = r.armor.hull;
+    rows.push(pad(r.name.substring(0, 11), 12)
+      + pad(String(r.maxHp), 6)
+      + pad(String(r.penetration), 6)
+      + pad(String(r.damage), 6)
+      + pad(String(r.reload), 6)
+      + pad(String(r.maxSpeed), 6)
+      + (ar.front || '-') + '/' + (ar.side || '-') + '/' + (ar.rear || '-'));
+  }
+  function pad(s, n){
+    s = String(s || '');
+    var w = 0;
+    for(var k = 0; k < s.length; k++) w += (s.charCodeAt(k) > 255 ? 2 : 1);
+    while(w < n){ s += ' '; w++; }
+    return s;
+  }
+  el.innerHTML = rows.map(function(r, idx){
+    return '<div style="white-space:pre;' + (idx === 0 ? '' : 'color:var(--text-dim);') + '">' + r + '</div>';
+  }).join('');
+}
 // ---------- Enemy Lab (P-15/P-46 共享 js/tank_panels.js) ----------
 // 共享物：spawnEnemyAt（等级→难度乘子+锚定+AI）/ buildTankDataVM（敌人数据视图）/ liveEnemies。
 function populateEnemySelect(){
