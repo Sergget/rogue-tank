@@ -226,7 +226,11 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
   //   曲射——弹种**锁定 he**（忽略玩家当前 ammoKey），瞄准点 = 鼠标世界位置（ctx.aimPoint，
   //   由 mvp 注入），越掩体（isArc 天然绕路径遮挡），落点分支在 stepShells 的 s.isArc。
   if (shooter._howitzerMode === true) {
-    const hs = primaryWeaponSpec(shooter) || {};
+    // #W-I（2026-10-20）：模式升级卡（爆炸范围/急速射）经 `t._howitzerStats` 覆盖缺省表
+    //   ——仅模式内生效，直射参数（weapons.primary.stats）不受影响（用户口径）。
+    const hsBase = primaryWeaponSpec(shooter) || {};
+    const hs = (shooter._howitzerStats && typeof shooter._howitzerStats === 'object')
+      ? Object.assign({}, hsBase, shooter._howitzerStats) : hsBase;
     const heKey = 'he';
     const heCfg = getAmmoCfg(shooter, heKey) || {};
     // 瞄准点：优先 ctx.aimPoint（鼠标世界位置），缺省沿炮塔方向 minArcRange
@@ -283,10 +287,56 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
       isArc: true, dist: 0, dead: false, canBounce: false
     };
     shells.push(shell);
+    // #W-I 急速射（2026-10-20 用户口径「急速射：连续发射 3 发炮弹，间隔 0.5s」，升级卡解锁）：
+    //   首发由本次开火打出（上面 push），剩余 barrage-1 发挂 `_howitzerBurst` 队列，
+    //   updateHowitzerBurst 逐帧按 0.5s 发际间隔驱动（目标点跟随 aimPoint —— 跟手）。
+    //   ⚠️ 追发弹也走本分支 ⇒ `shooter._howitzerBurstIn` 标记 burst 内调用，跳过重挂
+    //   （否则每发追发又重挂 left=N 的队列，永不耗尽——E2E 实测踩坑）。
+    if (!shooter._howitzerBurstIn) {
+      const barrageN = (typeof hs.barrage === 'number' && hs.barrage > 1) ? Math.floor(hs.barrage) : 0;
+      if (barrageN > 1) {
+        shooter._howitzerBurst = { left: barrageN - 1, interval: 0.5 };
+      }
+    }
     return shell;
   }
   shells.push(shell);
   return shell;
+}
+
+/**
+ * #W-I 急速射队列驱动（mvp 主循环逐帧调用，模式仅玩家侧）。
+ * `_howitzerBurst = { left, interval }`：每 interval 秒向当前 aimPoint 追发一发，
+ * 队列清空后写整组装填（reload × howitzer.reloadMult）。
+ * @param {any} shooter 玩家实体（带 stats/reloadT/_howitzerBurst 等运行时字段）
+ * @param {number} dt 帧间隔
+ * @param {object} ctx fireCtx（aimPoint/shells 等）
+ * @returns {boolean} 本帧是否发射了弹
+ */
+function updateHowitzerBurst(shooter, dt, ctx) {
+  const b = shooter && shooter._howitzerBurst;
+  if (!b) return false;
+  if (!shooter._howitzerMode || shooter.hp <= 0) { shooter._howitzerBurst = null; return false; }
+  b.t = (b.t || 0) + dt;
+  if (b.t < b.interval) return false;
+  b.t = 0;
+  shooter._howitzerBurstIn = true;             // 标记 burst 内调用（firePrimaryShell 据此跳过重挂队列）
+  const shell = firePrimaryShell(shooter, null, null, ctx);
+  shooter._howitzerBurstIn = false;
+  if (!shell) { shooter._howitzerBurst = null; return false; }   // 装填等门控拦住 → 队列失效
+  b.left -= 1;
+  if (b.left <= 0) {
+    shooter._howitzerBurst = null;
+    // 队列打完 → 整组装填（与 fireTank 同口径）
+    const hsBase = primaryWeaponSpec(shooter) || {};
+    const hs = (shooter._howitzerStats && typeof shooter._howitzerStats === 'object')
+      ? Object.assign({}, hsBase, shooter._howitzerStats) : hsBase;
+    const debuff = (typeof debuffReloadRate === 'function') ? debuffReloadRate : function(){ return 1; };
+    shooter.reloadT = shooter.stats.reload * (typeof hs.reloadMult === 'number' ? hs.reloadMult : 2.2) / debuff(shooter);
+  } else {
+    shooter.reloadT = b.interval;   // 发际间隔（下一发 0.5s 后）
+  }
+  return true;
 }
 
 // 2026-09-15 W6：速射机炮热量机制（用户裁定，burst 连发路径随之删除）。
@@ -1103,5 +1153,7 @@ function stepShells(dt, ctx){
 if(typeof module!=='undefined'&&module.exports){
   module.exports={fireTank:fireTank,tryFire:tryFire,tryFirePrimary:tryFirePrimary,tryFireSecondary:tryFireSecondary,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels,ensureClipState:ensureClipState,updatePrimaryClip:updatePrimaryClip,fireClipWeapon:fireClipWeapon,clipMagReloadSeconds:clipMagReloadSeconds,
   // #10（2026-10-19）：便携掩体"后方有效区"判定（纯函数，供测试与页面共用）
-  behindCoverOnlyTurretHit:behindCoverOnlyTurretHit};
+  behindCoverOnlyTurretHit:behindCoverOnlyTurretHit,
+  // #W-I（2026-10-20）：榴弹炮急速射队列驱动（mvp 主循环调用）
+  updateHowitzerBurst:updateHowitzerBurst};
 }

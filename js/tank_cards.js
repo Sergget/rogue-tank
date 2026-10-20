@@ -72,11 +72,13 @@ const WEAPON_SLOTS = ['primary', 'secondary'];
 //   WEAPON_DEFAULTS.secondary / fireActiveSecondary 的 wire 分支里，却漏在本白名单外，
 //   导致任何针对线导导弹的 weapon 卡都会被 validateCardEffect 判「weaponType 非法」。
 const WEAPON_SECONDARY_TYPES = ['mortar', 'missile', 'missile_wire', 'rocket', 'mine_layer', 'turret'];
-// #W-I（2026-10-19）：howitzer 为**模式**而非独立武器类型——不进卡牌武器白名单
-//   （安装/升级卡不会引用它），仅作为 WEAPON_DEFAULTS.primary 的参数载体 +
-//   `t._howitzerMode` 运行时标记（js/tank_abilities.js 的挂载卡切换）。
+// #W-I（2026-10-19）：howitzer 为**模式**而非独立武器类型——不进主炮类型表
+//   （安装卡不会装它）。2026-10-20：**模式升级卡**（爆炸范围/急速射）引用
+//   weaponType:'howitzer' ⇒ 加入升级合法集（validateCardEffect 与 applyCardEffects
+//   的 howitzer 分支同批实现；upgrade-only，install 对模式无意义）。
+const HOWITZER_UPGRADE_TYPES = ['howitzer'];
 const WEAPON_PRIMARY_TYPES = ['standard', 'autocannon', 'double_barrel', 'railgun', 'clip'];
-const ALL_WEAPON_TYPES = WEAPON_SECONDARY_TYPES.concat(WEAPON_PRIMARY_TYPES);
+const ALL_WEAPON_TYPES = WEAPON_SECONDARY_TYPES.concat(WEAPON_PRIMARY_TYPES).concat(HOWITZER_UPGRADE_TYPES);
 
 // 装甲路径：part ∈ hull/turret，face ∈ front/side/rear
 const ARMOR_PARTS = ['hull', 'turret'];
@@ -315,6 +317,15 @@ function applyCardEffects(tank, card, ctx) {
               tank.weapons.primary._spec = null;
               tank._dbState = null;
               tank._clipState = null;   // #G：扩容卡改变 clipSize → 弹夹状态重建
+            } else if (action === 'upgrade' && wType === 'howitzer') {
+              // #W-I（2026-10-20）：榴弹炮**模式升级卡**——howitzer 是模式（`t._howitzerMode`）
+              //   而非 `weapons.primary.type`，既有的 type===wType 通道对它不适用。
+              //   升级写 `t._howitzerStats`（模式专属参数覆盖，firePrimaryShell 的 howitzer
+              //   分支优先消费），与 weapons.primary.stats 互不污染（直射参数不受影响——
+              //   用户口径「仅对该模式生效，直射模式时不生效」正是此意）。
+              if (ef.statOverrides && typeof ef.statOverrides === 'object') {
+                tank._howitzerStats = Object.assign({}, tank._howitzerStats || {}, ef.statOverrides);
+              }
             }
             // type!==wType → no-op，不写入
           }

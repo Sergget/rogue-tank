@@ -4138,6 +4138,10 @@ function update(dt){
     } else if(player.secondaryReloadT > 0){
       player.secondaryReloadT -= dt;
     }
+    // #W-I（2026-10-20）：榴弹炮急速射队列驱动（_howitzerBurst 存在时接管装填计时）
+    if(player._howitzerBurst && typeof updateHowitzerBurst === 'function'){
+      updateHowitzerBurst(player, dt, fireCtx);
+    }
   }
 
   // 2026-09-15 W6：autocannon 热量冷却逐帧驱动（burst 连发路径已删除）
