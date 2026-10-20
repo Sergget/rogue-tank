@@ -1472,3 +1472,62 @@ commit `e81bdfb`（9 文件）。**未做**（登记 PLAN）：爆炸范围升�
   均值 1.2px 无系统偏移）——圈与弹着分布一致，不再是装饰。
 
 验证：`check-html` 0 / `tsc` 0 / `npm test` **49/49**。
+---
+
+## §4.110 剩余待办收口：#W-I 升级卡 / #3 HUD / NF-1·2·4 / #15 设计器三项（2026-10-20）
+
+> 承接 §4.109（W-I 模式本体）。本批把 PLAN 剩余项全部落地，`npm test` 全程 **49/49**。
+
+### #W-I 榴弹炮模式升级卡 ×2（commit `d298c4c`）
+
+| 卡 | 字段 | 效果 |
+|---|---|---|
+| `howitzer_blast_range`（rare）| `splashRadius 90→135` | 阔域弹幕 |
+| `howitzer_rapid_barrage`（epic）| `barrage: 3` | 急速射（0.5s 间隔 3 连发，队列清空后整组装填） |
+
+**新通道**：模式升级卡写 `t._howitzerStats`（`firePrimaryShell` 的 howitzer 分支优先消费），
+与 `weapons.primary.stats` 互不污染 ⇒ **仅模式内生效、直射不受影响**（用户口径）。
+`ALL_WEAPON_TYPES` 并入 `HOWITZER_UPGRADE_TYPES`（upgrade-only）。
+**急速射队列** `_howitzerBurst` + `updateHowitzerBurst`（mvp 主循环驱动）——
+⚠️ 实测踩坑：追发弹也走 howitzer 分支 ⇒ 无条件重挂队列永不耗尽，加 `_howitzerBurstIn` 跳过。
+E2E：splashRadius 135 ✓ / 3 连发（left 2→0）✓ / 队列清空 ✓ / 整组装填 6.6s（3×2.2）✓。
+
+### #3 HUD 合并（commit `360ebb3`）
+
+- **弹种指示器两页同源**：`js/tank_hud.js` 新增 `renderAmmoIndicator(H)`（host 注入
+  `list/currentIndex/onPick/showMult/centerActive`），mvp/bench 均改调共享版，保留旧实现兜底。
+- **mvp 散布锥升级 dual**（1σ 实线 68% + 2σ 虚线 95%，长度仍 250px）。
+- **血条/日志两处经核实属产品定位差异**（bench 右栏=靶车数据面板、日志=面板布局），
+  不属「同功能两套实现」，保留各自形态。
+
+### NF-1 卡牌查看器扩展（commit `f5e4f5d`）
+
+`js/tank_cards.js` 新增 `formatCardDesc(card)`（纯函数）：`{value}` / `{pct}` / `{ov:key}`
+（各带 `:N` effects 索引形式），未知占位符原样保留。mvp 卡牌查看器加「全池」页签
+（`cardPool` 全表）+ 描述经占位符实时求值 + 点击就地编辑（存 `sessionStorage` 会话预览）。
+**覆盖率实测**：196 卡渲染后 190（97%）仍含数字 ⇒ 现有 desc 写法与占位符语法高匹配。
+
+### NF-4 面板卡牌悬停预览（commit `dfbc5b2`）
+
+`attachCardTooltip`：单例 tooltip（稀有度彩色徽章 + `formatCardDesc` 求值正文），
+按钮右缘 +12px 定位、溢出翻折；`title` 保留为兜底。
+
+### NF-2 坦克图鉴（commit `e5f8968`）
+
+`js/tank_panels_core.js` 新增 `enemyPreviewStats(tankId, level, opts)`（**纯查询**）：
+临时 `makeTank` → `applyEnemyAppearanceAndStats` → `enemyLevelMults` 注入 `addModifier`
+→ 读 stats；**全程不触碰实体注册表**。bench 敌实验室下方新增「坦克图鉴 CODEX」面板。
+**等级曲线实测**（hummel）：lv1 hp100/pen120/dmg34/装甲100 → lv10 hp325/pen283/dmg80/装甲190。
+
+### #15 设计器三项（commit `6467775`）
+
+| 项 | 根因 | 修复 |
+|---|---|---|
+| ① 履带动画长于贴图 | 单向平铺（`x0+phase−tileLen` 铺到 `x1`）⇒ 一端完整、一端半块残片 | 改**中心对称平铺**（`k ∈ [−halfTiles, +halfTiles]`），局内+设计器同口径；实测 4 组相位两端覆盖恒 0.00 |
+| ② 舱盖无实时预览 | 纹理叠层门控 `texture !== 'none'`，而 **appearance 就画在 `paintPartTexture` 内** ⇒ 纯色涂装下外观件完全不渲染 | 门控放宽为「有纹理 **或** 有外观件」 |
+| ③ 两车长塔坐标系不同 | 内置基线 `cupCy = cym − W*0.44`，外观件基线是炮塔中心 ⇒ dy=0 差一个常数、调 dy 似绕中心对称 | 外观件纵向改 `(cym − W*0.44) + dy` 与内置同基线；实测 `(−1.29,−7.60)` vs `(0.00,−7.60)` 纵向逐位一致 |
+
+### 验证与提交
+
+`check-html` 0 / `tsc` 0 / `validate-content` 0（196 卡）/ `npm test` **49/49**（每批各自验证）。
+提交：`d298c4c` → `360ebb3` → `f5e4f5d` → `dfbc5b2` → `e5f8968` → `6467775`，均已推送。
