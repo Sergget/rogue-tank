@@ -5,6 +5,36 @@
 
 ---
 
+## 0. 主题索引（按问题查，不按章节序读）
+
+> ⚠️ **本卷 27 节中 14 节是历史批次章节（§6/§12/§19~§27 等），章节号按时间追加、不代表主题分组。**
+> **查现行口径请用本索引**；章节编号被 193 处外部引用（179 行 Markdown + 14 行 js，实测 2026-10-21），故保持稳定、不做重排。
+>
+> **口径澄清（2026-10-21 实测）**：27 个编号节（§1~§27）中，**只有 §1~§5 无日期锚点**、是主题基线；其余 22 节标题都带日期锚点，其中 **14 节的标题直接标明是批次/裁定/修复条目**（§7/§8/§9/§12/§13/§16/§19/§20/§21/§22/§23/§24/§26/§27）。本卷另新增 **§0（本索引）** 与 **§28（掩体主题归并视图）**，二者不含新口径、只做导航。
+
+| 我想查…… | 现行口径（先看这里） | 来源沿革（不必读） |
+|---|---|---|
+| 节点架构（节点链 / 尺寸 / Boss 周期 / 相机跟随 / 小地图） | §1（架构）；Boss 周期 §15.11；节点尺寸 §17.6；小地图公路与补给点 §14.4 | §9（旧全向环带布点） |
+| 掩体 tier 与行为（挡弹 / 通行 / 视线 / 残骸链） | §2（tier 全集表）+ §12.1（收敛后现行口径）+ §12.2（确定性拦截模型）+ §28（归并视图） | §3、§6、§12 引子 |
+| 掩体尺寸与视觉（世界缩放 / 树尺度 / 配色 / 阴影 / 立体感） | §2「掩体世界缩放唯一口径」；树与倒树 §12.1；投影与阴影 §4、§22.3；立体感 §22.8 | §5.7、§6、§13.2、§27.1 |
+| 地形抽象（水 / 泥 / 路 schema） | §5.1（属性 schema 与取值域）；地形→tier 映射 §5.2（定性）；逐键数值只读 `RULES.coverTiers` | §5.6、§6 |
+| 路网拓扑与弯曲 | §13.1（v4 七拓扑）+ §26.3（`RULES.nodeMap.road` 参数唯一口径） | §10.1、§10.2、§12.3、§26.1~§26.2 |
+| 河流（形态 / 互斥 / 宽度） | §21（单主河形态 + 沿程宽度）+ §20（河↔河 / 河↔路互斥）+ §11.1.2（可涉水宽度上限） | §6、§17.3、§20 引子 |
+| 掩体生成与避路（不压路 / 不重叠） | §19（布点与修剪避路）+ §24.3（全模式道路净空）+ §17.1 / §17.8 | §12.4、§17.2 沿革 |
+| 水域溺毙与 AI 避水 | §11（溺毙 / Boss 豁免）+ §11.1（river 可涉水，AI 只避 `water`） | §11 引子里的旧「一视同仁」口径、§5.6 |
+| 敌人布点与防线 | §15（防线式推进）+ §15.9（增援）+ §15.10（完成条件） | §9（类别化）、§14.3（设计预留） |
+| 难度成长 | §16（敌人数值曲线）；布局难度旋钮 §8；建筑密度 §13.4 | §8 剖面表、§12.5、§13.3 |
+| strip 横向条带 | §14（设计预留 + 已落地部分）+ §24（生存模式与多行片）+ §25.4（2 维 biomeZones） | §20、§21、§26.4 接缝断言 |
+| 生存模式 | §24.1（同一套 strip 链）、§24.2（多行片） | §24 引子 |
+| 地面烘焙与相机 | §25（视口锚定烘焙 + `renderCamPos` 屏幕像素对齐）+ §10 / §10.2（`bakeNodeGroundLayer` 两遍绘制） | §25.1 / §25.2 返工记录 |
+| 贴图烘焙与审核标准 | §22（质量：纹理 / 缓存 / 阴影 / 烘焙）+ §23（审核标准 v2 分数 + v3 跨部件）；运行时烘焙契约 §4 | §22.4~§22.8、§23.4 返工记录 |
+| 出图管线（参考图 / 出图 / 后处理 / 验收） | §18（唯一要点：三组数字不能混用） | §4（运行时回退） |
+| 出生点与开局净空 | §17.7（设计要求）+ §27.2（判据唯一口径）+ §27.3（液态排除） | §6 出生走廊、§17.7 沿革 |
+| 未注册 tier / 死配置的兜底语义 | §27.4（两套兜底方向相反，禁统一）、§27.6 | — |
+| 性能预算（生成期 / 渲染期） | §17.8（生成期复杂度）+ §25.1（渲染地面层） | §22.5、§22.5b |
+
+---
+
 ## 1. 节点地图与大世界架构
 - **节点式大战场**：一局为一条线性节点链（默认 runNodeCount=5 节点）。每个节点是独立战场，地图尺寸约为视口的 9 倍（宽高各 ≥ 3 倍视口，满足 1:9 比例）。
 - **节点生成器**：js/tank_nodegen.js 提供 7 内置模板（开阔走廊/密林阵地/城镇街区/交叉火力广场/混合障壁/村落中心/林地战线），generateNode(difficulty, {seed}) 确定性种子 RNG 生成，难度加权选模板 + 密度剔除随难度递减。
@@ -18,22 +48,36 @@
 参数权威收口于 RULES.coverTiers：
 
 > **现行口径指针**：本表为 2026-09 早期版本，其中 `half`（半高掩体）与「越掩插值/exposure 概率遮挡」等列已被 **§12.1** 取代（half tier 已整体删除）；可破坏楼房 `building` 见 **§13.2**。以 §12.1 的 tier 表现行口径为准。
+> **2026-10-21 补正**：「视线遮挡」列的 `full` 一格原写「不遮」，与 `RULES.coverTiers.full.vision = true` 不符（代码实测），已改「遮挡视线」。tier **全集 18 键**（含原表未列的 `rock`/`stump`/`intact`/`perm_block`/`bridge`）的逐键索引见 **§28**。
 
 | 元素 | tier | 弹道交互 | 坦克通行 | 视线遮挡 | 残骸链 |
 |---|---|---|---|---|---|
 | 半高掩体 | half | **已删除**（§12.1）——tier 不再存在 | — | — | — |
-| 全高掩体 | full | 100% 确定性格挡 | 阻挡推出 | 不遮 | ∞ |
+| 全高掩体 | full | 100% 确定性格挡 | 阻挡推出 | 遮挡视线（2026-10-21 补正） | ∞ |
 | 可破坏楼房 | building | 100% 确定性格挡（耐久 3） | 阻挡推出 | 遮挡视线 | 3 发 → ruined → 1 发 → rubble |
 | 残破建筑 | ruined | 100% 确定性格挡（耐久 1） | 0.6 减速通过 | 遮挡视线 | 1 发 → rubble |
 | 灌木丛 | bush | 穿透（不挡弹） | 自由通行 | 阻挡 AI 视线 | ∞ |
 | 树木 | tree | 树干 1 发截停 | 阻挡推出（可推倒） | 树冠遮挡视线 | 1 发/碾压 → fallen |
 | 倒树 | fallen | 穿透 | 自由通行 | 树冠遮挡视线 | 终态纯视觉残留 |
 | 栅栏 | soft | 穿透（穿透即毁） | 0.45 减速通过，压过即毁 | 不遮 | 无残骸 |
-| 沙袋路障 | barricade | 挡 1 发后摧毁；>70° 可跳弹（不触发摧毁） | 压过即毁 | 不遮 | 1 发/碾压 → rubble |
+| 沙袋路障 | barricade | 挡 1 发即毁（**2026-10-15 #12 起不跳弹**，见 §12.2 补正） | 压过即毁 | 不遮 | 1 发/碾压 → rubble |
 | 碎石 | rubble | **不挡弹**（§12.1） | 压过即毁 | 不遮 | 终态 |
 
+**掩体世界缩放（`coverWorldScale`）——全卷唯一口径（2026-10-21 代码实测）**
+
+```js
+// RULES.nodeMap.coverWorldScale（js/tank_rules.js:593）
+{ half: 0.42, full: 0.42, building: 0.42, barricade: 0.32 }
+```
+
+- **代码里是四个键、其中 `half` 已无消费方**：`full` / `building` / `barricade` 三个键被 `js/tank_nodegen.js` 实际读取；`half` 键为历史残留（`half` tier 已于 2026-09-20 删除，§12.1），保留不影响行为、也不得据此认为「存在半高掩体」。`building`（可破坏楼房）与 `full` **同系数**＝「同为建筑体量」；`barricade` 单独一档（更小）。具体数字只在上方代码块出现一次。
+- **`building` 键缺失是实质性错误**：`js/tank_nodegen.js:3308` 的 `sizeFactor` 在 `typeof coverWorldScale[tier] !== 'number'` 时回落 **1**（不减算）⇒ 楼房世界尺寸会比 `full` 大约 **2.4 倍**（= 1 ÷ full 系数）。这正是 2026-10-20 #W18-1 修掉的缺陷（§27.1）。
+- **消费方式**：`js/tank_nodegen.js` 生成期按 `coverWorldScale[tier]` 逐元素乘算世界尺寸；未列出的地形/植被 tier 不受影响（树另乘 `RULES.nodeMap.treeWorldScale`，见 §12.1）。
+- **沿革（不静默删除）**：2026-08-26 #77 当时值为 `half 0.55 / full 0.58 / barricade 0.40`（无 `building` 键——该 tier 2026-09-21 才随 §13.2 引入），**已被上表取代**；2026-09-21 #G4 补 `building`（§13.2），2026-10-20 #W18-1 确认取值同源（§27.1）。
+- **其余小节一律遵循本节、不再复写数值**：§6、§8、§13.2、§27.1 均改为指针。
+
 ## 3. 掩体核心机制细节
-- **越掩插值（C 实验）**：射线高度在炮口（medium 1.8m/heavy 2.2m）与目标部位中心间线性插值；攻击方贴近半高掩体（距入口 < 约1/3射程）时射线高于掩体顶（1.4m）→ 越掩 exposure=1.0。
+- **越掩插值（C 实验）——已作废（2026-09-20 #E3）**：~~射线高度在炮口（medium 1.8m/heavy 2.2m）与目标部位中心间线性插值；攻击方贴近半高掩体（距入口 < 约1/3射程）时射线高于掩体顶（1.4m）→ 越掩 exposure=1.0。~~ **半高掩体 `half` tier 与 `RULES.heights.cover.half` 已整体删除**，现行拦截模型是确定性的、无任何越掩插值（§12.1 / §12.2）。本条仅存实验期沿革。
 - **方向判据 cutoff**：掩体必须被弹道在命中目标前完整穿过（出口距离 < 命中距离+16px 容差）才参与遮挡；骑上掩体的坦克不会获得全向遮蔽。
 - **炮管穿墙防御**：gunRoot→gunTip 物理线段与 solid/single 掩体相交时，开火在交点处拦截（damageCover 1点 + 特效），堵死"炮管穿墙无伤射击"漏洞。飞行动画起点归一 gunRoot。
 - **任意多边形几何**：covers 实例带 verts 时全角点走 polyCorners；凹多边形支持 collisionVerts 多凸包化合物碰撞（SAT/OBB），解决 L 形口袋卡模问题。
@@ -56,30 +100,31 @@
 > 设计稿（原 PLAN.md 落地计划已归档）：将水域/泥潭与全高/半高掩体统一抽象为「地形类型」。每个地形即一个 cover 实例，由一组属性刻画，为后续丰富地图元素（水潭/河流/烂泥地/建筑等）提供一致基座。
 
 ### 5.1 统一属性 schema
-每个地形实例携带：
-- `passability`：坦克通行系数（move mult，0=不可入，1=自由，0.35/0.6=减速）
-- `shellBlock`：弹道交互（true=`solid` 挡弹 / `single` 挡 1 发 / false 且减速=`pass` 越障 / false 且不减速=`none`/`graduated` 概率垂直剖面）
-- `exposureProfile`：遮蔽剖面（`full`/`half`/`none`）
-- `destructible`：耐久（`hp` 数值 / `Infinity` 不可毁 / `null` 不属结构）
-- `drawStyle`：渲染风格（box/bush/tree/soft/barricade/stump/rubble/water/rock-poly/structure...）
-- `tierGroup`：语义分组（cover/structure/foliage/liquid/ground）
+每个地形实例携带（取值域为 **2026-10-21 代码实测**，`RULES.coverTiers` 18 键）：
+- `passability`：坦克通行系数（move mult，0=不可入，1=自由，介于两者=减速；逐 tier 具体值只在 `RULES.coverTiers`）
+- `shellBlock`：弹道交互——**规范取值只有三种**：`true`（solid，确定性挡弹）/ `'single'`（挡 1 发）/ `false`（越飞）。**`'grad'` 与任何概率剖面自 2026-09-20 #E1 起不再合法**（见 §12.2）。
+  - **历史遗留写法（2026-10-21 实测，勿照抄）**：`perm_block` 仍写 `shellBlock: 'solid'`（字符串）。`normalizeCoverTiers()` **只在 `shellBlock === undefined` 时派生**，故这个字符串被原样保留；其 `mode` 由 `true/'single'/vision` 三分支派生 ⇒ `'solid'` 落进 `vision ? 'none'` ⇒ **`mode: 'none'`**。结果是两条查询口径不一致：`js/tank_cover.js` 的遮蔽查询把它当「挡」（非 false 即入候选、最终返回 0.0），`js/tank_fire.js` 的弹道拦截只认 `mode === 'solid' | 'single'` ⇒ **不拦弹**。`perm_block` 当前无任何生成器产出（§12.1），故无运行期影响；若将来启用该 tier，必须改写成 `shellBlock: true` 而不是 `'solid'`。
+- `exposureProfile`：遮蔽剖面，**现行只有 `full` / `none` 两值**（`half` 随半高掩体于 2026-09-20 一并删除，见 §12.1）
+- `destructible`：耐久（`hp` 数值 / `null` 不属结构；`null` 归一为 `hp: Infinity` 表示不可毁）
+- `drawStyle`：渲染风格（box/bush/tree/soft/barricade/stump/rubble/water/rock-poly/rubble-box/bridge-deck...）
+- `tierGroup`：语义分组，**现行四值** `structure` / `foliage` / `liquid` / `ground`（旧 `cover` 组已于 2026-09-20 撤销，`normalizeCoverTiers` 的缺省回落仍为 `'cover'`，仅服务未迁移的自定义 tier）
 
-### 5.2 具体地形映射（设计与实装值）
-| 具体地形 | passability | shellBlock | exposureProfile | destructible | drawStyle | tierGroup |
-|---|---|---|---|---|---|---|
-| 全高掩体(建筑墙) | 1.0 | true(solid) | full | ∞ | box | structure |
-| 半高掩体(矮墙) | 0.4 | grad | half | ∞ | box | cover **（D5：生成期已屏蔽，仅 ruined 共享剖面）** |
-| 水潭 | 0.4 | false(越飞) | none | null | water | liquid |
-| 河流 | 0.4 | false(越飞) | none | null | water-chain | liquid |
-| 烂泥地 | 0.4 | false | none | null | mud | ground |
-| 水潭周围烂泥地 | 0.4 | false | none | null | mud | ground |
-| 残破建筑 | 0.6 | grad | half | hp=1 | rubble-box | structure |
-| 完整建筑 | 1.0 | true(solid) | full | ∞ | box | structure |
-| 岩石 | 0.0 | true(solid) | full | ∞ | rock-poly | structure |
-| 灌木 | 1.0 | false(vision) | none | null | bush | foliage |
-| 树木 | 1.0 | true(tree) | full | 1→fallen | tree | foliage |
+### 5.2 具体地形映射（设计视图）
+> **本节定位（2026-10-21）**：只作**地形抽象的设计视图**（说明「为什么这样抽象」），**不含任何参数值**——逐键现行值以 `RULES.coverTiers` 为唯一代码口径、以 §28 为唯一索引。下表把「自然语言地形」映射到 tier 名与行为定性。
+| 具体地形 | tier | 通行 | 弹道 | 视线 | 可摧毁 | 绘制风格 | tierGroup |
+|---|---|---|---|---|---|---|---|
+| 全高掩体(建筑墙) | `full` | 自由 | 确定性挡弹 | 遮 | 否 | box | structure |
+| ~~半高掩体(矮墙)~~ | — | — | — | — | — | — | **tier 已删除（2026-09-20 #E3，§12.1）** |
+| 水潭 | `water` | 减速 | 越飞 | 不遮 | 否 | water | liquid |
+| 河流 | `river` | 减速 | 越飞 | 不遮 | 否 | water-chain | liquid |
+| 烂泥地 / 水潭周围烂泥地 | `mud` | 减速 | 越飞 | 不遮 | 否 | mud | ground |
+| 残破建筑 | `ruined` | 减速 | 确定性挡弹 | 遮 | 是（1 发→碎石） | rubble-box | structure |
+| 完整建筑 | `intact` | 自由 | 确定性挡弹 | 遮 | 否 | box | structure |
+| 岩石 | `rock` | **硬阻断** | 确定性挡弹 | 遮 | 否 | rock-poly | structure |
+| 灌木 | `bush` | 自由 | 越飞 | 遮 | 否 | bush | foliage |
+| 树木 | `tree` | 自由 | 挡弹 | 遮 | 是（1 发→倒树） | tree | foliage |
 
-> 关键设计：(1) 水潭/河流 `shellBlock=false`（炮弹越飞不拦截）+ `passability=0.4`（**2026-09-14 水系重做：减速通行**，与泥地同级——不再硬阻断推出；完全浸入触发溺毙见 §11）；(2) 河流为**多段连通**水体（见 5.3）；(3) 岩石具备 `solid`+`full` 且 `passability=0`（不可通行且阻挡直射实弹，`drawStyle` 走多边形）；(4) 烂泥地具备 `passability=0.4` 减速通行且不挡弹；(5) 残破建筑=`graduated`+`half`+`destructible`。
+> 关键设计：(1) 水潭/河流「弹道越飞 + 减速通行」——**2026-09-14 水系重做**后不再硬阻断推出，完全浸入触发溺毙见 §11；(2) 河流为**多段连通**水体（见 §5.3）；(3) 岩石「硬阻断 + 确定性挡弹」且 `drawStyle` 走多边形；(4) 烂泥地减速通行且不挡弹；(5) 残破建筑现行＝确定性挡弹 + 全高剖面 + 可再摧毁（**沿革**：原文写的 `graduated`+`half` 是 2026-09-20 #E1 之前的取值，详见 §12.1）；(6) 逐键数值（`passability` / `destructible` / `hp` 等）一律读 `RULES.coverTiers`，本节不复制。
 
 ### 5.3 河流作为连通多段地形
 河流由共享同一逻辑体的多个 water 段链接而成（连续 movement 阻断 + 单次笔触绘制），需在 cover 实例 schema 增加 `segments[]`/parent-link 字段。**（已落地：river 实例现携带 `segments[{dx,dy,w,h,angle}]` 相对偏移，经 `coverSegRects()` 展开，见 §5.6。）**
@@ -112,17 +157,26 @@
 
 ### 5.6 P-40 地形类型抽象落地注记（2026-08-24）
 
+> *主题：schema 代码化 / 河流多段（`segments`）/ 新增 tier / 模板地形标签*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
 - §5.1 统一 schema 已全链路代码化：coverTiers 六属性（passability/shellBlock/exposureProfile/destructible/drawStyle/tierGroup）为唯一事实源，旧字段 move/mode/draw/hp 经 `normalizeCoverTiers()` 单向派生兼容。
 - 河流采用方案 A：单 river 实例携带 `segments[{dx,dy,w,h,angle}]` 相对偏移，角点/碰撞/弹道/绘制统一经 `coverSegRects()` 展开。
-- 新增 tier：mud / river / rock / ruined / intact；water 改 `shellBlock:false`——炮弹越飞、passability 0 阻挡移动（#85 裁定落地）；`getExposure` 按 exposureProfile 分发，消除 tier==='half' 硬编码。
+- 新增 tier：mud / river / rock / ruined / intact；water 改 `shellBlock:false`——炮弹越飞、passability 0 阻挡移动（#85 裁定落地）；`getExposure` 按 exposureProfile 分发，消除 `tier==='half'` 硬编码。**（沿革：`water` 的 `passability` 已于 2026-09-14 由 0 改为 0.4 减速通行，见 §5.2 / §11。）**
 - 模板地形标签分配：corridor_tutorial 无／forest_dense=edgeRiver／urban_block=mudPatch／crossfire_plaza=centralPond／mixed_barrier_plaza=mudPatch／village_center=centralPond+mudPatch／woodland_line=edgeRiver；地形生成不受 cullRate 剔除与难度升降级影响。
 
 ### 5.7 批次⑤ 落地注记（2026-08-24）
 
-- **掩体调参（#77 解决）**：`RULES.nodeMap.coverWorldScale`（**当时值 half 0.55 / full 0.58 / barricade 0.40**）收敛世界尺寸——半高墙 ≈105~148px、全高 ≈153~209px、沙袋 ≈72~84px（@nodeScale=3，树维持 72px 不缩）；密度 ×1.57（总元素 120→188）；低难度 full→half 降级帽 30%（diff<0.35 窗口）、每模板前 2 个 full 免 cullRate 剔除；corridor_tutorial/forest_dense/woodland_line 三零全高模板分别补 +2/+3/+2。**（现行 coverWorldScale 已调小为 {half:0.42, full:0.42, barricade:0.32}，以 §8 难度旋钮表为准；降级帽/前 2 免剔除条款现行值亦见 §8。）**
+> *主题：掩体尺寸收敛（#77）/ Biome 地面层（P-36/#81）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
+- **掩体调参（#77 解决）**：`RULES.nodeMap.coverWorldScale`（**当时值 half 0.55 / full 0.58 / barricade 0.40**）收敛世界尺寸——半高墙 ≈105~148px、全高 ≈153~209px、沙袋 ≈72~84px（@nodeScale=3，树维持 72px 不缩）；密度 ×1.57（总元素 120→188）；低难度 full→half 降级帽 30%（diff<0.35 窗口）、每模板前 2 个 full 免 cullRate 剔除；corridor_tutorial/forest_dense/woodland_line 三零全高模板分别补 +2/+3/+2。**（沿革：上列 0.55/0.58/0.40 为 2026-08-26 当时值、且早于 `building` tier 诞生（2026-09-21），已被现行值取代——现行四键值与消费方式见 §2「掩体世界缩放唯一口径」；降级帽条款现行状态见 §27.6（`fullDowngradeCap` 已删除）、前 2 免剔除见 §8。）**
 - **Biome 地面层（P-36/#81 解决）**：七模板带 `biome` 标签（urban/crossfire→concrete，forest/woodland/village→meadow，corridor/mixed→steppe），调色板收口 `RULES.biomes`（取自 P-44 底色表）；`tank_battledraw.drawGround(ctx,{cam/viewBounds,biome,seed})` 确定性程序化底色+色斑（alpha≤0.12），battle 态网格前绘制，纯程序化零资产。
 
 ### 5.8 批次⑥ 落地注记（2026-08-24）
+
+> *主题：递增生成与击杀配额（P-38/#83）/ 增援落点四重约束*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；配额与增援的现行机制已由 §15.4 / §15.9 / §15.10 重塑，本节仅存 2026-08-24 的机制沿革。*
 
 - **递增生成与击杀配额（P-38/#83 解决）**：非 Boss 节点 quota = max(初始敌数, 初始敌数 + quotaAddBase(2) + floor(effDiff×quotaDiffScale(6)))，节点结束条件改为「nodeKills ≥ quota」；`reinforcementTick(state)` 纯逻辑驱动补兵——alive < desiredAlive 且距上次 ≥ reinforceInterval(8s) 时每批生成 1~2 个（maxAlive=7 封顶）。
 - 增援落点四重约束：视口 AABB 外扩 reinforceMargin(120px) 外 ∩ 世界边界内 ∩ 距玩家当前位置 ≥ aiTriggerDist×1.05 ∩ 距友军据点 ≥300px，掩体 padding 拒绝采样、rng 注入确定性。
@@ -130,9 +184,12 @@
 
 ## 6. 地图元素与生成更新（2026-09 落地）
 
-> **历史快照注记（2026-09-17）**：本节水系裁定与路网几何（分支概率/SAT 跳段）已被后续重做取代——水域现行值见 §5.2/§11（passability 0.4 + 溺毙），路网现行见 §10/§10.1/§10.2（无跳段、六拓扑）。村落/水潭/出生走廊/度量/校准/敌群各小节仍为现行机制。
+> *主题：掩体尺寸与配色 / 自然化形状 / 水系与岩石通行性裁定 / 地图级路网与占位冲突 / 敌军聚集生成（本节无子节编号）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
 
-- **掩体尺寸与配色**：`RULES.nodeMap.coverWorldScale` 调小为 {half:0.42, full:0.42, barricade:0.32}（相对坦克更协调）；`coverTiers` 改用高对比色（建筑砖红 #b5553f、半高墙深描边 #2e2410、灌木/树提高饱和度）以区别于地表。水体新增 `draw` 分支，现已可见。
+> **历史快照注记（2026-09-17）**：本节水系裁定与路网几何（分支概率/SAT 跳段）已被后续重做取代——水域现行值见 §5.2/§11（passability 0.4 + 溺毙），路网现行见 §10/§10.1/§10.2（v2 六拓扑）与 §13.1（v4 七拓扑，现行）。
+
+- **掩体尺寸与配色**：`RULES.nodeMap.coverWorldScale` 的**现行四键值见 §2「掩体世界缩放唯一口径」**（本节按「同一数值只允许一处」纪律不再复写）；`coverTiers` 改用高对比色（建筑砖红 `#b5553f`、灌木/树提高饱和度）以区别于地表——**逐键 `fill`/`stroke` 配色以 `RULES.coverTiers` 为唯一口径**（半高墙深描边 `#2e2410` 随 half tier 于 2026-09-20 删除，见 §12.1）。水体新增 `draw` 分支，现已可见。
 - **自然化形状**：mud 改为径向噪声凸 blob；central pond 改为 14–18 边凸 blob；建筑经 `placeVillage` 以 5–9 个小矩形松散聚成村落（部分 L 形）。碰撞核心已支持凸多边形 SAT。
 - **水系与岩石通行性裁定（2026-09-13 复查落地；已被 2026-09-14 水系重做取代）**：~~`RULES.coverTiers.water` 与 `river` 的 `passability` 统一定为 `0.0`（不可通行、实体碰撞推出硬阻断）~~——**现行值 0.4（减速通行 + 完全浸入溺毙，见 §5.2/§11）**；炮弹维持 `shellBlock:false`（`mode:'pass'` 飞越不拦截）；`rock` 维持 `passability: 0` 且 `shellBlock: true`（不可通行，阻挡直射实弹）；`mud` 确定为 `passability: 0.4`（减速不挡弹）。
 - **地图级路网与占位冲突重构 (#A11/P-43，2026-09 专轮落地)**：`generateNode` Phase 0 先调 `placeRoadNetwork` 生成贯穿战场的 `road` 主干道与分支，随后的模板物件/村落/树林/地形全部避让路网骨架。专轮收敛要点：
@@ -152,6 +209,9 @@
 
 ## 7. A17 生成期 LoS 走廊 + 运行期绕行（2026-08-26 修复落地）
 
+> *主题：生成期 LoS 走廊（`ensureLoSCorridor`）/ 运行期 AI 绕行（`_losDetour`）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
 - **生成期 LoS 走廊**：`js/tank_cover.js` 新增 `losBlocker(ax,ay,bx,by)`，复用 `findCoversOnPath` 返回首个遮挡视线命中体及其线段侧向单位向量；`js/tank_nodegen.js` 新增 `ensureLoSCorridor(coversList, hints, rng)`，校验玩家↔各敌簇质心直视线，被挡则依次侧移遮挡体 / 降级 full→soft（去 vision）/ 移除，保底至少一条直视线，确定性、用节点 seed 派生 rng、不抛异常；`generateNode` 新增可选 `losHints` 参数（缺省不启用，向后兼容）。
 - **运行期绕行**：`js/tank_ai.js` 新增 `_losDetour(t,p,heading)` 并在 search 分支（LoS 被挡路径）注入侧向绕行，朝向「目标大方向 + 侧向绕开遮挡体」合成行驶以恢复 LoS；开火仍需 `los` 为真（未采用盲射方案）；无遮挡节点行为零变化。
 - **验证结论**：`npm run check` / `npm test`（含 test-replay.js 确定性校验）/ `npm run test:browser` 全绿；seed=1 回放基线 hash 随布局变化而漂移（A17 落地时为 `5b8c4126`，P-43 敌群构成改动后为 `799b65f`；test-replay.js 仅校验确定性，不钉常量，故无需改测试）；零开火节点 9/40 → 7/40（方案 1+2 合计改善）。
@@ -160,11 +220,14 @@
 
 ## 8. 节点布局难度校准（2026-08-26，P-43 切片(a)）
 
+> *主题：布局度量口径（`nodeLayoutMetrics`）/ 难度旋钮当前值 / 实测剖面与回归带宽*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；其中「难度旋钮」仍是现行值，剖面表为 2026-08-26 基线、后续已三次重锚（§12.5 / §13.3 / §13.4）。*
+
 - **度量来源**：`js/tank_nodegen.js` `nodeLayoutMetrics(result, opts)` → `coverCoverage / connectivityRatio / losSymmetry / minPassageWidth / coverCount / waterArea`；回归脚本 `scripts/test-nodegen-calibration.js`（7 模板 × 5 难度 × 8 seed 锚定，已挂入 `npm test` 链）。
 - **难度旋钮（当前值，`js/tank_nodegen.js` / `RULES.nodeMap`）**：
   - `cullRate = rng.range(0,0.12) * (1 - 0.7*diff)`（高难保留更多元素）
   - `wreckProb = 0.05 + 0.10*diff`
-  - `RULES.nodeMap.coverWorldScale = { half:0.42, full:0.42, barricade:0.32 }`（half 已被生成期跳过，见 A17/§7）
+  - `RULES.nodeMap.coverWorldScale`：四个键缺一不可，现行值见 **§2「掩体世界缩放唯一口径」**（本节不重复数值；`half` 无对应 tier，见 §12.1）
   - 高难（diff>0.6）`bush/soft→barricade` 概率 `(diff-0.5)*0.4`；低难（diff<0.35）`barricade→soft` 概率 `(0.4-diff)*0.4`
   - `fullCullProtect=2`（每模板前 2 个 full 免剔除）
   - 密林/林地簇由 `placeForestClusters` 生成、**绕过 cullRate**，密度不随 diff 缩放（设计性分区，非难度旋钮可控）
@@ -186,6 +249,9 @@
 ---
 
 ## 9. P-46 类别化敌军与生成机制优化（2026-09-06 落地）
+
+> *主题：敌军 class 分类档案 / 数值锚定（`playerAnchorStats`）/ 多向环带布点（**已被 §15 防线式推进取代**）/ 回放确定性*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；敌人数与防线口径现行值见 §15。*
 - **类别化与生成机制优化已全线实施**：
   - `tanks/*.json` 增加可选 `class` 字段（light/medium/heavy/spg），缺省按数值启发式自动推导；`tanks/dummy.json` 标 `"target": true` 退出敌池。
   - `RULES.ai.classProfiles` 四类行为档案落地（轻型侧绕强化、中型基线、重型只进不退且抗晕、SPG 保持距离防逼近）。
@@ -200,6 +266,9 @@
 ---
 
 ## 10. 道路曲线化 + 预烘焙 + 跨相重叠消解（2026-09-14 落地；2026-09-16 路网重做见 §10.1）
+
+> *主题：道路曲线化（Catmull-Rom）/ `bakeNodeGroundLayer` 预烘焙 / 跨相重叠消解（`pruneOverlappingCovers`）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；路网参数唯一口径在 §26.3，拓扑在 §13.1。*
 - **道路曲线化（用户定案：曲线+直线结合）**：`placeRoadNetwork` 重写——道路控制点经 **Catmull-Rom 平滑**（`_catmullRomSample(points, step=110)`，端点 p1/p2 + 1–2 个横向抖动中点）生成曲线路径点。道路以**短 OBB 链段**写回（`_emitRoadChain`：`w = 段长 + roadW×0.35` 搭接、`h = roadW`、`tier:'road'`、同链共享 `groupId`），角度沿段方向 `atan2(dy,dx)`。
 - **进入地图前预烘焙（修复"远距整段消失"）**：旧实现道路为**旋转长 OBB**，横跨大距离时被 `aabbInView` 轴对齐包围盒剔除（长段旋转后 AABB 覆盖视口外）→ 视觉上"离开一段距离整段消失"。修复分两层：
   1. 生成端改为**短链段**（每段 ~110px，AABB 与 OBB 差异极小）；
@@ -245,7 +314,10 @@
 
 ## 11. 水域溺毙 + AI 避水（2026-09-14 落地）
 
-- **完全浸入溺毙**：`tank_cover.js` 新增 `tankFullyInWater(tank)`——车体四个角点（hullOBB 四角世界系）**全部**落在任一 `water`/`river` 凸部分内（点-in-多边形射线法）才算完全浸入；四角之一出水即复位。主循环（`tank_mvp.html`）对每实体累计 `drownT += dt`；`drownT >= RULES.drowning.seconds(8)` → 经 `applyDamage` 沉没摧毁。玩家警示：`warnAt(3s)` 倒计时临界音 + 头顶 `≋ 溺毙 x.xs` 倒计时 HUD（<3s 红字）；出水 `drownT` 复位。
+> *主题：完全浸入溺毙（`tankFullyInWater`）/ 豁免对象（Boss、生存准备期）/ AI 避水（`applyWaterAvoidance`，**已按 §11.1.3 分档**）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；river 可涉水与 AI 分档的现行口径见 §11.1，可涉水宽度上限见 §11.1.2。*
+
+- **完全浸入溺毙**：`tank_cover.js` 新增 `tankFullyInWater(tank)`——车体四个角点（hullOBB 四角世界系）**全部**落在任一 `water`/`river` 凸部分内（点-in-多边形射线法）才算完全浸入；四角之一出水即复位。主循环（`tank_mvp.html`）对每实体累计 `drownT += dt`；`drownT >= RULES.drowning.seconds(8)` → 经 `applyDamage` 沉没摧毁。玩家警示：**头顶 `≋ 溺毙 x.xs` 倒计时 HUD（<3s 红字）**；出水 `drownT` 复位。**（沿革：原文还写了 `warnAt(3s)` 倒计时临界音——该配置项 2026-10-20 #W15 实测零消费，已从 `RULES.drowning` 删除，见 §27.6；HUD 计时不受影响。）**
 - **适用对象与豁免（2026-10-15 用户裁定，**取代**原「一视同仁」口径）**：
   - **玩家 / 普通敌军 / 友军**：正常溺毙。
   - **Boss：完全免疫溺毙**（`tank_mvp.html` 溺毙门控加 `!e.isBoss`）。**根因**：Boss 走位由 `updateBossBehavior` 的 `_bossMoveOverride` 直接驱动（`js/tank_boss.js`），绕过 `aiDecide` → 也就绕过了 `applyWaterAvoidance` 的探点避水；Boss 因而可能停在深水中央。此时溺毙＝关卡核心对抗白给，与设计冲突。豁免后 Boss 在深水仅**减速通行**（`passability 0.4`），不受淹死威胁。
@@ -303,14 +375,29 @@
 
 ## 12. 掩体体系收敛：全高=建筑/岩石、半高掩体移除、确定性挡弹（2026-09-20 #E1/#E3 用户裁定）
 
+> *主题：tier 表现行口径（12.1，半高删除）/ 确定性弹道拦截（12.2）/ 路网 v3（12.3，部分已被 §26 取代）/ 建筑沿路聚集与路口沙包（12.4）/ 校准重锚（12.5，已被 §13.3 取代）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；掩体 tier 的归并入口见 §28。*
+
 **用户反馈**：① 炮弹仍然被不可见物体拦截；③ 全高掩体明确衍生为建筑、岩石，半高掩体相关计算代码全部移除不再使用。
 
 ### 12.1 tier 表现行口径（唯一事实源 `RULES.coverTiers`）
-- **`half`（半高掩体）tier 定义已删除**——`RULES.coverTiers.half` 不再存在；`RULES.heights.cover.half`（旧 1.4m 越掩高度）一并删除。
+- **`half`（半高掩体）tier 定义已删除**——`RULES.coverTiers.half` 不再存在；`RULES.heights.cover.half`（旧 1.4m 越掩高度）一并删除。**（2026-10-21 补正：`RULES.heights` 整个体系已于 2026-10-19 #9 退役（`js/tank_geometry.js` `getPartZRange` 改按部位直接判定），不只是 `cover.half` 一个键。代码实测 `RULES.heights === undefined`。）**
+- **tier 全集 18 键**（2026-10-21 代码实测 `RULES.coverTiers`，按 `tierGroup`）：
+
+  | tierGroup | 键 |
+  |---|---|
+  | `structure` | `full` / `building` / `intact` / `ruined` / `rock` / `perm_block` / `barricade` / `soft` / `stump` / `rubble` / `bridge` |
+  | `foliage` | `tree` / `fallen` / `bush` |
+  | `liquid` | `water` / `river` |
+  | `ground` | `mud` / `road` |
+
+  其中 `perm_block` / `intact` / `bridge` **当前无任何生成器产出**（`generateNode` 132 节点实测 0 次），仅作旧存档/基线兼容。**注意 `perm_block` 的 `shellBlock` 是字符串 `'solid'`、派生 `mode:'none'`，弹道拦截侧实际不拦弹**——详见 §5.1 沿革；逐键行为索引见 §28。
 - **`full` 的 label 改为「建筑」**（全高掩体的具体化）；`rock`（岩石）保持 `solid + full + passability 0`。二者即「全高掩体」的全部具象。
 - **`ruined`（残破建筑）归入全高掩体**：`shellBlock: true` / `exposureProfile: 'full'`（旧 `'grad' + 'half'`）——直射实弹 100% 确定性格挡（含炮塔），击毁后转 `rubble` 残骸。
-- **`stump`（树桩）/ `rubble`（碎石）改为不挡弹**：`shellBlock: false` / `exposureProfile: 'none'`（旧 `'grad'`）。
+- **`stump`（树桩）/ `rubble`（碎石）改为不挡弹**：`shellBlock: false` / `exposureProfile: 'none'`（旧 `'grad'`）。二者 `passability` 为 **0.6**（减速通过，非「压过即毁」的那种自由通行）。
 - **`tree`（树）改为可被坦克推倒**：`crushable: true`（旧 false）——坦克压过即 `tree → fallen`（与炮弹 1 发伐倒同一残骸链）。树木世界尺寸另乘 `RULES.nodeMap.treeWorldScale`（默认 0.6，主循环与林地簇同源）。
+- **通行系数按档位分三组，别记混**：① 硬阻断（0）：`rock` / `perm_block`；② 减速通行（<1 且 >0）：`soft`、`stump`/`rubble`/`ruined`、`water`/`river`/`mud` 三档；③ 自由通行（1）：其余。**每一档的具体系数以 `RULES.coverTiers[tier].passability` 为唯一口径**，本节不逐一复写数值。
+
 
 ### 12.2 弹道拦截模型：确定性唯一入口（#E1 根因修复）
 旧实现的拦截链有三处「不可见拦截」来源，**整链删除**（`js/tank_fire.js` 顶部注记保留根因说明）：
@@ -321,7 +408,8 @@
 | ② `s.dec` 曝光缓存跨帧失效 | 缓存仅在跳弹时复位；掩体被摧毁后 `findCoversOnPath` 已跳过 `hp<=0`，仍按旧 exposure 拦停 ⇒ 炮弹停在目标车体命中点（隐形墙） | 删除 `s.dec` / `_decCoverId` / `shellVerticalDecision` 缓存链 |
 | ③ 视野圈外实体不绘制却拦弹 | `entityHiddenByVision` 跳过绘制，但 `stepShells` 对全部 `entities` raycast ⇒ 不可见车体拦弹 | 接入层经 `fireCtx.hiddenByVision` 注入判定，弹道命中扫描跳过不可见实体 |
 
-**现行口径**：炮弹只被**确定性**掩体拦截——`shellBlock===true`（建筑/岩石/树/残破建筑，在掩体**入口点**截停）与 `'single'`（沙袋，挡 1 发 / >70° 可跳弹）。`shellBlock: 'grad'` 不再是合法取值（`normalizeCoverTiers` 派生同步收敛）；水/河/泥/路/栅栏/残骸/灌木/倒树一律越飞。`getExposure` 保留为视线/预测用纯函数，但不再有 `half` 越掩插值（`RULES.coverRules.mediumHullExposure/heavyHullExposure` 删除）。
+**现行口径**：炮弹只被**确定性**掩体拦截——`shellBlock===true`（建筑/岩石/树/残破建筑，在掩体**入口点**截停）与 `'single'`（沙袋，挡 1 发即毁）。`shellBlock: 'grad'` 不再是合法取值（`normalizeCoverTiers` 派生同步收敛）；水/河/泥/路/栅栏/残骸/灌木/倒树一律越飞。`getExposure` 保留为视线/预测用纯函数，但不再有 `half` 越掩插值（`RULES.coverRules.mediumHullExposure/heavyHullExposure` 删除）。
+> **2026-10-21 补正（沙袋跳弹口径）**：本节原文写「`'single'`（沙袋，挡 1 发 / >70° 可跳弹）」，与 `js/tank_fire.js` 现行实现不符——`bestCover` 命中路径里 `tier.mode === 'single'` 分支是「**不跳弹，直接 `dmgCover` 摧毁**」（`js/tank_fire.js:1107-1108`，注记 #12，2026-10-15 用户裁定「沙袋为软质掩体」）。`70°` 是**装甲跳弹角基准**（`RULES.ballistics.bounceAngle`，按弹种 `ammoTypes.*.bounceAngle` 覆盖），只作用于**坦克装甲命中**，不是掩体命中。现行为：沙袋一律不跳弹。
 
 ### 12.3 路网 v3：去横平竖直 + 公路加宽 + 公路加速（#E2/#E3）
 - **参数收口** `RULES.nodeMap.road`（旧硬编码 60~80 世界px、amp 0.04）：`widthMin/Max = 92/124`（**公路加宽**）、`curveAmp = 0.16`、`branchCurveAmp = 0.10`、`diagChance = 0.45`、`diagAngleMin/Max = 0.18/0.52 rad`。**（curveAmp/branchCurveAmp 已被 §26（#U45，2026-10-19）取代：`curveAmp = 0.075` 且语义改为单弓形弓顶比例、`branchCurveAmp` 死配置删除；现行值以 §26.3 为唯一口径。）**
@@ -332,10 +420,10 @@
 - **出界路段裁剪（#S11，2026-10-15）**：strip 级出界路段原整段删除 → 轴对齐段沿地图边界精确矩形裁剪（旋转段仍丢弃）；`bridge-approach` 引道加出界丢弃。20 seed 全量扫描出界道路 0 条。
 
 ### 12.4 建筑沿路/路口聚集 + 路口沙包（#E3）
-新增 `placeRoadsideBuildings`（`RULES.nodeMap.building`：`roadBand 96 / junctionBias 0.9 / junctionRadius 210 / clusterPerJunction 3~5 / maxPerNode 18`）与 `placeJunctionBarricades`（`RULES.nodeMap.junctionBarricades`：`chance 0.85 / countMin~Max 2~4 / ringMin~Max 0.9~1.9×路宽`）：
+新增 `placeRoadsideBuildings`（`RULES.nodeMap.building`）与 `placeJunctionBarricades`（`RULES.nodeMap.junctionBarricades`）。**参数现行值不在此复写**——`building` 组以 **§13.4** 为唯一口径，`junctionBarricades` 组以 `RULES.nodeMap.junctionBarricades` 为唯一口径。
 
-> **沿革注记（2026-09-23）**：本段括号内的 `clusterPerJunction 3~5 / maxPerNode 18` 为 #E3 落地时值，**已被 §13.4（#I3）取代**为 `4~8 / 28`（另加 `bossDensity: 1.6`）。另 `RULES.nodeMap.road.junctionClearR`（0.85）原为**死配置**（全仓库除定义处外零消费，生成器实际以 `roadW × 0.5` 硬编码路口清空半径，`js/tank_nodegen.js` `junctions.push({r: roadW * 0.5})`）——**已于 2026-09-23 A 档从 `js/tank_rules.js` 删除**，现行 `RULES` 不再含该键（见 `DEVELOPMENT.md` §4.35）。
-- **路口邻域聚集程度最高**：每个路口先在 `junctionRadius` 内环形布 3~5 栋建筑（避让路面与路口中心）。
+> **沿革注记（2026-09-23，2026-10-21 校正）**：本节原文括号内列的 `roadBand 96 / junctionBias 0.9 / junctionRadius 210 / clusterPerJunction 3~5 / maxPerNode 18` 与 `chance 0.85 / countMin~Max 2~4 / ringMin~Max 0.9~1.9×路宽` 均为 **#E3（2026-09-20）落地当时值**。其中 `clusterPerJunction / maxPerNode` 已经 **§13.4（#I3）**两次上调取代（现行 `4~8 / 28`，另加 `bossDensity`）；`roadBand`/`junctionBias`/`junctionRadius` 与 `junctionBarricades` 各组**未再改动**、当前值与 #E3 落地值相同（可直接读 `RULES`）。另 `RULES.nodeMap.road.junctionClearR`（0.85）原为**死配置**（全仓库除定义处外零消费，生成器实际以 `roadW × 0.5` 硬编码路口清空半径）——**已于 2026-09-23 A 档从 `js/tank_rules.js` 删除**，现行 `RULES` 不再含该键（见 `DEVELOPMENT.md` §4.35）。
+- **路口邻域聚集程度最高**：每个路口先在 `junctionRadius` 内环形布建筑（规模由 §13.4 的 `clusterPerJunction` 决定，避让路面与路口中心）。
 - **沿路成排**：随后沿路链段采样，在路缘外侧 `roadBand` 带内成排布建筑，朝向对齐街道轴。
 - **路口沙包**：每个路口按概率生成 2~4 个 `barricade`，落在路口环外、不压路面的位置。
 - 两者在**统一消叠（`pruneOverlappingCovers`）之前**注入 → 天然参与「建筑/岩石/树/可破坏物/水域/泥潭互不重叠」消解；建筑间与建筑/既有元素间保留 30px 通行间隙（`obbHitsCover` pad）。
@@ -347,6 +435,9 @@
 ---
 
 ## 13. 路网 v4 + 可破坏楼房（2026-09-21 #G3/#G4 用户需求）
+
+> *主题：路网 v4 七拓扑（13.1）/ 可破坏楼房 tier `building`（13.2）/ 校准重锚（13.3）/ 建筑密度与 Boss 加成（13.4，现行）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；路网**参数**唯一口径在 §26.3，tier 行为见 §28。*
 
 **用户反馈**：「公路现在有更多形状了，但是我期待更复杂的路网和更多的建筑等物体」。
 
@@ -387,7 +478,7 @@
 
 - **`placeRoadsideBuildings` 建筑混合配比**：30% `building`（可破坏楼房）/ 10% `ruined`（残破建筑）/ 60% `full`（不可摧毁），由 `pickTier()` 按 rng 抽取。
 - **密度提升（2026-09-21 #G4）**：`clusterPerJunction` 3~5 → 3~6、`maxPerNode` 18 → 20、沿路排布采样步 `segs/6` → **`segs/4`**；建筑间/建筑与既有元素的通行间隙 30 → **34px**（密度上升时保证可用通道）。**（本行参数已被 §13.4 的 #I3 再次上调取代——现行值为 `clusterPerJunction` 4~8、`maxPerNode` 28，另加 Boss 战图 `bossDensity: 1.6`；以 §13.4 为唯一口径。）**
-- **`coverWorldScale`** 补 `building: 0.42`（与 `full` 同尺度收敛）。
+- **`coverWorldScale`** 补 `building` 键（与 `full` 同尺度收敛）——现行四键值见 §2「掩体世界缩放唯一口径」，本节不复写数值；补键动机见 §27.1。
 - 同步点（新增 tier 必须登记处）：`VILLAGE_SOLID`（村庄避让集合）、`_PRUNE_PRIORITY`（building: 9，与 full/intact 同级，消叠时优先保留）、`tank_map.js` 敌军建筑聚集的 `structCovers` 过滤（加入 `building`）。`full` 仍为 `Infinity`（`test-covers.js` 断言不变），`ASSET_DEFS` 不新增建筑条目（复用 full 的贴图路径）。
 
 ### 13.3 难度校准重锚（第二次，`scripts/test-nodegen-calibration.js`）
@@ -397,7 +488,7 @@
 
 **用户裁定**：「继续增加地图、特别是 boss 战地图的建筑密度」。
 
-- **参数提升**（`RULES.nodeMap.building`）：`clusterPerJunction` 3~5 → **4~8**、`maxPerNode` 18 → **28**；沿路采样数随乘子提升（`wantRoadside = round(segs/4 × den)`）。
+- **参数提升**（`RULES.nodeMap.building`）：`clusterPerJunction` 3~5 → **4~8**、`maxPerNode` 18 → **28**；沿路采样数随乘子提升（`wantRoadside = round(segs/4 × den)`）。**参数键与取值以 `RULES.nodeMap.building` 为唯一口径**（`roadBand`/`roadBias`/`junctionBias`/`junctionRadius`/`clusterPerJunction`/`clusterPerJunctionMax`/`maxPerNode`/`bossDensity`）。
 - **Boss 战图加成**：新增 `bossDensity: 1.6`——`makeNode` 用纯函数 `isBossNodeIndex(index)` 提前判定 boss 节点，经 `generateNode(opts.buildingDensity)` → `placeRoadsideBuildings(…, density)` 放大路口簇规模/总量上限/沿路采样密度（普通节点恒 1）。
 - **顺带修复 #E3/#G 遗留缺陷**：`placeRoadsideBuildings` 的 `fits()` 此前对 `outCovers` 用 pad 34 判重叠，而 `outCovers` **含全部道路段**（宽 92~124px 条带）⇒ 沿路/路口建筑几乎全部被拒，函数产出恒为 0、所有密度参数空转（实测同 seed 下仅有模板自带建筑）。现行：道路按 pad 10 判定（不压路面），**非道路**元素才按 pad 34 留通行间隙；`placed` 之间仍 pad 34。
 - **实测**：同模板 8-seed 结构总数 87 → 103（×1.6，`building`/`ruined` 首次实际出现）；连通性维持 **0.999~1.000**、`minPassageWidth` 仍高于可通行下限（≥1.0 格）。
@@ -409,9 +500,13 @@
 
 ## 14. 横向卷轴（strip）节点 —— 设计预留（2026-09-21，**未落地**）
 
-> **状态：设计预留，代码尚未改动。** 本节是 2026-09-21 用户设计征询的**参数与规则口径唯一归口**，实施时以此为准；完成并三链验证后按 AGENTS.md §2.2 去掉「未落地」标注、改写为现行口径，并新增 `DEVELOPMENT.md` §4.x。
-> **在此之前，地图尺寸/生成/视野的现行值仍以 §1~§13 与 `specs/combat.md` §11.1 为准**——本节不得作为「现状描述」引用。
-> 研究依据（file:line 诊断、探针实测数据、已实测排除的路径、分批计划）：`docs/PLAN.md` §3。
+> *主题：节点形态与尺寸（14.1）/ 片拼接构造（14.2）/ 防线式敌人生成（14.3）/ 渲染与工程配套（14.4）/ 结算推进（14.5）/ 测试重锚（14.6）/ 第二阶段（14.7）*
+> *⚠️ 本节为批次章节（设计预留），非主题基线。现行口径见卷首「§0 主题索引」。*
+> **2026-10-21 状态补正**：本节标题的「未落地」只对 14.3 / 14.5 / 14.7 成立。**14.2（strip 生成器）自 2026-10-10 #N4 起已接入实战**——`makeNode` 常规节点默认走 `generateStrip`（代码实测：1280×720 视口下节点 **11520×1584** ＝ 9×2.2 屏、`chunks` 3 片），14.4 的小地图/公路/空间分桶亦已落地。故 **strip 尺寸与生成的现行值看 §24（生存/multirow）与本节 14.2，不要再按「未落地」理解**。
+
+> **状态：设计预留（14.3 / 14.5 / 14.7 仍为未实现设计；14.1 / 14.2 / 14.4 已落地，见上方补正）。** 本节是 2026-09-21 用户设计征询的**参数与规则口径归口**；未实现部分实施时以此为准，完成并三链验证后按 AGENTS.md §2.2 去掉「未落地」标注。
+> **地图尺寸/生成/视野的现行实现**以 §1、§14.2、§24、§25 与 `specs/combat.md` §11.1 为准——**14.3 / 14.5 / 14.7 不得作为「现状描述」引用**。
+> 研究依据（file:line 诊断、探针实测数据、已实测排除的路径、分批计划）：`docs/PLAN.md` §2（**临时文档，非权威引用目标**；该研究可能随时归档，历史版本见 `docs/archive/<yyyy-mm>.md`）。
 
 ### 14.1 节点形态与尺寸
 
@@ -439,7 +534,7 @@
 
 ### 14.4 渲染与工程配套
 
-- **敌人渲染/可见范围 —— ⚠️ 原预留口径已被 2026-09-23 用户裁定作废**：原预留的 `R = max(现行屏幕相对公式, 最大 engage × 1.15)`（随难度增长、不随视口窄轴缩水）**不再实施**；可见半径口径**保持不变**（`js/tank_camera.js:119-143` 屏幕相对式），「敌人开火时看不见」改走**视野卡 + 镜头外延做强**（几何上限、已核实数值与配套约束见 `specs/combat.md` §11.5 与 `docs/PLAN.md` §4.2）。（原注记保留追溯：拉远时的额外绘制由 `aabbInView` 兜底，弹道命中口径经 `fireCtx.hiddenByVision`（`tank_mvp.html:3547`）同步。）
+- **敌人渲染/可见范围 —— ⚠️ 原预留口径已被 2026-09-23 用户裁定作废**：原预留的 `R = max(现行屏幕相对公式, 最大 engage × 1.15)`（随难度增长、不随视口窄轴缩水）**不再实施**；可见半径口径**保持不变**（`js/tank_camera.js:119-143` 屏幕相对式），「敌人开火时看不见」改走**视野卡 + 镜头外延做强**（几何上限、已核实数值与配套约束见 `specs/combat.md` §11.5；`docs/PLAN.md` 的对应条目已于 2026-10-20 归档，现见 `docs/ARCHIVE.md` 索引）。（原注记保留追溯：拉远时的额外绘制由 `aabbInView` 兜底，弹道命中口径经 `fireCtx.hiddenByVision`（`tank_mvp.html:3547`）同步。）
 - **地面层分块烘焙**：`bakeNodeGroundLayer`（`tank_mvp.html:3563-3696`）由「整节点单画布」改为**按片 tile 烘焙 + 视口内按需 blit**——整图口径下 12.3 屏宽 ≈223MB RGBA，最远缩放口径 ≈619MB。
 - **空间分桶**：covers 数随片数线性增长（12 屏 ≈ 443~1200）；`draw` 视口过滤、`tank_minimap` 全量遍历、`tank_ai` 避水探针（每敌每帧）、`resolveCoverCollisions` 均按片索引只扫邻近片。
 - **小地图**：~~等比缩放（`js/tank_minimap.js:15-19`）在 10:2 比例下退化成细线 ⇒ 改「横向条带 + 视口窗口」布局~~ —— **已落地（2026-10-05 C 档 batch 1）**：`minimapLayout` 按世界宽高比自适应，>2.5 进条带模式（横向占满、纵向 ×2.5 拉伸后居中，纵向示意不保真）；常规节点保持等比适配零变化。回归：`scripts/test-minimap.js`（18 断言）。
@@ -468,6 +563,9 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 ---
 
 ## 15. 防线式推进体系（B 档①②③，2026-09-23 落地，现行口径）
+
+> *主题：分桶与间距（15.2）/ 锚点优先级（15.3）/ 敌人数（15.4）/ 兜底补满（15.5）/ Boss 回退（15.6）/ 增援（15.9）/ 推进完成条件（15.10）/ Boss 循环（15.11）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；**15.2~15.11 仍是防御线现行值**，strip 模式另有放大系数（`RULES.nodeMap.strip.defenseLine`，见 §24.1）。*
 
 > **现行口径**：参数唯一来源 `RULES.nodeMap.defenseLine`（`js/tank_rules.js`）；实现 `planDefenseLines` / `collectDefenseAnchors` / `pickDefenseLineAnchor`（`js/tank_map.js`），消费方 `makeNode`。本节取代旧口径「以玩家出生点为原点的全向环带撒簇」（该路径保留为 `enabled=false` 的回退，见 §15.6）。
 
@@ -557,6 +655,9 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 
 ## 16. 敌人难度成长曲线调优（2026-10-01 用户裁定，现行口径）
 
+> *主题：难度曲线参数（`RULES.difficulty`）与实测锚点*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；本节数值 **2026-10-21 代码复算一致，仍为现行值**。*
+
 - **用户裁定**：**略微提高敌人升级速度**——敌人强度随节点推进上升更快（本次三条数值调整之一，其余两条见 `specs/combat.md` §13.4）。
 - **现行值**：`RULES.difficulty.curvePow` **1.0**（沿革 1.25 → 1.20 → **1.0**，2026-10-15 #6 用户反馈「敌方成长太慢」再调）。曲线口径不变：
   `diff = min(curveCap 0.95, curveStart 0.15 + curveSpan 0.8 · min(1, index/diffSatIndex 12)^curvePow)`，再叠加跨局等级 `difficultyLevel × crossRunLevelBonus 0.04`（钳 `diffMax 1.15`）。
@@ -566,6 +667,9 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 - **回归锚点**：`scripts/test-map.js` 难度段「升级速度基线」断言随本键同步重锚（`curvePow === 1.0`、`difficultyForIndex(3) === 0.35`、`difficultyForIndex(6) === 0.55`），原端点/单调/封顶/越界断言不变。
 
 ## 17. #1 地图生成重做（2026-10-16 用户设计要求，现行口径）
+
+> *主题：总体原则（17.1）/ 道路（17.2）/ 河流（17.3）/ 建筑（17.4）/ 地形与 Biome（17.5）/ 尺寸与缩放（17.6）/ 出生点（17.7）/ 性能（17.8）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；**17.1/17.2/17.5~17.8 的设计要求仍现行**，但逐条实现细节已被 §19~§27 多轮收口（17.7 的出生点判据以 §27.2 为准）。*
 
 > 用户原话："小范围反复试错、不重叠、1px=1 element、连续可变宽河流、道路边缘无缝衔接"。
 > 本节为自然语言设计要求，不涉及代码实现细节。实现归口 `js/tank_nodegen.js` / `js/tank_map.js`。
@@ -617,7 +721,9 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 - **位置**：玩家出生点在地图左 1/4 区域内，默认在 (0.10w, h/2)。
 - **净空保证**：地图生成必须保证出生点周围有空地，不能被掩体堵死。如果生成后发现被堵，应清除阻挡物，而非将出生点挪到右邊。
 - **设计意图**：玩家从左向右推进，出生点在左是核心玩法假设，不可动摇。
-- **「阻挡」的口径（2026-10-16 #T4 起为现行值）**：出生点净空与选址**只避让阻挡通行的元素**，判据与坦克碰撞一致（`passability === 0 || shellBlock`，见 `js/tank_cover.js` `resolveCoverCollisions`）。可通行地形（`mud`/`river`/`water`/`bush`/`soft`/`stump`/`rubble`/`bridge`/`road`）**允许**出生点落在其上——坦克可以压着泥潭/浅水/灌木开局，这不构成「被堵死」。
+- **「阻挡」的口径（现行值，2026-10-20 #W18-2 / #X3 收敛；本节以 §27.2 为唯一口径）**：出生点净空与选址**只避让阻挡通行的元素**，判据与坦克碰撞一致——**三支判据**：`passability === 0 || shellBlock === true || shellBlock === 'single'`（`js/tank_map.js:493-497` `tierBlocksSpawn`；`js/tank_cover.js` `resolveCoverCollisions` 同口径）。
+  - **沿革**：本节原文只写 `passability === 0 || shellBlock`，**漏了 `'single'` 一支**（沙袋 `barricade` 的 `shellBlock` 是字符串 `'single'`，`shellBlock` 作为 truthy 值恰好仍被判为阻挡，但写成两值判据会让人误以为 `'single'` 与非 `'single'` 的 false 同义）→ 2026-10-20 #W18-2 补入并以**显式三支**书写，见 §27.2。
+  - **可通行地形**（`mud`/`river`/`water`/`bush`/`soft`/`stump`/`rubble`/`road`）**允许**出生点落在其上——坦克可以压着泥潭/浅水/灌木开局，这不构成「被堵死」。**但 #X3（2026-10-20）起 water/river 在「选址」谓词里被单列排除**（可以清场、不可开局落水），两个谓词不可合并，见 §27.2。
   - 沿革注记：2026-10-16（`e030aa1`）曾用 `c.w/c.h` 的 AABB 包络且不按 tier 过滤做清场，结果把 `mud`/`river`/`bush` 一并删除（10 seed 删 14 个全属此类），并在连续河道上凿出空洞；同时选址走 `pointInCover` 避让**一切**掩体，与清场互相掩盖。**已被 #T4 取代**——清场与选址统一按上表口径，只处理阻挡物。
 
 ### 17.8 性能要求
@@ -629,6 +735,9 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 
 
 ## 18. 贴图资产出图管线（2026-10-17 重构，现行口径）
+
+> *主题：参考图基准（`tools/cover-refs.json`）/ 出图 / 后处理 / 验收 / 回退*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
 
 > 关联：§4「贴图资产与烘焙层」（运行时回退与烘焙契约）、`assets/README.md`（目录与文件名约定）、`tools/cover-gen-prompts.md` v2（提示词与操作手册）。
 
@@ -645,6 +754,9 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 
 ## 19. 布点/修剪避路收紧（2026-10-17 #U32，现行口径）
 
+> *主题：掩体避路三处判定统一为 verts 精确多边形（模板物品 / prune nudge / mud↔road）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
 > 关联：§10.2 跨相重叠消解（pruneOverlappingCovers）、§13 路网 v4（道路连续多边形）、`js/tank_nodegen.js`。
 
 - **问题**：cde3bc3 起道路 cover 为整链连续多边形（OBB = 整链大 bbox，实测 verts 多边形面积仅 OBB 的 ~6%），但模板物品避路（#A11 推挤）与 prune `tryNudge` 仍按 OBB 判定，且 `need ≤ 0 → pushed = true` 短路放行、`best` 选「全局最近路心」而非「实际相交的路」、nudge 落点不查 road——四因叠加，实测 60 seed ×3 scale 有 **163 处建筑/岩石/树/栅栏压在路面上**（用户反馈「房屋落在道路上」）。
@@ -656,6 +768,9 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 - **基线**：校准第十一次重标定（见 `scripts/test-nodegen-calibration.js` 头注）；test-nodegen 泥斑环带断言中心修正为世界帧 (600,350)（原 W/2,H/2 是 0 原点帧假设）、村庄建筑上限 20→24。
 
 ## 20. strip 河流互斥与避路收尾（2026-10-17 #U33，现行口径）
+
+> *主题：河↔河互斥（`_riverPairClash`）/ 河↔路平行避让（`relaxAmp` + `_riverRoadClearance`）/ 物理极限弃河*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；支流例外已于 §21 删除。*
 
 > 关联：§10.1 路网 v4、§17 #1 地图生成重做（strip 一体化河流 `placeStripRivers`）、`js/tank_nodegen.js`。
 
@@ -669,6 +784,9 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 
 ## 21. 河道形态：删除支流汇入 + 沿程宽度变化（2026-10-18 #U34，现行口径）
 
+> *主题：支流汇入删除（单向主河）/ 沿程宽度变化（数据层 + 渲染层）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
 > 关联：§20 河流互斥、`js/tank_nodegen.js placeStripRivers/buildRiver`、`js/tank_battledraw.js drawRiverChain`。
 
 - **① 支流汇入设计整体删除**（用户裁定「删除支流汇入干流的设计」）：原 H1T 形态（横贯干流 + 短支流 Y 形汇入，含 #S1 的「支流末端伸入干流过中心线 thick×0.25」缝合）全部移除。H1 现为**单条蜿蜒主河**（振幅 0.05~0.08×stripH，略大于原干流）。理由：支流与干流的 Y 形合并本身即 #U33「河流不应该交叉、干涉」所禁止的交叉，两者口径冲突，以用户裁定为准。随支流一并移除的还有其源头收分 taperFn 与「有湖」死分支（`hasLake` 自 2026-10-05 起已是 `false` 常量）。
@@ -679,6 +797,9 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 - **效果**：河间交叉 0（无任何例外，H1T 汇入已删除）；每张 strip 河流数 ≤4（此前 H1T 恒多一条支流）；宽度沿程变化率 cv≈0.2；`npm test` 45/45。
 
 ## 22. 贴图与阴影质量（2026-10-18 #TEX6~#TEX9 / #TEX11，现行口径）
+
+> *主题：坦克纹理（22.1）/ 缓存键与 LRU（22.2）/ 阴影世界固定光源（22.3）/ 植被烘焙（22.4）/ 地面材质（22.5、22.5b）/ mini-canvas 语义（22.6）/ 回归（22.7）/ 立体感（22.8）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
 
 > 关联：§4（贴图资产与烘焙层）、§18（出图管线）、`docs/specs/combat.md` §6（特效分层）、`js/tank_paint.js` / `js/tank_assets.js` / `js/tank_battledraw.js`。
 
@@ -774,6 +895,9 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 
 ## 23. 坦克贴图审核标准（v2 分数 + v3 跨部件检查；2026-10-18 #TEX10/#TEX11，现行口径）
 
+> *主题：前置事实（23.1）/ 八条指标与区间（23.2、23.3）/ 指标返工史（23.4）/ 缺陷修法（23.5、23.6）/ v2 基线（23.7）/ v3 跨部件检查（23.8）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
 「好看」若不量化就只能靠肉眼，而肉眼在本项目的渲染尺度上会系统性误判。本章定义**可执行的审核标准**，实现见 `scripts/audit-textures.js`（CLI 报表 / `--json` / `require` 三模式，被 `scripts/test-render.js` ⑦ 引用为强制回归）。
 
 ### 23.1 两条前置事实（标准的立论基础）
@@ -864,6 +988,9 @@ v2 只量**车体一张 sprite 的统计量**。2026-10-18 的 1:1 视觉审阅�
 
 ## 24. 生存模式地图生成 + 道路净空（#U35，2026-10-18，现行口径）
 
+> *主题：生存模式同一套 strip 链（24.1）/ 多行片 `chunkRows`（24.2）/ 道路上无房屋树木（24.3）/ 校准基线（24.4）/ 回归（24.5）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
 ### 24.1 生存模式：与标准模式**同一套** strip 生成链
 
 用户裁定（2026-10-18）：地图生成算法参考最新标准模式，但保留更大的单图。
@@ -905,6 +1032,9 @@ v2 只量**车体一张 sprite 的统计量**。2026-10-18 的 1:1 视觉审阅�
 ---
 
 ## 25. 地面层视口锚定烘焙 + 相机屏幕像素对齐（#GT，2026-10-18，现行口径）
+
+> *主题：成因一每帧重画地面纹理（25.1）/ 成因二亚像素重采样（25.2）/ 回归（25.3）/ biomeZones 2 维化（25.4）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
 
 **用户反馈**：「部分地图 biome（如雪地、沙漠）的纹理会随着玩家移动变化，相应的帧率也大幅下降。」
 两个**互相独立**的成因，各有独立的修法；只修一个都只能解决一半。
@@ -991,6 +1121,9 @@ x = round(cam.x · zoom) / zoom      // 量化为 1/zoom 的整数倍
 
 ## 26. 道路单弓形弯：杜绝正弦/S 形道路（#U45，2026-10-19，现行口径）
 
+> *主题：正弦/S 形根因（26.1）/ 单弓形修法（26.2）/ `RULES.nodeMap.road` 参数唯一口径（26.3）/ 实测回归（26.4）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；26.3 是道路参数的唯一口径节。*
+
 **用户反馈原文**：「修改道路生成算法，目前有些道路看起来像正弦函数，在地图内的弯太多」。
 
 ### 26.1 根因
@@ -1029,17 +1162,18 @@ x = round(cam.x · zoom) / zoom      // 量化为 1/zoom 的整数倍
 
 ## 27. 2026-10-20 批次现行口径（#W15 / #W16-② / #W17 / #W18 / #X2 / #X3）
 
+> *主题：`coverWorldScale` 补 building（27.1）/ 出生点判据与液态排除（27.2）/ 水域收尾顺序（27.3）/ 未注册 tier 兜底（27.4）/ `directionTolerance` 与缓存（27.5）/ 死配置清理（27.6）/ 回归（27.7）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」；掩体主题的归并入口见 §28。*
+
 本节收口 2026-10-20 批次地图侧的全部现行口径。**逐条数值以对应实现文件为唯一口径**，本节只记语义与归口，不重复罗列参数表。
 
 ### 27.1 `coverWorldScale` 补 `building`（#W18-1）
 
-`js/tank_cover.js` 的 `coverWorldScale`（三处：约 `:122` / `:135` / `:167`）**补入 `building` 键**，现行：
+**现行值见 §2「掩体世界缩放唯一口径」（本节不复写数值）。** 本节只记本批次为何补这个键。
 
-```js
-{ half: 0.42, full: 0.42, building: 0.42, barricade: 0.32 }
-```
+**根因**：可破坏楼房 tier `building`（§13.2）此前**不在缩放表内** ⇒ `coverWorldScale['building']` 为 `undefined`，`js/tank_nodegen.js` 的 `sizeFactor` 分支回落 `1`（**不减算**）⇒ 此类掩体的世界尺寸显著大于 `full`，同为全高建筑却观感与判定比例不同源。`building` 与 `full` 同系数表示「同为建筑体量」。**具体数值见 §2。**
 
-**根因**：可破坏楼房 tier `building`（§13.2）此前**不在缩放表内** ⇒ 落到 `undefined` 分支/缺省值，导致此类掩体的世界缩放过小或与 `full` 不一致（同为 3 发可破坏的全高建筑，观感与判定比例不同源）。`building` 与 `full`/`half` 同取 0.42 表示「同为建筑体量」。
+**沿革注记（2026-10-21 修正）**：本段原文写「`js/tank_cover.js` 的 `coverWorldScale`（三处：约 `:122` / `:135` / `:167`）」——**该 file:line 指向已过期**：`coverWorldScale` 的唯一定义处是 `RULES`（`js/tank_rules.js:593`），`js/tank_cover.js` 内无此表；`:122/:135/:167` 是 2026-10-20 当时 `docs/specs/map.md` 自身的行号，不是代码位置。阅读时以 §2 为数值口径、以 `RULES.nodeMap.coverWorldScale` 为代码口径。
 
 ### 27.2 出生点判据与液态地形排除（#W18-2 + #X3，2026-10-20）
 
@@ -1116,3 +1250,55 @@ passability === 0 || shellBlock === true || shellBlock === 'single'
 ### 27.7 回归覆盖
 
 `scripts/test-nodegen.js` / `test-nodegen-calibration.js` / `test-covers.js`（180 断言）/ `test-map.js` / `test-strip.js`；`scripts/audit-map-gen.js` 的 **G4 口径已重写**（旧 AABB 矩形口径 669 项硬失败 → 真实多边形足迹判定 0 项，并加 6 条合成几何自检防「归零即失效」，详见 `DEVELOPMENT-batches-2026-10.md` §4.112）。
+
+---
+
+## 28. 掩体体系主题归并视图（2026-10-21）
+
+> **本节只做导航：不放任何数值、不放行为细则。** 掩体主题在本卷被切成多节，本视图给出「一个 tier → 去哪一节看」的唯一入口。
+> **读掩体请按 §2 → §12 → §28 的顺序**；§27 只记 2026-10-20 的增量修正（发现缺陷时才读）。
+
+### 28.1 掩体主题在本卷的全部分布
+
+| 节 | 在掩体主题里承担什么 | 读它的理由 |
+|---|---|---|
+| §2 | tier 定义总表；**`coverWorldScale` 全卷唯一口径**在此 | 首次接触掩体，先读这节 |
+| §3 | 核心机制细节（挡弹入口、方向判据、炮管穿墙、多边形几何） | 想知道「为什么会被挡住」 |
+| §12 | 体系收敛（半高移除、确定性挡弹唯一入口、tier 表现行口径 §12.1） | 判断某条旧描述是否还有效 |
+| §13 | 可破坏楼房 `building` 的引入与破坏链（§13.2） | 关心建筑耐久/残骸 |
+| §19 | 生成期避路（掩体不得压路的三处判定） | 关心「房子落在路上」类缺陷 |
+| §22 | 视觉与烘焙（阴影、植被、立体感；§22.3 光源世界固定） | 关心「看着不对」而非「判定不对」 |
+| §27 | 2026-10-20 增量修正（§27.1 缩放补键、§27.2 出生判据、§27.4 兜底语义、§27.6 死配置） | 只在本主题出问题时当勘误表读 |
+| §28 | 本视图（纯指针） | 只是索引 |
+
+### 28.2 tier → 行为 → 现行口径所在节
+
+tier 全集以 `RULES.coverTiers`（`js/tank_rules.js`）为唯一口径；下表**只给行为定性与指针，数值一律回原节/原键读**。
+
+| tier | tierGroup | 行为（定性） | 现行口径所在节 |
+|---|---|---|---|
+| `full` | structure | 确定性挡弹 + 阻挡推出 + 遮视线 + 不可摧毁 | §12.1、§12.2；缩放 §2 |
+| `building` | structure | 同 `full` 的全高遮挡，但**可摧毁**，破坏后转残破建筑 | §13.2、§12.1；缩放 §2 |
+| `intact` | structure | 行为同 `full`；**当前无生成器产出**，仅旧存档/基线兼容 | §12.1（tier 全集） |
+| `ruined` | structure | 确定性挡弹 + 遮视线 + 减速通行 + 可再摧毁成碎石 | §12.1；破坏链 §13.2 |
+| `rock` | structure | **不可通行** + 确定性挡弹 + 遮视线 | §12.1；多边形绘制 §4 |
+| `perm_block` | structure | **不可通行**；`shellBlock` 写成字符串 `'solid'`、派生 `mode:'none'` ⇒ **弹道拦截侧实际不拦**（见 §5.1 沿革）；**无生成器产出** | §5.1、§12.1、§27.4 |
+| `barricade` | structure | `shellBlock:'single'`（挡单发）+ 可被碾压/击毁，残骸为碎石 | §12.2、§15.7（越界修复）；缩放 §2 |
+| `soft` | structure | 越飞 + 减速通行 + 可击毁/碾压，无残骸 | §12.1；烘焙 §22.4 |
+| `stump` | structure | 越飞 + 减速通行 + 可击毁 | §12.1 |
+| `rubble` | structure | 越飞 + 减速通行（终态残骸） | §12.1 |
+| `bridge` | structure | 越飞 + 可通行；**已不再产出**（旧存档兼容） | §27.6 |
+| `tree` | foliage | 挡弹 + 阻挡推出 + **可被坦克推倒**成倒树 | §12.1 |
+| `fallen` | foliage | 越飞 + 自由通行，仍遮视线（纯视觉残留） | §12.1 |
+| `bush` | foliage | 越飞 + 自由通行，遮视线 | §12.1；渲染 §5.5 |
+| `water` | liquid | 越飞 + 减速通行 + **溺毙危险体**（AI 规避） | §11、§11.1.3 |
+| `river` | liquid | 越飞 + 减速通行 + **可涉水**（不算危险水体） | §11.1、§21 |
+| `mud` | ground | 越飞 + 减速通行 | §5.2、§17.5 |
+| `road` | ground | 纯地面层：公路加速 + 屏蔽下层减速 | §12.3、§26.3 |
+
+### 28.3 一句话结论
+
+- **挡弹**：工程上只有 `shellBlock === true` 与 `=== 'single'` 两类会拦弹，其余一律越飞——判别口径见 §12.2。唯一例外是 `perm_block` 的字符串写法 `'solid'`（派生 `mode:'none'`、拦截侧不拦弹，且该 tier 无产出），见 §5.1。
+- **通行**：由 `passability` 决定，0 才是硬阻断；`crushable` 的元素另有「碾压即毁」分支——见 §12.1 与 `js/tank_cover.js` `resolveCoverCollisions`。
+- **视线**：由 `tier.vision` 决定，与挡弹是**两套判定**（灌木能透视却挡视线）——见 §3、§12.1。
+- **尺寸**：`coverWorldScale` 的四个键（含 `building`）**只在 §2 出现一处**——见 §2。

@@ -5,6 +5,35 @@
 
 ---
 
+## 0. 主题索引（按问题查，不按章节序读）
+
+> ⚠️ **本卷含历史批次章节（§6 / §8 / §9 / §10 / §11），章节号按时间追加、不代表主题分组。**
+> **查现行口径请用本索引**；章节编号被 191 处外部文档引用，故保持稳定、不做重排。
+> 本卷的两套维度并存：**§1~§5、§7 按主题**；**§6、§8~§11 按批次立项**。同一机制可能两处都有——**以本索引「现行口径」列为准**，「来源沿革」列只用于追溯，不必读。
+
+| 我想查…… | 现行口径（先看这里） | 来源沿革（不必读） |
+|---|---|---|
+| **卡牌 JSON 有哪些字段** / schema | **§2**（唯一权威 = `js/tank_cards.js` 的 `validateCard`） | §8.2 / §8.3 的卡面示例 |
+| **七类效果类型**（modifier / ammo / ability / passive / drone / economy / weapon） | **§3**（枚举唯一口径 = `CARD_EFFECT_TYPES`；§3 内按 1~7 编号列条目，**非子章节**） | — |
+| **弹种链替换 / `replaceAmmo` 校验** | **§3 第 2 条（ammo）** 的两层校验：`AMMO_KEYS` 白名单 + `RULES.ammoChain[key]` 直系前驱；链语义归 `combat.md` §3.1 | §8.3「弹药升级」 |
+| **ability 键集合**（RUNTIME **5 键** / `ABILITY_KEYS` **8 键**） | **§3 第 3 条（ability）** | §8.4 技能卡梯度、§8.5 技能卡总表 |
+| **passive 键集合**（现行 **6 键**） | **§6** 首条（唯一口径 = `PASSIVE_KEYS`） | §3 第 4 条（passive）的旧键列表（**已过期**，见该处沿革注记） |
+| **economy 字段**（现行 **3 项**：`scoreMul` / `shopDiscount` / `reviveCount`） | **§3 第 6 条（economy）** | — |
+| **稀有度五档 + 抽取权重 + 卡池分布** | **§4** | §8.2 各稀有度的数值梯度 |
+| **卡牌 `tags`（流派）** | **已于 2026-10-20 #16 整体下线** → 见 **§4 第 2 条** | §5 的 tag 审计维度、§11 的查看器分类维度（均已随之下线） |
+| **堆叠 `maxStacks` / 验证工具链** | **§5** | — |
+| **模块暴击**（`fireControlCrit` / `loaderAmmoCrit`，上限 0.25） | **§7** | §10「三通道全空缺」的补齐记录 |
+| **三板块设计**（基础数值 / 机制 / 技能） | **§8**（§8.1 裁定 / §8.2 数值梯度 / §8.3 机制卡 / §8.4 技能卡 / §8.5 总表） | — |
+| **武器 effect（安装/升级卡）与 `statOverrides`** | **§8.3**（`weapon` 段 + `"+N"` 相对增量）；武器机制细则归 `combat.md` §8、§9 | §3.7 的入口概述 |
+| **Boss 随机武备**（`pickBossArmament`） | **§8.3 末**（参数唯一口径 `RULES.boss.armament`）；运行时见 `boss.md` §4 | — |
+| **装备优先抽卡 / 各类保底 / Boss 轮加权** | **§9**（`drawCardChoices` 唯一口径） | — |
+| **升级覆盖面**（`MODIFIER_STATS` / `UPGRADE_DEFS` / `RUN_SHOP_DEFS`） | **§10** | — |
+| **局内卡牌查看器**（`C` 键） | **§11** | — |
+
+**读法建议**：只想知道「这个机制现在是什么样」→ 只看「现行口径」列那一节就够了，**不需要读任何批次章节**。只有要追溯「为什么变成这样」时才看「来源沿革」列。
+
+---
+
 ## 1. 卡牌设计定位
 - **局内改装强化**：卡牌是节点通关后三选一的坦克改装/战术强化，不是手牌指令牌组。
 - **拟真坦克调性**：效果围绕装甲/穿深/装填/机动/散布/视野/弹种/乘员展开，贴合"摆角度找跳弹、找掩体抢位置"的博弈立意（参照 Slay the Spire 稀有度分层+流派构筑，落到坦克改装语境）。
@@ -16,7 +45,6 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
       "id": "spaced_armor",
       "name": "间隙装甲",
       "rarity": "common",
-      "tags": ["重甲"],
       "desc": "车体正面附加间隙装甲，等效厚度 +12mm。",
       "effects": [
         { "type": "modifier", "stat": "armor.hull.front", "mode": "add", "value": 12 }
@@ -24,8 +52,10 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
       "maxStacks": 3
     }
 
+> **⚠️ `tags` 字段已下线（2026-10-20 #16，用户裁定「卡牌的角色设定没有意义，删除相关的字段」）**：上例**不含** `tags`。历史上该字段写作 `"tags": ["重甲"]`，现 196 张卡全部无此字段、`CARD_TAGS` 常量不再导出、`validateCard` 不再校验它（带 legacy `tags` 的卡也不报错，只是被忽略）。细则与删除范围见 **§4**。
+
 ## 3. 七大效果类型 (type 决定 params)
-1. **modifier**：{stat, mode:'add'|'mult', value}——stat 白名单（穿透/伤害/装填/弹速/极速/转向/炮塔转速/装甲路径 armor.hull.front 等）或履带锁/模块倍率/DOT倍率/散布。立即生效（走 addModifier 管道，§5.1 三层属性系统）。**白名单沿革（2026-10-10 #O3 补入 3 键，唯一口径 `MODIFIER_STATS`）**：`motionSpreadMul`（此前仅局内商店 `steady_mount` 可写）、`fireControlCrit` / `loaderAmmoCrit`（P-49 模块命中概率修正通道，此前三通道全空缺的死升级通道）。
+1. **modifier**：{stat, mode:'add'|'mult', value}——stat 白名单（穿透/伤害/装填/弹速/极速/转向/炮塔转速/装甲路径 armor.hull.front 等）或履带锁/模块倍率/DOT倍率/散布。立即生效（走 addModifier 管道；三层属性模型 `base` / `modifiers` / `stats` 的实现见 `js/tank_model.js` 的 `makeTank`/`computeStats`，架构说明见 `AGENTS.md` §4）。**白名单沿革（2026-10-10 #O3 补入 3 键，唯一口径 `MODIFIER_STATS`）**：`motionSpreadMul`（此前仅局内商店 `steady_mount` 可写）、`fireControlCrit` / `loaderAmmoCrit`（P-49 模块命中概率修正通道，此前三通道全空缺的死升级通道）。
    - **运行时参数硬限（2026-09-15 W5 用户裁定；2026-09-17 #C2 修订）**：卡牌 modifiers 聚合后受 `RULES.parameterLimits` 两张硬限钳制——装填 **reload ≥ 1.0s/发**（2026-09-17 #C2 裁定，取代旧 0.5s；加速装填卡不得突破下限）、极速 **maxSpeed ≤ 150km/h（375px/s）**（超速卡不得突破上限）；实现于 `js/tank_model.js` `applyParameterLimits(s, modifiers)`（computeStats 尾部，仅 modifiers 非空时生效，空修饰器出厂/纯计算不钳）。**#C2 同轮细化**：硬限只约束参数通道（scope run/permanent）——**纯 timed 修饰器（超装填 ×0.45 等能力爆发通道）不钳**，其实际开火间隔可继续 <1s（与机炮 reloadMult 0.25 武器通道同语义）。火控系另有既有钳制（spreadMult/motionSpreadMul ≥ multFloor、crit ≤ critBonusCap）。消费链 `applyCardEffects`→`addModifier`→`refreshStats`→`computeStats` 天然接入，商店另有 `runShopLimitBlocked` 购买拦截（§8.3，`fast_reload` limit.min=1.0 同步）。回归见 `scripts/test-rework-w5.js`（§5 timed 不钳 / 混合通道仍钳）。
 2. **ammo**：弹种改造或弹种替换（完整弹种键与升级总表见 `docs/specs/combat.md` §3.1/§3.2 与 `js/tank_rules.js` 的 `RULES.ammoTypes` / `RULES.ammoChain`）。
    - 弹种属性改造：`{key, field:'pen'|'dmg'|'speed', mode:'mult'|'add', value}`，其中 `key` 支持现有体系下的有效弹种键。
@@ -41,8 +71,10 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
    - `computeAmmoConfig` 将 Σadd 输出为独立的 `fieldAdd` 字段存放，由消费方（fireTank/computeAmmoConfig 合成端）在乘算聚合之后合成，杜绝把 mm 追加混入倍率刻度。
    - 软上限 `ammoTypeCap` 作用于**最终等效值**且仅钳 HE（AP/APCR/HEAT 不受限）。（接入点见 `js/tank_rules.js` 的 `RULES.ammoTypeCap`）
 3. **ability**：主动装置 {key}，key ∈ `ABILITY_KEYS_RUNTIME`（**2026-10-20 #W9 删键后为 5 键**：artillery / shield / overdrive / deploy_cover / **aps**；经 1~3 号技能池槽触发，P-17 接入。smoke 键已于 2026-09-15 W2 随烟幕整链删除；`aps`（主动防御系统）为 2026-09-21 #G9 新增）。`validateCard` 的 `ABILITY_KEYS` 白名单同步包含 innate 键 repair/medkit/extinguish 与全部 runtime 键 ⇒ 现为 **8 键**。**`super_fire_control` / `super_speed` 已于 2026-10-20 #W9 从两端一并删除**（用户裁定「删除」；196 张卡 + `tanks/` + `bosses/` 全库两键零命中，属死键；删键后 `test-rework-r1.js` 以负向断言锁死，详见 `docs/specs/combat.md` §4）。
-   - **死效果键已整体摘除（2026-09-23 A 档）**：`recon` / `track_repair` 原在 `ABILITY_KEYS` 白名单内、却在 `ABILITY_KEYS_RUNTIME` 与 `ABILITY_KEYS_INNATE` 两池之外，**无任何激活路径**（`recon` 的 mvp 技能池 DISPATCH 分支调用全仓库无定义的 `tryDroneCommand()`，靠 `typeof` 守卫恒为 no-op）⇒ 对应 5 张卡（`support_recon` / `sniper_recon_mark` / `emergency_track` / `mobile_track_repair` / `support_track_repair`，均只带单一 `ability` 效果、卡面自述「占位」）能正常抽取但激活零反应。**用户裁定（2026-09-23）：整体摘除**——两键从 `ABILITY_KEYS`、mvp DISPATCH 表、`ABILITY_LABELS` / `ABILITY_KEY_HINT` 一并删除，5 张卡文件删除（卡池 173 → 168）。**现行不变量**：`ABILITY_KEYS` ≡ innate 3 键（repair/medkit/extinguish）+ runtime 7 键，**无死键**。细则归口本节与 `DEVELOPMENT.md` §4.35。
-4. **passive**：机制性被动 {key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}。`commander_sight`（车长潜望镜 rare +15% / 车长观瞄镜 epic +25%）消费点=mvp 视野半径（`entityHiddenByVision`/`visionRadiusEff`，见 combat.md §4.1；2026-09-19 #D2 接线前为死效果）。
+   - **死效果键已整体摘除（2026-09-23 A 档）**：`recon` / `track_repair` 原在 `ABILITY_KEYS` 白名单内、却在 `ABILITY_KEYS_RUNTIME` 与 `ABILITY_KEYS_INNATE` 两池之外，**无任何激活路径**（`recon` 的 mvp 技能池 DISPATCH 分支调用全仓库无定义的 `tryDroneCommand()`，靠 `typeof` 守卫恒为 no-op）⇒ 对应 5 张卡（`support_recon` / `sniper_recon_mark` / `emergency_track` / `mobile_track_repair` / `support_track_repair`，均只带单一 `ability` 效果、卡面自述「占位」）能正常抽取但激活零反应。**用户裁定（2026-09-23）：整体摘除**——两键从 `ABILITY_KEYS`、mvp DISPATCH 表、`ABILITY_LABELS` / `ABILITY_KEY_HINT` 一并删除，5 张卡文件删除（卡池 173 → 168）。细则归口本节与 `DEVELOPMENT.md` §4.35。
+     - **⚠️ 沿革（不静默删除）**：本段原结尾写「**现行不变量**：`ABILITY_KEYS` ≡ innate 3 键 + runtime **7** 键，无死键」——该表述**已于 2026-10-20 #W9 被取代**（7 键里恰藏着 `super_fire_control` / `super_speed` 两个死键，已删除）。**现行键集合见本节开头**（RUNTIME **5** 键 / `ABILITY_KEYS` **8** 键）。
+4. **passive**：机制性被动 `{key, value?}`，`key` ∈ **`PASSIVE_KEYS`（现行 6 键）**——**键集合唯一口径在 §6 首条**，本处不重复罗列（`PASSIVE_KEYS` 会随批次增减，重复罗列必然过期）。
+   - **沿革（不静默删除）**：本节原写 `{key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}`——其中 **`commander_sight` 已于 2026-09-30 #J3 随视野系统整体退役删除**（原消费点为 mvp 视野半径 `entityHiddenByVision` / `visionRadiusEff`，2026-09-19 #D2 接线前为死效果）；`wet_ammo_rack` / `crew_liner` 两键于 2026-10-20 #W-H 新增。**旧列表照录如上以供追溯，勿当作现行键集合。**
    - **应急护盾 `reactive_armor`（#W-G，2026-10-19 用户裁定——机制整体重做）**：卡名由「反应装甲」改为「**应急护盾**」。机制从「命中驱动拦截」改为「**低血主动生成**」：
      - **触发**：`player.hp / player.maxHp < RULES.cards.emergencyShield.triggerHpRatio`（0.10）时自动展开；
      - **效果**：生成 1 个**持续 10s** 的**全向**护盾，吸收池 `shieldHp`（150），走 `js/tank_shield.js` 的 `applyShield`（#W7 修复后 `hp`/`duration` 可覆盖）；
@@ -58,7 +90,7 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 
 ## 4. 稀有度分层与流派
 - CARD_RARITIES（**2026-09-20 #E13 起五档**）：common / rare / epic / legendary / **mythic（神话）**——新增最高档，序号即强度序；抽取权重 `common 50 / rare 30 / epic 15 / legendary 4.5 / mythic 0.5`；Boss 掉落白名单 `LOOT_RARITIES`（tank_boss.js）同步五档；HUD 标签新增「神话」。
-- **~~CARD_TAGS 流派标签~~（已于 2026-10-20 #16 整体下线）**：用户原话「卡牌的角色设定没有意义，删除相关的字段」。删除范围：① `cards/*.json` 全部 `tags` 字段（实删后 **0/196 张**仍有该字段）；② `js/tank_cards.js` 的 `CARD_TAGS` 常量与导出（现 `require` 后为 `undefined`）；③ `validateCard` 的 tags 校验（带任意 tags 的卡现返回 `[]` 不报错，详见 §16）；④ UI 侧：奖励面板的 tags 显示、`tank_devpanel.js` 的 tags 搜索维度、`tools/content_designer.html` 的 tags 勾选框编辑器（该页原 `for(const t of CARD_TAGS)` 在枚举消失后会**打开即抛 TypeError**——它不在 `check-html.js` 五页扫描范围内故 `npm run check` 不红，属工具链静默崩溃）。
+- **~~CARD_TAGS 流派标签~~（已于 2026-10-20 #16 整体下线）**：用户原话「卡牌的角色设定没有意义，删除相关的字段」。删除范围：① `cards/*.json` 全部 `tags` 字段（实删后 **0/196 张**仍有该字段）；② `js/tank_cards.js` 的 `CARD_TAGS` 常量与导出（现 `require` 后为 `undefined`）；③ `validateCard` 的 tags 校验（带任意 tags 的卡现返回 `[]` 不报错，见 **§2** 示例下的沿革注记）；④ UI 侧：奖励面板的 tags 显示、`tank_devpanel.js` 的 tags 搜索维度、`tools/content_designer.html` 的 tags 勾选框编辑器（该页原 `for(const t of CARD_TAGS)` 在枚举消失后会**打开即抛 TypeError**——它不在 `check-html.js` 五页扫描范围内故 `npm run check` 不红，属工具链静默崩溃，细则归 `editor.md` §8.5）。
   - **沿革（不静默删除）**：该字段在 2026-10-20 之前用于「`drawCardChoices` 构筑导向抽卡」与卡牌查看器的标签分组（见 §11 分类维度）。**抽卡逻辑不依赖 tags**（按稀有度权重 + 装备/升级保底），故下线对抽卡无行为影响；查看器分类维度改为**仅稀有度**。
   - **回归护栏**：`scripts/test-cards.js` 以**负向断言**锁死「`CARD_TAGS === undefined`」与「带 tags 不报错」，防止枚举被悄悄加回而数据侧已无字段（负向断言是字段下线类改动的根治手段）。
 - 当前分布（**2026-10-20 `node scripts/audit-content.js` 实测，#16 删 tags 后复核**）：**196 张卡**——common 59（30.1%）/ rare 77（39.3%）/ epic 44（22.4%）/ legendary 15（7.7%）/ mythic 1（0.5%）。沿革：2026-10-10 #O3 时 169 张；2026-10-18 #U39 新增 20 张武器卡达 191（`DEVELOPMENT.md` §4.99）；2026-10-19 #U40 复核 191；2026-10-20 达 **196**。
@@ -71,11 +103,16 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 - audit-content.js --strict：稀有度/流派/效果分布常态化审计（偏差 <3% 视为统计波动）。
 - test-card-effects.js：442 断言全卡池全链路执行验证。
 - **P-42 扩展审计维度（2026-08-28，audit-content.js）**：新增四个报告型维度——① 流派×稀有度覆盖率；② 流派→效果类型构成；③ 同稀有度强度曲线（`multDev = Σ|mult值−1|`，仅统计 mult 效果，passive/ability/economy/add 单独列出以避量纲混淆；含离群警示 + 跨档单调性检查，仅在高稀有度含 ≥3 张 mult 卡时比较防假失衡）；④ tag 组合矩阵 + `heat_*`/`he_*`/`demo_*` 定点交叉对比表。
+  - **⚠️ 沿革（2026-10-20 #16）**：上述 ①/②/④ 三个维度依赖卡牌 `tags` 字段，该字段下线后**已从 audit 输出中降级**——`scripts/audit-content.js` 现从 `cards/*.json` 动态收集 tags，**全部无 tags 时只输出一行「已下线」说明**（不再产空表）；仅 ③ 强度曲线与定点交叉对比仍有效。tag 字段本身见 §4 沿革。
 - **P-42 首轮审计结论（2026-08-28）**：修正单调性检查后无 red 级 mult 失衡（0 警告）；唯一可观测缺口为**内容覆盖**——HEAT 弹种仅 3 张卡（heat_composite_pen/heat_overpressure common、heat_precision rare），无 epic/legendary 档，明显薄于 HE/AP/APCR；属 card-author 补卡范畴（内容前置），非数值调优，暂缓。
 - **审计警告现状（2026-10-19 #U40 批次复核，存量内容项）**：`⚠ 稀有度单调性破坏：epic 最强 multDev=0.65 > legendary 含 mult 卡中位 0.50`（主因 epic `demo_walking_fire` 三效果 multDev 0.35）。属内容强度曲线项而非缺陷（exit=0 不挂链），#U39 补卡后的卡面再平衡留待内容批次。
 
 ## 6. 被动卡接线结论（2026-08-26，#A14/#A15）
-- **`PASSIVE_KEYS` 现行 6 键**（**以 `js/tank_cards.js` 为唯一口径**，2026-10-20 实测）：`reactive_armor` / `angle_boost` / `overmatch` / `spall_liner` / `wet_ammo_rack` / `crew_liner`。~~`commander_sight`~~ 已于 #J3（2026-09-30 视野系统退役）删除，**实测不在表内**——本卷此前若有引用均属过期。
+
+> *主题：passive 键集合与接线（6.0）/ overmatch 口径碾压（6.1）/ 全线高爆（6.2）/ 防崩落内衬（6.3）/ 防御方减伤（6.4）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
+- **`PASSIVE_KEYS` 现行 6 键**（**以 `js/tank_cards.js` 为唯一口径**，2026-10-21 实测）：`reactive_armor` / `angle_boost` / `overmatch` / `spall_liner` / `wet_ammo_rack` / `crew_liner`。~~`commander_sight`~~ 已于 #J3（2026-09-30 视野系统退役）删除，**实测不在表内**——本卷此前若有引用均属过期（§3.4 已加沿革注记）。**这是全卷唯一的键集合口径，其余节一律指向本条。**
 - **passive 统一消费入口** `passiveValues(tank, key)`（`js/tank_physics.js`）：收集 cardEffects 中 `type:'passive'` 的数值数组，多来源聚合语义由消费方自决——`overmatch` 取最大阈值、`spall_liner` 取最小乘数（取最强）。
 - **`#A14b` overmatch（口径碾压，`demo_overmatch_shell` epic）**：AP/APCR（或 key 为空）命中时，若目标受击面等效厚度 eff ≤ 穿深×阈值（默认 0.85），跳过跳弹判定与过陡 BLOCK 分支、强制按穿透路径结算（正常未击穿判定 eff>effPen 仍保留）；命中结果带 `res.overmatch=true` 标记。HEAT/HE 本就走 noBounce，不走此路径。定案：按用户意向转 AP 弹种（原 HE dmg 效果移除，仅保留 passive overmatch）。
 - **`#A14a` 全线高爆战术（`demo_all_he_doctrine` legendary）**：移除全局 reload×0.85 白送效果，仅保留 HE dmg×1.2 + HE pen×1.2 两重弹种效果——不再溢出到全弹种装填。
@@ -100,6 +137,9 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 ---
 
 ## 8. 卡牌设计定稿：坦克基础数值 / 机制 / 技能三板块（2026-09-13 会话裁定）
+
+> *主题：设计裁定（8.1）/ 基础数值梯度（8.2）/ 机制卡与武器 effect（8.3）/ 技能卡梯度（8.4）/ 技能卡总表（8.5）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
 
 > 本节 2026-09-13 会话裁定为设计契约，同日已随 PLAN 阶段四/阶段六落地实现（见 DEVELOPMENT.md §4.9），数值梯度均按下方表格执行并验证。
 
@@ -199,6 +239,10 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 - **innate 键豁免 #U18 已持去重（#U40，2026-10-19）**：`cardEligible` 的「已持技能去重」（#U18）对 `repair` / `medkit` / `extinguish` 三个 innate 键**豁免**（判定键 `ABILITY_KEYS_INNATE_LOCAL`，`js/tank_cards.js`，与 `tank_abilities.ABILITY_KEYS_INNATE` 同源）——玩家开局即「持有」固有键，若照 #U18 去重则这两张纯强化卡永远抽不到（#U21 改卡面仅解决语义误读，没解决抽取资格）。runtime 键照旧去重，口径不变。回归 `scripts/test-cards.js` #U40 段。
 
 ## 9. 装备优先抽卡（2026-09-14 用户定案）
+
+> *主题：抽卡资格过滤（9.1~9.4）/ 各类保底（9.5~9.7）/ Boss 轮加权（9.8）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
 - **动机**：玩家没有任何主动技能 / 副武器未安装时，候选卡若全是"升级类"会语义莫名其妙（升级谁？）。抽卡必须先提供**装备卡**。
 - **规则**（`tank_cards.js` `drawCardChoices(pool, n, { rng, ammoLoadout, owned })`）：
   - `owned = { abilities: string[], primaryWeapon: string, secondaryWeapon: string, cards?: {[id]:count} }` —— 玩家当前持有的主动技能 key 列表、主/副武器类型与已拥卡计数（mvp `drawRewardCards` 从 `player.cardEffects`（type 'ability' 去重 key）、`player.weapons.primary/secondary.type` 与 `cardStackCount` 组装传入；无则空数组 / 'standard' / 'none'）。
@@ -223,6 +267,9 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 
 ## 10. 升级覆盖面（2026-10-10 #O3 对账，现行口径）
 
+> *主题：升级三通道覆盖面补齐（卡牌白名单 / 局外永久商店 / 局内商店）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
 **问题**：`computeStats` 产物键中 `fireControlCrit` / `loaderAmmoCrit`（P-49 模块命中概率修正，硬上限 0.25）**三通道全空缺**（白名单无、两商店无）——注释明写「玩家侧可随卡牌/技能升级增强」的死升级通道；`motionSpreadMul` 仅局内商店可写；`shellSpeed` / `turnRate` / `turretTurnRate` / `trackLock` / `enginePower` 等仅卡牌单通道。
 
 **补齐（参数唯一口径 `MODIFIER_STATS` / `UPGRADE_DEFS` / `RUN_SHOP_DEFS`）**：
@@ -236,6 +283,9 @@ Schema 唯一权威 = js/tank_cards.js 的 validateCard：
 回归：`scripts/test-economy.js`（新增定义完整性 + 上限判定 + `applyUpgrades` 真实生效断言）/ `scripts/test-card-effects.js`（169 张全卡逐卡验证）/ `scripts/validate-content.js`（卡面数字一致性）。
 
 ## 11. 局内卡牌查看器（2026-10-17 #U23，现行口径）
+
+> *主题：查看器入口与分类维度（`C` 键；分类现为「稀有度 / 全部」两选一）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
 
 - **入口**：`C` 键随时开关（战斗 / 暂停 / 结算 / 奖励屏均可），与 Tab 状态面板、`` ` `` 开发者面板**互斥**（打开其一即收起其它）。键位登记于 `js/tank_bindings.js` 的 `panelCards`（含 `ACTION_INFO` / `ACTION_ORDER`）。
 - **内容**：列出**本局已持有的卡牌**——名称 ×数量、稀有度中文标签、描述；分类维度现为**两选一**：**稀有度**（按 `CARD_RARITIES` 降序分组）/ **全部**（平铺）。~~三选一（含「标签」按 `CARD_TAGS` 分组）~~ 已随 2026-10-20 #16 tags 字段下线而移除（枚举不再导出，保留该维度会直接抛错）。

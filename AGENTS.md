@@ -21,11 +21,11 @@
   - `tank_entity.js`：实体注册表（`entities` 数组全局唯一实例、spawnTank/isHostile/nearestEnemyTo/resolveTankCollisions/resetEntity）。
   - `tank_weapons.js`：主/副武器定义与运行时（`WEAPON_DEFAULTS` 双槽缺省表、`updateSecondaryWeapon` 分发 mortar/missile/rocket/mine_layer/turret 五类副武器、`updateMissileLock`）。
   - `tank_fire.js`：开火通用层（fireTank 通用开火 + `tryFirePrimary`（左键/空格=主炮专属，salvo 齐射）/`tryFireSecondary`（F=副武器击发）双入口 + `primaryWeaponSpec`/`firePrimaryShell` + stepShells：曳光/近炸引信/溅射/掩体交互；经 computeAmmoConfig 接入卡牌弹种改造）。
-  - `tank_abilities.js`：主动能力统一入口（`tryActivateAbility`：runtime 键 **artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / aps**（`ABILITY_KEYS_RUNTIME`，7 个）与 innate 键 repair/medkit/extinguish **统一按 key 独立冷却池 `abilityCds[key]`**，逐帧 `updateAbilityCds`；旧共享字段 `abilityCdT`/`updateAbilityCd` 为废弃兼容助手。**`ABILITY_KEYS` 现恒等于 innate 3 键 + runtime 7 键、无死键**——原死效果键 `recon` / `track_repair` 及 5 张对应卡已于 2026-09-23 A 档整体摘除，见 `docs/DEVELOPMENT.md` §4.35）。
+  - `tank_abilities.js`：主动能力统一入口（`tryActivateAbility`：runtime 键 **artillery / overdrive / shield / deploy_cover / aps**（`ABILITY_KEYS_RUNTIME`，**5 个**；原含 `super_fire_control` / `super_speed`，2026-10-20 #W9 用户裁定删除——两键无任何卡牌可授予、正式游戏不可达）与 innate 键 repair/medkit/extinguish **统一按 key 独立冷却池 `abilityCds[key]`**，逐帧 `updateAbilityCds`；旧共享字段 `abilityCdT`/`updateAbilityCd` 为废弃兼容助手。**`ABILITY_KEYS`（卡牌可授予）现为 8 键 = innate 3 + runtime 5、无死键**——原死效果键 `recon` / `track_repair` 及 5 张对应卡于 2026-09-23 A 档摘除（见 `docs/DEVELOPMENT.md` §4.35），`super_fire_control` / `super_speed` 于 2026-10-20 #W9 摘除（见 §4.112(4)，并配负向断言防回潮）。
   - `tank_shield.js`：累计吸收护盾（applyShield/入射角吸收判定）；`tank_strike.js`：延迟 AOE 炮击（callStrike：circle/point/carpet 三形状/updateStrikes）。
   - `tank_deployables.js`：战场部署物注册表（`deployables`：固定炮塔/地雷/战术掩体，spawn/update/duration 生命周期 + mineExplode 事件）。
   - `tank_drone.js`：伴随无人机体系（模块级 `drones` 数组单一数据源，scout 侦察/striker 打击两型，countMax 上限）。
-  - `tank_cards.js`：卡牌系统（CARD_RARITIES/CARD_TAGS/效果类型 + `validateCard`/`applyCardEffects`/`drawCardChoices` 含装备优先保底与 `cardEligible` 资格过滤/`cardStackCount`；#U40 2026-10-19 起含**调校/升级分界**——带 field 的 ammo 效果绝不触发链替换、`isAmmoUpgradeCard` 同口径；反应装甲再充能助手 `reactiveArmorRecharge`/`updateReactiveArmorRearm`；经济聚合 `runScoreMultiplier`/`runShopDiscount`）。
+  - `tank_cards.js`：卡牌系统（CARD_RARITIES/效果类型 + `validateCard`/`applyCardEffects`/`drawCardChoices` 含装备优先保底与 `cardEligible` 资格过滤/`cardStackCount`；#U40 2026-10-19 起含**调校/升级分界**——带 field 的 ammo 效果绝不触发链替换、`isAmmoUpgradeCard` 同口径；应急护盾再充能助手 `emergencyShieldCooldown`/`updateEmergencyShieldRearm`；经济聚合 `runScoreMultiplier`/`runShopDiscount`。**卡牌 `tags` 字段与 `CARD_TAGS` 枚举已于 2026-10-20 #16 整体下线**——196 张卡不再带 tags，校验与导出同批删除，见 §4.112「#16」）。
   - `tank_boss.js`：Boss 系统（validateBoss/bossStageFor + makeBossEntity/applyBossStage/updateBossStage，缩放整体替换不污染共享 spec）。
   - `tank_ai_squad.js`：敌军攻守分工协调器（`updateSquad` 按「距离/LoS/血量」评分分配 press/flank/hold 角色 + `holdGate` 射界门控 + `threatIndicators` 视口外来袭方位提示；纯逻辑、可 Node 测试，**须先于 `tank_ai.js` 加载**——后者运行时调用 `holdGate`；2026-10-02 #N 新增）。
   - `tank_ai.js`：敌人/友军 AI 决策（`aiDecide` 双态 + 受击警觉/避水/找掩体 coverSeek + 消极防御，输出 `{turn, move, turretDesired, fire}`；#M 接战机动随机化、#N 交战距离带 / flank 侧翼站位 / 群体分离力 / 装填脱离）。
@@ -64,6 +64,7 @@
 - **权威单向归口**：系统**现行细则**只写在 `docs/specs/<system>.md`；`DEVELOPMENT.md` §4 只留简结论 + 「细则归口 specs/x.md §y」指针；**禁止把临时文档（PLAN/ISSUES）当作权威引用目标**——引用它们的章节会被重写/删除，引用已归档问题应改指 `docs/archive/<yyyy-mm>.md`。
 - **被推翻的设计不静默删除**：主文档 §4 历史条目保持原文 + 加「已被 §4.x/§y 取代」注记；specs 内旧数值改写为现行值并在原处留沿革注记。读者应能只读 specs 就得到现行口径，只读 DEVELOPMENT §4 就能追溯演进。
 - **同文档内禁止重复罗列数值**：同一数值/参数表只允许一个「唯一口径」小节（如 combat.md §3.2 弹种总表），其余位置一律指向它。
+- **specs 章节编号是外部契约，不得重排**：实测 191+ 处文档/代码引用 `specs/<卷>.md §N`，历史批次日志又按「只增不改」维护 ⇒ **新增内容一律用新编号追加**，需要重组时用「卷首 §0 主题索引 + 批次节主题标签 + 数值唯一口径」三件套，**禁止重编号**。现行实践见 `DEVELOPMENT-batches-2026-10.md` §4.113。
 - **统计数字必须实测**：文档中的统计数字（卡牌数量/分布等）标注实测日期；引用过期数字前先重跑对应脚本（如 `node scripts/audit-content.js`）。
 - **模糊词禁用**：章节标题与结论禁止「本轮/本批」无日期锚点的写法；一律带 yyyy-mm-dd（或月份）锚点。
 
@@ -163,6 +164,7 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`（§1 待办总览（C 档横向卷轴节点 / 难度联动 / HUD 渲染级合并 / #N 交战结构真实对局验证与参数调优）/ §2 非阻塞遗留 / §3 C 档横向卷轴设计研究 / §4 2026-09-23 路线裁定）。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。
+- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。2026-10-21 关账后仅剩 **1 条真开放项**（地图元素 AI 出图，阻塞于外部 API 凭据）+ C 档设计研究（方案未实施，属设计预留）+ 路线裁定；已完成 10 节原文已迁出至 `docs/archive/2026-10.md`。
+- **查系统现行口径**：先读对应 specs 卷的 **`## 0. 主题索引（按问题查，不按章节序读）`**——五卷（combat / map / cards / boss / editor）均已主题化，每卷含「我想查… / 现行口径（先看这里）/ 来源沿革（不必读）」三列表格。**specs 章节编号是外部契约，禁止重排**（见 §2.1）。
 - **待处理问题**：见 `docs/ISSUES.md`（当前无存量条目；历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

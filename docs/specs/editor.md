@@ -5,6 +5,35 @@
 
 ---
 
+## 0. 主题索引（按问题查，不按章节序读）
+
+> ⚠️ **本卷含历史批次章节（§5 / §7 / §8），章节号按时间追加、不代表主题分组。**
+> **查现行口径请用本索引**；章节编号被 191 处外部文档引用，故保持稳定、不做重排。
+> 本卷的两套维度并存：**§1~§4、§6 按主题**；**§5(P-49)、§7(#C5)、§8(2026-10-20) 按批次立项**。**§8 是最"当下的"批次节**——appearance / aimSpeed / bench 分组 / content_designer 都在那里。
+
+| 我想查…… | 现行口径（先看这里） | 来源沿革（不必读） |
+|---|---|---|
+| **坦克设计器**（多边形/装甲/炮管炮盾编辑） | **§1** | §8.2（叠加层基准统一）、§8.6（#15 三项） |
+| **参数对比页**（`tank_compare.html`） | **§2** | — |
+| **字段架构表**（`js/tank_schema.js`） | **§3** | — |
+| **资产烘焙工具**（`tools/bake.html`） | **§4** | — |
+| **模块/成员概率分区**（P-49：几何分区 + 概率抽取表） | **§5**（`RULES.modules.zonesV2`；消费方 `js/tank_geometry.js` `moduleFromHit`） | — |
+| **坦克贴图与涂装视觉规范**（`TEXTURE_DEFS` / 迷彩 / 审核标准） | **§6**（本卷只列编辑器侧；完整视觉标准归 `map.md` §22/§23） | — |
+| **开发者面板**（`` ` `` 键四 Tab，mvp/bench 同源 `mountDevPanel`） | **§7.1**（面板结构）+ **§7.2**（卡牌选择器）+ **§7.3**（两页按键/文案统一） | — |
+| **两页 HUD 渲染合并状态**（9 处 = 6 合并 + 2 定位差异 + 1 重复计数 ⇒ **无剩余项**） | **§7.4**（末条含 2026-10-20 用户裁定「关闭」的沿革注记） | §7.7（同一条的重述） |
+| **浏览器自动化测试链**（`npm run test:browser` 四链） | **§7.5**（脚本矩阵 + r4 夹具约定） | — |
+| **内容工具与预览**（NF-1 查看器全池 / NF-2 图鉴 / NF-4 悬停 tooltip） | **§7.6** | — |
+| **`spec.appearance` 外观件是否生效**（cupola / engineDeck） | **§8.1**（`applyTankConfig` 深拷贝；此前**从未生效**过） | — |
+| **设计器叠加层与贴图基准是否一致** | **§8.2**（复用 `tank_paint.js` 同一公式：cupola = `cxm+dx,(cym−W*0.44)+dy`；engineDeck = `cxm+dx,cym+dy`） | — |
+| **敌军 `aimSpeed` 量纲**（`RULES.enemyAnchorBase.aimSpeed`） | **§8.3**（**唯一口径**——数值与量纲锁定断言的正确写法都在那一节，本节不重复） | — |
+| **bench 卡牌面板分组**（按稀有度 `<optgroup>`） | **§8.4**（`groupCardsByRarity` 两页共享，rarity-only 不依赖 tags） | — |
+| **`tools/content_designer.html` 的 tags 编辑器** | **§8.5**（已于 2026-10-20 #16 整体移除；该页曾因 `CARD_TAGS` 消失而打开即崩） | `cards.md` §4（tags 字段下线） |
+| **设计器三项**（履带平铺 / 外观件实时预览 / 车长塔坐标统一） | **§8.6**（摘要，细则归 `DEVELOPMENT-batches-2026-10.md` §4.110） | — |
+
+**读法建议**：本卷的「主题节」偏工具描述、**「批次节」才是近年改动落点**（尤其 §8）。查某个外观/面板现在是什么样，先看 §8；§7 是面板体系的骨架描述。
+
+---
+
 ## 1. 坦克设计器 (tank_designer.html)
 - **多边形顶点编辑**：车体/炮塔多边形自由编辑（半侧对称几何，js/tank_halfgeom.js halfFromFull 镜像重建全形）；逐边装甲厚度设定（front/side/rear faces）。
 - **双中心分离**：turret.axis（炮塔自身旋转轴，局部帧内）与 turret.pivot（绕车体旋转中心，相对车体）完全分开；运行时 applyTankConfig 归一化平移保证"局部原点=旋转轴"不变量；设计器提供青色自身中心标记 + 橙色旋转中心标记 + 一键居中对齐按钮，防旋转甩尾。
@@ -45,6 +74,9 @@
 ---
 
 ## 5. P-49 模块/成员概率分区系统与设计器耦合链（2026-09-06 落地）
+
+> *主题：模块概率分区与设计器耦合（`zonesV2` 消费链）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
 - **模块/成员几何概率分区与耦合链全线实施**：
   - 废除设计器自定义模块/成员悬浮或坐标点挂载，全部改为基于多边形几何分区与概率判定。
   - **炮塔四象限分区**：以炮塔几何中心为局部坐标系原点（按炮塔朝向旋转）。左前（炮手 50%、炮闩 5%）、右前（车长 30%、装填手 30%、炮闩 5%）、左后/右后（弹药架各 50%）。象限内互斥抽取。
@@ -96,6 +128,9 @@
 
 ## 7. 开发者面板与两页 UI/按键统一（2026-09-19 落地，原 ISSUES #C5 + PLAN §3）
 
+> *主题：devPanel 四 Tab（7.1）/ 卡牌选择器（7.2）/ 两页按键与文案统一（7.3）/ HUD 合并状态（7.4）/ 浏览器四链（7.5）/ 内容工具 NF-*（7.6）/ 未纳入项（7.7）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+
 > 现行口径。背景：mvp `#devPanel` 与 bench `#benchPanel` 长期分叉（键位同键不同义、卡牌选择器 170+ 张平铺、独有功能各异），2026-09-17 用户裁定合并为一专轮，2026-09-19 落地。
 >
 > **#F（2026-09-20）更新**：devPanel 的 **DOM 与全部交互逻辑抽离为共享模块 `js/tank_devpanel.js`**（`mountDevPanel(host)` 动态构建 + 页面注入能力），mvp 与 bench **两页完全同源**——bench 旧 `#benchPanel` 已移除（` 键统一开 devPanel），其独有项（倒置 / FPS / 满血重置 / 清场 / 键位表）经 `extraSwitchHTML` 并入开关 Tab，无敌/秒装填直接并入 devPanel 开关 Tab 同位；bench 发射解算继续用常驻 `#solutionPanel`（模块以 `hideSolutionSection` 跳过内嵌解算区，防双份 `solPart` id）。共享模块顶层函数 `mountDevPanel` 已声明于 `types/globals.d.ts`（见 `docs/DEVELOPMENT.md` §4.24）。
@@ -140,23 +175,12 @@
 - **DOM 契约（两页必须一致）**：容器 `#ammoIndicator`，格子 `.ammo-cell`，激活格 `.ammo-cell.active`，内部 `.dot` / `.key` / `.label` / `.mult`。**bench 的 `<style>` 已于 2026-10-20 补齐 `.ammo-cell` / `.ammo-cell.active` / `.key` 三条规则**（此前只有元素内联样式，走共享实现后激活高亮整体消失——本次审查发现并修复，见 `DEVELOPMENT-batches-2026-10.md` §4.111）。
 - **散布锥已同源**：`drawSpreadCones(ctx, gp, aimA, sigma, {length, dual})`。`dual:true` = 1σ 实线（68%）+ 2σ 虚线（95%）。mvp 用 250px 短锥（战斗视野），bench 用全长（解算面板语义）。
 - **经取证不计入合并**：血条（mvp 底部 HUD vs bench 右栏靶车数据面板）、日志（mvp 独立浮层 vs bench 常驻栏）——属**产品定位差异**，非「同功能两套实现」。
-- **仍未合并**：装填指示（mvp 环 vs bench 横条）、FPS 读数两份实现。
-
-### 7.6 内容工具与预览（NF-1 / NF-2 / NF-4，2026-10-20）
-
-| 项 | 实现 | 归口 |
-|---|---|---|
-| **NF-1 卡牌查看器扩展** | mvp `C` 键面板新增「**全池**」页签（数据源 `cardPool` 全表，按稀有度分组排序）；描述经 `formatCardDesc(card)` 求值（`{value}` / `{pct}` / `{ov:key}`，各带 `:N` effects 索引形式，未知占位符原样保留）；点击描述就地换 `textarea` 编辑，提交存 `sessionStorage['cardDescOverride']`（**仅会话预览，不写 `cards/*.json`**——写盘属内容批次职责）。 | `js/tank_cards.js` `formatCardDesc` + `tank_mvp.html renderCardsPanel` |
-| **NF-2 坦克图鉴 CODEX** | bench 敌实验室新增面板：选等级 → `enemyPreviewStats(tankId, level, opts)` **纯查询**（临时 `makeTank` → `applyEnemyAppearanceAndStats` → `enemyLevelMults` 经 `addModifier` 注入 → 读 `stats`，**全程不触碰实体注册表**）。展示 HP/穿深/伤害/装填/极速/装甲六面。与 LIVE ENEMIES（真实实体，验证 AI/难度实战）分工互补。 | `js/tank_panels_core.js` `enemyPreviewStats` |
-| **NF-4 面板卡牌悬停预览** | `tank_devpanel.js` 的 `attachCardTooltip(btn, card)`：单例 tooltip（稀有度彩色徽章 + `formatCardDesc` 求值正文），`mouseenter` 300ms 延迟、`mouseleave` 立即隐藏；位置 = 按钮右缘 +12px，超出视口右/下边缘时翻折。`title` 保留为无 CSS/JS 极端环境的兜底。 | `js/tank_devpanel.js` |
-
-> **`enemyPreviewStats` 与实战敌军的口径差异（有意为之）**：实战经 `applyDifficultyMults` 还会叠加难度封顶（`difficultyCapMuls`，含 `Math.random` 抖动）——那是平衡用的运行时钳制；图鉴展示**确定性基准**（无抖动），便于横向对比等级曲线。
-
-### 7.7 未纳入本轮（仍开放）
-
-- 装填指示（mvp 环形 vs bench 横条）、FPS 读数两份实现——同 §7.4 末条。
+- **~~仍未合并：装填指示（mvp 环 vs bench 横条）、FPS 读数两份实现~~ → 已于 2026-10-20 用户裁定「关闭」（无剩余项）**：装填指示经核实与血条**同性质**——两页 HUD 承载不同信息（mvp = 炮口环形弧 + 底部常显血条，面向战斗节奏；bench = 右栏横条 + 靶车数据面板，面向参数核对），合并会抹掉各自定位 ⇒ **产品定位差异，不计入合并范围**。9 处的最终去向：**6 合并 + 2 产品定位差异 + 1（原「FPS 读数/日志」曾重复计数）**。归口 `DEVELOPMENT-batches-2026-10.md` §4.112(10)。
+  - **沿革（不静默删除）**：本段原写「仍未合并：装填指示、FPS 读数」——该结论建立在「凡是两套实现就该合并」的前提上，2026-10-20 用户裁定推翻了该前提（产品定位差异不算重复）。
 
 ### 7.5 浏览器自动化测试链（2026-09-20，#F7）
+
+> **位置说明（2026-10-21 重排）**：本节编号为 7.5，但此前**物理位置错排**——原文件顺序为 7.4 → 7.6 → 7.7 → **7.5**。本次仅把本节物理位置移到 §7.4 之后、§7.6 之前（现顺序 7.4 → **7.5** → 7.6 → 7.7），**编号文字未改**（章节编号被外部文档引用，保持稳定）。内容未做任何删改。
 
 `npm run test:browser` 四链脚本（按序执行，任一失败即停）：
 
@@ -172,9 +196,28 @@
 - **r4 夹具约定**（2026-09-20 实测踩坑后固化）：① 发射计数只统计 `shooter.id === 'player'`——`firePrimaryShell` 同时服务敌方/友军 AI，不过滤会把敌方射击算成玩家发射；② 夹具冻结全体敌人（`maxHp/hp=1e6`、`immobT/reloadT=9999`），避免敌方还击打死玩家与「敌方全灭 → `isClearing` 跳过整个开火轮询块」造成的假失败；③ 雷场枚数统计 `spawnMine` 调用次数而非存活地雷数（触发半径 45px，目标站在场内会被立即引爆）；④ 注入（`addScriptTag` 包装全局）必须在 `page.reload()` **之后**，且 `waitForFunction` 的 `{timeout}` 必须作为**第三个**参数。
 - **验证状态**：四链 **ALL PASS / EXIT=0**（2026-09-20 实跑，r4 连跑 3 次全绿）；沙箱内跑 browser 链需按 `sandbox-verify` 一次性放宽进程权限（`spawn EPERM`），复用已监听的 server 可避开 listen 拒绝。实测中发现的 3 处真实缺陷（mvp `devNoVision` TDZ、bench 陈旧复选框接线、开关类副武器 F 逐帧翻转）均已修复，见 `DEVELOPMENT.md` §4.27；F 键边沿口径归口 `specs/combat.md` §8.2。
 
+### 7.6 内容工具与预览（NF-1 / NF-2 / NF-4，2026-10-20）
+
+| 项 | 实现 | 归口 |
+|---|---|---|
+| **NF-1 卡牌查看器扩展** | mvp `C` 键面板新增「**全池**」页签（数据源 `cardPool` 全表，按稀有度分组排序）；描述经 `formatCardDesc(card)` 求值（`{value}` / `{pct}` / `{ov:key}`，各带 `:N` effects 索引形式，未知占位符原样保留）；点击描述就地换 `textarea` 编辑，提交存 `sessionStorage['cardDescOverride']`（**仅会话预览，不写 `cards/*.json`**——写盘属内容批次职责）。 | `js/tank_cards.js` `formatCardDesc` + `tank_mvp.html renderCardsPanel` |
+| **NF-2 坦克图鉴 CODEX** | bench 敌实验室新增面板：选等级 → `enemyPreviewStats(tankId, level, opts)` **纯查询**（临时 `makeTank` → `applyEnemyAppearanceAndStats` → `enemyLevelMults` 经 `addModifier` 注入 → 读 `stats`，**全程不触碰实体注册表**）。展示 HP/穿深/伤害/装填/极速/装甲六面。与 LIVE ENEMIES（真实实体，验证 AI/难度实战）分工互补。 | `js/tank_panels_core.js` `enemyPreviewStats` |
+| **NF-4 面板卡牌悬停预览** | `tank_devpanel.js` 的 `attachCardTooltip(btn, card)`：单例 tooltip（稀有度彩色徽章 + `formatCardDesc` 求值正文），`mouseenter` 300ms 延迟、`mouseleave` 立即隐藏；位置 = 按钮右缘 +12px，超出视口右/下边缘时翻折。`title` 保留为无 CSS/JS 极端环境的兜底。 | `js/tank_devpanel.js` |
+
+> **`enemyPreviewStats` 与实战敌军的口径差异（有意为之）**：实战经 `applyDifficultyMults` 还会叠加难度封顶（`difficultyCapMuls`，含 `Math.random` 抖动）——那是平衡用的运行时钳制；图鉴展示**确定性基准**（无抖动），便于横向对比等级曲线。
+
+### 7.7 未纳入本轮（仍开放）
+
+> **2026-10-21 状态**：本节标题的「本轮」指 **2026-09-19 #C5 批次**，不含日期锚点（历史标题，保留不改以免破坏章节编号）。**其内容已于 2026-10-20 全部关闭**——装填指示经用户裁定与血条同属产品定位差异、不计入合并；FPS 读数已合并。细则与沿革见 **§7.4 末条**。
+
+- 装填指示（mvp 环形 vs bench 横条）、FPS 读数两份实现——同 §7.4 末条。
+
 ---
 
 ## 8. 2026-10-20 批次现行口径（#X1 / #W14 / #7① / #16）
+
+> *主题：appearance 生效（8.1）/ 叠加层基准统一（8.2）/ aimSpeed 量纲（8.3）/ bench 稀有度分组（8.4）/ content_designer tags 移除（8.5）/ 设计器三项（8.6）*
+> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
 
 ### 8.1 `applyTankConfig` 深拷贝 `spec.appearance`（#X1，2026-10-20）
 
