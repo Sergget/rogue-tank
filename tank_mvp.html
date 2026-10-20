@@ -6005,23 +6005,26 @@ function draw(){
   // dispersion cones — shortened boundaries (length 250px) to keep UI clean
   drawSpreadCones(ctx, gp, aimA, player.sigma, { length: 250 });  // live cone — tank_hud.js 共享
 
-  // #W-I（2026-10-19 用户裁定）：榴弹炮曲射模式瞄准器 = **鼠标位置的虚线圈**，
-  //   初始半径 = he 爆炸半径（WEAPON_DEFAULTS.primary.howitzer.splashRadius，缺省 90）。
-  //   直射模式下不画。圈心 = mouseWorld（主循环已算好的鼠标世界坐标）。
+  // #W-I（2026-10-19 用户裁定）→ 2026-10-20 修正口径：「虚线圈改为**散布圈**，
+  //   大小 = 精度 × 距离，表示弹着点分布的范围，精度采用主炮的精度 × 1.2」。
+  //   · sigma 是**弧度 σ**（RULES.spread.base=0.018rad 等）⇒ 横向展开 = σ×距离（弧长），
+  //     与直射散布锥（drawSpreadCones）同一物理口径；
+  //   · 圈心仍 = mouseWorld（落点瞄准位置）；半径 = player.sigma × 1.2 × |mouse − player|；
+  //   · he 爆炸半径不再画圈（落点爆炸范围由 splashRadius 在弹着时结算，不属于瞄准语义）。
   if(player._howitzerMode === true && typeof mouseWorld !== 'undefined' && mouseWorld){
-    const hsDef = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
-    const arcR = (typeof hsDef.splashRadius === 'number') ? hsDef.splashRadius : 90;
+    const aimDist = Math.hypot(mouseWorld.x - player.x, mouseWorld.y - player.y);
+    const sigmaSpread = (player.sigma || 0) * 1.2 * aimDist;   // 主炮精度 ×1.2 × 距离
     ctx.strokeStyle = 'rgba(255,180,84,0.85)';
     ctx.setLineDash([9, 7]);
     ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, arcR, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, sigmaSpread, 0, TAU); ctx.stroke();
     // 中心点 + 最小曲射距离提示（minArcRange 内的死角圈，弱化显示）
     ctx.setLineDash([]);
     ctx.fillStyle = 'rgba(255,180,84,0.9)';
     ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, 2.5, 0, TAU); ctx.fill();
+    const hsDef = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
     const minArc = (typeof hsDef.minArcRange === 'number') ? hsDef.minArcRange : 120;
-    const dM = Math.hypot(mouseWorld.x - player.x, mouseWorld.y - player.y);
-    if(dM < minArc){
+    if(aimDist < minArc){
       ctx.strokeStyle = 'rgba(255,80,60,0.5)';
       ctx.setLineDash([4, 6]);
       ctx.beginPath(); ctx.arc(player.x, player.y, minArc, 0, TAU); ctx.stroke();

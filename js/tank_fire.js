@@ -245,7 +245,14 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
       aimX = rootP.x + (dAim > 1e-3 ? dxa / dAim : Math.cos(shooter.turretAngle || 0)) * minArc;
       aimY = rootP.y + (dAim > 1e-3 ? dya / dAim : Math.sin(shooter.turretAngle || 0)) * minArc;
     }
-    const dirA = Math.atan2(aimY - fy, aimX - fx);
+    const dirA0 = Math.atan2(aimY - fy, aimX - fx);
+    // 2026-10-20 用户裁定：实际落点也吃**散布**——与瞄准器散布圈同一口径
+    //   （σ×1.2，σ=主炮精度弧度），把落点沿**切向**偏移 sigma×1.2×距离 的一个高斯样本。
+    //   这样圈不是装饰：弹着点真的按圈的范围分布（横向切向偏移；径向距离保持瞄准距离）。
+    const aimDistW = Math.hypot(aimX - fx, aimY - fy);
+    const spSigma = (shooter.sigma || 0) * 1.2;
+    const spOffset = gauss(spSigma) * aimDistW;
+    const dirA = dirA0 + (aimDistW > 1e-3 ? spOffset / aimDistW : 0);
     const arcSpeed = (typeof hs.arcSpeed === 'number') ? hs.arcSpeed : 260;
     const splash = (typeof hs.splashRadius === 'number') ? hs.splashRadius : 90;
     burst(ox, oy, 0.6, 4, 2, 0);
@@ -267,8 +274,12 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
       // 落点三件套**预置**（与 mortar 弹同字段约定）——stepShells 的 isArc 分支只在
       // `!(s.totalDist > 0)` 时才用 range 兜底；不预置的话 aimPoint 距离会被
       // `s.range || 400` 的 falsy 兜底吞掉（实测打不到瞄准点）。
-      totalDist: Math.hypot(aimX - fx, aimY - fy),
-      targetX: aimX, targetY: aimY,
+      // ⚠️ targetX/Y 沿**散布后的方向**（dirA）放置——若直接预置 aimPoint 原值，
+      //   stepShells 沿 dirA 飞 totalDist 后强制吸附 targetX/Y ⇒ 上面 dirA 的散布被
+      //   预置点覆盖（实测 60 发横向 σ≈0）。径向距离保持瞄准距离（散布是切向的）。
+      totalDist: aimDistW,
+      targetX: fx + Math.cos(dirA) * aimDistW,
+      targetY: fy + Math.sin(dirA) * aimDistW,
       isArc: true, dist: 0, dead: false, canBounce: false
     };
     shells.push(shell);
