@@ -551,7 +551,9 @@ function aiDecideEnemy(t, ctx){
   //   非 Boss 或 stageAI 为 null → 完全不进入本分支，行为零改动。
   if(t.isBoss && t.stageAI && t.stageAI.mode){
     const modes = _bossStageAIModes();
-    const mCfg = modes && typeof modes === 'object' ? modes[t.stageAI.mode] : null;
+    // #W13（2026-10-20 role-systems）：原此处 `const mCfg = modes && typeof modes === 'object'
+    //   ? modes[t.stageAI.mode] : null;` 赋值后**从未使用**（死绑定，三个分支各自现取 modes）。
+    //   已删除，避免误导后续读者以为有统一取配置的入口。
 
     if(t.stageAI.mode === 'hold'){
       t.aiState = 'hold';
@@ -559,10 +561,29 @@ function aiDecideEnemy(t, ctx){
       // #S3：hold 不再纯站桩 —— 玩家超出开火射程时缓慢前压（0.4 速），
       // 进入射程后恢复原地防御。避免 Boss 在远处等玩家。
       const _cfg = aiConfig();
-      const _range = _cfg.allyEngageRange !== undefined ? _cfg.allyEngageRange : 460;
+      // #W13（2026-10-20 role-systems）：消费 bosses/*.json 的 `stages[].ai.params.anchorRange`。
+      //   该字段此前**零消费**（boss_commander stage0=300 / boss_twin_track stage1=350 /
+      //   boss_siege_fort stage0=0）：数据写了却不生效，等同于每个 hold 阶段都用全局
+      //   allyEngageRange(460)，各 Boss 的差异化驻守半径全部丢失。
+      //
+      //   **语义（= 驻守半径，不是"想贴到的距离"）**：
+      //     · anchorRange > 0 → 玩家超出 anchorRange×1.2 时前压（#S3 反站桩），进入后原地防御；
+      //     · anchorRange = 0 → **原地固守，永不前压**（仍由 _passiveDefend 在 allyEngageRange
+      //       内照常瞄准开火）。这是「固守」的字面语义，也符合要塞炮台的设计意图。
+      //       反例（已修）：首版把 0 代入 `d > 0*1.2` ⇒ 恒为真 ⇒ **一路贴脸**，把
+      //       `boss_siege_fort`（要塞炮台 / stage0 名「固守」/ behavior.style='crush'，
+      //       接触伤害 120 的固定炮台）变成了冲锋兵，设计意图完全反转。
+      //     · anchorRange 缺省（undefined/非有限）→ 回落 allyEngageRange(460)，保持 #S3 旧行为。
+      //   注意必须用 Number.isFinite 判而非真值判 —— 0 是合法的"固守"取值。
+      const _pAnchor = t.stageAI.params ? t.stageAI.params.anchorRange : undefined;
+      const _hasAnchor = Number.isFinite(_pAnchor);
+      const _holdFast = _hasAnchor && _pAnchor <= 0;   // 0 = 原地固守，不参与前压判定
+      const _range = (_hasAnchor && _pAnchor > 0)
+        ? _pAnchor
+        : (_cfg.allyEngageRange !== undefined ? _cfg.allyEngageRange : 460);
       const _dx = p.x - t.x, _dy = p.y - t.y;
       const _d = Math.hypot(_dx, _dy);
-      if(_d > _range * 1.2){
+      if(!_holdFast && _d > _range * 1.2){
         const _desired = Math.atan2(_dy, _dx);
         const _hDiff = angDiff(_desired, t.hullAngle);
         _defOut.turn = _hDiff > 0.05 ? 0.7 : (_hDiff < -0.05 ? -0.7 : 0);
@@ -600,6 +621,34 @@ function aiDecideEnemy(t, ctx){
     }
 
     // charge 及未知 mode：落回基线主动状态机（无额外处理）
+    // #W13（2026-10-20 role-systems）：消费 bosses/*.json 的 `stages[].ai.params.targetRange`。
+    //   该字段此前**零消费**（boss_commander/siege_fort stage2=0、boss_fortress stage1=150/stage2=0、
+    //   boss_twin_track stage2=0）——数据写了却不生效。语义 = 「贴脸到该距离即停，不再继续前压」：
+    //   charge 从「无条件全速冲脸」改为「压到 targetRange 内即松开油门」，使 150px 与 0px 两类
+    //   Boss 产生真实差异（0 = 保持旧有「一路贴脸」行为，故默认零回归）。
+    //   判据用 Number.isFinite（0 是合法值）；未声明则该分支完全不介入，行为与旧版一致。
+    if(t.stageAI.mode === 'charge'){
+      const _pTarget = t.stageAI.params ? t.stageAI.params.targetRange : undefined;
+      if(Number.isFinite(_pTarget) && _pTarget > 0){
+        const _dxC = p.x - t.x, _dyC = p.y - t.y;
+        const _dC = Math.hypot(_dxC, _dyC);
+        const _desiredC = Math.atan2(_dyC, _dxC);
+        const _outC = { turn: 0, move: 0, turretDesired: _desiredC, fire: false };
+        const _hDiffC = angDiff(_desiredC, t.hullAngle);
+        if(_hDiffC > 0.05) _outC.turn = 1;
+        else if(_hDiffC < -0.05) _outC.turn = -1;
+        // 未达目标距离 → 继续前压（全速 charge）；已进入 → 停车但仍瞄准开火（火力不中断）
+        if(_dC > _pTarget) _outC.move = 1;
+        else _outC.move = 0;
+        const _cfgC = aiConfig();
+        const _tolC = _cfgC.aimTolerance !== undefined ? _cfgC.aimTolerance : 0.12;
+        const _aimErrC = Math.abs(angDiff(t.turretAngle, _desiredC));
+        const _losC = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y) : true;
+        if(_aimErrC < _tolC && _losC && t.reloadT <= 0) _outC.fire = true;
+        t.aiState = 'charge';
+        return _outC;
+      }
+    }
   }
 
   const dx = p.x - t.x, dy = p.y - t.y;

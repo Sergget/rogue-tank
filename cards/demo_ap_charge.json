@@ -2,7 +2,6 @@
   "id": "demo_ap_charge",
   "name": "穿甲弹装药",
   "rarity": "common",
-  "tags": ["爆破"],
   "desc": "AP 弹弹底加装传爆药，伤害 +10%。",
   "effects": [
     { "type": "ammo", "key": "ap", "field": "dmg", "mode": "mult", "value": 1.1 }

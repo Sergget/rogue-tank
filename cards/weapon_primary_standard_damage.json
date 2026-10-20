@@ -2,7 +2,6 @@
   "id": "weapon_primary_standard_damage",
   "name": "标准主炮：硬芯穿甲弹",
   "rarity": "rare",
-  "tags": ["狙击", "重甲"],
   "desc": "标准主炮强化：单发伤害 ×1.15、穿深 ×1.08。不改动弹种本身，对全部 14 种弹药生效——吃弹药倍率的弹种（APDS/APFSDS 等）收益更高。",
   "effects": [
     {

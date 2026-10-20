@@ -2,7 +2,6 @@
   "id": "hull_armor_all_3",
   "name": "六向均衡重甲",
   "rarity": "epic",
-  "tags": ["重甲"],
   "desc": "车体与炮塔六面各 +12mm 装甲，全方位提升防护。",
   "effects": [
     { "type": "modifier", "stat": "armor.hull.front", "mode": "add", "value": 12 },

@@ -19,9 +19,6 @@
 const CARD_RARITIES = ['common', 'rare', 'epic', 'legendary', 'mythic'];
 const RARITY_WEIGHTS = { common: 50, rare: 30, epic: 15, legendary: 4.5, mythic: 0.5 };
 
-// 5 大流派标签（构筑方向，卡牌可多标签；后续流派构筑/加成按此聚合）
-const CARD_TAGS = ['重甲', '狙击', '机动', '爆破', '支援'];
-
 // 可作用 stat 白名单（与 tank_model.js computeStats 对齐；armor 用路径 armor.<part>[.<face>]）
 // #N3（2026-10-10 升级覆盖面对账）：补入 3 个 computeStats 产物键——
 //   motionSpreadMul（独立运动三扩，D3 #A1/#A3 解耦；此前仅局内商店 steady_mount 可写）、
@@ -39,15 +36,16 @@ const AMMO_KEYS = ['ap', 'apcr', 'apds', 'apfsds', 'apfsds_ad', 'he', 'heat', 'h
 const AMMO_FIELDS = ['pen', 'dmg', 'speed'];
 
 // 主动装置（ability，运行时在对应里程碑接入按键触发；schema 先行）
-// #G（2026-09-21）：+ super_fire_control / super_speed / aps——runtime 技能键全集（与
-// tank_abilities.ABILITY_KEYS_RUNTIME 及 skillHotkey DISPATCH 对齐；medkit 为 innate 键）
-// 2026-09-23 A 档：剔除死效果键 recon / track_repair（两者无任何激活路径，对应 5 张卡已删除，
-// 见 DEVELOPMENT.md §4.35）——本白名单现恒等于「innate 3 键 + runtime 7 键」，无死键。
 // #U40（2026-10-19）：innate 子集单列——cardEligible 的 #U18 已持去重对 innate 键豁免
 // （repair_kit / support_extinguisher 是固有技能的纯强化卡，玩家开局「已持有」该键，
 //  去重会误杀；判定口径与 js/tank_abilities.js ABILITY_KEYS_INNATE 一致，本地复制防循环依赖）。
 const ABILITY_KEYS_INNATE_LOCAL = ['repair', 'medkit', 'extinguish'];
-const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'super_fire_control', 'super_speed', 'aps'];
+// #W9（2026-10-20 用户裁定「删除」）：摘除 super_fire_control / super_speed。
+//   两者是 runtime 技能，但**卡池里一张授予它们的卡都没有**（196 张卡 + tanks/ + bosses/ 全库零命中），
+//   在本白名单里只起「放行不存在的数据」的作用——与 2026-09-23 A 档 recon/track_repair 同性质。
+//   差值：RUNTIME 7 键 − 卡牌可授予 8 键 = {super_fire_control, super_speed}。
+//   移除后本表 = innate 3 键 + runtime 5 键，仍覆盖全部 12 张 ability 卡的实际 key。
+const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'aps'];
 // 无人机种类（drone）：scout=侦察指示（视口外敌军位置箭头）/ striker=近身自动索敌打击。
 // kind 缺失时兼容旧数据（默认 striker，伴随浮游炮语义）。
 const DRONE_KINDS = ['scout', 'striker'];
@@ -62,7 +60,8 @@ const PASSIVE_KEYS = ['reactive_armor', 'angle_boost', 'overmatch', 'spall_liner
   'crew_liner'];     // 成员内衬：成员（crew 6 键）受伤 -20%
 
 // 经济效果（M10 落地；schema 先行）
-const ECONOMY_FIELDS = ['scoreMul', 'shopDiscount', 'startScore', 'reviveCount'];
+// #W15（2026-10-20）：`startScore` 已删除——写 `tank.runStartScore` 但全仓零读点，且卡池内无该卡。
+const ECONOMY_FIELDS = ['scoreMul', 'shopDiscount', 'reviveCount'];
 
 // 副武器槽位与类型（R-1 / 阶段四）；主武器类型（阶段七 7.3）与 RULES.weaponTypes 对齐
 const WEAPON_SLOTS = ['primary', 'secondary'];
@@ -96,10 +95,9 @@ function validateCard(card) {
   if (!card.id || typeof card.id !== 'string') errs.push('id 缺失/非字符串');
   if (!card.name || typeof card.name !== 'string') errs.push('name 缺失');
   if (!CARD_RARITIES.includes(card.rarity)) errs.push(`rarity 非法: ${card.rarity}（应为 ${CARD_RARITIES.join('/')}）`);
-  if (card.tags !== undefined) {
-    if (!Array.isArray(card.tags)) errs.push('tags 应为数组');
-    else for (const t of card.tags) if (!CARD_TAGS.includes(t)) errs.push(`tag 非法: ${t}`);
-  }
+  // #16（2026-10-20 用户裁定「卡牌的角色设定没有意义，删除相关的字段」）：
+  //   `tags`（旧 5 流派标签）已整体废止——数据文件字段、CARD_TAGS 枚举与本节校验同批删除。
+  //   此处**不再**对它做任何校验（旧数据带 tags 也不会报错，只是被忽略）。
   if (!Array.isArray(card.effects) || card.effects.length === 0) {
     errs.push('effects 应为非空数组');
   } else {
@@ -111,6 +109,22 @@ function validateCard(card) {
     errs.push('maxStacks 应为正整数');
   }
   return errs;
+}
+
+// #W8（2026-10-20）：弹种链前驱表的取值器（浏览器 = RULES 全局；Node = require 兜底）。
+// 与 _weaponDefaultsResolver 同款惰性解析——本模块在 tank_rules 之后加载，但不能假定
+// 调用方一定注入了 global.RULES（如 scripts/validate-content.js 只 require 模块本身）。
+let _ammoChainCache = null;
+function _ammoChain() {
+  if (typeof RULES !== 'undefined' && RULES && RULES.ammoChain) return RULES.ammoChain;
+  if (_ammoChainCache) return _ammoChainCache;
+  if (typeof require !== 'undefined') {
+    try {
+      const r = require('./tank_rules.js');
+      if (r && r.RULES && r.RULES.ammoChain) { _ammoChainCache = r.RULES.ammoChain; return _ammoChainCache; }
+    } catch (e) { /* 浏览器无 require / 模块缺失 → 跳过链条校验 */ }
+  }
+  return null;
 }
 
 // 校验单个效果对象
@@ -131,6 +145,28 @@ function validateCardEffect(ef, path) {
       if (!AMMO_FIELDS.includes(ef.field)) errs.push(`${p}: field 非法 ${ef.field}`);
       if (ef.mode !== 'add' && ef.mode !== 'mult') errs.push(`${p}: mode 应为 add/mult`);
       if (typeof ef.value !== 'number' || !Number.isFinite(ef.value)) errs.push(`${p}: value 应为有限数值`);
+      // #W8（2026-10-20）：`replaceAmmo` 补两层校验——此前这里只校验 key/field/mode/value，
+      //   对该字段**零校验**（'NOT_AN_AMMO' / 'apds'（错边）/ 123 / null 四种全放行），
+      //   而 applyCardEffects 会把它当作「被替换的槽位」直接喂给 ammoLoadout.indexOf()
+      //   ⇒ 拼错或错边时静默 no-op（前驱永远不在 loadout）或错槽替换，卡面承诺与实测不符。
+      //   ① 白名单：必须是 AMMO_KEYS 内的**字符串**（123 / null / 'NOT_AN_AMMO' 报错）；
+      //   ② 直系前驱：必须等于 RULES.ammoChain[ef.key]（唯一口径见 js/tank_rules.js），
+      //      否则「跳级/错边」会绕过链约束。RULES 不可用时（纯 schema 环境）跳过 ②。
+      if (ef.replaceAmmo !== undefined) {
+        if (typeof ef.replaceAmmo !== 'string' || !AMMO_KEYS.includes(ef.replaceAmmo)) {
+          errs.push(`${p}: replaceAmmo 非法 ${JSON.stringify(ef.replaceAmmo)}（应为 ${AMMO_KEYS.join('/')} 之一）`);
+        } else {
+          const chain = _ammoChain();
+          if (chain) {
+            // 链上根弹种（ap / he）只出现在 chain 的**值**侧（没有自己的前驱），
+            // 故对它们指定 replaceAmmo 一律判错（expect 为 undefined）。
+            const expect = chain[ef.key];
+            if (!expect || expect !== ef.replaceAmmo) {
+              errs.push(`${p}: replaceAmmo 不是 ${ef.key} 的直系前驱（应为 ${expect || '无（该弹种没有链上前驱）'}，实际 ${ef.replaceAmmo}）`);
+            }
+          }
+        }
+      }
       break;
     case 'ability':
       if (!ABILITY_KEYS.includes(ef.key)) errs.push(`${p}: key 非法 ${ef.key}`);
@@ -413,9 +449,10 @@ function applyCardEffects(tank, card, ctx) {
         } else if (ef.field === 'scoreMul') {
           // 结算得分乘数：value 即最终乘数（1.15 = +15%），多卡直接叠乘
           tank.runScoreMul = (tank.runScoreMul || 1) * ef.value;
-        } else if (ef.field === 'startScore') {
-          tank.runStartScore = (tank.runStartScore | 0) + (ef.value | 0);
         }
+        // #W15（2026-10-20）：`startScore` 分支与 ECONOMY_FIELDS 白名单项同批摘除——
+        //   它写 `tank.runStartScore`，但全仓**零读点**（ISSUES #W15 已核实；卡池内也无该卡），
+        //   属于「加一张即静默无效」的死通道。tank_model.removeRunModifiers 的归零同步移除。
         // shopDiscount 为局内商店折扣（0.1 = −10% 价格），消费方 runShopPriceFor 调用方
         // （mvp buyRunShopItem 经 runShopDiscount(tank) 取聚合折扣）
       }
@@ -1038,7 +1075,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     CARD_RARITIES,
     RARITY_WEIGHTS,
-    CARD_TAGS,
+    // #16（2026-10-20）：CARD_TAGS 已随卡牌 tags 字段整体废止，不再导出。
     MODIFIER_STATS,
     AMMO_KEYS,
     AMMO_FIELDS,

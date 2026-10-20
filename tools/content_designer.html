@@ -34,8 +34,7 @@
     font-size:12px;padding:5px 8px;font-family:Consolas,monospace;width:100%;}
   .field textarea{min-height:44px;resize:vertical;}
   .field input[type=number]{width:90px;}
-  .tags{display:flex;flex-wrap:wrap;gap:8px;}
-  .tags label{font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;text-transform:none;letter-spacing:0;}
+  /* #16（2026-10-20）：`.tags` / `.tags label` 两条样式随「流派标签」勾选框区域一并移除（字段已下线）。 */
   table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px;}
   table th{color:var(--text-dim);text-align:left;padding:4px 6px;border-bottom:1px solid var(--line);font-weight:500;}
   table td{padding:3px 4px;}
@@ -104,7 +103,9 @@
       it.className = 'item' + (selected === id ? ' active' : '');
       if(tab === 'cards'){
         const c = data[id];
-        it.innerHTML = `<div class="id">${c.id}</div><div>${c.name || ''}</div><div class="meta">${c.rarity || ''} · ${(c.tags||[]).join('/')}</div>`;
+        // #16（2026-10-20 用户裁定「卡牌的角色设定没有意义，删除相关的字段」）：卡牌 `tags`
+        // 字段已整体下线，列表元信息只显示稀有度（原先追加的 `/$\{(c.tags||[]).join('/')\}` 恒为空串）。
+        it.innerHTML = `<div class="id">${c.id}</div><div>${c.name || ''}</div><div class="meta">${c.rarity || ''}</div>`;
       } else {
         const b = data[id];
         it.innerHTML = `<div class="id">${b.id}</div><div>${b.name || ''}</div><div class="meta">${(b.stages||[]).length} 阶段</div>`;
@@ -147,21 +148,17 @@
 
   // ---------- 卡牌编辑 ----------
   function renderCardEditor(){
-    const card = cardData[selected] || { id:'', name:'', rarity:'common', tags:[], desc:'', effects:[], maxStacks:1 };
+    const card = cardData[selected] || { id:'', name:'', rarity:'common', desc:'', effects:[], maxStacks:1 };
     h2('卡牌属性');
     const idI = textInput(card.id, 'card_id'); editor.appendChild(field('id', idI));
     const nameI = textInput(card.name, '名称'); editor.appendChild(field('名称', nameI));
     editor.appendChild(field('稀有度', selInput(CARD_RARITIES, card.rarity)));
     const descI = document.createElement('textarea'); descI.value = card.desc || ''; editor.appendChild(field('描述', descI));
 
-    // tags
-    const tagWrap = document.createElement('div'); tagWrap.className='tags';
-    for(const t of CARD_TAGS){
-      const lb = document.createElement('label');
-      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = (card.tags||[]).includes(t); cb.value = t;
-      lb.appendChild(cb); lb.appendChild(document.createTextNode(t)); tagWrap.appendChild(lb);
-    }
-    editor.appendChild(field('流派标签', tagWrap));
+    // #16（2026-10-20）：卡牌 `tags` 字段与 `CARD_TAGS` 枚举已整体下线，本页的「流派标签」
+    // 勾选框编辑器同步移除。此处原有一整段 `for(const t of CARD_TAGS){ ...勾选框... }`，
+    // 枚举不再导出后 `CARD_TAGS` 为 undefined ⇒ **打开页面即抛 TypeError**（该页不在
+    // check-html.js 的五页扫描范围内，npm run check 不会红，属于工具链静默崩溃）。
     editor.appendChild(field('可叠上限', numInput(card.maxStacks || 1)));
 
     h2('效果 Effects');
@@ -228,7 +225,8 @@
 
     // 读取表单 → 组装卡牌对象
     editor.__collect = () => {
-      const tags = [...tagWrap.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value);
+      // #16（2026-10-20）：tags 已下线，不再从表单收集（原为
+      // `[...tagWrap.querySelectorAll('input[type=checkbox]:checked')].map(...)`）。
       const raritySel = editor.querySelectorAll('select')[0];
       const maxStacksI = editor.querySelectorAll('input[type=number]')[0];
       const effs = [];
@@ -256,7 +254,8 @@
         else if(t === 'drone') effs.push({ type:'drone' });
         else if(t === 'economy') effs.push({ type:'economy', field: sels[1].value, value: Number(inputs[0].value) });
       }
-      return { id: idI.value, name: nameI.value, rarity: raritySel.value, desc: descI.value, tags, effects: effs, maxStacks: Number(maxStacksI.value) || 1 };
+      // #16（2026-10-20）：输出不再带 tags 字段（字段已整体下线，写入它只会污染数据）。
+      return { id: idI.value, name: nameI.value, rarity: raritySel.value, desc: descI.value, effects: effs, maxStacks: Number(maxStacksI.value) || 1 };
     };
   }
 

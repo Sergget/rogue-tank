@@ -2,7 +2,6 @@
   "id": "demo_he_charge",
   "name": "高爆装药增量",
   "rarity": "common",
-  "tags": ["爆破"],
   "desc": "HE 弹装药量提升，伤害 +8%。",
   "effects": [
     { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.08 }

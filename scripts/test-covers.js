@@ -15,6 +15,9 @@ global.reflectDir = U.reflectDir;
 global.RULES = RULES_MOD.RULES;
 global.HEIGHTS = require('../js/tank_geometry.js').HEIGHTS; // geometry 顶层 const，tank_cover 依赖
 global.polyCorners = require('../js/tank_geometry.js').polyCorners; // coverCorners 依赖（复杂多边形）
+// 2026-10-20 W16/W17 断言批次：coverBlockInfo 内部读全局 getPartZRange（此前 test-covers 未覆盖
+// 该函数，故 shim 里也没有它）。补上后 coverBlockInfo 才能在 Node 端被驱动。
+global.getPartZRange = require('../js/tank_geometry.js').getPartZRange;
 const C = require('../js/tank_cover.js');
 
 let fails = 0;
@@ -868,6 +871,224 @@ C.resetCovers();
     C.invalidateCoverGrid();
     C.resetCovers();
   }
+}
+
+// ============================================================================
+// #W16-①（2026-10-20）verts 多边形掩体的溅射归属判定 —— 能力锁
+// ============================================================================
+// 背景（mapgen 探针 tmp/probe-w16-splash.js 落定，本轮搬入）：
+//   `splashCoversAt`（js/tank_cover.js:197+）用**纯中心距离**（cov.x/cov.y + 半径）判定，
+//   而 `coverCorners`/`coverWorldPolygon` 对带 verts 的多边形走真实多边形。
+//   两种口径在「verts 且体型非正方」时必然分歧：
+//     · 长条远端命中 → 点在多边形内但离中心很远 ⇒ 中心距离判据**漏判**；
+//     · 长条外侧近点 → 点在多边形外但离中心很近 ⇒ 中心距离判据**误伤**。
+//   按 role-mapgen 的裁定（ISSUES #W16-①）：**先补断言、不改判定逻辑**。
+//   ⚠️ 因此本段的断言分成两类，语义必须分清：
+//     ① 「口径分歧已被锁住」的能力锁 —— 断言的是**当前实现的已知偏差**，
+//        目的是让偏差一旦被修（或恶化）都会立刻可见，而不是把缺陷伪装成期望行为；
+//        每条都标注 ISSUES #W16-① 与「修好后本断言需翻转」。
+//     ② 「不可达性」锁 —— 实测当前数据里「verts 且可破坏」实例数为 0，
+//        所以该偏差在现行数据下无可观测影响；一旦生成器开始产出此类实例，
+//        本断言会红，提示必须同步修判定逻辑。
+{
+  // 真值判据：包络粗筛 + 多边形点测（与 coverCorners/coverWorldPolygon 同源）
+  function pointInCoverTruth(cov, x, y) {
+    const e = C.coverEnvelope(cov);
+    if (x < e.minX || x > e.maxX || y < e.minY || y > e.maxY) return false;
+    return C.pointInPolygon({ x, y }, C.coverCorners(cov));
+  }
+  function mkPoly(verts, tier, hp) {
+    const cov = { x: 1000, y: 1000, angle: 0, tier: tier || 'tree', hp: hp === undefined ? 1 : hp, verts };
+    C.covers.length = 0;
+    C.covers.push(cov);
+    C.invalidateCoverGrid();
+    return cov;
+  }
+
+  // ---- A) 基准：正方形多边形，两种判据一致（说明分歧只出现在非正方/凹形）----
+  {
+    const cov = mkPoly([[-60, -40], [60, -40], [60, 40], [-60, 40]]);
+    ok(pointInCoverTruth(cov, 1000, 1000) === true, '#W16-① A: 中心点在多边形内（truth=true）');
+    ok(C.splashCoversAt(1000, 1000, 10) === 1, '#W16-① A: splashCoversAt 中心命中 → 摧毁 1（口径一致）');
+  }
+
+  // ---- B) 凹多边形（L 形）凹陷区点：两种判据恰好一致 ----
+  {
+    const L = [[-60, -60], [0, -60], [0, 0], [60, 0], [60, 60], [-60, 60]];
+    const cov = mkPoly(L);
+    const truth = pointInCoverTruth(cov, 1040, 940);   // 局部 (40,-60) 在 L 形缺角内
+    ok(truth === false, '#W16-① B: L 形凹陷区点确实在多边形外（断言前提成立）');
+    ok(C.splashCoversAt(1040, 940, 10) === 0, '#W16-① B: 凹陷区点不摧毁（距离 72 > 半径 10，巧合一致）');
+  }
+
+  // ---- C) 已知偏差①：长条远端命中漏判 ----
+  // 修好判定逻辑（改用 coverEnvelope/多边形点测）后，下面第 2 条应翻转为 n === 1。
+  {
+    const cov = mkPoly([[-300, -12], [300, -12], [300, 12], [-300, 12]]);   // 600×24 长条
+    ok(pointInCoverTruth(cov, 1240, 1000) === true, '#W16-① C: 长条远端点在多边形内（truth=true）');
+    const n = C.splashCoversAt(1240, 1000, 10);
+    ok(n === 0,
+      `#W16-① C【已知偏差·ISSUES #W16-①】长条远端命中被中心距离判据漏判（got ${n}，真值应为 1；` +
+      `修好后本断言需翻转为 === 1）`);
+  }
+
+  // ---- D) 已知偏差②：长条外侧近点误伤 ----
+  // 修好后第 2 条应翻转为 n === 0。
+  {
+    const cov = mkPoly([[-200, -10], [200, -10], [200, 10], [-200, 10]]);
+    ok(pointInCoverTruth(cov, 1000, 1060) === false, '#W16-① D: 长条外侧点不在多边形内（truth=false）');
+    const n = C.splashCoversAt(1000, 1060, 70);
+    ok(n === 1,
+      `#W16-① D【已知偏差·ISSUES #W16-①】长条外侧近点被中心距离判据误伤（got ${n}，真值应为 0；` +
+      `修好后本断言需翻转为 === 0）`);
+  }
+
+  // ---- E) 不可达性锁：现行数据里「verts 且可破坏」实例为 0 ----
+  // 若此断言转红 ⇒ 生成器已开始产出「verts + 有限 hp」实例 ⇒ #W16-① 从不可达变为可达，
+  // 必须立即修 splashCoversAt 的判定逻辑（否则 HE 破障会对这类元素漏判/误判）。
+  // 注：NG/MAP 在本文件 :840/:846 是**块内** const，本段位于其后但不在同作用域，
+  //     故此处自行 require（与文件内既有写法一致，不做重复的全局耦合）。
+  {
+    const NGx = require('../js/tank_nodegen.js');
+    const MAPx = require('../js/tank_map.js');
+    let vertsTotal = 0, vertsDestructible = 0;
+    const tiers = new Set();
+    const scan = (covers) => {
+      for (const c of covers || []) {
+        if (c && c.verts && c.verts.length) {
+          vertsTotal++;
+          tiers.add(c.tier);
+          if (Number.isFinite(c.hp) && c.hp > 0) vertsDestructible++;
+        }
+      }
+    };
+    const VP = { vw: 1920, vh: 1080 };
+    // tsc 绕过：`generateStrip` 的 JSDoc 选项未声明 `chunkRows`（**实现支持**，见 mapgen #U35
+    // 的多行片路网），tsc 会以 TS2353「unknown property」拒绝该字面量。
+    // 该 JSDoc 在 role-mapgen 写域（js/tank_nodegen.js），本脚本不能改 ⇒ 此处局部 any 断言。
+    // 待 mapgen 在 generateStrip 的 opts 里补 `chunkRows?: number` 后，可去掉本断言。
+    const stripRows2Opts = /** @type {any} */ ({ seed: 1, viewport: VP, scaleFor: MAPx.nodeScaleFor, chunkRows: 2 });
+    for (let sd = 1; sd <= 12; sd++) {
+      scan(NGx.generateStrip(0.5, { seed: sd, viewport: VP, scaleFor: MAPx.nodeScaleFor }).covers);
+      stripRows2Opts.seed = sd;
+      scan(NGx.generateStrip(0.5, stripRows2Opts).covers);
+      scan(NGx.generateNode(0.5, { seed: sd, scale: 3 }).covers);
+    }
+    ok(vertsDestructible === 0,
+      `#W16-① E【不可达性锁】现行数据「带 verts 且可破坏」实例 = ${vertsDestructible} 个` +
+      `（verts 实例共 ${vertsTotal}，tiers=${[...tiers].join(',')}；` +
+      `若 >0 说明 #W16-① 已可达，须修 splashCoversAt 判定）`);
+    C.covers.length = 0;
+    C.invalidateCoverGrid();
+  }
+}
+
+// ============================================================================
+// #W17 / #W16-②（2026-10-20）directionTolerance 测试锁 + 未注册 tier 兜底
+// ============================================================================
+// 背景（mapgen 探针 tmp/probe-tolerance.js 落定，本轮搬入）：
+//   `RULES.coverRules.directionTolerance`（缺省 16）由 role-systems 新增、role-mapgen 消费，
+//   原先该容差是 `js/tank_cover.js` 里的硬编码常量。本段锁三件事：
+//     ① 字段存在则读字段（证明不是硬编码）；
+//     ② 字段缺失/非法（null/字符串/NaN/undefined/整块 coverRules 缺失）一律回落 16 且不抛错；
+//     ③ 字段确实**驱动行为**（getExposure 在容差边界翻转）—— 防止「读了但没用」的空接线。
+//   另含 #W16-②：未注册 tier 在 getExposure/destroyCover 上不得抛错。
+{
+  const savedTol = RULES_MOD.RULES.coverRules ? RULES_MOD.RULES.coverRules.directionTolerance : undefined;
+
+  // ① 读字段
+  RULES_MOD.RULES.coverRules.directionTolerance = 16;
+  ok(C.coverDirectionTolerance() === 16, '#W17 字段=16 → 读到 16（缺省口径）');
+  RULES_MOD.RULES.coverRules.directionTolerance = 40;
+  ok(C.coverDirectionTolerance() === 40, '#W17 字段=40 → 读到 40（证明不是硬编码 16）');
+
+  // ② 缺失/非法回落
+  delete RULES_MOD.RULES.coverRules.directionTolerance;
+  ok(C.coverDirectionTolerance() === 16, '#W17 字段缺失 → 回落 16');
+  // 该字段在 RULES 里的声明是 number（js/tank_rules.js:81），但本段刻意注入非法值来验证
+  // 「非法值不污染容差」⇒ 用 any 断言绕过 tsc（否则 TS2322 string|number → number）。
+  const rulesObj = /** @type {any} */ (RULES_MOD.RULES.coverRules);
+  for (const bad of [null, 'xxx', NaN, undefined]) {
+    rulesObj.directionTolerance = bad;
+    ok(C.coverDirectionTolerance() === 16, `#W17 字段=${String(bad)} → 回落 16（非法值不污染容差）`);
+  }
+  const savedRules = RULES_MOD.RULES.coverRules;
+  delete RULES_MOD.RULES.coverRules;
+  let wholeGone = null;
+  try {
+    wholeGone = C.coverDirectionTolerance();
+    ok(wholeGone === 16, '#W17 coverRules 整块缺失 → 回落 16 且不抛错（旧存档/裁剪版 RULES）');
+  } catch (e) {
+    ok(false, `#W17 coverRules 整块缺失时抛错（${e.message}）`);
+  }
+  RULES_MOD.RULES.coverRules = savedRules;
+
+  // ③ 驱动行为：同一射线 + 同一掩体，仅容差不同 → exposure 翻转
+  C.covers.length = 0;
+  C.covers.push({ x: 500, y: 300, w: 40, h: 40, angle: 0, tier: 'full', hp: Infinity });
+  C.invalidateCoverGrid();
+  const exWith = (tol) => {
+    RULES_MOD.RULES.coverRules.directionTolerance = tol;
+    // 射线 (300,300)→(700,300)，掩体 480~520 ⇒ distExit ≈ 220；cutoff=200
+    return C.getExposure(300, 300, 700, 300, null, null, 0, 1.4, 200);
+  };
+  const e16 = exWith(16);   // 220 ≥ 216 ⇒ 跳过 ⇒ 1.0
+  const e40 = exWith(40);   // 220 < 240  ⇒ 生效 ⇒ 0
+  ok(e16 === 1.0, `#W17 容差 16：distExit(≈220) ≥ 200+16 ⇒ 掩体不生效 → exposure 1.0（got ${e16}）`);
+  ok(e40 === 0, `#W17 容差 40：distExit(≈220) < 200+40 ⇒ 掩体生效 → exposure 0（got ${e40}）`);
+  ok(e16 !== e40, '#W17 字段确实驱动行为（双读不是空接线）');
+
+  // #W16-② 未注册 tier 不得抛错（原先 getExposure 读 T[tier].shellBlock、destroyCover 读 .label）
+  RULES_MOD.RULES.coverRules.directionTolerance = 16;
+  C.covers.length = 0;
+  const bogus = { x: 500, y: 300, w: 40, h: 40, angle: 0, tier: '__no_such_tier__', hp: Infinity };
+  C.covers.push(bogus);
+  C.invalidateCoverGrid();
+  try {
+    const e2 = C.getExposure(300, 300, 700, 300, null, null, 0, 1.4, 1000);
+    ok(typeof e2 === 'number', `#W16-② 未注册 tier：getExposure 不抛错且返回数值（got ${e2}）`);
+  } catch (e) {
+    ok(false, `#W16-② 未注册 tier：getExposure 抛错（${e.message}）`);
+  }
+  try {
+    C.damageCover(bogus, 1, 'splash');
+    ok(true, '#W16-② 未注册 tier：destroyCover 不抛错（label 已判空）');
+  } catch (e) {
+    ok(false, `#W16-② 未注册 tier：destroyCover 抛错（${e.message}）`);
+  }
+
+  // #W17 coverBlockInfo 形状（依赖 global.getPartZRange，见文件头 shim）
+  C.covers.length = 0;
+  C.covers.push({ x: 500, y: 300, w: 40, h: 40, angle: 0, tier: 'full', hp: Infinity });
+  C.invalidateCoverGrid();
+  try {
+    const bi = C.coverBlockInfo(300, 300, 700, 300, null, { heightClass: 'medium' }, 'hull', 1000);
+    ok(bi && Array.isArray(bi.hits) && bi.hits.length === 1 && bi.prob === 1,
+      `#W17 coverBlockInfo 形状正确（hits=${bi && bi.hits && bi.hits.length}, prob=${bi && bi.prob}）`);
+  } catch (e) {
+    ok(false, `#W17 coverBlockInfo 抛错（${e.message}）`);
+  }
+
+  // coverEnvelope WeakMap 缓存：同对象复用 + 几何变更失效 + verts 变更失效
+  C.covers.length = 0;
+  const cov = { x: 100, y: 100, w: 40, h: 40, angle: 0, tier: 'full', hp: Infinity };
+  C.covers.push(cov);
+  C.invalidateCoverGrid();
+  const env1 = C.coverEnvelope(cov);
+  ok(C.coverEnvelope(cov) === env1, '#W17 coverEnvelope 同对象命中 WeakMap 缓存');
+  cov.x = 200;
+  const env3 = C.coverEnvelope(cov);
+  ok(env3 !== env1 && env3.minX === env1.minX + 100,
+    `#W17 几何变更后缓存失效（minX ${env1.minX} → ${env3.minX}）`);
+  cov.verts = [[-20, -20], [20, -20], [20, 20], [-20, 20]];
+  ok(C.coverEnvelope(cov) !== env3, '#W17 新增 verts 后缓存失效（签名含 verts 引用）');
+
+  // 收尾：还原容差与 covers（后续段/其他脚本不依赖本段状态）
+  if (savedTol === undefined) delete RULES_MOD.RULES.coverRules.directionTolerance;
+  else RULES_MOD.RULES.coverRules.directionTolerance = savedTol;
+  C.covers.length = 0;
+  C.invalidateCoverGrid();
+  C.resetCovers();
 }
 
 console.log(fails ? `\n${fails} failure(s).` : '\nAll cover-system checks passed.');

@@ -132,4 +132,8 @@ clearDeployables();
 }
 
 console.log('test-rework-r2: 完成所有检查');
-console.log('test-rework-r2: 全部通过');
+// 2026-10-20 task-7：原为无条件 `console.log('test-rework-r2: 全部通过')` 且**从不设置退出码**
+// ⇒ 真实断言红也会 EXIT=0，`scripts/run-tests.js`（`r.status === 0` 判定）会一律记为通过
+// （假绿）。现改为按 fails 给退出码 + 有条件日志，与 test-render.js / test-physics.js 一致。
+console.log(fails === 0 ? 'test-rework-r2: 全部通过' : `test-rework-r2: ${fails} 项失败`);
+process.exitCode = fails === 0 ? 0 : 1;

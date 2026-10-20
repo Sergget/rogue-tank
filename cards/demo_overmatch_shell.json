@@ -2,7 +2,6 @@
   "id": "demo_overmatch_shell",
   "name": "超口径穿甲弹",
   "rarity": "epic",
-  "tags": ["爆破"],
   "desc": "超口径弹体（被动）：AP/APCR 命中时，若目标受击面等效厚度 ≤ 穿深 ×85%，跳过跳弹判定强制按穿透结算（口径碾压）。",
   "effects": [
     { "type": "passive", "key": "overmatch", "value": 0.85 }

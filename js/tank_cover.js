@@ -113,12 +113,16 @@ function destroyCover(cov, reason){
   if(typeof burstExplosion === 'function'){
     burstExplosion(cov.x, cov.y, 0.9, 10, 5, 8);
   }
+  // #W16-②（2026-10-20）：tier 未注册时不得抛 TypeError（原 `COVER_TIERS[cov.tier].label`）。
+  // 未注册 tier 的 destroy 不应中断爆炸/日志/残骸链，退化用 tier 名本身作标签。
+  const _tier = COVER_TIERS[cov.tier] || null;
   if(typeof pushLog === 'function'){
     const why = reason==='shell' ? '炮弹击毁' : (reason==='splash' ? '爆炸波及' : '坦克碾碎');
-    pushLog(`${COVER_TIERS[cov.tier].label}被${why}`, 'COVER');
+    pushLog(`${(_tier && _tier.label) || cov.tier || '掩体'}被${why}`, 'COVER');
   }
-  const to = COVER_TIERS[cov.tier].toTier;
-  if(to){
+    const to = _tier ? _tier.toTier : null;
+    // 残骸 tier 自身也必须已注册（toTier 指向未注册 tier 时按"彻底摧毁"处理）
+    if(to && COVER_TIERS[to]){
     cov.tier = to;
     cov.angle = 0;
     const rw = COVER_TIERS[to].residueW, rh = COVER_TIERS[to].residueH;
@@ -194,6 +198,12 @@ function coverNormalAt(cov, px, py){
 }
 
 // HE 破障（A3）：落点半径内所有可破坏元素吃 1 点溅射伤害
+// ⚠️ 该 1 是**现行唯一口径**：原 RULES.breach.heCoverDmg 已于 2026-10-20 #W15 删除
+//    （当时即零消费——本函数一直固定传 1，从不读该字段）。
+//    HE 溅射对单个可破坏元素恒为 1 点：树耐久 1 / 栅栏·沙袋路障·树桩·碎石耐久 1 ⇒ 一发即毁；
+//    残破建筑（ruined，耐久 1）同理；楼房（building，耐久 3）需 3 发。
+//    若要参数化，须同时新增 RULES 字段（RULES 唯一写者 role-systems）并改此处实参。
+// 注：半径由调用方传入（消费 RULES.breach.heSplashRadius，该字段仍生效），本函数不读 RULES。
 function splashCoversAt(x, y, radius){
   let destroyed = 0;
   for(const cov of covers){
@@ -502,7 +512,24 @@ let _coverGridRef0 = null, _coverGridRefN = null;
 
 // 掩体包络 AABB（世界坐标，恒为实际几何超集）：矩形按旋转包络、verts 多边形逐顶点，
 // 带 segments 的多段取各段并集。供弹道查询做粗筛（宁可宽不可窄，绝不漏检）。
-function coverEnvelope(cov){
+// #W17（2026-10-20）：加 WeakMap 缓存（对照 :268 的 _coverPolyCache）。findCoversOnPath
+// 在 strip 规模 covers（300~1100，部分为 80+ 顶点的整链 verts / 数十段 segments）下每次
+// 弹道查询都要对全部候选算包络 —— 逐顶点遍历 + Math.cos/sin 是纯重复计算。
+// 失效签名：几何变更的全部入口（残骸降级改 w/h/angle 并删 verts、segment 变化、挪位）。
+const _coverEnvelopeCache = new WeakMap();
+
+function _coverEnvelopeSig(cov){
+  // 签名只含「会影响包络」的字段：x/y/angle/w/h + verts 引用及长度 + segments 引用及长度。
+  // segment 内部字段（dx/dy/w/h/angle）在生成期建好后不再原地改写，故引用+长度足够。
+  return {
+    x: cov.x, y: cov.y, angle: cov.angle || 0,
+    w: cov.w, h: cov.h,
+    vref: cov.verts || null, vlen: (cov.verts && cov.verts.length) || 0,
+    sref: cov.segments || null, slen: (cov.segments && cov.segments.length) || 0
+  };
+}
+
+function _coverEnvelopeCompute(cov){
   if(cov.segments && cov.segments.length){
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for(const r of coverSegRects(cov)){
@@ -529,6 +556,18 @@ function coverEnvelope(cov){
   const ex = Math.abs(Math.cos(a)) * hw + Math.abs(Math.sin(a)) * hh;
   const ey = Math.abs(Math.sin(a)) * hw + Math.abs(Math.cos(a)) * hh;
   return { minX: cov.x - ex, minY: cov.y - ey, maxX: cov.x + ex, maxY: cov.y + ey };
+}
+
+function coverEnvelope(cov){
+  const hit = _coverEnvelopeCache.get(cov);
+  const sig = _coverEnvelopeSig(cov);
+  if(hit && hit.sig.x === sig.x && hit.sig.y === sig.y && hit.sig.angle === sig.angle &&
+     hit.sig.w === sig.w && hit.sig.h === sig.h &&
+     hit.sig.vref === sig.vref && hit.sig.vlen === sig.vlen &&
+     hit.sig.sref === sig.sref && hit.sig.slen === sig.slen) return hit.env;
+  const env = _coverEnvelopeCompute(cov);
+  _coverEnvelopeCache.set(cov, { sig, env });
+  return env;
 }
 
 // 射线 AABB 与掩体包络 AABB 是否相交（粗筛；输入非法时保守返真）
@@ -690,24 +729,55 @@ function findCoversOnPath(ox,oy,tx,ty, coversList){
 // P-40 地形抽象（§5.1/§5.2）：弹道交互统一消费 shellBlock（true/'single' 挡弹 / 'grad' 渐变 /
 // false 越飞——水/河/泥不入遮蔽查询，#85 裁定）；半高剖面插值按 exposureProfile==='half'
 // 分发（half + ruined 残破建筑同走 C 越掩），消除 tier==='half' 硬编码特判。
+// #W17（2026-10-20 role-systems 落字段）：掩体方向容差（px）唯一配置源 = RULES.coverRules。
+// directionTolerance（js/tank_rules.js）。**双读**：字段缺失（旧存档/裁剪版 RULES/未同步的
+// 测试桩）时回落历史硬编码 16——保证零行为差；不得在本模块写死或自行定义该常量。
+const COVER_DIRECTION_TOLERANCE_DEFAULT = 16;
+function coverDirectionTolerance(){
+  const cr = (typeof RULES !== 'undefined' && RULES) ? RULES.coverRules : null;
+  const v = cr ? cr.directionTolerance : undefined;
+  return (typeof v === 'number' && Number.isFinite(v)) ? v : COVER_DIRECTION_TOLERANCE_DEFAULT;
+}
+
+// #W16-②（2026-10-20）：未注册 tier 不得抛 TypeError。原实现 `tierShellBlock(COVER_TIERS[tier])`
+// 在 tier 缺注册时对 undefined 取 .shellBlock ⇒ TypeError（生成期外部/旧存档/内容包新增 tier
+// 都会命中）。统一守卫：null ⇒ 视为 `false`（不参与弹道遮蔽）。
+//
+// ⚠️ **不要把这个兜底与 tank_fire.js 的 `|| {mode:'solid'}` "统一"掉——两者语义不同且互补。**
+//   本函数是**遮蔽查询**（getExposure）：未注册 tier ⇒ false ⇒ 该 cover 被从候选里彻底丢弃
+//   ⇒ 炮弹**越飞**。这是"我不认识它，所以不拿它挡视线"。
+//   `js/tank_fire.js:808` / `:1029` 的 `|| {mode:'solid'}` 是**弹道拦截查询**（stepShells 实际
+//   推进弹丸）：未注册 tier ⇒ 当 solid ⇒ 炮弹**被挡住**。这是"我不认识它，但当墙处理"。
+//   方向相反是**刻意的**：拦截侧宁可多挡（漏挡=炮弹穿墙，是可见的物理错误）；遮蔽侧宁可
+//   少挡（多挡=玩家在看不见的物体后挨打，是不可解释的挫败感）。谁若把两边改成同向，
+//   必然在另一侧制造回归。要改先读 docs/specs/map.md §5.1/§5.2 的两套查询口径。
+//
+// 取 false 而非 true 的补充理由：tank_cover 的候选一律来自 covers 实例，未注册 tier 极少见
+// （只出现在跨版本数据），保守选择不引入新的挡弹来源。
 function tierShellBlock(tier){
+  if(!tier) return false;
   if(tier.shellBlock !== undefined) return tier.shellBlock;
   // 兜底：未迁移自定义 tier 按旧 mode 推导
   return tier.mode === 'solid' ? true : tier.mode === 'single' ? 'single'
        : tier.mode === 'graduated' ? 'grad' : false;
 }
-function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
-  const hits = findCoversOnPath(ox,oy,tx,ty);
+// 遮蔽判定唯一实现体。hits 可选：调用方已算过 findCoversOnPath 时直接传入以复用
+// （#W17：strip 规模 covers 下避免同一查询跑两遍 O(n) 全表扫描）。
+function getExposureWithHits(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist, hits) {
+  const list = hits || findCoversOnPath(ox,oy,tx,ty);
   const validHits = [];
 
-  for(const h of hits){
+  // #W17：方向容差读配置（缺失回落 16），循环外取一次
+  const COVER_DIRECTION_TOLERANCE = coverDirectionTolerance();
+
+  for(const h of list){
     const tier = COVER_TIERS[h.cover.tier];
+    if(!tier) continue;   // #W16-②：未注册 tier 不参与遮蔽（不抛错、不新增挡弹来源）
     const sb = tierShellBlock(tier);
     // 炮弹越飞的地形（水/河/泥）与纯视线/可穿透元素不参与弹道遮蔽
     if(sb === false) continue;
     // 方向判据：掩体须在命中车体前被射线完整穿过（骑上/包住车体的掩体不生效；
-    // 贴掩体时 distExit 与 cutoffDist 极其接近，允许 16px 向后容差以确保贴掩体遮挡生效）
-    const COVER_DIRECTION_TOLERANCE = 16;
+    // 贴掩体时 distExit 与 cutoffDist 极其接近，允许容差向后以确保贴掩体遮挡生效）
     if(cutoffDist !== undefined && h.distExit >= cutoffDist + COVER_DIRECTION_TOLERANCE) continue;
     if(sb === true || sb === 'single') return 0; // 全遮剖面/固态掩体确定性 100% 格挡
     validHits.push(h);
@@ -724,14 +794,25 @@ function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
   // 走到这里说明命中列表里只剩「非确定性」剖面（历史 'grad' tier）。2026-09-20 起
   // 全部此类 tier（stump/rubble/ruined）已改为确定性挡弹或不挡弹，正常数据下不可达；
   // 兜底保守返回 0（= 完全遮蔽）。
-  return RULES.coverRules && RULES.coverRules.mediumHullExposure !== undefined
-    ? RULES.coverRules.mediumHullExposure : 0.0;
+  //
+  // #W16-②（2026-10-20）**删除**此前的 `RULES.coverRules.mediumHullExposure` 分支：
+  // 该字段在 RULES 中从不存在（实测 `grep mediumHullExposure js/tank_rules.js` 零命中），
+  // 恒 undefined ⇒ 恒返回 0.0，形成一个读死字段的不可达路径。现值直接固化 0.0。
+  return 0.0;
 }
 
+// 保号兼容：既有调用方（shellVerticalDecision 实时拦截 / updateSolution 瞄准预测）不变。
+function getExposure(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist) {
+  return getExposureWithHits(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDist, null);
+}
+
+// #W17（2026-10-20）：coverBlockInfo 原先调用两次 findCoversOnPath（getExposure 内部一次 +
+// 返回 hits 一次），strip 规模 covers（300~1100）下白跑一次 O(n) 全表扫描。改为算一次复用。
 function coverBlockInfo(ox,oy,tx,ty, shooter, target, part, cutoffDist){
   const z = getPartZRange(target, part);
-  const exposure = getExposure(ox,oy,tx,ty, shooter, target, z.zMin, z.zMax, cutoffDist);
-  return { prob: 1 - exposure, hits: findCoversOnPath(ox,oy,tx,ty) };
+  const hits = findCoversOnPath(ox,oy,tx,ty);   // #W17：只算一次，两处复用
+  const exposure = getExposureWithHits(ox,oy,tx,ty, shooter, target, z.zMin, z.zMax, cutoffDist, hits);
+  return { prob: 1 - exposure, hits: hits };
 }
 
 function isBlockedBySolidCover(ox,oy,tx,ty, coversList){
@@ -805,10 +886,12 @@ if (typeof module !== 'undefined' && module.exports) {
     coverPartAABBs,
     coverEnvelope,
     coverEnvelopeHitsRay,
+    coverDirectionTolerance,
     coverQueryCandidates,
     invalidateCoverGrid,
     findCoversOnPath,
     getExposure,
+    getExposureWithHits,
     coverBlockInfo,
     isBlockedBySolidCover,
     losBlocker,

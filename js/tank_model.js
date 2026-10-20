@@ -354,11 +354,12 @@ function removeRunModifiers(tank){
   //   而 removeRunModifiers 与 prepPlayerForRun 都只清 modifiers/cardEffects，不清这两个字段 ⇒
   //   拿过一次「后勤保障」（scoreMul 1.15）之后，**以后每一局结算分永久 ×1.15 并继续复乘**；
   //   「战场救护协议」的 +1 复活同样永久累积。长期档因此单调膨胀。
-  //   注意 runStartScore 也属单局 economy 通道（当前无卡消费，但清掉以防将来加了卡就泄漏）。
+  // #W15（2026-10-20 role-systems）：`runStartScore` 随 `economy.startScore` 死配置一并摘除
+  //   —— 全仓零读点（ISSUES #W15 已核实），ECONOMY_FIELDS 的 startScore 项由 role-content
+  //   在 js/tank_cards.js 同批删除。故此处不再归零该字段。
   if (tank) {
     tank.runScoreMul = 1;
     tank.runReviveBonus = 0;
-    tank.runStartScore = 0;
   }
   return removeModifiersByScope(tank, 'run');
 }
@@ -438,7 +439,7 @@ function makeTank(opts){
     // 避免「未持有卡 → undefined」与「持有后又清除 → 1」两种等价状态在断言里漂移。
     runScoreMul: 1,
     runReviveBonus: 0,
-    runStartScore: 0,
+    // #W15（2026-10-20）：`runStartScore` 已随 `economy.startScore` 死配置摘除（全仓零读点）。
     _visualVersion: 0,
     _lastDrawnVersion: -1,
     sigma:0, prevHullAngle:0, prevTurretAngle:0
@@ -543,6 +544,20 @@ function applyTankConfig(tank, spec){
   // 配置（如 tanks/dummy.json）会残留上一辆车的贴图，画出错误的车体。
   tank.sprite = (spec.sprite !== undefined)
     ? JSON.parse(JSON.stringify(spec.sprite))
+    : null;
+
+  // 外观件配置（tanks/<id>.json `appearance`）：深拷贝，防多实例共享引用被下游改写。
+  // #X1（2026-10-20 role-systems）**本次修复的缺陷**：原 applyTankConfig 完全不拷贝
+  //   `spec.appearance` ⇒ 游戏内 `t.appearance` **恒为 undefined**，而消费方一直在读：
+  //     · js/tank_battledraw.js:44/55  `appearance: t.appearance || undefined`
+  //     · js/tank_battledraw.js:1820   `cupolaStyle: t.appearance?.cupola?.style`
+  //     · js/tank_paint.js:787/871     `opts.appearance.engineDeck / .cupola`
+  //   后果：5 份 tanks/*.json 的 `cupola`（车长塔，low/standard/panoramic）与 `engineDeck`
+  //   （发动机舱盖，standard/compact/rearGrille）**从未生效**，全部坦克都画默认外观。
+  // 结构：{ cupola:{style,dx,dy,mirror}, engineDeck:{style,dx,dy,mirror} }
+  // 与 sprite 同口径**无条件赋值**（切到无 appearance 的配置时不得残留上一辆车的外观件）。
+  tank.appearance = (spec.appearance !== undefined)
+    ? JSON.parse(JSON.stringify(spec.appearance))
     : null;
 
   // 锚点深拷贝（#B6）：Object.assign 只复制一层，嵌套的 {dx,dy} 仍与 spec 共享引用，
@@ -739,6 +754,8 @@ function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
   const p = (typeof RULES !== 'undefined' && RULES.enemyAnchorBase) || {
     maxHp: 100, penetration: 120, damage: 34, reload: 1.3, maxSpeed: 120, turnRate: 2.0, turretTurnRate: 2.2,
     shellSpeed: 1200, weight: 50, enginePower: 700,
+    // #W14：与 RULES.enemyAnchorBase.aimSpeed 同值兜底（脱离 RULES 的纯函数测试路径）。
+    aimSpeed: 1.2,
     armor: { hull: { front: 100, side: 40, rear: 25 }, turret: { front: 100, side: 40, rear: 25 } }
   };
 
@@ -755,6 +772,15 @@ function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
   b.shellSpeed = p.shellSpeed || 1200;
   b.enginePower = p.enginePower || 700;
   b.weight = p.weight || 50;
+
+  // #W14（2026-10-20 role-systems）：**必须显式写 base.aimSpeed**。
+  //   根因：makeTank 的 base 无 aimSpeed 键，computeStats 于是回落 RULES.spread.shrinkRate(0.15)
+  //   —— 那是「配装缺省」量纲，与真实坦克 spec 的 base.aimSpeed(1.0~2.5) 是两套量纲。
+  //   而 entityMults.aimSpeed(0.8~1.35) 按真实量纲设计 ⇒ 满难度实测仅 0.15×1.35=0.2025
+  //   （玩家 tiger-I 1.5 的 7.4%），敌军缩圈几乎停滞。写入锚定基准后 = 1.2×1.35 = 1.62。
+  //   注意：aimSpeed 不参与 enemyClassProfiles 的类别缩放（四类共用同一瞄准速度基准，
+  //   差异由 entityMults 难度通道与玩家卡牌通道承担），故此处直接取基准值不做 prof 乘算。
+  if (p.aimSpeed !== undefined) b.aimSpeed = p.aimSpeed;
 
   // 装甲按 armor 系数缩放
   const armMul = prof.armor || 1.0;

@@ -2,7 +2,6 @@
   "id": "demo_enhanced_he",
   "name": "强化高爆弹",
   "rarity": "rare",
-  "tags": ["爆破"],
   "desc": "HE 弹伤害 +15%，击穿力 +15%。",
   "effects": [
     { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.15 },

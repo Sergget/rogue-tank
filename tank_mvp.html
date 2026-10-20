@@ -910,8 +910,9 @@ document.getElementById('bossBriefing')?.addEventListener('click', (e) => {
 // 2026-09-17 #C4e：F 键 = 直接击发副武器（按住连发），不再承担主/副切换。
 // 主炮=左键/空格专属（tryFirePrimary），副武器=F 专属（tryFireSecondary，目标=鼠标世界点）；
 // turret 型为设计例外（自瞄副炮塔由主循环 updateSecondaryWeapon 自主驱动，点击/按 F 不响应）。
-const SECONDARY_LABELS = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹（锁定式）', missile_wire:'反坦克导弹（线导式）', rocket:'火箭巢', mine_layer:'布雷器', howitzer:'榴弹炮（曲射）' };
-const SECONDARY_ICONS = { turret:'塔', mortar:'迫', missile:'导', missile_wire:'线', rocket:'火', mine_layer:'雷' };
+const SECONDARY_LABELS = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹（锁定式）', missile_wire:'反坦克导弹（线导式）', rocket:'火箭巢', mine_layer:'布雷器', howitzer:'榴弹炮（曲射/直射可切换）' };
+// #X5（2026-10-20）：howitzer 补图标「榴」——此前缺项回落成字母 F，与「F=击发」混淆。
+const SECONDARY_ICONS = { turret:'塔', mortar:'迫', missile:'导', missile_wire:'线', rocket:'火', mine_layer:'雷', howitzer:'榴' };
 function trySecondaryFire(force){   // #F7：force=true 时绕过 mine_layer 键盘边沿（HUD 按钮入口）
   if(!player || !player.weapons) return;
   const sec = player.weapons.secondary;
@@ -940,6 +941,13 @@ function trySecondaryFire(force){   // #F7：force=true 时绕过 mine_layer 键
     if(force === true) handleMineFieldF();
     return;
   }
+  // #X5（2026-10-20 用户裁定「F = 曲射/直射切换」）：榴弹炮槽同属开关类，主循环轮询分支
+  //   直接 return —— 切换只走原生 keydown 边沿（下方独立监听）与 HUD 按钮 click(force=true)。
+  //   与 missile/mine_layer 同口径：绝不能在这里每帧调 toggle（会每帧翻转）。
+  if(sec.type === 'howitzer'){
+    if(force === true) toggleHowitzerF();
+    return;
+  }
   const fired = tryFireSecondary(fireCtx);
   if(fired && sec.type !== 'turret') playSound('ui');
 }
@@ -966,7 +974,33 @@ window.addEventListener('keydown', (e) => {
   if(!sec || !fireCtx) return;
   if(sec.type === 'mine_layer') handleMineFieldF();
   else if(sec.type === 'missile') tryActivateMissileLock();
+  // #X5（2026-10-20 用户裁定「F = 曲射/直射切换」）：榴弹炮槽同属**开关类**——
+  //   该槽本身不发射（射击走主炮左键/空格），F 对它只切模式。
+  //   ⚠️ 必须在本原生 keydown 边沿处理（e.repeat 已在上方过滤）：若放到主循环
+  //   `input.isDown('fireSecondary')` 轮询里读，按住期间会**每帧翻转**（§8.2 明令禁止）。
+  else if(sec.type === 'howitzer') toggleHowitzerF();
 });
+
+// #X5：榴弹炮曲射/直射切换（F 单次按下 = 一次切换）。
+// 模式状态由 js/tank_weapons.js 的 toggleHowitzer 单一定义（切到直射时清 _howitzerBurst），
+// 这里只负责 UI 反馈：日志 + HUD 角标（updateBottomHud 读 isHowitzerMode 刷新）。
+function toggleHowitzerF(){
+  if(!player || player.hp <= 0) return;
+  const sec = player.weapons && player.weapons.secondary;
+  if(!sec || sec.type !== 'howitzer') return;
+  let tgl = (typeof toggleHowitzer === 'function') ? toggleHowitzer : null;
+  if(!tgl){
+    pushLog('榴弹炮模式切换不可用（tank_weapons.js 未加载）', 'COVER');
+    return;
+  }
+  const on = tgl(player);
+  playSound('ui');
+  if(on){
+    pushLog('榴弹炮：曲射模式 — 主炮高抛越掩，落点 = 鼠标位置（散布圈内），按 F 切回直射', 'PEN');
+  } else {
+    pushLog('榴弹炮：直射模式 — 主炮恢复平射，按 F 切回曲射', 'COVER');
+  }
+}
 
 // ================= #E5 锁定制反坦克导弹（F 激活 → 索敌 → 锁定 → 立即发射） =================
 // 与线导式的区别：F 一旦按下即进入激活态，逐帧由 updateMissileLock 在炮塔 ±lockArcDeg 扇形内
@@ -1101,10 +1135,11 @@ const SKILL_DISPATCH = {
   artillery: () => tryStrike(),
   shield: () => tryShield(true),
   overdrive: () => tryOverdrive(),
-  super_fire_control: () => trySuperFireControl(),
-  super_speed: () => trySuperSpeed(),
   aps: () => tryAps()
   // 2026-09-23 A 档：删除死分支 recon（其调用的 tryDroneCommand 全仓库无定义，恒为 no-op）
+  // #W9（2026-10-20 用户裁定）：删除死分支 super_fire_control / super_speed
+  //   ——两键在 RULES.abilities 与卡牌 ABILITY_KEYS 中均已摘除，留着只会让
+  //   tryActivateAbility 拿缺省值「静默还能用」。表内现为 runtime 5 键全集。
 };
 // #U42（2026-10-19）：SKILL_DEDICATED_KEYS 常量删除——G/H 专属键退役后该表无消费方
 //   （原 { artillery:'btnG', shield:'btnH' }），btnG/btnH 元素已从 HUD 移除。
@@ -1930,6 +1965,10 @@ function spawnBossFromDef(bossDef, node, opts){
   //   主/副武器安装卡与升级卡对 Boss 完全不可见。选择逻辑在 js/tank_cards.js pickBossArmament，
   //   施加走 applyCardEffects —— 与玩家卡牌**同一语义通道**（换装重置 stats 基线、升级仅同型合并）。
   assignBossArmament(bossEntity, bossNumber);
+  // #W-J（2026-10-20）：Boss 主武器专属数值覆写（机炮 maxRange 900 → RULES.boss.tuning.autocannonRange）
+  //   ⚠️ 必须在 assignBossArmament **之后**：武器安装会重建 weapons.primary.stats，
+  //   先调会被安装卡覆盖回 900。幂等，缺函数/缺字段时内部自动回落，不抛错。
+  if(typeof applyBossWeaponTuning === 'function') applyBossWeaponTuning(bossEntity);
   // #U43（2026-10-19 用户要求「进入 boss 节点时，需要提示 boss 持有的技能和主、副武器」）：
   //   武备与技能都已落定，此刻弹进场简报——数据取自**实体本身**（含随机结果），不是配置。
   showBossBriefing(bossEntity);
@@ -3747,8 +3786,6 @@ const ABILITY_KEY_HINT = {
   shield: '战术护盾（技能槽数字键，展开全向护盾）',
   overdrive: '超级装填（技能槽数字键）',
   deploy_cover: '战术掩体（技能槽数字键，车前部署充能掩体）',
-  super_fire_control: '超级火控（限时精度/瞄准强化，技能槽数字键触发）',
-  super_speed: '超级速度（限时机动强化，技能槽数字键触发）',
   aps: '主动防御系统（技能槽数字键，限时拦截来袭弹药）',
   // #G（2026-09-21）：innate 装备键提示补全（此前获得即有 HUD 按钮，但日志文案缺位）
   repair: '修理箱（4 键，修复模块损伤）',
@@ -3849,26 +3886,10 @@ function updateAps(t, dt){
 
 // #C4a（2026-09-17）：超级火控/超级速度接入统一入口（此前未接 skillHotkey DISPATCH，
 // ABILITY_KEY_HINT 文案声称「1~3 号技能键触发」但战斗中实际无法激活）。
-function trySuperFireControl(){
-  if(!player || player.immobT > 0) return;
-  const res = tryActivateAbility(player, 'super_fire_control');
-  if(res.ok){
-    playSound('ui');
-    pushLog(`超级火控 — ${res.duration}s 内散布 ×${res.spreadMult}、瞄准速度 ×${res.aimSpeedMult}`, 'PEN');
-  } else {
-    abilityFailLog('超级火控', res);
-  }
-}
-function trySuperSpeed(){
-  if(!player || player.immobT > 0) return;
-  const res = tryActivateAbility(player, 'super_speed');
-  if(res.ok){
-    playSound('ui');
-    pushLog(`超级速度 — ${res.duration}s 内马力 ×${res.accelMult}、极速 ×${res.maxSpeedMult}`, 'PEN');
-  } else {
-    abilityFailLog('超级速度', res);
-  }
-}
+// #W9（2026-10-20 用户裁定「删除 super_speed / super_fire_control」）：trySuperFireControl /
+//   trySuperSpeed 两个函数与 SKILL_DISPATCH 两行、ABILITY_KEY_HINT 两条文案一并删除
+//   ——两键已从 RULES.abilities、js/tank_abilities.js 的 ABILITY_KEYS_RUNTIME / ABILITY_LABELS
+//   及卡牌 ABILITY_KEYS 全部摘除，无任何消费者。
 
 // #90 修理箱（4）/ 医疗包（5）：开局自带（无需持卡），独立冷却走 t.abilityCds.repair/medkit
 // （运行时由 js/tank_abilities.js 战斗层扩展消费；基础冷却注入见 prepPlayerForRun 的 abilityBaseCd）。
@@ -4955,15 +4976,27 @@ function updateBottomHud(){
           btnF.title = `索敌中 — 未找到可锁定目标：需要敌对目标位于炮塔 ±${mArc}° 扇形内且距离 ≤ ${mRange}px（按 F 取消）`;
         }
       } else {
-        btnF.title = secW.type === 'turret'
-          ? '副炮塔（自主开火，无需操作）'
-          : `副武器击发（F，按住连发）：${SECONDARY_LABELS[secW.type] || secW.type}`;
+        // #X5（2026-10-20）：榴弹炮 F = 曲射/直射切换 —— 角标显示当前模式（曲/直），
+        //   title 说明「F 切换」。与击发类副武器（按住连发）在文案上明确区分。
+        if(secW.type === 'howitzer'){
+          const hOn = (typeof isHowitzerMode === 'function') ? isHowitzerMode(player) : (player._howitzerOn !== false);
+          fBadge = hOn ? '曲' : '直';
+          btnF.title = hOn
+            ? '榴弹炮（曲射模式）：按 F 切到直射 — 曲射时左键/空格高抛越掩，落点=鼠标位置'
+            : '榴弹炮（直射模式）：按 F 切到曲射 — 直射时主炮按常规平射弹道';
+        } else {
+          btnF.title = secW.type === 'turret'
+            ? '副炮塔（自主开火，无需操作）'
+            : `副武器击发（F，按住连发）：${SECONDARY_LABELS[secW.type] || secW.type}`;
+        }
       }
     }
   }
   const secRl = (hasSec && player.secondaryReloadT > 0) ? player.secondaryReloadT : 0;
   // 装填中优先显示秒数（锁定态只在装填就绪后才可能出现）
-  cd('cdF', secRl > 0 ? secRl.toFixed(1) : (isLockMissile ? fBadge : ''), secRl > 0);
+  // #X5：榴弹炮的 F 是模式开关，与装填无关 ⇒ 模式角标不受装填计时压制（否则切模式后角标消失）
+  const secIsHowitzer = hasSec && secW.type === 'howitzer';
+  cd('cdF', secRl > 0 ? secRl.toFixed(1) : ((isLockMissile || secIsHowitzer) ? fBadge : ''), secRl > 0 && !secIsHowitzer);
 
   // #U42（2026-10-19）：btnG/btnH 显隐与冷却角标删除——G/H 专属键退役（同 #H3 删 btnV/cdV 先例），
   //   artillery/shield 的常显入口与冷却角标统一走技能池槽 skillSlot1~3（下段渲染）。
@@ -6067,14 +6100,18 @@ function draw(){
   drawSpreadCones(ctx, gp, aimA, player.sigma, { length: 250, dual: true });
 
   // #W-I（2026-10-19 用户裁定）→ 2026-10-20 修正口径：「虚线圈改为**散布圈**，
-  //   大小 = 精度 × 距离，表示弹着点分布的范围，精度采用主炮的精度 × 1.2」。
+  //   大小 = 精度 × 距离，表示弹着点分布的范围，精度采用主炮的精度 × spreadFactor」。
   //   · sigma 是**弧度 σ**（RULES.spread.base=0.018rad 等）⇒ 横向展开 = σ×距离（弧长），
   //     与直射散布锥（drawSpreadCones）同一物理口径；
-  //   · 圈心仍 = mouseWorld（落点瞄准位置）；半径 = player.sigma × 1.2 × |mouse − player|；
+  //   · 圈心仍 = mouseWorld（落点瞄准位置）；半径 = player.sigma × spreadFactor × |mouse − player|；
+  //   · spreadFactor 唯一口径 WEAPON_DEFAULTS.primary.howitzer.spreadFactor（缺省 1.2）——
+  //     与 js/tank_fire.js 的实际落点切向偏移**同一参数源**，改一处自动跟随；
   //   · he 爆炸半径不再画圈（落点爆炸范围由 splashRadius 在弹着时结算，不属于瞄准语义）。
   if(isHowitzerMode(player) && typeof mouseWorld !== 'undefined' && mouseWorld){
+    const hsDef = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
+    const spf = (typeof hsDef.spreadFactor === 'number') ? hsDef.spreadFactor : 1.2;
     const aimDist = Math.hypot(mouseWorld.x - player.x, mouseWorld.y - player.y);
-    const sigmaSpread = (player.sigma || 0) * 1.2 * aimDist;   // 主炮精度 ×1.2 × 距离
+    const sigmaSpread = (player.sigma || 0) * spf * aimDist;   // 主炮精度 × spreadFactor × 距离
     ctx.strokeStyle = 'rgba(255,180,84,0.85)';
     ctx.setLineDash([9, 7]);
     ctx.lineWidth = 2;
@@ -6083,7 +6120,6 @@ function draw(){
     ctx.setLineDash([]);
     ctx.fillStyle = 'rgba(255,180,84,0.9)';
     ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, 2.5, 0, TAU); ctx.fill();
-    const hsDef = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
     const minArc = (typeof hsDef.minArcRange === 'number') ? hsDef.minArcRange : 120;
     if(aimDist < minArc){
       ctx.strokeStyle = 'rgba(255,80,60,0.5)';

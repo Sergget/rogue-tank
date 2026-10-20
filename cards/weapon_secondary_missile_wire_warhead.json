@@ -2,7 +2,6 @@
   "id": "weapon_secondary_missile_wire_warhead",
   "name": "线导弹：串联战斗部",
   "rarity": "rare",
-  "tags": ["爆破", "重甲"],
   "desc": "线导导弹强化：单发伤害 150 → 220、射程 700 → 900px。高爆战斗部，对重甲目标破甲威力显著。",
   "effects": [
     {

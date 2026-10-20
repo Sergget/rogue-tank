@@ -132,9 +132,29 @@
 - **bench 弹种条方向提示修正**：`renderAmmoIndicator` 的方向标由「下一格 Q / 上一格 E」**改为「下一格 E / 上一格 Q」**（与 `KEY_BINDINGS.ammoNext='e'`/`ammoPrev='q'` 同向；旧提示按键得到反向弹种）。
 - **陈旧文案清理**：bench 控制说明由「1/2/3 弹种切换（AP / APCR / HE）」改为「E / Q 环形切换弹种（或点击弹种格；数字直选已摘除）」；mvp 弹药槽按钮 title 由「1号主弹药 (1)」等改为「主/副/备用弹药槽 N（E/Q 环形切换 / 点击选择）」。
 
-### 7.4 未纳入本轮（仍开放）
+### 7.4 HUD 渲染实现级合并（#3，2026-10-20 已完成第一批）
 
-- **HUD 同功能两套实现**（血条/装填指示/弹种条/日志/散布锥/FPS 读数等 9 处，`renderAmmoIndicator` 两页各一份）：本轮与 #F 只统一按键/文案与**面板粒度**（devPanel 已同源），**渲染实现级合并**仍在 `docs/PLAN.md` §2 非阻塞遗留；bench 卡牌选择器已随 #F 自动获得共享 devPanel DOM（不再列为独立可选后续）。
+> **沿革**：本节原记「9 处 HUD 同功能两套实现，渲染实现级合并仍在 PLAN §2 非阻塞遗留」。2026-10-20 用户裁定口径「A. bench 与 mvp 共用同一套 HUD」后落地第一批。
+
+- **弹种指示器已同源**：`js/tank_hud.js` 的 `renderAmmoIndicator(H)`（`H` 注入 `list` / `currentIndex` / `onPick` / `showMult` / `centerActive`）。mvp 传 `activeLoadout()` + `showMult:true`；bench 传 `getAmmoKeys()` + `onPick` + `centerActive:true`。两页旧内联实现保留为 `TankHud` 缺失时的兜底分支。
+- **DOM 契约（两页必须一致）**：容器 `#ammoIndicator`，格子 `.ammo-cell`，激活格 `.ammo-cell.active`，内部 `.dot` / `.key` / `.label` / `.mult`。**bench 的 `<style>` 已于 2026-10-20 补齐 `.ammo-cell` / `.ammo-cell.active` / `.key` 三条规则**（此前只有元素内联样式，走共享实现后激活高亮整体消失——本次审查发现并修复，见 `DEVELOPMENT-batches-2026-10.md` §4.111）。
+- **散布锥已同源**：`drawSpreadCones(ctx, gp, aimA, sigma, {length, dual})`。`dual:true` = 1σ 实线（68%）+ 2σ 虚线（95%）。mvp 用 250px 短锥（战斗视野），bench 用全长（解算面板语义）。
+- **经取证不计入合并**：血条（mvp 底部 HUD vs bench 右栏靶车数据面板）、日志（mvp 独立浮层 vs bench 常驻栏）——属**产品定位差异**，非「同功能两套实现」。
+- **仍未合并**：装填指示（mvp 环 vs bench 横条）、FPS 读数两份实现。
+
+### 7.6 内容工具与预览（NF-1 / NF-2 / NF-4，2026-10-20）
+
+| 项 | 实现 | 归口 |
+|---|---|---|
+| **NF-1 卡牌查看器扩展** | mvp `C` 键面板新增「**全池**」页签（数据源 `cardPool` 全表，按稀有度分组排序）；描述经 `formatCardDesc(card)` 求值（`{value}` / `{pct}` / `{ov:key}`，各带 `:N` effects 索引形式，未知占位符原样保留）；点击描述就地换 `textarea` 编辑，提交存 `sessionStorage['cardDescOverride']`（**仅会话预览，不写 `cards/*.json`**——写盘属内容批次职责）。 | `js/tank_cards.js` `formatCardDesc` + `tank_mvp.html renderCardsPanel` |
+| **NF-2 坦克图鉴 CODEX** | bench 敌实验室新增面板：选等级 → `enemyPreviewStats(tankId, level, opts)` **纯查询**（临时 `makeTank` → `applyEnemyAppearanceAndStats` → `enemyLevelMults` 经 `addModifier` 注入 → 读 `stats`，**全程不触碰实体注册表**）。展示 HP/穿深/伤害/装填/极速/装甲六面。与 LIVE ENEMIES（真实实体，验证 AI/难度实战）分工互补。 | `js/tank_panels_core.js` `enemyPreviewStats` |
+| **NF-4 面板卡牌悬停预览** | `tank_devpanel.js` 的 `attachCardTooltip(btn, card)`：单例 tooltip（稀有度彩色徽章 + `formatCardDesc` 求值正文），`mouseenter` 300ms 延迟、`mouseleave` 立即隐藏；位置 = 按钮右缘 +12px，超出视口右/下边缘时翻折。`title` 保留为无 CSS/JS 极端环境的兜底。 | `js/tank_devpanel.js` |
+
+> **`enemyPreviewStats` 与实战敌军的口径差异（有意为之）**：实战经 `applyDifficultyMults` 还会叠加难度封顶（`difficultyCapMuls`，含 `Math.random` 抖动）——那是平衡用的运行时钳制；图鉴展示**确定性基准**（无抖动），便于横向对比等级曲线。
+
+### 7.7 未纳入本轮（仍开放）
+
+- 装填指示（mvp 环形 vs bench 横条）、FPS 读数两份实现——同 §7.4 末条。
 
 ### 7.5 浏览器自动化测试链（2026-09-20，#F7）
 
@@ -151,3 +171,58 @@
 - **测试钩子**（`tank_mvp.html` `window.__TEST__`，不影响生产路径）：`shells()`/`strikes()`/`profile()`/`rerenderShop()` 供 r4 采样闭包内状态；既有 `pendingMineFields`/`mineFieldPreview`/`giveCard`/`skipToNode`/`setTimeScale` 复用。
 - **r4 夹具约定**（2026-09-20 实测踩坑后固化）：① 发射计数只统计 `shooter.id === 'player'`——`firePrimaryShell` 同时服务敌方/友军 AI，不过滤会把敌方射击算成玩家发射；② 夹具冻结全体敌人（`maxHp/hp=1e6`、`immobT/reloadT=9999`），避免敌方还击打死玩家与「敌方全灭 → `isClearing` 跳过整个开火轮询块」造成的假失败；③ 雷场枚数统计 `spawnMine` 调用次数而非存活地雷数（触发半径 45px，目标站在场内会被立即引爆）；④ 注入（`addScriptTag` 包装全局）必须在 `page.reload()` **之后**，且 `waitForFunction` 的 `{timeout}` 必须作为**第三个**参数。
 - **验证状态**：四链 **ALL PASS / EXIT=0**（2026-09-20 实跑，r4 连跑 3 次全绿）；沙箱内跑 browser 链需按 `sandbox-verify` 一次性放宽进程权限（`spawn EPERM`），复用已监听的 server 可避开 listen 拒绝。实测中发现的 3 处真实缺陷（mvp `devNoVision` TDZ、bench 陈旧复选框接线、开关类副武器 F 逐帧翻转）均已修复，见 `DEVELOPMENT.md` §4.27；F 键边沿口径归口 `specs/combat.md` §8.2。
+
+---
+
+## 8. 2026-10-20 批次现行口径（#X1 / #W14 / #7① / #16）
+
+### 8.1 `applyTankConfig` 深拷贝 `spec.appearance`（#X1，2026-10-20）
+
+**背景（根因比原条目描述更强）**：`tanks/*.json` 的 `appearance`（`cupola` 车长塔 / `engineDeck` 发动机舱盖外观件）**从未生效**——`js/tank_model.js` 的 `applyTankConfig`（约 `:516-655`）**完全不拷贝 `spec.appearance`** ⇒ 游戏内 `t.appearance` **恒 `null`**，所有外观件读到的都是缺省值。原 ISSUES #X1 只描述为「位置不受设计器影响」，实测**比这更严重：根本没有生效过**。
+
+**修法**：按 `anchors` 的逐项拷贝手法**深拷贝**（避免实例级改写污染共享 `spec`）。
+
+**实测**：`tiger-I` → `t.appearance = { cupola: 'panoramic', engineDeck: 'rearGrille' }`；切换车型无残留（不共享引用）。
+
+### 8.2 设计器叠加层基准与 `tank_paint.js` 统一（#X1，2026-10-20）
+
+`designer.js`（约 `:2192-2194`）此前用**座圈中心**为基准，而 `js/tank_paint.js`（约 `:879`）用 `(cym − W*0.44) + dy` ⇒ 两处基准不一致，设计器预览与实际贴图**位置偏差**。
+
+**现行**：设计器**复用 `tank_paint.js` 同一公式**（唯一口径）——
+- `cupola` = `(cxm + dx, (cym − W*0.44) + dy)`，再按 `turretAngle` 旋转；
+- `engineDeck` = `(cxm + dx, cym + dy)`。
+
+**并去重复叠加**：预览模式下 `paintPartTexture` 通道**已画**过一遍，仅 `!opts.detail` 的编辑模式才补画（旧实现两模式都补 ⇒ 叠加成双影）。
+
+### 8.3 `RULES.enemyAnchorBase.aimSpeed`（#W14，2026-10-20）
+
+**根因（不是「难度表没调」）**：`applyEnemyAppearanceAndStats` 原先**不写 `base.aimSpeed`**，而 `makeTank` 的 base 也**无该键** ⇒ `computeStats` 回落 `RULES.spread.shrinkRate`（**0.15**）——那是「配装缺省」量纲；而真实坦克 `tanks/*.json` 的 `base.aimSpeed` 包络是 **1.0~2.5**。`entityMults.aimSpeed = [0.8, 1.35]` 是按真实坦克量纲设计的 ⇒ 满难度实测只有 `0.15×1.35 = `**0.2025**（玩家 `tiger-I` 1.5 的 **7.4%**），敌军缩圈几乎停滞、散布恒处扩散状态。
+
+**现行**：`RULES.enemyAnchorBase.aimSpeed = 1.2`（中位中坦量级）；`applyEnemyAppearanceAndStats` 显式写 `base.aimSpeed`。`aimSpeed` **不参与** `enemyClassProfiles` 类别缩放（四类共用同一瞄准速度基准，差异由难度通道与玩家卡牌通道承担）。
+
+**现行取值**（唯一口径 `js/tank_rules.js`）：
+| 难度 | 乘子 | `stats.aimSpeed` |
+|---|---|---|
+| 低（`diff=0`） | 0.8 | **0.96**（= 1.2×0.8） |
+| 满（`diff=diffMax=1.15`） | 1.35 | **1.62**（= 1.2×1.35） |
+
+**⚠️ 量纲锁定断言的正确写法（勿改）**：低难度 **0.96 低于 1.0 是设计意图**（低于玩家基准、略慢于中位中坦）——断言必须写 `≈0.96`，**不能写 `> 1.0`**（那会把设计意图判成缺陷）。真正的护栏是两条：① 结果 ≠ `RULES.spread.shrinkRate`（否则说明又回落到配装缺省量纲）；② 敌我量纲一致（满难度 1.62 落在真实坦克 1.0~2.5 包络内）。回归：`scripts/test-modifiers.js` #W14 段 13 条断言（含单调性、缺陷值 0.2025 回归、裸 `makeTank` 对照）。
+
+### 8.4 bench 卡牌面板按稀有度分组（#7①，2026-10-20）
+
+`tank_bench.html` 的 `populateCardSelect`（约 `:626-640`）此前按 `id` 平铺下拉、无分类；分类逻辑只存在于 `js/tank_devpanel.js`。现改用 **`<optgroup>` 按稀有度分组**，新增两页共享的 `groupCardsByRarity` / `devRarityLabel` / `DEV_RARITY_*`（与正式游戏同源）。
+
+**⚠️ rarity-only，不依赖 tags**：因 #16 已删除 `tags` 字段，本实现**刻意不依赖 tags**（若依赖会随字段下线连带失效）。一键清除（`:227 clearCardsBtn`）保留。
+
+**实测**（196 张）：分 **5 组**——神话 1 / 传奇 15 / 史诗 44 / 稀有 77 / 普通 59。
+
+### 8.5 `tools/content_designer.html` 的 tags 编辑器移除（#16 连带，2026-10-20）
+
+该页 `:159` 的 `for(const t of CARD_TAGS)` 在 `CARD_TAGS` 不再导出后**打开即抛 TypeError**（**不在 `check-html.js` 的五页扫描范围内** ⇒ `npm run check` 不红，属工具链静默崩溃）。
+
+**已整段删除 5 处**：`:107` 列表元信息（改为**只显示 rarity**）、`:157-164` 勾选框区域、`:231` tags 收集、`:259` 输出写回、`:37-38` `.tags` CSS。每处带 `#16（2026-10-20）` 注释。
+**A/B 验证**（同一 DOM stub）：旧写法 `for(const t of CARD_TAGS)` → `ReferenceError: CARD_TAGS is not defined`；新文件内联脚本加载正常、去注释后 `CARD_TAGS`/`tagWrap`/写回 `tags` 均消失。
+
+### 8.6 设计器三项（2026-10-20 #15，已记录于 `DEVELOPMENT-batches-2026-10.md` §4.110）
+
+履带平铺对称 / 外观件实时预览 / 车长塔坐标统一——结论归口 §4.110 与 `js/tank_paint.js` 的 `cupolaAnchor`，本节不重复罗列，与 §8.1/8.2 无冲突（§8.2 的基准统一正是 §4.110「车长塔坐标统一」的延续）。

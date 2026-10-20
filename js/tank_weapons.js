@@ -17,10 +17,12 @@ const WEAPON_DEFAULTS = {
   //   · splashRadius：落点爆炸半径（he 系数链可改）；arcSpeed：曲射弹飞行速度（px/s）；
   //   · moveSpeedRatio 1/3：模式下限速系数（js/tank_move.js 消费，勿走 speedModifier——
   //     公路会把 speedModifier 强制归 1 静默清零减速）；
+  //   · spreadFactor 1.2：散布圈半径系数（瞄准器半径与实际落点散布**同一参数源**，
+  //     消费方 js/tank_fire.js 的落点切向偏移 + tank_mvp.html 的 howitzer 瞄准圈）；
   //   · barrage：急速射升级卡参数（3 发间隔 0.5s，仅模式内生效）。
-  howitzer:    { reloadMult: 2.2, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0,
-                 isArc: true, arcSpeed: 260, splashRadius: 90, minArcRange: 120,
-                 moveSpeedRatio: 1/3, barrage: null },
+    howitzer:    { reloadMult: 2.2, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0,
+                   isArc: true, arcSpeed: 260, splashRadius: 90, minArcRange: 120,
+                   moveSpeedRatio: 1/3, spreadFactor: 1.2, barrage: null },
     // 2026-09-15 W6 用户裁定：速射机炮重做——伤害=标准 1/5、穿深=标准 85%（弹种系数机制不变）；
     // 射击间隔=装填时间×0.25（不再 burst 连发，逐发短间隔持续射击）；
     // 热量机制：每发 +heatPerShot%、每秒冷却 coolPerSec%、≥heatMax 过热并锁定 overheatLock 秒；
@@ -463,8 +465,10 @@ function fireRocketOne(t, ctx, cfg, angle) {
 
 // #D4（2026-09-19）：火箭巢逐发队列驱动——_rocketBurst = { left, lastAngle }。
 // 由接线层逐帧调用（玩家 mvp 主循环 / AI updateSecondaryMount 顶部）：
-// burst 期间 secondaryReloadT 作为发际间隔（burstInterval），弹指目标优先跟随
-// 当前最近敌人（无目标则保持上一发方向），队列清空后写入整组装填 cfg.reload。
+// burst 期间 secondaryReloadT 作为发际间隔（burstInterval），队列清空后写入整组装填 cfg.reload。
+// #X4（2026-10-20 用户裁定「火箭弹朝炮塔正前方」）：追发弹**不再**逐发重选最近敌人（那会让
+// 整组跟着目标转头），改为沿用整组基础角度 lastAngle（= 首发的炮塔朝向），每发只叠加
+// fireRocketOne 内的独立散布 ⇒ 扇形齐射。`lastAngle` 仍在首发时写入，故组内角度恒定。
 function updateRocketBurst(t, dt, ctx) {
   const b = t && t._rocketBurst;
   if (!b) return false;
@@ -478,17 +482,8 @@ function updateRocketBurst(t, dt, ctx) {
     t.secondaryReloadT -= dt;
     if (t.secondaryReloadT > 0) return false;   // 发际间隔未到（dt 跨帧超额则本帧立即发射）
   }
-  // 瞄准：优先存活目标方向；目标丢失保持上一发角度（committal burst 语义）
-  const nearestEnemyTo = c.nearestEnemyTo || (typeof globalThis !== 'undefined' && globalThis.nearestEnemyTo) || (function(){ return null; });
-  const target = nearestEnemyTo(t);
-  let angle;
-  if (target && target.hp > 0) {
-    const tipFn = c.gunTip || (typeof globalThis !== 'undefined' && globalThis.gunTip) || null;
-    const ox = tipFn ? tipFn(t).x : t.x, oy = tipFn ? tipFn(t).y : t.y;
-    angle = Math.atan2(target.y - oy, target.x - ox);
-  } else {
-    angle = (typeof b.lastAngle === 'number') ? b.lastAngle : (t.turretAngle || 0);
-  }
+  // #X4：角度 = 整组基础角度（缺省回退当前炮塔朝向）——committal burst，整组同一指向
+  const angle = (typeof b.lastAngle === 'number') ? b.lastAngle : (t.turretAngle || 0);
   const fired = fireRocketOne(t, c, cfg, angle);
   b.left -= 1;
   b.lastAngle = angle;
@@ -650,7 +645,12 @@ function fireActiveSecondary(t, ctx, targetPos) {
       // #D4（2026-09-19）：同帧齐射改连续逐发——本次仅发射第 1 发并登记 _rocketBurst
       // 队列（剩余 count-1 发经 updateRocketBurst 按 burstInterval 逐发驱动），随后进入
       // 整组装填 reload（队列清空时写入）。旧实现同帧 push 全部 count 发。
-      const baseAngle = Math.atan2(target.y - tipP.y, target.x - tipP.x);
+      // #X4（2026-10-20 用户裁定「火箭弹应朝炮塔正前方」）：基础角度**不再解算到 target**
+      //   （此前 atan2(target−tipP) 让火箭弹朝鼠标点飞，与炮塔指向脱钩）。现恒取炮塔朝向，
+      //   整组共用该角度；每发散布仍由 fireRocketOne 的 `angle + gaussian(0.02)` 独立采样
+      //   ⇒ 保持「扇形齐射」手感而非同点重叠。其他副武器（mortar/missile/turret/mine_layer）
+      //   仍按 target 解算，语义不变。
+      const baseAngle = (typeof t.turretAngle === 'number') ? t.turretAngle : 0;
       const count = (typeof cfg.count === 'number') ? cfg.count : 4;
       const fired = fireRocketOne(t, c, cfg, baseAngle);
       if (!fired) return false;
@@ -725,7 +725,8 @@ if (typeof module !== 'undefined' && module.exports) {
     getWeaponDefaults,
     normalizeTankWeapons,
     isHowitzerMode,
-  updateSecondaryTurret,
+    toggleHowitzer,
+    updateSecondaryTurret,
     updateSecondaryMount,
     updateSecondaryWeapon,
     updateMissileLock,
@@ -736,10 +737,36 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 // #W-I（2026-10-20）：榴弹炮曲射**模式判据**（唯一口径）。
 //   用户裁定：该模式是**副武器**，装进副武器槽后主炮切曲射；卸下/换掉即回直射。
-//   ⇒ 判据 = `weapons.secondary.type === 'howitzer'`（不再依赖任何运行时开关标记）。
+//   ⇒ 判据 = `weapons.secondary.type === 'howitzer'`。
+//   #X5（2026-10-20 用户裁定「F = 曲射/直射切换」）：判据再加**运行时开关** `t._howitzerOn`
+//   —— 该槽本身不发射，F 对它是模式开关（唯一例外，见 docs/specs/combat.md §8.2）：
+//     · 缺省（`undefined`）视为 **true** ⇒ 装上即曲射，保持 #W-I 以来的既有体验；
+//     · 显式 `false` ⇒ 曲射关闭，主炮回到直射（弹无 isArc）；
+//     · 切换只经 toggleHowitzer（单一定义处），F 的边缘触发由页面层 keydown 承担。
 //   消费方：js/tank_fire.js（开火/落点/预检/装填）、js/tank_move.js（1/3 限速）、
-//   tank_mvp.html（散布圈瞄准器）、js/tank_cards.js（模式升级卡的有效性判定）。
+//   tank_mvp.html（散布圈瞄准器 / F 状态角标）、js/tank_cards.js（模式升级卡的有效性判定）。
 function isHowitzerMode(t){
-  return !!(t && t.weapons && t.weapons.secondary && t.weapons.secondary.type === 'howitzer');
+  if (!(t && t.weapons && t.weapons.secondary && t.weapons.secondary.type === 'howitzer')) return false;
+  // 默认 true：只有**显式关闭**才算直射（`!== false` 而非真值判断——避免漏字段被当关闭）
+  return t._howitzerOn !== false;
 }
-if (typeof globalThis !== 'undefined') { globalThis.isHowitzerMode = isHowitzerMode; }
+
+// #X5（2026-10-20 用户裁定）：曲射/直射**模式开关**——返回切换后的布尔值（true=曲射）。
+//   调用契约：
+//     · 唯一入口是 F 键的**原生 keydown 边沿**（tank_mvp.html 与 mine_layer/missile 同列），
+//       严禁主循环逐帧轮询（会每帧翻转，见 docs/specs/combat.md §8.2）；
+//     · 切换时清 `_howitzerBurst`：急速射追发队列属旧模式，模式切走后不得继续打出
+//       （否则「切到直射」后仍有曲射弹凭空飞出）；
+//     · 非 howitzer 槽恒返回 false（不写状态，不抛错）。
+function toggleHowitzer(t){
+  if (!(t && t.weapons && t.weapons.secondary && t.weapons.secondary.type === 'howitzer')) return false;
+  const next = (t._howitzerOn === false);   // 当前关闭 → 打开；当前开启/缺省 → 关闭
+  t._howitzerOn = next;
+  if (!next) t._howitzerBurst = null;       // 关闭曲射：丢弃未打完的追发队列
+  return next;
+}
+if (typeof globalThis !== 'undefined') {
+  globalThis.isHowitzerMode = isHowitzerMode;
+  globalThis.toggleHowitzer = toggleHowitzer;
+}
+

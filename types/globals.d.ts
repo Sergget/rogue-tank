@@ -357,7 +357,10 @@ declare var FLOW_TRANSITIONS: any;
 declare function createFlow(): FlowState;
 declare function watchFlow(flow: FlowState, fn: Function): Function;
 declare function transition(flow: FlowState, next: string, payload?: any): void;
-declare function restartRun(flow: FlowState): void;
+// #W15（2026-10-20 用户裁定「删除」）：`restartRun` 声明已随 js/tank_flow.js 的实现一并摘除。
+//   沿革：该函数正式页面零调用，此前仅本文件与 scripts/test-flow.js 引用（测试↔类型自循环）。
+//   「重开一局」的现行表达是 `battle → map`（放弃节点）与 `gameover → battle`（阵亡后直达，#N5）。
+//   ⚠️ 不要恢复此声明——它会让一个不存在于运行时的函数通过类型检查（TS 检查不到运行期）。
 
 // 线性节点链生成 / 通关奖励评分 / 节点实体化（js/tank_map.js，P-08 / §6 条目 6；P-34 开放式链）
 declare function difficultyForIndex(index: number, difficultyLevel?: number): number;   // P-34：索引驱动饱和曲线 + 跨局难度叠加

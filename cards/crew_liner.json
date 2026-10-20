@@ -2,7 +2,6 @@
   "id": "crew_liner",
   "name": "成员内衬",
   "rarity": "rare",
-  "tags": ["重甲", "支援"],
   "desc": "成员内衬（被动）：成员（车长/炮手/装填手/驾驶员/炮闩）受到的损伤降低 20%。",
   "effects": [
     { "type": "passive", "key": "crew_liner", "value": 0.20 }

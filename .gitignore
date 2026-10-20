@@ -2,7 +2,7 @@ node_modules/
 *.log
 .DS_Store
 .playwright-mcp/
-# �Ӵ�����ʱ������������ض���/���Խű���
+# 接入层临时产物（本地覆盖层/调试脚本）
 .opencode/tmp/
 
 # Godot eval archive lives on feat/godot-eval (@5b81959); keep local copies untracked here
@@ -15,8 +15,11 @@ tools/godot/
 # Agent team runtime state (session ids + agent message logs) - local only
 .agent-teams/
 
-# 本地工具链临时目录：tmp/pylibs（Pillow/numpy wheel 解包，供 scripts/optimize_sprites.py
-# 与 clean_sprite_bg.py 使用，见 docs/DEVELOPMENT-batches-2026-10.md §4.57）+ 下载缓存 + 调试脚本
+# 本地工具链临时目录：tmp/pylibs（Pillow/numpy wheel 解包，供 scripts/optimize_sprites.py、
+# prepare_covers.py、gen_barrels.py、covers-anchor-check.py 使用）+ 下载缓存 + 调试脚本。
+# 2026-10-20 已清理缓存/一次性探针，仅保留 tmp/pylibs（≈57MB）。
+# 重建方式：pip download pillow numpy --dest tmp/wheels + Expand-Archive 到 tmp/pylibs，
+# 或直接把已解包的 site-packages 目录复制到 tmp/pylibs。
 tmp/
 
 # 凭据（本地 .env，禁止提交；样例见 .env.example）
@@ -27,3 +30,8 @@ tmp/
 # Python 字节码缓存（scripts/*.py 被执行时产生）
 __pycache__/
 *.pyc
+
+# 脚本目录内的一次性产物（调试快照 / 临时输出；勿提交）
+scripts/.*.json
+scripts/_*.json
+

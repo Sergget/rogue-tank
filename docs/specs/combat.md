@@ -44,9 +44,47 @@
 ## 3. 弹种系统 (Ammo Types)
 唯一数据源：`RULES.ammoTypes`（`js/tank_rules.js`，机制参数唯一配置源）。逐弹种数值（穿深/伤害/弹速/弹药架与模块倍率/跳弹角/精度系数/未击穿）**以 §3.2 数值总表为唯一口径**，本节不再重复罗列；升级链见 §3.1，平衡回归见 §3.3。
 
-- **HE 机制细节**（总表之外的行为差异，唯一需单列的弹种）：击穿与未击穿均触发范围溅射（splashRadius=90px，贴脸 50% → 边缘衰减到 0）；未击穿走残余爆轰分支（地板 25%，公式见 §3.2）。HE 破障（A3）：HE 弹销毁时对落点半径 24px 内可破坏掩体造成 1 点独立破坏伤（与 90px 坦克溅射两套并存）。特效对齐约定：爆轰视觉特效半径与逻辑 splashRadius 严格一致，杜绝视觉误导。
+- **HE 机制细节**（总表之外的行为差异，唯一需单列的弹种）：击穿与未击穿均触发范围溅射（splashRadius=90px，贴脸 50% → 边缘衰减到 0）；未击穿走残余爆轰分支（地板 25%，公式见 §3.2）。HE 破障（A3）：HE 弹销毁时对落点半径 24px 内可破坏掩体造成 **1 点**独立破坏伤（与 90px 坦克溅射两套并存）——**对单个元素恒 1 点，无"伤害倍率"概念**：`RULES.breach` 现仅含 `heSplashRadius: 24` 一个键，~~`RULES.breach.heCoverDmg`~~ 因零消费已于 2026-10-20 #W15 删除（详见 `specs/map.md` §W15 死配置清单）。特效对齐约定：爆轰视觉特效半径与逻辑 splashRadius 严格一致，杜绝视觉误导。
 - **命名规范**：升级演进弹种（APDS、APFSDS、HEAT-FS、T-HEAT、HT-HEAT、APHE、HESH、HE-VT、HE-OP 等）全面继承 `RULES.ammoTypes` 对应数值矩阵，全部使用规范军事缩写。
-- **2026-09-14 定案：HEC 弹种移除**——`RULES.ammoTypes` 现 14 键（ap/apcr/apds/apfsds/apfsds_ad/he/heat/heatfs/tandem_heat/heavy_tandem_heat/aphe/hesh/proximity_he/blast_he）。**2026-09-15 用户裁定：主武器曲射机制移除**（howitzer 主武器类型删除，主炮一律平射直线弹道）；曲射/越障由副武器迫击炮承担（mortar `isArc` + `ignoreCover`，见 cards.md §8.3 与 DEVELOPMENT.md §4.13）。
+- **2026-09-14 定案：HEC 弹种移除**——`RULES.ammoTypes` 现 14 键（ap/apcr/apds/apfsds/apfsds_ad/he/heat/heatfs/tandem_heat/heavy_tandem_heat/aphe/hesh/proximity_he/blast_he）。**曲射/越障通道（现行口径）**：① 副武器迫击炮 `mortar`（`isArc` + `ignoreCover`）；② **榴弹炮曲射模式 `howitzer`（2026-10-20 #W-I 回归，副武器语义）**——装进副武器槽后**主炮**切曲射，详见 §3.2b。~~「2026-09-15 主武器曲射机制移除」~~：该裁定只针对当时的 howitzer **主武器类型**（已删除），不约束 2026-10-20 以**副武器模式**形式回归的曲射机制（沿革见 `DEVELOPMENT-batches-2026-10.md` §4.109 更正段）。
+
+### 3.2b 榴弹炮曲射模式（`howitzer`，副武器；2026-10-20 #W-I 现行口径）
+
+**定位**：**模式载体**，不是独立武器类型，也不是技能。装进副武器槽（`weapons.secondary.type === 'howitzer'`）后**主炮**切曲射；卸下/换掉即回直射。判据唯一口径 `isHowitzerMode(t)`（`js/tank_weapons.js` 导出，消费方 `tank_fire.js` / `tank_move.js` / `tank_mvp.html` / `tank_cards.js`）。
+
+**参数唯一口径 `WEAPON_DEFAULTS.primary.howitzer`**（`js/tank_weapons.js`）：
+
+| 键 | 值 | 语义 |
+|---|---|---|
+| `reloadMult` | 2.2 | 曲射重装填（整组装填，显著慢于直射） |
+| `arcSpeed` | 260 | 曲射弹飞行速度（px/s） |
+| `splashRadius` | 90 | 落点爆炸半径（升级卡「阔域弹幕」→ 135） |
+| `minArcRange` | 120 | 最小曲射距离（迫击炮死角，瞄准点过近时沿炮塔方向推出） |
+| `moveSpeedRatio` | 1/3 | 模式下**行进限速系数**（`js/tank_move.js` 链尾独立乘子） |
+| `spreadFactor` | 1.2 | 散布圈半径系数（瞄准圈与落点散布**同一参数源**） |
+| `barrage` | null / 3 | 急速射（升级卡「急速射」→ 3 连发，发际间隔 0.5s） |
+
+**结算语义**（`js/tank_fire.js` `firePrimaryShell` 的 howitzer 分支 + `stepShells` 的 `isArc` 落点分支）：
+- **弹种锁定 he**（忽略玩家当前 `ammoKey`）；
+- **落点 = `ctx.aimPoint`**（鼠标世界位置，mvp 注入 `fireCtx.aimPoint = mouseWorld`）——落点分支不读 `target`，`fireTank` 对该模式放行 `target == null`；
+- **越掩体**：`isArc` 天然绕过路径遮挡，且 `fireTank` 的**炮口贯穿预检**对该模式豁免（`barrelCovers = []`）；
+- **直击**（落点爆炸半径内最近敌对坦克且 `dist ≤ splashRadius×0.9`）：装甲取目标 `hull/turret × front/side/rear` **六面最薄值**，经 `resolveHit` 的 `opts.forceEffThickness` **取代**几何等效厚度（曲射大角度落弹不适用入射角斜面等效，`allowBounce=false` 同时关闭跳弹链）；随后对其它目标补 `splash × 0.35` 衰减溅射（直击目标被排除，不重复扣伤）；
+- **近失**：`s.Dmg` 直接走 `applySplash`（线性衰减，he 溅射语义，不走装甲）；
+- **散布**：落点沿**切向**吃一个 `gauss(σ × spreadFactor) × 瞄准距离` 的高斯样本（径向距离保持瞄准距离）——散布圈是真实弹着分布，不是装饰。
+
+**限速实现约束**：`moveSpeedRatio` 必须走 `driveTank` 的链尾**独立乘子**，**不可并入 `speedModifier`**——`js/tank_move.js:45-47` 的公路判定会把 `speedModifier` 强制归 1，并入即被静默清零（实测曲线路网下减速完全失效）。
+
+**急速射落点（2026-10-20 #X7）**：整组锁定**首发瞬间的落点快照**（`_howitzerBurst.aim = {x,y}`），追发弹经 `ctx.aimPointFrozen` 使用该快照落点；散布仍**每发独立采样**（同区域散布，非同点重叠）。实测 200 组三连发最大偏移 17.8px（1σ = 8.0px）。~~旧口径「跟手」~~（每发重读实时 `aimPoint` ⇒ 开火后移动鼠标会让后两发落点跟着跑）已被取代。
+
+**F 键语义（2026-10-20 #X5 订正）**：F = **曲射/直射模式开关**（走原生 keydown 边沿，见 §8.2「榴弹炮例外口径」），**不承担发射**；射击全部走主炮入口（左键/空格）。~~此前本节记为「F 键不响应（`tryFireSecondary` 对 howitzer 直接 return false）」~~——该表述在 2026-10-20 之前成立（当时 howitzer 恒曲射、无模式开关），#X5 起 F 有了开关职责故改写；「不承担发射」这一点两版一致。
+
+### 3.2c 曲射弹越障契约（`isArc` 弹的帧处理，2026-10-20 #Y1 现行口径）
+
+**唯一口径**：`isArc` 弹**在飞行途中不得被直射扫掠命中段处理**——只在抵达落点（`s.dist >= s.totalDist`）时爆炸结算。`stepShells` 的 `if(s.isArc){ ... }` 块**必须每帧以 `return` 短路**（无论是否已到落点），否则未到落点的帧会穿透到下方直射扫掠段（`raycastTank` + `resolveHit`），把途中坦克当直射目标结算（详情与取证见 `DEVELOPMENT-batches-2026-10.md` §4.112 #Y1）。
+
+**`maxRange` 契约**：`maxRange` 对 `isArc` 弹**恒不生效**——所有 `isArc` 弹（`mortar` / `howitzer`）创建时**不设 `maxRange`**（缺省 `undefined`，`s.maxRange > 0` 判定为假），射程由 `totalDist` 单一口径承担。若将来给 `isArc` 弹加 `maxRange`，需先确认不会与落点结算抢跑（`maxRange` 判定位于 `isArc` 块**之前**，会直接 `s.dead = true` 而不走落点爆炸）。
+
+**历史（不静默删除）**：本契约在 2026-10-20 之前**注释承诺了代码没做的事**——块尾注释写「曲射弹在落点结算后直接 return（不进入直射的扫掠命中段）」，但 `return` 只写在 `dist >= totalDist` 的**内层**分支里，`isArc` 块本身缺兜底 `return`。更早的未提交注释为「#W-I 补回（替换时吞掉了原闭合行）」，说明 #W-I 用替换实现该分支时把闭合花括号位置弄错——花括号表面配平但语义反转。该缺陷与「测试链假绿」两环叠加，长期既未被测试抓住、也未被测试链暴露（#Y1）。
 
 ### 3.1 弹种升级链（14 键 = 14 弹种；HEC 已移除）
 
@@ -106,11 +144,14 @@
   - **火箭发射器逐发 burst（2026-09-19 #D4 用户反馈「同帧齐射改连续快速逐发」）**：`fireActiveSecondary` rocket 分支只发射第 1 发并登记 `t._rocketBurst={left, lastAngle}`；`updateRocketBurst`（tank_weapons.js，mvp 主循环玩家侧 / `updateSecondaryMount` AI 侧逐帧驱动）按 `burstInterval`（WEAPON_DEFAULTS.secondary.rocket.burstInterval=0.18s）逐发补完，队列清空后写入整组装填 `reload`（10s）。瞄准：存活目标方向优先，目标丢失保持上一发角度（committal）。视觉：逐发口焰 `muzzle`+粒子烟 `spawnSmoke`×3+音效（旧齐射仅一次）、弹体 `fxScale=1.3` 放大 + 拖尾增亮（drawShells 消费）。队列不跨节点：enterBattle 清 `player._rocketBurst`/`_missileLock`，重置按钮清全员。
   - **视野系统已整体退役（2026-09-30 #J3，用户裁定「改为全屏幕渲染敌人，不再计算视野距离」）**：敌对实体一律渲染、一律可被命中，只剩 `aabbInView` 视口剔除（纯性能，非玩法机制）。原「可视圆」体系（鼠标锚定圆心 / 屏幕相对半径 / 车内圈 / 视野虚线圈 / 视野卡 `commander_sight`）全部下线，现行细则见 **§13.5**。**注**：敌人 AI 的接战判定**从来与视野系统无关**，一直是「距离 + 直线视野」（`engageRequiresLoS` + `hasLineOfSight`），不受本条影响。
 - **主动技能快捷键池 (1~3 数字键)**：
-  - 快捷键 1/2/3 **严格对应技能池槽位 `player.skillSlots[0..2]`**（2026-09-30 #H3 重做，取代原「按 `cardEffects` 获得顺序自动推导」口径），按槽位快捷施放；**空槽按数字键无任何效果**（不再回落到任何默认技能）。**现行运行时能力键全集（7 个）以 `js/tank_abilities.js` 的 `ABILITY_KEYS_RUNTIME` 为唯一口径**（`artillery / overdrive / shield / super_fire_control / super_speed / deploy_cover / aps`）——键数多于槽位数，**超出部分由玩家在「技能槽指派」面板中指定顶替**（§13.2），因此 7 个键中不存在无激活路径的死键。**2026-09-23 A 档**：原 `recon`（侦察/无人机指令）已随 5 张对应卡整体摘除（归口 `docs/specs/cards.md` §3、`DEVELOPMENT.md` §4.35）。
+  - 快捷键 1/2/3 **严格对应技能池槽位 `player.skillSlots[0..2]`**（2026-09-30 #H3 重做，取代原「按 `cardEffects` 获得顺序自动推导」口径），按槽位快捷施放；**空槽按数字键无任何效果**（不再回落到任何默认技能）。**现行运行时能力键全集（5 个，2026-10-20 #W9 删键后）以 `js/tank_abilities.js` 的 `ABILITY_KEYS_RUNTIME` 为唯一口径**（`artillery / overdrive / shield / deploy_cover / aps`）——键数多于槽位数（3），**超出部分由玩家在「技能槽指派」面板中指定顶替**（§13.2）。**卡牌可授予的能力键全集（8 个）以 `js/tank_cards.js` 的 `ABILITY_KEYS` 为唯一口径**（上述 5 个 runtime 键 + innate 3 键 `repair / medkit / extinguish`）。
+    - **#W9 死键删除（2026-10-20，用户裁定「删除」）**：`super_fire_control` / `super_speed` **已整体摘除**（`RULES.abilities` 两键、`ABILITY_KEYS_RUNTIME`、`ABILITY_LABELS`、`tryActivateAbility` 的两个 `case`、mvp 的 dispatch 与获得提示、bench 测试按钮、`ABILITY_KEYS` 同步删除）。差集实测依据：RUNTIME 7 键 − 卡牌可授予键 = {`super_fire_control`, `super_speed`}，且 196 张卡 + `tanks/` + `bosses/` 全库两键**零命中** ⇒ 玩家在真实对局中永远拿不到，属死键。删除后 `tryActivateAbility(t, 'super_speed', {})` 返回 `{ok:false, reason:'unsupported'}`（**与合法键无卡时的 `reason:'no-ability'` 可区分**），`test-rework-r1.js` 以负向断言锁死（负向断言是死键类问题的根治手段，见 `DEVELOPMENT-batches-2026-10.md` §4.112）。
+    - ~~「7 个键中不存在无激活路径的死键」~~（2026-10-20 前的表述）已被上述 #W9 结论取代——当时 7 键全集里恰好就藏着这 2 个死键。
+    - **2026-09-23 A 档**：原 `recon`（侦察/无人机指令）已随 5 张对应卡整体摘除（归口 `docs/specs/cards.md` §3、`DEVELOPMENT.md` §4.35）。
     - **槽满顶替的排队顺序（#U43，2026-10-19 用户反馈「技能顶替时的顺序似乎不正确」）**：`syncSkillSlots(changedKey)` 现在只把**本次新获得且装不进槽**的那个技能放进待指派队列（`reconcileSkillSlotsAfterGain(newKey)` 由 `pickCard` / `__TEST__.giveCard` / `__TEST__.applyCard` 三处传入）。**沿革（已推翻）**：旧口径把「全部已持有但当前不在槽里的技能」都算待指派（按 `cardEffects` 顺序展开），而被顶掉的旧技能同样满足该条件且排在 `cardEffects` 更前面 ⇒ 玩家刚顶替完，面板立刻又追问旧技能放哪一格，读起来就是顺序反了。现行「已持有但未入槽」视为玩家主动放弃，随时可用 **Shift+点击某槽**手动装回。
     - **护盾的键位（#U44，2026-10-19 用户反馈「战术护盾还在使用 R 触发」）**：**代码中不存在 R 键**——护盾自 #H3 起就走技能池，G/H 专属键已于 #U42 一并退役（`tank_bindings.js` 无 `abilityShield` 键位/说明行；mvp `btnG`/`btnH` 按钮与 G/H 轮询已删）。护盾按**获得时的空槽**自动入池：`syncSkillSlots` 逐项填 `slots.indexOf(null)`，槽满才弹顶替面板。若实机仍显示 R 键提示，属浏览器缓存了旧 `tank_bindings.js`（强制刷新即可）。
 - **冷却模型（2026-09-17 #C4c 用户裁定「按技能独立冷却」）**：
-  - 运行时能力键（artillery/shield/overdrive/deploy_cover/super_fire_control/super_speed/aps）与 innate 键（repair/medkit/extinguish）统一走**按 key 隔离的独立冷却池 `t.abilityCds[key]`**（互不顶冷却；旧共享单字段 `t.abilityCdT` 废弃，`updateAbilityCd` 仅作兼容助手保留）；逐帧递减 `updateAbilityCds(t, dt)`（mvp 主循环驱动）。
+  - 运行时能力键（`artillery/overdrive/shield/deploy_cover/aps`，2026-10-20 #W9 删去 `super_fire_control`/`super_speed`）与 innate 键（`repair/medkit/extinguish`）统一走**按 key 隔离的独立冷却池 `t.abilityCds[key]`**（互不顶冷却；旧共享单字段 `t.abilityCdT` 废弃，`updateAbilityCd` 仅作兼容助手保留）；逐帧递减 `updateAbilityCds(t, dt)`（mvp 主循环驱动）。
   - 获得技能/副武器 → `#gainToast` 屏幕一次性提示（不依赖底部按钮显隐，奖励页/战斗页均可见）+ 已有按钮（G/H/V）金色脉冲（#B10 保留）。
 - **独立按键备用**：
   - 战术炮击 (G键)：呼叫延迟 AOE 覆盖（callStrike / updateStrikes）。
@@ -225,6 +266,27 @@
   - **装填进度环形化**：废除原屏幕底部横向装填条（`#reloadWrap` 的 `#reloadTrack/#reloadFill`），改为 `drawReloadRing(ctx)` 贴炮口 `gunTip(player)` 世界坐标的环形弧（世界坐标经 `worldToScreen`，半径固定 13px），从 -90° 顺时针扫 360°×进度，**满值(≥1)即消失**（仅战斗态、装填中、玩家存活时绘制），挂入战斗绘制循环（drawDrones 后、烟幕云前）。**2026-09-15 W6：主武器 autocannon 时该环改为热量表**——弧长 = heatPct/100，三态配色 绿 <50% / 黄 50–<100% / 红 ≥100%（过热锁定期间红色闪烁）；冷却由 `updatePrimaryHeat` 逐帧驱动，热量归零后环消失（详见 cards.md §8.3）。
   - **底部常显 HUD**：新增 `#bottomHud`（战斗态门控 `flow.state==='battle'`）——常显玩家血条 `#playerHpTrack/Fill/Val`（同 updateStatusPanel 口径）+ 能力按钮行 `#abilityBtns`：↻弹种循环(cycleAmmo)/**F 副武器击发（2026-09-17 #C4e 语义反转，取代 toggleWeaponSlot；图标随武器类型切换 + `#cdF` 装填角标）**/4 修理箱/5 医疗包/6 灭火器（技能区结构现状见 §13.2：**G 炮击/H 护盾/V 超装填按钮已分别随 #U41/#H3 退役**，技能统一走技能池槽），`updateBottomHud()`（挂入 updateHud）刷新冷却角标——**按技能独立冷却** `t.abilityCds[key]`（#C4c；F 角标显示 `secondaryReloadT` 装填剩余），冷却中置灰+角标秒数。纯 UI 薄包装接线，能力逻辑仍走既有 tryActivateAbility/tryRepairKit/tryMedkit/tryExtinguish。
 
+### 6.1 曲射弹体俯仰与透视（`arcShellPose`，2026-10-20 #X6 现行口径）
+
+**唯一口径**：`js/tank_battledraw.js` 的纯函数 `arcShellPose(s)`（Node 可测；`drawShells` 的 `isArc` 分支消费）。**逻辑层（落点/结算/hit 判定）零改动**——高度与俯仰纯属绘制期量。
+
+**推导**：从**同一个** z 公式求导取伪俯仰，而非另设一套拟合——z(p) = sin(p·π)·H ⇒ `dz/dp = π·cos(p·π)·H`，其中 `p = dist/totalDist`。
+
+**产出三量**：
+| 量 | 语义 | 用途 |
+|---|---|---|
+| `pitch` | 轴向仰角（rad） | 上升段为负（抬头）、下坠段为正（低头）、顶点 ≈ 0 |
+| `tilt` | 屏幕倾斜（已做弹道方向投影） | 供 `rotate(ang + tilt)`；`ang ≈ ±90°` 时不翻成 180° |
+| `foreshorten` | `cos(pitch)`，**下限 0.55** | 纵向压缩比，防止极端角度压成一条线 |
+
+**绘制约定（易错点，勿改）**：
+- 变换 = `rotate(ang + tilt)` + **压长轴** `scale(scale*fore, scale)`——即压 local **x**（弹体长轴）；
+- ⚠️ 压 local **y**（短轴）会让弹体「越飞越细」，实机读起来像**在缩水的针**而不是抬头的炮弹；
+- **地面阴影恒贴地**，只随 `ang` 与 `z` 变化，**不随 `tilt` 旋转**——影子是地面投影，不是弹体附属物（若随 tilt 转会与地面纹理打架）。
+
+**实测（2026-10-20）**：`p=0.25 → pitch −33.8°`（抬头）/ `p=0.75 → +33.9°`（低头）/ `p=0.5`（顶点）`0.000000°` / 直线弹 `0.00°`（**不受影响**）；阴影主轴角在两姿态点均为 `0.0°`（证明未随 tilt 旋转）；**零逐帧渐变**（曲射 1 次绘制 ≤ 直线 1 次）。回归断言见 `scripts/test-render.js` ⑪ 段（含 ⑩ 电磁炮三色分工不被破坏）。
+**沿革**：~~旧实现弹体 `rotate(ang)` 恒平行地面~~（`ang = atan2(s.dy, s.dx)`），高度只做整体上移 + 等比放大 + 地面阴影 ⇒ 上升段不抬头、下坠段不低头、拖尾也不沿含 z 的弹道切线绘制（#X6 原条目描述逐字对应）。
+
 ## 7. 音频与声效表现规范 (Audio Visual Standards)
 
 - **声音总线与并发管理 (Busses & Concurrency)**：
@@ -284,6 +346,8 @@ fire: {
 - **锁定式（`missile`）**：F = **激活**，立即开始索敌（炮塔 ±`lockArcDeg` 扇形内最近敌对目标）→ 锁定计时满 `lockSeconds` 后**立即发射**（`updateMissileLock`，玩家侧主循环逐帧驱动）；再按 F 取消激活。飞行制导 = 追尾 + **比例引导（PN）**：`RULES.missiles.lock`（`turnRate 3.5 rad/s`、`navConstant N=3.0`）。
 - **线导式（`missile_wire`）**：F = **直接发射**，飞行方向由**鼠标**持续引导（`shooter._secondaryTargetPos` 每帧更新）——等效视线角速度为 0 的比例引导；`RULES.missiles.wire`（`turnRate 4.5`、`N=0`）。已并入 `RULES.weaponTypes.secondary` 白名单与 HUD 标签/图标（「反坦克导弹（线导式）」）。**#U39（2026-10-18）：飞行速度与装填已入 `WEAPON_DEFAULTS.secondary.missile_wire`（`speed: 340` / `reload: 10` / `damage: 150` / `range: 700`）并由 `cfg` 消费**（原 `speed` 只在 `fireActiveSecondary` 的 wire 分支写死 340，升级卡无法覆盖）；同批该型补入卡牌白名单 `WEAPON_SECONDARY_TYPES` 并获得安装卡 + 2 张升级卡，见 `specs/cards.md` §8.3。
 - **开关类副武器 F 边沿口径（#F7 2026-09-20）**：**"按一次切换状态"的副武器（`missile` 激活/取消、`mine_layer` 预形态/确认）一律由原生 `keydown` 边沿驱动**（`tank_mvp.html` 独立监听：`e.repeat` 过滤 + `inMenuState/statusOpen/devOpen` 门控 + 战斗态 `fireCtx` 判定），**不得**走主循环 `input.isDown('fireSecondary')` 逐帧轮询——逐帧轮询会让开关在按住期间每帧翻转（实测按住 F 250ms 内 9 次 true/false 交替），松手后的状态取决于帧数奇偶（轻按 F 约一半概率停在「已取消」，表现为「导弹按 F 没反应」）；mine_layer 更会一次按住跨帧连走「预形态→确认」（一按即预约，预形态名存实亡）。**"按住连发"类（`mortar`/`rocket`/`missile_wire`）保持逐帧轮询**（装填门控天然限速）。HUD 的 F 按钮点击走 `trySecondaryFire(true)`（`force=true` 绕过键盘边沿直调）。
+- **榴弹炮（`howitzer` 副武器槽）例外口径（2026-10-20 #X5）**：该槽**本身不发射**（射击走主炮左键/空格），F 对它 = **曲射/直射模式开关**，与 `missile`（激活/取消）、`mine_layer`（预形态/确认）同属**开关类**，一律走原生 `keydown` 边沿，严禁主循环逐帧轮询。默认 `_howitzerOn !== false`（装卡即曲射）；切到直射时清 `_howitzerBurst`（丢弃未打完的急速射追发队列，防止旧模式余弹继续打出）。模式判据唯一入口 `js/tank_weapons.js` 的 `isHowitzerMode(t)` / `toggleHowitzer(t)`（`isHowitzerMode` = 槽位判据 **且** 运行时开关，2026-10-20 前只有槽位判据 ⇒ 装卡后恒曲射、F 无法切回）。~~§3.2b「F 键不响应」~~：该表述仅适用 2026-10-20 之前；#X5 起 F 承担模式开关（仍不承担"击发射击"），两处口径互补不冲突。
+- **火箭巢（`rocket`）发射朝向（2026-10-20 #X4）**：弹道基础角 = **炮塔朝向**（`t.turretAngle`），**不解析 `targetPos`/鼠标位置**；整组 burst 共用该角度，每发仅叠加独立散布（`fireRocketOne` 的 `gaussian(0.02)`）⇒ 扇形齐射。其他副武器（`mortar`/`missile`/`turret`/`mine_layer`）仍按目标点解算，语义不变。~~旧口径「朝向鼠标位置」~~ 已被取代。
 
 ### 8.3 敌方 AI：反应延迟 + 全高掩体遮视野 + engage 传播（#E7/#E8）
 - **反应延迟（#E7）**：首次进入接战后进入 `react` 态——只转炮塔、**不移动不开火**，时长 `RULES.ai.reactionSecondsBase~Max`（1.15~1.9s）按「距离/触发边界比」加权 × 档位 `tierProfiles[].reactionMul`（tier1 0.82 / tier2 0.65）× 随机抖动（±25%）。**仅对正式对局生成的敌军生效**（`tank_map.makeNode` 打标 `aiReactEnabled=true`；bench/单测裸实体保持即时响应）。受击惊醒（`alertEntity`）把剩余延迟 ×`reactionAlertMul`（0.5）——更快但不瞬发。
@@ -564,13 +628,13 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 
 **用户裁定**：「循环复用，按玩家选择顶替掉某个槽位的技能」。
 
-- **原缺陷（实测）**：`skillHotkey` 用 `owned[num-1]`（`owned` = `cardEffects` 去重顺序）导致：① `artillery`/`shield` 既有专属键按钮（`btnG`/`btnH`）又自动进槽 ⇒ **同一技能两个按钮**；② 运行时键 7 个 > 槽位 3 个且 TAB 面板无激活入口 ⇒ **第 4 个及以后的技能彻底无法激活**；③ `owned` 不足时回落 `fallbackList(['deploy_cover','artillery'])` ⇒ **按隐藏的 3 号键会实际触发 1 号槽的技能**。
+- **原缺陷（实测）**：`skillHotkey` 用 `owned[num-1]`（`owned` = `cardEffects` 去重顺序）导致：① `artillery`/`shield` 既有专属键按钮（`btnG`/`btnH`）又自动进槽 ⇒ **同一技能两个按钮**；② 运行时键 7 个 > 槽位 3 个且 TAB 面板无激活入口 ⇒ **第 4 个及以后的技能彻底无法激活**；③ `owned` 不足时回落 `fallbackList(['deploy_cover','artillery'])` ⇒ **按隐藏的 3 号键会实际触发 1 号槽的技能**。（注：此处「7 个」为 2026-10-20 #W9 删键**之前**的实测数；现行 RUNTIME 为 5 键，见 §4。）
 - **现行口径**：
   - **槽位 = `player.skillSlots`**（长度 3，元素为 ability key 或 `null`），随局重置（`prepPlayerForRun` 清空）。
   - **指派流程**：新技能先自动填入空槽；**槽满时弹「技能槽指派」面板（`#skillSlotPicker`）列出 3 个槽各显当前技能，玩家点哪一格，新技能就顶替哪一格**。待指派技能进入队列**逐个弹出**（不静默丢弃）。`Esc` 关闭面板并吞键（不误触发暂停或施放），面板打开期间输入控制器 `gate` 拒绝全部按键。
   - **随时改指**：`Shift+点击`槽位按钮 → 面板列出全部已获得技能（含「清空该槽」）。
   - **数字键严格映射槽位**：`skillHotkey(n)` 只读 `skillSlots()[n-1]`，**空槽无任何效果**（**已删除 `fallbackList` 回落**）。技能键 → 激活动作由 `SKILL_DISPATCH` 单一表分发。
-  - **~~专属键按钮~~（已被 #U42 取代，2026-10-19）**：`btnG`/`btnH` 专属键按钮与 G/H 键位**已整体退役**（沿革：#H3 曾按「未占用槽位时显示」折中保留——但双通道仍致同一技能两个键位，且 H 键=定向护盾与技能池=全向护盾**行为不一致**）。现行：**全部 7 个运行时技能只经技能池 skillSlot1~3 + 数字键 1/2/3**；`KEY_BINDINGS` 的 `abilityStrike`/`abilityShield` 键位、说明行、ACTION_ORDER 同步删除；mvp 的 G/H 主循环轮询、btnG/btnH 元素、`SKILL_DEDICATED_KEYS` 常量、脉冲回退表 `BTN_BY_ABILITY` 一并移除。bench 测试台保留 G 键为**测试入口**（`KEY_BINDINGS.benchTestStrike` 路由，`activateAbilityForTest` 无卡自动补卡，非正式游戏键位）。同先例：#H3 删超装填 V 键。
+  - **~~专属键按钮~~（已被 #U42 取代，2026-10-19）**：`btnG`/`btnH` 专属键按钮与 G/H 键位**已整体退役**（沿革：#H3 曾按「未占用槽位时显示」折中保留——但双通道仍致同一技能两个键位，且 H 键=定向护盾与技能池=全向护盾**行为不一致**）。现行：**全部运行时技能（2026-10-20 #W9 后为 5 个，见 §4）只经技能池 skillSlot1~3 + 数字键 1/2/3**；`KEY_BINDINGS` 的 `abilityStrike`/`abilityShield` 键位、说明行、ACTION_ORDER 同步删除；mvp 的 G/H 主循环轮询、btnG/btnH 元素、`SKILL_DEDICATED_KEYS` 常量、脉冲回退表 `BTN_BY_ABILITY` 一并移除。bench 测试台保留 G 键为**测试入口**（`KEY_BINDINGS.benchTestStrike` 路由，`activateAbilityForTest` 无卡自动补卡，非正式游戏键位）。同先例：#H3 删超装填 V 键。
   - **角标语义**：技能槽角标为数字 `1/2/3`（对应 `KEY_BINDINGS.skill1~3`）；**弹种槽角标改为选中指示 `●/○`**，其 `title` 统一为「Q/E 环形切换 / 点击选择」——数字键归技能池，弹种切换走 Q/E（消除「按 1 切第一发」的误导）。
 - **不变量（#U41 收紧）**：**技能键位单一来源**——运行时技能只存在「技能池槽位」一个入口（无专属字母键、无并列按钮）；innate 三键（repair/medkit/extinguish）是设计上正确的专属键（开局固有、不占技能槽，4/5/6）。
 - **回归**：`scripts/test-browser-r4.cjs` E 段——`btnG`/`btnH` **已从 DOM 移除**（#U41）、槽满弹选槽位面板、玩家指定顶替、循环复用不产生重复入口、空槽按数字键不触发、数字键精确命中；C1/C2 段炮击/护盾改经技能池数字键触发。`scripts/test-bindings.js`——`abilityStrike`/`abilityShield` 键位与说明行已删除断言。

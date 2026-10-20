@@ -2,7 +2,6 @@
   "id": "weapon_primary_double_barrel_turret",
   "name": "双联：加压药筒",
   "rarity": "rare",
-  "tags": ["重甲", "爆破"],
   "desc": "双联火炮强化：单管伤害 ×1.0 → ×1.15、弹速 ×1.0 → ×1.25。齐射单轮爆发从 2.0 提到 2.3 倍标准炮，代价是弹道更平直、跳弹角窗口更窄。",
   "effects": [
     {

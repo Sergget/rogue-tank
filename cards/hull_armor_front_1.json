@@ -2,7 +2,6 @@
   "id": "hull_armor_front_1",
   "name": "首上附加装甲",
   "rarity": "common",
-  "tags": ["重甲"],
   "desc": "焊接外挂钢板，车体正面装甲 +10mm，车体侧面装甲 +6mm。",
   "effects": [
     { "type": "modifier", "stat": "armor.hull.front", "mode": "add", "value": 10 },

@@ -16,7 +16,22 @@
   "trackOffset": -10,
   "spreadMult": 1.2,
   "aimSpeed": 1.5,
-  "texture": "camo_dunkelgelb",
+  "texture": "camo_urban",
+  "appearance": {
+    "cupola": [
+      {
+        "style": "panoramic",
+        "dx": 5,
+        "dy": 0,
+        "mirror": false
+      }
+    ],
+    "engineDeck": {
+      "style": "rearGrille",
+      "dx": 0,
+      "dy": 0
+    }
+  },
   "sprite": {
     "enabled": false,
     "track": {
@@ -50,10 +65,10 @@
       "embed": 2,
       "scaleMult": 1,
       "gap": 3.7,
-      "imgVehicle": "assets/tanks/barrels/barrel-tiger-i.png",
       "imgStandard": "assets/tanks/barrels/barrel-standard.png",
       "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
-      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
+      "imgVehicle": "assets/tanks/barrels/barrel-tiger-i.png"
     }
   },
   "barrel": {
@@ -262,20 +277,6 @@
     "axis": {
       "dx": 4,
       "dy": 0
-    }
-  },
-  "appearance": {
-    "cupola": {
-      "style": "panoramic",
-      "dx": 0,
-      "dy": 0,
-      "mirror": false
-    },
-    "engineDeck": {
-      "style": "rearGrille",
-      "dx": 0,
-      "dy": 0,
-      "mirror": false
     }
   }
 }

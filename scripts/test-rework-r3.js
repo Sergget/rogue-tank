@@ -70,8 +70,26 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
 //    曲射仅由副武器迫击炮承担——mortar isArc + ignoreCover 落点机制保留）
 {
   ok(global.RULES.ammoTypes.hec === undefined, 'HEC 弹种已从 RULES.ammoTypes 移除（2026-09-14 定案）');
-  ok(W.WEAPON_DEFAULTS.primary.howitzer === undefined, '榴弹炮主武器类型已移除（2026-09-15 用户裁定）');
-  ok(global.RULES.weaponTypes.primary.indexOf('howitzer') === -1, 'RULES.weaponTypes.primary 不再包含 howitzer');
+  // 2026-10-20 task-7 改写：原断言 `W.WEAPON_DEFAULTS.primary.howitzer === undefined`
+  //   （「榴弹炮主武器类型已移除（2026-09-15 用户裁定）」）**口径已过期**。2026-10-19/20 #W-I
+  //   用户裁定把榴弹炮曲射机制**作为「曲射模式」加回**——注意它是**模式参数表**而非可安装的
+  //   主武器类型：`RULES.weaponTypes.primary` 仍不含 howitzer（下表第二条断言继续守这条），
+  //   卡牌经**副武器槽**装载 howitzer（`WEAPON_DEFAULTS.secondary.howitzer` 只占类型位，
+  //   实际参数读 `primary.howitzer` 单一口径，见 js/tank_weapons.js:63-71）。
+  //   ⇒ 改为双层断言：「不可安装为主武器类型」+「参数表确实存在且是曲射模式形状」。
+  //   这样既保留 2026-09-15「主武器曲射机制移除」的原意（不能把 howitzer 当主炮装），
+  //   又不会误杀 #W-I 合法加回的模式参数表。
+  ok(W.WEAPON_DEFAULTS.primary.howitzer !== undefined,
+     '#W-I（2026-10-20）：曲射模式参数表 WEAPON_DEFAULTS.primary.howitzer 存在（不再是独立主武器类型）');
+  ok(W.WEAPON_DEFAULTS.primary.howitzer.isArc === true
+     && typeof W.WEAPON_DEFAULTS.primary.howitzer.arcSpeed === 'number'
+     && typeof W.WEAPON_DEFAULTS.primary.howitzer.splashRadius === 'number'
+     && typeof W.WEAPON_DEFAULTS.primary.howitzer.moveSpeedRatio === 'number',
+     '#W-I：该表是曲射**模式**形状（isArc + arcSpeed + splashRadius + moveSpeedRatio），非直射武器参数');
+  ok(global.RULES.weaponTypes.primary.indexOf('howitzer') === -1, 'RULES.weaponTypes.primary 不再包含 howitzer（不可安装为主武器类型）');
+  ok(W.WEAPON_DEFAULTS.secondary.howitzer !== undefined
+     && typeof W.WEAPON_DEFAULTS.secondary.howitzer.range === 'number',
+     '#W-I：副武器槽 howitzer 只占类型位（实际参数读 primary.howitzer 单一口径）');
 
   const mortar = W.WEAPON_DEFAULTS.secondary.mortar;
   ok(mortar && mortar.isArc === true, '迫击炮副武器配置包含 isArc 属性');
@@ -164,8 +182,22 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
   ok(turretShells.length === 1, '副炮塔开火产生 1 发炮弹入 shells');
   const sh = turretShells[0];
   ok(Math.abs(sh.pen - 120 * 0.75) < 0.01, `副炮塔穿深 = 主炮×0.75（${sh.pen} ≈ 90）`);
-  ok(Math.abs(sh.dmg - 100 * 0.6) < 0.01, `副炮塔伤害 = 主炮×0.6（${sh.dmg} ≈ 60）`);
-  ok(turret.secondaryReloadT > 0 && turret.secondaryReloadT > 3, '副炮塔装填 = 主炮装填×1.6（≈4.8s）');
+  // 2026-10-20 task-7 改写：原断言 `sh.dmg ≈ 100×0.6 = 60` 口径已过期。
+  //   #4（2026-10-19 用户裁定）：「副炮塔固定使用 ap 弹、**伤害为基础参数的 1/2**、其他参数与
+  //   主炮**基础**参数绑定、不受其他技能影响」⇒ js/tank_weapons.js:293-304 现行实现为
+  //     dmg = t.base.damage × damageFromBaseRatio(0.5)，**不再**乘 damageMult(0.6)/ammo.dmg。
+  //   且 ignoreModifiers=true ⇒ 读 `t.base` 而非 `t.stats`：本测试把 stats.damage 设成 100，
+  //   但出厂 base.damage = 34 ⇒ 现行正确期望 = 34 × 0.5 = 17（实测 17，吻合）。
+  //   同时把「读 base 而非 stats」这条 #4 语义显式锁进断言（否则将来改回 stats 也不会被察觉）。
+  ok(Math.abs(sh.dmg - turret.base.damage * 0.5) < 0.01,
+     `#4（2026-10-19）：副炮塔伤害 = 基础伤害×1/2（${sh.dmg} ≈ ${turret.base.damage}×0.5=17）`);
+  ok(Math.abs(sh.dmg - turret.stats.damage * 0.6) > 1,
+     '#4：副炮塔伤害不读 t.stats（stats.damage=100 也不影响，ignoreModifiers=true）');
+  // 2026-10-20 task-7 改写：原断言 `secondaryReloadT > 3`（「主炮装填×1.6 ≈4.8s」）口径已过期。
+  //   装填同受 #4 约束读 `t.base.reload`（出厂 1.3）而非 stats.reload（测试设的 3）
+  //   ⇒ 现行正确期望 = base.reload × reloadMult(1.6) = 1.3 × 1.6 = 2.08s（实测 2.08）。
+  ok(Math.abs(turret.secondaryReloadT - turret.base.reload * 1.6) < 0.01,
+     `#4（2026-10-19）：副炮塔装填 = 基础装填×1.6（${turret.secondaryReloadT.toFixed(2)}s ≈ ${turret.base.reload}×1.6=2.08s）`);
   ok(turret.reloadT === undefined || turret.reloadT === 0, '副炮塔开火不占用主炮 reloadT（解耦）');
   const want = Math.atan2(100 - 100, 300 - 100);   // target 在正右方 → 0
   ok(Math.abs(turret.secondaryTurretAngle - want) < 1e-6, `副炮塔炮塔角独立转向目标方向（θ≈0，实际 ${turret.secondaryTurretAngle.toFixed(3)}）`);
@@ -198,7 +230,7 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
     std.weapons = { primary: { type: 'standard', stats: {} }, secondary: { type: 'mortar', stats: {} } };
     ok(B.secondaryTurretPose(std) === null, '§8.1.2 非 turret 副武器 → secondaryTurretPose 返回 null（不绘制副炮塔）');
 
-    // (b) turret 型 → 位姿叠在主炮塔座圈上方（#U42 新口径），炮塔角跟随独立 secondaryTurretAngle
+    // (b) turret 型 → 位姿叠在主炮塔上方（#U42 新口径），炮塔角跟随独立 secondaryTurretAngle
     const pt = M.makeTank({ team: 'player', x: 100, y: 100, hullAngle: 0, turretAngle: 0 });
     pt.weapons = { primary: { type: 'standard', stats: {} }, secondary: { type: 'turret', stats: W.getWeaponDefaults('secondary', 'turret') } };
     pt.secondaryTurretAngle = Math.PI / 2;
@@ -206,10 +238,23 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
     ok(!!pose, '§8.1.2 turret 型 → secondaryTurretPose 返回位姿');
     // #U42（2026-10-19 用户裁定「用 1 个缩小版的自身炮塔叠在当前炮塔上方」）：
     //   旧口径是「车体尾后 hullLen×0.28 的小圆盘」，与主炮塔无视觉关联 ⇒ 玩家判定「副炮塔没效果」。
-    //   现行锚点 = 主炮塔座圈中心（turretPivot）沿主炮塔朝向前移一点。
+    //   现行锚点 = 主炮塔座圈（turretPivot）附近，**不再是车尾**。
     const piv = G.turretPivot(pt);
     ok(Math.abs(pose.x - piv.x) < 1e-6 + Math.abs(pt.turLen * pose.scale * 0.45), '§8.1.2 副炮塔锚定在主炮塔座圈（非车尾）');
-    ok(pose.x > pt.x, '§8.1.2 副炮塔沿主炮塔朝向前移（hullAngle=0 → x 正向，不再在车尾）');
+    // 2026-10-20 task-7 改写：原断言 `pose.x > pt.x`（「副炮塔沿主炮塔朝向前移」）**口径已过期**。
+    //   沿革：#U42（2026-10-19）定为「座圈中心沿朝向前移一点」→ 同日 #W2 用户反馈
+    //   「位置在主炮塔**后半部分**」⇒ git 8920013（#4 副炮塔改造）把锚点改为复用
+    //   `cupolaAnchor()`（js/tank_paint.js:1468-1487，车长塔绘制公式的纯函数抽取），
+    //   现行 ccx = cxm − L×0.08 即炮塔包围盒中心**后方** 8%，纵向 cym − W×0.44。
+    //   ⇒ 断言改为：锚点落在主炮塔范围内、且**不是**已废弃的车尾口径（t.x − hullLen×0.28）。
+    ok(pose.x < piv.x,
+       '§8.1.2 副炮塔锚点 = 主炮塔后半部分（#W2 2026-10-19 用户反馈；cupolaAnchor ccx = cxm−L×0.08）');
+    // 反证：必须显著远离「车尾」旧口径，且与座圈中心的偏移小于一个炮塔半径（读作「叠在主炮塔上」）
+    const oldTailX = pt.x - (pt.hullLen || 120) * 0.28;
+    ok(Math.abs(pose.x - oldTailX) > 1,
+       `§8.1.2 副炮塔不在车尾（pose.x=${pose.x.toFixed(1)} vs 旧车尾口径 ${oldTailX.toFixed(1)}）`);
+    ok(Math.abs(pose.x - piv.x) < Math.max(20, (pt.turLen || 38) * 0.5),
+       `§8.1.2 副炮塔与座圈中心偏移在炮塔半径内（|${pose.x.toFixed(1)}−${piv.x}|=${Math.abs(pose.x - piv.x).toFixed(2)}）`);
     ok(Math.abs(pose.angle - Math.PI / 2) < 1e-9, '§8.1.2 副炮塔炮管角读取独立 secondaryTurretAngle（与主炮解耦）');
     ok(Math.abs(pose.scale - 0.62) < 1e-9, '§8.1.2 副炮塔缩放 = 主炮塔的 0.62（缩小版自身炮塔）');
     ok(pose.barrelLen > 0 && pose.barrelLen < (pt.turLen || 34) * 1.2, '§8.1.2 副炮塔炮管按缩放缩短（不超过主炮塔量级）');
@@ -353,6 +398,18 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
     ok(mortarShells.length === 1 && mortarShells[0].isArc === true, '迫击炮发射曲射弹');
     // 飞行 30 帧（已越过 midTank 所在的 x=200 区域）
     for (let f = 0; f < 30; f++) { F.stepShells(1/60, mCtx); if (mortarShells[0].dead) break; }
+    // 2026-10-20 task-7 判定：这两条是**代码真缺陷**（非断言过期），断言保持原样、**不放宽**。
+    //   缺陷根因（已用 A/B 对照实测取证，见 ISSUES 候选）：
+    //   `js/tank_fire.js` 的 `stepShells` 中，`if(s.isArc){ ... }` 块内的 `return` 只位于
+    //   `if(s.dist >= s.totalDist){ ... return; }` 这个**内层**分支里（:1006）；`isArc` 块本身
+    //   （:932~:1008）**没有兜底 return**。于是曲射弹在**尚未抵达落点的每一帧**都会掉进下方
+    //   直射扫掠命中段（:1009 起），对沿途坦克做 raycast 并把命中结算（:1149 置 s.dead）。
+    //   实测对照（同 seed、同参数）：
+    //     · 有中间坦克：弹体在 dist=204.2 / totalDist=335.1 处即 dead，中间坦克掉血、远端目标 0 伤害；
+    //     · 无中间坦克：弹体正常飞到 dist=344.2 才落点爆炸，远端目标正常掉血。
+    //   ⇒ 违反「曲射弹越障、仅在落点爆炸」的核心玩法语义（docs/specs/combat.md 曲射口径）。
+    //   修法方向（**未改**，待 Lead 决定立项并派 role-combat）：在 `isArc` 块末尾加
+    //   `return;`（落点未到也直接结束本帧处理），或在 `if(s.isArc){` 之后立即短路直射段。
     ok(!mortarShells[0].dead && midTank.hp === midHpBefore, '曲射弹飞行中越过中间坦克未提前爆炸');
     // 继续飞行直到飞抵远端目标落点
     for (let f = 0; f < 60; f++) { F.stepShells(1/60, mCtx); if (mortarShells[0].dead) break; }
@@ -399,4 +456,9 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
 
 ok(fails === 0, '所有 R-3 测试项均断言通过');
 console.log('test-rework-r3: 完成所有检查');
-console.log('test-rework-r3: 全部通过');
+// 2026-10-20 task-7：原为 `console.log('test-rework-r3: 全部通过')` 无条件打印且**从不设置
+// 退出码** ⇒ 本文件曾长期有真实断言红（7 项）却 EXIT=0，`scripts/run-tests.js` 按
+// `r.status === 0` 判定，把这些红一律记为通过（假绿）。现改为按 fails 给退出码 + 有条件日志，
+// 与 test-render.js / test-physics.js 的既有写法一致。
+console.log(fails === 0 ? 'test-rework-r3: 全部通过' : `test-rework-r3: ${fails} 项失败`);
+process.exitCode = fails === 0 ? 0 : 1;

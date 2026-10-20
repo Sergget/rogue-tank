@@ -1,1 +1,15 @@
-{"id":"weapon_secondary_howitzer","name":"榴弹炮（曲射）","rarity":"epic","tags":["爆破","支援"],"desc":"副武器：装备后主炮改为曲射——只能发射当前 he 弹种，可越过掩体；未直接命中时按距离衰减伤害，直接命中时按目标最薄装甲结算。模式下行进速度为最大速度的 1/3，瞄准器显示散布圈。","effects":[{"type":"weapon","action":"install","slot":"secondary","weaponType":"howitzer"}],"maxStacks":1}
+{
+  "id": "weapon_secondary_howitzer",
+  "name": "榴弹炮（曲射）",
+  "rarity": "epic",
+  "desc": "副武器：装备后主炮改为曲射——只能发射当前 he 弹种，可越过掩体；未直接命中时按距离衰减伤害，直接命中时按目标最薄装甲结算。模式下行进速度为最大速度的 1/3，瞄准器显示散布圈。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "install",
+      "slot": "secondary",
+      "weaponType": "howitzer"
+    }
+  ],
+  "maxStacks": 1
+}

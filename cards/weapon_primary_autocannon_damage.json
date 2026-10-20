@@ -2,7 +2,6 @@
   "id": "weapon_primary_autocannon_damage",
   "name": "机炮：高爆弹链",
   "rarity": "rare",
-  "tags": ["爆破", "机动"],
   "desc": "速射机炮强化：单发伤害倍率 ×0.2 → ×0.26（相对提升 30%）、穿深 ×0.85 → ×0.95。持续 DPS 与破甲能力同时上调，仍是弹海压制流。",
   "effects": [
     {

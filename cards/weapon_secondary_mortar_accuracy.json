@@ -2,7 +2,6 @@
   "id": "weapon_secondary_mortar_accuracy",
   "name": "迫击炮：制导引信",
   "rarity": "rare",
-  "tags": ["支援", "爆破"],
   "desc": "迫击炮强化：落点散布 0.05 → 0.02 rad（约 ±1.1°）、单发伤害 60 → 85。曲射越过全高掩体的同时打得更准、更痛。",
   "effects": [
     {

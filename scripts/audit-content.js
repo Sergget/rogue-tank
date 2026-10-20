@@ -4,7 +4,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { CARD_RARITIES, CARD_TAGS, RARITY_WEIGHTS, validateCard, validateCardSet } = require('../js/tank_cards.js');
+const { CARD_RARITIES, RARITY_WEIGHTS, validateCard, validateCardSet } = require('../js/tank_cards.js');
 const { validateBoss } = require('../js/tank_boss.js');
 
 const ROOT = path.join(__dirname, '..');
@@ -27,6 +27,21 @@ const totalWeight = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
 let warnings = 0;
 
 function warn(msg) { warnings++; console.error(`⚠ ${msg}`); }
+
+// 2026-10-20 #16（用户裁定「卡牌的角色设定没有意义，删除相关的字段」）：
+// 卡牌 `tags` 字段与 `CARD_TAGS` 枚举已整体摘除（js/tank_cards.js 不再导出该常量，
+// cards/*.json 全部无该字段）。本审计脚本原以 CARD_TAGS 为字典输出「流派分布 /
+// 流派×稀有度 / 流派→效果类型构成 / tag 组合矩阵」四张表；枚举消失后 require 它会
+// 直接抛错（tsc 报 TS2305）。现降级为**从现存数据动态收集标签集**：
+//   · cards/*.json 若仍有残留 tags → 照旧输出四张表（并在 --strict 下警示「建议清理」）；
+//   · 全部无 tags（现行状态）→ 输出一行「已下线」说明，不再产生空表噪音。
+// 这样脚本既不会崩，也不会把已下线的维度伪装成仍在维护的审计项。
+const CARD_TAGS = (() => {
+  const seen = new Set();
+  for (const c of cards) for (const t of (c.tags || [])) seen.add(t);
+  return Array.from(seen).sort();
+})();
+const TAGS_RETIRED = CARD_TAGS.length === 0;
 
 // 稀有度分布
 console.log(`\n== 卡牌审计（${cards.length} 张）==`);
@@ -64,8 +79,13 @@ for (const r of CARD_RARITIES) {
 }
 
 console.log('流派分布:');
-for (const t of CARD_TAGS) console.log(`  ${t}: ${byTag[t] || 0} 张`);
-if (STRICT) for (const t of CARD_TAGS) if (!byTag[t]) warn(`流派 ${t} 无卡牌`);
+if (TAGS_RETIRED) {
+  console.log('  （卡牌 tags 字段已于 2026-10-20 #16 整体下线，本维度不再审计）');
+} else {
+  for (const t of CARD_TAGS) console.log(`  ${t}: ${byTag[t] || 0} 张`);
+  if (STRICT) for (const t of CARD_TAGS) if (!byTag[t]) warn(`流派 ${t} 无卡牌`);
+  if (STRICT) warn(`卡牌 tags 字段已下线，但 cards/*.json 仍残留 ${CARD_TAGS.length} 个标签：${CARD_TAGS.join(', ')}`);
+}
 
 console.log('效果类型分布:');
 for (const k in byEffectType) console.log(`  ${k}: ${byEffectType[k]} 个效果`);
@@ -98,26 +118,30 @@ function cardPower(c) {
 
 // --- (1) 流派覆盖率：每流派 × 稀有度 + 每流派效果类型构成 ---
 console.log('\n== 流派 × 稀有度覆盖率 ==');
-const tagRarity = {};
-for (const c of cards) for (const t of (c.tags || [])) {
-  (tagRarity[t] ||= {})[c.rarity] = (tagRarity[t][c.rarity] || 0) + 1;
-}
-for (const t of CARD_TAGS) {
-  const rr = tagRarity[t] || {};
-  const parts = CARD_RARITIES.map(r => `${r}:${rr[r] || 0}`).join(' ');
-  console.log(`  ${t}: ${parts}`);
-}
+if (TAGS_RETIRED) {
+  console.log('  （tags 维度已下线，见上）');
+} else {
+  const tagRarity = {};
+  for (const c of cards) for (const t of (c.tags || [])) {
+    (tagRarity[t] ||= {})[c.rarity] = (tagRarity[t][c.rarity] || 0) + 1;
+  }
+  for (const t of CARD_TAGS) {
+    const rr = tagRarity[t] || {};
+    const parts = CARD_RARITIES.map(r => `${r}:${rr[r] || 0}`).join(' ');
+    console.log(`  ${t}: ${parts}`);
+  }
 
-console.log('\n== 流派 → 效果类型构成（张数） ==');
-const tagEffect = {};
-for (const c of cards) for (const t of (c.tags || [])) {
-  const m = (tagEffect[t] ||= {});
-  for (const ef of c.effects) m[ef.type] = (m[ef.type] || 0) + 1;
-}
-for (const t of CARD_TAGS) {
-  const m = tagEffect[t] || {};
-  const s = Object.keys(m).map(k => `${k}:${m[k]}`).join(' ');
-  console.log(`  ${t}: ${s || '（无标签卡）'}`);
+  console.log('\n== 流派 → 效果类型构成（张数） ==');
+  const tagEffect = {};
+  for (const c of cards) for (const t of (c.tags || [])) {
+    const m = (tagEffect[t] ||= {});
+    for (const ef of c.effects) m[ef.type] = (m[ef.type] || 0) + 1;
+  }
+  for (const t of CARD_TAGS) {
+    const m = tagEffect[t] || {};
+    const s = Object.keys(m).map(k => `${k}:${m[k]}`).join(' ');
+    console.log(`  ${t}: ${s || '（无标签卡）'}`);
+  }
 }
 
 // --- (2) 同稀有度期望强度曲线 ---
@@ -156,16 +180,20 @@ for (let i = 0; i < CARD_RARITIES.length - 1; i++) {
 
 // --- (3) tag 组合矩阵（两两共现次数） ---
 console.log('\n== tag 组合矩阵（同卡共现次数） ==');
-const co = {};
-for (const c of cards) {
-  const ts = (c.tags || []).filter(t => CARD_TAGS.includes(t));
-  for (let i = 0; i < ts.length; i++) for (let j = i+1; j < ts.length; j++) {
-    const k = [ts[i], ts[j]].sort().join('×');
-    co[k] = (co[k] || 0) + 1;
+if (TAGS_RETIRED) {
+  console.log('  （tags 维度已下线，见上）');
+} else {
+  const co = {};
+  for (const c of cards) {
+    const ts = (c.tags || []).filter(t => CARD_TAGS.includes(t));
+    for (let i = 0; i < ts.length; i++) for (let j = i + 1; j < ts.length; j++) {
+      const k = [ts[i], ts[j]].sort().join('×');
+      co[k] = (co[k] || 0) + 1;
+    }
   }
+  const coKeys = Object.keys(co).sort((a, b) => co[b] - co[a]);
+  console.log('  ' + (coKeys.map(k => `${k}=${co[k]}`).join('  ') || '（无多标签卡）'));
 }
-const coKeys = Object.keys(co).sort((a,b)=>co[b]-co[a]);
-console.log('  ' + (coKeys.map(k => `${k}=${co[k]}`).join('  ') || '（无多标签卡）'));
 
 // --- (4) 定点交叉对比：P-42 目标卡族 heat_* / he_* / demo_* ---
 console.log('\n== P-42 定点卡族交叉对比（heat_* / he_* / demo_*） ==');

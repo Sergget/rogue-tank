@@ -17,8 +17,17 @@ const FLOW_STATES = [
   'settlement', 'reward', 'gameover'
 ];
 
-// 局外状态集合（尚未开始一局 run）：restartRun 对其为 no-op（见 restartRun JSDoc）
-const FLOW_OUTRUN_STATES = ['home', 'loadout', 'shop'];
+// #W15（2026-10-20 用户裁定「删除」）：`FLOW_OUTRUN_STATES` 与 `restartRun` 已一并摘除。
+//   沿革：`restartRun(flow)` 原为「重开一局：回 map + runId 自增」的入口，但 **正式页面
+//   零调用点**（全仓仅 `scripts/test-flow.js` 与 `types/globals.d.ts` 引用，属测试与类型
+//   声明自循环；`tank_mvp.html` 仅剩历史注释）。实际的「重新开始」走
+//   `gameover → battle` 直达（#N5 2026-10-10 简化流程）与「放弃节点」的
+//   `battle → map` 转移，二者都不经过本函数 ⇒ 属死入口。
+//   `FLOW_OUTRUN_STATES`（home/loadout/shop 局外三态）只为 `restartRun` 的 no-op 语义而存在，
+//   随其同批删除；局外三态本身仍由 `FLOW_STATES` 与 `FLOW_TRANSITIONS` 完整表达。
+//   ⚠️ 若将来真需要「重开一局」入口，**不要**恢复旧实现：它在 `pause` 态会因
+//   `pause: ['battle','settlement']` 无 `map` 出路而抛错（旧测试正是断言「抛错」——把缺陷
+//   固化成了期望）。正确做法是显式补 `pause → map` 白名单或让调用方先回 battle。
 
 // 允许的转移表：from → to 白名单（未知转移抛错，防流程失控）
 const FLOW_TRANSITIONS = {
@@ -26,7 +35,7 @@ const FLOW_TRANSITIONS = {
   home:       ['loadout', 'home'],              // 选择存档 → 出战整备；home→home 自环 = 同界面切换存档后刷新
   // #N5（2026-10-10 简化进入游戏流程）：loadout/shop 的「出击」直接生成并进入战斗
   // （旧口径 loadout/shop → map 中转屏 → 再点「开始新的一局」才进 battle，多一层无信息量界面）。
-  // map 态保留：restartRun/放弃节点等既有入口仍可用（mapScreen 仅为兼容入口）。
+  // map 态保留：放弃节点/重开等既有入口仍可用（mapScreen 仅为兼容入口）。
   loadout:    ['shop', 'map', 'battle', 'home'],// 确认配置直接出击 → battle；进强化整备 → 商店；返回首页
   shop:       ['map', 'battle', 'loadout', 'home'], // 购买完毕直接出击 → battle；回整备微调；回首页
   // —— 局内一局流程（P-08；P-35 增 pause）——
@@ -94,32 +103,12 @@ function transition(flow, next, payload) {
   }
 }
 
-/**
- * 重新开局：回到节点图、runId 自增（供 UI 重置局内状态）。已在地图态时仅自增 runId。
- *
- * 局外约定（M10）：从 home / loadout / shop 等「局外状态」调用时为 no-op ——
- * 一局尚未开始（还没进入过 map），重开无意义：既不抛错也不进入 map，
- * 仅原样返回当前 runId；其余状态（map/battle/settlement/reward/gameover）行为不变。
- */
-function restartRun(flow) {
-  if (FLOW_OUTRUN_STATES.includes(flow.state)) {
-    return flow.runId;
-  }
-  if (flow.state === 'map') {
-    flow.runId++;
-    return;
-  }
-  transition(flow, 'map', { runId: flow.runId + 1 });
-  flow.runId = flow.payload ? flow.payload.runId : flow.runId;
-}
-
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     FLOW_STATES,
     FLOW_TRANSITIONS,
     createFlow,
     watchFlow,
-    transition,
-    restartRun
+    transition
   };
 }

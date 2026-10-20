@@ -2173,25 +2173,64 @@ function drawPolygon(poly, center, angle, opts){
       ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fill();
     });
   }
-  // #3（2026-10-15）：外观件（车长塔/发动机舱）实时渲染——编辑模式也绘制，位置变化即时可见
+  // #3（2026-10-15）：外观件（车长塔/发动机舱）实时渲染——编辑模式也绘制，位置变化即时可见。
+  //
+  // #X1-后半（2026-10-20 role-systems）**基准对齐 + 去重**：
+  //   旧实现此处直接用「座圈中心 ring + dx」定位车长塔、用「hullCenter + dx」定位发动机舱，
+  //   而局内 js/tank_paint.js 的同一外观件用的是**另一套基准**：
+  //     · cupola   : `cxm + dx`, `(cym − W*0.44) + dy`            （:879，炮塔局部系）
+  //     · engineDeck: `cxm + dx`, `cym + dy`                       （:789，车体局部系）
+  //   其中 cxm/cym = 传入 verts 的 bbox 中心、W = 竖向半宽 ⇒ 设计器预览与局内**差一个
+  //   `cxm` 平移 + 纵向 `−W*0.44` 常数偏移**：面板里把 dx/dy 归零后看到的车长塔位置，
+  //   与进游戏后不一致；而编辑器里「相对座圈」的直觉也不等于局内的「相对 bbox 中心」。
+  //   现改为复用与 tank_paint 完全相同的基准（同一 verts → 同一 cxm/cym/W → 同一公式），
+  //   并补上炮塔角度的旋转换算（预览模式下炮塔会转）。
+  // 另外：预览模式下 paintPartTexture 通道**已经**按 appearance 画过一次外观件
+  //   （drawPolygon :2104-2121 传 appearance），此处再画一遍属重复叠加 ⇒ 仅在
+  //   **未被纹理通道绘制**时补画（即编辑模式 detail=false / faded=true 的情况）。
   const _app = state.appearance || {};
-  if(!isTurret && _app.engineDeck && _app.engineDeck.style && _app.engineDeck.style !== 'none'){
-    const hc = hullCenter();
-    // 发动机舱在车体坐标系，dx/dy 为模型单位；s=viewScale 按缩放绘制
-    paintAppearancePart(ctx, 'engineDeck', _app.engineDeck.style,
-      hc.x + (_app.engineDeck.dx || 0) * viewScale, hc.y + (_app.engineDeck.dy || 0) * viewScale,
-      viewScale, DESIGN_PAINT, { mirror: !!_app.engineDeck.mirror });
-  }
-  if(isTurret && _app.cupola){
-    const hc = hullCenter();
-    const ring = { x: hc.x + state.turret.pivot.dx*viewScale, y: hc.y + (state.turret.pivot.dy||0)*viewScale };
-    // #3（2026-10-15）：cupola 支持数组（多个）
-    const cupList = Array.isArray(_app.cupola) ? _app.cupola : [_app.cupola];
-    for(const _cup of cupList){
-      if(!_cup || !_cup.style || _cup.style === 'none') continue;
-      paintAppearancePart(ctx, 'cupola', _cup.style,
-        ring.x + (_cup.dx || 0) * viewScale, ring.y + (_cup.dy || 0) * viewScale,
-        viewScale, DESIGN_PAINT, { mirror: !!_cup.mirror });
+  if(!opts.detail){
+    if(!isTurret && _app.engineDeck && _app.engineDeck.style && _app.engineDeck.style !== 'none'){
+      const hc = hullCenter();
+      // 与 tank_paint.paintPartTextureDirect 同基准：车体局部系 bbox 中心（verts 未平移）
+      const _hv = buildFullVerts(state.hull.half);
+      let _hminX=Infinity,_hmaxX=-Infinity,_hminY=Infinity,_hmaxY=-Infinity;
+      for(const v of _hv){ if(v[0]<_hminX)_hminX=v[0]; if(v[0]>_hmaxX)_hmaxX=v[0];
+                           if(v[1]<_hminY)_hminY=v[1]; if(v[1]>_hmaxY)_hmaxY=v[1]; }
+      const _hcxm = (_hminX+_hmaxX)/2, _hcym = (_hminY+_hmaxY)/2;
+      // 车体角度在设计器恒为 0（drawPolygon(state.hull, hc, 0, …)），故无需旋转
+      paintAppearancePart(ctx, 'engineDeck', _app.engineDeck.style,
+        hc.x + (_hcxm + (_app.engineDeck.dx || 0)) * viewScale,
+        hc.y + (_hcym + (_app.engineDeck.dy || 0)) * viewScale,
+        viewScale, DESIGN_PAINT, { mirror: !!_app.engineDeck.mirror });
+    }
+    if(isTurret && _app.cupola){
+      const hc = hullCenter();
+      const ring = { x: hc.x + state.turret.pivot.dx*viewScale, y: hc.y + (state.turret.pivot.dy||0)*viewScale };
+      // 与 tank_paint.paintPartTextureDirect 同基准：炮塔 verts 先按 axis 平移（与 :2117 一致），
+      // bbox 中心取平移后坐标；W = 竖向半宽。cupola 纵向基准 = cym − W*0.44。
+      const _ax = (state.turret.axis && state.turret.axis.dx) || 0;
+      const _ay = (state.turret.axis && state.turret.axis.dy) || 0;
+      const _tv = buildFullVerts(state.turret.half);
+      let _tminX=Infinity,_tmaxX=-Infinity,_tminY=Infinity,_tmaxY=-Infinity;
+      for(const v of _tv){ if(v[0]<_tminX)_tminX=v[0]; if(v[0]>_tmaxX)_tmaxX=v[0];
+                           if(v[1]<_tminY)_tminY=v[1]; if(v[1]>_tmaxY)_tmaxY=v[1]; }
+      const _tcxm = (_tminX+_tmaxX)/2 - _ax;
+      const _tcym = (_tminY+_tmaxY)/2 - _ay;
+      const _tW = (_tmaxY-_tminY)/2;
+      // #3（2026-10-15）：cupola 支持数组（多个）
+      const cupList = Array.isArray(_app.cupola) ? _app.cupola : [_app.cupola];
+      for(const _cup of cupList){
+        if(!_cup || !_cup.style || _cup.style === 'none') continue;
+        // 局部偏移 → 按炮塔角度旋转 → 缩放到屏幕（与 paintPartTexture 的
+        // translate(ring) → rotate(angle) → scale 同序）
+        const _lx = _tcxm + (_cup.dx || 0);
+        const _ly = (_tcym - _tW * 0.44) + (_cup.dy || 0);
+        const _r = angle ? rotate(_lx, _ly, angle) : { x: _lx, y: _ly };
+        paintAppearancePart(ctx, 'cupola', _cup.style,
+          ring.x + _r.x * viewScale, ring.y + _r.y * viewScale,
+          viewScale, DESIGN_PAINT, { mirror: !!_cup.mirror });
+      }
     }
   }
 }

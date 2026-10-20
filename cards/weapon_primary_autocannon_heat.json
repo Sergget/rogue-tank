@@ -2,7 +2,6 @@
   "id": "weapon_primary_autocannon_heat",
   "name": "机炮：重管散热套件",
   "rarity": "rare",
-  "tags": ["支援", "机动"],
   "desc": "速射机炮强化：过热阈值 100 → 140（每发仍 +12），过热锁定 2.0 → 1.2 秒。长按泼弹时几乎不再被迫停火，代价是必须精确控温。",
   "effects": [
     {

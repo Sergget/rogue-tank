@@ -270,7 +270,11 @@ function makeBossEntity(boss, env) {
   // (c) 出生即交战：无限 trigger 半径 + 已 engaged，防被玩家放风筝（node-map boss 快路径始终追击）。
   t.aiTriggerDist = (RULES.boss && RULES.boss.tuning && RULES.boss.tuning.engageDist) || 99999;
   t.aiEngaged = true;
-  t.aiState = 'chase';
+  // #W13（2026-10-20 role-systems）：**已删除 `t.aiState = 'chase'`**。
+  //   'chase' 不在 tank_ai.js 的 aiState 词表内（现行词表 patrol/suspicious/react/search/
+  //   stunned/hold/skirmish），全仓无任何读点；且 aiDecideEnemy 首帧即按实际决策覆盖它
+  //   ⇒ 该赋值纯属噪声，会误导调试（读 t.aiState 以为 AI 处于「追击」态，实际并非如此）。
+  //   Boss 的「出生即接战」语义由上一行 `t.aiEngaged = true` 承担，不需要 aiState 参与。
   // #E9（2026-09-20）：开场「展开/预热」窗口——期间炮塔持续扫描（有可读动作），不站桩。
   const openCfg = (RULES.boss && RULES.boss) || {};
   t.bossOpeningT = openCfg.openingSeconds !== undefined ? openCfg.openingSeconds : 1.6;
@@ -824,6 +828,34 @@ function updateBossTrackRepair(t, dt, opts) {
   return evts;
 }
 
+// ---------- #W-J：Boss 武器调谐 ----------
+/**
+ * Boss 主武器安装后的专属数值覆写（当前只处理机炮射程 900 → autocannonRange 缺省 1200）。
+ *
+ * 背景（§6.2 W-J，2026-10-20 role-systems）：Boss 主武器由 `pickBossArmament` **运行时随机分配**，
+ * `bosses/*.json` 并无 `weapons` 字段 ⇒ 无法通过数据文件给 Boss 单独调射程；而全局改
+ * `js/tank_weapons.js` 的 `WEAPON_DEFAULTS.autocannon.maxRange`(900) 会**连带削弱玩家**
+ * ⇒ 只能在「武器安装完成之后」按 Boss 身份覆写。
+ *
+ * 调用契约（重要）：
+ *   - 必须在 `assignBossArmament(entity, bossNumber)` **之后**调用。武器安装会重建
+ *     `weapons.primary.stats`，先调会被覆盖回 900。
+ *   - 幂等：可在每次装备变更后重复调用。
+ *   - 缺 RULES / 缺字段时回落 1200，绝不抛错。
+ *
+ * @param {any} t Boss 实体
+ * @returns {any} 透传 t（便于链式调用）
+ */
+function applyBossWeaponTuning(t) {
+  if (!t || !t.weapons || !t.weapons.primary || !t.weapons.primary.stats) return t;
+  const tuning = (typeof RULES !== 'undefined' && RULES.boss && RULES.boss.tuning) || {};
+  if (t.weapons.primary.type === 'autocannon') {
+    const range = typeof tuning.autocannonRange === 'number' ? tuning.autocannonRange : 1200;
+    t.weapons.primary.stats.maxRange = range;
+  }
+  return t;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     BOSS_WEAKSPOT_KEYS,
@@ -844,6 +876,7 @@ if (typeof module !== 'undefined' && module.exports) {
     triggerBossHitReact,
     updateBossLaser,
     bossCurrentStage,
-    isWeakspotHit
+    isWeakspotHit,
+    applyBossWeaponTuning
   };
 }

@@ -15,20 +15,29 @@ function driveTank(t, dt, input){
   // P-35：倒车转向倒置（拟真履带差速）——仅当调用方显式开启（玩家设置项）且 move<0 时翻转 turn；
   // 默认关闭 → 玩家旧手感与 AI 行为零影响。
   const effTurn = (input.invertTurnWhenReversing && mv < 0) ? -turn : turn;
+  // #W17（2026-10-20 role-systems）：履带打断（immobT>0）期间**先做掩体推出再早退**。
+  //   原实现直接 return，跳过链尾的 resolveCoverCollisions ⇒ 打断期间若与岩石/永久掩体
+  //   （passability 0）重叠，MTV 推出不执行，坦克会一直嵌在实体内；恢复行驶的首帧才被弹出，
+  //   表现为「刚修好履带就被瞬移弹开」。修法：位移/转向仍冻结（return 保留），但推出照跑。
   if(t.immobT > 0){
     t.immobT -= dt;
     if(t.immobT <= 0){
       t.immobT = 0;
       t.trackBroken = false;
     }
+    resolveCoverCollisions(t);
     return;
   }
   // 掩体/元素通行系数（§2.7）：半高/栅栏等 move<1 减速通行，灌木全速；solid 元素由碰撞推出/压毁
   const cover = getCoverUnderTank(t);
   let speedModifier = 1.0;
   let turnModifier = 1.0;
-  if(cover){
-    const cvTier = COVER_TIERS[cover.tier];
+  // #W17（2026-10-20 role-systems）：`COVER_TIERS[cover.tier]` 原无判空 ⇒ 未注册 tier（生成器/
+  //   编辑器写入的脏数据、或 tier 拼写漂移）会让 cvTier 为 undefined，下一行 `cvTier.move` 抛
+  //   TypeError 中断整个 driveTank（逐帧抛错 ⇒ 坦克彻底停摆）。修法：`|| null` 守卫，
+  //   未注册 tier 跳过减速分支（按「无通行惩罚」处理，交由 resolveCoverCollisions 决定）。
+  const cvTier = cover ? (COVER_TIERS[cover.tier] || null) : null;
+  if(cvTier){
     // 2026-10-10 #N1（用户反馈「坦克碰到岩石后无法移动」）：通行系数只对「可通行但减速」
     // 地形生效（水/河/泥 0.4 等）。passability===0 的硬阻断地形（岩石）一律交由
     // resolveCoverCollisions 的 MTV 推出，**不再把 move 打到 0**——否则与岩石接触时
@@ -40,11 +49,21 @@ function driveTank(t, dt, input){
       turnModifier = pass;
     }
   }
-  // #S4 + #S14（2026-10-14）：road 为纯地面标识，被 getCoverUnderTank 跳过，
-  // 此处单独查询。道路存在时屏蔽下层 river/mud 的减速（#S14），并恢复 #E3 公路加速（#S4）。
+  // #S4 + #S14（2026-10-14）：road 为纯地面标识，被 getCoverUnderTank 跳过，此处单独查询。
+  // #W17（2026-10-20 role-systems）：原实现 `if(onRoad){ speedModifier = 1.0; }` 是**无条件
+  //   归 1**，等于把所有地形减速通道在公路上静默清零——不止 river/mud，任何新的 pass<1 地形
+  //   走在路上都失效。#S14 的本意只是「路面屏蔽其下层的水/泥减速」，故改为**只豁免 river/mud**：
+  //   其余减速来源（若将来新增）在公路上仍然生效。
+  //   ⚠️ 榴弹炮曲射限速（#W-I）不在本通道，它挂在链尾的独立乘子 howitzerMul 上，不受此处影响。
   const roadCover = getRoadUnderTank(t);
   const onRoad = !!roadCover;
-  if(onRoad){ speedModifier = 1.0; turnModifier = 1.0; }
+  // 豁免集合 = 液态地形（water/river，tierGroup 'liquid'）+ 烂泥（mud）——即 #S14 所说的
+  // 「路面盖住的水/泥减速」。water 与 river 同为 liquid 且同为 passability 0.4，一并豁免。
+  const roadExempt = !!(cover && cvTier && (cvTier.tierGroup === 'liquid' || cover.tier === 'mud'));
+  if(onRoad && roadExempt){
+    speedModifier = 1.0;
+    turnModifier = 1.0;
+  }
   const p0x = t.x, p0y = t.y, p0a = t.hullAngle;
 
   // #E3（2026-09-20）：公路加速——在 road 条带上行驶 +10km/h（RULES.nodeMap.road.speedBonusKmh），

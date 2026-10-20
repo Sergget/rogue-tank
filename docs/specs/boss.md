@@ -35,7 +35,7 @@ validateBoss 校验；bossStageFor 按 hp 比例取当前阶段：
 - **AI 复用**：Boss 与 summons 走 aiDecideEnemy 同一管线（含 P-19 多态状态机 Stunned/Flank/Defensive/Search&Destroy/Patrol）。
 
 ## 4. 数据驱动行为与弱点实装（P-51，2026-08-24 落地）
-- **阶段声明式行为脚本**：`stages[].ai = { mode:'hold'|'charge'|'skirmish', params }`；`validateBossStage` 校验枚举；`applyBossStage` 设置 `entity.stageAI`；js/tank_ai.js 消费三模式——`hold`=复用友军消极防御 `_passiveDefend`（#S3：超出射程 1.2× 时 0.4 速前压，不再纯站桩）；`skirmish`=keepDist 风筝（#S3：过近倒车 / 超过 keepDist×1.25 时 0.7 速接近 / 之间停）；`charge`=基线激进。参数源 `RULES.boss.aiModes`（skirmish.keepDist 默认 640），读取带内联 fallback。
+- **阶段声明式行为脚本**：`stages[].ai = { mode:'hold'|'charge'|'skirmish', params }`；`validateBossStage` 校验枚举；`applyBossStage` 设置 `entity.stageAI`；js/tank_ai.js 消费三模式——`hold`=复用友军消极防御 `_passiveDefend`（#S3：超出射程 1.2× 时 0.4 速前压，不再纯站桩；**`anchorRange` 消费口径见 §10.1**）；`skirmish`=keepDist 风筝（#S3：过近倒车 / 超过 keepDist×1.25 时 0.7 速接近 / 之间停）；`charge`=基线激进（**`targetRange` 消费口径见 §10.1**）。参数源 `RULES.boss.aiModes`（skirmish.keepDist 默认 640），读取带内联 fallback。
 - **炮击压制数据驱动（#S3，2026-10-15）**：`behavior.barrage` 去 `style==='command'` 门控，任意 Boss 配置即生效。现行：commander（3 发/9s/半径 110）/ fortress（4 发/14s/半径 160，防御迫击炮）/ sniper（2 发/12s/半径 70，精确打击）。
 - **召唤时间兜底（#S3，2026-10-15）**：`bossSummonWave` 除 hpFrom 阈值外，开战 `RULES.boss.summonWaves.timeTriggerSec`（缺省 75s）后强制触发下一未触发波次（`t.bossFightT` 由 mvp 主循环累计）。防久战磨血无召唤。
 - **弱点命中增益**：命中模块与当前阶段 weakspots 匹配时（`isWeakspotHit` + `moduleFromHit`），从 `RULES.boss.weakspot`（dmgMul:1.5 / penAdd:15 / ignoreBounce:true）构造 `resolveHit` opts 注入增益（物理语义见 specs/combat.md §2「resolveHit 可选增益 opts」）。
@@ -145,3 +145,46 @@ validateBoss 校验；bossStageFor 按 hp 比例取当前阶段：
 - 验证：`scripts/test-boss.js` 覆盖未断/命中/未命中/再次断裂/非 Boss 五路断言；Node 测试 `npm test` PASS，浏览器 `npm run test:browser` 四链 ALL PASS。
 
 ---
+
+## 10. 2026-10-20 批次现行口径（#W13 / #W-J）
+
+### 10.1 `anchorRange` / `targetRange` / `keepDist` 三键消费（#W13，2026-10-20）
+
+**背景**：`bosses/*.json` 的 `stages[].ai.params` 里 `anchorRange`（3/5 份）与 `targetRange`（4 份 charge 阶段）此前**零消费**——数据写了但 `js/tank_ai.js` 从不读取，属"死配置"。2026-10-20 已接通，**唯一实现口径 `js/tank_ai.js`**（约 `:564-640`）。
+
+**三键各只在自己分支读一次、零交叉**：
+| 键 | 消费分支 | 语义 |
+|---|---|---|
+| `anchorRange` | **仅 `hold`**（`_passiveDefend`） | 驻守距离：`> 0` → 玩家超出 `anchorRange×1.2` 时 0.4 速前压（#S3 反站桩），进入后原地防御；**`= 0` → 原地固守、永不前压**；缺省（`undefined`/非有限）→ 回落 `allyEngageRange`(460)，保持 #S3 旧行为 |
+| `targetRange` | **仅 `charge`** | 压到该距离内即松开油门：`= 0` → 全速贴脸（旧行为等价）；`> 0` → 进入后停止前压 |
+| `keepDist` | **仅 `skirmish`** | 风筝距离：过近倒车（`move=-1`）/ 超过 `keepDist×1.25` 时 0.7 速接近 / 之间停。缺省 640 |
+
+**⚠️ `anchorRange = 0` 的语义反转修正（首版实现的坑，勿回退）**：首版实现把 `0` 当"假值"回落缺省值 ⇒ 让 `boss_siege_fort`（「要塞炮台」、设计意图是**固守**）变成**贴脸冲锋**，与 Boss 定位完全相反。现行明确 `0` = 原地固守（用 `Number.isFinite` 判存在性，不用真值判断）。
+
+**`_passiveDefend` 不被 `skirmish` 共用**：该函数只有两个调用点——Boss `hold` 与友军据点消极防御；**函数体不读 `params`**（`anchorRange` 由调用侧的 Boss 分支单独传入/处理），故不存在 `skirmish` 误吃 `anchorRange` 的路径。
+
+**实测区分度表（2026-10-20，5 份 `bosses/*.json` 解析结果）**：
+| Boss | `anchorRange` |
+|---|---|
+| `boss_commander` | 300 |
+| `boss_twin_track` | 350 |
+| `boss_siege_fort` | **0**（原地固守） |
+| 未声明者（缺省） | 460（`allyEngageRange`） |
+
+### 10.2 `t.aiState = 'chase'` 死状态已删（#W13-c，2026-10-20）
+
+`js/tank_boss.js`（约 `:273`）原在 `makeBossEntity` 里写 `t.aiState = 'chase'`——该值是**唯一写点**且**首帧即被 `js/tank_ai.js` 覆盖**，且 `'chase'` **不在 `aiState` 词表内**（现行词表 `patrol/suspicious/react/search/...`）⇒ 纯噪声，会误导调试（读 `t.aiState` 以为 AI 处于"追击"态，实际并非如此）。**已删除该赋值**；Boss「出生即接战」语义由同处的 `t.aiEngaged = true` 承担，不需要 `aiState` 参与。
+
+### 10.3 Boss 机炮射程 900 → 1200（#W-J，**已于 2026-10-20 实施**）
+
+**⚠️ 沿革（被推翻的旧结论不静默删除）**：本项在 `docs/PLAN.md` §6.2 与 `docs/archive/2026-10.md` 里曾被记为「**不做**」。2026-10-20 用户要求「全部修完」后**改为实施**。旧记录保留在归档中，仅追加实施注记（见 `docs/archive/2026-10.md` 对应条目）。
+
+**实现**（两个改动点）：
+1. `RULES.boss.tuning.autocannonRange = 1200`（`js/tank_rules.js`，新增字段）；
+2. `js/tank_boss.js` 新增导出 `applyBossWeaponTuning(t)`：当 `t.weapons.primary.type === 'autocannon'` 时写 `t.weapons.primary.stats.maxRange = RULES.boss.tuning.autocannonRange`。
+
+**调用契约（关键，勿错序）**：**必须在 `assignBossArmament(bossEntity, bossNumber)` 之后调用**——Boss 主武器由 `pickBossArmament` 随机分配，`assignBossArmament` 会**重置** `stats`，先调会被覆盖。接线位置：`tank_mvp.html` 的 `assignBossArmament` 之后一行。
+
+**为什么不能直接改 `js/tank_weapons.js:33` 的全局 900**：那是**玩家机炮**的射程，会连带改玩家。Boss 加成必须在 Boss 实体上单独施加。
+
+**实测**：autocannon 900 → **1200**；非 autocannon（railgun/double_barrel/clip/standard）保持 900 不受影响；**幂等**（重复调用结果不变）。回归：`scripts/test-boss.js`。

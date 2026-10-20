@@ -2,7 +2,6 @@
   "id": "sniper_sabot_round",
   "name": "脱壳穿甲弹",
   "rarity": "rare",
-  "tags": ["狙击"],
   "desc": "APCR 弹穿深 +18%，弹速 +12%。",
   "effects": [
     { "type": "ammo", "key": "apcr", "field": "pen", "mode": "mult", "value": 1.18 },

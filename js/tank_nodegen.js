@@ -1420,7 +1420,10 @@ function placeRoadNetwork(rng, tpl, scale, centerX, centerY, opts) {
 
   const R = () => rng.range(-0.20, 0.20);   // #E2：端点沿边偏移扩大（旧 ±0.13）→ 干线自带倾角
   // #U45（2026-10-19）：branchCurveAmp 自 #G（2026-09-21）起零消费（T 形支道固定 amp=0，
-  // 唯一残留是本死变量）→ 删除；ROAD 路面仅剩单弓形干弯一个曲率来源。
+  // 唯一残留是本死变量）→ 值已于当时从本文件移除。
+  // 沿革：#W15（2026-10-20）起 `RULES.nodeMap.road.branchCurveAmp` **字段本体也已删除**
+  // （role-systems 实测零消费）。移除理由：支道曲率恒为 0，保留字段会让调参者误以为可调。
+  // 现行口径：ROAD 路面仅剩单弓形干弯一个曲率来源。
   const diagChance = rc.diagChance !== undefined ? rc.diagChance : 0.45;
   const diagMin = rc.diagAngleMin !== undefined ? rc.diagAngleMin : 0.18;
   const diagMax = rc.diagAngleMax !== undefined ? rc.diagAngleMax : 0.52;
@@ -1655,7 +1658,11 @@ function placeRoadNetwork(rng, tpl, scale, centerX, centerY, opts) {
 //   第三层【周边杂物】——剩余空域拒绝采样填充树/灌木/沙包(barricade)/岩石(无 rock tier 则
 //     rubble)/低概率小水塘(water blob)，避让道路条带与建筑包围盒（obbHits 支持 road 条带占用）。
 // 全程仅用注入 rng（调用方传 seed 派生的独立子流，跨难度同 seed 布局一致），同 seed 同结果。
-const VILLAGE_SOLID = new Set(['full', 'building', 'half', 'barricade', 'tree', 'rock', 'stump', 'rubble', 'bridge', 'ruined', 'intact']);
+// #W15（2026-10-20）：移除 `'half'`（`RULES.coverTiers.half` 已于 #E3 2026-09-20 删除，
+// 且 generateNode 的 `tier === 'half'` 会 continue 丢弃 ⇒ 该条目恒不可达）。
+// `'bridge'` 保留：桥梁体系已不再产出（#U7 2026-10-17），但**旧存档/旧基线**仍可能带 tier，
+// 村庄占位检查必须继续把桥梁当实体避让（保守方向：多避让不会产生重叠 bug）。
+const VILLAGE_SOLID = new Set(['full', 'building', 'barricade', 'tree', 'rock', 'stump', 'rubble', 'bridge', 'ruined', 'intact']);
 function placeVillage(rng, tpl, scale, cx, cy, outCovers, networkRoads) {
   const coverTiers = (typeof RULES !== 'undefined' && RULES.coverTiers)
     ? RULES.coverTiers
@@ -2718,6 +2725,8 @@ function clearCoversOnRowSeams(covers, seamYs, opts) {
     if (!c) continue;
     const tg = _stripTierGroup(c.tier);
     if (tg !== 'structure' && tg !== 'foliage') continue;
+    // TODO(bridge 已不再产出，#U7 2026-10-17)：本特判只为兼容旧存档/旧基线里的 bridge 实例
+    // 保留——桥梁横跨行界属正常语义，不得被推到单侧。新生图恒不命中。
     if (c.tier === 'bridge') continue;
     const bb0 = otherAabb.get(c) || _coverWorldAABB(c);
     if (!bb0) continue;
@@ -2979,7 +2988,9 @@ function clearCoversOnRoads(covers, roadCovers, opts) {
     if (!c) continue;
     const tg = _stripTierGroup(c.tier);
     if (tg !== 'structure' && tg !== 'foliage') continue;
-    if (c.tier === 'bridge') continue;      // bridge 已废弃但保留兼容：不动
+    // TODO(bridge 已不再产出，#U7 2026-10-17)：兼容旧存档/旧基线——旧版桥面就铺在路上，
+    // 按道路净空逻辑推出或删除会破坏存档里的过河通道，故豁免。
+    if (c.tier === 'bridge') continue;
     stats.checked++;
     const hits = hitsAt(c, c.x, c.y);
     if (!hits.length) continue;
@@ -3042,6 +3053,74 @@ function clearCoversOnRoads(covers, roadCovers, opts) {
       otherAabb.set(c, _coverWorldAABB(c));   // 位置已变 → 同步 AABB（后续元素复验用）
       stats.moved++;
     } else { covers.splice(ci, 1); otherAabb.delete(c); stats.removed++; }
+  }
+  return stats;
+}
+
+/**
+ * 水域净空收尾（#X2，2026-10-20 重做）：从 covers 中移除压在 river/water 上的 structure/foliage。
+ *
+ * 背景（ISSUES #X2）：`generateStrip` 里原本就有一段「步骤4最终兜底」做同样的事，但有两个真
+ * 缺口——① 它用**旋转包络 AABB** 近似（`dx < ww + cw - 10`），不是真多边形相交：verts 多边形
+ * 道路/河流的 bbox 远大于实际占地（#U37 实测 main-road-d0 的 bbox 面积只有真实多边形的 12.3%），
+ * 于是「窄楼压河角」会被粗判**放过**，而「宽元素斜靠河」又可能被**误删**；
+ * ② 它跑在 `clearCoversOnRoads` / `fillEmptyBands` **之前**——后两者会把元素推到新位置、再补植
+ * 一批新植被（fillEmptyBands 完全不看水域），于是收尾之后又被放回水里。
+ *
+ * 本函数是**收尾链最后一环**，必须在 clearCoversOnRoads 与 fillEmptyBands 之后调用，且判定走
+ * `_coverWorldPolys` 真实多边形（verts/collisionVerts 逐环展开，无 verts 回退 OBB 四角）+ 
+ * `_polysIntersectX`（顶点互含 + 边相交，对凹多边形/多环同样正确）。
+ *
+ * 语义与既有「步骤4兜底」一致：**只移除、不推出**（这些元素为装饰/建筑，推离河道会连片挪出界，
+ * 且会与道路净空打架）；`_ROAD_CLEAR_MARGIN` 同款内缩由调用方通过 margin 控制。
+ * 全过程确定性、不耗 rng。
+ *
+ * @param {Array} covers 元素列表（就地修改：移除命中项）
+ * @param {Object} [opts] `{ margin, keepTiers }`
+ * @returns {{removed:number, checked:number}}
+ */
+function clearCoversOnWater(covers, opts) {
+  opts = opts || {};
+  const stats = { removed: 0, checked: 0 };
+  if (!Array.isArray(covers) || !covers.length) return stats;
+  const margin = opts.margin !== undefined ? opts.margin : 0;
+  // bridge 已不再产出（#U7 2026-10-17），仅在读旧存档时可能出现；桥梁语义上「跨水」，
+  // 必须豁免，否则会把自己的基础设施删掉。keepTiers 供调用方额外放行。
+  const keep = new Set(['bridge', 'road']);
+  if (Array.isArray(opts.keepTiers)) for (const t of opts.keepTiers) keep.add(t);
+
+  const waterList = covers.filter(c => c && (c.tier === 'river' || c.tier === 'water'));
+  if (!waterList.length) return stats;
+  // 水域世界多边形 + AABB 预建（河流为 80+ 顶点整链多边形，逐元素重建是 O(n·m)）
+  const waters = [];
+  for (const w of waterList) {
+    for (const poly of _coverWorldPolys(w)) {
+      const bb = _polyAABB(poly);
+      if (!Number.isFinite(bb.minX)) continue;
+      waters.push({ c: w, poly, bb });
+    }
+  }
+  if (!waters.length) return stats;
+
+  for (let i = covers.length - 1; i >= 0; i--) {
+    const c = covers[i];
+    if (!c || keep.has(c.tier)) continue;
+    const tg = _stripTierGroup(c.tier);
+    if (tg !== 'structure' && tg !== 'foliage') continue;
+    stats.checked++;
+    let hit = false;
+    for (const poly of _coverWorldPolys(c)) {
+      let bb = _polyAABB(poly);
+      if (!Number.isFinite(bb.minX)) continue;
+      if (margin) bb = { minX: bb.minX - margin, maxX: bb.maxX + margin,
+                         minY: bb.minY - margin, maxY: bb.maxY + margin };
+      for (const w of waters) {
+        if (!_aabbHit(bb, w.bb)) continue;
+        if (_polysIntersectX(poly, w.poly, bb, w.bb)) { hit = true; break; }
+      }
+      if (hit) break;
+    }
+    if (hit) { covers.splice(i, 1); stats.removed++; }
   }
   return stats;
 }
@@ -3145,9 +3224,11 @@ function clearCoversOnRoads(covers, roadCovers, opts) {
     }
   }
 
-  // #77 低难度 full→half 降级帽（fullDowngradeCap）：D5 第一阶段后 full→half 降级
-  // 已改为无操作，降级帽预算随之废弃（RULES.nodeMap.fullDowngradeCap 字段保留不删，
-  // 以兼容配置读取与后续 half 子系统去留裁定）。
+  // #77 低难度 full→half 降级帽（fullDowngradeCap）——**沿革**：D5 第一阶段（2026-08-26）起
+  // full→half 降级已改为无操作，降级帽预算随之失效；`RULES.nodeMap.fullDowngradeCap` 字段
+  // 已于 2026-10-20 #W15 由 role-systems **删除**（经实测零消费）。
+  // 移除理由：半高掩体 half 体系已于 #E3（2026-09-20）整体删除，降级目标本身不复存在，
+  // 保留字段只会让调参者误以为"改它有用"。降级逻辑本体早已移除，此处不留空壳代码。
 
   // #77 尺寸收敛系数表（RULES.nodeMap.coverWorldScale）：掩体类按 tier 缩放世界尺寸
   // （半高 0.55 → ≈100~150px、全高 0.58 → ≈150~220px、沙袋 0.40 → ≈60~90px @nodeScale=3）；
@@ -3456,11 +3537,20 @@ function clearCoversOnRoads(covers, roadCovers, opts) {
     }
   }
 
-  // P-20：随机插入水体/桥梁组合（置于村落/林地之后，避让全部已放置元素）
-  // 每个节点最多 1 个水体/桥梁组合；概率随难度递增
+  // P-20：随机插入水体组合（置于村落/林地之后，避让全部已放置元素）
+  // 每个节点最多 1 个水体组合；概率随难度递增
   // 2026-10-05：strip 模式下跳过（_ro.externalRoads 存在时）——strip 级已有
   // 一体化水系（placeStripRivers），per-node 矩形水体会破坏视觉统一。
-  const waterBridgeChance = diff * 0.5;
+  //
+  // #W15（2026-10-20）**实测纠错**：ISSUES #W15 表把本行记为「仍在算概率但结果被丢弃」，
+  // 该判断**有误**。`waterBridgeChance` 只影响**门槛**（名字里的 Bridge 是历史遗留——桥梁
+  // 已随 #U7 删除，这里只剩水体），水体的 push 在下方 `if (waterDx !== null)` 分支里**真的执行**。
+  // 实测（tmp 探针，40 seed × generateNode，cullRate=0）：
+  //   diff=0   → 1/40 节点有 water（1 个，来自模板自带的村池塘）
+  //   diff=0.5 → 16/40 节点有 water（18 个）
+  // ⇒ 门槛是**活的**，删掉会把「难度↑水体↑」的地形分布改成常数 0，属行为变更。
+  // 故**保留**，仅把变量名注释澄清（不重命名，避免 RNG 流位差影响校准基线）。
+  const waterBridgeChance = diff * 0.5;   // 历史名（Bridge 已删）：仅水体生成门槛
   if (!_ro.externalRoads && rng() < waterBridgeChance) {
     // 生成水体：w/h 受「≤40% 节点尺寸」封顶（scale 已计入），
     // 并按节点世界比例封顶（≤40% 宽/高）——原始区间相对模板尺寸本就占 35%~114%，
@@ -3504,7 +3594,9 @@ function clearCoversOnRoads(covers, roadCovers, opts) {
     }
 
     if (waterDx !== null) {
-      // 添加水体覆盖（tier: 'water'，move:0 表示不可通行）
+      // 添加水体覆盖（tier: 'water'，passability 0.4 减速通行、shellBlock false 炮弹越飞）
+      // #W15（2026-10-20）：此行**真的执行**——本注释原写「move:0 表示不可通行」已过时
+      // （`move` 旧字段早已由归一化从 passability 派生，且水域现为 0.4 非 0）。
       outCovers.push({
         x: centerX + waterDx * scale,
         y: centerY + waterDy * scale,
@@ -4296,6 +4388,8 @@ function generateStrip(difficulty, options) {
     // 收集所有水体（河+湖）用于避让
     const allWaters = covers.filter(c => c.tier === 'river' || c.tier === 'water');
     const allRoads = covers.filter(c => c.tier === 'road' || c.tier === 'bridge');
+    // TODO(bridge 已不再产出，#U7 2026-10-17)：上面 bridge 只为兼容旧存档/旧基线保留在
+    // 避让集合里（旧存档的桥面同样是"要避让的基础设施"，保守方向不会产生重叠 bug）。
     for (const rv of stripRivers) {
       if ((rv.tier || 'river') !== 'river') continue;  // 湖不加密（已有植被）
       for (const s of rv.segments) {
@@ -4376,6 +4470,8 @@ function generateStrip(difficulty, options) {
   let seamCleared = 0;
   for (const c of covers) {
     const tg = _stripTierGroup(c.tier);
+    // TODO(bridge 已不再产出，#U7 2026-10-17)：`c.tier !== 'bridge'` 的 bridge 豁免只为兼容
+    // 旧存档/旧基线——桥梁横跨片边界属正常语义（2026-10-05 起口径），清掉会切断过河通道。
     if ((tg === 'structure' || tg === 'foliage') && c.tier !== 'bridge') {
       let inSeam = false;
       for (let s = 0; s < seamX.length; s++) {
@@ -4388,35 +4484,11 @@ function generateStrip(difficulty, options) {
   // #U35：行间跨行界元素已在上方（本步之前）处理完毕，此处不再重复。
   seamCleared += rowSeamStats.removed;
 
-  // 2026-10-05 步骤4最终兜底：删除所有压河/压湖的 structure/foliage
-  // （OBB 精确判定）。保证"水域范围外生成"的绝对性。
-  {
-    const waters = finalCovers.filter(c => c.tier === 'river' || c.tier === 'water');
-    const kept = [];
-    let waterCleared = 0;
-    for (const c of finalCovers) {
-      const tg = _stripTierGroup(c.tier);
-      if ((tg === 'structure' || tg === 'foliage') && c.tier !== 'bridge' && c.tier !== 'road') {
-        let hitsWater = false;
-        for (const w of waters) {
-          // OBB 近似：用 AABB 快速拒收，精确相交用中心距+半宽
-          const dx = Math.abs(c.x - w.x), dy = Math.abs(c.y - w.y);
-          // 考虑旋转：取包络半宽
-          const wa = w.angle || 0;
-          const ww = (w.w * Math.abs(Math.cos(wa)) + w.h * Math.abs(Math.sin(wa))) / 2;
-          const wh = (w.w * Math.abs(Math.sin(wa)) + w.h * Math.abs(Math.cos(wa))) / 2;
-          const ca = c.angle || 0;
-          const cw = (c.w * Math.abs(Math.cos(ca)) + c.h * Math.abs(Math.sin(ca))) / 2;
-          const ch = (c.w * Math.abs(Math.sin(ca)) + c.h * Math.abs(Math.cos(ca))) / 2;
-          if (dx < ww + cw - 10 && dy < wh + ch - 10) { hitsWater = true; break; }
-        }
-        if (hitsWater) { waterCleared++; continue; }
-      }
-      kept.push(c);
-    }
-    finalCovers.length = 0;
-    for (const c of kept) finalCovers.push(c);
-  }
+  // #X2（2026-10-20 重做）：**水域净空收尾的位置与判定都已变更**。
+  //   旧版在此处（clearCoversOnRoads / fillEmptyBands 之前）用旋转包络 AABB 近似清理，
+  //   后两者的推出与补植会把元素重新放进水域 ⇒ 实测仍残留 overlap（见下）。
+  //   现改为在道路收尾 + 补植**之后**调用 clearCoversOnWater（真多边形 SAT，见函数注释）。
+  //   本处不再做任何水域清理（顺序语义已迁移到收尾链末端）。
 
   // #U35（2026-10-18）道路净空收尾②（strip 级）：**必须放在 strip 级 road/river/植被全部
   // append 之后**——这正是「树/房压路」的主因：片内 prune 跑在片生成期，看不到 strip 级
@@ -4435,6 +4507,14 @@ function generateStrip(difficulty, options) {
       seamY: seamY            // 补位的植被同样不得跨行界（与行间接缝口径同源）
     })
     : { filled: 0, bands: 0 };
+
+  // #X2（2026-10-20）：**水域净空收尾——本链最后一环**。
+  //   必须在 clearCoversOnRoads（会推出元素）与 fillEmptyBands（会补植新植被、完全不看水域）
+  //   **之后**：这两步都会把元素重新放进河道/湖面，任何先于它们的清理都不成立。
+  //   判定改用 `_coverWorldPolys` 真实多边形（verts/collisionVerts 逐环）+ `_polysIntersectX`，
+  //   不再用旋转包络 AABB 近似（#U37 实测包络面积可达真实多边形的 8 倍，窄楼压河会被放过）。
+  //   bridge/road 豁免（桥梁语义上跨水；road 是 ground 组本就不会命中）。
+  const waterClearStats = clearCoversOnWater(finalCovers);
 
   // 密度（屏 = vw×vh 世界 px）
   const screens = (stripW * stripH) / (viewport.vw * viewport.vh);
@@ -4475,6 +4555,8 @@ function generateStrip(difficulty, options) {
     rowSeam: rowSeamStats,
     roadCleared: roadClearStats,
     bandFilled: bandFillStats,
+    // #X2（2026-10-20）：水域净空收尾统计（真多边形 SAT；收尾链最后一环，恒在补植之后）
+    waterCleared: waterClearStats,
     densityPerScreen: densityPerScreen,
     biomeZones: biomeZones
   };
@@ -4789,6 +4871,11 @@ function generateStrip(difficulty, options) {
       placeForestClusters,
       ensureLoSCorridor,
       nodeLayoutMetrics,
-      pruneOverlappingCovers
+      pruneOverlappingCovers,
+      // #X2（2026-10-20）：水域净空收尾（真多边形 SAT），供测试/审计直调
+      clearCoversOnWater,
+      clearCoversOnRoads,
+      fillEmptyBands,
+      clearCoversOnRowSeams
     };
   }

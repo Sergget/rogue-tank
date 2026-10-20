@@ -2,7 +2,6 @@
   "id": "escort_drone",
   "name": "伴随浮游炮",
   "rarity": "epic",
-  "tags": ["支援"],
   "desc": "部署一架随行打击无人机，自动索敌并攻击附近的敌军，提供额外火力通道。",
   "effects": [
     { "type": "drone", "kind": "striker" }

@@ -231,6 +231,159 @@ ok(FRONT_THICKNESS > 0, `中坦正面名义厚度可读（${FRONT_THICKNESS}）`
   P.setSplashWorldBounds(null);
 }
 
+// ========== #W-H（2026-10-20）防御方减伤通道：wet_ammo_rack / crew_liner ==========
+// 背景：`js/tank_physics.js:358-381` 的 getMultForKey 此前只有**攻击方**乘子
+// （`modMults ← shell.shooter.stats.ammoMult/crewMult` 或弹种表值），防御方零入口 ⇒
+// 「湿式弹药架：弹药架受伤 -30%」「成员内衬：成员受伤 -20%」两张卡形同虚设。
+// 现有代码按 modKey 查**受击方** cardEffects 的 passive：ammo → wet_ammo_rack，
+// 6 个 crew 键 → crew_liner，value 即减伤比例，多张取最强（max value）。
+// 而 scripts/ 全目录此前**零引用**这两个键 —— 有代码、无验证。本段补齐。
+//
+// 测试手法（关键）：模块抽取走随机流（`moduleFromHit` 内含 Math.random），直接跑会 flaky。
+// 故此处两处确定性化：
+//   ① `moduleFromHit` 打桩 → 直接指定被测模块键（覆盖全 9 种键，含 6 crew 键）；
+//   ② `Math.random = () => 0.5` → 伤害抖动固定为 0.85+0.5×0.3 = 1.0。断言因此可做**精确比值**。
+// 用 `ammoKey:'ap'`（表值 ammoMult=2 / crewMult=1.5）而非空弹种：draws=1 时
+// `effectiveMult = Math.max(mult1, mult2=1.0)`，若 base ≤ 1.0 防御因子会被 max 吃掉而不可观测
+// （实测 ammoMult=0.5 时 wet 反而「加伤」1.2989）——这是既有实现的真实口径，不是缺陷，
+// 但断言必须挑 base > 1 的弹种才能观测到防御通道。
+{
+  const _origRandom = Math.random;
+  const _origMFH = global.moduleFromHit;
+  const HIT_M = { part:'hull', faceKey:'front', x:0, y:0, nx:1, ny:0, edgeName:'front' };
+  const WET = [{ type:'passive', key:'wet_ammo_rack', value:0.30 }];
+  const LIN = [{ type:'passive', key:'crew_liner', value:0.20 }];
+  const BOTH = WET.concat(LIN);
+  const CREW6 = ['engine', 'gunner', 'loader', 'driver', 'commander', 'breech'];
+
+  // modKey=null 表示“概率余量”（正常结算、无模块倍率），stub 返回 null
+  function modDmg(modKey, cardEffects, opts) {
+    opts = opts || {};
+    global.moduleFromHit = () => (modKey ? { key:modKey, label:G.moduleLabelOf(modKey) } : null);
+    Math.random = () => 0.5;                       // 抖动固定 1.0（0.85 + 0.5×0.3）
+    try {
+      const tt = mkTarget({});
+      tt.hp = 1e9;                                 // 避免打死触发殉爆/击杀分支
+      if (cardEffects) tt.cardEffects = cardEffects.slice();
+      const s = mkShell({
+        dmg: opts.dmg === undefined ? 100 : opts.dmg,
+        ammoKey: opts.ammoKey === undefined ? 'ap' : opts.ammoKey,
+        shooter: opts.stats ? { stats: opts.stats } : null
+      });
+      return P.applyModuleDamage(s, tt, Object.assign({}, HIT_M), { dmgMul: 1 });
+    } finally {
+      global.moduleFromHit = _origMFH;
+      Math.random = _origRandom;
+    }
+  }
+  const ratio = (a, b) => (b === 0 ? NaN : a / b);
+  const near = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 0.01 : tol);
+
+  // --- 前置：确定性可达（若抖动未被固定，这三连读会不相等，后续比值断言即失去意义） ---
+  const d1 = modDmg('ammo', null).dmg, d2 = modDmg('ammo', null).dmg, d3 = modDmg('ammo', null).dmg;
+  ok(d1 === d2 && d2 === d3, `#W-H 前置：抖动固定后同参数伤害可复现（${d1}/${d2}/${d3}）`);
+  ok(modDmg('ammo', null).modKey === 'ammo', '#W-H 前置：moduleFromHit 打桩生效（modKey=ammo）');
+
+  // --- ① 目标无卡：弹药架模块伤害 = 基准（ap 弹种表值 ammoMult=2 → 100×2=200） ---
+  const baseAmmo = modDmg('ammo', null).dmg;
+  ok(baseAmmo === 200, `#W-H 无卡基准：ammo 键 dmg=${baseAmmo}（= dmg 100 × 弹种 ammoMult 2）`);
+
+  // --- ② wet_ammo_rack 0.30：弹药架伤害 = 基准 × 0.70 ---
+  const wetAmmo = modDmg('ammo', WET).dmg;
+  ok(near(ratio(wetAmmo, baseAmmo), 0.70),
+    `#W-H wet_ammo_rack(0.30)：弹药架伤害 ×0.70（${baseAmmo} → ${wetAmmo}，实测比 ${ratio(wetAmmo, baseAmmo).toFixed(4)}）`);
+  ok(wetAmmo === 140, `#W-H wet_ammo_rack(0.30)：绝对值 140 = round(100×2×0.7)`);
+
+  // --- ③ crew_liner 0.20：6 个 crew 键伤害 = 基准 × 0.80 ---
+  const crewRows = [];
+  for (const k of CREW6) {
+    const b = modDmg(k, null).dmg;
+    const l = modDmg(k, LIN).dmg;
+    crewRows.push({ k: k, b: b, l: l, r: ratio(l, b) });
+  }
+  ok(crewRows.every(row => near(row.r, 0.80)),
+    `#W-H crew_liner(0.20)：6 个 crew 键均 ×0.80（${crewRows.map(r => r.k + ':' + r.r.toFixed(3)).join(' ')}）`);
+  ok(crewRows.every(row => row.l === 120 && row.b === 150),
+    `#W-H crew_liner(0.20)：绝对值 120 = round(100×1.5×0.8)（基准 150 = 100×弹种 crewMult 1.5）`);
+
+  // --- ④ 通道隔离：湿式只管 ammo、内衬只管 crew（互不串门） ---
+  ok(modDmg('ammo', LIN).dmg === baseAmmo,
+    '#W-H 隔离：crew_liner 不影响 ammo 键（ammo 只认 wet_ammo_rack）');
+  ok(CREW6.every(k => modDmg(k, WET).dmg === modDmg(k, null).dmg),
+    '#W-H 隔离：wet_ammo_rack 不影响 6 个 crew 键（crew 只认 crew_liner）');
+  ok(modDmg('track', BOTH).dmg === modDmg('track', null).dmg,
+    '#W-H 隔离：非模块键 track 不受任一防御卡影响');
+  ok(modDmg(null, BOTH).dmg === modDmg(null, null).dmg,
+    '#W-H 隔离：概率余量（modKey=null）不受任一防御卡影响');
+
+  // --- ⑤ 两卡同在手不叠乘（实现是 if/else 单通道：ammo 键只走 wet、crew 键只走 liner） ---
+  // 若误改成乘算，ammo 键会变成 0.7×0.8=0.56 → 112；crew 键会变成 0.8×0.7=0.56 → 84。
+  const bothAmmo = modDmg('ammo', BOTH).dmg;
+  ok(bothAmmo === wetAmmo && near(ratio(bothAmmo, baseAmmo), 0.70),
+    `#W-H 不叠乘：ammo 键两卡同在手 = 仅湿式（${bothAmmo}，非叠乘值 112）`);
+  const bothGunner = modDmg('gunner', BOTH).dmg;
+  const linerGunner = modDmg('gunner', LIN).dmg;
+  ok(bothGunner === linerGunner && near(ratio(bothGunner, modDmg('gunner', null).dmg), 0.80),
+    `#W-H 不叠乘：crew 键两卡同在手 = 仅内衬（${bothGunner}，非叠乘值 84）`);
+
+  // --- ⑥ 同类多张取最强（min 方向减伤 → max value） ---
+  const twoWet = modDmg('ammo', [
+    { type:'passive', key:'wet_ammo_rack', value:0.30 },
+    { type:'passive', key:'wet_ammo_rack', value:0.50 }]).dmg;
+  ok(near(ratio(twoWet, baseAmmo), 0.50),
+    `#W-H 多张取最强：wet 0.30+0.50 → ×0.50（实测比 ${ratio(twoWet, baseAmmo).toFixed(4)}）`);
+
+  // --- ⑦ 攻击方 ammoMult/crewMult 与防御通道**互相独立**（防语义混淆回归） ---
+  // 攻击方加成：我打得痛；防御通道：我挨得不痛。两者乘算但各自归位。
+  // 注意必须走**无弹种**路径（ammoKey:null）才能观测 shooter.stats —— 有弹种时
+  // `ammoModuleMults` 用弹种表值覆盖 shooter.stats（见表值优先口径），stats 会被忽略。
+  const atk3 = { ammoMult: 3, crewMult: 3 };
+  const a3 = modDmg('ammo', null, { ammoKey: null, stats: atk3 }).dmg;         // 100×3 = 300
+  const a3wet = modDmg('ammo', WET, { ammoKey: null, stats: atk3 }).dmg;       // 300×0.7 = 210
+  ok(a3 === 300, `#W-H 攻击方加成独立：无弹种 ammoMult=3 → 基准 300（got ${a3}）`);
+  ok(near(ratio(a3wet, a3), 0.70),
+    `#W-H 攻击方加成独立：ammoMult=3 + wet → 仍 ×0.70（${a3} → ${a3wet}）`);
+  const g3 = modDmg('gunner', null, { ammoKey: null, stats: atk3 }).dmg;
+  const g3lin = modDmg('gunner', LIN, { ammoKey: null, stats: atk3 }).dmg;
+  ok(g3 === 300 && near(ratio(g3lin, g3), 0.80),
+    `#W-H 攻击方加成独立：crewMult=3 + crew_liner → 仍 ×0.80（${g3} → ${g3lin}）`);
+  // 反向：有弹种时 shooter.stats 被表值覆盖（口径回归，防止有人把优先级改反）
+  ok(modDmg('ammo', null, { ammoKey: 'ap', stats: { ammoMult: 99, crewMult: 99 } }).dmg === 200,
+    '#W-H 弹种表值优先：ammoKey=ap 时 ammoMult=99 被表值 2 覆盖（基准仍 200）');
+
+  // --- ⑧ cardEffects 格式健壮性：非 passive / 缺 value / 字符串 / NaN 一律忽略（不误伤） ---
+  const badCases = [
+    ['type!=passive', [{ type:'ammo', key:'wet_ammo_rack', value:0.30 }]],
+    ['缺 value', [{ type:'passive', key:'wet_ammo_rack' }]],
+    ['字符串 value', [{ type:'passive', key:'wet_ammo_rack', value:'0.30' }]],
+    ['NaN value', [{ type:'passive', key:'wet_ammo_rack', value:NaN }]]
+  ];
+  for (const [label, ce] of badCases) {
+    ok(modDmg('ammo', ce).dmg === baseAmmo,
+      `#W-H 健壮性：${label} 的 cardEffects 被忽略（dmg 仍为 ${baseAmmo}）`);
+  }
+
+  // --- ⑨ 减伤值钳制：value=0 无效；value≥1 令防御因子归 0（Math.max(0, 1−v)） ---
+  ok(modDmg('ammo', [{ type:'passive', key:'wet_ammo_rack', value:0 }]).dmg === baseAmmo,
+    '#W-H 边界：wet value=0 → 不减伤');
+  const fullCut = modDmg('ammo', [{ type:'passive', key:'wet_ammo_rack', value:1 }]).dmg;
+  const overCut = modDmg('ammo', [{ type:'passive', key:'wet_ammo_rack', value:1.5 }]).dmg;
+  ok(fullCut === overCut && fullCut < baseAmmo,
+    `#W-H 边界：value=1 与 1.5 同值（防御因子钳在 0，不出现负伤害）：${fullCut} / ${overCut}`);
+
+  // --- ⑩ 多抽取弹种（apfsds draws=2 / he draws=3）下防御因子仍在（每键各自乘，取 max 后不失效） ---
+  for (const ak of ['apfsds', 'he']) {
+    const b = modDmg('ammo', null, { ammoKey: ak }).dmg;
+    const w = modDmg('ammo', WET, { ammoKey: ak }).dmg;
+    ok(near(ratio(w, b), 0.70),
+      `#W-H 多抽取弹种 ${ak}：wet 仍 ×0.70（${b} → ${w}）`);
+  }
+
+  // 收尾：确认全局钩子已还原（后续其他测试段依赖真实随机/真实几何）
+  ok(Math.random === _origRandom && global.moduleFromHit === _origMFH,
+    '#W-H 收尾：Math.random 与 moduleFromHit 均已还原');
+}
+
 console.log('----------------------------------------------------------------');
 if(fails === 0){ console.log(`test-physics: 全部通过（${pass} 断言）`); process.exit(0); }
 else { console.error(`test-physics: ${fails} 失败 / ${pass} 通过`); process.exit(1); }

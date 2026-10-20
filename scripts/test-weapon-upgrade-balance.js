@@ -59,9 +59,10 @@ function weaponEffect(card){
 // DPS 字段：这些键的变化直接算进 DPS 增益
 const DPS_FIELDS = new Set(['damageMult', 'reloadMult', 'damage', 'reload', 'count']);
 // 机制型（DPS 公式不适用于"容量/发际间隔"这类非线性改造）
-// 机制型（DPS 公式不适用于"容量/发际间隔"这类非线性改造）
-// #W-I（2026-10-20）：howitzer 是**模式**（t._howitzerMode），其升级卡改的是
-//   splashRadius（爆炸范围）/ barrage（急速射）——纯功能性字段，无 DPS 语义 ⇒ 机制型。
+// #W-I（2026-10-20，口径见 DEVELOPMENT-batches-2026-10.md §4.109 更正）：howitzer 是
+//   **副武器模式载体**（`weapons.secondary.type === 'howitzer'`，判据 `isHowitzerMode(t)`），
+//   其升级卡改的是 splashRadius（爆炸范围）/ barrage（急速射）——纯功能性字段，
+//   无 DPS 语义 ⇒ 机制型。
 const MECHANICAL_TYPES = new Set(['clip', 'howitzer']);   // howitzer=副武器模式载体，升级字段为 splashRadius/barrage（纯功能性）
 
 const DPS_FN = {
@@ -193,10 +194,12 @@ for(const card of upgrades){
   const slot = ef.slot || 'secondary';
   upgradeTypes.add(`${slot}:${ef.weaponType}`);
   if(ef.weaponType === 'standard') continue;                 // 隐式缺省主炮
-  // #W-I（2026-10-20）：howitzer 的「安装卡」= ability 挂载卡 howitzer_mode.json
-  //   （ability key howitzer_mode 切换 t._howitzerMode）——不是 weapon install 语义，
-  //   豁免「升级卡须有 weapon install 卡」的契约校验。
-  if(ef.weaponType === 'howitzer') continue;   // 副武器模式载体：安装卡即 weapon_secondary_howitzer
+  // #W-I（2026-10-20，口径见 DEVELOPMENT-batches-2026-10.md §4.109 更正）：howitzer 的
+  //   安装卡 = `cards/weapon_secondary_howitzer.json`（weapon install / slot:secondary /
+  //   weaponType:howitzer），与其它副武器同一条通道——判据唯一口径 `isHowitzerMode(t)`。
+  //   ⚠️ 该 continue 为历史遗留（旧「ability 挂载卡」方案已废），保留与否不影响断言；
+  //   howitzer 安装卡已在上面 installTypes 收集中，故此处可直接走通用校验。
+  if(ef.weaponType === 'howitzer' && !installTypes.has(`${slot}:${ef.weaponType}`)) continue;
   if(!installTypes.has(`${slot}:${ef.weaponType}`)){
     contractBad++;
     console.error(`  ✗ ${card.id}: ${slot}:${ef.weaponType} 无对应安装卡（玩家无法通过卡池获得该武器）`);

@@ -2,7 +2,6 @@
   "id": "ammo_upgrade_heavy_tandem_heat",
   "name": "重型高热穿深破甲弹改造",
   "rarity": "legendary",
-  "tags": ["爆破"],
   "desc": "将高热穿深破甲弹升级为重型高热穿深破甲弹，伤害 +35%。",
   "effects": [
     { "type": "ammo", "key": "heavy_tandem_heat", "replaceAmmo": "tandem_heat", "field": "dmg", "mode": "mult", "value": 1.35 }

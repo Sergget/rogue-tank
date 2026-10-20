@@ -1559,3 +1559,240 @@ PLAN §6 原文即「**新副武器**：榴弹炮曲射模式」——§4.109/§
 （180 帧测得 0.493 是加速未完成，非缺陷）。`test-fire` 7e 段改写为 **11 条断言**。
 
 验证：`check-html` 0 / `tsc` 0 / `validate-content` 0（196 卡）/ `npm test` **49/49**。
+
+## §4.111 代码审查修复（2026-10-20）：散布系数收口 + bench 弹种条回归 + 归档口径纠偏
+
+> 来源：`/code-review` 审查 `35a376e..4d0a37c`（21 提交 / 28 文件 / +1305−153）。
+> 结论 2 项 blocker 级 + 5 项 suggestion，逐条核实后**实际成立 3 项**（其余经复核不成立，见「已撤回的建议」）。
+
+### 1. 散布系数收口（真实缺陷，`js/tank_fire.js` / `tank_mvp.html` / `js/tank_weapons.js`）
+
+**问题**：榴弹炮曲射的散布系数 `1.2` 在两处**各自硬编码**——`js/tank_fire.js` 的落点切向
+偏移（`spSigma = sigma * 1.2`）与 `tank_mvp.html` 的瞄准圈半径（`sigmaSpread = sigma * 1.2 * aimDist`）。
+两者必须始终一致（圈是落点分布的可视化），但无共同常量 ⇒ 改一处忘另一处会让「圈」与实际
+弹着脱节，且无测试能发现。
+
+**修复**：系数收口进 `WEAPON_DEFAULTS.primary.howitzer.spreadFactor`（缺省 `1.2`），
+两个消费方均改为读表（缺失时回退 1.2）。同批把 `tank_mvp.html` 里原本在 `minArcRange` 之后
+才声明的 `hsDef` 提到函数开头，避免同一段重复取值。
+
+**回归**：`test-fire.js` 7e 段新增 2 条断言——`spreadFactor` 存在且为正、
+`moveSpeedRatio === 1/3`（此前只测行为不测参数表，收口后需防退回字面量）。
+
+### 2. bench 弹种指示器视觉回归（`tank_bench.html`）
+
+**问题**：#3（2026-10-20）把两页弹种指示器收敛到共享 `js/tank_hud.js` 的
+`renderAmmoIndicator(H)`，但 **bench 的 `<style>` 里从来没有 `.ammo-cell` / `.ammo-cell.active`
+规则**——旧 bench 实现靠元素**内联样式**（`opacity` / `font-weight`）表达激活态，
+共享实现改输出结构类 `.active` ⇒ bench 弹种条的激活高亮**整体消失**（只剩结构容器）。
+这是 #3 合并引入的静默回归，Node 链完全覆盖不到（纯 CSS + DOM）。
+
+**修复**：bench 补 `.ammo-cell` / `.ammo-cell.active` / `.key` 三条规则（口径对齐
+`tank_mvp.html:41-47`）；同时把内联兜底分支的 `ammo-active` 类名统一为 `active`
+（`centerActive` 的查询选择器与样式选择器此前是两套口径，一个 `[data-ammo].active`、
+一个 `[data-ammo].ammo-active`）。
+
+### 3. 归档与测试注释口径纠偏（`docs/ARCHIVE.md` / `scripts/test-weapon-upgrade-balance.js`）
+
+**问题**：`85d8057` 已把榴弹炮从「技能开关（`t._howitzerMode`）」整体重构为
+「副武器（`weapons.secondary.type === 'howitzer'`）」，但两处仍在描述**已被推翻的旧方案**：
+- `scripts/test-weapon-upgrade-balance.js:63,197` 注释写「howitzer 是模式（`t._howitzerMode`）」
+  「安装卡 = ability 挂载卡 `howitzer_mode.json`」——`t._howitzerMode` 全仓已无定义、
+  `howitzer_mode.json` 已删除；
+- `docs/ARCHIVE.md` 2026-10-20 行的 W-I 段同样写「运行时模式 `t._howitzerMode` + 新增
+  `t._howitzerStats` 模式专属参数通道」。ARCHIVE.md 是**完结条目索引表**，写错口径会让
+  后续检索者得到与现行实现相反的结论。
+
+**修复**：测试注释改为副武器口径；ARCHIVE 该段改写为现行口径并保留原措辞作沿革注记
+（`⚠️ 原文…系实现中途态`），指向本节与 §4.109 更正段。同时把 `test-weapon-upgrade-balance.js`
+的 howitzer 豁免从「无条件 continue」收紧为「仅在缺安装卡时 continue」——`weapon_secondary_howitzer.json`
+本就是 weapon install 卡，走通用校验即可。
+
+### 已撤回的建议（复核后不成立，留档避免重复排查）
+
+| 审查意见 | 撤回理由 |
+|---|---|
+| `tank_fire.js` 用 `gauss()` 但该函数不存在 → ReferenceError | `gauss` 是 `firePrimaryShell` 内的局部 const（`:144`，`c.gaussian \|\| _G('gaussian', …)`），非未定义标识符 |
+| `tank_weapons.js` 的 `isHowitzerMode` 在 `module.exports` 之后定义 → Node 取到 undefined | 函数声明提升；`test-fire` 实测 `W.isHowitzerMode` 可用 |
+| Boss 激光绕过应急护盾的 `invulnT` 无敌链 | `tank_boss.js:557` 早在基线版本（`35a376e`）就有 `if (e.invuln \|\| e.invulnT > 0) continue;` |
+| `enemyPreviewStats` 的 `armor.hull` 点分路径可能不被 `addModifier` 支持 | `js/tank_model.js:787-788` 有同款先例（`entityMults.armorAll` 即走此路径） |
+| 卡牌查看器描述编辑的事件绑定重复/泄漏 | 每次渲染重建 `innerHTML`，旧监听器随节点销毁，不泄漏 |
+| `updateHowitzerBurst` 调用点在装填门控之后导致队列永不启动 | 首发由 `firePrimaryShell` 直接 push，队列由 `_howitzerBurst` 存在性驱动，与 `reloadT` 门控无耦合 |
+
+### 验证（2026-10-20）
+
+- `node scripts/check-html.js` → **EXIT=0**（All checks passed）
+- `node node_modules/typescript/bin/tsc --noEmit` → **EXIT=0**
+- `npm test` → **48 通过 / 1 失败（49 项）**；唯一失败 `test-cover-gen.js` 为沙箱
+  `spawnSync` EPERM + 既有 #V1 基准漂移（`PLAN.md` §2.5 / `ISSUES.md` #V1 已登记，与本批无关）
+- `node scripts/test-fire.js` → **EXIT=0**（含新增 2 条参数表断言）
+- `npm run test:browser` → **INCONCLUSIVE（exit 86，spawn EPERM）**，沙箱限制，
+  按 `sandbox-verify` skill 需放宽进程权限后补跑（重点复核 bench 弹种条激活高亮）
+
+## §4.112 2026-10-20 ISSUES/PLAN 全量清账（#V1/#V2/#W7/#W8/#W9/#W11/#W13/#W14/#W15/#W16/#W17/#W18/#X1~#X7/#Y1 + PLAN 遗留项）
+
+**结论**：2026-10-20 一次性清空 `docs/ISSUES.md` 的**全部存量条目**与 `docs/PLAN.md` 的**全部已完成遗留项**。清账过程本身发现了两个此前无人察觉的系统性缺陷——**测试链假绿**与 **P1 玩法缺陷 #Y1（曲射弹途中被直射扫掠段截胡）**，两者构成同一条因果链。同时判定 5 项条目属于「**文档记载与代码现状脱节**」（问题早已不存在或被更早的提交修掉，但文档未同步），其中 **#V1 的根因判定本身是错的**。
+
+**现行细则归口**（本节只留简结论，数值一律以对应 specs 卷为唯一口径）：
+
+| 系统 | 归口 |
+|---|---|
+| 战斗（曲射弹越障 / F 边沿 / 火箭巢朝向 / 急速射落点 / 能力键集合 / HE 破障 / 曲射俯仰） | `specs/combat.md` §3.2b / §3.2c / §4 / §6.1 / §8.2 |
+| 卡牌（tags 下线 / PASSIVE_KEYS / replaceAmmo 校验 / 防御方减伤 / economy） | `specs/cards.md` §3 / §4 / §6 / §11 |
+| 地图（coverWorldScale / 出生点 / 水域收尾 / 兜底语义 / directionTolerance / 死配置） | `specs/map.md` §27 |
+| Boss（anchorRange·targetRange / aiState / 机炮射程） | `specs/boss.md` §10 |
+| 编辑器（appearance / 叠加层基准 / aimSpeed / bench 分组 / content_designer） | `specs/editor.md` §8 |
+
+**三链验证记录（2026-10-20 实跑）**：
+```
+node scripts/check-html.js                     → EXIT=0  All checks passed
+node node_modules/typescript/bin/tsc --noEmit  → EXIT=0
+node scripts/run-tests.js                      → 48 通过 / 1 失败 / 共 49 项（约 230s）
+   唯一失败 scripts/test-cover-gen.js = 沙箱 spawnSync EPERM（环境限制，非断言失败）
+   放宽进程权限后复跑该链 → EXIT=0「全部通过」（含 --pick/--only 手动流程、covers-anchor-check 10/10 OK）
+python scripts/prepare_covers.py --dry         → 需 PYTHONPATH=tmp/pylibs（含 numpy 2.5.3 / pillow 12.3.0）；设对后 10/10 OK
+npm run test:browser                           → 未跑（沙箱 spawn EPERM，需放宽进程权限）
+```
+
+### (1) 本批「文档过期」判定：5 项经实测已修复或不成立
+
+共同特征是「**文档记载与代码现状脱节**」——条目描述的现象早已不存在（或被更早的提交修掉），但 ISSUES 从未同步，导致后续 agent 按过期描述去"修复"本无问题的地方。**其中 #V1 的根因判定本身是错的**。
+
+| 条目 | 原文判定 | 实测结论 |
+|---|---|---|
+| **#V1** `dump-cover-refs.mjs` 用基础层尺寸烘焙 canopy 层 | 「canopy 层复用基础层 `def.w/def.h` ⇒ `fallen_canopy` 基准质心偏移 3.06px」 | **根因判定错误**。真凶是 `bakeAssetCanvas` 对**负锚点补边**的处理，已在 `ba95e09` 修掉。`tools/dump-cover-refs.mjs:49` 那行**至今未改**，但 `node tools/dump-cover-refs.mjs --check` **EXIT=0**。⇒ 条目把「症状正确的旁证」误当成根因，属**误诊**。 |
+| **#V2** `test-render.js` 依赖的 paint 绘制符号在 HEAD 缺失 | 「⑫/①/② 全链无法执行，`TypeError: P.getSpriteScale is not a function`」 | **不成立**。`test-render.js` 早已 **EXIT=0（92/92 全绿）**；仅 `drawPartSideWall` / `drawTankRimLight` 未进 `module.exports`（无消费方），已补导出。条目「§22.1/§22.8 实现整体缺失」的描述与 HEAD 不符。 |
+| **#W7** `applyShield` 的 hp/时长参数是死参数 | 「只读 opts.omni/dir，其余硬取 RULES」 | 已修复（`applyShield` 现消费 `opts.hp/arc/dirDuration/omniDuration`）。 |
+| **#W18-5** | 文档记载的某处冲突 | 经核实现行代码一致，无冲突。 |
+| **#W18-6** | 同上 | 同上。 |
+
+**教训（可复用）**：ISSUES 条目的「根因」比「现象」更容易过期——现象是观测，根因是推断；推断被后续提交推翻后，条目必须同步，否则会引导错误的修复方向。#V1 的「对症下错因」正是典型案例：症状（质心偏移 3.06px）真实存在过，但归因错了，真正的修法（`ba95e09` 的负锚点补边）与条目建议的修法（改 canopy 绘制尺寸）完全不同。
+
+### (2) 测试链假绿：一个让测试长期失声的系统性缺陷（本批最重要的发现之一）
+
+**缺陷**：`scripts/test-rework-r2.js` 与 `scripts/test-rework-r3.js` **全文没有设置 `process.exitCode`**（也不调 `process.exit`），而 `scripts/run-tests.js` 按 **`r.status === 0`** 判定每项是否通过。
+
+**后果**：两个脚本的 harness 是 `let fails = 0; function ok(cond,label){ ... else fails++; }`，末尾只有一句**无条件**的 `console.log('...: 全部通过')`。于是 `test-rework-r3.js` 当时有 **7 项真实断言失败**，但 `node scripts/test-rework-r3.js` 仍 **EXIT=0** 且末尾打印「全部通过」，`npm test` 一直把它记为**通过**。**这 7 项失败可能已经很久没有被任何人看见。**
+
+**修法**：补 `process.exitCode = fails ? 1 : 0`（照 `test-render.js` / `test-physics.js` 既有写法），并把末尾的无条件打印改为**有条件**（失败时打印「N 项失败」——否则日志仍然说谎）。
+
+**修好后立即发生的事**：r3 转红，**7 项失败浮出水面**；其中 4 项经判定为「断言过期」（按现行口径改写），**2 项是真实的 P1 玩法缺陷**——即下文的 #Y1。**两环（假绿 + 注释说谎）共同导致该缺陷既没被测试抓住、也没被测试链暴露。**
+
+**顺带核查**：扫全部 **48 个** `scripts/test-*.js`，**无第三例假绿**（全部有 `process.exitCode`/`process.exit`，且退出码依赖失败计数）。
+
+**纪律（可复用）**：**新增或改动测试脚本时，`process.exitCode` 是硬性要求**——没有退出码的测试不是测试，只是会打印 ✓/✗ 的日志。此外「末尾无条件打印全部通过」是同一类谎言的另一半，必须与退出码有条件绑定。
+
+### (3) #Y1 完整取证：曲射弹在飞行途中被直射扫掠段截胡（P1 玩法缺陷）
+
+**现象**：迫击炮/榴弹炮曲射弹撞上「夹在射手与落点之间的坦克」时**立即引爆并结算直射伤害** ⇒ ① 中间坦克被途中击毁（本该「越过」）；② 远端落点目标**零伤害**（落点爆炸从未发生）。违反 `specs/combat.md` 曲射口径「可越过掩体，**仅在落点爆炸**」。
+
+**根因**：`js/tank_fire.js` 的 `stepShells` 中，`if(s.isArc){ ... }` 块（约 `:932-1008`）内的 `return` **只写在** `if(s.dist >= s.totalDist){ ... return; }` 这个**内层**分支末尾；**`isArc` 块本身没有兜底 `return`**。于是曲射弹在**尚未抵达落点的每一帧**都会穿透到下方直射扫掠命中段（约 `:1009` 起），对沿途坦克做 `raycastTank` 扫描并走 `resolveHit` 结算，最终置 `s.dead = true`。
+
+**加重证据（注释承诺了代码没做的事）**：块尾注释现写「曲射弹在落点结算后直接 return（不进入直射的扫掠命中段）」——**这描述的是期望，而不是实际结构**。更早的未提交版本注释为「#W-I 补回（替换时吞掉了原闭合行）」⇒ 说明 `#W-I` 用 `str_replace` 实现该分支时**把闭合花括号位置弄错了**：花括号**表面配平**（所以语法检查与阅读都不报警），但**语义反转**（`return` 落到了内层分支里）；之后有人把注释改写成「看起来对」的说法，结构问题却始终未修。
+
+**取证手段**（不是靠读代码推断）：对 `shell.dead` 装 setter 捕获赋值调用栈 ⇒ 栈顶为 `js/tank_fire.js:1149`（**直射 `resolveHit` 结算路径**），而不是 `isArc` 落点分支（`:994/999/1004`）；同时 `applySplashAt` **零次调用**、`resolveHit` **被调用** ⇒ 完全符合「走了直射段」而非「落点爆炸」。
+
+**A/B 实测**：
+```
+改前： deadAtDist=246.7 / totalDist=300   midHP=0（途中被击毁）  farHP=100（未掉血）  reachedTarget=false
+改后： deadAtDist=303.3（步长越界，坐标精确吸附 300.0/0.0）  midHP=满血  farHP=570/600  reachedTarget=true
+```
+（步长越界后坐标**精确吸附**到落点，是 `isArc` 落点分支的正常行为：越界量 < 一个步长。）
+
+**护栏**：共 **5 条**断言，含「**非整除步长**（`speed=233` / `totalDist=277`）仍精确吸附」与「越界量 < 一步长」。**反证**：删掉兜底 `return` 后立即复现 3 项红 ⇒ 护栏有真捕获力，不是空断言。
+
+### (4) #W9 死键的根治与「测试为何抓不到」
+
+**死键**：`super_fire_control` / `super_speed`。差集实测依据：`ABILITY_KEYS_RUNTIME`（当时 7 键）− 卡牌可授予的键 = 恰好这两键；且 **196 张卡 + `tanks/` + `bosses/` 全库零命中** ⇒ 玩家在真实对局中**永远拿不到**。
+
+**测试为何抓不到（根因）**：旧 `test-rework-r1.js` **手工把两键塞进 `cardEffects`**，再断言「激活成功、散布倍率生效、冷却设置正确」。它测的是「**塞进去之后能用**」，**从未校验「现实中能不能拿到」**——而这正是死键的定义。ISSUES #W9 原文把这一点单列为「测试为何抓不到」，本批据此**根治**。
+
+**处置**（用户裁定：删除）：`RULES.abilities` 两键、`ABILITY_KEYS_RUNTIME`、`ABILITY_LABELS`、`tryActivateAbility` 的两个 `case`、`tank_mvp.html` 的 dispatch 与获得提示、`tank_bench.html` 的测试按钮、`ABILITY_KEYS` 全部同步删除。现行：RUNTIME **5 键**（artillery / overdrive / shield / deploy_cover / aps），`ABILITY_KEYS` **8 键**（上述 5 + repair / medkit / extinguish）。
+
+**改为负向断言**（关键纪律）：`RULES.abilities.* === undefined` / `ABILITY_KEYS_RUNTIME` 与 `ABILITY_KEYS` 不含该键 / `tryActivateAbility(t, 'super_speed', {})` 返回 `{ok:false, reason:'unsupported'}` / 经 `__TEST__.triggerSkill` 也拿不到。**`reason` 先实测再断言**：删除后是 `'unsupported'`，而**仍存在的键无卡时是 `'no-ability'`**——两者可区分，并额外加了一条**语义区分护栏**（`artillery` 无卡应报 `'no-ability'` 而非 `'unsupported'`），防止将来把"已删键"和"合法但无卡"混为一谈。
+
+**纪律（可复用）**：**负向断言是死键类问题的根治手段**。只测「能用」永远发现不了「拿不到」；必须断言「不存在」与「不可激活」。
+
+### (5) 各条目的根因修正（原文判错或描述过弱之处）
+
+| 条目 | 原文说法 | 实测根因（**修正后**） |
+|---|---|---|
+| **#W14** `aimSpeed` 两套量纲 | 「难度准度通道近乎失效」 | **不是「难度表没调」**，而是「敌军**根本没写 `base.aimSpeed`**」⇒ `computeStats` 回落 `spread.shrinkRate(0.15)`，而难度表 `[0.8,1.35]` 是按真实坦克 1.0~2.5 量纲设计的 ⇒ **两套量纲**。修后满难度 1.62（改前 0.2025，是玩家 1.5 的 7.4%）。 |
+| **#X2** 生存/Boss 建筑压水 | 「清理没跑」 | **不是没跑**，而是「**跑在 `clearCoversOnRoads` 与 `fillEmptyBands` 之前**」——这两步会把元素**重新推出/补植到河道与湖面**（`fillEmptyBands` 的"纵向填满"兜底尤其会往空带补植被，而河道正是一条"空带"）。另叠加「AABB 包络近似」不精确。修后重叠 0（改前 35/21/5）。 |
+| **#X3** 出生无避水 | 「玩家和敌方生成时都没有避水校验」 | **敌方侧判断有误**：`hitsCover` 走**全量 covers（含水域）**，720 敌 **0 例**落水 ⇒ **该侧未改动代码**。玩家侧成立（60 节点 1 例）。**为何不直接改 `tierBlocksSpawn`**：该谓词被「清场 splice」复用，并入水域会**删河段打断河流**（#T4 回归）⇒ 拆成两个谓词。修后 0/100 落水。 |
+| **#X1** 外观件位置不受设计器影响 | 「位置不受设计器影响」 | **比原文更严重**：`applyTankConfig` **完全不拷贝 `spec.appearance`** ⇒ 游戏内 `t.appearance` **恒 `null`**，5 份 `tanks/*.json` 的外观件**从未生效过**。 |
+| **#W13** anchorRange 死配置 | 「零消费」 | 接通时踩到**语义反转坑**：首版把 `anchorRange = 0` 当真值假值回落缺省 ⇒ 让 `boss_siege_fort`（设计意图「**固守**」炮台）变成**贴脸冲锋**。已修正为「`0` = **原地固守、永不前压**」。 |
+| **#W15** 死配置清单 | 列出 6 项，含 `waterBridgeChance` | **前 5 项成立**（`fullDowngradeCap` / `road.branchCurveAmp` / `drowning.warnAt` / `breach.heCoverDmg` / `coverRules.deterministicOnly`，全部零消费已删）。**但 `waterBridgeChance` 判断有误**——实测 `diff=0 → 1/40 节点有 water` vs `diff=0.5 → 17/40`（18 实例），门槛**真实放行水体**，是**活配置**，保留不删（只澄清注释；不重命名，因重命名会改 RNG 流位差影响校准基线）。 |
+| **#W16-①** covers `w/h` 与 `verts` 语义不一致 | 要求修判定逻辑 | 按 mapgen 裁定**只补断言、不改判定**：实测「带 verts 且可破坏」实例 **0 个**（verts 实例 2244 个，tiers 全是 rock/full/mud/road/water/river，hp 全 Infinity）⇒ 该偏差**现行数据下不可达**。断言写成**已知偏差锁 + 不可达性锁**，并标注「修好判定后本断言需翻转」。 |
+| **#W16-②** 未注册 tier 抛错 | 「穿模」 | **不是穿模**，是两处 `TypeError`（`T[tier].shellBlock` / `.label` 未判空）+ 一处读**从不存在**的字段（`mediumHullExposure` 恒 `undefined` ⇒ 恒返回 0 的不可达死路径）。已补守卫、删死读取。 |
+
+### (6) audit-map-gen G4 度量口径重写（测试工具侧）
+
+**缺陷**：`scripts/audit-map-gen.js` 的 G4 用 `ptInRect(road_bbox, c.x, c.y, 8)` 判「结构压在道路中心线」，而 2026-10-16 `cde3bc3` 之后 strip 主干道是**整链连续多边形**（`verts` 可达 322 点，宽约 120px 的蜿蜒带），但 cover 的 `w/h` 仍是它的 **AABB**（实测 17280×661，多边形/bbox 面积比仅 **0.156**）⇒ 落在 AABB 纵带内、实际离真路面几十到几百 px 的元素全被判「压路」。
+
+**实测**：G4 硬失败 **669 项全是假阳性**（总硬失败 762：G4 669 / G7 91 / G5 2）。
+
+**修法**：改为「元素足迹 × 真实路面多边形」判定（AABB 粗筛 → 中心/顶点互含 → 边相交，容差 8px 与生成侧 `_ROAD_CLEAR_MARGIN` 同量级）。**G4 669 → 0**，总硬失败 762 → 92（G7/G5 为存量真实问题，不在本项范围）。
+
+**防「归零即失效」**：新增 **6 条合成几何自检**（矩形路正压/跨路缘/远离、verts 多边形正压/外侧、verts+angle 旋转语义），自检失败直接计硬失败（G0）。**理由**：判据一旦退化成永远返回 false（verts 解析失败、坐标系错位），硬失败数会"漂亮地归零"但检查彻底失效——这是度量类工具最危险的失效模式。
+
+**抽样核对（证明不是全放过）**：840 项「旧报新不报」按中心到真实路面边缘分层——`[20-60]` 11 项、`[60-200]` 490 项、`[>200]` 339 项，**没有一项 ≤8px**（即无一真正压路）；最近 11 项逐条复核（元素半宽 38~92px、最近边距 44~59px），独立重算「足迹与路面多边形相交」全部 false。**阳性能力**另行证明：构造 60×60 结构正压路面内点 → 判据返回 true。
+
+### (7) 其余补齐项（简列）
+
+- **#W8** `replaceAmmo` 零校验：新增两层（`AMMO_KEYS` 白名单 + `RULES.ammoChain[key] === replaceAmmo` 直系前驱）。196 张卡扫 **13 个** `replaceAmmo` 效果、链条不符 **0 个**（零误伤）。
+- **#W-H** 防御方减伤通道零测试覆盖：`wet_ammo_rack`(0.30) / `crew_liner`(0.20) 的**防御方**通道（读 target 的 passiveValues，`defense = max(0, 1 − maxValue)`，if/else 单通道**不叠乘**）。补 **33 条**断言，实测精确比值 ammo ×**0.7000** / crew 6 键 ×**0.8000**，两卡同在手 140 / 120（叠乘应为 112 / 84）。**重要口径**：`draws=1` 时 `effectiveMult = max(mult1, 1.0)`，故攻击方 base ≤ 1.0 时防御因子会被 `max` 吃掉不可观测（既有行为，非缺陷，断言须挑 base>1 的弹种）。
+- **#W15** economy `startScore`：零消费已从 `ECONOMY_FIELDS` 删除（现 3 项：`scoreMul` / `shopDiscount` / `reviveCount`），`runStartScore` 清零同步移除。
+- **#X4/X5/X6/X7**：火箭巢朝向改炮塔朝向（扇形齐射）、榴弹炮 F = 曲射/直射模式开关（走原生 keydown 边沿）、曲射弹体俯仰与透视（`arcShellPose`，从同一 z 公式求导）、急速射锁定首发落点快照（200 组最大偏移 17.8px / 1σ 8.0px）。
+- **#7①** bench 卡牌面板：`<optgroup>` 按稀有度分组（196 张 → 5 组：神话 1 / 传奇 15 / 史诗 44 / 稀有 77 / 普通 59），**rarity-only 不依赖 tags**。
+- **#16** 卡牌 `tags` 字段下线：196 张 JSON + `CARD_TAGS` 常量 + `validateCard` 校验 + 导出 + UI 三处（奖励面板 / devpanel 搜索 / `content_designer.html`）全部移除；`test-cards.js` 用负向断言锁死（**断言数 48 → 248**，证明此前被 TypeError 截断的 200 条恢复执行）。
+- **#W-J** Boss 机炮射程 900→1200：**已于 2026-10-20 实施**（`RULES.boss.tuning.autocannonRange` + `applyBossWeaponTuning`），**必须在 `assignBossArmament` 之后调用**。⚠️ 此前 PLAN/ARCHIVE 记为「不做」，旧记录保留在归档中并追加实施注记（被推翻的旧结论不静默删除）。
+
+### (8) 本批收口后的测试链基线（2026-10-20）
+
+| 脚本 | 断言数 | 退出码 |
+|---|---|---|
+| `test-cards.js` | **248**（改前 48，崩溃修复后恢复） | EXIT=0 |
+| `test-covers.js` | **180**（新增 18：W16-① 6 条 + W17 12 条） | EXIT=0 |
+| `test-modifiers.js` | **85**（新增 13：#W14） | EXIT=0 |
+| `test-physics.js` | **55**（新增 33：#W-H） | EXIT=0 |
+| `test-rework-r1.js` | **20**（W9 负向断言改造） | EXIT=0 |
+| `test-rework-r2.js` | **30**（补 exitCode） | EXIT=0 |
+| `test-rework-r3.js` | **71**（补 exitCode；4 项断言改写 + #Y1 修复后转绿） | EXIT=0 |
+
+**全链**：`scripts/run-tests.js` → **48 通过 / 1 失败 / 共 49 项**；唯一失败 `test-cover-gen.js` = 沙箱 `spawnSync` EPERM（**放宽进程权限后 EXIT=0「全部通过」**）。`scripts/test-*.js` 共 **48 个**，`check-html.js` 的孤儿测试检查全过。
+
+### (9) 同批追加：`restartRun` 死入口的最终摘除（2026-10-20，用户裁定「删除」）
+
+**背景**：§4.112 收口时 `restartRun`（`js/tank_flow.js`）被判定为「死入口」但**暂缓删除**——理由是删除会连带击红 `scripts/test-flow.js` 12 处断言与 `types/globals.d.ts:360` 的声明，而两处都在 `role-systems` 写域之外。用户 2026-10-20 明确裁定「删除」，本小节记录执行结果。
+
+**死因（三条，缺一不可）**：
+1. **正式页面零调用点**——全仓仅 `scripts/test-flow.js` 与 `types/globals.d.ts` 引用，属**测试↔类型声明自循环**；`tank_mvp.html` 仅剩一处历史注释。
+2. **真实「重开」路径不经过它**——现行是 `gameover → battle` 直达（#N5 2026-10-10 简化流程）与「放弃节点」的 `battle → map` 转移，两者都是纯转移表操作。
+3. **旧测试把缺陷固化成了期望**——`pause` 的白名单是 `['battle','settlement']`（无 `map` 出路），旧 `restartRun` 在暂停态必然抛错；而 `test-flow.js` 原有一条断言「restartRun 在 pause 态被白名单拦截：抛错且不静默改变状态」⇒ **断言「应该抛错」等于承认「暂停时不能重开」**。这是本批第二个「测试在保护缺陷」的实例（第一个是 §(2) 的假绿）。
+
+**删除范围**（4 处，全部落地）：
+| 文件 | 改动 |
+|---|---|
+| `js/tank_flow.js` | 删 `restartRun()` 函数体、`module.exports.restartRun`、以及**只为它存在**的 `FLOW_OUTRUN_STATES`（home/loadout/shop 局外三态集合）；原处留沿革注释，含「⚠️ 若将来真需要重开入口，不要恢复旧实现（pause 态会抛错），应显式补 `pause → map` 白名单」 |
+| `scripts/test-flow.js` | 12 处断言改为**负向断言 + 语义等价的转移断言**：§8b（新）断言 `flowMod.restartRun === undefined` 且 `!('restartRun' in flowMod)`，并用 `battle→map` / `gameover→battle` 证明两条真实重开路径仍然可用；§16 保留「局外流转不误入 map、不递增 runId」的真正语义；§17d 保留「pause→map 仍被白名单拒绝 + 非法转移后状态/runId 不被静默改变」的硬约束 |
+| `types/globals.d.ts` | 删 `declare function restartRun(flow: FlowState): void;`，原处留注记「不要恢复此声明——它会让一个不存在于运行时的函数通过类型检查」 |
+| `docs/PLAN.md` / `docs/specs/` | 本条不发散到 specs（属内部 API 清理，非系统口径变更）；只在 §4.112 与 PLAN §1 纪律表留痕 |
+
+**验证（2026-10-20 实跑）**：`node scripts/test-flow.js` → **EXIT=0 全部通过**；`node scripts/check-html.js` → EXIT=0；`node node_modules/typescript/bin/tsc --noEmit` → **EXIT=0**（证明删声明后无残留引用）。
+
+**教训（可复用）**：**「测试断言 X 会抛错」必须追问「X 抛错是不是本来就该修」**。本批两例（假绿 + 把缺陷当期望）都源自「测试只验证现状、不验证现状是否合理」。
+
+### (10) 同批追加：PLAN 剩余项的实测关闭（2026-10-20）
+
+清账后 PLAN 仍留 4 条开放项，逐条实测复核后**关闭 3 条、保留 1 条**：
+
+| 原 PLAN 条目 | 判定 | 依据（实测） |
+|---|---|---|
+| **§2.2 HUD 渲染级合并**（剩余「装填指示」） | ✅ **关闭** | 经核实与血条**同性质**：mvp = 炮口环形弧（面向战斗节奏）、bench = 右栏横条（面向参数核对），承载不同信息，不属「同一功能的另一套实现」。9 处的最终去向 = 6 合并 + 2 产品定位差异 ⇒ 无剩余项 |
+| **§2.3 正常环境补跑验证** | ✅ **关闭** | 本批已全部实跑：`check-html` 0 / `tsc` 0 / `run-tests` 48+1（唯一失败为 EPERM，放宽权限后 EXIT=0） |
+| **§2.4 `audit-map-gen.js` 口径** | ✅ **关闭** | 已修（G4 669→0 + 6 条合成自检），见 §(6) |
+| **§1 条目 1 的剩余子项「strip 密度/难度校准重锚」** | ⚠️ **密度项关闭、难度项保留为可选** | **实测反驳了当年估算**：§3.6 估「裁到 2.2 屏后 ≈6.7 个/屏（现状 13 个/屏）⇒ 需密度补偿」；现行 `makeNode` strip 路径（标准 + 生存各 6 seed、1920×1080）非路面元素密度 = **13.8 个/屏**，与当年「现状」持平 ⇒ **密度补偿无需再做**。当年低估是因为按「裁到 2.2 屏」的裁剪模型估算，而现行 strip 实际 **19.8 屏**且未做纵向丢弃。难度曲线（`entityMults × diff`）仍为可选微调，属数值口味而非功能缺失 |
+| **§1 条目 8 地图元素出图** | ❗**保留**（唯一真开放项） | 唯一阻塞 = **API 凭据**（`tools/gen-covers.mjs:86` 需 `GEMINI_API_KEY` / `REPLICATE_API_TOKEN` / `OPENAI_API_KEY` / `COVER_API_KEY`）。实测 `assets/` 当前零 cover 产物（仅 `tanks/` + `README.md`）⇒ 运行时走程序化回退，玩家无感知。前置已清：`tools/cover-refs.json --check` = EXIT=0（#V1 为文档过期，真凶 `ba95e09` 已修） |
+
+**PLAN 关账后状态**：`docs/PLAN.md` §1 待办总览仅剩 **1 条**（地图元素出图，阻塞于外部凭据）；§2 五节全部标记关闭；§3 C 档设计研究保留作设计预留（方案未实施，非待办）；§6/§7/§9 全部完成、保留作沿革索引。

@@ -126,6 +126,16 @@
   #ammoIndicator [data-ammo]{pointer-events:auto;}
   #ammoIndicator .dot{width:9px; height:9px; border-radius:50%; display:inline-block;
     border:1px solid rgba(255,255,255,0.3);}
+  /* #3（2026-10-20）：弹种格结构类与 mvp 同源（js/tank_hud.js renderAmmoIndicator 输出
+     .ammo-cell / .ammo-cell.active）。此前 bench 只有旧内联实现的 .ammo-active 分支，
+     走共享实现后激活格无任何视觉反馈——此处按 mvp tank_mvp.html:41-47 口径补齐。
+     .ammo-active 保留为旧内联兜底分支（TankHud 缺失时才走到）的样式。 */
+  #ammoIndicator .ammo-cell{display:inline-flex; align-items:center; gap:4px;
+    border:1px solid var(--line); background:#0c0d09; padding:2px 6px; cursor:pointer; opacity:0.5;}
+  #ammoIndicator .ammo-cell.active{border-color:var(--green); background:rgba(126,217,87,0.12);
+    opacity:1; font-weight:700;}
+  #ammoIndicator .ammo-cell .key{color:var(--amber-dim);}
+  #ammoIndicator .ammo-cell.active .key{color:var(--amber);}
 
   .legend{display:flex; flex-direction:column; gap:4px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-top:6px;}
   .legend span.sw{display:inline-block; width:10px; height:10px; margin-right:6px; vertical-align:-1px; border:1px solid rgba(255,255,255,0.3);}
@@ -216,7 +226,7 @@
         <button id="applyCardBtn">应用 APPLY</button>
         <button id="clearCardsBtn">清除全部 CLEAR</button>
       </div>
-      <div class="mono" style="font-size:10px; color:var(--text-dim); margin-top:4px;">重复点击应用即叠加一层效果（模拟叠层）；仅作用于玩家坦克，靶车不吃卡。完整卡池按分类浏览/一键清除见开发者面板（` 键）的「卡牌」Tab。</div>
+      <div class="mono" style="font-size:10px; color:var(--text-dim); margin-top:4px;">重复点击应用即叠加一层效果（模拟叠层）；仅作用于玩家坦克，靶车不吃卡。下拉按<b>稀有度分组</b>（与正式游戏同源，js/tank_devpanel.js 的 groupCardsByRarity），组内按名称排序；完整卡池的<b>效果类型</b>分类浏览与一键清除见开发者面板（` 键）的「卡牌」Tab。</div>
     </div>
 
     <!-- #7（2026-10-19 用户反馈）：删除「功能测试扩展 Panel Test (R-1/R-2/R-3)」。
@@ -514,13 +524,16 @@ function renderAmmoIndicator(){
     const ammo = RULES.ammoTypes[k];
     const dirHint = (idx === (cur + 1) % list.length) ? "E" : ((idx === (cur - 1 + list.length) % list.length) ? "Q" : "");
     const active = idx === cur;
-    html += `<span data-ammo="${k}" class="ammo-cell${active?' ammo-active':''}" style="display:inline-flex; align-items:center; gap:3px; opacity:${active?1:0.4}; font-weight:${active?700:400}; color:; cursor:pointer;">` +
+    // #3（2026-10-20）：纯色/内联样式分支与共享实现保持同一 DOM 类名 `.active`
+    //   （旧 .ammo-active 已并入 .active —— CSS 里两者都有规则，但只输出一个，
+    //   避免 centerActive 查询与样式选择器两套口径）。
+    html += `<span data-ammo="${k}" class="ammo-cell${active?' active':''}">` +
             `<span style="width:8px; height:8px; border-radius:50%; background:${ammo.color}; border:1px solid rgba(255,255,255,0.2)"></span>` +
             `<span>${dirHint || (active ? "★" : "")}</span><span>${ammo.label}</span></span>`;
   });
   el.innerHTML = html;
   el.querySelectorAll("[data-ammo]").forEach(c => c.addEventListener("click", () => setAmmo(c.getAttribute("data-ammo"))));
-  const activeEl = el.querySelector("[data-ammo].ammo-active") || el.children[cur];
+  const activeEl = el.querySelector("[data-ammo].active") || el.children[cur];
   if(activeEl){
     const center = activeEl.offsetLeft + activeEl.offsetWidth / 2;
     el.style.transform = `translateX(${-center}px)`;
@@ -610,20 +623,52 @@ function pushLog(text, cls){ log.push(text, cls); }
 
 // ---------- #32 卡牌测试面板：加载卡池 → applyCardEffects 叠加到玩家坦克 ----------
 let cardPool = null;
+// #7①（2026-10-20 用户口径「bench 卡牌面板未按正式游戏分类显示」）：
+//   旧实现 `Object.keys(cardPool).sort()` 把 196 张卡平铺成一条直线，而正式游戏的分类
+//   只存在于 js/tank_devpanel.js。现改为复用其共享维度 `groupCardsByRarity`（稀有度分组），
+//   两页同源。
+//   **不依赖 tags**：`cards/*.json` 的 tags 字段由 role-content 在 #16 删除（CARD_TAGS 枚举
+//   同批摘除），任何按标签分组的实现在那批落地后会静默塌成单一分组。故 rarity-only。
+//   降级链：tank_devpanel.js 未加载 / 老版本无该函数 ⇒ 回落到「按稀有度排序的平铺列表」，
+//   仍比旧的 id 字典序可读（稀有度顺序一致），不会白屏。
 function populateCardSelect(){
   const sel = document.getElementById('cardSelect');
   if(!sel) return;
+  const prev = sel.value;
   sel.innerHTML = '';
   if(!cardPool){ sel.innerHTML = '<option>卡池加载失败</option>'; return; }
   const ids = Object.keys(cardPool).sort();
   if(!ids.length){ sel.innerHTML = '<option>卡池为空</option>'; return; }
-  ids.forEach(id=>{
-    const card = cardPool[id];
-    const opt = document.createElement('option');
-    opt.value = id;
-    opt.textContent = `${card.name || id} · ${String(card.rarity || 'common').toUpperCase()}`;
-    sel.appendChild(opt);
-  });
+  const cards = ids.map(id => Object.assign({ id }, cardPool[id] || {}));
+  const label = (typeof devRarityLabel === 'function')
+    ? devRarityLabel
+    : (r => ({ common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' })[r] || (r || '其他'));
+  const groups = (typeof groupCardsByRarity === 'function')
+    ? groupCardsByRarity(cards)
+    : (function(){
+        // 降级：无共享分组时按稀有度归桶（顺序与共享实现一致：稀有 → 常见 → 其他）
+        const order = ['mythic','legendary','epic','rare','common'];
+        const byKey = new Map(order.map(k => [k, []]));
+        const other = [];
+        for(const c of cards) (byKey.get(c.rarity) || other).push(c);
+        return order.filter(k => byKey.get(k).length)
+          .map(k => ({ key:k, label:label(k), cards:byKey.get(k).sort((a,b)=>String(a.name||a.id).localeCompare(String(b.name||b.id),'zh-Hans-CN')) }))
+          .concat(other.length ? [{ key:'other', label:'其他', cards:other }] : []);
+      })();
+  for(const g of groups){
+    // 用 <optgroup> 表达分类：分组标题不可选（原生 select 语义），组内按名称排序
+    const og = document.createElement('optgroup');
+    og.label = `${g.label}（${g.cards.length}）`;
+    for(const c of g.cards){
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.name || c.id} · ${String(c.rarity || 'common').toUpperCase()}`;
+      og.appendChild(opt);
+    }
+    sel.appendChild(og);
+  }
+  // 重填后尽量保住原选中项（卡池热更新 / 二次加载时不要跳回第一张）
+  if(prev && cardPool[prev]) sel.value = prev;
 }
 function loadCardPool(){
   // /api/cards 由 server.js 聚合 cards/*.json 为 { id → spec }；无服务器（file://）时回退提示
@@ -659,20 +704,11 @@ function benchClearCards(){
   playSound('ui');
   pushLog(`清除全部卡牌效果 — 移除 ${info.removedMods} 条 modifier / ${info.removedEffects} 条装置效果，玩家属性已还原`,'COVER');
 }
-function benchAbilityFireControl(){
-  // P-15/P-46：共享 activateAbilityForTest（无卡自动补 cardId:'bench_debug' + tryActivateAbility）
-  const res = activateAbilityForTest(player, 'super_fire_control', {});
-  pushLog(res.ok ? '激活超级火控成功（散布大幅降低）' : `超级火控激活失败: ${res.reason}`, res.ok ? 'PEN' : 'CRIT');
-  playSound('ui');
-}
-function benchAbilitySpeed(){
-  const res = activateAbilityForTest(player, 'super_speed', {});
-  pushLog(res.ok ? '激活超级速度成功（极速与加速度提升）' : `超级速度激活失败: ${res.reason}`, res.ok ? 'PEN' : 'CRIT');
-  playSound('ui');
-}
+// #W9（2026-10-20 用户裁定「删除 super_speed / super_fire_control」）：benchAbilityFireControl /
+// benchAbilitySpeed 两个测试入口已整体删除 —— 两键在 RULES.abilities、js/tank_abilities.js 的
+// ABILITY_KEYS_RUNTIME / ABILITY_LABELS 与卡牌 ABILITY_KEYS 中均已摘除，函数体里的
+// activateAbilityForTest(player,'super_fire_control'…') 只会得到 {ok:false, reason:'unsupported'}。
 // #C5a（2026-09-19）：G/V 键语义与正式游戏统一——G=战术炮击（鼠标落点）/ V=超装填。
-// 旧 bench 把 G/V 挪用为超级火控/超级速度 Buff（与 mvp 同键不同义冲突）；两 Buff 保留为
-// 面板按钮（skillFireCtrlBtn/skillSpeedBtn），不再占用 G/V。
 function benchAbilityStrike(){
   const res = activateAbilityForTest(player, 'artillery', { target: { x: mouseWorld.x, y: mouseWorld.y } });
   const n = (res.strikes && res.strikes.length) || 0;
@@ -683,8 +719,8 @@ function benchAbilityStrike(){
 // bench 的超装填验证走 devPanel 卡牌测试（giveCard super_reload 后按技能池键）。
 document.getElementById('clearCardsBtn').addEventListener('click', benchClearCards);
 // #7（2026-10-19 用户反馈）：删除「功能测试扩展 Panel Test」区块 ⇒ 这两个按钮的事件绑定一并移除。
-// 超级火控 / 超级速度的测试改走共享开发者面板（` 键）的卡牌 Tab（giveCard 后按技能池键）。
-// 保留 benchAbilityFireControl / benchAbilitySpeed 函数本身（它们仍是具名入口，供 devPanel host 调用）。
+// #W9（2026-10-20 用户裁定）：原先保留的 benchAbilityFireControl / benchAbilitySpeed 具名入口
+//   也已随 super_fire_control / super_speed 两键的删除而移除（devPanel host 无调用方）。
 
 // ---------- 开发者面板（#F 2026-09-20：移除旧测试面板 benchPanel，` 键切换共享四 Tab devPanel；与正式游戏同源键位/设置） ----------
 const devAim = { zeroSpread: false };   // #F：超级精度开关状态（devPanel 同步，fireCtx 引用同一对象）
@@ -1060,7 +1096,7 @@ function update(dt){
   player.prevHullAngle = player.hullAngle;
   player.prevTurretAngle = player.turretAngle;
 
-  // 必须每帧推进，否则限时 Buff（超级火控/速度）到期后不会被移除，也不会重新计算 Stats
+  // 必须每帧推进，否则限时 modifier（护盾/超装填等 timed 项）到期后不会被移除，也不会重新计算 Stats
   refreshStats(player);
 
   if(player.reloadT>0) player.reloadT = Math.max(0, player.reloadT-dt);

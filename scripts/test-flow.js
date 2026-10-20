@@ -9,9 +9,13 @@ const {
   FLOW_TRANSITIONS,
   createFlow,
   watchFlow,
-  transition,
-  restartRun
+  transition
 } = require('../js/tank_flow.js');
+// #W15（2026-10-20 用户裁定「删除」）：`restartRun` 与其专属的 `FLOW_OUTRUN_STATES` 已从
+//   `js/tank_flow.js` 摘除（正式页面零调用；此前仅本测试与 `types/globals.d.ts` 引用，
+//   属测试↔类型声明自循环）。原针对它的 12 处断言已改为**负向断言**（见 §8b / §16b / §17d），
+//   防止将来被误加回。
+//   纪律：入口/字段下线必须配负向断言——只测「能用」永远发现不了「拿不到」。
 // Global shims for Node test environment
 const U = require('../js/tank_utils.js');
 global.TAU = U.TAU;
@@ -62,7 +66,7 @@ ok(threw, '未知状态抛错');
 
 // 5) 全转移矩阵越界护栏验证 (矩阵交叉拦截)
 // #N5（2026-10-10 简化进入游戏流程）：loadout/shop 的「出击」与 gameover 的「重新开始」
-// 直接进 battle（旧口径经 map 中转屏）；map 态保留（restartRun/放弃节点入口仍可用）。
+// 直接进 battle（旧口径经 map 中转屏）；map 态保留（放弃节点入口仍可用）。
 const allInvalidTargets = {
   home:       ['map', 'battle', 'settlement', 'reward', 'gameover'],
   loadout:    ['settlement', 'reward', 'gameover', 'loadout'],
@@ -124,7 +128,7 @@ transition(flow3, 'battle');
 ok(flow3.state === 'battle', 'watcher 抛错时状态机依然成功切至 battle');
 ok(watcher3Ran, '前面的 watcher 抛错不中断后续 watcher 的执行');
 
-// 8) gameover 路径与 restartRun 边缘（多次连续 restartRun）
+// 8) gameover 路径（#W15 2026-10-20：原「多次连续 restartRun」断言已随函数删除改为负向，见 §8b）
 transition(flow3, 'settlement');
 transition(flow3, 'reward');
 transition(flow3, 'battle');
@@ -134,19 +138,29 @@ ok(flow3.state === 'gameover', 'battle→gameover 转移成功');
 transition(flow3, 'map');
 ok(flow3.state === 'map', 'gameover→map 转移成功');
 
-// 在 map 状态连续 restartRun
-const flow4 = createFlow();
-const startRunId = flow4.runId;
-restartRun(flow4);
-restartRun(flow4);
-restartRun(flow4);
-ok(flow4.state === 'map', '连续 restartRun 保持在 map 状态');
-ok(flow4.runId === startRunId + 3, '连续 restartRun 正确递增 runId');
-
-// 从非 map 状态 restartRun
-transition(flow4, 'battle');
-restartRun(flow4);
-ok(flow4.state === 'map' && flow4.prev === 'battle', '从 battle 状态 restartRun 退回 map');
+// 8b) #W15（2026-10-20 用户裁定「删除」）负向断言：restartRun 已从模块摘除
+//   原口径：restartRun 在 map 态连续调用 3 次 → 停留 map 且 runId 递增 3；从 battle 调用 → 退回 map。
+//   删除理由：正式页面零调用点，且 pause 态会因无 map 出路而抛错（旧测试把该缺陷固化成了期望）。
+//   若下列任一断言转红，说明有人把死入口加回来了 —— 请先确认有真实调用方，再连同 pause→map
+//   白名单一起补全，不要恢复旧实现。
+{
+  const flowMod = require('../js/tank_flow.js');
+  ok(flowMod.restartRun === undefined, '#W15: restartRun 已从 tank_flow.js 摘除（不再是导出项）');
+  ok(!('restartRun' in flowMod), '#W15: restartRun 不存在于模块命名空间（防具名导出回潮）');
+  // 既有的「重开」语义由转移表本身表达，不需专用函数：
+  const flowReopen = createFlow();
+  transition(flowReopen, 'battle');
+  transition(flowReopen, 'map');
+  ok(flowReopen.state === 'map' && flowReopen.prev === 'battle',
+     '#W15: 「放弃节点/重开」由 battle→map 转移直接表达（不依赖 restartRun）');
+  const flowQuickRestart = createFlow('home');
+  transition(flowQuickRestart, 'loadout');
+  transition(flowQuickRestart, 'battle');
+  transition(flowQuickRestart, 'gameover');
+  transition(flowQuickRestart, 'battle', { nodeIndex: 0 });
+  ok(flowQuickRestart.state === 'battle' && flowQuickRestart.prev === 'gameover',
+     '#W15: 「阵亡后重新开始」由 gameover→battle 直达表达（#N5，不依赖 restartRun）');
+}
 
 // 9) 转移表完整性：每状态至少一条出路
 for (const s of FLOW_STATES) {
@@ -188,9 +202,12 @@ function resetGameState() {
   resetCoversDone = true;
 }
 
-restartRun(flowCombat);
+// #W15（2026-10-20）：原此处 `restartRun(flowCombat)` 触发重开 → 断言回 map。函数删除后，
+//   「重开」改由 `battle → map` 或 `gameover → battle` 转移表达，状态清空由 UI 层在转移
+//   回调里执行（与转移本身解耦，故此处只验证转移可走通 + 回调时机）。
+transition(flowCombat, 'map');
 resetGameState();
-ok(flowCombat.state === 'map', 'gameover 后 restartRun 成功回到 map 状态');
+ok(flowCombat.state === 'map', 'gameover 后 battle/ gameover→map 转移可回到 map 状态');
 ok(resetEntityDone && resetCoversDone, '重开局触发展发 resetEntity 与 resetCovers 状态清空');
 
 // 11) M10 局外三态：createFlow 初始值（缺省 map 向后兼容 / 'home' 顶层入口 / 非法值抛错）
@@ -266,26 +283,26 @@ transition(flowGoBattle, 'battle');
 transition(flowGoBattle, 'gameover');
 transition(flowGoBattle, 'battle', { nodeIndex: 0 });
 ok(flowGoBattle.state === 'battle' && flowGoBattle.prev === 'gameover', '#N5: gameover→battle 直达（阵亡后直接重开）');
-// map 态本身保留可用（restartRun 等既有入口不受影响）
+// map 态本身保留可用（放弃节点/重开走 battle→map 转移）
 const flowMapKeep = createFlow();
 transition(flowMapKeep, 'battle');
-restartRun(flowMapKeep);
+transition(flowMapKeep, 'map');
 ok(flowMapKeep.state === 'map', '#N5: map 态保留（battle 放弃/重开仍回 map）');
 
-// 16) restartRun 局外 no-op：不抛错、不进 map、runId 不变、返回当前 runId
-const flowOutHome = createFlow('home');
-const homeRunIdBefore = flowOutHome.runId;
-let outNoopThrew = false;
-try { restartRun(flowOutHome); } catch (e) { outNoopThrew = true; }
-ok(!outNoopThrew, 'restartRun 在 home 态不抛错');
-ok(flowOutHome.state === 'home' && flowOutHome.prev === null && flowOutHome.runId === homeRunIdBefore, 'restartRun 在 home 态 no-op：停留 home、不进 map、runId 不变');
-ok(restartRun(flowOutHome) === homeRunIdBefore, 'restartRun 在 home 态返回当前 runId');
-
-const flowOutShop = createFlow('home');
-transition(flowOutShop, 'loadout');
-transition(flowOutShop, 'shop');
-restartRun(flowOutShop);
-ok(flowOutShop.state === 'shop', 'restartRun 在 shop 态（经 loadout）同样 no-op 停留原地');
+// 16) #W15（2026-10-20）：restartRun 的「局外三态 no-op」断言已随函数删除改为负向，
+//   见 §8b。此处只保留其当初想保护的**真实语义**：局外三态之间可正常流转、不误入 map。
+{
+  const flowOutHome = createFlow('home');
+  ok(flowOutHome.state === 'home' && flowOutHome.prev === null && flowOutHome.runId === 0,
+     '#W15: home 为顶层入口（无 restartRun 介入时行为不变）');
+  transition(flowOutHome, 'loadout');
+  transition(flowOutHome, 'shop');
+  ok(flowOutHome.state === 'shop', '#W15: home→loadout→shop 局外闭环可走通（不停留 map）');
+  // 局外三态不得凭空进入 map：白名单里 loadout/shop 确实允许 map，但必须由 UI 显式发起，
+  // 不存在「局外态被某个重开函数悄悄推进 map」的旁路（restartRun 已删，此风险消除）。
+  ok(typeof flowOutHome.runId === 'number' && flowOutHome.runId === 0,
+     '#W15: 局外流转不递增 runId（runId 只由真正开一局的动作推进）');
+}
 
 // 17) P-35：pause 态 —— battle⇄pause 合法、pause→settlement（终止游戏并结算）合法
 const flowPause = createFlow();
@@ -319,20 +336,32 @@ ok(flowVoluntary.state === 'settlement' && flowVoluntary.payload.voluntaryEnd ==
 transition(flowVoluntary, 'home');
 ok(flowVoluntary.state === 'home' && flowVoluntary.prev === 'settlement', 'voluntaryEnd：settlement→home 全链路收束');
 
-// restartRun 在 pause 态：直接调用被白名单拦截（pause 无 map 出路，不静默改变状态）；恢复 battle 后行为正常回 map
-const flowPauseRestart = createFlow();
-transition(flowPauseRestart, 'battle');
-transition(flowPauseRestart, 'pause');
-let pauseRestartThrew = false;
-try { restartRun(flowPauseRestart); } catch (e) { pauseRestartThrew = true; }
-ok(pauseRestartThrew && flowPauseRestart.state === 'pause' && flowPauseRestart.runId === 0,
-   'restartRun 在 pause 态被白名单拦截：抛错且不静默改变状态/runId');
-const flowPause2 = createFlow();
-transition(flowPause2, 'battle');
-transition(flowPause2, 'pause');
-transition(flowPause2, 'battle');   // 恢复后重开
-restartRun(flowPause2);
-ok(flowPause2.state === 'map' && flowPause2.prev === 'battle', 'pause 恢复 battle 后 restartRun 正常退回 map');
+// 17d) #W15（2026-10-20）：原「restartRun 在 pause 态被白名单拦截（抛错）」断言已删除。
+//   ⚠️ 那条断言实际上**把缺陷固化成了期望**——`pause` 的白名单是 `['battle','settlement']`，
+//   没有 `map` 出路，所以旧 restartRun 在暂停态必然抛错；断言「应抛错」等于承认「暂停时不能重开」。
+//   函数删除后该矛盾消失。保留其真正要守的不变式：**pause 态不静默改变状态/runId**。
+{
+  const flowPauseNoop = createFlow();
+  transition(flowPauseNoop, 'battle');
+  transition(flowPauseNoop, 'pause');
+  const stateBefore = flowPauseNoop.state;
+  const runIdBefore = flowPauseNoop.runId;
+  // 任何非法转移仍必须抛错而非静默吞掉（restartRun 的删除不能削弱这条硬约束）
+  let illegalThrew = false;
+  try { transition(flowPauseNoop, 'map'); } catch (e) { illegalThrew = true; }
+  ok(illegalThrew, '#W15: pause→map 仍被白名单拒绝（重开须先回 battle 或走 settlement）');
+  ok(flowPauseNoop.state === stateBefore && flowPauseNoop.runId === runIdBefore,
+     '#W15: 非法转移被拒后状态与 runId 不被静默改变');
+
+  // pause 恢复 battle 后可正常走 battle→map（旧 restartRun 的目标语义）
+  const flowPause2 = createFlow();
+  transition(flowPause2, 'battle');
+  transition(flowPause2, 'pause');
+  transition(flowPause2, 'battle');
+  transition(flowPause2, 'map');
+  ok(flowPause2.state === 'map' && flowPause2.prev === 'battle',
+     '#W15: pause 恢复 battle 后可正常退回 map（不依赖 restartRun）');
+}
 
 console.log('test-flow: 完成所有检查');
 if (fails === 0) console.log('test-flow: 全部通过');

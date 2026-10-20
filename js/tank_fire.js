@@ -21,9 +21,34 @@ function _isHowitzerMode(t){
       if (w && typeof w.isHowitzerMode === 'function') return w.isHowitzerMode(t);
     } catch (e) { /* 纯逻辑测试环境 */ }
   }
-  return !!(t && t.weapons && t.weapons.secondary && t.weapons.secondary.type === 'howitzer');
+  // 内联等价兜底（与 js/tank_weapons.js isHowitzerMode 同口径，含 #X5 运行时开关）
+  return !!(t && t.weapons && t.weapons.secondary && t.weapons.secondary.type === 'howitzer')
+    && t._howitzerOn !== false;
 }
 function _G(k, fb){ return (typeof globalThis!=='undefined'&&globalThis[k]!==undefined)?globalThis[k]:fb; }
+
+// #X5（2026-10-20 用户裁定「F = 曲射/直射切换」）：toggleHowitzer 的**惰性解析**——
+//   与 _isHowitzerMode 同款三层解析（浏览器全局 / Node require / 内联等价兜底）。
+//   ⚠️ 这里刻意**不写裸标识符** `toggleHowitzer`：`js/tank_weapons.js` 是 CommonJS 模块，
+//   它的 `toggleHowitzer` 是模块作用域符号；tsc（checkJs）只认 `types/globals.d.ts` 里的
+//   `declare function`（该目录属 verify-docs 写域，本角色不改），裸引用会直接
+//   `TS2304: Cannot find name 'toggleHowitzer'`。走 `_G` 读 globalThis 既无裸标识符、
+//   又与浏览器端「tank_weapons.js 先于 tank_fire.js 加载」的顺序契约一致。
+function _toggleHowitzer(t){
+  const g = _G('toggleHowitzer', null);
+  if (typeof g === 'function') return g(t);
+  if (typeof require !== 'undefined') {
+    try {
+      var w = require('./tank_weapons.js');
+      if (w && typeof w.toggleHowitzer === 'function') return w.toggleHowitzer(t);
+    } catch (e) { /* 纯逻辑测试环境 */ }
+  }
+  // 内联等价兜底（与 js/tank_weapons.js toggleHowitzer 同口径，含切走时清追发队列）
+  if (!(t && t.weapons && t.weapons.secondary && t.weapons.secondary.type === 'howitzer')) return false;
+  t._howitzerOn = (t._howitzerOn === false);
+  if (!t._howitzerOn) t._howitzerBurst = null;
+  return t._howitzerOn;
+}
 
 // #U13（2026-10-16）：伤害飘字字号倍率——Boss 目标放大（用户要求「boss 掉血的数字需要加大」）。
 // 倍率唯一口径 RULES.hud.bossDmgTextScale（缺省 1.6）；非 Boss 目标返回 1（逐字沿用原行为）。
@@ -252,7 +277,13 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
     // 瞄准点：优先 ctx.aimPoint（鼠标世界位置），缺省沿炮塔方向 minArcRange
     const minArc = (typeof hs.minArcRange === 'number') ? hs.minArcRange : 120;
     let aimX, aimY;
-    if (c.aimPoint && Number.isFinite(c.aimPoint.x) && Number.isFinite(c.aimPoint.y)) {
+    // #X7（2026-10-20 用户裁定「急速射整组锁定首发落点」）：ctx.aimPointFrozen 由
+    //   updateHowitzerBurst 注入（= 首发瞬间的快照），优先级**高于**实时 aimPoint。
+    //   这样三发追发弹全部落在首发落点附近（散布仍每发独立采样），不会跟着鼠标漂走。
+    const frozen = c.aimPointFrozen;
+    if (frozen && Number.isFinite(frozen.x) && Number.isFinite(frozen.y)) {
+      aimX = frozen.x; aimY = frozen.y;
+    } else if (c.aimPoint && Number.isFinite(c.aimPoint.x) && Number.isFinite(c.aimPoint.y)) {
       aimX = c.aimPoint.x; aimY = c.aimPoint.y;
     } else {
       aimX = shooter.x + Math.cos(shooter.turretAngle || 0) * minArc;
@@ -267,10 +298,13 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
     }
     const dirA0 = Math.atan2(aimY - fy, aimX - fx);
     // 2026-10-20 用户裁定：实际落点也吃**散布**——与瞄准器散布圈同一口径
-    //   （σ×1.2，σ=主炮精度弧度），把落点沿**切向**偏移 sigma×1.2×距离 的一个高斯样本。
+    //   （σ×spreadFactor，σ=主炮精度弧度），把落点沿**切向**偏移该角度的一个高斯样本。
     //   这样圈不是装饰：弹着点真的按圈的范围分布（横向切向偏移；径向距离保持瞄准距离）。
+    //   ⚠️ spreadFactor 与 mvp 散布圈（tank_mvp.html 的 howitzer 瞄准器）**同一参数源**
+    //   （WEAPON_DEFAULTS.primary.howitzer.spreadFactor），改一处自动跟随。
+    const spreadFactor = (typeof hs.spreadFactor === 'number') ? hs.spreadFactor : 1.2;
     const aimDistW = Math.hypot(aimX - fx, aimY - fy);
-    const spSigma = (shooter.sigma || 0) * 1.2;
+    const spSigma = (shooter.sigma || 0) * spreadFactor;
     const spOffset = gauss(spSigma) * aimDistW;
     const dirA = dirA0 + (aimDistW > 1e-3 ? spOffset / aimDistW : 0);
     const arcSpeed = (typeof hs.arcSpeed === 'number') ? hs.arcSpeed : 260;
@@ -305,13 +339,16 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
     shells.push(shell);
     // #W-I 急速射（2026-10-20 用户口径「急速射：连续发射 3 发炮弹，间隔 0.5s」，升级卡解锁）：
     //   首发由本次开火打出（上面 push），剩余 barrage-1 发挂 `_howitzerBurst` 队列，
-    //   updateHowitzerBurst 逐帧按 0.5s 发际间隔驱动（目标点跟随 aimPoint —— 跟手）。
+    //   updateHowitzerBurst 逐帧按 0.5s 发际间隔驱动。
+    //   #X7（2026-10-20 用户裁定「整组锁定首发落点」）：队列**带上首发的 aim 快照**
+    //   （b.aim），追发弹一律用它（见上方 ctx.aimPointFrozen 分支）——此前追发弹每发
+    //   重读实时 aimPoint(mouseWorld)，整组落点跟着鼠标漂移。
     //   ⚠️ 追发弹也走本分支 ⇒ `shooter._howitzerBurstIn` 标记 burst 内调用，跳过重挂
     //   （否则每发追发又重挂 left=N 的队列，永不耗尽——E2E 实测踩坑）。
     if (!shooter._howitzerBurstIn) {
       const barrageN = (typeof hs.barrage === 'number' && hs.barrage > 1) ? Math.floor(hs.barrage) : 0;
       if (barrageN > 1) {
-        shooter._howitzerBurst = { left: barrageN - 1, interval: 0.5 };
+        shooter._howitzerBurst = { left: barrageN - 1, interval: 0.5, aim: { x: aimX, y: aimY } };
       }
     }
     return shell;
@@ -322,11 +359,13 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
 
 /**
  * #W-I 急速射队列驱动（mvp 主循环逐帧调用，模式仅玩家侧）。
- * `_howitzerBurst = { left, interval }`：每 interval 秒向当前 aimPoint 追发一发，
+ * `_howitzerBurst = { left, interval, aim }`：每 interval 秒向**首发快照落点**追发一发，
  * 队列清空后写整组装填（reload × howitzer.reloadMult）。
+ * #X7（2026-10-20 用户裁定「整组锁定首发落点」）：aim 是首发瞬间的落点快照，透传为
+ *   ctx.aimPointFrozen —— 追发弹不再读实时 aimPoint（否则整组跟着鼠标漂移）。
  * @param {any} shooter 玩家实体（带 stats/reloadT/_howitzerBurst 等运行时字段）
  * @param {number} dt 帧间隔
- * @param {object} ctx fireCtx（aimPoint/shells 等）
+ * @param {object} ctx fireCtx（aimPoint/shells 等；此处由本函数注入 aimPointFrozen）
  * @returns {boolean} 本帧是否发射了弹
  */
 function updateHowitzerBurst(shooter, dt, ctx) {
@@ -337,7 +376,11 @@ function updateHowitzerBurst(shooter, dt, ctx) {
   if (b.t < b.interval) return false;
   b.t = 0;
   shooter._howitzerBurstIn = true;             // 标记 burst 内调用（firePrimaryShell 据此跳过重挂队列）
-  const shell = firePrimaryShell(shooter, null, null, ctx);
+  // #X7：把首发快照注入为冻结落点（不改调用方 ctx 对象本身——用浅拷贝派生，避免污染 fireCtx）
+  const bctx = (b.aim && Number.isFinite(b.aim.x) && Number.isFinite(b.aim.y))
+    ? Object.assign({}, ctx || {}, { aimPointFrozen: { x: b.aim.x, y: b.aim.y } })
+    : ctx;
+  const shell = firePrimaryShell(shooter, null, null, bctx);
   shooter._howitzerBurstIn = false;
   if (!shell) { shooter._howitzerBurst = null; return false; }   // 装填等门控拦住 → 队列失效
   b.left -= 1;
@@ -678,8 +721,15 @@ function tryFireSecondary(ctx){
   const w=player.weapons.secondary;
   if(!w || !w.type || w.type==='none') return false;
   if(w.type==='turret') return false;   // 自瞄副炮塔不响应击发（自主运作，设计例外）
-  // #W-I（2026-10-20）：榴弹炮是**模式载体**——它的射击走主炮（左键/空格），副武器槽本身不发射
-  if(w.type==='howitzer') return false;
+  // #W-I（2026-10-20）：榴弹炮是**模式载体**——它的射击走主炮（左键/空格），副武器槽本身不发射。
+  // #X5（2026-10-20 用户裁定「F = 曲射/直射切换」）：该槽的 F 因此是**模式开关**而非击发
+  //   ⇒ 本函数转发 toggleHowitzer（返回切换后的模式布尔值），不发射任何弹。
+  //   这是「F=副武器击发」的唯一例外，与 mine_layer（预形态/确认）、missile（激活/取消）
+  //   同属开关类 —— 页面层必须走原生 keydown 边沿（docs/specs/combat.md §8.2）。
+  if(w.type==='howitzer'){
+    // 惰性解析见本文件顶部 _toggleHowitzer（三层：globalThis / require / 内联兜底）
+    return _toggleHowitzer(player);
+  }
   // 惰性取值：Node 用 require('./tank_weapons.js')，浏览器用全局（tank_weapons.js 先于本模块加载，时序安全）
   let fas=c.fireActiveSecondary||_G('fireActiveSecondary',null);
   if(!fas && typeof require!=='undefined'){ try{ fas=require('./tank_weapons.js').fireActiveSecondary; }catch(e){ fas=null; } }
@@ -800,7 +850,8 @@ function stepShells(dt, ctx){
   const raycast=c.raycastTank||_G('raycastTank',null);
   const shellPartHit=c.shellPartHit||_G('shellPartHit',null);
   const getZ=c.getPartZRange||_G('getPartZRange',null);
-  const getExp=c.getExposure||_G('getExposure',null);
+  // #W17（2026-10-20）：原此处另有 `const getExp=c.getExposure||_G('getExposure',null)`——
+  //   本函数体内一次都没调用过（全文件唯一真消费者在 computeSolution），属死绑定，已删除。
   const isHostile=c.isHostile||_G('isHostile',function(){return true;});
   // #J3（2026-09-30）：原 #E1 的 hiddenByVision 命中剔除钩子已随视野距离系统整体退役删除
   // —— 视野系统退役后不存在「看得见却打不中」的剔除源，保留该死钩子只会误导（不留死开关）。
@@ -872,6 +923,10 @@ function stepShells(dt, ctx){
     if(spawnTracer) spawnTracer(sx, sy, nx, ny, (s.ammo&&s.ammo.tracer)||'#ffd24a');
 
     // #7（2026-10-15）：射程限制——超 maxRange 后炮弹消失
+    // ⚠️ 这条只服务**直射**弹：曲射弹（isArc）的弹道终点由 `totalDist` 决定，
+    //   所有 isArc 弹体（howitzer 主炮曲射 / mortar 副武器）创建时都**不设 maxRange**
+    //   （缺省 0 ⇒ 本判据 `s.maxRange > 0` 恒假），故曲射弹天然不受它影响。
+    //   下方 isArc 分支另有「未到落点也 return」的兜底，两者互不干扰。
     if(s.maxRange > 0 && (s.dist + step) >= s.maxRange){
       s.dead = true;
       if(impacts) impacts.push({x:nx, y:ny, life:0.3, color:'#8a8f7d'});
@@ -954,7 +1009,20 @@ function stepShells(dt, ctx){
         }
         return;
       }
-      }   // end if(s.dist >= s.totalDist) — #W-I 补回（替换时吞掉了原闭合行）
+      // ⚠️ #X6/P1（2026-10-20 用户裁定，本条为**结构性修复**）：曲射弹**未到落点**时也必须
+      //   在本块内离场，绝不能落到下方的直射扫掠命中段。
+      //   历史（不静默删除，按项目纪律保留）：#W-I 用替换实现本分支时**吞掉了 isArc 块的
+      //   闭合行**，导致 `let bestDist=Infinity…` 这一整段直射扫掠代码被错误地包含在
+      //   `if(s.isArc)` 之内——表面上花括号"配平"，实际语义反了：曲射弹（本应越顶飞过）
+      //   每帧都对沿途坦克做 raycast 并结算命中 ⇒ 途中任意坦克都会把曲射弹"截胡"，
+      //   永远到不了落点。当年那句「替换时吞掉了原闭合行」的注释正是这个错误的化石，
+      //   后来又被改写成「曲射弹在落点结算后直接 return（不进入直射的扫掠命中段）」——
+      //   承诺了正确行为，代码却没做到（注释说假话）。
+      //   现行行为（本行就是真话）：`s.dist/s.x/s.y` 已在上面推进完成，此处**无条件**离开
+      //   本发弹的这一步 ⇒ 曲射弹只受 totalDist 落点判定驱动，途中不参与任何直射命中结算。
+      return;
+    }   // end if(s.isArc) —— 曲射弹每帧都在本块内离场：到落点则结算落点爆炸后 return，
+        //   未到落点则由上面的兜底 return 跳过直射扫掠段（绝不"截胡"中途坦克）。
     let bestDist=Infinity, bestTank=null, bestHit=null, bestCover=null;
     // #10（2026-10-19）：受击坦克是否躲在敌方便携掩体背面有效区（决定部位改判炮塔）。
     //   声明必须在命中扫描之前——扫描后的判定与最终结算都要读它。
@@ -1003,20 +1071,10 @@ function stepShells(dt, ctx){
       }
       // #E1：确定性拦截唯一入口——solid/single 掩体在入口点截停（'graduated' 分支已删除）。
       if((tier.mode==='solid'||tier.mode==='single')&&cov.distA<=step&&cov.distA<bestDist){
-        // 2026-10-05：桥梁侧面判定——只有射击桥梁侧面（长边）时才被击中。
-        // 炮弹沿桥长轴方向（击中短端）时穿过不拦截。
-        if (cov.cover.tier === 'bridge') {
-          const bw = cov.cover.w || 0, bh = cov.cover.h || 0;
-          const bAngle = cov.cover.angle || 0;
-          // 桥长轴方向
-          let bridgeDir = bAngle;
-          if (bw < bh) bridgeDir += Math.PI / 2;
-          const shellAngle = Math.atan2(s.dy, s.dx);
-          let diff = Math.abs(shellAngle - bridgeDir) % Math.PI;
-          const acute = Math.min(diff, Math.PI - diff);
-          // 锐角<45°=沿长轴（击端），跳过不拦截
-          if (acute < Math.PI / 4) continue;
-        }
+        // #W10-②（2026-10-20）：原此处有一段 `if (cov.cover.tier === 'bridge') { …45° 长轴特判… }`
+        //   已删除 —— bridge 的 shellBlock 是 false（RULES.coverTiers.bridge）⇒ 派生 mode='pass'
+        //   ⇒ 上方 `tier.mode==='pass'` 分支必然先 continue，本分支对 bridge **单重不可达**，
+        //   特判从未生效（保险起见桥面挡弹已由 mode 派生统一决定：桥不挡弹）。
         bestDist=cov.distA; bestCover=cov; bestTank=null; bestHit=null; s._blockedByDeployable=null;
       }
     }

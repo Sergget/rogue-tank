@@ -2,7 +2,6 @@
   "id": "sniper_deadeye",
   "name": "死眼",
   "rarity": "legendary",
-  "tags": ["狙击"],
   "desc": "狙击手的极致：装填时间 +25%，但伤害 +35%、穿深 +25mm。",
   "effects": [
     { "type": "modifier", "stat": "reload", "mode": "mult", "value": 1.25 },

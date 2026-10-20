@@ -72,7 +72,13 @@ const RULES = {
   // 'single'（沙袋）→ 挡 1 发（>70° 可跳弹）。概率/剖面（'grad'/'half'）与越掩插值全部移除——
   // 修复用户反馈「炮弹被不可见物体拦截」。
   coverRules: {
-    deterministicOnly: true   // 保留字段示意：弹道不再有概率拦截（消费方：tank_fire.stepShells）
+    // 保留字段示意：弹道不再有概率拦截（消费方：tank_fire.stepShells）。
+    // #W15（2026-10-20）实测零消费 ⇒ 已删 `deterministicOnly`；确定性挡弹是代码事实
+    // （coverTiers[].shellBlock），不需要开关字段。
+    // #W17（2026-10-20 role-systems 新增）：掩体方向容差（px）——findCoversOnPath 在被
+    // `cutoffDist` 裁断时，允许出射点超出截止距离该容差再判定为「方向已脱离」。
+    // 原硬编码在 js/tank_cover.js:710（COVER_DIRECTION_TOLERANCE=16），mapgen 改为读本字段（缺省回落 16）。
+    directionTolerance: 16
   },
 
   // ======================= 掩体 / 地图元素（P-40 地形类型抽象，docs/specs/map.md §5） =======================
@@ -135,7 +141,8 @@ const RULES = {
   // 消费方：tank_mvp.html 战斗主循环（drownT 累计）+ tank_cover.js tankFullyInWater。
   drowning: {
     seconds: 8,            // 溺毙倒计时（秒）
-    warnAt: 3,             // 剩余该秒数时播报警告音/强化提示
+    // #W15（2026-10-20）实测零消费 ⇒ 已删 `warnAt`（原 3s 警示）。
+    //   现行警示由消费方硬编码阈值实现（tank_mvp.html 倒计时 HUD <3s 红字），不读本字段。
     // #U37（2026-10-18 用户「河流宽度需要限制，不能造成坦克无法涉水过河」）：
     //   河宽硬上限 = 最慢可用车在溺毙倒计时内能渡过的宽度。唯一口径，消费方
     //   js/tank_nodegen.js placeStripRivers/buildRiver（逐段钳制）。
@@ -150,8 +157,9 @@ const RULES = {
 
   // ======================= 破障（可破坏地图元素） =======================
   breach: {
-    heSplashRadius: 24,   // HE 弹销毁瞬间的溅射半径（px）——只伤害可破坏元素，不对坦克溅射
-    heCoverDmg: 1         // HE 溅射对单个元素的伤害（树耐久 1，栅栏/沙袋/树桩/碎石 1 击毁）
+    heSplashRadius: 24    // HE 弹销毁瞬间的溅射半径（px）——只伤害可破坏元素，不对坦克溅射
+    // #W15（2026-10-20）实测零消费 ⇒ 已删 `heCoverDmg`（原 1）：js/tank_fire.js 固定传 1，
+    //   从不读本字段。若要参数化 HE 破障伤害，需同时改 tank_fire.js 的硬编码实参。
   },
 
   // ======================= 散布（summare dimension bloom/shrink） =======================
@@ -231,19 +239,12 @@ const RULES = {
       absorbCap: 150,    // 吸收伤害上限（超过后护盾破裂）
       cooldown: 25       // 冷却（秒）
     },
-    // 无人机体系（子目标 4）
-    super_fire_control: {
-      duration: 8,
-      spreadMult: 0.3,    // 70% reduction in spread (above multFloor 0.2)
-      aimSpeedMult: 3.0,  // 3x aiming speed
-      cooldown: 25
-    },
-    super_speed: {
-      duration: 6,
-      accelMult: 3.0,     // 3x engine power / accel
-      maxSpeedMult: 1.5,  // +50% top speed
-      cooldown: 20
-    },
+    // #W9（2026-10-20 用户裁定「删除 super_speed / super_fire_control」）：
+    //   两键实测**零卡牌可授予**（196 张卡 + tanks/ + bosses/ 全库零命中），
+    //   ABILITY_KEYS_RUNTIME(7) − 卡牌可授予集合 = {super_fire_control, super_speed}。
+    //   已删除本处配置（原「// 无人机体系（子目标 4）」注释错挂于此，真正归口在下方 drone 块）。
+    //   同批须删 js/tank_abilities.js 的两 case 与 tank_mvp.html 的 dispatch/提示文案，
+    //   否则 tryActivateAbility 会因 `_d(abilityCfg,'accelMult',3.0)` 全走缺省值而「静默还能用」。
     // #G（2026-09-21 用户需求 #9）：主动防御系统（APS，Active Protection System）——
     // 激活后 duration 秒内自动拦截进入 radius 的来袭敌方弹药（炮弹/导弹）：
     // 弹体直接销毁并触发小型拦截特效。maxIntercepts 限制单次激活的拦截数（雷达/发射器弹匣），
@@ -613,8 +614,9 @@ const RULES = {
       // #U45 注：弯曲改为单弓形后端点切线即端点连线方向（无旧版端部反向弯），
       //   局部斜率仅由弓顶偏移贡献，浅角护栏余量进一步放大。
       diagAngleMax: 0.34,      // 斜向偏角上限（rad ≈19°）
-      branchCurveAmp: 0.10,    // （#U45 2026-10-19 已成死配置待删）旧支路弯曲幅度——T 形支道
-                               // TH/TV 自 #G 起固定走直线 amp=0，全仓库已无消费点
+      // #W15（2026-10-20）实测零消费 ⇒ 已删 `branchCurveAmp`（原 0.10）。
+      //   T 形支道 TH/TV 自 #G（2026-09-21）起固定走直线 amp=0，全仓库无消费点；
+      //   唯一残留是 js/tank_nodegen.js:1422 的历史注释（属 mapgen 写域，已交接）。
       // 2026-09-23 A 档：删除死配置 junctionClearR（0.85）——全仓库零消费，生成器实际用
       // roadW × 0.5 硬编码路口清空半径（js/tank_nodegen.js junctions.push({r: roadW * 0.5})）。
       speedBonusKmh: 10,       // 在公路上行驶的速度加成（km/h，受 maxSpeed 150km/h 上限钳制）
@@ -678,9 +680,10 @@ const RULES = {
       axisTopFraction: 0.92,     // 推进轴可用终点（× 节点宽 w）
       lineMargin: 300            // 首条防线距出生点的最小推进距离（px；与 minPlayerDist 取大者）
     },
-    // #77 低难度 full→half 降级帽：单节点最多降 floor(full数×帽值) 个（≤30%），
-    // 保证低难度下每节点仍保留 ≥70% 全高建筑（掩体骨架可读性）。
-    fullDowngradeCap: 0.30,
+    // #77 低难度 full→half 降级帽：**已于 2026-10-20 #W15 删除 `fullDowngradeCap`（原 0.30）**。
+    //   根因：半高掩体体系在 2026-09-20 #E3 整体移除后，「full→half 降级」已改为无操作，
+    //   降级帽预算随之废弃（js/tank_nodegen.js:3148-3150 明写「已改为无操作」）。
+    //   不要恢复本字段：现行低难度掩体骨架靠下方 `fullCullProtect` 保底。
     // #77 cullRate 剔除保护：每模板至少前 N 个全高建筑不被随机剔除（保底掩体骨架）。
     fullCullProtect: 2,
     runNodeCount: 5,              // 一局初始节点数（线性链长度；开放式链下仅作起点，后续 extendRun 追加）
@@ -755,6 +758,15 @@ const RULES = {
   enemyAnchorBase: {
     maxHp: 100, penetration: 120, damage: 34, reload: 1.3, maxSpeed: 120,
     turnRate: 2.0, turretTurnRate: 2.2, shellSpeed: 1200, weight: 50, enginePower: 700,
+    // #W14（2026-10-20 role-systems）：补 `aimSpeed`（缩圈/瞄准速度）。
+    //   根因：`applyEnemyAppearanceAndStats` 原先不写 `base.aimSpeed`，`makeTank` 的 base 也无该键
+    //   ⇒ `computeStats` 回落 `RULES.spread.shrinkRate(0.15)`（**这是另一套量纲**：真实坦克
+    //   `tanks/*.json` 的 base.aimSpeed 包络 1.0~2.5）。而 `entityMults.aimSpeed` 的
+    //   [0.8, 1.35] 是按真实坦克基准设计的 ⇒ 满难度实测只有 0.15×1.35 = **0.2025**，
+    //   即玩家 tiger-I(1.5) 的 **7.4%**：敌军缩圈慢到几乎不收敛，散布恒处扩散状态。
+    //   取值 1.2 = 中位中坦量级（落在真实坦克包络 1.0~2.5 内、略低于玩家基准）。
+    //   修后满难度 = 1.2 × 1.35 = **1.62**。消费方 js/tank_model.js applyEnemyAppearanceAndStats。
+    aimSpeed: 1.2,
     armor: { hull: { front: 100, side: 40, rear: 25 }, turret: { front: 100, side: 40, rear: 25 } }
   },
 
@@ -1151,7 +1163,15 @@ const RULES = {
       fireRateMul: 0.6,    // 射速 ×0.6（装填时间 ×1/0.6）
       dmgMul: 1.5,         // 单发伤害 ×1.5
       penMul: 1.4,         // 穿深 ×1.4（2026-08-25 新增：Boss 穿深独立乘子，不受敌军 penCapVsPlayer 封顶）
-      engageDist: 99999    // #21：Boss 出生即进入交战（巨大触发半径，绕过常规 trigDist 700 / 巡逻/风筝）
+      engageDist: 99999,   // #21：Boss 出生即进入交战（巨大触发半径，绕过常规 trigDist 700 / 巡逻/风筝）
+      // #W-J（2026-10-20 role-systems 新增）Boss 机炮射程（px）。
+      // 背景：Boss 主武器由 js/tank_boss.js `pickBossArmament` 在运行时随机分配（bosses/*.json
+      // 无 weapons 字段），因此**不能**改 js/tank_weapons.js 的全局 autocannon maxRange(900)——
+      // 那会连带削弱玩家。改为安装后按 Boss 身份覆写：
+      //   js/tank_boss.js `applyBossWeaponTuning(t)` 在 `t.weapons.primary.type === 'autocannon'`
+      //   时写 `t.weapons.primary.stats.maxRange = RULES.boss.tuning.autocannonRange`。
+      // **调用契约：必须在 assignBossArmament 之后**（安装会重置 stats，提前调用会被覆盖）。
+      autocannonRange: 1200
     },
     // ======================= 2026-09-20 #E9 Boss 修订（用户反馈） =======================
     // 1) 残血减速上限：阶段 onEnter.modifiers 里的 maxSpeed/turnRate 倍率过猛会让残血 Boss
@@ -1289,7 +1309,11 @@ const RULES = {
         maxHp:            { min: 50,  max: 9999 }, // 存量 hp 包络 80~120（±30% → 56~156，取整）；max=9999=无上限（B3 #73 修复：hp_up 升级「无上限」，与装甲同级）。仅 runShopLimitBlocked #A4 派生消费；设计器出厂校验只约束 weight.max。
     penetration:      { min: 80,  max: 9999 }, // 穿深无上限（用户需求：火力/穿深/装甲不设上限）
     damage:           { min: 25,  max: 9999 }, // 单发伤害无上限（用户需求：火力/穿深/装甲不设上限）
-    reload:           { min: 1.0, max: 3.0 },  // 装填秒数：下限 1.0s（2026-09-17 #C2 用户裁定，取代旧 0.5s；实际开火间隔=reload×reloadMult，reloadMult<1 通道不受此限）；上限包络 2.0×1.3≈2.6 → 圆整 3.0
+    reload:           { min: 1.0, max: 3.0 },  // 装填秒数：下限 1.0s（2026-09-17 #C2 用户裁定，取代旧 0.5s；实际开火间隔=reload×reloadMult，reloadMult<1 通道不受此限）；上限 3.0
+    //   ⚠️ #W15 注释纠正（2026-10-20 role-systems 实测）：ISSUES 曾记「reload.max 零消费」
+    //   ——**不成立**。`max` 有两处真实消费，勿删：① `js/tank_panels_core.js` parameterClamp
+    //   双向读 min/max（`scripts/test-panels.js:225` 断言 `parameterClamp('reload', 99) → 3.0`）；
+    //   ② `designer.js:2390` clampParamInput 对任意 limKey 双向钳制。
     shellSpeed:       { min: 600, max: 2100 }, // 弹速 px/s 包络 1000~1600（±30% → 700~2080）
     maxSpeed:         { min: 60,  max: 375 },  // px/s；max=150km/h÷kmhFactor0.4=375（用户裁定 ≤150km/h）；min 对应 24km/h
     turnRate:         { min: 1.0, max: 3.5 },  // 车体转速 rad/s 包络 1.6~2.5（±30% → 1.12~3.25）
@@ -1309,6 +1333,14 @@ const RULES = {
     //   · fireControlCrit / loaderAmmoCrit：P-49 概率修正加值，上限 = RULES.modules.critBonusCap
     //     （0.25）——与 computeStats 的 [0, cap] 钳制同源，越界卡牌被 #U20 过滤。
     aimSpeed:         { min: 0.1, max: 6 },
+    //   ⚠️ #W15 注释纠正（2026-10-20 role-systems 实测）：ISSUES 曾记「aimSpeed.min /
+    //   trackLock.max 单侧钳制、永不生效」——**不成立**，勿删这两个边界：
+    //   · aimSpeed.min(0.1)：`js/tank_model.js` computeStats 只钳 `.max`（#U40 无条件钳制），
+    //     但 `cardEligible` 的 #U20 达限过滤与商店 `runShopLimitBlocked` 都**双向**按
+    //     `{min,max}` 取边界 ⇒ min 参与「模拟下一级后越界」判定（缩圈速度被压到 0.1 以下即判不合格）。
+    //   · trackLock.max(20)：`computeStats` 只钳 `.min`（3s 下限），而 max 同样被上述两处
+    //     达限判定双向消费（履带修复卡叠到 >20s 即判不合格）。
+    //   即：**聚合钳制是单侧，资格判定是双侧**，两侧口径不同但都在用。
     trackLock:        { min: 3,   max: 20 },
     fireControlCrit:  { min: 0,   max: 0.25 },
     loaderAmmoCrit:   { min: 0,   max: 0.25 },

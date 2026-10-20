@@ -2,7 +2,6 @@
   "id": "wet_ammo_rack",
   "name": "湿式弹药架",
   "rarity": "rare",
-  "tags": ["重甲", "支援"],
   "desc": "湿式弹药架（被动）：弹药架模块受到的损伤降低 30%。",
   "effects": [
     { "type": "passive", "key": "wet_ammo_rack", "value": 0.30 }

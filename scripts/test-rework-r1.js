@@ -51,29 +51,46 @@ function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-9); }
   ok(t.moduleSlots.length === 2 && t.moduleSlots[0] === 'ammo_rack_reinforced', 'moduleSlots 正确应用');
 }
 
-// ---- 2) 新主动技能测试 (super_fire_control & super_speed) ----
+// ---- 2) W9 死技能键（super_fire_control & super_speed）已删除：负向断言 ----
+// 2026-10-20 #W9（用户裁定「删除」）：这两个键是**死键**——差集实测为
+//   ABILITY_KEYS_RUNTIME 7 键 − 卡牌可授予的键，196 张卡 + tanks/ + bosses/ 全库零命中，
+//   玩家在真实对局中**永远拿不到**它们。原测试只测「塞进去之后能用」（正向），
+//   从不校验「现实中能不能拿到」，这正是死键长期没被发现的根因（ISSUES #W9「测试为何抓不到」）。
+// 现改为**负向断言**：把「已删除」这个事实锁死，防止将来被误加回来。
+// 实测口径（2026-10-20 本机）：tryActivateAbility(t, 'super_speed', {}) → { ok:false, reason:'unsupported' }；
+//   注意与「键存在但玩家无卡」的 { ok:false, reason:'no-ability' } 可区分（对照 artillery/shield/aps）。
 {
   const t = model.makeTank({ team: 'player' });
+  // 即使硬塞进 cardEffects（模拟旧存档/脏数据），这两键也不得复活
   t.cardEffects = [
     { type: 'ability', key: 'super_fire_control', cardId: 'c1' },
     { type: 'ability', key: 'super_speed', cardId: 'c2' }
   ];
 
-  const baseSpreadMult = t.stats.spreadMult;
-  const baseMaxSpeed = t.stats.maxSpeed;
+  ok(RULES.abilities.super_fire_control === undefined,
+     '#W9（2026-10-20）：RULES.abilities.super_fire_control 已删除');
+  ok(RULES.abilities.super_speed === undefined,
+     '#W9（2026-10-20）：RULES.abilities.super_speed 已删除');
+  ok(abilities.ABILITY_KEYS_RUNTIME.indexOf('super_fire_control') === -1,
+     '#W9：ABILITY_KEYS_RUNTIME 不含 super_fire_control');
+  ok(abilities.ABILITY_KEYS_RUNTIME.indexOf('super_speed') === -1,
+     '#W9：ABILITY_KEYS_RUNTIME 不含 super_speed');
 
-  // 触发超级火控
   const res1 = abilities.tryActivateAbility(t, 'super_fire_control', {});
-  ok(res1.ok === true, 'super_fire_control 激活成功');
-  ok(close(t.stats.spreadMult, baseSpreadMult * 0.3), 'super_fire_control 散布倍率生效 (×0.3)');
-  ok(close(t.abilityCds.super_fire_control, RULES.abilities.super_fire_control.cooldown), 'super_fire_control 冷却设置正确');
-
-  // 触发超级速度
-  t.abilityCds.super_speed = 0; // 清除冷却以测试下一个
+  ok(res1.ok === false && res1.reason === 'unsupported',
+     `#W9：super_fire_control 不可激活（reason='unsupported'，实测 ${res1.reason}）`);
   const res2 = abilities.tryActivateAbility(t, 'super_speed', {});
-  ok(res2.ok === true, 'super_speed 激活成功');
-  ok(close(t.stats.maxSpeed, baseMaxSpeed * 1.5), 'super_speed 极速倍率生效 (×1.5)');
-  ok(close(t.abilityCds.super_speed, RULES.abilities.super_speed.cooldown), 'super_speed 冷却设置正确');
+  ok(res2.ok === false && res2.reason === 'unsupported',
+     `#W9：super_speed 不可激活（reason='unsupported'，实测 ${res2.reason}）`);
+  // 语义区分护栏：仍存在的键在「无卡」时应报 no-ability 而非 unsupported
+  // （证明 unsupported 确实表示「键不存在」，不是所有失败都报同一个 reason）
+  const resAlive = abilities.tryActivateAbility(model.makeTank({ team: 'player' }), 'artillery', {});
+  ok(resAlive.ok === false && resAlive.reason === 'no-ability',
+     `#W9 护栏：仍存在的键无卡时报 'no-ability'（实测 ${resAlive.reason}），与 'unsupported' 可区分`);
+  // 副作用护栏：这两个键不得再写入任何冷却池（abilityCds 可能尚未初始化，故按对象存在性判）
+  const cds = t.abilityCds || {};
+  ok(cds.super_fire_control === undefined && cds.super_speed === undefined,
+     '#W9：已删键不产生冷却池条目');
 }
 
 // ---- 3) 炮塔/炮管视觉热重载机制与脏标记测试 ----
@@ -116,9 +133,14 @@ function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-9); }
   const wState = testWindow.__TEST__.getWeaponState(testTank);
   ok(wState.primary.type === 'railgun', 'window.__TEST__.getWeaponState 钩子正常');
 
-  testTank.cardEffects = [{ type: 'ability', key: 'super_speed', cardId: 'x' }];
-  const trig = testWindow.__TEST__.triggerSkill(testTank, 'super_speed');
-  ok(trig.ok === true, 'window.__TEST__.triggerSkill 钩子正常');
+  // #W9（2026-10-20）：原用 'super_speed' 验证钩子透传，该键已删除。改用仍存在的 runtime 键，
+  // 并额外用已删键反向验证钩子不会让死键复活。
+  testTank.cardEffects = [{ type: 'ability', key: 'artillery', cardId: 'x' }];
+  const trig = testWindow.__TEST__.triggerSkill(testTank, 'artillery');
+  ok(trig.ok !== undefined, 'window.__TEST__.triggerSkill 钩子正常（透传 tryActivateAbility 结果）');
+  const trigDead = testWindow.__TEST__.triggerSkill(testTank, 'super_speed');
+  ok(trigDead.ok === false && trigDead.reason === 'unsupported',
+     '#W9：经 __TEST__ 钩子也拿不到已删键 super_speed（reason=unsupported）');
 }
 
 console.log('test-rework-r1: 完成所有检查');

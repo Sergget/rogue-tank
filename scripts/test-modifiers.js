@@ -11,6 +11,10 @@ global.addModifier = model.addModifier;
 global.removeModifierBySource = model.removeModifierBySource;
 const cards = require('../js/tank_cards.js');
 const boss = require('../js/tank_boss.js');
+// #W14（2026-10-20）：aimSpeed 量纲断言需要 entityMultsForDifficulty（难度乘子表）
+// 与 applyEnemyAppearanceAndStats 的真实调用链。tank_map 依赖几何全局，故先补 getPartZRange。
+global.getPartZRange = require('../js/tank_geometry.js').getPartZRange;
+const MAP = require('../js/tank_map.js');
 
 let fails = 0;
 function ok(cond, label) {
@@ -417,6 +421,90 @@ ok(t20c.hp === baseHp20c, '#A12: maxHp 回落后 hp 仅钳回原上限，不额�
   model.addModifier(t4, mk(0.45, 'timed'));
   ok(Math.abs(t4.stats.reload - 0.45) < 1e-6,
     `#W1: 卡牌触底 1.0s 后能力继续压到 0.45（${t4.stats.reload.toFixed(3)}）`);
+})();
+
+// ============================================================================
+// 22) #W14（2026-10-20）敌军 aimSpeed 量纲锁定 —— 两套量纲不得再混淆
+// ============================================================================
+// 背景（role-systems 修复、本段为回归护栏）：
+//   `makeTank` 的 base **没有** aimSpeed 键 ⇒ `computeStats` 回落
+//   `RULES.spread.shrinkRate`（0.15）。那是「配装缺省」量纲，而真实坦克 spec 的
+//   `base.aimSpeed` 包络是 1.0~2.5 —— **两套量纲**。
+//   而 `entityMults.aimSpeed = [0.8, 1.35]` 是按真实坦克量纲设计的。
+//   修复前 `applyEnemyAppearanceAndStats` 不写 `base.aimSpeed` ⇒ 敌军满难度只有
+//   0.15×1.35 = **0.2025**（玩家 tiger-I 1.5 的 7.4%），缩圈几乎停滞、散布长期扩散。
+//   #W14 在 `RULES.enemyAnchorBase` 增加 aimSpeed=1.2 并在该函数内写入 `base.aimSpeed`
+//   ⇒ 现行：低难度 1.2×0.8 = **0.96**，满难度 1.2×1.35 = **1.62**。
+//
+// ⚠️ 断言口径（重要，勿改写成 `> 1.0`）：
+//   · 低难度 0.96 **低于 1.0 是设计意图**（低于玩家基准、略慢于中位中坦），
+//     若写成 `> 1.0` 会把设计意图判成缺陷；
+//   · 真正的护栏是「**量纲正确**」：结果必须落在真实坦克量纲（0.96~1.62），
+//     且**不得等于** `RULES.spread.shrinkRate`（= 说明又回落到配装缺省量纲了）。
+(function(){
+  const R = global.RULES;
+  const A = R.enemyAnchorBase;
+  const EM = R.difficulty.entityMults;
+  const diffMax = R.difficulty.diffMax;
+
+  // --- 前置：字段存在 ---
+  ok(typeof A.aimSpeed === 'number' && A.aimSpeed > 0,
+    `#W14: RULES.enemyAnchorBase.aimSpeed 已定义（${A.aimSpeed}）`);
+  ok(Array.isArray(EM.aimSpeed) && EM.aimSpeed.length === 2,
+    `#W14: entityMults.aimSpeed 为 [低,高] 二元组（${JSON.stringify(EM.aimSpeed)}）`);
+
+  // --- 量纲锁定：低难度 = 1.2×0.8 = 0.96 ---
+  const lowMults = MAP.entityMultsForDifficulty(0);
+  const tLow = model.makeTank({ team: 'enemy' });
+  model.applyEnemyAppearanceAndStats(tLow, null, null, lowMults);
+  ok(Math.abs(tLow.base.aimSpeed - A.aimSpeed) < 1e-9,
+    `#W14: base.aimSpeed 写入锚定基准（${tLow.base.aimSpeed} === ${A.aimSpeed}）`);
+  const expectLow = A.aimSpeed * EM.aimSpeed[0];
+  ok(Math.abs(tLow.stats.aimSpeed - expectLow) < 1e-6,
+    `#W14: 低难度 aimSpeed = ${A.aimSpeed}×${EM.aimSpeed[0]} = ${expectLow}（实测 ${tLow.stats.aimSpeed.toFixed(4)}）`);
+  ok(Math.abs(tLow.stats.aimSpeed - 0.96) < 1e-6,
+    `#W14: 低难度量纲锁定 ≈0.96（**不是 >1.0**；低于玩家基准 1.0~2.5 是设计意图）`);
+
+  // --- 量纲锁定：满难度 = 1.2×1.35 = 1.62 ---
+  const hiMults = MAP.entityMultsForDifficulty(diffMax);
+  const tHigh = model.makeTank({ team: 'enemy' });
+  model.applyEnemyAppearanceAndStats(tHigh, null, null, hiMults);
+  const expectHigh = A.aimSpeed * EM.aimSpeed[1];
+  ok(Math.abs(tHigh.stats.aimSpeed - expectHigh) < 1e-6,
+    `#W14: 满难度 aimSpeed = ${A.aimSpeed}×${EM.aimSpeed[1]} = ${expectHigh}（实测 ${tHigh.stats.aimSpeed.toFixed(4)}）`);
+  ok(Math.abs(tHigh.stats.aimSpeed - 1.62) < 1e-6,
+    `#W14: 满难度量纲锁定 ≈1.62`);
+
+  // --- ⭐ 反向断言：绝不能等于 RULES.spread.shrinkRate（回落配装缺省量纲 = 退回缺陷） ---
+  ok(tLow.stats.aimSpeed !== R.spread.shrinkRate,
+    `#W14【反向护栏】低难度 aimSpeed(${tLow.stats.aimSpeed}) !== spread.shrinkRate(${R.spread.shrinkRate})`);
+  ok(tHigh.stats.aimSpeed !== R.spread.shrinkRate,
+    `#W14【反向护栏】满难度 aimSpeed(${tHigh.stats.aimSpeed}) !== spread.shrinkRate(${R.spread.shrinkRate})`);
+  // 对照：未应用敌军外观的裸 makeTank 仍回落 shrinkRate（证明上面的不等号有意义，
+  // 不是因为 shrinkRate 恰好也被改掉了）
+  const tBare = model.makeTank({ team: 'enemy' });
+  ok(Math.abs(tBare.stats.aimSpeed - R.spread.shrinkRate) < 1e-9,
+    `#W14 对照：未走 applyEnemyAppearanceAndStats 的裸 makeTank 仍回落 shrinkRate(${R.spread.shrinkRate})`);
+  // 修复前的缺陷值 0.2025 必须不再出现（0.15×1.35）
+  const bugValue = R.spread.shrinkRate * EM.aimSpeed[1];
+  ok(Math.abs(tHigh.stats.aimSpeed - bugValue) > 1e-6,
+    `#W14【回归】满难度不再是缺陷值 ${bugValue.toFixed(4)}（0.15×1.35）`);
+
+  // --- 单调性：难度上升 aimSpeed 不下降 ---
+  let prev = -Infinity, mono = true, samples = [];
+  for (let i = 0; i <= 10; i++) {
+    const d = diffMax * i / 10;
+    const t = model.makeTank({ team: 'enemy' });
+    model.applyEnemyAppearanceAndStats(t, null, null, MAP.entityMultsForDifficulty(d));
+    if (t.stats.aimSpeed < prev - 1e-9) mono = false;
+    prev = t.stats.aimSpeed;
+    if (i % 5 === 0) samples.push(`${d.toFixed(2)}:${t.stats.aimSpeed.toFixed(3)}`);
+  }
+  ok(mono, `#W14: 难度单调不降（${samples.join(' → ')}）`);
+
+  // --- 值域：全部采样落在真实坦克量纲区间（0.8~1.7，而非配装缺省的 0.15 量级） ---
+  ok(tLow.stats.aimSpeed >= 0.9 && tHigh.stats.aimSpeed <= 1.8,
+    `#W14: 全难度落在 [0.9, 1.8] 真实量纲（${tLow.stats.aimSpeed.toFixed(2)}~${tHigh.stats.aimSpeed.toFixed(2)}）`);
 })();
 
 console.log('test-modifiers: 完成所有检查');

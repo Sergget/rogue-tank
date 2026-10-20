@@ -1,1 +1,1 @@
-{"desc":"火箭巢强化：火箭飞行速度提升至 650，溅射半径扩大至 55，齐射压制更快更狠。","effects":[{"action":"upgrade","slot":"secondary","statOverrides":{"aoe":55,"speed":650},"type":"weapon","weaponType":"rocket"}],"id":"weapon_secondary_rocket_speed_upgrade","maxStacks":1,"name":"火箭高速推进器","rarity":"rare","tags":["爆破"]}
+{"desc":"火箭巢强化：火箭飞行速度提升至 650，溅射半径扩大至 55，齐射压制更快更狠。","effects":[{"action":"upgrade","slot":"secondary","statOverrides":{"aoe":55,"speed":650},"type":"weapon","weaponType":"rocket"}],"id":"weapon_secondary_rocket_speed_upgrade","maxStacks":1,"name":"火箭高速推进器","rarity":"rare"}

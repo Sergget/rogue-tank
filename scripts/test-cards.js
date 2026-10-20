@@ -29,7 +29,12 @@ ok(cardsMod.validateCard({ id: 'a', name: 'x', rarity: 'supermythic', effects: [
 // #E13（2026-09-20）：神话档（mythic）为 CARD_RARITIES 末位（最高稀有度），且为合法值
 ok(cardsMod.CARD_RARITIES[cardsMod.CARD_RARITIES.length - 1] === 'mythic',
    '#E13: mythic 为最高稀有度（CARD_RARITIES 末位）');
-ok(cardsMod.validateCard({ id: 'a', name: 'x', rarity: 'common', tags: ['魔法'], effects: [{ type: 'modifier', stat: 'penetration', mode: 'add', value: 1 }] }).length > 0, '非法 tag 报错');
+// #16（2026-10-20 用户裁定「卡牌的角色设定没有意义，删除相关的字段」）：卡牌 `tags` 字段
+// 与 `CARD_TAGS` 枚举整体下线，`validateCard` **不再对 tags 做任何校验**（js/tank_cards.js:98-100）。
+// 原断言「非法 tag 报错」基于已废弃口径，改为负向断言：带任意 tags（含以前的非法值）都应通过校验。
+// 负向断言的价值：防止将来有人把 tags 校验悄悄加回来，而数据侧已不再维护该字段。
+ok(cardsMod.validateCard({ id: 'a', name: 'x', rarity: 'common', tags: ['魔法'], effects: [{ type: 'modifier', stat: 'penetration', mode: 'add', value: 1 }] }).length === 0,
+   '#16（2026-10-20）：tags 字段已下线，带任意 tags 的卡不再报错');
 ok(cardsMod.validateCard({ id: 'a', name: 'x', rarity: 'common', effects: [] }).length > 0, '空 effects 报错');
 
 // 3) 效果校验
@@ -188,7 +193,11 @@ ok(negCfg.dmg === 0, '#97: 多条 mult 聚合为负时钳 ≥0（0.8×max(0, 1�
 }
 
 // 8) 实际 cards/ 数据全合法（由 validate-content.js 主校验，这里抽样确认模块可加载）
-ok(typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean', 'CARD_TAGS 含 5 流派');
+// #16（2026-10-20）：原断言 `typeof cardsMod.CARD_TAGS.includes('重甲') === 'boolean'` 在
+// CARD_TAGS 不再导出后**直接 TypeError 崩溃**（不是断言红）⇒ 本行之后 1000+ 行断言全部
+// 不执行，真实回归被整体掩盖（比断言假绿更危险：连汇总行都打不出来）。
+// 改为负向断言：CARD_TAGS 必须保持 undefined，防止枚举被悄悄加回而数据侧已无 tags。
+ok(cardsMod.CARD_TAGS === undefined, '#16（2026-10-20）：CARD_TAGS 已随 tags 字段整体下线（不再导出）');
 
 // ===== 弹种链 2026-09-13：升级替换 / HE 双分支并存 / add 换算 =====
 {

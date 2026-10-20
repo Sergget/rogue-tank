@@ -34,6 +34,67 @@
 
 function _g(k, fb) { return (typeof globalThis !== 'undefined' && globalThis[k] !== undefined) ? globalThis[k] : fb; }
 
+// ======================= 卡牌分类维度（#7①，2026-10-20） =======================
+// 为什么放在这里：卡牌选择器的分类口径必须**两页同源**（mvp 走本模块的卡牌 Tab，bench 走
+//   #cardSelect 下拉）。此前分类逻辑只在本模块的 DEV_CARD_GROUPS（按**效果类型**分组），
+//   bench 的下拉是 `Object.keys(cardPool).sort()` 平铺 —— 196 张卡一条直线，与正式游戏不同源。
+//
+// 稀有度是**唯一必选维度**（顺序取 CARD_RARITIES，展示时稀有的在前）。标签维度**不得**作为
+//   依赖：`cards/*.json` 的 `tags` 字段已列入 #16 删除计划（CARD_TAGS 枚举同批摘除），
+//   任何依赖 tags 的分类在那一批落地后会静默塌成单一分组。故本实现 rarity-only，
+//   未知稀有度归「其他」桶（追加在末尾），卡池缺少 rarity 时同样降级而不抛错。
+//
+// ⚠ 全局名不用 CARD_RARITY_LABELS：该常量已由 tank_mvp.html 内联脚本以顶层 const 声明，
+//   经典脚本的顶层 const 是全局词法绑定，同名会在 mvp 页抛
+//   「Identifier 'CARD_RARITY_LABELS' has already been declared」。故统一加 DEV_ 前缀。
+const DEV_RARITY_LABELS = { common: '普通', rare: '稀有', epic: '史诗', legendary: '传奇', mythic: '神话' };
+// 展示顺序：稀有 → 常见（与 mvp 卡牌查看器「稀有度」分页一致）
+const DEV_RARITY_ORDER = ['mythic', 'legendary', 'epic', 'rare', 'common'];
+
+function devRarityLabel(r) { return DEV_RARITY_LABELS[r] || (r ? String(r) : '其他'); }
+
+// groupCardsByRarity(cards, opts) → [{ key, label, cards }]
+//   opts.order：自定义稀有度顺序（缺省 DEV_RARITY_ORDER，回落 CARD_RARITIES 的反序）
+//   opts.sortWithin：组内按 name 排序（缺省 true）
+// 纯函数、无 DOM ⇒ 可 Node 测试；卡片对象只需 { id, name?, rarity? }。
+function groupCardsByRarity(cards, opts) {
+  const O = opts || {};
+  let order = Array.isArray(O.order) ? O.order.slice() : null;
+  if (!order) {
+    order = DEV_RARITY_ORDER.slice();
+    // 若运行时的 CARD_RARITIES 比本表更宽（新增稀有度档），把未知档按原顺序插到「其他」之前
+    if (typeof CARD_RARITIES !== 'undefined' && Array.isArray(CARD_RARITIES)) {
+      for (const r of CARD_RARITIES) if (order.indexOf(r) < 0) order.unshift(r);
+    }
+  }
+  const buckets = new Map();
+  for (const r of order) buckets.set(r, []);
+  const other = [];
+  for (const c of (cards || [])) {
+    if (!c) continue;
+    const rar = (typeof c.rarity === 'string' && c.rarity) ? c.rarity : '';
+    const bucket = buckets.get(rar);
+    if (bucket) bucket.push(c); else other.push(c);
+  }
+  const sortWithin = O.sortWithin !== false;
+  const byName = (a, b) => {
+    const an = String((a && (a.name || a.id)) || ''), bn = String((b && (b.name || b.id)) || '');
+    return an.localeCompare(bn, 'zh-Hans-CN');
+  };
+  const out = [];
+  for (const r of order) {
+    const list = buckets.get(r);
+    if (!list || !list.length) continue;
+    if (sortWithin) list.sort(byName);
+    out.push({ key: r, label: devRarityLabel(r), cards: list });
+  }
+  if (other.length) {
+    if (sortWithin) other.sort(byName);
+    out.push({ key: 'other', label: '其他', cards: other });
+  }
+  return out;
+}
+
 function mountDevPanel(host) {
   const H = host || {};
   const getPlayer = H.getPlayer || _g('getPlayer', null) || (function () { return _g('player', null); });
@@ -107,7 +168,7 @@ function mountDevPanel(host) {
     '</div>' +
     '<div class="dev-page" data-page="cards" style="display:none;">' +
       '<div class="dev-sec"><h4>卡牌选择（点击即应用 · `/` 聚焦搜索）</h4>' +
-        '<input id="devCardSearch" class="dev-search" type="text" placeholder="搜索名称 / 标签 / ID…" autocomplete="off">' +
+        '<input id="devCardSearch" class="dev-search" type="text" placeholder="搜索名称 / 稀有度 / ID / 描述…" autocomplete="off">' +
         '<div class="card-list" id="devCardPicker"></div>' +
       '</div>' +
       '<div class="dev-sec"><h4>已持有卡牌 <button id="devClearCardsBtn">清除全部</button></h4><div id="devOwnedCards"></div></div>' +
@@ -234,7 +295,14 @@ function mountDevPanel(host) {
   }
   function devCardMatchesQuery(c, q) {
     if (!q) return true;
-    const hay = [c.name, c.id, c.rarity, (c.tags || []).join(','), c.desc].filter(Boolean).join(' ').toLowerCase();
+    // #16（2026-10-20，用户口径「卡牌的角色设定没有意义，删除相关的字段」）：`cards/*.json` 的
+    //   `tags` 字段与 CARD_TAGS 枚举已整体摘除（实测 196/196 张卡已无 tags）。
+    //   这一行旧写法 `(c.tags || []).join(',')` 在删字段后恒为空串：既让「按流派搜索」静默失效，
+    //   又在 filter(Boolean) 前贡献一个空占位。现改为**有 tags 才拼**（对残留自定义卡池向后兼容），
+    //   无 tags 时该维度直接不参与检索——不改变其余字段（名称 / id / 稀有度 / 描述）的匹配行为。
+    const parts = [c.name, c.id, c.rarity, c.desc];
+    if (Array.isArray(c.tags) && c.tags.length) parts.push(c.tags.join(','));
+    const hay = parts.filter(Boolean).join(' ').toLowerCase();
     return hay.indexOf(q) >= 0;
   }
 
@@ -649,5 +717,13 @@ function mountDevPanel(host) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { mountDevPanel: mountDevPanel };
+  module.exports = {
+    mountDevPanel: mountDevPanel,
+    // #7①（2026-10-20）：卡牌稀有度分类（mvp 卡牌 Tab 与 bench #cardSelect 同源），
+    //   纯函数、rarity-only（不依赖将被 #16 删除的 tags）。
+    devRarityLabel: devRarityLabel,
+    groupCardsByRarity: groupCardsByRarity,
+    DEV_RARITY_LABELS: DEV_RARITY_LABELS,
+    DEV_RARITY_ORDER: DEV_RARITY_ORDER
+  };
 }

@@ -433,6 +433,14 @@ ok(F.tryFireSecondary(wiCtx)===false, '#W-I: F 键对 howitzer 副武器不响�
 // 卸下 → 回直射
 hw.weapons.secondary = { type: 'none', stats: {} };
 ok(W.isHowitzerMode(hw)===false, '#W-I: 卸下 howitzer → 回直射态');
+// 2026-10-20（审查修复）：散布系数收口——瞄准圈与落点散布**同一参数源**
+//   WEAPON_DEFAULTS.primary.howitzer.spreadFactor（此前 js/tank_fire.js 与 tank_mvp.html
+//   各自硬编码 1.2，改一处会漂移）。此处锁定参数存在且为数值，防止再退回字面量。
+ok(typeof W.WEAPON_DEFAULTS.primary.howitzer.spreadFactor === 'number'
+  && W.WEAPON_DEFAULTS.primary.howitzer.spreadFactor > 0,
+  '#W-I: howitzer.spreadFactor 在缺省表中存在（散布圈与落点散布的唯一参数源）');
+ok(W.WEAPON_DEFAULTS.primary.howitzer.moveSpeedRatio === 1/3,
+  '#W-I: howitzer.moveSpeedRatio = 1/3（tank_move 限速消费）');
   // 7f) railgun 贯穿实战（#G）：一发命中并击穿两个串列目标（第二个受 pierceDmgMul 衰减伤害）
   global.shells=[];
   global.raycastTank=G.raycastTank; global.shellPartHit=G.shellPartHit;
@@ -680,6 +688,235 @@ ok(W.isHowitzerMode(hw)===false, '#W-I: 卸下 howitzer → 回直射态');
   ok(nums.length>0 && nums[0]>0 && nums[0]===hpBefore-enemy.hp, '#A27: 空爆飘字为敌人实受伤害='+nums[0]+'（而非“空爆”字样，亦非静态 s.dmg）');
   ok(!dmgCaptured.some(function(d){return d.text==='空爆';}), '#A27: 不再弹出“空爆”字样');
   if(prevDmgText) global.spawnDmgText=prevDmgText; else delete global.spawnDmgText;
+}
+
+// ===== #X4（2026-10-20 用户裁定）：火箭弹发射方向 = 炮塔正前方，不再朝鼠标位置 =====
+{
+  const W4=require('../js/tank_weapons.js');
+  C.covers.length=0;
+  // turretAngle=0（炮塔朝 +x）而 targetPos 在**正下方**（-y 方向）——旧实现 atan2 会朝下飞
+  const rk=M.makeTank({id:'pRkX4',team:'player',x:0,y:0,hullAngle:0,turretAngle:0,
+    base:{penetration:100,damage:20,reload:2,shellSpeed:1000,maxHp:100}});
+  rk.ammoKey='ap'; rk.sigma=0; rk.secondaryReloadT=0;
+  rk.weapons={ primary:{type:'standard',stats:{}},
+    secondary:{ type:'rocket', stats:Object.assign({},W4.getWeaponDefaults('secondary','rocket'),{count:1}) } };
+  const rkCtx={
+    shells:global.shells, entities:[rk], covers:C.covers, RULES:global.RULES, COVER_TIERS:C.COVER_TIERS,
+    gunRoot:G.gunRoot, gunTip:G.gunTip, gaussian:()=>0, debuffReloadRate:M.debuffReloadRate,
+    spawnMuzzleFlash:global.spawnMuzzleFlash, playSound:global.playSound
+  };
+  global.shells.length=0;
+  const firedRk=W4.fireActiveSecondary(rk, rkCtx, {x:0, y:-400});   // 目标点：正下方 400px
+  ok(firedRk===true && global.shells.length===1, '#X4 火箭巢击发（1 发，target 指定为正下方）');
+  const rs=global.shells[0];
+  ok(rs.dx>0.9 && Math.abs(rs.dy)<0.2,
+    `#X4 火箭弹沿**炮塔朝向**（+x）而非鼠标点（正下方）：dx=${rs.dx.toFixed(3)} |dy|=${Math.abs(rs.dy).toFixed(3)}`);
+
+  // 追发弹同口径：turretAngle=0、nearestEnemyTo 在正下方，续发仍沿整组炮塔朝向
+  global.shells.length=0;
+  const rk2=M.makeTank({id:'pRkX4b',team:'player',x:0,y:0,hullAngle:0,turretAngle:0,
+    base:{penetration:100,damage:20,reload:2,shellSpeed:1000,maxHp:100}});
+  rk2.ammoKey='ap'; rk2.sigma=0; rk2.secondaryReloadT=0;
+  rk2.weapons={ primary:{type:'standard',stats:{}},
+    secondary:{ type:'rocket', stats:Object.assign({},W4.getWeaponDefaults('secondary','rocket'),{count:3}) } };
+  const below={x:0,y:-500,hp:100,team:'enemy'};
+  const rkCtx2=Object.assign({},rkCtx,{nearestEnemyTo:()=>below});
+  W4.fireActiveSecondary(rk2, rkCtx2, {x:0,y:-500});
+  for(let i=0;i<2;i++) W4.updateRocketBurst(rk2, 1, rkCtx2);
+  ok(global.shells.length===3 && global.shells.every(s=>s.dx>0.9 && Math.abs(s.dy)<0.2),
+    `#X4 火箭巢整组（3 发）均沿炮塔朝向，不随追发目标转头（dx 全 >0.9）`);
+}
+
+// ===== #X5（2026-10-20 用户裁定「F = 曲射/直射切换」）：isHowitzerMode 默认 true / toggle / 主炮回直射 =====
+{
+  const W5=require('../js/tank_weapons.js');
+  C.covers.length=0;
+  global.devAim={zeroSpread:true};
+  const hp=M.makeTank({id:'pHZ',team:'player',x:0,y:0,hullAngle:0,turretAngle:0,
+    base:{penetration:100,damage:20,reload:2,shellSpeed:1000,maxHp:100}});
+  hp.ammoKey='ap'; hp.sigma=0; hp.reloadT=0;
+  hp.weapons={ primary:{type:'standard',stats:{}},
+    secondary:{ type:'howitzer', stats:Object.assign({},W5.getWeaponDefaults('secondary','howitzer')) } };
+  ok(W5.isHowitzerMode(hp)===true, '#X5 isHowitzerMode 默认 true（装卡即曲射，_howitzerOn 缺省）');
+  ok(typeof W5.toggleHowitzer==='function', '#X5 toggleHowitzer 已导出（Node 测试可达）');
+
+  const hCtx={
+    player:hp, mouseWorld:{x:400,y:0}, aimPoint:{x:400,y:0}, shells:global.shells,
+    entities:[hp], covers:C.covers, RULES:global.RULES, COVER_TIERS:C.COVER_TIERS,
+    gunRoot:G.gunRoot, gunTip:G.gunTip, gaussian:()=>0, debuffReloadRate:M.debuffReloadRate,
+    spawnMuzzleFlash:global.spawnMuzzleFlash, burstExplosion:global.burstExplosion,
+    playSound:global.playSound, resolveHit:P.resolveHit, applySplashAt:P.applySplashAt,
+    spawnImpactFx:global.spawnImpactFx, spawnDmgText:global.spawnDmgText
+  };
+  // 曲射态：主炮打出 isArc 弹
+  global.shells.length=0;
+  const s1=F.firePrimaryShell(hp, null, null, hCtx);
+  ok(!!s1 && s1.isArc===true && s1.howitzer===true, '#X5 曲射态主炮 → isArc 曲射弹（howitzer 标记）');
+
+  // toggle → 走直射；F 的返回值为切换后的模式布尔值
+  const off=F.tryFireSecondary(hCtx);
+  ok(off===false && W5.isHowitzerMode(hp)===false, '#X5 toggle 后 isHowitzerMode=false');
+  ok(hp._howitzerBurst===null || hp._howitzerBurst===undefined, '#X5 切到直射时已清 _howitzerBurst（追发队列不残留）');
+  global.shells.length=0;
+  const s2=F.firePrimaryShell(hp, null, null, hCtx);
+  ok(!!s2 && !s2.isArc, '#X5 直射态主炮 → 弹无 isArc（恢复常规平射弹道）');
+
+  // 再 toggle → 回到曲射
+  const on=F.tryFireSecondary(hCtx);
+  ok(on===true && W5.isHowitzerMode(hp)===true, '#X5 再 toggle → 恢复曲射（isHowitzerMode=true）');
+  global.shells.length=0;
+  const s3=F.firePrimaryShell(hp, null, null, hCtx);
+  ok(!!s3 && s3.isArc===true, '#X5 恢复曲射态主炮 → isArc 曲射弹');
+
+  // 非 howitzer 槽 toggle 恒 false（不写状态、不抛错）
+  const nonH=hp; nonH.weapons.secondary={type:'mortar',stats:{}};
+  ok(W5.toggleHowitzer(nonH)===false && W5.isHowitzerMode(nonH)===false, '#X5 非 howitzer 槽：toggle 恒 false、isHowitzerMode false');
+}
+
+// ===== #X7（2026-10-20 用户裁定「急速射整组锁定首发落点」）：aimPoint 中途改变不影响追发弹 =====
+{
+  const W7=require('../js/tank_weapons.js');
+  C.covers.length=0;
+  global.devAim={zeroSpread:true};   // 关散布 ⇒ 落点应精确等于快照点
+  const bp=M.makeTank({id:'pBurst',team:'player',x:0,y:0,hullAngle:0,turretAngle:0,
+    base:{penetration:100,damage:20,reload:2,shellSpeed:1000,maxHp:100}});
+  bp.ammoKey='ap'; bp.sigma=0; bp.reloadT=0;
+  bp.weapons={ primary:{type:'standard',stats:{}},
+    secondary:{ type:'howitzer', stats:Object.assign({},W7.getWeaponDefaults('secondary','howitzer'),{barrage:3}) } };
+  ok(W7.isHowitzerMode(bp)===true, '#X7 曲射 + barrage:3（急速射）前置就绪');
+
+  const FIRST={x:400,y:0};
+  const bCtx={
+    player:bp, mouseWorld:FIRST, aimPoint:FIRST, shells:global.shells,
+    entities:[bp], covers:C.covers, RULES:global.RULES, COVER_TIERS:C.COVER_TIERS,
+    gunRoot:G.gunRoot, gunTip:G.gunTip, gaussian:()=>0, debuffReloadRate:M.debuffReloadRate,
+    spawnMuzzleFlash:global.spawnMuzzleFlash, burstExplosion:global.burstExplosion,
+    playSound:global.playSound, resolveHit:P.resolveHit, applySplashAt:P.applySplashAt,
+    spawnImpactFx:global.spawnImpactFx, spawnDmgText:global.spawnDmgText
+  };
+  global.shells.length=0;
+  const sFirst=F.firePrimaryShell(bp, null, null, bCtx);
+  ok(!!sFirst && bp._howitzerBurst && bp._howitzerBurst.left===2, '#X7 首发挂队列（left=2）');
+  ok(bp._howitzerBurst && bp._howitzerBurst.aim && bp._howitzerBurst.aim.x===FIRST.x && bp._howitzerBurst.aim.y===FIRST.y,
+    `#X7 队列携带首发 aim 快照（${JSON.stringify(bp._howitzerBurst && bp._howitzerBurst.aim)}）`);
+
+  // 中途把实时 aimPoint 改到很远处（模拟玩家甩鼠标）——追发弹必须仍落在首发快照点
+  bCtx.aimPoint={x:-900,y:700};
+  bCtx.mouseWorld={x:-900,y:700};
+  const nBefore=global.shells.length;
+  F.updateHowitzerBurst(bp, 1, bCtx);
+  F.updateHowitzerBurst(bp, 1, bCtx);
+  const burstShells=global.shells.slice(nBefore);
+  ok(burstShells.length===2, `#X7 追发 2 发打出（共 ${burstShells.length} 发）`);
+  const allOnFirst=burstShells.every(s=>Math.abs(s.targetX-FIRST.x)<1 && Math.abs(s.targetY-FIRST.y)<1);
+  ok(allOnFirst,
+    `#X7 追发弹全部落在**首发快照点**而非新 aimPoint（targetX/Y=${burstShells.map(s=>`(${s.targetX.toFixed(0)},${s.targetY.toFixed(0)})`).join(' ')}，快照=(${FIRST.x},${FIRST.y})，新 aim=(−900,700)）`);
+  ok(bp._howitzerBurst===null, '#X7 队列打完（清空）');
+
+  // 反向守卫：切到直射后 burst 队列即刻作废，不再凭空飞出曲射弹
+  bp._howitzerOn=true; bp.reloadT=0;
+  bCtx.aimPoint=FIRST; bCtx.mouseWorld=FIRST;
+  global.shells.length=0;
+  F.firePrimaryShell(bp, null, null, bCtx);
+  ok(!!bp._howitzerBurst, '#X7 再次首发重新挂队列');
+  W7.toggleHowitzer(bp);   // 切到直射
+  ok(bp._howitzerBurst===null, '#X7 切到直射 → 队列立即清空（防追发弹在模式切走后打出）');
+  const n2=global.shells.length;
+  F.updateHowitzerBurst(bp, 1, bCtx);
+  ok(global.shells.length===n2, '#X7 模式切走后 updateHowitzerBurst 不再产弹');
+}
+
+// ===== #P1（2026-10-20 用户裁定）：曲射弹必须**越过沿途坦克**直达落点，不得被中途"截胡" =====
+//   背景（结构性缺陷，已修）：`stepShells` 的 `if(s.isArc)` 块曾缺少兜底 return ——
+//   「未到落点」的每一帧都会穿透到下方直射扫掠命中段，对沿途坦克 raycast 并结算命中
+//   ⇒ 途中任意坦克都能把曲射弹打掉，榴弹炮/迫击炮"越过掩体与友军"的核心语义被架空。
+//   本组断言是该缺陷的**结构性护栏**：若将来再把 isArc 短路改坏（例如闭合花括号位置错位），
+//   下面两条会立刻红。
+{
+  C.covers.length=0;
+  global.devAim={zeroSpread:true};
+  const shooter=M.makeTank({id:'pArcS',team:'player',x:0,y:0,hullAngle:0,turretAngle:0,
+    base:{penetration:100,damage:50,reload:2,shellSpeed:1000,maxHp:100}});
+  const mid=M.makeTank({id:'pArcMid',team:'enemy',x:150,y:0});
+  const far=M.makeTank({id:'pArcFar',team:'enemy',x:300,y:0});
+  mid.hp=mid.stats.maxHp; far.hp=far.stats.maxHp;
+  const midHP0=mid.hp, farHP0=far.hp;
+
+  global.shells=[];
+  const arcShell={x:0,y:0,fx:0,fy:0,dx:1,dy:0,speed:350,pen:60,dmg:60,
+    isArc:true, ignoreCover:true, splashRadius:90, totalDist:300, targetX:300, targetY:0,
+    ammo:{label:'HESH',ignoreCover:true}, ammoKey:'hesh', shooter:shooter,
+    hitPref:'auto', canBounce:false, bounced:false, dist:0, dead:false};
+  global.shells.push(arcShell);
+  const arcCtx={
+    shells:global.shells, entities:[shooter,mid,far], covers:C.covers, RULES:global.RULES,
+    COVER_TIERS:C.COVER_TIERS, gunRoot:G.gunRoot, gunTip:G.gunTip, gaussian:()=>0,
+    raycastTank:G.raycastTank, shellPartHit:G.shellPartHit, getPartZRange:G.getPartZRange,
+    findCoversOnPath:C.findCoversOnPath, resolveHit:P.resolveHit, applySplashAt:P.applySplashAt,
+    splashCoversAt:C.splashCoversAt, coverNormalAt:C.coverNormalAt, reflectDir:U.reflectDir,
+    burstExplosion:global.burstExplosion, spawnMuzzleFlash:global.spawnMuzzleFlash,
+    spawnImpactFx:global.spawnImpactFx, spawnDmgText:global.spawnDmgText,
+    playSound:global.playSound, pushLog:global.pushLog, damageCover:C.damageCover,
+    isHostile:(a,b)=>a!==b, debuffReloadRate:M.debuffReloadRate,
+    spawnTracer:global.spawnTracer||function(){}, spawnSmoke:global.spawnSmoke||function(){}
+  };
+  for(let i=0;i<400 && !arcShell.dead;i++) F.stepShells(1/60, arcCtx);
+
+  // ① 途中坦克必须**满血**（曲射弹越顶飞过，绝不参与直射命中结算）
+  ok(mid.hp===midHP0,
+    `#P1 曲射弹越过沿途坦克：中间坦克未掉血（${midHP0}→${mid.hp}，全程 ${arcShell.dist.toFixed(1)}px）`);
+  // ② 落点**坐标吸附**断言（唯一可信判据）——不能用 dist 判，理由见下方 ③。
+  //    `s.dist` 是逐帧累加的，一帧步长未必整除 totalDist ⇒ 越过落点时 dist 会**越界**
+  //    （本例 350/60=5.8333px，第 52 帧 dist=303.33 > totalDist=300）。
+  //    所以「到达落点」的唯一可信判据是：代码把 s.x/s.y **精确吸附到 targetX/targetY**。
+  //    若将来有人改了步长推进或吸附逻辑，只断言 dist 的测试会漏掉，本断言不会。
+  ok(arcShell.dead===true
+     && Math.abs(arcShell.x - arcShell.targetX) < 1e-6
+     && Math.abs(arcShell.y - arcShell.targetY) < 1e-6,
+    `#P1 落点坐标精确吸附 targetX/Y（实测 x=${arcShell.x} y=${arcShell.y}` +
+    ` vs target=(${arcShell.targetX},${arcShell.targetY})，dist=${arcShell.dist.toFixed(2)} 已越界 totalDist=${arcShell.totalDist}）`);
+  // ③ 越界量必须 < 一个步长（证明「dist 越界」只是步长量化误差，不是弹道跑偏/多发补射）
+  const stepLen=arcShell.speed/60;
+  ok(arcShell.dist >= arcShell.totalDist && (arcShell.dist - arcShell.totalDist) < stepLen,
+    `#P1 到达落点时的 dist 越界量小于一个步长（越界 ${(arcShell.dist-arcShell.totalDist).toFixed(3)}px < 步长 ${stepLen.toFixed(3)}px）`);
+  ok(far.hp<farHP0,
+    `#P1 落点目标吃到伤害（${farHP0}→${far.hp}）`);
+}
+
+// ===== #P1 补充：非整除步长下，落点吸附仍精确（防止「改成整除步长才通过」的伪回归） =====
+//   上面的探针步长 350/60=5.8333px 本就不整除 300，但为排除「只是碰巧」的可能，
+//   这里再用一个**明显不整除**的步长组合复验一次坐标吸附。
+{
+  C.covers.length=0;
+  const sh2=M.makeTank({id:'pArcS2',team:'player',x:0,y:0,hullAngle:0,turretAngle:0,
+    base:{penetration:100,damage:50,reload:2,shellSpeed:1000,maxHp:100}});
+  const tg2=M.makeTank({id:'pArcF2',team:'enemy',x:277,y:0});
+  tg2.hp=tg2.stats.maxHp;
+  global.shells=[];
+  // 步长 233/60=3.8833px 与 totalDist=277 明显不整除
+  const sh2Shell={x:0,y:0,fx:0,fy:0,dx:1,dy:0,speed:233,pen:60,dmg:60,
+    isArc:true, ignoreCover:true, splashRadius:90, totalDist:277, targetX:277, targetY:0,
+    ammo:{label:'HESH',ignoreCover:true}, ammoKey:'hesh', shooter:sh2,
+    hitPref:'auto', canBounce:false, bounced:false, dist:0, dead:false};
+  global.shells.push(sh2Shell);
+  const ctx2={
+    shells:global.shells, entities:[sh2,tg2], covers:C.covers, RULES:global.RULES,
+    COVER_TIERS:C.COVER_TIERS, gunRoot:G.gunRoot, gunTip:G.gunTip, gaussian:()=>0,
+    raycastTank:G.raycastTank, shellPartHit:G.shellPartHit, getPartZRange:G.getPartZRange,
+    findCoversOnPath:C.findCoversOnPath, resolveHit:P.resolveHit, applySplashAt:P.applySplashAt,
+    splashCoversAt:C.splashCoversAt, coverNormalAt:C.coverNormalAt, reflectDir:U.reflectDir,
+    burstExplosion:global.burstExplosion, spawnMuzzleFlash:global.spawnMuzzleFlash,
+    spawnImpactFx:global.spawnImpactFx, spawnDmgText:global.spawnDmgText,
+    playSound:global.playSound, pushLog:global.pushLog, damageCover:C.damageCover,
+    isHostile:(a,b)=>a!==b, debuffReloadRate:M.debuffReloadRate,
+    spawnTracer:global.spawnTracer||function(){}, spawnSmoke:global.spawnSmoke||function(){}
+  };
+  for(let i=0;i<400 && !sh2Shell.dead;i++) F.stepShells(1/60, ctx2);
+  ok(sh2Shell.dead===true
+     && Math.abs(sh2Shell.x - sh2Shell.targetX) < 1e-6
+     && Math.abs(sh2Shell.y - sh2Shell.targetY) < 1e-6,
+    `#P1 非整除步长(233/60=${(233/60).toFixed(4)}px vs totalDist=277) 下落点仍精确吸附` +
+    `（x=${sh2Shell.x} y=${sh2Shell.y}，dist=${sh2Shell.dist.toFixed(2)} 越界 ${(sh2Shell.dist-277).toFixed(2)}px）`);
 }
 
 console.log(fails===0?'\nAll fire checks passed.':`\n${fails} FAILED`);

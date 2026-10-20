@@ -495,8 +495,24 @@ function makeNode(index, rng, env) {
     if (!tier) return false;
     return tier.passability === 0 || tier.shellBlock === true || tier.shellBlock === 'single';
   };
-  // 只把「阻挡物」交给选址/清场；可通行地形不参与，避免无谓驱逐与误删
-  const _blockers = templateResult.covers.filter(c => c && tierBlocksSpawn(c));
+  // #X3（2026-10-20）：**出生点不得落在水面上**。水域（water/river，passability 0.4 +
+  // shellBlock false）在 `tierBlocksSpawn` 里被显式放行 ⇒ 玩家可能开局即落水触发 8s 溺毙
+  // （实测 60 节点 1 例）。故选址口径单列第二条谓词 `tierForbidsSpawn` = 阻挡物 ∪ 液态地形。
+  //
+  // **为什么不直接改 `tierBlocksSpawn`**：同一个谓词还被上方「清场」用于 **splice 删除**
+  // 压在默认出生点的元素。若把水域并进去，会连带删掉河段 ⇒ 河流被打断（这是 #T4
+  // 2026-10-16 明确修过的回归，注释见上「保留减速地形（河流连续）」）。故：
+  //   · 清场（破坏性）仍只认 `tierBlocksSpawn`（阻挡结构）；
+  //   · 选址（非破坏性）用 `tierForbidsSpawn`（阻挡结构 + 水域）。
+  const tierForbidsSpawn = (c) => {
+    if (tierBlocksSpawn(c)) return true;
+    const tier = RULES.coverTiers && RULES.coverTiers[c.tier];
+    if (!tier) return false;
+    // tierGroup 是 RULES 的语义分组口径（liquid = 水/河），名字兜底覆盖 tierGroup 缺失的自定义 tier
+    if (tier.tierGroup === 'liquid') return true;
+    return c.tier === 'water' || c.tier === 'river';
+  };
+  // 只把「阻挡物」交给清场；可通行地形不参与，避免无谓驱逐与误删
   {
     // 清场仅针对压在默认出生点的阻挡物（确定性，不耗 rng）
     const sx = w * 0.10, sy = h / 2;
@@ -510,12 +526,12 @@ function makeNode(index, rng, env) {
     for (let k = doomed.length - 1; k >= 0; k--) templateResult.covers.splice(doomed[k], 1);
   }
   // #N4：出生点选址也走索引（strip covers 规模下 findPlayerSpawn 内部全表扫描同样昂贵）
-  // 注：索引/清场后重新取阻挡物集合（清场已改变 covers）
-  const _blockersAfter = templateResult.covers.filter(c => c && tierBlocksSpawn(c));
-  const spawnIdx = buildCoverIndex(_blockersAfter);
-  const spawnHitsCover = (px, py, pad) => pointInCoverIndexed(spawnIdx, _blockersAfter, px, py, pad);
+  // 注：索引/清场后重新取**不可出生**集合（清场已改变 covers；水域未被清场删除，故仍在侧）
+  const _spawnForbidden = templateResult.covers.filter(c => c && tierForbidsSpawn(c));
+  const spawnIdx = buildCoverIndex(_spawnForbidden);
+  const spawnHitsCover = (px, py, pad) => pointInCoverIndexed(spawnIdx, _spawnForbidden, px, py, pad);
   if (spawnHitsCover(playerSpawn.x, playerSpawn.y, spawnMargin)) {
-    playerSpawn = findPlayerSpawn(_blockersAfter, w, h, rng, spawnMargin, spawnIdx);
+    playerSpawn = findPlayerSpawn(_spawnForbidden, w, h, rng, spawnMargin, spawnIdx);
   }
 
   // 三杠杆（P-13 / §6 条目 12）：敌人数量 / AI 策略复杂度 / 数值强度随 diff 涨
@@ -1013,6 +1029,10 @@ function segDist(px, py, ax, ay, bx, by) {
  * 为玩家出生点确定性选址：返回 covers 包围盒（含 padding）外、节点边界内、
  * 且尽量贴近默认左缘点 (0.10w, h/2) 的合法点。
  * 仅使用传入的 rng（禁止 Math.random），以保证整局确定性。
+ * #X3（2026-10-20）：`covers` 应传**不可出生集合**（阻挡结构 ∪ 液态地形），由 makeNode 的
+ * `tierForbidsSpawn` 过滤产出——水域也必须排除，否则玩家开局落水触发溺毙倒计时。
+ * 兜底链四级：系统 nudges → rng 采样 → 径向推离 → **环形就近搜索**（新增，保证水域/阻挡
+ * 全覆盖，仅当 384 个候选全失败才退回钳制点）。
  * @param {Array} covers 世界坐标掩体列表（含水域 tier）
  * @param {number} w 节点世界宽
  * @param {number} h 节点世界高
@@ -1083,6 +1103,24 @@ function findPlayerSpawn(covers, w, h, rng, margin, coverIdx) {
       const p = clamp(offending.x + vx * t, offending.y + vy * t);
       if (!hits(p.x, p.y, margin)) return p;
       t += stepInc;
+    }
+  }
+  // #X3（2026-10-20）：极端兜底前的**水域复核**。上面的推离循环与下面的钳制兜底都可能
+  // 把点留在河道/湖面上（`covers` 现含水域，但推离方向可能与水域方向同向、或点到界外被钳回）。
+  // 兜底改为：以默认点为中心做确定性环形搜索（不动 rng），取最近的一个「既不在不可出生
+  // 集合、也在界内」的落点；环形搜索全部失败才退回原钳制点（保证至少不抛错、不出界）。
+  {
+    const cx = clamp(origX, origY).x, cy = clamp(origX, origY).y;
+    if (!hits(cx, cy, margin)) return { x: cx, y: cy };
+    const stepPx = Math.max(24, Math.min(margin, 96));
+    // 24 环 × 每环 16 方向 = 384 个候选点，半径上限 stepPx*24（≥576px），确定性全覆盖
+    for (let ring = 1; ring <= 24; ring++) {
+      const rad = ring * stepPx;
+      for (let k = 0; k < 16; k++) {
+        const ang = (k / 16) * Math.PI * 2;
+        const p = clamp(cx + Math.cos(ang) * rad, cy + Math.sin(ang) * rad);
+        if (!hits(p.x, p.y, margin)) return p;
+      }
     }
   }
   // 极端兜底：左缘中点（即便仍可能被极少极端布局阻挡，至少保证在界内）。

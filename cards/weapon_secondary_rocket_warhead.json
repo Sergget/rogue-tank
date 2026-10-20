@@ -2,7 +2,6 @@
   "id": "weapon_secondary_rocket_warhead",
   "name": "火箭巢：聚能战斗部",
   "rarity": "rare",
-  "tags": ["爆破"],
   "desc": "火箭巢强化：单发伤害 35 → 52、爆半径 40 → 62。整巢 4 发的总爆发从 140 提到 208，齐射覆盖的杀伤面也更宽。",
   "effects": [
     {

@@ -2,7 +2,6 @@
   "id": "spall_liner",
   "name": "防崩落内衬",
   "rarity": "epic",
-  "tags": ["重甲"],
   "desc": "被动：坦克受到的所有伤害 -15%（多来源取最强，不叠乘）。",
   "effects": [
     { "type": "passive", "key": "spall_liner", "value": 0.85 }

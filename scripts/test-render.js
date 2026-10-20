@@ -800,5 +800,190 @@ function drawTurret(t) {
   ok(diffPx(anyA(railShot)._buf, anyA(rs2)._buf) === 0, '⑩e弹体重绘确定性：同帧两次逐字节一致');
 }
 
+// ---------- ⑪ 曲射弹伪俯仰 / 透视（#X6，2026-10-20） ----------
+// 缺陷：曲射弹的「高度」是绘制期假高（z = sin(p·π)·H），弹体恒 rotate(ang) 平行于地面弹道
+//   ⇒ 上升段不抬头、下坠段不低头，拖尾也不沿含 z 分量的切线。这一节把「抬头 / 低头 / 直线弹不受影响」
+//   固化为回归保护。全部断言只读**绘制层派生量**（arcShellPose 纯函数 + 真实光栅化），逻辑层零涉及。
+{
+  // 本块内名字一律加 X6 前缀：脚本顶层已有 U / FX 常量，重名会被 tsc 判 TS2300。
+  const X6_D = 400;                     // 地面射程（px）
+  const X6_H = Math.min(120, X6_D * 0.35);  // 顶点高度 = 120（被上限截断）
+  // 与 drawShells 的输入同名同义：dx=1,dy=0 沿 +x 平飞
+  const X6_sh = (dist) => ({
+    x: 100, y: 200, dx: 1, dy: 0, fx: 0, fy: 0, dist: dist,
+    totalDist: X6_D, speed: 300, pen: 60, dmg: 60,
+    ammo: { color: '#ffb454', tail: 'rgba(255,180,84,0.6)' }, ammoKey: 'he', isArc: true
+  });
+
+  // ① 姿态纯函数：抬头 / 顶点 / 低头三态
+  const P25 = BD.arcShellPose(X6_sh(X6_D * 0.25));
+  const P50 = BD.arcShellPose(X6_sh(X6_D * 0.5));
+  const P75 = BD.arcShellPose(X6_sh(X6_D * 0.75));
+  // tilt 为屏幕倾斜角：上升段为负（抬头，屏幕 y 向下为正）、下坠段为正（低头）
+  ok(P25.tilt < -0.05 && P75.tilt > 0.05,
+    `⑪a伪俯仰三态：p=0.25 tilt=${(P25.tilt * 180 / Math.PI).toFixed(1)}°（抬头）/ p=0.75 tilt=${(P75.tilt * 180 / Math.PI).toFixed(1)}°（低头）`);
+  ok(Math.abs(P50.tilt) < 1e-9,
+    `⑪a顶点水平：p=0.5 tilt=${P50.tilt.toFixed(6)}（dz=0 ⇒ 无俯仰）`);
+  // 俯仰角由同一 z 公式求导得出（不引入第二套高度函数）：p=0.25 时 |pitch| = atan2(π·cos(π/4)·H, D)
+  const X6_expect = Math.atan2(Math.PI * Math.cos(0.25 * Math.PI) * X6_H, X6_D);
+  ok(Math.abs(P25.pitch - X6_expect) < 1e-9,
+    `⑪a俯仰来自同一 z 求导：pitch=${(P25.pitch * 180 / Math.PI).toFixed(2)}° = atan2(π·cos(π/4)·H, D)，差 ${Math.abs(P25.pitch - X6_expect).toExponential(1)}`);
+  // 纵向缩短 = cos(pitch)，且恒有下限 0.55（不会把弹体压成一条线）
+  ok(P25.foreshorten < 1 && P25.foreshorten >= 0.55 && Math.abs(P25.foreshorten - Math.cos(P25.pitch)) < 1e-9,
+    `⑪a纵向缩短：p=0.25 foreshorten=${P25.foreshorten.toFixed(4)} = cos(pitch)，下限 0.55`);
+  // 不倒面：tilt 的绝对值上界 = atan(H·π0.35 之类) —— 任何 p 都远小于 π/2
+  let X6_maxTilt = 0;
+  for (let i = 0; i <= 100; i++) {
+    const pp = BD.arcShellPose(X6_sh(X6_D * i / 100));
+    if (Math.abs(pp.tilt) > X6_maxTilt) X6_maxTilt = Math.abs(pp.tilt);
+  }
+  ok(X6_maxTilt < Math.PI / 2 - 0.2,
+    `⑪a不倒面：全程最大 |tilt|=${(X6_maxTilt * 180 / Math.PI).toFixed(1)}° < 90°（弹头永不翻向）`);
+
+  // ② 光栅化：p=0.25 与 p=0.75 必须画出**不同的弹体朝向**
+  const X6_r = (dist) => raster(300, 260, c => BD.drawShells(c, [Object.assign(X6_sh(dist), { x: 150, y: 200 })]));
+  const X6_up = X6_r(X6_D * 0.25), X6_dn = X6_r(X6_D * 0.75);
+  const X6_px = (cv) => anyA(cv)._buf;
+  // 弹体主轴角（PCA 主方向）：不透明像素的二阶矩主轴，与 tilt 一一对应。
+  //   为什么不用「最左/最右端的 y 差」：透视缩短作用在**长轴**上（#X6 的 cos(pitch) 压的是
+  //   弹轴），极端压缩后端点列只剩 1~2 个像素，量化噪声会盖过信号（实测修正前后由 −12.85
+  //   翻成 +39.02，纯属采样伪影）。主轴角对整体形状加权，压缩不改变它的**符号与量级**。
+  //   为什么必须给窗口：曲射弹的画面里还有**地面阴影椭圆**（在 s.x/s.y 处，与弹体相距 z）。
+  //   两个分离团块混在一起时 PCA 主轴会跑向「弹体↔阴影」的连线（实测 85°，与弹体姿态无关）。
+  //   故只在弹体屏幕位置（s.x, s.y − z，z 由 arcShellPose 给出）的邻域内统计。
+  //   约定：屏幕 y 向下为正 ⇒ 主轴角为负 = 弹头（+x 端）朝上 = 抬头。
+  const X6_axisIn = (cv, cx, cy, halfW, halfH) => {
+    const b = X6_px(cv), Wc = cv.width, Hc = cv.height;
+    const x0 = Math.max(0, Math.round(cx - halfW)), x1 = Math.min(Wc - 1, Math.round(cx + halfW));
+    const y0 = Math.max(0, Math.round(cy - halfH)), y1 = Math.min(Hc - 1, Math.round(cy + halfH));
+    let n = 0, sx = 0, sy = 0;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      if (b[(y * Wc + x) * 4 + 3] <= 20) continue;
+      n++; sx += x; sy += y;
+    }
+    if (n < 20) return null;
+    const mx = sx / n, my = sy / n;
+    let sxx = 0, syy = 0, sxy = 0;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      if (b[(y * Wc + x) * 4 + 3] <= 20) continue;
+      const dx = x - mx, dy = y - my;
+      sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+    }
+    // 主轴角 = 0.5·atan2(2·sxy, sxx − syy)，取值 (−π/2, π/2]；弹体关于中心对称，
+    //   轴向正负不改变直线斜率，所以该角即「从 +x 轴量起的倾斜」。
+    return 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  };
+  // 弹体所在屏幕 y（s.y − z）；半窗口 22×16 足以罩住 14px 弹体在 ±45° 内的倾斜
+  const X6_bodyY = (dist) => 200 - BD.arcShellPose(X6_sh(dist)).z;
+  const X6_angUp = X6_axisIn(X6_up, 150, X6_bodyY(X6_D * 0.25), 22, 16);
+  const X6_angDn = X6_axisIn(X6_dn, 150, X6_bodyY(X6_D * 0.75), 22, 16);
+  ok(X6_angUp !== null && X6_angDn !== null, '⑪b曲射弹体有内容（主轴可求）');
+  // 抬头（p=0.25）：主轴角为负；低头（p=0.75）：为正
+  ok(X6_angUp < -0.05 && X6_angDn > 0.05,
+    `⑪b弹体朝向随进度反转：p=0.25 主轴 ${(X6_angUp * 180 / Math.PI).toFixed(1)}°（抬头，应<0）/ p=0.75 ${(X6_angDn * 180 / Math.PI).toFixed(1)}°（低头，应>0）`);
+  ok(X6_angUp * X6_angDn < 0, '⑪b抬头/低头符号相反（不是同一张图平移）');
+  // 主轴角与纯函数的 tilt 同号同量级（光栅化不改变姿态语义）——曲射弹受透视放大影响，
+  //   容差取 ±8°，只锁符号与量级。
+  ok(Math.abs(X6_angUp - P25.tilt) < 0.14 && Math.abs(X6_angDn - P75.tilt) < 0.14,
+    `⑪b主轴角与 tilt 一致：|${(X6_angUp * 180 / Math.PI).toFixed(1)} − ${(P25.tilt * 180 / Math.PI).toFixed(1)}| / |${(X6_angDn * 180 / Math.PI).toFixed(1)} − ${(P75.tilt * 180 / Math.PI).toFixed(1)}| 均 < 8°`);
+  ok(diffPx(X6_up._buf, X6_dn._buf) > 20,
+    `⑪b两态图像不同：像素差 ${diffPx(X6_up._buf, X6_dn._buf)} px > 20`);
+
+  // ④ 直线弹不受影响（#X6 只改 isArc 分支）：把同一条弹的 isArc 去掉后，
+  //    图像必须与「改动前口径」一致 —— 即弹体主轴完全水平（主轴角 ≈ 0）。
+  const X6_linShot = raster(300, 300, c => BD.drawShells(c, [{
+    x: 150, y: 200, dx: 1, dy: 0, fx: 0, fy: 0, dist: 50,
+    speed: 1000, pen: 100, dmg: 10,
+    ammo: { color: '#ffb454', tail: 'rgba(255,180,84,0.6)' }, ammoKey: 'ap'
+  }]));
+  const X6_angLin = X6_axisIn(X6_linShot, 150, 200, 22, 16);
+  const X6_arcMag = Math.min(Math.abs(X6_angUp), Math.abs(X6_angDn));
+  ok(X6_angLin !== null && Math.abs(X6_angLin) < 0.09 && Math.abs(X6_angLin) < X6_arcMag * 0.35,
+    `⑪c直线弹不受影响：主轴 ${X6_angLin === null ? 'n/a' : (X6_angLin * 180 / Math.PI).toFixed(2)}°（< 5.2° 且 < 曲射弹 ${(X6_arcMag * 180 / Math.PI).toFixed(1)}° 的 35% ⇒ 无伪俯仰）`);
+  // 直线弹没有地面阴影（isArc 专属）：同一位置 isArc 弹必须多出阴影像素
+  const X6_arcShot = raster(300, 300, c => BD.drawShells(c, [X6_sh(0)]));
+  ok(opaque(X6_arcShot) > opaque(X6_linShot),
+    `⑪c曲射弹多出地面阴影：isArc ${opaque(X6_arcShot)} px > 直线 ${opaque(X6_linShot)} px`);
+
+  // ⑤ 零逐帧渐变分配纪律（specs/combat.md §6）：曲射弹绘制期的渐变分配数不得多于直线弹
+  //    —— 弹体/拖尾沿用既有的两条 createLinearGradient，新增的伪俯仰只是变换矩阵，不新增分配。
+  const X6_countGrad = (dist, isArc) => {
+    let ng = 0;
+    const cv = createMiniCanvas(300, 300);
+    const realCtx = ctx2d(cv);
+    const probeCtx = new Proxy(realCtx, {
+      get(t, k) {
+        if (k === 'createLinearGradient' || k === 'createRadialGradient') {
+          return function () { ng++; return t[k].apply(t, arguments); };
+        }
+        const v = t[k];
+        return (typeof v === 'function') ? v.bind(t) : v;
+      }
+    });
+    const s = Object.assign(X6_sh(dist), { x: 150, y: 200 });
+    if (!isArc) delete s.isArc;
+    BD.drawShells(probeCtx, [s]);
+    return ng;
+  };
+  const X6_gArc = X6_countGrad(X6_D * 0.25, true);
+  const X6_gLin = X6_countGrad(50, false);
+  ok(X6_gArc <= X6_gLin,
+    `⑪d零逐帧渐变：曲射弹 ${X6_gArc} 次分配 ≤ 直线弹 ${X6_gLin} 次（伪俯仰只是变换矩阵，不新增渐变）`);
+
+  // ⑥ 阴影不随 tilt 旋转（影子永远贴地）：阴影椭圆的长轴必须沿地面弹道 ang，
+  //    而非 ang+tilt。分两层验证：
+  //    ⑥-1 p=0.25 与 p=0.75 的阴影都位于**同一地面点**（s.x,s.y），不随弹体高度移动；
+  //    ⑥-2（2026-10-20 加严）**直接量阴影椭圆的主轴角**：在阴影所在的地面窗口内做 PCA，
+  //        得到的角必须恒等于 ang（本例 0°），与弹体 tilt ±33.7° 无关。若有人把 tilt
+  //        叠进 ellipse 的 rot，⑥-2 会立刻红——⑥-1 的计数法测不出朝向变化。
+  const X6_shadowAt = (dist) => {
+    const cv = raster(300, 300, c => {
+      BD.drawShells(c, [Object.assign(X6_sh(dist), { x: 150, y: 250 })]);
+    });
+    const b = X6_px(cv), Wc = cv.width;
+    // 地面点 (150,250) 半径 12 内的暗像素计数（阴影 = 低亮 + 有 alpha）
+    let n = 0;
+    for (let y = 250 - 12; y <= 250 + 12; y++) for (let x = 150 - 12; x <= 150 + 12; x++) {
+      if (x < 0 || y < 0 || x >= Wc || y >= cv.height) continue;
+      const i = (y * Wc + x) * 4;
+      if (b[i + 3] > 8 && b[i] < 200) n++;
+    }
+    return n;
+  };
+  const X6_sUp = X6_shadowAt(X6_D * 0.25), X6_sDn = X6_shadowAt(X6_D * 0.75);
+  ok(X6_sUp > 0 && X6_sDn > 0,
+    `⑪d地面阴影恒贴地：p=0.25 ${X6_sUp} px / p=0.75 ${X6_sDn} px 落在同一地面点附近`);
+
+  // ⑥-2 阴影椭圆的主轴角必须恒等于 ang（=0°），与弹体 tilt（±33.7°）无关。
+  //   在阴影所在的地面窗口内做 PCA（窗口只覆盖地面点，不含弹体——弹体在 z 之上）。
+  const X6_shadowAxis = (dist) => {
+    const cv = raster(300, 300, c => {
+      BD.drawShells(c, [Object.assign(X6_sh(dist), { x: 150, y: 250 })]);
+    });
+    const b = X6_px(cv), Wc = cv.width, Hc = cv.height;
+    let n = 0, sx = 0, sy = 0;
+    for (let y = 238; y <= 262; y++) for (let x = 130; x <= 170; x++) {
+      if (x < 0 || y < 0 || x >= Wc || y >= Hc) continue;
+      const i = (y * Wc + x) * 4;
+      if (b[i + 3] > 8 && b[i] < 200) { n++; sx += x; sy += y; }
+    }
+    if (n < 30) return null;
+    const mx = sx / n, my = sy / n;
+    let sxx = 0, syy = 0, sxy = 0;
+    for (let y = 238; y <= 262; y++) for (let x = 130; x <= 170; x++) {
+      if (x < 0 || y < 0 || x >= Wc || y >= Hc) continue;
+      const i = (y * Wc + x) * 4;
+      if (!(b[i + 3] > 8 && b[i] < 200)) continue;
+      const dx = x - mx, dy = y - my;
+      sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+    }
+    return 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  };
+  const X6_shAxUp = X6_shadowAxis(X6_D * 0.25), X6_shAxDn = X6_shadowAxis(X6_D * 0.75);
+  // 阴影椭圆是 1.5W × 0.75W（长轴沿 ang=0 ⇒ 主轴角 0°）。允许 ±6° 的量化误差。
+  ok(X6_shAxUp !== null && Math.abs(X6_shAxUp) < 0.105 && Math.abs(X6_shAxDn) < 0.105,
+    `⑪d阴影不随 tilt 旋转：p=0.25 阴影主轴 ${X6_shAxUp === null ? 'n/a' : (X6_shAxUp * 180 / Math.PI).toFixed(1)}° / p=0.75 ${X6_shAxDn === null ? 'n/a' : (X6_shAxDn * 180 / Math.PI).toFixed(1)}°（均应 ≈0° = 沿 ang，与弹体 ±33.7° 无关）`);
+}
+
 console.log(fails === 0 ? 'test-render: 全部通过' : `test-render: ${fails} 项失败`);
 process.exit(fails === 0 ? 0 : 1);

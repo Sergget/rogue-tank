@@ -2,9 +2,6 @@
   "id": "support_extinguisher",
   "name": "自动灭火器",
   "rarity": "common",
-  "tags": [
-    "支援"
-  ],
   "desc": "强化固有技能【灭火器】：灭火冷却 −50%。（灭火器为开局固有技能，本卡是强化而非新增）",
   "effects": [
     {

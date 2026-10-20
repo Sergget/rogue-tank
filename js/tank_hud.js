@@ -118,7 +118,10 @@ function drawSpreadCones(ctx, gp, aimA, sigma, opts){
 //   · onPick(key)    点击格切换弹种（可选；bench 有点击切弹，mvp 用 Q/E/滚轮）
 //   · showMult       是否显示「穿×/伤×」倍率列（mvp 战斗 HUD 显示，bench 简版不显示）
 //   · centerActive   是否把激活格平移到屏幕中线（两页 CSS 都是 fixed+left:50%，同语义）
-// DOM 契约：#ammoIndicator 容器 + .ammo-cell/.ammo-active 类（两页样式表各自持有，类名同源）。
+// DOM 契约（两页样式表必须各自持有同名规则）：容器 `#ammoIndicator`，格子 `.ammo-cell`，
+//   激活格 `.ammo-cell.active`，内部 `.dot` / `.key` / `.label` / `.mult`。
+//   ⚠️ 2026-10-20 审查修复：bench 此前只有元素内联样式、没有 `.ammo-cell` 规则，
+//   切到本共享实现后激活高亮整体消失——已在 tank_bench.html 的 <style> 补齐（见 §4.111）。
 function renderAmmoIndicator(H){
   const h = H || {};
   const el = document.getElementById('ammoIndicator');

@@ -157,6 +157,46 @@ function railChargeProgress(t){
   return Math.max(0, Math.min(1, 1 - rl / dur));
 }
 
+// #X6（2026-10-20）：曲射（isArc）弹体的绘制期姿态。**只服务绘制层**——落点/结算/命中判定
+//   一律不读这些值，逻辑层零改动。
+//
+//   高度口径沿用既有的绘制期「假高」，**不引入第二套高度函数**：
+//     z(p) = sin(p·π)·H，H = min(120, totalDist·0.35)，p = dist/totalDist
+//   伪俯仰直接对该式求导（dz/dp = π·cos(p·π)·H），与地面位移 totalDist 求夹角：
+//     pitch = atan2(dz, totalDist)  —— 上升段 > 0（抬头）、顶点 = 0、下坠段 < 0（低头）
+//   这是「轴向仰角」，用于纵向透视缩短（foreshorten）。屏幕上的**倾斜**再投影一次：
+//   高度在世界里表现为屏幕 −y 位移（drawY -= z），它在「垂直于弹道」方向上的分量才是
+//   可读的抬头/低头；沿弹道方向的分量不该表现成旋转（否则 ang≈±90° 时纵向分量
+//   会盖过横向位移、把弹体翻成 180°）。故：
+//     tilt = atan2(−dz·cos(ang), totalDist)   // ang=0 时恒等于 −pitch
+//   不变量：|tilt| = atan(|dz|/D) ≤ 47.7°（H 未截断时 π·0.35 的反正切），永不打 180° 翻面。
+//   foreshorten = cos(pitch)，下限 0.55 —— 防止极端参数把弹体压成一条线。
+//
+//   `scale` 仍是既有的「透视放大」近似（1 + z/90），与 tilt/foreshorten 是两个独立维度。
+//
+//   ⚠️ **foreshorten 必须作用在弹体长轴（local x），绝不能压弹宽（local y）**——将来若要
+//   「优化」这段，第一件最容易被改错的事就是把 `ctx.scale(scale * fore, scale)` 写成
+//   `ctx.scale(scale, scale * fore)`。后者看着更像「纵向压缩」，实际语义是错的：
+//   弹体沿切线抬离地面后，它**在地面上的投影长度**才是 L·cos(pitch)（长轴缩短）；
+//   弹宽垂直于切线且保持水平，不参与缩短。压 y 会让弹体「越飞越细」（宽度随高度收缩），
+//   读起来像一枚在缩水的针，而不是一枚抬头的炮弹——实测该写法下光栅主轴角名义上仍有
+//   信号，但形态完全失真。2026-10-20 由 Lead 复核确认采用长轴口径。
+function arcShellPose(s){
+  const D = s.totalDist;
+  const p = Math.max(0, Math.min(1, (s.dist || 0) / D));
+  const H = Math.min(120, D * 0.35);
+  const z = Math.sin(p * Math.PI) * H;
+  const dz = Math.PI * Math.cos(p * Math.PI) * H;      // dz/dp（同一 z 公式的导数）
+  const pitch = Math.atan2(dz, D);
+  const ang = Math.atan2(s.dy, s.dx);
+  const tilt = Math.atan2(-dz * Math.cos(ang), D);
+  return {
+    p: p, H: H, z: z, dz: dz, pitch: pitch, tilt: tilt,
+    foreshorten: Math.max(0.55, Math.cos(pitch)),
+    scale: 1 + z / 90
+  };
+}
+
 function drawShells(ctx, shells){
   const SV = RULES.shellVisual;
   const RFx = (RULES.railgunFx) || {};
@@ -177,21 +217,35 @@ function drawShells(ctx, shells){
     const _L = L * sv, _W = W * sv, _tailLen = tailLen * sv;
     ctx.save();
     let drawX = s.x, drawY = s.y, scale = 1;
+    // #X6：曲射弹的伪俯仰/纵向缩短（直线弹恒 0/1，不受影响）
+    let tilt = 0, fore = 1;
     if(s.isArc && s.totalDist > 0){
-      const p = Math.min(1, s.dist / s.totalDist);
-      const z = Math.sin(p * Math.PI) * Math.min(120, s.totalDist * 0.35);
+      const po = arcShellPose(s);
+      const z = po.z;
       drawY -= z;
-      scale = 1 + z / 90;
+      scale = po.scale;
+      tilt = po.tilt;
+      fore = po.foreshorten;
+      // 地面阴影：始终**贴地**，只随 ang 与 z 变化，**不跟 tilt 旋转**。
+      //   语义依据（2026-10-20 Lead 复核确认）：影子是弹体在**地面**上的投影，不是弹体的
+      //   附属物——弹体抬头/低头改变的是它自身姿态，而光源是常顶光，阴影椭圆的朝向只由
+      //   地面弹道方向 ang 决定。若把 tilt 也叠进 ellipse 的 rot，影子会跟着弹体一起翘起来，
+      //   读作「一枚斜插在地里的炮弹」而不是「离地飞行的炮弹」。
+      //   z 越大 → 影子越大越淡（离地越高、光照越散）：半径 ×(1 + z/150)、alpha 线性衰减。
+      const shs = 1 + z / 150;
       ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillStyle = `rgba(0,0,0,${(0.3 * Math.max(0.35, 1 - z / 260)).toFixed(3)})`;
       ctx.beginPath();
-      ctx.ellipse(s.x, s.y, W * 1.5, W * 0.75, ang, 0, TAU);
+      ctx.ellipse(s.x, s.y, W * 1.5 * shs, W * 0.75 * shs, ang, 0, TAU);
       ctx.fill();
       ctx.restore();
     }
     ctx.translate(drawX, drawY);
-    ctx.rotate(ang);
-    ctx.scale(scale, scale);
+    ctx.rotate(ang + tilt);
+    // #X6：纵向（local x = 弹体长轴）按 cos(pitch) 透视缩短；横向（local y = 弹宽）不变——
+    //   弹轴抬离地面后，它在地面上的投影长度就是 L·cos(pitch)，而弹宽垂直于切线且保持水平，
+    //   不被缩短。压反轴会变成「越飞越细」，与真实的俯仰透视不符。
+    ctx.scale(scale * fore, scale);
     if(isRail){
       // ① 弹体外发光（白热芯晕，lighter 叠加）。
       //   渲染纪律（specs/combat.md §6「零逐帧渐变分配约束」）：这里**不得**每帧 createRadialGradient，
@@ -2364,6 +2418,7 @@ if (typeof module !== 'undefined' && module.exports) {
     drawCharredHull,
     drawFireGlow,
     drawShells,
+    arcShellPose,          // #X6：曲射弹绘制期姿态（pitch/tilt/foreshorten，纯函数，逻辑层不消费）
     railChargeProgress,    // #U38：电磁炮充能进度（0..1，与 fireTank/HUD 同源）
     drawCover,
     drawRiverChain,        // #U8：河流整链描边（调用方按 groupId 合并后单次调用）
@@ -2371,6 +2426,10 @@ if (typeof module !== 'undefined' && module.exports) {
     orderRiverSegs,        // #U8：河流段沿程排序
     drawCoverShadow,       // #U11：地图元素地面投影
     drawTankGroundShadow,  // #TEX8：车底软阴影（程序化分支）
+    // #V2（2026-10-20）：2.5D 侧壁 / 轮廓光——此前只在文件内定义、未进导出表（无消费方）。
+    //   现补齐导出，供回归测试与未来绘制通道复用（两者均纯 ctx、无 DOM 依赖）。
+    drawPartSideWall,      // #TEX13：世界光反向偏移的部件侧壁（外层深 + 内层中暗）
+    drawTankRimLight,      // #TEX12：世界左上暖白轮廓光（1.1px，只亮受光边）
     renderHullTexture,     // #TEX8：车体纹理入口（供测试验证 weathering/外观件生效）
     renderTurretTexture,   // #TEX8：炮塔纹理入口（同上，炮塔 weathering 回归保护）
     drawGroundTexture,     // #U11：biome 地面材质纹理

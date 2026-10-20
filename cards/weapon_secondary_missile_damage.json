@@ -2,7 +2,6 @@
   "id": "weapon_secondary_missile_damage",
   "name": "锁定弹：重型战斗部",
   "rarity": "rare",
-  "tags": ["爆破", "重甲"],
   "desc": "锁定式反坦克导弹强化：单发伤害 140 → 210、射程 600 → 780px。锁定完成后的一发足以打穿多数中坦正面。",
   "effects": [
     {

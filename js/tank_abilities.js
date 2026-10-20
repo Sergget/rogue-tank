@@ -15,10 +15,9 @@
 //   来自 RULES.abilities 固定参数，卡牌数量不增强数值（与 modifier 卡叠加规则区分）。
 //
 // 冷却：**按技能独立冷却池** t.abilityCds[key]（秒，#C4c 2026-09-17 用户裁定「按技能独立冷却」
-//   取代旧共享单字段 t.abilityCdT——此前 artillery/shield/overdrive/deploy_cover/super_fire_control/
-//   super_speed 六个运行时能力共用一个冷却，超装填与炮击互相顶冷却）。激活成功即写
-//   t.abilityCds[key] = RULES.abilities[key].reload|cooldown（artillery 用 reload，其余用
-//   cooldown）；冷却期内 tryActivateAbility 一律拒绝 {ok:false, reason:'cooldown'}。逐帧递减由
+//   取代旧共享单字段 t.abilityCdT——原先是六个运行时能力共用一个冷却，超装填与炮击互相顶冷却）。
+//   激活成功即写 t.abilityCds[key] = RULES.abilities[key].reload|cooldown（artillery 用 reload，
+//   其余用 cooldown）；冷却期内 tryActivateAbility 一律拒绝 {ok:false, reason:'cooldown'}。逐帧递减由
 //   接线层主循环调用 updateAbilityCds(t, dt)（同一池也承载 innate 键，天然统一）。
 //   旧 updateAbilityCd（共享字段 t.abilityCdT）保留为废弃兼容助手，生产接线不再调用。
 //
@@ -49,24 +48,23 @@ let _refreshStats = (typeof refreshStats === 'function') ? refreshStats : null;
 let _spawnDeployableCover = (typeof spawnDeployableCover === 'function') ? spawnDeployableCover : null;
 
 // 本模块支持的运行时能力键。2026-09-23 A 档后本表与 tank_cards.ABILITY_KEYS 之间存在
-// 完整闭环：卡池可抽的 ability 键 = innate 3 键（repair/medkit/extinguish）+ 本表 7 键；
+// 完整闭环：卡池可抽的 ability 键 = innate 3 键（repair/medkit/extinguish）+ 本表 5 键；
 // 死效果键 recon / track_repair 已从两侧白名单与卡池一并摘除（见 DEVELOPMENT.md §4.35）。
-// #W-I（2026-10-19）：榴弹炮曲射模式切换键——运行时 toggle（开/关同一键），
-//   持有挂载卡（cards/howitzer_mode.json → {type:'ability',key:'howitzer_mode'}）才可用。
-const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'super_fire_control', 'super_speed', 'deploy_cover', 'aps'];
+// #W9（2026-10-20 用户裁定「删除 super_speed / super_fire_control」）：两键已从本表、
+//   ABILITY_LABELS 与下方 dispatch 三处一并摘除（卡牌侧 ABILITY_KEYS 由 role-content 同批摘除，
+//   RULES.abilities 两键由 role-systems 摘除）——原表 7 键 ⇒ 现行 5 键。
+const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'deploy_cover', 'aps'];
 
 // innate 内置能力键：开局自带、绕过卡牌持有检查（独立冷却池 t.abilityCds）
 const ABILITY_KEYS_INNATE = ['repair', 'medkit', 'extinguish'];
 
-// #G（2026-09-21 用户需求 #7）：能力键 → 中文名称共享表（表内键 ≡ runtime 7 键 + innate 3 键；
-// 2026-09-23 A 档摘除死键 recon）。
+// #G（2026-09-21 用户需求 #7）：能力键 → 中文名称共享表（表内键 ≡ runtime 5 键 + innate 3 键；
+// 2026-09-23 A 档摘除死键 recon，#W9 2026-10-20 摘除 super_fire_control/super_speed）。
 // mvp HUD 常驻技能槽 / gainToast / hintBar / 按钮命名都从本表取名，避免多处文案漂移。
 const ABILITY_LABELS = {
   artillery: '炮击支援',
   shield: '战术护盾',
   overdrive: '超装填',
-  super_fire_control: '超级火控',
-  super_speed: '过载引擎',
   deploy_cover: '部署掩体',
   aps: '主动防御',
   repair: '修理箱',
@@ -325,32 +323,11 @@ function tryActivateAbility(t, key, ctx) {
       return { ok: true, key: key, duration: duration, radius: radius, maxIntercepts: maxIntercepts, config: abilityCfg };
     }
     // howitzer_mode 已从技能表移除（2026-10-20 用户裁定：榴弹炮曲射模式是**副武器**，
-    //   装进副武器槽后主炮切曲射；见 js/tank_weapons.js 的 isHowitzerMode 与
-    //   cards/weapon_secondary_howitzer.json 的 install 卡）。
-    case 'super_fire_control': {
-      const spreadMult = _d(abilityCfg, 'spreadMult', 0.1);
-      const aimSpeedMult = _d(abilityCfg, 'aimSpeedMult', 3.0);
-      const dur = _d(abilityCfg, 'duration', 8);
-      if (_removeModifierBySource) _removeModifierBySource(t, 'ability:super_fire_control');
-      if (_addTimedModifier) {
-        _addTimedModifier(t, { stat: 'spreadMult', mode: 'mult', value: spreadMult, source: 'ability:super_fire_control' }, dur * 1000);
-        _addTimedModifier(t, { stat: 'aimSpeed', mode: 'mult', value: aimSpeedMult, source: 'ability:super_fire_control' }, dur * 1000);
-      }
-      setCd('super_fire_control', 'super_fire_control');
-      return { ok: true, key: key, spreadMult, aimSpeedMult, duration: dur, config: abilityCfg };
-    }
-    case 'super_speed': {
-      const accelMult = _d(abilityCfg, 'accelMult', 3.0);
-      const maxSpeedMult = _d(abilityCfg, 'maxSpeedMult', 1.5);
-      const dur = _d(abilityCfg, 'duration', 6);
-      if (_removeModifierBySource) _removeModifierBySource(t, 'ability:super_speed');
-      if (_addTimedModifier) {
-        _addTimedModifier(t, { stat: 'enginePower', mode: 'mult', value: accelMult, source: 'ability:super_speed' }, dur * 1000);
-        _addTimedModifier(t, { stat: 'maxSpeed', mode: 'mult', value: maxSpeedMult, source: 'ability:super_speed' }, dur * 1000);
-      }
-      setCd('super_speed', 'super_speed');
-      return { ok: true, key: key, accelMult, maxSpeedMult, duration: dur, config: abilityCfg };
-    }
+    //   装进副武器槽后主炮切曲射/直射；见 js/tank_weapons.js 的 isHowitzerMode/toggleHowitzer
+    //   与 cards/weapon_secondary_howitzer.json 的 install 卡）。
+    // #W9（2026-10-20 用户裁定）：super_fire_control / super_speed 两个 case 已整体删除
+    //   ——两键在 RULES.abilities 与卡牌 ABILITY_KEYS 中同样不存在，留着它们只会让
+    //   `_d(abilityCfg, …)` 全走缺省值，「静默还能用」（见 role-systems 的 #W9 差集实测）。
   }
   return { ok: false, reason: 'unsupported' };
 }
