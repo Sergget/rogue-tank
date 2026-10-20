@@ -62,7 +62,7 @@ const DPS_FIELDS = new Set(['damageMult', 'reloadMult', 'damage', 'reload', 'cou
 // 机制型（DPS 公式不适用于"容量/发际间隔"这类非线性改造）
 // #W-I（2026-10-20）：howitzer 是**模式**（t._howitzerMode），其升级卡改的是
 //   splashRadius（爆炸范围）/ barrage（急速射）——纯功能性字段，无 DPS 语义 ⇒ 机制型。
-const MECHANICAL_TYPES = new Set(['clip', 'howitzer']);
+const MECHANICAL_TYPES = new Set(['clip', 'howitzer']);   // howitzer=副武器模式载体，升级字段为 splashRadius/barrage（纯功能性）
 
 const DPS_FN = {
   standard:      (s) => (s.count || 1) * (s.damageMult || 1) / (s.reloadMult || 1),
@@ -196,7 +196,7 @@ for(const card of upgrades){
   // #W-I（2026-10-20）：howitzer 的「安装卡」= ability 挂载卡 howitzer_mode.json
   //   （ability key howitzer_mode 切换 t._howitzerMode）——不是 weapon install 语义，
   //   豁免「升级卡须有 weapon install 卡」的契约校验。
-  if(ef.weaponType === 'howitzer') continue;
+  if(ef.weaponType === 'howitzer') continue;   // 副武器模式载体：安装卡即 weapon_secondary_howitzer
   if(!installTypes.has(`${slot}:${ef.weaponType}`)){
     contractBad++;
     console.error(`  ✗ ${card.id}: ${slot}:${ef.weaponType} 无对应安装卡（玩家无法通过卡池获得该武器）`);

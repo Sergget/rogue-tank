@@ -2,13 +2,16 @@
   "id": "howitzer_blast_range",
   "name": "榴弹炮：阔域弹幕",
   "rarity": "rare",
-  "tags": ["爆破", "支援"],
-  "desc": "榴弹炮模式强化：爆炸半径 90 → 135px（仅榴弹炮模式内生效，直射模式不受影响）。",
+  "tags": [
+    "爆破",
+    "支援"
+  ],
+  "desc": "榴弹炮强化：爆炸半径 90 → 135px（该升级仅对榴弹炮副武器生效；直射模式不受影响）。",
   "effects": [
     {
       "type": "weapon",
       "action": "upgrade",
-      "slot": "primary",
+      "slot": "secondary",
       "weaponType": "howitzer",
       "statOverrides": {
         "splashRadius": 135

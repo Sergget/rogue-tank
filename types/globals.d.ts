@@ -584,3 +584,5 @@ declare function formatCardDesc(card: any): string;
 declare var tankListData: any;
 declare function applyEnemyAppearanceAndStats(tank: any, spec: any, anchorStats?: any, entityMults?: any): void;
 declare function enemyPreviewStats(tankId: string, level: number, opts?: any): any;
+// #W-I（2026-10-20）：榴弹炮曲射模式判据（js/tank_weapons.js 导出；副武器语义）
+declare function isHowitzerMode(tank: any): boolean;

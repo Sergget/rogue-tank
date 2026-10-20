@@ -10,6 +10,19 @@
 // smokeClouds 动态烟幕基础设施（tank_cover.js）保留备用，当前无生产者。
 
 function _ctx(o){ return o || {}; }
+
+// #W-I（2026-10-20）：榴弹炮曲射模式判据（副武器语义）——单一定义在 tank_weapons.js；
+//   本模块惰性解析（浏览器全局 / Node require / 内联等价兜底），避免顶层 require 顺序依赖。
+function _isHowitzerMode(t){
+  if (typeof isHowitzerMode === 'function') return isHowitzerMode(t);
+  if (typeof require !== 'undefined') {
+    try {
+      var w = require('./tank_weapons.js');
+      if (w && typeof w.isHowitzerMode === 'function') return w.isHowitzerMode(t);
+    } catch (e) { /* 纯逻辑测试环境 */ }
+  }
+  return !!(t && t.weapons && t.weapons.secondary && t.weapons.secondary.type === 'howitzer');
+}
 function _G(k, fb){ return (typeof globalThis!=='undefined'&&globalThis[k]!==undefined)?globalThis[k]:fb; }
 
 // #U13（2026-10-16）：伤害飘字字号倍率——Boss 目标放大（用户要求「boss 掉血的数字需要加大」）。
@@ -222,15 +235,18 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
   // 2026-09-15：主武器曲射机制已移除（howitzer 删除）——主炮一律平射直线弹道；
   // isArc 落点分支（stepShells）仅保留给曲射副武器弹（mortar，自带 totalDist/targetX）。
   //
-  // #W-I（2026-10-19 用户裁定，榴弹炮曲射模式回归）：`t._howitzerMode === true` 时主炮切
+  // #W-I（2026-10-19 用户裁定，榴弹炮曲射模式回归）：`isHowitzerMode(t)` 时主炮切
   //   曲射——弹种**锁定 he**（忽略玩家当前 ammoKey），瞄准点 = 鼠标世界位置（ctx.aimPoint，
   //   由 mvp 注入），越掩体（isArc 天然绕路径遮挡），落点分支在 stepShells 的 s.isArc。
-  if (shooter._howitzerMode === true) {
-    // #W-I（2026-10-20）：模式升级卡（爆炸范围/急速射）经 `t._howitzerStats` 覆盖缺省表
-    //   ——仅模式内生效，直射参数（weapons.primary.stats）不受影响（用户口径）。
-    const hsBase = primaryWeaponSpec(shooter) || {};
-    const hs = (shooter._howitzerStats && typeof shooter._howitzerStats === 'object')
-      ? Object.assign({}, hsBase, shooter._howitzerStats) : hsBase;
+  if (_isHowitzerMode(shooter)) {
+    // #W-I（2026-10-20 用户裁定改口径）：榴弹炮 = **副武器**。
+    //   参数单一口径 WEAPON_DEFAULTS.primary.howitzer（曲射机制参数），
+    //   升级卡（爆炸范围/急速射）走**副武器 upgrade 通道**写 weapons.secondary.stats
+    //   ⇒ 三层合并：缺省 < 副武器 stats（= 升级卡）——仅模式内生效；
+    //   直射参数（weapons.primary.stats）完全不受影响（用户口径）。
+    const hsDef = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
+    const secStats = (shooter.weapons.secondary && shooter.weapons.secondary.stats) || {};
+    const hs = Object.assign({}, hsDef, secStats);
     const heKey = 'he';
     const heCfg = getAmmoCfg(shooter, heKey) || {};
     // 瞄准点：优先 ctx.aimPoint（鼠标世界位置），缺省沿炮塔方向 minArcRange
@@ -316,7 +332,7 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
 function updateHowitzerBurst(shooter, dt, ctx) {
   const b = shooter && shooter._howitzerBurst;
   if (!b) return false;
-  if (!shooter._howitzerMode || shooter.hp <= 0) { shooter._howitzerBurst = null; return false; }
+  if (!_isHowitzerMode(shooter) || shooter.hp <= 0) { shooter._howitzerBurst = null; return false; }
   b.t = (b.t || 0) + dt;
   if (b.t < b.interval) return false;
   b.t = 0;
@@ -327,10 +343,10 @@ function updateHowitzerBurst(shooter, dt, ctx) {
   b.left -= 1;
   if (b.left <= 0) {
     shooter._howitzerBurst = null;
-    // 队列打完 → 整组装填（与 fireTank 同口径）
-    const hsBase = primaryWeaponSpec(shooter) || {};
-    const hs = (shooter._howitzerStats && typeof shooter._howitzerStats === 'object')
-      ? Object.assign({}, hsBase, shooter._howitzerStats) : hsBase;
+    // 队列打完 → 整组装填（与 fireTank 同口径；参数同 firePrimaryShell 的合并顺序）
+    const _hsDef2 = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
+    const _secStats2 = (shooter.weapons.secondary && shooter.weapons.secondary.stats) || {};
+    const hs = Object.assign({}, _hsDef2, _secStats2);
     const debuff = (typeof debuffReloadRate === 'function') ? debuffReloadRate : function(){ return 1; };
     shooter.reloadT = shooter.stats.reload * (typeof hs.reloadMult === 'number' ? hs.reloadMult : 2.2) / debuff(shooter);
   } else {
@@ -531,7 +547,7 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   const devAim=c.devAim!==undefined?c.devAim:_G('devAim',null);
   // #W-I：曲射模式 target=null 合法（落点来自 ctx.aimPoint，不读 target）
   if(!shooter) return false;
-  if(!target && shooter._howitzerMode !== true) return false;
+  if(!target && !_isHowitzerMode(shooter)) return false;
   // #95：履带断（immobT>0）不再阻止开火——车体机动瘫痪 ≠ 火炮缴械，仅装填门控保留
   if(shooter.reloadT>0) return false;
   // P-49 炮闩受损：短时完全无法开火（机械缴械，与装填 debuff 不同）
@@ -542,7 +558,7 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   // #W-I（2026-10-19）：榴弹炮曲射**豁免炮口贯穿预检**——弹道是抛物落点，出膛段贴掩体
   //   不代表落点被挡（可行性结论第 2 问：预检与弹道类型无关，曲射需单独豁免）。
   const rootP=gunRoot(shooter), tipP=gunTip(shooter);
-  const barrelCovers=(shooter._howitzerMode === true) ? [] : find(rootP.x,rootP.y,tipP.x,tipP.y);
+  const barrelCovers=(_isHowitzerMode(shooter)) ? [] : find(rootP.x,rootP.y,tipP.x,tipP.y);
   const solid=barrelCovers.find(function(v){ const m=T[v.cover.tier]&&T[v.cover.tier].mode; return m==='solid'||m==='single'; });
   if(solid){
     shooter.reloadT=shooter.stats.reload/debuffReload(shooter);
@@ -625,7 +641,7 @@ function tryFire(ctx, salvo){
   // #W-I（2026-10-19）：榴弹炮曲射模式**不需要目标实体**——落点 = 鼠标世界位置
   // （打地面/掩体后都合法）。无敌人时走 aimPoint 直通 fireTank（target=null 合法：
   // fireTank 的曲射分支不读 target）。
-  if(player._howitzerMode === true){
+  if(_isHowitzerMode(player)){
     if(!c.shells && !_G('shells',null)) return false;
     return ft(player, null, null, c, salvo);
   }
@@ -662,6 +678,8 @@ function tryFireSecondary(ctx){
   const w=player.weapons.secondary;
   if(!w || !w.type || w.type==='none') return false;
   if(w.type==='turret') return false;   // 自瞄副炮塔不响应击发（自主运作，设计例外）
+  // #W-I（2026-10-20）：榴弹炮是**模式载体**——它的射击走主炮（左键/空格），副武器槽本身不发射
+  if(w.type==='howitzer') return false;
   // 惰性取值：Node 用 require('./tank_weapons.js')，浏览器用全局（tank_weapons.js 先于本模块加载，时序安全）
   let fas=c.fireActiveSecondary||_G('fireActiveSecondary',null);
   if(!fas && typeof require!=='undefined'){ try{ fas=require('./tank_weapons.js').fireActiveSecondary; }catch(e){ fas=null; } }

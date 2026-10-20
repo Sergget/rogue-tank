@@ -68,13 +68,22 @@ function driveTank(t, dt, input){
   const pAccel = t.stats.accel * speedModifier;
   const pBrake = t.stats.brake * speedModifier;
   // 发动机受伤 → 最大速度降低（debuff）
-  // #W-I（2026-10-19 用户裁定）：榴弹炮曲射模式下行进限速 = ×1/3。
+  // #W-I（2026-10-20 用户裁定）：榴弹炮曲射模式（**副武器**）下行进限速 = ×1/3。
   //   ⚠️ 独立乘子（fireMul 同级链尾），**不可并入 speedModifier**——:45-47 公路判定会把
   //   speedModifier 强制归 1，榴弹炮减速会被静默清零。
-  const howitzerMul = (t._howitzerMode === true)
-    ? ((typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary &&
-        WEAPON_DEFAULTS.primary.howitzer && typeof WEAPON_DEFAULTS.primary.howitzer.moveSpeedRatio === 'number')
-        ? WEAPON_DEFAULTS.primary.howitzer.moveSpeedRatio : (1/3))
+  //   判据惰性解析：浏览器用全局 isHowitzerMode，Node 测试用 require / 内联等价判断。
+  let _ish = (typeof isHowitzerMode === 'function') ? isHowitzerMode : null;
+  if (!_ish && typeof require !== 'undefined') {
+    try { _ish = require('./tank_weapons.js').isHowitzerMode; } catch (e) { _ish = null; }
+  }
+  const _howOn = _ish ? _ish(t) : !!(t && t.weapons && t.weapons.secondary && t.weapons.secondary.type === 'howitzer');
+  let _hsDef = (typeof WEAPON_DEFAULTS !== 'undefined') ? WEAPON_DEFAULTS : null;
+  if (!_hsDef && typeof require !== 'undefined') {
+    try { _hsDef = require('./tank_weapons.js').WEAPON_DEFAULTS; } catch (e) { _hsDef = null; }
+  }
+  const howitzerMul = _howOn
+    ? (((_hsDef && _hsDef.primary && _hsDef.primary.howitzer && typeof _hsDef.primary.howitzer.moveSpeedRatio === 'number')
+        ? _hsDef.primary.howitzer.moveSpeedRatio : (1/3)))
     : 1;
   const pTarget = mv * boostedMax * RULES.speed.pxFactor * speedModifier * howitzerMul * fireMul(t) * debuffSpeedRate(t) * RULES.speed.effMul;
   t.speed = t.speed || 0;

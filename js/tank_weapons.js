@@ -58,6 +58,15 @@ const WEAPON_DEFAULTS = {
     //     `t.base.damage × 0.5` —— **只看主炮基础参数**，不吃任何 modifier/技能/弹种改造。
     //   · idleWanderRate / idleWanderRange：待机摆动（进入射程前炮塔缓慢随机摆动）。
     //   · ignoreModifiers：显式标记「本武器读取 t.base 而非 t.stats」。
+    // #W-I（2026-10-20 用户裁定改口径）：榴弹炮曲射模式 = **副武器**（不是技能）。
+    //   用户原话：「该模式更改主炮为曲射武器，行进速度将为最大速度的 1/3。只能发射当前生效的
+    //   he 弹种，未直接命中时按距离计算伤害，直接命中时，按坦克最薄的装甲值作为命中部位来计算
+    //   伤害。可越过掩体，瞄准器变成一个在鼠标位置的一个虚线圈…升级卡牌提供爆炸范围升级
+    //   （仅对该模式生效，直射模式时不生效）、急速射」。
+    //   ⇒ 装进**副武器槽**后：主炮切曲射（副武器槽本身不发射，只作为模式载体）；
+    //     卸下/换掉即回直射。F 键不响应（与 turret 同属"自主/被动"例外）。
+    //   实际参数读 WEAPON_DEFAULTS.primary.howitzer（单一口径）；此处只占类型位。
+    howitzer:    { range: 900, reload: 2.2 },
     // #5（2026-10-19 用户反馈「检查副武器伤害等参数…升级卡牌是否能生效」）：
     //   **把此前散落在 fireActiveSecondary 各分支的字面量全部收口进缺省表**（#U39 的延续）——
     //   此前 `pen`（除 turret 外 5/6 类都没有键）与 mortar/rocket 的 `speed` 只存在于
@@ -715,7 +724,8 @@ if (typeof module !== 'undefined' && module.exports) {
     WEAPON_DEFAULTS,
     getWeaponDefaults,
     normalizeTankWeapons,
-    updateSecondaryTurret,
+    isHowitzerMode,
+  updateSecondaryTurret,
     updateSecondaryMount,
     updateSecondaryWeapon,
     updateMissileLock,
@@ -724,3 +734,12 @@ if (typeof module !== 'undefined' && module.exports) {
     updateRocketBurst
   };
 }
+// #W-I（2026-10-20）：榴弹炮曲射**模式判据**（唯一口径）。
+//   用户裁定：该模式是**副武器**，装进副武器槽后主炮切曲射；卸下/换掉即回直射。
+//   ⇒ 判据 = `weapons.secondary.type === 'howitzer'`（不再依赖任何运行时开关标记）。
+//   消费方：js/tank_fire.js（开火/落点/预检/装填）、js/tank_move.js（1/3 限速）、
+//   tank_mvp.html（散布圈瞄准器）、js/tank_cards.js（模式升级卡的有效性判定）。
+function isHowitzerMode(t){
+  return !!(t && t.weapons && t.weapons.secondary && t.weapons.secondary.type === 'howitzer');
+}
+if (typeof globalThis !== 'undefined') { globalThis.isHowitzerMode = isHowitzerMode; }

@@ -47,9 +47,7 @@ const AMMO_FIELDS = ['pen', 'dmg', 'speed'];
 // （repair_kit / support_extinguisher 是固有技能的纯强化卡，玩家开局「已持有」该键，
 //  去重会误杀；判定口径与 js/tank_abilities.js ABILITY_KEYS_INNATE 一致，本地复制防循环依赖）。
 const ABILITY_KEYS_INNATE_LOCAL = ['repair', 'medkit', 'extinguish'];
-const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'super_fire_control', 'super_speed', 'aps',
-  // #W-I（2026-10-19）：榴弹炮曲射模式切换（toggle；运行时键与 tank_abilities.js ABILITY_KEYS_RUNTIME 同步）
-  'howitzer_mode'];
+const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'super_fire_control', 'super_speed', 'aps'];
 // 无人机种类（drone）：scout=侦察指示（视口外敌军位置箭头）/ striker=近身自动索敌打击。
 // kind 缺失时兼容旧数据（默认 striker，伴随浮游炮语义）。
 const DRONE_KINDS = ['scout', 'striker'];
@@ -71,7 +69,9 @@ const WEAPON_SLOTS = ['primary', 'secondary'];
 // #U39（2026-10-18）：补入 `missile_wire`——它一直在 RULES.weaponTypes.secondary 与
 //   WEAPON_DEFAULTS.secondary / fireActiveSecondary 的 wire 分支里，却漏在本白名单外，
 //   导致任何针对线导导弹的 weapon 卡都会被 validateCardEffect 判「weaponType 非法」。
-const WEAPON_SECONDARY_TYPES = ['mortar', 'missile', 'missile_wire', 'rocket', 'mine_layer', 'turret'];
+const WEAPON_SECONDARY_TYPES = ['mortar', 'missile', 'missile_wire', 'rocket', 'mine_layer', 'turret',
+  // #W-I（2026-10-20 用户裁定）：榴弹炮曲射模式是**副武器**（装入后主炮切曲射）
+  'howitzer'];
 // #W-I（2026-10-19）：howitzer 为**模式**而非独立武器类型——不进主炮类型表
 //   （安装卡不会装它）。2026-10-20：**模式升级卡**（爆炸范围/急速射）引用
 //   weaponType:'howitzer' ⇒ 加入升级合法集（validateCardEffect 与 applyCardEffects
@@ -317,15 +317,6 @@ function applyCardEffects(tank, card, ctx) {
               tank.weapons.primary._spec = null;
               tank._dbState = null;
               tank._clipState = null;   // #G：扩容卡改变 clipSize → 弹夹状态重建
-            } else if (action === 'upgrade' && wType === 'howitzer') {
-              // #W-I（2026-10-20）：榴弹炮**模式升级卡**——howitzer 是模式（`t._howitzerMode`）
-              //   而非 `weapons.primary.type`，既有的 type===wType 通道对它不适用。
-              //   升级写 `t._howitzerStats`（模式专属参数覆盖，firePrimaryShell 的 howitzer
-              //   分支优先消费），与 weapons.primary.stats 互不污染（直射参数不受影响——
-              //   用户口径「仅对该模式生效，直射模式时不生效」正是此意）。
-              if (ef.statOverrides && typeof ef.statOverrides === 'object') {
-                tank._howitzerStats = Object.assign({}, tank._howitzerStats || {}, ef.statOverrides);
-              }
             }
             // type!==wType → no-op，不写入
           }

@@ -910,7 +910,7 @@ document.getElementById('bossBriefing')?.addEventListener('click', (e) => {
 // 2026-09-17 #C4e：F 键 = 直接击发副武器（按住连发），不再承担主/副切换。
 // 主炮=左键/空格专属（tryFirePrimary），副武器=F 专属（tryFireSecondary，目标=鼠标世界点）；
 // turret 型为设计例外（自瞄副炮塔由主循环 updateSecondaryWeapon 自主驱动，点击/按 F 不响应）。
-const SECONDARY_LABELS = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹（锁定式）', missile_wire:'反坦克导弹（线导式）', rocket:'火箭巢', mine_layer:'布雷器' };
+const SECONDARY_LABELS = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹（锁定式）', missile_wire:'反坦克导弹（线导式）', rocket:'火箭巢', mine_layer:'布雷器', howitzer:'榴弹炮（曲射）' };
 const SECONDARY_ICONS = { turret:'塔', mortar:'迫', missile:'导', missile_wire:'线', rocket:'火', mine_layer:'雷' };
 function trySecondaryFire(force){   // #F7：force=true 时绕过 mine_layer 键盘边沿（HUD 按钮入口）
   if(!player || !player.weapons) return;
@@ -1636,7 +1636,7 @@ function updateStatusPanel(){
     const pType = (wpn.primary && wpn.primary.type) || 'standard';
     const sType = (wpn.secondary && wpn.secondary.type) || 'none';
     const P_LABEL = { standard:'标准主炮', autocannon:'速射机炮', double_barrel:'双联火炮', railgun:'电磁轨道炮', clip:'弹夹炮' };
-    const S_LABEL = { none:'无', turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹', rocket:'火箭巢', mine_layer:'布雷器' };
+    const S_LABEL = { none:'无', turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹', rocket:'火箭巢', mine_layer:'布雷器', howitzer:'榴弹炮（曲射）' };
     stWeapon.textContent = `主武器 ${P_LABEL[pType] || pType} · 副武器 ${S_LABEL[sType] || sType}${sType !== 'none' ? '（F 击发' + (sType === 'turret' ? '，副炮塔自主' : '') + '）' : ''}`;
   }
   const stMob = document.getElementById('stMob');
@@ -1691,7 +1691,7 @@ function updateStatusPanel(){
         let weaponTxt = '';
         if(t.isBoss && t.weapons){
           const _P = { standard:'标准主炮', autocannon:'速射机炮', double_barrel:'双联火炮', railgun:'电磁轨道炮', clip:'弹夹炮' };
-          const _S = { none:'无', turret:'副炮塔', mortar:'迫击炮', missile:'锁定弹', missile_wire:'线导弹', rocket:'火箭巢', mine_layer:'布雷器' };
+          const _S = { none:'无', turret:'副炮塔', mortar:'迫击炮', missile:'锁定弹', missile_wire:'线导弹', rocket:'火箭巢', mine_layer:'布雷器', howitzer:'榴弹炮（曲射）' };
           const _pt = (t.weapons.primary && t.weapons.primary.type) || 'standard';
           const _st = (t.weapons.secondary && t.weapons.secondary.type) || 'none';
           const mods = (t.cardEffects || []).filter(ef => ef && ef.type === 'weapon').length;
@@ -1958,7 +1958,7 @@ function assignBossArmament(boss, bossNumber){
     const pType = (w.primary && w.primary.type) || 'standard';
     const sType = (w.secondary && w.secondary.type) || 'none';
     const P_LABEL = { standard:'标准主炮', autocannon:'速射机炮', double_barrel:'双联火炮', railgun:'电磁轨道炮', clip:'弹夹炮' };
-    const S_LABEL = { none:'无', turret:'副炮塔', mortar:'车载迫击炮', missile:'锁定式导弹', missile_wire:'线导式导弹', rocket:'火箭巢', mine_layer:'布雷器' };
+    const S_LABEL = { none:'无', turret:'副炮塔', mortar:'车载迫击炮', missile:'锁定式导弹', missile_wire:'线导式导弹', rocket:'火箭巢', mine_layer:'布雷器', howitzer:'榴弹炮（曲射）' };
     pushLog(`BOSS 武备：${P_LABEL[pType] || pType} + ${S_LABEL[sType] || sType}｜改装 ${names}`, 'CRIT');
   }
   return applied;
@@ -6072,7 +6072,7 @@ function draw(){
   //     与直射散布锥（drawSpreadCones）同一物理口径；
   //   · 圈心仍 = mouseWorld（落点瞄准位置）；半径 = player.sigma × 1.2 × |mouse − player|；
   //   · he 爆炸半径不再画圈（落点爆炸范围由 splashRadius 在弹着时结算，不属于瞄准语义）。
-  if(player._howitzerMode === true && typeof mouseWorld !== 'undefined' && mouseWorld){
+  if(isHowitzerMode(player) && typeof mouseWorld !== 'undefined' && mouseWorld){
     const aimDist = Math.hypot(mouseWorld.x - player.x, mouseWorld.y - player.y);
     const sigmaSpread = (player.sigma || 0) * 1.2 * aimDist;   // 主炮精度 ×1.2 × 距离
     ctx.strokeStyle = 'rgba(255,180,84,0.85)';

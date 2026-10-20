@@ -53,7 +53,7 @@ let _spawnDeployableCover = (typeof spawnDeployableCover === 'function') ? spawn
 // 死效果键 recon / track_repair 已从两侧白名单与卡池一并摘除（见 DEVELOPMENT.md §4.35）。
 // #W-I（2026-10-19）：榴弹炮曲射模式切换键——运行时 toggle（开/关同一键），
 //   持有挂载卡（cards/howitzer_mode.json → {type:'ability',key:'howitzer_mode'}）才可用。
-const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'super_fire_control', 'super_speed', 'deploy_cover', 'aps', 'howitzer_mode'];
+const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'super_fire_control', 'super_speed', 'deploy_cover', 'aps'];
 
 // innate 内置能力键：开局自带、绕过卡牌持有检查（独立冷却池 t.abilityCds）
 const ABILITY_KEYS_INNATE = ['repair', 'medkit', 'extinguish'];
@@ -324,20 +324,9 @@ function tryActivateAbility(t, key, ctx) {
       setCd('aps', 'aps');
       return { ok: true, key: key, duration: duration, radius: radius, maxIntercepts: maxIntercepts, config: abilityCfg };
     }
-    case 'howitzer_mode': {
-      // #W-I（2026-10-19 用户裁定）：榴弹炮曲射模式 —— **toggle**（再按一次切回直射）。
-      //   开启：主炮改曲射（he 弹锁定 / 越掩体 / 落点直击最薄装甲或近失衰减），
-      //         行进限速 = 最大速度 × moveSpeedRatio（1/3，js/tank_move.js 链尾消费，
-      //         独立乘子——不走 speedModifier，公路会把 speedModifier 强制归 1）。
-      //   关闭：清除标记，恢复正常直射与速度。
-      //   无冷却（切换本身免费）；模式内的射击装填由 WEAPON_DEFAULTS.primary.howitzer.reloadMult 驱动。
-      if (t._howitzerMode === true) {
-        t._howitzerMode = false;
-        return { ok: true, key: key, on: false, config: abilityCfg };
-      }
-      t._howitzerMode = true;
-      return { ok: true, key: key, on: true, config: abilityCfg };
-    }
+    // howitzer_mode 已从技能表移除（2026-10-20 用户裁定：榴弹炮曲射模式是**副武器**，
+    //   装进副武器槽后主炮切曲射；见 js/tank_weapons.js 的 isHowitzerMode 与
+    //   cards/weapon_secondary_howitzer.json 的 install 卡）。
     case 'super_fire_control': {
       const spreadMult = _d(abilityCfg, 'spreadMult', 0.1);
       const aimSpeedMult = _d(abilityCfg, 'aimSpeedMult', 3.0);
