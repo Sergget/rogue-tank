@@ -474,24 +474,33 @@ player.ammoKey = 'ap';
 player.currentAmmoIndex = 0;
 
 function renderAmmoIndicator(){
-  const el = document.getElementById('ammoIndicator');
+  // #3（2026-10-20）：弹种指示器收敛到共享 js/tank_hud.js（PLAN §2.2 差异清单之一）——
+  //   bench=getAmmoKeys() + 点击格切弹 + 激活格平移到中线；渲染/DOM 契约与 mvp 同源。
+  if(typeof TankHud !== "undefined" && TankHud.renderAmmoIndicator){
+    TankHud.renderAmmoIndicator({
+      list: getAmmoKeys,
+      currentIndex: () => player.currentAmmoIndex,
+      onPick: (k) => setAmmo(k),
+      centerActive: true
+    });
+    return;
+  }
+  const el = document.getElementById("ammoIndicator");
   if(!el) return;
   const list = getAmmoKeys();
   const cur = ((player.currentAmmoIndex | 0) % list.length + list.length) % list.length;
-  let html = '';
+  let html = "";
   list.forEach((k, idx) => {
     const ammo = RULES.ammoTypes[k];
-    const dirHint = (idx === (cur + 1) % list.length) ? 'E' : ((idx === (cur - 1 + list.length) % list.length) ? 'Q' : '');   // #C5a 修复：E=下一发 / Q=上一发（与 bindings ammoNext='e' 同向；旧提示颠倒）
+    const dirHint = (idx === (cur + 1) % list.length) ? "E" : ((idx === (cur - 1 + list.length) % list.length) ? "Q" : "");
     const active = idx === cur;
-    html += `<span data-ammo="${k}" class="ammo-cell${active?' ammo-active':''}" style="display:inline-flex; align-items:center; gap:3px; opacity:${active?1:0.4}; font-weight:${active?700:400}; color:${active?'var(--text)':'var(--text-dim)'}; cursor:pointer;">` +
+    html += `<span data-ammo="${k}" class="ammo-cell${active?' ammo-active':''}" style="display:inline-flex; align-items:center; gap:3px; opacity:${active?1:0.4}; font-weight:${active?700:400}; color:; cursor:pointer;">` +
             `<span style="width:8px; height:8px; border-radius:50%; background:${ammo.color}; border:1px solid rgba(255,255,255,0.2)"></span>` +
-            `<span>${dirHint || (active ? '★' : '')}</span><span>${ammo.label}</span></span>`;
+            `<span>${dirHint || (active ? "★" : "")}</span><span>${ammo.label}</span></span>`;
   });
   el.innerHTML = html;
-  el.querySelectorAll('[data-ammo]').forEach(c => c.addEventListener('click', () => setAmmo(c.getAttribute('data-ammo'))));
-  // 2026-09-14：始终将选中的弹种放在屏幕中央——按激活格中心计算平移量
-  // （#ammoIndicator 为 fixed + left:50%，translateX(−activeCenter) 即把激活格中心钉在屏幕中线）
-  const activeEl = el.querySelector('[data-ammo].ammo-active') || el.children[cur];
+  el.querySelectorAll("[data-ammo]").forEach(c => c.addEventListener("click", () => setAmmo(c.getAttribute("data-ammo"))));
+  const activeEl = el.querySelector("[data-ammo].ammo-active") || el.children[cur];
   if(activeEl){
     const center = activeEl.offsetLeft + activeEl.offsetWidth / 2;
     el.style.transform = `translateX(${-center}px)`;

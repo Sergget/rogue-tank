@@ -109,3 +109,53 @@ function drawSpreadCones(ctx, gp, aimA, sigma, opts){
   }
   ctx.setLineDash([]);
 }
+
+// ============================== #3（2026-10-20）：弹种指示器（两页同源） ==============================
+// mvp 与 bench 此前各有一份 renderAmmoIndicator（PLAN §2.2 差异清单之一）：同一渲染逻辑
+// 两处维护。现收敛到共享 tank_hud.js，host 经 H 注入差异点：
+//   · list()        当前可用弹种键数组（mvp=activeLoadout()，bench=getAmmoKeys()）
+//   · currentIndex() 激活索引（两页同语义：player.currentAmmoIndex 取模）
+//   · onPick(key)    点击格切换弹种（可选；bench 有点击切弹，mvp 用 Q/E/滚轮）
+//   · showMult       是否显示「穿×/伤×」倍率列（mvp 战斗 HUD 显示，bench 简版不显示）
+//   · centerActive   是否把激活格平移到屏幕中线（两页 CSS 都是 fixed+left:50%，同语义）
+// DOM 契约：#ammoIndicator 容器 + .ammo-cell/.ammo-active 类（两页样式表各自持有，类名同源）。
+function renderAmmoIndicator(H){
+  const h = H || {};
+  const el = document.getElementById('ammoIndicator');
+  if(!el) return;
+  const list = (typeof h.list === 'function') ? h.list() : [];
+  if(!list.length) { el.innerHTML = ''; return; }
+  const cur = ((h.currentIndex() | 0) % list.length + list.length) % list.length;
+  let html = '';
+  for(let i = 0; i < list.length; i++){
+    const a = (typeof RULES !== 'undefined' && RULES.ammoTypes[list[i]]) || (RULES && RULES.ammoTypes && RULES.ammoTypes.ap) || {};
+    const dirHint = (i === (cur + 1) % list.length) ? 'E' : ((i === (cur - 1 + list.length) % list.length) ? 'Q' : '');
+    const active = i === cur;
+    html += `<span class="ammo-cell${active ? ' active' : ''}" data-ammo="${list[i]}">`
+      + `<span class="dot" style="background:${a.color || '#888'}"></span>`
+      + `<span class="key">${dirHint || (active ? '★' : '')}</span><span class="label">${a.label || list[i]}</span>`
+      + (h.showMult ? `<span class="mult">穿×${a.pen}/伤×${a.dmg}</span>` : '')
+      + `</span>`;
+  }
+  el.innerHTML = html;
+  // bench：点击格切弹（mvp 不绑，走键盘/滚轮）
+  if(typeof h.onPick === 'function'){
+    el.querySelectorAll('[data-ammo]').forEach(c => c.addEventListener('click', () => h.onPick(c.getAttribute('data-ammo'))));
+  }
+  // 激活格平移到屏幕中线（两页同语义）
+  if(h.centerActive){
+    const q = /** @type {HTMLElement|null} */ (el.querySelector('[data-ammo].active'));
+    const activeEl = q || /** @type {HTMLElement} */ (el.children[cur]);
+    if(activeEl && typeof activeEl.offsetLeft === 'number'){
+      const center = activeEl.offsetLeft + activeEl.offsetWidth / 2;
+      el.style.transform = `translateX(${-center}px)`;
+    }
+  }
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { drawSpreadCones, renderAmmoIndicator };
+}
+// 浏览器端 TankHud 命名空间（两页页内代码以 TankHud.renderAmmoIndicator 调用；纯函数层无 DOM 依赖，drawSpreadCones 同源挂出）
+if (typeof globalThis !== 'undefined') {
+  globalThis.TankHud = { drawSpreadCones, renderAmmoIndicator };
+}

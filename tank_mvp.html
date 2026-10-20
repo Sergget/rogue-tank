@@ -805,6 +805,16 @@ function activeLoadout(){
   return Object.keys(RULES.ammoTypes);   // 兜底：全弹种表
 }
 function renderAmmoIndicator(){
+  // #3（2026-10-20）：弹种指示器收敛到共享 js/tank_hud.js（PLAN §2.2 差异清单之一）——
+  //   mvp=显示倍率列（showMult）+ activeLoadout()，渲染/DOM 契约与 bench 同源。
+  if(typeof drawSpreadCones === 'function' && typeof TankHud !== 'undefined' && TankHud.renderAmmoIndicator){
+    TankHud.renderAmmoIndicator({
+      list: activeLoadout,
+      currentIndex: () => player.currentAmmoIndex,
+      showMult: true
+    });
+    return;
+  }
   const el = document.getElementById('ammoIndicator');
   if(!el) return;
   const lo = activeLoadout();
@@ -6007,7 +6017,9 @@ function draw(){
   ctx.beginPath(); ctx.moveTo(gp.x,gp.y); ctx.lineTo(gp.x+aimU*900, gp.y+aimV*900); ctx.stroke();
 
   // dispersion cones — shortened boundaries (length 250px) to keep UI clean
-  drawSpreadCones(ctx, gp, aimA, player.sigma, { length: 250 });  // live cone — tank_hud.js 共享
+  // #3（2026-10-20）：散布锥升级为 bench 同款 dual 口径（1σ 实线 68% + 2σ 虚线 95%），
+  //   长度仍 250px 短锥（战斗视野考虑；bench 是解算面板用全长）。tank_hud.js 共享。
+  drawSpreadCones(ctx, gp, aimA, player.sigma, { length: 250, dual: true });
 
   // #W-I（2026-10-19 用户裁定）→ 2026-10-20 修正口径：「虚线圈改为**散布圈**，
   //   大小 = 精度 × 距离，表示弹着点分布的范围，精度采用主炮的精度 × 1.2」。
