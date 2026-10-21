@@ -5,8 +5,9 @@ description: Use when the task touches terrain generation, node layout, cover ti
 
 # Role: mapgen（地形生成与节点）
 
-**系统归口**：`docs/specs/map.md`（节点 §1、路网 §10、水域 §11、掩体 tier §12、strip §14、纹理 §22~§25）
+**系统归口**：`docs/specs/map/`（wiki 正文，2026-10-21 起）：节点架构 → `map-architecture.md`；掩体 tier/尺寸/收敛 → `cover-system.md`；地形抽象 → `terrain.md`；路网/避路/弯形 → `roads.md`；河流/溺毙/互斥 → `rivers.md`；strip/防线 → `strip-defense.md`；难度 → `difficulty.md`；贴图烘焙/审核标准 → `textures.md`；地面烘焙与相机 → `ground-camera.md`；生存模式 → `survival-strip.md`。**索引见 `docs/specs/map/index.md`**；`docs/specs/map.md` 仅为 §N 兼容索引页（**勿当正文写**）。
 **项目状态**：`docs/DEVELOPMENT.md` §3
+**改 specs 前必读**：`docs/WIKI-STYLE.md` + `AGENTS.md` §2.3（wiki 三步：改主题页 → 对齐兼容页摘要 → 跑 `node scripts/wiki-check.js`）
 
 ## 1. 你拥有的文件
 

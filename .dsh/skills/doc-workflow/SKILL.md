@@ -5,15 +5,19 @@ description: Use when completing any feature, refactoring, or bug fix in rogue-t
 
 # Rogue Tank — 文档生命周期与同步指引
 
-本项目维护严格的文档分工与 4 步生命周期。**流程权威：根目录 `AGENTS.md` §2**（本文档是其执行摘要，二者冲突时以 AGENTS.md 为准）。内容权威：`docs/DEVELOPMENT.md`（长期权威，含 §4 批次落地结论）+ `docs/specs/` 五卷系统规范（现行口径唯一权威）；`docs/PLAN.md` 与 `docs/ISSUES.md` 是临时文档（只存未完成条目）；`docs/ARCHIVE.md` + `docs/archive/<yyyy-mm>.md` 是只读归档（分卷严禁全文读取，按索引 Grep 切片）。
+本项目维护严格的文档分工与 4 步生命周期。**流程权威：根目录 `AGENTS.md` §2**（本文档是其执行摘要，二者冲突时以 AGENTS.md 为准）。内容权威：`docs/DEVELOPMENT.md`（长期权威，含 §4 批次落地结论）+ **`docs/specs/<卷>/` 五卷 wiki 正文（59 页，现行口径唯一权威）**；`docs/PLAN.md` 与 `docs/ISSUES.md` 是临时文档（只存未完成条目）；`docs/ARCHIVE.md` + `docs/archive/<yyyy-mm>.md` 是只读归档（分卷严禁全文读取，按索引 Grep 切片）。
+
+> **⚠️ specs 已于 2026-10-21 wiki 化**：`docs/specs/<卷>/` 是正文（一主题一页），`docs/specs/<卷>.md` 是 **§N 兼容索引页**（编号不变、只放 1~3 行摘要 + 「详见」链接，**不承载正文**）。**改 specs 必须先读 `docs/WIKI-STYLE.md`** 并走 `AGENTS.md` §2.3 的三步。
 
 ## 4 步生命周期（完成任意任务时必须顺次执行）
 
 当任意功能/重构/修复实现并验证通过后，在收尾前**必须**依次执行以下 4 步：
 
 ### Step 1: 同步结论
-- ① 现行细则写入对应系统规范卷：战斗→`docs/specs/combat.md`、地图→`map.md`、卡牌→`cards.md`、Boss→`boss.md`、编辑器→`editor.md`。被取代的旧值改写为现行值并留沿革注记。
-- ② `docs/DEVELOPMENT.md` **新增一个 §4.x 编号条目**（下一个编号 = 现有最大 +1；简结论 + specs 归口指针 + `npm run check` / `npm test` / `test:browser` 三链验证记录），标题带日期锚点。
+- ① 现行细则写入对应系统规范的 **wiki 主题页**：战斗→`docs/specs/combat/<page>.md`、地图→`map/<page>.md`、卡牌→`cards/<page>.md`、Boss→`boss/<page>.md`、编辑器→`editor/<page>.md`（**先看该卷 `index.md` 定位是哪一页**）。被取代的旧值改写为现行值并留沿革注记。
+  - 然后**对齐兼容页**：若该节摘要受影响，同步 `docs/specs/<卷>.md` 对应节的 1~3 行摘要（**不放正文**）。
+  - 最后**跑链接自查**：`node scripts/wiki-check.js`（`broken=0 anchorBad=0 struct=0 template=0`）。
+- ② `docs/DEVELOPMENT.md` **新增一个 §4.x 编号条目**（下一个编号 = 现有最大 +1，**当前最大 §4.114 ⇒ 下一个 §4.115**；简结论 + specs 归口指针**指向主题页**（如 `specs/combat/ammo-system.md`）+ `npm run check` / `npm test` / `test:browser` 三链验证记录），标题带日期锚点。
 - ③ 保证 `DEVELOPMENT.md` 即使不依赖 PLAN/ISSUES 也能独立说明项目最新完整状态；路线顺序变化时同步 §3。
 
 ### Step 2: 从临时文档中删除
@@ -30,7 +34,8 @@ description: Use when completing any feature, refactoring, or bug fix in rogue-t
 
 ## 注意事项
 1. **绝不凭空发明"未证实的问题"**：写入 ISSUES.md 前必须有明确的代码证据（`file:line`）或复现场景；条目含 现象/核实结论/根因/证据/复现/修复方向/状态。
-2. **冲突判定**：现行口径以 `docs/specs/<system>.md` 为准；演进顺序与状态以 `DEVELOPMENT.md`（§3 > §4 后条目）为准；归档仅供追溯。
+2. **冲突判定**：现行口径以 `docs/specs/<卷>/<主题页>.md`（wiki 正文）为准；演进顺序与状态以 `DEVELOPMENT.md`（§3 > §4 后条目）为准；归档仅供追溯。
 3. **未完成条目**：保持在 `PLAN.md` / `ISSUES.md` 中（标注 `待处理`/`处理中`），不得提前删除。
-4. **引用纪律**：禁止把临时文档当作权威引用目标；引用已归档条目改指 `docs/archive/<yyyy-mm>.md`；同文档内同一数值只允许一个唯一口径小节，其余位置指向它；禁止「本轮/本批」类无日期锚点表述。
+4. **引用纪律**：禁止把临时文档当作权威引用目标；引用已归档条目改指 `docs/archive/<yyyy-mm>.md`；同一数值只允许一个唯一口径小节（wiki 下 = 一卷内一个主题页），其余位置指向它；禁止「本轮/本批」类无日期锚点表述。
 5. **主文档历史条目不回改**：被推翻的设计在 §4 原文加「已被 §4.x/§y 取代」注记，不删原文。
+6. **specs 编号是外部契约**：597+ 处文档/代码引用 `specs/<卷>.md §N`（含 `js/*.js` 注释）⇒ **禁止重编号/删编号**；新增内容用新编号追加。改 wiki 页后必跑 `node scripts/wiki-check.js`。

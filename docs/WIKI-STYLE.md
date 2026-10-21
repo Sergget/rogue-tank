@@ -369,6 +369,7 @@ cards / boss / editor 三卷合计仅 822 行，按行数直觉会想压到 6 �
 | 6 | 数值唯一 | 同一参数名在**全卷**只出现一次「= 值」形式 |
 | 7 | 沿革隔离 | 现行页无「已被 X 取代」的整段正文（只允许一行指路） |
 | 8 | 全局链 | `node scripts/check-html.js` EXIT=0（docs 不被扫描，用于确认没碰坏其它） |
+| 9 | wiki-check 全绿 | `node scripts/wiki-check.js` → broken=0 anchorBad=0 struct=0 template=0（archive 豁免） |
 
 **参考实现**：`docs/specs/combat/`（样板卷）。任何与本规范不一致之处，以本规范为准并回改样板。
 
@@ -384,6 +385,12 @@ cards / boss / editor 三卷合计仅 822 行，按行数直觉会想压到 6 �
 | 统计数字必须实测并标日期 | 页内统计写「（YYYY-MM-DD 实测）」；兼容页摘要不写统计 |
 | 模糊词禁用 | 同左 |
 | `§N` 不得重排（AGENTS.md §2.1 新增条） | 由兼容索引页承担；wiki 页内只作溯源标注 |
+| **4 步生命周期（AGENTS.md §2.2）** | Step 1「同步」= 改主题页 + 对齐兼容页摘要 + 跑 `wiki-check`；细节见 **AGENTS.md §2.3** |
+| **多 Agent 写域（AGENTS.md §3.6）** | 一个卷（`<vol>/` 全部主题页 + `<vol>.md`）是**不可分割的写单元**，同时只允许 1 个角色写；跨卷可并行 |
+| **测试链（AGENTS.md §3.1）** | **新增第 5 条链** `node scripts/wiki-check.js`：仅改过 docs 的批次需跑，`broken=0 anchorBad=0 struct=0 template=0` 才算过 |
+
+> **谁负责执行**：`role-verify-docs` 拥有 `scripts/wiki-check.js` 与 specs 生命周期；其它角色改自己卷的主题页后**不自称通过**，交 verify-docs 跑第 5 条链。
+> **执行入口**：日常改动的完整三步见 **AGENTS.md §2.3「改 specs 的三步」**（本节不重复罗列，避免两处口径漂移）。
 
 ---
 

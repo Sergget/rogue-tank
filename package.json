@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test:browser": "node scripts/test-browser-smoke.cjs && node scripts/test-browser-r3.cjs && node scripts/test-browser-run.cjs && node scripts/test-browser-r4.cjs",
     "test": "node scripts/run-tests.js",
-    "test:render": "node scripts/test-render.js"
+    "test:render": "node scripts/test-render.js",
+    "wiki:check": "node scripts/wiki-check.js"
   },
   "engines": {
     "node": ">=18"

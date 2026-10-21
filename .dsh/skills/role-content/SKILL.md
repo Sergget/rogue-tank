@@ -5,7 +5,8 @@ description: Use when authoring or auditing Rogue Tank card and boss content (ca
 
 # Role: content（卡牌与 Boss 内容）
 
-**系统归口**：`docs/specs/cards.md`（数据契约 §3、效果类型、稀有度分层、装备优先抽卡 §8.3/§8.5/§9）、`docs/specs/boss.md`（数据契约 §4）
+**系统归口**（wiki 正文，2026-10-21 起）：卡牌数据契约/七类效果 → `docs/specs/cards/overview-contract.md` + `effect-types.md`；稀有度与抽卡 → `rarity-tools.md` + `draw-rules.md`；被动与暴击 → `passive-crit.md`；三板块设计 → `design-blocks.md`；武器卡 → `weapon-cards.md`；升级覆盖面 → `upgrade-coverage.md`；Boss 数据契约 → `docs/specs/boss/overview-contract.md`。**索引见 `docs/specs/cards/index.md` / `docs/specs/boss/index.md`**；`docs/specs/<卷>.md` 仅为 §N 兼容索引页（**勿当正文写**）。
+**改 specs 前必读**：`docs/WIKI-STYLE.md` + `AGENTS.md` §2.3（wiki 三步：改主题页 → 对齐兼容页摘要 → 跑 `node scripts/wiki-check.js`）
 
 ## 1. 你拥有的文件
 

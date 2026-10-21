@@ -5,8 +5,9 @@ description: Use when the task touches tank sprites, texture baking, procedural 
 
 # Role: render-fx（渲染、贴图与音频）
 
-**系统归口**：`docs/specs/map.md` §22~§25（纹理/材质/立体感/地面层）、`docs/specs/combat.md` §6（特效）、`docs/specs/editor.md`（烘焙工具 §7）
+**系统归口**（wiki 正文，2026-10-21 起）：纹理/材质/立体感/阴影 → `docs/specs/map/textures.md`；地面烘焙与相机像素对齐 → `docs/specs/map/ground-camera.md`；特效/视效 → `docs/specs/combat/fx-visual.md`；音频 → `docs/specs/combat/audio.md`；烘焙工具与贴图涂装规范 → `docs/specs/editor/bake-modules.md` + `visual-spec.md`。**索引见各卷 `index.md`**；`docs/specs/<卷>.md` 仅为 §N 兼容索引页（**勿当正文写**）。
 **项目状态**：`docs/DEVELOPMENT.md` §3
+**改 specs 前必读**：`docs/WIKI-STYLE.md` + `AGENTS.md` §2.3（wiki 三步：改主题页 → 对齐兼容页摘要 → 跑 `node scripts/wiki-check.js`）
 
 ## 1. 你拥有的文件
 

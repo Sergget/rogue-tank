@@ -5,8 +5,9 @@ description: Use when the task touches RULES config, tank stats/model, the entit
 
 # Role: systems（核心系统与数据）
 
-**系统归口**：`docs/specs/combat.md` §4/§13（AI 激活、键位）、`docs/specs/boss.md`（Boss 运行时）、`docs/specs/map.md` §1（节点链）
+**系统归口**（wiki 正文，2026-10-21 起）：AI 激活/技能槽/键位 → `docs/specs/combat/abilities-secondary.md` + `enemy-ai.md`；敌人数值基准与难度乘子 → `docs/specs/combat/enemy-scaling.md`；Boss 运行时/阶段/数值倍率 → `docs/specs/boss/runtime.md` + `scaling.md`；节点链 → `docs/specs/map/map-architecture.md`；复活 → `docs/specs/combat/` 相关页。**各卷索引：`docs/specs/<卷>/index.md`**；`docs/specs/<卷>.md` 仅为 §N 兼容索引页（**勿当正文写**）。
 **项目状态**：`docs/DEVELOPMENT.md` §3
+**改 specs 前必读**：`docs/WIKI-STYLE.md` + `AGENTS.md` §2.3（wiki 三步：改主题页 → 对齐兼容页摘要 → 跑 `node scripts/wiki-check.js`）
 **字段架构**：`js/tank_schema.js`（`FIELD_ROWS`）
 
 ## 1. 你拥有的文件

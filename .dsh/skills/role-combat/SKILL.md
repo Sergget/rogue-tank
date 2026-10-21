@@ -5,8 +5,9 @@ description: Use when the task touches hit resolution, ballistics, shell lifecyc
 
 # Role: combat（战斗与弹道）
 
-**系统归口**：`docs/specs/combat.md`（装甲/跳弹 §3、能力与副武器 §4、特效 §6、AI 激活 §11、键位 §13）
+**系统归口**：`docs/specs/combat/`（wiki 正文，2026-10-21 起）：装甲/跳弹 → `armor-ricochet.md`；弹种数值 → `ammo-system.md`；曲射/榴弹炮 → `arc-fire.md`；能力/副武器/技能槽 → `abilities-secondary.md`；装填与武器本体 → `weapons-reload.md`；特效 → `fx-visual.md`；AI 激活与机动 → `enemy-ai.md`。**索引见 `docs/specs/combat/index.md`**；`docs/specs/combat.md` 仅为 §N 兼容索引页（**勿当正文写**）。
 **项目状态**：`docs/DEVELOPMENT.md` §3
+**改 specs 前必读**：`docs/WIKI-STYLE.md` + `AGENTS.md` §2.3（wiki 三步：改主题页 → 对齐兼容页摘要 → 跑 `node scripts/wiki-check.js`）
 
 ## 1. 你拥有的文件
 

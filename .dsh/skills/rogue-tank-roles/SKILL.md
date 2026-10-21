@@ -22,13 +22,14 @@ description: Use when dispatching or acting as a Rogue Tank specialist role — 
 
 | 文件 | 规则 |
 |---|---|
-| `tank_mvp.html`（367KB） | **单写者**。同一批次只允许 1 个角色改页面接线，其余角色只交付 `js/` 模块。默认写者是 `role-combat`（战斗循环）/ `role-systems`（流程经济）二选一，由调度方指定 |
+| `tank_mvp.html`（390KB） | **单写者**。同一批次只允许 1 个角色改页面接线，其余角色只交付 `js/` 模块。默认写者是 `role-combat`（战斗循环）/ `role-systems`（流程经济）二选一，由调度方指定 |
 | `tank_bench.html` | 同上，默认 `role-render-fx` 或 `role-combat` |
 | `tank_designer.html` / `designer.js` | 仅 `role-systems`（几何） |
 | `js/tank_cards.js` | 仅 `role-content`（枚举与校验单一来源） |
 | `js/tank_boss.js` | 仅 `role-systems`（运行时）；`role-content` 只写 `bosses/*.json` |
-| `docs/specs/*.md` | 单写者：一次只由 1 个角色改，且必须与 `docs/DEVELOPMENT.md §4.x` 同批落地 |
-| `scripts/run-tests.js` / `scripts/check-html.js` | 仅 `role-verify-docs` |
+| **`docs/specs/<卷>/` + `docs/specs/<卷>.md`** | **一整个卷 = 一个不可分割的写单元**，同一时刻只允许 1 个角色改（含该卷全部主题页 + 兼容索引页）。跨卷可并行。必须与 `docs/DEVELOPMENT.md §4.x` 同批落地，并跑 `node scripts/wiki-check.js` |
+| `docs/WIKI-STYLE.md` | specs 形态规范权威；改它等同改纪律，需 Lead 批准 |
+| `scripts/run-tests.js` / `scripts/check-html.js` / **`scripts/wiki-check.js`** | 仅 `role-verify-docs` |
 
 **并行安全规则**：派发 N 个角色时，先确保它们的可写文件集合两两不相交；交集非空就必须串行，或改由 Lead 合并。
 
@@ -46,8 +47,11 @@ description: Use when dispatching or acting as a Rogue Tank specialist role — 
 ```
 node scripts/check-html.js          # 语法冒烟（沙箱内可直接跑，EXIT=0 才算过）
 node node_modules/typescript/bin/tsc --noEmit
-npm test                            # Node 全链
+npm test                            # Node 全链（48 项 + 1 EPERM 环境失败）
 npm run test:browser                # 需系统 Edge；沙箱内 spawn EPERM 属环境限制
+node scripts/wiki-check.js          # 仅当本批改过 docs/：断链/锚点/兼容页结构/wiki 页模板
 ```
+
+> **wiki 化后新增的第 5 条链**：`scripts/wiki-check.js` 只在**改过 docs** 的批次需要跑；`broken=0 anchorBad=0 struct=0 template=0` 才算过。它检查：① 全 docs 树 Markdown 链接目标文件存在 ② `page.md#anchor` 的锚点在目标页有对应标题（GitHub slug 实算）③ `docs/specs/<卷>.md` 有兼容索引警告块且每节有「详见」 ④ `docs/specs/<卷>/*.md` 有 摘要/适用版本/源自/相关 四行 + `## 相关页面`。归档分卷（`docs/archive/**`）的既有断链单独统计、**不计入失败**（归档只增不改）。
 
 停止条件：三条链全绿即止。**禁止**为了"确认"而反复重跑同一链超过 2 次（flaky 项除外，见 `sandbox-verify` skill §5）。
