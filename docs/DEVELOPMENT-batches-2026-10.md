@@ -2230,3 +2230,78 @@ node scripts/wiki-check.js → EXIT=0
 **① `mvp` 这个词在项目里已彻底退役**：后续新增内容（注释/文案/卡面/日志）不得再用 `mvp` 指代正式游戏页，统一用 **正式游戏页** 或 **battle**；`AGENTS.md` §1 的页面描述已随之更新。
 
 **② `git mv` 未能生效（`.git/index.lock` 权限被拒）**，当前工作区是 `D tank_mvp.html` + `?? tank_battle.html`。提交时若 git 未自动识别为 rename，建议显式 `git mv -f` 或 `git add -A` 后核对 `git status`，避免历史里出现「删一个 + 加一个」而丢失 6428 行的 rename 关联。
+
+## §4.117 浏览器链 r3 陈旧断言修复（2026-10-21）
+
+> 来源：用户实跑 `npm run test:browser`，smoke 链 **ALL PASS**，但 `test-browser-r3.cjs` 在
+> 「测试台具备 R-1/R-2/R-3 面板控制按钮」处 **FAIL**，随后 `page.evaluate` 抛
+> `TypeError: Cannot read properties of null (reading 'click')` 中断整条链。
+
+### 根因：测试断言与 2026-10-19 #7 / 2026-10-20 #W9 的用户裁定脱节（非代码回归）
+
+`test-browser-r3.cjs` 断言 bench 页存在 5 个按钮，但这些按钮**早已被用户裁定删除**：
+
+| 按钮 | 删除依据 | 现状 |
+|---|---|---|
+| `skillFireCtrlBtn` / `skillSpeedBtn` | 2026-10-20 #W9（`super_fire_control` / `super_speed` 两键无任何卡牌可授予、正式游戏不可达，整体摘除） | 元素不存在 |
+| `spawnTurretBtn` / `spawnMineBtn` / `spawnCoverBtn` | 2026-10-19 #7（用户：「删除功能测试扩展 Panel Test (R-1/R-2/R-3)」——该区块被共享 devPanel 完全覆盖，属重复入口） | 元素不存在 |
+
+`tank_bench.html:232-235` 与该文件 `:721-723` 均有明确注释记录删除依据。断言的**能力校验意图仍然成立**，
+只是入口从「DOM 按钮」迁到了「window API」：`benchSpawnTurret` / `benchSpawnMine` / `benchSpawnCover`
+仍在并挂 `window`（`tank_bench.html:864-866`，掩体超限拒绝逻辑在 `:851-863`）。
+
+### 第二处陈旧断言（同一次链跑会连带失效）
+
+`:174` / `:192` 用 `c.style.fontWeight === '700'` 判定弹种条的**激活格**——那是 bench 旧内联实现的写法。
+#3（2026-10-20）把弹种条收敛到共享 `js/tank_hud.js` 的 `renderAmmoIndicator(H)` 后，**不再输出内联
+`fontWeight`**，激活态改由 `.ammo-cell.active` 类表达 ⇒ `cells.find(...)` 恒返回 `undefined`，
+连带「Q 键环形切换」与「方向提示与键位同向」两条断言一起失效。
+
+### 修复（`scripts/test-browser-r3.cjs`）
+
+1. **面板按钮段**改为验证**现行口径**：`window.benchSpawnTurret/Mine/Cover` 均为函数，并**反向断言**
+   5 个旧按钮**不存在**（防重复入口回潮）。
+2. **部署物生成 / #F6 掩体超限**两条改为直接调 `window.benchSpawn*`（行为断言不变：+3 注册、
+   `count1===2 && count2===2 && after===before+1`）。
+3. **激活格判定** `style.fontWeight === '700'` → `classList.contains('active')`（Q 键切换、方向提示两条）。
+
+> **修复后仍无法在沙箱内实跑**：本次 `node scripts/test-browser-r3.cjs` 在 `startServer` 处直接
+> `spawn EPERM`（`r3.cjs:46`）——§3.7 已记录的沙箱边界。故本轮只做**静态核对**（见下），
+> 浏览器链需在正常环境复跑。
+
+### 静态核对（沙箱内可做的等价验证；结果已由下方四链实跑确认）
+
+| 断言依赖 | 核对结果 |
+|---|---|
+| `tank_hud.js` 已加载 | `tank_bench.html:318` `<script src="js/tank_hud.js">` ✓ |
+| `getAmmoKeys` 存在（`renderAmmoIndicator` 的 `list` 注入） | `tank_bench.html:500` ✓ |
+| 共享实现输出 `.ammo-cell` / `.active` | `js/tank_hud.js:134` ✓；bench CSS 已补齐（`:129-136`，§4.111） |
+| `window.benchSpawn*` 三入口 | `tank_bench.html:864-866` ✓ |
+| 掩体超限拒绝 | `tank_bench.html:855-859`（`count >= cap` → 提示并 return，不生成）✓ |
+| 5 个旧按钮确不存在 | `grep` 全文零命中（仅本测试文件的注释/反向断言提及）✓ |
+
+### 验证
+
+- `node scripts/check-html.js` → **EXIT=0**
+- `node --check scripts/test-browser-r3.cjs` → **EXIT=0**
+- `npm test` → **48 通过 / 1 失败（49 项）**，唯一失败 `test-cover-gen.js` 为既有沙箱 EPERM（同 §3.7）
+- `node scripts/test-browser-r3.cjs` → 沙箱内 **spawn EPERM（exit 2）**（拦截点在 `startServer`，`r3.cjs:46`）；**2026-10-21 正常环境实跑四链 ALL PASS**（见下）
+
+**四链实跑结果（2026-10-21，正常环境）**：
+
+| 链 | 结果 | 关键断言 |
+|---|---|---|
+| `test-browser-smoke.cjs` | **ALL PASS** | Home→Loadout→Shop→battle 主链路、HUD/面板、弹种 Q/E、飘字、#23 敌人开火 |
+| `test-browser-r3.cjs` | **ALL PASS** | 原 FAIL 三条已转绿：`{"spawnTurret":true,"spawnMine":true,"spawnCover":true,"noLegacyBtns":true}` / `count: 0 -> 3` / `{"before":3,"after":4,"count1":2,"count2":2}`；弹种条 `blast_he -> proximity_he (total=14)`、`{"nextHint":"E","prevHint":"Q"}` |
+| `test-browser-run.cjs` | **ALL PASS** | run 链路、弹种链逐级演变、devPanel 四 Tab、卡牌搜索/回滚 |
+| `test-browser-r4.cjs` | **ALL PASS** | 主武器四型实战、F 副武器五型（含 mine_layer 边沿/雷场）、技能池 artillery/shield/overdrive/aps、商店购买结算 |
+
+> **反证意义**：r3 的两处修复正是本次唯一改动，四链全绿证明「删除旧按钮 → window API」与
+> 「`fontWeight` → `.active`」两条改写未削弱任何既有覆盖（r3 其余 20+ 条断言仍全部在跑且通过）。
+
+### 教训
+
+本次两条失效断言**都不是本轮改动引入的回归**，而是「被测对象按用户裁定改变后测试未同步」——
+`check-html.js` 只做语法冒烟，Node 链覆盖不到 DOM/浏览器行为，所以它们可以长期静默存在。
+**约定**：删除 DOM 元素或改渲染契约（类名/结构）时，必须同批 `grep` 全部 `scripts/test-browser-*.cjs`
+确认无引用；测试里对**玩家可见 DOM 契约**的断言应优先断言语义类（`.active`）而非样式值（`fontWeight`）。

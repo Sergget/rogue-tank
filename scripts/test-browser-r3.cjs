@@ -98,44 +98,49 @@ function realErrorsOf(errs) {
 
     check('tank_bench.html 正常加载无 console error', realErrorsOf(benchErrors).length === 0, `errors=${JSON.stringify(realErrorsOf(benchErrors))}`);
 
-    // 验证 R-1/R-2/R-3 扩展面板 DOM 元素存在
-    const panelBtns = await page.evaluate(() => ({
-      skillFireCtrl: !!document.getElementById('skillFireCtrlBtn'),
-      skillSpeed: !!document.getElementById('skillSpeedBtn'),
-      spawnTurret: !!document.getElementById('spawnTurretBtn'),
-      spawnMine: !!document.getElementById('spawnMineBtn'),
-      spawnCover: !!document.getElementById('spawnCoverBtn'),
+    // 2026-10-21 修复（陈旧断言）：原断言「R-1/R-2/R-3 面板控制按钮」中的 5 个按钮
+    //   （skillFireCtrlBtn / skillSpeedBtn / spawnTurretBtn / spawnMineBtn / spawnCoverBtn）
+    //   **已于 2026-10-19 #7 用户裁定删除**（tank_bench.html:232 注释：该区块的三个部署按钮
+    //   已被共享 devPanel 完全覆盖，属重复入口）；其中 super_fire_control / super_speed 两键
+    //   又于 2026-10-20 #W9 整体摘除。测试未同步 ⇒ 本条恒 FAIL 且后续 evaluate 抛 null.click。
+    //   现行口径：部署能力仍在（benchSpawnTurret/Mine/Cover 挂在 window，见 tank_bench.html:864-866），
+    //   只是不再有独立按钮 —— 改为直接调这些 window 入口验证同一行为。
+    const panelApi = await page.evaluate(() => ({
+      spawnTurret: typeof window.benchSpawnTurret === 'function',
+      spawnMine: typeof window.benchSpawnMine === 'function',
+      spawnCover: typeof window.benchSpawnCover === 'function',
+      // 反向断言：被 #7/#W9 删除的按钮**不得**回潮（重复入口）
+      noLegacyBtns: !document.getElementById('skillFireCtrlBtn')
+        && !document.getElementById('skillSpeedBtn')
+        && !document.getElementById('spawnTurretBtn')
+        && !document.getElementById('spawnMineBtn')
+        && !document.getElementById('spawnCoverBtn'),
     }));
-    check('测试台具备 R-1/R-2/R-3 面板控制按钮', Object.values(panelBtns).every(Boolean), JSON.stringify(panelBtns));
+    check('测试台部署能力以 window API 暴露（#7 删除重复按钮后的现行口径）',
+      panelApi.spawnTurret && panelApi.spawnMine && panelApi.spawnCover && panelApi.noLegacyBtns,
+      JSON.stringify(panelApi));
 
-    // 点击主动技能按钮
-    await page.evaluate(() => {
-      document.getElementById('skillFireCtrlBtn').click();
-      document.getElementById('skillSpeedBtn').click();
-    });
-    await page.waitForTimeout(200);
-
-    // 点击战术部署按钮（固定炮塔 / 地雷 / 掩体）
+    // 战术部署（固定炮塔 / 地雷 / 掩体）——走 window API
     const deployRes = await page.evaluate(() => {
       const before = (window.deployables && window.deployables.length) || 0;
-      document.getElementById('spawnTurretBtn').click();
-      document.getElementById('spawnMineBtn').click();
-      document.getElementById('spawnCoverBtn').click();
+      window.benchSpawnTurret();
+      window.benchSpawnMine();
+      window.benchSpawnCover();
       const after = (window.deployables && window.deployables.length) || 0;
       return { before, after };
     });
     check('战术部署物生成（炮塔/地雷/掩体注册进 deployables）', deployRes.after === deployRes.before + 3, `count: ${deployRes.before} -> ${deployRes.after}`);
-    // #F6（2026-09-20 用户反馈）：掩体按钮超限拒绝，保留已部署掩体
+    // #F6（2026-09-20 用户反馈）：掩体超限拒绝，保留已部署掩体
     const coverLimitRes = await page.evaluate(() => {
       const before = (window.deployables && window.deployables.length) || 0;
-      document.getElementById('spawnCoverBtn').click(); // 第 2 个掩体（应成功）
+      window.benchSpawnCover(); // 第 2 个掩体（应成功）
       const count1 = (typeof deployableCount === 'function') ? deployableCount('cover') : 0;
-      document.getElementById('spawnCoverBtn').click(); // 第 3 个掩体（应拒绝）
+      window.benchSpawnCover(); // 第 3 个掩体（应拒绝）
       const count2 = (typeof deployableCount === 'function') ? deployableCount('cover') : 0;
       const after = (window.deployables && window.deployables.length) || 0;
       return { before, after, count1, count2 };
     });
-    check('#F6 掩体按钮超限拒绝（保留已部署掩体）',
+    check('#F6 掩体超限拒绝（保留已部署掩体）',
       coverLimitRes.count1 === 2 && coverLimitRes.count2 === 2 && coverLimitRes.after === coverLimitRes.before + 1,
       JSON.stringify(coverLimitRes));
 
@@ -163,17 +168,20 @@ function realErrorsOf(errs) {
     });
     check('点击弹种格切换至 BLAST_HE（2026-09-14 hec 移除后由 blast_he 接替）', ammo6.text.includes('HE-OP') || ammo6.text.includes('超压榴弹'), ammo6.text);
 
-    // Q 键环形循环（与正式游戏同语义：font-weight:700 的格子为当前激活弹种）
+    // Q 键环形循环（与正式游戏同语义）
+    // 2026-10-21 修复（陈旧断言）：激活格判定由 `style.fontWeight==='700'` 改为 `.active` 类——
+    //   #3（2026-10-20）弹种条收敛到共享 renderAmmoIndicator 后不再输出内联 fontWeight，
+    //   旧写法会恒取到 null（`cells.find(...)` 返回 undefined）⇒ 本条与下面两条连锁失效。
     const qRes = await page.evaluate(() => {
       const cells = Array.from(document.querySelectorAll('#ammoIndicator [data-ammo]'));
-      const active = cells.find(c => c.style.fontWeight === '700');
+      const active = cells.find(c => c.classList.contains('active'));
       return { active: active ? active.getAttribute('data-ammo') : null, total: cells.length };
     });
     await page.keyboard.press('q');
     await page.waitForTimeout(150);
     const qRes2 = await page.evaluate(() => {
       const cells = Array.from(document.querySelectorAll('#ammoIndicator [data-ammo]'));
-      const active = cells.find(c => c.style.fontWeight === '700');
+      const active = cells.find(c => c.classList.contains('active'));
       return { active: active ? active.getAttribute('data-ammo') : null };
     });
     check('Q 键环形切换弹种（与正式游戏同语义）',
@@ -184,7 +192,7 @@ function realErrorsOf(errs) {
     // 上一格提示 Q（旧实现颠倒：下一格标 Q，按提示按键得到反向弹种）。
     const hintRes = await page.evaluate(() => {
       const cells = Array.from(document.querySelectorAll('#ammoIndicator [data-ammo]'));
-      const idx = cells.findIndex(c => c.style.fontWeight === '700');
+      const idx = cells.findIndex(c => c.classList.contains('active'));
       if (idx < 0 || cells.length < 3) return null;
       const n = cells.length;
       const nextHint = cells[(idx + 1) % n].textContent.trim()[0];
