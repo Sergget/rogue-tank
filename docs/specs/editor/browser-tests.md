@@ -11,15 +11,15 @@
 
 | 脚本 | 页面 | 覆盖 |
 |---|---|---|
-| `test-browser-smoke.cjs` | mvp + bench | Home→Loadout→Shop→Map→battle 主链路、HUD/Tab/devPanel、弹种 E/Q 轮换、飘字、敌人开火命中、无 dummy、项目错误监听 |
-| `test-browser-r3.cjs` | bench + mvp | bench 技能/召唤物（炮塔/地雷/掩体注册投递）、弹种切换、G 炮击链路、掩体按钮超限拒绝（#F6） |
-| `test-browser-run.cjs` | mvp | 真实 run 链路、弹种三槽轮换、卡牌直系演变与跳级拒绝、G/H/V 入口、devPanel 四 Tab、卡牌选择器搜索/`/`/应用/×N/−1 回滚、雷场预约门控（#F6） |
-| `test-browser-r4.cjs` | mvp | **主武器各类型实战**（standard 单发 / double_barrel 空格齐射 2 发 / autocannon 连发+heatPct / railgun 单发）、**F 副武器**（mortar isArc / rocket burst / missile 锁定发射且按住不翻转 / mine_layer 按住只走一次边沿 + 雷场生成 + 触爆掉血）、**技能实战效果**（artillery 落弹掉血 / shield 吸收池 / overdrive 装填归零）、**商店购买结算**（hp_up 扣点+记录 / 复活加购 / 升级作用于开局） |
+| `test-browser-smoke.cjs` | battle + bench | Home→Loadout→Shop→Map→battle 主链路、HUD/Tab/devPanel、弹种 E/Q 轮换、飘字、敌人开火命中、无 dummy、项目错误监听 |
+| `test-browser-r3.cjs` | bench + battle | bench 技能/召唤物（炮塔/地雷/掩体注册投递）、弹种切换、G 炮击链路、掩体按钮超限拒绝（#F6） |
+| `test-browser-run.cjs` | battle | 真实 run 链路、弹种三槽轮换、卡牌直系演变与跳级拒绝、G/H/V 入口、devPanel 四 Tab、卡牌选择器搜索/`/`/应用/×N/−1 回滚、雷场预约门控（#F6） |
+| `test-browser-r4.cjs` | battle | **主武器各类型实战**（standard 单发 / double_barrel 空格齐射 2 发 / autocannon 连发+heatPct / railgun 单发）、**F 副武器**（mortar isArc / rocket burst / missile 锁定发射且按住不翻转 / mine_layer 按住只走一次边沿 + 雷场生成 + 触爆掉血）、**技能实战效果**（artillery 落弹掉血 / shield 吸收池 / overdrive 装填归零）、**商店购买结算**（hp_up 扣点+记录 / 复活加购 / 升级作用于开局） |
 
 ## 边界与钩子
 
 - **边界（浏览器不做，Node 侧覆盖）**：敌人 AI 决策与 Boss 阶段行为由 `test-ai.js` / `test-boss.js` 覆盖；浏览器仅验证敌人存在 + 开火命中。
-- **测试钩子**（`tank_mvp.html` 的 `window.__TEST__`，不影响生产路径）：`shells()`/`strikes()`/`profile()`/`rerenderShop()` 供 r4 采样闭包内状态；既有 `pendingMineFields`/`mineFieldPreview`/`giveCard`/`skipToNode`/`setTimeScale` 复用。
+- **测试钩子**（`tank_battle.html` 的 `window.__TEST__`，不影响生产路径）：`shells()`/`strikes()`/`profile()`/`rerenderShop()` 供 r4 采样闭包内状态；既有 `pendingMineFields`/`mineFieldPreview`/`giveCard`/`skipToNode`/`setTimeScale` 复用。
 
 ## r4 夹具约定
 
@@ -36,7 +36,7 @@
 
 > **沙箱限制**：沙箱内跑 browser 链需按 `sandbox-verify` 一次性放宽进程权限（`spawn EPERM`），复用已监听的 server 可避开 listen 拒绝。失败时输出 `INCONCLUSIVE` + 退出码 **86**——**那是环境未放开，不是代码失败**。
 
-实测中发现的 3 处真实缺陷（mvp `devNoVision` TDZ、bench 陈旧复选框接线、开关类副武器 F 逐帧翻转）均已修复，见 `DEVELOPMENT.md` §4.27；F 键边沿口径归口 [战斗规范 · 开关类副武器](../combat/abilities-secondary.md)。
+实测中发现的 3 处真实缺陷（battle `devNoVision` TDZ、bench 陈旧复选框接线、开关类副武器 F 逐帧翻转）均已修复，见 `DEVELOPMENT.md` §4.27；F 键边沿口径归口 [战斗规范 · 开关类副武器](../combat/abilities-secondary.md)。
 
 ## 相关页面
 - [开发者面板](./devpanel.md) — 四链中被验证的 devPanel 四 Tab 与卡牌选择器

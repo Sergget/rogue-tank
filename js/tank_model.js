@@ -235,9 +235,9 @@ function computeStats(base, modifiers){
 // 入参 t：敌人坦克（含 .base 与 .stats，stats 已含先行 entityMults）；
 //   opts.player：**已废弃（#H1）**——原为玩家基准，现封顶一律改按 RULES.enemyAnchorBase 固定基准，
 //     保留字段仅为兼容旧调用方（传了也忽略）。
-//   opts.strongest：最强弹种终伤（mvp 由 computeAmmoConfig 预计算传入，避免本文件倒序依赖
+//   opts.strongest：最强弹种终伤（battle 由 computeAmmoConfig 预计算传入，避免本文件倒序依赖
 //   tank_cards）；#H1 起缺省改用固定基准伤害推算，见 strongestAnchorDmg。
-//   opts.diffNorm：归一难度 0~1；opts.randFactor：每辆车独立随机浮动（0.85~1.15，运行期随机非 RNG 流，mvp 用 Math.random 生成）。
+//   opts.diffNorm：归一难度 0~1；opts.randFactor：每辆车独立随机浮动（0.85~1.15，运行期随机非 RNG 流，battle 用 Math.random 生成）。
 // 返回「需要注入的 mult 字典」：只在真正要封顶/抬升时才出现对应键（penMul | dmgFloorMul |
 // dmgCapMul | speedMul），无关键不存在——调用方据此遍历 addModifier，避免无谓注入。
 function difficultyCapMuls(t, opts){
@@ -347,10 +347,10 @@ function removeRunModifiers(tank){
   if (tank && tank._cardApplyCount) tank._cardApplyCount = {};
   // #G（2026-09-21）：按序施加日志与计数同生命周期
   if (tank && tank._cardApplyLog) tank._cardApplyLog = [];
-  // #G（2026-09-21）：APS 拦截窗口跨局不残留（mvp updateAps 消费）
+  // #G（2026-09-21）：APS 拦截窗口跨局不残留（battle updateAps 消费）
   if (tank) { tank._apsT = 0; tank._apsHits = 0; }
   // #W6（2026-10-19）：economy 运行期字段同样必须归零。
-  //   根因：player 是 mvp 模块级单例，runScoreMul / runReviveBonus 只由 applyCardEffects 写入，
+  //   根因：player 是 battle 模块级单例，runScoreMul / runReviveBonus 只由 applyCardEffects 写入，
   //   而 removeRunModifiers 与 prepPlayerForRun 都只清 modifiers/cardEffects，不清这两个字段 ⇒
   //   拿过一次「后勤保障」（scoreMul 1.15）之后，**以后每一局结算分永久 ×1.15 并继续复乘**；
   //   「战场救护协议」的 +1 复活同样永久累积。长期档因此单调膨胀。
@@ -677,7 +677,7 @@ function applyTankConfig(tank, spec){
  * @param {any} tank 敌军实体
  * @param {any} spec tanks/*.json 规格
  * @param {any} [anchorStats] **已废弃（#H1）**——原为玩家基准快照入参，现一律忽略；
- *   保留该形参仅为兼容旧调用方（mvp/bench/测试仍按位置传第三参）。见 RULES.enemyAnchorBase。
+ *   保留该形参仅为兼容旧调用方（battle/bench/测试仍按位置传第三参）。见 RULES.enemyAnchorBase。
  * @param {any} [entityMults] 难度乘子表
  */
 function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
@@ -839,7 +839,7 @@ function applyEnemyAppearanceAndStats(tank, spec, anchorStats, entityMults){
 //     表格顺序即升级顺序；不碰 heat/he 化学链（Boss 仍可自由配任何弹种，不回退）。
 //   · **每 3 级升一档**：`step = floor((level - 1) / 3)`，钳到链长-1。
 //     例：lv1~3 → ap，lv4~6 → apcr，lv7~9 → apds，lv10~12 → apfsds，lv13+ → apfsds_ad。
-//   · 纯函数、无副作用，供 mvp/bench/图鉴共用（单一数据源）。
+//   · 纯函数、无副作用，供 battle/bench/图鉴共用（单一数据源）。
 const AP_AMMO_CHAIN = ['ap', 'apcr', 'apds', 'apfsds', 'apfsds_ad'];
 
 /**

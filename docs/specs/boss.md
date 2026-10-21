@@ -116,7 +116,7 @@
 
 ### 8.3 Boss 随机走位（反站桩）（#I4）
 
-> `RULES.ai.bossWander`（interval 2.2~4.6s、环绕玩家 240~520px、`waypointReach 90`、`clampMargin 140`）；`updateBossBehavior` 写 `t._bossMoveOverride = {turn, move}`，mvp AI 循环对 Boss 替换车体输入（**炮塔照常锁定玩家瞄准开火**）。豁免：`crush` 风格、weave 冲刺窗口、激光期、目标已毁。hold/skirmish/command/**fortify** 均获得机动。
+> `RULES.ai.bossWander`（interval 2.2~4.6s、环绕玩家 240~520px、`waypointReach 90`、`clampMargin 140`）；`updateBossBehavior` 写 `t._bossMoveOverride = {turn, move}`，battle AI 循环对 Boss 替换车体输入（**炮塔照常锁定玩家瞄准开火**）。豁免：`crush` 风格、weave 冲刺窗口、激光期、目标已毁。hold/skirmish/command/**fortify** 均获得机动。
 
 **详见**：[战斗规范 · Boss 战斗](./combat/boss-combat.md)（随机走位）
 

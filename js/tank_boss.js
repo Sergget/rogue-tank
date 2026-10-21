@@ -369,7 +369,7 @@ function _summonListFallback(t, cfg) {
 //   ② AI 接入层每帧仍按 turretDesired 驱动炮塔（与乘子叠加，效果不可预测）。
 // 现行口径：激光期（蓄能+射击）由 updateBossLaser **直接推进 t.turretAngle**，角速度取
 // `RULES.boss.laser.laserTurnSpeed`（固定 rad/s，不受 modifier/难度影响）；同时置
-// `t.bossLaserHoldTurret = true`——接入层（mvp 主循环）据此**跳过 AI 转炮**，两个系统不打架。
+// `t.bossLaserHoldTurret = true`——接入层（battle 主循环）据此**跳过 AI 转炮**，两个系统不打架。
 // 转向差（与 tank_utils.angDiff 同公式，本地实现——本模块保持零依赖纯逻辑约定）
 function _laserAngDiff(target, current) {
   const TAU2 = Math.PI * 2;
@@ -438,7 +438,7 @@ function bossSummonWave(t, difficulty) {
   const tol = cfg.tolerance !== undefined ? cfg.tolerance : 0.02;
   const def = cfg.hpFrom || [0.75, 0.5, 0.25];
   if (!Array.isArray(t.bossSummonWavesDone)) t.bossSummonWavesDone = [];
-  // 时间兜底：bossFightT 累计（mvp 主循环经 updateBossBehavior 传入 dt 累加）
+  // 时间兜底：bossFightT 累计（battle 主循环经 updateBossBehavior 传入 dt 累加）
   const timeTrigger = cfg.timeTriggerSec !== undefined ? cfg.timeTriggerSec : 75;
   if (t.bossFightT === undefined) t.bossFightT = 0;
   const timeUp = t.bossFightT >= timeTrigger;
@@ -635,7 +635,7 @@ function updateBossBehavior(t, dt, target, opts) {
   if (t.bossHitReactT > 0) t.bossHitReactT = Math.max(0, t.bossHitReactT - dt);
   // #W5（2026-10-19）：受击减速 timed 修饰器必须**显式回收**。
   //   原先只靠 addModifier 写入 expiresAt，指望 `refreshStats` 的到期过滤剪除；
-  //   但非玩家实体**没有任何逐帧 refreshStats**（tank_mvp 只对 player 调用）⇒
+  //   但非玩家实体**没有任何逐帧 refreshStats**（tank_battle 只对 player 调用）⇒
   //   玩家打完一发停手 >0.25s 后，Boss 会永久保持 0.35× 极速（≈44px/s），直到下次被命中。
   //   此处按 `boss-charge` 的既有做法（updateBossStage 内到期 removeModifierBySource）回收，
   //   判据用减速窗口自己的 bossHitSlowUntil（与视觉窗口 bossHitReactT 不同长）。
@@ -664,7 +664,7 @@ function updateBossBehavior(t, dt, target, opts) {
 
   // --- #I4（2026-09-21 用户裁定「boss 几乎完全是站桩等玩家」）：Boss 随机走位层 ---
   // 周期性在玩家周围随机选点（环绕/侧移，保持交战距离），写入 t._bossMoveOverride =
-  // { turn, move }；mvp AI 循环对 Boss 用该覆盖替换 aiDecide 的 d.turn/d.move（炮塔照常
+  // { turn, move }；battle AI 循环对 Boss 用该覆盖替换 aiDecide 的 d.turn/d.move（炮塔照常
   // 锁定玩家瞄准开火）——hold/skirmish/command/fortify 全部获得机动，不再站桩。
   // 豁免：crush 风格（冲撞碾压为身份，本就追人）；激光期（bossLaserHoldMove 冻结）；
   // weave 冲刺窗口（冲刺方向保持原逻辑）。
@@ -756,7 +756,7 @@ function updateBossBehavior(t, dt, target, opts) {
   // t.barrageCdT 计时（首延迟 interval，之后每 interval 一轮 shots 连发）。
   // 落点 = 玩家当前位置附近散布（callStrike 内部按 radius 圆周均匀散布 shellCount 个落弹点，
   // stagger 缺省连发）；delay/radius/dmgMult 全部经 callStrike 自定义参数传入；
-  // 预警红圈由 mvp 层统一画 strikes 数据，这里只负责发数据。
+  // 预警红圈由 battle 层统一画 strikes 数据，这里只负责发数据。
   if (bb.barrage && alive && typeof callStrike === 'function') {
     const br = bb.barrage;
     t.barrageCdT = (t.barrageCdT === undefined ? br.interval : t.barrageCdT - dt);

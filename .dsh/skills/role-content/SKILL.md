@@ -55,7 +55,7 @@ description: Use when authoring or auditing Rogue Tank card and boss content (ca
 ```
 
 - 弱点 key 必须在 `BOSS_WEAKSPOT_KEYS` 内。
-- **Boss 随机武备**（#U39）：`pickBossArmament` + mvp `assignBossArmament`，走 `applyCardEffects`（与玩家同一语义通道），参数唯一口径 `RULES.boss.armament`。实测 500 次平均 3.27 张/Boss。
+- **Boss 随机武备**（#U39）：`pickBossArmament` + `tank_battle` 侧 `assignBossArmament`，走 `applyCardEffects`（与玩家同一语义通道），参数唯一口径 `RULES.boss.armament`。实测 500 次平均 3.27 张/Boss。
 - Boss 免疫溺毙；Boss 保持方形节点形态（不走 strip）。
 
 ## 5. 平衡预算

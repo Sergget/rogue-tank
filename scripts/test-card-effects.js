@@ -327,7 +327,7 @@ console.log(`  结构+无副作用验证: ${structureOnlyCards}/${CARDS.length} 
 console.log('TODO（运行时行为测试随对应里程碑补充，见 DEVELOPMENT.md §6）:');
 console.log('  - ammo/ability/passive/drone 运行时效果 → P-17（战术卡牌能力与主动装备拓展）');
 console.log('  - economy 运行时效果 → 局内商店里程碑（M10）');
-console.log('  - maxStacks 硬性截断（选择阶段拒绝超上限重复拿卡）→ 卡牌选择 UI 接线（当前 mvp pickCard 未截断，tank_mvp.html:668）');
+console.log('  - maxStacks 硬性截断（选择阶段拒绝超上限重复拿卡）→ 卡牌选择 UI 接线（当前 battle pickCard 未截断，tank_battle.html:668）');
 
 console.log(`test-card-effects: 完成所有检查（${asserts} 断言，${CARDS.length} 张卡）`);
 if (fails === 0) console.log('test-card-effects: 全部通过');

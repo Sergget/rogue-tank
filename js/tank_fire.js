@@ -1,7 +1,7 @@
 'use strict';
 
 // tank_fire.js — 战斗核心管线收敛（P-28）。
-// mvp/bench 双份内联副本收口到此：
+// battle/bench 双份内联副本收口到此：
 //   shellVerticalDecision / fireTank / tryFire
 //   computeSolution / updateSolution + shells 飞行积分物理/判定（stepShells）
 // 浏览器：全局脚本按序加载，ctx 缺省回退全局；Node：经 ctx 显式注入（covers/entities/fx/audio/RULES）
@@ -262,7 +262,7 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
   //
   // #W-I（2026-10-19 用户裁定，榴弹炮曲射模式回归）：`isHowitzerMode(t)` 时主炮切
   //   曲射——弹种**锁定 he**（忽略玩家当前 ammoKey），瞄准点 = 鼠标世界位置（ctx.aimPoint，
-  //   由 mvp 注入），越掩体（isArc 天然绕路径遮挡），落点分支在 stepShells 的 s.isArc。
+  //   由 battle 注入），越掩体（isArc 天然绕路径遮挡），落点分支在 stepShells 的 s.isArc。
   if (_isHowitzerMode(shooter)) {
     // #W-I（2026-10-20 用户裁定改口径）：榴弹炮 = **副武器**。
     //   参数单一口径 WEAPON_DEFAULTS.primary.howitzer（曲射机制参数），
@@ -300,7 +300,7 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
     // 2026-10-20 用户裁定：实际落点也吃**散布**——与瞄准器散布圈同一口径
     //   （σ×spreadFactor，σ=主炮精度弧度），把落点沿**切向**偏移该角度的一个高斯样本。
     //   这样圈不是装饰：弹着点真的按圈的范围分布（横向切向偏移；径向距离保持瞄准距离）。
-    //   ⚠️ spreadFactor 与 mvp 散布圈（tank_mvp.html 的 howitzer 瞄准器）**同一参数源**
+    //   ⚠️ spreadFactor 与 battle 散布圈（tank_battle.html 的 howitzer 瞄准器）**同一参数源**
     //   （WEAPON_DEFAULTS.primary.howitzer.spreadFactor），改一处自动跟随。
     const spreadFactor = (typeof hs.spreadFactor === 'number') ? hs.spreadFactor : 1.2;
     const aimDistW = Math.hypot(aimX - fx, aimY - fy);
@@ -358,7 +358,7 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
 }
 
 /**
- * #W-I 急速射队列驱动（mvp 主循环逐帧调用，模式仅玩家侧）。
+ * #W-I 急速射队列驱动（battle 主循环逐帧调用，模式仅玩家侧）。
  * `_howitzerBurst = { left, interval, aim }`：每 interval 秒向**首发快照落点**追发一发，
  * 队列清空后写整组装填（reload × howitzer.reloadMult）。
  * #X7（2026-10-20 用户裁定「整组锁定首发落点」）：aim 是首发瞬间的落点快照，透传为
@@ -705,7 +705,7 @@ function tryFire(ctx, salvo){
 //   tryFireSecondary(ctx)        → 副武器（F 按住连发），经 fireActiveSecondary 向光标世界点击发；
 //           目标=ctx.mouseWorld，缺省回退玩家炮塔前方 +100px。
 // turret 型为设计例外（PLAN 6.2 多炮塔 Boss 行为基座，带独立炮塔角的**自瞄自主**副炮塔）：
-// 装上即由 mvp 主循环逐帧 updateSecondaryWeapon 自主驱动，tryFireSecondary 对其恒返回 false
+// 装上即由 battle 主循环逐帧 updateSecondaryWeapon 自主驱动，tryFireSecondary 对其恒返回 false
 // （无「点击被主炮路径劫持」问题——主/副已按键位分流）。副武器缺省（none/未装）时
 // tryFireSecondary 返回 false，由页面层提示（不再回落主炮——主炮有专属键位）。
 function tryFirePrimary(ctx, salvo){
@@ -1079,7 +1079,7 @@ function stepShells(dt, ctx){
       }
     }
     // #E4（2026-09-20）便携式掩体「单向透明」：部署方阵营的炮弹可穿过（不拦截），
-    // 对立方炮弹按确定性实体拦截（在掩体入口点截停）。视觉朝向指示见 mvp 绘制层。
+    // 对立方炮弹按确定性实体拦截（在掩体入口点截停）。视觉朝向指示见 battle 绘制层。
     // 判定用部署物实例几何（hullLen×hullWid OBB）与弹道线段求交。
     //
     // #10（2026-10-19 用户裁定）：「单向通过性**仅限掩体后一段有效距离**——即如果掩体后
@@ -1230,6 +1230,6 @@ if(typeof module!=='undefined'&&module.exports){
   module.exports={fireTank:fireTank,tryFire:tryFire,tryFirePrimary:tryFirePrimary,tryFireSecondary:tryFireSecondary,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels,ensureClipState:ensureClipState,updatePrimaryClip:updatePrimaryClip,fireClipWeapon:fireClipWeapon,clipMagReloadSeconds:clipMagReloadSeconds,
   // #10（2026-10-19）：便携掩体"后方有效区"判定（纯函数，供测试与页面共用）
   behindCoverOnlyTurretHit:behindCoverOnlyTurretHit,
-  // #W-I（2026-10-20）：榴弹炮急速射队列驱动（mvp 主循环调用）
+  // #W-I（2026-10-20）：榴弹炮急速射队列驱动（battle 主循环调用）
   updateHowitzerBurst:updateHowitzerBurst};
 }

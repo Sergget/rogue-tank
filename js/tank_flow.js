@@ -20,7 +20,7 @@ const FLOW_STATES = [
 // #W15（2026-10-20 用户裁定「删除」）：`FLOW_OUTRUN_STATES` 与 `restartRun` 已一并摘除。
 //   沿革：`restartRun(flow)` 原为「重开一局：回 map + runId 自增」的入口，但 **正式页面
 //   零调用点**（全仓仅 `scripts/test-flow.js` 与 `types/globals.d.ts` 引用，属测试与类型
-//   声明自循环；`tank_mvp.html` 仅剩历史注释）。实际的「重新开始」走
+//   声明自循环；`tank_battle.html` 仅剩历史注释）。实际的「重新开始」走
 //   `gameover → battle` 直达（#N5 2026-10-10 简化流程）与「放弃节点」的
 //   `battle → map` 转移，二者都不经过本函数 ⇒ 属死入口。
 //   `FLOW_OUTRUN_STATES`（home/loadout/shop 局外三态）只为 `restartRun` 的 no-op 语义而存在，

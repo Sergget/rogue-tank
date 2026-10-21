@@ -15,7 +15,7 @@
 
 `tank_cards.js` 的 `drawCardChoices(pool, n, { rng, ammoLoadout, owned })`。
 
-`owned = { abilities: string[], primaryWeapon: string, secondaryWeapon: string, cards?: {[id]:count} }` —— 玩家当前持有的主动技能 key 列表、主/副武器类型与已拥卡计数（mvp `drawRewardCards` 从 `player.cardEffects`（type `'ability'` 去重 key）、`player.weapons.primary/secondary.type` 与 `cardStackCount` 组装传入；无则空数组 / `'standard'` / `'none'`）。
+`owned = { abilities: string[], primaryWeapon: string, secondaryWeapon: string, cards?: {[id]:count} }` —— 玩家当前持有的主动技能 key 列表、主/副武器类型与已拥卡计数（battle `drawRewardCards` 从 `player.cardEffects`（type `'ability'` 去重 key）、`player.weapons.primary/secondary.type` 与 `cardStackCount` 组装传入；无则空数组 / `'standard'` / `'none'`）。
 
 ## 资格过滤五条（现行）
 
@@ -71,7 +71,7 @@
 - **池子侧：`bossLootPool()` 返回全池**（不再按 `cardRarity` 做稀有度下限过滤）。**沿革（被推翻的旧口径）**：原实现按 `CARD_RARITIES.indexOf(c.rarity) >= indexOf(loot.cardRarity)` 硬过滤，而 3 个 Boss 配 `legendary` ⇒ `epic` 整档被排除——电磁炮/机炮/双管/弹夹炮与全部副武器安装卡（共 28 张装备卡）在 Boss 轮永不可见；且 Boss 模式**每个节点都是 Boss 轮**，池子被砍到 26 张后逐轮枯竭（池内全 `maxStacks=1`），第 5 轮可用仅 1 张、第 6 轮归零，候选不足所需张数而卡死。**现行：稀有度诉求一律改由抽取层保底表达，不把任何稀有度踢出候选。**
 - **抽取侧：`opts.guaranteeRarity` 按配比保底**——`{ legendary: 1, epic: 2 }` 表示候选集中**至少**含该档 N 张（从稀到常见逐项满足；已由装备/技能/弹种保底或自然命中同档则不重复追加；池内某档无可用卡则静默跳过）。
 - **抽取侧：`opts.rarityWeights` 覆盖稀有度权重**——Boss 轮用 **`20/32/30/15/3`**（原 `50/30/15/4.5/0.5`），自由槽位的普通卡占比由 ~50% 降至 ~8%、传奇及以上由 ~4.4% 升至 ~25%。普通轮不传该选项，权重不变。
-- **参数唯一口径**：`RULES.cards.bossRound`（`guarantee` + `rarityWeights`），消费方 `tank_mvp.drawRewardCards`（仅 `pendingLootRounds > 0` 时传入）。
+- **参数唯一口径**：`RULES.cards.bossRound`（`guarantee` + `rarityWeights`），消费方 `tank_battle.drawRewardCards`（仅 `pendingLootRounds > 0` 时传入）。
 - **容量上限（已知边界）**：`legendary` 全池 15 张且全为 `maxStacks=1`，Boss 模式每轮消耗 1 张 ⇒ 约第 12 轮后传奇抽完、保底**优雅降级为 0 传奇**（候选仍恒 5 张、不卡死）；`epic` 容量 45 张（`epic 37 × maxStacks` 合计）约 22 轮。**回归**：`scripts/test-cards.js` #BOSS-ROUND 段（保底 200/200、非普通卡占比、普通轮不受影响、池耗尽不缩水、全 0 权重不除零）。
 
 ## 相关页面

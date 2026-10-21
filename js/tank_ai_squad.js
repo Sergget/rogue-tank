@@ -160,7 +160,7 @@ function holdGate(e, dist, baseTol, player){
 // 用户裁定（2026-10-01）：**只做玩家侧提示，不给敌人加可见性门控**——保留
 //   #J3「全屏可命中」口径与边缘推进的压迫感，只把「威胁方向」告知玩家。
 // 本函数做纯筛选/排序（无 canvas 依赖，Node 可测）；几何绘制留在接入层
-//   （mvp 用既有 worldToScreen + 边缘矩形求交，同 drawDroneIndicators 模式）。
+//   （battle 用既有 worldToScreen + 边缘矩形求交，同 drawDroneIndicators 模式）。
 // 入参：
 //   player    — { x, y }
 //   enemies   — 敌对实体数组（调用方自行过滤 team/hp，与 aiCtx 同口径）

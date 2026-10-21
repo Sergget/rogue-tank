@@ -350,7 +350,7 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
   ok(rn.pointsGained === 1, '19 分 → floor(1.9)=1（向下取整）');
   ok(eco.settleRun(null, 100) === null, 'profile 缺失 → null（防御）');
   // 幂等说明：settleRun 本身不判重——同一局重复调用会重复加分/升级；
-  // 幂等护栏由 mvp 调用方的 payload.settled 标记保证（transition payload 每次转移重建，天然隔离不同局）。
+  // 幂等护栏由 battle 调用方的 payload.settled 标记保证（transition payload 每次转移重建，天然隔离不同局）。
 }
 
 // ---------- P-41：局内商店（RUN_SHOP_DEFS 结构 / 定价曲线 / 账本购买 API） ----------

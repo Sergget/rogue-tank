@@ -11,7 +11,7 @@
 
 - **多边形顶点编辑**：车体/炮塔多边形自由编辑（半侧对称几何，`js/tank_halfgeom.js` 的 `halfFromFull` 镜像重建全形）；逐边装甲厚度设定（front/side/rear faces）。
 - **甲弹对抗内置测试**：入射角/等效厚度/跳弹判定实时预览。
-- **保存链路**：`POST /api/tanks/<id>` 写回 `tanks/<id>.json`；mvp / compare 重载列表即生效。
+- **保存链路**：`POST /api/tanks/<id>` 写回 `tanks/<id>.json`；battle / compare 重载列表即生效。
 
 ## 双中心分离
 

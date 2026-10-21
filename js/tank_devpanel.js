@@ -1,8 +1,8 @@
 'use strict';
 
 // tank_devpanel.js — 开发者面板（四 Tab：实时/卡牌/参数/开关）共享模块（#F 2026-09-20 抽离）。
-// mvp 与 bench 两个原型页共同挂载 mountDevPanel(host)，保证两页开发者面板**同源**；
-// 此前面板功能仅 mvp 内联、bench 只有旧测试面板（2026-09-17 #C5 遗留：bench 未应用新面板）。
+// battle 与 bench 两个原型页共同挂载 mountDevPanel(host)，保证两页开发者面板**同源**；
+// 此前面板功能仅 battle 内联、bench 只有旧测试面板（2026-09-17 #C5 遗留：bench 未应用新面板）。
 //
 // 挂载约定（浏览器全局脚本，无模块系统；底部 module.exports 供 Node 测试）：
 //   const devPanel = mountDevPanel({ ...host... });   // 构建 DOM + 绑定交互，返回 api
@@ -21,11 +21,11 @@
 //   getCtx()           战斗上下文 fireCtx（发射解算/实时参数，默认全局 fireCtx）
 //   isDevOpen()        面板打开状态（`/` 快捷键门控，默认 () => false）
 //   pushLog / playSound 页面日志与音效（默认全局同名函数）
-//   cardClick(card)    卡牌点击回调（默认 applyCardEffects + 日志 + 刷新；mvp 传 pickCard 以
+//   cardClick(card)    卡牌点击回调（默认 applyCardEffects + 日志 + 刷新；battle 传 pickCard 以
 //                      得到技能提示/toast 反馈）
 //   cheatsInit         { zeroSpread, invuln, instantReload } 初始值（默认全 false）
 //                        （#J3：原 noVision「无视野」开关随视野距离系统退役删除）
-//   onCheatChange(k,v) 开关变更回调（mvp 同步 devAim.zeroSpread / devNoVision；bench 同步自身）
+//   onCheatChange(k,v) 开关变更回调（battle 同步 devAim.zeroSpread / devNoVision；bench 同步自身）
 //   onGenNode / onReset 随机生成战场 / 重置按钮回调（null 则不渲染该行；缺省渲染仅当回调存在）
 //   liveData()         实时参数（缺省从全局 player/entities/tankKmh 派生，节点字段 '--'）
 //   hideSolutionSection 不渲染发射解算区（bench 已有常驻 #solutionPanel，防双份 solPat id 冲突）
@@ -35,7 +35,7 @@
 function _g(k, fb) { return (typeof globalThis !== 'undefined' && globalThis[k] !== undefined) ? globalThis[k] : fb; }
 
 // ======================= 卡牌分类维度（#7①，2026-10-20） =======================
-// 为什么放在这里：卡牌选择器的分类口径必须**两页同源**（mvp 走本模块的卡牌 Tab，bench 走
+// 为什么放在这里：卡牌选择器的分类口径必须**两页同源**（battle 走本模块的卡牌 Tab，bench 走
 //   #cardSelect 下拉）。此前分类逻辑只在本模块的 DEV_CARD_GROUPS（按**效果类型**分组），
 //   bench 的下拉是 `Object.keys(cardPool).sort()` 平铺 —— 196 张卡一条直线，与正式游戏不同源。
 //
@@ -44,11 +44,11 @@ function _g(k, fb) { return (typeof globalThis !== 'undefined' && globalThis[k] 
 //   任何依赖 tags 的分类在那一批落地后会静默塌成单一分组。故本实现 rarity-only，
 //   未知稀有度归「其他」桶（追加在末尾），卡池缺少 rarity 时同样降级而不抛错。
 //
-// ⚠ 全局名不用 CARD_RARITY_LABELS：该常量已由 tank_mvp.html 内联脚本以顶层 const 声明，
-//   经典脚本的顶层 const 是全局词法绑定，同名会在 mvp 页抛
+// ⚠ 全局名不用 CARD_RARITY_LABELS：该常量已由 tank_battle.html 内联脚本以顶层 const 声明，
+//   经典脚本的顶层 const 是全局词法绑定，同名会在 battle 页抛
 //   「Identifier 'CARD_RARITY_LABELS' has already been declared」。故统一加 DEV_ 前缀。
 const DEV_RARITY_LABELS = { common: '普通', rare: '稀有', epic: '史诗', legendary: '传奇', mythic: '神话' };
-// 展示顺序：稀有 → 常见（与 mvp 卡牌查看器「稀有度」分页一致）
+// 展示顺序：稀有 → 常见（与 battle 卡牌查看器「稀有度」分页一致）
 const DEV_RARITY_ORDER = ['mythic', 'legendary', 'epic', 'rare', 'common'];
 
 function devRarityLabel(r) { return DEV_RARITY_LABELS[r] || (r ? String(r) : '其他'); }
@@ -105,7 +105,7 @@ function mountDevPanel(host) {
   const sound = H.playSound || _g('playSound', function () {});
   const refreshStats = H.refreshStats || _g('refreshStats', function (t) { return t; });
 
-  // ---- DOM 构建（与 mvp 原面板结构逐字段一致，两页同源） ----
+  // ---- DOM 构建（与 battle 原面板结构逐字段一致，两页同源） ----
   const wrap = document.createElement('div');
   wrap.id = 'devPanel';
   wrap.style.cssText = 'position:absolute; right:12px; top:12px; z-index:31; width:560px; max-height:calc(100vh - 24px); overflow-y:auto; background:rgba(18,20,15,0.95); border:1px solid rgba(255,255,255,0.12); padding:14px 16px; font-family:monospace; box-shadow:0 8px 30px rgba(0,0,0,0.6);';
@@ -423,7 +423,7 @@ function mountDevPanel(host) {
     renderDevCards();
   });
 
-  // ---- 已持有 / −1 回滚 / 清除全部（重放语义，与 mvp 原实现一致） ----
+  // ---- 已持有 / −1 回滚 / 清除全部（重放语义，与 battle 原实现一致） ----
   function rollbackDevCard(cardId) {
     const p = getPlayer();
     if (!p) return;
@@ -514,7 +514,7 @@ function mountDevPanel(host) {
       devOwnedSig = ''; devOwnedDirty = false;
       return;
     }
-    // #G（2026-09-21 主因修复）：本函数在 mvp 被逐帧调用（updateDevParams → renderDevOwnedCards），
+    // #G（2026-09-21 主因修复）：本函数在 battle 被逐帧调用（updateDevParams → renderDevOwnedCards），
     // 旧实现无条件 innerHTML='' 重建 ⇒ 真实鼠标 mousedown→mouseup 跨帧时按钮被销毁，click 落在
     // 无监听的持久容器上 →「−1 按钮点了没反应」。签名未变直接返回（逐帧路径变 no-op）；
     // 内容真正变化处（回滚/清除/获得）置 devOwnedDirty 强制重绘。
@@ -719,7 +719,7 @@ function mountDevPanel(host) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     mountDevPanel: mountDevPanel,
-    // #7①（2026-10-20）：卡牌稀有度分类（mvp 卡牌 Tab 与 bench #cardSelect 同源），
+    // #7①（2026-10-20）：卡牌稀有度分类（battle 卡牌 Tab 与 bench #cardSelect 同源），
     //   纯函数、rarity-only（不依赖将被 #16 删除的 tags）。
     devRarityLabel: devRarityLabel,
     groupCardsByRarity: groupCardsByRarity,

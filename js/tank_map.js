@@ -320,7 +320,7 @@ function nodeConfig() {
 /**
  * 节点世界缩放倍率（#24）：nodeScale = 目标倍数 × max(vw/模板w, vh/模板h)。
  * 目标倍数 = RULES.nodeMap.nodeScale（旧语义，缺省 3），保证节点世界宽高
- * 各 ≥ 视口 3 倍（面积 ≥ 9 倍）。viewport 由调用方显式注入（mvp 传画布尺寸，
+ * 各 ≥ 视口 3 倍（面积 ≥ 9 倍）。viewport 由调用方显式注入（battle 传画布尺寸，
  * Node 测试传假值）；viewport 缺省时回退旧行为（固定 nodeScale 倍率，如 3）。
  * @param {any} [viewport] 视口尺寸 { vw, vh }（屏幕 px）；null/undefined = 旧行为
  * @param {any} [templateDims] 选中模板的原始尺寸 { w, h }
@@ -849,7 +849,7 @@ function makeNode(index, rng, env) {
     w: w,
     h: h,
     template: { id: templateResult.template.id, name: templateResult.template.name },
-    biome: templateResult.biome || null,   // P-36/#81：地面主题标签（mvp drawGround 消费）
+    biome: templateResult.biome || null,   // P-36/#81：地面主题标签（battle drawGround 消费）
     biomeZones: templateResult.biomeZones || null,  // #1（2026-10-16）：多 biome 区段
     // #U35（2026-10-18）：strip 片的行/列元数据（多行片测试与调试用；方形路径为 null）
     chunks: templateResult.chunks || null,
@@ -1402,7 +1402,7 @@ function reinforcementTick(state) {
 }
 
 /**
- * 推进式节点完成判定（B 档③，2026-09-23）。纯逻辑，供 mvp 逐帧消费、可 Node 测试。
+ * 推进式节点完成判定（B 档③，2026-09-23）。纯逻辑，供 battle 逐帧消费、可 Node 测试。
  * 常规节点：**抵达右端出口 +（防线清空 或 配额达成）**双条件——取代旧「击杀数 ≥ 配额」单条件
  * （旧口径与推进正交：玩家原地不动刷够配额即通关）。
  * Boss 节点：沿用「Boss + summons 全灭」（无配额、不增援），不要求出口。
@@ -1437,7 +1437,7 @@ function nodeClearance(s) {
 
 /**
  * 「本节点是否还可能产生增援」——**必须与 reinforcementTick 的落点门控同源**（B 档②/③，2026-09-23）。
- * 动机（已核实的软锁）：tick 在「玩家越过全部防线」（frontRanges 为空）时不再增援，而 mvp 侧
+ * 动机（已核实的软锁）：tick 在「玩家越过全部防线」（frontRanges 为空）时不再增援，而 battle 侧
  * `canReinforce` 若仍只按 `kills < quota` 计算，则玩家冲过全部防线后清光残敌、但配额未达时
  * `linesCleared` 恒假（canReinforce 为真）且不会再有敌人 ⇒ 节点永久无法完成。
  * @param {any} node 节点（含 quota / boss / defenseLines）

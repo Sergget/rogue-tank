@@ -16,7 +16,7 @@ description: Use when the task touches tank sprites, texture baking, procedural 
 - `js/tank_fx.js` — 战斗特效（`spawnRailDischarge`/`drawRailArcs`/`railArcCount`）
 - `js/tank_dmgtext.js` — 伤害飘字（pen/block/bounce/he/dot 五色）
 - `js/tank_audio.js` — `SOUND_DEFS` + 惰性 AudioContext（全合成零资产）
-- `js/tank_battledraw.js` — mvp 战斗场景绘制层（`drawTank`/`drawShells`/`drawCover`/`drawFoliage`/部署物/`railChargeProgress`）
+- `js/tank_battledraw.js` — 正式游戏页战斗场景绘制层（`drawTank`/`drawShells`/`drawCover`/`drawFoliage`/部署物/`railChargeProgress`）
 - `scripts/audit-textures.js` — 贴图审核标准（七指标 + 三类评分 + 双向区间）
 - `scripts/bake-assets.js` / `scripts/test-render.js` / `scripts/test-assets.js` / `scripts/test-audio.js`
 - `tank_bench.html` 渲染接线（**页面单写者，见 `rogue-tank-roles` §1**）

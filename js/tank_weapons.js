@@ -18,7 +18,7 @@ const WEAPON_DEFAULTS = {
   //   · moveSpeedRatio 1/3：模式下限速系数（js/tank_move.js 消费，勿走 speedModifier——
   //     公路会把 speedModifier 强制归 1 静默清零减速）；
   //   · spreadFactor 1.2：散布圈半径系数（瞄准器半径与实际落点散布**同一参数源**，
-  //     消费方 js/tank_fire.js 的落点切向偏移 + tank_mvp.html 的 howitzer 瞄准圈）；
+  //     消费方 js/tank_fire.js 的落点切向偏移 + tank_battle.html 的 howitzer 瞄准圈）；
   //   · barrage：急速射升级卡参数（3 发间隔 0.5s，仅模式内生效）。
     howitzer:    { reloadMult: 2.2, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0,
                    isArc: true, arcSpeed: 260, splashRadius: 90, minArcRange: 120,
@@ -337,7 +337,7 @@ function updateSecondaryMount(t, dt, ctx) {
 // 锁定耗时 lockSeconds（期间目标死亡/出扇形/出射程则立即重新选择）；锁定完成自动发射制导弹
 // （guided:true + mode:'lock'，stepShells 既有引导）。2026-09-17 #C4e 起玩家已无主/副切换概念
 // （activeWeaponSlot 移除）：玩家与 AI 的副武器导弹锁定均由调用方逐帧驱动 `updateMissileLock`
-//（玩家侧见 tank_mvp.html 主循环；AI 侧见 updateSecondaryWeapon），无「激活槽位」门控。
+//（玩家侧见 tank_battle.html 主循环；AI 侧见 updateSecondaryWeapon），无「激活槽位」门控。
 function updateMissileLock(t, dt, ctx) {
   const c = ctx || {};
   const w = t && t.weapons && t.weapons.secondary;
@@ -347,7 +347,7 @@ function updateMissileLock(t, dt, ctx) {
   // #7（2026-10-15）：锁定距离 = 摄像机视角内（视口对角线一半），不再用固定 range
   //
   // #5（2026-10-19 用户反馈「升级卡牌是否能生效」取证发现的缺陷）：
-  //   旧实现**只要 `cam` 存在就无条件用视口对角线覆盖 `cfg.range`** —— 而 mvp 的 fireCtx
+  //   旧实现**只要 `cam` 存在就无条件用视口对角线覆盖 `cfg.range`** —— 而 battle 的 fireCtx
   //   总是带 cam ⇒ 「射程 600→780」这类 range 升级卡在玩家侧**恒失效**（卡面数字是假的）。
   //   现改为：锁定距离 = **max(卡面 range, 视口对角线一半)**——升级卡把 range 抬高到超出
   //   视口时才真正生效；不升级时视口仍占优（维持 #7 的「不锁视野外敌人」语义）。
@@ -464,7 +464,7 @@ function fireRocketOne(t, ctx, cfg, angle) {
 }
 
 // #D4（2026-09-19）：火箭巢逐发队列驱动——_rocketBurst = { left, lastAngle }。
-// 由接线层逐帧调用（玩家 mvp 主循环 / AI updateSecondaryMount 顶部）：
+// 由接线层逐帧调用（玩家 battle 主循环 / AI updateSecondaryMount 顶部）：
 // burst 期间 secondaryReloadT 作为发际间隔（burstInterval），队列清空后写入整组装填 cfg.reload。
 // #X4（2026-10-20 用户裁定「火箭弹朝炮塔正前方」）：追发弹**不再**逐发重选最近敌人（那会让
 // 整组跟着目标转头），改为沿用整组基础角度 lastAngle（= 首发的炮塔朝向），每发只叠加
@@ -744,7 +744,7 @@ if (typeof module !== 'undefined' && module.exports) {
 //     · 显式 `false` ⇒ 曲射关闭，主炮回到直射（弹无 isArc）；
 //     · 切换只经 toggleHowitzer（单一定义处），F 的边缘触发由页面层 keydown 承担。
 //   消费方：js/tank_fire.js（开火/落点/预检/装填）、js/tank_move.js（1/3 限速）、
-//   tank_mvp.html（散布圈瞄准器 / F 状态角标）、js/tank_cards.js（模式升级卡的有效性判定）。
+//   tank_battle.html（散布圈瞄准器 / F 状态角标）、js/tank_cards.js（模式升级卡的有效性判定）。
 function isHowitzerMode(t){
   if (!(t && t.weapons && t.weapons.secondary && t.weapons.secondary.type === 'howitzer')) return false;
   // 默认 true：只有**显式关闭**才算直射（`!== false` 而非真值判断——避免漏字段被当关闭）
@@ -753,7 +753,7 @@ function isHowitzerMode(t){
 
 // #X5（2026-10-20 用户裁定）：曲射/直射**模式开关**——返回切换后的布尔值（true=曲射）。
 //   调用契约：
-//     · 唯一入口是 F 键的**原生 keydown 边沿**（tank_mvp.html 与 mine_layer/missile 同列），
+//     · 唯一入口是 F 键的**原生 keydown 边沿**（tank_battle.html 与 mine_layer/missile 同列），
 //       严禁主循环逐帧轮询（会每帧翻转，见 docs/specs/combat.md §8.2）；
 //     · 切换时清 `_howitzerBurst`：急速射追发队列属旧模式，模式切走后不得继续打出
 //       （否则「切到直射」后仍有曲射弹凭空飞出）；

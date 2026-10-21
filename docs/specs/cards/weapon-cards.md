@@ -128,7 +128,7 @@ Boss 此前只有 `assignBossSkills` 随机技能，`weapons` 恒为 `standard` 
 
 - **选择逻辑**（纯函数 `pickBossArmament(pool, {rng, bossNumber})`，`js/tank_cards.js`）：① 以 `primaryChance` 掷骰从 `slot=primary && action=install` 随机取 1 张；② 以 `secondaryChance` 掷骰从 `slot=secondary && action=install` 随机取 1 张；③ 对**已选中**的主/副武器类型，从 `action=upgrade && weaponType 匹配` 里逐张独立掷骰抽取，最多 `upgradeMax` 张（概率 `upgradeChance + bossNumber × upgradeChancePerBoss`）。任何一步无货静默跳过。
 - **参数唯一口径 `RULES.boss.armament`**：`{ enabled, primaryChance 0.9, secondaryChance 0.7, upgradeMax 2, upgradeChance 0.55, upgradeChancePerBoss 0.1 }`。
-- **施加通道**：mvp `assignBossArmament`（`tank_mvp.html`，在 `assignBossSkills` 之后调用）经 `applyCardEffects` 施加 —— 与玩家卡牌**同一语义通道**（换装重置 stats 基线、升级仅同型合并），不另开旁路。
+- **施加通道**：battle `assignBossArmament`（`tank_battle.html`，在 `assignBossSkills` 之后调用）经 `applyCardEffects` 施加 —— 与玩家卡牌**同一语义通道**（换装重置 stats 基线、升级仅同型合并），不另开旁路。
 - **实测分布（2026-10-18，500 次探针，真实卡池 191 张）**：平均每 Boss 携带 **3.27 张**卡（含升级卡 830 次），`applyCardEffects` 失败 0 次；主武器 five-way 均匀（各 22.2%~22.8%）、仍为标准主炮 9.8%；副武器 6 型各 10.8%~12.2%、空槽 29.6%。
 - **可读性**：TAB 状态面板 Boss 行新增「武备:主武器+副武器·改装×N」，出生时日志输出 `BOSS 武备：…｜改装 …`。
 

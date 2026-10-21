@@ -528,7 +528,7 @@ ok(cardsMod.CARD_TAGS === undefined, '#16（2026-10-20）：CARD_TAGS 已随 tag
   const ownedNow = Array.from(new Set((tSem.cardEffects || [])
     .filter(ef => ef && ef.type === 'ability' && ef.key).map(ef => ef.key)));
   ok(ownedNow.indexOf('artillery') >= 0, '#A28: applyCardEffects 把基础卡 key 落入 cardEffects（非 modifier 分支保留 ef.key）');
-  ok(cardsMod.cardEligible(barrage, { abilities: ownedNow }) === true, '#A28: 闭环后 — 升级卡变为合格（同源 mvp drawRewardCards 的 owned.abilities 组装）');
+  ok(cardsMod.cardEligible(barrage, { abilities: ownedNow }) === true, '#A28: 闭环后 — 升级卡变为合格（同源 battle drawRewardCards 的 owned.abilities 组装）');
 
   // 7) 抽取端：真实卡池 + 未持有任何能力 → 升级卡绝不出现（多池 × 多种子）
   const FILLER = ALL_CARDS.filter(c => !isMarked(c) && abilEffects(c).length === 0);

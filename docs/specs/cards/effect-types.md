@@ -94,7 +94,7 @@
 - `validateCard` 的 `ABILITY_KEYS` 白名单同步包含 innate 键 `repair`/`medkit`/`extinguish` 与全部 runtime 键 ⇒ 现为 **8 键**。
 - **`super_fire_control` / `super_speed` 已于 2026-10-20 #W9 从两端一并删除**（用户裁定「删除」；196 张卡 + `tanks/` + `bosses/` 全库两键零命中，属死键；删键后 `test-rework-r1.js` 以负向断言锁死，详见 [战斗规范 · 技能与副武器](../combat/abilities-secondary.md)）。
 
-**死效果键已整体摘除（2026-09-23 A 档）**：`recon` / `track_repair` 原在 `ABILITY_KEYS` 白名单内、却在 `ABILITY_KEYS_RUNTIME` 与 `ABILITY_KEYS_INNATE` 两池之外，**无任何激活路径**（`recon` 的 mvp 技能池 DISPATCH 分支调用全仓库无定义的 `tryDroneCommand()`，靠 `typeof` 守卫恒为 no-op）⇒ 对应 5 张卡（`support_recon` / `sniper_recon_mark` / `emergency_track` / `mobile_track_repair` / `support_track_repair`，均只带单一 `ability` 效果、卡面自述「占位」）能正常抽取但激活零反应。**用户裁定（2026-09-23）：整体摘除**——两键从 `ABILITY_KEYS`、mvp DISPATCH 表、`ABILITY_LABELS` / `ABILITY_KEY_HINT` 一并删除，5 张卡文件删除（卡池 173 → 168）。细则归口本页与 `DEVELOPMENT.md` §4.35。
+**死效果键已整体摘除（2026-09-23 A 档）**：`recon` / `track_repair` 原在 `ABILITY_KEYS` 白名单内、却在 `ABILITY_KEYS_RUNTIME` 与 `ABILITY_KEYS_INNATE` 两池之外，**无任何激活路径**（`recon` 的 battle 技能池 DISPATCH 分支调用全仓库无定义的 `tryDroneCommand()`，靠 `typeof` 守卫恒为 no-op）⇒ 对应 5 张卡（`support_recon` / `sniper_recon_mark` / `emergency_track` / `mobile_track_repair` / `support_track_repair`，均只带单一 `ability` 效果、卡面自述「占位」）能正常抽取但激活零反应。**用户裁定（2026-09-23）：整体摘除**——两键从 `ABILITY_KEYS`、battle DISPATCH 表、`ABILITY_LABELS` / `ABILITY_KEY_HINT` 一并删除，5 张卡文件删除（卡池 173 → 168）。细则归口本页与 `DEVELOPMENT.md` §4.35。
 
 > **⚠️ 沿革（不静默删除）**：本段原结尾写「**现行不变量**：`ABILITY_KEYS` ≡ innate 3 键 + runtime **7** 键，无死键」——该表述**已于 2026-10-20 #W9 被取代**（7 键里恰藏着 `super_fire_control` / `super_speed` 两个死键，已删除）。**现行键集合见本节开头**（RUNTIME **5** 键 / `ABILITY_KEYS` **8** 键）。
 
@@ -104,7 +104,7 @@
 
 机制性被动 `{key, value?}`，`key` ∈ **`PASSIVE_KEYS`（现行 6 键）**——**键集合唯一口径在 [被动卡与模块暴击](./passive-crit.md#passive_keys-现行键集合)**，本处不重复罗列（`PASSIVE_KEYS` 会随批次增减，重复罗列必然过期）。
 
-> **沿革（不静默删除）**：本节原写 `{key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}`——其中 **`commander_sight` 已于 2026-09-30 #J3 随视野系统整体退役删除**（原消费点为 mvp 视野半径 `entityHiddenByVision` / `visionRadiusEff`，2026-09-19 #D2 接线前为死效果）；`wet_ammo_rack` / `crew_liner` 两键于 2026-10-20 #W-H 新增。**旧列表照录如上以供追溯，勿当作现行键集合。**
+> **沿革（不静默删除）**：本节原写 `{key:'reactive_armor'|'angle_boost'|'overmatch'|'spall_liner'|'commander_sight', value?}`——其中 **`commander_sight` 已于 2026-09-30 #J3 随视野系统整体退役删除**（原消费点为 battle 视野半径 `entityHiddenByVision` / `visionRadiusEff`，2026-09-19 #D2 接线前为死效果）；`wet_ammo_rack` / `crew_liner` 两键于 2026-10-20 #W-H 新增。**旧列表照录如上以供追溯，勿当作现行键集合。**
 
 ### 应急护盾 `reactive_armor`
 
@@ -116,7 +116,7 @@
 - **效果**：生成 1 个**持续 10s** 的**全向**护盾，吸收池 `shieldHp`（150），走 `js/tank_shield.js` 的 `applyShield`（#W7 修复后 `hp`/`duration` 可覆盖）；
 - **冷却**：基础 90s，卡牌升级可缩短，**下限 60s**（`cooldownMinSeconds`）——经 `t._emergencyShieldCdDelta` 叠加后钳制；
 - **不重复生成**：已持盾或冷却中不触发；
-- **状态字段**：`_emergencyShieldCd`（冷却剩余）。`applyCardEffects` 获得时清零；mvp `enterBattle` 每节点重置（冷却不跨节点）；主循环 `updateEmergencyShieldRearm` 逐帧递减。
+- **状态字段**：`_emergencyShieldCd`（冷却剩余）。`applyCardEffects` 获得时清零；battle `enterBattle` 每节点重置（冷却不跨节点）；主循环 `updateEmergencyShieldRearm` 逐帧递减。
 - **⚠️ 历史上两种旧机制均已废弃**：① 一次性消耗（挡 1 发即消解）；② #U40 的「拦截后再充能 60s」。`js/tank_physics.js` 中对应的拦截分支已整体删除，`rule.key` 保留为 `reactive_armor` 仅为**存档/卡牌 id 兼容**。
 
 ## drone
@@ -135,9 +135,9 @@
 
 | 字段 | value 语义 | 消费点 |
 |---|---|---|
-| `scoreMul` | **最终乘数**（1.15 = +15%；旧实现 `(1+value)` 曾错算 ×2.15） | 结算类计分（节点分/波次分/击杀分）统一乘 `runScoreMultiplier(tank)`（mvp 三处计分点接入） |
+| `scoreMul` | **最终乘数**（1.15 = +15%；旧实现 `(1+value)` 曾错算 ×2.15） | 结算类计分（节点分/波次分/击杀分）统一乘 `runScoreMultiplier(tank)`（battle 三处计分点接入） |
 | `shopDiscount` | **折扣率**（0.1 = −10%，多张相加、防御上限 0.5） | 局内商店价格乘 `(1 − runShopDiscount(tank))`（`runShopPriceFor` 调用方 `buyRunShopItem` 与 `buildRunShopInto` 展示同口径） |
-| `reviveCount` | 复活次数增量 | `applyCardEffects` 写 `runReviveBonus`，mvp `pickCard` 即时回算 `player.revives`（旧实现只在下局 `prepPlayerForRun` 生效，局内获得零反馈） |
+| `reviveCount` | 复活次数增量 | `applyCardEffects` 写 `runReviveBonus`，battle `pickCard` 即时回算 `player.revives`（旧实现只在下局 `prepPlayerForRun` 生效，局内获得零反馈） |
 
 > **~~`startScore`~~ 已删除（2026-10-20 #W15）**：该字段历史上写 `runStartScore` 但**全库零消费**（无任何读取方），属"预留但永不接线"的死配置 ⇒ 从 `ECONOMY_FIELDS` 白名单与 `removeRunModifiers` 的 `runStartScore` 清零中一并移除（归口 `js/tank_model.js`）。若将来要做「开局送分」类卡，需重新走白名单登记 + 消费方接线，不得只加字段。
 

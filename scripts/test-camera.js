@@ -161,7 +161,7 @@ ok(close(bB.x, sB.x) && close(bB.y, sB.y), 'zoom=1.7：屏幕→世界→屏幕 
 
 // ================= #J3（2026-09-30）视野距离系统退役 =================
 // 用户裁定：「改为全屏幕渲染敌人，不再计算视野距离的问题」——`visionRadiusForViewport` /
-// `visionCenter` / `visionClamped` 三个视野圆几何函数及其消费方（mvp 可视圆剔除 + 视野虚线圈 +
+// `visionCenter` / `visionClamped` 三个视野圆几何函数及其消费方（battle 可视圆剔除 + 视野虚线圈 +
 // 视野卡 commander_sight）整体删除，原 #H5/#K1 断言段一并移除（被测对象已不存在）。
 // 敌人现在只受 `aabbInView` 视口剔除（纯性能，非玩法机制）；AI 的「距离 + 直线视野」
 // 接战判定在 js/tank_ai.js + js/tank_cover.js，不在本文件，回归见 test-ai / test-covers。

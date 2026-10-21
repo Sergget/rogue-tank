@@ -24,7 +24,7 @@
 // 修理箱/医疗包（innate 内置能力，键 'repair'/'medkit'）：开局自带、无需卡牌持有检查
 //   （绕过 hasAbility）。冷却走同一独立冷却池 t.abilityCds = { repair?, medkit?, extinguish? }
 //   （秒），与运行时能力键互不串扰（按 key 隔离）；有效冷却 = (t.abilityBaseCd &&
-//   t.abilityBaseCd[key]) || 45（mvp/node-map 把商店减免注入 abilityBaseCd，未注入时
+//   t.abilityBaseCd[key]) || 45（battle/node-map 把商店减免注入 abilityBaseCd，未注入时
 //   回退基础 45s）。逐帧递减由接线层调用 updateAbilityCds(t, dt)；未接入时
 //   tryActivateAbility 的 cooldown 判断天然容错（冷却永不结束而已，不报错）。
 //   repair 效果：清 trackBroken/immobT + debuffs 中 engine/ammo/breech 模块键并 refreshStats；
@@ -33,7 +33,7 @@
 //
 // overdrive 细节（决策）：激活时立即清零 t.reloadT（「爆发装填」语义——当前装填
 //   立即打完；RULES 注释即「主动爆发装填」）。持续 duration 秒内新开火设置的
-//   reloadT = stats.reload × 0.45（fireTank 读 stats.reload，见 tank_mvp.html），
+//   reloadT = stats.reload × 0.45（fireTank 读 stats.reload，见 tank_battle.html），
 //   已装填中的倒计时因清零而不再受旧速影响；到期后由 refreshStats（addModifier 触发）
 //   剪除 timed 修饰器，装填恢复原速。重复激活先 removeModifierBySource 去旧（防叠乘）。
 //
@@ -60,7 +60,7 @@ const ABILITY_KEYS_INNATE = ['repair', 'medkit', 'extinguish'];
 
 // #G（2026-09-21 用户需求 #7）：能力键 → 中文名称共享表（表内键 ≡ runtime 5 键 + innate 3 键；
 // 2026-09-23 A 档摘除死键 recon，#W9 2026-10-20 摘除 super_fire_control/super_speed）。
-// mvp HUD 常驻技能槽 / gainToast / hintBar / 按钮命名都从本表取名，避免多处文案漂移。
+// battle HUD 常驻技能槽 / gainToast / hintBar / 按钮命名都从本表取名，避免多处文案漂移。
 const ABILITY_LABELS = {
   artillery: '炮击支援',
   shield: '战术护盾',
@@ -72,7 +72,7 @@ const ABILITY_LABELS = {
   extinguish: '灭火器'
 };
 
-// innate 有效冷却（秒）：mvp/node-map 把商店减免注入 t.abilityBaseCd[key]；未注入回退 45
+// innate 有效冷却（秒）：battle/node-map 把商店减免注入 t.abilityBaseCd[key]；未注入回退 45
 const INNATE_BASE_CD_FALLBACK = 45;
 
 // medkit 清除的四类乘员 debuff 键（与 MODULE_LABELS 乘员键对齐）
@@ -115,14 +115,14 @@ function hasAbility(t, key) {
 
 // 逐帧递减共享冷却（秒），归零钳制。
 // 【废弃】#C4c（2026-09-17）起运行时能力改走按技能独立池 t.abilityCds（updateAbilityCds），
-// 本函数仅为旧调用方/测试保留的兼容助手——生产接线（mvp 主循环）已不再调用。
+// 本函数仅为旧调用方/测试保留的兼容助手——生产接线（battle 主循环）已不再调用。
 function updateAbilityCd(t, dt) {
   if (dt <= 0 || !t || !(t.abilityCdT > 0)) return;
   t.abilityCdT = Math.max(0, t.abilityCdT - dt);
 }
 
 // 逐帧递减独立冷却池 t.abilityCds（运行时能力键 + innate 键统一，各键归零钳制）。
-// #C4c（2026-09-17）：六类运行时能力的冷却也写入本池（按 key 隔离），接线层（mvp 主循环）逐帧调用。
+// #C4c（2026-09-17）：六类运行时能力的冷却也写入本池（按 key 隔离），接线层（battle 主循环）逐帧调用。
 function updateAbilityCds(t, dt) {
   if (dt <= 0 || !t || !t.abilityCds) return;
   for (const k in t.abilityCds) {
@@ -130,7 +130,7 @@ function updateAbilityCds(t, dt) {
   }
 }
 
-// innate 有效冷却：优先 t.abilityBaseCd[key]（mvp/node-map 注入的商店减免值）
+// innate 有效冷却：优先 t.abilityBaseCd[key]（battle/node-map 注入的商店减免值）
 function innateBaseCd(t, key) {
   const v = t && t.abilityBaseCd ? t.abilityBaseCd[key] : undefined;
   return (typeof v === 'number' && v > 0) ? v : INNATE_BASE_CD_FALLBACK;

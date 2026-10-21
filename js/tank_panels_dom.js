@@ -9,7 +9,7 @@
 // #A25 独立日志面板：
 //   makeLogSink(el)                        —— 既有契约（push/clear，cap 25），保持 test-panels 通过
 //   createLogPanel(root, opts)             —— 独立浮层日志面板：push/clear/open/close/toggle/attach
-//                                             位置与层级由调用方 CSS 决定（MVP 左下角 / Bench 复用）
+//                                             位置与层级由调用方 CSS 决定（Battle 左下角 / Bench 复用）
 //
 // #A24 面板控制器 DOM 适配：
 //   createDevPanelController(els, hooks)   —— 参数输入的 dirty/undo + Apply/Reset 适配
@@ -21,7 +21,7 @@
 // --- 独立日志面板 / 日志 sink ------------------------------------------------
 
 // Build a {clear(), push(text, cls)} sink bound to a DOM element. The consumer
-// passes its own element (mvp: devLog list; bench: logOverlay), so the sink
+// passes its own element (battle: devLog list; bench: logOverlay), so the sink
 // stays DOM-agnostic in spirit while the element is owned by the page.
 function makeLogSink(el){
   var max = 25;

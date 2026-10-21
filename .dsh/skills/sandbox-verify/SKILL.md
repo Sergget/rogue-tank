@@ -45,7 +45,7 @@ description: Use when running pwsh verification commands inside the DSH sandbox 
 
 ## 4. PowerShell 自身坑（编码/语法，会造成假失败）
 
-1. **UTF-8 乱码（最重要）**：PowerShell 默认按系统 ANSI（GBK）读 UTF-8 文件 → 中文变 `鈥?` 乱码；把乱码内容再写回文件会**损坏文件**（本会话曾因此把 tank_mvp.html 内联脚本提取出来 node --check 误报 SyntaxError）。
+1. **UTF-8 乱码（最重要）**：PowerShell 默认按系统 ANSI（GBK）读 UTF-8 文件 → 中文变 `鈥?` 乱码；把乱码内容再写回文件会**损坏文件**（本会话曾因此把 tank_battle.html 内联脚本提取出来 node --check 误报 SyntaxError）。
    - 读文件：优先用 read 工具；必须用 pwsh 时 `Get-Content -Encoding UTF8`。
    - 写文件：`Set-Content -Encoding UTF8`（或 `[System.IO.File]::WriteAllText(path, text, [System.Text.UTF8Encoding]::new($false))` 无 BOM）。
    - 改文件**一律用 edit/write 工具**，不要用 pwsh 拼接字符串回写（中文必损）。

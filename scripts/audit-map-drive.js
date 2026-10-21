@@ -64,8 +64,8 @@ for (let seed = 1; seed <= SEEDS; seed++) {
     for (const s of tr) if (!Number.isFinite(s.x) || !Number.isFinite(s.y)) badFinite++;
     if (badFinite) fail(`node=${res.index} 非有限坐标 ${badFinite} 次采样`);
 
-    // 2) 越界（容差 150）：玩家硬判据（mvp 有世界钳制 tank_mvp.html:2749，越界=真 bug）；
-    //    敌军无世界钳制（mvp 同样不 clamp 敌军，3318 bounds 仅 Boss）——被 cover 推挤
+    // 2) 越界（容差 150）：玩家硬判据（battle 有世界钳制 tank_battle.html:2749，越界=真 bug）；
+    //    敌军无世界钳制（battle 同样不 clamp 敌军，3318 bounds 仅 Boss）——被 cover 推挤
     //    出界属运行时实体钳制范畴，不属于地图生成缺陷，降级为警告。
     let oob = 0;
     for (const s of tr) {

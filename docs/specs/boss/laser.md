@@ -23,7 +23,7 @@
 | `dpsRatio` | 0.55 | 每秒伤害 = Boss 标准伤害 × 该系数（带内目标**连续快速掉血**） |
 | `telegraphDash` / `telegraphColor` | `[16,12]` / `rgba(255,64,48,0.28)` | 警示虚线参数 / 红色透明填充 |
 
-**事件流（供绘制层）**：蓄能期 `laserCharge{progress}` → 射击期 `laserFire`；`tank_mvp.html` 写入 `bossLaserFx` 并绘制「虚线警示带 + 红色透明填充」（越接近发射越亮）与实心光束。命中判定为点到射线段的距离 ≤ `width/2 + 目标半宽`，经 `applyDamage` 结算（敌对阵营过滤，与玩家/友军/Boss 通用）。
+**事件流（供绘制层）**：蓄能期 `laserCharge{progress}` → 射击期 `laserFire`；`tank_battle.html` 写入 `bossLaserFx` 并绘制「虚线警示带 + 红色透明填充」（越接近发射越亮）与实心光束。命中判定为点到射线段的距离 ≤ `width/2 + 目标半宽`，经 `applyDamage` 结算（敌对阵营过滤，与玩家/友军/Boss 通用）。
 
 > **原归口指针（照录）**：`specs/combat.md` **§11.3**（激光炮塔固定转速 + 全高掩体阻挡）、**§12.1**（激光期车体冻结）、**§12.3**（随机走位）、**§12.4**（建筑密度摘要）。这些节在 combat 卷仍现行，本页不复制其正文。
 

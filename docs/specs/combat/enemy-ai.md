@@ -20,7 +20,7 @@
 
 - **与摄像机视野解耦**：激活判定与摄像机视野彻底解耦（废除 P-10 的「视野内主动 / 范围外被动」门控），改为**距离 + 可见性**触发。
 - **有效触发距离**：= 上条表中的 `triggerDistBase` × 难度乘数（最高 ×1.6），经 `js/tank_map.js` 的 `triggerDistForDifficulty(diff)` 计算，节点生成时注入实体字段 `aiTriggerDist`；`aiDecideEnemy` 读实体字段，缺省回退 RULES 基准值。
-- **「全图主动」语义（2026-10-17 #U28，现行口径）**：`aiTriggerDist` 设为远超 `triggerDistBase × triggerHysteresis`（如生存波次的 99999）只放行触发**门**，**不放大** `engage`（后者被滞回比钳顶 ≈650）——因此 `aiTriggerDist` 超钳顶值的实体：① 不进入 defensive 站桩（`dist > engage×3+500` 的消极防御只属于普通触发距离实体），移动交给交战带（`dist > band.max → baseMove=1`）；② 生成方必须同时置 `aiEngaged=true, aiReactT=0`（只设 `alertLevel=3` 不够——首帧仍走未接战分支并吃反应延迟）。消费方：`js/tank_ai.js` defensive 分支、`tank_mvp.html spawnSurvivalWaveEnemies`。
+- **「全图主动」语义（2026-10-17 #U28，现行口径）**：`aiTriggerDist` 设为远超 `triggerDistBase × triggerHysteresis`（如生存波次的 99999）只放行触发**门**，**不放大** `engage`（后者被滞回比钳顶 ≈650）——因此 `aiTriggerDist` 超钳顶值的实体：① 不进入 defensive 站桩（`dist > engage×3+500` 的消极防御只属于普通触发距离实体），移动交给交战带（`dist > band.max → baseMove=1`）；② 生成方必须同时置 `aiEngaged=true, aiReactT=0`（只设 `alertLevel=3` 不够——首帧仍走未接战分支并吃反应延迟）。消费方：`js/tank_ai.js` defensive 分支、`tank_battle.html spawnSurvivalWaveEnemies`。
 - **滞回防抖**：脱离接战阈值 = 进入阈值 × 1.25（实体字段 `aiEngaged` 承载），消除边界抖动。
 - **可见性分支**：
   - 距离达标且有视线（hasLineOfSight）→ 接战分支（flank / 开火等）；
@@ -32,11 +32,11 @@
   - **①玩家靠近**：距离+LoS（既有，不变）。
   - **②玩家射击**：`fireTank` 成功开火后经 fireCtx.`emitShotNoise` → `emitShotNoise(entities, x, y, radius, 'shot')`，半径内敌对 AI `hearNoise` 置 level 1（`RULES.ai.shotNoiseRadius` = **1100**，本页唯一数值口径；railgun/autocannon 按 ×1.27 派生 ≈1400）。
   - **③近失弹**：玩家/友军炮弹死亡未命中时，落点 `RULES.ai.impactNoiseRadius`（**420px**，本页唯一数值口径）内敌对 AI `hearNoise`（'impact'）。
-  - **沿革注记（2026-10-17 #U4）**：原值 900 / 180。相对交战尺度（`engageRange`、`triggerDistBase`——数值唯一口径见本页首段）偏小，近失弹需几乎贴身才被听见，是「被攻击/开火在很近才反应」的主因。现行值由 `RULES.ai.*` 单一来源提供，`tank_mvp.html` 与 `js/tank_fire.js` 不再内联硬编码半径。
+  - **沿革注记（2026-10-17 #U4）**：原值 900 / 180。相对交战尺度（`engageRange`、`triggerDistBase`——数值唯一口径见本页首段）偏小，近失弹需几乎贴身才被听见，是「被攻击/开火在很近才反应」的主因。现行值由 `RULES.ai.*` 单一来源提供，`tank_battle.html` 与 `js/tank_fire.js` 不再内联硬编码半径。
   - **④友邻遇袭**：`propagateAlert`（半径 = `RULES.ai.alertRadius`，值见上方「受击警觉」条，本页不重复）。
   - **⑤自身被攻击**：`alertEntity` 置 level 3 + `_threatDir`（炮塔立即转向威胁）。
   - **suspicious 行为**：朝声音位置半速（0.5）调查，炮塔 ±0.5rad 扫视；8 秒（`suspiciousTimeout`）无新声音降级回 calm；接战中（level 3）不受声音干扰。
-- **stun 免疫窗**：stunned 自然苏醒后授予 `RULES.ai.stunImmunityAfter`(2.0s) 免疫期，期间不再进入 stunned——防高射速武器无限连控。（附带修复：mvp 主循环此前遗漏 `aiUpdateStateTimer` 调用导致 stun 计时器永不递减、敌人永久呆滞，已补上。）
+- **stun 免疫窗**：stunned 自然苏醒后授予 `RULES.ai.stunImmunityAfter`(2.0s) 免疫期，期间不再进入 stunned——防高射速武器无限连控。（附带修复：battle 主循环此前遗漏 `aiUpdateStateTimer` 调用导致 stun 计时器永不递减、敌人永久呆滞，已补上。）
 
 ## 反应延迟与接战传播
 
@@ -75,7 +75,7 @@
   2. **一拥而上无分工**：每辆车独立决策，全部满足「dist>engage」即全体推进，无名额、无侧翼、无牵制层次。
   3. **旧 flank 事实上不生效**：窗口 `dist>engage && dist<flankMinDist×1.5×flankBias` 对 heavy 上限 400×1.5×0.6=**360 < engage≈478 恒不触发**、spg `flankBias=0` 被排除、medium 高难度下 engage 超过上限；目标点是「自身 + targetRight×300」**每帧重算的横向平移**（目标恒在自身右侧 300px ⇒ 原地绕圈），非绕后站位。
   4. **无群体分离**：`resolveTankCollisions`（`js/tank_entity.js`）只沿连线推开，靠内侧那辆被直接推向玩家，人堆贴脸。
-  5. **视口外开火无提示**：#J3 视野退役后敌人一律可命中，但绘制层仍有 `aabbInView` 剔除（`tank_mvp.html`），而 AI 开火只看「距离 + 直线视野」（`RULES.ai.engageRequiresLoS`）⇒ 视口外敌人开火且玩家看不到来源，即「屏幕边缘被动受击」的直接机制。
+  5. **视口外开火无提示**：#J3 视野退役后敌人一律可命中，但绘制层仍有 `aabbInView` 剔除（`tank_battle.html`），而 AI 开火只看「距离 + 直线视野」（`RULES.ai.engageRequiresLoS`）⇒ 视口外敌人开火且玩家看不到来源，即「屏幕边缘被动受击」的直接机制。
   6. **退避仅限重甲残血**：`coverSeek` 原条件为「aiTier≥1 或正面装甲≥100mm」且 `hp<60%`（`js/tank_ai.js`），轻中坦在装填期只能在开阔地对射。
 
 - **现行口径（消费方 `js/tank_ai.js` + 新模块 `js/tank_ai_squad.js`）**：
@@ -83,7 +83,7 @@
   - **#N2 攻守分工**（`RULES.ai.squad` + `js/tank_ai_squad.js updateSquad`）：节点级协调器每 `reassignInterval`(0.6s) 按评分（距离/LoS/血量）+ **角色粘性** 分配 `press`（压上，名额 = `pressSlotsBase(2) + floor(diff×1.5)` 钳 ≤4）、`flank`（侧翼）、`hold`（驻守）三种角色；存活数 ≤ 名额时全员 press。`hold` 走 `holdGate`（> `holdFireMaxDist` 640px 纯待机，近距容差放宽 ×2）。协调器**只写 `t.aiRole`**，位移仍由交战带/机动层执行；`enterBattle` 时 `resetSquad()` 防跨节点串用。
   - **#N3 flank 重写**（`RULES.ai.flankRewrite`）：站位点 = **玩家为圆心、半径 `_flankRadius(band) = band.max × radiusRatio(1.15)`、方位角 = 进入时方位 ± 扇区角 [1.05, 2.10] rad** 的世界坐标点，**进入 flank 时锁定一次**（`t._flankTarget`），驶入 `arriveDist`(70px) 即转 press；角色变更时清除锁定。半径以**交战带外沿**为基准（见下方缺陷 ③）。旧 flank 分支降级为回退路径（`flankRewrite.enabled=false` 启用）。
   - **#N4 群体分离力**（`RULES.ai.separation`）：同类斥力半径 `radius`(180px)，玩家方向斥力半径 = `radius × playerRadiusMul`(0.6 ⇒ 108px)，两者均按距离**线性衰减**；力度权重 `playerFactor`(0.7) 单独作用于玩家方向。合成斥力换算为相对「朝玩家」方向的 ±1 转向偏置。**仅对 `press` 且 `move≠0` 生效**（见缺陷 ④）。
-  - **#N5 视口外来袭方向提示**（`threatIndicators(player, enemies, viewBounds, opts)`，`js/tank_ai_squad.js`）：筛选「已接战 + 视口外 + 距离 ≤ `engageRange×1.4`」的敌人，按距离取前 6 条输出方位角；mvp `drawThreatIndicators()` 沿用边缘矩形求交绘制**琥珀色箭头**（与无人机红箭头区分），alpha 随距离衰减。**玩家侧信息层，不改变任何 AI 判定与命中判定**（#J3 口径不变）。
+  - **#N5 视口外来袭方向提示**（`threatIndicators(player, enemies, viewBounds, opts)`，`js/tank_ai_squad.js`）：筛选「已接战 + 视口外 + 距离 ≤ `engageRange×1.4`」的敌人，按距离取前 6 条输出方位角；battle `drawThreatIndicators()` 沿用边缘矩形求交绘制**琥珀色箭头**（与无人机红箭头区分），alpha 随距离衰减。**玩家侧信息层，不改变任何 AI 判定与命中判定**（#J3 口径不变）。
   - **#N6 装填脱离**（`RULES.ai.retreatReload`）：装填期且距离 ∈ [300, 760]px 时退到半径 620px 内最近挡弹掩体的背弹面（掩心 − 朝玩家单位向量×(半深+45px)），到位后原地还击。与 #76 C6 `coverSeek`（重甲残血）并列，构成**两条独立退避通道**。
   - **回退开关**：`engageBand.enabled` / `squad.enabled` / `flankRewrite.enabled` / `separation.enabled` / `retreatReload.enabled` 独立可关；全部关闭即完全退回 #M 及更早的单点直冲行为。
 

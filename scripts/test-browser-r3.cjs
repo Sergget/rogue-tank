@@ -1,5 +1,5 @@
 // 浏览器自动化测试（R-1/R-2/R-3 专项冒烟）：在真实 Edge (channel=msedge, headless) 中
-// 验证 tank_bench.html 的技能/召唤物/特种弹药交互与 tank_mvp.html 稳定性。
+// 验证 tank_bench.html 的技能/召唤物/特种弹药交互与 tank_battle.html 稳定性。
 // 用法: node scripts/test-browser-r3.cjs
 'use strict';
 const http = require('http');
@@ -211,23 +211,23 @@ function realErrorsOf(errs) {
 
     check('交互后测试台保持无 JS 抛错', realErrorsOf(benchErrors).length === 0, `errors=${JSON.stringify(realErrorsOf(benchErrors))}`);
 
-    // ---- 2. 正式游戏页（tank_mvp.html）基本加载验证 ----
-    const mvpErrors = [];
-    const mvpPage = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-    mvpPage.on('console', m => { if (m.type() === 'error') mvpErrors.push(m.text()); });
-    mvpPage.on('pageerror', e => mvpErrors.push('PAGEERROR: ' + e.message));
+    // ---- 2. 正式游戏页（tank_battle.html）基本加载验证 ----
+    const battleErrors = [];
+    const battlePage = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    battlePage.on('console', m => { if (m.type() === 'error') battleErrors.push(m.text()); });
+    battlePage.on('pageerror', e => battleErrors.push('PAGEERROR: ' + e.message));
 
-    await mvpPage.goto(`${base}/tank_mvp.html`, { waitUntil: 'load', timeout: 30000 });
-    await mvpPage.waitForTimeout(1500);
+    await battlePage.goto(`${base}/tank_battle.html`, { waitUntil: 'load', timeout: 30000 });
+    await battlePage.waitForTimeout(1500);
 
-    const mvpBoot = await mvpPage.evaluate(() => ({
+    const battleBoot = await battlePage.evaluate(() => ({
       hasCanvas: !!document.getElementById('c'),
       homeVisible: document.getElementById('homeScreen').style.display !== 'none'
     }));
-    check('tank_mvp.html 正常进入 Home 初始态', mvpBoot.hasCanvas && mvpBoot.homeVisible, JSON.stringify(mvpBoot));
-    check('tank_mvp.html 无 console error', realErrorsOf(mvpErrors).length === 0, `errors=${JSON.stringify(realErrorsOf(mvpErrors))}`);
+    check('tank_battle.html 正常进入 Home 初始态', battleBoot.hasCanvas && battleBoot.homeVisible, JSON.stringify(battleBoot));
+    check('tank_battle.html 无 console error', realErrorsOf(battleErrors).length === 0, `errors=${JSON.stringify(realErrorsOf(battleErrors))}`);
 
-    await mvpPage.close();
+    await battlePage.close();
     await page.close();
 
     console.log('=== RESULT ===');

@@ -45,7 +45,7 @@
 
 **现状**：
 
-- **`commander_sight` 已于 2026-09-30 #J3 随视野系统整体退役删除**（原消费点为 mvp 视野半径 `entityHiddenByVision` / `visionRadiusEff`，2026-09-19 #D2 接线前为死效果）；
+- **`commander_sight` 已于 2026-09-30 #J3 随视野系统整体退役删除**（原消费点为 battle 视野半径 `entityHiddenByVision` / `visionRadiusEff`，2026-09-19 #D2 接线前为死效果）；
 - `wet_ammo_rack` / `crew_liner` 两键于 2026-10-20 #W-H 新增。
 - **现行键集合（6 键）见 [被动卡与模块暴击](./passive-crit.md#passive_keys-现行键集合)**。
 

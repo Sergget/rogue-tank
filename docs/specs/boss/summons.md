@@ -17,7 +17,7 @@
 | 每波只触发一次 | `bossSummonWavesDone` 记账 |
 | 单波敌数 | `summons[i].count × (1 + (countDiffMul−1)×diffNorm)`（**难度越高集中生成越多**，`countDiffMul` **1.6**） |
 | spawn 位置 | Boss 周围 `spawnRadiusMin~Max`（**160~320px**）环形，且保证在有效触发距离之外（不脸刷） |
-| 接入层 | `tank_mvp.spawnBossSummonWave`（进入阶段时检查） |
+| 接入层 | `tank_battle.spawnBossSummonWave`（进入阶段时检查） |
 
 > **旧实现在 `enterBattle` 一次性生成，已删除**。
 
@@ -27,7 +27,7 @@
 
 （原 §4「召唤时间兜底」条，2026-10-15 #S3）
 
-`bossSummonWave` 除 `hpFrom` 阈值外，开战 `RULES.boss.summonWaves.timeTriggerSec`（缺省 **75s**）后强制触发下一未触发波次（`t.bossFightT` 由 mvp 主循环累计）。防久战磨血无召唤。
+`bossSummonWave` 除 `hpFrom` 阈值外，开战 `RULES.boss.summonWaves.timeTriggerSec`（缺省 **75s**）后强制触发下一未触发波次（`t.bossFightT` 由 battle 主循环累计）。防久战磨血无召唤。
 
 ## 召唤波次兜底池
 
@@ -52,7 +52,7 @@
 
 （原 §9、§9.1，#J，2026-09-23 用户反馈「boss 召唤的小兵移动速度太快」）
 
-接入层 `tank_mvp.spawnBossSummonWave` 沿用与节点敌军/增援**相同的 P-46 锚定链**：
+接入层 `tank_battle.spawnBossSummonWave` 沿用与节点敌军/增援**相同的 P-46 锚定链**：
 
 `applyEnemyAppearanceAndStats(s, spec, playerAnchorStats || player.stats, currentNode.entityMults)`（仅取外观与类型，数值基准 = 玩家出击基准 × 兵种 profile × 难度 `entityMults`），而非直挂 `applyTankConfig` 照搬 `tanks/*.json` 的原始机动值——后者绕过难度/玩家基准锚定，机动常暴超。此前裸 `applyTankConfig` 已删除。
 

@@ -70,7 +70,7 @@
 
 - **已标记（5 张升级卡，均为 `params` 覆写卡）**：`ability_artillery_barrage` / `ability_artillery_heavy` / `ability_artillery_strike_point` / `ability_artillery_strike_carpet`（`requiresAbility:'artillery'`）、`ability_deploy_cover_fortified`（`requiresAbility:'deploy_cover'`）。
 - **不得标记（6 张基础/安装卡，死锁防线）**：`artillery_strike` / `tactical_shield` / `super_reload` / `ability_deploy_cover` / `repair_kit` / `support_extinguisher`（原 11 张，2026-09-23 A 档摘除 5 张死效果卡后缩减）。**通用不变量**（`test-cards.js` 守门）：每个出现过的 ability key 至少有一张未标记卡作为获取途径；否则该能力永远无法获得。`repair`/`extinguish` 属 `ABILITY_KEYS_INNATE`（开局自带、绕过持有检查），其卡不受影响。
-- **语义闭环**：`applyCardEffects` 非 modifier 分支 `Object.assign({}, ef, {cardId})` 保留 `ef.key` → 基础卡 key 落入 `player.cardEffects` → mvp `drawRewardCards` 组装 `owned.abilities` → 同 key 升级卡转为合格。
+- **语义闭环**：`applyCardEffects` 非 modifier 分支 `Object.assign({}, ef, {cardId})` 保留 `ef.key` → 基础卡 key 落入 `player.cardEffects` → battle `drawRewardCards` 组装 `owned.abilities` → 同 key 升级卡转为合格。
 - **保底路径**：资格过滤在 small-pool early-return 与保底**之前**执行，保底只在已过滤的 `usable` 上取卡，**不复活**不合格升级卡；池内只剩升级卡时宁缺毋滥。
 - **实况注意**：传奇档位池的 2 张 ability 卡（point/carpet）**全为升级卡** → 未持 `artillery` 者在该池抽不到能力卡（正确行为：artillery 基础卡在 common/rare/epic 池）。作者经 `tools/content_designer.html` 编辑能力卡时须保留 `params`/`requiresAbility`（该编辑器已补全三字段往返）。
 

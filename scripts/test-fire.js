@@ -434,7 +434,7 @@ ok(F.tryFireSecondary(wiCtx)===false, '#W-I: F 键对 howitzer 副武器不响�
 hw.weapons.secondary = { type: 'none', stats: {} };
 ok(W.isHowitzerMode(hw)===false, '#W-I: 卸下 howitzer → 回直射态');
 // 2026-10-20（审查修复）：散布系数收口——瞄准圈与落点散布**同一参数源**
-//   WEAPON_DEFAULTS.primary.howitzer.spreadFactor（此前 js/tank_fire.js 与 tank_mvp.html
+//   WEAPON_DEFAULTS.primary.howitzer.spreadFactor（此前 js/tank_fire.js 与 tank_battle.html
 //   各自硬编码 1.2，改一处会漂移）。此处锁定参数存在且为数值，防止再退回字面量。
 ok(typeof W.WEAPON_DEFAULTS.primary.howitzer.spreadFactor === 'number'
   && W.WEAPON_DEFAULTS.primary.howitzer.spreadFactor > 0,
@@ -472,7 +472,7 @@ ok(W.WEAPON_DEFAULTS.primary.howitzer.moveSpeedRatio === 1/3,
 }
 
 // 8) 按住鼠标左键持续开火（2026-09-15 用户确认要求）：任何主炮类型在按住期间逐帧门控自然释放——
-//    mvp 主循环每帧 tryFire→fireTank，reloadT/热量/炮管状态由 updatePrimaryHeat/updatePrimaryBarrels
+//    battle 主循环每帧 tryFire→fireTank，reloadT/热量/炮管状态由 updatePrimaryHeat/updatePrimaryBarrels
 //    逐帧驱动；本段以 dt=1/60 模拟「按住左键」8s 的逐帧链，验证四种主炮类型都能按住连发。
 {
   global.devAim={zeroSpread:true};

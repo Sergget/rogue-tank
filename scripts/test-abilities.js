@@ -430,7 +430,7 @@ function abilityTank(effects) {
   ok(t.debuffs.engine === undefined && t.debuffs.gunner === 3, '扑灭连带清 debuffs.engine（其他 debuff 不动）');
   ok(t._dotAcc === 0 && t._dotTxt === 0, 'DOT 飘字累计同步清零');
   ok(close(t.abilityCds.extinguish, 45), 'extinguish 进独立冷却 45（fallback）');
-  // 冷却期内再起火 → 拒绝（mvp 自动触发路径尊重冷却）
+  // 冷却期内再起火 → 拒绝（battle 自动触发路径尊重冷却）
   t.dotT = 3;
   r = abil.tryActivateAbility(t, 'extinguish', {});
   ok(r.ok === false && r.reason === 'cooldown', '冷却期内再起火 → 拒绝 cooldown（自动触发尊重冷却池）');

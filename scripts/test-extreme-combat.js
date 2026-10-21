@@ -147,7 +147,7 @@ ok(RULES.heights === undefined, '#9: RULES.heights 已删除（车高体系退�
 
 // ============================================================================
 // 5) 反射对合 + 二次跳弹行为：reflectDir 两次=原方向；resolveHit 只查 allowBounce
-//    形参（canBounce 由调用方 tank_mvp.html:919 传 s.canBounce 控制）
+//    形参（canBounce 由调用方 tank_battle.html:919 传 s.canBounce 控制）
 // ============================================================================
 {
   const n = { x:1, y:0 };

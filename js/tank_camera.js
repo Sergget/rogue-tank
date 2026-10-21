@@ -4,7 +4,7 @@
 // 纯逻辑模块：无 DOM / Canvas 依赖，Node 可测（module.exports 底部导出）。
 // 职责：维护摄像机状态（视口中心/尺寸/缩放/世界边界），跟随目标（玩家）平滑移动并
 // 钳制在世界边界内；提供 世界↔屏幕 坐标换算与「世界 AABB 是否进入视口」的剔除查询，
-// 供绘制层（mvp / 小地图）按视口跳过不可见元素。
+// 供绘制层（battle / 小地图）按视口跳过不可见元素。
 //
 // 坐标约定：
 //   - 世界坐标 = 节点地图坐标（covers/entities 所在坐标系）；
@@ -107,10 +107,10 @@ function updateCameraLead(cam, screenX, screenY, dt) {
 }
 
 // #J3（2026-09-30 用户裁定「全屏幕渲染敌人，不再计算视野距离」）：本文件原 `visionRadiusForViewport`
-//   / `visionCenter` / `visionClamped` 三个视野圆几何函数**整体删除** —— 它们的唯一消费者是 mvp 的
+//   / `visionCenter` / `visionClamped` 三个视野圆几何函数**整体删除** —— 它们的唯一消费者是 battle 的
 //   「可视圆剔除 + 视野虚线圈」，两者均已下线。敌人现在只受 `aabbInView` 视口剔除（纯性能）。
 //   敌人 AI 的**距离 + 直线视野**接战判定不在本文件（`js/tank_ai.js` + `js/tank_cover.js`），不受影响。
-//   保留 `RULES.vision` 仅作历史配置留档（mvp 调试钩子 `__TEST__.visionZoom()` 仍读其名义值）。
+//   保留 `RULES.vision` 仅作历史配置留档（battle 调试钩子 `__TEST__.visionZoom()` 仍读其名义值）。
 
 /**
  * 立即把视口中心钳制在世界边界内（不参与跟随阻尼，考虑 cam.zoom 缩放）。

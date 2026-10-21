@@ -56,7 +56,7 @@
 
 （原 §4，2026-10-15 #MODE 批次）
 
-`assignBossSkills`（mvp）从 `['shield','artillery','overdrive','aps']` 随机 1~2 个技能（`bossNumber > 0` 起 2 个），增强参数 `shield durationMult 1.5` / `artillery shellCountMult 1.5`；`updateBossSkills` 每 **8~15s** 触发一次携带技能。日志 `BOSS 携带技能：…（增强版）`。
+`assignBossSkills`（battle）从 `['shield','artillery','overdrive','aps']` 随机 1~2 个技能（`bossNumber > 0` 起 2 个），增强参数 `shield durationMult 1.5` / `artillery shellCountMult 1.5`；`updateBossSkills` 每 **8~15s** 触发一次携带技能。日志 `BOSS 携带技能：…（增强版）`。
 
 ## Boss 随机武备
 
@@ -66,7 +66,7 @@ Boss 此前只有随机技能，`weapons` 恒为 `standard` + `none` ⇒ 主/副
 
 - **选择**：纯函数 `pickBossArmament(pool, {rng, bossNumber})`（`js/tank_cards.js`）—— ① 以 `primaryChance` 掷骰从 `slot=primary && action=install` 随机取 1 张；② 以 `secondaryChance` 掷骰从 `slot=secondary && action=install` 随机取 1 张；③ 对已选中的主/副武器**类型**，从 `action=upgrade && weaponType 匹配` 逐张独立掷骰，最多 `upgradeMax` 张（概率 `upgradeChance + bossNumber × upgradeChancePerBoss`）。任一步无货静默跳过，不抛错。
 - **参数唯一口径** `RULES.boss.armament` = `{ enabled:true, primaryChance:0.9, secondaryChance:0.7, upgradeMax:2, upgradeChance:0.55, upgradeChancePerBoss:0.1 }`。
-- **施加**：mvp `assignBossArmament`（`spawnBossFromDef` 内、`assignBossSkills` 之后）经 `applyCardEffects` 施加 —— **与玩家卡牌同一语义通道**（换装重置 `stats` 基线、升级仅同型合并、`_spec`/`_dbState`/`_clipState` 缓存失效）。Boss 侧不维护 `_cardApplyCount`（属性独立、无跨局残留）。
+- **施加**：battle `assignBossArmament`（`spawnBossFromDef` 内、`assignBossSkills` 之后）经 `applyCardEffects` 施加 —— **与玩家卡牌同一语义通道**（换装重置 `stats` 基线、升级仅同型合并、`_spec`/`_dbState`/`_clipState` 缓存失效）。Boss 侧不维护 `_cardApplyCount`（属性独立、无跨局残留）。
 - **实测分布（2026-10-18，500 次探针 / 真实卡池 191 张）**：平均每 Boss **3.27 张**武备卡（升级卡 830 次），施加失败 0；主武器各型 22.2%~22.8%（仍标准炮 9.8%），副武器 6 型 10.8%~12.2%（空槽 29.6%）。
 - **可读性**：TAB 状态面板 Boss 行追加 `· 武备:主武器+副武器·改装×N`；出生日志 `BOSS 武备：…｜改装 …`。
 

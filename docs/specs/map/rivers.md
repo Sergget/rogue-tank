@@ -20,10 +20,10 @@
 > *主题：完全浸入溺毙（`tankFullyInWater`）/ 豁免对象（Boss、生存准备期）/ AI 避水（`applyWaterAvoidance`，**已按 [AI 敢涉水](#ai-敢涉水) 分档**）*
 > *⚠️ 本节为批次章节，非主题基线。现行口径见卷首页「主题页」表。*
 
-- **完全浸入溺毙**：`tank_cover.js` 新增 `tankFullyInWater(tank)`——车体四个角点（hullOBB 四角世界系）**全部**落在任一 `water`/`river` 凸部分内（点-in-多边形射线法）才算完全浸入；四角之一出水即复位。主循环（`tank_mvp.html`）对每实体累计 `drownT += dt`；`drownT >= RULES.drowning.seconds(8)` → 经 `applyDamage` 沉没摧毁。玩家警示：**头顶 `≋ 溺毙 x.xs` 倒计时 HUD（<3s 红字）**；出水 `drownT` 复位。**（沿革：原文还写了 `warnAt(3s)` 倒计时临界音——该配置项 2026-10-20 #W15 实测零消费，已从 `RULES.drowning` 删除，见 [死配置清理](./generation-cleanup.md#死配置清理与一处误判纠正)；HUD 计时不受影响。）**
+- **完全浸入溺毙**：`tank_cover.js` 新增 `tankFullyInWater(tank)`——车体四个角点（hullOBB 四角世界系）**全部**落在任一 `water`/`river` 凸部分内（点-in-多边形射线法）才算完全浸入；四角之一出水即复位。主循环（`tank_battle.html`）对每实体累计 `drownT += dt`；`drownT >= RULES.drowning.seconds(8)` → 经 `applyDamage` 沉没摧毁。玩家警示：**头顶 `≋ 溺毙 x.xs` 倒计时 HUD（<3s 红字）**；出水 `drownT` 复位。**（沿革：原文还写了 `warnAt(3s)` 倒计时临界音——该配置项 2026-10-20 #W15 实测零消费，已从 `RULES.drowning` 删除，见 [死配置清理](./generation-cleanup.md#死配置清理与一处误判纠正)；HUD 计时不受影响。）**
 - **适用对象与豁免（2026-10-15 用户裁定，取代原「一视同仁」口径）**：
   - **玩家 / 普通敌军 / 友军**：正常溺毙。
-  - **Boss：完全免疫溺毙**（`tank_mvp.html` 溺毙门控加 `!e.isBoss`）。**根因**：Boss 走位由 `updateBossBehavior` 的 `_bossMoveOverride` 直接驱动（`js/tank_boss.js`），绕过 `aiDecide` → 也就绕过了 `applyWaterAvoidance` 的探点避水；Boss 因而可能停在深水中央。此时溺毙＝关卡核心对抗白给，与设计冲突。豁免后 Boss 在深水仅**减速通行**（`passability 0.4`），不受淹死威胁。
+  - **Boss：完全免疫溺毙**（`tank_battle.html` 溺毙门控加 `!e.isBoss`）。**根因**：Boss 走位由 `updateBossBehavior` 的 `_bossMoveOverride` 直接驱动（`js/tank_boss.js`），绕过 `aiDecide` → 也就绕过了 `applyWaterAvoidance` 的探点避水；Boss 因而可能停在深水中央。此时溺毙＝关卡核心对抗白给，与设计冲突。豁免后 Boss 在深水仅**减速通行**（`passability 0.4`），不受淹死威胁。
   - **生存模式准备期**：不累计 `drownT`（`!isSurvivalPrep` 门控）——见 `specs/combat.md` §14「全场伤害关闭窗口」。
 - **敌人也会溺毙（AI 绕水寻路）**：`tank_ai.js` 新增 `applyWaterAvoidance(t, out, ctx)`（`aiDecide` 敌方分支输出后套用）——沿 `hullAngle` 前向探 140px（`RULES.ai.waterProbeDist`）：
   - 前向入水 + 至少一侧（±0.6rad 侧探）为干地 → `turn` 转向干地侧（move 保持 = 沿岸绕行）；

@@ -130,7 +130,7 @@ BD.drawGround(ctx, {
 const groundTiers = new Set(['road', 'river', 'water', 'mud', 'bridge']);
 const ground = covers.filter(c => groundTiers.has(c.tier));
 const above = covers.filter(c => !groundTiers.has(c.tier));
-// #U8：河流按 groupId 合并整条链后单次描边（与 tank_mvp 绘制口径一致）
+// #U8：河流按 groupId 合并整条链后单次描边（与 tank_battle 绘制口径一致）
 {
   const riverGroups = new Map();
   for (const c of ground) {

@@ -379,7 +379,7 @@ ok(runZ.difficulty === difficultyForIndex(5, 3), 'extendRun 复用 run.env 的 d
       return Object.assign({ hp: 1000, stats: mkStats(), modifiers: [] }, spec);
     },
     configureTank() {},
-    // 模拟 mvp applyDifficulty：全键乘 + armorAll 遍历装甲面
+    // 模拟 battle applyDifficulty：全键乘 + armorAll 遍历装甲面
     applyDifficulty(t, m) {
       for (const k of ['maxHp','penetration','damage','reload','spreadMult','aimSpeed','maxSpeed','turnRate','turretTurnRate']) {
         if (m[k] !== undefined && m[k] !== 1) t.stats[k] *= m[k];

@@ -28,9 +28,9 @@
 
 ## 稀有度中文标签
 
-单一常量 `CARD_RARITY_LABELS`（`tank_mvp.html`），替换原先在两处函数内各写一份的字面量。
+单一常量 `CARD_RARITY_LABELS`（`tank_battle.html`），替换原先在两处函数内各写一份的字面量。
 
-> **扩展页签（NF-1，2026-10-20）**：mvp `C` 键面板另增「**全池**」页签（数据源 `cardPool` 全表），描述支持占位符就地编辑（仅 `sessionStorage`，不写盘）。细则归 [编辑器规范 · 内容工具与预览](../editor/appearance-aimspeed.md#内容工具与预览nf-1-nf-2-nf-4)。
+> **扩展页签（NF-1，2026-10-20）**：battle `C` 键面板另增「**全池**」页签（数据源 `cardPool` 全表），描述支持占位符就地编辑（仅 `sessionStorage`，不写盘）。细则归 [编辑器规范 · 内容工具与预览](../editor/appearance-aimspeed.md#内容工具与预览nf-1-nf-2-nf-4)。
 
 ## 相关页面
 - [稀有度、权重与验证工具链](./rarity-tools.md) — `CARD_RARITIES` 五档定义

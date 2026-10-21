@@ -1,8 +1,8 @@
 // tank_paint.js — shared procedural tank rendering (classic script, loads over file://).
 // Single source of truth for rolling tracks + top-down hull/turret textures, shared by
-// tank_mvp.html and tank_designer.html. All functions are platform-independent: they take an
+// tank_battle.html and tank_designer.html. All functions are platform-independent: they take an
 // explicit ctx, local-coordinate polygon verts, and a pose, so each caller supplies its own
-// geometry (mvp model vs designer half-polys) and colors.
+// geometry (battle model vs designer half-polys) and colors.
 'use strict';
 //
 // Design note: kept as a plain script (NOT an ES module) so both prototypes keep working when
@@ -50,7 +50,7 @@ function paintClipLocal(ctx, verts){
 // Local-unit geometry; `scale` keeps stroke widths pixel-consistent when the caller zooms.
 //   verts  : hull polygon verts (local coords)
 //   cx,cy  : hull world position; angle: hull rotation
-//   scale  : 1 in mvp, viewScale in designer
+//   scale  : 1 in battle, viewScale in designer
 //   color  : base color (t.color or designer's neutral paint)
 //   phase  : scrolling offset (t.trackPhase or a time-driven value)
 function paintTracks(ctx, verts, cx, cy, angle, scale, color, phase, opts){

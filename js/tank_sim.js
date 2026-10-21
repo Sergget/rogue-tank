@@ -15,7 +15,7 @@
 // 已知保真度取舍（基线可接受，修补阶段按需细化）：
 //   - Boss 节点用 bosses/<id>.json 真实模板的基础配置（tankId/scale/tuning），
 //     不模拟多阶段/stages、召唤物/summons、弱点/weakspots、护盾机制；
-//   - dot 持续伤害按连续扣血近似（mvp 为离散 tick）；
+//   - dot 持续伤害按连续扣血近似（battle 为离散 tick）；
 //   - 不模拟复活/卡牌/Boss 召唤物。
 // ============================================================================
 
@@ -255,7 +255,7 @@ function runReplay(opts){
   };
 
   // ================= 单节点战斗 =================
-  // spawn 包装：补齐 mvp 内联脚本在 spawn 时初始化的战斗计时字段。
+  // spawn 包装：补齐 battle 内联脚本在 spawn 时初始化的战斗计时字段。
   // 关键点：reloadT 等若保持 undefined，`reloadT <= 0` 门控永远为假（NaN 比较），
   // AI 与开火管线将整体死锁——这是回放基线必须显式补齐的原因。
   function _spawnSimTank(opts){
@@ -286,7 +286,7 @@ function runReplay(opts){
     if (pSpec && MODEL.applyTankConfig) MODEL.applyTankConfig(player, pSpec);
 
     // 玩家构筑（难度评估用）：永久升级 + 卡牌，每节点重生后重新应用。
-    // 与 mvp 同源（applyUpgrades / applyCardEffects），保证数值口径一致。
+    // 与 battle 同源（applyUpgrades / applyCardEffects），保证数值口径一致。
     const build = o.playerBuild;
     if (build){
       const applyUp = _simGlobal('applyUpgrades', null);
@@ -300,10 +300,10 @@ function runReplay(opts){
     // P-46: 玩家出击基准 stats 快照（敌军数值锚定基准）
     const playerAnchorStats = JSON.parse(JSON.stringify(player.stats));
 
-    // 实体化敌军（P-46：纯外观 + 玩家基准锚定比例，对齐 mvp 接线）
+    // 实体化敌军（P-46：纯外观 + 玩家基准锚定比例，对齐 battle 接线）
     _simGlobal('materializeNode')(node, {
       setCovers: function(){ /* 掩体已先行替换 */ },
-      // keepIds 语义对齐 mvp：仅清除非保留实体（玩家须存活于注册表中，
+      // keepIds 语义对齐 battle：仅清除非保留实体（玩家须存活于注册表中，
       // 否则 AI 的 ctx.player 引用脱离注册表，敌军永不接战）
       clearEntities: function(keepIds){
         const keep = new Set(keepIds || []);
@@ -321,7 +321,7 @@ function runReplay(opts){
           if (spec && MODEL.deriveTankClass) t.tankClass = MODEL.deriveTankClass(spec);
         }
       },
-      // #76 A 对齐 mvp applyDifficultyMults（2026-10-05 sim 修补）：
+      // #76 A 对齐 battle applyDifficultyMults（2026-10-05 sim 修补）：
       // 数值乘子走 addModifier（scope 'run'），armorAll 经 armor.hull/armor.turret
       // 组路径叠乘，另做 P-46 难度封顶（difficultyCapMuls 差量注入）。
       // 旧直乘 stats 路径静默丢弃 armorAll 且无封顶，会抹平难度梯度——见诊断记录。
@@ -347,7 +347,7 @@ function runReplay(opts){
           addMod(t, { stat: 'armor.turret', mode: 'mult', value: mults.armorAll, source: 'difficulty', scope: 'run' });
         }
         t.hp = t.stats.maxHp; t.maxHp = t.stats.maxHp;
-        // P-46 难度封顶（对齐 mvp）：penCap/dmgFloor/dmgCap/speed 四键差量注入。
+        // P-46 难度封顶（对齐 battle）：penCap/dmgFloor/dmgCap/speed 四键差量注入。
         // randFactor 走 Math.random——runReplay 内它已被替换为确定性 rng 流，可复现。
         const capFn = _simGlobal('difficultyCapMuls', null);
         if (capFn){
@@ -522,7 +522,7 @@ function runReplay(opts){
 
         MOVE.driveTank(t, dt, { turn: out.turn, move: out.move });
         if (COVER.resolveCoverCollisions) COVER.resolveCoverCollisions(t);
-        // 2026-09-15 W6：autocannon 热量冷却逐帧驱动（sim 与 mvp 主循环同源；非机炮 no-op）
+        // 2026-09-15 W6：autocannon 热量冷却逐帧驱动（sim 与 battle 主循环同源；非机炮 no-op）
         if (FIRE.updatePrimaryHeat) FIRE.updatePrimaryHeat(t, dt);
 
         // 开火判定：AI 决策 + LoS + 装填就绪

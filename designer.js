@@ -14,7 +14,7 @@ function resize(){
 window.addEventListener('resize', resize);
 
 // ================= geometry / mirror helpers =================
-// Local convention matches tank_mvp.html: +x = forward, +y = left. We only ever let the user edit
+// Local convention matches tank_battle.html: +x = forward, +y = left. We only ever let the user edit
 // the y<=0 ("right") half of a polygon; the y>0 half is generated automatically by mirroring across
 // the x-axis (the hull/turret centerline). Shared helper functions (buildFullVerts, buildFullFaces,
 // defaultHull, defaultTurret, halfFromFull, recenterPoly, normalizeBarrel, etc.) are loaded from
@@ -2089,7 +2089,7 @@ function drawPolygon(poly, center, angle, opts){
     ctx.restore();
     }
 
-    // P-27 纹理叠层：仅预览模式（detail && !faded）下贴与 mvp 同款的 paintPartTexture 纹理，
+    // P-27 纹理叠层：仅预览模式（detail && !faded）下贴与 battle 同款的 paintPartTexture 纹理，
     // 车体以 hullCenter 为原点、炮塔换算到座圈圆心 + axis 平移帧（与 turretToScreen 同帧约定）；
     // 编辑模式保持纯色填充便于看顶点/边/装甲。切换外观件下拉即时生效。
     // 精灵已绘制时跳过（AI 贴图自带涂装，不再叠程序化纹理）。
@@ -2697,7 +2697,7 @@ function applyTankData(data, opts){
 }
 
 // ================= tanks/ I/O（一型一文件，js/tank_listio.js） =================
-// 数据源 = tanks/ 目录（与 MVP/compare 同源），经 GET /api/tanks 聚合读取；
+// 数据源 = tanks/ 目录（与 battle/compare 同源），经 GET /api/tanks 聚合读取；
 // 保存 = POST /api/tanks/<id> 单文件写；删除 = DELETE /api/tanks/<id>；
 // 服务器不可用时降级下载 <id>.json 供手动放入 tanks/。
 let tankListCache = null;

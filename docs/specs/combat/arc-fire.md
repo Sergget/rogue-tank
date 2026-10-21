@@ -9,7 +9,7 @@
 
 （原 §3.2b，`howitzer`，副武器；2026-10-20 #W-I 现行口径）
 
-**定位**：**模式载体**，不是独立武器类型，也不是技能。装进副武器槽（`weapons.secondary.type === 'howitzer'`）后**主炮**切曲射；卸下/换掉即回直射。判据唯一口径 `isHowitzerMode(t)`（`js/tank_weapons.js` 导出，消费方 `tank_fire.js` / `tank_move.js` / `tank_mvp.html` / `tank_cards.js`）。
+**定位**：**模式载体**，不是独立武器类型，也不是技能。装进副武器槽（`weapons.secondary.type === 'howitzer'`）后**主炮**切曲射；卸下/换掉即回直射。判据唯一口径 `isHowitzerMode(t)`（`js/tank_weapons.js` 导出，消费方 `tank_fire.js` / `tank_move.js` / `tank_battle.html` / `tank_cards.js`）。
 
 **参数唯一口径 `WEAPON_DEFAULTS.primary.howitzer`**（`js/tank_weapons.js`）：
 
@@ -26,7 +26,7 @@
 **结算语义**（`js/tank_fire.js` `firePrimaryShell` 的 howitzer 分支 + `stepShells` 的 `isArc` 落点分支）：
 
 - **弹种锁定 he**（忽略玩家当前 `ammoKey`）；
-- **落点 = `ctx.aimPoint`**（鼠标世界位置，mvp 注入 `fireCtx.aimPoint = mouseWorld`）——落点分支不读 `target`，`fireTank` 对该模式放行 `target == null`；
+- **落点 = `ctx.aimPoint`**（鼠标世界位置，battle 注入 `fireCtx.aimPoint = mouseWorld`）——落点分支不读 `target`，`fireTank` 对该模式放行 `target == null`；
 - **越掩体**：`isArc` 天然绕过路径遮挡，且 `fireTank` 的**炮口贯穿预检**对该模式豁免（`barrelCovers = []`）；
 - **直击**（落点爆炸半径内最近敌对坦克且 `dist ≤ splashRadius×0.9`）：装甲取目标 `hull/turret × front/side/rear` **六面最薄值**，经 `resolveHit` 的 `opts.forceEffThickness` **取代**几何等效厚度（曲射大角度落弹不适用入射角斜面等效，`allowBounce=false` 同时关闭跳弹链）；随后对其它目标补 `splash × 0.35` 衰减溅射（直击目标被排除，不重复扣伤）；
 - **近失**：`s.Dmg` 直接走 `applySplash`（线性衰减，he 溅射语义，不走装甲）；

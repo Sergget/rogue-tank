@@ -31,7 +31,7 @@
 - **穿透 (Penetration)**：向车体内部与后方喷射装甲金属碎片（debris）与高压火花，触发局部小范围闪光。
 - **HE 爆轰 (Explosion)**：爆轰火球 `explosions` 与冲击波 `shockwaves` 扩散半径必须严格按当前弹种的 `splashRadius`（[弹种系统 · 数值总表](./ammo-system.md#数值总表)，唯一数值口径）动态缩放；地面生成深色弹坑痕迹 `scorchMarks`。
 - **飞头/殉爆 (Turret Blow-off)**：弹药架致死摧毁触发 `spawnAmmoBlowFx`；炮塔在空中弧形抛物线飞行并剧烈自旋，一路留滚滚黑烟粒子 `smoke`，落地时生成剧烈震屏与落点冲击波。
-- **三套此前从未绘制的 FX 已接线**：`drawScorchMarks`（地面贴花层，坦克之下）、`drawShockwaves` 与 `drawTracers`（炮口闪光之后）——两页均在 `tank_mvp.html` / `tank_bench.html` 的战斗绘制块中调用。
+- **三套此前从未绘制的 FX 已接线**：`drawScorchMarks`（地面贴花层，坦克之下）、`drawShockwaves` 与 `drawTracers`（炮口闪光之后）——两页均在 `tank_battle.html` / `tank_bench.html` 的战斗绘制块中调用。
 
 ## 特效分层规范
 
@@ -78,7 +78,7 @@
 - **电弧几何**走 `js/tank_utils.js lightningPath(x0,y0,ang,len,amp,segs,seed)`：纯函数、两端收敛到轴线、中段抖动由 `seed` 哈希派生（draw 期无 `Math.random`）。这是**共享工具**，`tank_battledraw` / `tank_fx` 两处消费，不得各自手写 zigzag。
 - **炮口（`spawnMuzzleFlash('railgun')`）**：白色能量锥 + 针状白热长矛 + 3 条**短**残余分叉（长度明显短于炮身弧，不喧宾夺主）+ 冷白核心/光晕/冲击环（走 `_radialSprite('coreW'/'haloW')`，白烟而非青蓝烟）。
 - **音效**：专属键 `firerail`（`SOUND_DEFS`）——高频方波放电下扫 + 带通噪声（电离空气）+ 延迟低频炮身共鸣；电磁炮开火不再复用 `fire`。
-- **HUD 装填环**：mvp 单环分支对 railgun 改**白色**双层充能弧（外层冷白晕 + 内层纯白芯），与炮身弧光同色；其他武器仍为琥珀色单弧。
+- **HUD 装填环**：battle 单环分支对 railgun 改**白色**双层充能弧（外层冷白晕 + 内层纯白芯），与炮身弧光同色；其他武器仍为琥珀色单弧。
 - 回归保护：`scripts/test-render.js` ⑩ —— 电弧确定性/端点收敛、充能进度同源、**三色分工分别量测**（灰 261 / 蓝 168 / 充能中白 44 px；待机白仅 2 px 且必须 < 充能白）+ 三色配置值直查 + 放电弧白且锁在炮身走廊（外溢 0%）、弹体不带电弧（青蓝 0 px）、弹体形态与长度、重绘逐字节一致。
 
 ## 伤害飘字
@@ -86,7 +86,7 @@
 （原 §6，Damage Numbers，2026-08-26 原 ISSUES #A6 修复定案）
 
 - 飘字显示 min(res.dmg, 击杀前剩余HP)，击杀伤害不再溢出虚高；
-- DOT tick 加存活检查，目标死亡即清 dot 字段（mvp + bench 双页一致），尸体不再持续跳字；
+- DOT tick 加存活检查，目标死亡即清 dot 字段（battle + bench 双页一致），尸体不再持续跳字；
 - 颜色语义：普通伤害白(plain) / 成员与非弹药架模块黄(module) / 弹药架红(ammoRack)；pen 色保留为 legacy 别名。
 - **Boss 飘字放大（2026-10-17 #U13，现行口径）**：`spawnDmgText(x, y, text, kind, scale)` 新增可选 `scale`（字号倍率，缺省 1）。`js/tank_fire.js` 在命中敌对 Boss 时透传 `RULES.boss.bossDmgTextScale`（现行 **1.6**），非 Boss 目标逐字不变；`js/tank_dmgtext.js drawDmgTexts` 按 `t.scale` 缩放字号与上浮距离。
 

@@ -1,7 +1,7 @@
 'use strict';
 
 // 特性2/3：命中式弹道结算。
-// 炮弹不再是"开火瞬间预结算"，而是真实飞行实体（tank_mvp.html 内逐帧做 swept-segment 检测），
+// 炮弹不再是"开火瞬间预结算"，而是真实飞行实体（tank_battle.html 内逐帧做 swept-segment 检测），
 // 到"命中时刻"才调用 resolveHit：入射角 / 等效厚度 / 跳弹 / 穿透 / 模块效果全部按命中瞬间的
 // 目标姿态与位置判定。伤害与 debuff 在命中那一刻立即施加（不再有延迟 log 闭包）。
 //
@@ -26,7 +26,7 @@ function impactGeometry(shell, hit, target){
   return { theta, thickness, eff: thickness/Math.cos(theta) };
 }
 
-// 弹种取用：shell.ammoKey（fireTank 挂载，见 tank_mvp.html/tank_bench.html）→ 回退 shell.ammo.key。
+// 弹种取用：shell.ammoKey（fireTank 挂载，见 tank_battle.html/tank_bench.html）→ 回退 shell.ammo.key。
 // 返回 null 时按无弹种（AP 语义）处理。
 function shellAmmoKey(shell){
   return shell.ammoKey || (shell.ammo && shell.ammo.key) || null;
@@ -47,7 +47,7 @@ function passiveValues(tank, key){
 }
 
 // 统一伤害入口（Issue #6）：尊重 target.dmgTakenMul（玩家更肉时由 node-map 设为 0.85，
-// 缺省 1），并统一做非负钳制。其他模块（tank_strike / mvp DOT 等）也应改走本入口，
+// 缺省 1），并统一做非负钳制。其他模块（tank_strike / battle DOT 等）也应改走本入口，
 // 便于集中应用受伤减伤，避免散落的直接 hp 减法绕开减伤逻辑。
 //
 // 受击即警觉（2026-09-14 用户定案）：敌对实体被任何伤害来源命中（直射/溅射/炮击轰炸/
@@ -96,7 +96,7 @@ function applyDamage(target, amount, src){
 // 在命中位置飘出伤害数值（取代静态字样如“空爆”/“爆炸”）。对未受伤害（d<=0）的实体
 // 不记录。（2026-09-15 修订：近炸引信分支需要坦克实收伤害。）
 // #E10（2026-09-20）HE 系溅射击退：击退距离与爆炸范围绑定。
-// 世界边界由接入层注入（setSplashWorldBounds；mvp 进节点时写入节点尺寸），缺省不钳制。
+// 世界边界由接入层注入（setSplashWorldBounds；battle 进节点时写入节点尺寸），缺省不钳制。
 let _splashWorldBounds = null;
 function setSplashWorldBounds(b){
   _splashWorldBounds = (b && b.w > 0 && b.h > 0) ? { w: b.w, h: b.h } : null;
@@ -233,7 +233,7 @@ function resolveHit(shell, target, hit, allowBounce, opts){
   // #W-G（2026-10-19 用户裁定）：原「反应装甲 reactive_armor」的**命中驱动拦截**分支已整体移除。
   //   该被动已改名为「**应急护盾**」，机制改为「HP < 10% 时自动生成 1 个持续 10s 的护盾」——
   //   属于**主动生成**而非「命中时拦截」，因此不再出现在命中结算链里：
-  //     · 触发判定与生成：tank_mvp.html 主循环（逐帧读 player.hp / applyShield）
+  //     · 触发判定与生成：tank_battle.html 主循环（逐帧读 player.hp / applyShield）
   //     · 护盾吸收：js/tank_shield.js 的 hasShield / absorbDamage（与战术护盾同一套）
   //     · 冷却：js/tank_cards.js 的 emergencyShieldCooldown / updateEmergencyShieldRearm
   //   保留 `opts.ignoreReactive` 的**入参兼容**（调用方可能仍传），但已无消费方。

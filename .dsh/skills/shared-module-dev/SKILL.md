@@ -1,6 +1,6 @@
 ---
 name: shared-module-dev
-description: Use when adding or modifying shared JavaScript modules in js/ or adding scripts in prototypes (tank_mvp.html, tank_designer.html, tank_compare.html). Enforces global script order and dual Node/Browser exports.
+description: Use when adding or modifying shared JavaScript modules in js/ or adding scripts in prototypes (tank_battle.html, tank_designer.html, tank_compare.html). Enforces global script order and dual Node/Browser exports.
 ---
 
 # Rogue Tank — 共享 JS 模块开发与加载规范

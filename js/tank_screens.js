@@ -4,7 +4,7 @@
 // tank_screens.js — 覆盖层纯逻辑视图模型（P-29）
 // 职责：把 Home/Loadout/Shop/Map/Settlement/DeathShop 等覆盖层的
 //       “界面状态与渲染数据组装”抽为零 DOM 依赖的纯函数，返回 viewModel。
-//       DOM 接线留在 tank_mvp.html 薄包装层（事件监听与 class 名不变）。
+//       DOM 接线留在 tank_battle.html 薄包装层（事件监听与 class 名不变）。
 // 依赖：全局 RULES（仅读 speed.kmhFactor / ammoTypes / economy.reviveCost，回退默认值）
 //       全局 UPGRADE_DEFS（可选传入，未传入时尝试读全局）
 // 加载顺序：tank_rules.js → tank_economy.js / tank_flow.js 之后、内联脚本之前
@@ -179,7 +179,7 @@ function buildDeathShopViewModel(opts){
 }
 
 // P-35：暂停/设置面板视图模型（零 DOM）——按键绑定说明 + 设置开关状态 + 按钮定义。
-// DOM 接线（ESC 切换 / checkbox 写档 / 终止结算按钮）留在 tank_mvp.html 薄包装层。
+// DOM 接线（ESC 切换 / checkbox 写档 / 终止结算按钮）留在 tank_battle.html 薄包装层。
 function buildPausePanel(opts){
   opts = opts || {};
   const settings = (opts.settings && typeof opts.settings === 'object') ? opts.settings : {};
@@ -230,7 +230,7 @@ function buildSettlementViewModel(opts){
   return { rows };
 }
 
-// 浏览器全局暴露（供 tank_mvp.html 薄包装调用；同时保持顶层标识符可直接访问）
+// 浏览器全局暴露（供 tank_battle.html 薄包装调用；同时保持顶层标识符可直接访问）
 if(typeof window !== 'undefined'){
   window.TankScreens = {
     SCREENS,
@@ -257,7 +257,7 @@ if(typeof window !== 'undefined'){
   window.buildDeathShopViewModel = buildDeathShopViewModel;
   window.buildSettlementViewModel = buildSettlementViewModel;
   window.buildPausePanel = buildPausePanel;
-  // tankSummary / deploymentReady 可能已被 mvp 内联同名覆盖，薄包装层优先用 TankScreens.*
+  // tankSummary / deploymentReady 可能已被 battle 内联同名覆盖，薄包装层优先用 TankScreens.*
 }
 
 if(typeof module !== 'undefined' && module.exports){

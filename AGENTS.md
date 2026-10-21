@@ -7,7 +7,7 @@
 - **类型**：节点式地图推进 + 局内得分驱动构筑 的战术坦克 Roguelike（俯视角 2D），方向为技能系统 + 主副武器解耦 + 召唤部署物（详见 `docs/DEVELOPMENT.md` §1）。
 - **核心页面**（均为单文件 HTML，内联大段脚本；共五页，`server.js` '/' 指向首页）：
   - `index.html`：首页封面路由（正式游戏 / 装甲测试台两卡片入口 + 设计器 / 对比链接）。
-  - `tank_mvp.html`：正式游戏页（run 链路：Home 多存档 → Loadout → 商店 → 节点图 → 战斗/结算/卡牌/Boss/AI/复活/经济/小地图；开发者面板 `#devPanel`、日志面板、流程覆盖层 `#flowOverlay`）。**游戏模式由 URL 参数 `?mode=` 决定**（`standard` 缺省 / `boss` 全 Boss 链 / `survival` 波次守点，`GAME_MODE`，2026-10-15 #MODE）——现行口径见 `docs/specs/combat.md` §14。
+  - `tank_battle.html`：正式游戏页（run 链路：Home 多存档 → Loadout → 商店 → 节点图 → 战斗/结算/卡牌/Boss/AI/复活/经济/小地图；开发者面板 `#devPanel`、日志面板、流程覆盖层 `#flowOverlay`）。**游戏模式由 URL 参数 `?mode=` 决定**（`standard` 缺省 / `boss` 全 Boss 链 / `survival` 波次守点，`GAME_MODE`，2026-10-15 #MODE）——现行口径见 `docs/specs/combat.md` §14。
   - `tank_bench.html`：装甲测试台独立页（player + dummy 靶车、发射解算面板、靶场控制台、Enemy Lab、卡牌测试）。
   - `tank_designer.html`：多边形顶点编辑器（车体/炮塔几何、逐边装甲、炮管/炮盾、甲弹对抗测试）。
   - `tank_compare.html`：表格化坦克数据对比/编辑页。
@@ -35,12 +35,12 @@
   - `tank_map.js`：线性节点链生成 + 难度曲线 + 节点实体化（generateRun/makeNode/scoreNode/materializeNode）。
   - `tank_flow.js`：全局流程状态机（map/battle/settlement/reward/gameover + home/loadout/shop，白名单转移 + watchFlow）。
   - `tank_camera.js` / `tank_minimap.js`：摄像机跟随与视口剔除 / 小地图绘制（均纯逻辑可 Node 测试；小地图含**公路整链多边形**（`roadCoverPolygonPoints`，road 的 `verts` 是局部坐标，逐点经 `worldToMinimap` 换算以适配 strip 的 `sx≠sy`）与**补给点标记**（`minimapSupplyMarks`，`opts.supplyStations`）——2026-10-18 #U35。**`renderCamPos` 为渲染专用相机位置（屏幕像素对齐 `round(x·zoom)/zoom`），物理/AI/命中仍读浮点 `cam.x/cam.y`**——#GT 2026-10-18）。
-  - `tank_battledraw.js`：mvp 战斗场景绘制层（drawTank/drawShells/drawCover/drawFoliage/部署物绘制 + **`railChargeProgress`** 电磁炮充能进度 0..1，2026-10-18 #U38），ctx 显式传参。
+  - `tank_battledraw.js`：battle 战斗场景绘制层（drawTank/drawShells/drawCover/drawFoliage/部署物绘制 + **`railChargeProgress`** 电磁炮充能进度 0..1，2026-10-18 #U38），ctx 显式传参。
   - `tank_fx.js` / `tank_paint.js` / `tank_dmgtext.js`：战斗特效 / 程序化坦克渲染 / 伤害飘字（纯 ctx，无 DOM 依赖；`tank_fx` 含电磁炮放电弧 `spawnRailDischarge`/`drawRailArcs`/`railArcCount`——注意 `updateFx` 会**重新赋值** FX 数组，读当前长度必须走访问器，不能读导出的数组引用）。
   - `tank_assets.js` / `tank_audio.js`：贴图资产层（ASSET_DEFS + 离屏烘焙缓存） / 声音系统（SOUND_DEFS + 惰性 AudioContext，全合成零资产）。
   - `tank_bindings.js`：**键位唯一数据源**（KEY_BINDINGS/ACTION_INFO + createInputController 统一 keydown/keyup + describeBindings + loadSettings/saveSettings）。
   - `tank_panels_core.js` / `tank_panels_dom.js` / `tank_panels.js`：面板分层（纯核心 + 卡牌事务 snapshotCardTx/rollbackCardTx + parameterClamp / DOM 适配 / 门面）。
-  - `tank_devpanel.js`：开发者面板共享模块（`mountDevPanel(host)` 动态构建四 Tab devPanel——实时/卡牌/参数/开关，mvp 与 bench **两页同源**；页面能力经 host 注入：getPlayer/getCardPool/getCtx/cardClick/cheatsInit/onCheatChange/liveData/extraSwitchHTML/hideSolutionSection 等；#F 2026-09-20 抽离，原 mvp 内联面板与 bench 旧 `#benchPanel` 已移除）。
+  - `tank_devpanel.js`：开发者面板共享模块（`mountDevPanel(host)` 动态构建四 Tab devPanel——实时/卡牌/参数/开关，battle 与 bench **两页同源**；页面能力经 host 注入：getPlayer/getCardPool/getCtx/cardClick/cheatsInit/onCheatChange/liveData/extraSwitchHTML/hideSolutionSection 等；#F 2026-09-20 抽离，原 battle 内联面板与 bench 旧 `#benchPanel` 已移除）。
   - `tank_sim.js`：回放代理玩家 harness（仅测试链使用，不影响正式游戏）。
   - `tank_halfgeom.js` / `tank_move.js` / `tank_listio.js` / `tank_presets.js` / `tank_schema.js` / `tank_screens.js`：半侧对称几何+normalizeBarrel / 统一运动 driveTank / tanks/ 读写 / 炮管炮盾预设 / 字段架构表 / 覆盖层 UI 纯逻辑视图模型。
 
@@ -137,7 +137,7 @@
 - 启动：`npm start`（或 `npm run dev`，或双击 `start.bat`）。
 - 访问（默认端口 8000，可用 `PORT=9000` 覆盖）：
   - `http://127.0.0.1:8000/` → index.html（首页路由）
-  - `http://127.0.0.1:8000/tank_mvp.html`（正式游戏）/ `tank_bench.html`（装甲测试台）
+  - `http://127.0.0.1:8000/tank_battle.html`（正式游戏）/ `tank_bench.html`（装甲测试台）
   - `http://127.0.0.1:8000/tank_designer.html`
   - `http://127.0.0.1:8000/tank_compare.html`
 - 校验：`npm run check` —— 对共享模块、`server.js` 及五个页面的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器冒烟四链（smoke / r3 / run / r4，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）。三者都应全绿。
@@ -145,14 +145,14 @@
 
 ### 3.2 测试坦克战斗
 
-- 通过 dev server 打开 `tank_mvp.html`。
+- 通过 dev server 打开 `tank_battle.html`。
 - 用 HUD 中的「坦克选择」下拉从 `tanks/` 一型一文件列表（`api/tanks`）加载不同坦克配置到玩家/靶车，横向对比。
 
 ### 3.3 设计与测试坦克几何
 
 - 通过 dev server 打开 `tank_designer.html`。
 - 该工具可编辑车体/炮塔多边形、逐边装甲，并内置「甲弹对抗」测试（入射角/等效厚度/跳弹判定）。
-- 设计器保存会写回 `tanks/<id>.json`（`POST /api/tanks/<id>`）；`tank_mvp.html` / `tank_compare.html` 重新加载列表即可生效（`applyTankConfig()` 在 `js/tank_model.js`）。
+- 设计器保存会写回 `tanks/<id>.json`（`POST /api/tanks/<id>`）；`tank_battle.html` / `tank_compare.html` 重新加载列表即可生效（`applyTankConfig()` 在 `js/tank_model.js`）。
 
 ### 3.4 脚本加载顺序（新增模块/脚本时注意）
 
@@ -175,7 +175,7 @@
 
 **并行派发前必须确认：**
 
-1. **写集合两两不相交**。同一批次内，`tank_mvp.html` / `tank_bench.html` / **同一个 specs 卷（`docs/specs/<卷>/` 全部主题页 + 该卷的 `<卷>.md` 兼容页，视为一个不可分割的写单元）** 各只允许**一个**角色写；其余角色只交付 `js/` 模块。**跨卷并行**是允许的（如本批 combat / map / cards+boss+editor 三路并行）。
+1. **写集合两两不相交**。同一批次内，`tank_battle.html` / `tank_bench.html` / **同一个 specs 卷（`docs/specs/<卷>/` 全部主题页 + 该卷的 `<卷>.md` 兼容页，视为一个不可分割的写单元）** 各只允许**一个**角色写；其余角色只交付 `js/` 模块。**跨卷并行**是允许的（如本批 combat / map / cards+boss+editor 三路并行）。
 2. **`RULES` 只有一个写者**（`role-systems`）。需要新调参的角色提需求，不直接改 `js/tank_rules.js`。
 3. **验证统一收口**：任何角色完成改动后不自称验证通过，由 `role-verify-docs` 跑三链（见 §3.1）。
 4. **测试文件必须登记**：新增 `scripts/test-*.js` 时必须同时加入 `scripts/run-tests.js` 的 `TESTS` 数组——`check-html.js` 会以「孤儿测试」直接判红。

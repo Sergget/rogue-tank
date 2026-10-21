@@ -4,7 +4,7 @@
 // tank_panels.js — P-15/P-46/#A24 shared UI *logic* facade (layer 4/4)
 //
 // #A24 分层后的门面：本文件不再实现具体行为，只把「纯核心」与「DOM 适配」两层
-// 重新导出，保持既有消费方（tank_mvp.html / tank_bench.html / scripts/test-panels.js）
+// 重新导出，保持既有消费方（tank_battle.html / tank_bench.html / scripts/test-panels.js）
 // 的 API 与调用方式完全不变。
 //
 //   tank_panels_core.js — 层 1 纯核心（视图模型 / 敌人生成 / 卡牌事务 / 参数钳制）

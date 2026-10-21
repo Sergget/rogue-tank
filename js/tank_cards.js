@@ -52,7 +52,7 @@ const DRONE_KINDS = ['scout', 'striker'];
 
 // 特殊被动（passive：非数值修饰器的机制性被动）
 // #J3（2026-09-30）：`commander_sight`（车长潜望镜/观瞄镜）随**视野距离系统整体退役**而删除 ——
-//   该键的唯一消费者是 mvp 的可视圆半径，视野下线后无任何效果通道，留着即死效果卡
+//   该键的唯一消费者是 battle 的可视圆半径，视野下线后无任何效果通道，留着即死效果卡
 //   （同 2026-09-23 A 档 `recon`/`track_repair` 处置）。视野卡面「+15%/+25% 观测距离」不再存在。
 const PASSIVE_KEYS = ['reactive_armor', 'angle_boost', 'overmatch', 'spall_liner',
   // #W-H（2026-10-19）：模块级防御减伤（消费方 js/tank_physics.js 的 getMultForKey）
@@ -440,11 +440,11 @@ function applyCardEffects(tank, card, ctx) {
       // economy：经济效果（M10 落地）——run 作用域，直接修改 tank 运行期字段
       // #U40（2026-10-19）：scoreMul 语义修复——卡面「结算得分 +15%」= ×1.15，旧实现
       //   (tank.runScoreMul||1) × (1+value) 把 value=1.15 算成 ×2.15（value 字段口径本就是
-      //   「最终乘数」，与 ECONOMY_FIELDS 消费方 tank_mvp 结算链约定一致）。接线（mvp
+      //   「最终乘数」，与 ECONOMY_FIELDS 消费方 tank_battle 结算链约定一致）。接线（battle
       //   finishNode / finishSurvivalWave / 击杀计分）：runScoreMultiplier(t) 聚合后应用。
       if (ef.type === 'economy' && tank) {
         if (ef.field === 'reviveCount') {
-          // 战场救护协议：复活次数 +1（run 作用域，叠加到 player.revives；mvp pickCard 即时回算）
+          // 战场救护协议：复活次数 +1（run 作用域，叠加到 player.revives；battle pickCard 即时回算）
           tank.runReviveBonus = (tank.runReviveBonus | 0) + (ef.value | 0);
         } else if (ef.field === 'scoreMul') {
           // 结算得分乘数：value 即最终乘数（1.15 = +15%），多卡直接叠乘
@@ -454,7 +454,7 @@ function applyCardEffects(tank, card, ctx) {
         //   它写 `tank.runStartScore`，但全仓**零读点**（ISSUES #W15 已核实；卡池内也无该卡），
         //   属于「加一张即静默无效」的死通道。tank_model.removeRunModifiers 的归零同步移除。
         // shopDiscount 为局内商店折扣（0.1 = −10% 价格），消费方 runShopPriceFor 调用方
-        // （mvp buyRunShopItem 经 runShopDiscount(tank) 取聚合折扣）
+        // （battle buyRunShopItem 经 runShopDiscount(tank) 取聚合折扣）
       }
     }
   }
@@ -464,7 +464,7 @@ function applyCardEffects(tank, card, ctx) {
     tank._cardApplyCount[card.id] = (tank._cardApplyCount[card.id] || 0) + 1;
   }
   // #W-G（2026-10-19）：应急护盾（原 reactive_armor）获得时冷却清零 —— 立即可用。
-  //   低血触发判定在 tank_mvp.html 主循环；冷却时长见 emergencyShieldCooldown。
+  //   低血触发判定在 tank_battle.html 主循环；冷却时长见 emergencyShieldCooldown。
   if (tank && Array.isArray(tank.cardEffects) && tank.cardEffects.some(e => e && e.type === 'passive' && e.key === 'reactive_armor')) {
     tank._emergencyShieldCd = 0;
   }
@@ -695,7 +695,7 @@ const _BEST_ONLY_PASSIVE_KEYS = { spall_liner: 'min', overmatch: 'max' };
 //   唯一口径：RULES.cards.emergencyShield（triggerHpRatio / durationSeconds /
 //   cooldownSeconds / cooldownMinSeconds / shieldHp）。RULES 缺失时用内置缺省。
 //
-//   本文件负责「冷却时长」与「冷却计时递减」；实际的低血触发判定在 tank_mvp.html 主循环
+//   本文件负责「冷却时长」与「冷却计时递减」；实际的低血触发判定在 tank_battle.html 主循环
 //   （需要 player.hp / maxHp 与 applyShield，而那些是页面层职责）。
 //
 //   卡牌升级：通过 `t._emergencyShieldCdDelta`（秒，负值=缩短）叠加，钳到 cooldownMinSeconds。
@@ -709,7 +709,7 @@ function emergencyShieldCooldown(t) {
   return Math.max(min, base + delta);
 }
 
-// 应急护盾配置的其余字段（供 mvp 主循环读取，避免在多处硬编码）
+// 应急护盾配置的其余字段（供 battle 主循环读取，避免在多处硬编码）
 function emergencyShieldConfig() {
   const cfg = (typeof RULES !== 'undefined' && RULES.cards && RULES.cards.emergencyShield) || {};
   return {
@@ -719,7 +719,7 @@ function emergencyShieldConfig() {
   };
 }
 
-// 冷却计时器逐帧递减（mvp 主循环调用）。减到 0 即可再次触发。
+// 冷却计时器逐帧递减（battle 主循环调用）。减到 0 即可再次触发。
 function updateEmergencyShieldRearm(t, dt) {
   if (!t || dt <= 0) return;
   if (t._emergencyShieldCd > 0) {
@@ -1054,7 +1054,7 @@ function pickBossArmament(pool, opts) {
 //   shopDiscount 落在 cardEffects 内按效果条数聚合）。
 //   runScoreMultiplier(t)：结算得分乘数（economy.scoreMul value 直接叠乘；缺省 1）。
 //   runShopDiscount(t)：局内商店价格折扣率 0..0.5（economy.shopDiscount 各卡 value 相加，
-//     上限 0.5 防御性钳制——纯折扣卡叠加不应把商店变免费；mvp buyRunShopItem 消费）。
+//     上限 0.5 防御性钳制——纯折扣卡叠加不应把商店变免费；battle buyRunShopItem 消费）。
 function runScoreMultiplier(t) {
   const v = (t && typeof t.runScoreMul === 'number') ? t.runScoreMul : 1;
   return v > 0 ? v : 1;

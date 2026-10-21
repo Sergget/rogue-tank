@@ -1,5 +1,5 @@
 // Local dev/test server for the Rogue Tank prototypes. Zero-dependency: serves the project
-// directory over plain HTTP via Node's built-in `http` + `fs`. Essential because tank_mvp.html
+// directory over plain HTTP via Node's built-in `http` + `fs`. Essential because tank_battle.html
 // fetches tank_list.json and both prototypes load js/tank_paint.js — neither works over file://.
 //
 // Usage:
@@ -192,7 +192,7 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, HOST, () => {
   console.log('Rogue Tank dev server');
   console.log(`  → http://${HOST}:${PORT}/                (index.html 首页)`);
-  console.log(`  → http://${HOST}:${PORT}/tank_mvp.html    (正式游戏)`);
+  console.log(`  → http://${HOST}:${PORT}/tank_battle.html  (正式游戏)`);
   console.log(`  → http://${HOST}:${PORT}/tank_bench.html  (装甲测试台)`);
   console.log(`  → http://${HOST}:${PORT}/tank_designer.html (坦克设计器)`);
   console.log(`  → http://${HOST}:${PORT}/tank_compare.html  (坦克对比)`);

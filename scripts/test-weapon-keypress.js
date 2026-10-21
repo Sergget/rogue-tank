@@ -17,7 +17,7 @@
 //           （按住 F → tryFireSecondary 连发；turret 为设计例外——自主运作、不响应击发）
 //   边界语义：空副武器槽 F 拒绝（不回落主炮）；F 不修改武器数据；e.repeat 不重复边沿动作。
 //
-// 做法：用一个与 tank_mvp.html 同形的 actions 适配器（mvp 中 fire=主炮击发、
+// 做法：用一个与 tank_battle.html 同形的 actions 适配器（battle 中 fire=主炮击发、
 //       F 按住=isDown('fireSecondary') 轮询 tryFireSecondary），把 tank_bindings.
 //       createInputController 与 tank_fire / tank_weapons 串起来，然后模拟真实键盘事件序列。
 //
@@ -71,7 +71,7 @@ function makeFakeWindow(){
 }
 
 // ============================================================================
-// 与 tank_mvp.html 同形的页面接线：全局 shells / player / input
+// 与 tank_battle.html 同形的页面接线：全局 shells / player / input
 // ============================================================================
 global.shells = [];
 global.impacts = [];
@@ -90,7 +90,7 @@ function makePlayer(secType, priType){
   return p;
 }
 
-// 页面 fireCtx（mvp 主循环构造的等价物）
+// 页面 fireCtx（battle 主循环构造的等价物）
 function makeFireCtx(p){
   return {
     player: p, mouseWorld: { x: 500, y: 0 }, shells: global.shells, impacts: global.impacts, bounceFx: global.bounceFx,
@@ -112,7 +112,7 @@ function makeFireCtx(p){
 
 const ENEMY = M.makeTank({ id: 'kp_enemy', team: 'enemy', x: 500, y: 0, hp: 5000 });
 
-// ---- 输入控制器 + 页面 actions（与 mvp #C4e 同形：fire→tryFirePrimary，F=按住轮询 tryFireSecondary） ----
+// ---- 输入控制器 + 页面 actions（与 battle #C4e 同形：fire→tryFirePrimary，F=按住轮询 tryFireSecondary） ----
 let PLAYER = makePlayer('none', 'standard');
 global.player = PLAYER;
 const win = makeFakeWindow();

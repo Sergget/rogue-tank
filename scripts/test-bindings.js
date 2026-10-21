@@ -57,7 +57,7 @@ ok(B.KEY_BINDINGS.fireSecondary === 'f', 'F 键绑定 fireSecondary（直接击�
 ok(B.KEY_BINDINGS.fire === ' ' && B.KEY_BINDINGS.panelDev === '`' && B.KEY_BINDINGS.pauseToggle === 'escape',
   '关键键位形态（空格/反引号/escape）符合 e.key 规范化约定');
 ok(B.KEY_BINDINGS.ammoNext === 'e' && B.KEY_BINDINGS.ammoPrev === 'q',
-  '切弹键 E=下一发 / Q=上一发（2026-09-14 用户定案反向，与 mvp 语义一致）');
+  '切弹键 E=下一发 / Q=上一发（2026-09-14 用户定案反向，与 battle 语义一致）');
 
 // ---------- 2) createInputController ----------
 {
@@ -66,13 +66,13 @@ ok(B.KEY_BINDINGS.ammoNext === 'e' && B.KEY_BINDINGS.ammoPrev === 'q',
   const fired = [];
   const input = B.createInputController({
     actions: { ammoNext(){ fired.push('ammoNext'); }, pauseToggle(){ fired.push('pauseToggle'); } },
-    gate: (a) => a === 'pauseToggle' ? true : false,   // 模拟 mvp 局外菜单门控
+    gate: (a) => a === 'pauseToggle' ? true : false,   // 模拟 battle 局外菜单门控
     preventKeys: [' '],
     settings: () => ({ invertReverseTurn: false })
   });
   // 门控拒绝：不登记按键、不触发动作
   win.fire('keydown', { key: 'q', preventDefault(){} });
-  ok(fired.length === 0 && input.keys['q'] !== true, 'gate 拒绝 → 不登记、不触发（mvp 局外语义）');
+  ok(fired.length === 0 && input.keys['q'] !== true, 'gate 拒绝 → 不登记、不触发（battle 局外语义）');
   // pauseToggle 越过门控
   win.fire('keydown', { key: 'Escape', preventDefault(){} });
   ok(fired.includes('pauseToggle'), 'pauseToggle 不受菜单门控（ESC 暂停语义）');
@@ -120,7 +120,7 @@ ok(B.KEY_BINDINGS.ammoNext === 'e' && B.KEY_BINDINGS.ammoPrev === 'q',
   delete k['w']; delete k['a']; k['s'] = true; k['d'] = true;
   const back = input.driveArgs();
   ok(back.move === -1 && back.turn === 1, 'S+D → 后退+右转');
-  ok(back.invertTurnWhenReversing === true, '倒车倒置设置透传 driveArgs（与 mvp 2243 同语义）');
+  ok(back.invertTurnWhenReversing === true, '倒车倒置设置透传 driveArgs（与 battle 2243 同语义）');
   delete k['s']; delete k['d'];
   k['arrowup'] = true; k['arrowleft'] = true;
   const alt = input.altDriveArgs();
@@ -130,7 +130,7 @@ ok(B.KEY_BINDINGS.ammoNext === 'e' && B.KEY_BINDINGS.ammoPrev === 'q',
 
   const noAlt = B.createInputController({ allowAltMove: false, settings: () => ({}) });
   noAlt.keys['arrowup'] = true;
-  ok(noAlt.altDriveArgs().move === 0, 'allowAltMove=false → 方向键不生效（mvp 侧）');
+  ok(noAlt.altDriveArgs().move === 0, 'allowAltMove=false → 方向键不生效（battle 侧）');
   ok(noAlt.driveArgs().invertTurnWhenReversing === false, '缺设置 → 倒车倒置缺省 false（零影响）');
 }
 

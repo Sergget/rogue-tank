@@ -138,11 +138,11 @@ const RULES = {
   // ======================= 溺毙（2026-09-14 水域行为重做） =======================
   // 完全浸入水体（车体四角均位于 water/river 覆盖内）后开始溺毙倒计时；
   // 归零即沉没摧毁（hp 归零走正常死亡管线：玩家可复活、敌人计分）。出口即复位。
-  // 消费方：tank_mvp.html 战斗主循环（drownT 累计）+ tank_cover.js tankFullyInWater。
+  // 消费方：tank_battle.html 战斗主循环（drownT 累计）+ tank_cover.js tankFullyInWater。
   drowning: {
     seconds: 8,            // 溺毙倒计时（秒）
     // #W15（2026-10-20）实测零消费 ⇒ 已删 `warnAt`（原 3s 警示）。
-    //   现行警示由消费方硬编码阈值实现（tank_mvp.html 倒计时 HUD <3s 红字），不读本字段。
+    //   现行警示由消费方硬编码阈值实现（tank_battle.html 倒计时 HUD <3s 红字），不读本字段。
     // #U37（2026-10-18 用户「河流宽度需要限制，不能造成坦克无法涉水过河」）：
     //   河宽硬上限 = 最慢可用车在溺毙倒计时内能渡过的宽度。唯一口径，消费方
     //   js/tank_nodegen.js placeStripRivers/buildRiver（逐段钳制）。
@@ -243,7 +243,7 @@ const RULES = {
     //   两键实测**零卡牌可授予**（196 张卡 + tanks/ + bosses/ 全库零命中），
     //   ABILITY_KEYS_RUNTIME(7) − 卡牌可授予集合 = {super_fire_control, super_speed}。
     //   已删除本处配置（原「// 无人机体系（子目标 4）」注释错挂于此，真正归口在下方 drone 块）。
-    //   同批须删 js/tank_abilities.js 的两 case 与 tank_mvp.html 的 dispatch/提示文案，
+    //   同批须删 js/tank_abilities.js 的两 case 与 tank_battle.html 的 dispatch/提示文案，
     //   否则 tryActivateAbility 会因 `_d(abilityCfg,'accelMult',3.0)` 全走缺省值而「静默还能用」。
     // #G（2026-09-21 用户需求 #9）：主动防御系统（APS，Active Protection System）——
     // 激活后 duration 秒内自动拦截进入 radius 的来袭敌方弹药（炮弹/导弹）：
@@ -289,7 +289,7 @@ const RULES = {
       mineFieldCount: 3,   // #E4 单次雷场布设的地雷数。#H2（2026-09-30）：原值 5 > mineMax(3)，
                            //   与「existing + n ≤ cap」的拒收判据互相矛盾（首轮布满后后续雷场恒被丢弃），
                            //   改为与基础上限自洽；实际落雷数再按**生成时刻的可用余量**裁剪
-                           //   n = clamp(count, 0, cap − existing)（tank_mvp.html mineFieldCountNow）。
+                           //   n = clamp(count, 0, cap − existing)（tank_battle.html mineFieldCountNow）。
                            //   想要更大的单次雷场应同步上调 mineMax，而非只调本值。
       mineFieldRadius: 70, // 雷场半径（px，预形态与最终布设一致）
       mineFieldDelay: 4,   // #E4 确认布设后到雷场生成的延时（秒）
@@ -401,7 +401,7 @@ const RULES = {
   // 字段：label 显示名 / color HUD 色点 / tail 弹道拖尾 / speed×飞速 / pen×穿深 / dmg×伤害 /
   //       spread×散布（缺省 1）/ noBounce 确定性不跳弹（HEAT 破甲弹 / HE 高爆弹）/
   //       splashRadius HE 爆炸半径（px）——逻辑范围伤害与爆轰特效共用同一数值
-  //       （消费方：js/tank_physics.js resolveHit/applySplashAt + mvp 爆轰特效 scale=splashRadius/40）。
+  //       （消费方：js/tank_physics.js resolveHit/applySplashAt + battle 爆轰特效 scale=splashRadius/40）。
   //
   // ======================= 弹种体系扩展（2026-09-13 弹种链定案，PLAN.md 阶段五/六） =======================
   // 14 弹种三链（用户数值总表 2026-09-13，唯一权威）：
@@ -546,7 +546,7 @@ const RULES = {
     //     · cooldownSeconds / cooldownMinSeconds：冷却（90s，卡牌可升到最少 60s）
     //     · shieldHp：护盾吸收池
     //   消费方：js/tank_cards.js（emergencyShieldCooldown / updateEmergencyShieldRearm）、
-    //   tank_mvp.html 主循环逐帧判定、js/tank_shield.js applyShield（生成护盾）。
+    //   tank_battle.html 主循环逐帧判定、js/tank_shield.js applyShield（生成护盾）。
     //   ⚠️ 旧键 reactiveArmor.rechargeSeconds 已被取代；保留键名兼容读取见 tank_cards.js。
     emergencyShield: {
       triggerHpRatio: 0.10,     // 血量低于 10% 触发
@@ -653,7 +653,7 @@ const RULES = {
       clusterBonusMin: 0,      // 高难度追加敌簇数下限（#E6：难度越高集中生成数量越多）
       clusterBonusMax: 3       // 上限（diff=1 时追加 3 簇）
     },
-    // 敌军世界边界内缩（#E6：修复「敌人跑到地图范围之外」）。AI 移动输出由 mvp 注入
+    // 敌军世界边界内缩（#E6：修复「敌人跑到地图范围之外」）。AI 移动输出由 battle 注入
     // worldBounds 钳制；本值为距节点边界的最小内缩量（px，含车体半长余量）。
     enemyBoundsMargin: 56,
     // #83 敌方集群生成：把同节点的敌军按"簇"布置（而非均匀散点），地图观感更像战术编队
@@ -735,7 +735,7 @@ const RULES = {
     reinforceFrontOnly: true,
     // B 档③（2026-09-23）：推进式节点完成——**抵达右端出口 + （防线清空 或 配额达成）**双条件。
     // 旧口径为「击杀数 ≥ 配额」单条件（与推进正交），现要求玩家沿 +x 推进到出口线。
-    // 消费方：js/tank_map.js nodeClearance（纯逻辑）+ tank_mvp.html 完成判定/HUD。
+    // 消费方：js/tank_map.js nodeClearance（纯逻辑）+ tank_battle.html 完成判定/HUD。
     // #K2（2026-09-29）：新增出口区可视化参数（此前只有底部一行小字，玩家无从得知出口在哪）。
     exitZone: {
       xFraction: 0.93,            // 出口线位置（× 节点宽 w；玩家 x ≥ 该线即视为抵达出口）
@@ -774,7 +774,7 @@ const RULES = {
   //   敌军各项属性 = 固定基准 enemyAnchorBase × enemyClassProfiles[class] 比例 × 难度系数(entityMults)。
   //   四类比例向量（相对基准 1.0 的比例）收口于此——保证同一节点对所有玩家难度一致，
   //   且两条成长线（玩家卡牌/永久升级 vs 敌人难度）彻底解耦。消费方：js/tank_model.js
-  //   applyEnemyAppearanceAndStats / difficultyCapMuls + mvp 接线层。
+  //   applyEnemyAppearanceAndStats / difficultyCapMuls + battle 接线层。
   enemyClassProfiles: {
     light:  { maxHp: 0.80, penetration: 0.90, damage: 0.90, reload: 0.85, maxSpeed: 1.15, turnRate: 1.20, armor: 0.80 },
     medium: { maxHp: 1.00, penetration: 1.00, damage: 1.00, reload: 1.00, maxSpeed: 1.00, turnRate: 1.00, armor: 1.00 },
@@ -983,7 +983,7 @@ const RULES = {
     suspiciousTimeout: 8.0,        // suspicious 状态无新声音后降级回 calm 的秒数
     // #I4（2026-09-21 用户裁定「boss 几乎完全是站桩等玩家」）：Boss 随机走位层——
     // 周期性在玩家周围随机选点（环绕/侧移），车体驶向该点（炮塔照常锁定玩家开火），
-    // 消费方 updateBossBehavior 写 _bossMoveOverride、mvp AI 循环覆盖 d.turn/d.move。
+    // 消费方 updateBossBehavior 写 _bossMoveOverride、battle AI 循环覆盖 d.turn/d.move。
     // crush 风格（冲撞碾压为身份）豁免；激光期走 hold 冻结不叠加。
     bossWander: {
       enabled: true,
@@ -1037,7 +1037,7 @@ const RULES = {
   },
 
   // 摄像机缩放（P-39 镜头滚轮缩放）。
-  // 消费方：js/tank_camera.js（createCamera 缺省 / setZoom 钳制 / updateCamera 阻尼）+ tank_mvp.html（滚轮乘法步进）。
+  // 消费方：js/tank_camera.js（createCamera 缺省 / setZoom 钳制 / updateCamera 阻尼）+ tank_battle.html（滚轮乘法步进）。
   camera: {
     // #H5（2026-09-21 用户裁定）：0.45 → 0.8 回退——敌方可见距离已改为屏幕相对
     // （vision.screenRadiusRatio，随 zoom 补偿），不再需要 #H2 的深度拉远来装入固定视野圆；
@@ -1082,7 +1082,7 @@ const RULES = {
     crossRunLevelBonus: 0.04,// 每级跨局难度等级对基础难度的线性加成
     diffMax: 1.15,           // 有效难度绝对上限（含跨局加成后钳制）
     // 2026-08-25 敌军难度三键重构（替代旧 enemyStatCapVsPlayer=0.8 单一封顶，旧键已删除；
-    // 消费方 tank_mvp.html applyDifficultyMults 需同步接线）。
+    // 消费方 tank_battle.html applyDifficultyMults 需同步接线）。
     // 2026-08-27 #A16 补第四键 speedVsBaseline：把 maxSpeed 页内硬编码 lerp 收口进 RULES，
     // 消除与 entityMults.maxSpeed（同函数先行注入）两套机制打架，并改经 modifiers 注入防 refreshStats 回归。
     // #H1（2026-09-30）**四键全部由「相对玩家」改为「相对固定基准 enemyAnchorBase」**——
@@ -1093,7 +1093,7 @@ const RULES = {
     dmgFloorVsBaseline: 0.4, // 敌军伤害下限 = 0.4 × 固定基准伤害
     dmgCapAmmoMult: 0.7,     // 敌军伤害上限 = 0.7 × 参照终伤（strongestAnchorMult 推算或调用方传入 strongest）
     strongestAnchorMult: 2.33, // 参照终伤/基准伤害的等效倍数（缺 strongest 时的天花板推算用；≈ 中坦满血 2 发打死标准敌）
-    speedVsBaseline: {       // 敌军极速相对固定基准的公式（消费方 tank_mvp.html applyDifficultyMults）
+    speedVsBaseline: {       // 敌军极速相对固定基准的公式（消费方 tank_battle.html applyDifficultyMults）
       baseFloor: 0.3,        // diffNorm=0 时速度系数下限
       // 2026-10-01 用户裁定「降低速度上限倍率」：0.6 → **0.5**（普通敌军极速上限
       // 0.5×enemyAnchorBase.maxSpeed=60px/s；含每辆 randFactor 上限 1.15 → 69px/s，
@@ -1114,7 +1114,7 @@ const RULES = {
     //   maxHp  [0.45, 1.4] → **[0.5, 1.7]**（低难度 +11%、满难度 +21% 血量）；
     //   maxSpeed [0.7, 1.15] → **[0.7, 1.0]**（满难度极速上限倍率 1.15 → 1.0，-13%）。
     //   注：普通敌军的极速最终由 speedVsBaseline 封顶覆盖（见上），maxSpeed 上限主要作用于
-    //   **Boss**（mvp applyDifficultyMults 传 applyPlayerCap=false 不走封顶）与其它未封顶路径。
+    //   **Boss**（battle applyDifficultyMults 传 applyPlayerCap=false 不走封顶）与其它未封顶路径。
     entityMults: {
       maxHp:         [0.6, 2.2],   // 生命（#6 2026-10-15：[0.5,1.7]→[0.6,2.2]，成长更快）
       penetration:   [0.8, 1.5],   // 穿深（#6：[0.75,1.25]→[0.8,1.5]）
@@ -1130,7 +1130,7 @@ const RULES = {
   },
 
   // P-51：Boss 数据驱动机制参数（弱点命中增益 + 阶段声明式行为脚本）。
-  // 消费方：js/tank_ai.js（aiModes，阶段行为模式）；tank_mvp.html（weakspot，弱点结算，Wave 2 接线）。
+  // 消费方：js/tank_ai.js（aiModes，阶段行为模式）；tank_battle.html（weakspot，弱点结算，Wave 2 接线）。
   boss: {
     // #U13（2026-10-16）：Boss 掉血飘字字号倍率（用户要求「boss 掉血的数字需要加大」）。
     // 消费方 js/tank_fire.js 的 _bossTextScale（命中敌方 Boss 时透传给 spawnDmgText）。
@@ -1243,7 +1243,7 @@ const RULES = {
     //    ① primaryChance/secondaryChance = 分别随机换主炮/装副武器的概率（逐 Boss 独立掷骰）；
     //    ② upgradeChance = 每张升级卡的抽取概率，随遭遇序号按 upgradeChancePerBoss 递增
     //       （后续 Boss 更可能带满），张数上限 upgradeMax。
-    //    消费方：js/tank_cards.js pickBossArmament（纯选择）+ tank_mvp.html assignBossArmament
+    //    消费方：js/tank_cards.js pickBossArmament（纯选择）+ tank_battle.html assignBossArmament
     //    （经 applyCardEffects 应用，与玩家卡牌同一语义通道）。
     armament: {
       enabled: true,

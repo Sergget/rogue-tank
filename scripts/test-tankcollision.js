@@ -1,5 +1,5 @@
 // 坦克⇄坦克碰撞回归测试（ISSUES #12：交叉鬼畜抖动 / 幽灵穿模 / 速度振荡）。
-// 模拟 tank_mvp.html 主循环：driveTank → resolveTankCollisions。
+// 模拟 tank_battle.html 主循环：driveTank → resolveTankCollisions。
 // 运行：node scripts/test-tankcollision.js
 'use strict';
 

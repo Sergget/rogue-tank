@@ -22,7 +22,7 @@ description: Use when dispatching or acting as a Rogue Tank specialist role — 
 
 | 文件 | 规则 |
 |---|---|
-| `tank_mvp.html`（390KB） | **单写者**。同一批次只允许 1 个角色改页面接线，其余角色只交付 `js/` 模块。默认写者是 `role-combat`（战斗循环）/ `role-systems`（流程经济）二选一，由调度方指定 |
+| `tank_battle.html`（390KB） | **单写者**。同一批次只允许 1 个角色改页面接线，其余角色只交付 `js/` 模块。默认写者是 `role-combat`（战斗循环）/ `role-systems`（流程经济）二选一，由调度方指定 |
 | `tank_bench.html` | 同上，默认 `role-render-fx` 或 `role-combat` |
 | `tank_designer.html` / `designer.js` | 仅 `role-systems`（几何） |
 | `js/tank_cards.js` | 仅 `role-content`（枚举与校验单一来源） |

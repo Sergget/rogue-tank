@@ -110,7 +110,7 @@ clearDeployables();
   clearDeployables();
   ok(L.mineMax > L.mineFieldCount,
      `#J1 地雷同时上限(${L.mineMax}) > 单次雷场数量(${L.mineFieldCount})——首轮不会把上限用尽`);
-  // 连续布设 2 轮整雷场（模拟 mvp 的「按可用余量裁剪」落雷逻辑）
+  // 连续布设 2 轮整雷场（模拟 battle 的「按可用余量裁剪」落雷逻辑）
   const layField = () => {
     const room = deployableCap('mine', owner) - deployableCount('mine');
     const n = Math.max(0, Math.min(L.mineFieldCount, room));

@@ -601,7 +601,7 @@
     <div class="cp-list" id="cpList"></div>
     <div class="hint">按 C 关闭 · 仅显示本局已持有</div>
   </div>
-  <!-- #F（2026-09-20）：devPanel DOM 已改由共享模块 js/tank_devpanel.js 动态构建（mvp/bench 同源） -->
+  <!-- #F（2026-09-20）：devPanel DOM 已改由共享模块 js/tank_devpanel.js 动态构建（battle/bench 同源） -->
 
 <!-- #A25：独立日志面板（左下角）——与 Tab 状态面板共用呼入/呼出策略，关闭开发者面板不再隐藏日志 -->
 <div id="logPanel" style="display:none;">
@@ -627,7 +627,7 @@
   <script src="js/tank_physics.js"></script>
   <script src="js/tank_entity.js"></script>
   <!-- #A21：召唤物与战术部署注册表（tank_deployables.js 顶层 typeof 捕获 spawnTank/livingEnemiesOf/isHostile，
-       须晚于 tank_entity.js 加载；mvp 侧用于 mine_layer 手动布雷的 spawnMine/deployables 注入 fireCtx） -->
+       须晚于 tank_entity.js 加载；battle 侧用于 mine_layer 手动布雷的 spawnMine/deployables 注入 fireCtx） -->
   <script src="js/tank_deployables.js"></script>
   <script src="js/tank_move.js"></script>
   <script src="js/tank_ai_squad.js"></script>
@@ -648,7 +648,7 @@
   <script src="js/tank_abilities.js"></script>
   <script src="js/tank_drone.js"></script>
   <script src="js/tank_fire.js"></script>
-  <!-- #F（2026-09-20）：开发者面板共享模块（mvp/bench 同源四 Tab；依赖 applyCardToTank/
+  <!-- #F（2026-09-20）：开发者面板共享模块（battle/bench 同源四 Tab；依赖 applyCardToTank/
        snapshotCardTx/clearCardsFromTank 等共享层，须在 tank_panels_core 之后晚于卡片运行时加载） -->
   <script src="js/tank_devpanel.js"></script>
   <!-- P-15/P-46 共享 UI 纯逻辑（status/dev/log 共用 → tank_bench 复用） -->
@@ -806,7 +806,7 @@ function activeLoadout(){
 }
 function renderAmmoIndicator(){
   // #3（2026-10-20）：弹种指示器收敛到共享 js/tank_hud.js（PLAN §2.2 差异清单之一）——
-  //   mvp=显示倍率列（showMult）+ activeLoadout()，渲染/DOM 契约与 bench 同源。
+  //   battle=显示倍率列（showMult）+ activeLoadout()，渲染/DOM 契约与 bench 同源。
   if(typeof drawSpreadCones === 'function' && typeof TankHud !== 'undefined' && TankHud.renderAmmoIndicator){
     TankHud.renderAmmoIndicator({
       list: activeLoadout,
@@ -1390,7 +1390,7 @@ let statusOpen = false, devOpen = false, logOpen = false, cardsOpen = false;
 // #U23（2026-10-17）：稀有度 → 中文标签的唯一口径（原在两处函数内各写一份字面量）。
 const CARD_RARITY_LABELS = { common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' };
 // #A25：独立日志面板对象（DOM 适配层 createLogPanel）——位置左下角由 #logPanel CSS 决定。
-let mvpLogPanel = null;
+let battleLogPanel = null;
 function togglePanel(id){
   const el = document.getElementById(id);
   if(!el) return;
@@ -1646,7 +1646,7 @@ function refreshStatusPanel(){
   if(statusOpen && run && player) updateStatusPanel();
 }
 function updateStatusPanel(){
-  // P-15/P-46：共享视图模型 buildTankDataVM（mvp status + bench inspector 同源），
+  // P-15/P-46：共享视图模型 buildTankDataVM（battle status + bench inspector 同源），
   // 读 stats（经 refreshStats 实时；不读 base），修正 #B5 缺重量/弹种滞留/Armor 退回 base 三个问题。
   const vm = (typeof buildTankDataVM === 'function') ? buildTankDataVM(player) : null;
   const s = (vm && vm.armor) ? vm.armor : (player && player.stats && player.stats.armor) || (player && player.base && player.base.armor) || {};
@@ -1738,10 +1738,10 @@ function updateStatusPanel(){
   }
 }
 
-// ---------- P-15 开发者面板（#F 2026-09-20 起由共享模块 js/tank_devpanel.js 提供，mvp/bench 两页同源；
+// ---------- P-15 开发者面板（#F 2026-09-20 起由共享模块 js/tank_devpanel.js 提供，battle/bench 两页同源；
 // 本区块仅保留页面级状态对象，面板 DOM/逻辑在下方 mountDevPanel 时挂载） ----------
 const devAim = { zeroSpread: false };
-// #C5（2026-09-19）：测试台独有作弊项对齐进 mvp 开关 Tab（无敌常驻/秒装填，会话内有效不持久化）
+// #C5（2026-09-19）：测试台独有作弊项对齐进 battle 开关 Tab（无敌常驻/秒装填，会话内有效不持久化）
 // #F：面板 cheats 状态由共享 API 持有，onCheatChange 同步回本对象供主循环逐帧消费
 const devCheat = { invuln: false, instantReload: false };
 // #J3（2026-09-30）：`devNoVision`（dev 面板「无视野」开关）随视野距离系统退役**删除**
@@ -3677,10 +3677,10 @@ document.getElementById('shopLoadoutBtn').addEventListener('click', () => { play
 // ---------- log（P-15/P-46/#A25：独立日志面板 createLogPanel，位置左下角由 #logPanel CSS 决定） ----------
 const logEl = document.getElementById('devLog');
 // #A25：日志拆成独立面板对象（open/close/toggle 生命周期）；未提供 createLogPanel 时回退既有 makeLogSink。
-mvpLogPanel = (typeof createLogPanel === 'function')
+battleLogPanel = (typeof createLogPanel === 'function')
   ? createLogPanel(document.getElementById('logPanel'), { list: logEl, hiddenClass: 'rt-log-hidden' })
   : null;
-const log = mvpLogPanel || makeLogSink(logEl);   // js/tank_panels.js 门面 — 与 tank_bench 共享同一行为
+const log = battleLogPanel || makeLogSink(logEl);   // js/tank_panels.js 门面 — 与 tank_bench 共享同一行为
 function logClear(){ log.clear(); }
 function pushLog(text, cls){ log.push(text, cls); }
 
@@ -3710,7 +3710,7 @@ const devReset = () => {
   playSound('ui'); // M1：重置
 };
 
-// ---------- P-15 开发者面板（#F 2026-09-20：抽离为共享模块 js/tank_devpanel.js，mvp/bench 两页同源） ----------
+// ---------- P-15 开发者面板（#F 2026-09-20：抽离为共享模块 js/tank_devpanel.js，battle/bench 两页同源） ----------
 // 挂载四 Tab 面板（实时/卡牌/参数/开关）：DOM 由模块构建；卡牌点击复用页面 pickCard（技能提示/toast 反馈）；
 // 开关状态经 onCheatChange 同步回 devAim/devNoVision/devCheat；随机生成/重置走页面回调（战斗态禁用语义不变）。
 const devPanelApi = mountDevPanel({
@@ -3775,7 +3775,7 @@ let fireCtx = null;
 // [P-28] 战斗发射管线已收敛到 js/tank_fire.js（fireTank/tryFire 由共享模块提供；烟幕弹已于 2026-09-15 移除）
 // ---------- P-17 玩家主动能力（战术炮击 G / 战术护盾 H / 超级装填 V） ----------
 // 统一入口 js/tank_abilities.js tryActivateAbility：持有对应卡（cardEffects 含 {type:'ability',key}）
-// 才可激活；按技能独立冷却（#C4c 2026-09-17：t.abilityCds[key] 池，mvp 主循环 updateAbilityCds 驱动）。
+// 才可激活；按技能独立冷却（#C4c 2026-09-17：t.abilityCds[key] 池，battle 主循环 updateAbilityCds 驱动）。
 // 按键处不做冷却判断——tryActivateAbility 返回 reason 提示。炮击/护盾保留 reloadT/immobT 门控（与烟幕一致）；
 // 超装填例外：其价值正是"立即清零 reloadT"，装填中施放才有意义，故不挡 reloadT（仅 immobT）。
 // #B10（2026-09-16）：能力键提示表补全——pickCard 获得提示与 skillHotkey 1/2/3 技能池 DISPATCH
@@ -3858,7 +3858,7 @@ function tryAps(){
   }
 }
 
-// APS 拦截层（mvp 主循环逐帧驱动，stepShells 之后）：_apsT>0 时扫描 shells，
+// APS 拦截层（battle 主循环逐帧驱动，stepShells 之后）：_apsT>0 时扫描 shells，
 // 敌方弹药进入 radius 即销毁（拦截）。拦截上限 maxIntercepts，达上限后窗口保持但不再拦截。
 function updateAps(t, dt){
   if(!t || !(t._apsT > 0) || t.hp <= 0) return;
@@ -3925,7 +3925,7 @@ function tryExtinguish(){
 }
 
 // #F（2026-09-20）：updateDevParams/rollbackDevCard/renderDevOwnedCards/devClearCardsBtn
-// 已随共享模块 js/tank_devpanel.js 抽离（mvp/bench 同源），本区块不再保留页面副本。
+// 已随共享模块 js/tank_devpanel.js 抽离（battle/bench 同源），本区块不再保留页面副本。
 
 // ---------- update ----------
 let last = performance.now();
@@ -4330,7 +4330,7 @@ function update(dt){
     }
   }
 
-  // #B9/#B11（2026-09-16）：战场部署物运行时接入 mvp（此前仅 bench 接线，地雷/掩体布雷后
+  // #B9/#B11（2026-09-16）：战场部署物运行时接入 battle（此前仅 bench 接线，地雷/掩体布雷后
   // 不可见且永不触发——用户反馈「布雷器无法使用」的根因）。
   // updateDeployables 推进固定炮塔索敌/地雷武装触发/掩体倒计时；mineExplode 事件在接线层
   // 结算 AOE（对齐 bench 实现：burstExplosion + applySplashAt 衰减伤害 + 飘字 + 日志），
@@ -5203,7 +5203,7 @@ function drawReloadRing(ctx){
   }
 }
 // 战斗场景绘制层（drawTank/drawShells/drawCover/drawFoliage/drawClassBadge）在
-// js/tank_battledraw.js；mvp 只负责按帧调用。P-15 新增 drawDmgTexts（js/tank_dmgtext.js）。
+// js/tank_battledraw.js；battle 只负责按帧调用。P-15 新增 drawDmgTexts（js/tank_dmgtext.js）。
 
 // P-17：无人机绘制（飞行器视觉：旋转翼 + 机体圆盘 + 指示灯；scout 带天线、striker 带炮管）。
 // 青色系小型单位，绘制在坦克/树冠之上（飞行高度）、烟幕之下；drones 由 js/tank_drone.js 维护。
@@ -6284,7 +6284,7 @@ function nextRunSeed(){
   let hudVisible = false;
 
   // F1 独立监听：不受局外菜单门控（inMenuState）影响，任意流程态均可开关。
-  // mvp 既有键位（Tab/`/F12/Esc/空格/1-9/Q/WASD/鼠标）均未占用 F1 —— 无冲突。
+  // battle 既有键位（Tab/`/F12/Esc/空格/1-9/Q/WASD/鼠标）均未占用 F1 —— 无冲突。
   window.addEventListener('keydown', e => {
     if(e.key !== 'F1') return;
     e.preventDefault();   // 阻止浏览器帮助键默认行为

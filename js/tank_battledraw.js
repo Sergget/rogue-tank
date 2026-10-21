@@ -1,8 +1,8 @@
 'use strict';
 
-// tank_battledraw.js — mvp 战斗场景绘制层（坦克/断履带/焦黑车体/起火/炮弹/掩体/树冠/车型标志）。
+// tank_battledraw.js — 正式游戏页战斗场景绘制层（坦克/断履带/焦黑车体/起火/炮弹/掩体/树冠/车型标志）。
 // 仿 tank_fx.js 先例：每个 draw 函数显式接收 ctx（tank_paint.js 约定），不触碰 DOM。
-// 测试台专用块（drawRange/addRangeShot/AMMO_KEYS/RANGE_*）留在 tank_mvp.html 不拆。
+// 测试台专用块（drawRange/addRangeShot/AMMO_KEYS/RANGE_*）留在 tank_battle.html 不拆。
 //
 // 全局依赖（tank_paint.js，经 <script> 先加载）：paintShade/paintTracks/paintPartTexture/
 //   paintTurretShadow/DECORATION_DEFS/paintRivets/paintWeathering。
@@ -546,7 +546,7 @@ function drawCoverShadow(ctx, cov){
 // bush/tree/fallen 走资产层（js/tank_assets.js：ASSET_DEFS 注册表 + drawAsset——有图
 // drawImage / 无图烘焙缓存，画法与旧内联分支逐字一致）。树冠叶片（bush/tree/fallen 的上层
 // 叶片）由 drawFoliage 在坦克之上调用 drawAssetCanopy 形成视线遮挡。
-// road（#87）：地面类扁平条带，由 mvp 按 tierGroup='ground' 垫底绘制，不遮单位。
+// road（#87）：地面类扁平条带，由 battle 按 tierGroup='ground' 垫底绘制，不遮单位。
 function drawCover(ctx, cov){
   const tier = COVER_TIERS[cov.tier];
   // #U11：先落地面投影，再画实体（两层软边影，见 drawCoverShadow）
@@ -801,7 +801,7 @@ function drawCover(ctx, cov){
     // （重叠同色无缝合并）+ 无描边 + 沿长轴单线高光；段间 25% 搭接保证外缘台阶为数 px 级。
     const rects = (typeof coverSegRects === 'function') ? coverSegRects(cov) : [cov];
     // #U8（2026-10-16 修复）：河流改由调用方按 groupId 合并整条链后一次性绘制
-    //   （mvp 的 drawRiverChain 调用点）。本分支仅作**单段/退化回退**：dev 随机场或无 groupId
+    //   （battle 的 drawRiverChain 调用点）。本分支仅作**单段/退化回退**：dev 随机场或无 groupId
     //   的孤立水段走这里。原缺陷：每段沿长轴两侧各画一条 rgba(20,50,80,0.28) 深色线且画在
     //   fill 之后，段段相连后合成两条贯穿全程的平行粗线（用户实测「像铁轨一样」）。
     if(!drawRiverChain(ctx, rects, tier)){
@@ -832,7 +832,7 @@ function drawCover(ctx, cov){
     ctx.stroke();
   } else if(tier.draw === 'bridge-deck'){
     // #R1 桥面绘制（2026-10-13）：与 road 同款沥青底（路面语言连续）+ 两侧护栏线 +
-    // 桥向中线虚线（沿桥向=长边，白虚线），去 box 文本标签；mvp 把 bridge 画在河面之上。
+    // 桥向中线虚线（沿桥向=长边，白虚线），去 box 文本标签；battle 把 bridge 画在河面之上。
     const c = coverCorners(cov);
     ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y);
     for(let i=1;i<c.length;i++) ctx.lineTo(c[i].x,c[i].y);
@@ -854,7 +854,7 @@ function drawCover(ctx, cov){
     ctx.setLineDash([]);
     ctx.restore();
   } else if(tier.draw === 'road'){
-    // #87 村庄道路：扁平沥青条带（tierGroup='ground' → mvp 地面图层垫底绘制，
+    // #87 村庄道路：扁平沥青条带（tierGroup='ground' → battle 地面图层垫底绘制，
     // 画在坦克之下不遮单位；tank_bench 全掩体先于坦克绘制，同样垫底）。
     // 深灰沥青 + 边缘浅描边 + 中线虚线（虚线沿长轴、无随机相位，确定性）。
     const c = coverCorners(cov);
@@ -2148,7 +2148,7 @@ function drawGround(ctx, opts) {
 // 解法：把地面（底色 + 色斑 + 材质纹理）**烘焙成视口大小的离屏画布**，按世界坐标锚定，
 //   相机在内半区移动时直接 blit（每次 1 次 drawImage），越过迟滞才重烘焙；
 //   烘焙发生在整数化的世界原点上，所以亚像素位移被完全吸收。
-//   与道路的 `ensureGroundBake`（tank_mvp.html）同款迟滞思路，但只覆盖地面层、成本更低。
+//   与道路的 `ensureGroundBake`（tank_battle.html）同款迟滞思路，但只覆盖地面层、成本更低。
 const GROUND_CACHE_MARGIN = 320;    // 烘焙区相对视口的外扩余量（世界 px，迟滞带 = 该值的一半）
 // 单块烘焙画布的**像素**上限（不是世界尺寸上限）：决定内存与 blit 成本的是缓冲的像素数，
 //   与世界覆盖范围无关。1966 万 px ≈ 75MB RGBA，是安全上限。

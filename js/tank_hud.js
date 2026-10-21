@@ -1,6 +1,6 @@
-/* tank_hud.js — mvp/bench 共享 HUD 渲染工具
+/* tank_hud.js — battle/bench 共享 HUD 渲染工具
  *
- * 2026-10-15 HUD 渲染合并：将 tank_mvp.html 与 tank_bench.html 中重复的
+ * 2026-10-15 HUD 渲染合并：将 tank_battle.html 与 tank_bench.html 中重复的
  * HUD 逻辑抽为纯函数/共享实现。渲染形态（环 vs 条、位置）保留各自页面。
  *
  * 注意：debuffReloadRate / clipMagReloadSeconds 由页面全局提供（typeof 守卫）。
@@ -28,7 +28,7 @@ function updateFpsCounter(el, state, now){
 
 // ---- 装填进度（纯函数）----
 // 返回 { kind, ... }，kind ∈ 'heat' | 'double_barrel' | 'clip' | 'single'
-// 调用方根据 kind 做各自的渲染（mvp 环形 / bench 横条）
+// 调用方根据 kind 做各自的渲染（battle 环形 / bench 横条）
 function reloadProgress(player){
   if(!player || !player.weapons || !player.weapons.primary) return null;
   const w = player.weapons.primary;
@@ -111,12 +111,12 @@ function drawSpreadCones(ctx, gp, aimA, sigma, opts){
 }
 
 // ============================== #3（2026-10-20）：弹种指示器（两页同源） ==============================
-// mvp 与 bench 此前各有一份 renderAmmoIndicator（PLAN §2.2 差异清单之一）：同一渲染逻辑
+// battle 与 bench 此前各有一份 renderAmmoIndicator（PLAN §2.2 差异清单之一）：同一渲染逻辑
 // 两处维护。现收敛到共享 tank_hud.js，host 经 H 注入差异点：
-//   · list()        当前可用弹种键数组（mvp=activeLoadout()，bench=getAmmoKeys()）
+//   · list()        当前可用弹种键数组（battle=activeLoadout()，bench=getAmmoKeys()）
 //   · currentIndex() 激活索引（两页同语义：player.currentAmmoIndex 取模）
-//   · onPick(key)    点击格切换弹种（可选；bench 有点击切弹，mvp 用 Q/E/滚轮）
-//   · showMult       是否显示「穿×/伤×」倍率列（mvp 战斗 HUD 显示，bench 简版不显示）
+//   · onPick(key)    点击格切换弹种（可选；bench 有点击切弹，battle 用 Q/E/滚轮）
+//   · showMult       是否显示「穿×/伤×」倍率列（battle 战斗 HUD 显示，bench 简版不显示）
 //   · centerActive   是否把激活格平移到屏幕中线（两页 CSS 都是 fixed+left:50%，同语义）
 // DOM 契约（两页样式表必须各自持有同名规则）：容器 `#ammoIndicator`，格子 `.ammo-cell`，
 //   激活格 `.ammo-cell.active`，内部 `.dot` / `.key` / `.label` / `.mult`。
@@ -141,7 +141,7 @@ function renderAmmoIndicator(H){
       + `</span>`;
   }
   el.innerHTML = html;
-  // bench：点击格切弹（mvp 不绑，走键盘/滚轮）
+  // bench：点击格切弹（battle 不绑，走键盘/滚轮）
   if(typeof h.onPick === 'function'){
     el.querySelectorAll('[data-ammo]').forEach(c => c.addEventListener('click', () => h.onPick(c.getAttribute('data-ammo'))));
   }

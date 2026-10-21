@@ -13,7 +13,7 @@ const BOUNCE_ANGLE = RULES.ballistics.bounceAngle;
 //   「车体/炮塔」的二值区分在起作用。现改按**部位**直接判定并删除 heights 体系。
 //
 //   保留 `getPartZRange`/`getGunHeight` 的**函数签名**（返回近似 z 值）仅为兼容既有调用方
-//   （tank_fire/mvp/bench/tank_sim 注入），但不再读 RULES.heights —— 返回值是固定常量。
+//   （tank_fire/battle/bench/tank_sim 注入），但不再读 RULES.heights —— 返回值是固定常量。
 //   车体恒 0~1.4、炮塔恒 1.4~2.3（取原 medium 档：任何车都「过 1.2 阈值」）。
 const PART_Z = { hull: { zMin: 0, zMax: 1.4 }, turret: { zMin: 1.4, zMax: 2.3 } };
 

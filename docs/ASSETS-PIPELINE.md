@@ -134,7 +134,7 @@ python scripts/covers-anchor-check.py --json           # 机器可读
 - **设计器默认也不启用**：`designer.js` 的 `defaultSprite().enabled = false`。
 - **面板已提供开关**（默认关）：
   - 设计器：`#sp-enabled`（写入 tank JSON）、`#sp-preview`（仅画布预览）；
-  - mvp/bench 开发者面板（`` ` `` 键 → 开关 Tab）：「游戏内显示精灵」——
+  - battle/bench 开发者面板（`` ` `` 键 → 开关 Tab）：「游戏内显示精灵」——
     运行时写 `t._spriteOverride`，**不写回存档**，判据见 `js/tank_battledraw.js` 的 `spriteEnabled(t)`。
 
 ### 4.2 启用前的必要条件（逐车目视确认）

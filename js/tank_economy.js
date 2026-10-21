@@ -50,7 +50,7 @@ const UPGRADE_DEFS = [
   { id: 'aim_speed_up',     name: '观瞄缩圈', stat: 'aimSpeed',         mode: 'add',  value: 0.02, cost: 30, maxLevel: 5, desc: '散布缩圈速度 +0.02/级' },
   { id: 'fire_control_crit', name: '火控校准', stat: 'fireControlCrit', mode: 'add',  value: 0.05, cost: 40, maxLevel: 5, desc: '命中炮手/炮闩模块概率 +5%/级（上限 +25%）' },
   { id: 'loader_ammo_crit',  name: '弹药整备', stat: 'loaderAmmoCrit',  mode: 'add',  value: 0.05, cost: 40, maxLevel: 5, desc: '命中装填手/弹药模块概率 +5%/级（上限 +25%）' },
-  // 特殊消费项（无 stat/modifier——由 mvp 消费 levels：基础冷却 45s − 级数×1）
+  // 特殊消费项（无 stat/modifier——由 battle 消费 levels：基础冷却 45s − 级数×1）
   { id: 'repair_kit_cd', name: '修理箱冷却', stat: null, mode: null, value: 0, cost: 20, maxLevel: 15, desc: '修理箱冷却 −1s/级（特殊消费）' },
   { id: 'medkit_cd',     name: '医疗包冷却', stat: null, mode: null, value: 0, cost: 20, maxLevel: 15, desc: '医疗包冷却 −1s/级（特殊消费）' }
 ];
@@ -331,7 +331,7 @@ function saveActiveProfile(storage, profile){
   } catch(e){ return false; }
 }
 
-// ---------- 向后兼容委托（签名不变，mvp 现有调用零改动获得多存档语义） ----------
+// ---------- 向后兼容委托（签名不变，battle 现有调用零改动获得多存档语义） ----------
 
 function loadProfile(storage){ return loadActiveProfile(storage); }
 
@@ -582,7 +582,7 @@ function applyUpgrades(tank, profile){
   for(const id in profile.upgrades){
     const u = getUpgradeDef(id);
     if(!u) continue;
-    if(!u.stat) continue;   // 特殊消费项（repair_kit_cd/medkit_cd 无 modifier——由 mvp 消费 levels）
+    if(!u.stat) continue;   // 特殊消费项（repair_kit_cd/medkit_cd 无 modifier——由 battle 消费 levels）
     const lv = profile.upgrades[id];
     for(let i = 0; i < lv; i++){
       tank.modifiers.push({

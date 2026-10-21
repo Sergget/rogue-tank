@@ -2,7 +2,7 @@
 
 // tank_dmgtext.js — 伤害飘字（Floating Damage Numbers，P-15）。
 // 纯逻辑模块：无 DOM / Canvas 依赖，Node 可测（module.exports 底部导出）。
-// 消费方（tank_mvp.html 正式游戏 / tank_bench.html 测试台）在战斗循环内：
+// 消费方（tank_battle.html 正式游戏 / tank_bench.html 测试台）在战斗循环内：
 //   spawnDmgText(x, y, text, kind) 命中/跳弹/DOT 时生成 → updateDmgTexts(dt) 逐帧推进
 //   （上浮 + 淡出 + 生命周期）→ drawDmgTexts(ctx) 在世界坐标绘制（调用方已套摄像机变换）。
 //

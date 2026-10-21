@@ -15,7 +15,7 @@
 
 （原 §14 首段，#MODE，2026-10-15 落地）
 
-入口：`tank_mvp.html?mode=boss` / `tank_mvp.html?mode=survival`（缺省 `standard`；`GAME_MODE` 解析 URL 参数）。**标准模式零改动。**
+入口：`tank_battle.html?mode=boss` / `tank_battle.html?mode=survival`（缺省 `standard`；`GAME_MODE` 解析 URL 参数）。**标准模式零改动。**
 
 ## 生存模式：准备期
 
@@ -27,7 +27,7 @@
   - **波次间隔 5 秒 = 准备期**：玩家**可自由移动**（不禁驾驶），但**全场伤害判定关闭**。
   - **伤害关闭的两层拦截**（缺一不可）：
     ① **伤害总闸**：`js/tank_physics.js applyDamage` 开头查询 `globalThis.damageSuppressed()`，为真即 `return 0`——所有伤害的单一收口（炮弹/溅射/炮击/DOT/溺毙/无人机/地雷/碾压），一处生效无遗漏。缺省无该函数 → 零影响（Node 测试/bench）。
-    ② **伤害来源门控**：`tank_mvp.html` 主循环内 `isSurvivalPrep`（`isSurvivalPrepWindow()` 同一判定）拦住「不打伤害但留痕迹」的路径——玩家/AI/副炮塔开火、`stepShells` 炮弹飞行、`updateStrikes` 落弹、`updateDeployables` 触发、`updateDrones` 打击、溺毙倒计时累计。进入准备期时还清空残留弹道/落弹预警（`shells`/`impacts`/`bounceFx`/`clearStrikes()`）与导弹锁定，防静止悬停 5 秒后同时爆开。
+    ② **伤害来源门控**：`tank_battle.html` 主循环内 `isSurvivalPrep`（`isSurvivalPrepWindow()` 同一判定）拦住「不打伤害但留痕迹」的路径——玩家/AI/副炮塔开火、`stepShells` 炮弹飞行、`updateStrikes` 落弹、`updateDeployables` 触发、`updateDrones` 打击、溺毙倒计时累计。进入准备期时还清空残留弹道/落弹预警（`shells`/`impacts`/`bounceFx`/`clearStrikes()`）与导弹锁定，防静止悬停 5 秒后同时爆开。
   - **Boss 行为层无需门控**：准备期全程 `battleState.cleared=true`，其判定块本就跳过。
 - **判定窗口**：`isSurvivalPrepWindow() = GAME_MODE==='survival' && battleState.waveCountdownActive && flow.state==='battle'`。
 - **HUD**：`#survivalWaveHud` 显示「第 N 波已清 · 准备期 x 秒（可移动 / 暂不受伤害）」。

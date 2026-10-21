@@ -2,7 +2,7 @@
 
 // tank_ai.js — 敌人/友军 AI 决策（P-10 / DEVELOPMENT.md §6 条目 7 / P-19 扩充）。
 // 纯逻辑模块：无 DOM / Canvas 依赖，Node 可测（module.exports 底部导出）。
-// 输出 { turn, move, turretDesired, fire }，供接入层（mvp）消费——保持完全向后兼容。
+// 输出 { turn, move, turretDesired, fire }，供接入层（battle）消费——保持完全向后兼容。
 // 视线判定通过 ctx.hasLoS(ox,oy,tx,ty) 注入（见 js/tank_cover.js hasLineOfSight），
 // 保持本模块对掩体全局的零依赖、可独立测试。
 //

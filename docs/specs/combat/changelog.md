@@ -86,7 +86,7 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 - **视野圆/内圈整体缩小**（R 900→600）：纵向前向 810px 不变（此前即被屏幕收口）；纵向后向 270→390（改善）；横向前向 1215→810（目标修正）；横向后向 585→390、侧向 540 不变。
 - **卡牌视野加成的边界语义**：收口绑定（小/常规屏）时名义半径不能突破屏幕容量——视野卡无法突破屏幕（这是几何上限，非缺陷）；大视口（4K 窄半幅 1080）下基准半径绑定，卡牌加成按收口上限生效（R 900 → 1125 收口 1000，前向 1350 = 屏幕容量）。
 - **完全均匀气泡（各方向严格同距）与镜头外延互斥**：外延使屏幕相对玩家不对称（后向容量 = 窄半幅 − 外延 < 前向容量），严格等距需外延归零且 R ≤ 窄半幅 − 外延。本修正选择保留外延、保证**前向（鼠标指向）**距离恒等——与用户描述的「横向接近 vs 纵向接近」对比口径一致。
-- 消费方（**历史**）：`tank_mvp.html visionRadiusEff()`（`entityHiddenByVision` 判定 + 视野圈绘制同源——该函数现已恒返回 `false`）；镜头外延 `updateCameraLead` 不变。
+- 消费方（**历史**）：`tank_battle.html visionRadiusEff()`（`entityHiddenByVision` 判定 + 视野圈绘制同源——该函数现已恒返回 `false`）；镜头外延 `updateCameraLead` 不变。
 - 回归：`scripts/test-camera.js` #H1 段——轴向等距（6 方向前向距离恒等）/ 超宽屏同上限 / 竖屏同规则 / zoom 0.8·1.3 全程等距 / 4K 基准绑定 / 卡牌边界语义 / 值域护栏。**注**：该段断言已随 §13.5 一并删除（被测对象不存在）。
 - **（#H2 2026-09-21 用户裁定「纵向拉长而非削弱横向」→ 本节收口降级为放大超出适配值时的等距安全网；该整套口径随后被 §11.1 取代，并随 §13.5 一并退役。）**
 
@@ -115,7 +115,7 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 **用户裁定**：「超装填在 UI 上既可以 V 键激活，也可以数字技能键激活，删除 V 键激活，作为数字键激活的技能之一」。
 
 - `js/tank_bindings.js`：`abilityOverdrive` 键位 / ACTION_INFO / ACTION_ORDER 三处删除；键位说明面板不再输出 V 行。
-- mvp：`btnV` 按钮/监听/`cdV` 冷却角标/`BTN_BY_ABILITY` 映射/isDown 轮询全部删除；overdrive 的常驻 UI = **技能池槽 skillSlot1~3**，激活路径 = **skillHotkey(n) → DISPATCH**（与其它技能同路径）。
+- battle：`btnV` 按钮/监听/`cdV` 冷却角标/`BTN_BY_ABILITY` 映射/isDown 轮询全部删除；overdrive 的常驻 UI = **技能池槽 skillSlot1~3**，激活路径 = **skillHotkey(n) → DISPATCH**（与其它技能同路径）。
 - bench：`abilityOverdrive` 动作与 `benchAbilityOverdrive` 删除（超装填验证走 devPanel 卡牌测试）。
 - `ABILITY_KEYS_RUNTIME`/`ABILITY_KEYS`/卡牌（super_reload）不变——overdrive 仍是 runtime 技能，只是**没有专属键**。
 - 回归：`test-bindings.js`（abilityOverdrive 已删除断言 + bench 键位行 7→6）；`test-browser-run.cjs`（G/H 按钮 + btnV removed）；`test-browser-r4.cjs` C3 改技能池数字键动态定位 overdrive 槽位触发。

@@ -58,7 +58,7 @@ snapshotCovers();
 // hasLineOfSight 检查射线是否穿过烟雾云 → 遮挡视线（vision）；getExposure 不动
 // （烟雾 mode='none' 弹道穿透，只遮视线不挡弹）——与灌木 vision:true 同构。
 // 注意：本函数命名避开 tank_fx.js 的粒子 spawnSmoke（弹道烟迹视觉粒子，全局同名冲突）。
-// 本模块纯逻辑，视觉渲染由接入层（mvp）消费 smokeClouds 绘制。
+// 本模块纯逻辑，视觉渲染由接入层（battle）消费 smokeClouds 绘制。
 const smokeClouds = [];
 
 // 生成一团烟雾（位置/半径/持续秒）。叠加同位置不合并（每团独立计时）。
@@ -72,7 +72,7 @@ function spawnSmokeCloud(x, y, radius, durationSec){
   while(smokeClouds.length > max) smokeClouds.shift();  // 超出上限丢弃最早烟雾
 }
 
-// 逐帧消散烟雾（mvp 主循环调用）。返回是否仍有烟雾存留。
+// 逐帧消散烟雾（battle 主循环调用）。返回是否仍有烟雾存留。
 function updateSmoke(dt){
   for(let i = smokeClouds.length - 1; i >= 0; i--){
     smokeClouds[i].life -= dt;
@@ -361,7 +361,7 @@ function getRoadUnderTank(tank) {
 // 溺毙判定（2026-09-14 水域行为重做）：坦克车体四角是否「完全浸入」水体
 // （每角均位于任一 water|river 覆盖凸块内，允许跨相邻水体拼接）。
 // #1（2026-10-16）：道路-河流交叉处，道路生效——坦克在 road 上时不判定为浸水（桥）。
-// 纯函数、无 DOM；消费方：tank_mvp.html 战斗主循环 drownT 累计。
+// 纯函数、无 DOM；消费方：tank_battle.html 战斗主循环 drownT 累计。
 function tankFullyInWater(tank) {
   // 道路优先：在 road 上即使下方有 river 也不算浸水
   if (typeof getRoadUnderTank === 'function' && getRoadUnderTank(tank)) return false;

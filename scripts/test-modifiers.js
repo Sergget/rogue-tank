@@ -244,7 +244,7 @@ ok(Math.abs(t20.hp - Math.min(t20.stats.maxHp, baseHp20 * 0.4 + 50 + (t20.stats.
 const t20b = model.makeTank({ team: 'player' });
 t20b.spawn = { hp: t20b.stats.maxHp };
 Object.assign(t20b, t20b.spawn);                // resetEntity 等价
-t20b.hp = t20b.stats.maxHp;                     // mvp enterBattle 兜底行
+t20b.hp = t20b.stats.maxHp;                     // battle enterBattle 兜底行
 ok(t20b.hp === t20b.stats.maxHp && t20b.spawn.hp === t20b.stats.maxHp,
    '#A12: enterBattle 场景模拟——resetEntity+兜底后 hp == 新 maxHp');
 // 上限回落（移除 run 修饰器）仅钳制不扣血

@@ -8,7 +8,7 @@
 
 - **#H1 敌军数值基准由「玩家锚定」改为「固定基准」（核心平衡修复）**
   - **根因（实测定位）**：难度曲线本身干净——`difficultyForIndex` 只吃 `index` + 跨局等级，`difficultyLevel` 亦确认每次新局强制归零，同 seed 下买满五项永久升级后 `node0.difficulty` 与节点难度序列**完全不变**。真凶是两条**以玩家为锚**的放大链：① `applyEnemyAppearanceAndStats` 把敌军 `base` 全部写成 `玩家 anchorStats × enemyClassProfiles`，而锚点快照在 `applyUpgrades()` **之后**冻结；② `difficultyCapMuls` 的穿深封顶/伤害地板与天花板/速度目标全部乘 `player.stats`。⇒ 商店每买一级，下一局全部敌军血/穿/伤/速同比例抬升，玩家成长收益被同步抵消（实测：五项升级买满后敌军穿深 149.96→173.60、伤害 35→45.50、血量 64.29→104.47）。
-  - **修复**：新增 `RULES.enemyAnchorBase`（与玩家无关的固定基准，取中位中坦量级）；`applyEnemyAppearanceAndStats` 第三参 `anchorStats` **正式废弃并忽略**（保留形参仅为兼容旧调用方），`difficultyCapMuls` 四键改按固定基准计算并改名 `penCapVsBaseline` / `dmgFloorVsBaseline` / `speedVsBaseline`（+ 新增 `strongestAnchorMult`，使「不传 strongest」时天花板有确定值而非退化为 `Infinity`）；mvp 三处调用（Boss 召唤 / 节点敌军 / 增援）不再传玩家快照，`playerAnchorStats` 整体退役。
+  - **修复**：新增 `RULES.enemyAnchorBase`（与玩家无关的固定基准，取中位中坦量级）；`applyEnemyAppearanceAndStats` 第三参 `anchorStats` **正式废弃并忽略**（保留形参仅为兼容旧调用方），`difficultyCapMuls` 四键改按固定基准计算并改名 `penCapVsBaseline` / `dmgFloorVsBaseline` / `speedVsBaseline`（+ 新增 `strongestAnchorMult`，使「不传 strongest」时天花板有确定值而非退化为 `Infinity`）；battle 三处调用（Boss 召唤 / 节点敌军 / 增援）不再传玩家快照，`playerAnchorStats` 整体退役。
   - **净效果**：敌军强度只由节点难度 `diff` 决定，玩家选车与局外永久升级**一律不影响**敌军；数值曲线形状不变（entityMults 难度表未动）。
 
 - **#H2 布雷器「只能放一次」+ 装填冷却失效**
@@ -61,7 +61,7 @@
   - **修复**：换型时先 `getWeaponDefaults('primary', wType)` 重建基准再合并卡牌覆写；同型安装保持合并语义（幂等，不丢 `tanks/*.json` 自定义值）。副武器 install 原本就构造新对象，无此缺陷；两条路径共用新增的 `_weaponDefaultsResolver()`。
 
 - **#J3 视野距离系统整体退役（改为全屏渲染）**
-  - **退役范围（不留死开关）**：`js/tank_camera.js` 的 `visionRadiusForViewport`/`visionCenter`/`visionClamped`；mvp 的剔除逻辑（`entityHiddenByVision` 保留同名函数恒返回 `false`）、视野虚线圈、`visionRadiusEff` 的卡牌加成与屏幕相对计算；dev 面板「无视野」开关（`tank_devpanel.js` + mvp/bench 接线 + `types/globals.d.ts`）；两张视野卡 `support_commander_periscope`（+15%）与 `sniper_commander_sight`（+25%）按 2026-09-23 A 档死效果卡先例删除，`PASSIVE_KEYS` 移除 `commander_sight`（**卡池 168 → 166**）。
+  - **退役范围（不留死开关）**：`js/tank_camera.js` 的 `visionRadiusForViewport`/`visionCenter`/`visionClamped`；battle 的剔除逻辑（`entityHiddenByVision` 保留同名函数恒返回 `false`）、视野虚线圈、`visionRadiusEff` 的卡牌加成与屏幕相对计算；dev 面板「无视野」开关（`tank_devpanel.js` + battle/bench 接线 + `types/globals.d.ts`）；两张视野卡 `support_commander_periscope`（+15%）与 `sniper_commander_sight`（+25%）按 2026-09-23 A 档死效果卡先例删除，`PASSIVE_KEYS` 移除 `commander_sight`（**卡池 168 → 166**）。
   - **现行口径**：敌对实体一律渲染、一律可被命中，只剩 `aabbInView` 视口剔除（纯性能）。`tank_fire.js` 的 `hiddenByVision` 命中剔除钩子一并移除（否则「看得见却打不中」）。`RULES.vision` 仅作历史配置留档。
   - **明确不受影响（用户要求的第二半）**：AI 接战判定一直是 **「距离 + 直线视野」**——`RULES.ai.engageRequiresLoS` + `js/tank_ai.js` 的 `hasLoS`，遮挡由 `js/tank_cover.js hasLineOfSight` 按掩体的 `vision: true` 键判定（建筑/岩石/树/灌木/倒树遮视线；栅栏/沙袋/残骸/水/泥/路不遮）。
 
@@ -103,7 +103,7 @@
   2. **攻守分工** `squad` + 新模块 **`js/tank_ai_squad.js`**（纯逻辑、可 Node 测）：节点级协调器每 0.6s 按「距离/LoS/血量」评分 + 角色粘性，分配 `press`（压上，名额 2~4 随难度）/ `flank` / `hold`；`hold` 走 `holdGate` 射界门控。协调器只写 `t.aiRole`，不产生位移。
   3. **flank 重写** `flankRewrite`：站位点改为**玩家为圆心的定点扇区站位**（半径 = 交战带外沿 ×1.15、方位 ±60°~120°、按实体稳定哈希分左右），进入时锁定、到位转 press。旧 flank 分支降级为回退路径。
   4. **群体分离力** `separation`：同类（180px）+ 玩家（108px×0.7）线性衰减斥力 → 相对朝向的 ±1 转向偏置，**仅作用于 press**。
-  5. **视口外来袭方向提示** `threatIndicators`：筛选「已接战 + 视口外 + ≤engage×1.4」前 6 条，mvp 画**琥珀色边缘箭头**（与无人机红箭头区分）。纯玩家侧信息层，不改任何 AI/命中判定。
+  5. **视口外来袭方向提示** `threatIndicators`：筛选「已接战 + 视口外 + ≤engage×1.4」前 6 条，battle 画**琥珀色边缘箭头**（与无人机红箭头区分）。纯玩家侧信息层，不改任何 AI/命中判定。
   6. **装填脱离** `retreatReload`：装填期中距离退到掩体背弹面，与 #76 C6 `coverSeek`（重甲残血）构成两条独立退避通道。
   - **回退**：5 个子系统各自 `enabled` 开关，全关即回到 #M 及更早的单点直冲行为。
 - **实现期修正的 4 处缺陷（均由量化探针 `scripts/diagnose-ai-crowd.js` 暴露，非推测）**——这是本轮最值得留档的部分：
@@ -122,10 +122,10 @@
   ⇒ 「全员贴脸」与「一拥而上」同时消除。`fanout` 3.33→1.87 属预期：改前六辆均匀包围（全方位压迫），改后 2 压上 / 3 驻守 / 1 绕行 ⇒ 玩家不再同时面对所有方向。
 - **新增/修订测试**：`scripts/test-squad.js` **新增 25 项**（已接入 `npm test` 链）；`scripts/test-ai.js` 新增 **#N 段 26 项**（两项计数均为 2026-10-04 实测 `ok()`），旧 flank 断言改为「回退路径」语义（`flankRewrite.enabled=false` 下验证），滞回带断言改为状态不变量。
 - **验证（三链，2026-10-02；2026-10-04 复核）**：`npm run check` **EXIT=0**（含 `tsc --noEmit`）/ `npm test` **EXIT=0**（全链 0 项失败）/ `npm run test:browser` **四链 ALL PASS、EXIT=0**。
-- **文档同步**：`specs/combat.md` 新增 §13.8 并给 §13.7 的被修订项加沿革注记；`js/tank_ai_squad.js` 已按加载顺序接入 `tank_mvp.html`（在 `tank_ai.js` 之前），`types/globals.d.ts` 补齐 **14 个** `declare`（`js/tank_ai.js` 侧 7 + `js/tank_ai_squad.js` 侧 7；2026-10-04 实测）。
+- **文档同步**：`specs/combat.md` 新增 §13.8 并给 §13.7 的被修订项加沿革注记；`js/tank_ai_squad.js` 已按加载顺序接入 `tank_battle.html`（在 `tank_ai.js` 之前），`types/globals.d.ts` 补齐 **14 个** `declare`（`js/tank_ai.js` 侧 7 + `js/tank_ai_squad.js` 侧 7；2026-10-04 实测）。
 - **2026-10-04 复核修正（文档↔代码一致性审计 + 死代码清理）**：对 §4.41~§4.44 / `specs/combat.md` §13.4~§13.8 / `specs/map.md` / `specs/boss.md` 逐条比对代码后修正 6 项：
   1. **死配置清理（4 键，无任何消费方）**：`engageBand.breakAwayTurn`、`flankRewrite.distMinRatio`/`distMaxRatio`、`retreatReload.holdAfterArrive` —— 四键在 `js/tank_rules.js` 声明但全仓无消费者，其中 `breakAwayTurn` 的注释还描述了并未实现的行为并引用了 §4.44 中不存在的内容。按 2026-09-23 A 档死配置清理先例**整体删除**（行为零变化；flank 的触发本由 #N2 角色评分决定、无距离窗口，到位后原地还击亦为无条件行为）。
-  2. **死钩子清理**：`js/tank_fire.js` 的 `hiddenByVision` 命中剔除钩子与其在 mvp `fireCtx` 的注入补齐删除（#J3 声明「不留死开关」但当时漏删）——该钩子注入的是恒 `false` 的 `entityHiddenByVision`，属纯死开关；`entityHiddenByVision` 函数本体**保留**（渲染剔除调用点 + `__TEST__` 探针，`test-browser-r4` F3 仍断言其恒 false）。至此 §13.5/§4.42 所述「钩子已移除」与代码一致。
+  2. **死钩子清理**：`js/tank_fire.js` 的 `hiddenByVision` 命中剔除钩子与其在 battle `fireCtx` 的注入补齐删除（#J3 声明「不留死开关」但当时漏删）——该钩子注入的是恒 `false` 的 `entityHiddenByVision`，属纯死开关；`entityHiddenByVision` 函数本体**保留**（渲染剔除调用点 + `__TEST__` 探针，`test-browser-r4` F3 仍断言其恒 false）。至此 §13.5/§4.42 所述「钩子已移除」与代码一致。
   3. **魔数收口**：分离力的玩家斥力半径原为硬编码 `radius × 0.6`，新增 `RULES.ai.separation.playerRadiusMul`(0.6) 收口（与力度权重 `playerFactor` 语义区分：前者管半径、后者管力度）。
   4. **保留项核对（非缺陷）**：`RULES.ai.retreatReload.hpGate`(0.0) 与 `classProfiles`/`tierProfiles` 等开关有明确消费者，仅默认值使其不生效，不属死配置。
   5. **文档计数实测更正**：`test-ai.js` #N 段 30→**26** 项、`test-squad.js` 24→**25** 项、`test-modifiers` #H1 段 6→**7** 项、`types/globals.d.ts` declare 9→**14** 个、`RULES.vision`「三键」→**四键**（键名本列了 4 个）。
@@ -523,22 +523,22 @@
 
 ### §4.78 2026-10-15 #MODE：Boss 战模式 + 生存战模式（URL 参数）
 
-- **入口**：`tank_mvp.html?mode=boss` / `tank_mvp.html?mode=survival`（缺省 `standard`，标准流程零改动；`GAME_MODE` 常量解析 URL 参数，`tank_mvp.html`）。
+- **入口**：`tank_battle.html?mode=boss` / `tank_battle.html?mode=survival`（缺省 `standard`，标准流程零改动；`GAME_MODE` 常量解析 URL 参数，`tank_battle.html`）。
 - **Boss 战模式**（`mode=boss`）：
   - `js/tank_map.js` `makeNode` 支持 `env.bossOnly`——全节点强制 Boss 标记（方形竞技场路径、无常规敌人、quota=null）；`generateRun` 的 env 透传 + `extendRun` 复用 `run.env`，无限链延续全 Boss。
   - Boss 定义沿用现有懒指定流程（`enterBattle` 内 `node.boss===true → pickBossDef()`）；难度随节点 index 递增（`difficultyForIndex` 曲线）。
 - **生存战模式**（`mode=survival`）：
   - `generateSurvivalRun(seed, env)`（`js/tank_map.js`，已导出）：单个大地图（视口 2x → 面积约 4x，实测 7680x4683 vs 标准 3840x2341）；`node.survival=true`，`node.boss=null`（Boss 按波次手动生成）。
-  - 波次系统（`tank_mvp.html`）：`startSurvivalWave(n)`——普通波敌军数 `min(3+floor(n/2),12)` 递增，`aiTriggerDist=99999` 全图主动索敌；每 3 波 Boss 波（复用 `spawnBossFromDef` + `pickBossDef`，按波次 `entityMultsForDifficulty` 缩放强度）；Boss 召唤物继承 `survivalWaveSpawn` 标记计入清空判定。
+  - 波次系统（`tank_battle.html`）：`startSurvivalWave(n)`——普通波敌军数 `min(3+floor(n/2),12)` 递增，`aiTriggerDist=99999` 全图主动索敌；每 3 波 Boss 波（复用 `spawnBossFromDef` + `pickBossDef`，按波次 `entityMultsForDifficulty` 缩放强度）；Boss 召唤物继承 `survivalWaveSpawn` 标记计入清空判定。
   - 波次清空 → `finishSurvivalWave()` → settlement（波次标题）→ reward（5 选 1，`rewardPickTarget` 生存分支）→ `advanceRewardFlow` 回同一节点自动开下一波；HUD 顶部显示"第 N 波"（`survivalWaveHud`）；阵亡/终止结算显示存活波次。
-- **验证**：`scripts/test-modes.js` 18 断言全过（Boss 全链/生存大地图/波次规则/标准回归），已接入 `npm test`；`npm run check`（tsc）`js/tank_map.js` 与 `tank_mvp.html` 内联脚本均 ✓（`js/tank_cards.js` 的 5 处 `ef` 未定义错误为并行未提交改动引入，非本批次）。
+- **验证**：`scripts/test-modes.js` 18 断言全过（Boss 全链/生存大地图/波次规则/标准回归），已接入 `npm test`；`npm run check`（tsc）`js/tank_map.js` 与 `tank_battle.html` 内联脚本均 ✓（`js/tank_cards.js` 的 5 处 `ef` 未定义错误为并行未提交改动引入，非本批次）。
 
 ### §4.79 2026-10-15 拉取后缺陷清理：#8 TAB 面板冻结主循环 + #6 引发的测试夹具失效
 
 - **背景**：拉取 `origin/master`（`6a1908c` → `57c3c8a`，10 提交）后跑三链，`npm test` 44 项中 1 项失败（`scripts/test-modifiers.js` 4 断言），`npm run test:browser` 亦 FAIL。定位为**两个互相独立、且均早于本次拉取**的缺陷（`182ae1d` / `9ca91a5` 已是 `6a1908c` 祖先，即拉取前工作区已存在）。
 
 - **缺陷 1（用户可见，已修复）：TAB 状态面板一开即永久冻结主循环**
-  - **证据**：`tank_mvp.html:1408`（#8 `9ca91a5` 引入）`const foes = (tanks || []).filter(...)` —— 仓库内**不存在** `tanks` 全局，中央实体注册表名为 `entities`（`js/tank_entity.js:12`）。`(tanks || [])` 对**未声明标识符**求值必抛 `ReferenceError`（`||` 不能兜住 ReferenceError），故 `stEnemies` 存在时 `updateStatusPanel` 恒抛。
+  - **证据**：`tank_battle.html:1408`（#8 `9ca91a5` 引入）`const foes = (tanks || []).filter(...)` —— 仓库内**不存在** `tanks` 全局，中央实体注册表名为 `entities`（`js/tank_entity.js:12`）。`(tanks || [])` 对**未声明标识符**求值必抛 `ReferenceError`（`||` 不能兜住 ReferenceError），故 `stEnemies` 存在时 `updateStatusPanel` 恒抛。
   - **影响链**：TAB 面板 `statusOpen=true` → `loop()` 内 `if(statusOpen) updateStatusPanel()`（`:4066`，经 `updateHud` ← `update` ← `loop`）→ 抛错 → `loop()` 末尾的 `requestAnimationFrame(loop)`（`:5353`）**永不执行** ⇒ 战斗态打开 TAB 后整个游戏冻结（无模拟、无绘制）。`loop()` 与 `update`→`updateHud` 全程无 `try/catch`，抛错直接逃逸出 rAF 回调。
   - **修复**：`(tanks || [])` → `(entities || [])`，并补注释说明全局名与抛错路径。
   - **验证**：`npm run test:browser` 由 FAIL → **ALL PASS**（4 条链）。该修复同时消除 `PAGEERROR: tanks is not defined ×2` 与断言 `(d) 开火命中弹携带所选槽位 ammoKey` 的失败（**同一根因**：主循环死亡后 `stepShells` 不再推进，炮弹飞不完、`resolveHit` 不触发，故 `firedKey` 恒 `null`）。
@@ -556,7 +556,7 @@
 - **来源**：用户游戏实测四反馈（#MODE 后续）。现行细则归口 `specs/combat.md` §14（模式）与 `specs/map.md` §11（溺毙豁免）。
 
 - **① Boss 战模式：局内商店改在「卡牌选择后」出现（用户裁定）**
-  - **背景**：`fbf7f73`（2026-10-15）曾整体禁用 Boss 模式局内商店，理由「每局回满血，不需要升级」——但 `enterBattle` 对所有模式本就满血进节点（`tank_mvp.html:1939`），该理由不成立，商店被误禁。
+  - **背景**：`fbf7f73`（2026-10-15）曾整体禁用 Boss 模式局内商店，理由「每局回满血，不需要升级」——但 `enterBattle` 对所有模式本就满血进节点（`tank_battle.html:1939`），该理由不成立，商店被误禁。
   - **修复**：新增 reward 屏内嵌商店区（`#rewardShopBox`/`#rewardShopList`/`#rewardShopContinueBtn`）。流程改为 `battle → settlement（仅得分，不内嵌商店）→ reward 选卡 → 确认后同屏展开商店（revealRewardShop）→ 点「继续 NEXT BOSS」→ 下一场`。列表复用 `buildRunShopInto`（与结算内嵌版/暂停菜单版同数据源），Boss 模式仍移除「紧急维修」项。
   - **边界**：Boss 追加卡牌有多轮（`reward→reward`），故每次进入 reward 调 `resetRewardShop()` 收起商店并还原选卡按钮/文案；`buyRunShopItem` 增加 `renderRewardShop()` 回显。
   - **定向验证**：选完卡 → `#rewardShopBox` display 由 `none` 变 `block`、列表 18 条目；点「继续」→ `flow=battle`、节点 index 0→1；全流程无 page error。
@@ -564,12 +564,12 @@
 - **② 生存模式：删除「区域肃清」倒计时 + 准备期可移动且关闭伤害（用户裁定）**
   - **根因（原缺陷）**：波次清空走 `clearing` 通道（`clearing=true; clearingT=2.0`），而 `finishSurvivalWave` **只复位 `waveActive`/`cleared`、不复位 `clearing`** ⇒ `isClearing` 恒真：其后 5 秒波次倒计时里 `driveTank` 被跳过（玩家冻结）、战斗管线全停。
   - **修复**：① 波次清空**即**调 `finishSurvivalWave()`，删除 2 秒缓冲（该函数内显式复位 `clearing=false/clearingT=0` 防残留）；② 5 秒倒计时界定为「准备期」——**可移动、伤害全关**。
-  - **伤害关闭双层拦截**（缺一不可）：① **总闸** `js/tank_physics.js applyDamage` 开头查 `globalThis.damageSuppressed()`（由 mvp 的 `isSurvivalPrepWindow()` 提供），为真即 `return 0` —— 覆盖所有经 `applyDamage` 的伤害（炮弹/溅射/炮击/DOT/溺毙/无人机/地雷/碾压）；② **来源门控** `isSurvivalPrep` 拦开火（玩家/AI/副炮塔）、`stepShells`、`updateStrikes`、`updateDeployables`、`updateDrones`、溺毙累计；进入准备期另清空残留弹道/落弹预警与导弹锁定（防静止 5 秒后同时爆开）。Boss 行为层无需门控（准备期 `cleared=true` 本就跳过）。
+  - **伤害关闭双层拦截**（缺一不可）：① **总闸** `js/tank_physics.js applyDamage` 开头查 `globalThis.damageSuppressed()`（由 battle 的 `isSurvivalPrepWindow()` 提供），为真即 `return 0` —— 覆盖所有经 `applyDamage` 的伤害（炮弹/溅射/炮击/DOT/溺毙/无人机/地雷/碾压）；② **来源门控** `isSurvivalPrep` 拦开火（玩家/AI/副炮塔）、`stepShells`、`updateStrikes`、`updateDeployables`、`updateDrones`、溺毙累计；进入准备期另清空残留弹道/落弹预警与导弹锁定（防静止 5 秒后同时爆开）。Boss 行为层无需门控（准备期 `cleared=true` 本就跳过）。
   - **定向验证**：清场后 0.9s（远小于原 2s）即 `damageSuppressed()===true`；准备期按 W 玩家位移 28px（可移动）；准备期 `applyDamage(player,9999)` 返回 0 且血量不变；倒计时结束后 `damageSuppressed()===false` 且伤害恢复（dealt 8.5）。
 
 - **③ Boss 免疫溺毙（用户裁定）**
   - **根因**：Boss 走位由 `updateBossBehavior` 的 `_bossMoveOverride` 直驱（`js/tank_boss.js`），绕过 `aiDecide` → 也就绕过 `applyWaterAvoidance` 探点避水，Boss 可能停在深水中央；此时溺毙＝关卡核心对抗白给。
-  - **修复**：溺毙门控加 `!e.isBoss`（`tank_mvp.html`）。Boss 在深水仅减速通行（`passability 0.4`）。玩家/普通敌军/友军不变，仍是「一视同仁」的其余部分。
+  - **修复**：溺毙门控加 `!e.isBoss`（`tank_battle.html`）。Boss 在深水仅减速通行（`passability 0.4`）。玩家/普通敌军/友军不变，仍是「一视同仁」的其余部分。
   - **定向验证**：扫描水域网格找到「Boss 车体完全浸水」位置，置入 1.2s 后 `drownT` 恒为 0、血量不变；**对照组**同位置普通敌人 `drownT` 累计到 1.22（证明豁免为 Boss 专属，非全场失效）。
 
 - **④ 生存模式顶部 HUD 文本重叠修复**
@@ -612,7 +612,7 @@
 
 - **③ #T3 道路多边形 `verts` 坐标系生产者/消费者不一致（`cde3bc3` 引入）**
   - **根因**：`_emitRoadChain` 产出的是**调用方帧的绝对坐标**（bbox 中心即 `c.x`），而消费端（`coverCorners`/`pointInCoverPoly`/`buildCoverIndex`/`tank_ai` 避水探针）一律按 `c.x + v` 局部解释，`tank_cover.js` 契约亦明写「局部坐标顶点数组」。两条路径的约定**正好相反**：方形/Boss 路径 `centerX=0` 蒙对，strip 路径 `centerX=totalW/2` 整体偏移半个地图宽。实测（seed 7，6000 采样点）消费端命中集中 `x>w/2`（左 0 / 右 153）而真值应为左右各 305 ⇒ **幻影命中 153、漏检 610**。
-  - **修复**：`_emitRoadChain` 出口统一减去 bbox 中心，`verts` 全部转为局部坐标；同步校正四处绝对帧消费者——`roadCoversToSegments`、`placeEdgeRiver` 的 `roadCenters`、`bakeNodeGroundLayer`（`tank_mvp.html`，改为先做局部→世界换算）、`test-nodegen.js` 的 `ends`/`inOtherGroup`。**验证**：修复后幻影命中与漏检**双双归零**、索引与全表在 12000 点零不一致、`roadCoversToSegments` 316 段零越界。
+  - **修复**：`_emitRoadChain` 出口统一减去 bbox 中心，`verts` 全部转为局部坐标；同步校正四处绝对帧消费者——`roadCoversToSegments`、`placeEdgeRiver` 的 `roadCenters`、`bakeNodeGroundLayer`（`tank_battle.html`，改为先做局部→世界换算）、`test-nodegen.js` 的 `ends`/`inOtherGroup`。**验证**：修复后幻影命中与漏检**双双归零**、索引与全表在 12000 点零不一致、`roadCoversToSegments` 316 段零越界。
   - **连锁**：该项使两处此前因坐标系错位而**恒不生效**的逻辑开始真实工作——`hitsRoad`（泥潭避路）此前把 `c.x` 加了两次、几乎永不命中（泥潭长期压在道路上，违反 §17.2 泥潭互斥），修复后泥潭真正避路，连带暴露「地形标签必产出」契约违例（`mixed_barrier_plaza`/`village_center` 少 1~2 块泥斑）。**修复**：`placeMudPatch` 重试上限 8→24、角度铺满 2π、半径在 0.55~1.45×ringR 间外扩 ⇒ 契约违例 7/112 → **0/112**（与修复前持平）。
   - **基线联动**：`test-nodegen-calibration` 第八次重标定——`coverCoverage`/`connectivity` **全部不变**（7 模板×5 难度仍 1.000），仅含 `mudPatch` 模板的 `minPassageWidth` 收窄（泥潭真实避路后 mud↔残骸小间隙成为最小值来源）：`village_center` d=0.1 1.0→0.4、d=0.3 0.9→0.4、d=0.7 0.9→0.2，`urban_block`/`mixed_barrier_plaza` 微调。
 
@@ -654,7 +654,7 @@
   - **#U5 小地图元素粒度**：植被（`tierGroup='foliage'`）改为累加到**小地图 4px 网格**铺半透明绿色块（α 随格内株数微增，上限 0.85）——密集处自然成片、零散处不着色；水/河/泥/建筑/岩石仍逐元素画点（数量少、位置关键）。回归 `scripts/test-minimap.js` 新增 5 断言。
 
 - **③ AI（#U4/#U15）**
-  - **#U4 反应迟钝**：感知半径相对交战尺度（`engageRange` 520 / `triggerDistBase` 700）偏小。`shotNoiseRadius` 900→**1100**（heavy 按 1.27× 派生 1400）、`impactNoiseRadius` 180→**420**（近失弹原需几乎贴身才被听见，是主因）；mvp 与 `tank_fire` 的硬编码半径（180/900/1200）统一改读 `RULES.ai.*`。
+  - **#U4 反应迟钝**：感知半径相对交战尺度（`engageRange` 520 / `triggerDistBase` 700）偏小。`shotNoiseRadius` 900→**1100**（heavy 按 1.27× 派生 1400）、`impactNoiseRadius` 180→**420**（近失弹原需几乎贴身才被听见，是主因）；battle 与 `tank_fire` 的硬编码半径（180/900/1200）统一改读 `RULES.ai.*`。
   - **#U15 水中 AI 不脱困**：`applyWaterAvoidance` 自身入水时仅 `out.move=0` 停驶 ⇒ 泡满 8s 溺毙。新增 `_escapeWater`（4 环 × 16 向采样，朝最近干地驶出；无岸可探时保持前进不退化为等死）。
 
 - **④ 卡牌与商店（#U10/#U14/#U17~#U22）**
@@ -711,7 +711,7 @@
   - **#U25 双管炮口**：`fireDoubleBarrel` 把 `barrel.width`（百分比字段，典型 18）当像素 → 横向偏移 16.65px；绘制侧同公式为 2.78px（偏 6 倍）。改为与绘制同源的像素换算。
   - **#U26 泥潭**：三处叠加缺陷——`hitsRoad` 只判泥潭中心点（半幅 100px+ 的泥潭贴边即漏，18% 相交）；strip 模式 `placeMudPatch` 收到 `outCovers`（此刻不含路）；strip 级路在 chunk 后追加，chunk 内判定与 prune 都看不到。修复：足印采样（中心+8 向）+ 路顶点反查 + 传 `avoidCovers` + strip 级 mud↔road SAT 收尾。实测 4 seed：mud∩road 21%→**0%**、mud∩river 保持 0。校准基线**第十次重标定**（泥潭离路更远 → `urban_block d=0.7` 1.7→1.2、`mixed_barrier_plaza d=0.1/0.3` 1.1→2.1 / 1.0→1.6；cov/con 全部不变）。
 
-- **② 卡牌保底（#U27）**：主武器安装卡仅 4 张（全 epic），Boss 轮权重抽样期望 0.3 张/轮（模拟 3 轮 0/3、6 轮 1/6）。`drawCardChoices` 新增 `guaranteePrimaryInstall` / `guaranteeSecondaryInstall`（未装副武器时）两个保底通道，mvp Boss 追加轮传入。模拟验证：3 轮主/副武器 100% 出现；保底顺序：装备优先 → 弹种 → 技能 → 主武器 → 副武器 → 稀有度配比 → 权重。
+- **② 卡牌保底（#U27）**：主武器安装卡仅 4 张（全 epic），Boss 轮权重抽样期望 0.3 张/轮（模拟 3 轮 0/3、6 轮 1/6）。`drawCardChoices` 新增 `guaranteePrimaryInstall` / `guaranteeSecondaryInstall`（未装副武器时）两个保底通道，battle Boss 追加轮传入。模拟验证：3 轮主/副武器 100% 出现；保底顺序：装备优先 → 弹种 → 技能 → 主武器 → 副武器 → 稀有度配比 → 权重。
 
 - **③ 生存 AI（#U28）**：两处叠加——defensive 触发距离 `engage×3+500` 中 engage 被 `triggerHysteresis` 钳顶恒 ≈650（阈值 ≈2450px），`aiTriggerDist=99999` 只放行触发门、不放大 engage ⇒ 距玩家 >2450px 的生存敌全军站桩；生成时只设 `alertLevel=3` 未置 `aiEngaged/aiReactT` ⇒ 首帧吃反应延迟。修复：「全图主动」实体（`aiTriggerDist` 超钳顶值）不进 defensive（移动交交战带）+ 生成时置 `aiEngaged=true, aiReactT=0`（普通波次与 Boss 波）。Node 探针：`state=defensive move=0` → `move=1` 持续推进。
 
@@ -771,7 +771,7 @@
 - **③ 光源方向被旋转两次（同屏两个光源）**：`paintTurretShadow` 先按 `worldAng` 旋转偏移，又在 `R(angle)` 局部系里 `translate` —— 净效果 `R(angle)·R(worldAng)·off`。实测 `hull=0`、炮塔 0→90° 时影方位从 54° 摆到 144°，而掩体投影恒 54°。改为「偏移是世界向量、局部平移取 `R(−angle)`」，漂移降到 **0.54px**。
 - **④ 车底影完全缺失**：程序化分支（实机唯一路径，所有车 `sprite.enabled=false`）根本没有车底影，履带直接压在地面纹理上、车体像贴纸。新增 `drawTankGroundShadow`：两层椭圆，**形状随车体转、偏移不随车体转**（先在世界坐标平移、再 `rotate(hullAngle)`）。漂移 0.04px。
 - **⑤ 掩体/植被投影升级为三层软边**（零模糊开销，禁用 `shadowBlur`）：建筑/岩石/残骸加墙脚接触暗带（消除两块偏移多边形之间的亮缝）；树加一层外扩椭圆 + 树干脆影；灌木/倒树加外扩柔和影 + 根部接触暗斑。不投影档位（road/mud/water/river/bridge）早退不变——`test-nodegen` 有强制断言。
-- **⑥ 三套从未绘制的特效接线**：`drawScorchMarks`（地面贴花层，坦克之下）、`drawShockwaves` 与 `drawTracers`（炮口闪光之后）此前**两页都没调用**，是彻底死代码。现按正确层级接入 `tank_mvp.html` / `tank_bench.html`。
+- **⑥ 三套从未绘制的特效接线**：`drawScorchMarks`（地面贴花层，坦克之下）、`drawShockwaves` 与 `drawTracers`（炮口闪光之后）此前**两页都没调用**，是彻底死代码。现按正确层级接入 `tank_battle.html` / `tank_bench.html`。
 - **⑦ 特效重做（#FX3）**：炮口闪光 = 炮口烟 + **双层火舌**（外焰+白热芯）+ 径向渐变核心 + 外发光 + 冲击环；殉爆 = 外烟壳 + 地面受光晕 + 四段色阶主火球 + 白热核 + **12 段不规则冲击边缘**；焦痕三层（尘土光晕/10 段不规则焦体/弹坑内核）+ 淡入；冲击波双层环。
 - **⑧ 绘制期零渐变分配**：按「色阶名 + 半径档」把径向/线性渐变烘焙为离屏 sprite（`_radialSprite` / `_explosionSprite` / `_plumeSprite` / `_flameGlowSprite`），绘制期只 `drawImage` + `globalAlpha`。实测 20 个殉爆的 `createRadialGradient` 从 **60 → 0**、10 类炮口从 **61 → 1**（剩 1 次是磁轨炮长矛，非热点）。**自查抓到并修掉一处自伤**：`_plumeSprite` 画布高度误按 `len` 定，而外层扇形半径是 `R = len×2.4`，`wa=0.65` 时外焰垂直方向被切掉 58px（炮口焰像被水平削平的梯形）；改按 `R·sin(wa)`/`R` 派生包围盒，并加断言「烘焙 sprite 四边无触边像素」（对旧公式实测触发 54/56/178 个边缘像素⇒断言非空转）。
 - **⑨ 绘制期确定性**：移除 `drawFxParticles` 火花、磁轨炮电弧、`drawFireGlow` 闪烁里的 `Math.random()`，改用 `_fxHash` / `_fxNow` 时间量子。约定写入 `js/tank_fx.js` 头部：**spawn 可随机、draw 必须确定性**。实测同帧重绘逐字节一致（差 0px）。
@@ -851,7 +851,7 @@
 用户四项要求：生存模式①补给点显示在小地图上 ②卡牌挑选在**每一波结束**（与标准模式同张数）③地图生成算法参考最新标准模式、**道路上不能有房屋树木**；任意模式④小地图上显示公路。
 
 - **④ 小地图公路（根因是坐标语义，不是「没写绘制」）**：`tier='road'` 的 cover 自 `cde3bc3` 起是**整链连续多边形**——`w/h` 只是整链外接 bbox（实测某链 1030×4645）、`angle` 恒 0、真实形状在 `verts`（局部坐标）。旧 `drawMinimap` 把 road 归到 `tierGroup='ground'`，按 **bbox 中心画一个 2.2px 点** ⇒ 一条横贯 17000px 的公路在小地图上只有一个点。改为 `roadCoverPolygonPoints` 逐 vert 平移后**逐点**过 `worldToMinimap`（strip 模式 `sx≠sy`，统一 scale 会画歪）→ path 填充浅灰；顺序在建筑/植被之前，且 `vegCells` 跳过 road 避免重复点；无 verts 的旧 OBB 段回退画点。真实数据光栅化抽查：standard seed=42 最大链 216 verts，小地图 x 跨度 `[-0.1, 170.1]` 满框贯穿。性能 0.21 ms/帧（极端 8 链×1200 verts 0.72 ms）⇒ 不抽稀。
-- **① 小地图补给点**：新增 `opts.supplyStations` + 纯函数 `minimapSupplyMarks`——5px 方块 + 十字 + 细描边、色 `rgba(190,255,150)`，与玩家绿点（`#7ed957` 圆 r=3）**异色异形**；`opts.supplyOnCooldown` 变灰。缺省不传零回归。mvp 侧仅生存模式传 `currentNode.supplyStations`。
+- **① 小地图补给点**：新增 `opts.supplyStations` + 纯函数 `minimapSupplyMarks`——5px 方块 + 十字 + 细描边、色 `rgba(190,255,150)`，与玩家绿点（`#7ed957` 圆 r=3）**异色异形**；`opts.supplyOnCooldown` 变灰。缺省不传零回归。battle 侧仅生存模式传 `currentNode.supplyStations`。
 - **② 选卡移到每波结束**：原口径**只有 Boss 波**弹抽卡且固定 **5 选 1**，普通波整场无卡。现 `finishSurvivalWave` 对**每一波**都弹选卡：普通波 `pendingLootRounds=0` → **5 选 2**；Boss 波 `=1` → **5 选 3** 并启用 `RULES.cards.bossRound` 的稀有度/弹种/技能/主副武器保底。`rewardPickTarget()` 删除 `GAME_MODE==='survival' ? 1` 特例，文案与 `shortBy` 同步统一。补给站职责收窄为「回血 + 参数升级商店」。
   - **顺带修掉一个模态穿帮**：生存快速选卡不切 `flow` 态，`loop()` 的 battle 门控拦不住 ⇒ 卡片遮罩后面玩家仍能驾驶/开火（标准模式 reward 屏是冻结的）。把 `survivalQuickPick` 并入 `paused`（只跳 `update`，`draw` 照常渲染冻结快照，与 pause 同款）。
 - **③ 生存地图改标准生成链**：删掉 `bossOnly` + `stripForBoss` 两个 hack，改走**标准 `makeNode` + `env.noEnemies`**（不生成常规敌、`quota=null`、`defenseLines=[]`、`boss=null`），尺寸唯一归口 `RULES.nodeMap.strip.survival = {screensX:5, screensY:5, chunkRows:2}`。旧实现在 5×5 屏的 strip 里片高只有 ≈3.05 屏 ⇒ 纵向裁剪后**上下大块空白**（底部 400px 带内元素数 **0**）。新增 `opts.chunkRows` 行×列网格（缺省 1 逐字节零回归，sha1 验证）：`stripH=Σ行高`、纵向不再裁剪 ⇒ 实测 **6.0×6.5~6.6 屏**、349 covers / 8.89 屏⁻¹、底部空白 525→26px。
@@ -926,7 +926,7 @@
 - **② 击发放电**：`tank_fx.js spawnRailDischarge` 在 `firePrimaryShell` 的 railgun 分支自 `gunRoot` 沿炮管全长生成 `dischargeArcs` 条电离折线（`railArcs` 数组，上限 24 防堆积），0.22s 内沿炮向收束淡出；炮口额外一圈青白电离冲击波。绘制走**双层结构**（宽而淡的青蓝晕 + 1px 白热芯），与既有炮口焰的分层纪律一致。
 - **③ 弹道**：`drawShells` 新增 `s.wType` 通道（`firePrimaryShell` 只写武器**类型**，不挂整个 spec）。电磁炮弹改为**针状白热电离弹**（长 ×1.9 / 宽 ×0.55）+ `shellTrailArcs` 条电弧尾迹 + 径向外发光，与琥珀色普通弹一眼可分。
 - **音效**：新增 `SOUND_DEFS.firerail`（高频方波放电下扫 + 带通噪声横扫电离空气 + 延迟低频炮身共鸣 4 层）；`fireTank` 的 railgun 分支改播该键。电磁发射没有火药爆燃，「砰」这个采样本身就是错的。
-- **HUD**：mvp 单环装填分支对 railgun 改青蓝双层充能弧（外层微光随进度升高 + 内层白热芯），与炮身充能同色系；其他武器单弧行为零变化。
+- **HUD**：battle 单环装填分支对 railgun 改青蓝双层充能弧（外层微光随进度升高 + 内层白热芯），与炮身充能同色系；其他武器单弧行为零变化。
 - **纪律遵守**：新增绘制**零逐帧渐变分配**（弹体外发光与后膛核一律走 `tank_fx._radialSprite('haloR')` + `_blitRadial`，不新建 `createRadialGradient`）；draw 期**无 `Math.random`**（电弧抖动全部走 `lightningPath` 的 seed 哈希 / `_fxHash` / `_flickerAt` 时间量子）。
 - **三链验证**：
   - `node scripts/check-html.js` → `All checks passed`（EXIT=0）
@@ -961,7 +961,7 @@
   - 主武器 9 张：standard ×3（rare `_damage` / rare `_reload` / epic `_pen`）、autocannon ×3（rare `_damage` / rare `_heat` / epic `_feed`）、railgun ×1（rare `_damage`，含 `pierce` 1→2）、clip ×1（rare `_capacity`，`"+2"` 容量 + 发际 0.55s）、double_barrel ×1（rare `_turret`）。
   - 副武器 11 张：turret **安装** ×1 + 升级 ×3（rare `_upgrade` / rare `_traverse` / epic `_heavy`）、missile_wire **安装** ×1 + 升级 ×2（rare `_upgrade` / rare `_warhead`）、mortar ×1（rare `_accuracy`）、mine_layer ×1（rare `_radius`）、rocket ×1（rare `_warhead`）、missile ×1（rare `_damage`）。
   - **覆盖结果**：主武器 `standard 3 / autocannon 4 / double_barrel 3 / railgun 2 / clip 2`；副武器 `mortar 2 / missile 3 / missile_wire 2 / rocket 3 / mine_layer 2 / turret 3` —— 无「只有 1 张」的类型。
-- **Boss 随机武备**：新增纯函数 `pickBossArmament(pool, {rng, bossNumber})`（`js/tank_cards.js`）+ mvp 侧 `assignBossArmament`（在 `assignBossSkills` 之后调用，经 `applyCardEffects` 施加 —— 与玩家卡牌**同一语义通道**）。参数唯一口径 `RULES.boss.armament`（`primaryChance 0.9` / `secondaryChance 0.7` / `upgradeMax 2` / `upgradeChance 0.55` 逐 Boss +0.1）。升级卡只挂在**已选中**的主/副武器类型上，任一步无货静默跳过。
+- **Boss 随机武备**：新增纯函数 `pickBossArmament(pool, {rng, bossNumber})`（`js/tank_cards.js`）+ battle 侧 `assignBossArmament`（在 `assignBossSkills` 之后调用，经 `applyCardEffects` 施加 —— 与玩家卡牌**同一语义通道**）。参数唯一口径 `RULES.boss.armament`（`primaryChance 0.9` / `secondaryChance 0.7` / `upgradeMax 2` / `upgradeChance 0.55` 逐 Boss +0.1）。升级卡只挂在**已选中**的主/副武器类型上，任一步无货静默跳过。
 - **可读性**：TAB 状态面板 Boss 行追加 `· 武备:主武器+副武器·改装×N`；出生日志 `BOSS 武备：…｜改装 …`。
 
 ### 实测（2026-10-18）
@@ -1009,7 +1009,7 @@
 
 ### ② 反应装甲一次性消耗 → 拦截后进入再充能
 
-**改前**（`js/tank_physics.js` `resolveHit` #U19）：拦截 1 发即将条目从 `cardEffects` **splice 消解** ⇒ 传奇卡整局只生效一次。**改后**：拦截后条目保留、写 `_reactiveRearmT = RULES.cards.reactiveArmor.rechargeSeconds`（**60s，唯一口径**）并置 `_reactiveReady=false`；冷却期内照常按装甲/跳弹结算；`updateReactiveArmorRearm`（`js/tank_cards.js` 新增，mvp 主循环接入）逐帧递减、归零恢复就绪；`applyCardEffects` 获得时立即可用；mvp `enterBattle` 每节点重置就绪（冷却不跨节点携带）。卡面 `cards/reactive_armor.json` 同步改写。同一时刻恒 1 层（maxStacks=1）。
+**改前**（`js/tank_physics.js` `resolveHit` #U19）：拦截 1 发即将条目从 `cardEffects` **splice 消解** ⇒ 传奇卡整局只生效一次。**改后**：拦截后条目保留、写 `_reactiveRearmT = RULES.cards.reactiveArmor.rechargeSeconds`（**60s，唯一口径**）并置 `_reactiveReady=false`；冷却期内照常按装甲/跳弹结算；`updateReactiveArmorRearm`（`js/tank_cards.js` 新增，battle 主循环接入）逐帧递减、归零恢复就绪；`applyCardEffects` 获得时立即可用；battle `enterBattle` 每节点重置就绪（冷却不跨节点携带）。卡面 `cards/reactive_armor.json` 同步改写。同一时刻恒 1 层（maxStacks=1）。
 
 ### ③ parameterLimits 补齐（满级参数卡不再出现）
 
@@ -1023,7 +1023,7 @@
 
 - `scoreMul`：**语义修复**——旧实现 `(runScoreMul||1) × (1+value)` 把 `value=1.15` 错算成 **×2.15**；现行 value 即最终乘数（×1.15）。接线三处计分点（`finishNode` 节点分 / `finishSurvivalWave` 波次分 / 击杀分）统一乘 `runScoreMultiplier(tank)`（`js/tank_cards.js` 新增）。
 - `shopDiscount`：接线局内商店——`buyRunShopItem` 实付价与 `buildRunShopInto` 展示价同口径乘 `(1 − runShopDiscount(tank))`（多张相加、防御上限 0.5；原注释「跨局字段」为误注）。
-- `reviveCount`：mvp `pickCard` 即时回算 `player.revives`（原只在下局 `prepPlayerForRun` 生效，局内获得零反馈）。
+- `reviveCount`：battle `pickCard` 即时回算 `player.revives`（原只在下局 `prepPlayerForRun` 生效，局内获得零反馈）。
 - `startScore`：写 `runStartScore`（卡池内无该卡，消费方仍预留）。
 
 ### 三链验证（2026-10-19）
@@ -1066,7 +1066,7 @@
 
 ### 全仓键位审计结论（#U42 排查面）
 
-对 `KEY_BINDINGS`（js/tank_bindings.js）× mvp/bench 两页 × 7 个运行时技能 + 3 个 innate 键全量核对：
+对 `KEY_BINDINGS`（js/tank_bindings.js）× battle/bench 两页 × 7 个运行时技能 + 3 个 innate 键全量核对：
 
 - **artillery / shield 双通道残留（用户反馈实证）**：#H3（2026-09-30）重做技能槽时对 artillery/shield 采取「未占用槽位时显示 btnG/btnH」的折中，专属键**没有**像 overdrive 的 V 键那样删除 ⇒ 同一技能两个键位（技能池数字键 + G/H）。更糟的是**两个键行为不一致**：H 键 = `tryShield(!!keys['shift'])`（默认**定向**护盾、Shift+H 全向），而技能池/btnH = `SKILL_DISPATCH.shield: () => tryShield(true)`（恒**全向**）——按 H 与按 1 出的技能不是同一个东西。
 - **其余技能无残留**：overdrive（V 键已随 #H3 删除）、deploy_cover / aps / super_fire_control / super_speed 只经技能池；innate 三键（repair/medkit/extinguish → 4/5/6）是设计上正确的专属键（开局固有、不占技能槽）；Q/E 切弹、F 副武器、数字键让位技能池、F1 调试 HUD、Esc 暂停、Tab/C/` 面板组——均无冲突或泄漏。
@@ -1074,7 +1074,7 @@
 
 ### 修法（同 #H3 删 V 先例，技能键位单一来源）
 
-1. **mvp**：删除 `btnG`/`btnH` HUD 按钮（HTML + click 监听 + `updateBottomHud` 显隐与 `cdG`/`cdH` 冷却角标）、主循环 `input.isDown('abilityStrike')`/`isDown('abilityShield')` 轮询、`SKILL_DEDICATED_KEYS` 死常量、获得技能脉冲回退表 `BTN_BY_ABILITY`（脉冲恒走技能池槽）、槽位 title 的「亦可按 G/H」尾注；`ABILITY_KEY_HINT` 文案统一「技能槽数字键」。
+1. **battle**：删除 `btnG`/`btnH` HUD 按钮（HTML + click 监听 + `updateBottomHud` 显隐与 `cdG`/`cdH` 冷却角标）、主循环 `input.isDown('abilityStrike')`/`isDown('abilityShield')` 轮询、`SKILL_DEDICATED_KEYS` 死常量、获得技能脉冲回退表 `BTN_BY_ABILITY`（脉冲恒走技能池槽）、槽位 title 的「亦可按 G/H」尾注；`ABILITY_KEY_HINT` 文案统一「技能槽数字键」。
 2. **键位唯一数据源**（js/tank_bindings.js）：`KEY_BINDINGS` 删 `abilityStrike:'g'`/`abilityShield:'h'`；`ACTION_INFO` 删两行说明；`ACTION_ORDER` 同步；文件头键位摘要更新。新增 `benchTestStrike:'g'`（**仅供测试台显式注册**的键值，正式游戏不注册该动作）。
 3. **bench**：G 键动作改经 `benchTestStrike` 注册（键值不变、语义不变——测试炮击入口）；键位说明行删除 `abilityStrike`。
 4. **ESC 键位说明**：`renderPause` 的 `describeBindings` 可用集删去 `abilityStrike`/`abilityShield` 两行。
@@ -1102,7 +1102,7 @@
   - `cardEffects` 条目新增 `cardName`（`applyCardEffects` 写入时一并带上，`js/tank_cards.js`）——简报是纯函数、不持有卡池，靠它把「改装」显示成中文卡名。
   - 数值摘要只列对决策有意义的字段（伤害/穿深/装填/弹速/射程/溅射/容量/热量/转向/锁定），内部开关（`altReload`/`guided`/`pierceDmgMul` 等）不显示。
   - 增强版技能（`assignBossSkills` 写入 `params` 的那些）在简报里带 `[强化]` 标签。
-- **呈现层（mvp）**：`#bossBriefing` 居中覆盖层 + `renderBossBriefing` / `showBossBriefing` / `closeBossBriefing`；`spawnBossFromDef` 在 `assignBossSkills` + `assignBossArmament` **之后**调用。关闭 = 按钮 / 点击遮罩 / Esc。**它不是 flow 状态**（不进状态机 ⇒ 不暂停、不与白名单转移冲突），同时把 `bossBriefingLines` 打进日志作纯文本兜底。
+- **呈现层（battle）**：`#bossBriefing` 居中覆盖层 + `renderBossBriefing` / `showBossBriefing` / `closeBossBriefing`；`spawnBossFromDef` 在 `assignBossSkills` + `assignBossArmament` **之后**调用。关闭 = 按钮 / 点击遮罩 / Esc。**它不是 flow 状态**（不进状态机 ⇒ 不暂停、不与白名单转移冲突），同时把 `bossBriefingLines` 打进日志作纯文本兜底。
 
 ### #U44 ① 副炮塔：机制本就生效，问题在于「看不出来」
 
@@ -1117,7 +1117,7 @@
 
 ### #U44 ② 护盾的键位：代码中已无 R 键
 
-- **核实结论**：全仓检索 `KeyR` / `'r'` 键位 / `abilityShield` ⇒ **不存在**。护盾自 #H3 起走技能池，G/H 专属键已在**同日的 #U42** 一并退役（`js/tank_bindings.js` 无 `abilityShield` 键位与说明行；mvp `btnG`/`btnH` 按钮与 G/H 轮询已删）。
+- **核实结论**：全仓检索 `KeyR` / `'r'` 键位 / `abilityShield` ⇒ **不存在**。护盾自 #H3 起走技能池，G/H 专属键已在**同日的 #U42** 一并退役（`js/tank_bindings.js` 无 `abilityShield` 键位与说明行；battle `btnG`/`btnH` 按钮与 G/H 轮询已删）。
 - **「按获取时空位入池」已是现行口径**：`syncSkillSlots` 第 ③ 步逐项填 `slots.indexOf(null)`，槽满才弹顶替面板。**用户所见 R 键属浏览器缓存了旧 `tank_bindings.js`**，强制刷新即消失——本条不改代码，改文档与排查口径（`specs/combat.md` §4 新增键位小注）。
 
 ### #U44 ③ 技能顶替顺序：旧技能插队
@@ -1212,7 +1212,7 @@
 ### 三条根因（均带证据）
 
 1. **`.dsh/agents/` 14 份角色定义是死配置**。对 dsh 安装包（`app.asar`，182MB）全量扫描 `dsh/agents`、`subagentType`、`agentDefinitions`、`.opencode` → **0 命中**；dsh 只发现 `.dsh/skills/`（`@deepseek-ai/dsh-skill-filesystem`，rank 100）。而 `USAGE.md` 却指导用户用 `/task {agent:...}`、`@tank-combat`、Tab 切 `orchestrator`——这些在 dsh 中**全部不存在**（dsh 的编排只有 `subagent` 工具与 Agent Teams）。
-2. **角色卡内容腐烂，会主动误导**。实测 7 处：`tank-combat.md` 写 `artillery G / shield H`（#U42 已退役）、"数字键 1/2/3/4 切弹"（现为 Q/E，1/2/3 是技能槽）、指向 `DEVELOPMENT.md §5.5`（该章节已不存在）；`map-cover.md` 仍列 `half` tier（#E3 已删）；`test-runner.md` 写 "~24 suites"（实为 47）；`docs-agent.md` 描述 §1~§6 结构（现行 §0~§4+specs）。另有 **14 个文件被 ≥2 个角色同时声明所有权**（`tank_mvp.html` 三方、`tank_bench.html` 三方、`js/tank_cards.js` 三方、`js/tank_ai.js` 两方）——并行派发必然撞车。
+2. **角色卡内容腐烂，会主动误导**。实测 7 处：`tank-combat.md` 写 `artillery G / shield H`（#U42 已退役）、"数字键 1/2/3/4 切弹"（现为 Q/E，1/2/3 是技能槽）、指向 `DEVELOPMENT.md §5.5`（该章节已不存在）；`map-cover.md` 仍列 `half` tier（#E3 已删）；`test-runner.md` 写 "~24 suites"（实为 47）；`docs-agent.md` 描述 §1~§6 结构（现行 §0~§4+specs）。另有 **14 个文件被 ≥2 个角色同时声明所有权**（`tank_battle.html` 三方、`tank_bench.html` 三方、`js/tank_cards.js` 三方、`js/tank_ai.js` 两方）——并行派发必然撞车。
 3. **agent 无法在沙箱内自证**。`run-tests.js:89` 的 `spawnSync({encoding:'utf8'})` 依赖**管道捕获**，沙箱禁止 → `npm test` 每一项都以 `spawnSync ... EPERM` 失败，断言根本没跑。叠加测试链漏登记 `test-move.js` / `test-physics.js`（孤儿测试，永不执行），以及 `check-html.js` 只冒烟 28 个脚本（磁盘 47 个 `test-*.js`）。
 
 ### 修复
@@ -1266,8 +1266,8 @@
 - **`js/tank_fx.js` 新增地面贴花系统**：`trackMarks` 段数组（左右履带各一条线段 `{x1,y1,x2,y2,w,life,max}`），上限 `FX_MAX_TRACK_MARKS=600`（超限丢最老）、寿命 `TRACK_MARK_LIFE=12s`。
 - **盖章节流**：`emitTankTracks(t)` 由 `js/tank_move.js` `driveTank` 末尾经 `globalThis.emitTankTracks` **可选调用**（Node 测试链/未加载 FX 环境自动 no-op，不引入 move→fx 依赖）；左右履带中心 = local `±(hullWid/2 + trackOffset + trackWidth/2)` 旋转 hullAngle（与 `paintTracks` 同源），与各侧上次盖章点位移 ≥ `TRACK_MARK_STEP=9px` 才盖章——原地转向时两侧位移不同，自然画出差速弧线。
 - **寿命推进**：并入 `updateFx`（与 scorchMarks 同款 filter 模式；bench 调 updateFx 但无 emit → 空数组 no-op）。
-- **绘制层**：`drawTrackMarks(ctx)` 在 mvp `draw()` 的 `drawScorchMarks` 之后（地物/道路之后、坦克之前的地面贴花层），深土色 rgba(30,26,20)、前 8% 淡入 → 线性淡出、lineCap round、宽度 = trackWidth×0.9。
-- **清理**：`clearFx()` 并入履带痕迹清空；mvp `enterBattle` 与 `devGenNode` 显式调 `clearTrackMarks()`（换节点/换随机场不跨场）。`trackEmitState`（WeakMap 上次盖章点）在 clear 时换新表，避免跨节点首帧拖出长线。
+- **绘制层**：`drawTrackMarks(ctx)` 在 battle `draw()` 的 `drawScorchMarks` 之后（地物/道路之后、坦克之前的地面贴花层），深土色 rgba(30,26,20)、前 8% 淡入 → 线性淡出、lineCap round、宽度 = trackWidth×0.9。
+- **清理**：`clearFx()` 并入履带痕迹清空；battle `enterBattle` 与 `devGenNode` 显式调 `clearTrackMarks()`（换节点/换随机场不跨场）。`trackEmitState`（WeakMap 上次盖章点）在 clear 时换新表，避免跨节点首帧拖出长线。
 - **回归**：新增 `scripts/test-trackmarks.js` 9 断言（9px 盖双侧 / 1px 不盖 / 原地转差速盖章 / 寿命到期清零 / 600 上限精确触顶 / clear / 死车不发射），已登记 `run-tests.js`（避免孤儿测试）。
 
 **验证**：`check-html` / `tsc --noEmit` / `test-trackmarks` / `test-move` / `test-assets` / `test-covers` / `test-tanks` 全 EXIT=0。浏览器实机目视（开车转圈看地面弧线）留用户侧；`test:browser` 需 Edge 放权（§3.7）。
@@ -1294,11 +1294,11 @@
 - 口径（用户 2026-10-19 裁定）：「技能只是临时突破」——卡牌/升级仍不得破 1.0s，能力生效期间可突破。
 
 **#W6 economy 跨局泄漏（P0）**
-- `player` 是 mvp 模块级单例；`runScoreMul`/`runReviveBonus` 只由 `applyCardEffects` 写，而 `removeRunModifiers` 与 `prepPlayerForRun` 都只清 modifiers/cardEffects ⇒ 拿过一次「后勤保障」(1.15) 后**每局结算永久 ×1.15 并继续复乘**。
+- `player` 是 battle 模块级单例；`runScoreMul`/`runReviveBonus` 只由 `applyCardEffects` 写，而 `removeRunModifiers` 与 `prepPlayerForRun` 都只清 modifiers/cardEffects ⇒ 拿过一次「后勤保障」(1.15) 后**每局结算永久 ×1.15 并继续复乘**。
 - 修法：`removeRunModifiers` 归零（收尾）+ `prepPlayerForRun` 防御性归零（新局入口）+ `makeTank` 补显式初值（此前 `undefined`，靠消费方 `|| 1` 兜底）。
 
 **#W5 Boss 受击减速永不剪除（P1）**
-- `boss-hitreact`（maxSpeed ×0.35, `expiresAt=now+0.25s`）靠 `refreshStats` 到期过滤清理，但**非玩家实体没有任何逐帧 refreshStats**（mvp 只对 player 调用）⇒ 玩家停手 >0.25s 后 Boss 永久 0.35× 极速（≈44px/s）。
+- `boss-hitreact`（maxSpeed ×0.35, `expiresAt=now+0.25s`）靠 `refreshStats` 到期过滤清理，但**非玩家实体没有任何逐帧 refreshStats**（battle 只对 player 调用）⇒ 玩家停手 >0.25s 后 Boss 永久 0.35× 极速（≈44px/s）。
 - 修法：记录减速窗口绝对到期时刻 `bossHitSlowUntil`，`updateBossBehavior` 内到期显式 `removeModifierBySource`（对齐 `boss-charge` 既有做法）。判据用减速窗口而非视觉窗口（两者 0.25s vs 0.35s 不同长）。
 
 **#W4 Boss 召唤物出生即脱战 + 绕过速度封顶（P1）**
@@ -1334,7 +1334,7 @@
 
 ### 提交说明
 
-`9e8bf20` 提交了 #W1/#W4/#W5/#W6（含 `tank_mvp.html`、`js/tank_model.js`、`js/tank_boss.js` 与两个测试文件）。
+`9e8bf20` 提交了 #W1/#W4/#W5/#W6（含 `tank_battle.html`、`js/tank_model.js`、`js/tank_boss.js` 与两个测试文件）。
 **#W2/#W3/#W12 的改动保留在工作区未提交**——因为 `js/tank_battledraw.js` / `js/tank_fx.js` / `js/tank_weapons.js` 中混有外部进程的在途改动（#U42 等），且 #W3 与外部改动落在**同一代码块**（同一 hunk 内 `muzzleX`、`0.55`、`fromSecondaryTurret` 与本次修正交织），无法按 hunk 干净分离；强行拆分会产生编译不通过的中间态。
 
 ---
@@ -1349,7 +1349,7 @@
 | 条目 | 结论 |
 |---|---|
 | 条目 1（C 档 strip 接缝） | **已修**：`drawGround` 的 biome 过渡带此前只处理 x 方向（左右相邻），多行片（生存 `chunkRows=2`）的**上下行交界是硬切**。抽出 `drawSeam(axis)` 双轴对偶绘制；`test-render` ⑨f 采样点改为 ±150px 验证色彩方向性（上冷下暖）。C 档剩余项审核：分块地面烘焙已由视口锚定滚动烘焙**等价替代**，空间分桶/小地图条带化/推进式结算均已实现；仅「strip 密度校准重锚」未做（用户 2026-10-15 已裁定告一段落）。 |
-| 条目 2（敌军弹种联动） | **已实施**（用户口径：每 3 级沿 AP 链升一档、Boss 除外）。`js/tank_model.js` 新增 `AP_AMMO_CHAIN` + `enemyAmmoKeyForLevel`（纯函数）+ `applyEnemyAmmoByLevel`；mvp 4 处敌军生成点（节点/波次/增援/召唤物）经 `applyEnemyAmmoForNode` 注入。难度→等级线性映射 0.15~0.95 → **lv1~13**。实测 lv1-3→ap、lv4-6→apcr、lv7-9→apds、lv10-12→apfsds、lv13+→apfsds_ad，全链落在 AP 链内。 |
+| 条目 2（敌军弹种联动） | **已实施**（用户口径：每 3 级沿 AP 链升一档、Boss 除外）。`js/tank_model.js` 新增 `AP_AMMO_CHAIN` + `enemyAmmoKeyForLevel`（纯函数）+ `applyEnemyAmmoByLevel`；battle 4 处敌军生成点（节点/波次/增援/召唤物）经 `applyEnemyAmmoForNode` 注入。难度→等级线性映射 0.15~0.95 → **lv1~13**。实测 lv1-3→ap、lv4-6→apcr、lv7-9→apds、lv10-12→apfsds、lv13+→apfsds_ad，全链落在 AP 链内。 |
 | 条目 4（#N 交战结构） | 用户裁定**当前可接受**，关闭。 |
 | 条目 5（坦克精灵） | **维持不启用**；新增开发者面板开关「游戏内显示精灵」（默认关，写 `_spriteOverride` 不写档）；新增判据 `spriteEnabled(t)`（override 优先、无 sprite 数据一律 false），导出供测试。 |
 | 条目 6（贴图命名） | **已完成**：10 个贴图统一 `<id>_<part>.png` 全小写（`Leapard_1→leopard1`、`Obj780→obj780`、`panzer-IV→panzer-iv`、`tiger-I→tiger-i`、`barrel-*` 同步），`git mv` 保留历史，19 处 JSON 引用全部有效。坦克 id 本身不改（存档主键）。 |
@@ -1367,7 +1367,7 @@
 | **#17 z 序** | `drawAttachments` 加 `layer` 参数；车体件画在炮塔前、炮塔件在后 | — |
 | **#1 文案** | 串联 HEAT→高热穿深破甲弹 / overmatch 条件句式 / 导弹卡删「破反应装甲」/ Boss「反应装甲」→「复合附加装甲」（共 5 处承诺不符修正） | — |
 | **#W7** | `applyShield` 死参数修复：`opts.hp/duration/arc` 生效，兼容旧键 `dirDuration/omniDuration` | `{hp:999,duration:10}` → 生效 |
-| **W-G 应急护盾** | 「反应装甲」机制整体重做：`RULES.cards.emergencyShield`（HP<10% 触发/10s/90s 冷却/下限 60s/池 150）；`tank_physics` 拦截分支删除；mvp 主循环低血触发；`test-cards` 3 条旧断言改写为 10 条新断言 | specs combat/cards 已同步 |
+| **W-G 应急护盾** | 「反应装甲」机制整体重做：`RULES.cards.emergencyShield`（HP<10% 触发/10s/90s 冷却/下限 60s/池 150）；`tank_physics` 拦截分支删除；battle 主循环低血触发；`test-cards` 3 条旧断言改写为 10 条新断言 | specs combat/cards 已同步 |
 | **W-H 防御卡** | `getMultForKey` 新增**防御方减伤通道**（此前只有攻击方乘子）；新卡 `wet_ammo_rack`（-30%）/`crew_liner`（-20%）入 PASSIVE_KEYS | 弹药架 200→140、炮手 150→120、履带不受影响 |
 | **#4 副炮塔** | ① 待机正弦游走（`idleWanderRate 0.6`/±0.9rad，不受装填门控）② 固定 AP（不走 `computeAmmoConfig`）③ 伤害=`t.base.damage×0.5`（`ignoreModifiers`，读 `t.base` 非 `t.stats`）④ `cupolaAnchor()` 抽取共享 | 主炮 300 时副炮塔仍 50 |
 | **#9 车高** | `RULES.heights` 整块删除 + `HEIGHTS` 导出删除；`getPartZRange/getGunHeight` 返回固定常量（车体 0~1.4/炮塔 1.4~2.3）；**`heightClass` 字段保留**（AI 分类/徽章/车长塔数/难度比例仍消费） | 零行为变化（数值本已死） |
@@ -1382,7 +1382,7 @@
 |---|---|---|---|
 | 掩体形状不对 | 「中括号」造型不达意 | 改**椭圆弧**（下半弧 + 端臂 + 穿透侧虚线） | 视觉，无逻辑改动 |
 | 副炮塔不随炮塔转 | **坐标系错误**：车长塔画在 `paintPartTextureDirect(…,'turret',…)` 用 `turretPoly` 顶点随 `turretAngle` 转，我此前按车体系（`hullPoly`+`hullAngle`）处理 | `cupolaAnchor` 改用 `turretPoly`；`secondaryTurretPose` 按 `turretAngle` 旋转 + 平移到座圈 `turretPivot` | 炮塔转 90° 副炮塔 `(6.7,-7.6)→(15.6,-1.3)` |
-| 护盾不挡激光 | Boss 激光伤害直接 `applyDamage`，**绕过护盾吸收链** | `updateBossLaser` 结算前查 `hasShield`+`shieldAbsorbs`（光束方向）⇒ 走 `absorbDamage`；溢出部分照常结算；mvp 注入三函数 | 池 150 吸收 58.1、本体零掉血 |
+| 护盾不挡激光 | Boss 激光伤害直接 `applyDamage`，**绕过护盾吸收链** | `updateBossLaser` 结算前查 `hasShield`+`shieldAbsorbs`（光束方向）⇒ 走 `absorbDamage`；溢出部分照常结算；battle 注入三函数 | 池 150 吸收 58.1、本体零掉血 |
 
 > **附注（应急护盾「血量限制」）**：HP<10% 触发是**设计本身**（`triggerHpRatio 0.10`），非缺陷；
 > 用户若要求改口径（常驻/其他阈值）另行裁定。
@@ -1444,7 +1444,7 @@ he 的爆炸半径」。卡牌（爆炸范围/急速射）后补。
 | 开火 | `tryFire` 模式分支**无需目标实体**（落点=aimPoint）；`fireTank` 允许 target=null；`firePrimaryShell` he **锁定** + 落点三件套**预置**（否则 `s.range\|\|400` falsy 兜底吞掉 aimPoint 距离——实测踩坑修正）+ **豁免炮口贯穿预检**（曲射出膛贴掩体≠落点被挡） |
 | 落点 | `stepShells` isArc 分支区分**直击/近失**：直击走 `resolveHit` + 新 opts `forceEffThickness`（**六面最薄装甲**取代几何等效厚度——曲射大角度落弹不适用斜面等效；allowBounce=false），伤害走 he 弹既有模块链（与直射 HE 同口径）；近失 `applySplash` 距离衰减 |
 | 移动 | `tank_move.js` 链尾 `howitzerMul`——**不并入 speedModifier**（公路判定强制归 1 会静默清零减速） |
-| 瞄准 | mvp 绘制层：鼠标位置虚线圈（半径=splashRadius）+ 中心点 + minArcRange 死角红圈提示；`fireCtx` 注入 `aimPoint: mouseWorld` |
+| 瞄准 | battle 绘制层：鼠标位置虚线圈（半径=splashRadius）+ 中心点 + minArcRange 死角红圈提示；`fireCtx` 注入 `aimPoint: mouseWorld` |
 
 ### 测试同步与实测
 
@@ -1488,22 +1488,22 @@ commit `e81bdfb`（9 文件）。**未做**（登记 PLAN）：爆炸范围升�
 **新通道**：模式升级卡写 `t._howitzerStats`（`firePrimaryShell` 的 howitzer 分支优先消费），
 与 `weapons.primary.stats` 互不污染 ⇒ **仅模式内生效、直射不受影响**（用户口径）。
 `ALL_WEAPON_TYPES` 并入 `HOWITZER_UPGRADE_TYPES`（upgrade-only）。
-**急速射队列** `_howitzerBurst` + `updateHowitzerBurst`（mvp 主循环驱动）——
+**急速射队列** `_howitzerBurst` + `updateHowitzerBurst`（battle 主循环驱动）——
 ⚠️ 实测踩坑：追发弹也走 howitzer 分支 ⇒ 无条件重挂队列永不耗尽，加 `_howitzerBurstIn` 跳过。
 E2E：splashRadius 135 ✓ / 3 连发（left 2→0）✓ / 队列清空 ✓ / 整组装填 6.6s（3×2.2）✓。
 
 ### #3 HUD 合并（commit `360ebb3`）
 
 - **弹种指示器两页同源**：`js/tank_hud.js` 新增 `renderAmmoIndicator(H)`（host 注入
-  `list/currentIndex/onPick/showMult/centerActive`），mvp/bench 均改调共享版，保留旧实现兜底。
-- **mvp 散布锥升级 dual**（1σ 实线 68% + 2σ 虚线 95%，长度仍 250px）。
+  `list/currentIndex/onPick/showMult/centerActive`），battle/bench 均改调共享版，保留旧实现兜底。
+- **battle 散布锥升级 dual**（1σ 实线 68% + 2σ 虚线 95%，长度仍 250px）。
 - **血条/日志两处经核实属产品定位差异**（bench 右栏=靶车数据面板、日志=面板布局），
   不属「同功能两套实现」，保留各自形态。
 
 ### NF-1 卡牌查看器扩展（commit `f5e4f5d`）
 
 `js/tank_cards.js` 新增 `formatCardDesc(card)`（纯函数）：`{value}` / `{pct}` / `{ov:key}`
-（各带 `:N` effects 索引形式），未知占位符原样保留。mvp 卡牌查看器加「全池」页签
+（各带 `:N` effects 索引形式），未知占位符原样保留。battle 卡牌查看器加「全池」页签
 （`cardPool` 全表）+ 描述经占位符实时求值 + 点击就地编辑（存 `sessionStorage` 会话预览）。
 **覆盖率实测**：196 卡渲染后 190（97%）仍含数字 ⇒ 现有 desc 写法与占位符语法高匹配。
 
@@ -1565,15 +1565,15 @@ PLAN §6 原文即「**新副武器**：榴弹炮曲射模式」——§4.109/§
 > 来源：`/code-review` 审查 `35a376e..4d0a37c`（21 提交 / 28 文件 / +1305−153）。
 > 结论 2 项 blocker 级 + 5 项 suggestion，逐条核实后**实际成立 3 项**（其余经复核不成立，见「已撤回的建议」）。
 
-### 1. 散布系数收口（真实缺陷，`js/tank_fire.js` / `tank_mvp.html` / `js/tank_weapons.js`）
+### 1. 散布系数收口（真实缺陷，`js/tank_fire.js` / `tank_battle.html` / `js/tank_weapons.js`）
 
 **问题**：榴弹炮曲射的散布系数 `1.2` 在两处**各自硬编码**——`js/tank_fire.js` 的落点切向
-偏移（`spSigma = sigma * 1.2`）与 `tank_mvp.html` 的瞄准圈半径（`sigmaSpread = sigma * 1.2 * aimDist`）。
+偏移（`spSigma = sigma * 1.2`）与 `tank_battle.html` 的瞄准圈半径（`sigmaSpread = sigma * 1.2 * aimDist`）。
 两者必须始终一致（圈是落点分布的可视化），但无共同常量 ⇒ 改一处忘另一处会让「圈」与实际
 弹着脱节，且无测试能发现。
 
 **修复**：系数收口进 `WEAPON_DEFAULTS.primary.howitzer.spreadFactor`（缺省 `1.2`），
-两个消费方均改为读表（缺失时回退 1.2）。同批把 `tank_mvp.html` 里原本在 `minArcRange` 之后
+两个消费方均改为读表（缺失时回退 1.2）。同批把 `tank_battle.html` 里原本在 `minArcRange` 之后
 才声明的 `hsDef` 提到函数开头，避免同一段重复取值。
 
 **回归**：`test-fire.js` 7e 段新增 2 条断言——`spreadFactor` 存在且为正、
@@ -1588,7 +1588,7 @@ PLAN §6 原文即「**新副武器**：榴弹炮曲射模式」——§4.109/§
 这是 #3 合并引入的静默回归，Node 链完全覆盖不到（纯 CSS + DOM）。
 
 **修复**：bench 补 `.ammo-cell` / `.ammo-cell.active` / `.key` 三条规则（口径对齐
-`tank_mvp.html:41-47`）；同时把内联兜底分支的 `ammo-active` 类名统一为 `active`
+`tank_battle.html:41-47`）；同时把内联兜底分支的 `ammo-active` 类名统一为 `active`
 （`centerActive` 的查询选择器与样式选择器此前是两套口径，一个 `[data-ammo].active`、
 一个 `[data-ammo].ammo-active`）。
 
@@ -1707,7 +1707,7 @@ npm run test:browser                           → 未跑（沙箱 spawn EPERM�
 
 **测试为何抓不到（根因）**：旧 `test-rework-r1.js` **手工把两键塞进 `cardEffects`**，再断言「激活成功、散布倍率生效、冷却设置正确」。它测的是「**塞进去之后能用**」，**从未校验「现实中能不能拿到」**——而这正是死键的定义。ISSUES #W9 原文把这一点单列为「测试为何抓不到」，本批据此**根治**。
 
-**处置**（用户裁定：删除）：`RULES.abilities` 两键、`ABILITY_KEYS_RUNTIME`、`ABILITY_LABELS`、`tryActivateAbility` 的两个 `case`、`tank_mvp.html` 的 dispatch 与获得提示、`tank_bench.html` 的测试按钮、`ABILITY_KEYS` 全部同步删除。现行：RUNTIME **5 键**（artillery / overdrive / shield / deploy_cover / aps），`ABILITY_KEYS` **8 键**（上述 5 + repair / medkit / extinguish）。
+**处置**（用户裁定：删除）：`RULES.abilities` 两键、`ABILITY_KEYS_RUNTIME`、`ABILITY_LABELS`、`tryActivateAbility` 的两个 `case`、`tank_battle.html` 的 dispatch 与获得提示、`tank_bench.html` 的测试按钮、`ABILITY_KEYS` 全部同步删除。现行：RUNTIME **5 键**（artillery / overdrive / shield / deploy_cover / aps），`ABILITY_KEYS` **8 键**（上述 5 + repair / medkit / extinguish）。
 
 **改为负向断言**（关键纪律）：`RULES.abilities.* === undefined` / `ABILITY_KEYS_RUNTIME` 与 `ABILITY_KEYS` 不含该键 / `tryActivateAbility(t, 'super_speed', {})` 返回 `{ok:false, reason:'unsupported'}` / 经 `__TEST__.triggerSkill` 也拿不到。**`reason` 先实测再断言**：删除后是 `'unsupported'`，而**仍存在的键无卡时是 `'no-ability'`**——两者可区分，并额外加了一条**语义区分护栏**（`artillery` 无卡应报 `'no-ability'` 而非 `'unsupported'`），防止将来把"已删键"和"合法但无卡"混为一谈。
 
@@ -1767,7 +1767,7 @@ npm run test:browser                           → 未跑（沙箱 spawn EPERM�
 **背景**：§4.112 收口时 `restartRun`（`js/tank_flow.js`）被判定为「死入口」但**暂缓删除**——理由是删除会连带击红 `scripts/test-flow.js` 12 处断言与 `types/globals.d.ts:360` 的声明，而两处都在 `role-systems` 写域之外。用户 2026-10-20 明确裁定「删除」，本小节记录执行结果。
 
 **死因（三条，缺一不可）**：
-1. **正式页面零调用点**——全仓仅 `scripts/test-flow.js` 与 `types/globals.d.ts` 引用，属**测试↔类型声明自循环**；`tank_mvp.html` 仅剩一处历史注释。
+1. **正式页面零调用点**——全仓仅 `scripts/test-flow.js` 与 `types/globals.d.ts` 引用，属**测试↔类型声明自循环**；`tank_battle.html` 仅剩一处历史注释。
 2. **真实「重开」路径不经过它**——现行是 `gameover → battle` 直达（#N5 2026-10-10 简化流程）与「放弃节点」的 `battle → map` 转移，两者都是纯转移表操作。
 3. **旧测试把缺陷固化成了期望**——`pause` 的白名单是 `['battle','settlement']`（无 `map` 出路），旧 `restartRun` 在暂停态必然抛错；而 `test-flow.js` 原有一条断言「restartRun 在 pause 态被白名单拦截：抛错且不静默改变状态」⇒ **断言「应该抛错」等于承认「暂停时不能重开」**。这是本批第二个「测试在保护缺陷」的实例（第一个是 §(2) 的假绿）。
 
@@ -1789,7 +1789,7 @@ npm run test:browser                           → 未跑（沙箱 spawn EPERM�
 
 | 原 PLAN 条目 | 判定 | 依据（实测） |
 |---|---|---|
-| **§2.2 HUD 渲染级合并**（剩余「装填指示」） | ✅ **关闭** | 经核实与血条**同性质**：mvp = 炮口环形弧（面向战斗节奏）、bench = 右栏横条（面向参数核对），承载不同信息，不属「同一功能的另一套实现」。9 处的最终去向 = 6 合并 + 2 产品定位差异 ⇒ 无剩余项 |
+| **§2.2 HUD 渲染级合并**（剩余「装填指示」） | ✅ **关闭** | 经核实与血条**同性质**：battle = 炮口环形弧（面向战斗节奏）、bench = 右栏横条（面向参数核对），承载不同信息，不属「同一功能的另一套实现」。9 处的最终去向 = 6 合并 + 2 产品定位差异 ⇒ 无剩余项 |
 | **§2.3 正常环境补跑验证** | ✅ **关闭** | 本批已全部实跑：`check-html` 0 / `tsc` 0 / `run-tests` 48+1（唯一失败为 EPERM，放宽权限后 EXIT=0） |
 | **§2.4 `audit-map-gen.js` 口径** | ✅ **关闭** | 已修（G4 669→0 + 6 条合成自检），见 §(6) |
 | **§1 条目 1 的剩余子项「strip 密度/难度校准重锚」** | ⚠️ **密度项关闭、难度项保留为可选** | **实测反驳了当年估算**：§3.6 估「裁到 2.2 屏后 ≈6.7 个/屏（现状 13 个/屏）⇒ 需密度补偿」；现行 `makeNode` strip 路径（标准 + 生存各 6 seed、1920×1080）非路面元素密度 = **13.8 个/屏**，与当年「现状」持平 ⇒ **密度补偿无需再做**。当年低估是因为按「裁到 2.2 屏」的裁剪模型估算，而现行 strip 实际 **19.8 屏**且未做纵向丢弃。难度曲线（`entityMults × diff`）仍为可选微调，属数值口味而非功能缺失 |
@@ -2155,3 +2155,78 @@ npm run wiki:check                → 已注册（package.json）
 **② 结构变更的「滞后清单」要显式清点**：本次是 grep 出所有写有 `docs/specs/<system>.md` 的纪律文本（`AGENTS.md` 6 处 + 6 张角色卡 + `doc-workflow` + `rogue-tank-roles`）逐条改。**只改最显眼的那一条（§2.1）会漏掉 §2.2 Step 1 这类「执行路径」条款**——那才是最常被照做的。
 
 **③ 豁免必须写进脚本、不能靠人记得**：`WIKI-STYLE.md` 的格式示例与 `archive/` 的只增不改，都以**代码里的白名单**实现，而不是靠执行者「想起来就跳过」。否则每次跑都会报一堆噪音，最后所有人都学会「忽略这个脚本的输出」——那比没有脚本更糟。
+
+---
+
+## §4.116 2026-10-21 项目文件整理：`tank_mvp.html` → `tank_battle.html`（命名收口 + 全仓 mvp 字样清零）
+
+**结论**：正式游戏页文件名由 **`tank_mvp.html` 改名为 `tank_battle.html`**（用户 2026-10-21「再整理本项目文件，mvp 还没改名」），并把全仓残留的 **`mvp` / `MVP` 字样一并清零**。**这不是纯改名**——`mvp` 既是历史阶段名（minimum viable product）又是页面代称，二者已混淆多年，故口径为「**文件名 + 代称 + 具名标识符三层同改**」。
+
+**归口**：本节即结论唯一归口（**命名/文档整理**，不涉及运行时行为，不产生 specs 条款）。页面清单口径见 `AGENTS.md` §1 与 `README.md`；`docs/specs/<卷>/` 各主题页内的页面引用随本批同步。
+
+### (1) 改动范围（三层）
+
+| 层 | 内容 | 处数 |
+|---|---|---|
+| **文件名** | `tank_mvp.html` → `tank_battle.html`（git 检出层面即 `D tank_mvp.html` + `?? tank_battle.html`，交由用户提交时确认 rename 识别） | 1 |
+| **页面引用** | 全部 `tank_mvp.html` / `tank_mvp?mode=` / `tank_mvp.spawnBossSummonWave` 等 | 147 |
+| **独立 mvp/MVP 字样** | 指代正式游戏页的散文与注释（`mvp 主循环` / `mvp/bench 两页同源` / `MVP 左下角` …） | 213 |
+| **具名标识符** | `mvpLogPanel` → `battleLogPanel`、`mvpPage` → `battlePage`、`mvpErrors` → `battleErrors`、`mvpBoot` → `battleBoot`、`mvp_battle_smoke.png` → `battle_smoke.png` | 5 组 |
+
+**合计扫描 428 个文本文件、改写 84 个、替换 360 处**。
+
+### (2) 关键入口链路（逐点确认）
+
+| 位置 | 改动 |
+|---|---|
+| `server.js` | 启动清单改列 `tank_battle.html`；首行注释的 `fetch` 说明同步 |
+| `scripts/check-html.js` | 五页冒烟清单 `index/tank_battle/tank_bench/tank_designer/tank_compare` |
+| `index.html` | 三张卡片入口（标准 / `?mode=boss` / `?mode=survival`）全部指向新文件名 |
+| `tank_compare.html` | 顶部导航「主原型」链接 |
+| `scripts/test-browser-{smoke,r3,run,r4}.cjs` | 四条浏览器链的 `page.goto` 目标与断言文案 |
+| `.dsh/skills/**`（6 处） | `rogue-tank-roles` 单写者表 + `role-combat`/`shared-module-dev` 的 description + `role-combat` 战斗循环行 + `role-content` + `role-render-fx` + `sandbox-verify`（UTF-8 乱码案例）——**§3.6 的写域唯一权威，漏改会让调度方按旧文件名派发** |
+
+### (3) 边界纪律：哪些**不改**
+
+| 范围 | 理由 |
+|---|---|
+| `docs/archive/**` 正文 | **归档只增不改**（AGENTS.md §2.1）。其中约 **250 处** `tank_mvp.html` / `mvp` 为历史 `file:line` 证据与批次日志原文——改写会让「2026-09-19 修复了 `tank_mvp.html:443`」这类追溯失真。**现行文档引用已全部更新，读者从归档回到现行口径时不会撞错**（归档不参与现行判定，AGENTS.md §2.2 约定）。 |
+| `docs/ARCHIVE.md` 索引表 | 索引行是「完结条目」的可读摘要，**非证据链**，故随本批同步：① 既有 3 处行内引用（2026-08-10 / 2026-08-23 / 2026-08-28 行）② 表尾新增本批索引行（按 §4.113~§4.115「非条目归档、属结构性/工具变更」的同一先例标注）。 |
+| `.agent-teams/**`、`tmp/**` | 分别是 agent 运行态与未跟踪的 specs 拆分前快照，均非项目交付面。 |
+| `assets/**` 二进制贴图 | 二进制不参与文本替换（`hummel_hull.png` 内有 `mvp` 字节串，无关）。 |
+| `.dsh/skills/**` | **初轮曾整目录排除**（pwsh 写入被拒），后经 `edit` 工具补齐 6 处——`rogue-tank-roles` 单写者表、`role-combat`（description + 战斗循环行）、`role-content`、`role-render-fx`、`shared-module-dev`、`sandbox-verify`。**这些是 §3.6 规定的写域唯一权威，漏改会让调度方按旧文件名派发**。 |
+
+### (4) 沙箱陷阱（本次实测，已回写角色卡）
+
+`docs/**` 与 `js/**` 的**进程级写入被沙箱拒**（`EPERM: operation not permitted`），但**文件 ACL 与可写文件完全相同**（`AOC\CodexSandboxUsers: Modify`）⇒ 是 DSH 沙箱层而非 NTFS 权限。两条可用路径：
+
+1. **`edit` 工具**——对 `js/`、`docs/` 的子目录**可用**（本批前 60 余处即经此完成）；
+2. **`pwsh` + `sandbox_permissions`**——`Set-Content` / `node fs.writeFileSync` 在 workspace-write 下被拒，需**一次性提权**才能跑批量脚本。
+
+> 若误判为「ACL 坏了」去修权限，会白跑一轮；直接判断为**预期内沙箱边界**（同 `sandbox-verify` 记录的 `spawn EPERM` 家族）。该教训已补入 `role-verify-docs` §6 硬约束。
+
+### (5) 验证记录（2026-10-21 实跑）
+
+```
+npm run check            → EXIT=0（含 check-html 五页 + tsc --noEmit）
+npm test                 → 48 通过 / 1 失败（见下）
+node scripts/wiki-check.js → EXIT=0
+                            files=85 pages=59 links=1584 broken=0
+                            anchors=827 anchorBad=0 struct=0 template=0
+                            (archive, ignored: 7 —— 预存断链，§4.115(5) 已记录)
+```
+
+**唯一失败项 `scripts/test-cover-gen.js` 与本批无关**（复现确认）：该测试第 4 段要 `spawnSync(node, tools/gen-covers.mjs)` 生成 mock 夹具，沙箱下 `spawnSync D:\Nodejs\node.exe EPERM` ⇒ 夹具 `tree.png` 从未生成 ⇒ 第 179 行 `fs.renameSync` 抛 `ENOENT`。该脚本**零处引用** `tank_mvp`/`tank_battle`，属 §3.7 表格已记录的沙箱边界，**不是改名回归**。
+
+### (6) 反向确认（防止「改了却没改全」）
+
+- `git grep -i mvp` 在 **`docs/archive/**` 之外零命中**；
+- `tank_mvp.html` 文件不存在、`tank_battle.html` 存在（`Test-Path` 双确认）；
+- `battleLogPanel` 三处（声明 + 赋值 + `log` 回退）一致，无残留旧名；
+- `npm run check` 的页面清单已打印 `✓ tank_battle.html#inline0`（证明 `check-html.js` 认到了新文件）。
+
+### (7) 留给后续的判断
+
+**① `mvp` 这个词在项目里已彻底退役**：后续新增内容（注释/文案/卡面/日志）不得再用 `mvp` 指代正式游戏页，统一用 **正式游戏页** 或 **battle**；`AGENTS.md` §1 的页面描述已随之更新。
+
+**② `git mv` 未能生效（`.git/index.lock` 权限被拒）**，当前工作区是 `D tank_mvp.html` + `?? tank_battle.html`。提交时若 git 未自动识别为 rename，建议显式 `git mv -f` 或 `git add -A` 后核对 `git status`，避免历史里出现「删一个 + 加一个」而丢失 6428 行的 rename 关联。

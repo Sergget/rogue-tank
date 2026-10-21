@@ -122,7 +122,7 @@ declare function createDevPanelController(els: any, hooks: any): any;           
 declare function applyCardToTank(tank: any, card: any): any[];
 declare function clearCardsFromTank(tank: any): { removedMods: number, removedEffects: number };
 declare function applyCardTx(tank: any, card: any, ctx?: any): { ok: boolean, applied: any[], receipt: any };
-// #F（2026-09-20）：devPanel 共享模块（js/tank_devpanel.js）——mvp/bench 两页同源四 Tab 开发者面板
+// #F（2026-09-20）：devPanel 共享模块（js/tank_devpanel.js）——battle/bench 两页同源四 Tab 开发者面板
 declare function mountDevPanel(host?: any): {
   el: HTMLElement;
   cheats: { zeroSpread: boolean, invuln: boolean, instantReload: boolean };   // #J3：noVision 随视野系统退役移除
@@ -564,7 +564,7 @@ declare function getRunShopDef(id: string): any | null;
 declare function runShopPriceFor(def: any, ownedLevel: number): number;       // P-41：定价 round(baseCost × costGrowth^ownedLevel)
 declare function canAfford(balance: number, price: number): boolean;
 declare function applyRunShopPurchase(state: { total?: number, spent?: number, levels?: Record<string, number> }, defId: string): boolean;
-declare function toggleRunShop(force?: boolean): void;                       // P-41：mvp 局内商店浮层开关
+declare function toggleRunShop(force?: boolean): void;                       // P-41：battle 局内商店浮层开关
 declare function upgradeLevel(profile: any, id: string): number;
 declare function canBuyUpgrade(profile: any, id: string): boolean;
 declare function buyUpgrade(profile: any, id: string): boolean;
@@ -583,7 +583,7 @@ declare function enemyAmmoKeyForLevel(level: number): string;
 declare function applyEnemyAmmoByLevel(tank: any, level: number): void;
 // NF-1（2026-10-20）：卡面占位符求值（js/tank_cards.js 导出，全局脚本）
 declare function formatCardDesc(card: any): string;
-// NF-2（2026-10-20）：坦克配置表 + 敌军外观/数值基准（tank_mvp/bench 全局；tank_panels_core 图鉴消费）
+// NF-2（2026-10-20）：坦克配置表 + 敌军外观/数值基准（tank_battle/bench 全局；tank_panels_core 图鉴消费）
 declare var tankListData: any;
 declare function applyEnemyAppearanceAndStats(tank: any, spec: any, anchorStats?: any, entityMults?: any): void;
 declare function enemyPreviewStats(tankId: string, level: number, opts?: any): any;

@@ -81,7 +81,7 @@
 
 （原 §8.4，2026-09-20 #E10）
 
-击退与爆炸范围绑定：**击退距离 = `splashRadius` × `splashKnockbackMul` × (1 − dist/radius)**（线性衰减），由 `tank_physics.applySplashKnockback` 施加（`applySplashAt` 内统一调用，坦克/Boss/召唤物一视同仁），世界边界经 `setSplashWorldBounds` 钳制（mvp 进节点注入节点尺寸）。
+击退与爆炸范围绑定：**击退距离 = `splashRadius` × `splashKnockbackMul` × (1 − dist/radius)**（线性衰减），由 `tank_physics.applySplashKnockback` 施加（`applySplashAt` 内统一调用，坦克/Boss/召唤物一视同仁），世界边界经 `setSplashWorldBounds` 钳制（battle 进节点注入节点尺寸）。
 
 - **逐弹种 `splashRadius` / `splashKnockbackMul` 与满命中击退量见 [数值总表](#数值总表)「溅射半径与击退系数」（唯一数值口径），本节不重复罗列。**
 - 其余弹种（AP/APCR/HEAT 系）无该字段 → 零溅射、零击退（行为不变）。**HE-OP 击退 > HE-VT 击退**为用户明确要求（两者 `splashKnockbackMul` 见 [数值总表](#数值总表)）。

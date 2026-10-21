@@ -32,7 +32,7 @@
 （原 §2，2026-10-16 #U19 实现，现行口径）
 
 - **`angle_boost`（摆角特训）**：`passiveValues` 求和后**加算到跳弹角** `bAngle = min(π/2, bAngle + Σ×π/180)`，即卡面「+5°」直接抬高跳弹门限（上限 90°＝不可能跳弹）。实测跳弹边界由 70° 抬至 75°，与卡面一致。
-- **`reactive_armor`（应急护盾，2026-10-19 #W-G 用户裁定改版）**：**不再是命中驱动的拦截**。现行机制为「**HP 比例低于 10% 时自动生成 1 个持续 10s 的护盾**（吸收 150 点），冷却 90s、卡牌升级可缩到最少 60s」。因此 `resolveHit` 中**已不存在该被动的任何分支**（旧的一次性拦截 + #U40 的再充能拦截均已移除）。现行消费点：① 触发判定与生成在 `tank_mvp.html` 主循环（逐帧读 `player.hp/maxHp` → `applyShield`）；② 护盾吸收走 `js/tank_shield.js` 的 `hasShield`/`absorbDamage`（与战术护盾同一套）；③ 冷却时长与递减见 `js/tank_cards.js` 的 `emergencyShieldCooldown`/`updateEmergencyShieldRearm`；④ 参数唯一口径 `RULES.cards.emergencyShield`。
+- **`reactive_armor`（应急护盾，2026-10-19 #W-G 用户裁定改版）**：**不再是命中驱动的拦截**。现行机制为「**HP 比例低于 10% 时自动生成 1 个持续 10s 的护盾**（吸收 150 点），冷却 90s、卡牌升级可缩到最少 60s」。因此 `resolveHit` 中**已不存在该被动的任何分支**（旧的一次性拦截 + #U40 的再充能拦截均已移除）。现行消费点：① 触发判定与生成在 `tank_battle.html` 主循环（逐帧读 `player.hp/maxHp` → `applyShield`）；② 护盾吸收走 `js/tank_shield.js` 的 `hasShield`/`absorbDamage`（与战术护盾同一套）；③ 冷却时长与递减见 `js/tank_cards.js` 的 `emergencyShieldCooldown`/`updateEmergencyShieldRearm`；④ 参数唯一口径 `RULES.cards.emergencyShield`。
 
 - **防崩落内衬 passive `spall_liner`（2026-08-26，原 ISSUES #A15 修复定案）**：`tank_physics.js` 经 `passiveValues(target,'spall_liner')` 取多来源最小值 `spallMul`，在 `applyModuleDamage` 乘入最终模块/乘员伤害；多张卡取最强（最小乘子）语义。活浏览器实测 `giveCard('support_spall_liner')` 后敌方 PEN 伤害均值降至无内衬 0.7981 倍（预期 0.8），epic 卡 `spall_liner.json` 当前 value 0.85。
 
@@ -49,13 +49,13 @@
 - 发动机命中引发起火 DOT（dps = 攻击方标准伤害 × `RULES.fire.dotRatio`，持续 `RULES.fire.dotSeconds`=5s，速度惩罚 speedMul 0.5），并施加机动 debuff。
 - 履带命中 → trackBroken + immobT=8s 锁定。
 - 车长命中 → 全体乘员效果 ×0.85。
-- **成员/模块受损状态条（2026-08-28，原 ISSUES #A5 修复定案）**：`tank_mvp.html` 顶部中央新增 `#moduleStatus` 状态条（`updateModuleStatus()` 每帧刷新，挂入 `updateHud()`）——读 `player.debuffs`（gunner/loader/driver/commander/engine/ammo/breech 各键，经 `MODULE_LABELS` 译中文标签 + 剩余秒数药丸）与 `player.trackBroken`/`immobT`（履带断裂），无受伤时整体隐藏。纯视觉 HUD，无共享模块/测试链改动；`npm run check` + `test:browser` 全绿（mvp 无 console/page 错误）。
+- **成员/模块受损状态条（2026-08-28，原 ISSUES #A5 修复定案）**：`tank_battle.html` 顶部中央新增 `#moduleStatus` 状态条（`updateModuleStatus()` 每帧刷新，挂入 `updateHud()`）——读 `player.debuffs`（gunner/loader/driver/commander/engine/ammo/breech 各键，经 `MODULE_LABELS` 译中文标签 + 剩余秒数药丸）与 `player.trackBroken`/`immobT`（履带断裂），无受伤时整体隐藏。纯视觉 HUD，无共享模块/测试链改动；`npm run check` + `test:browser` 全绿（battle 无 console/page 错误）。
 
 ### `resolveHit` 的可选增益 opts
 
 （原 §2，P-51）
 
-`resolveHit(s,target,hit,allowBounce,opts)` 新增可选 opts `{penAdd,dmgMul,ignoreBounce}`——penAdd 在穿透判定前加算；ignoreBounce 跳过跳弹与过陡 BLOCK；dmgMul 最终伤害乘算并传入 applyModuleDamage；不传 opts 行为不变。mvp 包装层对敌方 Boss 弱点命中（isWeakspotHit + moduleFromHit 匹配 RULES.boss.weakspot）注入 dmgMul:1.5 / penAdd:15 / ignoreBounce:true。
+`resolveHit(s,target,hit,allowBounce,opts)` 新增可选 opts `{penAdd,dmgMul,ignoreBounce}`——penAdd 在穿透判定前加算；ignoreBounce 跳过跳弹与过陡 BLOCK；dmgMul 最终伤害乘算并传入 applyModuleDamage；不传 opts 行为不变。battle 包装层对敌方 Boss 弱点命中（isWeakspotHit + moduleFromHit 匹配 RULES.boss.weakspot）注入 dmgMul:1.5 / penAdd:15 / ignoreBounce:true。
 
 ## innate 三键
 
@@ -65,8 +65,8 @@
   - **移除损伤门控**：删除了 `_tryActivateInnate` 中针对受损/受伤状态的前置判定门控。修理箱与医疗包现在在任何状态下均可激活。
   - **增加回血效果**：成功使用修理箱或医疗包时，立即恢复坦克 10% 的最大耐久值（`t.hp = Math.min(maxHp, t.hp + maxHp * 0.10)`）。
   - 修理/移除 debuff 的核心语义保持不变。
-- **innate 冷却的注入与回写（2026-10-17 #U29，现行口径）**：修理箱/医疗包有效冷却的唯一消费值是 `player.abilityBaseCd[key]`（`js/tank_abilities.js innateBaseCd`），其值 = `45 − 永久级数 − 局内 cdReduce`（下限 15，`tank_mvp.html effectiveKitCd`）。**任何改变账本的路径都必须回写 `abilityBaseCd`**——出击时 `prepPlayerForRun` 注入，局内商店 `cdReduce` 购买时经 `_syncKitCd()` 重算。只改 `runKitCdBonus` 账本不回写 = 升级无效（#U29 原缺陷）。
-- **自动灭火器（innate，2026-09-17 #C6 修复定案）**：前置判定**改读真实起火状态 `dotT > 0`**（发动机起火链路写入 dotT/dotDps/dotSeconds/fireT/debuffs.engine，见 resolveHit engine 分支；旧判定读 `fireDebuffT`，但该字段生产代码无任何写入路径——灭火器恒 'no-fire' 死功能）。激活成功：清 dotT/dotDps/dotSeconds/**fireT** 与 **debuffs.engine**（用户裁定连带清除；发动机模块损伤本体仍属修理箱范围）。冷却走独立池 `abilityCds.extinguish`（基础 45s，商店 cdReduce 注入 `abilityBaseCd`）；手动 6 键保留 + **mvp 主循环起火期间自动触发**（每帧尝试、冷却中静默拒绝不刷日志）。字段 `fireDebuffT` 维持现状（仍为死字段，AI stun 分支/起火散布加成未复活——后续清理）。
+- **innate 冷却的注入与回写（2026-10-17 #U29，现行口径）**：修理箱/医疗包有效冷却的唯一消费值是 `player.abilityBaseCd[key]`（`js/tank_abilities.js innateBaseCd`），其值 = `45 − 永久级数 − 局内 cdReduce`（下限 15，`tank_battle.html effectiveKitCd`）。**任何改变账本的路径都必须回写 `abilityBaseCd`**——出击时 `prepPlayerForRun` 注入，局内商店 `cdReduce` 购买时经 `_syncKitCd()` 重算。只改 `runKitCdBonus` 账本不回写 = 升级无效（#U29 原缺陷）。
+- **自动灭火器（innate，2026-09-17 #C6 修复定案）**：前置判定**改读真实起火状态 `dotT > 0`**（发动机起火链路写入 dotT/dotDps/dotSeconds/fireT/debuffs.engine，见 resolveHit engine 分支；旧判定读 `fireDebuffT`，但该字段生产代码无任何写入路径——灭火器恒 'no-fire' 死功能）。激活成功：清 dotT/dotDps/dotSeconds/**fireT** 与 **debuffs.engine**（用户裁定连带清除；发动机模块损伤本体仍属修理箱范围）。冷却走独立池 `abilityCds.extinguish`（基础 45s，商店 cdReduce 注入 `abilityBaseCd`）；手动 6 键保留 + **battle 主循环起火期间自动触发**（每帧尝试、冷却中静默拒绝不刷日志）。字段 `fireDebuffT` 维持现状（仍为死字段，AI stun 分支/起火散布加成未复活——后续清理）。
 
 ## 散布与精度
 

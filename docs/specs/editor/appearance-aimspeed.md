@@ -20,7 +20,7 @@
 
 | 项 | 实现 | 归口 |
 |---|---|---|
-| **NF-1 卡牌查看器扩展** | mvp `C` 键面板新增「**全池**」页签（数据源 `cardPool` 全表，按稀有度分组排序）；描述经 `formatCardDesc(card)` 求值（`{value}` / `{pct}` / `{ov:key}`，各带 `:N` effects 索引形式，未知占位符原样保留）；点击描述就地换 `textarea` 编辑，提交存 `sessionStorage['cardDescOverride']`（**仅会话预览，不写 `cards/*.json`**——写盘属内容批次职责）。 | `js/tank_cards.js` `formatCardDesc` + `tank_mvp.html` `renderCardsPanel` |
+| **NF-1 卡牌查看器扩展** | battle `C` 键面板新增「**全池**」页签（数据源 `cardPool` 全表，按稀有度分组排序）；描述经 `formatCardDesc(card)` 求值（`{value}` / `{pct}` / `{ov:key}`，各带 `:N` effects 索引形式，未知占位符原样保留）；点击描述就地换 `textarea` 编辑，提交存 `sessionStorage['cardDescOverride']`（**仅会话预览，不写 `cards/*.json`**——写盘属内容批次职责）。 | `js/tank_cards.js` `formatCardDesc` + `tank_battle.html` `renderCardsPanel` |
 | **NF-2 坦克图鉴 CODEX** | bench 敌实验室新增面板：选等级 → `enemyPreviewStats(tankId, level, opts)` **纯查询**（临时 `makeTank` → `applyEnemyAppearanceAndStats` → `enemyLevelMults` 经 `addModifier` 注入 → 读 `stats`，**全程不触碰实体注册表**）。展示 HP/穿深/伤害/装填/极速/装甲六面。与 LIVE ENEMIES（真实实体，验证 AI/难度实战）分工互补。 | `js/tank_panels_core.js` `enemyPreviewStats` |
 | **NF-4 面板卡牌悬停预览** | `tank_devpanel.js` 的 `attachCardTooltip(btn, card)`：单例 tooltip（稀有度彩色徽章 + `formatCardDesc` 求值正文），`mouseenter` **300ms** 延迟、`mouseleave` 立即隐藏；位置 = 按钮右缘 **+12px**，超出视口右/下边缘时翻折。`title` 保留为无 CSS/JS 极端环境的兜底。 | `js/tank_devpanel.js` |
 

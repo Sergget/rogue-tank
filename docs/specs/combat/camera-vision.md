@@ -28,8 +28,8 @@
 ### 退役范围（全部删除，不留死开关）
 
 - `js/tank_camera.js`：`visionRadiusForViewport` / `visionCenter` / `visionClamped` 三个视野圆几何函数及其导出。
-- `tank_mvp.html`：`entityHiddenByVision` 的剔除逻辑（保留同名函数恒返回 `false` 以兼容既有调用点）、视野虚线圈绘制、`visionRadiusEff` 的卡牌加成与屏幕相对计算。
-- `js/tank_devpanel.js` + mvp/bench 接线 + `types/globals.d.ts`：dev 面板「无视野」开关（`noVision`）——它控制的正是已下线的剔除，留着会误导调试者以为还有视野机制。
+- `tank_battle.html`：`entityHiddenByVision` 的剔除逻辑（保留同名函数恒返回 `false` 以兼容既有调用点）、视野虚线圈绘制、`visionRadiusEff` 的卡牌加成与屏幕相对计算。
+- `js/tank_devpanel.js` + battle/bench 接线 + `types/globals.d.ts`：dev 面板「无视野」开关（`noVision`）——它控制的正是已下线的剔除，留着会误导调试者以为还有视野机制。
 - `cards/support_commander_periscope.json`（车长潜望镜 +15%）与 `cards/sniper_commander_sight.json`（车长观瞄镜 +25%）：唯一消费者是可见半径，视野下线后成**死效果卡**，按 2026-09-23 A 档先例整体删除；`tank_cards.js` 的 `PASSIVE_KEYS` 移除 `commander_sight`。卡池 168 → 166。
 - `tank_fire.js` 的 `hiddenByVision` 命中剔除钩子随视野系统一并移除（否则会出现「看得见却打不中」）。
 

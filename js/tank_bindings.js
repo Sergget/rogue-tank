@@ -1,8 +1,8 @@
 // ============================================================================
-// tank_bindings.js — 操作键位/输入控制器/设置 的共享层（mvp 正式游戏 ⇄ bench 测试台）
+// tank_bindings.js — 操作键位/输入控制器/设置 的共享层（battle 正式游戏 ⇄ bench 测试台）
 // ----------------------------------------------------------------------------
 // 背景（2026-09-13 解耦轮）：两页此前各自内联 keydown/keyup 与设置读写——
-//   · mvp：WASD + 空格/鼠标 + Q/E 切弹 + 1/2/3 技能池 + F + 4/5/6 + Tab/`/ESC
+//   · battle：WASD + 空格/鼠标 + Q/E 切弹 + 1/2/3 技能池 + F + 4/5/6 + Tab/`/ESC
 //     （#U42 2026-10-19：G/H 专属键退役；#H3：V 专属键退役——技能统一走技能池 1/2/3），
 //     设置（倒车转向倒置/FPS）走 profile.settings 持久化；
 //   · bench：WASD + 方向键 + 空格 + 数字 1~N 直选弹种，无任何设置存储，
@@ -14,7 +14,7 @@
 //      页面只注册自己支持的动作 handler——未注册动作的键在该页自然失效，
 //      「两边能力差异 = 注册差异」而非两套硬编码键位。
 //   3) loadSettings/saveSettings：无存档系统页（bench）的独立设置存储
-//      （键 rogue-tank-settings）；mvp 继续走 profile.settings（沿用存档系统），
+//      （键 rogue-tank-settings）；battle 继续走 profile.settings（沿用存档系统），
 //      两边设置字段保持一致（invertReverseTurn/showFps，+ bench 面板开合状态）。
 // 浏览器加载顺序：tank_rules.js 之后任意位置（不依赖 RULES）；本文件无 DOM 顶层依赖
 //（window 访问全部延迟到 createInputController 调用时）。
@@ -38,7 +38,7 @@
     // DISPATCH overdrive）；abilityOverdrive 键位/ACTION_INFO/ACTION_ORDER 同步删除。
     // #U42（2026-10-19 用户裁定）：炮击 G / 护盾 H 专属键同样退役（同 #H3 先例）——
     //   abilityStrike/abilityShield 键位、说明行、ACTION_ORDER 同步删除；全部运行时技能
-    //   统一走技能池 1/2/3。mvp 的 btnG/btnH 按钮与 G/H 轮询已删；bench 的 G 键为
+    //   统一走技能池 1/2/3。battle 的 btnG/btnH 按钮与 G/H 轮询已删；bench 的 G 键为
     //   测试入口（activateAbilityForTest 无卡自动补卡）保留、经 actions 显式注册。
     supportRepair: '4', supportMedkit: '5', supportExtinguish: '6',
     panelStatus: 'tab', panelDev: '`', panelDevAlt: 'f12',
@@ -118,7 +118,7 @@
       var k = (e && e.key ? e.key : '').toLowerCase();
       var action = edgeByKey[k];
       var allowed = gate(action || null);
-      if (!allowed) return;   // 门控拒绝（如局外菜单）：不登记按键、不触发动作（与旧 mvp 语义一致，防按键卡死）
+      if (!allowed) return;   // 门控拒绝（如局外菜单）：不登记按键、不触发动作（与旧 battle 语义一致，防按键卡死）
       if (k) keys[k] = true;
       // #C4e：长按系统自动重复（e.repeat）不重复触发边沿动作（此前 F 切换语义下
       // 按住 F 会因自动重复快速来回翻转；现为按住连发语义，边沿动作仅需 keydown 首发一次）

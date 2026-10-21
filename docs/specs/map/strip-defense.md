@@ -60,8 +60,8 @@
 
 （原 §14.4）
 
-- **敌人渲染/可见范围 —— ⚠️ 原预留口径已被 2026-09-23 用户裁定作废**：原预留的 `R = max(现行屏幕相对公式, 最大 engage × 1.15)`（随难度增长、不随视口窄轴缩水）**不再实施**；可见半径口径**保持不变**（`js/tank_camera.js:119-143` 屏幕相对式），「敌人开火时看不见」改走**视野卡 + 镜头外延做强**（几何上限、已核实数值与配套约束见 `specs/combat.md` §11.5；`docs/PLAN.md` 的对应条目已于 2026-10-20 归档，现见 `docs/ARCHIVE.md` 索引）。（原注记保留追溯：拉远时的额外绘制由 `aabbInView` 兜底，弹道命中口径经 `fireCtx.hiddenByVision`（`tank_mvp.html:3547`）同步。）
-- **地面层分块烘焙**：`bakeNodeGroundLayer`（`tank_mvp.html:3563-3696`）由「整节点单画布」改为**按片 tile 烘焙 + 视口内按需 blit**——整图口径下 12.3 屏宽 ≈223MB RGBA，最远缩放口径 ≈619MB。**（2026-10-18 #GT 起的视口锚定烘焙见 [地面烘焙与相机](./ground-camera.md)。）**
+- **敌人渲染/可见范围 —— ⚠️ 原预留口径已被 2026-09-23 用户裁定作废**：原预留的 `R = max(现行屏幕相对公式, 最大 engage × 1.15)`（随难度增长、不随视口窄轴缩水）**不再实施**；可见半径口径**保持不变**（`js/tank_camera.js:119-143` 屏幕相对式），「敌人开火时看不见」改走**视野卡 + 镜头外延做强**（几何上限、已核实数值与配套约束见 `specs/combat.md` §11.5；`docs/PLAN.md` 的对应条目已于 2026-10-20 归档，现见 `docs/ARCHIVE.md` 索引）。（原注记保留追溯：拉远时的额外绘制由 `aabbInView` 兜底，弹道命中口径经 `fireCtx.hiddenByVision`（`tank_battle.html:3547`）同步。）
+- **地面层分块烘焙**：`bakeNodeGroundLayer`（`tank_battle.html:3563-3696`）由「整节点单画布」改为**按片 tile 烘焙 + 视口内按需 blit**——整图口径下 12.3 屏宽 ≈223MB RGBA，最远缩放口径 ≈619MB。**（2026-10-18 #GT 起的视口锚定烘焙见 [地面烘焙与相机](./ground-camera.md)。）**
 - **空间分桶**：covers 数随片数线性增长（12 屏 ≈ 443~1200）；`draw` 视口过滤、`tank_minimap` 全量遍历、`tank_ai` 避水探针（每敌每帧）、`resolveCoverCollisions` 均按片索引只扫邻近片。
 - **小地图**：~~等比缩放（`js/tank_minimap.js:15-19`）在 10:2 比例下退化成细线 ⇒ 改「横向条带 + 视口窗口」布局~~ —— **已落地（2026-10-05 C 档 batch 1）**：`minimapLayout` 按世界宽高比自适应，>2.5 进条带模式（横向占满、纵向 ×2.5 拉伸后居中，纵向示意不保真）；常规节点保持等比适配零变化。回归：`scripts/test-minimap.js`（18 断言）。
   - **元素粒度分 tierGroup（2026-10-17 #U5，现行口径）**：**植被**（`tierGroup='foliage'`：tree/bush/fallen/soft 之前的树丛类）不再逐点绘制，改为累加到**小地图像素 4px 网格**（格尺寸由 `layout.sx/sy` 反算世界尺寸，与世界大小解耦），格内有植被即铺半透明绿色块、α 随格内株数微增（`0.40 + n×0.12`，上限 0.85）——密集处自然成片、零散处不着色。**其余**（`liquid` 水/河蓝点、`ground` 泥褐点、`structure` 建筑/岩石浅色方块）仍逐元素绘制：数量少且位置关键，保留可读性。`hp<=0` 的元素一律不参与聚合。
@@ -93,7 +93,7 @@
 
 （原 §14.5 —— **已由 §15.10 落地**，保留作设计沿革）
 
-- 节点完成条件改为**「抵达右端出口 + 防线清空/配额」双条件**，取代现行单一 `quotaDone || (noEnemies && !canReinforce)`（`tank_mvp.html:3028-3036`）。
+- 节点完成条件改为**「抵达右端出口 + 防线清空/配额」双条件**，取代现行单一 `quotaDone || (noEnemies && !canReinforce)`（`tank_battle.html:3028-3036`）。
 - Boss 节点形态待裁定（方形竞技场 or 横向走廊末端）；默认先沿用「`w×0.7` 生成点 + 走廊末端」。
 
 ### 测试重锚清单
@@ -181,7 +181,7 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 - `reinforcementTick` 消费新增的 `state.defenseLines`（`makeNode` 输出的各防线 `{x0,x1}`）：候选 x 区间限定为「`x1 > playerPos.x`」的**前方防线桶**（先随机选区间、再在区间内取 x，rng 消耗序列固定 ⇒ 确定性不变）；y 仍全高随机。
 - **玩家越过全部防线 ⇒ 不增援**（`frontRanges` 为空即返回空数组），避免在出口区反复刷兵。
 - 原有落点约束全部保留（视口外扩 `reinforceMargin` 之外 / 距玩家 ≥ `aiTriggerDist×1.05` / 距据点 ≥ `reinforceOutpostDist` / 避 solid 掩体 60px）。因「距玩家 ≥ 触发距离」仍然生效，若前方防线可采区间已被玩家贴近到可见范围，则本次增援自然为空——符合「不刷不可见兵」原则。
-- **「是否还可能增援」的判定必须与 tick 门控同源**：纯函数 `reinforcementPossible(node, playerX, kills)`（`js/tank_map.js`）——Boss / 配额已满 / 无前方防线时返回 false。mvp 的 `canReinforce` 消费此函数；**不得**再按旧口径（仅 `kills < quota`）计算，否则「越过全部防线 + 清残敌 + 配额未达」会因 `linesCleared` 恒假而**永久无法完成节点**（已核实的软锁，2026-09-23 修复）。
+- **「是否还可能增援」的判定必须与 tick 门控同源**：纯函数 `reinforcementPossible(node, playerX, kills)`（`js/tank_map.js`）——Boss / 配额已满 / 无前方防线时返回 false。battle 的 `canReinforce` 消费此函数；**不得**再按旧口径（仅 `kills < quota`）计算，否则「越过全部防线 + 清残敌 + 配额未达」会因 `linesCleared` 恒假而**永久无法完成节点**（已核实的软锁，2026-09-23 修复）。
 - **回退**：`RULES.nodeMap.reinforceFrontOnly = false` 或未提供 `defenseLines` ⇒ 旧全向随机落点。
 
 ## 推进完成条件与 Boss 循环
@@ -192,16 +192,16 @@ strip 生成器与防线生成器一律以「推进轴」参数表达（`advance
 
 （原 §15.10，B 档③）
 
-- 纯逻辑 `nodeClearance(state)`（`js/tank_map.js`），mvp 逐帧消费：`state = { playerX, nodeW, exitX, alive, quota, kills, canReinforce, boss }`。
+- 纯逻辑 `nodeClearance(state)`（`js/tank_map.js`），battle 逐帧消费：`state = { playerX, nodeW, exitX, alive, quota, kills, canReinforce, boss }`。
 - **常规节点**：`done = exitReached && (linesCleared || quotaDone)`：
   - `exitReached`：`playerX ≥ exitX`（`exitX = w × RULES.nodeMap.exitZone.xFraction(0.93)`，边界含）；
   - `linesCleared`：场上无存活敌军且已无法增援；
   - `quotaDone`：`kills ≥ quota`（并列条件：抵达出口后即使有残敌也可凭配额通关）。
 - **Boss 节点**：`done = 场上无敌`（沿用「Boss + summons 全灭」，不要求出口）。
-- `reason` 取值：`pushing`（未到出口且仍有敌）/ `advance`（未到出口且已清空）/ `clearing`（到出口但仍在交战）/ `exit+cleared` / `exit+quota` / `boss` / `boss-cleared`；mvp 据此写结算日志（「抵达出口 · 区域肃清」/「BOSS 击破」）。
+- `reason` 取值：`pushing`（未到出口且仍有敌）/ `advance`（未到出口且已清空）/ `clearing`（到出口但仍在交战）/ `exit+cleared` / `exit+quota` / `boss` / `boss-cleared`；battle 据此写结算日志（「抵达出口 · 区域肃清」/「BOSS 击破」）。
 - **HUD（#K2 2026-09-29 重写为显式目标卡）**：`#quotaHud` 三行——首行「目标 OBJECTIVE」；次行两个条件状态（`① 推进至出口（还差 Npx）` / `✓ 已抵达出口` ＋ `② 清空防线（配额 k/q，场上 N）` / `✓ 防线已清空`）；末行进度（`推进 % / 出口线 % / 残敌 / 待击杀`）。**沿革**：旧文案 `推进 N% → 出口 M% ｜ 配额 k/q` 信息齐但读不出**条件关系**，用户反馈「一个节点的完成目标和出口没有 UI 提示」（#K2）。
 - **#K2 出口可视化（2026-09-29）**：
-  - **世界层**（`tank_mvp.html` 绘制循环）：`exitX` 之后的绿色出口带（`exitZone.bandWidth = 220px` 横向渐变）+ 出口竖线 + 沿线 3 枚脉动 `>>` 箭头 + `EXIT 出口` 字样；Boss 节点与结算缓冲期（`battleState.clearing`）不画。
+  - **世界层**（`tank_battle.html` 绘制循环）：`exitX` 之后的绿色出口带（`exitZone.bandWidth = 220px` 横向渐变）+ 出口竖线 + 沿线 3 枚脉动 `>>` 箭头 + `EXIT 出口` 字样；Boss 节点与结算缓冲期（`battleState.clearing`）不画。
   - **小地图**（`js/tank_minimap.js` `drawMinimap`）：出口区半透明绿带 + 出口线 + `EXIT` 标签——传 `opts.exitZone = { x }`；Boss 节点传 `null` 不画。
   - **参数**：`RULES.nodeMap.exitZone = { xFraction: 0.93, bandWidth: 220, draw: true }`；`draw = false` 时只保留 HUD 文案、不画世界标记。
 - **沿革**：旧口径为「`kills ≥ quota`」单条件（P-38），与推进正交（原地刷够配额即通关）。

@@ -1233,7 +1233,7 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
 // 生成 2~3 条曲线主干道（Catmull-Rom 平滑折线）+ 稀疏曲线分支。
 // 道路以「短 OBB 链段」写回（tier 'road'，groupId 同链）供避让/村庄贴边/碰撞等
 // 既有 OBB 消费方零改动复用；链段首尾相接，渲染层按 groupId 重建平滑折线后
-// 整条预烘焙（mvp bakeNodeGroundLayer，进图前绘制，避免逐段实时绘制与远距消失）。
+// 整条预烘焙（battle bakeNodeGroundLayer，进图前绘制，避免逐段实时绘制与远距消失）。
 // avoidBoxes: 模板 full 建筑世界坐标 OBB 列表（优先于路：链段压全高建筑则跳过该段，
 // 保证全高骨架不被路网吞掉 —— #77 cull 保护契约）。
 // Catmull-Rom 样条采样：control 折线 → 密集采样点（步长 ≈ ROAD_SAMPLE_STEP 世界px）。
@@ -1328,7 +1328,7 @@ function _emitRoadChain(out, pts, roadW, groupId, isSegOk) {
 //
 // 【v2-b 路口感=渲染问题，不只是几何】v1 把每条链**各自独立描边三遍**，后画的链
 //   整幅（路基+沥青+中心虚线）盖在前一条之上，且两条链的中心虚线都笔直穿过交点
-//   → 视觉上就是「两条路叠在一起」。v2 改为**分两遍**渲染（见 mvp bakeNodeGroundLayer）：
+//   → 视觉上就是「两条路叠在一起」。v2 改为**分两遍**渲染（见 battle bakeNodeGroundLayer）：
 //   第 1 遍所有链的路基+沥青（交叉处自然合并为一片连续沥青广场），
 //   第 2 遍统一画中心虚线并**在路口处断线**（roadJunctions 由本函数返回）——这才是
 //   真实交叉路口的读法。故本函数额外返回 junctions。
@@ -1637,7 +1637,7 @@ function placeRoadNetwork(rng, tpl, scale, centerX, centerY, opts) {
           if (p && !junctions.some(q => Math.hypot(q.x - p.x, q.y - p.y) < roadW)) {
             // #C1（2026-09-17 修复）：r 收敛到 roadW×0.5——圆内任意点到两条正交路中线的距离
             // ≤ r×sin(45°)=0.354w < 路半宽，恒在沥青并集内（旧 0.85w 在 45° 方向越过路缘 0.6w，
-            // 形成外溢圆形凸斑）。此 r 供渲染层在路口断开中心虚线（详见 mvp bakeNodeGroundLayer）。
+            // 形成外溢圆形凸斑）。此 r 供渲染层在路口断开中心虚线（详见 battle bakeNodeGroundLayer）。
             junctions.push({ x: p.x, y: p.y, r: roadW * 0.5 });
           }
         }

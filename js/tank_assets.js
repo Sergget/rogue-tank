@@ -16,7 +16,7 @@
 //     tank_battledraw.js 原分支逐字一致（坐标/颜色/线宽不变）。烘焙精灵按角度无关处理：
 //     原画法对 soft/barricade/stump/rubble/bush/tree/fallen 均不随 cov.angle 旋转
 //     （soft 的 boxPath 原按 coverCorners 旋转——bake 以 angle 0 的 partCorners 矩形等价，
-//     mvp 全部掩体 angle 0，视觉零变化），drawAsset 的 angle 参数为接口预留、暂不旋转。
+//     battle 全部掩体 angle 0，视觉零变化），drawAsset 的 angle 参数为接口预留、暂不旋转。
 //   - bakeCanopy(ctx, cov)：树冠/灌木叶片层（原 drawFoliage 的 bush/tree/fallen 画法），
 //     由 drawFoliage 在坦克之上调用 drawAssetCanopy 形成视线遮挡——两层分离保证层级不变。
 //   - 锚点契约（anchorX/anchorY 与 canopyAnchorX/canopyAnchorY）：导出/替换图片时，

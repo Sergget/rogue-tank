@@ -1,6 +1,6 @@
 // audit-road-draw.js — 公路分支链路重建病态审计（ISSUES #P2 检测工具）
 // 运行：node scripts/audit-road-draw.js
-// 口径：复刻 tank_mvp.html bakeNodeGroundLayer 的 ends() 与链重建（4015-4071），
+// 口径：复刻 tank_battle.html bakeNodeGroundLayer 的 ends() 与链重建（4015-4071），
 // 统计 strip-branch / hs-secondary 中「单段链且链长 < OBB 长边一半」的病链
 // （= 端点被挤在段中心，渲染为断续细条）。#P2(a) 修复后病链应为 0。
 'use strict';
@@ -18,7 +18,7 @@ const MAP = require(P + 'tank_map.js');
 const VP = { vw: 1920, vh: 1080 };
 const SEEDS = Number(process.env.ROAD_AUDIT_SEEDS) || 30;
 
-// 复刻 tank_mvp.html bakeNodeGroundLayer 的 ends() 与链重建（4015-4071）
+// 复刻 tank_battle.html bakeNodeGroundLayer 的 ends() 与链重建（4015-4071）
 function ends(c) {
   const ca = Math.cos(c.angle || 0), sa = Math.sin(c.angle || 0);
   const nominalSpan = Math.max(10, c.w - (c.h || 64) * 0.35);

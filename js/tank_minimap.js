@@ -2,7 +2,7 @@
 
 // tank_minimap.js — 小地图绘制层（P-08 / DEVELOPMENT.md §6 条目 6；C 档 batch 1 小地图条带化）。
 // 遵循 tank_fx/tank_battledraw 惯例：ctx 显式传参、无 DOM 依赖；布局/换算为纯函数
-// （Node 可测），drawMinimap 只做纯绘制。消费方（mvp）每帧在屏幕空间调用。
+// （Node 可测），drawMinimap 只做纯绘制。消费方（battle）每帧在屏幕空间调用。
 //
 // 小地图内容（§6 条目 6）：世界边界、掩体点、玩家/敌军/据点标记、摄像机视口矩形
 // （已探索区域为 M6 简化实现：整图可见，探索迷雾为后续可选项）。

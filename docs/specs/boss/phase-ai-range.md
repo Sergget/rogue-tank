@@ -57,7 +57,7 @@
 1. `RULES.boss.tuning.autocannonRange = 1200`（`js/tank_rules.js`，新增字段）；
 2. `js/tank_boss.js` 新增导出 `applyBossWeaponTuning(t)`：当 `t.weapons.primary.type === 'autocannon'` 时写 `t.weapons.primary.stats.maxRange = RULES.boss.tuning.autocannonRange`。
 
-**调用契约（关键，勿错序）**：**必须在 `assignBossArmament(bossEntity, bossNumber)` 之后调用**——Boss 主武器由 `pickBossArmament` 随机分配，`assignBossArmament` 会**重置** `stats`，先调会被覆盖。接线位置：`tank_mvp.html` 的 `assignBossArmament` 之后一行。
+**调用契约（关键，勿错序）**：**必须在 `assignBossArmament(bossEntity, bossNumber)` 之后调用**——Boss 主武器由 `pickBossArmament` 随机分配，`assignBossArmament` 会**重置** `stats`，先调会被覆盖。接线位置：`tank_battle.html` 的 `assignBossArmament` 之后一行。
 
 **为什么不能直接改 `js/tank_weapons.js:33` 的全局 900**：那是**玩家机炮**的射程，会连带改玩家。Boss 加成必须在 Boss 实体上单独施加。
 

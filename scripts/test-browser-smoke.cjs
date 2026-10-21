@@ -1,13 +1,13 @@
 // 浏览器冒烟测试（P-26 工具链）：在真实浏览器（系统 Edge，channel=msedge，无头）内
-// 验证 tank_mvp.html 的 ISSUES #22/#23/#24 修复行为。由 `npm run test:browser` 触发。
-// P-15 起扩展为双页冒烟：正式游戏页（tank_mvp.html）验证极简 HUD/面板切换/弹种/飘字
+// 验证 tank_battle.html 的 ISSUES #22/#23/#24 修复行为。由 `npm run test:browser` 触发。
+// P-15 起扩展为双页冒烟：正式游戏页（tank_battle.html）验证极简 HUD/面板切换/弹种/飘字
 // 与「恒无 dummy」；装甲测试台页（tank_bench.html）验证靶场元素独立保留。
 //
 // 关键点：
 // - 依赖 playwright-core（项目 devDependency，无浏览器下载；channel=msedge 复用系统 Edge）。
 // - 服务自管理：先探测 127.0.0.1:8000 —— 若为本项目 server.js（/api/tanks 返回 JSON）则复用；
 //   若被非本项目服务占用则用 PORT=8123 拉起；否则直接在 8000 拉起。退出时 kill 自拉起的子进程。
-// - tank_mvp.html 主脚本是 IIFE（flow/cam/run/shells/canvas 闭包私有，evaluate 访问不到），
+// - tank_battle.html 主脚本是 IIFE（flow/cam/run/shells/canvas 闭包私有，evaluate 访问不到），
 //   通过注入主世界脚本包装全局函数（generateRun/transition/viewBounds/resolveHit）截获闭包对象。
 //
 // 用法: node scripts/test-browser-smoke.cjs
@@ -108,7 +108,7 @@ function startServer(port) {
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
     page.on('response', r => { if (r.status() === 404) notFound.push(r.url()); });
 
-    await page.goto(`${base}/tank_mvp.html`, { waitUntil: 'load', timeout: 30000 });
+    await page.goto(`${base}/tank_battle.html`, { waitUntil: 'load', timeout: 30000 });
     await page.waitForTimeout(1500);
 
     // ---- 主世界注入：包装全局函数，截获 IIFE 闭包内对象 ----
@@ -348,7 +348,7 @@ function startServer(port) {
     check('#23 连续开火判定(≥2 发)', observed.s2.hits >= 2 || (observed.s2.hits >= 1 && reloadObserved),
       `hits=${observed.s2 && observed.s2.hits}`);
 
-    await page.screenshot({ path: path.join(os.tmpdir(), 'mvp_battle_smoke.png') });
+    await page.screenshot({ path: path.join(os.tmpdir(), 'battle_smoke.png') });
 
     // ---- P-15 正式游戏页：极简 HUD / 面板切换 / 弹种切换 / 飘字 ----
     const hud = await page.evaluate(() => ({

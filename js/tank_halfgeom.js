@@ -1,7 +1,7 @@
 'use strict';
 
 // tank_halfgeom.js — shared half-form polygon geometry (tank_designer.html).
-// Local convention matches tank_mvp.html: +x = forward, +y = left. Shapes are authored as the
+// Local convention matches tank_battle.html: +x = forward, +y = left. Shapes are authored as the
 // y<=0 ("right") half; the y>0 half is generated automatically by mirroring across the x-axis
 // (the hull/turret centerline). This guarantees every shape is left-right symmetric, which is
 // true of every real tank silhouette and removes a whole class of "oops the two sides don't
@@ -55,7 +55,7 @@ function buildFullFaces(half, getHalfFace, frontSeamFace, rearSeamFace){
 }
 
 // ================= default shapes (half-form, right side y<=0) =================
-// Reconstructed from tank_mvp.html's hullPoly()/turretPoly() at hullLen=64/hullWid=38/turLen=34/turWid=36 —
+// Reconstructed from tank_battle.html's hullPoly()/turretPoly() at hullLen=64/hullWid=38/turLen=34/turWid=36 —
 // mirroring these halves reproduces the exact same full polygons the prototype currently hardcodes.
 function defaultHull(){
   return {
@@ -141,7 +141,7 @@ function halfFromFull(verts, faces){
   return { half, halfFaces, frontSeamFace, rearSeamFace };
 }
 // Shift a half poly so its full silhouette is centered on its own bbox center (matching how
-// tank_mvp.html's applyTankConfig centers the HULL hull). Turret polygons are NOT centered here —
+// tank_battle.html's applyTankConfig centers the HULL hull). Turret polygons are NOT centered here —
 // their local origin must stay exactly where `pivot` puts them.
 function recenterPoly(poly){
   const full = buildFullVerts(poly.half);

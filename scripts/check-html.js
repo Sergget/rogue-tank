@@ -101,7 +101,7 @@ for (const rel of collectScriptFiles(scriptsDir, '')) {
   }
 }
 
-for (const rel of ['index.html', 'tank_mvp.html', 'tank_bench.html', 'tank_designer.html', 'tank_compare.html']) {
+for (const rel of ['index.html', 'tank_battle.html', 'tank_bench.html', 'tank_designer.html', 'tank_compare.html']) {
   const full = path.join(ROOT, rel);
   if (!fs.existsSync(full)) { console.error(`✗ missing: ${rel}`); failed++; continue; }
   checkFileScripts(full);

@@ -15,7 +15,7 @@ npm start          # 启动 dev server（默认端口 8000，可用 PORT=9000 �
 | 页面 | 地址 | 说明 |
 |---|---|---|
 | 首页 | `http://127.0.0.1:8000/` | 正式游戏 / 装甲测试台入口 |
-| 正式游戏 | `http://127.0.0.1:8000/tank_mvp.html` | run 链路：存档 → 配装 → 商店 → 节点图 → 战斗/结算/卡牌/Boss |
+| 正式游戏 | `http://127.0.0.1:8000/tank_battle.html` | run 链路：存档 → 配装 → 商店 → 节点图 → 战斗/结算/卡牌/Boss |
 | 装甲测试台 | `http://127.0.0.1:8000/tank_bench.html` | 靶车、发射解算、Enemy Lab、卡牌测试 |
 | 设计器 | `http://127.0.0.1:8000/tank_designer.html` | 车体/炮塔多边形编辑、逐边装甲、甲弹对抗 |
 | 数据对比 | `http://127.0.0.1:8000/tank_compare.html` | 坦克数据表格化对比/编辑 |
@@ -31,7 +31,7 @@ npm run test:browser  # 浏览器冒烟四链（需系统 Edge + playwright-core
 ## 目录结构
 
 ```
-index.html / tank_mvp.html / tank_bench.html / tank_designer.html / tank_compare.html
+index.html / tank_battle.html / tank_bench.html / tank_designer.html / tank_compare.html
 js/            共享模块（tank_rules.js 为机制参数唯一配置源，必须最先加载）
 tanks/         坦克配置（一型一 JSON，经 api/tanks 读写）
 cards/ bosses/ 卡牌与 Boss 数据

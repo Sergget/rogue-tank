@@ -126,9 +126,9 @@
   #ammoIndicator [data-ammo]{pointer-events:auto;}
   #ammoIndicator .dot{width:9px; height:9px; border-radius:50%; display:inline-block;
     border:1px solid rgba(255,255,255,0.3);}
-  /* #3（2026-10-20）：弹种格结构类与 mvp 同源（js/tank_hud.js renderAmmoIndicator 输出
+  /* #3（2026-10-20）：弹种格结构类与 battle 同源（js/tank_hud.js renderAmmoIndicator 输出
      .ammo-cell / .ammo-cell.active）。此前 bench 只有旧内联实现的 .ammo-active 分支，
-     走共享实现后激活格无任何视觉反馈——此处按 mvp tank_mvp.html:41-47 口径补齐。
+     走共享实现后激活格无任何视觉反馈——此处按 battle tank_battle.html:41-47 口径补齐。
      .ammo-active 保留为旧内联兜底分支（TankHud 缺失时才走到）的样式。 */
   #ammoIndicator .ammo-cell{display:inline-flex; align-items:center; gap:4px;
     border:1px solid var(--line); background:#0c0d09; padding:2px 6px; cursor:pointer; opacity:0.5;}
@@ -190,7 +190,7 @@
       </div>
     </div>
   <!-- #F（2026-09-20）：旧测试面板 benchPanel 移除——开发者面板（` 键）统一为共享四 Tab devPanel
-       （js/tank_devpanel.js，mvp/bench 同源）；倒置/FPS/满血重置/清场/键位表经 extraSwitchHTML 并入开关 Tab -->
+       （js/tank_devpanel.js，battle/bench 同源）；倒置/FPS/满血重置/清场/键位表经 extraSwitchHTML 并入开关 Tab -->
   <div id="benchFps" style="display:none; position:fixed; top:34px; right:12px; z-index:60; font-size:10px; color:#9fd48a; background:rgba(10,14,18,0.8); padding:2px 6px; border-radius:4px;"></div>
   <div id="stage-wrap">
     <canvas id="c"></canvas>
@@ -232,7 +232,7 @@
     <!-- #7（2026-10-19 用户反馈）：删除「功能测试扩展 Panel Test (R-1/R-2/R-3)」。
          该区块的三个按钮（超级火控/超级速度、布设炮塔/地雷/战术护盾）已被共享开发者面板
          （js/tank_devpanel.js，` 键呼出）完全覆盖，属重复入口。技能/部署物的实战验证
-         改走 mvp 的开发者面板 cheat 通道，两页同源。 -->
+         改走 battle 的开发者面板 cheat 通道，两页同源。 -->
 
     <div class="section">
       <h3>敌人实验室 Enemy Lab (bench-only)</h3>
@@ -330,12 +330,12 @@
   <script src="js/tank_deployables.js"></script>
   <script src="js/tank_abilities.js"></script>
   <script src="js/tank_fire.js"></script>
-  <!-- P-15/P-46: 共享 UI 纯逻辑 —— pushLog/卡牌/能力/敌人生成/敌人数据共用 → mvp 复用 -->
+  <!-- P-15/P-46: 共享 UI 纯逻辑 —— pushLog/卡牌/能力/敌人生成/敌人数据共用 → battle 复用 -->
   <!-- #A24 分层：core（纯逻辑）→ dom（DOM 适配）→ facade（re-export） -->
   <script src="js/tank_panels_core.js"></script>
   <script src="js/tank_panels_dom.js"></script>
   <script src="js/tank_panels.js"></script>
-  <!-- #F（2026-09-20）：开发者面板共享模块（mvp/bench 同源四 Tab；依赖 applyCardToTank/
+  <!-- #F（2026-09-20）：开发者面板共享模块（battle/bench 同源四 Tab；依赖 applyCardToTank/
        snapshotCardTx/clearCardsFromTank 等共享层，须在 tank_panels_core 之后加载） -->
   <script src="js/tank_devpanel.js"></script>
   <script src="js/tank_bindings.js"></script>
@@ -469,7 +469,7 @@ document.getElementById('reloadTankListBtn').addEventListener('click', ()=>{
 loadTankList();
 
 // ---------- 输入控制器（js/tank_bindings.js 共享层；键位/设置与正式游戏同源） ----------
-// 边沿动作：Q/E 切弹（对齐 mvp 语义，数字直选已摘除）、G=战术炮击（#C5a 2026-09-19
+// 边沿动作：Q/E 切弹（对齐 battle 语义，数字直选已摘除）、G=战术炮击（#C5a 2026-09-19
 // 语义统一：与正式游戏同键同义——旧 bench 把 G/V 挪用为火控/速度 Buff，Buff 保留为面板按钮）、
 // ` 开关测试面板。持续键（空格开火）由 update() 经 input.isDown('fire') 读取。
 // #H3（2026-09-21）：V 键超装填删除（与正式游戏同步）——超装填只经技能池 1/2/3 触发，
@@ -494,7 +494,7 @@ const input = createInputController({
 const keys = input.keys;   // 既有消费方（updateSigma 等）沿用同形对象，零改动
 const benchCheats = { invuln: false, instantReload: false };   // 测试面板作弊开关（会话内有效，不持久化）
 
-// ---------- ammo type selection（与 mvp 对齐：Q/E 环形循环 + 鼠标点击选择） ----------
+// ---------- ammo type selection（与 battle 对齐：Q/E 环形循环 + 鼠标点击选择） ----------
 // 键位解耦轮（2026-09-13）：数字键 1~N 直选已摘除——两边切弹语义统一为
 // Q（下）/ E（上）环形循环 + 鼠标点击弹种格选择；全弹种表即测试台 loadout。
 function getAmmoKeys() {
@@ -505,7 +505,7 @@ player.currentAmmoIndex = 0;
 
 function renderAmmoIndicator(){
   // #3（2026-10-20）：弹种指示器收敛到共享 js/tank_hud.js（PLAN §2.2 差异清单之一）——
-  //   bench=getAmmoKeys() + 点击格切弹 + 激活格平移到中线；渲染/DOM 契约与 mvp 同源。
+  //   bench=getAmmoKeys() + 点击格切弹 + 激活格平移到中线；渲染/DOM 契约与 battle 同源。
   if(typeof TankHud !== "undefined" && TankHud.renderAmmoIndicator){
     TankHud.renderAmmoIndicator({
       list: getAmmoKeys,
@@ -544,7 +544,7 @@ function setAmmo(key){
   if(!RULES.ammoTypes[key]) return;
   player.ammoKey = key;
   const i = getAmmoKeys().indexOf(key);
-  if(i >= 0) player.currentAmmoIndex = i;   // 激活索引与键同步（与 mvp setAmmo 语义一致）
+  if(i >= 0) player.currentAmmoIndex = i;   // 激活索引与键同步（与 battle setAmmo 语义一致）
   renderAmmoIndicator();
   playSound('ui');
   pushLog(`弹种切换：${RULES.ammoTypes[key].label}`,'COVER');
@@ -569,7 +569,7 @@ canvas.addEventListener('mousemove', e=>{
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });
-// 2026-09-15：按住左键持续开火（与 mvp 同源 #A7 语义——mousedown 置位，mouseup/移出/失焦复位）
+// 2026-09-15：按住左键持续开火（与 battle 同源 #A7 语义——mousedown 置位，mouseup/移出/失焦复位）
 let benchMouseFireHeld = false;
 canvas.addEventListener('mousedown', e=>{ if(e.button===0){ benchMouseFireHeld = true; if(fireCtx) tryFire(fireCtx); } });
 window.addEventListener('mouseup', e=>{ if(e.button===0) benchMouseFireHeld = false; });
@@ -690,7 +690,7 @@ document.getElementById('applyCardBtn').addEventListener('click', ()=>{
   // P-15/P-46：兼容卡池为 id→spec 映射（bench 原始形态）
   const card = (typeof cardPool === 'object' && !Array.isArray(cardPool) && cardPool) ? cardPool[id] : null;
   if(!card){ pushLog(`卡牌不存在: ${id}`,'COVER'); return; }
-  // P-15/P-46：共享 applyCardToTank（applyCardEffects + refreshStats），与 mvp 复用
+  // P-15/P-46：共享 applyCardToTank（applyCardEffects + refreshStats），与 battle 复用
   const applied = applyCardToTank(player, card);
   const stacks = cardStackCount(player, card.id);
   playSound('ui');
@@ -1007,7 +1007,7 @@ let bounceFx = []; // ricochet spark visuals
 // [P-28] updateSolution 已收敛到 js/tank_fire.js
 // 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用（声明在上方，此处仅注释）
 
-// #F（2026-09-20）：bench 副武器击发（F 按住连发，与 mvp #C4e/#E5/#E4 同源语义）。
+// #F（2026-09-20）：bench 副武器击发（F 按住连发，与 battle #C4e/#E5/#E4 同源语义）。
 // missile 走「激活索敌 → 逐帧锁定 → 锁定完成自动发射」（再按 F 取消）；mine_layer 直接布雷
 //（bench 已有「放置地雷」按钮与两次确认无关，简化直发布雷）；其余副武器经 tryFireSecondary
 // 向光标世界点击发（火箭巢首发作 + _rocketBurst 由主循环 updateRocketBurst 逐发驱动）。
@@ -1063,7 +1063,7 @@ function update(dt){
     if(typeof dummy !== 'undefined' && dummy) updatePrimaryHeat(dummy, dt);
   }
   // #F（2026-09-20）：双管顺序流水线装填逐帧驱动（无 _dbState 时 no-op）。
-  // 修复「双联火炮发射 2 次后无法发射」——此前 bench 从不推进双管装填（mvp 侧 2026-09-15 W4 已有）。
+  // 修复「双联火炮发射 2 次后无法发射」——此前 bench 从不推进双管装填（battle 侧 2026-09-15 W4 已有）。
   if(typeof updatePrimaryBarrels === 'function'){
     updatePrimaryBarrels(player, dt);
     if(typeof dummy !== 'undefined' && dummy) updatePrimaryBarrels(dummy, dt);
@@ -1157,15 +1157,15 @@ function update(dt){
     random: Math.random
   };
 
-  if(input.isDown('fire')) tryFirePrimary(fireCtx, true);   // #F（2026-09-20）：空格=主炮齐射（双管两管都就绪才双发，与 mvp 同源）
+  if(input.isDown('fire')) tryFirePrimary(fireCtx, true);   // #F（2026-09-20）：空格=主炮齐射（双管两管都就绪才双发，与 battle 同源）
   if(benchMouseFireHeld) tryFirePrimary(fireCtx);   // #F：左键=主炮单击（双管只发 1 根就绪管；reloadT/热量/炮管门控在 fireTank 内）
-  if(input.isDown('fireSecondary')) tryBenchSecondaryFire();   // #F：F=副武器击发（按住连发，与 mvp #C4e 同源）
-  // #C5a：按技能独立冷却递减（G 炮击 / V 超装填 / 面板 Buff 共用 abilityCds 池，与 mvp 同源）
+  if(input.isDown('fireSecondary')) tryBenchSecondaryFire();   // #F：F=副武器击发（按住连发，与 battle #C4e 同源）
+  // #C5a：按技能独立冷却递减（G 炮击 / V 超装填 / 面板 Buff 共用 abilityCds 池，与 battle 同源）
   if(typeof updateAbilityCds === 'function') updateAbilityCds(player, dt);
-  // #U40（2026-10-19）：反应装甲再充能计时逐帧递减（与 mvp 同语义——拦截一次后冷却 60s 恢复）
+  // #U40（2026-10-19）：反应装甲再充能计时逐帧递减（与 battle 同语义——拦截一次后冷却 60s 恢复）
   if(typeof updateReactiveArmorRearm === 'function') updateReactiveArmorRearm(player, dt);
 
-  // #F（2026-09-20）：副武器运行时接线（对齐 mvp #C4e/#E5/#D4）——turret 自瞄自主开火、
+  // #F（2026-09-20）：副武器运行时接线（对齐 battle #C4e/#E5/#D4）——turret 自瞄自主开火、
   // missile 由 F 激活后逐帧索敌锁定、rocket 逐发队列驱动、其余副武器待机装填递减。
   if(player && player.hp > 0 && player.weapons && player.weapons.secondary && player.weapons.secondary.type !== 'none'){
     const secW = player.weapons.secondary;
@@ -1220,7 +1220,7 @@ function update(dt){
     }
   });
 
-  // #C5a：G 键战术炮击链路驱动（callStrike 落弹推进 + 命中结算，与 mvp 接线同构——
+  // #C5a：G 键战术炮击链路驱动（callStrike 落弹推进 + 命中结算，与 battle 接线同构——
   // bench 简化版不做特效/音效，仅日志与伤害结算）
   if(typeof updateStrikes === 'function'){
     for(const ev of updateStrikes(dt, entities)){
@@ -1390,7 +1390,7 @@ function draw(){
   ctx.stroke();
 
   covers.forEach(cov => drawCover(ctx, cov));
-  // #FX2（2026-10-18）：焦痕层（与 mvp 同口径：地面贴花，压在单位之下）
+  // #FX2（2026-10-18）：焦痕层（与 battle 同口径：地面贴花，压在单位之下）
   drawScorchMarks(ctx);
 
   // 绘制战术部署物
@@ -1447,10 +1447,10 @@ function draw(){
   drawTurretFlights(ctx);
   drawFxParticles(ctx);
   drawMuzzleFlashes(ctx);
-  // #FX2（2026-10-18）：补齐冲击波 / 曳光绘制点（与 mvp 同序）
+  // #FX2（2026-10-18）：补齐冲击波 / 曳光绘制点（与 battle 同序）
   drawShockwaves(ctx);
   drawTracers(ctx);
-  // #U38（2026-10-18）：电磁炮击发放电弧（与 mvp 同序，画在曳光之上）
+  // #U38（2026-10-18）：电磁炮击发放电弧（与 battle 同序，画在曳光之上）
   if(typeof drawRailArcs === 'function') drawRailArcs(ctx);
   drawHitFx(ctx);
 
@@ -1523,7 +1523,7 @@ function loop(now){
 
   draw();
 
-  // FPS 统计（benchFpsChk / 设置 showFps 控制；与 mvp 显示帧率语义一致）— tank_hud.js 共享
+  // FPS 统计（benchFpsChk / 设置 showFps 控制；与 battle 显示帧率语义一致）— tank_hud.js 共享
   updateFpsCounter(document.getElementById('benchFps'), fpsState, now);
 
   requestAnimationFrame(loop);

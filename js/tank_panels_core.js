@@ -46,7 +46,7 @@ function _dep(name){
 }
 
 // ============================================================================
-// Card apply / clear / transaction (shared by mvp dev panel card picker and bench card panel)
+// Card apply / clear / transaction (shared by battle dev panel card picker and bench card panel)
 // ============================================================================
 
 // Apply a card to a tank via the canonical applyCardEffects pipeline, then

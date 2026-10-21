@@ -1,6 +1,6 @@
 ---
 name: role-combat
-description: Use when the task touches hit resolution, ballistics, shell lifecycle, weapons, active abilities, shields, artillery strikes or deployables in Rogue Tank. Owns the combat pipeline in js/ and the battle-loop wiring in tank_mvp.html.
+description: Use when the task touches hit resolution, ballistics, shell lifecycle, weapons, active abilities, shields, artillery strikes or deployables in Rogue Tank. Owns the combat pipeline in js/ and the battle-loop wiring in tank_battle.html.
 ---
 
 # Role: combat（战斗与弹道）
@@ -18,7 +18,7 @@ description: Use when the task touches hit resolution, ballistics, shell lifecyc
 - `js/tank_shield.js` — 累计吸收护盾
 - `js/tank_strike.js` — 延迟 AOE 炮击（circle/point/carpet）
 - `js/tank_deployables.js` — 固定炮塔 / 地雷 / 战术掩体注册表
-- `tank_mvp.html` 的战斗循环、开火管线、HUD 装填指示段（**页面单写者，见 `rogue-tank-roles` §1**）
+- `tank_battle.html` 的战斗循环、开火管线、HUD 装填指示段（**页面单写者，见 `rogue-tank-roles` §1**）
 
 ## 2. 现行口径（2026-10-19 核实，勿按旧文档改）
 

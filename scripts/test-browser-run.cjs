@@ -1,6 +1,6 @@
 // 浏览器集成测试（C 环节）：真实 run 链路验证 —— 合法存档出击 → map → battle，
 // 验证 2b7d281 弹种三槽(数字键1/2/3) + Q/E 环形轮换（2026-09-14 定案 E=下一发/Q=上一发） + 卡牌直系演变(replaceAmmo) 在
-// tank_mvp.html 实际页面中的接线，以及 G/H/V 能力入口不抛错。
+// tank_battle.html 实际页面中的接线，以及 G/H/V 能力入口不抛错。
 // 用法: node scripts/test-browser-run.cjs
 'use strict';
 const http = require('http');
@@ -110,7 +110,7 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 
     // 预置合法存档（meta + 槽位），页面 loadProfile 直接读到
-    await page.goto(`${base}/tank_mvp.html`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(`${base}/tank_battle.html`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.evaluate(({ savesMetaKey, slotKey, slotId, tankId }) => {
       localStorage.setItem(savesMetaKey, JSON.stringify({
         activeSaveId: slotId,

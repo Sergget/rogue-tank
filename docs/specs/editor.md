@@ -81,7 +81,7 @@
 
 **详见**：[开发者面板](./editor/devpanel.md) · [浏览器自动化测试链](./editor/browser-tests.md) · [内容工具与 appearance · NF-*](./editor/appearance-aimspeed.md#内容工具与预览nf-1-nf-2-nf-4)
 
-### 7.1 mvp 开发者面板（`/ F12`，Tab 分页）
+### 7.1 battle 开发者面板（`/ F12`，Tab 分页）
 
 > `#devPanel` 宽 **480px**、四 Tab（会话内记忆）；`devCheat = { invuln, instantReload }` 逐帧续期、会话内有效不持久化。
 

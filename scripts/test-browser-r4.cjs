@@ -1,5 +1,5 @@
 // 浏览器集成测试（#F7 2026-09-20 特性补全）：在真实 Edge (channel=msedge, headless) 中验证
-// tank_mvp.html 的（A）主武器各类型实战（standard / double_barrel 空格齐射 / autocannon 连发+热量 /
+// tank_battle.html 的（A）主武器各类型实战（standard / double_barrel 空格齐射 / autocannon 连发+热量 /
 // railgun 单发）（B）副武器 F 击发（mortar 曲射 / rocket burst / missile 锁定发射 / mine_layer 雷场生成）
 // （C）主动技能实战效果（artillery 呼叫+落弹伤害 / shield 吸收池 / overdrive 装填归零）
 // （D）商店整备购买结算（升级扣点+记录 / 复活加购 / 升级作用于开局）。
@@ -99,7 +99,7 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 
-    await page.goto(`${base}/tank_mvp.html`, { waitUntil: 'load', timeout: 30000 });
+    await page.goto(`${base}/tank_battle.html`, { waitUntil: 'load', timeout: 30000 });
     await waitFor(1500);
 
     // ---- 存档 + 局外链路：Home → loadout → 商店（购买结算）→ START RUN → map → battle ----

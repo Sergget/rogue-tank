@@ -26,7 +26,7 @@
 //
 // 行为：
 //   - 环绕：orbitPhase 以 orbitSpeed 推进，目标点 = owner + (cos,sin)·orbitDist，
-//     指数阻尼收敛（k=1−exp(−orbitLerp·dt)，纯弹簧语义，不依赖 mvp driveTank）；
+//     指数阻尼收敛（k=1−exp(−orbitLerp·dt)，纯弹簧语义，不依赖 battle driveTank）；
 //     owner 位移由「每帧重算目标点」天然跟随。
 //   - striker 索敌：ctx.enemies（或 ctx.entities 内按阵营过滤）中 strikeRange 内
 //     最近、hp>0 且非无敌（invulnT<=0）的目标；fireT 仅在有效目标存在时累积，
@@ -212,7 +212,7 @@ function _cameraFns() {
 }
 
 /**
- * 视口外敌军指示（纯计算，mvp 绘制层消费；小地图标记接线在阶段 3）。
+ * 视口外敌军指示（纯计算，battle 绘制层消费；小地图标记接线在阶段 3）。
  * 契约：仅当存在存活 scout 无人机时输出；对每个「视口外（aabbInView 语义，含 64px
  * 外扩余量）+ 敌对 + hp>0」的敌军，若距任一 scout ≤ scoutRange 则产出一条记录：
  *   { x, y         敌军世界坐标（绘制层经 worldToScreen 换算屏幕边缘箭头）
