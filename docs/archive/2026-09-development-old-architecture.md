@@ -86,13 +86,15 @@
 
 | 子文档 | 内容 | 主要模块 |
 |---|---|---|
-| [specs/combat.md](specs/combat.md) | 战斗/物理/装甲跳弹/弹种/模块伤害/主动能力/无人机 | tank_physics, tank_fire, tank_geometry, tank_abilities, tank_drone |
-| [specs/map.md](specs/map.md) | 地图元素/掩体体系/节点生成/摄像机/小地图/贴图资产 | tank_cover, tank_nodegen, tank_map, tank_camera, tank_assets |
-| [specs/cards.md](specs/cards.md) | 卡牌数据契约/六大效果/稀有度流派/堆叠验证 | tank_cards, cards/*.json |
-| [specs/boss.md](specs/boss.md) | Boss 多阶段/弱点/随从/掉落/数据驱动行为与战利品卡牌 | tank_boss, bosses/*.json, tank_ai |
-| [specs/editor.md](specs/editor.md) | 坦克设计器/对比页/字段架构/纹理化/烘焙工具 | tank_designer.html, tank_compare.html, tank_halfgeom, tank_schema |
+| [specs/combat.md](../specs/combat.md) | 战斗/物理/装甲跳弹/弹种/模块伤害/主动能力/无人机 | tank_physics, tank_fire, tank_geometry, tank_abilities, tank_drone |
+| [specs/map.md](../specs/map.md) | 地图元素/掩体体系/节点生成/摄像机/小地图/贴图资产 | tank_cover, tank_nodegen, tank_map, tank_camera, tank_assets |
+| [specs/cards.md](../specs/cards.md) | 卡牌数据契约/六大效果/稀有度流派/堆叠验证 | tank_cards, cards/*.json |
+| [specs/boss.md](../specs/boss.md) | Boss 多阶段/弱点/随从/掉落/数据驱动行为与战利品卡牌 | tank_boss, bosses/*.json, tank_ai |
+| [specs/editor.md](../specs/editor.md) | 坦克设计器/对比页/字段架构/纹理化/烘焙工具 | tank_designer.html, tank_compare.html, tank_halfgeom, tank_schema |
 
-**归档分卷**（只增不删）：[archive/2026-08.md](archive/2026-08.md)（PLAN/ISSUES 完结条目原文）· [archive/2026-08-development-full-snapshot.md](archive/2026-08-development-full-snapshot.md)（本文档拆分前全文）
+**归档分卷**（只增不删）：[archive/2026-08.md](2026-08.md)（PLAN/ISSUES 完结条目原文）· [archive/2026-08-development-full-snapshot.md](2026-08-development-full-snapshot.md)（本文档拆分前全文）
+
+> **2026-10-21 链接路径修复（仅路径，条目正文一字未改）**：本文件位于 `docs/archive/` 下，原 7 处链接的相对路径有误——`specs/*.md` 缺 `../` 前缀（实际指向 `docs/archive/specs/`，不存在）、`archive/2026-08*.md` 重复了当前目录名（实际指向 `docs/archive/archive/`）。修复后 7 处全部可达。按用户 2026-10-21 指示执行；归档正文内容仍不可回改，本次仅修链接可达性。
 
 **冲突判定**：各文档描述冲突时以本文件 §2 为准；子文档是对应系统的细化展开。
 

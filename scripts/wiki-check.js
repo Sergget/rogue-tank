@@ -13,7 +13,11 @@
 //
 // 已知豁免：
 //   · docs/WIKI-STYLE.md —— 全文是格式示例（其 §3.1 已声明「本文所有链接都是格式示意」）
-//   · docs/archive/** —— 归档只增不改，历史相对路径问题不修；但会单独统计并在 --json 里报
+//
+// 关于 docs/archive/：2026-10-21 起 **不再豁免**。历史遗留的 7 处相对路径错误已按用户
+// 指示修复（`2026-09-development-old-architecture.md` 缺 `../` 前缀 + 重复目录名），
+// 全 docs 树断链归零。归档正文内容仍遵守「只增不改」，但**链接可达性属于基础设施、必须可查**。
+// 若将来归档新增断链，本脚本会正常报错——不要为它重新加豁免，修路径即可。
 //
 // 与 npm test 的关系：本脚本**不入** run-tests.js（它检查文档，不是代码回归），
 // 由 AGENTS.md §3.1/§2.3 要求在「改过 docs 后」手动跑。CI 可另接。
@@ -75,16 +79,13 @@ for (const f of files) {
 
 // ---------- 链接与锚点 ----------
 const problems = [];
-const archiveProblems = [];
 let linkTotal = 0, anchorTotal = 0;
 
-const ARCHIVE_PREFIX = path.resolve(DOCS, 'archive') + path.sep;
 const TEMPLATE_FILE = path.resolve(DOCS, 'WIKI-STYLE.md');
 
 for (const f of files) {
   const abs = path.resolve(f);
   const isTemplate = abs === TEMPLATE_FILE;
-  const isArchive = abs.startsWith(ARCHIVE_PREFIX);
   const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/);
   let inFence = false;
   for (let i = 0; i < lines.length; i++) {
@@ -104,7 +105,7 @@ for (const f of files) {
       const resolved = p ? path.resolve(path.dirname(f), p) : abs;
       const rel = path.relative(ROOT, f) + ':' + (i + 1);
       if (p && !fs.existsSync(resolved)) {
-        (isArchive ? archiveProblems : problems).push(`BROKEN  ${rel} -> ${target}`);
+        problems.push(`BROKEN  ${rel} -> ${target}`);
         continue;
       }
       if (hash) {
@@ -112,7 +113,7 @@ for (const f of files) {
         const want = decodeURIComponent(hash).toLowerCase();
         const set = slugTable.get(resolved);
         if (set && !set.has(want)) {
-          (isArchive ? archiveProblems : problems).push(`ANCHOR  ${rel} -> ${target}`);
+          problems.push(`ANCHOR  ${rel} -> ${target}`);
         }
       }
     }
@@ -166,28 +167,22 @@ const summary = {
   broken: problems.filter(p => p.startsWith('BROKEN')).length,
   anchorBad: problems.filter(p => p.startsWith('ANCHOR')).length,
   structProblems: structProblems.length,
-  templateProblems: tplProblems.length,
-  archiveProblems: archiveProblems.length
+  templateProblems: tplProblems.length
 };
 
 if (JSON_OUT) {
-  console.log(JSON.stringify({ summary, problems, structProblems, tplProblems, archiveProblems }, null, 2));
+  console.log(JSON.stringify({ summary, problems, structProblems, tplProblems }, null, 2));
 } else {
   if (!QUIET) {
     problems.forEach(p => console.log('  ' + p));
     structProblems.forEach(p => console.log('  ' + p));
     tplProblems.forEach(p => console.log('  ' + p));
-    if (archiveProblems.length) {
-      console.log('  --- 归档分卷（只增不改，不计入失败）---');
-      archiveProblems.forEach(p => console.log('    ' + p));
-    }
   }
   console.log(
     `wiki-check: files=${summary.files} pages=${summary.wikiPages} ` +
     `links=${summary.links} broken=${summary.broken} ` +
     `anchors=${summary.anchors} anchorBad=${summary.anchorBad} ` +
-    `struct=${summary.structProblems} template=${summary.templateProblems} ` +
-    `(archive, ignored: ${summary.archiveProblems})`
+    `struct=${summary.structProblems} template=${summary.templateProblems}`
   );
   const failed = summary.broken + summary.anchorBad + summary.structProblems + summary.templateProblems;
   console.log(failed === 0 ? 'wiki-check: 全部通过' : `wiki-check: ${failed} 项失败`);

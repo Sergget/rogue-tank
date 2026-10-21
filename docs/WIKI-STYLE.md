@@ -369,7 +369,7 @@ cards / boss / editor 三卷合计仅 822 行，按行数直觉会想压到 6 �
 | 6 | 数值唯一 | 同一参数名在**全卷**只出现一次「= 值」形式 |
 | 7 | 沿革隔离 | 现行页无「已被 X 取代」的整段正文（只允许一行指路） |
 | 8 | 全局链 | `node scripts/check-html.js` EXIT=0（docs 不被扫描，用于确认没碰坏其它） |
-| 9 | wiki-check 全绿 | `node scripts/wiki-check.js` → broken=0 anchorBad=0 struct=0 template=0（archive 豁免） |
+| 9 | wiki-check 全绿 | `node scripts/wiki-check.js` → broken=0 anchorBad=0 struct=0 template=0（**归档分卷也在检查范围内**——2026-10-21 已修完历史遗留的 7 处相对路径错误并取消该豁免） |
 
 **参考实现**：`docs/specs/combat/`（样板卷）。任何与本规范不一致之处，以本规范为准并回改样板。
 

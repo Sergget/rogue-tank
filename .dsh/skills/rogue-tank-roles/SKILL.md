@@ -52,6 +52,6 @@ npm run test:browser                # 需系统 Edge；沙箱内 spawn EPERM 属
 node scripts/wiki-check.js          # 仅当本批改过 docs/：断链/锚点/兼容页结构/wiki 页模板
 ```
 
-> **wiki 化后新增的第 5 条链**：`scripts/wiki-check.js` 只在**改过 docs** 的批次需要跑；`broken=0 anchorBad=0 struct=0 template=0` 才算过。它检查：① 全 docs 树 Markdown 链接目标文件存在 ② `page.md#anchor` 的锚点在目标页有对应标题（GitHub slug 实算）③ `docs/specs/<卷>.md` 有兼容索引警告块且每节有「详见」 ④ `docs/specs/<卷>/*.md` 有 摘要/适用版本/源自/相关 四行 + `## 相关页面`。归档分卷（`docs/archive/**`）的既有断链单独统计、**不计入失败**（归档只增不改）。
+> **wiki 化后新增的第 5 条链**：`scripts/wiki-check.js` 只在**改过 docs** 的批次需要跑；`broken=0 anchorBad=0 struct=0 template=0` 才算过。它检查：① 全 docs 树 Markdown 链接目标文件存在 ② `page.md#anchor` 的锚点在目标页有对应标题（GitHub slug 实算）③ `docs/specs/<卷>.md` 有兼容索引警告块且每节有「详见」 ④ `docs/specs/<卷>/*.md` 有 摘要/适用版本/源自/相关 四行 + `## 相关页面`。**`docs/archive/**` 也在检查范围内**（2026-10-21 已修完历史遗留的 7 处相对路径错误并取消该豁免）；归档正文内容仍「只增不改」，但**链接可达性必须可查**——将来若报错请修路径，不要加豁免。
 
 停止条件：三条链全绿即止。**禁止**为了"确认"而反复重跑同一链超过 2 次（flaky 项除外，见 `sandbox-verify` skill §5）。
