@@ -1,258 +1,174 @@
-# 战术坦克 Roguelike — Boss 战与首领机制规范 (Boss Spec)
+# Boss 战与首领机制规范 —— 兼容索引（现行内容见 wiki 分页）
 
-> 权威子文档：由主文档 docs/DEVELOPMENT.md 索引。
-> 涉及模块：js/tank_boss.js, bosses/*.json, js/tank_ai.js
+> ⚠️ **本页是 §N 兼容层**：全部章节编号原样保留（全仓引用本卷章节号的外部文档依赖它们），
+> 但正文已迁至 `docs/specs/boss/` 下的主题页。**查现行口径请点每节的「详见」链接。**
+> 拆分日期 **2026-10-21**；拆分前的单卷原文以 git 提交 `57be2ca` 为准（见 `docs/archive/2026-10-pre-wiki-boss.md` 的还原说明与分节行号表）。
+> 规范见 [`docs/WIKI-STYLE.md`](../WIKI-STYLE.md)；卷首页见 [boss/index.md](./boss/index.md)。
 
 ---
 
 ## 0. 主题索引（按问题查，不按章节序读）
 
-> ⚠️ **本卷含历史批次章节（§4~§10），章节号按时间追加、不代表主题分组。**
-> **查现行口径请用本索引**；章节编号被 191 处外部文档引用，故保持稳定、不做重排。
-> 本卷的两套维度并存：**§1~§3 按主题**（定位 / 数据契约 / 运行时）；**§4~§10 按批次立项**。Boss 机制**散落在 §4~§10 七节**——**以本索引「现行口径」列为准**，「来源沿革」列只用于追溯。
+> ⚠️ **本卷含历史批次章节（§4~§10），章节号按时间追加，不代表主题分组**——Boss 机制**散落在 §4~§10 七节**。
+> **查现行口径请用本索引**：每行给出「该主题的现行口径在哪一页」与「只是来源沿革、不必读的页」。
+> 本卷章节号被外部文档直接引用——**编号保持稳定、不做重排**；本索引是唯一的「按主题导航」入口。
 
 | 我想查…… | 现行口径（先看这里） | 来源沿革（不必读） |
 |---|---|---|
-| **Boss 设计定位 / 出现周期** | **§1** | — |
-| **`bosses/*.json` 有哪些字段** / schema | **§2**（`validateBoss` 校验；当前 5 个 Boss） | §4 的 `ai` 块、§6 的 `summons` 块 |
-| **运行时三件套**（`makeBossEntity` / `applyBossStage` / `updateBossStage`、阶段切换、掉落、AI 复用） | **§3** | — |
-| **阶段 AI 三模式**（`hold` / `charge` / `skirmish`）与 **`anchorRange`/`targetRange`/`keepDist` 消费** | **§10.1**（三键各只在自己分支读一次、零交叉；`anchorRange=0` = 原地固守） | §4 首条（模式概述 + 指针） |
-| **Boss 数值倍率**（`hpMul` / `moveMul` / `dmgMul` / `engageDist` / `autocannonRange` …） | **§5 第 2 条**（**唯一口径**，含完整 `RULES.boss.tuning` 真值表） | §5 的 hpMul ×8→×9 沿革 |
-| **激光**（蓄能 / 射击 / 伤害 / 掩体阻断 / 炮塔转速 / 车体冻结） | **§6 末条**（`RULES.boss.laser` 参数表 = 唯一口径）+ **§8.1/§8.2**（固定角速度直驱、光束级截断） | §7.1（timed modifier 方案，**已被 #H4/#I1 取代**） |
-| **召唤**（分波次 / 兜底池 / 小兵机动锚定） | **§6 首条**（`bossSummonWave`）+ **§7.2**（`defaultPool`/`defaultWaves`）+ **§9.1**（机动锚定链） | — |
-| **随机技能**（`assignBossSkills`，shield/artillery/overdrive/aps） | **§4**「Boss 随机技能」条 | — |
-| **随机武备**（`pickBossArmament`，主/副武器 + 升级卡） | **§4**「Boss 随机武备」条（参数唯一口径 `RULES.boss.armament`）；卡牌侧见 `cards.md` §8.3 | — |
-| **进场简报**（`#bossBriefing` 覆盖层） | **§4**「进场简报」条（`bossBriefing` / `bossBriefingLines`） | — |
-| **机炮射程 900→1200**（`applyBossWeaponTuning`） | **§10.3**（**调用必须在 `assignBossArmament` 之后**） | — |
-| **受击反馈 / 开场行动 / 残血减速** | **§6**（`triggerBossHitReact` / `bossOpeningT` / `stageSpeedCapMul`） | — |
-| **随机走位（反站桩）** | **§8.3**（`RULES.ai.bossWander`） | — |
-| **履带断落随机自修** | **§9.2**（`updateBossTrackRepair`） | — |
-| **`aiState='chase'` 死状态** | **§10.2**（已于 2026-10-20 删除） | §5 末条（旧描述，见该处沿革注记） |
+| **Boss 设计定位 / 出现周期** | [定位与数据契约](./boss/overview-contract.md)（§1） | — |
+| **`bosses/*.json` 有哪些字段** / schema | [定位与数据契约 · 数据契约](./boss/overview-contract.md#数据契约)（§2） | §4 的 `ai` 块、§6 的 `summons` 块 |
+| **运行时三件套**（阶段切换/随从/掉落/AI 复用） | [运行时机制](./boss/runtime.md)（§3） | — |
+| **几何放大**（`boss.scale` 2.0） | [运行时机制 · 几何放大](./boss/runtime.md#几何放大)（§5 第 1 条） | — |
+| **阶段 AI 三模式**（hold / charge / skirmish） | [行为与弱点 · 阶段 AI 三模式](./boss/behavior.md#阶段-ai-三模式)（§4 首条） | — |
+| **`anchorRange`/`targetRange`/`keepDist` 消费** | [阶段 AI 与机炮射程 · 三键消费](./boss/phase-ai-range.md#三键消费现行)（§10.1，**唯一口径**） | §4 首条的概述 |
+| **Boss 数值倍率**（`hpMul`/`moveMul`/`dmgMul`/`engageDist`…） | [数值倍率与难度叠加 · tuning 表](./boss/scaling.md#rulesbosstuning-现行真值)（§5 第 2 条，**唯一口径**） | §5 的 hpMul ×8→×9 沿革 |
+| **难度叠加 / 出生即交战** | [数值倍率与难度叠加](./boss/scaling.md#难度叠加)（§5 第 3~4 条） | — |
+| **激光**（蓄能/射击/伤害/掩体阻断/炮塔转速/车体冻结） | [蓄能激光](./boss/laser.md)（§6 末条 + §8.1 + §8.2） | §7.1（乘数方案，**已废弃** → [沿革](./boss/changelog.md#laser-turn-乘数方案已废弃)） |
+| **召唤**（分波次/时间兜底/兜底池/小兵机动锚定） | [召唤与小兵](./boss/summons.md)（§6 首条 + §7.2 + §9） | — |
+| **随机技能**（`assignBossSkills`） | [行为与弱点 · Boss 随机技能](./boss/behavior.md#boss-随机技能)（§4） | — |
+| **随机武备**（`pickBossArmament`）+ **进场简报** | [行为与弱点 · Boss 随机武备](./boss/behavior.md#boss-随机武备)（§4；参数唯一口径 `RULES.boss.armament`） | [卡牌规范 · 机制卡与武器 effect](./cards/weapon-cards.md#boss-随机武备)（卡池侧） |
+| **弱点命中**（`RULES.boss.weakspot`） | [行为与弱点 · 弱点命中增益](./boss/behavior.md#弱点命中增益)（§4） | — |
+| **战利品奖励链** | [行为与弱点 · 战利品奖励链](./boss/behavior.md#boss-战利品奖励链)（§4） | §9 的卡池过滤沿革（已推翻） |
+| **受击反馈 / 开场行动 / 残血减速** | [行为与弱点 · 开场行动与受击反馈](./boss/behavior.md#开场行动与受击反馈)（§6 第 2~4 条） | — |
+| **机炮射程 900→1200**（`applyBossWeaponTuning`） | [阶段 AI 与机炮射程 · 机炮射程](./boss/phase-ai-range.md#boss-机炮射程-900-1200)（§10.3） | — |
+| **`aiState='chase'` 死状态** | [阶段 AI 与机炮射程 · aiState](./boss/phase-ai-range.md#taistate-chase-死状态已删)（§10.2） | §5 末条（旧描述） |
+| **Boss 履带断落自修** | [召唤与小兵 · 履带自修](./boss/summons.md#boss-履带断落随机自修)（§9.2） | — |
+| **全部历史 / 已作废机制** | — | [沿革与已作废](./boss/changelog.md) |
 
-**读法建议**：Boss 机制分散在 7 个批次节里，是本卷最容易被「章节序」误导的地方。**只查现行行为 → 只看「现行口径」列**；批次节只在追溯决策原因时读。
+**读法建议**：Boss 机制分散在 7 个批次节里，是本卷最容易被「章节序」误导的地方——**只查现行行为就看「现行口径」列**。
 
 ---
 
 ## 1. Boss 战设计定位
-- 周期首领机制：每第 `RULES.nodeMap.bossInterval`（默认 5）个节点为 Boss 关卡（由 `js/tank_map.js` 的 `isBossNodeIndex` 周期标记并在进入战斗时懒指定定义；Boss 战清空常规敌人，不混编杂兵）。
-- 设计范式：FTL 多阶段 + Into the Breach 弱点机制——阶段切换制造节奏变化，弱点部位制造瞄准博弈。
+
+> 周期性首领战（每 `bossInterval` 默认 **5** 个节点一次）；设计范式 = **FTL 多阶段 + Into the Breach 弱点机制**。
+
+**详见**：[定位与数据契约 · Boss 战设计定位](./boss/overview-contract.md#boss-战设计定位)
 
 ## 2. 数据契约 (bosses/<id>.json)
-validateBoss 校验；bossStageFor 按 hp 比例取当前阶段：
 
-    {
-      "id": "...",
-      "name": "...",
-      "desc": "...",
-      "tankId": "...",          // 底盘 tank JSON
-      "stages": [
-        { "hpThreshold": 1.0, "modifiers": [...], "ai": { "mode": "hold", "params": {} }, ... },
-        { "hpThreshold": 0.6, "modifiers": [...] },
-        { "hpThreshold": 0.25, "modifiers": [...] }
-      ],
-      "summons": [ { "tankId": "...", "count": 2 } ],
-      "loot": { "score": 500, "cards": 2, "cardRarity": "rare" }
-    }
+> `validateBoss` 校验、`bossStageFor` 按 hp 比例取阶段；字段 = `tankId` / `stages[]`（`hpThreshold`+`modifiers`+`ai`）/ `summons[]` / `loot`。**当前池 5 个 Boss**（均 3 阶段、掉落齐全）。
+> **⚠️ 不要塞 `weapons`**（`validateBoss` 不认，静默忽略）。
 
-当前池：5 个 Boss（均 3 阶段、掉落齐全，audit --strict 全绿）。
+**详见**：[定位与数据契约 · 数据契约](./boss/overview-contract.md#数据契约)
 
 ## 3. 运行时机制 (makeBossEntity / applyBossStage / updateBossStage)
-- **阶段切换**：血量阈值触发 applyBossStage——挂 run scope modifiers（数值强度跃升），run 结束清除。
-- **随从 summons**：入场 spawnTank 伴随单位（team:enemy，nodeSpawn 标记计入清敌判定）；复用同一敌对 AI 双态状态机。
-- **击败掉落 loot.score**：finishNode 时叠加进节点通关得分。
-- **AI 复用**：Boss 与 summons 走 aiDecideEnemy 同一管线（含 P-19 多态状态机 Stunned/Flank/Defensive/Search&Destroy/Patrol）。
+
+> 四条骨架：阶段切换（`applyBossStage` 挂 run scope modifiers）/ 随从 `summons`（`spawnTank` + `nodeSpawn`）/ 掉落 `loot.score`（`finishNode` 叠加）/ AI 复用（`aiDecideEnemy` 同一管线）。
+
+**详见**：[运行时机制](./boss/runtime.md)
 
 ## 4. 数据驱动行为与弱点实装（P-51，2026-08-24 落地）
 
-> *主题：阶段 AI 三模式（4.0，消费口径见 §10.1）/ 炮击压制（4.1）/ 召唤时间兜底（4.2）/ 弱点命中（4.3）/ 随机技能（4.4）/ 随机武备与简报（4.5）/ 战利品链（4.6）*
-> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+> 阶段 AI 三模式（hold/skirmish/charge）+ 炮击压制（三 Boss 参数）+ 召唤时间兜底（75s）+ 弱点命中（`dmgMul 1.5`/`penAdd 15`/`ignoreBounce`）+ 随机技能（4 选 1~2）+ **随机武备**（`RULES.boss.armament`）+ **进场简报**（`bossBriefing`）+ 战利品链（`bossRound.guarantee` 配比保底）+ 当前 ai.mode 分配表。
 
-- **阶段声明式行为脚本**：`stages[].ai = { mode:'hold'|'charge'|'skirmish', params }`；`validateBossStage` 校验枚举；`applyBossStage` 设置 `entity.stageAI`；js/tank_ai.js 消费三模式——`hold`=复用友军消极防御 `_passiveDefend`（#S3：超出射程 1.2× 时 0.4 速前压，不再纯站桩；**`anchorRange` 消费口径见 §10.1**）；`skirmish`=keepDist 风筝（#S3：过近倒车 / 超过 keepDist×1.25 时 0.7 速接近 / 之间停）；`charge`=基线激进（**`targetRange` 消费口径见 §10.1**）。参数源 `RULES.boss.aiModes`（skirmish.keepDist 默认 640），读取带内联 fallback。
-- **炮击压制数据驱动（#S3，2026-10-15）**：`behavior.barrage` 去 `style==='command'` 门控，任意 Boss 配置即生效。现行：commander（3 发/9s/半径 110）/ fortress（4 发/14s/半径 160，防御迫击炮）/ sniper（2 发/12s/半径 70，精确打击）。
-- **召唤时间兜底（#S3，2026-10-15）**：`bossSummonWave` 除 hpFrom 阈值外，开战 `RULES.boss.summonWaves.timeTriggerSec`（缺省 75s）后强制触发下一未触发波次（`t.bossFightT` 由 mvp 主循环累计）。防久战磨血无召唤。
-- **弱点命中增益**：命中模块与当前阶段 weakspots 匹配时（`isWeakspotHit` + `moduleFromHit`），从 `RULES.boss.weakspot`（dmgMul:1.5 / penAdd:15 / ignoreBounce:true）构造 `resolveHit` opts 注入增益（物理语义见 specs/combat.md §2「resolveHit 可选增益 opts」）。
-- **Boss 随机技能（2026-10-15 #MODE 批次）**：`assignBossSkills`（mvp）从 `['shield','artillery','overdrive','aps']` 随机 1~2 个技能（`bossNumber > 0` 起 2 个），增强参数 shield `durationMult 1.5` / artillery `shellCountMult 1.5`；`updateBossSkills` 每 8~15s 触发一次携带技能。日志 `BOSS 携带技能：…（增强版）`。
-- **Boss 随机武备（#U39，2026-10-18 用户反馈「boss 似乎还不会随机到这些武器和升级」）**：Boss 此前只有随机技能，`weapons` 恒为 `standard` + `none` —— 主/副武器安装卡（`weapon_primary_*` / `weapon_secondary_*`）与全部武器升级卡对 Boss **完全不可见**。
-  - **选择**：纯函数 `pickBossArmament(pool, {rng, bossNumber})`（`js/tank_cards.js`）—— ① 以 `primaryChance` 掷骰从 `slot=primary && action=install` 随机取 1 张；② 以 `secondaryChance` 掷骰从 `slot=secondary && action=install` 随机取 1 张；③ 对已选中的主/副武器**类型**，从 `action=upgrade && weaponType 匹配` 逐张独立掷骰，最多 `upgradeMax` 张（概率 `upgradeChance + bossNumber × upgradeChancePerBoss`）。任一步无货静默跳过，不抛错。
-  - **参数唯一口径** `RULES.boss.armament` = `{ enabled:true, primaryChance:0.9, secondaryChance:0.7, upgradeMax:2, upgradeChance:0.55, upgradeChancePerBoss:0.1 }`。
-  - **施加**：mvp `assignBossArmament`（`spawnBossFromDef` 内、`assignBossSkills` 之后）经 `applyCardEffects` 施加 —— **与玩家卡牌同一语义通道**（换装重置 `stats` 基线、升级仅同型合并、`_spec`/`_dbState`/`_clipState` 缓存失效）。Boss 侧不维护 `_cardApplyCount`（属性独立、无跨局残留）。
-  - **实测分布（2026-10-18，500 次探针 / 真实卡池 191 张）**：平均每 Boss **3.27 张**武备卡（升级卡 830 次），施加失败 0；主武器各型 22.2%~22.8%（仍标准炮 9.8%），副武器 6 型 10.8%~12.2%（空槽 29.6%）。
-  - **可读性**：TAB 状态面板 Boss 行追加 `· 武备:主武器+副武器·改装×N`；出生日志 `BOSS 武备：…｜改装 …`。
-  - **进场简报（#U43，2026-10-19 用户要求「进入 boss 节点时，需要提示 boss 持有的技能和主、副武器」）**：`spawnBossFromDef` 在 `assignBossSkills` + `assignBossArmament` **之后**调用 `showBossBriefing(bossEntity)`，居中覆盖层（`#bossBriefing`）列出主/副武器、改装卡（含数值摘要）、技能（增强版带「强化」标签）与阶段数；关闭 = 按钮 / 点击遮罩 / Esc。**它不是 flow 状态**（不进状态机、Boss 战不暂停），日志同时留一份纯文本兜底。
-    - **数据层纯函数** `bossBriefing(entity)` / `bossBriefingLines(entity)`（`js/tank_boss.js`）：从**实体本身**读取（不是配置），故与随机结果严格一致；`cardEffects` 条目携带 `cardName`（`applyCardEffects` 写入时一并带上）后，纯逻辑层无需卡池即可显示可读卡名。
-    - 武器数值摘要走 `_weaponStatLines`，只列对决策有意义的字段（伤害/穿深/装填/弹速/射程/溅射/容量/热量/转向），内部开关（`altReload`/`guided`/`pierceDmgMul` 等）不显示。
-  - **测试**：`scripts/test-cards.js` #U39 段 20 断言（分布覆盖 / 升级卡只挂已选型 / 开关关闭 / 空池与 null 安全 / 施加通道 / 新卡 schema / 每型有升级卡）。
-- **Boss 战利品奖励链**：`loot.cards > 0` 时 settlement→reward 追加 N 轮三选一；结算界面显示追加卡牌行。**卡池不再按 `loot.cardRarity` 做稀有度下限过滤**（2026-10-16 用户要求「至少 1 传奇 + 2 史诗、其余随意、非普通卡几率调高」）——现行由抽取层表达：`RULES.cards.bossRound.guarantee`（配比保底）+ `.rarityWeights`（抬高非普通卡权重）。**沿革（被推翻）**：原按 `CARD_RARITIES.indexOf(c.rarity) >= indexOf(loot.cardRarity)` 过滤，3 个 Boss 配 `legendary` ⇒ `epic` 整档（含电磁炮与全部副武器安装卡）在 Boss 轮不可见，且 Boss 模式每节点都是 Boss 轮 ⇒ 池子逐轮枯竭卡死。`loot.cardRarity` 现仅作结算界面文案的兜底标签。现行细则见 `specs/cards.md` §9“Boss 追加轮稀有度保底 + 非普通卡加权”。
-- **当前 ai.mode 分配（5 Boss × 3 阶段共 15 个）**：commander hold/skirmish/charge；fortress hold/charge/charge；siege_fort hold/skirmish/charge；sniper skirmish×3（keepDist 900/800/700）；twin_track skirmish/hold/charge。
-- **测试**：scripts/test-boss.js（+16 断言）/ scripts/test-ai.js（+15）/ scripts/test-physics.js（新建，19 断言）；npm run check / npm test 全绿。
+**详见**：[行为与弱点](./boss/behavior.md)
 
 ## 5. Boss 机制（P-51 同期批次落地，2026-08-24）
 
-> *主题：几何放大（5.1）/ 数值调参 `RULES.boss.tuning` **唯一口径**（5.2）/ 难度叠加（5.3）/ 出生即交战（5.4）*
-> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+> 几何放大（`scale` **2.0**，整体替换新对象防污染共享 spec）+ **`RULES.boss.tuning` 十键真值表（全卷唯一口径）** + 难度叠加（`applyDifficultyMults` 带 `applyPlayerCap=false`）+ 出生即交战（`engageDist 99999`）。
+> **`hpMul` 沿革**：×8 → ×9（2026-10-01），与 `entityMults.maxHp` 上调叠加后 Boss 总血量约 +29%~+36%。
 
-- **几何放大**：`makeBossEntity` 在 `configureTank` 后按 `boss.scale`（现统一 2.0）缩放 hullSpec.verts / turretSpec.verts / hullLen / hullWid / turLen / turWid / turretPivotOffset / anchors / trackWidth / trackOffset；turret barrel.len 不缩放（随 turLen 比例放大）。**（#B6 修订 2026-09-16：缩放为整体替换新对象，绝不原地写共享 spec——曾因原地 `*=` 污染 `tankListData` 缓存导致炮塔跨节点雪球前移，见 DEVELOPMENT.md §4.18。）**
-- **数据驱动调参**：`bosses/*.json` 新增 `tuning` 块（缺省回退 `RULES.boss.tuning`），以 `addModifier source:'boss-base' scope:'run'` 叠乘 maxHp/maxSpeed/turnRate/turretTurnRate/shellSpeed/reload/damage。
-
-  **`RULES.boss.tuning` 现行真值（唯一口径；`node -e` 实测 2026-10-21）**：
-  | 键 | 值 | 语义 |
-  |---|---|---|
-  | `hpMul` | **9** | 血量倍率（沿革：×8 → ×9，见下） |
-  | `moveMul` | 0.5 | 极速倍率（降机动） |
-  | `turnMul` | 0.6 | 转向倍率（降机动） |
-  | `turretTurnMul` | 0.6 | 炮塔转速倍率（降机动） |
-  | `shellMul` | 0.8 | 弹速倍率 |
-  | `fireRateMul` | 0.6 | 装填倍率（提射速：reload×0.6） |
-  | `dmgMul` | 1.5 | 伤害倍率 |
-  | `penMul` | 1.4 | 穿深倍率 |
-  | `engageDist` | 99999 | 出生即交战距离（见本节末「出生即交战」条） |
-  | `autocannonRange` | 1200 | Boss 机炮射程（2026-10-20 #W-J 新增，见 §10.3） |
-
-  **本表是全卷唯一的 tuning 数值口径**——其余节只描述语义、不重复罗列数字（§10.3 仅解释 `autocannonRange` 的调用契约）。
-
-  - **血量沿革（2026-10-01 用户裁定「提高敌人（包括 boss）血量」）**：`tuning.hpMul` **×8 → ×9**（+12.5%）——5 份 `bosses/*.json` 均自带 `tuning.hpMul` 覆盖 `RULES.boss.tuning` 缺省，本次**两侧同步**修改。Boss 血量 = 出战配置 `maxHp` × `hpMul` × `entityMults.maxHp(diff)`（Boss 经 `applyPlayerCap=false` 跳过穿深/速度封顶，但**吃血量难度乘子**）⇒ 与同轮 `entityMults.maxHp` 上限上调（`specs/combat.md` §13.4）叠加后，Boss 总血量约 **+29%~+36%**（探针实测 index4 5.91 → 7.88 倍），**高于普通敌军同幅度的 +15%~+20%**。手感偏肉时可回调本键。
-- **难度叠加**：Boss 生成后经 `applyDifficultyMults(bossEntity, currentNode.entityMults, applyPlayerCap=false)` 叠加同级难度基准（并重设满血），再被 tuning 拉离基准，最终表现为传统 Boss（高血/高伤/高射速、低机动）。
-- **出生即交战与防风筝机制**：`makeBossEntity` 出生即设置 `t.aiTriggerDist = RULES.boss.tuning.engageDist`（**99999**，见本节第 2 条 tuning 真值表）+ `t.aiEngaged = true`；`aiDecideEnemy` 对 Boss 建立快路径：跳过 patrol 早退判定，在非 hold/skirmish 阶段始终以 `move = 1` 朝玩家或最后记忆点主动推进并锁定开火，弱化近距倒车，从机制上根除被玩家远距离无限放风筝。
-  - **⚠️ 沿革（2026-10-20 #W13-c）**：本段原文还写有 `+ t.aiState = 'chase'`——该赋值**已删除**（唯一写点、首帧即被 `tank_ai.js` 覆盖，且 `'chase'` 不在 `aiState` 词表内）。现行「出生即接战」只由 `t.aiEngaged = true` 承担，详见 **§10.2**。
+**详见**：[运行时机制 · 几何放大](./boss/runtime.md#几何放大) · [数值倍率与难度叠加](./boss/scaling.md)
 
 ## 6. 2026-09-20 #E9 用户反馈修订（现行口径）
 
-> *主题：分波次召唤（6.1）/ 开场行动（6.2）/ 受击反馈（6.3）/ 残血减速（6.4）/ 蓄能激光参数表 **唯一口径**（6.5）*
-> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+> 四项（用户反馈①~④）：**分波次召唤**（`hpFrom [0.75,0.5,0.25]`、`countDiffMul 1.6`、环形 160~320px）/ **开场行动**（`openingSeconds 1.6s`、`openingScanRate 0.9`）/ **受击反馈**（`bossHitReactT 0.35s`、冷却 0.45s）/ **残血减速**（`stageSpeedCapMul 1.15/1.1/1.15`）/ **蓄能激光参数表（唯一口径）**。
 
-**用户反馈**：① boss 周围小兵没有持续生成，要随血量下降分波次生成；② boss 早期阶段缺少行动、被击中后很多时候没有反应；③ 残血后行动速度太快；④ 增加蓄能激光（主炮发射，蓄能时炮塔转速大幅下降、炮线上生成虚线与红色透明填充预警，完毕时区域内连续快速掉血）。
-
-- **分波次召唤（取代一次性投放）**：`bossSummonWave(entity, difficulty)` 按血量阈值逐波触发——默认 `RULES.boss.summonWaves.hpFrom = [0.75, 0.5, 0.25]`（`bosses/*.json` 的 `summons[i].hpFrom` 可覆盖），每波只触发一次（`bossSummonWavesDone`）；单波敌数 = `summons[i].count × (1 + (countDiffMul−1)×diffNorm)`（**难度越高集中生成越多**，`countDiffMul` 1.6）。spawn 位置为 Boss 周围 `spawnRadiusMin~Max`（160~320px）环形，且保证在有效触发距离之外（不脸刷）；接入层 `tank_mvp.spawnBossSummonWave`（进入阶段时检查）。**旧实现在 enterBattle 一次性生成，已删除**。
-- **开场行动（早期阶段不站桩）**：`makeBossEntity` 置 `bossOpeningT = RULES.boss.openingSeconds`(1.6s)；期间 `updateBossBehavior` 持续以 `openingScanRate`(0.9 rad/s) 转动炮塔扫描（有可读动作），之后进入常规阶段行为。
-- **受击反馈（被击中必有反应）**：`triggerBossHitReact(t, weak)` ——命中即触发短暂顿挫：`bossHitReactT`(0.35s，弱点命中 ×1.6) + `timed maxSpeed ×slowMul`(0.35，0.25s) + 渲染层可读的炮塔抖动窗口；冷却 `hitReact.cooldown`(0.45s) 防高射速下抖动到无法瞄准。接入层在 `resolveHit` 包装里按目标 `isBoss` 调用（`opts.dmgMul>1` 视为弱点命中）。
-- **残血减速（修复「残血后太快」）**：`applyBossStage` 对阶段 `onEnter.modifiers` 中的**乘性机动增益**（`maxSpeed`/`turnRate`/`turretTurnRate` 且 `mode:'mult'` 且 `value>1`）施加上限 `RULES.boss.stageSpeedCapMul`（1.15/1.1/1.15）——`bosses/*.json` 里 ×1.2~1.8 的阶段加速不会再失控。
-- **蓄能激光（主炮专属机制）**：`updateBossLaser(t, dt, target, opts)`，参数收口 `RULES.boss.laser`（唯一口径）：
-
-| 字段 | 值 | 说明 |
-|---|---|---|
-| `ranges` | `[0.98, 0.72, 0.45, 0.18]` | 各阶段启用/加强激光的血量比例阈值（`hpRatio ≤ ranges[阶段序]` 时解锁） |
-| `chargeSeconds` | 2.6 | 蓄能时长（期间炮塔转速 ×`chargeTurretTurnMul` 0.18，玩家可绕侧） |
-| `fireSeconds` | 1.5 | 射击持续时长 |
-| `cooldown` | 9 | 两次激光间隔（随阶段索引 ×(1−0.12·idx)，下限 ×0.5） |
-| `width` / `length` | 34 / 1400 | 光束宽度（沿炮线法向全宽）/ 长度（px） |
-| `dpsRatio` | 0.55 | 每秒伤害 = Boss 标准伤害 × 该系数（带内目标**连续快速掉血**） |
-| `telegraphDash` / `telegraphColor` | `[16,12]` / `rgba(255,64,48,0.28)` | 警示虚线参数 / 红色透明填充 |
-
-  事件流（供绘制层）：蓄能期 `laserCharge{progress}` → 射击期 `laserFire`；`tank_mvp.html` 写入 `bossLaserFx` 并绘制「虚线警示带 + 红色透明填充」（越接近发射越亮）与实心光束。命中判定为点到射线段的距离 ≤ `width/2 + 目标半宽`，经 `applyDamage` 结算（敌对阵营过滤，与玩家/友军/Boss 通用）。
+**详见**：[召唤与小兵 · 分波次召唤](./boss/summons.md#分波次召唤) · [行为与弱点 · 开场行动与受击反馈](./boss/behavior.md#开场行动与受击反馈) · [蓄能激光 · 参数表](./boss/laser.md#蓄能激光参数表唯一口径)
 
 ## 7. 2026-09-21 #G 用户反馈修订（现行口径）
 
-> *主题：激光炮塔转速（7.1，**已被 #H4/#I1 取代**）/ 召唤波次兜底（7.2）*
-> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+> **§7.1 激光炮塔转速**：timed modifier 乘数方案**已废弃**（乘数在已被压低的基速上再乘 0.15~0.18 ⇒ 实际角速度 ≈ 0），现行改为**固定角速度直驱 0.35 rad/s**。
+> **§7.2 召唤波次兜底**：`defaultPool` / `defaultWaves`（3）+ 5 个 Boss 的 3 波 `summons` 配置。
 
-**用户反馈**：① boss 发射激光时炮塔转速太快；② 部分 boss 没有召唤敌人。
+**详见**：[蓄能激光 · 炮塔转速](./boss/laser.md#炮塔转速固定角速度直驱) · [召唤与小兵 · 兜底池](./boss/summons.md#召唤波次兜底池)
 
 ### 7.1 激光炮塔转速：timed modifier 取代逐帧叠加（#G1）——**已被 #H4/#I1 取代**
 
-- ~~timed modifier 源 `boss-laser-turn` + `chargeTurretTurnMul`/`fireTurretTurnMul` 乘数~~ **已废弃**：乘数方案在 Boss 基础 `turretTurnRate`（经 tuning ×0.6 与难度乘子压低）上再乘 0.15~0.18，实际角速度 ≈ 0（用户实测「炮塔又不转动了」）。历史上它修复了「蓄能期每帧叠加同源修饰器被加法聚合钳到 0、射击期恢复全速甩头」的问题，但最终被更稳的固定角速度直驱取代。
-- **现行口径**：`updateBossLaser` 直接推进 `t.turretAngle`，角速度 = `RULES.boss.laser.laserTurnSpeed`（**0.35 rad/s**，#I1 由 0.55 再降），固定绝对值、不受 modifier/难度影响；激光期置 `bossLaserHoldTurret`（抑制 AI 转炮）与 `bossLaserHoldMove`（**车体冻结**，#I1）。详见 `specs/combat.md` §11.3 与 §12.1/§12.2。
+> 乘数方案已废弃；现行 = `updateBossLaser` 直接推进 `turretAngle`，角速度固定 `RULES.boss.laser.laserTurnSpeed`（**0.35 rad/s**），不受 modifier/难度影响；激光期 `bossLaserHoldTurret` + `bossLaserHoldMove`（车体冻结）。
+
+**详见**：[蓄能激光 · 炮塔转速](./boss/laser.md#炮塔转速固定角速度直驱)　**沿革原文**：[changelog · laser-turn 乘数方案](./boss/changelog.md#laser-turn-乘数方案已废弃)
 
 ### 7.2 召唤波次兜底（#G2）
 
-- `RULES.boss.summonWaves` 新增 `defaultPool`（缺省 `[{ tankId:'dummy', count:2 }]`）与 `defaultWaves`（3）。
-- `bossSummonWave` 在配置 `summons` 为空**且**实体 `t.boss.id` 存在时，用 `defaultPool` 自动补足 3 波（`hpFrom` 依次取 1.0 / 配置缺省），使「未声明 summons 的 Boss」也有分波召唤行为；**裸测试实体**（无 `t.boss.id`）的空 summons 仍返回 `null`（不污染 Node 单测）。
-- `bosses/*.json` 全部 5 个 Boss 已补 **3 波 `summons`**（`hpFrom` = 1.0 / 0.66 / 0.33，对应 100% / 67% / 33% HP 触发）：`commander` [dummy×2, tiger-I×1, panzer-IV×2]、`fortress` [dummy×2, panzer-IV×1, tiger-I×1]、`siege_fort` [dummy×2, panzer-IV×1, tiger-I×1]、`sniper` [dummy×2, hummel×1, Leapard_1×2]、`twin_track` [dummy×2, Leapard_1×1, tiger-I×1]。全部通过 `validateBoss` 校验。
+> `RULES.boss.summonWaves` 补 `defaultPool`（缺省 `dummy×2`）与 `defaultWaves`（3）；空 `summons` 但 `t.boss.id` 存在时自动补 3 波；裸测试实体仍返回 `null`。**5 个 Boss 均已补 3 波**（`hpFrom` 1.0 / 0.66 / 0.33）。
 
----
+**详见**：[召唤与小兵 · 召唤波次兜底池](./boss/summons.md#召唤波次兜底池)
 
 ## 8. 2026-09-21 #I 批次：激光定桩/降速 + 掩体阻断 + 随机走位（现行口径）
 
-> *主题：激光期车体冻结与炮塔定速（8.1）/ 掩体阻断（8.2）/ 随机走位（8.3）/ 建筑密度（8.4，归口 map）*
-> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+> **§8.1** 激光期车体冻结 + `laserTurnSpeed` 0.55→**0.35**；**§8.2** `_laserBeamBlockDist()`（Liang-Barsky 射线×OBB）+ 光束级伤害截断；**§8.3** `RULES.ai.bossWander` 随机走位（反站桩）；**§8.4** 建筑密度（归口 map）。
 
-**用户反馈**：① boss 发射激光时车体不能移动，炮塔转速再降低；② 激光路径被建筑物阻挡时虚线框要反映出来；③（地图，见 `specs/map.md` §13.4）增加建筑密度，特别是 boss 战地图；④ 增加 boss 随机移动、瞄准等动作（现在几乎完全站桩）。
+**详见**：[蓄能激光](./boss/laser.md) · [战斗规范 · Boss 战斗](./combat/boss-combat.md)（随机走位）· [沿革 · 建筑密度](./boss/changelog.md#建筑密度i3归口-map)
 
 ### 8.1 激光期车体冻结 + 炮塔再降速（#I1）
-- `t.bossLaserHoldMove = true`（蓄能+射击全程）：接入层跳过 `driveTank`，车体定桩（此前仅 `bossLaserHoldTurret` 抑制炮塔）。
-- `RULES.boss.laser.laserTurnSpeed` **0.55 → 0.35 rad/s**；仍为固定角速度直驱。单周期转角 41 帧 × 0.035 = 1.435 rad < π/2 ⇒ 走位窗口量化成立。
-- 细则见 `specs/combat.md` §12.1。
+
+> `t.bossLaserHoldMove = true`（蓄能+射击全程）⇒ 接入层跳过 `driveTank`；`laserTurnSpeed` **0.55 → 0.35 rad/s**（固定角速度直驱）；单周期转角 41 帧 × 0.035 = 1.435 rad < π/2 ⇒ 走位窗口量化成立。
+
+**详见**：[蓄能激光 · 激光期车体冻结](./boss/laser.md#激光期车体冻结)
 
 ### 8.2 蓄能虚线与光束反映掩体阻挡（#I2）
-- `_laserBeamBlockDist()`：沿光束求最近全高掩体（`structure + vision`：building/full/intact/rock/ruined）的**入口距离**（Liang-Barsky 射线×OBB）；`laserCharge`/`laserFire` 事件携带 `blockedDist`。
-- 伤害口径改为**光束级截断**（目标沿光束投影 > blockDist 不掉血，`laserBlocked` 事件）；绘制层按 `blockedDist` 截断虚线/光束并画阻挡标记。
-- 细则见 `specs/combat.md` §12.2。
+
+> `_laserBeamBlockDist()` 沿光束求最近全高掩体的**入口距离**（Liang-Barsky）；`laserCharge`/`laserFire` 携带 `blockedDist`；伤害改**光束级截断**（投影 > `blockDist` 不掉血，`laserBlocked` 事件）；绘制层按 `blockedDist` 截断。
+
+**详见**：[蓄能激光 · 掩体阻挡](./boss/laser.md#蓄能虚线与光束反映掩体阻挡)
 
 ### 8.3 Boss 随机走位（反站桩）（#I4）
-- `RULES.ai.bossWander`（interval 2.2~4.6s、环绕玩家 240~520px、waypointReach 90、clampMargin 140）；`updateBossBehavior` 写 `t._bossMoveOverride = { turn, move }`，mvp AI 循环对 Boss 替换车体输入（**炮塔照常锁定玩家瞄准开火**）。
-- 豁免：`crush` 风格、weave 冲刺窗口、激光期、目标已毁。hold/skirmish/command/fortify 均获得机动。
-- 细则见 `specs/combat.md` §12.3。
+
+> `RULES.ai.bossWander`（interval 2.2~4.6s、环绕玩家 240~520px、`waypointReach 90`、`clampMargin 140`）；`updateBossBehavior` 写 `t._bossMoveOverride = {turn, move}`，mvp AI 循环对 Boss 替换车体输入（**炮塔照常锁定玩家瞄准开火**）。豁免：`crush` 风格、weave 冲刺窗口、激光期、目标已毁。hold/skirmish/command/**fortify** 均获得机动。
+
+**详见**：[战斗规范 · Boss 战斗](./combat/boss-combat.md)（随机走位）
 
 ### 8.4 建筑密度（#I3）
-- 地图侧现行口径见 `specs/map.md` §13.4（参数提升 + Boss 节点 ×1.6 + 修复 `fits()` 道路误判导致的密度参数空转）；战斗侧摘要见 `specs/combat.md` §12.4。
+
+> 地图侧现行口径见 [地图规范](./map.md) §13.4（参数提升 + Boss 节点 ×1.6 + 修复 `fits()` 道路误判导致的密度参数空转）；战斗侧摘要见 [战斗规范 · Boss 战斗](./combat/boss-combat.md)。
+
+**详见**：[沿革 · 建筑密度](./boss/changelog.md#建筑密度i3归口-map)
 
 ## 9. 2026-09-23 #J 批次：召唤小兵速度锚定 + Boss 履带随机自修（现行口径）
 
-> *主题：召唤小兵机动锚定（9.1）/ 履带断落随机自修（9.2）*
-> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+> **§9.1** 召唤小兵沿用 P-46 锚定链（`applyEnemyAppearanceAndStats` + `entityMults`，非裸 `applyTankConfig`）；**§9.2** `updateBossTrackRepair`（`windowSeconds 8` / `chance 0.4`，单次决策、每次断裂独立）。
 
-> **编号注记（2026-09-23 文档整改）**：本批次原在本卷标题写作 `#I5`，与 `docs/DEVELOPMENT.md` §4.33 的 `#J` 指同一批用户反馈；为与 `DEVELOPMENT.md` / `ARCHIVE.md` 的批次编号一致，统一为 **#J**（`#I` 批已由 §8 完整占用 #I1~#I4）。
-
-**用户反馈**：① boss 召唤的小兵移动速度太快，boss 容易被频繁断履带。
+**详见**：[召唤与小兵](./boss/summons.md#召唤小兵机动锚定)
 
 ### 9.1 召唤小兵机动锚定（spawnBossSummonWave）
 
-- 接入层 `tank_mvp.spawnBossSummonWave` 沿用与节点敌军/增援**相同的 P-46 锚定链**：`applyEnemyAppearanceAndStats(s, spec, playerAnchorStats || player.stats, currentNode.entityMults)`（仅取外观与类型，数值基准 = 玩家出击基准 × 兵种 profile × 难度 `entityMults`），而非直挂 `applyTankConfig` 照搬 `tanks/*.json` 的原始机动值——后者绕过难度/玩家基准锚定，机动常暴超。此前裸 `applyTankConfig` 已删除。
+> 接入层沿用与节点敌军/增援**相同的 P-46 锚定链**：`applyEnemyAppearanceAndStats(s, spec, playerAnchorStats || player.stats, currentNode.entityMults)`，而非直挂 `applyTankConfig` 照搬原始机动值（后者绕过难度/玩家基准锚定，机动常暴超）。
+
+**详见**：[召唤与小兵 · 召唤小兵机动锚定](./boss/summons.md#召唤小兵机动锚定)
 
 ### 9.2 Boss 履带断落随机自修（updateBossTrackRepair）
 
-- 履带被击断（`resolveHit` → module `track` → `target.trackBroken=true` + `immobT = trackLock`，缺省 8s）后，boss **不再被动整场站桩等锁归零**。改用 `updateBossTrackRepair(t, dt, opts)` 逐帧消费（接入层在 boss AI 循环后调用）：
-  - `RULES.boss.trackRepair = { enabled, windowSeconds: 8, chance: 0.4 }`。
-  - **断裂瞬间**：预定一个 `(0, windowSeconds]` 内均匀随机的决策时点 + 一次性 `rng() < chance` 的命中判定；单次决策、不重复 roll。
-  - **到达决策时点**：命中 → 立即清零 `trackBroken`/`immobT`/`speed`（事件 `{ type:'trackRepair' }`）；未命中 → 保持锁定直至 `trackLock` 自然归零（`driveTank` 倒计时）。
-  - **每次断裂独立**：恢复（broken→false）后清空调度；再次被击断 → 重新预定新时点/新 roll。
-  - 非 Boss 实体/`disabled`/`死亡` 安全返回空，rng 可透传入（浏览器接入层复用 `battleState.reinforceRng`）。
-- 界面反馈：`trackRepair` 事件触发 `spawnTrackRepairFx`（`spawnImpactFx` + `burstExplosion` 微型火星） + `'ui'` 音效 + `pushLog('⚙ BOSS 履带自动修复 — 恢复机动')` 日志。
-- 验证：`scripts/test-boss.js` 覆盖未断/命中/未命中/再次断裂/非 Boss 五路断言；Node 测试 `npm test` PASS，浏览器 `npm run test:browser` 四链 ALL PASS。
+> 履带断落后**不再被动站桩**：`RULES.boss.trackRepair = {enabled, windowSeconds 8, chance 0.4}`，断裂瞬间预定随机决策时点 + 一次性 roll；命中则清零 `trackBroken`/`immobT`/`speed` 并发 `trackRepair` 事件（火星 + 音效 + 日志）。
 
----
+**详见**：[召唤与小兵 · Boss 履带断落随机自修](./boss/summons.md#boss-履带断落随机自修)
 
 ## 10. 2026-10-20 批次现行口径（#W13 / #W-J）
 
-> *主题：阶段 AI 三键消费 **唯一口径**（10.1）/ `aiState='chase'` 死状态已删（10.2）/ Boss 机炮射程（10.3）*
-> *⚠️ 本节为批次章节，非主题基线。现行口径见卷首「§0 主题索引」。*
+> **§10.1** `anchorRange`/`targetRange`/`keepDist` 三键各只在自己分支读一次、零交叉（**`anchorRange = 0` = 原地固守**，首版实现曾把它当假值回落致 `boss_siege_fort` 贴脸冲锋）；**§10.2** `t.aiState='chase'` 死状态已删；**§10.3** Boss 机炮射程 900→1200（`applyBossWeaponTuning`，**必须在 `assignBossArmament` 之后调用**）。
+
+**详见**：[阶段 AI 与机炮射程](./boss/phase-ai-range.md)
 
 ### 10.1 `anchorRange` / `targetRange` / `keepDist` 三键消费（#W13，2026-10-20）
 
-**背景**：`bosses/*.json` 的 `stages[].ai.params` 里 `anchorRange`（3/5 份）与 `targetRange`（4 份 charge 阶段）此前**零消费**——数据写了但 `js/tank_ai.js` 从不读取，属"死配置"。2026-10-20 已接通，**唯一实现口径 `js/tank_ai.js`**（约 `:564-640`）。
+> `hold` 读 `anchorRange`（**0 = 原地固守、永不前压**；缺省回落 `allyEngageRange` 460）/ `charge` 读 `targetRange`（0 = 全速贴脸）/ `skirmish` 读 `keepDist`（缺省 640）。`_passiveDefend` 函数体不读 `params`，故 `skirmish` 不会误吃 `anchorRange`。实测区分度：commander 300 / twin_track 350 / siege_fort **0** / 缺省 460。
 
-**三键各只在自己分支读一次、零交叉**：
-| 键 | 消费分支 | 语义 |
-|---|---|---|
-| `anchorRange` | **仅 `hold`**（`_passiveDefend`） | 驻守距离：`> 0` → 玩家超出 `anchorRange×1.2` 时 0.4 速前压（#S3 反站桩），进入后原地防御；**`= 0` → 原地固守、永不前压**；缺省（`undefined`/非有限）→ 回落 `allyEngageRange`(460)，保持 #S3 旧行为 |
-| `targetRange` | **仅 `charge`** | 压到该距离内即松开油门：`= 0` → 全速贴脸（旧行为等价）；`> 0` → 进入后停止前压 |
-| `keepDist` | **仅 `skirmish`** | 风筝距离：过近倒车（`move=-1`）/ 超过 `keepDist×1.25` 时 0.7 速接近 / 之间停。缺省 640 |
-
-**⚠️ `anchorRange = 0` 的语义反转修正（首版实现的坑，勿回退）**：首版实现把 `0` 当"假值"回落缺省值 ⇒ 让 `boss_siege_fort`（「要塞炮台」、设计意图是**固守**）变成**贴脸冲锋**，与 Boss 定位完全相反。现行明确 `0` = 原地固守（用 `Number.isFinite` 判存在性，不用真值判断）。
-
-**`_passiveDefend` 不被 `skirmish` 共用**：该函数只有两个调用点——Boss `hold` 与友军据点消极防御；**函数体不读 `params`**（`anchorRange` 由调用侧的 Boss 分支单独传入/处理），故不存在 `skirmish` 误吃 `anchorRange` 的路径。
-
-**实测区分度表（2026-10-20，5 份 `bosses/*.json` 解析结果）**：
-| Boss | `anchorRange` |
-|---|---|
-| `boss_commander` | 300 |
-| `boss_twin_track` | 350 |
-| `boss_siege_fort` | **0**（原地固守） |
-| 未声明者（缺省） | 460（`allyEngageRange`） |
+**详见**：[阶段 AI 与机炮射程 · 三键消费](./boss/phase-ai-range.md#三键消费现行)
 
 ### 10.2 `t.aiState = 'chase'` 死状态已删（#W13-c，2026-10-20）
 
-`js/tank_boss.js`（约 `:273`）原在 `makeBossEntity` 里写 `t.aiState = 'chase'`——该值是**唯一写点**且**首帧即被 `js/tank_ai.js` 覆盖**，且 `'chase'` **不在 `aiState` 词表内**（现行词表 `patrol/suspicious/react/search/...`）⇒ 纯噪声，会误导调试（读 `t.aiState` 以为 AI 处于"追击"态，实际并非如此）。**已删除该赋值**；Boss「出生即接战」语义由同处的 `t.aiEngaged = true` 承担，不需要 `aiState` 参与。
+> 原赋值是**唯一写点**且首帧即被 `tank_ai.js` 覆盖，且 `'chase'` 不在 `aiState` 词表内 ⇒ 纯噪声、会误导调试。**已删除**；「出生即接战」由 `t.aiEngaged = true` 承担。
+
+**详见**：[阶段 AI 与机炮射程 · aiState](./boss/phase-ai-range.md#taistate-chase-死状态已删)
 
 ### 10.3 Boss 机炮射程 900 → 1200（#W-J，**已于 2026-10-20 实施**）
 
-**⚠️ 沿革（被推翻的旧结论不静默删除）**：本项在 `docs/PLAN.md` §6.2 与 `docs/archive/2026-10.md` 里曾被记为「**不做**」。2026-10-20 用户要求「全部修完」后**改为实施**。旧记录保留在归档中，仅追加实施注记（见 `docs/archive/2026-10.md` 对应条目）。
+> 新增 `RULES.boss.tuning.autocannonRange = 1200` + `js/tank_boss.js` 的 `applyBossWeaponTuning(t)`。**调用契约：必须在 `assignBossArmament` 之后**（安装会重置 `stats`，先调被覆盖）。非 autocannon 保持 900；幂等。
+> **沿革**：本项曾被记为「不做」，2026-10-20 用户要求「全部修完」后改为实施（旧记录保留在归档并加注记）。
 
-**实现**（两个改动点）：
-1. `RULES.boss.tuning.autocannonRange = 1200`（`js/tank_rules.js`，新增字段）；
-2. `js/tank_boss.js` 新增导出 `applyBossWeaponTuning(t)`：当 `t.weapons.primary.type === 'autocannon'` 时写 `t.weapons.primary.stats.maxRange = RULES.boss.tuning.autocannonRange`。
+**详见**：[阶段 AI 与机炮射程 · 机炮射程](./boss/phase-ai-range.md#boss-机炮射程-900-1200)
 
-**调用契约（关键，勿错序）**：**必须在 `assignBossArmament(bossEntity, bossNumber)` 之后调用**——Boss 主武器由 `pickBossArmament` 随机分配，`assignBossArmament` 会**重置** `stats`，先调会被覆盖。接线位置：`tank_mvp.html` 的 `assignBossArmament` 之后一行。
+---
 
-**为什么不能直接改 `js/tank_weapons.js:33` 的全局 900**：那是**玩家机炮**的射程，会连带改玩家。Boss 加成必须在 Boss 实体上单独施加。
-
-**实测**：autocannon 900 → **1200**；非 autocannon（railgun/double_barrel/clip/standard）保持 900 不受影响；**幂等**（重复调用结果不变）。回归：`scripts/test-boss.js`。
+> **维护**：新增章节仍按 `§N+1` 追加（编号只增不改）——本页加「标题 + 摘要 + 详见」，正文写进 `docs/specs/boss/` 对应主题页。改现行值只改主题页；本页摘要**尽量不写具体数值**。
