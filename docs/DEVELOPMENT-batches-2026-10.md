@@ -2146,6 +2146,8 @@ node node_modules/typescript/bin/tsc --noEmit → EXIT=0
 npm run wiki:check                → 已注册（package.json）
 ```
 
+> **沿革注记（2026-10-21，`68433ac`）**：上条 `(archive, ignored: 7)` 是**本批当时的真实输出**（保留作历史记录）。同日后续提交按用户裁定**修复了那 7 处预存断链并取消 archive 豁免**，现行 `wiki-check.js` 全 docs 树一次校验、断链必须为 0、不再打印该后缀。**「归档只增不改」仍适用于正文内容**，但链接可达性改按基础设施对待（见 §4.116 的验证记录更新段）。
+
 > 其中 `archive ignored: 7` 为 §4.114(4) 记录的**预存断链**（`docs/archive/2026-09-development-old-architecture.md` 的相对路径写错），按「归档只增不改」不修、单独统计。
 
 ### (6) 留给后续的判断
@@ -2213,8 +2215,9 @@ npm test                 → 48 通过 / 1 失败（见下）
 node scripts/wiki-check.js → EXIT=0
                             files=85 pages=59 links=1584 broken=0
                             anchors=827 anchorBad=0 struct=0 template=0
-                            (archive, ignored: 7 —— 预存断链，§4.115(5) 已记录)
 ```
+
+> **验证记录更新（2026-10-21，`68433ac` 之后复跑）**：上条验证记录里的 `(archive, ignored: 7)` 已**不再是现行输出**——同日 `68433ac` 按用户裁定修复了归档分卷 7 处预存断链，并**取消了 `wiki-check.js` 的 archive 豁免**，现在全 docs 树断链一次归零、脚本也不再打印该后缀。归档正文仍遵守「只增不改」，但**链接可达性按基础设施对待**。本批复跑结果如上（`broken=0 anchorBad=0`，无 archive 后缀）。
 
 **唯一失败项 `scripts/test-cover-gen.js` 与本批无关**（复现确认）：该测试第 4 段要 `spawnSync(node, tools/gen-covers.mjs)` 生成 mock 夹具，沙箱下 `spawnSync D:\Nodejs\node.exe EPERM` ⇒ 夹具 `tree.png` 从未生成 ⇒ 第 179 行 `fs.renameSync` 抛 `ENOENT`。该脚本**零处引用** `tank_mvp`/`tank_battle`，属 §3.7 表格已记录的沙箱边界，**不是改名回归**。
 
@@ -2305,3 +2308,73 @@ node scripts/wiki-check.js → EXIT=0
 `check-html.js` 只做语法冒烟，Node 链覆盖不到 DOM/浏览器行为，所以它们可以长期静默存在。
 **约定**：删除 DOM 元素或改渲染契约（类名/结构）时，必须同批 `grep` 全部 `scripts/test-browser-*.cjs`
 确认无引用；测试里对**玩家可见 DOM 契约**的断言应优先断言语义类（`.active`）而非样式值（`fontWeight`）。
+
+---
+
+## §4.118 2026-10-21 r4 A3「假失败」误判纠正：一次基于错误证据的改动被完整回退
+
+**结论**：本节记录的是一次**误判**——曾判定 `test-browser-r4.cjs` 的 A3（autocannon 按住连发）为「依赖未固定外部数据的假失败」，并据此做了「钉住装填基准」的改动。**该改动在真实浏览器链上制造了 5 项新失败，已完整回退**。基线（未改动）实测 **ALL PASS**，A3 输出 `shots=2`，与设计意图一致。
+
+> **本节的价值在于记录失效模式，不是记录一个修复**。同类误判若不留下证据，下一个人会再次踩进去。
+
+### (1) 错误的推理链（复盘）
+
+| 步骤 | 当时认为 | 实际 |
+|---|---|---|
+| 选车 | `tankIds[0]` 经 `api/tanks` 排序 ⇒ `dummy.json`（reload 2.0） | **`Leapard_1`（reload 1.5）** |
+| 装填 | 2.0 × 0.25 = 0.5s/发 ⇒ 400ms 只够 1 发 | 1.5 × 0.25 = **0.375s/发 ⇒ 400ms 出 2 发** |
+| 断言 | 判据过时，须改为钉住基准 + 精确推导 | 判据本就正确，`>=2` 合理 |
+
+**错在哪里**：用 PowerShell `Get-ChildItem | Sort-Object Name` 判断排序，得到 `dummy` 在前；而 `server.js` 的 `readAllFromDir` 用 `fs.readdirSync(dir).filter(...).sort()`——**JS 默认 sort 是 UTF-16 码元序，与 PowerShell 的排序规则不同**（`Leapard_1` 大写 L 排在 `dummy` 小写 d 之前）。一个**取证工具本身的口径差异**，被当成了被测对象的缺陷。
+
+> **教训**：判定「测试期望值与实现不符」时，**必须用被测系统自己的数据源复核**（此处应 Node 读 `fs.readdirSync().sort()`，或直接在页面里读 `tankIds`），不能用另一个语言/工具的同名 API 的结果去推断。
+
+### (2) 错误改动的实际后果（真实浏览器链实测）
+
+改动内容：`fireReady()` 里 `p.stats.reload = 1.0`（并清 `heatLockT/heatPct`），A3 判据改为 `floor(HOLD/250)+1 = 4`。
+
+```
+FAIL | A3 autocannon：按住 900ms 连发 4 发 | shots=3 expect=4 heatPct=11.625
+FAIL | B4 mine_layer：两次 F 预约 → 4s 后端雷场生成 | pending=1 → 1 生成 0 枚 存活 0→0
+FAIL | B4b 地雷触爆对敌人造成伤害 | before=n/a after=1000000.0 alive=true
+FAIL | C1 artillery：技能池数字键呼叫 | strikes 0→3 hp 1000000.0→1000000.0
+FAIL | #H2 布雷确认后进入装填冷却 | {"pending":1,"reloadT":0}
+```
+
+**连带失效机理**：`stats.reload` 是共享字段，钉它虽只直接影响主炮，但 A3 的 HOLD 从 400→900ms 拉长了整段执行时间，后续段落（B4 的 4.8s 预约窗口、B4b 的 1.4s 触发窗口）时序被挤压；B4 生成 0 枚后，B4b 找不到地雷（`mineHit=null`）、C1 的落弹窗口也被拖过。**一处「看似安全」的夹具改动，通过时间预算连锁破坏了后面 4 条断言。**
+
+> **教训**：浏览器链是**共享时序预算**的长流程，任何拉长某段等待的改动都要重算后续窗口余量；`browser 链全绿` 是唯一有效验收，Node 侧推演不能替代。
+
+### (3) 最终处置
+
+- **代码**：`scripts/test-browser-r4.cjs` 已 `git checkout` 回退，与 HEAD 逐字节一致（`git diff HEAD --` 为空）。
+- **文档**：本条由原文的「根治方案」改写为「误判纠正」，§4.117 的 r3 修复**不受影响**（那两条断言确为真陈旧，且实测转绿）。
+- **基线复测**：`npm run test:browser` 连跑 **2 次均 EXIT=0 / ALL PASS**（r4 `A3 shots=2 heatPct=11.125`）。
+
+### (4) 观察到的真实偶发性（另行记录，未修）
+
+回退后的个别轮次曾出现**不同**的单项失败，均为**位置/时序抖动**，与改动无关（代码与 HEAD 完全一致时亦会偶发）：
+
+| 断言 | 现象 | 脆弱点 |
+|---|---|---|
+| `test-browser-smoke.cjs` (d)「开火命中弹携带所选槽位 ammoKey」 | `fired=null` | 依赖炮弹**实际命中**才写 `__shellHits`；打偏即 null |
+| `test-browser-r4.cjs` B4b「地雷触爆对敌人造成伤害」 | `before=999978.0 after=999978.0` | 把首个敌人坐标搬到雷上，但该敌人可能被 AI/掩体推开离开触发半径 |
+
+**建议**：若要提升稳定性，方向是「让断言不依赖单次物理结果」——(d) 可改为读 `shells[]` 里最后发射的 `ammoKey`（发射即记录，不要求命中）；B4b 可在 1.4s 内**多次**把敌人钉回雷坐标并按「累计掉血」判定。**本轮未实施**（超出用户「根治 A3」的范围，且需单独验证）。
+
+### (5) 验证记录（2026-10-22）
+
+```
+git diff HEAD -- scripts/test-browser-r4.cjs   → 空（已完整回退）
+npm run test:browser（基线，连跑 2 次）        → EXIT=0 / ALL PASS
+  r4: A3 shots=2 heatPct=11.125；B4 pending=1→0 生成 3 枚；B4b 999789.6→999693.4；
+      C1 strikes 0→3 hp 999916.6→999779.7；#H2 reloadT=14.83
+```
+
+### (6) 留给后续的判断
+
+**① 「测试期望 vs 实现不符」的取证纪律**：先确认**被测系统自己的数据源**（此处 `fs.readdirSync().sort()` 的 JS 语义），再下结论。用旁路工具（PowerShell/Excel/手工排序）推断，得到的可能只是**工具差异**。
+
+**② Node 侧推演不能替代浏览器验收**：本次在 Node 里跑通了「钉住 1.0 ⇒ 900ms 出 4 发」，逻辑自洽，但真实页面里因时序预算连锁而红。**Node 能证明机制，不能证明流程。**
+
+**③ 回退也是一种交付**：确认改动错误后应立即完整回退并留下复盘，而不是在其上继续打补丁——本次若继续调 HOLD 或加 `waitFor`，只会把 5 项失败掩盖成偶发。
