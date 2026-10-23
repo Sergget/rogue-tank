@@ -2698,7 +2698,13 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 
 **三条候选路线**：A 强化现有 2.5D 绘制（推荐，2~4 人日）/ B 固定斜投影层（8~15 人日）/ C 真 3D WebGL（不建议）。
 
-**不选 C 的四条硬理由**：零依赖 + `file://` 直开是硬约束；`test-render.js` 的 Node 真实光栅化像素回归链会整体失效；无 3D 美术来源且已否决 AI 出图；俯视战术射击不需要自由相机。
+**三条候选路线**：A 强化现有 2.5D 绘制（推荐，2~4 人日）/ B 固定斜投影层（8~15 人日）/ C 真 3D WebGL（本阶段不做）。
+
+> **⚠ 2026-10-24 更正**：本条初版写的「不选 C 的四条硬理由」中，**第 1、2 条已被用户推翻**——用户明确「零依赖 + file:// 直开 + Node 像素回归不要作为硬约束，只是目前状态的临时的选择」。现口径：真 3D **不被架构排除**，本阶段不做的真实理由是**缺 3D 美术管线**（已否决 AI 出图）与**玩法收益未证实**；换 WebGL 需改用浏览器截图基线重建视觉回归链（**可做，属额外成本**）。初版原文保留于下方，仅作追溯：
+>
+> > ~~零依赖 + `file://` 直开是硬约束；`test-render.js` 的 Node 真实光栅化像素回归链会整体失效；无 3D 美术来源且已否决 AI 出图；俯视战术射击不需要自由相机。~~
+>
+> 细则见 `docs/specs/map/pseudo-3d-2p5d.md` §3.1。
 
 **关键事实（实测）**：现行 2.5D **是画出来的，不是算出来的**——`getPartZRange`（`js/tank_geometry.js`:18）返回固定常量（车体 0~1.4 / 炮塔 1.4~2.3），`RULES.heights` 已于 2026-09-20 #E3 删除；`raycastTank` / `bestTankHit` 是纯 2D 多边形射线；`hasLineOfSight` 判的是 tier 布尔。**路线 A 明确只改渲染**（统一高度表 + y-sort 遮挡 + 侧壁按高度派生），不把高度灌进玩法——否则「2D 交互」这条判据就破了。
 
@@ -2723,12 +2729,47 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 - `node scripts/test-asset-pipeline.js` → **9/9 全绿**（含 `--check` 与空 `assets/` 的 ABSENT 校验）
 - `node scripts/check-html.js` → **All checks passed**（含测试登记一致性；删了 3 个 test-* 后无孤儿）
 - `node node_modules/typescript/bin/tsc --noEmit` → **EXIT=0**
-- `node scripts/run-tests.js` → **50 通过 / 2 失败（52 项，104.4s）**；两项失败均为**既有问题、与本批无关**：
-  - `test-qa.js` —— 硬失败只有 `test-recent-mods.js` 缺 `require('../js/tank_utils.js')` / `require('../js/tank_rules.js')` 字面量（该文件用 `require(path.join(__dirname,...))` 动态拼接，按字面量匹配的 QA 规则看不到）；本批新增的 `test-asset-pipeline.js` **合规**（4 个 edge-case 模式、无硬失败）。
-  - `test-passive-skills.js` —— `2e 全部 6 份车型配置均声明 passiveSlots — 缺 dummy.json`（§4.122 遗留）。
-  - **本批直接相关的 4 条链全绿**：`test-assets` / `test-render`（含 v2/v3 审核与 ⑧ 2.5D 断言）/ `test-tanks`（含新增负向断言）/ `test-asset-pipeline`。
+- `node scripts/run-tests.js` → **52 通过 / 0 失败（52 项）**。见 §4.125 的收尾修复记录（本批提交前把两项既有失败一并修掉：`test-recent-mods.js` 改回字面量 require、`tanks/dummy.json` 补回 `target`/`class` 并补 `passiveSlots`）。
 - `node scripts/wiki-check.js` → `files=91 pages=65 links=1668 broken=0 anchors=857 anchorBad=0 struct=0 template=0`
 - 新增页模板合规：四行头部 + `## 相关页面` 齐备（wiki-check template=0 已覆盖）
 
 **细则归口**：`docs/specs/map/textures.md`（出图管线 / 坦克贴图通道）、`docs/specs/map/pseudo-3d-2p5d.md`（伪 3D 研究）、`docs/specs/editor/visual-spec.md`（四层精灵与对齐契约）、`docs/ASSETS-PIPELINE.md`（接线手册）。
+
+---
+
+## §4.125 2026-10-24 纠正「零依赖 / file:// / Node 像素回归 = 硬约束」的错误定性
+
+**用户原话（2026-10-24）**：「零依赖 + file:// 直开 + Node 像素回归不要作为硬约束，只是目前状态的临时的选择」。
+
+**问题**：§4.124 的伪 3D 研究把这三条写成了**架构硬约束**，并以此作为「不选真 3D」的**第 1、2 条理由**。这是**定性错误**——三者都是现阶段的工程选择，不是不可逾越的边界；用它们否决技术路线，等于把「当前没做」写成「不能做」。
+
+**核实（2026-10-24）**：
+
+| 项 | 实测事实 | 正确定性 |
+|---|---|---|
+| 零运行时依赖 | `package.json` 无 `dependencies`；页面按序加载全局脚本、无打包步骤 | 临时选择（引入 Three.js + 打包是**允许的成本**） |
+| `file://` 直开 | 正式游戏页/测试台**必须**走 dev server（`fetch('api/tanks')`）；仅 `tools/bake.html` 刻意支持 `file://` | 临时特性（**不是**全站契约，可放弃） |
+| Node 像素回归 | `test-render.js` 借 `scripts/lib/mini-canvas.js` 做真实光栅化断言（29 + 9 项） | 临时选择（WebGL 下改用浏览器截图基线即可，**属额外成本**） |
+
+**修正后的口径**：真 3D（路线 C，WebGL/Three.js）**不被架构排除**。本阶段不做的真实理由是：
+1. **缺 3D 美术管线**（无模型/贴图/骨骼，且已否决 AI 出图）——与渲染技术选择无关的最硬一条；
+2. **玩法收益未证实**（俯视战术射击当前不需要转相机）；
+3. **回归链需重建**（Node 光栅化 → 浏览器截图基线，可做，属成本）；
+4. **阶段策略**（先用路线 A 以 2~4 人日验证「体积感是否真提升观感」，再决定是否投入 C）。
+
+**改动清单**：
+
+| 文件 | 改动 |
+|---|---|
+| `docs/specs/map/pseudo-3d-2p5d.md` | 新增 **§3.1「零依赖 / `file://` / Node 像素回归是当前状态，不是硬约束」**（含三项事实对照表 + 修正后的四条理由）；`落地状态` 表把真 3D 从「未采用（冲突）」改为「本阶段不采用（非禁止）」；§8 结论重写；页头 `适用版本` 改 2026-10-24 修订 |
+| `docs/specs/map.md` | §29 标题加「2026-10-24 修订」；**§29.2 重写**为「真 3D 的取舍：`file://`/零依赖/Node 回归是临时选择，不是硬约束」并指向新锚点 |
+| `docs/specs/map/textures.md` | 删去 2 处「`file://` 兼容」的约束式表述（改为陈述现状） |
+| `docs/specs/editor/bake-modules.md` | 「`file://` 可直开，零服务器依赖」→「当前可直接打开（现阶段特性，非约束）」 |
+| `README.md` | 「纯前端 JavaScript，无构建步骤，零运行时依赖」加「**技术栈现状（不是承诺）**」前缀并指向 §3.1 |
+| `docs/DEVELOPMENT-batches-2026-10.md` | §4.124 的「不选 C 的四条硬理由」加**更正注记**（原文划线保留，符合「被推翻不静默删除」）；§4.124 的验证数字更新为收尾后的 52/0 |
+| `docs/PLAN.md` | 条目「伪 3D 实施」补一句：真 3D 未被排除，只是本阶段不做 |
+
+**验证**：`node scripts/wiki-check.js` → `files=91 pages=65 links=1668 broken=0 anchors=857 anchorBad=0 struct=0 template=0`（新锚点 `#31-零依赖-file-node-像素回归是当前状态不是硬约束` 已实测校验通过）；`node scripts/check-html.js` → All checks passed；`npm test` 52/52；`tsc --noEmit` EXIT=0。
+
+**细则归口**：`docs/specs/map/pseudo-3d-2p5d.md` §3.1（唯一口径——「三条是临时状态」的完整论证在此）。
 

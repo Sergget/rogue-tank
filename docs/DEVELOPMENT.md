@@ -58,7 +58,8 @@
 
 ### 3.1 当前状态（截至 2026-10-23）
 
-- **贴图资产口径（2026-10-23 用户裁定，§4.124）**：确定为「**程序化生成 + 后期贴图接线**」。程序化烘焙是唯一实机路径；PNG 通道（地图 `ASSET_DEFS.bake → assets/<key>.png`、坦克 `sprite` 四层 → `drawTankSprite`）代码保留但**当前盘上无图**（19 张坦克 PNG 已删除）。**本仓库不出图**——AI 出图链已整体删除；后期美术按 `docs/ASSETS-PIPELINE.md` 落盘并由 `covers-anchor-check.py` 验收，`scripts/test-asset-pipeline.js` 锁接线完整性。伪 3D 形态裁定为**俯视 2.5D**、研究见 `specs/map/pseudo-3d-2p5d.md`（**设计预留，未落地**）。
+- **技术栈定性（2026-10-24 用户纠正，§4.125）**：**零依赖 / `file://` 直开 / Node 像素回归不是硬约束，只是目前的临时选择**。真 3D（WebGL/Three.js）**未被架构排除**；本阶段不做的理由是缺 3D 美术管线与玩法收益未证实。唯一口径 `specs/map/pseudo-3d-2p5d.md` §3.1。
+- **贴图资产口径（2026-10-23 用户裁定，§4.124）**：确定为「**程序化生成 + 后期贴图接线**」。程序化烘焙是现行唯一实机路径；PNG 通道（地图 `ASSET_DEFS.bake → assets/<key>.png`、坦克 `sprite` 四层 → `drawTankSprite`）代码保留但**当前盘上无图**（19 张坦克 PNG 已删除）。**本仓库不出图**——AI 出图链已整体删除；后期美术按 `docs/ASSETS-PIPELINE.md` 落盘并由 `covers-anchor-check.py` 验收，`scripts/test-asset-pipeline.js` 锁接线完整性。伪 3D 形态裁定为**俯视 2.5D**、研究见 `specs/map/pseudo-3d-2p5d.md`（**设计预留，未落地**）。
 
 - **架构**：节点式地图 + 主副武器解耦 + 主动技能 + 卡牌构筑 + 部署物/无人机 + Boss 全链可用；三条验证链 `npm run check` / `npm test` / `npm run test:browser`（smoke / r3 / run / r4 四链）近期各批次均全绿。
 - **2026-10-21 浏览器链 r3 陈旧断言修复（§4.117）+ r4 A3 误判纠正（§4.118）**：用户在正常环境实跑 `npm run test:browser` 首次暴露**长期静默的陈旧断言**（沙箱内 `spawn EPERM` 起不了 Edge，故此前从未真正跑过）。**r3 为真修复**：5 个按钮断言指向 2026-10-19 #7 与 #W9 已裁定删除的 DOM，改验 `window.benchSpawnTurret/Mine/Cover`（能力仍在、入口迁移）并加负向断言防回潮；附带修掉弹种格 `fontWeight==='700'` 判据（#3 收敛共享 `renderAmmoIndicator` 后不再输出内联样式），改判 `.active` 类，实测转绿。**r4 A3 则是误判**：曾判定其「按住 400ms 应出 2 发」为假失败（以为 `tankIds[0]` 是 `dummy` reload 2.0），据此钉住 `stats.reload=1.0` 并改判据为精确推导——**该改动在真实浏览器链上制造 5 项新失败（A3 仍 3/4、B4/B4b/C1/#H2 连锁失效），已完整回退**。真相是 `api/tanks` 用 JS `sort()`（UTF-16 码元序）⇒ `tankIds[0]` 实为 **`Leapard_1`(reload 1.5)** ⇒ 0.375s/发 ⇒ 400ms 确出 2 发，**基线本就 ALL PASS**；误判源于用 PowerShell `Sort-Object` 的排序结果去推断 JS 语义。基线与回退后连跑均 **ALL PASS**。详见 **§4.117 / §4.118**（后者含两次教训：取证须用被测系统自身数据源；Node 侧推演不能替代浏览器验收）。
@@ -107,6 +108,7 @@
 2. **远期路线与商业化筹备（2026-10-23 排期）**：
    - **已完成的首批三项（§4.123，2026-10-23）**：撞击伤害、隐蔽感知、战术闪跃——均不依赖设计器 UI。细则见 `specs/combat/ramming-stealth-dash.md`。
    - **贴图资产口径收口 + 伪 3D 研究（§4.124，2026-10-23）**：贴图确定为「程序化生成 + 后期贴图接线」，AI 出图链与 19 张坦克 PNG 已删除；伪 3D 形态裁定为**俯视 2.5D**、交付**仅研究文档**，方案与风险见 `specs/map/pseudo-3d-2p5d.md`（**设计预留，未落地**）。
+   - **技术栈定性纠正（§4.125，2026-10-24）**：**零依赖 / `file://` 直开 / Node 像素回归是当前临时状态，不是硬约束**。据此真 3D（WebGL/Three.js）**不被架构排除**，本阶段不做的真实理由是缺 3D 美术管线与玩法收益未证实。唯一口径见 `specs/map/pseudo-3d-2p5d.md` §3.1。
    - **载具分化、战术深度与画质升级（7 大模块）**：主武器绑定载具与专属卡池、隐蔽与战场感知机制、物理碰撞与撞击伤害、多元化特种车辆（轮式/无人炮塔/自走炮/导弹车）及特种模式（氮气/攻城/防御）、战术烟幕系统、武器专精卡、画质与粒子特效全面高清化。详见 `docs/PLAN.md` §4。
    - **Steam 上架发布与商业化完整度筹备清单**：覆盖 Steam 原生平台 SDK（成就/云存档/创意工坊/排行榜）、手柄双摇杆与 Steam Deck 深度适配、多语言国际化架构（I18N）、工业级战场声画（高保真音效/动态 BGM）、局外重玩性循环（车库科技树/热量进阶挑战）、独立客户端封装（Tauri/Electron）与商用发布合规。详见 `docs/PLAN.md` §5。
 
@@ -123,7 +125,7 @@
 批次日志已按月份拆分：
 
 - [2026-09 批次 (§4.27–§4.39)](DEVELOPMENT-batches-2026-09.md)
-- [2026-10 批次 (§4.40–§4.124)](DEVELOPMENT-batches-2026-10.md)
+- [2026-10 批次 (§4.40–§4.125)](DEVELOPMENT-batches-2026-10.md)
 
 ### 4.0 §4.1~§4.26 编号索引（正文见归档）
 
@@ -164,6 +166,7 @@
 | §4.122 | 2026-10-23 | 被动技能槽 + 无人机/导弹玩法改造（含「撞击伤害半成品」修复：去重冷却 / 硬直不改写速度 / 双残骸分离） | `DEVELOPMENT-batches-2026-10.md` §4.122 |
 | §4.123 | 2026-10-23 | 近期可落地三机制：撞击伤害（`RULES.ramming`）/ 隐蔽感知（`RULES.camouflage`）/ 战术闪跃（`RULES.abilities.flash_dash`）+ 烟幕副武器；并修复曲射榴弹炮「主武器机制泄漏」并削弱精度为 4×base×距离 | `DEVELOPMENT-batches-2026-10.md` §4.123 · `specs/combat/ramming-stealth-dash.md` · `specs/combat/arc-fire.md` |
 | §4.124 | 2026-10-23 | 贴图资产口径收口（程序化生成 + 后期贴图接线；删 AI 出图链与 19 张坦克 PNG）+ 伪 3D 研究（俯视 2.5D，设计预留） | `DEVELOPMENT-batches-2026-10.md` §4.124 · `specs/map/textures.md` · `specs/map/pseudo-3d-2p5d.md` · `docs/ASSETS-PIPELINE.md` |
+| §4.125 | 2026-10-24 | **纠正定性**：零依赖 / `file://` 直开 / Node 像素回归**不是硬约束，只是当前临时选择**；真 3D（WebGL/Three.js）未被架构排除，本阶段不做的理由是缺 3D 美术管线与玩法收益未证实（推翻 §4.124 的第 1、2 条「不选 C」理由） | `DEVELOPMENT-batches-2026-10.md` §4.125 · `specs/map/pseudo-3d-2p5d.md` §3.1 |
 
 ---
 

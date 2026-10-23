@@ -19,7 +19,7 @@
 
 （原 §4）
 
-- 程序化烘焙是**唯一实机路径**：`assets/` 无对应 PNG 时自动离屏烘焙缓存（`ASSET_CACHE`），`file://` 离线完整兼容。
+- 程序化烘焙是**现行唯一实机路径**：`assets/` 无对应 PNG 时自动离屏烘焙缓存（`ASSET_CACHE`）。
 - **后期贴图接线保留**：`tools/bake.html` 一键导出 PNG 到 `assets/`；外部美术产出的 PNG 走 `scripts/prepare_covers.py` 落盘、`scripts/covers-anchor-check.py` 验收后即可接管同一接口（见 [出图管线](#出图管线)）。
 - **地图元素档位现状（2026-10-23 实测 `ASSET_DEFS`）**：六档 = `wall`（六变体）/`stump`/`rubble`/`bush`/`tree`/`fallen`；旧 `soft`（栅栏）与 `barricade`（沙袋）已于 2026-10-22 合并为 `wall`。
 - **树冠视觉-逻辑对齐（#A10）**：`tree.bakeCanopy` 冠径乘数由 `1.9` 降至 `1.4`，使树冠视觉半径更贴近逻辑 OBB（24×18），缓解"所见远大于所挡"的脱节；倒树（fallen）保留根部伐倒断面高亮。如需进一步收紧可继续下调或提为 RULES 参数。
@@ -41,7 +41,7 @@
 | 优先级 | 通道 | 入口 | 产物来源 |
 |---|---|---|---|
 | 1 | PNG 位图精灵（**当前无图，全部回落**） | `drawTankSprite`（`js/tank_battledraw.js`） | `tanks/*.json` 的 `sprite.hull/turret/barrel` → `assets/tanks/*.png`（现行 `sprite.enabled=false`，且盘上无图） |
-| 2 | 程序化烘焙 | `renderHullTexture` / `renderTurretTexture` | `js/tank_paint.js` 的 `TEXTURE_DEFS`（**现行唯一实机路径**；file:// 兼容、零资产） |
+| 2 | 程序化烘焙 | `renderHullTexture` / `renderTurretTexture` | `js/tank_paint.js` 的 `TEXTURE_DEFS`（**现行唯一实机路径**；零资产） |
 
 - **判据**：PNG 通道由 `spriteEnabled(t)` 决定（`_spriteOverride` 运行时开关 > tank JSON `sprite.enabled`）；不可用时回落程序化烘焙。`spriteReady(t)` 要求四层图片全部加载完成，缺一张即整体回退。
 - **启用前提（未变）**：逐车目视确认层序（履带 < 车体 < 炮塔 < 炮管）、尺寸、炮管与炮塔衔接、白边残留，确认后再把该车 `sprite.enabled` 置 `true`。**图片不存在时不得开启**（`scripts/test-tanks.js` 有负向断言）。
