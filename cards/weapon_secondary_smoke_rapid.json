@@ -1,0 +1,19 @@
+{
+  "id": "weapon_secondary_smoke_rapid",
+  "name": "烟幕速射装置",
+  "rarity": "rare",
+  "desc": "战术烟幕强化：装填时间缩短至 6秒，单团存续延长至 8秒，便于连续铺设烟墙掩护推进。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "smoke",
+      "statOverrides": {
+        "reload": 6,
+        "duration": 8
+      }
+    }
+  ],
+  "maxStacks": 1
+}

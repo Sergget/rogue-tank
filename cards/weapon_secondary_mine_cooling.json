@@ -1,0 +1,18 @@
+{
+  "id": "weapon_secondary_mine_cooling",
+  "name": "布雷器：快速布雷",
+  "rarity": "rare",
+  "desc": "布雷器强化：雷场装填冷却 −2s/级（基础 15s → 13 → 11 → 9s，下限 6s）。布雷节奏更快，可在同一节点内连续封锁多条通路，而不是等一条雷场冷却完再布下一条。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "mine_layer",
+      "statOverrides": {
+        "mineFieldReload": "-2"
+      }
+    }
+  ],
+  "maxStacks": 3
+}

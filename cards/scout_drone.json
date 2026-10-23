@@ -1,10 +1,11 @@
 {
   "id": "scout_drone",
-  "name": "侦察无人机",
+  "name": "侦察无人机（已停用）",
   "rarity": "rare",
-  "desc": "部署一架侦察无人机，标记视口外敌军位置，提前掌握战场动向。",
+  "desc": "【已停用】侦察无人机已于 2026-10-23 按用户裁定删除——无人机只保留攻击型（伴随浮游炮）。本条目仅保留 id 占位，永不进入抽卡池。",
   "effects": [
-    { "type": "drone", "kind": "scout" }
+    { "type": "drone", "kind": "striker" }
   ],
+  "enabled": false,
   "maxStacks": 1
 }

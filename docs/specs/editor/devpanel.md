@@ -1,7 +1,7 @@
 # 开发者面板
 
 > **摘要**：devPanel 四 Tab、卡牌选择器（分组/搜索/回滚）、两页按键统一、HUD 渲染合并状态。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-22）
 > **源自**：`docs/specs/editor.md` §7、§7.1、§7.2、§7.3、§7.4（2026-10-21 拆分）
 > **相关**：[浏览器自动化测试链](./browser-tests.md) · [内容工具与 appearance](./appearance-aimspeed.md) · [兼容索引](../editor.md)
 
@@ -75,6 +75,25 @@
   - **沿革（不静默删除）**：本段原写「仍未合并：装填指示、FPS 读数」——该结论建立在「凡是两套实现就该合并」的前提上，2026-10-20 用户裁定推翻了该前提（产品定位差异不算重复）。
 
 > **「未纳入本轮（仍开放）」栏**（原 §7.7）的内容已于 2026-10-20 **全部关闭**——装填指示与血条同属产品定位差异、FPS 读数已合并。详见 [沿革与已作废](./changelog.md#未纳入本轮2026-09-19-c5已全部关闭)。
+
+## 卡牌分组：从 devPanel 内部常量提纯为共享纯函数（2026-10-22）
+
+**用户需求**：「bench 中的卡牌分类需要改为主要游戏中开发者面板中卡牌的分类方式」。
+
+**改前**：devPanel 的 `DEV_CARD_GROUPS`（**11 组、按效果类型**）是 `mountDevPanel()` **内部**的 const，外部不可复用；bench 的 `#cardSelect` 走 `groupCardsByRarity`（**按稀有度**）⇒ 两页维度不同。
+
+**改后**：
+
+- `DEV_CARD_GROUPS` 提到 `js/tank_devpanel.js` **模块顶层**；新增纯函数 `devCardGroupKey(card)`（**首个匹配**语义，与旧内联循环一致）、`devCardGroupLabel(key)`、`groupCardsByEffect(cards)`；四处一并 `module.exports`。
+- `tank_bench.html` 的 `populateCardSelect` 改用 `groupCardsByEffect`（`<optgroup label="主武器安装（4）">` 形式，选项文本保留 `名称 · RARE`）⇒ 与正式游戏 devPanel 的「卡牌」Tab **逐组数量一致**（实测 205 张分入 11 组）。
+- **降级链**：`devCardGroupKey` 缺失 → 回落 `groupCardsByRarity`（旧行为）→ 再缺回落本地稀有度桶。
+
+**11 组口径**：主武器安装 / 主武器升级 / 副武器安装 / 副武器升级 / 弹种升级 / 弹种强化 / 主动技能 / 被动机制 / 参数强化 / 无人机 / 经济（+ 「其他」兜底桶）。
+
+**同批修的两个 bench 既有缺陷**（验证「同源」时暴露的阻断项）：
+
+1. bench 的 `getCardPool` 传给 devPanel 的是 `{id→spec}` 对象而 devpanel 期望数组 ⇒ 面板恒显「卡池为空」，现改为数组。
+2. devPanel 的 `liveData` 读 `update()` 的局部变量 `worldW/worldH` 抛 `worldW is not defined`，现改读 `canvas.width/height`。
 
 ## 相关页面
 - [浏览器自动化测试链](./browser-tests.md) — 验证 devPanel 四 Tab 与卡牌选择器的四链

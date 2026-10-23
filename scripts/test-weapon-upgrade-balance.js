@@ -63,7 +63,9 @@ const DPS_FIELDS = new Set(['damageMult', 'reloadMult', 'damage', 'reload', 'cou
 //   **副武器模式载体**（`weapons.secondary.type === 'howitzer'`，判据 `isHowitzerMode(t)`），
 //   其升级卡改的是 splashRadius（爆炸范围）/ barrage（急速射）——纯功能性字段，
 //   无 DPS 语义 ⇒ 机制型。
-const MECHANICAL_TYPES = new Set(['clip', 'howitzer']);   // howitzer=副武器模式载体，升级字段为 splashRadius/barrage（纯功能性）
+// 2026-10-23（本批）：smoke（战术烟幕发射器）是**纯功能性**副武器——单发 0 伤害，
+//   升级字段为 cloudCount/spreadPx/duration/reload（烟墙覆盖度），无 DPS 语义 ⇒ 机制型。
+const MECHANICAL_TYPES = new Set(['clip', 'howitzer', 'smoke']);   // howitzer=副武器模式载体，升级字段为 splashRadius/barrage（纯功能性）
 
 const DPS_FN = {
   standard:      (s) => (s.count || 1) * (s.damageMult || 1) / (s.reloadMult || 1),
@@ -89,7 +91,10 @@ const LEGACY_MIN = 1.25, LEGACY_MAX = 1.60;       // 原 4 张副武器 rare 卡
 // 历史 4 张（#S6 定案带 + 梯度极差断言的对象；新增卡不受此紧带约束）
 const LEGACY_IDS = [
   'weapon_secondary_mortar_upgrade', 'weapon_secondary_missile_upgrade',
-  'weapon_secondary_rocket_upgrade', 'weapon_secondary_mine_upgrade'
+// 2026-10-22（第五批）：`weapon_secondary_mine_upgrade` **移出**该表——它已从「地雷伤害 100→150」
+//   改为「雷场伤害 = 当前 HE 伤害 ×1.15」（mineFieldHeRatio），DPS 计算器不读该字段，
+//   gain 恒 1.000 会把梯度极差撑到 0.524。雷场伤害口径见 deploy_limits.mineFieldHeRatio。
+  'weapon_secondary_rocket_upgrade'
 ];
 
 console.log('=== 武器升级卡数值复核（#U39：全部 weapon upgrade 卡） ===\n');
@@ -167,13 +172,13 @@ for(const card of upgrades.sort((a, b) => String(a.id).localeCompare(String(b.id
 }
 
 // 3) 历史 4 张卡的梯度一致性（防单卡离群；#S6 结论不回退）
-console.log('\n—— 历史 4 张副武器 rare 升级卡 增益梯度 ——');
+console.log('\n—— 历史副武器 rare 升级卡 增益梯度（mine_upgrade 已移出，见上注） ——');
 const legacyRows = rows.filter(r => LEGACY_IDS.includes(r.id) && r.gain !== null);
 console.log('  升级卡'.padEnd(40) + 'DPS 基础 → 升级'.padEnd(24) + '增益');
 for(const r of legacyRows){
   console.log('  ' + r.id.padEnd(38) + `${r.dpsBase.toFixed(2)} → ${r.dpsUp.toFixed(2)}`.padEnd(24) + r.gain.toFixed(3) + '×');
 }
-ok(legacyRows.length === LEGACY_IDS.length, `历史 4 张卡全部复核到（${legacyRows.length}/${LEGACY_IDS.length}）`);
+ok(legacyRows.length === LEGACY_IDS.length, `历史 ${LEGACY_IDS.length} 张卡全部复核到（${legacyRows.length}/${LEGACY_IDS.length}）`);
 if(legacyRows.length >= 2){
   const gains = legacyRows.map(r => r.gain).sort((a, b) => a - b);
   const spread = gains[gains.length - 1] - gains[0];

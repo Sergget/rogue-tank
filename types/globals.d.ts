@@ -160,7 +160,7 @@ declare function isHostile(teamA: any, teamB: any): boolean;
 declare function nearestEnemyTo(t: any): any;
 declare function obbMTVs(polyA: any, polyB: any): any;
 
-declare function spawnMuzzleFlash(x: any, y: any, angle: any, style?: any): void;
+declare function spawnMuzzleFlash(x: any, y: any, angle: any, style?: any, muzzleType?: any): void;
 declare function spawnImpactFx(x: any, y: any, type: any, angle?: any): void;
 declare function burstExplosion(x?: any, y?: any, r?: any, count?: any, speed?: any, color?: any): void;
 // #U38（2026-10-18）：电磁轨道炮放电弧（炮身/炮口）+ 绘制入口
@@ -281,6 +281,13 @@ declare var covers: any[];
 declare function snapshotCovers(): void;
 declare function resetCovers(): void;
 declare function hasLineOfSight(ox: number, oy: number, tx: number, ty: number, coversList?: any[]): boolean;
+// 2026-10-23 本批：隐蔽机制（RULES.camouflage）纯函数——见 js/tank_cover.js
+declare function camouflageClassOf(t: any): string;
+declare function camouflageMotionOf(t: any): string;
+declare function camouflageValue(t: any): number;
+declare function camouflageDistanceMultiplier(t: any): number;
+// 2026-10-23 本批：战术烟幕发射器（副武器 smoke）生成单团烟雾云。
+declare function spawnSmokeCloud(x: number, y: number, radius: number, durationSec: number): any;
 // A17：视线遮挡原语——返回 (ax,ay)→(bx,by) 首个挡视线（tier.vision）掩体及其侧向单位向量
 declare function losBlocker(ax: number, ay: number, bx: number, by: number, coversList?: any[]): { cover: any; nx: number; ny: number; point?: any } | null;
 // A17 方案1：生成期 LoS 走廊保证（开走廊：侧移 / full→soft 降级 / 移除），返回是否改动
@@ -409,6 +416,15 @@ declare function drawCardChoices(pool: any[], n?: number, optsOrRng?: any): any[
 declare function weightedRarity(r: any): string;
 declare function pickBossArmament(pool: any[], opts?: any): any[];
 declare function cardEligible(card: any, owned: any): boolean;
+
+// 2026-10-23：被动技能卡（passive skill）分类与被动技能槽（坦克属性，默认 2 格、不可升级增减）
+declare function isPassiveSkillCard(card: any): boolean;
+declare function passiveSlotMax(): number;
+declare function ownedPassiveCardIds(tank: any): string[];
+declare function passiveSlotState(tank: any): { max: number, used: number, free: number, cardIds: string[] };
+declare function passiveSlotsFull(tank: any): boolean;
+declare function removePassiveCard(tank: any, cardId: string): boolean;
+declare function passiveReplaceCandidates(tank: any): string[];
 
 // Boss 系统（js/tank_boss.js，P-09 / §2.14）
 declare var BOSS_WEAKSPOT_KEYS: string[];

@@ -369,7 +369,8 @@ function makeNode(index, rng, env) {
     //   注：模板集全为横向（r∈1.6~1.75），故仅在 A≈[1.5,1.87] 时存在可行解；
     //   极端视口比例（如 1:1）下取最接近者——受单一 scale 缩放所限，无法两轴同时达标。
     const _isB = (typeof isBossNodeIndex === 'function' ? isBossNodeIndex(index) : false) || !!(env && env.bossOnly);
-    if (_isB && !(env && env.stripForBoss)) {
+    // 2026-10-22（第五批 B4-1）：Boss 节点恒走方形路径（stripForBoss 已删除），长宽比修正恒生效。
+    if (_isB) {
       const MAX_SCREENS = 3.2;
       const base = cfg.nodeScale || 1;
       const A = viewport.vw / viewport.vh;
@@ -413,12 +414,28 @@ function makeNode(index, rng, env) {
 
   const stripCfg = cfg.strip || {};
   const stripEnabled = stripCfg.enabled !== false;
-  // #MODE（2026-10-15）：Boss/生存模式也用新生成器——env.stripForBoss 为真时 Boss 节点走 strip
-  //（方形尺寸由 env.stripScreensX/Y 指定）；生存模式经 generateSurvivalRun 传入 5×5。
-  const useStripForBoss = !!(env && env.stripForBoss);
-  const stripMode = !!(stripEnabled && (!isBoss || useStripForBoss) &&
+  // 2026-10-22（第五批 B4-1）：Boss 战模式**沿用标准 boss 节点生成器**——已删除
+  //   `env.stripForBoss`（Boss 走 strip）的 hack：Boss 节点恒走 makeNode 的方形竞技场路径
+  //   （3.0–3.2 屏 + bossDensity），与标准模式第 3/6/9 个 Boss 节点完全同一生成器。
+  const stripMode = !!(stripEnabled && !isBoss &&
     viewport && viewport.vw > 0 && viewport.vh > 0 &&
     typeof generateStrip === 'function');
+
+  // #U35（2026-10-18）生存模式口径（2026-10-22 B4-2 起）：尺寸唯一配置源 = RULES.nodeMap.strip.survival。
+  //   env.noEnemies 为真 ⇒ 生存模式：本节点尺寸取 `strip.survival` 段（screensX/screensY/chunkRows/
+  //   chunkCount），env.stripScreensX/Y 仅作为该段缺失时的 fallback（历史调用兼容）。
+  //   **Boss / 标准模式不再读 env.stripScreensX/Y**（B4-1：那是 stripForBoss 时代的 3×3 覆盖）。
+  const survCfgRaw = stripCfg.survival || {};
+  const effStrip = noEnemies
+    ? Object.assign({}, stripCfg, survCfgRaw, {
+        // 优先级：env.stripScreensX/Y（generateSurvivalRun 从 RULES.nodeMap.strip.survival 透传，
+        //   显式调用方覆盖也走这条）> RULES.nodeMap.strip.survival > strip.screensX/Y。
+        screensX: (env && env.stripScreensX) || (survCfgRaw.screensX !== undefined ? survCfgRaw.screensX : stripCfg.screensX),
+        screensY: (env && env.stripScreensY) || (survCfgRaw.screensY !== undefined ? survCfgRaw.screensY : stripCfg.screensY),
+        chunkCount: survCfgRaw.chunkCount !== undefined ? survCfgRaw.chunkCount : stripCfg.chunkCount,
+        chunkRows: survCfgRaw.chunkRows !== undefined ? survCfgRaw.chunkRows : stripCfg.chunkRows
+      })
+    : stripCfg;
 
   // #I3（2026-09-21 用户裁定「特别是 boss 战地图的建筑密度」）：Boss 节点建筑密度乘子
   // （isBossNodeIndex 为纯函数，可在 generateNode 前判定）。strip 模式无单模板歧义，
@@ -431,18 +448,27 @@ function makeNode(index, rng, env) {
   let w, h;
   if (stripMode) {
     // strip 坐标即世界坐标（[0,totalW]×[0,stripH]），无中心平移
-    // #MODE（2026-10-15）：env 可覆盖 strip 尺寸（Boss 3×3、生存 5×5）
-    const stripRes = generateStrip(diff, {
+    // 2026-10-22（第五批 B4-1/B4-2）：env 不再覆盖 strip 尺寸的 screensX/Y——唯一配置源是
+    //   RULES.nodeMap.strip（strip.screensX/screensY/survival.*）。`env.stripChunkRows` 保留
+    //   （生存模式经 generateSurvivalRun 显式传 chunkRows），chunkCount 仍由 stripCfg 透传。
+    // 注：stripOpts 先落变量再传（避免对 StripGenOptions 的对象字面量超额属性检查——
+    //   `fillBands` 是 2026-10-22 新增的生成器开关，types/globals.d.ts 属其他角色写域）。
+    const stripOpts = {
       seed: rng.int(0, 1000000),
       viewport: viewport,
       scaleFor: (vp, tpl) => nodeScaleFor(vp, tpl),   // 片内 scale 沿用现行口径
-      stripScreensX: (env && env.stripScreensX) || stripCfg.screensX,
-      stripScreensY: (env && env.stripScreensY) || stripCfg.screensY,
+      stripScreensX: effStrip.screensX,
+      stripScreensY: effStrip.screensY,
       // #U35（2026-10-18）：多行片——缺省 1（单行条带，零回归）；生存模式经
-      // generateSurvivalRun 传 RULES.nodeMap.strip.survival.chunkRows（2 行）。
-      chunkRows: (env && env.stripChunkRows) || undefined,
-      chunkCount: stripCfg.chunkCount || undefined
-    });
+      //   generateSurvivalRun 传 RULES.nodeMap.strip.survival.chunkRows（3×3 屏时 = 1）。
+      chunkRows: (env && env.stripChunkRows) || effStrip.chunkRows || undefined,
+      // 2026-10-22（B4-2）：片数透传（生存 3×3 屏 = chunkCount:1；0/缺省 = 生成器按 screensX 估算）
+      chunkCount: effStrip.chunkCount || undefined,
+      // 2026-10-22（B4-2）：生存模式单行片也要求「纵向填满」（模板内容只占片高中段，
+      //   纵向裁剪后会留下上下空带）——显式开启 fillEmptyBands 补植，标准模式保持缺省关闭。
+      fillBands: noEnemies === true
+    };
+    const stripRes = generateStrip(diff, stripOpts);
     w = stripRes.w; h = stripRes.h;
     templateResult = {
       covers: stripRes.covers,
@@ -481,7 +507,7 @@ function makeNode(index, rng, env) {
   // 玩家出生点：默认左缘 (0.10w, h/2)。
   // 合法出生点 = 不落在**阻挡通行**的元素上。判据与坦克侧碰撞一致（tank_cover.js:370
   // resolveCoverCollisions 的 blocked 口径）：passability===0 或 shellBlock。地面层
-  // （road）与减速地形（mud/river/water/bush/soft/stump/rubble/bridge）可正常出生。
+  // （road）与减速地形（mud/river/water/bush/stump/rubble/bridge）可正常出生。
   // #T4（2026-10-16 修复）：原实现有两点偏差——
   //   ① 清场用 c.w/c.h 的 AABB 包络且不按 tier 过滤，把 mud/river/bush 等可通行地形
   //      一并删除（10 seed 删 14 个全属此类），并在连续河道上凿出空洞；
@@ -588,6 +614,33 @@ function makeNode(index, rng, env) {
     cfg: defenseCfg
   }) : { lines: [], lineCount: 0, perAnchor: 0, targetCount: enemyCountForDifficulty(diff), enabled: false };
   const targetCount = noEnemies ? 0 : defense.targetCount;
+
+  // ==== 2026-10-22 防线墙体（用户反馈「掩体摆放过于随机，要呈现 1 个防线的样子，
+  //   防御玩家可能进攻的 2-3 个方向」）====
+  //   在敌军防线规划完成后调用：防线墙的 x 对齐敌军防线锚点 ⇒「墙」与「守墙的敌人」重合；
+  //   墙法线朝玩家出生方向（竖墙），沿世界高度分段铺 + 通行口 ⇒ 读作一道防御工事。
+  //   · 仅方形节点（strip 的横向条带没有「左缘出生→向右推进」的单一轴，不适用）；
+  //   · Boss 节点跳过（Boss 战地图有独立的掩体验收断言，不混入防线墙）；
+  //   · noEnemies（生存模式）也布防——生存模式玩家同样从固定方向被进攻。
+  //   放置后墙参与后续 pruneOverlappingCovers（generateNode 内已跑过 ⇒ 这里新放的墙
+  //   只与「敌人生成时的 hitsCover 拒绝采样」互动，不会压建筑——避让在函数内完成）。
+  // 2026-10-22（用户反馈后修正）：strip（标准模式主路径，≈10×2.2 屏）**同样**布防线墙——//   strip 正是「玩家沿推进轴清防线」的主场景；Boss 节点仍跳过。
+  if (defense.enabled &&
+      h >= ((cfg.defenseWalls && cfg.defenseWalls.segLenMin) || 110) * 2 +
+           ((cfg.defenseWalls && cfg.defenseWalls.gapMin) || 90) &&
+      typeof globalThis.placeDefenseWalls === 'function') {
+    const _dwCfg = (cfg.defenseWalls || {});
+    // 防线道数 = 敌军防线数（同一节奏：玩家清一道防线 = 撞一道墙）
+    const _linesWanted = Math.max(1, defense.lineCount || 1);
+    globalThis.placeDefenseWalls(rng, templateResult.covers, {
+      worldW: w, worldH: h,
+      playerSpawn: playerSpawn,
+      anchorXs: defense.lines.map(function (l) { return l.center; }),
+      roadSegs: (typeof globalThis.roadCoversToSegments === 'function') ? globalThis.roadCoversToSegments(templateResult.covers, Array.isArray(templateResult.roadW) ? (templateResult.roadW[0] || 100) : (templateResult.roadW || 100)) : [],
+      linesWanted: _linesWanted
+    });
+    void _dwCfg;
+  }
 
   // P-43：构成随深度演进——compose 一次，防线聚簇与兜底两处共用同一 spec 数组（按 enemies.length 顺序消费）。
   // #U35：noEnemies 时跳过构成抽样（不消耗 rng，敌数恒 0）。
@@ -1150,51 +1203,260 @@ function generateRun(seed, count, env) {
 }
 
 /**
- * 生存模式补给站放置（2026-10-15）：在节点内生成若干补给站位置。
- * - 避开一切掩体（含水体/河流，由 pointInCover 统一判定）；
- * - 远离玩家出生点；站点之间彼此分散。
- * @param {any} node makeNode 产物（含 w/h/covers/playerSpawn）
- * @param {number|string} seed 整局种子（派生确定性 rng）
- * @param {number} [count] 站点数，缺省 3
- * @returns {{x:number,y:number}[]} 站点世界坐标
+ * 生存模式补给站配置（唯一配置源 RULES.nodeMap.strip.survivalSupply；缺省值与 RULES 同口径）。
+ * @param {any} [override] 可选覆盖（generateSurvivalRun 透传 RULES 表；测试可注入）
+ * @returns {any} 归一化后的配置对象
  */
-function placeSupplyStations(node, seed, count) {
-  const n = Math.max(1, count || 3);
-  const rng = createRNG(String(seed !== undefined ? seed : 0) + ':supply');
+function survivalSupplyConfig(override) {
+  const cfg = nodeConfig();
+  const base = (cfg.strip && cfg.strip.survivalSupply) || {};
+  const src = Object.assign({}, base, override || {});
+  return {
+    count: src.count !== undefined ? src.count : 4,
+    cornerMargin: src.cornerMargin !== undefined ? src.cornerMargin : 0.14,
+    searchRadius: src.searchRadius !== undefined ? src.searchRadius : 180,
+    searchRadiusMax: src.searchRadiusMax !== undefined ? src.searchRadiusMax : 320,
+    minStationDist: src.minStationDist !== undefined ? src.minStationDist : 700,
+    minPlayerDist: src.minPlayerDist !== undefined ? src.minPlayerDist : 520,
+    coverPad: src.coverPad !== undefined ? src.coverPad : 60,
+    reachGrid: src.reachGrid !== undefined ? src.reachGrid : 40
+  };
+}
+
+// 阻挡掩体判定（补给点时用）：passability 0 或 shellBlock true/'solid'/'wall'。
+// 与 tank_cover.resolveCoverCollisions 的 blocked 口径同源，另加新掩体语义 'wall'（部位裁剪仍不可穿行）。
+function supplyBlockingCovers(covers) {
+  const out = [];
+  for (const c of (covers || [])) {
+    if (!c) continue;
+    const def = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers[c.tier] : null;
+    if (!def) continue;
+    if (def.passability === 0 || def.shellBlock === true || def.shellBlock === 'solid' || def.shellBlock === 'wall') {
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+// 液态地形（不能停留：water/river，passability 0.4 + 溺毙风险）
+function supplyLiquidCovers(covers) {
+  const out = [];
+  for (const c of (covers || [])) {
+    if (!c) continue;
+    const def = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers[c.tier] : null;
+    if (def && def.tierGroup === 'liquid') { out.push(c); continue; }
+    if (c.tier === 'water' || c.tier === 'river') out.push(c);
+  }
+  return out;
+}
+
+/**
+ * 可达性：从 node.playerSpawn 出发，以「passability === 0 的 cover」为阻挡（按 OBB 含 20px 半径），
+ * 在 [0,w]×[0,h] 上以 cfg.reachGrid（缺省 40px）建网格做 8 邻域 BFS；目标格可达即 true。
+ * 网格**缓存**在同一 node 上（node._reachGrid），同一节点只建一次（BFS 结果缓存）。
+ *
+ * 说明：阻挡只认 passability===0（墙/岩石/永久掩体等实体）；水体 passability 0.4 = 减速通行的
+ * 液面，语义上「可驶过但会溺毙」，故由 placeSupplyStations 的独立水体判据排除，不进 BFS 阻挡。
+ *
+ * @param {any} node 节点（含 w/h/covers/playerSpawn）
+ * @param {{x:number,y:number}} pt 待判定点（世界坐标）
+ * @param {any} [cfg] 配置（可只给 reachGrid；缺省读 RULES.nodeMap.strip.survivalSupply）
+ * @returns {boolean} 是否可达
+ */
+function isReachableFromSpawn(node, pt, cfg) {
+  if (!node || !pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) return false;
+  const c = cfg || survivalSupplyConfig();
+  const g = Math.max(10, Math.round(c.reachGrid || 40));
+  const w = node.w, h = node.h;
+  if (!(w > 0) || !(h > 0)) return false;
+  if (pt.x < 0 || pt.x > w || pt.y < 0 || pt.y > h) return false;
+  let cache = node._reachGrid;
+  if (!cache || cache.g !== g || cache.w !== w || cache.h !== h) {
+    const cols = Math.floor(w / g) + 1;
+    const rows = Math.floor(h / g) + 1;
+    const blockers = supplyBlockingCovers(node.covers).filter(b => {
+      const def = RULES.coverTiers[b.tier];
+      return !!(def && def.passability === 0);
+    });
+    const TANK_R = 20;   // 按车体半宽膨胀（与 test-strip 的 38px 通道口径同源：半宽 19~20px）
+    const blocked = new Uint8Array(cols * rows);
+    for (let gy = 0; gy < rows; gy++) {
+      const y = gy * g;
+      for (let gx = 0; gx < cols; gx++) {
+        const x = gx * g;
+        let bl = 0;
+        for (const b of blockers) {
+          if (pointInCoverOne(b, x, y, TANK_R)) { bl = 1; break; }
+        }
+        blocked[gy * cols + gx] = bl;
+      }
+    }
+    // BFS 种子 = 距 playerSpawn 最近的自由格（spawn 自身落在墙边时网格量化可能压线）
+    const ps = node.playerSpawn || { x: w * 0.10, y: h / 2 };
+    let sgx = -1, sgy = -1, bestD = Infinity;
+    for (let gy = 0; gy < rows; gy++) {
+      for (let gx = 0; gx < cols; gx++) {
+        if (blocked[gy * cols + gx]) continue;
+        const d = (gx * g - ps.x) * (gx * g - ps.x) + (gy * g - ps.y) * (gy * g - ps.y);
+        if (d < bestD) { bestD = d; sgx = gx; sgy = gy; }
+      }
+    }
+    const reached = new Uint8Array(cols * rows);
+    if (sgx >= 0) {
+      const queue = [sgy * cols + sgx];
+      reached[sgy * cols + sgx] = 1;
+      let head = 0;
+      while (head < queue.length) {
+        const cur = queue[head++];
+        const cy = (cur / cols) | 0, cx = cur % cols;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const ny = cy + dy, nx = cx + dx;
+            if (ny < 0 || ny >= rows || nx < 0 || nx >= cols) continue;
+            const ni = ny * cols + nx;
+            if (blocked[ni] || reached[ni]) continue;
+            reached[ni] = 1;
+            queue.push(ni);
+          }
+        }
+      }
+    }
+    cache = { g: g, w: w, h: h, cols: cols, rows: rows, blocked: blocked, reached: reached };
+    node._reachGrid = cache;
+  }
+  const gx = Math.max(0, Math.min(cache.cols - 1, Math.round(pt.x / cache.g)));
+  const gy = Math.max(0, Math.min(cache.rows - 1, Math.round(pt.y / cache.g)));
+  return cache.reached[gy * cache.cols + gx] === 1;
+}
+
+/**
+ * 生存模式补给站放置（2026-10-22 第五批 B4-2 重写）：**四角各 1 个**（固定 count=4）。
+ * 用户口径：补给点增加为 4 个、4 个角落各 1 个，且需要避开坦克「不能到达 / 不能停留」的位置。
+ *
+ * 算法（每角独立、确定性）：
+ *   ① 候选中心 = (w·cm, h·cm) / (w·(1−cm), h·cm) / (w·cm, h·(1−cm)) / (w·(1−cm), h·(1−cm))；
+ *   ② 24 点螺旋搜索（半径 0 → searchRadius）取首个满足全部约束的点；
+ *   ③ 失败则用 searchRadiusMax 再搜一轮；
+ *   ④ 仍失败 → 在该象限内（x≶w/2 × y≶h/2）取「最接近候选中心」的合法点（允许违反 minStationDist，
+ *      保证恒 4 个）；若连象限内也无点，逐级放宽 minPlayerDist/可达性（仍保持不在实体掩体与水体上）。
+ *
+ * 约束：
+ *   · 不在 passability===0 / shellBlock true/'solid'/'wall' 的 cover 内（padding coverPad）；
+ *   · 不在 water/river 上（passability 0.4 的 liquid = 可驶入但会溺毙 ⇒ 不能停留）；
+ *   · 不在 road 上（补给点压在路面上会被读作路障；测试口径同样要求「不压路面」）；
+ *   · 从玩家出生点可达（isReachableFromSpawn，40px 网格 8 邻域 BFS，网格按 node 缓存）；
+ *   · 距 node.playerSpawn ≥ minPlayerDist；站点彼此 ≥ minStationDist。
+ *
+ * @param {any} node makeNode 产物（含 w/h/covers/playerSpawn）
+ * @param {number|string} seed 整局种子（派生确定性 rng；本实现不使用随机数，保留签名兼容）
+ * @param {number} [count] 站点数（缺省读 RULES.nodeMap.strip.survivalSupply.count = 4）
+ * @param {any} [cfgOverride] 配置覆盖（缺省读 RULES）
+ * @returns {{x:number,y:number}[]} 站点世界坐标（恒为 count 个，除非地图退化到无处可放）
+ */
+function placeSupplyStations(node, seed, count, cfgOverride) {
+  const cfg = survivalSupplyConfig(cfgOverride);
+  const n = Math.max(1, count !== undefined && count !== null ? count : cfg.count);
   const w = node.w, h = node.h;
   const covers = node.covers || [];
   const ps = node.playerSpawn || { x: w * 0.10, y: h / 2 };
-  const margin = 140;
-  const minPlayerDist = 900;    // 距出生点
-  const minStationDist = 1500;  // 站点之间
+  const blockCovers = supplyBlockingCovers(covers);
+  const liquidCovers = supplyLiquidCovers(covers);
+  const roadCovers = covers.filter(c => c && c.tier === 'road');
+  const cm = cfg.cornerMargin;
+  // 四角顺序固定：左上 → 右上 → 左下 → 右下（确定性；同 seed 同结果）
+  const corners = [
+    { x: w * cm, y: h * cm, qx: -1, qy: -1 },
+    { x: w * (1 - cm), y: h * cm, qx: 1, qy: -1 },
+    { x: w * cm, y: h * (1 - cm), qx: -1, qy: 1 },
+    { x: w * (1 - cm), y: h * (1 - cm), qx: 1, qy: 1 }
+  ];
   const stations = [];
-  let attempts = 0;
-  while (stations.length < n && attempts < 300) {
-    attempts++;
-    const x = rng.range(margin, w - margin);
-    const y = rng.range(margin, h - margin);
-    if (Math.hypot(x - ps.x, y - ps.y) < minPlayerDist) continue;
-    if (pointInCover(covers, x, y, 80)) continue;   // 避开掩体/水体/河流
-    let tooClose = false;
-    for (const s of stations) {
-      if (Math.hypot(x - s.x, y - s.y) < minStationDist) { tooClose = true; break; }
+  const legal = (x, y, opts) => {
+    const o = opts || {};
+    if (x < 20 || x > w - 20 || y < 20 || y > h - 20) return false;
+    if (pointInCover(blockCovers, x, y, cfg.coverPad)) return false;
+    if (pointInCover(liquidCovers, x, y, 24)) return false;   // 水体/河流：不能停留（溺毙）
+    if (pointInCover(roadCovers, x, y, 8)) return false;      // 不压路面
+    if (o.checkPlayer !== false && Math.hypot(x - ps.x, y - ps.y) < cfg.minPlayerDist) return false;
+    if (o.checkReach !== false && !isReachableFromSpawn(node, { x: x, y: y }, cfg)) return false;
+    if (o.checkStation !== false) {
+      for (const s of stations) {
+        if (Math.hypot(x - s.x, y - s.y) < cfg.minStationDist) return false;
+      }
     }
-    if (tooClose) continue;
-    stations.push({ x: Math.round(x), y: Math.round(y) });
+    return true;
+  };
+  // 24 点阿基米德螺旋：t = i/(N-1)，r = rMax·t，θ 用黄金角展开避免同心采样偏差
+  const spiral = (cx, cy, rMax, rMin) => {
+    const N = 24;
+    const r0 = rMin || 0;
+    const pts = [];
+    for (let i = 0; i < N; i++) {
+      const t = i / (N - 1);
+      const r = r0 + (rMax - r0) * t;
+      const a = i * 2.399963229728653;   // 黄金角（rad）
+      pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+    }
+    return pts;
+  };
+  for (const corner of corners) {
+    let found = null;
+    // ② 首轮：半径 0 → searchRadius
+    for (const p of spiral(corner.x, corner.y, cfg.searchRadius, 0)) {
+      if (legal(p.x, p.y)) { found = p; break; }
+    }
+    // ③ 二轮：0 → searchRadiusMax（覆盖首轮之外的空隙）
+    if (!found) {
+      for (const p of spiral(corner.x, corner.y, cfg.searchRadiusMax, cfg.searchRadius)) {
+        if (legal(p.x, p.y)) { found = p; break; }
+      }
+    }
+    // ④ 象限内最接近候选中心的合法点（允许违反 minStationDist）
+    if (!found) {
+      let best = null, bestD = Infinity;
+      const step = Math.max(24, Math.round(cfg.reachGrid || 40));
+      for (let y = step; y <= h - step; y += step) {
+        for (let x = step; x <= w - step; x += step) {
+          if (corner.qx < 0 ? x >= w / 2 : x <= w / 2) continue;
+          if (corner.qy < 0 ? y >= h / 2 : y <= h / 2) continue;
+          if (!legal(x, y, { checkStation: false })) continue;
+          const d = Math.hypot(x - corner.x, y - corner.y);
+          if (d < bestD) { bestD = d; best = { x: x, y: y }; }
+        }
+      }
+      if (best) found = best;
+    }
+    // 最后兜底（极端地图）：放宽「距玩家距离 / 可达性」，仍不放在实体掩体/水体/路面上
+    if (!found) {
+      let best = null, bestD = Infinity;
+      const step = Math.max(24, Math.round(cfg.reachGrid || 40));
+      for (let y = step; y <= h - step; y += step) {
+        for (let x = step; x <= w - step; x += step) {
+          if (corner.qx < 0 ? x >= w / 2 : x <= w / 2) continue;
+          if (corner.qy < 0 ? y >= h / 2 : y <= h / 2) continue;
+          if (!legal(x, y, { checkStation: false, checkPlayer: false, checkReach: false })) continue;
+          const d = Math.hypot(x - corner.x, y - corner.y);
+          if (d < bestD) { bestD = d; best = { x: x, y: y }; }
+        }
+      }
+      if (best) found = best;
+    }
+    if (found) stations.push({ x: Math.round(found.x), y: Math.round(found.y) });
   }
   return stations;
 }
 
 /**
- * 生成生存模式对局（#MODE 2026-10-15；#U35 2026-10-18 重写）：单个大地图。
- * 现行口径（用户 2026-10-18 裁定）：**与标准模式共用同一套 strip 生成器**，只保留更大的
- * 单图（≈5×5 屏），并且不再使用 bossOnly / stripForBoss 两个 hack：
+ * 生成生存模式对局（#MODE 2026-10-15；#U35 2026-10-18 重写；2026-10-22 第五批 B4-2 缩图 + 四角补给）。
+ * 现行口径：**与标准模式共用同一套 strip 生成器**，尺寸唯一配置源 = RULES.nodeMap.strip.survival
+ * （2026-10-22 用户裁定「缩小地图」：3×3 屏 = screensX 3 / screensY 3 / chunkRows 1 / chunkCount 1）：
  *   · 走标准路径 generateRun(seed, 1, { noEnemies: true, stripChunkRows })——
  *     env.noEnemies 让常规敌军不生成（enemies=[]、quota=null、defenseLines=[]、boss=null），
  *     covers/roadJunctions/exitX/supplyStations 等其余字段全部走标准逻辑；
- *   · chunkRows 来自 RULES.nodeMap.strip.survival（唯一配置源）：2 行片 ⇒ 世界高 = 2×片高
- *     （≈6 屏），纵向填满、无上下空白带（旧实现单片 2196 高塞进 3600 高的 strip，
- *     底部 400px 带元素数 = 0）；
+ *   · chunkRows 透传 env.stripChunkRows（makeNode 读 env 后传给 generateStrip）；
+ *     screensX/Y 同样经 env.stripScreensX/Y 透传，但 makeNode **只在 noEnemies（生存）分支**消费它们
+ *     ——Boss / 标准模式不再被 env 覆盖尺寸（B4-1）；chunkCount 由 makeNode 从 stripCfg 透传，不在此另写。
  *   · 波次敌人与 Boss 由 UI 层按波次手动生成（node.survival=true 供识别，exitX=Infinity
  *     表示无出口、不走推进式完成判定）。
  * @param {number|string} [seed] 整局确定性种子；缺省随机
@@ -1206,9 +1468,9 @@ function generateSurvivalRun(seed, env) {
   const surv = (cfg.strip && cfg.strip.survival) || {};
   const e = Object.assign({}, env || {}, {
     noEnemies: true,                                     // 常规敌军不生成（波次手动生成）
-    stripScreensX: surv.screensX !== undefined ? surv.screensX : 5,
-    stripScreensY: surv.screensY !== undefined ? surv.screensY : 5,
-    stripChunkRows: surv.chunkRows !== undefined ? surv.chunkRows : 2
+    stripScreensX: surv.screensX !== undefined ? surv.screensX : 3,
+    stripScreensY: surv.screensY !== undefined ? surv.screensY : 3,
+    stripChunkRows: surv.chunkRows !== undefined ? surv.chunkRows : 1
   });
   const run = generateRun(seed, 1, e);
   const node = run.nodes[0];
@@ -1217,7 +1479,13 @@ function generateSurvivalRun(seed, env) {
   node.exitX = Infinity;   // 生存模式：无出口（波次制，无需撤离）
   node.quota = null;       // 波次制不走节点配额/清场链路（makeNode 已置 null，显式固化）
   node.defenseLines = [];
-  node.supplyStations = placeSupplyStations(node, run.seed);  // 补给站（回血+商店）
+  // 补给站：四角各 1（配置唯一源 RULES.nodeMap.strip.survivalSupply；count 显式传 4）
+  const supplyCfg = (cfg.strip && cfg.strip.survivalSupply) || null;
+  node.supplyStations = placeSupplyStations(
+    node, run.seed,
+    supplyCfg && supplyCfg.count !== undefined ? supplyCfg.count : 4,
+    supplyCfg
+  );
   return run;
 }
 
@@ -1543,6 +1811,10 @@ if (typeof module !== 'undefined' && module.exports) {
     generateRun,
     generateSurvivalRun,
     placeSupplyStations,
+    survivalSupplyConfig,
+    isReachableFromSpawn,
+    supplyBlockingCovers,
+    supplyLiquidCovers,
     extendRun,
     scoreNode,
     materializeNode,
@@ -1552,4 +1824,11 @@ if (typeof module !== 'undefined' && module.exports) {
     buildCoverIndex,
     pointInCoverIndexed
   };
+}
+
+// 2026-10-22（第五批 B4-2）：isReachableFromSpawn 同时挂到 globalThis——供浏览器侧调试/测试直调
+// （浏览器端本函数的顶层声明已是全局，这里显式赋值保持「可预期可发现」，且对 Node 侧无害）。
+if (typeof globalThis !== 'undefined') {
+  globalThis.isReachableFromSpawn = isReachableFromSpawn;
+  globalThis.placeSupplyStations = placeSupplyStations;
 }

@@ -58,37 +58,40 @@ let state = {
    spreadMult: 1, aimSpeed: 0.15,
    trackWidth: 8, trackOffset: 0,
    texture: 'none', // 表面纹理（TEXTURE_DEFS 键：none/armor_plate/weld_seam/rust/camo/camo_dunkelgelb/paint_panzergrau/camo_nato/paint_soviet）
-   sprite: defaultSprite(), // 整车精灵（AI 生成贴图）：{ enabled, hull:{img,scale,dx,dy,rot}, turret:{img,scale,dx,dy,rot,pivot:[px,py]} }
+   sprite: defaultSprite(), // 整车精灵（后期美术四层贴图）：{ enabled, hull:{img,scale,dx,dy,rot}, turret:{img,scale,dx,dy,rot,pivot:[px,py]} }
    // 仅设计器画布叠加显示，不写入存档。
    // #L7：默认关闭——未对齐（或贴图带残留白底）时叠加会直接盖住多边形，让「顶点/装甲」
    // 编辑变得无法判读；对齐时由用户显式勾选「画布显示精灵」。
    spritePreview: false,
    hull: defaultHull(),
    turret: defaultTurret(),
-   barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } },
-   // 覆盖体编辑状态 - 用于 #78 不规则掩体顶点编辑
-   currentCover: {
-     verts: [],           // 世界空间顶点数组 [[x1,y1], [x2,y2], ...]
-     tier: 'rock',        // 默认掩体类型
-     closed: false        // 是否为闭合多边形（至少3个顶点）
-   }
+   barrel: { len:120, width:18, muzzle:'none', evac:{ style:'ring', pos:30 }, jacket:{ len:0, pos:45 }, mantlet:{ style:'none', pos:0, width:40 } }
 };
 
 // gun barrel / mantlet presets 已下沉为配置模块 js/tank_presets.js（BARREL_PRESETS / MANTLE_PRESETS）
 
 // ================= state =================
-let mode = 'hull'; // 'hull' | 'turret' | 'pivot' | 'preview' | 'cover'
+let mode = 'hull'; // 'hull' | 'turret' | 'pivot' | 'preview'（#Z1：不再接受 Tab 名）
 let viewScale = 5;
 let drag = null;
 let selected = null; // { poly:'hull'|'turret', index }
-let selectedCoverVertex = null; // { index } for cover vertex selection
 let hoverEdge = null;   // { poly, index } edge under cursor (canvas highlight)
 let selectedEdge = null; // { poly, index, seam:'front'|'rear' } edge chosen in list/canvas
 let snapToGrid = false;
 let previewAngle = 0;
 let trackPhase = 0; // scrolling track animation phase for edit modes (driven at fixed rate)
-// 编辑标签（2026-10-15 #TEX3 三标签重构）：'data' | 'armor' | 'appearance' | 'cover'
+// 编辑标签（2026-10-15 #TEX3 三标签重构）：'data' | 'armor' | 'appearance'
 let editTab = 'data';
+// #Z1（2026-10-22 B6）：装甲模型 Tab 的子目标。此前 setMode 把 Tab 名直接写进画布 mode，
+// 点过任意 Tab 后 mode 永不再是 hull/turret，顶点拾取分支再也命中不了；现用独立子状态承载
+// 「车体 / 炮塔」，armor 模式下 mode 恒为 hull|turret。
+let armorPart = 'hull';   // 'hull' | 'turret'
+// #Z1/F（2026-10-22 B6，需求 12）新设计能力状态——三者都只在**非缺省**时才写入导出，
+// 避免污染现有 6 个坦克 JSON（回归：载入→保存 round-trip 必须逐键不变）。
+let turretType = 'rotating';   // 'rotating' | 'fixed' → 导出 hasTurret:false 仅当 fixed
+let primaryMode = 'direct';    // 'direct' | 'howitzer' → 导出 weapons.secondary 仅当 howitzer
+let barrelCount = 1;           // 1 | 2 → 导出 barrel.count / barrel.gap 仅当 2
+let barrelGap = 3.7;           // 双管间距（px，模型单位）
 // 部件可见性开关（纯编辑辅助，不写入任何导出/JSON）：隐藏的部件不渲染、不参与画布命中
 let partVisible = { hull: true, turret: true };
 // 内部模块判定区叠加显示（只读可视化，不写入任何导出/JSON）
@@ -230,30 +233,6 @@ function findSeamHitAtScreen(part, sx, sy){
   return null;
 }
 
-// ================= hit testing for cover vertices =================
-function findCoverVertexHit(cover, sx, sy){
-  if(!cover || !cover.verts) return -1;
-  for(let i=0; i<cover.verts.length; i++){
-    const [vx, vy] = cover.verts[i];
-    if(Math.hypot(sx-vx, sy-vy) <= HIT_R) return i;
-  }
-  return -1;
-}
-function findCoverEdgeMidpointHit(cover, sx, sy){
-  if(!cover || !cover.verts || cover.verts.length < 2) return -1;
-  const verts = cover.verts;
-  const n = verts.length;
-  // If polygon has >=3 vertices, check closing edge too
-  const limit = n >= 3 ? n : n - 1;
-  for(let i=0; i<limit; i++){
-    const [ax, ay] = verts[i];
-    const [bx, by] = verts[(i+1)%n];
-    const mx = (ax+bx)/2, my = (ay+by)/2;
-    if(Math.hypot(sx-mx, sy-my) <= EDGE_HIT_R) return i;
-  }
-  return -1;
-}
-
 // ================= mouse interaction =================
 canvas.addEventListener('mousedown', e=>{
   const {x:sx,y:sy} = getCanvasPos(e);
@@ -299,26 +278,6 @@ canvas.addEventListener('mousedown', e=>{
     drag = { poly:'turret', index:-1, moved:false, downX:sx, downY:sy, isNew:true };
   } else if(mode==='pivot'){
     drag = { poly:'hullPivot', moved:false, downX:sx, downY:sy };
-  } else if(mode==='cover'){
-    // 掩体模式：世界坐标顶点编辑
-    const cover = state.currentCover;
-    const vi = findCoverVertexHit(cover, sx, sy);
-    if(vi>=0){
-      drag = { poly:'cover', index:vi, moved:false, downX:sx, downY:sy };
-      selectCoverVertex(vi);
-      return;
-    }
-    // 点击边中点插入顶点
-    const mid = findCoverEdgeMidpointHit(cover, sx, sy);
-    if(mid>=0){
-      const newPt = [ Math.round(sx*10)/10, Math.round(sy*10)/10 ];
-      cover.verts.splice(mid+1, 0, newPt);
-      selectCoverVertex(mid+1);
-      render();
-      return;
-    }
-    // 点击空白处添加新顶点
-    drag = { poly:'cover', index:-1, moved:false, downX:sx, downY:sy, isNew:true };
   }
 });
 window.addEventListener('mousemove', e=>{
@@ -342,11 +301,14 @@ window.addEventListener('mousemove', e=>{
       const key = ei>=0 ? 'turret:'+ei : null;
       const cur = hoverEdge ? hoverEdge.poly+':'+hoverEdge.index : null;
       if(key !== cur){ hoverEdge = ei>=0 ? { poly:'turret', index:ei } : null; render(); }
+    }
+    // #Z1/A3（2026-10-22）：return 必须落在 if(!drag) 块末尾、与 hull/turret 分支同级。
+    // 旧代码把 return 缩进进了 else-if(turret) 分支内，hull 模式下一路执行到 drag.downX 抛 TypeError。
     return;
   }
   if(Math.hypot(sx-drag.downX, sy-drag.downY) > 3) drag.moved = true;
   if(!drag.moved) return;
-  } else if(drag.poly==='hullPivot'){
+  if(drag.poly==='hullPivot'){
     // 拖动车体上的炮塔座圈圆心 (pivot)：可修改 dx 和 dy
     const c = hullCenter();
     const [lx, ly] = toLocal(c, sx, sy);
@@ -384,12 +346,6 @@ window.addEventListener('mousemove', e=>{
       let ly = (sy - ringY)/viewScale;
       if(snapToGrid){ lx = Math.round(lx); ly = Math.round(ly); }
       acceptVertex('turret', drag.index, constrainVertex('turret', drag.index, lx, ly));
-    } else if(drag.poly==='cover'){
-      // 拖动掩体顶点（世界坐标）
-      let wx = sx, wy = sy;
-      if(snapToGrid){ wx = Math.round(wx); wy = Math.round(wy); }
-      state.currentCover.verts[drag.index] = [Math.round(wx*10)/10, Math.round(wy*10)/10];
-      syncSelectedCoverInputs();
     }
     syncSelectedInputs();
   }
@@ -516,18 +472,9 @@ window.addEventListener('mouseup', e=>{
             selectVertex('turret', poly.half.length-1);
           }
         }
-      } else if(drag.poly==='cover'){
-        // 掩体空白增加顶点
-        const cover = state.currentCover;
-        let wx = sx, wy = sy;
-        if(snapToGrid){ wx = Math.round(wx); wy = Math.round(wy); }
-        const newPt = [ Math.round(wx*10)/10, Math.round(wy*10)/10 ];
-        cover.verts.push(newPt);
-        selectCoverVertex(cover.verts.length-1);
-        pushHint(`掩体添加顶点 #${cover.verts.length-1}`);
       }
       // P-49 重量闸门：新增顶点使派生重量突破 80t 上限 → 撤销本次新增（仅针对坦克部件）
-      if(drag.poly !== 'cover' && derivedWeightT() > RULES.parameterLimits.weight.max + 1e-9){
+      if(derivedWeightT() > RULES.parameterLimits.weight.max + 1e-9){
         state[drag.poly].half = snapH; state[drag.poly].halfFaces = snapF;
         clearSelection();
         pushHint('已达 80t 设计上限 — 新增顶点会继续增加派生重量，已撤销', 3000);
@@ -547,6 +494,8 @@ canvas.addEventListener('wheel', e=>{
 }, { passive:false });
 
 function updatePreviewAim(sx,sy){
+  // #Z1/F（需求 12）：固定战斗室不随鼠标转向 —— 预览角度恒 0（炮管固定在车体朝向）
+  if(isFixedTurret()){ previewAngle = 0; return; }
   const tc = turretCenter();
   let ang = Math.atan2(sy-tc.y, sx-tc.x);
   // 射界限制：仅当射界 < 180° 时炮塔受限于车体中线左右 ±射界；180° 表示 360° 全向旋转
@@ -576,27 +525,15 @@ function updateReadout(sx,sy){
 function updateZoomReadout(){ document.getElementById('zoomReadout').textContent = `缩放: ${Math.round(viewScale*100)}%`; }
 
 // ================= selected-vertex numeric editor =================
-function selectCoverVertex(index){
-  selectedCoverVertex = { index };
-  selected = null; // Clear tank vertex selection
-  syncSelectedCoverInputs();
-}
-function syncSelectedCoverInputs(){
-  const xEl = document.getElementById('c-x'), yEl = document.getElementById('c-y');
-  if(!selectedCoverVertex || !state.currentCover.verts[selectedCoverVertex.index]) return;
-  const p = state.currentCover.verts[selectedCoverVertex.index];
-  xEl.value = Math.round(p[0]);
-  yEl.value = Math.round(p[1]);
-}
 function selectVertex(poly, index){
   selected = { poly, index };
-  selectedCoverVertex = null; // Clear cover vertex selection
   syncSelectedInputs();
+  updateEditTargetBar();      // #Z1/D1：状态条带出「选中顶点 #N」
 }
 function clearSelection(){
   selected = null;
-  selectedCoverVertex = null;
   syncSelectedInputs();
+  updateEditTargetBar();
 }
 function syncSelectedInputs(){
   const xEl = document.getElementById('v-x'), yEl = document.getElementById('v-y');
@@ -612,7 +549,9 @@ function syncSelectedInputs(){
   const p = state[selected.poly].half[selected.index];
   xEl.disabled = false; yEl.disabled = false; delBtn.disabled = false;
   xEl.value = p[0]; yEl.value = p[1];
-  info.innerHTML = `已选中：<b>${selected.poly==='hull'?'车体':'炮塔'}</b> 顶点 #${selected.index}`;
+  // #Z1/D1：状态条与选中信息都带坐标，便于确认「真的选中了这个顶点」
+  info.innerHTML = `已选中：<b>${selected.poly==='hull'?'车体':'炮塔'}</b> 顶点 #${selected.index}`
+    + ` · 坐标 <b>(${p[0].toFixed(1)}, ${p[1].toFixed(1)})</b>`;
 }
 document.getElementById('v-x').addEventListener('input', ()=>{
   if(!selected) return;
@@ -645,14 +584,6 @@ function deleteSelectedVertex(){
   clearSelection();
   render(); renderEdgeLists();
 }
-function deleteSelectedCoverVertex(){
-  if(!selectedCoverVertex) return;
-  const cover = state.currentCover;
-  if(cover.verts.length<=2){ pushHint('掩体至少保留 2 个顶点'); return; }
-  cover.verts.splice(selectedCoverVertex.index,1);
-  selectedCoverVertex = null;
-  render();
-}
 document.getElementById('deleteVertBtn').addEventListener('click', deleteSelectedVertex);
 // keyboard: Delete/Backspace removes the selected vertex; arrows nudge it 1px; Esc clears selection
 window.addEventListener('keydown', e=>{
@@ -678,57 +609,36 @@ window.addEventListener('keydown', e=>{
       syncSelectedInputs(); render();
     }
   }
-  if(selectedCoverVertex){
-    if(e.key==='Delete' || e.key==='Backspace'){
-      e.preventDefault(); deleteSelectedCoverVertex(); return;
-    }
-    const step = snapToGrid ? 1 : 0.5;
-    let dx=0, dy=0;
-    if(e.key==='ArrowLeft') dx = -step;
-    else if(e.key==='ArrowRight') dx = step;
-    else if(e.key==='ArrowUp') dy = -step;
-    else if(e.key==='ArrowDown') dy = step;
-    if(dx || dy){
-      e.preventDefault();
-      const idx = selectedCoverVertex.index;
-      const p = state.currentCover.verts[idx];
-      const wx = Math.round((p[0]+dx)*10)/10;
-      const wy = Math.round((p[1]+dy)*10)/10;
-      state.currentCover.verts[idx] = [wx, wy];
-      syncSelectedCoverInputs(); render();
-    }
-  }
-});
-document.getElementById('copyCoverJsonBtn').addEventListener('click', ()=>{
-  const cover = state.currentCover;
-  const tier = document.getElementById('c-tier').value;
-  const jsonStr = JSON.stringify({
-    tier: tier,
-    verts: cover.verts
-  }, null, 2);
-  navigator.clipboard.writeText(jsonStr).then(()=>{
-    pushHint('已将掩体 JSON 复制到剪贴板！', 2500);
-  }).catch(err => {
-    prompt('请复制掩体 JSON:', jsonStr);
-  });
-});
-document.getElementById('c-tier').addEventListener('change', (e)=>{
-  state.currentCover.tier = e.target.value;
-  render();
 });
 
 // ================= mode switching（编辑列表驱动：editTab 控制面板显隐，mode 控制画布） =================
 const HINTS = {
+  data: '数据标签：只读查看/编辑基础与战斗参数（含主炮模式）——画布不参与顶点编辑；要改几何请切到「装甲模型」',
   hull: '点击空白添加车体顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击”车体座圈圆心”标记或在侧栏编辑 pivot (X,Y) 可调整座圈在车体上的相对安装位置',
   turret: '点击空白添加炮塔顶点（仅限 y≤0 一侧）· 拖动顶点移动 · 点击”炮塔座圈圆心”标记或在侧栏编辑 axis.dx 可调整座圈在炮塔中的相对横坐标（y 轴固定为 0）· 炮管及附件锚定在前缘装甲交点',
   preview: '移动鼠标预览炮塔瞄准方向；射界 = 180° 时炮塔 360° 全向旋转，低于 180° 时将受限在 ±射界 内',
-  appearance: '外观件编辑：炮管预设（长度/粗细/制退器/抽烟器/护套）、炮盾、履带外观均为整车外观参数；画布处于预览模式，移动鼠标可旋转炮塔查看效果',
-  cover: '掩体顶点编辑：点击空白添加顶点（世界坐标）· 拖动顶点移动 · 点击边中点插入顶点 · Delete/Backspace 删除选中顶点 · 选择”掩体种类”设置类型'
+  appearance: '外观件编辑：炮管预设（长度/粗细/制退器/抽烟器/护套）、炮盾、履带外观均为整车外观参数；画布处于预览模式，移动鼠标可旋转炮塔查看效果'
 };
-// 面板显隐：panel-<tab> 类命中当前 editTab 的面板显示，其余隐藏；顶点编辑按钮仅在装甲模型/掩体可用
+// 面板显隐：panel-<tab> 类命中当前 editTab 的面板显示，其余隐藏
+//
+// #Z1/C（2026-10-22 B6，需求 7）按钮归属：每个 Tab 只显示自己的工具按钮——此前 8 个按钮平铺，
+// 其中 5 个在别的 Tab 下不可用，造成「点了没反应」的错觉。现在统一在此处按 editTab 显隐：
+//   · tab-tools[data-tab]  ：工具条分组（编辑区里按 Tab 拆分的 btnrow / hint）
+//   · modePreview          ：仅 appearance
+//   · 撤销/清空/重置/吸附/部件可见/内部模块 ：仅 armor
+function toggleBtns(list, show){
+  list.forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.style.display = show ? '' : 'none';
+  });
+}
 function updatePanelVisibility(){
-  document.querySelectorAll('.panel-data, .panel-armor, .panel-appearance, .panel-cover').forEach(el=>{
+  document.querySelectorAll('.panel-data, .panel-armor, .panel-appearance').forEach(el=>{
     el.style.display = el.classList.contains('panel-'+editTab) ? '' : 'none';
+  });
+  // 工具条按 Tab 重排：data-tab 与当前 editTab 不符的整组隐藏
+  document.querySelectorAll('.tab-tools').forEach(el=>{
+    el.style.display = (el.dataset.tab === editTab) ? '' : 'none';
   });
   // 内部模块图例：显隐同时受「内部模块」开关控制（避免被上面的 panel-armor 统显覆盖）
   const _mzl = document.getElementById('moduleZoneLegend');
@@ -749,48 +659,123 @@ function updatePanelVisibility(){
       }
     }
   }
-  const vertEdit = (editTab==='armor' || editTab==='cover');
-  document.getElementById('undoVertBtn').disabled = !vertEdit;
-  document.getElementById('clearPolyBtn').disabled = !vertEdit;
+  // 装甲模型专属（可见性 + 可用性）
+  const armor = (editTab === 'armor');
+  toggleBtns(['undoVertBtn','clearPolyBtn','resetDefaultBtn','snapToggleBtn',
+              'partVisHullBtn','partVisTurretBtn','moduleZoneBtn'], armor);
+  document.getElementById('undoVertBtn').disabled = !armor;
+  document.getElementById('clearPolyBtn').disabled = !armor;
+  document.getElementById('resetDefaultBtn').disabled = !armor;
+  // 预览瞄准：仅外观 Tab 可见
+  toggleBtns(['modePreview'], editTab === 'appearance');
+}
+// ================= 当前编辑目标状态条（#Z1/D1，2026-10-22 B6） =================
+// 目的：解决「不知道现在在改什么」——顶部 #top-bar 下方常驻一条状态条，文案随 Tab / 子目标 /
+// 选中顶点 / 外观小节动态刷新。纯展示，不参与任何导出。
+let appearanceTarget = '炮管';   // 外观 Tab 当前聚焦的小节名（h3 文本）
+// 「预览瞄准」是外观 Tab 下的独立视图辅助（外观 Tab 本身也以 preview 画布模式渲染并支持旋转），
+// 两者 mode 值相同 ⇒ 需要独立布尔区分状态条文案与按钮高亮。
+let previewAimOn = false;
+function _appearanceSectionLabel(el){
+  const sec = el && el.closest ? el.closest('.panel-appearance') : null;
+  if(!sec) return '';
+  const h3 = sec.querySelector('h3');
+  if(!h3) return '';
+  // h3 里可能含按钮（如车长塔的「+ 添加」），只取首个文本节点
+  const txt = (h3.firstChild && h3.firstChild.textContent) || h3.textContent || '';
+  return txt.trim().split(/\s+/)[0] || '';
+}
+document.addEventListener('focusin', e=>{
+  const lab = _appearanceSectionLabel(e.target);
+  if(lab){ appearanceTarget = lab; updateEditTargetBar(); }
+});
+document.addEventListener('click', e=>{
+  const lab = _appearanceSectionLabel(e.target);
+  if(lab){ appearanceTarget = lab; updateEditTargetBar(); }
+});
+function updateEditTargetBar(){
+  const el = document.getElementById('editTargetBar');
+  if(!el) return;
+  let txt;
+  if(editTab === 'data'){
+    txt = '数据 · 基础参数';
+  } else if(editTab === 'armor'){
+    const partCn = armorPart === 'turret' ? '炮塔' : '车体';
+    const sel = (selected && selected.poly === armorPart) ? ` · 选中顶点 #${selected.index}` : '';
+    txt = `装甲模型 · ${partCn}${sel}`;
+  } else if(editTab === 'appearance'){
+    // 外观 Tab 的画布恒为 preview 模式；只有用户显式点「预览瞄准」时才显示为「预览瞄准」
+    txt = previewAimOn ? ('预览瞄准 · ' + appearanceTarget) : ('外观 · ' + appearanceTarget);
+  } else {
+    txt = editTab;
+  }
+  el.textContent = '当前编辑：' + txt;
+  el.dataset.target = txt;
 }
 // 列表条目高亮 = editTab；「预览瞄准」为独立视图辅助（高亮由 mode==='preview' 决定，不影响条目状态）
 function updateModeButtons(){
   document.querySelectorAll('.edit-tab-btn').forEach(b=>b.classList.remove('active'));
   const tabBtn = document.getElementById('mode'+editTab[0].toUpperCase()+editTab.slice(1));
   if(tabBtn) tabBtn.classList.add('active');
-  document.getElementById('modePreview').classList.toggle('active', mode==='preview');
+  const previewBtn = document.getElementById('modePreview');
+  if(previewBtn) previewBtn.classList.toggle('active', previewAimOn && editTab === 'appearance');
+  // #Z1：装甲模型子目标（车体/炮塔）高亮
+  const hullBtn = document.getElementById('armorPartHullBtn');
+  const turretBtn = document.getElementById('armorPartTurretBtn');
+  if(hullBtn) hullBtn.classList.toggle('active', armorPart==='hull');
+  if(turretBtn) turretBtn.classList.toggle('active', armorPart==='turret');
+  updateEditTargetBar();
 }
+// #Z1（2026-10-22 B6）：setMode 只接受 Tab 名（data/armor/appearance/preview）与旧调用（hull/turret）。
+// 关键不变量：**armor 模式下画布 mode 恒为 hull|turret**（= armorPart），否则 mousedown 的
+// 顶点拾取分支（只认 hull/turret）永远命中不了。
 function setMode(m){
-  mode = m;
+  if(m === 'armor'){
+    editTab = 'armor'; mode = armorPart; previewAimOn = false;
+  } else if(m === 'data'){
+    editTab = 'data'; mode = 'data'; previewAimOn = false;
+  } else if(m === 'appearance'){
+    editTab = 'appearance'; mode = 'preview'; previewAimOn = false;
+  } else if(m === 'preview'){
+    // 独立视图辅助：不改 editTab（外观 Tab 下的「预览瞄准」按钮也不改变当前子小节）
+    mode = 'preview';
+    previewAimOn = (editTab === 'appearance');
+  } else {
+    // 兼容旧调用 setMode('hull'|'turret')：同步子目标
+    armorPart = (m === 'turret') ? 'turret' : 'hull';
+    editTab = 'armor'; mode = armorPart; previewAimOn = false;
+  }
   clearSelection();
-  selectedCoverVertex = null;
   hoverEdge = null;
-  // #TEX3 三标签：data/armor/appearance/cover；armor 合并原 hull+turret
-  if(m==='data' || m==='armor' || m==='appearance' || m==='cover') editTab = m;
   updateModeButtons();
   const hintEl = document.getElementById('hint');
-  hintEl.textContent = HINTS[m] || '';
+  hintEl.textContent = HINTS[mode] || HINTS[editTab] || '';
   hintEl.dataset.base = hintEl.textContent;
   updatePanelVisibility();
   render();
 }
 document.getElementById('modeData').addEventListener('click', ()=>setMode('data'));
 document.getElementById('modeArmor').addEventListener('click', ()=>setMode('armor'));
-// #3（2026-10-15）：删除掩体形状设计功能（modeCover 按钮已移除）
-document.getElementById('modeAppearance').addEventListener('click', ()=>{
-  // 外观件条目：面板切到外观件组，画布进入预览模式（无顶点编辑目标，便于查看炮管/炮盾/履带效果）
-  editTab = 'appearance';
-  mode = 'preview';
-  clearSelection();
-  hoverEdge = null;
-  updateModeButtons();
-  const hintEl = document.getElementById('hint');
-  hintEl.textContent = HINTS.appearance;
-  hintEl.dataset.base = HINTS.appearance;
-  updatePanelVisibility();
-  render();
-});
+document.getElementById('modeAppearance').addEventListener('click', ()=>setMode('appearance'));
 document.getElementById('modePreview').addEventListener('click', ()=>setMode('preview'));
+// #Z1：装甲模型子目标切换（车体 / 炮塔）——同步 mode 并清空选中，避免跨部件残留选中索引
+['hull','turret'].forEach(part=>{
+  const btn = document.getElementById('armorPart' + (part==='hull' ? 'Hull' : 'Turret') + 'Btn');
+  if(!btn) return;
+  btn.addEventListener('click', ()=>{
+    armorPart = part;
+    editTab = 'armor';
+    mode = armorPart;
+    previewAimOn = false;
+    clearSelection();
+    updateModeButtons();
+    const hintEl = document.getElementById('hint');
+    hintEl.textContent = HINTS[mode] || '';
+    hintEl.dataset.base = hintEl.textContent;
+    updatePanelVisibility();
+    render();
+  });
+});
 
 // ================= 部件可见性（纯编辑辅助，不写入导出/JSON） =================
 function setPartVisible(part, vis){
@@ -1051,9 +1036,19 @@ function updateBgControls(){
 });
 
 // ================= vertex/polygon bulk ops =================
+// #Z1/A4（2026-10-22 B6）：撤销/清空的目标 = 装甲模型子目标 armorPart。
+// 旧写法 `(editTab==='hull'||editTab==='turret')` 是死判定（editTab 只会是 data/armor/appearance），
+// 结果在任何 Tab 下都静默作用于车体。
+function armorBulkTarget(){
+  if(editTab !== 'armor'){
+    pushHint('请先切到「装甲模型」再使用撤销/清空');
+    return null;
+  }
+  return armorPart;
+}
 document.getElementById('undoVertBtn').addEventListener('click', ()=>{
-  // 编辑列表驱动后：撤销目标 = 当前条目（车体/炮塔）；其余条目下按钮已禁用
-  const target = (editTab==='hull'||editTab==='turret') ? editTab : 'hull';
+  const target = armorBulkTarget();
+  if(!target) return;
   const poly = state[target];
   if(poly.half.length<=2){ pushHint('每侧至少保留 2 个顶点'); return; }
   poly.half.pop(); poly.halfFaces.pop();
@@ -1061,7 +1056,8 @@ document.getElementById('undoVertBtn').addEventListener('click', ()=>{
   render(); renderEdgeLists();
 });
 document.getElementById('clearPolyBtn').addEventListener('click', ()=>{
-  const target = (editTab==='hull'||editTab==='turret') ? editTab : 'hull';
+  const target = armorBulkTarget();
+  if(!target) return;
   if(!confirm(`清空当前「${target==='hull'?'车体':'炮塔'}」多边形，重新绘制？`)) return;
   state[target].half = [];
   state[target].halfFaces = [];
@@ -1263,10 +1259,16 @@ function _syncAppearanceUI(){
 function _appearanceForSave(){
   const app = _getAppearance();
   const out = {};
-  // #3（2026-10-15）：cupola 支持数组
-  if(Array.isArray(app.cupola) && app.cupola.length){
-    const list = app.cupola.filter(c => c && (c.style || c.dx || c.dy));
-    if(list.length) out.cupola = list.map(c => ({ style: c.style || '', dx: c.dx || 0, dy: c.dy || 0, mirror: !!c.mirror }));
+  // #3（2026-10-15）：cupola 支持数组；#Z1/E（2026-10-22）：新增 scale（缺省 1，范围 0.5~2.0）
+  if(app.cupola){
+    const raw = Array.isArray(app.cupola) ? app.cupola : [app.cupola];
+    const list = raw.filter(c => c && (c.style || c.dx || c.dy || (c.scale && c.scale !== 1)));
+    if(list.length){
+      out.cupola = list.map(c => ({
+        style: c.style || '', dx: c.dx || 0, dy: c.dy || 0, mirror: !!c.mirror,
+        scale: clampCupolaScale(c.scale)
+      }));
+    }
   }
   // engineDeck 保持单个
   const cfg = app.engineDeck;
@@ -1314,6 +1316,7 @@ function _renderCupolaList(){
     const div = document.createElement('div');
     div.className = 'prop-row';
     div.style.cssText = 'border:1px solid var(--line); padding:6px; margin-bottom:4px;';
+    // #Z1/E（2026-10-22 B6）：新增「缩放」输入（appearance.cupola[i].scale，缺省 1，范围 0.5~2.0）
     div.innerHTML = `
       <span class="lbl">车长塔 ${idx + 1}</span>
       <select data-idx="${idx}" class="cupola-style" style="width:110px;">
@@ -1325,6 +1328,7 @@ function _renderCupolaList(){
       </select>
       <input type="number" data-idx="${idx}" class="cupola-dx" value="${c.dx || 0}" step="1" style="width:48px;" title="X">
       <input type="number" data-idx="${idx}" class="cupola-dy" value="${c.dy || 0}" step="1" style="width:48px;" title="Y">
+      <input type="number" data-idx="${idx}" class="cupola-scale" value="${(c.scale || 1)}" min="0.5" max="2" step="0.05" style="width:48px;" title="缩放 0.5~2.0">
       <button data-idx="${idx}" class="cupola-del" style="font-size:11px;">删除</button>
     `;
     list.appendChild(div);
@@ -1348,6 +1352,16 @@ function _renderCupolaList(){
       render();
     });
   });
+  // #Z1/E：缩放 —— change 时钳制到 [0.5, 2.0] 并回写输入框
+  list.querySelectorAll('.cupola-scale').forEach(el => {
+    el.addEventListener('change', e => {
+      const idx = +e.target.dataset.idx;
+      const v = clampCupolaScale(e.target.value);
+      _getCupolaList()[idx].scale = v;
+      e.target.value = v;
+      render();
+    });
+  });
   list.querySelectorAll('.cupola-del').forEach(el => {
     el.addEventListener('click', e => {
       _getCupolaList().splice(+e.target.dataset.idx, 1);
@@ -1356,8 +1370,14 @@ function _renderCupolaList(){
     });
   });
 }
+// #Z1/E：车长塔缩放钳制（缺省 1，范围 0.5~2.0）
+function clampCupolaScale(v){
+  const n = parseFloat(v);
+  if(!isFinite(n)) return 1;
+  return Math.max(0.5, Math.min(2, Math.round(n * 100) / 100));
+}
 document.getElementById('addCupolaBtn').addEventListener('click', () => {
-  _getCupolaList().push({ style: 'standard', dx: 0, dy: 0, mirror: false });
+  _getCupolaList().push({ style: 'standard', dx: 0, dy: 0, mirror: false, scale: 1 });
   _renderCupolaList();
   render();
 });
@@ -1614,6 +1634,116 @@ function syncBaseFromInputs(){
   document.getElementById(id).addEventListener('input', syncBaseFromInputs);
   document.getElementById(id).addEventListener('change', syncBaseFromInputs);
 });
+
+// ================= 需求 12 新设计能力：炮塔类型 / 主炮模式 / 炮管数量 =================
+// 三者都遵守「只在非缺省时写键」：缺省（旋转炮塔 / 直射 / 单管）导出里不出现
+// hasTurret / weapons / barrel.count / barrel.gap，保证现有 6 个坦克 JSON round-trip 不被污染。
+function isFixedTurret(){ return turretType === 'fixed'; }
+// 切到固定战斗室时暂存原 pivot / 射界，切回旋转炮塔时还原——避免「切一下再切回」永久丢失编辑值
+let pivotBeforeFixed = null;
+let traverseBeforeFixed = null;
+
+// 固定战斗室联动：射界强制 180、炮塔 pivot 强制 (0,0)、预览角度恒 0。
+// D5（禁用态替代隐藏）：射界输入与座圈 X 输入改为 disabled + title，让用户看得见但改不动。
+function applyTurretTypeUI(){
+  const sel = document.getElementById('turretType');
+  if(sel) sel.value = turretType;
+  const fixed = isFixedTurret();
+  const tr = document.getElementById('t-traverse');   // 射界输入（HTML id 为 t-traverse）
+  if(tr){
+    tr.disabled = fixed;
+    tr.title = fixed ? '固定战斗室：射界强制 180°（战斗室不随鼠标转向，炮管固定在车体朝向）'
+                     : '180° = 炮塔可 360° 全向旋转；低于 180° 时只能在车体中线左右 ±射界 内转动';
+  }
+  ['t-pivotDx','t-pivotDy'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.disabled = fixed;
+    el.title = fixed ? '固定战斗室：炮塔 pivot 强制 (0,0)' : '';
+  });
+  if(fixed){
+    state.traverseLimit = 180;
+    state.turret.pivot = { dx: 0, dy: 0 };
+    previewAngle = 0;
+  }
+  if(tr) tr.value = state.traverseLimit;
+  syncRingInputs();
+}
+function setTurretType(v){
+  const next = (v === 'fixed') ? 'fixed' : 'rotating';
+  if(next === 'fixed' && turretType !== 'fixed'){
+    pivotBeforeFixed = { dx: state.turret.pivot.dx || 0, dy: 0 };
+    traverseBeforeFixed = state.traverseLimit;
+  }
+  if(next === 'rotating' && turretType === 'fixed'){
+    // 还原切到固定战斗室前的座圈偏移与射界（强制值只在固定态生效，不应污染旋转态）
+    const back = pivotBeforeFixed || { dx: 8, dy: 0 };
+    state.turret.pivot = { dx: back.dx, dy: 0 };
+    state.traverseLimit = (traverseBeforeFixed === null || traverseBeforeFixed === undefined) ? 180 : traverseBeforeFixed;
+    pivotBeforeFixed = null;
+    traverseBeforeFixed = null;
+  }
+  turretType = next;
+  applyTurretTypeUI();
+  render();
+}
+{
+  const sel = document.getElementById('turretType');
+  if(sel) sel.addEventListener('change', e=>{
+    setTurretType(e.target.value);
+    pushHint(turretType === 'fixed'
+      ? '固定战斗室：已强制射界 180、pivot (0,0)；战斗室不随鼠标转向，炮管固定在车体朝向'
+      : '旋转炮塔：射界/座圈恢复可编辑（导出不含 hasTurret）', 2600);
+  });
+}
+
+// 主炮模式：直射不写 weapons；曲射写 weapons.secondary = { type:'howitzer' }
+// （运行时 isHowitzerMode 据此把主炮切曲射弹道，F 键切换直射/曲射——曲射**由副武器槽承载**）。
+function setPrimaryMode(v){
+  primaryMode = (v === 'howitzer') ? 'howitzer' : 'direct';
+  const sel = document.getElementById('weaponPrimaryMode');
+  if(sel) sel.value = primaryMode;
+}
+{
+  const sel = document.getElementById('weaponPrimaryMode');
+  if(sel) sel.addEventListener('change', e=>{
+    setPrimaryMode(e.target.value);
+    pushHint(primaryMode === 'howitzer'
+      ? '主炮曲射：导出 weapons.secondary={type:"howitzer"}（由副武器槽承载，F 键切换直射/曲射）'
+      : '主炮直射：不写 weapons 键（曲射模式已移除）', 2600);
+  });
+}
+
+// 炮管数量 / 双管间距
+function updateBarrelCountUI(){
+  const sel = document.getElementById('barrelCount');
+  if(sel) sel.value = String(barrelCount);
+  const row = document.getElementById('barrelGapRow');
+  if(row) row.style.display = (barrelCount === 2) ? '' : 'none';
+  const gapEl = document.getElementById('barrelGap');
+  if(gapEl) gapEl.value = barrelGap;
+}
+function setBarrelCount(v){
+  barrelCount = (Number(v) === 2) ? 2 : 1;
+  updateBarrelCountUI();
+  render();
+}
+{
+  const sel = document.getElementById('barrelCount');
+  if(sel) sel.addEventListener('change', e=>{
+    setBarrelCount(e.target.value);
+    pushHint(barrelCount === 2 ? '双管炮：导出 barrel.count=2 + barrel.gap（间距 px）' : '单管炮：不写 barrel.count/gap', 2200);
+  });
+  const gapEl = document.getElementById('barrelGap');
+  if(gapEl) gapEl.addEventListener('change', e=>{
+    const v = parseFloat(e.target.value);
+    barrelGap = isFinite(v) ? Math.max(0, Math.min(40, v)) : 3.7;
+    e.target.value = barrelGap;
+    render();
+  });
+}
+updateBarrelCountUI();
+applyTurretTypeUI();
 
 // ================= edge list panel (only the editable half + seams — mirrored edges are implicit) =================
 // 当前选中装甲段 → 面板读数 + 对应 mm 输入框高亮（Change: 装甲编辑面板高亮正在编辑的段）
@@ -2227,84 +2357,16 @@ function drawPolygon(poly, center, angle, opts){
         const _lx = _tcxm + (_cup.dx || 0);
         const _ly = (_tcym - _tW * 0.44) + (_cup.dy || 0);
         const _r = angle ? rotate(_lx, _ly, angle) : { x: _lx, y: _ly };
+        // #Z1/E（2026-10-22 B6）：scale 作为第 6 参传入——与局内 tank_paint 的
+        // paintAppearancePart(..., s) 同口径（设计器这里还要乘上画布 viewScale）。
         paintAppearancePart(ctx, 'cupola', _cup.style,
           ring.x + _r.x * viewScale, ring.y + _r.y * viewScale,
-          viewScale, DESIGN_PAINT, { mirror: !!_cup.mirror });
+          viewScale * (_cup.scale || 1), DESIGN_PAINT, { mirror: !!_cup.mirror });
       }
     }
   }
 }
 
-// 绘制掩体多边形（world坐标直接绘制，无镜像）
-function drawCoverPolygon(cover){
-  if(!cover || !cover.verts || cover.verts.length < 2) return;
-  const verts = cover.verts;
-  const n = verts.length;
-  const isClosed = n >= 3;
-  const limit = isClosed ? n : n - 1;
-
-  // Tier-specific colors
-  const tierColors = {
-    'half': { stroke: '#ff5c4d', fill: 'rgba(255,92,77,0.15)' },
-    'full': { stroke: '#b98aff', fill: 'rgba(185,138,255,0.15)' },
-    'bush': { stroke: '#7ed957', fill: 'rgba(126,217,87,0.15)' },
-    'tree': { stroke: '#4a7c2a', fill: 'rgba(74,124,42,0.15)' },
-    'soft': { stroke: '#ffb454', fill: 'rgba(255,180,84,0.1)' },
-    'barricade': { stroke: '#b5553f', fill: 'rgba(181,85,63,0.15)' },
-    'mud': { stroke: '#8b7355', fill: 'rgba(139,115,85,0.1)' },
-    'rock': { stroke: '#8a8a7a', fill: 'rgba(138,138,122,0.15)' },
-    'water': { stroke: '#356885', fill: 'rgba(53,104,133,0.2)' },
-    'river': { stroke: '#356885', fill: 'rgba(53,104,133,0.2)' },
-    'ruined': { stroke: '#6b6b6b', fill: 'rgba(107,107,107,0.15)' },
-    'intact': { stroke: '#b5553f', fill: 'rgba(181,85,63,0.15)' }
-  };
-  const colors = tierColors[cover.tier] || tierColors['rock'];
-
-  // Draw edges
-  ctx.strokeStyle = colors.stroke;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  for(let i=0; i<limit; i++){
-    const [ax, ay] = verts[i];
-    const [bx, by] = verts[(i+1)%n];
-    if(i===0) ctx.moveTo(ax, ay);
-    else ctx.lineTo(ax, ay);
-    ctx.lineTo(bx, by);
-  }
-  ctx.stroke();
-
-  // Draw fill if closed
-  if(isClosed){
-    ctx.fillStyle = colors.fill;
-    ctx.fill();
-  }
-
-  // Draw vertices
-  verts.forEach((p,i)=>{
-    const isSel = selectedCoverVertex && selectedCoverVertex.index === i;
-    ctx.beginPath();
-    ctx.arc(p[0], p[1], isSel ? 8 : 5, 0, Math.PI*2);
-    ctx.fillStyle = isSel ? '#7ed957' : '#fff';
-    ctx.fill();
-    ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
-    if(isSel){
-      ctx.fillStyle = '#7ed957';
-      ctx.font = '10px "JetBrains Mono", monospace';
-      ctx.fillText(`v${i}`, p[0] + 8, p[1] - 8);
-    }
-  });
-
-  // Draw tier label
-  if(isClosed && n >= 3){
-    // Calculate centroid for label
-    let cx = 0, cy = 0;
-    verts.forEach(p => { cx += p[0]; cy += p[1]; });
-    cx /= n; cy /= n;
-    ctx.fillStyle = colors.stroke;
-    ctx.font = '11px "JetBrains Mono", monospace';
-    ctx.fillText(cover.tier.toUpperCase(), cx - 20, cy + 4);
-  }
-}
 function render(){
   ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
   drawBackground();
@@ -2321,7 +2383,8 @@ function render(){
   ctx.fillStyle = 'rgba(126,217,87,0.6)'; ctx.font='10px "JetBrains Mono", monospace';
   ctx.fillText('FRONT →', hc.x+124*viewScale, hc.y+4);
 
-  const turretAngle = (mode==='preview') ? previewAngle : 0;
+  // #Z1/F（需求 12）：固定战斗室时预览角度恒 0（不随鼠标旋转）
+  const turretAngle = (mode==='preview' && !isFixedTurret()) ? previewAngle : 0;
   // tracks under everything (animated scroll in preview via wall-clock time)
   const fullDetail = (mode==='preview');
   const partOpts = { active:false, detail: fullDetail, faded: !fullDetail };
@@ -2369,7 +2432,20 @@ function render(){
   }
 
   // 绘制炮管与附件：全套绑定在 turretToScreen([frontX, 0], turretAngle) 上（炮塔隐藏时一并隐藏）
-  if(partVisible.turret) drawDesignerBarrel(turretAngle, viewScale);
+  // #Z1/F1（需求 12）：双管（barrel.count=2）时按 barrel.gap 横向并排绘制两根，与局内
+  // tank_battledraw 的双管并排同语义（gap 为两管中心距，模型单位）。
+  if(partVisible.turret){
+    if(barrelCount === 2){
+      // 间距语义 gap = 两管中心距（模型单位）；不足一根管宽时按管宽撑开，避免预览里两管糊成一根
+      const _halfW = Math.max(3, 36 * (state.barrel.width/100) * 0.5);
+      const _off = Math.max((barrelGap || 3.7) * 0.5, _halfW * 1.05) * viewScale;
+      const _px = -Math.sin(turretAngle) * _off, _py = Math.cos(turretAngle) * _off;
+      ctx.save(); ctx.translate(_px, _py); drawDesignerBarrel(turretAngle, viewScale); ctx.restore();
+      ctx.save(); ctx.translate(-_px, -_py); drawDesignerBarrel(turretAngle, viewScale); ctx.restore();
+    } else {
+      drawDesignerBarrel(turretAngle, viewScale);
+    }
+  }
 
   // turret's OWN center (bbox center)
   if(mode==='turret' && partVisible.turret){
@@ -2399,11 +2475,6 @@ function render(){
     ctx.moveTo(axisPos.x, axisPos.y);
     ctx.lineTo(axisPos.x+Math.cos(-limit)*90*viewScale, axisPos.y+Math.sin(-limit)*90*viewScale);
     ctx.stroke(); ctx.setLineDash([]);
-  }
-
-  // 绘制掩体多边形（world坐标直接绘制，无镜像）
-  if(mode === 'cover'){
-    drawCoverPolygon(state.currentCover);
   }
 
   updateWeightReadout();
@@ -2567,8 +2638,14 @@ function buildExport(){
        muzzle: state.barrel.muzzle,
        evac: { style: state.barrel.evac.style, pos: state.barrel.evac.pos },
        jacket: { len: state.barrel.jacket.len, pos: state.barrel.jacket.pos },
-       mantlet: { style: state.barrel.mantlet.style, pos: state.barrel.mantlet.pos, width: state.barrel.mantlet.width }
+       mantlet: { style: state.barrel.mantlet.style, pos: state.barrel.mantlet.pos, width: state.barrel.mantlet.width },
+       // #Z1/F1（需求 12）：双管才写 count/gap（缺省单管不写，避免污染现有 JSON）
+       ...(barrelCount === 2 ? { count: 2, gap: barrelGap } : {})
      },
+     // #Z1/F2（需求 12）：曲射模式由副武器槽承载——只有非直射时才写 weapons 键
+     ...(primaryMode === 'howitzer' ? { weapons: { secondary: { type: 'howitzer' } } } : {}),
+     // #Z1/F3（需求 12）：固定战斗室才写 hasTurret:false（缺省旋转炮塔不写该键）
+     ...(isFixedTurret() ? { hasTurret: false } : {}),
       hull: {
         verts: buildFullVerts(state.hull.half),
         faces: buildFullFaces(state.hull.half, i=>getFace(state.hull.halfFaces,i), state.hull.frontSeamFace, state.hull.rearSeamFace),
@@ -2578,7 +2655,8 @@ function buildExport(){
         verts: buildFullVerts(state.turret.half),
         faces: buildFullFaces(state.turret.half, i=>getFace(state.turret.halfFaces,i), state.turret.frontSeamFace, state.turret.rearSeamFace),
         armor: state.turret.armor,
-        pivot: { dx: state.turret.pivot.dx, dy: 0 },
+        // #Z1/F3：固定战斗室强制 pivot (0,0)
+        pivot: isFixedTurret() ? { dx: 0, dy: 0 } : { dx: state.turret.pivot.dx, dy: 0 },
         // axis = 炮塔自身旋转中心（旋转轴在炮塔几何内的位置）：网格顶点按原样导出、axis 实时写入，
         // 导入时不再做 -axis 平移（见 applyTankData），round-trip 恒稳定、无漂移。
         axis: { dx: state.turret.axis.dx || 0, dy: state.turret.axis.dy || 0 }
@@ -2603,6 +2681,18 @@ function applyTankData(data, opts){
   state.reload = data.reload ?? state.reload;
   state.shellSpeed = data.shellSpeed ?? 1200;
   state.heightClass = data.heightClass ?? state.heightClass;
+  // #Z1/F（需求 12）：三种新能力的状态回填——缺省值一律「不写键」的反向映射。
+  turretType = (data.hasTurret === false) ? 'fixed' : 'rotating';
+  pivotBeforeFixed = null;   // 换车时丢弃上一台车的 pivot 暂存，避免串味
+  traverseBeforeFixed = null;
+  primaryMode = (data.weapons && data.weapons.secondary && data.weapons.secondary.type === 'howitzer') ? 'howitzer' : 'direct';
+  barrelCount = (data.barrel && Number(data.barrel.count) === 2) ? 2 : 1;
+  {
+    const g = data.barrel && parseFloat(data.barrel.gap);
+    barrelGap = (isFinite(g) && g > 0) ? Math.min(40, g) : 3.7;
+  }
+  // 固定战斗室：射界强制 180、pivot 强制 (0,0)（与导出/渲染口径一致）
+  if(turretType === 'fixed'){ state.traverseLimit = 180; }
   if(data.hull){
     if(data.hull.half){
       state.hull = { half:data.hull.half, halfFaces:data.hull.halfFaces.slice(),
@@ -2644,6 +2734,15 @@ function applyTankData(data, opts){
    else state.texture = 'none'; // 旧数据缺省无纹理
    // #TEX3 外观件配置载入
    state.appearance = data.appearance ? JSON.parse(JSON.stringify(data.appearance)) : {};
+   // #Z1/E（2026-10-22 B6）：cupola 兼容**数组**与**对象**两种形态，统一归一并保留 scale
+   // （缺省 1，钳制 0.5~2.0）。旧 JSON 无 scale ⇒ 补 1；保存时统一写数组。
+   if(state.appearance.cupola){
+     const rawCup = Array.isArray(state.appearance.cupola) ? state.appearance.cupola : [state.appearance.cupola];
+     state.appearance.cupola = rawCup.filter(c => c && typeof c === 'object').map(c => ({
+       style: c.style || '', dx: +c.dx || 0, dy: +c.dy || 0, mirror: !!c.mirror,
+       scale: clampCupolaScale(c.scale)
+     }));
+   }
    _syncAppearanceUI();
    state.sprite = normalizeSprite(data.sprite); // 整车精灵（无则默认关闭）
    preloadSpriteImages(); // #M2：载入即预热贴图缓存 + onload 重绘，防「首帧未就绪永远空白」
@@ -2658,6 +2757,10 @@ function applyTankData(data, opts){
    updateTrackRanges();
    document.getElementById('t-id').value = state.id;
    document.getElementById('t-traverse').value = state.traverseLimit;
+   // #Z1/F：回填炮塔类型 / 主炮模式 / 炮管数量下拉，并应用联动（固定战斗室禁用射界/座圈输入）
+   applyTurretTypeUI();
+   setPrimaryMode(primaryMode);
+   updateBarrelCountUI();
    document.getElementById('t-maxSpeed').value = state.maxSpeed;
    document.getElementById('t-turnRate').value = state.turnRate;
    document.getElementById('t-turretTurnRate').value = state.turretTurnRate;
@@ -2796,7 +2899,23 @@ document.getElementById('trackWidthInput').value = state.trackWidth;
 document.getElementById('textureSelect').value = state.texture;
 syncSpriteInputs();
 updateTrackRanges();
-setMode('hull');
+// #Z1/A2（2026-10-22 B6）：网格吸附按钮此前**没有任何监听**（全文 snapToggleBtn 零命中），
+// 按钮文案恒为「网格吸附 关」。现补 click 监听 + 状态同步（含 .active 高亮）。
+(function(){
+  const btn = document.getElementById('snapToggleBtn');
+  if(!btn) return;
+  const sync = () => {
+    btn.textContent = '网格吸附 ' + (snapToGrid ? '开' : '关');
+    btn.classList.toggle('active', snapToGrid);
+  };
+  btn.addEventListener('click', () => {
+    snapToGrid = !snapToGrid;
+    sync();
+    pushHint('网格吸附 ' + (snapToGrid ? '已开启（对齐整数格）' : '已关闭'));
+  });
+  sync();
+})();
+setMode('data');   // #Z1/C：默认落在「数据」Tab（画布只读），顶点编辑需显式切到装甲模型
 updateZoomReadout();
 // 预先载入 tanks/ 列表，让顶部「坦克列表」下拉立即可用。
 loadTankListAll(list=>{ if(list) populateTankListSelect(list); });

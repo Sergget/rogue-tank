@@ -1,7 +1,7 @@
 {
   "id": "howitzer_rapid_barrage",
   "name": "榴弹炮：急速射",
-  "rarity": "epic",
+  "rarity": "rare",
   "desc": "榴弹炮强化：开火后 0.5s 间隔追加 2 发（共 3 连发），随后进入整组装填（仅榴弹炮副武器生效）。",
   "effects": [
     {

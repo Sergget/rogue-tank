@@ -1,7 +1,7 @@
 {
   "id": "reload_speed_3",
   "name": "装填机优化 III",
-  "rarity": "epic",
+  "rarity": "rare",
   "desc": "自动装弹机，装填时间 -20%。",
   "effects": [
     { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.80 }

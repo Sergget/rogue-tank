@@ -170,6 +170,21 @@ const AUDIO_SETTINGS = {
   uiGain: 0.25
 };
 
+// ---------- 采样通道 (Sample Channel) ----------
+// 每个 SOUND_DEFS 键对应一个可选的真实音频采样文件（相对 URL）。
+// 加载成功时优先播放采样，失败/超时/file:// 环境自动回退到程序化合成。
+// 路径表为纯数据（Node 可测）；浏览器侧按需 fetch + decodeAudioData 缓存。
+const AUDIO_SAMPLE_TIMEOUT_MS = 4000;
+const AUDIO_SAMPLE_PATHS = {};
+for (const _k of Object.keys(SOUND_DEFS)) {
+  AUDIO_SAMPLE_PATHS[_k] = 'audio/' + _k + '.wav';
+}
+
+// 浏览器侧采样缓存：key -> AudioBuffer（已加载）/ null（失败）/ undefined（未尝试）
+const _sampleBuffers = {};
+const _sampleLoading = {};
+
+
 // --- 实时音效实例（浏览器运行时唯一） ---
 // 这些变量仅在浏览器中有效（Node 加载时 AudioContext 守卫会跳过）
 // Engine sound：持续振荡器，由 speed 改 pitch
@@ -346,7 +361,7 @@ function ensureAudio(){
   if(ctx && ctx.state === 'suspended'){ try{ ctx.resume(); }catch(_e){} }
   return ctx;
 }
-function initAudio(){ return ensureAudio(); }
+function initAudio(){ const ctx = ensureAudio(); if(ctx) { try { preloadAudioSamples(); } catch(e){} } return ctx; }
 
 // 调度单个合成层：包络 = 线性 attack 起音 + 指数 decay 衰减
 // opts 可选 { gain: 倍率, delay: 秒, pos: {x, y} } 用于空间定位
@@ -428,7 +443,100 @@ function _scheduleLayer(ctx, L, busGain, defGain, t0, opts){
   }
 }
 
-// 单入口：播放一类音效。opts 可选 { gain: 倍率, delay: 秒, pos: {x, y} }；
+// 采样缓存读取（undefined = 未尝试）
+function getSampleBuffer(key){
+  return Object.prototype.hasOwnProperty.call(_sampleBuffers, key) ? _sampleBuffers[key] : undefined;
+}
+
+// 异步加载单个采样；返回 Promise<AudioBuffer|null>。浏览器外/无 fetch 时直接返回 null。
+function loadAudioSample(key){
+  if(!Object.prototype.hasOwnProperty.call(AUDIO_SAMPLE_PATHS, key)){
+    _sampleBuffers[key] = null;
+    return Promise.resolve(null);
+  }
+  if(Object.prototype.hasOwnProperty.call(_sampleBuffers, key)){
+    return Promise.resolve(_sampleBuffers[key]);
+  }
+  if(_sampleLoading[key]) return _sampleLoading[key];
+  if(typeof fetch === 'undefined'){
+    _sampleBuffers[key] = null;
+    return Promise.resolve(null);
+  }
+  const path = AUDIO_SAMPLE_PATHS[key];
+  const ctx = ensureAudio();
+  if(!ctx){
+    _sampleBuffers[key] = null;
+    return Promise.resolve(null);
+  }
+  const p = (async () => {
+    try {
+      let controller = null;
+      let timer = null;
+      if(typeof AbortController !== 'undefined'){
+        controller = new AbortController();
+        timer = setTimeout(() => { try { controller.abort(); } catch(e){} }, AUDIO_SAMPLE_TIMEOUT_MS);
+      }
+      const res = await fetch(path, controller ? { signal: controller.signal } : undefined);
+      if(timer) clearTimeout(timer);
+      if(!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : '?'));
+      const ab = await res.arrayBuffer();
+      const buf = await new Promise((resolve, reject) => {
+        try { ctx.decodeAudioData(ab, resolve, reject); }
+        catch(e){ reject(e); }
+      });
+      _sampleBuffers[key] = buf;
+      return buf;
+    } catch(e){
+      _sampleBuffers[key] = null;
+      return null;
+    } finally {
+      delete _sampleLoading[key];
+    }
+  })();
+  _sampleLoading[key] = p;
+  return p;
+}
+
+// 预加载全部采样（浏览器初始化时可调用；失败静默）
+function preloadAudioSamples(){
+  if(typeof fetch === 'undefined') return;
+  for(const k of Object.keys(SOUND_DEFS)) loadAudioSample(k);
+}
+
+// 采样播放（已缓存 AudioBuffer 时调用）
+function _playSampleBuffer(ctx, key, def, opts){
+  const buf = _sampleBuffers[key];
+  if(!buf) return false;
+  const busGain = (def.bus === 'ui') ? AUDIO_SETTINGS.uiGain : AUDIO_SETTINGS.combatGain;
+  const defGain = (def.gain != null && def.gain > 0) ? def.gain : 1;
+  const gMul = (opts.gain != null && opts.gain > 0) ? opts.gain : 1;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = busGain * defGain * gMul;
+  const delay = (opts.delay != null && opts.delay > 0) ? opts.delay : 0;
+  const t0 = ctx.currentTime + delay;
+  if(opts && opts.pos){
+    const panner = ctx.createPanner();
+    panner.panningModel = 'HRTF';
+    panner.distanceModel = 'exponential';
+    panner.maxDistance = 500;
+    panner.refDistance = 24;
+    const dx = (opts.pos.x || 0) - listenerX;
+    const dy = (opts.pos.y || 0) - listenerY;
+    panner.setPosition(dx, dy, 0);
+    panner.connect(_master);
+    src.connect(gainNode); gainNode.connect(panner);
+  } else {
+    src.connect(gainNode); gainNode.connect(_master);
+  }
+  src.start(t0);
+  try { src.stop(t0 + buf.duration + 0.05); } catch(e){}
+  return true;
+}
+
+// 单入口：播放一类音效。优先使用已缓存的真实采样；未加载时启动异步加载并回退到程序化合成。
+// opts 可选 { gain: 倍率, delay: 秒, pos: {x, y} }；
 // pos 为相对于 canvas 原点的空间坐标（像素），用于 PannerNode 空间定位。
 // 未知键或不可用环境返回 false。
 function playSound(key, opts){
@@ -437,6 +545,16 @@ function playSound(key, opts){
   if(!def) return false;
   const ctx = ensureAudio();
   if(!ctx) return false;
+  // 采样优先
+  const cached = getSampleBuffer(key);
+  if(cached){
+    return _playSampleBuffer(ctx, key, def, opts);
+  }
+  if(cached === undefined){
+    // 启动异步加载（失败后缓存 null，下次直接合成）
+    loadAudioSample(key);
+  }
+  // 程序化合成回退
   const busGain = (def.bus === 'ui') ? AUDIO_SETTINGS.uiGain : AUDIO_SETTINGS.combatGain;
   const defGain = (def.gain != null && def.gain > 0) ? def.gain : 1;
   const gMul = (opts.gain != null && opts.gain > 0) ? opts.gain : 1;
@@ -446,6 +564,7 @@ function playSound(key, opts){
   for(const L of layers) _scheduleLayer(ctx, L, busGain, defGain * gMul, t0, opts);
   return true;
 }
+
 
 // 纯逻辑校验（Node 可测）：返回问题列表，空数组 = SOUND_DEFS 全部合法
 function validateSoundDefs(defs){
@@ -486,9 +605,14 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     SOUND_DEFS,
     AUDIO_SETTINGS,
+    AUDIO_SAMPLE_PATHS,
+    AUDIO_SAMPLE_TIMEOUT_MS,
     initAudio,
     ensureAudio,
     playSound,
-    validateSoundDefs
+    validateSoundDefs,
+    loadAudioSample,
+    preloadAudioSamples,
+    getSampleBuffer
   };
 }

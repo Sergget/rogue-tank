@@ -1,7 +1,7 @@
 {
   "id": "sniper_hyper_velocity",
   "name": "超高速弹",
-  "rarity": "rare",
+  "rarity": "common",
   "desc": "弹速 +20%。",
   "effects": [
     { "type": "modifier", "stat": "shellSpeed", "mode": "mult", "value": 1.20 }

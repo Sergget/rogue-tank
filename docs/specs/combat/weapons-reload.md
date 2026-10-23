@@ -1,7 +1,7 @@
 # 武器与装填
 
 > **摘要**：主炮五型的参数、双联与弹夹的装填流水线、电磁炮的贯穿、以及装填时长公式的唯一写法。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-22）
 > **源自**：`docs/specs/combat.md` §8.5、§8.6、§8.6b、§9.1、§9.2、§9.3、§9.7、§13.6（#J2）（2026-10-21 拆分）
 > **相关**：[弹种系统](./ammo-system.md) · [技能与副武器](./abilities-secondary.md) · [卡牌规范](../cards.md)
 
@@ -10,6 +10,8 @@
 - [装填时长公式](#装填时长公式)
 - [双联火炮](#双联火炮)
 - [弹夹炮](#弹夹炮)
+- [机炮](#机炮)
+- [标准主炮的砰砰炮](#标准主炮的砰砰炮)
 - [电磁轨道炮](#电磁轨道炮)
 - [statOverrides 与换装](#statoverrides-与换装)
 - [卡牌稀有度与安装卡](#卡牌稀有度与安装卡)
@@ -38,11 +40,13 @@ HUD 装填环、`fireTank` 门控、电磁炮充能进度三者同源。改公�
 
 ## 双联火炮
 
-（原 §8.5，2026-09-20 #E13）
+（原 §8.5，2026-09-20 #E13；**2026-10-22 第五批：换管时间固定 0.8s、交替装填卡降 epic**）
 
 - **装填语义**：装填时间是**单根炮管**的装填时间；两管按**顺序流水线**装填（同一时刻只有一根在装填）——例：「装填 5s，+0s 齐射 → +5s 第 1 管装好（可单发）→ +10s 第 2 管装好（可齐射）」。
+- **换管时间（唯一口径）**：单管射击后切换时间**固定 0.8s**（`RULES.weapons.doubleBarrelSwitchSeconds`），**不受任何卡牌/升级影响**。`fireDoubleBarrel` 恒读该键，不再读 `spec.switchSeconds`；`WEAPON_DEFAULTS.double_barrel.switchSeconds` 保留 0.8 仅作展示。**沿革**：原为 0.5s 且可被卡牌覆盖（「同步击发装置」降到 0.1、「交替装填系统」降到 0.05）——该两张卡的可覆盖能力已删除。
 - **默认进度互相干涉**：任一击发后**两管装填进度都归 0**（`_dbState.loadT` 全清），流水线从头开始。
-- **「交替装填系统」卡**（`weapon_primary_alt_reload`）：稀有度由 **legendary 升为 mythic（神话，新增最高档）**；效果 = `altReload: true` 解除干涉（击发一管不影响另一管的进度——「+6s 发射时另一管仍是 +1s 进度」）+ `switchSeconds 0.05` + `reloadMult 0.9`。
+- **「交替装填系统」卡**（`weapon_primary_alt_reload`，**epic**）：效果**只剩 `altReload: true`**——击发一管**不再重置另一管的装填进度**（「+6s 发射时另一管仍是 +1s 进度」）。**沿革**：曾为 mythic（神话）并附带 `switchSeconds 0.05` + `reloadMult 0.9`；2026-10-22 用户裁定「单管射击后切换时间固定 0.8s 不受卡牌影响（如有卡牌影响则需要删除）」⇒ 两键摘除、稀有度降为 epic。
+- **「同步击发装置」卡已删除**（2026-10-22）：其唯一效果 `switchSeconds 0.5 → 0.1` 在新口径下完全失效。
 - **击发（2026-09-20 #F 用户裁定细化）**：鼠标单击 = 发射一根已装填炮管；空格 = 齐射——**仅两管都就绪才发射**，仅 1 管（或无）就绪时空格**不发射**（与卡牌界面文案「空格齐射（仅两管都就绪时）」一致）。1 管就绪时齐射被拒对玩家侧写 `shooter._dbLastBlocked = 'salvo-not-ready'` 并推送提示「空格齐射需要两管装填完成 — 单击可先发 1 根就绪管」（COVER；重复触发不刷屏，`_dbLastBlocked` 同值时静默），且**不影响随后单击单发**（单击照常发射就绪管）；无就绪管时不提示。`fireDoubleBarrel` 返回 `{ fired:false, shells:0, reason:'salvo-not-ready'|'none-ready' }`。`_dbState = { count, ready[], loadT[], loader, altReload }`。
 - **视觉/音频**：炮口火光尺寸 ×1.7（粒子同步放大）、开火音效增益 ×1.6（`playSound('fire', {gain:1.6})`）+ 额外烟雾；`barrelOffset` 0.9 → **1.85**（炮管间距加大，确保炮管与附件不穿模）；**两根炮管各自绘制完整附件**（护套 jacket / 制退器 muzzle brake / 抽烟器 evac 逐管成对）。
 - **HUD**：双管时显示**两根炮管各自的独立装填进度弧**（沿炮塔法向左右分列，与炮管偏移同源；就绪的管显示实心亮点），取代单环指示。
@@ -65,7 +69,44 @@ HUD 装填环、`fireTank` 门控、电磁炮充能进度三者同源。改公�
 - **弹夹间装填不随扩容线性膨胀是设计意图**：容量 4→6 时整组时间为「基准 + 2 × 步长倍率」而非线性 ×6，扩容卡仍有正收益但边际递减（具体倍数按上表系数算）。
 - 运行时状态挂 `t._clipState = { size, rounds, pendingRefill }`；武器换装卡（主武器升级路径）清空该状态（与 `_dbState` 同生命周期）。逐帧驱动 `updatePrimaryClip(t, dt)` 由页面主循环负责（battle 玩家 + AI 实体 / bench 玩家 + 靶车）。
 - **HUD**：`drawReloadRing` 弹夹分支——弹夹内显示余量数字 `rounds/size` + 蓝色间隔弧；整组重装期显示橙色「装填」弧（进度按 `clipMagReloadSeconds` 归一）。
-- 卡牌：`weapon_primary_clip`（epic，安装）/ `weapon_primary_clip_extended`（rare，`{"clipSize":"+1"}`，maxStacks 2）。
+- 卡牌：`weapon_primary_clip`（epic，安装）/ `weapon_primary_clip_extended`（rare，`{"clipSize":"+1"}`，maxStacks 2）/ `weapon_primary_clip_capacity`（rare，`{"clipSize":"+2"}`）。
+- **短装填升级卡（2026-10-22）**：`weapon_primary_clip_short_reload`（rare，`{"clipCycleSeconds":"-0.1"}`，maxStacks 2）⇒ 0.7 → 0.6 → 0.5。钳制区间 = `RULES.parameterLimits.clipCycleSeconds = {min:0.5, max:1.0}`。**沿革**：`weapon_primary_clip_capacity` 曾同时给 `clipCycleSeconds 0.55`，与新卡上限冲突，已摘掉该键（只留 `clipSize "+2"`）。
+- **爆发射击卡（2026-10-22，用户需求 5）**：`weapon_primary_clip_burst`（epic，`{"burstOnSalvo":true}`，maxStacks 1）。效果 = **按空格**以**固定 0.5s 短装填**（`RULES.weapons.clipBurstCycleSeconds`）把弹夹内剩余炮弹**全部**射出。
+  - 实现：`fireClipWeapon(..., salvo)` 在 `salvo===true && spec.burstOnSalvo` 且队列为空时挂 `t._clipBurst = { left: st.rounds, t: 0 }`（首帧不发）；`updatePrimaryClip` 逐帧 `t += dt`，到 0.5s 直调 `firePrimaryShell`（**绕过 `reloadT` 门控**）、`left--`/`st.rounds--`；打完置 `pendingRefill = true` 并写整组装填时长（同 §装填两段式）。
+  - 队列存在期间普通单击被拒（返回 `{fired:false, reason:'burst-running'}`）；`enterBattle` 清队列；AI 不驱动爆发（`salvo` 只由玩家空格传入）。
+
+## 机炮
+
+（2026-10-22 第五批，用户需求 2；**本表是机炮成长边界的唯一口径**）
+
+基础参数在 `WEAPON_DEFAULTS.primary.autocannon`；本页只列**成长/机制口径**（唯一数值源 `RULES.autocannon`）：
+
+| 键 | 值 | 语义 |
+|---|---|---|
+| `basePenRatio` | **0.80** | 机炮基础穿深 = 标准穿深的 80%（`penMult`）。**沿革**：0.85 → 0.80（2026-10-22 用户裁定「穿深改为标准穿深的 80%」） |
+| `rangeBasePx` / `rangeStepPx` / `rangeMaxPx` | 900 / 100 / 1200 | 基础射程 / 每级加成 / 硬上限（卡面按 m 显示：900px≈82m、1000≈92m、1100≈101m、1200≈110m，换算 `RULES.scale.PX_PER_METER≈10.92`） |
+| `overheatLockBase` / `overheatLockStep` / `overheatLockMin` | 2.0 / 0.5 / 1.0 | 过热锁定基础时长 / 每级缩减 / 下限 |
+| `penRatioStep` / `penRatioMax` | 0.05 / 0.10 | 「相对标准穿深」的穿深增强：每级 +5%，最多 +10%（0.80 → 0.85 → 0.90） |
+
+**过热机制（2026-10-22 语义变更）**：每发累积 `heatPerShot`，≥`heatMax` 触发过热并锁定。**锁定期间不降温**——`updatePrimaryHeat` 在 `heatLockT > 0` 时只递减锁定计时并 `return`，不解 `heatPct`；**锁定归零后的下一帧才开始按 `coolPerSec` 降温**。**沿革**：改前锁定与降温并行（锁 2s 后热量已降到 70%），与用户「过热后不再立即冷却，而是等待 2s 锁定结束后才开始冷却」相冲。
+
+**射程**：`shell.maxRange` 取 `spec.maxRange` 并钳到 `rangeMaxPx`；`stepShells` 中超程即 `dead`（无伤害衰减）。
+
+**卡牌（2026-10-22 新增 3 张 + 收口 2 张）**：`weapon_primary_autocannon_range`（rare，`{"maxRange":"+100"}`，maxStacks 3）/ `weapon_primary_autocannon_cooling`（rare，`{"overheatLock":"-0.5"}`，maxStacks 2）/ `weapon_primary_autocannon_pierce`（epic，`{"penMult":"+0.05"}`，maxStacks 2）。**收口**：`weapon_primary_autocannon_damage` 摘掉 `penMult 0.95`（会突破 +10% 上限）、`weapon_primary_autocannon_heat` 摘掉 `overheatLock 1.2`（会突破 1.0s 下限）。安装卡 `weapon_primary_autocannon` 的 `penMult` 同步 0.80、`heatPerShot` 统一 10（**沿革**：缺省表曾 12、卡面 10，三方不一致，见 ISSUES #Z6）。
+
+**HUD**：热量环分母取 `spec.heatMax`（不再硬编码 100）。
+
+## 标准主炮的砰砰炮
+
+（2026-10-22 第五批，用户需求 6）
+
+**卡牌**：`weapon_primary_standard_doubletap`（epic，`{"doubleTapEnabled":true}`，maxStacks 1）。
+
+**机制**：主炮射击后 **0.8s** 再射出 1 发 **0.6 × 当前伤害**的炮弹（`RULES.weapons.standardDoubleTapDelay / standardDoubleTapDmgMul`）。
+
+- 实现：`firePrimaryShell` 加可选第 6 参 `dmgScale`（缺省 1）；`fireTank` 的通用单发分支在 `spec.doubleTapEnabled` 时挂 `shooter._doubleTap = { t: 0.8, dmgScale: 0.6 }`；新增 `updatePrimaryFollowup(t, dt, ctx)` 逐帧递减，到点直调 `firePrimaryShell` 后清队列。
+- 死亡 / 换武器（`primaryWeaponSpec` 不再有 `doubleTapEnabled`）→ 直接清队列，不发幽灵弹。
+- 驱动点：battle 玩家主循环 + 全实体主循环（AI/友军同源）。
 
 ## 电磁轨道炮
 

@@ -18,6 +18,8 @@
       <button id="tankListNewBtn">新增</button>
       <button id="tankListDeleteBtn" class="danger">删除</button>
     </div>
+    <!-- #Z1/D1（2026-10-22 B6）：当前编辑目标状态条——常驻显示「正在改什么」，随 Tab/子目标/选中顶点刷新 -->
+    <div id="editTargetBar">当前编辑：数据 · 基础参数</div>
     <canvas id="editor-canvas"></canvas>
     <div id="hint"></div>
     <div id="coordReadout">局部坐标: --</div>
@@ -60,6 +62,18 @@
       <div class="prop-row"><span class="lbl">三扩系数</span><input type="number" id="t-spreadMult" value="1" min="0.1" max="5" step="0.1"></div>
       <div class="prop-row"><span class="lbl">缩圈速度</span><input type="number" id="t-aimSpeed" value="0.15" min="0.02" max="2" step="0.02"></div>
       <div class="hint-text" style="font-size:10px; color:var(--text-dim);">三扩系数：移动/转车体/转炮塔三源散布的统一倍率（1 = 基准）；缩圈速度：瞄准圈收敛速度，越小缩圈越慢</div>
+    </div>
+
+    <!-- #Z1/F2（2026-10-22 B6，需求 12）：主炮模式 -->
+    <div class="section panel-data">
+      <h3>武器 Weapons</h3>
+      <div class="prop-row"><span class="lbl">主炮模式</span>
+        <select id="weaponPrimaryMode">
+          <option value="direct" selected>直射 Direct</option>
+          <option value="howitzer">曲射（榴弹炮模式）</option>
+        </select>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">曲射模式<b>实际由副武器槽承载</b>：导出写 <span class="mono">weapons.secondary = { type: "howitzer" }</span>（运行时 <span class="mono">isHowitzerMode</span> 据此把主炮切曲射弹道，F 键切换直射/曲射）；直射模式不写 <span class="mono">weapons</span> 键。曲射落点受散布与地形影响，不适合精确点名。<br>限制：曲射并非新增主炮类型——主炮仍走 <span class="mono">weapons.primary</span>；副武器槽被此模式占用后不能再装其它副武器（要换回需先切回「直射」）。</div>
     </div>
 
     <div class="section panel-armor">
@@ -145,38 +159,56 @@
 
     <div class="section">
       <h3>编辑 Edit</h3>
+      <!-- Tab 按钮：始终留在最上方独立一行（D2，2026-10-22 B6） -->
       <div class="btnrow">
         <button id="modeData" class="mode-btn edit-tab-btn active">数据 Data</button>
         <button id="modeArmor" class="mode-btn edit-tab-btn">装甲模型 Armor</button>
         <button id="modeAppearance" class="mode-btn edit-tab-btn">外观 Appearance</button>
-        <!-- #3（2026-10-15）：删除掩体形状设计功能 -->
       </div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">数据（基础+战斗参数）/ 装甲模型（车体+炮塔几何+装甲+座圈）/ 外观（车长塔+发动机舱+炮管+炮盾+履带+纹理）/ 掩体（地图元素多边形编辑）</div>
-      <div class="btnrow" style="margin-top:8px;">
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">数据（基础+战斗参数+主炮模式）/ 装甲模型（车体+炮塔几何+装甲+座圈+炮塔类型）/ 外观（车长塔+发动机舱+炮管+炮盾+履带+纹理）</div>
+
+      <!-- 装甲模型子目标（#Z1）：车体 / 炮塔 —— armor 模式下画布 mode 恒等于这里的子目标 -->
+      <div class="btnrow tab-tools" data-tab="armor" style="margin-top:8px; align-items:center;">
+        <span class="lbl" style="font-size:10px; color:var(--text-dim);">装甲子目标</span>
+        <button id="armorPartHullBtn" class="part-vis-btn active">车体 Hull</button>
+        <button id="armorPartTurretBtn" class="part-vis-btn">炮塔 Turret</button>
+      </div>
+
+      <!-- 外观专属：预览瞄准 -->
+      <div class="btnrow tab-tools" data-tab="appearance" style="margin-top:8px;">
         <button id="modePreview" class="mode-btn">预览瞄准 Preview</button>
       </div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">「预览瞄准」为独立视图辅助：移动鼠标旋转炮塔查看瞄准方向与外观效果，不改变当前编辑条目</div>
-      <div class="btnrow" style="margin-top:8px;">
+      <div class="hint-text tab-tools" data-tab="appearance" style="font-size:10px; color:var(--text-dim); margin-top:4px;">「预览瞄准」为独立视图辅助：移动鼠标旋转炮塔查看瞄准方向与外观效果，不改变当前编辑条目</div>
+
+      <!-- 装甲模型专属：多边形批量操作 -->
+      <div class="btnrow tab-tools" data-tab="armor" style="margin-top:8px;">
         <button id="undoVertBtn">撤销末尾顶点</button>
         <button id="clearPolyBtn" class="danger">清空当前多边形</button>
         <button id="resetDefaultBtn">重置默认形状</button>
-        <button id="copyCoverJsonBtn">拷贝掩体 JSON</button>
       </div>
-      <div class="btnrow" style="margin-top:8px;">
+      <div class="btnrow tab-tools" data-tab="armor" style="margin-top:8px;">
         <button id="snapToggleBtn">网格吸附 关</button>
       </div>
-      <div class="btnrow" style="margin-top:8px; align-items:center;">
+      <div class="btnrow tab-tools" data-tab="armor" style="margin-top:8px; align-items:center;">
         <span class="lbl" style="font-size:10px; color:var(--text-dim);">部件可见</span>
         <button id="partVisHullBtn" class="part-vis-btn active">车体</button>
         <button id="partVisTurretBtn" class="part-vis-btn active">炮塔</button>
         <button id="moduleZoneBtn" class="part-vis-btn" title="在装甲模型标签下叠加显示内部模块受击判定区（只读）">内部模块</button>
       </div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">「部件可见」可单独隐藏车体/炮塔（仅编辑辅助，不写入存档）：隐藏的部件不渲染、不参与任何画布命中；仅剩一个部件可见时无法再隐藏</div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:6px;">Delete/Backspace 删除选中顶点 · 方向键 1px 微调 · Esc 取消选中 · 网格吸附开启后拖动/新增顶点对齐到整数格</div>
+      <div class="hint-text tab-tools" data-tab="armor" style="font-size:10px; color:var(--text-dim); margin-top:4px;">「部件可见」可单独隐藏车体/炮塔（仅编辑辅助，不写入存档）：隐藏的部件不渲染、不参与任何画布命中；仅剩一个部件可见时无法再隐藏</div>
+      <div class="hint-text tab-tools" data-tab="armor" style="font-size:10px; color:var(--text-dim); margin-top:6px;">Delete/Backspace 删除选中顶点 · 方向键 1px 微调 · Esc 取消选中 · 网格吸附开启后拖动/新增顶点对齐到整数格</div>
     </div>
 
     <div class="section panel-armor">
       <h3>座圈中心 Turret Ring Centers</h3>
+      <!-- #Z1/F3（需求 12）：炮塔类型 -->
+      <div class="prop-row"><span class="lbl">炮塔类型</span>
+        <select id="turretType">
+          <option value="rotating" selected>旋转炮塔 Rotating</option>
+          <option value="fixed">固定战斗室 Fixed</option>
+        </select>
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">固定战斗室：导出 <span class="mono">hasTurret: false</span>（缺省旋转炮塔时不写该键），<b>射界强制 180、炮塔 pivot 强制 (0,0)</b>，画布预览角度恒 0（不随鼠标转）——炮管固定在车体朝向。旋转炮塔才可编辑座圈/射界。</div>
       <div class="prop-row">
         <span class="lbl">车体座圈圆心 (pivot)</span>
         <div style="display:flex; gap:4px; align-items:center;">
@@ -223,30 +255,19 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">正多边形以炮塔旋转中心为圆心、外接圆半径 R 生成，应用后覆盖当前炮塔顶点（装甲与旋转中心保留）</div>
     </div>
 
-    <div class="section panel-cover">
-      <h3>掩体编辑 Cover Editor</h3>
-      <div class="prop-row"><span class="lbl">掩体种类</span>
-        <select id="c-tier">
-          <option value="half">半高掩体 half</option>
-          <option value="full">全高掩体 full</option>
-          <option value="bush">灌木丛 bush</option>
-          <option value="tree">树 tree</option>
-          <option value="soft">栅栏 soft</option>
-          <option value="barricade">沙袋 barricade</option>
-          <option value="mud">烂泥地 mud</option>
-          <option value="rock">岩石 rock</option>
-        </select>
-      </div>
-      <div class="prop-row"><span class="lbl">X (世界)</span><input type="number" id="c-x" value="400"></div>
-      <div class="prop-row"><span class="lbl">Y (世界)</span><input type="number" id="c-y" value="300"></div>
-      <div class="prop-row"><span class="lbl">宽 (W)</span><input type="number" id="c-w" value="60"></div>
-      <div class="prop-row"><span class="lbl">高 (H)</span><input type="number" id="c-h" value="40"></div>
-      <div class="prop-row"><span class="lbl">角度 (°)</span><input type="number" id="c-angle" value="0"></div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">掩体编辑用于导出独立掩体对象。点击画布添加多边形顶点，不规则形状顶点将覆盖 W/H 矩形逻辑。</div>
-    </div>
-
     <div class="section panel-appearance">
       <h3>炮管预设 Barrel Preset</h3>
+      <!-- #Z1/F1（需求 12）：炮管数量 1/2 + 双管间距 -->
+      <div class="prop-row"><span class="lbl">炮管数量</span>
+        <select id="barrelCount">
+          <option value="1" selected>单管 1</option>
+          <option value="2">双管 2</option>
+        </select>
+      </div>
+      <div class="prop-row" id="barrelGapRow" style="display:none;"><span class="lbl">双管间距 px</span>
+        <input type="number" id="barrelGap" value="3.7" min="0" max="40" step="0.1" title="两根炮管的横向间距（模型单位/px）；仅在炮管数量=2 时写入">
+      </div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">炮管数量=2 导出 <span class="mono">barrel.count = 2</span> + <span class="mono">barrel.gap</span>（间距缺省 3.7）；仅影响绘制与双管弹道偏移，不开火逻辑不变（单管=1）。单管时不写这两个键。</div>
       <div class="prop-row"><span class="lbl">预设样式</span>
         <select id="barrelPreset">
           <option value="standard">标准炮管 Standard</option>
@@ -366,7 +387,7 @@
       <h3>整车精灵 Sprite（已停用）</h3>
       <div class="prop-row"><span class="lbl">游戏中启用精灵</span><input type="checkbox" id="sp-enabled" style="width:16px;"></div>
       <div class="prop-row"><span class="lbl">画布显示精灵</span><input type="checkbox" id="sp-preview" style="width:16px;"></div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">精灵 = AI 生成的四层俯视贴图（assets/tanks/：履带/车体/炮塔/炮管）。「游戏中启用」写入 tank JSON（sprite.enabled），局内 drawTank 改用精灵绘制；「画布显示」仅设计器叠加预览（默认关闭，避免未对齐贴图盖住顶点/装甲判读），用于对齐多边形。</div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">精灵 = 四层俯视贴图（assets/tanks/：履带/车体/炮塔/炮管），后期由美术提供；当前仓库没有这些 PNG，全部走程序化烘焙。「游戏中启用」写入 tank JSON（sprite.enabled），局内 drawTank 改用精灵绘制；「画布显示」仅设计器叠加预览（默认关闭，避免未对齐贴图盖住顶点/装甲判读），用于对齐多边形。图片不存在时不要勾「游戏中启用」。</div>
       <div class="prop-row"><span class="lbl" style="color:var(--amber);">履带 Track</span><span class="mono" id="sp-track-img" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
       <div class="prop-row"><span class="lbl">缩放 (单位/px)</span><input type="number" id="sp-track-scale" step="0.0005" min="0"></div>
       <div class="prop-row"><span class="lbl">位移 X / Y</span>
@@ -411,7 +432,9 @@
       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">自动对齐：按车体/炮塔多边形包围盒长度重算缩放，清零位移与旋转（轴心保留）；履带缩放=履带宽/图片高，炮管安装点=炮塔前缘（axis 归零帧，与局内 gunRoot 同源）+嵌入深度。缩放语义：贴图像素 × 缩放 = 模型单位。</div>
     </div>
 
-    <div class="section panel-hull panel-turret">
+    <!-- #Z1/C（2026-10-22 B6）：选中顶点面板只在装甲模型 Tab 有意义（此前 class="panel-hull panel-turret"
+         不命中任何 panel-<tab> 规则 ⇒ 在数据/外观 Tab 也常驻显示，属噪音） -->
+    <div class="section panel-armor">
       <h3>选中顶点 Selected Vertex</h3>
       <div id="selInfo">未选中顶点 — 点击画布上一个顶点即可选中并精确编辑坐标</div>
       <div class="prop-row"><span class="lbl">X</span><input type="number" id="v-x" disabled></div>

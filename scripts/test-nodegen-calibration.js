@@ -155,12 +155,15 @@ const DENSE = new Set(['forest_dense', 'woodland_line']);
 //   1.2~1.7→2.0~2.6、mixed_barrier_plaza d=0.5 1.8→2.5 等，均为道路/建筑相对位置
 //   重排的最小间隙换主，无系统性收窄——车体宽 38px≈0.95 格下限仍全部富余）。
 //   BASE 表按实测重锚；校验口径不变：cov ±0.02 / con ±0.05 / minw ±0.5。
+// 2026-10-22（第五批）重锚：soft/barricade 统一为 wall（passability 0、实体墙）⇒ 通道收窄，
+//   6 个越界单元按实测重锚（corridor d0.5/0.7/0.9 = 3.6/3.1/3.1、forest_dense d0.5 = 0.6、
+//   crossfire_plaza d0.9 = 1.4、mixed_barrier_plaza d0.5 = 1.8）。其余基线不变。
 const BASE = {
-  corridor_tutorial: [{"cov":0.0862,"con":1,"minw":3.7857},{"cov":0.0847,"con":1,"minw":3.6919},{"cov":0.0854,"con":1,"minw":3.0575},{"cov":0.0837,"con":1,"minw":2.3336},{"cov":0.083,"con":1,"minw":2.4489}],
-  forest_dense: [{"cov":0.0716,"con":0.9999,"minw":0.5088},{"cov":0.0716,"con":0.9999,"minw":0.5088},{"cov":0.0735,"con":0.9999,"minw":1.1375},{"cov":0.0727,"con":0.9999,"minw":1.0539},{"cov":0.0711,"con":0.9999,"minw":0.9734}],
+  corridor_tutorial: [{"cov":0.0862,"con":1,"minw":3.7857},{"cov":0.0847,"con":1,"minw":3.6919},{"cov":0.0854,"con":1,"minw":3.6},{"cov":0.0837,"con":1,"minw":3.1},{"cov":0.083,"con":1,"minw":3.1}],
+  forest_dense: [{"cov":0.0716,"con":0.9999,"minw":0.5088},{"cov":0.0716,"con":0.9999,"minw":0.5088},{"cov":0.0735,"con":0.9999,"minw":0.6},{"cov":0.0727,"con":0.9999,"minw":1.0539},{"cov":0.0711,"con":0.9999,"minw":0.9734}],
   urban_block: [{"cov":0.098,"con":0.9999,"minw":0.7542},{"cov":0.097,"con":1,"minw":0.9078},{"cov":0.0995,"con":1,"minw":0.5868},{"cov":0.1011,"con":0.9999,"minw":0.9052},{"cov":0.0961,"con":0.9999,"minw":1.4885}],
-  crossfire_plaza: [{"cov":0.0928,"con":1,"minw":1.8325},{"cov":0.0883,"con":1,"minw":1.911},{"cov":0.0874,"con":1,"minw":1.694},{"cov":0.0898,"con":1,"minw":1.9966},{"cov":0.0879,"con":1,"minw":2.0254}],
-  mixed_barrier_plaza: [{"cov":0.0658,"con":1,"minw":1.3281},{"cov":0.0623,"con":1,"minw":1.9754},{"cov":0.0606,"con":1,"minw":2.5124},{"cov":0.0589,"con":1,"minw":1.2924},{"cov":0.0572,"con":1,"minw":1.2924}],
+  crossfire_plaza: [{"cov":0.0928,"con":1,"minw":1.8325},{"cov":0.0883,"con":1,"minw":1.911},{"cov":0.0874,"con":1,"minw":1.694},{"cov":0.0898,"con":1,"minw":1.9966},{"cov":0.0879,"con":1,"minw":1.4}],
+  mixed_barrier_plaza: [{"cov":0.0658,"con":1,"minw":1.3281},{"cov":0.0623,"con":1,"minw":1.9754},{"cov":0.0606,"con":1,"minw":1.8},{"cov":0.0589,"con":1,"minw":1.2924},{"cov":0.0572,"con":1,"minw":1.2924}],
   village_center: [{"cov":0.0962,"con":1,"minw":0.6482},{"cov":0.0944,"con":1,"minw":0.5693},{"cov":0.0987,"con":1,"minw":1.0671},{"cov":0.0999,"con":1,"minw":1.0079},{"cov":0.0965,"con":1,"minw":0.826}],
   woodland_line: [{"cov":0.0555,"con":1,"minw":2.0463},{"cov":0.0528,"con":1,"minw":2.1946},{"cov":0.0503,"con":1,"minw":2.5662},{"cov":0.0512,"con":1,"minw":2.1214},{"cov":0.0529,"con":1,"minw":2.1966}],
 };

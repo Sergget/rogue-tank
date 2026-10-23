@@ -1,7 +1,7 @@
 {
   "id": "support_medevac",
   "name": "战场救护协议",
-  "rarity": "legendary",
+  "rarity": "epic",
   "desc": "战场救护协议：本局复活次数 +1，阵亡后可满状态复活。",
   "effects": [
     { "type": "economy", "field": "reviveCount", "value": 1 }

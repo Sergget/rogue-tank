@@ -300,7 +300,9 @@ function enemyLevelMults(level){
 //
 // @param {string} tankId  坦克 id（tanks/*.json 的 key）
 // @param {number} level   敌人等级（1 起，对应 enemyLevelMults）
-// @param {object} [opts]  { tanks: 配置表（缺省取全局 tankListData）, boss: bossSpec }
+// @param {object} [opts]  { tanks: 配置表（缺省取全局 tankListData）, boss: bossSpec,
+//   factory: 图鉴口径 = true 时按**该坦克自己的出厂数值**做基准（2026-10-22 修「各车数据相同」），
+//   缺省/ false 仍走实战敌军基准 `RULES.enemyAnchorBase`（零回归） }
 // @returns {object|null}
 function enemyPreviewStats(tankId, level, opts){
   var o = opts || {};
@@ -324,6 +326,42 @@ function enemyPreviewStats(tankId, level, opts){
   if (!mk) return null;
   tank = mk({ team: 'enemy', x: 0, y: 0, hullAngle: 0, turretAngle: 0 });
   if (applyApp) applyApp(tank, spec, null);
+
+  // ==== 2026-10-22（用户反馈「图鉴各坦克装甲值等数据都是相同的」）====
+  // 根因：applyEnemyAppearanceAndStats 按设计**只取外观与类型**，数值一律用固定基准
+  //   RULES.enemyAnchorBase × enemyClassProfiles[class]；而 tanks/*.json 的 class 字段
+  //   全是 undefined ⇒ deriveTankClass 全落 medium ⇒ 六面装甲/HP/穿深/伤害/极速完全相同。
+  // 图鉴口径（o.factory）改为**按该坦克自己的出厂数值**做基准，再叠等级乘子（曲线不变）。
+  // 实战路径不传 factory ⇒ 零回归。
+  if (o.factory && spec) {
+    // 用 globalThis 索引访问（`resolvePartArmor` 在 tank_model.js 的模块作用域，
+    //   本文件不持有它的裸标识符声明 ⇒ tsc 会报 TS2304）。
+    var _g2 = (typeof globalThis !== "undefined") ? globalThis : {};
+    var resolveArmor = (typeof _g2.resolvePartArmor === "function") ? _g2.resolvePartArmor : null;
+    if (!resolveArmor && typeof require !== "undefined") {
+      try { resolveArmor = require("./tank_model.js").resolvePartArmor || null; } catch (e) { /* 纯浏览器走全局 */ }
+    }
+    var pickNum = function (v, dflt) { return (typeof v === "number" && isFinite(v)) ? v : dflt; };
+    var b = tank.base || {};
+    if (resolveArmor) {
+      b.armor = { hull: resolveArmor(spec, "hull"), turret: resolveArmor(spec, "turret") };
+    }
+    b.maxHp = pickNum(spec.hp, b.maxHp);
+    b.penetration = pickNum(spec.penetration, b.penetration);
+    b.damage = pickNum(spec.damage, b.damage);
+    b.reload = pickNum(spec.reload, b.reload);
+    b.maxSpeed = pickNum(spec.maxSpeed, b.maxSpeed);
+    b.turnRate = pickNum(spec.turnRate, b.turnRate);
+    b.turretTurnRate = pickNum(spec.turretTurnRate, b.turretTurnRate);
+    b.shellSpeed = pickNum(spec.shellSpeed, b.shellSpeed);
+    b.enginePower = pickNum(spec.enginePower, b.enginePower);
+    if (typeof spec.weight === "number") b.weight = spec.weight;
+    tank.base = b;
+    tank.modifiers = [];   // factory 基准 = 该车出厂值（等级乘子随后叠加）
+    if (typeof refreshStats === "function") refreshStats(tank);
+    tank.hp = tank.stats.maxHp;
+    tank.maxHp = tank.stats.maxHp;
+  }
 
   var mults = enemyLevelMults(lv);
   if (addMod) {

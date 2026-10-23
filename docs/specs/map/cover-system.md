@@ -1,7 +1,7 @@
 # 掩体体系
 
 > **摘要**：掩体 tier 全集、弹道/通行/视线三套判定、确定性拦截与半高掩体移除的现行口径。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-22）
 > **源自**：`docs/specs/map.md` §2 / §3 / §12（2026-10-21 拆分）
 > **相关**：[地形抽象与生成](./terrain.md) · [路网](./roads.md) · [纹理与烘焙](./textures.md) · [沿革与未落地](./changelog.md)
 
@@ -101,6 +101,60 @@
 **现行口径**：炮弹只被**确定性**掩体拦截——`shellBlock===true`（建筑/岩石/树/残破建筑，在掩体**入口点**截停）与 `'single'`（沙袋，挡 1 发即毁）。`shellBlock: 'grad'` 不再是合法取值（`normalizeCoverTiers` 派生同步收敛）；水/河/泥/路/栅栏/残骸/灌木/倒树一律越飞。`getExposure` 保留为视线/预测用纯函数，但不再有 `half` 越掩插值（`RULES.coverRules.mediumHullExposure/heavyHullExposure` 删除）。
 
 > **2026-10-21 补正（沙袋跳弹口径）**：本节原文写「`'single'`（沙袋，挡 1 发 / >70° 可跳弹）」，与 `js/tank_fire.js` 现行实现不符——`bestCover` 命中路径里 `tier.mode === 'single'` 分支是「**不跳弹，直接 `dmgCover` 摧毁**」（`js/tank_fire.js:1107-1108`，注记 #12，2026-10-15 用户裁定「沙袋为软质掩体」）。`70°` 是**装甲跳弹角基准**（`RULES.ballistics.bounceAngle`，按弹种 `ammoTypes.*.bounceAngle` 覆盖），只作用于**坦克装甲命中**，不是掩体命中。现行为：沙袋一律不跳弹。
+
+## 直线掩体（wall / wall_breakable）：取代栅栏与沙袋（2026-10-22）
+
+**用户裁定**：「删除现有的栅栏、沙包元素。全部改为掩体（单直线，射击多种不同的贴图），掩体两侧的坦克射击可以命中掩体另一侧比自己离掩体更远坦克的炮塔和车体、只能命中另一侧更近坦克的炮塔，分为不可摧毁和可摧毁，可摧毁的掩体可承受一定的伤害后消失」。
+
+### tier 定义（唯一数值口径 = `RULES.coverTiers`）
+
+| tier | label | passability | shellBlock | destructible / hp | vision | drawStyle | wallStyle |
+|---|---|---|---|---|---|---|---|
+| `wall` | 掩体 | **0**（不可通行，只能绕） | `wall` | `null` / **Infinity**（不可摧毁） | true | `wall` | `concrete`（生成期按 biome 随机分配六种之一） |
+| `wall_breakable` | 可摧毁掩体 | **0** | `wall` | **4**（承受 4 发后**直接消失**，`toTier: null` 不降级残骸） | true | `wall` | `sandbag` |
+
+**已删除**：`soft`（栅栏，原 passability 0.45 / shellBlock false / destructible 1）与 `barricade`（沙袋路障，原 shellBlock 为 single 挡 1 发）两个 tier **整体下线**。老存档/旧基线的这两个 tier 由 `snapshotCovers` 的 `_normalizeCoverTierKey` 映射（soft→wall、barricade→wall_breakable、未注册 tier→wall）。
+
+### 导弹越障标记 `missileOverfly`（2026-10-23 用户裁定）
+
+用户原话：「线导反坦克导弹默认可以越过当前配置的掩体（不是建筑、岩石等）」+「锁定式导弹仅 50% 几率可飞过去」。
+
+`RULES.coverTiers[tier].missileOverfly === true` 的 tier 可被**发射时掷骰成功**的导弹越过（弹体 `s.overflyLow`；概率口径 `RULES.missiles.wire.overflyChance = 1.0` / `RULES.missiles.lock.overflyChance = 0.5`）：
+
+| 可越（`missileOverfly: true`） | 不可越（无该标记） |
+|---|---|
+| `wall`（直线掩体）/ `wall_breakable`（沙袋）/ `tree`（树） | `building` / `intact` / `ruined` / `rock` / `perm_block` |
+
+越障语义：这些 tier **不参与** `findCoversOnPath` 拦截、`wallPartBlock` 部位裁剪与部署掩体拦截（消费方 `js/tank_fire.js` stepShells 的 `overflyLow` 判定）。
+
+
+### shellBlock=wall 的部位裁剪（新语义）
+
+这是**第四种** shellBlock 取值（前三种：`true` 整发截停 / `single` 挡 1 发 / `false` 越飞）：不是简单挡弹，而是按「射手/目标各自到掩体直线的距离」裁剪可命中部位。判定唯一实现 = `js/tank_cover.js` 的纯函数 `wallPartBlock(cov, shooter, target)`：
+
+1. **目标在另一侧且比射手更远** → 车体与炮塔**都可命中**（射界成立）；
+2. **目标在另一侧且比射手更近** → **只能命中炮塔**（车体被墙挡住）；
+3. **射手贴墙**（`dShooter <= RULES.coverRules.wallHugDist`，缺省 **22px**）→ 与 1 同效（贴墙有射界，这是「掩体后射击」的手感来源）。
+
+消费方：`js/tank_fire.js stepShells` 在命中坦克前按整条弹道缓存 `_wallBlockCache` 过滤车体/炮塔命中（**必须按整条弹道判定，按步段查会在飞过墙后失效**）；全部被过滤则该墙段按入口截停。`getExposureWithHits` 对 `wall` 也走同一判据（炮塔 zMin≥1.2 恒露）。AI 侧：`tank_ai._wallTurretOnlyFiringLine` 让「只有炮塔可打」仍算有射界（`holdGate` 调用点做 OR）。
+
+### 生成与贴图
+
+- **单直线几何**：w=长度、h=厚度、angle=朝向，**不用 `verts` 多边形**。
+- **俯视 2.5D（2026-10-22 修「贴图都是正视图」）**：六套贴图统一走 `wallFrame` 的俯视画框——
+  **厚度方向只有「一层顶面 + 一条背光侧壁」**（侧壁厚 = T×26% 钳 [1.6, 5]），绝不堆多层；
+  长轴方向才允许重复单元（伸缩缝/砖缝/板缝/桩位）。判据：正视图的特征是**厚度方向堆 2 层沙袋 / 多排砖**，
+  俯视图的特征是**一个顶面 + 一条厚度带**。光源固定左上 ⇒ 顶面上缘受光、下缘露侧壁。
+  **沿革（不静默删除）**：改前 sandbag 画 2 层堆叠、brick 画错缝砖块立面、steel 四角铆钉、concrete 上半亮下半暗
+  ——全都是「正视图」读法；现 sandbag 改单层俯视袋阵、brick 改长轴砖缝 + 压顶线、steel 铆钉改沿长轴两排、
+  concrete 改单一面 + 面内斑驳、hedgehog 铁丝改 1 条、barrier 收分只体现在长轴两端。
+- **六套 `wallStyle`**（程序化烘焙，零外部图片，唯一表 `js/tank_assets.js`）：`concrete` 30% / `sandbag` 25% / `steel` 15% / `brick` 15% / `hedgehog` 10% / `barrier` 5%。按「节点 biome + 近路与否」确定性分配（同 seed 可复现），**同一节点内至少 3 种**。
+- **可摧毁版破损表现**：按 hp / maxHp 分三级（>0.67 完好 / 0.34~0.67 裂纹 / <0.34 重度破损），在贴图上叠加裂纹线与缺口。
+- **生成侧**：22 处模板 coverSpecs 的 soft/barricade 全部换成 wall/wall_breakable；`placeJunctionBarricades` 改名 `placeJunctionWalls`（旧名保留 alias）产出单直线掩体；难度互换改为「低难度多 wall_breakable（好破）→ 高难度多 wall（更硬）」。配置 `RULES.nodeMap.junctionBarricades`（breakableChance 0.45 / wallLenMin 62 / wallLenMax 96 / wallThick 26）。
+- **尺寸收敛**：`RULES.nodeMap.coverWorldScale` 新增 wall 0.34 / wall_breakable 0.34 / perm_block 0.32。
+- **`perm_block`（永久掩体）保留**：仍是 solid 语义（整发截停、不可摧毁），drawStyle 改为 `wall`、wallStyle `hedgehog`。
+
+**回归影响**：strip 节点通道变窄（栅栏原可通行、沙袋只挡 1 发；现在两族都是不可通行的实体墙）⇒ `scripts/test-nodegen-calibration.js` 的 6 个 minPassage 基线已按实测重锚（corridor d0.5/0.7/0.9 = 3.6/3.1/3.1、forest_dense d0.5 = 0.6、crossfire_plaza d0.9 = 1.4、mixed_barrier_plaza d0.5 = 1.8）。
 
 ## 相关页面
 - [地形抽象与生成](./terrain.md) — `shellBlock`/`passability` 的取值域与地形→tier 映射

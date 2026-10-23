@@ -239,12 +239,15 @@ console.log('\n—— #U39 升级卡参数贯通（地雷半径 / 线导弹速�
     `#U39 线导弹缺省弹速 340（实际 ${global.shells[0] && global.shells[0].speed}）`);
   PLAYER.weapons.secondary.stats = Object.assign({}, W.getWeaponDefaults('secondary', 'missile_wire'), { speed: 560, reload: 8 });
   PLAYER.secondaryReloadT = 0;
+  PLAYER._missileInFlight = null;   // 2026-10-23：单发在飞标记需清空才能再次击发
   global.shells.length = 0;
   holdF_fire();
   ok(global.shells.length === 1 && global.shells[0].speed === 560,
     `#U39 线导弹升级卡生效（speed ${global.shells[0] && global.shells[0].speed}）`);
-  ok(Math.abs(PLAYER.secondaryReloadT - 8) < 1e-9,
-    `#U39 线导弹装填覆写生效（secondaryReloadT ${PLAYER.secondaryReloadT} = 8）`);
+  // 2026-10-23（用户裁定）：「按 1 次生效 1 次，导弹击中、消失后进入冷却」——
+  //   发射瞬间不写装填（在飞期间禁止再发），装填由弹体结束后的清理段写入。
+  ok(PLAYER.secondaryReloadT === 0, `#U39 线导弹在飞期间不写装填（secondaryReloadT=${PLAYER.secondaryReloadT}）`);
+  ok(!!PLAYER._missileInFlight, '#U39 线导弹发射后登记单发在飞标记 _missileInFlight');
 }
 
 // ============================================================================

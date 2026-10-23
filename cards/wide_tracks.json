@@ -1,7 +1,7 @@
 {
   "id": "wide_tracks",
   "name": "加宽履带",
-  "rarity": "rare",
+  "rarity": "common",
   "desc": "履带加宽：修复时间 -20%，转向 +5%。",
   "effects": [
     { "type": "modifier", "stat": "trackLock", "mode": "mult", "value": 0.8 },

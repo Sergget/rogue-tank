@@ -1,5 +1,6 @@
 {
   "id": "Obj 780",
+  "passiveSlots": 3,
   "traverseLimit": 180,
   "maxSpeed": 120,
   "turnRate": 2,

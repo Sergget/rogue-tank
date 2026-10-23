@@ -444,9 +444,16 @@ function drawRailArcs(ctx){
   }
   ctx.restore();
 }
-// 命中/擦弹特效：冲击闪光 + 锥形喷射火花 + 冲击波环 + 飞溅烟尘。outcome: 'pen'|'he'|'block'|'bounce'
+// 命中/擦弹特效：冲击闪光 + 锥形喷射火花 + 冲击波环 + 飞溅烟尘。
+// outcome: 'pen'|'he'|'block'|'bounce' + 2026-10-22 B5-2 新增的家族化三档：
+//   'impact_ap' / 'impact_heat' / 'impact_he'（'impact_he' 是 'he' 的**别名**，零回归）。
+//   接线口径（tank_battle.html / tank_fire.js 由调用方改）：命中结算时把 outcome 从 'pen'
+//   改成按 `s.ammoKey` 的 family 选的 'impact_ap' / 'impact_heat' / 'impact_he'；
+//   'bounce' / 'block' 两档**保持通用**，不按系列拆分（避免组合爆炸）。
 function spawnImpactFx(x, y, angle, outcome, scale){
-  const o = outcome || 'pen';
+  let o = outcome || 'pen';
+  // 家族别名：impact_he → he（保留现有 he 实现；老调用点（'he'）行为逐字不变）
+  if(o === 'impact_he') o = 'he';
   const sc = scale || 1;
   hitFx.push({ x, y, ang: angle || 0, life: 0, max: o === 'bounce' ? 0.18 : 0.28, outcome: o, scale: sc });
   
@@ -467,6 +474,44 @@ function spawnImpactFx(x, y, angle, outcome, scale){
     for(let i = 0; i < 10; i++){
       spawnDebris(x, y, 120 * sc, 1.1);
     }
+  } else if (o === 'impact_ap') {
+    // 击穿（AP 家族）：窄锥火花束 + 金属碎屑 + 小冲击环，**无焦痕**（动能弹穿而不烧）
+    spawnShockwave(x, y, 22 * sc, 0.18, 'rgba(207,233,255,0.85)', 1.8 * sc);
+    // 12 束火花，集中在入射方向 ±0.35rad 的窄锥内，速度 260~420
+    for(let i = 0; i < 12; i++){
+      const a = (angle || 0) + (Math.random() - 0.5) * 0.70;
+      const spd = (260 + Math.random() * 160) * sc;
+      spawnSpark(x, y, a, spd, 0.16 + Math.random() * 0.22, 1.2 + Math.random() * 1.0, 'cyan');
+    }
+    // 3 片金属碎屑（沿入射方向前抛，不做全向飞散——动能弹的穿出物有方向性）
+    for(let i = 0; i < 3; i++){
+      const a = (angle || 0) + (Math.random() - 0.5) * 1.1;
+      const spd = (120 + Math.random() * 140) * sc;
+      if(fxParticles.length >= FX_MAX_PARTICLES) break;
+      fxParticles.push(getPooledParticle('debris', x, y,
+        Math.cos(a) * spd, Math.sin(a) * spd - 20 * sc,
+        0.55 + Math.random() * 0.35, 1.4 + Math.random() * 1.6));
+    }
+  } else if (o === 'impact_heat') {
+    // 击穿（HEAT 家族）：定向金属射流 + 高温熔滴 + 小爆点 + 小焦痕
+    // ① 定向射流：1 条 60px 亮橙射线，沿入射方向（射流穿透后继续前冲）
+    const ja = angle || 0;
+    tracers.push({
+      x1: x, y1: y,
+      x2: x + Math.cos(ja) * 60 * sc, y2: y + Math.sin(ja) * 60 * sc,
+      color: '#ffd23c', life: 0, max: 0.14
+    });
+    // ② 小爆点（半径 14）+ 焦痕 8px
+    spawnShockwave(x, y, 14 * sc, 0.16, 'rgba(255,210,60,0.9)', 1.6 * sc);
+    spawnScorchMark(x, y, 8 * sc);
+    // ③ 8 粒高温熔滴（小圆、寿命 0.25s，沿入射方向窄锥喷出）
+    for(let i = 0; i < 8; i++){
+      const a = ja + (Math.random() - 0.5) * 0.9;
+      const spd = (90 + Math.random() * 130) * sc;
+      spawnSpark(x, y, a, spd, 0.25, 1.1 + Math.random() * 0.9, 'amber');
+    }
+    // ④ 少量白热烟（射流气化产物）
+    for(let i = 0; i < 2; i++) spawnSmoke(x + (Math.random()*6-3), y + (Math.random()*6-3), 30 * sc, 0.8);
   } else if (o === 'pen') {
     // 击穿：高亮向后穿透破片火花 + 金属碎屑 + 橙红冲击环
     spawnShockwave(x, y, 32 * sc, 0.22, 'rgba(255,210,110,0.8)', 2.2 * sc);
@@ -886,9 +931,22 @@ function drawHitFx(ctx){
   for(const f of hitFx){
     const t = Math.min(1, f.life / f.max);
     const a = Math.max(0, 1 - t);
-    const r = 5 + t * 26 * (f.outcome === 'he' ? 1.5 : 1) * f.scale;
+    // 2026-10-22 B5-2：家族化 outcome 的闪光半径/配色（impact_he 已在 spawn 期别名为 he）
+    const isAp = (f.outcome === 'impact_ap');
+    const isHeat = (f.outcome === 'impact_heat');
+    const r = 5 + t * 26 * (f.outcome === 'he' ? 1.5 : (isHeat ? 0.7 : 1)) * f.scale;
     const grad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
-    if(f.outcome === 'pen' || f.outcome === 'he'){
+    if(isAp){
+      // AP：冷蓝白穿甲闪（与曳光/火花同色系）
+      grad.addColorStop(0,   `rgba(235,248,255,${0.95*a})`);
+      grad.addColorStop(0.45,`rgba(150,205,255,${0.50*a})`);
+      grad.addColorStop(1,   'rgba(60,110,190,0)');
+    } else if(isHeat){
+      // HEAT：橙黄金属射流闪（亮芯偏白、外圈橙）
+      grad.addColorStop(0,   `rgba(255,248,200,${0.95*a})`);
+      grad.addColorStop(0.42,`rgba(255,190,60,${0.58*a})`);
+      grad.addColorStop(1,   'rgba(200,90,20,0)');
+    } else if(f.outcome === 'pen' || f.outcome === 'he'){
       grad.addColorStop(0,   `rgba(255,240,180,${0.95*a})`);
       grad.addColorStop(0.45,`rgba(255,150,50,${0.55*a})`);
       grad.addColorStop(1,   'rgba(180,70,20,0)');
@@ -902,7 +960,10 @@ function drawHitFx(ctx){
     }
     ctx.fillStyle = grad;
     ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, TAU); ctx.fill();
-    ctx.strokeStyle = `rgba(255,200,110,${0.5*a})`; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = isAp ? `rgba(190,225,255,${0.5*a})`
+      : isHeat ? `rgba(255,215,90,${0.5*a})`
+      : `rgba(255,200,110,${0.5*a})`;
+    ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(f.x, f.y, r * 1.15, 0, TAU); ctx.stroke();
   }
   ctx.restore();

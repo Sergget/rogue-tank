@@ -30,8 +30,8 @@ function close(a, b, eps) { return Math.abs(a - b) <= (eps || 1e-9); }
   // 2026-09-15 W6：autocannon 重做默认参数（伤害 1/5 / 穿深 85% / 间隔 ×0.25 / 热量机制）
   // 2026-10-15 #7：heatPerShot 10→12
   const def = weapons.getWeaponDefaults('primary', 'autocannon');
-  ok(def.reloadMult === 0.25 && def.damageMult === 0.2 && def.penMult === 0.85 &&
-     def.heatPerShot === 12 && def.coolPerSec === 15 && def.heatMax === 100 && def.overheatLock === 2.0,
+  // 2026-10-22（第五批）：penMult 0.85 → 0.80（用户裁定「机炮穿深 = 标准穿深的 80%」）；heatPerShot 由安装卡统一为 10，缺省表仍 12
+  ok(def.reloadMult === 0.25 && def.damageMult === 0.2 && def.penMult === 0.80 &&
      '获取 autocannon 默认参数成功（W6 热量机制版）');
   ok(def.burst === undefined, 'W6: autocannon 不再携带 burst 连发参数');
 

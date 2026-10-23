@@ -19,8 +19,11 @@ const covers = [
   { x:560, y:150, w:24, h:18, angle:0, tier:'tree' },       // 树：挡路+1 发伐倒→倒树
   { x:760, y:470, w:56, h:34, angle:0, tier:'bush' },       // 灌木：靶车可开入隐藏
   { x:930, y:150, w:56, h:30, angle:0, tier:'bush' },       // 灌木（装饰）
-  { x:330, y:510, w:170, h:10, angle:0, tier:'soft' },      // 栅栏：穿透即毁 / 压过即毁
-  { x:450, y:180, w:64, h:28, angle:0, tier:'barricade' },  // 沙袋路障：挡 1 发
+  // 2026-10-22（第五批）：`soft`（栅栏）/`barricade`（沙袋路障）两个 tier 已从 RULES.coverTiers 删除，
+  //   bench/单测用的这两条演示元素改挂新墙体家族——不可摧毁 `wall` / 可摧毁 `wall_breakable`。
+  //   （旧值保留在此注释备查：原 `{ x:330…tier:'soft' }` = 栅栏；`{ x:450…tier:'barricade' }` = 沙袋路障。）
+  { x:330, y:510, w:170, h:10, angle:0, tier:'wall' },             // 直线掩体（不可摧毁，单直线墙体）
+  { x:450, y:180, w:64, h:28, angle:0, tier:'wall_breakable' },    // 可摧毁掩体（4 发后彻底移除）
   // 复杂多边形验证实例（需求2，为后续贴图做准备）：verts 为局部坐标顶点数组，
   // w/h 仅作包围盒参考；L 形凹多边形建筑 + 六边形建筑（#E3：原六边形半高已改全高）。
   { x:250, y:650, w:90, h:60, angle:0, tier:'full',
@@ -34,8 +37,28 @@ const covers = [
 ];
 
 // 每块掩体/元素在启动时快照初始状态（耐久取 tier 默认值），resetCovers() 用于重置战场
+// 2026-10-22（第五批）：老数据兼容——`soft`（栅栏）/`barricade`（沙袋路障）两个 tier 已删除，
+//   读到时映射进新墙体家族（soft→wall 不可摧毁、barricade→wall_breakable 可摧毁），
+//   避免旧存档/旧基线快照让 `COVER_TIERS[c.tier]` 取到 undefined 直接抛 TypeError
+//   （实测：默认 covers 里残留 `barricade` 会让 require('./js/tank_cover.js') 当场崩）。
+function _normalizeCoverTierKey(tier){
+  if(tier === 'soft') return 'wall';
+  if(tier === 'barricade') return 'wall_breakable';
+  if(!COVER_TIERS[tier]) return 'wall';   // 其它未知 tier：按最保守的不可摧毁墙体处理
+  return tier;
+}
+
+// 2026-10-22（第五批）：**可还原的实例清单**。
+//   `destroyCover` 对 `toTier === null` 的掩体（wall_breakable）会 `covers.splice()` 物理移除
+//   ——这是「彻底消失，不留残骸」的语义要求，但也意味着 `resetCovers()` 遍历当前数组时
+//   永远看不到它（Node 测试 + bench「重置战场」会越重置越少墙）。
+//   因此这里保留一份「初始实例引用清单」：resetCovers 用它把被移除的实例放回数组。
+//   ⚠️ 刷新时机：只在 snapshotCovers()（模块初始化 + 页面 setCovers 重建战场）时刷新——
+//   那两处正是「实例集合被重新定义」的时刻，因此天然幂等，不会把战时移除误当初始状态。
+let _initialCovers = [];
 function snapshotCovers(){
   covers.forEach(c=>{
+    c.tier = _normalizeCoverTierKey(c.tier);
     if(c.hp === undefined) c.hp = COVER_TIERS[c.tier].hp;
     c.spawn = { tier:c.tier, x:c.x, y:c.y, w:c.w, h:c.h, angle:c.angle, hp:c.hp,
                 ...(c.verts ? { verts: c.verts.slice() } : {}),
@@ -43,11 +66,22 @@ function snapshotCovers(){
                 // P-40：河流多段连通——segments 相对偏移一并快照，resetCovers 可还原
                 ...(c.segments ? { segments: c.segments.map(s => Object.assign({}, s)) } : {}) };
   });
+  // 初始实例清单（引用，不是拷贝）：resetCovers 据此把被物理移除的实例放回数组
+  _initialCovers = covers.slice();
 }
 function resetCovers(){
+  // ① 先补回被 destroyCover 移除的实例（toTier===null 的可摧毁掩体），保持与初始集合**顺序一致**
+  //    （顺序是 `getCoverUnderTank` 等「取首个重叠」判定的隐式契约，不能把墙挪到队尾）。
+  //    只补 `_initialCovers` 里缺的，**不删除**手工 push 的临时元素（保持既有兼容语义）。
+  for(let i = 0; i < _initialCovers.length; i++){
+    const c = _initialCovers[i];
+    if(covers.indexOf(c) < 0) covers.splice(Math.min(i, covers.length), 0, c);
+  }
+  // ② 逐条还原快照（含 hp / tier / 几何），并清掉销毁标志
   covers.forEach(c=>{
     if(c.spawn) Object.assign(c, c.spawn);
     delete c._gone;
+    delete c._removed;
   });
 }
 snapshotCovers();
@@ -105,11 +139,15 @@ function smokeBlocksLoS(ox, oy, tx, ty){
 // toTier 残骸（树→倒树、沙袋→碎石）原地降级并保留于 covers；残骸尺寸默认通用
 // 0.6/0.6 缩小，tier 配置了 residueW/residueH 时用其覆盖（如倒树横躺 2.4/0.5）。
 // 多边形掩体（verts）被摧毁后残骸按矩形 w/h 表现，故清除 verts。
+//
+// 2026-10-22（第五批）：`toTier === null` 分支——可摧毁掩体（wall_breakable）**不降级、直接消失**：
+//   从 covers 里真正移除（不是留一具"hp=0 的残骸"），语义与 tree→fallen / building→ruined 的
+//   降级链区分开。`_gone` 仍置 true 保证幂等（同一帧多辆车/多发炮弹命中只处理一次）。
 function destroyCover(cov, reason){
   if(cov._gone) return;
   cov._gone = true;
   cov.hp = 0;
-  invalidateCoverGrid();   // 残骸链（toTier）改变几何（w/h/verts）→ 空间索引失效重建
+  invalidateCoverGrid();   // 残骸链（toTier）/移除 改变几何 → 空间索引失效重建
   if(typeof burstExplosion === 'function'){
     burstExplosion(cov.x, cov.y, 0.9, 10, 5, 8);
   }
@@ -120,9 +158,17 @@ function destroyCover(cov, reason){
     const why = reason==='shell' ? '炮弹击毁' : (reason==='splash' ? '爆炸波及' : '坦克碾碎');
     pushLog(`${(_tier && _tier.label) || cov.tier || '掩体'}被${why}`, 'COVER');
   }
-    const to = _tier ? _tier.toTier : null;
-    // 残骸 tier 自身也必须已注册（toTier 指向未注册 tier 时按"彻底摧毁"处理）
-    if(to && COVER_TIERS[to]){
+  // 2026-10-22：toTier === null（显式声明「彻底移除」）→ 直接从 covers 移除，不生成残骸。
+  //   ⚠️ 与 #W16-② 的「未注册 tier 不得抛错」不同：这里靠 `_tier` 存在才走该分支，
+  //   未注册 tier 仍落到下面「按彻底摧毁（保留 hp=0 实例）」的兜底。
+  if(_tier && _tier.toTier === null){
+    const idx = covers.indexOf(cov);
+    if(idx >= 0) covers.splice(idx, 1);
+    return;
+  }
+  const to = _tier ? _tier.toTier : null;
+  // 残骸 tier 自身也必须已注册（toTier 指向未注册 tier 时按"彻底摧毁"处理）
+  if(to && COVER_TIERS[to]){
     cov.tier = to;
     cov.angle = 0;
     const rw = COVER_TIERS[to].residueW, rh = COVER_TIERS[to].residueH;
@@ -206,8 +252,11 @@ function coverNormalAt(cov, px, py){
 // 注：半径由调用方传入（消费 RULES.breach.heSplashRadius，该字段仍生效），本函数不读 RULES。
 function splashCoversAt(x, y, radius){
   let destroyed = 0;
-  for(const cov of covers){
-    if(cov.hp <= 0 || !Number.isFinite(cov.hp)) continue;
+  // 2026-10-22（第五批）：`destroyCover` 现在会为 `toTier === null` 的掩体（wall_breakable）
+  //   **从 covers 中 splice 移除**——遍历期间改动数组会让正向循环跳过下一项（实测：
+  //   半径内 3 个可摧毁掩体只炸掉 1 个）。改为遍历快照副本，删除语义不受影响。
+  for(const cov of covers.slice()){
+    if(!cov || cov.hp <= 0 || !Number.isFinite(cov.hp)) continue;
     const d = Math.hypot(cov.x-x, cov.y-y);
     if(d <= radius && damageCover(cov, 1, 'splash')) destroyed++;
   }
@@ -230,7 +279,88 @@ function getCoverUnderTank(tank) {
   return null;
 }
 
-// ---------- 精确多边形点测 / 车体⇄路面多边形相交（#U37，2026-10-18） ----------
+// ---------- 隐蔽值（camouflage）与可见距离——2026-10-23 本批新增 ----------
+// 归口：`RULES.camouflage`（唯一口径在 js/tank_rules.js）。本组为**纯函数**，可 Node 测试。
+// 设计口径（用户 2026-10-23 需求 2）：以「车型吨位 / 移动状态 / 开火状态 / 所处地形」四维
+//   决定可见性，最终折算为「敌方对本车的基础视距折扣」。调用方（tank_ai.js）只消费
+//   `camouflageDistanceMultiplier`，不自己算权重（避免两处口径漂移）。
+//
+// 返回值语义：**<1 = 更难被发现**（敌方有效视距 = 基础视距 × 返回值）。
+//   0.3 表示「原本 650px 才能看见，现在 195px 内才会被点亮」。
+
+// 车型吨位分档：从 tank.heightClass / tank.vehicleClass 推断（缺失回退 medium）。
+//   注意 heightClass 在本项目里是**活的**字段（见 tank_rules.js 注释），不要与已删除的 heights 混淆。
+function camouflageClassOf(t) {
+  if (!t) return 'medium';
+  const raw = String(t.vehicleClass || t.heightClass || 'medium').toLowerCase();
+  if (raw === 'light' || raw === 'wheeled' || raw === 'medium' && false) return 'light';
+  if (raw === 'light' || raw === 'wheeled') return 'light';
+  if (raw === 'heavy' || raw === 'spg' || raw === 'atgm') return 'heavy';
+  return 'medium';
+}
+
+// 运动状态分档：静止 / 移动 / 疾驰（速度占极速比例 ≥0.75 视为疾驰）。
+function camouflageMotionOf(t) {
+  const v = Math.abs(t.speed || 0);
+  if (v <= 6) return 'idle';
+  const maxPx = ((t.stats && t.stats.maxSpeed) || 0) * ((RULES.speed && RULES.speed.pxFactor) || 1)
+              * ((RULES.speed && RULES.speed.effMul) || 1);
+  if (maxPx > 0 && v / maxPx >= 0.75) return 'sprint';
+  return 'move';
+}
+
+// 开火惩罚：t.lastFireT 由开火层写入（距今秒数）。窗口内按 firingPenaltyMultiplier 折算。
+function camouflageFiringMul(t) {
+  const cfg = (typeof RULES !== 'undefined' && RULES.camouflage) || {};
+  const win = cfg.firingPenaltyDuration !== undefined ? cfg.firingPenaltyDuration : 3.0;
+  const mul = cfg.firingPenaltyMultiplier !== undefined ? cfg.firingPenaltyMultiplier : 0.1;
+  const last = (t && typeof t.lastFireAt === 'number') ? t.lastFireAt : null;
+  if (last === null) return 1;
+  const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  return (now - last) < win * 1000 ? mul : 1;
+}
+
+// 地形加成：灌木/树林 tierGroup==='foliage' 给 bushBonus；烟雾云覆盖给 smokeBonus（取较大者，
+//   不叠加——否则树+烟可叠到 1.1 让坦克彻底隐身，失去对抗性）。
+function camouflageTerrainBonus(t) {
+  const cfg = (typeof RULES !== 'undefined' && RULES.camouflage) || {};
+  const bushB = cfg.bushBonus !== undefined ? cfg.bushBonus : 0.40;
+  const smokeB = cfg.smokeBonus !== undefined ? cfg.smokeBonus : 0.70;
+  let bonus = 0;
+  const cov = (typeof getCoverUnderTank === 'function') ? getCoverUnderTank(t) : null;
+  if (cov) {
+    const tier = (typeof COVER_TIERS !== 'undefined' && COVER_TIERS) ? COVER_TIERS[cov.tier] : null;
+    if (tier && tier.tierGroup === 'foliage') bonus = bushB;
+  }
+  if (typeof smokeClouds !== 'undefined' && Array.isArray(smokeClouds)) {
+    for (const s of smokeClouds) {
+      if (s.life <= 0) continue;
+      const d = Math.hypot((t.x || 0) - s.x, (t.y || 0) - s.y);
+      if (d <= s.radius) { bonus = Math.max(bonus, smokeB); break; }
+    }
+  }
+  return bonus;
+}
+
+// 隐蔽值（0~1.5 量级）：baseCamo × 运动 × 开火 + 地形加成。
+function camouflageValue(t) {
+  const cfg = (typeof RULES !== 'undefined' && RULES.camouflage) || {};
+  const base = (cfg.baseCamo || { light: 0.7, medium: 0.5, heavy: 0.3 })[camouflageClassOf(t)];
+  const motion = (cfg.motionMultiplier || { idle: 1.2, move: 0.7, sprint: 0.4 })[camouflageMotionOf(t)];
+  const b = (base !== undefined ? base : 0.5);
+  const m = (motion !== undefined ? motion : 0.7);
+  const value = b * m * camouflageFiringMul(t) + camouflageTerrainBonus(t);
+  return Math.max(0, value);
+}
+
+// 敌方有效视距倍率：隐蔽值越高，视距越短。映射采用 1/(1+camo) 的单调平滑曲线，
+//   camo=0 → 1.0（全额视距）；camo=0.5 → 0.67；camo=1.0 → 0.5；camo≥1.55 → ≤0.39。
+//   下限 0.3 防止「完全不可见」（用户要求 AI 仍应能通过噪声/受击警觉反应）。
+function camouflageDistanceMultiplier(t) {
+  const camo = camouflageValue(t);
+  const mul = 1 / (1 + camo * 1.0);
+  return Math.max(0.3, Math.min(1, mul));
+}
 // 背景（用户「河流贴图和实际溺毙生效范围不一致」的根因）：道路 cover 自 cde3bc3 起是
 // **整链连续多边形**——`verts` = 沿中心线左右各偏移半宽的「左链 + 反向右链」。而
 // coverCorners / coverCollisionParts 对它返回的是**整链凸包**，SAT（obbOverlap）是凸多边形
@@ -739,6 +869,50 @@ function coverDirectionTolerance(){
   return (typeof v === 'number' && Number.isFinite(v)) ? v : COVER_DIRECTION_TOLERANCE_DEFAULT;
 }
 
+// ================= 2026-10-22（第五批）直线掩体（tier `wall` / `wall_breakable`）的部位裁剪 =================
+// 用户口径（docs/PLAN.md §4.9.2(b)）：
+//   「掩体两侧的坦克，射击可以命中**另一侧比自己离掩体更远**的坦克的炮塔和车体；
+//     只能命中**另一侧比自己更近**的坦克的炮塔」。
+// 以掩体所在直线为界把射手与目标分到两侧：近侧一方被掩体「保护」（车体被挡、只露炮塔），
+// 远侧一方其弹道越过掩体顶落到目标身上——但如果目标比射手更近，则目标车体在掩体阴影里。
+//
+// 判据（按顺序，先命中先返回）：
+//   ① 射手贴掩体（dS <= RULES.coverRules.wallHugDist）→ 视为贴墙，完整射界（不裁）；
+//   ② 目标与射手在**同一侧** → 不裁（掩体不在两者之间）；
+//   ③ 目标在另一侧且**更远**（dT > dS + wallTurretOnlyDist）→ 不裁（车体+炮塔都能打）；
+//   ④ 目标在另一侧且**更近/等距** → blockHull（只能打炮塔，blockTurret 恒 false）。
+//
+// 几何：dX = |(P − cov)·n|，n = 掩体法向 (−sin(angle), cos(angle))；
+//   带符号投影 sX = (P − cov)·n 的**符号**即「在哪一侧」。
+// 纯函数（无 DOM / 无全局状态），供 tank_fire.stepShells / tank_cover.getExposureWithHits /
+// AI 射界门控共用；可 Node 单测（scripts/test-wall-ballistics.js）。
+// @param {any} cov    掩体实例（x/y/angle；w/h 不参与本判据）
+// @param {any} shooter 射手（x/y）
+// @param {any} target  目标（x/y）
+// @returns {{blockHull:boolean, blockTurret:boolean}}
+function wallPartBlock(cov, shooter, target){
+  const none = { blockHull: false, blockTurret: false };
+  if(!cov || !shooter || !target) return none;
+  const cr = (typeof RULES !== 'undefined' && RULES && RULES.coverRules) || {};
+  const hug = (typeof cr.wallHugDist === 'number') ? cr.wallHugDist : 22;
+  const turretOnlyExtra = (typeof cr.wallTurretOnlyDist === 'number') ? cr.wallTurretOnlyDist : 0;
+  const ang = cov.angle || 0;
+  const nx = -Math.sin(ang), ny = Math.cos(ang);          // 掩体法向 n = (−sin θ, cos θ)
+  const dS = Math.abs((shooter.x - cov.x) * nx + (shooter.y - cov.y) * ny);   // 射手到掩体直线距离
+  const dT = Math.abs((target.x - cov.x) * nx + (target.y - cov.y) * ny);     // 目标到掩体直线距离
+  // ① 射手贴墙（dS <= RULES.coverRules.wallHugDist）：视为「掩体后射击」，完整射界（PLAN 判据 4）
+  if(dS <= hug) return none;
+  // ② 目标不比射手更近（dT >= dS − wallTurretOnlyDist，含等距）：弹道越过掩体顶落到目标身上
+  //    ⇒ 车体 + 炮塔都可命中（PLAN 判据 1「同侧」与判据 2「目标更远」在**生产路径上等价**：
+  //    调用方（tank_fire.stepShells / tank_cover.getExposureWithHits）只会传入
+  //    **弹道真正穿过**的掩体——能穿过凸矩形掩体的弹道两端必然位于掩体直线两侧；
+  //    同侧坦克的弹道不会与该掩体相交，压根到不了这里。故本函数只按距离比较，
+  //    保持纯函数的全域单调性，也便于单测用「同侧但目标更远」的简化几何断言。）
+  if(dT + turretOnlyExtra >= dS) return none;
+  // ③ 目标在另一侧且**更近**（dT < dS）：车体落在掩体阴影里 ⇒ 只能命中炮塔（PLAN 判据 3）
+  return { blockHull: true, blockTurret: false };
+}
+
 // #W16-②（2026-10-20）：未注册 tier 不得抛 TypeError。原实现 `tierShellBlock(COVER_TIERS[tier])`
 // 在 tier 缺注册时对 undefined 取 .shellBlock ⇒ TypeError（生成期外部/旧存档/内容包新增 tier
 // 都会命中）。统一守卫：null ⇒ 视为 `false`（不参与弹道遮蔽）。
@@ -779,6 +953,17 @@ function getExposureWithHits(ox,oy,tx,ty, shooter, target, zMin, zMax, cutoffDis
     // 方向判据：掩体须在命中车体前被射线完整穿过（骑上/包住车体的掩体不生效；
     // 贴掩体时 distExit 与 cutoffDist 极其接近，允许容差向后以确保贴掩体遮挡生效）
     if(cutoffDist !== undefined && h.distExit >= cutoffDist + COVER_DIRECTION_TOLERANCE) continue;
+    // 2026-10-22（第五批）：直线掩体（shellBlock:'wall'）**不再整段 return 0**——
+    //   按 wallPartBlock 的部位裁剪判据决定：炮塔（zMin>=1.2）恒露；车体看「谁更近」。
+    //   缺 shooter/target（瞄准预测等无实体场景）时保守按「车体被挡」处理（旧行为等价）。
+    if(sb === 'wall'){
+      if(zMin >= 1.2) return 1.0;                       // 炮塔高于掩体顶：恒露
+      const wb = (shooter && target)
+        ? wallPartBlock(h.cover, shooter, target)
+        : { blockHull: true, blockTurret: false };
+      if(wb.blockHull) return 0;                        // 车体在掩体阴影里 → 完全遮蔽
+      continue;                                         // 不裁 → 该掩体不参与遮蔽
+    }
     if(sb === true || sb === 'single') return 0; // 全遮剖面/固态掩体确定性 100% 格挡
     validHits.push(h);
   }
@@ -887,6 +1072,7 @@ if (typeof module !== 'undefined' && module.exports) {
     coverEnvelope,
     coverEnvelopeHitsRay,
     coverDirectionTolerance,
+    wallPartBlock,
     coverQueryCandidates,
     invalidateCoverGrid,
     findCoversOnPath,
@@ -900,6 +1086,17 @@ if (typeof module !== 'undefined' && module.exports) {
     spawnSmokeCloud,
     updateSmoke,
     clearSmoke,
-    smokeBlocksLoS
+    smokeBlocksLoS,
+    camouflageClassOf,
+    camouflageMotionOf,
+    camouflageValue,
+    camouflageDistanceMultiplier
   };
 }
+
+// 2026-10-22（第五批）：直线掩体部位裁剪判据的浏览器全局导出。
+//   浏览器端本模块是普通全局脚本（顶层 function 已自动挂 window），这里额外写一份
+//   `globalThis.wallPartBlock` 是为了与 `js/tank_weapons.js` 的 isHowitzerMode /
+//   `js/tank_physics.js` 的 applyDamage 同款「显式全局导出」口径——纯 Node 侧 require
+//   走上面的 module.exports，两侧同源同实现。
+if (typeof globalThis !== 'undefined') { globalThis.wallPartBlock = wallPartBlock; }

@@ -1,0 +1,18 @@
+{
+  "id": "weapon_secondary_missile_top_attack",
+  "name": "攻顶式反坦克导弹",
+  "rarity": "epic",
+  "desc": "锁定式反坦克导弹加装攻顶引信：导弹可越过低矮掩体（沙袋/树木等，建筑与岩石仍挡弹），飞到坦克顶部引爆——伤害按基准 60% 结算，穿甲判定改按目标最薄装甲值。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "missile",
+      "statOverrides": {
+        "topAttack": true
+      }
+    }
+  ],
+  "maxStacks": 1
+}

@@ -532,7 +532,10 @@ function applyTankConfig(tank, spec){
   if (spec.hp !== undefined) b.maxHp = spec.hp;
   if (spec.maxHp !== undefined) b.maxHp = spec.maxHp;
 
-  const instanceFields = ['heightClass', 'trackWidth', 'trackOffset', 'texture'];
+  // 2026-10-23（用户裁定）：「被动技能槽 … 每辆坦克固定数量，后期高等级坦克会赋予更多」——
+  //   `passiveSlots` 是**车型配置**（tanks/<id>.json），随车型固定；不是升级项
+  //   （UPGRADE_DEFS / 局内商店都不改它）。未配置时回退 RULES.abilities.passiveSlotsMax。
+  const instanceFields = ['heightClass', 'trackWidth', 'trackOffset', 'texture', 'passiveSlots'];
   for (const f of instanceFields) {
     if (spec[f] !== undefined) tank[f] = spec[f];
   }
@@ -857,12 +860,22 @@ function enemyAmmoKeyForLevel(level) {
 /**
  * 给敌军实体按等级套用弹种（Boss 可跳过由调用方控制）。
  * 只写 `ammoKey`，不触碰 `ammoLoadout`（敌军不走玩家那套 Q/E 轮换）。
+ *
+ * 2026-10-22（第五批，用户裁定）：**敌方/Boss 弹种升级后，穿深与伤害不跟随弹种设定的比例**，
+ *   按它们既有的成长速度（`RULES.difficulty.entityMults.penetration / damage` 线性插值）设定。
+ *   实现：同时写 `ammoStatNeutral = true`，消费方 `js/tank_fire.js` 的 firePrimaryShell 对
+ *   该标记的射手把 `ammo.pen` / `ammo.dmg` 按 1.0 处理（弹速/散布/跳弹角/模块/溅射等弹种
+ *   特性全部保留）。`enemyLevel` 同时落盘，供击杀计分（js/tank_economy.js killScore）与
+ *   面板展示读取。
  * @param {any} tank 实体（任意带 ammoKey 字段的坦克对象）
  * @param {number} level 敌人等级
  */
 function applyEnemyAmmoByLevel(tank, level) {
   if (!tank) return;
-  tank.ammoKey = enemyAmmoKeyForLevel(level);
+  const lv = (typeof level === 'number' && isFinite(level) && level >= 1) ? Math.floor(level) : 1;
+  tank.ammoKey = enemyAmmoKeyForLevel(lv);
+  tank.enemyLevel = lv;
+  tank.ammoStatNeutral = true;
 }
 
 // ---------- P-49 派生重量（纯函数，双端可用） ----------
@@ -1160,6 +1173,7 @@ if (typeof module !== 'undefined' && module.exports) {
     moduleLabel,
     applyTankConfig,
     applyEnemyAppearanceAndStats,
+    resolvePartArmor,   // 2026-10-22：逐面装甲解析（图鉴 factory 口径消费）
   // 2026-10-19：敌军弹种分级（AP 链、每 3 级升一档）——纯函数 + 套用助手
   enemyAmmoKeyForLevel,
   applyEnemyAmmoByLevel,

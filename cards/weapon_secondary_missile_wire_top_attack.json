@@ -1,0 +1,18 @@
+{
+  "id": "weapon_secondary_missile_wire_top_attack",
+  "name": "线导弹：攻顶引信",
+  "rarity": "epic",
+  "desc": "线导反坦克导弹加装攻顶引信：导弹飞临目标顶部引爆——伤害按基准 60% 结算，穿甲判定改按目标最薄装甲值。线导弹本就默认越过低矮掩体，本卡只改命中部位与结算口径。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "missile_wire",
+      "statOverrides": {
+        "topAttack": true
+      }
+    }
+  ],
+  "maxStacks": 1
+}

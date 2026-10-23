@@ -1,7 +1,7 @@
 # 七类效果类型
 
 > **摘要**：`effects[]` 每一项的 `type` 决定参数结构；本页是七类效果的参数与约束唯一口径。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-22）
 > **源自**：`docs/specs/cards.md` §3 全节（2026-10-21 拆分）
 > **相关**：[卡牌定位与数据契约](./overview-contract.md) · [被动卡与模块暴击](./passive-crit.md) · [三板块设计定稿](./design-blocks.md)
 
@@ -123,7 +123,30 @@
 
 （原 §3 第 5 条）
 
-伴随浮游炮 `{kind:'scout'|'striker'}`（`countMax=2` 上限）。
+伴随浮游炮 `{kind:'striker'}`（`countMax=2` 上限）。
+
+- **2026-10-23 用户裁定「删除侦查无人机，加强攻击无人机」**：`kind:'scout'`（侦察指示）**已下线** —— `cards/scout_drone.json` 置 `enabled:false`（`cardEligible` 与 `drawCardChoices` 双重过滤，永不进抽卡池），`RULES.abilities.drone.scoutRange` 键删除。当前唯一 kind = `striker`。
+- **攻击型加强**（`RULES.abilities.drone`，唯一数值口径）：`strikeRange` 260→**400**、`fireInterval` 2.0→**1.5s**、`dmgMult` 0.4→**0.8**。沿革：~~260 / 2.0 / 0.4~~。
+- **归入被动技能**：`drone` 效果属于「被动技能」卡类别（见下方「被动技能类别与槽位」）。
+
+## 被动技能类别与槽位（2026-10-23 用户裁定）
+
+**分类判据（效果层面，`isPassiveSkillCard(card)`，唯一口径 `js/tank_cards.js`）**——满足任一即属**被动技能卡**：
+
+| 判据 | 说明 | 卡池实测 |
+|---|---|---|
+| `type:'passive'` | 机制性被动（应急护盾/摆角特训/成员内衬/超口径/防崩落/湿式弹药架） | 8 张 |
+| `type:'drone'` | 伴随无人机（获得即生效、无需按键） | 1 张（`escort_drone`） |
+| `type:'ability'` 且 key ∈ `PASSIVE_SKILL_INNATE_KEYS`（repair/medkit/extinguish） | 固有技能**强化**卡（修理箱/医疗包/灭火器由主循环自动触发，玩家不按键） | 2 张（`repair_kit`/`support_extinguisher`） |
+
+累计 **12 张**被动技能卡。**明确排除**：`modifier`（火力/装甲/血量/机动的直接升级）、`ammo`、`weapon`、`economy`，以及 runtime 主动技能 `artillery`/`overdrive`/`shield`/`deploy_cover`/`aps`（占**主动**技能槽 3 格）。
+
+**槽位规则（用户原话「每辆坦克固定数量，后期高等级坦克会赋予更多」）**：
+
+- 槽位数 = **车型配置** `tanks/<id>.json` 的 `passiveSlots`（`applyTankConfig` 拷贝到实例）；缺省回退 `RULES.abilities.passiveSlotsMax`（**=2**）。实测 `tiger-I` / `Obj 780` = 3，其余 4 型 = 2。
+- **不是升级项**：`UPGRADE_DEFS` 与局内商店均**不得**新增 passive 槽扩容项（`scripts/test-passive-skills.js` 2f/2g 负向断言防回潮）；槽位只随**所选车型**变化。
+- **满槽顶替**：槽满时获得新被动卡 → 弹「被动技能槽 PASSIVE SLOTS」面板（复用 `#skillSlotPicker`）列出已占槽被动卡，玩家点选顶替谁；选定后 `removePassiveCard(tank, cardId)` 撤除旧卡（清 `card:*` 修饰器 + `cardEffects` 条目 + `_cardApplyCount`，使旧卡可再抽到）再 `applyCardEffects` 新卡。与主动技能顶替同机制。
+- **HUD**：`#hudSkills` 下 `#passiveSlots` 容器由 `updatePassiveSlots()` 逐帧渲染，每格显示卡名短标 + **冷却角标**。冷却映射：`reactive_armor`→`_emergencyShieldCd`、`support_extinguisher`→`abilityCds.extinguish`、`repair_kit`→`abilityCds.repair`；其余常驻被动无冷却。
 
 ## economy
 
@@ -148,6 +171,24 @@
 主/副武器安装与升级 `{type:'weapon', action:'install'|'upgrade', slot:'primary'|'secondary', weaponType, statOverrides?}`（2026-09-15 #A22/#A23 定型）。
 
 **完整语义（安装/升级两支、副武器单槽不变量、抽卡资格、`"+N"` 相对增量）见 [机制卡与武器 effect](./weapon-cards.md)**——本页不重复。（原 §3 第 7 条结尾指向原 §3.7 的 `weapon` 段；拆分后该段已独立成页。）
+
+## 2026-10-22 新增的武器专有 modifier 键
+
+`MODIFIER_STATS` 追加 7 个**武器专有**键（`js/tank_cards.js`）：
+
+| 键 | 消费者 | 边界（`RULES.parameterLimits`） |
+|---|---|---|
+| `maxRange` | 机炮 `shell.maxRange`（`firePrimaryShell`） | `{min:300, max:1200}` |
+| `overheatLock` | 机炮过热锁定（`fireTank`） | `{min:1.0, max:4.0}` |
+| `clipCycleSeconds` | 弹夹短装填（`fireClipWeapon`） | `{min:0.5, max:1.0}` |
+| `mineFieldCount` | 雷带雷数（`mineFieldLayout`） | `{min:3, max:12}` |
+| `mineFieldLength` | 雷带长度 | `{min:120, max:460}` |
+| `mineFieldReload` | 布雷冷却 | `{min:6, max:15}` |
+| `mineFieldMaxDeploy` | 雷场槽位 | `{min:1, max:3}` |
+
+**这些键不参与 `computeStats` 聚合**——它们只走 `weapon` 卡的 `statOverrides` 通道（写入 `weapons.<slot>.stats`，由 `primaryWeaponSpec` 合并）。登记在 `parameterLimits` 的目的是让 #U20 属性达限过滤与 `runShopLimitBlocked` 能按 `{min,max}` 双向判定（否则新卡的 `maxStacks` 上限只是装饰）。
+
+**布尔型 statOverrides**（2026-10-22 新增）：`burstOnSalvo`（弹夹爆发射击）、`doubleTapEnabled`（砰砰炮）、`altReload`（交替装填）。`validateCard` 的 statOverrides 校验已允许布尔（原有三型：数值 / 布尔 / `"+N"` 增量）。
 
 ## 相关页面
 - [卡牌定位与数据契约](./overview-contract.md) — `effects[]` 所在的 JSON 结构

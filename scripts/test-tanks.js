@@ -20,6 +20,7 @@ try {
 } catch (e) { /* 静态列表兜底 */ }
 
 const TANKS_DIR = path.join(__dirname, '..', 'tanks');
+const ROOT = path.join(__dirname, '..');
 let fails = 0;
 function ok(cond, label){
   if(cond){ console.log('  ✓ ' + label); }
@@ -112,6 +113,16 @@ for(const f of files){
     const spec = JSON.parse(fs.readFileSync(path.join(TANKS_DIR, f), 'utf8'));
     const en = spec.sprite && spec.sprite.enabled;
     ok(en !== true, `${f}: sprite.enabled 非 true（程序化渲染）`);
+    // 2026-10-23 用户裁定：现有 PNG（AI 生成/自绘）全部删除，`assets/` 只剩 README；
+    // 图片通道（路径 + 加载 + 四层对齐）保留。这条负向断言锁的是「JSON 指向不存在的图
+    // 却又开着精灵」——那会让 drawTank 静默回退到程序化，且没人发现配置是坏的。
+    for(const part of ['hull', 'turret', 'track']){
+      const p = spec.sprite && spec.sprite[part] && spec.sprite[part].img;
+      if(!p) continue;
+      if(en === true){
+        ok(fs.existsSync(path.join(ROOT, p)), `${f}: sprite.${part} 启用时图片必须在盘上（${p}）`);
+      }
+    }
   }
   // 2) 装饰件库 6 类型齐全
   const decoKeys = PAINT2.DECORATION_DEFS ? Object.keys(PAINT2.DECORATION_DEFS) : [];

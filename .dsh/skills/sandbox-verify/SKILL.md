@@ -35,7 +35,7 @@ description: Use when running pwsh verification commands inside the DSH sandbox 
 **跑 `npm test` 的注意点（2026-10-19 起）**：`run-tests.js` 已改为**逐项独立运行**，单项失败**不中断**后续，末行给 `N 通过 / M 失败` 汇总并列出失败项。所以：
 - 不要再按「跑到 test-ai 就结束 ⇒ 后面全过」的旧逻辑推断（那是当年 `&&` 长链的行为）。
 - 看到汇总里的 `✗` 就单跑那一项定位：`node scripts/test-<name>.js`。
-- 已知既有失败：`scripts/test-cover-gen.js` 会因 `tools/cover-refs.json` 基准漂移而红（`docs/PLAN.md` §2.5 记录），与本轮改动无关；修法是 `node tools/dump-cover-refs.mjs` 重导出。
+- 已知既有失败：`scripts/test-cover-gen.js` **已于 2026-10-23 随 AI 出图链删除**；若链里报 `tools/cover-refs.json` 基准漂移，跑 `node tools/dump-cover-refs.mjs` 重导出（`scripts/test-asset-pipeline.js` 会直接指出是哪一步）。
 
 ## 3. typecheck 细节
 

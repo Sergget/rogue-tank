@@ -1,42 +1,23 @@
 {
   "_note": "由 node tools/dump-cover-refs.mjs 生成，勿手改。单位：像素（1 世界px = 图片 1px）。",
   "assets": {
-    "soft": {
+    "wall": {
       "layer": "base",
       "bakeIn": [
-        170,
-        10
-      ],
-      "canvas": [
-        172,
+        168,
         12
       ],
-      "anchor": [
-        86,
-        6
-      ],
-      "centroid": [
-        85.5,
-        5.5
-      ]
-    },
-    "barricade": {
-      "layer": "base",
-      "bakeIn": [
-        64,
-        28
-      ],
       "canvas": [
-        66,
-        30
+        170,
+        14
       ],
       "anchor": [
-        33,
-        15
+        85,
+        7
       ],
       "centroid": [
-        32.36,
-        14.8
+        84.74,
+        6.5
       ]
     },
     "stump": {

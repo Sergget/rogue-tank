@@ -423,6 +423,11 @@
         <button class="abtn skill-btn" id="skillSlot2" title="技能池 2" style="display:none;"><span class="slabel">--</span><span class="skey">2</span><span class="cd" id="cdS2"></span></button>
         <button class="abtn skill-btn" id="skillSlot3" title="技能池 3" style="display:none;"><span class="slabel">--</span><span class="skey">3</span><span class="cd" id="cdS3"></span></button>
       </div>
+      <!-- 2026-10-23（用户裁定）：「在 ui 中显示被动技能槽（含冷却时间）」——
+           被动技能槽属坦克属性：默认 2 格、不可通过升级增减；获得新被动卡且槽满时，
+           与主动技能同样弹出选择面板由玩家指定顶替哪一格。格数由 RULES.abilities.passiveSlotsMax 决定，
+           渲染在 updateBottomHud 内动态生成（下方容器留空）。 -->
+      <div id="passiveSlots" style="display:flex; gap:6px; margin-top:4px;"></div>
     </div>
   </div>
   <!-- #H3（2026-09-30）：技能槽选择面板——槽满时由玩家指定新技能顶替哪一格（循环复用）。
@@ -692,8 +697,22 @@ let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, pla
 let aiEnemiesCache = [];
 // #E9（2026-09-20）：Boss 蓄能激光当前帧的绘制数据 { kind:'charge'|'fire', x,y,angle,width,length,progress }
 let bossLaserFx = null;
-// #E4（2026-09-20）：已确认待生成的雷场 [{x,y,radius,count,t}]——t 为剩余延时（秒）
+// 2026-10-22（第五批，B2 预留给 B5）：Boss 电磁炮轨道线的绘制数据。
+//   B5（role-render-fx）实现 `drawBossRailLine(ctx, bossRailFx)`；本页只负责
+//   ① 声明该变量、② 在 enterBattle 里清空、③ 在 draw 段以 `typeof` 判断调用空壳。
+//   在 B5 落地前它恒为 null，draw 段什么都不画（零视觉回归）。
+let bossRailFx = null;
+// #E4（2026-09-20）：已确认待生成的雷场——t 为剩余延时（秒）
+// 2026-10-22（第五批 B2-1）：元素结构改为**带状** `{ x, y, angle, len, wid, fieldId, t }`
+//   （原 `{x,y,radius,count,t}` 圆形已删除）。中心在「第一次 F」按下瞬间定格，angle 随鼠标实时刷新。
+//   雷点坐标一律经 js/tank_deployables.js 的 `mineFieldLayout(field)` 求得（绘制/生成同源，修 #Z5）。
 const pendingMineFields = [];
+// 2026-10-22（第五批）：雷场槽位账本——`fieldId → { id, alive }`。
+//   槽位判定 `activeMineFieldSlots() = pendingMineFields.length + 仍在场的已生成雷场数`。
+//   已生成雷场的「在场」判据：该 fieldId 名下仍有存活地雷（deployables 里 isMine && hp>0 && !_dead）。
+//   用 Set 记录生成过的 fieldId，地雷全部消耗/到期后由 activeMineFieldSlots 自动回收（不占槽）。
+const liveMineFields = new Set();
+let mineFieldSeq = 0;      // fieldId 自增器（跨节点不复位：id 只用于分组，不参与比较）
 let runScore = 0;          // 本局累计得分（§4.5 结算累加）
 let runKills = 0;          // 本局累计击杀数（P-34 终局汇总展示）
 let runScoreSpent = 0;
@@ -910,9 +929,10 @@ document.getElementById('bossBriefing')?.addEventListener('click', (e) => {
 // 2026-09-17 #C4e：F 键 = 直接击发副武器（按住连发），不再承担主/副切换。
 // 主炮=左键/空格专属（tryFirePrimary），副武器=F 专属（tryFireSecondary，目标=鼠标世界点）；
 // turret 型为设计例外（自瞄副炮塔由主循环 updateSecondaryWeapon 自主驱动，点击/按 F 不响应）。
-const SECONDARY_LABELS = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹（锁定式）', missile_wire:'反坦克导弹（线导式）', rocket:'火箭巢', mine_layer:'布雷器', howitzer:'榴弹炮（曲射/直射可切换）' };
+const SECONDARY_LABELS = { turret:'副炮塔', mortar:'车载迫击炮', missile:'反坦克导弹（锁定式）', missile_wire:'反坦克导弹（线导式）', rocket:'火箭巢', mine_layer:'布雷器', howitzer:'榴弹炮（曲射/直射可切换）', smoke:'烟幕发射器' };
 // #X5（2026-10-20）：howitzer 补图标「榴」——此前缺项回落成字母 F，与「F=击发」混淆。
-const SECONDARY_ICONS = { turret:'塔', mortar:'迫', missile:'导', missile_wire:'线', rocket:'火', mine_layer:'雷', howitzer:'榴' };
+// 2026-10-23：smoke 补图标「烟」。
+const SECONDARY_ICONS = { turret:'塔', mortar:'迫', missile:'导', missile_wire:'线', rocket:'火', mine_layer:'雷', howitzer:'榴', smoke:'烟' };
 function trySecondaryFire(force){   // #F7：force=true 时绕过 mine_layer 键盘边沿（HUD 按钮入口）
   if(!player || !player.weapons) return;
   const sec = player.weapons.secondary;
@@ -1044,34 +1064,72 @@ function tryActivateMissileLock(){
   playSound('ui');
 }
 
-// ================= #E4 布雷器：两次 F 确认 + 4s 雷场 =================
-// 第一次 F：在鼠标位置显示「拟生成的雷场形状」（mineFieldPreview，绘制层消费）；
-// 第二次 F：确认布设 → 延时 mineFieldDelay(4s) 后在预形态位置生成整片雷场。
-// 移动鼠标不改变已确认的落点；雷场位置在确认瞬间定格（RULES.abilities.deploy_limits）。
+// ================= #E4 布雷器：两次 F 确认 + 4s 雷场（2026-10-22 第五批：改「带状」） =================
+// 第一次 F：在鼠标位置显示「拟生成的雷带形状」（`player._mineFieldPreview`，绘制层消费）；
+//   中心 (x,y) 在**按下瞬间定格**（玩家移动鼠标不会让雷场跟着跑），
+//   但 angle 会在 mousemove 时刷新（玩家可以微调朝向——见 canvas mousemove 监听）。
+// 第二次 F：确认布设 → 延时 mineFieldDelay(4s) 后在预形态位置生成整条雷带。
 //
-// #H2（2026-09-30 用户反馈「地雷无法释放」）修复三处：
-//   ① 装填冷却门控缺失：原实现既不检查 player.secondaryReloadT，确认后也不写入 —— 15s 装填
-//      完全失效（可无冷却连点）。现与单发路径（js/tank_weapons.js fireActiveSecondary）同口径：
-//      冷却中拒绝并提示，确认后写入 reload / debuffReload（specs/combat.md §8.1）。
-//   ② 数量/上限自相矛盾：RULES 里 mineFieldCount(5) > mineMax(3)，而生成侧又用
-//      `n = min(mineMax, count)` 钳到 3，配上「existing + n > cap 即拒绝」的判据，
-//      导致**首轮布满 3 枚后所有后续雷场 100% 被丢弃**（实测第 2/3 轮均 0 新增）。
-//      现改为按可用余量裁剪：n = clamp(count, 1, cap − existing)，只在 existing ≥ cap 时拒绝，
-//      剩 2 格就布 2 枚 —— 雷场可多次布设，符合 #F6「超限拒绝且保留已布地雷」的原意。
-//   ③ 预形态绘制与实际落点数量不一致：绘制层同样调用 mineFieldCountNow()，保证所见即所得。
+// 2026-10-22（第五批 B2-1）重写要点：
+//   ① **形状带化**：`angle = atan2(mouse−player) + PI/2`（**垂直于鼠标—玩家连线**）、
+//      `len = mineFieldLength`、`wid = mineFieldBandWidth`——不再有圆形半径/中心随机。
+//   ② **删掉地雷总数上限**：旧实现走 `deployableCap('mine')` / `enforceDeployLimits('mine')` 的
+//      雷场路径（#H2② 的「按余量裁剪」）已整体删除；雷场只受**槽位**限制。
+//   ③ **新增槽位判定**：`activeMineFieldSlots() >= mineFieldMaxDeploy` → 拒绝并提示
+//      「雷场槽位已满 (n/3)」。pending 与已生成雷场共用同一账本（都靠 fieldId 归组）。
+//   ④ **日志不再显示雷数**（用户裁定「不向 UI 展示具体枚数」）——改为「雷场已确认 — Ns 后生成」。
+function mineFieldConfig(){
+  return (RULES.abilities && RULES.abilities.deploy_limits) || {};
+}
+// 2026-10-22（第五批）：雷场参数的**三层合并**读取（缺省 RULES < 副武器 stats = 升级卡）。
+//   B3 的布雷器升级卡（加密装药 mineFieldCount / 延展雷带 mineFieldLength /
+//   快速布雷 mineFieldReload / 多雷场控制器 mineFieldMaxDeploy / 雷场伤害 mineFieldHeRatio）
+//   都走 `weapon.upgrade.mine_layer` → 写 `player.weapons.secondary.stats`，
+//   因此这里必须先读 secStats 再回落 RULES（否则新卡全部无效）。
+function mineFieldStat(key, fallback){
+  const sec = (player && player.weapons && player.weapons.secondary && player.weapons.secondary.stats) || {};
+  if(typeof sec[key] === 'number') return sec[key];
+  const dcfg = mineFieldConfig();
+  if(typeof dcfg[key] === 'number') return dcfg[key];
+  return fallback;
+}
+// 仍在场的雷场槽位数 = 待生成预约数 + 已生成且名下仍有存活地雷的雷场数。
+// 已生成雷场靠 deployables 里带 fieldId 的地雷反查（雷打光/到期后自动释放槽位）。
+function activeMineFieldSlots(){
+  const dep = (typeof deployables !== 'undefined' && Array.isArray(deployables)) ? deployables : [];
+  const alive = new Set();
+  for(const d of dep){
+    if(!d || !d.isMine || d._dead || !(d.hp > 0)) continue;
+    if(d.fieldId === undefined || d.fieldId === null) continue;
+    alive.add(d.fieldId);
+  }
+  // liveMineFields 里记过但已无存活地雷的 fieldId → 回收（保持账本不膨胀）
+  for(const id of Array.from(liveMineFields)){
+    if(!alive.has(id)) liveMineFields.delete(id);
+  }
+  return pendingMineFields.length + alive.size;
+}
+function mineFieldSlotCap(){
+  const dcfg = mineFieldConfig();
+  const cap = mineFieldStat('mineFieldMaxDeploy', 1);
+  const hard = (typeof dcfg.mineFieldMaxDeployCap === 'number') ? dcfg.mineFieldMaxDeployCap : 3;
+  return Math.max(1, Math.min(hard, cap));
+}
+// 2026-10-22：`mineFieldCountNow()` 语义收敛为「本条雷带的雷数」——**只受槽位限制**，
+// 不再读 deployableCap/enforceDeployLimits（地雷总数上限已删除）。绘制层与生成侧同源调用。
 function mineFieldCountNow(){
-  const dcfg = (RULES.abilities && RULES.abilities.deploy_limits) || {};
-  const want = dcfg.mineFieldCount !== undefined ? dcfg.mineFieldCount : 5;
-  const cap = (typeof deployableCap === 'function') ? deployableCap('mine', player)
-            : (dcfg.mineMax !== undefined ? dcfg.mineMax : 3);
-  const existing = (typeof deployableCount === 'function') ? deployableCount('mine') : 0;
-  if(!isFinite(cap)) return want;                       // 无上限（异常配置）→ 按配置足量
-  return Math.max(0, Math.min(want, cap - existing));   // 按余量裁剪；0 = 无处可布
+  const dcfg = mineFieldConfig();
+  return mineFieldStat('mineFieldCount', 6);
+}
+function mineFieldAngleTo(mx, my){
+  // 垂直于「鼠标—玩家」连线（用户口径：雷带横在瞄准方向上，垂直拦路）
+  return Math.atan2(my - player.y, mx - player.x) + Math.PI / 2;
 }
 function handleMineFieldF(){
-  const dcfg = (RULES.abilities && RULES.abilities.deploy_limits) || {};
-  const delay = dcfg.mineFieldDelay !== undefined ? dcfg.mineFieldDelay : 4;
-  const radius = dcfg.mineFieldRadius !== undefined ? dcfg.mineFieldRadius : 70;
+  const dcfg = mineFieldConfig();
+  const delay = (typeof dcfg.mineFieldDelay === 'number') ? dcfg.mineFieldDelay : 4;
+  const len = mineFieldStat('mineFieldLength', 220);
+  const wid = mineFieldStat('mineFieldBandWidth', 56);
   // #F5（2026-09-20 用户反馈）：同一时刻仅允许一个待生成雷场，禁止连续预约无限布雷
   if(pendingMineFields.length > 0){
     pushLog('已有雷场待生成 — 无法重复预约', 'COVER');
@@ -1083,30 +1141,46 @@ function handleMineFieldF(){
     pushLog(`布雷器装填中 — 剩余 ${player.secondaryReloadT.toFixed(1)}s`, 'COVER');
     return;
   }
-  // #H2②：按可用余量决定本次可布数量；余量为 0 时立即拒绝（不再让玩家白等 4s 才发现失败）
-  const count = mineFieldCountNow();
-  if(count <= 0){
-    const cap = deployableCap('mine', player);
-    pushLog(`地雷已达上限（${cap}）— 清除或等待存续结束后再布雷`, 'COVER');
+  // 2026-10-22：槽位判定（取代旧「地雷总数上限」）——满了直接拒绝，不让玩家白等 4s
+  const cap = mineFieldSlotCap();
+  const used = activeMineFieldSlots();
+  if(used >= cap){
+    const dcfgHard = (typeof dcfg.mineFieldMaxDeployCap === 'number') ? dcfg.mineFieldMaxDeployCap : 3;
+    pushLog(`雷场槽位已满 (${used}/${dcfgHard}) — 等已有雷场消耗完再布设`, 'COVER');
     playSound('ui');
     return;
   }
   if(!player._mineFieldPreview){
-    player._mineFieldPreview = { x: mouseWorld.x, y: mouseWorld.y, radius: radius, count: count, t: 0 };
-    pushLog(`雷场预形态已显示 — 再按一次 F 确认布设（${delay}s 后生成 ${count} 枚地雷）`, 'PEN');
+    // 第一次 F：中心定格 + 当前朝向（count 仍由 mineFieldCountNow 单一来源给出，
+    // 但**不显示**给玩家——用户裁定「不向 UI 显示枚数」）
+    player._mineFieldPreview = {
+      x: mouseWorld.x, y: mouseWorld.y,
+      angle: mineFieldAngleTo(mouseWorld.x, mouseWorld.y),
+      len: len, wid: wid, count: mineFieldCountNow(), t: 0
+    };
+    pushLog(`雷场预形态已显示 — 再按一次 F 确认布设（${delay}s 后生成）`, 'PEN');
     playSound('ui');
     return;
   }
+  // 第二次 F：确认 → 转 pending（带 fieldId 供槽位回收）
   const pv = player._mineFieldPreview;
   player._mineFieldPreview = null;
-  pendingMineFields.push({ x: pv.x, y: pv.y, radius: radius, count: count, t: delay });
+  mineFieldSeq += 1;
+  pendingMineFields.push({
+    x: pv.x, y: pv.y,
+    // 确认瞬间以**当前**鼠标朝向为准（预览期间玩家可能已微调过角度）
+    angle: mineFieldAngleTo(mouseWorld.x, mouseWorld.y),
+    len: pv.len, wid: pv.wid, count: pv.count || mineFieldCountNow(),
+    fieldId: mineFieldSeq, t: delay
+  });
   // #H2①：确认即进入装填（布雷受 secondaryReloadT 门控，单发 15s —— 与 specs/combat.md §8.1 一致）
   const secStats = (player.weapons && player.weapons.secondary && player.weapons.secondary.stats) || {};
   const reload = typeof secStats.reload === 'number' && secStats.reload > 0 ? secStats.reload
-                : (dcfg.mineFieldReload !== undefined ? dcfg.mineFieldReload : 15);
+                : mineFieldStat('mineFieldReload', 15);
   const rate = (typeof debuffReloadRate === 'function') ? debuffReloadRate(player) : 1;
   player.secondaryReloadT = reload / (rate > 0 ? rate : 1);
-  pushLog(`雷场已确认 — ${delay}s 后在标记点生成 ${count} 枚地雷`, 'CRIT');
+  // 用户裁定：日志与 UI 都不显示雷数
+  pushLog(`雷场已确认 — ${delay}s 后生成`, 'CRIT');
   playSound('ui');
 }
 
@@ -1334,6 +1408,75 @@ function onSkillSlotAssigned(){
   if(next) pumpSkillSlotPicker();
 }
 
+// ---------- 2026-10-23：被动技能槽顶替（用户裁定） ----------
+// 「被动技能槽属于坦克属性，无法通过升级增减，默认 2 个，后续再获取需要和主动技能一样选择顶替。」
+// 获得被动技能卡时：
+//   ① 槽未满 → 直接生效（卡效果已由 applyCardEffects 应用，无需额外动作）；
+//   ② 槽已满 → 弹出选择面板，玩家点哪一张已装被动卡，就用新卡**顶替**它：
+//      先把被顶掉的卡效果真正撤除（removePassiveCard → 修饰器/效果/计数全清），再应用新卡。
+let passiveSlotPendingQueue = [];   // 待顶替的被动卡（卡对象，非 key）
+
+function passiveCardLabel(card){
+  return (card && (card.name || card.id)) || '被动技能';
+}
+
+function closePassivePicker(){
+  const el = document.getElementById('skillSlotPicker');
+  if(el) el.style.display = 'none';
+}
+
+// 打开被动顶替面板：列出当前占槽的全部被动卡，点谁就顶掉谁
+function openPassiveSlotPicker(newCard){
+  const el = document.getElementById('skillSlotPicker');
+  const list = document.getElementById('skillSlotPickerList');
+  const hint = document.getElementById('skillSlotPickerHint');
+  if(!el || !list || !newCard) return false;
+  const title = el.querySelector('.picker-title');
+  if(title) title.textContent = '被动技能槽 PASSIVE SLOTS';
+  const cur = (typeof passiveReplaceCandidates === 'function') ? passiveReplaceCandidates(player) : [];
+  if(hint) hint.textContent = `被动技能槽已满（${cur.length} 格）—— 点击要顶替的被动技能，新卡「${passiveCardLabel(newCard)}」将替换它`;
+  list.innerHTML = '';
+  cur.forEach((cardId, i) => {
+    const b = document.createElement('button');
+    b.className = 'picker-row';
+    b.innerHTML = '<span class="pkey">' + (i + 1) + '</span>'
+      + '<span>' + passiveShortLabel(cardId) + '</span>'
+      + '<span class="pnew">← 顶替为 ' + passiveCardLabel(newCard) + '</span>';
+    b.addEventListener('click', () => {
+      // ① 撤除被顶掉的被动卡效果 ② 应用新卡 ③ 刷新 HUD
+      if(typeof removePassiveCard === 'function') removePassiveCard(player, cardId);
+      applyCardEffects(player, newCard);
+      pushLog(`被动技能槽：以「${passiveCardLabel(newCard)}」顶替「${passiveShortLabel(cardId)}」`, 'PEN');
+      closePassivePicker();
+      if(typeof refreshStats === 'function') refreshStats(player);
+      if(typeof deployDronesFromCards === 'function') deployDronesFromCards();
+      updatePassiveSlots();
+      playSound('ui');
+      onPassiveSlotAssigned();
+    });
+    list.appendChild(b);
+  });
+  el.style.display = 'flex';
+  return true;
+}
+
+function onPassiveSlotAssigned(){
+  passiveSlotPendingQueue.shift();
+  if(passiveSlotPendingQueue.length) pumpPassiveSlotPicker();
+}
+// 被动卡待顶替时：只记录提示，等玩家在面板里选完目标后才真正 applyCardEffects（见 openPassiveSlotPicker）。
+function pickCardBecomePassiveDeferred(card){
+  if(!passiveSlotPendingQueue.length) passiveSlotPendingQueue.push(card);
+  pumpPassiveSlotPicker();
+}
+
+function pumpPassiveSlotPicker(){
+  const el = document.getElementById('skillSlotPicker');
+  if(!passiveSlotPendingQueue.length) return false;
+  if(el && el.style.display !== 'none') return false;
+  return openPassiveSlotPicker(passiveSlotPendingQueue[0]);
+}
+
 // 切弹/技能热键已收敛至输入控制器（上方 createInputController actions）。
 // #H5（2026-09-21 用户裁定）：缩放回归**纯视觉偏好**（P-39 原语义）——敌方可见距离已改
 // 屏幕相对（vision.screenRadiusRatio，随 zoom 等比补偿），不再需要 #H2 的「基准×适配值」
@@ -1366,6 +1509,11 @@ canvas.addEventListener('mousemove', e=>{
   const p = screenToWorld(cam, mouseScreen.x, mouseScreen.y);
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
+  // 2026-10-22（第五批 B2-1）：雷场预形态的**朝向随鼠标刷新**（中心已在第一次 F 时定格）。
+  //   只在 `_mineFieldPreview` 存在时更新——已确认的 pendingMineFields 角度不再变。
+  if(player && player._mineFieldPreview){
+    player._mineFieldPreview.angle = Math.atan2(p.y - player.y, p.x - player.x) + Math.PI / 2;
+  }
 });
 // #A7：按住左键持续开火（fireTank 内建 reloadT/breech 门控，天然保证射速间隔）；
 // 2026-09-17 #C4e：左键=主炮专属（tryFirePrimary；副武器=F 键专属）；
@@ -1836,12 +1984,8 @@ function spawnBossSummonWave(bossEntity, wave){
     //   = triggerDist × 1.05 之外 ⇒ **每次召唤出来的小兵都必在自身接战半径外 5%**，
     //   玩家不主动走过去它们就永远站桩。Boss 本体出生即全局交战（tank_boss.js makeBossEntity
     //   设 aiTriggerDist=99999 / aiEngaged=true），召唤物应继承同一语义。
-    //   对齐生存模式波次的既有正确做法（见 spawnSurvivalWave 的 #U29 注释）。
-    s.aiTriggerDist = RULES.boss && RULES.boss.tuning && RULES.boss.tuning.engageDist !== undefined
-      ? RULES.boss.tuning.engageDist : 99999;
-    s.aiEngaged = true;                           // 全局交战：不依赖玩家进入视野
-    s.alertLevel = 3;                             // #S2 五层级警觉的最高档（已交战）
-    s.aiReactT = 0;                               // 首次反应延迟清零，召唤即参战
+    //   2026-10-22（第五批 §4.9.1）：收敛到统一入口 forceEngageOne（Boss/生存/召唤/增援同口径），
+    //   在下方数值/弹种装配完成**之后**调用一次（避免被 applyEnemyAppearanceAndStats 覆盖）。
     const spec = tankListData && tankListData[wave.tankId];
     // #I5（2026-09-23 用户反馈「boss 召唤的小兵移动速度太快」）：召唤小兵改走与节点敌军/
     // 增援同一条难度链（applyEnemyAppearanceAndStats：只取外观，数值锚定**固定基准**
@@ -1867,6 +2011,9 @@ function spawnBossSummonWave(bossEntity, wave){
     // 2026-10-19：召唤物不是 Boss，同样按等级分级弹种（只走 AP 链）
     applyEnemyAmmoForNode(s, currentNode);
     s.nodeSpawn = true;
+    // 2026-10-22（第五批 §4.9.1）：全部装配完成后再强制接战（aiTriggerDist/aiEngaged/
+    //   alertLevel/aiReactT 一次性覆盖，不会被上面的 stats 装配冲掉）。
+    forceEngageOne(s);
     // #MODE（2026-10-15）：生存 Boss 波的召唤物继承波次标记（计入波次清空判定）
     if(bossEntity.survivalWaveSpawn) s.survivalWaveSpawn = true;
   }
@@ -2124,13 +2271,10 @@ function spawnSurvivalWaveEnemies(count, waveDiff, mults){
     });
     t.nodeSpawn = true;
     t.survivalWaveSpawn = true;      // 波次清敌判定标记
-    t.aiTriggerDist = 99999;         // 生存敌军全图主动索敌进攻
-    t.alertLevel = 3;                // #MODE（2026-10-15）：强制接战
-    // #U29（2026-10-17）：强制接战必须同时置 aiEngaged——原实现只设 alertLevel/aiTriggerDist，
-    //   aiEngaged 仍为 undefined ⇒ aiDecide 首帧走「未接战」分支， reacting 层还会给
-    //   aiReactT 反应延迟（数秒原地起转）；再加上 defensive 站桩（已修），观感即「全员等玩家」。
-    t.aiEngaged = true;
-    t.aiReactT = 0;                  // 波次进攻无反应延迟（开场即压上）
+    // #MODE（2026-10-15）：强制接战 —— #U29（2026-10-17）补 aiEngaged 的教训（只设
+    //   alertLevel/aiTriggerDist 会走「未接战」分支等玩家），2026-10-22 起收敛到 forceEngageOne：
+    //   同时对 aiReactT 注入 RULES.ai.forceEngageOpenFireDelay（首次开火最小间隔），
+    //   避免「刷出来瞬间一发秒杀」。下方数值装配完再调用一次（覆盖 applyEnemyAppearanceAndStats）。
     t.aiTier = (typeof aiTierForDifficulty === 'function') ? aiTierForDifficulty(waveDiff) : 1;
     const spec = tankListData && tankListData[tankId];
     if(typeof applyEnemyAppearanceAndStats === 'function'){
@@ -2142,6 +2286,9 @@ function spawnSurvivalWaveEnemies(count, waveDiff, mults){
     if(mults) applyDifficultyMults(t, mults);
     // 2026-10-19：生存波次同样按难度分级弹种（每 3 级沿 AP 链升一档）
     applyEnemyAmmoForNode(t, { difficulty: waveDiff });
+    // 2026-10-22（第五批 §4.9.1）：装配完成后统一强制接战（aiTriggerDist=99999 /
+    //   aiEngaged / alertLevel=3 / aiReactT=forceEngageOpenFireDelay）
+    forceEngageOne(t);
   }
 }
 
@@ -2157,8 +2304,13 @@ function startSurvivalWave(n){
     const def = pickBossDef();
     if(def){
       const be = spawnBossFromDef(def, node, { survivalWaveSpawn: true, entityMults: mults });
+      // 2026-10-22（第五批 §4.9.1）：Boss 本体保留开场展示窗口（RULES.boss.openingSeconds 由
+      //   tank_boss.js 处理），这里只保证「全局索敌 + 已接战」；「立即攻击」交给
+      //   RULES.ai.forceEngageOpenFireDelay —— 不再用 0，避免高难度 Boss 在出生帧秒杀。
       be.aiTriggerDist = 99999;   // 生存 Boss 主动进攻
-      be.aiEngaged = true; be.aiReactT = 0;   // #U29：同普通波次敌，开场即接战
+      be.aiEngaged = true; be.alertLevel = 3;
+      be.aiReactT = (RULES.ai && typeof RULES.ai.forceEngageOpenFireDelay === 'number')
+        ? RULES.ai.forceEngageOpenFireDelay : 0.35;
       pushLog(`⚠ 第 ${n} 波 · BOSS 来袭！`, 'CRIT');
     } else {
       pushLog('⚠ Boss 池为空，本波按普通敌军处理', 'CRIT');
@@ -2383,9 +2535,19 @@ function enterBattle(nodeIndex){
   if(typeof clearTrackMarks === 'function') clearTrackMarks();   // #U41：履带痕迹不跨节点
   if(typeof clearDmgTexts === 'function') clearDmgTexts(); // #4：伤害飘字不跨节点
   bossLaserFx = null;                        // #E9：激光绘制数据不跨节点
+  bossRailFx = null;                         // 2026-10-22（B5 预留）：Boss 电磁炮轨道线绘制数据不跨节点
   pendingMineFields.length = 0;              // #E4：未引爆的待生成雷场不跨节点
+  liveMineFields.clear();                    // 2026-10-22（第五批）：雷场槽位账本不跨节点
+  _mineFieldGeomCache.clear();               // 2026-10-22：AI 避雷的雷带几何缓存不跨节点（fieldId 会复用语义）
   refreshDeployBonus();                      // #E4：按当前持有卡重算可部署物数量加成
-  if(player){ player._mineFieldPreview = null; player._missileActivated = false; }
+  if(player){
+    player._mineFieldPreview = null;
+    player._missileActivated = false;
+    // 2026-10-22（第五批）：主炮逐帧队列不跨节点（与 _howitzerBurst 同口径）——
+    //   _clipBurst（爆发射击）/ _doubleTap（砰砰炮追发）任意残留都会在下一节点凭空开火。
+    player._clipBurst = null;
+    player._doubleTap = null;
+  }
   if(typeof clearDeployables === 'function') clearDeployables();   // #B9/#B11：部署物不跨节点（地雷/掩体/固定炮塔随战场销毁）
   player.shield = null;                      // P-17：护盾是短时开启状态，不跨节点（冷却 t.abilityCds 池跨节点保留）
   player._rocketBurst = null;                // #D4：火箭巢逐发队列不跨节点
@@ -2455,6 +2617,15 @@ function enterBattle(nodeIndex){
     reinforceRng: createRNG((node.seed | 0) + 91733 + node.index),
     cleared: false, playerDied: false };
   shells.length = 0; impacts.length = 0; bounceFx.length = 0;
+  // 2026-10-22（第五批 §4.9.1）：Boss / 生存模式「所有敌人强制接战、立即攻击」——
+  //   必须在 materializeNode 完成（实体+数值装配完毕）之后调用一次；
+  //   标准模式不调用（保持「听到多次射击/友军反复被命中才升级接战」的原有节奏）。
+  //   forceEngageAll 内部对每个 enemy 设 aiTriggerDist=99999 / aiEngaged / alertLevel=3 /
+  //   aiReactT=RULES.ai.forceEngageOpenFireDelay（首次开火最小间隔）。
+  if(GAME_MODE === 'boss' || GAME_MODE === 'survival'){
+    const n = forceEngageAll(GAME_MODE);
+    if(n > 0) pushLog(`⚔ ${GAME_MODE === 'boss' ? 'BOSS' : '生存'}模式 — ${n} 辆敌军强制接战`, 'PEN');
+  }
   pushLog(`进入节点 ${nodeIndex + 1}「${node.template.name}」 难度 ${(node.difficulty * 100).toFixed(0)}% — ${node.boss ? 'BOSS ' + node.boss.name : '敌军 ' + node.enemies.length + ' 辆'}${node.outpost ? '，友军据点已部署' : ''}`, 'COVER');
 }
 
@@ -2529,6 +2700,92 @@ function applyDifficultyMults(t, mults, applyPlayerCap){
   }
 }
 
+// ================= 2026-10-22（第五批）雷场危害列表（供 AI 避雷） =================
+// 输出 [{ x, y, angle, len, wid }]：
+//   ① pendingMineFields（已确认、倒计时中）——玩家已锁定布设，AI 应提前绕行；
+//   ② 已生成雷场：从 deployables 里带 fieldId 的存活地雷反推带的**中心/朝向**。
+//      生成时雷点沿带等距分布（mineFieldLayout），故用「雷点重心」作中心、
+//      「离重心最远两点连线」作带长方向即可精确还原（同一 fieldId 分组，聚一次算一次）。
+// 预形态（_mineFieldPreview）**不**计入（那是玩家草稿，随鼠标动）。
+// 几何缓存：fieldId → {x,y,angle,len,wid}（雷点生成后不再移动，跨帧复用）。
+const _mineFieldGeomCache = new Map();
+function buildMineHazards(){
+  const out = [];
+  const dcfg = (RULES.abilities && RULES.abilities.deploy_limits) || {};
+  const defLen = (typeof dcfg.mineFieldLength === 'number') ? dcfg.mineFieldLength : 220;
+  const defWid = (typeof dcfg.mineFieldBandWidth === 'number') ? dcfg.mineFieldBandWidth : 56;
+  for(const pf of pendingMineFields){
+    out.push({ x: pf.x, y: pf.y, angle: pf.angle || 0,
+               len: (typeof pf.len === 'number') ? pf.len : defLen,
+               wid: (typeof pf.wid === 'number') ? pf.wid : defWid });
+  }
+  const dep = (typeof deployables !== 'undefined' && Array.isArray(deployables)) ? deployables : [];
+  const groups = new Map();
+  for(const d of dep){
+    if(!d || !d.isMine || d._dead || !(d.hp > 0)) continue;
+    if(d.fieldId === undefined || d.fieldId === null) continue;
+    let g = groups.get(d.fieldId);
+    if(!g){ g = []; groups.set(d.fieldId, g); }
+    g.push(d);
+  }
+  for(const [fid, g] of groups){
+    // 缓存：同一雷场不重复做几何还原（雷点位置生成后不变）
+    let geom = _mineFieldGeomCache.get(fid);
+    if(!geom){
+      let cx = 0, cy = 0;
+      for(const d of g){ cx += d.x; cy += d.y; }
+      cx /= g.length; cy /= g.length;
+      // 带长方向：取离重心最远的两个雷点连线；只有 1 枚时退化为 0 角
+      let far1 = g[0], far2 = null, best = -1;
+      for(const d of g){
+        const dd = (d.x - cx) ** 2 + (d.y - cy) ** 2;
+        if(dd > best){ best = dd; far1 = d; }
+      }
+      let best2 = -1;
+      for(const d of g){
+        if(d === far1) continue;
+        const dd = (d.x - cx) ** 2 + (d.y - cy) ** 2;
+        if(dd > best2){ best2 = dd; far2 = d; }
+      }
+      const ang = far2 ? Math.atan2(far2.y - far1.y, far2.x - far1.x) : 0;
+      geom = { x: cx, y: cy, angle: ang, len: defLen, wid: defWid };
+      _mineFieldGeomCache.set(fid, geom);
+    }
+    out.push(geom);
+  }
+  return out;
+}
+
+// ================= 2026-10-22（第五批 §4.9.1）Boss / 生存模式全敌强制接战 =================
+// 用户裁定：「Boss 战 / 生存模式所有敌人**强制**交战、立即攻击」。
+// 抽出一处（原 :1837 召唤物 / :2128 生存波次 各写一遍），统一口径：
+//   aiTriggerDist=99999（全图索敌无需进入视野）、aiEngaged=true、alertLevel=3（最高档）、
+//   aiReactT=RULES.ai.forceEngageOpenFireDelay（**首次开火最小间隔**，防「刷出来瞬间一发秒杀」）。
+// ⚠️ 与旧实现（aiReactT=0）的差异是刻意的：0 会让高难度敌人在生成帧就开火。
+function forceEngageOne(t){
+  if(!t || t.team !== 'enemy' || t.isBoss || !(t.hp > 0)) return false;
+  t.aiTriggerDist = 99999;
+  t.aiEngaged = true;
+  t.alertLevel = 3;
+  const delay = (RULES.ai && typeof RULES.ai.forceEngageOpenFireDelay === 'number')
+    ? RULES.ai.forceEngageOpenFireDelay : 0.35;
+  t.aiReactT = delay;
+  return true;
+}
+// reason 只用于日志（便于排查「为什么这波敌人一出生就压上来」）。
+function forceEngageAll(reason){
+  let n = 0;
+  for(const e of entities){
+    if(forceEngageOne(e)) n++;
+  }
+  return n;
+}
+
+// ================= 2026-10-22（第五批）直线掩体弹道裁剪的页面侧注入 =================
+// tank_fire.stepShells 内部用 `_G('wallPartBlock')` 取该纯函数；js/tank_cover.js 已在模块底部
+// 做 globalThis 导出（加载顺序 tank_cover 先于页面脚本，正常情况一定已就位）。
+// 这里不再重复声明同名函数（会与 tank_cover 的全局冲突）——保留注释说明来源即可。
+
 // P-38：增援敌军实体化——与开局敌军同规则注入 aiTriggerDist/aiTier/难度乘子，
 // 并立即警觉（alertEntity：aiEngaged=true + lastKnownPlayerPos=玩家当前位置）→ 主动推进而非蹲守。
 function spawnReinforcement(spec){
@@ -2554,6 +2811,9 @@ function spawnReinforcement(spec){
   // 2026-10-19：增援同样按节点难度分级弹种
   applyEnemyAmmoForNode(t, currentNode);
   alertEntity(t, player.x, player.y);       // 立即警觉 + 持有玩家位置记忆
+  // 2026-10-22（第五批 §4.9.1）：Boss / 生存模式的增援**同样强制接战**（与开局全敌一次性加码同口径）；
+  //   标准模式不调用（保持「听到/被打才接战」的原有节奏）。
+  if(GAME_MODE === 'boss' || GAME_MODE === 'survival') forceEngageOne(t);
   return t;
 }
 
@@ -2632,6 +2892,16 @@ function advanceRewardFlow(){
 
 function pickCard(card){
   if(!card) return;
+  // 2026-10-23（用户裁定）：被动技能卡走**被动技能槽**——槽属坦克属性（固定 passiveSlotsMax 格，
+  //   不可通过升级增减）。槽已满时，新卡不直接生效，而是排队弹出「选择顶替」面板（与主动技能同机制）。
+  const isPassive = (typeof isPassiveSkillCard === 'function') && isPassiveSkillCard(card);
+  const passiveFull = (typeof passiveSlotsFull === 'function') && passiveSlotsFull(player);
+  if(isPassive && passiveFull){
+    if(!passiveSlotPendingQueue.some(c => c && c.id === card.id)) passiveSlotPendingQueue.push(card);
+    pushLog(`获得被动技能卡「${card.name}」— 被动技能槽已满，请选择要顶替的技能`, 'PEN');
+    pickCardBecomePassiveDeferred(card);
+    return;
+  }
   const applied = applyCardEffects(player, card);   // P-09：走卡牌效果管道（modifier 立即生效，其余挂 cardEffects 供对应里程碑消费）
   pushLog(`获得卡牌「${card.name}」— ${card.desc}`, 'PEN');
   // #U40（2026-10-19）：economy.reviveCount（战场救护协议卡）即时生效——applyCardEffects 写
@@ -3282,7 +3552,7 @@ function startNewRun(){
 	  const _vp = { vw: canvas.width, vh: canvas.height };
 	  if(GAME_MODE === 'boss'){
 	    // #MODE（2026-10-15）：Boss 模式用新生成器，3×3 方形竞技场
-	    run = generateRun(nextRunSeed(), undefined, { viewport: _vp, difficultyLevel: 0, bossOnly: true, stripForBoss: true, stripScreensX: 3, stripScreensY: 3 });
+	    run = generateRun(nextRunSeed(), undefined, { viewport: _vp, difficultyLevel: 0, bossOnly: true });
 	  } else if(GAME_MODE === 'survival'){
 	    run = generateSurvivalRun(nextRunSeed(), { viewport: _vp, difficultyLevel: 0 });
 	    survivalWave = 0;
@@ -4027,42 +4297,55 @@ function update(dt){
   } else if(player._missileHintShown || player._missileHintT){
     player._missileHintT = 0; player._missileHintShown = false;   // 取消激活 / 换武器 → 复位提示
   }
-  // ================= #E4（2026-09-20）雷场延时生成 =================
+  // ================= #E4（2026-09-20）雷场延时生成（2026-10-22 第五批：带状） =================
   for(let i = pendingMineFields.length - 1; i >= 0; i--){
     const pf = pendingMineFields[i];
     pf.t -= dt;
     if(pf.t > 0) continue;
-    // #H2②（2026-09-30）：预约时已按可用余量裁剪过数量，此处按**生成时刻**的余量再裁一次
-    // （预约后 4s 内玩家可能已用掉余量）。余量为 0 才拒绝取消；部分余量则按余量布设——
-    // 不再出现「首轮布满后 100% 全被丢弃」（原判据 existing + min(mineMax,count) > cap 恒真）。
-    const cap = (typeof deployableCap === 'function') ? deployableCap('mine', player) : null;
-    const existing = (typeof deployableCount === 'function') ? deployableCount('mine') : 0;
-    const room = (cap === null) ? (pf.count || 5) : (cap - existing);
-    const n = Math.max(0, Math.min(pf.count || 5, room));
-    if(n <= 0){
-      // #F6（2026-09-20 用户反馈）：无处可布时拒绝该预约，保留已布地雷（不淘汰最早的）。
-      pendingMineFields.splice(i, 1);
-      pushLog(`地雷已达上限（${cap}）— 雷场未生成（保留已布地雷）`, 'COVER');
-      playSound('ui');
+    pendingMineFields.splice(i, 1);
+    // 2026-10-22（B2-1）：雷点布局**只经 mineFieldLayout**（与绘制同源，修 #Z5 的三份重复公式）。
+    const pts = (typeof mineFieldLayout === 'function') ? mineFieldLayout(pf) : [];
+    if(!pts.length){
+      pushLog('雷场生成失败 — 布局函数不可用', 'COVER');
       continue;
     }
-    pendingMineFields.splice(i, 1);
-    for(let k = 0; k < n; k++){
-      const a = (k / n) * Math.PI * 2 + (k % 2) * 0.4;
-      const rr = pf.radius * (0.35 + 0.65 * ((k + 1) / n));
+    // 伤害口径（用户裁定「与当前 HE 伤害绑定」）：每枚雷 damage = HE 单发伤害 × mineFieldHeRatio。
+    // 半径读 WEAPON_DEFAULTS.secondary.mine_layer 的 blastRadius/triggerRadius（**修 #Z5**：
+    // 旧实现硬编码 70/45，导致「阔域雷场/高爆战术地雷」两张卡的半径升级对雷场完全失效）。
+    const dcfg = (typeof RULES !== 'undefined' && RULES.abilities && RULES.abilities.deploy_limits) || {};
+    const heRatio = mineFieldStat('mineFieldHeRatio', 1.0);
+    const heCfg = (typeof computeAmmoConfig === 'function') ? (computeAmmoConfig(player, 'he') || {}) : {};
+    const heDmg = player.stats.damage * (heCfg.dmg || 1) + (heCfg.dmgAdd || 0);
+    const mineDmg = Math.max(0, heDmg * heRatio);
+    const mlCfg = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults('secondary', 'mine_layer') : {};
+    const secStats = (player.weapons && player.weapons.secondary && player.weapons.secondary.stats) || {};
+    const blastRadius = (typeof secStats.blastRadius === 'number') ? secStats.blastRadius
+                      : ((typeof mlCfg.blastRadius === 'number') ? mlCfg.blastRadius : 70);
+    const triggerRadius = (typeof secStats.triggerRadius === 'number') ? secStats.triggerRadius
+                        : ((typeof mlCfg.triggerRadius === 'number') ? mlCfg.triggerRadius : 45);
+    const duration = (typeof secStats.duration === 'number') ? secStats.duration
+                   : ((typeof mlCfg.duration === 'number') ? mlCfg.duration : 30);
+    // 槽位账本登记（activeMineFieldSlots 据此把「已生成且仍有存活地雷」算作占用）
+    liveMineFields.add(pf.fieldId);
+    for(const pt of pts){
       spawnMine({
         team: 'player',
-        x: pf.x + Math.cos(a) * rr,
-        y: pf.y + Math.sin(a) * rr,
-        damage: (RULES.abilities.deploy_limits.mineDamage || 100),
-        blastRadius: 70, triggerRadius: 45,
-        duration: (player.weapons.secondary.stats && player.weapons.secondary.stats.duration) || 30
+        x: pt.x, y: pt.y,
+        damage: mineDmg,
+        blastRadius: blastRadius,
+        triggerRadius: triggerRadius,
+        duration: duration,
+        fieldId: pf.fieldId,        // 2026-10-22：槽位回收依据（同一雷场的雷共享 fieldId）
+        // 爆炸结算用（mineExplode 分支读 mine.owner/pen/ammo/ammoKey，见下方结算）
+        owner: player,
+        pen: player.stats.penetration * (heCfg.pen || 1) + (heCfg.penAdd || 0)
       });
     }
+    // 落点特效：雷带中心
     burstExplosion(pf.x, pf.y, 0.4, 6, 4, 6);
-    pushLog(`雷场生成 — ${n} 枚地雷已布设`, 'CRIT');
+    // 用户裁定：日志不显示枚数
+    pushLog('雷场生成', 'CRIT');
     playSound('ui');
-    enforceDeployLimits('mine', player);
   }
   if(player.recoilT>0) player.recoilT = Math.max(0, player.recoilT-dt);
   if(player.fireDebuffT>0) player.fireDebuffT -= dt;
@@ -4109,19 +4392,23 @@ function update(dt){
     //   命中弱点给 pushLog 可感知反馈（伤害飘字仍由既有 PEN 管道按放大后的 dmg 渲染）。只对敌方 Boss 目标走弱点位。
     resolveHit: (function(){
       const raw = resolveHit;
-      return function(s, target, hit, allowBounce){
-        let opts;
+      return function(s, target, hit, allowBounce, optsIn){
+        // 2026-10-22（第五批）：**透传调用方 opts**——此前包装器只接受 4 参、把第 5 参
+        //   （fireTank 曲射直击传的 `{forceEffThickness}`）静默丢弃 ⇒ 榴弹炮「最薄装甲」口径
+        //   在 battle 页失效（Node 单测走裸 resolveHit 所以测不出来）。现在合并而非覆盖：
+        //   调用方 opts 优先（forceEffThickness 等），Boss 弱点在此之上叠加 penAdd/dmgMul。
+        let opts = optsIn ? Object.assign({}, optsIn) : undefined;
         if(target && target.isBoss && target.team === 'enemy' &&
            typeof isWeakspotHit === 'function' && typeof RULES !== 'undefined' &&
            RULES.boss && RULES.boss.weakspot){
           const mod = (typeof moduleFromHit === 'function') ? moduleFromHit(target, hit) : null;
           if(mod && mod.key && isWeakspotHit(target, mod.key)){
             const ws = RULES.boss.weakspot;
-            opts = {
+            opts = Object.assign({}, opts || {}, {
               penAdd: ws.penAdd || 0,
               dmgMul: ws.dmgMul || 1,
               ignoreBounce: !!ws.ignoreBounce
-            };
+            });
             pushLog(`弱点命中！${mod.label} — 穿深+${ws.penAdd || 0} 伤害×${ws.dmgMul || 1}`, 'PEN');
           }
         }
@@ -4137,6 +4424,14 @@ function update(dt){
           const sy = (s && s.shooter) ? s.shooter.y : (s ? s.fy : 0);
           alertEntity(target, sx, sy);
           propagateAlert(entities, sx, sy);
+        }
+        // 2026-10-22（第五批 §4.9.1）：**友军被命中**也要让敌人积累警觉——
+        //   旧实现只对「被打中的那辆敌方」生效，友军反复挨打从来不会让敌人进入交战。
+        //   noteAllyHit 在 allyHitRadius 内给每个 enemy 累加 allyHitHeat，2 次即 alertEntity。
+        if(res && target && target.team === 'ally' && target.hp > 0){
+          const sx = (s && s.shooter) ? s.shooter.x : (s ? s.fx : 0);
+          const sy = (s && s.shooter) ? s.shooter.y : (s ? s.fy : 0);
+          if(typeof noteAllyHit === 'function') noteAllyHit(entities, sx, sy);
         }
         return res;
       };
@@ -4231,7 +4526,11 @@ function update(dt){
       updatePrimaryBarrels(player, dt);
     }
     if(typeof updatePrimaryClip === 'function' && player._clipState){
-      updatePrimaryClip(player, dt);
+      updatePrimaryClip(player, dt, fireCtx);
+    }
+    // 2026-10-22（第五批 B2-9）：标准主炮砰砰炮追发队列（_doubleTap → 0.8s 后补 1 发 ×0.6 伤害）
+    if(typeof updatePrimaryFollowup === 'function' && player._doubleTap){
+      updatePrimaryFollowup(player, dt, fireCtx);
     }
     // #C5（2026-09-19）：开发者面板作弊项（与测试台 benchCheats 同源语义）
     if(devCheat.invuln) player.invulnT = Math.max(player.invulnT, 0.5);
@@ -4251,6 +4550,12 @@ function update(dt){
       hasLoS: hasLineOfSight,
       covers,   // #76 C6：掩体查询注入（重坦受创寻掩用；AI 侧遍历比较，无需寻路）
       dt,       // #76 C5：patrol 微摆动本地相位的帧步长（性能无关）
+      // 2026-10-22（第五批 B2-1）：雷场危害列表 → AI 避雷（applyHazardAvoidance 消费）。
+      //   只喂**已确认 / 已生成**的雷带（预形态是玩家的草稿，不该影响敌人走位）。
+      //   结构 { x, y, angle, len, wid }；已生成的从 deployables 里按 fieldId 归组还原。
+      hazards: buildMineHazards(),
+      // 2026-10-22（§4.9.2(b)）：直线掩体的射界判据需要弹道查询（holdGate 的炮塔射界补充）
+      findCoversOnPath,
       // #E6（2026-09-20）：敌军世界边界（修复「敌人跑到地图范围之外」）——AI 与玩家同口径钳制
       worldBounds: currentNode ? { minX: 0, minY: 0, maxX: currentNode.w, maxY: currentNode.h } : null
     };
@@ -4308,7 +4613,9 @@ function update(dt){
       if(e.isBoss && e.hp > 0) updateBossSkills(e, dt);
       // 开火：复用 fireTank（敌人打玩家，友军打最近敌人）
       // #MODE：生存准备期（倒计时）不开火——炮口空响会误导玩家以为有威胁（伤害总闸已拦住结算）。
-      if(d.fire && !isSurvivalPrep){
+      // 2026-10-22（第五批 B1-5(b)）：Boss 电磁炮蓄能期（railChargeHold）不开火——蓄能
+      //   未完成前只给预警（bossRailFx 画炮线），完成后清 hold 才放行，避免「预警即开火」。
+      if(d.fire && !isSurvivalPrep && !e.railChargeHold){
         const target = e.team === 'ally' ? nearestEnemyTo(e) : player;
         if(target && target.hp > 0) fireTank(e, target, 'auto', fireCtx);
       }
@@ -4321,7 +4628,11 @@ function update(dt){
         updatePrimaryBarrels(e, dt);
       }
       if(typeof updatePrimaryClip === 'function' && e._clipState){
-        updatePrimaryClip(e, dt);
+        updatePrimaryClip(e, dt, fireCtx);
+      }
+      // 2026-10-22（第五批 B2-9）：追发弹同口径驱动（AI 若持同款规格也会补第二发）
+      if(typeof updatePrimaryFollowup === 'function' && e._doubleTap){
+        updatePrimaryFollowup(e, dt, fireCtx);
       }
       // 阶段七 7.2：副武器全类型自主更新（turret/mortar/missile/rocket/mine_layer）
       if(typeof updateSecondaryWeapon === 'function' && e.weapons && e.weapons.secondary && e.weapons.secondary.type !== 'none'){
@@ -4341,13 +4652,51 @@ function update(dt){
     for(const ev of deployEvents){
       if(ev.type === 'mineExplode'){
         const sc = ev.blastRadius / 40;
-        burstExplosion(ev.mine.x, ev.mine.y, sc, Math.round(22*sc), Math.round(14*sc), Math.round(11*sc));
-        spawnImpactFx(ev.mine.x, ev.mine.y, 0, 'he', 1);
+        const mine = ev.mine || {};
+        const mx = (mine.x !== undefined) ? mine.x : 0;
+        const my = (mine.y !== undefined) ? mine.y : 0;
+        burstExplosion(mx, my, sc, Math.round(22*sc), Math.round(14*sc), Math.round(11*sc));
+        spawnImpactFx(mx, my, 0, 'he', 1);
         playSound('ammoBlewHE');
-        // AOE 衰减结算（applySplashAt：0.5 系数衰减，与 HE 溅射同公式；registry 外的全实体遍历）
-        const hits = applySplashAt(ev.mine.x, ev.mine.y, ev.blastRadius, ev.damage, null, null, entities);
-        for(const h of hits) spawnDmgText(h.entity.x, h.entity.y - 14, h.dmg, 'he');
-        pushLog(`💥 地雷引爆 — 溅射 ${hits.length} 个目标`, 'CRIT');
+        // 2026-10-22（第五批 B2-1）地雷爆炸结算重写：
+        //   旧实现走 applySplashAt（0.5 系数距离衰减、完全不看装甲）——用户裁定改为
+        //   「先取目标**最薄装甲**，再走 resolveHit(opts.forceEffThickness)」：
+        //     · pen ≥ thinnest → 全伤 + 模块判定（pen 取布雷者当前 HE 弹穿深）；
+        //     · 否则按 he.nonPenRatio 给残伤（与直射 BLOCK / 榴弹炮直击同口径）。
+        //   最薄口径收敛在 RULES.abilities.deploy_limits.mineArmorScope（'hull' 缺省 / 'all'），
+        //   实现为 js/tank_geometry.js 的 thinnestArmorThickness(tank, scope)。
+        const owner = mine.owner || player;
+        const heCfg = (typeof computeAmmoConfig === 'function' && owner ? (computeAmmoConfig(owner, 'he') || {}) : {});
+        const hePen = (typeof mine.pen === 'number') ? mine.pen
+                    : (owner && owner.stats ? owner.stats.penetration * (heCfg.pen || 1) + (heCfg.penAdd || 0) : 0);
+        const scope = (RULES.abilities && RULES.abilities.deploy_limits && RULES.abilities.deploy_limits.mineArmorScope) || 'hull';
+        const dmg = (typeof mine.damage === 'number') ? mine.damage : (ev.damage || 0);
+        const blastR = (typeof ev.blastRadius === 'number') ? ev.blastRadius : (mine.blastRadius || 70);
+        const shellLike = {
+          x: mx, y: my, fx: mx, fy: my,
+          dx: 1, dy: 0, speed: 0,
+          pen: hePen, dmg: dmg,
+          ammo: heCfg, ammoKey: 'he', shooter: owner
+        };
+        const hitFake = { part: 'hull', faceKey: 'side', x: mx, y: my, nx: 0, ny: 0, edgeName: 'side' };
+        // 2026-10-22：走 fireCtx.resolveHit 包装（→ 敌方被炸醒 + 友邻告警；Boss 弱点照常），
+        //   包装器已改为**透传第 5 参 opts**，forceEffThickness 不会丢。
+        const hitFn = (fireCtx && typeof fireCtx.resolveHit === 'function') ? fireCtx.resolveHit : resolveHit;
+        let hitCount = 0;
+        for(const e of entities){
+          if(!e || e.hp <= 0 || e === mine || e.isMine || e.isDrone) continue;
+          if(!isHostile(mine.team || 'player', e.team)) continue;
+          if(Math.hypot(e.x - mx, e.y - my) > blastR) continue;
+          const thinFn = (typeof thinnestArmorThickness === 'function') ? thinnestArmorThickness : null;
+          const thinnest = thinFn ? thinFn(e, scope) : 0;
+          const hpBefore = e.hp;
+          const res = hitFn(shellLike, e, hitFake, false, { forceEffThickness: thinnest });
+          hitCount++;
+          if(res && res.dmg > 0){
+            spawnDmgText(e.x, e.y - 14, Math.min(res.dmg, Math.ceil(hpBefore)), 'he');
+          }
+        }
+        pushLog(hitCount > 0 ? `💥 地雷引爆 — 命中 ${hitCount} 个目标` : '💥 地雷引爆 — 无目标受创', 'CRIT');
       } else if(ev.type === 'fixedTurretFire'){
         fireTank(ev.turret, ev.target, 'auto', fireCtx);
       }
@@ -4474,10 +4823,12 @@ function update(dt){
       if(run && battleState && e.team === 'enemy'){
         const lastTeam = e.lastHitByTeam || (e.lastHitBy ? e.lastHitBy.team : null);
         // #U40（2026-10-19）：击杀得分同乘 runScoreMultiplier（economy.scoreMul 全计分通道生效）
+        // 2026-10-22（第五批）：击杀分随**敌人等级**递增（killScore(level)：Lv1=20 … Lv13=80），
+        //   等级由 js/tank_model.js applyEnemyAmmoByLevel 写入 e.enemyLevel。
         if(lastTeam === 'ally') {
-          runScore += Math.round(killScore() * 0.5 * runScoreMultiplier(player));
+          runScore += Math.round(killScore(e.enemyLevel) * 0.5 * runScoreMultiplier(player));
         } else {
-          runScore += Math.round(killScore() * runScoreMultiplier(player));
+          runScore += Math.round(killScore(e.enemyLevel) * runScoreMultiplier(player));
         }
         runKills++;
         battleState.nodeKills++;   // P-38：节点内击杀数（配额判定用）
@@ -4535,6 +4886,19 @@ function update(dt){
       if(_s.shooter && (_s.shooter.team === 'player' || _s.shooter.team === 'ally') && !_s._didHit){
         const _ir = (typeof RULES !== 'undefined' && RULES.ai && RULES.ai.impactNoiseRadius) || 420;
         if(typeof emitShotNoise === 'function') emitShotNoise(entities, _s.x, _s.y, _ir, 'impact');
+      }
+      // 2026-10-23（用户裁定）：「按 1 次生效 1 次，导弹击中、消失后进入冷却时间」——
+      //   弹体真正结束时才释放单发在飞标记并写入装填（导弹分支发射时 secondaryReloadT=0）。
+      if(_s.missileKind && _s.shooter && _s.shooter._missileInFlight === _s){
+        _s.shooter._missileInFlight = null;
+        const _sec = _s.shooter.weapons && _s.shooter.weapons.secondary;
+        if(_sec && _sec.type === _s.missileKind){
+          const _def = (typeof getWeaponDefaults === 'function') ? getWeaponDefaults('secondary', _s.missileKind) : {};
+          const _cfg = Object.assign({}, _def, _sec.stats || {});
+          const _reload = (typeof _cfg.reload === 'number') ? _cfg.reload : (_s.missileKind === 'missile' ? 12 : 10);
+          const _debuff = (typeof debuffReloadRate === 'function') ? debuffReloadRate(_s.shooter) : 1;
+          _s.shooter.secondaryReloadT = _reload / (_debuff || 1);
+        }
       }
       shells.splice(i,1);
     }
@@ -4697,6 +5061,30 @@ function update(dt){
           if(!levts.length && e.bossLaser === null) { e._laserWarned = false; if(bossLaserFx) bossLaserFx = null; }
         } catch(err) { /* 激光层异常不阻断战斗主循环 */ }
       }
+      // 2026-10-22（第五批 B1-5(b) 接线 / B5 绘制）：Boss 电磁炮蓄能事件 → bossRailFx。
+      //   updateBossRailCharge（js/tank_boss.js）在 `reloadT <= RULES.boss.railgun.chargeSeconds`
+      //   时逐帧产出 railCharge / railReady；本页只做两件事：
+      //     ① 缓存绘制数据（B5 的 drawBossRailLine 消费）；
+      //     ② 让 fireTank 门控生效（蓄能未完成时 e.railChargeHold=true ⇒ 不开火）。
+      // ⚠ 只对 Boss 生效：railgun 也是玩家可装的主炮，玩家侧不该被蓄能门控拦住（否则空格打不出弹）。
+      if(e.isBoss && typeof updateBossRailCharge === 'function'){
+        try {
+          const revts = updateBossRailCharge(e, dt, player);
+          for(const rev of revts){
+            if(rev.type === 'railCharge'){
+              bossRailFx = { kind: 'charge', x: rev.x, y: rev.y, angle: rev.angle,
+                             length: rev.length, width: rev.width, progress: rev.progress };
+              if(!e._railWarned){ e._railWarned = true; pushLog('⚠ BOSS 电磁炮蓄能 — 离开炮线区域！', 'CRIT'); playSound('ui'); }
+            } else if(rev.type === 'railReady'){
+              bossRailFx = { kind: 'ready', x: rev.x, y: rev.y, angle: rev.angle,
+                             length: (RULES.boss && RULES.boss.railgun && RULES.boss.railgun.lineLength) || 1400,
+                             width: (RULES.boss && RULES.boss.railgun && RULES.boss.railgun.lineWidth) || 6 };
+              playSound('pen');
+            }
+          }
+          if(!revts.length && !(e.railChargeHold)) { e._railWarned = false; if(bossRailFx) bossRailFx = null; }
+        } catch(err) { /* 电磁炮蓄能层异常不阻断战斗主循环 */ }
+      }
     }
     if(player._dead && !battleState.playerDied){
       // 生存模式：死亡时清理波次选卡/倒计时状态（按正常死亡流程处理）
@@ -4845,6 +5233,50 @@ function selectAmmoSlot(idx){
   playSound('ui');
 }
 
+// 2026-10-23（用户裁定）：被动技能槽 HUD 渲染（含冷却时间）。
+//   数据源：js/tank_cards.js passiveSlotState / ownedPassiveCardIds（纯逻辑，按 cardEffects 判定）。
+//   每格显示：卡名短标 + 冷却角标（该被动若有独立冷却——应急护盾 _emergencyShieldCd /
+//   灭火 abilityCds.extinguish；其余被动为常驻无冷却，角标留空）。
+//   槽位格数固定 = RULES.abilities.passiveSlotsMax（坦克属性，不可通过升级增减）。
+function passiveCdSeconds(cardId){
+  if(!player) return 0;
+  if(cardId === 'reactive_armor') return (player._emergencyShieldCd > 0) ? player._emergencyShieldCd : 0;
+  if(cardId === 'support_extinguisher') return (player.abilityCds && player.abilityCds.extinguish) || 0;
+  if(cardId === 'repair_kit') return (player.abilityCds && player.abilityCds.repair) || 0;
+  return 0;
+}
+function passiveShortLabel(cardId){
+  const spec = (typeof cardPool !== 'undefined' && Array.isArray(cardPool))
+    ? cardPool.find(c => c && c.id === cardId) : null;
+  const nm = (spec && spec.name) || cardId;
+  return nm.length > 4 ? nm.slice(0, 4) : nm;
+}
+function updatePassiveSlots(){
+  const host = document.getElementById('passiveSlots');
+  if(!host) return;
+  const state = (typeof passiveSlotState === 'function') ? passiveSlotState(player) : { max: 2, used: 0, cardIds: [] };
+  host.innerHTML = '';
+  for(let i = 0; i < state.max; i++){
+    const cardId = state.cardIds[i];
+    const b = document.createElement('button');
+    b.className = 'abtn' + (cardId ? ' skill-btn' : ' gray');
+    b.style.minWidth = '52px';
+    if(!cardId){
+      b.title = `被动技能槽 ${i + 1}：空（获得被动技能卡后自动占用）`;
+      b.innerHTML = '<span class="slabel" style="opacity:.5">被动</span>';
+    } else {
+      const cdT = passiveCdSeconds(cardId);
+      const cdTxt = cdT > 0 ? cdT.toFixed(0) : '';
+      b.title = `被动技能槽 ${i + 1}：${passiveShortLabel(cardId)}${cdT > 0 ? ` — 冷却中 ${cdT.toFixed(0)}s` : ''}`;
+      b.innerHTML = '<span class="slabel">' + passiveShortLabel(cardId) + '</span>'
+        + '<span class="cd" style="color:#5cc8ff">' + cdTxt + '</span>'
+        + '<span class="num" style="opacity:.45">P' + (i + 1) + '</span>';
+      if(cdT > 0) b.classList.add('gray');
+    }
+    host.appendChild(b);
+  }
+}
+
 function updateBottomHud(){
   // 底部三区 HUD（#G 2026-09-21 重设计）：vitals（血条+速度）/ weapons（弹种+补给）/ skills（技能），
   // 仅战斗态显示。display 必须 'flex'（CSS 现行布局为 flex row 三分区；旧 'block' 会杀死 gap 布局）
@@ -4935,6 +5367,8 @@ function updateBottomHud(){
   cd('cd5', medkitCd > 0 ? medkitCd.toFixed(0) : '', medkitCd > 0);
   const extCd = (player.abilityCds && player.abilityCds.extinguish) || 0;
   cd('cd6', extCd > 0 ? extCd.toFixed(0) : '', extCd > 0);
+  // 2026-10-23：被动技能槽渲染（含冷却）
+  updatePassiveSlots();
 
   // #C4e（2026-09-17）：F=副武器击发按钮——有副武器即显示，图标字符随武器类型切换，
   // .cd 角标显示装填剩余秒数（#C4d：副武器冷却图标，此前 HUD 完全无副武器指示）。
@@ -5045,24 +5479,29 @@ function drawReloadRing(ctx){
     const heat = player.heatPct || 0;
     const locked = player.heatLockT !== undefined && player.heatLockT > 0;
     if(!(heat > 0 || locked)) return;
+    // 2026-10-22（第五批）：热量环分母改读武器规格 `spec.heatMax`（不再硬编码 100）——
+    //   「机炮：散热片」类卡把 heatMax 提到 140 后，环不再在 100/140 时画满。
+    const _acSpec = (typeof primaryWeaponSpec === 'function') ? primaryWeaponSpec(player) : null;
+    const heatMax = (_acSpec && typeof _acSpec.heatMax === 'number' && _acSpec.heatMax > 0)
+      ? _acSpec.heatMax : 100;
     const tip = gunTip(player);
     const OFFSET_DIST = 20;
     const perpAngle = player.turretAngle - Math.PI / 2;
     const wp = worldToScreen(cam, tip.x + Math.cos(perpAngle) * OFFSET_DIST, tip.y + Math.sin(perpAngle) * OFFSET_DIST);
     const R = 13;
-    const p = Math.max(0, Math.min(1, heat / 100));
+    const p = Math.max(0, Math.min(1, heat / heatMax));
     // 背景暗环
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(12,13,9,0.7)';
     ctx.beginPath();
     ctx.arc(wp.x, wp.y, R, 0, TAU);
     ctx.stroke();
-    // 热量弧：-90° 顺时针扫 360°*p；颜色三态
+    // 热量弧：-90° 顺时针扫 360°*p；颜色三态（阈值按 heatMax 的比例算）
     const a0 = -Math.PI/2;
     let col = '#7ed957';                                   // 绿 <50%
     if(locked) col = (Math.floor(performance.now() / 120) % 2 === 0) ? '#ff5040' : 'rgba(255,80,64,0.35)';
-    else if(heat >= 100) col = '#ff5040';                  // 红 = 过热
-    else if(heat >= 50) col = '#ffd24a';                   // 黄 50–<100%
+    else if(heat >= heatMax) col = '#ff5040';              // 红 = 过热
+    else if(heat >= heatMax * 0.5) col = '#ffd24a';        // 黄 50–<100%
     ctx.strokeStyle = col;
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -5781,45 +6220,53 @@ function draw(){
     }
   }
 
-  // #E4（2026-09-20）雷场预形态：第一次 F 后在鼠标位置显示「拟生成的雷场形状」（虚线圆 + 雷点），
-  // 第二次 F 确认后转为 pendingMineFields 的延时倒计时标记（同形状 + 倒计时数字）。
-  // #H2③（2026-09-30）：雷点数直接取 pf.count（预约时已按可用余量裁剪），绘制与实际落点一致 ——
-  // 旧代码在此二次用 mineMax 钳制，导致预形态/倒计时显示的点数与实际布设数可能对不上。
+  // ================= 2026-10-22（第五批 B2-1）雷场绘制：带状（与生成同源） =================
+  // 已确认（pendingMineFields）：红色虚线带 + 雷点 + 倒计时；
+  // 预形态（player._mineFieldPreview）：绿色半透明带 + 雷点 + 「再按 F 确认布设」。
+  // 雷点坐标一律来自 js/tank_deployables.js 的 `mineFieldLayout(field)`（修 #Z5：旧实现
+  // 绘制/生成各写一份圆环分布公式，导致「看到的位置 ≠ 实际生成的位置」）。
+  const _drawMineBand = (field, style) => {
+    const len = (typeof field.len === 'number') ? field.len : 220;
+    const wid = (typeof field.wid === 'number') ? field.wid : 56;
+    const ang = (typeof field.angle === 'number') ? field.angle : 0;
+    const ux = Math.cos(ang), uy = Math.sin(ang);
+    const nx = -Math.sin(ang), ny = Math.cos(ang);
+    const hl = len / 2, hw = wid / 2;
+    // 四个角点（带长方向 ±hl，法向 ±hw）
+    const c0 = { x: field.x + ux * hl + nx * hw, y: field.y + uy * hl + ny * hw };
+    const c1 = { x: field.x + ux * hl - nx * hw, y: field.y + uy * hl - ny * hw };
+    const c2 = { x: field.x - ux * hl - nx * hw, y: field.y - uy * hl - ny * hw };
+    const c3 = { x: field.x - ux * hl + nx * hw, y: field.y - uy * hl + ny * hw };
+    ctx.beginPath();
+    ctx.moveTo(c0.x, c0.y); ctx.lineTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y);
+    ctx.closePath();
+    if(style.fill){ ctx.fillStyle = style.fill; ctx.fill(); }
+    ctx.strokeStyle = style.stroke;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(style.dash || []);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // 雷点（同源布局）
+    const pts = (typeof mineFieldLayout === 'function') ? mineFieldLayout(field) : [];
+    ctx.fillStyle = style.dot;
+    for(const pt of pts){
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 3.5, 0, TAU); ctx.fill();
+    }
+    return { hl, hw };
+  };
   for(const pf of pendingMineFields){
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,80,60,0.85)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([8, 7]);
-    ctx.beginPath(); ctx.arc(pf.x, pf.y, pf.radius, 0, TAU); ctx.stroke();
-    ctx.setLineDash([]);
-    const n = Math.max(1, pf.count || 1);
-    for(let k = 0; k < n; k++){
-      const a = (k / n) * Math.PI * 2 + (k % 2) * 0.4;
-      const rr = pf.radius * (0.35 + 0.65 * ((k + 1) / n));
-      ctx.fillStyle = 'rgba(255,60,40,0.9)';
-      ctx.beginPath(); ctx.arc(pf.x + Math.cos(a) * rr, pf.y + Math.sin(a) * rr, 4, 0, TAU); ctx.fill();
-    }
+    _drawMineBand(pf, { fill: 'rgba(255,80,60,0.12)', stroke: 'rgba(255,80,60,0.85)', dash: [8, 7], dot: 'rgba(255,60,40,0.9)' });
     ctx.fillStyle = 'rgba(255,180,160,0.95)'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('雷场 ' + pf.t.toFixed(1) + 's', pf.x, pf.y - pf.radius - 8);
+    ctx.fillText('雷场 ' + pf.t.toFixed(1) + 's', pf.x, pf.y - ((pf.wid || 56) / 2) - 10);
     ctx.restore();
   }
   if(player && player._mineFieldPreview){
     const pv = player._mineFieldPreview;
     ctx.save();
-    ctx.strokeStyle = 'rgba(126,217,87,0.9)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([6, 6]);
-    ctx.beginPath(); ctx.arc(pv.x, pv.y, pv.radius, 0, TAU); ctx.stroke();
-    ctx.setLineDash([]);
-    const n = Math.max(1, pv.count || 1);
-    for(let k = 0; k < n; k++){
-      const a = (k / n) * Math.PI * 2 + (k % 2) * 0.4;
-      const rr = pv.radius * (0.35 + 0.65 * ((k + 1) / n));
-      ctx.fillStyle = 'rgba(126,217,87,0.9)';
-      ctx.beginPath(); ctx.arc(pv.x + Math.cos(a) * rr, pv.y + Math.sin(a) * rr, 4, 0, TAU); ctx.fill();
-    }
+    _drawMineBand(pv, { fill: 'rgba(126,217,87,0.14)', stroke: 'rgba(126,217,87,0.9)', dash: [6, 6], dot: 'rgba(126,217,87,0.9)' });
     ctx.fillStyle = 'rgba(200,255,190,0.95)'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('再按 F 确认布设', pv.x, pv.y - pv.radius - 8);
+    ctx.fillText('再按 F 确认布设', pv.x, pv.y - ((pv.wid || 56) / 2) - 10);
     ctx.restore();
   }
 
@@ -5987,6 +6434,12 @@ function draw(){
     ctx.restore();
   }
 
+  // 2026-10-22（第五批，B2 预留 / B5 实现）：Boss 电磁炮轨道线。
+  //   B5（role-render-fx）会在 js/tank_battledraw.js 或页面注入 `drawBossRailLine(ctx, bossRailFx)`；
+  //   本页只保证：① 顶层变量 bossRailFx 存在（enterBattle 清空）、② 绘制段有 typeof 空壳判断。
+  //   在 B5 落地前该函数不存在 ⇒ 什么都不画（零视觉回归）。
+  if (typeof drawBossRailLine === 'function') drawBossRailLine(ctx, bossRailFx);
+
   // P-17 战术炮击预警圈：虚线外圈 = 爆炸范围（固定 radius）；实心内圈随 t/delay 收缩 +
   // 闪烁（越接近落地越紧迫），圆心十字标记 + 倒计时秒数。仅画视口内（aabbInView 剔除）。
   for(const st of activeStrikes()){
@@ -6099,19 +6552,22 @@ function draw(){
   //   长度仍 250px 短锥（战斗视野考虑；bench 是解算面板用全长）。tank_hud.js 共享。
   drawSpreadCones(ctx, gp, aimA, player.sigma, { length: 250, dual: true });
 
-  // #W-I（2026-10-19 用户裁定）→ 2026-10-20 修正口径：「虚线圈改为**散布圈**，
-  //   大小 = 精度 × 距离，表示弹着点分布的范围，精度采用主炮的精度 × spreadFactor」。
-  //   · sigma 是**弧度 σ**（RULES.spread.base=0.018rad 等）⇒ 横向展开 = σ×距离（弧长），
-  //     与直射散布锥（drawSpreadCones）同一物理口径；
-  //   · 圈心仍 = mouseWorld（落点瞄准位置）；半径 = player.sigma × spreadFactor × |mouse − player|；
-  //   · spreadFactor 唯一口径 WEAPON_DEFAULTS.primary.howitzer.spreadFactor（缺省 1.2）——
+  // #W-I（2026-10-19 用户裁定）→ 2026-10-20 修正口径 → **2026-10-23 削弱裁定（现行）**：
+  //   「虚线圈改为**散布圈**，大小 = 精度 × 距离」。
+  //   · 现行精度口径 = **4 × 主炮 base 精度 × 瞄准距离**（用户 2026-10-23：「削弱榴弹炮模式，
+  //     精度计算改为 4*主炮 base 精度*距离」）；
+  //   · ⚠️ **不再乘 player.sigma**——sigma 里含 aimSpeed / spreadMult / 运动扩圈等主武器改装，
+  //     旧实现（player.sigma × spf）等于把主武器精度卡带进曲射，与 isolate 口径冲突；
+  //   · spreadFactor 唯一口径 WEAPON_DEFAULTS.primary.howitzer.spreadFactor（现行 4.0），
   //     与 js/tank_fire.js 的实际落点切向偏移**同一参数源**，改一处自动跟随；
   //   · he 爆炸半径不再画圈（落点爆炸范围由 splashRadius 在弹着时结算，不属于瞄准语义）。
   if(isHowitzerMode(player) && typeof mouseWorld !== 'undefined' && mouseWorld){
     const hsDef = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
-    const spf = (typeof hsDef.spreadFactor === 'number') ? hsDef.spreadFactor : 1.2;
+    const spf = (typeof hsDef.spreadFactor === 'number') ? hsDef.spreadFactor : 4.0;
+    const baseSigma = (typeof RULES !== 'undefined' && RULES.spread && typeof RULES.spread.base === 'number')
+      ? RULES.spread.base : 0.018;
     const aimDist = Math.hypot(mouseWorld.x - player.x, mouseWorld.y - player.y);
-    const sigmaSpread = (player.sigma || 0) * spf * aimDist;   // 主炮精度 × spreadFactor × 距离
+    const sigmaSpread = baseSigma * spf * aimDist;   // 主炮 base 精度 × spreadFactor × 距离
     ctx.strokeStyle = 'rgba(255,180,84,0.85)';
     ctx.setLineDash([9, 7]);
     ctx.lineWidth = 2;

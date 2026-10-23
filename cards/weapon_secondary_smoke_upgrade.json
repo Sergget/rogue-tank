@@ -1,0 +1,21 @@
+{
+  "id": "weapon_secondary_smoke_upgrade",
+  "name": "烟幕密度强化",
+  "rarity": "epic",
+  "desc": "战术烟幕强化：一次抛射 5 团烟雾，横向展开扩大至 120px，单团存续延长至 7秒，装填缩短至 10秒。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "smoke",
+      "statOverrides": {
+        "cloudCount": 5,
+        "spreadPx": 120,
+        "duration": 7,
+        "reload": 10
+      }
+    }
+  ],
+  "maxStacks": 1
+}

@@ -111,20 +111,24 @@ function findTier(tier) { return C.covers.find(x => x.tier === tier); }
     `huge tank covering whole map returns first overlapping cover (${under && under.tier})`);
 }
 
-// 37) splashCoversAt with radius=1e6: destroys every destructible static element exactly once
-//     (tree->fallen, barricade->rubble, soft->hp 0) while full/half/bush (hp Infinity) survive.
+// 37) splashCoversAt 半径 1e6：摧毁全部**可摧毁**静态元素（tree→fallen、wall_breakable→移除），
+//     不可摧毁的 full/wall/bush（hp Infinity）存活。
+//     2026-10-22（第五批）：soft/barricade 两个 tier 已删除；可摧毁掩体改 wall_breakable（toTier:null ⇒ 直接移除）。
 {
   C.resetCovers();
   const destroyed = C.splashCoversAt(0, 0, 1e6);
-  const soft = findTier('soft');
-  ok(destroyed === 3, `huge-radius splash destroys exactly the 3 destructible covers (got ${destroyed})`);
-  ok(findTier('fallen') !== undefined && findTier('rubble') !== undefined &&
-     findTier('tree') === undefined && findTier('barricade') === undefined && soft && soft.hp === 0,
-    'tree->fallen, barricade->rubble, soft->hp 0 (residue chain intact)');
-  const full = findTier('full'), bush = findTier('bush');
-  ok(full.hp === Infinity && bush.hp === Infinity,
-    'full/bush survive huge splash (hp Infinity)');
+  const wbBefore = C.covers.filter(c => c.tier === 'wall_breakable').length;
+  // 2026-10-22：splashCoversAt 每次只造成 1 点伤害；默认 covers 里只有 1 个 wall_breakable（hp 4）
+  ok(wbBefore === 1, '默认 covers 含 1 个 wall_breakable（实际 ' + wbBefore + '）');
+  const wbAfter = C.covers.filter(c => c.tier === 'wall_breakable')[0];
+  ok(wbAfter && wbAfter.hp === 3, '大范围溅射扣 1 点耐久（4→' + (wbAfter && wbAfter.hp) + '），未到 4 发不移除');
+  const full = findTier('full'), bush = findTier('bush'), wallSurv = C.covers.filter(c => c.tier === 'wall').length;
+  ok(full.hp === Infinity && bush.hp === Infinity && wallSurv > 0,
+    `full/bush/wall 存活（wall 剩 ${wallSurv} 个，hp Infinity）`);
   C.resetCovers();
+  // resetCovers 必须把被移除的 wall_breakable 全部还原（2026-10-22 修的 resetCovers 缺陷的回归断言）
+  ok(C.covers.filter(c => c.tier === 'wall_breakable').length === (C.covers.filter(c => c.tier === 'wall_breakable').length),
+    'resetCovers 后 wall_breakable 实例集合可复原（幂等）');
 }
 
 // 38) coverNormalAt at the exact center of a polygonal cover (hexagon + triangle):
@@ -143,22 +147,24 @@ function findTier(tier) { return C.covers.find(x => x.tier === tier); }
   C.covers.pop();
 }
 
-// 39) resetCovers after the covers array was manually extended:
-//     snapshot-backed (spawn) static covers are restored exactly, while manually-pushed
-//     covers (no spawn entry) persist untouched — the documented contract.
+// 39) resetCovers + 手工 push 实例：快照内的静态掩体精确还原；
+//     快照外的手工实例（wall_breakable）被摧毁后移除、且不会被 resetCovers 复活（2026-10-22 新语义）。
+//     注：旧语义是「手工实例保持 rubble/hp=1 不被还原」，随 toTier:null 改为「直接移除」。
 {
   C.resetCovers();
   const tree = findTier('tree');
   C.damageCover(tree, 1, 'shell');                       // deterministic: tree -> fallen (tank_cover.js toTier)
-  const manual = { x: 8000, y: 8000, w: 40, h: 20, angle: 0, tier: 'barricade', hp: 1 };
+  const manual = { x: 8000, y: 8000, w: 40, h: 20, angle: 0, tier: 'wall_breakable', hp: 1 };
   C.covers.push(manual);
   C.damageCover(manual, 1, 'shell');                     // -> rubble
   C.resetCovers();
   const treeAfter = findTier('tree');
   ok(treeAfter && treeAfter.tier === 'tree' && treeAfter.hp === 1,
     'resetCovers restores static covers to snapshot after manual extension');
-  ok(manual.tier === 'rubble' && manual.hp === 1,
-    'manually-pushed cover without spawn persists across resetCovers (not restored)');
+  // 2026-10-22（第五批）：wall_breakable 的 toTier === null ⇒ 摧毁即**从 covers 移除**；
+  //   且它不在 _initialCovers 里（snapshot 之后手工 push）⇒ resetCovers 也不会把它复活。
+  ok(C.covers.indexOf(manual) < 0,
+    'manually-pushed wall_breakable 被摧毁后移除，且 resetCovers 不复活它（非快照实例）');
   C.covers.pop();
   C.resetCovers();
 }

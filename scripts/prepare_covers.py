@@ -1,19 +1,23 @@
-"""AI 生成地图元素贴图后处理（配套 tools/cover-gen-prompts.md §5）。
+"""地图元素「后期贴图」后处理：任意美术源图 → assets/<key>.png（自包含，2026-10-23）。
 
 用途
 ----
-把源图目录（如 tmp/covers-src/）的 10 张 AI 生成源图，按名义尺寸等比
-缩小（不变形、居中贴到透明画布）→ 白底/光晕清零 → PNG-8 量化 →
+把源图目录（如 tmp/covers-src/）的地图元素源图，按基准画布尺寸等比缩小
+（不变形、居中贴到透明画布）→ 白底/光晕清零 → PNG-8 量化 →
 写到 ``assets/<key>.png``（根目录，加载器见 js/tank_assets.js loadAssetImage）。
 
-三段管线的思路分别复用现有脚本（不复制大段代码）：
-  缩放居中 —— 本脚本自有（现有脚本不改尺寸，见 optimize_sprites.py 头部约束）；
-  白底清理 —— clean_sprite_bg.py 的「边框洪泛」判据（透明 ∪ 近白可达即背景）；
-  PNG-8 量化 —— optimize_sprites.py encode() 的「透明占 0 号索引 + RGB 量化」，
-    保证二值 alpha 逐像素还原、不打成半透明软边。
+**定位（2026-10-23 用户裁定）**：本仓库不承担 AI 出图。程序化烘焙是唯一实机路径；
+本脚本只负责「后期贴图接线」的后半段——外部美术/后期工具产出的 PNG 如何安全落盘。
+出图（prompt 包、托管 API 客户端、网页手抄手册）已于 2026-10-23 整体删除。
 
-名义尺寸（与 cover-gen-prompts.md §0 / ASSET_DEFS 一致）
--------------------------------------------------------
+三段处理均为**本脚本内联实现**（2026-10-23 起不再依赖已删除的
+`optimize_sprites.py` / `clean_sprite_bg.py`）：
+  缩放居中 —— 等比只缩不放 + 居中贴透明画布；
+  白底清理 —— 「边框洪泛」判据（透明 ∪ 近白可达即背景，被本体包围的高光保留）；
+  PNG-8 量化 —— 透明占 0 号索引 + RGB 量化，保证二值 alpha 逐像素还原、不打软边。
+
+基准尺寸（**唯一来源 tools/cover-refs.json**，由烘焙代码导出）
+-------------------------------------------------------------
 soft 170x10、barricade 64x28、stump 24x18、rubble 38x17、bush 56x34、
 tree 24x18、fallen 58x9；bush_canopy 同 bush（56x34）、fallen_canopy 同
 fallen（58x9）；tree_canopy 无固定名义尺寸（§0 按包围盒 + 锚点约定），
@@ -85,12 +89,13 @@ def _load_refs():
 
 
 NOMINAL = _load_refs()
-ORDER = ['soft', 'barricade', 'stump', 'rubble', 'bush', 'bush_canopy',
+# 2026-10-22（第五批）：栅栏(soft)/沙袋(barricade) 已删除，统一为 wall（单直线掩体）。
+ORDER = ['wall', 'stump', 'rubble', 'bush', 'bush_canopy',
          'tree', 'tree_canopy', 'fallen', 'fallen_canopy']
 
 ANCHOR_TOL = 2.0  # 历史常量（bake.html 红十字 ±2px）；本脚本的验收改由 covers-anchor-check.py 用 centroid 判定
 
-# 白底判据与 clean_sprite_bg.py 同口径（THR_LIGHT/SPREAD/ALPHA_OPAQUE）。
+# 白底判据（THR_LIGHT/SPREAD/ALPHA_OPAQUE）：与 covers-anchor-check.py 的 alpha 口径一致。
 THR_LIGHT = 170
 SPREAD = 34
 ALPHA_OPAQUE = 24
@@ -111,7 +116,7 @@ def fit_contain(im, tw, th):
 
 
 def clear_bg(im):
-    """边框洪泛清底（思路同 clean_sprite_bg.py，紧凑实现）。
+    """边框洪泛清底（透明 ∪ 近白可达即背景；被本体包围的高光保留）。
 
     从图片边框沿「透明 ∪ 近白」洪泛，可达的近白 = 背景白底；
     另把可达的半透明近白（ white 光晕/软边）一并清零；
@@ -155,7 +160,7 @@ def clear_bg(im):
 
 
 def encode_p8(im, colors):
-    """PNG-8 量化（思路同 optimize_sprites.py encode()，紧凑实现）。
+    """PNG-8 量化（透明占 0 号索引 + RGB 量化，二值 alpha 逐像素还原）。
 
     透明像素占位 0 号索引（tRNS 全透明）+ 只量化 RGB，
     alpha 逐像素精确还原，不产生半透明软边。
@@ -360,8 +365,7 @@ def main():
                       f'{"，锚点落在画布外" if ae["outside"] else ""}')
 
     if bad:
-        sys.exit('坏图/缺图 %d 张（%s）：先按 tools/cover-gen-prompts.md §3~§4 出图，'
-                 '或在 --src 目录放 <key>.png 再跑 --inplace'
+        sys.exit('坏图/缺图 %d 张（%s）：在 --src 目录放 <key>.png（或 --pick 指定同名源图）再跑 --inplace'
                  % (len(bad), ', '.join(r['key'] for r in bad)))
     if missing and not only:
         print('\n提示：以上 MISSING 项会继续走程序化回退，不影响游戏运行；'

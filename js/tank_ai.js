@@ -680,6 +680,21 @@ function aiDecideEnemy(t, ctx){
   const hyst = cfg.triggerHysteresis !== undefined ? cfg.triggerHysteresis : 1.25;
   const trigDist = (t.aiTriggerDist && t.aiTriggerDist > 0) ? t.aiTriggerDist : baseTrig;
   const enterD = trigDist, exitD = trigDist * hyst;
+  // 2026-10-23（本批）：隐蔽机制接入——玩家（p）的隐蔽值折算为**敌方有效触发距离折扣**。
+  //   只在 p 是玩家实体且本车不是 Boss 时生效（Boss 视为有独立观瞄，不吃玩家隐蔽值）。
+  //   取 camouMul ∈ [0.3, 1]：静止/灌木/烟幕 → 更短距离才被点亮；疾驰+开火 → 接近全额。
+  //   ⚠️ 只影响「首次激活距离」，不影响已接战后的脱离（exitD 用未折扣值，防贴脸脱战抖动）。
+  let _camoMul = 1;
+  if (p && !t.isBoss && !p.isBoss) {
+    let _camoFn = (typeof camouflageDistanceMultiplier === 'function') ? camouflageDistanceMultiplier : null;
+    if (!_camoFn && typeof require !== 'undefined') {
+      try { _camoFn = require('./tank_cover.js').camouflageDistanceMultiplier; } catch (e) { _camoFn = null; }
+    }
+    if (_camoFn) {
+      try { _camoMul = Math.max(0.3, Math.min(1, _camoFn(p))); } catch (e) { _camoMul = 1; }
+    }
+  }
+  const enterDCamo = enterD * _camoMul;
   if(t.aiEngaged === undefined) t.aiEngaged = false;
 
   // LoS 评估：激活门控与开火判定共用（patrol 早退路径也做一次射线；有 ctx.hasLoS 缺省 true）
@@ -689,7 +704,7 @@ function aiDecideEnemy(t, ctx){
   const needLoS = cfg.engageRequiresLoS !== false;
 
   if(!t.aiEngaged){
-    const inRange = dist <= enterD;
+    const inRange = dist <= enterDCamo;
     const canSee = (!needLoS || los) || !!t.lastKnownPlayerPos;
     if(!(inRange && canSee)){
       // #S2 suspicious 状态（alertLevel 1）：听到声音 → 朝声音位置调查
@@ -733,7 +748,7 @@ function aiDecideEnemy(t, ctx){
       // 首次进入接战：#E7 设置反应延迟 + #E8 向附近友邻传播 engage 状态
       t.aiEngaged = true;
       if(t.aiReactEnabled === true && !t.isBoss) {
-        t.aiReactT = _reactionSeconds(t, cfg, profEff, dist, enterD);
+        t.aiReactT = _reactionSeconds(t, cfg, profEff, dist, enterDCamo);
       }
       _propagateEngage(t, ctx, cfg);
     }
@@ -937,6 +952,9 @@ function aiDecideEnemy(t, ctx){
   if(canFire && role === 'hold' && !t.isBoss && !rrArrive && typeof holdGate === 'function'){
     const hg = holdGate(t, dist, tol, p);
     canFire = hg.fire;
+    // 2026-10-22（第五批 §4.9.2(b)）：目标「只有炮塔可打」时仍算有射界——
+    //   holdGate 因射界拒绝时，若挡视线的只是裁掉车体的直线掩体，则放行开火（炮塔露头）。
+    if(!canFire && ctx && _wallTurretOnlyFiringLine(t, p, ctx)) canFire = true;
   }
   if(canFire) out.fire = true;
 
@@ -1295,8 +1313,7 @@ function applyWaterAvoidance(t, out, ctx){
  * @param {number} probeDist 基础探测距离
  * @returns {boolean} 是否找到干地方向（false = 三环全水）
  */
-function _escapeWater(out, t, isWaterAt, probeDist){
-  const base = t.hullAngle || 0;
+function _escapeWater(out, t, isWaterAt, probeDist){  const base = t.hullAngle || 0;
   // #U15：脱困环半径须覆盖「中等水体」——水潭可达 400×400（半幅 200），
   //   故取 4 环 × probeDist(=140) = 560px，确保站位于常见水体中央时也能探到岸。
   const RINGS = 4, DIRS = 16;
@@ -1323,11 +1340,118 @@ function _escapeWater(out, t, isWaterAt, probeDist){
   return false;   // 四环全水
 }
 
+// --- 2026-10-22（第五批 B2-1）雷场危害规避（用户裁定「雷场要能阻挡 AI 冲锋」）---
+// 输入 hazards = [{ x, y, angle, len, wid }]（由 tank_battle.html 每帧从雷场列表构建：
+// 预形态不参与，只喂**已确认/已生成**的雷带）。判定与 applyWaterAvoidance 同级、在 aiDecide
+// 末尾调用——可以覆盖机动层（turn/move），但保留 turretDesired/fire 等其它字段。
+//
+// 判据：把坦克位置与「前方 120px 预测点」投影到带的局部坐标（带长方向 = local +x，
+//   法向 = local +y），带内判定 = |lx| ≤ len/2 + 20 且 |ly| ≤ wid/2 + 20（外扩 20px 容差）：
+//   · **已在带内** → move = 1（全速冲出，尽快脱离危险区）+ 转向带法向（最短路径出带）；
+//   · 未进带但正前方将进 → move = 0（停住，不冲进雷区）+ 转向带端点方向（绕行）。
+// 只对 `tank.team === 'enemy'` 生效：玩家/友军不避雷（避免"自伤式"误伤友军 AI，
+// 且玩家自己布下的雷场不该反噬玩家操作）。
+// @param {any} t 坦克实体
+// @param {any} out aiDecide 输出的机动指令
+// @param {Array} hazards 雷带列表
+// @returns {any} 就地改写后的 out
+function applyHazardAvoidance(t, out, hazards){
+  if(!t || !out || t.team !== 'enemy') return out;
+  if(!Array.isArray(hazards) || !hazards.length) return out;
+  const PAD = 20;                       // 外扩容差（px）
+  const LOOKAHEAD = 120;                // 前方预测点距离（px）
+  const hullA = (typeof t.hullAngle === 'number') ? t.hullAngle : 0;
+  const aheadX = t.x + Math.cos(hullA) * LOOKAHEAD;
+  const aheadY = t.y + Math.sin(hullA) * LOOKAHEAD;
+  // 局部投影：把世界点投到带的局部坐标
+  const localOf = (hz, px, py) => {
+    const ang = (typeof hz.angle === 'number') ? hz.angle : 0;
+    const ca = Math.cos(-ang), sa = Math.sin(-ang);
+    const dx = px - hz.x, dy = py - hz.y;
+    return { lx: dx * ca - dy * sa, ly: dx * sa + dy * ca };
+  };
+  const insideOf = (hz, loc) => {
+    const hl = ((typeof hz.len === 'number' ? hz.len : 220) / 2) + PAD;
+    const hw = ((typeof hz.wid === 'number' ? hz.wid : 56) / 2) + PAD;
+    return Math.abs(loc.lx) <= hl && Math.abs(loc.ly) <= hw;
+  };
+  for(const hz of hazards){
+    if(!hz) continue;
+    const locSelf = localOf(hz, t.x, t.y);
+    const locAhead = localOf(hz, aheadX, aheadY);
+    const selfIn = insideOf(hz, locSelf);
+    const aheadIn = insideOf(hz, locAhead);
+    if(!selfIn && !aheadIn) continue;
+    const ang = (typeof hz.angle === 'number') ? hz.angle : 0;
+    if(selfIn){
+      // 已在带内：全速冲出 + 朝带法向（选「离带中心更近的那一侧」＝最短出带）
+      out.move = 1;
+      const nSign = (locSelf.ly >= 0) ? 1 : -1;
+      const exitA = ang + (nSign > 0 ? Math.PI / 2 : -Math.PI / 2);
+      const delta = angDiff(exitA, hullA);
+      out.turn = Math.abs(delta) < 0.08 ? 0 : (delta > 0 ? 1 : -1);
+      return out;
+    }
+    // 未进带但前向将进：停住 + 转向最近的**带端点**方向（沿带绕行）
+    out.move = 0;
+    const halfLen = (typeof hz.len === 'number' ? hz.len : 220) / 2;
+    const ux = Math.cos(ang), uy = Math.sin(ang);
+    const endA = { x: hz.x + ux * halfLen, y: hz.y + uy * halfLen };
+    const endB = { x: hz.x - ux * halfLen, y: hz.y - uy * halfLen };
+    const dA = (endA.x - t.x) ** 2 + (endA.y - t.y) ** 2;
+    const dB = (endB.x - t.x) ** 2 + (endB.y - t.y) ** 2;
+    const end = (dA <= dB) ? endA : endB;
+    const heading = Math.atan2(end.y - t.y, end.x - t.x);
+    const delta = angDiff(heading, hullA);
+    out.turn = Math.abs(delta) < 0.08 ? 0 : (delta > 0 ? 1 : -1);
+    return out;
+  }
+  return out;
+}
+
+// 2026-10-22（第五批 §4.9.2(b)）：直线掩体（shellBlock:'wall'）的**射界门控**判据。
+//   用户裁定：「目标只有炮塔可打时，AI 仍算有射界（炮塔是可打部位）；目标完全不可打时保持 hold」。
+//   实现放在本模块（holdGate 本身在 js/tank_ai_squad.js，属 mapgen/系统的写域，不改它）——
+//   在 hold 门控调用处做一次 OR：holdGate 因「射界不把握」拒绝时，若路径上只有**裁车体**的
+//   直线掩体（炮塔可打），仍放行开火。
+//   返回 true = 目标至少炮塔可打；false = 完全打不到（有 solid/single 整发截停，或 wall 连炮塔都挡）。
+function _wallTurretOnlyFiringLine(t, target, ctx){
+  if(!t || !target) return false;
+  // 跨模块纯函数一律经 globalThis 读取（浏览器：tank_cover/tank_cover 顶层已挂全局；
+  // Node 单测：由测试 shim 注入）。**不写裸标识符**——tsc checkJs 只认 types/globals.d.ts
+  // 的 declare，裸引用会 TS2304（该文件属 verify-docs 写域，本角色不改）。
+  const g = (typeof globalThis !== 'undefined') ? globalThis : null;
+  const wfn = (g && typeof g.wallPartBlock === 'function') ? g.wallPartBlock : null;
+  if(typeof wfn !== 'function') return false;
+  const find = (ctx && typeof ctx.findCoversOnPath === 'function') ? ctx.findCoversOnPath
+             : ((g && typeof g.findCoversOnPath === 'function') ? g.findCoversOnPath : null);
+  if(typeof find !== 'function') return false;
+  let hits = null;
+  try { hits = find(t.x, t.y, target.x, target.y, (ctx && ctx.covers) || null); } catch(err){ hits = null; }
+  if(!hits || !hits.length) return false;
+  const tiers = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers : {};
+  let sawHullOnlyWall = false;
+  for(const h of hits){
+    const tier = tiers[h.cover && h.cover.tier];
+    if(!tier) continue;
+    if(tier.shellBlock === 'wall'){
+      const wb = wfn(h.cover, t, target);
+      if(wb && wb.blockTurret) return false;    // 连炮塔都挡 ⇒ 真没射界
+      if(wb && wb.blockHull) sawHullOnlyWall = true;
+      continue;
+    }
+    if(tier.shellBlock === true || tier.shellBlock === 'single') return false;   // 整发截停 ⇒ 没射界
+  }
+  return sawHullOnlyWall;
+}
+
 // 通用分发：ally 走消极防御，其余（enemy/Boss/召唤物）走多态状态机。
 // 敌对决策输出统一叠加绕水修正（2026-09-14：水域能淹死 AI，寻路必须绕开）。
+// 2026-10-22（第五批 B2-1）：再叠加**雷场规避**（敌人不得一头扎进玩家布好的雷带）。
 function aiDecide(t, ctx){
   if(t.team === 'ally') return aiDecideAlly(t, ctx);
-  return applyWaterAvoidance(t, aiDecideEnemy(t, ctx), ctx);
+  const out = applyWaterAvoidance(t, aiDecideEnemy(t, ctx), ctx);
+  return applyHazardAvoidance(t, out, (ctx && ctx.hazards) || null);
 }
 
 // AI 状态计时器由主游戏循环统一递减（同 reloadT、invulnT 的模式）。
@@ -1347,6 +1471,8 @@ function aiUpdateStateTimer(t, dt){
       t.stunImmuneT = cfg.stunImmunityAfter !== undefined ? cfg.stunImmunityAfter : 2.0;
     }
   }
+  // 2026-10-22（第五批 §4.9.1）：噪声热度衰减（与 stun 计时同处驱动，主循环已每帧调用）
+  decayNoiseHeat(t, dt);
 }
 
 // --- 警觉系统（被击中/友邻告警）：修复「镜头外无伤打木桩」缺陷 ---
@@ -1358,20 +1484,84 @@ function aiUpdateStateTimer(t, dt){
 // 返回 true 表示该实体被警觉。
 // #S2：hearNoise — AI 听到声音（射击/近失弹/爆炸），进入 suspicious(1)。
 // 已处于更高警觉时不降级；记录声音位置与时间。
+//
+// 2026-10-22（第五批 §4.9.1 用户裁定）：「标准模式下，敌方 AI『听到』多次射击、
+//   友军多次被命中等后就应当直接确定玩家位置进入交战状态」。
+//   旧实现只置 alertLevel=1（suspicious），**全文件没有任何升级到 3 的路径**；
+//   而且「同一位置 2s 内重复声音直接丢弃」让连射反而永远攒不满。
+//   现行：
+//   · `t.noiseHeat`（0~escalateAt）按声音类型累加：shot→shotHeat / impact→impactHeat；
+//   · **不再因同位置丢弃**（仍更新 lastNoisePos，只是不再抑制 heat 累积）；
+//   · heat ≥ escalateAt → alertEntity（进入交战 + 记住来弹方向），heat 归零；
+//   · 每帧经 decayNoiseHeat 按 decayPerSec 衰减。
 function hearNoise(t, srcX, srcY, kind){
   if(!t || t.team !== 'enemy' || t.isDrone || t.hp <= 0) return false;
   _aiInit(t);
   if(t.alertLevel >= 3) return false;  // 接战中不受声音干扰
+  const cfg = aiConfig();
+  const ne = cfg.noiseEscalate || {};
   const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-  // 同一位置重复声音不刷新（防机枪连射无限续杯）
-  if(t.lastNoisePos && Math.hypot(t.lastNoisePos.x - srcX, t.lastNoisePos.y - srcY) < 60 &&
-     now - t.lastNoiseT < 2000) return false;
+  // 2026-10-22：同位置重复声音**不再丢弃**（否则机枪连射永远攒不满 heat）——
+  //   仅缩短 lastNoisePos 刷新（保留原「位置记忆」语义：首个位置作为大致来源）。
+  const sameSpot = t.lastNoisePos && Math.hypot(t.lastNoisePos.x - srcX, t.lastNoisePos.y - srcY) < 60
+                   && now - t.lastNoiseT < 2000;
   t.alertLevel = Math.max(t.alertLevel, 1);
-  t.lastNoisePos = { x: srcX, y: srcY };
+  if(!sameSpot) t.lastNoisePos = { x: srcX, y: srcY };
   t.lastNoiseT = now;
   t.lastKnownPlayerPos = t.lastKnownPlayerPos || { x: srcX, y: srcY };
   if(t.aiState === 'patrol' || t.aiState === 'stunned') t.aiState = 'suspicious';
+  // 噪声热度累积 → 达到阈值即升级为交战（直接锁定来源位置）
+  const escalateAt = (typeof ne.escalateAt === 'number') ? ne.escalateAt : 1.0;
+  const gain = (kind === 'impact')
+    ? ((typeof ne.impactHeat === 'number') ? ne.impactHeat : 0.2)
+    : ((typeof ne.shotHeat === 'number') ? ne.shotHeat : 0.34);
+  t.noiseHeat = Math.max(0, (t.noiseHeat || 0) + gain);
+  if(t.noiseHeat >= escalateAt){
+    t.noiseHeat = 0;
+    alertEntity(t, srcX, srcY);
+  }
   return true;
+}
+
+// 2026-10-22（第五批 §4.9.1）：噪声热度自然衰减（每帧由 aiUpdateStateTimer 驱动）。
+// 未听到声音约 8.3s（1.0 / 0.12）即完全冷却，与 suspiciousTimeout 同量级。
+function decayNoiseHeat(t, dt){
+  if(!t || !(dt > 0)) return false;
+  if(!(t.noiseHeat > 0)) return false;
+  const ne = aiConfig().noiseEscalate || {};
+  const decay = (typeof ne.decayPerSec === 'number') ? ne.decayPerSec : 0.12;
+  t.noiseHeat = Math.max(0, t.noiseHeat - decay * dt);
+  return true;
+}
+
+// 2026-10-22（第五批 §4.9.1）：友军被命中的**群体警觉**——半径 allyHitRadius 内所有
+// team==='enemy' 的 AI 累加 allyHitHeat（同一敌人累计 2 次 = 1.0 ≥ escalateAt → 交战）。
+// 与 alertEntity 的差别：alertEntity 只影响「被打中的那辆车」+ propagateAlert 一次；本函数
+// 是**可累积**的群体记忆，专治「友军反复被命中但敌人始终不交战」。
+// @param {Array} entitiesArr 全实体数组
+// @param {number} x 事件位置（被命中友军的位置）
+// @param {number} y
+// @returns {number} 触发的交战升级数量
+function noteAllyHit(entitiesArr, x, y){
+  const list = entitiesArr || [];
+  if(!list.length) return 0;
+  const ne = aiConfig().noiseEscalate || {};
+  const radius = (typeof ne.allyHitRadius === 'number') ? ne.allyHitRadius : 700;
+  const gain = (typeof ne.allyHitHeat === 'number') ? ne.allyHitHeat : 0.5;
+  const escalateAt = (typeof ne.escalateAt === 'number') ? ne.escalateAt : 1.0;
+  let escalated = 0;
+  for(const e of list){
+    if(!e || e.hp <= 0 || e.team !== 'enemy' || e.isDrone) continue;
+    if(Math.hypot(e.x - x, e.y - y) > radius) continue;
+    _aiInit(e);
+    if(e.alertLevel >= 3) continue;         // 已接战：不重复触发
+    e.allyHitHeat = Math.max(0, (e.allyHitHeat || 0) + gain);
+    if(e.allyHitHeat >= escalateAt){
+      e.allyHitHeat = 0;
+      if(alertEntity(e, x, y)) escalated++;
+    }
+  }
+  return escalated;
 }
 
 // #S2：emitShotNoise — 以 (x,y) 为中心、radius 内敌对 AI 听到射击声。
@@ -1438,5 +1628,5 @@ function propagateAlert(entitiesArr, x, y, radius){
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, _waterHazardTier, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverShouldHold, _maneuverPickMode, _maneuverSetRng, _MV_MODES, _engageBand, _engageBandKey, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _maneuverReloadGap, hearNoise, emitShotNoise };
+  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, applyHazardAvoidance, decayNoiseHeat, noteAllyHit, _wallTurretOnlyFiringLine, _waterHazardTier, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverShouldHold, _maneuverPickMode, _maneuverSetRng, _MV_MODES, _engageBand, _engageBandKey, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _maneuverReloadGap, hearNoise, emitShotNoise };
 }

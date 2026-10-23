@@ -1,5 +1,6 @@
 {
   "id": "Leapard_1",
+  "passiveSlots": 2,
   "traverseLimit": 180,
   "maxSpeed": 140,
   "turnRate": 2.5,
@@ -18,6 +19,15 @@
   "aimSpeed": 2.5,
   "texture": "camo_urban",
   "appearance": {
+    "cupola": [
+      {
+        "style": "standard",
+        "dx": 4,
+        "dy": 0,
+        "mirror": false,
+        "scale": 0.8
+      }
+    ],
     "engineDeck": {
       "style": "compact",
       "dx": 0,
@@ -223,7 +233,7 @@
       "rear": 24
     },
     "pivot": {
-      "dx": 13,
+      "dx": 10,
       "dy": 0
     },
     "axis": {

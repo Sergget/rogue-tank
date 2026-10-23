@@ -610,6 +610,31 @@ function gunTip(t){
   };
 }
 
+// ================= 2026-10-22（第五批）最薄装甲厚度 =================
+// 供「绕过入射角/跳弹链」的强制等效厚度结算使用（曲射直击 / 雷场爆炸）：
+//   · scope === 'hull' → 只取车体三面（front/side/rear）最小值（用户原话「车体最薄部位」）；
+//   · scope === 'all'  → 取 hull + turret 六面最小值（榴弹炮直击口径）。
+// 缺失/非数值面跳过；一面都没有（dummy/残骸）→ 返回 0（视为必穿），与旧内联实现一致。
+// 数值唯一来源 = tank.stats.armor（三层属性只读 stats，不摸 base/modifiers）。
+// 差异刻意收敛为调用方传入的 `scope` 常量（RULES.abilities.deploy_limits.mineArmorScope
+// 缺省 'hull'）——要统一口径只改 RULES 一处，不要在各调用点各写一份循环。
+// @param {any} tank  坦克实体（读 stats.armor，缺省 ARMOR）
+// @param {string} scope 'hull' | 'all'（其它值按 'all' 处理）
+// @returns {number} 最薄装甲厚度（px 当量），无数据时 0
+function thinnestArmorThickness(tank, scope){
+  const th = (tank && tank.stats && tank.stats.armor) || ARMOR || {};
+  const parts = (scope === 'hull') ? ['hull'] : ['hull', 'turret'];
+  let minEff = Infinity;
+  for(const part of parts){
+    for(const face of ['front', 'side', 'rear']){
+      const a = th[part] && th[part][face];
+      if(typeof a !== 'number' || !isFinite(a)) continue;
+      if(a < minEff) minEff = a;
+    }
+  }
+  return isFinite(minEff) ? minEff : 0;
+}
+
 // Export for Node.js if running in test environment
 if (typeof module !== 'undefined' && module.exports) {
   const U = require('./tank_utils.js');
@@ -651,6 +676,13 @@ if (typeof module !== 'undefined' && module.exports) {
     turretFrontDist,
     frontDistFromVerts,
     gunRoot,
-    gunTip
+    gunTip,
+    thinnestArmorThickness
   };
 }
+
+// 2026-10-22（第五批）：最薄装甲纯函数的浏览器全局导出（与 tank_cover 的 wallPartBlock、
+// tank_weapons 的 isHowitzerMode 同款显式导出；浏览器端顶层 function 本已全局，这里只是
+// 让「跨模块按 globalThis 读取」的调用方（tank_fire 的榴弹炮分支 / tank_battle 的雷场结算）
+// 有一条明确契约）。
+if (typeof globalThis !== 'undefined') { globalThis.thinnestArmorThickness = thinnestArmorThickness; }

@@ -71,7 +71,7 @@
 
 ## 6. 坦克贴图与战术涂装视觉规范 (Tank Visual & Camo Spec)
 
-> 4 套迷彩（forest/desert/urban/winter）+ 装甲质感三件（焊缝/边缘磨损 5~10%/铸造颗粒）+ **整车精灵四层**（track/hull/turret/barrel，含 `imgVehicle`）+ **对齐契约**（`mountDx − embed = turretFrontDist`）+ 设计器层序与预热 + 资产要求（含多块炮塔）+ 缩图 1200px 与 `--sync-tanks` + 验收指标（长度比 0.98~1.02 / 轴心 / 包围盒 ≤3px / MAE ≤8/255）。
+> 4 套迷彩（forest/desert/urban/winter）+ 装甲质感三件（焊缝/边缘磨损 5~10%/铸造颗粒）+ **整车精灵四层**（track/hull/turret/barrel，含 `imgVehicle`；**2026-10-23 起盘上无图、通道代码保留**）+ **对齐契约**（`mountDx − embed = turretFrontDist`）+ 设计器层序与预热 + 资产要求（含多块炮塔）+ 后期贴图入库（≤1200px 宽、scale/pivot 同步）+ 验收指标（长度比 0.98~1.02 / 轴心 / 包围盒 ≤3px / MAE ≤8/255）。
 
 **详见**：[贴图与涂装视觉规范](./editor/visual-spec.md)
 

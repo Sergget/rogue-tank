@@ -1,0 +1,10 @@
+{
+  "id": "ability_flash_dash",
+  "name": "战术闪跃",
+  "rarity": "epic",
+  "desc": "安装反应控制推进器（RCS）：激活后 1.2 秒内极速与加速度提升至 2.5 倍，可急速突进或脱离；结束后进入 2 秒过热期（速度 70%）。冷却 8 秒，1~3 号技能键触发。",
+  "effects": [
+    { "type": "ability", "key": "flash_dash" }
+  ],
+  "maxStacks": 1
+}

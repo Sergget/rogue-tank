@@ -68,7 +68,12 @@ function resolveTankCollisions(iterations){
     for(let i=0;i<entities.length;i++){
       for(let j=i+1;j<entities.length;j++){
         const a = entities[i], b = entities[j];
-        if(a.hp<=0 || b.hp<=0) continue;
+        // 2026-10-23（用户裁定「保留但修好」）：**分离（位置/速度解算）必须独立于存活状态**。
+        //   旧实现在此直接 `if(a.hp<=0 || b.hp<=0) continue;` 跳过整对 —— 撞击伤害把某辆车
+        //   打到 0 血之后，两车便不再被推开，实测「对向互顶残余深叠 48px / 中心距 15.97px」
+        //   （test-tankcollision 两项失败）。物理上残骸仍占体积，必须继续分离。
+        const aAlive = a.hp > 0, bAlive = b.hp > 0;
+        if(!aAlive && !bAlive) continue;   // 两具残骸：不再结算（省算力，也避免残骸互相推挤抖动）
         if(a.isDrone || b.isDrone) continue;   // P-17：无人机无 hull 几何（hullAngle/hullLen/hullWid），跳过坦克碰撞（防 NaN 污染坐标）
         const cornersA = partCorners(a.x,a.y,a.hullAngle, a.hullLen/2, a.hullWid/2);
         const cornersB = partCorners(b.x,b.y,b.hullAngle, b.hullLen/2, b.hullWid/2);
@@ -122,6 +127,57 @@ function resolveTankCollisions(iterations){
         const vAx = Math.cos(a.hullAngle) * a.speed, vAy = Math.sin(a.hullAngle) * a.speed;
         const vBx = Math.cos(b.hullAngle) * b.speed, vBy = Math.sin(b.hullAngle) * b.speed;
         const relN = (vBx - vAx) * best.ux + (vBy - vAy) * best.uy;
+        
+        // ======================= 撞击伤害与状态结算（Ramming Damage Settlement） =======================
+        // 2026-10-23（用户裁定「保留但修好」）：本块只做 **HP 结算 + 硬直计时**，
+        //   绝不改写 a.speed/b.speed —— 下方非弹性冲量分离需要完整闭合速度才能把两车推开；
+        //   旧实现这里 `speed *= 0.2`（急停）把分离力也一起打掉，实测导致
+        //   「对向互顶后残余深叠 48px / 中心距 15.97px」（test-tankcollision 两项失败）。
+        //   硬直语义改由 stiffTimer 表达（驱动层消费），不靠瞬时压速。
+        if (relN >= (RULES.ramming ? RULES.ramming.minVelThreshold : 90) && aAlive && bAlive) {
+          // 接触去重：同一对车在同一次接触中只结算一次（分离解算每帧跑 4 次迭代、
+          //   且持续互顶会连续多帧命中 ⇒ 不去重会一帧内重复扣血数次，实测数帧即可把
+          //   100HP 打空）。冷却时长取 RULES.ramming.contactCooldown（缺省 0.5s）。
+          const nowMs = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          const pairKey = String(a.id) + '|' + String(b.id);
+          const last = (a._ramHitAt && a._ramHitAt[pairKey]) || 0;
+          const cdMs = ((RULES.ramming && RULES.ramming.contactCooldown) || 0.5) * 1000;
+          if (nowMs - last < cdMs) { /* 冷却内不重复结算 */ } else {
+            if (!a._ramHitAt) a._ramHitAt = {};
+            a._ramHitAt[pairKey] = nowMs;
+            const cfg = RULES.ramming || { damageScale: 0.038, hpRatioThreshold: 0.25, energyRatioThreshold: 0.15, massAdvantageRatio: 1.2, stiffDurationBase: 2.0 };
+            const massA = (a.stats && a.stats.weight) || 40;
+            const massB = (b.stats && b.stats.weight) || 40;
+            const reducedMass = (massA * massB) / (massA + massB);
+            const kineticEnergy = 0.5 * reducedMass * relN * relN * 0.001; // 折合动能 (kJ 级)
+
+            // 局部装甲折减（取双方迎击部位基础装甲或默认值）
+            const armorA = (a.defaultArmor && a.defaultArmor.front) || 110;
+            const armorB = (b.defaultArmor && b.defaultArmor.front) || 110;
+
+            // 双方各自受到的动能钝击伤害
+            const dmgA = Math.max(1, Math.round(kineticEnergy * cfg.damageScale * (massB / (massA + massB)) * (100 / armorA)));
+            const dmgB = Math.max(1, Math.round(kineticEnergy * cfg.damageScale * (massA / (massA + massB)) * (100 / armorB)));
+
+            // 扣减 HP
+            a.hp = Math.max(0, a.hp - dmgA);
+            b.hp = Math.max(0, b.hp - dmgB);
+
+            // 硬直判定（双轨条件：伤害 ≥ 上限×hpRatioThreshold 且 动能 ≥ 上限×energyRatioThreshold）。
+            // 注意：maxHp 读 maxHp（旧实现错读 stats.hp，恒 undefined → 回退 100，判定失真）。
+            const maxHpA = (a.stats && a.stats.maxHp) || a.maxHp || 100;
+            const maxHpB = (b.stats && b.stats.maxHp) || b.maxHp || 100;
+
+            if (dmgA >= maxHpA * cfg.hpRatioThreshold && kineticEnergy >= maxHpA * cfg.energyRatioThreshold) {
+              a.stiffTimer = Math.max(a.stiffTimer || 0, cfg.stiffDurationBase);
+            }
+            if (dmgB >= maxHpB * cfg.hpRatioThreshold && kineticEnergy >= maxHpB * cfg.energyRatioThreshold) {
+              b.stiffTimer = Math.max(b.stiffTimer || 0, cfg.stiffDurationBase);
+            }
+          }
+        }
+        // ===============================================================================================
+
         if(relN > 0){
           const j = relN * 0.5;
           a.speed = (vAx + best.ux * j) * Math.cos(a.hullAngle)

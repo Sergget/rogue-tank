@@ -336,7 +336,8 @@ if (typeof covers !== 'undefined') {
     bd.drawCoverShadow(makeMock(l), Object.assign({ tier, x: 200, y: 200, w: 120, h: 90, angle: 0 }, extra || {}));
     return l.filter(p => p === 'fill').length;
   };
-  for (const tier of ['full', 'building', 'rock', 'ruined', 'tree', 'bush', 'barricade']) {
+  // 2026-10-22（第五批）：barricade → wall（单直线掩体，仍应有接触影/投影）
+  for (const tier of ['full', 'building', 'rock', 'ruined', 'tree', 'bush', 'wall']) {
     ok(shadowDraws(tier) > 0, `drawCoverShadow: ${tier} 有投影`);
   }
   for (const tier of ['road', 'mud', 'water', 'river', 'bridge']) {

@@ -1,7 +1,7 @@
 # 敌方 AI
 
 > **摘要**：敌人什么时候被激活、怎么警觉、怎么接近玩家、又怎么分工包夹——AI 决策层的全部现行口径。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-22）
 > **源自**：`docs/specs/combat.md` §5、§8.3、§13.7、§13.8（2026-10-21 拆分）
 > **相关**：[敌人强度与难度](./enemy-scaling.md) · [视野与镜头](./camera-vision.md) · [Boss 战斗](./boss-combat.md)
 
@@ -36,6 +36,15 @@
   - **④友邻遇袭**：`propagateAlert`（半径 = `RULES.ai.alertRadius`，值见上方「受击警觉」条，本页不重复）。
   - **⑤自身被攻击**：`alertEntity` 置 level 3 + `_threatDir`（炮塔立即转向威胁）。
   - **suspicious 行为**：朝声音位置半速（0.5）调查，炮塔 ±0.5rad 扫视；8 秒（`suspiciousTimeout`）无新声音降级回 calm；接战中（level 3）不受声音干扰。
+
+- **噪声累积升级（2026-10-22 用户裁定）**：「敌方 ai『听到』多次射击、友军多次被命中等后就应当直接确定玩家位置进入交战状态」。
+  - **射击噪声累积**：每次 `hearNoise` 累加 `t.noiseHeat`（`shot` +0.34 / `impact` +0.20，唯一口径 `RULES.ai.noiseEscalate`）⇒ **3 次射击或 5 次落弹**即达 `escalateAt 1.0` → 直接 `alertEntity(t, srcX, srcY)`（进入交战 + 记住玩家位置）并把热量归零。自然衰减 `decayPerSec 0.12`（约 8.3s 清空，与 `suspiciousTimeout` 同量级）。
+  - **旧实现的两个缺陷（ISSUES #Z7，2026-10-22 修）**：① `hearNoise` 只把 `alertLevel` 置 1，**全文件没有任何升级到 3 的路径**；② 同位置 2s 内的重复声音被直接丢弃 ⇒ **连射越多反而越攒不满**。现改为仍更新 `lastNoisePos`、但热量照常累加。
+  - **友军被命中**：`resolveHit` 包装对 `team==='ally'` 的目标调 `noteAllyHit(entities, sx, sy)`——半径 `RULES.ai.noiseEscalate.allyHitRadius`（700px）内所有敌人累加 `allyHitHeat 0.5`，**2 次**即 `alertEntity`。
+- **Boss / 生存模式全敌强制接战（2026-10-22 用户裁定）**：「boss战模式、生存模式所有敌人强制进入交战模式，立即开始攻击玩家」。
+  - 抽 `forceEngageAll(reason)`（`tank_battle.html`）：对全部 `team==='enemy' && !isBoss && hp>0` 设 `aiTriggerDist=99999 / aiEngaged=true / alertLevel=3 / aiReactT=RULES.ai.forceEngageOpenFireDelay`。
+  - 调用时机：`GAME_MODE==='boss'||'survival'` 的 `enterBattle` 末尾一次；**每次增援 / Boss 召唤波 / 生存波次生成后**对新生实体调单实体版 `forceEngageOne`。
+  - `forceEngageOpenFireDelay`（**0.35s**，唯一口径 `RULES.ai`）是「刷出来瞬间一发秒杀」的最小开火间隔；**不改变接战判定本身**。Boss 本体的 `openingSeconds 1.6` 开场展开窗口保留（那是展示动作，不是延迟攻击）。
 - **stun 免疫窗**：stunned 自然苏醒后授予 `RULES.ai.stunImmunityAfter`(2.0s) 免疫期，期间不再进入 stunned——防高射速武器无限连控。（附带修复：battle 主循环此前遗漏 `aiUpdateStateTimer` 调用导致 stun 计时器永不递减、敌人永久呆滞，已补上。）
 
 ## 反应延迟与接战传播

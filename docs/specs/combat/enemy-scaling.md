@@ -1,7 +1,7 @@
 # 敌人强度与难度
 
 > **摘要**：敌人从哪个基准长出来、乘哪些倍率、封顶键卡在哪里——改难度只改这一页。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-22）
 > **源自**：`docs/specs/combat.md` §13.1、§13.4、§5（难度分化段）（2026-10-21 拆分）
 > **相关**：[敌方 AI](./enemy-ai.md) · [Boss 规范](../boss.md) · [地图规范](../map.md)
 
@@ -92,6 +92,15 @@
 | 12 | 0.95 | 1.922 | 192.2 | 165.4 → **144.0（触顶）** |
 
 - **回归锚点**：`scripts/test-panels.js` 速度封顶断言重锚 **72 → 60 px/s**（= 0.5 × 基准 120）；`scripts/test-modifiers.js` #H1 段的封顶/地板/速度公式按 `RULES.difficulty.speedVsBaseline` **动态自算**，且其 #H1 分支夹具**由 `penCap`/`floor`/`cap` 反推**（2026-10-15 修复：旧夹具写死 `base` 绝对值，`entityMults` 上调后越出阈值导致 4 断言误失败）；`scripts/test-map.js` 的 `entityMults` 端点断言以 `RULES.difficulty.entityMults` 为唯一真值（同为动态）。
+
+## 敌方弹种与穿深/伤害（2026-10-22）
+
+**用户裁定**：「敌方ai、boss弹种升级后，穿深、伤害不跟随弹种设定的伤害比例，按它们既有的成长速度设定」。
+
+- **弹种仍按等级升档**（既有口径，本页不改）：每 3 级沿 AP 链升一档（`ap → apcr → apds → apfsds → apfsds_ad`，`js/tank_model.js` 的 `enemyAmmoKeyForLevel`），Boss 不走该分级。
+- **穿深/伤害不再吃弹种比例**：`applyEnemyAmmoByLevel` 除写 `ammoKey` 外，同时写 `ammoStatNeutral = true` 与 `enemyLevel`；`firePrimaryShell` 对带该标记的射手把 `ammo.pen` / `ammo.dmg` **按 1.0 处理**（弹速/散布/跳角/模块/溅射等弹种特性全部保留）。
+- **「既有成长速度」= 本卷的 `entityMults` 曲线**（`penetration [0.8, 1.5]` / `damage [0.8, 1.5]`，数值唯一口径见 [敌人强度与难度 · entityMults](./enemy-scaling.md)）；Boss 另有 `RULES.boss.tuning.penMul 1.4` / `dmgMul 1.5`（同属既有成长，不属弹种比例）。
+- **负向断言**：敌人用 `apfsds_ad` 时的 `shell.pen` 必须等于同实体用 `ap` 时的值（`scripts/test-batch5-combat.js` 锁住）。
 
 ## 相关页面
 - [敌方 AI](./enemy-ai.md) — 这些数值怎么被 AI 消费

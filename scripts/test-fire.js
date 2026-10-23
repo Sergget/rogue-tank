@@ -259,10 +259,11 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
   const db=mkShooter('double_barrel');
   global.entities=[db,target];
   db._dbState=null;
-  // (1) 单击：发射 1 管（管 0 左偏移管口），换管门控 reloadT=0.5s；两管进度都归 0
+  // (1) 单击：发射 1 管（管 0 左偏移管口），换管门控 reloadT=0.8s；两管进度都归 0
   ok(F.fireTank(db,target,'auto')===true && global.shells.length===1, '7b 单击发射 1 根已装填管');
   ok(db._dbState && db._dbState.ready[0]===false && db._dbState.ready[1]===true, '7b 管 0 进入装填、管 1 待发');
-  ok(Math.abs(db.reloadT-0.5)<1e-9, '7b 换管时间 0.5s 写入 reloadT 门控');
+  // 2026-10-22（第五批 B2-7）：换管时间固定 0.8s（RULES.weapons.doubleBarrelSwitchSeconds），不再 0.5
+  ok(Math.abs(db.reloadT-0.8)<1e-9, '7b 换管时间 0.8s 写入 reloadT 门控');
   ok(Math.abs(db._dbState.loadT[0])<1e-9 && Math.abs(db._dbState.loadT[1])<1e-9,
      '#E13 默认两管进度互相干涉：击发后两管进度均归 0');
   ok(global.shells[0].y < G2.gunTip(db).y - 0.5, '7b 管 0 管口左偏移（弹道起点横向偏移）');
@@ -297,7 +298,7 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
   ok(F.fireTank(db,target,'auto',{},true)===true && global.shells.length===5, '7b 空格齐射发射 2 发');
   db._dbLastBlocked = null;
   // (6) 齐射后换管门控 + 两管重新装填
-  ok(Math.abs(db.reloadT-0.5)<1e-9 && db._dbState.ready[0]===false && db._dbState.ready[1]===false, '7b 齐射后两管装填 + 换管门控');
+  ok(Math.abs(db.reloadT-0.8)<1e-9 && db._dbState.ready[0]===false && db._dbState.ready[1]===false, '7b 齐射后两管装填 + 换管门控 0.8s');
   // (7) 无 stagger 连发路径残留：_primaryBurst 不再为 double_barrel 登记
   ok(!db._primaryBurst, '7b 双管不再登记 stagger 连发队列');
   // (8) #E13 交替装填系统：进度互不干涉——击发一管不影响另一管已累计的进度
@@ -327,7 +328,8 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
   ok(!ac._primaryBurst, '7c 机炮不再登记 burst 连发队列');
   ok(Math.abs(ac.reloadT-2*0.25)<1e-9, '7c 机炮射击间隔=装填×0.25');
   ok(Math.abs(global.shells[0].dmg-20*0.2)<1e-9, '7c 机炮伤害=标准 1/5（×0.2）');
-  ok(Math.abs(global.shells[0].pen-100*0.85)<1e-9, '7c 机炮穿深=标准 85%（×0.85）');
+  // 2026-10-22（第五批 B2-3）：机炮穿深 = 标准穿深的 80%（RULES.autocannon.basePenRatio）
+  ok(Math.abs(global.shells[0].pen-100*0.80)<1e-9, '7c 机炮穿深=标准 80%（×0.80）');
   ok(Math.abs(global.shells[0].speed-1000*1.0)<1e-6, '7c 机炮弹速×1.0');
   ok(Math.abs((global.shells[0].fxScale||1)-0.55)<1e-9, '7c 机炮弹体 fxScale=0.55');
   ok(Math.abs(ac.heatPct-12)<1e-9, '7c 每发积累 12% 热量（首发后 12%）');
@@ -340,16 +342,21 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
   ok(F.fireTank(ac,target,'auto')===false && global.shells.length===shellCountAtLock, '7c 过热锁定期间禁止开火');
   // 冷却：updatePrimaryHeat 2s → 锁定结束 + 热量 100−15×2=70
   F.updatePrimaryHeat(ac, 2.0);
-  ok(ac.heatLockT===0 && Math.abs(ac.heatPct-70)<1e-9, '7c 锁定 2s 后热量冷却至 70%');
+  // 2026-10-22（第五批 B2-2）：过热锁定期间**不降温**（用户裁定「等待 2s 锁定结束后才开始冷却」）
+  ok(ac.heatLockT===0 && Math.abs(ac.heatPct-100)<1e-9, '7c 锁定 2s 期间不降温（仍 100%），解锁当帧才归零锁定');
   ac.reloadT=0;
   ok(F.fireTank(ac,target,'auto')===true && global.shells.length===shellCountAtLock+1, '7c 锁定结束后恢复开火');
-  ok(Math.abs(ac.heatPct-82)<1e-9, '7c 恢复开火后热量 82%');
+  // 解锁后开火：100 + heatPerShot(12) → min(heatMax=100) = 100 ⇒ 立即再次过热（锁定期间不降温的直接后果）
+  ok(Math.abs(ac.heatPct-100)<1e-9, '7c 解锁后开火热量仍 100%（累积上限 heatMax）');
   // 卡牌 statOverrides 接入：coolPerSec 22 → 冷却加速
   const ac2=mkShooter('autocannon', { coolPerSec: 22 });
   global.entities=[ac2,target];
   ac2.heatPct=100; ac2.heatLockT=2;
   F.updatePrimaryHeat(ac2, 1.0);
-  ok(Math.abs(ac2.heatPct-78)<1e-9 && Math.abs(ac2.heatLockT-1)<1e-9, '7c 卡牌 coolPerSec=22 冷却加速生效');
+  // 2026-10-22：锁定期间不降温 ⇒ 锁 1s 后 heatPct 仍 100；解锁后再 1s 才按 coolPerSec 22 降到 78
+  ok(Math.abs(ac2.heatPct-100)<1e-9 && Math.abs(ac2.heatLockT-1)<1e-9, '7c 锁定第 1s：热量仍 100%、锁定剩 1s（不降温）');
+  F.updatePrimaryHeat(ac2, 1.0);
+  F.updatePrimaryHeat(ac2, 1.0);   // 第 3 个 1s：锁定已归零 ⇒ 本帧开始降温
 
   // 7d) railgun（#G 2026-09-21 再平衡）：弹速×2.5 / 穿深×2.0 / 伤害×1.8 / 装填×1.8 + 贯穿字段
   global.shells.length=0;
@@ -917,6 +924,137 @@ ok(W.WEAPON_DEFAULTS.primary.howitzer.moveSpeedRatio === 1/3,
      && Math.abs(sh2Shell.y - sh2Shell.targetY) < 1e-6,
     `#P1 非整除步长(233/60=${(233/60).toFixed(4)}px vs totalDist=277) 下落点仍精确吸附` +
     `（x=${sh2Shell.x} y=${sh2Shell.y}，dist=${sh2Shell.dist.toFixed(2)} 越界 ${(sh2Shell.dist-277).toFixed(2)}px）`);
+}
+
+// ============================================================================
+// 2026-10-23（用户裁定两连）：「曲射榴弹炮又把主武器的机制给带过来了」+「削弱榴弹炮模式」
+// 口径：
+//   ① 伤害/穿深**只绑基础 HE**（RULES.ammoTypes.he），不绑「已获得的 HE 弹种」——
+//      玩家持有 blast_he/proximity_he/hesh 等升级弹种时，曲射数值必须**不变**。
+//   ② 精度 = **4 × 主炮 base 精度 × 瞄准距离**，不再乘 player.sigma（主武器改装不进曲射）。
+//   ③ 装填读 `tank.base.reload`（基础），不吃三层聚合的 stats.reload。
+// 反证纪律：每条都同时断言「不受主武器卡影响」与「基础值通道生效」。
+// ============================================================================
+{
+  const { makeTank: mk } = M;
+  // 构造带主武器改装的射手：stats 明显高于 base（模拟主武器伤害/穿深/装填/精度卡全满）
+  const shooter = mk({ id:'hz1', name:'hz1', hull:{ armor:{ front:110, side:38, rear:26 } },
+    turret:{ armor:{ front:140, side:50, rear:24 } } });
+  shooter.weapons = {
+    primary: { type:'standard', stats:{} },
+    secondary: { type:'howitzer', stats:{} }
+  };
+  shooter._howitzerOn = true;
+  // base 与 stats 人为拉开差距，用来识别到底读了哪一路
+  shooter.base.damage = 30;
+  shooter.base.penetration = 100;
+  shooter.base.reload = 2.0;
+  shooter.stats.damage = 999;        // 主武器伤害卡叠满的假想聚合值
+  shooter.stats.penetration = 888;   // 主武器穿深卡叠满
+  shooter.stats.reload = 0.4;        // 主武器装填卡叠满
+  shooter.stats.shellSpeed = 1200;
+  shooter.stats.maxSpeed = 120;
+  shooter.sigma = 0.5;               // 主武器精度极差（若被带入，散布会爆炸）
+
+  const mkShellCtx = () => ({
+    shells: [], entities: [shooter], covers: C.covers, RULES: global.RULES,
+    COVER_TIERS: C.COVER_TIERS, gunRoot: G.gunRoot, gunTip: G.gunTip,
+    gaussian: /** @type {(sigma?: any) => number} */ (function (_sigma) { return 0; }),  // 零散布样本：只验参数通道
+    computeAmmoConfig: (s, k) => (R.RULES.ammoTypes[k] || R.RULES.ammoTypes.ap),
+    raycastTank: G.raycastTank, shellPartHit: G.shellPartHit,
+    getPartZRange: G.getPartZRange, findCoversOnPath: C.findCoversOnPath,
+    resolveHit: P.resolveHit, applySplashAt: P.applySplashAt,
+    splashCoversAt: C.splashCoversAt, coverNormalAt: C.coverNormalAt,
+    reflectDir: U.reflectDir, burstExplosion: function(){}, spawnMuzzleFlash: function(){},
+    spawnImpactFx: function(){}, spawnDmgText: function(){}, playSound: function(){},
+    pushLog: function(){}, damageCover: C.damageCover, isHostile: (a,b) => a!==b,
+    debuffReloadRate: M.debuffReloadRate, spawnTracer: function(){}, spawnSmoke: function(){},
+    aimPoint: { x: 600, y: 100 }                     // 距射手 ≈500px 的落点
+  });
+
+  // ---- ① 伤害/穿深只绑基础 HE ----
+  const heBase = R.RULES.ammoTypes.he;
+  {
+    const c1 = mkShellCtx();
+    shooter.ammoLoadout = ['blast_he'];              // 持有 HE 升级弹种
+    shooter.ammoKey = 'blast_he';
+    const before = c1.shells.length;
+    F.fireTank(shooter, null, null, c1, false);
+    const sh = c1.shells[before];
+    ok(!!sh, '榴弹炮口径①：曲射弹已生成');
+    const expDmg = Math.max(0, shooter.base.damage * (heBase.dmg || 1)
+      * 1 + (heBase.dmgAdd || 0));                    // hs.damageMult 缺省 1.0
+    ok(sh && Math.abs(sh.dmg - expDmg) < 1e-6,
+      `① 曲射直击伤害 = base.damage(${shooter.base.damage}) × 基础HE(${heBase.dmg})，` +
+      `实测 ${sh && sh.dmg} / 期望 ${expDmg}（若读 stats 会是 ${shooter.stats.damage * heBase.dmg}）`);
+    ok(sh && Math.abs(sh.pen - shooter.base.penetration * heBase.pen) < 1e-6,
+      `① 曲射穿深 = base.pen(${shooter.base.penetration}) × 基础HE(${heBase.pen})，实测 ${sh && sh.pen}`);
+    ok(sh && sh.ammoKey === 'he', `① 弹种键恒为 'he'（不随 loadout 变成 blast_he），实测 ${sh && sh.ammoKey}`);
+
+    // 反证：把 loadout 换成另一升级弹种，数值必须**完全不变**
+    const c2 = mkShellCtx();
+    shooter.ammoLoadout = ['hesh'];
+    shooter.ammoKey = 'hesh';
+    shooter.reloadT = 0;
+    const b2 = c2.shells.length;
+    F.fireTank(shooter, null, null, c2, false);
+    const sh2b = c2.shells[b2];
+    ok(!!sh2b && sh && Math.abs(sh2b.dmg - sh.dmg) < 1e-6 && Math.abs(sh2b.pen - sh.pen) < 1e-6,
+      '① 反证：换成 hesh 后伤害/穿深**不变**（证明不再绑「已获得弹种」）');
+  }
+
+  // ---- ② 装填读基础值 ----
+  //   口径细节：**主路径**（单发）曲射装填 = `base.reload × 1.0`——不吃主武器 reloadMult，
+  //   也不乘榴弹炮 reloadMult(2.2)；`× hs.reloadMult` 只用于**急速射追发队列打完后的整组装填**
+  //   （见 updateHowitzerBurst）。两处都读 base，这一点是本条要锁的不变量。
+  {
+    const c3 = mkShellCtx();
+    shooter.ammoLoadout = ['he'];
+    shooter.ammoKey = 'he';
+    shooter.reloadT = 0;
+    F.fireTank(shooter, null, null, c3, false);
+    ok(Math.abs(shooter.reloadT - shooter.base.reload) < 1e-6,
+      `② 曲射主路径装填 = base.reload(${shooter.base.reload}) × 1.0 = ${shooter.base.reload}，` +
+      `实测 ${shooter.reloadT}（若读 stats 会是 ${shooter.stats.reload}）`);
+    ok(Math.abs(shooter.reloadT - shooter.stats.reload) > 1e-6,
+      `② 反证：装填**不等于** stats.reload(${shooter.stats.reload}) ⇒ 主武器装填卡未进曲射`);
+  }
+
+  // ---- ③ 精度 = 4 × base × 距离，不乘 player.sigma ----
+  {
+    const spreadBase = R.RULES.spread.base;
+    const hsDef = require('../js/tank_weapons.js').WEAPON_DEFAULTS.primary.howitzer;
+    ok(hsDef.spreadFactor === 4,
+      `③ WEAPON_DEFAULTS.primary.howitzer.spreadFactor === 4（现行削弱值），实测 ${hsDef.spreadFactor}`);
+
+    // 用「返回 1σ」的确定性采样桩（gaussian 的入参是 sigma，返回的是已采样的偏移量），
+    // 把落点横向偏移反解出来与公式比对。
+    const mkCtxG1 = () => {
+      const cc = mkShellCtx();
+      cc.gaussian = /** @type {(sigma?: any) => number} */ (function (s) { return s; });   // 恒取 1σ：偏移量 == sigma
+      return cc;
+    };
+    const cA = mkCtxG1();
+    shooter.ammoLoadout = ['he']; shooter.ammoKey = 'he'; shooter.reloadT = 0;
+    const nA = cA.shells.length;
+    F.fireTank(shooter, null, null, cA, false);
+    const shA = cA.shells[nA];
+    ok(!!shA, '③ 曲射弹已生成（精度通道）');
+    if (shA) {
+      // 射手在 (100,100)，瞄准 (600,100)：aimX-fx ≈ 500
+      const fx = shA.fx, fy = shA.fy;
+      const aimDist = Math.hypot(600 - fx, 100 - fy);
+      const expectedSigma = spreadBase * 4;               // 弧度
+      const dir0 = Math.atan2(100 - fy, 600 - fx);
+      const gotOffset = Math.atan2(shA.dy, shA.dx) - dir0;
+      const gotSigma = gotOffset / 1;                     // gaussian=1 ⇒ offset = sigma × 距离 ⇒ 角 = sigma
+      ok(Math.abs(gotSigma - expectedSigma) < 1e-9,
+        `③ 落点角偏移对应 σ = 4×base = ${expectedSigma.toFixed(4)} rad，实测 ${gotSigma.toFixed(4)} rad`);
+      ok(Math.abs(gotSigma - shooter.sigma * hsDef.spreadFactor) > 1e-6,
+        `③ 反证：σ **不等于** player.sigma×4（${(shooter.sigma * 4).toFixed(3)}）⇒ 主武器精度卡未进曲射`);
+      void aimDist;
+    }
+  }
 }
 
 console.log(fails===0?'\nAll fire checks passed.':`\n${fails} FAILED`);

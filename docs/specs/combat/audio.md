@@ -23,8 +23,10 @@
 
 （原 §7，Sample-Priority Architecture）
 
-- 音频系统优先加载并播放 `audio/` 目录下的 CC0/Freesound 真实采样（WAV/OGG）；
-- 若采样缺失、网络加载超时或本地 `file://` 环境下，系统无缝自动回退至 `SOUND_DEFS` 程序化合成器。
+- 音频系统优先加载并播放 `audio/` 目录下的真实采样（WAV，`AUDIO_SAMPLE_PATHS` 将每个 `SOUND_DEFS` 键映射到 `audio/<key>.wav`）；
+- `initAudio()` 触发 `preloadAudioSamples()` 异步预加载；单个采样加载超时 `AUDIO_SAMPLE_TIMEOUT_MS=4000ms`；
+- 若采样缺失、网络加载超时、`decodeAudioData` 失败或本地 `file://` 环境（`fetch` 不可用）下，系统将对应键缓存为 `null` 并无缝自动回退至 `SOUND_DEFS` 程序化合成器；
+- 采样播放时仍应用总线增益与 `pos` 空间化，保持与合成路径一致的 API。
 
 ## 空间化
 

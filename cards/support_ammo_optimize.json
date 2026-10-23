@@ -1,7 +1,7 @@
 {
   "id": "support_ammo_optimize",
   "name": "弹药优化",
-  "rarity": "rare",
+  "rarity": "common",
   "desc": "弹药架优化布置，命中敌方弹药架时伤害 +20%。",
   "effects": [
     { "type": "modifier", "stat": "ammoMult", "mode": "mult", "value": 1.2 }

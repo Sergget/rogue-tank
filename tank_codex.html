@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>坦克图鉴 · Tank Codex</title>
+<style>
+  /* #Z1/G（2026-10-22 B6，需求 7）：图鉴独立页 —— 配色/字体照 tank_bench.html 同款深色控制台风格。
+     本页只做**纯查询展示**：不生成实体、不跑战斗循环、不写任何数据。 */
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
+  :root{
+    --bg:#101418;
+    --panel:#171d22;
+    --panel-2:#1a2026;
+    --line:#2a323a;
+    --amber:#ffb454;
+    --amber-dim:#8a6a35;
+    --green:#7ed957;
+    --red:#ff5c4d;
+    --blue:#5cc8ff;
+    --purple:#b98aff;
+    --text:#d9dcc9;
+    --text-dim:#8a8f7d;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  header{
+    display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+    padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:10;
+  }
+  header h1{
+    margin:0; font-family:'JetBrains Mono',monospace; font-size:15px; letter-spacing:3px;
+    color:var(--amber); font-weight:700; text-transform:uppercase;
+  }
+  header .sub{font-size:11px; color:var(--text-dim); font-family:'JetBrains Mono',monospace;}
+  header .spacer{flex:1;}
+  .ctl{display:flex; align-items:center; gap:8px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim);}
+  .ctl input[type="range"]{width:180px; accent-color:var(--amber);}
+  .ctl input[type="text"]{
+    background:#0c0d09; border:1px solid var(--line); color:var(--text);
+    font-family:'JetBrains Mono',monospace; font-size:11px; padding:4px 7px; width:190px;
+  }
+  .ctl .lv{color:var(--amber); font-weight:700; min-width:26px; display:inline-block; text-align:right;}
+  #app{display:grid; grid-template-columns:300px 1fr; gap:0; min-height:calc(100vh - 56px);}
+  #codexListPane{
+    border-right:1px solid var(--line); background:var(--panel);
+    padding:12px; overflow-y:auto; max-height:calc(100vh - 56px);
+  }
+  .group-h{
+    font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:2px; color:var(--text-dim);
+    text-transform:uppercase; margin:10px 0 6px; padding-bottom:4px; border-bottom:1px dashed var(--line);
+  }
+  .group-h:first-child{margin-top:0;}
+  .item{
+    display:flex; justify-content:space-between; gap:6px; align-items:center; cursor:pointer;
+    padding:5px 7px; border:1px solid transparent; font-size:12px;
+  }
+  .item:hover{background:rgba(255,180,84,0.08); border-color:var(--amber-dim);}
+  .item.active{background:rgba(126,217,87,0.13); border-color:var(--green); color:var(--green);}
+  .item .tank-id{font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-dim);}
+  .item.active .tank-id{color:var(--green); opacity:.75;}
+  #codexDetail{padding:16px 20px; overflow-y:auto; max-height:calc(100vh - 56px);}
+  .card{border:1px solid var(--line); background:rgba(255,255,255,0.015); padding:12px 14px; margin-bottom:14px;}
+  .card h2{
+    margin:0 0 4px; font-family:'JetBrains Mono',monospace; font-size:14px; letter-spacing:1px; color:var(--amber);
+  }
+  .card .meta{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-bottom:10px; line-height:1.7;}
+  table{border-collapse:collapse; width:100%; font-family:'JetBrains Mono',monospace; font-size:11px;}
+  th,td{border-bottom:1px dotted var(--line); padding:5px 8px; text-align:right;}
+  th:first-child, td:first-child{text-align:left; color:var(--text-dim); width:42%;}
+  thead th{color:var(--amber-dim); font-weight:500; text-transform:uppercase; letter-spacing:1px;}
+  td.front{color:var(--red);} td.side{color:var(--blue);} td.rear{color:var(--purple);}
+  .val{color:var(--text);} .val.dim{color:var(--text-dim);}
+  #codexCanvas{display:block; width:100%; max-width:420px; height:200px; background:#0c0d09; border:1px solid var(--line); margin-top:8px;}
+  .empty{color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:11px; padding:16px 0; line-height:1.9;}
+  .badge{display:inline-block; font-family:'JetBrains Mono',monospace; font-size:9px; padding:1px 7px; border-radius:9px; margin-left:6px;}
+  .badge.boss{background:var(--red); color:#101418;}
+  .badge.tank{background:var(--blue); color:#101418;}
+  footer{padding:10px 20px; border-top:1px solid var(--line); color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:10px;}
+  a.back{color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:11px; text-decoration:none; border-bottom:1px dashed var(--line);}
+  a.back:hover{color:var(--amber);}
+</style>
+</head>
+<body>
+<header>
+  <h1>坦克图鉴 CODEX</h1>
+  <span class="sub">纯查询 · 不生成实体</span>
+  <span class="spacer"></span>
+  <label class="ctl">等级 <input type="range" id="codexLevel" min="1" max="13" step="1" value="1"><span class="lv" id="codexLevelVal">1</span></label>
+  <label class="ctl">搜索 <input type="text" id="codexSearch" placeholder="名称 / id"></label>
+</header>
+
+<div id="app">
+  <aside id="codexListPane">
+    <div id="codexList"><div class="empty">正在加载 /api/tanks 与 /api/bosses …</div></div>
+  </aside>
+  <main id="codexDetail">
+    <div id="codexDetailBody"><div class="empty">从左侧选择一辆坦克或 Boss 查看其在该等级下的参数。</div></div>
+  </main>
+</div>
+<footer>
+  数值口径：<span class="mono">enemyPreviewStats(tankId, level, { boss, factory: true })</span>（js/tank_panels_core.js）——临时坦克 + **该车自己的出厂数值**（装甲/HP/穿深/伤害/装填/极速）+ 等级乘子，<b>不含</b>难度封顶抖动与 Boss 阶段/调参倍率。
+  · <a class="back" href="index.html">← 返回首页</a>
+</footer>
+
+<script src="js/tank_rules.js"></script>
+<script src="js/tank_utils.js"></script>
+<script src="js/tank_geometry.js"></script>
+<script src="js/tank_halfgeom.js"></script>
+<script src="js/tank_model.js"></script>
+<script src="js/tank_cover.js"></script>
+<script src="js/tank_nodegen.js"></script>
+<script src="js/tank_camera.js"></script>
+<script src="js/tank_physics.js"></script>
+<script src="js/tank_entity.js"></script>
+<script src="js/tank_move.js"></script>
+<script src="js/tank_fx.js"></script>
+<script src="js/tank_hud.js"></script>
+<script src="js/tank_audio.js"></script>
+<script src="js/tank_assets.js"></script>
+<script src="js/tank_paint.js"></script>
+<script src="js/tank_battledraw.js"></script>
+<script src="js/tank_listio.js"></script>
+<script src="js/tank_cards.js"></script>
+<script src="js/tank_dmgtext.js"></script>
+<script src="js/tank_shield.js"></script>
+<script src="js/tank_strike.js"></script>
+<script src="js/tank_deployables.js"></script>
+<script src="js/tank_abilities.js"></script>
+<script src="js/tank_fire.js"></script>
+<script src="js/tank_panels_core.js"></script>
+<script src="js/tank_panels_dom.js"></script>
+<script src="js/tank_panels.js"></script>
+<script src="js/tank_devpanel.js"></script>
+<script src="js/tank_bindings.js"></script>
+<script>
+(() => {
+'use strict';
+
+// 数据源（与 bench / battle 同源，语义一致）
+let tanksData = null;     // /api/tanks  → { id: spec }
+let bossesData = null;    // /api/bosses → { id: boss }
+let selected = null;      // { kind:'tank'|'boss', id }
+let searchQuery = '';
+
+const listEl   = document.getElementById('codexList');
+const detailEl = document.getElementById('codexDetailBody');
+const levelEl  = document.getElementById('codexLevel');
+const levelVal = document.getElementById('codexLevelVal');
+const searchEl = document.getElementById('codexSearch');
+
+function currentLevel(){
+  return Math.max(1, Math.min(13, Math.floor(Number(levelEl.value) || 1)));
+}
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+}
+
+// ---------- 列表 ----------
+function tankItems(){
+  if(!tanksData) return [];
+  return Object.keys(tanksData)
+    .filter(id => id !== 'dummy')     // 靶车不是可图鉴车型（与 bench 旧图鉴口径一致）
+    .sort()
+    .map(id => ({ kind:'tank', id, name: tanksData[id].name || id }));
+}
+function bossItems(){
+  if(!bossesData) return [];
+  return Object.keys(bossesData).sort().map(id => ({
+    kind:'boss', id,
+    name: bossesData[id].name || id,
+    tankId: bossesData[id].tankId || id
+  }));
+}
+function matches(it){
+  if(!searchQuery) return true;
+  const q = searchQuery.toLowerCase();
+  return String(it.name).toLowerCase().indexOf(q) >= 0 || String(it.id).toLowerCase().indexOf(q) >= 0;
+}
+function renderList(){
+  listEl.innerHTML = '';
+  if(!tanksData && !bossesData){
+    listEl.innerHTML = '<div class="empty">列表加载失败 — 请经 dev server（npm start）访问本页，<span class="mono">/api/tanks</span> 在 file:// 下不可用。</div>';
+    return;
+  }
+  const groups = [
+    { label: '坦克 TANKS', items: tankItems().filter(matches) },
+    { label: 'Boss BOSSES', items: bossItems().filter(matches) }
+  ];
+  let shown = 0;
+  for(const g of groups){
+    if(!g.items.length) continue;
+    const h = document.createElement('div');
+    h.className = 'group-h';
+    h.textContent = g.label + '（' + g.items.length + '）';
+    listEl.appendChild(h);
+    for(const it of g.items){
+      shown++;
+      const row = document.createElement('div');
+      row.className = 'item' + (selected && selected.kind === it.kind && selected.id === it.id ? ' active' : '');
+      row.dataset.kind = it.kind; row.dataset.id = it.id;
+      row.innerHTML = '<span>' + esc(it.name) + '</span><span class="tank-id">' + esc(it.id) + '</span>';
+      row.addEventListener('click', () => { selected = { kind: it.kind, id: it.id }; renderList(); renderDetail(); });
+      listEl.appendChild(row);
+    }
+  }
+  if(!shown) listEl.innerHTML = '<div class="empty">无匹配车型（调整搜索词）。</div>';
+}
+
+// ---------- 尺寸（车体长 / 炮管长，米） ----------
+// 与 tank_model.applyTankConfig 同口径：长度 = 包围盒跨度(px) ÷ RULES.scale.PX_PER_METER
+function pxPerMeter(){
+  return (typeof RULES !== 'undefined' && RULES.scale && RULES.scale.PX_PER_METER) || 20;
+}
+function specLengthM(spec, part){
+  if(!spec || !spec[part] || !Array.isArray(spec[part].verts) || !spec[part].verts.length) return null;
+  let minX = Infinity, maxX = -Infinity;
+  for(const v of spec[part].verts){ if(v[0] < minX) minX = v[0]; if(v[0] > maxX) maxX = v[0]; }
+  if(!isFinite(minX) || !isFinite(maxX)) return null;
+  return Math.round(((maxX - minX) / pxPerMeter()) * 100) / 100;
+}
+function barrelLengthM(spec){
+  const len = spec && spec.barrel && Number(spec.barrel.len);
+  if(!len) return null;
+  // 与局内 tank_model.applyTankConfig 同口径：tank.stats.barrelLengthM = barrel.len / pxPerMeter
+  // （barrel.len 在运行时按 px 处理；设计器面板把它显示为「炮塔长%」，此处沿用运行时口径）。
+  return Math.round((len / pxPerMeter()) * 100) / 100;
+}
+
+// ---------- 缩略图（车体 + 炮塔多边形轮廓，仅示意） ----------
+function drawOutline(spec){
+  const cv = document.getElementById('codexCanvas');
+  if(!cv || !spec) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width = cv.clientWidth, H = cv.height = 200;
+  ctx.clearRect(0, 0, W, H);
+  const hv = (spec.hull && spec.hull.verts) || [];
+  const tv = (spec.turret && spec.turret.verts) || [];
+  const all = hv.concat(tv);
+  if(!all.length) return;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for(const v of all){ minX = Math.min(minX, v[0]); maxX = Math.max(maxX, v[0]); minY = Math.min(minY, v[1]); maxY = Math.max(maxY, v[1]); }
+  const spanX = Math.max(1, maxX - minX), spanY = Math.max(1, maxY - minY);
+  const s = Math.min((W - 40) / spanX, (H - 40) / spanY);
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const pt = v => [W / 2 + (v[0] - cx) * s, H / 2 + (v[1] - cy) * s];
+  const poly = (verts, stroke, fill) => {
+    if(verts.length < 3) return;
+    ctx.beginPath();
+    verts.forEach((v, i) => { const p = pt(v); if(i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]); });
+    ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke();
+  };
+  poly(hv, '#5cc8ff', 'rgba(92,200,255,0.08)');
+  poly(tv, '#ffb454', 'rgba(255,180,84,0.10)');
+}
+
+// ---------- 详情表 ----------
+function row(label, value, cls){
+  return '<tr><td>' + esc(label) + '</td><td class="' + (cls || 'val') + '">' + value + '</td></tr>';
+}
+function renderDetail(){
+  if(!selected){ return; }
+  const lv = currentLevel();
+  let spec, stats, title, kindCn, extraMeta = '';
+  if(selected.kind === 'boss'){
+    const boss = bossesData[selected.id];
+    if(!boss){ detailEl.innerHTML = '<div class="empty">Boss 数据缺失。</div>'; return; }
+    const tankId = boss.tankId || selected.id;
+    spec = tanksData && tanksData[tankId];
+    // 图鉴口径：Boss 以自己的底盘 tankId 计算等级曲线（opts.boss 透传，供后续扩展阶段/调参倍率）
+    stats = (typeof enemyPreviewStats === 'function') ? enemyPreviewStats(tankId, lv, { tanks: tanksData, boss, factory: true }) : null;
+    title = boss.name || selected.id;
+    kindCn = 'Boss';
+    extraMeta = '底盘 <span class="mono">' + esc(tankId) + '</span> · Boss 倍率 <span class="mono">×' + (boss.scale || 1) + '</span>'
+      + ' · 阶段数 <span class="mono">' + ((boss.stages || []).length) + '</span>';
+    if(!stats){ detailEl.innerHTML = '<div class="empty">该 Boss 的底盘配置不在 tanks/ 中：<span class="mono">' + esc(tankId) + '</span></div>'; return; }
+    stats = Object.assign({}, stats, { name: title });
+  } else {
+    spec = tanksData[selected.id];
+    stats = (typeof enemyPreviewStats === 'function') ? enemyPreviewStats(selected.id, lv, { tanks: tanksData, factory: true }) : null;
+    title = (spec && spec.name) || selected.id;
+    kindCn = '坦克';
+    if(!stats){ detailEl.innerHTML = '<div class="empty">无法计算该车型参数（enemyPreviewStats 不可用或配置缺失）。</div>'; return; }
+  }
+  const a = stats.armor || { hull:{}, turret:{} };
+  const num = v => (v === null || v === undefined) ? '<span class="dim">—</span>' : String(v);
+  const hullLen = specLengthM(spec, 'hull');
+  const barLen = barrelLengthM(spec);
+
+  const badge = selected.kind === 'boss' ? '<span class="badge boss">BOSS</span>' : '<span class="badge tank">TANK</span>';
+  let html = '';
+  html += '<div class="card">';
+  html += '<h2>' + esc(title) + badge + '</h2>';
+  html += '<div class="meta">id <span class="mono">' + esc(selected.id) + '</span> · ' + kindCn + ' · 等级 <span class="mono">Lv.' + lv + '</span>'
+        + (extraMeta ? ' · ' + extraMeta : '') + '</div>';
+  html += '<table><thead><tr><th>项目</th><th>数值</th></tr></thead><tbody>';
+  html += row('车体装甲 前 / 侧 / 后 (mm)',
+    '<span class="front">' + num(a.hull && a.hull.front) + '</span> / <span class="side">' + num(a.hull && a.hull.side) + '</span> / <span class="rear">' + num(a.hull && a.hull.rear) + '</span>');
+  html += row('炮塔装甲 前 / 侧 / 后 (mm)',
+    '<span class="front">' + num(a.turret && a.turret.front) + '</span> / <span class="side">' + num(a.turret && a.turret.side) + '</span> / <span class="rear">' + num(a.turret && a.turret.rear) + '</span>');
+  html += row('生命 HP', num(stats.maxHp));
+  html += row('穿深 (mm)', num(stats.penetration));
+  html += row('单发伤害', num(stats.damage));
+  html += row('装填 (s)', num(stats.reload));
+  html += row('极速 (px/s · km/h)', num(stats.maxSpeed) + (typeof tankKmh === 'function' && stats.maxSpeed ? ' <span class="dim">· ' + Math.round(stats.maxSpeed * RULES.speed.kmhFactor) + ' km/h</span>' : ''));
+  html += row('车体长 (m)', num(hullLen));
+  html += row('炮管长 (m)', num(barLen));
+  html += row('车高等级', num(stats.heightClass));
+  html += '</tbody></table>';
+  html += '<canvas id="codexCanvas"></canvas>';
+  html += '<div class="meta" style="margin-top:8px;">轮廓示意图：<span style="color:#5cc8ff;">车体</span> / <span style="color:#ffb454;">炮塔</span>（按 verts 等比缩放，非等比外观）</div>';
+  html += '</div>';
+  detailEl.innerHTML = html;
+  drawOutline(spec);
+}
+
+// ---------- 交互 ----------
+levelEl.addEventListener('input', () => {
+  levelVal.textContent = String(currentLevel());
+  renderDetail();
+});
+searchEl.addEventListener('input', () => { searchQuery = searchEl.value.trim(); renderList(); });
+
+function fetchJson(url){
+  return fetch(url, { cache: 'no-store' }).then(r => { if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+}
+
+Promise.all([
+  fetchJson('/api/tanks').catch(err => { console.warn('无法读取 /api/tanks:', err && err.message); return null; }),
+  fetchJson('/api/bosses').catch(err => { console.warn('无法读取 /api/bosses:', err && err.message); return null; })
+]).then(([tanks, bosses]) => {
+  tanksData = tanks; bossesData = bosses;
+  renderList();
+  // 默认选中第一辆坦克，避免右侧空着
+  const first = tankItems()[0] || bossItems()[0];
+  if(first){ selected = { kind: first.kind, id: first.id }; renderList(); renderDetail(); }
+});
+})();
+</script>
+</body>
+</html>

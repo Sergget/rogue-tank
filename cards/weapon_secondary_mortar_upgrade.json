@@ -1,7 +1,7 @@
 {
   "id": "weapon_secondary_mortar_upgrade",
   "name": "迫击炮性能改装",
-  "rarity": "rare",
+  "rarity": "epic",
   "desc": "车载迫击炮强化：射程提升至 550，爆炸杀伤范围扩大至 120，装填时间缩短至 6秒。",
   "effects": [
     {

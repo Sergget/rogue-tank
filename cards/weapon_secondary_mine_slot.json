@@ -1,0 +1,18 @@
+{
+  "id": "weapon_secondary_mine_slot",
+  "name": "布雷器：多雷场控制器",
+  "rarity": "epic",
+  "desc": "布雷器强化：可同时存在的雷场槽位 +1/级（基础 1 → 2 → 3，硬上限 3）。多槽位让玩家能在不同路口各留一条雷带，而不是等前一条雷场存续结束后才允许再布。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "mine_layer",
+      "statOverrides": {
+        "mineFieldMaxDeploy": "+1"
+      }
+    }
+  ],
+  "maxStacks": 2
+}

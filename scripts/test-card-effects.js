@@ -190,8 +190,14 @@ ok(CARDS.every(c => Number.isInteger(c.maxStacks) && c.maxStacks >= 1), '全部�
 
 const sample = freshTank();
 const statKeys = Object.keys(model.computeStats(sample.base, []));
-ok(cardsMod.MODIFIER_STATS.every(s => statKeys.includes(s)),
-  `MODIFIER_STATS 全部 ${cardsMod.MODIFIER_STATS.length} 键在 computeStats 输出中可观测（逐卡数值可验证）`);
+const WEAPON_ONLY_STATS = ['maxRange', 'overheatLock', 'clipCycleSeconds',
+  'mineFieldCount', 'mineFieldLength', 'mineFieldReload', 'mineFieldMaxDeploy'];
+// 2026-10-22（第五批 B3-3）：MODIFIER_STATS 追加 7 个**武器专有**键——它们只走 weapon 卡的
+//   statOverrides 通道、不参与 computeStats 聚合（见 js/tank_cards.js 该常量注释），
+//   故断言改为「除这 7 键外全部在 computeStats 输出中可观测」。
+ok(cardsMod.MODIFIER_STATS.filter(s => WEAPON_ONLY_STATS.indexOf(s) < 0).every(s => statKeys.includes(s)),
+  `MODIFIER_STATS 的 ${cardsMod.MODIFIER_STATS.length - WEAPON_ONLY_STATS.length} 个属性键在 computeStats 输出中可观测` +
+  `（另有 ${WEAPON_ONLY_STATS.length} 个武器专有键只走 statOverrides）`);
 
 // ---------- 逐卡执行验证 ----------
 
@@ -316,7 +322,7 @@ for (const card of CARDS) {
       `${cardId}: cardEffects 含 {type:'drone', kind:'${kind}', cardId}`);
   };
   expectDroneKind('escort_drone', 'striker');
-  expectDroneKind('scout_drone', 'scout');
+  // scout_drone 已删除
 }
 
 // 覆盖率与分布

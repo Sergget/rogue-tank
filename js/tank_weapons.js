@@ -6,7 +6,7 @@
 
 const WEAPON_DEFAULTS = {
   primary: {
-    // 2026-09-15 W6 用户裁定：速射机炮重做——伤害=标准 1/5、穿深=标准 85%（弹种系数机制不变）；
+    // 2026-09-15 W6 用户裁定：速射机炮重做——伤害=标准 1/5、穿深=标准 80%（弹种系数机制不变）；
   standard:    { reloadMult: 1.0, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0, burst: 1 },
   // #W-I（2026-10-19 用户裁定）：榴弹炮曲射模式——「该模式更改主炮为曲射武器，行进速度将为
   //   最大速度的 1/3。只能发射当前生效的 he 弹种，未直接命中时按距离计算伤害，直接命中时，
@@ -17,25 +17,33 @@ const WEAPON_DEFAULTS = {
   //   · splashRadius：落点爆炸半径（he 系数链可改）；arcSpeed：曲射弹飞行速度（px/s）；
   //   · moveSpeedRatio 1/3：模式下限速系数（js/tank_move.js 消费，勿走 speedModifier——
   //     公路会把 speedModifier 强制归 1 静默清零减速）；
-  //   · spreadFactor 1.2：散布圈半径系数（瞄准器半径与实际落点散布**同一参数源**，
-  //     消费方 js/tank_fire.js 的落点切向偏移 + tank_battle.html 的 howitzer 瞄准圈）；
+  //   · spreadFactor 4.0（2026-10-23 用户裁定「削弱榴弹炮模式：精度 = 4 × 主炮 base 精度 × 距离」，
+  //     历史值 2.0、更早 1.2）：**名不副实的历史键名**——实际语义是「相对**主炮 base 精度**的
+  //     倍率」，**不乘 player.sigma**（sigma 含 aimSpeed/spreadMult/运动扩圈等主武器改装）。
+  //     保留键名只是为了不破坏卡牌 statOverrides / 旧数据。散布圈半径与实际落点散布
+  //     **同一参数源**，消费方 js/tank_fire.js 的落点切向偏移 + tank_battle.html 的 howitzer 瞄准圈；
   //   · barrage：急速射升级卡参数（3 发间隔 0.5s，仅模式内生效）。
     howitzer:    { reloadMult: 2.2, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0,
                    isArc: true, arcSpeed: 260, splashRadius: 90, minArcRange: 120,
-                   moveSpeedRatio: 1/3, spreadFactor: 1.2, barrage: null },
-    // 2026-09-15 W6 用户裁定：速射机炮重做——伤害=标准 1/5、穿深=标准 85%（弹种系数机制不变）；
+                   moveSpeedRatio: 1/3, spreadFactor: 4.0, barrage: null },
+    // 2026-09-15 W6 用户裁定：速射机炮重做——伤害=标准 1/5、穿深=标准 80%（弹种系数机制不变）；
+    // 2026-10-22（第五批）：penMult 0.85 → 0.80（「穿深 = 标准穿深的 80%」），
+    //   与 RULES.autocannon.basePenRatio（夹克钳制基准）同值；穿深增强卡每级 +0.05、最多 +0.10。
     // 射击间隔=装填时间×0.25（不再 burst 连发，逐发短间隔持续射击）；
     // 热量机制：每发 +heatPerShot%、每秒冷却 coolPerSec%、≥heatMax 过热并锁定 overheatLock 秒；
     // 外观：炮管更细(barrelWidthMult)略短(barrelLenMult)，无护套/制退器/抽烟器（battledraw 消费），
     // 炮口特效与炮弹尺寸随 fxScale 缩小。
-    autocannon:  { reloadMult: 0.25, damageMult: 0.2, penMult: 0.85, shellSpeedMult: 1.0,
+    autocannon:  { reloadMult: 0.25, damageMult: 0.2, penMult: 0.80, shellSpeedMult: 1.0,
                    heatPerShot: 12, coolPerSec: 15, heatMax: 100, overheatLock: 2.0,
-                   maxRange: 900,   // #7：机炮射程限制 900px
+                   maxRange: 900,   // #7：机炮射程限制 900px（卡牌 +100/次；硬上限 RULES.autocannon.rangeMaxPx 1200）
                    barrelWidthMult: 0.6, barrelLenMult: 0.8, fxScale: 0.55 },
     // #E13（2026-09-20 用户裁定）：双联火炮重做——barrelOffset 0.9 → 1.85（炮管间距加大，确保
     // 两根炮管连同各自附件不穿模）；altReload=false 表示默认两管装填进度互相干涉
-    // （任一管击发 → 两管进度归 0）；switchSeconds 为换管间隔；装填流水线见 tank_fire.js。
-    double_barrel: { reloadMult: 1.0, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0, count: 2, switchSeconds: 0.5, barrelOffset: 1.85, altReload: false },
+    // （任一管击发 → 两管进度归 0）；装填流水线见 tank_fire.js。
+    // 2026-10-22（第五批用户裁定「换管时间固定 0.8s」）：switchSeconds 0.5 → 0.8，
+    //   **仅供展示，运行时恒读 RULES**（fireDoubleBarrel 不再读 spec.switchSeconds，
+    //   任何卡牌/数据都改不动它；RULES.weapons.doubleBarrelSwitchSeconds 是唯一口径）。
+    double_barrel: { reloadMult: 1.0, damageMult: 1.0, penMult: 1.0, shellSpeedMult: 1.0, count: 2, switchSeconds: 0.8, barrelOffset: 1.85, altReload: false },
     // #G（2026-09-21）电磁轨道炮再平衡（用户反馈「相比双管、机炮不够强力」）：
     //   旧参数 reloadMult 2.2 / damageMult 1.5 → 持续 DPS = 标准炮的 68%（全类型最低）且零机制补偿。
     //   现行参数 reloadMult 1.8 / damageMult 1.8 → DPS 与标准炮持平（1.0），单发 alpha 1.8（仅低于双管齐射 2.0）；
@@ -77,7 +85,7 @@ const WEAPON_DEFAULTS = {
     //   数值与原字面量逐一对应（零行为变化）：
     //     mortar pen 60 / speed 350 · rocket pen 90 / speed 450 · missile pen 250 / speed 320
     //     missile_wire pen 260 / speed 340（原已收口，此处为完整性列出）
-    turret:      { reloadMult: 1.6, damageMult: 0.6, penMult: 0.75, spreadMult: 1.3, range: 400,
+    turret:      { reloadMult: 1.6, damageMult: 0.6, penMult: 0.75, spreadMult: 1.3, range: 800,
                    turretTurnRate: 2.5,
                    damageFromBaseRatio: 0.5,   // 伤害 = t.base.damage × 0.5
                    ignoreModifiers: true,      // 参数绑主炮基础，不受技能/卡牌影响
@@ -93,7 +101,15 @@ const WEAPON_DEFAULTS = {
     rocket:      { count: 4, reload: 10, burstInterval: 0.18, damage: 35, range: 500, speed: 450, pen: 90, direct: true, aoe: 40, fxScale: 1.3 },
     // #U39（2026-10-18）：blastRadius/triggerRadius 由硬编码收口进缺省表，升级卡可覆盖
     //（此前 fireActiveSecondary 的 mine_layer 分支直接写死 70/45，"阔域地雷"类升级卡无处生效）。
-    mine_layer:  { duration: 30, reload: 15, damage: 100, blastRadius: 70, triggerRadius: 45 }
+    mine_layer:  { duration: 30, reload: 15, damage: 100, blastRadius: 70, triggerRadius: 45 },
+    // 2026-10-23（本批新增，用户需求 5）：战术烟幕发射器。
+    //   与既有 `RULES.smoke`（radius 120 / duration 5 / maxClouds 8）分工：
+    //     · 本表管**发射**（一次抛几团、抛多远、散布多大、装填多久）；
+    //     · RULES.smoke 管**单团烟雾**的半径/存续与全场云数上限（spawnSmokeCloud 内部消费）。
+    //   落地形态：一次 F 在炮口前方抛射 `cloudCount` 团，横向偏移由 `spreadPx` 控制，
+    //   形成一道烟墙（不是单点一团）。烟幕的**视线遮断**走 smokeBlocksLoS，
+    //   **隐蔽加成**走 camouflageTerrainBonus（两条独立通道）。
+    smoke:       { reload: 14, range: 260, cloudCount: 3, spreadPx: 70, duration: 5 }
   }
 };
 
@@ -243,10 +259,12 @@ function updateSecondaryTurret(t, dt, ctx) {
   const secPoseRaw = _secondaryTurretPoseFn()(t);
   let secMuzzle = null;
   if (secPoseRaw) {
-    const ha = t.hullAngle || 0;
-    const ch = Math.cos(ha), sh = Math.sin(ha);
-    const wx = t.x + secPoseRaw.x * ch - secPoseRaw.y * sh;   // 副炮塔座（世界）
-    const wy = t.y + secPoseRaw.x * sh + secPoseRaw.y * ch;
+    // 2026-10-23 修复：`secondaryTurretPose` 返回的是**世界坐标**（pose.x/y 已含
+    //   t.x/t.y 与炮塔角旋转），此前按「车体局部坐标」再做 hullAngle 旋转 + 车体平移，
+    //   把坐标多变换一次 ⇒ 炮弹从错误位置发射（观感「副炮塔没效果」）。
+    //   现行直接把 pose 当世界系用，与绘制层严格同源。
+    const wx = secPoseRaw.x;
+    const wy = secPoseRaw.y;
     const mx = wx + Math.cos(secPoseRaw.angle) * (secPoseRaw.barrelLen + secPoseRaw.radius * 0.6);
     const my = wy + Math.sin(secPoseRaw.angle) * (secPoseRaw.barrelLen + secPoseRaw.radius * 0.6);
     secMuzzle = { x: mx, y: my, rootX: wx, rootY: wy };
@@ -343,6 +361,9 @@ function updateMissileLock(t, dt, ctx) {
   const w = t && t.weapons && t.weapons.secondary;
   if (!w || w.type !== 'missile') return false;
   if (t.hp <= 0) return false;
+  // 2026-10-23（用户裁定「按 1 次生效 1 次」）：在飞导弹结束前不重新索敌锁定，
+  //   否则锁定计时会在导弹飞行途中又走满一次（表现为「一个节点内持续发射」）。
+  if (t._missileInFlight && !t._missileInFlight.dead) return false;
   const cfg = Object.assign({}, getWeaponDefaults('secondary', 'missile'), w.stats || {});
   // #7（2026-10-15）：锁定距离 = 摄像机视角内（视口对角线一半），不再用固定 range
   //
@@ -577,6 +598,9 @@ function fireActiveSecondary(t, ctx, targetPos) {
     }
     case 'missile': {
       if (!shells) return false;
+      // 2026-10-23（用户裁定）：「按 1 次生效 1 次，导弹击中、消失后进入冷却时间」——
+      //   在飞弹未结束前拒绝再次击发（`_missileInFlight` 由 battle 弹体清理段在弹体死亡时释放并写装填）。
+      if (t._missileInFlight && !t._missileInFlight.dead) return false;
       // #A21：手动击发（targetPos 为鼠标世界点，纯点无 hp）→ 制导弹沿指向该点方向直飞
       // （guided:true 但 target=null，stepShells 无存活 target 时保持初始方向，即沿鼠标方向），
       // 不再回退 nearestEnemyTo 自动寻的；自动路径（updateSecondaryMount/updateMissileLock 传入
@@ -598,20 +622,29 @@ function fireActiveSecondary(t, ctx, targetPos) {
         color: '#ff3311',
         tail: 'rgba(255,100,0,0.8)'
       });
-      shells.push({
+      const shell = {
         x: tipP.x, y: tipP.y, fx: tipP.x, fy: tipP.y, dx: dx, dy: dy,
         speed: spd, pen: pen, dmg: dmg,
         guided: true, mode: 'lock', target: targetEnemy,
         ammo: missileAmmo,
         ammoKey: heatKey, shooter: t, hitPref: 'auto',
-        canBounce: false, bounced: false, dist: 0, dead: false
-      });
-      const reload = (typeof cfg.reload === 'number') ? cfg.reload : 12;
-      t.secondaryReloadT = reload / debuffReload(t);
+        canBounce: false, bounced: false, dist: 0, dead: false,
+        // 2026-10-23：越障与攻顶标记（用户裁定）——
+        //   锁定式仅 overflyChance（50%）概率可飞越低矮掩体；攻顶升级（卡牌授予 statOverrides
+        //   .topAttack）时飞越全部低矮掩体并在目标顶部引爆（伤害 ×0.6、穿甲按最薄装甲）。
+        overflyLow: (Math.random() < ((R.missiles && R.missiles.lock && typeof R.missiles.lock.overflyChance === 'number') ? R.missiles.lock.overflyChance : 0.5)) || !!cfg.topAttack,
+        topAttack: !!cfg.topAttack,
+        missileKind: 'missile'
+      };
+      shells.push(shell);
+      t._missileInFlight = shell;      // 单发在飞标记（弹体死亡后才进入冷却）
+      t.secondaryReloadT = 0;
       return true;
     }
     case 'missile_wire': {
       if (!shells) return false;
+      // 2026-10-23（用户裁定）：同 missile —— 单发在飞期间禁止再次击发，弹体结束后才冷却。
+      if (t._missileInFlight && !t._missileInFlight.dead) return false;
       t._secondaryTargetPos = target;
       const angle = Math.atan2(target.y - tipP.y, target.x - tipP.x);
       const dx = Math.cos(angle), dy = Math.sin(angle);
@@ -629,16 +662,22 @@ function fireActiveSecondary(t, ctx, targetPos) {
         color: '#ff5522',
         tail: 'rgba(255,120,50,0.8)'
       });
-      shells.push({
+      const shell = {
         x: tipP.x, y: tipP.y, fx: tipP.x, fy: tipP.y, dx: dx, dy: dy,
         speed: spd, pen: pen, dmg: dmg,
         guided: true, mode: 'wire',
         ammo: missileAmmo,
         ammoKey: heatKey, shooter: t, hitPref: 'auto',
-        canBounce: false, bounced: false, dist: 0, dead: false
-      });
-      const reload = (typeof cfg.reload === 'number') ? cfg.reload : 10;
-      t.secondaryReloadT = reload / debuffReload(t);
+        canBounce: false, bounced: false, dist: 0, dead: false,
+        // 2026-10-23（用户裁定）：线导式**默认**可越过低矮掩体（非建筑/岩石等全高障碍）；
+        //   攻顶升级（卡牌 statOverrides.topAttack）时顶攻引爆。
+        overflyLow: true,
+        topAttack: !!cfg.topAttack,
+        missileKind: 'missile_wire'
+      };
+      shells.push(shell);
+      t._missileInFlight = shell;
+      t.secondaryReloadT = 0;
       return true;
     }
     case 'rocket': {
@@ -692,14 +731,47 @@ function fireActiveSecondary(t, ctx, targetPos) {
         duration: dur,
         registry: c.deployables || (typeof globalThis !== 'undefined' && globalThis.deployables) || null
       });
-      // #E4（2026-09-20）：布雷器单发路径同样受可部署物数量上限约束——超限时最早布设的地雷直接消失。
-      let enforceFn = (typeof enforceDeployLimits === 'function') ? enforceDeployLimits : null;
-      if (!enforceFn && typeof require !== 'undefined') {
-        try { enforceFn = require('./tank_deployables.js').enforceDeployLimits; } catch (e) {}
-      }
-      if (enforceFn) enforceFn('mine', t);
+      // 2026-10-22（第五批 B2-1 用户裁定）：**单发布雷路径同样不再设地雷总数上限**——
+      //   原 #E4 的「超限时最早布设的地雷直接消失」（enforceDeployLimits('mine')）已删除；
+      //   雷场/布雷只受「雷场槽位」限制（tank_battle.html 的 activeMineFieldSlots），
+      //   单发地雷不占槽位、也不淘汰旧雷。
       play('ui');
       const reload = (typeof cfg.reload === 'number') ? cfg.reload : 15;
+      t.secondaryReloadT = reload / debuffReload(t);
+      return true;
+    }
+    case 'smoke': {
+      // 2026-10-23（本批新增，用户需求 5）：战术烟幕发射器——一次 F 在炮口前方抛射
+      //   `cloudCount` 团烟雾，横向按 `spreadPx` 展开形成烟墙。
+      //   依赖解析顺序与既有 spawn 类一致：ctx 注入 → 全局函数 → require 兜底。
+      let spawnCloudFn = c.spawnSmokeCloud;
+      if (!spawnCloudFn && typeof spawnSmokeCloud === 'function') spawnCloudFn = spawnSmokeCloud;
+      if (!spawnCloudFn && typeof require !== 'undefined') {
+        try { spawnCloudFn = require('./tank_cover.js').spawnSmokeCloud; } catch (e) {}
+      }
+      if (!spawnCloudFn) return false;
+
+      // 单团半径/存续的唯一口径是 RULES.smoke（本表只管发射几何）。
+      const smokeCfg = (c.RULES || (typeof globalThis !== 'undefined' && globalThis.RULES) || {}).smoke || {};
+      const cloudRadius = (typeof smokeCfg.radius === 'number') ? smokeCfg.radius : 120;
+      const cloudDuration = (typeof cfg.duration === 'number') ? cfg.duration
+        : ((typeof smokeCfg.duration === 'number') ? smokeCfg.duration : 5);
+
+      const aim = (typeof t.turretAngle === 'number') ? t.turretAngle : (t.hullAngle || 0);
+      const dist = (typeof cfg.range === 'number') ? cfg.range : 260;
+      const count = Math.max(1, (typeof cfg.cloudCount === 'number') ? Math.floor(cfg.cloudCount) : 3);
+      const spread = (typeof cfg.spreadPx === 'number') ? cfg.spreadPx : 70;
+      // 垂直方向展开（沿烟墙方向），首团居中，其余左右均分。
+      const nx = -Math.sin(aim), ny = Math.cos(aim);
+      const cx = t.x + Math.cos(aim) * dist;
+      const cy = t.y + Math.sin(aim) * dist;
+      for (let i = 0; i < count; i++) {
+        // 均分展开：count=3 → off ∈ {-spread/2, 0, +spread/2}；count=1 → 0。
+        const off = (count === 1) ? 0 : ((i / (count - 1)) - 0.5) * spread;
+        spawnCloudFn(cx + nx * off, cy + ny * off, cloudRadius, cloudDuration);
+      }
+      play('ui');
+      const reload = (typeof cfg.reload === 'number') ? cfg.reload : 14;
       t.secondaryReloadT = reload / debuffReload(t);
       return true;
     }

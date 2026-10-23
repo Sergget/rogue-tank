@@ -67,6 +67,14 @@ function spawnMine(opts) {
     // #B9（2026-09-16）：布雷器卡面承诺的「地雷存续时间」（mine_layer duration 30/升级 45s）
     // 在此落地为倒计时；未传 duration（bench 调试布雷等）→ undefined = 永久存续，行为不变。
     lifeT: (typeof o.duration === 'number' && o.duration > 0) ? o.duration : undefined,
+    // 2026-10-22（第五批 B2-1）：
+    //   · fieldId —— 雷场分组键（同一条雷带的所有雷共享），供 tank_battle 的
+    //     activeMineFieldSlots()（槽位回收）与 buildMineHazards()（AI 避雷）反查；
+    //   · owner / pen —— 爆炸结算用：最薄装甲判定的穿透值取布雷者当前 HE 弹穿深
+    //     （tank_battle 的 mineExplode 分支读这两个字段，缺省回退 player）。
+    fieldId: (o.fieldId !== undefined) ? o.fieldId : null,
+    owner: o.owner || null,
+    pen: (typeof o.pen === 'number') ? o.pen : undefined,
     _dead: false
   };
   deployables.push(m);
@@ -228,10 +236,14 @@ function deployableKind(d){
   return null;
 }
 // owner.deployBonus = { cover:n, mine:n } —— 由接入层按卡牌/升级累计（缺省 0）
+// 2026-10-22（第五批 B2-1 用户裁定）：**地雷不设总数上限**（`RULES.abilities.deploy_limits.mineMax*`
+//   三键已删除）——雷场/布雷只受「雷场槽位」限制（tank_battle.html 的 activeMineFieldSlots）。
+//   因此 `deployableCap('mine')` 恒返回 Infinity ⇒ enforceDeployLimits('mine') 自然成为 no-op
+//   （不再「超限时淘汰最早布设的地雷」）。战术掩体（cover）上限语义不变。
 function deployableCap(kind, owner){
   const L = deployableLimits();
   const base = kind === 'cover' ? (L.coverMax !== undefined ? L.coverMax : 2)
-             : kind === 'mine' ? (L.mineMax !== undefined ? L.mineMax : 3)
+             : kind === 'mine' ? Infinity
              : Infinity;
   if(!Number.isFinite(base)) return Infinity;
   const step = kind === 'cover' ? (L.coverMaxUpgradeStep !== undefined ? L.coverMaxUpgradeStep : 1)
@@ -269,6 +281,44 @@ function clearDeployables() {
   deployables.length = 0;
 }
 
+// ================= 2026-10-22（第五批）带状雷场的排布唯一口径 =================
+// 用户裁定（docs/PLAN.md §4.2 B2-1）：「雷场改带状」——以 `field` 为中心、`angle` 为带长方向，
+// 长 `len`、宽 `wid` 的旋转矩形；沿带长等距铺 n = RULES.abilities.deploy_limits.mineFieldCount
+// 枚雷，横向在 ±wid×0.25 内按 k%2 交错（确定性正弦抖动）⇒ 整条带都有雷，不只是两端。
+//
+// ⚠️ 本函数是**预形态绘制、倒计时绘制、实际生成**三处的同一数据源（修 #Z5 的三份重复公式：
+//   旧实现三处各写一份圆环分布，导致「看到的位置 ≠ 生成的位置」）。任何调用方都不得再自己
+//   算雷点坐标——要改排布只改这里。
+//
+// 入参 field：{ x, y, angle, len, wid, count? }（count 缺省读 RULES；已确认的 pendingMineFields
+//   元素与预览对象同构）。返回 [{x,y}]（世界坐标）。纯函数、无副作用、无 DOM 依赖，可 Node 单测。
+function mineFieldLayout(field){
+  if(!field) return [];
+  const L = deployableLimits();
+  const nRaw = (typeof field.count === 'number' && field.count > 0) ? field.count
+             : (typeof L.mineFieldCount === 'number' ? L.mineFieldCount : 6);
+  const n = Math.max(1, Math.round(nRaw));
+  const len = (typeof field.len === 'number' && field.len > 0) ? field.len
+            : (typeof L.mineFieldLength === 'number' ? L.mineFieldLength : 220);
+  const wid = (typeof field.wid === 'number' && field.wid > 0) ? field.wid
+            : (typeof L.mineFieldBandWidth === 'number' ? L.mineFieldBandWidth : 56);
+  const ang = (typeof field.angle === 'number') ? field.angle : 0;
+  const ux = Math.cos(ang), uy = Math.sin(ang);      // 带长方向（局部 +x）
+  const nx = -Math.sin(ang), ny = Math.cos(ang);     // 带法向（局部 +y）
+  const out = [];
+  for(let k = 0; k < n; k++){
+    // 沿带长：n=1 落中心；否则在 [-len/2, +len/2] 等距（含两端）
+    const along = (n === 1) ? 0 : ((k / (n - 1)) - 0.5) * len;
+    // 横向：k%2 交错，幅度 ≤ wid×0.25（正弦抖动 0.6~1.0 倍，保证确定性且不越界）
+    const sgn = (k % 2 === 0) ? 1 : -1;
+    const jitter = 0.6 + 0.4 * Math.abs(Math.sin(k * 2.399));
+    const lateral = sgn * wid * 0.25 * jitter;
+    out.push({ x: field.x + ux * along + nx * lateral,
+               y: field.y + uy * along + ny * lateral });
+  }
+  return out;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     deployables,
@@ -281,6 +331,11 @@ if (typeof module !== 'undefined' && module.exports) {
     deployableKind,
     deployableCap,
     deployableCount,
-    enforceDeployLimits
+    enforceDeployLimits,
+    mineFieldLayout
   };
 }
+
+// 2026-10-22（第五批）：雷带排布纯函数的浏览器全局导出（与 tank_fire 的 fireTank 等
+// 「顶层函数 + 显式 globalThis」同款，便于页面层/绘制层直接调用同一实现）。
+if (typeof globalThis !== 'undefined') { globalThis.mineFieldLayout = mineFieldLayout; }

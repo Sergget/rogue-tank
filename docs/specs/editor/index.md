@@ -1,6 +1,6 @@
 # 编辑器与工具链规范 (Tank Designer & Tooling Spec)
 
-> **摘要**：本卷是坦克设计器、对比页、烘焙工具、开发者面板与 appearance/aimSpeed 的现行口径权威，共 7 个主题页。
+> **摘要**：本卷是坦克设计器、对比页、烘焙工具、开发者面板与 appearance/aimSpeed 的现行口径权威，共 8 个主题页。
 > **适用版本**：现行（2026-10-21）
 > **源自**：`docs/specs/editor.md` 全卷（含 §0 主题索引；2026-10-21 wiki 化拆分）
 > **相关**：[specs 总目录](../README.md) · [风格规范](../../WIKI-STYLE.md) · [兼容索引](../editor.md)
@@ -19,9 +19,10 @@
 | [坦克设计器](./designer.md) | 多边形/装甲/炮管炮盾编辑、双中心分离、背景参考图 | §1 |
 | [对比页与字段架构表](./compare-schema.md) | `tank_compare.html` 的单位直标与四分组、`tank_schema.js` 的 `FIELD_ROWS` | §2、§3 |
 | [烘焙工具与模块分区](./bake-modules.md) | `tools/bake.html` 出图；P-49 模块/成员概率分区与属性耦合链 | §4、§5 |
-| [贴图与涂装视觉规范](./visual-spec.md) | 迷彩叠层、装甲质感、整车精灵四层与对齐契约、缩图与验收指标 | §6 |
+| [贴图与涂装视觉规范](./visual-spec.md) | 迷彩叠层、装甲质感、整车精灵四层与对齐契约、后期贴图入库与验收指标（当前无图） | §6 |
 | [开发者面板](./devpanel.md) | devPanel 四 Tab、卡牌选择器、两页按键统一、HUD 合并状态 | §7、§7.1~§7.4 |
 | [浏览器自动化测试链](./browser-tests.md) | `npm run test:browser` 四链脚本矩阵、测试钩子、r4 夹具约定 | §7.5 |
+| [坦克图鉴页](./codex.md) | `tank_codex.html` 的数据源、布局与首页入口（取代 bench 内嵌图鉴） | 2026-10-22 新建 |
 | [内容工具与 appearance](./appearance-aimspeed.md) | NF-1/2/4；`spec.appearance` 深拷贝、叠加层基准、aimSpeed 量纲、bench 分组、content_designer tags 移除 | §8、§8.1~§8.6；§7.6 |
 | [沿革与已作废](./changelog.md) | 已关闭的「未纳入本轮」项、被取代的叠加层基准与旧 aimSpeed | §7.7、§8.2 沿革、§8.3 沿革 |
 

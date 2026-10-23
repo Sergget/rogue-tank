@@ -70,7 +70,9 @@ clearDeployables();
   const L = RULES.abilities.deploy_limits;
   const owner = { deployBonus: { cover: 0, mine: 0 } };
   ok(deployableCap('cover', owner) === L.coverMax, `#E4 掩体基础上限 = ${L.coverMax}`);
-  ok(deployableCap('mine', owner) === L.mineMax, `#E4 地雷基础上限 = ${L.mineMax}`);
+  // 2026-10-22（第五批，用户裁定「地雷总数不设上限，只设雷场」）：mineMax* 三键已删除，
+  //   deployableCap('mine') 恒返回 Infinity ⇒ enforceDeployLimits('mine') 是 no-op。
+  ok(deployableCap('mine', owner) === Infinity, '#E4 地雷不设总数上限（deployableCap 恒 Infinity）');
   owner.deployBonus.cover = 2;
   ok(deployableCap('cover', owner) === L.coverMax + 2 * L.coverMaxUpgradeStep,
      '#E4 升级卡提供部署数量加成（+n×步长）');
@@ -91,43 +93,32 @@ clearDeployables();
   ok(alive.indexOf(ids[0]) < 0 && alive.indexOf(ids[1]) < 0 && alive.indexOf(ids[ids.length - 1]) >= 0,
      '#E4 超限时最早部署的掩体直接消失（最新保留）');
 
-  // 类型独立计数：地雷不受掩体上限影响
+  // 类型独立计数：2026-10-22 起地雷不设上限（超出也不再淘汰最早），掩体仍按上限淘汰
   clearDeployables();
-  for (let i = 0; i < L.mineMax + 1; i++) { spawnMine({ x: i, y: 0, team: 'player' }); enforceDeployLimits('mine', owner0); }
-  ok(deployableCount('mine') === L.mineMax && deployableCount('cover') === 0,
-     '#E4 按类型独立计数（地雷/掩体互不影响）');
+  for (let i = 0; i < 40; i++) { spawnMine({ x: i, y: 0, team: 'player' }); enforceDeployLimits('mine', owner0); }
+  ok(deployableCount('mine') === 40 && deployableCount('cover') === 0,
+     `#E4 地雷不设上限（布 40 枚后仍有 ${deployableCount('mine')} 枚，未被淘汰）`);
   clearDeployables();
 }
 
-// ================= #J1（2026-09-30）地雷：一个节点内可连续布设多轮雷场 =================
-// 用户反馈：「地雷在 1 个节点内似乎只能部署 1 次」。
-// 根因：mineMax(3) 恰等于单次雷场数量 mineFieldCount(3)，首轮即把「场上同时存在」的上限用尽，
-// 而地雷存续 30~45s、单节点战斗远长于此 ⇒ 后续雷场全被拒。
-// 现行口径：mineMax 是**同时在场数**上限，须显著大于单次雷场数量，节点内才能连续布设。
+// ================= 2026-10-22（第五批）地雷：不设总数上限，只设「雷场槽位」 =================
+// 用户裁定：「地雷总数不设上限，只设雷场，且不需要具体计算雷数量」。
+// 沿革：#E4/#J1 时期的 mineMax / mineMaxUpgradeStep / mineMaxHardCap 三键已删除；
+//   雷场数量改由 RULES.abilities.deploy_limits.mineFieldMaxDeploy（1→3）控制，
+//   该判定在页面层（tank_battle.html activeMineFieldSlots），不在 deployables 模块。
 {
   const L = RULES.abilities.deploy_limits;
   const owner = { deployBonus: { cover: 0, mine: 0 } };
   clearDeployables();
-  ok(L.mineMax > L.mineFieldCount,
-     `#J1 地雷同时上限(${L.mineMax}) > 单次雷场数量(${L.mineFieldCount})——首轮不会把上限用尽`);
-  // 连续布设 2 轮整雷场（模拟 battle 的「按可用余量裁剪」落雷逻辑）
-  const layField = () => {
-    const room = deployableCap('mine', owner) - deployableCount('mine');
-    const n = Math.max(0, Math.min(L.mineFieldCount, room));
-    for (let k = 0; k < n; k++) spawnMine({ x: k, y: 0, team: 'player' });
-    return n;
-  };
-  const f1 = layField(), f2 = layField();
-  ok(f1 === L.mineFieldCount && f2 === L.mineFieldCount,
-     `#J1 同一节点可连续布设 2 个完整雷场（${f1} + ${f2} = ${deployableCount('mine')} 枚）`);
-  ok(deployableCount('mine') === L.mineMax, `#J1 两轮后正好占满同时上限 ${L.mineMax}`);
-  // 满上限时才拒绝（既有 #F6「超限拒绝且保留已布地雷」语义不变）
-  ok(layField() === 0, '#J1 满上限时新雷场数量为 0（被拒绝，不覆盖已布地雷）');
-  ok(deployableCount('mine') === L.mineMax, '#J1 拒绝后已布地雷保持不变（#F6 语义保留）');
-  // 升级卡仍能把上限推高（可布更多轮）
-  owner.deployBonus.mine = 2;
-  ok(deployableCap('mine', owner) === L.mineMax + 2 * L.mineMaxUpgradeStep,
-     `#J1 升级卡继续抬高同时上限（${deployableCap('mine', owner)}）`);
+  ok(L.mineMax === undefined && L.mineMaxHardCap === undefined && L.mineMaxUpgradeStep === undefined,
+     '#J1 旧 mineMax/mineMaxHardCap/mineMaxUpgradeStep 三键已删除（负向断言）');
+  ok(L.mineFieldMaxDeploy === 1 && L.mineFieldMaxDeployCap === 3,
+     `#J1 雷场槽位 ${L.mineFieldMaxDeploy} → 硬上限 ${L.mineFieldMaxDeployCap}（用户裁定最多同时 3 个）`);
+  // 连续布设多轮：不再有任何总量上限 ⇒ 40 枚之后仍可继续布
+  for (let k = 0; k < 40; k++) spawnMine({ x: k, y: 0, team: 'player' });
+  enforceDeployLimits('mine', owner);
+  ok(deployableCount('mine') === 40, `#J1 布 40 枚后数量不衰减（${deployableCount('mine')} 枚）`);
+  ok(deployableCap('mine', owner) === Infinity, '#J1 deployableCap(mine) 恒 Infinity（无上限）');
   clearDeployables();
 }
 

@@ -1,0 +1,18 @@
+{
+  "id": "weapon_primary_clip_burst",
+  "name": "弹夹炮：爆发射击",
+  "rarity": "epic",
+  "desc": "弹夹炮齐射改造：按齐射键（空格）时，把整个弹夹瞬间排入连发队列——弹夹内所有余弹按 0.5s 间隔逐发出膛，不再受装填间隔门控。队列存在期间普通单击失效（防叠加）；队列打空后按原规则整组装填。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "clip",
+      "statOverrides": {
+        "burstOnSalvo": true
+      }
+    }
+  ],
+  "maxStacks": 1
+}

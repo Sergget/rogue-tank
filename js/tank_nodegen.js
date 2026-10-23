@@ -61,7 +61,7 @@ function scaledCount(rng, baseMin, baseMax, tpl, scale) {
  *   h: number,
  *   items: [ { tier, dx, dy, w, h, angle, verts?, collisionVerts? }, ... ]
  * }
- * #25：单模板 items 扩充到 12~25 个（树/灌木/沙袋/栅栏/半高/全高混合），
+ * #25：单模板 items 扩充到 12~25 个（树/灌木/直线掩体/半高/全高混合），
  * 体现 开阔走廊/密林阵地/城镇街区/交叉火力广场/混合障壁/村落中心/林地战线 的地貌特征。
  */
 const NODE_TEMPLATES = [
@@ -93,11 +93,11 @@ const NODE_TEMPLATES = [
       { tier: 'half', dx: 240, dy: -100, w: 90, h: 30, angle: 0 },
       { tier: 'half', dx: 240, dy: 0, w: 90, h: 30, angle: 0 },
       { tier: 'half', dx: 240, dy: 100, w: 90, h: 30, angle: 0 },
-      // 中路横向栅栏与沙袋路障
-      { tier: 'soft', dx: 0, dy: -150, w: 160, h: 10, angle: 0 },
-      { tier: 'soft', dx: 0, dy: 150, w: 160, h: 10, angle: 0 },
-      { tier: 'barricade', dx: -120, dy: 40, w: 60, h: 26, angle: 0 },
-      { tier: 'barricade', dx: 120, dy: -60, w: 60, h: 26, angle: 0 },
+      // 中路横向直线掩体（不可摧毁墙 + 可摧毁墙，2026-10-22 第五批）
+      { tier: 'wall', dx: 0, dy: -150, w: 160, h: 10, angle: 0 },
+      { tier: 'wall', dx: 0, dy: 150, w: 160, h: 10, angle: 0 },
+      { tier: 'wall_breakable', dx: -120, dy: 40, w: 60, h: 26, angle: 0 },
+      { tier: 'wall_breakable', dx: 120, dy: -60, w: 60, h: 26, angle: 0 },
       // #77 全高补配（教学走廊补 2 座哨塔式建筑，形成中路遮蔽）
       { tier: 'full', dx: -90, dy: -150, w: 88, h: 46, angle: 0 },
       { tier: 'full', dx: 100, dy: 150, w: 88, h: 46, angle: 0 },
@@ -109,11 +109,11 @@ const NODE_TEMPLATES = [
       { tier: 'half', dx: 0, dy: 55, w: 84, h: 32, angle: 0 },
       { tier: 'half', dx: -240, dy: 170, w: 84, h: 32, angle: 0 },
       { tier: 'half', dx: 240, dy: -180, w: 84, h: 32, angle: 0 },
-      { tier: 'soft', dx: -120, dy: -60, w: 140, h: 10, angle: 0 },
-      { tier: 'soft', dx: 130, dy: 60, w: 140, h: 10, angle: 0 },
+      { tier: 'wall', dx: -120, dy: -60, w: 140, h: 10, angle: 0 },
+      { tier: 'wall', dx: 130, dy: 60, w: 140, h: 10, angle: 0 },
       { tier: 'tree', dx: 60, dy: -40, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: -190, dy: 110, w: 64, h: 32, angle: 0 },
-      { tier: 'barricade', dx: 40, dy: 110, w: 66, h: 28, angle: 0 }
+      { tier: 'wall_breakable', dx: 40, dy: 110, w: 66, h: 28, angle: 0 }
     ]
   },
   {
@@ -134,7 +134,7 @@ const NODE_TEMPLATES = [
       { tier: 'bush', dx: 160, dy: 140, w: 60, h: 32, angle: 0 },
       { tier: 'stump', dx: -40, dy: -140, w: 24, h: 18, angle: 0 },
       { tier: 'half', dx: -60, dy: 150, w: 64, h: 30, angle: 0 },
-      { tier: 'soft', dx: 0, dy: -150, w: 120, h: 10, angle: 0 },
+      { tier: 'wall', dx: 0, dy: -150, w: 120, h: 10, angle: 0 },
       // #77 全高补配（密林阵地补 3 座林间工事，避免纯软掩体无骨架）
       { tier: 'full', dx: -160, dy: -60, w: 92, h: 48, angle: 0 },
       { tier: 'full', dx: 120, dy: 60, w: 92, h: 48, angle: 0 },
@@ -142,9 +142,9 @@ const NODE_TEMPLATES = [
       // #77 密度提升：林间补量（避开边缘河流带）
       { tier: 'half', dx: -220, dy: 150, w: 76, h: 30, angle: 0 },
       { tier: 'half', dx: 200, dy: 160, w: 76, h: 30, angle: 0 },
-      { tier: 'barricade', dx: -260, dy: 40, w: 66, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 60, dy: -140, w: 66, h: 28, angle: 0 },
-      { tier: 'soft', dx: -100, dy: 100, w: 120, h: 10, angle: 0 },
+      { tier: 'wall_breakable', dx: -260, dy: 40, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 60, dy: -140, w: 66, h: 28, angle: 0 },
+      { tier: 'wall', dx: -100, dy: 100, w: 120, h: 10, angle: 0 },
       { tier: 'bush', dx: -300, dy: -120, w: 64, h: 32, angle: 0 },
       { tier: 'stump', dx: 280, dy: -60, w: 24, h: 18, angle: 0 }
     ]
@@ -164,14 +164,14 @@ const NODE_TEMPLATES = [
       // 街口矮墙与路障
       { tier: 'half', dx: -120, dy: -120, w: 80, h: 32, angle: 0 },
       { tier: 'half', dx: 120, dy: -120, w: 80, h: 32, angle: 0 },
-      { tier: 'barricade', dx: 0, dy: -120, w: 70, h: 28, angle: 0 },
-      { tier: 'barricade', dx: -80, dy: 20, w: 64, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 80, dy: 20, w: 64, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 0, dy: -120, w: 70, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: -80, dy: 20, w: 64, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 80, dy: 20, w: 64, h: 28, angle: 0 },
       { tier: 'rubble', dx: -160, dy: 20, w: 30, h: 20, angle: 0 },
       { tier: 'rubble', dx: 160, dy: 20, w: 30, h: 20, angle: 0 },
-      // 庭院栅栏与绿植
-      { tier: 'soft', dx: -180, dy: -30, w: 120, h: 10, angle: 0 },
-      { tier: 'soft', dx: 60, dy: -60, w: 100, h: 10, angle: 0 },
+      // 庭院直线掩体与绿植
+      { tier: 'wall', dx: -180, dy: -30, w: 120, h: 10, angle: 0 },
+      { tier: 'wall', dx: 60, dy: -60, w: 100, h: 10, angle: 0 },
       { tier: 'tree', dx: -60, dy: 60, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: 40, dy: 100, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: -100, dy: 80, w: 60, h: 32, angle: 0 },
@@ -180,10 +180,10 @@ const NODE_TEMPLATES = [
       { tier: 'full', dx: 0, dy: 150, w: 96, h: 50, angle: 0 },
       { tier: 'half', dx: -200, dy: -180, w: 78, h: 32, angle: 0 },
       { tier: 'half', dx: 200, dy: 180, w: 78, h: 32, angle: 0 },
-      { tier: 'barricade', dx: -40, dy: 40, w: 68, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 180, dy: -60, w: 68, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: -40, dy: 40, w: 68, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 180, dy: -60, w: 68, h: 28, angle: 0 },
       { tier: 'rubble', dx: -40, dy: -60, w: 30, h: 20, angle: 0 },
-      { tier: 'soft', dx: -260, dy: 60, w: 110, h: 10, angle: 0 },
+      { tier: 'wall', dx: -260, dy: 60, w: 110, h: 10, angle: 0 },
       { tier: 'tree', dx: 220, dy: 60, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: -220, dy: -60, w: 60, h: 32, angle: 0 },
       { tier: 'bush', dx: 100, dy: -190, w: 60, h: 32, angle: 0 },
@@ -206,9 +206,9 @@ const NODE_TEMPLATES = [
       // 中央高台 + 侧翼路障 + 废墟
       { tier: 'half', dx: 0, dy: 0, w: 90, h: 38, angle: 0 },
       { tier: 'half', dx: 0, dy: -100, w: 70, h: 30, angle: 0 },
-      { tier: 'barricade', dx: -140, dy: 0, w: 64, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 140, dy: 0, w: 64, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 0, dy: 100, w: 64, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: -140, dy: 0, w: 64, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 140, dy: 0, w: 64, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 0, dy: 100, w: 64, h: 28, angle: 0 },
       { tier: 'rubble', dx: -220, dy: 0, w: 34, h: 22, angle: 0 },
       { tier: 'rubble', dx: 220, dy: 0, w: 34, h: 22, angle: 0 },
       // 广场边缘树丛
@@ -221,11 +221,11 @@ const NODE_TEMPLATES = [
       { tier: 'full', dx: 0, dy: -190, w: 94, h: 48, angle: 0 },
       { tier: 'half', dx: -160, dy: -120, w: 74, h: 30, angle: 0 },
       { tier: 'half', dx: 160, dy: 120, w: 74, h: 30, angle: 0 },
-      { tier: 'barricade', dx: -220, dy: -140, w: 66, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 220, dy: 140, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: -220, dy: -140, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 220, dy: 140, w: 66, h: 28, angle: 0 },
       { tier: 'rubble', dx: -60, dy: 60, w: 32, h: 22, angle: 0 },
-      { tier: 'soft', dx: 0, dy: 170, w: 150, h: 10, angle: 0 },
-      { tier: 'soft', dx: -250, dy: 60, w: 120, h: 10, angle: 0 },
+      { tier: 'wall', dx: 0, dy: 170, w: 150, h: 10, angle: 0 },
+      { tier: 'wall', dx: -250, dy: 60, w: 120, h: 10, angle: 0 },
       { tier: 'tree', dx: 250, dy: -60, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: -100, dy: -190, w: 62, h: 32, angle: 0 }
     ]
@@ -247,11 +247,11 @@ const NODE_TEMPLATES = [
       { tier: 'half', dx: -200, dy: 100, w: 80, h: 34, angle: 0 },
       { tier: 'half', dx: 200, dy: 100, w: 80, h: 34, angle: 0 },
       { tier: 'half', dx: 0, dy: 0, w: 90, h: 36, angle: 0 },
-      { tier: 'barricade', dx: -100, dy: 0, w: 64, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 100, dy: 0, w: 64, h: 28, angle: 0 },
-      // 上下栅栏 + 树/灌/桩点缀
-      { tier: 'soft', dx: 0, dy: -140, w: 160, h: 10, angle: 0 },
-      { tier: 'soft', dx: 0, dy: 140, w: 160, h: 10, angle: 0 },
+      { tier: 'wall_breakable', dx: -100, dy: 0, w: 64, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 100, dy: 0, w: 64, h: 28, angle: 0 },
+      // 上下直线掩体 + 树/灌/桩点缀
+      { tier: 'wall', dx: 0, dy: -140, w: 160, h: 10, angle: 0 },
+      { tier: 'wall', dx: 0, dy: 140, w: 160, h: 10, angle: 0 },
       { tier: 'tree', dx: -280, dy: 0, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: 280, dy: 0, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: -60, dy: -100, w: 60, h: 32, angle: 0 },
@@ -261,11 +261,11 @@ const NODE_TEMPLATES = [
       { tier: 'full', dx: 0, dy: 150, w: 88, h: 44, angle: 0 },
       { tier: 'half', dx: -120, dy: -160, w: 72, h: 30, angle: 0 },
       { tier: 'half', dx: 120, dy: 160, w: 72, h: 30, angle: 0 },
-      { tier: 'barricade', dx: -180, dy: -60, w: 66, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 180, dy: 60, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: -180, dy: -60, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 180, dy: 60, w: 66, h: 28, angle: 0 },
       { tier: 'rubble', dx: 0, dy: 60, w: 30, h: 20, angle: 0 },
-      { tier: 'soft', dx: -200, dy: 120, w: 120, h: 10, angle: 0 },
-      { tier: 'soft', dx: 200, dy: -120, w: 120, h: 10, angle: 0 },
+      { tier: 'wall', dx: -200, dy: 120, w: 120, h: 10, angle: 0 },
+      { tier: 'wall', dx: 200, dy: -120, w: 120, h: 10, angle: 0 },
       { tier: 'tree', dx: -140, dy: 60, w: 24, h: 18, angle: 0 },
       { tier: 'bush', dx: 140, dy: -60, w: 60, h: 32, angle: 0 }
     ]
@@ -287,14 +287,14 @@ const NODE_TEMPLATES = [
       { tier: 'full', dx: 0, dy: -170, w: 90, h: 46, angle: 0 },
       // 广场中央：井台半高 + 沙袋封锁
       { tier: 'half', dx: 0, dy: 0, w: 80, h: 36, angle: 0 },
-      { tier: 'barricade', dx: -120, dy: 0, w: 64, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 120, dy: 0, w: 64, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 0, dy: 90, w: 64, h: 28, angle: 0 },
-      // 庭院栅栏与巷口
-      { tier: 'soft', dx: -180, dy: 60, w: 140, h: 10, angle: 0 },
-      { tier: 'soft', dx: 180, dy: 60, w: 140, h: 10, angle: 0 },
-      { tier: 'soft', dx: -60, dy: -90, w: 120, h: 10, angle: 0 },
-      { tier: 'soft', dx: 60, dy: -90, w: 120, h: 10, angle: 0 },
+      { tier: 'wall_breakable', dx: -120, dy: 0, w: 64, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 120, dy: 0, w: 64, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 0, dy: 90, w: 64, h: 28, angle: 0 },
+      // 庭院直线掩体与巷口
+      { tier: 'wall', dx: -180, dy: 60, w: 140, h: 10, angle: 0 },
+      { tier: 'wall', dx: 180, dy: 60, w: 140, h: 10, angle: 0 },
+      { tier: 'wall', dx: -60, dy: -90, w: 120, h: 10, angle: 0 },
+      { tier: 'wall', dx: 60, dy: -90, w: 120, h: 10, angle: 0 },
       // 村落绿植与废墟
       { tier: 'tree', dx: -140, dy: -140, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: 140, dy: 140, w: 24, h: 18, angle: 0 },
@@ -304,8 +304,8 @@ const NODE_TEMPLATES = [
       { tier: 'full', dx: 0, dy: 170, w: 92, h: 46, angle: 0 },
       { tier: 'half', dx: -180, dy: -60, w: 72, h: 30, angle: 0 },
       { tier: 'half', dx: 180, dy: 60, w: 72, h: 30, angle: 0 },
-      { tier: 'barricade', dx: -60, dy: 150, w: 66, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 60, dy: -150, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: -60, dy: 150, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 60, dy: -150, w: 66, h: 28, angle: 0 },
       { tier: 'rubble', dx: -180, dy: 150, w: 30, h: 20, angle: 0 },
       { tier: 'tree', dx: 0, dy: 60, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: -220, dy: 0, w: 24, h: 18, angle: 0 },
@@ -351,9 +351,9 @@ const NODE_TEMPLATES = [
       // #77 密度提升：战线纵深补量（避开边缘河流带）
       { tier: 'half', dx: -240, dy: -140, w: 78, h: 32, angle: 0 },
       { tier: 'half', dx: 240, dy: 140, w: 78, h: 32, angle: 0 },
-      { tier: 'barricade', dx: -180, dy: 100, w: 66, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 200, dy: -100, w: 66, h: 28, angle: 0 },
-      { tier: 'soft', dx: -60, dy: 60, w: 130, h: 10, angle: 0 },
+      { tier: 'wall_breakable', dx: -180, dy: 100, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 200, dy: -100, w: 66, h: 28, angle: 0 },
+      { tier: 'wall', dx: -60, dy: 60, w: 130, h: 10, angle: 0 },
       { tier: 'tree', dx: 340, dy: -120, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: -340, dy: 120, w: 24, h: 18, angle: 0 },
       { tier: 'tree', dx: 40, dy: -60, w: 24, h: 18, angle: 0 },
@@ -383,8 +383,8 @@ const NODE_TEMPLATES = [
       { tier: 'rock', dx: 60, dy: 120, w: 28, h: 22, angle: 0 },
       { tier: 'half', dx: 0, dy: 0, w: 80, h: 34, angle: 0 },
       { tier: 'half', dx: -140, dy: -60, w: 70, h: 30, angle: 0 },
-      { tier: 'barricade', dx: -120, dy: -60, w: 66, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 200, dy: 60, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: -120, dy: -60, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 200, dy: 60, w: 66, h: 28, angle: 0 },
       { tier: 'bush', dx: -60, dy: 100, w: 50, h: 30, angle: 0 }
     ]
   },
@@ -407,8 +407,8 @@ const NODE_TEMPLATES = [
       { tier: 'rock', dx: -150, dy: 60, w: 30, h: 24, angle: 0 },
       { tier: 'half', dx: 120, dy: 40, w: 78, h: 32, angle: 0 },
       { tier: 'half', dx: -100, dy: -80, w: 70, h: 30, angle: 0 },
-      { tier: 'barricade', dx: -140, dy: 20, w: 66, h: 28, angle: 0 },
-      { tier: 'barricade', dx: 80, dy: 100, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: -140, dy: 20, w: 66, h: 28, angle: 0 },
+      { tier: 'wall_breakable', dx: 80, dy: 100, w: 66, h: 28, angle: 0 },
       { tier: 'rubble', dx: 60, dy: -80, w: 40, h: 30, angle: 0 },
       { tier: 'rubble', dx: -40, dy: 120, w: 36, h: 28, angle: 0 },
       { tier: 'stump', dx: 200, dy: -100, w: 24, h: 18, angle: 0 }
@@ -793,8 +793,243 @@ function placeEdgeRiver(rng, tpl, scale, centerX, centerY, roadCovers) {
 //   H2  双横贯（一条贴北一条贴南，蜿蜒反相）；
 //   H1T 一横贯干流 + 一条短支流（中途汇入干流，或收束成湖）；
 //   V   纵贯（从上边流到下边，1~2 条）。
-function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
+// ============================================================================
+// 2026-10-22（第五批）B4-3：**道路×河流交叉角 ≥75°**（修 #Z3）
+// ----------------------------------------------------------------------------
+// 用户口径：河流可以缺失，交叉不可接受；一旦相交，交角必须足够「正交」——
+//   与道路夹角过小（<75°）的斜穿会读作「河沿着路走了一小段」，视觉上两者糊在一起，
+//   且坦克沿路推进时会被拉进河道。处理链（对每条有违例的河，按序）：
+//     ① 振幅递减重建（×0.6，最多 2 轮）——用调用方注入的 rebuild 闭包重走 buildRiver；
+//     ② 交点附近 ±400px 的河段沿**路法向**平移（每轮 30px，最多 4 轮，余弦衰减窗口；
+//        取 ±两个方向里能显著抬高最小角的那一侧）；
+//     ③ 仍违例 → **弃该河**（与 #U33「河可缺失、交叉不可接受」同口径）。
+// 纯逻辑、确定性（只用传入数组与固定步长，不用随机数）；不改变方形节点 placeEdgeRiver 路径。
+// ============================================================================
+const RIVER_ROAD_MIN_ANGLE_DEG = 75;
+
+// 线段（中心 + 长度 + 角度）→ 两个端点
+function _segEndsX(s, cxKey, cyKey) {
+  const a = s.angle || 0;
+  const hx = Math.cos(a) * (s.w || 0) / 2, hy = Math.sin(a) * (s.w || 0) / 2;
+  const x = s[cxKey], y = s[cyKey];
+  return { x1: x - hx, y1: y - hy, x2: x + hx, y2: y + hy };
+}
+
+// 两线段求交（自包含实现，语义与 tank_utils.segRayIntersect + 反向包围一致）：
+// 返回交点 {x,y,t,s} 或 null。t/s 分别为两条线段上的参数（0~1）。
+function _segSegCrossX(a, b) {
+  const ax = a.x2 - a.x1, ay = a.y2 - a.y1;
+  const bx = b.x2 - b.x1, by = b.y2 - b.y1;
+  const denom = ax * by - ay * bx;
+  if (Math.abs(denom) < 1e-9) return null;                 // 平行（含共线）：不计交叉
+  const t = ((b.x1 - a.x1) * by - (b.y1 - a.y1) * bx) / denom;
+  const s = ((b.x1 - a.x1) * ay - (b.y1 - a.y1) * ax) / denom;
+  if (t < 0 || t > 1 || s < 0 || s > 1) return null;
+  return { x: a.x1 + ax * t, y: a.y1 + ay * t, t: t, s: s };
+}
+
+// 单条河 × 全部路段：返回 { minDeg, violations:[{x,y,rvSeg,rdSeg,deg}] }
+function _riverRoadCrossInfo(river, roadSegs) {
+  const out = { minDeg: 90, violations: [] };
+  if (!river || !Array.isArray(river.segments) || !roadSegs.length) return out;
+  for (const rs of river.segments) {
+    const a = _segEndsX(rs, 'dx', 'dy');
+    const aAng = rs.angle || 0;
+    for (const rd of roadSegs) {
+      const b = _segEndsX(rd, 'x', 'y');
+      const hit = _segSegCrossX(a, b);
+      if (!hit) continue;
+      const rAng = rd.angle || 0;
+      let d = Math.abs(aAng - rAng) % Math.PI;
+      if (d > Math.PI / 2) d = Math.PI - d;
+      const deg = d * 180 / Math.PI;
+      if (deg < out.minDeg) out.minDeg = deg;
+      if (deg < RIVER_ROAD_MIN_ANGLE_DEG) {
+        out.violations.push({ x: hit.x, y: hit.y, rvSeg: rs, rdSeg: rd, deg: deg });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 纯函数：全图「河流 × 道路」交叉的最小锐角（度）。
+ * 无任何交叉时返回 90（= 完全正交，视为最优）。
+ * @param {any[]} rivers placeStripRivers 产出的河实例（含 segments 相对偏移）
+ * @param {any[]} roadCovers 路面 cover（整链多边形或短 OBB 段）
+ * @param {number} [roadW] 路宽（还原短段用）
+ * @returns {number} 最小交叉角（度，0~90）
+ */
+function minRiverRoadCrossAngle(rivers, roadCovers, roadW) {
+  const roadSegs = roadCoversToSegments(roadCovers || [], roadW || 100);
+  let minDeg = 90;
+  for (const rv of (rivers || [])) {
+    const info = _riverRoadCrossInfo(rv, roadSegs);
+    if (Number.isFinite(info.minDeg) && info.minDeg < minDeg) minDeg = info.minDeg;
+  }
+  return minDeg;
+}
+
+// 沿偏离方向把河在「交点 ±400px 弧长窗口」内平移 shiftPx（余弦衰减，保持段间连续）。
+function _shiftRiverNearX(river, viol, nx, ny, shiftPx, bounds) {
+  const segs = river && river.segments;
+  if (!segs || !segs.length) return;
+  // 累积弧长 → 找交点所在段
+  const cum = [0];
+  for (let i = 1; i < segs.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(segs[i].dx - segs[i - 1].dx, segs[i].dy - segs[i - 1].dy));
+  }
+  let bestI = 0, bestD = Infinity;
+  for (let i = 0; i < segs.length; i++) {
+    const d = Math.hypot(segs[i].dx - viol.x, segs[i].dy - viol.y);
+    if (d < bestD) { bestD = d; bestI = i; }
+  }
+  const centerS = cum[bestI];
+  const WIN = 400;
+  for (let i = 0; i < segs.length; i++) {
+    const ds = Math.abs(cum[i] - centerS);
+    if (ds > WIN) continue;
+    const wgt = 0.5 * (1 + Math.cos(Math.PI * ds / WIN));   // 1 → 0 平滑衰减
+    segs[i].dx += nx * shiftPx * wgt;
+    segs[i].dy += ny * shiftPx * wgt;
+    if (bounds) {
+      segs[i].dx = Math.max(0, Math.min(bounds.w, segs[i].dx));
+      segs[i].dy = Math.max(0, Math.min(bounds.h, segs[i].dy));
+    }
+  }
+  // 河实例的外接框（x/y）随首段同步，保持「c.x/c.y = segments[0]」的既有约定
+  river.x = segs[0].dx; river.y = segs[0].dy;
+}
+
+// 整条河沿 (nx,ny) 平移（用于「局部平移无效」时把整条河推离那条路）。
+function _shiftRiverWholeX(river, nx, ny, shiftPx, bounds) {
+  const segs = river && river.segments;
+  if (!segs || !segs.length) return;
+  for (const s of segs) {
+    s.dx += nx * shiftPx; s.dy += ny * shiftPx;
+    if (bounds) {
+      s.dx = Math.max(0, Math.min(bounds.w, s.dx));
+      s.dy = Math.max(0, Math.min(bounds.h, s.dy));
+    }
+  }
+  river.x = segs[0].dx; river.y = segs[0].dy;
+}
+
+// 违例优劣比较：先比违例条数（少者优），再比最小角（大者优）
+function _betterCrossInfo(a, b) {
+  if (!b) return true;
+  if (a.violations.length !== b.violations.length) return a.violations.length < b.violations.length;
+  return a.minDeg > b.minDeg + 1e-9;
+}
+
+function enforceRiverRoadCrossAngle(rivers, roadCovers, roadW, opts) {
+  const o = opts || {};
+  const roadSegs = roadCoversToSegments(roadCovers || [], roadW || 100);
+  const rebuilders = o.rebuilders || null;
+  const bounds = o.bounds || null;
+  const stats = { minAngle: 90, rebuilt: 0, shifted: 0, dropped: 0, violations: 0 };
+  if (!Array.isArray(rivers)) return stats;
+
+  for (let idx = rivers.length - 1; idx >= 0; idx--) {
+    let rv = rivers[idx];
+    if (!rv || !Array.isArray(rv.segments) || !rv.segments.length) continue;
+    let info = _riverRoadCrossInfo(rv, roadSegs);
+    if (!info.violations.length) continue;
+    stats.violations += info.violations.length;
+
+    // ① 振幅递减重建（×0.6，最多 2 轮；只在「违例更少 / 最小角更大」时采纳）
+    const rb = rebuilders && typeof rebuilders.get === 'function' ? rebuilders.get(rv) : null;
+    if (typeof rb === 'function') {
+      let best = null;
+      for (let k = 1; k <= 2; k++) {
+        const cand = rb(k);
+        if (!cand || !Array.isArray(cand.segments) || !cand.segments.length) break;
+        const ci = _riverRoadCrossInfo(cand, roadSegs);
+        if (_betterCrossInfo(ci, best && best.info)) best = { river: cand, info: ci };
+        if (!ci.violations.length) break;
+      }
+      if (best && _betterCrossInfo(best.info, info)) {
+        rv = best.river;
+        info = best.info;
+        rivers[idx] = rv;
+        stats.rebuilt++;
+      }
+      if (!info.violations.length) continue;
+    }
+
+    // ② 交点附近沿路法向平移（每轮 30px，最多 4 轮）
+    //    —— 2026-10-22 实测：局部 ±400px 窗口平移对「整条横河被多条横路并行贴合」几乎无效
+    //    （横河与横路的夹角由整条河的形态决定，局部抬不起来），因此紧接着补 ②b「整河垂直平移」。
+    for (let round = 0; round < 4 && info.violations.length; round++) {
+      let best = null;
+      for (const viol of info.violations.slice(0, 4)) {
+        const ra = viol.rdSeg.angle || 0;
+        const nx = -Math.sin(ra), ny = Math.cos(ra);
+        for (const sgn of [1, -1]) {
+          const clone = { segments: rv.segments.map(s => Object.assign({}, s)) };
+          _shiftRiverNearX(clone, viol, nx, ny, 30 * sgn, bounds);
+          const ci = _riverRoadCrossInfo(clone, roadSegs);
+          if (_betterCrossInfo(ci, best && best.info)) {
+            best = { segs: clone.segments, info: ci };
+          }
+        }
+      }
+      if (!best) break;
+      // 没有改善就不算「平移过」，交给 ②b / ③（避免无意义抖动）
+      if (!_betterCrossInfo(best.info, info)) break;
+      rv.segments = best.segs;
+      rv.x = rv.segments[0].dx; rv.y = rv.segments[0].dy;
+      info = best.info;
+      stats.shifted++;
+    }
+
+    // ②b 整河垂直平移（对首条违例路的法向，幅度逐级放大；仍按「违例少/角大」择优）
+    if (info.violations.length) {
+      let best = null;
+      const v0 = info.violations[0];
+      const ra0 = v0.rdSeg.angle || 0;
+      const nx0 = -Math.sin(ra0), ny0 = Math.cos(ra0);
+      for (const mag of [80, 160, 320, 640, 1000, 1500]) {
+        for (const sgn of [1, -1]) {
+          const clone = { segments: rv.segments.map(s => Object.assign({}, s)) };
+          _shiftRiverWholeX(clone, nx0, ny0, mag * sgn, bounds);
+          const ci = _riverRoadCrossInfo(clone, roadSegs);
+          if (_betterCrossInfo(ci, best && best.info)) best = { segs: clone.segments, info: ci };
+        }
+      }
+      if (best && _betterCrossInfo(best.info, info)) {
+        rv.segments = best.segs;
+        rv.x = rv.segments[0].dx; rv.y = rv.segments[0].dy;
+        info = best.info;
+        stats.shifted++;
+      }
+    }
+
+    // ③ 仍违例 → 弃该河
+    if (info.violations.length) {
+      rivers.splice(idx, 1);
+      stats.dropped++;
+      continue;
+    }
+    // 附加安全网：平移/重建后与已保留的河相交 → 后处理者弃（与 #U33 同口径）
+    if (typeof o.riverClash === 'function') {
+      let clash = false;
+      for (let j = 0; j < idx; j++) {
+        if (o.riverClash(rivers[j], rivers[idx])) { clash = true; break; }
+      }
+      if (clash) { rivers.splice(idx, 1); stats.dropped++; continue; }
+    }
+    if (info.minDeg < stats.minAngle) stats.minAngle = info.minDeg;
+  }
+  return stats;
+}
+
+function placeStripRivers(rng, totalW, stripH, roadCovers, roadW, opts) {
+  const o = opts || {};
   const rivers = [];
+  // 2026-10-22（第五批）B4-3：为每条由 buildRiver 产出的河登记「振幅递减重建」闭包，
+  // 供末尾 enforceRiverRoadCrossAngle 的 ① 轮使用（×0.6 逐轮，最多 2 轮）。
+  const rebuilders = new Map();
   // #U37（2026-10-18）：河宽上限见 buildRiver 内部（RULES.drowning.wadeMaxWidth）。
   //   基准比例同步下调：原 7%~15%（stripH=3600 时达 252~540px，峰值被钳成等宽）。
   //   现 4%~9%（3600 ⇒ 144~324，钳到 260 时只削掉波峰），保留沿程宽窄变化。
@@ -1025,6 +1260,9 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
     r2 = r2 && _fixShift(r2);
     // 拉直/平移后两河可能重新贴近 → 再查一次交叉
     if (r1 && r2 && _riverPairClash(r1, r2)) r2 = null;
+    // B4-3 ①：登记振幅递减重建闭包（k=1,2 ⇒ ×0.6^k），供末尾交叉角收尾使用。
+    if (r1) rebuilders.set(r1, (k) => buildRiver(hCtrl(y1, amp * Math.pow(0.6, k), ph, fr, 0, totalW), thick));
+    if (r2) rebuilders.set(r2, (k) => buildRiver(hCtrl(y2, amp * Math.pow(0.6, k), ph + Math.PI, fr, 0, totalW), thick * 0.85));
     if (r1) rivers.push(r1);
     if (r2) rivers.push(r2);
   } else if (pattern === 1) {
@@ -1054,7 +1292,11 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
         shiftRiver(trunk, dy);
       }
     }
-    if (trunk) rivers.push(trunk);
+    if (trunk) {
+      // B4-3 ①：振幅递减重建闭包（同 H2 口径）
+      rebuilders.set(trunk, (k) => buildRiver(hCtrl(baseY, amp * Math.pow(0.6, k), ph, fr, 0, totalW), thick));
+      rivers.push(trunk);
+    }
   } else {
     // V：纵贯，1~2 条（#1：按宽度缩放，每 ~2500px 一条）
     // #U33：双纵贯时逐条避让——后建河与先建河交叉则重试（换 baseX），仍交叉则弃掉后河
@@ -1091,9 +1333,27 @@ function placeStripRivers(rng, totalW, stripH, roadCovers, roadW) {
         }
         // #U33：拉直/平移可能把河推到别的河上——收尾再查一次，命中弃掉
         if (r && rivers.some(prev => _riverPairClash(prev, r))) r = null;
+        if (r) {
+          // B4-3 ①：纵河的振幅递减重建闭包（只缩 amp，phase/fr 复用 relaxAmp 时的参数）
+          rebuilders.set(r, (k) => buildRiver(vCtrl(baseX, amp * Math.pow(0.6, k), _ph, _fr, 0, stripH),
+            thick * (i === 0 ? 1 : 0.85)));
+        }
       }
       if (r) rivers.push(r);
     }
+  }
+
+  // 2026-10-22（第五批）B4-3（修 #Z3）：**道路×河流交叉角 ≥75°** 收尾。
+  //   放在所有河都已 push 之后、return 之前：此时 roadCovers / roadW 均就绪。
+  //   注意：本函数只作用于 strip 级一体化河流；方形节点的 placeEdgeRiver 路径不经过这里
+  //   （其 minCrossAngle 口径保持不动，见 generateNode 的 edgeRiver 分支）。
+  //   opts.noEnforce=true 仅供审计/探针取「未收尾」的原始河形（生产路径不传）。
+  if (o.noEnforce !== true) {
+    enforceRiverRoadCrossAngle(rivers, roadCovers, roadW, {
+      rebuilders: rebuilders,
+      bounds: { w: totalW, h: stripH },
+      riverClash: _riverPairClash
+    });
   }
   return rivers;
 }
@@ -1171,7 +1431,7 @@ function placeMudPatch(rng, tpl, scale, centerX, centerY, outCovers) {
     // 现扩大搜索：角度铺满 2π，半径在 [0.55, 1.45]×ringR 间逐轮外扩，重试上限提到 24。
     // #U2（2026-10-17）：块数多时（K 大）按**节点尺度**铺开而非挤在中心环——
     //   用「网格铺位 + 抖动」保证覆盖整块节点，块数少时退化为原环带（观感一致）。
-    const RETRY_MAX = 24;
+    const RETRY_MAX = 64;
     // 铺位：K 少 → 环带（原行为）；K 多 → 全节点网格抖动铺位，避免扎堆
     const useGrid = K > 12;
     for (let retry = 0; retry < RETRY_MAX && !placed; retry++) {
@@ -1655,14 +1915,15 @@ function placeRoadNetwork(rng, tpl, scale, centerX, centerY, opts) {
 //     路半宽 + 建筑半宽 + margin，朝向对齐街道轴；尺寸必须乘
 //     RULES.nodeMap.coverWorldScale.full（默认 0.42）收敛——修复旧版 50~80×scale 直接放大
 //     得 150~240px 的「过大」bug（收敛后 ≈63~101px @nodeScale=3）。
-//   第三层【周边杂物】——剩余空域拒绝采样填充树/灌木/沙包(barricade)/岩石(无 rock tier 则
+//   第三层【周边杂物】——剩余空域拒绝采样填充树/灌木/可摧毁直线掩体/岩石(无 rock tier 则
 //     rubble)/低概率小水塘(water blob)，避让道路条带与建筑包围盒（obbHits 支持 road 条带占用）。
 // 全程仅用注入 rng（调用方传 seed 派生的独立子流，跨难度同 seed 布局一致），同 seed 同结果。
 // #W15（2026-10-20）：移除 `'half'`（`RULES.coverTiers.half` 已于 #E3 2026-09-20 删除，
 // 且 generateNode 的 `tier === 'half'` 会 continue 丢弃 ⇒ 该条目恒不可达）。
 // `'bridge'` 保留：桥梁体系已不再产出（#U7 2026-10-17），但**旧存档/旧基线**仍可能带 tier，
 // 村庄占位检查必须继续把桥梁当实体避让（保守方向：多避让不会产生重叠 bug）。
-const VILLAGE_SOLID = new Set(['full', 'building', 'barricade', 'tree', 'rock', 'stump', 'rubble', 'bridge', 'ruined', 'intact']);
+// 2026-10-22（第五批）：旧「栅栏/沙包」tier 已删除，直线掩体 wall / wall_breakable 纳入实体避让集合。
+const VILLAGE_SOLID = new Set(['full', 'building', 'wall', 'wall_breakable', 'tree', 'rock', 'stump', 'rubble', 'bridge', 'ruined', 'intact']);
 function placeVillage(rng, tpl, scale, cx, cy, outCovers, networkRoads) {
   const coverTiers = (typeof RULES !== 'undefined' && RULES.coverTiers)
     ? RULES.coverTiers
@@ -1853,7 +2114,7 @@ function placeVillage(rng, tpl, scale, cx, cy, outCovers, networkRoads) {
     placedB++;
   }
 
-  // ---- 第三层【周边杂物】：树/灌木/沙包/岩石(或碎石)/低概率小水塘，避让道路与建筑 ----
+  // ---- 第三层【周边杂物】：树/灌木/可摧毁直线掩体/岩石(或碎石)/低概率小水塘，避让道路与建筑 ----
   const clutterN = rng.int(6, 10);
   const rockOk = !!(coverTiers && coverTiers.rock);
   const clutterRad = Math.min(tpl.w, tpl.h) * 0.24 * scale; // 限村落邻域（兼 P-40 中央水域约束）
@@ -1887,12 +2148,24 @@ function placeVillage(rng, tpl, scale, cx, cy, outCovers, networkRoads) {
       continue;
     }
     // 普通杂物：加权池抽样 + 避让道路条带/建筑包围盒/互压
-    const pool = ['tree', 'tree', 'bush', 'barricade', rockOk ? 'rock' : 'rubble'];
+    // 2026-10-22（第五批）：池里的「沙包」改为可摧毁直线掩体 wall_breakable（单直线、无 verts）。
+    const pool = ['tree', 'tree', 'bush', 'wall_breakable', rockOk ? 'rock' : 'rubble'];
     const ctier = pool[rng.int(0, pool.length - 1)];
     let cw, ch;
     if (ctier === 'tree') { cw = rng.range(22, 26) * scale; ch = rng.range(16, 20) * scale; }
     else if (ctier === 'bush') { cw = rng.range(54, 64) * scale; ch = rng.range(28, 34) * scale; }
-    else if (ctier === 'barricade') { cw = rng.range(19, 22) * scale; ch = rng.range(8, 9) * scale; } // ×coverWorldScale.barricade 等效收敛
+    else if (ctier === 'wall' || ctier === 'wall_breakable') {
+      // 单直线掩体：长度/厚度取 junctionBarricades 的墙参数，再乘 coverWorldScale[tier] 收敛
+      //（与 generateNode 主循环的 ×coverWorldScale[tier] 同口径；此处为村落杂物层，自行收敛）。
+      const _wScale = (cfgNodeMap.coverWorldScale && typeof cfgNodeMap.coverWorldScale[ctier] === 'number')
+        ? cfgNodeMap.coverWorldScale[ctier] : 0.34;
+      const _jcfg = cfgNodeMap.junctionBarricades || {};
+      const _lenMin = _jcfg.wallLenMin !== undefined ? _jcfg.wallLenMin : 62;
+      const _lenMax = _jcfg.wallLenMax !== undefined ? _jcfg.wallLenMax : 96;
+      const _thick = _jcfg.wallThick !== undefined ? _jcfg.wallThick : 26;
+      cw = rng.range(_lenMin, _lenMax) * _wScale * scale;
+      ch = _thick * _wScale * scale;
+    }
     else { cw = rng.range(28, 36) * scale; ch = rng.range(18, 24) * scale; } // rock / rubble
     const cxx = cx + (rng() - 0.5) * 2 * clutterRad;
     const cyy = cy + (rng() - 0.5) * 2 * clutterRad;
@@ -2044,8 +2317,7 @@ function placeForestClusters(items, rng, opts) {
  * 若存在挡视线体（tier.vision 的 full/bush/tree/fallen/intact/rock），则开走廊：
  *   ① 侧移遮挡体：沿"线段垂线方向"平移出线段（挪动量 = 遮挡体沿垂线半幅 + 与线段
  *      垂距 + 余量，确保整块露出缝隙），受控且不越界 / 不撞其它掩体；
- *   ② 无法安全侧移则降级：仅 full→soft 能去除 vision（half 生成期被 D5 禁止→跳过；
- *      其余 foliage/rock 降级无意义→直接移除）；
+ *   ② 无法安全侧移则降级（2026-10-22 起：旧栅栏 tier 已删 ⇒ 无可用降级目标，本步恒跳过）；
  *   ③ 仍不行则移除该遮挡体。
  * 循环直到该 cluster 视线打开或无可处理遮挡体；多 cluster 各自处理；最终保底至少
  * 保证一个 cluster 与玩家间直视线成立。
@@ -2063,10 +2335,6 @@ function ensureLoSCorridor(coversList, hints, rng) {
   const bounds = hints.bounds || null;
   const pad = 8;
 
-  const visionOf = (tier) => {
-    const t = (typeof COVER_TIERS !== 'undefined' && COVER_TIERS && COVER_TIERS[tier]) ? COVER_TIERS[tier] : null;
-    return !!(t && t.vision);
-  };
   const losOk = (a, b) => (typeof hasLineOfSight === 'function')
     ? hasLineOfSight(a.x, a.y, b.x, b.y, coversList)
     : true;
@@ -2112,12 +2380,9 @@ function ensureLoSCorridor(coversList, hints, rng) {
       }
       if (moved) { changed = true; continue; }   // 重测是否仍挡
 
-      // ② 降级：仅 full→soft 能去除 vision（half 生成期被 D5 禁止→跳过；其它降级无效）
-      if (cov.tier === 'full' && visionOf('full') && !visionOf('soft')) {
-        cov.tier = 'soft';
-        cov.hp = (COVER_TIERS.soft && COVER_TIERS.soft.hp !== undefined) ? COVER_TIERS.soft.hp : 1;
-        changed = true; continue;
-      }
+      // ② 降级链：2026-10-22（第五批）旧「栅栏」tier 已删除——现存结构 tier（wall / wall_breakable /
+      //   perm_block / full / building 等）全部 vision:true，没有任何「降级后不再挡视线」的结构目标
+      //   ⇒ 本步不再适用，直接落到 ③ 移除（语义 = 挡视线的实体只能挪开或删掉）。
 
       // ③ 移除：本遮挡体移除后可能仍有后续遮挡体，继续循环剔除（8 次上限防死循环）
       const idx = coversList.indexOf(cov);
@@ -2146,17 +2411,18 @@ function ensureLoSCorridor(coversList, hints, rng) {
 //     且同 groupId 链段搭接是路网连通的前提。
 // 显著重叠判定：对每个 cover 取 3×3 局部采样点（世界系），一方 ≥1/3 采样点落入另一方
 // 多边形/OBB 内即视为显著重叠（纯函数、确定性，不用 rng）。
-// ================= #E3（2026-09-20）建筑沿路/路口聚集 + 路口沙包 =================
-// 用户反馈：建筑密度需要在路边随机聚集，在路口聚集程度最高；路口要有沙包等障碍。
+// ================= #E3（2026-09-20，2026-10-22 重做）建筑沿路/路口聚集 + 路口直线掩体 =================
+// 用户反馈：建筑密度需要在路边随机聚集，在路口聚集程度最高；路口要有障碍。
+// （2026-10-22 第五批：旧「路口沙包阵」改产单直线掩体 wall / wall_breakable，见 placeJunctionWalls。）
 // 两类元素在「模板 items + 村落」之后、统一消叠（pruneOverlappingCovers）之前注入，
 // 因此天然参与重叠消解（建筑/岩石/树/可破坏物/水域/泥潭互不重叠）。
 // 消费方：generateNode（#E3 段）。
 function _roadSegAngle(seg) { return seg.angle || 0; }
 
 // #1（2026-10-16）：道路连续多边形（cde3bc3 起：整条链一个 cover，w/h 为整链外接 bbox，
-// 真实形状在 verts）→ 还原为短 OBB 段，供沿路建筑 / 路口沙包的定位与避让逻辑使用
+// 真实形状在 verts）→ 还原为短 OBB 段，供沿路建筑 / 路口掩体的定位与避让逻辑使用
 //（恢复旧逐点对分段语义；此前直接拿 bbox 做 obbHitsCover 会把整片节点判为"压路面"，
-// 沿路建筑与路口沙包产出恒为 0，buildingDensity 乘子空转——#I3 回归）。
+// 沿路建筑与路口掩体产出恒为 0，buildingDensity 乘子空转——#I3 回归）。
 // verts 口径：left.concat(right.reverse())——前半左缘、后半右缘（逆序），
 // 中线点 = 两缘对应点中点（同 scripts/test-nodegen.js #B7 的 ends()/dirOf() 约定）。
 // 纯函数、确定性（不用 rng），同输入同输出。
@@ -2285,9 +2551,14 @@ function placeRoadsideBuildings(rng, tpl, scale, centerX, centerY, roadCovers, j
 }
 
 // bounds（2026-09-23，B 档①附带修复）：节点局部系的半宽/半高（= 模板 w/h × scale ÷ 2）。
-// 传入后沙包被拒绝生成在节点边界外——原实现无边界检查，路口靠近边界且 r 取到 ringMax×路宽 时
-// 沙包会落到节点外（实测 run-seed 节点 4 有三个 barricade 落在 y≈1509 > 半高 720）。
-function placeJunctionBarricades(rng, roadCovers, junctions, roadW, outCovers, bounds) {
+// 传入后直线掩体被拒绝生成在节点边界外——原实现无边界检查，路口靠近边界且 r 取到 ringMax×路宽 时
+// 掩体会落到节点外（实测 run-seed 节点 4 有三个落在 y≈1509 > 半高 720）。
+//
+// 2026-10-22（第五批）掩体体系重做（PLAN §4.9.2(a)(c)）：`placeJunctionBarricades`（路口沙包阵）
+//   改名为 `placeJunctionWalls`——产出**单直线**掩体（w=长度、h=厚度、angle=切线方向，无 verts），
+//   tier 按 `cfg.breakableChance` 在 `wall_breakable`（可摧毁）与 `wall`（不可摧毁）间抽取；
+//   尺寸走 `cfg.wallLenMin/wallLenMax/wallThick`。原有「不压路面 / 不重叠 / 边界内」判据保留。
+function placeJunctionWalls(rng, roadCovers, junctions, roadW, outCovers, bounds) {
   const cfg = (typeof RULES !== 'undefined' && RULES.nodeMap && RULES.nodeMap.junctionBarricades) || {};
   // #1（2026-10-16）：cde3bc3 起道路为连续多边形——避让须用短 OBB 段还原（整链 bbox 会误杀整片）
   const roadSegs = roadCoversToSegments(roadCovers, roadW);
@@ -2296,6 +2567,11 @@ function placeJunctionBarricades(rng, roadCovers, junctions, roadW, outCovers, b
   const cMax = cfg.countMax !== undefined ? cfg.countMax : 4;
   const rMin = cfg.ringMin !== undefined ? cfg.ringMin : 0.9;
   const rMax = cfg.ringMax !== undefined ? cfg.ringMax : 1.9;
+  const breakableChance = cfg.breakableChance !== undefined ? cfg.breakableChance : 0.45;
+  const lenMin = cfg.wallLenMin !== undefined ? cfg.wallLenMin : 62;
+  const lenMax = cfg.wallLenMax !== undefined ? cfg.wallLenMax : 96;
+  const thick = cfg.wallThick !== undefined ? cfg.wallThick : 26;
+  const tierDefs = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers : {};
   const placed = [];
   for (const j of (junctions || [])) {
     if (rng() > chance) continue;
@@ -2305,18 +2581,24 @@ function placeJunctionBarricades(rng, roadCovers, junctions, roadW, outCovers, b
       const a = rng() * Math.PI * 2;
       const r = roadW * rng.range(rMin, rMax);
       const x = j.x + Math.cos(a) * r, y = j.y + Math.sin(a) * r;
-      const w = 62, h = 26;
-      // 边界拒绝（2026-09-23）：沙包（含半个外接圆余量）必须落在节点内
+      const w = rng.range(lenMin, lenMax);
+      const h = thick;
+      // 沿路口**切线**方向排布（半径方向 a → 切线 a+90°），读作一圈断续的防护墙。
+      const wallAngle = a + Math.PI / 2;
+      // 边界拒绝（2026-09-23）：掩体（含半个外接圆余量）必须落在节点内
       if (bounds) {
         const m = Math.hypot(w, h) / 2;
         if (x < -bounds.halfW + m || x > bounds.halfW - m ||
             y < -bounds.halfH + m || y > bounds.halfH - m) continue;
       }
-      // 沙包布防在「路口环外侧、且不压路面」的位置
-      if (obbHitsCover(roadSegs, x, y, w, h, a, 2)) continue;
-      if (obbHitsCover(outCovers, x, y, w, h, a, 6)) continue;
-      if (obbHitsCover(placed, x, y, w, h, a, 6)) continue;
-      const b = { x, y, w, h, angle: a, tier: 'barricade' };
+      // 布防在「路口环外侧、且不压路面」的位置
+      if (obbHitsCover(roadSegs, x, y, w, h, wallAngle, 2)) continue;
+      if (obbHitsCover(outCovers, x, y, w, h, wallAngle, 6)) continue;
+      if (obbHitsCover(placed, x, y, w, h, wallAngle, 6)) continue;
+      const tier = rng() < breakableChance ? 'wall_breakable' : 'wall';
+      const b = { x, y, w, h, angle: wallAngle, tier };
+      const def = tierDefs[tier];
+      b.hp = (def && def.hp !== undefined) ? def.hp : (def && def.destructible !== undefined ? def.destructible : 1);
       placed.push(b);
       outCovers.push(b);
       done++;
@@ -2324,10 +2606,231 @@ function placeJunctionBarricades(rng, roadCovers, junctions, roadW, outCovers, b
   }
   return placed;
 }
+// 兼容别名（旧名仍可调用；module.exports 同时导出新旧两键，外部脚本暂未迁移时不至于断链）。
+const placeJunctionBarricades = placeJunctionWalls;
+
+// ======================= 2026-10-22 防线墙体（用户反馈「掩体摆放过于随机，要呈现 1 个防线的样子，
+//   防御玩家可能进攻的 2-3 个方向」） =======================
+// 设计（唯一口径 RULES.nodeMap.defenseWalls）：
+//   · 玩家固定从左缘出生（world 0.10W, H/2）、沿推进轴向右 ⇒ **防线 = 竖直墙段**（法线朝左，
+//     即正对玩家来的方向）。墙体沿竖直方向排开、段间留通行缺口，读作「一道防御工事」；
+//   · 覆盖 2~3 个进攻方向：中央一道竖墙（防正面）+ 按世界高度可向上/向下延伸的斜墙
+//     （防左上/左下的包抄路线）——竖墙本身按世界高度分段铺，天然把「左→右」的通路切成
+//     若干必须绕行的口子；
+//   · 墙段**不压路面**（avoidRoad）：防线是「墙上开门」，不是把路封死——路面处留缺口正好
+//     形成咽喉口，与掩体 gameplay（掩体后射击）配合。
+// 调用时机：makeNode 在敌军防线（planDefenseLines）规划完成后调用——防线墙的 x 位置
+//   **对齐敌军防线锚点**（锚点 x 附近），使「墙」与「守墙的敌人」在空间上重合。
+// @param {any} rng createRNG 实例（调用方的整局 rng；确定性由调用方保证）
+// @param {Array} covers 已放置掩体（世界帧；用于避让，避免压建筑/水体/岩石）
+// @param {Object} opts { worldW, worldH, playerSpawn:{x,y},
+//                        anchorXs:Array<number>（敌军防线锚点 x 列表）,
+//                        roadSegs:Array（路面短段 = roadCoversToSegments 产出 {x,y,w,h,angle}，用于避让；可空）,
+//                        linesWanted?:number（防线道数；缺省按 cfg 区间随机） }
+// @returns {Array} placed 本函数新放置的墙段（调用方已 push 进 covers）
+function placeDefenseWalls(rng, covers, opts) {
+  const cfg = (typeof RULES !== 'undefined' && RULES.nodeMap && RULES.nodeMap.defenseWalls) || {};
+  if (cfg.enabled === false) return [];
+  const o = opts || {};
+  const worldW = o.worldW, worldH = o.worldH;
+  if (!(worldW > 0) || !(worldH > 0)) return [];
+  const segMin = cfg.segLenMin !== undefined ? cfg.segLenMin : 110;
+  const segMax = cfg.segLenMax !== undefined ? cfg.segLenMax : 190;
+  const thick = cfg.thick !== undefined ? cfg.thick : 26;
+  const gapMin = cfg.gapMin !== undefined ? cfg.gapMin : 90;
+  const gapMax = cfg.gapMax !== undefined ? cfg.gapMax : 150;
+  const breakableChance = cfg.breakableChance !== undefined ? cfg.breakableChance : 0.45;
+  const jitter = cfg.jitter !== undefined ? cfg.jitter : 0.10;
+  const avoidRoad = cfg.avoidRoad !== false;
+  const roadPad = cfg.roadPad !== undefined ? cfg.roadPad : 10;
+  const tierDefs = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers : {};
+
+  // 防线道数：linesWanted 由调用方按难度传入；缺省按 cfg 区间随机。
+  const linesMin = cfg.linesMin !== undefined ? cfg.linesMin : 1;
+  const linesMax = cfg.linesMax !== undefined ? cfg.linesMax : 2;
+  const linesWanted = (o.linesWanted !== undefined)
+    ? Math.max(1, Math.min(linesMax, o.linesWanted))
+    : rng.int(linesMin, linesMax);
+
+  // 每道防线的 x 候选：优先对齐敌军防线锚点（把墙修在敌人守的位置），不足时在
+  //   「玩家出生点右侧 → 出口区左侧」的 35%~80% 带内均匀取。
+  const spawnX = (o.playerSpawn && o.playerSpawn.x !== undefined) ? o.playerSpawn.x : worldW * 0.10;
+  const anchorXs = (Array.isArray(o.anchorXs) && o.anchorXs.length) ? o.anchorXs.slice().sort(function (a, b) { return a - b; }) : [];
+  const bandX0 = spawnX + (worldW - spawnX) * 0.35;
+  const bandX1 = spawnX + (worldW - spawnX) * 0.80;
+  const lineXs = [];
+  for (let k = 0; k < linesWanted; k++) {
+    let x = null;
+    if (anchorXs.length) {
+      // 取「尚未被已选防线占用、且在带内（含 6% 容差）」的锚点
+      const lo = bandX0 - worldW * 0.06, hi = bandX1 + worldW * 0.06;
+      const cands = anchorXs.filter(function (ax) {
+        return ax >= lo && ax <= hi && lineXs.every(function (u) { return Math.abs(u - ax) > worldW * 0.10; });
+      });
+      if (cands.length) x = cands[Math.floor(rng() * cands.length)];
+    }
+    if (x === null) x = bandX0 + (bandX1 - bandX0) * ((linesWanted === 1) ? 0.5 : k / (linesWanted - 1));
+    lineXs.push(x);
+  }
+
+  const placed = [];
+  for (let li = 0; li < lineXs.length; li++) {
+    // 整列重试：该 x 被河流带/建筑群大面积挡住（成功率过低）时水平平移 ±(160~240)px 再试，
+    //   最多 5 次；仍失败才放弃该道防线（strip 的横贯河流是常态，硬贴锚点会出「只有边缘段」）。
+    let lx = lineXs[li];
+    for (let retry = 0; retry < 5; retry++) {
+      const colStart = placed.length;
+      // 竖墙：沿世界 y 从上到下铺段。段长/缺口按 cfg 区间抽取，直到铺满世界高。
+      let y = -worldH * 0.02;                     // 从上界略外开始，保证上缘也有墙
+      let guard = 0;
+      while (y < worldH * 1.02 && guard++ < 64) {
+      const segLen = rng.range(segMin, segMax);
+      const remain = worldH * 1.04 - y;
+      const len = Math.min(segLen, remain);
+      if (len < Math.min(segMin, 60)) break;      // 剩余太短不再铺
+      const cx = lx + rng.range(-thick, thick);   // 防线 x 轻微起伏（不是阅兵直线）
+      const cy = y + len / 2;
+      const ang = Math.PI / 2 + rng.range(-jitter, jitter);  // 竖直 + 抖动
+      const w = len, h = thick;
+      // 界内钳制（墙顶到世界边缘是「防线延伸出画面」的正常读法，只防完全出界）
+      const m = Math.hypot(w, h) / 2;
+      if (cx < m * 0.9 || cx > worldW - m * 0.9) { y += len + rng.range(gapMin, gapMax); continue; }
+      // 避让：不压已放置掩体（建筑/水体/岩石/其它墙）
+      if (obbHitsCover(covers, cx, cy, w, h, ang, 8) ||
+          obbHitsCover(placed, cx, cy, w, h, ang, 8)) {
+        y += Math.min(len * 0.5, 60);
+        continue;
+      }
+      // 避让路面：竖墙横穿路面会封死道路；路面处自然形成通行口。
+      //   （obbHitsCover 直接吃 roadCoversToSegments 的 {x,y,w,h,angle} 短段，无需自算点线距）
+      if (avoidRoad && Array.isArray(o.roadSegs) && o.roadSegs.length) {
+        if (obbHitsCover(o.roadSegs, cx, cy, w, h, ang, roadPad)) {
+          y += Math.min(len * 0.5, 60);
+          continue;
+        }
+      }
+      const tier = rng() < breakableChance ? 'wall_breakable' : 'wall';
+      const def = tierDefs[tier];
+      const b = { x: Math.round(cx), y: Math.round(cy), w: Math.round(w), h: Math.round(h), angle: ang, tier, defenseLine: true };
+      b.hp = (def && def.hp !== undefined) ? def.hp : (def && def.destructible !== undefined ? def.destructible : 1);
+      placed.push(b);
+      covers.push(b);
+      // 段间通行口
+      y += len + rng.range(gapMin, gapMax);
+    }
+      // 该列成果过少（<2 段）⇒ 视为被河流带/建筑群卡死，水平平移重试
+      if (placed.length - colStart >= 2 || retry === 4) {
+        break;
+      }
+      lx += (rng() < 0.5 ? -1 : 1) * (160 + rng() * 80);
+    }
+  }
+  return placed;
+}
+
+// ======================= 2026-10-22（第五批）直线掩体贴图族分配（PLAN §4.9.2(c)） =======================
+// 贴图族权重（唯一口径在本文件；渲染侧 js/tank_assets.js 按 wallStyle 烘焙对应贴图）：
+//   concrete 0.30 / sandbag 0.25 / steel 0.15 / brick 0.15 / hedgehog 0.10 / barrier 0.05
+// 生成期按「节点 biome + 是否近路」做**确定性偏移**（同 seed 可复现）：biome/近路决定权重表
+//   的轮转起点（cyclic rotation），**边际概率仍严格等于上表**——既让不同地貌的墙贴图有区分度，
+//   又不破坏「按权重 30/25/15/15/10/5」的分布口径。
+// 可摧毁版（wall_breakable）**强制 sandbag 或 brick**（用户口径：可摧毁掩体要能读出「可打碎」）。
+const WALL_STYLE_TABLE = [
+  { style: 'concrete', w: 0.30 },
+  { style: 'sandbag',  w: 0.25 },
+  { style: 'steel',    w: 0.15 },
+  { style: 'brick',    w: 0.15 },
+  { style: 'hedgehog', w: 0.10 },
+  { style: 'barrier',  w: 0.05 }
+];
+const WALL_STYLES_ALL = WALL_STYLE_TABLE.map(t => t.style);
+const WALL_BREAKABLE_STYLES = ['sandbag', 'brick'];
+const WALL_BIOME_OFFSET = { concrete: 4, desert: 2, snow: 3, meadow: 1, steppe: 0 };
+
+/**
+ * 选一个 wallStyle（纯函数、确定性；rng 由调用方注入）。
+ * @param {Function} rng createRNG 实例（返回 [0,1)）
+ * @param {string} [biome] 节点 biome（concrete/meadow/snow/desert/steppe…）
+ * @param {boolean} [nearRoad] 是否近路（路口邻域 / 沿路）
+ * @param {any} [cover] 可选：传入时把结果写到 cover.wallStyle 并返回；wall_breakable 强制 sandbag/brick
+ * @returns {string} wallStyle
+ */
+function assignWallStyle(rng, biome, nearRoad, cover) {
+  const r = (typeof rng === 'function') ? rng : (() => 0.5);
+  let style;
+  // 可摧毁掩体：只在 sandbag / brick 两个「可打碎」材质里选（0.6 / 0.4）。
+  if (cover && cover.tier === 'wall_breakable') {
+    style = r() < 0.6 ? 'sandbag' : 'brick';
+  } else {
+    const off = ((WALL_BIOME_OFFSET[biome || 'meadow'] !== undefined ? WALL_BIOME_OFFSET[biome || 'meadow'] : 1)
+      + (nearRoad ? 2 : 0)) % WALL_STYLE_TABLE.length;
+    const roll = r();
+    let acc = 0;
+    style = WALL_STYLE_TABLE[WALL_STYLE_TABLE.length - 1].style;
+    for (let k = 0; k < WALL_STYLE_TABLE.length; k++) {
+      const t = WALL_STYLE_TABLE[(k + off) % WALL_STYLE_TABLE.length];
+      acc += t.w;
+      if (roll < acc) { style = t.style; break; }
+    }
+  }
+  if (cover) cover.wallStyle = style;
+  return style;
+}
+
+/**
+ * 给一组 cover 里的全部 wall / wall_breakable 实例分配 wallStyle，并保证**同节点至少 3 种**。
+ * 不足 3 种时按实例顺序把部分实例改成尚未出现的样式（确定性；不消耗主 rng——调用方传独立子流）。
+ * 说明：若全部墙体都是 wall_breakable（只允许 sandbag/brick 两种），则最多凑到 2 种——
+ *   此时不把不可摧毁样式硬套到可摧毁墙上（贴图不能撒谎），保持 2 种。
+ * @param {any[]} covers 掩体数组（就地修改）
+ * @param {Function} rng createRNG 实例
+ * @param {string|Function} [biome] biome 字符串，或 (cover)=>biome
+ * @param {any[]} [roadCovers] 路面 cover（用于近路判定；缺省 = 不判近路）
+ * @returns {number} 被分配的墙体实例数
+ */
+function assignWallStylesToCovers(covers, rng, biome, roadCovers) {
+  const list = Array.isArray(covers) ? covers : [];
+  const walls = [];
+  for (const c of list) {
+    if (c && (c.tier === 'wall' || c.tier === 'wall_breakable')) walls.push(c);
+  }
+  if (!walls.length) return 0;
+  const segs = roadCoversToSegments(roadCovers || [], 100);
+  const biomeOf = (c) => {
+    if (typeof biome === 'function') { try { return biome(c) || 'meadow'; } catch (e) { return 'meadow'; } }
+    return biome || 'meadow';
+  };
+  for (const c of walls) {
+    let nearRoad = false;
+    for (const s of segs) {
+      if (Math.hypot(c.x - s.x, c.y - s.y) < 170) { nearRoad = true; break; }
+    }
+    assignWallStyle(rng, biomeOf(c), nearRoad, c);
+  }
+  // 至少 3 种：按实例顺序补齐未出现的样式（可摧毁实例仍只在 sandbag/brick 内补）。
+  const present = new Set(walls.map(c => c.wallStyle));
+  if (present.size >= 3) return walls.length;
+  for (const c of walls) {
+    if (present.size >= 3) break;
+    const allowed = (c.tier === 'wall_breakable') ? WALL_BREAKABLE_STYLES : WALL_STYLES_ALL;
+    const cand = allowed.find(s => !present.has(s));
+    if (cand) { c.wallStyle = cand; present.add(cand); }
+  }
+  if (present.size < 3) {
+    // 还有「非可摧毁」墙可用时再补一轮（先按顺序把 wall 实例改成未出现样式）
+    for (const c of walls) {
+      if (present.size >= 3) break;
+      if (c.tier !== 'wall') continue;
+      const cand = WALL_STYLES_ALL.find(s => !present.has(s));
+      if (cand) { c.wallStyle = cand; present.add(cand); }
+    }
+  }
+  return walls.length;
+}
 
 const _PRUNE_PRIORITY = {
-  full: 9, intact: 9, building: 9, rock: 8, bridge: 8, ruined: 6, barricade: 6,
-  stump: 5, rubble: 5, water: 4, river: 4, mud: 3, tree: 2, fallen: 2, bush: 1, soft: 1
+  full: 9, intact: 9, building: 9, rock: 8, bridge: 8, ruined: 6, wall: 6, wall_breakable: 6,
+  stump: 5, rubble: 5, water: 4, river: 4, mud: 3, tree: 2, fallen: 2, bush: 1
 };
 function _pruneSamplePts(c) {
   // 3×3 采样：以 OBB 局部框（或 verts 包围盒）为基准
@@ -3282,23 +3785,13 @@ function clearCoversOnWater(covers, opts) {
     // tank_cover.js / tank_fire.js 的 half 判定逻辑全部保留不动（兼容 bench/测试）。
     if (tier === 'half') continue;
 
-    // Element ratio adjustment:
-    // High difficulty -> upgrade soft/bush to barricade
-    // （P-40：地形标签 tier 不降级/升级；D5：bush/soft 升级池不再含 half 选项）
+    // 2026-10-22（第五批）难度互换（掩体体系重做，PLAN §4.9.2）：
+    //   低难度多「可摧毁掩体」（wall_breakable，4 发后消失，好破）→ 高难度多「不可摧毁掩体」
+    //   （wall，更硬、只能绕行）。旧「栅栏 → 沙包」升降级链随这两个 tier 删除一并移除；
+    //   bush 不再参与升降级（它属植被，不再被改成结构物）。
     if (!isTerrainTier(tier)) {
-      if (diff > 0.6) {
-        if ((tier === 'bush' || tier === 'soft') && rng() < (diff - 0.5) * 0.4) {
-          tier = 'barricade';
-        }
-      }
-      // Low difficulty -> downgrade barricade to soft
-      // （D5：full→half 降级改为无操作——full 保持 full，不再产出 half 掩体）
-      else if (diff < 0.35) {
-        if (!item.verts) { // Don't modify complex polygon structures
-          if (tier === 'barricade' && rng() < (0.4 - diff) * 0.4) {
-            tier = 'soft';
-          }
-        }
+      if (tier === 'wall_breakable' && rng() < diff * 0.5) {
+        tier = 'wall';
       }
     }
 
@@ -3325,7 +3818,8 @@ function clearCoversOnWater(covers, opts) {
       } else if (tier === 'stump') {
         itemW *= 0.6; itemH *= 0.6;
       }
-    } else if (tier === 'barricade' && rng() < wreckProb) {
+    } else if (tier === 'wall_breakable' && rng() < wreckProb) {
+      // 预损毁：可摧毁直线掩体偶尔以「已倒塌」的碎石形态出现（不降级链，仅外观态）。
       tier = 'rubble';
     }
 
@@ -3612,7 +4106,7 @@ function clearCoversOnWater(covers, opts) {
     }
   }
 
-  // #E3（2026-09-20）：建筑沿路/路口聚集 + 路口沙包注入（在统一消叠之前 → 天然参与互不重叠）。
+  // #E3（2026-09-20）：建筑沿路/路口聚集 + 路口直线掩体注入（在统一消叠之前 → 天然参与互不重叠）。
   // 用模板 seed 派生的独立子流，保证同 seed 跨难度的路网/建筑布局一致。
   {
     const brng = createRNG(((Number(seed) ^ 0x3C6EF372) + 0x6D2B79F5) >>> 0);
@@ -3621,7 +4115,7 @@ function clearCoversOnWater(covers, opts) {
     placeRoadsideBuildings(brng, selectedTemplate, scale, centerX, centerY,
                            avoidCovers, roadJunctions, roadWidth, outCovers,
                            (opts.buildingDensity !== undefined) ? opts.buildingDensity : 1);
-    placeJunctionBarricades(brng, avoidCovers, roadJunctions, roadWidth, outCovers,
+    placeJunctionWalls(brng, avoidCovers, roadJunctions, roadWidth, outCovers,
       { halfW: selectedTemplate.w * scale / 2, halfH: selectedTemplate.h * scale / 2 });
   }
 
@@ -3704,6 +4198,15 @@ function clearCoversOnWater(covers, opts) {
     bounds: { minX: centerX - _hw, minY: centerY - _hh, maxX: centerX + _hw, maxY: centerY + _hh }
   });
 
+  // 2026-10-22（第五批）PLAN §4.9.2(c)：**所有** wall / wall_breakable 实例生成后统一分配贴图族
+  //   （wallStyle：concrete/sandbag/steel/brick/hedgehog/barrier），并保证同节点 ≥3 种。
+  //   用 seed 派生的独立子流（不污染主 rng 流位，保证既有校准基线/回放 hash 的 rng 序列不变）。
+  //   放在道路净空收尾之后：被清掉的墙体不占样式名额，避免「补够 3 种」的预算浪费。
+  {
+    const _wsRng = createRNG(((Number(seed) ^ 0x7A11) >>> 0));
+    assignWallStylesToCovers(outCovers, _wsRng, selectedTemplate.biome || 'meadow', networkRoads);
+  }
+
   return {
     template: selectedTemplate,
     biome: selectedTemplate.biome || null,   // P-36/#81：biome 地面主题标签（makeNode 透传到 run.nodes）
@@ -3779,6 +4282,8 @@ function _obbOverlap(a, b) {
  * @param {Function} options.scaleFor(viewport, tpl) 片内缩放（生产传 nodeScaleFor）
  * @param {number} [options.buildingDensity] 透传 generateNode
  * @param {number} [options.cullRate] 透传 generateNode
+ * @param {boolean} [options.fillBands] 单行片也执行 fillEmptyBands 纵向补植（生存模式用；
+ *   缺省 false = 单行零回归，仅 chunkRows>1 自动开启）
  * @returns {Object} { advanceAxis, seed, difficulty, w, h, covers, roadJunctions,
  *   roadW[], chunks[{templateId,w,h,x0,seed}], chunkCount, seamCleared, densityPerScreen }
  */
@@ -4500,8 +5005,11 @@ function generateStrip(difficulty, options) {
   });
   // #U35：多行片「纵向填满」兜底——任何 100px 等高带里非 road 元素数为 0 就用确定性植被补满
   // （用户硬性要求：地图要真正填满、上下不要大块空白）。100px 粒度 ⇒ 100px/400px 带均必然 > 0。
-  // 单行片不调用（零回归）。
-  const bandFillStats = (chunkRows > 1)
+  // 单行片缺省不调用（零回归）；2026-10-22（B4-2）生存模式 3×3 屏改单行后仍要求纵向填满，
+  //   由 makeNode 以 opts.fillBands=true 显式开启（模板内容只占 tpl.h 的中段，纵向裁剪后
+  //   会留下上下 ~200px 空带，实测 seed=999 底部 400px 带元素数 = 0）。
+  const _optsAny = /** @type {any} */ (opts);
+  const bandFillStats = (chunkRows > 1 || _optsAny.fillBands === true)
     ? fillEmptyBands(finalCovers, {
       w: stripW, h: stripH, band: 100, seed: seed,
       seamY: seamY            // 补位的植被同样不得跨行界（与行间接缝口径同源）
@@ -4865,7 +5373,18 @@ function generateStrip(difficulty, options) {
       generateStrip,
       placeRoadNetwork,
       placeRoadsideBuildings,
+      placeJunctionWalls,
+      placeDefenseWalls,   // 2026-10-22：防线墙体（makeNode 接线消费）
+      obbHitsCover,        // 2026-10-22：防线墙路面避让（makeNode 诊断/复用）
+      // 兼容旧名（2026-10-22 起 placeJunctionBarricades = placeJunctionWalls 的别名）
       placeJunctionBarricades,
+      // 2026-10-22：strip 级河流生成（含 B4-3 河路交叉角收尾）导出，供审计脚本直调
+      placeStripRivers,
+      // 2026-10-22（第五批）直线掩体贴图族分配 + 河路交叉角收尾/纯函数度量
+      assignWallStyle,
+      assignWallStylesToCovers,
+      minRiverRoadCrossAngle,
+      enforceRiverRoadCrossAngle,
       roadCoversToSegments,
       placeVillage,
       placeForestClusters,

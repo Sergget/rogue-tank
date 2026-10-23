@@ -367,6 +367,7 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
   shooter.weapons.activeSecondaryIndex = 1;
   shooter.weapons.secondary = shooter.weapons.secondarySlots[1];
   shooter.secondaryReloadT = 0;
+  shooter._missileInFlight = null;   // 2026-10-23：导弹单发在飞标记（弹体结束才可再发）
   shells.length = 0;
   ok(W.fireActiveSecondary(shooter, ctx, enemy) === true, '手动主动击发导弹成功（实敌 → 仍锁定追尾，target=敌）');
   ok(shells.length === 1 && shells[0].guided === true && shells[0].mode === 'lock', '手动击发导弹产生锁定式制导弹体');
@@ -375,6 +376,7 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
   shells.length = 0;
   shooter.weapons.secondary = { type: 'missile_wire', stats: { reload: 10, damage: 150 } };
   shooter.secondaryReloadT = 0;
+  shooter._missileInFlight = null;   // 2026-10-23：清在飞标记
   ok(W.fireActiveSecondary(shooter, ctx, { x: 400, y: 200 }) === true, '手动击发线导反坦克导弹成功');
   ok(shells.length === 1 && shells[0].guided === true && shells[0].mode === 'wire', '线导导弹生成且 mode=wire');
 
@@ -427,6 +429,7 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
     shells.length = 0;
     shooter.weapons.secondary = { type: 'missile', stats: { reload: 12, damage: 140 } };
     shooter.secondaryReloadT = 0;
+    shooter._missileInFlight = null;   // 2026-10-23：导弹单发在飞标记
     W.fireActiveSecondary(shooter, ctx, enemy);
     ok(shells.length === 1 && shells[0].ammoKey === 'he', '未升级 HEAT 时导弹按主武器 HE 计算');
 
@@ -442,6 +445,7 @@ console.log('=== 开始 R-3 阶段特种弹药与曲射系统自动化测试 (te
     shells.length = 0;
     shooter.weapons.secondary = { type: 'missile', stats: { reload: 12, damage: 140 } };
     shooter.secondaryReloadT = 0;
+    shooter._missileInFlight = null;   // 2026-10-23：导弹单发在飞标记
     W.fireActiveSecondary(shooter, ctx, enemy);
     ok(shells.length === 1 && shells[0].ammoKey === 'tandem_heat' && shells[0].pen > 300, '升级到 T-HEAT 时导弹按 tandem_heat 计算穿深与机制');
 

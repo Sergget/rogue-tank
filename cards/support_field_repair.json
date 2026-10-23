@@ -1,7 +1,7 @@
 {
   "id": "support_field_repair",
   "name": "野战维修班",
-  "rarity": "rare",
+  "rarity": "common",
   "desc": "野战维修班随行：最大耐久 +15，履带锁定时间 -15%。",
   "effects": [
     { "type": "modifier", "stat": "maxHp", "mode": "add", "value": 15 },

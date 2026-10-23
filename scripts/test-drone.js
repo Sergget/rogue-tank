@@ -105,14 +105,17 @@ function enemy(x, y, kind) {
   resetAll();
   const p = player(0, 0, 100);
   const d = spawnDrone(p, 'striker', { phase: 0 });
-  const e = enemy(100, 0);                        // strikeRange 260 内
-  ok(updateDrones(0.5, { enemies: [e] }).length === 0, '0.5s 未到 fireInterval → 无事件');
-  ok(close(d.fireT, 0.5, 1e-9), 'fireT 累积 0.5');
-  ok(updateDrones(1.0, { enemies: [e] }).length === 0, '1.5s 仍未到 2.0s → 无事件');
-  const ev = updateDrones(0.5, { enemies: [e] });
-  ok(ev.length === 1 && ev[0].type === 'droneFire' && ev[0].drone === d && ev[0].target === e, '2.0s 到点 → droneFire 事件');
+  const e = enemy(100, 0);                        // strikeRange 内
+  // 2026-10-23：fireInterval / dmgMult 改读 RULES（用户要求加强攻击无人机：2.0→1.5、0.4→0.8）
+  const dcfg = droneConfig();
+  const FI = dcfg.fireInterval;
+  ok(updateDrones(FI * 0.25, { enemies: [e] }).length === 0, `未到 fireInterval(${FI}s) → 无事件`);
+  ok(close(d.fireT, FI * 0.25, 1e-9), `fireT 累积 ${(FI * 0.25).toFixed(2)}`);
+  ok(updateDrones(FI * 0.5, { enemies: [e] }).length === 0, `${(FI * 0.75).toFixed(2)}s 仍未到 ${FI}s → 无事件`);
+  const ev = updateDrones(FI * 0.25, { enemies: [e] });
+  ok(ev.length === 1 && ev[0].type === 'droneFire' && ev[0].drone === d && ev[0].target === e, `${FI}s 到点 → droneFire 事件`);
   ok(close(d.fireT, 0), '开火后 fireT 归零');
-  ok(ev[0].damage === Math.round(0.4 * 100), '事件携带 damage = dmgMult × owner.stats.damage');
+  ok(ev[0].damage === Math.round(dcfg.dmgMult * 100), `事件携带 damage = dmgMult × owner.stats.damage（${ev[0].damage}）`);
 }
 
 // ---- 6) 目标出范围：不累积不输出；回范围延续冻结计时 ----
@@ -230,16 +233,21 @@ function enemy(x, y, kind) {
   resetAll();
   const p = player(0, 0, 250);
   const d = spawnDrone(p, 'striker');
-  ok(droneDamage(d) === Math.round(0.4 * 250), 'droneDamage = dmgMult × stats.damage（250 → 100）');
+  const dcfg2 = droneConfig();
+  ok(droneDamage(d) === Math.round(dcfg2.dmgMult * 250), `droneDamage = dmgMult × stats.damage（250 → ${Math.round(dcfg2.dmgMult * 250)}）`);
   const p2 = { id: 'p2', team: 'player', x: 0, y: 0, hp: 100 };   // 无 stats 的裸 owner
   const d2 = spawnDrone(p2, 'striker');
-  ok(droneDamage(d2) === Math.round(0.4 * 100), '无 stats → 回退基准伤害 100');
+  ok(droneDamage(d2) === Math.round(dcfg2.dmgMult * 100), `无 stats → 回退基准伤害 100 × dmgMult（${Math.round(dcfg2.dmgMult * 100)}）`);
 }
 
 // ---- 14) droneConfig 读 RULES 参数 ----
 {
+  // 2026-10-23（用户裁定「删除侦察无人机、加强攻击无人机」）：
+  //   侦察（scout）已下线 → scoutRange 不再存在；strikeRange 260→400、fireInterval 2.0→1.5、dmgMult 0.4→0.8。
   const cfg = droneConfig();
-  ok(cfg.scoutRange === 700 && cfg.strikeRange === 260 && cfg.fireInterval === 2.0, 'droneConfig 读 RULES（索敌/侦察）');
+  ok(cfg.scoutRange === undefined, 'droneConfig：侦察范围键已随侦察无人机删除（scoutRange 无定义）');
+  ok(cfg.strikeRange === 400 && cfg.fireInterval === 1.5 && cfg.dmgMult === 0.8,
+    `droneConfig 读 RULES（攻击无人机加强：strikeRange ${cfg.strikeRange} / fireInterval ${cfg.fireInterval} / dmgMult ${cfg.dmgMult}）`);
   ok(cfg.orbitDist === 90 && cfg.orbitSpeed === 1.2 && cfg.countMax === 2, 'droneConfig 读 RULES（环绕/上限）');
 }
 

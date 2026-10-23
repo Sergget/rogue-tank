@@ -141,7 +141,7 @@
 
 **详见**：[卷首页主题表](./combat/index.md#主题页)
 
-### 8.1 便携式掩体与布雷器：部署上限、预约与触发口径（#E4/#F5/#F6）
+### 8.1 便携式掩体与布雷器：部署上限、预约与触发口径（#E4/#F5/#F6；2026-10-22 雷场改带状 / 地雷总数不设上限）
 
 > 单向透明、`deploy_cover` 尺寸表、`deploy_limits` 六个上限键与超限拒绝、两次 F 的雷场预约、地雷触发半径与 blastRadius 的缺省表口径。
 
@@ -416,3 +416,12 @@
 > reward 屏选完卡原地展开商店；三处入口共用 `buildRunShopInto`；每次进 reward 先 `resetRewardShop()`。
 
 **详见**：[游戏模式 · Boss 模式：商店时序](./combat/game-modes.md#boss-模式商店时序)
+
+## 15. 撞击伤害、隐蔽感知、战术闪跃与烟幕（2026-10-23 新增，现行口径）
+
+> **撞击**：`resolveTankCollisions` 在 MTV 分离前按法向闭合速度结算动能伤害；硬直采用「伤害 ≥ 生命上限 × 0.25 **且** 动能 ≥ 上限 × 0.15」双轨**比例**判定（不用绝对点数，防后期必然触发）。参数唯一口径 `RULES.ramming`。
+> **隐蔽**：隐蔽值 = 吨位基准 × 运动倍率 × 开火惩罚 + max(灌木, 烟幕)；映射为 AI 首次激活距离折扣 `clamp(1/(1+camo), 0.3, 1)`，脱离距离不吃折扣。参数唯一口径 `RULES.camouflage`。
+> **闪跃**：`flash_dash` 独立冷却、独立速度乘子；激活只写状态位，位移仍由 `driveTank` 积分。五键闭环（RULES / ABILITY_KEYS_RUNTIME / ABILITY_LABELS / dispatch / 卡牌白名单）缺一即死键。
+> **烟幕**：副武器 `smoke` 抛 `cloudCount` 团烟墙；发射几何归 `WEAPON_DEFAULTS.secondary.smoke`，单团半径/存续归 `RULES.smoke`；视线遮断与隐蔽加成是两条独立通道。
+
+**详见**：[撞击伤害、隐蔽感知与战术闪跃](./combat/ramming-stealth-dash.md)

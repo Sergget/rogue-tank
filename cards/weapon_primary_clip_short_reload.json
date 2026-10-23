@@ -1,0 +1,18 @@
+{
+  "id": "weapon_primary_clip_short_reload",
+  "name": "弹夹炮：快速推弹机",
+  "rarity": "rare",
+  "desc": "弹夹内短装填 −0.1s / 级（基础 0.7s → 0.6 → 0.5s，下限 0.5s）。弹夹间整组装填时间不变；缩短的是「弹夹内两发之间」的间隔，因此爆发窗口内的投射量更集中。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "clip",
+      "statOverrides": {
+        "clipCycleSeconds": "-0.1"
+      }
+    }
+  ],
+  "maxStacks": 2
+}

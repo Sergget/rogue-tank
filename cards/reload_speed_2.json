@@ -1,7 +1,7 @@
 {
   "id": "reload_speed_2",
   "name": "装填机优化 II",
-  "rarity": "rare",
+  "rarity": "common",
   "desc": "半自动装弹机，装填时间 -13%。",
   "effects": [
     { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.87 }

@@ -1,5 +1,6 @@
 {
   "id": "panzer-IV",
+  "passiveSlots": 2,
   "traverseLimit": 180,
   "maxSpeed": 115,
   "turnRate": 2.2,
@@ -17,6 +18,22 @@
   "spreadMult": 1,
   "aimSpeed": 1.8,
   "texture": "paint_panzergrau",
+  "appearance": {
+    "cupola": [
+      {
+        "style": "standard",
+        "dx": 0,
+        "dy": 5,
+        "mirror": false,
+        "scale": 1
+      }
+    ],
+    "engineDeck": {
+      "style": "standard",
+      "dx": 0,
+      "dy": 0
+    }
+  },
   "sprite": {
     "enabled": false,
     "track": {
@@ -41,7 +58,7 @@
       "rot": 0,
       "pivot": [
         411.1,
-        290.0
+        290
       ]
     },
     "barrel": {
@@ -108,25 +125,45 @@
   "turret": {
     "verts": [
       [
-        14,
-        -12
+        9.9,
+        -7.4
       ],
       [
-        -14,
-        -12
+        -3.9,
+        -12.6
       ],
       [
-        -14,
-        12
+        -17.9,
+        -6.6
       ],
       [
-        14,
-        12
+        -23.1,
+        -6
+      ],
+      [
+        -23.1,
+        6
+      ],
+      [
+        -17.9,
+        6.6
+      ],
+      [
+        -3.9,
+        12.6
+      ],
+      [
+        9.9,
+        7.4
       ]
     ],
     "faces": [
       "side",
+      "side",
+      "side",
       "rear",
+      "side",
+      "side",
       "side",
       "front"
     ],
@@ -140,22 +177,8 @@
       "dy": 0
     },
     "axis": {
-      "dx": 0,
+      "dx": -4,
       "dy": 0
-    }
-  },
-  "appearance": {
-    "cupola": {
-      "style": "standard",
-      "dx": 0,
-      "dy": 0,
-      "mirror": false
-    },
-    "engineDeck": {
-      "style": "standard",
-      "dx": 0,
-      "dy": 0,
-      "mirror": false
     }
   }
 }

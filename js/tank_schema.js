@@ -28,7 +28,9 @@ const TEXTURES = ['none','armor_plate','weld_seam','rust','camo','camo_dunkelgel
 //                          （映射公式见 tank_compare.html；底层仍写 spreadMult 单参数）
 //
 // ---- 整车精灵 sprite（设计器管理，不进 FIELD_ROWS/compare 页） ----
-// tanks/<id>.json 可选 `sprite` 块：AI 生成的四层俯视贴图替换程序化绘制。
+// tanks/<id>.json 可选 `sprite` 块：四层俯视贴图（后期美术提供）替换程序化绘制。
+//   2026-10-23 用户裁定：`assets/tanks/` 现有 PNG 已全部删除，通道代码保留；当前全部 `enabled:false`。
+//   图片不存在时不要置 `enabled:true`（scripts/test-tanks.js 有负向断言）。
 //   {
 //     enabled: bool,                       // 局内 drawTank 是否改用精灵绘制（默认 false）
 //     track:  { img, scale, dx, dy, rot },  // img: assets/tanks/track-links.png（滚动履带条）

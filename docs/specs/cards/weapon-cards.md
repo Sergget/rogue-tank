@@ -1,7 +1,7 @@
 # 机制卡与武器 effect
 
 > **摘要**：原 §8.3——主/副武器安装卡与升级卡、`statOverrides` 三态、Boss 随机武备。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-22）
 > **源自**：`docs/specs/cards.md` §8、§8.3（2026-10-21 拆分；原 §8.3 为 35 行，独立成页）
 > **相关**：[三板块设计定稿](./design-blocks.md) · [七类效果类型 · weapon](./effect-types.md#weapon) · [战斗规范 · 武器与装填](../combat/weapons-reload.md)
 
@@ -139,6 +139,43 @@ Boss 此前只有 `assignBossSkills` 随机技能，`weapons` 恒为 `standard` 
 （#G9，2026-09-21 新增能力卡）
 
 epic `ability_aps`（`{type:'ability', key:'aps'}`，`maxStacks 1`）——经技能池 1~3 号技能键触发（无独立字母键）；参数 `RULES.abilities.aps`（duration 6s / radius 240px / maxIntercepts 3 / cooldown 22s）。机制细则归口 [战斗规范 · 技能与副武器](../combat/abilities-secondary.md)。
+
+## 2026-10-22 第五批：武器卡增删与收口
+
+### 新增 10 张
+
+| id | 名称 | 稀有度 | statOverrides | maxStacks |
+|---|---|---|---|---|
+| `weapon_secondary_mine_density` | 布雷器：加密装药 | rare | `mineFieldCount: "+2"` | 3 |
+| `weapon_secondary_mine_length` | 布雷器：延展雷带 | rare | `mineFieldLength: "+80"` | 3 |
+| `weapon_secondary_mine_cooling` | 布雷器：快速布雷 | rare | `mineFieldReload: "-2"` | 3 |
+| `weapon_secondary_mine_slot` | 布雷器：多雷场控制器 | epic | `mineFieldMaxDeploy: "+1"` | 2 |
+| `weapon_primary_autocannon_range` | 机炮：加长身管 | rare | `maxRange: "+100"` | 3 |
+| `weapon_primary_autocannon_cooling` | 机炮：强制风冷 | rare | `overheatLock: "-0.5"` | 2 |
+| `weapon_primary_autocannon_pierce` | 机炮：钨芯弹链 | epic | `penMult: "+0.05"` | 2 |
+| `weapon_primary_clip_short_reload` | 弹夹炮：快速推弹机 | rare | `clipCycleSeconds: "-0.1"` | 2 |
+| `weapon_primary_clip_burst` | 弹夹炮：爆发射击 | epic | `burstOnSalvo: true` | 1 |
+| `weapon_primary_standard_doubletap` | 标准主炮：砰砰炮 | epic | `doubleTapEnabled: true` | 1 |
+
+机制细节分别归口：[布雷器 · 雷场](../combat/deployables.md#布雷器与雷场) / [机炮](../combat/weapons-reload.md#机炮) / [弹夹炮](../combat/weapons-reload.md#弹夹炮) / [砰砰炮](../combat/weapons-reload.md#标准主炮的砰砰炮)。本表只锁卡面数据。
+
+### 删除 1 张、改造 1 张
+
+- **删除** `weapon_primary_sync_fire`（同步击发装置）：唯一效果 `switchSeconds 0.5 → 0.1` 在「换管时间固定 0.8s」后完全失效（2026-10-22 用户裁定）。
+- **改造** `weapon_primary_alt_reload`（交替装填系统）：稀有度 **mythic → epic**；`statOverrides` 只留 `{altReload: true}`（删 `switchSeconds: 0.05` 与 `reloadMult: 0.9`）。语义改为「单管射击不再重置另一管的装填进度」。
+
+### 既有卡与新机制的冲突收口（6 处）
+
+| 卡 | 动作 | 原因 |
+|---|---|---|
+| `weapon_primary_autocannon_damage` | 摘掉 `penMult 0.95`（只留 `damageMult 0.26`） | 会突破「穿深增强最多 +10%（0.80→0.90）」上限 |
+| `weapon_primary_autocannon_heat` | 摘掉 `overheatLock 1.2`（只留 `heatMax 140`） | 会突破「过热锁定 ≥1.0s」下限 |
+| `weapon_primary_clip_capacity` | 摘掉 `clipCycleSeconds 0.55`（只留 `clipSize "+2"`） | 会突破「短装填最多 −0.2s（0.7→0.5）」 |
+| `weapon_secondary_mine_upgrade` | 改为 `{ mineFieldHeRatio: "+0.15", duration: 45 }`（删 `damage: 150`） | 雷场伤害已改为「HE × 比例」，`damage` 对雷场失效 |
+| `weapon_primary_sync_fire` | **删除** | 换管时间固定后完全失效 |
+| `weapon_primary_alt_reload` | 只留 `altReload: true`、降 epic | 同上 |
+
+> **收口原则**：每个新上限只能有一个卡牌来源；既有卡若已给到超限值必须先摘键再上线新卡，否则 `maxStacks` 只是装饰。
 
 ## 相关页面
 - [三板块设计定稿](./design-blocks.md) — 原 §8 的第一半：设计裁定 / 基础数值 / 技能卡

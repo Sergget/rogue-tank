@@ -1,7 +1,7 @@
 {
   "id": "weapon_primary_railgun_damage",
   "name": "轨道炮：钨芯动能弹",
-  "rarity": "rare",
+  "rarity": "epic",
   "desc": "电磁轨道炮强化：单发伤害 ×1.8 → ×2.3、穿深 ×2.0 → ×2.4、贯穿目标数 1 → 2（第二目标伤害 0.6 倍保留）。对化学弹（HE/HEAT）只吃伤害不吃穿深与贯穿。",
   "effects": [
     {

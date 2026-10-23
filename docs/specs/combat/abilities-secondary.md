@@ -36,8 +36,22 @@
 
 `F` 键语义按副武器类型分派（`tank_battle.trySecondaryFire`）：
 
-- **锁定式（`missile`）**：F = **激活**，立即开始索敌（炮塔 ±`lockArcDeg` 扇形内最近敌对目标）→ 锁定计时满 `lockSeconds` 后**立即发射**（`updateMissileLock`，玩家侧主循环逐帧驱动）；再按 F 取消激活。飞行制导 = 追尾 + **比例引导（PN）**：`RULES.missiles.lock`（`turnRate 3.5 rad/s`、`navConstant N=3.0`）。
-- **线导式（`missile_wire`）**：F = **直接发射**，飞行方向由**鼠标**持续引导（`shooter._secondaryTargetPos` 每帧更新）——等效视线角速度为 0 的比例引导；`RULES.missiles.wire`（`turnRate 4.5`、`N=0`）。已并入 `RULES.weaponTypes.secondary` 白名单与 HUD 标签/图标（「反坦克导弹（线导式）」）。**#U39（2026-10-18）：飞行速度与装填已入 `WEAPON_DEFAULTS.secondary.missile_wire` 并由 `cfg` 消费**（原 `speed` 只在 `fireActiveSecondary` 的 wire 分支写死，升级卡无法覆盖）；同批该型补入卡牌白名单 `WEAPON_SECONDARY_TYPES` 并获得安装卡 + 2 张升级卡，见 `specs/cards.md` §8.3。
+- **锁定式（`missile`）**：F = **激活**，立即开始索敌（炮塔 ±`lockArcDeg` 扇形内最近敌对目标）→ 锁定计时满 `lockSeconds` 后**立即发射**（`updateMissileLock`，玩家侧主循环逐帧驱动）；再按 F 取消激活。飞行制导 = 追尾 + **比例引导（PN）**：`RULES.missiles.lock`（`turnRate` **2.0 rad/s**、`navConstant N=2.5`）。沿革：~~turnRate 3.5 / N 3.0~~ → **2026-10-23 用户裁定「削弱拐弯能力」**。
+- **线导式（`missile_wire`）**：F = **直接发射**，飞行方向由**鼠标**持续引导（`shooter._secondaryTargetPos` 每帧更新）——等效视线角速度为 0 的比例引导；`RULES.missiles.wire`（`turnRate` **2.5**、`N=0`）。沿革：~~4.5~~ → 2026-10-23 削弱。已并入 `RULES.weaponTypes.secondary` 白名单与 HUD 标签/图标（「反坦克导弹（线导式）」）。**#U39（2026-10-18）：飞行速度与装填已入 `WEAPON_DEFAULTS.secondary.missile_wire` 并由 `cfg` 消费**（原 `speed` 只在 `fireActiveSecondary` 的 wire 分支写死，升级卡无法覆盖）；同批该型补入卡牌白名单 `WEAPON_SECONDARY_TYPES` 并获得安装卡 + 2 张升级卡，见 `specs/cards.md` §8.3。
+
+#### 导弹单发冷却 / 越障 / 攻顶（2026-10-23 用户裁定）
+
+用户原话：「目前反坦克导弹是按下 1 次 F 键，一个节点都会生效，需要改为按 1 次生效 1 次，导弹击中、消失后进入冷却时间。」+「削弱线导、锁定式导弹的机动能力」+「线导导弹默认可以越过当前配置的掩体（不是建筑、岩石等），提供升级攻顶引信…锁定导弹仅 50% 几率可飞过去，并提供升级：攻顶式反坦克导弹」。
+
+| 项 | 现行口径 | 唯一口径位置 |
+|---|---|---|
+| **单发在飞** | 发射即置 `t._missileInFlight = shell`，`secondaryReloadT = 0`；**在飞期间 `missile`/`missile_wire`/`updateMissileLock` 一律拒绝再次击发**。弹体在 `tank_battle.html` 弹体清理段死亡（命中/超程/出界/被拦）时释放标记并按 `cfg.reload` 写入装填 | `js/tank_weapons.js` `fireActiveSecondary` 两分支 + `tank_battle.html` shells 清理段 |
+| **越障概率** | `RULES.missiles.lock.overflyChance = 0.5`（50%）、`wire.overflyChance = 1.0`（默认必越）；掷骰在**发射时**完成并写弹体 `s.overflyLow` | `RULES.missiles` |
+| **可越 tiers** | `RULES.coverTiers[tier].missileOverfly === true`：`wall` / `wall_breakable` / `tree`。**不可越**：`building` / `intact` / `ruined` / `rock` / `perm_block` | `js/tank_rules.js` coverTiers |
+| **越障语义** | 弹体 `overflyLow` 时，这些 tier 不参与 `findCoversOnPath` 拦截、部位裁剪（`_wallBlockAlong`）与部署掩体拦截 | `js/tank_fire.js` stepShells |
+| **攻顶引信** | 弹体 `s.topAttack` → 命中结算改用 `resolveHit(..., allowBounce=false, {forceEffThickness: thinnestArmorThickness(target,'all')})`，且伤害 ×`RULES.missiles.topAttack.dmgScale`（**0.6**） | `RULES.missiles.topAttack` + `js/tank_fire.js` |
+| **攻顶升级卡** | `weapon_secondary_missile_top_attack`（锁定式）/ `weapon_secondary_missile_wire_top_attack`（线导式），均 epic、`weapon upgrade` + `statOverrides.topAttack = true` | `cards/*.json` |
+
 - **榴弹炮（`howitzer` 副武器槽）例外口径（2026-10-20 #X5）**：该槽**本身不发射**（射击走主炮左键/空格），F 对它 = **曲射/直射模式开关**，与 `missile`（激活/取消）、`mine_layer`（预形态/确认）同属**开关类**，一律走原生 `keydown` 边沿，严禁主循环逐帧轮询。默认 `_howitzerOn !== false`（装卡即曲射）；切到直射时清 `_howitzerBurst`（丢弃未打完的急速射追发队列，防止旧模式余弹继续打出）。模式判据唯一入口 `js/tank_weapons.js` 的 `isHowitzerMode(t)` / `toggleHowitzer(t)`（`isHowitzerMode` = 槽位判据 **且** 运行时开关，2026-10-20 前只有槽位判据 ⇒ 装卡后恒曲射、F 无法切回）。详见 [曲射火力](./arc-fire.md)。
 - **火箭巢（`rocket`）发射朝向（2026-10-20 #X4）**：弹道基础角 = **炮塔朝向**（`t.turretAngle`），**不解析 `targetPos`/鼠标位置**；整组 burst 共用该角度，每发仅叠加独立散布（`fireRocketOne` 的 `gaussian(0.02)`）⇒ 扇形齐射。其他副武器（`mortar`/`missile`/`turret`/`mine_layer`）仍按目标点解算，语义不变。~~旧口径「朝向鼠标位置」~~ 已被取代。
 

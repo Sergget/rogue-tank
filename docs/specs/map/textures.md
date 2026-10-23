@@ -1,12 +1,13 @@
 # 贴图资产与审核标准
 
-> **摘要**：资产烘焙契约、出图管线、纹理/阴影质量与坦克贴图的量化审核标准。
-> **适用版本**：现行（2026-10-21）
+> **摘要**：资产烘焙契约、后期贴图接线与验收、纹理/阴影质量与坦克贴图的量化审核标准。
+> **适用版本**：现行（2026-10-23；坦克贴图通道与出图管线口径见对应节）
 > **源自**：`docs/specs/map.md` §4 / §18 / §22 / §23（2026-10-21 拆分）
-> **相关**：[地面烘焙与相机](./ground-camera.md) · [地形抽象与生成](./terrain.md) · [沿革与未落地](./changelog.md)
+> **相关**：[地面烘焙与相机](./ground-camera.md) · [地形抽象与生成](./terrain.md) · [伪 3D 研究](./pseudo-3d-2p5d.md) · [沿革与未落地](./changelog.md)
 
 ## 目录
 - [贴图资产与烘焙层](#贴图资产与烘焙层)
+- [坦克贴图通道（2026-10-23 路线裁定）](#坦克贴图通道2026-10-23-路线裁定)
 - [出图管线](#出图管线)
 - [贴图与阴影质量](#贴图与阴影质量)
 - [纹理与缓存](#纹理与缓存)
@@ -18,36 +19,56 @@
 
 （原 §4）
 
-- ASSET_DEFS 注册表管理 soft/barricade/stump/rubble/bush/tree/fallen 七档贴图规格与程序化 bake 函数。
-- 零外部图片依赖：assets/ 目录为空时自动离屏烘焙缓存（ASSET_CACHE），file:// 离线完整兼容。
-- tools/bake.html 一键导出 PNG 到 assets/，日后真实美术直接替换同名文件接口不变。
+- 程序化烘焙是**唯一实机路径**：`assets/` 无对应 PNG 时自动离屏烘焙缓存（`ASSET_CACHE`），`file://` 离线完整兼容。
+- **后期贴图接线保留**：`tools/bake.html` 一键导出 PNG 到 `assets/`；外部美术产出的 PNG 走 `scripts/prepare_covers.py` 落盘、`scripts/covers-anchor-check.py` 验收后即可接管同一接口（见 [出图管线](#出图管线)）。
+- **地图元素档位现状（2026-10-23 实测 `ASSET_DEFS`）**：六档 = `wall`（六变体）/`stump`/`rubble`/`bush`/`tree`/`fallen`；旧 `soft`（栅栏）与 `barricade`（沙袋）已于 2026-10-22 合并为 `wall`。
 - **树冠视觉-逻辑对齐（#A10）**：`tree.bakeCanopy` 冠径乘数由 `1.9` 降至 `1.4`，使树冠视觉半径更贴近逻辑 OBB（24×18），缓解"所见远大于所挡"的脱节；倒树（fallen）保留根部伐倒断面高亮。如需进一步收紧可继续下调或提为 RULES 参数。
 - **建筑程序化细节（#S13，2026-10-15）**：`drawStyle:'box'`（full/building/intact）不再是纯色块——加屋顶内收（12%，深色）+ 天窗网格（2~3 列，25% 空缺，deterministic hash）+ 墙体左上高光。实现 `js/tank_battledraw.js` `drawCover` box 分支。
 - **地面投影（2026-10-17 #U11，现行口径）**：`drawCoverShadow(ctx, cov)` 在 `drawCover` 实体之前落两层软边影（近层深、远层淡，零模糊开销），统一光源假定左上、影子偏右下（与坦克炮塔影同向）。按绘制风格分流：
   - `box` / `rubble-box` / `rock-poly`（建筑/残骸/岩石）→ **轮廓多边形**投影，偏移量 `min(26, 6 + max(w,h)×0.08)`（大体块影子更长）；
   - `tree` → **树冠椭圆**投影，半径随树冠绘制半径 `R = max(w,h)×1.4×0.85` 派生，与 `ASSET_DEFS.tree.bakeCanopy` 同源；
-  - `bush` / `fallen` → OBB 椭圆投影；`soft` / `barricade` / `stump` → 脚下淡接触影；
+  - `bush` / `fallen` → OBB 椭圆投影；`wall` / `stump` → 脚下淡接触影；
   - `road` / `mud` / `water` / `water-chain` / `bridge-deck`（贴地平面）→ **不投影**，函数早退。
   - **防御**：`coverCorners` 直接用 `cov.angle`（`undefined` 会得 NaN、投影整体消失），缺失时按 0 处理。
 
+## 坦克贴图通道（2026-10-23 路线裁定）
+
+> **2026-10-23 两次裁定合并后的现行口径**：① **SVG 矢量路线废弃**（用户「这些贴图都太丑了」）——
+> `js/tank_svgtextures.js` + `drawTankSVG` 整体回退；② **AI 出图与现有 PNG 一并清退**——
+> `assets/tanks/` 下 19 张 PNG（约 3.7MB）已全部删除，`assets/` 现仅余 `README.md`。
+> **通道代码保留**（路径 / 加载 / 四层对齐 / 设计器面板都不动），后期美术放回同名路径即可启用。
+
+| 优先级 | 通道 | 入口 | 产物来源 |
+|---|---|---|---|
+| 1 | PNG 位图精灵（**当前无图，全部回落**） | `drawTankSprite`（`js/tank_battledraw.js`） | `tanks/*.json` 的 `sprite.hull/turret/barrel` → `assets/tanks/*.png`（现行 `sprite.enabled=false`，且盘上无图） |
+| 2 | 程序化烘焙 | `renderHullTexture` / `renderTurretTexture` | `js/tank_paint.js` 的 `TEXTURE_DEFS`（**现行唯一实机路径**；file:// 兼容、零资产） |
+
+- **判据**：PNG 通道由 `spriteEnabled(t)` 决定（`_spriteOverride` 运行时开关 > tank JSON `sprite.enabled`）；不可用时回落程序化烘焙。`spriteReady(t)` 要求四层图片全部加载完成，缺一张即整体回退。
+- **启用前提（未变）**：逐车目视确认层序（履带 < 车体 < 炮塔 < 炮管）、尺寸、炮管与炮塔衔接、白边残留，确认后再把该车 `sprite.enabled` 置 `true`。**图片不存在时不得开启**（`scripts/test-tanks.js` 有负向断言）。
+- **同期一并废弃**：`tanks/*.json` 的 `textureProfile`（车型档案）、设计器「装甲模型」的圆角/倒角（`hull.bevel` / `turret.bevel`）、`js/tank_halfgeom.js` 的 `roundCorners` / `bevelCorners` / `applyBevelSpec`。上述均已从代码与 5 份 `tanks/*.json` 移除。
+- **教训留档（供后续路线参考）**：程序化（`tank_paint.js`）、矢量（SVG）与 AI 生成贴图三条路线，在本项目实机尺度（车体 **59~96px**）下均未达到用户对质感的要求；AI 图被判「观感奇怪」，矢量路线历经「糊 → 无细节 → 无立体感 → 全内凹 → 毛刺 → 丑」六轮返工。**后续若再启动贴图路线，必须先做小尺寸可行性预研**（按 1× 实机尺寸出图交用户确认）再投入全链路，避免在放大审美里空转。
+
 ## 出图管线
 
-（原 §18，2026-10-17 重构，现行口径）
+（原 §18；2026-10-17 重构，**2026-10-23 用户裁定后重写为「后期贴图接线」口径**）
 
-> *主题：参考图基准（`tools/cover-refs.json`）/ 出图 / 后处理 / 验收 / 回退*
+> *主题：基准（`tools/cover-refs.json`）/ 后期美术落盘 / 验收 / 回退*
 > *⚠️ 本节为批次章节，非主题基线。现行口径见卷首页「主题页」表。*
 
-> 关联：[贴图资产与烘焙层](#贴图资产与烘焙层)（运行时回退与烘焙契约）、`assets/README.md`（目录与文件名约定）、`tools/cover-gen-prompts.md` v2（提示词与操作手册）。
+> **2026-10-23 路线裁定**：本仓库**不承担出图**。程序化烘焙是唯一实机路径（见 [坦克贴图通道](#坦克贴图通道2026-10-23-路线裁定) 与 [贴图资产与烘焙层](#贴图资产与烘焙层)）；本节的唯一职责是**后期贴图接线**——外部美术/后期工具产出的 PNG 如何安全落盘、如何验收。
+> **已删除（2026-10-23）**：AI 出图客户端 `tools/gen-covers.mjs`、提示词包 `tools/cover-gen-prompts.md` / `.json`、网页手抄手册 `tools/cover-gen-manual.md`、ComfyUI 工作流 `tools/cover-comfyui-workflow.json`、绘图 MCP 调研 `tools/sprite-audit.md`、以及只服务该链的 `scripts/test-cover-gen.js`。**不再有「出图」这一步**。
 
-- **三组数字不能混用（本节的唯一要点）**：
+> 关联：[贴图资产与烘焙层](#贴图资产与烘焙层)（运行时回退与烘焙契约）、`assets/README.md`（目录与文件名约定）。
+
+- **三组数字不能混用（本节唯一要点）**：
   1. `ASSET_DEFS.w/h/anchorX/anchorY` —— 烘焙函数的**输入**尺寸与「内容包围盒内锚点」；
   2. `tools/cover-refs.json` 的 `canvas` / `anchor` —— **图片通道基准**：`canvas` = 烘焙后内容包围盒尺寸，`anchor` = 画布内像素；
   3. `refs.centroid` —— 内容质心，**唯一验收基准**。
   图片通道 `drawAssetSprite` 直接 `drawImage(img, x-ax*sx, …)`（图片像素 = 世界像素），所以落盘 PNG 必须与 `refs.canvas` 同尺寸，内容质心必须落在 `refs.centroid` ±2px。手抄 `ASSET_DEFS.w/h` 当落盘尺寸会整体缩放错位（tree 实际 30×30、tree_canopy 58×58）。
-- **基准单一来源**：`node tools/dump-cover-refs.mjs` 从烘焙代码导出 `tools/cover-refs.json`；`--check` 供 CI 校验是否漂移。禁止手改该 JSON。
-- **出图**：`node tools/gen-covers.mjs --provider <gemini|replicate|openai|mock>`。Prompt 运行时从 `tools/cover-gen-prompts.md` 现解析（不复制正文）；出图分辨率按 `refs.canvas` 宽高比、最长边 1024；凭据只从进程环境或仓库根 `.env` 读取并按 `abcd...wxyz` 掩码输出。`mock` 走仓库自己的烘焙产物，不出网。
-- **后处理**：`python scripts/prepare_covers.py --inplace [--src tmp/covers-src] [--out assets]` —— 清底 → 按内容包围盒裁留白 → 等比缩进 `refs.canvas` → 居中 → PNG-8（16 色）。**不做拉伸变形**。
-- **验收**：`python scripts/covers-anchor-check.py [--src assets]` —— 尺寸 + 内容质心；取代「人眼看 `tools/bake.html` 红十字」（红十字量的是烘焙包围盒内锚点，对图片通道无意义）。
+- **基准单一来源**：`node tools/dump-cover-refs.mjs` 从烘焙代码导出 `tools/cover-refs.json`；`--check` 供 CI 校验是否漂移。禁止手改该 JSON。**改任何烘焙几何/包络后必须重导出**。
+- **落盘（后期美术）**：把源图按 `<key>.png` 放进源目录（如 `tmp/covers-src/`），跑 `python scripts/prepare_covers.py --src <dir> --inplace` —— 清底 → 按内容包围盒裁留白 → 等比缩进 `refs.canvas` → 居中 → PNG-8（16 色）。**不做拉伸变形**；`--dry` 只报告，`--only <key>` 分批，`--pick <key>=<file>` 指定同名候选。
+- **验收**：`python scripts/covers-anchor-check.py [--src assets]` —— 尺寸 + 内容质心 ±2px；`ABSENT` 表示该键走程序化回退，**不算失败**。取代「人眼看 `tools/bake.html` 红十字」（红十字量的是烘焙包围盒内锚点，对图片通道无意义）。
+- **回归**：`scripts/test-asset-pipeline.js`（挂 `npm test`）锁四件事——基准与烘焙代码一致、基准键 = `ASSET_DEFS`、`prepare_covers` 的 `ORDER` 覆盖全部基准键、空 `assets/` 下锚点验收退出码 0 且全 `ABSENT`。
 - **回退**：`assets/` 为空即走 `js/tank_assets.js` 的程序化烘焙，视觉不断档；删除任一 `<key>.png` 即对该档回退。
 
 ## 贴图与阴影质量
@@ -100,7 +121,7 @@
 
 俯视 2D 的「立体感」不能靠增加贴图细节，必须显式画出**高度**与**方向光**。现行三处：
 
-- **坦克侧壁 `drawPartSideWall`**：把部件轮廓按**世界光反向**（右下 +x/+y）偏移后实心填充，再画顶面盖住其余部分；只露出背光侧窄带 = 高度。两层：外层深（接触影）+ 内层中暗（立面）。偏移必须世界固定（局部 `R(−angle)`），否则车体转 90° 侧壁会跑到受光侧。**绘制顺序**：地面影 → **车体侧壁 → 履带** → 车体顶面；侧壁先于履带，履带才不会被一块黑板盖掉。炮塔侧壁同理（薄一档）。顶面再加 `drawTankRimLight`（左上暖白渐变 1.1px），与暗勾线形成一明一暗的手绘微缩高光。
+- **坦克侧壁 `drawPartSideWall`**：把部件轮廓按**世界光反向**（右下 +x/+y）偏移后实心填充，再画顶面盖住其余部分；只露出背光侧窄带 = 高度。偏移必须世界固定（局部 `R(−angle)`），否则车体转 90° 侧壁会跑到受光侧。**绘制顺序**：地面影 → **车体侧壁 → 履带** → 车体顶面；侧壁先于履带，履带才不会被一块黑板盖掉。炮塔侧壁同理（薄一档）。顶面再加 `drawTankRimLight`（左上暖白渐变 1.1px），与暗勾线形成一明一暗的手绘微缩高光。
 - **炮塔座圈**：`drawTurretRing` 画凸台（右下偏移暗环 + 顶面 + 受光描边 + 原虚线座圈缝），炮塔坐在凸台上而不是贴在车体上；放在炮塔软影之后、侧壁之前。
 - **树冠体积**：`bakeCanopy` 在叶团之上叠**左上受光→右下蔽光**的线性渐变 + 右下暗冠缘 + 定向高光；受光侧由旧实现的**右上方**改为左上（旧版与影子方向相反，是树冠读起来平的根因）。投影三层加深（0.14/0.15/0.17，偏移 5~18px，半径 1.06R）。
 - **岩石多面体**：`rock-poly` 由「平涂多边形 + 两条棱线」改为：右下偏移侧壁 → 以质心为顶点逐边三角面，按 **边法线·光向** 从 `rgb(74,74,71)` 插到 `rgb(188,188,180)` 着色 → 受光棱边 1.2px 高光 → 2 条裂缝 → 暗勾线；`drawCoverShadow` 的 box/rock 三层影加深（0.17/0.14/0.24）。
@@ -120,10 +141,10 @@
 - **倒树树冠 `fallen.bakeCanopy`（#TEX15）**：波浪叶团轮廓；锚点收窄贴回树干端部（cx = x + w*0.24，旧版 x + w*0.32 悬在树梢外；rw/rh 改由干径 h 派生，旧版按 w 派生在 242px 原木上膨成 130px 方块冠）；体积渐变 + 受光叶团 + 右下暗缘。
 - **雪地树冠**（`tank_battledraw.js` `drawFoliage` snowy 分支）：整椭圆 → `blobPath` 波浪轮廓 + 波浪积雪高光团（与程序化树冠同语言）。
 - **`blobPath` 工具**（`js/tank_assets.js` 导出）：不规则轮廓的唯一画法——beginPath + N 段折线闭合，radiusFn(i, t) 提供 0..1 相对半径，确定性无随机；`scripts/lib/mini-canvas.js` 的 lineTo 路径即支持，浏览器/离线生图一致。
-- **俯视栅栏/沙包（#TEX17，2026-10-19，现行口径）**：用户裁定「俯视图就是薄墙/沙袋堆的顶面」——
-  - **栅栏 `soft.bake`**：整个 OBB 即墙顶面（删 #TEX16 的立柱/斜撑立面元素）；沿长轴木板拼缝（hash 相位）+ 长轴两段明暗 + 受光/背光长缘 + 木纹短划 + path 外缘描边；支持竖放（h>w 时拼缝沿 y）。
-  - **沙包 `barricade.bake`**：两排错缝圆角袋顶 + 堆底背光暗带（删整排椭圆接触影，交给投影层）；每袋左上受光/右下背光弧 + 布纹短缝。
-  - **投影 `drawCoverShadow`**（`js/tank_battledraw.js`）：soft/barricade 从「脚下小椭圆」改为与建筑（box）**同源的三层偏移轮廓投影**（off = min(26, 6+max(w,h)*0.08)，方向右下 +x/+y，alpha 0.10/0.13/0.18 比建筑淡）；stump 保留脚下接触影。方向/长度自此与全套元素一致。
+- **俯视栅栏/沙包（#TEX17，2026-10-19；**已于 2026-10-22 合并为 `wall` 六变体**，以下为沿革原文）：用户裁定「俯视图就是薄墙/沙袋堆的顶面」——
+  - **栅栏 `soft.bake`**：整个 OBB 即墙顶面（删 #TEX16 的立柱/斜撑立面元素）；沿长轴木板拼缝（hash 相位）+ 长轴两段明暗 + 受光/背光长缘 + 木纹短划 + path 外缘描边；支持竖放（h>w 时拼缝沿 y）。→ 现为 `wall` 的 `brick` 变体。
+  - **沙包 `barricade.bake`**：两排错缝圆角袋顶 + 堆底背光暗带（删整排椭圆接触影，交给投影层）；每袋左上受光/右下背光弧 + 布纹短缝。→ 现为 `wall` 的 `sandbag` 变体。
+  - **投影 `drawCoverShadow`**（`js/tank_battledraw.js`）：soft/barricade 从「脚下小椭圆」改为与建筑（box）**同源的三层偏移轮廓投影**（off = min(26, 6+max(w,h)*0.08)，方向右下 +x/+y，alpha 0.10/0.13/0.18 比建筑淡）；stump 保留脚下接触影。方向/长度自此与全套元素一致。→ 现由 `wall` 统一承担。
   - **`roundedRectPath`**（`js/tank_assets.js` 导出）：圆角矩形路径（4 段 arc + 直线，mini-canvas 兼容）；**外缘一律 path stroke，不用 `strokeRect`**（mock ctx/mini-canvas 无此 API）。
   - **回归**：`test-assets` 全绿（mock ctx 补 `rect`/`strokeRect` no-op）+ 定向 mini-canvas 像素探针 9 条（本体色差/受光>背光/投影右下且比 bg 暗/方向性 TL 对照）。
 - **包络硬约束**：任何新图元外沿必须 ≤ 原有最大包络（树 `R*0.85`、灌木 0.42 名义尺寸），否则烘焙内容包围盒涨大 ⇒ `tools/cover-refs.json` 的图片通道尺寸基准失效。`tree_canopy` 保持 58×58、`bush_canopy` 保持 46×38（只有 `centroid` 随叶重分布从 23.88,18.52 → 24.01,18.46，已同步回 `cover-refs.json`）。
@@ -194,9 +215,9 @@
   - `digital`（camo_digital）→ **第三种意图，不可并入 camo**：其设计语言就是「小像素簇」，用块状迷彩的 `patchScale` 目标（0.18~0.45）去卡它等于「要求数码迷彩别那么数码」。改用更严的 `mipSurvival`（簇须活过缩放）+ 更小的簇尺寸区间（0.045~0.16）。
   - **新增贴图时必须同时在 `INTENT` 表登记意图**；未登记默认按 `plain` 评。
 - **指标设计的返工记录（§23.4，避免重犯）**：「噪点 vs 结构」的判据先后失败 5 次，根因都是想从**单尺度**统计反推「这是线还是点」：
-  1. `microContrast / blockAmp` 颗粒比 → 全部贴图 2.4~3.3，零区分度（把 1px 蚀刻线与 1px 随机噪点算成一样）；
+  1. `microContrast / blockAmp` 颗粒比 → 全部 2.4~3.3，零区分度（把 1px 蚀刻线与 1px 随机噪点算成一样）；
   2. 「邻居是否也显著」→ 全部 1.00（密集颗粒的邻居当然显著，方向完全反了）；
-  3. `L − blockMeans(6px)` 同号邻域 → 全部 1.00（块均值图是分段常数，块内残留的是平滑渐变，符号一致）；
+  3. `fine = L − blockMeans(6px)` 同号邻域 → 全部 1.00（块均值图是分段常数，块内残留的是平滑渐变，符号一致）；
   4. 中值残差同号邻域 → 0.18~0.38 有数值区分，但 `weld_seam`（最该是「线」）反而最低，该指标实际量的是「厚度」；
   5. **最终 `mipSurvival`** —— 这问题本来就有标准答案：看它能否活过降采样。
 
@@ -230,5 +251,5 @@
 ## 相关页面
 - [地面烘焙与相机](./ground-camera.md) — 地面层缓存与 `renderCamPos`（§22.5 的性能收口）
 - [掩体体系](./cover-system.md) — 掩体 tier 的 `drawStyle` 与投影分流
-- [地形抽象与生成](./terrain.md) — Biome 调色板与地面层美术规范
+- [伪 3D 研究：俯视 2.5D](./pseudo-3d-2p5d.md) — 本页的立体感手段是该路线的现状基础
 - [沿革与未落地](./changelog.md) — 贴图管线的早期度量与返工原文

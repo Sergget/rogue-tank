@@ -379,10 +379,20 @@ const TEXTURE_DEFS = {
   }},
   camo: { name: '迷彩', draw: (ctx, b) => {
       const blobs = [[0.15,0.2,0.35,0.30],[0.62,0.14,0.30,0.26],[0.40,0.70,0.40,0.30],[0.82,0.60,0.30,0.28]];
-      // #TEX6：椭圆 → 硬边多边形色块
+      // #TEX6：椭圆 → 硬边多边形色块；每个色块再叠极淡径向渐变（喷涂厚度差），
+      //   避免色块读成平涂贴纸。
       let pi = 0;
+      const w = b.maxX - b.minX, h = b.maxY - b.minY;
       for(const [fx,fy,fw,fh] of blobs){
         _texPatch(ctx, b, fx, fy, fw, fh, pi * 0.7, 7, 'rgba(30,40,25,0.28)', 61, pi++);
+        const cxp = b.minX + fx * w, cyp = b.minY + fy * h;
+        const rx = fw * w * 0.55, ry = fh * h * 0.55;
+        const cg = ctx.createRadialGradient(cxp, cyp, 1, cxp, cyp, Math.max(rx, ry));
+        cg.addColorStop(0, 'rgba(255,255,255,0.06)');
+        cg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = cg;
+        ctx.beginPath(); ctx.arc(cxp, cyp, Math.max(rx, ry), 0, Math.PI*2); ctx.fill();
+        pi++;
       }
       _texGrain(ctx, b, 34, 'rgba(0,0,0,0.13)', 'rgba(255,255,255,0.08)', 67);
   }},
@@ -405,23 +415,26 @@ const TEXTURE_DEFS = {
   // 2026-10-05 历史涂装：德军装甲灰（Panzergrau）单色 + 细微明暗变化
   paint_panzergrau: { name: '装甲灰', base: '#4a4e54', draw: (ctx, b) => {
       const w = b.maxX-b.minX, h = b.maxY-b.minY;
-      const dark = [[0.30,0.75,0.44,0.18],[0.72,0.25,0.30,0.16]];
-      ctx.fillStyle = 'rgba(38,40,44,0.20)';
-      for(const [fx,fy,fw,fh] of dark){
-        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, 0.2, 0, Math.PI*2); ctx.fill();
+      // 暗部：不规则色块（代替椭圆，避免水彩感），极淡 alpha 叠在 base 上
+      const dark = [[0.30,0.75,0.44,0.18,0.6],[0.72,0.25,0.30,0.16,-0.5]];
+      let di = 0;
+      for(const [fx,fy,fw,fh,rot] of dark){
+        _texPatch(ctx, b, fx, fy, fw, fh, rot, 6, 'rgba(30,32,36,0.17)', 211, di++);
       }
-      const light = [[0.25,0.20,0.36,0.16],[0.68,0.70,0.34,0.16]];
-      ctx.fillStyle = 'rgba(140,144,150,0.14)';
-      for(const [fx,fy,fw,fh] of light){
-        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, -0.2, 0, Math.PI*2); ctx.fill();
+      const light = [[0.25,0.20,0.36,0.16,0.3],[0.68,0.70,0.34,0.16,-0.7]];
+      let li = 0;
+      for(const [fx,fy,fw,fh,rot] of light){
+        _texPatch(ctx, b, fx, fy, fw, fh, rot, 6, 'rgba(150,154,160,0.13)', 221, li++);
       }
-      // #TEX6：单色涂装的灵魂是微观起伏——颗粒 + 少量掉漆露底
-      _texGrain(ctx, b, 50, 'rgba(24,26,30,0.16)', 'rgba(186,190,196,0.10)', 91);
-      ctx.fillStyle = 'rgba(96,98,102,0.30)';
+      // #TEX6：单色涂装的灵魂是微观起伏——颗粒 + 少量掉漆露底（短划痕，非圆点）
+      _texGrain(ctx, b, 50, 'rgba(24,26,30,0.15)', 'rgba(186,190,196,0.09)', 91);
+      ctx.strokeStyle = 'rgba(96,98,102,0.28)'; ctx.lineWidth = 0.7;
       for(let i = 0; i < 5; i++){
         const px = b.minX + _texRand(93, i * 2 + 1) * w;
         const py = b.minY + _texRand(93, i * 2 + 2) * h;
-        ctx.beginPath(); ctx.ellipse(px, py, 1.6 + (i % 3) * 0.9, 1.2 + (i % 2) * 0.7, i * 0.8, 0, Math.PI * 2); ctx.fill();
+        const a = _texRand(93, i * 2 + 3) * Math.PI;
+        const len = 1.5 + _texRand(93, i * 2 + 4) * 2.5;
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + Math.cos(a)*len, py + Math.sin(a)*len); ctx.stroke();
       }
   }},
   // 2026-10-05 历史涂装：北约三色迷彩（绿底 + 棕/黑色块）
@@ -441,22 +454,25 @@ const TEXTURE_DEFS = {
   // 2026-10-05 历史涂装：苏军保护绿单色 + 细微明暗变化
   paint_soviet: { name: '苏军绿', base: '#5e7038', draw: (ctx, b) => {
       const w = b.maxX-b.minX, h = b.maxY-b.minY;
-      const dark = [[0.32,0.72,0.42,0.18],[0.70,0.28,0.32,0.16]];
-      ctx.fillStyle = 'rgba(48,60,34,0.20)';
-      for(const [fx,fy,fw,fh] of dark){
-        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, 0.2, 0, Math.PI*2); ctx.fill();
+      const dark = [[0.32,0.72,0.42,0.18,0.4],[0.70,0.28,0.32,0.16,-0.6]];
+      let di = 0;
+      for(const [fx,fy,fw,fh,rot] of dark){
+        _texPatch(ctx, b, fx, fy, fw, fh, rot, 6, 'rgba(40,50,28,0.18)', 231, di++);
       }
-      const light = [[0.24,0.22,0.36,0.16],[0.66,0.68,0.34,0.16]];
-      ctx.fillStyle = 'rgba(116,130,78,0.14)';
-      for(const [fx,fy,fw,fh] of light){
-        ctx.beginPath(); ctx.ellipse(b.minX+fx*w, b.minY+fy*h, fw*w, fh*h, -0.2, 0, Math.PI*2); ctx.fill();
+      const light = [[0.24,0.22,0.36,0.16,0.2],[0.66,0.68,0.34,0.16,-0.4]];
+      let li = 0;
+      for(const [fx,fy,fw,fh,rot] of light){
+        _texPatch(ctx, b, fx, fy, fw, fh, rot, 6, 'rgba(126,140,88,0.13)', 241, li++);
       }
-      // #TEX6：颗粒 + 泥渍（下缘更脏，符合俯视光照习惯）
-      _texGrain(ctx, b, 46, 'rgba(34,44,24,0.16)', 'rgba(190,204,150,0.09)', 113);      ctx.fillStyle = 'rgba(74,60,38,0.18)';
+      // #TEX6：颗粒 + 泥渍（下缘更脏，符合俯视光照习惯；泥渍改短划痕）
+      _texGrain(ctx, b, 46, 'rgba(34,44,24,0.15)', 'rgba(190,204,150,0.08)', 113);
+      ctx.fillStyle = 'rgba(74,60,38,0.16)';
       for(let i = 0; i < 6; i++){
         const px = b.minX + _texRand(127, i * 2 + 1) * w;
         const py = b.minY + (0.55 + _texRand(127, i * 2 + 2) * 0.45) * h;
-        ctx.beginPath(); ctx.ellipse(px, py, 2.2 + (i % 3), 1.6 + (i % 2), 0, 0, Math.PI * 2); ctx.fill();
+        const a = _texRand(127, i * 2 + 3) * 0.6;
+        const len = 1.8 + _texRand(127, i * 2 + 4) * 2.2;
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + Math.cos(a)*len, py + Math.sin(a)*len); ctx.fill();
       }
   }},
   // #3（2026-10-15）：新增 5 种纹理预设
@@ -522,12 +538,19 @@ const TEXTURE_DEFS = {
   }},
   paint_olive: { name: '橄榄绿', base: '#5a6238', draw: (ctx, b) => {
       const w = b.maxX-b.minX, h = b.maxY-b.minY;
-      ctx.fillStyle = 'rgba(70,78,45,0.2)';
-      ctx.fillRect(b.minX+0.2*w, b.minY+0.3*h, 0.6*w, 0.4*h);
-      // #TEX6：单色橄榄绿补齐层次（暗部 + 颗粒 + 少量磨损亮点）
-      ctx.fillStyle = 'rgba(52,60,32,0.18)';
-      ctx.fillRect(b.minX+0.05*w, b.minY+0.62*h, 0.9*w, 0.26*h);
-      _texGrain(ctx, b, 44, 'rgba(38,44,24,0.16)', 'rgba(178,186,132,0.09)', 167);
+      // 暗部与亮部：不规则色块（代替大面积填充，避免平涂感）
+      _texPatch(ctx, b, 0.20, 0.30, 0.60, 0.40, 0.5, 6, 'rgba(56,64,36,0.18)', 251, 0);
+      _texPatch(ctx, b, 0.05, 0.62, 0.90, 0.26, -0.6, 6, 'rgba(44,52,26,0.16)', 261, 0);
+      // #TEX6：单色橄榄绿补齐层次（颗粒 + 下缘泥渍短划痕）
+      _texGrain(ctx, b, 44, 'rgba(38,44,24,0.15)', 'rgba(178,186,132,0.08)', 167);
+      ctx.fillStyle = 'rgba(74,60,38,0.15)';
+      for(let i = 0; i < 5; i++){
+        const px = b.minX + _texRand(167, i * 2 + 1) * w;
+        const py = b.minY + (0.58 + _texRand(167, i * 2 + 2) * 0.40) * h;
+        const a = _texRand(167, i * 2 + 3) * 0.5;
+        const len = 1.6 + _texRand(167, i * 2 + 4) * 2.0;
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + Math.cos(a)*len, py + Math.sin(a)*len); ctx.fill();
+      }
   }},
   camo_digital: { name: '数码迷彩', base: '#5c6650', draw: (ctx, b) => {
       const w = b.maxX-b.minX, h = b.maxY-b.minY;
@@ -624,11 +647,13 @@ function clearPaintCache() {
 //     ② appearance（车长塔/发动机舱外观件）被丢弃 → tanks/*.json 的 cupola/engineDeck
 //        样式（low/standard/panoramic、compact/rearGrille）被静默忽略，全部画成内置默认件。
 //   现在键里带上 damageLevel / weatherSeed / appearance 签名，不同外观各自独立烘焙。
+//   2026-10-22 B6：appearance 签名补 `scale`（车长塔缩放比例 0.5~2.0）——`paintAppearancePart`
+//     内部 `ctx.scale(s,s)` 会改变像素，漏进键就会让不同缩放共用同一张烘焙 sprite。
 function _appearanceKey(appearance){
   if(!appearance) return 'none';
-  // 只取影响绘制的字段（style/dx/dy/mirror），按固定顺序拼接，避免 JSON 键序抖动
+  // 只取影响绘制的字段（style/dx/dy/mirror/scale），按固定顺序拼接，避免 JSON 键序抖动
   const one = (a) => (a && typeof a === 'object')
-    ? `${a.style || ''},${a.dx || 0},${a.dy || 0},${a.mirror ? 1 : 0}` : '';
+    ? `${a.style || ''},${a.dx || 0},${a.dy || 0},${a.mirror ? 1 : 0},${a.scale || 1}` : '';
   const cup = appearance.cupola;
   const cupPart = Array.isArray(cup) ? cup.map(one).join(';') : one(cup);
   return `c[${cupPart}]e[${one(appearance.engineDeck)}]`;
@@ -875,8 +900,10 @@ function paintPartTextureDirect(ctx, verts, cx, cy, angle, scale, color, kind, o
         for(const _cup of _cupList){
           if(!_cup || !_cup.style || _cup.style === 'none') continue;
           // 纵向基准：与内置 cupCy 一致（cym − W*0.44），dy 作相对修正
+          // 2026-10-22 B6：第 6 参缩放吃 `appearance.cupola[i].scale`（0.5~2.0，缺省 1）——
+          //   paintAppearancePart 内部 `ctx.scale(s,s)`；与原硬编码 1 的调用逐字节等价（scale 缺省时）。
           paintAppearancePart(ctx, 'cupola', _cup.style,
-            cxm + (_cup.dx || 0), (cym - W*0.44) + (_cup.dy || 0), 1, bodyCol, { mirror: !!_cup.mirror });
+            cxm + (_cup.dx || 0), (cym - W*0.44) + (_cup.dy || 0), (_cup.scale || 1), bodyCol, { mirror: !!_cup.mirror });
         }
       } else if(!_cupApp || _cupApp.style !== 'none'){
       // #TEX2-2026-10-15: 车长塔重做 —— 装甲围圈 + 周视镜环 + 对开舱盖 + 提手

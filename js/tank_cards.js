@@ -28,7 +28,11 @@ const MODIFIER_STATS = [
   'penetration', 'damage', 'reload', 'shellSpeed', 'maxSpeed', 'turnRate', 'turretTurnRate',
   'maxHp', 'weight', 'enginePower', 'trackLock', 'ammoMult', 'crewMult',
   'dotRatioMult', 'dotDurationMult', 'spreadMult', 'aimSpeed',
-  'motionSpreadMul', 'fireControlCrit', 'loaderAmmoCrit'
+  'motionSpreadMul', 'fireControlCrit', 'loaderAmmoCrit',
+  // 2026-10-22（第五批 B3-3）：武器专有参数的卡牌通道（键名与 RULES.parameterLimits /
+  //   WEAPON_DEFAULTS 同源，仅供 weapon 卡的 statOverrides 消费，不参与 computeStats 聚合）
+  'maxRange', 'overheatLock', 'clipCycleSeconds',
+  'mineFieldCount', 'mineFieldLength', 'mineFieldReload', 'mineFieldMaxDeploy'
 ];
 
 // 弹种改造：key = 弹种（RULES.ammoTypes 14 键，弹种链 2026-09-13；hec 已移除 2026-09-14）
@@ -45,7 +49,9 @@ const ABILITY_KEYS_INNATE_LOCAL = ['repair', 'medkit', 'extinguish'];
 //   在本白名单里只起「放行不存在的数据」的作用——与 2026-09-23 A 档 recon/track_repair 同性质。
 //   差值：RUNTIME 7 键 − 卡牌可授予 8 键 = {super_fire_control, super_speed}。
 //   移除后本表 = innate 3 键 + runtime 5 键，仍覆盖全部 12 张 ability 卡的实际 key。
-const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'aps'];
+// 2026-10-23（本批）：新增 `flash_dash`（战术闪跃）——与 js/tank_abilities.js 的
+//   ABILITY_KEYS_RUNTIME 同步扩容为 6 键，并配套 cards/ability_flash_dash.json。
+const ABILITY_KEYS = ['repair', 'medkit', 'extinguish', 'artillery', 'overdrive', 'shield', 'deploy_cover', 'aps', 'flash_dash'];
 // 无人机种类（drone）：scout=侦察指示（视口外敌军位置箭头）/ striker=近身自动索敌打击。
 // kind 缺失时兼容旧数据（默认 striker，伴随浮游炮语义）。
 const DRONE_KINDS = ['scout', 'striker'];
@@ -63,6 +69,119 @@ const PASSIVE_KEYS = ['reactive_armor', 'angle_boost', 'overmatch', 'spall_liner
 // #W15（2026-10-20）：`startScore` 已删除——写 `tank.runStartScore` 但全仓零读点，且卡池内无该卡。
 const ECONOMY_FIELDS = ['scoreMul', 'shopDiscount', 'reviveCount'];
 
+// ---------- 2026-10-23：被动技能卡（passive skill）判定与被动槽 ----------
+// 用户裁定（2026-10-23）：
+//   「将修理、医疗、灭火、应急护盾等不需要操作生效的卡牌都移动到『被动技能』卡牌类别中。
+//    被动技能槽属于坦克属性，无法通过升级增减，默认 2 个，后续再获取需要和主动技能一样选择顶替。
+//    火力、装甲、血量、机动的数据直接升级不加入『被动技能』的范畴。」
+//   · 判定口径 = **效果层面**，不看顶层字段：
+//       ① type 'passive'（应急护盾/摆角特训/超口径/防崩落/湿式弹药架/成员内衬…）
+//       ② type 'drone'（伴随无人机：获得即生效、无需按键）
+//       ③ type 'ability' 且 key ∈ 固有技能强化键（repair/extinguish）——它们不改按键、只是强化
+//          **已在自动生效**的固有被动（修理箱/灭火器由主循环自动触发，玩家不按键）。
+//     ↔ 明确排除：modifier（火力/装甲/血量/机动的直接升级）、ammo、economy、weapon、
+//       以及 runtime 主动技能（artillery/overdrive/shield/deploy_cover/aps，占用主动技能槽）。
+const PASSIVE_SKILL_INNATE_KEYS = ['repair', 'medkit', 'extinguish'];
+
+// 该效果是否属于「被动技能」范畴
+function _isPassiveSkillEffect(ef) {
+  if (!ef) return false;
+  if (ef.type === 'passive') return true;
+  if (ef.type === 'drone') return true;
+  if (ef.type === 'ability' && PASSIVE_SKILL_INNATE_KEYS.indexOf(ef.key) >= 0) return true;
+  return false;
+}
+
+// 整张卡是否属于被动技能卡（任一效果命中即算；混合卡按被动技能对待）
+function isPassiveSkillCard(card) {
+  if (!card || !Array.isArray(card.effects)) return false;
+  return card.effects.some(_isPassiveSkillEffect);
+}
+
+// 被动技能槽上限：**每辆坦克固定数量**（2026-10-23 用户裁定「每辆坦克固定数量，后期高等级
+// 坦克会赋予更多」）——优先读车型配置 `tank.passiveSlots`（tanks/<id>.json，applyTankConfig 拷贝），
+// 未配置时回退 RULES.abilities.passiveSlotsMax（=2）。它**不是升级项**：永久升级树与局内商店都
+// 不得改它，只有换车型才会变。
+function passiveSlotMax(tank) {
+  if (tank && typeof tank.passiveSlots === 'number' && tank.passiveSlots > 0) {
+    return Math.floor(tank.passiveSlots);
+  }
+  const n = (typeof RULES !== 'undefined' && RULES.abilities && RULES.abilities.passiveSlotsMax);
+  return (typeof n === 'number' && n > 0) ? Math.floor(n) : 2;
+}
+
+// 坦克当前持有的被动技能卡 id 列表（按 cardEffects 中首次出现顺序去重）
+function ownedPassiveCardIds(tank) {
+  const out = [];
+  const effs = (tank && Array.isArray(tank.cardEffects)) ? tank.cardEffects : [];
+  for (const ef of effs) {
+    if (!_isPassiveSkillEffect(ef)) continue;
+    const id = ef && ef.cardId;
+    if (id && out.indexOf(id) < 0) out.push(id);
+  }
+  // 纯 modifier 卡不入 cardEffects —— 被动技能卡必然有非 modifier 效果，故无需补源
+  return out;
+}
+
+// 被动技能槽视图：{ max, used, free, cardIds }（battle HUD / 面板消费）
+function passiveSlotState(tank) {
+  const max = passiveSlotMax(tank);
+  const ids = ownedPassiveCardIds(tank);
+  return { max: max, used: ids.length, free: Math.max(0, max - ids.length), cardIds: ids };
+}
+
+// 被动技能槽是否已满（满则新被动卡需要顶替其中一张）
+function passiveSlotsFull(tank) {
+  return ownedPassiveCardIds(tank).length >= passiveSlotMax(tank);
+}
+
+/**
+ * 移除一张被动技能卡的全部效果（顶替语义：被顶掉的卡必须真正失效，不能只从槽里摘掉）。
+ * 清理三处：card:* 修饰器、cardEffects 条目、_cardApplyCount 计数（使该卡可再次被抽到）。
+ * @returns {boolean} 是否真的移除了东西
+ */
+function removePassiveCard(tank, cardId) {
+  if (!tank || !cardId) return false;
+  let removed = false;
+  if (Array.isArray(tank.modifiers)) {
+    for (let i = tank.modifiers.length - 1; i >= 0; i--) {
+      const m = tank.modifiers[i];
+      if (m && m.source === 'card:' + cardId) { tank.modifiers.splice(i, 1); removed = true; }
+    }
+  }
+  if (Array.isArray(tank.cardEffects)) {
+    for (let i = tank.cardEffects.length - 1; i >= 0; i--) {
+      if (tank.cardEffects[i] && tank.cardEffects[i].cardId === cardId) {
+        tank.cardEffects.splice(i, 1); removed = true;
+      }
+    }
+  }
+  if (tank._cardApplyCount) delete tank._cardApplyCount[cardId];
+  if (Array.isArray(tank._cardApplyLog)) {
+    tank._cardApplyLog = tank._cardApplyLog.filter(function (id) { return id !== cardId; });
+  }
+  const refresh = _refreshStatsResolver();
+  if (removed && refresh) refresh(tank);
+  return removed;
+}
+
+// refreshStats 惰性取值（浏览器 = tank_model 全局；Node = require 兜底）
+function _refreshStatsResolver() {
+  if (typeof refreshStats === 'function') return refreshStats;
+  if (typeof require !== 'undefined') {
+    try {
+      const m = require('./tank_model.js');
+      if (m && typeof m.refreshStats === 'function') return m.refreshStats;
+    } catch (e) { /* 无 model 模块 → 不刷新 */ }
+  }
+  return null;
+}
+
+// 可被顶替的被动技能卡候选（当前已占槽的全部被动卡）
+function passiveReplaceCandidates(tank) {
+  return ownedPassiveCardIds(tank);
+}
+
 // 副武器槽位与类型（R-1 / 阶段四）；主武器类型（阶段七 7.3）与 RULES.weaponTypes 对齐
 const WEAPON_SLOTS = ['primary', 'secondary'];
 // #U39（2026-10-18）：补入 `missile_wire`——它一直在 RULES.weaponTypes.secondary 与
@@ -70,7 +189,9 @@ const WEAPON_SLOTS = ['primary', 'secondary'];
 //   导致任何针对线导导弹的 weapon 卡都会被 validateCardEffect 判「weaponType 非法」。
 const WEAPON_SECONDARY_TYPES = ['mortar', 'missile', 'missile_wire', 'rocket', 'mine_layer', 'turret',
   // #W-I（2026-10-20 用户裁定）：榴弹炮曲射模式是**副武器**（装入后主炮切曲射）
-  'howitzer'];
+  'howitzer',
+  // 2026-10-23（本批新增）：战术烟幕发射器（一次抛射多团烟雾形成烟墙）。
+  'smoke'];
 // #W-I（2026-10-19）：howitzer 为**模式**而非独立武器类型——不进主炮类型表
 //   （安装卡不会装它）。2026-10-20：**模式升级卡**（爆炸范围/急速射）引用
 //   weaponType:'howitzer' ⇒ 加入升级合法集（validateCardEffect 与 applyCardEffects
@@ -197,14 +318,17 @@ function validateCardEffect(ef, path) {
       if (ef.slot !== undefined && !WEAPON_SLOTS.includes(ef.slot)) errs.push(`${p}: slot 非法 ${ef.slot}`);
       if (ef.weaponType && !ALL_WEAPON_TYPES.includes(ef.weaponType)) errs.push(`${p}: weaponType 非法 ${ef.weaponType}`);
       if (ef.statOverrides && (typeof ef.statOverrides !== 'object' || Array.isArray(ef.statOverrides))) errs.push(`${p}: statOverrides 应为对象`);
-      // #G：statOverrides 值必须为有限数值 / 布尔 / "+N" 相对增量字符串（mergeStatOverrides 消费）
+      // #G：statOverrides 值必须为有限数值 / 布尔 / 相对增量字符串（mergeStatOverrides 消费）。
+      // 2026-10-22（第五批 B3-3）：增量为**带符号**——`"+N"`（扩容/加长）与 `"-N"`（缩冷却/缩锁定）
+      //   同属一条通道（`overheatLock:"-0.5"` / `clipCycleSeconds:"-0.1"` / `mineFieldReload:"-2"`）。
+      //   布尔值继续放行（burstOnSalvo / doubleTapEnabled / altReload 等标志位）。
       if (ef.statOverrides && typeof ef.statOverrides === 'object' && !Array.isArray(ef.statOverrides)) {
         for (const k of Object.keys(ef.statOverrides)) {
           const v = ef.statOverrides[k];
           if (typeof v === 'boolean') continue;
-          const isRel = typeof v === 'string' && /^\+\d+(\.\d+)?$/.test(v);
+          const isRel = typeof v === 'string' && /^[+-]\d+(\.\d+)?$/.test(v);
           if (typeof v !== 'number' || !Number.isFinite(v)) {
-            if (!isRel) errs.push(`${p}: statOverrides.${k} 应为有限数值/布尔或 "+N" 增量`);
+            if (!isRel) errs.push(`${p}: statOverrides.${k} 应为有限数值/布尔或 "+N"/"-N" 相对增量`);
           }
         }
       }
@@ -213,15 +337,49 @@ function validateCardEffect(ef, path) {
   return errs;
 }
 
-// #G（2026-09-21）：upgrade 卡 statOverrides 的合并语义——数值直接覆盖；字符串 "+N"（如 "+1"）
-// 表示在**当前值**上增量（扩容弹夹等「每张 +1、可叠多次」的升级卡必需，纯覆盖值叠两次会退回同值）。
+// #G（2026-09-21）：upgrade 卡 statOverrides 的合并语义——数值直接覆盖；字符串增量
+// （`"+1"` / `"-0.5"`）表示在**当前值**上增减（扩容弹夹等「每张 +1、可叠多次」的升级卡必需，
+// 纯覆盖值叠两次会退回同值；缩冷却类卡同理需要逐级递减）。
+// 2026-10-22（第五批 B3-3）：增量字符串由「只认 +」扩展为**带符号**（`-` 前缀同样按相对量处理）。
+//
+// 2026-10-22（第五批 B3-3）：**相对增量的基准值兜底**。B3 新增的 7 个武器通道键里，
+//   `mineField*` / `mineFieldHeRatio` 的基准值不在 `WEAPON_DEFAULTS.secondary.mine_layer`
+//   （雷带参数唯一口径在 `RULES.abilities.deploy_limits`，不随武器规格走），
+//   `maxRange` / `overheatLock` / `clipCycleSeconds` 在部分武器型上也不在缺省表。
+//   旧逻辑 base 缺失时按 0 计 ⇒ `mineFieldCount:"+2"` 落到 2（应为 6+2=8）、
+//   `mineFieldHeRatio:"+0.15"` 落到 0.15（应为 1.0+0.15=1.15）——卡面承诺与实际不符。
+//   故按 `_statBaseDefault` 从 RULES 同源取值兜底；表外键仍退回 0（与旧行为一致）。
+function _statBaseDefault(key) {
+  const R = (typeof RULES !== 'undefined') ? RULES : null;
+  if (!R) return undefined;
+  const dl = (R.abilities && R.abilities.deploy_limits) || {};
+  const ac = R.autocannon || {};
+  switch (key) {
+    case 'mineFieldCount': return dl.mineFieldCount;
+    case 'mineFieldLength': return dl.mineFieldLength;
+    case 'mineFieldReload': return dl.mineFieldReload;
+    case 'mineFieldMaxDeploy': return dl.mineFieldMaxDeploy;
+    case 'mineFieldHeRatio': return dl.mineFieldHeRatio;
+    case 'maxRange': return ac.rangeBasePx;
+    case 'overheatLock': return ac.overheatLockBase;
+    case 'clipCycleSeconds':
+      // 弹夹短装填的基准值在 WEAPON_DEFAULTS.primary.clip（升级卡必伴随该型已装机 ⇒ 通常已在 stats 内）
+      return undefined;
+    default: return undefined;
+  }
+}
+
 function mergeStatOverrides(stats, overrides) {
   const merged = Object.assign({}, stats || {});
   for (const k of Object.keys(overrides || {})) {
     const v = overrides[k];
-    if (typeof v === 'string' && v[0] === '+') {
-      const base = (typeof merged[k] === 'number') ? merged[k] : 0;
-      const d = parseFloat(v.slice(1));
+    if (typeof v === 'string' && (v[0] === '+' || v[0] === '-')) {
+      let base = (typeof merged[k] === 'number') ? merged[k] : undefined;
+      if (base === undefined) {
+        const d0 = _statBaseDefault(k);
+        base = (typeof d0 === 'number') ? d0 : 0;
+      }
+      const d = parseFloat(v);
       merged[k] = base + (Number.isFinite(d) ? d : 0);
     } else {
       merged[k] = v;
@@ -577,6 +735,7 @@ function _isSwapBackCard(card) {
 //   - 无 weapon/ability 效果（modifier/ammo/passive/drone/economy）→ eligible（ammo 交给 chain 过滤）。
 function cardEligible(card, owned) {
   if (!card || !Array.isArray(card.effects)) return true;
+  if (card.enabled === false) return false;
   const o = (owned && typeof owned === 'object') ? owned : {};
   const abil = Array.isArray(o.abilities) ? o.abilities : [];
   const primaryW = o.primaryWeapon || 'standard';
@@ -785,6 +944,10 @@ function drawCardChoices(pool, n, optsOrRng) {
   }
 
   let usable = (pool || []).slice();
+
+  // 2026-10-23：停用卡（`enabled:false`）永不进入抽卡池——与 cardEligible 同口径。
+  //   用于「删除侦查无人机」等裁定下线，但保留 id 占位与历史数据可解析性。
+  usable = usable.filter(card => !(card && card.enabled === false));
 
   // P-27: 过滤掉包含玩家未携带弹种改造的卡牌（2026-09-15 修订：升级卡按「直系前驱」资格判定，
   // 不再按目标弹种是否已携带——否则 `ammo_upgrade_*` 永远抽不到；前驱未携带则禁止跳级、不放行）
@@ -1102,6 +1265,15 @@ if (typeof module !== 'undefined' && module.exports) {
     weightedRarity,
     pickBossArmament,
     isAmmoUpgradeCard,
+    // 2026-10-23：被动技能卡（passive skill）分类与被动技能槽（坦克属性，默认 2 格、不可升级增减）
+    PASSIVE_SKILL_INNATE_KEYS,
+    isPassiveSkillCard,
+    passiveSlotMax,
+    ownedPassiveCardIds,
+    passiveSlotState,
+    passiveSlotsFull,
+    removePassiveCard,
+    passiveReplaceCandidates,
     // #W-G（2026-10-19）：应急护盾（原 reactive_armor —— 机制已从「拦截驱动」改为「低血触发」）
     formatCardDesc,   // NF-1（2026-10-20）：卡面占位符求值（纯函数）
     emergencyShieldCooldown,

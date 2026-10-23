@@ -1,7 +1,7 @@
 {
   "id": "ability_deploy_cover_fortified",
   "name": "加固战术掩体",
-  "rarity": "epic",
+  "rarity": "rare",
   "desc": "战术掩体加固：部署的便携掩体耐久提升至 350，护盾吸收值提升至 250；可同时存在的便携掩体数 +1（超限时最早部署的直接消失）。",
   "effects": [
     {

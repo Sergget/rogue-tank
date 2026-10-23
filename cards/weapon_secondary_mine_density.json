@@ -1,0 +1,18 @@
+{
+  "id": "weapon_secondary_mine_density",
+  "name": "布雷器：加密装药",
+  "rarity": "rare",
+  "desc": "布雷器强化：单条雷带雷数 +2 枚/级（基础 6 枚 → 8 → 10 → 12，上限 12 枚）。加密装药让同一条雷带内的地雷排布更密集、覆盖更连续；雷数只影响密度手感，不改变雷带长度（220px ≈ 20m）。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "mine_layer",
+      "statOverrides": {
+        "mineFieldCount": "+2"
+      }
+    }
+  ],
+  "maxStacks": 3
+}

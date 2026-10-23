@@ -76,11 +76,15 @@ Boss 此前只有随机技能，`weapons` 恒为 `standard` + `none` ⇒ 主/副
 
 （#U43，2026-10-19 用户要求「进入 boss 节点时，需要提示 boss 持有的技能和主、副武器」）
 
+> **⚠ 2026-10-22 修（ISSUES #Z2）**：本节此前描述的 `bossBriefing` / `bossBriefingLines` **在本仓从未存在过**（`git log -S "function bossBriefing" -- js/` 零命中）——`tank_battle.html` 的 `typeof` 守卫恒 false ⇒ 面板自 #U43 上线起**从未弹出**；`types/globals.d.ts` 的假声明让 `npm run check` 查不出。2026-10-22 已在 `js/tank_boss.js` 补齐两个纯函数 + 导出 + `scripts/test-batch5-combat.js` 单测（含「空实体返回 null」「无 weapons 回落标准主炮」负向断言）。
+
 `spawnBossFromDef` 在 `assignBossSkills` + `assignBossArmament` **之后**调用 `showBossBriefing(bossEntity)`，居中覆盖层（`#bossBriefing`）列出主/副武器、改装卡（含数值摘要）、技能（增强版带「强化」标签）与阶段数；关闭 = 按钮 / 点击遮罩 / Esc。
 
 **它不是 flow 状态**（不进状态机、Boss 战不暂停），日志同时留一份纯文本兜底。
 
-- **数据层纯函数** `bossBriefing(entity)` / `bossBriefingLines(entity)`（`js/tank_boss.js`）：从**实体本身**读取（不是配置），故与随机结果严格一致；`cardEffects` 条目携带 `cardName`（`applyCardEffects` 写入时一并带上）后，纯逻辑层无需卡池即可显示可读卡名。
+- **数据层纯函数** `bossBriefing(entity)` / `bossBriefingLines(entity)`（`js/tank_boss.js`）：从**实体本身**读取（不是配置），故与随机结果严格一致；`cardEffects` 条目携带 `cardName`（`applyCardEffects` 写入时一并带上）后，纯逻辑层无需卡池即可显示可读卡名。**返回结构**：`{ name, desc, stageCount, weapons:{primary:{type,label}, secondary:{type,label}}, upgrades:[{name, lines[]}], skills:[{label, boosted}] }`；`lines` 由 `_weaponStatLines` 产出（只列 伤害/穿深/装填/弹速/射程/溅射/容量/热量/换管 九类，缺字段即跳过）。
+
+> **关闭方式修正（2026-10-22）**：改前文案与注释称「空格 / Esc 关闭」，但实际只有按钮与遮罩两个监听（全页无 Space/Esc 关闭分支——Space 绑开火、Esc 绑暂停）。现行以**按钮 + 点击遮罩**为准，文案已对齐。
 - 武器数值摘要走 `_weaponStatLines`，只列对决策有意义的字段（伤害/穿深/装填/弹速/射程/溅射/容量/热量/转向），内部开关（`altReload`/`guided`/`pierceDmgMul` 等）不显示。
 
 **测试**：`scripts/test-cards.js` #U39 段 **20 断言**（分布覆盖 / 升级卡只挂已选型 / 开关关闭 / 空池与 null 安全 / 施加通道 / 新卡 schema / 每型有升级卡）。

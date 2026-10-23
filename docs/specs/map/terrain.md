@@ -30,7 +30,7 @@
   - **历史遗留写法（2026-10-21 实测，勿照抄）**：`perm_block` 仍写 `shellBlock: 'solid'`（字符串）。`normalizeCoverTiers()` **只在 `shellBlock === undefined` 时派生**，故这个字符串被原样保留；其 `mode` 由 `true`/`'single'`/`vision` 三分支派生 ⇒ `'solid'` 落进 `vision ? 'none'` ⇒ **`mode: 'none'`**。结果是两条查询口径不一致：`js/tank_cover.js` 的遮蔽查询把它当「挡」（非 false 即入候选、最终返回 0.0），`js/tank_fire.js` 的弹道拦截只认 `mode === 'solid' | 'single'` ⇒ **不拦弹**。`perm_block` 当前无任何生成器产出（见 [tier 表现行口径](./cover-system.md#tier-表现行口径)），故无运行期影响；若将来启用该 tier，必须改写成 `shellBlock: true` 而不是 `'solid'`。
 - `exposureProfile`：遮蔽剖面，**现行只有 `full` / `none` 两值**（`half` 随半高掩体于 2026-09-20 一并删除）
 - `destructible`：耐久（`hp` 数值 / `null` 不属结构；`null` 归一为 `hp: Infinity` 表示不可毁）
-- `drawStyle`：渲染风格（box/bush/tree/soft/barricade/stump/rubble/water/rock-poly/rubble-box/bridge-deck...）
+- `drawStyle`：渲染风格（box/bush/tree/wall/stump/rubble/water/water-chain/mud/road/rock-poly/rubble-box/bridge-deck…；旧 `soft`/`barricade` 已于 2026-10-22 合并为 `wall`）
 - `tierGroup`：语义分组，**现行四值** `structure` / `foliage` / `liquid` / `ground`（旧 `cover` 组已于 2026-09-20 撤销，`normalizeCoverTiers` 的缺省回落仍为 `'cover'`，仅服务未迁移的自定义 tier）
 
 ### 地形到 tier 的映射

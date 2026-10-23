@@ -1,0 +1,18 @@
+{
+  "id": "weapon_primary_standard_doubletap",
+  "name": "标准主炮：砰砰炮",
+  "rarity": "epic",
+  "desc": "标准主炮击发机构改造：每次击发后 0.8s 自动追加一发「砰砰」补射，追发弹伤害 = 首发的 60%（0.6×）。补射沿首发瞄准点落点，不额外消耗装填时间；单发节拍不变，等效持续伤害约 ×1.6。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "standard",
+      "statOverrides": {
+        "doubleTapEnabled": true
+      }
+    }
+  ],
+  "maxStacks": 1
+}

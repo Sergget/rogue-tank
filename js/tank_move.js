@@ -10,8 +10,41 @@
 // 起火时速度大幅下降（倍率来自 RULES.fire.speedMul）
 function fireMul(t){ return (t.fireT>0 || t.dotT>0) ? RULES.fire.speedMul : 1; }
 
+// 2026-10-23（本批）：战术闪跃（flash_dash）速度通道——**独立乘子**，与 fireMul 同级链尾。
+//   由来：`RULES.abilities.flash_dash.speedMult`（缺省 2.5）只在 t.flashDashT>0 期间生效；
+//   闪跃结束后进入 t.flashOverheatT 过热期，速度回落（缺省 ×0.7，见 RULES 同名配置的
+//   overheat 语义）。两个计时器都在本函数内逐帧递减（单一消费点，避免多处写同一计时器）。
+//   ⚠️ 不计入 speedModifier：公路判定会把 speedModifier 归 1（同 howitzerMul 的教训）。
+function flashDashMul(t){
+  const cfg = (typeof RULES !== 'undefined' && RULES.abilities && RULES.abilities.flash_dash) || {};
+  if (t.flashDashT > 0) return (cfg.speedMult !== undefined ? cfg.speedMult : 2.5);
+  if (t.flashOverheatT > 0) return (cfg.overheatSlowMul !== undefined ? cfg.overheatSlowMul : 0.7);
+  return 1;
+}
+
+// 2026-10-23（本批）：撞击硬直（ramming stiff）——硬直期间油门/刹车被压制，但**不是**
+//   履带打断（immobT 的语义是「完全冻结」）。撞击硬直只削位移能力，转向与炮塔仍可动，
+//   以便玩家有反制余地（撞完能立刻转向脱离而不是原地挨打）。
+function stiffMul(t){
+  return (t.stiffTimer > 0) ? ((RULES.ramming && RULES.ramming.stiffSpeedMul !== undefined)
+    ? RULES.ramming.stiffSpeedMul : 0.35) : 1;
+}
+
 function driveTank(t, dt, input){
   const turn = input.turn || 0, mv = input.move || 0;
+  // 2026-10-23（本批）：撞击硬直 / 闪跃过热 / 闪跃本身三个计时器在此统一递减。
+  //   放在 immobT 早退之前——硬直与闪跃不应因履带打断而「冻结计时」（否则打断结束时
+  //   闪跃时长还没走完，玩家会看到技能凭空续命）。
+  if(t.stiffTimer > 0) t.stiffTimer = Math.max(0, t.stiffTimer - dt);
+  if(t.flashDashT > 0){
+    t.flashDashT = Math.max(0, t.flashDashT - dt);
+    if(t.flashDashT === 0){
+      const cfg = (RULES.abilities && RULES.abilities.flash_dash) || {};
+      t.flashOverheatT = cfg.overheatDuration !== undefined ? cfg.overheatDuration : 2.0;
+    }
+  } else if(t.flashOverheatT > 0){
+    t.flashOverheatT = Math.max(0, t.flashOverheatT - dt);
+  }
   // P-35：倒车转向倒置（拟真履带差速）——仅当调用方显式开启（玩家设置项）且 move<0 时翻转 turn；
   // 默认关闭 → 玩家旧手感与 AI 行为零影响。
   const effTurn = (input.invertTurnWhenReversing && mv < 0) ? -turn : turn;
@@ -104,7 +137,7 @@ function driveTank(t, dt, input){
     ? (((_hsDef && _hsDef.primary && _hsDef.primary.howitzer && typeof _hsDef.primary.howitzer.moveSpeedRatio === 'number')
         ? _hsDef.primary.howitzer.moveSpeedRatio : (1/3)))
     : 1;
-  const pTarget = mv * boostedMax * RULES.speed.pxFactor * speedModifier * howitzerMul * fireMul(t) * debuffSpeedRate(t) * RULES.speed.effMul;
+  const pTarget = mv * boostedMax * RULES.speed.pxFactor * speedModifier * howitzerMul * fireMul(t) * debuffSpeedRate(t) * RULES.speed.effMul * flashDashMul(t) * stiffMul(t);
   t.speed = t.speed || 0;
   if(mv === 0){
     // 松键：快速停止/中性滑行减速
@@ -143,5 +176,5 @@ function driveTank(t, dt, input){
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { fireMul, driveTank };
+  module.exports = { fireMul, driveTank, flashDashMul, stiffMul };
 }

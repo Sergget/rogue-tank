@@ -1,7 +1,7 @@
 {
   "id": "sniper_tungsten_core",
   "name": "钨芯穿甲弹",
-  "rarity": "rare",
+  "rarity": "common",
   "desc": "穿深 +18%。",
   "effects": [
     { "type": "modifier", "stat": "penetration", "mode": "mult", "value": 1.18 }

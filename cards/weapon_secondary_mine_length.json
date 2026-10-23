@@ -1,0 +1,18 @@
+{
+  "id": "weapon_secondary_mine_length",
+  "name": "布雷器：延展雷带",
+  "rarity": "rare",
+  "desc": "布雷器强化：雷带长度 +80px（约 +7m）/级，上限 460px（约 42m）。当前 220px ≈ 20m；升级后依次 300px ≈ 27m、380px ≈ 35m、460px ≈ 42m。雷带始终垂直于瞄准线，加长后可横切更宽的通路。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "secondary",
+      "weaponType": "mine_layer",
+      "statOverrides": {
+        "mineFieldLength": "+80"
+      }
+    }
+  ],
+  "maxStacks": 3
+}

@@ -1,0 +1,18 @@
+{
+  "id": "weapon_primary_autocannon_cooling",
+  "name": "机炮：强制风冷",
+  "rarity": "rare",
+  "desc": "过热锁定时间 −0.5s / 级，最低 1.0s（基础 2.0s）。过热锁定期间不再冷却；升级后停火惩罚依次 1.5s、1.0s，长按泼弹的时间占比明显提高。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "autocannon",
+      "statOverrides": {
+        "overheatLock": "-0.5"
+      }
+    }
+  ],
+  "maxStacks": 2
+}

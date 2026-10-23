@@ -95,6 +95,67 @@ function groupCardsByRarity(cards, opts) {
   return out;
 }
 
+// ======================= 卡牌分类维度之二：按效果类型（#7，2026-10-22 B6） =======================
+// 为什么提到模块顶层：分类口径必须**两页同源**——battle 的开发者面板卡牌 Tab 与 bench 的
+//   #cardSelect 下拉此前各写一套（bench 只有稀有度分组），用户反馈「bench 卡牌面板未按正式
+//   游戏分类显示」。原 DEV_CARD_GROUPS 是 mountDevPanel() 内的局部常量，页面拿不到；现在提到
+//   模块顶层并配纯函数 devCardGroupKey(card)/devCardGroupLabel(key)，bench 直接复用同一份表。
+//
+// 语义：**首个匹配**（与旧 renderDevCards 的 for-loop break 一致）；无匹配 → 'other'。
+//   顺序即优先级：例如一张卡既带 weapon.primary install 又带 modifier 效果时归「主武器安装」。
+const DEV_CARD_GROUPS = [
+  { key: 'primary_install',   label: '主武器安装', match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'weapon' && (ef.slot || 'primary') === 'primary' && ef.action === 'install'; }); } },
+  { key: 'primary_upgrade',   label: '主武器升级', match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'weapon' && (ef.slot || 'primary') === 'primary' && ef.action === 'upgrade'; }); } },
+  { key: 'secondary_install', label: '副武器安装', match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'weapon' && (ef.slot || 'secondary') === 'secondary' && ef.action === 'install'; }); } },
+  { key: 'secondary_upgrade', label: '副武器升级', match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'weapon' && (ef.slot || 'secondary') === 'secondary' && ef.action === 'upgrade'; }); } },
+  { key: 'ammo_upgrade',      label: '弹种升级',   match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'ammo' && ef.replaceAmmo; }); } },
+  { key: 'ammo_tune',         label: '弹种强化',   match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'ammo' && !ef.replaceAmmo; }); } },
+  { key: 'ability',           label: '主动技能',   match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'ability'; }); } },
+  { key: 'passive',           label: '被动机制',   match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'passive'; }); } },
+  { key: 'modifier',          label: '参数强化',   match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'modifier'; }); } },
+  { key: 'drone',             label: '无人机',     match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'drone'; }); } },
+  { key: 'economy',           label: '经济',       match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'economy'; }); } }
+];
+
+// devCardGroupKey(card) → 'primary_install' | … | 'other'（首个匹配；纯函数、无 DOM）
+function devCardGroupKey(card) {
+  if (!card) return 'other';
+  for (const g of DEV_CARD_GROUPS) { if (g.match(card)) return g.key; }
+  return 'other';
+}
+// devCardGroupLabel(key) → 中文分组名（'other' 及未知键 → '其他'）
+function devCardGroupLabel(key) {
+  const g = DEV_CARD_GROUPS.find(function (x) { return x.key === key; });
+  return g ? g.label : '其他';
+}
+// groupCardsByEffect(cards, opts) → [{ key, label, cards }]，按效果类型分组（与 devpanel 卡牌 Tab 同序）
+//   opts.sortWithin：组内按 name 排序（缺省 true）。空分组不输出；'other' 追加在末尾。
+function groupCardsByEffect(cards, opts) {
+  const O = opts || {};
+  const buckets = new Map();
+  for (const g of DEV_CARD_GROUPS) buckets.set(g.key, []);
+  const other = [];
+  for (const c of (cards || [])) {
+    if (!c) continue;
+    const k = devCardGroupKey(c);
+    if (k === 'other') other.push(c);
+    else buckets.get(k).push(c);
+  }
+  const byName = (a, b) => String((a && (a.name || a.id)) || '').localeCompare(String((b && (b.name || b.id)) || ''), 'zh-Hans-CN');
+  const out = [];
+  for (const g of DEV_CARD_GROUPS) {
+    const list = buckets.get(g.key);
+    if (!list || !list.length) continue;
+    if (O.sortWithin !== false) list.sort(byName);
+    out.push({ key: g.key, label: g.label, cards: list });
+  }
+  if (other.length) {
+    if (O.sortWithin !== false) other.sort(byName);
+    out.push({ key: 'other', label: '其他', cards: other });
+  }
+  return out;
+}
+
 function mountDevPanel(host) {
   const H = host || {};
   const getPlayer = H.getPlayer || _g('getPlayer', null) || (function () { return _g('player', null); });
@@ -188,8 +249,8 @@ function mountDevPanel(host) {
         '<label class="dev-cheat"><input type="checkbox" id="devInvulnChk"> 无敌常驻（invulnT 恒续，与测试台同源语义）</label>' +
         '<label class="dev-cheat"><input type="checkbox" id="devInstantReloadChk"> 秒装填（reloadT 恒 0，与测试台同源语义）</label>' +
         // #5（2026-10-19 用户裁定）：坦克精灵**维持不启用**，但在面板里给一个开关（**默认关**）。
-        //   精灵（assets/tanks/*.png 四层俯视贴图）目前仍未逐车目视确认对齐，故默认关闭；
-        //   需要对比时可临时打开，勾选状态不写回 tanks/*.json（纯运行时调试开关）。
+        //   2026-10-23 用户裁定后 assets/tanks/ 已无 PNG ⇒ 当前无论如何都回落程序化；
+        //   开关保留供后期美术入库后对比。勾选状态不写回 tanks/*.json（纯运行时调试开关）。
         '<label class="dev-cheat"><input type="checkbox" id="devSpriteChk"> 游戏内显示精灵（默认关；需贴图已对齐）</label>' +
         genResetRow +
         (H.extraSwitchHTML || '') +
@@ -267,19 +328,7 @@ function mountDevPanel(host) {
   if (H.onReset) $('resetBtn').addEventListener('click', H.onReset);
 
   // ---- 卡牌选择器（分组 / 搜索 / 已持有 ×N / −1 回滚 / 清除全部）----
-  const DEV_CARD_GROUPS = [
-    { key: 'primary_install',    label: '主武器安装', match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'weapon' && (ef.slot || 'primary') === 'primary' && ef.action === 'install'; }); } },
-    { key: 'primary_upgrade',    label: '主武器升级', match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'weapon' && (ef.slot || 'primary') === 'primary' && ef.action === 'upgrade'; }); } },
-    { key: 'secondary_install',  label: '副武器安装', match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'weapon' && (ef.slot || 'secondary') === 'secondary' && ef.action === 'install'; }); } },
-    { key: 'secondary_upgrade',  label: '副武器升级', match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'weapon' && (ef.slot || 'secondary') === 'secondary' && ef.action === 'upgrade'; }); } },
-    { key: 'ammo_upgrade',       label: '弹种升级',   match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'ammo' && ef.replaceAmmo; }); } },
-    { key: 'ammo_tune',          label: '弹种强化',   match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'ammo' && !ef.replaceAmmo; }); } },
-    { key: 'ability',            label: '主动技能',   match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'ability'; }); } },
-    { key: 'passive',            label: '被动机制',   match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'passive'; }); } },
-    { key: 'modifier',           label: '参数强化',   match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'modifier'; }); } },
-    { key: 'drone',              label: '无人机',     match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'drone'; }); } },
-    { key: 'economy',            label: '经济',       match: function (c) { return (c.effects || []).some(function (ef) { return ef.type === 'economy'; }); } }
-  ];
+  // #7（2026-10-22 B6）：DEV_CARD_GROUPS 已上提到模块顶层（bench 下拉同源复用），此处不再本地定义。
   const devCardGroupOpen = new Set(DEV_CARD_GROUPS.map(function (g) { return g.key; }));
   // #G（2026-09-21）：已持有卡牌区签名缓存 + 持有计数合并统计（见 renderDevOwnedCards 注记）。
   // devOwnedDirty = 显式「内容已变，下一帧必须重绘」标记（不能用 devOwnedSig='' 兼任——空态
@@ -359,8 +408,7 @@ function mountDevPanel(host) {
     const buckets = new Map();
     for (const c of pool) {
       if (!devCardMatchesQuery(c, q)) continue;
-      let gk = 'other';
-      for (const g of DEV_CARD_GROUPS) { if (g.match(c)) { gk = g.key; break; } }
+      const gk = devCardGroupKey(c);   // #7：首个匹配语义，与 bench 下拉同源
       if (!buckets.has(gk)) buckets.set(gk, []);
       buckets.get(gk).push(c);
     }
@@ -724,6 +772,11 @@ if (typeof module !== 'undefined' && module.exports) {
     devRarityLabel: devRarityLabel,
     groupCardsByRarity: groupCardsByRarity,
     DEV_RARITY_LABELS: DEV_RARITY_LABELS,
-    DEV_RARITY_ORDER: DEV_RARITY_ORDER
+    DEV_RARITY_ORDER: DEV_RARITY_ORDER,
+    // #7（2026-10-22 B6，需求 9）：效果类型分组（开发者面板卡牌 Tab 与 bench #cardSelect 同源）
+    DEV_CARD_GROUPS: DEV_CARD_GROUPS,
+    devCardGroupKey: devCardGroupKey,
+    devCardGroupLabel: devCardGroupLabel,
+    groupCardsByEffect: groupCardsByEffect
   };
 }

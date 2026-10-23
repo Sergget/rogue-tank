@@ -1,7 +1,6 @@
 {
   "id": "hummel",
-  "name": "莱茵武器运载车",
-  "class": "spg",
+  "passiveSlots": 2,
   "traverseLimit": 180,
   "maxSpeed": 40,
   "turnRate": 0.7,
@@ -19,9 +18,59 @@
   "spreadMult": 1.4,
   "aimSpeed": 1.2,
   "texture": "camo_dunkelgelb",
+  "appearance": {
+    "engineDeck": {
+      "style": "standard",
+      "dx": 0,
+      "dy": 0
+    }
+  },
+  "sprite": {
+    "enabled": false,
+    "track": {
+      "img": "assets/tanks/track-links.png",
+      "scale": 0,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0
+    },
+    "hull": {
+      "img": "assets/tanks/hummel_hull.png",
+      "scale": 0.050053,
+      "dx": 0,
+      "dy": -0.016,
+      "rot": 0,
+      "pivot": [
+        600,
+        282.9
+      ]
+    },
+    "turret": {
+      "img": "assets/tanks/hummel_turret.png",
+      "scale": 0.048059,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0,
+      "pivot": [
+        293.7,
+        271
+      ]
+    },
+    "barrel": {
+      "mountDx": 16,
+      "mountDy": 0,
+      "embed": 2,
+      "scaleMult": 1,
+      "gap": 3.7,
+      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
+      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
+      "imgVehicle": "assets/tanks/barrels/barrel-hummel.png"
+    }
+  },
   "barrel": {
-    "len": 230,
-    "width": 14,
+    "len": 157,
+    "width": 16,
     "muzzle": "single",
     "evac": {
       "style": "none",
@@ -34,26 +83,26 @@
     "mantlet": {
       "style": "box",
       "pos": 0,
-      "width": 26
+      "width": 19
     }
   },
   "hull": {
     "verts": [
       [
-        30.0,
-        -13.0
+        30,
+        -13
       ],
       [
-        -30.0,
-        -13.0
+        -30,
+        -13
       ],
       [
-        -30.0,
-        13.0
+        -30,
+        13
       ],
       [
-        30.0,
-        13.0
+        30,
+        13
       ]
     ],
     "faces": [
@@ -71,25 +120,35 @@
   "turret": {
     "verts": [
       [
-        10.0,
-        -11.0
+        10,
+        -11
       ],
       [
-        -16.0,
-        -11.0
+        -1.1,
+        -17
       ],
       [
-        -16.0,
-        11.0
+        -24.1,
+        -13.4
       ],
       [
-        10.0,
-        11.0
+        -24.1,
+        13.4
+      ],
+      [
+        -1.1,
+        17
+      ],
+      [
+        10,
+        11
       ]
     ],
     "faces": [
       "side",
+      "side",
       "rear",
+      "side",
       "side",
       "front"
     ],
@@ -99,68 +158,12 @@
       "rear": 10
     },
     "pivot": {
-      "dx": -4,
+      "dx": -12,
       "dy": 0
     },
     "axis": {
-      "dx": -4,
+      "dx": -7,
       "dy": 0
-    }
-  },
-  "sprite": {
-    "enabled": false,
-    "hull": {
-      "img": "assets/tanks/hummel_hull.png",
-      "scale": 0.050053,
-      "dx": 0.0,
-      "dy": -0.016,
-      "rot": 0,
-      "pivot": [
-        600.0,
-        282.9
-      ]
-    },
-    "turret": {
-      "img": "assets/tanks/hummel_turret.png",
-      "scale": 0.048059,
-      "dx": 0,
-      "dy": 0,
-      "rot": 0,
-      "pivot": [
-        293.7,
-        271.0
-      ]
-    },
-    "track": {
-      "img": "assets/tanks/track-links.png",
-      "scale": 0,
-      "dx": 0,
-      "dy": 0
-    },
-    "barrel": {
-      "mountDx": 16.0,
-      "mountDy": 0,
-      "embed": 2,
-      "scaleMult": 1,
-      "gap": 3.7,
-      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
-      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
-      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png",
-      "imgVehicle": "assets/tanks/barrels/barrel-hummel.png"
-    }
-  },
-  "appearance": {
-    "cupola": {
-      "style": "low",
-      "dx": 0,
-      "dy": 0,
-      "mirror": false
-    },
-    "engineDeck": {
-      "style": "standard",
-      "dx": 0,
-      "dy": 0,
-      "mirror": false
     }
   }
 }

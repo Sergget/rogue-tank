@@ -1,7 +1,7 @@
 {
   "id": "sniper_overmatch_shot",
   "name": "超越击穿",
-  "rarity": "epic",
+  "rarity": "rare",
   "desc": "超越击穿（被动）：AP/APCR 命中时，若目标受击面等效厚度 ≤ 穿深 ×100%，跳过跳弹判定强制按穿透结算。",
   "effects": [
     { "type": "passive", "key": "overmatch", "value": 1 }

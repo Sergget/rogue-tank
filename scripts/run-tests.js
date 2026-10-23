@@ -49,6 +49,8 @@ const TESTS = [
   'scripts/test-boss.js',
   'scripts/validate-content.js',
   'scripts/test-card-effects.js',
+  // 2026-10-23：被动技能槽（分类判定/槽位视图/顶替撤除）+ 导弹越障与攻顶参数 + 侦查无人机停用
+  'scripts/test-passive-skills.js',
   'scripts/test-extreme-combat.js',
   'scripts/test-extreme-geometry.js',
   'scripts/test-extreme-model.js',
@@ -56,7 +58,9 @@ const TESTS = [
   'scripts/test-assets.js',
   'scripts/test-trackmarks.js',   // #U41（2026-10-19）履带痕迹：盖章节流/差速/寿命/上限/clear
   'scripts/test-render.js',
-  'scripts/test-cover-gen.js',
+  // 2026-10-23 贴图资产收口：P-16 SVG / P-16-3 圆角倒角两条路线与 AI 出图链已删除；
+  // 保留的「程序生成 + 后期贴图接线」由本文件覆盖（烘焙基准导出 / 后处理 / 锚点验收）。
+  'scripts/test-asset-pipeline.js',
   'scripts/test-audio.js',
   'scripts/test-dmgtext.js',
   'scripts/test-drone.js',
@@ -72,6 +76,12 @@ const TESTS = [
   'scripts/test-ammo-balance.js',
   'scripts/test-weapon-upgrade-balance.js',
   'scripts/test-bindings.js',
+  // 2026-10-22（第五批）B1/B2 战斗内核契约：RULES 新字段 / 敌弹种中性 / 商店曲线 /
+  // 击杀分 / 双管 0.8s / 曲射 2σ / 直线掩体部位裁剪 / Boss 简报与电磁炮蓄能。
+  'scripts/test-batch5-combat.js',
+  // 2026-10-23：近期可落地机制三件套——撞击伤害（RULES.ramming）/ 隐蔽感知（RULES.camouflage）
+  //   / 战术闪跃（RULES.abilities.flash_dash）。含「新 RULES 块必须有消费方」的死配置哨兵。
+  'scripts/test-recent-mods.js',
 ];
 
 function pickTests() {

@@ -856,6 +856,141 @@ function applyBossWeaponTuning(t) {
   return t;
 }
 
+// ==================== 2026-10-22（第五批）Boss 进场简报（修 ISSUES #Z2）====================
+// 背景：`tank_battle.html` 自 #U43（2026-10-19）起就调用 `showBossBriefing(bossEntity)`，
+//   `renderBossBriefing` 用 `typeof bossBriefing === 'function'` 守卫——但本文件**从未定义**
+//   该函数（`git log -S "function bossBriefing" -- js/` 零命中）⇒ 守卫恒 false ⇒ 面板永不弹出，
+//   且 `types/globals.d.ts` 的声明让 `npm run check` 查不出。本批补齐纯函数 + 单测。
+//
+// 设计约束（照 tank_battle.html:2042-2060 的消费契约）：
+//   · 数据**全部取自实体本身**（name/desc/stages/weapons/cardEffects），不持有卡池 ——
+//     `applyCardEffects` 已把 `cardName` 随 cardEffects 条目带走（见 js/tank_cards.js:313-316）。
+//   · 纯函数、无 DOM、无副作用 ⇒ 可 Node 测试。
+const BOSS_WEAPON_LABELS = {
+  primary: { standard: '标准主炮', autocannon: '速射机炮', double_barrel: '双联火炮', railgun: '电磁轨道炮', clip: '弹夹炮' },
+  secondary: { none: '无', turret: '副炮塔', mortar: '车载迫击炮', missile: '锁定式导弹', missile_wire: '线导式导弹', rocket: '火箭巢', mine_layer: '布雷器', howitzer: '榴弹炮（曲射）', smoke: '烟幕发射器' }
+};
+
+function _bossAbilityLabel(key) {
+  const L = { shield: '护盾', artillery: '炮击支援', overdrive: '超装填', aps: '主动防御系统' };
+  return L[key] || String(key || '技能');
+}
+
+// 武器数值摘要（只列对决策有意义的字段；缺字段即跳过）
+function _weaponStatLines(type, stats) {
+  const s = stats || {};
+  const out = [];
+  const push = function (label, v, unit, digits) {
+    if (typeof v !== 'number' || !isFinite(v)) return;
+    const n = (digits === undefined) ? Math.round(v) : Number(v.toFixed(digits));
+    out.push(label + ' ' + n + (unit || ''));
+  };
+  push('伤害', s.damage, '', 0);
+  push('穿深', s.penetration, 'mm', 0);
+  push('装填', s.reload, 's', 2);
+  push('弹速', s.shellSpeed, 'px/s', 0);
+  push('射程', s.maxRange, 'px', 0);
+  push('溅射', s.splashRadius, 'px', 0);
+  push('容量', s.clipSize, '发', 0);
+  push('热量', s.heatMax, '%', 0);
+  push('换管', s.switchSeconds, 's', 2);
+  return out;
+}
+
+/**
+ * Boss 进场简报视图（纯函数）。
+ * @param {any} entity Boss 实体（makeBossEntity 产物，含 boss/weapons/cardEffects）
+ * @returns {{name:string, desc:string, stageCount:number,
+ *            weapons:{primary:{type:string,label:string}, secondary:{type:string,label:string}},
+ *            upgrades:Array<{name:string, lines:string[]}>,
+ *            skills:Array<{label:string, boosted:boolean}>}|null}
+ */
+function bossBriefing(entity) {
+  if (!entity || typeof entity !== 'object') return null;
+  const meta = entity.boss || {};
+  const w = entity.weapons || {};
+  const pType = (w.primary && w.primary.type) || 'standard';
+  const sType = (w.secondary && w.secondary.type) || 'none';
+  const stages = Array.isArray(meta.stages) ? meta.stages : [];
+
+  const upgrades = [];
+  const skills = [];
+  for (const ef of (entity.cardEffects || [])) {
+    if (!ef || typeof ef !== 'object') continue;
+    if (ef.type === 'ability') {
+      skills.push({
+        label: _bossAbilityLabel(ef.key),
+        boosted: !!(ef.params && (ef.params.durationMult > 1 || ef.params.shellCountMult > 1))
+      });
+      continue;
+    }
+    if (ef.type !== 'weapon') continue;
+    const nm = ef.cardName || ef.cardId || (ef.weaponType || '改装');
+    const st = (w.primary && w.primary.type === ef.weaponType) ? w.primary.stats
+      : (w.secondary && w.secondary.type === ef.weaponType) ? w.secondary.stats : null;
+    upgrades.push({ name: nm, lines: _weaponStatLines(ef.weaponType, st) });
+  }
+
+  return {
+    name: meta.name || entity.id || 'BOSS',
+    desc: meta.desc || meta.behavior || '',
+    stageCount: stages.length,
+    weapons: {
+      primary: { type: pType, label: (BOSS_WEAPON_LABELS.primary[pType] || pType) },
+      secondary: { type: sType, label: (BOSS_WEAPON_LABELS.secondary[sType] || sType) }
+    },
+    upgrades: upgrades,
+    skills: skills
+  };
+}
+
+/** 简报纯文本行（日志兜底；面板被关掉后仍可回看同一份信息）。 */
+function bossBriefingLines(entity) {
+  const v = bossBriefing(entity);
+  if (!v) return [];
+  const lines = [];
+  lines.push(v.name + (v.stageCount ? '（' + v.stageCount + ' 阶段）' : ''));
+  if (v.desc) lines.push(v.desc);
+  lines.push('主武器：' + v.weapons.primary.label + '｜副武器：' + v.weapons.secondary.label);
+  if (v.upgrades.length) {
+    for (const u of v.upgrades) lines.push('改装：' + u.name + (u.lines.length ? '（' + u.lines.join(' · ') + '）' : ''));
+  } else {
+    lines.push('改装：无（出厂武备）');
+  }
+  lines.push('技能：' + (v.skills.length ? v.skills.map(function (s) { return s.label + (s.boosted ? '[强化]' : ''); }).join('、') : '无'));
+  return lines;
+}
+
+// ==================== 2026-10-22（第五批）Boss 电磁炮蓄能（需求 #13）====================
+// 用户裁定：「为 boss 使用电磁炮时提供激光炮线动画，为玩家提供 boss 正在使用电磁炮的预警」。
+// 现行口径（RULES.boss.railgun）：Boss 主武器为 railgun 时，`reloadT <= chargeSeconds` 起进入
+//   蓄能期，逐帧产出 railCharge 事件；蓄能未完成时置 `t.railChargeHold = true`（fireTank 门控），
+//   蓄能完成当帧产出 railReady 事件并清 hold，下一帧 AI 的开火判据才会放行。
+// 接线（tank_battle.html）：bossRailFx 缓存 charge/fire 两态 → drawBossRailLine 绘制。
+function updateBossRailCharge(t, dt, target) {
+  const evts = [];
+  const cfg = (typeof RULES !== 'undefined' && RULES.boss && RULES.boss.railgun) || {};
+  if (cfg.enabled === false || !t || !(dt > 0)) return evts;
+  if (t.hp === undefined || t.hp <= 0) { t.railChargeHold = false; t.railChargeT = 0; return evts; }
+  const w = t.weapons && t.weapons.primary;
+  if (!w || w.type !== 'railgun') { t.railChargeHold = false; t.railChargeT = 0; return evts; }
+
+  const chargeS = (typeof cfg.chargeSeconds === 'number') ? cfg.chargeSeconds : 1.2;
+  const length = (typeof cfg.lineLength === 'number') ? cfg.lineLength : 1400;
+  const width = (typeof cfg.lineWidth === 'number') ? cfg.lineWidth : 6;
+  const rl = (typeof t.reloadT === 'number') ? t.reloadT : 0;
+
+  if (rl > chargeS) { t.railChargeHold = false; t.railChargeT = 0; return evts; }
+
+  t.railChargeT = Math.min(chargeS, (t.railChargeT || 0) + dt);
+  const progress = Math.max(0, Math.min(1, t.railChargeT / chargeS));
+  t.railChargeHold = progress < 1;
+  const ang = (typeof t.turretAngle === 'number') ? t.turretAngle : 0;
+  evts.push({ type: 'railCharge', x: t.x, y: t.y, angle: ang, length: length, width: width, progress: progress });
+  if (progress >= 1) evts.push({ type: 'railReady', x: t.x, y: t.y, angle: ang });
+  return evts;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     BOSS_WEAKSPOT_KEYS,
@@ -877,6 +1012,11 @@ if (typeof module !== 'undefined' && module.exports) {
     updateBossLaser,
     bossCurrentStage,
     isWeakspotHit,
-    applyBossWeaponTuning
+    applyBossWeaponTuning,
+    // 2026-10-22（第五批）
+    BOSS_WEAPON_LABELS,
+    bossBriefing,
+    bossBriefingLines,
+    updateBossRailCharge
   };
 }

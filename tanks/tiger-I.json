@@ -1,5 +1,6 @@
 {
   "id": "tiger-I",
+  "passiveSlots": 3,
   "traverseLimit": 180,
   "maxSpeed": 120,
   "turnRate": 1.6,
@@ -16,14 +17,15 @@
   "trackOffset": -10,
   "spreadMult": 1.2,
   "aimSpeed": 1.5,
-  "texture": "camo_urban",
+  "texture": "paint_panzergrau",
   "appearance": {
     "cupola": [
       {
         "style": "panoramic",
         "dx": 5,
         "dy": 0,
-        "mirror": false
+        "mirror": false,
+        "scale": 1
       }
     ],
     "engineDeck": {

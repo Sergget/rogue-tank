@@ -2,7 +2,7 @@
   "id": "weapon_primary_clip_capacity",
   "name": "弹夹炮：扩容弹仓",
   "rarity": "rare",
-  "desc": "弹夹炮强化：弹夹容量 +2 发（4 → 6）、弹夹内发际间隔 0.7 → 0.55 秒。代价是弹夹间整组装填再 +1.6 × 标准装填（每多发 +0.8 的既有规则不变）。",
+  "desc": "弹夹炮强化：弹夹容量 +2 发（4 → 6）。弹夹内发际间隔不变（0.7s，只由「快速推弹机」按 −0.1s/级 缩短）；代价是弹夹间整组装填再 +1.6 × 标准装填（每多发 +0.8 的既有规则不变）。",
   "effects": [
     {
       "type": "weapon",
@@ -10,8 +10,7 @@
       "slot": "primary",
       "weaponType": "clip",
       "statOverrides": {
-        "clipSize": "+2",
-        "clipCycleSeconds": 0.55
+        "clipSize": "+2"
       }
     }
   ],

@@ -1,0 +1,22 @@
+{
+  "id": "weapon_secondary_smoke",
+  "name": "副武器：战术烟幕发射器",
+  "rarity": "rare",
+  "desc": "安装副武器战术烟幕发射器：一次抛射 3 团烟雾，横向展开 70px 形成烟墙（射程 260，单团存续 5秒，装填 14秒）。烟幕可阻断敌方视线并为己方提供隐蔽加成。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "install",
+      "slot": "secondary",
+      "weaponType": "smoke",
+      "statOverrides": {
+        "range": 260,
+        "cloudCount": 3,
+        "spreadPx": 70,
+        "duration": 5,
+        "reload": 14
+      }
+    }
+  ],
+  "maxStacks": 1
+}

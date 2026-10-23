@@ -87,6 +87,40 @@ function _deployablePathHit(dc, sx, sy, nx, ny){
   return Math.max(0, tmin);
 }
 
+// 2026-10-22（第五批 §4.9.2(b)）：直线掩体（shellBlock:'wall'）**部位裁剪**的弹道侧入口。
+// 沿本步弹道把路径上的 wall / wall_breakable 掩体取出来，用 js/tank_cover.js 的
+// wallPartBlock 逐道判定「该目标的车体/炮塔是否被这道墙挡住」，返回**最近的一道**决定性掩体
+// （{ cover, point, distA, blockHull, blockTurret }）或 null。
+//
+// 语义边界（与 `tier.mode` 的关系）：
+//   · wall 的 shellBlock='wall' ⇒ normalizeCoverTiers 派生 mode='none'（vision:true），
+//     **不进入** stepShells 的 solid/single「整发截停」分支——它按部位裁，不是整发挡；
+//   · 因此本函数结果有两个用途：① 过滤掉被挡部位的 hits（车体被挡 = 打不到车体）；
+//     ② 命中被全部过滤时，把这道墙当作**拦截点**（s.dead + impactFx 'block'）。
+// 无射手（雷场等无 shooter 的弹体）/无 wall 掩体 → null（零行为变化）。
+function _wallBlockAlong(s, target, sx, sy, nx, ny, find, T, covsIn){
+  if(!s || !target) return null;
+  // 跨模块纯函数经 _G（globalThis）读取——不写裸标识符，避免 tsc checkJs 的 TS2304
+  // （types/globals.d.ts 属 verify-docs 写域，本角色不改）。
+  const wfn = _G('wallPartBlock', null);
+  if(typeof wfn !== 'function') return null;
+  const shooter = s.shooter;
+  if(!shooter || shooter.x === undefined) return null;
+  // covsIn：调用方已算过 findCoversOnPath 时复用（避免「每个敌对实体各扫一遍 covers」）
+  const covs = covsIn || (find ? (find(sx, sy, nx, ny) || []) : []);
+  let best = null;
+  for(const cov of covs){
+    const tier = T[cov.cover.tier];
+    if(!tier || tier.shellBlock !== 'wall') continue;
+    const wb = wfn(cov.cover, shooter, target);
+    if(!wb || (!wb.blockHull && !wb.blockTurret)) continue;
+    if(!best || cov.distA < best.distA){
+      best = { cover: cov.cover, point: cov.point, distA: cov.distA, blockHull: wb.blockHull, blockTurret: wb.blockTurret };
+    }
+  }
+  return best;
+}
+
 // #10（2026-10-19 用户裁定）：「单向通过性**仅限掩体后一段有效距离**——如果掩体后有效区域
 //   内有坦克，则无法命中车体，只能命中炮塔；如果坦克不在掩体后的有效区域内，则可以命中
 //   炮塔或车体」。
@@ -159,10 +193,13 @@ function primaryWeaponSpec(shooter) {
 // 阶段七 7.3：按主武器规格发射单发炮弹（2026-09-15 W6：autocannon 改逐发短间隔 + 热量机制，
 // burst 连发次发路径已删除）。共享 fireTank 的弹道计算（倍率 + 弹种 + 散布），返回值 = 生成的 shell 或 null。
 // 2026-09-15 W4：lateralOffsetPx = 炮口横向偏移（双管并排：±offset 各打各的管口）。
-function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
+function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx, dmgScale) {
   const c = _ctx(ctx);
   const shells = c.shells || _G('shells', null);
   if (!shells) return null;
+  // 2026-10-22（第五批 B2-9）：第 6 参 dmgScale（缺省 1）——砰砰炮追发弹按
+  //   RULES.weapons.standardDoubleTapDmgMul(0.6) 减伤；直击弹链/雷场等其它路径不传，行为不变。
+  const _dmgScale = (typeof dmgScale === 'number' && isFinite(dmgScale)) ? dmgScale : 1;
   const R = _rules(c);
   const gunRoot = c.gunRoot || _G('gunRoot', null);
   const gunTip = c.gunTip || _G('gunTip', null);
@@ -235,17 +272,27 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
   play(isRailgun ? 'firerail' : 'fire', isDB ? { gain: 1.6 } : undefined);
   if (isDB && typeof c.spawnSmoke === 'function') c.spawnSmoke(ox, oy, 1.3);
   shooter.recoilT = 0.08;
+  // 2026-10-22（第五批）：maxRange 兜底钳到 RULES.autocannon.rangeMaxPx（1200）——
+  //   卡牌 +100/次 ×3 理论上只能到 1200，但旧卡/异常数据可能给更大值，运行时再兜一层。
+  //   只对显式设了 maxRange 的直射弹生效（0 = 不限）；曲射弹不设该字段，天然不受影响。
+  let _maxRange = (spec && typeof spec.maxRange === 'number') ? spec.maxRange : 0;
+  if (_maxRange > 0) {
+    const _acMax = (typeof RULES !== 'undefined' && RULES.autocannon && typeof RULES.autocannon.rangeMaxPx === 'number')
+      ? RULES.autocannon.rangeMaxPx : 1200;
+    if (_maxRange > _acMax) _maxRange = _acMax;
+  }
   const shell = {
     x: ox, y: oy, fx: fx, fy: fy, dx: dx, dy: dy,
     speed: Math.max(200, shooter.stats.shellSpeed * (ammo.speed || 1) * speedMult + (ammo.speedAdd || 0)),
     pen: shooter.stats.penetration * (ammo.pen || 1) * penMult + (ammo.penAdd || 0),
-    dmg: Math.max(0, shooter.stats.damage * (ammo.dmg || 1) * dmgMult + (ammo.dmgAdd || 0)),
+    // 2026-10-22（第五批 B2-9）：dmgScale 乘在这里（砰砰炮追发弹 0.6）
+    dmg: Math.max(0, (shooter.stats.damage * (ammo.dmg || 1) * dmgMult + (ammo.dmgAdd || 0)) * _dmgScale),
     ammo: ammo, ammoKey: shooter.ammoKey, shooter: shooter, hitPref: hitPref,
     fxScale: fxScale,
     // #U38（2026-10-18）：弹体视效通道——drawShells 据此绘制电磁炮的针状电离弹 + 电弧尾迹。
     //   只存武器**类型**（不存整个 spec，避免炮弹长期持有武器对象）。
     wType: (spec && spec.type) || 'standard',
-    maxRange: (spec && typeof spec.maxRange === 'number') ? spec.maxRange : 0,   // #7：机炮射程限制
+    maxRange: _maxRange,   // #7：机炮射程限制（已按 RULES.autocannon.rangeMaxPx 兜底钳制）
     canBounce: true, bounced: false, dist: 0, dead: false
   };
   // #G（2026-09-21）：轨道炮「超高速贯穿」——击穿并命中目标后弹体不消失，伤害按 pierceDmgMul
@@ -264,16 +311,41 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
   //   曲射——弹种**锁定 he**（忽略玩家当前 ammoKey），瞄准点 = 鼠标世界位置（ctx.aimPoint，
   //   由 battle 注入），越掩体（isArc 天然绕路径遮挡），落点分支在 stepShells 的 s.isArc。
   if (_isHowitzerMode(shooter)) {
-    // #W-I（2026-10-20 用户裁定改口径）：榴弹炮 = **副武器**。
-    //   参数单一口径 WEAPON_DEFAULTS.primary.howitzer（曲射机制参数），
-    //   升级卡（爆炸范围/急速射）走**副武器 upgrade 通道**写 weapons.secondary.stats
-    //   ⇒ 三层合并：缺省 < 副武器 stats（= 升级卡）——仅模式内生效；
-    //   直射参数（weapons.primary.stats）完全不受影响（用户口径）。
+    // 2026-10-23（用户裁定，口径重写）：「曲射榴弹炮又把主武器的机制带过来了」——
+    //   本分支此前虽在注释里声明「不继承主武器卡升级」，实际仍读了三处 `shooter.stats`：
+    //     ① 直击伤害 `stats.damage`（吃主武器伤害卡/弹种卡聚合）
+    //     ② 穿深 `stats.penetration`（同上）
+    //     ③ 整组装填 `stats.reload`（吃主武器装填卡）
+    //   现行口径（用户原话）：「只读取主武器已获得的 he 弹种的实时穿深、伤害、精度、三扩
+    //   和基础装填数据」。即：
+    //     · 伤害/穿深 = **tank.base**（基础值，非 stats 三层聚合）× HE 弹种的实时系数
+    //                   （`getAmmoCfg(shooter, heKey)`，仍随弹种升级卡变化——这是「已获得的
+    //                   he 弹种」的实时数据，属预期通道）。
+    //     · 精度 = **标准主炮基础精度** `RULES.spread.base`（不吃 aimSpeed / spreadMult 等
+    //              主武器改装）。
+    //     · 三扩 = **基础三扩** `RULES.spread` 的基准值（不吃主武器运动扩圈改装）。
+    //     · 装填 = **基础装填** `tank.base.reload` × `hs.reloadMult`（榴弹炮自身参数，
+    //              副武器升级通道），不吃主武器 reloadMult。
+    //   ⚠️ `tank.base` 与 `tank.stats` 的区别是本条的全部要害：stats 是 base + modifiers 的
+    //   三层聚合结果，任何主武器卡/局内升级都会进 modifiers。曲射必须读 base。
     const hsDef = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
     const secStats = (shooter.weapons.secondary && shooter.weapons.secondary.stats) || {};
     const hs = Object.assign({}, hsDef, secStats);
+    // 基础值通道：base 缺失时回退 stats（老实体/测试桩兼容），但绝不主动读 modifiers。
+    const _baseDmg = (shooter.base && typeof shooter.base.damage === 'number') ? shooter.base.damage
+      : shooter.stats.damage;
+    const _basePen = (shooter.base && typeof shooter.base.penetration === 'number') ? shooter.base.penetration
+      : shooter.stats.penetration;
+    const _baseReload = (shooter.base && typeof shooter.base.reload === 'number') ? shooter.base.reload
+      : shooter.stats.reload;
+    // 2026-10-23（用户裁定，口径再收紧）：**只绑定基础 HE，不再绑定「已获得的 HE 弹种」**。
+    //   用户原话：「不再绑定已获得的 he 弹种，只绑定基础 base 的 he 伤害、穿深」。
+    //   旧实现按 HE 链取玩家**已持有**的第一个（blast_he / proximity_he / hesh / aphe / he），
+    //   等于把 HE 升级卡的穿深/伤害带进曲射——这正是「把主武器机制带过来」的第二条通道。
+    //   现行：恒定取 `RULES.ammoTypes.he` 的**基础值**，与 loadout 无关。
     const heKey = 'he';
-    const heCfg = getAmmoCfg(shooter, heKey) || {};
+    const heCfg = (typeof RULES !== 'undefined' && RULES.ammoTypes && RULES.ammoTypes.he)
+      ? RULES.ammoTypes.he : (getAmmoCfg(shooter, heKey) || {});
     // 瞄准点：优先 ctx.aimPoint（鼠标世界位置），缺省沿炮塔方向 minArcRange
     const minArc = (typeof hs.minArcRange === 'number') ? hs.minArcRange : 120;
     let aimX, aimY;
@@ -297,14 +369,16 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
       aimY = rootP.y + (dAim > 1e-3 ? dya / dAim : Math.sin(shooter.turretAngle || 0)) * minArc;
     }
     const dirA0 = Math.atan2(aimY - fy, aimX - fx);
-    // 2026-10-20 用户裁定：实际落点也吃**散布**——与瞄准器散布圈同一口径
-    //   （σ×spreadFactor，σ=主炮精度弧度），把落点沿**切向**偏移该角度的一个高斯样本。
-    //   这样圈不是装饰：弹着点真的按圈的范围分布（横向切向偏移；径向距离保持瞄准距离）。
-    //   ⚠️ spreadFactor 与 battle 散布圈（tank_battle.html 的 howitzer 瞄准器）**同一参数源**
-    //   （WEAPON_DEFAULTS.primary.howitzer.spreadFactor），改一处自动跟随。
-    const spreadFactor = (typeof hs.spreadFactor === 'number') ? hs.spreadFactor : 1.2;
     const aimDistW = Math.hypot(aimX - fx, aimY - fy);
-    const spSigma = (shooter.sigma || 0) * spreadFactor;
+    // 2026-10-23（用户裁定，削弱榴弹炮模式）：
+    //   精度口径 = **4 × 主炮 base 精度 × 瞄准距离**。落地为
+    //     `spSigma = 4 × RULES.spread.base`（弧度），落点横向偏移 = gauss(spSigma) × aimDistW，
+    //   因此等效「4×base 精度 × 距离」。原 `spreadFactor`（2.0）与弹种 spread/spreadAcc
+    //   系数**全部退出本分支**——弹种已固定为基础 HE，其 spreadAcc(1.2) 不再叠加到曲射精度。
+    //   这样曲射稳固劣于直射精度，符合「削弱」意图。
+    const _spreadBase = (typeof RULES !== 'undefined' && RULES.spread && RULES.spread.base) ? RULES.spread.base : 0.018;
+    const HOWITZER_SPREAD_MULT = 4;
+    const spSigma = _spreadBase * HOWITZER_SPREAD_MULT;
     const spOffset = gauss(spSigma) * aimDistW;
     const dirA = dirA0 + (aimDistW > 1e-3 ? spOffset / aimDistW : 0);
     const arcSpeed = (typeof hs.arcSpeed === 'number') ? hs.arcSpeed : 260;
@@ -320,9 +394,11 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx) {
       // 直击判定用：标记本弹是 howitzer 主炮曲射（stepShells 的落点分支区分直击/近失）
       howitzer: true,
       shooter: shooter,
-      // 直击伤害口径：he 弹系数 × 武器 damageMult；最薄装甲判定在落点分支
-      dmg: Math.max(0, shooter.stats.damage * (heCfg.dmg || 1) * (typeof hs.damageMult === 'number' ? hs.damageMult : 1) + (heCfg.dmgAdd || 0)),
-      pen: shooter.stats.penetration * (heCfg.pen || 1),
+      // 直击伤害口径（2026-10-23 重写）：**基础伤害** × he 弹种实时系数 × 榴弹炮自身倍率。
+      //   不再读 `shooter.stats.damage`（旧实现会把主武器伤害卡的聚合值带进曲射）。
+      dmg: Math.max(0, _baseDmg * (heCfg.dmg || 1) * (typeof hs.damageMult === 'number' ? hs.damageMult : 1) + (heCfg.dmgAdd || 0)),
+      // 穿深同理：基础穿深 × he 弹种实时系数（不乘主武器 penMult）。
+      pen: _basePen * (heCfg.pen || 1),
       ammo: heCfg, ammoKey: heKey,
       splashRadius: splash,
       // 落点三件套**预置**（与 mortar 弹同字段约定）——stepShells 的 isArc 分支只在
@@ -386,28 +462,66 @@ function updateHowitzerBurst(shooter, dt, ctx) {
   b.left -= 1;
   if (b.left <= 0) {
     shooter._howitzerBurst = null;
-    // 队列打完 → 整组装填（与 fireTank 同口径；参数同 firePrimaryShell 的合并顺序）
+    // 队列打完 → 整组装填（与 fireTank 同口径：榴弹炮 = 标准主炮装填，不吃主武器 reloadMult）；
+    //   参数同 firePrimaryShell 的合并顺序。
     const _hsDef2 = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
     const _secStats2 = (shooter.weapons.secondary && shooter.weapons.secondary.stats) || {};
     const hs = Object.assign({}, _hsDef2, _secStats2);
     const debuff = (typeof debuffReloadRate === 'function') ? debuffReloadRate : function(){ return 1; };
-    shooter.reloadT = shooter.stats.reload * (typeof hs.reloadMult === 'number' ? hs.reloadMult : 2.2) / debuff(shooter);
+    // 2026-10-23（用户裁定）：装填改读**基础装填** `tank.base.reload`，不再读三层聚合的
+    //   `shooter.stats.reload`（后者含主武器装填卡与局内升级）。追发队列与主路径同口径。
+    const _baseReload2 = (shooter.base && typeof shooter.base.reload === 'number') ? shooter.base.reload
+      : shooter.stats.reload;
+    shooter.reloadT = _baseReload2 * (typeof hs.reloadMult === 'number' ? hs.reloadMult : 2.2) / debuff(shooter);
   } else {
     shooter.reloadT = b.interval;   // 发际间隔（下一发 0.5s 后）
   }
   return true;
 }
 
+// 2026-10-22（第五批 B2-9，用户需求 6「标准主炮砰砰炮」）：
+//   `_doubleTap = { t, dmgScale }` 追发队列驱动（仿 updateHowitzerBurst 范式）。
+//   fireTank 通用单发分支在 spec.doubleTapEnabled 时挂队列，本函数逐帧递减 t，
+//   到点 → 直调 firePrimaryShell（不经 fireTank，故不会再挂一次队列）补发 1 发，
+//   伤害按 dmgScale（RULES.weapons.standardDoubleTapDmgMul = 0.6）结算，随后清队列。
+//   · battle 玩家主循环与全实体主循环都调（AI 若装到同款规格也能享受，行为一致）；
+//   · 死亡 / 换武器（primaryWeaponSpec 不再有 doubleTapEnabled）→ 直接清队列，不发幽灵弹。
+// @param {any} t 射手实体
+// @param {number} dt 帧间隔
+// @param {object} ctx fireCtx
+// @returns {boolean} 本帧是否补发了弹
+function updatePrimaryFollowup(t, dt, ctx) {
+  const q = t && t._doubleTap;
+  if (!q) return false;
+  if (t.hp <= 0) { t._doubleTap = null; return false; }
+  const spec = primaryWeaponSpec(t);
+  if (!spec || !spec.doubleTapEnabled) { t._doubleTap = null; return false; }
+  q.t = (q.t || 0) - dt;
+  if (q.t > 0) return false;
+  t._doubleTap = null;
+  const dmgScale = (typeof q.dmgScale === 'number') ? q.dmgScale : 0.6;
+  const shell = firePrimaryShell(t, null, null, ctx, 0, dmgScale);
+  return !!shell;
+}
+
 // 2026-09-15 W6：速射机炮热量机制（用户裁定，burst 连发路径随之删除）。
 // 每发 +heatPerShot%（fireTank 累积）；每秒冷却 coolPerSec%（本函数逐帧驱动，player/AI/sim 均调用）；
 // ≥heatMax 触发过热：heatLockT = overheatLock 秒内禁止开火（fireTank 门控），冷却继续。
 // 状态字段：t.heatPct（0..heatMax）、t.heatLockT（秒）。updatePrimaryBarrels 同款逐帧驱动模式。
+//
+// 2026-10-22（第五批 B2-2，用户需求 2「过热锁定期间不降温」）：
+//   旧实现「锁定 2s 内热量仍按 coolPerSec 掉光」⇒ 实测锁定期结束热量已降到 70%，
+//   「过热惩罚」几乎无感。现改为：heatLockT > 0 时**只递减锁定计时、热量维持 100%**，
+//   解锁那一帧才真正开始散热（锁定 → 2s 满热 → 解锁后逐秒降温）。
 function updatePrimaryHeat(t, dt) {
   if (!t || t.hp <= 0) return false;
   const spec = primaryWeaponSpec(t);
   if (!spec || spec.type !== 'autocannon') return false;
   const cool = (typeof spec.coolPerSec === 'number') ? spec.coolPerSec : 15;
-  if (t.heatLockT !== undefined && t.heatLockT > 0) t.heatLockT = Math.max(0, t.heatLockT - dt);
+  if (t.heatLockT !== undefined && t.heatLockT > 0) {
+    t.heatLockT = Math.max(0, t.heatLockT - dt);
+    return true;                 // 锁定期间不降温（热量维持）
+  }
   if (t.heatPct !== undefined && t.heatPct > 0) t.heatPct = Math.max(0, t.heatPct - cool * dt);
   return true;
 }
@@ -476,7 +590,11 @@ function fireDoubleBarrel(shooter, target, hitPref, ctx, spec, salvo) {
   if (salvo && readyIdx.length < st.count) {
     return { fired: false, shells: 0, reason: 'salvo-not-ready' };
   }
-  const switchSeconds = (typeof spec.switchSeconds === 'number') ? spec.switchSeconds : 0.5;
+  // 2026-10-22（第五批 B2-7，用户需求 4「双管切换时间固定 0.8s」）：
+  //   换管时间**恒读 RULES.weapons.doubleBarrelSwitchSeconds**，不再读 spec.switchSeconds——
+  //   后者只是 WEAPON_DEFAULTS 的展示值，任何卡牌/数据都不得影响换管节奏。
+  const switchSeconds = (typeof RULES !== 'undefined' && RULES.weapons && typeof RULES.weapons.doubleBarrelSwitchSeconds === 'number')
+    ? RULES.weapons.doubleBarrelSwitchSeconds : 0.8;
   const barrelOffset = (typeof spec.barrelOffset === 'number') ? spec.barrelOffset : 1.85;
   // #U25（2026-10-17 用户反馈「双管开火时炮弹出发点与炮管相差很大」）：
   //   这里原来用 `shooter.barrel.width`（设计器字段，单位是 **%**，典型值 18）× barrelOffset × 0.5
@@ -542,11 +660,40 @@ function clipMagReloadSeconds(shooter, spec, st) {
 
 // 弹夹炮逐帧驱动（主循环调用，player 与 AI 实体都调）：
 // 弹夹间装填由 reloadT 倒计时（fireTank 顶部 reloadT>0 门控复用），倒计时归零即回满弹夹。
-function updatePrimaryClip(t, dt) {
+//
+// 2026-10-22（第五批 B2-8，用户需求 5「爆发射击」）：`_clipBurst = { left, t }` 队列驱动——
+//   空格齐射（salvo=true）且 spec.burstOnSalvo 时挂队列，本函数每帧累加 t，
+//   t >= RULES.weapons.clipBurstCycleSeconds 即**直调 firePrimaryShell** 发 1 发
+//   （绕过 reloadT 门控，否则每发都要等 0.5s 短装填、队列等于失效），left--/st.rounds--；
+//   打空 → 清队列 + pendingRefill=true + reloadT = 弹夹间整组装填。
+//   队列存在期间普通单击被 fireClipWeapon 拒绝（reason='burst-running'），避免与队列叠加。
+function updatePrimaryClip(t, dt, ctx) {
   if (!t || t.hp <= 0) return false;
   const spec = primaryWeaponSpec(t);
   if (!spec || spec.type !== 'clip') return false;
   const st = ensureClipState(t, spec);
+  // ① 爆发队列优先（队列期间不处理弹夹间回满——队列打完才置 pendingRefill）
+  const q = t._clipBurst;
+  if (q && q.left > 0) {
+    q.t = (q.t || 0) + dt;
+    const cycle = (typeof RULES !== 'undefined' && RULES.weapons && typeof RULES.weapons.clipBurstCycleSeconds === 'number')
+      ? RULES.weapons.clipBurstCycleSeconds : 0.5;
+    while (q.left > 0 && q.t >= cycle) {
+      q.t -= cycle;
+      // ctx 用**本次调用**传入的（battle 每帧重建 fireCtx）；队列只记 target/hitPref，
+      // 不持有 ctx 引用（否则会攥住上一帧的 fireCtx 造成循环引用与状态过期）。
+      const shell = firePrimaryShell(t, q.target || null, q.hitPref || null, ctx || null);
+      if (!shell) { t._clipBurst = null; return true; }   // 环境异常（无 shells 容器）→ 队列失效
+      q.left -= 1;
+      if (st.rounds > 0) st.rounds -= 1;
+    }
+    if (q.left <= 0) {
+      t._clipBurst = null;
+      st.pendingRefill = true;
+      t.reloadT = clipMagReloadSeconds(t, spec, st);
+    }
+    return true;
+  }
   if (st.pendingRefill && !(t.reloadT > 0)) {
     st.pendingRefill = false;
     st.rounds = st.size;
@@ -555,16 +702,37 @@ function updatePrimaryClip(t, dt) {
 }
 
 // 弹夹炮击发：弹夹内逐发（clipCycleSeconds 门控）→ 打空后整组装填（弹夹间）。
-// 返回 { fired, shells, reason? }；reason='clip-empty'：状态异常兜底（正常时 reloadT 门控先行拦截）。
-function fireClipWeapon(shooter, target, hitPref, ctx, spec) {
+// 返回 { fired, shells, reason? }；reason='clip-empty'：状态异常兜底（正常时 reloadT 门控先行拦截）；
+// reason='burst-running'：爆发队列进行中，普通单击被拒。
+//
+// 2026-10-22（第五批 B2-8）：
+//   · 第 6 参 `salvo`：只有玩家空格会传 true（AI 不驱动爆发，与 _howitzerBurst 现状一致）。
+//     `salvo === true && spec.burstOnSalvo` 时**不立即发首弹**，改为挂
+//     `_clipBurst = { left: st.rounds, t: 0 }`（队列由 updatePrimaryClip 按 0.5s 逐发驱动）。
+//   · 短装填 `clipCycleSeconds` 钳到 [RULES.parameterLimits.clipCycleSeconds.min, 1.0]——
+//     卡牌 −0.1/次（最多 −0.2）只允许落在 0.5~1.0 内，运行时再兜一层，防旧卡数据绕过上限。
+function fireClipWeapon(shooter, target, hitPref, ctx, spec, salvo) {
   const st = ensureClipState(shooter, spec);
+  if (shooter._clipBurst) return { fired: false, shells: 0, reason: 'burst-running' };
   if (st.rounds <= 0) return { fired: false, shells: 0, reason: 'clip-empty' };
+  // 爆发射击：空格 → 整夹逐发（首帧不立即发，下一帧起按 cycle 间隔）
+  //   队列只记 target/hitPref（**不持有 ctx**：ctx 每帧由 battle 重建，攥旧引用既造成循环
+  //   引用又可能指向过期的 shells/covers 列表；updatePrimaryClip 的第三参负责传当前 ctx）。
+  if (salvo === true && spec && spec.burstOnSalvo) {
+    shooter._clipBurst = { left: st.rounds, t: 0, target: target || null, hitPref: hitPref || null };
+    shooter.reloadT = 0;      // 队列自己控制节奏，不让短装填门控卡住队列
+    return { fired: true, shells: 0, burst: true };
+  }
   const shell = firePrimaryShell(shooter, target, hitPref, ctx);
   if (!shell) return false;
   st.rounds--;
   if (st.rounds > 0) {
-    // 弹夹内发际间隔：固定 0.7s，不受任何影响
-    shooter.reloadT = (typeof spec.clipCycleSeconds === 'number') ? spec.clipCycleSeconds : 0.7;
+    // 弹夹内发际间隔：固定短装填（0.7s），不受任何影响；上下限钳制见上
+    const pl = (typeof RULES !== 'undefined' && RULES.parameterLimits && RULES.parameterLimits.clipCycleSeconds) || {};
+    const lo = (typeof pl.min === 'number') ? pl.min : 0.5;
+    const hi = (typeof pl.max === 'number') ? Math.min(pl.max, 1.0) : 1.0;
+    const raw = (typeof spec.clipCycleSeconds === 'number') ? spec.clipCycleSeconds : 0.7;
+    shooter.reloadT = Math.max(lo, Math.min(hi, raw));
   } else {
     st.pendingRefill = true;
     shooter.reloadT = clipMagReloadSeconds(shooter, spec, st);
@@ -604,7 +772,7 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   const barrelCovers=(_isHowitzerMode(shooter)) ? [] : find(rootP.x,rootP.y,tipP.x,tipP.y);
   const solid=barrelCovers.find(function(v){ const m=T[v.cover.tier]&&T[v.cover.tier].mode; return m==='solid'||m==='single'; });
   if(solid){
-    shooter.reloadT=shooter.stats.reload/debuffReload(shooter);
+    shooter.reloadT=shooter.stats.reload/debuffReload(shooter);   // 掩体截停 = 标准装填（不吃 reloadMult）
     const pt=solid.point, tier=T[solid.cover.tier]||{label:solid.cover.tier};
     burst(pt.x,pt.y,0.6,4,2,0);
     const _bwType = shooter.weapons && shooter.weapons.primary && shooter.weapons.primary.type;
@@ -637,20 +805,49 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   }
   // #G（2026-09-21）：弹夹炮——弹夹内逐发 0.7s / 打空整组装填（reloadMult + 0.8×扩容步进）
   if(spec && spec.type === 'clip'){
-    const clipRes = fireClipWeapon(shooter, target, hitPref, ctx, spec);
+    // 2026-10-22（第五批 B2-8）：salvo 透传——空格齐射在「爆发射击」卡下挂 _clipBurst 队列
+    const clipRes = fireClipWeapon(shooter, target, hitPref, ctx, spec, salvo);
     return !!(clipRes && clipRes.fired);
   }
   const reloadMult=(spec&&typeof spec.reloadMult==='number')?spec.reloadMult:1;
-  shooter.reloadT=shooter.stats.reload*reloadMult/debuffReload(shooter);
+  // 2026-10-23（用户裁定重写）：榴弹炮曲射模式 = **标准主炮（循环式火炮）的射击模式**——
+  //   装填时间取**基础装填**（`tank.base.reload` × 1.0），不吃主武器 spec.reloadMult，
+  //   也**不吃**三层聚合里由主武器装填卡产生的加成。直射模式照旧吃 reloadMult。
+  const _hsMode = _isHowitzerMode(shooter);
+  const _effReloadMult = _hsMode ? 1 : reloadMult;
+  const _reloadBase = (_hsMode && shooter.base && typeof shooter.base.reload === 'number')
+    ? shooter.base.reload : shooter.stats.reload;
+  shooter.reloadT=_reloadBase*_effReloadMult/debuffReload(shooter);
+  // 2026-10-23（本批）：隐蔽机制——记录开火时刻，供 camouflageFiringMul 计算开火惩罚窗口。
+  //   只写时间戳，不做任何判定（判定与折算全在 js/tank_cover.js 的纯函数里）。
+  shooter.lastFireAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   const shell=firePrimaryShell(shooter, target, hitPref, ctx);
   if(!shell) return false;
+  // 2026-10-22（第五批 B2-9，用户需求 6「标准主炮砰砰炮」）：
+  //   通用单发分支发出首弹后，若武器规格带 `doubleTapEnabled`（卡牌授予）→ 挂追发队列，
+  //   `updatePrimaryFollowup` 在 standardDoubleTapDelay(0.8s) 后补 1 发
+  //   伤害 ×standardDoubleTapDmgMul(0.6)（倍率写进队列，驱动端透传给 firePrimaryShell）。
+  //   ⚠️ 队列只挂一次：追发弹本身走 firePrimaryShell（不经 fireTank），不会重入本段。
+  if(spec && spec.doubleTapEnabled){
+    const _w = (typeof RULES !== 'undefined' && RULES.weapons) ? RULES.weapons : {};
+    shooter._doubleTap = {
+      t: (typeof _w.standardDoubleTapDelay === 'number') ? _w.standardDoubleTapDelay : 0.8,
+      dmgScale: (typeof _w.standardDoubleTapDmgMul === 'number') ? _w.standardDoubleTapDmgMul : 0.6
+    };
+  }
   // 2026-09-15 W6：autocannon 热量累积（用户裁定）——每发 +heatPerShot%，≥heatMax 过热
   // 并锁定 overheatLock 秒（fireTank 顶部门控）；冷却由 updatePrimaryHeat 逐帧驱动。
   // burst 连发路径已删除：射击间隔=装填时间×reloadMult(0.25)，逐发持续射击。
   if(spec && spec.type === 'autocannon'){
     const heatPer = (typeof spec.heatPerShot === 'number') ? spec.heatPerShot : 10;
     const heatMax = (typeof spec.heatMax === 'number') ? spec.heatMax : 100;
-    const lock = (typeof spec.overheatLock === 'number') ? spec.overheatLock : 2.0;
+    // 2026-10-22（第五批 B2-5）：过热锁定钳到 [RULES.autocannon.overheatLockMin, overheatLockBase]——
+    //   卡牌 −0.5/次（最多 −1.0）只允许落在 1.0~2.0 内，运行时兜底防旧数据给到 1.2/3.0 之类越界值。
+    const _ac = (typeof RULES !== 'undefined' && RULES.autocannon) ? RULES.autocannon : {};
+    const _lockMin = (typeof _ac.overheatLockMin === 'number') ? _ac.overheatLockMin : 1.0;
+    const _lockBase = (typeof _ac.overheatLockBase === 'number') ? _ac.overheatLockBase : 2.0;
+    const _lockRaw = (typeof spec.overheatLock === 'number') ? spec.overheatLock : _lockBase;
+    const lock = Math.max(_lockMin, Math.min(_lockBase, _lockRaw));
     shooter.heatPct = Math.min(heatMax, (shooter.heatPct || 0) + heatPer);
     if(shooter.heatPct >= heatMax) shooter.heatLockT = lock;
   }
@@ -953,7 +1150,7 @@ function stepShells(dt, ctx){
         burst(s.x, s.y, sc/40, Math.round(22*sc/40), Math.round(14*sc/40), Math.round(11*sc/40));
         impactFx(s.x, s.y, Math.atan2(s.dy, s.dx), 'he', 1);
         play('pen');
-        dmgText(s.x, s.y - 14, '轰击', 'he');
+        // 2026-10-22（用户要求）：移除落点特效里的「轰击」文字——只保留爆炸视觉，不叠字。
         // #W-I（2026-10-19 用户裁定）：榴弹炮落点分支区分**直击/近失**——
         //   「直接命中时，按坦克最薄的装甲值作为命中部位来计算伤害；未直接命中时按距离计算伤害」。
         //   直击判据：落点爆炸半径内有敌对坦克（最近的一辆），且落点在其车体/炮塔 OBB 内。
@@ -975,20 +1172,25 @@ function stepShells(dt, ctx){
           }
           if(bestT && bestD <= sc * 0.9){
             // —— 直击分支：六面最薄装甲 ——
-            let minEff = Infinity;
-            const th = (bestT.stats && bestT.stats.armor) || (R.defaultArmor || {});
-            const effOf = (part, face) => {
-              const a = th[part] && th[part][face];
-              if(typeof a !== 'number') return Infinity;
-              return a;   // 曲射落弹近似垂直顶甲，入射角放大忽略（见上注释）
-            };
-            for(const part of ['hull','turret']){
-              for(const face of ['front','side','rear']){
-                const v = effOf(part, face);
-                if(v < minEff) minEff = v;
-              }
-            }
-            if(!isFinite(minEff)) minEff = 0;   // 无装甲数据（dummy）⇒ 视为穿透
+            // 2026-10-22（第五批）：内联循环已抽成纯函数 `thinnestArmorThickness(tank, scope)`
+            //   （js/tank_geometry.js，雷场爆炸共用）；榴弹炮直击口径 = 'all'（hull+turret 六面）。
+            //   经 _G 读取（globalThis），避免裸标识符触发 tsc checkJs 的 TS2304；Node 单测/浏览器
+            //   在 tank_geometry.js 加载时均已挂 globalThis。取不到时退回等价内联实现（零行为差，
+            //   与 thinnestArmorThickness 同口径：hull+turret 六面最小，无数据 → 0）。
+            const thinFn = _G('thinnestArmorThickness', null);
+            const minEff = (typeof thinFn === 'function')
+              ? thinFn(bestT, 'all')
+              : (function(tk){
+                  const th = (tk && tk.stats && tk.stats.armor) || (R.defaultArmor || {});
+                  let m = Infinity;
+                  for(const part of ['hull','turret']){
+                    for(const face of ['front','side','rear']){
+                      const a = th[part] && th[part][face];
+                      if(typeof a === 'number' && isFinite(a) && a < m) m = a;
+                    }
+                  }
+                  return isFinite(m) ? m : 0;
+                })(bestT);
             const hitFake = { part:'hull', faceKey:'side', x:s.x, y:s.y, nx:0, ny:0, edgeName:'side' };
             const res = resolveHit(s, bestT, hitFake, false, { forceEffThickness: minEff });
             // resolveHit 内部按 opts.forceEffThickness 结算（见 tank_physics.js 同批改动）；
@@ -1024,6 +1226,22 @@ function stepShells(dt, ctx){
     }   // end if(s.isArc) —— 曲射弹每帧都在本块内离场：到落点则结算落点爆炸后 return，
         //   未到落点则由上面的兜底 return 跳过直射扫掠段（绝不"截胡"中途坦克）。
     let bestDist=Infinity, bestTank=null, bestHit=null, bestCover=null;
+    // 2026-10-22（第五批 §4.9.2(b)）：直线掩体的部位裁剪判定**按整条弹道**算一次并缓存到炮弹上
+    //   （以发射点 s.fx/s.fy → 目标为查询段）：若按当前步段查询，炮弹飞过墙之后墙就不在
+    //   `findCoversOnPath(sx..nx)` 里了 ⇒ 车体又变得可命中（实测「更近的目标被正常击穿」）。
+    //   语义：整段弹道上只要有一道 wall 会裁掉目标车体，该目标的车体本次就不可命中。
+    if(!s._wallBlockCache) s._wallBlockCache = {};
+    // 本步「车体被直线掩体挡住」的最近候选（决定是否在墙的入口点截停）
+    let wallBlockedCover = null;
+    // 曲射弹药（武器层 ignoreCover: true，如 mortar 载荷；2026-09-14 HEC 弹种移除）越障直飞——
+    // 掩体不参与拦截/曝光判定，弹体沿直线直奔目标，仅在命中坦克时结算（炮管贯穿的 barrel solid
+    // 判定在 fireTank 发射阶段已处理，不在此处；开火时无遮挡即正常发射）。
+    const ignoreCover = !!(s.ammo && s.ammo.ignoreCover);
+    // 2026-10-23（用户裁定）：导弹越障——`s.overflyLow` 为真时，**低矮掩体**（RULES.coverTiers
+    //   [tier].missileOverfly === true，如直线掩体/沙袋/树木）不参与拦截与部位裁剪；全高障碍
+    //   （建筑/岩石/永久掩体，未标 missileOverfly）仍然挡弹。线导式默认开启，锁定式为 50%
+    //   概率（掷骰在发射时完成，见 tank_weapons fireActiveSecondary），攻顶升级则强制开启。
+    const overflyLow = !!s.overflyLow;
     // #10（2026-10-19）：受击坦克是否躲在敌方便携掩体背面有效区（决定部位改判炮塔）。
     //   声明必须在命中扫描之前——扫描后的判定与最终结算都要读它。
     let behindCoverOnlyTurret = false;
@@ -1040,12 +1258,41 @@ function stepShells(dt, ctx){
       // #G：轨道炮贯穿——已命中的目标不再重复结算（防同发多杀同一目标）
       if(s.pierceHitIds && s.pierceHitIds.indexOf(e.id) >= 0) continue;
       const hits=raycast?raycast(sx,sy,s.dx,s.dy,e):null;
-      const bh=shellPartHit&&hits?shellPartHit(hits,step,s.hitPref):null;
+      // 2026-10-22（第五批 §4.9.2(b)）：直线掩体（shellBlock:'wall'）的部位裁剪——
+      //   目标比射手更近（且射手未贴墙）⇒ 车体被挡、只有炮塔可打。
+      //   过滤后本步无命中属于常态（弹还没飞到目标），**不得**据此判拦截；
+      //   拦截判定统一在下方按「墙的入口距离 vs 已飞距离」处理。
+      let effHits = hits;
+      if(hits && !ignoreCover && !overflyLow && find){
+        let wb = s._wallBlockCache[e.id];
+        if(wb === undefined){
+          wb = _wallBlockAlong(s, e, s.fx, s.fy, e.x, e.y, find, T);
+          s._wallBlockCache[e.id] = wb;
+        }
+        if(wb && (wb.blockHull || wb.blockTurret)){
+          effHits = hits.filter(function(h){
+            if(wb.blockHull && h.part === 'hull') return false;
+            if(wb.blockTurret && h.part === 'turret') return false;
+            return true;
+          });
+          // 车体被挡且本步没有其他可打部位 → 该发应在**墙的入口点**被截停
+          if(!effHits.length && wb.blockHull && e.hp > 0){
+            if(!wallBlockedCover || wb.distA < wallBlockedCover.distA) wallBlockedCover = wb;
+          }
+        }
+      }
+      const bh=shellPartHit&&effHits?shellPartHit(effHits,step,s.hitPref):null;
       if(bh&&bh.t<bestDist){ bestDist=bh.t; bestTank=e; bestHit=bh; bestCover=null; }
     }
-    // #10（2026-10-19）：判定「受击坦克是否躲在某座敌方便携掩体的背面有效区内」——
-    //   若是，本次命中不得结算车体，改判炮塔（见下方 effHit）。
-    //   有效距离唯一口径 RULES.abilities.deploy_cover.behindValidDist（缺省 220px）。
+    // 命中被墙挡住 → 炮弹在墙的入口点截停（`distA` 以发射点为基准，与 s.dist 同口径）。
+    //   条件：墙在**本步到达之前/本步之内**（s.dist + step >= distA），且比其它命中更近。
+    if(wallBlockedCover && s.dist + step >= wallBlockedCover.distA &&
+       wallBlockedCover.distA < bestDist){
+      bestDist = wallBlockedCover.distA;
+      bestCover = { cover: wallBlockedCover.cover, point: wallBlockedCover.point, distA: wallBlockedCover.distA };
+      bestTank = null;
+      bestHit = null;
+    }
     if (bestTank) {
       const depList = (c.deployables || _G('deployables', null));
       if (Array.isArray(depList) && depList.length) {
@@ -1057,14 +1304,14 @@ function stepShells(dt, ctx){
         }
       }
     }
-    // 曲射弹药（武器层 ignoreCover: true，如 mortar 载荷；2026-09-14 HEC 弹种移除）越障直飞——
-    // 掩体不参与拦截/曝光判定，弹体沿直线直奔目标，仅在命中坦克时结算（炮管贯穿的 barrel solid
-    // 判定在 fireTank 发射阶段已处理，不在此处；开火时无遮挡即正常发射）。
-    const ignoreCover = !!(s.ammo && s.ammo.ignoreCover);
     const covs=find&&!ignoreCover?find(sx,sy,nx,ny):[];
     for(const cov of covs){
       const tier=T[cov.cover.tier]||{mode:'solid'};
       if(s.dead) break;
+      // 2026-10-23（用户裁定）：可越障导弹（overflyLow）忽略**低矮掩体**——
+      //   RULES.coverTiers[tier].missileOverfly === true（直线掩体/沙袋/树木）。全高障碍
+      //  （建筑 building/intact/ruined、岩石 rock、永久掩体 perm_block）仍照常拦截。
+      if(overflyLow && (tier.missileOverfly || (cov.cover.tier && (T[cov.cover.tier]||{}).missileOverfly))) continue;
       if(tier.mode==='pass'&&cov.distA<=step&&cov.distA<bestDist){
         if(dmgCover(cov.cover,1,'shell')){ if(impacts) impacts.push({x:cov.point.x,y:cov.point.y,life:0.4,color:'#96764a'}); impactFx(cov.point.x,cov.point.y,Math.atan2(s.dy,s.dx),'block',0.7); play('block'); }
         continue;
@@ -1092,7 +1339,7 @@ function stepShells(dt, ctx){
     //   `behindCoverTankHit` 由本文件提供（可 Node 测试），阈值唯一口径
     //   `RULES.abilities.deploy_cover.behindValidDist`。
     const depCovers = (c.deployables || _G('deployables', null));
-    if(!ignoreCover && Array.isArray(depCovers) && depCovers.length){
+    if(!ignoreCover && !overflyLow && Array.isArray(depCovers) && depCovers.length){
       for(const dc of depCovers){
         if(!dc || !dc.isDeployableCover || dc._dead || dc.hp <= 0) continue;
         if(dc.team === s.shooter.team) continue;         // 己方阵营：单向透明，炮弹穿过
@@ -1139,7 +1386,22 @@ function stepShells(dt, ctx){
         }
         if(!shieldBlocked){
           const hpBefore=hitTank.hp;   // #A6：飘字溢出截断基准（击杀前剩余血量）
-          const res=resolveHit?resolveHit(s,hitTank,effHit,s.canBounce):{outcome:'PEN',dmg:0,splash:null,text:'',cls:'PEN',bouncePoint:{x:hx,y:hy},bounceAngle:0};
+          // 2026-10-23（用户裁定）：攻顶引信（卡牌升级授予）——导弹飞到目标顶部引爆：
+          //   「伤害基准按 60% 计算、穿甲判定按坦克最薄的装甲值计算」。
+          //   实现：伤害 ×topAttack.dmgScale；命中外形改用目标六面最薄装甲（forceEffThickness），
+          //   并关闭跳弹（allowBounce=false，顶部落弹无斜跳语义）。参数口径 RULES.missiles.topAttack。
+          let res;
+          if(s.topAttack && resolveHit){
+            const taCfg=(R.missiles&&R.missiles.topAttack)||{};
+            const scale=(typeof taCfg.dmgScale==='number')?taCfg.dmgScale:0.6;
+            const thinFn=_G('thinnestArmorThickness',null);
+            const minEff=(typeof thinFn==='function')?thinFn(hitTank,'all'):0;
+            const topShell=Object.assign({},s,{ dmg:Math.max(0,(s.dmg||0)*scale) });
+            const topHit={ part:'turret', faceKey:'rear', x:hx, y:hy, nx:0, ny:0, edgeName:'rear' };
+            res=resolveHit(topShell,hitTank,topHit,false,(taCfg.useThinnestArmor!==false)?{ forceEffThickness:minEff }:{});
+          } else {
+            res=resolveHit?resolveHit(s,hitTank,effHit,s.canBounce):{outcome:'PEN',dmg:0,splash:null,text:'',cls:'PEN',bouncePoint:{x:hx,y:hy},bounceAngle:0};
+          }
           s._didHit = true;  // #S2：标记已命中（近失弹检测排除）
           if(res.outcome==='BOUNCE'){ s.fx=res.bouncePoint.x; s.fy=res.bouncePoint.y; if(bounceFx) bounceFx.push({x:res.bouncePoint.x,y:res.bouncePoint.y,life:0.5,angle:res.bounceAngle}); impactFx(res.bouncePoint.x,res.bouncePoint.y,res.bounceAngle,'bounce',1); dmgText(res.bouncePoint.x,res.bouncePoint.y-10,'跳弹','bounce'); push(res.text,res.cls); play('bounce'); }
           else { const isHe=s.ammoKey==='he', o=res.outcome==='PEN'?(isHe?'he':'pen'):'block'; if(impacts) impacts.push({x:hx,y:hy,life:0.4,color:isHe?'#ffb454':(res.outcome==='PEN'?'#ff6c5c':'#7a8065')}); impactFx(hx,hy,Math.atan2(s.dy,s.dx),o,1); if(res.splash){ const sc=res.splash.radius/40; burst(hx,hy,sc,Math.round(22*sc),Math.round(14*sc),Math.round(11*sc)); }
@@ -1231,5 +1493,9 @@ if(typeof module!=='undefined'&&module.exports){
   // #10（2026-10-19）：便携掩体"后方有效区"判定（纯函数，供测试与页面共用）
   behindCoverOnlyTurretHit:behindCoverOnlyTurretHit,
   // #W-I（2026-10-20）：榴弹炮急速射队列驱动（battle 主循环调用）
-  updateHowitzerBurst:updateHowitzerBurst};
+  updateHowitzerBurst:updateHowitzerBurst,
+  // 2026-10-22（第五批 B2-9）：标准主炮砰砰炮追发队列驱动（battle 主循环调用）
+  updatePrimaryFollowup:updatePrimaryFollowup,
+  // 2026-10-22（第五批 §4.9.2(b)）：直线掩体部位裁剪的弹道侧入口（供测试直接驱动）
+  _wallBlockAlong:_wallBlockAlong};
 }

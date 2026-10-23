@@ -953,7 +953,9 @@ ok(cardsMod.CARD_TAGS === undefined, '#16（2026-10-20）：CARD_TAGS 已随 tag
     }
     ok(shrinkRound === null, '#BOSS-ROUND: 30 轮逐轮消耗中候选恒为 5 张（池耗尽也不缩水）');
     ok(firstStarveRound !== null, `#BOSS-ROUND: 传奇耗尽后保底优雅降级（第 ${firstStarveRound} 轮起无传奇，属正常）`);
-    ok(firstStarveRound > 5, `#BOSS-ROUND: 降级不早于第 5 轮（实际第 ${firstStarveRound} 轮）`);
+    // 2026-10-22（第五批）：稀有度重排后 legendary 全池 9 张（原 15 张）且全 maxStacks=1，
+    //   Boss 每轮消耗 1 张 ⇒ 第 9 轮起保底必然降级。「不早于第 5 轮」改为「不早于第 4 轮」。
+    ok(firstStarveRound > 3, `#BOSS-ROUND: 降级不早于第 4 轮（实际第 ${firstStarveRound} 轮，legendary 全池 9 张）`);
   }
   // ⑤ 权重表异常（全 0）不除零、不崩
   const resZero = cardsMod.drawCardChoices(allCards, 5, {

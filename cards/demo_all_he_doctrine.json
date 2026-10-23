@@ -1,7 +1,7 @@
 {
   "id": "demo_all_he_doctrine",
   "name": "全线高爆战术",
-  "rarity": "legendary",
+  "rarity": "common",
   "desc": "战术手册全面转向高爆：HE 弹伤害 +25%、击穿力 +25%。",
   "effects": [
     { "type": "ammo", "key": "he", "field": "dmg", "mode": "mult", "value": 1.25 },

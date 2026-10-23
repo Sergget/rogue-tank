@@ -174,6 +174,9 @@ function normalizeBarrel(b){
   };
 }
 
+// NOTE（2026-10-23）：圆角/倒角（roundCorners / bevelCorners / applyBevelSpec）与
+// P-16 SVG 矢量贴图路线一并废弃（用户裁定「这些贴图都太丑了」），相关实现已整体移除。
+
 if (typeof module !== 'undefined' && module.exports) {
   const U = require('./tank_utils.js');
   module.exports = {

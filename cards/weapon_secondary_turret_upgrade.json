@@ -1,7 +1,7 @@
 {
   "id": "weapon_secondary_turret_upgrade",
   "name": "副炮塔：加长身管",
-  "rarity": "rare",
+  "rarity": "epic",
   "desc": "副炮塔强化：射程 400 → 560px、伤害倍率 ×0.6 → ×0.75、穿深倍率 ×0.75 → ×0.85、散布倍率 ×1.3 → ×1.1。副炮塔从「骚扰」升级为「半个主炮」。",
   "effects": [
     {

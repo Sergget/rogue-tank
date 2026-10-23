@@ -54,9 +54,9 @@ console.log('== 生存模式：generateSurvivalRun 单个大地图 ==');
   const std = MAP.generateRun(999, 1, { viewport: vp, difficultyLevel: 0 });
   const stdNode = std.nodes[0];
   const areaRatio = (node.w * node.h) / (stdNode.w * stdNode.h);
-  // #MODE（2026-10-15）：生存 ≈5×5 屏；#U35（2026-10-18）改走标准 strip + 2 行片后
-  // 实际 6×6.5 屏（面积 39 平方屏），标准 9×2.2 屏（19.8 平方屏）⇒ 比值 ≈2.0x。
-  ok(areaRatio > 1.0 && areaRatio < 2.6, `地图面积约为标准 ${areaRatio.toFixed(1)}x（≈2.0x）`);
+  // 2026-10-22（第五批，用户裁定「缩小地图」）：生存图 = 3×3 屏单图（chunkCount:1 + chunkRows:1）。
+  // 标准 strip ≈10×2.2 屏（19.8 平方屏）⇒ 3×3 屏（9 平方屏）面积比 ≈0.45x。区间 [0.25,0.75] 锁住「明显小于标准」并挡住回到 5×5 的回归。
+  ok(areaRatio > 0.25 && areaRatio < 0.75, `地图面积约为标准 ${areaRatio.toFixed(2)}x（目标 ≈0.45x，3×3 屏）`);
   console.log(`    生存 ${Math.round(node.w)}x${Math.round(node.h)} vs 标准 ${Math.round(stdNode.w)}x${Math.round(stdNode.h)}`);
   const d1 = MAP.difficultyForIndex(0, 0), d5 = MAP.difficultyForIndex(4, 0), d11 = MAP.difficultyForIndex(10, 0);
   ok(d1 < d5 && d5 < d11, `波次难度递增（w1=${d1} w5=${d5} w11=${d11}）`);
@@ -159,13 +159,15 @@ const bandCounts = (covers, h, band) => {
   ok(runs.every(r => {
     const n = r.nodes[0];
     const rows = new Set((n.chunks || []).map(c => c.row));
-    return rows.size >= 2;
-  }), `生存：chunk 元数据覆盖 ≥2 行（实测 ${runs.map(r => new Set((r.nodes[0].chunks || []).map(c => c.row)).size).join(',')} 行）`);
+    // 2026-10-22（第五批）：生存改单行片（chunkRows:1）⇒ 只有 1 行元数据，这是新口径。
+    return rows.size >= 1;
+  }), `生存：chunk 元数据覆盖 ≥1 行（单行片，实测 ${runs.map(r => new Set((r.nodes[0].chunks || []).map(c => c.row)).size).join(',')} 行）`);
   ok(runs.every(r => {
     const n = r.nodes[0];
     const minRowH = Math.min(...(n.rowHeights || [0]));
-    return n.h >= 2 * minRowH - 1;
-  }), `生存：世界高 ≥ 2×单片高-1（实测 ${runs.map(r => `${Math.round(r.nodes[0].h)}/${(r.nodes[0].rowHeights || []).map(h => Math.round(h)).join('+')}`).join(' ')}）`);
+    // 2026-10-22（第五批）：单行片 ⇒ 世界高 = 行高（允许 ±1px 舍入）；双行片仍走 2× 判据。
+    return Math.abs(n.h - minRowH) <= 1 || n.h >= 2 * minRowH - 1;
+  }), `生存：世界高 = 行高（单行片）（实测 ${runs.map(r => `${Math.round(r.nodes[0].h)}/${(r.nodes[0].rowHeights || []).map(h => Math.round(h)).join('+')}`).join(' ')}）`);
   // 纵向填满：**逐 seed 逐带检查**（用户 review 修正：并集会掩盖单 seed 的 600px 空带）
   const bandPerSeedEmpty = [];
   for (const r of runs) {

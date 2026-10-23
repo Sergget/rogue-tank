@@ -1,7 +1,7 @@
 {
   "id": "weapon_primary_standard_pen",
   "name": "标准主炮：锥膛炮管",
-  "rarity": "epic",
+  "rarity": "rare",
   "desc": "标准主炮强化：穿深 ×1.22、弹速 ×1.25。不改伤害与装填——纯粹的「打穿打不穿的」通道，对付重甲目标最直接。",
   "effects": [
     {

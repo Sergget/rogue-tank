@@ -23,6 +23,33 @@ const DEFAULT_ARMOR = {
 const RULES = {
   // 默认坦克装甲
   defaultArmor: DEFAULT_ARMOR,
+
+  // ======================= 物理碰撞与撞击伤害（Ramming Physics） =======================
+  ramming: {
+    minVelThreshold: 90,          // 触发撞击伤害的最低相对速度 (px/s)
+    damageScale: 0.038,           // 动能转伤害基础系数
+    hpRatioThreshold: 0.25,       // 触发硬直所需的 HP 损失比例（当前 HP 的 25%）
+    energyRatioThreshold: 0.15,   // 动能级数门槛（折合动能需达到目标生命上限的 15%）
+    massAdvantageRatio: 1.2,      // 触发质量压制的质量比阈值
+    stiffDurationBase: 2.0,       // 基础硬直时间（秒）
+    stiffSpeedMul: 0.35,          // 硬直期间速度倍率（不是完全冻结：转向仍可动）
+    trackBreakChanceMax: 0.65,    // 极度悬殊撞击时的履带断裂概率上限
+    // 2026-10-23（用户裁定「保留但修好」）：同一对车的撞击伤害结算冷却（秒）。
+    //   分离解算每帧 4 次迭代、持续互顶连续多帧命中 ⇒ 不去重会一帧内重复扣血数次，
+    //   实测数帧就把 100HP 打空（并把分离逻辑连带跳过，造成残余深叠）。
+    contactCooldown: 0.5
+  },
+
+  // ======================= 隐蔽与战场感知机制（Stealth & Camouflage） =======================
+  camouflage: {
+    baseCamo: { light: 0.7, medium: 0.5, heavy: 0.3 },
+    motionMultiplier: { idle: 1.2, move: 0.7, sprint: 0.4 },
+    firingPenaltyDuration: 3.0,   // 开火惩罚持续时间（秒）
+    firingPenaltyMultiplier: 0.1, // 开火瞬间隐蔽乘数（暴跌至 10%）
+    bushBonus: 0.40,              // 灌木丛绝对隐蔽加成
+    smokeBonus: 0.70,             // 烟幕绝对隐蔽加成
+    aiSpotBaseDist: 650           // 敌方 AI 基础视距 (px)
+  },
   // ======================= 弹道 =======================
   ballistics: {
     // 跳弹角：入射角（与表面法线夹角）超过该值 → 判定跳弹并反射
@@ -78,7 +105,13 @@ const RULES = {
     // #W17（2026-10-20 role-systems 新增）：掩体方向容差（px）——findCoversOnPath 在被
     // `cutoffDist` 裁断时，允许出射点超出截止距离该容差再判定为「方向已脱离」。
     // 原硬编码在 js/tank_cover.js:710（COVER_DIRECTION_TOLERANCE=16），mapgen 改为读本字段（缺省回落 16）。
-    directionTolerance: 16
+    directionTolerance: 16,
+    // 2026-10-22（第五批）直线掩体（tier `wall` / `wall_breakable`，shellBlock:'wall'）的部位裁剪口径。
+    //   用户口径：「掩体两侧的坦克，可以命中另一侧比自己离掩体更远的坦克的炮塔和车体；
+    //   只能命中另一侧比自己离掩体更近的坦克的炮塔」。
+    //   判定见 js/tank_cover.js 的 wallPartBlock（纯函数，可 Node 测试）。
+    wallHugDist: 22,        // 贴掩体阈值（px）：射手到掩体直线距离 ≤ 该值视为「贴墙」，有完整射界
+    wallTurretOnlyDist: 0   // 预留：目标更近侧的额外容差（0 = 严格按距离大小比较）
   },
 
   // ======================= 掩体 / 地图元素（P-40 地形类型抽象，docs/specs/map.md §5） =======================
@@ -100,17 +133,25 @@ const RULES = {
     bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#3f9a2e', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'bush',        tierGroup: 'foliage' },
     // 2026-09-20 #E11：树木缩小并由坦克可直接推倒（crushable=true → 压过即倒，转为 fallen）；
     // 逻辑尺寸收敛见 RULES.nodeMap.treeWorldScale（生成期）。仍保留「炮弹 1 发伐倒」。
-    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#2e6e28', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: true,  vision: true,  drawStyle: 'tree',        tierGroup: 'foliage', toTier: 'fallen' },
+    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#2e6e28', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: true,  vision: true,  drawStyle: 'tree',        tierGroup: 'foliage', toTier: 'fallen', missileOverfly: true },
     fallen:     { label: '倒树',     fill: 'rgba(56,72,44,0.35)',    stroke: '#4a5c3a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'fallen',      tierGroup: 'foliage', residueW: 2.4, residueH: 0.5 },
-    soft:       { label: '栅栏',     fill: 'rgba(150,118,70,0.4)',   stroke: '#96764a', passability: 0.45, shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'soft',        tierGroup: 'structure' },
-    barricade:  { label: '沙袋路障', fill: 'rgba(158,128,72,0.55)',  stroke: '#9e8048', passability: 1.0,  shellBlock: 'single', exposureProfile: 'full',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'barricade',   tierGroup: 'structure', toTier: 'rubble' },
-  // #10（2026-10-19 用户裁定）：「以相似的形状重绘沙包掩体、**新增永久掩体**（也采用近中括号形状的）」。
-  //   永久掩体 = 不可摧毁、挡到永远的反坦克桩/混凝土块组合，形状沿用沙包的**近中括号轮廓**
-  //   （与便携掩体的视觉语言统一：开口侧=可穿过，闭合侧=装甲）。
-  //   · shellBlock:'solid' ⇒ 确定性挡弹（与 full/rock 同级），不可摧毁；
-  //   · passability 0（不可通行，只能绕行）；
-  //   · 不参与 crushable（坦克碾不动）。
-  perm_block: { label: '永久掩体', fill: 'rgba(120,118,110,0.62)', stroke: '#78766e', passability: 0.0,  shellBlock: 'solid',  exposureProfile: 'full',      destructible: null,     crushable: false, vision: true,  drawStyle: 'barricade',   tierGroup: 'structure' },
+    // ================= 2026-10-22（第五批）直线掩体体系 =================
+    // 用户裁定：「删除现有的栅栏、沙包元素。全部改为掩体（单直线，射击多种不同的贴图），
+    //   掩体两侧的坦克射击可以命中掩体另一侧比自己离掩体更远坦克的炮塔和车体、
+    //   只能命中另一侧更近坦克的炮塔，分为不可摧毁和可摧毁，可摧毁的掩体可承受一定的伤害后消失」。
+    // · 旧 `soft`（栅栏）/ `barricade`（沙袋路障）**两键已删除**（老存档实例由 tank_cover.snapshotCovers 映射为 wall）。
+    // · shellBlock:'wall' 是**新语义**：不是简单挡弹，而是按「射手/目标各自到掩体直线的距离」
+    //   裁剪可命中部位（`js/tank_cover.js` 的 wallPartBlock；弹道消费方 tank_fire.shellPartHit 前置过滤）。
+    //   `'solid'` / `'single'` 旧语义不变（full/rock/tree/perm_block 仍整发截停）。
+    // · passability 0：单直线墙体，坦克只能绕行（不能被碾碎，crushable false）。
+    // · vision true：挡视线（旧沙包不挡，本批按用户「掩体」语义统一为挡）。
+    // · wallStyle：贴图族（concrete/sandbag/steel/brick/hedgehog/barrier），由 mapgen 按 biome 确定性分配。
+    wall:        { label: '掩体',     fill: 'rgba(140,140,132,0.72)', stroke: '#8a8a82', passability: 0.0, shellBlock: 'wall',  exposureProfile: 'wall',      destructible: null,     crushable: false, vision: true,  drawStyle: 'wall',        tierGroup: 'structure', wallStyle: 'concrete', missileOverfly: true },
+    // 可摧毁掩体：承受 wallBreakableHp 发后**直接消失**（toTier:null，不降级成残骸）。
+    wall_breakable: { label: '可摧毁掩体', fill: 'rgba(158,128,72,0.6)', stroke: '#9e8048', passability: 0.0, shellBlock: 'wall', exposureProfile: 'wall',      destructible: 4,        crushable: false, vision: true,  drawStyle: 'wall',        tierGroup: 'structure', wallStyle: 'sandbag', toTier: null, missileOverfly: true },
+  // #10（2026-10-19 用户裁定）：永久掩体 = 不可摧毁、整体挡弹的反坦克桩组合（沿用旧"中括号"视觉）。
+  //   2026-10-22 起仍保留：它是 `solid` 语义（整发截停），与新的 `wall`（部位裁剪）是两种掩体。
+  perm_block: { label: '永久掩体', fill: 'rgba(120,118,110,0.62)', stroke: '#78766e', passability: 0.0,  shellBlock: 'solid',  exposureProfile: 'full',      destructible: null,     crushable: false, vision: true,  drawStyle: 'wall',        tierGroup: 'structure', wallStyle: 'hedgehog' },
     // #E1/#E3（2026-09-20）：树桩/碎石改为**不挡弹**（shellBlock false）——旧 'grad' 渐变剖面是
     // 「炮弹被不可见小物件拦截」的主要来源之一；残骸类低矮杂物不再参与弹道遮蔽。
     stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', passability: 0.6,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'stump',       tierGroup: 'structure' },
@@ -181,8 +222,18 @@ const RULES = {
   //                   飞行用「追尾 + 比例引导（PN）」。
   //   wire（线导式）：F 直接发射 → 鼠标持续引导飞行方向（比例引导，操作者即导引源）。
   missiles: {
-    lock: { turnRate: 3.5, navConstant: 3.0 },   // 锁定式：转向率 rad/s + PN 系数 N
-    wire: { turnRate: 4.5, navConstant: 0.0 }    // 线导式：转向更快（手动操舵手感），N=0（纯视线跟随鼠标）
+    // 2026-10-23（用户裁定）：① 削弱两种制导的拐弯能力（原 lock 3.5 / wire 4.5 → 2.0 / 2.5）；
+    //   ② 越障口径：线导式**默认**可越过低矮掩体（非建筑/岩石等全高障碍），锁定式仅
+    //      overflyChance 概率越障；③ 攻顶升级（topAttack）命中按 dmgScale 折减伤害、
+    //      穿甲改按目标最薄装甲判定（见 tank_fire.stepShells 的 topAttack 分支）。
+    lock: { turnRate: 2.0, navConstant: 2.5, overflyChance: 0.5 },
+    wire: { turnRate: 2.5, navConstant: 0.0, overflyChance: 1.0 },
+    // 攻顶引信（卡牌升级授予，弹体 s.topAttack=true 时消费）
+    topAttack: {
+      dmgScale: 0.6,        // 伤害基准按 60% 计算
+      // 穿甲判定改为目标六面最薄装甲（复用 tank_geometry.thinnestArmorThickness）
+      useThinnestArmor: true
+    }
   },
 
   // ======================= 速度 / 机动换算 =======================
@@ -231,6 +282,14 @@ const RULES = {
       duration: 6,       // 持续（秒）
       cooldown: 20       // 冷却（秒）
     },
+    // 闪跃姿态（Tesla RCS 风格闪避位移）
+    flash_dash: {
+      duration: 1.2,      // 闪跃持续时间（秒）
+      speedMult: 2.5,     // 极速与加速度倍率
+      cooldown: 8.0,      // 独立冷却时间（秒）
+      overheatDuration: 2.0, // 过热减速持续时间（秒）
+      overheatSlowMul: 0.7   // 过热期速度倍率（<1 = 减速）
+    },
     // 战术护盾——定向/全向弹道吸收（子目标 3）
     shield: {
       dirDuration: 8,    // 定向护盾持续（秒）
@@ -276,43 +335,45 @@ const RULES = {
     },
     deploy_limits: {     // #E4 可部署物数量上限（按类型独立计数）+ 升级增量
       coverMax: 2,       // 战术掩体基础上限（升级卡/局内升级各 +1）
-      // #J1（2026-09-30 用户反馈「地雷在 1 个节点内似乎只能部署 1 次」）：mineMax 3 → 6。
-      //   mineMax 是「**场上同时存在**的地雷数」上限，而地雷存续 30s（升级 45s）、单节点战斗
-      //   通常远长于此 —— cap 3 恰好等于单次雷场数量 mineFieldCount(3)，导致首轮布满后
-      //   「一个节点只能布 1 次」。上调基础上限使节点内可连续布设多轮（每轮 3 枚），
-      //   上限语义仍是「同时在场数」，不是「本局总数」。
-      mineMax: 6,
       coverMaxUpgradeStep: 1,
-      mineMaxUpgradeStep: 1,
       coverMaxHardCap: 6,
-      mineMaxHardCap: 12,
-      mineFieldCount: 3,   // #E4 单次雷场布设的地雷数。#H2（2026-09-30）：原值 5 > mineMax(3)，
-                           //   与「existing + n ≤ cap」的拒收判据互相矛盾（首轮布满后后续雷场恒被丢弃），
-                           //   改为与基础上限自洽；实际落雷数再按**生成时刻的可用余量**裁剪
-                           //   n = clamp(count, 0, cap − existing)（tank_battle.html mineFieldCountNow）。
-                           //   想要更大的单次雷场应同步上调 mineMax，而非只调本值。
-      mineFieldRadius: 70, // 雷场半径（px，预形态与最终布设一致）
-      mineFieldDelay: 4,   // #E4 确认布设后到雷场生成的延时（秒）
+      // ================= 2026-10-22（第五批）雷场改「带状」=================
+      // 用户裁定：① 形状改带状以阻挡敌方 AI 冲锋；② 第一次 F 定中心、方向**始终垂直于
+      //   鼠标—玩家连线**；③ 伤害与「当前已取得的 HE 伤害」绑定；④ 以车体最薄部位装甲结算；
+      //   ⑤ 地雷总数**不设上限**（只设雷场槽位），且**不向玩家显示雷数**。
+      // 沿革：mineMax / mineMaxUpgradeStep / mineMaxHardCap 三键于本批**删除**（用户裁定不设总数上限）；
+      //   mineFieldRadius（圆形半径 70）删除，被 mineFieldLength / mineFieldBandWidth 取代。
+      mineFieldCount: 6,        // 单条雷带的雷数（密度旋钮）。**只影响手感，不在 UI 显示枚数。**
+      mineFieldLength: 220,     // 雷带长度（px，沿「垂直于瞄准线」方向）
+      mineFieldBandWidth: 56,   // 雷带宽度（px，法向）
+      mineFieldDelay: 4,        // 确认布设后到雷场生成的延时（秒）
       // #H2（2026-09-30）布雷装填冷却：确认预约后写入 player.secondaryReloadT，
       //   冷却中再次按 F 直接拒绝（与单发布雷路径 js/tank_weapons.js 同口径，specs/combat.md §8.1）。
       mineFieldReload: 15,
+      // 雷场槽位（同时存在的雷场数）：基础 1，升级卡每次 +1，硬上限 3（用户裁定）
+      mineFieldMaxDeploy: 1,
+      mineFieldMaxDeployCap: 3,
+      // 伤害 = 玩家当前 HE 单发伤害 × mineFieldHeRatio（升级卡可 +0.15）
+      mineFieldHeRatio: 1.0,
+      // 「最薄部位」口径：'hull' = 只取车体三面最小值（用户原话「车体最薄部位」）；
+      //   'all' = 车体+炮塔六面（与榴弹炮直击口径一致）。改这里即全局切换。
+      mineArmorScope: 'hull',
       // #E4 部署数量升级来源：持有该卡即按 listed 增量累加 deployBonus（可叠多张）
       upgradeCards: {
         ability_deploy_cover_fortified: { cover: 1 },
-        weapon_secondary_mine_upgrade: { mine: 1 },
         turret_bunker: { turret: 1 }
       }
     },
     drone: {
-      scoutRange: 700,     // 侦察指示范围（px）：视口外敌军位置指示箭头（默认视口 960×600，半对角线 ≈566，取 700 覆盖视口外一圈）
-      strikeRange: 260,    // 打击无人机近身自动索敌攻击范围（px）
-      fireInterval: 2.0,   // 攻击间隔（秒）
-      dmgMult: 0.4,        // 伤害倍率（相对攻击方标准伤害）
+      strikeRange: 400,    // 打击无人机近身自动索敌攻击范围（px，由 260 加强到 400）
+      fireInterval: 1.5,   // 攻击间隔（秒，由 2.0 加快到 1.5）
+      dmgMult: 0.8,        // 伤害倍率（相对攻击方标准伤害，由 0.4 加强到 0.8）
       orbitDist: 90,       // 环绕玩家距离（px）
-      orbitSpeed: 1.2,     // 环绕角速度（rad/s，≈0.19 圈/秒；切线速度 ≈orbitDist×1.2 ≈108px/s）
-      orbitLerp: 6,        // 环绕跟随收敛速率（指数阻尼 λ：每帧 k=1−exp(−λ·dt)；越大贴得越紧）
+      orbitSpeed: 1.2,     // 环绕角速度（rad/s）
+      orbitLerp: 6,        // 环绕跟随收敛速率
       countMax: 2          // 场上同时存在的无人机上限
-    }
+    },
+    passiveSlotsMax: 2     // 坦克默认被动技能槽数量（无法通过升级增减）
   },
 
   // ======================= 模块伤害（特性3） =======================
@@ -590,7 +651,7 @@ const RULES = {
     // 调参理由：nodeScale=3 下旧掩体世界尺寸过大（半高墙 240~270px ≈4× 车长、沙袋 180~210px），
     // 收敛到 半高≈1.5~2×车长(100~150px)/全高≈2~3×(150~220px)/沙袋≈1×(60~90px)；
     // 地形标签生成物（pond/river/mud）与树丛不在此表 → 尺寸不受影响。
-    coverWorldScale: { half: 0.42, full: 0.42, building: 0.42, barricade: 0.32 },
+    coverWorldScale: { half: 0.42, full: 0.42, building: 0.42, barricade: 0.32, wall: 0.34, wall_breakable: 0.34, perm_block: 0.32 },
     // 2026-09-20 #E11：树木单独收敛（用户反馈树太大）——树/倒树/树桩在模板单位 × nodeScale
     // 之外再乘该系数；树冠视觉（tank_assets.bakeCanopy）同步乘同一系数保持视觉-逻辑同源。
     treeWorldScale: 0.6,
@@ -637,12 +698,34 @@ const RULES = {
       bossDensity: 1.6
     },
     // ======================= 2026-09-20 #E3 路口沙包 + 敌人生成点位 =======================
-    junctionBarricades: {
-      chance: 0.85,            // 路口生成沙包（barricade）阵的概率
-      countMin: 2,             // 单路口沙包数下限
-      countMax: 4,             // 单路口沙包数上限
-      ringMin: 0.9,            // 沙包距路口中心的半径系数（×路宽）下限
-      ringMax: 1.9             // 上限（环形布防，留出通行口）
+    junctionBarricades: {          // 2026-10-22（第五批）：沙包阵 → 直线掩体阵（placeJunctionWalls）
+      chance: 0.85,            // 路口生成掩体的概率
+      countMin: 2,             // 单路口掩体数下限
+      countMax: 4,             // 单路口掩体数上限
+      ringMin: 0.9,            // 掩体距路口中心的半径系数（×路宽）下限
+      ringMax: 1.9,            // 上限（环形布防，留出通行口）
+      breakableChance: 0.45,   // 可摧毁掩体（wall_breakable）的占比；其余为不可摧毁（wall）
+      wallLenMin: 62,          // 掩体长度下限（px，单直线）
+      wallLenMax: 96,          // 掩体长度上限
+      wallThick: 26            // 掩体厚度（px）
+    },
+    // ======================= 2026-10-22 防线墙体（用户反馈「掩体摆放过于随机，要呈现防线的样子」） =======================
+    // 玩家固定从左缘出生、沿推进轴向右推进 ⇒ 敌方防线 = 数道**竖直**墙段（法线朝左
+    //   即朝向玩家），防御玩家可能进攻的 2~3 个方向（左/左上/左下 → 用竖墙 + 上下斜墙覆盖）。
+    //   与 junctionBarricades（路口环带随机墙）互补：路口墙是「据点近防」，防线墙是「纵深防线」。
+    defenseWalls: {
+      enabled: true,           // 总开关（false = 回退旧行为：只有路口随机墙）
+      linesMin: 1,             // 防线墙体道数下限（难度 0）
+      linesMax: 2,             // 上限（难度 1；与敌军防线 linesMin/linesMax 同数量级）
+      segLenMin: 110,          // 单段墙长下限（px）
+      segLenMax: 190,          // 上限
+      thick: 26,               // 墙厚（px）——与 junctionBarricades.wallThick 同口径
+      gapMin: 90,              // 通行口（两段墙之间的缺口）下限（px）——保证必有一条可通行走廊
+      gapMax: 150,             // 上限
+      breakableChance: 0.45,   // 可摧毁掩体占比（与路口墙同口径）
+      jitter: 0.10,            // 每段墙的角度抖动（rad）——防线不是直线阅兵，带一点锯齿
+      avoidRoad: true,         // 是否避让路面（竖墙横穿路面会封死道路 ⇒ 只在路面之外布设）
+      roadPad: 10              // 避让路面的外扩（px）
     },
     // 敌方生成候选：优先建筑旁/路口，且随难度提高「集中生成」的敌数（#E6）。
     enemySpawn: {
@@ -702,11 +785,21 @@ const RULES = {
       // 防线参数覆盖：strip 面积 ≈ 方形节点 7 倍，防线数与单线敌数同步放大
       // （每线 3~4 辆成批遭遇，maxAlive 7 仍封顶同时接战数；节奏不变）
       defenseLine: { linesMin: 4, linesMax: 6, perAnchorMin: 3, perAnchorMax: 4, maxPerNode: 18 },
-      // #MODE（2026-10-15）生存模式单图口径 —— 2026-10-18 改走「标准 strip 生成链 + 多行片」：
-      //   与标准模式共用同一套生成器（不再用 bossOnly/stripForBoss 两个 hack），但保留更大的
-      //   单图：2 行 × round(5/3.5)=2 列网格 ⇒ 世界 ≈6×6 屏（片高 ≥3 屏 × 2 行），
-      //   纵向完全填满、无上下空白带。唯一配置源；generateSurvivalRun 只读这里。
-      survival: { screensX: 5, screensY: 5, chunkRows: 2 }
+      // #MODE（2026-10-15）生存模式单图口径 —— 2026-10-18 改走「标准 strip 生成链 + 多行片」；
+      //   **2026-10-22（第五批）用户裁定「缩小地图」**：3×3 屏。
+      //   实测约束：generateStrip 的宽度由 `chunkCount = opts.chunkCount || max(2, round(screensX/3.5))`
+      //   决定（js/tank_nodegen.js:3804），且每片宽 ≥3 屏 ⇒ 只改 screensX=3 仍得 2 列 ≈6 屏。
+      //   故必须显式给 `chunkCount:1` + `chunkRows:1`：1 列 × 1 行、片宽下限 3 屏 ⇒ 世界 ≈3×3 屏。
+      //   唯一配置源；generateSurvivalRun 只读这里（探针不足时回退 chunkCount:2, chunkRows:1 = 6×3）。
+      survival: { screensX: 3, screensY: 3, chunkRows: 1, chunkCount: 1 },
+      // 2026-10-22（第五批）生存补给点：用户裁定「补给点增加为 4 个，4 个角落各 1 个，
+      //   且需要避开坦克不能到达、不能停留的位置」。
+      //   · count=4 固定；cornerMargin=0.14 表示四角候选中心在 (0.14w,0.14h) 等四处；
+      //   · searchRadius=180 每角方形搜索半径；searchRadiusMax=320 失败后放宽；
+      //   · minStationDist=700 站点彼此最小间距；minPlayerDist=520 距玩家出生点最小距离；
+      //   · coverPad=60 掩体避让外扩；reachGrid=40 可达性 BFS 网格步长（「不能到达」= 不可达）。
+      survivalSupply: { count: 4, cornerMargin: 0.14, searchRadius: 180, searchRadiusMax: 320,
+                        minStationDist: 700, minPlayerDist: 520, coverPad: 60, reachGrid: 40 }
     },
     // #K3（2026-09-29 用户反馈「节点略长，缩短 boss 循环：5->3」）：Boss 循环由 5 缩短为 3
     // ⇒ 一局内更早遇到 Boss（index 2/5/8…），以 Boss 战（无配额 grind）替代部分常规节点的拉长感。
@@ -981,6 +1074,23 @@ const RULES = {
     shotNoiseRadius: 1100,         // 玩家开火枪声传播半径（px）；railgun/autocannon 为 1400
     impactNoiseRadius: 420,        // 近失弹落点声传播半径（px）——原 180，过紧致「贴近才反应」
     suspiciousTimeout: 8.0,        // suspicious 状态无新声音后降级回 calm 的秒数
+    // ================= 2026-10-22（第五批）噪声累积升级 + 友军被击中警觉 =================
+    // 用户裁定：「标准模式下，敌方 ai『听到』多次射击、友军多次被命中等后就应当直接确定
+    //   玩家位置进入交战状态」。
+    // 沿革：此前 hearNoise 只把 alertLevel 置 1（suspicious），**全文件没有任何升级到 3 的路径**，
+    //   连射越多反而因「同位置 2s 内丢弃」永远攒不满（ISSUES #Z7）。
+    // 消费方：js/tank_ai.js hearNoise / noteAllyHit / updateNoiseHeat。
+    noiseEscalate: {
+      shotHeat: 0.34,          // 听到玩家开火一次累积的热度（3 次即 1.02 ≥ 阈值 → 交战）
+      impactHeat: 0.20,        // 听到炮弹落点/爆炸一次累积的热度（5 次 → 交战）
+      decayPerSec: 0.12,       // 每秒自然衰减（约 8.3s 完全冷却，与 suspiciousTimeout 同量级）
+      escalateAt: 1.0,         // 达到该值即 alertEntity（进入交战 + 记录玩家位置）
+      allyHitHeat: 0.5,        // 友军被命中一次为该敌人累积的热度（2 次 → 交战）
+      allyHitRadius: 700       // 友军被命中时的群体警觉半径（px）
+    },
+    // Boss / 生存模式「所有敌人强制接战、立即攻击」的开火最小间隔（秒）。
+    // 防止刷出来的敌人在生成帧就一发命中（aiReactT=0 的副作用），不改变接战判定本身。
+    forceEngageOpenFireDelay: 0.35,
     // #I4（2026-09-21 用户裁定「boss 几乎完全是站桩等玩家」）：Boss 随机走位层——
     // 周期性在玩家周围随机选点（环绕/侧移），车体驶向该点（炮塔照常锁定玩家开火），
     // 消费方 updateBossBehavior 写 _bossMoveOverride、battle AI 循环覆盖 d.turn/d.move。
@@ -1173,6 +1283,21 @@ const RULES = {
       // **调用契约：必须在 assignBossArmament 之后**（安装会重置 stats，提前调用会被覆盖）。
       autocannonRange: 1200
     },
+    // ======================= 2026-10-22（第五批）Boss 电磁炮（需求 #13） =======================
+    // 用户裁定：「为 boss 使用电磁炮时提供激光炮线动画，为玩家提供 boss 正在使用电磁炮的预警」。
+    // 现行口径：Boss 主武器随机到 railgun 时，发射前先进入 chargeSeconds 蓄能期，期间产出
+    //   railCharge 事件（绘制白色炮线 + 电弧 + 屏幕顶部预警），蓄能完成后才真正开火。
+    // 事件生产：js/tank_boss.js updateBossRailCharge；事件消费：tank_battle.html 的
+    //   bossRailFx → drawBossRailLine（js/tank_battledraw.js）。
+    // **唯一口径在本键**（勿在 RULES 顶层再写一份）。
+    railgun: {
+      enabled: true,
+      chargeSeconds: 1.2,        // 蓄能时长（秒）——玩家预警窗口
+      lineLength: 1400,          // 炮线预览/光束长度（px，与激光同量级）
+      lineWidth: 6,              // 炮线宽度（px，绘制用）
+      warnLeadSeconds: 1.2,      // 预警提前量（= chargeSeconds，进入蓄能即预警）
+      aimTolerance: 0.03         // 蓄能期锁定的角度容差（rad）——超出则重新蓄能（防瞬转锁定）
+    },
     // ======================= 2026-09-20 #E9 Boss 修订（用户反馈） =======================
     // 1) 残血减速上限：阶段 onEnter.modifiers 里的 maxSpeed/turnRate 倍率过猛会让残血 Boss
     //    快到无法处理。聚合后对 Boss 的车体机动施加硬上限（相对 boss 出战配置的基准倍率）。
@@ -1260,9 +1385,20 @@ const RULES = {
   // 两条独立货币线（§2.4）：局内得分（击杀+节点通关，仅本局）vs 商店点数（死亡转化，跨局永久）。
   economy: {
     killScoreBase: 20,        // 普通敌人击杀得分（Boss 掉落见 bosses/*.json loot.score）
+    // 2026-10-22（第五批）需求「提高击毁高等级敌人所获得的分数」：
+    //   击杀分 = round(killScoreBase × (1 + killScoreLevelStep × (敌人等级 − 1)))
+    //   实测：Lv1=20 / Lv4=35 / Lv7=50 / Lv10=65 / Lv13=80（友军击杀仍 ×0.5）。
+    //   敌人等级唯一来源 = tank_battle.html enemyLevelForDifficulty（diff→Lv1~13），
+    //   由 applyEnemyAmmoByLevel 写入 tank.enemyLevel（js/tank_model.js）。
+    killScoreLevelStep: 0.25,
     scoreToPointsRatio: 0.1,  // 死亡时局内得分 → 商店点数 转化比例（10%）
     refreshCost: 10,          // 卡牌三选一刷新费（消耗局内得分，开放问题 5）
     reviveCost: 40,           // 局前购买追加复活次数（商店点数）
+    // 2026-10-22（第五批）需求「小幅降低后期升级所需的花费」：
+    //   价格 = round(baseCost × costGrowth^lv × (lv > shopLateFromLevel ? shopLateDiscount^(lv−shopLateFromLevel) : 1))
+    //   实测 fast_reload(25/1.6)：Lv5 262 不变 → Lv10 2749→1812(−34%) → Lv15 28823→12520(−57%)。
+    shopLateFromLevel: 5,     // 从第 6 级（ownedLevel=5）开始打折
+    shopLateDiscount: 0.92,   // 每级额外 ×0.92（−8%）
     saveVersion: 1,           // 存档版本号（profile.version；不匹配则重置）
     saveKey: 'rogue-tank-save' // localStorage 键名
   },
@@ -1344,6 +1480,15 @@ const RULES = {
     trackLock:        { min: 3,   max: 20 },
     fireControlCrit:  { min: 0,   max: 0.25 },
     loaderAmmoCrit:   { min: 0,   max: 0.25 },
+    // 2026-10-22（第五批）机炮/弹夹/雷场「武器通道」边界：#U20 达限过滤与 cardEligible 都按
+    //   {min,max} 双向取边界，故这些键必须登记在此，否则新卡的 maxStacks 上限只是装饰。
+    maxRange:         { min: 300, max: 1200 }, // 机炮射程 px（900→1200；PX_PER_METER≈10.92 ⇒ 82m→110m）
+    overheatLock:     { min: 1.0, max: 4.0 },  // 机炮过热锁定秒数（2.0，升级 −0.5/次，下限 1.0）
+    clipCycleSeconds: { min: 0.5, max: 1.0 },  // 弹夹内短装填秒（0.7，升级 −0.1/次，下限 0.5）
+    mineFieldCount:   { min: 3,   max: 12 },   // 雷带雷数（6，升级 +2/次）
+    mineFieldLength:  { min: 120, max: 460 },  // 雷带长度 px（220，升级 +80/次）
+    mineFieldReload:  { min: 6,   max: 15 },   // 布雷冷却秒（15，升级 ×0.85/次）
+    mineFieldMaxDeploy:{ min: 1,  max: 3 },    // 雷场槽位（1，升级 +1/次，硬上限 3）
     weight:           { min: 10,  max: 80 },   // 吨：max=80t 为【设计上限】，仅设计器出厂校验（卡牌/局内升级可突破）；下限给超轻底盘留余地
     armor: {                                   // 各面装甲厚度 mm：无上限（用户需求：装甲不设上限）
       hull: {
@@ -1373,7 +1518,39 @@ const RULES = {
   weaponTypes: {
     // #G（2026-09-21）：新增 clip（弹夹炮）——弹夹内 0.7s 固定发际间隔 / 弹夹间 ×3.0 起步整组装填
     primary: ['standard', 'autocannon', 'double_barrel', 'railgun', 'clip'],
-    secondary: ['none', 'mortar', 'missile', 'missile_wire', 'rocket', 'mine_layer', 'turret']
+    secondary: ['none', 'mortar', 'missile', 'missile_wire', 'rocket', 'mine_layer', 'turret', 'howitzer', 'smoke']
+  },
+
+  // ======================= 2026-10-22（第五批）武器机制常数（唯一口径） =======================
+  // 全部由 js/tank_fire.js / js/tank_weapons.js 消费；**不得**在业务代码里写死这些秒数。
+  weapons: {
+    // 用户裁定：「单管射击后切换时间固定为 0.8s 不受卡牌、升级影响」。
+    // 沿革：原 WEAPON_DEFAULTS.double_barrel.switchSeconds=0.5，且「同步击发装置」卡可改到 0.1、
+    //   「交替装填系统」卡可改到 0.05 —— 该卡已删除，交替装填只保留 altReload 语义（epic）。
+    doubleBarrelSwitchSeconds: 0.8,
+    // 用户裁定：「爆发射击（按空格键以固定 0.5s 的短装填时间射出所有弹夹内的炮弹）」。
+    clipBurstCycleSeconds: 0.5,
+    // 用户裁定：「砰砰炮（主炮射击后 0.8s 再射出 1 发 0.6 倍当前伤害的炮弹）」。
+    standardDoubleTapDelay: 0.8,
+    standardDoubleTapDmgMul: 0.6
+  },
+
+  // ======================= 2026-10-22（第五批）速射机炮成长边界（唯一口径） =======================
+  // 用户裁定：① 过热后**不再立即冷却**，等待 overheatLock 锁定结束后才开始冷却；
+  //   ② 穿深改为标准穿深的 **80%**（原 85%）；
+  //   ③ 射程升级每次 +100px、上限 1200px（卡面按 m 显示，PX_PER_METER≈10.92 ⇒ 82m→110m）；
+  //   ④ 过热锁定时间每次 −0.5s、最少 1s；⑤ 穿深增强为「相对标准穿深」的比例，每次 +5%、最多 +10%。
+  // 消费方：js/tank_fire.js（updatePrimaryHeat / fireTank / firePrimaryShell）、卡牌 statOverrides。
+  autocannon: {
+    basePenRatio: 0.80,        // 机炮基础穿深 = 标准穿深的 80%（WEAPON_DEFAULTS.autocannon.penMult 同值）
+    rangeBasePx: 900,          // 基础射程（px）
+    rangeStepPx: 100,          // 每级射程加成
+    rangeMaxPx: 1200,          // 射程硬上限（卡牌 maxStacks 之外的兜底钳制）
+    overheatLockBase: 2.0,     // 基础过热锁定（秒）
+    overheatLockStep: 0.5,     // 每级缩减
+    overheatLockMin: 1.0,      // 锁定下限
+    penRatioStep: 0.05,        // 每级穿深比例 +5%
+    penRatioMax: 0.10          // 最多 +10%（0.80 → 0.90）
   }
 };
 

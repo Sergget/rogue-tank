@@ -7,7 +7,7 @@
 锚点随之漂移。本脚本直接按运行时的粘贴公式复算「掩体中心落在 PNG 的哪一像素」，
 不依赖浏览器。
 
-判据（与 tools/cover-gen-prompts.md §6 对齐）：
+判据：
   1. 文件尺寸 = tools/cover-refs.json 的运行时烘焙画布尺寸（图片通道 1:1 贴图）
   2. 有效内容（alpha>0）的质心与名义锚点距离 ≤ 2px（允许 --tol 覆盖）
   3. 内容不得触及画布边缘（默认只报告；内容抵边是允许的——树桩/栅栏本就铺满名义画布，
@@ -15,7 +15,7 @@
   4. 不同图层（base / canopy）分别按各自锚点校验
 
 用法：
-  python scripts/covers-anchor-check.py                       # 校验 assets/ 下已落盘的 10 张
+  python scripts/covers-anchor-check.py                       # 校验 assets/ 下已落盘的地图元素 PNG（9 个键）
   python scripts/covers-anchor-check.py --src tmp/covers-src --tol 3
 退出码：0 全部通过（或文件不存在视为「走程序化回退」，不算失败）；1 有违例。
 """

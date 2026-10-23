@@ -193,7 +193,7 @@ function drawMinimap(ctx, opts) {
   // 掩体绘制（#U5 用户裁定 B：**分区着色**）
   //   原实现逐元素画点：树/灌木数量大时小地图被打成一片噪点（用户反馈「点太多」）。
   //   现按 tierGroup 分流：
-  //     · 植被（foliage：tree/bush/fallen/soft）→ 累加到**世界网格**，按格内密度铺半透明色块，
+  //     · 植被（foliage：tree/bush/fallen）→ 累加到**世界网格**，按格内密度铺半透明色块，
   //       密集处自然聚成「一小片绿色」，稀疏处不着色 —— 不画单点。
   //     · 其余（liquid 水/河、ground 泥、structure 建筑/岩石）→ 仍逐元素画点/方块
   //       （数量少且位置关键，保留可读性）。
@@ -218,7 +218,8 @@ function drawMinimap(ctx, opts) {
       }
       const p = worldToMinimap(layout, c.x, c.y);
       let dot = 1.6;
-      let color = (c.tier === 'full' || c.tier === 'barricade') ? 'rgba(210,180,120,0.95)'
+      // 2026-10-22（第五批）：旧「沙包」tier 已删除，直线掩体 wall / wall_breakable / perm_block 沿用它的小地图高亮。
+      let color = (c.tier === 'full' || c.tier === 'wall' || c.tier === 'wall_breakable' || c.tier === 'perm_block') ? 'rgba(210,180,120,0.95)'
                 : 'rgba(200,200,200,0.55)';
       if (tg === 'liquid') { dot = 2.2; color = 'rgba(64,156,225,0.95)'; }
       else if (tg === 'ground') { dot = 2.2; color = 'rgba(140,102,52,0.9)'; }

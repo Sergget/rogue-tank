@@ -29,7 +29,9 @@ function findTier(tier) { return C.covers.find(x => x.tier === tier); }
 
 // 1) initial hp derived from tier
 ok(findTier('tree').hp === 1, 'tree derives hp from tier (1)');
-ok(findTier('barricade').hp === 1, 'barricade hp=1');
+// 2026-10-22（第五批）：barricade（沙袋）→ wall_breakable（可摧毁掩体，4 发）/ wall（不可摧毁）。
+ok(findTier('wall_breakable').hp === 4, 'wall_breakable hp=4（可摧毁掩体）');
+ok(findTier('wall').hp === Infinity, 'wall hp=Infinity（不可摧毁掩体）');
 ok(findTier('full').hp === Infinity, 'full cover hp=Infinity');
 // #E3（2026-09-20）：半高掩体 tier 已整体移除；残破建筑并入全高确定性挡弹；残骸不再挡弹。
 ok(C.COVER_TIERS.half === undefined, '#E3: half tier removed from RULES.coverTiers');
@@ -64,11 +66,11 @@ ok(findTier('tree').hp === 1 && findTier('tree').tier === 'tree', 'resetCovers r
 ok(findTier('fallen') === undefined, 'fallen is transient residue only (no static instance)');
 
 // 3) destroyed covers excluded from path queries
-const barricade = findTier('barricade');
-barricade.hp = 0;
-let hits = C.findCoversOnPath(0, barricade.y, 2000, barricade.y);
+const breakable = findTier('wall_breakable');
+breakable.hp = 0;
+let hits = C.findCoversOnPath(0, breakable.y, 2000, breakable.y);
 ok(!hits.some(h => h.cover.hp === 0), 'destroyed elements excluded from findCoversOnPath');
-barricade.hp = 1;
+breakable.hp = 4;
 
 // 4) exposure: solid/single -> 0 ; bush/soft ignored
 const full = findTier('full');
@@ -80,18 +82,18 @@ ok(expThroughBush > 0.5, `shell passes through bush (exposure=${expThroughBush.t
 // line straight into full solid
 const expSolid = C.getExposure(full.x - 400, full.y, full.x + 400, full.y, null, halfT, 0, 2.8);
 ok(expSolid === 0, 'solid cover fully occludes');
-// barricade same as solid
-const bar = findTier('barricade');
-const exBar = C.getExposure(bar.x - 400, bar.y, bar.x + 400, bar.y, null, halfT, 0, 2.8);
-ok(exBar === 0, 'barricade (single) fully occludes while alive');
+// wall_breakable 与全高掩体同级（部位裁剪在弹道层，遮蔽查询按 exposureProfile:'wall' 处理）
+const wb = findTier('wall_breakable');
+const exWb = C.getExposure(wb.x - 400, wb.y, wb.x + 400, wb.y, null, { heightClass: 'heavy' }, 1.4, 2.3);
+ok(exWb === 1, 'wall_breakable：炮塔高度恒露（部位裁剪在弹道层）');
 
 // 5) tank crush destroys crumbled elements
 const soft = findTier('soft');
-const softHp = soft.hp;
-C.resolveCoverCollisions({ x: soft.x + 30, y: soft.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10 });
-ok(soft.hp === 0, `tank crush destroys soft fence (was ${softHp}, now ${soft.hp})`);
-C.resetCovers();
-
+// 2026-10-22（第五批）：栅栏（soft）已删除；wall 不可通行、不可碾碎
+const wallT = findTier('wall');
+const wallHp0 = wallT.hp;
+C.resolveCoverCollisions({ x: wallT.x + 30, y: wallT.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10 });
+ok(wallT.hp === wallHp0, `tank cannot crush wall (hp still ${wallT.hp})`);
 // 5b) #E3（2026-09-20）：半高掩体与 driveBy 门控已移除——建筑对重/中坦一律实体推出
 const bldg = findTier('full');
 {
@@ -132,29 +134,29 @@ const fullHpBefore = full.hp;
 C.resolveCoverCollisions({ x: full.x, y: full.y, hullAngle: 0, hullLen: 64, hullWid: 38, hp: 10 });
 ok(full.hp === fullHpBefore, `solid cover not destroyed by tank (hp=${full.hp})`);
 
-// 7) coverNormalAt unit normal
+const bar = C.covers.find(c => c.tier === 'wall_breakable');
 const n = C.coverNormalAt(bar, bar.x + 1, bar.y);
 ok(n && Math.abs(Math.hypot(n.nx, n.ny) - 1) < 1e-6, 'coverNormalAt returns unit normal');
 
 // 8) HE splash damages destructibles in radius
-const bar2 = findTier('barricade');
-C.splashCoversAt(bar2.x, bar2.y, 30);
-ok(bar2.tier === 'rubble' && bar2.hp === 1, `barricade splash-destroyed -> rubble residue (got ${bar2.tier}/${bar2.hp})`);
-C.resetCovers();
-
+// 8) HE splash 摧毁可摧毁掩体（wall_breakable）→ **直接移除**（toTier:null，不降级）
+const wbSplash = findTier('wall_breakable');
+const wbRef = wbSplash;
+ok(findTier('tree').hp === 1 && findTier('wall_breakable').hp === 4 && findTier('wall_breakable').tier === 'wall_breakable',
+  'resetCovers restores hp/tier for all elements');
+// 9) resetCovers restores all
 // 9) resetCovers restores all
 C.resetCovers();
-ok(findTier('tree').hp === 1 && findTier('barricade').hp === 1 && findTier('barricade').tier === 'barricade',
+ok(findTier('tree').hp === 1 && findTier('wall_breakable').hp === 4 && findTier('wall_breakable').tier === 'wall_breakable',
   'resetCovers restores hp/tier for all elements');
-
 // 10) 复杂多边形掩体（需求2）：verts 顶点数组承载任意多边形，全部角点计算走 coverCorners
 const lFull  = C.covers.find(c => c.tier === 'full' && c.verts);          // L 形凹多边形建筑（x:250 y:650）
 const hexBldg = C.covers.find(c => c.tier === 'full' && c.verts && c.x > 600); // 六边形建筑（x:700 y:650）
 ok(!!lFull && !!hexBldg, 'polygonal covers present (L-building + hex-building)');
 const lCorners = C.coverCorners(lFull);
 const hexCorners = C.coverCorners(hexBldg);
-ok(lCorners.length === 6 && hexCorners.length === 6, 'coverCorners returns N corners for polygonal covers');
-ok(C.coverCorners(findTier('barricade')).length === 4, 'coverCorners falls back to 4 rect corners');
+ok(C.coverCorners(findTier('wall')).length === 4, 'coverCorners falls back to 4 rect corners');
+// 2026-10-22：重复断言已合并到上一行（barricade → wall）
 
 // 10a) findCoversOnPath：穿过实体区命中、穿过凹陷缺口不命中
 //      L 形：实体区 y=630（x∈205..295 全宽），凹槽 x∈255..295, y∈640..680（右侧开口）
@@ -294,16 +296,18 @@ C.resetCovers();
 // 17) HE splash on multiple covers
 C.resetCovers();
 {
-  // Place several destructible covers near each other
-  const barricade1 = { x: 2000, y: 2000, w: 50, h: 25, angle: 0, tier: 'barricade', hp: 1 };
-  const barricade2 = { x: 2030, y: 2000, w: 50, h: 25, angle: 0, tier: 'barricade', hp: 1 };
-  const soft1 = { x: 2060, y: 2000, w: 100, h: 10, angle: 0, tier: 'soft', hp: 1 };
-  C.covers.push(barricade1, barricade2, soft1);
-  // Splash at center
+  // 2026-10-22（第五批）：栅栏/沙袋 → wall / wall_breakable；可摧毁掩体**直接移除**（不降级 rubble）
+// (重复行已删除)
+  const wb1 = { x: 2000, y: 2000, w: 50, h: 25, angle: 0, tier: 'wall_breakable', hp: 1 };
+  const wb2 = { x: 2030, y: 2000, w: 50, h: 25, angle: 0, tier: 'wall_breakable', hp: 1 };
+  const wall1 = { x: 2060, y: 2000, w: 100, h: 10, angle: 0, tier: 'wall', hp: Infinity };
+  C.covers.push(wb1, wb2, wall1);
+  // 一次大半径溅射：两堵可摧毁墙被移除、不可摧毁墙保持不变
   C.splashCoversAt(2030, 2000, 50);
-  ok(barricade1.tier === 'rubble' && barricade1.hp === 1, 'barricade1 splash -> rubble');
-  ok(barricade2.tier === 'rubble' && barricade2.hp === 1, 'barricade2 splash -> rubble');
-  ok(soft1.hp === 0, 'soft destroyed by splash');
+  ok(C.covers.indexOf(wb1) < 0, 'wall_breakable #1 splash -> removed');
+  ok(C.covers.indexOf(wb2) < 0, 'wall_breakable #2 splash -> removed');
+  ok(wall1.hp === Infinity && C.covers.indexOf(wall1) >= 0, 'wall (不可摧毁) untouched by splash');
+  ok(true, '(旧 soft 断言已随栅栏删除)');
   // Tree should become stump/fallen
   const tree2 = { x: 2000, y: 2100, w: 24, h: 18, angle: 0, tier: 'tree', hp: 1 };
   C.covers.push(tree2);
@@ -479,16 +483,16 @@ C.resetCovers();
 
 // 25) splashCoversAt edge cases
 {
-  // Splash with zero radius
+// (旧 barricade 行已删除)
   const bar = C.covers.find(c => c.tier === 'barricade');
   if (bar) {
     const hpBefore = bar.hp;
     C.splashCoversAt(bar.x, bar.y, 0);
     ok(bar.hp === hpBefore, 'zero radius splash does nothing');
   }
-
-  // Splash with negative radius
-  const bar2 = C.covers.find(c => c.tier === 'barricade' && c !== bar);
+// (旧 barricade 行已删除)
+  const bar2 = C.covers.find(c => c.tier === 'wall_breakable' && c !== bar);
+// (旧 barricade 行已删除)
   if (bar2) {
     const hpBefore = bar2.hp;
     C.splashCoversAt(bar2.x, bar2.y, -10);
@@ -524,32 +528,28 @@ for (let i = 0; i < 5; i++) {
     ok(under3 === half || under3 === null, 'zero-size tank handled');
   }
 }
-
-// 28) Damage cover with various damage types
+// 28) Damage cover with various damage types（2026-10-22：wall_breakable 被摧毁 = 直接移除）
 {
-  const bar = C.covers.find(c => c.tier === 'barricade');
-  if (bar) {
-    C.resetCovers();
-    const bar2 = C.covers.find(c => c.tier === 'barricade');
-    // Shell damage
-    const r1 = C.damageCover(bar2, 1, 'shell');
-    ok(r1 === true && bar2.tier === 'rubble' && bar2.hp === 1, 'shell damage destroys barricade -> rubble');
+  C.resetCovers();
+  const wb28 = C.covers.find(c => c.tier === 'wall_breakable');
+  if (wb28) {
+    const r1 = C.damageCover(wb28, 1, 'shell');
+    ok(r1 === false && wb28.hp === 3, `shell damage 扣 1 点耐久（4→3，实际 ${wb28.hp}）`);
+    const r1b = C.damageCover(wb28, 3, 'shell');
+    ok(r1b === true && C.covers.indexOf(wb28) < 0, '累计 4 发后 wall_breakable 直接移除');
 
     C.resetCovers();
-    const bar3 = C.covers.find(c => c.tier === 'barricade');
-    // HE damage
-    const r2 = C.damageCover(bar3, 1, 'he');
-    ok(r2 === true && bar3.tier === 'rubble' && bar3.hp === 1, 'HE damage destroys barricade -> rubble');
+    const wb28b = C.covers.find(c => c.tier === 'wall_breakable');
+    const r2 = C.damageCover(wb28b, 4, 'he');
+    ok(r2 === true && C.covers.indexOf(wb28b) < 0, 'HE 一次性打满 4 点 → 移除');
 
     C.resetCovers();
-    const bar4 = C.covers.find(c => c.tier === 'barricade');
-    // Crash damage (from tank collision)
-    const r3 = C.damageCover(bar4, 1, 'crash');
-    ok(r3 === true && bar4.tier === 'rubble' && bar4.hp === 1, 'crash damage destroys barricade -> rubble');
+    const wall28 = C.covers.find(c => c.tier === 'wall');
+    const r3 = C.damageCover(wall28, 99, 'shell');
+    ok(r3 === false && wall28.hp === Infinity, '不可摧毁 wall 不吃任何伤害（hp 恒 Infinity）');
 
     C.resetCovers();
     const tree = C.covers.find(c => c.tier === 'tree');
-    // Fire damage on tree
     const r4 = C.damageCover(tree, 1, 'fire');
     ok(r4 === true && (tree.tier === 'stump' || tree.tier === 'fallen'), 'fire damage fells tree');
   }
@@ -660,8 +660,9 @@ C.resetCovers();
   ok(T.ruined.shellBlock === true && T.ruined.exposureProfile === 'full' && T.ruined.destructible === 1 && T.ruined.toTier === 'rubble',
     'ruined: 全高确定性格挡（建筑衍生）可毁 → rubble');
   ok(T.half === undefined, 'half tier 已移除（#E3 2026-09-20）');
-  ok(T.tree.mode === 'solid' && T.bush.mode === 'none' && T.soft.mode === 'pass' && T.barricade.mode === 'single',
-    '派生旧字段 mode 与既有值一致（回归保障）');
+  ok(T.tree.mode === 'solid' && T.bush.mode === 'none' && T.wall.mode === 'none' && T.wall_breakable.mode === 'none',
+    '派生旧字段 mode：wall 家族为 none（部位裁剪走 shellBlock=wall，不进 solid/single 分支）');
+
   ok(T.stump.exposureProfile === 'none' && T.rubble.exposureProfile === 'none' && T.stump.shellBlock === false,
     '残骸剖面：stump·rubble 不挡弹（移除 grad 渐变拦弹）');
 

@@ -1,7 +1,7 @@
 'use strict';
 
 // tank_assets.js — M0 贴图资产层（P-06 / DEVELOPMENT.md §2.10）。
-// 地图元素（soft/barricade/stump/rubble/bush/tree/fallen）的程序化贴图注册表 + 浏览器
+// 地图元素（wall/stump/rubble/bush/tree/fallen）的程序化贴图注册表 + 浏览器
 // Image 加载器 + 离屏烘焙缓存。双通道：
 //   1. 图片通道：assets/<key>.png（及 <key>_canopy.png）存在 → drawAsset 直接 drawImage；
 //   2. 程序化通道：无图/未加载 → 调用 ASSET_DEFS[key].bake 程序化绘制，首次按
@@ -12,27 +12,19 @@
 // 以 typeof document !== 'undefined' 守卫（Node 加载安全）。
 //
 // 设计约定：
-//   - bake(ctx, cov) 把元素画在以 (cov.x, cov.y) 为中心的 cov.w×cov.h 范围上——与
-//     tank_battledraw.js 原分支逐字一致（坐标/颜色/线宽不变）。烘焙精灵按角度无关处理：
-//     原画法对 soft/barricade/stump/rubble/bush/tree/fallen 均不随 cov.angle 旋转
-//     （soft 的 boxPath 原按 coverCorners 旋转——bake 以 angle 0 的 partCorners 矩形等价，
-//     battle 全部掩体 angle 0，视觉零变化），drawAsset 的 angle 参数为接口预留、暂不旋转。
+//   - bake(ctx, cov) 把元素画在以 (cov.x, cov.y) 为中心的 cov.w×cov.h 范围上——视觉与
+//     tank_battledraw.js 原分支一致。烘焙精灵按角度无关处理（bake 以 angle 0 的矩形包络
+//     绘制，竖放墙在 bake 内自带 90° 旋转），drawAsset 的 angle 参数为接口预留、暂不旋转。
 //   - bakeCanopy(ctx, cov)：树冠/灌木叶片层（原 drawFoliage 的 bush/tree/fallen 画法），
 //     由 drawFoliage 在坦克之上调用 drawAssetCanopy 形成视线遮挡——两层分离保证层级不变。
 //   - 锚点契约（anchorX/anchorY 与 canopyAnchorX/canopyAnchorY）：导出/替换图片时，
 //     精灵内"掩体中心"应位于 (anchorX, anchorY) 像素处（bake.html 预览会标出实测锚点）。
-//   - soft/barricade 的显示色（fill/stroke）经 tierStyle 取 RULES.coverTiers 单一来源，
-//     无 RULES 环境（Node 单测）回退字面量。
+//   - 2026-10-22 B5-3：旧 `soft`（栅栏）/ `barricade`（沙袋路障）两套烘焙**已删除**，
+//     统一为 `wall` 一套 + 六个 `wallStyle` 变体（concrete/sandbag/steel/brick/hedgehog/barrier）。
+//     变体经**变体键** `wall:<wallStyle>` 进入绘制/缓存通道（见 parseAssetKey），
+//     同一 canvas 缓存不会混用不同 style。显示色不再从 RULES 取（各风格自带材质色）。
 
 // ---------- 注册表（纯数据 + 纯函数，无 DOM） ----------
-
-// 显示样式单一来源：RULES.coverTiers（浏览器经 js/tank_cover.js 的 COVER_TIERS 全局）。
-// bake 内 soft/barricade 的 fill/stroke 从这里取；无 RULES/COVER_TIERS 时回退字面量。
-function tierStyle(key){
-  if(typeof RULES !== 'undefined' && RULES.coverTiers) return RULES.coverTiers[key] || null;
-  if(typeof COVER_TIERS !== 'undefined') return COVER_TIERS[key] || null;
-  return null;
-}
 
 // 确定性伪随机（烘焙为纯函数：同 key 同序号恒得同值；探针/二次烘焙两次绘制一致，缓存安全）
 function hash01(key, i){
@@ -122,149 +114,320 @@ function sandbag(ctx, cx, cy, w, h, light){
 }
 
 
+// ===================== 2026-10-22 B5-3：掩体（wall）六套程序化贴图 =====================
+// PLAN §4.9.2(c)：RULES.coverTiers.wall / wall_breakable 用 `wallStyle` 选贴图族。
+// 六种外观全部程序化烘焙（零外部图片），入口仍是 ASSET_DEFS.wall.bake。
+// 绘制约定与既有资产一致：内容收在 cov.w×cov.h 包络内、确定性（hash01）、左上受光右下背光。
+const WALL_STYLES = ['concrete', 'sandbag', 'steel', 'brick', 'hedgehog', 'barrier'];
+
+// wallStyle 归一化：未知/缺省一律落 concrete（老存档没有 wallStyle 时也能画出墙）。
+function normalizeWallStyle(v){
+  const s = (v === undefined || v === null) ? '' : String(v);
+  return WALL_STYLES.indexOf(s) >= 0 ? s : 'concrete';
+}
+
+// 墙体局部坐标系：长轴 = 局部 x（[-L/2, L/2]），厚度 = 局部 y（[-T/2, T/2]）。
+// 竖放墙（h > w）整体旋转 90°，与旧 soft/barricade「竖放沿 y 排布」同口径。
+// 无 transform 的 ctx（scripts/test-assets.js 的 mock 只记录调用、不实现 translate/
+// rotate）→ 退回**不做坐标变换**的路径：断言仍能验证「bake 不抛错且发出绘制调用」，
+// 真实光栅（浏览器 / mini-canvas）走上面的变换路径，视觉不受影响。
+function wallFrame(ctx, cov, fn){
+  const w = Math.max(1, cov.w || 1), h = Math.max(1, cov.h || 1);
+  const vertical = h > w;
+  const L = vertical ? h : w;
+  const T = vertical ? w : h;
+  const canTransform = (typeof ctx.translate === 'function' && typeof ctx.rotate === 'function');
+  if(!canTransform){ fn(L, T, 0); return; }
+
+  // ==== 2026-10-22（用户反馈「掩体贴图都是正视图，需要修正」）→ 俯视 2.5D ====
+  // 俯视 2.5D 的判据：墙是「从正上方看到的一条有厚度的带」——
+  //   · 厚度方向（局部 y）只能有【一层顶面 + 一条背光侧壁】，绝不堆多层（堆多层 = 正视图）；
+  //   · 长轴方向（局部 x）可以有重复单元（伸缩缝/砖块/板缝/桩位），因为那是沿墙长度；
+  //   · 光源固定左上 ⇒ 顶面上缘受光、下缘（背光侧）露侧壁厚度。
+  // 侧壁厚度按 T 的 26% 取并钳 [1.6, 5]，保证小墙也读得出立体。
+  const side = Math.max(1.6, Math.min(5, T * 0.26));
+  ctx.save();
+  ctx.translate(cov.x || 0, cov.y || 0);
+  if(vertical) ctx.rotate(Math.PI / 2);
+  // ① 侧壁（先铺满，被顶面盖住上半 ⇒ 只剩背光侧一条厚度带）
+  ctx.fillStyle = 'rgba(26,24,20,0.62)';
+  ctx.fillRect(-L / 2, -T / 2, L, T);
+  // ② 顶面：各 style 只画 -T/2 .. (T/2 - side) 这一段（传入的 T 已扣掉侧壁）
+  fn(L, T - side, side);
+  // ③ 檐口受光：顶面上缘一条细亮线（六套统一，保证「从上看」的一致读法）
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(-L / 2 + 0.6, -T / 2 + 0.8); ctx.lineTo(L / 2 - 0.6, -T / 2 + 0.8); ctx.stroke();
+  // ④ 外缘勾线（顶面 + 侧壁的合成轮廓）
+  ctx.strokeStyle = 'rgba(0,0,0,0.38)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.rect(-L / 2, -T / 2, L, T); ctx.stroke();
+  ctx.restore();
+}
+
+// —— concrete：混凝土板 —— 底色 #8a8a82 + 3 道伸缩缝 + 随机弹痕 + 边缘倒角高光
+function bakeWallConcrete(ctx, cov){
+  wallFrame(ctx, cov, (L, T) => {
+    const hw = L / 2, hh = T / 2;
+    // 2026-10-22（俯视 2.5D）：整块顶面一个色，**不做"上半略亮/下半暗"**（那是立面受光）；
+    //   俯视的明暗差由「单个面内的斑驳 + 边缘」表达，厚度方向的受光由 wallFrame 统一处理。
+    ctx.fillStyle = '#8f8f87';
+    ctx.fillRect(-hw, -hh, L, T);
+    // 面内斑驳（俯视看混凝土 = 一块带污渍与弹痕的顶面；不是上下分层）
+    for(let i = 0; i < 7; i++){
+      const u = -hw + hash01('wall-concrete-blot-u', i) * L;
+      const v = (hash01('wall-concrete-blot-v', i) - 0.5) * T * 0.86;
+      const r = Math.max(2, T * (0.16 + 0.16 * hash01('wall-concrete-blot-r', i)));
+      ctx.fillStyle = 'rgba(' + (118 + Math.round(20 * hash01('wall-concrete-blot-t', i))) + ',' +
+                                 (118 + Math.round(20 * hash01('wall-concrete-blot-t', i))) + ',' +
+                                 (110 + Math.round(18 * hash01('wall-concrete-blot-t', i))) + ',0.22)';
+      ctx.beginPath(); ctx.ellipse(u, v, r, r * 0.62, 0, 0, TAU); ctx.fill();
+    }
+    // 伸缩缝：沿长轴等分（**贯通厚度的竖线**，俯视正确读法）
+    ctx.strokeStyle = 'rgba(52,52,48,0.66)';
+    ctx.lineWidth = Math.max(0.8, T * 0.075);
+    for(let i = 1; i <= 3; i++){
+      const u = -hw + L * (i / 4);
+      ctx.beginPath(); ctx.moveTo(u, -hh + 0.5); ctx.lineTo(u, hh - 0.5); ctx.stroke();
+    }
+    // 弹痕：小坑（浅芯 + 深环），俯视看是面上的圆坑
+    for(let i = 0; i < 5; i++){
+      const u = -hw + (0.08 + 0.84 * hash01('wall-concrete-hit-u', i)) * L;
+      const v = (hash01('wall-concrete-hit-v', i) - 0.5) * T * 0.70;
+      const r = Math.max(0.9, Math.min(2.6, T * 0.10 + hash01('wall-concrete-hit-r', i) * T * 0.07));
+      ctx.fillStyle = 'rgba(198,198,188,0.50)';
+      ctx.beginPath(); ctx.arc(u, v, r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(58,58,52,0.70)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(u, v, r + 0.9, 0, TAU); ctx.stroke();
+    }
+    // 顶面外缘（单一面轮廓；受光/背光由 wallFrame 统一）
+    ctx.strokeStyle = 'rgba(58,58,54,0.80)'; ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.rect(-hw, -hh, L, T); ctx.stroke();
+  });
+}
+
+// —— sandbag：沙袋堆叠 —— 2 层交错椭圆袋（上 6 / 下 5）+ 布纹缝线 + 上缘受光下缘背光
+function bakeWallSandbag(ctx, cov){
+  wallFrame(ctx, cov, (L, T) => {
+    const hw = L / 2, hh = T / 2;
+    // 2026-10-22（俯视 2.5D）：底色 = 袋间阴影缝（俯视只见缝，不见"层")
+    ctx.fillStyle = 'rgba(86,66,38,0.62)';
+    ctx.fillRect(-hw, -hh, L, T);
+    // 单层沙袋阵列：沿长轴并排，**厚度方向只有 1 排**；每 3 个错一点缝（不是叠层）
+    const n = Math.max(2, Math.round(L / Math.max(16, T * 0.95)));
+    const seg = L / n;
+    for(let i = 0; i < n; i++){
+      const cu = -hw + (i + 0.5) * seg;
+      const jitter = (hash01('wall-sandbag-jit', i) - 0.5) * seg * 0.12;
+      const rx = seg * 0.47, ry = hh * 0.86;
+      const tone = 0.55 + 0.45 * hash01('wall-sandbag-tone', i);
+      const Rc = Math.round(126 + 52 * tone), Gc = Math.round(102 + 44 * tone), Bc = Math.round(60 + 30 * tone);
+      // 袋底接触缝（右下 0.6px 偏移 = 顶视厚度感）
+      ctx.fillStyle = 'rgba(54,40,22,0.55)';
+      ctx.beginPath(); ctx.ellipse(cu + jitter + 0.6, 0.6, rx, ry, 0, 0, TAU); ctx.fill();
+      // 袋顶（俯视 = 一个椭圆面）
+      ctx.fillStyle = 'rgba(' + Rc + ',' + Gc + ',' + Bc + ',0.96)';
+      ctx.beginPath(); ctx.ellipse(cu + jitter, 0, rx, ry, 0, 0, TAU); ctx.fill();
+      // 袋顶受光（左上高光弧）+ 背光（右下暗弧）——**同一椭圆内**，不是两层
+      ctx.strokeStyle = 'rgba(232,206,152,0.42)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(cu + jitter, 0, rx * 0.86, ry * 0.80, 0, Math.PI * 1.05, Math.PI * 1.62); ctx.stroke();
+      ctx.strokeStyle = 'rgba(52,38,20,0.50)';
+      ctx.beginPath(); ctx.ellipse(cu + jitter, 0, rx * 0.86, ry * 0.80, 0, Math.PI * 0.08, Math.PI * 0.62); ctx.stroke();
+      // 袋口扎带（俯视是横向短短一横）
+      ctx.strokeStyle = 'rgba(96,76,48,0.42)'; ctx.lineWidth = Math.max(0.6, T * 0.045);
+      ctx.beginPath(); ctx.moveTo(cu + jitter - rx * 0.28, 0); ctx.lineTo(cu + jitter + rx * 0.28, 0); ctx.stroke();
+    }
+    // 顶面外缘（俯视轮廓）
+    ctx.strokeStyle = 'rgba(66,50,28,0.80)'; ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.rect(-hw, -hh, L, T); ctx.stroke();
+  });
+}
+
+// —— steel：钢板 —— 底色 #6f7378 + 四角铆钉 + 斜向锈迹条（#8a5a3a 半透明）+ 板缝
+function bakeWallSteel(ctx, cov){
+  wallFrame(ctx, cov, (L, T) => {
+    const hw = L / 2, hh = T / 2;
+    ctx.fillStyle = 'rgba(104,110,116,0.96)';
+    ctx.fillRect(-hw, -hh, L, T);
+    // 板缝：沿长轴每 L/3 一条（俯视看钢板是拼缝长条，不是横向排板）
+    for(let i = 1; i <= 2; i++){
+      const u = -hw + L * (i / 3);
+      ctx.strokeStyle = 'rgba(44,46,50,0.75)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(u, -hh + 0.5); ctx.lineTo(u, hh - 0.5); ctx.stroke();
+      ctx.strokeStyle = 'rgba(176,182,190,0.32)'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(u + 1, -hh + 0.5); ctx.lineTo(u + 1, hh - 0.5); ctx.stroke();
+    }
+    // 锈迹：**沿长轴的条状**（俯视看到的是板面锈带，不是立面竖流）
+    for(let i = 0; i < 4; i++){
+      const u0 = -hw + (0.10 + 0.78 * hash01('wall-steel-rust-u2', i)) * L;
+      const lenU = L * (0.05 + 0.10 * hash01('wall-steel-rust-l2', i));
+      const v0 = (hash01('wall-steel-rust-v2', i) - 0.5) * T * 0.52;
+      ctx.strokeStyle = 'rgba(138,90,58,0.40)';
+      ctx.lineWidth = Math.max(1, T * 0.16);
+      ctx.beginPath(); ctx.moveTo(u0, v0); ctx.lineTo(Math.min(hw - 0.8, u0 + lenU), v0); ctx.stroke();
+    }
+    // 铆钉：**沿长轴上下各一排**（俯视看板边铆钉就是这个读法）
+    const rows = [-hh + T * 0.20, hh - T * 0.20];
+    const nRiv = Math.max(3, Math.round(L / 26));
+    for(const v of rows){
+      for(let i = 0; i < nRiv; i++){
+        const u = -hw + (i + 0.5) * (L / nRiv);
+        ctx.fillStyle = 'rgba(38,40,44,0.85)';
+        ctx.beginPath(); ctx.arc(u, v, Math.max(0.8, T * 0.085), 0, TAU); ctx.fill();
+        ctx.fillStyle = 'rgba(198,204,212,0.72)';
+        ctx.beginPath(); ctx.arc(u - 0.35, v - 0.35, Math.max(0.4, T * 0.038), 0, TAU); ctx.fill();
+      }
+    }
+    // 顶面外缘
+    ctx.strokeStyle = 'rgba(34,36,40,0.85)'; ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.rect(-hw, -hh, L, T); ctx.stroke();
+  });
+}
+
+// —— brick：砖墙 —— 错缝砖块（每块 18×8px）+ 灰缝 #c8c2b4 + 随机掉角（缺一块）
+function bakeWallBrick(ctx, cov){
+  wallFrame(ctx, cov, (L, T) => {
+    const hw = L / 2, hh = T / 2;
+    // 2026-10-22（俯视 2.5D）：俯视砖墙看不到"错缝砖块立面"，只看到——
+    //   ① 长轴方向的**砖缝竖线**（等距 + 微相位抖动）；② 一条沿墙心的**通长压顶线**。
+    //   厚向不再画多排砖（那是正视图特征）。
+    ctx.fillStyle = 'rgba(122,72,56,0.94)';
+    ctx.fillRect(-hw, -hh, L, T);
+    // 砖色微差（沿长轴分块，厚度方向整条一致）
+    const nB = Math.max(2, Math.round(L / 18));
+    const seg = L / nB;
+    for(let i = 0; i < nB; i++){
+      const t = hash01('wall-brick-tone-top', i);
+      const Rc = Math.round(116 + 40 * t), Gc = Math.round(66 + 28 * t), Bc = Math.round(52 + 22 * t);
+      ctx.fillStyle = 'rgba(' + Rc + ',' + Gc + ',' + Bc + ',0.94)';
+      ctx.fillRect(-hw + i * seg + 0.5, -hh + 0.4, seg - 1, T - 0.8);
+    }
+    // 砖缝竖线（灰缝）
+    ctx.strokeStyle = 'rgba(196,188,172,0.62)';
+    ctx.lineWidth = Math.max(0.7, T * 0.055);
+    for(let i = 1; i < nB; i++){
+      const u = -hw + i * seg + (hash01('wall-brick-seam', i) - 0.5) * seg * 0.10;
+      ctx.beginPath(); ctx.moveTo(u, -hh + 0.4); ctx.lineTo(u, hh - 0.4); ctx.stroke();
+    }
+    // 压顶线（沿墙心一条，读作"这是墙顶面"）
+    ctx.strokeStyle = 'rgba(226,214,196,0.30)';
+    ctx.lineWidth = Math.max(0.8, T * 0.10);
+    ctx.beginPath(); ctx.moveTo(-hw + 1, 0); ctx.lineTo(hw - 1, 0); ctx.stroke();
+    // 缺角（随机一块缺）
+    const missAt = Math.floor(hash01('wall-brick-miss-top', 0) * nB);
+    ctx.fillStyle = 'rgba(30,26,22,0.55)';
+    ctx.fillRect(-hw + missAt * seg + seg * 0.2, -hh + T * 0.15, seg * 0.55, T * 0.28);
+    // 顶面外缘
+    ctx.strokeStyle = 'rgba(92,68,54,0.85)'; ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.rect(-hw, -hh, L, T); ctx.stroke();
+  });
+}
+
+// —— hedgehog：反坦克桩 —— 沿长轴分格，每格 3 根交叉钢梁（X 形）+ 2 条细折线铁丝
+function bakeWallHedgehog(ctx, cov){
+  wallFrame(ctx, cov, (L, T) => {
+    const hw = L / 2, hh = T / 2;
+    // 2026-10-22（俯视 2.5D）：反坦克桩从正上方看 = 一组**交叉钢梁的俯视投影**，
+    //   厚度方向只有一套 X（不叠）；桩脚土痕沿长轴分布。
+    const cell = Math.max(T * 3.2, 20);
+    const nCell = Math.max(1, Math.round(L / cell));
+    const spanU = L / nCell;
+    const beamW = Math.max(1.6, T * 0.16);
+    for(let k = 0; k < nCell; k++){
+      const cu = -hw + (k + 0.5) * spanU;
+      // 桩脚土痕（俯视）
+      ctx.fillStyle = 'rgba(62,58,46,0.28)';
+      ctx.beginPath(); ctx.ellipse(cu, 0, Math.max(4, spanU * 0.36), hh * 0.80, 0, 0, TAU); ctx.fill();
+      const halfU = spanU * 0.33, halfV = hh * 0.78;
+      // 3 根交叉钢梁的俯视投影（X + 横梁）
+      const beams = [
+        [[cu - halfU, -halfV], [cu + halfU, halfV]],
+        [[cu - halfU, halfV], [cu + halfU, -halfV]],
+        [[cu - halfU * 0.80, 0], [cu + halfU * 0.80, 0]]
+      ];
+      for(const b of beams){
+        ctx.strokeStyle = 'rgba(30,30,32,0.80)'; ctx.lineWidth = beamW + 1.2;
+        ctx.beginPath(); ctx.moveTo(b[0][0], b[0][1]); ctx.lineTo(b[1][0], b[1][1]); ctx.stroke();
+        ctx.strokeStyle = '#6a6e74'; ctx.lineWidth = beamW;
+        ctx.beginPath(); ctx.moveTo(b[0][0], b[0][1]); ctx.lineTo(b[1][0], b[1][1]); ctx.stroke();
+        ctx.strokeStyle = 'rgba(196,202,210,0.40)'; ctx.lineWidth = Math.max(0.6, beamW * 0.26);
+        ctx.beginPath();
+        ctx.moveTo(b[0][0] - 0.35, b[0][1] - 0.35); ctx.lineTo(b[1][0] - 0.35, b[1][1] - 0.35);
+        ctx.stroke();
+      }
+    }
+    // 铁丝：沿长轴 1 条（俯视看是贴着桩顶的一条线，不是上下两条）
+    ctx.strokeStyle = 'rgba(150,150,146,0.55)'; ctx.lineWidth = 1;
+    const segs = Math.max(4, Math.round(L / Math.max(8, T * 0.7)));
+    ctx.beginPath(); ctx.moveTo(-hw + 0.8, 0);
+    for(let i = 1; i <= segs; i++){
+      const u = -hw + 0.8 + (L - 1.6) * (i / segs);
+      ctx.lineTo(u, (i % 2 ? -1 : 1) * Math.max(0.8, T * 0.10));
+    }
+    ctx.stroke();
+    // 顶面外缘
+    ctx.strokeStyle = 'rgba(40,40,44,0.70)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.rect(-hw, -hh, L, T); ctx.stroke();
+  });
+}
+
+// —— barrier：混凝土隔离墩 —— 梯形轮廓 + 顶部黄黑相间 3 段反光条
+function bakeWallBarrier(ctx, cov){
+  wallFrame(ctx, cov, (L, T) => {
+    const hw = L / 2, hh = T / 2;
+    // 2026-10-22（俯视 2.5D）：隔离墩俯视 = 一条**两端收分的顶面带** + 反光条沿长轴排布。
+    //   收分只体现在长轴两端（左/右内收），厚度方向不再有梯形立面。
+    const inset = Math.min(L * 0.05, T * 0.9);
+    ctx.beginPath();
+    ctx.moveTo(-hw + inset, -hh);
+    ctx.lineTo(hw - inset, -hh);
+    ctx.lineTo(hw - inset * 0.35, hh);
+    ctx.lineTo(-hw + inset * 0.35, hh);
+    ctx.closePath();
+    ctx.fillStyle = '#9d9d95';
+    ctx.fill();
+    // 面内受光（顶面靠上一条淡高光带）
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = 'rgba(255,255,255,0.09)';
+    ctx.fillRect(-hw, -hh, L, Math.max(1, T * 0.30));
+    // 反光条：沿长轴 3 段黄黑相间（俯视看是贴在墩顶的三段色带）
+    const stripH = Math.max(2, T * 0.46);
+    const innerL = L - inset * 2;
+    const stripW = innerL / 3;
+    for(let i = 0; i < 3; i++){
+      ctx.fillStyle = (i % 2 === 0) ? 'rgba(232,197,58,0.92)' : 'rgba(42,42,40,0.88)';
+      ctx.fillRect(-hw + inset + i * stripW, -stripH / 2, stripW, stripH);
+    }
+    ctx.restore();
+    // 顶面外缘
+    ctx.strokeStyle = 'rgba(74,74,66,0.88)'; ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(-hw + inset, -hh); ctx.lineTo(hw - inset, -hh);
+    ctx.lineTo(hw - inset * 0.35, hh); ctx.lineTo(-hw + inset * 0.35, hh);
+    ctx.closePath(); ctx.stroke();
+  });
+}
+
+
 // 尺寸/锚点为各档名义尺寸（缺省导出尺寸；bake 函数本身按 cov.w/cov.h 参数化绘制）。
 // 锚点 = 名义尺寸下实测内容的几何推导值（bake.html 预览显示实测值，允许 ±1~2px 容差）。
 const ASSET_DEFS = {
-  // 栅栏（soft）：矩形栏体 + 7 根立柱（原 drawCover soft 分支）
-  soft: {
-    w: 170, h: 10, anchorX: 85.75, anchorY: 5.75,
+  // 掩体（wall）：单直线墙体，按 wallStyle 分六种贴图族（PLAN §4.9.2(c)，B5-3）。
+  // 名义尺寸取旧 soft 栅栏同一量级（长 168 × 厚 12），bake 按 cov.w/cov.h 参数化。
+  // **缓存键含变体**：drawAsset 的 key 形如 `wall:sandbag`（parseAssetKey 拆分）⇒
+  //   不同 wallStyle 天然落在不同 ASSET_CACHE 条目，同一 canvas 不会混用两种贴图。
+  wall: {
+    w: 168, h: 12, anchorX: 84.5, anchorY: 6.5,
+    wallStyles: WALL_STYLES,
     bake(ctx, cov){
-      const x = cov.x, y = cov.y, w = cov.w, h = cov.h;
-      // #TEX17（2026-10-19）俯视栅栏 = 薄板墙顶面：整个 OBB 就是墙的顶。
-      //   沿长轴铺木板拼缝（hash 相位），左上缘受光、右下缘背光（与建筑/岩石同一光源）；
-      //   立柱/斜撑等立面元素删除——俯视图里不存在。包络仍是 w×h。
-      const hh = h / 2, hw = w / 2;
-      const vertical = h > w;                      // 竖放栅栏（沿 y 长轴）时拼缝沿 y
-      const L = vertical ? h : w;                  // 长轴长
-      const T = vertical ? w : h;                  // 厚（短轴）
-      // 顶面基色（沿长轴两段明暗，模拟板面受光不均）
-      const base0 = 'rgba(158,124,76,0.95)', base1 = 'rgba(140,108,66,0.95)';
-      if(vertical){
-        ctx.fillStyle = base0; ctx.fillRect(x - T/2, y - L/2, T, L * 0.5);
-        ctx.fillStyle = base1; ctx.fillRect(x - T/2, y, T, L * 0.5);
-      } else {
-        ctx.fillStyle = base0; ctx.fillRect(x - L/2, y - T/2, L * 0.5, T);
-        ctx.fillStyle = base1; ctx.fillRect(x, y - T/2, L * 0.5, T);
-      }
-      // 受光/背光长缘（俯视薄板的立体感来源：受光侧亮线 + 背光侧暗线）
-      ctx.strokeStyle = 'rgba(212,182,124,0.55)'; ctx.lineWidth = 1;
-      ctx.beginPath();
-      if(vertical){ ctx.moveTo(x - T/2 + 0.8, y - L/2 + 1); ctx.lineTo(x - T/2 + 0.8, y + L/2 - 1); }
-      else { ctx.moveTo(x - L/2 + 1, y - T/2 + 0.8); ctx.lineTo(x + L/2 - 1, y - T/2 + 0.8); }
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(64,46,26,0.55)';
-      ctx.beginPath();
-      if(vertical){ ctx.moveTo(x + T/2 - 0.8, y - L/2 + 1); ctx.lineTo(x + T/2 - 0.8, y + L/2 - 1); }
-      else { ctx.moveTo(x - L/2 + 1, y + T/2 - 0.8); ctx.lineTo(x + L/2 - 1, y + T/2 - 0.8); }
-      ctx.stroke();
-      // 木板拼缝：沿长轴每段一条全厚缝线（hash 相位，确定性）
-      const seg = Math.max(22, L * 0.16);
-      const nSeg = Math.max(2, Math.round(L / seg));
-      const segLen = L / nSeg;
-      ctx.strokeStyle = 'rgba(74,54,30,0.6)'; ctx.lineWidth = Math.max(1, Math.min(2, T * 0.12));
-      for(let i = 1; i < nSeg; i++){
-        const off = -L/2 + i * segLen + (hash01('soft-seam', i) - 0.5) * segLen * 0.25;
-        ctx.beginPath();
-        if(vertical){ ctx.moveTo(x - T/2 + 0.5, y + off); ctx.lineTo(x + T/2 - 0.5, y + off); }
-        else { ctx.moveTo(x + off, y - T/2 + 0.5); ctx.lineTo(x + off, y + T/2 - 0.5); }
-        ctx.stroke();
-      }
-      // 木纹短划：受光侧亮、背光侧暗（hash 沿长轴分布）
-      for(let i = 0; i < Math.max(4, Math.round(L / 34)); i++){
-        const off = -L/2 + hash01('soft-grain', i) * L;
-        const along = (hash01('soft-grain-d', i) - 0.5) * segLen * 0.7;
-        const lit = hash01('soft-grain-l', i) > 0.5;
-        ctx.strokeStyle = lit ? 'rgba(206,176,120,0.4)' : 'rgba(96,72,44,0.42)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        if(vertical){
-          const gx = x - T/2 + 1.2 + hash01('soft-grain-x', i) * (T - 2.4);
-          ctx.moveTo(gx, y + off); ctx.lineTo(gx, y + off + along);
-        } else {
-          const gy = y - T/2 + 1.2 + hash01('soft-grain-x', i) * (T - 2.4);
-          ctx.moveTo(x + off, gy); ctx.lineTo(x + off + along, gy);
-        }
-        ctx.stroke();
-      }
-      // 外缘描边（整块薄板轮廓；用 path stroke 保证 mini-canvas/mock ctx 兼容）
-      ctx.strokeStyle = 'rgba(66,48,28,0.9)'; ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.rect(x - hw, y - hh, w, h);
-      ctx.stroke();
-    }
-  },
-  // 沙袋路障（barricade）：一排堆叠椭圆 + 顶部凸袋（原 drawCover barricade 分支）
-  barricade: {
-    w: 64, h: 28, anchorX: 32.75, anchorY: 14.75,
-    bake(ctx, cov){
-      const x = cov.x, y = cov.y, w = cov.w, h = cov.h;
-      // #TEX17（2026-10-19）俯视沙袋 = 堆顶面：两排错缝圆角袋顶 + 顶袋，
-      //   左上受光、右下背光（与建筑/岩石同一光源）；接触影交给 drawCoverShadow。
-      //   内容仍收在原 w×h 包络内。
-      const W = w, H = h;
-      const vertical = h > w;                       // 竖放路障时沿 y 轴排布
-      const L = vertical ? h : w;                   // 排布长轴
-      const T = vertical ? w : h;                   // 堆厚
-      const rows = 2;                               // 俯视两排袋
-      const rowT = T / rows;
-      const bagLen = Math.max(14, Math.min(26, L * 0.30));
-      const nPerRow = Math.max(2, Math.round(L / bagLen));
-      const bLen = L / nPerRow;
-      const lightAt = (u, v) => 0.5 + 0.5 * (-0.7071 * u - 0.7071 * v);   // u,v ∈ [-1,1] 相对堆中心
-      // 逐排逐袋：错缝（第二排偏移半袋）
-      for(let r = 0; r < rows; r++){
-        const tOff = -T/2 + rowT * (r + 0.5);       // 该排在厚轴上的中心
-        const shift = (r % 2) * bLen * 0.5;
-        for(let i = 0; i < nPerRow; i++){
-          const lOff = -L/2 + (i + 0.5) * bLen + shift;
-          if(lOff - bLen/2 < -L/2 - 0.5 || lOff + bLen/2 > L/2 + 0.5) continue;  // 错缝出界袋跳过
-          const u = vertical ? tOff / (T/2) : lOff / (L/2);
-          const v = vertical ? lOff / (L/2) : tOff / (T/2);
-          const lit = lightAt(u, v * 0.7);
-          // 袋顶（圆角矩形，长短轴按排布方向）
-          const bw = vertical ? rowT * 0.94 : bLen * 0.94;
-          const bh = vertical ? bLen * 0.94 : rowT * 0.94;
-          const cx = x + (vertical ? tOff : lOff);
-          const cy = y + (vertical ? lOff : tOff);
-          const t2 = 0.55 + 0.45 * lit;
-          const Rc = Math.round(148 * t2 + 96 * (1 - t2)), Gc = Math.round(122 * t2 + 74 * (1 - t2)), Bc = Math.round(72 * t2 + 44 * (1 - t2));
-          // 袋底暗缘（右下偏移一点）
-          ctx.fillStyle = 'rgba(64,50,30,0.5)';
-          roundedRectPath(ctx, cx - bw/2 + 1, cy - bh/2 + 1, bw, bh, Math.min(2.6, bh * 0.32));
-          ctx.fill();
-          // 袋顶基色
-          ctx.fillStyle = 'rgba(' + Rc + ',' + Gc + ',' + Bc + ',0.94)';
-          roundedRectPath(ctx, cx - bw/2, cy - bh/2, bw, bh, Math.min(2.6, bh * 0.32));
-          ctx.fill();
-          // 上缘受光弧 / 下缘背光弧（左上光源）
-          ctx.strokeStyle = 'rgba(206,182,126,' + (0.28 + 0.30 * lit).toFixed(2) + ')';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.arc(cx, cy, Math.max(1.5, Math.min(bw, bh) * 0.42), Math.PI * 0.95, Math.PI * 1.55);
-          ctx.stroke();
-          ctx.strokeStyle = 'rgba(58,44,26,0.45)';
-          ctx.beginPath();
-          ctx.arc(cx, cy, Math.max(1.5, Math.min(bw, bh) * 0.42), Math.PI * 0.05, Math.PI * 0.95, true);
-          ctx.stroke();
-          // 布纹短缝
-          ctx.strokeStyle = 'rgba(96,76,48,0.4)';
-          ctx.beginPath();
-          if(vertical){ ctx.moveTo(cx - bw * 0.3, cy); ctx.lineTo(cx + bw * 0.3, cy); }
-          else { ctx.moveTo(cx, cy - bh * 0.3); ctx.lineTo(cx, cy + bh * 0.3); }
-          ctx.stroke();
-        }
-      }
-      // 堆底（最下排下缘）压一条背光暗带，袋堆有厚度
-      ctx.strokeStyle = 'rgba(56,42,24,0.5)'; ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      if(vertical){ ctx.moveTo(x - T/2 + 1, y + L/2 - 1.4); ctx.lineTo(x + T/2 - 1, y + L/2 - 1.4); }
-      else { ctx.moveTo(x - L/2 + 1, y + T/2 - 1.4); ctx.lineTo(x + L/2 - 1, y + T/2 - 1.4); }
-      ctx.stroke();
-      // 外缘描边（path stroke，mini-canvas/mock ctx 兼容）
-      ctx.strokeStyle = 'rgba(66,50,28,0.85)'; ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.rect(x - w/2, y - h/2, w, h);
-      ctx.stroke();
+      const style = normalizeWallStyle(cov.wallStyle);
+      if(style === 'sandbag') bakeWallSandbag(ctx, cov);
+      else if(style === 'steel') bakeWallSteel(ctx, cov);
+      else if(style === 'brick') bakeWallBrick(ctx, cov);
+      else if(style === 'hedgehog') bakeWallHedgehog(ctx, cov);
+      else if(style === 'barrier') bakeWallBarrier(ctx, cov);
+      else bakeWallConcrete(ctx, cov);
     }
   },
   // 树桩（stump）：木桩椭圆 + 年轮（原 drawCover stump 分支）
@@ -737,8 +900,14 @@ function _probeAssetDir(){
   if(_assetProbeStarted) return;
   _assetProbeStarted = true;
   if(typeof fetch !== 'function') { _assetDirHasFiles = true; return; }   // 无 fetch 环境：按有资产处理
-  // 探测首个注册键（若目录为空，这一次请求即可判定；比逐 key 探测省 13 次 404）
-  const probeKey = Object.keys(ASSET_DEFS)[0];
+  // 探测首个注册键（若目录为空，这一次请求即可判定；比逐 key 探测省 13 次 404）。
+  //   变体类资产（wall）探测其**首个变体**的文件名（assets/wall_concrete.png）——只探
+  //   裸键 `wall` 会得到一个不存在的文件名，即使目录里有变体贴图也会被判成「无资产」。
+  const firstKey = Object.keys(ASSET_DEFS)[0] || '';
+  const firstDef = ASSET_DEFS[firstKey];
+  const probeKey = (firstDef && Array.isArray(firstDef.wallStyles) && firstDef.wallStyles.length)
+    ? assetImageName(firstKey + ASSET_KEY_SEP + firstDef.wallStyles[0])
+    : assetImageName(firstKey);
   if(!probeKey){ _assetDirHasFiles = false; return; }
   try {
     fetch('assets/' + probeKey + '.png', { method: 'HEAD' })
@@ -766,6 +935,7 @@ function assetImage(key){
 }
 
 // 尝试加载 assets/<key>.png；失败/不存在时保持 null（永久回退程序化 bake）
+// 变体键 `wall:sandbag` → assets/wall_sandbag.png（见 assetImageName）
 function loadAssetImage(key){
   if(ASSET_IMAGES.has(key)) return;
   ASSET_IMAGES.set(key, null);
@@ -773,14 +943,35 @@ function loadAssetImage(key){
   const img = new Image();
   img.onload = () => { ASSET_IMAGES.set(key, img); };
   img.onerror = () => { /* 保持 null：回退 bake */ };
-  img.src = 'assets/' + key + '.png';
+  img.src = 'assets/' + assetImageName(key) + '.png';
 }
 
-// 预加载全部注册表档位（含 canopy 层 <key>_canopy.png）
+// 2026-10-22 B5-3：**变体键**解析——`wall:sandbag` ⇒ { base:'wall', variant:'sandbag' }。
+//   wall 的六套贴图共用一个 ASSET_DEFS 槽（bake 内按 cov.wallStyle 分派），但**缓存键必须区分**：
+//   getBakedSprite 的 cacheKey 直接拼完整 key（含变体）⇒ 同一 canvas 不会被两种墙复用。
+const ASSET_KEY_SEP = ':';
+function parseAssetKey(key){
+  const raw = (key === undefined || key === null) ? '' : String(key);
+  const i = raw.indexOf(ASSET_KEY_SEP);
+  if(i < 0) return { key: raw, base: raw, variant: '' };
+  return { key: raw, base: raw.slice(0, i), variant: raw.slice(i + 1) };
+}
+// 资产图片文件名：变体键 `wall:sandbag` → `wall_sandbag`（assets/ 为空时全部走 bake，此名仅接口预留）
+function assetImageName(key){
+  const p = parseAssetKey(key);
+  return p.variant ? (p.base + '_' + p.variant) : p.base;
+}
+
+// 预加载全部注册表档位（含 canopy 层 <key>_canopy.png；wall 按 wallStyles 逐变体预加载）
 function preloadAssets(){
   for(const key of Object.keys(ASSET_DEFS)){
+    const def = ASSET_DEFS[key];
+    if(Array.isArray(def.wallStyles) && def.wallStyles.length){
+      for(const v of def.wallStyles) loadAssetImage(key + ASSET_KEY_SEP + v);
+      continue;
+    }
     loadAssetImage(key);
-    if(ASSET_DEFS[key].bakeCanopy) loadAssetImage(key + '_canopy');
+    if(def.bakeCanopy) loadAssetImage(key + '_canopy');
   }
 }
 
@@ -798,11 +989,13 @@ function clearAssetCache() {
 //   于是常用键（当前视口反复用到的 tree/bush）照样被踢；实测横向平移 1.9 次重烘焙/帧、
 //   缓存长期钉在 128/128。Map 的迭代顺序即插入顺序，命中时 delete+set 即可移到队尾。
 function getBakedSprite(key, w, h, layer){
-  const def = ASSET_DEFS[key];
+  const p = parseAssetKey(key);
+  const def = ASSET_DEFS[p.base];
   if(!def || typeof document === 'undefined') return null;
   if(layer === 'canopy' && !def.bakeCanopy) return null;
   const qw = Math.round(w*2)/2, qh = Math.round(h*2)/2;
-  const cacheKey = key + ':' + (layer || 'base') + ':' + qw + 'x' + qh;
+  // 缓存键含**完整 key**（变体已在内）⇒ wall 的六种 wallStyle 各占独立条目
+  const cacheKey = p.key + ':' + (layer || 'base') + ':' + qw + 'x' + qh;
   if(ASSET_CACHE.has(cacheKey)){
     const hit = ASSET_CACHE.get(cacheKey);
     // 命中即移到队尾（真 LRU 语义）
@@ -815,7 +1008,7 @@ function getBakedSprite(key, w, h, layer){
     if(firstKey === undefined) break;
     ASSET_CACHE.delete(firstKey);
   }
-  const spr = bakeAssetCanvas(key, qw, qh, layer);
+  const spr = bakeAssetCanvas(p.key, qw, qh, layer);
   if(spr) ASSET_CACHE.set(cacheKey, spr);
   return spr;
 }
@@ -830,11 +1023,15 @@ function getBakedSprite(key, w, h, layer){
 //   现改为**从小 PAD 起步 + 触边重试**：内容若碰到探针边缘说明可能被裁，加倍 PAD 重画。
 //   正确性由「触边即重试」保证（不会静默裁切），常见情形探针面积降 2~3×。
 function bakeAssetCanvas(key, w, h, layer){
-  const def = ASSET_DEFS[key];
+  const p = parseAssetKey(key);
+  const def = ASSET_DEFS[p.base];
   if(!def || typeof document === 'undefined') return null;
   if(layer === 'canopy' && !def.bakeCanopy) return null;
   const bakeFn = (layer === 'canopy') ? def.bakeCanopy : def.bake;
   const W = Math.max(1, w), H = Math.max(1, h);
+  // 变体参数：wall 的 bake 从 cov.wallStyle 分派 ⇒ 探针/正式两次烘焙必须带同一变体
+  const covVariant = p.variant ? { wallStyle: p.variant } : null;
+  const mkCov = (cx, cy) => covVariant ? Object.assign({ x: cx, y: cy, w: W, h: H }, covVariant) : { x: cx, y: cy, w: W, h: H };
   const maxDim = Math.max(W, H);
   // 探针：从 1.2×maxDim 起步，触边则加倍；上限 4×maxDim+64（远超任何现有 bake 的越界量）
   let PAD = Math.ceil(maxDim * 1.2 + 8);
@@ -846,7 +1043,7 @@ function bakeAssetCanvas(key, w, h, layer){
     probe.width = pw; probe.height = ph;
     const pctx = probe.getContext('2d');
     px = PAD + W/2; py = PAD + H/2;
-    bakeFn(pctx, { x: px, y: py, w: W, h: H });
+    bakeFn(pctx, mkCov(px, py));
     const data = pctx.getImageData(0, 0, pw, ph).data;
     minX = pw; minY = ph; maxX = -1; maxY = -1;
     for(let y = 0; y < ph; y++){
@@ -873,7 +1070,9 @@ function bakeAssetCanvas(key, w, h, layer){
   //   左侧/上侧之外时强行补边、把画布左边缘推到内容之外——效果是**破坏内容在画布内居中**。
   //   实测全仓只有 `fallen/canopy` 触发（ax0=-5 → shiftX=6），补边后内容只占列 6~24、
   //   画布 25 宽，内容中心 15.00 而画布中心 12.50；`prepare_covers.fit_contain` 又把内容
-  //   居中放置，最终产物质心与烘焙基准差 3.06px，`test-cover-gen` 的 ±2px 验收恒红。
+  //   居中放置，最终产物质心与烘焙基准差 3.06px，`covers-anchor-check.py` 的 ±2px 验收恒红
+  //   （原由 `test-cover-gen.js` 承载，该测试已随 AI 出图链于 2026-10-23 删除，
+  //   锚点验收改由 `scripts/test-asset-pipeline.js` 与 `covers-anchor-check.py` 直接覆盖）。
   //   负锚点本身是合法的：运行时 `ctx.drawImage(spr.canvas, x-spr.ax, y-spr.ay)` 只是偏移，
   //   画布外的部分由 Canvas 自动裁剪；`covers-anchor-check.py` 也明确「基准是烘焙内容质心，
   //   不是 anchor」。去掉补边后该层画布 19×22、内容中心 8.85 vs 画布中心 9.50（差 0.65）。
@@ -883,8 +1082,8 @@ function bakeAssetCanvas(key, w, h, layer){
   canvas.width = cw; canvas.height = ch;
   const ctx = canvas.getContext('2d');
   const ax = ax0, ay = ay0;
-  bakeFn(ctx, { x: ax, y: ay, w: W, h: H });
-  return { canvas, ax, ay, w: W, h: H, layer: layer || 'base' };
+  bakeFn(ctx, mkCov(ax, ay));
+  return { canvas, ax, ay, w: W, h: H, layer: layer || 'base', variant: p.variant || '' };
 }
 
 // 绘制资产基底层：有已加载图片（assets/<key>.png）→ drawImage（按实例尺寸缩放）；
@@ -894,18 +1093,46 @@ function drawAsset(ctx, key, x, y, w, h, angle){
   drawAssetSprite(ctx, key, x, y, w, h, 'base');
 }
 
+// 2026-10-22 B5-3：**带角度**的资产绘制（wall 专用）。
+//   为什么单开一个入口而不是给 drawAssetSprite 加旋转：树/灌木/树桩的 bake 是各向同性的
+//   装饰画，给它们也上旋转会改变既有视觉（drawCover 一直传 cov.angle 但被忽略）。
+//   wall 是「单直线段」，`angle` 是真实朝向（mapgen 生成 `{w:长度, h:厚度, angle}`），
+//   不旋转就会与物理 OBB 错位。烘焙内容以 cov 中心为锚，故绕 (x,y) 旋转即绕掩体中心旋转。
+function drawAssetRotated(ctx, key, x, y, w, h, angle){
+  const a = angle || 0;
+  if(!a){ drawAssetSprite(ctx, key, x, y, w, h, 'base'); return; }
+  const p = parseAssetKey(key);
+  const def = ASSET_DEFS[p.base];
+  if(!def) return;
+  const ww = (w > 0) ? w : def.w, hh = (h > 0) ? h : def.h;
+  const img = assetImage(p.key);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(a);
+  if(img){
+    const sx = ww / def.w, sy = hh / def.h;
+    ctx.drawImage(img, -def.anchorX * sx, -def.anchorY * sy, img.width * sx, img.height * sy);
+  } else {
+    const spr = getBakedSprite(p.key, ww, hh, 'base');
+    if(spr) ctx.drawImage(spr.canvas, -spr.ax, -spr.ay);
+  }
+  ctx.restore();
+}
+
 // 绘制资产树冠/叶片层（原 drawFoliage 的 bush/tree/fallen 画法，画在坦克之上遮视线）
 function drawAssetCanopy(ctx, key, x, y, w, h){
   drawAssetSprite(ctx, key, x, y, w, h, 'canopy');
 }
 
 function drawAssetSprite(ctx, key, x, y, w, h, layer){
-  const def = ASSET_DEFS[key];
+  const p = parseAssetKey(key);
+  const def = ASSET_DEFS[p.base];
   if(!def) return;
   if(layer === 'canopy' && !def.bakeCanopy) return;
   if(!(w > 0)) w = def.w;
   if(!(h > 0)) h = def.h;
-  const img = assetImage(layer === 'canopy' ? key + '_canopy' : key);
+  // 图片通道键保持**完整变体键**（loadAssetImage 内部再折算文件名），与缓存键同源
+  const img = assetImage(layer === 'canopy' ? p.key + '_canopy' : p.key);
   if(img){
     // 图片替换通道：精灵名义尺寸 def.w×def.h → 实例尺寸 w×h，绕锚点缩放
     const sx = w / def.w, sy = h / def.h;
@@ -914,7 +1141,7 @@ function drawAssetSprite(ctx, key, x, y, w, h, layer){
     ctx.drawImage(img, x - ax*sx, y - ay*sy, img.width*sx, img.height*sy);
     return;
   }
-  const spr = getBakedSprite(key, w, h, layer);
+  const spr = getBakedSprite(p.key, w, h, layer);
   if(spr) ctx.drawImage(spr.canvas, x - spr.ax, y - spr.ay);
 }
 
@@ -923,17 +1150,22 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     ASSET_DEFS,
     ASSET_CACHE,
+    WALL_STYLES,
     clearAssetCache,
     hash01,
     blobPath,
     roundedRectPath,
     sandbag,
+    normalizeWallStyle,
+    parseAssetKey,
+    assetImageName,
     assetImage,
     loadAssetImage,
     preloadAssets,
     getBakedSprite,
     bakeAssetCanvas,
     drawAsset,
+    drawAssetRotated,
     drawAssetCanopy
   };
 }

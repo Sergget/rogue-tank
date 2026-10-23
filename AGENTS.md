@@ -37,7 +37,7 @@
   - `tank_camera.js` / `tank_minimap.js`：摄像机跟随与视口剔除 / 小地图绘制（均纯逻辑可 Node 测试；小地图含**公路整链多边形**（`roadCoverPolygonPoints`，road 的 `verts` 是局部坐标，逐点经 `worldToMinimap` 换算以适配 strip 的 `sx≠sy`）与**补给点标记**（`minimapSupplyMarks`，`opts.supplyStations`）——2026-10-18 #U35。**`renderCamPos` 为渲染专用相机位置（屏幕像素对齐 `round(x·zoom)/zoom`），物理/AI/命中仍读浮点 `cam.x/cam.y`**——#GT 2026-10-18）。
   - `tank_battledraw.js`：battle 战斗场景绘制层（drawTank/drawShells/drawCover/drawFoliage/部署物绘制 + **`railChargeProgress`** 电磁炮充能进度 0..1，2026-10-18 #U38），ctx 显式传参。
   - `tank_fx.js` / `tank_paint.js` / `tank_dmgtext.js`：战斗特效 / 程序化坦克渲染 / 伤害飘字（纯 ctx，无 DOM 依赖；`tank_fx` 含电磁炮放电弧 `spawnRailDischarge`/`drawRailArcs`/`railArcCount`——注意 `updateFx` 会**重新赋值** FX 数组，读当前长度必须走访问器，不能读导出的数组引用）。
-  - `tank_assets.js` / `tank_audio.js`：贴图资产层（ASSET_DEFS + 离屏烘焙缓存） / 声音系统（SOUND_DEFS + 惰性 AudioContext，全合成零资产）。
+  - `tank_assets.js` / `tank_audio.js`：贴图资产层（ASSET_DEFS + 离屏烘焙缓存，**程序化烘焙为唯一实机路径**；`assets/<key>.png` 是后期贴图接线，当前无图） / 声音系统（SOUND_DEFS + 惰性 AudioContext，全合成零资产）。**本仓库不出图**（2026-10-23 用户裁定，见 `docs/DEVELOPMENT.md` §4.124）：后期美术落盘与锚点验收见 `docs/ASSETS-PIPELINE.md`。
   - `tank_bindings.js`：**键位唯一数据源**（KEY_BINDINGS/ACTION_INFO + createInputController 统一 keydown/keyup + describeBindings + loadSettings/saveSettings）。
   - `tank_panels_core.js` / `tank_panels_dom.js` / `tank_panels.js`：面板分层（纯核心 + 卡牌事务 snapshotCardTx/rollbackCardTx + parameterClamp / DOM 适配 / 门面）。
   - `tank_devpanel.js`：开发者面板共享模块（`mountDevPanel(host)` 动态构建四 Tab devPanel——实时/卡牌/参数/开关，battle 与 bench **两页同源**；页面能力经 host 注入：getPlayer/getCardPool/getCtx/cardClick/cheatsInit/onCheatChange/liveData/extraSwitchHTML/hideSolutionSection 等；#F 2026-09-20 抽离，原 battle 内联面板与 bench 旧 `#benchPanel` 已移除）。
@@ -48,7 +48,7 @@
 
 （**分卷结构**：`docs/` 目录收纳四份主文档（DEVELOPMENT / PLAN / ISSUES / ARCHIVE）+ `specs/` 五卷系统规范；`AGENTS.md` 位于仓库根目录供 Agent 自动发现。归档正文按月分卷至 `docs/archive/`，任何 agent **严禁全文读取归档分卷**——按 `ARCHIVE.md` 索引定位后 Grep 切片。拆分前原文快照：`docs/archive/2026-08-development-full-snapshot.md`。）
 
-> **🆕 specs 已 wiki 化（2026-10-21）**：五卷正文拆为 **59 个主题页**（`docs/specs/<卷>/`），单卷文件 `docs/specs/<卷>.md` 保留为 **§N 兼容索引页**。**改 specs 前必须先读 `docs/WIKI-STYLE.md`**——它是 specs 形态的唯一规范权威。详见 §2.3。
+> **🆕 specs 已 wiki 化（2026-10-21）**：五卷正文拆为 **65 个主题页**（`docs/specs/<卷>/`，2026-10-23 实测；原 59 页 + 2026-10-22/23 新增 6 页），单卷文件 `docs/specs/<卷>.md` 保留为 **§N 兼容索引页**。**改 specs 前必须先读 `docs/WIKI-STYLE.md`**——它是 specs 形态的唯一规范权威。详见 §2.3。
 
 | 文档 | 角色 | 职责 | 更新时机 | 生命周期 |
 |---|---|---|---|---|
@@ -68,7 +68,7 @@
 - **被推翻的设计不静默删除**：主文档 §4 历史条目保持原文 + 加「已被 §4.x/§y 取代」注记；specs 内旧数值改写为现行值并在原处留沿革注记。读者应能只读 specs 就得到现行口径，只读 DEVELOPMENT §4 就能追溯演进。
 - **同文档内禁止重复罗列数值**：同一数值/参数表只允许一个「唯一口径」小节（如 combat.md §3.2 弹种总表），其余位置一律指向它。
 - **specs 章节编号是外部契约，不得重排**：实测 191+ 处文档/代码引用 `specs/<卷>.md §N`，历史批次日志又按「只增不改」维护 ⇒ **新增内容一律用新编号追加**，需要重组时用「卷首 §0 主题索引 + 批次节主题标签 + 数值唯一口径」三件套，**禁止重编号**。现行实践见 `DEVELOPMENT-batches-2026-10.md` §4.113。
-- **specs 正文已 wiki 化（2026-10-21）**：五卷共 59 个主题页，位于 `docs/specs/<卷>/`；`docs/specs/<卷>.md` 是 §N 兼容索引页（标题编号不变、每节 1~3 行摘要 + 「详见」链接）。**查现行口径先读 `<卷>/index.md` 或其 `changelog.md`**，不要直接读兼容页当正文。风格规范见 `docs/WIKI-STYLE.md`。
+- **specs 正文已 wiki 化（2026-10-21）**：五卷共 **65 个主题页**（2026-10-23 实测），位于 `docs/specs/<卷>/`；`docs/specs/<卷>.md` 是 §N 兼容索引页（标题编号不变、每节 1~3 行摘要 + 「详见」链接）。**查现行口径先读 `<卷>/index.md` 或其 `changelog.md`**，不要直接读兼容页当正文。风格规范见 `docs/WIKI-STYLE.md`。
 - **统计数字必须实测**：文档中的统计数字（卡牌数量/分布等）标注实测日期；引用过期数字前先重跑对应脚本（如 `node scripts/audit-content.js`）。
 - **模糊词禁用**：章节标题与结论禁止「本轮/本批」无日期锚点的写法；一律带 yyyy-mm-dd（或月份）锚点。
 
@@ -209,7 +209,7 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。2026-10-21 关账后仅剩 **1 条真开放项**（地图元素 AI 出图，阻塞于外部 API 凭据）+ C 档设计研究（方案未实施，属设计预留）+ 路线裁定；已完成 10 节原文已迁出至 `docs/archive/2026-10.md`。
-- **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **59 个主题页**，每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
+- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。2026-10-23 贴图口径收口后仅剩：**远期路线**（载具分化 / 战术深度 / 画质升级，7 大模块）+ **Steam 发布筹备清单** + **伪 3D 实施**（研究已交付、方案路线 A、无排期）+ C 档设计研究（设计预留）+ 路线裁定；已完成 10 节原文已迁出至 `docs/archive/2026-10.md`。
+- **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **65 个主题页**（2026-10-23 实测），每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
 - **待处理问题**：见 `docs/ISSUES.md`（当前无存量条目；历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

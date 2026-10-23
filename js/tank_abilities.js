@@ -53,7 +53,10 @@ let _spawnDeployableCover = (typeof spawnDeployableCover === 'function') ? spawn
 // #W9（2026-10-20 用户裁定「删除 super_speed / super_fire_control」）：两键已从本表、
 //   ABILITY_LABELS 与下方 dispatch 三处一并摘除（卡牌侧 ABILITY_KEYS 由 role-content 同批摘除，
 //   RULES.abilities 两键由 role-systems 摘除）——原表 7 键 ⇒ 现行 5 键。
-const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'deploy_cover', 'aps'];
+// 2026-10-23（本批新增 `flash_dash`）：短时战术闪跃（Tesla RCS 风格）——6 键。
+//   ⚠️ 与卡牌侧的闭环要求：`js/tank_cards.js` 的 `ABILITY_KEYS` 必须同步收录该键，
+//   否则卡牌可授予但运行时不可达（或反之），等同「死键」。见 specs/combat/abilities-secondary.md。
+const ABILITY_KEYS_RUNTIME = ['artillery', 'overdrive', 'shield', 'deploy_cover', 'aps', 'flash_dash'];
 
 // innate 内置能力键：开局自带、绕过卡牌持有检查（独立冷却池 t.abilityCds）
 const ABILITY_KEYS_INNATE = ['repair', 'medkit', 'extinguish'];
@@ -67,6 +70,7 @@ const ABILITY_LABELS = {
   overdrive: '超装填',
   deploy_cover: '部署掩体',
   aps: '主动防御',
+  flash_dash: '战术闪跃',
   repair: '修理箱',
   medkit: '医疗包',
   extinguish: '灭火器'
@@ -321,6 +325,21 @@ function tryActivateAbility(t, key, ctx) {
       t._apsHits = 0;
       setCd('aps', 'aps');
       return { ok: true, key: key, duration: duration, radius: radius, maxIntercepts: maxIntercepts, config: abilityCfg };
+    }
+    case 'flash_dash': {
+      // 2026-10-23（本批新增）：短时战术闪跃（Tesla RCS 风格）——短时间大幅提升极速并向
+      //   当前瞄准/车头方向做一次急促突进，用于躲炮弹与快速转场。
+      //   语义边界：位移仍由 driveTank 逐帧积分（AI/物理只读 speed），因此本技能**只写状态位**：
+      //     t.flashDashT --- 剩余闪跃时长（>0 生效）
+      //     t.flashOverheatT --- 过热减速剩余时长（闪跃结束后才生效）
+      //   driveTank 消费这两个字段（见 js/tank_move.js 的 flashDashMul/flashOverheatMul）。
+      //   ⚠️ 不在此处直接改 t.speed/t.x —— 会绕过掩体碰撞与边界钳制。
+      const dur = _d(abilityCfg, 'duration', 1.2);
+      const overheatDur = _d(abilityCfg, 'overheatDuration', 2.0);
+      t.flashDashT = Math.max(t.flashDashT || 0, dur);
+      t.flashOverheatT = 0;            // 再次激活清除尚未生效的过热
+      setCd('flash_dash', 'flash_dash');
+      return { ok: true, key: key, duration: dur, overheatDuration: overheatDur, config: abilityCfg };
     }
     // howitzer_mode 已从技能表移除（2026-10-20 用户裁定：榴弹炮曲射模式是**副武器**，
     //   装进副武器槽后主炮切曲射/直射；见 js/tank_weapons.js 的 isHowitzerMode/toggleHowitzer

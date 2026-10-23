@@ -1,7 +1,7 @@
 # 河流、水域与溺毙
 
 > **摘要**：溺毙判定与豁免、AI 避水分档、可涉水宽度上限、河流互斥与沿程宽度。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-22）
 > **源自**：`docs/specs/map.md` §11 / §20 / §21（2026-10-21 拆分）
 > **相关**：[地形抽象与生成](./terrain.md) · [路网](./roads.md) · [生存与 strip](./survival-strip.md) · [沿革与未落地](./changelog.md)
 
@@ -118,6 +118,22 @@
   - **渲染层 `drawRiverChain`**：原实现取**段宽中位数**做单一线宽的整链描边——即使数据层有宽度波也会被抹平。现改为**可变宽多边形**：沿中心线逐段取半宽（段自身 `h/2`，即 #U24 确立的「横向 = 短轴 h」口径），3 点平滑两轮后生成左右边线并闭合填充；岸影为同一多边形外扩 `bankW=6px`。实测渲染采样宽度 250~480px 沿程变化。
 - **连通性口径**：宽度波峰值会使 `test-strip` 的连通性断言在 **step=60** 粗网格下出现 4 连通切角伪影（seed99 实测 step60 0.9987 / step20 0.9999）——与 #T1 已确立的同一类采样网格伪影。该断言步长已对齐为 **step=20**（38px 通道断言本就如此）。
 - **效果**：河间交叉 0（无任何例外，H1T 汇入已删除）；每张 strip 河流数 ≤4（此前 H1T 恒多一条支流）；宽度沿程变化率 cv≈0.2；`npm test` 45/45。
+
+## 河流与道路的交叉夹角 ≥75°（2026-10-22 落地为硬约束）
+
+**用户反馈（ISSUES #Z3）**：「道路和河流的交叉点没有做到 75°以上的夹角」。
+
+**核实结论**：≥75° 只存在于**方形模板**的 `placeEdgeRiver`（`minCrossAngle()` 迭代，MIN_DEG=75）；**strip 路径**的 `placeStripRivers` 只有「<30° 判平行」的避让 ⇒ **30°~75° 的斜交完全不处理**。而 strip 是标准/生存模式的主路径。
+
+**现行实现**（`js/tank_nodegen.js`）：`placeStripRivers` 末尾新增 `enforceRiverRoadCrossAngle(rivers, roadCovers, roadW, opts)`：
+
+1. 用 `roadCoversToSegments(roadCovers, roadW)` 还原路短段，与每条河的 segments 做线段求交；
+2. 交点处计算两方向的**锐角** `acute = min(d, π−d)`；
+3. 违例（<75°）处理链：① 该河振幅 ×0.6 重建（最多 2 轮）→ ② 交点附近 ±400px 段沿路法向平移（每轮 30px，最多 4 轮）→ ③ 仍违例则**弃该河**（与 #U33「河可缺失、交叉不可接受」同口径）。
+
+**纯函数导出**：`minRiverRoadCrossAngle(rivers, roadCovers, roadW)`（返回度数，供测试/审计）。审计脚本 `scripts/audit-river-road-angle.js`（40 seed × 标准/生存，EXIT≠0 即失败）。
+
+**沿革**：本约束在 2026-10-16 §17.3 只是「设计要求」（`docs/specs/map/difficulty.md`）；2026-10-22 落地为 strip 路径的硬护栏。方形节点的 `placeEdgeRiver` 保持原实现不变。
 
 ## 相关页面
 - [地形抽象与生成](./terrain.md) — 水/河 `passability` 与 `shellBlock` 的设计视图

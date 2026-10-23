@@ -1,7 +1,7 @@
 {
   "id": "mobile_running_gun",
   "name": "行进射击信条",
-  "rarity": "legendary",
+  "rarity": "epic",
   "desc": "极速 +25%、散布 -30%、缩圈 +25%——整场保持全速抢位，行进间开火几乎无惩罚。",
   "effects": [
     { "type": "modifier", "stat": "maxSpeed", "mode": "mult", "value": 1.25 },

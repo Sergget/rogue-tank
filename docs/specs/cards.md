@@ -46,7 +46,7 @@
 ## 2. 卡牌数据契约 (cards/<id>.json，一型一文件，经 GET /api/cards 聚合)
 
 > JSON 字段与示例：`id` / `name` / `rarity` / `desc` / `effects[]` / `maxStacks`；Schema 唯一权威 = `js/tank_cards.js` 的 `validateCard`。
-> **约束**：`tags` 字段已于 2026-10-20 #16 整体下线（196 张卡均无此字段，`CARD_TAGS` 不再导出、校验已移除）。
+> **约束**：`tags` 字段已于 2026-10-20 #16 整体下线（全卡池均无此字段，`CARD_TAGS` 不再导出、校验已移除）；2026-10-22 卡池达 **205 张**。
 
 **详见**：[卡牌定位与数据契约 · 卡牌数据契约](./cards/overview-contract.md#卡牌数据契约)
 
@@ -59,7 +59,7 @@
 
 ## 4. 稀有度分层与流派
 
-> **五档**（common / rare / epic / legendary / mythic）+ 抽取权重（50 / 30 / 15 / 4.5 / 0.5）+ 卡池分布快照（196 张，2026-10-20 实测）。
+> **五档**（common / rare / epic / legendary / mythic）+ 抽取权重（50 / 30 / 15 / 4.5 / 0.5）+ 卡池分布快照（**205 张，2026-10-22 重排后实测**：common 97 / rare 65 / epic 33 / legendary 9 / mythic 1）。
 > **`CARD_TAGS` 流派标签已于 2026-10-20 #16 整体下线**（含卡牌 `tags` 字段、校验、导出、UI 三处）。
 
 **详见**：[稀有度、权重与验证工具链](./cards/rarity-tools.md)

@@ -197,13 +197,29 @@ function arcShellPose(s){
   };
 }
 
+// ===== 2026-10-22 B5-2：弹种家族（本地映射表，不改 RULES） =====
+// PLAN §4.5 B5-2 原本打算在 `RULES.ammoTypes` 每键加 `family`，但 `RULES` 单写者是 role-systems；
+// 渲染层按本批分工改为**本地映射表**：`s.ammoKey` → 'ap' | 'he' | 'heat'，未登记键回退 'ap'
+// （与「其余 → ap」的初始口径一致）。新增弹种只需在这张表补一行。
+const AMMO_FAMILY = {
+  ap: 'ap', apcr: 'ap', apds: 'ap', apfsds: 'ap', apfsds_ad: 'ap',
+  he: 'he', aphe: 'he', hesh: 'he', proximity_he: 'he', blast_he: 'he',
+  heat: 'heat', heatfs: 'heat', tandem_heat: 'heat', heavy_tandem_heat: 'heat'
+};
+// 弹种键 → 家族（大小写不敏感，未登记回退 'ap'）
+function ammoFamilyOf(ammoKey){
+  const k = (ammoKey === undefined || ammoKey === null) ? '' : String(ammoKey).toLowerCase();
+  return AMMO_FAMILY[k] || 'ap';
+}
+
 function drawShells(ctx, shells){
   const SV = RULES.shellVisual;
   const RFx = (RULES.railgunFx) || {};
   for(const s of shells){
     const ang = Math.atan2(s.dy, s.dx);
     const col  = (s.ammo && s.ammo.color) ? s.ammo.color : '#ffb454';
-    const tail = (s.ammo && s.ammo.tail) ? s.ammo.tail : 'rgba(255,180,84,0.6)';
+    // 2026-10-22 B5-2：`s.ammo.tail` 只在 railgun 分支之外的旧拖尾用过；家族化之后拖尾颜色
+    //   由家族固定（AP 亮蓝白 / HE 橙黄 / HEAT 亮黄芯），故不再读取 tail（保留字段向后兼容）。
     // #U38（2026-10-18）：电磁轨道炮弹体——针状白热电离弹（更长更细）。
     //   #U39（2026-10-19 用户裁定）：**电弧只加在炮身上，不跟随炮弹**——旧的 shellTrailArcs
     //   电弧尾迹已删除，弹体只保留针状外形 + 白热芯晕 + 普通渐隐拖尾。
@@ -215,6 +231,10 @@ function drawShells(ctx, shells){
     const sv = ((typeof s.fxScale === 'number' && s.fxScale > 0) ? s.fxScale : 1)
       * (s.fromSecondaryTurret ? 0.7 : 1);
     const _L = L * sv, _W = W * sv, _tailLen = tailLen * sv;
+    // 2026-10-22 B5-2：家族化的**弹体形状倍率**（railgun 分支不读，保持原样）
+    const fam = ammoFamilyOf(s.ammoKey);
+    const bodyL = _L * (fam === 'ap' ? 1.15 : fam === 'he' ? 0.85 : 1);
+    const bodyW = _W * (fam === 'ap' ? 0.85 : fam === 'he' ? 1.35 : 1);
     ctx.save();
     let drawX = s.x, drawY = s.y, scale = 1;
     // #X6：曲射弹的伪俯仰/纵向缩短（直线弹恒 0/1，不受影响）
@@ -285,31 +305,261 @@ function drawShells(ctx, shells){
       ctx.restore();   // 与外层 ctx.save()（进入弹体绘制前的那次）配对
       continue;
     }
-    // 拖尾（沿 -x 渐隐短线）
-    ctx.globalCompositeOperation = 'lighter';
-    const tg = ctx.createLinearGradient(-_tailLen, 0, 0, 0);
-    tg.addColorStop(0, 'rgba(255,255,255,0)');
-    tg.addColorStop(1, tail);
-    ctx.strokeStyle = tg; ctx.lineWidth = 3 * sv; ctx.lineCap='round';
-    ctx.beginPath(); ctx.moveTo(-_tailLen, 0); ctx.lineTo(0, 0); ctx.stroke();
-    // 弹体：尖头朝 +x（飞行方向）
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.moveTo(_L/2, 0);
-    ctx.lineTo(-_L/2, -_W/2);
-    ctx.lineTo(-_L/2 - 2, 0);
-    ctx.lineTo(-_L/2, _W/2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(_L/2, 0); ctx.lineTo(-_L/2, -_W/2); ctx.lineTo(-_L/2 - 2, 0); ctx.lineTo(-_L/2, _W/2); ctx.closePath(); ctx.stroke();
-    // 弹头亮点
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.beginPath(); ctx.arc(_L*0.3, 0, 1.3 * sv, 0, TAU); ctx.fill();
+    // ===== 2026-10-22 B5-2：三系列弹种特效（AP / HE / HEAT）=====
+    // 曲射（isArc）只换弹体形状、姿态仍走上面的伪俯仰（#X6 口径不变）。
+    if(fam === 'ap'){
+      // AP：细长尖头弹 + **短促直线曳光**（亮蓝白 #cfe9ff，长度 ×0.7，不拖烟）
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const apTail = _tailLen * 0.7;
+      ctx.strokeStyle = 'rgba(207,233,255,0.72)';
+      ctx.lineWidth = Math.max(1, bodyW * 0.55);
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-apTail, 0); ctx.lineTo(0, 0); ctx.stroke();
+      ctx.restore();
+      // 弹体：细长尖头弹（长 ×1.15、宽 ×0.85）——圆柱段 + 收尖弹头
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      const apHl = bodyL * 0.5, apHw = bodyW * 0.5;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(apHl, 0);                          // 弹尖
+      ctx.lineTo(apHl * 0.42, -apHw);               // 弹头肩部
+      ctx.lineTo(-apHl * 0.92, -apHw);              // 柱体尾
+      ctx.lineTo(-apHl, -apHw * 0.62);              // 尾端收口（弹底）
+      ctx.lineTo(-apHl, apHw * 0.62);
+      ctx.lineTo(-apHl * 0.92, apHw);
+      ctx.lineTo(apHl * 0.42, apHw);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(220,238,255,0.8)'; ctx.lineWidth = 1;
+      ctx.stroke();
+      // 弹头亮点（冷白）
+      ctx.fillStyle = 'rgba(240,250,255,0.95)';
+      ctx.beginPath(); ctx.arc(apHl * 0.30, 0, Math.max(1, 1.1 * sv), 0, TAU); ctx.fill();
+      ctx.restore();
+    } else if(fam === 'he'){
+      // HE：粗短圆头弹 + **断续烟尾**（橙黄 rgba(255,180,84,.55)，每 1/3 段留缝）
+      ctx.save();
+      const heTail = _tailLen * 1.05;
+      for(let seg = 0; seg < 3; seg++){
+        const t0 = seg / 3, t1 = (seg + 0.66) / 3;   // 每段留 1/3 的缝
+        const x0 = -heTail * (1 - t0), x1 = -heTail * (1 - t1);
+        ctx.strokeStyle = 'rgba(255,180,84,0.55)';
+        ctx.lineWidth = Math.max(1.6, bodyW * 0.42);
+        ctx.lineCap = 'butt';
+        ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x1, 0); ctx.stroke();
+      }
+      // 外扩烟团（无渐变，实色小圆；确定性——不取 Math.random）
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = 'rgba(255,190,110,0.22)';
+      for(let i = 0; i < 3; i++){
+        const x = -heTail * (0.55 + i * 0.22);
+        ctx.beginPath(); ctx.arc(x, 0, Math.max(1.2, bodyW * (0.30 + i * 0.06)), 0, TAU); ctx.fill();
+      }
+      ctx.restore();
+      // 弹体：粗短圆头（长 ×0.85、宽 ×1.35）——前端半圆鼻 + 平底
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = col;
+      const hl = bodyL * 0.5, hw = bodyW * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(hl - hw, -hw);                     // 圆柱段前缘（上）
+      ctx.lineTo(-hl, -hw);                         // 弹底（上）
+      ctx.lineTo(-hl, hw);
+      ctx.lineTo(hl - hw, hw);                      // 圆柱段前缘（下）
+      // 圆头鼻：半圆（用多段折线逼近，mini-canvas/browser 同口径）
+      const NOSE = 10;
+      for(let i = 1; i <= NOSE; i++){
+        const a = Math.PI / 2 - Math.PI * (i / NOSE);   // +π/2 → -π/2
+        ctx.lineTo(hl - hw + Math.cos(a) * hw, Math.sin(a) * hw);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
+      ctx.stroke();
+      // 引信帽（弹头顶点小亮点）
+      ctx.fillStyle = 'rgba(255,240,200,0.9)';
+      ctx.beginPath(); ctx.arc(hl - 0.2, 0, Math.max(1, 1.2 * sv), 0, TAU); ctx.fill();
+      ctx.restore();
+    } else {
+      // HEAT：锥形装药（前 1/3 锥 + 后 2/3 柱）+ 橙色射流尾（细亮芯 #ffe27a + 弱外晕）
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const jetLen = _tailLen * 1.15;
+      const jetW = Math.max(0.8, bodyW * 0.26);
+      // 弱外晕（宽而淡——只是"热空气"读数，不能盖掉亮芯）
+      ctx.strokeStyle = 'rgba(255,140,60,0.16)';
+      ctx.lineWidth = jetW * 2.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-jetLen, 0); ctx.lineTo(0, 0); ctx.stroke();
+      // 细亮芯（alpha 压到 0.72：lighter 叠加下满不透明会糊成白棒）
+      ctx.strokeStyle = '#ffe27a';
+      ctx.globalAlpha = 0.72;
+      ctx.lineWidth = jetW;
+      ctx.beginPath(); ctx.moveTo(-jetLen * 0.92, 0); ctx.lineTo(0, 0); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      // 弹体：前 1/3 锥 + 后 2/3 柱
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      const cl = bodyL * 0.5, cw = bodyW * 0.5;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(cl, 0);                       // 锥尖（前）
+      ctx.lineTo(cl - bodyL * 0.33, -cw);      // 锥底 → 柱体前缘
+      ctx.lineTo(-cl, -cw);
+      ctx.lineTo(-cl, cw);
+      ctx.lineTo(cl - bodyL * 0.33, cw);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,220,180,0.8)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cl, 0);
+      ctx.lineTo(cl - bodyL * 0.33, -cw);
+      ctx.lineTo(-cl, -cw);
+      ctx.lineTo(-cl, cw);
+      ctx.lineTo(cl - bodyL * 0.33, cw);
+      ctx.closePath(); ctx.stroke();
+      // 锥/柱分界亮线（药型罩口）
+      ctx.strokeStyle = 'rgba(255,226,122,0.85)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cl - bodyL * 0.33, -cw * 0.92);
+      ctx.lineTo(cl - bodyL * 0.33, cw * 0.92);
+      ctx.stroke();
+      // 弹头射流起点亮点
+      ctx.fillStyle = 'rgba(255,240,190,0.95)';
+      ctx.beginPath(); ctx.arc(cl, 0, Math.max(1, 1.1 * sv), 0, TAU); ctx.fill();
+      ctx.restore();
+    }
     ctx.restore();
   }
 }
+
+// ===== 2026-10-22 B5-3（需求 13）：Boss 电磁炮炮线 + 预警 =====
+// fx = { kind:'charge'|'fire', x, y, angle, length, width, progress, alpha? }
+//   charge → 蓄能期：白 1px 主线 + 3 条 lightningPath 电弧 + 线端光点 + 线两侧淡红晕（预警）
+//   fire   → 击发期：白芯 + 冷白外晕，alpha 随调用方淡出（fx.alpha，缺省 1）
+// 颜色三档全部取自 RULES.railgunFx（barrelGrey / baseBlue* / arcWhite+arcHalo），
+// 不写死色值（下方 `||` 后面只是无 RULES 环境的兜底，与同文件其他 railgun 绘制同款）。
+// 绘制期零 Math.random：电弧抖动种子由时间量子 + 进度派生（同帧重绘逐字节一致）。
+function drawBossRailLine(ctx, fx){
+  if(!ctx || !fx || typeof fx !== 'object') return;
+  const kind = (fx.kind === 'fire') ? 'fire' : 'charge';
+  const x = (typeof fx.x === 'number') ? fx.x : 0;
+  const y = (typeof fx.y === 'number') ? fx.y : 0;
+  const ang = (typeof fx.angle === 'number') ? fx.angle : 0;
+  const RFx = (RULES && RULES.railgunFx) || {};
+  const _white = RFx.arcWhite || '#ffffff';
+  const _halo  = RFx.arcHalo  || 'rgba(214,232,255,1)';
+  const _base  = RFx.baseBlue || '#2f5d8c';
+  const _grey  = RFx.barrelGrey || '#787d84';
+  const cfgBoss = (RULES && RULES.boss && RULES.boss.railgun) || {};
+  const len = (typeof fx.length === 'number' && fx.length > 0) ? fx.length
+    : (typeof cfgBoss.lineLength === 'number' ? cfgBoss.lineLength : 1400);
+  const wid = (typeof fx.width === 'number' && fx.width > 0) ? fx.width
+    : (typeof cfgBoss.lineWidth === 'number' ? cfgBoss.lineWidth : 6);
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const nx = -sa, ny = ca;                       // 法线（用于两侧红晕 / 光点偏移）
+  const x2 = x + ca * len, y2 = y + sa * len;
+  const _nowQ = Math.floor(((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0) * 20) | 0;
+
+  if(kind === 'charge'){
+    const p = Math.max(0, Math.min(1, (typeof fx.progress === 'number') ? fx.progress : 0));
+    const lineA = 0.25 + 0.5 * p;
+    const arcA  = 0.5 + 0.4 * p;
+    const amp   = 4 + 6 * p;
+    ctx.save();
+    ctx.lineCap = 'round';
+    // ⓪ 基底蓝衬底（railgunFx.baseBlue）：宽一点点垫在主线之下，读作「导轨之间的能量基底」
+    ctx.strokeStyle = _base;
+    ctx.globalAlpha = 0.10 + 0.20 * p;
+    ctx.lineWidth = Math.max(2, wid * 0.55);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    // ① 主线：白色 1px 实线，alpha = 0.25 + 0.5*progress
+    ctx.strokeStyle = _white;
+    ctx.globalAlpha = lineA;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    // ② 线两侧淡红晕（预警语言）：宽 width+12、自宽 width/2+6
+    //   色值由调用方口径固定为 rgba(255,80,60,0.10)（预警红，不属于炮身三色盘）
+    const halfW = wid / 2 + 6;
+    ctx.fillStyle = 'rgba(255,80,60,0.10)';
+    ctx.beginPath();
+    ctx.moveTo(x + nx * halfW, y + ny * halfW);
+    ctx.lineTo(x2 + nx * halfW, y2 + ny * halfW);
+    ctx.lineTo(x2 - nx * halfW, y2 - ny * halfW);
+    ctx.lineTo(x - nx * halfW, y - ny * halfW);
+    ctx.closePath();
+    ctx.fill();
+    // ③ 电弧：3 条沿主线的折线，锯齿幅度 4+6*progress，alpha 0.5+0.4*progress
+    ctx.globalCompositeOperation = 'lighter';
+    for(let i = 0; i < 3; i++){
+      const pts = (typeof lightningPath === 'function')
+        ? lightningPath(x, y, ang, len, amp, 7 + i * 2, _nowQ * 0.017 + i * 5.3 + p * 3.1)
+        : [{ x: x, y: y }, { x: x2, y: y2 }];
+      const jitter = ((_nowQ + i * 7) % 3);        // 0..2 的相位差（确定性）
+      const segPts = pts.slice(0, Math.max(2, pts.length - jitter));
+      // 外层冷白晕
+      ctx.strokeStyle = _halo;
+      ctx.globalAlpha = Math.min(1, arcA * 0.42);
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.moveTo(segPts[0].x, segPts[0].y);
+      for(let k = 1; k < segPts.length; k++) ctx.lineTo(segPts[k].x, segPts[k].y);
+      ctx.stroke();
+      // 内层白芯
+      ctx.strokeStyle = _white;
+      ctx.globalAlpha = Math.min(1, arcA);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    // ④ 线端光点：半径 6+6*progress，白色芯 + 冷白晕
+    const dotR = 6 + 6 * p;
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = _halo;
+    ctx.beginPath(); ctx.arc(x2, y2, dotR * 1.9, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = _white;
+    ctx.beginPath(); ctx.arc(x2, y2, dotR, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 1;
+    // ⑤ 炮口端灰色发射器短段（railgunFx.barrelGrey：炮身结构色，给炮线一个"起点锚"）
+    ctx.strokeStyle = _grey;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = Math.max(2, wid * 0.7);
+    ctx.beginPath();
+    ctx.moveTo(x - ca * 4, y - sa * 4);
+    ctx.lineTo(x + ca * Math.max(6, wid), y + sa * Math.max(6, wid));
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    return;
+  }
+
+  // fire：击发期光束（长度/宽度由调用方给，通常 lineLength × lineWidth）
+  const a = (typeof fx.alpha === 'number') ? Math.max(0, Math.min(1, fx.alpha)) : 1;
+  if(a <= 0) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.globalCompositeOperation = 'lighter';
+  // 外晕：width*1.6 冷白（railgunFx.arcHalo）
+  ctx.strokeStyle = _halo;
+  ctx.globalAlpha = 0.42 * a;
+  ctx.lineWidth = Math.max(2, wid * 1.6);
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+  // 白芯：max(2, width*0.5)（railgunFx.arcWhite）
+  ctx.strokeStyle = _white;
+  ctx.globalAlpha = a;
+  ctx.lineWidth = Math.max(2, wid * 0.5);
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
 
 // #U8（2026-10-16 新增）：河流整链绘制——把沿程铺开的一串段 OBB 还原为**单条中心线折线**，
 // 用圆角连接的粗折线一次描边（先岸影后河色），彻底消除段间鳞片/砖块接缝与「双轨」线。
@@ -456,7 +706,7 @@ function drawCoverWaterStreak(ctx, cov){
 // 两层叠加做出软边：近层深、远层淡，零模糊开销（避免 shadowBlur 的逐帧模糊成本）。
 //   box / rubble-box / rock-poly → 轮廓多边形投影（按 verts 或 OBB 角点）
 //   tree / bush / fallen         → 椭圆投影（树按树冠半径，与 drawAssetCanopy 的 R 同源）
-//   soft / barricade / stump     → 细长/小件，只在脚下垫一层很淡的接触影
+//   wall / stump                 → 细长/小件，只在脚下垫一层很淡的接触影
 function drawCoverShadow(ctx, cov){
   const tier = COVER_TIERS && COVER_TIERS[cov.tier];
   if(!tier) return;
@@ -526,7 +776,7 @@ function drawCoverShadow(ctx, cov){
     ctx.beginPath();
     ctx.ellipse(cov.x + dy * 0.3, cov.y + dy * 0.4, rx * 0.55, ry * 0.5, (cov.angle || 0), 0, TAU);
     ctx.fill();
-  } else if(st === 'soft' || st === 'barricade' || st === 'stump'){
+  } else if(st === 'wall' || st === 'stump'){
     const dy = 2;
     ctx.fillStyle = 'rgba(0,0,0,0.07)';
     ctx.beginPath();
@@ -542,10 +792,138 @@ function drawCoverShadow(ctx, cov){
   ctx.restore();
 }
 
-// 地图元素分层绘制（§2.7）：box=矩形掩体（含标签）保持程序化；soft/barricade/stump/rubble/
+// ===== 2026-10-22 B5-3：掩体（wall）贴图 + 三级破损 =====
+// wallStyle 六种：concrete / sandbag / steel / brick / hedgehog / barrier（表见 tank_assets.js）。
+// 贴图选择：cov.wallStyle 优先（生成期由 mapgen 写入），缺失时回退 tier.wallStyle（RULES 缺省），
+// 再缺失落 concrete。绘制走 `drawAsset(ctx, 'wall:<style>', ...)`——变体键保证缓存不串味。
+const WALL_STYLE_FALLBACK = ['concrete', 'sandbag', 'steel', 'brick', 'hedgehog', 'barrier'];
+function wallStyleOf(cov, tier){
+  const pick = (v) => (v === undefined || v === null) ? '' : String(v);
+  const cand = pick(cov && cov.wallStyle) || pick(tier && tier.wallStyle) || 'concrete';
+  return WALL_STYLE_FALLBACK.indexOf(cand) >= 0 ? cand : 'concrete';
+}
+// 三级破损门限（PLAN §4.9.2(c)）：>0.67 完好 / 0.34~0.67 裂纹 / <0.34 重度破损
+function wallDamageLevel(cov, tier){
+  const maxHp = (tier && typeof tier.hp === 'number' && tier.hp > 0 && Number.isFinite(tier.hp)) ? tier.hp : 0;
+  const hp = (typeof cov.hp === 'number') ? cov.hp : (maxHp || Infinity);
+  if(!maxHp || !Number.isFinite(hp)) return 0;          // 不可摧毁墙 / 无耐久数据 → 恒完好
+  const r = Math.max(0, Math.min(1, hp / maxHp));
+  if(r > 0.67) return 0;
+  if(r >= 0.34) return 1;
+  return 2;
+}
+// 确定性 hash（绘制期不取 Math.random——同一帧重绘必须逐字节一致）
+function _wallHash(n){
+  const v = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return v - Math.floor(v);
+}
+// 在墙面上叠加裂纹（2~4 条深色折线）与缺口（1~2 个背景色"洞"多边形）。
+// 所有几何由 cov 坐标 hash 派生 → 同一块墙的破损形状恒定，不随帧抖动。
+function drawWallDamage(ctx, cov, level){
+  if(level <= 0) return;
+  const w = cov.w || 24, h = cov.h || 24;
+  const ang = cov.angle || 0;
+  const seed = (cov.x || 0) * 0.37 + (cov.y || 0) * 0.73;
+  // 局部系：长轴 = x（与 bake 的 wallFrame 同口径：竖放墙旋转 90°）
+  const vertical = h > w;
+  const L = vertical ? h : w, T = vertical ? w : h;
+  ctx.save();
+  ctx.translate(cov.x, cov.y);
+  ctx.rotate(ang + (vertical ? Math.PI / 2 : 0));
+  // 裁剪在墙体内：裂纹/缺口不得画到墙外
+  ctx.beginPath();
+  ctx.rect(-L / 2, -T / 2, L, T);
+  ctx.clip();
+  // ① 裂纹线：一级 2 条、二级 4 条（折线，2~4 段）
+  const nCrack = (level >= 2) ? 4 : 2;
+  ctx.strokeStyle = (level >= 2) ? 'rgba(24,22,20,0.75)' : 'rgba(34,32,28,0.62)';
+  ctx.lineWidth = Math.max(1, T * 0.07);
+  for(let i = 0; i < nCrack; i++){
+    const u0 = -L / 2 + L * (0.08 + 0.84 * _wallHash(seed + i * 13.7));
+    const v0 = (T / 2) * (_wallHash(seed + i * 7.3) > 0.5 ? 1 : -1);
+    const segs = 2 + Math.floor(_wallHash(seed + i * 3.1) * 3);   // 2~4 段
+    ctx.beginPath();
+    ctx.moveTo(u0, v0);
+    let u = u0, v = v0;
+    for(let k = 1; k <= segs; k++){
+      // 裂纹**横贯墙厚**（纵向从一侧边缘走到另一侧），横向只做小幅锯齿（裂纹不是划痕）
+      const du = (T * 0.55) * (_wallHash(seed + i * 19.1 + k * 2.7) - 0.5) * 2;
+      const dv = -(v0) * (k / segs) * (0.7 + 0.6 * _wallHash(seed + i * 5.9 + k));
+      u = Math.max(-L / 2 + 1, Math.min(L / 2 - 1, u + du));
+      v = Math.max(-T / 2 + 0.5, Math.min(T / 2 - 0.5, v + dv));
+      ctx.lineTo(u, v);
+    }
+    ctx.stroke();
+  }
+  // ② 缺口：一级 1 个、二级 2 个背景色多边形（读作被打穿的洞）。
+  //   尺寸按**墙厚**取（墙是 10~14px 的薄条，洞不能比墙还厚），并优先落在上下缘——
+  //   贴合「缺角/崩边」的读法，而不是在墙中间开一个大窟窿。
+  const nHole = (level >= 2) ? 2 : 1;
+  for(let i = 0; i < nHole; i++){
+    const cu = -L / 2 + L * (0.14 + 0.72 * _wallHash(seed + 41.3 + i * 11.9));
+    const edge = (_wallHash(seed + 17.3 + i * 6.1) > 0.5) ? 1 : -1;
+    const cv = edge * (T / 2) * (0.55 + 0.25 * _wallHash(seed + 23.7 + i * 5.1));
+    const rw = Math.max(2, T * (0.26 + 0.16 * _wallHash(seed + 61.7 + i * 3.3)));
+    const rh = Math.max(1.6, T * (0.30 + 0.18 * _wallHash(seed + 71.3 + i * 9.7)));
+    ctx.fillStyle = 'rgba(92,96,74,0.90)';   // 背景色（地表透出的"洞"）
+    ctx.beginPath();
+    const N = 7;
+    for(let k = 0; k < N; k++){
+      const a = (k / N) * TAU;
+      const rr = 0.72 + 0.28 * _wallHash(seed + i * 31.1 + k * 4.3);
+      const px = cu + Math.cos(a) * rw * rr, py = cv + Math.sin(a) * rh * rr;
+      if(k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    // 缺口内缘的碎边高光（受光左上）
+    ctx.strokeStyle = 'rgba(210,206,190,0.40)'; ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+// wall 掩体绘制入口：贴图（变体键）→ 三级破损叠加 → 重度破损时整体压暗
+function drawWallCover(ctx, cov, tier){
+  const style = wallStyleOf(cov, tier);
+  const key = 'wall:' + style;
+  const w = cov.w || 24, h = cov.h || 24;
+  if(typeof drawAsset === 'function' && typeof ASSET_DEFS !== 'undefined' && ASSET_DEFS.wall){
+    // 带角度：wall 是单直线段，cov.angle 是真实朝向（与物理 OBB 同源）。
+    //   `drawAssetRotated` 由 tank_assets.js（先加载）挂到全局；这里走索引访问，
+    //   避免为一个可选通道在 types/globals.d.ts 里新增声明（该文件不属本角色写域）。
+    const _drawRot = (typeof globalThis !== 'undefined') ? /** @type {any} */ (globalThis)['drawAssetRotated'] : undefined;
+    if(typeof _drawRot === 'function') _drawRot(ctx, key, cov.x, cov.y, w, h, cov.angle || 0);
+    else drawAsset(ctx, key, cov.x, cov.y, w, h, cov.angle || 0);
+  } else {
+    // 资产层缺失（未加载 tank_assets.js / Node 纯逻辑）：平涂兜底，保证物理存在即视觉可见
+    const poly = coverCorners(cov);
+    ctx.beginPath(); ctx.moveTo(poly[0].x, poly[0].y);
+    for(let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+    ctx.closePath();
+    ctx.fillStyle = (tier && tier.fill) || 'rgba(138,138,130,0.8)';
+    ctx.fill();
+    ctx.strokeStyle = (tier && tier.stroke) || '#8a8a82'; ctx.lineWidth = 1.4; ctx.stroke();
+  }
+  const lvl = wallDamageLevel(cov, tier);
+  drawWallDamage(ctx, cov, lvl);
+  // 重度破损：整体压暗一层（体积感从"完整墙体"转为"残破断面"）
+  if(lvl >= 2){
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#14161a';
+    const poly = coverCorners(cov);
+    ctx.beginPath(); ctx.moveTo(poly[0].x, poly[0].y);
+    for(let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+}
+
+// 地图元素分层绘制（§2.7）：box=矩形掩体（含标签）保持程序化；wall/stump/rubble/
 // bush/tree/fallen 走资产层（js/tank_assets.js：ASSET_DEFS 注册表 + drawAsset——有图
 // drawImage / 无图烘焙缓存，画法与旧内联分支逐字一致）。树冠叶片（bush/tree/fallen 的上层
 // 叶片）由 drawFoliage 在坦克之上调用 drawAssetCanopy 形成视线遮挡。
+// wall（2026-10-22 B5-3）：单直线墙体 + 六种 wallStyle 贴图族；破损按 hp/maxHp 分三级叠加。
 // road（#87）：地面类扁平条带，由 battle 按 tierGroup='ground' 垫底绘制，不遮单位。
 function drawCover(ctx, cov){
   const tier = COVER_TIERS[cov.tier];
@@ -875,8 +1253,13 @@ function drawCover(ctx, cov){
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
+  } else if(tier.draw === 'wall'){
+    // ===== 2026-10-22 B5-3：掩体（wall）绘制 =====
+    // 复用资产层：`wall:<wallStyle>` 变体键 → ASSET_DEFS.wall.bake 按 style 分派、
+    // 缓存键含变体（同一 canvas 不混用不同贴图）。
+    drawWallCover(ctx, cov, tier);
   } else if(typeof ASSET_DEFS !== 'undefined' && ASSET_DEFS[tier.draw]){
-    // 资产层：soft/barricade/stump/rubble/bush/tree/fallen（依赖 js/tank_assets.js 先加载）
+    // 资产层：stump/rubble/bush/tree/fallen（依赖 js/tank_assets.js 先加载）
     drawAsset(ctx, tier.draw, cov.x, cov.y, cov.w, cov.h, cov.angle||0);
   } else {
     // 兜底渲染逻辑：资产缺失或未知 drawStyle 时，绘制半透明彩色框，确保物理存在即视觉可见
@@ -1017,10 +1400,15 @@ function drawSpriteBarrel(ctx, t, img, lateralOff){
   const scaleMult = +b.scaleMult || 1;
   const _bSpec = t.barrel || { len: 120 };
   let barrelLen = (t.turLen || 34) * Math.max(0, Math.min(3, (_bSpec.len || 120) / 100));
+  let barrelWidMult = 1;
   const wtype = (t.weapons && t.weapons.primary && t.weapons.primary.type) || 'standard';
   if(wtype === 'autocannon'){
     const _ac = (t.weapons.primary.stats) || {};
     barrelLen *= (typeof _ac.barrelLenMult === 'number') ? _ac.barrelLenMult : 0.8;
+    // 2026-10-22 B5-1：`barrelWidthMult` 通道——此前精灵分支只吃 barrelLenMult，
+    //   于是同一辆 autocannon 在 sprite.enabled 时炮管**不比标准炮细**，与程序化分支不一致。
+    //   宽度对贴图是**横向**缩放：长轴 scale 照旧、横向再乘该系数（见 paintPartSprite 的 extra）。
+    if(typeof _ac.barrelWidthMult === 'number') barrelWidMult = Math.max(0.1, _ac.barrelWidthMult);
   }
   const scale = barrelLen / img.naturalWidth * scaleMult;
   const _recoilT = t.recoilT || 0;
@@ -1034,9 +1422,20 @@ function drawSpriteBarrel(ctx, t, img, lateralOff){
   const r = rotate(mountDx - embed, mountDy + (lateralOff || 0), ang);
   const bx = pOff.x + r.x - Math.cos(ang) * recoilOff;
   const by = pOff.y + r.y - Math.sin(ang) * recoilOff;
+  // barrelWidMult === 1 时走原调用（逐字节零回归）；≠1 时**横向压缩**贴图：
+  //   pivot 仍是图片中线，因此压缩后炮管仍以炮塔轴线居中。
+  if(barrelWidMult !== 1){
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(ang);
+    ctx.scale(1, barrelWidMult);
+    ctx.drawImage(img, 0, -img.naturalHeight * scale / 2, img.naturalWidth * scale, img.naturalHeight * scale);
+    ctx.restore();
+    return;
+  }
   paintPartSprite(ctx, img, bx, by, ang, 1, scale, 0, 0, 0, [0, img.naturalHeight / 2]);
 }
-// drawTankSprite(ctx, t): 用 AI 生成的四层精灵替换程序化绘制。
+// drawTankSprite(ctx, t): 用四层俯视精灵贴图替换程序化绘制。图片由后期美术提供（当前盘上无图）。
 // Layer 0 履带（滚动）→ Layer 1 车体（对准坦克原点、随 hullAngle）→
 // Layer 2 炮塔（pivot 对准座圈中心、随炮塔角）→ Layer 3 炮管（武器类型切换、双管偏移、后座）。
 // 对齐参数由设计器写入 tanks/<id>.json `sprite`。
@@ -1084,7 +1483,6 @@ function drawTankSprite(ctx, t){
   // 与程序化分支同口径（原在 :999 主炮塔之前画，被子炮塔盖住）。
   drawSecondaryTurret(ctx, t);
 }
-
 // 车底地面软阴影（程序化分支）。精灵分支在 drawTankSprite 里手绘了一块椭圆阴影，
 // 但**程序化分支（当前实机唯一路径，所有车 sprite.enabled=false）从来没有车底影**：
 // 履带直接压在地面纹理上，车体像「贴纸」。这里按车体 OBB 画两层椭圆
@@ -1270,11 +1668,13 @@ function drawTank(ctx, t){
    // Barrel: 炮管根部接在炮塔前缘（=旋转中心 + 前缘偏移 turretFrontDist），长度按设计器口径
    // = 炮塔长 × (len/100)。与 gunRoot() 完全同轴，炮塔转动时根部随前缘一起走，不再从炮塔中心/尾部伸出。
    const barrelRayDx = Math.cos(t.turretAngle), barrelRayDy = Math.sin(t.turretAngle);
-   // 2026-09-15 W6：autocannon 专用炮管外观（用户裁定）——更细（barrelWidthMult）略短（barrelLenMult），
-   // 不绘制炮管护套/制退器/抽烟器（muzzle/evac/jacket 强制禁用）；mantlet 炮盾保留。
+   // 2026-09-15 W6：autocannon 专用炮管外观（用户裁定）——更细（barrelWidthMult）略短（barrelLenMult）；
+   //   制退器/抽烟器禁用（autocannon 无这些火炮件），**但护套保留**：
+   //   2026-10-22 B5-1（需求 2）改为 autocannon 专用护套（见下方 "_AC 专用护套" 绘制块）——
+   //   圆角矩形套筒 + 2×5 散热孔 + 前后锁环，与标准炮管（细长、无护套）在俯视角下可辨认。
    // #U31（2026-10-17 用户要求）：电磁炮同理——轨道炮是纯功能性结构，没有常规火炮的
-   // 护套/制退器/抽烟器这些「火炮专用件」，贴图 barrel-railgun.png 也是无附件的双轨造型；
-   // 程序化分支强制禁用三类附件（mantlet 炮盾保留）。
+   //   护套/制退器/抽烟器这些「火炮专用件」，贴图 barrel-railgun.png 也是无附件的双轨造型；
+   //   程序化分支强制禁用三类附件（mantlet 炮盾保留）。
    const _isAc = !!(t.weapons && t.weapons.primary && t.weapons.primary.type === 'autocannon');
    const _isRailgun = !!(t.weapons && t.weapons.primary && t.weapons.primary.type === 'railgun');
    const _bSpec0 = t.barrel || { len: 120, width: 18, muzzle: 'none', evacPos: 55 };
@@ -1658,6 +2058,85 @@ function drawTank(ctx, t){
         ctx.restore();
       }
    }
+   // ===== 2026-10-22 B5-1（需求 2）：autocannon 专用炮管护套 =====
+   // 目标：与标准炮管（细长、无护套）在俯视角下**可辨认**。
+   //   · 护套 = 圆角矩形，长度 = 炮管可视长 ×0.42，半径 = 炮管半径 ×1.55，
+   //     中心在炮管靠炮盾一侧（起点贴炮塔前缘）；
+   //   · 2 排 × 5 个散热孔（暗色小椭圆，沿轴向等距）；
+   //   · 前后各一道亮色锁环（1px）。
+   // 仅在 autocannon 分支生效；barrelWid 已含 barrelWidthMult(0.6)，barrelLen 已含
+   // barrelLenMult(0.8)，因此护套尺寸自动跟随这两个既有语义（不另立参数）。
+   if(_isAc && !_isRailgun){
+      const jkLen = barrelLen * 0.42;
+      const jkRad = barrelWid * 0.5 * 1.55;      // 半径 = 炮管半径 ×1.55
+      const jkThick = jkRad * 2;
+      const jkStart = Math.min(2, barrelLen * 0.04);   // 起点：炮塔前缘稍留 1~2px 缝
+      for(const _tb of _tubeBase){
+        const ax = _tb.bx + barrelRayDx * jkStart;
+        const ay = _tb.by + barrelRayDy * jkStart;
+        ctx.save();
+        ctx.translate(ax, ay);
+        ctx.rotate(t.turretAngle);
+        // 圆角矩形（不依赖 ctx.roundRect / arc 的「当前点连线」语义：离线光栅 mini-canvas
+        //   的 arc 每次另起子路径，混拼会丢角 → 这里用**采样折线**近似四角圆弧，两端环境一致）
+        const r = Math.min(jkThick * 0.45, jkLen * 0.5);
+        const jkPath = () => {
+          const CORNER_STEPS = 4;
+          ctx.beginPath();
+          const corner = (cx, cy, a0, a1) => {
+            for(let i = 1; i <= CORNER_STEPS; i++){
+              const a = a0 + (a1 - a0) * (i / CORNER_STEPS);
+              ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+            }
+          };
+          ctx.moveTo(r, -jkRad);
+          ctx.lineTo(jkLen - r, -jkRad);
+          corner(jkLen - r, -jkRad + r, -Math.PI / 2, 0);
+          ctx.lineTo(jkLen, jkRad - r);
+          corner(jkLen - r, jkRad - r, 0, Math.PI / 2);
+          ctx.lineTo(r, jkRad);
+          corner(r, jkRad - r, Math.PI / 2, Math.PI);
+          ctx.lineTo(0, -jkRad + r);
+          corner(r, -jkRad + r, Math.PI, Math.PI * 1.5);
+          ctx.closePath();
+        };
+        // 套筒本体（深色金属底 + 中调 + 受光高光，与炮管同一光源：左上）
+        jkPath();
+        ctx.fillStyle = shade(bCol, -46); ctx.fill();
+        ctx.save(); ctx.clip();
+        ctx.fillStyle = shade(bCol, -12);
+        ctx.fillRect(0, -jkRad * 0.62, jkLen, jkRad * 0.62);
+        ctx.fillStyle = 'rgba(255,255,255,0.10)';
+        ctx.fillRect(0, -jkRad * 0.96, jkLen, Math.max(0.8, jkRad * 0.24));
+        // 2 排 × 5 个散热孔：暗色小椭圆，沿轴向等距
+        const holeN = 5, rows = [-1, 1];
+        const holeRx = Math.max(0.8, jkLen * 0.055);
+        const holeRy = Math.max(0.6, jkRad * 0.26);
+        for(const sgn of rows){
+          for(let i = 0; i < holeN; i++){
+            const hx = jkLen * (0.16 + 0.68 * (i / (holeN - 1)));
+            const hy = sgn * jkRad * 0.42;
+            ctx.fillStyle = 'rgba(16,16,18,0.72)';
+            ctx.beginPath(); ctx.ellipse(hx, hy, holeRx, holeRy, 0, 0, TAU); ctx.fill();
+            ctx.fillStyle = 'rgba(120,124,130,0.30)';
+            ctx.beginPath(); ctx.ellipse(hx, hy - holeRy * 0.35, holeRx * 0.66, holeRy * 0.46, 0, 0, TAU); ctx.fill();
+          }
+        }
+        ctx.restore();
+        // 轮廓（暗边）
+        ctx.strokeStyle = 'rgba(12,12,14,0.75)'; ctx.lineWidth = 1;
+        jkPath(); ctx.stroke();
+        // 前后各一道亮色锁环（1px）
+        for(const u of [0.035, 0.965]){
+          const lx = jkLen * u;
+          ctx.strokeStyle = 'rgba(226,232,240,0.75)'; ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(lx, -jkRad * 1.06); ctx.lineTo(lx, jkRad * 1.06);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+   }
    ctx.lineCap = 'butt';
    } // end turret/barrel block (skipped when the ammo rack blew the turret off)
 
@@ -1876,16 +2355,12 @@ function drawSecondaryTurret(ctx, t){
   if(t.ammoBlew) return false;   // 殉爆掀飞炮塔后不绘制
   const s = pose.scale;
   const bCol = tankBodyCol(t);
-  // #4c（2026-10-19）：`pose.x/y` 是**世界坐标**，而调用点处于车体局部变换
-  //   （`translate(t.x,t.y)+rotate(hullAngle)`）内 ⇒ 必须先**逆变换**回车体局部再画：
-  //     局部 = R(−hullAngle) · (世界 − t.xy)
-  //   （旧实现把世界坐标直接塞进局部变换 ⇒ 双重叠加，位置随车体角度错动——
-  //    正是用户看到「副炮塔绑在车体上乱跑」的原因。）
+  // 2026-10-23 修复：副炮塔「不显示/不生效」——
+  //   `secondaryTurretPose` 返回的是**世界坐标**，而两个绘制分支调用本函数时 ctx 处于
+  //   **世界坐标系**（无 translate(t.x,t.y)+rotate(hullAngle) 外层），此前的「逆变换回
+  //   车体局部」把坐标多转/多平移一次，副炮塔画到屏幕外 ⇒ 观感「没显示」。
+  //   现行直接按世界坐标定位、按世界角旋转，与 `updateSecondaryTurret` 弹道起点严格同源。
   const dxa = pose.x - t.x, dya = pose.y - t.y;
-  const ha = t.hullAngle || 0;
-  const ch = Math.cos(-ha), sh = Math.sin(-ha);
-  const poseLx = dxa * ch - dya * sh;
-  const poseLy = dxa * sh + dya * ch;
   // 炮塔多边形顶点（相对车体原点的模型坐标）——平移到原点后按 s 缩放
   let verts = null;
   if(typeof turretPoly === 'function'){
@@ -1893,7 +2368,7 @@ function drawSecondaryTurret(ctx, t){
     if(tp && Array.isArray(tp.verts)) verts = tp.verts;
   }
   ctx.save();
-  ctx.translate(poseLx, poseLy);
+  ctx.translate(pose.x, pose.y);
   // 底座投影（与主炮塔同款：世界固定光向右下）
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.beginPath();
@@ -1907,9 +2382,7 @@ function drawSecondaryTurret(ctx, t){
   }
   ctx.closePath(); ctx.fill();
 
-  // #4c：pose.angle 是**世界角**，当前变换已含 hullAngle ⇒ 旋转用**相对角**
-  //   （世界副塔角 − hullAngle），保证副炮塔朝向在屏幕上正确。
-  ctx.rotate(pose.angle - (t.hullAngle || 0));
+  ctx.rotate(pose.angle);
   // 炮塔本体（缩放多边形）+ 侧壁暗边 + 勾线
   ctx.beginPath();
   if(verts){
@@ -2414,13 +2887,22 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     drawTank,
     spriteEnabled,         // #5：精灵分支判据（_spriteOverride 优先，回落 JSON sprite.enabled）
+    drawSpriteBarrel,      // 2026-10-22 B5-1：精灵分支炮管层（含 barrelWidthMult 横向通道，供回归测试）
+    drawTankSprite,        // 四层精灵整车主入口（同上，测试需要单独驱动某层）
     drawBrokenTracks,
     drawCharredHull,
     drawFireGlow,
     drawShells,
+    ammoFamilyOf,          // 2026-10-22 B5-2：弹种键 → 家族（'ap'|'he'|'heat'，本地映射表，不改 RULES）
+    AMMO_FAMILY,           // 同上：映射表本体（测试与内容侧只读）
     arcShellPose,          // #X6：曲射弹绘制期姿态（pitch/tilt/foreshorten，纯函数，逻辑层不消费）
     railChargeProgress,    // #U38：电磁炮充能进度（0..1，与 fireTank/HUD 同源）
+    drawBossRailLine,      // 2026-10-22 B5-3：Boss 电磁炮蓄能/击发炮线（fx 由 tank_battle.html 提供）
     drawCover,
+    wallStyleOf,           // 2026-10-22 B5-3：cov.wallStyle → 六个合法 style 之一（含回退）
+    drawWallCover,         // 同上：wall 贴图 + 三级破损叠加
+    drawWallDamage,        // 同上：裂纹/缺口叠加（单独导出供回归测试）
+    wallDamageLevel,       // 同上：hp/maxHp → 0/1/2 破损等级
     drawRiverChain,        // #U8：河流整链描边（调用方按 groupId 合并后单次调用）
     drawCoverWaterStreak,  // #U8：水流 streak 叠加（整链描边后逐段调用）
     orderRiverSegs,        // #U8：河流段沿程排序
@@ -2448,4 +2930,12 @@ if (typeof module !== 'undefined' && module.exports) {
     drawAttachments,
     drawTankHud
   };
+}
+// 2026-10-22 B5-3：显式挂到 globalThis（与 tank_fx.js 的 clearFx 同款写法）——
+//   浏览器顶层 function 已自动全局，这里再挂一次是无害幂等；Node 侧经 require 后
+//   `globalThis.drawBossRailLine` 也可直接调用（页面接线若走动态全局查找也能命中）。
+if (typeof globalThis !== 'undefined') {
+  globalThis.drawBossRailLine = drawBossRailLine;
+  globalThis.ammoFamilyOf = ammoFamilyOf;
+  globalThis.wallStyleOf = wallStyleOf;
 }

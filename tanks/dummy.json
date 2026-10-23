@@ -14,27 +14,84 @@
   "reload": 2,
   "shellSpeed": 1200,
   "heightClass": "heavy",
+  "passiveSlots": 2,
   "trackWidth": 6,
   "trackOffset": 0,
   "spreadMult": 2,
   "aimSpeed": 1,
-  "texture": "rust",
+  "texture": "camo_desert",
+  "appearance": {
+    "cupola": [
+      {
+        "style": "panoramic",
+        "dx": 5,
+        "dy": 1,
+        "mirror": false,
+        "scale": 0.85
+      },
+      {
+        "style": "panoramic",
+        "dx": 5,
+        "dy": 15,
+        "mirror": false,
+        "scale": 0.7
+      }
+    ]
+  },
+  "sprite": {
+    "enabled": false,
+    "track": {
+      "img": "assets/tanks/track-links.png",
+      "scale": 0,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0
+    },
+    "hull": {
+      "img": "",
+      "scale": 0,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0
+    },
+    "turret": {
+      "img": "",
+      "scale": 0,
+      "dx": 0,
+      "dy": 0,
+      "rot": 0,
+      "pivot": [
+        0,
+        0
+      ]
+    },
+    "barrel": {
+      "mountDx": 0,
+      "mountDy": 0,
+      "embed": 2,
+      "scaleMult": 1,
+      "gap": 3.7,
+      "imgStandard": "assets/tanks/barrels/barrel-standard.png",
+      "imgAutocannon": "assets/tanks/barrels/barrel-autocannon.png",
+      "imgRailgun": "assets/tanks/barrels/barrel-railgun.png"
+    }
+  },
   "barrel": {
     "len": 110,
     "width": 22,
     "muzzle": "multi",
     "evac": {
-      "style": "ring",
+      "style": "none",
       "pos": 40
     },
     "jacket": {
-      "len": 0,
-      "pos": 45
+      "len": 36,
+      "pos": 1
     },
     "mantlet": {
-      "style": "none",
+      "style": "single",
       "pos": 0,
-      "width": 40
+      "width": 29
     }
   },
   "hull": {
@@ -71,39 +128,48 @@
   "turret": {
     "verts": [
       [
-        16.2,
-        -8.2
+        16.5,
+        -8.8
       ],
       [
-        8.2,
-        -14
+        7.9,
+        -15
       ],
       [
-        -8.8,
-        -14
-      ],
-      [
-        -15.5,
-        -8.5
+        -8.7,
+        -14.6
       ],
       [
         -15.5,
-        8.5
+        -10.4
       ],
       [
-        -8.8,
-        14
+        -25.1,
+        -9.2
       ],
       [
-        8.2,
-        14
+        -25.1,
+        9.2
       ],
       [
-        16.2,
-        8.2
+        -15.5,
+        10.4
+      ],
+      [
+        -8.7,
+        14.6
+      ],
+      [
+        7.9,
+        15
+      ],
+      [
+        16.5,
+        8.8
       ]
     ],
     "faces": [
+      "front",
       "side",
       "side",
       "side",
@@ -111,6 +177,7 @@
       "side",
       "side",
       "side",
+      "front",
       "front"
     ],
     "armor": {
@@ -126,91 +193,5 @@
       "dx": 0,
       "dy": 0
     }
-  },
-  "modules": {
-    "driver": [
-      {
-        "part": "hull",
-        "x": 29,
-        "y": 0,
-        "len": 0.3,
-        "off": 0.1,
-        "mirror": false
-      }
-    ],
-    "ammo": [
-      {
-        "part": "turret",
-        "x": -15.5,
-        "y": 0,
-        "len": 1,
-        "off": 0,
-        "mirror": true
-      },
-      {
-        "part": "hull",
-        "x": 0,
-        "y": -19,
-        "len": 0.2,
-        "off": -0.15,
-        "mirror": true
-      }
-    ],
-    "engine": [
-      {
-        "part": "hull",
-        "x": -29,
-        "y": 0,
-        "len": 0.55,
-        "off": 0,
-        "mirror": true
-      },
-      {
-        "part": "hull",
-        "x": 0,
-        "y": -19,
-        "len": 0.3,
-        "off": 0.25,
-        "mirror": true
-      }
-    ],
-    "gunner": [
-      {
-        "part": "turret",
-        "x": 16.2,
-        "y": 0,
-        "len": 0.35,
-        "off": 0.32,
-        "mirror": false
-      },
-      {
-        "part": "turret",
-        "x": 12.2,
-        "y": -11.1,
-        "len": 0.5,
-        "off": 0,
-        "mirror": false
-      }
-    ],
-    "loader": [
-      {
-        "part": "turret",
-        "x": -0.3,
-        "y": 14,
-        "len": 0.5,
-        "off": 0.25,
-        "mirror": false
-      }
-    ],
-    "commander": [
-      {
-        "part": "turret",
-        "x": -0.3,
-        "y": -14,
-        "len": 0.5,
-        "off": -0.05,
-        "mirror": false
-      }
-    ]
   }
 }

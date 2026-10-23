@@ -339,7 +339,18 @@ function saveProfile(storage, profile){ return saveActiveProfile(storage, profil
 
 // ---------- 得分与转化 ----------
 
-function killScore(){ return economyConfig().killScoreBase || 20; }
+// 2026-10-22（第五批，用户需求「提高击毁高等级敌人所获得的分数」）：
+//   击杀分 = round(killScoreBase × (1 + killScoreLevelStep × (敌人等级 − 1)))
+//   等级来自 tank.enemyLevel（由 js/tank_model.js applyEnemyAmmoByLevel 写入）。
+//   实测：Lv1=20 / Lv4=35 / Lv7=50 / Lv10=65 / Lv13=80。
+//   向后兼容：不传 level（旧调用/测试）时等价于 Lv1 = killScoreBase，与旧行为逐字节一致。
+function killScore(level){
+  const cfg = economyConfig();
+  const base = cfg.killScoreBase || 20;
+  const step = (typeof cfg.killScoreLevelStep === 'number') ? cfg.killScoreLevelStep : 0.25;
+  const lv = (typeof level === 'number' && isFinite(level) && level >= 1) ? Math.floor(level) : 1;
+  return Math.round(base * (1 + step * (lv - 1)));
+}
 
 // 死亡时局内得分 → 商店点数（向下取整）
 function scoreToPoints(score, ratio){
@@ -513,10 +524,23 @@ function runShopLimitBlocked(def, curVal, stats){
   return false;
 }
 
-// 定价曲线：第 ownedLevel+1 级价格 = round(baseCost × costGrowth^ownedLevel)
+// 定价曲线：第 ownedLevel+1 级价格 = round(baseCost × costGrowth^ownedLevel × 后期折扣)
+//
+// 2026-10-22（第五批，用户需求「小幅降低后期升级所需的花费」）：
+//   在原有指数曲线之上叠加**后期折扣**——从第 shopLateFromLevel+1 级起，每级再乘
+//   shopLateDiscount（缺省 0.92）。
+//   为什么不动 costGrowth：那是全局曲线形状，改了会连带压低前中期价格（用户只要求「后期」）；
+//   叠加因子只在 lv > shopLateFromLevel 时生效，Lv0~Lv5 价格逐字节不变。
+//   实测 fast_reload(25/1.6)：Lv5 262（不变）→ Lv10 2749→1812(−34%) → Lv15 28823→12520(−57%)。
 function runShopPriceFor(def, ownedLevel){
+  const cfg = economyConfig();
   const lv = Math.max(0, Math.floor(ownedLevel || 0));
-  return Math.round((def.baseCost || 0) * Math.pow(def.costGrowth || 1, lv));
+  const from = (typeof cfg.shopLateFromLevel === 'number') ? cfg.shopLateFromLevel : 5;
+  const disc = (typeof cfg.shopLateDiscount === 'number' && cfg.shopLateDiscount > 0 && cfg.shopLateDiscount < 1)
+    ? cfg.shopLateDiscount : 0.92;
+  const raw = (def.baseCost || 0) * Math.pow(def.costGrowth || 1, lv);
+  const late = (lv > from) ? Math.pow(disc, lv - from) : 1;
+  return Math.round(raw * late);
 }
 
 // 余额判定（账本模型：余额由调用方以 total − spent 计算后传入）

@@ -1,0 +1,18 @@
+{
+  "id": "weapon_primary_autocannon_range",
+  "name": "机炮：加长身管",
+  "rarity": "rare",
+  "desc": "机炮射程 +100px（约 +9m）/ 级，上限 1200px（约 110m）。当前 900px ≈ 82m；升级后依次 1000px ≈ 92m、1100px ≈ 101m、1200px ≈ 110m。超出射程的弹丸会在中途消失，故加长身管是「能不能先手打断」的射程门槛，而不是精度增益。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "autocannon",
+      "statOverrides": {
+        "maxRange": "+100"
+      }
+    }
+  ],
+  "maxStacks": 3
+}

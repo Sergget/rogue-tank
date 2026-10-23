@@ -28,7 +28,8 @@ function ok(cond, label) {
 }
 
 // (a) 注册表完整性
-const REQUIRED = ['tree', 'bush', 'barricade', 'stump', 'rubble', 'soft'];
+// 2026-10-22（第五批）：栅栏(soft)/沙袋(barricade) 两套烘焙下线，统一为 wall 一套 + 六个 wallStyle 变体。
+const REQUIRED = ['tree', 'bush', 'wall', 'stump', 'rubble'];
 for (const key of REQUIRED) {
   const d = A.ASSET_DEFS[key];
   ok(!!d, `ASSET_DEFS['${key}'] exists`);
@@ -54,7 +55,7 @@ ok(!!A.ASSET_DEFS.fallen
 // half/full（box 渲染）保持程序化，不进注册表
 ok(!('half' in A.ASSET_DEFS) && !('full' in A.ASSET_DEFS),
   'half/full stay procedural (not in ASSET_DEFS)');
-ok(Object.keys(A.ASSET_DEFS).length >= 7, 'ASSET_DEFS has >= 7 entries (6 required + fallen)');
+ok(Object.keys(A.ASSET_DEFS).length >= 6, 'ASSET_DEFS has >= 6 entries (5 required + fallen)');
 
 // (b) mock ctx 上调用 bake / bakeCanopy 不抛错且发出绘制调用
 function makeMockCtx() {

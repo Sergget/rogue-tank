@@ -1,7 +1,7 @@
 # 生存模式与 strip 多行片
 
 > **摘要**：生存模式复用标准 strip 生成链、多行片拼接与全模式的道路净空收尾。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-22）
 > **源自**：`docs/specs/map.md` §24（2026-10-21 拆分）
 > **相关**：[strip 节点与防线式推进](./strip-defense.md) · [地面烘焙与相机](./ground-camera.md) · [道路与路网](./roads.md) · [沿革与未落地](./changelog.md)
 
@@ -59,6 +59,42 @@
 
 - `scripts/test-modes.js`：#U35 段——noEnemies / `quota=null` / 无 `bossOnly`+`stripForBoss` / `chunkRows` 与行元数据 / **逐 seed** 400px 与 100px 填满 / 上下极端带 / 每行横向路面 / **压路 = 0（3 seed × 2 模式）** / 补给站存在且不在路面水体上 / 标准模式零回归。合计 41 通过。
 - `scripts/test-strip.js`：`chunkRows` 缺省 = 显式 1 逐字节一致、片数翻倍、`row/y0/col` 元数据、`stripH=Σ行高`、跨界 structure/foliage = 0、无 400px 空带、每行有横向路面、多行无压路。
+
+## 生存模式 3×3 屏 + 四角补给点（2026-10-22 第五批）
+
+**用户裁定**：①「缩小地图」；②「补给点增加为 4 个，4 个角落各 1 个，且需要避开坦克不能到达、不能停留的位置」。
+
+### 地图尺寸：3×3 屏
+
+唯一配置源 `RULES.nodeMap.strip.survival = { screensX: 3, screensY: 3, chunkRows: 1, chunkCount: 1 }`。
+
+> ⚠️ **为什么必须同时给 chunkCount**：`generateStrip` 的宽度**不是**由 screensX 直接决定——`chunkCount = opts.chunkCount || max(2, round(screensX/3.5))`，每片宽由 `nodeScaleFor` 保证 ≥3 屏。只把 screensX 改成 3 仍会得到 2 列 ≈6 屏。显式 `chunkCount: 1` + `chunkRows: 1` ⇒ 1 列 × 1 行、片宽下限 3 屏 ⇒ 世界 ≈3×3 屏。
+
+**沿革**：2026-10-18 #U35 曾定为 `{screensX:5, screensY:5, chunkRows:2}`（实测 6.00×6.45~6.67 屏）；2026-10-22 用户要求缩小地图，改为 3×3。标准模式 strip 节点不受影响（仍 ≈10×2.2 屏）。
+
+### 补给点：4 个、四角各 1
+
+唯一配置源 `RULES.nodeMap.strip.survivalSupply`：
+
+| 键 | 值 | 语义 |
+|---|---|---|
+| `count` | 4 | 站点数（四角各 1） |
+| `cornerMargin` | 0.14 | 四角候选中心 = (0.14w, 0.14h) / (0.86w, 0.14h) / (0.14w, 0.86h) / (0.86w, 0.86h) |
+| `searchRadius` / searchRadiusMax | 180 / 320 px | 每角螺旋搜索半径（失败后放宽） |
+| `minStationDist` | 700 px | 站点彼此最小间距（3×3 屏下 1500 太远） |
+| `minPlayerDist` | 520 px | 距玩家出生点最小距离 |
+| `coverPad` | 60 px | 掩体避让外扩 |
+| `reachGrid` | 40 px | 可达性 BFS 网格步长 |
+
+**选址约束**（对应「避开坦克不能到达、不能停留的位置」）：
+
+1. 不在 `passability===0`（wall / rock / perm_block 等）或整发挡弹（full / building / intact / rock / wall）的掩体内（padding `coverPad`）；
+2. 不在 `water` / `river` 上（溺毙风险 = 不能停留）；
+3. **从玩家出生点可达**——新增 `isReachableFromSpawn(node, pt, cfg)`：以 `passability===0` 的 cover 为阻挡（含 20px 半径），在 [0,w]×[0,h] 上以 `reachGrid` 建网格做 8 邻域 BFS，从 `node.playerSpawn` 洪泛；目标格可达即 true。**网格缓存**在 `node._reachGrid`（同节点只建一次）。
+
+**沿革（不静默删除）**：改前 `placeSupplyStations` 恒 **3 个**站点，只有几何避让（`pointInCover(covers,x,y,80)`）+ 两个距离下限（900 / 1500px），**没有任何可达性判定**——「坦克不能到达」的角落也可能刷出补给点。
+
+**回归**：`scripts/test-modes.js` 断言「恰好 4 个 / 每象限 1 个 / 全部 BFS 可达 / 不在水体与实体掩体内」（40 seed 扫描）；同时把 areaRatio 断言从 ≈2.0x 重锚为 ≈0.45x（3×3 屏 vs 标准 ≈10×2.2 屏）。
 
 ## 相关页面
 - [strip 节点与防线式推进](./strip-defense.md) — `generateStrip` 的片拼接与接缝净空

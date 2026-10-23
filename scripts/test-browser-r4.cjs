@@ -589,22 +589,24 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
     }
 
     // ---- F：#J 批次（2026-09-30 用户反馈三项）----
-    // F1 #J1 地雷：一个节点内可连续布设多轮雷场（此前 mineMax === 单场数，首轮即用尽上限）
+    // ---- F：#J 批次（2026-09-30 用户反馈三项）----
+    // F1 #J1 雷场布设：
+    //   2026-10-22（第五批，用户裁定「地雷总数不设上限，只设雷场」）后本用例的语义已变：
+    //   · 雷场**槽位**默认 1（RULES.abilities.deploy_limits.mineFieldMaxDeploy），升级卡 +1/张、上限 3；
+    //   · 地雷本身不设总数上限（旧 mineMax 已删除）——曾经「mineMax === 单场数导致第 2 轮全被丢」的
+    //     原始缺陷已随上限删除而消失，故断言改为「槽位语义」：默认 1 槽时第 2 轮被拒，加卡后可再布。
     {
       await fireReady();
-      // #J1 稳健化（2026-10-04）：雷场延时 RULES.abilities.deploy_limits.mineFieldDelay=4s，
-      // 原固定 waitFor(4800) 仅余 800ms 余量，页面负载高时偶发「第1轮 0 枚」误报
-      // （2026-10-04 实测一次失败、复跑通过）⇒ 改为轮询到本场真正生成（上限 12s）再断言。
+      // 雷场延时 RULES.abilities.deploy_limits.mineFieldDelay=4s；轮询到真正生成（上限 12s）再断言。
       const snapMines = () => page.evaluate(() => ({
-        mines: window.deployables.filter(d => d.isMine).length,
-        spawned: window.__minesSpawned
+        mines: window.deployables.filter(d => d.isMine).length
       }));
       const lay = async (baseline) => {
         await page.evaluate(() => { const p = entities.find(e => e.id === 'player'); p.secondaryReloadT = 0; });
         await page.evaluate(() => document.getElementById('btnF').click()); await waitFor(120);
         await page.evaluate(() => document.getElementById('btnF').click());
         let snap = await snapMines();
-        for(let i = 0; i < 60 && snap.mines <= baseline; i++){
+        for (let i = 0; i < 60 && snap.mines <= baseline; i++) {
           await waitFor(200);
           snap = await snapMines();
         }
@@ -612,10 +614,28 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
       };
       await page.evaluate(() => { window.deployables.length = 0; });
       const r1 = await lay(0);
-      const r2 = await lay(r1.mines);     // 关键回归：不清理场地，直接再布一轮
-      check('#J1 同一节点可连续布设 2 轮雷场（无清理）',
-        r1.mines > 0 && r2.mines > r1.mines,
-        `第1轮 ${r1.mines} 枚 → 第2轮 ${r2.mines} 枚（累计生成 ${r2.spawned}）`);
+      check('#J1 第 1 轮雷场成功布设（空场、槽位 1/1）', r1.mines > 0,
+        `第 1 轮 ${r1.mines} 枚地雷`);
+
+      // 第 2 轮：槽位已满 ⇒ handleMineFieldF 直接 return（不产生预形态、不 push pendingMineFields）。
+      //   用 pending/preview 账本判定「被拒绝」，不依赖雷数（敌人踩雷会让计数下降）。
+      await page.evaluate(() => { const p = entities.find(e => e.id === 'player'); p.secondaryReloadT = 0; });
+      await page.evaluate(() => document.getElementById('btnF').click()); await waitFor(120);
+      await page.evaluate(() => document.getElementById('btnF').click());
+      await waitFor(300);
+      const slotRejected = await page.evaluate(() =>
+        window.__TEST__.pendingMineFields() === 0 && window.__TEST__.mineFieldPreview() === false);
+      check('#J1 默认 1 个雷场槽位：第 2 轮被拒绝（无预形态、无待生成雷场）', slotRejected,
+        `pending=${await page.evaluate(() => window.__TEST__.pendingMineFields())} preview=${await page.evaluate(() => window.__TEST__.mineFieldPreview())}`);
+
+      // 给 2 张「多雷场控制器」（1→2→3）后，第 2 轮应可正常布设。
+      await page.evaluate(() => {
+        window.__TEST__.giveCard('weapon_secondary_mine_slot');
+        window.__TEST__.giveCard('weapon_secondary_mine_slot');
+      });
+      const r2 = await lay(r1.mines);
+      check('#J1 持 2 张槽位卡后（1→3）可再布一轮', r2.mines > r1.mines,
+        `第 2 轮 ${r2.mines} 枚（上一轮 ${r1.mines}）`);
     }
     // F2 #J2 主武器换装不继承旧武器专有机制（电磁炮 pierce → 其他主炮仍可贯穿）
     {

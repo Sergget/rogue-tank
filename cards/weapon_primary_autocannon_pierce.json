@@ -1,0 +1,18 @@
+{
+  "id": "weapon_primary_autocannon_pierce",
+  "name": "机炮：钨芯弹链",
+  "rarity": "epic",
+  "desc": "机炮穿深 = 标准穿深的 85% / 90%（基础 80%），每级 +5%，最多 +10%。钨芯弹链只提升相对标准主炮的穿深系数，单发伤害与射速不变；对重甲目标从「基本洗不动」变为「可点名打穿」。",
+  "effects": [
+    {
+      "type": "weapon",
+      "action": "upgrade",
+      "slot": "primary",
+      "weaponType": "autocannon",
+      "statOverrides": {
+        "penMult": "+0.05"
+      }
+    }
+  ],
+  "maxStacks": 2
+}

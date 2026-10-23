@@ -1,7 +1,7 @@
 {
   "id": "demo_walking_fire",
   "name": "徐进弹幕",
-  "rarity": "epic",
+  "rarity": "common",
   "desc": "持续火力压制：装填时间 -15%，HE 弹伤害 +20%。",
   "effects": [
     { "type": "modifier", "stat": "reload", "mode": "mult", "value": 0.85 },
