@@ -2271,6 +2271,10 @@ function drawTankHud(ctx, t){
     ctx.textAlign = 'left';
     ctx.fillText(`Lv.${(t.aiTier || 0) + 1}`, bx + barW + 5, by + barH);
   }
+
+  // #P2（2026-10-24）：敌方警戒状态（? / !）——画在血条正上方。
+  //   显示范围已由调用方（drawTank 的 inView 判定）保证「仅视口内」。
+  drawAlertIndicator(ctx, t);
 }
 
 // ======================= PLAN §8.1.2 副炮塔（secondary turret）绘制 =======================
@@ -2408,6 +2412,88 @@ function drawSecondaryTurret(ctx, t){
   // 炮口闪光/曳光由开火路径（updateSecondaryTurret → fireActiveSecondary → shell）统一处理，
   // 这里只画静态外观，不额外叠特效（避免与主炮特效混淆）。
   return true;
+}
+
+// ======================= 敌方警戒状态指示（#P2 2026-10-24） =======================
+// 需求（用户）：「为敌人的警戒状态添加 ui 指示，如问号等」+ 两处裁定：
+//   ① 显示范围 = **仅视口内敌人**（`aabbInView` 剔除；视口外不泄露情报）；
+//   ② 语义 = **两档**：问号「?" = 怀疑/搜寻，感叹号 "!" = 已发现并锁定。
+//
+// 状态来源（实测 2026-10-24）：
+//   `alertLevel` 0=calm / 1=suspicious(闻声) / 3=engaged；
+//   `aiState`  patrol / suspicious / search / hold / skirmish / charge / react / stunned。
+//   ⚠️ `alertLevel === 2`（友邻遇袭）**从未被写入**（`alertEntity` 直接置 3）——见 §4.128 已知项。
+//
+// 归并口径（纯函数，可 Node 测试）：
+//   "engaged"  ← aiEngaged===true 且处于交火/机动/起转（react/skirmish/charge/hold）或 alertLevel>=3
+//   "alert"    ← 正在搜寻玩家记忆位置（aiState==='search'）或 alertLevel>=1（闻声调查）
+//   null       ← patrol / stunned / 已死 → **不显示**（不打扰画面）
+function alertIndicatorFor(t){
+  if(!t || t.hp <= 0) return null;
+  if(t.team !== 'enemy') return null;
+  if(t.isBoss) return null;                    // Boss 有独立血条/阶段 UI，不叠加
+  if(t.aiState === 'stunned') return null;     // 硬直/眩晕不表达警戒
+
+  const lv = (typeof t.alertLevel === 'number') ? t.alertLevel : 0;
+  // 已接战：aiEngaged 且不在纯巡逻/搜寻态；或 alertLevel 已达 3
+  const fightingStates = { react: 1, skirmish: 1, charge: 1, hold: 1 };
+  if(lv >= 3 || (t.aiEngaged === true && fightingStates[t.aiState])) return 'engaged';
+  // 搜寻/怀疑：闻声调查、或正朝 lastKnownPlayerPos 搜索
+  if(t.aiState === 'search' || lv >= 1) return 'alert';
+  return null;
+}
+
+// 绘制警戒指示：位于血条上方（不遮挡坦克本体与等级标签）。
+function drawAlertIndicator(ctx, t){
+  const kind = alertIndicatorFor(t);
+  if(!kind) return;
+  const barW = 44, barH = 5;
+  const bx = t.x - barW/2, by = t.y + (t.hullWid||38)/2 + 14;
+  const cx = bx + barW/2, cy = by - 12;         // 血条正上方
+  const isEngaged = kind === 'engaged';
+  const col = isEngaged ? '#ff4d3d' : '#ffd24d';
+
+  ctx.save();
+  // 深色底衬圆（保证任何地形上都可读）
+  ctx.beginPath();
+  ctx.arc(cx, cy, 7.5, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(12,14,10,0.72)';
+  ctx.fill();
+  // 描边：已锁定用实线、怀疑用虚线（弱化，不抢焦点）
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1.4;
+  if(!isEngaged && typeof ctx.setLineDash === 'function') ctx.setLineDash([2.5, 2]);
+  ctx.stroke();
+  if(typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+
+  // 字形：**用路径绘制，不依赖字体**。
+  //   为什么不用 fillText：① 离线回归垫片 `mini-canvas` 的 fillText 是**空实现**
+  //   ⇒ 像素断言永远测不到字形（实测两状态像素数完全相同 = 假绿）；
+  //   ② 不同设备/字体缺失时字形可能不可见。路径绘制在两处都稳定。
+  ctx.fillStyle = col;
+  ctx.strokeStyle = col;
+  if(isEngaged){
+    // 感叹号：上方竖条 + 下方圆点
+    ctx.fillRect(cx - 1.1, cy - 5.2, 2.2, 6.4);
+    ctx.beginPath();
+    ctx.arc(cx, cy + 3.6, 1.35, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // 问号：上钩弧 + 短竖 + 圆点
+    ctx.lineWidth = 1.9;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy - 2.4, 2.9, Math.PI * 0.85, Math.PI * 2.25);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + 0.6);
+    ctx.lineTo(cx, cy + 2.0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy + 4.1, 1.25, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 // 车型标志：六边形 = 重坦，五边形 = 中坦（显示在血条左侧）
@@ -2921,6 +3007,8 @@ if (typeof module !== 'undefined' && module.exports) {
     _groundSeedHash,       // #GT：种子哈希（测试比对用）
     drawFoliage,
     drawClassBadge,
+    alertIndicatorFor,     // #P2：警戒状态归并（纯函数，可 Node 测）
+    drawAlertIndicator,    // #P2：警戒图标绘制（? / !）
     drawGround,
     secondaryTurretPose,
     drawSecondaryTurret,

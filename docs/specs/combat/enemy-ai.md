@@ -37,6 +37,15 @@
   - **⑤自身被攻击**：`alertEntity` 置 level 3 + `_threatDir`（炮塔立即转向威胁）。
   - **suspicious 行为**：朝声音位置半速（0.5）调查，炮塔 ±0.5rad 扫视；8 秒（`suspiciousTimeout`）无新声音降级回 calm；接战中（level 3）不受声音干扰。
 
+- **警戒状态的 UI 指示（2026-10-24，`?` / `!`）**：世界内 HUD 在敌方血条正上方画一枚状态徽标，让玩家看见「谁在找我」。
+  - **两档语义**（用户裁定）：`?` = 怀疑/搜寻；`!` = 已发现并锁定。归并实现是纯函数 `alertIndicatorFor(t)`（`js/tank_battledraw.js`）：
+    - `engaged`（`!`，红色实线）← `alertLevel >= 3`，或 `aiEngaged === true` 且 `aiState` ∈ {`react`, `skirmish`, `charge`, `hold`}；
+    - `alert`（`?`，黄色虚线）← `aiState === 'search'`，或 `alertLevel >= 1`；
+    - `null`（不显示）← `patrol` / `stunned` / 已死 / 非敌方 / **Boss**（Boss 有独立血条与阶段 UI，不叠加）。
+  - **显示范围**（用户裁定）：**仅视口内**——复用 `drawTank` 前的 `aabbInView` 剔除（纯性能机制），视口外不泄露情报。
+  - **字形用路径绘制、不依赖字体**：`fillRect`/`arc`/`stroke` 画出竖条与问号弧。原因有两条——① 离线回归垫片 `mini-canvas` 的 `fillText` 是**空实现**，用它会让像素断言永远测不到字形（实测「两档像素数完全相同」= 假绿）；② 真机字体缺失时字形可能不可见。
+  - **回归**：`scripts/test-alert-indicator.js`（挂 `npm test`）覆盖归并三态 × 全部 `aiState`、负向不显示清单、真实光栅化（`?`/`!` 字形像素差异 >10、颜色红/黄可分）、`aabbInView` 剔除仍在。
+
 - **噪声累积升级（2026-10-22 用户裁定）**：「敌方 ai『听到』多次射击、友军多次被命中等后就应当直接确定玩家位置进入交战状态」。
   - **射击噪声累积**：每次 `hearNoise` 累加 `t.noiseHeat`（`shot` +0.34 / `impact` +0.20，唯一口径 `RULES.ai.noiseEscalate`）⇒ **3 次射击或 5 次落弹**即达 `escalateAt 1.0` → 直接 `alertEntity(t, srcX, srcY)`（进入交战 + 记住玩家位置）并把热量归零。自然衰减 `decayPerSec 0.12`（约 8.3s 清空，与 `suspiciousTimeout` 同量级）。
   - **旧实现的两个缺陷（ISSUES #Z7，2026-10-22 修）**：① `hearNoise` 只把 `alertLevel` 置 1，**全文件没有任何升级到 3 的路径**；② 同位置 2s 内的重复声音被直接丢弃 ⇒ **连射越多反而越攒不满**。现改为仍更新 `lastNoisePos`、但热量照常累加。

@@ -85,6 +85,8 @@ const TESTS = [
   // 2026-10-24 #P1：视野-隐蔽判定三洞——I0 模拟时钟（13 处挂钟迁移）/ I1 高度表（coverTiers.height）
   //   / I2 高度分档视线（灌木≠楼房）+ 隐蔽值相对化 + 对称化开关（默认关，保留接入）。
   'scripts/test-vision-stealth-p1.js',
+  // 2026-10-24 #P2：敌方警戒状态 UI 指示（? / !）——仅视口内显示、两档语义、纯函数归并。
+  'scripts/test-alert-indicator.js',
 ];
 
 function pickTests() {

@@ -2925,3 +2925,56 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 - **下一步候选**：I3 截图基线回归（2~3 人日）/ I4 拾取反收口（1 人日）/ A 路线（2~4 人日，共享 I1 高度表）。
 
 **细则归口**：`docs/specs/map/vision-stealth-3d-compat.md` §9（落地记录，唯一口径）；`docs/specs/map/cover-system.md`（tier 表新增 height 列）；`docs/specs/combat/ramming-stealth-dash.md`（隐蔽数值表 + 实现边界更新）。
+
+---
+
+## §4.129 2026-10-24 敌方警戒状态 UI 指示（? / !）
+
+**用户需求**：「为敌人的警戒状态添加 ui 指示，如问号等」。两处裁定：① 显示范围 = **仅视口内**（`aabbInView` 剔除）；② 语义 = **两档**（问号 = 怀疑/搜寻，感叹号 = 已发现并锁定）。
+
+### 1) 归并口径（纯函数 `alertIndicatorFor(t)`，`js/tank_battledraw.js`）
+
+| 输出 | 判据 | 视觉 |
+|---|---|---|
+| `engaged` | `alertLevel >= 3`，或 `aiEngaged===true` 且 `aiState` ∈ {`react`,`skirmish`,`charge`,`hold`} | 红色 `!`，实线描边 |
+| `alert` | `aiState === 'search'`，或 `alertLevel >= 1` | 黄色 `?`，虚线描边 |
+| `null` | `patrol` / `stunned` / 已死 / 非敌方 / **Boss** | 不绘制 |
+
+- 位置：敌方血条正上方（`by - 12`），深色底衬圆保证任何地形可读。
+- Boss 排除：Boss 已有独立血条 + 阶段 UI，叠加会喧宾夺主。
+
+### 2) 显示范围
+
+复用 `drawTank` 前的 `aabbInView(cam, t.x, t.y, t.hullLen, t.hullWid)` 剔除（`tank_battle.html`）——**视口外不泄露情报**，且零额外开销。回归里用**负向断言**锁住该剔除行不得被移除。
+
+### 3) 实现期发现的一个真缺陷（已修）
+
+**首版用 `ctx.fillText('?' / '!')` 画字形，是假绿**：
+
+- 离线回归垫片 `scripts/lib/mini-canvas.js` 的 `fillText` 是**空实现**（`fillText() { /* 文字在生图验证中跳过 */ }`）⇒ 像素断言永远测不到字形。
+- 实测证据：`?` 与 `!` 两种状态的**不透明像素数完全相同（各 208）**——因为只有底衬圆和描边被光栅化，字形根本没画。
+- 真机风险：字体缺失/渲染差异时字形可能不可见。
+
+**修法**：字形改为**路径绘制**（感叹号 = `fillRect` 竖条 + 圆点；问号 = 弧线 + 短竖 + 圆点），完全不依赖字体。
+
+### 4) 回归与验证
+
+新增 **`scripts/test-alert-indicator.js`**（已登记 `run-tests.js`）：
+
+- 归并三态 × 全部 `aiState`（`react`/`skirmish`/`charge`/`hold`/`search`/`suspicious`/`patrol`/`stunned`）。
+- **负向断言**：`patrol`/`stunned`/`hp<=0`/玩家/友军/Boss/`null`/缺字段老实体一律 `null`。
+- 绘制行为：engaged 用 `fillRect` 且**不出现 `fillText`**；alert 描边次数 ≥2 且带虚线。
+- **真实光栅化**（`mini-canvas`）：patrol 0 像素、alert/engaged >50 像素、**两档字形像素差异 >10**（正是首版假绿的那条）、红/黄颜色可分。
+- 视口约束：断言 `tank_battle.html` 的 `aabbInView` 剔除行仍在。
+- **变异测试已验证断言有效**：把 engaged 分支改成恒 `false` → 5 条断言转红；把问号分支改成画感叹号 → 「描边次数」断言转红；恢复后全绿。
+
+### 5) 验证
+
+`npm test` **54 通过 / 0 失败（54 项）** / `check-html` All checks passed / `tsc --noEmit` EXIT=0 / `wiki-check` broken=0 anchorBad=0 struct=0 template=0。
+
+### 6) 未做（另案）
+
+- `alertLevel === 2`（友邻遇袭）**仍从未被写入**——`alertEntity` 直接置 3。UI 已能表达，但该档缺状态来源（§4.128 已记档）。
+- 视口外敌人不显示是**用户裁定**的取舍：若将来要「雷达提示视口外警觉」，需另一套 HUD（不属本条）。
+
+**细则归口**：`docs/specs/combat/enemy-ai.md`「激活与警觉」（含归并表与假绿教训）。

@@ -126,7 +126,7 @@
 批次日志已按月份拆分：
 
 - [2026-09 批次 (§4.27–§4.39)](DEVELOPMENT-batches-2026-09.md)
-- [2026-10 批次 (§4.40–§4.128)](DEVELOPMENT-batches-2026-10.md)
+- [2026-10 批次 (§4.40–§4.129)](DEVELOPMENT-batches-2026-10.md)
 
 ### 4.0 §4.1~§4.26 编号索引（正文见归档）
 
@@ -171,6 +171,7 @@
 | §4.126 | 2026-10-24 | 视野-隐蔽与伪 3D 路线兼容性研究：**路线 B 最好兼容**（只有它让高度同时驱动画面与遮蔽）；但真正瓶颈是现行三个结构性缺陷（`vision` 布尔使灌木=楼房 / 隐蔽值与几何无关 / 只有玩家一侧有隐蔽），**在 2D 下即可先补** | `DEVELOPMENT-batches-2026-10.md` §4.126 · `specs/map/vision-stealth-3d-compat.md` |
 | §4.127 | 2026-10-24 | 伪 3D 就绪度：**「无建模基础」是伪约束**（几何已是参数化数据，A/B/C 资产均可由 JSON 生成）；先行基础设施 **I0~I5**（模拟时钟 13 处挂钟 / 高度表 / 统一遮蔽 / 截图回归 / 拾取收口 / 挤出工具）；**I1 全路线共享**，P1 量级修正为 4~5.5 人日 | `DEVELOPMENT-batches-2026-10.md` §4.127 · `specs/map/pseudo-3d-readiness.md` |
 | §4.128 | 2026-10-24 | **P1 落地**：I0 模拟时钟（`simNow` 三件套 + 13 处挂钟迁移）/ I1 高度表（`coverTiers[*].height` 18/18）/ I2 高度分档视线（**C 方案**：`LOS_HULL_Z=1.0` ⇒ 灌木挡车体不挡炮塔，hull-down 成立）/ 隐蔽值按覆盖深度折算 / 对称化保留开关未启用。**弹道侧未改** | `DEVELOPMENT-batches-2026-10.md` §4.128 · `specs/map/vision-stealth-3d-compat.md` §9 · `specs/map/cover-system.md` · `specs/combat/ramming-stealth-dash.md` |
+| §4.129 | 2026-10-24 | **敌方警戒 UI 指示（? / !）**：纯函数 `alertIndicatorFor` 归并三态（engaged/alert/null）、仅视口内显示（复用 `aabbInView`）、Boss/眩晕/死亡不显示。**修掉一个假绿**：首版用 `fillText` 画字形，而 `mini-canvas` 的 `fillText` 是空实现 ⇒ 两档像素数完全相同；改**路径绘制**后字形才真实可见 | `DEVELOPMENT-batches-2026-10.md` §4.129 · `specs/combat/enemy-ai.md` |
 
 ---
 
