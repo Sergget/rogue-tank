@@ -2810,3 +2810,52 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 **验证**：`node scripts/wiki-check.js` → `files=92 pages=66 links=1687 broken=0 anchors=862 anchorBad=0 struct=0 template=0`（新增页四行头部 + `## 相关页面` 合规，template=0 已覆盖）；未改任何代码，故 `check`/`test` 不受影响。
 
 **细则归口**：`docs/specs/map/vision-stealth-3d-compat.md`（唯一口径）。
+
+---
+
+## §4.127 2026-10-24 伪 3D 就绪度：影响面、先行基础设施与「无建模基础」定性
+
+**用户提问**：「继续研究会带来哪些影响、哪些基础设施需要先做，目前我没有任何建模基础」。
+
+**结论一：「无建模基础」对本作是伪约束。** 不是「可以学建模」，而是**本作根本不需要手工建模**——全部场景元素是硬表面参数化几何，且**已以数据形式存在于仓库**：
+
+| 元素 | 现存数据（实测） | 3D 化方式 |
+|---|---|---|
+| 坦克车体 | `tanks/*.json` 的 `hull.verts`（tiger-I：**9 顶点**箭形多边形） | 挤出棱柱 |
+| 坦克炮塔 | `turret.verts`（tiger-I：**23 顶点**） | 挤出棱柱 |
+| 炮管 | `barrel.len/width/muzzle/jacket/mantlet`（参数化） | 参数圆柱 |
+| 掩体/墙/楼 | `covers[].x/y/w/h/angle`（OBB） | **盒子**（最简单图元） |
+| 树/灌木 | w/h + `blobPath` 波浪轮廓（确定性函数） | 圆柱干 + 轮廓挤出冠 |
+| 岩石 | `rock-poly` 多边形 | 多面体（2D 绘制已是逐边法线着色） |
+| 涂装 | `tank_paint.js` `TEXTURE_DEFS` 程序烘焙 | 顶面贴纹理 + 侧壁明暗条带 |
+
+> 手工建模只影响「高细节精修资产」（铆钉/有机形体），本作**没有**这类既有需求。缺的是**技能不是资产**：B 需 ~50 行仿射数学（`utils` 已有 `rotate/angDiff`）；C 需渲染器 API + **5~8 人日学习曲线**（叠加在 ≥1 个月实现上）。判据：**资产若能全部由现有 JSON/配置驱动生成，就不受「无建模基础」约束**——A/B 完全满足，C 在参数化挤出路线下也满足。
+
+**结论二：先行基础设施 I0~I5（按依赖排序，每项独立可验证、独立可回退、不随路线选择报废）**：
+
+| # | 基础设施 | 内容 | 量级 |
+|---|---|---|---|
+| **I0** | 模拟时钟 | 统一 `simNow`，迁移**判定/计时路径**挂钟读取——实测 **13 处**（`tank_ai` 2 / `tank_boss` 5 / `tank_cover` 1 / `tank_fire` 1 / `tank_model` 2 / `tank_entity` 1）。**豁免**：`tank_economy` 存档时间戳、渲染侧 fx 时间量子 | 1~1.5 人日 |
+| **I1** | 高度数据模型 | `RULES.coverTiers[*].height`（18 键）+ 车体/炮塔真实高度字段化（替代 `getPartZRange` 硬编码）。**唯一口径**，渲染与判定同读 | 1 人日 |
+| **I2** | 统一遮蔽查询 | `hasLineOfSight` 布尔 → 高度分档，与 `getExposure` 的 `zMin>=1.2` 同源；`vision` 保留为「是否参与」开关 | 2~3 人日 |
+| **I3** | 视觉回归双轨 | 保留 `mini-canvas` 像素链（A 可用）+ 新增**浏览器截图基线链**（复用 `playwright-core` 与四条 `test:browser` 框架） | 2~3 人日 |
+| **I4** | 拾取反解收口 | `worldToScreen/screenToWorld` 收口（实测散在 **16 处**调用：battle 9 / camera 4 / ai_squad 1 / drone 1 / bench 1） | 1 人日 |
+| **I5** | 几何挤出工具（仅 C） | `verts→棱柱` / `barrel→圆柱` / `w/h/angle→盒` / `blobPath→冠体` + 预览页 | 3~5 人日 |
+
+**影响面要点（实测）**：
+
+- **路线 A**：只碰 `tank_battledraw.js`；输入/小地图/HUD **零影响**；`test-render.js` 91 条 `ok()` 中视觉断言约三分之一会漂移。
+- **路线 B**：世界变换**单点插入**（`tank_battle.html:6045-6048` 的 `translate+scale`，绘制代码不用改）；但 **拾取 16 处**与 **地面烘焙 AABB 假设**（`drawGroundCached` 的 `wantW = vw + 2×MARGIN`，斜投影下可见区是平行四边形）是最大工作面与最大技术风险（隐藏成本 2~4 人日）；小地图零影响。
+- **路线 C**：渲染层整体重写、逻辑层不动；`mini-canvas` **无法跑 WebGL** ⇒ 91 条像素断言整体退役改截图基线（**流程变革**）；设计器**不动**（它编辑的 `verts` 就是 3D 源）。
+
+**关键量级修正（本批实测推翻初估）**：§4.126 初估 P1 为「3~5 人日」，实测 I0 的挂钟读取是 **13 处而非 3 处**（且 `tank_model.js:328/368` 的 **timed 修饰器 `expiresAt` 全部读 `Date.now()`** —— 存量非确定性隐患，比预想更深）。P1 修正为 **4~5.5 人日**。
+
+**建议顺序**：I0+I1+I2（=P1，4~5.5 人日）→ I3 截图基线（2~3 人日，可与 P1 并行）→ A（2~4 人日，共享 I1）→ **B 的 Go/No-Go 门**（先做 1 人日「斜投影下能否判读 650px 级距离」的静态对比图）→ C 仅在「可旋转相机」成为明确玩法需求时启动 I5。
+
+**新增文档**：`docs/specs/map/pseudo-3d-readiness.md`（§1 无建模基础定性、§2 影响面清单、§3 I0~I5 清单、§4 路线×基础设施矩阵、§5 先行顺序、§6 风险、§7 一句话回答）。兼容页 `docs/specs/map.md` 新增 **§31**（31.1 定性 / 31.2 I0~I5），未动旧编号。
+
+**同步**：`specs/map/index.md` 主题页表 +1（16→**17**）；`pseudo-3d-2p5d.md` 与 `vision-stealth-3d-compat.md` 互加链接；`vision-stealth-3d-compat.md` §6 的 P1 量级与 §8 结论同步为 4~5.5 人日（注明由本批修正）；`map.md` §30.2 同步。
+
+**验证**：`node scripts/wiki-check.js` → `files=93 pages=67 links=1703 broken=0 anchors=864 anchorBad=0 struct=0 template=0`；未改代码，`check`/`test` 不受影响（`npm test` 仍 52/52，`check-html` All checks passed）。
+
+**细则归口**：`docs/specs/map/pseudo-3d-readiness.md`（唯一口径）。
