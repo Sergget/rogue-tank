@@ -2773,3 +2773,40 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 
 **细则归口**：`docs/specs/map/pseudo-3d-2p5d.md` §3.1（唯一口径——「三条是临时状态」的完整论证在此）。
 
+---
+
+## §4.126 2026-10-24 视野-隐蔽机制与伪 3D 路线的兼容性研究
+
+**用户提问**：「研究哪个更好兼容视野-隐蔽机制」。
+
+**结论**：**路线 B（固定斜投影层）更好兼容**。理由不是「3D 更好看」，而是视野-隐蔽本质是**几何问题**（谁挡得住谁的视线），而现行实现把它压成了「2D 圆形距离 × 布尔遮挡」。**只有能把「高度」同时带进画面与遮蔽判定的路线，才真正兼容这套机制**：
+
+| 路线 | 高度进入视线判定 | 净收益 |
+|---|---|---|
+| A. 强化 2.5D 绘制 | ❌ 几何完全不动 | **≈ 0**（只改画面） |
+| B. 固定斜投影层 | ✅ 渲染必须维护高度轴，可同时驱动遮蔽 | **高** |
+| C. 真 3D | ✅ 原生有 z | 最高，但**过度** |
+
+**但真正的瓶颈不是路线，而是现行机制的三个结构性缺陷（2026-10-24 实测）**：
+
+1. **`vision` 布尔吞掉高度**——`hasLineOfSight`（`js/tank_cover.js:1036`）命中任一 `vision:true` 的 cover 即 `return false`；`RULES.coverTiers` **18 键零个带高度字段**（`RULES.heights` 已于 2026-09-20 #E3 删除）。后果：**灌木 = 楼房**，高建筑旁边过视线照样被挡 / 或被点亮。
+2. **隐蔽值与几何无关**——`camouflageTerrainBonus` 用 `getCoverUnderTank` 的 **OBB 相交**判「在灌木里」，加 `bushBonus 0.40`；不看距离、朝向、是否真被遮。敌人 50px 直视时仍拿满加成。
+3. **只有玩家一侧有隐蔽**——`camouflageDistanceMultiplier(p)` 唯一调用点在 `aiDecideEnemy`，**敌人对玩家无对称隐蔽**；玩家永远不会被 AI 偷袭，且 HUD 无暴露度反馈。
+
+**附带核实（建议另案处理，本批不改码）**：
+
+| 发现 | 证据 | 性质 |
+|---|---|---|
+| `aiSpotBaseDist` 是死配置 | 全仓仅 `js/tank_rules.js:51` 定义 + `test-recent-mods.js:83` 断言非零 | 应删或接消费方 |
+| `alertLevel === 2`（友邻遇袭）从未写入 | `tank_ai.js` 只有 0/1/3 三态 | 注释声明五层级但实现缺一级 |
+| 开火惩罚读挂钟时间 | `camouflageFiringMul` 用 `performance.now()`（`js/tank_cover.js:313`） | 理论上有确定性风险（`test-replay` hash 基线） |
+
+**关键判断：视野-隐蔽的改进不需要等伪 3D。** 建议顺序：**P1 补判定三洞（3~5 人日，2D 下即可）→ P2 路线 A（2~4 人日，共享 P1 的高度表）→ P3 路线 B（8~15 人日）→ P4 路线 C（仅在「可旋转相机」成为明确需求时）**。反过来做（先渲染）会得到「画面有高度、判定没高度」的割裂版本。
+
+**新增文档**：`docs/specs/map/vision-stealth-3d-compat.md`（设计预留；§1 完整数据流、§2 三个缺陷、§3 路线对比、§4 若选 B 的最小改造清单含 `coverTiers.height` 建议表、§5 为什么不直接上 C、§6 实施顺序、§7 风险）。兼容页 `docs/specs/map.md` 新增 **§30**（30.1 现行判定实测口径 / 30.2 实施顺序），未动任何旧编号。
+
+**同步**：`specs/combat/ramming-stealth-dash.md` 的「AI 接入口径」补**已核实的实现边界**表（5 行，含实测证据）；`specs/map/pseudo-3d-2p5d.md` §3 加交叉说明「若目标是兼容视野-隐蔽，推荐变为 B」并互相链接；`specs/map/index.md` 主题页表 +1（15→**16**）；`docs/PLAN.md` 新增待办条目 4（P1 三洞补齐，待裁定）。
+
+**验证**：`node scripts/wiki-check.js` → `files=92 pages=66 links=1687 broken=0 anchors=862 anchorBad=0 struct=0 template=0`（新增页四行头部 + `## 相关页面` 合规，template=0 已覆盖）；未改任何代码，故 `check`/`test` 不受影响。
+
+**细则归口**：`docs/specs/map/vision-stealth-3d-compat.md`（唯一口径）。

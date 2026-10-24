@@ -125,7 +125,7 @@
 批次日志已按月份拆分：
 
 - [2026-09 批次 (§4.27–§4.39)](DEVELOPMENT-batches-2026-09.md)
-- [2026-10 批次 (§4.40–§4.125)](DEVELOPMENT-batches-2026-10.md)
+- [2026-10 批次 (§4.40–§4.126)](DEVELOPMENT-batches-2026-10.md)
 
 ### 4.0 §4.1~§4.26 编号索引（正文见归档）
 
@@ -167,6 +167,7 @@
 | §4.123 | 2026-10-23 | 近期可落地三机制：撞击伤害（`RULES.ramming`）/ 隐蔽感知（`RULES.camouflage`）/ 战术闪跃（`RULES.abilities.flash_dash`）+ 烟幕副武器；并修复曲射榴弹炮「主武器机制泄漏」并削弱精度为 4×base×距离 | `DEVELOPMENT-batches-2026-10.md` §4.123 · `specs/combat/ramming-stealth-dash.md` · `specs/combat/arc-fire.md` |
 | §4.124 | 2026-10-23 | 贴图资产口径收口（程序化生成 + 后期贴图接线；删 AI 出图链与 19 张坦克 PNG）+ 伪 3D 研究（俯视 2.5D，设计预留） | `DEVELOPMENT-batches-2026-10.md` §4.124 · `specs/map/textures.md` · `specs/map/pseudo-3d-2p5d.md` · `docs/ASSETS-PIPELINE.md` |
 | §4.125 | 2026-10-24 | **纠正定性**：零依赖 / `file://` 直开 / Node 像素回归**不是硬约束，只是当前临时选择**；真 3D（WebGL/Three.js）未被架构排除，本阶段不做的理由是缺 3D 美术管线与玩法收益未证实（推翻 §4.124 的第 1、2 条「不选 C」理由） | `DEVELOPMENT-batches-2026-10.md` §4.125 · `specs/map/pseudo-3d-2p5d.md` §3.1 |
+| §4.126 | 2026-10-24 | 视野-隐蔽与伪 3D 路线兼容性研究：**路线 B 最好兼容**（只有它让高度同时驱动画面与遮蔽）；但真正瓶颈是现行三个结构性缺陷（`vision` 布尔使灌木=楼房 / 隐蔽值与几何无关 / 只有玩家一侧有隐蔽），**在 2D 下 3~5 人日即可先补** | `DEVELOPMENT-batches-2026-10.md` §4.126 · `specs/map/vision-stealth-3d-compat.md` |
 
 ---
 

@@ -89,6 +89,18 @@ mul = clamp(1 / (1 + camo), 0.3, 1)
 - **脱离距离不吃折扣**（仍用未折扣的 `exitD`）——否则玩家在原地点火/熄火就能反复脱离-重进，造成抖动。
 - **Boss 与玩家 Boss 不参与**（Boss 视为独立观瞄，不读玩家隐蔽值）。
 
+**已核实的实现边界（2026-10-24）**：
+
+| 项 | 实测 | 影响 |
+|---|---|---|
+| 隐蔽值**只对玩家**取值 | `camouflageDistanceMultiplier(p)` 唯一调用点在 `aiDecideEnemy`，敌人对玩家无对称隐蔽 | 偷袭只能单向成立；玩家不会被 AI 偷袭 |
+| 遮蔽只有**布尔** | `hasLineOfSight` 命中 `vision:true` 即全遮；`coverTiers` 18 键**零个**带高度字段 | 灌木 = 楼房；高度差在视线判定中完全消失 |
+| 地形加成**与视线无关** | `camouflageTerrainBonus` 用 `getCoverUnderTank` 的 OBB 相交，不看距离/朝向/是否真的被遮 | 敌人 50px 直视时仍拿满 0.40 加成 |
+| `aiSpotBaseDist` 是**死配置** | 全仓仅 `js/tank_rules.js:51` 定义 + `test-recent-mods.js:83` 断言非零，零消费方 | 应删除或接上消费方 |
+| 开火惩罚读**挂钟时间** | `camouflageFiringMul` 用 `performance.now()`（`js/tank_cover.js:313`） | 理论上有确定性风险（`test-replay` 的 hash 基线） |
+
+> 上述结构性问题与伪 3D 路线的关系、以及在 2D 下先补齐的改造建议，见 [视野-隐蔽与伪 3D 兼容性](../map/vision-stealth-3d-compat.md)。
+
 ## 战术闪跃（RULES.abilities.flash_dash）
 
 **机制**：激活后在短时间内大幅提升极速与加速度（Tesla RCS 风格短促突进），
