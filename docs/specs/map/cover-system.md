@@ -108,10 +108,14 @@
 
 ### tier 定义（唯一数值口径 = `RULES.coverTiers`）
 
-| tier | label | passability | shellBlock | destructible / hp | vision | drawStyle | wallStyle |
-|---|---|---|---|---|---|---|---|
-| `wall` | 掩体 | **0**（不可通行，只能绕） | `wall` | `null` / **Infinity**（不可摧毁） | true | `wall` | `concrete`（生成期按 biome 随机分配六种之一） |
-| `wall_breakable` | 可摧毁掩体 | **0** | `wall` | **4**（承受 4 发后**直接消失**，`toTier: null` 不降级残骸） | true | `wall` | `sandbag` |
+| tier | label | passability | shellBlock | destructible / hp | vision | height (m) | drawStyle | wallStyle |
+|---|---|---|---|---|---|---|---|---|
+| `wall` | 掩体 | **0**（不可通行，只能绕） | `wall` | `null` / **Infinity**（不可摧毁） | true | **1.4** | `wall` | `concrete`（生成期按 biome 随机分配六种之一） |
+| `wall_breakable` | 可摧毁掩体 | **0** | `wall` | **4**（承受 4 发后**直接消失**，`toTier: null` 不降级残骸） | true | **1.4** | `wall` | `sandbag` |
+
+> **`height`（米）列是 2026-10-24 #P1/I1 新增的「视线遮挡分档唯一口径」**：某掩体挡住视线 ⇔ `height ≥ min(eyeZ, targetZ)`。
+> 分档语义：`0` = 纯地面/水面（不参与视线）；`< 2.3` = 只挡车体（observed at `LOS_HULL_Z`=1.0m）；`≥ 2.3` = 全挡（可遮炮塔）。
+> 全 18 键取值见 `RULES.coverTiers`；`hasLineOfSight` 消费，见 [视野-隐蔽与伪 3D 兼容性 §9](./vision-stealth-3d-compat.md#9-落地记录2026-10-24p1)。
 
 **已删除**：`soft`（栅栏，原 passability 0.45 / shellBlock false / destructible 1）与 `barricade`（沙袋路障，原 shellBlock 为 single 挡 1 发）两个 tier **整体下线**。老存档/旧基线的这两个 tier 由 `snapshotCovers` 的 `_normalizeCoverTierKey` 映射（soft→wall、barricade→wall_breakable、未注册 tier→wall）。
 

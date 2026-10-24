@@ -311,6 +311,13 @@ function applyBossStage(entity, stage) {
   }
 }
 
+// #P1 / I0（2026-10-24）：Boss 计时统一读模拟时钟。
+//   本模块原有 5 处 `Date.now()`（减速/冲锋到期写入与回收），全部改为本助手，
+//   否则「同一份输入不同时刻结果不同」⇒ 回放不可复现（见 tank_utils 的 simNow 头注）。
+function _bossNow() {
+  return (typeof simNow === 'function') ? simNow() : Date.now();
+}
+
 // 按当前血量比例判定阶段；跨阶段时自动 applyBossStage，返回 { changed, from, to, stage }。
 function updateBossStage(entity) {
   if (!entity.boss || !entity.boss.stages || entity.boss.stages.length === 0) return { changed: false, stage: null };
@@ -476,7 +483,8 @@ function triggerBossHitReact(t, weak) {
     const slowSec = (cfg.stunSlowSeconds !== undefined ? cfg.stunSlowSeconds : 0.25);
     // #W5：记录减速窗口的绝对到期时刻，供 updateBossStage 显式回收（视觉窗口 base/1.6×base
     // 与减速窗口不同长，不能拿 bossHitReactT 当回收条件——它比减速窗口长 0.1s）。
-    t.bossHitSlowUntil = Date.now() + slowSec * 1000;
+    // #P1 / I0（2026-10-24）：到期时刻用模拟时钟（updateBossStage 的回收判据同源）。
+    t.bossHitSlowUntil = _bossNow() + slowSec * 1000;
     addModifier(t, {
       stat: 'maxSpeed', mode: 'mult',
       value: cfg.slowMul !== undefined ? cfg.slowMul : 0.35,
@@ -639,7 +647,7 @@ function updateBossBehavior(t, dt, target, opts) {
   //   玩家打完一发停手 >0.25s 后，Boss 会永久保持 0.35× 极速（≈44px/s），直到下次被命中。
   //   此处按 `boss-charge` 的既有做法（updateBossStage 内到期 removeModifierBySource）回收，
   //   判据用减速窗口自己的 bossHitSlowUntil（与视觉窗口 bossHitReactT 不同长）。
-  if (t.bossHitSlowUntil !== undefined && Date.now() >= t.bossHitSlowUntil) {
+  if (t.bossHitSlowUntil !== undefined && _bossNow() >= t.bossHitSlowUntil) {
     if (typeof removeModifierBySource === 'function') removeModifierBySource(t, 'boss-hitreact');
     delete t.bossHitSlowUntil;
   }
@@ -657,7 +665,7 @@ function updateBossBehavior(t, dt, target, opts) {
   }
 
   // --- weave 冲刺到期回收（timed modifier 过期后清 source，防残留叠乘） ---
-  if (style === 'weave' && t.bossChargeUntil !== undefined && Date.now() >= t.bossChargeUntil) {
+  if (style === 'weave' && t.bossChargeUntil !== undefined && _bossNow() >= t.bossChargeUntil) {
     if (typeof removeModifierBySource === 'function') removeModifierBySource(t, 'boss-charge');
     delete t.bossChargeUntil;
   }
@@ -744,9 +752,9 @@ function updateBossBehavior(t, dt, target, opts) {
         const mul = bb.chargeSpeed || 1.6;
         if (typeof addModifier === 'function') {
           addModifier(t, { stat: 'maxSpeed', mode: 'mult', value: mul,
-                           source: 'boss-charge', scope: 'timed', expiresAt: Date.now() + WEAVE_CHARGE_SECONDS * 1000 });
+                           source: 'boss-charge', scope: 'timed', expiresAt: _bossNow() + WEAVE_CHARGE_SECONDS * 1000 });
         }
-        t.bossChargeUntil = Date.now() + WEAVE_CHARGE_SECONDS * 1000;
+        t.bossChargeUntil = _bossNow() + WEAVE_CHARGE_SECONDS * 1000;
         evts.push({ type: 'chargeStart', speedMul: mul, durationSec: WEAVE_CHARGE_SECONDS });
       }
     }

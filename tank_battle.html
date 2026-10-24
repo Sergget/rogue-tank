@@ -6675,6 +6675,11 @@ function loop(now){
   last = now;
   dt *= testTimeScale;     // 测试时间缩放（0=暂停；draw 照常渲染当前快照）
 
+  // #P1 / I0（2026-10-24）：注入模拟时钟——判定/计时路径（AI 噪声超时、Boss 减速/冲锋到期、
+  //   隐蔽开火惩罚、撞击接触冷却、timed 修饰器到期）全部读 simNow() 而非挂钟，
+  //   使同一份输入可复现。时间源 = rAF 的 now（毫秒）。
+  if (typeof setSimNow === 'function') setSimNow(now);
+
   accumulator += dt;
   // P-08 模拟门控：run 模式下只有 battle 状态推进战斗循环（节点图/结算/卡牌/阵亡冻结战场）；
   // 未开局恒模拟（封面路由下仍可自由驾驶预览）。

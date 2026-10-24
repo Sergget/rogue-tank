@@ -2,6 +2,44 @@
 
 const TAU = Math.PI * 2;
 
+// ======================= 模拟时钟（#P1 / I0，2026-10-24） =======================
+// 为什么需要：判定/计时路径若直接读 `performance.now()` / `Date.now()`，同一份输入在
+//   不同帧时刻会得到不同结果 ⇒ 回放不可复现、单测依赖真实时间。历史上实测有 13 处
+//   判定/计时挂钟读取（`tank_ai` 2 / `tank_boss` 5 / `tank_cover` 1 / `tank_fire` 1 /
+//   `tank_model` 2 / `tank_entity` 1），其中 `tank_model` 的 timed 修饰器 `expiresAt`
+//   全部读 `Date.now()`，是存量非确定性隐患。
+//
+// 口径：
+//   · **主循环每帧调用一次 `setSimNow(nowMs)`**（battle/bench 从 rAF 的 `now` 注入）；
+//   · 所有**判定/计时**路径改读 `simNow()`（毫秒）；
+//   · **豁免**（继续用墙钟）：存档时间戳（`tank_economy`）、DOM 元素 id、渲染侧 FX 时间量子
+//     ——它们不影响玩法判定，且前者本就该记录真实时间。
+//   · 未注入时 `simNow()` 回退真实时钟 ⇒ 零回归（旧调用方、Node 单测无需改造即可跑）。
+//
+// 注意：`simNow` 必须是**单调推进**的；回放时由回放驱动器按步长推进即可复现。
+let _simNowOverride = null;
+
+/** 设置模拟时钟（毫秒）。传 null/undefined 取消注入、回退真实时钟。 */
+function setSimNow(ms) {
+  _simNowOverride = (typeof ms === 'number' && Number.isFinite(ms)) ? ms : null;
+}
+
+/** 推进模拟时钟（回放/测试用；相对当前注入值加 ms）。未注入时先锚定到真实时钟再推进。 */
+function advanceSimNow(deltaMs) {
+  const d = (typeof deltaMs === 'number' && Number.isFinite(deltaMs)) ? deltaMs : 0;
+  const base = (_simNowOverride !== null) ? _simNowOverride : simNow();
+  _simNowOverride = base + d;
+  return _simNowOverride;
+}
+
+/** 当前模拟时刻（毫秒）。未注入 ⇒ 回退 performance.now()/Date.now()。 */
+function simNow() {
+  if (_simNowOverride !== null) return _simNowOverride;
+  return (typeof performance !== 'undefined' && performance && performance.now)
+    ? performance.now()
+    : Date.now();
+}
+
 function norm(a) {
   a = a % TAU;
   if (a < 0) a += TAU;
@@ -130,6 +168,10 @@ if (typeof module !== 'undefined' && module.exports) {
     partCorners,
     partEdges,
     reflectDir,
-    lightningPath
+    lightningPath,
+    // #P1 / I0：模拟时钟（判定/计时路径的唯一时间源）
+    simNow,
+    setSimNow,
+    advanceSimNow
   };
 }

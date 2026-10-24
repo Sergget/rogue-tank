@@ -138,7 +138,9 @@ function resolveTankCollisions(iterations){
           // 接触去重：同一对车在同一次接触中只结算一次（分离解算每帧跑 4 次迭代、
           //   且持续互顶会连续多帧命中 ⇒ 不去重会一帧内重复扣血数次，实测数帧即可把
           //   100HP 打空）。冷却时长取 RULES.ramming.contactCooldown（缺省 0.5s）。
-          const nowMs = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          // #P1 / I0（2026-10-24）：接触冷却改读模拟时钟，回放可复现。
+          const nowMs = (typeof simNow === 'function') ? simNow()
+            : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
           const pairKey = String(a.id) + '|' + String(b.id);
           const last = (a._ramHitAt && a._ramHitAt[pairKey]) || 0;
           const cdMs = ((RULES.ramming && RULES.ramming.contactCooldown) || 0.5) * 1000;

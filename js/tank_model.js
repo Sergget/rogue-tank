@@ -325,7 +325,10 @@ function addModifier(tank, mod){
 }
 
 function addTimedModifier(tank, mod, durationMs){
-  return addModifier(tank, Object.assign({}, mod, { scope: 'timed', expiresAt: Date.now()+durationMs }));
+  // #P1 / I0（2026-10-24）：到期时刻改用模拟时钟（与 refreshStats 的过滤判据同源）。
+  //   旧实现读 Date.now() ⇒ timed 修饰器到期判定不可复现（回放/单测都受真实时间影响）。
+  const now = (typeof simNow === 'function') ? simNow() : Date.now();
+  return addModifier(tank, Object.assign({}, mod, { scope: 'timed', expiresAt: now + durationMs }));
 }
 
 function removeModifierBySource(tank, source){
@@ -365,7 +368,7 @@ function removeRunModifiers(tank){
 }
 
 function refreshStats(tank){
-  const now = Date.now();
+  const now = (typeof simNow === 'function') ? simNow() : Date.now();   // #P1 / I0：与 addTimedModifier 同源
   if(tank.modifiers.some(m => m.expiresAt !== Infinity && m.expiresAt <= now)){
     tank.modifiers = tank.modifiers.filter(m => m.expiresAt === Infinity || m.expiresAt > now);
   }

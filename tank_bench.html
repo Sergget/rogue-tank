@@ -1479,6 +1479,9 @@ function loop(now){
   if (dt > 0.2) dt = 0.2; // panic threshold to avoid spiral of death
   last = now;
 
+  // #P1 / I0（2026-10-24）：与 battle 页同源注入模拟时钟（判定/计时路径统一时间源）。
+  if (typeof setSimNow === 'function') setSimNow(now);
+
   accumulator += dt;
   while (accumulator >= STEP_TIME) {
     update(STEP_TIME);

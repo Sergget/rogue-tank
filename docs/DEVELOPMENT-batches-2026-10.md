@@ -2859,3 +2859,69 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 **验证**：`node scripts/wiki-check.js` → `files=93 pages=67 links=1703 broken=0 anchors=864 anchorBad=0 struct=0 template=0`；未改代码，`check`/`test` 不受影响（`npm test` 仍 52/52，`check-html` All checks passed）。
 
 **细则归口**：`docs/specs/map/pseudo-3d-readiness.md`（唯一口径）。
+
+---
+
+## §4.128 2026-10-24 P1 落地：视野-隐蔽判定三洞（I0 模拟时钟 / I1 高度表 / I2 高度分档视线）
+
+**用户裁定**：「先做 p1」+ 两处口径裁定：① 灌木遮挡方案选 **C**（改判据而非抬高度）；② **隐蔽暂不对称化，保留接入的能力**。
+
+**背景**：§4.126 核实了视野-隐蔽的三个结构性缺陷（`vision` 布尔使灌木=楼房 / 隐蔽值与几何无关 / 只有玩家一侧有隐蔽）。用户裁定先在 2D 下补齐，不涉渲染。
+
+### 1) I0 模拟时钟（新增 `js/tank_utils.js`）
+
+| 项 | 内容 |
+|---|---|
+| API | `simNow()` / `setSimNow(ms)` / `advanceSimNow(deltaMs)`；未注入时回退真实时钟（零回归） |
+| 主循环注入 | `tank_battle.html` / `tank_bench.html` 的 `loop(now)` 首行 `setSimNow(now)` |
+| 迁移 13 处挂钟读取 | `tank_ai`（suspicious 超时 / 噪声时刻）、`tank_boss`（减速·冲锋到期，5 处经 `_bossNow()`）、`tank_cover`（开火惩罚）、`tank_fire`（`lastFireAt` 写入）、`tank_model`（timed 修饰器 `expiresAt` 写入 + `refreshStats` 过滤）、`tank_entity`（撞击接触冷却） |
+| 豁免 | `tank_economy` 存档时间戳（本就该用墙钟）、渲染侧 fx 时间量子（纯视觉） |
+| 净收益 | 顺带消除「全部 timed 修饰器实为非确定性」的存量隐患 |
+
+**实现期修正**：`advanceSimNow` 首版基于 `simNow()`（含真实时钟回退）→ 未注入时会锚定成真实时刻，测试里污染后续断言。改为「有注入值则基于注入值，否则先锚定再推进」。
+
+### 2) I1 高度表（`RULES.coverTiers[*].height`）
+
+18/18 键全部就位（米）：建筑类 **8.0** / 树 **6.0** / 岩石 **2.5** / 残破建筑 **2.0** / 反坦克桩 **1.6** / 直线掩体 **1.4** / 灌木 **1.2** / 倒树 **1.0** / 树桩 **0.8** / 碎石 **0.6** / 地面水面 **0**。
+
+**这是视线遮挡分档的唯一口径**（`js/tank_rules.js` schema 注释已写明），渲染侧将来也必须读它。
+
+### 3) I2 高度分档视线（`js/tank_cover.js`）
+
+```
+挡住视线 ⇔ coverHeight(tier) >= min(eyeZ, targetZ)
+```
+
+- 新增 `LOS_EYE_Z=2.3`（观察者视高）、`LOS_TARGET_Z=2.3`（观察炮塔）、**`LOS_HULL_Z=1.0`（观察车体，用户裁定 C 方案）**。
+- `hasLineOfSight(ox,oy,tx,ty, coversList, opts)`：`opts` 可省略（向后兼容）；`vision:false` 永不参与；未注册 tier 不抛错不挡；烟雾保持全遮不分档。
+- **弹道侧完全未改**：`getPartZRange`（车体 0~1.4 / 炮塔 1.4~2.3）与 `getExposure` 的 `zMin >= 1.2` 判据保持原样——视线与弹道仍是两套独立判定。
+- **C 方案的意义**：灌木 1.2m > `LOS_HULL_Z` 1.0m ⇒ **挡车体**；< 2.3m ⇒ **不挡炮塔**。真正的 hull-down 分级成立（旧口径是「命中任一 vision:true 即全遮」）。
+
+### 4) 隐蔽值相对化（`camouflageTerrainBonus`）
+
+从「OBB 相交即给满额」改为**按覆盖深度折算**：`加成 = bushBonus × (0.5 + 0.5 × depth)`，`depth` 由「车体中心到掩体中心的归一化内缩」得出。中心满额（0.40）、边缘半额（≈0.20）。烟雾仍全遮不折算。
+
+**未做**：仍未考虑「敌人是否在正面」（需视线方向，属后续可选深化）。
+
+### 5) 隐蔽对称化（保留接入，默认关闭）
+
+- 新增 `RULES.camouflage.symmetric = false`。
+- `tank_ai.js` 埋接入点：`enterDCamo = enterD × _camoMul × _enemyCamoMul`，开关为真时敌方隐蔽值才参与。
+- **启用前置**：先补玩家侧「被点亮」反馈 + 平衡标定（否则不公平）。
+
+### 6) 测试与验证
+
+- **新增 `scripts/test-vision-stealth-p1.js`**（已登记 `run-tests.js`）：I0 时钟语义（含 NaN 兜底、窗口 0/2.9/3.1s）、I1 高度表 18 键 + 分档边界、I2 视线分档（灌木挡车体不挡炮塔 / 建筑全挡 / `vision:false` 不参与 / 未注册 tier 不抛错 / 烟雾全遮）、隐蔽深度折算（含**负向断言**「不再相交即满额」）、对称化开关负向断言。
+- `scripts/test-covers.js` §31 按新口径重写（原「穿过灌木 → 视线被遮」→「灌木不挡炮塔、挡车体」）。
+- `types/globals.d.ts` 补 `simNow/setSimNow/advanceSimNow` 三个 `declare`（否则 `tsc` 报 TS2304）。
+- **全链**：`npm test` **53 通过 / 0 失败（53 项）** / `check-html` All checks passed / `tsc --noEmit` EXIT=0 / `wiki-check` broken=0 anchorBad=0 struct=0 template=0。
+
+**实现期踩坑（已记入测试注释）**：`tank_cover`/`tank_boss` 用 `typeof simNow === 'function'` 探测——浏览器端 `tank_utils.js` 顶层声明天然是全局，但 **Node 测试必须显式 `global.simNow = U.simNow`**，否则静默走真实时钟回退、断言假绿。
+
+### 7) 行为变更与后续
+
+- **刻意行为变更**：灌木不再让人「隐身」——伏击打法削弱、hull-down 成立。这是用户裁定的预期结果，不是回归，但**需要实机玩法验证**。
+- **未处理（另案）**：`aiSpotBaseDist` 死配置、`alertLevel === 2` 未实现、隐蔽加成不看朝向。
+- **下一步候选**：I3 截图基线回归（2~3 人日）/ I4 拾取反收口（1 人日）/ A 路线（2~4 人日，共享 I1 高度表）。
+
+**细则归口**：`docs/specs/map/vision-stealth-3d-compat.md` §9（落地记录，唯一口径）；`docs/specs/map/cover-system.md`（tier 表新增 height 列）；`docs/specs/combat/ramming-stealth-dash.md`（隐蔽数值表 + 实现边界更新）。

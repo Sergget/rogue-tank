@@ -21,6 +21,12 @@ declare function reflectDir(dirX: any, dirY: any, normalX: any, normalY: any): a
 // #U38（2026-10-18）：确定性电弧/闪电折线（纯函数，抖动由 seed 哈希派生，绘制期无 Math.random）
 declare function lightningPath(x0: number, y0: number, ang: number, len: number, amp: number, segs: number, seed: number): { x: number; y: number }[];
 
+// #P1 / I0（2026-10-24）：模拟时钟——判定/计时路径的唯一时间源。
+//   主循环每帧 setSimNow(now)；其余模块读 simNow()。未注入时回退真实时钟。
+declare function simNow(): number;
+declare function setSimNow(ms: number | null | undefined): void;
+declare function advanceSimNow(deltaMs: number): number;
+
 declare function hullPoly(t: any): any;
 declare function turretPoly(t: any): any;
 declare function raycastTank(t: any, ox: any, oy: any, dx: any, dy: any, maxDist?: any): any;

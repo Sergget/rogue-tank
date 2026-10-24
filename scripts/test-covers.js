@@ -591,20 +591,40 @@ C.resetCovers();
   ok(elapsed < 5000, `1000 rapid operations completed in ${elapsed}ms (should be < 5000ms)`);
 }
 
-// 31) hasLineOfSight：视线遮挡查询（vision:true 的灌木/树冠遮视线；炮弹穿透的灌木仍遮视线）
+// 31) hasLineOfSight：视线遮挡查询（#P1/I2 2026-10-24 起按**高度分档**，不再是 vision 布尔）
+//   旧口径「命中任一 vision:true 即全遮」导致「灌木 = 楼房」；现行：
+//     挡住视线 ⇔ coverHeight >= min(eyeZ, targetZ)
+//     · 看炮塔（缺省 eyeZ=targetZ=2.3）→ 灌木(1.2)/倒树(1.0)/树桩(0.8) 挡不住
+//     · 看车体（targetZ=1.4）→ 灌木/倒树挡得住
+//     · 树(6.0)/岩石(2.5)/建筑(8.0) 全挡
 C.resetCovers();
 {
   const bush = C.covers.find(c => c.tier === 'bush');
   if (bush) {
-    // 射线穿过灌木 → 视线被遮（bush tier vision=true，mode=none 穿透弹但仍遮视线）
-    ok(C.hasLineOfSight(bush.x - 100, bush.y, bush.x + 100, bush.y) === false, '穿过灌木 → 视线被遮');
+    // 灌木只有 1.2m：挡不住「看炮塔」（needZ=2.3），但挡得住「看车体」（needZ=1.4）
+    ok(C.hasLineOfSight(bush.x - 100, bush.y, bush.x + 100, bush.y) === true,
+      '#P1 灌木(1.2m) 不挡炮塔视线（看炮塔 needZ=2.3）');
+    ok(C.hasLineOfSight(bush.x - 100, bush.y, bush.x + 100, bush.y, null, { targetZ: C.LOS_HULL_Z }) === false,
+      `#P1 灌木(1.2m) 挡住车体视线（看车体 needZ=${C.LOS_HULL_Z}）`);
     // 不穿灌木的路径 → 视线畅通
     ok(C.hasLineOfSight(bush.x - 100, bush.y + 300, bush.x + 100, bush.y + 300) === true, '不穿灌木 → 视线畅通');
   }
   const bld = C.covers.find(c => c.tier === 'full');
   if (bld) {
-    // 全高建筑 vision=true → 遮视线（炮弹遮挡与视线遮挡是两套判定）
-    ok(C.hasLineOfSight(bld.x - 100, bld.y, bld.x + 100, bld.y) === false, '建筑 → 遮视线（vision=true）');
+    // 全高建筑 8m → 任何高度都挡（炮弹遮挡与视线遮挡是两套判定）
+    ok(C.hasLineOfSight(bld.x - 100, bld.y, bld.x + 100, bld.y) === false, '建筑(8m) → 遮炮塔视线');
+    ok(C.hasLineOfSight(bld.x - 100, bld.y, bld.x + 100, bld.y, null, { targetZ: C.LOS_HULL_Z }) === false,
+      '建筑(8m) → 遮车体视线');
+  }
+  // 高度表本身：唯一口径必须覆盖全部 tier，且 foliage 低于炮塔视高、structure 高于
+  {
+    const missing = Object.keys(C.COVER_TIERS).filter(k => typeof C.COVER_TIERS[k].height !== 'number');
+    ok(missing.length === 0, `#P1 全部 ${Object.keys(C.COVER_TIERS).length} 个 tier 都有 height（缺：${missing.join(',') || '无'}）`);
+    ok(C.coverHeightOf('bush') < 2.3 && C.coverHeightOf('tree') >= 2.3,
+      `#P1 灌木(${C.coverHeightOf('bush')}m) < 炮塔视高 2.3 ≤ 树(${C.coverHeightOf('tree')}m)`);
+    ok(C.coverHeightOf('road') === 0 && C.coverHeightOf('water') === 0,
+      '#P1 纯地面/水面 height=0（不参与视线遮挡）');
+    ok(C.coverHeightOf('__not_a_tier__') === 0, '#P1 未注册 tier → height 0（不挡，不抛错）');
   }
 }
 

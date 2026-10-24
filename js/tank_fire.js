@@ -820,7 +820,9 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   shooter.reloadT=_reloadBase*_effReloadMult/debuffReload(shooter);
   // 2026-10-23（本批）：隐蔽机制——记录开火时刻，供 camouflageFiringMul 计算开火惩罚窗口。
   //   只写时间戳，不做任何判定（判定与折算全在 js/tank_cover.js 的纯函数里）。
-  shooter.lastFireAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  // #P1 / I0（2026-10-24）：写模拟时钟，与 camouflageFiringMul 的读取同源（否则窗口判定不可复现）。
+  shooter.lastFireAt = (typeof simNow === 'function') ? simNow()
+    : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
   const shell=firePrimaryShell(shooter, target, hitPref, ctx);
   if(!shell) return false;
   // 2026-10-22（第五批 B2-9，用户需求 6「标准主炮砰砰炮」）：

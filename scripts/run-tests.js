@@ -82,6 +82,9 @@ const TESTS = [
   // 2026-10-23：近期可落地机制三件套——撞击伤害（RULES.ramming）/ 隐蔽感知（RULES.camouflage）
   //   / 战术闪跃（RULES.abilities.flash_dash）。含「新 RULES 块必须有消费方」的死配置哨兵。
   'scripts/test-recent-mods.js',
+  // 2026-10-24 #P1：视野-隐蔽判定三洞——I0 模拟时钟（13 处挂钟迁移）/ I1 高度表（coverTiers.height）
+  //   / I2 高度分档视线（灌木≠楼房）+ 隐蔽值相对化 + 对称化开关（默认关，保留接入）。
+  'scripts/test-vision-stealth-p1.js',
 ];
 
 function pickTests() {

@@ -59,6 +59,7 @@
 ### 3.1 当前状态（截至 2026-10-23）
 
 - **技术栈定性（2026-10-24 用户纠正，§4.125）**：**零依赖 / `file://` 直开 / Node 像素回归不是硬约束，只是目前的临时选择**。真 3D（WebGL/Three.js）**未被架构排除**；本阶段不做的理由是缺 3D 美术管线与玩法收益未证实。唯一口径 `specs/map/pseudo-3d-2p5d.md` §3.1。
+- **视野-隐蔽机制（2026-10-24 P1 落地，§4.128）**：三个结构性缺陷已补两条半——① `hasLineOfSight` 从 **`vision` 布尔**改为**高度分档**（`coverTiers[*].height` 18/18 键为唯一口径；判据 `height ≥ min(eyeZ,targetZ)`；用户选 C 方案 `LOS_HULL_Z=1.0m` ⇒ **灌木挡车体、不挡炮塔**，hull-down 成立）；② 隐蔽加成从「相交即满额」改为**按覆盖深度折算**（中心满额/边缘半额）；③ 隐蔽对称化**保留接入未启用**（`RULES.camouflage.symmetric=false` + `tank_ai._enemyCamoMul`）。配套 **I0 模拟时钟**（`simNow/setSimNow/advanceSimNow`，13 处判定/计时挂钟读取已迁移，主循环逐帧注入）。**弹道侧 `getPartZRange`/`getExposure` 完全未改**。细归口 `specs/map/vision-stealth-3d-compat.md` §9。
 - **贴图资产口径（2026-10-23 用户裁定，§4.124）**：确定为「**程序化生成 + 后期贴图接线**」。程序化烘焙是现行唯一实机路径；PNG 通道（地图 `ASSET_DEFS.bake → assets/<key>.png`、坦克 `sprite` 四层 → `drawTankSprite`）代码保留但**当前盘上无图**（19 张坦克 PNG 已删除）。**本仓库不出图**——AI 出图链已整体删除；后期美术按 `docs/ASSETS-PIPELINE.md` 落盘并由 `covers-anchor-check.py` 验收，`scripts/test-asset-pipeline.js` 锁接线完整性。伪 3D 形态裁定为**俯视 2.5D**、研究见 `specs/map/pseudo-3d-2p5d.md`（**设计预留，未落地**）。
 
 - **架构**：节点式地图 + 主副武器解耦 + 主动技能 + 卡牌构筑 + 部署物/无人机 + Boss 全链可用；三条验证链 `npm run check` / `npm test` / `npm run test:browser`（smoke / r3 / run / r4 四链）近期各批次均全绿。
@@ -125,7 +126,7 @@
 批次日志已按月份拆分：
 
 - [2026-09 批次 (§4.27–§4.39)](DEVELOPMENT-batches-2026-09.md)
-- [2026-10 批次 (§4.40–§4.127)](DEVELOPMENT-batches-2026-10.md)
+- [2026-10 批次 (§4.40–§4.128)](DEVELOPMENT-batches-2026-10.md)
 
 ### 4.0 §4.1~§4.26 编号索引（正文见归档）
 
@@ -169,6 +170,7 @@
 | §4.125 | 2026-10-24 | **纠正定性**：零依赖 / `file://` 直开 / Node 像素回归**不是硬约束，只是当前临时选择**；真 3D（WebGL/Three.js）未被架构排除，本阶段不做的理由是缺 3D 美术管线与玩法收益未证实（推翻 §4.124 的第 1、2 条「不选 C」理由） | `DEVELOPMENT-batches-2026-10.md` §4.125 · `specs/map/pseudo-3d-2p5d.md` §3.1 |
 | §4.126 | 2026-10-24 | 视野-隐蔽与伪 3D 路线兼容性研究：**路线 B 最好兼容**（只有它让高度同时驱动画面与遮蔽）；但真正瓶颈是现行三个结构性缺陷（`vision` 布尔使灌木=楼房 / 隐蔽值与几何无关 / 只有玩家一侧有隐蔽），**在 2D 下即可先补** | `DEVELOPMENT-batches-2026-10.md` §4.126 · `specs/map/vision-stealth-3d-compat.md` |
 | §4.127 | 2026-10-24 | 伪 3D 就绪度：**「无建模基础」是伪约束**（几何已是参数化数据，A/B/C 资产均可由 JSON 生成）；先行基础设施 **I0~I5**（模拟时钟 13 处挂钟 / 高度表 / 统一遮蔽 / 截图回归 / 拾取收口 / 挤出工具）；**I1 全路线共享**，P1 量级修正为 4~5.5 人日 | `DEVELOPMENT-batches-2026-10.md` §4.127 · `specs/map/pseudo-3d-readiness.md` |
+| §4.128 | 2026-10-24 | **P1 落地**：I0 模拟时钟（`simNow` 三件套 + 13 处挂钟迁移）/ I1 高度表（`coverTiers[*].height` 18/18）/ I2 高度分档视线（**C 方案**：`LOS_HULL_Z=1.0` ⇒ 灌木挡车体不挡炮塔，hull-down 成立）/ 隐蔽值按覆盖深度折算 / 对称化保留开关未启用。**弹道侧未改** | `DEVELOPMENT-batches-2026-10.md` §4.128 · `specs/map/vision-stealth-3d-compat.md` §9 · `specs/map/cover-system.md` · `specs/combat/ramming-stealth-dash.md` |
 
 ---
 

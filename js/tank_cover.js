@@ -316,12 +316,22 @@ function camouflageFiringMul(t) {
   const mul = cfg.firingPenaltyMultiplier !== undefined ? cfg.firingPenaltyMultiplier : 0.1;
   const last = (t && typeof t.lastFireAt === 'number') ? t.lastFireAt : null;
   if (last === null) return 1;
-  const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  // #P1 / I0（2026-10-24）：改读模拟时钟（tank_fire 写入 lastFireAt 亦用同一时钟）。
+  //   旧实现读 performance.now() ⇒ 同一输入在不同时刻结果不同，回放不可复现。
+  const now = (typeof simNow === 'function') ? simNow()
+    : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
   return (now - last) < win * 1000 ? mul : 1;
 }
 
-// 地形加成：灌木/树林 tierGroup==='foliage' 给 bushBonus；烟雾云覆盖给 smokeBonus（取较大者，
-//   不叠加——否则树+烟可叠到 1.1 让坦克彻底隐身，失去对抗性）。
+// 地形加成：灌木/树林给 bushBonus；烟雾云覆盖给 smokeBonus（取较大者，不叠加
+//   ——否则树+烟可叠到 1.1 让坦克彻底隐身，失去对抗性）。
+//
+// #P1 / I2（2026-10-24）：从「OBB 相交即给满额」改为**按覆盖深度折算**。
+//   旧实现只要车体与 foliage 有一点相交就 +0.40 ⇒ 贴着灌木边缘（视觉上完全暴露）
+//   与灌木正中拿到相同加成，且与距离/是否真被遮无关（research §2.2）。
+//   现口径：`depthRatio = 车体中心到灌木中心的「归一化内缩量」`∈[0,1]，
+//   实际加成 = `bushBonus × (0.5 + 0.5×depthRatio)`——中心处满额、边缘处半额。
+//   · 仍不看「敌人是否在正面」：那需要视线方向，属后续可选深化（research §4.3 第二段）。
 function camouflageTerrainBonus(t) {
   const cfg = (typeof RULES !== 'undefined' && RULES.camouflage) || {};
   const bushB = cfg.bushBonus !== undefined ? cfg.bushBonus : 0.40;
@@ -330,7 +340,14 @@ function camouflageTerrainBonus(t) {
   const cov = (typeof getCoverUnderTank === 'function') ? getCoverUnderTank(t) : null;
   if (cov) {
     const tier = (typeof COVER_TIERS !== 'undefined' && COVER_TIERS) ? COVER_TIERS[cov.tier] : null;
-    if (tier && tier.tierGroup === 'foliage') bonus = bushB;
+    if (tier && tier.tierGroup === 'foliage') {
+      // 覆盖深度：用「到掩体中心的距离 / 掩体半对角线」近似归一化，0=边缘、1=中心
+      const hw = Math.max(1, (cov.w || 1) / 2), hh = Math.max(1, (cov.h || 1) / 2);
+      const dx = (t.x || 0) - (cov.x || 0), dy = (t.y || 0) - (cov.y || 0);
+      const halfDiag = Math.hypot(hw, hh);
+      const depth = Math.max(0, Math.min(1, 1 - Math.hypot(dx, dy) / halfDiag));
+      bonus = bushB * (0.5 + 0.5 * depth);
+    }
   }
   if (typeof smokeClouds !== 'undefined' && Array.isArray(smokeClouds)) {
     for (const s of smokeClouds) {
@@ -1029,17 +1046,53 @@ function losBlocker(ax, ay, bx, by, coversList) {
   return null;
 }
 
-// 视线遮挡查询（§2.7 / §5.6 前置）：两点间是否被 `vision:true` 的掩体（灌木/树冠）遮挡。
-// 是敌人 AI 索敌（开放问题 1）与玩家被发现判定的公共前置；炮弹穿透的 pass/none 掩体（灌木
-// 本身 mode='none' 但 vision=true）仍遮挡视线——视线与弹道是两套判定。
+// 视线遮挡查询（§2.7 / §5.6 前置）：两点之间是否被掩体遮挡。
+// 是敌人 AI 索敌与玩家被发现判定的公共前置；炮弹穿透的 pass/none 掩体（灌木
+// 本身 mode='none' 但 vision=true）仍参与视线判定——视线与弹道是两套判定。
 // P-17：烟雾动态掩体（smokeClouds）同样遮挡视线（弹道穿透不受影响）。
-function hasLineOfSight(ox,oy,tx,ty, coversList){
+//
+// #P1 / I2（2026-10-24）：**从布尔改高度分档**。
+//   旧实现：命中任一 `vision:true` 的 cover 即 return false ⇒ **灌木 = 楼房**（高度差消失）。
+//   现行口径（唯一判据，读 `RULES.coverTiers[*].height`）：
+//     某掩体挡住视线 ⇔ `coverHeight >= min(eyeZ, targetZ)`
+//       · eyeZ    观察者视高（米），缺省 `LOS_EYE_Z`=2.3（炮塔顶，与 getPartZRange 同源）
+//       · targetZ 被观察部位高度（米），缺省 2.3（看炮塔）；查「能否看到车体」传 1.4
+//     于是：灌木 1.2 / 树桩 0.8 / 倒树 1.0 **挡不住炮塔视线**（但挡得住 1.4 以下的车体视线），
+//          树 6.0 / 岩石 2.5 / 建筑 8.0 **全挡**。这正是「画多高 = 挡多少」。
+//   ⚠️ 行为变更（刻意）：灌木不再让人「隐身」，改为由 `camouflageTerrainBonus` 的高度折算
+//      提供**部分**隐蔽加成——见 docs/specs/map/vision-stealth-3d-compat.md §2.1/§4.3。
+//   · `vision:false` 的 tier（水/泥/路/碎石）**永不参与**（与旧口径一致）。
+//   · `coversList` 与 `opts` 均可省略（向后兼容既有调用方）。
+//
+// 2026-10-24 用户裁定（C 方案）：**车体视线高度取 1.0m**（不是 getPartZRange 的 1.4）。
+//   目的：让「灌木 1.2m」能够挡住车体、但挡不住炮塔（2.3m）⇒ 真正的 hull-down 分级。
+//   ⚠️ 这**只影响视线**，不改弹道侧的 `getPartZRange`（hull 0~1.4 / turret 1.4~2.3）
+//   与 `getExposure` 的 `zMin >= 1.2` 判据——两套判定各自独立，改动不得互相渗透。
+const LOS_EYE_Z = 2.3;      // 观察者视高（米）——炮塔顶，与 getPartZRange 的 turret.zMax 同源
+const LOS_HULL_Z = 1.0;     // 观察「车体」时的视线高度（米）——**用户裁定值**，低于灌木 1.2m
+const LOS_TARGET_Z = 2.3;   // 观察「炮塔」时的视线高度（米）
+
+/** 掩体高度（米）。未注册 tier ⇒ 0（不挡视线，与 tierShellBlock 的「不认识就不挡」同向）。 */
+function coverHeightOf(tierKey){
+  const tier = COVER_TIERS[tierKey];
+  if(!tier) return 0;
+  return (typeof tier.height === 'number' && Number.isFinite(tier.height)) ? tier.height : 0;
+}
+
+function hasLineOfSight(ox,oy,tx,ty, coversList, opts){
+  const o = opts || {};
+  const eyeZ = (typeof o.eyeZ === 'number' && Number.isFinite(o.eyeZ)) ? o.eyeZ : LOS_EYE_Z;
+  const targetZ = (typeof o.targetZ === 'number' && Number.isFinite(o.targetZ)) ? o.targetZ : LOS_TARGET_Z;
+  // 视线需要越过的有效高度：取两者较小（看车体时 1.4 就够，看炮塔才需 2.3）
+  const needZ = Math.min(eyeZ, targetZ);
   const hits = findCoversOnPath(ox,oy,tx,ty, coversList);
   for(const h of hits){
     const tier = COVER_TIERS[h.cover.tier];
-    if(tier && tier.vision) return false;   // 灌木/树冠遮挡视线
+    if(!tier) continue;                     // 未注册 tier 不参与（同 tierShellBlock 的兜底方向）
+    if(!tier.vision) continue;              // 该 tier 本就不遮视线（水/泥/路/碎石）
+    if(coverHeightOf(h.cover.tier) >= needZ) return false;   // 够高才挡
   }
-  if(smokeBlocksLoS(ox, oy, tx, ty)) return false;  // 烟雾云遮挡视线（P-17）
+  if(smokeBlocksLoS(ox, oy, tx, ty)) return false;  // 烟雾云遮挡视线（P-17，全遮不参与分档）
   return true;
 }
 
@@ -1082,6 +1135,10 @@ if (typeof module !== 'undefined' && module.exports) {
     isBlockedBySolidCover,
     losBlocker,
     hasLineOfSight,
+    coverHeightOf,     // #P1 / I2：掩体高度（米）——视线分档与渲染共用的唯一口径
+    LOS_EYE_Z,         // #P1 / I2：观察者视高缺省（米）
+    LOS_HULL_Z,        // #P1 / I2：观察车体时的视线高度（米，用户裁定 1.0）
+    LOS_TARGET_Z,      // #P1 / I2：观察炮塔时的视线高度缺省（米）
     smokeClouds,
     spawnSmokeCloud,
     updateSmoke,
@@ -1089,6 +1146,8 @@ if (typeof module !== 'undefined' && module.exports) {
     smokeBlocksLoS,
     camouflageClassOf,
     camouflageMotionOf,
+    camouflageFiringMul,      // #P1：开火惩罚乘数（读模拟时钟；测试需单独验证窗口）
+    camouflageTerrainBonus,   // #P1：地形加成（按覆盖深度折算）
     camouflageValue,
     camouflageDistanceMultiplier
   };

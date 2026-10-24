@@ -684,6 +684,10 @@ function aiDecideEnemy(t, ctx){
   //   只在 p 是玩家实体且本车不是 Boss 时生效（Boss 视为有独立观瞄，不吃玩家隐蔽值）。
   //   取 camouMul ∈ [0.3, 1]：静止/灌木/烟幕 → 更短距离才被点亮；疾驰+开火 → 接近全额。
   //   ⚠️ 只影响「首次激活距离」，不影响已接战后的脱离（exitD 用未折扣值，防贴脸脱战抖动）。
+  //   #P1 / I2（2026-10-24 用户裁定）：**对称化暂不启用，保留接入能力**。
+  //     判据 = `RULES.camouflage.symmetric === true`（缺省 false）。开启后敌方单位（此处 t）
+  //     也会计算自身隐蔽值并折扣**玩家发现它**的距离——但玩家侧「被发现反馈」尚未实现，
+  //     启用前须先补 UI（research §4.4），否则是不公平的偷袭。
   let _camoMul = 1;
   if (p && !t.isBoss && !p.isBoss) {
     let _camoFn = (typeof camouflageDistanceMultiplier === 'function') ? camouflageDistanceMultiplier : null;
@@ -694,7 +698,16 @@ function aiDecideEnemy(t, ctx){
       try { _camoMul = Math.max(0.3, Math.min(1, _camoFn(p))); } catch (e) { _camoMul = 1; }
     }
   }
-  const enterDCamo = enterD * _camoMul;
+  // 对称化接入点（默认关闭）：仅当 RULES.camouflage.symmetric 为真时，敌方隐蔽值才参与。
+  let _enemyCamoMul = 1;
+  const _camoCfg = (typeof RULES !== 'undefined' && RULES.camouflage) || {};
+  if (_camoCfg.symmetric === true && t && !t.isBoss) {
+    const _f = (typeof camouflageDistanceMultiplier === 'function') ? camouflageDistanceMultiplier : null;
+    if (_f) {
+      try { _enemyCamoMul = Math.max(0.3, Math.min(1, _f(t))); } catch (e) { _enemyCamoMul = 1; }
+    }
+  }
+  const enterDCamo = enterD * _camoMul * _enemyCamoMul;
   if(t.aiEngaged === undefined) t.aiEngaged = false;
 
   // LoS 评估：激活门控与开火判定共用（patrol 早退路径也做一次射线；有 ctx.hasLoS 缺省 true）
@@ -709,7 +722,9 @@ function aiDecideEnemy(t, ctx){
     if(!(inRange && canSee)){
       // #S2 suspicious 状态（alertLevel 1）：听到声音 → 朝声音位置调查
       if(t.alertLevel === 1 && t.lastNoisePos){
-        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        // #P1 / I0（2026-10-24）：与 hearNoise 写入的 lastNoiseT 同源（模拟时钟）。
+        const now = (typeof simNow === 'function') ? simNow()
+          : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
         const susTimeout = (cfg.suspiciousTimeout !== undefined ? cfg.suspiciousTimeout : 8) * 1000;
         // 超时无新声音 → 降级回 calm
         if(now - t.lastNoiseT > susTimeout){
@@ -1500,7 +1515,9 @@ function hearNoise(t, srcX, srcY, kind){
   if(t.alertLevel >= 3) return false;  // 接战中不受声音干扰
   const cfg = aiConfig();
   const ne = cfg.noiseEscalate || {};
-  const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  // #P1 / I0（2026-10-24）：噪声时刻写模拟时钟（suspicious 超时判定同源）。
+  const now = (typeof simNow === 'function') ? simNow()
+    : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
   // 2026-10-22：同位置重复声音**不再丢弃**（否则机枪连射永远攒不满 heat）——
   //   仅缩短 lastNoisePos 刷新（保留原「位置记忆」语义：首个位置作为大致来源）。
   const sameSpot = t.lastNoisePos && Math.hypot(t.lastNoisePos.x - srcX, t.lastNoisePos.y - srcY) < 60

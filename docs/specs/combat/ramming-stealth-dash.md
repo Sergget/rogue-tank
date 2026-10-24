@@ -62,9 +62,10 @@ AI 消费点在 `js/tank_ai.js`（首次激活距离）。
 | `motionMultiplier` | idle 1.2 / move 0.7 / sprint 0.4 | 移动状态乘数 |
 | `firingPenaltyDuration` | 3.0 s | 开火惩罚窗口 |
 | `firingPenaltyMultiplier` | 0.1 | 开火瞬间隐蔽乘数（暴跌至 10%） |
-| `bushBonus` | 0.40 | 灌木/树林绝对加成 |
-| `smokeBonus` | 0.70 | 烟雾云绝对加成 |
-| `aiSpotBaseDist` | 650 px | 敌方基础视距（对隐蔽的参照基准） |
+| `bushBonus` | 0.40 | 灌木/树林加成**上限**（2026-10-24 #P1 起按覆盖深度折算：中心满额、边缘半额） |
+| `smokeBonus` | 0.70 | 烟雾云加成（全遮，不随深度折算） |
+| `aiSpotBaseDist` | 650 px | 敌方基础视距（**实测零消费方**，见下方「实现边界」） |
+| `symmetric` | `false` | 隐蔽对称化开关（2026-10-24 新增：**默认关，保留接入能力**） |
 
 **隐蔽值**（`camouflageValue`）：
 
@@ -89,17 +90,19 @@ mul = clamp(1 / (1 + camo), 0.3, 1)
 - **脱离距离不吃折扣**（仍用未折扣的 `exitD`）——否则玩家在原地点火/熄火就能反复脱离-重进，造成抖动。
 - **Boss 与玩家 Boss 不参与**（Boss 视为独立观瞄，不读玩家隐蔽值）。
 
-**已核实的实现边界（2026-10-24）**：
+**实现边界（2026-10-24 #P1 落地后更新）**：
 
-| 项 | 实测 | 影响 |
+| 项 | 现状 | 影响 |
 |---|---|---|
-| 隐蔽值**只对玩家**取值 | `camouflageDistanceMultiplier(p)` 唯一调用点在 `aiDecideEnemy`，敌人对玩家无对称隐蔽 | 偷袭只能单向成立；玩家不会被 AI 偷袭 |
-| 遮蔽只有**布尔** | `hasLineOfSight` 命中 `vision:true` 即全遮；`coverTiers` 18 键**零个**带高度字段 | 灌木 = 楼房；高度差在视线判定中完全消失 |
-| 地形加成**与视线无关** | `camouflageTerrainBonus` 用 `getCoverUnderTank` 的 OBB 相交，不看距离/朝向/是否真的被遮 | 敌人 50px 直视时仍拿满 0.40 加成 |
-| `aiSpotBaseDist` 是**死配置** | 全仓仅 `js/tank_rules.js:51` 定义 + `test-recent-mods.js:83` 断言非零，零消费方 | 应删除或接上消费方 |
-| 开火惩罚读**挂钟时间** | `camouflageFiringMul` 用 `performance.now()`（`js/tank_cover.js:313`） | 理论上有确定性风险（`test-replay` 的 hash 基线） |
+| 隐蔽值**只对玩家**取值 | **仍不对称**（`RULES.camouflage.symmetric=false`），但 `tank_ai.js` 已埋 `_enemyCamoMul` 接入点 | 偷袭仍单向；开启前须补玩家侧「被点亮」反馈与平衡标定 |
+| 遮蔽**按高度分档**（**已修**） | `hasLineOfSight` 读 `RULES.coverTiers[*].height`：`≥min(eyeZ,targetZ)` 才挡；`vision:false` 永不参与 | 灌木(1.2m) 挡车体不挡炮塔 ⇒ hull-down 成立；树(6m)/建筑(8m) 全挡 |
+| 地形加成**按覆盖深度折算**（**已修**） | `camouflageTerrainBonus` = `bushBonus × (0.5+0.5×depth)`，仍不看朝向 | 贴灌木边缘只拿半额；「敌人正面直视仍给加成」尚未解决（需视线方向，属后续） |
+| `aiSpotBaseDist` 是**死配置** | 仍未处理（零消费方） | 应删除或接上消费方（另案） |
+| 开火惩罚改读**模拟时钟**（**已修**） | `camouflageFiringMul` 与 `tank_fire` 写入的 `lastFireAt` 同读 `simNow()` | 窗口判定可复现（`test-vision-stealth-p1.js` 锁定） |
+| `alertLevel === 2` 从未写入 | 仍未处理（只有 0/1/3 三态） | 注释声明五层级但实现缺一级（另案） |
 
-> 上述结构性问题与伪 3D 路线的关系、以及在 2D 下先补齐的改造建议，见 [视野-隐蔽与伪 3D 兼容性](../map/vision-stealth-3d-compat.md)。
+> 三个结构性问题与伪 3D 路线的关系见 [视野-隐蔽与伪 3D 兼容性](../map/vision-stealth-3d-compat.md)；
+> **P1 落地细则（I0/I1/I2、高度表、C 方案）见该页 §9**。
 
 ## 战术闪跃（RULES.abilities.flash_dash）
 

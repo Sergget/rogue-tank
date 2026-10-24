@@ -46,9 +46,15 @@ const RULES = {
     motionMultiplier: { idle: 1.2, move: 0.7, sprint: 0.4 },
     firingPenaltyDuration: 3.0,   // 开火惩罚持续时间（秒）
     firingPenaltyMultiplier: 0.1, // 开火瞬间隐蔽乘数（暴跌至 10%）
-    bushBonus: 0.40,              // 灌木丛绝对隐蔽加成
-    smokeBonus: 0.70,             // 烟幕绝对隐蔽加成
-    aiSpotBaseDist: 650           // 敌方 AI 基础视距 (px)
+    bushBonus: 0.40,              // 灌木丛隐蔽加成上限（#P1 起按覆盖深度折算，边缘为一半）
+    smokeBonus: 0.70,             // 烟幕隐蔽加成（全遮，不随深度折算）
+    aiSpotBaseDist: 650,          // 敌方 AI 基础视距 (px)
+    // #P1 / I2（2026-10-24 用户裁定）：**隐蔽对称化暂不启用，但保留接入能力**。
+    //   false（缺省）= 现行口径：只有玩家一侧有隐蔽值（AI 不吃）。
+    //   true  = 敌人也计算 camouflageDistanceMultiplier，玩家可被 AI 偷袭。
+    //   ⚠️ 启用前必须先补「玩家侧被点亮反馈」（research §4.4），否则是纯粹的不公平；
+    //      且会显著改变难度曲线，需单独做平衡标定。
+    symmetric: false
   },
   // ======================= 弹道 =======================
   ballistics: {
@@ -123,18 +129,26 @@ const RULES = {
   //   destructible    耐久语义：数值=可毁 / Infinity=不可毁结构 / null=非结构（水/泥/植被）；运行时 hp 由归一化回填
   //   drawStyle       渲染风格（box/bush/tree/soft/barricade/stump/rubble/water/water-chain/mud/rock-poly/rubble-box）——旧字段 draw 由归一化同步
   //   tierGroup       语义分组（cover/structure/foliage/liquid/ground）——小地图/AI 找掩体消费
-  // 其余字段：vision 遮视线 / crushable 压过即毁 / toTier 摧毁残骸链 / driveBy 按 heightClass 门控越障。
+  //   height          **高度（米）**——2026-10-24 #P1/I1 新增，**视线遮挡分档的唯一口径**：
+  //                   · 0 = 纯地面/水面（不参与视线遮挡）
+  //                   · < 1.2 = 只挡车体（`getPartZRange` 的 zMin 阈值；灌木/倒树/树桩）
+  //                   · ≥ 2.3 = 全挡（可遮炮塔；建筑/树/岩石）
+  //                   渲染侧的侧壁宽度/投影偏移也应读它（不再按 tier 写死），保证「画多高 = 挡多少」。
+  //                   沿革：此前视线只有 `vision` 布尔，导致「灌木 = 楼房」，见
+  //                   docs/specs/map/vision-stealth-3d-compat.md §2.1。
+  // 其余字段：vision 遮视线（**是否参与**视线判定；高度在参与后再分档）/ crushable 压过即毁 /
+  //           toTier 摧毁残骸链 / driveBy 按 heightClass 门控越障。
   // 旧字段 mode/move/draw 由下方 normalizeCoverTiers 从新 schema 单向派生，供未迁移消费方过渡。
   // 2026-09-20 #E3 用户裁定：全高掩体明确衍生为「建筑 / 岩石」，半高掩体（half）及其
   // 垂直剖面/越掩插值计算整体移除（定义删除 + 生成早已屏蔽 + 弹道管线不再消费 grad/half）。
   // 现状：确定性挡弹只由 shellBlock===true（建筑 full/intact/rock/tree）与 'single'（沙袋）承担。
   coverTiers: {
-    full:       { label: '建筑', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure' },
-    bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#3f9a2e', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'bush',        tierGroup: 'foliage' },
+    full:       { label: '建筑', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure', height: 8 },
+    bush:       { label: '灌木丛',   fill: 'rgba(88,130,58,0.28)',   stroke: '#3f9a2e', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'bush',        tierGroup: 'foliage', height: 1.2 },
     // 2026-09-20 #E11：树木缩小并由坦克可直接推倒（crushable=true → 压过即倒，转为 fallen）；
     // 逻辑尺寸收敛见 RULES.nodeMap.treeWorldScale（生成期）。仍保留「炮弹 1 发伐倒」。
-    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#2e6e28', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: true,  vision: true,  drawStyle: 'tree',        tierGroup: 'foliage', toTier: 'fallen', missileOverfly: true },
-    fallen:     { label: '倒树',     fill: 'rgba(56,72,44,0.35)',    stroke: '#4a5c3a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'fallen',      tierGroup: 'foliage', residueW: 2.4, residueH: 0.5 },
+    tree:       { label: '树',       fill: 'rgba(56,88,52,0.42)',    stroke: '#2e6e28', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: true,  vision: true,  drawStyle: 'tree',        tierGroup: 'foliage', toTier: 'fallen', missileOverfly: true, height: 6 },
+    fallen:     { label: '倒树',     fill: 'rgba(56,72,44,0.35)',    stroke: '#4a5c3a', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: true,  drawStyle: 'fallen',      tierGroup: 'foliage', residueW: 2.4, residueH: 0.5, height: 1 },
     // ================= 2026-10-22（第五批）直线掩体体系 =================
     // 用户裁定：「删除现有的栅栏、沙包元素。全部改为掩体（单直线，射击多种不同的贴图），
     //   掩体两侧的坦克射击可以命中掩体另一侧比自己离掩体更远坦克的炮塔和车体、
@@ -146,34 +160,34 @@ const RULES = {
     // · passability 0：单直线墙体，坦克只能绕行（不能被碾碎，crushable false）。
     // · vision true：挡视线（旧沙包不挡，本批按用户「掩体」语义统一为挡）。
     // · wallStyle：贴图族（concrete/sandbag/steel/brick/hedgehog/barrier），由 mapgen 按 biome 确定性分配。
-    wall:        { label: '掩体',     fill: 'rgba(140,140,132,0.72)', stroke: '#8a8a82', passability: 0.0, shellBlock: 'wall',  exposureProfile: 'wall',      destructible: null,     crushable: false, vision: true,  drawStyle: 'wall',        tierGroup: 'structure', wallStyle: 'concrete', missileOverfly: true },
+    wall:        { label: '掩体',     fill: 'rgba(140,140,132,0.72)', stroke: '#8a8a82', passability: 0.0, shellBlock: 'wall',  exposureProfile: 'wall',      destructible: null,     crushable: false, vision: true,  drawStyle: 'wall',        tierGroup: 'structure', wallStyle: 'concrete', missileOverfly: true, height: 1.4 },
     // 可摧毁掩体：承受 wallBreakableHp 发后**直接消失**（toTier:null，不降级成残骸）。
-    wall_breakable: { label: '可摧毁掩体', fill: 'rgba(158,128,72,0.6)', stroke: '#9e8048', passability: 0.0, shellBlock: 'wall', exposureProfile: 'wall',      destructible: 4,        crushable: false, vision: true,  drawStyle: 'wall',        tierGroup: 'structure', wallStyle: 'sandbag', toTier: null, missileOverfly: true },
+    wall_breakable: { label: '可摧毁掩体', fill: 'rgba(158,128,72,0.6)', stroke: '#9e8048', passability: 0.0, shellBlock: 'wall', exposureProfile: 'wall',      destructible: 4,        crushable: false, vision: true,  drawStyle: 'wall',        tierGroup: 'structure', wallStyle: 'sandbag', toTier: null, missileOverfly: true, height: 1.4 },
   // #10（2026-10-19 用户裁定）：永久掩体 = 不可摧毁、整体挡弹的反坦克桩组合（沿用旧"中括号"视觉）。
   //   2026-10-22 起仍保留：它是 `solid` 语义（整发截停），与新的 `wall`（部位裁剪）是两种掩体。
-  perm_block: { label: '永久掩体', fill: 'rgba(120,118,110,0.62)', stroke: '#78766e', passability: 0.0,  shellBlock: 'solid',  exposureProfile: 'full',      destructible: null,     crushable: false, vision: true,  drawStyle: 'wall',        tierGroup: 'structure', wallStyle: 'hedgehog' },
+  perm_block: { label: '永久掩体', fill: 'rgba(120,118,110,0.62)', stroke: '#78766e', passability: 0.0,  shellBlock: 'solid',  exposureProfile: 'full',      destructible: null,     crushable: false, vision: true,  drawStyle: 'wall',        tierGroup: 'structure', wallStyle: 'hedgehog', height: 1.6 },
     // #E1/#E3（2026-09-20）：树桩/碎石改为**不挡弹**（shellBlock false）——旧 'grad' 渐变剖面是
     // 「炮弹被不可见小物件拦截」的主要来源之一；残骸类低矮杂物不再参与弹道遮蔽。
-    stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', passability: 0.6,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'stump',       tierGroup: 'structure' },
-    rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', passability: 0.6,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'rubble',      tierGroup: 'structure' },
+    stump:      { label: '树桩',     fill: 'rgba(112,74,40,0.65)',   stroke: '#6e4a26', passability: 0.6,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'stump',       tierGroup: 'structure', height: 0.8 },
+    rubble:     { label: '碎石',     fill: 'rgba(104,100,92,0.6)',   stroke: '#6a665e', passability: 0.6,  shellBlock: false,    exposureProfile: 'none',      destructible: 1,        crushable: true,  vision: false, drawStyle: 'rubble',      tierGroup: 'structure', height: 0.6 },
     // ======================= P-20/P-40：水体/桥梁 + 新地形 =======================
     // 水系裁定（2026-09-14 重做）：水潭/河流可缓速通行（passability 0.4，与烂泥地同级）；
     // 完全浸入（整车四角入水）触发溺毙倒计时（RULES.drowning.seconds，缺省 8s）——
     // 玩家/敌人/Boss 一视同仁；AI 移动决策带绕水转向（tank_ai.applyWaterAvoidance）。
     // 炮弹维持越飞（shellBlock:false，#85 裁定不回退）。
-    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water',       tierGroup: 'liquid' }, // #85：炮弹越飞；减速通行 + 完全浸入溺毙
-    river:      { label: '河流',     fill: '#3578a8',                stroke: '#2a6496', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water-chain', tierGroup: 'liquid' }, // 多段连通水体（segments）；同 water 减速通行 + 溺毙
-    mud:        { label: '烂泥地',   fill: 'rgba(96,72,44,0.45)',    stroke: '#60482c', passability: 0.4, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'mud',         tierGroup: 'ground' }, // 减速不阻挡、不进弹道遮蔽（复查处置：0.35→0.4，与半高掩体同级）
-    road:       { label: '道路',     fill: 'rgba(122,120,114,0.55)', stroke: '#6e6c66', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'road',        tierGroup: 'ground' }, // 村庄街道：可自由通行、不挡弹、不遮视线（纯地面标识）
+    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water',       tierGroup: 'liquid', height: 0 }, // #85：炮弹越飞；减速通行 + 完全浸入溺毙
+    river:      { label: '河流',     fill: '#3578a8',                stroke: '#2a6496', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water-chain', tierGroup: 'liquid', height: 0 }, // 多段连通水体（segments）；同 water 减速通行 + 溺毙
+    mud:        { label: '烂泥地',   fill: 'rgba(96,72,44,0.45)',    stroke: '#60482c', passability: 0.4, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'mud',         tierGroup: 'ground', height: 0 }, // 减速不阻挡、不进弹道遮蔽（复查处置：0.35→0.4，与半高掩体同级）
+    road:       { label: '道路',     fill: 'rgba(122,120,114,0.55)', stroke: '#6e6c66', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'road',        tierGroup: 'ground', height: 0 }, // 村庄街道：可自由通行、不挡弹、不遮视线（纯地面标识）
     // #G（2026-09-21 用户需求 #4）：可破坏楼房——完整但可摧毁的砖混建筑：耐久 3，
     // 摧毁后转 ruined 残破建筑（再 1 发 → rubble 碎石， rubble 不挡弹）。链：building→ruined→rubble。
-    building:   { label: '楼房',     fill: 'rgba(150,96,78,0.66)',  stroke: '#a24a34', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 3,        crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure', toTier: 'ruined' },
-    intact:     { label: '完整建筑', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure' },
+    building:   { label: '楼房',     fill: 'rgba(150,96,78,0.66)',  stroke: '#a24a34', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: 3,        crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure', toTier: 'ruined', height: 8 },
+    intact:     { label: '完整建筑', fill: 'rgba(165,92,72,0.62)',  stroke: '#b5553f', passability: 1.0,  shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'box',         tierGroup: 'structure', height: 8 },
     // #E3（2026-09-20）：残破建筑归入全高掩体（建筑衍生）——shellBlock true / exposureProfile 'full'，
     // 直射实弹 100% 确定性格挡；hp 1 被击毁后转 rubble 残骸（残骸不再挡弹）。
-    ruined:     { label: '残破建筑', fill: 'rgba(122,114,100,0.5)',  stroke: '#7a7264', passability: 0.6,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: false, vision: true,  drawStyle: 'rubble-box',  tierGroup: 'structure', toTier: 'rubble' },
-    rock:       { label: '岩石',     fill: 'rgba(138,138,132,0.85)', stroke: '#6f6f68', passability: 0,    shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'rock-poly',   tierGroup: 'structure' },
-    bridge:     { label: '桥梁',     fill: '#5a5750',                stroke: '#33312c', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: 2,        crushable: false, vision: false, drawStyle: 'bridge-deck', tierGroup: 'structure' }
+    ruined:     { label: '残破建筑', fill: 'rgba(122,114,100,0.5)',  stroke: '#7a7264', passability: 0.6,  shellBlock: true,     exposureProfile: 'full',      destructible: 1,        crushable: false, vision: true,  drawStyle: 'rubble-box',  tierGroup: 'structure', toTier: 'rubble', height: 2 },
+    rock:       { label: '岩石',     fill: 'rgba(138,138,132,0.85)', stroke: '#6f6f68', passability: 0,    shellBlock: true,     exposureProfile: 'full',      destructible: Infinity, crushable: false, vision: true,  drawStyle: 'rock-poly',   tierGroup: 'structure', height: 2.5 },
+    bridge:     { label: '桥梁',     fill: '#5a5750',                stroke: '#33312c', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: 2,        crushable: false, vision: false, drawStyle: 'bridge-deck', tierGroup: 'structure', height: 0 }
   },
 
   // ======================= 溺毙（2026-09-14 水域行为重做） =======================
