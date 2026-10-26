@@ -95,6 +95,8 @@ const TESTS = [
   // 2026-10-26 #AA6：bench Enemy Lab 工具链——清场纯筛选（clearEnemyEntities）+ 两条生成路径的
   //   视口护栏接线（几何本体在 test-camera.js 的 #AA6 段）。
   'scripts/test-bench-tools.js',
+  // 2026-10-26 #AA8：HUD 文本在亮 biome 上的可读性契约（左下目标卡 / 底部提示条的深色底衬与字号）。
+  'scripts/test-hud-readability.js',
 ];
 
 function pickTests() {

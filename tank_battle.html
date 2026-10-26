@@ -160,13 +160,23 @@
   @keyframes gainToastIn{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);}}
   @keyframes gainToastOut{to{opacity:0; transform:translateY(-6px);}}
   #ammoIndicator .mult{color:var(--text-dim); font-weight:400; font-size:9px;}
-  #hintBar{position:absolute; left:12px; bottom:10px; pointer-events:none; display:none;
-    font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-dim); opacity:.75; letter-spacing:1px;}
   #topLeftInfo{position:absolute; left:12px; top:12px; font-size:13px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; line-height:1.4;}
-  /* P-38 剩余击杀配额小字（常规节点战斗态显示，其余隐藏） */
-  #quotaHud{position:absolute; left:12px; bottom:32px; pointer-events:none;
-    font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px;
-    color:var(--text-dim); text-shadow:0 1px 2px rgba(0,0,0,0.8);}
+  /* #AA8（2026-10-26 用户反馈「标准模式左下角的任务描述在某些 biome 上看不清」）：
+     旧样式 = 10px + `--text-dim` + 仅一层 text-shadow、**无底衬** ⇒ 压在雪地/沙漠这类高亮地面上
+     直接糊掉。现行口径：**深色半透明底衬（rgba(8,9,6,0.72)）+ 左侧琥珀色定位条 + 11px 正文**，
+     正文色改用 `--text`（不再用 dim），第三行统计信息允许降一档到 .78 透明度——有底衬打底才安全。
+     `pointer-events:none` 保持：这是信息层，不许吃掉战场点击。 */
+  #quotaHud{position:absolute; left:12px; bottom:92px; pointer-events:none;
+    font-family:'JetBrains Mono',monospace; font-size:11px; line-height:1.55; letter-spacing:.5px;
+    color:var(--text); text-shadow:0 1px 2px rgba(0,0,0,0.9);
+    background:rgba(8,9,6,0.72); border:1px solid var(--line); border-left:2px solid var(--amber-dim);
+    padding:6px 10px 6px 9px; border-radius:2px; max-width:min(520px, 34vw);
+    -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);}
+  /* #hintBar 同一问题（9px + opacity .75 + 无底衬）——hint 属常驻提示，不能靠"玩家自己凑近看" */
+  #hintBar{position:absolute; left:12px; bottom:10px; pointer-events:none; display:none;
+    font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text); opacity:.92;
+    letter-spacing:1px; background:rgba(8,9,6,0.66); border:1px solid var(--line);
+    padding:3px 8px; border-radius:2px; text-shadow:0 1px 2px rgba(0,0,0,0.9);}
   /* 顶部中央 HUD 栈（#MODE 2026-10-15）：唯一负责定位的容器；子元素一律 position:static，
      由 flex 纵向排列 + 间距自动避让（原先三者各自 absolute 到 top:10~12px 会重叠）。 */
   #topCenterHud{position:absolute; left:50%; top:12px; transform:translateX(-50%);
@@ -5192,8 +5202,10 @@ function updateHud(){
   // 装填进度改为炮口环形（drawReloadRing），旧横向条 reloadFill 已移除
   // P-38：剩余击杀配额小字（仅常规节点战斗态显示；Boss/局外态隐藏）
   const qh = document.getElementById('quotaHud');
+  // #AA8（2026-10-26）：目标卡升到 bottom:92px 并加了不透明底衬 ⇒ 与左下角日志面板（bottom:12、
+  //   高约 160px）在纵向上会重叠，日志打开时让位（日志是玩家主动要看的东西）。
   if(run && battleState && !battleState.cleared && flow.state === 'battle' &&
-     currentNode && !currentNode.boss && Number.isFinite(currentNode.quota)){
+     currentNode && !currentNode.boss && Number.isFinite(currentNode.quota) && !logOpen){
     qh.style.display = 'block';
     // #K2（2026-09-29）：把「完成目标」写成显式目标卡——目标是什么、还差什么、出口还剩多远。
     // 旧文案（推进%/出口%/配额 一行小字）信息齐但读不出「条件关系」，玩家反馈「没有 UI 提示」。
