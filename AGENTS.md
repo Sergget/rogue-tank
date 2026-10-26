@@ -48,7 +48,7 @@
 
 （**分卷结构**：`docs/` 目录收纳四份主文档（DEVELOPMENT / PLAN / ISSUES / ARCHIVE）+ `specs/` 五卷系统规范；`AGENTS.md` 位于仓库根目录供 Agent 自动发现。归档正文按月分卷至 `docs/archive/`，任何 agent **严禁全文读取归档分卷**——按 `ARCHIVE.md` 索引定位后 Grep 切片。拆分前原文快照：`docs/archive/2026-08-development-full-snapshot.md`。）
 
-> **🆕 specs 已 wiki 化（2026-10-21）**：五卷正文拆为 **65 个主题页**（`docs/specs/<卷>/`，2026-10-23 实测；原 59 页 + 2026-10-22/23 新增 6 页），单卷文件 `docs/specs/<卷>.md` 保留为 **§N 兼容索引页**。**改 specs 前必须先读 `docs/WIKI-STYLE.md`**——它是 specs 形态的唯一规范权威。详见 §2.3。
+> **🆕 specs 已 wiki 化（2026-10-21）**：五卷正文拆为 **67 个主题页**（`docs/specs/<卷>/`，2026-10-26 实测；原 65 页 + 2026-10-26 新增友军指挥 / 真 3D 路线 2 页），单卷文件 `docs/specs/<卷>.md` 保留为 **§N 兼容索引页**。**改 specs 前必须先读 `docs/WIKI-STYLE.md`**——它是 specs 形态的唯一规范权威。详见 §2.3。
 
 | 文档 | 角色 | 职责 | 更新时机 | 生命周期 |
 |---|---|---|---|---|
@@ -68,7 +68,7 @@
 - **被推翻的设计不静默删除**：主文档 §4 历史条目保持原文 + 加「已被 §4.x/§y 取代」注记；specs 内旧数值改写为现行值并在原处留沿革注记。读者应能只读 specs 就得到现行口径，只读 DEVELOPMENT §4 就能追溯演进。
 - **同文档内禁止重复罗列数值**：同一数值/参数表只允许一个「唯一口径」小节（如 combat.md §3.2 弹种总表），其余位置一律指向它。
 - **specs 章节编号是外部契约，不得重排**：实测 191+ 处文档/代码引用 `specs/<卷>.md §N`，历史批次日志又按「只增不改」维护 ⇒ **新增内容一律用新编号追加**，需要重组时用「卷首 §0 主题索引 + 批次节主题标签 + 数值唯一口径」三件套，**禁止重编号**。现行实践见 `DEVELOPMENT-batches-2026-10.md` §4.113。
-- **specs 正文已 wiki 化（2026-10-21）**：五卷共 **65 个主题页**（2026-10-23 实测），位于 `docs/specs/<卷>/`；`docs/specs/<卷>.md` 是 §N 兼容索引页（标题编号不变、每节 1~3 行摘要 + 「详见」链接）。**查现行口径先读 `<卷>/index.md` 或其 `changelog.md`**，不要直接读兼容页当正文。风格规范见 `docs/WIKI-STYLE.md`。
+- **specs 正文已 wiki 化（2026-10-21）**：五卷共 **67 个主题页**（2026-10-26 实测），位于 `docs/specs/<卷>/`；`docs/specs/<卷>.md` 是 §N 兼容索引页（标题编号不变、每节 1~3 行摘要 + 「详见」链接）。**查现行口径先读 `<卷>/index.md` 或其 `changelog.md`**，不要直接读兼容页当正文。风格规范见 `docs/WIKI-STYLE.md`。
 - **统计数字必须实测**：文档中的统计数字（卡牌数量/分布等）标注实测日期；引用过期数字前先重跑对应脚本（如 `node scripts/audit-content.js`）。
 - **模糊词禁用**：章节标题与结论禁止「本轮/本批」无日期锚点的写法；一律带 yyyy-mm-dd（或月份）锚点。
 
@@ -185,7 +185,7 @@
 | 链 | 沙箱 workspace-write | 权限放宽后 |
 |---|---|---|
 | `npm run check`（语法 + tsc） | ✅ 全绿 | ✅ |
-| `npm test`（47 项 Node 链） | ✅ 全绿（`run-tests.js` 已改文件句柄重定向，不再依赖管道） | ✅ |
+| `npm test`（54 项 Node 链，2026-10-24 实测；`scripts/run-tests.js` 登记数） | ⚠️ **53 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在沙箱下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ 全绿 |
 | `npm run test:browser`（四链） | ⚠️ 报 `spawn EPERM`（命名管道被禁）并输出 `INCONCLUSIVE` + 退出码 86 | ✅ 全绿 |
 
 **不要把 `INCONCLUSIVE`/86 当成代码失败**；它明确表示环境未放开。历史上该噪音被误读为「浏览器链坏了」，导致多轮无效排查。
@@ -209,7 +209,7 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。2026-10-23 贴图口径收口后仅剩：**远期路线**（载具分化 / 战术深度 / 画质升级，7 大模块）+ **Steam 发布筹备清单** + **伪 3D 实施**（研究已交付、方案路线 A、无排期）+ C 档设计研究（设计预留）+ 路线裁定；已完成 10 节原文已迁出至 `docs/archive/2026-10.md`。
-- **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **65 个主题页**（2026-10-23 实测），每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
-- **待处理问题**：见 `docs/ISSUES.md`（当前无存量条目；历史已核实问题见 `docs/ARCHIVE.md` 索引）。
+- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**近期修复**（§6：AA-a / AA-b / AA-c）+ **近远期执行路线**（§2：R0 渲染地基 → A0 友军指挥 / R1 真 3D → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机六命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。旧横向推进章节与 AA-d 已归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
+- **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **67 个主题页**（2026-10-26 实测），每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
+- **待处理问题**：见 `docs/ISSUES.md`（**当前存量 4 条：#AA1~#AA3、#AA5**，2026-10-24 用户反馈核实批次——公路加成 HUD 标注 / bench `aimPoint` 缺失 / bench↔battle 接线漂移 / `specs/map/roads.md` 口径过期；原 **#AA4 制动与滑行模型已于 2026-10-24 按用户裁定修复并归档**，结论见 `docs/DEVELOPMENT-batches-2026-10.md` §4.130、细则见 `docs/specs/map/terrain.md`「制动与滑行」）。历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

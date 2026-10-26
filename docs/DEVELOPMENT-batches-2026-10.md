@@ -2978,3 +2978,86 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 - 视口外敌人不显示是**用户裁定**的取舍：若将来要「雷达提示视口外警觉」，需另一套 HUD（不属本条）。
 
 **细则归口**：`docs/specs/combat/enemy-ai.md`「激活与警觉」（含归并表与假绿教训）。
+
+## §4.130 2026-10-24 AA-d：制动与滑行模型重构（刹车独立系统 + 地形附着系数 + 乘子插值）
+
+**用户反馈（2026-10-24）**：「在泥潭、河流中，坦克减速会滑行更远，低马力的坦克在普通地面也有类似的问题。研究是否需要更改速度 - 马力 - 阻力 - 速度等的计算方法」。核实结论（#AA4）为**机制必然**、非偶发数值失衡：地形乘子同乘加速与制动 ⇒ 泥/水滑行 **2.5×**；制动由 `accel × brakeFactor(2.2)` 派生 ⇒ 滑行 ∝ 1/(P/W)，实测 6 车型 P/W 3.0~16.4 ⇒ 靶车滑行达 panzer-IV 的 **3.2×**；且极速与马力之间**本无耦合通道**。
+
+### 1) 用户裁定（2026-10-24T19:38+08:00，三问全部落定）
+
+| 问 | 裁定原话 | 落地 |
+|---|---|---|
+| 1 制动手感 | 「**刹车是独立系统**」 | 制动与 `enginePower ÷ weight` **彻底脱钩**，基准取 `RULES.speed.brakeBasePx` |
+| 2 泥潭 / 河流 | 「**限速 + 影响刹车**」 | `passability` 0.4 不动；另加 `RULES.coverTiers[*].brakeGrip` **只削制动** |
+| 3 卡牌 / 方案 | 「**按建议**」 | 采「独立制动通道 + 地形乘子插值」组合；`brake` 成卡牌可达 stats 字段 + `parameterLimits` 硬限 |
+
+方案 A（制动对地形免疫）/ C（速度比例阻力）/ E（每车型 `brake` 数据字段）**未采纳**。
+
+### 2) 实现（14 处改动，3 个模块，role-systems 单写域）
+
+| 模块 | 改动 |
+|---|---|
+| `js/tank_rules.js` ×4 | ① `RULES.speed`：删 `brakeFactor: 2.2`（原处留 `~~brakeFactor~~` 沿革注记）、加 `brakeBasePx: 400` 与 `terrainLerp: 10`；② `coverTiers` 的 `water`/`river`/`mud` 加 `brakeGrip: 0.7`；③ `normalizeCoverTiers()` 在 `t.move = t.passability` 同处补 `brakeGrip` 缺省 1.0；④ `parameterLimits.brake = { min: 150, max: 900 }` |
+| `js/tank_model.js` ×4 | ① `s = {…}` **字面量内**以 `brakeBasePx` 播种 `s.brake`（mult 通道有 `s[stat] !== undefined` 门禁，写在字面量外会让卡牌 `brake` 修饰器被静默丢弃）；② 删除派生 `s.brake = s.accel * BRAKE_FACTOR`；③ 删除 `BRAKE_FACTOR` 常量；④ `applyParameterLimits` 新增 `brake` 钳制块（自行从 `RULES.speed.brakeBasePx` 取基准，因 `base.brake` 不是数字） |
+| `js/tank_move.js` ×6 | ① 新增 `let brakeGrip = 1.0`；② 从 `cvTier.brakeGrip` 读取；③ 公路豁免块把 `brakeGrip` 归 1.0；④ `speedModifier` 经指数插值成 `terrainMul`（`tK = 1 − e^{−terrainLerp·dt}`）；⑤ `pBrake = stats.brake × brakeGrip`（**不再乘地形乘子**）、`pAccel = stats.accel × terrainMul`、`pTarget` 用 `terrainMul`；⑥ 松键滑行注释改写（松键 `× 1.8` 为就地常量，不入 `RULES`） |
+
+**关键语义**：`passability` 从此只管「跑多快」（极速 + 加速），「停多快」由 `brakeGrip` 单独描述；`brakeGrip` 与 `turnModifier` **不插值**（表面属性，进出即生效），只有速度通道插值。
+
+### 3) 回归（新增一条 + 改写两条既有断言）
+
+- **新增 `scripts/test-movement-braking.js`**（已登记 `scripts/run-tests.js`）：**20/20 通过**。`v0 = 200` px/s、`dt = 1/60` 实测——P/W 60 与 P/W 3 的坦克 `stats.brake` 均 400、滑行距离比 **1.000**（旧口径下 20×）；泥潭 26.13px → 38.03px = **1.46×**（理论 1/0.7 = 1.43×）；河流同口径（读 `RULES` 不硬编码）；河流 + 公路豁免 **1.000×**；`terrainMul` 1 秒到位、`turnModifier` 不插值；卡牌 `brake` ×1.5 ⇒ 600 / 滑行 0.645×；`mult: 0` 被 `parameterLimits.brake.min` 钳到 150 且仍能停住。
+- **改写 `scripts/test-modifiers.js` 第 16 条**：旧断言锁 `brake = accel × brakeFactor` 恒等式（解耦后必假红），改为断言 `stats.brake === brakeBasePx`、卡牌 `brake` ×1.5 ⇒ ×1.5、mult 10（mult 通道聚合 ×10.5 ⇒ 4200）被 `parameterLimits.brake.max = 900` 钳制。
+- **改写 `scripts/test-card-effects.js`**：删掉镜像侧的 `BRAKE_FACTOR` 与派生，补 `pL.brake` **双向**钳制；**750 断言 / 211 张卡全绿**。
+- 复核未受影响：`scripts/test-move.js`（公路加成 25px/s、180/600 帧）、`scripts/test-tankcollision.js`（撞岩 600 帧、泥地减速识别）、`scripts/test-extreme-model.js`（零/极小/Infinity accel）——插值在断言前已收敛。
+
+### 4) 验证
+
+`npm run check` → 测试链登记一致（54 个 `scripts/test-*.js` 全部在 `TESTS`）+ `All checks passed.` + `tsc --noEmit` EXIT=0。
+`npm test` → **54 通过 / 1 失败**；唯一失败项 `scripts/test-asset-pipeline.js` 是**沙箱环境限制**（`spawnSync` 管道 stdio 在 workspace-write 下报 EPERM，`status === null`，已用最小复现直接证明），与本次改动无关——`js/tank_*` 与全部机动/卡牌测试均绿。边界口径见 `AGENTS.md` §3.7。
+
+### 5) 影响面与未做
+
+- **手感变化**：`Obj 780` 540→400 px/s²（重车略钝）、`Leapard_1` 236→400、`dummy` 288→400（低马力车不再「刹不住」）。
+- **`brake` 成为卡牌可达字段**，但**本批只开通道、不加卡**（内容面另批，须走「新增运行时字段全链路联动」清单）。
+- 未引入速度比例阻力项（方案 C）：`maxSpeed` 与马力之间仍无耦合通道，用户设想的「阻力 - 速度」曲线本批不实现。
+
+**细则归口**：`docs/specs/map/terrain.md`「制动与滑行」（唯一数值口径：`brakeBasePx` / `terrainLerp` / `brakeGrip` / 松键 1.8 / `parameterLimits.brake`）。
+
+## §4.131 2026-10-26 品质目标、真 3D 切片与单机友军指挥路线重排
+
+> 本条是规划与设计裁定落地，不是功能实现记录；§4.124～§4.127 的旧阶段策略以本条为准，技术研究与 P1 已落地判定继续有效。
+
+**用户裁定**：最终品质希望接近《变节行动》；多人合作暂不考虑，改为少量友军与即时友军命令系统；要求整理文档并规划近远期。
+
+### 1) 路线结论
+
+- **不全量换引擎/重写**：保留二维命中、甲弹对抗、AI、卡牌、经济和节点流程；首选 Three.js/WebGL 渐进替换渲染，R1/G1 证明存在结构性障碍才重评 Godot 等备选。
+- **旧 A → B → C 建议被取代**：Canvas 路线 A 仍可美化原型，但不再作为最终品质路线；B 不是 C 的必经阶段，C 也不再以「可旋转相机」为启动前提。现行目标是固定俯视/轻倾斜真 3D + 二维交互/命中，3D 弹道、高度地形与可旋转相机不默认扩张。
+- **单机指挥而非多人**：不引入网络同步、房间、联机存档或多人反作弊。首个切片按 2～4 辆友军验证，最终数量实测标定。
+- **资产边界纠正**：2026-10-24「无需手工建模」仅对参数化灰盒成立，不外推到精细硬表面、PBR、场景、损坏状态、VFX 与音频。Canvas「本仓库不出图」现行规则不因此删除，真 3D 另建资产管线。
+- **工期口径纠正**：旧 C「≥1 个月」只覆盖当时渲染技术实验，不是达到参考品质的总工期；量产成本待 G1 实测再估。
+
+### 2) 近远期排期
+
+1. **近期清账**：AA-a → AA-b → AA-c，先修已核实的 HUD、bench 与音频缺口。
+2. **R0 地基**：I3 截图回归、I4 拾取统一入口、固定场景/性能基线。
+3. **A0 + R1 可玩验证**：A0 完成六命令与统一目标权威；R1 用同一场景验证真 3D 驾驶、命中、指挥与基础破坏。
+4. **G1 品质门**：3～5 分钟完整遭遇，验收车感、破坏、演出、可读性、性能与回归；未过不批量生产。
+5. **M1～M4**：核心战斗量产 → 内容/重玩性 → 商业发行 → 可选 Workshop/单机排行榜；多人不属默认后续。
+
+### 3) 友军指挥关键约束
+
+首版六命令 = `focus / move / follow / hold / retreat / flank`，全体与单车控制，短按上下文 + 命令环，不默认战术暂停。执行优先级 = 局部防即死/防卡死反射 → 玩家命令 → 职能默认 → 自主交战；局部反射不能长期架空命令。
+
+2026-10-26 实测：`updateSquad` 只协调敌军；友军虽走 `aiDecide`，击发仍由 `nearestEnemyTo` 取最近敌人。因此 A0 必须建立任务状态与**统一目标权威**，让 AI 和开火读取同一目标，并完成不可达/无射界/撤退/节点切换/存档反馈与回归。不是加六个 UI 按钮即完成。
+
+### 4) 文档同步与验证
+
+- 新增 `docs/specs/combat/ally-command.md`（combat §16）与 `docs/specs/map/rendering-roadmap.md`（map §32）；卷首页、§0 与 specs 总目录已同步。
+- 旧 `pseudo-3d-2p5d.md`、`vision-stealth-3d-compat.md`、`pseudo-3d-readiness.md` 加取代/适用边界注记，原研究不静默删除。
+- `PLAN.md` 重排为近期 AA → R0 → A0/R1 → G1 → M1～M4；补 Go/No-Go、友军 A0～A3、资产/破坏/演出/遭遇/回放/可访问性等工作包，Steam 分地基/量产/发行候选期。
+- 本批次为**规划与规范落地，无游戏代码改动**，故不声称 `npm run check` / `npm test` / `test:browser` 游戏三链已验证。文档验证以 `node scripts/wiki-check.js` 与最终差异复核为准：2026-10-26 首跑通过（files=95 / pages=69 / broken=0 / anchorBad=0 / struct=0 / template=0）；归档后复跑结果见本节末尾追加记录。
+
+**细则归口**：`docs/specs/map/rendering-roadmap.md`、`docs/specs/combat/ally-command.md`；待办唯一排期入口 `docs/PLAN.md` §1～§5。
+
+**收尾验证（2026-10-26）**：旧 PLAN §2～§3 已按原文归档并登记 ARCHIVE；`node scripts/wiki-check.js` 复跑通过（files=95 / pages=69 / links=1760 / broken=0 / anchors=892 / anchorBad=0 / struct=0 / template=0）；`git diff --check` 通过（仅 Git 提示既有 LF/CRLF 转换，无空白错误）。

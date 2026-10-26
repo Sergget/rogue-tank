@@ -1,7 +1,7 @@
 # 地形抽象与生成
 
-> **摘要**：地形类型抽象 schema、地形到 tier 的映射、biome 美术规范与生成期 LoS 走廊。
-> **适用版本**：现行（2026-10-21）
+> **摘要**：地形类型抽象 schema、地形到 tier 的映射、制动与滑行口径（#AA4）、biome 美术规范与生成期 LoS 走廊。
+> **适用版本**：现行（2026-10-24；地形抽象与 LoS 部分为 2026-10-21）
 > **源自**：`docs/specs/map.md` §5 / §6 / §7（2026-10-21 拆分）
 > **相关**：[掩体体系](./cover-system.md) · [路网](./roads.md) · [河流与溺毙](./rivers.md) · [沿革与未落地](./changelog.md)
 
@@ -10,6 +10,7 @@
 - [属性 schema 与取值域](#属性-schema-与取值域)
 - [地形到 tier 的映射](#地形到-tier-的映射)
 - [Biome 美术规范](#biome-美术规范)
+- [制动与滑行](#制动与滑行)
 - [地图元素与生成更新](#地图元素与生成更新)
 - [LoS 走廊与运行期绕行](#los-走廊与运行期绕行)
 
@@ -106,6 +107,57 @@
 - **递增生成与击杀配额（P-38/#83 解决）**：非 Boss 节点 quota = max(初始敌数, 初始敌数 + quotaAddBase(2) + floor(effDiff×quotaDiffScale(6)))，节点结束条件改为「nodeKills ≥ quota」；`reinforcementTick(state)` 纯逻辑驱动补兵——alive < desiredAlive 且距上次 ≥ reinforceInterval(8s) 时每批生成 1~2 个（maxAlive=7 封顶）。
 - 增援落点四重约束：视口 AABB 外扩 reinforceMargin(120px) 外 ∩ 世界边界内 ∩ 距玩家当前位置 ≥ aiTriggerDist×1.05 ∩ 距友军据点 ≥300px，掩体 padding 拒绝采样、rng 注入确定性。
 - 增援实体化后立即 `alertEntity` 警觉并记 lastKnownPlayerPos=玩家当前位——主动推进而非蹲守；Boss 节点 quota=null 完全禁用递增生成（summons 即其机制）。
+
+## 制动与滑行
+
+（2026-10-24 #AA4 用户裁定后新增；本节是该机制在全仓的**唯一数值口径**）
+
+**裁定（2026-10-24T19:38+08:00，用户三问）**：① **刹车是独立系统**——与 `enginePower ÷ weight` 彻底脱钩；② 泥潭 / 河流「**限速 + 影响刹车**」——`passability` 照旧压极速与加速，另由 `brakeGrip` **只削制动**；③ 采「独立制动通道 + 地形乘子插值」组合，且**卡牌允许改善制动** ⇒ `brake` 成为卡牌可达 stats 字段。
+
+### 三条速度通道（互不污染）
+
+| 通道 | 来源 | 消费点 | 是否吃地形 |
+|---|---|---|---|
+| 目标速度 `pTarget` | `stats.maxSpeed` + 公路 `roadBonus` + `howitzerMul` / `fireMul` / `flashDashMul` / `stiffMul` / `debuffSpeedRate` | 速度趋近（`js/tank_move.js`） | 是（`terrainMul`） |
+| 加速 `pAccel` | `stats.accel = (enginePower ÷ weight) × RULES.speed.accelPowerToPxScale` | `clamp(pTarget − speed, −pBrake·dt, +pAccel·dt)` | 是（`terrainMul`） |
+| 制动 `pBrake` | `stats.brake`（基准 + 卡牌修饰器）× `brakeGrip(tier)` | 同上，负向钳制 | **只吃 `brakeGrip`**，与 `passability` / `terrainMul` 无关 |
+
+关键：`passability` **不再同时管三件事**——它只决定「跑多快」（极速 + 加速），「停多快」由 `brakeGrip` 单独描述。
+
+### 数值唯一口径
+
+| 键 | 现行值 | 含义 |
+|---|---|---|
+| `RULES.speed.brakeBasePx` | **400** px/s² | 制动减速度基准（≈ 旧口径现役中位值：tiger-I 405 / panzer-IV 396） |
+| `RULES.speed.terrainLerp` | **10** /s | `terrainMul` 指数插值速率（`1 − e^{−10·dt}`，约 0.3s 收敛） |
+| 松键制动倍率 | **1.8**（`js/tank_move.js` 就地常量，非 `RULES` 键） | 松油门（`move === 0`）时制动再放大 1.8 倍 ⇒「松键滑行」短于「反向顶死」 |
+| `RULES.coverTiers[*].brakeGrip` | 缺省 **1.0**；`water` / `river` / `mud` = **0.7** | 制动附着系数，只削制动 |
+| `RULES.parameterLimits.brake` | `{ min: 150, max: 900 }` | 卡牌通道硬限（`min` 防「零制动 ⇒ 无限滑行」，`max` = 2.25× 基准） |
+
+- `brakeGrip` 的缺省 1.0 由 `normalizeCoverTiers()` 在 `t.move = t.passability` 同一处补齐（`js/tank_rules.js`）⇒ 未声明的 tier 一律 1.0，`cvTier.move` 与 `passability` 恒等的关系不受影响。
+- `stats.brake` 在 `computeStats` 的 `s = {…}` **字面量内**从 `brakeBasePx` 初始化——mult 通道有 `s[stat] !== undefined` 门禁，写在字面量之外会让卡牌 `brake` 修饰器被静默丢弃。
+- `brakeGrip` 与 `turnModifier` **不做插值**（表面属性，进出地形即生效）；只有速度通道 `terrainMul` 插值。
+
+### 与公路豁免的关系
+
+`getRoadUnderTank` 命中且脚下为液体 / 泥潭时，`driveTank` 走「道路优先」豁免：既跳过 `passability` 减速，也把 `brakeGrip` 归 **1.0**——公路上的泥 / 水**不影响刹车**（与桥面 / 路口语义一致，见 [河流与溺毙](./rivers.md)）。
+
+### 沿革
+
+- ~~`brake = accel × brakeFactor`（`RULES.speed.brakeFactor: 2.2`）~~ → 2026-10-24 #AA4 作废：制动改由独立基准 `brakeBasePx` 决定，`brakeFactor` 键已从 `RULES.speed` 移除（原处留注记，`js/tank_model.js` 同处）。旧口径下制动 ∝ `enginePower ÷ weight`，实测 6 车型 P/W 3.0~16.4 ⇒ 低马力车（靶车 `dummy`）滑行距离达 panzer-IV 的 **3.2×**、Leapard_1 的 1.7×；新口径下同车速滑行距离比 **1.000**。
+- ~~地形乘子 `speedModifier` 同乘加速与制动~~ → 同上作废：`terrainMul` 只进 `pAccel` / `pTarget`；同时地形乘子改为**指数插值**，消掉「一进泥潭就飘」的瞬态（旧行为：乘子逐帧突变）。
+- 旧口径下的滑行距离在泥 / 水系被放大 **2.5×**（`1 ÷ passability 0.4`）；现行实测 **1.46×**（`1 ÷ brakeGrip 0.7`，含插值瞬态）。
+
+### 回归
+
+`scripts/test-movement-braking.js`（2026-10-24 新增，已登记 `scripts/run-tests.js`；`v0 = 200` px/s、`dt = 1/60`）实测锁六条：
+
+1. P/W 60 与 P/W 3 的坦克 `stats.brake` 均 = **400**、滑行距离比 **1.000**（解耦生效）；
+2. 泥潭滑行比 ≈ `1 / 0.7` = 1.43×（实测 1.46×，26.13px → 38.03px）；
+3. 河流同口径（读 `RULES.coverTiers.river.brakeGrip`，不硬编码）；
+4. 河流 + 公路豁免 ⇒ 比 **1.000**；
+5. `terrainMul` 1 秒到位（≈ `passability` 0.400）、`turnModifier` 不插值；
+6. 卡牌 `brake` ×1.5 ⇒ `stats.brake` **600**、滑行 **0.645×**；修饰器 `mult: 0` 被 `parameterLimits.brake.min` 钳到 **150** 且仍能停住。
 
 ## 地图元素与生成更新
 

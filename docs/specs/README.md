@@ -9,13 +9,13 @@
 
 | 卷 | 一句话定位 | 首页 | 页数 | 标题数 | 兼容索引 |
 |---|---|---|---|---|---|
-| combat | 战斗与物理：弹道、装甲、弹种、技能、AI、特效、音频、HUD、模式 | [combat/index.md](./combat/index.md) | 17 | 63 | [combat.md](./combat.md) |
-| map | 地图与地形：节点、掩体 tier、路网、水域、生成校准 | [map/index.md](./map/index.md) | 13 | 119 | [map.md](./map.md) |
+| combat | 战斗与物理：弹道、装甲、弹种、技能、AI、友军指挥、特效、音频、HUD、模式 | [combat/index.md](./combat/index.md) | 18 | 64 | [combat.md](./combat.md) |
+| map | 地图与地形：节点、掩体 tier、路网、水域、生成校准、渲染路线 | [map/index.md](./map/index.md) | 14 | 120 | [map.md](./map.md) |
 | cards | 卡牌：稀有度、效果类型、卡池与校验、卡牌查看器 | [cards/index.md](./cards/index.md) | 11 | 17 | [cards.md](./cards.md) |
 | boss | Boss：数据契约、阶段、血量倍率、AI 模式、激光与召唤 | [boss/index.md](./boss/index.md) | 9 | 22 | [boss.md](./boss.md) |
 | editor | 编辑器工具链：设计器、对比页、字段架构、开发者面板 | [editor/index.md](./editor/index.md) | 9 | 22 | [editor.md](./editor.md) |
 
-> **状态（2026-10-21）**：五卷**已全部 wiki 化**，共 **59 个主题页**。每卷的 `<vol>/index.md` 是卷首页，`<vol>/changelog.md` 收沿革与已作废节；`docs/specs/<vol>.md` 保留为 **§N 兼容索引页**（标题与编号逐字未改，每节 1~3 行摘要 + 「详见」链接），供 597+ 处外部引用（`js/*.js` 注释、`AGENTS.md`、`DEVELOPMENT*.md`、归档分卷）继续解析。
+> **状态（2026-10-26）**：五卷**已全部 wiki 化**，共 **61 个主题页**（含 changelog；2026-10-26 新增友军指挥与真 3D 路线）。每卷的 `<vol>/index.md` 是卷首页，`<vol>/changelog.md` 收沿革与已作废节；`docs/specs/<vol>.md` 保留为 **§N 兼容索引页**（既有编号不改，新机制追加新编号），供旧引用继续解析。
 > **拆分前单卷原文**：以 git 提交 `57be2ca` 为准，各卷快照说明见 `docs/archive/2026-10-pre-wiki-<卷>.md`（含还原命令与分节行号表）。
 
 ## 怎么查

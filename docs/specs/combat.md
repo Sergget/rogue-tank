@@ -27,6 +27,7 @@
 | 无人机（scout / striker） | [技能与副武器 · 无人机](./combat/abilities-secondary.md#无人机) | §5.1（striker 早期描述） |
 | 敌方 AI：触发 / 警觉 / 反应延迟 / 接战传播 | [敌方 AI](./combat/enemy-ai.md) | §5.1 |
 | 敌方 AI：接战机动 / 交战结构 / 侧翼 / 分离力 | [敌方 AI · 接战机动随机化](./combat/enemy-ai.md#接战机动随机化) + [交战结构重做](./combat/enemy-ai.md#交战结构重做) | §5.1 |
+| 友军指挥：六命令 / 目标权威 / 状态反馈 / 导航（设计预留） | [友军指挥与战术协同](./combat/ally-command.md) | — |
 | 敌人数值 / 难度乘子 / 固定基准 | [敌人强度与难度](./combat/enemy-scaling.md) | §5「难度全面分化」段（仅机制表述）、§11.5 |
 | Boss 激光 / 召唤 / 随机走位 | [Boss 战斗](./combat/boss-combat.md) | §9.5（#G1 乘数方案，已废） |
 | Boss 血量 / 难度缩放 | 归口 **`specs/boss.md` §5** | §13.4（`entityMults.maxHp` 与 `hpMul` 两级叠加） |
@@ -425,3 +426,9 @@
 > **烟幕**：副武器 `smoke` 抛 `cloudCount` 团烟墙；发射几何归 `WEAPON_DEFAULTS.secondary.smoke`，单团半径/存续归 `RULES.smoke`；视线遮断与隐蔽加成是两条独立通道。
 
 **详见**：[撞击伤害、隐蔽感知与战术闪跃](./combat/ramming-stealth-dash.md)
+
+## 16. 友军指挥与战术协同（2026-10-26 新增，设计预留）
+
+> **设计预留，未落地**。单机少量 AI 友军 + 六命令（集火/前往/跟随/驻守/撤退/侧袭）；不做多人合作。命令状态、统一目标权威、局部反射边界、反馈与导航/回放验收见主题页。
+
+**详见**：[友军指挥与战术协同](./combat/ally-command.md)
