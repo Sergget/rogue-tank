@@ -984,11 +984,14 @@ let bounceFx = []; // ricochet spark visuals
 // [P-28] updateSolution 已收敛到 js/tank_fire.js
 // 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用（声明在上方，此处仅注释）
 
-// #F（2026-09-20）：bench 副武器击发（F 按住连发，与 battle #C4e/#E5/#E4 同源语义）。
-// missile 走「激活索敌 → 逐帧锁定 → 锁定完成自动发射」（再按 F 取消）；mine_layer 直接布雷
-//（bench 已有「放置地雷」按钮与两次确认无关，简化直发布雷）；其余副武器经 tryFireSecondary
-// 向光标世界点击发（火箭巢首发作 + _rocketBurst 由主循环 updateRocketBurst 逐发驱动）。
-function tryBenchSecondaryFire(){
+// #F（2026-09-20）：bench 副武器击发。
+// #AA3（2026-10-26）：与 battle #C4e/#F7/#X5 逐条对齐——**开关类副武器只认原生 keydown 边沿**。
+//   旧实现由主循环逐帧 `input.isDown('fireSecondary')` 调本函数，而 howitzer/mine_layer 的
+//   `tryFireSecondary` 内部直接推进模式/预形态状态 ⇒ 按住 F 期间每帧翻转（battle 早已按边沿
+//   实现，bench 漏了；docs/specs/combat.md §8.2 明令禁止帧轮询开关类）。
+//   现行：`force === true`（原生边沿）才处理开关类；帧轮询通道对三类直接 return。
+//   rocket / mortar 等**连续击发类**仍由帧轮询驱动（与 battle 4503 的轮询分支同源）。
+function tryBenchSecondaryFire(force){
   if(!player || !player.weapons) return;
   const sec = player.weapons.secondary;
   if(!sec || sec.type === 'none'){
@@ -996,7 +999,9 @@ function tryBenchSecondaryFire(){
     return;
   }
   if(!fireCtx) return;
+  // ---- 开关类：只认边沿 ----
   if(sec.type === 'missile'){
+    if(force !== true) return;
     if(player._missileActivated){
       player._missileActivated = false;
       player._missileLock = null;
@@ -1014,9 +1019,58 @@ function tryBenchSecondaryFire(){
     playSound('ui');
     return;
   }
+  if(sec.type === 'mine_layer'){
+    // bench 没有 battle 那套「预形态 → 确认 → 4s 生成 pendingMineFields」页面机制，
+    // 一次按键交给共享状态机推进一次（内部同样是两态推进），绝不逐帧推进。
+    if(force !== true) return;
+    const firedMine = tryFireSecondary(fireCtx);
+    if(firedMine) playSound('ui');
+    return;
+  }
+  if(sec.type === 'howitzer'){
+    // #X5：榴弹炮槽本身不发射（射击走主炮左键/空格），F 只切曲射/直射模式。
+    if(force !== true) return;
+    benchToggleHowitzerF();
+    return;
+  }
+  // ---- 连续击发类 ----
   const fired = tryFireSecondary(fireCtx);
   if(fired && sec.type !== 'turret') playSound('ui');
 }
+
+// 榴弹炮模式切换：与 battle 的 toggleHowitzerF **同一共享实现**（js/tank_weapons.js toggleHowitzer），
+// 这里只负责 UI 反馈（日志 + 音效）。
+function benchToggleHowitzerF(){
+  if(!player || player.hp <= 0) return;
+  const sec = player.weapons && player.weapons.secondary;
+  if(!sec || sec.type !== 'howitzer') return;
+  const tgl = (typeof toggleHowitzer === 'function') ? toggleHowitzer : null;
+  if(!tgl){
+    pushLog('榴弹炮模式切换不可用（tank_weapons.js 未加载）', 'COVER');
+    return;
+  }
+  const on = tgl(player);
+  playSound('ui');
+  if(on){
+    pushLog('榴弹炮：曲射模式 — 主炮高抛越掩，落点 = 鼠标位置（散布圈内），按 F 切回直射', 'PEN');
+  } else {
+    pushLog('榴弹炮：直射模式 — 主炮恢复平射，按 F 切回曲射', 'COVER');
+  }
+}
+
+// #AA3：F 的原生 keydown 边沿（`e.repeat` 过滤按住自动重复，与 battle #F7 同口径）。
+//   键位取共享键位表 `KEY_BINDINGS.fireSecondary`（唯一数据源，改键自动跟随），
+//   输入框聚焦 / 开发者面板打开时不响应，避免在卡牌搜索框里打字触发开火。
+window.addEventListener('keydown', (e) => {
+  if(!e || e.repeat) return;
+  if(!fireCtx || !player) return;
+  const k = (typeof KEY_BINDINGS !== 'undefined' && KEY_BINDINGS) ? KEY_BINDINGS.fireSecondary : 'f';
+  if(String(e.key || '').toLowerCase() !== String(k || 'f').toLowerCase()) return;
+  const ae = document.activeElement;
+  if(ae && /^(input|textarea|select)$/i.test(ae.tagName || '')) return;
+  if(benchSettings && benchSettings.benchPanelOpen) return;
+  tryBenchSecondaryFire(true);
+});
 
 // ---------- update ----------
 let last = performance.now();
@@ -1049,6 +1103,13 @@ function update(dt){
   if(typeof updatePrimaryClip === 'function'){
     if(player && player._clipState) updatePrimaryClip(player, dt);
     if(typeof dummy !== 'undefined' && dummy && dummy._clipState) updatePrimaryClip(dummy, dt);
+  }
+  // #AA3（2026-10-26）：标准主炮「砰砰炮」追发队列——缺它时该卡在 bench 静默失效
+  //   （battle 侧驱动点：`if(typeof updatePrimaryFollowup === 'function' && player._doubleTap)`）。
+  //   靶车同样驱动：bench 的 dummy 也可能被换上带 _doubleTap 的主炮做对比。
+  if(typeof updatePrimaryFollowup === 'function'){
+    if(player && player._doubleTap) updatePrimaryFollowup(player, dt, fireCtx);
+    if(typeof dummy !== 'undefined' && dummy && dummy._doubleTap) updatePrimaryFollowup(dummy, dt, fireCtx);
   }
   // 测试面板作弊开关（bench 专用，会话内有效）
   if(benchCheats.invuln) player.invulnT = Math.max(player.invulnT, 0.5);
@@ -1094,6 +1155,9 @@ function update(dt){
     bounceFx,
     entities,
     covers,
+    // #AA3（2026-10-26）：导弹锁定距离按**视口**计算（js/tank_weapons.js 的 updateMissileLock 消费
+    //   ctx.cam）。缺这一项时 bench 的锁定距离不随视口/缩放放宽，与 battle 表现不一致。
+    cam,
     RULES,
     COVER_TIERS,
     nearestEnemyTo,
@@ -1108,7 +1172,32 @@ function update(dt){
     shellPartHit,
     coverNormalAt,
     reflectDir,
-    resolveHit,
+    // #AA3（2026-10-26）：与 battle **同形状**的 resolveHit 包装，5 参全程透传。
+    //   battle 侧这个包装承担两件事：Boss 弱点倍率（P-51 Wave2）与命中告警传播（alertEntity +
+    //   propagateAlert）。bench 的敌军不跑 aiDecide ⇒ 告警层无消费方，这里保留**弱点层**、
+    //   告警层不注入（形状一致、能力不阉割：bench 一旦接入 Boss 实体即可直接生效）。
+    //   ⚠️ 关键不是「包装了什么」，而是**不许再把第 5 参 opts 丢掉**——第五批在 battle 侧踩过
+    //   `forceEffThickness` 被静默丢弃（榴弹炮「最薄装甲」口径失效）的坑。
+    resolveHit: function(s, target, hit, allowBounce, optsIn){
+      let opts = optsIn ? Object.assign({}, optsIn) : undefined;
+      if(target && target.isBoss && target.team === 'enemy' &&
+         typeof isWeakspotHit === 'function' && typeof moduleFromHit === 'function' &&
+         typeof RULES !== 'undefined' && RULES.boss && RULES.boss.weakspot){
+        const mod = moduleFromHit(target, hit);
+        if(mod && mod.key && isWeakspotHit(target, mod.key)){
+          const ws = RULES.boss.weakspot;
+          opts = Object.assign({}, opts || {}, {
+            penAdd: ws.penAdd || 0, dmgMul: ws.dmgMul || 1, ignoreBounce: !!ws.ignoreBounce
+          });
+          pushLog(`弱点命中！${mod.label} — 穿深+${ws.penAdd || 0} 伤害×${ws.dmgMul || 1}`, 'PEN');
+        }
+      }
+      return resolveHit(s, target, hit, allowBounce, opts);
+    },
+    // #AA3：开火声纹链路——bench 无敌对 AI 消费方，按 no-op 注入**保持键集形状**。
+    //   缺键时 js/tank_fire.js 的 `typeof === 'function'` 守卫会静默跳过，正是 #AA3 那类
+    //   「接线缺失被守卫伪装成已关闭」的根因，所以宁可是空实现也要有键。
+    emitShotNoise: function(){ return 0; },
     hasShield,
     shieldAbsorbs,
     absorbDamage,
@@ -1159,6 +1248,11 @@ function update(dt){
     } else if(player.secondaryReloadT > 0){
       player.secondaryReloadT -= dt;
     }
+    // #AA3（2026-10-26）：榴弹炮急速射队列驱动（_howitzerBurst 存在时接管装填计时）。
+    //   缺它时「急速射」卡在 bench 静默失效——battle 侧同源驱动见 tank_battle.html。
+    if(player._howitzerBurst && typeof updateHowitzerBurst === 'function'){
+      updateHowitzerBurst(player, dt, fireCtx);
+    }
   }
 
   // 靶车：同 player 的运动学（方向键第二驾驶位，经共享控制器 altDriveArgs）
@@ -1177,6 +1271,12 @@ function update(dt){
 
   // keep every tank from overlapping its neighbours (player vs dummy)
   resolveTankCollisions();
+
+  // #AA3（2026-10-26）：伴随无人机驱动（与 battle 同源）——缺它时无人机卡在 bench 不运作
+  //   （召唤型无人机不绘制、不索敌、不开火）。事件返回值 bench 不消费（无 AI 侧联动）。
+  if(typeof updateDrones === 'function'){
+    try { updateDrones(dt, { player, entities }); } catch(err){ /* 无人机异常不阻断主循环 */ }
+  }
 
   // 推进战术部署物（炮塔索敌、地雷触发等）
   const events = updateDeployables(dt, { entities });
@@ -1424,6 +1524,31 @@ function draw(){
   });
   drawFoliage(ctx, covers);   // 灌木/树冠层：盖住其下坦克 = 视线遮挡
   drawShells(ctx, shells);
+  // #AA3（2026-10-26）：曲射（榴弹炮）散布圈——与 battle 同源口径
+  //   （主炮 base 精度 × spreadFactor × 瞄准距离）。缺它时 bench 只能靠「打出去的落点」反推瞄准语义，
+  //   #AA2 那类落点错位在 bench 里根本看不见。
+  //   ⚠️ 参数唯一口径 = WEAPON_DEFAULTS.primary.howitzer.spreadFactor（与 js/tank_fire.js 实际落点的
+  //   切向偏移同一参数源），此处**不写死数值**。
+  if(typeof isHowitzerMode === 'function' && isHowitzerMode(player) && mouseWorld){
+    const hsDef = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
+    const spf = (typeof hsDef.spreadFactor === 'number') ? hsDef.spreadFactor : 4.0;
+    const baseSigma = (RULES && RULES.spread && typeof RULES.spread.base === 'number') ? RULES.spread.base : 0.018;
+    const aimDist = Math.hypot(mouseWorld.x - player.x, mouseWorld.y - player.y);
+    const sigmaSpread = baseSigma * spf * aimDist;
+    ctx.strokeStyle = 'rgba(255,180,84,0.85)';
+    ctx.setLineDash([9, 7]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, sigmaSpread, 0, TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,180,84,0.9)';
+    ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, 2.5, 0, TAU); ctx.fill();
+    const minArc = (typeof hsDef.minArcRange === 'number') ? hsDef.minArcRange : 120;
+    if(aimDist < minArc){
+      ctx.strokeStyle = 'rgba(255,80,60,0.5)';
+      ctx.setLineDash([4, 6]);
+      ctx.beginPath(); ctx.arc(player.x, player.y, minArc, 0, TAU); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
   drawExplosions(ctx);
   drawTurretFlights(ctx);
   drawFxParticles(ctx);

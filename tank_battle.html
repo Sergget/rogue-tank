@@ -53,8 +53,9 @@
   #bottomHud{position:absolute; bottom:18px; left:50%; transform:translateX(-50%);
     display:flex; flex-direction:row; align-items:flex-end; gap:26px;
     font-family:'JetBrains Mono',monospace;}
-  .hudZone{display:flex; flex-direction:column; gap:5px; align-items:flex-start;}
-  .hudZoneTitle{font-size:8px; letter-spacing:2px; color:var(--text-dim); opacity:0.7;
+  .hudZone{display:flex; flex-direction:column; gap:5px; align-items:flex-start;
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:6px 9px; border-radius:2px;}
+  .hudZoneTitle{font-size:8px; letter-spacing:2px; color:var(--text-dim); opacity:0.85;
     text-transform:uppercase; line-height:1;}
   #playerHpWrap{display:flex; align-items:center; gap:6px;}
   #playerHpTrack{width:240px; height:12px; background:#0c0d09; border:1px solid var(--line); position:relative;}
@@ -160,7 +161,10 @@
   @keyframes gainToastIn{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);}}
   @keyframes gainToastOut{to{opacity:0; transform:translateY(-6px);}}
   #ammoIndicator .mult{color:var(--text-dim); font-weight:400; font-size:9px;}
-  #topLeftInfo{position:absolute; left:12px; top:12px; font-size:13px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; line-height:1.4;}
+  /* #AA9（2026-10-26 用户裁定「UI 需要补底衬」）：左上操作提示此前是 13px 白字 + 阴影、无底衬，
+     与 #AA8 同根因（亮 biome 上糊）。现行与目标卡同一套：深色半透明底衬 + 1px 边框。 */
+  #topLeftInfo{position:absolute; left:12px; top:12px; font-size:13px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; line-height:1.4;
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:3px 8px; border-radius:2px;}
   /* #AA8（2026-10-26 用户反馈「标准模式左下角的任务描述在某些 biome 上看不清」）：
      旧样式 = 10px + `--text-dim` + 仅一层 text-shadow、**无底衬** ⇒ 压在雪地/沙漠这类高亮地面上
      直接糊掉。现行口径：**深色半透明底衬（rgba(8,9,6,0.72)）+ 左侧琥珀色定位条 + 11px 正文**，
@@ -190,17 +194,22 @@
     text-shadow:0 1px 2px #000; white-space:nowrap;}
   #moduleStatus .pill .t{color:var(--amber); font-size:9px; opacity:.9;}
   /* ISSUE 18：帧率读出（右下角，仅 showFps 时显示） */
-  #fpsReadout{position:absolute; right:12px; bottom:10px; font-size:12px; color:#6f6; display:none; pointer-events:none;}
-  /* ISSUE 17-display：当前弹种最终属性读出（顶部中央，位于 #topCenterHud 栈内） */
+  #fpsReadout{position:absolute; right:12px; bottom:10px; font-size:12px; color:#6f6; display:none; pointer-events:none;
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:2px 7px; border-radius:2px;}
+  /* #AA9：顶部中央四块文本（弹种倍率 / 波次 / 补给冷却 / 补给提示）同批补底衬——它们叠在
+     战场正中央，亮 biome 上同样糊；各自 pill 化而不是给 #topCenterHud 整块加底，避免空态留一片暗板。 */
   #ammoReadout{font-size:12px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none;
-    font-family:'JetBrains Mono',monospace; display:none;}
+    font-family:'JetBrains Mono',monospace; display:none;
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:2px 8px; border-radius:2px;}
   /* #MODE 2026-10-15：生存模式波次计数 / 准备期倒计时（顶部中央，位于 #topCenterHud 栈内）。
      原先自带 absolute 定位，会压住上方 #ammoReadout（弹种倍率读出）——改为栈内块级元素。 */
   #survivalWaveHud{display:none; font-size:18px; font-weight:bold; color:#ff5c5c;
-    text-shadow:0 0 8px #000; letter-spacing:3px;}
+    text-shadow:0 0 8px #000; letter-spacing:3px;
+    background:rgba(8,9,6,0.66); border:1px solid var(--line); padding:1px 10px; border-radius:2px;}
   /* 补给站冷却读数（生存模式；位于 #topCenterHud 栈内，原 top:40px absolute 会与波次文本重叠） */
   #supplyCdHud{display:none; font-size:13px; color:#ffd24a;
-    text-shadow:0 0 8px #000; letter-spacing:2px;}
+    text-shadow:0 0 8px #000; letter-spacing:2px;
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:2px 8px; border-radius:2px;}
 
   /* ---------- 通用控件 ---------- */
   button{
@@ -475,7 +484,7 @@
   <div id="hintBar"></div>
   <div id="fpsReadout">FPS --</div>
   <div id="quotaHud" style="display:none;"></div>
-  <div id="supplyPromptHud" style="display:none;position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:15px;font-weight:bold;color:#7ed957;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;"></div>
+  <div id="supplyPromptHud" style="display:none;position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:15px;font-weight:bold;color:#7ed957;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;background:rgba(8,9,6,0.66);border:1px solid var(--line);padding:3px 12px;border-radius:2px;"></div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
       <div class="screen-title">节点地图 NODE MAP</div>

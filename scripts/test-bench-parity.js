@@ -1,13 +1,10 @@
-// test-bench-parity.js — bench ↔ 正式游戏 开火接线一致性回归。
+// test-bench-parity.js — bench ↔ 正式游戏 开火接线一致性回归（#AA2 段 + #AA3 段）。
 // 原则（docs/PLAN.md §6.4）：bench 是**测量仪**，不允许有独立机制口径——同一张卡在两页行为必须一致。
 // 依据（docs/ISSUES.md #AA3）：接线缺失经 `typeof x === 'function'` 守卫后会把「拿不到」伪装成
-//   「已关闭」，正是这类漂移四轮无人发现的原因 ⇒ 必须用形状 + 负向断言锁住，而不是只测「能用」。
+//   「已关闭」，正是这类漂移四轮无人发现的原因 ⇒ 必须用**键集形状 + 负向断言**锁住，而不是只测「能用」。
 //
-// 现有段（AA-a，2026-10-26）：#AA2 —— fireCtx 必须注入 aimPoint（曲射落点优先级
-//   aimPointFrozen → ctx.aimPoint → minArcRange 兜底，见 js/tank_fire.js:349-363）。
-// 待补段（AA-b，见 docs/PLAN.md §6.4）：cam / updateHowitzerBurst / updatePrimaryFollowup /
-//   updateDrones / resolveHit 包装 / emitShotNoise / F 键边沿 / 曲射散布圈。
-//
+// 段①（AA-a，2026-10-26）：fireCtx 注入 aimPoint（曲射落点，#AA2）。
+// 段②（AA-b，2026-10-26）：battle 键集 ⊆ bench 键集 + 7 项驱动接线 + F 原生边沿 + 曲射散布圈（#AA3）。
 // 运行：node scripts/test-bench-parity.js
 'use strict';
 
@@ -33,26 +30,76 @@ const fire = fs.readFileSync(path.join(root, 'js', 'tank_fire.js'), 'utf8');
 ok(typeof U.rotate === 'function' && !!(R.RULES && R.RULES.nodeMap),
    '共享层已加载（tank_utils + tank_rules）');
 
-// 契约本身：曲射瞄准点真的读 ctx.aimPoint（若这条没了，下面的接线断言就失去意义）
-ok(/c\.aimPoint/.test(fire), 'js/tank_fire.js 仍消费 ctx.aimPoint（曲射落点契约存在）');
-
-// battle 侧（基准实现）
-ok(/aimPoint:\s*mouseWorld/.test(battle), 'tank_battle.html 注入 aimPoint: mouseWorld（基准口径）');
-
-// bench 侧（本批修的是这里）
-const m = bench.match(/fireCtx = \{[\s\S]*?\n  \};/);
-ok(!!m, 'tank_bench.html 找到 fireCtx 字面量');
-if(m){
-  // 剥掉 `//` 注释行再断言：注释可以解释历史（含键名），代码里出现才是问题。
-  const code = m[0].split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n');
-  ok(/aimPoint:\s*mouseWorld/.test(code), 'bench fireCtx 注入 aimPoint: mouseWorld（#AA2）');
-  ok(/\bmouseWorld\b/.test(code), 'bench fireCtx 保留 mouseWorld（散布/瞄准另有消费方）');
-  // 负向：不许用「冻结快照」冒充实时瞄准点——aimPointFrozen 只由 updateHowitzerBurst 注入
-  ok(!/aimPointFrozen/.test(code), 'bench fireCtx 不得伪造 aimPointFrozen（该键只由急速射驱动提供）');
-  // 负向：不许把落点写死成局部位移（旧兜底的症状就是「恒在炮口前 ≈50px」）
-  ok(!/aimPoint:\s*\{/.test(code), 'bench fireCtx 的 aimPoint 不是字面量常量/偏移对象');
+// ---------- 键集提取：`fireCtx = {` → 匹配的 `}`，只收 4 空格缩进的顶层键 ----------
+function fireCtxKeys(src, decl){
+  const i = src.indexOf(decl);
+  if(i < 0) return null;
+  const start = src.indexOf('{', i);
+  let depth = 0, end = -1;
+  for(let k = start; k < src.length; k++){
+    const ch = src[k];
+    if(ch === '{') depth++;
+    else if(ch === '}'){
+      depth--;
+      if(depth === 0){ end = k; break; }
+    }
+  }
+  if(end < 0) return null;
+  return src.slice(start, end).split('\n')
+    .filter(line => !/^\s*\/\//.test(line))
+    .map(line => (/^ {4}([A-Za-z_$][\w$]*)\s*[,:]/.exec(line) || [])[1])
+    .filter(Boolean);
 }
 
-process.exitCode = fails ? 1 : 0;
-if(fails) console.error(`\n${fails} 项失败`);
-else console.log('\n全部通过');
+const battleKeys = fireCtxKeys(battle, 'fireCtx = {');
+const benchKeys = fireCtxKeys(bench, 'fireCtx = {');
+ok(!!battleKeys && battleKeys.length > 30, `解析出 battle fireCtx 键（${battleKeys ? battleKeys.length : 0} 个）`);
+ok(!!benchKeys && benchKeys.length > 30, `解析出 bench fireCtx 键（${benchKeys ? benchKeys.length : 0} 个）`);
+const missing = (battleKeys || []).filter(k => !(benchKeys || []).includes(k));
+ok(missing.length === 0, `battle fireCtx 键集 ⊆ bench 键集（缺：${missing.join(',') || '无'}）`);
+
+// ---------- 段①：曲射落点契约（#AA2） ----------
+ok(/c\.aimPoint/.test(fire), 'js/tank_fire.js 仍消费 ctx.aimPoint（曲射落点契约存在）');
+ok(/aimPoint:\s*mouseWorld/.test(battle), 'tank_battle.html 注入 aimPoint: mouseWorld（基准口径）');
+ok(/aimPoint:\s*mouseWorld/.test(bench), 'bench fireCtx 注入 aimPoint: mouseWorld（#AA2）');
+ok(!/aimPointFrozen/.test(bench.replace(/\/\/[^\n]*/g, '')), '负向：bench 不得伪造 aimPointFrozen');
+
+// ---------- 段②：7 项驱动接线（#AA3） ----------
+ok(/cam,\s*\n\s*RULES,/.test(bench), 'bench fireCtx 注入 cam（导弹锁定按视口放宽）');
+ok(/emitShotNoise:\s*function\(\)\{\s*return 0;\s*\}/.test(bench),
+   'bench fireCtx 注入 emitShotNoise no-op（保持键集形状，不靠 typeof 守卫静默降级）');
+ok(/resolveHit:\s*function\(s, target, hit, allowBounce, optsIn\)/.test(bench),
+   'bench fireCtx 的 resolveHit 是 **5 参透传**包装（第 5 参 opts 不许丢）');
+ok(/isWeakspotHit/.test(bench) && /moduleFromHit/.test(bench),
+   'bench resolveHit 包装带 Boss 弱点层（与 battle 同源能力）');
+
+ok(/if\(player\._howitzerBurst && typeof updateHowitzerBurst === 'function'\)/.test(bench),
+   '急速射队列按 _howitzerBurst 门控驱动');
+ok(/updateHowitzerBurst\(player, dt, fireCtx\)/.test(bench), 'updateHowitzerBurst 传参形状与 battle 一致');
+ok(/player\._doubleTap\) updatePrimaryFollowup\(player, dt, fireCtx\)/.test(bench),
+   '砰砰炮追发按 _doubleTap 门控驱动且传参同 battle');
+ok(/updateDrones\(dt, \{ player, entities \}\)/.test(bench), '无人机按 battle 同形状驱动 updateDrones');
+ok(/updateDeployables\(dt, \{ entities \}\)/.test(bench), '部署物驱动（炮塔索敌/地雷触发）仍在');
+ok(/updateMissileLock\(player, dt, fireCtx\)/.test(bench), '导弹锁定逐帧驱动仍在');
+
+// ---------- 段②-b：F 键原生边沿（开关类副武器） ----------
+const guardCount = (bench.match(/if\(force !== true\) return;/g) || []).length;
+ok(guardCount >= 3, `开关类副武器三类都有边沿守卫（force !== true return × ${guardCount} ≥ 3）`);
+ok(/sec\.type === 'missile'[\s\S]{0,80}if\(force !== true\) return;/.test(bench), 'missile 只认边沿');
+ok(/sec\.type === 'mine_layer'[\s\S]{0,120}if\(force !== true\) return;/.test(bench), 'mine_layer 只认边沿');
+ok(/sec\.type === 'howitzer'[\s\S]{0,80}if\(force !== true\) return;/.test(bench), 'howitzer 只认边沿（#X5）');
+ok(/addEventListener\('keydown', \(e\) => \{[\s\S]{0,400}e\.repeat/.test(bench),
+   'bench 有原生 keydown 边沿监听且过滤 e.repeat（与 battle #F7 同口径）');
+ok(/KEY_BINDINGS\.fireSecondary/.test(bench), '边沿监听从共享键位表取 fireSecondary（不写死 "f"）');
+ok(/if\(input\.isDown\('fireSecondary'\)\) tryBenchSecondaryFire\(\);/.test(bench),
+   '帧轮询通道保留给连续击发类（开关类由 force 守卫拦下）');
+
+// ---------- 段②-c：曲射散布圈（瞄准语义可见） ----------
+ok(/sigmaSpread/.test(bench), 'bench 绘制曲射散布圈（落点可见）');
+ok(/spreadFactor/.test(bench), '散布圈走 spreadFactor 唯一口径');
+ok(!/sigmaSpread\s*=[^;]*\*\s*4(\.0)?\s*;/.test(bench), '负向：不得把 spreadFactor 写死成 4');
+
+console.log('test-bench-parity: 完成所有检查');
+if(fails === 0) console.log('test-bench-parity: 全部通过');
+else console.error(`test-bench-parity: ${fails} 项失败`);
+process.exit(fails === 0 ? 0 : 1);

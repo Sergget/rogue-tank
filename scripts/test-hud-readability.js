@@ -65,6 +65,25 @@ ok(/目标 OBJECTIVE/.test(page), '目标卡文案仍在（删样式不等于删
 ok(/qh\.style\.display = 'block'[\s\S]{0,120}?!logOpen|!logOpen/.test(page),
    '目标卡在日志面板打开时让位（!logOpen 出现在显示条件里）');
 
+// ---------- ④ #AA9（2026-10-26 用户裁定「UI 需要补底衬」）：其余 HUD 文本同批补 ----------
+// 同一根因：文本直接压在高亮 biome 上。口径统一为「深色半透明底衬（alpha ≥ 0.6）+ 1px --line 边框」。
+const zone = cssRule('.hudZone');
+ok(!!zone && alphaOf(zone) >= 0.6, `底部三个仪表区有底衬（alpha=${zone ? alphaOf(zone) : 'N/A'}）`);
+const zoneTitle = cssRule('.hudZoneTitle');
+ok(!!zoneTitle && Number((/opacity\s*:\s*([\d.]+)/.exec(zoneTitle) || [])[1] || 0) >= 0.8,
+   '.hudZoneTitle 不透明度 ≥ 0.8（旧值 0.7，有底衬后不必再压暗）');
+const tli = cssRule('#topLeftInfo');
+ok(!!tli && alphaOf(tli) >= 0.6, `左上操作提示有底衬（alpha=${tli ? alphaOf(tli) : 'N/A'}）`);
+ok(!!tli && /padding\s*:/.test(tli), '#topLeftInfo 有内边距（底衬不是贴字）');
+['#ammoReadout', '#survivalWaveHud', '#supplyCdHud'].forEach(sel => {
+  const r = cssRule(sel);
+  ok(!!r && alphaOf(r) >= 0.6, `顶部中央读出 ${sel} 有底衬（alpha=${r ? alphaOf(r) : 'N/A'}）`);
+});
+const promptLine = (page.match(/<div id="supplyPromptHud"[^>]*>/) || [''])[0];
+ok(/background:rgba\(\s*8\s*,\s*9\s*,\s*6\s*,/.test(promptLine),
+   '补给站提示（内联样式）也补了底衬');
+ok(alphaOf(cssRule('#fpsReadout')) >= 0.6, 'FPS 读数（右下角）有底衬');
+
 console.log('test-hud-readability: 完成所有检查');
 if(fails === 0) console.log('test-hud-readability: 全部通过');
 else console.error(`test-hud-readability: ${fails} 项失败`);
