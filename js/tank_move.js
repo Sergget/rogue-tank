@@ -65,6 +65,10 @@ function driveTank(t, dt, input){
   const cover = getCoverUnderTank(t);
   let speedModifier = 1.0;
   let turnModifier = 1.0;
+  // #AA4（2026-10-24 用户裁定「泥潭、河流限速 + 影响刹车」）：制动附着系数——只削制动，不碰极速/加速。
+  //   缺省 1.0（js/tank_rules.js normalizeCoverTiers 已补齐），仅 water/river/mud 声明 0.7。
+  //   ⚠️ 不参与 terrainMul 插值：附着是地表的瞬时属性，进出泥潭的**那一帧**就该变（见下方 terrainMul 注释）。
+  let brakeGrip = 1.0;
   // #W17（2026-10-20 role-systems）：`COVER_TIERS[cover.tier]` 原无判空 ⇒ 未注册 tier（生成器/
   //   编辑器写入的脏数据、或 tier 拼写漂移）会让 cvTier 为 undefined，下一行 `cvTier.move` 抛
   //   TypeError 中断整个 driveTank（逐帧抛错 ⇒ 坦克彻底停摆）。修法：`|| null` 守卫，
@@ -81,6 +85,7 @@ function driveTank(t, dt, input){
       speedModifier = pass;
       turnModifier = pass;
     }
+    brakeGrip = (typeof cvTier.brakeGrip === 'number') ? cvTier.brakeGrip : 1.0;
   }
   // #S4 + #S14（2026-10-14）：road 为纯地面标识，被 getCoverUnderTank 跳过，此处单独查询。
   // #W17（2026-10-20 role-systems）：原实现 `if(onRoad){ speedModifier = 1.0; }` 是**无条件
@@ -96,6 +101,7 @@ function driveTank(t, dt, input){
   if(onRoad && roadExempt){
     speedModifier = 1.0;
     turnModifier = 1.0;
+    brakeGrip = 1.0;   // #AA4：路面既豁免减速，也豁免附着损失——公路上的泥/水不影响刹车
   }
   const p0x = t.x, p0y = t.y, p0a = t.hullAngle;
 
@@ -116,9 +122,20 @@ function driveTank(t, dt, input){
 
   // 驾驶员受伤 → 转向速度降低（debuff）
   t.hullAngle += effTurn * t.stats.turnRate * dt * turnModifier * debuffTurnRate(t);
-  // Mobility: accel / decel 来自 enginePower ÷ weight（makeTank 算过一次 → t.stats.accel/brake）
-  const pAccel = t.stats.accel * speedModifier;
-  const pBrake = t.stats.brake * speedModifier;
+  // #AA4（2026-10-24 用户裁定「按建议」= 方案 D）：地形减速乘子做指数插值后再驱动加减速，
+  //   否则踩进/驶出泥潭那一帧加速度阶跃（pTarget 与 pAccel 同时跳变），表现为「撞墙式顿挫」。
+  //   · 只作用于**速度通道**（pAccel / pTarget）——转向 turnModifier 保持瞬时（上面那行不动）。
+  //   · 首帧以当前 speedModifier 播种，等于不引入瞬态（旧行为不变）。
+  //   · 与 :104-115 的 roadBonus 插值同一范式（指数阻尼 1-e^{-k·dt}）。
+  const terrainLerp = (RULES.speed && typeof RULES.speed.terrainLerp === 'number') ? RULES.speed.terrainLerp : 10;
+  const tK = 1 - Math.exp(-terrainLerp * dt);
+  if(typeof t.terrainMul !== 'number' || !isFinite(t.terrainMul)) t.terrainMul = speedModifier;
+  t.terrainMul += (speedModifier - t.terrainMul) * tK;
+  // Mobility: accel 来自 enginePower ÷ weight（makeTank 算过一次 → t.stats.accel）；
+  // 制动是独立通道（#AA4）：t.stats.brake 来自 RULES.speed.brakeBasePx，只受地形附着 brakeGrip 影响，
+  // **不再乘 speedModifier**——旧实现 `brake × speedModifier` 让泥潭/河流的滑行距离放大到 2.5 倍。
+  const pAccel = t.stats.accel * t.terrainMul;
+  const pBrake = t.stats.brake * brakeGrip;
   // 发动机受伤 → 最大速度降低（debuff）
   // #W-I（2026-10-20 用户裁定）：榴弹炮曲射模式（**副武器**）下行进限速 = ×1/3。
   //   ⚠️ 独立乘子（fireMul 同级链尾），**不可并入 speedModifier**——:45-47 公路判定会把
@@ -137,10 +154,11 @@ function driveTank(t, dt, input){
     ? (((_hsDef && _hsDef.primary && _hsDef.primary.howitzer && typeof _hsDef.primary.howitzer.moveSpeedRatio === 'number')
         ? _hsDef.primary.howitzer.moveSpeedRatio : (1/3)))
     : 1;
-  const pTarget = mv * boostedMax * RULES.speed.pxFactor * speedModifier * howitzerMul * fireMul(t) * debuffSpeedRate(t) * RULES.speed.effMul * flashDashMul(t) * stiffMul(t);
+  const pTarget = mv * boostedMax * RULES.speed.pxFactor * t.terrainMul * howitzerMul * fireMul(t) * debuffSpeedRate(t) * RULES.speed.effMul * flashDashMul(t) * stiffMul(t);
   t.speed = t.speed || 0;
   if(mv === 0){
-    // 松键：快速停止/中性滑行减速
+    // 松键滑行：制动通道 × 1.8（松键比「反向油门制动」更积极，保持旧手感；1.8 为就地常量，
+    //   口径见 docs/specs/map/terrain.md §「制动与滑行」）
     const decel = pBrake * 1.8 * dt;
     if(t.speed > 0) t.speed = Math.max(0, t.speed - decel);
     else if(t.speed < 0) t.speed = Math.min(0, t.speed + decel);

@@ -187,12 +187,22 @@ ok(model.debuffSpeedRate(t14) === RULES.modules.rates.speedHurt, 'engine debuff 
 model.addModifier(t14, { stat: 'invuln', mode: 'add', value: 1, scope: 'timed', expiresAt: Date.now() + 3000 });
 ok(t14.modifiers.some(m => m.stat === 'invuln'), 'invuln 临时修饰器正确加入');
 
-// 16) #61 动态马力/车重对 accel/brake 的物理联动回归
+// 16) #61 动态马力/车重对 accel 的物理联动回归 + #AA4（2026-10-24）制动解耦
 const t16 = model.makeTank({ team: 'player', enginePower: 600, weight: 30 });
 const baseAccel = t16.stats.accel;
 model.addModifier(t16, { stat: 'enginePower', mode: 'mult', value: 1.5 });
 ok(Math.abs(t16.stats.accel - baseAccel * 1.5) < 1e-4, '#61: 升级 enginePower 后 stats.accel 联动放大 1.5 倍');
-ok(Math.abs(t16.stats.brake - t16.stats.accel * RULES.speed.brakeFactor) < 1e-4, '#61: stats.brake 同步联动保持 brakeFactor 倍 accel');
+// #AA4 用户裁定「刹车是独立系统」：brake 由 RULES.speed.brakeBasePx 给出，与 enginePower/weight 无关
+ok(Math.abs(t16.stats.brake - RULES.speed.brakeBasePx) < 1e-4,
+   `#AA4: stats.brake 与马力脱钩，恒等于 brakeBasePx(${RULES.speed.brakeBasePx})，实测 ${t16.stats.brake}`);
+// #AA4 用户裁定「卡牌可以改善刹车」：brake 必须是卡牌可达字段（旧 brake=accel×2.2 派生会让修饰器被静默丢弃）
+const t16b = model.makeTank({ team: 'player', enginePower: 600, weight: 30 });
+model.addModifier(t16b, { stat: 'brake', mode: 'mult', value: 1.5, scope: 'run' });
+ok(Math.abs(t16b.stats.brake - RULES.speed.brakeBasePx * 1.5) < 1e-4,
+   `#AA4: stat:'brake' 修饰器生效（×1.5 → ${t16b.stats.brake}）`);
+model.addModifier(t16b, { stat: 'brake', mode: 'mult', value: 10, scope: 'run' });
+ok(Math.abs(t16b.stats.brake - RULES.parameterLimits.brake.max) < 1e-4,
+   `#AA4: brake 受 parameterLimits.brake.max(${RULES.parameterLimits.brake.max}) 硬限钳制，实测 ${t16b.stats.brake}`);
 
 // 17) #65 moduleMult 零值与类型判断
 const fakeShooter = { team: 'player', stats: { ammoMult: 0, crewMult: 0 } };

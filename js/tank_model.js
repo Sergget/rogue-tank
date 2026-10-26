@@ -95,6 +95,18 @@ function applyParameterLimits(s, modifiers, base){
       s.maxSpeed = pL.maxSpeed.max;
     }
   }
+  // #AA4（2026-10-24 用户裁定「刹车是独立系统」+「卡牌可以改善刹车」）：制动是独立通道，
+  //   base 里没有 brake 字段（它的来源是 RULES.speed.brakeBasePx，不是车体 spec），
+  //   所以参数通道基准取基准值本身，再按 min/max 双向钳制；timed 通道照 #W1 口径后置叠加。
+  if(pL.brake && typeof s.brake === 'number'){
+    const timedAdd = scopeAdd('brake', true);
+    const timedMul = scopeMult('brake', true);
+    const baseBrake = (typeof RULES.speed.brakeBasePx === 'number') ? RULES.speed.brakeBasePx : s.brake;
+    let clamped = (baseBrake + scopeAdd('brake', false)) * scopeMult('brake', false);
+    if(typeof pL.brake.min === 'number' && clamped < pL.brake.min) clamped = pL.brake.min;
+    if(typeof pL.brake.max === 'number' && clamped > pL.brake.max) clamped = pL.brake.max;
+    s.brake = (clamped + timedAdd) * timedMul;
+  }
 }
 
 function computeStats(base, modifiers){
@@ -106,6 +118,11 @@ function computeStats(base, modifiers){
     maxSpeed: base.maxSpeed,
     turnRate: base.turnRate,
     turretTurnRate: base.turretTurnRate,
+    // #AA4（2026-10-24 用户裁定「刹车是独立系统」）：制动基准独立于 enginePower/weight。
+    // ⚠️ 必须写在字面量内——modifier 的 add/mult 两条通道都有 `s[stat] !== undefined` 门禁，
+    // 写在字面量之外会让卡牌 field:'brake' 的修饰器被静默丢弃（旧 `brake = accel × 2.2`
+    // 派生就是因此不可被卡牌触及）。旧公式已于 2026-10-24 作废，见 js/tank_rules.js RULES.speed 注记。
+    brake: (RULES.speed && typeof RULES.speed.brakeBasePx === 'number') ? RULES.speed.brakeBasePx : 400,
     maxHp: base.maxHp,
     weight: base.weight,
     enginePower: base.enginePower,
@@ -193,11 +210,12 @@ function computeStats(base, modifiers){
   applyParameterLimits(s, modifiers, base);
 
   // derived mobility: forward acceleration (px/s^2) from horsepower per tonne scaled to game units.
-  // derived AFTER modifier loop so cards/upgrades modifying enginePower or weight affect actual accel/brake.
+  // derived AFTER modifier loop so cards/upgrades modifying enginePower or weight affect actual accel.
+  // ⚠️ brake 不再由 accel 派生（#AA4 2026-10-24）：它已在 s 字面量内独立初始化、可被卡牌修饰、
+  //    并在 applyParameterLimits 里受 RULES.parameterLimits.brake 钳制。
   const effPower = typeof s.enginePower === 'number' ? s.enginePower : base.enginePower;
   const effWeight = typeof s.weight === 'number' && s.weight > 0 ? s.weight : base.weight;
   s.accel = (effPower / effWeight) * ACCEL_POWER_TO_PX_SCALE;
-  s.brake = s.accel * BRAKE_FACTOR;
 
   // ======================= 真实世界单位标定字段 =======================
   // 基于 RULES.scale (以 Tiger I 为基准) 计算真实单位数值
@@ -507,11 +525,10 @@ function assignTankDecorations(t){
 
 const SPEED_KMH_FACTOR = RULES.speed.kmhFactor;      // maxSpeed(px/s) × kmhFactor = km/h（与 computeStats.maxSpeedKmh 同源）
 const SPEED_PX_FACTOR  = RULES.speed.pxFactor;
-// convert horsepower-per-tonne into game px/s^2 acceleration; these two set the accel feel.
-// For responsive roguelike action, responsiveness is high (accel x180 scale, brake via
-// RULES.speed.brakeFactor — 现值 2.2，唯一来源见同文件 BRAKE_FACTOR 常量)。
+// convert horsepower-per-tonne into game px/s^2 acceleration; this one sets the accel feel.
+// For responsive roguelike action, responsiveness is high (accel ×15 scale)。
+// 制动不走这里：#AA4（2026-10-24）起 `RULES.speed.brakeBasePx` 是唯一来源，~~brakeFactor~~ 已作废。
 const ACCEL_POWER_TO_PX_SCALE = RULES.speed.accelPowerToPxScale;
-const BRAKE_FACTOR = RULES.speed.brakeFactor;
 function tankKmh(t){ return Math.round((t.stats?.maxSpeed ?? t.maxSpeed) * SPEED_KMH_FACTOR); }
 
 const TEAM_COLORS = { player: '#5c8cff', ally: '#7ed957', enemy: '#ff8a8a' };

@@ -128,13 +128,21 @@ function aggregateMultExpected(s, effectsList) {
     if (pL.maxSpeed && typeof pL.maxSpeed.max === 'number' && typeof s.maxSpeed === 'number' && s.maxSpeed > pL.maxSpeed.max) {
       s.maxSpeed = pL.maxSpeed.max;
     }
+    // #AA4（2026-10-24 用户裁定「刹车是独立系统」+「卡牌可以改善刹车」）：制动是独立通道，
+    //   期望值口径 = brakeBasePx 经 add/mult 聚合后按 parameterLimits.brake **双向**钳制。
+    //   通用 add/mult 循环已覆盖 brake（s.brake 由 computeStats 的 s 字面量初始化 ⇒ 不再是
+    //   派生值，修饰器不再被丢弃），此处只需补钳制，与 computeStats 的 applyParameterLimits 同序。
+    if (pL.brake && typeof s.brake === 'number') {
+      if (typeof pL.brake.min === 'number' && s.brake < pL.brake.min) s.brake = pL.brake.min;
+      if (typeof pL.brake.max === 'number' && s.brake > pL.brake.max) s.brake = pL.brake.max;
+    }
   }
-  // #61: 派生 mobility 属性必须与 computeStats 对齐，根据 modifier 后的 enginePower/weight 重新计算
+  // #61: 派生 mobility 属性必须与 computeStats 对齐，根据 modifier 后的 enginePower/weight 重新计算。
+  // #AA4（2026-10-24）：brake **不再**由 accel 派生（旧 `brake = accel × brakeFactor` 已作废），
+  //   它由 computeStats 字面量给基准、经 add/mult 与 parameterLimits 处理，故此处只重算 accel。
   const ACCEL_POWER_TO_PX_SCALE = (typeof RULES !== 'undefined' && RULES.speed && RULES.speed.accelPowerToPxScale) || 180;
-  const BRAKE_FACTOR = (typeof RULES !== 'undefined' && RULES.speed && RULES.speed.brakeFactor) || 3.5;
   if (typeof s.enginePower === 'number' && typeof s.weight === 'number' && s.weight > 0) {
     s.accel = (s.enginePower / s.weight) * ACCEL_POWER_TO_PX_SCALE;
-    s.brake = s.accel * BRAKE_FACTOR;
   }
   // 真实世界单位标定字段（与 computeStats 保持一致，2026-08-25 统一 kmhFactor）：
   // maxSpeedKmh = maxSpeed × RULES.speed.kmhFactor；shellSpeedMs 由 shellSpeed/pxPerMeter 换算

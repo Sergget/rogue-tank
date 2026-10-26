@@ -29,6 +29,7 @@ const TESTS = [
   'scripts/test-tankcollision.js',
   // 2026-10-19 #AGENT：这两个文件早就在磁盘上却从未登记，属「孤儿测试」——永不执行、坏了没人发现。
   'scripts/test-move.js',
+  'scripts/test-movement-braking.js',   // #AA4 2026-10-24：制动/滑行模型（刹车独立系统）
   'scripts/test-physics.js',
   'scripts/test-nodegen.js',
   'scripts/test-nodegen-snapshot.js',

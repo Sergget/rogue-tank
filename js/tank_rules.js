@@ -175,9 +175,12 @@ const RULES = {
     // 完全浸入（整车四角入水）触发溺毙倒计时（RULES.drowning.seconds，缺省 8s）——
     // 玩家/敌人/Boss 一视同仁；AI 移动决策带绕水转向（tank_ai.applyWaterAvoidance）。
     // 炮弹维持越飞（shellBlock:false，#85 裁定不回退）。
-    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water',       tierGroup: 'liquid', height: 0 }, // #85：炮弹越飞；减速通行 + 完全浸入溺毙
-    river:      { label: '河流',     fill: '#3578a8',                stroke: '#2a6496', passability: 0.4,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water-chain', tierGroup: 'liquid', height: 0 }, // 多段连通水体（segments）；同 water 减速通行 + 溺毙
-    mud:        { label: '烂泥地',   fill: 'rgba(96,72,44,0.45)',    stroke: '#60482c', passability: 0.4, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'mud',         tierGroup: 'ground', height: 0 }, // 减速不阻挡、不进弹道遮蔽（复查处置：0.35→0.4，与半高掩体同级）
+    // #AA4（2026-10-24 用户裁定「泥潭、河流限速 + 影响刹车」）：passability 照旧压极速与加速，
+    // 另用 brakeGrip 单独削弱制动（附着差 → 刹车距离变长）；未声明 brakeGrip 的 tier 缺省 1.0，
+    // 由文件末尾 normalizeCoverTiers() 补齐（与 move 同处派生）。
+    water:      { label: '水域',     fill: 'rgba(64,156,225,0.5)',   stroke: '#409ce1', passability: 0.4, brakeGrip: 0.7, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water',       tierGroup: 'liquid', height: 0 }, // #85：炮弹越飞；减速通行 + 完全浸入溺毙
+    river:      { label: '河流',     fill: '#3578a8',                stroke: '#2a6496', passability: 0.4, brakeGrip: 0.7, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'water-chain', tierGroup: 'liquid', height: 0 }, // 多段连通水体（segments）；同 water 减速通行 + 溺毙
+    mud:        { label: '烂泥地',   fill: 'rgba(96,72,44,0.45)',    stroke: '#60482c', passability: 0.4, brakeGrip: 0.7, shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'mud',         tierGroup: 'ground', height: 0 }, // 减速不阻挡、不进弹道遮蔽（复查处置：0.35→0.4，与半高掩体同级）
     road:       { label: '道路',     fill: 'rgba(122,120,114,0.55)', stroke: '#6e6c66', passability: 1.0,  shellBlock: false,    exposureProfile: 'none',      destructible: null,     crushable: false, vision: false, drawStyle: 'road',        tierGroup: 'ground', height: 0 }, // 村庄街道：可自由通行、不挡弹、不遮视线（纯地面标识）
     // #G（2026-09-21 用户需求 #4）：可破坏楼房——完整但可摧毁的砖混建筑：耐久 3，
     // 摧毁后转 ruined 残破建筑（再 1 发 → rubble 碎石， rubble 不挡弹）。链：building→ruined→rubble。
@@ -258,7 +261,12 @@ const RULES = {
     pxFactor: 1.6,             // 推进速度 = maxSpeed × pxFactor（px/s）
     effMul: 1.3,               // 运行期有效移动速度乘子（地图尺度提速 ~1.3x）；面板 stats.maxSpeed 不变
     accelPowerToPxScale: 15,    // 马力/吨 → px/s² 加速度比例（重校：15 px/s²，使轻坦加速~1.2s满速，重坦~3s满速，带来真实的机械重量感）
-    brakeFactor: 2.2            // 刹车加速度 = 加速 × brakeFactor（使滑行减速更具惯性）
+    // ===== 制动（#AA4，2026-10-24 用户裁定「刹车是独立系统」）=====
+    // 旧口径：~~brakeFactor: 2.2~~ —— 刹车加速度 = 加速 × brakeFactor（即 brake ∝ enginePower/weight），
+    //   导致低马力坦克在普通地面滑行距离成倍放大（靶车 ≈ panzer-IV 的 3.2 倍），已于 2026-10-24 作废。
+    // 新口径：制动有独立基准，与马力/车重解耦；地形只经 RULES.coverTiers[*].brakeGrip 削弱制动。
+    brakeBasePx: 400,          // 基准制动减速度 px/s²（≈ 旧口径中位值：tiger-I 405 / panzer-IV 396）
+    terrainLerp: 10            // 地形减速乘子的插值速率（1/s）：进出泥潭/河流时 speedModifier 指数过渡，避免加速度突跳（#AA4 方案 D）
   },
 
   // ======================= 起火 =======================
@@ -1466,6 +1474,10 @@ const RULES = {
     //   ② `designer.js:2390` clampParamInput 对任意 limKey 双向钳制。
     shellSpeed:       { min: 600, max: 2100 }, // 弹速 px/s 包络 1000~1600（±30% → 700~2080）
     maxSpeed:         { min: 60,  max: 375 },  // px/s；max=150km/h÷kmhFactor0.4=375（用户裁定 ≤150km/h）；min 对应 24km/h
+    // #AA4（2026-10-24 用户裁定「卡牌可以改善刹车」）：制动成为卡牌可达 stats 字段，必须有硬限。
+    //   基准 = RULES.speed.brakeBasePx(400)；min 150 防「零制动 → 无限滑行」，max 900 = 2.25× 基准
+    //   （防止堆卡退化成瞬停）。达限判定由 cardEligible(#U20) 据同表双向过滤。
+    brake:            { min: 150, max: 900 },  // px/s² 制动减速度
     turnRate:         { min: 1.0, max: 3.5 },  // 车体转速 rad/s 包络 1.6~2.5（±30% → 1.12~3.25）
     turretTurnRate:   { min: 1.0, max: 4.0 },  // 炮塔转速 rad/s 包络 1.5~3.0（±30% → 1.05~3.9）
         enginePower:      { min: 200, max: 9999 }, // 马力包络 300~900（±30% → 210~1170）；max=9999=无上限（B3 #73 修复：engine_power_up 升级「受运行时重量上限间接约束」，不受马力封顶）。仅 runShopLimitBlocked #A4 派生消费。
@@ -1590,6 +1602,8 @@ const RULES = {
     if(t.destructible === undefined) t.destructible = t.hp;
     t.hp = (t.destructible === null || t.destructible === undefined) ? Infinity : t.destructible;
     if(t.tierGroup === undefined) t.tierGroup = 'cover';
+    // #AA4（2026-10-24）：制动附着系数——只削制动、不碰极速/加速；未声明的 tier 一律 1.0
+    if(t.brakeGrip === undefined) t.brakeGrip = 1.0;
     if(t.mode === undefined){
       t.mode = t.shellBlock === true ? 'solid'
              : t.shellBlock === 'single' ? 'single'
