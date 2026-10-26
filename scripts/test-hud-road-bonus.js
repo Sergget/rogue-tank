@@ -58,6 +58,19 @@ if(m){
   ok(/'公路 \+'/.test(code), 'HUD 文案前缀「公路 +」保持');
 }
 
+// ⑤ #AA7（2026-10-26 用户裁定「速度不再需要使用一个进度条」）：速度条整条删除，只留精确读数。
+//    条把「当前速度 / 上限」重复编码成图形（且公路加成使读数越过 `tankKmh` 满格时会被 clamp 在
+//    100%，正是 #AA1 附带误读的根源）⇒ 删条后该歧义从结构上消失。
+// 断言前剥掉 `/* … */` 注释：注释里记录「删掉了哪两个 id」是沿革，不是定义。
+const cssBlock = battleSrc.slice(0, battleSrc.indexOf('</style>')).replace(/\/\*[\s\S]*?\*\//g, '');
+ok(!/hudSpeedTrack|hudSpeedFill/.test(cssBlock), '样式表不再定义速度条（#hudSpeedTrack/#hudSpeedFill）');
+const bodyBlock = battleSrc.slice(battleSrc.indexOf('<body'));
+ok(!/id="hudSpeedTrack"|id="hudSpeedFill"/.test(bodyBlock), 'DOM 不再有速度条节点');
+ok(/id="hudSpeedVal"/.test(bodyBlock) && /id="hudRoadBonus"/.test(bodyBlock),
+   '速度读数与公路加成标记仍在（删条不删读数）');
+const jsPart = battleSrc.slice(battleSrc.indexOf('</style>'));
+ok(!/hudSpeedFill|spFill/.test(jsPart), '负向：脚本不再读写速度条（spFill）');
+
 process.exitCode = fails ? 1 : 0;
 if(fails) console.error(`\n${fails} 项失败`);
 else console.log('\n全部通过');

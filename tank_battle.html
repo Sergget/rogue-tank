@@ -60,13 +60,15 @@
   #playerHpTrack{width:240px; height:12px; background:#0c0d09; border:1px solid var(--line); position:relative;}
   #playerHpFill{height:100%; background:var(--green); width:100%;}
   #playerHpVal{font-size:10px; color:var(--text); min-width:74px; text-align:left;}
-  /* #G：速度仪表（D/R 档位 + km/h + 速度条 + 公路加成标记） */
-  #hudSpeedRow{display:flex; align-items:center; gap:6px; font-size:10px;}
+  /* #G：速度仪表（D/R 档位 + km/h + 公路加成标记）
+     #AA7（2026-10-26 用户裁定「速度不再需要使用一个进度条」）：**删除速度条** `#hudSpeedTrack/#hudSpeedFill`。
+     理由：条只把「当前速度 / 上限」重复编码成图形，而 km/h 数字本身已是精确读数；且公路加成让读数
+     超过 `tankKmh` 折算的满格时条会 clamp 在 100%（#AA1 附带误读的根源），删条即从结构上消除该歧义。 */
+  #hudSpeedRow{display:flex; align-items:baseline; gap:5px; font-size:10px;}
   #hudGear{color:var(--amber); font-weight:700; font-size:12px; min-width:12px; text-align:center;}
-  #hudSpeedVal{color:var(--text); font-size:14px; font-weight:700; min-width:34px; text-align:right;}
+  #hudSpeedVal{color:var(--text); font-size:18px; font-weight:700; min-width:36px; text-align:right;
+    font-variant-numeric:tabular-nums; line-height:1;}
   #hudSpeedRow .unit{color:var(--text-dim); font-size:9px;}
-  #hudSpeedTrack{width:110px; height:6px; background:#0c0d09; border:1px solid var(--line); position:relative;}
-  #hudSpeedFill{height:100%; background:var(--amber); width:0%;}
   #hudRoadBonus{color:var(--green); font-size:9px; letter-spacing:1px;}
   /* #S3（2026-10-14）：Boss 血条——屏幕下方中央（bottomHud 上方），条 + 数字 */
   #bossHpWrap{position:absolute; bottom:104px; left:50%; transform:translateX(-50%);
@@ -397,7 +399,6 @@
       <div id="hudSpeedRow">
         <span id="hudGear">D</span>
         <span id="hudSpeedVal">0</span><span class="unit">km/h</span>
-        <div id="hudSpeedTrack"><div id="hudSpeedFill" style="width:0%"></div></div>
         <span id="hudRoadBonus"></span>
       </div>
     </div>
@@ -5291,19 +5292,15 @@ function updateBottomHud(){
   const hpVal = document.getElementById('playerHpVal');
   if(hpVal) hpVal.textContent = `${Math.ceil(player.hp)} / ${Math.round(s.maxHp)}`;
 
-  // #G（2026-09-21 用户需求 #8）：速度仪表 —— D/R 档位 + 当前 km/h + 速度条 + 公路加成标记。
+  // #G（2026-09-21 用户需求 #8）：速度仪表 —— D/R 档位 + 当前 km/h + 公路加成标记。
+  // #AA7（2026-10-26）：速度条已删（理由见 CSS 注释），读数只保留精确数字。
   // km/h 换算必须经 tankCurrentKmh（先除 pxFactor×effMul 再乘 kmhFactor），直接乘 kmhFactor 会读出 ~208km/h。
   const gearEl = document.getElementById('hudGear');
   const speedEl = document.getElementById('hudSpeedVal');
-  const spFill = document.getElementById('hudSpeedFill');
   const roadEl = document.getElementById('hudRoadBonus');
   const kmh = (typeof tankCurrentKmh === 'function') ? tankCurrentKmh(player) : 0;
   if(gearEl) gearEl.textContent = (player.speed || 0) < -1 ? 'R' : 'D';
   if(speedEl) speedEl.textContent = String(Math.round(kmh));
-  if(spFill){
-    const capKmh = (typeof tankKmh === 'function') ? Math.max(1, tankKmh(player)) : 150;
-    spFill.style.width = Math.max(0, Math.min(100, kmh / capKmh * 100)) + '%';
-  }
   if(roadEl){
     // 公路加成（#AA1 2026-10-26）：roadBonus 与 stats.maxSpeed 同尺度 ⇒ 换算 km/h 只乘 kmhFactor
     // （roadBonusKmh，与 tankKmh 同源）。旧实现又除一遍 pxFactor×effMul——那套除法只适用于像素速度

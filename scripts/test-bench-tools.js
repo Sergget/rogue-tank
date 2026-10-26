@@ -68,6 +68,16 @@ ok(/function benchSpawnPoint\(x, y\)/.test(bench) && /clampSpawnIntoView\(cam, x
 ok(/var sp = benchSpawnPoint\(mouseWorld\.x, mouseWorld\.y\)/.test(bench), '指针生成路径过护栏');
 ok(/var sp = benchSpawnPoint\(player\.x \+ Math\.cos\(ang\)\*dist/.test(bench), '批量生成路径过护栏');
 
+// ---------- ③ 图鉴入口已从 bench 完全删除（2026-10-26 用户裁定） ----------
+// 断言前剥掉 HTML 注释：注释里写「图鉴唯一入口是 tank_codex.html」是解释，不是入口。
+{
+  const benchNoComments = bench.replace(/<!--[\s\S]*?-->/g, '');
+  ok(!/坦克图鉴 CODEX/.test(benchNoComments), '负向：bench 不再渲染「坦克图鉴 CODEX」区块');
+  ok(!/tank_codex\.html/.test(benchNoComments), '负向：bench 不再有指向图鉴页的链接/跳转');
+  ok(/坦克图鉴/.test(fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')),
+     '图鉴入口仍在首页 `.tools` 导航（删除的是 bench 入口，不是图鉴页）');
+}
+
 console.log('test-bench-tools: 完成所有检查');
 if (fails === 0) console.log('test-bench-tools: 全部通过');
 else console.error(`test-bench-tools: ${fails} 项失败`);

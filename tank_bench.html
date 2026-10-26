@@ -259,16 +259,9 @@
         <div id="enemyDataList" style="max-height:150px;overflow:auto;font-family:'JetBrains Mono',monospace;font-size:9px;"></div>
         <div id="enemyDataDetail" style="margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:9px;line-height:1.6;color:var(--text-dim);"></div>
       </div>
-      <!-- NF-2（2026-10-20 用户口径「坦克图鉴：选择坦克等级，查看不同等级敌人（含 Boss）参数」）：
-           纯查询预览——enemyPreviewStats 走「临时 tank + 敌军基准 + enemyLevelMults」，
-           不生成任何实体、不影响战场。与上方 LIVE ENEMIES（真实实体）分工：
-           上方=验证 AI/难度实战，此处=对比同一辆车的**等级曲线**。
-           #7（2026-10-22 B6，需求 7）：图鉴已抽成独立页 tank_codex.html（与 bench 同源：同一
-           enemyPreviewStats + 同一 /api 数据源），此处只留入口链接，删除重复实现。 -->
-      <div style="border-top:1px dashed var(--line); margin-top:8px; padding-top:6px;">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--text-dim);margin-bottom:4px;">坦克图鉴 CODEX</div>
-        <a href="tank_codex.html" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--amber);text-decoration:none;border-bottom:1px dashed var(--amber-dim);">完整图鉴见 坦克图鉴页 →</a>
-      </div>
+      <!-- 2026-10-26 用户裁定「坦克图鉴 CODEX 从 bench 中完全删除」：本节已整块移除，bench 不再有图鉴入口。
+           图鉴唯一入口 = 首页 `.tools` 导航 + `tank_codex.html`（详见 specs/editor/codex.md）。
+           沿革：2026-10-22 图鉴从 bench 抽成独立页时此处留过一行「完整图鉴见 坦克图鉴页 →」链接，现一并删除。 -->
     </div>
 
     <div class="section controls" style="display:none;">
