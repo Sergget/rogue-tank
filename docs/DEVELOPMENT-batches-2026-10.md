@@ -3138,3 +3138,36 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 
 **细则归口**：`docs/specs/editor/devpanel.md`「bench Enemy Lab 控件」（2026-10-26 新增节，含控件表与视口护栏的理由）。
 **未做**：清场不处理敌军遗留的部署物（敌方炮塔/地雷）——bench 里极少出现，若出现再按同一 `team` 口径扩展。
+
+## §4.134 2026-10-26 bench 图鉴入口彻底移除 + 战斗 HUD 去掉速度条
+
+**来源**：用户 2026-10-26 两条 UI 需求（原话：「坦克图鉴 CODEX … 从 bench 中完全删除」/「优化正式游戏的 UI 界面，比如速度不再需要使用一个进度条」）。**写域**：`tank_bench.html` / `tank_battle.html` / `docs/specs/` / `scripts/`。
+
+### 1) bench 图鉴入口整块删除
+
+- 删除 `tank_bench.html` 的「坦克图鉴 CODEX」区块（区块标题 + 「完整图鉴见 坦克图鉴页 →」链接）。删除对象是 2026-10-22 抽独立页时留下的那一行入口；图鉴页 `tank_codex.html` 与首页 `.tools` 导航「坦克图鉴」**不受影响**。
+- 原区块上方的 NF-2 注释改写为「已整块移除」的沿革注记——保留注释是为了让后来的人知道这里为什么空着。
+- 防回潮：`scripts/test-bench-tools.js` 新增 3 条断言（**先剥掉 HTML 注释**）——bench 不得出现「坦克图鉴 CODEX」或 `tank_codex.html`；首页导航仍保留「坦克图鉴」。
+
+### 2) 战斗 HUD：删除速度条（#AA7）
+
+| 项 | 内容 |
+|---|---|
+| 删除 | `#hudSpeedTrack` / `#hudSpeedFill` 的 DOM、CSS，以及 `updateBottomHud` 里的 `spFill` 写入（含只为它服务的 `capKmh` 计算） |
+| 理由 | 条只把「当前速度 / 极速上限」重复编码成图形，km/h 数字本身已是精确读数；且公路加成让读数超过 `tankKmh` 折算的满格时条被 clamp 在 100%——正是 #AA1 附带误读（「上限被抬高」）的根源 ⇒ 删条从结构上消除该歧义。§4.132 里「`spFill` 条尾留 +10 外延」这一可选未做项**随之作废** |
+| 保留 | 档位 `#hudGear`（D/R）、数字 `#hudSpeedVal`、单位、公路加成 `#hudRoadBonus` |
+| 观感补偿 | 数字 14px → **18px**、`font-variant-numeric: tabular-nums`（跳数不左右抖）、`align-items: baseline` 让档位与数字基线对齐 |
+| 防回潮 | `scripts/test-hud-road-bonus.js` 新增 4 条（**先剥 CSS 注释**）：样式表不得定义两个 id、DOM 不得有速度条节点、读数与加成标记仍在、脚本不得再出现 `spFill` |
+
+### 3) 验证（2026-10-26 实测）
+
+| 链 | 结果 |
+|---|---|
+| `npm run check` | `All checks passed`（**57 个** `test-*.js` 登记一致）+ `tsc --noEmit` EXIT=0 |
+| `npm test` | **58 通过 / 0 失败** |
+| `node scripts/test-qa.js` | Compliant 56 / Non-compliant 0 |
+| `node scripts/wiki-check.js` | `files=95 / pages=69 / links=1762 / broken=0 / anchors=892 / anchorBad=0 / struct=0 / template=0`（2026-10-26） |
+| 浏览器链 | 待实机看一眼 HUD 与 bench 页（本批是纯 DOM/CSS 删除，四链无对应断言） |
+
+**细则归口**：`docs/specs/combat/hud-ui.md`「底部 HUD 三区」+「速度读数」（#AA7 沿革注记）、`docs/specs/editor/codex.md`「与 bench 的关系」、`docs/specs/editor/appearance-aimspeed.md` NF-2 行。
+**未做**：HUD 其它区域的视觉重排（弹种格 / 装填环 / 技能槽）——用户以「比如」提出这条，先交付速度这一处，其余按实机观感逐项决定。
