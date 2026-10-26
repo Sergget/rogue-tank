@@ -111,7 +111,7 @@
      - **1 项根因确凿、已按用户裁定修复并归档（原 #AA4，2026-10-24）**：制动手感失控——地形乘子**同倍率削弱制动**（`js/tank_move.js:120-121` ⇒ 泥潭/河流滑行 2.5×）、且制动纯由马力重量比派生（`js/tank_model.js:197-200` ⇒ 低马力坦克滑行约 3.2×），全仓无独立制动/阻力口径、无滑行距离断言。**修复口径**：制动与 P/W 脱钩（`RULES.speed.brakeBasePx = 400`）、新增逐 tier `brakeGrip`（`water`/`river`/`mud` = 0.7）、地形乘子改指数插值 `terrainLerp = 10`/s、`brake` 成卡牌可达字段（`parameterLimits.brake {150,900}`），新增 `scripts/test-movement-braking.js` 20/20。见 `DEVELOPMENT-batches-2026-10.md` **§4.130**、细则 `docs/specs/map/terrain.md`「制动与滑行」。
      - **1 项核实不成立（排除）**：「正式游戏 / Boss 战节点间会自动提高坦克移动速度上限」——无任何提升玩家 `stats.maxSpeed` 的节点或 Boss 路径（`js/tank_boss.js:293-312`/`:322-332` 只下调 Boss 自身、`tank_battle.html:2657-2671` 只作用敌人）；感知来源是公路加成 + HUD 低估 + 闪跃，见 `docs/PLAN.md` §6.1.1。
      - **1 项属新能力缺口**（非回归，故不入 ISSUES）：电磁炮**充能电流声 / 放电声**缺失——`SOUND_DEFS` 14 键只有发射瞬态 `firerail`，充能进度与放电弧两处零 `playSound`，且该结构无法表达循环 ⇒ 需「新增瞬态键 + 代码驱动的充能管理器」两件事，先补 `docs/specs/combat/audio.md` 口径（`docs/PLAN.md` §6.3）。
-     - 证据链见 `docs/ISSUES.md` **#AA1~#AA3、#AA5**（原 #AA4 已修复归档）；批次切分 **AA-a / AA-b / AA-c**（AA-d 已于 2026-10-24 完成，见 §4.130）、验收断言与写域分配见 `docs/PLAN.md` **§6**。
+     - 证据链见 `docs/ISSUES.md` **#AA2/#AA3**（**#AA1 / #AA5 已于 2026-10-26 AA-a 关账归档**，见 §4.132；原 #AA4 见 §4.130）；批次切分 **AA-b / AA-c 待实施**（AA-a 已完成）、验收断言与写域分配见 `docs/PLAN.md` **§6**。
 2. **近期路线（2026-10-26 重排）**：
    - **先清存量**：AA-a（HUD/曲射/文档）→ AA-b（bench 运行时对齐）→ AA-c（电磁炮充能/放电音效），不因远期渲染升级搁置已确认缺陷。
    - **再做共同地基**：R0 = I3 浏览器截图基线 + I4 拾取统一入口 + 固定场景/性能基线；A0 与 R1 共用回放场景。

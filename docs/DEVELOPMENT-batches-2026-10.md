@@ -3061,3 +3061,43 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 **细则归口**：`docs/specs/map/rendering-roadmap.md`、`docs/specs/combat/ally-command.md`；待办唯一排期入口 `docs/PLAN.md` §1～§5。
 
 **收尾验证（2026-10-26）**：旧 PLAN §2～§3 已按原文归档并登记 ARCHIVE；`node scripts/wiki-check.js` 复跑通过（files=95 / pages=69 / links=1760 / broken=0 / anchors=892 / anchorBad=0 / struct=0 / template=0）；`git diff --check` 通过（仅 Git 提示既有 LF/CRLF 转换，无空白错误）。
+
+## §4.132 2026-10-26 AA-a：#AA1 公路加成 HUD 口径 + #AA2 bench 曲射瞄准点 + #AA5 公路豁免文档漂移
+
+**来源**：`docs/PLAN.md` §6.6 的清账批次 AA-a（2026-10-24 用户反馈逐条核实的产物），三项均为**已核实**缺陷/漂移，不是新需求。**写域**：`tank_battle.html` / `tank_bench.html` / `js/tank_model.js` / `docs/specs/map/` / `docs/specs/combat/hud-ui.md` / `scripts/`（单写者，无并行批次）。
+
+### 1) #AA1 公路加成 HUD 低估一半（两套换算口径混用）
+
+| 项 | 内容 |
+|---|---|
+| 根因 | `roadBonus` 与 `stats.maxSpeed` **同尺度**（`js/tank_move.js:113-121`：`bonusPx = speedBonusKmh / kmhFactor` 写入、并在 maxSpeed 尺度相加），HUD 却按**像素速度**口径又除一遍 `pxFactor×effMul`（旧 `tank_battle.html:5311`）⇒ `25 × 0.4 / 2.08 = 4.81` → 显示「+5km/h」，实机 **+10km/h** |
+| 修法 | 新增纯函数 `roadBonusKmh(roadBonus)`（`js/tank_model.js:539`）= `round(roadBonus × kmhFactor)`，与 `tankKmh` 同源；非有限/≤0 一律返回 0。HUD 改调它（`tank_battle.html:5308-5314`），彻底去掉 `RSp.pxFactor/effMul` 通道 |
+| 防回潮 | 新增 `scripts/test-hud-road-bonus.js`（**14 断言**）：文案数值 ≡ `RULES.nodeMap.road.speedBonusKmh`、与 `tankKmh` 同源、**旧口径必须被证伪**（5 ≠ 10，防「等价改写」搬回）、8 个边界值一律 0、**源码负向断言**「HUD 块代码不得出现 `pxFactor`/`effMul`」 |
+| 实现期踩坑 | 负向断言首版把**自己的沿革注释**（提到旧口径）也算进正文而自测转红 ⇒ 改为先剥 `//` 注释行再匹配。注释允许解释历史，代码里出现才是回归 |
+
+### 2) #AA2 bench 曲射落点钉死在炮口前（fireCtx 缺 `aimPoint`）
+
+- **修法一行**：`tank_bench.html:1078` 的 fireCtx 补 `aimPoint: mouseWorld`（注释 `:1075-1077` 写明优先级 `aimPointFrozen → ctx.aimPoint → minArcRange`，契约见 `js/tank_fire.js:349-363`）。
+- **形状锁定**：新增 `scripts/test-bench-parity.js`（**6 断言**）——契约存在（`c.aimPoint` 仍被消费）、battle 基准注入、bench 注入、保留 `mouseWorld`、**负向**「不得伪造 `aimPointFrozen`」「`aimPoint` 不得是字面量常量/偏移对象」。该文件是 AA-b 全量对齐（`docs/PLAN.md` §6.4）的落点，7 项接线断言续写于此。
+- **未关账**：实机点击验收（鼠标点远处 → 落点跟光标）必须在 bench 真跑，故 #AA2 转「处理中」，与 #AA3 同批收口。
+
+### 3) #AA5 公路对地形减速的豁免口径（specs 过期）
+
+- `docs/specs/map/roads.md`「公路加速」沿革注记按 `WIKI-STYLE.md` 改写：旧「road 存在时 `speedModifier`/`turnModifier` 强制 1.0」用 `~~…~~` 标注已废，现行口径 = **只豁免 `tierGroup === 'liquid'`（water/river）与 `mud`**（`js/tank_move.js:96-105`），其余 `passability<1` 地形在公路上**仍减速**；#AA4（2026-10-24）起 `brakeGrip` 走同一豁免集合。同批补 HUD 换算口径一行（唯一口径留在此页）。
+- `docs/specs/combat/hud-ui.md`「速度读数」下新增**公路加成读数**一条，明确它**与 `tankCurrentKmh` 不同口径**、不得除 `pxFactor×effMul`，并指向 `specs/map/roads.md`——#AA1 的事故点正是这里缺一句警告。
+
+### 4) 测试链的一条未入册规约（本批发现，需长期遵守）
+
+`scripts/test-qa.js` 要求**每个** `test-*.js` 必须 `require('../js/tank_utils.js')` **且** `require('../js/tank_rules.js')`，否则判「非合规」并让整条 `npm test` EXIT=1。本批两个新测试首轮即因此转红（表现为 `scripts/test-qa.js` 失败，而不是新测试自己报错——**看失败项要往 QA 门看**）。补齐 require 后 `Compliant: 55 / Non-compliant: 0 / issues: 0`。新测试一律照此形态办理。
+
+### 5) 验证（2026-10-26 实测）
+
+| 链 | 结果 |
+|---|---|
+| `npm run check` | `All checks passed.` + 测试链登记一致 **56 个** `test-*.js` + `tsc --noEmit` EXIT=0 |
+| `npm test` | **56 通过 / 1 失败（共 57 项）**；唯一失败 `scripts/test-asset-pipeline.js` 是沙箱 `spawnSync` EPERM（`AGENTS.md` §3.7 已记），与本批无关。新增两项 `test-hud-road-bonus.js` / `test-bench-parity.js` 均绿 |
+| `npm run test:browser` | 改动**前**同日实机四链 **ALL PASS**（基线）；本批只动 HUD 文案与 bench 一处上下文 ⇒ 待 AA-b 收口时一并实机复跑 |
+| `node scripts/wiki-check.js` | `files=95 / pages=69 / links=1761 / broken=0 / anchors=892 / anchorBad=0 / struct=0 / template=0`（2026-10-26，AA-a 全部文档改动落地后） |
+
+**细则归口**：`docs/specs/map/roads.md`「公路加速」（机制 + 换算）、`docs/specs/combat/hud-ui.md`「速度读数」（HUD 口径）。
+**未做**：AA-b（#AA3 的 7 项 bench 接线 + F 键原生边沿）与 AA-c（电磁炮充能/放电音效）仍待实施，见 `docs/PLAN.md` §6.4 / §6.3。

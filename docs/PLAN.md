@@ -12,14 +12,14 @@
 
 | 序 | 条目 | 来源 | 状态 |
 |---|---|---|---|
-| 1 | **存量 AA-a → AA-b → AA-c**：HUD、bench 对齐、电磁炮音效 | 2026-10-24 用户反馈 | **近期最高优先级**，详见 §6；含 #AA1/#AA2/#AA3/#AA5 与音频新能力 |
+| 1 | **存量 AA-b → AA-c**：bench 接线对齐、电磁炮音效 | 2026-10-24 用户反馈 | **近期最高优先级**，详见 §6.4/§6.3；**AA-a 已于 2026-10-26 关闭**（#AA1/#AA5 归档、#AA2 转处理中，见 §4.132） |
 | 2 | **近远期执行路线重排** | 2026-10-26 品质目标 + 单机友军裁定 | **已排期**：R0 地基 → A0 指挥 / R1 真 3D → G1 品质切片 → 量产；详见 §2 |
 | 3 | **友军指挥系统**：2～4 辆 AI 友军 + 六命令 | 2026-10-26 用户裁定 | **A0 待实施**，机制归 `specs/combat/ally-command.md`，批次见 §3；多人合作明确排除 |
 | 4 | **真 3D 渲染与品质垂直切片** | 2026-10-26 用户裁定目标接近《变节行动》 | **R0/R1/G1 待实施**；不再以路线 A 为最终方向；Go/No-Go 见 §2.3、规范归 `specs/map/rendering-roadmap.md` |
 | 5 | **既有载具/战术/武器构筑模块** | 2026-10-23 用户需求 | 保留为 M1/M2 工作包，详见 §4；已完成项只在批次史追溯 |
 | 6 | **Steam 与商业完整度** | 2026-10-23 规划；2026-10-26 重排 | 分「现在地基 / G1 后量产 / 发行候选期」，详见 §5；不含多人网络功能 |
 
-> **2026-10-24 用户反馈四项的核实结论汇总**（证据链见 `docs/ISSUES.md` #AA1~#AA3、#AA5 与本文 §6.1）：3 项确认为缺陷（其中「制动 / 滑行模型」原 #AA4 已按用户裁定实施完毕并于同日归档，结论见 `docs/DEVELOPMENT-batches-2026-10.md` §4.130、细则见 `docs/specs/map/terrain.md`「制动与滑行」）、第 2 条中的「节点间自动提高坦克极速上限」**核实不成立**（Boss 战与节点间无任何提升玩家极速的代码路径）。
+> **2026-10-24 用户反馈四项的核实结论汇总**（证据链见 `docs/ISSUES.md` #AA2/#AA3 与本文 §6.1）：3 项确认为缺陷（「制动 / 滑行模型」原 #AA4 已归档§4.130；HUD 公路加成 #AA1 与 bench 曲射 #AA2 已在 AA-a 修复／部分关账，见 §4.132）、第 2 条中的「节点间自动提高坦克极速上限」**核实不成立**（Boss 战与节点间无任何提升玩家极速的代码路径）。
 
 **2026-10-23 第六批（被动技能槽 + 无人机/导弹改造 4 项）已全部落地**——结论见 `docs/DEVELOPMENT-batches-2026-10.md` §4.122，细则归口 `docs/specs/cards/effect-types.md`（被动技能类别与槽位）、`docs/specs/combat/abilities-secondary.md`（导弹单发冷却/越障/攻顶）、`docs/specs/map/cover-system.md`（`missileOverfly`）。
 
@@ -294,9 +294,9 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 |---|---|---|---|
 | **①** 电磁炮缺充电电流声与放电声 | **成立，但属新能力缺口**（specs 从未定义充能音效 ⇒ 不是回归，不入 ISSUES） | SOUND_DEFS 实测 **14 键**（`js/tank_audio.js:30-165`；文件头注释仍写「12 类」`:3`/`:15`，已过期），电磁炮只有发射瞬态 `firerail`（`:156-164`）。充能侧唯一声音触发点是发射瞬间 `js/tank_fire.js:272` `play(isRailgun?'firerail':'fire')`；充能进度 `railChargeProgress`（`js/tank_battledraw.js:145`）与放电弧 `spawnRailDischarge`（`js/tank_fx.js:379`）**两处零 `playSound`**；Boss 充能事件 `railCharge`/`railReady`（`js/tank_boss.js:997-998`）被通用 `ui`/`pen` 顶替（`tank_battle.html:5077`/`:5082`） | §6.3 |
 | **②a** 正式游戏 / Boss 战节点间似乎**自动提高坦克移动速度上限** | **不成立（排除）** | 全仓无任何提升玩家 `stats.maxSpeed` 的节点/Boss 路径：`applyBossStage`（`js/tank_boss.js:293-312`）只对 Boss 自身**下调**速度；`updateBossStage`（`:322-332`）对非 `entity.boss` 直接 return；`applyDifficultyMults`（`tank_battle.html:2657-2671`）只作用敌人；`applyPlayerCap=false`（`:2090`）；卡牌/升级通道对 maxSpeed 只做**钳制**（`RULES.parameterLimits.maxSpeed = {min:60,max:375}`，`js/tank_rules.js:1468`） | §6.1.1 |
-| **②b** 公路加速不是 UI 的 +5km/h，而是 10km/h | **成立，但方向相反**：实机 +10 是对的，**HUD 文案错了** | 配置源 `RULES.nodeMap.road.speedBonusKmh = 10`（`js/tank_rules.js:697`）；`js/tank_move.js:107-115` 换算成 `bonusPx=25` 并加在 `stats.maxSpeed` 同一尺度上 ⇒ 表速真 +10km/h（`scripts/test-move.js:89-91` 锁 25px/s）；`tank_battle.html:5307-5311` 显示时对已是 maxSpeed 尺度的值**又除一次** `pxFactor×effMul` ⇒ `4.81` → 显示「+5km/h」 | #AA1 / §6.5 |
+| **②b** 公路加速不是 UI 的 +5km/h，而是 10km/h | **成立，但方向相反**：实机 +10 是对的，**HUD 文案错了** | 配置源 `RULES.nodeMap.road.speedBonusKmh = 10`（`js/tank_rules.js:697`）；`js/tank_move.js:107-115` 换算成 `bonusPx=25` 并加在 `stats.maxSpeed` 同一尺度上 ⇒ 表速真 +10km/h（`scripts/test-move.js:89-91` 锁 25px/s）；`tank_battle.html:5307-5311` 显示时对已是 maxSpeed 尺度的值**又除一次** `pxFactor×effMul` ⇒ `4.81` → 显示「+5km/h」 | **已修复 2026-10-26**：`roadBonusKmh()` + 源码负向断言收口（§4.132） |
 | **③** 泥潭/河流减速滑行更远；低马力坦克普通地面也如此 | **成立（机制必然，非数值失衡）**；**已按用户裁定修复并归档（AA-d，2026-10-24）** | ① 地形乘子同压制动：`pAccel/pBrake` 都 `× speedModifier`（`js/tank_move.js:120-121`），水/河/泥 `passability 0.4`（`js/tank_rules.js:178-180`）⇒ 滑行距离放大 **2.5×**；② 制动无独立数据源：`brake = accel × brakeFactor(2.2)`、`accel = (P/W) × 15`（`js/tank_model.js:197-200`），滑行 ∝ 1/(P/W)，实测 6 车型 P/W 3.0~16.4 ⇒ 靶车约为 panzer-IV 的 **3.2×**；③ 极速与马力**无耦合通道**（`maxSpeed` 直接取 `base.maxSpeed`，`js/tank_model.js:106`）；④ 规范空白 + 测试只锁恒等式（`docs/specs/map/terrain.md:28,46-49,55` 只写「减速」；核实当时实测 **53 项** Node 测试无一条断言滑行/制动**距离**，但 `brake = accel × brakeFactor` 的恒等式被 `scripts/test-modifiers.js:190-195`、`scripts/test-card-effects.js:134-137` 两处锁死 ⇒ 解耦制动的方案必改这两条） | **已修复**：`DEVELOPMENT-batches-2026-10.md` §4.130 · `docs/specs/map/terrain.md`「制动与滑行」（原 #AA4 与本文原 §6.2 已归档至 `docs/archive/2026-10.md`） |
-| **④** bench 榴弹炮射程极短、卡牌接入与正式游戏不同 | **成立（页面接线缺口）** | bench `fireCtx` 字面量含 `mouseWorld` 但**无 `aimPoint`**（`tank_bench.html:1072-1122` vs `tank_battle.html:4355-4360`）⇒ 曲射落点走 `minArcRange` 兜底（`js/tank_fire.js:349-363`，常量 `minArcRange:120` 于 `js/tank_weapons.js:27`），射程塌到炮口前 ≈50px 且不跟光标；另有 **7 项 battle 侧驱动在 bench 零接线** | #AA2 #AA3 / §6.4 |
+| **④** bench 榴弹炮射程极短、卡牌接入与正式游戏不同 | **成立（页面接线缺口）** | bench `fireCtx` 字面量含 `mouseWorld` 但**无 `aimPoint`**（`tank_bench.html:1072-1122` vs `tank_battle.html:4355-4360`）⇒ 曲射落点走 `minArcRange` 兜底（`js/tank_fire.js:349-363`，常量 `minArcRange:120` 于 `js/tank_weapons.js:27`），射程塌到炮口前 ≈50px 且不跟光标；另有 **7 项 battle 侧驱动在 bench 零接线** | #AA2 `aimPoint` 已补（2026-10-26 §4.132，待实机点击验收）；#AA3 余 7 项 → §6.4 |
 
 #### 6.1.1 ②a 的感知来源（为什么玩家会读成「上限被自动抬高」）
 
@@ -331,22 +331,20 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 
 **写域**：`tank_bench.html`（role-render-fx）+ `scripts/`（新增测试）；验证收口 role-verify-docs。
 
-### 6.5 一行修（#AA1）与文档漂移（#AA5）
+### 6.5 一行修（#AA1）与文档漂移（#AA5）—— ✅ 已完成（2026-10-26，原文已归档）
 
-- **#AA1**：`tank_battle.html:5311` 改为 `Math.round(player.roadBonus * RSp.kmhFactor)`（`roadBonus` 与 `stats.maxSpeed` 同尺度，见 #AA1 证据 2）。补断言：HUD 文案数值 ≡ `RULES.nodeMap.road.speedBonusKmh`（防第三处换算再漂）。可选（不做则只改文案）：`spFill` 在公路上给条尾留一段 +10 外延，消除 §6.1.1-1 的误读。
-- **#AA5**：`docs/specs/map/roads.md:73` 沿革注记改为现行口径——**只豁免 `tierGroup==='liquid'` 与 `mud`**，其余 `pass<1` 地形在路上仍减速（代码 `js/tank_move.js:86-99`，#W17 2026-10-20）；旧值按 WIKI-STYLE 留 `~~强制 1.0~~ → 只豁免 liquid/mud` 沿革注记。走 wiki 三步 + `node scripts/wiki-check.js`。
-- **#AA5 附带（已于 2026-10-24 更正，无需再排期）**：`AGENTS.md` §3.7 的「**47 项** Node 链」已改为「54 项 Node 链，2026-10-24 实测」（AA-d 登记 `test-movement-braking.js` 后实测 `scripts/run-tests.js` 登记 54 项、磁盘 `scripts/test-*.js` 亦 54 个）。`docs/DEVELOPMENT.md` §4 内的 45/48 等数字属历史条目按「只增不改」保留，§3 无项数表述。
+原 §6.5 正文（含 `spFill` 条尾外延这一「可选未做」项）已迁出至 `docs/archive/2026-10.md`（2026-10-26 段）。现行结论：#AA1 由纯函数 `roadBonusKmh()` 收口（`js/tank_model.js`）+ 源码负向断言防回潮；#AA5 的 `docs/specs/map/roads.md` 已改写为「只豁免 `liquid`/`mud`」。证据、验证与踩坑见 `docs/DEVELOPMENT-batches-2026-10.md` **§4.132**。
 
 ### 6.6 批次切分与排期建议
 
 | 批次 | 内容 | 前置 | 写域（互不相交） | 规模 |
 |---|---|---|---|---|
-| **AA-a** | #AA1 HUD 一行修 + #AA2 `aimPoint` 一行修 + #AA5 文档漂移 | 无 | `tank_battle.html` / `tank_bench.html` / `docs/specs/map/` | 0.5 人日 |
-| **AA-b** | §6.4 bench 接线对齐 + `test-bench-parity.js` 防回潮 | AA-a | `tank_bench.html` + `scripts/` | 1~1.5 人日 |
+| **AA-a** ✅ | #AA1 HUD 口径 + #AA2 `aimPoint` + #AA5 文档漂移 | 无 | `tank_battle.html` / `tank_bench.html` / `js/tank_model.js` / `docs/specs/` | **已完成 2026-10-26（§4.132）**；#AA2 待实机点击验收，随 AA-b 关账 |
+| **AA-b** | §6.4 bench 接线对齐 + `test-bench-parity.js` 续写 | AA-a | `tank_bench.html` + `scripts/` | 1~1.5 人日 |
 | **AA-c** | §6.3 电磁炮音效（先 specs 口径 → 瞬态键 → 充能循环 → 清死代码） | 定 `RULES.railgunFx.audio` | `js/tank_audio.js` / `tank_battle.html` / `docs/specs/combat/` | 1.5~2 人日 |
 
-> **调度约束**（`AGENTS.md` §3.6）：AA-a 与 AA-c 都要动 `tank_battle.html` ⇒ **不得并行**（同一 HTML 每批次只允许一个写者）；AA-b（`tank_bench.html`+`scripts/`）与 AA-d（`js/tank_*` 机动层）可跨域并行。
-> **DEVELOPMENT 编号**：本批次落地时追加 `docs/DEVELOPMENT-batches-2026-10.md` **§4.132 起**（2026-10-26 实测现有最大 = §4.131）。
+> **调度约束**（`AGENTS.md` §3.6）：AA-a 与 AA-c 都要动 `tank_battle.html` ⇒ **不得并行**（同一 HTML 每批次只允许一个写者）；AA-a 完成后 AA-b（`tank_bench.html`+`scripts/`）与 AA-c（`js/tank_audio.js`+`tank_battle.html`）写域不相交 ⇒ **可两路并行**。
+> **DEVELOPMENT 编号**：AA-b/AA-c 落地时追加 `docs/DEVELOPMENT-batches-2026-10.md` **§4.133 起**（2026-10-26 实测现有最大 = §4.132）。
 
 ---
 
@@ -359,6 +357,7 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 | §1 条目 1 | 地图元素 AI 生成出图 + 落盘（**2026-10-23 关闭**：本仓库不出图） | `specs/map/textures.md`「出图管线」· §4.124 |
 | 原 §2～§3 | 横向推进与 A/B/C 清账路线（2026-10-26 迁出） | `specs/map/strip-defense.md` · `archive/2026-10.md` |
 | §6.6 AA-d | 制动与滑行模型（2026-10-24 完成） | `specs/map/terrain.md`「制动与滑行」· §4.130 |
+| §6.5（2026-10-24 版） | #AA1 公路加成 HUD 一行修 + #AA5 公路豁免文档漂移（**2026-10-26 关闭**） | `specs/map/roads.md`「公路加速」· `specs/combat/hud-ui.md`「速度读数」· §4.132 |
 | §2.1 | 难度联动（敌军弹种按等级升档） | `specs/combat.md` §13.1 · §4.112 |
 | §2.2 | HUD 渲染级合并（9 处 = 6 合并 + 2 定位差异 + 1 重复计数） | §4.112(10) |
 | §2.3 | 正常环境补跑验证 | §4.112(8) |

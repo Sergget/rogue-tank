@@ -26,6 +26,7 @@
 | 技能 SKILLS | `#hudSkills` | 技能池槽 `#skillSlot1~3`（玩家指派，技能名 + 数字键 + 冷却）。**`#btnG/H` 已删除（#U42，2026-10-19——G/H 专属键退役）** |
 
 - **速度读数**：`tankCurrentKmh(t) = |t.speed| ÷ (RULES.speed.pxFactor × effMul) × kmhFactor`（`tank_model.js`，已导出）。**必须先除 `pxFactor×effMul` 再乘 `kmhFactor`**——直接乘会得到 ~208km/h 的虚高读数（`tank.speed` 已含 ×1.3 有效乘子）。速度条以 `tankKmh(t)`（极速上限）为满值。
+- **公路加成读数（#AA1，2026-10-26）**：`#hudRoadBonus` 的换算与上一行**不同口径**——`roadBonus` 与 `stats.maxSpeed` 同尺度，只能 `× kmhFactor`（`roadBonusKmh()`，与 `tankKmh` 同源），**不得**再除 `pxFactor×effMul`（旧实现混用两套口径 ⇒ 标「+5km/h」而实机 +10km/h）。机制与数值唯一口径见 [道路与路网 · 公路加速](../map/roads.md)。
 - **技能池槽位映射（#H3 2026-09-30 重做，现行口径见 [技能槽指派](./abilities-secondary.md#技能槽指派)）**：`#skillSlot1~3` 的内容**直接读 `player.skillSlots`（玩家可指派）**，不再是 `cardEffects` 的自动去重序列。名称取 `ABILITY_LABELS`，冷却取 `abilityCds[key]`；点击槽位施放，`Shift+点击`改指。**原「自动按获得顺序填槽 + 专属键按钮并存」口径已废弃**（它导致同一技能两个按钮、槽满后第 4 个技能无法激活）。
 - **技能获得提示补全**：`ABILITY_KEY_HINT` 补 `repair`/`medkit`/`extinguish`（4/5/6 键）与 `aps`。**#U42（2026-10-19）后文案统一「技能槽数字键」**——G/H/V 专属字母键全部退役（沿革：#H3 后曾有「仅 G/H 仍为专属字母键」的过渡口径，已终结）。
 
