@@ -61,6 +61,9 @@
 
 **"按一次切换状态"的副武器（`missile` 激活/取消、`mine_layer` 预形态/确认、`howitzer` 曲射/直射）一律由原生 `keydown` 边沿驱动**（`tank_battle.html` 独立监听：`e.repeat` 过滤 + `inMenuState/statusOpen/devOpen` 门控 + 战斗态 `fireCtx` 判定），**不得**走主循环 `input.isDown('fireSecondary')` 逐帧轮询——逐帧轮询会让开关在按住期间每帧翻转（实测按住 F 250ms 内 9 次 true/false 交替），松手后的状态取决于帧数奇偶（轻按 F 约一半概率停在「已取消」，表现为「导弹按 F 没反应」）；mine_layer 更会一次按住跨帧连走「预形态→确认」（一按即预约，预形态名存实亡）。**"按住连发"类（`mortar`/`rocket`/`missile_wire`）保持逐帧轮询**（装填门控天然限速）。HUD 的 F 按钮点击走 `trySecondaryFire(true)`（`force=true` 绕过键盘边沿直调）。
 
+> **适用范围：bench 同口径（2026-10-26 AA-b / #AA3）**。`tank_bench.html` 的 `tryBenchSecondaryFire(force)` 与 battle 完全对齐——三类开关副武器在**帧轮询通道**里 `if(force !== true) return;` 直接退出，原生 `keydown` 监听（`e.repeat` 过滤、键位取 `KEY_BINDINGS.fireSecondary`、输入框/devPanel 聚焦不响应）走 `force=true`；**轮询本身保留**（连续击发类靠它，删掉会让火箭巢按住连发失效）。回归：`scripts/test-bench-parity.js`（断言三类守卫各存在 + 边沿监听 + 轮询调用仍在 + 键集包含关系）。
+> ⚠️ 历史教训：本条曾在 PLAN 里被误写成「bench 主循环内不得出现 `isDown('fireSecondary')` 轮询」——那是把「守卫」误读成「禁止通道」，照做的后果是打死连发。
+
 ## 主动技能与冷却池
 
 （原 §4）
