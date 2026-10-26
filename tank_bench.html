@@ -1072,6 +1072,10 @@ function update(dt){
   fireCtx = {
     player,
     mouseWorld,
+    // #AA2（2026-10-26）：曲射落点优先级 = aimPointFrozen → ctx.aimPoint → 兜底 minArcRange
+    // （js/tank_fire.js:349-363）。正式游戏注入 aimPoint: mouseWorld；bench 曾漏这一项 ⇒ 榴弹炮
+    // 落点恒钉在炮口前 ≈minArcRange − 炮口距 ≈50px 且不跟光标。与 battle 同名字段，勿改键名。
+    aimPoint: mouseWorld,
     shells,
     impacts,
     bounceFx,

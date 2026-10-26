@@ -83,6 +83,7 @@ declare function removeModifiersByScope(t: any, scope: string): any;
 declare function removeRunModifiers(t: any): any;
 declare function refreshStats(t: any): any;
 declare function tankKmh(t: any): number;
+declare function roadBonusKmh(roadBonus: any): number;
 declare function updateSigma(t: any, dt: any, keys?: any): void;
 declare function tickDebuffs(t: any, dt: any): void;
 declare function debuffSpread(t: any): number;

@@ -88,6 +88,10 @@ const TESTS = [
   'scripts/test-vision-stealth-p1.js',
   // 2026-10-24 #P2：敌方警戒状态 UI 指示（? / !）——仅视口内显示、两档语义、纯函数归并。
   'scripts/test-alert-indicator.js',
+  // 2026-10-26 AA-a：公路加成 HUD 文案口径（#AA1，roadBonusKmh 与 tankKmh 同源）+ bench fireCtx
+  //   的 aimPoint 接线（#AA2）；后者是 AA-b 全量对齐形状断言的起点（docs/PLAN.md §6.4）。
+  'scripts/test-hud-road-bonus.js',
+  'scripts/test-bench-parity.js',
 ];
 
 function pickTests() {

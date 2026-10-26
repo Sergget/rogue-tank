@@ -530,6 +530,16 @@ const SPEED_PX_FACTOR  = RULES.speed.pxFactor;
 // 制动不走这里：#AA4（2026-10-24）起 `RULES.speed.brakeBasePx` 是唯一来源，~~brakeFactor~~ 已作废。
 const ACCEL_POWER_TO_PX_SCALE = RULES.speed.accelPowerToPxScale;
 function tankKmh(t){ return Math.round((t.stats?.maxSpeed ?? t.maxSpeed) * SPEED_KMH_FACTOR); }
+// #AA1（2026-10-26）：公路加成的 HUD 表速增量。`roadBonus` 与 `stats.maxSpeed` **同尺度**
+//   ——`js/tank_move.js` 以 `bonusPx = speedBonusKmh / kmhFactor` 写入、并在 `stats.maxSpeed` 同一
+//   尺度上相加（`boostedMax = min(cap, baseMax + roadBonus)`）⇒ 换算 km/h **只乘 kmhFactor**，
+//   与 tankKmh(stats.maxSpeed) 同源。
+//   ⚠️ 不得再除 `pxFactor×effMul`：那套除法只适用于**像素速度** `t.speed`（见 tankCurrentKmh）；
+//   旧实现两处混用 ⇒ HUD 标「+5km/h」而实机 +10km/h（低估一半）。
+function roadBonusKmh(roadBonus){
+  if (typeof roadBonus !== 'number' || !isFinite(roadBonus) || roadBonus <= 0) return 0;
+  return Math.round(roadBonus * SPEED_KMH_FACTOR);
+}
 
 const TEAM_COLORS = { player: '#5c8cff', ally: '#7ed957', enemy: '#ff8a8a' };
 function teamColor(t){ return TEAM_COLORS[t.team] || TEAM_COLORS.enemy; }
@@ -1187,6 +1197,7 @@ if (typeof module !== 'undefined' && module.exports) {
     SPEED_KMH_FACTOR,
     SPEED_PX_FACTOR,
     tankKmh,
+    roadBonusKmh,
     TEAM_COLORS,
     teamColor,
     MODULE_LABELS,
