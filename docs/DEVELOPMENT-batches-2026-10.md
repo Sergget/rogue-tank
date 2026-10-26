@@ -3259,7 +3259,7 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 > 2. **「部署物驱动缺失」不成立**——bench 早已有 `updateDeployables(dt, { entities })`；原清单把「已有」误记为「缺」。本批改为在测试里**锁住它不被误删**。
 > 教训沿用第五条：**核实「缺什么」要看当前代码，不要沿用上一轮清单**。
 
-### 3) 防回潮：`scripts/test-bench-parity.js` 扩到 28 断言
+### 3) 防回潮：`scripts/test-bench-parity.js` 扩到 28 断言（同日修正后 **30**）
 
 核心是**键集包含关系**——把两侧 `fireCtx` 字面量的顶层键解析出来比较：**battle 50 键 ⊆ bench 51 键**（bench 多一个 `spawnTracer`）。这条断言直接封杀「battle 新增依赖、bench 忘了跟」的整类漂移，比逐项列举更难绕过。
 
@@ -3278,3 +3278,19 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 
 **细则归口**：`docs/specs/editor/devpanel.md`「bench Enemy Lab 控件」以外的 bench **运行时**接线口径暂记于本节 + `scripts/test-bench-parity.js`；若后续 bench 再扩张，再单独立主题页。
 **未做**：bench 不注入 `alertEntity`/`propagateAlert`（其敌军不跑 `aiDecide`，告警层无消费方）；`resolveHit` 弱点层已就位但 bench 无 Boss 实体可验。
+
+### 5) 关账后同日修正（2026-10-26，用户实机发现 —— 本批自己引入的回归）
+
+用户报「**bench 中副武器 F 键似乎没有接入，只有榴弹炮可用**」。
+
+**根因**：本批新增的 F 边沿监听里写了一条 `if(benchSettings && benchSettings.benchPanelOpen) return;`。门控意图是「面板打开时别开火」，但 bench 的 devPanel 是**侧边工具面板**（测卡时常态开着，`benchPanelOpen` 还持久化到 localStorage）⇒ 面板开着时**边沿通道整条被吞**：
+
+- 开关类（`missile` / `mine_layer` / `howitzer`）全哑——它们只认边沿；
+- 连续击发类（`rocket` / `mortar`）仍能打（走 `isDown` 轮询，bench 的 `input.gate: () => true` 从不拦），所以「副武器彻底没反应」并不成立，但玩家最先试的多半是导弹/布雷器；
+- 「榴弹炮看起来可用」是**误读**：榴弹炮的曲射是**主炮左键/空格**发射的，不经 F；F 只是模式开关，那时它也是哑的。
+
+**修法**：删掉 `benchPanelOpen` 门控，**只保留「焦点在 `input`/`textarea`/`select` 里时不响应」**（否则在卡牌搜索框打 `f` 会开火）。
+
+**防回潮**：`scripts/test-bench-parity.js` 增加两条——正向断言存在输入框焦点守卫；**负向断言 F 监听块内不得出现 `benchPanelOpen`**（先把 `window.addEventListener('keydown', (e) => {…};` 片段抠出来再匹配，避免误伤别处的面板逻辑）。断言总数 **28 → 30**。
+
+> **教训（值得单列）**：**「面板打开就别响应」这种门控不能凭直觉加**。battle 挡的是 `statusOpen` / `devOpen`——那是**全屏式覆盖层**；bench 的 devPanel 是**并排工具面板**。同一句 `if(panelOpen) return` 在两页语义完全不同：一页是「正在看菜单」，另一页是「在实验室里正常工作」。写跨页同构代码时，**输入门控必须逐页确认语义**，不能因为「battle 这样写」就照抄。
