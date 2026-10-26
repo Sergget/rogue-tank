@@ -92,6 +92,9 @@ const TESTS = [
   //   的 aimPoint 接线（#AA2）；后者是 AA-b 全量对齐形状断言的起点（docs/PLAN.md §6.4）。
   'scripts/test-hud-road-bonus.js',
   'scripts/test-bench-parity.js',
+  // 2026-10-26 #AA6：bench Enemy Lab 工具链——清场纯筛选（clearEnemyEntities）+ 两条生成路径的
+  //   视口护栏接线（几何本体在 test-camera.js 的 #AA6 段）。
+  'scripts/test-bench-tools.js',
 ];
 
 function pickTests() {

@@ -595,6 +595,25 @@ function liveEnemies(team){
   return ents.filter(function(e){ return e && e.team === 'enemy' && e.hp > 0; });
 }
 
+// #AA6（2026-10-26 用户需求「提供清空所有敌人按钮」）：清场筛选——**就地**移除全部敌军实体，
+//   玩家/友军与 `keepIds` 列入的实体保留（bench 传 ['dummy']，因为靶车也是 team:'enemy'）。
+//   返回被移除的 id 数组（按下标升序），供页面日志与断言使用。
+//   ⚠️ 旧实现按 `nodeSpawn` 过滤（tank_bench 内联），语义上会漏掉任何未打该标记的敌军；
+//   本函数只认 `team === 'enemy'`，不依赖生成来源。
+function clearEnemyEntities(list, opts){
+  opts = opts || {};
+  var keep = opts.keepIds || [];
+  var removed = [];
+  for (var i = list.length - 1; i >= 0; i--){
+    var e = list[i];
+    if (!e || e.team !== 'enemy') continue;
+    if (keep.indexOf(e.id) >= 0) continue;
+    removed.push(e.id);
+    list.splice(i, 1);
+  }
+  return removed.reverse();
+}
+
 // --- dual-end export ---
 if (typeof module !== 'undefined' && module.exports){
   module.exports = {
@@ -613,6 +632,7 @@ if (typeof module !== 'undefined' && module.exports){
     spawnEnemyAt: spawnEnemyAt,
     buildTankDataVM: buildTankDataVM,
     describeEntityStatus: describeEntityStatus,
-    liveEnemies: liveEnemies
+    liveEnemies: liveEnemies,
+    clearEnemyEntities: clearEnemyEntities   // #AA6：清场筛选（纯函数，可 Node 测）
   };
 }

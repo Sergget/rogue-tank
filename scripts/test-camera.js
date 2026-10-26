@@ -17,7 +17,8 @@ const {
   worldToScreen,
   screenToWorld,
   viewBounds,
-  aabbInView
+  aabbInView,
+  clampSpawnIntoView   // #AA6：生成点收进视口
 } = require('../js/tank_camera.js');
 
 let fails = 0;
@@ -173,6 +174,39 @@ ok(close(bB.x, sB.x) && close(bB.y, sB.y), 'zoom=1.7：屏幕→世界→屏幕 
   camJ.x = 1000; camJ.y = 1000; camJ.zoom = 1;
   ok(aabbInView(camJ, 1000, 1000, 40, 40) === true, '#J3 视口中心实体在视口内');
   ok(aabbInView(camJ, 5000, 5000, 40, 40) === false, '#J3 远离视口的实体被视口剔除（纯性能）');
+}
+
+// ================= #AA6（2026-10-26）生成点收进视口 =================
+// 用户需求：「为 bench 中生成的敌人增加位置检测，防止生成到可视区域外」。
+// 视口世界半高 = vh/2/zoom（1280×720 @ zoom 1.3 ≈ 277px），远小于 Enemy Lab 批量生成的
+// 环形半径（300~500px）⇒ 不护栏就会「列表里有、战场上找不到」。
+{
+  const camS = createCamera({ vw: 1280, vh: 720, bounds: { w: 4000, h: 4000 } });
+  camS.x = 1000; camS.y = 1000; camS.zoom = 1.3;
+  const vb = viewBounds(camS);
+  ok(close(vb.maxY - vb.minY, 720 / 1.3, 1e-9),
+     `#AA6 视口世界高度 = vh/zoom（${(720 / 1.3).toFixed(1)}px）`);
+
+  const far = clampSpawnIntoView(camS, 1000, 1500, 80);
+  ok(far.clamped === true, '#AA6 视口外 500px 的生成点被判越界');
+  ok(close(far.y, vb.maxY - 80, 1e-9), `#AA6 纵向收到视口边内 80px（y=${far.y.toFixed(1)}）`);
+  ok(Math.abs(far.x - 1000) < 1e-9, '#AA6 未越界的轴保持原值（只推越界方向）');
+
+  const inside = clampSpawnIntoView(camS, 1100, 1100, 80);
+  ok(inside.clamped === false && inside.x === 1100 && inside.y === 1100,
+     '#AA6 视口内生成点不移动（clamped=false）');
+
+  const edge = clampSpawnIntoView(camS, vb.minX - 999, 1000, 0);
+  ok(close(edge.x, vb.minX, 1e-9), '#AA6 margin=0 时贴视口边（x=minX）');
+
+  const tiny = createCamera({ vw: 60, vh: 60, bounds: { w: 4000, h: 4000 } });
+  tiny.x = 2000; tiny.y = 2000; tiny.zoom = 1;
+  const degenerate = clampSpawnIntoView(tiny, 0, 0, 80);
+  ok(close(degenerate.x, 2000, 1e-9) && close(degenerate.y, 2000, 1e-9),
+     '#AA6 视口窄于 2×margin 时退化到视口中心（无 min>max 反向钳制）');
+
+  ok(close(clampSpawnIntoView(camS, 1000, 1e9).y, vb.maxY - 48, 1e-9), '#AA6 缺省 margin = 48');
+  ok(close(clampSpawnIntoView(camS, 1000, 1e9, -10).y, vb.maxY, 1e-9), '#AA6 负 margin 按 0 处理');
 }
 
 console.log('test-camera: 完成所有检查');

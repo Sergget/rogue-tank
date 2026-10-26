@@ -148,6 +148,7 @@ declare function clampParameterMap(map: any): { values: any, clamped: any, any: 
 declare function heldCardsVM(tank: any, cardPool: any): any[];
 declare function buildTankDataVM(t: any, opts?: any): any;
 declare function liveEnemies(team?: string): any[];
+declare function clearEnemyEntities(list: any[], opts?: any): string[];
 declare function enemyLevelMults(level: number): any;
 declare function spawnEnemyAt(x: number, y: number, opts: any, ctx?: any): any;
 declare function activateAbilityForTest(tank: any, key: string, ctx?: any): any;
@@ -357,6 +358,7 @@ declare function worldToScreen(cam: CameraState, wx: number, wy: number): { x: n
 declare function screenToWorld(cam: CameraState, sx: number, sy: number): { x: number; y: number };
 declare function viewBounds(cam: CameraState): { minX: number; minY: number; maxX: number; maxY: number };
 declare function aabbInView(cam: CameraState, x: number, y: number, w: number, h: number, margin?: number): boolean;
+declare function clampSpawnIntoView(cam: CameraState, x: number, y: number, margin?: number): { x: number; y: number; clamped: boolean };
 
 // 全局游戏流程状态机（js/tank_flow.js，P-08 / §6 条目 6 捆绑前置）
 interface FlowState {

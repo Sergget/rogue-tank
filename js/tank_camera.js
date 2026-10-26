@@ -159,6 +159,34 @@ function viewBounds(cam) {
 }
 
 /**
+ * 把**生成点**收进视口（#AA6，2026-10-26）。
+ *
+ * 背景：bench「敌人实验室」的批量生成按「玩家周围 300~500px 环形」布点，而视口半高
+ * `vh / 2 / zoom`（1280×720 @ zoom 1.3 ≈ 277px）远小于 500 ⇒ 相当比例的敌军一生成就在
+ * 可视区外，表现为「列表里有点名、战场上找不到」。指针生成同理需要护栏（缩放后光标可能
+ * 贴在边缘）。
+ *
+ * 语义边界：只调整**生成点**，不动相机、不钳世界边界（世界边界由调用方各自的
+ * `clampCamera` / 世界尺寸钳制负责）。视口窄于 2×margin 的极端缩放下退化为视口中心，
+ * 避免 min > max 的反向钳制。
+ *
+ * @param {any} cam 摄像机状态（需 x/y/vw/vh/zoom）
+ * @param {number} x 建议生成点 x（世界坐标）
+ * @param {number} y 建议生成点 y（世界坐标）
+ * @param {number} [margin] 距视口边缘的余量（px，世界坐标），默认 48 —— 留出车体半径与血条
+ * @returns {{x:number, y:number, clamped:boolean}} 收口后的生成点与是否被调整
+ */
+function clampSpawnIntoView(cam, x, y, margin) {
+  const m = (typeof margin === 'number' && isFinite(margin)) ? Math.max(0, margin) : 48;
+  const vb = viewBounds(cam);
+  const minX = vb.minX + m, maxX = vb.maxX - m;
+  const minY = vb.minY + m, maxY = vb.maxY - m;
+  const cx = minX <= maxX ? Math.max(minX, Math.min(maxX, x)) : (vb.minX + vb.maxX) / 2;
+  const cy = minY <= maxY ? Math.max(minY, Math.min(maxY, y)) : (vb.minY + vb.maxY) / 2;
+  return { x: cx, y: cy, clamped: cx !== x || cy !== y };
+}
+
+/**
  * 渲染用相机位置（**屏幕像素对齐**，#GT 2026-10-18）。
  *
  * 背景（用户反馈「部分 biome（雪地、沙漠）纹理会随玩家移动变化，帧率也大幅下降」）：相机
@@ -223,6 +251,7 @@ if (typeof module !== 'undefined' && module.exports) {
     screenToWorld,
     viewBounds,
     renderCamPos,     // #GT：渲染用像素对齐相机位置（修亚像素重采样导致的地面纹理抖动）
-    aabbInView
+    aabbInView,
+    clampSpawnIntoView   // #AA6：生成点收进视口（bench Enemy Lab / 指针生成护栏）
   };
 }
