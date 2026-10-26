@@ -296,7 +296,7 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 | **②a** 正式游戏 / Boss 战节点间似乎**自动提高坦克移动速度上限** | **不成立（排除）** | 全仓无任何提升玩家 `stats.maxSpeed` 的节点/Boss 路径：`applyBossStage`（`js/tank_boss.js:293-312`）只对 Boss 自身**下调**速度；`updateBossStage`（`:322-332`）对非 `entity.boss` 直接 return；`applyDifficultyMults`（`tank_battle.html:2657-2671`）只作用敌人；`applyPlayerCap=false`（`:2090`）；卡牌/升级通道对 maxSpeed 只做**钳制**（`RULES.parameterLimits.maxSpeed = {min:60,max:375}`，`js/tank_rules.js:1468`） | §6.1.1 |
 | **②b** 公路加速不是 UI 的 +5km/h，而是 10km/h | **成立，但方向相反**：实机 +10 是对的，**HUD 文案错了** | 配置源 `RULES.nodeMap.road.speedBonusKmh = 10`（`js/tank_rules.js:697`）；`js/tank_move.js:107-115` 换算成 `bonusPx=25` 并加在 `stats.maxSpeed` 同一尺度上 ⇒ 表速真 +10km/h（`scripts/test-move.js:89-91` 锁 25px/s）；`tank_battle.html:5307-5311` 显示时对已是 maxSpeed 尺度的值**又除一次** `pxFactor×effMul` ⇒ `4.81` → 显示「+5km/h」 | **已修复 2026-10-26**：`roadBonusKmh()` + 源码负向断言收口（§4.132） |
 | **③** 泥潭/河流减速滑行更远；低马力坦克普通地面也如此 | **成立（机制必然，非数值失衡）**；**已按用户裁定修复并归档（AA-d，2026-10-24）** | ① 地形乘子同压制动：`pAccel/pBrake` 都 `× speedModifier`（`js/tank_move.js:120-121`），水/河/泥 `passability 0.4`（`js/tank_rules.js:178-180`）⇒ 滑行距离放大 **2.5×**；② 制动无独立数据源：`brake = accel × brakeFactor(2.2)`、`accel = (P/W) × 15`（`js/tank_model.js:197-200`），滑行 ∝ 1/(P/W)，实测 6 车型 P/W 3.0~16.4 ⇒ 靶车约为 panzer-IV 的 **3.2×**；③ 极速与马力**无耦合通道**（`maxSpeed` 直接取 `base.maxSpeed`，`js/tank_model.js:106`）；④ 规范空白 + 测试只锁恒等式（`docs/specs/map/terrain.md:28,46-49,55` 只写「减速」；核实当时实测 **53 项** Node 测试无一条断言滑行/制动**距离**，但 `brake = accel × brakeFactor` 的恒等式被 `scripts/test-modifiers.js:190-195`、`scripts/test-card-effects.js:134-137` 两处锁死 ⇒ 解耦制动的方案必改这两条） | **已修复**：`DEVELOPMENT-batches-2026-10.md` §4.130 · `docs/specs/map/terrain.md`「制动与滑行」（原 #AA4 与本文原 §6.2 已归档至 `docs/archive/2026-10.md`） |
-| **④** bench 榴弹炮射程极短、卡牌接入与正式游戏不同 | **成立（页面接线缺口）** | bench `fireCtx` 字面量含 `mouseWorld` 但**无 `aimPoint`**（`tank_bench.html:1072-1122` vs `tank_battle.html:4355-4360`）⇒ 曲射落点走 `minArcRange` 兜底（`js/tank_fire.js:349-363`，常量 `minArcRange:120` 于 `js/tank_weapons.js:27`），射程塌到炮口前 ≈50px 且不跟光标；另有 **7 项 battle 侧驱动在 bench 零接线** | #AA2 `aimPoint` 已补（2026-10-26 §4.132，待实机点击验收）；#AA3 余 7 项 → §6.4 |
+| **④** bench 榴弹炮射程极短、卡牌接入与正式游戏不同 | **成立（页面接线缺口）** | bench `fireCtx` 字面量含 `mouseWorld` 但**无 `aimPoint`**（`tank_bench.html:1072-1122` vs `tank_battle.html:4355-4360`）⇒ 曲射落点走 `minArcRange` 兜底（`js/tank_fire.js:349-363`，常量 `minArcRange:120` 于 `js/tank_weapons.js:27`），射程塌到炮口前 ≈50px 且不跟光标；另有 **7 项 battle 侧驱动在 bench 零接线** | #AA2 `aimPoint` 已补并**实机验收关账**（2026-10-26）；#AA3 余 7 项 → §6.4 |
 
 #### 6.1.1 ②a 的感知来源（为什么玩家会读成「上限被自动抬高」）
 
@@ -339,7 +339,7 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 
 | 批次 | 内容 | 前置 | 写域（互不相交） | 规模 |
 |---|---|---|---|---|
-| **AA-a** ✅ | #AA1 HUD 口径 + #AA2 `aimPoint` + #AA5 文档漂移 | 无 | `tank_battle.html` / `tank_bench.html` / `js/tank_model.js` / `docs/specs/` | **已完成 2026-10-26（§4.132）**；#AA2 待实机点击验收，随 AA-b 关账 |
+| **AA-a** ✅ | #AA1 HUD 口径 + #AA2 `aimPoint` + #AA5 文档漂移 | 无 | `tank_battle.html` / `tank_bench.html` / `js/tank_model.js` / `docs/specs/` | **已完成并全部关账（2026-10-26 §4.132）**：#AA2 经用户实机点击验收 |
 | **AA-b** | §6.4 bench 接线对齐 + `test-bench-parity.js` 续写 | AA-a | `tank_bench.html` + `scripts/` | 1~1.5 人日 |
 | **AA-c** | §6.3 电磁炮音效（先 specs 口径 → 瞬态键 → 充能循环 → 清死代码） | 定 `RULES.railgunFx.audio` | `js/tank_audio.js` / `tank_battle.html` / `docs/specs/combat/` | 1.5~2 人日 |
 

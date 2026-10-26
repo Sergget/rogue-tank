@@ -13,7 +13,7 @@
 
 **#F（2026-09-20）更新**：devPanel 的 **DOM 与全部交互逻辑抽离为共享模块 `js/tank_devpanel.js`**（`mountDevPanel(host)` 动态构建 + 页面注入能力），battle 与 bench **两页完全同源**：
 
-- bench 旧 `#benchPanel` 已移除（`` ` `` 键统一开 devPanel），其独有项（倒置 / FPS / 满血重置 / 清场 / 键位表）经 `extraSwitchHTML` 并入开关 Tab，无敌/秒装填直接并入 devPanel 开关 Tab 同位；
+- bench 旧 `#benchPanel` 已移除（`` ` `` 键统一开 devPanel），其独有项（倒置 / FPS / 满血重置 / 清场 / 键位表）经 `extraSwitchHTML` 并入开关 Tab，无敌/秒装填直接并入 devPanel 开关 Tab 同位；**2026-10-26 更新**：「清场」已与 Enemy Lab 可见按钮「清空所有敌人」共用同一函数，语义改为「只认 `team === 'enemy'`、靶车保留」，见下文「bench Enemy Lab 控件」；
 - bench 发射解算继续用常驻 `#solutionPanel`（模块以 `hideSolutionSection` 跳过内嵌解算区，防双份 `solPart` id）；
 - 共享模块顶层函数 `mountDevPanel` 已声明于 `types/globals.d.ts`（见 `docs/DEVELOPMENT.md` §4.24）。
 
@@ -94,6 +94,18 @@
 
 1. bench 的 `getCardPool` 传给 devPanel 的是 `{id→spec}` 对象而 devpanel 期望数组 ⇒ 面板恒显「卡池为空」，现改为数组。
 2. devPanel 的 `liveData` 读 `update()` 的局部变量 `worldW/worldH` 抛 `worldW is not defined`，现改读 `canvas.width/height`。
+
+## bench Enemy Lab 控件（2026-10-26）
+
+（用户需求：「为 bench 中生成的敌人增加位置检测，防止生成到可视区域外」+「提供清空所有敌人按钮」。两处逻辑都抽成可 Node 测的共享函数，页面只做接线）
+
+| 控件 | 位置 | 现行口径 |
+|---|---|---|
+| 生成敌人 SPAWN / 生成一批 | Enemy Lab 主面板 | 生成点一律先过 `clampSpawnIntoView(cam, x, y, 80)`（`js/tank_camera.js`）：收进 `viewBounds(cam)` 内边距 80px（≈车体半径 + 血条），**只推越界轴**；视口窄于 2×margin 时退化到视口中心；日志标注「已收进视口」/「收进视口 n/m」 |
+| 清空所有敌人 CLEAR | Enemy Lab 主面板（`#clearEnemiesBtn`） | 与 devPanel 开关 Tab 的「清场」**绑同一函数** `benchClearAllEnemies()` → 纯函数 `clearEnemyEntities(entities, { keepIds: ['dummy'] })`（`js/tank_panels_core.js`）：**只认 `team === 'enemy'`**，靶车由 `keepIds` 保留，玩家/友军不动；随后解掉指向已删实体的导弹锁定、清 `enemySelectedId` |
+| 清场（原 devPanel 项） | devPanel 开关 Tab | ~~按 `nodeSpawn`（生成来源）过滤~~ → 与上一行同源（2026-10-26）。旧口径会漏掉任何未打该标记的敌军 |
+
+**为什么需要视口护栏**：1280×720 @ zoom 1.3 的视口世界半高 = `vh/2/zoom` ≈ 277px，而批量生成按「玩家周围 300~500px 环形」布点 ⇒ 相当比例的敌军一生成就在屏幕外。回归：`scripts/test-camera.js` 的 #AA6 段（几何本体）+ `scripts/test-bench-tools.js`（页面接线，含负向断言「不得再按 nodeSpawn 过滤」）。
 
 ## 相关页面
 - [浏览器自动化测试链](./browser-tests.md) — 验证 devPanel 四 Tab 与卡牌选择器的四链

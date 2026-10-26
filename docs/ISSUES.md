@@ -12,18 +12,7 @@
 
 > **来源**：用户 2026-10-24 四项反馈（电磁炮音效 / 节点间自动提速与公路加成 / 泥潭河流与低马力滑行 / bench 榴弹炮射程）。逐条以代码证据核实：3 项确认为缺陷、1 项（机动模型）确认根因并**已于 2026-10-24 AA-d 修复归档**（原 #AA4，见 `docs/DEVELOPMENT-batches-2026-10.md` §4.130）、1 项（Boss 节点自动提极速上限）**核实不成立**（排除结论见 `docs/PLAN.md` §6.1.1）。
 > 电磁炮充能音效属**新能力缺口**（specs 从未定义），不是回归 ⇒ 归 PLAN 计划，不入本表。
-> **2026-10-26 AA-a 关账**：#AA1（HUD 公路加成低估一半）与 #AA5（`specs/map/roads.md` 公路豁免口径过期）已修复并归档，结论见 `docs/DEVELOPMENT-batches-2026-10.md` **§4.132**。存量 = **#AA2（处理中）/ #AA3**，两者同批收口（AA-b）。
-
-### #AA2 bench 榴弹炮曲射落点恒钉在炮口前 ≈50px，与光标无关（fireCtx 缺 `aimPoint`）
-
-- **现象**：用户报「bench 中榴弹炮射程极短」，与正式游戏表现不同。
-- **核实结论**：根因是**页面接线缺字段**，不是武器数值差异。
-  1. 曲射落点优先级：`aimPointFrozen` → `ctx.aimPoint` → 兜底（`js/tank_fire.js:349-363`）；兜底把落点钉在 `shooter.x + cos(turretAngle) × minArcRange`，`minArcRange = 120`（`js/tank_fire.js:350`；`js/tank_weapons.js:27`）。
-  2. 正式游戏注入 `aimPoint: mouseWorld`（`tank_battle.html:4355-4360`，注释 `:4358-4359` 写明「howitzer 分支消费 `ctx.aimPoint`」）；**bench 的 fireCtx 字面量只有 `mouseWorld`（`tank_bench.html:1072-1122`，`:1074`），没有 `aimPoint`** ⇒ 恒走兜底，`totalDist = aimDistW ≈ 120 − 炮口距(≈55~65px) ≈ 50px`。
-  3. 榴弹炮**没有射程配置项**可背锅：`WEAPON_DEFAULTS.primary.howitzer` 无 `range`/`maxRange`（`js/tank_weapons.js:26-28`）；`secondary.howitzer = { range: 900 }` 只是类型占位（`:78-79`，仅 `updateSecondaryMount` 作自主开火闸门读）；`isArc` 弹不受 `maxRange` 钳制（`js/tank_fire.js:1129`；`docs/specs/combat/arc-fire.md:29` 已写「落点 = `ctx.aimPoint`」、`:47`「射程由 `totalDist` 单一口径承担」）⇒ 曲射射程 ≡ 到 `aimPoint` 的距离，缺 `aimPoint` 就等于射程塌到最小弧。
-  4. 无重力弹道模型（全仓 `gravity|ballisticArc|loftAngle|flightTime` 零命中），排除「弹速/抛体参数不同」这一类猜测。
-- **复现条件**：bench 页装 `weapon_secondary_howitzer` 并切到曲射 → 把鼠标移到远处 → 左键击发 → 落点仍在车体正前方且**不随光标变化**；正式游戏同卡落点跟手。
-- **状态**：**处理中（2026-10-26 AA-a）**——`aimPoint: mouseWorld` 已补入 bench `fireCtx`（`tank_bench.html:1078`，注释 `:1075-1077`），形状由 `scripts/test-bench-parity.js` 锁定。**关账条件** = bench 实机点击验收（鼠标点远处 → 落点跟光标，不钉在炮口前）+ 与 #AA3 同批收口（`docs/PLAN.md` §6.4）。
+> **2026-10-26 AA-a 关账**：#AA1（HUD 公路加成低估一半）、#AA2（bench `aimPoint` 缺失）与 #AA5（`specs/map/roads.md` 公路豁免口径过期）均已修复并归档，结论见 `docs/DEVELOPMENT-batches-2026-10.md` **§4.132**（#AA2 由用户于同日实机点击验收：bench 榴弹表现正常）。**存量 = #AA3**，开工即 AA-b。
 
 ### #AA3 bench 与正式游戏的运行时接线不一致 ⇒ 同一张卡在两侧行为不同
 

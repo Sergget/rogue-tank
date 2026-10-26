@@ -3101,3 +3101,40 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 
 **细则归口**：`docs/specs/map/roads.md`「公路加速」（机制 + 换算）、`docs/specs/combat/hud-ui.md`「速度读数」（HUD 口径）。
 **未做**：AA-b（#AA3 的 7 项 bench 接线 + F 键原生边沿）与 AA-c（电磁炮充能/放电音效）仍待实施，见 `docs/PLAN.md` §6.4 / §6.3。
+
+> **#AA2 关账（2026-10-26，同日）**：用户实机点击验收「**bench 中榴弹表现正常**」，`test-browser-r4` 四链同批 ALL PASS ⇒ #AA2 从「处理中」转归档，ISSUES 存量降至 **#AA3 一条**。原文与关账注记见 `archive/2026-10.md`（2026-10-26 段）。
+
+## §4.133 2026-10-26 bench Enemy Lab 工具（清空敌军 / 生成视口护栏）+ 入口文案
+
+**来源**：用户 2026-10-26 三条并行需求（原话「将入口页面中的『甲弹对抗』字样删除，为 bench 中生成的敌人增加位置检测（防止生成到可视区域外）并提供清空所有敌人按钮」）。与 AA-a（§4.132）同批交付，**写域**：`index.html` / `tank_bench.html` / `js/tank_camera.js` / `js/tank_panels_core.js` / `types/globals.d.ts` / `scripts/`。
+
+### 1) 入口文案：删掉「甲弹对抗」
+
+`index.html:59` 的测试台卡片标题「甲弹对抗 · 靶车测试」→「**靶车与弹道测试**」（徽标仍为「装甲测试台」）。描述文案未动——「实时弹道 / 命中部位 / 跳弹 / 模块伤害」是测试台真实能力，不属命名口径问题。
+
+### 2) 清空所有敌人：一个函数、两个入口
+
+| 项 | 内容 |
+|---|---|
+| **旧口径的问题** | 「清场」只存在于开发者面板（`` ` ``）开关 Tab，且筛选条件为 `team === 'enemy' && nodeSpawn`——按**生成来源**过滤。Enemy Lab 生成虽默认 `nodeSpawn = true`（`js/tank_panels_core.js:464`），但该条件语义上会漏掉任何未打标记的敌军，且按钮藏在开发面板里不易发现 |
+| **新口径** | 纯函数 `clearEnemyEntities(list, opts)`（`js/tank_panels_core.js`）：**只认 `team === 'enemy'`**，`keepIds` 保留指定实体（bench 传 `['dummy']`——靶车本身是 `team:'enemy'`），就地 splice 并返回移除 id（**下标升序**，日志/断言可读） |
+| **页面** | `benchClearAllEnemies()`：调纯函数 → **解掉指向已删实体的导弹锁定**（`player._missileLock.target` 不在 `entities` 里 ⇒ 置 null，否则锁定态挂在幽灵实体上）→ 清 `enemySelectedId` → 记日志 |
+| **入口** | ① Enemy Lab 主面板可见按钮「清空所有敌人 CLEAR」（`#clearEnemiesBtn`）② devPanel 开关 Tab 的「清场」（`#benchClearEnemiesBtn`）——**两者绑同一函数**，杜绝第二份实现漂移 |
+
+### 3) 生成位置检测：防止敌军生成在视口外
+
+- **纯几何** `clampSpawnIntoView(cam, x, y, margin)`（`js/tank_camera.js`）：把生成点收进 `viewBounds(cam)`，默认 margin 48；返回 `clamped` 明确回报是否被调整；**未越界的轴不移动**（只推越界方向）；视口窄于 `2×margin` 的极端缩放下**退化到视口中心**（避免 `min > max` 的反向钳制）；负 margin 按 0 处理。
+- **页面**：`benchSpawnPoint(x, y)` 统一走 `clampSpawnIntoView(cam, x, y, 80)`（margin 80 ≈ 车体半径 + 血条），**指针生成与批量生成两条路径都过**；日志分别标注「已收进视口」与「收进视口 n/m」。
+- **为什么必须有**：1280×720 @ zoom 1.3 的视口世界半高 = `vh/2/zoom` ≈ **277px**，而批量生成按「玩家周围 300~500px 环形」布点 ⇒ 相当比例的敌军一生成就在屏幕外，表现为「列表里有、战场上找不到」。
+
+### 4) 回归与验证（2026-10-26 实测）
+
+- `scripts/test-camera.js` 新增 **#AA6 段 9 断言**：视口世界高度 = `vh/zoom`、越界判据、只推越界方向、视口内不动、`margin=0` 贴边、退化到中心、缺省 48、负 margin 按 0。
+- 新增 `scripts/test-bench-tools.js`（**14 断言**，已登记 `run-tests.js`）：清场纯筛选 5 条（移除数 / 靶车保留 / 玩家友军不动 / 无 `nodeSpawn` 也清 / 顺序稳定 / 空场空操作）+ 页面接线 9 条（按钮存在、两入口同源、调用纯函数、**负向：不得再按 `nodeSpawn` 过滤**、导弹锁定解链、`benchSpawnPoint` 与两条生成路径过护栏）。
+- `npm run check` → `All checks passed`（**57 个** `test-*.js` 全部登记）+ `tsc --noEmit` EXIT=0（新增两个全局函数已补 `types/globals.d.ts`，否则 inline script 报 TS2304）。
+- `npm test` → **58 通过 / 0 失败（共 58 项）**——本会话文件策略为 full-access，`test-asset-pipeline.js` 的 `spawnSync` 管道不再被拒（沙箱 workspace-write 下的 `56/1` 口径见 `AGENTS.md` §3.7）。
+- `node scripts/test-qa.js` → `Compliant 56 / Non-compliant 0 / issues 0`。
+- 浏览器链：`test-browser` 四链在 AA-a 后由用户实机跑过 **ALL PASS**；本批改动集中在 bench 控件与首页文案 ⇒ 建议实机点一次「生成一批」确认敌军全部落在视野内。
+
+**细则归口**：`docs/specs/editor/devpanel.md`「bench Enemy Lab 控件」（2026-10-26 新增节，含控件表与视口护栏的理由）。
+**未做**：清场不处理敌军遗留的部署物（敌方炮塔/地雷）——bench 里极少出现，若出现再按同一 `team` 口径扩展。
