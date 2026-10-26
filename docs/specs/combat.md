@@ -432,3 +432,9 @@
 > **设计预留，未落地**。单机少量 AI 友军 + 六命令（集火/前往/跟随/驻守/撤退/侧袭）；不做多人合作。命令状态、统一目标权威、局部反射边界、反馈与导航/回放验收见主题页。
 
 **详见**：[友军指挥与战术协同](./combat/ally-command.md)
+
+## 17. 电磁轨道炮三段声学（2026-10-26 AA-c 新增，现行口径）
+
+> 听觉链分三段：① 充能上升电流 = **代码驱动的持续实例**（`startRailChargeLoop/updateRailChargePitch/stopRailChargeLoop`，基频随 `railChargeProgress` 单调上升，数值唯一口径 `RULES.railgunFx.audio`）；② 就绪 = 一次性瞬态 `SOUND_DEFS.railReady`；③ 开火 = `SOUND_DEFS.firerail`（三层，已覆盖放电撕拉与炮身共鸣，故原计划的 `railDischarge` 键**不拆**）。玩家侧必须先判 `type==='railgun' && reloadT>0`——`railChargeProgress` 对非电磁炮返回 1，不判会常驻鸣响。
+
+**详见**：[音频与音效 · 电磁轨道炮三段声学](./combat/audio.md)

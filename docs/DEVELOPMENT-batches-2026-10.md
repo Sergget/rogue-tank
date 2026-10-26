@@ -3294,3 +3294,47 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 **防回潮**：`scripts/test-bench-parity.js` 增加两条——正向断言存在输入框焦点守卫；**负向断言 F 监听块内不得出现 `benchPanelOpen`**（先把 `window.addEventListener('keydown', (e) => {…};` 片段抠出来再匹配，避免误伤别处的面板逻辑）。断言总数 **28 → 30**。
 
 > **教训（值得单列）**：**「面板打开就别响应」这种门控不能凭直觉加**。battle 挡的是 `statusOpen` / `devOpen`——那是**全屏式覆盖层**；bench 的 devPanel 是**并排工具面板**。同一句 `if(panelOpen) return` 在两页语义完全不同：一页是「正在看菜单」，另一页是「在实验室里正常工作」。写跨页同构代码时，**输入门控必须逐页确认语义**，不能因为「battle 这样写」就照抄。
+
+## §4.137 2026-10-26 AA-c：电磁轨道炮三段声学（充能循环 / 就绪 / 放电）
+
+**来源**：用户 2026-10-24 反馈「电磁炮缺充电电流声与放电声」——核实为**新能力缺口**（specs 从未定义充能音效），不是回归，因此一直挂在 `docs/PLAN.md` §6.3 而非 ISSUES。**写域**：`js/tank_audio.js` / `js/tank_rules.js` / `js/tank_fire.js` / `tank_battle.html` / `types/globals.d.ts` / `docs/specs/combat/` / `scripts/`。
+
+### 1) 结构约束（先量出来，再设计）
+
+`SOUND_DEFS` 的每一层都是**一次性**：`_scheduleLayer` 对每层 `start` → 包络收敛到 0.0001 → `stop`。⇒「随充能进度持续上升的电流声」**不可能**用一个键表达，必须由**代码驱动的持久实例**承担。这也解释了问题为什么表现为「没声音」而不是「参数不对」。
+
+### 2) 三段式落地
+
+| 段 | 实现 | 数值归口 |
+|---|---|---|
+| ① 充能上升电流 | 新增 `startRailChargeLoop()` / `updateRailChargePitch(p)` / `stopRailChargeLoop()`（`attack` 淡入、`release` 淡出后 `setTimeout` 摘图）+ 纯函数 `railChargeFreqFor(p)` | `RULES.railgunFx.audio`（`chargeWave:'sawtooth'` / `freqMin 110` / `freqMax 760` / `gain 0.16` / `attack 0.25` / `release 0.12`） |
+| ② 就绪提示 | 新增 `SOUND_DEFS.railReady`（1320Hz + 1760Hz 双短响，第二响 `delay 0.10`） | `SOUND_DEFS` 自身（与其它瞬态同表） |
+| ③ 开火放电 | **不新增键**：`firerail` 三层已覆盖放电撕拉 + 电离空气 + 炮身低腔；开火同帧调 `stopRailChargeLoop()` 收声 | 既有 `SOUND_DEFS.firerail` |
+
+> **对原计划的一处收窄（须记录）**：PLAN §6.3 原写「新增 `railDischarge`（放电撕拉）；现有 `firerail` 保留为发射轰响**或按裁定拆分**」。实施时判定**不拆**——同一帧再叠一个宽频瞬态会把 `firerail` 的三层糊成一团，听感更差；缺的只有持续段与就绪段。
+
+### 3) 接线（两处，判据不同）
+
+- **玩家侧**（`tank_battle.html` 主循环）：`primaryWeaponSpec(player).type === 'railgun' && player.reloadT > 0` 才算充能中；边沿 start/stop，逐帧 `updateRailChargePitch(railChargeProgress(player))`；`reloadT` 归零那帧播 `railReady`。
+  ⚠️ **陷阱**：`railChargeProgress` 对非电磁炮 / 无 `reloadT` 实体返回 **1**（满电待机）——直接拿 `progress > 0` 当判据会**常驻鸣响**。
+- **Boss 侧**：`updateBossRailCharge` 的 `railCharge.progress` 驱动音高；`railReady` 收声 + 就绪提示（旧实现借 `playSound('pen')` 顶替，听感与命中声混淆）；蓄能窗口结束兜底收声。
+- **开火**：`js/tank_fire.js` 的 railgun 分支在 `play('firerail')` 之后调 `stopRailChargeLoop()`（同帧第一道闸，页面边沿是第二道）。
+
+### 4) 顺带清账
+
+- 删除死代码 `startEngineSound` / `stopEngineSound` / `updateEnginePitch` + `engineOsc/engineGain/lastEngineSpeed`（全仓零调用、**未导出**）；原处留沿革注记，指明将来做引擎转速声要沿用「持久实例」范式。
+- `tank_audio.js` 文件头「12 类音效」改为「键数以 `Object.keys` 实测为准（2026-10-26 为 15）」，并补全键名清单。
+- **未删** `updateTrackFx` / `createFlybyInstance` / `lastFlyby`：同属死代码，但属「履带/飞越」另一组音频，不在本批裁定范围，留给后续音频批次一次处理（已在此登记，避免遗忘）。
+
+### 5) 回归与验证（2026-10-26 实测）
+
+| 链 | 结果 |
+|---|---|
+| `node scripts/test-audio.js` | **117 断言全绿**：rail 段新增——导出齐全、`railReady` 键在、`freqMin/freqMax` 与 `RULES` 一致、`progress=0/1` 两端贴合、**20 段严格单调**、`NaN/Infinity/负数/字符串` 全部 clamp 成有限值、无 AudioContext 时三件套 **no-op 不抛错**、`stop` 幂等 |
+| `npm run check` | `All checks passed`（58 项登记一致）+ `tsc --noEmit` EXIT=0（新增 4 个全局函数已补 `types/globals.d.ts`） |
+| `npm test` | **59 通过 / 0 失败（共 59 项）** |
+| `test-qa` / `wiki-check` | `test-qa` issues **0**（Compliant 58 / Non-compliant 0）；`wiki-check` `links=1764 / broken=0 / anchors=893 / anchorBad=0 / struct=0 / template=0` |
+| 浏览器链 | **需实机听**：装电磁炮 → 装填期持续上升电流声、满电一记就绪提示、开火瞬间不叠音；Boss 电磁炮蓄能同口径 |
+
+**细则归口**：`docs/specs/combat/audio.md`「电磁轨道炮三段声学」（现行口径 + 数值指针）、`docs/specs/combat.md` §17（兼容页摘要）。
+**未做**：`AUDIO_SETTINGS` 音量分级未动；履带/飞越组死代码未清（见 §4）。

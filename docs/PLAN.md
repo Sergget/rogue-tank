@@ -308,18 +308,9 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 
 ⇒ **结论**：不存在自动提升极速上限的路径，本项**不立案**。若日后观察到「无公路、无闪跃」仍然更快，需新证据（坦克型号 + 节点类型 + `__TEST__` 速度读数或录屏）才重新立案。
 
-### 6.3 电磁炮充能 / 放电音效（新能力；**先补 specs 口径，再写实现**）
+### 6.3 电磁炮充能 / 放电音效—— ✅ 已完成（2026-10-26，原文已归档）
 
-**结构约束（决定实现形态，已实测）**：`SOUND_DEFS` **无法表达循环**——`_scheduleLayer` 对每层一次性 `start/stop`（`js/tank_audio.js:405`/`:407`/`:433`/`:442`，包络在 `end` 收敛到 0.0001）。⇒ 充能电流声必须由**代码驱动的持续实例**承担，不能只加一个音效键。现成范式 `startEngineSound`/`updateEnginePitch`（`:214-246`）**未被 `module.exports` 导出（`:604-617`）且全仓零调用**（死代码）。
-
-**执行方案**：
-1. **先写口径**：在 `docs/specs/combat/audio.md` 新增一节，定义三段式声学——① 充能上升电流（频率与增益随 `railChargeProgress` **单调上升**）② 就绪封顶（`railReady` 的高频保持/提示）③ 放电瞬态撕拉 + 炮身低腔余韵。数值唯一口径落 `RULES.railgunFx.audio`（视觉参数已在 `RULES.railgunFx`，`js/tank_fx.js:370-373`）。按 `AGENTS.md` §2.3 三步：主题页正文 → `docs/specs/combat.md` 兼容页**追加新编号**摘要 → `node scripts/wiki-check.js`。
-2. **瞬态层**：新增 `railDischarge`（放电撕拉）；现有 `firerail` 保留为发射轰响或按裁定拆分，触发点沿用 `js/tank_fire.js:272`。
-3. **循环层**：新增并**导出** `startRailChargeLoop()` / `updateRailChargePitch(progress)` / `stopRailChargeLoop()`（仿 engine 循环，含 AudioContext 缺失安全降级），接线两处——玩家侧 `railChargeProgress` 的非 0↔0 边沿（`js/tank_battledraw.js:145`，消费点 `:1747`）；Boss 侧 `railCharge`/`railReady`（`tank_battle.html:5074-5083`，把 `ui`/`pen` 换成充能循环 + 就绪提示）。
-4. **顺手清账**：`startEngineSound` 死代码二选一——**接线**（引擎转速随 `t.speed` 变化，与制动同属机动域，建议同批裁定）或**删除**；文件头「12 类音效」注释改为实测键数。
-5. **验收**：`scripts/test-audio.js:34-52` 键集断言更新；`validateSoundDefs`（`js/tank_audio.js:569-601`）对新键通过；三个循环生命周期函数有 Node 断言（无 AudioContext 时不抛错、不产生 NaN 频率）；浏览器四链手测「充能可听上升 → 就绪封顶 → 发射不与充能叠爆音」。
-
-**写域**：`js/tank_audio.js` + `tank_battle.html` + `docs/specs/combat/` ⇒ role-render-fx；`RULES.railgunFx.audio` ⇒ role-systems（单写者）。
+原 §6.3 正文已迁出至 `docs/archive/2026-10.md`（2026-10-26 段）。现行结论：三段式声学落地——① 充能上升电流由**代码驱动的持久实例**承担（参数唯一口径 `RULES.railgunFx.audio`），② 就绪 = `SOUND_DEFS.railReady`，③ 开火 = 既有 `firerail`（原计划的 `railDischarge` 键**不拆**，理由见下）；玩家侧接 `tank_battle.html` 主循环、Boss 侧接 `updateBossRailCharge` 事件、开火同帧收声；死代码 `startEngineSound` 一组已删。回归：`scripts/test-audio.js` **117 断言**（20 段严格单调 / 非法输入 clamp / 无 AudioContext no-op）。见 `docs/DEVELOPMENT-batches-2026-10.md` **§4.137**、细则 `docs/specs/combat/audio.md`「电磁轨道炮三段声学」。**至今 `#AA` 批次全部清空，ISSUES 无存量条目。**
 
 ### 6.4 bench ↔ 正式游戏开火接线对齐（#AA2 / #AA3）—— ✅ 已完成（2026-10-26，原文已归档）
 
