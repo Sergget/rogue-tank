@@ -1,6 +1,7 @@
 'use strict';
 
-// tank_audio.js — M1 声音占位系统：Web Audio 程序化合成 12 类音效（M2 升级）。
+// tank_audio.js — M1 声音占位系统：Web Audio 程序化合成音效（M2 升级）。
+//   键数以 `Object.keys(SOUND_DEFS)` 为准（2026-10-26 实测 15 键；勿在注释里硬编码，本文件名不再复述）。
 //
 // 全部零音频资产（全合成，不引入任何文件）。音效参数表 SOUND_DEFS 与音量分级
 // AUDIO_SETTINGS 为模块顶层纯数据（Node 可安全加载/测试）；合成逻辑只出现在函数
@@ -12,7 +13,8 @@
 // 位置由调用者在 playSound(key, opts, {x, y}) 中指定；若未提供则使用听众中心。
 //
 // 浏览器全局（按序加载后可用）：
-//   SOUND_DEFS          — 12 类音效参数表（fire/pen/block/bounce/ammoBlew/trackBreak/fireDOT/ui/engine/flyby/trackFx）
+//   SOUND_DEFS          — 音效参数表（fire/pen/block/bounce/ammoBlew/ammoBlewAP/ammoBlewHE/trackBreak/fireDOT/
+//                         ui/engine/flyby/trackFx/firerail/railReady）
 //   AUDIO_SETTINGS      — 音量分级（combatGain 战斗 / uiGain UI）
 //   playSound(key, opts?, pos?) — 单入口播放，pos?: {x, y} 空间位置（像素，相对 canvas 原点）
 //   initAudio() / ensureAudio() — 惰性创建并 resume AudioContext
@@ -161,6 +163,18 @@ const SOUND_DEFS = {
       { kind: 'osc',   wave: 'sawtooth', f0: 190, f1: 40, dur: 0.34, gain: 0.62, attack: 0.004, delay: 0.03 },
       { kind: 'noise', dur: 0.30, gain: 0.22, attack: 0.01, filter: 'lowpass', filterFreq: 900, delay: 0.04 }
     ]
+  },
+
+  // 电磁轨道炮**就绪**提示（AA-c，2026-10-26）：充能到 100% 当帧播一次的双响。
+  // 与 firerail 分工——firerail 是开火瞬态（已含放电撕拉 + 炮身共鸣）；本键是「可以打了」的
+  //   听觉信号：高频短促、不碰低频区，避免和发射声混淆。充能**过程**的电流声不是键，
+  //   是代码驱动的循环实例（见 startRailChargeLoop，参数唯一口径 RULES.railgunFx.audio）。
+  railReady: {
+    label: '电磁炮就绪', bus: 'combat', gain: 0.8,
+    layers: [
+      { kind: 'osc', wave: 'sine', f0: 1320, f1: 1320, dur: 0.07, gain: 0.30, attack: 0.002 },
+      { kind: 'osc', wave: 'sine', f0: 1760, f1: 1760, dur: 0.07, gain: 0.24, attack: 0.002, delay: 0.10 }
+    ]
   }
 };
 
@@ -187,10 +201,10 @@ const _sampleLoading = {};
 
 // --- 实时音效实例（浏览器运行时唯一） ---
 // 这些变量仅在浏览器中有效（Node 加载时 AudioContext 守卫会跳过）
-// Engine sound：持续振荡器，由 speed 改 pitch
-let engineOsc = null;
-let engineGain = null;
-let lastEngineSpeed = 0;
+// 沿革（AA-c，2026-10-26）：`engineOsc` / `engineGain` / `lastEngineSpeed` 与
+//   `startEngineSound` / `stopEngineSound` / `updateEnginePitch` 一并删除——全仓零调用且未导出（死代码）。
+//   将来若要做引擎转速声，按下方 railChargeLoop 的范式（代码驱动持久实例 + `RULES` 参数）重建，
+//   不要再用「一次性 SOUND_DEFS 层」表达持续音。
 
 // Track friction：周期性播放的短音效计时器
 let trackFxTimer = 0;
@@ -209,40 +223,85 @@ function setListenerPos(x, y){
   listenerY = y;
 }
 
-// --- Engine sound manager ---
-// 启动/停止引擎音效，并根据速度更新频率。
-function startEngineSound(ctx){
-  if(engineOsc) return; // 已启动
-  engineGain = ctx.createGain();
-  engineGain.gain.value = 0.3;
-  engineGain.connect(_master);
+// --- #AA-c（2026-10-26）：电磁轨道炮**充能循环**（代码驱动的持续实例，不是 SOUND_DEFS 键） ---
+// 为什么必须是代码驱动：SOUND_DEFS 的每一层都是「一次性 start→包络收敛到 0.0001→stop」，
+//   表达不了「随充能进度单调上升的持续电流声」。参数唯一口径 `RULES.railgunFx.audio`
+//   （现行值见 specs/combat/audio.md「电磁轨道炮三段声学」）。
+// 安全契约：Node 测试 / 未解锁 AudioContext / 不支持 Web Audio 的环境里**全部 no-op**，
+//   不抛错、不产生 NaN 频率（回归：scripts/test-audio.js 的 rail 段）。
+let railChargeOsc = null;
+let railChargeGain = null;
 
-  engineOsc = ctx.createOscillator();
-  engineOsc.type = 'sine';
-  // 初始频率 100Hz，将在 updateEnginePitch 中根据 speed 实时改写
-  engineOsc.frequency.value = 100;
-  engineOsc.connect(engineGain);
-  engineOsc.start();
+// 纯函数：progress(0..1) → 基频 Hz。clamp + 非有限值按 0 处理——
+//   NaN 一旦写进 `OscillatorNode.frequency` 会让后续 setValueAtTime 全部失效（而且不报错）。
+function railChargeFreqFor(progress){
+  const cfg = (typeof RULES !== 'undefined' && RULES.railgunFx && RULES.railgunFx.audio) || {};
+  const f0 = (typeof cfg.freqMin === 'number' && isFinite(cfg.freqMin)) ? cfg.freqMin : 110;
+  const f1 = (typeof cfg.freqMax === 'number' && isFinite(cfg.freqMax)) ? cfg.freqMax : 760;
+  let p = (typeof progress === 'number' && isFinite(progress)) ? progress : 0;
+  p = Math.max(0, Math.min(1, p));
+  return f0 + (f1 - f0) * p;
 }
-function stopEngineSound(){
-  if(engineOsc){
-    engineOsc.stop();
-    engineOsc.disconnect();
-    engineOsc = null;
-    engineGain = null;
+
+// 起：幂等（已在充能时返回 true）。返回 false = 无音频环境或创建失败。
+function startRailChargeLoop(){
+  const ctx = (typeof ensureAudio === 'function') ? ensureAudio() : null;
+  if(!ctx || !_master) return false;
+  if(railChargeOsc) return true;
+  const cfg = (RULES && RULES.railgunFx && RULES.railgunFx.audio) || {};
+  const wave = cfg.chargeWave || 'sawtooth';
+  const gain = (typeof cfg.gain === 'number') ? cfg.gain : 0.16;
+  const attack = (typeof cfg.attack === 'number') ? Math.max(0, cfg.attack) : 0.25;
+  try {
+    railChargeGain = ctx.createGain();
+    railChargeGain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    railChargeGain.gain.linearRampToValueAtTime(Math.max(0.0001, gain), ctx.currentTime + attack);
+    railChargeGain.connect(_master);
+    railChargeOsc = ctx.createOscillator();
+    railChargeOsc.type = wave;
+    railChargeOsc.frequency.setValueAtTime(railChargeFreqFor(0), ctx.currentTime);
+    railChargeOsc.connect(railChargeGain);
+    railChargeOsc.start();
+    return true;
+  } catch(e){
+    railChargeOsc = null; railChargeGain = null;
+    return false;
   }
 }
-function updateEnginePitch(ctx, speed){
-  if(!engineOsc) return;
-  // Tank speed (scalar, can be positive or negative) mapped to frequency range 80~200 Hz
-  // Forward -> slightly higher pitch; Reverse -> slightly lower/distorted; Still -> 100Hz
-  const speedFactor = speed / 10; // arbitrary scaling factor, adjust per actual speed range
-  const minFreq = 80, maxFreq = 200;
-  let freq = minFreq + (maxFreq - minFreq) * Math.abs(0.5 + 0.5 * Math.sign(speed) * Math.min(1, Math.abs(speed)/50));
-  // Simpler mapping: speed range [-10, 10] -> frequency [80, 200]
-  const clippedSpeed = Math.max(-10, Math.min(10, speed));
-  freq = 80 + (clippedSpeed + 10) * 12; // 80..200 Hz
-  engineOsc.frequency.setValueAtTime(ctx.currentTime, freq);
+
+// 改音高：返回实际写入的频率（0 = 未在充能 / 写入失败），供 Node 断言使用。
+function updateRailChargePitch(progress){
+  const f = railChargeFreqFor(progress);
+  if(!railChargeOsc || !_audioCtx) return 0;
+  try {
+    railChargeOsc.frequency.setValueAtTime(f, _audioCtx.currentTime);
+    return f;
+  } catch(e){ return 0; }
+}
+
+// 停：先做 release 淡出再从图上摘掉振荡器（直接 stop 会有"咔"声）。幂等。
+function stopRailChargeLoop(){
+  if(!railChargeOsc) return false;
+  const ctx = _audioCtx;
+  const cfg = (RULES && RULES.railgunFx && RULES.railgunFx.audio) || {};
+  const release = (typeof cfg.release === 'number') ? Math.max(0, cfg.release) : 0.12;
+  const osc = railChargeOsc, gainNode = railChargeGain;
+  railChargeOsc = null; railChargeGain = null;
+  try {
+    if(ctx && gainNode){
+      gainNode.gain.cancelScheduledValues(ctx.currentTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), ctx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + release);
+    }
+  } catch(e){ /* 包络异常不阻断收尾 */ }
+  try {
+    setTimeout(function(){
+      try { osc.stop(); } catch(e){}
+      try { osc.disconnect(); } catch(e){}
+      try { if(gainNode) gainNode.disconnect(); } catch(e){}
+    }, Math.round(release * 1000) + 20);
+  } catch(e){}
+  return true;
 }
 
 // --- Track friction sound manager ---
@@ -613,6 +672,11 @@ if (typeof module !== 'undefined' && module.exports) {
     validateSoundDefs,
     loadAudioSample,
     preloadAudioSamples,
-    getSampleBuffer
+    getSampleBuffer,
+    // #AA-c（2026-10-26）：电磁炮充能循环三件套 + 纯频率映射（Node 可测）
+    railChargeFreqFor,
+    startRailChargeLoop,
+    updateRailChargePitch,
+    stopRailChargeLoop
   };
 }

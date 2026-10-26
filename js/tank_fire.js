@@ -270,6 +270,9 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx, dmgSca
     wave(ox, oy, 46, 0.26, 'rgba(235,244,255,0.85)', 2.4);
   }
   play(isRailgun ? 'firerail' : 'fire', isDB ? { gain: 1.6 } : undefined);
+  // #AA-c（2026-10-26）：电磁炮开火瞬间收掉充能循环声——否则发射轰响与充能电流叠在一起爆音。
+  //   页面侧边沿判定（reloadT 重置）也会 stop，这里是同一帧内的第一道闸。
+  if (isRailgun && typeof stopRailChargeLoop === 'function') { try { stopRailChargeLoop(); } catch (e) {} }
   if (isDB && typeof c.spawnSmoke === 'function') c.spawnSmoke(ox, oy, 1.3);
   shooter.recoilT = 0.08;
   // 2026-10-22（第五批）：maxRange 兜底钳到 RULES.autocannon.rangeMaxPx（1200）——

@@ -577,6 +577,19 @@ const RULES = {
   // 三段视效 = ①充能（装填期，导轨间爬行白弧）②击发放电（炮身甩白弧）③弹道（电离针状弹）。
   //   ⚠ 电弧**只在炮身上**：炮弹本身不带电弧尾迹（2026-10-19 用户裁定，旧 shellTrailArcs 已删）。
   railgunFx: {
+    // —— #AA-c（2026-10-26）充能循环音频的唯一数值口径 ——
+    //   充能电流声是**代码驱动的持续实例**（`js/tank_audio.js` 的 start/update/stopRailChargeLoop），
+    //   不是 SOUND_DEFS 键——那张表的层是一次性 start/stop，表达不了循环。
+    //   就绪提示是一次性瞬态（键 `SOUND_DEFS.railReady`）；开火瞬态复用 `firerail`。
+    //   三段式声学口径见 `docs/specs/combat/audio.md`「电磁轨道炮三段声学」。
+    audio: {
+      chargeWave: 'sawtooth',   // 锯齿波 = 电流感（方波过尖、正弦太闷）
+      freqMin: 110,             // progress = 0 的基频 Hz（刚开完火、充能刚开始）
+      freqMax: 760,             // progress = 1 的基频 Hz（满电前一瞬）
+      gain: 0.16,               // 循环层增益（再乘 AUDIO_SETTINGS.combatGain 总线）
+      attack: 0.25,             // 起音淡入秒数（避免「啪」一下出现）
+      release: 0.12             // 收尾淡出秒数（直接 stop 会听到咔声）
+    },
     // —— 炮管（灰）：金属本体的三档明度，与车体涂装色无关 ——
     barrelGrey:     '#787d84',   // 导轨/炮管主体（中性灰，略偏冷）
     barrelGreyDark: '#4a4e55',   // 背光侧/缝隙

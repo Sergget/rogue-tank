@@ -66,6 +66,51 @@ ok(A.playSound('bogus') === false, '未知键返回 false');
 ok(A.ensureAudio() === null, 'ensureAudio 无 AudioContext 返回 null');
 ok(A.initAudio() === null, 'initAudio 无 AudioContext 返回 null');
 
+// 6) #AA-c（2026-10-26）：电磁炮充能循环音频
+//   三段式声学：充能循环（代码驱动持续实例）+ 就绪瞬态（SOUND_DEFS.railReady）+ 开火瞬态（firerelay→firerail）。
+//   循环为什么不是 SOUND_DEFS 键：那张表的每一层都是一次性 start→收敛→stop，表达不了「随进度持续上升」。
+ok(typeof A.railChargeFreqFor === 'function', '导出 railChargeFreqFor（纯频率映射）');
+ok(typeof A.startRailChargeLoop === 'function', '导出 startRailChargeLoop');
+ok(typeof A.updateRailChargePitch === 'function', '导出 updateRailChargePitch');
+ok(typeof A.stopRailChargeLoop === 'function', '导出 stopRailChargeLoop');
+ok(typeof A.SOUND_DEFS.railReady === 'object', 'SOUND_DEFS 含 railReady 键（就绪瞬态）');
+ok(typeof A.SOUND_DEFS.firerail === 'object', 'SOUND_DEFS 保留 firerail（开火瞬态）');
+
+// 6.1) 频率映射：随进度单调上升、两端贴合 RULES 唯一口径、非法输入不产生 NaN
+//      （`RULES` 在 types/globals.d.ts 是 any，但走 require 时 tsc 会推断出更窄的类型 ⇒ 这里显式 any）
+const ra = /** @type {any} */ ((RULES_MOD.RULES.railgunFx && RULES_MOD.RULES.railgunFx.audio) || {});
+ok(typeof ra.freqMin === 'number' && typeof ra.freqMax === 'number' && ra.freqMax > ra.freqMin,
+   `RULES.railgunFx.audio 提供 freqMin/freqMax 且 max > min（${ra.freqMin}→${ra.freqMax}Hz）`);
+ok(A.railChargeFreqFor(0) === ra.freqMin, `progress=0 → freqMin（${A.railChargeFreqFor(0)}Hz）`);
+ok(A.railChargeFreqFor(1) === ra.freqMax, `progress=1 → freqMax（${A.railChargeFreqFor(1)}Hz）`);
+const mid = A.railChargeFreqFor(0.5);
+ok(mid > ra.freqMin && mid < ra.freqMax, `progress=0.5 落在两端之间（${mid.toFixed(1)}Hz）`);
+let mono = true;
+for (let i = 1; i <= 20; i++) {
+  if (!(A.railChargeFreqFor(i / 20) > A.railChargeFreqFor((i - 1) / 20))) mono = false;
+}
+ok(mono, 'progress 0→1 的 20 段全部严格单调上升（无回退/平台）');
+[NaN, Infinity, -Infinity, undefined, null, '0.5'].forEach(v => {
+  const f = A.railChargeFreqFor(v);
+  ok(typeof f === 'number' && isFinite(f) && f >= ra.freqMin && f <= ra.freqMax,
+     `railChargeFreqFor(${String(v)}) 有限且被 clamp（${f}Hz）`);
+});
+ok(A.railChargeFreqFor(-5) === ra.freqMin, 'progress < 0 钳到 freqMin');
+ok(A.railChargeFreqFor(99) === ra.freqMax, 'progress > 1 钳到 freqMax');
+
+// 6.2) 生命周期：无 AudioContext 环境下全部 no-op，且不抛错（Node 断言）
+let railThrew = false, started = null, pitched = null, stopped = null;
+try {
+  started = A.startRailChargeLoop();
+  pitched = A.updateRailChargePitch(0.7);
+  stopped = A.stopRailChargeLoop();
+  stopped = A.stopRailChargeLoop();   // 幂等：重复 stop 不抛错
+} catch (e) { railThrew = true; }
+ok(!railThrew, 'rail 三件套在无 AudioContext 环境不抛错');
+ok(started === false, 'startRailChargeLoop 无 AudioContext 返回 false（不打桩、不静默假成功）');
+ok(pitched === 0, 'updateRailChargePitch 未在充能时返回 0（不是 NaN）');
+ok(stopped === false, 'stopRailChargeLoop 未在充能时返回 false 且幂等');
+
 console.log(`test-audio: ${asserts} 项断言完成`);
 if (fails === 0) console.log('test-audio: 全部通过');
 else console.error(`test-audio: ${fails} 项失败`);

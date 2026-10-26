@@ -335,6 +335,11 @@ declare function initAudio(): any;
 declare function ensureAudio(): any;
 declare var playSound: any;
 declare function validateSoundDefs(defs?: any): string[];
+// #AA-c（2026-10-26）：电磁炮充能循环（代码驱动的持续实例；无 AudioContext 时 no-op）
+declare function railChargeFreqFor(progress?: number): number;
+declare function startRailChargeLoop(): boolean;
+declare function updateRailChargePitch(progress?: number): number;
+declare function stopRailChargeLoop(): boolean;
 // webkitAudioContext：旧 WebKit 前缀 AudioContext（Safari <14.1 等），不在 TS DOM lib 标准类型中
 declare var webkitAudioContext: any;
 
