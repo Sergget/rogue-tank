@@ -8,7 +8,7 @@ description: Use when running the verification chains (check / test / browser sm
 ## 1. 你拥有的文件
 
 - `scripts/check-html.js` — 语法冒烟（`vm.Script`，无 spawn）+ 顶层重复声明检测
-- `scripts/run-tests.js` — Node 测试链 runner（**48 项**，失败不中断后续）
+- `scripts/run-tests.js` — Node 测试链 runner（**58 项**，2026-10-26 实测；控制台汇总报 59 项）
 - **`scripts/wiki-check.js`** — specs wiki 链接/锚点/模板校验（2026-10-21 新增；**改过 docs 后必跑**）
 - `scripts/test-browser-*.cjs` — 浏览器四链（smoke / r3 / run / r4）
 - **specs 写域（wiki 化后）**：`docs/specs/<卷>/` 全部主题页 + `docs/specs/<卷>.md` 兼容索引页 + `docs/WIKI-STYLE.md`（形态权威）
@@ -21,24 +21,31 @@ description: Use when running the verification chains (check / test / browser sm
 |---|---|---|
 | 语法冒烟 | `node scripts/check-html.js` | ✅ 可直接跑，EXIT=0（无 spawnSync） |
 | typecheck | `node node_modules/typescript/bin/tsc --noEmit` | ✅ EXIT=0。**不要用 `npx tsc`**（写用户缓存 → EPERM） |
-| 合并 | `npm run check` | ✅ EXIT=0（约 7.4s） |
-| Node 全链 | `npm test` | ⚠️ 见 §3 |
+| 合并 | `npm run check` | ✅ EXIT=0（约 40s，含六页内联脚本） |
+| Node 全链 | `npm test` | workspace-write：`58 通过 / 1 失败`（`test-asset-pipeline` 的 `spawnSync` EPERM）；**full-access：`59 通过 / 0 失败`**（2026-10-26 实测） |
 | 浏览器四链 | `npm run test:browser` | ❌ 沙箱内 `browserType.launch: spawn EPERM`（需系统 Edge + 放宽进程权限） |
 
 **只报实测退出码。** 未跑项必须明确写「未跑 + 原因」，不得暗示通过。
 
-## 3. 已知的验证链缺陷（修复中，见工作记录）
+## 3. 验证链的已知边界与「已修复」清单（2026-10-26 复核）
 
-- `npm test` 在沙箱内**全项失败**：`run-tests.js:89` 的 `spawnSync({encoding:'utf8'})` 依赖管道捕获，沙箱禁止 → `spawnSync … EPERM`。**单跑** `node scripts/test-xxx.js` 正常（实测 `test-qa.js` EXIT=0）。
-- 测试链**漏登记**：磁盘上有 `scripts/test-move.js`、`scripts/test-physics.js`，但 `run-tests.js` 的 TESTS 数组里没有 → 孤儿测试，永不执行。
-- `check-html.js` 只冒烟 24 个脚本，磁盘上 46 个 `test-*.js` 中其余 22 个无语法兜底。
-- `test-strip.js` 是重负载单测（141~177s），单测上限 300s；`test-ai.js` 的「#E7 反应延迟随距离增大」是**已知 flaky**（单跑 2~3 次确认）。
+**已修复，不要再照旧卡描述排障**：
+
+- ~~`npm test` 在沙箱内全项失败~~ → `run-tests.js` 已改**文件句柄重定向**，不再依赖 `spawnSync` 管道；现仅 `test-asset-pipeline.js` 一项受 `spawnSync` 影响（full-access 下全绿）。
+- ~~测试链漏登记（`test-move` / `test-physics` 是孤儿）~~ → 已登记；且 `check-html.js` 现在**主动断言**「磁盘上每个 `test-*.js` 都已进 TESTS」。
+- ~~`check-html.js` 只冒烟 24 个脚本~~ → 现**按目录自动发现**全部 `js/*.js` + `scripts/**/*.{js,cjs}` + 六页内联脚本。
+
+**仍然适用**：
+
+- `test-strip.js` 是重负载单测（141~177s，上限 300s）；`test-ai.js` 的「#E7 反应延迟随距离增大」是已知 flaky（单跑 2~3 次确认）。
+- **`scripts/test-qa.js` 是形态门**：每个 `test-*.js` 必须 `require('../js/tank_utils.js')` + `require('../js/tank_rules.js')` 且有 `ok()/fails` 骨架，否则整链 EXIT=1，**红的会是 `test-qa.js` 而不是违规的那个文件**。
+- 源码形状断言（CSS/HTML）必须**先剥注释再匹配**，否则沿革注释里的旧 id 会把新断言判红。
 
 ## 4. 文档 4 步生命周期（AGENTS.md §2.2 的执行细则）
 
 功能/修复验证通过后，**顺序不可颠倒**：
 
-1. **同步** — ① **`docs/specs/<卷>/<主题页>.md`** 写现行细则（战斗→`combat/` / 地图→`map/` / 卡牌→`cards/` / Boss→`boss/` / 编辑器→`editor/`），按 **AGENTS.md §2.3「改 specs 三步」**（改主题页 → 对齐 `<卷>.md` 兼容页摘要 → 跑 `node scripts/wiki-check.js`）；② `docs/DEVELOPMENT.md` **§4 正文末尾续写新编号**（当前最大 **§4.114**，下一个是 §4.115），简结论 + specs 归口指针（**指向主题页**如 `specs/combat/ammo-system.md`）+ 三链验证记录。
+1. **同步** — ① **`docs/specs/<卷>/<主题页>.md`** 写现行细则（战斗→`combat/` / 地图→`map/` / 卡牌→`cards/` / Boss→`boss/` / 编辑器→`editor/`），按 **AGENTS.md §2.3「改 specs 三步」**（改主题页 → 对齐 `<卷>.md` 兼容页摘要 → 跑 `node scripts/wiki-check.js`）；② `docs/DEVELOPMENT-batches-<yyyy-mm>.md` **§4 正文末尾续写新编号**（**2026-10-26 当前最大 = §4.137，下一个 §4.138**），简结论 + specs 归口指针（**指向主题页**如 `specs/combat/ammo-system.md`）+ 三链验证记录。
 2. **删除** — 从 `docs/PLAN.md` / `docs/ISSUES.md` **完全删除**对应条目。
 3. **归档** — 被删条目**原文**追加到 `docs/archive/<yyyy-mm>.md` 底部（标来源文档、条目编号、删除日期），并在 `docs/ARCHIVE.md` 索引表**表尾**加一行（日期升序）。
 4. **联动** — 影响规划顺序时同步 `DEVELOPMENT.md` §3 与 `PLAN.md` §1。
@@ -48,7 +55,7 @@ description: Use when running the verification chains (check / test / browser sm
 `docs/DEVELOPMENT.md` 只有 **§0 文档体系索引 / §1 核心方向 / §2 架构演进 / §3 当前状态与下一步 / §4 批次落地结论**。
 
 - **没有 §5 / §5.5 / §6**——旧角色卡引用的「§5.5 numerical reference table」「§6 next steps」已不存在。数值口径归 `docs/specs/<卷>/` 对应主题页。
-- **specs 已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 是正文（59 页），`docs/specs/<卷>.md` 是 §N 兼容索引页（编号不变、只放摘要 + 详见链接）。**改 specs 必读 `docs/WIKI-STYLE.md`**。
+- **specs 已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 是正文（**69 页，2026-10-26 实测**，`wiki-check` 的 `pages=` 即此数），`docs/specs/<卷>.md` 是 §N 兼容索引页（编号不变、只放摘要 + 详见链接）。**改 specs 必读 `docs/WIKI-STYLE.md`**。
 - §4 正文已按月份拆到 `docs/DEVELOPMENT-batches-2026-09.md` / `-2026-10.md`；`DEVELOPMENT.md` 只留 §4.0 编号索引（§4.1~§4.26）与拆分链接。
 - **`docs/archive/` 归档分卷严禁全文读取**（单卷可达 ~257KB）：按 `ARCHIVE.md` 索引定位后 Grep 切片。同一文件重复读取 ≤ 3 次。
 - 统计数字必须实测并标日期（如卡牌数用 `node scripts/audit-content.js`）。

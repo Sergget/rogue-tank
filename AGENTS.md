@@ -5,12 +5,13 @@
 ## 1. 项目概览
 
 - **类型**：节点式地图推进 + 局内得分驱动构筑 的战术坦克 Roguelike（俯视角 2D），方向为技能系统 + 主副武器解耦 + 召唤部署物（详见 `docs/DEVELOPMENT.md` §1）。
-- **核心页面**（均为单文件 HTML，内联大段脚本；共五页，`server.js` '/' 指向首页）：
+- **核心页面**（均为单文件 HTML，内联大段脚本；**共六页**，`server.js` '/' 指向首页）：
   - `index.html`：首页封面路由（正式游戏 / 装甲测试台两卡片入口 + 设计器 / 对比链接）。
   - `tank_battle.html`：正式游戏页（run 链路：Home 多存档 → Loadout → 商店 → 节点图 → 战斗/结算/卡牌/Boss/AI/复活/经济/小地图；开发者面板 `#devPanel`、日志面板、流程覆盖层 `#flowOverlay`）。**游戏模式由 URL 参数 `?mode=` 决定**（`standard` 缺省 / `boss` 全 Boss 链 / `survival` 波次守点，`GAME_MODE`，2026-10-15 #MODE）——现行口径见 `docs/specs/combat.md` §14。
   - `tank_bench.html`：装甲测试台独立页（player + dummy 靶车、发射解算面板、靶场控制台、Enemy Lab、卡牌测试）。
   - `tank_designer.html`：多边形顶点编辑器（车体/炮塔几何、逐边装甲、炮管/炮盾、甲弹对抗测试）。
   - `tank_compare.html`：表格化坦克数据对比/编辑页。
+  - `tank_codex.html`：坦克图鉴独立页（按等级查询任一坦克/Boss 的六面装甲、HP、穿深、伤害、装填、极速与尺寸；**纯查询**，不生成实体。数据源 `enemyPreviewStats`；bench 内已无图鉴入口，2026-10-26 用户裁定）。
 - **共享模块**（`js/`，浏览器端以全局脚本按序加载、非 ES Module；每个模块底部带 `module.exports` 以支持 Node 测试）：
   - `tank_rules.js`：**机制参数唯一配置源**（RULES），必须最先加载，其他模块依赖它。
   - `tank_utils.js`：数学工具（norm/angDiff/gaussian/rotate/distToSegment/segRayIntersect/partCorners/partEdges/reflectDir + **`lightningPath`** 确定性电弧/闪电折线，2026-10-18 #U38），最先可加载的纯工具层。
@@ -48,7 +49,7 @@
 
 （**分卷结构**：`docs/` 目录收纳四份主文档（DEVELOPMENT / PLAN / ISSUES / ARCHIVE）+ `specs/` 五卷系统规范；`AGENTS.md` 位于仓库根目录供 Agent 自动发现。归档正文按月分卷至 `docs/archive/`，任何 agent **严禁全文读取归档分卷**——按 `ARCHIVE.md` 索引定位后 Grep 切片。拆分前原文快照：`docs/archive/2026-08-development-full-snapshot.md`。）
 
-> **🆕 specs 已 wiki 化（2026-10-21）**：五卷正文拆为 **67 个主题页**（`docs/specs/<卷>/`，2026-10-26 实测；原 65 页 + 2026-10-26 新增友军指挥 / 真 3D 路线 2 页），单卷文件 `docs/specs/<卷>.md` 保留为 **§N 兼容索引页**。**改 specs 前必须先读 `docs/WIKI-STYLE.md`**——它是 specs 形态的唯一规范权威。详见 §2.3。
+> **🆕 specs 已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 下共 **69 个 `.md`**（**2026-10-26 实测**：59 个纯主题页 + 5 个 `index.md` + 5 个 `changelog.md`），单卷文件 `docs/specs/<卷>.md` 保留为 **§N 兼容索引页**。**改 specs 前必须先读 `docs/WIKI-STYLE.md`**——它是 specs 形态的唯一规范权威。详见 §2.3。
 
 | 文档 | 角色 | 职责 | 更新时机 | 生命周期 |
 |---|---|---|---|---|
@@ -68,7 +69,7 @@
 - **被推翻的设计不静默删除**：主文档 §4 历史条目保持原文 + 加「已被 §4.x/§y 取代」注记；specs 内旧数值改写为现行值并在原处留沿革注记。读者应能只读 specs 就得到现行口径，只读 DEVELOPMENT §4 就能追溯演进。
 - **同文档内禁止重复罗列数值**：同一数值/参数表只允许一个「唯一口径」小节（如 combat.md §3.2 弹种总表），其余位置一律指向它。
 - **specs 章节编号是外部契约，不得重排**：实测 191+ 处文档/代码引用 `specs/<卷>.md §N`，历史批次日志又按「只增不改」维护 ⇒ **新增内容一律用新编号追加**，需要重组时用「卷首 §0 主题索引 + 批次节主题标签 + 数值唯一口径」三件套，**禁止重编号**。现行实践见 `DEVELOPMENT-batches-2026-10.md` §4.113。
-- **specs 正文已 wiki 化（2026-10-21）**：五卷共 **67 个主题页**（2026-10-26 实测），位于 `docs/specs/<卷>/`；`docs/specs/<卷>.md` 是 §N 兼容索引页（标题编号不变、每节 1~3 行摘要 + 「详见」链接）。**查现行口径先读 `<卷>/index.md` 或其 `changelog.md`**，不要直接读兼容页当正文。风格规范见 `docs/WIKI-STYLE.md`。
+- **specs 正文已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 下共 **69 个 `.md`**（2026-10-26 实测：59 纯主题页 + 5 `index.md` + 5 个 `changelog.md`）；`docs/specs/<卷>.md` 是 §N 兼容索引页（标题编号不变、每节 1~3 行摘要 + 「详见」链接）。**查现行口径先读 `<卷>/index.md` 或其 `changelog.md`**，不要直接读兼容页当正文。风格规范见 `docs/WIKI-STYLE.md`。
 - **统计数字必须实测**：文档中的统计数字（卡牌数量/分布等）标注实测日期；引用过期数字前先重跑对应脚本（如 `node scripts/audit-content.js`）。
 - **模糊词禁用**：章节标题与结论禁止「本轮/本批」无日期锚点的写法；一律带 yyyy-mm-dd（或月份）锚点。
 
@@ -140,7 +141,7 @@
   - `http://127.0.0.1:8000/tank_battle.html`（正式游戏）/ `tank_bench.html`（装甲测试台）
   - `http://127.0.0.1:8000/tank_designer.html`
   - `http://127.0.0.1:8000/tank_compare.html`
-- 校验：`npm run check` —— 对共享模块、`server.js` 及五个页面的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器冒烟四链（smoke / r3 / run / r4，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）。三者都应全绿。
+- 校验：`npm run check` —— 对共享模块、`server.js` 及**六个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器冒烟四链（smoke / r3 / run / r4，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）。三者都应全绿。
 - **改过 docs 再加一条**：`node scripts/wiki-check.js` —— 全 `docs/` 树的 Markdown 链接与锚点校验（断链 / 失效锚点）。**改 specs 页面、改文件名、改标题后必须跑**（见 §2.3）。仅改代码/测试时不需要。
 
 ### 3.2 测试坦克战斗
@@ -210,6 +211,6 @@
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
 - **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**§6「2026-10-24 用户反馈批次」已全部完成**（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130，2026-10-26 收口，**ISSUES 无存量条目**）+ **近远期执行路线**（§2：R0 渲染地基 → A0 友军指挥 / R1 真 3D → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机六命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。旧横向推进章节与 AA 各批已归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
-- **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **67 个主题页**（2026-10-26 实测），每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
+- **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **69 个 `.md`（59 主题页 + 5 index + 5 changelog，2026-10-26 实测）**，每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
 - **待处理问题**：见 `docs/ISSUES.md`（**当前无存量条目**——用户 2026-10-24 反馈批次已**全部关账**：AA-a 关 #AA1/#AA2/#AA5（§4.132）、AA-b 关 #AA3（§4.136，`test-bench-parity.js` **30 断言**锁键集包含关系，其中 2 条是关账后同日修 F 键门控回归时补的）、AA-c 电磁炮三段声学（§4.137，新能力缺口，原挂 PLAN §6.3）、AA-d 关 #AA4（§4.130）。历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

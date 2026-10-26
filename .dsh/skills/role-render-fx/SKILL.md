@@ -19,11 +19,12 @@ description: Use when the task touches tank sprites, texture baking, procedural 
 - `js/tank_battledraw.js` — 正式游戏页战斗场景绘制层（`drawTank`/`drawShells`/`drawCover`/`drawFoliage`/部署物/`railChargeProgress`）
 - `scripts/audit-textures.js` — 贴图审核标准（七指标 + 三类评分 + 双向区间）
 - `scripts/test-render.js` / `scripts/test-assets.js` / `scripts/test-asset-pipeline.js` / `scripts/test-audio.js`
+- **bench 契约测试**（你拥有，2026-10-26 起）：`scripts/test-bench-parity.js`（battle `fireCtx` 键集 ⊆ bench 键集 + F 边沿 + 曲射散布圈）、`scripts/test-bench-tools.js`（Enemy Lab 清场与生成护栏）、`scripts/test-hud-readability.js`（HUD 文本底衬与字号下限）
 - `tank_bench.html` 渲染接线（**页面单写者，见 `rogue-tank-roles` §1**）
 - 后期贴图接线 Python：`scripts/prepare_covers.py` / `scripts/covers-anchor-check.py` + `tools/dump-cover-refs.mjs`
 - 伪 3D 研究（**设计预留，未落地**）：`docs/specs/map/pseudo-3d-2p5d.md`
 
-## 2. 现行口径（2026-10-23 核实）
+## 2. 现行口径（2026-10-26 复核）
 
 1. **贴图路线（2026-10-23 用户裁定）**：**程序化烘焙是唯一实机路径**；PNG 通道（`drawAsset` / `drawTankSprite`）与设计器四层对齐面板**代码保留**，但 `assets/` 当前**无任何 PNG**（19 张坦克 PNG 已删除），全部回落程序化。**本仓库不出图**——AI 出图链（`gen-covers` / prompt 包 / 手动手册 / ComfyUI / 绘图 MCP 调研）已整体删除。
 2. **贴图审核 v2/v3 标准**（#TEX 批次）：v2 七指标达标线 80，基线 **97/100、14/14 达标**（2026-10-19 实测）；v3 三条（`variation`/`edgeWear`/`continuity`）**14/14 PASS**。二者均纳入 `test-render.js` ⑦ 强制回归。
@@ -34,6 +35,10 @@ description: Use when the task touches tank sprites, texture baking, procedural 
 7. **特效拆为分层结构，绘制期零渐变分配**。
 8. **`tank_fx.updateFx` 会重新赋值 FX 数组**——读当前长度必须走访问器，不能读导出的数组引用。
 9. **2.5D 立体感**：车体/炮塔按世界光反向偏移出两层侧壁（先于履带绘制，避免盖掉链节）。改造方案见 `docs/specs/map/pseudo-3d-2p5d.md`（**设计预留，未落地**）。
+10. **HUD 文本可读性（#AA8/#AA9，2026-10-26）**：能压在战场上的文本**一律要底衬**——统一 `background: rgba(8,9,6,0.62~0.72)` + `1px var(--line)` 边框 + `border-radius:2px`，正文色用 `--text`（不用 `--text-dim`）。已覆盖：`#quotaHud`（目标卡，另加左侧 2px 琥珀条、`bottom:92px`、日志打开时让位）、`#hintBar`、`.hudZone`×3、`#topLeftInfo`、顶部中央三块读出、`#supplyPromptHud`（内联样式）、`#fpsReadout`。**速度条已删除**（#AA7：条只重复编码「当前/上限」，且公路加成会让读数越过满格）；字号下限 `#quotaHud ≥ 11px`。回归 `scripts/test-hud-readability.js`（25 断言，**先剥注释再匹配**）。
+11. **bench Enemy Lab 控件（#AA6，2026-10-26）**：① 生成敌人两条路径（指针 / 批量）统一过 `clampSpawnIntoView(cam, x, y, 80)`（`js/tank_camera.js`）——视口半高仅 `vh/2/zoom`（720p@1.3 ≈ 277px），而批量环形半径 300~500px，不护栏就会生成在屏幕外；② 「清空所有敌人」= Enemy Lab 可见按钮 + devPanel「清场」**同一函数** `benchClearAllEnemies()` → 纯函数 `clearEnemyEntities(entities, { keepIds:['dummy'] })`（只认 `team==='enemy'`，解掉导弹锁定）。回归 `scripts/test-bench-tools.js`。
+12. **bench ↔ battle 开火接线（#AA3，2026-10-26）**：bench `fireCtx` 与 battle 的**键集是包含关系**（battle 50 ⊆ bench 51，断言在 `test-bench-parity.js`）——battle 加依赖而 bench 漏跟会直接红，因为缺键会被 `typeof` 守卫静默降级。F 键口径：**轮询保留**（rocket/mortar 连发靠它），开关类（missile/mine_layer/howitzer）在轮询通道 `if(force !== true) return`，只认原生 `keydown`（`e.repeat` 过滤、`KEY_BINDINGS.fireSecondary`、输入框聚焦不响应）。⚠️ **不要拿 devPanel 开合当门控**（bench 面板是侧边工具面板且状态持久化，会吞掉整条 F 链路）。
+13. **电磁炮三段声学（#AA-c，2026-10-26）**：`SOUND_DEFS` 每层都是一次性 `start→收敛→stop`，**表达不了循环** ⇒ 持续音必须走「代码驱动的持久实例」（`startRailChargeLoop/updateRailChargePitch/stopRailChargeLoop`，参数 `RULES.railgunFx.audio`）。充能 110→760Hz 单调上升、就绪 `SOUND_DEFS.railReady` 双短响、开火沿用 `firerail`（**不要再加第二个同帧瞬态**）。玩家侧必须先判 `type==='railgun' && reloadT>0`——`railChargeProgress` 对非电磁炮返回 1，不判会常驻鸣响。细则 `docs/specs/combat/audio.md`。
 
 ## 3. 硬约束
 
@@ -50,5 +55,5 @@ description: Use when the task touches tank sprites, texture baking, procedural 
 
 ## 5. 验证
 
-`node scripts/test-render.js`（真实光栅化逐像素回归，29 项）、`test-assets.js`、`test-asset-pipeline.js`（基准导出 / 后处理清单 / 锚点验收）、`test-audio.js`、`node scripts/audit-textures.js`（达标线 80）。
-**视觉类改动必须给目视证据**（离屏 1×/5×/10× 出图），纯 Node 断言不足。全链交给 `role-verify-docs`。
+`node scripts/test-render.js`（真实光栅化逐像素回归，29 项）、`test-assets.js`、`test-asset-pipeline.js`（基准导出 / 后处理清单 / 锚点验收）、`test-audio.js`（**117 断言**，含电磁炮循环：20 段严格单调 / 非法输入 clamp / 无 AudioContext no-op）、`test-hud-readability.js`（25）、`test-bench-tools.js`（14）、`test-bench-parity.js`（30，含键集包含）、`node scripts/audit-textures.js`（达标线 80）。
+**视觉类改动必须给目视证据**（离屏 1×/5×/10× 出图）；**纯 CSS/DOM 改动无法光栅化**，退而用源码形状断言锁（剥注释后匹配）+ 让用户实机看一眼。全链交给 `role-verify-docs`。

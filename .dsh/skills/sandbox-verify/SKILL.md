@@ -26,7 +26,7 @@ description: Use when running pwsh verification commands inside the DSH sandbox 
 
 | 想验证什么 | 用这个（可用） | 不要用（被拒/误导） |
 |---|---|---|
-| 语法冒烟（共享模块 + server.js + 五页内联脚本） | `node scripts/check-html.js`（**2026-09-23 起可直接跑**）或 `npm run check` | — |
+| 语法冒烟（共享模块 + server.js + **六页**内联脚本） | `node scripts/check-html.js`（**2026-09-23 起可直接跑**）或 `npm run check` | — |
 | 逻辑单测 | `node scripts/test-<xxx>.js` 或 `npm test` | — |
 | typecheck | `node node_modules/typescript/bin/tsc --noEmit`（node_modules 存在即可） | `npx tsc --noEmit`（npx 写缓存 → EPERM） |
 | 启动服务器 | `node server.js`（端口被占 → `PORT=8123 node server.js`；EADDRINUSE 是「已有实例在跑」，不是失败） | — |

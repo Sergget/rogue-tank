@@ -3338,3 +3338,28 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 
 **细则归口**：`docs/specs/combat/audio.md`「电磁轨道炮三段声学」（现行口径 + 数值指针）、`docs/specs/combat.md` §17（兼容页摘要）。
 **未做**：`AUDIO_SETTINGS` 音量分级未动；履带/飞越组死代码未清（见 §4）。
+
+## §4.138 2026-10-26 文档与 skill 一致性收口（AA 批次收尾后整理）
+
+**性质**：**非条目归档，属结构与工作流同步**（同 §4.113~§4.116 先例）。触发：用户「整理项目和文档，必要的写入项目 skill」。
+
+### 1) 实测出来的过期数字（全部按实测改写，不再靠记忆）
+
+| 位置 | 旧值 | 实测现行值 |
+|---|---|---|
+| `AGENTS.md` §1 / §3.1 页面数 | 「共五页」且**页面清单漏 `tank_codex.html`** | **共六页**，清单补齐 codex（纯查询、bench 无入口） |
+| `AGENTS.md` §2 / §2.1 / §5、`docs/specs/README.md` 主题页数 | 67（AGENTS）/ 61（specs README） | **`docs/specs/<卷>/` 下 69 个 `.md` = 59 纯主题页 + 5 `index.md` + 5 `changelog.md`**（与 `wiki-check` 的 `pages=69` 对齐） |
+| `.dsh/skills/test-runner` 测试项数 | 47（2026-10-19） | **58**（`TESTS` 登记数；汇总报 59 项） |
+| `.dsh/skills/role-verify-docs` | 48 项 / 「最大 §4.114，下一个 §4.115」/ 59 页 | **58 项** / **最大 §4.137，下一个 §4.138** / **69 页** |
+| `.dsh/skills/{test-runner,sandbox-verify}` | 「五页内联脚本」 | **六页** |
+
+### 2) 写进 skill 的新知识（本次两次踩坑换来的）
+
+- **`test-runner`**：新增「测试脚本形态契约」——`test-qa.js` 硬性要求 `'use strict'` + `require(tank_utils.js)` + `require(tank_rules.js)` + `ok/fails` 骨架；**漏 require 时红的是 `test-qa.js` 自己**（本会话两次踩中）。附「源码形状断言必须先剥注释再匹配」。
+- **`role-verify-docs`**：把「验证链缺陷（修复中）」改写为「已修复 / 仍适用」两栏——`run-tests` 已改文件句柄重定向、孤儿测试已修、`check-html` 已全量自动发现；仍适用的是 `test-asset-pipeline` 的环境边界、`test-strip` 重负载、`test-ai` flaky、`test-qa` 形态门。
+- **`role-render-fx`**：新增四条现行口径——HUD 文本底衬约定（`rgba(8,9,6,0.62~0.72)` + `--text`，速度条已删）、bench Enemy Lab 控件（清场纯筛选 + 生成视口护栏）、bench↔battle 开火接线（键集包含 + F 边沿守卫 + **不得拿 devPanel 开合当门控**）、电磁炮三段声学（`SOUND_DEFS` 无法表达循环 ⇒ 持久实例范式）。并把 `test-bench-parity` / `test-bench-tools` / `test-hud-readability` 记为其拥有的契约测试。
+- **`AGENTS.md`**：页面数/主题页数按实测改写；`DEVELOPMENT.md` §3.1 补一条 2026-10-26 状态（AA 全批次收口 + HUD/bench 工具 + 测试链现状），标题日期从 2026-10-23 更新为 2026-10-26。
+
+### 3) 验证
+
+`node scripts/check-html.js`（六页内联脚本 + 58 项测试登记一致）与 `node scripts/wiki-check.js`（改 docs 后必跑）均通过；本轮**未改 `js/` 与页面代码**，故不重复声称三链。
