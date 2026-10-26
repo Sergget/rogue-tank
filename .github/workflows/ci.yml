@@ -5,17 +5,32 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 最小权限：CI 只读仓库内容（默认 token 权限随仓库设置变化，显式声明避免过宽）
+permissions:
+  contents: read
+
+# 同一分支连续推送时取消旧运行（本仓库常一次推十几笔，旧运行没有价值）
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # 固定镜像：`ubuntu-latest` 自 2026-10-19 起迁移到 Ubuntu 26，漂移会造成与代码无关的红灯
+    # （2026-10-23~24 那次 4 连红正处于镜像切换窗口）。要升镜像请显式改这一行。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     strategy:
+      fail-fast: false          # 两条矩阵腿都跑完，一次看全
       matrix:
-        node-version: [20, 22]
+        # Node 20 已于 2026-04 EOL（且随之 EOL 的 `ubuntu-latest` 默认版本会漂）；
+        # 22 = 维护期 LTS，24 = 当前 LTS / 开发机大版本（`node -v` = 24.16）。
+        node-version: [22, 24]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
@@ -26,8 +41,13 @@ jobs:
       - name: Syntax + typecheck
         run: npm run check
 
+      # 文档也是本仓库的一等产物：specs wiki 化后断链/坏锚点/模板缺失都是实质回归，
+      # 以前只在本地手跑（2026-10-26 起纳入 CI）。
+      - name: Docs link / anchor / wiki-template check
+        run: npm run wiki:check
+
       - name: Full Node test chain
         run: npm test
 
-      # 注：npm run test:browser 需要系统 Edge 浏览器，未纳入 CI；
-      # 合并前请在本地手动跑通（见 README）。
+      # 注：`npm run test:browser` 需要系统 Edge（playwright-core 无头），Ubuntu runner 上没有，
+      # 故不纳入 CI；合并前请在本地手动跑通（见 README「验证」段）。
