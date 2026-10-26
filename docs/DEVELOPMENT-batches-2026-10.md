@@ -3171,3 +3171,40 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 
 **细则归口**：`docs/specs/combat/hud-ui.md`「底部 HUD 三区」+「速度读数」（#AA7 沿革注记）、`docs/specs/editor/codex.md`「与 bench 的关系」、`docs/specs/editor/appearance-aimspeed.md` NF-2 行。
 **未做**：HUD 其它区域的视觉重排（弹种格 / 装填环 / 技能槽）——用户以「比如」提出这条，先交付速度这一处，其余按实机观感逐项决定。
+
+## §4.135 2026-10-26 标准模式左下角任务描述可读性（#AA8）
+
+**来源**：用户 2026-10-26 反馈「标准模式左下角的任务描述放大了吗？现在在某些地图 biome 上，它们看不清楚」。**核实结论：没有放大过**——上一批（§4.134）只删了速度条，未触碰该元素；真正原因是这两个 HUD 文本**从来就没有底衬**。
+
+### 1) 证据（不是视觉猜测）
+
+| 元素 | 旧样式 | 问题 |
+|---|---|---|
+| `#quotaHud`（目标卡：`目标 OBJECTIVE` + ①推进/②配额 + 统计行） | `font-size:10px`、`color:var(--text-dim)`、仅 `text-shadow:0 1px 2px rgba(0,0,0,.8)`、**无 `background`** | 10px 暗色字 + 1~2px 阴影，压在雪地/沙漠这类高亮 biome 上亮度差被压到几乎为零 |
+| `#hintBar`（底部常驻操作提示） | `font-size:9px`、`--text-dim`、`opacity:.75`、无底衬 | 比上面更小更淡 |
+
+### 2) 修法
+
+| 项 | 改动 |
+|---|---|
+| `#quotaHud` | **11px** / `color:var(--text)` / `background:rgba(8,9,6,0.72)` + 1px `--line` 边框 + 左侧 2px `--amber-dim` 定位条 / `backdrop-filter:blur(2px)` / `max-width:min(520px,34vw)` / **`bottom:32 → 92px`**（抬到底部 HUD 带上方，不再与中间 HUD 抢位） |
+| `#hintBar` | **10px** / `--text` / `opacity:.75 → .92` / `background:rgba(8,9,6,0.66)` + 同款边框与 text-shadow |
+| 位置冲突 | 目标卡升到 `bottom:92px` 后会与左下日志面板（`#logPanel`：`bottom:12px`、宽 360、高约 160）纵向重叠 ⇒ `updateHud` 的显示条件加 **`!logOpen`**，日志打开时目标卡让位（日志是玩家主动要看的东西） |
+| 保持 | `pointer-events:none`（信息层不吃战场点击）、文案与 `目标 OBJECTIVE` 结构不动、档位/速度行未动 |
+
+**实现期自伤一次（已修，记为教训）**：改 CSS 时用整段 `old_string` 替换，把夹在 `#hintBar` 与 `#quotaHud` 之间的 `#topLeftInfo`（左上「ESC 暂停 · TAB 状态 · ` 开发者面板」）规则一起删掉了。已恢复，并把「`#topLeftInfo` 样式必须存在」写成回归断言。**改 CSS 按选择器逐个改，别用跨选择器的大段替换。**
+
+### 3) 回归与验证（2026-10-26 实测）
+
+- 新增 `scripts/test-hud-readability.js`（**16 断言**，已登记 `run-tests.js`）：`#quotaHud` 底衬 alpha **0.72 ≥ 0.6** / 字号 **11 ≥ 11px** / 正文 `--text` 且**负向不得退回 `--text-dim`** / 保留 text-shadow / `pointer-events:none` / `bottom=92 ≥ 80`；`#hintBar` 底衬 **0.66** / 字号 10 / `--text`；`#topLeftInfo` 样式存在；三个 HUD 文本节点都在 DOM；`目标 OBJECTIVE` 文案仍在；`!logOpen` 让位判据存在。
+
+| 链 | 结果 |
+|---|---|
+| `npm run check` | `All checks passed`（**58 个** `test-*.js` 登记一致）+ `tsc --noEmit` EXIT=0 |
+| `npm test` | **59 通过 / 0 失败（共 59 项）** |
+| `node scripts/test-qa.js` | Compliant 57 / Non-compliant 0 / issues 0 |
+| `node scripts/wiki-check.js` | `files=95 / pages=69 / links=1762 / broken=0 / anchors=892 / anchorBad=0 / struct=0 / template=0` |
+| 浏览器链 | **需实机看**：雪地/沙漠节点上目标卡与提示条的观感（本批纯 CSS/DOM，四链无对应断言） |
+
+**细则归口**：`docs/specs/combat/hud-ui.md`「左下角目标卡与提示条：可读性口径（#AA8）」。
+**未做**：左上 `#topLeftInfo`（13px 白字，无底衬）未纳入本批——雪地上勉强可读，若实机仍嫌淡按同一套补底衬（一行，测试位已留）；其余 HUD 区域未动。

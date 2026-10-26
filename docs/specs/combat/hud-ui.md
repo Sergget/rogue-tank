@@ -30,6 +30,22 @@
 - **技能池槽位映射（#H3 2026-09-30 重做，现行口径见 [技能槽指派](./abilities-secondary.md#技能槽指派)）**：`#skillSlot1~3` 的内容**直接读 `player.skillSlots`（玩家可指派）**，不再是 `cardEffects` 的自动去重序列。名称取 `ABILITY_LABELS`，冷却取 `abilityCds[key]`；点击槽位施放，`Shift+点击`改指。**原「自动按获得顺序填槽 + 专属键按钮并存」口径已废弃**（它导致同一技能两个按钮、槽满后第 4 个技能无法激活）。
 - **技能获得提示补全**：`ABILITY_KEY_HINT` 补 `repair`/`medkit`/`extinguish`（4/5/6 键）与 `aps`。**#U42（2026-10-19）后文案统一「技能槽数字键」**——G/H/V 专属字母键全部退役（沿革：#H3 后曾有「仅 G/H 仍为专属字母键」的过渡口径，已终结）。
 
+### 左下角目标卡与提示条：可读性口径（#AA8，2026-10-26）
+
+用户反馈「标准模式左下角的**任务描述**在某些地图 biome（雪地/沙漠）上看不清」。根因是这两个元素只靠 text-shadow 压在地表上、没有底衬，且字号偏小、正文用了暗色：
+
+| 元素 | 旧值 | 现行口径 |
+|---|---|---|
+| `#quotaHud`（目标卡：目标 OBJECTIVE + 推进/配额/残敌） | 10px、`--text-dim`、仅 `text-shadow 0 1px 2px`、无底衬、`bottom:32px` | **11px**、`color:var(--text)`、`background:rgba(8,9,6,0.72)` + 1px `--line` 边框 + 左侧 2px `--amber-dim` 定位条、`backdrop-filter:blur(2px)`、`max-width:min(520px,34vw)`、**`bottom:92px`**（抬到底部 HUD 带上方，不再与中间 HUD 抢位）；`pointer-events:none` 不变 |
+| `#hintBar`（底部常驻操作提示） | 9px、`--text-dim`、`opacity:.75`、无底衬 | **10px**、`color:var(--text)`、`background:rgba(8,9,6,0.66)`、`opacity:.92`、同款 1px 边框与 text-shadow |
+
+两条附带约束：
+
+- **日志让位**：`#logPanel` 打开时（`logOpen`）目标卡**不显示**——两者都在左下角，日志是高约 160px 的实心面板，目标卡升到 `bottom:92px` 后必然与其重叠；日志是玩家主动要看的，让位优先级归日志（判据写在 `updateHud` 的显示条件里，见 `tank_battle.html`）。
+- **回归形态**：`scripts/test-hud-readability.js` 以源码形状断言锁住「底衬 alpha ≥ 0.6 / 字号下限 / 正文色 / `bottom ≥ 80px` / `!logOpen` 让位 / `#topLeftInfo` 不得被误删」。CSS 观感无法在 Node 侧光栅化，但「底衬被删回去」这类回归能拦住。
+
+> **待观察**：左上 `#topLeftInfo`（13px 白字 + 阴影，无底衬）未纳入本批。其在雪地上勉强可读，若实机仍嫌淡，按同一套补底衬即可（一行改动，已有测试位）。
+
 ## 装填环与热量表
 
 （原 §6，「开火后坐与装填」段的环形化部分）
