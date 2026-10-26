@@ -91,6 +91,11 @@ ok(/sec\.type === 'howitzer'[\s\S]{0,80}if\(force !== true\) return;/.test(bench
 ok(/addEventListener\('keydown', \(e\) => \{[\s\S]{0,400}e\.repeat/.test(bench),
    'bench 有原生 keydown 边沿监听且过滤 e.repeat（与 battle #F7 同口径）');
 ok(/KEY_BINDINGS\.fireSecondary/.test(bench), '边沿监听从共享键位表取 fireSecondary（不写死 "f"）');
+ok(/\^\(input\|textarea\|select\)\$/.test(bench), '边沿监听在输入框聚焦时不响应（卡牌搜索框打字不会开火）');
+// 负向（2026-10-26 当日缺陷）：**不得**用 devPanel 开合当门控——面板持久化开着时会把 F 整条链路吞掉，
+// 症状是「装好副武器按 F 没反应」，实测由用户报回。唯一合法门控是输入框焦点。
+const fListener = (bench.match(/window\.addEventListener\('keydown', \(e\) => \{[\s\S]*?\n\}\);/) || [''])[0];
+ok(!/benchPanelOpen/.test(fListener), '负向：F 边沿监听不得以 devPanel 开合为门控');
 ok(/if\(input\.isDown\('fireSecondary'\)\) tryBenchSecondaryFire\(\);/.test(bench),
    '帧轮询通道保留给连续击发类（开关类由 force 守卫拦下）');
 

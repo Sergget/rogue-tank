@@ -1059,8 +1059,10 @@ function benchToggleHowitzerF(){
 }
 
 // #AA3：F 的原生 keydown 边沿（`e.repeat` 过滤按住自动重复，与 battle #F7 同口径）。
-//   键位取共享键位表 `KEY_BINDINGS.fireSecondary`（唯一数据源，改键自动跟随），
-//   输入框聚焦 / 开发者面板打开时不响应，避免在卡牌搜索框里打字触发开火。
+//   键位取共享键位表 `KEY_BINDINGS.fireSecondary`（唯一数据源，改键自动跟随）。
+//   ⚠️ 2026-10-26 当日修正：**不得拿 devPanel 开合当门控**——bench 的 devPanel 是**侧边工具面板**
+//   （玩家测卡时常态开着，且开合状态持久化），拿它挡 F 会让「装好副武器按 F 没反应」看起来像
+//   「F 根本没接入」。唯一该挡的是**焦点在输入框里**（否则在卡牌搜索框打 f 会开火）。
 window.addEventListener('keydown', (e) => {
   if(!e || e.repeat) return;
   if(!fireCtx || !player) return;
@@ -1068,7 +1070,6 @@ window.addEventListener('keydown', (e) => {
   if(String(e.key || '').toLowerCase() !== String(k || 'f').toLowerCase()) return;
   const ae = document.activeElement;
   if(ae && /^(input|textarea|select)$/i.test(ae.tagName || '')) return;
-  if(benchSettings && benchSettings.benchPanelOpen) return;
   tryBenchSecondaryFire(true);
 });
 
