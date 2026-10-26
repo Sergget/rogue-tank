@@ -12,7 +12,7 @@
 
 | 序 | 条目 | 来源 | 状态 |
 |---|---|---|---|
-| 1 | **存量 AA-b → AA-c**：bench 接线对齐、电磁炮音效 | 2026-10-24 用户反馈 | **近期最高优先级**，详见 §6.4/§6.3；**AA-a 已于 2026-10-26 关闭**（#AA1/#AA5 归档、#AA2 转处理中，见 §4.132） |
+| 1 | **存量 AA-c**：电磁炮充能/放电音效 | 2026-10-24 用户反馈 | **近期最高优先级**，详见 §6.3；AA-a（§4.132）与 AA-b（§4.136）已于 2026-10-26 关闭，ISSUES 当前为空 |
 | 2 | **近远期执行路线重排** | 2026-10-26 品质目标 + 单机友军裁定 | **已排期**：R0 地基 → A0 指挥 / R1 真 3D → G1 品质切片 → 量产；详见 §2 |
 | 3 | **友军指挥系统**：2～4 辆 AI 友军 + 六命令 | 2026-10-26 用户裁定 | **A0 待实施**，机制归 `specs/combat/ally-command.md`，批次见 §3；多人合作明确排除 |
 | 4 | **真 3D 渲染与品质垂直切片** | 2026-10-26 用户裁定目标接近《变节行动》 | **R0/R1/G1 待实施**；不再以路线 A 为最终方向；Go/No-Go 见 §2.3、规范归 `specs/map/rendering-roadmap.md` |
@@ -321,15 +321,9 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 
 **写域**：`js/tank_audio.js` + `tank_battle.html` + `docs/specs/combat/` ⇒ role-render-fx；`RULES.railgunFx.audio` ⇒ role-systems（单写者）。
 
-### 6.4 bench ↔ 正式游戏开火接线对齐（#AA2 / #AA3）
+### 6.4 bench ↔ 正式游戏开火接线对齐（#AA2 / #AA3）—— ✅ 已完成（2026-10-26，原文已归档）
 
-**原则**：bench 是**测量仪**，不允许有独立机制口径 ⇒ 目标是「同一张卡在两页行为一致」，而不是「bench 保持简化」。
-
-- **必做（1 行，修 #AA2）**：`tank_bench.html:1072-1122` 的 fireCtx 补 `aimPoint: mouseWorld`（对齐 `tank_battle.html:4358-4360` 字段与注释）。
-- **同批对齐（#AA3 逐项，battle → bench）**：① `cam`（视口相关距离：导弹锁定放宽 `js/tank_weapons.js:375-380`）② `updateHowitzerBurst`（急速射驱动 `tank_battle.html:4513-4514`）③ `updatePrimaryFollowup`（砰砰炮追发 `:4532-4533`）④ `updateDrones` + 部署物驱动（`:4709`）⑤ `resolveHit` **包装**（Boss 弱点 + 命中告警传播 `:4393-4433`）与 `emitShotNoise`（`:4384-4387`）——bench 无敌对 AI 时按 **no-op 注入**而非缺字段，保持形状一致 ⑥ **F 键边沿口径**：`tank_bench.html:1126` 的逐帧轮询改为原生 `keydown` 边沿（`isDown` 是电平读取 `js/tank_bindings.js:137-140`；开关类 howitzer/missile/mine_layer 的语义见 `js/tank_fire.js:922-931`，注释 `:926-927` 已明确要求页面层走边沿）⑦ 补曲射散布圈/落点指示（battle `:6564` 同源）——否则落点类错位（#AA2）在 bench 根本看不见。
-- **防回潮（关键）**：新增 `scripts/test-bench-parity.js`（登记 `run-tests.js`），用**形状 + 负向断言**锁两件事：battle fireCtx 的必需键集合 ⊆ bench fireCtx 键集合；bench 主循环内不得出现开关类副武器的 `input.isDown('fireSecondary')` 逐帧轮询。**依据**：#Z2 的教训是「文档宣称已实现 ≠ 已实现」，而接线缺失经 `typeof x === 'function'` 守卫后会把「拿不到」伪装成「已关闭」——这正是本项漂移 4 轮无人发现的原因。
-
-**写域**：`tank_bench.html`（role-render-fx）+ `scripts/`（新增测试）；验证收口 role-verify-docs。
+原 §6.4 正文已迁出至 `docs/archive/2026-10.md`（2026-10-26 段）。现行结论：7 项接线 + F 键**原生边沿**（开关类在轮询通道里 return，轮询本身保留）+ 曲射散布圈全部落地；防回潮为 `scripts/test-bench-parity.js` **28 断言**，核心是 **battle `fireCtx` 键集 ⊆ bench 键集**（实测 50 ⊆ 51）。**原计划有两处口径被判错**（「删掉 F 轮询」会打死火箭巢连发、「部署物驱动缺失」其实早已接线），纠正记录见 `docs/DEVELOPMENT-batches-2026-10.md` **§4.136**。
 
 ### 6.5 一行修（#AA1）与文档漂移（#AA5）—— ✅ 已完成（2026-10-26，原文已归档）
 
@@ -340,11 +334,11 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 | 批次 | 内容 | 前置 | 写域（互不相交） | 规模 |
 |---|---|---|---|---|
 | **AA-a** ✅ | #AA1 HUD 口径 + #AA2 `aimPoint` + #AA5 文档漂移 | 无 | `tank_battle.html` / `tank_bench.html` / `js/tank_model.js` / `docs/specs/` | **已完成并全部关账（2026-10-26 §4.132）**：#AA2 经用户实机点击验收 |
-| **AA-b** | §6.4 bench 接线对齐 + `test-bench-parity.js` 续写 | AA-a | `tank_bench.html` + `scripts/` | 1~1.5 人日 |
-| **AA-c** | §6.3 电磁炮音效（先 specs 口径 → 瞬态键 → 充能循环 → 清死代码） | 定 `RULES.railgunFx.audio` | `js/tank_audio.js` / `tank_battle.html` / `docs/specs/combat/` | 1.5~2 人日 |
+| **AA-b** ✅ | §6.4 bench 接线对齐 + `test-bench-parity.js` 续写 | AA-a | `tank_bench.html` + `scripts/` | **已完成并关账（2026-10-26 §4.136）**：28 断言 / 键集 50 ⊆ 51 |
+| **AA-c** | §6.3 电磁炮音效（先 specs 口径 → 瞬态键 → 充能循环 → 清死代码） | 定 `RULES.railgunFx.audio` | `js/tank_audio.js` / `tank_battle.html` / `docs/specs/combat/` | 1.5~2 人日，**唯一剩余项** |
 
-> **调度约束**（`AGENTS.md` §3.6）：AA-a 与 AA-c 都要动 `tank_battle.html` ⇒ **不得并行**（同一 HTML 每批次只允许一个写者）；AA-a 完成后 AA-b（`tank_bench.html`+`scripts/`）与 AA-c（`js/tank_audio.js`+`tank_battle.html`）写域不相交 ⇒ **可两路并行**。
-> **DEVELOPMENT 编号**：AA-b/AA-c 落地时追加 `docs/DEVELOPMENT-batches-2026-10.md` **§4.133 起**（2026-10-26 实测现有最大 = §4.132）。
+> **调度约束**（`AGENTS.md` §3.6）：AA-c 要动 `tank_battle.html` ⇒ 同期不得有第二个写者动该页。
+> **DEVELOPMENT 编号**：AA-c 落地时追加 `docs/DEVELOPMENT-batches-2026-10.md` **§4.137 起**（2026-10-26 实测现有最大 = §4.136）。
 
 ---
 
@@ -358,6 +352,7 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 | 原 §2～§3 | 横向推进与 A/B/C 清账路线（2026-10-26 迁出） | `specs/map/strip-defense.md` · `archive/2026-10.md` |
 | §6.6 AA-d | 制动与滑行模型（2026-10-24 完成） | `specs/map/terrain.md`「制动与滑行」· §4.130 |
 | §6.5（2026-10-24 版） | #AA1 公路加成 HUD 一行修 + #AA5 公路豁免文档漂移（**2026-10-26 关闭**） | `specs/map/roads.md`「公路加速」· `specs/combat/hud-ui.md`「速度读数」· §4.132 |
+| §6.4（2026-10-24 版） | bench↔battle 七项接线 + `test-bench-parity.js`（**2026-10-26 关闭**，其中两条口径被判错并纠正） | §4.136 |
 | §2.1 | 难度联动（敌军弹种按等级升档） | `specs/combat.md` §13.1 · §4.112 |
 | §2.2 | HUD 渲染级合并（9 处 = 6 合并 + 2 定位差异 + 1 重复计数） | §4.112(10) |
 | §2.3 | 正常环境补跑验证 | §4.112(8) |

@@ -8,30 +8,12 @@
 
 ---
 
-## 当前待处理问题（#AA：2026-10-24 用户反馈批次）
+## 当前无存量条目（#AA 批次 2026-10-26 全部关账）
 
 > **来源**：用户 2026-10-24 四项反馈（电磁炮音效 / 节点间自动提速与公路加成 / 泥潭河流与低马力滑行 / bench 榴弹炮射程）。逐条以代码证据核实：3 项确认为缺陷、1 项（机动模型）确认根因并**已于 2026-10-24 AA-d 修复归档**（原 #AA4，见 `docs/DEVELOPMENT-batches-2026-10.md` §4.130）、1 项（Boss 节点自动提极速上限）**核实不成立**（排除结论见 `docs/PLAN.md` §6.1.1）。
 > 电磁炮充能音效属**新能力缺口**（specs 从未定义），不是回归 ⇒ 归 PLAN 计划，不入本表。
-> **2026-10-26 AA-a 关账**：#AA1（HUD 公路加成低估一半）、#AA2（bench `aimPoint` 缺失）与 #AA5（`specs/map/roads.md` 公路豁免口径过期）均已修复并归档，结论见 `docs/DEVELOPMENT-batches-2026-10.md` **§4.132**（#AA2 由用户于同日实机点击验收：bench 榴弹表现正常）。**存量 = #AA3**，开工即 AA-b。
-
-### #AA3 bench 与正式游戏的运行时接线不一致 ⇒ 同一张卡在两侧行为不同
-
-- **现象**：用户报「bench 中榴弹炮**等卡牌**的接入与正式游戏似乎不同」。
-- **核实结论**：**卡牌应用路径本身是一致的**（bench `tank_bench.html:690/699` 与 battle 同走 `js/tank_panels_core.js` 的 `applyCardToTank`/`clearCardsFromTank`，devPanel 同源 `js/tank_devpanel.js:461/494-500`），差异全在**逐帧驱动与 fireCtx 上下文注入**。左 = battle，右 = bench：
-
-  | 依赖 | battle | bench | 缺失后果 |
-  |---|---|---|---|
-  | `fireCtx.aimPoint` | `:4360` | **缺** | 曲射射程塌到 `minArcRange`（=#AA2） |
-  | `fireCtx.cam` | `:4366` | **缺** | 导弹锁定距离不随视口放宽（`js/tank_weapons.js:375-380`） |
-  | `updateHowitzerBurst` | `:4513-4514` | **全页零调用** | 急速射卡（`howitzer_rapid_barrage`）静默失效 |
-  | `updatePrimaryFollowup` | `:4532-4533` | **缺** | 砰砰炮追发卡静默失效 |
-  | `updateDrones` | `:4709` | **缺** | 无人机卡在 bench 不运作 |
-  | `emitShotNoise` | `:4384-4387` | **缺** | 开火声纹告警链路不可测 |
-  | `resolveHit` 包装（Boss 弱点 + 命中告警传播） | `:4393-4433` | **裸函数**（`tank_bench.html:1094`） | Boss 弱点倍率 / 群体警觉在 bench 不可测 |
-  | 曲射散布圈绘制 | `:6564` | **无** | 看不到落点，#AA2 这类错位更难被发现 |
-
-  另有一条**键位口径违规**（AGENTS.md §4 / `docs/specs/combat/abilities-secondary.md`）：bench 主循环**逐帧轮询** F（`tank_bench.html:1126` `if(input.isDown('fireSecondary')) tryBenchSecondaryFire();`，而 `isDown` 是电平读取 `js/tank_bindings.js:137-140`），`tryFireSecondary` 对 howitzer 直接转发模式开关（`js/tank_fire.js:928-931`），注释 `:926-927` 明确要求「页面层必须走原生 keydown 边沿」⇒ 按住 F 时榴弹炮曲/直模式**每帧翻转**（battle 侧已按边沿实现，`tank_battle.html:967-970`/`:978-990`）。
-- **状态**：待处理（与 #AA2 同批收口；对齐清单与防回潮断言见 `docs/PLAN.md` §6.4）。
+> **2026-10-26 AA-a 关账**：#AA1（HUD 公路加成低估一半）、#AA2（bench `aimPoint` 缺失）与 #AA5（`specs/map/roads.md` 公路豁免口径过期）均已修复并归档，结论见 `docs/DEVELOPMENT-batches-2026-10.md` **§4.132**（#AA2 由用户于同日实机点击验收：bench 榴弹表现正常）。
+> **2026-10-26 AA-b 关账**：#AA3（bench↔battle 运行时接线漂移，7 项 + F 键边沿 + 曲射散布圈）已修复并归档，结论见 **§4.136**；防回潮由 `scripts/test-bench-parity.js`（28 断言，含键集包含关系）承担。**本表当前为空**——#AA 批次（用户 2026-10-24 反馈）全部结束。
 
 ---
 

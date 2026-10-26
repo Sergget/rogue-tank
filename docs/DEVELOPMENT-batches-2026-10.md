@@ -3207,4 +3207,74 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 | 浏览器链 | **需实机看**：雪地/沙漠节点上目标卡与提示条的观感（本批纯 CSS/DOM，四链无对应断言） |
 
 **细则归口**：`docs/specs/combat/hud-ui.md`「左下角目标卡与提示条：可读性口径（#AA8）」。
-**未做**：左上 `#topLeftInfo`（13px 白字，无底衬）未纳入本批——雪地上勉强可读，若实机仍嫌淡按同一套补底衬（一行，测试位已留）；其余 HUD 区域未动。
+**未做**：其余 HUD 区域的视觉重排（弹种格 / 装填环 / 技能槽）。
+
+### 4) #AA9（2026-10-26，同日追加）：其余 HUD 文本补底衬
+
+用户看过 #AA8 后直接下裁定「**UI 需要补底衬**」——即不限于左下角，凡「文字直接压在战场上」的位置都要有底衬。本批按同一套视觉语言（`rgba(8,9,6,0.62~0.66)` + 1px `--line` 边框 + `border-radius:2px` + 保留 text-shadow）补齐：
+
+| 元素 | 位置 | 改动 |
+|---|---|---|
+| `.hudZone`（×3：状态/武器/技能） | 底部中央仪表区 | 整块加底衬 + `padding:6px 9px`；`.hudZoneTitle` 不透明度 `.7 → .85`（有底衬后不必再压暗） |
+| `#topLeftInfo` | 左上「ESC 暂停 · TAB 状态 · ` 开发者面板」 | 加底衬 + `padding:3px 8px`（**上一节「未做」项，本批做掉**） |
+| `#ammoReadout` / `#survivalWaveHud` / `#supplyCdHud` | 顶部中央栈 | 各自 pill 化，**不给 `#topCenterHud` 整块加底**——那三个是独立显隐的，整块加底会在空态留一片暗板 |
+| `#supplyPromptHud`（内联样式） | 底部中央补给提示 | 内联样式补底衬（它不在样式表里，容易被漏） |
+| `#fpsReadout` | 右下角（仅 showFps） | 加底衬 |
+
+回归：`scripts/test-hud-readability.js` 扩到 **25 断言**——逐元素断言「底衬 alpha ≥ 0.6」，另加 `.hudZoneTitle` 不透明度下限与 `#supplyPromptHud` **内联样式**里必须出现 `background:rgba(8,9,6,`（内联样式不经过 `cssRule()` 解析，必须单独匹配）。
+
+> **布局连带**：`.hudZone` 加 padding 后底部仪表区变高约 12px（下缘仍 `bottom:18px`，上缘升到 ≈80px），而目标卡在 `bottom:92px` ⇒ 仍有 12px 间隙，无重叠。
+> **验证**：`npm test` **59 通过 / 0 失败**；`npm run check` 全绿；`test-qa` 57/57；`wiki-check` broken=0 / anchorBad=0（2026-10-26 实测）。
+
+## §4.136 2026-10-26 AA-b：bench ↔ 正式游戏开火接线对齐（#AA3 七项 + F 键边沿 + 曲射散布圈）
+
+**来源**：`docs/ISSUES.md` #AA3（用户 2026-10-24 反馈「bench 中榴弹炮等卡牌的接入与正式游戏似乎不同」）。核实结论是**卡牌应用路径本身一致**（同走 `js/tank_panels_core.js`），差异全在**逐帧驱动与 fireCtx 上下文注入**。**写域**：`tank_bench.html` + `scripts/`。
+
+### 1) 七项接线
+
+| 项 | 修法 | 修前症状 |
+|---|---|---|
+| `fireCtx.cam` | 注入 `cam` | 导弹锁定距离不随视口/缩放放宽，与 battle 不一致 |
+| `emitShotNoise` | 注入 `function(){ return 0; }` **no-op** | 缺键时 `tank_fire` 的 `typeof` 守卫静默跳过 ⇒ 链路不可测（正是 #AA3 那类「漂移不可见」） |
+| `resolveHit` 包装 | **5 参透传**包装 + Boss 弱点层（`isWeakspotHit`/`moduleFromHit`，存在性守卫） | 裸函数 ⇒ Boss 弱点倍率在 bench 不可测；且第 5 参 `opts`（`forceEffThickness`）有被包装器吞掉的历史坑 |
+| `updateHowitzerBurst` | 按 `player._howitzerBurst` 门控驱动 | **全页零调用** ⇒ 急速射卡静默失效 |
+| `updatePrimaryFollowup` | 按 `player._doubleTap` 门控驱动（玩家 + 靶车） | 砰砰炮追发卡静默失效 |
+| `updateDrones` | `updateDrones(dt, { player, entities })`（try/catch 不阻断主循环） | 无人机卡在 bench 不运作 |
+| 曲射散布圈 | draw 内按 `spreadFactor × baseSigma × 瞄准距离` 画散布圈 + 中心点 + `minArcRange` 死角圈 | 看不到落点 ⇒ #AA2 那类错位根本发现不了 |
+
+> `updateDeployables` / `updateMissileLock` / `updateSecondaryWeapon` / `updateRocketBurst` 经核**本已接线**，只是 #AA3 原始清单未区分「缺」与「已有」——本批在测试里把它们一并锁住，防止将来被误删。
+
+### 2) F 键原生边沿（本条最容易做错）
+
+**关键事实**：battle 自己也用 `input.isDown('fireSecondary')` 逐帧轮询（连续击发类要靠它），真正的口径是——**开关类副武器在轮询通道里直接 return，只认原生 keydown 边沿**。所以正确修法不是「删掉轮询」，而是给 `tryBenchSecondaryFire(force)` 加守卫：
+
+- `missile` / `mine_layer` / `howitzer` 三类：`if(force !== true) return;`（边沿才处理）；
+- 新增 `keydown` 监听：`e.repeat` 过滤按住自动重复、键位取 `KEY_BINDINGS.fireSecondary`（唯一数据源）、输入框聚焦与 devPanel 打开时不响应；
+- 榴弹炮切换 `benchToggleHowitzerF()` 走共享 `toggleHowitzer()`（与 battle 同一实现），bench 只负责日志/音效。
+
+> **旧症状**：按住 F 时曲/直模式**每帧翻转**，最终状态取决于按键跨了几帧的奇偶。
+
+> **⚠️ 本项对原计划口径的两处纠正（`docs/PLAN.md` 2026-10-24 版 §6.4）**：
+> 1. **「bench 主循环内不得出现 `input.isDown('fireSecondary')` 轮询」这条断言是错的**——battle 自己也逐帧轮询（`tank_battle.html` 的 `if(input.isDown('fireSecondary')) trySecondaryFire();`），连续击发类（rocket/mortar）的连发就靠它。正确口径是**轮询保留 + 开关类在轮询通道里 `return`**。若照原计划删掉轮询，火箭巢按住连发会直接失效。
+> 2. **「部署物驱动缺失」不成立**——bench 早已有 `updateDeployables(dt, { entities })`；原清单把「已有」误记为「缺」。本批改为在测试里**锁住它不被误删**。
+> 教训沿用第五条：**核实「缺什么」要看当前代码，不要沿用上一轮清单**。
+
+### 3) 防回潮：`scripts/test-bench-parity.js` 扩到 28 断言
+
+核心是**键集包含关系**——把两侧 `fireCtx` 字面量的顶层键解析出来比较：**battle 50 键 ⊆ bench 51 键**（bench 多一个 `spawnTracer`）。这条断言直接封杀「battle 新增依赖、bench 忘了跟」的整类漂移，比逐项列举更难绕过。
+
+其余断言分四组：段① 曲射落点契约（`aimPoint` + 负向不得伪造 `aimPointFrozen`）；段② 七项驱动形状（每个都断言具体门控条件，不只看函数名出现）；段②-b F 边沿（`force !== true` 出现 ≥3 次、逐类断言、`e.repeat`、键位表来源、轮询通道仍在）；段②-c 散布圈（`spreadFactor` 唯一口径 + 负向不得写死 4）。
+
+### 4) 验证（2026-10-26 实测）
+
+| 链 | 结果 |
+|---|---|
+| `node scripts/test-bench-parity.js` | **28 断言全绿**（键集 50 ⊆ 51） |
+| `npm run check` | `All checks passed`（58 个 `test-*.js` 登记一致）+ `tsc --noEmit` EXIT=0 |
+| `npm test` | **59 通过 / 0 失败（共 59 项）** |
+| `node scripts/test-qa.js` | Compliant 57 / Non-compliant 0 / issues 0 |
+| `node scripts/wiki-check.js` | 见收尾记录 |
+| 浏览器链 | **需实机复核**：bench 装榴弹炮按 F 切模式（应一次切换、不再翻转）、急速射/砰砰炮/无人机/导弹锁定距离是否与 battle 一致 |
+
+**细则归口**：`docs/specs/editor/devpanel.md`「bench Enemy Lab 控件」以外的 bench **运行时**接线口径暂记于本节 + `scripts/test-bench-parity.js`；若后续 bench 再扩张，再单独立主题页。
+**未做**：bench 不注入 `alertEntity`/`propagateAlert`（其敌军不跑 `aiDecide`，告警层无消费方）；`resolveHit` 弱点层已就位但 bench 无 Boss 实体可验。

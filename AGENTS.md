@@ -209,7 +209,7 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**近期修复**（§6：**AA-b / AA-c**；AA-a 已于 2026-10-26 关闭）+ **近远期执行路线**（§2：R0 渲染地基 → A0 友军指挥 / R1 真 3D → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机六命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。旧横向推进章节、AA-d 与 AA-a 已归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
+- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**近期修复**（§6：**仅剩 AA-c 电磁炮音效**；AA-a 见 §4.132、AA-b 见 §4.136，均于 2026-10-26 关闭）+ **近远期执行路线**（§2：R0 渲染地基 → A0 友军指挥 / R1 真 3D → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机六命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。旧横向推进章节与 AA-d/AA-a/AA-b 已归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
 - **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **67 个主题页**（2026-10-26 实测），每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
-- **待处理问题**：见 `docs/ISSUES.md`（**当前存量 1 条：#AA3**，bench↔battle 运行时接线漂移，开工即 AA-b；**2026-10-26 AA-a 已关账三条**：#AA1 公路加成 HUD 低估一半 / #AA2 bench `aimPoint` 缺失（用户实机验收通过）/ #AA5 `specs/map/roads.md` 口径过期，见 `docs/DEVELOPMENT-batches-2026-10.md` §4.132；同日后批 bench 工具见 §4.133；原 **#AA4 制动与滑行模型**见 §4.130、细则 `docs/specs/map/terrain.md`「制动与滑行」。历史已核实问题见 `docs/ARCHIVE.md` 索引）。
+- **待处理问题**：见 `docs/ISSUES.md`（**当前无存量条目**——#AA 批次（用户 2026-10-24 反馈）已全部关账：AA-a 关 #AA1/#AA2/#AA5（§4.132）、AA-b 关 #AA3（§4.136，`test-bench-parity.js` 28 断言锁键集包含关系）、AA-d 关 #AA4（§4.130）；剩余未实施项是 **AA-c 电磁炮充能/放电音效**，属新能力缺口、归 `docs/PLAN.md` §6.3 而非 ISSUES。历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。
