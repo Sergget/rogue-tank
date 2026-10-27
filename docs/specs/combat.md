@@ -29,6 +29,7 @@
 | 敌方 AI：接战机动 / 交战结构 / 侧翼 / 分离力 | [敌方 AI · 接战机动随机化](./combat/enemy-ai.md#接战机动随机化) + [交战结构重做](./combat/enemy-ai.md#交战结构重做) | §5.1 |
 | 友军指挥：三命令（跟随/移动/集火）/ 目标权威 / 状态反馈（A0 已落地） | [友军指挥与战术协同](./combat/ally-command.md) | — |
 | 遭遇导演：波次编成 / 阶段机 / 事件契约 / `RULES.encounter` 参数（3D 切片） | [遭遇导演](./combat/encounter-director.md) | — |
+| 遭遇节奏：时长预算模型 / 内容量反推 / 同屏上限 / 失败信号（3D 切片） | [遭遇节奏与时长预算](./combat/encounter-pacing.md) | — |
 | 敌人数值 / 难度乘子 / 固定基准 | [敌人强度与难度](./combat/enemy-scaling.md) | §5「难度全面分化」段（仅机制表述）、§11.5 |
 | Boss 激光 / 召唤 / 随机走位 | [Boss 战斗](./combat/boss-combat.md) | §9.5（#G1 乘数方案，已废） |
 | Boss 血量 / 难度缩放 | 归口 **`specs/boss.md` §5** | §13.4（`entityMults.maxHp` 与 `hpMul` 两级叠加） |

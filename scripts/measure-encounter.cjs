@@ -146,6 +146,39 @@ async function ensureServer() {
           + ` 最近敌${r.minDist}px`);
       }
     }
+    // --- 时长分解（#AB10）：把总时长拆成「固定开销」与「真交战」---
+    // 只看总时长会得出错误结论：目标 180~300s 时，「差 4 倍」到底是内容量不足、
+    // 还是玩家撑不住提前阵亡、还是预警/喘息吃掉了太多？三者的修法完全不同。
+    {
+      const segs = [];                       // {phase, wave, from, to}
+      for (const r of log) {
+        const key = r.phase + '#' + r.wave;
+        const last = segs[segs.length - 1];
+        if (last && last.key === key) last.to = r.t;
+        else segs.push({ key, phase: r.phase, wave: r.wave, from: r.t, to: r.t });
+      }
+      const sum = {};
+      for (const g of segs) {
+        const d = Math.max(0, g.to - g.from);
+        sum[g.phase] = (sum[g.phase] || 0) + d;
+      }
+      const total = Math.max(...log.map(r => r.t), 0);
+      console.log('\n--- 时长分解（按 phase 累计）---');
+      for (const k of Object.keys(sum)) {
+        const pct = total > 0 ? Math.round(sum[k] / total * 100) : 0;
+        console.log(`  ${k.padEnd(10)} ${String(sum[k].toFixed(1)).padStart(6)}s  ${String(pct).padStart(3)}%`);
+      }
+      const waveS = sum.wave || 0;
+      const kills = done ? done.kills : (log[log.length - 1] || {}).kills || 0;
+      console.log(`  ⇒ 真交战 ${waveS.toFixed(1)}s / 固定开销 ${(total - waveS).toFixed(1)}s / 总 ${total.toFixed(1)}s`);
+      if (kills > 0) {
+        console.log(`  ⇒ 平均 ${(waveS / kills).toFixed(2)}s 清 1 辆（含瞄准、转移目标、装填空窗）`);
+      }
+      // 内容量天花板：即使玩家不死、零空窗，也要打完这些敌人才算通关。
+      // 用它区分「时长不够是因为内容不够」还是「是因为玩家提前阵亡」。
+      console.log(`  ⇒ 内容量天花板参考：剩余未清波次的敌数 × 实测 s/杀 决定「不死的理想时长」`);
+    }
+
     if (done) {
       const m = Math.floor(done.elapsed / 60), s = Math.round(done.elapsed % 60);
       console.log(`\n结局: ${done.outcome} · 用时 ${m}分${s}秒（elapsed=${done.elapsed.toFixed(1)}s）`
