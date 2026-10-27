@@ -34,9 +34,13 @@
     background:rgba(8,9,6,0.62); border:1px solid var(--line); border-radius:0; padding:4px 8px;
     pointer-events:none; min-width:170px; display:none; }
   #allyHud .ord { color:var(--amber); }
-  #toast { position:fixed; left:50%; bottom:96px; transform:translateX(-50%);
+  #toast, #perfNotice { position:fixed; left:50%; bottom:96px; transform:translateX(-50%);
     font:12px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.72);
     border:1px solid var(--line); border-radius:0; padding:3px 12px; display:none; pointer-events:none; }
+  /* 画质提示**独占一格**：不能和战斗 toast 抢同一个槽位。
+     实测「友军受阻」会把「画质自动降至中」顶掉——玩家只看到一条无关提示，
+     画面却已经变糊，等于没有解释。右上角 + 琥珀色，与战斗消息视觉上分开。 */
+  #perfNotice { left:auto; right:16px; transform:none; border-color:var(--amber); color:var(--amber); }
   #allyWheel { position:fixed; inset:0; display:none; pointer-events:none; z-index:8;
     background:radial-gradient(circle at 50% 50%, rgba(8,9,6,0) 0 24%, rgba(8,9,6,0.45) 46% 100%); }
   #allyWheel .item { position:absolute; transform:translate(-50%,-50%);
@@ -100,6 +104,7 @@
 <div id="encHud" data-beat="telegraph"></div>
 <div id="r1Check"></div>
 <div id="toast"></div>
+<div id="perfNotice"></div>
 <div id="encWarn"><div class="txt"></div></div>
 <div id="encResult"><div class="card">
   <div class="title"></div>
@@ -176,6 +181,8 @@ const PERF_ON = !!(PERF_RULES && PERF_RULES.enabled !== false);
 // 用途是让「降级阶梯」可复现——软件渲染（CI 的 swiftshader）帧时间动辄 80ms+，
 // 真实帧会把档位一路打到 deck，阶梯断言就永远测不到 mid 那一级。
 const PERF_MANUAL = (new URLSearchParams(location.search).get('perf') === 'manual');
+// 档位的中文名（只用于给玩家的提示文案；代码里一律用 high/mid/deck 这三个键）
+const PERF_TIER_LABEL = { high: '高', mid: '中', deck: '低' };
 const PERF_START_TIER = (function(){
   // 档位由 URL 指定，不做设备嗅探（UA 嗅探在桌面浏览器上不可靠，且会掩盖真实性能）。
   const q = (new URLSearchParams(location.search).get('tier') || '').toLowerCase();
@@ -1182,14 +1189,43 @@ let acc = 0;
  * 必须在 render() 之后调用：返回的档位作用于**下一帧**，否则会出现「本帧按旧尺寸画完、
  * 却按新档位裁粒子」的半帧状态。
  */
+/**
+ * 档位变更的唯一副作用入口（真实帧与测试喂帧共用）。
+ * 抽出来是为了让「降档要告诉玩家」这条行为可被测试断言——如果只写在 tickPerf 里，
+ * 测试驱动（?perf=manual + feed）就永远走不到，这条体验保证会静默烂掉。
+ */
+function applyTierChange(prevLevel){
+  perfCfg = getTierConfig(perfGov, PERF_RULES);
+  // 只有档位真的变了才改画布尺寸：改尺寸会重分配 framebuffer，本身就有一帧 hitch
+  applyRenderScale(perfCfg.resolutionScale || 1);
+  // 降档必须说一声：画面突然变糊、却没有任何解释，玩家只会以为是 bug 或者「这游戏就是糊的」。
+  // 升档保持静默——变清晰不需要解释，战斗中途多一次弹字只是噪音。
+  if(perfGov.level > prevLevel){
+    const label = PERF_TIER_LABEL[perfCfg.name] || perfCfg.name;
+    showPerfNotice(`画质自动降至「${label}」（帧率不足）`);
+  }
+}
+
+/**
+ * 画质提示：独立槽位、独立计时，3 秒后自隐。
+ * 不用共享的 toast() —— 战斗消息（「友军受阻」这类）会把它顶掉，
+ * 玩家最需要解释的那一刻恰好什么都没看到。
+ */
+function showPerfNotice(msg){
+  const el = document.getElementById('perfNotice');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(showPerfNotice._t);
+  showPerfNotice._t = setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
 function tickPerf(rawDt){
   if(!perfGov || typeof updateGovernor !== 'function') return;
   if(PERF_MANUAL) return;    // ?perf=manual：真实帧不参与，只吃测试喂的帧时间
+  const prevLevel = perfGov.level;      // 必须在 updateGovernor 之前取：它会就地改写 gov.level
   const r = updateGovernor(perfGov, rawDt);
-  if(!r) return;
-  perfCfg = getTierConfig(perfGov, PERF_RULES);
-  // 只有档位真的变了才改画布尺寸：改尺寸会重分配 framebuffer，本身就有一帧 hitch
-  if(r.changed) applyRenderScale(perfCfg.resolutionScale || 1);
+  if(r && r.changed) applyTierChange(prevLevel);
 }
 
 function loop(now){
@@ -1271,7 +1307,13 @@ window.__TEST3D__ = {
       dustIntervalS: perfCfg.dustIntervalS,
       staticRebuildIntervalS: perfCfg.staticRebuildIntervalS || 0.25,
       // 诊断用：手动喂一帧帧时间（不改画质之外的任何状态），验证升降级路径
-      feed(dtSeconds){ if(perfGov) { const r = updateGovernor(perfGov, dtSeconds); if(r && r.changed){ perfCfg = getTierConfig(perfGov, PERF_RULES); applyRenderScale(perfCfg.resolutionScale || 1); } return r; } return null; },
+      feed(dtSeconds){
+        if(!perfGov) return null;
+        const prev = perfGov.level;
+        const r = updateGovernor(perfGov, dtSeconds);
+        if(r && r.changed) applyTierChange(prev);   // 与真实帧同一条副作用路径
+        return r;
+      },
       /** 直接把档位打回起始档（测试收尾用，避免上一段测试的降级污染下一段） */
       reset(){
         perfGov = (PERF_ON && typeof createGovernor === 'function') ? createGovernor({ rules: PERF_RULES, startTier: PERF_START_TIER }) : null;

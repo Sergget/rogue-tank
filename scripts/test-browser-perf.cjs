@@ -167,6 +167,16 @@ async function waitForEnemy(page, timeoutMs) {
       `${down1.canvas.w}×${down1.canvas.h} = ${(down1.canvas.w / down1.canvas.h).toFixed(3)}`);
     check('mid 档粒子上限比 high 低', down1.particleCap < p0.particleCap, `${p0.particleCap} → ${down1.particleCap}`);
 
+    // 降档必须告诉玩家：画面突然变糊而不解释，会被当成 bug。
+    // 而且必须**独立于战斗 toast**（实测「友军受阻」会把画质提示顶掉），所以读专属元素。
+    const dropToast = await hi.page.evaluate(() => {
+      const el = document.getElementById('perfNotice');
+      return { display: el ? el.style.display : null, text: el ? el.textContent : '' };
+    });
+    check('降档时给出说明（画质自动降至「中」，独立提示位）',
+      dropToast.display === 'block' && /画质自动降至/.test(dropToast.text) && /中/.test(dropToast.text),
+      JSON.stringify(dropToast));
+
     const down2 = await feedFrames(hi.page, 30, 3);
     check('继续超预算 → 降到 deck', down2.tier === 'deck' && down2.level === 2, `tier=${down2.tier} lvl=${down2.level}`);
     const down3 = await feedFrames(hi.page, 30, 6);
@@ -184,19 +194,30 @@ async function waitForEnemy(page, timeoutMs) {
     });
     check('deck 档下主炮仍能开火', hasTarget2 && playable.fired === 1,
       `tier=${playable.tier} hasTarget=${hasTarget2} fired=${playable.fired}`);
+    // 采样最大值而不是只看末帧：撞上掩体/友军后速度会归零，
+    // 「末帧速度」会把「能开车但撞了墙」误判成「油门没响应」。
     await hi.page.keyboard.down('w');
-    await wait(2500);
+    let maxSpeed = 0, last = null;
+    for (let i = 0; i < 10; i++) {
+      await wait(250);
+      const s = await hi.page.evaluate(() => {
+        const p = window.__TEST3D__.player();
+        return { x: p.x, y: p.y, hp: p.hp, speed: p.speed || 0 };
+      });
+      if (s.speed > maxSpeed) maxSpeed = s.speed;
+      last = s;
+    }
     await hi.page.keyboard.up('w');
     const afterMove = await hi.page.evaluate(() => {
       const p = window.__TEST3D__.player();
-      return { x: p.x, y: p.y, hp: p.hp, speed: p.speed, dead: p.hp <= 0, outcome: window.__TEST3D__.encounter().outcome };
+      return { x: p.x, y: p.y, hp: p.hp, outcome: window.__TEST3D__.encounter().outcome };
     });
     const movedDist = Math.hypot(afterMove.x - playable.x0, afterMove.y - playable.y0);
-    // 判「能驾驶」看**速度**而不是位移：软件渲染下帧时间 80ms+，位移会随帧率大幅波动，
+    // 判「能驾驶」看**速度**而不是位移：软件渲染下帧时间 80ms+，位移随帧率大幅波动，
     // 但「油门有没有响应」是玩家真正能感知的那件事。
     check('deck 档下车辆仍可驾驶（油门有响应）',
-      (afterMove.speed || 0) > 20 || movedDist > 20,
-      `speed=${(afterMove.speed || 0).toFixed(1)} moved=${movedDist.toFixed(1)}px hp=${Math.round(afterMove.hp)} outcome=${afterMove.outcome}`);
+      maxSpeed > 20 || movedDist > 20,
+      `maxSpeed=${maxSpeed.toFixed(1)} moved=${movedDist.toFixed(1)}px hp=${Math.round(last ? last.hp : 0)} outcome=${afterMove.outcome}`);
 
     check('降级不影响开火链路（炮弹上限仍 >0）', down3.maxShells > 0, `maxShells=${down3.maxShells}`);
 
@@ -228,6 +249,12 @@ async function waitForEnemy(page, timeoutMs) {
     check('继续富余 → 回到 high', up2.tier === 'high' && up2.level === 0, `tier=${up2.tier}`);
     check('回到 high 后画布恢复 1080p',
       up2.canvas.w === 1920 && up2.canvas.h === 1080, `${up2.canvas.w}×${up2.canvas.h}`);
+    // 升档保持静默：变清晰不需要解释，战斗中途多一次弹字只是噪音
+    const upToast = await hi.page.evaluate(() => {
+      const el = document.getElementById('perfNotice');
+      return el ? el.textContent : '';
+    });
+    check('升档不弹字（只有降档需要说明）', !/画质自动降至「高」|升至/.test(upToast), JSON.stringify(upToast));
 
     check('1080p 全程无 console error', hi.errors.length === 0, JSON.stringify(hi.errors.slice(0, 3)));
     await hi.page.close();
