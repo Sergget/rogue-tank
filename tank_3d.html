@@ -1146,7 +1146,10 @@ function renderEncHud(){
     + `<div class="beat">用时 ${time} · 击杀 ${encounter.kills}</div>`;
 
   if(warnEl){
-    const on = encounter.phase === 'telegraph';
+    // 文案未就绪时不要显示：首帧 renderEncHud 可能早于第一次 update()（acc < STEP 时
+    // update 一次都不跑），此时 phase 已是 telegraph 但 telegraph 事件还没发出、
+    // encWarnText 仍是空串 —— 结果是屏幕上闪 0~150ms 的一个空框。
+    const on = encounter.phase === 'telegraph' && encWarnText !== '';
     warnEl.style.display = on ? 'block' : 'none';
     if(on){
       // 3Hz 闪烁：足够抓眼又不至于像警报器一样烦（telegraph 只有 2s）

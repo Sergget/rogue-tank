@@ -106,13 +106,18 @@ async function waitPhase(page, phase, timeoutMs) {
     check('telegraph 期间场上无敌人（不预生成）', init.enemyAlive === 0, `enemyAlive=${init.enemyAlive}`);
 
     // 来袭预警可读：中央提示 + 屏幕红闪层可见
-    const warn = await page.evaluate(() => {
+    // 2026-10-28：必须**条件等待**而不是取瞬时值。telegraph 只有 2s，而 HUD 每 150ms
+    // 才重绘一次；`ready` 之后立刻取值会撞上「首帧还没跑 update()、文案尚未生成」的窗口
+    // （页面侧已修为不显示空框，所以这里会读到 display:none —— 那是正确行为，不是缺陷）。
+    const warn = await page.waitForFunction(() => {
       const el = document.getElementById('encWarn');
       const txt = el ? el.querySelector('.txt') : null;
-      return { display: el ? el.style.display : null, text: txt ? txt.textContent : '' };
-    });
+      const text = txt ? txt.textContent : '';
+      if (!el || el.style.display !== 'block' || !text) return null;   // 还没就绪，继续等
+      return { display: el.style.display, text };
+    }, null, { timeout: 5000 }).then(h => h.jsonValue()).catch(() => null);
     check('来袭预警可读（方位提示非空 + 提示层可见）',
-      warn.display === 'block' && /第\s*1\s*波来袭/.test(warn.text), JSON.stringify(warn));
+      !!warn && warn.display === 'block' && /第\s*1\s*波来袭/.test(warn.text), JSON.stringify(warn));
 
     // --- 2) 首波入场 + 进攻意志 ---
     // intel（lastKnownPlayerPos）必须在**入场首帧**抓：AI 一旦自己看到玩家就会清除记忆点
