@@ -174,6 +174,24 @@ function ok(cond, label){
   ok(atPlayer === 0 && red > 0 && green > 0, '玩家不画环、死亡单位不画环');
 }
 
+// ⑫ 视觉悬挂：俯仰抬车头/车尾、侧倾抬左右、弹跳整体抬升
+{
+  const t = { x: 0, y: 0, hullAngle: 0 };
+  const front = [20, 0, 0, 0, 1, 0, 1, 0, 1, 1];
+  const rear = [-20, 0, 0, 0, 1, 0, 1, 0, 1, 1];
+  S3D.applyTankTilt(front, t, 0.1, 0, 0);
+  S3D.applyTankTilt(rear, t, 0.1, 0, 0);
+  ok(front[1] > 0 && rear[1] < 0, `pitch 抬车头压车尾（前=${front[1].toFixed(2)} 后=${rear[1].toFixed(2)}）`);
+  const left = [0, 0, -20, 0, 1, 0, 1, 0, 1, 1];
+  const right = [0, 0, 20, 0, 1, 0, 1, 0, 1, 1];
+  S3D.applyTankTilt(left, t, 0, 0.08, 0);
+  S3D.applyTankTilt(right, t, 0, 0.08, 0);
+  ok(right[1] > left[1], `roll 抬右侧（左=${left[1].toFixed(2)} 右=${right[1].toFixed(2)}）`);
+  const bounce = [0, 0, 0, 0, 1, 0, 1, 0, 1, 1];
+  S3D.applyTankTilt(bounce, t, 0, 0, 5);
+  ok(bounce[1] === 5, 'bounce 整体抬升');
+}
+
 process.exitCode = fails ? 1 : 0;
 if(fails) console.error(`\n${fails} 项失败`);
 else console.log('\n全部通过');

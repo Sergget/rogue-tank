@@ -3943,3 +3943,32 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 **未改**：`DEVELOPMENT-batches-*` 与 `archive/**` 的历史记录、`specs/*/changelog.md` 的沿革正文（按「只增不改」保留当时口径）；敌方 AI / boss summons 等页里带日期的历史验证记录保留原样。
 
 **验证**：`node scripts/wiki-check.js` → `files=97 pages=71 links=1815 broken=0 anchors=914 anchorBad=0 struct=0 template=0`。本批未改代码，不重跑三链。
+
+## §4.154 2026-10-27 R1 通过后进入 G1：3D 基线 + 载具手感与战斗演出首切片
+
+**前提**：用户 2026-10-27 实机验收 R1「可接受，通过」。
+
+### 1) 3D 渲染基线（G1 验收门的基础设施）
+
+- 新增 `scripts/browser-baseline3d.cjs`（`npm run baseline:3d`）：固定 `tank_3d.html` / 1280×720 / 相机 `pitch 0.95, distance 1150`，进入即冻结模拟，记录 canvas 32×18 网格 + PNG + 120 帧 rAF 帧时间 + 堆占用。
+- 输出 `tmp/render-baseline3d/`（不入库）；`--write` / `--check`，判定复用 `scripts/lib/render-baseline.cjs`（mean≤2 / max≤16）。
+- 实测（headless Edge + SwiftShader）：`frame p50=16.7ms / p95=17.1ms`，9 实体，堆 21.4MB；`--check` 与基线 `mean=0 max=0`。
+
+### 2) 载具手感（纯视觉，不改模拟）
+
+- `js/tank_scene3d.js` 新增 `applyTankTilt(data, t, pitch, roll, bounce)`：按车体朝向把顶点沿前/右方向抬降，实现**视觉俯仰/侧倾/弹跳**；不写 `t.x/y/angle/speed`。
+- `tank_3d.html` 新增 `updateTankVisual(t, dt, prevSpeed, prevAngle)`：由速度差与角速度推导目标俯仰/侧倾并指数平滑；开火时给 `_visBounce`；高速移动按 0.09s 节流生成履带扬尘粒子。
+- 玩家与 AI 都在 `driveTank` 后调用；开炮后坐（`_visBounce`）与镜头震动（`shakeT/shakeMag`）同帧触发。
+
+### 3) 战斗演出与分级破坏反馈
+
+- 命中：烟尘 + 黄色火花；距玩家 < 420px 时轻微震屏。
+- 掩体 hp/tier 变化：在掩体处生成扬尘并按距离震屏；静态几何仍按 tier/hp 重建（建筑 → 低矮残骸）。
+- 音频：3D 页接入 `js/tank_audio.js`，开火走 `playSound('fire')`（无 AudioContext 时静默）。
+- 右上验证清单升级为「R1 / G1 验证清单」，新增「载具手感」人工项。
+
+### 4) 测试与验证
+
+- `test-render3d.js` 新增 3 条视觉悬挂断言（pitch 前抬后压 / roll 抬右 / bounce 整体抬升）。
+- `test-browser-3d.cjs` 全绿；`npm run baseline:3d` 连跑一致。
+- `npm run check` EXIT=0；`npm test` **68 通过 / 0 失败**；浏览器六链 ALL PASS；2D/3D 基线均通过。

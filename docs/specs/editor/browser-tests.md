@@ -38,6 +38,10 @@
 
 **基线是本地产物**（`tmp/` 已 gitignore）：不同 GPU / 字体 / 抗锯齿会让像素网格漂移，跨机器基线不可移植；CI 不跑浏览器链。判定逻辑在 `scripts/lib/render-baseline.cjs`，由 `scripts/test-render-baseline.js` 覆盖。
 
+### 3D 场景基线（G1，2026-10-27）
+
+`npm run baseline:3d`（`scripts/browser-baseline3d.cjs`）固定 `tank_3d.html`、1280×720、相机 `pitch 0.95 / distance 1150`，进入即 `setTimeScale(0)` 冻结；采集 32×18 网格 + PNG + 120 帧 rAF 帧时间 p50/p95 + 堆占用，输出 `tmp/render-baseline3d/`。`--write` 记录、`--check` 比对（容差同 2D 基线）；帧时间只记录、不判定。
+
 ## 边界与钩子
 
 - **边界（浏览器不做，Node 侧覆盖）**：敌人 AI 决策与 Boss 阶段行为由 `test-ai.js` / `test-boss.js` 覆盖；浏览器仅验证敌人存在 + 开火命中。

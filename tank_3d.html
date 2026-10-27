@@ -103,6 +103,7 @@
 <script src="js/tank_ai_squad.js"></script>
 <script src="js/tank_ai.js"></script>
 <script src="js/tank_bindings.js"></script>
+<script src="js/tank_audio.js"></script>
 <script src="js/tank_render3d.js"></script>
 <script src="js/tank_scene3d.js"></script>
 <script>
@@ -124,6 +125,8 @@ const impacts = [];
 const bounceFx = [];
 const particles = [];
 const mouseWorld = { x: 0, y: 0 };
+const coverHp = new Map();
+let shakeT = 0, shakeMag = 0;
 let tankListData = {};
 let node = null, player = null, cam = null;
 let timeScale = 1;
@@ -275,6 +278,39 @@ function spawnPuffs(x, y, n, color){
   }
 }
 
+/**
+ * 视觉悬挂（G1）：加减速俯仰、转向侧倾、开炮后坐弹跳与履带扬尘。
+ * 只写 `t._vis*` 与粒子，不改 `t.speed/x/y/angle`。
+ */
+function updateTankVisual(t, dt, prevSpeed, prevAngle){
+  const acc = ((t.speed || 0) - prevSpeed) / Math.max(dt, 1e-4);
+  const turnRate = angDiff(t.hullAngle || 0, prevAngle) / Math.max(dt, 1e-4);
+  const k = 1 - Math.exp(-dt * 8);
+  const targetPitch = Math.max(-0.07, Math.min(0.07, acc * 0.00045));
+  const targetRoll = Math.max(-0.06, Math.min(0.06, -turnRate * Math.abs(t.speed || 0) * 0.00003));
+  t._visPitch = (t._visPitch || 0) + (targetPitch - (t._visPitch || 0)) * k;
+  t._visRoll = (t._visRoll || 0) + (targetRoll - (t._visRoll || 0)) * k;
+  t._visBounce = (t._visBounce || 0) * Math.exp(-dt * 10);
+
+  if(!t.isDrone && Math.abs(t.speed || 0) > 110){
+    t._dustT = (t._dustT || 0) + dt;
+    if(t._dustT > 0.09){
+      t._dustT = 0;
+      const ca = Math.cos(t.hullAngle || 0), sa = Math.sin(t.hullAngle || 0);
+      const back = (t.hullLen || 60) * 0.45;
+      const bx = t.x - ca * back, by = t.y - sa * back;
+      particles.push({
+        x: bx + (Math.random() - 0.5) * 12, y: by + (Math.random() - 0.5) * 12, z: 5,
+        vx: -ca * 22 + (Math.random() - 0.5) * 16, vy: -sa * 22 + (Math.random() - 0.5) * 16,
+        vz: 10 + Math.random() * 10, life: 0.7, maxLife: 0.7,
+        size: 4 + Math.random() * 5, color: [0.55, 0.50, 0.40],
+      });
+    }
+  } else {
+    t._dustT = 0;
+  }
+}
+
 // ---------------- 输入 ----------------
 const input = createInputController({
   preventKeys: [' ', 'tab'],
@@ -308,9 +344,9 @@ function buildFireCtx(){
     nearestEnemyTo,
     findCoversOnPath,
     hasLineOfSight,
-    spawnMuzzleFlash: (x, y) => spawnPuffs(x, y, 6, [0.9, 0.72, 0.30]),
+    spawnMuzzleFlash: (x, y) => { spawnPuffs(x, y, 6, [0.9, 0.72, 0.30]); if(typeof playSound === 'function') playSound('fire'); },
     burstExplosion: (x, y) => spawnPuffs(x, y, 10, [0.55, 0.42, 0.30]),
-    playSound: () => {},
+    playSound: (name) => { if(typeof playSound === 'function') playSound(name); },
   };
 }
 let fireCtx = null;
@@ -402,6 +438,7 @@ function initWorld(){
     issueAllyCommand([t], { order: 'follow', issuedAt: performance.now() }, commandCtx());
   }
 
+  for(const c of covers) coverHp.set(c, { hp: c.hp, tier: c.tier });
   cam = createOrbitCamera({ pitch: 0.95, distance: 1150, fovY: 0.85 });
   updateOrbitCamera(cam, { x: player.x, z: player.y }, canvas.width / canvas.height);
   staticMesh = uploadMesh(renderer, buildStaticScene({ node, covers }));
@@ -420,7 +457,9 @@ function update(dt){
     turn: (keys.a ? 1 : 0) - (keys.d ? 1 : 0),
     move: (keys.w ? 1 : 0) - (keys.s ? 1 : 0),
   };
+  const prevSpeed = player.speed || 0, prevAngle = player.hullAngle || 0;
   driveTank(player, dt, { turn: drive.turn, move: drive.move, worldBounds: worldBounds() });
+  updateTankVisual(player, dt, prevSpeed, prevAngle);
 
   // 炮塔朝鼠标（与正式游戏同口径：转速限制）
   const desired = Math.atan2(mouseWorld.y - player.y, mouseWorld.x - player.x);
@@ -435,7 +474,11 @@ function update(dt){
   if(typeof updatePrimaryClip === 'function') updatePrimaryClip(player, dt, fireCtx);
 
   if(fireHeld && player.reloadT <= 0 && fireCtx){
-    if(tryFirePrimary(fireCtx)) shotsFired++;
+    if(tryFirePrimary(fireCtx)){
+      shotsFired++;
+      player._visBounce = Math.max(player._visBounce || 0, 3.6);
+      shakeT = Math.max(shakeT, 0.16); shakeMag = Math.max(shakeMag, 2.6);
+    }
   }
 
   const aiCtx = {
@@ -457,13 +500,20 @@ function update(dt){
       if(ev && ev.type === 'blocked') toast(`友军受阻：${ev.reason === 'target-lost' ? '目标丢失' : '无法推进'}`, true);
     }
     const d = aiDecide(e, aiCtx);
+    const ePrevSpeed = e.speed || 0, ePrevAngle = e.hullAngle || 0;
     driveTank(e, dt, { turn: d.turn, move: d.move, worldBounds: worldBounds() });
+    updateTankVisual(e, dt, ePrevSpeed, ePrevAngle);
     const td = angDiff(d.turretDesired, e.turretAngle);
     const ms = (e.stats.turretTurnRate || 1) * dt;
     e.turretAngle = norm(e.turretAngle + Math.max(-ms, Math.min(ms, td)));
     if(d.fire){
       const target = e.team === 'ally' ? allyFireTargetFor(e, aiCtx) : player;
-      if(target && target.hp > 0) fireTank(e, target, 'auto', fireCtx);
+      if(target && target.hp > 0 && fireTank(e, target, 'auto', fireCtx)){
+        e._visBounce = Math.max(e._visBounce || 0, 2.2);
+        if(Math.hypot(e.x - player.x, e.y - player.y) < 420){
+          shakeT = Math.max(shakeT, 0.1); shakeMag = Math.max(shakeMag, 1.6);
+        }
+      }
     }
   }
   resolveTankCollisions();
@@ -473,7 +523,12 @@ function update(dt){
   if(impacts.length > lastImpactCount){
     for(let i = lastImpactCount; i < impacts.length; i++){
       const im = impacts[i];
-      if(im) spawnPuffs(im.x, im.y, 8, [0.50, 0.44, 0.34]);
+      if(!im) continue;
+      spawnPuffs(im.x, im.y, 8, [0.50, 0.44, 0.34]);
+      spawnPuffs(im.x, im.y, 3, [0.95, 0.75, 0.30]);   // 火花
+      if(Math.hypot(im.x - player.x, im.y - player.y) < 420){
+        shakeT = Math.max(shakeT, 0.1); shakeMag = Math.max(shakeMag, 1.8);
+      }
     }
   }
   lastImpactCount = impacts.length;
@@ -485,6 +540,18 @@ function update(dt){
     const sig = covers.map(c => c.tier + ':' + (c.hp | 0)).join('|');
     if(sig !== coverSig){
       coverSig = sig;
+      // 破坏扬尘：hp 下降或 tier 变化时在掩体处冒尘
+      for(const c of covers){
+        const prev = coverHp.get(c);
+        if(!prev){ coverHp.set(c, { hp: c.hp, tier: c.tier }); continue; }
+        if(c.hp < prev.hp || c.tier !== prev.tier){
+          spawnPuffs(c.x, c.y, 6, [0.55, 0.50, 0.42]);
+          if(Math.hypot(c.x - player.x, c.y - player.y) < 480){
+            shakeT = Math.max(shakeT, 0.12); shakeMag = Math.max(shakeMag, 2.0);
+          }
+        }
+        prev.hp = c.hp; prev.tier = c.tier;
+      }
       const data = buildStaticScene({ node, covers });
       if(staticMesh) updateMesh(renderer, staticMesh, data);
       else staticMesh = uploadMesh(renderer, data);
@@ -516,7 +583,11 @@ function update(dt){
   const halfW = halfH * aspect;
   const tx = node && node.w > halfW * 2 ? Math.max(halfW, Math.min(node.w - halfW, leadX)) : (node ? node.w / 2 : leadX);
   const ty = node && node.h > halfH * 2 ? Math.max(halfH, Math.min(node.h - halfH, leadY)) : (node ? node.h / 2 : leadY);
-  updateOrbitCamera(cam, { x: tx, z: ty }, aspect);
+  shakeT = Math.max(0, shakeT - dt);
+  const shakeAmp = shakeT > 0 ? shakeMag * Math.min(1, shakeT / 0.16) : 0;
+  const shx = (Math.random() - 0.5) * shakeAmp;
+  const shy = (Math.random() - 0.5) * shakeAmp;
+  updateOrbitCamera(cam, { x: tx + shx, z: ty + shy }, aspect);
 }
 
 // ---------------- 渲染 ----------------
@@ -526,6 +597,7 @@ function render(){
   for(const t of entities){
     if(t.hp <= 0 || t.isDrone) continue;
     const data = buildTankMesh(t);
+    applyTankTilt(data, t, t._visPitch || 0, t._visRoll || 0, t._visBounce || 0);
     for(let i = 0; i < data.length; i++) b.data.push(data[i]);
   }
   const fx = buildDynamicFx(shells, particles);
@@ -604,11 +676,12 @@ function renderR1Check(){
   }).join(' / ') : '无';
   const destroyed = covers.filter(c => c.hp <= 0).length;
   el.innerHTML = [
-    '<b>R1 验证清单（F1 隐藏）</b>',
+    '<b>R1 / G1 验证清单（F1 隐藏）</b>',
     `<div>${pickOk ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'} 地面拾取与视角中心一致（偏差 ${isFinite(pickD) ? pickD.toFixed(1) : '--'}px）</div>`,
     `<div>${shotsFired > 0 ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 主炮连续开火（已开 ${shotsFired} 发 · 装填 ${reload}）</div>`,
     `<div>${allies.length ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 友军 Z/X/C 命令（${allyTxt}）</div>`,
     '<div><span class="dim">□</span> 车头/车尾：黄箭头=车头，红尾灯=车尾</div>',
+    '<div><span class="dim">□</span> 载具手感：加减速俯仰/侧倾、开炮后坐与扬尘、震屏</div>',
     `<div>${destroyed > 0 ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 建筑可破坏（已毁 ${destroyed} / ${covers.length}）</div>`,
     `<div class="dim">FPS ${fpsVal} · 敌军 ${entities.filter(e => e.team === 'enemy' && e.hp > 0).length} · 炮弹 ${shells.length}</div>`,
   ].join('');
@@ -700,6 +773,10 @@ window.__TEST3D__ = {
     return ok;
   },
   setTimeScale(s){ timeScale = Number(s) || 0; return timeScale; },
+  mem(){
+    const m = performance.memory;
+    return m ? { usedMB: Math.round(m.usedJSHeapSize / 104857.6) / 10, totalMB: Math.round(m.totalJSHeapSize / 104857.6) / 10 } : null;
+  },
   setCamera(opts){
     if(!cam) return null;
     if(opts && typeof opts.pitch === 'number') cam.pitch = opts.pitch;

@@ -22,13 +22,14 @@ npm start          # 启动 dev server（默认端口 8000，可用 PORT=9000 �
 | 坦克图鉴 | `http://127.0.0.1:8000/tank_codex.html` | 按等级查询坦克/Boss 的六面装甲、HP、穿深、伤害、装填、极速与尺寸（纯查询，不生成实体） |
 | 3D 切片 (R1) | `http://127.0.0.1:8000/tank_3d.html` | 真 3D 可玩切片：小战场、轻倾斜相机、主炮与友军命令、基础破坏（原生 WebGL1） |
 
-## 验证（四条命令全绿）
+## 验证（五条命令全绿）
 
 ```bash
 npm run check         # 语法冒烟 + tsc 类型检查（共享模块、server.js、页面内联脚本）
 npm test              # 全套 Node 测试链（AI/物理/卡牌/Boss/地图/经济……）
 npm run test:browser  # 浏览器六链（smoke/r3/run/r4/ally/3d；需系统 Edge + playwright-core 无头）
-npm run baseline      # R0 渲染基线（首次 -- --write，之后默认 --check；基线在 tmp/ 不入库）
+npm run baseline      # 2D 渲染基线（三场景固定截图 + 性能；首次 -- --write）
+npm run baseline:3d   # G1 3D 场景基线（固定相机/冻结首帧截图 + 帧时间；基线在 tmp/ 不入库）
 ```
 
 ## 目录结构

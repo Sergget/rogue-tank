@@ -146,7 +146,7 @@
   - `http://127.0.0.1:8000/tank_battle.html`（正式游戏）/ `tank_bench.html`（装甲测试台）
   - `http://127.0.0.1:8000/tank_designer.html`
   - `http://127.0.0.1:8000/tank_compare.html`
-- 校验：`npm run check` —— 对共享模块、`server.js` 及**七个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器链（smoke / r3 / run / r4 + ally + 3d，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）；`npm run baseline` —— **R0 渲染基线**（三场景固定截图 + 性能采样，默认 `--check`，首次用 `--write` 记录；基线在 `tmp/`，不入库）。四者都应全绿。
+- 校验：`npm run check` —— 对共享模块、`server.js` 及**七个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器链（smoke / r3 / run / r4 + ally + 3d，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）；`npm run baseline` —— **R0 渲染基线**（三场景固定截图 + 性能采样，默认 `--check`，首次用 `--write` 记录；基线在 `tmp/`，不入库）；`npm run baseline:3d` —— **G1 3D 场景基线**（固定相机/冻结首帧截图 + 帧时间）。五者都应全绿。
 - **改过 docs 再加一条**：`node scripts/wiki-check.js` —— 全 `docs/` 树的 Markdown 链接与锚点校验（断链 / 失效锚点）。**改 specs 页面、改文件名、改标题后必须跑**（见 §2.3）。仅改代码/测试时不需要。
 
 ### 3.2 测试坦克战斗
@@ -215,7 +215,7 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**R0 地基 / A0 命令闭环 / R1 3D 切片均已完成（§4.147~§4.149）；标准模式不再预生成友军据点、Boss 地图改走标准 strip 生成器（§4.152）**，下一步是 G1 品质垂直切片 + **近远期执行路线**（§2：A1 导航职能 / A2 命令环 → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机三命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。2026-10-24 用户反馈批次（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130）已全部关账，整节原文于 2026-10-27 归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
+- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**R0 地基 / A0 命令闭环 / R1 3D 切片均已完成（§4.147~§4.149）；标准模式不再预生成友军据点、Boss 地图改走标准 strip 生成器（§4.152）；G1 首切片（3D 基线 + 载具手感/演出）已落地（§4.154）**，下一步是完整 3～5 分钟遭遇与精修资产 + **近远期执行路线**（§2：A1 导航职能 / A2 命令环 → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机三命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。2026-10-24 用户反馈批次（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130）已全部关账，整节原文于 2026-10-27 归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
 - **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **71 个 `.md`（61 主题页 + 5 index + 5 changelog，2026-10-27 实测）**，每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
 - **待处理问题**：见 `docs/ISSUES.md`（**当前无存量条目**——用户 2026-10-24 反馈批次已**全部关账**：AA-a 关 #AA1/#AA2/#AA5（§4.132）、AA-b 关 #AA3（§4.136，`test-bench-parity.js` **30 断言**锁键集包含关系，其中 2 条是关账后同日修 F 键门控回归时补的）、AA-c 电磁炮三段声学（§4.137，新能力缺口，原挂 PLAN §6.3）、AA-d 关 #AA4（§4.130）。历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

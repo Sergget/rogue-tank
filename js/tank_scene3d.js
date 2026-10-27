@@ -240,6 +240,28 @@ function buildDynamicFx(shells, particles) {
 }
 
 /**
+ * 视觉悬挂：按车体俯仰/侧倾/弹跳位移抬高顶点（**纯视觉，不改模拟**）。
+ * @param {number[]} data buildTankMesh 的顶点数组（原地修改）
+ * @param {any} t 实体（需 x/y/hullAngle）
+ * @param {number} pitch 俯仰（rad，正值抬车头）
+ * @param {number} roll 侧倾（rad，正值抬右侧）
+ * @param {number} bounce 整体抬升（px）
+ * @returns {number[]}
+ */
+function applyTankTilt(data, t, pitch, roll, bounce) {
+  if (!data || !data.length) return data;
+  if (!pitch && !roll && !bounce) return data;
+  const ca = Math.cos(t.hullAngle || 0), sa = Math.sin(t.hullAngle || 0);
+  for (let i = 0; i < data.length; i += 10) {
+    const dx = data[i] - t.x, dz = data[i + 2] - t.y;
+    const fwd = dx * ca + dz * sa;
+    const right = -dx * sa + dz * ca;
+    data[i + 1] += bounce + pitch * fwd + roll * right;
+  }
+  return data;
+}
+
+/**
  * 阵营环（2026-10-27 用户需求）：友军淡绿、敌军红，贴地绘制。
  * @param {any[]} entities
  * @returns {number[]}
@@ -269,6 +291,7 @@ if (typeof module !== 'undefined' && module.exports) {
     isFlatTier,
     buildStaticScene,
     buildTankMesh,
+    applyTankTilt,
     buildTeamRings,
     buildDynamicFx,
   };

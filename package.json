@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test:browser": "node scripts/test-browser-smoke.cjs && node scripts/test-browser-r3.cjs && node scripts/test-browser-run.cjs && node scripts/test-browser-r4.cjs && node scripts/test-browser-ally.cjs && node scripts/test-browser-3d.cjs",
     "baseline": "node scripts/browser-baseline.cjs",
+    "baseline:3d": "node scripts/browser-baseline3d.cjs",
     "test": "node scripts/run-tests.js",
     "test:render": "node scripts/test-render.js",
     "wiki:check": "node scripts/wiki-check.js"
