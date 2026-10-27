@@ -388,9 +388,9 @@ function initWorld(){
     },
   });
 
-  // 友军编队（R1 切片保留 2 辆用于验证指挥；正式标准模式不预生成友军）
+  // 友军编队（R1 切片保留 2 辆用于验证指挥）
   const allyTankId = (RULES.allyCommand && RULES.allyCommand.allyTankId) || playerTankId;
-  for(const spec of allySquadSpecs(node, 'survival', RULES.allyCommand)){
+  for(const spec of allySquadSpecs(node, 'standard', RULES.allyCommand)){
     const t = spawnTank({ id: spec.id, team: spec.team, x: spec.x, y: spec.y, hullAngle: 0, turretAngle: 0, heightClass: spec.heightClass });
     t.nodeSpawn = true;
     t.isAllySquad = true;

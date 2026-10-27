@@ -866,8 +866,11 @@ function makeNode(index, rng, env) {
   const enemyClusters = losClusters;
 
   // 友军据点：左 1/4 区域、概率出现、远离敌军与玩家出生点（§2.2：消极防御、可被摧毁）
+  // 2026-10-27 用户裁定：**标准模式不再预生成友军据点**（`env.noOutpost`）。
+  //   仍消耗一次 outpostRoll，避免改变后续 rng 流导致整条 run 布局漂移。
+  const outpostRoll = rng();
   let outpost = null;
-  if (rng() < (cfg.outpostChance !== undefined ? cfg.outpostChance : 0.7)) {
+  if (!(env && env.noOutpost) && outpostRoll < (cfg.outpostChance !== undefined ? cfg.outpostChance : 0.7)) {
     let guard = 0;
     while (guard++ < 200) {
       const ox = rng.range(w * 0.12, w * 0.30);

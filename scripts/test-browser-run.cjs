@@ -148,9 +148,12 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
 
     const flowState = await page.evaluate(() => window.__TEST__ ? window.__TEST__.flowState() : null);
     check('#N5: 出击后直接进入 battle 态（map 中转屏已移除）', flowState === 'battle', `state=${flowState}`);
-    // 2026-10-27 用户裁定：标准模式不再预生成友军（countByMode.standard=0）
-    const stdAllyCount = await page.evaluate(() => window.__TEST__ ? window.__TEST__.allies().length : -1);
-    check('标准模式不预生成友军', stdAllyCount === 0, `allies=${stdAllyCount}`);
+    // 2026-10-27 用户裁定：标准模式保留 2 辆指挥友军，但不再预生成「友军据点」
+    const stdAllies = await page.evaluate(() => window.__TEST__ ? window.__TEST__.allies().length : -1);
+    const stdOutpost = await page.evaluate(() => window.__TEST__
+      ? window.__TEST__.entities().some(e => e.team === 'ally' && e.nodeSpawn && !e.isAllySquad) : true);
+    check('标准模式保留 2 辆指挥友军', stdAllies === 2, `allies=${stdAllies}`);
+    check('标准模式无预生成友军据点', stdOutpost === false, `outpost=${stdOutpost}`);
     await waitFor(500);
 
     const boot = await page.evaluate(() => {

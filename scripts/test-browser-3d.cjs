@@ -151,6 +151,10 @@ async function ensureServer() {
       if (!es.length) return null;
       const e = es[0];
       e.hp = Math.max(e.hp, 10000);   // 防止飞行中的炮弹在按键前把目标打死
+      // 友军也可能被溅射打死；命令测试期间保活
+      for (const a of window.__TEST3D__.entities()) {
+        if (a.team === 'ally') a.hp = Math.max(a.hp, 10000);
+      }
       window.__TEST3D__.setMouse(e.x, e.y);
       return { id: e.id };
     });

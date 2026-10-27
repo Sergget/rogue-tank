@@ -3890,11 +3890,14 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 - **3D**：`tank_scene3d.buildTeamRings(entities)` 生成贴地圆环（`ring()` 新几何），battle 同色语义；渲染层每帧并入动态批。
 - 细则归 `specs/combat/hud-ui.md`「战场阵营环」。
 
-### 2) 标准模式移除预生成友军
+### 2) 标准模式移除「预生成友军据点」
 
-- `RULES.allyCommand.countByMode` → **standard 0 / survival 2 / boss 1**。标准模式不再在节点生成时弹出友军坦克；生存与 Boss 模式保留。
-- `tank_3d.html` 作为 R1 验证切片仍保留 2 辆（显式传 `survival` 规格），不随标准模式归零。
-- 浏览器 A0 链改在 `?mode=survival` 下验证（2 辆友军）；单测新增「标准模式 0 辆」断言。
+> **同日修正（2026-10-27）**：初次实现误删了**指挥友军**（`countByMode.standard=0`），用户指出「删错了友军」。正确对象是**友军据点**（`outpost_*` 静态友军坦克）；指挥友军恢复为标准 2 辆。
+
+- `generateRun(..., { noOutpost: true })`（仅标准模式）⇒ `makeNode` 不生成 `node.outpost`；仍消耗一次 outpost RNG，保持后续 rng 流与整条 run 布局不漂移。
+- `RULES.allyCommand.countByMode` 维持 **standard 2 / survival 2 / boss 1**：标准模式保留 2 辆指挥友军。Boss/survival 仍生成据点。
+- `tank_3d.html` 仍按 standard 规格生成 2 辆（R1 验证切片）。
+- 浏览器链：run 链断言「标准模式 2 辆指挥友军 + 无友军据点」；A0 链回到标准模式；`test-boss-map` 增加 `noOutpost` 对照（无据点且地图布局不变）。
 
 ### 3) Boss 节点改用标准 strip 生成器（审核结论 + 落地）
 
@@ -3915,5 +3918,5 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 
 ### 5) 验证
 
-- `npm run check` EXIT=0；`npm test` **68 通过 / 0 失败**（新增 `test-boss-map.js`）；浏览器六链（含标准模式无友军、生存模式 2 辆、3D 阵营环）ALL PASS；`npm run baseline` 三场景因阵营环重新录制后 PASS。
+- `npm run check` EXIT=0；`npm test` **68 通过 / 0 失败**（新增 `test-boss-map.js`）；浏览器六链（含标准模式 2 辆指挥友军 + 无据点、3D 阵营环）ALL PASS；`npm run baseline` 三场景因阵营环重新录制后 PASS。
 - Boss 地图实测（1280×720）：3×3 = **3840×2160**；seed 1/2/3/20261027 的 3×3 网格均无空区、出生点合法；标准模式仍 9.0×2.2 屏、生存仍 3×3 屏。

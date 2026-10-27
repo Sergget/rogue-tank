@@ -936,7 +936,7 @@ const RULES = {
     stuckSpeed: 8,             // 「无位移」判定速度（px/s）
     retargetSeconds: 3,        // 自动目标保持时长（follow 随机 / move 最近），防逐帧重掷甩炮塔
     aimTolerance: 0.12,        // 炮塔对准容差（rad）才开火
-    countByMode: { standard: 0, survival: 2, boss: 1 },   // 2026-10-27 用户裁定：标准模式不预生成友军
+    countByMode: { standard: 2, survival: 2, boss: 1 },   // 2026-10-27 标准模式保留指挥友军；不再预生成「友军据点」
     allyTankId: 'panzer-IV',   // 友军使用的坦克配置（tanks/<id>.json）
   },
 

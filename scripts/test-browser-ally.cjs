@@ -92,7 +92,7 @@ async function ensureServer() {
     });
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 
-    await page.goto(`${server.base}/tank_battle.html?mode=survival`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(`${server.base}/tank_battle.html`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     const slotId = 'e2e-ally';
     await page.evaluate(({ tankId, slotId }) => {
       localStorage.setItem('rogue-tank-saves-meta', JSON.stringify({
@@ -116,7 +116,7 @@ async function ensureServer() {
 
     // ① 编队生成
     let allies = await page.evaluate(() => window.__TEST__.allies());
-    check('生存模式生成 2 辆友军', allies.length === 2, `count=${allies.length}`);
+    check('标准模式生成 2 辆指挥友军', allies.length === 2, `count=${allies.length}`);
     check('友军默认跟随', allies.every(a => a.order === 'follow'), JSON.stringify(allies.map(a => a.order)));
 
     // ② C 键集火：把一辆敌军放到玩家视野内（大世界出生点可能不在屏幕），光标指向它

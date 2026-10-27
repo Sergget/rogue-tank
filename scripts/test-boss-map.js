@@ -112,6 +112,23 @@ function nodeOf(seed, env){ return M.generateRun(seed, 1, env).nodes[0]; }
   ok(a.seed === b.seed, '节点 seed 一致');
 }
 
+
+// ⑦ 标准模式 noOutpost：不生成友军据点，但 RNG 流位置不变（covers 布局一致）
+{
+  let hit = null;
+  for (let seed = 1; seed <= 30; seed++) {
+    const n = nodeOf(seed, { viewport: VP, difficultyLevel: 0 });
+    if (n.outpost) { hit = { seed, n }; break; }
+  }
+  ok(!!hit, '存在带友军据点的标准节点（对照组）');
+  if (hit) {
+    const no = nodeOf(hit.seed, { viewport: VP, difficultyLevel: 0, noOutpost: true });
+    ok(!no.outpost, 'noOutpost 时节点无友军据点');
+    ok(no.covers.length === hit.n.covers.length && no.w === hit.n.w && no.h === hit.n.h,
+       'noOutpost 不改变地图布局（RNG 流位置保持）');
+  }
+}
+
 process.exitCode = fails ? 1 : 0;
 if(fails) console.error(`\n${fails} 项失败`);
 else console.log('\n全部通过');

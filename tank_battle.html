@@ -3933,7 +3933,7 @@ function startNewRun(){
 	    survivalWave = 0;
 	    supplyReadyAt = 0;   // 补给站冷却重置
 	  } else {
-	    run = generateRun(nextRunSeed(), undefined, { viewport: _vp, difficultyLevel: 0 });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传）
+	    run = generateRun(nextRunSeed(), undefined, { viewport: _vp, difficultyLevel: 0, noOutpost: true });  // 新的一局（#24 视口驱动缩放；P-34 跨局难度注入；__TEST__.setSeed 一次性透传；2026-10-27 标准模式不生成友军据点）
 	  }
 	  runScore = 0; runKills = 0; runFinished = false; currentNode = null; battleState = null;
 	  pendingLootRounds = 0; pendingLootRarityIdx = -1;   // P-51 Wave2：跨局清 Boss 追加卡牌轮
