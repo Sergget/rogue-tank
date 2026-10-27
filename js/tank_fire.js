@@ -687,6 +687,30 @@ function clipMagReloadSeconds(shooter, spec, st) {
   return Math.max(0.05, base * (mult + extra) / debuffReload(shooter));
 }
 
+/**
+ * 玩家手动整夹重装（R，2026-10-27 用户需求）：
+ * 弹夹炮在**打空之前**主动放弃余弹，立即开始弹夹间整组装填，装完回满弹夹。
+ * 语义边界：
+ *   · 仅在主武器是 `type === 'clip'` 时生效；
+ *   · 弹夹已满且不在装填 → 无事发生（返回 false）；
+ *   · 爆发队列进行中（`_clipBurst`）→ 拒绝（不打断空格齐射）；
+ *   · 已在弹夹间整装（`pendingRefill`）→ 无事发生。
+ * @param {any} shooter
+ * @returns {boolean} 是否已开始整夹重装
+ */
+function reloadClipWeapon(shooter) {
+  if (!shooter || shooter.hp <= 0) return false;
+  const spec = primaryWeaponSpec(shooter);
+  if (!spec || spec.type !== 'clip') return false;
+  const st = ensureClipState(shooter, spec);
+  if (shooter._clipBurst) return false;
+  if (st.pendingRefill) return false;
+  if (st.rounds >= st.size && !(shooter.reloadT > 0)) return false;
+  st.pendingRefill = true;
+  shooter.reloadT = clipMagReloadSeconds(shooter, spec, st);
+  return true;
+}
+
 // 弹夹炮逐帧驱动（主循环调用，player 与 AI 实体都调）：
 // 弹夹间装填由 reloadT 倒计时（fireTank 顶部 reloadT>0 门控复用），倒计时归零即回满弹夹。
 //
@@ -1520,7 +1544,7 @@ function stepShells(dt, ctx){
 }
 
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={fireTank:fireTank,tryFire:tryFire,tryFirePrimary:tryFirePrimary,tryFireSecondary:tryFireSecondary,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels,ensureClipState:ensureClipState,updatePrimaryClip:updatePrimaryClip,fireClipWeapon:fireClipWeapon,clipMagReloadSeconds:clipMagReloadSeconds,
+  module.exports={fireTank:fireTank,tryFire:tryFire,tryFirePrimary:tryFirePrimary,tryFireSecondary:tryFireSecondary,computeSolution:computeSolution,updateSolution:updateSolution,stepShells:stepShells,primaryWeaponSpec:primaryWeaponSpec,firePrimaryShell:firePrimaryShell,updatePrimaryHeat:updatePrimaryHeat,fireDoubleBarrel:fireDoubleBarrel,updatePrimaryBarrels:updatePrimaryBarrels,ensureClipState:ensureClipState,updatePrimaryClip:updatePrimaryClip,fireClipWeapon:fireClipWeapon,clipMagReloadSeconds:clipMagReloadSeconds,reloadClipWeapon:reloadClipWeapon,
   // #10（2026-10-19）：便携掩体"后方有效区"判定（纯函数，供测试与页面共用）
   behindCoverOnlyTurretHit:behindCoverOnlyTurretHit,
   // #W-I（2026-10-20）：榴弹炮急速射队列驱动（battle 主循环调用）

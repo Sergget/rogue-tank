@@ -128,31 +128,61 @@ async function ensureServer() {
     check('主炮开火（炮弹入列或进入装填）', fired.ok && (fired.after > fired.before || fired.reloadT > 0),
       JSON.stringify(fired));
 
-    // 友军命令：集火指定目标
-    const target = await page.evaluate(() => {
+    // 连续开火：装填完成后必须能再次击发（R1 曾因主循环不递减 reloadT 只能打一发）
+    await wait(1800);
+    const fired2 = await page.evaluate(() => {
+      const p = window.__TEST3D__.player();
       const es = window.__TEST3D__.entities().filter(e => e.team === 'enemy' && e.hp > 0);
-      return es.length ? es[0].id : null;
+      if (es.length) {
+        const t = es[0];
+        window.__TEST3D__.setMouse(t.x, t.y);
+        p.turretAngle = Math.atan2(t.y - p.y, t.x - p.x);
+      }
+      const before = window.__TEST3D__.state().shells;
+      const ok = window.__TEST3D__.fire();
+      const st = window.__TEST3D__.state();
+      return { ok, before, after: st.shells, shots: st.shotsFired, reloadT: p.reloadT };
     });
-    const issued = await page.evaluate(tid => window.__TEST3D__.issue({ order: 'focus', targetId: tid }), target);
-    check('友军集火命令下发', issued.issued.length >= 1 && !issued.reason, JSON.stringify(issued));
+    check('装填完成后可再次开火', fired2.ok && fired2.after > fired2.before, JSON.stringify(fired2));
+
+    // 友军命令：Z/X/C 快捷键（命令转盘暂时关闭）
+    const targetInfo = await page.evaluate(() => {
+      const es = window.__TEST3D__.entities().filter(e => e.team === 'enemy' && e.hp > 0);
+      if (!es.length) return null;
+      const e = es[0];
+      e.hp = Math.max(e.hp, 10000);   // 防止飞行中的炮弹在按键前把目标打死
+      window.__TEST3D__.setMouse(e.x, e.y);
+      return { id: e.id };
+    });
+    check('存在可集火敌人', !!targetInfo, JSON.stringify(targetInfo));
+    if (!targetInfo) throw new Error('没有存活敌人');
+    const target = targetInfo.id;
+    await wait(80);
+    await page.keyboard.press('c');
+    await wait(200);
     const allies = await page.evaluate(() => window.__TEST3D__.allies());
-    check('友军任务目标一致', allies.every(a => a.order === 'focus' && a.targetId === target),
+    check('C 键集火下发', allies.length > 0 && allies.every(a => a.order === 'focus' && a.targetId === target),
       JSON.stringify(allies.map(a => [a.order, a.targetId])));
     const fireTargets = await page.evaluate(() => window.__TEST3D__.allies().map(a => window.__TEST3D__.fireTarget(a.id)));
     check('击发目标 ≡ 任务目标', fireTargets.every(id => id === target), JSON.stringify(fireTargets));
 
-    const follow = await page.evaluate(() => window.__TEST3D__.executeAllyOrder('follow'));
-    check('跟随命令解除集火', follow.issued.length >= 1 && !follow.reason, JSON.stringify(follow));
+    const moved = await page.evaluate(() => {
+      const p = window.__TEST3D__.player();
+      window.__TEST3D__.setMouse(p.x + 220, p.y + 120);
+      return true;
+    });
+    await wait(80);
+    await page.keyboard.press('x');
+    await wait(200);
+    const moveOrders = await page.evaluate(() => window.__TEST3D__.allies().map(a => a.order));
+    check('X 键移动下发', moved && moveOrders.every(o => o === 'move'), JSON.stringify(moveOrders));
 
-    // 命令转盘：按住 Z 打开，松开无扇区 → 默认跟随
-    await page.keyboard.down('z');
-    await wait(320);
-    const wheel = await page.evaluate(() => window.__TEST3D__.allyWheelState());
-    check('按住 Z 打开命令转盘', wheel.open === true, JSON.stringify(wheel));
-    await page.keyboard.up('z');
-    await wait(150);
+    await page.keyboard.press('z');
+    await wait(200);
     const followOrders = await page.evaluate(() => window.__TEST3D__.allies().map(a => a.order));
-    check('转盘默认跟随', followOrders.every(o => o === 'follow'), JSON.stringify(followOrders));
+    check('Z 键跟随下发', followOrders.every(o => o === 'follow'), JSON.stringify(followOrders));
+    const wheel = await page.evaluate(() => window.__TEST3D__.allyWheelState());
+    check('命令转盘暂时关闭', wheel.open === false, JSON.stringify(wheel));
 
     // 截图产物
     fs.mkdirSync(SHOT_DIR, { recursive: true });

@@ -3802,3 +3802,80 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 - **按装甲模型建模**：车体/炮塔用真实 `hullPoly`/`turretPoly` 顶点；炮塔按 `turretPivotOffset` 绕 pivot 旋转（不再当车体中心）；炮管宽度取 `t.barrel.width`。
 - **车头/车尾可辨**：加两侧履带、前装甲板（亮度随 `stats.armor.hull.front`）、尾部格栅 + 红色尾灯、车头黄色三角箭头。
 - **回归**：`test-render3d.js` 新增「炮管沿 gunTip 方向伸出」「前装甲/箭头在 +x」「箭头颜色存在」三条断言；截图产物 `tmp/r1-3d/r1-3d.png` 与 `closeup.png` 目视确认。
+
+## §4.150 2026-10-27 UI 版式规范 v1 与令牌统一（P0 落地）
+
+**性质**：**设计规范建立 + P0 实现**。来源：用户「本游戏 UI 需要优化：先阅读各页面 UI，帮我定界面版式规范（栅格、安全区、字号层级），尽量在保持功能的前提下统一 UI 和后面的组件」。细则归 `specs/combat/ui-layout.md`（§18）与 `specs/combat/ui-components.md`。
+
+### 1) 审计发现的漂移（实测，非推测）
+
+| 项 | 收敛前 |
+|---|---|
+| 色板 | **3 套**：暖橄榄 `#12140f`（4 页）/ 冷蓝灰 `#101418`（index、codex）/ 沙金 `#e8c86a`+（`js/tank_devpanel.js` 内联） |
+| `:root` | **6 处**各写一份（5 个 HTML + `designer.css`）；`index.html` 为 0，完全脱离体系 |
+| 字号 | **8 档**挤在 15px 内（8/9/10/11/12/13/14/15），battle 页 9px×23、10px×35 |
+| `gap` / 圆角 | 11 种 / 7 种 |
+| 同类组件 | 卡片 158·178·180；进度条 5·10·12·14；侧栏 300·340·380·`20vw`；弹窗 280·420·560·640 |
+
+关键证据：`tank_codex.html` 原注释自称「配色/字体照 `tank_bench.html` 同款深色控制台风格」，实际 `--bg` 为 `#101418` 而非 `#12140f`——**注释与实现不符的可查证漂移**。
+
+### 2) 落地内容（P0：零布局风险）
+
+- **新增 `js/tank_ui.js`**：60 个设计令牌的唯一物理载体（12 组：色彩/字体/字号/间距/圆角/描边/控件/进度条/安全区/弹窗/栅格/层级）。用户裁定走 **JS 注入而非 `css/ui-tokens.css`**——免去七处 `<link>` 与 `server.js` 静态路径约定同步改；同步脚本在 head 内执行、body 未渲染，无 FOUC。幂等（重复引入不产生第二个 `<style>`）。
+- **七页接入**：删除 6 处重复 `:root`；`var(--bg)`→`var(--bg-0)`、`var(--panel)`→`var(--bg-1)`；冷调组与沙金按映射表并入暖橄榄；圆角统一 **0 与 999px**。`designer.css` 保留独立文件（用户裁定），只留 `--front/--side/--rear/--mirror` 四个语义别名且值指向令牌。
+- **`index.html` 改版**：由「冷蓝灰 + `Segoe UI` + 10px 圆角」并入军事终端体系（暖橄榄 + `--font-mono` 标题 + 直角 + 左侧 2px 定位条），入口与 DOM 结构不变。
+- **字号阶梯定为 5 档 11/13/16/20/32**（级差 ≥2px）。11px 硬下限不是审美：`hud-ui.md` §#AA8 已由用户实证 10px 在雪地/沙漠不可读。
+- **`tank_3d.html`** 顺带补 `font-family`（此前 body 落到浏览器默认 serif）与 `background:var(--bg-canvas)`。
+
+### 3) 新增测试链
+
+`scripts/test-ui-tokens.js`（已登记 `run-tests.js`）：令牌自检（数量/必需键/5 档/级差）、七页接线位置、无重复定义、废止色号绝迹（**只扫 CSS 区**——canvas 的 `ctx.fillStyle` 不受 CSS 令牌管辖）、圆角仅 0/pill、`tank_devpanel.js` 无沙金残留，以及**字号棘轮**：`FONT_BASELINE` 逐页逐字号记上限，断言只减不增。
+
+### 4) 验证
+
+`npm test` 67 项全绿（含新增 `test-ui-tokens.js` 1.1s）；`check-html.js`（测试链 66→67 登记一致）；`wiki-check.js` `broken=0 anchorBad=0 struct=0 template=0`；浏览器实测七页 `--amber/--bg-0/--fs-body` 均解析成功、`body` 底色统一为 `rgb(18,20,15)`、无新增页面报错（`assets/wall_concrete.png` 404 为既有后期贴图位）。
+
+### 5) 未落地（P1/P2，见 `specs/combat/ui-layout.md` §迁移状态）
+
+- **P1**：字号 5 档实际收敛（11→13 使文本宽约 +18%，需逐页复核 HUD 宽度）、间距归并、控件高 28px。
+- **P2**：侧栏 320、弹窗 360/640、卡片 180、进度条三档、**按钮补 `:active` 与 `:focus-visible`**（现全项目无焦点环，而这是键鼠游戏）、z-index 六层（需人工核对叠放，宁可保留现状不盲改）。
+
+## §4.151 2026-10-27 友军 Z/X/C 快捷键、弹夹炮 R 整装、3D 切片连续开火与验收清单
+
+**性质**：**输入/UX 修正 + 3D 切片 bug 修复**。来源：用户 2026-10-27 反馈（命令方式改为 Z/X/C、ESC 菜单可见、暂时关闭转盘；R 键弹夹整装；3D 切片开炮后无法再射击）。
+
+### 1) 友军命令：Z/X/C 直接快捷键
+
+- `js/tank_bindings.js`：`commandFollow:'z'` / `commandMove:'x'` / `commandFocus:'c'`，`ACTION_INFO`/`ACTION_ORDER` 同步；卡牌查看器从 `C` 让位到 `B`（`panelCards:'b'`，DOM 提示同步）。
+- battle 与 `tank_3d.html` 的 `createInputController` 注册三个动作，直接调用 `executeAllyOrder(order)`：目标/位置取按键瞬间的光标世界点；focus 光标下无敌军时整批拒绝并提示。
+- **命令转盘暂时关闭**：`RULES.allyCommand.wheelEnabled = false`；按住 Z 的三扇区实现原样保留（两页 keydown/keyup 均有守卫），置 true 即恢复。
+- **ESC 控制菜单**：`renderPause` 的 `describeBindings` 增加 `commandFollow/commandMove/commandFocus/reloadClip`，Z/X/C 与 R 在暂停面板可直接看到。
+
+### 2) 弹夹炮 R 整夹重装
+
+- `js/tank_fire.js` 新增纯函数 `reloadClipWeapon(shooter)`：仅 `type==='clip'`；未打空时按 R 主动放弃余弹，置 `pendingRefill` 并写入与打空相同的整组装填时长；满弹夹、已在整装、爆发队列进行中均返回 false。
+- battle/3D 注册 `reloadClip`（R）；成功写日志。细则归 `specs/combat/weapons-reload.md`「弹夹炮」。
+
+### 3) 3D 切片连续开火修复
+
+- **根因**：3D 主循环没有递减 `player.reloadT`，也没有驱动 `updatePrimaryHeat/Barrels/Clip` ⇒ 第一发后 `reloadT` 永远停在 1.5s，`tryFirePrimary` 被门控拦下。
+- **修复**：主循环每帧对玩家与所有 AI 实体递减 `reloadT`，并调用三种武器状态机；`__TEST3D__.fire()` 成功时累计 `shotsFired`。
+- 回归：`test-browser-3d.cjs` 增加「装填完成后可再次开火」（等待 1.8s 后第二发）。
+
+### 4) 3D 验收清单（回答「这个 demo 要验证什么」）
+
+`tank_3d.html` 右上新增 `#r1Check` 常驻清单（F1 显隐），把 R1 的门槛直接可视化：
+
+| 项 | 判定 |
+|---|---|
+| 地面拾取与视角中心一致 | `rayGroundHit` 中心点 vs 相机目标偏差 < 5px |
+| 主炮连续开火 | 已开火计数 + 当前装填状态 |
+| 友军 Z/X/C 命令 | 存活友军的命令/阶段 |
+| 车头/车尾可辨 | 人工：黄箭头=车头、红尾灯=车尾 |
+| 建筑可破坏 | 已毁掩体数 / 总数 |
+| 性能 | 实时 FPS / 敌军 / 炮弹 |
+
+### 5) 验证
+
+- `npm run check` EXIT=0；`npm test` **67 通过 / 0 失败**；`npm run test:browser` 六链 ALL PASS（ally 改为 Z/X/C；3d 增加连续开火与清单断言）；`npm run baseline` 三场景 PASS。
+- 新增断言：`test-fire.js` 7e-clip-R 8 条（成功/重复/满夹/非弹夹/爆发队列）。

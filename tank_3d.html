@@ -5,40 +5,70 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rogue Tank — 3D 切片 (R1)</title>
 <style>
-  :root { --line:#3a4a3a; --text:#cfe6cf; --amber:#ffb84d; --red:#ff5040; }
+  /* 设计令牌由 js/tank_ui.js 注入（唯一来源，见 docs/specs/combat/ui-layout.md）。
+     2026-10-27：本页原有一份偏绿的局部 :root（--line:#3a4a3a / --text:#cfe6cf），已并入通用令牌。 */
   * { box-sizing: border-box; }
-  html, body { margin:0; height:100%; background:#080a07; overflow:hidden; }
+  html, body { margin:0; height:100%; background:var(--bg-canvas); overflow:hidden; font-family:var(--font-ui); }
   #c { display:block; width:100vw; height:100vh; }
   #hud { position:fixed; left:12px; top:12px; font:12px/1.5 'JetBrains Mono',monospace; color:var(--text);
-    background:rgba(8,9,6,0.66); border:1px solid var(--line); border-radius:3px; padding:6px 10px;
+    background:rgba(8,9,6,0.66); border:1px solid var(--line); border-radius:0; padding:6px 10px;
     pointer-events:none; min-width:190px; }
   #hud b { color:var(--amber); font-weight:600; }
+  /* P0（2026-10-27）：玩家侧暴露度指示器（与 battle 页同口径、同分档）。
+     三档：hidden 隐蔽 / exposed 暴露 / detected 被察觉。色调语义同 battle 页。 */
+  #exposureHud{position:fixed; left:12px; top:96px; display:flex; align-items:center; gap:6px;
+    font:11px/1.3 'JetBrains Mono',monospace; color:var(--text);
+    background:rgba(8,9,6,0.72); border:1px solid var(--line); border-left-width:2px;
+    border-radius:0; padding:4px 8px; pointer-events:none; display:none; width:fit-content;}
+  #exposureHud .expIcon{width:9px; height:9px; border-radius:50%; flex:0 0 auto;
+    border:1.5px solid currentColor; background:transparent;}
+  #exposureHud .expLabel{font-weight:700; letter-spacing:1px;}
+  #exposureHud .expDetail{opacity:.7; font-size:10px;}
+  #exposureHud[data-level="hidden"]{color:var(--green); border-left-color:var(--green);}
+  #exposureHud[data-level="exposed"]{color:var(--amber); border-left-color:var(--amber);}
+  #exposureHud[data-level="detected"]{color:#ff6b6b; border-left-color:#ff6b6b;}
+  #exposureHud[data-level="hidden"] .expIcon{background:currentColor;}
+  #exposureHud[data-level="detected"] .expIcon{background:currentColor;
+    box-shadow:0 0 0 2px rgba(255,107,107,0.25);}
   #allyHud { position:fixed; left:12px; bottom:52px; font:11px/1.45 'JetBrains Mono',monospace; color:var(--text);
-    background:rgba(8,9,6,0.62); border:1px solid var(--line); border-radius:3px; padding:4px 8px;
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); border-radius:0; padding:4px 8px;
     pointer-events:none; min-width:170px; display:none; }
   #allyHud .ord { color:var(--amber); }
   #toast { position:fixed; left:50%; bottom:96px; transform:translateX(-50%);
     font:12px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.72);
-    border:1px solid var(--line); border-radius:3px; padding:3px 12px; display:none; pointer-events:none; }
+    border:1px solid var(--line); border-radius:0; padding:3px 12px; display:none; pointer-events:none; }
   #allyWheel { position:fixed; inset:0; display:none; pointer-events:none; z-index:8;
     background:radial-gradient(circle at 50% 50%, rgba(8,9,6,0) 0 24%, rgba(8,9,6,0.45) 46% 100%); }
   #allyWheel .item { position:absolute; transform:translate(-50%,-50%);
     font:13px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.78);
-    border:1px solid var(--line); border-radius:16px; padding:4px 14px; white-space:nowrap; }
+    border:1px solid var(--line); border-radius:999px; padding:4px 14px; white-space:nowrap; }
   #allyWheel .item.sel { color:#08100a; background:var(--amber); border-color:var(--amber); }
   #allyWheel .hint { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
     font:11px 'JetBrains Mono',monospace; color:#9ab; white-space:nowrap; }
+  #r1Check { position:fixed; right:12px; top:12px; width:300px; display:block;
+    font-family:'JetBrains Mono',monospace; font-size:var(--fs-xs); line-height:1.6; color:var(--text);
+    background:rgba(8,9,6,0.72); border:1px solid var(--line); border-radius:0;
+    padding:7px 10px; pointer-events:none; }
+  #r1Check b { color:var(--amber); font-weight:600; }
+  #r1Check .ok { color:#8f8; }
+  #r1Check .bad { color:var(--red); }
+  #r1Check .dim { color:#9ab; }
   #help { position:fixed; left:50%; bottom:14px; transform:translateX(-50%);
     font:11px 'JetBrains Mono',monospace; color:#9ab; background:rgba(8,9,6,0.6);
-    border:1px solid var(--line); border-radius:3px; padding:4px 12px; pointer-events:none; white-space:nowrap; }
+    border:1px solid var(--line); border-radius:0; padding:4px 12px; pointer-events:none; white-space:nowrap; }
   #boot { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
     font:14px 'JetBrains Mono',monospace; color:var(--text); background:#080a07; }
 </style>
+<script src="js/tank_ui.js"></script>
 </head>
 <body>
 <canvas id="c" width="1280" height="720"></canvas>
 <div id="hud">R1 · 3D 切片<br><span id="hudBody">加载中…</span></div>
+<div id="exposureHud" data-level="hidden">
+  <span class="expIcon"></span><span class="expLabel" id="expLabel">隐蔽</span><span class="expDetail" id="expDetail"></span>
+</div>
 <div id="allyHud"></div>
+<div id="r1Check"></div>
 <div id="toast"></div>
 <div id="allyWheel">
   <div class="hint">松开 Z 执行 · 鼠标选方向</div>
@@ -46,7 +76,7 @@
   <div class="item" data-order="move" style="left:66%; top:62%">移动到光标</div>
   <div class="item" data-order="focus" style="left:34%; top:62%">集火目标</div>
 </div>
-<div id="help">WASD 驾驶 · 鼠标瞄准 · 左键开火 · 按住 Z 友军命令转盘（跟随/移动/集火）</div>
+<div id="help">WASD 驾驶 · 鼠标瞄准 · 左键开火 · Z 跟随 / X 移动 / C 集火 · R 弹夹整装 · F1 验证清单</div>
 <div id="boot">加载 R1 切片…</div>
 
 <script src="js/tank_rules.js"></script>
@@ -55,6 +85,10 @@
 <script src="js/tank_halfgeom.js"></script>
 <script src="js/tank_model.js"></script>
 <script src="js/tank_cover.js"></script>
+<!-- P0（2026-10-27）：玩家侧暴露度反馈。3D 切片此前对 AI 状态全盲（无 ?/! 图标、
+     无威胁指示、也无任何自身暴露度读数）——本模块补上最后一块可读性。
+     纯函数层，读 camouflageValue / aiTriggerDist / aiEngaged 等既有权威源，不新增判定。 -->
+<script src="js/tank_exposure.js"></script>
 <script src="js/tank_nodegen.js"></script>
 <script src="js/tank_map.js"></script>
 <script src="js/tank_entity.js"></script>
@@ -100,6 +134,8 @@ let coverSig = '';
 let staticRebuildT = 0;
 let lastImpactCount = 0;
 let lastTank = 0;
+let shotsFired = 0;
+let frameCount = 0, fpsT = 0, fpsVal = 0;
 let spawnPoint = { x: 0, y: 0 };
 
 const ORDER_LABEL = { follow: '跟随', move: '移动', focus: '集火' };
@@ -170,7 +206,8 @@ function executeAllyOrder(order, at){
   return res;
 }
 
-// 命令转盘：按住 Z 打开，鼠标方向选择，松开执行；轻按 = 跟随
+// 命令转盘：2026-10-27 用户裁定暂时关闭（改用 Z/X/C 直接快捷键）；实现保留。
+const ALLY_WHEEL_ENABLED = !!(RULES.allyCommand && RULES.allyCommand.wheelEnabled);
 const allyWheel = { open: false, order: null, timer: null, downAt: 0, world: null };
 const lastMouseClient = { x: canvas.width / 2, y: canvas.height / 2 };
 function updateAllyWheelSelection(){
@@ -197,6 +234,7 @@ function hideAllyWheel(){
   if(el) el.style.display = 'none';
 }
 window.addEventListener('keydown', e => {
+  if(!ALLY_WHEEL_ENABLED) return;
   if(e.key.toLowerCase() !== 'z' || e.repeat) return;
   if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
   allyWheel.downAt = performance.now();
@@ -204,6 +242,7 @@ window.addEventListener('keydown', e => {
   allyWheel.timer = setTimeout(showAllyWheel, 180);
 });
 window.addEventListener('keyup', e => {
+  if(!ALLY_WHEEL_ENABLED) return;
   if(e.key.toLowerCase() !== 'z') return;
   if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
   clearTimeout(allyWheel.timer);
@@ -221,7 +260,7 @@ window.addEventListener('keyup', e => {
 window.addEventListener('mousemove', e => {
   lastMouseClient.x = e.clientX;
   lastMouseClient.y = e.clientY;
-  updateAllyWheelSelection();
+  if(ALLY_WHEEL_ENABLED) updateAllyWheelSelection();
 }, { passive: true });
 window.addEventListener('blur', hideAllyWheel);
 function spawnPuffs(x, y, n, color){
@@ -241,7 +280,12 @@ const input = createInputController({
   preventKeys: [' ', 'tab'],
   settings: {},
   gate: () => true,
-  actions: {},
+  actions: {
+    commandFollow: () => executeAllyOrder('follow'),
+    commandMove: () => executeAllyOrder('move'),
+    commandFocus: () => executeAllyOrder('focus'),
+    reloadClip: () => { if(typeof reloadClipWeapon === 'function' && reloadClipWeapon(player)) toast('弹夹整装 — 重装完整弹夹'); },
+  },
 });
 canvas.addEventListener('mousemove', e => {
   const r = canvas.getBoundingClientRect();
@@ -384,7 +428,15 @@ function update(dt){
   const maxStep = (player.stats.turretTurnRate || 1) * dt;
   player.turretAngle = norm(player.turretAngle + Math.max(-maxStep, Math.min(maxStep, diff)));
 
-  if(fireHeld && player.reloadT <= 0 && fireCtx) tryFirePrimary(fireCtx);
+  // 装填与武器状态机（与正式游戏同口径；缺这一步会导致开一炮后永远 reloadT>0）
+  if(player.reloadT > 0) player.reloadT = Math.max(0, player.reloadT - dt);
+  if(typeof updatePrimaryHeat === 'function') updatePrimaryHeat(player, dt);
+  if(typeof updatePrimaryBarrels === 'function' && player._dbState) updatePrimaryBarrels(player, dt);
+  if(typeof updatePrimaryClip === 'function') updatePrimaryClip(player, dt, fireCtx);
+
+  if(fireHeld && player.reloadT <= 0 && fireCtx){
+    if(tryFirePrimary(fireCtx)) shotsFired++;
+  }
 
   const aiCtx = {
     player, entities, covers, dt,
@@ -396,6 +448,10 @@ function update(dt){
   };
   for(const e of entities){
     if(e.id === 'player' || e.hp <= 0 || e.isDrone) continue;
+    if(e.reloadT > 0) e.reloadT = Math.max(0, e.reloadT - dt);
+    if(typeof updatePrimaryHeat === 'function') updatePrimaryHeat(e, dt);
+    if(typeof updatePrimaryBarrels === 'function' && e._dbState) updatePrimaryBarrels(e, dt);
+    if(typeof updatePrimaryClip === 'function') updatePrimaryClip(e, dt, fireCtx);
     if(e.team === 'ally'){
       const ev = updateAllyOrder(e, dt, aiCtx);
       if(ev && ev.type === 'blocked') toast(`友军受阻：${ev.reason === 'target-lost' ? '目标丢失' : '无法推进'}`, true);
@@ -498,6 +554,61 @@ function renderHud(){
     }).join('');
     el.style.display = 'block';
   }
+
+  // P0（2026-10-27）：玩家侧暴露度指示器。3D 切片此前对 AI 状态全盲——
+  //   无敌方 ?/! 图标、无威胁指示、也无自身暴露度读数，玩家对「有没有被发现」零感知。
+  //   本指示器与 battle 页同口径（同一 exposureFor 纯函数、同一分档语义）。
+  const expBox = document.getElementById('exposureHud');
+  if(expBox){
+    if(typeof exposureFor !== 'function'){ expBox.style.display = 'none'; }
+    else {
+      let info = null;
+      try{ info = exposureFor(player, entities); } catch(e){ info = null; }
+      if(!info){ expBox.style.display = 'none'; }
+      else {
+        expBox.style.display = 'flex';
+        expBox.setAttribute('data-level', info.level);
+        const lbl = document.getElementById('expLabel');
+        const det = document.getElementById('expDetail');
+        if(lbl) lbl.textContent = info.label;
+        if(det){
+          if(info.level === 'detected'){
+            det.textContent = info.watchers > 1 ? `${info.watchers} 辆锁定` : '已锁定';
+          } else if(info.level === 'exposed'){
+            det.textContent = info.suspect > 0 ? `被搜索 ×${info.suspect}` : `${Math.round(info.effDist)}px`;
+          } else {
+            det.textContent = `${Math.round(info.effDist)}px`;
+          }
+        }
+      }
+    }
+  }
+  renderR1Check();
+}
+
+/** R1 验收清单：把「这个 demo 要验证什么」直接画在页面上（F1 隐藏）。 */
+function renderR1Check(){
+  const el = document.getElementById('r1Check');
+  if(!el || !player) return;
+  const pick = rayGroundHit(cam, canvas.width / 2, canvas.height / 2, canvas.width, canvas.height);
+  const pickD = pick ? Math.hypot(pick.x - cam.target.x, pick.y - cam.target.z) : Infinity;
+  const pickOk = pickD < 5;
+  const reload = player.reloadT > 0 ? player.reloadT.toFixed(1) + 's' : '就绪';
+  const allies = livingAllies();
+  const allyTxt = allies.length ? allies.map(a => {
+    const o = a._allyOrder;
+    return `${a.id.replace(/^ally_/, '友')}:${o ? (ORDER_LABEL[o.order] || o.order) : '待命'}·${o ? (PHASE_LABEL[o.phase] || o.phase) : ''}`;
+  }).join(' / ') : '无';
+  const destroyed = covers.filter(c => c.hp <= 0).length;
+  el.innerHTML = [
+    '<b>R1 验证清单（F1 隐藏）</b>',
+    `<div>${pickOk ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'} 地面拾取与视角中心一致（偏差 ${isFinite(pickD) ? pickD.toFixed(1) : '--'}px）</div>`,
+    `<div>${shotsFired > 0 ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 主炮连续开火（已开 ${shotsFired} 发 · 装填 ${reload}）</div>`,
+    `<div>${allies.length ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 友军 Z/X/C 命令（${allyTxt}）</div>`,
+    '<div><span class="dim">□</span> 车头/车尾：黄箭头=车头，红尾灯=车尾</div>',
+    `<div>${destroyed > 0 ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 建筑可破坏（已毁 ${destroyed} / ${covers.length}）</div>`,
+    `<div class="dim">FPS ${fpsVal} · 敌军 ${entities.filter(e => e.team === 'enemy' && e.hp > 0).length} · 炮弹 ${shells.length}</div>`,
+  ].join('');
 }
 
 // ---------------- 主循环 ----------------
@@ -507,6 +618,12 @@ function loop(now){
   let dt = (now - last) / 1000;
   if(dt > 0.2) dt = 0.2;
   last = now;
+  frameCount++;
+  if(now - fpsT >= 500){
+    fpsVal = Math.round(frameCount * 1000 / Math.max(1, now - fpsT));
+    frameCount = 0;
+    fpsT = now;
+  }
   dt *= timeScale;
   acc += dt;
   while(acc >= STEP){ update(STEP); acc -= STEP; }
@@ -514,6 +631,14 @@ function loop(now){
   if(now - lastTank > 150){ lastTank = now; renderHud(); }
   requestAnimationFrame(loop);
 }
+
+// F1：显示/隐藏 R1 验证清单
+window.addEventListener('keydown', e => {
+  if(e.key !== 'F1') return;
+  e.preventDefault();
+  const el = document.getElementById('r1Check');
+  if(el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+});
 
 // ---------------- 启动 ----------------
 fetch('api/tanks').then(r => r.json()).then(data => {
@@ -535,6 +660,7 @@ window.__TEST3D__ = {
       enemies: entities.filter(e => e.team === 'enemy' && e.hp > 0).length,
       allies: livingAllies().length,
       shells: shells.length,
+      shotsFired,
       node: node ? { w: node.w, h: node.h, index: node.index } : null,
       cam: cam ? { eye: cam.eye, target: cam.target, pitch: cam.pitch } : null,
     };
@@ -564,7 +690,12 @@ window.__TEST3D__ = {
   pick(sx, sy){ return rayGroundHit(cam, sx, sy, canvas.width, canvas.height); },
   mouseWorld(){ return { x: mouseWorld.x, y: mouseWorld.y }; },
   setMouse(x, y){ mouseWorld.x = x; mouseWorld.y = y; },
-  fire(){ return fireCtx ? tryFirePrimary(fireCtx) : false; },
+  fire(){
+    if(!fireCtx) return false;
+    const ok = tryFirePrimary(fireCtx);
+    if(ok) shotsFired++;
+    return ok;
+  },
   setTimeScale(s){ timeScale = Number(s) || 0; return timeScale; },
   setCamera(opts){
     if(!cam) return null;

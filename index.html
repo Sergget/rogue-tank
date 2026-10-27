@@ -5,37 +5,68 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rogue Tank — 入口</title>
 <style>
+  /* 2026-10-27 改版：由「冷蓝灰产品落地页」并入军事终端体系（用户裁定 §8-1）。
+     全部色值/字号/间距走 js/tank_ui.js 的令牌，本页不写色号。 */
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
-    background:#101418; color:#d9dcc9;
-    font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+    background:var(--bg-0);
+    background-image:radial-gradient(ellipse at 30% 20%, rgba(126,217,87,.04), transparent 60%);
+    color:var(--text); font-family:var(--font-ui);
     min-height:100vh; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:30px;
+    align-items:center; justify-content:center;
+    gap:var(--sp-6); padding:var(--sp-6) var(--sp-5);
   }
-  h1{ font-size:36px; letter-spacing:8px; color:#e8e6d8; font-weight:600; }
-  .sub{ color:#8a8f7d; font-size:13px; letter-spacing:2px; }
-  .cards{ display:flex; gap:24px; flex-wrap:wrap; justify-content:center; padding:0 20px; }
+  header{text-align:center;}
+  h1{
+    font-family:var(--font-mono); font-size:var(--fs-hero); font-weight:700;
+    letter-spacing:10px; text-transform:uppercase; color:var(--text);
+  }
+  .rule{width:72px; height:2px; background:var(--amber); margin:var(--sp-3) auto 0;}
+  .sub{
+    margin-top:var(--sp-3); color:var(--text-dim);
+    font-family:var(--font-mono); font-size:var(--fs-body); letter-spacing:2px;
+  }
+  .cards{display:flex; gap:var(--sp-4); flex-wrap:wrap; justify-content:center;}
   a.card{
-    display:block; width:320px; padding:26px 24px; text-decoration:none; color:#d9dcc9;
-    background:#1a2026; border:1px solid #2a323a; border-radius:10px;
-    transition:transform .12s ease, border-color .12s ease;
+    display:block; width:320px; padding:var(--sp-5);
+    text-decoration:none; color:var(--text);
+    background:var(--bg-1);
+    border:var(--bd); border-left:2px solid var(--line);
+    transition:border-color .12s linear, background .12s linear;
   }
-  a.card:hover{ transform:translateY(-3px); border-color:#5cc8ff; }
-  a.card .title{ font-size:20px; font-weight:600; margin-bottom:10px; }
-  a.card .desc{ font-size:13px; color:#9aa08c; line-height:1.8; }
-  .badge{ display:inline-block; font-size:11px; padding:2px 10px; border-radius:10px;
-          margin-bottom:12px; color:#101418; font-weight:600; }
-  .badge.game{ background:#ffb454; }
-  .badge.bench{ background:#5cc8ff; }
-  .tools{ display:flex; gap:16px; }
-  .tools a{ color:#8a8f7d; font-size:13px; text-decoration:none; border-bottom:1px dashed #3a424a; }
-  .tools a:hover{ color:#ffb454; }
-  footer{ color:#565b4d; font-size:12px; }
+  a.card:hover{border-color:var(--amber); background:rgba(255,180,84,.06);}
+  a.card .title{
+    font-family:var(--font-mono); font-size:var(--fs-h1);
+    font-weight:700; letter-spacing:1px; margin-bottom:var(--sp-2);
+  }
+  a.card .desc{font-size:var(--fs-body); color:var(--text-dim); line-height:1.7;}
+  .badge{
+    display:inline-block; margin-bottom:var(--sp-3);
+    font-family:var(--font-mono); font-size:var(--fs-xs); font-weight:700;
+    padding:1px 8px; border-radius:var(--r-pill); color:var(--bg-0);
+  }
+  .badge.game{background:var(--amber);}
+  .badge.boss{background:var(--red);}
+  .badge.survival{background:var(--green);}
+  .badge.bench{background:var(--blue);}
+  .tools{display:flex; gap:var(--sp-4); flex-wrap:wrap; justify-content:center;}
+  .tools a{
+    color:var(--text-dim); font-family:var(--font-mono); font-size:var(--fs-body);
+    text-decoration:none; padding-bottom:2px;
+    border-bottom:1px dashed var(--line-soft);
+  }
+  .tools a:hover{color:var(--amber); border-bottom-color:var(--amber);}
+  footer{
+    color:var(--text-dim); font-family:var(--font-mono);
+    font-size:var(--fs-xs); letter-spacing:1px; opacity:.75;
+  }
 </style>
+<script src="js/tank_ui.js"></script>
 </head>
 <body>
-  <header style="text-align:center;">
+  <header>
     <h1>ROGUE TANK</h1>
+    <div class="rule"></div>
     <div class="sub">节点式地图推进 · 局内得分驱动构筑 · 战术坦克 Roguelike</div>
   </header>
   <main class="cards">
@@ -45,12 +76,12 @@
       <div class="desc">标准节点式地图推进，击杀得分驱动卡牌构筑与 Boss 战；极简 HUD（Tab 状态 / ` 开发者面板）。</div>
     </a>
     <a class="card" href="tank_battle.html?mode=boss">
-      <div><span class="badge game" style="background:#ff5c5c;">BOSS 战</span></div>
+      <div><span class="badge boss">BOSS 战</span></div>
       <div class="title">连续 Boss 挑战</div>
       <div class="desc">新地图生成器打造的竞技场，跳过普通节点只打 Boss 战；Boss 强度随击杀数递增，所有敌人开场即主动进攻。</div>
     </a>
     <a class="card" href="tank_battle.html?mode=survival">
-      <div><span class="badge game" style="background:#7cff5c;">生存战</span></div>
+      <div><span class="badge survival">生存战</span></div>
       <div class="title">波次围攻 · 无尽生存</div>
       <div class="desc">1:1 方形大地图（新生成器），敌军按波次主动围攻且开场即接敌；每波结束抽卡一次，每 3 波遭遇 Boss。活下去。</div>
     </a>

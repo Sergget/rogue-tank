@@ -1,27 +1,22 @@
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
+  /* 通用令牌由 js/tank_ui.js 注入（唯一来源，见 docs/specs/combat/ui-layout.md）。
+     本文件只保留 **designer 专属** 的四个语义别名——它们各有独立用途（六面配色），
+     值一律指向通用令牌，不重复写色号。 */
   :root{
-    --bg:#12140f;
-    --panel:#1a1d15;
-    --line:#3a3f2c;
-    --amber:#ffb454;
-    --amber-dim:#8a6a35;
-    --text:#d9dcc9;
-    --text-dim:#7a8065;
-    --front:#ff5c4d;
-    --side:#5cc8ff;
-    --rear:#b98aff;
-    --green:#7ed957;
+    --front:var(--red);
+    --side:var(--blue);
+    --rear:var(--purple);
     --mirror:#5a5f4a;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;overflow:hidden;}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg-0);color:var(--text);font-family:'Rajdhani',sans-serif;overflow:hidden;}
   .mono{font-family:'JetBrains Mono',monospace;}
   #app{display:grid;grid-template-columns:20vw 1fr 380px;height:100vh;}
   /* D4（#Z1 批次 2026-10-22）：左栏独立滚动 —— 面板内容再长也不撑高画布；高度扣除顶部保存区+状态条 */
-  #left-sidebar{grid-column:1;grid-row:1;background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow-y:auto;max-height:calc(100vh - 90px);display:flex;flex-direction:column;gap:12px;}
-  #right-sidebar{grid-column:3;grid-row:1;background:var(--panel);border-left:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
+  #left-sidebar{grid-column:1;grid-row:1;background:var(--bg-1);border-right:1px solid var(--line);padding:16px;overflow-y:auto;max-height:calc(100vh - 90px);display:flex;flex-direction:column;gap:12px;}
+  #right-sidebar{grid-column:3;grid-row:1;background:var(--bg-1);border-left:1px solid var(--line);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
   /* 舞台改纵向 flex：保存区 + 状态条 + 画布，画布吃掉剩余高度（D3/D4） */
-  #stage-wrap{grid-column:2;grid-row:1;position:relative;display:flex;flex-direction:column;min-height:0;background:radial-gradient(ellipse at 30% 20%, rgba(126,217,87,0.04), transparent 60%), var(--bg);}
+  #stage-wrap{grid-column:2;grid-row:1;position:relative;display:flex;flex-direction:column;min-height:0;background:radial-gradient(ellipse at 30% 20%, rgba(126,217,87,0.04), transparent 60%), var(--bg-0);}
   #editor-canvas{background:#0c0d09;cursor:crosshair;width:100%;flex:1;min-height:0;display:block;}
   #coordReadout{
     position:absolute; left:12px; bottom:12px; font-family:'JetBrains Mono',monospace;

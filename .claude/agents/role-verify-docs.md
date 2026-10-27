@@ -9,7 +9,7 @@ model: inherit
 ## 1. 你拥有的文件
 
 - `scripts/check-html.js` — 语法冒烟（`vm.Script`，无 spawn）+ 顶层重复声明检测 + 孤儿测试检测
-- `scripts/run-tests.js` — Node 测试链 runner（**65 项登记 = 64 个 `test-*.js` + `validate-content.js`**，2026-10-27 实测）
+- `scripts/run-tests.js` — Node 测试链 runner（**67 项登记 = 66 个 `test-*.js` + `validate-content.js`**，2026-10-27 实测）
 - **`scripts/wiki-check.js`** — specs wiki 链接/锚点/模板校验（2026-10-21 新增；**改过 docs 后必跑**）
 - `scripts/test-browser-*.cjs` — 浏览器六链（smoke / r3 / run / r4 / ally / 3d）
 - **specs 写域（wiki 化后）**：`docs/specs/<卷>/` 全部主题页 + `docs/specs/<卷>.md` 兼容索引页 + `docs/WIKI-STYLE.md`（形态权威）
@@ -47,7 +47,7 @@ model: inherit
 
 功能/修复验证通过后，**顺序不可颠倒**：
 
-1. **同步** — ① **`docs/specs/<卷>/<主题页>.md`** 写现行细则（战斗→`combat/` / 地图→`map/` / 卡牌→`cards/` / Boss→`boss/` / 编辑器→`editor/`），按 **AGENTS.md §2.3「改 specs 三步」**（改主题页 → 对齐 `<卷>.md` 兼容页摘要 → 跑 `node scripts/wiki-check.js`）；② `docs/DEVELOPMENT-batches-<yyyy-mm>.md` **§4 正文末尾续写新编号**（**2026-10-27 当前最大 = §4.149，下一个 §4.150**），简结论 + specs 归口指针（**指向主题页**如 `specs/combat/ammo-system.md`）+ 三链验证记录；③ 同步 `docs/DEVELOPMENT.md` §4.0 索引表（**新增行不能漏**，§4.144 曾漏过）。
+1. **同步** — ① **`docs/specs/<卷>/<主题页>.md`** 写现行细则（战斗→`combat/` / 地图→`map/` / 卡牌→`cards/` / Boss→`boss/` / 编辑器→`editor/`），按 **AGENTS.md §2.3「改 specs 三步」**（改主题页 → 对齐 `<卷>.md` 兼容页摘要 → 跑 `node scripts/wiki-check.js`）；② `docs/DEVELOPMENT-batches-<yyyy-mm>.md` **§4 正文末尾续写新编号**（**2026-10-27 当前最大 = §4.151，下一个 §4.152**），简结论 + specs 归口指针（**指向主题页**如 `specs/combat/ammo-system.md`）+ 三链验证记录；③ 同步 `docs/DEVELOPMENT.md` §4.0 索引表（**新增行不能漏**，§4.144 曾漏过）。
 2. **删除** — 从 `docs/PLAN.md` / `docs/ISSUES.md` **完全删除**对应条目。
 3. **归档** — 被删条目**原文**追加到 `docs/archive/<yyyy-mm>.md` 底部（标来源文档、条目编号、删除日期），并在 `docs/ARCHIVE.md` 索引表**表尾**加一行（日期升序）。
 4. **联动** — 影响规划顺序时同步 `DEVELOPMENT.md` §3 与 `PLAN.md` §1。

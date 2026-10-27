@@ -110,6 +110,13 @@ const TESTS = [
   'scripts/test-ally-command.js',
   // 2026-10-27 R1：3D 渲染/场景纯逻辑——相机射线拾取、三角形批、tier 视觉、静态/坦克几何。
   'scripts/test-render3d.js',
+  // 2026-10-27 P0：玩家侧暴露度反馈（js/tank_exposure.js）——有效触发距离口径与
+  //   tank_ai.js enterDCamo 同源、三档分档判据、负向断言（Boss/友军/死亡/对称化开关）、
+  //   纯增量纪律（零写实体）、battle 与 3D 两页接线契约。
+  'scripts/test-exposure-feedback.js',
+  // 2026-10-27 UI v1：界面版式令牌契约——七页接入 js/tank_ui.js、无重复 :root、
+  //   废止色板绝迹、字号棘轮（只减不增）、圆角仅 0/pill。规范见 specs/combat/ui-layout.md。
+  'scripts/test-ui-tokens.js',
 ];
 
 function pickTests() {

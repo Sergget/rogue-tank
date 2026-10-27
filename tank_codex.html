@@ -8,26 +8,14 @@
   /* #Z1/G（2026-10-22 B6，需求 7）：图鉴独立页 —— 配色/字体照 tank_bench.html 同款深色控制台风格。
      本页只做**纯查询展示**：不生成实体、不跑战斗循环、不写任何数据。 */
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
-  :root{
-    --bg:#101418;
-    --panel:#171d22;
-    --panel-2:#1a2026;
-    --line:#2a323a;
-    --amber:#ffb454;
-    --amber-dim:#8a6a35;
-    --green:#7ed957;
-    --red:#ff5c4d;
-    --blue:#5cc8ff;
-    --purple:#b98aff;
-    --text:#d9dcc9;
-    --text-dim:#8a8f7d;
-  }
+  /* 设计令牌由 js/tank_ui.js 注入（唯一来源，见 docs/specs/combat/ui-layout.md）。
+     2026-10-27：本页原为冷蓝灰 `#101418` 一系（与 bench 的暖橄榄分叉），按规范统一。 */
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;}
+  html,body{margin:0;padding:0;min-height:100%;background:var(--bg-0);color:var(--text);font-family:'Rajdhani',sans-serif;}
   .mono{font-family:'JetBrains Mono',monospace;}
   header{
     display:flex; align-items:center; gap:18px; flex-wrap:wrap;
-    padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--line);
+    padding:14px 20px; background:var(--bg-1); border-bottom:1px solid var(--line);
     position:sticky; top:0; z-index:10;
   }
   header h1{
@@ -45,7 +33,7 @@
   .ctl .lv{color:var(--amber); font-weight:700; min-width:26px; display:inline-block; text-align:right;}
   #app{display:grid; grid-template-columns:300px 1fr; gap:0; min-height:calc(100vh - 56px);}
   #codexListPane{
-    border-right:1px solid var(--line); background:var(--panel);
+    border-right:1px solid var(--line); background:var(--bg-1);
     padding:12px; overflow-y:auto; max-height:calc(100vh - 56px);
   }
   .group-h{
@@ -75,13 +63,14 @@
   .val{color:var(--text);} .val.dim{color:var(--text-dim);}
   #codexCanvas{display:block; width:100%; max-width:420px; height:200px; background:#0c0d09; border:1px solid var(--line); margin-top:8px;}
   .empty{color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:11px; padding:16px 0; line-height:1.9;}
-  .badge{display:inline-block; font-family:'JetBrains Mono',monospace; font-size:9px; padding:1px 7px; border-radius:9px; margin-left:6px;}
-  .badge.boss{background:var(--red); color:#101418;}
-  .badge.tank{background:var(--blue); color:#101418;}
+  .badge{display:inline-block; font-family:'JetBrains Mono',monospace; font-size:9px; padding:1px 7px; border-radius:999px; margin-left:6px;}
+  .badge.boss{background:var(--red); color:var(--bg-0);}
+  .badge.tank{background:var(--blue); color:var(--bg-0);}
   footer{padding:10px 20px; border-top:1px solid var(--line); color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:10px;}
   a.back{color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:11px; text-decoration:none; border-bottom:1px dashed var(--line);}
   a.back:hover{color:var(--amber);}
 </style>
+<script src="js/tank_ui.js"></script>
 </head>
 <body>
 <header>

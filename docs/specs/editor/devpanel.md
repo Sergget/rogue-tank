@@ -51,7 +51,7 @@
 （原 §7.3：差异 = 注册差异）
 
 - **键位唯一数据源**仍为 `js/tank_bindings.js`（`KEY_BINDINGS`/`ACTION_INFO`）；两页差异只剩「注册了哪些动作」：
-  - **battle** 注册技能池 1/2/3、F、H/Shift+H、4/5/6、Tab、**C（卡牌查看器，2026-10-17 #U23）**、F12、ESC、滚轮缩放；
+  - **battle** 注册技能池 1/2/3、F、H/Shift+H、4/5/6、Tab、**B（卡牌查看器，2026-10-17 #U23；2026-10-27 由 C 改 B）**、F12、ESC、滚轮缩放；
   - **bench** 额外注册方向键（第二驾驶位开靶车）。
 - **G / V 语义统一（2026-09-19 修复同键不同义冲突）**：两页 **G = 战术炮击**（`artillery` → `callStrike`，鼠标落点）、**V = 超装填**（`overdrive`）。bench 旧把 G 挪用为「超级火控 Buff」、V 为「超级速度 Buff」——两 Buff 改为**面板按钮专属**（`skillFireCtrlBtn`/`skillSpeedBtn`，走 `activateAbilityForTest`），不再占用 G/V；bench 同步补载 `js/tank_strike.js` 并在 update 驱动 `updateStrikes` + `updateAbilityCds`，使炮击链路与 battle 同构。
 - **bench Tab 键 preventDefault**：`createInputController({ preventKeys: [' ', 'tab'] })` —— bench 无状态面板，Tab 不再落到浏览器焦点遍历。

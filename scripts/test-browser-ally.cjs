@@ -119,8 +119,7 @@ async function ensureServer() {
     check('标准模式生成 2 辆友军', allies.length === 2, `count=${allies.length}`);
     check('友军默认跟随', allies.every(a => a.order === 'follow'), JSON.stringify(allies.map(a => a.order)));
 
-    // ② 选一个敌人作为集火目标（优先选离玩家较远的，确保不是「最近敌人」）
-    // ② 转盘集火：把一辆敌军放到玩家视野内（大世界出生点可能不在屏幕），再按住 Z 锁定
+    // ② C 键集火：把一辆敌军放到玩家视野内（大世界出生点可能不在屏幕），光标指向它
     await page.evaluate(() => {
       const p = window.__TEST__.player();
       const e = window.__TEST__.entities().find(x => x.team === 'enemy' && x.hp > 0);
@@ -140,18 +139,11 @@ async function ensureServer() {
 
     await page.mouse.move(target.sx, target.sy);
     await wait(100);
-    await page.keyboard.down('z');
-    await wait(320);                                   // 打开转盘并锁定世界光标
-    const wheelOpen = await page.evaluate(() => window.__TEST__.allyWheelState());
-    await page.mouse.move(520, 440);                   // 左下扇区 = 集火
-    await wait(100);
-    const wheelFocus = await page.evaluate(() => window.__TEST__.allyWheelState());
-    check('按住 Z 打开转盘且选中集火', wheelOpen.open && wheelFocus.order === 'focus', JSON.stringify(wheelFocus));
-    await page.keyboard.up('z');
+    await page.keyboard.press('c');
     await wait(200);
 
     allies = await page.evaluate(() => window.__TEST__.allies());
-    check('转盘集火下发到全体', allies.every(a => a.order === 'focus' && a.targetId === target.id),
+    check('C 键集火下发到全体', allies.every(a => a.order === 'focus' && a.targetId === target.id),
       JSON.stringify(allies.map(a => [a.order, a.targetId])));
 
     const fireTargets = await page.evaluate(() => window.__TEST__.allies().map(a => window.__TEST__.allyFireTarget(a.id)));
@@ -171,28 +163,22 @@ async function ensureServer() {
     const bad = await page.evaluate(() => window.__TEST__.issueAllyCommand({ order: 'focus', targetId: 'no_such' }));
     check('非法目标整批拒绝', bad.issued.length === 0 && bad.reason === 'target-missing', JSON.stringify(bad));
 
-    // ⑤ 转盘移动：光标指向地面 → 右下扇区
+    // ⑤ X 键移动：光标指向地面
     const pScreen = await page.evaluate(() => window.__TEST__.enemyScreen('player'));
     const gx = Math.max(120, Math.min(1160, pScreen.x + 220));
     const gy = Math.max(100, Math.min(620, pScreen.y + 60));
     await page.mouse.move(gx, gy);
     await wait(100);
-    await page.keyboard.down('z');
-    await wait(320);
-    await page.mouse.move(760, 440);                   // 右下扇区 = 移动
-    await wait(100);
-    const wheelMove = await page.evaluate(() => window.__TEST__.allyWheelState());
-    check('转盘选中移动', wheelMove.order === 'move', JSON.stringify(wheelMove));
-    await page.keyboard.up('z');
+    await page.keyboard.press('x');
     await wait(200);
     allies = await page.evaluate(() => window.__TEST__.allies());
-    check('转盘移动下发并记录锚点', allies.every(a => a.order === 'move' && a.anchor), JSON.stringify(allies.map(a => a.anchor)));
+    check('X 键移动下发并记录锚点', allies.every(a => a.order === 'move' && a.anchor), JSON.stringify(allies.map(a => a.anchor)));
 
-    // ⑥ 轻按 Z = 跟随
+    // ⑥ Z 键跟随
     await page.keyboard.press('z');
     await wait(150);
     allies = await page.evaluate(() => window.__TEST__.allies());
-    check('轻按 Z 下发跟随', allies.every(a => a.order === 'follow'), JSON.stringify(allies.map(a => a.order)));
+    check('Z 键下发跟随', allies.every(a => a.order === 'follow'), JSON.stringify(allies.map(a => a.order)));
 
     // ⑦ 命令确实驱动了车体（aiDecide → driveTank 接线）
     const before = await page.evaluate(() => window.__TEST__.allies().map(a => ({ x: a.x, y: a.y })));
@@ -213,12 +199,16 @@ async function ensureServer() {
     });
     check('友军 HUD 可见且列出编队', !!hud && hud.display !== 'none' && /友军/.test(hud.text), JSON.stringify(hud));
 
-    // ⑨ 键位说明包含友军命令（可发现性）
+    // ⑨ 键位说明包含友军命令与弹夹整装（可发现性）
     const bindings = await page.evaluate(() => {
-      const rows = window.describeBindings ? window.describeBindings({ commandWheel: true }) : [];
+      const rows = window.describeBindings ? window.describeBindings({
+        commandFollow: true, commandMove: true, commandFocus: true, reloadClip: true,
+      }) : [];
       return rows.map(r => r.action);
     });
-    check('键位说明包含友军命令转盘', bindings.includes('commandWheel'), JSON.stringify(bindings));
+    check('键位说明包含 Z/X/C 友军命令 + R 弹夹整装',
+      ['commandFollow', 'commandMove', 'commandFocus', 'reloadClip'].every(k => bindings.includes(k)),
+      JSON.stringify(bindings));
 
     check('全程无 console error / page error', errors.length === 0, JSON.stringify(errors.slice(0, 3)));
   } catch (err) {

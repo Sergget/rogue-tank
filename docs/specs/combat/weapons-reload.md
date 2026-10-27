@@ -66,6 +66,10 @@ HUD 装填环、`fireTank` 门控、电磁炮充能进度三者同源。改公�
 | `damageMult` / `penMult` / `shellSpeedMult` | 1.0 | 单发伤害/穿深/弹速与标准炮一致 |
 
 - **装填两段式**：弹夹内有弹（`rounds > 0`）→ 击发后 `reloadT = clipCycleSeconds`（硬编码、不乘任何倍率）；弹夹打空 → 进入**整组重装**（`pendingRefill = true`），`reloadT = 标准装填 × (reloadMult + clipSizeReloadStep × (size − clipSizeBase)) ÷ debuffReloadRate(t)`（**该段生效 debuff**），归零后一次性回满 `rounds = size`。**上表即本式的系数唯一口径，正文不再重复数字。**
+- **手动整夹重装（R 键，2026-10-27 用户需求）**：弹夹**未打空**时可按 `R` 主动放弃余弹、立即进入整组重装，装完回满。实现为纯函数 `reloadClipWeapon(shooter)`（`js/tank_fire.js`）：
+  - 仅 `type === 'clip'` 生效；弹夹已满且不在装填、已在整组装填、或爆发队列（`_clipBurst`）进行中 → 返回 `false` 不动作；
+  - 成功时置 `pendingRefill = true` 并写与打空相同的整组时长（同表系数，不另设参数）。
+  - UI：battle 键位 `R`，成功写日志；3D 切片同样绑定。
 - **弹夹间装填不随扩容线性膨胀是设计意图**：容量 4→6 时整组时间为「基准 + 2 × 步长倍率」而非线性 ×6，扩容卡仍有正收益但边际递减（具体倍数按上表系数算）。
 - 运行时状态挂 `t._clipState = { size, rounds, pendingRefill }`；武器换装卡（主武器升级路径）清空该状态（与 `_dbState` 同生命周期）。逐帧驱动 `updatePrimaryClip(t, dt)` 由页面主循环负责（battle 玩家 + AI 实体 / bench 玩家 + 靶车）。
 - **HUD**：`drawReloadRing` 弹夹分支——弹夹内显示余量数字 `rounds/size` + 蓝色间隔弧；整组重装期显示橙色「装填」弧（进度按 `clipMagReloadSeconds` 归一）。

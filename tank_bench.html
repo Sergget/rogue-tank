@@ -6,21 +6,10 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
 
-  :root{
-    --bg:#12140f;
-    --panel:#1a1d15;
-    --line:#3a3f2c;
-    --amber:#ffb454;
-    --amber-dim:#8a6a35;
-    --green:#7ed957;
-    --red:#ff5c4d;
-    --blue:#5cc8ff;
-    --text:#d9dcc9;
-    --text-dim:#7a8065;
-  }
+  /* 设计令牌由 js/tank_ui.js 注入（唯一来源，见 docs/specs/combat/ui-layout.md）。 */
   *{box-sizing:border-box;}
   html,body{
-    margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
+    margin:0; padding:0; height:100%; background:var(--bg-0); color:var(--text);
     font-family:'Rajdhani',sans-serif; overflow:hidden;
   }
   .mono{font-family:'JetBrains Mono',monospace;}
@@ -34,7 +23,7 @@
     position:relative;
     background:
       radial-gradient(ellipse at 30% 20%, rgba(126,217,87,0.04), transparent 60%),
-      var(--bg);
+      var(--bg-0);
   }
   #leftPane{
     display:flex; flex-direction:column; gap:8px;
@@ -62,7 +51,7 @@
   #logOverlay .CRIT{color:var(--red); font-weight:700;}
   canvas{display:block; width:100%; height:100%;}
   #hud{
-    background:var(--panel);
+    background:var(--bg-1);
     border-left:1px solid var(--line);
     padding:16px 16px 12px;
     overflow-y:auto;
@@ -122,7 +111,7 @@
     font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700;
     color:var(--text); z-index:50; pointer-events:none;
     background:linear-gradient(90deg, rgba(10,14,18,0) 0%, rgba(10,14,18,0.85) 18%, rgba(10,14,18,0.85) 82%, rgba(10,14,18,0) 100%);
-    padding:4px 26px; border-radius:6px;}
+    padding:4px 26px; border-radius:0;}
   #ammoIndicator [data-ammo]{pointer-events:auto;}
   #ammoIndicator .dot{width:9px; height:9px; border-radius:50%; display:inline-block;
     border:1px solid rgba(255,255,255,0.3);}
@@ -140,6 +129,7 @@
   .legend{display:flex; flex-direction:column; gap:4px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-top:6px;}
   .legend span.sw{display:inline-block; width:10px; height:10px; margin-right:6px; vertical-align:-1px; border:1px solid rgba(255,255,255,0.3);}
 </style>
+<script src="js/tank_ui.js"></script>
 </head>
 <body>
 <div id="app">
@@ -191,7 +181,7 @@
     </div>
   <!-- #F（2026-09-20）：旧测试面板 benchPanel 移除——开发者面板（` 键）统一为共享四 Tab devPanel
        （js/tank_devpanel.js，battle/bench 同源）；倒置/FPS/满血重置/清场/键位表经 extraSwitchHTML 并入开关 Tab -->
-  <div id="benchFps" style="display:none; position:fixed; top:34px; right:12px; z-index:60; font-size:10px; color:#9fd48a; background:rgba(10,14,18,0.8); padding:2px 6px; border-radius:4px;"></div>
+  <div id="benchFps" style="display:none; position:fixed; top:34px; right:12px; z-index:60; font-size:10px; color:#9fd48a; background:rgba(10,14,18,0.8); padding:2px 6px; border-radius:0;"></div>
   <div id="stage-wrap">
     <canvas id="c"></canvas>
     <div id="reloadWrap">

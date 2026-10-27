@@ -923,6 +923,7 @@ const RULES = {
   // 消费方：js/tank_ally_command.js（纯逻辑）→ tank_ai.js 决策 / battle 开火目标。
   allyCommand: {
     enabled: true,
+    wheelEnabled: false,       // 命令转盘暂时关闭（2026-10-27 用户裁定改用 Z/X/C 直接快捷键；实现保留）
     maxAllies: 4,
     arriveRadius: 70,          // 到达判定（px）
     formationSpacing: 110,     // 队形间距（follow 后方 / move 环形半径的基准）

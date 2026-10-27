@@ -473,6 +473,8 @@ declare function allyFormationOffset(index: number, count: number, order: string
 declare function buildCommandSpec(input: any): any;
 declare function defaultOrderForContext(hitEntity: any, player: any): string;
 declare function allySquadSpecs(node: any, mode: string, cfg?: any): any[];
+// 2026-10-27：弹夹炮手动整夹重装（R）
+declare function reloadClipWeapon(shooter: any): boolean;
 // R1（2026-10-27）：3D 渲染/场景（js/tank_render3d.js / tank_scene3d.js）
 declare function createMeshBuilder(): any;
 declare function createOrbitCamera(opts?: any): any;

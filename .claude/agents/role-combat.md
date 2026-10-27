@@ -12,7 +12,7 @@ model: inherit
 
 ## 1. 你拥有的文件
 
-- `js/tank_fire.js` — 开火通用层：`fireTank`、`tryFirePrimary`（左键/空格=主炮，salvo 齐射）、`tryFireSecondary`（F=副武器）、`primaryWeaponSpec`、`firePrimaryShell`、`stepShells`
+- `js/tank_fire.js` — 开火通用层：`fireTank`、`tryFirePrimary`（左键/空格=主炮，salvo 齐射）、`tryFireSecondary`（F=副武器）、`primaryWeaponSpec`、`firePrimaryShell`、`stepShells`、`reloadClipWeapon`（R 手动整夹重装）
 - `js/tank_physics.js` — `resolveHit`（入射角/等效厚度/跳弹/穿透/模块概率分区伤害）、`applyModuleDamage`
 - `js/tank_weapons.js` — `WEAPON_DEFAULTS` 双槽缺省表、`updateSecondaryWeapon`（mortar/missile/rocket/mine_layer/turret 五类）、`updateMissileLock`
 - `js/tank_abilities.js` — `tryActivateAbility`、`ABILITY_KEYS_RUNTIME`、`abilityCds`

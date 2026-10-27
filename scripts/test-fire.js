@@ -434,6 +434,27 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
   ok(cp._clipState.size===5 && cp._clipState.rounds===0 && cp._clipState.pendingRefill===true, '7e-clip 扩容后 5 发打空');
   ok(Math.abs(cp.reloadT-2*(3.0+0.8))<1e-9, '7e-clip 扩容 1 发 → 弹夹间=标准装填×3.8');
 
+  // 7e-clip-R) 2026-10-27 用户需求：弹夹炮未打空时按 R 主动整夹重装
+  global.shells.length=0;
+  {
+    const rp=mkShooter('clip');
+    global.entities=[rp,target];
+    ok(F.fireTank(rp,target,'auto')===true && rp._clipState.rounds===3, '7e-clip-R 先打一发（余 3/4）');
+    rp.reloadT=0;
+    ok(F.reloadClipWeapon(rp)===true, '7e-clip-R 未打空时 R 可主动整夹重装');
+    ok(rp._clipState.pendingRefill===true && Math.abs(rp.reloadT-2*3.0)<1e-9, '7e-clip-R 进入弹夹间整装（reloadT=标准×3）');
+    ok(F.reloadClipWeapon(rp)===false, '7e-clip-R 已在整装时重复按 R 无效');
+    rp.reloadT=0; F.updatePrimaryClip(rp,1/60);
+    ok(rp._clipState.rounds===4 && rp._clipState.pendingRefill===false, '7e-clip-R 整装完成回满 4 发');
+    ok(F.reloadClipWeapon(rp)===false, '7e-clip-R 满弹夹时 R 不动作');
+    const std=mkShooter('standard');
+    ok(F.reloadClipWeapon(std)===false, '7e-clip-R 非弹夹炮无效');
+    const bp=mkShooter('clip');
+    global.entities=[bp,target];
+    bp._clipBurst={left:2,t:0,target:target,hitPref:null};
+    ok(F.reloadClipWeapon(bp)===false, '7e-clip-R 爆发队列进行中拒绝（不打断空格齐射）');
+  }
+
   // 7f) railgun 贯穿实战（#G）：一发命中并击穿两个串列目标（第二个受 pierceDmgMul 衰减伤害）
 
   // 7e) howitzer **以模式回归**（#W-I 2026-10-19 用户裁定，取代 2026-09-15 的「曲射移除」）：

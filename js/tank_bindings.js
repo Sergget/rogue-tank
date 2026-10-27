@@ -42,13 +42,15 @@
     //   测试入口（activateAbilityForTest 无卡自动补卡）保留、经 actions 显式注册。
     supportRepair: '4', supportMedkit: '5', supportExtinguish: '6',
     panelStatus: 'tab', panelDev: '`', panelDevAlt: 'f12',
-    // #U23（2026-10-17 用户需求）：局内卡牌查看器——任意局内（战斗/暂停/结算/奖励）可开，
-    //   按分类查看已持有的卡牌。C = Cards（与既有键无冲突）。
-    panelCards: 'c',
+    // #U23（2026-10-17 用户需求）：局内卡牌查看器——任意局内（战斗/暂停/结算/奖励）可开。
+    //   2026-10-27 用户裁定：C 让位给友军「集火」命令，卡牌查看器改 B（Book）。
+    panelCards: 'b',
     pauseToggle: 'escape',
-    // A0（2026-10-27 用户裁定简化）：按住 Z 打开友军命令转盘（跟随 / 移动 / 集火）。
-    //   轻按 Z = 跟随；按住后按鼠标方向选择，松开执行。
-    commandWheel: 'z',
+    // A0（2026-10-27 用户裁定）：友军三命令直接快捷键（命令转盘暂时关闭，代码保留）。
+    //   Z=跟随 / X=移动 / C=集火；目标/位置取当前光标世界点。
+    commandFollow: 'z', commandMove: 'x', commandFocus: 'c',
+    // 2026-10-27 用户需求：弹夹炮在未打空时主动整夹重装（R）。
+    reloadClip: 'r',
     // #U42（2026-10-19）：bench 测试专用 G 键（战术炮击测试入口，无卡自动补卡；仅测试台注册，
     //   正式游戏不注册该动作——KEY_BINDINGS 保留键值以便 bench createInputController 路由）。
     benchTestStrike: 'g'
@@ -68,18 +70,22 @@
     supportMedkit: { keys: '5', desc: '医疗包' },
     supportExtinguish: { keys: '6', desc: '灭火器' },
     panelStatus: { keys: 'Tab', desc: '状态面板' },
-    panelCards: { keys: 'C', desc: '卡牌查看器（分类查看已持卡牌）' },
+    panelCards: { keys: 'B', desc: '卡牌查看器（分类查看已持卡牌）' },
     panelDev: { keys: '`（反引号）/ F12', desc: '开发者 / 测试面板' },
     pauseToggle: { keys: 'ESC', desc: '暂停 / 设置' },
-    // A0 友军指挥（2026-10-27 简化）
-    commandWheel: { keys: 'Z（按住）', desc: '友军命令转盘：跟随 / 移动 / 集火（轻按 = 跟随）' }
+    // A0 友军指挥（2026-10-27 用户裁定：三命令直接快捷键）
+    commandFollow: { keys: 'Z', desc: '友军：跟随玩家（随机攻击可攻击目标）' },
+    commandMove: { keys: 'X', desc: '友军：移动到光标位置（攻击最近可攻击目标）' },
+    commandFocus: { keys: 'C', desc: '友军：集火光标处敌人（跟随玩家或指定位置射击）' },
+    // 2026-10-27 用户需求
+    reloadClip: { keys: 'R', desc: '弹夹炮：打空之前主动整夹重装' }
   };
 
   // 说明行规范顺序（describeBindings 按此输出）。
   var ACTION_ORDER = ['move', 'altMove', 'fire', 'ammoCycle', 'skillPool',
     'fireSecondary',
     'supportRepair', 'supportMedkit', 'supportExtinguish',
-    'commandWheel',
+    'commandFollow', 'commandMove', 'commandFocus', 'reloadClip',
     'panelStatus', 'panelCards', 'panelDev', 'pauseToggle'];
 
   // 汇总动作 → 说明行。available: { 动作组名: true/false }，false 或缺失则不输出。

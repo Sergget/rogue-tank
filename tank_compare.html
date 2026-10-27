@@ -5,20 +5,10 @@
 <title>坦克对比编辑器 · Tank Compare</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
-  :root{
-    --bg:#12140f;
-    --panel:#1a1d15;
-    --line:#3a3f2c;
-    --amber:#ffb454;
-    --amber-dim:#8a6a35;
-    --green:#7ed957;
-    --red:#ff5c4d;
-    --text:#d9dcc9;
-    --text-dim:#7a8065;
-  }
+  /* 设计令牌由 js/tank_ui.js 注入（唯一来源，见 docs/specs/combat/ui-layout.md）。 */
   *{box-sizing:border-box;}
   html,body{
-    margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--text);
+    margin:0;padding:0;min-height:100%;background:var(--bg-0);color:var(--text);
     font-family:'Rajdhani',sans-serif;
   }
   .mono{font-family:'JetBrains Mono',monospace;}
@@ -44,7 +34,7 @@
   #columns{display:flex;gap:12px;align-items:flex-start;}
   .col{
     flex:0 0 auto;width:250px;
-    background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    background:var(--bg-1);border:1px solid var(--line);border-radius:0;
     padding:10px 10px 12px;
     display:flex;flex-direction:column;gap:3px;
   }
@@ -68,6 +58,7 @@
   details textarea{width:100%;height:120px;background:#0c0d09;border:1px solid var(--line);color:var(--text);font-size:9px;margin-top:4px;}
   #hint{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);margin-left:4px;max-width:900px;line-height:1.6;}
 </style>
+<script src="js/tank_ui.js"></script>
 </head>
 <body>
 <div id="topbar">

@@ -438,3 +438,10 @@
 > 听觉链分三段：① 充能上升电流 = **代码驱动的持续实例**（`startRailChargeLoop/updateRailChargePitch/stopRailChargeLoop`，基频随 `railChargeProgress` 单调上升，数值唯一口径 `RULES.railgunFx.audio`）；② 就绪 = 一次性瞬态 `SOUND_DEFS.railReady`；③ 开火 = `SOUND_DEFS.firerail`（三层，已覆盖放电撕拉与炮身共鸣，故原计划的 `railDischarge` 键**不拆**）。玩家侧必须先判 `type==='railgun' && reloadT>0`——`railChargeProgress` 对非电磁炮返回 1，不判会常驻鸣响。
 
 **详见**：[音频与音效 · 电磁轨道炮三段声学](./combat/audio.md)
+
+## 18. 界面版式与视觉令牌（2026-10-27 新增，现行口径）
+
+> **混合章节，两页分叉**：七页共用的栅格 / 安全区 / 字号阶梯 / 设计令牌见 [界面版式与设计令牌](./combat/ui-layout.md)；按钮五态、面板、卡片、进度条、输入框、徽标、Toast 的组件规格见 [界面组件与状态](./combat/ui-components.md)。
+> 令牌唯一物理载体是 `js/tank_ui.js`（用户 2026-10-27 裁定走 JS 注入而非外链 CSS），七页均以同步脚本接入、不再自带 `:root`。**视觉层只管看起来怎样，不改变元素 id、DOM 结构、交互语义与游戏行为**——`hud-ui.md` 的「元素 id 测试契约」仍是行为侧唯一权威。P0（色板统一 / 圆角归零 / 首页改版）已落地；P1（字号 5 档收敛）、P2（侧栏与弹窗尺寸、按钮五态）未落地，由 `scripts/test-ui-tokens.js` 的字号棘轮逐步收紧。
+
+**详见**：[界面版式与设计令牌](./combat/ui-layout.md) · [界面组件与状态](./combat/ui-components.md)

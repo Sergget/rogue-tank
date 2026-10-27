@@ -6,21 +6,11 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap');
 
-  :root{
-    --bg:#12140f;
-    --panel:#1a1d15;
-    --line:#3a3f2c;
-    --amber:#ffb454;
-    --amber-dim:#8a6a35;
-    --green:#7ed957;
-    --red:#ff5c4d;
-    --blue:#5cc8ff;
-    --text:#d9dcc9;
-    --text-dim:#7a8065;
-  }
+  /* 设计令牌由 js/tank_ui.js 注入（唯一来源，见 docs/specs/combat/ui-layout.md）。
+     页面内**不得**再定义同名变量；改色/改字号请改该模块。2026-10-27 P0。 */
   *{box-sizing:border-box;}
   html,body{
-    margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
+    margin:0; padding:0; height:100%; background:var(--bg-0); color:var(--text);
     font-family:'Rajdhani',sans-serif; overflow:hidden;
   }
   .mono{font-family:'JetBrains Mono',monospace;}
@@ -28,7 +18,7 @@
     position:relative; height:100vh;
     background:
       radial-gradient(ellipse at 30% 20%, rgba(126,217,87,0.04), transparent 60%),
-      var(--bg);
+      var(--bg-0);
   }
   canvas{display:block; width:100%; height:100%;}
 
@@ -54,7 +44,7 @@
     display:flex; flex-direction:row; align-items:flex-end; gap:26px;
     font-family:'JetBrains Mono',monospace;}
   .hudZone{display:flex; flex-direction:column; gap:5px; align-items:flex-start;
-    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:6px 9px; border-radius:2px;}
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:6px 9px; border-radius:0;}
   .hudZoneTitle{font-size:8px; letter-spacing:2px; color:var(--text-dim); opacity:0.85;
     text-transform:uppercase; line-height:1;}
   #playerHpWrap{display:flex; align-items:center; gap:6px;}
@@ -71,6 +61,29 @@
     font-variant-numeric:tabular-nums; line-height:1;}
   #hudSpeedRow .unit{color:var(--text-dim); font-size:9px;}
   #hudRoadBonus{color:var(--green); font-size:9px; letter-spacing:1px;}
+  /* P0（2026-10-27）：玩家侧暴露度指示器
+     语义三档（js/tank_exposure.js EXPOSURE_LEVELS）：
+       hidden   隐蔽  —— 有效发现距离被压到基线 72% 以下，敌方难以进入激活圈
+       exposed  暴露  —— 距离回到基线水平，或有敌人在搜索你
+       detected 被察觉—— 已被锁定（事实），或距离长于基线
+     色调沿用项目既有语义：绿=安全 / 琥珀=警告 / 红=危险（与敌方 ! 红色同色系，读者已熟悉）。
+     底衬沿用 #AA8 口径（rgba(8,9,6,0.72) + 1px var(--line)）保证亮 biome 上可读。 */
+  #exposureHud{display:flex; align-items:center; gap:6px; margin-top:5px;
+    padding:3px 8px; border:1px solid var(--line); border-left-width:2px;
+    background:rgba(8,9,6,0.72); backdrop-filter:blur(2px);
+    font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.2;
+    pointer-events:none; width:fit-content;}
+  #exposureHud .expIcon{width:9px; height:9px; border-radius:50%; flex:0 0 auto;
+    border:1.5px solid currentColor; background:transparent;}
+  #exposureHud .expLabel{font-weight:700; letter-spacing:1px; color:var(--text);}
+  #exposureHud .expDetail{color:var(--text-dim); font-size:9px; letter-spacing:0.5px;}
+  #exposureHud[data-level="hidden"]{color:var(--green); border-left-color:var(--green);}
+  #exposureHud[data-level="exposed"]{color:var(--amber); border-left-color:var(--amber);}
+  #exposureHud[data-level="detected"]{color:#ff6b6b; border-left-color:#ff6b6b;}
+  #exposureHud[data-level="hidden"] .expIcon{background:currentColor;}
+  #exposureHud[data-level="exposed"] .expIcon{background:transparent;}
+  #exposureHud[data-level="detected"] .expIcon{background:currentColor;
+    box-shadow:0 0 0 2px rgba(255,107,107,0.25);}
   /* #S3（2026-10-14）：Boss 血条——屏幕下方中央（bottomHud 上方），条 + 数字 */
   #bossHpWrap{position:absolute; bottom:104px; left:50%; transform:translateX(-50%);
     display:none; flex-direction:column; align-items:center; gap:3px;
@@ -89,7 +102,7 @@
   #abilityBtns .abtn.gray{opacity:0.45; border-color:var(--line); color:var(--text-dim);}
   #abilityBtns .abtn .cd{position:absolute; top:2px; right:2px;
     background:#0c0d09; border:1px solid var(--amber); color:var(--amber);
-    font-size:9px; padding:0 3px; border-radius:3px; line-height:1.2;}
+    font-size:9px; padding:0 3px; border-radius:0; line-height:1.2;}
   #abilityBtns .abtn .num{position:absolute; bottom:1px; right:2px;
     font-size:8px; color:var(--text-dim); opacity:0.8; line-height:1;}
   #abilityBtns .abtn.active{border-color:var(--green); color:var(--green); background:rgba(126,217,87,0.12);}
@@ -138,7 +151,7 @@
   #skillSlotPicker .picker-foot button:hover{border-color:var(--text-dim); color:var(--text);}
   #skillBtns .abtn .cd{position:absolute; top:2px; right:2px;
     background:#0c0d09; border:1px solid #5cc8ff; color:#5cc8ff;
-    font-size:9px; padding:0 3px; border-radius:3px; line-height:1.2;}
+    font-size:9px; padding:0 3px; border-radius:0; line-height:1.2;}
   /* #B10：技能卡获得高亮——新技能按钮 3 秒金色脉冲闪烁，提示玩家按键已就位 */
   .abtn.skill-gain{animation:skillGainPulse 0.75s ease-in-out 4;}
   @keyframes skillGainPulse{
@@ -150,12 +163,12 @@
   #gainToast{position:fixed; left:50%; transform:translateX(-50%); bottom:118px; z-index:60;
     display:none; flex-direction:column; gap:6px; align-items:center; pointer-events:none;}
   .gain-toast-line{background:rgba(20,22,16,0.92); border:1px solid var(--amber); color:var(--amber);
-    font-size:13px; padding:8px 16px; border-radius:4px; letter-spacing:1px;
+    font-size:13px; padding:8px 16px; border-radius:0; letter-spacing:1px;
     animation:gainToastIn 0.3s ease-out, gainToastOut 0.5s ease-in 3.0s forwards;
     text-shadow:0 0 8px rgba(255,180,84,0.4);}
   /* #9（2026-10-15）：玩家模块/乘员损伤的醒目红色警告（断履带/起火/炮塔慢/发动机/弹药架/炮手） */
   .dmg-toast-line{background:rgba(40,8,8,0.95); border:2px solid var(--red); color:#ff6b6b;
-    font-size:15px; font-weight:bold; padding:10px 20px; border-radius:4px; letter-spacing:2px;
+    font-size:15px; font-weight:bold; padding:10px 20px; border-radius:0; letter-spacing:2px;
     animation:gainToastIn 0.2s ease-out, gainToastOut 0.5s ease-in 2.5s forwards;
     text-shadow:0 0 12px rgba(255,60,60,0.6);}
   @keyframes gainToastIn{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);}}
@@ -164,7 +177,7 @@
   /* #AA9（2026-10-26 用户裁定「UI 需要补底衬」）：左上操作提示此前是 13px 白字 + 阴影、无底衬，
      与 #AA8 同根因（亮 biome 上糊）。现行与目标卡同一套：深色半透明底衬 + 1px 边框。 */
   #topLeftInfo{position:absolute; left:12px; top:12px; font-size:13px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none; line-height:1.4;
-    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:3px 8px; border-radius:2px;}
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:3px 8px; border-radius:0;}
   /* #AA8（2026-10-26 用户反馈「标准模式左下角的任务描述在某些 biome 上看不清」）：
      旧样式 = 10px + `--text-dim` + 仅一层 text-shadow、**无底衬** ⇒ 压在雪地/沙漠这类高亮地面上
      直接糊掉。现行口径：**深色半透明底衬（rgba(8,9,6,0.72)）+ 左侧琥珀色定位条 + 11px 正文**，
@@ -174,13 +187,13 @@
     font-family:'JetBrains Mono',monospace; font-size:11px; line-height:1.55; letter-spacing:.5px;
     color:var(--text); text-shadow:0 1px 2px rgba(0,0,0,0.9);
     background:rgba(8,9,6,0.72); border:1px solid var(--line); border-left:2px solid var(--amber-dim);
-    padding:6px 10px 6px 9px; border-radius:2px; max-width:min(520px, 34vw);
+    padding:6px 10px 6px 9px; border-radius:0; max-width:min(520px, 34vw);
     -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);}
   /* #hintBar 同一问题（9px + opacity .75 + 无底衬）——hint 属常驻提示，不能靠"玩家自己凑近看" */
   #hintBar{position:absolute; left:12px; bottom:10px; pointer-events:none; display:none;
     font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text); opacity:.92;
     letter-spacing:1px; background:rgba(8,9,6,0.66); border:1px solid var(--line);
-    padding:3px 8px; border-radius:2px; text-shadow:0 1px 2px rgba(0,0,0,0.9);}
+    padding:3px 8px; border-radius:0; text-shadow:0 1px 2px rgba(0,0,0,0.9);}
   /* 顶部中央 HUD 栈（#MODE 2026-10-15）：唯一负责定位的容器；子元素一律 position:static，
      由 flex 纵向排列 + 间距自动避让（原先三者各自 absolute 到 top:10~12px 会重叠）。 */
   #topCenterHud{position:absolute; left:50%; top:12px; transform:translateX(-50%);
@@ -189,30 +202,30 @@
   /* #A5：成员/模块受损状态条（无受伤时隐藏） */
   #moduleStatus{display:none;
     font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px;}
-  #moduleStatus .pill{display:inline-block; margin:0 4px; padding:3px 8px; border-radius:3px;
+  #moduleStatus .pill{display:inline-block; margin:0 4px; padding:3px 8px; border-radius:0;
     background:rgba(10,12,9,0.82); border:1px solid var(--red); color:var(--red);
     text-shadow:0 1px 2px #000; white-space:nowrap;}
   #moduleStatus .pill .t{color:var(--amber); font-size:9px; opacity:.9;}
   /* ISSUE 18：帧率读出（右下角，仅 showFps 时显示） */
   #fpsReadout{position:absolute; right:12px; bottom:10px; font-size:12px; color:#6f6; display:none; pointer-events:none;
-    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:2px 7px; border-radius:2px;}
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:2px 7px; border-radius:0;}
   /* A0（2026-10-27）：友军指挥——队伍状态列表 + 命令反馈（能压战场，统一深色底衬） */
   #allyHud{position:absolute; left:12px; top:36%; font:11px/1.45 'JetBrains Mono',monospace;
     color:var(--text); background:rgba(8,9,6,0.62); border:1px solid var(--line);
-    border-radius:2px; padding:4px 8px; pointer-events:none; display:none; min-width:158px;}
+    border-radius:0; padding:4px 8px; pointer-events:none; display:none; min-width:158px;}
   #allyHud .row{display:flex; gap:6px; white-space:nowrap;}
   #allyHud .ord{color:var(--amber);}
   #allyHud .bad{color:var(--red);}
   #allyToast{position:absolute; left:50%; bottom:128px; transform:translateX(-50%);
     font:12px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.72);
-    border:1px solid var(--line); border-radius:2px; padding:3px 12px; display:none;
+    border:1px solid var(--line); border-radius:0; padding:3px 12px; display:none;
     pointer-events:none; z-index:6;}
   /* A0 命令转盘：按住 Z 打开（三命令） */
   #allyWheel{position:fixed; inset:0; display:none; pointer-events:none; z-index:8;
     background:radial-gradient(circle at 50% 50%, rgba(8,9,6,0) 0 24%, rgba(8,9,6,0.45) 46% 100%);}
   #allyWheel .item{position:absolute; transform:translate(-50%,-50%);
     font:13px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.78);
-    border:1px solid var(--line); border-radius:16px; padding:4px 14px; white-space:nowrap;}
+    border:1px solid var(--line); border-radius:999px; padding:4px 14px; white-space:nowrap;}
   #allyWheel .item.sel{color:#08100a; background:var(--amber); border-color:var(--amber);}
   #allyWheel .hint{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
     font:11px 'JetBrains Mono',monospace; color:var(--text-dim); white-space:nowrap;}
@@ -220,16 +233,16 @@
      战场正中央，亮 biome 上同样糊；各自 pill 化而不是给 #topCenterHud 整块加底，避免空态留一片暗板。 */
   #ammoReadout{font-size:12px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none;
     font-family:'JetBrains Mono',monospace; display:none;
-    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:2px 8px; border-radius:2px;}
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:2px 8px; border-radius:0;}
   /* #MODE 2026-10-15：生存模式波次计数 / 准备期倒计时（顶部中央，位于 #topCenterHud 栈内）。
      原先自带 absolute 定位，会压住上方 #ammoReadout（弹种倍率读出）——改为栈内块级元素。 */
   #survivalWaveHud{display:none; font-size:18px; font-weight:bold; color:#ff5c5c;
     text-shadow:0 0 8px #000; letter-spacing:3px;
-    background:rgba(8,9,6,0.66); border:1px solid var(--line); padding:1px 10px; border-radius:2px;}
+    background:rgba(8,9,6,0.66); border:1px solid var(--line); padding:1px 10px; border-radius:0;}
   /* 补给站冷却读数（生存模式；位于 #topCenterHud 栈内，原 top:40px absolute 会与波次文本重叠） */
   #supplyCdHud{display:none; font-size:13px; color:#ffd24a;
     text-shadow:0 0 8px #000; letter-spacing:2px;
-    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:2px 8px; border-radius:2px;}
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:2px 8px; border-radius:0;}
 
   /* ---------- 通用控件 ---------- */
   button{
@@ -417,6 +430,7 @@
   #logPanel .log-list .CRIT{color:var(--red); font-weight:700;}
   .rt-log-hidden{display:none;}
 </style>
+<script src="js/tank_ui.js"></script>
 </head>
 <body>
 <div id="stage-wrap">
@@ -439,6 +453,13 @@
         <span id="hudGear">D</span>
         <span id="hudSpeedVal">0</span><span class="unit">km/h</span>
         <span id="hudRoadBonus"></span>
+      </div>
+      <!-- P0（2026-10-27）：玩家侧暴露度指示器。与敌方 ?/! 图标分工——那张说「谁在找我」，
+           这条说「我现在暴不暴露」。放在 VITALS 区（自身状态聚在一起）。 -->
+      <div id="exposureHud" data-level="hidden">
+        <span class="expIcon" id="expIcon"></span>
+        <span class="expLabel" id="expLabel">隐蔽</span>
+        <span class="expDetail" id="expDetail"></span>
       </div>
     </div>
     <div class="hudZone" id="hudWeapons">
@@ -512,7 +533,7 @@
     <div class="item" data-order="move" style="left:66%; top:62%">移动到光标</div>
     <div class="item" data-order="focus" style="left:34%; top:62%">集火目标</div>
   </div>
-  <div id="supplyPromptHud" style="display:none;position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:15px;font-weight:bold;color:#7ed957;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;background:rgba(8,9,6,0.66);border:1px solid var(--line);padding:3px 12px;border-radius:2px;"></div>
+  <div id="supplyPromptHud" style="display:none;position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:15px;font-weight:bold;color:#7ed957;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;background:rgba(8,9,6,0.66);border:1px solid var(--line);padding:3px 12px;border-radius:0;"></div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
       <div class="screen-title">节点地图 NODE MAP</div>
@@ -652,7 +673,7 @@
     <div class="cp-title">卡牌查看器 CARDS</div>
     <div class="cp-tabs" id="cpTabs"></div>
     <div class="cp-list" id="cpList"></div>
-    <div class="hint">按 C 关闭 · 仅显示本局已持有</div>
+    <div class="hint">按 B 关闭 · 仅显示本局已持有</div>
   </div>
   <!-- #F（2026-09-20）：devPanel DOM 已改由共享模块 js/tank_devpanel.js 动态构建（battle/bench 同源） -->
 
@@ -668,6 +689,9 @@
   <script src="js/tank_halfgeom.js"></script>
   <script src="js/tank_model.js"></script>
   <script src="js/tank_cover.js"></script>
+  <!-- P0（2026-10-27）：玩家侧暴露度反馈。纯函数层，读 camouflageValue / aiTriggerDist /
+       aiEngaged 等既有权威源，不新增任何判定。须晚于 tank_cover.js（读其隐蔽纯函数）。 -->
+  <script src="js/tank_exposure.js"></script>
   <script src="js/tank_nodegen.js"></script>
   <script src="js/tank_camera.js"></script>
   <script src="js/tank_perf.js"></script>
@@ -840,6 +864,17 @@ const input = createInputController({
     skill1: () => skillHotkey(1),                    // 阶段六：技能池（1~3 对应玩家装备的主动技能）
     skill2: () => skillHotkey(2),
     skill3: () => skillHotkey(3),
+    // A0（2026-10-27 用户裁定）：友军三命令直接快捷键
+    commandFollow: () => executeAllyOrder('follow'),
+    commandMove: () => executeAllyOrder('move'),
+    commandFocus: () => executeAllyOrder('focus'),
+    // 2026-10-27 用户需求：弹夹炮未打空时主动整夹重装
+    reloadClip: () => {
+      if(typeof reloadClipWeapon === 'function' && reloadClipWeapon(player)){
+        pushLog('⟳ 弹夹整装 — 放弃余弹，重装完整弹夹', 'COVER');
+        playSound('ui');
+      }
+    },
     // #C4e（2026-09-17）：F 键不再注册边沿动作——按住连发由主循环 isDown('fireSecondary') 轮询
     panelStatus: () => {                              // Tab：状态面板（与 dev/log/cards 组互斥，共用呼入/呼出策略）
       const willOpen = !statusOpen;
@@ -1672,7 +1707,9 @@ function executeAllyOrder(order, at){
   return res;
 }
 
-// ---------- 友军命令转盘（2026-10-27 用户裁定：按住 Z 打开，三命令） ----------
+// ---------- 友军命令转盘（2026-10-27 用户裁定：暂时关闭，改用 Z/X/C 直接快捷键） ----------
+// 实现保留；把 RULES.allyCommand.wheelEnabled 置 true 即可恢复（按住 Z 三扇区选择）。
+const ALLY_WHEEL_ENABLED = !!(RULES.allyCommand && RULES.allyCommand.wheelEnabled);
 const allyWheel = { open: false, order: null, timer: null, downAt: 0, world: null };
 function allyWheelEl(){ return document.getElementById('allyWheel'); }
 function updateAllyWheelSelection(){
@@ -1700,6 +1737,7 @@ function hideAllyWheel(){
   if(el) el.style.display = 'none';
 }
 window.addEventListener('keydown', e => {
+  if(!ALLY_WHEEL_ENABLED) return;
   if(e.key.toLowerCase() !== 'z' || e.repeat) return;
   if(inMenuState()) return;
   if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
@@ -1708,6 +1746,7 @@ window.addEventListener('keydown', e => {
   allyWheel.timer = setTimeout(showAllyWheel, 180);
 });
 window.addEventListener('keyup', e => {
+  if(!ALLY_WHEEL_ENABLED) return;
   if(e.key.toLowerCase() !== 'z') return;
   if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
   clearTimeout(allyWheel.timer);
@@ -1725,7 +1764,7 @@ window.addEventListener('keyup', e => {
 window.addEventListener('mousemove', e => {
   lastMouseClient.x = e.clientX;
   lastMouseClient.y = e.clientY;
-  updateAllyWheelSelection();
+  if(ALLY_WHEEL_ENABLED) updateAllyWheelSelection();
 }, { passive: true });
 window.addEventListener('blur', hideAllyWheel);
 
@@ -1995,7 +2034,8 @@ function renderPause(){
   const bindRows = describeBindings({
     move:1, fire:1, ammoCycle:1, skillPool:1, fireSecondary:1,
     supportRepair:1, supportMedkit:1, supportExtinguish:1,
-    panelStatus:1, panelDev:1, pauseToggle:1
+    commandFollow:1, commandMove:1, commandFocus:1, reloadClip:1,
+    panelStatus:1, panelCards:1, panelDev:1, pauseToggle:1
   });
   document.getElementById('pauseBindings').innerHTML = bindRows.map(b =>
     `<div class="row" style="justify-content:flex-start; gap:10px;"><span class="k" style="min-width:150px;">${b.keys}</span><span style="font-size:11px;color:var(--text-dim);">${b.desc}</span></div>`
@@ -5663,6 +5703,53 @@ function updatePassiveSlots(){
   }
 }
 
+// P0（2026-10-27）：玩家侧暴露度指示器 —— 更新函数。
+//
+// 【为什么需要它】
+//   隐蔽机制在判定层是通的（敌方首次激活距离确实被玩家隐蔽值压到 380~660px），
+//   但玩家侧此前**零反馈**：不知道自己隐蔽了多少、不知道自己是否已被发现。
+//   ⇒ 机制在体验层等于不存在。本函数是那条缺失的**读数出口**。
+//
+// 【显示什么】
+//   主读数 = 三档分档（隐蔽 / 暴露 / 被察觉），来自 js/tank_exposure.js 的 exposureFor。
+//   副读数 = 当前有效发现距离（px）：玩家据此判断「离多远会被点亮」。
+//   ⚠️ 距离单位是**世界 px**（判定层的同一尺度），不换算成 km/h——换算会让玩家
+//      无法把它和「敌人什么时候能开火」对上，而那才是玩家真正要做的决策。
+//
+// 【为什么不显示隐蔽值原数（camo 0~1.55）】
+//   camo 是内部量纲，玩家无从建立「0.6 是好是坏」的心智模型。分档才可行动。
+function updateExposureHud(){
+  const box = document.getElementById('exposureHud');
+  if(!box) return;
+  if(typeof exposureFor !== 'function'){ box.style.display = 'none'; return; }
+
+  // 敌方列表：优先用 aiEnemiesCache（主循环已算好，避免每帧重复过滤），
+  // 缺省时退回 entities 自行过滤。
+  let list = (typeof aiEnemiesCache !== 'undefined' && aiEnemiesCache && aiEnemiesCache.length)
+    ? aiEnemiesCache
+    : (typeof entities !== 'undefined' ? entities : []);
+
+  let info = null;
+  try{ info = exposureFor(player, list); } catch(e){ info = null; }
+  if(!info){ box.style.display = 'none'; return; }
+  box.style.display = 'flex';
+
+  box.setAttribute('data-level', info.level);
+  const labelEl = document.getElementById('expLabel');
+  const detailEl = document.getElementById('expDetail');
+  if(labelEl) labelEl.textContent = info.label;
+  if(detailEl){
+    // 副读数按分档给不同的**行动提示**，而非裸数字——玩家要的是「怎么办」。
+    if(info.level === 'detected'){
+      detailEl.textContent = info.watchers > 1 ? `${info.watchers} 辆锁定` : '已锁定';
+    } else if(info.level === 'exposed'){
+      detailEl.textContent = info.suspect > 0 ? `被搜索 ×${info.suspect}` : `${Math.round(info.effDist)}px`;
+    } else {
+      detailEl.textContent = `${Math.round(info.effDist)}px`;
+    }
+  }
+}
+
 function updateBottomHud(){
   // 底部三区 HUD（#G 2026-09-21 重设计）：vitals（血条+速度）/ weapons（弹种+补给）/ skills（技能），
   // 仅战斗态显示。display 必须 'flex'（CSS 现行布局为 flex row 三分区；旧 'block' 会杀死 gap 布局）
@@ -5676,6 +5763,12 @@ function updateBottomHud(){
   if(hpFill) hpFill.style.width = Math.max(0, player.hp / Math.max(1, s.maxHp) * 100) + '%';
   const hpVal = document.getElementById('playerHpVal');
   if(hpVal) hpVal.textContent = `${Math.ceil(player.hp)} / ${Math.round(s.maxHp)}`;
+
+  // P0（2026-10-27）：玩家侧暴露度指示器。
+  //   读数一律走 js/tank_exposure.js 的 exposureFor（纯函数），该函数只读既有权威源
+  //   （camouflageValue / aiTriggerDist / aiEngaged / alertLevel），**不新增任何判定**。
+  //   与敌方 ?/! 图标分工：那张说「谁在找我」，这条说「我现在暴不暴露」。
+  updateExposureHud();
 
   // #G（2026-09-21 用户需求 #8）：速度仪表 —— D/R 档位 + 当前 km/h + 公路加成标记。
   // #AA7（2026-10-26）：速度条已删（理由见 CSS 注释），读数只保留精确数字。
@@ -7137,8 +7230,8 @@ function nextRunSeed(){
   const hud = document.createElement('div');
   hud.id = 'testDebugHud';
   hud.style.cssText = 'position:fixed;top:8px;right:8px;z-index:9999;width:320px;max-height:72vh;'
-    + 'overflow:hidden;background:rgba(0,0,0,.75);color:#cfe6cf;font:11px/1.5 Consolas,monospace;'
-    + 'padding:8px 10px;border:1px solid #3a4a3a;border-radius:4px;pointer-events:none;'
+    + 'overflow:hidden;background:rgba(0,0,0,.75);color:var(--text);font:11px/1.5 var(--font-mono);'
+    + 'padding:8px 10px;border:var(--bd);border-radius:0;pointer-events:none;'
     + 'display:none;white-space:pre-wrap;';
   document.body.appendChild(hud);
   let hudVisible = false;
