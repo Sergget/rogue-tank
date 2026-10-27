@@ -137,6 +137,12 @@ async function main() {
 
     await page.goto(`${server.base}/tank_3d.html`, { waitUntil: 'load', timeout: 30000 });
     await page.waitForFunction(() => window.__TEST3D__ && window.__TEST3D__.ready === true, null, { timeout: 30000 });
+    // G1（2026-10-28）：敌人改由波次投放，进入即冻结会拍到「空战场」——那样基线就失去了
+    // 「记录一场真实战斗画面」的意义。先等首波入场（telegraph → spawn）再冻结。
+    await page.waitForFunction(
+      () => window.__TEST3D__.encounter && window.__TEST3D__.encounter().enemyAlive > 0,
+      null, { timeout: 15000 }
+    ).catch(() => {});
     await wait(500);
     await page.evaluate(() => {
       window.__TEST3D__.setTimeScale(0);

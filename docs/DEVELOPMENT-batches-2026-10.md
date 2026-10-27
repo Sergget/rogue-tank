@@ -3972,3 +3972,39 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 - `test-render3d.js` 新增 3 条视觉悬挂断言（pitch 前抬后压 / roll 抬右 / bounce 整体抬升）。
 - `test-browser-3d.cjs` 全绿；`npm run baseline:3d` 连跑一致。
 - `npm run check` EXIT=0；`npm test` **68 通过 / 0 失败**；浏览器六链 ALL PASS；2D/3D 基线均通过。
+
+## §4.155 2026-10-28 G1 完整 3～5 分钟遭遇：波次导演、胜负与节奏
+
+**前提**：§4.154 的 G1 首切片只解决了「打得好看」，战场本身仍是「6 个敌人开局一拥而上的沙盒」——没有投送节奏、没有胜负、无法衡量「一次完整遭遇」的手感。本批把它升级为**波次导演驱动的完整遭遇**。
+
+### 1) 分层：纯逻辑与演出彻底分离
+
+- 新增 `js/tank_encounter.js`（527 行）：**阶段机 + 出生点采样/提案 + 事件产出**，不依赖 `entities` / `covers` / DOM，Node 可直接测。每一次 `updateEncounter` 返回**事件数组**，写实体动作全部留给页面。
+- `tank_3d.html` 只负责：按 `spawn` 生成实体、写入 AI 侧的进攻意志与反应延迟、HUD 方位告警/波次节拍/结算面板、按 `breather` 回血补员。页面**不写死任何波次数值**。
+- 数值唯一口径 = `RULES.encounter`（`js/tank_rules.js`，每个键都带 rationale 注释）；`enabled=false` 退回旧沙盒便于 A/B 对照。
+- **分层隔离的意义**：把「什么时候做」放进 Node 链（186 条断言），把「怎么演出」放进浏览器链（第七链），两侧各自可锁。
+
+### 2) 阶段机与三波编成
+
+- 阶段：`telegraph（来袭预警）→ wave（交战）→ breather（喘息）→ 下一波 … → victory / defeat`；终局两态也是合法 phase，便于页面 switch。
+- 事件七类：`telegraph / spawn / wave-clear / breather / intel / victory / defeat`。**telegraph 的 `bearings` 取自实际出生点**（整波在预警阶段一次性预规划 `planWave`，spawn 前只做不改语义的距离校正）。
+- 三波：W1「侦察分队」东向 3 medium（教学，玩家 + 2 友军占优）→ W2「分进合击」东北 3 medium + 南 1 heavy（逼分兵）→ W3「装甲合围」东北 3 medium + 南 1 heavy + 西 1 heavy（5 辆三方位高潮）。
+- 三条防回归硬约束：终局幂等、每波恰好一条 telegraph、清波判定要求 `spawnedThisWave > 0`。
+
+### 3) 三条关键机制（都有反面教训）
+
+1. **进攻意志**：`js/tank_ai.js` 的激活门控要求「距离 ≤ `RULES.ai.triggerDistBase`(700) 且 有 LoS」才 `aiEngaged=true`，未激活只做 patrol 原地微摆 ⇒ 波次敌人必须**强制 `aiEngaged=true`** 并按 `intelInterval` 刷新 `lastKnownPlayerPos`，否则玩家龟缩即无限局。
+2. **入场反应延迟**：`entryReactSeconds=1.5` 写入 `aiReactT`。不设的话敌人出场即有 LoS 且炮塔已对准玩家，**出场即齐射**——实测玩家在看见敌人之前就吃满一轮。
+3. **方位可行性回退**：预设 bearing 若可行纵深 < `minSpawnDist`，按 `0 / ±0.35 / ±0.70 / ±1.05 rad` 左右交替试偏，回退结果**必须写回 bearing**，否则 HUD 报「南」而敌人从别的方向出来，等于骗玩家。
+
+### 4) 切片专用演示缩放（不是正式平衡值）
+
+`entryReactSeconds=1.5` / `playerHpScale=4` / `enemyDamageScale=0.3` 三者由 `tank_3d.html` 直读，**正式战斗（`tank_battle.html`）不读**。原因是切片没有卡牌、永久升级与维修技能这套血量堆叠通道：未缩放时静止承伤 ≈103 hp/s，玩家 80 血 2.3 秒即毁；缩放后静止承伤 14～35 hp/s，320 血可撑 9～22 秒。
+
+### 5) 实测与验证
+
+- 出生点到玩家距离 506～893px；交战中静止不还击承伤 14～35 hp/s；持续倒车（无掩体）只降到静止的 0～85% ⇒ **倒车不是可靠生存手段，掩体才是**（AI 断视线即停火）。
+- `npm run baseline:3d` p50 17.4～17.6ms / p95 18.2ms / 6 实体 / 11MB；`--check` PASS（mean=0 max=0）。
+- 新增 `scripts/test-encounter.js`（186 条断言，已登记 `run-tests.js` ⇒ 登记项 68 → **69**）与 `scripts/test-browser-encounter.cjs`（**第七链**，已加入 `package.json`）。
+- 既有 `scripts/test-browser-3d.cjs` 的「战场含敌军」断言改为「首波敌人入场（波次投放）」——旧断言隐含「开局预生成 6 敌」，新遭遇下已不成立。
+- `npm run check` EXIT=0（check-html 七页内联脚本 + tsc）；`npm test` **69 通过 / 0 失败**；`npm run test:browser` **七链全绿**；`npm run baseline` 2D 三场景 PASS。

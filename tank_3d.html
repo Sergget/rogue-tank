@@ -56,6 +56,35 @@
   #help { position:fixed; left:50%; bottom:14px; transform:translateX(-50%);
     font:11px 'JetBrains Mono',monospace; color:#9ab; background:rgba(8,9,6,0.6);
     border:1px solid var(--line); border-radius:0; padding:4px 12px; pointer-events:none; white-space:nowrap; }
+  /* G1（2026-10-28）：完整遭遇 HUD。三块信息必须同屏可读——「第几波」「还剩几个」「现在处于什么节拍」，
+     缺任何一块玩家都只能靠猜（波次导演的可读性支柱）。 */
+  #encHud { position:fixed; left:12px; top:150px; min-width:210px; pointer-events:none;
+    font:var(--fs-body)/1.5 'JetBrains Mono',monospace; color:var(--text);
+    background:rgba(8,9,6,0.66); border:1px solid var(--line); border-left-width:2px;
+    border-radius:0; padding:6px 10px; display:none; }
+  #encHud .wave { color:var(--amber); font-weight:700; letter-spacing:1px; }
+  #encHud .beat { font-size:var(--fs-xs); opacity:.85; }
+  #encHud[data-beat="telegraph"]{ border-left-color:#ff6b6b; }
+  #encHud[data-beat="wave"]{ border-left-color:var(--amber); }
+  #encHud[data-beat="breather"]{ border-left-color:var(--green); }
+  /* 来袭预警：屏幕边缘红闪 + 中央方位提示（telegraph 期间） */
+  #encWarn { position:fixed; inset:0; pointer-events:none; display:none; z-index:7;
+    box-shadow:inset 0 0 90px 12px rgba(255,80,60,0.55); }
+  #encWarn .txt { position:absolute; left:50%; top:20%; transform:translate(-50%,-50%);
+    font:bold 20px/1.3 'JetBrains Mono',monospace; color:#ffd9d0; text-shadow:0 0 12px rgba(255,80,60,0.9);
+    white-space:nowrap; letter-spacing:2px; }
+  /* 结算覆盖层 */
+  #encResult { position:fixed; inset:0; display:none; z-index:9; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 50% 45%, rgba(8,9,6,0.72) 0 30%, rgba(8,9,6,0.92) 100%); }
+  #encResult .card { min-width:320px; text-align:center; padding:18px 26px;
+    border:1px solid var(--line); background:rgba(8,9,6,0.86); }
+  #encResult .title { font:bold 26px/1.3 'JetBrains Mono',monospace; letter-spacing:4px; }
+  #encResult.win .title { color:var(--green); }
+  #encResult.lose .title { color:var(--red); }
+  #encResult .grade { font:bold 40px/1.1 'JetBrains Mono',monospace; color:var(--amber); margin:4px 0 2px; }
+  #encResult .rows { font:var(--fs-body)/1.7 'JetBrains Mono',monospace; color:var(--text); margin:8px 0 10px; }
+  #encResult .rows span { color:var(--amber); }
+  #encResult .hint { font:var(--fs-xs) 'JetBrains Mono',monospace; color:#9ab; }
   #boot { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
     font:14px 'JetBrains Mono',monospace; color:var(--text); background:#080a07; }
 </style>
@@ -68,15 +97,23 @@
   <span class="expIcon"></span><span class="expLabel" id="expLabel">隐蔽</span><span class="expDetail" id="expDetail"></span>
 </div>
 <div id="allyHud"></div>
+<div id="encHud" data-beat="telegraph"></div>
 <div id="r1Check"></div>
 <div id="toast"></div>
+<div id="encWarn"><div class="txt"></div></div>
+<div id="encResult"><div class="card">
+  <div class="title"></div>
+  <div class="grade"></div>
+  <div class="rows"></div>
+  <div class="hint">按 R 重新开战</div>
+</div></div>
 <div id="allyWheel">
   <div class="hint">松开 Z 执行 · 鼠标选方向</div>
   <div class="item" data-order="follow" style="left:50%; top:30%">跟随玩家</div>
   <div class="item" data-order="move" style="left:66%; top:62%">移动到光标</div>
   <div class="item" data-order="focus" style="left:34%; top:62%">集火目标</div>
 </div>
-<div id="help">WASD 驾驶 · 鼠标瞄准 · 左键开火 · Z 跟随 / X 移动 / C 集火 · R 弹夹整装 · F1 验证清单</div>
+<div id="help">WASD 驾驶 · 鼠标瞄准 · 左键开火 · Z 跟随 / X 移动 / C 集火 · R 弹夹整装（结算后重开） · F1 验证清单</div>
 <div id="boot">加载 R1 切片…</div>
 
 <script src="js/tank_rules.js"></script>
@@ -102,6 +139,9 @@
 <script src="js/tank_ally_command.js"></script>
 <script src="js/tank_ai_squad.js"></script>
 <script src="js/tank_ai.js"></script>
+<!-- G1（2026-10-28）：遭遇导演纯逻辑层（波次状态机 / spawn 提案）。纯函数、无 DOM 依赖，
+     页面只做实体生成与演出；可 Node 测试，见 scripts/test-encounter.js。 -->
+<script src="js/tank_encounter.js"></script>
 <script src="js/tank_bindings.js"></script>
 <script src="js/tank_audio.js"></script>
 <script src="js/tank_render3d.js"></script>
@@ -113,6 +153,14 @@
 const SEED = 20261027;
 const STEP = 1 / 120;
 const canvas = document.getElementById('c');
+// G1 性能预算：渲染分辨率可由 URL 覆盖（?w=1920&h=1080）。默认 1280×720。
+// 1080p 与 Deck（1280×800）是 G1 验收门要求评测的两档实机尺度；
+// canvas 的显示尺寸由 CSS 撑满视口，这里改的是**渲染分辨率**。
+(function applyResolution(){
+  const q = new URLSearchParams(location.search);
+  const w = Number(q.get('w')) || 0, h = Number(q.get('h')) || 0;
+  if(w >= 320 && h >= 240){ canvas.width = w | 0; canvas.height = h | 0; }
+})();
 const renderer = createRenderer(canvas);
 if(!renderer){
   document.getElementById('boot').textContent = 'WebGL 不可用：R1 切片需要 WebGL1。';
@@ -335,6 +383,285 @@ window.addEventListener('mouseup', e => { if(e.button === 0) fireHeld = false; }
 canvas.addEventListener('mouseleave', () => { fireHeld = false; });
 
 // ---------------- 场景初始化 ----------------
+
+// ---------------- 遭遇导演（G1，2026-10-28） ----------------
+// 切片不再是「6 个敌人开局一拥而上的沙盒」：改由 js/tank_encounter.js 的波次状态机驱动
+// 3 波攻势 + 波间喘息 + 胜负判定。本页只做三件事：生成实体、演出、把结果画出来。
+//   数值唯一口径 = RULES.encounter（js/tank_rules.js），页面不写死任何波次数值。
+//   RULES.encounter.enabled=false 时退回旧沙盒（node.enemies 预生成），便于 A/B 对照。
+let encounter = null;
+let encOutcome = null;        // null | 'victory' | 'defeat'
+let encStats = null;
+let encWarnText = '';
+let enemySeq = 0;
+let lastEnemyAlive = 0;
+// 切片专用演示缩放（RULES.encounter，口径见 js/tank_rules.js）：玩家与友军 maxHp 倍率。
+// 友军同样要放大——否则补员补进来的是 80 血的纸车，W2/W3 里瞬秒，补员机制形同虚设。
+let hpScale = 1;
+
+/** 方位中文标签（HUD 用）：世界坐标 y 向下，0=东、+π/2=南、-π/4=东北。 */
+const BEARING_TABLE = [
+  [0, '东'], [Math.PI / 4, '东南'], [Math.PI / 2, '南'], [3 * Math.PI / 4, '西南'],
+  [Math.PI, '西'], [-3 * Math.PI / 4, '西北'], [-Math.PI / 2, '北'], [-Math.PI / 4, '东北'],
+];
+function bearingLabel(a){
+  let best = '前方', bd = Infinity;
+  for(const row of BEARING_TABLE){
+    const d = Math.abs(angDiff(a, row[0]));
+    if(d < bd){ bd = d; best = row[1]; }
+  }
+  return best;
+}
+function enemyTankIds(){
+  return Object.keys(tankListData).filter(id => id !== 'dummy');
+}
+
+/** 点是否落在矩形掩体内（无 verts 的掩体走这条：full / wall / tree / bush 等多数是矩形 OBB）。 */
+function pointInCoverRect(x, y, c){
+  const dx = x - c.x, dy = y - c.y;
+  const ang = -(c.angle || 0);
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
+  return Math.abs(lx) <= (c.w || 0) / 2 && Math.abs(ly) <= (c.h || 0) / 2;
+}
+
+/** spawn 点合法性（模块用它过滤候选点）：出界 / 致命水域 / 压掩体 / 压实体 一律不许生成。 */
+/**
+ * spawn 点合法性（模块用它过滤候选点）：出界 / 致命水域 / 压掩体 / 压实体 一律不许生成。
+ * 返回**原因字符串**（可用 = null）——「为什么这点不能用」是调出生点时的第一手信息，
+ * 只回 boolean 的话每次排查都要重新二分一遍。
+ */
+function spawnBlockedWhy(x, y){
+  if(!node) return 'no-node';
+  if(x < 40 || y < 40 || x > node.w - 40 || y > node.h - 40) return 'out-of-bounds';
+  if(isLethalWaterAt(x, y)) return 'water';
+  const R = 34;   // 车体外接半径：中心 + 四向探针，避免半截身子卡在楼里出场
+  for(const c of covers){
+    if(!c || c.hp <= 0) continue;
+    if(c.tier === 'road') continue;                        // 路面可以落车
+    const rr = Math.max(c.w || 0, c.h || 0) / 2 + 60;      // 粗筛：包围盒外直接跳过
+    if(Math.abs(x - c.x) > rr || Math.abs(y - c.y) > rr) continue;
+    // 两类掩体几何：带 verts 的多边形（水塘/岩石等）走 coverWorldPolygon，
+    // 其余是 w/h/angle 的矩形 OBB —— 直接把无 verts 的丢给 coverWorldPolygon 会抛错
+    // （tank_cover.js 只读 cov.verts），实测本图多数掩体无 verts。
+    if(Array.isArray(c.verts) && c.verts.length >= 3){
+      const poly = (typeof coverWorldPolygon === 'function') ? coverWorldPolygon(c) : null;
+      if(poly && poly.length >= 3){
+        if(pointInPolygon({ x, y }, poly)) return 'cover:' + c.tier;
+        if(pointInPolygon({ x: x + R, y }, poly)) return 'cover:' + c.tier;
+        if(pointInPolygon({ x: x - R, y }, poly)) return 'cover:' + c.tier;
+        if(pointInPolygon({ x, y: y + R }, poly)) return 'cover:' + c.tier;
+        if(pointInPolygon({ x, y: y - R }, poly)) return 'cover:' + c.tier;
+      }
+    } else {
+      if(pointInCoverRect(x, y, c)) return 'cover:' + c.tier;
+      if(pointInCoverRect(x + R, y, c)) return 'cover:' + c.tier;
+      if(pointInCoverRect(x - R, y, c)) return 'cover:' + c.tier;
+      if(pointInCoverRect(x, y + R, c)) return 'cover:' + c.tier;
+      if(pointInCoverRect(x, y - R, c)) return 'cover:' + c.tier;
+    }
+  }
+  for(const e of entities){
+    if(!e || e.hp <= 0) continue;
+    if(Math.hypot(e.x - x, e.y - y) < 70) return 'entity:' + e.id;
+  }
+  return null;
+}
+function spawnBlocked(x, y){ return !!spawnBlockedWhy(x, y); }
+
+function encounterCtx(){
+  return {
+    playerAlive: !!player && player.hp > 0,
+    playerPos: { x: player ? player.x : 0, y: player ? player.y : 0 },
+    enemyAlive: entities.filter(e => e.team === 'enemy' && e.hp > 0).length,
+    allyAlive: livingAllies().length,
+    world: node ? { w: node.w, h: node.h } : { w: 1440, h: 864 },
+    isBlocked: spawnBlocked,
+  };
+}
+
+function spawnWaveUnits(waveIdx, units){
+  const ids = enemyTankIds();
+  // 切片专用演示缩放（RULES.encounter.enemyDamageScale，口径见 js/tank_rules.js）：
+  // 实测首波 3 辆对静止玩家是 60 hp/s（4 秒打穿 240 血），没有决策窗口；×0.5 ⇒ 30 hp/s。
+  const dmgScale = (RULES.encounter && RULES.encounter.enemyDamageScale) || 1;
+  const out = [];
+  for(const u of units){
+    const t = spawnTank({
+      id: `enemy_w${waveIdx}_${enemySeq++}`,
+      team: 'enemy',
+      x: u.x, y: u.y,
+      hullAngle: u.hullAngle, turretAngle: u.hullAngle,
+      heightClass: u.cls,
+    });
+    t.nodeSpawn = true;
+    t.tankClass = u.cls;
+    t.aiTier = 0;
+    t.aiReactEnabled = true;
+    if(ids.length) applyTankConfig(t, tankListData[ids[enemySeq % ids.length]]);
+    resetEntity(t);
+    if(dmgScale !== 1 && t.base){
+      t.base.damage = (t.base.damage || t.stats.damage || 0) * dmgScale;
+      if(typeof refreshStats === 'function') refreshStats(t);
+    }
+    t.hp = t.stats.maxHp;
+    // 进攻意志（G1 必需）：AI 激活门控要求「距离 ≤ triggerDist 且有 LoS」才置 aiEngaged，
+    // 未激活只做 patrol 原地微摆 ⇒ 不强制 engaged 的话，玩家一龟缩这局就永远打不完。
+    t.aiEngaged = true;
+    t.lastKnownPlayerPos = player ? { x: player.x, y: player.y } : null;
+    // 入场反应延迟（G1）：不设的话敌人一出场就有 LoS 且炮塔已对准玩家（hullAngle 直指玩家），
+    // 会**出场即齐射**——实测玩家在看见敌人之前就吃满一轮、1 秒内被打穿。
+    // aiReactT>0 期间 AI 只转炮塔、不移动、不开火（js/tank_ai.js:807），
+    // 这 1.5s 同时是「炮塔起转」的演出窗口和玩家抢占掩体的决策窗口。
+    t.aiReactT = (RULES.encounter && RULES.encounter.entryReactSeconds) || 0;
+    out.push(t);
+  }
+  return out;
+}
+
+/** intel 事件：把玩家当前方位刷给所有活着的敌人（语义：进攻方指挥部持续更新你的方位）。 */
+function refreshEnemyIntel(){
+  if(!player) return;
+  for(const e of entities){
+    if(e.team !== 'enemy' || e.hp <= 0) continue;
+    e.aiEngaged = true;
+    e.lastKnownPlayerPos = { x: player.x, y: player.y };
+  }
+}
+
+/** 友军血量放大（与玩家同 scale，见 hpScale 声明处）。 */
+function scaleAllyHp(t){
+  if(hpScale !== 1 && t && t.base){
+    t.base.maxHp = (t.base.maxHp || t.stats.maxHp || 0) * hpScale;
+    if(typeof refreshStats === 'function') refreshStats(t);
+  }
+}
+
+/** 喘息期补员：在玩家附近的合法点落车（不用地图边缘，否则友军要跑半分钟才归队）。 */
+function reinforceAllies(n, salt){
+  if(n <= 0 || !player) return 0;
+  const rng = createRNG((SEED + 977 * (salt || 1)) | 0);
+  const allyTankId = (RULES.allyCommand && RULES.allyCommand.allyTankId) || null;
+  let added = 0;
+  for(let i = 0; i < n; i++){
+    let x = 0, y = 0, ok = false;
+    for(let k = 0; k < 30; k++){
+      const a = rng.range(0, TAU);
+      const d = rng.range(120, 220);
+      x = player.x + Math.cos(a) * d; y = player.y + Math.sin(a) * d;
+      if(!spawnBlocked(x, y)){ ok = true; break; }
+    }
+    if(!ok) continue;
+    const t = spawnTank({ id: `ally_rf_${enemySeq++}`, team: 'ally', x, y, hullAngle: 0, turretAngle: 0, heightClass: 'medium' });
+    t.nodeSpawn = true;
+    t.isAllySquad = true;
+    t._allyIndex = livingAllies().length;
+    t._allyCount = Math.max(1, n);
+    if(allyTankId && tankListData[allyTankId]) applyTankConfig(t, tankListData[allyTankId]);
+    resetEntity(t);
+    scaleAllyHp(t);
+    t.hp = t.stats.maxHp;
+    issueAllyCommand([t], { order: 'follow', issuedAt: performance.now() }, commandCtx());
+    added++;
+  }
+  return added;
+}
+
+function currentWaveLabel(){
+  const waves = (RULES.encounter && RULES.encounter.waves) || [];
+  const w = waves[encounter ? encounter.waveIndex : 0];
+  return w ? (w.label || w.id) : '—';
+}
+
+/** 评级（切片验收用）：胜利才评级，失败不给安慰奖。
+ *  rationale：S=又快又稳（剩 ≥70% 血且 4 分钟内）、A=还能站着承压（≥40% 且 5 分钟内）、
+ *  B=赢了但狼狈。切片的目标体验是「打得漂亮」，所以门槛按「剩余装甲 + 用时」双轴给。 */
+function gradeFor(s){
+  if(!s || s.outcome !== 'victory') return '—';
+  const hp = s.hpPct || 0, sec = s.seconds || 0;
+  if(hp >= 0.7 && sec <= 240) return 'S';
+  if(hp >= 0.4 && sec <= 300) return 'A';
+  return 'B';
+}
+
+function finishEncounter(outcome, stats){
+  encOutcome = outcome;
+  encStats = Object.assign({}, stats || {}, {
+    outcome,
+    hpPct: player && player.stats.maxHp ? Math.max(0, player.hp) / player.stats.maxHp : 0,
+    allies: livingAllies().length,
+    grade: '—',
+  });
+  encStats.grade = gradeFor(encStats);
+  encWarnText = '';
+  const el = document.getElementById('encResult');
+  if(el){
+    const sec = (encStats.seconds || 0).toFixed(0);
+    el.className = outcome === 'victory' ? 'win' : 'lose';
+    el.querySelector('.title').textContent = outcome === 'victory' ? '任务完成' : '任务失败';
+    el.querySelector('.grade').textContent = encStats.grade;
+    el.querySelector('.rows').innerHTML =
+      `用时 <span>${sec}s</span> · 击杀 <span>${encStats.kills}</span> · 清波 <span>${encStats.wavesCleared}/${encounter ? encounter.waveCount : 3}</span><br>`
+      + `剩余装甲 <span>${Math.round((encStats.hpPct || 0) * 100)}%</span> · 友军存活 <span>${encStats.allies}</span>`;
+    el.style.display = 'flex';
+  }
+  const warnEl = document.getElementById('encWarn');
+  if(warnEl) warnEl.style.display = 'none';
+}
+
+function handleEncounterEvent(ev){
+  switch(ev.type){
+    case 'telegraph': {
+      const dirs = (ev.bearings || []).map(bearingLabel).join(' / ');
+      encWarnText = `第 ${(ev.wave | 0) + 1} 波来袭 · ${dirs || '前方'}`;
+      break;
+    }
+    case 'spawn': {
+      const list = spawnWaveUnits(ev.wave | 0, ev.units || []);
+      toast(`${ev.waveLabel || ('第 ' + ((ev.wave | 0) + 1) + ' 波')} · ${list.length} 辆`, true);
+      break;
+    }
+    case 'wave-clear':
+      toast(`第 ${(ev.wave | 0) + 1} 波清除`);
+      break;
+    case 'breather': {
+      const pct = ev.repairPct || 0;
+      let healed = 0;
+      if(player){
+        healed = Math.round((player.stats.maxHp || 0) * pct);
+        player.hp = Math.min(player.stats.maxHp, player.hp + healed);
+      }
+      for(const a of livingAllies()){
+        a.hp = Math.min(a.stats.maxHp, a.hp + Math.round((a.stats.maxHp || 0) * pct));
+      }
+      const added = reinforceAllies(ev.reinforce || 0, (encounter ? encounter.waveIndex : 0) + 1);
+      toast(`喘息 ${Math.round(ev.seconds)}s · 抢修 +${healed} · 补员 ${added}`);
+      break;
+    }
+    case 'intel':
+      refreshEnemyIntel();
+      break;
+    case 'victory':
+      finishEncounter('victory', ev.stats);
+      break;
+    case 'defeat':
+      finishEncounter('defeat', ev.stats);
+      break;
+  }
+}
+
+function restartEncounter(){
+  const idx = entities.indexOf(player);
+  if(idx >= 0) entities.splice(idx, 1);
+  shells.length = 0; impacts.length = 0; bounceFx.length = 0; particles.length = 0;
+  coverHp.clear(); coverSig = ''; staticRebuildT = 0; lastImpactCount = 0;
+  shotsFired = 0; enemySeq = 0; lastEnemyAlive = 0;
+  encOutcome = null; encStats = null; encWarnText = '';
+  const el = document.getElementById('encResult');
+  if(el) el.style.display = 'none';
+  initWorld();
+}
+
 function buildFireCtx(){
   return {
     player, shells, impacts, bounceFx, entities, covers, mouseWorld,
@@ -379,6 +706,9 @@ function buildEnemies(gen, tanks){
 function initWorld(){
   // R1：一张小战场（1200×720 方形竞技场），不走 run 链。
   const gen = generateNode(0.45, { seed: SEED, scale: 1.8 });
+  // G1：遭遇模式接管敌人投放 ⇒ 不再预生成敌人（node.enemies 为空，由波次状态机 spawn）。
+  // enabled=false 时退回旧沙盒（6 敌预生成），保留 A/B 对照路径。
+  const encEnabled = !!(RULES.encounter && RULES.encounter.enabled);
   node = {
     index: 0,
     w: gen.w, h: gen.h,
@@ -389,14 +719,27 @@ function initWorld(){
     biome: 'grass',
     biomeZones: [],
     outpost: null,
-    playerSpawn: { x: gen.w * 0.12, y: gen.h * 0.5 },
-    enemies: buildEnemies(gen, tankListData),
+    // G1：出生点从 0.12w 内移到 0.25w。原位置贴着西侧边界（x≈173），往西倒车 173px 就贴边，
+    // 实测「持续倒车」只能把承伤从 31 降到 22.8 hp/s（26%）——不是机动没收益，是无处可退。
+    // 内移后西向纵深 358px，机动才是一个真实可选项；同时缓解「正西方位纵深不足」导致的
+    // 兜底出生点过近（W3 那颗 heavy 曾落到 414px）。
+    playerSpawn: { x: gen.w * 0.25, y: gen.h * 0.5 },
+    enemies: encEnabled ? [] : buildEnemies(gen, tankListData),
   };
   spawnPoint = { x: node.playerSpawn.x, y: node.playerSpawn.y };  const ids = Object.keys(tankListData);
   const playerTankId = ids[0];
   player = spawnTank({ id: 'player', team: 'player', x: node.playerSpawn.x, y: node.playerSpawn.y, hullAngle: 0, turretAngle: 0, heightClass: 'medium' });
   if(playerTankId) applyTankConfig(player, tankListData[playerTankId]);
   resetEntity(player);
+  // G1 切片专用演示缩放（RULES.encounter.playerHpScale，口径见 js/tank_rules.js）：
+  // 正式游戏的有效血量由卡牌/永久升级/维修技能共同堆叠，切片一条都没接入 —— 不缩放就是
+  //「80 血对 50 伤害」，出场两发即毁，遭遇只剩 30 秒。只写 base + refreshStats，不动 stats 直写。
+  // 友军同 scale：否则友军每波秒灭，喘息期的补员机制等于空转。
+  hpScale = (RULES.encounter && RULES.encounter.playerHpScale) || 1;
+  if(hpScale !== 1 && player.base){
+    player.base.maxHp = (player.base.maxHp || player.stats.maxHp || 0) * hpScale;
+    if(typeof refreshStats === 'function') refreshStats(player);
+  }
   player.hp = player.stats.maxHp;
   player.ammoKey = 'ap';
 
@@ -434,6 +777,7 @@ function initWorld(){
     t._allyCount = spec._allyCount;
     if(allyTankId && tankListData[allyTankId]) applyTankConfig(t, tankListData[allyTankId]);
     resetEntity(t);
+    scaleAllyHp(t);
     t.hp = t.stats.maxHp;
     issueAllyCommand([t], { order: 'follow', issuedAt: performance.now() }, commandCtx());
   }
@@ -446,12 +790,28 @@ function initWorld(){
   fireCtx = buildFireCtx();
   mouseWorld.x = player.x + 200;
   mouseWorld.y = player.y;
+  // G1：遭遇状态机（纯逻辑层，seed 固定 ⇒ 波次与出生点可复现）
+  encounter = encEnabled ? createEncounter({ seed: SEED, rules: RULES.encounter }) : null;
+  lastEnemyAlive = 0;
   document.getElementById('boot').style.display = 'none';
 }
 
 // ---------------- 模拟 ----------------
 function update(dt){
   if(!player) return;
+  // 终局（G1）：冻结战斗——不再 drive / 开火 / AI，只保留粒子与相机，画面不僵死
+  if(encOutcome){ stepParticles(dt); updateCameraFollow(dt); return; }
+
+  // G1 遭遇导演：先按存活差分统计击杀（含友军击杀），再推进波次状态机。
+  // 顺序不能反：spawn 当帧的存活数是「变多」，差分只认「变少」，不会误计击杀。
+  const aliveNow = entities.filter(e => e.team === 'enemy' && e.hp > 0).length;
+  if(encounter && lastEnemyAlive > aliveNow) encounter.kills += (lastEnemyAlive - aliveNow);
+  lastEnemyAlive = aliveNow;
+  if(encounter){
+    for(const ev of updateEncounter(encounter, dt, encounterCtx())) handleEncounterEvent(ev);
+    if(encOutcome){ stepParticles(dt); updateCameraFollow(dt); return; }   // 本帧判出胜负 → 立即冻结
+  }
+
   const keys = input.keys;
   const drive = input.driveArgs ? input.driveArgs() : {
     turn: (keys.a ? 1 : 0) - (keys.d ? 1 : 0),
@@ -558,7 +918,22 @@ function update(dt){
     }
   }
 
-  // 粒子
+  stepParticles(dt);
+
+  // 玩家阵亡：遭遇模式下由状态机判 defeat（下一帧 ctx.playerAlive=false），不再回出生点；
+  // 沙盒模式（encounter 关闭）沿用旧的「满状态回出生点」。
+  if(player.hp <= 0 && !encounter){
+    resetEntity(player);
+    player.hp = player.stats.maxHp;
+    player.x = spawnPoint.x; player.y = spawnPoint.y;
+    toast('玩家阵亡 — 已回到出生点', true);
+  }
+
+  updateCameraFollow(dt);
+}
+
+/** 粒子步进（终局冻结态也要跑，否则结算画面上烟尘会僵在半空）。 */
+function stepParticles(dt){
   for(let i = particles.length - 1; i >= 0; i--){
     const p = particles[i];
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
@@ -566,15 +941,11 @@ function update(dt){
     p.life -= dt;
     if(p.life <= 0) particles.splice(i, 1);
   }
+}
 
-  // 玩家阵亡：沙盒式满状态回到出生点（R1 切片不接 run 流程）
-  if(player.hp <= 0){
-    resetEntity(player);
-    player.hp = player.stats.maxHp;
-    player.x = spawnPoint.x; player.y = spawnPoint.y;
-    toast('玩家阵亡 — 已回到出生点', true);
-  }
-
+/** 相机跟随 + 震屏衰减（终局冻结态也保留，画面不僵死）。 */
+function updateCameraFollow(dt){
+  if(!player) return;
   const leadX = player.x + (mouseWorld.x - player.x) * 0.12;
   const leadY = player.y + (mouseWorld.y - player.y) * 0.12;
   // 视野大于战场时把相机居中，避免玩家贴边时半屏是地图外
@@ -658,7 +1029,46 @@ function renderHud(){
       }
     }
   }
+  renderEncHud();
   renderR1Check();
+}
+
+/** G1 遭遇 HUD：三块信息同屏可读——第几波 / 还剩几个 / 当前节拍（来袭·交战·喘息）。
+ *  缺任何一块玩家就只能靠猜，波次导演的可读性支柱就塌了。 */
+function renderEncHud(){
+  const el = document.getElementById('encHud');
+  if(!el) return;
+  const warnEl = document.getElementById('encWarn');
+  if(!encounter){
+    el.style.display = 'none';
+    if(warnEl) warnEl.style.display = 'none';
+    return;
+  }
+  const waveNo = Math.min(encounter.waveIndex + 1, encounter.waveCount);
+  const alive = entities.filter(e => e.team === 'enemy' && e.hp > 0).length;
+  const mm = Math.floor(encounter.elapsed / 60), ss = Math.floor(encounter.elapsed % 60);
+  const time = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  let beat = '';
+  if(encounter.phase === 'telegraph') beat = `来袭 ${Math.max(0, encounter.timer).toFixed(1)}s · 抢占掩体`;
+  else if(encounter.phase === 'wave') beat = `交战 · 剩余 ${alive}`;
+  else if(encounter.phase === 'breather') beat = `喘息 ${Math.max(0, Math.ceil(encounter.timer))}s · 抢修/补员`;
+  else beat = encounter.phase === 'victory' ? '任务完成' : '任务失败';
+  el.style.display = 'block';
+  el.setAttribute('data-beat', encounter.phase);
+  el.innerHTML = `<div class="wave">遭遇 ${waveNo}/${encounter.waveCount} · ${currentWaveLabel()}</div>`
+    + `<div class="beat">${beat}</div>`
+    + `<div class="beat">用时 ${time} · 击杀 ${encounter.kills}</div>`;
+
+  if(warnEl){
+    const on = encounter.phase === 'telegraph';
+    warnEl.style.display = on ? 'block' : 'none';
+    if(on){
+      // 3Hz 闪烁：足够抓眼又不至于像警报器一样烦（telegraph 只有 2s）
+      warnEl.style.opacity = (Math.floor(encounter.timer * 6) % 2) ? '0.45' : '0.95';
+      const txt = warnEl.querySelector('.txt');
+      if(txt) txt.textContent = encWarnText;
+    }
+  }
 }
 
 /** R1 验收清单：把「这个 demo 要验证什么」直接画在页面上（F1 隐藏）。 */
@@ -682,6 +1092,7 @@ function renderR1Check(){
     `<div>${allies.length ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 友军 Z/X/C 命令（${allyTxt}）</div>`,
     '<div><span class="dim">□</span> 车头/车尾：黄箭头=车头，红尾灯=车尾</div>',
     '<div><span class="dim">□</span> 载具手感：加减速俯仰/侧倾、开炮后坐与扬尘、震屏</div>',
+    `<div>${encOutcome ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 完整遭遇：${encounter ? `波次 ${Math.min(encounter.waveIndex + 1, encounter.waveCount)}/${encounter.waveCount} · ${encounter.phase}` : '沙盒'}${encOutcome ? ' · ' + (encOutcome === 'victory' ? '胜利' : '失败') : ''}</div>`,
     `<div>${destroyed > 0 ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 建筑可破坏（已毁 ${destroyed} / ${covers.length}）</div>`,
     `<div class="dim">FPS ${fpsVal} · 敌军 ${entities.filter(e => e.team === 'enemy' && e.hp > 0).length} · 炮弹 ${shells.length}</div>`,
   ].join('');
@@ -714,6 +1125,15 @@ window.addEventListener('keydown', e => {
   e.preventDefault();
   const el = document.getElementById('r1Check');
   if(el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+});
+
+// R：结算态下重开一局（非结算态 R 是弹夹整装，见 input.actions.reloadClip）
+window.addEventListener('keydown', e => {
+  if(e.key.toLowerCase() !== 'r' || e.repeat) return;
+  if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
+  if(!encOutcome) return;
+  e.preventDefault();
+  restartEncounter();
 });
 
 // ---------------- 启动 ----------------
@@ -787,6 +1207,42 @@ window.__TEST3D__ = {
   player(){ return player; },
   entities(){ return entities; },
   covers(){ return covers; },
+  // --- G1 遭遇（2026-10-28）---
+  encounter(){
+    if(!encounter) return { enabled: false, outcome: encOutcome };
+    return {
+      enabled: true,
+      phase: encounter.phase, waveIndex: encounter.waveIndex, waveCount: encounter.waveCount,
+      timer: encounter.timer, elapsed: encounter.elapsed, kills: encounter.kills,
+      outcome: encOutcome, stats: encStats,
+      enemyAlive: entities.filter(e => e.team === 'enemy' && e.hp > 0).length,
+      allyAlive: livingAllies().length,
+    };
+  },
+  /** 测试用：一键清场（推进波次的快速路径，不走真实战斗） */
+  killAllEnemies(){
+    let n = 0;
+    for(const e of entities){
+      if(e.team === 'enemy' && e.hp > 0){ e.hp = 0; n++; }
+    }
+    return n;
+  },
+  /** 测试用：出生点合法性判定（诊断采样成功率用） */
+  spawnBlocked(x, y){ return spawnBlocked(x, y); },
+  spawnBlockedWhy(x, y){ return spawnBlockedWhy(x, y); },
+  /** 测试用：清掉飞行中的炮弹（否则清场后流弹仍会命中玩家，污染喘息期断言） */
+  clearShells(){
+    const n = shells.length;
+    shells.length = 0;
+    return n;
+  },
+  /** 测试用：直接扣玩家血（验证 defeat 链路） */
+  damagePlayer(n){
+    if(!player) return 0;
+    player.hp = Math.max(0, player.hp - (Number(n) || 1));
+    return player.hp;
+  },
+  restart(){ restartEncounter(); return true; },
 };
 })();
 </script>

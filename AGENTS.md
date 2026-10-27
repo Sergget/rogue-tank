@@ -146,7 +146,7 @@
   - `http://127.0.0.1:8000/tank_battle.html`（正式游戏）/ `tank_bench.html`（装甲测试台）
   - `http://127.0.0.1:8000/tank_designer.html`
   - `http://127.0.0.1:8000/tank_compare.html`
-- 校验：`npm run check` —— 对共享模块、`server.js` 及**七个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器链（smoke / r3 / run / r4 + ally + 3d，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）；`npm run baseline` —— **R0 渲染基线**（三场景固定截图 + 性能采样，默认 `--check`，首次用 `--write` 记录；基线在 `tmp/`，不入库）；`npm run baseline:3d` —— **G1 3D 场景基线**（固定相机/冻结首帧截图 + 帧时间）。五者都应全绿。
+- 校验：`npm run check` —— 对共享模块、`server.js` 及**七个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器链（smoke / r3 / run / r4 + ally + 3d + encounter，r4 覆盖主副武器与技能/商店实战，encounter 覆盖 G1 波次遭遇全链路；需系统 Edge，playwright-core 无头）；`npm run baseline` —— **R0 渲染基线**（三场景固定截图 + 性能采样，默认 `--check`，首次用 `--write` 记录；基线在 `tmp/`，不入库）；`npm run baseline:3d` —— **G1 3D 场景基线**（固定相机/冻结首帧截图 + 帧时间）。五者都应全绿。
 - **改过 docs 再加一条**：`node scripts/wiki-check.js` —— 全 `docs/` 树的 Markdown 链接与锚点校验（断链 / 失效锚点）。**改 specs 页面、改文件名、改标题后必须跑**（见 §2.3）。仅改代码/测试时不需要。
 
 ### 3.2 测试坦克战斗
@@ -191,8 +191,8 @@
 | 链 | 沙箱 workspace-write | 权限放宽后 |
 |---|---|---|
 | `npm run check`（语法 + tsc） | ✅ 全绿 | ✅ |
-| `npm test`（67 个 `test-*.js` + `validate-content.js` = 68 项登记，2026-10-27 实测） | ⚠️ **67 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **68 通过 / 0 失败** |
-| `npm run test:browser`（六链） | ⚠️ 报 `spawn EPERM`（命名管道被禁）并输出 `INCONCLUSIVE` + 退出码 86 | ✅ 全绿 |
+| `npm test`（68 个 `test-*.js` + `validate-content.js` = 69 项登记，2026-10-28 实测） | ⚠️ **68 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **69 通过 / 0 失败** |
+| `npm run test:browser`（七链） | ⚠️ 报 `spawn EPERM`（命名管道被禁）并输出 `INCONCLUSIVE` + 退出码 86 | ✅ 全绿 |
 
 **不要把 `INCONCLUSIVE`/86 当成代码失败**；它明确表示环境未放开。历史上该噪音被误读为「浏览器链坏了」，导致多轮无效排查。
 

@@ -28,6 +28,7 @@
 | 敌方 AI：触发 / 警觉 / 反应延迟 / 接战传播 | [敌方 AI](./combat/enemy-ai.md) | §5.1 |
 | 敌方 AI：接战机动 / 交战结构 / 侧翼 / 分离力 | [敌方 AI · 接战机动随机化](./combat/enemy-ai.md#接战机动随机化) + [交战结构重做](./combat/enemy-ai.md#交战结构重做) | §5.1 |
 | 友军指挥：三命令（跟随/移动/集火）/ 目标权威 / 状态反馈（A0 已落地） | [友军指挥与战术协同](./combat/ally-command.md) | — |
+| 遭遇导演：波次编成 / 阶段机 / 事件契约 / `RULES.encounter` 参数（3D 切片） | [遭遇导演](./combat/encounter-director.md) | — |
 | 敌人数值 / 难度乘子 / 固定基准 | [敌人强度与难度](./combat/enemy-scaling.md) | §5「难度全面分化」段（仅机制表述）、§11.5 |
 | Boss 激光 / 召唤 / 随机走位 | [Boss 战斗](./combat/boss-combat.md) | §9.5（#G1 乘数方案，已废） |
 | Boss 血量 / 难度缩放 | 归口 **`specs/boss.md` §5** | §13.4（`entityMults.maxHp` 与 `hpMul` 两级叠加） |
@@ -445,3 +446,9 @@
 > 令牌唯一物理载体是 `js/tank_ui.js`（用户 2026-10-27 裁定走 JS 注入而非外链 CSS），七页均以同步脚本接入、不再自带 `:root`。**视觉层只管看起来怎样，不改变元素 id、DOM 结构、交互语义与游戏行为**——`hud-ui.md` 的「元素 id 测试契约」仍是行为侧唯一权威。P0（色板统一 / 圆角归零 / 首页改版）已落地；P1（字号 5 档收敛）、P2（侧栏与弹窗尺寸、按钮五态）未落地，由 `scripts/test-ui-tokens.js` 的字号棘轮逐步收紧。
 
 **详见**：[界面版式与设计令牌](./combat/ui-layout.md) · [界面组件与状态](./combat/ui-components.md)
+
+## 19. 遭遇导演（2026-10-28 G1 完整 3～5 分钟遭遇，现行口径）
+
+> 三波遭遇导演（W1 侦察分队 / W2 分进合击 / W3 装甲合围）+ `telegraph→wave→breather→victory/defeat` 阶段机 + 七类事件契约；参数唯一口径 `RULES.encounter`（`js/tank_rules.js`），纯逻辑层 `js/tank_encounter.js` 只发事件不写实体。**三条必守**：波次敌人强制 `aiEngaged=true` 并按 `intelInterval` 刷新方位（否则龟缩成无限局）、写入场反应延迟（否则出场即齐射）、方位回退后必须写回 bearing（否则 HUD 骗玩家）。`playerHpScale` / `enemyDamageScale` / `entryReactSeconds` 是**切片专用演示缩放，正式战斗不读**。
+
+**详见**：[遭遇导演](./combat/encounter-director.md)

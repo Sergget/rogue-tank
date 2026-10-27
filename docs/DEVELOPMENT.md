@@ -63,8 +63,8 @@
 - **R0 渲染地基（2026-10-27，§4.147）**：I3 三场景截图基线（`npm run baseline`：standard/boss/survival，冻结首帧 + 32×18 网格容差 + PNG 对照图）、I4 拾取唯一入口 `pointerToWorld`（battle 鼠标/滚轮与 bench 鼠标全改走它）、性能计数 `js/tank_perf.js` + `__TEST__.perf()/mem()/battleStartMs()`。A0/R1/G1 的共用前置已就位；不改正式战斗表现。
 - **A0 友军指挥闭环（2026-10-27，§4.148/§4.151/§4.152）**：纯逻辑层 `js/tank_ally_command.js`（**三命令 follow/move/focus**、任务快照、状态机、编队规格；六命令版本当日按用户裁定简化）；**决策与击发读同一权威目标**（`allyFireTargetFor`：focus 只认任务目标、move 打最近、follow 打随机可攻击目标）；battle 每节点生成 2 辆指挥友军（Boss 1 辆），**标准模式不再预生成「友军据点」**（`noOutpost`）、**Z/X/C 直接快捷键**（命令转盘暂时关闭，卡牌查看器改 B）、HUD 队伍列表 + 世界标记 + 2 秒反馈；`RULES.allyCommand` 唯一参数口径。敌军仍只把玩家当主目标（A1/A2 处理）。
 - **R1 真 3D 可玩切片（2026-10-27，§4.149/§4.151）**：`tank_3d.html` 用原生 WebGL1（零依赖）渲染同一套二维模拟——1440×864 小战场、6 敌 + 2 友军、轻倾斜固定 yaw 相机、屏幕射线地面拾取、主炮可连续开火（主循环驱动装填/武器状态机）、Z/X/C 友军命令、掩体破坏触发静态几何重建、命中烟尘、右上 **F1 验收清单**；`js/tank_render3d.js` + `js/tank_scene3d.js`。PBR/阴影/LOD/资产管线与可旋转相机未做（G1 门内）。**用户 2026-10-27 实机验收通过。**
-- **G1 首切片（2026-10-27，§4.154）**：`npm run baseline:3d` 固定相机/冻结首帧的 3D 场景基线（网格 + PNG + 帧时间 + 堆）；载具**视觉**俯仰/侧倾/后坐弹跳（`applyTankTilt`/`updateTankVisual`）、履带扬尘、开火/命中/破坏震屏、破坏扬尘与火花、3D 音频接入。**仍待做**：完整 3～5 分钟遭遇（波次/胜负/节奏）、精修单车与主题场景、1080p/Deck 性能预算与降级。
-- **测试链**：**67 个 `scripts/test-*.js` + `validate-content.js` = 68 项登记**（2026-10-27 实测：`npm test` **68 通过 / 0 失败**）。新增形态门 `test-qa.js`：每个测试脚本必须 `require` `tank_utils` + `tank_rules` 且有 `ok/fails` 骨架。**渲染基线**单独走 `npm run baseline`（`scripts/browser-baseline.cjs`，默认 `--check`）。
+- **G1 3D 品质切片（2026-10-27 §4.154 / 2026-10-28 §4.155）**：§4.154 = `npm run baseline:3d` 场景基线 + 载具**视觉**俯仰/侧倾/后坐弹跳 + 履带扬尘 + 开火/命中/破坏震屏 + 3D 音频接入。**完整 3～5 分钟遭遇已于 2026-10-28 完成（§4.155）**：纯逻辑层 `js/tank_encounter.js` 的波次状态机（`telegraph→wave→breather→victory/defeat` + 七类事件）+ 三波编成（侦察分队 / 分进合击 / 装甲合围）+ `RULES.encounter` 唯一参数口径；页面只做生成与演出。**仍待做**：精修单车与单主题场景（资产管线）、1080p/Deck 性能预算与降级、载具手感第二轮（侧滑/坡面/悬挂落地/碰撞反馈）。
+- **测试链**：**68 个 `scripts/test-*.js` + `validate-content.js` = 69 项登记**（2026-10-28 实测：`npm test` **69 通过 / 0 失败**，含本批新增 `scripts/test-encounter.js`）。新增形态门 `test-qa.js`：每个测试脚本必须 `require` `tank_utils` + `tank_rules` 且有 `ok/fails` 骨架。**浏览器链为七链**（2026-10-28 实测 `npm run test:browser` 全绿，含新增遭遇链 `scripts/test-browser-encounter.cjs`）；`npm run check` EXIT=0。**渲染基线**单独走 `npm run baseline`（`scripts/browser-baseline.cjs`，默认 `--check`）。
 - **技术栈定性（2026-10-24 用户纠正，§4.125）**：**零依赖 / `file://` 直开 / Node 像素回归不是硬约束，只是目前的临时选择**。真 3D（WebGL/Three.js）**未被架构排除**；本阶段不做的理由是缺 3D 美术管线与玩法收益未证实。唯一口径 `specs/map/pseudo-3d-2p5d.md` §3.1。
 - **视野-隐蔽机制（2026-10-24 P1 落地，§4.128）**：三个结构性缺陷已补两条半——① `hasLineOfSight` 从 **`vision` 布尔**改为**高度分档**（`coverTiers[*].height` 18/18 键为唯一口径；判据 `height ≥ min(eyeZ,targetZ)`；用户选 C 方案 `LOS_HULL_Z=1.0m` ⇒ **灌木挡车体、不挡炮塔**，hull-down 成立）；② 隐蔽加成从「相交即满额」改为**按覆盖深度折算**（中心满额/边缘半额）；③ 隐蔽对称化**保留接入未启用**（`RULES.camouflage.symmetric=false` + `tank_ai._enemyCamoMul`）。配套 **I0 模拟时钟**（`simNow/setSimNow/advanceSimNow`，13 处判定/计时挂钟读取已迁移，主循环逐帧注入）。**弹道侧 `getPartZRange`/`getExposure` 完全未改**。细归口 `specs/map/vision-stealth-3d-compat.md` §9。
 - **贴图资产口径（2026-10-23 用户裁定，§4.124）**：确定为「**程序化生成 + 后期贴图接线**」。程序化烘焙是现行唯一实机路径；PNG 通道（地图 `ASSET_DEFS.bake → assets/<key>.png`、坦克 `sprite` 四层 → `drawTankSprite`）代码保留但**当前盘上无图**（19 张坦克 PNG 已删除）。**本仓库不出图**——AI 出图链已整体删除；后期美术按 `docs/ASSETS-PIPELINE.md` 落盘并由 `covers-anchor-check.py` 验收，`scripts/test-asset-pipeline.js` 锁接线完整性。伪 3D 形态裁定为**俯视 2.5D**、研究见 `specs/map/pseudo-3d-2p5d.md`（**设计预留，未落地**）。
@@ -124,7 +124,7 @@
    - ~~**共同地基 R0**~~：I3 截图基线 + I4 拾取唯一入口 + 固定场景/性能基线 **已完成（§4.147）**。
    - ~~**A0 命令闭环**~~：三命令 + 统一目标权威 **已完成（§4.148，标准模式不预生成友军据点见 §4.152）**；A1（导航/职能）与 A2（单车/手柄）未做。
    - ~~**R1 可玩切片**~~：同一套二维模拟 + 原生 WebGL 小战场 **已完成（§4.149；连续开火修复 §4.151、阵营环 §4.152）**；`tank_3d.html` 右上 F1 验收清单可直接用于 Go/No-Go 实机评审。
-   - **下一步 = 先过 R1 Go/No-Go，再做 G1 品质垂直切片**：R1 评审按清单看「地面拾取一致 / 连续开火 / Z/X/C 指挥 / 车头车尾可辨 / 建筑可破坏 / FPS」，**已由用户 2026-10-27 实机验收通过**。G1 首切片已落地（§4.154）：`npm run baseline:3d` 场景基线 + 载具视觉俯仰/侧倾/后坐 + 扬尘/震屏 + 破坏扬尘 + 音频接入；**仍待做**：完整 3～5 分钟遭遇（波次导演/胜负/节奏）、精修单车与单主题场景、1080p/Deck 性能预算与降级。过门仍按 §2.3 的 6 个维度。
+   - **下一步 = 先过 R1 Go/No-Go，再做 G1 品质垂直切片**：R1 评审按清单看「地面拾取一致 / 连续开火 / Z/X/C 指挥 / 车头车尾可辨 / 建筑可破坏 / FPS」，**已由用户 2026-10-27 实机验收通过**。G1 首切片已落地（§4.154）：`npm run baseline:3d` 场景基线 + 载具视觉俯仰/侧倾/后坐 + 扬尘/震屏 + 破坏扬尘 + 音频接入；**完整遭遇（波次导演/胜负/节奏）已于 2026-10-28 完成（§4.155）**；**仍待做**：精修单车与单主题场景、1080p/Deck 性能预算与降级、载具手感第二轮。过门仍按 §2.3 的 6 个维度。
    - **Go/No-Go 后才量产**：G1 不过门不批量产车/图/模型；切片证明 JS 路线存在结构性阻碍才重评 Godot 等备选。现行机制归 `specs/combat/ally-command.md`、`specs/map/rendering-roadmap.md`。
 3. **远期路线与商业化筹备（2026-10-26 重排）**：
    - **已完成的首批三项（§4.123，2026-10-23）**：撞击伤害、隐蔽感知、战术闪跃——均不依赖设计器 UI。细则见 `specs/combat/ramming-stealth-dash.md`。
@@ -150,7 +150,7 @@
 批次日志已按月份拆分：
 
 - [2026-09 批次 (§4.27–§4.39)](DEVELOPMENT-batches-2026-09.md)
-- [2026-10 批次 (§4.40–§4.154)](DEVELOPMENT-batches-2026-10.md)
+- [2026-10 批次 (§4.40–§4.155)](DEVELOPMENT-batches-2026-10.md)
 
 ### 4.0 §4.1~§4.26 编号索引（正文见归档）
 
@@ -220,6 +220,7 @@
 | §4.152 | 2026-10-27 | **阵营环 + 标准模式移除友军据点 + Boss 节点改用标准 strip 生成器（3×3 屏）**：2D/3D 友军淡绿/敌军红环；标准模式保留 2 辆指挥友军、`noOutpost` 不生成据点；`strip.boss` + `fillBands` + Boss 不布防线，方形路径仅无 viewport 回退 | `specs/combat/hud-ui.md`「战场阵营环」· `specs/map/difficulty.md`「尺寸、出生点与性能」· `specs/combat/ally-command.md` §5.1 |
 | §4.153 | 2026-10-27 | **文档一致性收口**：修正 §4.150–§4.152 后的现行口径漂移（Z/X/C、卡牌 B 键、五卷页数 20/16/9/8/8、浏览器六链、71 页）；历史归档与 changelog 不动 | `docs/specs/README.md` · `AGENTS.md` §3.7 · `.claude/` |
 | §4.154 | 2026-10-27 | **G1 首切片**：`npm run baseline:3d` 3D 场景基线；`applyTankTilt` + `updateTankVisual` 视觉俯仰/侧倾/后坐/扬尘；震屏、破坏扬尘/火花、3D 音频接入；R1 已由用户验收通过 | `specs/map/rendering-roadmap.md` §2.3 · `specs/editor/browser-tests.md` |
+| §4.155 | 2026-10-28 | **G1 完整 3～5 分钟遭遇**：纯逻辑波次状态机 `js/tank_encounter.js`（`telegraph→wave→breather→victory/defeat` + 七类事件）+ 三波编成 + `RULES.encounter` 唯一参数口径；页面只做生成/演出/HUD/结算；新增 Node 与浏览器两条 encounter 测试链 | `specs/combat/encounter-director.md` · `specs/editor/browser-tests.md` |
 
 ---
 

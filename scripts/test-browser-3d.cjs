@@ -95,9 +95,14 @@ async function ensureServer() {
     check('R1 页面启动（WebGL 可用）', ready, JSON.stringify(boot));
     if (!ready) throw new Error('R1 页面未就绪：' + JSON.stringify(boot));
 
+    // G1（2026-10-28）：敌人改由波次投放——进入时处于 telegraph（场上 0 敌），
+    // 等首波入场后再断言。旧断言「战场含敌军」隐含「开局预生成 6 敌」，已不成立。
+    const waveIn = await page.waitForFunction(
+      () => window.__TEST3D__.state().enemies > 0, null, { timeout: 15000 }
+    ).then(() => true).catch(() => false);
     const st = await page.evaluate(() => window.__TEST3D__.state());
     check('玩家已生成', !!st.player && st.player.hp > 0, JSON.stringify(st.player));
-    check('战场含敌军', st.enemies > 0, `enemies=${st.enemies}`);
+    check('首波敌人入场（波次投放，非预生成）', waveIn && st.enemies > 0, `enemies=${st.enemies}`);
     check('友军编队 2 辆', st.allies === 2, `allies=${st.allies}`);
     check('节点尺寸合理', st.node && st.node.w > 800 && st.node.h > 500, JSON.stringify(st.node));
 

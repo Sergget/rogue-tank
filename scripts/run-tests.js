@@ -119,6 +119,10 @@ const TESTS = [
   'scripts/test-ui-tokens.js',
   // 2026-10-27 用户需求：Boss 节点改用标准 strip 生成器（3×3 屏），网格无空区 / 出生点合法 / 确定性。
   'scripts/test-boss-map.js',
+  // 2026-10-28 G1：完整 3~5 分钟遭遇的纯逻辑层（js/tank_encounter.js）——三波状态机 /
+  //   telegraph→spawn→wave→breather 推进、victory/defeat 幂等、同 seed 确定性、
+  //   全阻挡图的出生点兜底、intel 间隔、RULES.encounter 消费哨兵。
+  'scripts/test-encounter.js',
 ];
 
 function pickTests() {
