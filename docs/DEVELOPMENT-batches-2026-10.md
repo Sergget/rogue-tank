@@ -4008,3 +4008,63 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 - 新增 `scripts/test-encounter.js`（186 条断言，已登记 `run-tests.js` ⇒ 登记项 68 → **69**）与 `scripts/test-browser-encounter.cjs`（**第七链**，已加入 `package.json`）。
 - 既有 `scripts/test-browser-3d.cjs` 的「战场含敌军」断言改为「首波敌人入场（波次投放）」——旧断言隐含「开局预生成 6 敌」，新遭遇下已不成立。
 - `npm run check` EXIT=0（check-html 七页内联脚本 + tsc）；`npm test` **69 通过 / 0 失败**；`npm run test:browser` **七链全绿**；`npm run baseline` 2D 三场景 PASS。
+
+## §4.156 2026-10-28 G1 性能预算与降级：三档档位、帧时间门控与「只降表现」红线
+
+**前提**：§4.154/§4.155 之后 G1 已「打得好看 + 有完整遭遇」，但 3D 切片没有性能护栏——软件渲染（swiftshader）帧时间 80ms+ 只能硬扛，1080p 与 Deck 共用一份截图基线（分辨率不同、像素网格不可比），也没有「掉帧时先牺牲什么」的成文顺序。
+
+### 1) 分层：门控逻辑纯函数化，页面只接线
+
+- **原地扩写** `js/tank_perf.js`：上半段是 R0（§4.147）的性能采样器（`summarizeMs` / `createPerfRing`），下半段新增 `createGovernor` / `updateGovernor` / `getTierConfig`——帧时间 EMA + 升降级门控，**无 DOM 依赖，Node 可直接测**。本批**没有新建文件**。
+- `tank_3d.html` 只做三件事：① 把 `resolutionScale` 落到 canvas（`applyRenderScale`，档位不变不重分配 framebuffer）② 按档位裁粒子/炮弹/扬尘（`addParticle` 的 cap、`shellCap`、`dustIntervalS`）③ 节流静态几何重建（按档 `staticRebuildIntervalS`：0.25 / 0.40 / 0.60）。
+- 数值唯一口径 = `RULES.perf`（`js/tank_rules.js:1061`，每键带 rationale 注释）；页面不写死阈值。
+
+### 2) 降级优先级与红线（本批的核心设计）
+
+自研 WebGL1 渲染器没有阴影与后处理，瓶颈只在四处：分辨率、粒子总量、动态几何每帧重建量、静态几何重建频率。降级按**玩家感知从低到高**排序：
+
+1. **渲染分辨率**——画面变糊，但可读性、判定、操作精度全不变；
+2. **粒子预算**——先砍履带扬尘这类**环境氛围**（`dustIntervalS`），再砍命中火花/开火烟这类**战斗反馈**（`particleCap` 是总闸，只在该砍反馈时才咬）；
+3. **静态几何重建频率**——玩家只在楼倒下那一刻看得出差别。重建整张 `staticMesh` 是 O(掩体数) 的几何生成，一次齐射同时打掉 3~4 栋楼会连着重建成帧尖峰；拉长观察间隔只让「楼倒下的画面更新」慢一点，却能显著削掉尖峰。
+
+**红线（绝不降级）**：模拟步长 1/120、输入采样、HUD 刷新、炮弹碰撞判定、AI 决策频率。它们一旦降，手感与公平性当场崩（120Hz 步长是命中精度与穿深结算的前提，AI 决策频率决定敌人反应是否可信），而且本来不是瓶颈——60fps 下每帧只跑 2 次 `update(1/120)`，HUD 每 150ms 一次。**降级只能动表现，不能动模拟。**
+
+### 3) 三档与门控参数
+
+- 三档：`high` 1.0 / 420 / 0.09 / 40 / 0.25；`mid` 0.85 / 260 / 0.14 / 32 / 0.40；`deck` 0.7 / 160 / 0.20 / 24 / 0.60（`resolutionScale` / `particleCap` / `dustIntervalS` / `maxShells` / `staticRebuildIntervalS`）。`high` 的 1.0、0.09 与 0.25 刻意等于「接线前」的画质与节流值，否则降级没有对比基线；`deck` 0.60 仍能在半秒内看到楼变成残骸。`getTierConfig` 返回六键（上述五键 + `name`），页面读 `perfCfg.staticRebuildIntervalS || 0.25`，`|| 0.25` 只是旧缓存规则文件的兜底。
+- 门控：`emaAlpha` 0.12（≈8.3 帧时间常数）、`dropAboveMs` 22（45fps 地板：16.7ms 预算要被合成与 GC 吃掉 3~5ms，「稳 60」实际要求 ≤14ms）、`raiseBelowMs` 14（留 8ms 迟滞带）、`dropAfterSeconds` 2（挡住 GC / shader 编译的瞬时尖峰）、`raiseAfterSeconds` 8（≈一次喘息期的大半，避免波次间隙回升→开打又掉）、`minTierHoldSeconds` 3（改分辨率要重分配 framebuffer，本身就有一帧 hitch）。
+- **只能逐级升降，不跳档**：跳档会让画质突变，玩家会以为渲染坏了。
+
+### 4) 防抖与页面入口
+
+- 三重防抖：8ms 迟滞带 + 持续时间门槛（降 2s / 升 8s）+ 最短驻留 3s（挡住「降 → hitch → EMA 更差 → 再降」的连环抖）。
+- 每帧在 `render()` 之后调一次 `updateGovernor(gov, rawDt)`，喂**原始 rAF delta**（不喂页面钳位值，也不喂 `timescale` 缩放值）；档位作用于下一帧，避免半帧状态。
+- 入口三个：`?w=&h=` 设基准分辨率（缺省 1280×720，实际渲染 = 基准 × `resolutionScale`）、`?tier=` 指定起始档（**不做设备嗅探**）、`?perf=manual` 冻结自适应。`enabled=false` 时不建档、固定一档——基线截图与 A/B 必须冻结档位，否则档位漂移会让基线不可复现。
+- F1 清单新增一行：档位 / 渲染分辨率 / EMA 帧时间 / 粒子数。
+
+### 5) 为什么需要 `?perf=manual`
+
+软件渲染的 CI 帧时间 80ms+，真实帧会把档位一路打到 `deck`，「逐级降 → 逐级升」的阶梯断言就永远测不到 `mid` 那一级。只有把手动喂帧与真实帧分开，降级阶梯才可复现。
+
+### 6) 实测
+
+| 场景 | 数据 |
+|---|---|
+| 本机 GPU · 720p | p50 17.9ms / p95 18.2ms / 6 实体 / 10.8MB |
+| 本机 GPU · 1080p | p50 17.9ms / p95 18.2ms / 6 实体 / 22.5MB |
+| 本机 GPU · Deck（1280×800 视口，渲染 896×560） | p50 17.5ms / p95 18.4ms / 6 实体 / 7.8MB |
+| 软件渲染（swiftshader）· 1080p | EMA 84~180ms ⇒ 护栏自动降到 `mid`，画布 1920→1632 |
+
+- 粒子峰值：首波 6 车峰值 139~230，理论极限约 295（`particleCap` 420 留 +40% 余量）。
+- ⚠️ 三档 p50 都贴着 17.6~18ms 是**垂直同步封顶（60fps）**，不代表有余量；真实余量需关 vsync 才能测，标 [PLACEHOLDER 待实测]。
+
+### 7) 顺带修的既有缺陷
+
+`tank_3d.html` 的 F1 开关读的是内联 `style.display`（初始为空串，实际可见性由 CSS 决定），判定条件永远不成立——当前布局下恰好等价，但只要默认改成隐藏就会退化成「按两次才出来」。已改为读 `getComputedStyle`。
+
+### 8) 验证与基线
+
+- `npm run check` EXIT=0；`npm test` **69 通过 / 0 失败**（`scripts/test-perf.js` **68 条断言**，其中本批 48 条 + 后续补 5 条 `staticRebuildIntervalS` 档位化；该文件此前已登记 `TESTS`，本轮沿用）；`npm run test:browser` **八链全绿**（新增第八链 `scripts/test-browser-perf.cjs`，已加入 `package.json`）。
+- `npm run baseline:3d --all` 三档 PASS（mean=0 max=0）；新增 `npm run baseline:3d:all` 同义入口；基线按档拆成 `baseline.json` / `baseline-1080p.json` / `baseline-deck.json`（分辨率不同、像素网格不可比，**必须分档**），输出在 `tmp/render-baseline3d/`。
+- `node scripts/wiki-check.js` → `broken=0 anchorBad=0 struct=0 template=0`。
+- **G1 剩余两项**：精修单车与单主题场景（资产管线）、载具手感第二轮（侧滑/坡面/悬挂落地/碰撞反馈）。

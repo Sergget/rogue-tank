@@ -1,13 +1,13 @@
 # 浏览器自动化测试链
 
-> **摘要**：`npm run test:browser` 六链脚本矩阵、测试钩子与 r4 夹具约定；附 R0 渲染基线链。
-> **适用版本**：现行（2026-10-27；2026-10-27 补渲染基线链）
+> **摘要**：`npm run test:browser` 八链脚本矩阵、测试钩子与 r4 夹具约定；附渲染基线链。
+> **适用版本**：现行（2026-10-28；2026-10-28 补 encounter / perf 两链）
 > **源自**：`docs/specs/editor.md` §7.5（2026-10-21 拆分；原 §7.5 曾错排在 §7.6/§7.7 之后，2026-10-21 仅调物理位置、编号未改）
 > **相关**：[开发者面板](./devpanel.md) · [内容工具与 appearance](./appearance-aimspeed.md) · [渲染路线](../map/rendering-roadmap.md)
 
-## 六链脚本矩阵
+## 八链脚本矩阵
 
-`npm run test:browser` **六链脚本**（按序执行，任一失败即停）：
+`npm run test:browser` **八链脚本**（按序执行，任一失败即停）：
 
 | 脚本 | 页面 | 覆盖 |
 |---|---|---|
@@ -17,6 +17,8 @@
 | `test-browser-r4.cjs` | battle | **主武器各类型实战**（standard 单发 / double_barrel 空格齐射 2 发 / autocannon 连发+heatPct / railgun 单发）、**F 副武器**（mortar isArc / rocket burst / missile 锁定发射且按住不翻转 / mine_layer 按住只走一次边沿 + 雷场生成 + 触爆掉血）、**技能实战效果**（artillery 落弹掉血 / shield 吸收池 / overdrive 装填归零）、**商店购买结算**（hp_up 扣点+记录 / 复活加购 / 升级作用于开局） |
 | `test-browser-ally.cjs` | battle | **A0 友军指挥**：2 辆编队生成、Z/X/C 三命令快捷键、集火目标权威（击发目标 ≡ 任务目标）、目标死亡不暗换最近敌人、非法目标整批拒绝、实际移动、HUD 与键位可发现性 |
 | `test-browser-3d.cjs` | tank_3d | **R1 3D 切片**：WebGL 启动、世界生成（玩家/6 敌/2 友军）、屏幕射线地面拾取、主炮开火与**装填后再次开火**、Z/X/C 命令、命令转盘关闭、验证清单、截图产物 |
+| `test-browser-encounter.cjs` | tank_3d | **G1 完整遭遇**（§4.155）：telegraph→spawn→wave→breather→victory 全链路、defeat 链路、R 重开、进攻意志（`aiEngaged` + `lastKnownPlayerPos`）、敌人主动推进、HUD 可读、无 console error |
+| `test-browser-perf.cjs` | tank_3d | **G1 性能预算与降级**（§4.156）：1080p / Deck 两档实机尺度、手动喂帧时间的逐级降→逐级升、分辨率比例与画面比例保持、粒子/炮弹硬上限、**降级后玩法无损**（能开火/能移动/模拟步长不变）、`?tier=` 与 `?w=&h=` 入口、F1 清单可读 |
 
 ## 渲染基线链（R0 / I3，2026-10-27）
 
@@ -42,6 +44,8 @@
 
 `npm run baseline:3d`（`scripts/browser-baseline3d.cjs`）固定 `tank_3d.html`、1280×720、相机 `pitch 0.95 / distance 1150`，进入即 `setTimeScale(0)` 冻结；采集 32×18 网格 + PNG + 120 帧 rAF 帧时间 p50/p95 + 堆占用，输出 `tmp/render-baseline3d/`。`--write` 记录、`--check` 比对（容差同 2D 基线）；帧时间只记录、不判定。
 
+**按档分基线（2026-10-28 起）**：三档分辨率不同、像素网格不可比，基线拆成三份——`baseline.json`（720p）/ `baseline-1080p.json`（`?w=1920&h=1080&perf=manual`）/ `baseline-deck.json`（`?w=1280&h=800&tier=deck&perf=manual`）。`npm run baseline:3d --all`（同义 `baseline:3d:all`）一次跑三档。基线必须带 `perf=manual`：否则软件渲染下帧时间会把档位打到 `deck`，档位漂移会让基线不可复现（见 [性能预算与降级](../map/perf-budget.md#页面入口)）。
+
 ## 边界与钩子
 
 - **边界（浏览器不做，Node 侧覆盖）**：敌人 AI 决策与 Boss 阶段行为由 `test-ai.js` / `test-boss.js` 覆盖；浏览器仅验证敌人存在 + 开火命中。
@@ -58,13 +62,14 @@
 
 ## 验证状态
 
-六链 **ALL PASS / EXIT=0**（2026-10-27 实测；3D 链在无头 Edge 下走 SwiftShader WebGL）。
+八链 **ALL PASS / EXIT=0**（2026-10-28 实测；3D 相关三链在无头 Edge 下走 SwiftShader WebGL）。
 
 > **沙箱限制**：沙箱内跑 browser 链需按 `sandbox-verify` 一次性放宽进程权限（`spawn EPERM`），复用已监听的 server 可避开 listen 拒绝。失败时输出 `INCONCLUSIVE` + 退出码 **86**——**那是环境未放开，不是代码失败**。
 
 实测中发现的 3 处真实缺陷（battle `devNoVision` TDZ、bench 陈旧复选框接线、开关类副武器 F 逐帧翻转）均已修复，见 `DEVELOPMENT.md` §4.27；F 键边沿口径归口 [战斗规范 · 开关类副武器](../combat/abilities-secondary.md)。
 
 ## 相关页面
-- [开发者面板](./devpanel.md) — 六链中被验证的 devPanel 四 Tab 与卡牌选择器
+- [开发者面板](./devpanel.md) — 八链中被验证的 devPanel 四 Tab 与卡牌选择器
 - [内容工具与 appearance](./appearance-aimspeed.md) — NF-* 工具的验证归属
-- [坦克设计器](./designer.md) — 设计器不在六链范围内（无浏览器自动化）
+- [坦克设计器](./designer.md) — 设计器不在八链范围内（无浏览器自动化）
+- [性能预算与降级](../map/perf-budget.md) — 第八链（perf）验的档位与降级口径

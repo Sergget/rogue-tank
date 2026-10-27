@@ -107,15 +107,20 @@ async function ensureServer() {
     check('节点尺寸合理', st.node && st.node.w > 800 && st.node.h > 500, JSON.stringify(st.node));
 
     // 屏幕中心拾取 ≈ 相机目标，且落在地图内（视野大于战场时相机会居中）
+    // 2026-10-28：中心坐标必须**从画布实际尺寸算**，不能写死 (640,360)。
+    // 性能护栏会按机器帧时间把渲染分辨率降到 0.85/0.7（canvas 变 1088×612 / 896×504），
+    // 写死的坐标就不再是画面中心，射线会打到别处 —— 那是断言的问题，不是拾取的问题。
     const pick = await page.evaluate(() => {
       const s = window.__TEST3D__.state();
-      return { hit: window.__TEST3D__.pick(640, 360), target: s.cam.target, node: s.node };
+      const c = document.getElementById('c');
+      const cx = c.width / 2, cy = c.height / 2;
+      return { hit: window.__TEST3D__.pick(cx, cy), target: s.cam.target, node: s.node, canvas: [c.width, c.height] };
     });
     const pickDist = pick.hit ? Math.hypot(pick.hit.x - pick.target.x, pick.hit.y - pick.target.z) : Infinity;
     const inWorld = pick.hit && pick.hit.x >= 0 && pick.hit.y >= 0
       && pick.hit.x <= pick.node.w && pick.hit.y <= pick.node.h;
     check('屏幕中心射线命中地面且落在战场内', !!pick.hit && inWorld && pickDist < 120,
-      `dist=${pickDist.toFixed(1)} inWorld=${inWorld}`);
+      `dist=${pickDist.toFixed(1)} inWorld=${inWorld} canvas=${pick.canvas.join('×')}`);
 
     // 主炮开火：对准最近敌人方向后调用 fire
     const fired = await page.evaluate(() => {

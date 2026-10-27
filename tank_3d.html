@@ -117,6 +117,7 @@
 <div id="boot">加载 R1 切片…</div>
 
 <script src="js/tank_rules.js"></script>
+<script src="js/tank_perf.js"></script>
 <script src="js/tank_utils.js"></script>
 <script src="js/tank_geometry.js"></script>
 <script src="js/tank_halfgeom.js"></script>
@@ -153,14 +154,75 @@
 const SEED = 20261027;
 const STEP = 1 / 120;
 const canvas = document.getElementById('c');
-// G1 性能预算：渲染分辨率可由 URL 覆盖（?w=1920&h=1080）。默认 1280×720。
-// 1080p 与 Deck（1280×800）是 G1 验收门要求评测的两档实机尺度；
-// canvas 的显示尺寸由 CSS 撑满视口，这里改的是**渲染分辨率**。
-(function applyResolution(){
+// G1 性能预算：两档实机尺度都从 URL 指定（?w=1920&h=1080 / ?w=1280&h=800）。
+// 这里是**基准渲染分辨率**；实际渲染分辨率 = 基准 × 当前性能档的 resolutionScale，
+// 由 applyRenderScale() 统一改写（CSS 撑满视口，所以缩放只影响清晰度、不影响布局与判定）。
+const BASE_RES = (function(){
   const q = new URLSearchParams(location.search);
   const w = Number(q.get('w')) || 0, h = Number(q.get('h')) || 0;
-  if(w >= 320 && h >= 240){ canvas.width = w | 0; canvas.height = h | 0; }
+  if(w >= 320 && h >= 240) return { w: w | 0, h: h | 0 };
+  return { w: 1280, h: 720 };
 })();
+canvas.width = BASE_RES.w; canvas.height = BASE_RES.h;
+
+// ---------------- 性能护栏（G1，2026-10-28） ----------------
+// 纯逻辑在 js/tank_perf.js（governor 门控 + 档位阶梯），页面只做三件事：
+//   ① 把 resolutionScale 落到 canvas 尺寸 ② 按档位裁粒子/炮弹/扬尘 ③ 节流静态几何重建
+// 降级优先级（先降玩家最不易察觉的）：分辨率 → 环境粒子(扬尘) → 战斗粒子 → 几何重建频率。
+// **绝不降级**：模拟步长(1/120)、输入采样、HUD 刷新、炮弹碰撞判定、AI 决策频率。
+const PERF_RULES = (typeof RULES !== 'undefined' && RULES.perf) ? RULES.perf : null;
+const PERF_ON = !!(PERF_RULES && PERF_RULES.enabled !== false);
+// ?perf=manual：只由测试喂帧时间，忽略真实 rAF 帧时间。
+// 用途是让「降级阶梯」可复现——软件渲染（CI 的 swiftshader）帧时间动辄 80ms+，
+// 真实帧会把档位一路打到 deck，阶梯断言就永远测不到 mid 那一级。
+const PERF_MANUAL = (new URLSearchParams(location.search).get('perf') === 'manual');
+const PERF_START_TIER = (function(){
+  // 档位由 URL 指定，不做设备嗅探（UA 嗅探在桌面浏览器上不可靠，且会掩盖真实性能）。
+  const q = (new URLSearchParams(location.search).get('tier') || '').toLowerCase();
+  if(PERF_RULES && PERF_RULES.tiers && PERF_RULES.tiers[q]) return q;
+  return PERF_RULES ? (PERF_RULES.startTier || 'high') : 'high';
+})();
+// enabled=false（基线截图 / A/B 对照）时不建档，直接固定 startTier 档 —— 档位漂移会让基线不可复现。
+let perfGov = (PERF_ON && typeof createGovernor === 'function')
+  ? createGovernor({ rules: PERF_RULES, startTier: PERF_START_TIER })
+  : null;
+let perfCfg = (function(){
+  if(perfGov && typeof getTierConfig === 'function') return getTierConfig(perfGov, PERF_RULES);
+  // enabled=false：读固定档位，不做 governor（getTierConfig 需要 gov，这里手工取同一份表）
+  const t = (PERF_RULES && PERF_RULES.tiers && PERF_RULES.tiers[PERF_START_TIER]) || null;
+  if(!t) return { name: 'off', resolutionScale: 1, particleCap: Infinity, dustIntervalS: 0.09, maxShells: 40 };
+  return {
+    name: PERF_START_TIER, resolutionScale: t.resolutionScale, particleCap: t.particleCap,
+    dustIntervalS: t.dustIntervalS, maxShells: t.maxShells,
+  };
+})();
+
+/** 把当前档位的分辨率缩放落到画布。只在档位变化时调用（改尺寸会重分配 framebuffer，有一帧 hitch）。 */
+function applyRenderScale(scale){
+  const w = Math.max(320, Math.round(BASE_RES.w * scale));
+  const h = Math.max(240, Math.round(BASE_RES.h * scale));
+  if(canvas.width === w && canvas.height === h) return false;
+  canvas.width = w; canvas.height = h;
+  return true;
+}
+applyRenderScale(perfCfg.resolutionScale || 1);
+
+/** 当前 EMA 帧时间（一位小数；未采样时返回 '—'，别把 null 渲染成 0.0 骗人）。 */
+function perfEmas(){
+  const v = perfGov && perfGov.emaMs;
+  return (typeof v === 'number' && isFinite(v)) ? v.toFixed(1) : '—';
+}
+
+/**
+ * 粒子统一入口：硬上限由档位决定，超了丢**最老的**（老粒子已经飞远/快消散，丢它最不可见）。
+ * 环境粒子（履带扬尘）不靠这里裁，靠档位的 dustIntervalS 自然变稀 —— 那是「先降氛围」。
+ */
+function addParticle(p){
+  const cap = perfCfg.particleCap;
+  while(particles.length >= cap) particles.shift();
+  particles.push(p);
+}
+
 const renderer = createRenderer(canvas);
 if(!renderer){
   document.getElementById('boot').textContent = 'WebGL 不可用：R1 切片需要 WebGL1。';
@@ -172,6 +234,8 @@ const shells = [];
 const impacts = [];
 const bounceFx = [];
 const particles = [];
+// 粒子峰值（开局以来）：单帧采样会漏掉齐射瞬间的尖峰，而尖峰正是降级的触发条件
+let particlePeak = 0;
 const mouseWorld = { x: 0, y: 0 };
 const coverHp = new Map();
 let shakeT = 0, shakeMag = 0;
@@ -317,7 +381,7 @@ window.addEventListener('blur', hideAllyWheel);
 function spawnPuffs(x, y, n, color){
   for(let i = 0; i < n; i++){
     const a = Math.random() * TAU, sp = 18 + Math.random() * 46;
-    particles.push({
+    addParticle({
       x, y, z: 16 + Math.random() * 12,
       vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 24 + Math.random() * 34,
       life: 1.1 + Math.random() * 0.6, maxLife: 1.7,
@@ -342,12 +406,13 @@ function updateTankVisual(t, dt, prevSpeed, prevAngle){
 
   if(!t.isDrone && Math.abs(t.speed || 0) > 110){
     t._dustT = (t._dustT || 0) + dt;
-    if(t._dustT > 0.09){
+    if(t._dustT > perfCfg.dustIntervalS){
       t._dustT = 0;
       const ca = Math.cos(t.hullAngle || 0), sa = Math.sin(t.hullAngle || 0);
       const back = (t.hullLen || 60) * 0.45;
       const bx = t.x - ca * back, by = t.y - sa * back;
-      particles.push({
+      // 履带扬尘是**环境氛围**，降级时第一个变稀（dustIntervalS 按档位放大）
+      addParticle({
         x: bx + (Math.random() - 0.5) * 12, y: by + (Math.random() - 0.5) * 12, z: 5,
         vx: -ca * 22 + (Math.random() - 0.5) * 16, vy: -sa * 22 + (Math.random() - 0.5) * 16,
         vz: 10 + Math.random() * 10, life: 0.7, maxLife: 0.7,
@@ -812,6 +877,11 @@ function update(dt){
     if(encOutcome){ stepParticles(dt); updateCameraFollow(dt); return; }   // 本帧判出胜负 → 立即冻结
   }
 
+  // 炮弹同屏上限（性能护栏）：每发炮弹是独立几何，超了丢**最老的**。
+  // 炮弹飞行 0.5~1.5s，老弹已是尾段，丢它几乎不可见；不能丢最新的（那等于吞掉刚开的一炮，玩家会以为卡弹）。
+  const shellCap = perfCfg.maxShells;
+  while(shells.length > shellCap) shells.shift();
+
   const keys = input.keys;
   const drive = input.driveArgs ? input.driveArgs() : {
     turn: (keys.a ? 1 : 0) - (keys.d ? 1 : 0),
@@ -894,8 +964,9 @@ function update(dt){
   lastImpactCount = impacts.length;
 
   // 基础破坏：掩体 tier/hp 变化时重建静态几何（建筑倒塌 → 低矮残骸）
+  // 重建是 O(掩体数) 的几何生成，降级时拉长观察间隔（第三优先级：玩家只在楼倒下的瞬间看得出差别）
   staticRebuildT += dt;
-  if(staticRebuildT >= 0.25){
+  if(staticRebuildT >= (perfCfg.staticRebuildIntervalS || 0.25)){
     staticRebuildT = 0;
     const sig = covers.map(c => c.tier + ':' + (c.hp | 0)).join('|');
     if(sig !== coverSig){
@@ -934,6 +1005,7 @@ function update(dt){
 
 /** 粒子步进（终局冻结态也要跑，否则结算画面上烟尘会僵在半空）。 */
 function stepParticles(dt){
+  if(particles.length > particlePeak) particlePeak = particles.length;
   for(let i = particles.length - 1; i >= 0; i--){
     const p = particles[i];
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
@@ -1094,6 +1166,8 @@ function renderR1Check(){
     '<div><span class="dim">□</span> 载具手感：加减速俯仰/侧倾、开炮后坐与扬尘、震屏</div>',
     `<div>${encOutcome ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 完整遭遇：${encounter ? `波次 ${Math.min(encounter.waveIndex + 1, encounter.waveCount)}/${encounter.waveCount} · ${encounter.phase}` : '沙盒'}${encOutcome ? ' · ' + (encOutcome === 'victory' ? '胜利' : '失败') : ''}</div>`,
     `<div>${destroyed > 0 ? '<span class="ok">✓</span>' : '<span class="dim">□</span>'} 建筑可破坏（已毁 ${destroyed} / ${covers.length}）</div>`,
+    `<div><span class="dim">□</span> 性能护栏：档位 <b>${perfCfg.name}</b> · 渲染 ${canvas.width}×${canvas.height}`
+      + ` · 帧 ${perfEmas()}ms · 粒子 ${particles.length}/${perfCfg.particleCap === Infinity ? '∞' : perfCfg.particleCap}</div>`,
     `<div class="dim">FPS ${fpsVal} · 敌军 ${entities.filter(e => e.team === 'enemy' && e.hp > 0).length} · 炮弹 ${shells.length}</div>`,
   ].join('');
 }
@@ -1101,8 +1175,26 @@ function renderR1Check(){
 // ---------------- 主循环 ----------------
 let last = performance.now();
 let acc = 0;
+/**
+ * 性能护栏每帧一调：喂**原始 rAF delta**（未钳位、未乘 timeScale）。
+ * 钳位后的值会把「切后台回来」退化成 0.2s（不被判为异常帧，白推进降级计时）；
+ * timeScale 缩放后的值在终局冻结时是 0，会被当异常帧全部丢掉。
+ * 必须在 render() 之后调用：返回的档位作用于**下一帧**，否则会出现「本帧按旧尺寸画完、
+ * 却按新档位裁粒子」的半帧状态。
+ */
+function tickPerf(rawDt){
+  if(!perfGov || typeof updateGovernor !== 'function') return;
+  if(PERF_MANUAL) return;    // ?perf=manual：真实帧不参与，只吃测试喂的帧时间
+  const r = updateGovernor(perfGov, rawDt);
+  if(!r) return;
+  perfCfg = getTierConfig(perfGov, PERF_RULES);
+  // 只有档位真的变了才改画布尺寸：改尺寸会重分配 framebuffer，本身就有一帧 hitch
+  if(r.changed) applyRenderScale(perfCfg.resolutionScale || 1);
+}
+
 function loop(now){
-  let dt = (now - last) / 1000;
+  const rawDt = (now - last) / 1000;     // 原始帧时间：性能护栏的唯一输入
+  let dt = rawDt;
   if(dt > 0.2) dt = 0.2;
   last = now;
   frameCount++;
@@ -1115,16 +1207,22 @@ function loop(now){
   acc += dt;
   while(acc >= STEP){ update(STEP); acc -= STEP; }
   render();
+  tickPerf(rawDt);
   if(now - lastTank > 150){ lastTank = now; renderHud(); }
   requestAnimationFrame(loop);
 }
 
 // F1：显示/隐藏 R1 验证清单
+// 取反必须读**计算样式**：清单默认可见是 CSS 给的，内联 style.display 是空串。
+// 直接比 `el.style.display === 'none'` 的话，空串会被当成「已显示」，判定条件永远不成立
+// ——虽然在「默认可见」的当前布局下恰好等价，但只要哪天改成默认隐藏就会退化成按两次才出来。
 window.addEventListener('keydown', e => {
   if(e.key !== 'F1') return;
   e.preventDefault();
   const el = document.getElementById('r1Check');
-  if(el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+  if(!el) return;
+  const hidden = getComputedStyle(el).display === 'none';
+  el.style.display = hidden ? 'block' : 'none';
 });
 
 // R：结算态下重开一局（非结算态 R 是弹夹整装，见 input.actions.reloadClip）
@@ -1149,6 +1247,40 @@ fetch('api/tanks').then(r => r.json()).then(data => {
 // ---------------- 测试钩子 ----------------
 window.__TEST3D__ = {
   ready: false,
+  /**
+   * 性能护栏状态（浏览器链断言 + 人工核对用）。
+   * `particlePeak` 是**开局以来**的粒子峰值——单帧采样会漏掉齐射瞬间的尖峰，
+   * 而尖峰正是降级的触发条件，所以必须由页面持续记录。
+   */
+  perf(){
+    return {
+      enabled: PERF_ON,
+      manual: PERF_MANUAL,
+      tier: perfCfg.name,
+      level: perfGov ? perfGov.level : null,
+      emaMs: perfGov ? perfGov.emaMs : null,
+      changes: perfGov ? perfGov.changes : 0,
+      particleCap: perfCfg.particleCap === Infinity ? null : perfCfg.particleCap,
+      particles: particles.length,
+      particlePeak,
+      maxShells: perfCfg.maxShells,
+      shells: shells.length,
+      resolutionScale: perfCfg.resolutionScale,
+      canvas: { w: canvas.width, h: canvas.height },
+      base: { w: BASE_RES.w, h: BASE_RES.h },
+      dustIntervalS: perfCfg.dustIntervalS,
+      staticRebuildIntervalS: perfCfg.staticRebuildIntervalS || 0.25,
+      // 诊断用：手动喂一帧帧时间（不改画质之外的任何状态），验证升降级路径
+      feed(dtSeconds){ if(perfGov) { const r = updateGovernor(perfGov, dtSeconds); if(r && r.changed){ perfCfg = getTierConfig(perfGov, PERF_RULES); applyRenderScale(perfCfg.resolutionScale || 1); } return r; } return null; },
+      /** 直接把档位打回起始档（测试收尾用，避免上一段测试的降级污染下一段） */
+      reset(){
+        perfGov = (PERF_ON && typeof createGovernor === 'function') ? createGovernor({ rules: PERF_RULES, startTier: PERF_START_TIER }) : null;
+        perfCfg = perfGov ? getTierConfig(perfGov, PERF_RULES) : perfCfg;
+        particlePeak = 0;
+        applyRenderScale(perfCfg.resolutionScale || 1);
+      },
+    };
+  },
   state(){
     return {
       player: player ? { x: player.x, y: player.y, hp: player.hp, maxHp: player.stats.maxHp, reloadT: player.reloadT } : null,
