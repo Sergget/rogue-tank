@@ -92,6 +92,10 @@ const UNIT_SPREAD_PX = 90;
 // 边界钳制**吸到同一个角点**（1440×864 实测：东北向三个 medium 全部落到 (1400,40) 附近，
 // 其中两个坐标完全相同）。到时候 resolveTankCollisions 会把它们硬推开，观感是「车从地里弹出来」。
 // 70px ≈ 2 倍 medium 车宽（38px）、低于 lateral 间距 90px，够隔开又不会逼退采样。
+// intelInterval 的下限（秒）：低于它时刷方位的频率比模拟步还密，等于没有；
+// 取 0.5 是「一帧最多一条、且明显快于任何决策周期」的保守值（#AB4）。
+const INTEL_MIN_SECONDS = 0.5;
+
 const SPAWN_MIN_SEPARATION = 70;
 
 // 方位可行性回退的尝试序列（rad，左右交替）。
@@ -173,7 +177,11 @@ function resolveEncounterConfig(rules) {
     maxSpawnDist: Math.max(0, encNum(src.maxSpawnDist, ENCOUNTER_DEFAULTS.maxSpawnDist)),
     SPAWN_DIST_HARD_FLOOR: Math.max(0, encNum(src.SPAWN_DIST_HARD_FLOOR, ENCOUNTER_DEFAULTS.SPAWN_DIST_HARD_FLOOR)),
     spawnTries: Math.max(1, Math.round(encNum(src.spawnTries, ENCOUNTER_DEFAULTS.spawnTries))),
-    intelInterval: Math.max(0, encNum(src.intelInterval, ENCOUNTER_DEFAULTS.intelInterval)),
+    // #AB4：intelInterval 是「防龟缩」这条生命线的唯一驱动。0 在语义上读起来像
+    //   「不需要刷新」，实际是关掉 intel 事件 ⇒ 页面 refreshEnemyIntel() 永不执行 ⇒
+    //   敌人只在出生那一帧拿到玩家方位 ⇒ 玩家躲着就永远打不完（且没有任何报错）。
+    //   因此把 ≤0 视为**非法值**钳到最小可用间隔，而不是让它静默失效。
+    intelInterval: Math.max(INTEL_MIN_SECONDS, encNum(src.intelInterval, ENCOUNTER_DEFAULTS.intelInterval)),
     waves: waves,
   };
 }
@@ -347,7 +355,7 @@ function applySpawnGuard(units, cfg, box, px, py) {
 /**
  * @typedef {{
  *   phase:string, waveIndex:number, waveCount:number, timer:number, elapsed:number,
- *   kills:number, spawnedThisWave:number, outcome:string|null,
+ *   kills:number, spawnedThisWave:number, emptyWave:boolean, outcome:string|null,
  *   wavesCleared:number, cfg:EncounterConfig, seed:any, rng:Function, intelTimer:number,
  *   pendingTelegraph:boolean,
  *   pending:Array<{cls:string, x:number, y:number, hullAngle:number, bearing:number}>
@@ -374,6 +382,7 @@ function createEncounter(opts) {
     elapsed: 0,
     kills: 0,
     spawnedThisWave: 0,
+    emptyWave: false,     // #AB3：本波未生成任何单位（配置异常），按「已清」推进，避免软锁
     outcome: null,
     // --- 以下为模块内部字段（页面可读但不必依赖）---
     wavesCleared: 0,
@@ -394,6 +403,7 @@ function enterTelegraph(enc, ctx, events) {
   const wave = encCurrentWave(enc);
   enc.phase = 'telegraph';
   enc.spawnedThisWave = 0;
+  enc.emptyWave = false;
   enc.pendingTelegraph = false;
   enc.pending = [];
   if (!wave) { finishEncounter(enc, events, 'victory'); return; }
@@ -456,10 +466,16 @@ function updateEncounter(enc, dt, ctx) {
     if (enc.timer <= 0) {
       const units = applySpawnGuard(enc.pending, enc.cfg, encWorldBox(c), px, py);
       enc.spawnedThisWave = units.length;
+      // #AB3：本波一个点位都没生成（`waves[i].units` 写成空数组，或 planWave 因配置异常产出空 pending）。
+      //   清波判定原要求 `spawnedThisWave > 0`，于是这种波**永远不满足清波、也不判负**——
+      //   无敌人、无计时、无提示，玩家只能刷新页面逃生。这里打标并补一条 `wave-empty`，
+      //   让流程按「本波已清」继续推进；页面据此提示配置异常，而不是把人丢在真空里。
+      enc.emptyWave = units.length === 0;
       enc.phase = 'wave';
       enc.timer = 0;                                               // ① wave 阶段 timer 语义切换为「已用秒」
       enc.intelTimer = 0;
       events.push({ type: 'spawn', wave: enc.waveIndex, waveId: wave.id, units: units });
+      if (enc.emptyWave) events.push({ type: 'wave-empty', wave: enc.waveIndex, waveId: wave.id });
     }
     return events;
   }
@@ -473,7 +489,7 @@ function updateEncounter(enc, dt, ctx) {
       events.push({ type: 'intel', wave: enc.waveIndex });
     }
     const enemyAlive = Math.max(0, Math.round(encNum(c.enemyAlive, 0)));
-    if (enemyAlive === 0 && enc.spawnedThisWave > 0) {              // ② 清波判定
+    if (enemyAlive === 0 && (enc.spawnedThisWave > 0 || enc.emptyWave)) {   // ② 清波判定（空波按已清处理，#AB3）
       enc.wavesCleared = enc.waveIndex + 1;
       enc.pending = [];                                            // 本波点位作废（波次结束即清空）
       events.push({ type: 'wave-clear', wave: enc.waveIndex, elapsed: enc.timer });
@@ -519,6 +535,7 @@ if (typeof module !== 'undefined' && module.exports) {
     encounterRNG,
     ENCOUNTER_PHASES,
     ENCOUNTER_DEFAULTS,
+    INTEL_MIN_SECONDS,
     SPAWN_EDGE_MARGIN,
     SPAWN_MIN_SEPARATION,
     UNIT_SPREAD_PX,

@@ -63,7 +63,7 @@ bearing 口径：世界坐标弧度角（y 向下），`0` = 正东(+x)，`+π/2
 | `victory` | 最后一波清波 | 终局 | — |
 | `defeat` | 任意阶段 `ctx.playerAlive === false` | 终局 | — |
 
-三条硬约束（都是防回归的）：**终局幂等**（`enc.outcome` 已定即不再产事件）、**每波恰好一条 telegraph**、**清波判定要求 `spawnedThisWave > 0`**（否则新波尚未入场就被误判通过）。
+四条硬约束（都是防回归的）：**终局幂等**（`enc.outcome` 已定即不再产事件）、**每波恰好一条 telegraph**、**清波判定要求 `spawnedThisWave > 0`**（否则新波尚未入场就被误判通过）、**空波必须自我了结**（`spawnedThisWave === 0` 且 `emptyWave` 为真时按「已清」推进并发 `wave-empty`——否则是无敌人、无计时、无提示的软锁，见 ISSUES #AB3）。
 
 事件契约：
 
@@ -72,7 +72,8 @@ bearing 口径：世界坐标弧度角（y 向下），`0` = 正东(+x)，`+π/2
 | `telegraph` | `wave / waveId / waveLabel / seconds / bearings` | HUD 方位告警与倒计时；`bearings` **已取真实出生方位** |
 | `spawn` | `wave / waveId / units[{cls,x,y,hullAngle,bearing}]` | 生成实体 + 写「进攻意志」与 `aiReactT` |
 | `intel` | `wave` | 对所有存活波次敌人重刷 `lastKnownPlayerPos` |
-| `wave-clear` | `wave / elapsed` | 统计与该波演出收尾 |
+| `wave-clear` | `wave / elapsed` | 统计与该波演出收尾（页面把它并入紧随的 `breather` 文案，见 ISSUES #AB2） |
+| `wave-empty` | `wave / waveId` | 本波配置为空（`units: []`）：弹红字提示，不要把玩家丢在真空里 |
 | `breather` | `seconds / repairPct / reinforce` | 按 `repairPct` 回血、按 `reinforce` 补友军 |
 | `victory` / `defeat` | `stats{seconds,kills,wavesCleared}` | 结算面板 |
 

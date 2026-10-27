@@ -32,23 +32,24 @@
 
 - **证据**：`tank_3d.html:703-705`（`case 'wave-clear'` → `toast('第 N 波清除')`）与 `tank_3d.html:717`（`case 'breather'` → `toast('喘息 …')`）。`js/tank_encounter.js:479-488` 在**同一次 `updateEncounter` 调用**里连续 push `wave-clear` 与 `breather` 两条事件 ⇒ 页面同帧连续两次 `toast()`，第二次覆盖第一次（`toast()` 只有一个 DOM 槽位，`tank_3d.html:201`）。
 - **影响**：玩家永远看不到「第 N 波清除」这条正反馈——而它是节奏里唯一的「你赢了这一波」的确认。同一类问题今天已在画质提示上踩过一次（已改用独立 `#perfNotice`）。
-- **建议修法**：二选一 —— ① 把清波信息并进喘息文案（「第 2 波清除 · 喘息 12s · 抢修 +72」）；② 结算类消息排队播放（`toast` 增加队列，按 800ms 间隔出队）。
-- **状态**：待修。
+- **修法（已落地，§4.158）**：走 ① —— `wave-clear` 只记录到 `pendingWaveClear`，由紧随其后的 `breather` 合并成一句「第 N 波清除 · 喘息 12s · 抢修 +72 · 补员 N」；最后一波没有喘息可合并，直接单独弹；`spawn` 与 `restartEncounter()` 会清残留，避免跨波次带出旧文案。
+- **状态**：已修（待归档）。
 
 ### #AB3 波次可能永久卡住（无敌人、无提示、无计时）
 
 - **证据**：`js/tank_encounter.js:476` 的清波判定是 `enemyAlive === 0 && enc.spawnedThisWave > 0`。而 `enc.spawnedThisWave` 来自 `applySpawnGuard()` 的返回长度（`js/tank_encounter.js:457-458`），该函数对 `enc.pending` 做 **1:1 映射**（`:329-343`）——**pending 为空则 spawn 事件带空 units、`spawnedThisWave = 0`**，于是本波永远不满足清波条件，也不会判负（玩家还活着）。
 - **触发条件**：`RULES.encounter.waves[i].units` 为空数组，或 `planWave` 因配置异常产出空 pending。今日配置下不会发生，但这是给后续调波次的人埋的**软锁**：最后只能用浏览器刷新逃生（R 键重开只在结算态生效，`tank_3d.html:1130` 附近）。
 - **影响**：一旦踩中就是「游戏卡住且没有任何提示」，玩家会认为游戏崩了。
-- **建议修法**：`spawn` 事件 `units.length === 0` 时，模块自身就把该波视为「已清」（`spawnedThisWave = -1` 之类的显式标记）或直接跳到下一波，并产出一条可用于提示的 `wave-empty` 事件；页面据此弹「本波配置异常」提示，不要把玩家丢在真空里。
-- **状态**：待修（低概率、高破坏）。
+- **修法（已落地，§4.158）**：`spawn` 时 `enc.emptyWave = units.length === 0`，清波判定改为 `enemyAlive === 0 && (spawnedThisWave > 0 || emptyWave)`，并补发 `wave-empty` 事件；页面据此弹「第 N 波配置为空」红字提示。**反向验证**：`test-encounter.js` 用「空波 + 正常波」两波编成跑完整流程，断言产出 1 条 `wave-empty`、2 条 `wave-clear`、结局 `victory`——没有这层保护时该用例会卡在 `maxFrames`（outcome=null）。
+- **状态**：已修（待归档）。
 
 ### #AB4 `intelInterval = 0` 会静默关掉「进攻意志」
 
 - **证据**：`js/tank_encounter.js:470-474`，intel 事件由 `while (iv > 0 && enc.intelTimer >= iv)` 发出；`resolveEncounterConfig` 只做 `Math.max(0, …)`（`:176`），允许 0 ⇒ 该 while 永不进入 ⇒ **不产 intel 事件** ⇒ 页面 `refreshEnemyIntel()`（`tank_3d.html:523`）永不执行 ⇒ 敌人只在出生那帧拿到玩家方位。
 - **影响**：`intelInterval = 0` 在语义上像是「不需要刷新」，实际等于**关掉防龟缩机制**——正是 §4.155 记录的三个反面教训之一。谁把它调成 0 试一试，就会得到一个「玩家躲着就永远打不完」的版本，而且没有任何报错。
-- **建议修法**：把 0 视为非法（钳到 ≥ 0.5 并注释说明），或在测试里加一条**负向断言**：`intelInterval <= 0` 时必须抛错/落回默认值，禁止「静默失效」。
-- **状态**：待修。
+- **修法（已落地，§4.158）**：新增模块常量 `INTEL_MIN_SECONDS = 0.5`，`resolveEncounterConfig` 用 `Math.max(INTEL_MIN_SECONDS, …)` 钳位（0 与负值都落回 0.5s），并导出供测试引用。
+- **验证**：`test-encounter.js` 三条——0 被钳到 0.5、负值同样被钳、**哨兵**「钳位后 intel 事件真的发得出来」（20 秒内 36 条）。
+- **状态**：已修（待归档）。
 
 ### #AB5 `test-browser-r4` 的 #J4 断言用固定等待 ⇒ 偶发假红
 

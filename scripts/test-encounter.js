@@ -668,5 +668,43 @@ section('⑬ maxSpawnDist 硬顶（真实出生坐标 360,432，逐点断言）'
   });
 }
 
+section('#AB3 / #AB4 防御性契约（§4.157）');
+
+// #AB4：intelInterval 是「防龟缩」的唯一驱动，≤0 必须视为非法值而不是静默关闭。
+{
+  const a = ENC.resolveEncounterConfig({ intelInterval: 0 });
+  ok(a.intelInterval >= ENC.INTEL_MIN_SECONDS,
+    `#AB4：intelInterval=0 被钳到 ${a.intelInterval}s（≥${ENC.INTEL_MIN_SECONDS}），不静默失效`);
+  const b = ENC.resolveEncounterConfig({ intelInterval: -3 });
+  ok(b.intelInterval >= ENC.INTEL_MIN_SECONDS, `#AB4：负值同样被钳（${b.intelInterval}s）`);
+
+  // 哨兵：钳位之后 intel 事件必须**真的发得出来**（防「改了钳位但没人读」）
+  const rulesI = Object.assign({}, CFG, { intelInterval: 0 });
+  const encI = createEncounter({ seed: 5, rules: rulesI });
+  const ctxI = mkCtx({ enemyAlive: 99 });      // 敌人一直活着 → 只看 intel，不进喘息
+  let n = 0;
+  for (let i = 0; i < 40; i++) {
+    for (const e of updateEncounter(encI, 0.5, ctxI)) if (e.type === 'intel') n++;
+  }
+  ok(n >= 10, `#AB4 哨兵：intelInterval=0 仍发出 ${n} 条 intel（20 秒内）`);
+}
+
+// #AB3：某一波 `units: []` 时，模块必须自己把该波按「已清」推进并给出 wave-empty，
+// 否则就是「无敌人、无计时、无提示」的软锁（玩家只能刷新页面）。
+{
+  const rulesEmpty = Object.assign({}, CFG, {
+    waves: [
+      { id: 'E1', label: '空波', units: [] },
+      { id: 'E2', label: '正常', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+    ],
+  });
+  const p = play({ rules: rulesEmpty, seed: 9, killAfter: 1 });
+  const empties = p.log.filter(x => x.event.type === 'wave-empty');
+  const clears = p.log.filter(x => x.event.type === 'wave-clear');
+  ok(empties.length === 1, `#AB3：空波产出 1 条 wave-empty（实到 ${empties.length}）`);
+  ok(clears.length === 2, `#AB3：两波都判了清波（实到 ${clears.length}）`);
+  ok(p.enc.outcome === 'victory', `#AB3：空波之后流程照常推进到 victory（实到 ${p.enc.outcome}）`);
+}
+
 console.log(`\n${fails === 0 ? '全部通过' : fails + ' 项失败'}：test-encounter.js`);
 process.exitCode = fails === 0 ? 0 : 1;

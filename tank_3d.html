@@ -515,6 +515,10 @@ let encounter = null;
 let encOutcome = null;        // null | 'victory' | 'defeat'
 let encStats = null;
 let encWarnText = '';
+// #AB2：清波与喘息是同一次 update 里连续两条事件，而 toast 只有一个 DOM 槽位——
+// 直接弹「第 N 波清除」会被下一行「喘息 …」当场覆盖，玩家永远看不到这条唯一的正反馈。
+// 做法：清波先记在这里，等紧随其后的 breather 把两句话合并成一句再弹。
+let pendingWaveClear = '';
 let enemySeq = 0;
 let lastEnemyAlive = 0;
 // 切片专用演示缩放（RULES.encounter，口径见 js/tank_rules.js）：玩家与友军 maxHp 倍率。
@@ -739,12 +743,24 @@ function handleEncounterEvent(ev){
       break;
     }
     case 'spawn': {
+      pendingWaveClear = '';              // 新一波开始：清掉可能残留的清波文案
       const list = spawnWaveUnits(ev.wave | 0, ev.units || []);
       toast(`${ev.waveLabel || ('第 ' + ((ev.wave | 0) + 1) + ' 波')} · ${list.length} 辆`, true);
       break;
     }
     case 'wave-clear':
-      toast(`第 ${(ev.wave | 0) + 1} 波清除`);
+      // #AB2：只记录，不单独弹（下一次事件是同帧的 breather，会覆盖掉）
+      pendingWaveClear = `第 ${(ev.wave | 0) + 1} 波清除`;
+      if(encounter && encounter.waveIndex + 1 >= encounter.waveCount) {
+        toast(pendingWaveClear);          // 最后一波没有 breather 合并，直接弹
+        pendingWaveClear = '';
+      }
+      break;
+    case 'wave-empty':
+      // #AB3：本波配置为空（一个点位都没生成）。模块已按「本波已清」推进，
+      // 这里必须给玩家一个说法，否则表现就是「一段没有任何敌人的空白」。
+      pendingWaveClear = '';
+      toast(`第 ${(ev.wave | 0) + 1} 波配置为空：没有敌人生成（检查 RULES.encounter.waves）`, true);
       break;
     case 'breather': {
       const pct = ev.repairPct || 0;
@@ -757,7 +773,10 @@ function handleEncounterEvent(ev){
         a.hp = Math.min(a.stats.maxHp, a.hp + Math.round((a.stats.maxHp || 0) * pct));
       }
       const added = reinforceAllies(ev.reinforce || 0, (encounter ? encounter.waveIndex : 0) + 1);
-      toast(`喘息 ${Math.round(ev.seconds)}s · 抢修 +${healed} · 补员 ${added}`);
+      // #AB2：把「第 N 波清除」并进同一句，两条正反馈都留得住
+      const lead = pendingWaveClear ? pendingWaveClear + ' · ' : '';
+      pendingWaveClear = '';
+      toast(`${lead}喘息 ${Math.round(ev.seconds)}s · 抢修 +${healed} · 补员 ${added}`);
       break;
     }
     case 'intel':
@@ -781,7 +800,7 @@ function restartEncounter(){
   // #AB6：粒子峰值必须跟着清零，否则它在整段会话里只增不减——
   // 上一局的齐射尖峰会永久占住峰值，后面无论怎么调粒子预算都读不出真实占用。
   particlePeak = 0;
-  encOutcome = null; encStats = null; encWarnText = '';
+  encOutcome = null; encStats = null; encWarnText = ''; pendingWaveClear = '';
   const el = document.getElementById('encResult');
   if(el) el.style.display = 'none';
   initWorld();

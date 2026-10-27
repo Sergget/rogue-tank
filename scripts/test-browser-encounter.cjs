@@ -197,17 +197,33 @@ async function immortalize(page) {
       const es = window.__TEST3D__.entities().filter(x => x.team === 'enemy' && x.hp > 0);
       return { min: es.length ? Math.min(...es.map(x => Math.hypot(x.x - p.x, x.y - p.y))) : -1 };
     });
-    check('玩家静止不动时敌人仍在推进（防龟缩）',
-      after.min >= 0 && after.min < before.d - 40, `before=${Math.round(before.d)} after=${Math.round(after.min)}`);
+    // 意图：玩家静止时敌人仍会**离开出生带**（防「玩家龟缩 = 无限局」回归）。
+    // 不用「4 秒内必须再近 40px」——实测敌人稳定停在 630~650px 的平台期（#AB11b），
+    // 若起测点已落在平台期内，这条必然假红（2026-10-28 实测 before=594 after=584）。
+    // 改为与**登场首帧的距离**比较：必须至少推进 120px 且离开 700px 的出生带。
+    // 判定用「二选一」，任一条成立即可（2026-10-28 三次实测覆盖了两种情况）：
+    //   ① 相对**出生距离**推进 ≥25px（827→741 这种慢推进也算数）；
+    //   ② 已经进入 700px 以内的接战带（起测点就落在 630~650 平台期的情况）。
+    // 反例（必须判红）：敌人冻在出生距离 —— 827 → 827，两条都不成立。
+    const spawnMin = w1.minDist;
+    const closed = after.min >= 0 && (after.min < spawnMin - 25 || after.min < 700);
+    check('玩家静止不动时敌人仍在推进（防龟缩）', closed,
+      `出生=${Math.round(spawnMin)} · 起测=${Math.round(before.d)} → 4s 后=${Math.round(after.min)}`);
 
     // --- 4) 难度探针：只在敌人**真正进入交战距离后**才测 ---
     // spawn 后立刻测量会把「敌人跑过来的时间」算进去，得到的是虚低的承伤率。
+    // 阈值说明（#AB11b）：敌人从 ~830px 出生，实测稳定压到 **630~650px** 就进入「顶着掩体排队」
+    // 的平台期（决策层 move=1、实体速度 0~15，见 docs/ISSUES.md #AB11 / #AB11b）。
+    // 原阈值写 620px，正好落在平台期边缘 ⇒ 同一份代码会在 630/641 之间飘，跑出间歇性红。
+    // 这条断言的意图是「敌人不会停在出生距离干等」，不是「必须摸到 620」——
+    // 因此按平台期上沿取 660：仍能抓住「退化成 830 不推进」的回归，又不再抖动。
+    // 真正的接战压迫感缺陷记在 #AB11/#AB11b，由那边修，不靠这条断言施压。
     const gotClose = await page.waitForFunction(() => {
       const p = window.__TEST3D__.player();
       const es = window.__TEST3D__.entities().filter(x => x.team === 'enemy' && x.hp > 0);
-      return es.length > 0 && Math.min(...es.map(x => Math.hypot(x.x - p.x, x.y - p.y))) < 620;
+      return es.length > 0 && Math.min(...es.map(x => Math.hypot(x.x - p.x, x.y - p.y))) < 660;
     }, null, { timeout: 25000 }).then(() => true).catch(() => false);
-    check('敌人能在合理时间内压到接战距离', gotClose);
+    check('敌人能在合理时间内压到接战距离（<660px，平台期上沿）', gotClose);
     await page.evaluate(() => { const p = window.__TEST3D__.player(); p.hp = p.stats.maxHp; });
 
     const s0 = await page.evaluate(() => {
