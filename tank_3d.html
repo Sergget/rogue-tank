@@ -159,14 +159,37 @@
 const SEED = 20261027;
 const STEP = 1 / 120;
 const canvas = document.getElementById('c');
-// G1 性能预算：两档实机尺度都从 URL 指定（?w=1920&h=1080 / ?w=1280&h=800）。
 // 这里是**基准渲染分辨率**；实际渲染分辨率 = 基准 × 当前性能档的 resolutionScale，
 // 由 applyRenderScale() 统一改写（CSS 撑满视口，所以缩放只影响清晰度、不影响布局与判定）。
+//
+// §4.157（#AB1）：基准分辨率**跟随视口**，不再写死 1280×720。
+// 画布由 CSS 拉满视口（#c 用 100vw/100vh），基准比例一旦与视口不一致，画面就会被非等比拉伸：
+// 1280×800 视口（Deck 尺度）下纵向 ×1.111，圆掩体变竖椭圆、坦克被拉高——玩家只会读成「美术做歪了」。
+// 规则：
+//   ① 无 ?w=&h= → 取视口尺寸，缩放比恒为 1.0（1 个 CSS 像素 = 1 个渲染像素，最清晰且零变形）；
+//   ② 显式给了 ?w=&h= → 按参数钉死。基线截图、A/B 对照、三档性能测试都需要可复现的固定尺度，
+//      这些用例的视口本来就和参数一致（720p/1080p/Deck 三档均相等），所以钉死不会引入变形。
+const RES_MAX_PIXELS = 1920 * 1200;
+
+/** 视口像素 → 渲染像素：先钳最小可用尺寸，再按「像素预算」等比收缩（保持宽高比）。 */
+function fitRenderRes(vw, vh){
+  const w0 = Math.max(320, Math.round(vw) || 0);
+  const h0 = Math.max(240, Math.round(vh) || 0);
+  const px = w0 * h0;
+  // 预算 1920×1200≈2.30M 像素：4K 视口若按 3840×2160 渲染，填充率是 1080p 的 4 倍，
+  // 中低端 GPU 直接掉出 30fps，而玩家几乎看不出差别（CSS 早已把画布拉满，收缩只降清晰度）。
+  const s = px > RES_MAX_PIXELS ? Math.sqrt(RES_MAX_PIXELS / px) : 1;
+  return { w: Math.max(320, Math.round(w0 * s)), h: Math.max(240, Math.round(h0 * s)) };
+}
+
 const BASE_RES = (function(){
   const q = new URLSearchParams(location.search);
   const w = Number(q.get('w')) || 0, h = Number(q.get('h')) || 0;
-  if(w >= 320 && h >= 240) return { w: w | 0, h: h | 0 };
-  return { w: 1280, h: 720 };
+  if(w >= 320 && h >= 240) return { w: w | 0, h: h | 0, pinned: true };
+  // innerWidth/innerHeight 与 100vw/100vh 同源；html,body 已 overflow:hidden，无滚动条干扰。
+  const fit = fitRenderRes(window.innerWidth, window.innerHeight);
+  fit.pinned = false;
+  return fit;
 })();
 canvas.width = BASE_RES.w; canvas.height = BASE_RES.h;
 
@@ -220,6 +243,24 @@ function applyRenderScale(scale){
   return true;
 }
 applyRenderScale(perfCfg.resolutionScale || 1);
+
+// §4.157（#AB1 配套）：视口变化时等比重算基准分辨率。
+// CSS 会把画布重新拉满视口，若不重算基准，拖拽/全屏后又回到「画面被拉伸」的状态。
+// 250ms 防抖：拖拽窗口会连续触发 resize，每次都重分配 framebuffer 会拖出可见卡顿。
+// 显式 ?w=&h= 时**不动**——钉死的尺度必须稳定，否则基线截图与三档对照全部失效。
+if(!BASE_RES.pinned){
+  let resizeT = 0;
+  window.addEventListener('resize', function(){
+    if(resizeT) clearTimeout(resizeT);
+    resizeT = setTimeout(function(){
+      resizeT = 0;
+      const fit = fitRenderRes(window.innerWidth, window.innerHeight);
+      if(fit.w === BASE_RES.w && fit.h === BASE_RES.h) return;
+      BASE_RES.w = fit.w; BASE_RES.h = fit.h;
+      applyRenderScale(perfCfg.resolutionScale || 1);
+    }, 250);
+  });
+}
 
 /** 当前 EMA 帧时间（一位小数；未采样时返回 '—'，别把 null 渲染成 0.0 骗人）。 */
 function perfEmas(){
@@ -447,7 +488,9 @@ const input = createInputController({
     commandFollow: () => executeAllyOrder('follow'),
     commandMove: () => executeAllyOrder('move'),
     commandFocus: () => executeAllyOrder('focus'),
-    reloadClip: () => { if(typeof reloadClipWeapon === 'function' && reloadClipWeapon(player)) toast('弹夹整装 — 重装完整弹夹'); },
+    // #AB7：结算态下 R 的语义是「重开一局」，由另一个 keydown 监听处理。
+    // 这里必须挡掉，否则同一次按键会既重开又装弹，把「弹夹整装」提示残留到新一局。
+    reloadClip: () => { if(encOutcome) return; if(typeof reloadClipWeapon === 'function' && reloadClipWeapon(player)) toast('弹夹整装 — 重装完整弹夹'); },
   },
 });
 canvas.addEventListener('mousemove', e => {
@@ -735,6 +778,9 @@ function restartEncounter(){
   shells.length = 0; impacts.length = 0; bounceFx.length = 0; particles.length = 0;
   coverHp.clear(); coverSig = ''; staticRebuildT = 0; lastImpactCount = 0;
   shotsFired = 0; enemySeq = 0; lastEnemyAlive = 0;
+  // #AB6：粒子峰值必须跟着清零，否则它在整段会话里只增不减——
+  // 上一局的齐射尖峰会永久占住峰值，后面无论怎么调粒子预算都读不出真实占用。
+  particlePeak = 0;
   encOutcome = null; encStats = null; encWarnText = '';
   const el = document.getElementById('encResult');
   if(el) el.style.display = 'none';
@@ -1319,6 +1365,10 @@ window.__TEST3D__ = {
       resolutionScale: perfCfg.resolutionScale,
       canvas: { w: canvas.width, h: canvas.height },
       base: { w: BASE_RES.w, h: BASE_RES.h },
+      // #AB1：基准分辨率是否跟随视口（false = 被 ?w=&h= 钉死）。
+      // 两种口径必须可区分——基线用例断言的是「钉死值」，日常用例断言的是「等比例」。
+      baseAuto: !BASE_RES.pinned,
+      viewport: { w: window.innerWidth, h: window.innerHeight },
       dustIntervalS: perfCfg.dustIntervalS,
       staticRebuildIntervalS: perfCfg.staticRebuildIntervalS || 0.25,
       // 诊断用：手动喂一帧帧时间（不改画质之外的任何状态），验证升降级路径

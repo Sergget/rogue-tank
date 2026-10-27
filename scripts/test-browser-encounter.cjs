@@ -76,6 +76,22 @@ async function waitPhase(page, phase, timeoutMs) {
   ).then(() => true).catch(() => false);
 }
 
+/**
+ * 脚本化步骤期间的「不死」设置（#AB11 之后必须加上）。
+ * 本链验证的是**波次链路**（清波 → 喘息 → 补员 → 胜利），不是难度；
+ * 而 #AB11 让敌人真的压到 340px 后，站在原地等 25 秒足以打死满血玩家，
+ * 一堆与难度无关的断言就会跟着假红。所以这些等待段落里把血量池拉高，
+ * 而不是回头削弱敌人（削弱敌人等于把刚修好的压迫感又撤掉）。
+ * 难度本身由「难度探针」那两行 INFO 输出负责，不进断言。
+ */
+async function immortalize(page) {
+  return page.evaluate(() => {
+    const p = window.__TEST3D__.player();
+    if (p) p.hp = p.stats.maxHp * 50;
+    return p ? p.hp : 0;
+  });
+}
+
 (async () => {
   let browser = null;
   let server = null;
@@ -238,6 +254,9 @@ async function waitPhase(page, phase, timeoutMs) {
     check('喘息期抢修生效（玩家回血）', br.hp > hpBefore + 1,
       `${Math.round(hpBefore)} → ${Math.round(br.hp)} / ${Math.round(br.maxHp)}`);
 
+    // 后续等待段落跨越大段战斗，先不死化（见 immortalize 注释）
+    await immortalize(page);
+
     // 补员：把友军清空 → 等 W2 入场 → 清掉 W2 → **下一次**喘息应补员
     // （reinforce 只在 breather 事件里发生一次，已经过去的 breather 不会再补）
     await page.evaluate(() => {
@@ -247,7 +266,7 @@ async function waitPhase(page, phase, timeoutMs) {
     await page.evaluate(() => {
       window.__TEST3D__.clearShells();
       const p = window.__TEST3D__.player();
-      p.hp = p.stats.maxHp;
+      p.hp = p.stats.maxHp * 50;    // 同上：这里验链路不验难度
       window.__TEST3D__.killAllEnemies();
     });
     const br2 = await waitPhase(page, 'breather', 25000);
@@ -264,7 +283,7 @@ async function waitPhase(page, phase, timeoutMs) {
       await page.evaluate(() => {
         window.__TEST3D__.clearShells();
         const p = window.__TEST3D__.player();
-        p.hp = p.stats.maxHp;
+        p.hp = p.stats.maxHp * 50;    // 同上：这里验链路不验难度
         window.__TEST3D__.killAllEnemies();
       });
       const ok = await page.waitForFunction(
@@ -303,10 +322,20 @@ async function waitPhase(page, phase, timeoutMs) {
     const re = await page.evaluate(() => {
       const e = window.__TEST3D__.encounter();
       const el = document.getElementById('encResult');
-      return { phase: e.phase, outcome: e.outcome, waveIndex: e.waveIndex, resultShown: el ? el.style.display : null };
+      const toastEl = document.getElementById('toast');
+      return {
+        phase: e.phase, outcome: e.outcome, waveIndex: e.waveIndex, resultShown: el ? el.style.display : null,
+        toast: toastEl ? (toastEl.textContent || '') : '',
+        toastShown: toastEl ? getComputedStyle(toastEl).display : 'none',
+      };
     });
     check('R 键重开：结算层关闭且回到第 1 波 telegraph',
       re.outcome === null && re.waveIndex === 0 && re.resultShown === 'none', JSON.stringify(re));
+    // #AB7：结算态的 R 只该「重开」，不该同时触发装弹——否则「弹夹整装」提示会残留到新一局。
+    // 胜利时玩家还活着，reloadClipWeapon 会成功，正是这条竞态唯一能暴露的路径。
+    check('R 键重开不残留「弹夹整装」提示（结算态不触发装弹）',
+      !/弹夹整装/.test(re.toast) || re.toastShown === 'none',
+      `toast="${re.toast.slice(0, 40)}" display=${re.toastShown}`);
 
     // --- 7) defeat 链路 ---
     await page.evaluate(() => window.__TEST3D__.damagePlayer(999999));

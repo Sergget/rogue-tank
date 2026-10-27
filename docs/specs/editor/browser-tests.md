@@ -16,9 +16,9 @@
 | `test-browser-run.cjs` | battle | 真实 run 链路、弹种三槽轮换、卡牌直系演变与跳级拒绝、G/H/V 入口、devPanel 四 Tab、卡牌选择器搜索/`/`/应用/×N/−1 回滚、雷场预约门控（#F6） |
 | `test-browser-r4.cjs` | battle | **主武器各类型实战**（standard 单发 / double_barrel 空格齐射 2 发 / autocannon 连发+heatPct / railgun 单发）、**F 副武器**（mortar isArc / rocket burst / missile 锁定发射且按住不翻转 / mine_layer 按住只走一次边沿 + 雷场生成 + 触爆掉血）、**技能实战效果**（artillery 落弹掉血 / shield 吸收池 / overdrive 装填归零）、**商店购买结算**（hp_up 扣点+记录 / 复活加购 / 升级作用于开局） |
 | `test-browser-ally.cjs` | battle | **A0 友军指挥**：2 辆编队生成、Z/X/C 三命令快捷键、集火目标权威（击发目标 ≡ 任务目标）、目标死亡不暗换最近敌人、非法目标整批拒绝、实际移动、HUD 与键位可发现性 |
-| `test-browser-3d.cjs` | tank_3d | **R1 3D 切片**：WebGL 启动、世界生成（玩家/6 敌/2 友军）、屏幕射线地面拾取、主炮开火与**装填后再次开火**、Z/X/C 命令、命令转盘关闭、验证清单、截图产物 |
+| `test-browser-3d.cjs` | tank_3d | **R1 3D 切片**：WebGL 启动、世界生成（玩家/首波 3 敌（波次投放，见 encounter 链）/2 友军）、屏幕射线地面拾取、主炮开火与**装填后再次开火**、Z/X/C 命令、命令转盘关闭、验证清单、截图产物 |
 | `test-browser-encounter.cjs` | tank_3d | **G1 完整遭遇**（§4.155）：telegraph→spawn→wave→breather→victory 全链路、defeat 链路、R 重开、进攻意志（`aiEngaged` + `lastKnownPlayerPos`）、敌人主动推进、HUD 可读、无 console error |
-| `test-browser-perf.cjs` | tank_3d | **G1 性能预算与降级**（§4.156）：1080p / Deck 两档实机尺度、手动喂帧时间的逐级降→逐级升、分辨率比例与画面比例保持、粒子/炮弹硬上限、**降级后玩法无损**（能开火/能移动/模拟步长不变）、`?tier=` 与 `?w=&h=` 入口、F1 清单可读 |
+| `test-browser-perf.cjs` | tank_3d | **G1 性能预算与降级**（§4.156）：1080p / Deck 两档实机尺度、手动喂帧时间的逐级降→逐级升、分辨率比例与画面比例保持、粒子/炮弹硬上限、**降级后玩法无损**（能开火/能移动/模拟步长不变）、`?tier=` 与 `?w=&h=` 入口、F1 清单可读；**第 4 组（§4.157 / #AB1）画面几何不变形**：16:10 视口下基准跟随视口、画布比例与视口一致（变形比≈1，修复前 1.111）、视口改动后重算、显式 `?w=&h=` 仍钉死 |
 
 ## 渲染基线链（R0 / I3，2026-10-27）
 

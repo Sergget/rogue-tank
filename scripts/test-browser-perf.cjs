@@ -311,8 +311,9 @@ async function waitForEnemy(page, timeoutMs) {
       const d = await def.page.evaluate(() => window.__TEST3D__.perf());
       // 缺省档位是 high，但真实帧慢时护栏会降级 —— 所以断言「基准分辨率」与
       // 「画布 = 基准 × 当前档比例」，而不是死认 1280（那会随机器性能抖动）。
-      check('缺省基准分辨率为 1280×720（未传 ?w=&h=）',
-        d.base.w === 1280 && d.base.h === 720, JSON.stringify(d.base));
+      check('缺省基准分辨率跟随视口（本用例视口 1280×720，且未被 ?w=&h= 钉死）',
+        d.baseAuto === true && d.base.w === 1280 && d.base.h === 720,
+        `auto=${d.baseAuto} base=${JSON.stringify(d.base)} vp=${JSON.stringify(d.viewport)}`);
       check('缺省入口画布 = 基准 × 当前档 resolutionScale',
         Math.abs(d.canvas.w - Math.round(d.base.w * d.resolutionScale)) <= 1,
         `${d.canvas.w} vs ${Math.round(d.base.w * d.resolutionScale)} @${d.tier}`);
@@ -359,6 +360,45 @@ async function waitForEnemy(page, timeoutMs) {
         + ` | ${(hud.text.match(/性能护栏[^□]*/) || [''])[0].slice(0, 70)}`);
       check('缺省入口无 console error', def.errors.length === 0, JSON.stringify(def.errors.slice(0, 3)));
       await def.page.close();
+    }
+
+    // ================= 4) 画面几何不变形（#AB1：基准比例必须跟随视口）=================
+    // 画布由 CSS 用 100vw/100vh 拉满视口，所以渲染分辨率一旦写死 1280×720，
+    // 16:10 视口（Deck 尺度 1280×800）就会被纵向拉伸 1.111 倍：圆掩体变竖椭圆。
+    // 断言的是「比例」而不是「像素数」——分辨率会随性能档缩放，比例不该变。
+    const deck = await openPage(browser, server.base, '', { width: 1280, height: 800 });
+    check('16:10 视口（1280×800）页面启动', deck.ready);
+    if (deck.ready) {
+      const s = await deck.page.evaluate(() => window.__TEST3D__.perf());
+      check('16:10 视口：基准分辨率跟随视口且未被钉死',
+        s.baseAuto === true && s.base.w === 1280 && s.base.h === 800,
+        `auto=${s.baseAuto} base=${s.base.w}×${s.base.h} vp=${s.viewport.w}×${s.viewport.h}`);
+      // 变形比 = 横向缩放 / 纵向缩放，1.0 表示等比。
+      const dist = (s.viewport.w / s.canvas.w) / (s.viewport.h / s.canvas.h);
+      check('16:10 视口：画布比例与视口一致（变形比≈1，修复前为 1.111）',
+        Math.abs(dist - 1) <= 0.01,
+        `变形比=${dist.toFixed(4)} canvas=${s.canvas.w}×${s.canvas.h} vp=${s.viewport.w}×${s.viewport.h} @${s.tier}`);
+
+      // 视口变化后必须等比重算，否则拖拽/全屏又回到拉伸状态（250ms 防抖，留 700ms 余量）。
+      await deck.page.setViewportSize({ width: 1600, height: 900 });
+      await wait(700);
+      const s2 = await deck.page.evaluate(() => window.__TEST3D__.perf());
+      check('视口改为 1600×900 后基准分辨率跟随重算',
+        s2.base.w === 1600 && s2.base.h === 900,
+        `base=${s2.base.w}×${s2.base.h} vp=${s2.viewport.w}×${s2.viewport.h}`);
+      check('16:10 视口无 console error', deck.errors.length === 0, JSON.stringify(deck.errors.slice(0, 3)));
+      await deck.page.close();
+    }
+
+    // 反向保证：显式 ?w=&h= 时**不许**跟随视口——基线截图与三档对照靠它可复现。
+    const pin = await openPage(browser, server.base, '?w=1280&h=720&perf=manual', { width: 1280, height: 800 });
+    check('钉死尺度的页面启动', pin.ready);
+    if (pin.ready) {
+      const p = await pin.page.evaluate(() => window.__TEST3D__.perf());
+      check('显式 ?w=&h= 时基准被钉死、不跟随视口（基线可复现）',
+        p.baseAuto === false && p.base.w === 1280 && p.base.h === 720,
+        `auto=${p.baseAuto} base=${p.base.w}×${p.base.h} vp=${p.viewport.w}×${p.viewport.h}`);
+      await pin.page.close();
     }
   } catch (err) {
     console.error(err && err.stack ? err.stack : String(err));

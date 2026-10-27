@@ -222,6 +222,7 @@
 | §4.154 | 2026-10-27 | **G1 首切片**：`npm run baseline:3d` 3D 场景基线；`applyTankTilt` + `updateTankVisual` 视觉俯仰/侧倾/后坐/扬尘；震屏、破坏扬尘/火花、3D 音频接入；R1 已由用户验收通过 | `specs/map/rendering-roadmap.md` §2.3 · `specs/editor/browser-tests.md` |
 | §4.155 | 2026-10-28 | **G1 完整 3～5 分钟遭遇**：纯逻辑波次状态机 `js/tank_encounter.js`（`telegraph→wave→breather→victory/defeat` + 七类事件）+ 三波编成 + `RULES.encounter` 唯一参数口径；页面只做生成/演出/HUD/结算；新增 Node 与浏览器两条 encounter 测试链 | `specs/combat/encounter-director.md` · `specs/editor/browser-tests.md` |
 | §4.156 | 2026-10-28 | **G1 性能预算与降级**：`js/tank_perf.js` 原地扩写 `createGovernor` / `updateGovernor` / `getTierConfig`（帧时间 EMA + 逐级升降门控，无 DOM 依赖）；三档与门控参数唯一口径 `RULES.perf`；页面只做「分辨率落 canvas / 按档裁粒子炮弹扬尘 / 节流静态几何重建」，红线（模拟步长、输入采样、HUD、炮弹碰撞判定、AI 决策频率）不降；新增浏览器第八链 + 三档基线 | `specs/map/perf-budget.md` · `specs/editor/browser-tests.md` |
+| §4.157 | 2026-10-28 | **画面几何修复 + 复查批次收口**：#AB1 `BASE_RES` 无参数时跟随视口（1 CSS px = 1 渲染 px）+ 1920×1200 像素预算等比收缩 + 250ms 防抖 resize 重算，显式 `?w=&h=` 仍钉死（基线可复现）；#AB6 `restartEncounter` 复位 `particlePeak`；#AB7 结算态 R 不再同时装弹。**#AB11 复查为负结果**：三段真因（机动层抹平推进 / 物理拥堵 / 站位外沿偏大），试过 `pressRange` + 禁用绕行 + 反卡死三版均无改善甚至恶化（595→641px），整段回退并留档，主因转为 #AB11b 绕障缺失 | `specs/map/perf-budget.md` §「基准分辨率的取法」 · `specs/editor/browser-tests.md` · `docs/ISSUES.md` #AB1/#AB6/#AB7/#AB11/#AB11b |
 
 ---
 
