@@ -185,8 +185,12 @@ const PERF_MANUAL = (new URLSearchParams(location.search).get('perf') === 'manua
 const PERF_TIER_LABEL = { high: '高', mid: '中', deck: '低' };
 const PERF_START_TIER = (function(){
   // 档位由 URL 指定，不做设备嗅探（UA 嗅探在桌面浏览器上不可靠，且会掩盖真实性能）。
+  // 必须用 hasOwnProperty：`?tier=constructor` 之类会命中原型链上的 Object 成员，
+  // 得到一个「存在的」函数，随后 resolutionScale 取到 undefined → 画布尺寸算成 NaN。
   const q = (new URLSearchParams(location.search).get('tier') || '').toLowerCase();
-  if(PERF_RULES && PERF_RULES.tiers && PERF_RULES.tiers[q]) return q;
+  if(PERF_RULES && PERF_RULES.tiers && Object.prototype.hasOwnProperty.call(PERF_RULES.tiers, q)){
+    return q;
+  }
   return PERF_RULES ? (PERF_RULES.startTier || 'high') : 'high';
 })();
 // enabled=false（基线截图 / A/B 对照）时不建档，直接固定 startTier 档 —— 档位漂移会让基线不可复现。
@@ -206,8 +210,11 @@ let perfCfg = (function(){
 
 /** 把当前档位的分辨率缩放落到画布。只在档位变化时调用（改尺寸会重分配 framebuffer，有一帧 hitch）。 */
 function applyRenderScale(scale){
-  const w = Math.max(320, Math.round(BASE_RES.w * scale));
-  const h = Math.max(240, Math.round(BASE_RES.h * scale));
+  // 防线：非法缩放值（undefined / NaN / ≤0）一律按 1 处理。
+  // canvas.width 赋 NaN 是「静默变 0」——画面全黑但没有任何报错，最难排查的一类故障。
+  const s = (typeof scale === 'number' && isFinite(scale) && scale > 0) ? scale : 1;
+  const w = Math.max(320, Math.round(BASE_RES.w * s));
+  const h = Math.max(240, Math.round(BASE_RES.h * s));
   if(canvas.width === w && canvas.height === h) return false;
   canvas.width = w; canvas.height = h;
   return true;
@@ -1274,6 +1281,11 @@ window.addEventListener('keydown', e => {
 fetch('api/tanks').then(r => r.json()).then(data => {
   tankListData = data || {};
   initWorld();
+  // 首帧时钟必须在这里重置：`last` 在脚本求值时就初始化了，而在这行之前还要跑
+  // fetch(api/tanks) + 地图生成 + 静态网格构建（几百毫秒）。不重置的话首个 rawDt
+  // 会把这段加载耗时算进「帧时间」，直接污染性能护栏的 EMA（软件渲染下实测能到 150ms+，
+  // 然后白跑一段降级计时）。
+  last = performance.now();
   requestAnimationFrame(loop);
   requestAnimationFrame(() => { window.__TEST3D__.ready = true; });
 }).catch(err => {
