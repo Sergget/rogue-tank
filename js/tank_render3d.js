@@ -256,6 +256,19 @@ function createMeshBuilder() {
         this.triangle([cx, baseY, cz], p1, p0, color);
       }
     },
+    /** 地面圆环（阵营环）。 */
+    ring(cx, y, cz, rInner, rOuter, segments, color) {
+      const n = Math.max(8, segments | 0 || 24);
+      const ri = Math.max(0, rInner), ro = Math.max(ri + 0.1, rOuter);
+      for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
+        const i0 = [cx + Math.cos(a0) * ri, y, cz + Math.sin(a0) * ri];
+        const o0 = [cx + Math.cos(a0) * ro, y, cz + Math.sin(a0) * ro];
+        const o1 = [cx + Math.cos(a1) * ro, y, cz + Math.sin(a1) * ro];
+        const i1 = [cx + Math.cos(a1) * ri, y, cz + Math.sin(a1) * ri];
+        this.quad(i0, o0, o1, i1, color);
+      }
+    },
   };
 }
 

@@ -152,6 +152,28 @@ function ok(cond, label){
   ok(alpha > 0 && alpha < 1, `粒子透明度随寿命衰减（${alpha}）`);
 }
 
+// ⑪ 阵营环：友军淡绿、敌军红、玩家不画
+{
+  const ents = [
+    { id: 'player', team: 'player', hp: 100, x: 0, y: 0, hullLen: 70, hullWid: 36 },
+    { id: 'a1', team: 'ally', hp: 100, x: 100, y: 0, hullLen: 70, hullWid: 36 },
+    { id: 'e1', team: 'enemy', hp: 100, x: 200, y: 0, hullLen: 70, hullWid: 36 },
+    { id: 'dead', team: 'enemy', hp: 0, x: 300, y: 0, hullLen: 70, hullWid: 36 },
+  ];
+  const data = S3D.buildTeamRings(ents);
+  ok(data.length > 0 && data.length % 10 === 0, `阵营环顶点数据合法（${data.length / 10}）`);
+  let green = 0, red = 0, atPlayer = 0;
+  for (let i = 0; i < data.length; i += 10) {
+    const x = data[i];
+    if (Math.abs(data[i + 6] - 0.58) < 1e-6) green++;
+    if (Math.abs(data[i + 6] - 1.0) < 1e-6) red++;
+    if (Math.abs(x) < 1) atPlayer++;
+  }
+  ok(green > 0, '友军淡绿环存在');
+  ok(red > 0, '敌军红环存在');
+  ok(atPlayer === 0 && red > 0 && green > 0, '玩家不画环、死亡单位不画环');
+}
+
 process.exitCode = fails ? 1 : 0;
 if(fails) console.error(`\n${fails} 项失败`);
 else console.log('\n全部通过');

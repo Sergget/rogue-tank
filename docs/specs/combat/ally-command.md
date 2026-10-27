@@ -108,7 +108,7 @@
 
 ### 配置（`RULES.allyCommand`）
 
-`enabled` / `maxAllies` / `arriveRadius` / `formationSpacing` / `autoEngageRange` / `stuckSeconds` / `stuckSpeed` / `retargetSeconds` / `aimTolerance` / `countByMode` / `allyTankId`。数量按模式：standard 2 / survival 2 / boss 1；友军坦克 `panzer-IV`。六命令时代的 `focusBand` / `flankOffset` / `retreatRange` 已删除（简化时清理）。`retargetSeconds`（3s）让自动目标保持，避免 follow 的随机目标逐帧重掷。
+`enabled` / `maxAllies` / `arriveRadius` / `formationSpacing` / `autoEngageRange` / `stuckSeconds` / `stuckSpeed` / `retargetSeconds` / `aimTolerance` / `countByMode` / `allyTankId`。数量按模式：**standard 0（2026-10-27 用户裁定不预生成）/ survival 2 / boss 1**；友军坦克 `panzer-IV`。六命令时代的 `focusBand` / `flankOffset` / `retreatRange` 已删除（简化时清理）。`retargetSeconds`（3s）让自动目标保持，避免 follow 的随机目标逐帧重掷。
 
 ### 输入（`js/tank_bindings.js` 唯一数据源）
 

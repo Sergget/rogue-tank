@@ -3879,3 +3879,41 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 
 - `npm run check` EXIT=0；`npm test` **67 通过 / 0 失败**；`npm run test:browser` 六链 ALL PASS（ally 改为 Z/X/C；3d 增加连续开火与清单断言）；`npm run baseline` 三场景 PASS。
 - 新增断言：`test-fire.js` 7e-clip-R 8 条（成功/重复/满夹/非弹夹/爆发队列）。
+
+## §4.152 2026-10-27 阵营环、标准模式移除预生成友军、Boss 节点改走标准 strip 生成器
+
+**性质**：**战场可读性 + 生成器口径统一**。来源：用户 2026-10-27 反馈（「友军周围淡绿圈、敌人红圈；移除标准模式预生成友军坦克；审核 Boss 模式地图生成，用标准模式地图生成器算法生成当前 Boss 战尺寸」）。
+
+### 1) 阵营环
+
+- **2D**：`tank_battle.html` 新增 `drawTeamRings(ctx)`，在坦克绘制前画圆环（车体压住圆心）：友军淡绿 `rgba(150,235,150,0.55)`、敌军红 `rgba(255,80,70,0.45)`；半径 `max(hullLen,hullWid)×0.62+8`，线宽 2px。玩家/无人机/死亡单位不画；Boss 与召唤物按 enemy 画红环。
+- **3D**：`tank_scene3d.buildTeamRings(entities)` 生成贴地圆环（`ring()` 新几何），battle 同色语义；渲染层每帧并入动态批。
+- 细则归 `specs/combat/hud-ui.md`「战场阵营环」。
+
+### 2) 标准模式移除预生成友军
+
+- `RULES.allyCommand.countByMode` → **standard 0 / survival 2 / boss 1**。标准模式不再在节点生成时弹出友军坦克；生存与 Boss 模式保留。
+- `tank_3d.html` 作为 R1 验证切片仍保留 2 辆（显式传 `survival` 规格），不随标准模式归零。
+- 浏览器 A0 链改在 `?mode=survival` 下验证（2 辆友军）；单测新增「标准模式 0 辆」断言。
+
+### 3) Boss 节点改用标准 strip 生成器（审核结论 + 落地）
+
+**审核结论**：旧口径下 Boss 节点走 `generateNode` 方形模板路径（3.0–3.2 屏 + `bossDensity`），与标准模式的 strip 生成器（多片拼接 / 一体化路网 / 水系 / 接缝净空）是两套算法，导致 Boss 战地图缺少道路与多区段地形，且尺寸逻辑与标准模式分叉。
+
+**现行口径**：
+
+- `RULES.nodeMap.strip.boss = { screensX: 3, screensY: 3, chunkRows: 1, chunkCount: 1 }`（1 列 × 1 行，片宽下限 3 屏 ⇒ 世界 **3×3 屏**，与原竞技场同尺寸）。
+- `makeNode`：`stripMode` 不再排除 Boss；Boss 取 `strip.boss` 段，`fillBands` 开启补植避免上下空带；**Boss 不布防线**（`defenseEnabled` 改判 `!isBoss`）、常规敌军照旧清空。
+- **回退**：无 `viewport` 时仍走方形模板路径（Node 旧调用/部分测试），保证生成器与渲染解耦。
+- 实测（1280×720 视口）：3×3 = **3840×2160**，129 地物 / 2 条路链 / 15 建筑；4 个 seed 的 3×3 网格均无空区，出生点均在界内且不压阻挡物/水域。
+
+### 4) 测试
+
+- 新增 `scripts/test-boss-map.js`（已登记）：strip 来源 / 3×3 尺寸 / 地物与路网 / 网格无空区 / 出生点合法 / boss 标记与无常规敌军 / 标准模式周期 Boss 同口径 / 生存与标准尺寸回归 / 同 seed 确定性。
+- `test-render3d.js` 新增阵营环断言（友军绿、敌军红、玩家与死亡不画）。
+- 浏览器链：A0 改生存模式；3D 链仍 2 辆友军。
+
+### 5) 验证
+
+- `npm run check` EXIT=0；`npm test` **68 通过 / 0 失败**（新增 `test-boss-map.js`）；浏览器六链（含标准模式无友军、生存模式 2 辆、3D 阵营环）ALL PASS；`npm run baseline` 三场景因阵营环重新录制后 PASS。
+- Boss 地图实测（1280×720）：3×3 = **3840×2160**；seed 1/2/3/20261027 的 3×3 网格均无空区、出生点合法；标准模式仍 9.0×2.2 屏、生存仍 3×3 屏。

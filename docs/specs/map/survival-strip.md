@@ -20,7 +20,7 @@
 
 用户裁定（2026-10-18）：地图生成算法参考最新标准模式，但保留更大的单图。
 
-- **删除两个 hack**：旧 `generateSurvivalRun` 靠 `bossOnly`（强制 Boss 标记）+ `stripForBoss`（强制走 strip）绕道。现改为**标准 `makeNode` 路径 + `env.noEnemies`**，`run.env` 里不再出现 `bossOnly`/`stripForBoss`（Boss 战模式的 `bossOnly` 路径不受影响）。
+- **删除两个 hack**：旧 `generateSurvivalRun` 靠 `bossOnly`（强制 Boss 标记）+ `stripForBoss`（强制走 strip）绕道。现改为**标准 `makeNode` 路径 + `env.noEnemies`**，`run.env` 里不再出现 `bossOnly`/`stripForBoss`（注：2026-10-27 起 Boss 战模式也走 strip 3×3，见 [尺寸与出生点](./difficulty.md#尺寸出生点与性能)）。
 - **`env.noEnemies`**（`js/tank_map.js makeNode`）：常规敌军不生成（`defenseEnabled=false`、`targetCount=0`、`composition=[]`、不撒簇）、`quota=null`、`defenseLines=[]`、`boss=null`；其余字段（covers/roadJunctions/exitX 等）全部走标准路径。生存敌人由波次系统手动生成。
 - **尺寸参数唯一归口** `RULES.nodeMap.strip.survival = { screensX: 5, screensY: 5, chunkRows: 2 }`。
 - **实测尺寸（1280×720，8 seed）**：`7680×4645 ~ 7680×4741` ＝ **6.0×6.5~6.6 屏**，约 349 covers / **8.89 屏⁻¹**。

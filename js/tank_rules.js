@@ -832,6 +832,10 @@ const RULES = {
       //   故必须显式给 `chunkCount:1` + `chunkRows:1`：1 列 × 1 行、片宽下限 3 屏 ⇒ 世界 ≈3×3 屏。
       //   唯一配置源；generateSurvivalRun 只读这里（探针不足时回退 chunkCount:2, chunkRows:1 = 6×3）。
       survival: { screensX: 3, screensY: 3, chunkRows: 1, chunkCount: 1 },
+      // 2026-10-27 用户裁定：**Boss 节点改用标准 strip 生成器**（路网/水系/多片拼接），
+      //   尺寸保持原方形竞技场的 3×3 屏；1 列 × 1 行 + 片宽下限 3 屏 ⇒ 世界 ≈3×3 屏。
+      //   原「Boss 恒走方形模板路径」作废；无 viewport 时仍回退方形路径。
+      boss: { screensX: 3, screensY: 3, chunkRows: 1, chunkCount: 1 },
       // 2026-10-22（第五批）生存补给点：用户裁定「补给点增加为 4 个，4 个角落各 1 个，
       //   且需要避开坦克不能到达、不能停留的位置」。
       //   · count=4 固定；cornerMargin=0.14 表示四角候选中心在 (0.14w,0.14h) 等四处；
@@ -932,7 +936,7 @@ const RULES = {
     stuckSpeed: 8,             // 「无位移」判定速度（px/s）
     retargetSeconds: 3,        // 自动目标保持时长（follow 随机 / move 最近），防逐帧重掷甩炮塔
     aimTolerance: 0.12,        // 炮塔对准容差（rad）才开火
-    countByMode: { standard: 2, survival: 2, boss: 1 },
+    countByMode: { standard: 0, survival: 2, boss: 1 },   // 2026-10-27 用户裁定：标准模式不预生成友军
     allyTankId: 'panzer-IV',   // 友军使用的坦克配置（tanks/<id>.json）
   },
 

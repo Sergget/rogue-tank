@@ -414,18 +414,19 @@ function makeNode(index, rng, env) {
 
   const stripCfg = cfg.strip || {};
   const stripEnabled = stripCfg.enabled !== false;
-  // 2026-10-22（第五批 B4-1）：Boss 战模式**沿用标准 boss 节点生成器**——已删除
-  //   `env.stripForBoss`（Boss 走 strip）的 hack：Boss 节点恒走 makeNode 的方形竞技场路径
-  //   （3.0–3.2 屏 + bossDensity），与标准模式第 3/6/9 个 Boss 节点完全同一生成器。
-  const stripMode = !!(stripEnabled && !isBoss &&
+  // 2026-10-27 用户裁定：Boss 节点**改用标准 strip 生成器**，尺寸取 `strip.boss`（3×3 屏，
+  //   与原方形竞技场同尺寸）。旧口径「Boss 恒走方形模板路径」作废；方形路径仅作为
+  //   无 viewport（Node 测试/旧调用）时的回退，保证渲染与生成器解耦。
+  const stripMode = !!(stripEnabled &&
     viewport && viewport.vw > 0 && viewport.vh > 0 &&
     typeof generateStrip === 'function');
 
   // #U35（2026-10-18）生存模式口径（2026-10-22 B4-2 起）：尺寸唯一配置源 = RULES.nodeMap.strip.survival。
   //   env.noEnemies 为真 ⇒ 生存模式：本节点尺寸取 `strip.survival` 段（screensX/screensY/chunkRows/
   //   chunkCount），env.stripScreensX/Y 仅作为该段缺失时的 fallback（历史调用兼容）。
-  //   **Boss / 标准模式不再读 env.stripScreensX/Y**（B4-1：那是 stripForBoss 时代的 3×3 覆盖）。
+  //   2026-10-27：Boss 节点取 `strip.boss` 段；标准模式仍取 strip 顶层。
   const survCfgRaw = stripCfg.survival || {};
+  const bossCfgRaw = stripCfg.boss || {};
   const effStrip = noEnemies
     ? Object.assign({}, stripCfg, survCfgRaw, {
         // 优先级：env.stripScreensX/Y（generateSurvivalRun 从 RULES.nodeMap.strip.survival 透传，
@@ -435,7 +436,14 @@ function makeNode(index, rng, env) {
         chunkCount: survCfgRaw.chunkCount !== undefined ? survCfgRaw.chunkCount : stripCfg.chunkCount,
         chunkRows: survCfgRaw.chunkRows !== undefined ? survCfgRaw.chunkRows : stripCfg.chunkRows
       })
-    : stripCfg;
+    : (isBoss
+        ? Object.assign({}, stripCfg, bossCfgRaw, {
+            screensX: bossCfgRaw.screensX !== undefined ? bossCfgRaw.screensX : stripCfg.screensX,
+            screensY: bossCfgRaw.screensY !== undefined ? bossCfgRaw.screensY : stripCfg.screensY,
+            chunkCount: bossCfgRaw.chunkCount !== undefined ? bossCfgRaw.chunkCount : stripCfg.chunkCount,
+            chunkRows: bossCfgRaw.chunkRows !== undefined ? bossCfgRaw.chunkRows : stripCfg.chunkRows
+          })
+        : stripCfg);
 
   // #I3（2026-09-21 用户裁定「特别是 boss 战地图的建筑密度」）：Boss 节点建筑密度乘子
   // （isBossNodeIndex 为纯函数，可在 generateNode 前判定）。strip 模式无单模板歧义，
@@ -466,7 +474,8 @@ function makeNode(index, rng, env) {
       chunkCount: effStrip.chunkCount || undefined,
       // 2026-10-22（B4-2）：生存模式单行片也要求「纵向填满」（模板内容只占片高中段，
       //   纵向裁剪后会留下上下空带）——显式开启 fillEmptyBands 补植，标准模式保持缺省关闭。
-      fillBands: noEnemies === true
+      //   2026-10-27：Boss 节点（3×3 屏）同样单行片，沿用补植，避免方形竞技场出现空带。
+      fillBands: noEnemies === true || isBoss
     };
     const stripRes = generateStrip(diff, stripOpts);
     w = stripRes.w; h = stripRes.h;
@@ -601,7 +610,7 @@ function makeNode(index, rng, env) {
   // ⇒ 若改用防线锚点会连带改变 Boss 战地图布局（实测「掩体在界内」断言被打破）。故 Boss 节点
   // 保持旧全向路径，零回归。
   const defenseEnabled = (cfg.defenseLine ? cfg.defenseLine.enabled !== false : true) &&
-    !isBossNodeIndex(index) && !noEnemies;   // #U35：noEnemies 时防线恒空（无敌人可布防）
+    !isBoss && !noEnemies;   // #U35：noEnemies 时防线恒空；2026-10-27：Boss 节点同样不布防线（无常规敌军）
   // #N4：strip 节点（≈10 屏宽）沿用方形节点的防线参数会把 4~9 个敌人撒在 7 倍面积上
   // ⇒ 单节点敌数与防线数按 stripCfg.defenseLine 放大（推进—遭遇—清剿节奏不变）。
   const defenseCfg = (stripMode && stripCfg.defenseLine)

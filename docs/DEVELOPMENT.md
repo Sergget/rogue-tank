@@ -23,7 +23,7 @@
 **目录**：§1 核心方向 · §2 架构演进 · §3 当前状态与下一步 · §4 批次落地结论（§4.1~§4.119；§4.1~§4.39 正文见归档快照与月度分卷，§4.40–§4.119 正文见 `DEVELOPMENT-batches-2026-10.md`）
 
 > **§4 编号说明（2026-09-23 文档整改）**：§0~§3 与 §4.1~§4.26 的**逐条正文**曾于 2026-09-22 提交 `994bdfd` 随 §4.27~§4.33 一并从本文件移除，且该次漏走 `AGENTS.md` §2.2 第 3 步「原文归档」（276 行原文未进归档分卷）。2026-09-23 整改已将该原文快照**补归档**至 `docs/archive/2026-09.md`（见 `docs/ARCHIVE.md` 索引 2026-09-23 行），本文件重建精简骨架并保留下方**§4 编号索引表**，使全部历史交叉引用可解析。
-> **续写规则**：新增批次一律在 §4 正文末尾按编号递增续写（**当前最大编号 §4.151**）；§4 正文只增不回改，被推翻的旧结论以注记指向新节。
+> **续写规则**：新增批次一律在 §4 正文末尾按编号递增续写（**当前最大编号 §4.152**）；§4 正文只增不回改，被推翻的旧结论以注记指向新节。
 
 ---
 
@@ -61,9 +61,9 @@
 - **用户 2026-10-24 反馈批次已全部收口（2026-10-26，AA-a~d）**：`docs/ISSUES.md` **无存量条目**。① **AA-a**（§4.132）：HUD 公路加成改走纯函数 `roadBonusKmh()`（与 `tankKmh` 同源）、bench `fireCtx` 补 `aimPoint`、`specs/map/roads.md` 公路豁免口径改写为「只豁免 liquid/mud」；② **AA-b**（§4.136）：bench ↔ battle 开火接线七项对齐（`cam` / `emitShotNoise` no-op / `resolveHit` 5 参透传 + Boss 弱点层 / 急速射 / 砰砰炮 / 无人机 / 曲射散布圈）+ F 键改原生边沿（**轮询保留**给连发类），防回潮靠 **battle `fireCtx` 键集 ⊆ bench 键集**（50 ⊆ 51，`test-bench-parity.js` 30 断言）；③ **AA-c**（§4.137）：电磁炮三段声学（充能循环走代码驱动持久实例、`RULES.railgunFx.audio` 唯一口径、就绪 `SOUND_DEFS.railReady`、开火复用 `firerail`），顺带删除 `startEngineSound` 死代码；④ **AA-d**（§4.130）：制动与滑行独立通道。
 - **HUD 与 bench 工具（2026-10-26，§4.133~§4.135）**：HUD 文本统一补深色底衬（目标卡 11px / `bottom:92px` / 日志让位、提示条、三个仪表区、顶部中央读出、FPS），**速度条已删除**（只留精确数字，避免「读数越过满格」误读）；bench Enemy Lab 新增「清空所有敌人」（`clearEnemyEntities` 纯筛选）与生成点视口护栏（`clampSpawnIntoView`，视口半高仅 `vh/2/zoom`）；bench 内图鉴入口整块移除（图鉴唯一宿主 `tank_codex.html`）。
 - **R0 渲染地基（2026-10-27，§4.147）**：I3 三场景截图基线（`npm run baseline`：standard/boss/survival，冻结首帧 + 32×18 网格容差 + PNG 对照图）、I4 拾取唯一入口 `pointerToWorld`（battle 鼠标/滚轮与 bench 鼠标全改走它）、性能计数 `js/tank_perf.js` + `__TEST__.perf()/mem()/battleStartMs()`。A0/R1/G1 的共用前置已就位；不改正式战斗表现。
-- **A0 友军指挥闭环（2026-10-27，§4.148/§4.151）**：纯逻辑层 `js/tank_ally_command.js`（**三命令 follow/move/focus**、任务快照、状态机、编队规格；六命令版本当日按用户裁定简化）；**决策与击发读同一权威目标**（`allyFireTargetFor`：focus 只认任务目标、move 打最近、follow 打随机可攻击目标）；battle 每节点生成 2 辆友军（Boss 1 辆）、**Z/X/C 直接快捷键**（命令转盘暂时关闭，卡牌查看器改 B）、HUD 队伍列表 + 世界标记 + 2 秒反馈；`RULES.allyCommand` 唯一参数口径。敌军仍只把玩家当主目标（A1/A2 处理）。
+- **A0 友军指挥闭环（2026-10-27，§4.148/§4.151/§4.152）**：纯逻辑层 `js/tank_ally_command.js`（**三命令 follow/move/focus**、任务快照、状态机、编队规格；六命令版本当日按用户裁定简化）；**决策与击发读同一权威目标**（`allyFireTargetFor`：focus 只认任务目标、move 打最近、follow 打随机可攻击目标）；**标准模式不预生成友军**（`countByMode.standard=0`，survival 2 / boss 1）、**Z/X/C 直接快捷键**（命令转盘暂时关闭，卡牌查看器改 B）、HUD 队伍列表 + 世界标记 + 2 秒反馈；`RULES.allyCommand` 唯一参数口径。敌军仍只把玩家当主目标（A1/A2 处理）。
 - **R1 真 3D 可玩切片（2026-10-27，§4.149/§4.151）**：`tank_3d.html` 用原生 WebGL1（零依赖）渲染同一套二维模拟——1440×864 小战场、6 敌 + 2 友军、轻倾斜固定 yaw 相机、屏幕射线地面拾取、主炮可连续开火（主循环驱动装填/武器状态机）、Z/X/C 友军命令、掩体破坏触发静态几何重建、命中烟尘、右上 **F1 验收清单**；`js/tank_render3d.js` + `js/tank_scene3d.js`。PBR/阴影/LOD/资产管线与可旋转相机未做（G1 门内）。
-- **测试链**：**66 个 `scripts/test-*.js` + `validate-content.js` = 67 项登记**（2026-10-27 实测：`npm test` **67 通过 / 0 失败**）。新增形态门 `test-qa.js`：每个测试脚本必须 `require` `tank_utils` + `tank_rules` 且有 `ok/fails` 骨架。**渲染基线**单独走 `npm run baseline`（`scripts/browser-baseline.cjs`，默认 `--check`）。
+- **测试链**：**67 个 `scripts/test-*.js` + `validate-content.js` = 68 项登记**（2026-10-27 实测：`npm test` **68 通过 / 0 失败**）。新增形态门 `test-qa.js`：每个测试脚本必须 `require` `tank_utils` + `tank_rules` 且有 `ok/fails` 骨架。**渲染基线**单独走 `npm run baseline`（`scripts/browser-baseline.cjs`，默认 `--check`）。
 - **技术栈定性（2026-10-24 用户纠正，§4.125）**：**零依赖 / `file://` 直开 / Node 像素回归不是硬约束，只是目前的临时选择**。真 3D（WebGL/Three.js）**未被架构排除**；本阶段不做的理由是缺 3D 美术管线与玩法收益未证实。唯一口径 `specs/map/pseudo-3d-2p5d.md` §3.1。
 - **视野-隐蔽机制（2026-10-24 P1 落地，§4.128）**：三个结构性缺陷已补两条半——① `hasLineOfSight` 从 **`vision` 布尔**改为**高度分档**（`coverTiers[*].height` 18/18 键为唯一口径；判据 `height ≥ min(eyeZ,targetZ)`；用户选 C 方案 `LOS_HULL_Z=1.0m` ⇒ **灌木挡车体、不挡炮塔**，hull-down 成立）；② 隐蔽加成从「相交即满额」改为**按覆盖深度折算**（中心满额/边缘半额）；③ 隐蔽对称化**保留接入未启用**（`RULES.camouflage.symmetric=false` + `tank_ai._enemyCamoMul`）。配套 **I0 模拟时钟**（`simNow/setSimNow/advanceSimNow`，13 处判定/计时挂钟读取已迁移，主循环逐帧注入）。**弹道侧 `getPartZRange`/`getExposure` 完全未改**。细归口 `specs/map/vision-stealth-3d-compat.md` §9。
 - **贴图资产口径（2026-10-23 用户裁定，§4.124）**：确定为「**程序化生成 + 后期贴图接线**」。程序化烘焙是现行唯一实机路径；PNG 通道（地图 `ASSET_DEFS.bake → assets/<key>.png`、坦克 `sprite` 四层 → `drawTankSprite`）代码保留但**当前盘上无图**（19 张坦克 PNG 已删除）。**本仓库不出图**——AI 出图链已整体删除；后期美术按 `docs/ASSETS-PIPELINE.md` 落盘并由 `covers-anchor-check.py` 验收，`scripts/test-asset-pipeline.js` 锁接线完整性。伪 3D 形态裁定为**俯视 2.5D**、研究见 `specs/map/pseudo-3d-2p5d.md`（**设计预留，未落地**）。
@@ -121,7 +121,7 @@
 2. **近期路线（2026-10-26 重排；2026-10-27 更新）**：
    - ~~**先清存量**~~：AA-a → AA-b → AA-c **已完成（2026-10-26）**。
    - ~~**共同地基 R0**~~：I3 截图基线 + I4 拾取唯一入口 + 固定场景/性能基线 **已完成（§4.147）**。
-   - ~~**A0 命令闭环**~~：2 辆友军 + 三命令 + 统一目标权威 **已完成（§4.148）**；A1（导航/职能）与 A2（单车/手柄）未做。
+   - ~~**A0 命令闭环**~~：三命令 + 统一目标权威 **已完成（§4.148，标准模式不预生成友军见 §4.152）**；A1（导航/职能）与 A2（单车/手柄）未做。
    - ~~**R1 可玩切片**~~：同一套二维模拟 + 原生 WebGL 小战场 **已完成（§4.149）**；Go/No-Go 仍需实机评审。
    - **下一步 = G1 品质垂直切片**：载具重量感、分级破坏、统一炮火/音效/震屏、精修单车与单主题场景、3～5 分钟完整遭遇；按 §2.3 的 6 个维度过门后才量产。R1 的截图/性能产物可直接作为 G1 对照基线。
    - **Go/No-Go 后才量产**：G1 不过门不批量产车/图/模型；切片证明 JS 路线存在结构性阻碍才重评 Godot 等备选。现行机制归 `specs/combat/ally-command.md`、`specs/map/rendering-roadmap.md`。
@@ -149,7 +149,7 @@
 批次日志已按月份拆分：
 
 - [2026-09 批次 (§4.27–§4.39)](DEVELOPMENT-batches-2026-09.md)
-- [2026-10 批次 (§4.40–§4.151)](DEVELOPMENT-batches-2026-10.md)
+- [2026-10 批次 (§4.40–§4.152)](DEVELOPMENT-batches-2026-10.md)
 
 ### 4.0 §4.1~§4.26 编号索引（正文见归档）
 
@@ -216,6 +216,7 @@
 | §4.149 | 2026-10-27 | **R1 真 3D 可玩切片**：`tank_3d.html` + `js/tank_render3d.js`（原生 WebGL1）+ `js/tank_scene3d.js`；1440×864 小战场、轻倾斜相机、射线拾取、主炮与友军命令、基础破坏/烟尘；零第三方依赖 | `specs/map/rendering-roadmap.md` §2.2 |
 | §4.150 | 2026-10-27 | **UI 设计令牌统一**：`js/tank_ui.js` 60 token 唯一来源、七页并入暖橄榄军事终端体系、`index.html` 改版；`test-ui-tokens.js` 锁令牌与字号棘轮 | `specs/combat/ui-layout.md` · `specs/combat/ui-components.md` |
 | §4.151 | 2026-10-27 | **友军 Z/X/C 快捷键 + 弹夹炮 R 整装 + 3D 连续开火修复**：命令转盘暂时关闭（`wheelEnabled=false`）、卡牌查看器 C→B；`reloadClipWeapon`；3D 主循环补 `reloadT`/武器状态机驱动；页面新增 R1 验收清单（F1） | `specs/combat/ally-command.md` §5.1 · `specs/combat/weapons-reload.md` · `specs/map/rendering-roadmap.md` §2.2 |
+| §4.152 | 2026-10-27 | **阵营环 + 标准模式不预生成友军 + Boss 节点改用标准 strip 生成器（3×3 屏）**：2D/3D 友军淡绿/敌军红环；`countByMode.standard=0`；`strip.boss` + `fillBands` + Boss 不布防线，方形路径仅无 viewport 回退 | `specs/combat/hud-ui.md`「战场阵营环」· `specs/map/difficulty.md`「尺寸、出生点与性能」· `specs/combat/ally-command.md` §5.1 |
 
 ---
 

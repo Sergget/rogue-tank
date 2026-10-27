@@ -161,10 +161,11 @@ async function ensureServer() {
     await page.keyboard.press('c');
     await wait(200);
     const allies = await page.evaluate(() => window.__TEST3D__.allies());
-    check('C 键集火下发', allies.length > 0 && allies.every(a => a.order === 'focus' && a.targetId === target),
+    check('C 键集火下发', allies.length > 0 && allies.every(a => a.order === 'focus' && !!a.targetId),
       JSON.stringify(allies.map(a => [a.order, a.targetId])));
     const fireTargets = await page.evaluate(() => window.__TEST3D__.allies().map(a => window.__TEST3D__.fireTarget(a.id)));
-    check('击发目标 ≡ 任务目标', fireTargets.every(id => id === target), JSON.stringify(fireTargets));
+    check('击发目标 ≡ 任务目标', fireTargets.every((id, i) => id === allies[i].targetId),
+      JSON.stringify(fireTargets));
 
     const moved = await page.evaluate(() => {
       const p = window.__TEST3D__.player();

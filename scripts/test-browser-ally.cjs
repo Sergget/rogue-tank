@@ -92,7 +92,7 @@ async function ensureServer() {
     });
     page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 
-    await page.goto(`${server.base}/tank_battle.html`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(`${server.base}/tank_battle.html?mode=survival`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     const slotId = 'e2e-ally';
     await page.evaluate(({ tankId, slotId }) => {
       localStorage.setItem('rogue-tank-saves-meta', JSON.stringify({
@@ -116,7 +116,7 @@ async function ensureServer() {
 
     // ① 编队生成
     let allies = await page.evaluate(() => window.__TEST__.allies());
-    check('标准模式生成 2 辆友军', allies.length === 2, `count=${allies.length}`);
+    check('生存模式生成 2 辆友军', allies.length === 2, `count=${allies.length}`);
     check('友军默认跟随', allies.every(a => a.order === 'follow'), JSON.stringify(allies.map(a => a.order)));
 
     // ② C 键集火：把一辆敌军放到玩家视野内（大世界出生点可能不在屏幕），光标指向它
@@ -130,7 +130,10 @@ async function ensureServer() {
       const es = window.__TEST__.entities().filter(e => e.team === 'enemy' && e.hp > 0);
       for (const e of es) {
         const s = window.__TEST__.enemyScreen(e.id);
-        if (s && s.x > 120 && s.x < 1160 && s.y > 100 && s.y < 620) return { id: e.id, sx: s.x, sy: s.y };
+        if (s && s.x > 120 && s.x < 1160 && s.y > 100 && s.y < 620) {
+          e.hp = Math.max(e.hp, 10000);   // 防止友军/流弹在按键前打死目标
+          return { id: e.id, sx: s.x, sy: s.y };
+        }
       }
       return null;
     });
@@ -163,16 +166,25 @@ async function ensureServer() {
     const bad = await page.evaluate(() => window.__TEST__.issueAllyCommand({ order: 'focus', targetId: 'no_such' }));
     check('非法目标整批拒绝', bad.issued.length === 0 && bad.reason === 'target-missing', JSON.stringify(bad));
 
-    // ⑤ X 键移动：光标指向地面
+    // ⑤ X 键移动：光标指向地面（生存地图可能有水域，逐个候选点直到命令被接受）
     const pScreen = await page.evaluate(() => window.__TEST__.enemyScreen('player'));
-    const gx = Math.max(120, Math.min(1160, pScreen.x + 220));
-    const gy = Math.max(100, Math.min(620, pScreen.y + 60));
-    await page.mouse.move(gx, gy);
-    await wait(100);
-    await page.keyboard.press('x');
-    await wait(200);
-    allies = await page.evaluate(() => window.__TEST__.allies());
-    check('X 键移动下发并记录锚点', allies.every(a => a.order === 'move' && a.anchor), JSON.stringify(allies.map(a => a.anchor)));
+    const offsets = [[220, 60], [-220, 60], [0, 220], [0, -220], [300, 0], [-300, 0]];
+    let xOk = false, xAnchor = null;
+    for (const [ox, oy] of offsets) {
+      const gx = Math.max(120, Math.min(1160, pScreen.x + ox));
+      const gy = Math.max(100, Math.min(620, pScreen.y + oy));
+      await page.mouse.move(gx, gy);
+      await wait(80);
+      await page.keyboard.press('x');
+      await wait(150);
+      allies = await page.evaluate(() => window.__TEST__.allies());
+      if (allies.length && allies.every(a => a.order === 'move' && a.anchor)) {
+        xOk = true;
+        xAnchor = allies.map(a => a.anchor);
+        break;
+      }
+    }
+    check('X 键移动下发并记录锚点', xOk, JSON.stringify(xAnchor));
 
     // ⑥ Z 键跟随
     await page.keyboard.press('z');
@@ -184,7 +196,12 @@ async function ensureServer() {
     const before = await page.evaluate(() => window.__TEST__.allies().map(a => ({ x: a.x, y: a.y })));
     const moveRes = await page.evaluate(() => {
       const p = window.__TEST__.player();
-      return window.__TEST__.issueAllyCommand({ order: 'move', anchor: { x: p.x + 320, y: p.y + 200 } });
+      const cands = [[320, 0], [-320, 0], [0, 320], [0, -320], [240, 160], [160, 240], [-240, 160]];
+      for (const [dx, dy] of cands) {
+        const r = window.__TEST__.issueAllyCommand({ order: 'move', anchor: { x: p.x + dx, y: p.y + dy } });
+        if (!r.reason) return r;
+      }
+      return { reason: 'no-safe-anchor' };
     });
     await wait(2500);
     const after = await page.evaluate(() => window.__TEST__.allies().map(a => ({ x: a.x, y: a.y })));

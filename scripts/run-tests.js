@@ -117,6 +117,8 @@ const TESTS = [
   // 2026-10-27 UI v1：界面版式令牌契约——七页接入 js/tank_ui.js、无重复 :root、
   //   废止色板绝迹、字号棘轮（只减不增）、圆角仅 0/pill。规范见 specs/combat/ui-layout.md。
   'scripts/test-ui-tokens.js',
+  // 2026-10-27 用户需求：Boss 节点改用标准 strip 生成器（3×3 屏），网格无空区 / 出生点合法 / 确定性。
+  'scripts/test-boss-map.js',
 ];
 
 function pickTests() {

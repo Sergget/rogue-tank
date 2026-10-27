@@ -217,13 +217,15 @@ const world = { w: 2000, h: 1200 };
 {
   const node = { index: 0, w: 2000, h: 1200, playerSpawn: { x: 300, y: 300 } };
   const std = A.allySquadSpecs(node, 'standard');
-  ok(std.length === 2 && std.every(s => s.team === 'ally' && s.isAllySquad), '标准模式 2 辆友军规格');
-  ok(std[0]._allyIndex === 0 && std[1]._allyCount === 2, '编队序号/总数注入');
-  ok(std.every(s => s.x >= 20 && s.y >= 20 && s.x <= node.w - 20 && s.y <= node.h - 20), '出生点钳制在世界内');
+  ok(std.length === 0, '标准模式不预生成友军（2026-10-27 用户裁定）');
+  const surv = A.allySquadSpecs(node, 'survival');
+  ok(surv.length === 2 && surv.every(s => s.team === 'ally' && s.isAllySquad), '生存模式 2 辆友军规格');
+  ok(surv[0]._allyIndex === 0 && surv[1]._allyCount === 2, '编队序号/总数注入');
+  ok(surv.every(s => s.x >= 20 && s.y >= 20 && s.x <= node.w - 20 && s.y <= node.h - 20), '出生点钳制在世界内');
   ok(A.allySquadSpecs(node, 'boss').length === 1, 'Boss 模式 1 辆');
   ok(A.allySquadSpecs(node, 'unknown').length === 0, '未知模式 0 辆');
-  ok(A.allySquadSpecs(node, 'standard', { enabled: false }).length === 0, 'enabled=false 关闭');
-  const edge = A.allySquadSpecs({ index: 0, w: 200, h: 200, playerSpawn: { x: 5, y: 5 } }, 'standard');
+  ok(A.allySquadSpecs(node, 'survival', { enabled: false }).length === 0, 'enabled=false 关闭');
+  const edge = A.allySquadSpecs({ index: 0, w: 200, h: 200, playerSpawn: { x: 5, y: 5 } }, 'survival');
   ok(edge.every(s => s.x >= 20 && s.y >= 20), '贴边出生点也被钳到 20px 内');
 }
 

@@ -191,7 +191,7 @@
 | 链 | 沙箱 workspace-write | 权限放宽后 |
 |---|---|---|
 | `npm run check`（语法 + tsc） | ✅ 全绿 | ✅ |
-| `npm test`（66 个 `test-*.js` + `validate-content.js` = 67 项登记，2026-10-27 实测） | ⚠️ **66 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **67 通过 / 0 失败** |
+| `npm test`（67 个 `test-*.js` + `validate-content.js` = 68 项登记，2026-10-27 实测） | ⚠️ **67 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **68 通过 / 0 失败** |
 | `npm run test:browser`（四链） | ⚠️ 报 `spawn EPERM`（命名管道被禁）并输出 `INCONCLUSIVE` + 退出码 86 | ✅ 全绿 |
 
 **不要把 `INCONCLUSIVE`/86 当成代码失败**；它明确表示环境未放开。历史上该噪音被误读为「浏览器链坏了」，导致多轮无效排查。
@@ -215,7 +215,7 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**R0 地基 / A0 命令闭环 / R1 3D 切片均已完成（§4.147~§4.149），下一步是 G1 品质垂直切片** + **近远期执行路线**（§2：A1 导航职能 / A2 命令环 → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机三命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。2026-10-24 用户反馈批次（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130）已全部关账，整节原文于 2026-10-27 归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
+- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**R0 地基 / A0 命令闭环 / R1 3D 切片均已完成（§4.147~§4.149）；标准模式不再预生成友军、Boss 地图改走标准 strip 生成器（§4.152）**，下一步是 G1 品质垂直切片 + **近远期执行路线**（§2：A1 导航职能 / A2 命令环 → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机三命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。2026-10-24 用户反馈批次（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130）已全部关账，整节原文于 2026-10-27 归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
 - **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **71 个 `.md`（61 主题页 + 5 index + 5 changelog，2026-10-27 实测）**，每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
 - **待处理问题**：见 `docs/ISSUES.md`（**当前无存量条目**——用户 2026-10-24 反馈批次已**全部关账**：AA-a 关 #AA1/#AA2/#AA5（§4.132）、AA-b 关 #AA3（§4.136，`test-bench-parity.js` **30 断言**锁键集包含关系，其中 2 条是关账后同日修 F 键门控回归时补的）、AA-c 电磁炮三段声学（§4.137，新能力缺口，原挂 PLAN §6.3）、AA-d 关 #AA4（§4.130）。历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

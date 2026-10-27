@@ -239,6 +239,24 @@ function buildDynamicFx(shells, particles) {
   return b.data;
 }
 
+/**
+ * 阵营环（2026-10-27 用户需求）：友军淡绿、敌军红，贴地绘制。
+ * @param {any[]} entities
+ * @returns {number[]}
+ */
+function buildTeamRings(entities) {
+  const b = createMeshBuilder();
+  for (const e of (Array.isArray(entities) ? entities : [])) {
+    if (!e || e.hp <= 0 || e.isDrone || e.id === 'player') continue;
+    const color = e.team === 'ally' ? [0.58, 0.92, 0.58, 0.55]
+      : (e.team === 'enemy' ? [1.0, 0.32, 0.28, 0.45] : null);
+    if (!color) continue;
+    const r = Math.max(e.hullLen || 70, e.hullWid || 36) * 0.62 + 8;
+    b.ring(e.x, 1.2, e.y, Math.max(4, r - 2.5), r, 28, color);
+  }
+  return b.data;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     TIER_VIS,
@@ -251,6 +269,7 @@ if (typeof module !== 'undefined' && module.exports) {
     isFlatTier,
     buildStaticScene,
     buildTankMesh,
+    buildTeamRings,
     buildDynamicFx,
   };
 }

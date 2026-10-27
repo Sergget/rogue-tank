@@ -353,7 +353,7 @@
 
 ### 15.6 Boss 节点与回退路径
 
-> Boss 节点强制走旧全向环带（避免改变 Boss 战地图）；`defenseLine.enabled=false` 时全节点回退，旧 `enemySpawn.*` 参数仅服务回退。
+> **2026-10-27 起**：Boss 节点改走标准 strip 生成器（`strip.boss` 3×3 屏），不布防线、无常规敌军；无 viewport 时回退旧方形/全向路径。旧 `enemySpawn.*` 参数仅服务回退。
 
 **详见**：[strip 节点与防线式推进 · Boss 节点与回退路径](./map/strip-defense.md#boss-节点与回退路径)
 
@@ -431,7 +431,7 @@
 
 ### 17.6 地图尺寸与缩放
 
-> 面积自适应；strip ≈10×2.2 屏 + 接缝 300px 净空；Boss 竞技场 3.0–3.2 屏见方、模板长宽比区间随视口推导（#T5）。
+> 面积自适应；strip ≈10×2.2 屏 + 接缝 300px 净空；**Boss 节点走 strip 3×3 屏**（`strip.boss`，2026-10-27 起）；无 viewport 回退方形 3.0–3.2 屏。
 
 **详见**：[难度曲线与地图生成重做 · 尺寸、出生点与性能](./map/difficulty.md#尺寸出生点与性能)
 

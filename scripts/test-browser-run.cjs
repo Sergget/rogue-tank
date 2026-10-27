@@ -148,6 +148,9 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
 
     const flowState = await page.evaluate(() => window.__TEST__ ? window.__TEST__.flowState() : null);
     check('#N5: 出击后直接进入 battle 态（map 中转屏已移除）', flowState === 'battle', `state=${flowState}`);
+    // 2026-10-27 用户裁定：标准模式不再预生成友军（countByMode.standard=0）
+    const stdAllyCount = await page.evaluate(() => window.__TEST__ ? window.__TEST__.allies().length : -1);
+    check('标准模式不预生成友军', stdAllyCount === 0, `allies=${stdAllyCount}`);
     await waitFor(500);
 
     const boot = await page.evaluate(() => {

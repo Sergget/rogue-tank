@@ -388,9 +388,9 @@ function initWorld(){
     },
   });
 
-  // 友军编队（与正式游戏共用规格生成）
+  // 友军编队（R1 切片保留 2 辆用于验证指挥；正式标准模式不预生成友军）
   const allyTankId = (RULES.allyCommand && RULES.allyCommand.allyTankId) || playerTankId;
-  for(const spec of allySquadSpecs(node, 'standard', RULES.allyCommand)){
+  for(const spec of allySquadSpecs(node, 'survival', RULES.allyCommand)){
     const t = spawnTank({ id: spec.id, team: spec.team, x: spec.x, y: spec.y, hullAngle: 0, turretAngle: 0, heightClass: spec.heightClass });
     t.nodeSpawn = true;
     t.isAllySquad = true;
@@ -530,6 +530,9 @@ function render(){
   }
   const fx = buildDynamicFx(shells, particles);
   for(let i = 0; i < fx.length; i++) b.data.push(fx[i]);
+  // 2026-10-27：友军淡绿 / 敌军红 阵营环（贴地）
+  const rings = buildTeamRings(entities);
+  for(let i = 0; i < rings.length; i++) b.data.push(rings[i]);
   updateMesh(renderer, dynamicMesh, b.data);
   drawScene(renderer, { meshes: [staticMesh, dynamicMesh], cam });
 }

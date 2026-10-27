@@ -1796,8 +1796,23 @@ function renderAllyHud(){
 }
 setInterval(renderAllyHud, 250);
 
-function drawAllyOrderMarkers(ctx){
+/** 阵营环（2026-10-27 用户需求）：友军淡绿、敌军红。画在坦克之前，车体压住圆心。 */
+function drawTeamRings(ctx){
   if(!run || flow.state !== 'battle') return;
+  for(const t of entities){
+    if(!t || t.hp <= 0 || t.isDrone) continue;
+    if(t.id === 'player') continue;
+    if(t.team !== 'ally' && t.team !== 'enemy') continue;
+    const r = Math.max(t.hullLen || 70, t.hullWid || 36) * 0.62 + 8;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, r, 0, TAU);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = t.team === 'ally' ? 'rgba(150,235,150,0.55)' : 'rgba(255,80,70,0.45)';
+    ctx.stroke();
+  }
+}
+
+function drawAllyOrderMarkers(ctx){  if(!run || flow.state !== 'battle') return;
   const allies = livingAllies();
   if(!allies.length) return;
   ctx.save();
@@ -2374,20 +2389,26 @@ function spawnBossFromDef(bossDef, node, opts){
   });
   bossEntity.nodeSpawn = true;                       // 计入清敌判定（livingNodeEnemies）
   if(o.survivalWaveSpawn) bossEntity.survivalWaveSpawn = true;   // #MODE：生存波次标记
-  // Boss 出生点：默认 (0.7w, h/2)，避开水体/河流（沿螺旋向外找安全点）
+  // Boss 出生点：默认 (0.7w, h/2)，避开阻挡物与液态地形（沿螺旋向外找安全点）。
+  // 2026-10-27：Boss 节点改用标准 strip 地图（有建筑/路网），旧逻辑只避开 water/river
+  //   ⇒ Boss 可能生成在建筑里。现按与玩家出生点同口径的「阻挡 ∪ 液态」筛选。
   let _bx = (o.x !== undefined) ? o.x : node.w * 0.7;
   let _by = (o.y !== undefined) ? o.y : node.h / 2;
   if(o.x === undefined && typeof pointInCover === 'function' && node.covers){
-    const _isWaterCover = (c) => c && (c.tier === 'water' || c.tier === 'river');
-    const _waterCovers = node.covers.filter(_isWaterCover);
-    if(_waterCovers.length && pointInCover(_waterCovers, _bx, _by, 60)){
+    const _badCovers = node.covers.filter(c => {
+      const tier = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers[c.tier] : null;
+      if(!tier) return false;
+      return tier.passability === 0 || tier.shellBlock === true || tier.shellBlock === 'single'
+        || tier.tierGroup === 'liquid' || c.tier === 'water' || c.tier === 'river';
+    });
+    if(_badCovers.length && pointInCover(_badCovers, _bx, _by, 60)){
       let _found = false;
       for(let _r = 100; _r <= 800 && !_found; _r += 100){
         for(let _a = 0; _a < 8 && !_found; _a++){
           const _nx = _bx + Math.cos(_a * Math.PI / 4) * _r;
           const _ny = _by + Math.sin(_a * Math.PI / 4) * _r;
           if(_nx < 60 || _nx > node.w - 60 || _ny < 60 || _ny > node.h - 60) continue;
-          if(!pointInCover(_waterCovers, _nx, _ny, 60)){ _bx = _nx; _by = _ny; _found = true; }
+          if(!pointInCover(_badCovers, _nx, _ny, 60)){ _bx = _nx; _by = _ny; _found = true; }
         }
       }
     }
@@ -6604,6 +6625,7 @@ function draw(){
   drawScorchMarks(ctx);
   // #U41（2026-10-19）：地面履带痕迹层——与焦痕同层（地物/道路之后、坦克之前），被车体压住。
   if(typeof drawTrackMarks === 'function') drawTrackMarks(ctx);
+  drawTeamRings(ctx);   // 2026-10-27：友军淡绿 / 敌军红 阵营环
   entities.forEach(t => {
     if(t.isDrone) return;   // P-17：无人机无坦克几何，由 drawDrones 单独绘制
     if(entityHiddenByVision(t)) return;   // #J3：视野系统已退役，恒为 false（保留调用点以兼容 dev 钩子）
