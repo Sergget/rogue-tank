@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rogue Tank — 3D 切片 (R1)</title>
+<style>
+  :root { --line:#3a4a3a; --text:#cfe6cf; --amber:#ffb84d; --red:#ff5040; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:#080a07; overflow:hidden; }
+  #c { display:block; width:100vw; height:100vh; }
+  #hud { position:fixed; left:12px; top:12px; font:12px/1.5 'JetBrains Mono',monospace; color:var(--text);
+    background:rgba(8,9,6,0.66); border:1px solid var(--line); border-radius:3px; padding:6px 10px;
+    pointer-events:none; min-width:190px; }
+  #hud b { color:var(--amber); font-weight:600; }
+  #allyHud { position:fixed; left:12px; bottom:52px; font:11px/1.45 'JetBrains Mono',monospace; color:var(--text);
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); border-radius:3px; padding:4px 8px;
+    pointer-events:none; min-width:170px; display:none; }
+  #allyHud .ord { color:var(--amber); }
+  #toast { position:fixed; left:50%; bottom:96px; transform:translateX(-50%);
+    font:12px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.72);
+    border:1px solid var(--line); border-radius:3px; padding:3px 12px; display:none; pointer-events:none; }
+  #help { position:fixed; left:50%; bottom:14px; transform:translateX(-50%);
+    font:11px 'JetBrains Mono',monospace; color:#9ab; background:rgba(8,9,6,0.6);
+    border:1px solid var(--line); border-radius:3px; padding:4px 12px; pointer-events:none; white-space:nowrap; }
+  #boot { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    font:14px 'JetBrains Mono',monospace; color:var(--text); background:#080a07; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1280" height="720"></canvas>
+<div id="hud">R1 · 3D 切片<br><span id="hudBody">加载中…</span></div>
+<div id="allyHud"></div>
+<div id="toast"></div>
+<div id="help">WASD 驾驶 · 鼠标瞄准 · 左键开火 · Z 全体命令 · X 单车命令 · H 驻守 · R 撤退 · V 侧袭</div>
+<div id="boot">加载 R1 切片…</div>
+
+<script src="js/tank_rules.js"></script>
+<script src="js/tank_utils.js"></script>
+<script src="js/tank_geometry.js"></script>
+<script src="js/tank_halfgeom.js"></script>
+<script src="js/tank_model.js"></script>
+<script src="js/tank_cover.js"></script>
+<script src="js/tank_nodegen.js"></script>
+<script src="js/tank_map.js"></script>
+<script src="js/tank_entity.js"></script>
+<script src="js/tank_move.js"></script>
+<script src="js/tank_physics.js"></script>
+<script src="js/tank_weapons.js"></script>
+<script src="js/tank_fire.js"></script>
+<script src="js/tank_strike.js"></script>
+<script src="js/tank_shield.js"></script>
+<script src="js/tank_deployables.js"></script>
+<script src="js/tank_ally_command.js"></script>
+<script src="js/tank_ai_squad.js"></script>
+<script src="js/tank_ai.js"></script>
+<script src="js/tank_bindings.js"></script>
+<script src="js/tank_render3d.js"></script>
+<script src="js/tank_scene3d.js"></script>
+<script>
+(function(){
+'use strict';
+
+const SEED = 20261027;
+const STEP = 1 / 120;
+const canvas = document.getElementById('c');
+const renderer = createRenderer(canvas);
+if(!renderer){
+  document.getElementById('boot').textContent = 'WebGL 不可用：R1 切片需要 WebGL1。';
+  return;
+}
+
+// ---------------- 世界状态 ----------------
+const shells = [];
+const impacts = [];
+const bounceFx = [];
+const particles = [];
+const mouseWorld = { x: 0, y: 0 };
+let tankListData = {};
+let node = null, player = null, cam = null;
+let timeScale = 1;
+let fireHeld = false;
+let staticMesh = null;
+let dynamicMesh = null;
+let coverSig = '';
+let staticRebuildT = 0;
+let lastImpactCount = 0;
+let lastTank = 0;
+let spawnPoint = { x: 0, y: 0 };
+
+const ORDER_LABEL = { focus: '集火', move: '前往', follow: '跟随', hold: '驻守', retreat: '撤退', flank: '侧袭' };
+const PHASE_LABEL = { moving: '行进', holding: '驻守', flanking: '迂回', retreating: '撤离', blocked: '受阻' };
+
+function livingAllies(){
+  return entities.filter(e => e && e.team === 'ally' && e.hp > 0 && e.isAllySquad === true);
+}
+function worldBounds(){
+  return node ? { minX: 0, minY: 0, maxX: node.w, maxY: node.h } : null;
+}
+function toast(msg, bad){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.color = bad ? 'var(--red)' : 'var(--text)';
+  el.style.display = 'block';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.style.display = 'none'; }, 2000);
+}
+function isLethalWaterAt(x, y){
+  for(const c of covers){
+    if(!c || c.hp <= 0) continue;
+    if(c.tier !== 'water' && c.tier !== 'river') continue;
+    const dx = x - c.x, dy = y - c.y;
+    const ang = -(c.angle || 0);
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    const lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
+    if(Math.abs(lx) <= (c.w || 0) / 2 && Math.abs(ly) <= (c.h || 0) / 2) return true;
+  }
+  return false;
+}
+function commandCtx(){
+  return {
+    entities, player,
+    world: node ? { w: node.w, h: node.h } : null,
+    isLethal: isLethalWaterAt,
+    allyCommand: RULES.allyCommand,
+    hasLoS: hasLineOfSight,
+  };
+}
+function pickEnemyAtWorld(x, y, radius){
+  let best = null, bd = radius || 90;
+  for(const e of entities){
+    if(!e || e.team !== 'enemy' || e.hp <= 0) continue;
+    const d = Math.hypot(e.x - x, e.y - y);
+    if(d < bd){ bd = d; best = e; }
+  }
+  return best;
+}
+function issueFromInput(order, single){
+  const allies = livingAllies();
+  if(!allies.length){ toast('没有可用友军', true); return null; }
+  const hit = pickEnemyAtWorld(mouseWorld.x, mouseWorld.y, 90);
+  let singleId = null;
+  if(single){
+    let best = null, bd = Infinity;
+    for(const a of allies){
+      const d = Math.hypot(a.x - mouseWorld.x, a.y - mouseWorld.y);
+      if(d < bd){ bd = d; best = a; }
+    }
+    singleId = best ? best.id : null;
+  }
+  const spec = buildCommandSpec({ order: order || null, hitEntity: hit, player, mouse: mouseWorld, single: singleId, issuedAt: performance.now() });
+  const res = issueAllyCommand(allies, spec, commandCtx());
+  if(res.reason){
+    const why = {
+      'target-missing': '光标下没有敌方目标', 'target-dead': '目标已死亡',
+      'target-not-enemy': '目标不是敌人', 'anchor-missing': '缺少目的地',
+      'anchor-out-of-bounds': '目的地在地图外', 'anchor-lethal': '目的地是致命水域',
+      'no-allies': '没有可用友军', 'unknown-order': '未知命令',
+    }[res.reason] || res.reason;
+    toast('命令被拒绝：' + why, true);
+    return res;
+  }
+  toast(`${ORDER_LABEL[spec.order] || spec.order} · ${res.issued.length} 辆友军`);
+  return res;
+}
+function spawnPuffs(x, y, n, color){
+  for(let i = 0; i < n; i++){
+    const a = Math.random() * TAU, sp = 18 + Math.random() * 46;
+    particles.push({
+      x, y, z: 16 + Math.random() * 12,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 24 + Math.random() * 34,
+      life: 1.1 + Math.random() * 0.6, maxLife: 1.7,
+      size: 5 + Math.random() * 8, color: color || [0.42, 0.40, 0.36],
+    });
+  }
+}
+
+// ---------------- 输入 ----------------
+const input = createInputController({
+  preventKeys: [' ', 'tab'],
+  settings: {},
+  gate: () => true,
+  actions: {
+    commandAll: () => issueFromInput(null, false),
+    commandOne: () => issueFromInput(null, true),
+    commandHold: () => issueFromInput('hold', false),
+    commandRetreat: () => issueFromInput('retreat', false),
+    commandFlank: () => issueFromInput('flank', false),
+  },
+});
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  const sx = (e.clientX - r.left) * (canvas.width / r.width);
+  const sy = (e.clientY - r.top) * (canvas.height / r.height);
+  const hit = rayGroundHit(cam, sx, sy, canvas.width, canvas.height);
+  if(hit){ mouseWorld.x = hit.x; mouseWorld.y = hit.y; }
+});
+canvas.addEventListener('mousedown', e => { if(e.button === 0) fireHeld = true; });
+window.addEventListener('mouseup', e => { if(e.button === 0) fireHeld = false; });
+canvas.addEventListener('mouseleave', () => { fireHeld = false; });
+
+// ---------------- 场景初始化 ----------------
+function buildFireCtx(){
+  return {
+    player, shells, impacts, bounceFx, entities, covers, mouseWorld,
+    cam: { x: player.x, y: player.y, vw: canvas.width, vh: canvas.height, zoom: 1 },
+    RULES,
+    gaussian,
+    nearestEnemyTo,
+    findCoversOnPath,
+    hasLineOfSight,
+    spawnMuzzleFlash: (x, y) => spawnPuffs(x, y, 6, [0.9, 0.72, 0.30]),
+    burstExplosion: (x, y) => spawnPuffs(x, y, 10, [0.55, 0.42, 0.30]),
+    playSound: () => {},
+  };
+}
+let fireCtx = null;
+
+function buildEnemies(gen, tanks){
+  const rng = createRNG((SEED + 4241) | 0);
+  const ids = Object.keys(tanks).filter(id => id !== 'dummy');
+  const px = gen.w * 0.12, py = gen.h * 0.5;
+  const list = [];
+  for(let i = 0; i < 6; i++){
+    let x = 0, y = 0, tries = 0;
+    do {
+      x = rng.range(gen.w * 0.50, gen.w * 0.94);
+      y = rng.range(gen.h * 0.15, gen.h * 0.85);
+      tries++;
+    } while(Math.hypot(x - px, y - py) < 320 && tries < 40);
+    list.push({
+      x, y,
+      hullAngle: Math.PI, turretAngle: Math.PI,
+      heightClass: i % 4 === 0 ? 'heavy' : 'medium',
+      tankId: ids.length ? ids[i % ids.length] : 'dummy',
+      tankClass: i % 4 === 0 ? 'heavy' : 'medium',
+      aiTier: 0,
+      aiReactEnabled: false,
+    });
+  }
+  return list;
+}
+
+function initWorld(){
+  // R1：一张小战场（1200×720 方形竞技场），不走 run 链。
+  const gen = generateNode(0.45, { seed: SEED, scale: 1.8 });
+  node = {
+    index: 0,
+    w: gen.w, h: gen.h,
+    covers: gen.covers,
+    template: gen.template,
+    difficulty: 0.45,
+    seed: SEED,
+    biome: 'grass',
+    biomeZones: [],
+    outpost: null,
+    playerSpawn: { x: gen.w * 0.12, y: gen.h * 0.5 },
+    enemies: buildEnemies(gen, tankListData),
+  };
+  spawnPoint = { x: node.playerSpawn.x, y: node.playerSpawn.y };  const ids = Object.keys(tankListData);
+  const playerTankId = ids[0];
+  player = spawnTank({ id: 'player', team: 'player', x: node.playerSpawn.x, y: node.playerSpawn.y, hullAngle: 0, turretAngle: 0, heightClass: 'medium' });
+  if(playerTankId) applyTankConfig(player, tankListData[playerTankId]);
+  resetEntity(player);
+  player.hp = player.stats.maxHp;
+  player.ammoKey = 'ap';
+
+  materializeNode(node, {
+    keepIds: ['player'],
+    setCovers(list){ covers.length = 0; covers.push(...list); snapshotCovers(); },
+    clearEntities(keepIds){
+      for(let i = entities.length - 1; i >= 0; i--){
+        if(!keepIds.includes(entities[i].id)) entities.splice(i, 1);
+      }
+    },
+    spawnTank(spec){ return spawnTank(spec); },
+    configureTank(t, tankId){
+      const spec = tankListData[tankId];
+      if(spec) applyTankConfig(t, spec);
+      resetEntity(t);
+    },
+    applyDifficulty(t, mults){
+      if(!mults) return;
+      const s = t.stats;
+      if(mults.maxHp){ s.maxHp *= mults.maxHp; t.hp = s.maxHp; }
+      if(mults.penetration) s.penetration *= mults.penetration;
+      if(mults.damage) s.damage *= mults.damage;
+      if(mults.maxSpeed) s.maxSpeed *= mults.maxSpeed;
+    },
+  });
+
+  // 友军编队（与正式游戏共用规格生成）
+  const allyTankId = (RULES.allyCommand && RULES.allyCommand.allyTankId) || playerTankId;
+  for(const spec of allySquadSpecs(node, 'standard', RULES.allyCommand)){
+    const t = spawnTank({ id: spec.id, team: spec.team, x: spec.x, y: spec.y, hullAngle: 0, turretAngle: 0, heightClass: spec.heightClass });
+    t.nodeSpawn = true;
+    t.isAllySquad = true;
+    t._allyIndex = spec._allyIndex;
+    t._allyCount = spec._allyCount;
+    if(allyTankId && tankListData[allyTankId]) applyTankConfig(t, tankListData[allyTankId]);
+    resetEntity(t);
+    t.hp = t.stats.maxHp;
+    issueAllyCommand([t], { order: 'follow', issuedAt: performance.now() }, commandCtx());
+  }
+
+  cam = createOrbitCamera({ pitch: 0.95, distance: 1150, fovY: 0.85 });
+  updateOrbitCamera(cam, { x: player.x, z: player.y }, canvas.width / canvas.height);
+  staticMesh = uploadMesh(renderer, buildStaticScene({ node, covers }));
+  dynamicMesh = uploadMesh(renderer, []);
+  fireCtx = buildFireCtx();
+  mouseWorld.x = player.x + 200;
+  mouseWorld.y = player.y;
+  document.getElementById('boot').style.display = 'none';
+}
+
+// ---------------- 模拟 ----------------
+function update(dt){
+  if(!player) return;
+  const keys = input.keys;
+  const drive = input.driveArgs ? input.driveArgs() : {
+    turn: (keys.a ? 1 : 0) - (keys.d ? 1 : 0),
+    move: (keys.w ? 1 : 0) - (keys.s ? 1 : 0),
+  };
+  driveTank(player, dt, { turn: drive.turn, move: drive.move, worldBounds: worldBounds() });
+
+  // 炮塔朝鼠标（与正式游戏同口径：转速限制）
+  const desired = Math.atan2(mouseWorld.y - player.y, mouseWorld.x - player.x);
+  const diff = angDiff(desired, player.turretAngle);
+  const maxStep = (player.stats.turretTurnRate || 1) * dt;
+  player.turretAngle = norm(player.turretAngle + Math.max(-maxStep, Math.min(maxStep, diff)));
+
+  if(fireHeld && player.reloadT <= 0 && fireCtx) tryFirePrimary(fireCtx);
+
+  const aiCtx = {
+    player, entities, covers, dt,
+    allyCommand: RULES.allyCommand,
+    enemies: entities.filter(e => e.team === 'enemy' && e.hp > 0),
+    hasLoS: hasLineOfSight,
+    findCoversOnPath,
+    worldBounds: worldBounds(),
+  };
+  for(const e of entities){
+    if(e.id === 'player' || e.hp <= 0 || e.isDrone) continue;
+    if(e.team === 'ally'){
+      const ev = updateAllyOrder(e, dt, aiCtx);
+      if(ev && ev.type === 'blocked') toast(`友军受阻：${ev.reason === 'target-lost' ? '目标丢失' : '无法推进'}`, true);
+    }
+    const d = aiDecide(e, aiCtx);
+    driveTank(e, dt, { turn: d.turn, move: d.move, worldBounds: worldBounds() });
+    const td = angDiff(d.turretDesired, e.turretAngle);
+    const ms = (e.stats.turretTurnRate || 1) * dt;
+    e.turretAngle = norm(e.turretAngle + Math.max(-ms, Math.min(ms, td)));
+    if(d.fire){
+      const target = e.team === 'ally' ? allyFireTargetFor(e, aiCtx) : player;
+      if(target && target.hp > 0) fireTank(e, target, 'auto', fireCtx);
+    }
+  }
+  resolveTankCollisions();
+  stepShells(dt, fireCtx);
+
+  // 命中烟尘
+  if(impacts.length > lastImpactCount){
+    for(let i = lastImpactCount; i < impacts.length; i++){
+      const im = impacts[i];
+      if(im) spawnPuffs(im.x, im.y, 8, [0.50, 0.44, 0.34]);
+    }
+  }
+  lastImpactCount = impacts.length;
+
+  // 基础破坏：掩体 tier/hp 变化时重建静态几何（建筑倒塌 → 低矮残骸）
+  staticRebuildT += dt;
+  if(staticRebuildT >= 0.25){
+    staticRebuildT = 0;
+    const sig = covers.map(c => c.tier + ':' + (c.hp | 0)).join('|');
+    if(sig !== coverSig){
+      coverSig = sig;
+      const data = buildStaticScene({ node, covers });
+      if(staticMesh) updateMesh(renderer, staticMesh, data);
+      else staticMesh = uploadMesh(renderer, data);
+    }
+  }
+
+  // 粒子
+  for(let i = particles.length - 1; i >= 0; i--){
+    const p = particles[i];
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    p.vz -= 55 * dt; p.vx *= 0.985; p.vy *= 0.985;
+    p.life -= dt;
+    if(p.life <= 0) particles.splice(i, 1);
+  }
+
+  // 玩家阵亡：沙盒式满状态回到出生点（R1 切片不接 run 流程）
+  if(player.hp <= 0){
+    resetEntity(player);
+    player.hp = player.stats.maxHp;
+    player.x = spawnPoint.x; player.y = spawnPoint.y;
+    toast('玩家阵亡 — 已回到出生点', true);
+  }
+
+  const leadX = player.x + (mouseWorld.x - player.x) * 0.12;
+  const leadY = player.y + (mouseWorld.y - player.y) * 0.12;
+  // 视野大于战场时把相机居中，避免玩家贴边时半屏是地图外
+  const aspect = canvas.width / canvas.height;
+  const halfH = Math.tan(cam.fovY / 2) * cam.distance * 0.85;
+  const halfW = halfH * aspect;
+  const tx = node && node.w > halfW * 2 ? Math.max(halfW, Math.min(node.w - halfW, leadX)) : (node ? node.w / 2 : leadX);
+  const ty = node && node.h > halfH * 2 ? Math.max(halfH, Math.min(node.h - halfH, leadY)) : (node ? node.h / 2 : leadY);
+  updateOrbitCamera(cam, { x: tx, z: ty }, aspect);
+}
+
+// ---------------- 渲染 ----------------
+function render(){
+  if(!staticMesh) return;
+  const b = createMeshBuilder();
+  for(const t of entities){
+    if(t.hp <= 0 || t.isDrone) continue;
+    const data = buildTankMesh(t);
+    for(let i = 0; i < data.length; i++) b.data.push(data[i]);
+  }
+  const fx = buildDynamicFx(shells, particles);
+  for(let i = 0; i < fx.length; i++) b.data.push(fx[i]);
+  updateMesh(renderer, dynamicMesh, b.data);
+  drawScene(renderer, { meshes: [staticMesh, dynamicMesh], cam });
+}
+
+// ---------------- HUD ----------------
+function renderHud(){
+  const body = document.getElementById('hudBody');
+  if(!body || !player) return;
+  const alive = entities.filter(e => e.team === 'enemy' && e.hp > 0).length;
+  const reload = player.reloadT > 0 ? `${player.reloadT.toFixed(2)}s` : '就绪';
+  body.innerHTML = `HP <b>${Math.max(0, player.hp | 0)}/${player.stats.maxHp | 0}</b> · 装填 <b>${reload}</b><br>`
+    + `敌军 <b>${alive}</b> · 友军 <b>${livingAllies().length}</b> · 炮弹 <b>${shells.length}</b>`;
+  const el = document.getElementById('allyHud');
+  const allies = livingAllies();
+  if(!allies.length){ el.style.display = 'none'; }
+  else {
+    el.innerHTML = '<div style="opacity:.75">友军 ALLIES</div>' + allies.map(a => {
+      const o = a._allyOrder;
+      const ord = o ? (ORDER_LABEL[o.order] || o.order) : '待命';
+      const ph = o ? (PHASE_LABEL[o.phase] || o.phase) : '';
+      return `<div>${a.id.replace(/^ally_/, '友')} <span class="ord">${ord}${ph ? '·' + ph : ''}</span></div>`;
+    }).join('');
+    el.style.display = 'block';
+  }
+}
+
+// ---------------- 主循环 ----------------
+let last = performance.now();
+let acc = 0;
+function loop(now){
+  let dt = (now - last) / 1000;
+  if(dt > 0.2) dt = 0.2;
+  last = now;
+  dt *= timeScale;
+  acc += dt;
+  while(acc >= STEP){ update(STEP); acc -= STEP; }
+  render();
+  if(now - lastTank > 150){ lastTank = now; renderHud(); }
+  requestAnimationFrame(loop);
+}
+
+// ---------------- 启动 ----------------
+fetch('api/tanks').then(r => r.json()).then(data => {
+  tankListData = data || {};
+  initWorld();
+  requestAnimationFrame(loop);
+  requestAnimationFrame(() => { window.__TEST3D__.ready = true; });
+}).catch(err => {
+  document.getElementById('boot').textContent = '加载坦克数据失败：' + err;
+});
+
+// ---------------- 测试钩子 ----------------
+window.__TEST3D__ = {
+  ready: false,
+  state(){
+    return {
+      player: player ? { x: player.x, y: player.y, hp: player.hp, maxHp: player.stats.maxHp, reloadT: player.reloadT } : null,
+      entities: entities.length,
+      enemies: entities.filter(e => e.team === 'enemy' && e.hp > 0).length,
+      allies: livingAllies().length,
+      shells: shells.length,
+      node: node ? { w: node.w, h: node.h, index: node.index } : null,
+      cam: cam ? { eye: cam.eye, target: cam.target, pitch: cam.pitch } : null,
+    };
+  },
+  allies(){
+    return livingAllies().map(a => ({
+      id: a.id, order: a._allyOrder ? a._allyOrder.order : null,
+      phase: a._allyOrder ? a._allyOrder.phase : null,
+      targetId: a._allyOrder ? a._allyOrder.targetId : null,
+      anchor: a._allyOrder ? a._allyOrder.anchor : null,
+    }));
+  },
+  issue(spec){ return issueAllyCommand(livingAllies(), spec || {}, commandCtx()); },
+  fireTarget(id){
+    const a = entities.find(e => e.id === id);
+    if(!a) return null;
+    const t = allyFireTargetFor(a, { entities, player, allyCommand: RULES.allyCommand, hasLoS: hasLineOfSight });
+    return t ? t.id : null;
+  },
+  pick(sx, sy){ return rayGroundHit(cam, sx, sy, canvas.width, canvas.height); },
+  mouseWorld(){ return { x: mouseWorld.x, y: mouseWorld.y }; },
+  setMouse(x, y){ mouseWorld.x = x; mouseWorld.y = y; },
+  fire(){ return fireCtx ? tryFirePrimary(fireCtx) : false; },
+  setTimeScale(s){ timeScale = Number(s) || 0; return timeScale; },
+  player(){ return player; },
+  entities(){ return entities; },
+  covers(){ return covers; },
+};
+})();
+</script>
+</body>
+</html>

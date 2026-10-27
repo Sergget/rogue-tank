@@ -3706,3 +3706,78 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 | `npm run test:browser` | **四链 ALL PASS**（本批改了 battle/bench 的指针接线，实跑确认无回归） |
 
 **边界**：R0 不改正式战斗表现；截图取的是进入战斗后第一帧的冻结快照（不含 AI 推进后的画面）。
+
+## §4.148 2026-10-27 A0 友军指挥闭环（六命令 + 统一目标权威 + HUD）
+
+**性质**：**玩法系统落地**。来源：用户「a0+r1 都开工」；机制口径 `specs/combat/ally-command.md` §5.1。
+
+### 1) 纯逻辑层
+
+- 新增 `js/tank_ally_command.js`：
+  - `createAllyOrder` / `validateAllyOrder`（目标存活/敌我、锚点越界、致命水域）；
+  - `issueAllyCommand`（全体/单车，校验失败**整批拒绝**，越界锚点贴边而非丢弃）；
+  - `allyFireTargetFor`（**唯一击发权威**：focus/flank 只认任务目标，死亡返回 null，不暗换最近敌人）；
+  - `updateAllyOrder`（move 到达→hold、retreat 到达→follow、flank 到位→focus、目标丢失→blocked/target-lost、无位移→blocked/stuck）；
+  - `allyCommandDecide`（决策输出与 `aiDecideAlly` 同形）+ `allySquadSpecs`（battle 与 3D 共用编队规格）。
+- `js/tank_ai.js` 的 `aiDecide`：友军有任务时走 `allyCommandDecide`，并照常叠加 `applyWaterAvoidance`。
+- `RULES.allyCommand` 新增参数块（数量按模式：standard 2 / survival 2 / boss 1；`panzer-IV`）。
+
+### 2) 页面接线（battle）
+
+- `enterBattle` 生成友军编队（`isAllySquad` 与据点 `outpost_*` 区分，结算加成只认据点），默认 `follow`。
+- 击发目标从 `nearestEnemyTo(e)` 改为 `allyFireTargetFor(e, aiCtx)`。
+- 键位（`js/tank_bindings.js`）：`Z` 全体上下文、`X` 单车上下文、`H` 驻守、`R` 撤退、`V` 侧袭。
+- HUD：左下 `#allyHud` 队伍状态、`#allyToast` 2 秒反馈、世界内锚点/目标圈/车顶命令字标。
+- `__TEST__` 钩子：`allies()` / `issueAllyCommand()` / `allyFireTarget(id)`。
+
+### 3) 测试
+
+- `scripts/test-ally-command.js`：**54 断言**（快照/校验/目标权威/下发/队形/状态机/决策/上下文/编队规格）。
+- `scripts/test-browser-ally.cjs`：**18 项**（编队生成、Z 键、集火权威、目标死亡不暗换、非法目标整批拒绝、撤退/驻守、命令驱动实际移动、HUD、键位可发现性）。
+
+### 4) 验证
+
+| 链 | 结果 |
+|---|---|
+| `npm run check` | EXIT=0 |
+| `npm test` | **65 通过 / 0 失败** |
+| `npm run test:browser`（含新 ally 链） | ALL PASS |
+| `npm run baseline` | 三场景重新录制后 PASS（A0 改变了 t=0 画面：友军与命令标记入镜） |
+
+**已知边界**：敌军仍只把玩家当主目标；无命令环/手柄动作层（A2）；无职能编队与导航让行（A1）。
+
+## §4.149 2026-10-27 R1 真 3D 可玩切片（原生 WebGL1）
+
+**性质**：**渲染能力落地**。来源：用户「a0+r1 都开工」；路线见 `specs/map/rendering-roadmap.md` §2.2。
+
+### 1) 新增文件
+
+- `tank_3d.html`：独立页面（首页「3D 切片 (R1)」入口），加载同一套共享模块。
+- `js/tank_render3d.js`：原生 WebGL1 渲染层——mat4/透视/相机、**屏幕射线 × 地面求交**（I4 的 3D 版）、三角形批（盒/挤出/圆锥）、单 shader（Lambert + 顶点色）、静态/动态 buffer 更新。**零第三方依赖**。
+- `js/tank_scene3d.js`（纯函数）：tier 视觉参数、掩体多边形、静态场景（地面/路网/水/泥/建筑/树）、坦克几何（`hullPoly`/`turretPoly` 挤出 + 炮管）、炮弹与烟尘批。
+
+### 2) 场景与玩法
+
+- 小战场：`generateNode(0.45, {seed:20261027, scale:1.8})` → **1440×864**，26 个地物。
+- 实体：玩家 + **2 辆友军**（A0 共用 `allySquadSpecs`）+ 6 辆敌军（固定 seed 布点）。
+- 相机：固定 yaw、pitch 0.95、距离 1150、透视；视野大于战场时自动居中。
+- 输入：WASD、鼠标地面瞄准、左键主炮、`Z/X/H/R/V` 友军命令。
+- 模拟复用：`driveTank` / `tryFirePrimary` / `stepShells` / `resolveHit` / `aiDecide` / `updateAllyOrder`。
+- 表现：掩体 tier/hp 变化触发静态几何重建（基础破坏）；命中生成粒子烟尘；炮弹为动态盒体。
+- 测试钩子：`window.__TEST3D__`（state/allies/issue/fireTarget/pick/fire/setTimeScale）。
+
+### 3) 测试
+
+- `scripts/test-render3d.js`：**22 断言**（相机射线、批构建顶点数、tier 覆盖、掩体多边形、静态/坦克/FX 几何）。
+- `scripts/test-browser-3d.cjs`：**13 项**（WebGL 启动、世界生成、射线拾取、主炮开火、友军命令与击发权威、截图产物）。
+
+### 4) 验证
+
+| 链 | 结果 |
+|---|---|
+| `npm run check` | EXIT=0（七页内联脚本纳入冒烟） |
+| `npm test` | **65 通过 / 0 失败** |
+| `npm run test:browser`（含新 3d 链） | ALL PASS |
+| 截图 | `tmp/r1-3d/r1-3d.png`（倾斜视角：地面/道路/建筑/树/三色坦克/炮弹） |
+
+**边界**：PBR/阴影/LOD/实例化、模型资产管线、可旋转相机、副武器与技能、敌军把友军当主目标均未做（G1/量产阶段）。3D 视觉参数（`TIER_VIS`）只服务画面，不参与判定。

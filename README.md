@@ -20,19 +20,21 @@ npm start          # 启动 dev server（默认端口 8000，可用 PORT=9000 �
 | 设计器 | `http://127.0.0.1:8000/tank_designer.html` | 车体/炮塔多边形编辑、逐边装甲、甲弹对抗 |
 | 数据对比 | `http://127.0.0.1:8000/tank_compare.html` | 坦克数据表格化对比/编辑 |
 | 坦克图鉴 | `http://127.0.0.1:8000/tank_codex.html` | 按等级查询坦克/Boss 的六面装甲、HP、穿深、伤害、装填、极速与尺寸（纯查询，不生成实体） |
+| 3D 切片 (R1) | `http://127.0.0.1:8000/tank_3d.html` | 真 3D 可玩切片：小战场、轻倾斜相机、主炮与友军命令、基础破坏（原生 WebGL1） |
 
-## 验证（三链全绿）
+## 验证（四链全绿）
 
 ```bash
 npm run check         # 语法冒烟 + tsc 类型检查（共享模块、server.js、页面内联脚本）
 npm test              # 全套 Node 测试链（AI/物理/卡牌/Boss/地图/经济……）
-npm run test:browser  # 浏览器冒烟四链（需系统 Edge + playwright-core 无头）
+npm run test:browser  # 浏览器六链（smoke/r3/run/r4/ally/3d；需系统 Edge + playwright-core 无头）
+npm run baseline      # R0 渲染基线（首次 -- --write，之后默认 --check；基线在 tmp/ 不入库）
 ```
 
 ## 目录结构
 
 ```
-index.html / tank_battle.html / tank_bench.html / tank_designer.html / tank_compare.html / tank_codex.html
+index.html / tank_battle.html / tank_bench.html / tank_designer.html / tank_compare.html / tank_codex.html / tank_3d.html
 js/            共享模块（tank_rules.js 为机制参数唯一配置源，必须最先加载）
 tanks/         坦克配置（一型一 JSON，经 api/tanks 读写）
 cards/ bosses/ 卡牌与 Boss 数据

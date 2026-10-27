@@ -918,6 +918,25 @@ const RULES = {
   // 敌人/友军 AI（P-10 / DEVELOPMENT.md §6 条目 7）：双态行为 + 友军据点消极防御。
   // 现已扩展为多态战术状态机（P-19）：状态包括 Stunned/Flank/Defensive/Search/Patrol。
   // 消费方：js/tank_ai.js（aiDecide）。
+  // --- A0 友军指挥（2026-10-27，§4.148）---
+  // 六命令 focus/move/follow/hold/retreat/flank 的参数唯一口径。
+  // 消费方：js/tank_ally_command.js（纯逻辑）→ tank_ai.js 决策 / battle 开火目标。
+  allyCommand: {
+    enabled: true,
+    maxAllies: 4,
+    arriveRadius: 70,          // 到达判定（px）
+    formationSpacing: 110,     // 队形间距（follow 后方 / move·hold 环形半径的基准）
+    autoEngageRange: 460,      // 非 focus 命令下的自主反击射程（与 ai.allyEngageRange 同量级）
+    focusBand: 0.72,           // 交战带 = autoEngageRange × 该系数；进入后站定射击
+    flankOffset: 180,          // flank 侧向偏移（px）
+    stuckSeconds: 4,           // 移动类阶段无位移超过该秒数 → blocked（stuck）
+    stuckSpeed: 8,             // 「无位移」判定速度（px/s）
+    retreatRange: 260,         // 撤退集结半径（锚点缺省取玩家位置）
+    aimTolerance: 0.12,        // 炮塔对准容差（rad）才开火
+    countByMode: { standard: 2, survival: 2, boss: 1 },
+    allyTankId: 'panzer-IV',   // 友军使用的坦克配置（tanks/<id>.json）
+  },
+
   ai: {
     // --- 激活触发（重设计）：距离 + 可见性，与摄像机视野彻底解耦 ---
     // 有效触发距离在实体生成时按难度算好挂 t.aiTriggerDist（js/tank_map.js

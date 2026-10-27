@@ -1499,7 +1499,14 @@ function _wallTurretOnlyFiringLine(t, target, ctx){
 // 敌对决策输出统一叠加绕水修正（2026-09-14：水域能淹死 AI，寻路必须绕开）。
 // 2026-10-22（第五批 B2-1）：再叠加**雷场规避**（敌人不得一头扎进玩家布好的雷带）。
 function aiDecide(t, ctx){
-  if(t.team === 'ally') return aiDecideAlly(t, ctx);
+  if(t.team === 'ally'){
+    // A0（2026-10-27）：有玩家任务时走指挥决策；无任务保持原有消极防御。
+    // 绕水修正同样适用（友军不为命令豁免地形规则）。
+    if(t._allyOrder && typeof allyCommandDecide === 'function'){
+      return applyWaterAvoidance(t, allyCommandDecide(t, ctx), ctx);
+    }
+    return aiDecideAlly(t, ctx);
+  }
   const out = applyWaterAvoidance(t, aiDecideEnemy(t, ctx), ctx);
   return applyHazardAvoidance(t, out, (ctx && ctx.hazards) || null);
 }

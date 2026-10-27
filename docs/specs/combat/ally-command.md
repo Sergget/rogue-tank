@@ -1,15 +1,15 @@
 # 友军指挥与战术协同
 
-> **摘要**：单机少量 AI 友军的六命令、目标权威、状态反馈与导航验收。
-> **适用版本**：设计预留（未落地，2026-10-26）
+> **摘要**：单机少量 AI 友军的六命令、目标权威、状态反馈与导航验收；A0 命令闭环已落地。
+> **适用版本**：A0 已落地（2026-10-27）；A1～A3 设计预留
 > **源自**：2026-10-26 用户裁定「多人合作暂不考虑，少量友军和友军命令系统」；`docs/specs/combat.md` §16（新建）
-> **相关**：[敌方 AI](./enemy-ai.md) · [撞击、隐蔽与闪跃](./ramming-stealth-dash.md) · [HUD 与界面](./hud-ui.md) · [渲染路线](../map/rendering-roadmap.md)
+> **相关**：[敌方 AI](./enemy-ai.md) · [HUD 与界面](./hud-ui.md) · [渲染路线](../map/rendering-roadmap.md) · [浏览器测试链](../editor/browser-tests.md)
 
 | 子项 | 状态 | 说明 |
 |---|---|---|
-| 单机与少量友军方向 | **已裁定，未落地** | 不做本地/在线多人；首个切片设计容量为 2～4 辆友军，最终数量由战斗与性能实测决定 |
-| 六命令与指挥 UX | **设计预留** | 首版为 `focus / move / follow / hold / retreat / flank`，无独立命令 UI |
-| 目标与任务协调 | **设计预留** | 现有 `updateSquad` 只分配敌军角色；友军尚无玩家任务状态机 |
+| 单机与少量友军方向 | **已裁定** | 不做本地/在线多人；首个切片设计容量为 2～4 辆友军，最终数量由战斗与性能实测决定 |
+| 六命令与指挥 UX | **A0 已落地** | `focus / move / follow / hold / retreat / flank` + Z/X/H/R/V 键位；命令环（A2）未做 |
+| 目标与任务协调 | **A0 已落地** | 新增纯逻辑任务层 `js/tank_ally_command.js`；决策与击发读同一权威目标 |
 | 职能、导航与协同构筑 | **设计预留** | 在命令闭环后分批实施，不以增加人数替代行为质量 |
 
 ## 1. 目标与现状边界
@@ -89,6 +89,48 @@
 | 构筑 | 指挥响应、协同标记、维修/补给、烟幕/交叉火力等；禁止只堆友军血伤 |
 
 遭遇可设计守点、夹击与反伏击来让命令有意义，但**不得让大部分节点退化为护送脆弱 NPC**。友军强度、击杀得分与补给需一起校准，避免抢光成长资源或成为免费消耗品。
+
+## 5.1 A0 落地口径（2026-10-27）
+
+### 模块与数据
+
+- **唯一逻辑入口**：`js/tank_ally_command.js`（纯逻辑、Node 可测、无 DOM）。
+- **任务快照**：每辆友军持有 `_allyOrder = {order, issuer, targetId, anchor, issuedAt, phase, reason}`；`phase ∈ moving / holding / flanking / retreating / blocked`。
+- **目标权威**：`allyFireTargetFor(ally, ctx)`。`focus` / `flank` 只认任务目标，目标死亡即返回 `null`——**不暗换最近敌人**；其余命令允许在 `RULES.allyCommand.autoEngageRange` 内自主反击。
+- **决策**：`aiDecide` 对 `team==='ally'` 且有任务时调用 `allyCommandDecide`，输出与 `aiDecideAlly` 同形；随后仍叠加 `applyWaterAvoidance`（友军不为命令豁免地形）。
+- **状态机**：`updateAllyOrder` 处理到达转驻守、撤退完成转跟随、侧袭到位转集火、目标丢失 `blocked/target-lost`、长时间无位移 `blocked/stuck`。
+- **编队规格**：`allySquadSpecs(node, mode, cfg)` 由 battle 与 `tank_3d.html` 共用。
+
+### 配置（`RULES.allyCommand`）
+
+`enabled` / `maxAllies` / `arriveRadius` / `formationSpacing` / `autoEngageRange` / `focusBand` / `flankOffset` / `stuckSeconds` / `stuckSpeed` / `retreatRange` / `aimTolerance` / `countByMode` / `allyTankId`。数量按模式：standard 2 / survival 2 / boss 1；友军坦克 `panzer-IV`。
+
+### 输入（`js/tank_bindings.js` 唯一数据源）
+
+| 键 | 命令 | 语义 |
+|---|---|---|
+| `Z` | 全体上下文命令 | 光标敌人 → `focus`；地面 → `move`；自身/空 → `follow` |
+| `X` | 单车上下文命令 | 同上，目标为离光标最近的友军 |
+| `H` | 全体驻守 | 锚点 = 光标地面 |
+| `R` | 全体撤退 | 集结到玩家位置 |
+| `V` | 全体侧袭 | 光标敌人；到位后自动转 `focus` |
+
+### 反馈与生命周期
+
+- HUD：左下 `#allyHud` 列出每辆友军的命令/阶段；命令接受/拒绝/受阻走 2 秒 `#allyToast` + 日志。
+- 世界标记：锚点圆环+十字、集火目标红圈、车顶命令字标（`drawAllyOrderMarkers`）。
+- 节点切换时 `clearAllAllyOrders` 并重新生成编队；任务不跨节点悬挂。
+- 友军与据点（`outpost_*`）区分：`isAllySquad` 标记，结算加成只认据点。
+
+### 已知边界（A1/A2 处理）
+
+- 敌军 AI 仍只把玩家当主目标，友军暂不承担「被集火」压力。
+- 无命令环/手柄动作层（A2）；无职能编队与导航让行（A1）。
+- 不做逐车 RTS 微操、战术暂停与多人共享命令。
+
+### 验证
+
+`node scripts/test-ally-command.js`（快照/校验/目标权威/状态机/决策/编队规格）+ `node scripts/test-browser-ally.cjs`（生成/键位/集火权威/目标死亡/撤退/HUD）。
 
 ## 6. 验收与回归
 

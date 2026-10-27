@@ -103,7 +103,7 @@ for (const rel of collectScriptFiles(scriptsDir, '')) {
 
 // 2026-10-22（第五批 B6）：新增 tank_codex.html（图鉴独立页）——页面白名单必须同步，
 // 否则新页的内联脚本永远不被语法冒烟覆盖（ghost page）。
-for (const rel of ['index.html', 'tank_battle.html', 'tank_bench.html', 'tank_designer.html', 'tank_compare.html', 'tank_codex.html']) {
+for (const rel of ['index.html', 'tank_battle.html', 'tank_bench.html', 'tank_designer.html', 'tank_compare.html', 'tank_codex.html', 'tank_3d.html']) {
   const full = path.join(ROOT, rel);
   if (!fs.existsSync(full)) { console.error(`✗ missing: ${rel}`); failed++; continue; }
   checkFileScripts(full);

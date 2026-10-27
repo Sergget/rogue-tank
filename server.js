@@ -196,5 +196,6 @@ server.listen(PORT, HOST, () => {
   console.log(`  → http://${HOST}:${PORT}/tank_bench.html  (装甲测试台)`);
   console.log(`  → http://${HOST}:${PORT}/tank_designer.html (坦克设计器)`);
   console.log(`  → http://${HOST}:${PORT}/tank_compare.html  (坦克对比)`);
+  console.log(`  → http://${HOST}:${PORT}/tank_3d.html       (R1 3D 切片)`);
   console.log(`  → content dirs (一型一文件): ${Object.keys(CONTENT_DIRS).join(', ')}`);
 });

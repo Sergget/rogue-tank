@@ -5,13 +5,14 @@
 ## 1. 项目概览
 
 - **类型**：节点式地图推进 + 局内得分驱动构筑 的战术坦克 Roguelike（俯视角 2D），方向为技能系统 + 主副武器解耦 + 召唤部署物（详见 `docs/DEVELOPMENT.md` §1）。
-- **核心页面**（均为单文件 HTML，内联大段脚本；**共六页**，`server.js` '/' 指向首页）：
+- **核心页面**（均为单文件 HTML，内联大段脚本；**共七页**，`server.js` '/' 指向首页）：
   - `index.html`：首页封面路由（正式游戏 / 装甲测试台两卡片入口 + 设计器 / 对比链接）。
   - `tank_battle.html`：正式游戏页（run 链路：Home 多存档 → Loadout → 商店 → 节点图 → 战斗/结算/卡牌/Boss/AI/复活/经济/小地图；开发者面板 `#devPanel`、日志面板、流程覆盖层 `#flowOverlay`）。**游戏模式由 URL 参数 `?mode=` 决定**（`standard` 缺省 / `boss` 全 Boss 链 / `survival` 波次守点，`GAME_MODE`，2026-10-15 #MODE）——现行口径见 `docs/specs/combat.md` §14。
   - `tank_bench.html`：装甲测试台独立页（player + dummy 靶车、发射解算面板、靶场控制台、Enemy Lab、卡牌测试）。
   - `tank_designer.html`：多边形顶点编辑器（车体/炮塔几何、逐边装甲、炮管/炮盾、甲弹对抗测试）。
   - `tank_compare.html`：表格化坦克数据对比/编辑页。
   - `tank_codex.html`：坦克图鉴独立页（按等级查询任一坦克/Boss 的六面装甲、HP、穿深、伤害、装填、极速与尺寸；**纯查询**，不生成实体。数据源 `enemyPreviewStats`；bench 内已无图鉴入口，2026-10-26 用户裁定）。
+  - `tank_3d.html`：**R1 真 3D 可玩切片**（原生 WebGL1；同一套二维模拟 + 小战场 1440×864 + 轻倾斜相机 + 主炮 + 友军命令 + 基础破坏；`__TEST3D__` 测试钩子。2026-10-27 §4.149）。
 - **共享模块**（`js/`，浏览器端以全局脚本按序加载、非 ES Module；每个模块底部带 `module.exports` 以支持 Node 测试）：
   - `tank_rules.js`：**机制参数唯一配置源**（RULES），必须最先加载，其他模块依赖它。
   - `tank_utils.js`：数学工具（norm/angDiff/gaussian/rotate/distToSegment/segRayIntersect/partCorners/partEdges/reflectDir + **`lightningPath`** 确定性电弧/闪电折线，2026-10-18 #U38），最先可加载的纯工具层。
@@ -29,6 +30,8 @@
   - `tank_cards.js`：卡牌系统（CARD_RARITIES/效果类型 + `validateCard`/`applyCardEffects`/`drawCardChoices` 含装备优先保底与 `cardEligible` 资格过滤/`cardStackCount`；#U40 2026-10-19 起含**调校/升级分界**——带 field 的 ammo 效果绝不触发链替换、`isAmmoUpgradeCard` 同口径；应急护盾再充能助手 `emergencyShieldCooldown`/`updateEmergencyShieldRearm`；经济聚合 `runScoreMultiplier`/`runShopDiscount`。**卡牌 `tags` 字段与 `CARD_TAGS` 枚举已于 2026-10-20 #16 整体下线**——196 张卡不再带 tags，校验与导出同批删除，见 §4.112「#16」）。
   - `tank_boss.js`：Boss 系统（validateBoss/bossStageFor + makeBossEntity/applyBossStage/updateBossStage，缩放整体替换不污染共享 spec）。
   - `tank_ai_squad.js`：敌军攻守分工协调器（`updateSquad` 按「距离/LoS/血量」评分分配 press/flank/hold 角色 + `holdGate` 射界门控 + `threatIndicators` 视口外来袭方位提示；纯逻辑、可 Node 测试，**须先于 `tank_ai.js` 加载**——后者运行时调用 `holdGate`；2026-10-02 #N 新增）。
+  - `tank_ally_command.js`：**A0 友军指挥纯逻辑层**（六命令快照/校验/目标权威/状态机/编队规格；`allyFireTargetFor` 是友军击发的唯一目标来源，focus/flank 不暗换最近敌人；**须先于 `tank_ai.js` 加载**；2026-10-27 §4.148）。
+  - `tank_render3d.js` / `tank_scene3d.js`：**R1 真 3D 渲染**（原生 WebGL1 单 shader + 相机/屏幕射线拾取；场景几何把 covers/tanks 转成三角形批，纯函数；2026-10-27 §4.149）。
   - `tank_ai.js`：敌人/友军 AI 决策（`aiDecide` 双态 + 受击警觉/避水/找掩体 coverSeek + 消极防御，输出 `{turn, move, turretDesired, fire}`；#M 接战机动随机化、#N 交战距离带 / flank 侧翼站位 / 群体分离力 / 装填脱离）。
   - `tank_revive.js`：死亡/复活状态机（满状态复活 + 无敌 + 友军据点旁随机点，依赖 `RULES.revive`）。
   - `tank_economy.js`：经济/存档/多存档槽位（元索引 + 槽位键 CRUD + migrateLegacySave；UPGRADE_DEFS 永久升级树 + scoreToPoints/buyUpgrade/applyUpgrades/buyExtraRevive）。
@@ -142,7 +145,7 @@
   - `http://127.0.0.1:8000/tank_battle.html`（正式游戏）/ `tank_bench.html`（装甲测试台）
   - `http://127.0.0.1:8000/tank_designer.html`
   - `http://127.0.0.1:8000/tank_compare.html`
-- 校验：`npm run check` —— 对共享模块、`server.js` 及**六个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器冒烟四链（smoke / r3 / run / r4，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）；`npm run baseline` —— **R0 渲染基线**（三场景固定截图 + 性能采样，默认 `--check`，首次用 `--write` 记录；基线在 `tmp/`，不入库）。四者都应全绿。
+- 校验：`npm run check` —— 对共享模块、`server.js` 及**七个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器链（smoke / r3 / run / r4 + ally + 3d，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）；`npm run baseline` —— **R0 渲染基线**（三场景固定截图 + 性能采样，默认 `--check`，首次用 `--write` 记录；基线在 `tmp/`，不入库）。四者都应全绿。
 - **改过 docs 再加一条**：`node scripts/wiki-check.js` —— 全 `docs/` 树的 Markdown 链接与锚点校验（断链 / 失效锚点）。**改 specs 页面、改文件名、改标题后必须跑**（见 §2.3）。仅改代码/测试时不需要。
 
 ### 3.2 测试坦克战斗
@@ -158,7 +161,7 @@
 
 ### 3.4 脚本加载顺序（新增模块/脚本时注意）
 
-浏览器端无模块系统，顶层函数与常量即全局。`tank_rules.js` 必须最先加载（其他模块在顶层引用 `RULES`）；`tank_utils.js` 在 `tank_geometry.js`/`tank_cover.js`/`tank_halfgeom.js` 之前（后两者复用 utils 的 `rotate`/`distToSegment`）；`tank_entity.js` 中声明的 `entities` 数组是全局唯一实例，不得重复声明。`tank_halfgeom.js` 提供 `normalizeBarrel`，在原型/设计器中都先于 `tank_model.js` 加载。新增共享模块时遵守「纯逻辑可 Node 测试、DOM 接线留页面」的分层约定。
+浏览器端无模块系统，顶层函数与常量即全局。`tank_rules.js` 必须最先加载（其他模块在顶层引用 `RULES`）；`tank_utils.js` 在 `tank_geometry.js`/`tank_cover.js`/`tank_halfgeom.js` 之前（后两者复用 utils 的 `rotate`/`distToSegment`）；`tank_entity.js` 中声明的 `entities` 数组是全局唯一实例，不得重复声明。`tank_halfgeom.js` 提供 `normalizeBarrel`，在原型/设计器中都先于 `tank_model.js` 加载。`tank_ai_squad.js` 与 `tank_ally_command.js` 都必须在 `tank_ai.js` 之前（后者运行时调用 `holdGate` / `allyCommandDecide`）。新增共享模块时遵守「纯逻辑可 Node 测试、DOM 接线留页面」的分层约定。
 
 ### 3.5 大文档与大输出读取纪律（防 agent 死循环）
 
@@ -187,7 +190,7 @@
 | 链 | 沙箱 workspace-write | 权限放宽后 |
 |---|---|---|
 | `npm run check`（语法 + tsc） | ✅ 全绿 | ✅ |
-| `npm test`（62 个 `test-*.js` + `validate-content.js` = 63 项登记，2026-10-27 实测） | ⚠️ **62 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **63 通过 / 0 失败** |
+| `npm test`（64 个 `test-*.js` + `validate-content.js` = 65 项登记，2026-10-27 实测） | ⚠️ **64 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **65 通过 / 0 失败** |
 | `npm run test:browser`（四链） | ⚠️ 报 `spawn EPERM`（命名管道被禁）并输出 `INCONCLUSIVE` + 退出码 86 | ✅ 全绿 |
 
 **不要把 `INCONCLUSIVE`/86 当成代码失败**；它明确表示环境未放开。历史上该噪音被误读为「浏览器链坏了」，导致多轮无效排查。
@@ -211,7 +214,7 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**R0 渲染地基为下一步第一件实事** + **近远期执行路线**（§2：R0 渲染地基 → A0 友军指挥 / R1 真 3D → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机六命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。2026-10-24 用户反馈批次（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130）已全部关账，整节原文于 2026-10-27 归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
+- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**R0 地基 / A0 命令闭环 / R1 3D 切片均已完成（§4.147~§4.149），下一步是 G1 品质垂直切片** + **近远期执行路线**（§2：A1 导航职能 / A2 命令环 → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机六命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。2026-10-24 用户反馈批次（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130）已全部关账，整节原文于 2026-10-27 归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
 - **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **69 个 `.md`（59 主题页 + 5 index + 5 changelog，2026-10-26 实测）**，每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
 - **待处理问题**：见 `docs/ISSUES.md`（**当前无存量条目**——用户 2026-10-24 反馈批次已**全部关账**：AA-a 关 #AA1/#AA2/#AA5（§4.132）、AA-b 关 #AA3（§4.136，`test-bench-parity.js` **30 断言**锁键集包含关系，其中 2 条是关账后同日修 F 键门控回归时补的）、AA-c 电磁炮三段声学（§4.137，新能力缺口，原挂 PLAN §6.3）、AA-d 关 #AA4（§4.130）。历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

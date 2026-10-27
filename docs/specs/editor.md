@@ -25,7 +25,7 @@
 | **坦克贴图与涂装视觉规范**（`TEXTURE_DEFS` / 迷彩 / 审核标准） | [贴图与涂装视觉规范](./editor/visual-spec.md)（§6） | 完整审核标准归 [地图规范](./map.md) §22/§23 |
 | **开发者面板**（devPanel 四 Tab / 卡牌选择器 / 两页按键统一） | [开发者面板](./editor/devpanel.md)（§7、§7.1~§7.3） | — |
 | **两页 HUD 渲染合并状态**（9 处 = 6 合并 + 2 定位差异 + 1 重复计数 ⇒ **无剩余项**） | [开发者面板 · HUD 合并](./editor/devpanel.md#hud-渲染实现级合并)（§7.4） | [沿革 · 未纳入本轮](./editor/changelog.md#未纳入本轮2026-09-19-c5已全部关闭)（§7.7） |
-| **浏览器自动化测试链**（`npm run test:browser` 四链） | [浏览器自动化测试链](./editor/browser-tests.md)（§7.5） | — |
+| **浏览器自动化测试链**（`npm run test:browser` 六链） | [浏览器自动化测试链](./editor/browser-tests.md)（§7.5） | — |
 | **内容工具与预览**（NF-1 查看器全池 / NF-2 图鉴 / NF-4 tooltip） | [内容工具与 appearance · NF-*](./editor/appearance-aimspeed.md#内容工具与预览nf-1-nf-2-nf-4)（§7.6） | — |
 | **`spec.appearance` 外观件是否生效**（cupola / engineDeck） | [内容工具与 appearance · appearance](./editor/appearance-aimspeed.md#applytankconfig-深拷贝-specappearance)（§8.1） | — |
 | **设计器叠加层与贴图基准是否一致** | [内容工具与 appearance · 叠加层基准](./editor/appearance-aimspeed.md#设计器叠加层基准与-tank_paintjs-统一)（§8.2） | — |
@@ -107,7 +107,7 @@
 
 ### 7.5 浏览器自动化测试链（2026-09-20，#F7）
 
-> `npm run test:browser` **四链**（smoke / r3 / run / r4）脚本矩阵与覆盖面；`window.__TEST__` 测试钩子；**r4 四条夹具约定**（玩家射击过滤 / 冻结敌人 / 雷场按 `spawnMine` 计数 / 注入在 `reload` 之后且 `timeout` 第三参）。**2026-10-27 起同页另收 R0 渲染基线链**（`npm run baseline`：三场景冻结首帧截图 + 帧时间采样）。
+> `npm run test:browser` **六链**（smoke / r3 / run / r4 / ally / 3d）脚本矩阵与覆盖面；`window.__TEST__` 测试钩子；**r4 四条夹具约定**（玩家射击过滤 / 冻结敌人 / 雷场按 `spawnMine` 计数 / 注入在 `reload` 之后且 `timeout` 第三参）。**2026-10-27 起同页另收 R0 渲染基线链**（`npm run baseline`：三场景冻结首帧截图 + 帧时间采样）。
 
 **详见**：[浏览器自动化测试链](./editor/browser-tests.md)
 

@@ -18,6 +18,7 @@ model: inherit
 - `js/tank_dmgtext.js` — 伤害飘字（pen/block/bounce/he/dot 五色）
 - `js/tank_audio.js` — `SOUND_DEFS` + 惰性 AudioContext（全合成零资产）+ 电磁炮充能循环实例
 - `js/tank_battledraw.js` — 正式游戏页战斗场景绘制层（`drawTank`/`drawShells`/`drawCover`/`drawFoliage`/部署物/`railChargeProgress`）
+- `js/tank_render3d.js` / `js/tank_scene3d.js` / `tank_3d.html` — **R1 真 3D 切片**（原生 WebGL1 渲染层 + 场景三角形批 + 独立页面；2026-10-27 §4.149）
 - `scripts/audit-textures.js` — 贴图审核标准（七指标 + 三类评分 + 双向区间）
 - `scripts/test-render.js` / `scripts/test-assets.js` / `scripts/test-asset-pipeline.js` / `scripts/test-audio.js`
 - **bench 契约测试**（2026-10-26 起）：`scripts/test-bench-parity.js`（battle `fireCtx` 键集 ⊆ bench 键集 + F 边沿 + 曲射散布圈）、`scripts/test-bench-tools.js`（Enemy Lab 清场与生成护栏）、`scripts/test-hud-readability.js`（HUD 文本底衬与字号下限）
@@ -56,5 +57,5 @@ model: inherit
 
 ## 5. 验证
 
-`node scripts/test-render.js`（真实光栅化逐像素回归）、`test-assets.js`、`test-asset-pipeline.js`、`test-audio.js`（含电磁炮循环：20 段严格单调 / 非法输入 clamp / 无 AudioContext no-op）、`test-hud-readability.js`、`test-bench-tools.js`、`test-bench-parity.js`、`node scripts/audit-textures.js`（达标线 80）。
+`node scripts/test-render.js`（真实光栅化逐像素回归）、`test-assets.js`、`test-asset-pipeline.js`、`test-audio.js`（含电磁炮循环：20 段严格单调 / 非法输入 clamp / 无 AudioContext no-op）、`test-hud-readability.js`、`test-bench-tools.js`、`test-bench-parity.js`、`test-render3d.js`（3D 相机/批构建/场景几何）、`node scripts/audit-textures.js`（达标线 80）。
 **视觉类改动必须给目视证据**（离屏 1×/5×/10× 出图）；**纯 CSS/DOM 改动无法光栅化**，退而用源码形状断言锁（剥注释后匹配）+ 让用户实机看一眼。全链交给 `role-verify-docs`。

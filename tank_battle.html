@@ -196,6 +196,17 @@
   /* ISSUE 18：帧率读出（右下角，仅 showFps 时显示） */
   #fpsReadout{position:absolute; right:12px; bottom:10px; font-size:12px; color:#6f6; display:none; pointer-events:none;
     background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:2px 7px; border-radius:2px;}
+  /* A0（2026-10-27）：友军指挥——队伍状态列表 + 命令反馈（能压战场，统一深色底衬） */
+  #allyHud{position:absolute; left:12px; top:36%; font:11px/1.45 'JetBrains Mono',monospace;
+    color:var(--text); background:rgba(8,9,6,0.62); border:1px solid var(--line);
+    border-radius:2px; padding:4px 8px; pointer-events:none; display:none; min-width:158px;}
+  #allyHud .row{display:flex; gap:6px; white-space:nowrap;}
+  #allyHud .ord{color:var(--amber);}
+  #allyHud .bad{color:var(--red);}
+  #allyToast{position:absolute; left:50%; bottom:128px; transform:translateX(-50%);
+    font:12px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.72);
+    border:1px solid var(--line); border-radius:2px; padding:3px 12px; display:none;
+    pointer-events:none; z-index:6;}
   /* #AA9：顶部中央四块文本（弹种倍率 / 波次 / 补给冷却 / 补给提示）同批补底衬——它们叠在
      战场正中央，亮 biome 上同样糊；各自 pill 化而不是给 #topCenterHud 整块加底，避免空态留一片暗板。 */
   #ammoReadout{font-size:12px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none;
@@ -484,6 +495,8 @@
   <div id="hintBar"></div>
   <div id="fpsReadout">FPS --</div>
   <div id="quotaHud" style="display:none;"></div>
+  <div id="allyHud"></div>
+  <div id="allyToast"></div>
   <div id="supplyPromptHud" style="display:none;position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:15px;font-weight:bold;color:#7ed957;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;background:rgba(8,9,6,0.66);border:1px solid var(--line);padding:3px 12px;border-radius:2px;"></div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
@@ -657,6 +670,7 @@
   <script src="js/tank_deployables.js"></script>
   <script src="js/tank_move.js"></script>
   <script src="js/tank_ai_squad.js"></script>
+  <script src="js/tank_ally_command.js"></script>
   <script src="js/tank_ai.js"></script>
   <script src="js/tank_revive.js"></script>
   <script src="js/tank_economy.js"></script>
@@ -811,6 +825,12 @@ const input = createInputController({
     skill1: () => skillHotkey(1),                    // 阶段六：技能池（1~3 对应玩家装备的主动技能）
     skill2: () => skillHotkey(2),
     skill3: () => skillHotkey(3),
+    // A0（2026-10-27）：友军指挥——Z/X 上下文默认，H/R/V 全体精确命令
+    commandAll: () => issueAllyCommandFromInput(null, false),
+    commandOne: () => issueAllyCommandFromInput(null, true),
+    commandHold: () => issueAllyCommandFromInput('hold', false),
+    commandRetreat: () => issueAllyCommandFromInput('retreat', false),
+    commandFlank: () => issueAllyCommandFromInput('flank', false),
     // #C4e（2026-09-17）：F 键不再注册边沿动作——按住连发由主循环 isDown('fireSecondary') 轮询
     panelStatus: () => {                              // Tab：状态面板（与 dev/log/cards 组互斥，共用呼入/呼出策略）
       const willOpen = !statusOpen;
@@ -1542,6 +1562,176 @@ canvas.addEventListener('mousemove', e=>{
     player._mineFieldPreview.angle = Math.atan2(p.y - player.y, p.x - player.x) + Math.PI / 2;
   }
 });
+
+// ---------- A0 友军指挥（2026-10-27，§4.148） ----------
+// 纯逻辑在 js/tank_ally_command.js；本段只做页面接线（拾取、下发、反馈、HUD）。
+const ALLY_ORDER_LABEL = { focus: '集火', move: '前往', follow: '跟随', hold: '驻守', retreat: '撤退', flank: '侧袭' };
+const ALLY_PHASE_LABEL = { moving: '行进', holding: '驻守', flanking: '迂回', retreating: '撤离', blocked: '受阻' };
+
+function livingAllies(){
+  // isAllySquad 区分「指挥编队」与据点（outpost_*，同为 ally/nodeSpawn 但不可指挥）
+  return entities.filter(e => e && e.team === 'ally' && e.hp > 0 && e.isAllySquad === true);
+}
+
+function pickEnemyAtWorld(x, y, radius){
+  let best = null, bd = (typeof radius === 'number') ? radius : 90;
+  for(const e of entities){
+    if(!e || e.team !== 'enemy' || e.hp <= 0) continue;
+    const d = Math.hypot(e.x - x, e.y - y);
+    if(d < bd){ bd = d; best = e; }
+  }
+  return best;
+}
+
+function isLethalWaterAt(x, y){
+  // 与 js/tank_ai.js 的 _waterHazardTier/isWaterAt 同口径：water/river 均视为致命水体，
+  // 有 verts/collisionVerts 走局部多边形点测，否则回落 OBB。
+  for(const c of covers){
+    if(!c || c.hp <= 0) continue;
+    if(c.tier !== 'water' && c.tier !== 'river') continue;
+    const vs = c.collisionVerts || c.verts;
+    const dx = x - c.x, dy = y - c.y;
+    const ang = -(c.angle || 0);
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    const lx = dx * ca - dy * sa, ly = dx * sa + dy * ca;
+    if(vs){
+      const polys = Array.isArray(vs[0]) && Array.isArray(vs[0][0]) ? vs : [vs];
+      for(const poly of polys){
+        let inside = false;
+        for(let i = 0, j = poly.length - 1; i < poly.length; j = i++){
+          const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+          if(((yi > ly) !== (yj > ly)) && (lx < (xj - xi) * (ly - yi) / (yj - yi) + xi)) inside = !inside;
+        }
+        if(inside) return true;
+      }
+    } else if(Math.abs(lx) <= (c.w || 0) / 2 && Math.abs(ly) <= (c.h || 0) / 2){
+      return true;
+    }
+  }
+  return false;
+}
+
+function allyCommandContext(){
+  return {
+    entities,
+    player,
+    world: currentNode ? { w: currentNode.w, h: currentNode.h } : null,
+    isLethal: isLethalWaterAt,
+    allyCommand: (typeof RULES !== 'undefined' && RULES.allyCommand) || null,
+    hasLoS: hasLineOfSight,
+  };
+}
+
+/** 测试钩子用的决策上下文（与主循环 aiCtx 同形的最小集合）。 */
+function aiCtxForTest(){
+  return Object.assign(allyCommandContext(), { covers });
+}
+
+function showAllyToast(msg, bad){
+  const el = document.getElementById('allyToast');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.color = bad ? 'var(--red)' : 'var(--text)';
+  el.style.display = 'block';
+  clearTimeout(showAllyToast._t);
+  showAllyToast._t = setTimeout(() => { el.style.display = 'none'; }, 2000);
+}
+
+function issueAllyCommandFromInput(order, single){
+  const allies = livingAllies();
+  if(!allies.length){ showAllyToast('没有可用友军', true); return null; }
+  const hit = pickEnemyAtWorld(mouseWorld.x, mouseWorld.y, 90);
+  let singleId = null;
+  if(single){
+    let best = null, bd = Infinity;
+    for(const a of allies){
+      const d = Math.hypot(a.x - mouseWorld.x, a.y - mouseWorld.y);
+      if(d < bd){ bd = d; best = a; }
+    }
+    singleId = best ? best.id : null;
+  }
+  const spec = buildCommandSpec({ order: order || null, hitEntity: hit, player, mouse: mouseWorld, single: singleId, issuedAt: performance.now() });
+  const res = issueAllyCommand(allies, spec, allyCommandContext());
+  if(res.reason){
+    const why = {
+      'target-missing': '光标下没有敌方目标', 'target-dead': '目标已死亡',
+      'target-not-enemy': '目标不是敌人', 'anchor-missing': '缺少目的地',
+      'anchor-out-of-bounds': '目的地在地图外', 'anchor-lethal': '目的地是致命水域',
+      'no-allies': '没有可用友军', 'unknown-order': '未知命令',
+    }[res.reason] || res.reason;
+    showAllyToast('命令被拒绝：' + why, true);
+    pushLog('✗ 友军命令失败 — ' + why, 'CRIT');
+    return res;
+  }
+  const label = ALLY_ORDER_LABEL[spec.order] || spec.order;
+  showAllyToast(`${label} · ${res.issued.length} 辆友军`, false);
+  pushLog(`➤ 友军命令「${label}」 — ${res.issued.length} 辆接受`, 'COVER');
+  return res;
+}
+
+function onAllyOrderEvent(ev){
+  if(!ev) return;
+  if(ev.type === 'blocked'){
+    const why = ev.reason === 'target-lost' ? '目标丢失' : (ev.reason === 'stuck' ? '无法推进' : ev.reason);
+    showAllyToast(`友军受阻：${why}`, true);
+    pushLog(`⚠ 友军受阻 — ${ev.allyId} · ${why}`, 'CRIT');
+  } else if(ev.type === 'phase'){
+    if(ev.reason === 'arrived') showAllyToast('友军已到达，转入驻守');
+    else if(ev.reason === 'retreat-done') showAllyToast('友军已完成集结');
+    else if(ev.reason === 'flank-arrived') showAllyToast('友军已就位，转入集火');
+  }
+}
+
+function renderAllyHud(){
+  const el = document.getElementById('allyHud');
+  if(!el) return;
+  const allies = livingAllies();
+  if(!allies.length || !run || flow.state !== 'battle'){ el.style.display = 'none'; return; }
+  const rows = allies.map(a => {
+    const o = a._allyOrder;
+    const ord = o ? (ALLY_ORDER_LABEL[o.order] || o.order) : '待命';
+    const ph = o ? (ALLY_PHASE_LABEL[o.phase] || o.phase) : '';
+    const bad = o && o.phase === 'blocked';
+    return `<div class="row"><span>${a.id.replace(/^ally_/, '友')}</span><span class="ord${bad ? ' bad' : ''}">${ord}${ph ? '·' + ph : ''}</span></div>`;
+  });
+  el.innerHTML = '<div class="row" style="opacity:.75">友军 ALLIES</div>' + rows.join('');
+  el.style.display = 'block';
+}
+setInterval(renderAllyHud, 250);
+
+function drawAllyOrderMarkers(ctx){
+  if(!run || flow.state !== 'battle') return;
+  const allies = livingAllies();
+  if(!allies.length) return;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = '11px monospace';
+  for(const a of allies){
+    const o = a._allyOrder;
+    if(!o) continue;
+    if(o.anchor){
+      ctx.strokeStyle = 'rgba(126,217,87,0.55)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(o.anchor.x, o.anchor.y, 18, 0, TAU); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(o.anchor.x - 8, o.anchor.y); ctx.lineTo(o.anchor.x + 8, o.anchor.y);
+      ctx.moveTo(o.anchor.x, o.anchor.y - 8); ctx.lineTo(o.anchor.x, o.anchor.y + 8);
+      ctx.stroke();
+    }
+    if(o.targetId){
+      const t = entities.find(e => e.id === o.targetId && e.hp > 0);
+      if(t){
+        ctx.strokeStyle = 'rgba(255,80,64,0.7)';
+        ctx.lineWidth = 2;
+        const r = Math.max(22, (t.hullLen || 40) * 0.7);
+        ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, TAU); ctx.stroke();
+      }
+    }
+    ctx.fillStyle = o.phase === 'blocked' ? 'rgba(255,80,64,0.9)' : 'rgba(126,217,87,0.9)';
+    ctx.fillText(ALLY_ORDER_LABEL[o.order] || o.order, a.x, a.y - (a.hullWid || 20) - 10);
+  }
+  ctx.restore();
+}
 // #A7：按住左键持续开火（fireTank 内建 reloadT/breech 门控，天然保证射速间隔）；
 // 2026-09-17 #C4e：左键=主炮专属（tryFirePrimary；副武器=F 键专属）；
 // ESC 暂停（flow!=='battle'）与面板打开（statusOpen/devOpen）时不连发；窗口失焦/鼠标移出画布复位防卡住。
@@ -2549,6 +2739,44 @@ function applyEnemyAmmoForNode(t, node){
   applyEnemyAmmoByLevel(t, enemyLevelForDifficulty(node.difficulty));
 }
 
+/**
+ * A0（2026-10-27）：按当前模式生成友军编队，并默认下达 follow。
+ * 友军走与玩家同源的坦克配置与 resetEntity；数量/配置唯一口径 RULES.allyCommand。
+ * @param {any} node 当前节点
+ * @returns {any[]} 生成的友军实体
+ */
+function spawnAllySquad(node){
+  if(typeof clearAllAllyOrders === 'function') clearAllAllyOrders(entities, 'node-switch');
+  const cfg = (typeof RULES !== 'undefined' && RULES.allyCommand) || {};
+  const specs = (typeof allySquadSpecs === 'function') ? allySquadSpecs(node, GAME_MODE, cfg) : [];
+  if(!specs.length) return [];
+  const tankId = cfg.allyTankId || 'panzer-IV';
+  const out = [];
+  for(const spec of specs){
+    const t = spawnTank({
+      id: spec.id,
+      team: spec.team,
+      x: spec.x, y: spec.y,
+      hullAngle: spec.hullAngle, turretAngle: spec.turretAngle,
+      heightClass: spec.heightClass
+    });
+    t.nodeSpawn = true;
+    t.isAllySquad = true;   // 与据点（outpost_*）区分：结算加成只认据点
+    t._allyIndex = spec._allyIndex;
+    t._allyCount = spec._allyCount;
+    const tankSpec = tankListData && tankListData[tankId];
+    if(tankSpec && typeof applyTankConfig === 'function'){
+      applyTankConfig(t, tankSpec);
+      if(typeof deriveTankClass === 'function') t.tankClass = deriveTankClass(tankSpec);
+      resetEntity(t);
+      t.hp = t.stats.maxHp;
+    }
+    issueAllyCommand([t], { order: 'follow', issuedAt: performance.now() }, allyCommandContext());
+    out.push(t);
+  }
+  return out;
+}
+
 function enterBattle(nodeIndex){
   const node = run.nodes[nodeIndex];
   if(!node) return;
@@ -2621,6 +2849,7 @@ function enterBattle(nodeIndex){
     },
     applyDifficulty(t, mults){ applyDifficultyMults(t, mults); }   // P-38：页级函数，增援生成复用
   });
+  spawnAllySquad(node);   // A0（2026-10-27）：友军编队随节点生成，默认跟随
   bakeNodeGroundLayer(node);   // 2026-09-14：进图前预烘焙道路地面层（曲线道路整条绘制，避免逐段实时绘制与远距消失）
   clearGroundCache();          // #GT：换节点 ⇒ biome/seed/区段全变，地面纹理烘焙缓存必须失效
 
@@ -2666,7 +2895,7 @@ function finishNode(cleared){
   // B2（2026-09）：结算前清扫残留炮弹/命中/弹迹，避免缓冲后残弹延续到结算/下一场。
   shells.length = 0; impacts.length = 0; bounceFx.length = 0;
   const clearMs = performance.now() - battleState.startMs;
-  const outpostEntity = entities.find(e => e.team === 'ally' && e.nodeSpawn);
+  const outpostEntity = entities.find(e => e.team === 'ally' && e.nodeSpawn && !e.isAllySquad);
   const outpostAlive = !outpostEntity || outpostEntity.hp > 0;
   const score = scoreNode(currentNode, { damageTaken: battleState.damageTaken, clearMs, outpostAlive });
   let bossLoot = null;
@@ -4608,6 +4837,8 @@ function update(dt){
   if(!isClearing && run && battleState && flow.state === 'battle'){
     const aiCtx = {
       player,
+      entities,   // A0：友军命令的目标权威需要全实体表（enemies 只是敌方子集）
+      allyCommand: (typeof RULES !== 'undefined' && RULES.allyCommand) || null,
       enemies: entities.filter(e => e.team === 'enemy' && e.hp > 0),
       hasLoS: hasLineOfSight,
       covers,   // #76 C6：掩体查询注入（重坦受创寻掩用；AI 侧遍历比较，无需寻路）
@@ -4634,6 +4865,11 @@ function update(dt){
       if(e.isDrone) continue;           // P-17：无人机无 hull 几何/射界，不参与坦克 AI 与 driveTank（由 tank_drone.js 管理）
       if(e.hp <= 0) continue;
       aiUpdateStateTimer(e, dt);   // stun 计时/免疫窗倒计时（主循环统一递减，同 reloadT 模式）
+      // A0（2026-10-27）：友军任务状态机（到达/受阻/目标丢失/撤退完成）
+      if(e.team === 'ally' && typeof updateAllyOrder === 'function'){
+        const ev = updateAllyOrder(e, dt, aiCtx);
+        if(ev) onAllyOrderEvent(ev);
+      }
       const d = aiDecide(e, aiCtx);
       // #H4（2026-09-21）：Boss 激光期炮塔由 updateBossLaser 固定角速度直驱（bossLaserHoldTurret）
       // ——跳过 AI 转炮（含射界钳制后的期望方向），避免两套驱动叠加。
@@ -4678,7 +4914,9 @@ function update(dt){
       // 2026-10-22（第五批 B1-5(b)）：Boss 电磁炮蓄能期（railChargeHold）不开火——蓄能
       //   未完成前只给预警（bossRailFx 画炮线），完成后清 hold 才放行，避免「预警即开火」。
       if(d.fire && !isSurvivalPrep && !e.railChargeHold){
-        const target = e.team === 'ally' ? nearestEnemyTo(e) : player;
+        // A0（2026-10-27）：友军击发读**同一权威目标**（focus/flank 时只认任务目标，
+        // 目标死亡即 null，不暗换最近敌人）；其余命令允许自主反击。
+        const target = e.team === 'ally' ? allyFireTargetFor(e, aiCtx) : player;
         if(target && target.hp > 0) fireTank(e, target, 'auto', fireCtx);
       }
       // 2026-09-15 W6：autocannon 热量冷却驱动（敌人/友军同 player 路径）
@@ -5184,7 +5422,7 @@ function update(dt){
       }
       if(battleState) battleState.waveCountdownActive = false;
       if(canRevive(player)){                                     // P-11：复活次数 > 0 → 满状态复活
-        const outpost = entities.find(e => e.team === 'ally' && e.nodeSpawn);
+        const outpost = entities.find(e => e.team === 'ally' && e.nodeSpawn && !e.isAllySquad);
         reviveAt(player, outpost, covers, currentNode.playerSpawn, undefined, entities.filter(e => e.team === 'enemy'));
         deployDronesFromCards();                          // P-17：复活后按 cardEffects 重建随行无人机
         pushLog(`玩家阵亡 — 复活（剩余 ${player.revives} 次）：满状态 + 友军据点旁 + ${RULES.revive.invulnSeconds}s 无敌`, 'CRIT');
@@ -6223,6 +6461,8 @@ function draw(){
     drawTank(ctx, t);
     ctx.globalAlpha = 1;
   });
+  // A0（2026-10-27）：友军命令标记（目的地圆环 / 集火目标圈 / 车顶命令字标）
+  drawAllyOrderMarkers(ctx);
 
   // #B9/#B11（2026-09-16）：战场部署物绘制（复用 bench 同款视觉契约——
   // 固定炮塔底座+炮塔+炮管 / 地雷红点+武装脉冲圈 / 战术掩体半透明蓝块+护盾虚线框）。
@@ -6921,6 +7161,27 @@ function nextRunSeed(){
     profile(){ return profile; },
     rerenderShop(){ if(typeof renderShop === 'function') renderShop(); },
     entities(){ return entities; },
+    // A0（2026-10-27）：友军命令只读快照 / 下发 / 权威击发目标（浏览器链断言用）
+    allies(){
+      return livingAllies().map(a => ({
+        id: a.id, hp: a.hp, x: a.x, y: a.y,
+        order: a._allyOrder ? a._allyOrder.order : null,
+        phase: a._allyOrder ? a._allyOrder.phase : null,
+        targetId: a._allyOrder ? a._allyOrder.targetId : null,
+        anchor: a._allyOrder ? a._allyOrder.anchor : null,
+        reason: a._allyOrder ? a._allyOrder.reason : null,
+      }));
+    },
+    issueAllyCommand(spec){
+      const res = issueAllyCommand(livingAllies(), spec || {}, allyCommandContext());
+      return { issued: res.issued, rejected: res.rejected, reason: res.reason };
+    },
+    allyFireTarget(id){
+      const a = entities.find(e => e.id === id);
+      if(!a) return null;
+      const t = allyFireTargetFor(a, aiCtxForTest());
+      return t ? t.id : null;
+    },
     flowState(){ return flow.state; },
     currentNode(){ return currentNode ? currentNode.index : null; },
     seed(){ return run ? run.seed : null; },

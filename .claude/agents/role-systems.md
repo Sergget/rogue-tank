@@ -24,6 +24,7 @@ model: inherit
 - `js/tank_economy.js` — 多存档槽 CRUD、`migrateLegacySave`、`UPGRADE_DEFS`、`scoreToPoints`/`buyUpgrade`/`applyUpgrades`/`buyExtraRevive`
 - `js/tank_revive.js` — 死亡/复活状态机
 - `js/tank_ai.js` + `js/tank_ai_squad.js` — 敌人/友军 AI 决策与攻守分工
+- `js/tank_ally_command.js` — **A0 友军指挥纯逻辑**（六命令快照/校验/目标权威/状态机/编队规格；`allyFireTargetFor` 是友军击发唯一目标来源）
 - `js/tank_boss.js` — Boss 运行时（`makeBossEntity`/`applyBossStage`/`updateBossStage`/`pickBossArmament`）
 - `js/tank_drone.js` — 无人机（`drones` 模块级数组单一数据源）
 - `js/tank_listio.js` / `js/tank_presets.js` / `js/tank_schema.js` — tanks/ 读写、炮管炮盾预设、字段架构表
@@ -59,6 +60,6 @@ model: inherit
 
 ## 5. 验证
 
-- 改动调 `node scripts/test-modifiers.js`、`test-model` 类与 `test-ai.js`、`test-boss.js`、`test-economy.js`、`test-enemy-scaling-audit.js`。
+- 改动调 `node scripts/test-modifiers.js`、`test-model` 类与 `test-ai.js`、`test-boss.js`、`test-economy.js`、`test-enemy-scaling-audit.js`、`test-ally-command.js`。
 - `test-ai.js` 的「#E7 反应延迟随距离增大」是**已知 flaky**（随机抖动采样）：单跑 2~3 次确认，别按真失败处理。
 - 全链交给 `role-verify-docs`。

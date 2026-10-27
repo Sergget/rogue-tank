@@ -463,6 +463,21 @@ declare function aiTierProfile(tier: number): any;   // #76 B：按 t.aiTier 取
 // aiCtx（#76）：{ player, hasLoS(ox,oy,tx,ty), covers?: any[]（C6 寻掩查询）, dt?: number / time?: number（C5 摆动相位源） }
 declare function aiDecideAlly(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
 declare function aiDecide(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
+// A0（2026-10-27）：友军指挥（js/tank_ally_command.js）
+declare function allyCommandDecide(t: any, ctx: any): { turn: number; move: number; turretDesired: number; fire: boolean };
+declare function allyFireTargetFor(t: any, ctx: any): any;
+declare function updateAllyOrder(t: any, dt: number, ctx: any): any;
+declare function issueAllyCommand(allies: any[], spec: any, ctx: any): any;
+declare function clearAllAllyOrders(allies: any[], reason?: string): void;
+declare function allyFormationOffset(index: number, count: number, order: string, spacing: number, facing?: number): { x: number; y: number };
+declare function buildCommandSpec(input: any): any;
+declare function defaultOrderForContext(hitEntity: any, player: any): string;
+declare function allySquadSpecs(node: any, mode: string, cfg?: any): any[];
+// R1（2026-10-27）：3D 渲染/场景（js/tank_render3d.js / tank_scene3d.js）
+declare function createMeshBuilder(): any;
+declare function createOrbitCamera(opts?: any): any;
+declare function updateOrbitCamera(cam: any, target: any, aspect: number): any;
+declare function rayGroundHit(cam: any, sx: number, sy: number, vw: number, vh: number): { x: number; y: number } | null;
 declare function aiUpdateStateTimer(t: any, dt: number): void;
 // 警觉系统（被击中/友邻告警）：敌对 AI 立即接战并记录来弹方向
 declare function alertEntity(t: any, srcX: number, srcY: number): boolean;

@@ -106,6 +106,10 @@ const TESTS = [
   'scripts/test-pick.js',
   'scripts/test-perf.js',
   'scripts/test-render-baseline.js',
+  // 2026-10-27 A0：友军指挥纯逻辑——六命令快照/校验/目标权威/状态机/决策输出。
+  'scripts/test-ally-command.js',
+  // 2026-10-27 R1：3D 渲染/场景纯逻辑——相机射线拾取、三角形批、tier 视觉、静态/坦克几何。
+  'scripts/test-render3d.js',
 ];
 
 function pickTests() {
