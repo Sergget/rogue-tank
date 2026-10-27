@@ -61,7 +61,7 @@
 - **用户 2026-10-24 反馈批次已全部收口（2026-10-26，AA-a~d）**：`docs/ISSUES.md` **无存量条目**。① **AA-a**（§4.132）：HUD 公路加成改走纯函数 `roadBonusKmh()`（与 `tankKmh` 同源）、bench `fireCtx` 补 `aimPoint`、`specs/map/roads.md` 公路豁免口径改写为「只豁免 liquid/mud」；② **AA-b**（§4.136）：bench ↔ battle 开火接线七项对齐（`cam` / `emitShotNoise` no-op / `resolveHit` 5 参透传 + Boss 弱点层 / 急速射 / 砰砰炮 / 无人机 / 曲射散布圈）+ F 键改原生边沿（**轮询保留**给连发类），防回潮靠 **battle `fireCtx` 键集 ⊆ bench 键集**（50 ⊆ 51，`test-bench-parity.js` 30 断言）；③ **AA-c**（§4.137）：电磁炮三段声学（充能循环走代码驱动持久实例、`RULES.railgunFx.audio` 唯一口径、就绪 `SOUND_DEFS.railReady`、开火复用 `firerail`），顺带删除 `startEngineSound` 死代码；④ **AA-d**（§4.130）：制动与滑行独立通道。
 - **HUD 与 bench 工具（2026-10-26，§4.133~§4.135）**：HUD 文本统一补深色底衬（目标卡 11px / `bottom:92px` / 日志让位、提示条、三个仪表区、顶部中央读出、FPS），**速度条已删除**（只留精确数字，避免「读数越过满格」误读）；bench Enemy Lab 新增「清空所有敌人」（`clearEnemyEntities` 纯筛选）与生成点视口护栏（`clampSpawnIntoView`，视口半高仅 `vh/2/zoom`）；bench 内图鉴入口整块移除（图鉴唯一宿主 `tank_codex.html`）。
 - **R0 渲染地基（2026-10-27，§4.147）**：I3 三场景截图基线（`npm run baseline`：standard/boss/survival，冻结首帧 + 32×18 网格容差 + PNG 对照图）、I4 拾取唯一入口 `pointerToWorld`（battle 鼠标/滚轮与 bench 鼠标全改走它）、性能计数 `js/tank_perf.js` + `__TEST__.perf()/mem()/battleStartMs()`。A0/R1/G1 的共用前置已就位；不改正式战斗表现。
-- **A0 友军指挥闭环（2026-10-27，§4.148）**：纯逻辑层 `js/tank_ally_command.js`（六命令 focus/move/follow/hold/retreat/flank、任务快照、状态机、编队规格）；**决策与击发读同一权威目标**（`allyFireTargetFor`，focus 目标死亡返回 null 不暗换最近敌人）；battle 每节点生成 2 辆友军（Boss 1 辆）、Z/X/H/R/V 键位、HUD 队伍列表 + 世界标记 + 2 秒反馈；`RULES.allyCommand` 唯一参数口径。敌军仍只把玩家当主目标（A1/A2 处理）。
+- **A0 友军指挥闭环（2026-10-27，§4.148）**：纯逻辑层 `js/tank_ally_command.js`（**三命令 follow/move/focus**、任务快照、状态机、编队规格；六命令版本当日按用户裁定简化）；**决策与击发读同一权威目标**（`allyFireTargetFor`：focus 只认任务目标、move 打最近、follow 打随机可攻击目标）；battle 每节点生成 2 辆友军（Boss 1 辆）、**按住 Z 三扇区命令转盘**、HUD 队伍列表 + 世界标记 + 2 秒反馈；`RULES.allyCommand` 唯一参数口径。敌军仍只把玩家当主目标（A1/A2 处理）。
 - **R1 真 3D 可玩切片（2026-10-27，§4.149）**：`tank_3d.html` 用原生 WebGL1（零依赖）渲染同一套二维模拟——1440×864 小战场、6 敌 + 2 友军、轻倾斜固定 yaw 相机、屏幕射线地面拾取、主炮/`stepShells`/`resolveHit`/`aiDecide` 全部复用、掩体破坏触发静态几何重建、命中烟尘；`js/tank_render3d.js` + `js/tank_scene3d.js`。PBR/阴影/LOD/资产管线与可旋转相机未做（G1 门内）。
 - **测试链**：**64 个 `scripts/test-*.js` + `validate-content.js` = 65 项登记**（2026-10-27 实测：`npm test` **65 通过 / 0 失败**）。新增形态门 `test-qa.js`：每个测试脚本必须 `require` `tank_utils` + `tank_rules` 且有 `ok/fails` 骨架。**渲染基线**单独走 `npm run baseline`（`scripts/browser-baseline.cjs`，默认 `--check`）。
 - **技术栈定性（2026-10-24 用户纠正，§4.125）**：**零依赖 / `file://` 直开 / Node 像素回归不是硬约束，只是目前的临时选择**。真 3D（WebGL/Three.js）**未被架构排除**；本阶段不做的理由是缺 3D 美术管线与玩法收益未证实。唯一口径 `specs/map/pseudo-3d-2p5d.md` §3.1。
@@ -121,7 +121,7 @@
 2. **近期路线（2026-10-26 重排；2026-10-27 更新）**：
    - ~~**先清存量**~~：AA-a → AA-b → AA-c **已完成（2026-10-26）**。
    - ~~**共同地基 R0**~~：I3 截图基线 + I4 拾取唯一入口 + 固定场景/性能基线 **已完成（§4.147）**。
-   - ~~**A0 命令闭环**~~：2 辆友军 + 六命令 + 统一目标权威 **已完成（§4.148）**；A1（导航/职能）与 A2（命令环/手柄）未做。
+   - ~~**A0 命令闭环**~~：2 辆友军 + 三命令 + 统一目标权威 **已完成（§4.148）**；A1（导航/职能）与 A2（单车/手柄）未做。
    - ~~**R1 可玩切片**~~：同一套二维模拟 + 原生 WebGL 小战场 **已完成（§4.149）**；Go/No-Go 仍需实机评审。
    - **下一步 = G1 品质垂直切片**：载具重量感、分级破坏、统一炮火/音效/震屏、精修单车与单主题场景、3～5 分钟完整遭遇；按 §2.3 的 6 个维度过门后才量产。R1 的截图/性能产物可直接作为 G1 对照基线。
    - **Go/No-Go 后才量产**：G1 不过门不批量产车/图/模型；切片证明 JS 路线存在结构性阻碍才重评 Godot 等备选。现行机制归 `specs/combat/ally-command.md`、`specs/map/rendering-roadmap.md`。
@@ -130,7 +130,7 @@
    - **品质目标与渲染路线（§4.131，2026-10-26）**：目标参考《变节行动》的驾驶/破坏/演出与场景品质；**不把 Canvas 路线 A 当最终方案，不要求 A → B → C**。首选保留二维模拟 + Three.js/WebGL 可玩切片，非全量换引擎。细则归 `specs/map/rendering-roadmap.md`，旧研究留沿革。
    - **贴图资产口径（§4.124）与边界更新（§4.131）**：Canvas 实机仍为「程序化生成 + 后期贴图接线」，本仓库不出图；参数化灰盒不等于商业精修资产，R1/G1 另建模型/材质/损坏状态/VFX/音频管线。见 `specs/map/rendering-roadmap.md`。
    - **技术栈定性纠正（§4.125，2026-10-24）**：**零依赖 / `file://` 直开 / Node 像素回归是当前临时状态，不是硬约束**。据此真 3D（WebGL/Three.js）不被架构排除；是否采用由 R1/G1 实测而不是旧成本假设决定。
-   - **单机友军指挥（§4.131，2026-10-26）**：明确不做多人合作；首版少量 AI 友军 + 集火/前往/跟随/驻守/撤退/侧袭六命令，统一决策与击发目标，补齐状态反馈/导航/回放。细则归 `specs/combat/ally-command.md`。
+   - **单机友军指挥（§4.131，2026-10-26）**：明确不做多人合作；首版少量 AI 友军 + 集火/前往/跟随/驻守/撤退/侧袭六命令（**2026-10-27 用户裁定简化为 follow/move/focus 三命令**），统一决策与击发目标，补齐状态反馈/导航/回放。细则归 `specs/combat/ally-command.md`。
    - **M1 核心战斗量产**：保留载具绑定/专属卡池、特种车辆、烟幕与武器专精；新增载具动力学、分级环境破坏、统一战斗演出、镜头可读性、友军职能/导航/协同构筑。优先级 = 手感与可读性 > 指挥可靠性 > 破坏与演出 > 内容数量。
    - **M2 内容与重玩性**：主题地图、巡逻/伏击/护送/增援遭遇、任务变体、Boss 演出、run 节奏/难度导演、车库/进阶/图鉴；G1 后再扩内容数量。
    - **M3 商业发行**：手柄与命令环、I18n、高保真音画、可访问性、性能档位、版本化存档/回放/崩溃诊断、成就/云存档/Deck/客户端封装与合规；§5 已按地基/量产/发行候选期拆分，不提前接平台 API。
@@ -196,7 +196,7 @@
 | §4.128 | 2026-10-24 | **P1 落地**：I0 模拟时钟（`simNow` 三件套 + 13 处挂钟迁移）/ I1 高度表（`coverTiers[*].height` 18/18）/ I2 高度分档视线（**C 方案**：`LOS_HULL_Z=1.0` ⇒ 灌木挡车体不挡炮塔，hull-down 成立）/ 隐蔽值按覆盖深度折算 / 对称化保留开关未启用。**弹道侧未改** | `DEVELOPMENT-batches-2026-10.md` §4.128 · `specs/map/vision-stealth-3d-compat.md` §9 · `specs/map/cover-system.md` · `specs/combat/ramming-stealth-dash.md` |
 | §4.129 | 2026-10-24 | **敌方警戒 UI 指示（? / !）**：纯函数 `alertIndicatorFor` 归并三态（engaged/alert/null）、仅视口内显示（复用 `aabbInView`）、Boss/眩晕/死亡不显示。**修掉一个假绿**：首版用 `fillText` 画字形，而 `mini-canvas` 的 `fillText` 是空实现 ⇒ 两档像素数完全相同；改**路径绘制**后字形才真实可见 | `DEVELOPMENT-batches-2026-10.md` §4.129 · `specs/combat/enemy-ai.md` |
 | §4.130 | 2026-10-24 | **AA-d 制动与滑行模型**：制动独立、地形 `brakeGrip`、速度乘子插值；P/W 不再决定刹车 | `DEVELOPMENT-batches-2026-10.md` §4.130 · `specs/map/terrain.md` |
-| §4.131 | 2026-10-26 | **品质与单机路线重排**：参考《变节行动》的真 3D 可玩切片，不全量换引擎；少量友军 + 六命令，排除多人；近期 AA → R0 → A0/R1 → G1，远期 M1～M4 | `DEVELOPMENT-batches-2026-10.md` §4.131 · `specs/map/rendering-roadmap.md` · `specs/combat/ally-command.md` |
+| §4.131 | 2026-10-26 | **品质与单机路线重排**：参考《变节行动》的真 3D 可玩切片，不全量换引擎；少量友军 + 六命令（**已被 2026-10-27 三命令简化取代，见 §4.148(5)**），排除多人；近期 AA → R0 → A0/R1 → G1，远期 M1～M4 | `DEVELOPMENT-batches-2026-10.md` §4.131 · `specs/map/rendering-roadmap.md` · `specs/combat/ally-command.md` |
 | §4.132 | 2026-10-26 | AA-a：#AA1 公路加成 HUD 口径 + #AA2 bench 曲射瞄准点 + #AA5 公路豁免文档漂移 | `DEVELOPMENT-batches-2026-10.md` §4.132 |
 | §4.133 | 2026-10-26 | bench Enemy Lab 工具（清空敌军 / 生成视口护栏）+ 入口文案 | `DEVELOPMENT-batches-2026-10.md` §4.133 |
 | §4.134 | 2026-10-26 | bench 图鉴入口彻底移除 + 战斗 HUD 去掉速度条 | `DEVELOPMENT-batches-2026-10.md` §4.134 |
@@ -212,7 +212,7 @@
 | §4.145 | 2026-10-27 | **成长曲线审计工具 + 成长速率再平衡**：新增 `scripts/audit-growth-curve.js`（玩家 5 条商店轨迹 × 敌人四层 × 双向 TTK 蒙特卡洛 ⇒ 优势度曲线）；`maxHp [0.6,2.2]→[0.6,1.8]`、`damage [0.8,1.5]→[0.8,1.35]`、商店 `pen +6→+8` / `dmg +4→+5` / `costGrowth 1.7→1.6`。末节点优势度 balanced 0.73→**1.13** | `DEVELOPMENT-batches-2026-10.md` §4.145 · `specs/combat/enemy-scaling.md` |
 | §4.146 | 2026-10-27 | **Agent 配置迁移 `.dsh/` → `.claude/` + docs 一致性收口**：6 张角色卡转 `.claude/agents/role-*.md`（subagent）、5 个流程 skill 落 `.claude/skills/`、`.dsh/` 删除；补 §4.144 索引缺行、清理 PLAN 已完成 §6（归档）、测试项数 58/59 → **59/60** | `AGENTS.md` §3.6/§3.7 · `docs/PLAN.md` · `.claude/` |
 | §4.147 | 2026-10-27 | **R0 渲染地基**：I3 三场景截图基线（`browser-baseline.cjs`，冻结首帧、32×18 网格容差）、I4 拾取唯一入口 `pointerToWorld`（battle/bench 全改走它）、性能计数 `js/tank_perf.js` + `__TEST__.perf/mem/battleStartMs`；新增 3 个 Node 测试 | `specs/map/rendering-roadmap.md` §2.1 · `specs/editor/browser-tests.md` |
-| §4.148 | 2026-10-27 | **A0 友军指挥闭环**：`js/tank_ally_command.js` 六命令/任务快照/状态机/编队规格；`allyFireTargetFor` 统一击发权威（focus 不暗换最近敌人）；battle 友军编队 + Z/X/H/R/V + HUD/标记；`RULES.allyCommand` 参数口径 | `specs/combat/ally-command.md` §5.1 |
+| §4.148 | 2026-10-27 | **A0 友军指挥闭环**：`js/tank_ally_command.js` 三命令/任务快照/状态机/编队规格；`allyFireTargetFor` 统一击发权威（focus 不暗换、move 最近、follow 随机）；battle 友军编队 + 按住 Z 命令转盘 + HUD/标记；`RULES.allyCommand` 参数口径 | `specs/combat/ally-command.md` §5.1 |
 | §4.149 | 2026-10-27 | **R1 真 3D 可玩切片**：`tank_3d.html` + `js/tank_render3d.js`（原生 WebGL1）+ `js/tank_scene3d.js`；1440×864 小战场、轻倾斜相机、射线拾取、主炮与友军命令、基础破坏/烟尘；零第三方依赖 | `specs/map/rendering-roadmap.md` §2.2 |
 
 ---

@@ -30,7 +30,7 @@
   - `tank_cards.js`：卡牌系统（CARD_RARITIES/效果类型 + `validateCard`/`applyCardEffects`/`drawCardChoices` 含装备优先保底与 `cardEligible` 资格过滤/`cardStackCount`；#U40 2026-10-19 起含**调校/升级分界**——带 field 的 ammo 效果绝不触发链替换、`isAmmoUpgradeCard` 同口径；应急护盾再充能助手 `emergencyShieldCooldown`/`updateEmergencyShieldRearm`；经济聚合 `runScoreMultiplier`/`runShopDiscount`。**卡牌 `tags` 字段与 `CARD_TAGS` 枚举已于 2026-10-20 #16 整体下线**——196 张卡不再带 tags，校验与导出同批删除，见 §4.112「#16」）。
   - `tank_boss.js`：Boss 系统（validateBoss/bossStageFor + makeBossEntity/applyBossStage/updateBossStage，缩放整体替换不污染共享 spec）。
   - `tank_ai_squad.js`：敌军攻守分工协调器（`updateSquad` 按「距离/LoS/血量」评分分配 press/flank/hold 角色 + `holdGate` 射界门控 + `threatIndicators` 视口外来袭方位提示；纯逻辑、可 Node 测试，**须先于 `tank_ai.js` 加载**——后者运行时调用 `holdGate`；2026-10-02 #N 新增）。
-  - `tank_ally_command.js`：**A0 友军指挥纯逻辑层**（六命令快照/校验/目标权威/状态机/编队规格；`allyFireTargetFor` 是友军击发的唯一目标来源，focus/flank 不暗换最近敌人；**须先于 `tank_ai.js` 加载**；2026-10-27 §4.148）。
+  - `tank_ally_command.js`：**A0 友军指挥纯逻辑层**（三命令 follow/move/focus 的快照/校验/目标权威/状态机/编队规格；`allyFireTargetFor` 是友军击发的唯一目标来源——focus 只认任务目标、move 打最近、follow 打随机可攻击目标；**须先于 `tank_ai.js` 加载**；2026-10-27 §4.148）。
   - `tank_render3d.js` / `tank_scene3d.js`：**R1 真 3D 渲染**（原生 WebGL1 单 shader + 相机/屏幕射线拾取；场景几何把 covers/tanks 转成三角形批，纯函数；2026-10-27 §4.149）。
   - `tank_ai.js`：敌人/友军 AI 决策（`aiDecide` 双态 + 受击警觉/避水/找掩体 coverSeek + 消极防御，输出 `{turn, move, turretDesired, fire}`；#M 接战机动随机化、#N 交战距离带 / flank 侧翼站位 / 群体分离力 / 装填脱离）。
   - `tank_revive.js`：死亡/复活状态机（满状态复活 + 无敌 + 友军据点旁随机点，依赖 `RULES.revive`）。
@@ -214,7 +214,7 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**R0 地基 / A0 命令闭环 / R1 3D 切片均已完成（§4.147~§4.149），下一步是 G1 品质垂直切片** + **近远期执行路线**（§2：A1 导航职能 / A2 命令环 → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机六命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。2026-10-24 用户反馈批次（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130）已全部关账，整节原文于 2026-10-27 归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
+- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**R0 地基 / A0 命令闭环 / R1 3D 切片均已完成（§4.147~§4.149），下一步是 G1 品质垂直切片** + **近远期执行路线**（§2：A1 导航职能 / A2 命令环 → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机三命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。2026-10-24 用户反馈批次（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130）已全部关账，整节原文于 2026-10-27 归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
 - **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **69 个 `.md`（59 主题页 + 5 index + 5 changelog，2026-10-26 实测）**，每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
 - **待处理问题**：见 `docs/ISSUES.md`（**当前无存量条目**——用户 2026-10-24 反馈批次已**全部关账**：AA-a 关 #AA1/#AA2/#AA5（§4.132）、AA-b 关 #AA3（§4.136，`test-bench-parity.js` **30 断言**锁键集包含关系，其中 2 条是关账后同日修 F 键门控回归时补的）、AA-c 电磁炮三段声学（§4.137，新能力缺口，原挂 PLAN §6.3）、AA-d 关 #AA4（§4.130）。历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

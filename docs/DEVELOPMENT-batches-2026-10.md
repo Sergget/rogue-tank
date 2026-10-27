@@ -3707,7 +3707,7 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 
 **边界**：R0 不改正式战斗表现；截图取的是进入战斗后第一帧的冻结快照（不含 AI 推进后的画面）。
 
-## §4.148 2026-10-27 A0 友军指挥闭环（六命令 + 统一目标权威 + HUD）
+## §4.148 2026-10-27 A0 友军指挥闭环（三命令 + 统一目标权威 + HUD）
 
 **性质**：**玩法系统落地**。来源：用户「a0+r1 都开工」；机制口径 `specs/combat/ally-command.md` §5.1。
 
@@ -3732,8 +3732,8 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 
 ### 3) 测试
 
-- `scripts/test-ally-command.js`：**54 断言**（快照/校验/目标权威/下发/队形/状态机/决策/上下文/编队规格）。
-- `scripts/test-browser-ally.cjs`：**18 项**（编队生成、Z 键、集火权威、目标死亡不暗换、非法目标整批拒绝、撤退/驻守、命令驱动实际移动、HUD、键位可发现性）。
+- `scripts/test-ally-command.js`：**65 断言**（三命令快照/校验/目标权威/自动目标保持/下发/队形/状态机/决策/转盘/编队规格）。
+- `scripts/test-browser-ally.cjs`：**16 项**（编队生成、按住 Z 转盘集火/移动、轻按跟随、目标死亡不暗换、非法目标整批拒绝、实际移动、HUD、键位可发现性）。
 
 ### 4) 验证
 
@@ -3745,6 +3745,20 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 | `npm run baseline` | 三场景重新录制后 PASS（A0 改变了 t=0 画面：友军与命令标记入镜） |
 
 **已知边界**：敌军仍只把玩家当主目标；无命令环/手柄动作层（A2）；无职能编队与导航让行（A1）。
+
+### 5) 同日简化（2026-10-27 用户反馈「命令方式需要简化」）
+
+六命令实现当日即按用户裁定简化为**三命令**，原 hold/retreat/flank 删除：
+
+| 命令 | 移动 | 击发目标 |
+|---|---|---|
+| `follow` | 跟随玩家队形 | 可攻击目标中**随机** |
+| `move` | 前往光标位置，到达后原地驻守 | **最近**可攻击目标 |
+| `focus` | 有锚点在锚点、否则跟随玩家（不冲向目标） | **只认任务目标**，死亡不暗换 |
+
+- 输入改为**按住 Z 打开三扇区转盘**（上=跟随 / 右下=移动 / 左下=集火），打开瞬间锁定世界光标，松开执行；轻按 Z = 跟随。`KEY_BINDINGS` 只保留 `commandWheel`。
+- `RULES.allyCommand` 删除 `focusBand` / `flankOffset` / `retreatRange`；新增 `retargetSeconds`（自动目标保持 3s，防 follow 随机目标逐帧重掷导致炮塔来回甩）；`ALLY_ORDERS` 与状态机同步收敛（phase 只剩 moving/holding/blocked）。
+- 测试同步改写；浏览器链覆盖转盘按住/扇区选择/锁定光标/松开执行。
 
 ## §4.149 2026-10-27 R1 真 3D 可玩切片（原生 WebGL1）
 
@@ -3761,15 +3775,15 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 - 小战场：`generateNode(0.45, {seed:20261027, scale:1.8})` → **1440×864**，26 个地物。
 - 实体：玩家 + **2 辆友军**（A0 共用 `allySquadSpecs`）+ 6 辆敌军（固定 seed 布点）。
 - 相机：固定 yaw、pitch 0.95、距离 1150、透视；视野大于战场时自动居中。
-- 输入：WASD、鼠标地面瞄准、左键主炮、`Z/X/H/R/V` 友军命令。
+- 输入：WASD、鼠标地面瞄准、左键主炮、**按住 Z 三扇区友军命令转盘**。
 - 模拟复用：`driveTank` / `tryFirePrimary` / `stepShells` / `resolveHit` / `aiDecide` / `updateAllyOrder`。
 - 表现：掩体 tier/hp 变化触发静态几何重建（基础破坏）；命中生成粒子烟尘；炮弹为动态盒体。
 - 测试钩子：`window.__TEST3D__`（state/allies/issue/fireTarget/pick/fire/setTimeScale）。
 
 ### 3) 测试
 
-- `scripts/test-render3d.js`：**22 断言**（相机射线、批构建顶点数、tier 覆盖、掩体多边形、静态/坦克/FX 几何）。
-- `scripts/test-browser-3d.cjs`：**13 项**（WebGL 启动、世界生成、射线拾取、主炮开火、友军命令与击发权威、截图产物）。
+- `scripts/test-render3d.js`：**25 断言**（相机射线、批构建顶点数、tier 覆盖、掩体多边形、静态/坦克/FX 几何、炮管方向与车头标记）。
+- `scripts/test-browser-3d.cjs`：**15 项**（WebGL 启动、世界生成、射线拾取、主炮开火、友军命令与击发权威、命令转盘、截图产物）。
 
 ### 4) 验证
 
@@ -3781,3 +3795,10 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 | 截图 | `tmp/r1-3d/r1-3d.png`（倾斜视角：地面/道路/建筑/树/三色坦克/炮弹） |
 
 **边界**：PBR/阴影/LOD/实例化、模型资产管线、可旋转相机、副武器与技能、敌军把友军当主目标均未做（G1/量产阶段）。3D 视觉参数（`TIER_VIS`）只服务画面，不参与判定。
+
+### 5) 同日修正（2026-10-27 用户反馈「炮管指向不对、分不清车头车尾、没有按装甲模型建模」）
+
+- **炮管镜像根因**：盒体 `yaw` 传了 `-turretAngle`（局部 +x 映射成 `(cosθ,-sinθ)`），方向左右镜像。现改为直接用 `gunRoot(t) → gunTip(t)` 的世界坐标（与二维弹道同源），盒体 yaw = `atan2(dy,dx)`，并加炮口制退器。
+- **按装甲模型建模**：车体/炮塔用真实 `hullPoly`/`turretPoly` 顶点；炮塔按 `turretPivotOffset` 绕 pivot 旋转（不再当车体中心）；炮管宽度取 `t.barrel.width`。
+- **车头/车尾可辨**：加两侧履带、前装甲板（亮度随 `stats.armor.hull.front`）、尾部格栅 + 红色尾灯、车头黄色三角箭头。
+- **回归**：`test-render3d.js` 新增「炮管沿 gunTip 方向伸出」「前装甲/箭头在 +x」「箭头颜色存在」三条断言；截图产物 `tmp/r1-3d/r1-3d.png` 与 `closeup.png` 目视确认。

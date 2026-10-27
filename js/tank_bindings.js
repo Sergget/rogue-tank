@@ -46,9 +46,9 @@
     //   按分类查看已持有的卡牌。C = Cards（与既有键无冲突）。
     panelCards: 'c',
     pauseToggle: 'escape',
-    // A0（2026-10-27）：友军指挥。Z/X 为上下文默认命令（敌人=集火 / 地面=前往 / 自身=跟随），
-    //   H/R/V 为全体精确命令。与既有键位无冲突（G/H 专属技能键已于 #U42 退役，H 此处为新语义）。
-    commandAll: 'z', commandOne: 'x', commandHold: 'h', commandRetreat: 'r', commandFlank: 'v',
+    // A0（2026-10-27 用户裁定简化）：按住 Z 打开友军命令转盘（跟随 / 移动 / 集火）。
+    //   轻按 Z = 跟随；按住后按鼠标方向选择，松开执行。
+    commandWheel: 'z',
     // #U42（2026-10-19）：bench 测试专用 G 键（战术炮击测试入口，无卡自动补卡；仅测试台注册，
     //   正式游戏不注册该动作——KEY_BINDINGS 保留键值以便 bench createInputController 路由）。
     benchTestStrike: 'g'
@@ -71,19 +71,15 @@
     panelCards: { keys: 'C', desc: '卡牌查看器（分类查看已持卡牌）' },
     panelDev: { keys: '`（反引号）/ F12', desc: '开发者 / 测试面板' },
     pauseToggle: { keys: 'ESC', desc: '暂停 / 设置' },
-    // A0 友军指挥（2026-10-27）
-    commandAll: { keys: 'Z', desc: '全体友军：光标上下文命令（敌人=集火 / 地面=前往 / 自身=跟随）' },
-    commandOne: { keys: 'X', desc: '最近友军：同 Z 的上下文命令（单车）' },
-    commandHold: { keys: 'H', desc: '全体友军：驻守光标位置' },
-    commandRetreat: { keys: 'R', desc: '全体友军：撤退集结' },
-    commandFlank: { keys: 'V', desc: '全体友军：侧袭光标敌人' }
+    // A0 友军指挥（2026-10-27 简化）
+    commandWheel: { keys: 'Z（按住）', desc: '友军命令转盘：跟随 / 移动 / 集火（轻按 = 跟随）' }
   };
 
   // 说明行规范顺序（describeBindings 按此输出）。
   var ACTION_ORDER = ['move', 'altMove', 'fire', 'ammoCycle', 'skillPool',
     'fireSecondary',
     'supportRepair', 'supportMedkit', 'supportExtinguish',
-    'commandAll', 'commandOne', 'commandHold', 'commandRetreat', 'commandFlank',
+    'commandWheel',
     'panelStatus', 'panelCards', 'panelDev', 'pauseToggle'];
 
   // 汇总动作 → 说明行。available: { 动作组名: true/false }，false 或缺失则不输出。

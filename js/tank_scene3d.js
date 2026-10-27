@@ -146,26 +146,77 @@ function polyToWorld(spec, cx, cy, angle) {
 }
 
 /**
- * 单辆坦克的动态几何（车体 + 炮塔 + 炮管）。
+ * 单辆坦克的动态几何：**按现有装甲模型**取 hull/turret 多边形，
+ * 炮塔按 `turretPivotOffset` 放置，炮管直接用 `gunRoot → gunTip`（与二维弹道同源）。
+ * 另外加履带、前装甲板、尾部格栅与车头箭头，保证车头/车尾一眼可辨。
  * @param {any} t 实体
- * @param {{hullPoly?:Function, turretPoly?:Function, gunRoot?:Function}} [fns]
+ * @param {{hullPoly?:Function, turretPoly?:Function, gunRoot?:Function, gunTip?:Function}} [fns]
  */
 function buildTankMesh(t, fns) {
   const f = fns || {};
   const hullFn = f.hullPoly || (typeof hullPoly === 'function' ? hullPoly : null);
   const turretFn = f.turretPoly || (typeof turretPoly === 'function' ? turretPoly : null);
+  const gunRootFn = f.gunRoot || (typeof gunRoot === 'function' ? gunRoot : null);
+  const gunTipFn = f.gunTip || (typeof gunTip === 'function' ? gunTip : null);
   const b = createMeshBuilder();
   if (!hullFn) return b.data;
+
   const base = TEAM_COLOR[t.team] || TEAM_COLOR.enemy;
-  const hull = polyToWorld(hullFn(t), t.x, t.y, t.hullAngle || 0);
+  const armor = (t.stats && t.stats.armor) ? t.stats.armor : null;
+  const hullArmor = (armor && armor.hull) ? armor.hull : { front: 100, side: 50, rear: 30 };
+  const hullAngle = t.hullAngle || 0;
+  const turretAngle = t.turretAngle || 0;
+  const hl = (t.hullLen || 70) * 0.5;
+  const hw = (t.hullWid || 36) * 0.5;
+  const ca = Math.cos(hullAngle), sa = Math.sin(hullAngle);
+  const off = (lx, ly) => ({ x: t.x + lx * ca - ly * sa, y: t.y + lx * sa + ly * ca });
+  const tint = (c, k) => [Math.min(1, c[0] * k), Math.min(1, c[1] * k), Math.min(1, c[2] * k), 1];
+
+  // 车体：真实 hullPoly 挤出
+  const hull = polyToWorld(hullFn(t), t.x, t.y, hullAngle);
   if (hull.length >= 3) b.extrude(hull, 0, 26, base);
-  const turret = turretFn ? polyToWorld(turretFn(t), t.x, t.y, t.turretAngle || 0) : null;
-  if (turret && turret.length >= 3) b.extrude(turret, 26, 16, [base[0] * 1.1, base[1] * 1.1, base[2] * 1.1, 1]);
-  // 炮管：从炮塔中心沿 turretAngle 伸出
-  const len = (t.hullLen || 70) * 0.55;
-  const bx = t.x + Math.cos(t.turretAngle || 0) * len * 0.55;
-  const bz = t.y + Math.sin(t.turretAngle || 0) * len * 0.55;
-  b.box(bx, 30, bz, len, 5, 5, [0.25, 0.25, 0.24, 1], -(t.turretAngle || 0));
+
+  // 履带：两侧深色带（车体轴向可读）
+  for (const side of [-1, 1]) {
+    const c = off(0, side * hw * 0.86);
+    b.box(c.x, 0, c.y, hl * 1.85, 18, Math.max(6, hw * 0.34), [0.11, 0.11, 0.11, 1], hullAngle);
+  }
+
+  // 前装甲板：亮度随 front 装甲厚度（车头高亮）
+  const frontP = off(hl * 0.93, 0);
+  const frontTone = Math.min(1.55, 0.62 + (hullArmor.front || 100) / 230);
+  b.box(frontP.x, 2, frontP.y, Math.max(5, hl * 0.11), 23, hw * 1.72, tint(base, frontTone), hullAngle);
+
+  // 尾部格栅（深色）与尾灯（红）：车尾可辨
+  const rearP = off(-hl * 0.74, 0);
+  b.box(rearP.x, 26, rearP.y, hl * 0.36, 4, hw * 1.12, [0.17, 0.15, 0.13, 1], hullAngle);
+  b.box(rearP.x, 27, rearP.y, 4, 5, 6, [0.85, 0.16, 0.12, 1], hullAngle);
+
+  // 炮塔：局部多边形绕 turretPivot 旋转（与 2D 命中几何同源）
+  const toff = t.turretPivotOffset || { dx: 8, dy: 0 };
+  const pv = off(toff.dx, toff.dy);
+  const turret = turretFn ? polyToWorld(turretFn(t), pv.x, pv.y, turretAngle) : null;
+  if (turret && turret.length >= 3) b.extrude(turret, 26, 16, tint(base, 1.15));
+
+  // 炮管：gunRoot → gunTip 的世界坐标（与二维弹道完全一致）
+  if (gunRootFn && gunTipFn) {
+    const gr = gunRootFn(t), gt = gunTipFn(t);
+    const dx = gt.x - gr.x, dy = gt.y - gr.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ang = Math.atan2(dy, dx);
+    const cx = (gr.x + gt.x) / 2, cy = (gr.y + gt.y) / 2;
+    const bw = Math.max(5, ((t.barrel && t.barrel.width) || 18) * 0.5);
+    b.box(cx, 32, cy, len, 6, bw, [0.22, 0.22, 0.21, 1], ang);
+    b.box(gt.x, 31, gt.y, Math.max(6, len * 0.14), 8, bw * 1.3, [0.15, 0.15, 0.15, 1], ang);
+  }
+
+  // 车头方向箭头（顶面亮色三角，正前方）
+  const nose = off(hl * 1.02, 0), l = off(hl * 0.68, -hw * 0.55), r = off(hl * 0.68, hw * 0.55);
+  b.triangle(
+    [nose.x, 27.3, nose.y], [l.x, 27.3, l.y], [r.x, 27.3, r.y],
+    [0.98, 0.88, 0.30, 1], [0, 1, 0]
+  );
+
   return b.data;
 }
 

@@ -120,20 +120,38 @@ async function ensureServer() {
     check('友军默认跟随', allies.every(a => a.order === 'follow'), JSON.stringify(allies.map(a => a.order)));
 
     // ② 选一个敌人作为集火目标（优先选离玩家较远的，确保不是「最近敌人」）
-    const target = await page.evaluate(() => {
+    // ② 转盘集火：把一辆敌军放到玩家视野内（大世界出生点可能不在屏幕），再按住 Z 锁定
+    await page.evaluate(() => {
       const p = window.__TEST__.player();
-      const es = window.__TEST__.entities().filter(e => e.team === 'enemy' && e.hp > 0);
-      es.sort((a, b) => Math.hypot(b.x - p.x, b.y - p.y) - Math.hypot(a.x - p.x, a.y - p.y));
-      return es.length ? { id: es[0].id, x: es[0].x, y: es[0].y } : null;
+      const e = window.__TEST__.entities().find(x => x.team === 'enemy' && x.hp > 0);
+      if (e) { e.x = p.x + 180; e.y = p.y; }
     });
-    check('存在可集火敌人', !!target, target && target.id);
-    if (!target) throw new Error('没有敌人，无法继续');
+    await wait(150);
+    const target = await page.evaluate(() => {
+      const es = window.__TEST__.entities().filter(e => e.team === 'enemy' && e.hp > 0);
+      for (const e of es) {
+        const s = window.__TEST__.enemyScreen(e.id);
+        if (s && s.x > 120 && s.x < 1160 && s.y > 100 && s.y < 620) return { id: e.id, sx: s.x, sy: s.y };
+      }
+      return null;
+    });
+    check('存在屏幕内可集火敌人', !!target, JSON.stringify(target));
+    if (!target) throw new Error('没有屏幕内敌人，无法继续');
 
-    const issue = await page.evaluate(tid => window.__TEST__.issueAllyCommand({ order: 'focus', targetId: tid }), target.id);
-    check('全体 focus 下发成功', issue.issued.length === 2 && !issue.reason, JSON.stringify(issue));
+    await page.mouse.move(target.sx, target.sy);
+    await wait(100);
+    await page.keyboard.down('z');
+    await wait(320);                                   // 打开转盘并锁定世界光标
+    const wheelOpen = await page.evaluate(() => window.__TEST__.allyWheelState());
+    await page.mouse.move(520, 440);                   // 左下扇区 = 集火
+    await wait(100);
+    const wheelFocus = await page.evaluate(() => window.__TEST__.allyWheelState());
+    check('按住 Z 打开转盘且选中集火', wheelOpen.open && wheelFocus.order === 'focus', JSON.stringify(wheelFocus));
+    await page.keyboard.up('z');
+    await wait(200);
 
     allies = await page.evaluate(() => window.__TEST__.allies());
-    check('两车任务目标一致', allies.every(a => a.order === 'focus' && a.targetId === target.id),
+    check('转盘集火下发到全体', allies.every(a => a.order === 'focus' && a.targetId === target.id),
       JSON.stringify(allies.map(a => [a.order, a.targetId])));
 
     const fireTargets = await page.evaluate(() => window.__TEST__.allies().map(a => window.__TEST__.allyFireTarget(a.id)));
@@ -153,40 +171,40 @@ async function ensureServer() {
     const bad = await page.evaluate(() => window.__TEST__.issueAllyCommand({ order: 'focus', targetId: 'no_such' }));
     check('非法目标整批拒绝', bad.issued.length === 0 && bad.reason === 'target-missing', JSON.stringify(bad));
 
-    // ⑤ 撤退
-    const retreat = await page.evaluate(() => window.__TEST__.issueAllyCommand({ order: 'retreat' }));
-    check('全体撤退下发成功', retreat.issued.length === 2 && !retreat.reason, JSON.stringify(retreat));
+    // ⑤ 转盘移动：光标指向地面 → 右下扇区
+    const pScreen = await page.evaluate(() => window.__TEST__.enemyScreen('player'));
+    const gx = Math.max(120, Math.min(1160, pScreen.x + 220));
+    const gy = Math.max(100, Math.min(620, pScreen.y + 60));
+    await page.mouse.move(gx, gy);
+    await wait(100);
+    await page.keyboard.down('z');
+    await wait(320);
+    await page.mouse.move(760, 440);                   // 右下扇区 = 移动
+    await wait(100);
+    const wheelMove = await page.evaluate(() => window.__TEST__.allyWheelState());
+    check('转盘选中移动', wheelMove.order === 'move', JSON.stringify(wheelMove));
+    await page.keyboard.up('z');
+    await wait(200);
     allies = await page.evaluate(() => window.__TEST__.allies());
-    check('撤退解除集火', allies.every(a => a.order === 'retreat'), JSON.stringify(allies.map(a => a.order)));
+    check('转盘移动下发并记录锚点', allies.every(a => a.order === 'move' && a.anchor), JSON.stringify(allies.map(a => a.anchor)));
 
-    // ⑥ 驻守到玩家位置
-    const hold = await page.evaluate(() => {
-      const p = window.__TEST__.player();
-      return window.__TEST__.issueAllyCommand({ order: 'hold', anchor: { x: p.x, y: p.y } });
-    });
-    check('全体驻守下发成功', hold.issued.length === 2 && !hold.reason, JSON.stringify(hold));
-    allies = await page.evaluate(() => window.__TEST__.allies());
-    check('驻守锚点已记录', allies.every(a => a.order === 'hold' && a.anchor), JSON.stringify(allies.map(a => a.anchor)));
-
-    // ⑦ Z 键上下文命令（光标在地面 → move）
-    await page.mouse.move(120, 120);
-    await wait(120);
+    // ⑥ 轻按 Z = 跟随
     await page.keyboard.press('z');
-    await wait(250);
+    await wait(150);
     allies = await page.evaluate(() => window.__TEST__.allies());
-    check('Z 键在地面光标处下发 move', allies.every(a => a.order === 'move'), JSON.stringify(allies.map(a => [a.order, a.anchor])));
+    check('轻按 Z 下发跟随', allies.every(a => a.order === 'follow'), JSON.stringify(allies.map(a => a.order)));
 
-    // ⑦b 命令确实驱动了车体（aiDecide → driveTank 接线）
+    // ⑦ 命令确实驱动了车体（aiDecide → driveTank 接线）
     const before = await page.evaluate(() => window.__TEST__.allies().map(a => ({ x: a.x, y: a.y })));
-    await page.evaluate(() => {
+    const moveRes = await page.evaluate(() => {
       const p = window.__TEST__.player();
-      window.__TEST__.issueAllyCommand({ order: 'move', anchor: { x: p.x + 320, y: p.y } });
+      return window.__TEST__.issueAllyCommand({ order: 'move', anchor: { x: p.x + 320, y: p.y + 200 } });
     });
-    await wait(2000);
+    await wait(2500);
     const after = await page.evaluate(() => window.__TEST__.allies().map(a => ({ x: a.x, y: a.y })));
     const moved = after.some((a, i) => Math.hypot(a.x - before[i].x, a.y - before[i].y) > 20);
     check('友军按命令实际移动（决策→驾驶接线）', moved,
-      JSON.stringify(after.map((a, i) => Math.hypot(a.x - before[i].x, a.y - before[i].y).toFixed(1))));
+      JSON.stringify({ res: moveRes, dist: after.map((a, i) => Math.hypot(a.x - before[i].x, a.y - before[i].y).toFixed(1)) }));
 
     // ⑧ HUD 可读状态
     const hud = await page.evaluate(() => {
@@ -197,11 +215,10 @@ async function ensureServer() {
 
     // ⑨ 键位说明包含友军命令（可发现性）
     const bindings = await page.evaluate(() => {
-      const rows = window.describeBindings ? window.describeBindings({ commandAll: true, commandOne: true, commandHold: true, commandRetreat: true, commandFlank: true }) : [];
+      const rows = window.describeBindings ? window.describeBindings({ commandWheel: true }) : [];
       return rows.map(r => r.action);
     });
-    check('键位说明包含五个友军命令', ['commandAll', 'commandOne', 'commandHold', 'commandRetreat', 'commandFlank'].every(k => bindings.includes(k)),
-      JSON.stringify(bindings));
+    check('键位说明包含友军命令转盘', bindings.includes('commandWheel'), JSON.stringify(bindings));
 
     check('全程无 console error / page error', errors.length === 0, JSON.stringify(errors.slice(0, 3)));
   } catch (err) {

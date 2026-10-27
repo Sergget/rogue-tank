@@ -153,6 +153,21 @@ function rayGroundHit(cam, sx, sy, vw, vh) {
   return { x: r.ox + r.dx * t, y: r.oz + r.dz * t };
 }
 
+/**
+ * 世界点（地面 y=0）→ 屏幕像素。用于标记/HUD 与测试定位。
+ * @returns {{x:number, y:number}|null}
+ */
+function projectPoint(cam, x, y, vw, vh) {
+  const v = cam.vp;
+  const px = x, py = 0, pz = y, pw = 1;
+  const cx = v[0] * px + v[4] * py + v[8] * pz + v[12] * pw;
+  const cy = v[1] * px + v[5] * py + v[9] * pz + v[13] * pw;
+  const cw = v[3] * px + v[7] * py + v[11] * pz + v[15] * pw;
+  if (Math.abs(cw) < 1e-6) return null;
+  const ndcX = cx / cw, ndcY = cy / cw;
+  return { x: (ndcX * 0.5 + 0.5) * vw, y: (1 - (ndcY * 0.5 + 0.5)) * vh };
+}
+
 // ---------------- 三角形批构建 ----------------
 // 顶点格式：[px,py,pz, nx,ny,nz, r,g,b,a]（10 floats）。颜色 0..1。
 
@@ -387,6 +402,7 @@ if (typeof module !== 'undefined' && module.exports) {
     updateOrbitCamera,
     screenRay,
     rayGroundHit,
+    projectPoint,
     createMeshBuilder,
     createRenderer,
     uploadMesh,

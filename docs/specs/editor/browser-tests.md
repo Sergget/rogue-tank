@@ -15,7 +15,7 @@
 | `test-browser-r3.cjs` | bench + battle | bench 技能/召唤物（炮塔/地雷/掩体注册投递）、弹种切换、G 炮击链路、掩体按钮超限拒绝（#F6） |
 | `test-browser-run.cjs` | battle | 真实 run 链路、弹种三槽轮换、卡牌直系演变与跳级拒绝、G/H/V 入口、devPanel 四 Tab、卡牌选择器搜索/`/`/应用/×N/−1 回滚、雷场预约门控（#F6） |
 | `test-browser-r4.cjs` | battle | **主武器各类型实战**（standard 单发 / double_barrel 空格齐射 2 发 / autocannon 连发+heatPct / railgun 单发）、**F 副武器**（mortar isArc / rocket burst / missile 锁定发射且按住不翻转 / mine_layer 按住只走一次边沿 + 雷场生成 + 触爆掉血）、**技能实战效果**（artillery 落弹掉血 / shield 吸收池 / overdrive 装填归零）、**商店购买结算**（hp_up 扣点+记录 / 复活加购 / 升级作用于开局） |
-| `test-browser-ally.cjs` | battle | **A0 友军指挥**：2 辆编队生成、Z 键上下文命令、集火目标权威（击发目标 ≡ 任务目标）、目标死亡不暗换最近敌人、非法目标整批拒绝、撤退/驻守、HUD 与键位可发现性 |
+| `test-browser-ally.cjs` | battle | **A0 友军指挥**：2 辆编队生成、按住 Z 三扇区转盘（集火/移动）、轻按跟随、集火目标权威（击发目标 ≡ 任务目标）、目标死亡不暗换最近敌人、非法目标整批拒绝、实际移动、HUD 与键位可发现性 |
 | `test-browser-3d.cjs` | tank_3d | **R1 3D 切片**：WebGL 启动、世界生成（玩家/6 敌/2 友军）、屏幕射线地面拾取、主炮开火、友军命令与击发权威、截图产物 |
 
 ## 渲染基线链（R0 / I3，2026-10-27）

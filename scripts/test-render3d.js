@@ -118,6 +118,32 @@ function ok(cond, label){
   ok(allyMesh.length === full.length, '同几何不同队伍顶点数一致（只有颜色不同）');
 }
 
+// ⑨b 炮管方向：gunRoot → gunTip 的 +y 方向必须映射到世界 +z（不再镜像）
+{
+  const hull = [{ x: -30, y: -15 }, { x: 30, y: -15 }, { x: 30, y: 15 }, { x: -30, y: 15 }];
+  const turret = [{ x: -12, y: -10 }, { x: 12, y: -10 }, { x: 12, y: 10 }, { x: -12, y: 10 }];
+  const t = { x: 0, y: 0, team: 'player', hullAngle: 0, turretAngle: Math.PI / 2, hullLen: 60, hullWid: 30, barrel: { width: 18 } };
+  const data = S3D.buildTankMesh(t, {
+    hullPoly: () => hull,
+    turretPoly: () => turret,
+    gunRoot: () => ({ x: 0, y: 0 }),
+    gunTip: () => ({ x: 0, y: 60 }),
+  });
+  let maxZ = -Infinity, maxX = -Infinity;
+  for (let i = 0; i < data.length; i += 10) {
+    maxZ = Math.max(maxZ, data[i + 2]);
+    maxX = Math.max(maxX, data[i]);
+  }
+  ok(maxZ > 40, `炮管沿 gunTip 方向伸出（maxZ=${maxZ.toFixed(1)}）`);
+  ok(maxX > 20, `车头前装甲/箭头在 +x（maxX=${maxX.toFixed(1)}）`);
+  // 车头箭头颜色（0.98,0.88,0.30）必须存在
+  let hasNose = false;
+  for (let i = 0; i < data.length; i += 10) {
+    if (Math.abs(data[i + 6] - 0.98) < 1e-6 && Math.abs(data[i + 7] - 0.88) < 1e-6) { hasNose = true; break; }
+  }
+  ok(hasNose, '车头方向箭头已绘制');
+}
+
 // ⑩ 动态 FX：炮弹与粒子
 {
   const data = S3D.buildDynamicFx([{ x: 10, y: 20, z: 0 }], [{ x: 0, y: 0, z: 20, life: 0.5, maxLife: 1, size: 8 }]);

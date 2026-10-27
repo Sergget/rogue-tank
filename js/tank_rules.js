@@ -925,13 +925,11 @@ const RULES = {
     enabled: true,
     maxAllies: 4,
     arriveRadius: 70,          // 到达判定（px）
-    formationSpacing: 110,     // 队形间距（follow 后方 / move·hold 环形半径的基准）
-    autoEngageRange: 460,      // 非 focus 命令下的自主反击射程（与 ai.allyEngageRange 同量级）
-    focusBand: 0.72,           // 交战带 = autoEngageRange × 该系数；进入后站定射击
-    flankOffset: 180,          // flank 侧向偏移（px）
-    stuckSeconds: 4,           // 移动类阶段无位移超过该秒数 → blocked（stuck）
+    formationSpacing: 110,     // 队形间距（follow 后方 / move 环形半径的基准）
+    autoEngageRange: 460,      // 可攻击目标射程（follow 随机 / move 最近）
+    stuckSeconds: 4,           // 移动阶段无位移超过该秒数 → blocked（stuck）
     stuckSpeed: 8,             // 「无位移」判定速度（px/s）
-    retreatRange: 260,         // 撤退集结半径（锚点缺省取玩家位置）
+    retargetSeconds: 3,        // 自动目标保持时长（follow 随机 / move 最近），防逐帧重掷甩炮塔
     aimTolerance: 0.12,        // 炮塔对准容差（rad）才开火
     countByMode: { standard: 2, survival: 2, boss: 1 },
     allyTankId: 'panzer-IV',   // 友军使用的坦克配置（tanks/<id>.json）

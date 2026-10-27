@@ -207,6 +207,15 @@
     font:12px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.72);
     border:1px solid var(--line); border-radius:2px; padding:3px 12px; display:none;
     pointer-events:none; z-index:6;}
+  /* A0 命令转盘：按住 Z 打开（三命令） */
+  #allyWheel{position:fixed; inset:0; display:none; pointer-events:none; z-index:8;
+    background:radial-gradient(circle at 50% 50%, rgba(8,9,6,0) 0 24%, rgba(8,9,6,0.45) 46% 100%);}
+  #allyWheel .item{position:absolute; transform:translate(-50%,-50%);
+    font:13px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.78);
+    border:1px solid var(--line); border-radius:16px; padding:4px 14px; white-space:nowrap;}
+  #allyWheel .item.sel{color:#08100a; background:var(--amber); border-color:var(--amber);}
+  #allyWheel .hint{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    font:11px 'JetBrains Mono',monospace; color:var(--text-dim); white-space:nowrap;}
   /* #AA9：顶部中央四块文本（弹种倍率 / 波次 / 补给冷却 / 补给提示）同批补底衬——它们叠在
      战场正中央，亮 biome 上同样糊；各自 pill 化而不是给 #topCenterHud 整块加底，避免空态留一片暗板。 */
   #ammoReadout{font-size:12px; color:#fff; text-shadow:0 1px 2px #000; pointer-events:none;
@@ -497,6 +506,12 @@
   <div id="quotaHud" style="display:none;"></div>
   <div id="allyHud"></div>
   <div id="allyToast"></div>
+  <div id="allyWheel">
+    <div class="hint">松开 Z 执行 · 鼠标选方向</div>
+    <div class="item" data-order="follow" style="left:50%; top:30%">跟随玩家</div>
+    <div class="item" data-order="move" style="left:66%; top:62%">移动到光标</div>
+    <div class="item" data-order="focus" style="left:34%; top:62%">集火目标</div>
+  </div>
   <div id="supplyPromptHud" style="display:none;position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:15px;font-weight:bold;color:#7ed957;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;background:rgba(8,9,6,0.66);border:1px solid var(--line);padding:3px 12px;border-radius:2px;"></div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
@@ -825,12 +840,6 @@ const input = createInputController({
     skill1: () => skillHotkey(1),                    // 阶段六：技能池（1~3 对应玩家装备的主动技能）
     skill2: () => skillHotkey(2),
     skill3: () => skillHotkey(3),
-    // A0（2026-10-27）：友军指挥——Z/X 上下文默认，H/R/V 全体精确命令
-    commandAll: () => issueAllyCommandFromInput(null, false),
-    commandOne: () => issueAllyCommandFromInput(null, true),
-    commandHold: () => issueAllyCommandFromInput('hold', false),
-    commandRetreat: () => issueAllyCommandFromInput('retreat', false),
-    commandFlank: () => issueAllyCommandFromInput('flank', false),
     // #C4e（2026-09-17）：F 键不再注册边沿动作——按住连发由主循环 isDown('fireSecondary') 轮询
     panelStatus: () => {                              // Tab：状态面板（与 dev/log/cards 组互斥，共用呼入/呼出策略）
       const willOpen = !statusOpen;
@@ -1548,6 +1557,8 @@ window.addEventListener('wheel', e=>{
 let mouseWorld = {x:player.x+100,y:player.y};
 // #E12（2026-09-20）：鼠标屏幕坐标（视口中心为屏幕中心）——摄像机随鼠标向外延伸的输入
 const mouseScreen = { x: canvas.width / 2, y: canvas.height / 2 };
+// A0 命令转盘：鼠标相对屏幕中心的方向选择（client 坐标）
+const lastMouseClient = { x: canvas.width / 2, y: canvas.height / 2 };
 canvas.addEventListener('mousemove', e=>{
   const r = canvas.getBoundingClientRect();
   // #E12（2026-09-20）：同时记录鼠标屏幕坐标（摄像机随鼠标向外延伸的输入）
@@ -1565,8 +1576,8 @@ canvas.addEventListener('mousemove', e=>{
 
 // ---------- A0 友军指挥（2026-10-27，§4.148） ----------
 // 纯逻辑在 js/tank_ally_command.js；本段只做页面接线（拾取、下发、反馈、HUD）。
-const ALLY_ORDER_LABEL = { focus: '集火', move: '前往', follow: '跟随', hold: '驻守', retreat: '撤退', flank: '侧袭' };
-const ALLY_PHASE_LABEL = { moving: '行进', holding: '驻守', flanking: '迂回', retreating: '撤离', blocked: '受阻' };
+const ALLY_ORDER_LABEL = { follow: '跟随', move: '移动', focus: '集火' };
+const ALLY_PHASE_LABEL = { moving: '行进', holding: '驻守', blocked: '受阻' };
 
 function livingAllies(){
   // isAllySquad 区分「指挥编队」与据点（outpost_*，同为 ally/nodeSpawn 但不可指挥）
@@ -1637,20 +1648,12 @@ function showAllyToast(msg, bad){
   showAllyToast._t = setTimeout(() => { el.style.display = 'none'; }, 2000);
 }
 
-function issueAllyCommandFromInput(order, single){
+function executeAllyOrder(order, at){
   const allies = livingAllies();
   if(!allies.length){ showAllyToast('没有可用友军', true); return null; }
-  const hit = pickEnemyAtWorld(mouseWorld.x, mouseWorld.y, 90);
-  let singleId = null;
-  if(single){
-    let best = null, bd = Infinity;
-    for(const a of allies){
-      const d = Math.hypot(a.x - mouseWorld.x, a.y - mouseWorld.y);
-      if(d < bd){ bd = d; best = a; }
-    }
-    singleId = best ? best.id : null;
-  }
-  const spec = buildCommandSpec({ order: order || null, hitEntity: hit, player, mouse: mouseWorld, single: singleId, issuedAt: performance.now() });
+  const w = at || mouseWorld;
+  const hit = pickEnemyAtWorld(w.x, w.y, 90);
+  const spec = buildCommandSpec({ order, hitEntity: hit, player, mouse: w, issuedAt: performance.now() });
   const res = issueAllyCommand(allies, spec, allyCommandContext());
   if(res.reason){
     const why = {
@@ -1669,6 +1672,63 @@ function issueAllyCommandFromInput(order, single){
   return res;
 }
 
+// ---------- 友军命令转盘（2026-10-27 用户裁定：按住 Z 打开，三命令） ----------
+const allyWheel = { open: false, order: null, timer: null, downAt: 0, world: null };
+function allyWheelEl(){ return document.getElementById('allyWheel'); }
+function updateAllyWheelSelection(){
+  if(!allyWheel.open) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+  const order = radialOrderFor(lastMouseClient.x - cx, lastMouseClient.y - cy, 30);
+  allyWheel.order = order;
+  const el = allyWheelEl();
+  if(el) el.querySelectorAll('.item').forEach(it => it.classList.toggle('sel', it.dataset.order === order));
+}
+function showAllyWheel(){
+  allyWheel.open = true;
+  // 锁定打开瞬间的世界光标：先指向目标/地点，再按住 Z 选方向
+  allyWheel.world = { x: mouseWorld.x, y: mouseWorld.y };
+  const el = allyWheelEl();
+  if(el) el.style.display = 'block';
+  updateAllyWheelSelection();
+}
+function hideAllyWheel(){
+  allyWheel.open = false;
+  allyWheel.order = null;
+  allyWheel.world = null;
+  const el = allyWheelEl();
+  if(el) el.style.display = 'none';
+}
+window.addEventListener('keydown', e => {
+  if(e.key.toLowerCase() !== 'z' || e.repeat) return;
+  if(inMenuState()) return;
+  if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
+  allyWheel.downAt = performance.now();
+  clearTimeout(allyWheel.timer);
+  allyWheel.timer = setTimeout(showAllyWheel, 180);
+});
+window.addEventListener('keyup', e => {
+  if(e.key.toLowerCase() !== 'z') return;
+  if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
+  clearTimeout(allyWheel.timer);
+  const held = allyWheel.downAt ? performance.now() - allyWheel.downAt : 0;
+  if(allyWheel.open){
+    const order = allyWheel.order || 'follow';
+    const at = allyWheel.world ? { x: allyWheel.world.x, y: allyWheel.world.y } : null;
+    hideAllyWheel();
+    executeAllyOrder(order, at);
+  } else if(held > 0 && held < 180){
+    executeAllyOrder('follow');   // 轻按 Z = 跟随
+  }
+  allyWheel.downAt = 0;
+});
+window.addEventListener('mousemove', e => {
+  lastMouseClient.x = e.clientX;
+  lastMouseClient.y = e.clientY;
+  updateAllyWheelSelection();
+}, { passive: true });
+window.addEventListener('blur', hideAllyWheel);
+
 function onAllyOrderEvent(ev){
   if(!ev) return;
   if(ev.type === 'blocked'){
@@ -1676,9 +1736,7 @@ function onAllyOrderEvent(ev){
     showAllyToast(`友军受阻：${why}`, true);
     pushLog(`⚠ 友军受阻 — ${ev.allyId} · ${why}`, 'CRIT');
   } else if(ev.type === 'phase'){
-    if(ev.reason === 'arrived') showAllyToast('友军已到达，转入驻守');
-    else if(ev.reason === 'retreat-done') showAllyToast('友军已完成集结');
-    else if(ev.reason === 'flank-arrived') showAllyToast('友军已就位，转入集火');
+    if(ev.reason === 'arrived') showAllyToast('友军已到达指定位置');
   }
 }
 
@@ -7181,6 +7239,14 @@ function nextRunSeed(){
       if(!a) return null;
       const t = allyFireTargetFor(a, aiCtxForTest());
       return t ? t.id : null;
+    },
+    executeAllyOrder(order){ return executeAllyOrder(order); },
+    allyWheelState(){ return { open: allyWheel.open, order: allyWheel.order, world: allyWheel.world }; },
+    enemyScreen(id){
+      const e = entities.find(x => x.id === id);
+      if(!e) return null;
+      const s = worldToScreen(cam, e.x, e.y);
+      return { x: s.x, y: s.y };
     },
     flowState(){ return flow.state; },
     currentNode(){ return currentNode ? currentNode.index : null; },

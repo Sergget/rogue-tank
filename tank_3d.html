@@ -20,6 +20,14 @@
   #toast { position:fixed; left:50%; bottom:96px; transform:translateX(-50%);
     font:12px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.72);
     border:1px solid var(--line); border-radius:3px; padding:3px 12px; display:none; pointer-events:none; }
+  #allyWheel { position:fixed; inset:0; display:none; pointer-events:none; z-index:8;
+    background:radial-gradient(circle at 50% 50%, rgba(8,9,6,0) 0 24%, rgba(8,9,6,0.45) 46% 100%); }
+  #allyWheel .item { position:absolute; transform:translate(-50%,-50%);
+    font:13px 'JetBrains Mono',monospace; color:var(--text); background:rgba(8,9,6,0.78);
+    border:1px solid var(--line); border-radius:16px; padding:4px 14px; white-space:nowrap; }
+  #allyWheel .item.sel { color:#08100a; background:var(--amber); border-color:var(--amber); }
+  #allyWheel .hint { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    font:11px 'JetBrains Mono',monospace; color:#9ab; white-space:nowrap; }
   #help { position:fixed; left:50%; bottom:14px; transform:translateX(-50%);
     font:11px 'JetBrains Mono',monospace; color:#9ab; background:rgba(8,9,6,0.6);
     border:1px solid var(--line); border-radius:3px; padding:4px 12px; pointer-events:none; white-space:nowrap; }
@@ -32,7 +40,13 @@
 <div id="hud">R1 · 3D 切片<br><span id="hudBody">加载中…</span></div>
 <div id="allyHud"></div>
 <div id="toast"></div>
-<div id="help">WASD 驾驶 · 鼠标瞄准 · 左键开火 · Z 全体命令 · X 单车命令 · H 驻守 · R 撤退 · V 侧袭</div>
+<div id="allyWheel">
+  <div class="hint">松开 Z 执行 · 鼠标选方向</div>
+  <div class="item" data-order="follow" style="left:50%; top:30%">跟随玩家</div>
+  <div class="item" data-order="move" style="left:66%; top:62%">移动到光标</div>
+  <div class="item" data-order="focus" style="left:34%; top:62%">集火目标</div>
+</div>
+<div id="help">WASD 驾驶 · 鼠标瞄准 · 左键开火 · 按住 Z 友军命令转盘（跟随/移动/集火）</div>
 <div id="boot">加载 R1 切片…</div>
 
 <script src="js/tank_rules.js"></script>
@@ -88,8 +102,8 @@ let lastImpactCount = 0;
 let lastTank = 0;
 let spawnPoint = { x: 0, y: 0 };
 
-const ORDER_LABEL = { focus: '集火', move: '前往', follow: '跟随', hold: '驻守', retreat: '撤退', flank: '侧袭' };
-const PHASE_LABEL = { moving: '行进', holding: '驻守', flanking: '迂回', retreating: '撤离', blocked: '受阻' };
+const ORDER_LABEL = { follow: '跟随', move: '移动', focus: '集火' };
+const PHASE_LABEL = { moving: '行进', holding: '驻守', blocked: '受阻' };
 
 function livingAllies(){
   return entities.filter(e => e && e.team === 'ally' && e.hp > 0 && e.isAllySquad === true);
@@ -135,20 +149,12 @@ function pickEnemyAtWorld(x, y, radius){
   }
   return best;
 }
-function issueFromInput(order, single){
+function executeAllyOrder(order, at){
   const allies = livingAllies();
   if(!allies.length){ toast('没有可用友军', true); return null; }
-  const hit = pickEnemyAtWorld(mouseWorld.x, mouseWorld.y, 90);
-  let singleId = null;
-  if(single){
-    let best = null, bd = Infinity;
-    for(const a of allies){
-      const d = Math.hypot(a.x - mouseWorld.x, a.y - mouseWorld.y);
-      if(d < bd){ bd = d; best = a; }
-    }
-    singleId = best ? best.id : null;
-  }
-  const spec = buildCommandSpec({ order: order || null, hitEntity: hit, player, mouse: mouseWorld, single: singleId, issuedAt: performance.now() });
+  const w = at || mouseWorld;
+  const hit = pickEnemyAtWorld(w.x, w.y, 90);
+  const spec = buildCommandSpec({ order, hitEntity: hit, player, mouse: w, issuedAt: performance.now() });
   const res = issueAllyCommand(allies, spec, commandCtx());
   if(res.reason){
     const why = {
@@ -163,6 +169,61 @@ function issueFromInput(order, single){
   toast(`${ORDER_LABEL[spec.order] || spec.order} · ${res.issued.length} 辆友军`);
   return res;
 }
+
+// 命令转盘：按住 Z 打开，鼠标方向选择，松开执行；轻按 = 跟随
+const allyWheel = { open: false, order: null, timer: null, downAt: 0, world: null };
+const lastMouseClient = { x: canvas.width / 2, y: canvas.height / 2 };
+function updateAllyWheelSelection(){
+  if(!allyWheel.open) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+  const order = radialOrderFor(lastMouseClient.x - cx, lastMouseClient.y - cy, 30);
+  allyWheel.order = order;
+  const el = document.getElementById('allyWheel');
+  if(el) el.querySelectorAll('.item').forEach(it => it.classList.toggle('sel', it.dataset.order === order));
+}
+function showAllyWheel(){
+  allyWheel.open = true;
+  allyWheel.world = { x: mouseWorld.x, y: mouseWorld.y };
+  const el = document.getElementById('allyWheel');
+  if(el) el.style.display = 'block';
+  updateAllyWheelSelection();
+}
+function hideAllyWheel(){
+  allyWheel.open = false;
+  allyWheel.order = null;
+  allyWheel.world = null;
+  const el = document.getElementById('allyWheel');
+  if(el) el.style.display = 'none';
+}
+window.addEventListener('keydown', e => {
+  if(e.key.toLowerCase() !== 'z' || e.repeat) return;
+  if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
+  allyWheel.downAt = performance.now();
+  clearTimeout(allyWheel.timer);
+  allyWheel.timer = setTimeout(showAllyWheel, 180);
+});
+window.addEventListener('keyup', e => {
+  if(e.key.toLowerCase() !== 'z') return;
+  if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
+  clearTimeout(allyWheel.timer);
+  const held = allyWheel.downAt ? performance.now() - allyWheel.downAt : 0;
+  if(allyWheel.open){
+    const order = allyWheel.order || 'follow';
+    const at = allyWheel.world ? { x: allyWheel.world.x, y: allyWheel.world.y } : null;
+    hideAllyWheel();
+    executeAllyOrder(order, at);
+  } else if(held > 0 && held < 180){
+    executeAllyOrder('follow');
+  }
+  allyWheel.downAt = 0;
+});
+window.addEventListener('mousemove', e => {
+  lastMouseClient.x = e.clientX;
+  lastMouseClient.y = e.clientY;
+  updateAllyWheelSelection();
+}, { passive: true });
+window.addEventListener('blur', hideAllyWheel);
 function spawnPuffs(x, y, n, color){
   for(let i = 0; i < n; i++){
     const a = Math.random() * TAU, sp = 18 + Math.random() * 46;
@@ -180,13 +241,7 @@ const input = createInputController({
   preventKeys: [' ', 'tab'],
   settings: {},
   gate: () => true,
-  actions: {
-    commandAll: () => issueFromInput(null, false),
-    commandOne: () => issueFromInput(null, true),
-    commandHold: () => issueFromInput('hold', false),
-    commandRetreat: () => issueFromInput('retreat', false),
-    commandFlank: () => issueFromInput('flank', false),
-  },
+  actions: {},
 });
 canvas.addEventListener('mousemove', e => {
   const r = canvas.getBoundingClientRect();
@@ -493,6 +548,13 @@ window.__TEST3D__ = {
     }));
   },
   issue(spec){ return issueAllyCommand(livingAllies(), spec || {}, commandCtx()); },
+  executeAllyOrder(order, at){ return executeAllyOrder(order, at); },
+  allyWheelState(){ return { open: allyWheel.open, order: allyWheel.order, world: allyWheel.world }; },
+  enemyScreen(id){
+    const e = entities.find(x => x.id === id);
+    if(!e || !cam) return null;
+    return projectPoint(cam, e.x, e.y, canvas.width, canvas.height);
+  },
   fireTarget(id){
     const a = entities.find(e => e.id === id);
     if(!a) return null;
@@ -504,6 +566,13 @@ window.__TEST3D__ = {
   setMouse(x, y){ mouseWorld.x = x; mouseWorld.y = y; },
   fire(){ return fireCtx ? tryFirePrimary(fireCtx) : false; },
   setTimeScale(s){ timeScale = Number(s) || 0; return timeScale; },
+  setCamera(opts){
+    if(!cam) return null;
+    if(opts && typeof opts.pitch === 'number') cam.pitch = opts.pitch;
+    if(opts && typeof opts.distance === 'number') cam.distance = opts.distance;
+    if(player) updateOrbitCamera(cam, { x: player.x, z: player.y }, canvas.width / canvas.height);
+    return { pitch: cam.pitch, distance: cam.distance };
+  },
   player(){ return player; },
   entities(){ return entities; },
   covers(){ return covers; },

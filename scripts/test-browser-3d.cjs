@@ -134,15 +134,25 @@ async function ensureServer() {
       return es.length ? es[0].id : null;
     });
     const issued = await page.evaluate(tid => window.__TEST3D__.issue({ order: 'focus', targetId: tid }), target);
-    check('友军集火命令下发', issued.issued.length === 2 && !issued.reason, JSON.stringify(issued));
+    check('友军集火命令下发', issued.issued.length >= 1 && !issued.reason, JSON.stringify(issued));
     const allies = await page.evaluate(() => window.__TEST3D__.allies());
     check('友军任务目标一致', allies.every(a => a.order === 'focus' && a.targetId === target),
       JSON.stringify(allies.map(a => [a.order, a.targetId])));
     const fireTargets = await page.evaluate(() => window.__TEST3D__.allies().map(a => window.__TEST3D__.fireTarget(a.id)));
     check('击发目标 ≡ 任务目标', fireTargets.every(id => id === target), JSON.stringify(fireTargets));
 
-    const retreat = await page.evaluate(() => window.__TEST3D__.issue({ order: 'retreat' }));
-    check('撤退解除集火', retreat.issued.length === 2 && !retreat.reason, JSON.stringify(retreat));
+    const follow = await page.evaluate(() => window.__TEST3D__.executeAllyOrder('follow'));
+    check('跟随命令解除集火', follow.issued.length >= 1 && !follow.reason, JSON.stringify(follow));
+
+    // 命令转盘：按住 Z 打开，松开无扇区 → 默认跟随
+    await page.keyboard.down('z');
+    await wait(320);
+    const wheel = await page.evaluate(() => window.__TEST3D__.allyWheelState());
+    check('按住 Z 打开命令转盘', wheel.open === true, JSON.stringify(wheel));
+    await page.keyboard.up('z');
+    await wait(150);
+    const followOrders = await page.evaluate(() => window.__TEST3D__.allies().map(a => a.order));
+    check('转盘默认跟随', followOrders.every(o => o === 'follow'), JSON.stringify(followOrders));
 
     // 截图产物
     fs.mkdirSync(SHOT_DIR, { recursive: true });

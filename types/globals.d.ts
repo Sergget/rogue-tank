@@ -478,6 +478,7 @@ declare function createMeshBuilder(): any;
 declare function createOrbitCamera(opts?: any): any;
 declare function updateOrbitCamera(cam: any, target: any, aspect: number): any;
 declare function rayGroundHit(cam: any, sx: number, sy: number, vw: number, vh: number): { x: number; y: number } | null;
+declare function projectPoint(cam: any, x: number, y: number, vw: number, vh: number): { x: number; y: number } | null;
 declare function aiUpdateStateTimer(t: any, dt: number): void;
 // 警觉系统（被击中/友邻告警）：敌对 AI 立即接战并记录来弹方向
 declare function alertEntity(t: any, srcX: number, srcY: number): boolean;
