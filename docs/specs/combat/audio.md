@@ -1,7 +1,7 @@
 # 音频与音效
 
 > **摘要**：声音总线、采样优先架构、2D 空间化参数，以及新增音效必须通过的 `SOUND_DEFS` schema。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-27）
 > **源自**：`docs/specs/combat.md` §7、§7.1（2026-10-21 拆分）
 > **相关**：[特效与视效](./fx-visual.md) · [武器与装填](./weapons-reload.md) · [HUD 与界面](./hud-ui.md)
 
@@ -83,8 +83,8 @@ fire: {
 
 | 段 | 载体 | 键 / 入口 | 口径 |
 |---|---|---|---|
-| ① 充能上升电流 | **代码驱动的持续实例**（不是 SOUND_DEFS 键） | `startRailChargeLoop()` / `updateRailChargePitch(progress)` / `stopRailChargeLoop()`（`js/tank_audio.js`） | 基频从 `freqMin` 到 `freqMax` 随 `railChargeProgress` **线性单调**上升；`attack`/`release` 淡入淡出。**数值唯一口径 `RULES.railgunFx.audio`**（`chargeWave / freqMin / freqMax / gain / attack / release`） |
-| ② 就绪封顶 | 一次性瞬态 | `playSound('railReady')`（`SOUND_DEFS.railReady`：1320Hz + 1760Hz 双短响） | 装填完成当帧播一次；满电待机不重复 |
+| ① 充能上升电流 | **代码驱动的持续实例**（不是 SOUND_DEFS 键） | `startRailChargeLoop()` / `updateRailChargePitch(p)` / `stopRailChargeLoop()`（`js/tank_audio.js`）+ 窗口判定 `railChargeWindowProgress(secondsLeft)` | **只在距充满 ≤ `windowSeconds` 秒的可听窗口内响**（`null` = 不响）；音高用**窗口内局部进度** 0→1 线性映射 `freqMin`→`freqMax`；`attack`/`release` 淡入淡出。**数值唯一口径 `RULES.railgunFx.audio`**（`chargeWave / freqMin / freqMax / gain / attack / release / windowSeconds`） |
+| ② 就绪封顶 | 一次性瞬态 | `playSound('railReady')`（`SOUND_DEFS.railReady`：1320Hz + 1760Hz 双短响） | 装填边沿（`reloadT > 0 → ≤0`）当帧播一次；满电待机不重复；与 ① 的可听窗口**解耦**（窗口在充满前就结束） |
 | ③ 开火放电 + 炮身共鸣 | 一次性瞬态 | `playSound('firerail')`（`SOUND_DEFS.firerail` 三层：方波下扫 + 带通噪声 + 低频尾） | 开火瞬间；同帧调 `stopRailChargeLoop()` 收掉充能声，避免叠爆音 |
 
 **为什么充能不能做成 SOUND_DEFS 键**：该表每层都是「一次性 `start` → 包络收敛到 0.0001 → `stop`」，表达不了「随进度持续的电流声」。
@@ -93,14 +93,38 @@ fire: {
 
 **接线两处（同源）**：
 
-- **玩家侧**（`tank_battle.html`）：先判 `primaryWeaponSpec(t).type === 'railgun' && reloadT > 0` 才算「真的在充能」——⚠️ `railChargeProgress` 对非电磁炮 / 无 `reloadT` 的实体返回 **1**（满电待机），不先判定会**常驻鸣响**；
-- **Boss 侧**：`updateBossRailCharge` 产出的 `railCharge`（带 `progress`）驱动循环音高，`railReady` 收声 + 就绪提示（旧实现借 `pen` 顶替，听感与命中声混淆）；蓄能窗口结束时兜底收声。
+- **玩家侧**（`tank_battle.html`）：先判 `primaryWeaponSpec(t).type === 'railgun' && reloadT > 0` 才算「真的在装填」——⚠️ `railChargeProgress` 对非电磁炮 / 无 `reloadT` 的实体返回 **1**（满电待机），不先判定会**常驻鸣响**；再用 `railChargeWindowProgress(reloadT)` 判「是否进入可听窗口」（`null` ⇒ 不起声/收声，见下节）；
+- **Boss 侧**：~~`updateBossRailCharge` 产出的 `railCharge`（带 `progress`）驱动循环音高，`railReady` 收声 + 就绪提示~~ **已被 2026-10-26 用户裁定取代**——Boss 指向期**完全静音**（详见下节与 [Boss 电磁炮](../boss/railgun.md#音频口径)）。
 
 **Node 可测性**：`railChargeFreqFor(progress)` 是纯函数（clamp + 非有限值按 0 处理，`NaN` 会毒化 Web Audio 频率参数）。`scripts/test-audio.js` 断言：20 段严格单调、`NaN/Infinity/字符串` 输入全部有限、无 AudioContext 时三件套 no-op 且 `stopRailChargeLoop` 幂等。
 
 **清理**：同批删除死代码 `startEngineSound` / `stopEngineSound` / `updateEnginePitch`（全仓零调用且未导出）。将来做引擎转速声请沿用本节的「代码驱动持久实例」范式，不要用一次性层表达持续音。
 
+### 充能循环 = 短窗口 + 柔和波形（2026-10-27 用户反馈）
+
+用户原话：「充能的音效太尖锐、时间太长，只在充能完毕前有一点电流声」。三项改动（数值全部在 `RULES.railgunFx.audio`，本页不重复值）：
+
+| 问题 | 旧口径（**已取代**） | 现行口径 |
+|---|---|---|
+| 太尖锐 | `chargeWave: 'sawtooth'`（谐波列含 7.6kHz 附近的高次）+ `freqMax: 760` | `chargeWave: 'triangle'`（谐波衰减快）+ `freqMax: 520`（≤600 才不会重新变尖）+ `gain` 下调 |
+| 时间太长 | 整段装填（2~4s）都在响 | **可听窗口** `windowSeconds`（<1s）：距充满还剩该秒数时才起声 |
+| 音高位置 | 全局 `railChargeProgress` 直接喂 `railChargeFreqFor` ⇒ 窗口里恒在 0.8~1（贴高位、起声即最尖） | 窗口内**局部进度** `railChargeWindowProgress(secondsLeft)`（0→1）⇒ 起声低、上行到满电前一刻 |
+
+- `railChargeWindowProgress(secondsLeft)` 是纯函数（`secondsLeft = player.reloadT`）：窗口外 / 负剩余 / `NaN` / `Infinity` / 非数字一律返回 **null**（宁可不响，也不让非法值进 `OscillatorNode.frequency`）。
+- 页面接线：`tank_battle.html` 玩家段把 `_railChargeOn` 的语义收窄为「**可听窗口**是否在放」，`railReady` 改用独立的装填边沿标记 `_railLoading`（否则窗口在充满前 `windowSeconds` 就结束，ready 音会被窗口关闭吞掉）。
+- 回归：`scripts/test-audio.js` 6.4 段（窗口秒数 `<1` / `triangle` / `freqMax ≤600` / 增益下调 / 窗口边界与非法输入 / 窗口内 20 段音高严格单调、两端贴合 `freqMin`/`freqMax`）。
+
+### Boss 电磁炮：指向期静音 + 开火「像放箭」（2026-10-26 用户裁定）
+
+用户原话：「boss使用电磁炮时：音量太大……玩家被电磁炮激光指向时不需要有音效，电磁炮发射炮弹的音效像射箭而不是发射了电磁炮」。
+
+- **指向期无音效**：`RULES.boss.railgun.aimAudio = false` 是唯一开关。`tank_battle.html` 的 Boss 分支据此**不**起 `startRailChargeLoop`、**不**播 `railReady`、**不**播预警 `ui` 音——只保留 `pushLog` 红字 + 顶部红色横条。上表 ①② 两段声学**只对玩家自己装的电磁炮生效**。
+- **开火瞬态换键**：Boss 用 `SOUND_DEFS.bossRailFire`（弓弦松脱 `triangle 420→130Hz @0.10s` + 弦槽摩擦 `bandpass 2600Hz @0.08s` + 箭矢破空 `highpass 3200Hz @0.28s` 延迟 25ms，`def.gain` **0.55**）；**刻意不含** `firerail` 的三层主体（方波放电下扫 / 电离噪声 / 低频炮身共鸣）——那正是「像电磁炮」和「太响」的来源。
+- **键选择唯一入口**：`js/tank_fire.js _fireSoundKeyFor(shooter, spec)`——`railgun + isBoss` ⇒ `RULES.boss.railgun.fireSoundKey`（`bossRailFire`）；`railgun` ⇒ `firerail`；其余 ⇒ `fire`。
+- 回归：`scripts/test-audio.js` 6.3 段（键存在 / 增益低于 `firerail` / osc 层全部 ≥100Hz / 全部层 ≤0.35s / `aimAudio===false`）；`scripts/test-batch5-combat.js` 断言 `_fireSoundKeyFor` 三分支。
+
 ## 相关页面
 - [特效与视效](./fx-visual.md) — 与音效同帧触发的视效层
 - [武器与装填](./weapons-reload.md) — `firerail` 等武器专属音效键
+- [Boss 电磁炮](../boss/railgun.md) — Boss 侧指向期静音与开火音效键的机制口径
 - [HUD 与界面](./hud-ui.md) — 音量设置入口

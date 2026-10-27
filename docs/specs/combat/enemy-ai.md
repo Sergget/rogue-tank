@@ -16,12 +16,12 @@
 
 （原 §5，2026-08-24 定案）
 
-> **AI 基础距离的唯一数值口径（本页，2026-10-21 按 `RULES.ai` 核对）**：`triggerDistBase` **700** / `engageRange` **520** / `keepRange` **320** / `allyEngageRange` **460**（px）。其余 AI 参数（`shotNoiseRadius` / `impactNoiseRadius` / `alertRadius` / `engagePropagateRadius` / `engageBand` / `maneuver` / `separation` / `retreatReload` 等）逐键现行值唯一来源是 `RULES.ai`（`js/tank_rules.js`），本页只写机制与裁定，不重复维护完整参数表。
+> **AI 基础距离的唯一数值口径（本页，2026-10-21 按 `RULES.ai` 核对）**：`triggerDistBase` **700** / `engageRange` **520** / `keepRange` **320** / `allyEngageRange` **460** / `fireRangeRatio` **1.5**（px；末项为倍率，口径见 [交战结构重做 · 开火距离](#交战结构重做)）。其余 AI 参数（`shotNoiseRadius` / `impactNoiseRadius` / `alertRadius` / `engagePropagateRadius` / `engageBand` / `maneuver` / `separation` / `retreatReload` 等）逐键现行值唯一来源是 `RULES.ai`（`js/tank_rules.js`），本页只写机制与裁定，不重复维护完整参数表。
 
 - **与摄像机视野解耦**：激活判定与摄像机视野彻底解耦（废除 P-10 的「视野内主动 / 范围外被动」门控），改为**距离 + 可见性**触发。
 - **有效触发距离**：= 上条表中的 `triggerDistBase` × 难度乘数（最高 ×1.6），经 `js/tank_map.js` 的 `triggerDistForDifficulty(diff)` 计算，节点生成时注入实体字段 `aiTriggerDist`；`aiDecideEnemy` 读实体字段，缺省回退 RULES 基准值。
 - **「全图主动」语义（2026-10-17 #U28，现行口径）**：`aiTriggerDist` 设为远超 `triggerDistBase × triggerHysteresis`（如生存波次的 99999）只放行触发**门**，**不放大** `engage`（后者被滞回比钳顶 ≈650）——因此 `aiTriggerDist` 超钳顶值的实体：① 不进入 defensive 站桩（`dist > engage×3+500` 的消极防御只属于普通触发距离实体），移动交给交战带（`dist > band.max → baseMove=1`）；② 生成方必须同时置 `aiEngaged=true, aiReactT=0`（只设 `alertLevel=3` 不够——首帧仍走未接战分支并吃反应延迟）。消费方：`js/tank_ai.js` defensive 分支、`tank_battle.html spawnSurvivalWaveEnemies`。
-- **滞回防抖**：脱离接战阈值 = 进入阈值 × 1.25（实体字段 `aiEngaged` 承载），消除边界抖动。
+- **滞回防抖**：脱离接战阈值 = 进入阈值 × 1.25（实体字段 `aiEngaged` 承载），消除边界抖动。**2026-10-26（§4.140）起加 `!los` 条件**：`dist > exitD && !los` 才脱战——看得见玩家就不脱战（被掩体挡住视线才是真正的"失去目标"）。
 - **可见性分支**：
   - 距离达标且有视线（hasLineOfSight）→ 接战分支（flank / 开火等）；
   - 距离达标但无视线 → 提前进入 search 推进；
@@ -39,16 +39,18 @@
 
 - **警戒状态的 UI 指示（2026-10-24，`?` / `!`）**：世界内 HUD 在敌方血条正上方画一枚状态徽标，让玩家看见「谁在找我」。
   - **两档语义**（用户裁定）：`?` = 怀疑/搜寻；`!` = 已发现并锁定。归并实现是纯函数 `alertIndicatorFor(t)`（`js/tank_battledraw.js`）：
-    - `engaged`（`!`，红色实线）← `alertLevel >= 3`，或 `aiEngaged === true` 且 `aiState` ∈ {`react`, `skirmish`, `charge`, `hold`}；
+    - `engaged`（`!`，红色实线）← `aiEngaged === true` 且 `aiState !== 'search'`；或 `alertLevel >= 3`；
     - `alert`（`?`，黄色虚线）← `aiState === 'search'`，或 `alertLevel >= 1`；
-    - `null`（不显示）← `patrol` / `stunned` / 已死 / 非敌方 / **Boss**（Boss 有独立血条与阶段 UI，不叠加）。
+    - `null`（不显示）← 未接战的纯巡逻 / `stunned` / 已死 / 非敌方 / **Boss**（Boss 有独立血条与阶段 UI，不叠加）。
+  - **2026-10-26 修订（§4.142，用户反馈「图标更新速度晚于 AI 行动」）**：`engaged` 判据由「`aiEngaged` 且 `aiState` ∈ {`react`, `skirmish`, `charge`, `hold`} 白名单」改为「**`aiEngaged` 且非 `search`**」——与 `aiState` 字面值解耦、跟接战事实走。原因：§4.140 起接战 AI 的 `aiState` 大部分时间是状态机默认值 `'patrol'`（推进/驻停/射击都不改写它），旧白名单把这段「AI 正在打」的时间判成 `null` ⇒ **打着打着图标消失**；同时 react 起转那 ~1.5s（AI 还僵着）反而先亮 `!`，整体读作图标与行动脱同步。`search` 仍归 `alert`（还在找，没锁定）。
   - **显示范围**（用户裁定）：**仅视口内**——复用 `drawTank` 前的 `aabbInView` 剔除（纯性能机制），视口外不泄露情报。
   - **字形用路径绘制、不依赖字体**：`fillRect`/`arc`/`stroke` 画出竖条与问号弧。原因有两条——① 离线回归垫片 `mini-canvas` 的 `fillText` 是**空实现**，用它会让像素断言永远测不到字形（实测「两档像素数完全相同」= 假绿）；② 真机字体缺失时字形可能不可见。
-  - **回归**：`scripts/test-alert-indicator.js`（挂 `npm test`）覆盖归并三态 × 全部 `aiState`、负向不显示清单、真实光栅化（`?`/`!` 字形像素差异 >10、颜色红/黄可分）、`aabbInView` 剔除仍在。
+  - **回归**：`scripts/test-alert-indicator.js`（挂 `npm test`）覆盖归并三态 × 全部 `aiState`（含 §4.142 新增的 `patrol`/`coverSeek`/`defensive` 接战态）、负向不显示清单、真实光栅化（`?`/`!` 字形像素差异 >10、颜色红/黄可分）、`aabbInView` 剔除仍在。
 
 - **噪声累积升级（2026-10-22 用户裁定）**：「敌方 ai『听到』多次射击、友军多次被命中等后就应当直接确定玩家位置进入交战状态」。
-  - **射击噪声累积**：每次 `hearNoise` 累加 `t.noiseHeat`（`shot` +0.34 / `impact` +0.20，唯一口径 `RULES.ai.noiseEscalate`）⇒ **3 次射击或 5 次落弹**即达 `escalateAt 1.0` → 直接 `alertEntity(t, srcX, srcY)`（进入交战 + 记住玩家位置）并把热量归零。自然衰减 `decayPerSec 0.12`（约 8.3s 清空，与 `suspiciousTimeout` 同量级）。
+  - **射击噪声累积**：每次 `hearNoise` 累加 `t.noiseHeat`（`shot` +0.34 / `impact` +0.20，唯一口径 `RULES.ai.noiseEscalate`）⇒ **3 次射击或 5 次落弹**即达 `escalateAt 1.0` → 直接 `alertEntity(t, srcX, srcY)`（进入交战 + 记住玩家位置）并把热量归零。自然衰减 `decayPerSec 0.12`（超出 `decayGraceSec 6` 新鲜窗口后启动；约 8.3s 清空，与 `suspiciousTimeout` 同量级）。
   - **旧实现的两个缺陷（ISSUES #Z7，2026-10-22 修）**：① `hearNoise` 只把 `alertLevel` 置 1，**全文件没有任何升级到 3 的路径**；② 同位置 2s 内的重复声音被直接丢弃 ⇒ **连射越多反而越攒不满**。现改为仍更新 `lastNoisePos`、但热量照常累加。
+  - **2026-10-26 修复（§4.139）——「听到多次射击仍不升级 + 交战态呆滞」两缺陷**：① `decayNoiseHeat` 此前**每帧**衰减，使「3 发 ×0.34=1.02 仅超阈值 0.02」的余量被主炮 4s 装填间隔的衰减量吃光 ⇒ **升级永不触发**（探针实测 spacing=4s 时 heat 恒 0.34）；现改 `decayGraceSec 6`——距上次声音 <6s 内不衰减，3 发主炮/机炮间隔均可累积到阈值。② `alertEntity` 置 `alertLevel=3 + lastKnownPlayerPos` 后，若玩家**远处可见**，`aiDecideEnemy` 第 1 帧即清记忆（`if(los && lastKnownPlayerPos)`）、第 2 帧因 `dist>exitD && !lastKnownPlayerPos` 脱战 ⇒ 原地 `patrol`（move=0、fire=false）且 `alertLevel` 卡在 3 永久显示 `!`；现清记忆加 `dist<=exitD` 门控，脱战分支补 `alertLevel=0` 复位（否则 `!` 永久显示且 `hearNoise` 被永久拒收）。③ **行动模式呆滞**：`hold` 角色旧逻辑 `baseMove=0` 且 `holdGate` 在 >640px 拒开火 ⇒ 射程外「纯待机」既不追也不打（闻声/被击确定位置后仍呆滞）；现改「超出 `holdFireMaxDist`(640px) 前压到可开火范围」。`defensive` 站桩（`dist>engage×3+500`≈2060px，move=0 且 dist>engage 永不还击）现加 `!lastKnownPlayerPos` 门控——被警觉（持有玩家位置记忆）的敌人不进入 defensive，改为追击。
   - **友军被命中**：`resolveHit` 包装对 `team==='ally'` 的目标调 `noteAllyHit(entities, sx, sy)`——半径 `RULES.ai.noiseEscalate.allyHitRadius`（700px）内所有敌人累加 `allyHitHeat 0.5`，**2 次**即 `alertEntity`。
 - **Boss / 生存模式全敌强制接战（2026-10-22 用户裁定）**：「boss战模式、生存模式所有敌人强制进入交战模式，立即开始攻击玩家」。
   - 抽 `forceEngageAll(reason)`（`tank_battle.html`）：对全部 `team==='enemy' && !isBoss && hp>0` 设 `aiTriggerDist=99999 / aiEngaged=true / alertLevel=3 / aiReactT=RULES.ai.forceEngageOpenFireDelay`。
@@ -98,7 +100,8 @@
 
 - **现行口径（消费方 `js/tank_ai.js` + 新模块 `js/tank_ai_squad.js`）**：
   - **#N1 交战距离带**（`RULES.ai.engageBand`）：判据由单点改为按类别的 `[minRatio, maxRatio] × engage` 区间——`dist>max` 接近 / `dist<min` 脱离 / 区间内驻停开火。四类：light 0.52~1.28 / medium 0.42~1.10 / heavy 0.30~0.94 / spg 0.66~1.34；下界另有车体尺度兜底（`max(60, hullLen×2.2)`）。**heavy 的 `moveLock` 角色特性保留**（`dist<min` 时 `baseMove=0` 不后撤）；`engageBand.enabled=false` 回退旧 `closeRange`/`engageRange` 单点语义。
-  - **#N2 攻守分工**（`RULES.ai.squad` + `js/tank_ai_squad.js updateSquad`）：节点级协调器每 `reassignInterval`(0.6s) 按评分（距离/LoS/血量）+ **角色粘性** 分配 `press`（压上，名额 = `pressSlotsBase(2) + floor(diff×1.5)` 钳 ≤4）、`flank`（侧翼）、`hold`（驻守）三种角色；存活数 ≤ 名额时全员 press。`hold` 走 `holdGate`（> `holdFireMaxDist` 640px 纯待机，近距容差放宽 ×2）。协调器**只写 `t.aiRole`**，位移仍由交战带/机动层执行；`enterBattle` 时 `resetSquad()` 防跨节点串用。
+  - **#N2 攻守分工**（`RULES.ai.squad` + `js/tank_ai_squad.js updateSquad`）：节点级协调器每 `reassignInterval`(0.6s) 按评分（距离/LoS/血量）+ **角色粘性** 分配 `press`（压上，名额 = `pressSlotsBase(2) + floor(diff×1.5)` 钳 ≤4）、`flank`（侧翼）、`hold`（驻守）三种角色；存活数 ≤ 名额时全员 press。`hold` 走 `holdGate`（只放宽瞄准容差 ×`holdFireAimTolMul`(2.0)，**不再有独立距离闸**——2026-10-26 §4.140 删除原 `holdFireMaxDist(640px)`，距离口径统一见下方「开火距离」）；超出开火距离时前压到可开火范围。协调器**只写 `t.aiRole`**，位移仍由交战带/机动层执行；`enterBattle` 时 `resetSquad()` 防跨节点串用。
+  - **开火距离（2026-10-26 §4.140，用户反馈「只愿意抵近射击」）**：三个距离概念解耦，各管一件事——① `engageBand.max`（中坦 ≈572）= **站位意图**（`dist > band.max → baseMove=1` 接近）；② `_effectiveFireRange = band.max × RULES.ai.fireRangeRatio(1.5)` = **战术开火意愿**（medium ≈858 / heavy ≈734 / light ≈999 / spg ≈1046，按类别自动缩放）；③ `RULES.ballistics.shellMaxDist`(1800) = **物理上限**，AI 不直接读。效果：press 敌人在 `band.max` 与开火距离之间**边推进边射击**，到开火距离外沿收住；`canFire` 与 `hold` 的 `baseMove` 同用这一个口径。**为什么不直接用 1800**：开火半径 572→1800 使覆盖面积翻 ~10 倍 ⇒ 节点内过半敌人同时开火 + 1500px 外狙击 = 火力过密（用户 2026-10-26 反馈）。**脱战判据**（§4.140 连带）：`dist > exitD` 改为 `dist > exitD && !los`——看得见玩家就不脱战，否则 ~858 的开火距离会被滞回带(875)卡成「超带即脱战」。
   - **#N3 flank 重写**（`RULES.ai.flankRewrite`）：站位点 = **玩家为圆心、半径 `_flankRadius(band) = band.max × radiusRatio(1.15)`、方位角 = 进入时方位 ± 扇区角 [1.05, 2.10] rad** 的世界坐标点，**进入 flank 时锁定一次**（`t._flankTarget`），驶入 `arriveDist`(70px) 即转 press；角色变更时清除锁定。半径以**交战带外沿**为基准（见下方缺陷 ③）。旧 flank 分支降级为回退路径（`flankRewrite.enabled=false` 启用）。
   - **#N4 群体分离力**（`RULES.ai.separation`）：同类斥力半径 `radius`(180px)，玩家方向斥力半径 = `radius × playerRadiusMul`(0.6 ⇒ 108px)，两者均按距离**线性衰减**；力度权重 `playerFactor`(0.7) 单独作用于玩家方向。合成斥力换算为相对「朝玩家」方向的 ±1 转向偏置。**仅对 `press` 且 `move≠0` 生效**（见缺陷 ④）。
   - **#N5 视口外来袭方向提示**（`threatIndicators(player, enemies, viewBounds, opts)`，`js/tank_ai_squad.js`）：筛选「已接战 + 视口外 + 距离 ≤ `engageRange×1.4`」的敌人，按距离取前 6 条输出方位角；battle `drawThreatIndicators()` 沿用边缘矩形求交绘制**琥珀色箭头**（与无人机红箭头区分），alpha 随距离衰减。**玩家侧信息层，不改变任何 AI 判定与命中判定**（#J3 口径不变）。

@@ -169,11 +169,31 @@ const SOUND_DEFS = {
   // 与 firerail 分工——firerail 是开火瞬态（已含放电撕拉 + 炮身共鸣）；本键是「可以打了」的
   //   听觉信号：高频短促、不碰低频区，避免和发射声混淆。充能**过程**的电流声不是键，
   //   是代码驱动的循环实例（见 startRailChargeLoop，参数唯一口径 RULES.railgunFx.audio）。
+  // ⚠ 2026-10-26 起 Boss 侧指向期静音（RULES.boss.railgun.aimAudio=false）：本键只由
+  //   玩家自己充能完成时播（tank_battle.html 玩家段），不再挂 Boss。
   railReady: {
     label: '电磁炮就绪', bus: 'combat', gain: 0.8,
     layers: [
       { kind: 'osc', wave: 'sine', f0: 1320, f1: 1320, dur: 0.07, gain: 0.30, attack: 0.002 },
       { kind: 'osc', wave: 'sine', f0: 1760, f1: 1760, dur: 0.07, gain: 0.24, attack: 0.002, delay: 0.10 }
+    ]
+  },
+
+  // Boss 电磁炮开火（2026-10-26 用户裁定）：**像放箭，不是电磁炮轰响**。
+  // 用户原话：「电磁炮发射炮弹的音效像射箭而不是发射了电磁炮」（另附「音量太大」）。
+  // 声学特征 = 弓弦松脱的短促「崩」+ 箭矢破空的高频「唰」；**刻意不含** firerail 的三层主体
+  //   （方波放电下扫 / 电离空气噪声 / 低频炮身共鸣）——那正是「像电磁炮」和「太响」的来源。
+  // 分工唯一口径在 js/tank_fire.js：`shooter.isBoss` ⇒ 本键；玩家电磁炮仍走 `firerail`。
+  // 音量口径：def.gain 0.55（firerail 为 1.0）× 各层 0.34/0.30/0.20 ⇒ 峰值远低于开火轰响。
+  bossRailFire: {
+    label: '电磁炮开火（箭袭）', bus: 'combat', gain: 0.55,
+    layers: [
+      // ① 弓弦松脱：短促三角波下滑（4ms 级起振，0.10s 收干——弦音没有尾）
+      { kind: 'osc',   wave: 'triangle', f0: 420, f1: 130, dur: 0.10, gain: 0.34, attack: 0.001 },
+      // ② 弦槽摩擦：极短带通噪声，与弦音同帧，给「崩」一点颗粒
+      { kind: 'noise', dur: 0.08, gain: 0.26, attack: 0.001, filter: 'bandpass', filterFreq: 2600 },
+      // ③ 箭矢破空：高频高通噪声，比弦音晚 25ms 起、拖到 0.28s（箭掠过空气，不是爆炸）
+      { kind: 'noise', dur: 0.28, gain: 0.20, attack: 0.003, filter: 'highpass', filterFreq: 3200, delay: 0.025 }
     ]
   }
 };
@@ -241,6 +261,22 @@ function railChargeFreqFor(progress){
   let p = (typeof progress === 'number' && isFinite(progress)) ? progress : 0;
   p = Math.max(0, Math.min(1, p));
   return f0 + (f1 - f0) * p;
+}
+
+// 2026-10-27（用户反馈「充能的音效太尖锐、时间太长，只在充能完毕前有一点电流声」）：
+//   充能循环只在**最后 `RULES.railgunFx.audio.windowSeconds` 秒**内响。
+//   入参 secondsLeft = 距离充满还剩多少秒（页面传 `player.reloadT`）。
+//   返回 **null** = 不在窗口内（不响）；**0..1** = 窗口内的局部进度（音高据此从 freqMin 扫到 freqMax）。
+//   ⚠️ 为什么不用全局 progress 直接喂音高：可听窗口只是整段装填的最后 15~30%，全局 progress 在窗口里
+//   恒在 0.8~1（音高一直贴高位 = 还是尖），且「起声那一瞬」就已是最高音——正好与「有一点电流声」相反。
+//   非有限值 / 负剩余 / 超出窗口一律 null（宁可不响，也不能让 NaN 进 `OscillatorNode.frequency`）。
+function railChargeWindowProgress(secondsLeft){
+  const cfg = (typeof RULES !== 'undefined' && RULES.railgunFx && RULES.railgunFx.audio) || {};
+  const win = (typeof cfg.windowSeconds === 'number' && isFinite(cfg.windowSeconds) && cfg.windowSeconds > 0)
+    ? cfg.windowSeconds : 0.6;
+  if (typeof secondsLeft !== 'number' || !isFinite(secondsLeft)) return null;
+  if (secondsLeft < 0 || secondsLeft > win) return null;
+  return 1 - secondsLeft / win;
 }
 
 // 起：幂等（已在充能时返回 true）。返回 false = 无音频环境或创建失败。
@@ -675,6 +711,8 @@ if (typeof module !== 'undefined' && module.exports) {
     getSampleBuffer,
     // #AA-c（2026-10-26）：电磁炮充能循环三件套 + 纯频率映射（Node 可测）
     railChargeFreqFor,
+    // 2026-10-27：可听窗口（只在充满前 windowSeconds 秒内返回局部进度，否则 null）
+    railChargeWindowProgress,
     startRailChargeLoop,
     updateRailChargePitch,
     stopRailChargeLoop

@@ -985,5 +985,66 @@ function drawTurret(t) {
     `⑪d阴影不随 tilt 旋转：p=0.25 阴影主轴 ${X6_shAxUp === null ? 'n/a' : (X6_shAxUp * 180 / Math.PI).toFixed(1)}° / p=0.75 ${X6_shAxDn === null ? 'n/a' : (X6_shAxDn * 180 / Math.PI).toFixed(1)}°（均应 ≈0° = 沿 ang，与弹体 ±33.7° 无关）`);
 }
 
+// ---------- ⑫ Boss 电磁炮指示线（2026-10-26 用户反馈） ----------
+// 用户原话：「boss使用电磁炮时：……激光应该是红色不动的指示性激光（不是现在的常用于攻击性的
+//   不断抖动的）」。这一节把三件事变成会失败的像素断言：
+//   ① 「红」：红主导像素显著 > 0，近白像素 = 0（旧口径的白 1px 主线 + 3 条 lightningPath 电弧
+//      + 蓝基底 + 线端白光点必须消失）；
+//   ② 「不动」：同一 fx 连续两次绘制**逐字节一致**（旧实现读 performance.now() 派生电弧种子 ⇒ 必抖）；
+//   ③ 「指示性」：蓄满只提亮度不改几何/色相，且 blockedDist 真的把线截短。
+{
+  const R12 = RULES.boss.railgun;
+  const px12 = (cv) => anyA(cv)._buf;
+  const cnt12 = (cv, fn) => {
+    const b = px12(cv); let n = 0;
+    for (let i = 0; i < b.length; i += 4) if (b[i + 3] > 10 && fn(b[i], b[i + 1], b[i + 2])) n++;
+    return n;
+  };
+  // 红主导：红通道显著高于绿/蓝（红线芯 rgb(255,52,42) 与红色外晕都满足）
+  const isRed12 = (r, g, b) => r > 60 && r > g * 1.7 && r > b * 1.7;
+  // 近白：三通道都高且接近（旧口径的弧芯/冷白晕/线端白光）
+  const isWhite12 = (r, g, b) => r > 200 && g > 200 && b > 200 && Math.max(r, g, b) - Math.min(r, g, b) <= 26;
+  const span12 = (cv) => {
+    const b = px12(cv), Wc = cv.width, Hc = cv.height;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (let y = 0; y < Hc; y++) for (let x = 0; x < Wc; x++) {
+      const i = (y * Wc + x) * 4;
+      if (b[i + 3] > 10 && isRed12(b[i], b[i + 1], b[i + 2])) {
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+    return { w: x1 - x0, h: y1 - y0 };
+  };
+  const meanRed12 = (cv) => {
+    const b = px12(cv); let s = 0, n = 0;
+    for (let i = 0; i < b.length; i += 4) if (b[i + 3] > 10) { s += b[i]; n++; }
+    return n ? s / n : 0;
+  };
+  const fxHalf = { kind: 'charge', x: 40, y: 200, angle: 0, length: 320, width: 6, progress: 0.5 };
+  const cvHalf = raster(400, 400, c => BD.drawBossRailLine(c, fxHalf));
+  const cvHalf2 = raster(400, 400, c => BD.drawBossRailLine(c, fxHalf));
+  ok(diffPx(px12(cvHalf), px12(cvHalf2)) === 0,
+    '⑫a指示线不动：同 fx 两次绘制逐字节一致（旧实现按 performance.now() 重算电弧种子 ⇒ 每帧抖）');
+  const redHalf = cnt12(cvHalf, isRed12), whiteHalf = cnt12(cvHalf, isWhite12);
+  ok(redHalf > 250, `⑫b指示线=红：红主导像素 ${redHalf}`);
+  ok(whiteHalf === 0, `⑫c无白芯/白电弧：近白像素 ${whiteHalf} === 0（旧口径已删）`);
+  const spHalf = span12(cvHalf);
+  ok(spHalf.w > 300 && spHalf.h < 24,
+    `⑫d线形：横向 ${spHalf.w}px × 纵向 ${spHalf.h}px（细长指示线，不是光斑）`);
+  const cvFull = raster(400, 400, c => BD.drawBossRailLine(c, Object.assign({}, fxHalf, { progress: 1 })));
+  const cvReady = raster(400, 400, c => BD.drawBossRailLine(c, { kind: 'ready', x: 40, y: 200, angle: 0, length: 320, width: 6 }));
+  ok(meanRed12(cvFull) > meanRed12(cvHalf),
+    `⑫e蓄满只提亮度：progress=1 红均值 ${meanRed12(cvFull).toFixed(1)} > progress=0.5 ${meanRed12(cvHalf).toFixed(1)}`);
+  ok(diffPx(px12(cvReady), px12(cvFull)) === 0, '⑫f ready 按满进度画（与 charge@progress=1 逐字节一致）');
+  const cvCut = raster(400, 400, c => BD.drawBossRailLine(c, Object.assign({}, fxHalf, { blockedDist: 120 })));
+  const spCut = span12(cvCut);
+  ok(spCut.w > 60 && spCut.w < spHalf.w - 150,
+    `⑫g全高掩体截断：blockedDist=120 线长 ${spCut.w}px < 未截断 ${spHalf.w}px`);
+  // 口径来源：颜色取自 RULES（不是写死色值）
+  const cRed = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(String(R12.laserColor));
+  ok(!!cRed && +cRed[1] > 200 && +cRed[1] > +cRed[2] && +cRed[1] > +cRed[3],
+    `⑫h口径=红：RULES.boss.railgun.laserColor ${R12.laserColor}`);
+}
+
 console.log(fails === 0 ? 'test-render: 全部通过' : `test-render: ${fails} 项失败`);
 process.exit(fails === 0 ? 0 : 1);

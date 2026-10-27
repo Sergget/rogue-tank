@@ -89,6 +89,50 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
   ok(F.fireSmokeShell===undefined && F.tryFireSmoke===undefined, 'fireSmokeShell/tryFireSmoke 已移除');
 }
 
+// 2b) §4.143（2026-10-26）：ammoStatNeutral 消费端——敌方/Boss 弹种 pen/dmg 倍率必须被中和。
+//   背景：`applyEnemyAmmoByLevel` 给敌军按等级套 AP 链弹种时写 `ammoStatNeutral=true`，
+//   但 firePrimaryShell 从未读取该标记（只写不消费 = 假绿）⇒ 弹种倍率原样乘在已被
+//   penCap 封顶 144 的穿深之后 ⇒ Lv13 敌军实际穿深 144×2.0 = 288mm，
+//   玩家装甲升级完全无效（用户 2026-10-26 反馈「多次升级装甲仍被击穿」）。
+{
+  global.shells=[];
+  global.devAim={zeroSpread:true};
+  C.covers.length=0;
+  const target=M.makeTank({id:'e',team:'enemy',x:500,y:0});
+
+  // ① 敌军 Lv13（apfsds_ad，弹种 pen 2.0）+ neutral 标记 → 穿深恒为 stats.penetration
+  const e13=M.makeTank({id:'e13',team:'enemy',x:0,y:0,hullAngle:0,turretAngle:0, base:{penetration:144, damage:40, reload:1, shellSpeed:1000, maxHp:100}});
+  M.applyEnemyAmmoByLevel(e13, 13);
+  ok(e13.ammoKey==='apfsds_ad' && e13.ammoStatNeutral===true, 'Lv13 敌军 → apfsds_ad + neutral 标记');
+  global.entities=[e13,target];
+  global.impacts=[]; global.bounceFx=[];
+  F.fireTank(e13,target,'auto');
+  ok(global.shells.length===1, 'Lv13 敌军开火成功');
+  ok(Math.abs(global.shells[0].pen-144)<1e-9,
+    `§4.143 中和生效：Lv13 穿深 = 144（实际 ${global.shells[0].pen}；未修时为 288）`);
+  ok(global.shells[0].ammoKey==='apfsds_ad', '弹种特性保留：ammoKey 仍为 apfsds_ad');
+
+  // ② 反证：玩家（无 neutral 标记）弹种倍率照算
+  global.shells.length=0;
+  const pl=M.makeTank({id:'pl',team:'player',x:0,y:0,hullAngle:0,turretAngle:0, base:{penetration:100, damage:20, reload:1, shellSpeed:1000, maxHp:100}});
+  pl.ammoKey='apfsds';                    // 弹种 pen 1.8，无 ammoStatNeutral
+  global.entities=[pl,target];
+  F.fireTank(pl,target,'auto');
+  ok(global.shells.length===1 && Math.abs(global.shells[0].pen-180)<1e-9,
+    `§4.143 反证：玩家弹种倍率不受影响（apfsds 100×1.8=${global.shells[0] && global.shells[0].pen}）`);
+
+  // ③ 低等级敌军（ap，倍率 1.0）中性化后数值不变（零回归）
+  global.shells.length=0;
+  const e1=M.makeTank({id:'e1',team:'enemy',x:0,y:0,hullAngle:0,turretAngle:0, base:{penetration:144, damage:40, reload:1, shellSpeed:1000, maxHp:100}});
+  M.applyEnemyAmmoByLevel(e1, 1);
+  global.entities=[e1,target];
+  F.fireTank(e1,target,'auto');
+  ok(global.shells.length===1 && Math.abs(global.shells[0].pen-144)<1e-9,
+    `§4.143 零回归：Lv1（ap）中性化前后同为 144（实际 ${global.shells[0].pen}）`);
+
+  global.shells=[]; global.devAim=null;
+}
+
 // 3) stepShells shield absorb guard: HE absorbed should not splashCoversAt
 {
   // setup a cover near impact for splash check

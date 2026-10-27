@@ -418,10 +418,13 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
 
   // #A1：新增无上限火力/马力商品定义完整性
   const puD = eco.getRunShopDef('penetration_up'), duD = eco.getRunShopDef('damage_up'), epuD = eco.getRunShopDef('engine_power_up');
-  ok(puD && puD.effects[0].stat === 'penetration' && puD.effects[0].mode === 'add' && puD.effects[0].value === 6 && puD.maxLevel === 99,
-     '#A1：穿深加工 penetration add+6/级（maxLevel 99=无显式上限）');
-  ok(duD && duD.effects[0].stat === 'damage' && duD.effects[0].mode === 'add' && duD.effects[0].value === 4 && duD.maxLevel === 99,
-     '#A1：火力增强 damage add+4/级（maxLevel 99=无显式上限）');
+  // §4.144（2026-10-27 成长曲线审计）：单级回报上调 —— 穿深 +6→+8、伤害 +4→+5。
+  //   根因：敌人 DPS/Hp 双通道成长超速，玩家局内 DPS 仅 ~1.5× ⇒ 末节点打不过。
+  //   提单级值而非猛降价格，保住「资源紧张」体感；costGrowth 1.7→1.6 同步小幅下调。
+  ok(puD && puD.effects[0].stat === 'penetration' && puD.effects[0].mode === 'add' && puD.effects[0].value === 8 && puD.maxLevel === 99,
+     '#A1/§4.144：穿深加工 penetration add+8/级（maxLevel 99=无显式上限）');
+  ok(duD && duD.effects[0].stat === 'damage' && duD.effects[0].mode === 'add' && duD.effects[0].value === 5 && duD.maxLevel === 99,
+     '#A1/§4.144：火力增强 damage add+5/级（maxLevel 99=无显式上限）');
   ok(epuD && epuD.effects[0].stat === 'enginePower' && epuD.effects[0].mode === 'add' && epuD.effects[0].value === 60,
      '#A1：马力强化 enginePower add+60/级（功重比自然上升，受 weightRuntimeCap 间接约束）');
   // #A1/#A3：姿态稳定改造——独立运动键 motionSpreadMul、mult 语义；

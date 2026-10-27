@@ -138,14 +138,12 @@ function updateSquad(ctx){
   return stat;
 }
 
-// hold 态开火门控：hold 角色只打「有把握」的射界 —— 距离在 holdFireMaxDist 内，
-// 且开火容差放宽 holdFireAimTolMul 倍（远距离命中率低，放宽以保留火力存在感）。
-// 返回 { fire: bool, aimTolMul } —— 调用方（tank_ai.js）用它改写 fire 与容差。
+// hold 态开火门控：hold 角色只打「有把握」的射界 —— 不再做独立距离闸（AI 决策层
+// 已按开火距离 `_effectiveFireRange` = band.max × fireRangeRatio 管距离），
+// 这里只放宽瞄准容差。返回 { fire: bool, aimTolMul }。
 function holdGate(e, dist, baseTol, player){
   const cfg = squadConfig();
-  const maxD = Number.isFinite(cfg.holdFireMaxDist) ? cfg.holdFireMaxDist : 640;
   const mul = Number.isFinite(cfg.holdFireAimTolMul) ? cfg.holdFireAimTolMul : 2.0;
-  if(dist > maxD) return { fire: false, aimTolMul: 1 };   // 太远 ⇒ 纯待机
   if(!player) return { fire: false, aimTolMul: 1 };
   const desired = Math.atan2(player.y - e.y, player.x - e.x);
   const aimErr = Math.abs(angDiff(e.turretAngle, desired));

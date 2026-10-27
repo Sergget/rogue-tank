@@ -105,6 +105,8 @@ section('§4.1 B1-2 敌方弹种不再放大穿深/伤害');
   const t3 = {};
   M.applyEnemyAmmoByLevel(t3, undefined);
   ok(t3.ammoKey === 'ap' && t3.ammoStatNeutral === true, '缺省 level → ap（向后兼容）');
+  // 注：2026-10-26（§4.143）补的**消费端**真断言（打一颗弹验穿深受中和）在
+  //   `scripts/test-fire.js`——那里已装配完整 fire 链全局依赖，避免本文件重复搭脚手架。
 }
 
 // ---------------------------------------------------------------- 商店曲线
@@ -280,6 +282,43 @@ section('§4.1 B1-5(b) Boss 电磁炮蓄能事件');
   const t2 = { hp: 100, x: 0, y: 0, reloadT: 0.1, weapons: { primary: { type: 'standard' } } };
   ok(Boss2.updateBossRailCharge(t2, 0.05).length === 0, '非 railgun 不产出事件（负向）');
   ok(t2.railChargeHold === false, '非 railgun 不置 hold（负向）');
+
+  // 2026-10-26（用户反馈）：炮线 = 红色恒定指示线，事件必须带「掩体截断距离」且坐标/角度有限
+  const t3 = { hp: 100, maxHp: 100, x: 0, y: 0, turretAngle: 0, reloadT: 0.5, weapons: { primary: { type: 'railgun' } } };
+  const ev3 = Boss2.updateBossRailCharge(t3, 0.05).filter(e => e.type === 'railCharge')[0];
+  ok(!!ev3 && isFinite(ev3.x) && isFinite(ev3.y) && isFinite(ev3.angle),
+    `railCharge 坐标/角度有限：(${ev3 && ev3.x}, ${ev3 && ev3.y}) @${ev3 && ev3.angle}`);
+  ok(!!ev3 && ev3.blockedDist === R.boss.railgun.lineLength,
+    `无 covers 时不被截断：blockedDist ${ev3 && ev3.blockedDist} === lineLength ${R.boss.railgun.lineLength}`);
+  // 全高建筑（structure + vision）挡线：入口距离 ≈ 建筑近侧
+  const wall = { x: 500, y: 0, w: 100, h: 200, angle: 0, tier: 'full', hp: 999 };
+  const t4 = { hp: 100, maxHp: 100, x: 0, y: 0, turretAngle: 0, reloadT: 0.5, weapons: { primary: { type: 'railgun' } } };
+  const ev4 = Boss2.updateBossRailCharge(t4, 0.05, null, { covers: [wall] }).filter(e => e.type === 'railCharge')[0];
+  ok(!!ev4 && Math.abs(ev4.blockedDist - 450) < 1,
+    `全高建筑截断炮线：blockedDist ${ev4 && Math.round(ev4.blockedDist)} ≈ 450（建筑近侧 500−50）`);
+  // 灌木/水面不挡炮线（同一判据：tierGroup 非 structure）
+  const bush = { x: 500, y: 0, w: 100, h: 200, angle: 0, tier: 'bush', hp: 1 };
+  const t5 = { hp: 100, maxHp: 100, x: 0, y: 0, turretAngle: 0, reloadT: 0.5, weapons: { primary: { type: 'railgun' } } };
+  const ev5 = Boss2.updateBossRailCharge(t5, 0.05, null, { covers: [bush] }).filter(e => e.type === 'railCharge')[0];
+  ok(!!ev5 && ev5.blockedDist === R.boss.railgun.lineLength,
+    `灌木不截断炮线（负向）：blockedDist ${ev5 && ev5.blockedDist}`);
+  // railReady 与 charge 同源截断（ready 画满进度，也必须被掩体截断）
+  const t6 = { hp: 100, maxHp: 100, x: 0, y: 0, turretAngle: 0, reloadT: 0.5, weapons: { primary: { type: 'railgun' } } };
+  let ready6 = null;
+  for (let i = 0; i < 40 && !ready6; i++) {
+    const es = Boss2.updateBossRailCharge(t6, 0.05, null, { covers: [wall] });
+    ready6 = es.filter(e => e.type === 'railReady')[0] || null;
+  }
+  ok(!!ready6 && Math.abs(ready6.blockedDist - 450) < 1,
+    `railReady 同样按掩体截断：blockedDist ${ready6 && Math.round(ready6.blockedDist)}`);
+
+  // 开火音效分工（2026-10-26 用户裁定）：Boss ⇒ bossRailFire（放箭），玩家 ⇒ firerail
+  const F2 = require('../js/tank_fire.js');
+  ok(typeof F2._fireSoundKeyFor === 'function', 'tank_fire 导出 _fireSoundKeyFor（音效键选择）');
+  const railSpec = { type: 'railgun' }, stdSpec = { type: 'standard' };
+  ok(F2._fireSoundKeyFor({ isBoss: true }, railSpec) === 'bossRailFire', 'Boss 电磁炮开火 → bossRailFire');
+  ok(F2._fireSoundKeyFor({ id: 'player' }, railSpec) === 'firerail', '玩家电磁炮开火 → firerail（不受影响）');
+  ok(F2._fireSoundKeyFor({ isBoss: true }, stdSpec) === 'fire', 'Boss 非电磁炮 → fire（负向：不误用箭袭音）');
 }
 
 

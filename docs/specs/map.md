@@ -1,6 +1,6 @@
 # 战术坦克 Roguelike — 地图与环境要素规范 —— 兼容索引（现行内容见 wiki 分页）
 
-> ⚠️ **本页是 §N 兼容层**：全部章节编号原样保留（全仓 **193 处**外部引用依赖它们，含 `js/*.js` 注释、`AGENTS.md`、`.dsh/skills/role-*`、`DEVELOPMENT*.md`、归档分卷、其它 specs 卷——2026-10-21 实测），
+> ⚠️ **本页是 §N 兼容层**：全部章节编号原样保留（全仓 **193 处**外部引用依赖它们，含 `js/*.js` 注释、`AGENTS.md`、`.claude/agents/role-*`（2026-10-27 由 `.dsh/skills/role-*` 迁入）、`DEVELOPMENT*.md`、归档分卷、其它 specs 卷——2026-10-21 实测），
 > 但正文已迁至 `docs/specs/map/` 下的主题页。**查现行口径请点每节的「详见」链接。**
 > 拆分日期 **2026-10-21**；拆分前的单卷原文以 git 提交 `57be2ca` 为准（见 `docs/archive/2026-10-pre-wiki-map.md` 的还原说明与分节行号表）。
 > 规范见 [`docs/WIKI-STYLE.md`](../WIKI-STYLE.md)；卷首页见 [map/index.md](./map/index.md)。

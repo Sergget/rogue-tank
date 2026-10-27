@@ -116,6 +116,23 @@ function _aiInit(t){
   if(t.lastNoiseT === undefined) t.lastNoiseT = 0;
 }
 
+// AI 有效开火距离（2026-10-26 §4.140）：AI「愿意开火」的最大距离。
+// 与两个概念解耦，各自负责一件事：
+//   · 交战带 band.max —— 站位意图（dist > band.max → baseMove=1 接近）；
+//   · 物理射程 shellMaxDist / weapon maxRange —— 绝对上限（炮弹能飞多远）；
+//   · 本口径 —— 战术意愿（多远以外宁可推进也不浪费弹药）。
+// 数值 = band.max × fireRangeRatio（缺省 1.5），按类别自动缩放
+//   （medium ≈858 / heavy ≈734 / light ≈999 / spg ≈1046）。
+// ⚠️ 不直接用物理射程（1800）：开火半径会较 572px 翻 ~10 倍覆盖面积，
+//   节点内过半敌人同时开火 ⇒ 火力过密且出现 1500px 外狙击（用户 2026-10-26 反馈）。
+function _effectiveFireRange(t, cfg, engage, band){
+  const c = cfg || aiConfig();
+  const ratio = (c.fireRangeRatio !== undefined && Number.isFinite(c.fireRangeRatio) && c.fireRangeRatio > 0)
+    ? c.fireRangeRatio : 1.5;
+  const bandMax = (band && Number.isFinite(band.max)) ? band.max : 572;
+  return bandMax * ratio;
+}
+
 // P-51：Boss 阶段行为模式参数表（RULES.boss.aiModes，由 js/tank_rules.js 提供）。
 // 兜底内联同值三模式，保证 Node 单测不依赖 tank_rules.js 的加载时序。
 function _bossStageAIModes(){
@@ -767,12 +784,16 @@ function aiDecideEnemy(t, ctx){
       }
       _propagateEngage(t, ctx, cfg);
     }
-  } else if(dist > exitD){                                   // 滞回带内保持接战，超出才脱离
+  } else if(dist > exitD && !los){                            // 滞回带内保持接战，超出且失去视线才脱离
     // 警觉记忆（被击中/友邻告警）：持有 lastKnownPlayerPos 时即使超出滞回带也保持
     // 接战——朝记忆点 search 推进，直到到达附近或重新获得视线后清除（见 LoS/search 分支）。
+    // 2026-10-26（§4.140）：加 `!los` 条件——**看得见玩家就不脱战**。开火距离
+    // （band.max×1.5≈858）已大于 exitD(875) 附近，若仍按"超出即脱战"，AI 会在
+    // 800~1200px 这段"边推进边射击"窗口里因超滞回带而主动脱战呆滞。
     if(!t.lastKnownPlayerPos){
       t.aiEngaged = false;
       t.aiState = 'patrol';
+      t.alertLevel = 0;   // 脱战复位警觉等级（否则 `!` 永久显示且 hearNoise 被永久拒收）
       t._mv = null;   // #M：脱离接战即丢弃机动脚本，下次接战重新抽取（避免沿用陈旧偏角）
       out.turn = _patrolWanderTurn(t, ctx);   // #76 C5：同上，脱离接战后微摆动
       if(!t.isBoss) return out;                       // ISSUE 21b：Boss 不回 patrol，继续追击
@@ -795,8 +816,11 @@ function aiDecideEnemy(t, ctx){
     }
   }
 
-  // 重新获得视线 → 警觉记忆已确认目标位置，清除
-  if(los && t.lastKnownPlayerPos) t.lastKnownPlayerPos = null;
+  // 重新获得视线 → 警觉记忆已确认目标位置，清除。
+  // ⚠ 仅在滞回带内（dist<=exitD）清除：远处可见时若立即清记忆，下一帧
+  //   `dist>exitD && !lastKnownPlayerPos` 会判定脱战 ⇒ 被击/闻声警觉的敌人
+  //   原地呆滞（alertLevel=3 却 aiEngaged=false、move=0）。见 §4.139 修复。
+  if(los && t.lastKnownPlayerPos && dist <= exitD) t.lastKnownPlayerPos = null;
 
   // 距离达标但无视线 → search 态推进：优先朝警觉记忆点（来弹方向）推进，
   // 无记忆时沿用 searchOscillationSpeed 等参数扫视前进
@@ -858,7 +882,11 @@ function aiDecideEnemy(t, ctx){
   // #N3/N2：flank 角色走侧翼站位；press 角色按交战带行动；hold 角色原地驻守。
   const role = (t.aiRole === 'flank') ? 'flank' : (t.aiRole === 'hold' ? 'hold' : 'press');
   if(role === 'hold' && !t.isBoss){
-    baseMove = 0;                     // hold：不主动接近
+    // hold：原地驻守/掩护。有效射程内驻停，射程外前压到可开火范围。
+    // 2026-10-26（§4.140）：这里不再读 squad.holdFireMaxDist（旧 640px 会让 hold
+    // 在射程内仍贴近，观感像“只愿意抵近射击”）。射程口径由 _effectiveFireRange
+    // 统一提供；holdGate 只负责瞄准/射界门控，不再二次改距离。
+    baseMove = (dist > _effectiveFireRange(t, cfg, engage, band)) ? 1 : 0;
   }
 
   // #M 接战机动随机化：懒分配脚本 → 每帧推进 → 覆盖 turn/move 并回收开火容差乘子。
@@ -958,11 +986,16 @@ function aiDecideEnemy(t, ctx){
     }
   }
 
-  // 开火：炮塔大致对准 + 视线畅通（触发段已算好 los）+ 装填好 + 在接战距离内
+  // 开火：炮塔大致对准 + 视线畅通（触发段已算好 los）+ 装填好 + 在**愿意开火的距离**内
   // tol 已按档位 aimTolMul 收紧（#76 B），并按 #M 短停结束窗口放宽（错开开火节奏）
+  // 2026-10-26（§4.140）：开火距离不再用交战带外沿 band.max（中坦约 572px），
+  // 否则 AI 推进到很近才肯射击（用户反馈「只愿意抵近射击」）。改为 _effectiveFireRange
+  // = band.max × fireRangeRatio(1.5)：press 在带外沿与开火距离之间**边推进边射击**，
+  // 到开火距离外沿收住——既不当近战呆子，也不靠物理射程(1800)全图乱打（火力过密）。
+  const fireRange = _effectiveFireRange(t, cfg, engage, band);
   const aimErr = Math.abs(angDiff(t.turretAngle, desired));
-  let canFire = (aimErr < tolEff && los && dist <= band.max && t.reloadT <= 0);
-  // #N2：hold 角色走「有把握的射界」门控（远距离纯待机，近距离放宽容差）。
+  let canFire = (aimErr < tolEff && los && dist <= fireRange && t.reloadT <= 0);
+  // #N2：hold 角色走「有把握的射界」门控（只看瞄准/射界，不再做独立距离闸）。
   // holdGate 由 js/tank_ai_squad.js 提供；单独 require 本模块（Node 单测）时缺失 → 跳过门控。
   if(canFire && role === 'hold' && !t.isBoss && !rrArrive && typeof holdGate === 'function'){
     const hg = holdGate(t, dist, tol, p);
@@ -1113,7 +1146,9 @@ function aiDecideEnemy(t, ctx){
   if(state !== 'stunned' && state !== 'flank'){
     const defensiveTriggerDist = engage * 3 + 500; // 约 2060px，far beyond normal
     const omniAggro = (t.aiTriggerDist || 0) > hyst * (cfg.triggerDistBase !== undefined ? cfg.triggerDistBase : 700);
-    const canDefensive = dist > defensiveTriggerDist && !omniAggro;
+    // 2026-10-26（§4.139 修复）：被警觉（持有玩家位置记忆）的敌人不进入 defensive 站桩——
+    // 否则远距被击/闻声确定玩家位置后仍原地呆滞（dist>2060 且 dist>engage ⇒ move=0 也不开火）。
+    const canDefensive = dist > defensiveTriggerDist && !omniAggro && !t.lastKnownPlayerPos;
     if(canDefensive){
       // 消极防御：不移动，炮塔对准玩家，在射程内开火
       out.move = 0;
@@ -1542,10 +1577,17 @@ function hearNoise(t, srcX, srcY, kind){
 
 // 2026-10-22（第五批 §4.9.1）：噪声热度自然衰减（每帧由 aiUpdateStateTimer 驱动）。
 // 未听到声音约 8.3s（1.0 / 0.12）即完全冷却，与 suspiciousTimeout 同量级。
+// 2026-10-26（§4.139 修复）：距上次声音 < decayGraceSec 秒时不衰减——旧实现每帧衰减，
+//   使「多次射击」的累积永远到不了阈值（3 发 ×0.34=1.02 仅比阈值高 0.02，主炮 4s 装填
+//   间隔的衰减量远超该余量 ⇒ 听到多次射击也从不升级交战，见 hearNoise）。
 function decayNoiseHeat(t, dt){
   if(!t || !(dt > 0)) return false;
   if(!(t.noiseHeat > 0)) return false;
   const ne = aiConfig().noiseEscalate || {};
+  const grace = (typeof ne.decayGraceSec === 'number') ? ne.decayGraceSec : 6;
+  const now = (typeof simNow === 'function') ? simNow()
+    : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
+  if(now - (t.lastNoiseT || 0) < grace * 1000) return false;   // 新鲜窗口内不衰减
   const decay = (typeof ne.decayPerSec === 'number') ? ne.decayPerSec : 0.12;
   t.noiseHeat = Math.max(0, t.noiseHeat - decay * dt);
   return true;
@@ -1645,5 +1687,5 @@ function propagateAlert(entitiesArr, x, y, radius){
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, applyHazardAvoidance, decayNoiseHeat, noteAllyHit, _wallTurretOnlyFiringLine, _waterHazardTier, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverShouldHold, _maneuverPickMode, _maneuverSetRng, _MV_MODES, _engageBand, _engageBandKey, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _maneuverReloadGap, hearNoise, emitShotNoise };
+  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, applyHazardAvoidance, decayNoiseHeat, noteAllyHit, _wallTurretOnlyFiringLine, _waterHazardTier, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverShouldHold, _maneuverPickMode, _maneuverSetRng, _MV_MODES, _engageBand, _engageBandKey, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _maneuverReloadGap, _effectiveFireRange, hearNoise, emitShotNoise };
 }

@@ -1,6 +1,7 @@
 ---
 name: role-combat
-description: Use when the task touches hit resolution, ballistics, shell lifecycle, weapons, active abilities, shields, artillery strikes or deployables in Rogue Tank. Owns the combat pipeline in js/ and the battle-loop wiring in tank_battle.html.
+description: Rogue Tank 战斗与弹道角色。Use when the task touches hit resolution, ballistics, shell lifecycle, weapons, active abilities, shields, artillery strikes or deployables. Owns the combat pipeline in js/ and the battle-loop wiring in tank_battle.html.
+model: inherit
 ---
 
 # Role: combat（战斗与弹道）
@@ -20,14 +21,14 @@ description: Use when the task touches hit resolution, ballistics, shell lifecyc
 - `js/tank_deployables.js` — 固定炮塔 / 地雷 / 战术掩体注册表
 - `tank_battle.html` 的战斗循环、开火管线、HUD 装填指示段（**页面单写者，见 `rogue-tank-roles` §1**）
 
-## 2. 现行口径（2026-10-19 核实，勿按旧文档改）
+## 2. 现行口径（2026-10-26 复核，勿按旧文档改）
 
 1. **主副武器双入口**：左键/空格 = 主炮专属（`tryFirePrimary`，空格齐射）；`F` = 副武器（`tryFireSecondary`）。`activeWeaponSlot` 已移除（2026-09-17 #C4e）。
-2. **开关类副武器**（`missile` 激活/取消、`mine_layer` 预形态/确认）的 F **必须走原生 `keydown` 边沿**，不得主循环逐帧轮询（会每帧翻转）。
-3. **技能键位单一来源**：7 个运行时技能（artillery / shield / overdrive / deploy_cover / super_fire_control / super_speed / aps）**只经技能池 skillSlot1~3 + 数字键 1/2/3**。**G / H 专属键已于 2026-10-19 #U42 退役**（`KEY_BINDINGS` 已删 `abilityStrike`/`abilityShield`）；innate 三键（repair/medkit/extinguish）走 4/5/6。键位唯一口径 = `js/tank_bindings.js`。
+2. **开关类副武器**（`missile` 激活/取消、`mine_layer` 预形态/确认、`howitzer` 急速射）的 F **必须走原生 `keydown` 边沿**，不得主循环逐帧轮询（会每帧翻转）；**连发类（rocket/mortar）保留轮询通道**——删除轮询会打死连发（2026-10-26 §4.136 实测）。
+3. **技能键位单一来源**：5 个运行时技能（artillery / overdrive / shield / deploy_cover / aps）**只经技能池 skillSlot1~3 + 数字键 1/2/3**。`super_fire_control` / `super_speed` 已于 2026-10-20 #W9 删除；innate 三键（repair/medkit/extinguish）走 4/5/6。键位唯一口径 = `js/tank_bindings.js`。
 4. **弹药切换是 Q / E**（`player.ammoKey` / `player.ammoLoadout`），数字键 1/2/3 已让位技能池。
 5. **冷却按 key 独立**：`abilityCds[key]`，逐帧 `updateAbilityCds`。`abilityCdT` / `updateAbilityCd` 是废弃兼容助手，不要在新代码用。
-6. **跳弹**：per-ammo `ammoBounceAngle`（65°~90°），HEAT/HE 系 `noBounce`；跳弹后沿命中面法线真实反射，**二次跳弹不允许**。数值唯一口径 `docs/specs/combat.md` §3.2。
+6. **跳弹**：per-ammo `ammoBounceAngle`（65°~90°），HEAT/HE 系 `noBounce`；跳弹后沿命中面法线真实反射，**二次跳弹不允许**。数值唯一口径 `docs/specs/combat/ammo-system.md`。
 7. **弹种表**以 `RULES.ammoTypes` 为唯一来源，不要在文档或代码里另抄一份数值。
 8. **电磁炮视效**：炮管=灰、基底=蓝、弧光=白（2026-10-19 #U41 三色口径）；电弧只挂炮身不跟炮弹；参数唯一口径 `RULES.railgunFx`。
 
@@ -35,8 +36,8 @@ description: Use when the task touches hit resolution, ballistics, shell lifecyc
 
 - 战斗逻辑只读 `tank.stats`，**不摸 `tank.base`/`tank.modifiers`**；新属性注入走 modifiers。
 - 实体操作走 `entities` 注册表 + `isHostile`/`nearestEnemyTo`，**不写死玩家/敌人变量引用**。
-- `shell.dec`（曝光缓存）跳弹时重置，不可破坏该不变式。
 - 被吸收的炮弹置 `s.absorbed` 并跳过后续效果（HE 破障等），保持该 guard。
+- 曲射弹（`isArc`）落点结算后必须 `return`，否则会被直射扫掠段截胡（#Y1 的失效模式）。
 - 新增共享模块：`'use strict'` + 底部双导出（Node/browser），并同步 `scripts/check-html.js` 与 `tsconfig.json`。
 
 ## 4. 调参边界
@@ -45,4 +46,4 @@ description: Use when the task touches hit resolution, ballistics, shell lifecyc
 
 ## 5. 验证
 
-改完交给 `role-verify-docs` 跑三链；战斗类改动至少额外抽查 `node scripts/test-fire.js`、`node scripts/test-physics.js`（注意 `test-physics.js` 目前是孤儿测试，见 `role-verify-docs` §3）。
+改完交给 `role-verify-docs` 跑三链；战斗类改动至少额外抽查 `node scripts/test-fire.js`、`node scripts/test-physics.js`、`node scripts/test-batch5-combat.js`。

@@ -399,8 +399,11 @@ function _turnTurretToward(t, targetAngle, dt) {
 // 阻挡判据与 _laserBlockedByCover 相同：tierGroup:'structure' 且 vision（building/full/
 // intact/rock/ruined——确定性挡弹的全高类）。灌木/树/水/泥/路/栅栏/残骸不阻挡。
 // 返回光束（炮口 bx,by 沿 angle 方向长 length）被最近全高掩体截断的距离；无阻挡返回 length。
-function _laserBeamBlockDist(bx, by, angle, length, coversList) {
-  const cfg = (RULES.boss && RULES.boss.laser) || {};
+// 2026-10-26（Boss 电磁炮指示线）：抽出通用的 `_beamBlockDist(..., cfg)`——蓄能激光与电磁炮
+// 炮线用**同一套几何**，只各读自己的开关（RULES.boss.laser / RULES.boss.railgun 的
+// blockByFullCover）。旧签名 _laserBeamBlockDist 保持不变（激光伤害链仍调它）。
+function _beamBlockDist(bx, by, angle, length, coversList, cfg) {
+  cfg = cfg || {};
   if (cfg.blockByFullCover === false) return length;
   const list = Array.isArray(coversList) ? coversList : [];
   const tiers = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers : null;
@@ -427,6 +430,15 @@ function _laserBeamBlockDist(bx, by, angle, length, coversList) {
     if (ok && t0 >= 0 && t0 <= 1 && t0 * length < best) best = t0 * length;
   }
   return best;
+}
+function _laserBeamBlockDist(bx, by, angle, length, coversList) {
+  const cfg = (typeof RULES !== 'undefined' && RULES.boss && RULES.boss.laser) || {};
+  return _beamBlockDist(bx, by, angle, length, coversList, cfg);
+}
+// 电磁炮炮线截断（2026-10-26）：同一几何、开关读 RULES.boss.railgun.blockByFullCover。
+function _railBeamBlockDist(bx, by, angle, length, coversList) {
+  const cfg = (typeof RULES !== 'undefined' && RULES.boss && RULES.boss.railgun) || {};
+  return _beamBlockDist(bx, by, angle, length, coversList, cfg);
 }
 // （#I2：原 #H4 的逐目标 _laserBlockedByCover 已被光束级 _laserBeamBlockDist 截断口径取代——
 //   blockDist 同时供伤害判定与蓄能虚线/光束绘制截断，二者严格一致。）
@@ -975,7 +987,14 @@ function bossBriefingLines(entity) {
 //   蓄能期，逐帧产出 railCharge 事件；蓄能未完成时置 `t.railChargeHold = true`（fireTank 门控），
 //   蓄能完成当帧产出 railReady 事件并清 hold，下一帧 AI 的开火判据才会放行。
 // 接线（tank_battle.html）：bossRailFx 缓存 charge/fire 两态 → drawBossRailLine 绘制。
-function updateBossRailCharge(t, dt, target) {
+// 2026-10-26 用户反馈修正（细则 specs/boss/railgun.md）：
+//   ① 事件坐标改为**炮口**（gunRoot）而非车体中心——指示线从炮管根部射出，读作瞄准激光；
+//      gunRoot 不可用（Node 纯逻辑测试未加载几何层）时回退车体中心，行为与旧版一致。
+//   ② 新增 `blockedDist`：沿炮线求最近全高掩体入口（_railBeamBlockDist），绘制层据此截断。
+//      炮弹本来就会被全高掩体挡下，炮线画穿建筑会让玩家读错掩体是否安全。
+//   ③ 事件**不再携带任何音频语义**：指向期静音由 tank_battle.html 按 aimAudio 统一决定。
+// @param {object} [opts] - { covers } 掩体表（缺省不判遮挡，与 updateBossLaser 同口径）
+function updateBossRailCharge(t, dt, target, opts) {
   const evts = [];
   const cfg = (typeof RULES !== 'undefined' && RULES.boss && RULES.boss.railgun) || {};
   if (cfg.enabled === false || !t || !(dt > 0)) return evts;
@@ -994,8 +1013,14 @@ function updateBossRailCharge(t, dt, target) {
   const progress = Math.max(0, Math.min(1, t.railChargeT / chargeS));
   t.railChargeHold = progress < 1;
   const ang = (typeof t.turretAngle === 'number') ? t.turretAngle : 0;
-  evts.push({ type: 'railCharge', x: t.x, y: t.y, angle: ang, length: length, width: width, progress: progress });
-  if (progress >= 1) evts.push({ type: 'railReady', x: t.x, y: t.y, angle: ang });
+  // 炮口原点（惰性解析：浏览器全局 / Node 无几何层时回退车体中心）
+  const _gr = (typeof gunRoot === 'function') ? gunRoot(t) : null;
+  const bx = (_gr && typeof _gr.x === 'number' && isFinite(_gr.x)) ? _gr.x : t.x;
+  const by = (_gr && typeof _gr.y === 'number' && isFinite(_gr.y)) ? _gr.y : t.y;
+  const coversList = (opts && opts.covers) || null;
+  const blockedDist = _railBeamBlockDist(bx, by, ang, length, coversList);
+  evts.push({ type: 'railCharge', x: bx, y: by, angle: ang, length: length, width: width, progress: progress, blockedDist: blockedDist });
+  if (progress >= 1) evts.push({ type: 'railReady', x: bx, y: by, angle: ang, length: length, width: width, blockedDist: blockedDist });
   return evts;
 }
 

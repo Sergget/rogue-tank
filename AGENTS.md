@@ -170,9 +170,9 @@
 
 ### 3.6 多 Agent 写域纪律（2026-10-19 起）
 
-本项目的角色与写域**唯一权威是 `.dsh/skills/rogue-tank-roles/SKILL.md`**（索引）+ `.dsh/skills/role-*/SKILL.md`（6 张角色卡：combat / mapgen / systems / content / render-fx / verify-docs）。
+本项目的角色与写域**唯一权威是 `.claude/skills/rogue-tank-roles/SKILL.md`**（索引）+ `.claude/agents/role-*.md`（6 个 subagent：combat / mapgen / systems / content / render-fx / verify-docs）。
 
-> **历史沿革**：2026-09-13 起曾用 `.dsh/agents/*.md` 定义 14 个 specialist。**dsh 运行时不加载该目录**（它只发现 `.dsh/skills/`），那套定义自迁移起即为死配置，已于 2026-10-19 删除并转为 skill。不要再按 `@tank-combat`、`/task {agent:...}`、Tab 切 `orchestrator` 这类旧用法操作——dsh 的编排只有 `subagent` 工具与 Agent Teams 两条路。
+> **历史沿革**：2026-09-13 起曾用 `.dsh/agents/*.md` 定义 14 个 specialist；2026-10-19 收敛为 `.dsh/skills/` 下 6 张角色卡 + 1 份索引；**2026-10-27 迁移到 Claude Code 原生结构**——角色卡转为 `.claude/agents/role-*.md`（subagent，可用 `Agent` 工具的 `subagent_type` 直接派发），流程类 skill 保留在 `.claude/skills/`（`rogue-tank-roles` / `doc-workflow` / `sandbox-verify` / `shared-module-dev` / `test-runner`），`.dsh/` 已删除。不要再按 `@tank-combat`、`/task {agent:...}` 这类旧用法操作。
 
 **并行派发前必须确认：**
 
@@ -186,7 +186,7 @@
 | 链 | 沙箱 workspace-write | 权限放宽后 |
 |---|---|---|
 | `npm run check`（语法 + tsc） | ✅ 全绿 | ✅ |
-| `npm test`（58 项 Node 链，2026-10-26 实测；`scripts/run-tests.js` 登记数） | ⚠️ **58 通过 / 1 失败（控制台汇总报 59 项）**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **59 通过 / 0 失败**（2026-10-26 在 full-access 实测） |
+| `npm test`（59 个 `test-*.js` + `validate-content.js` = 60 项登记，2026-10-27 实测） | ⚠️ **59 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **60 通过 / 0 失败** |
 | `npm run test:browser`（四链） | ⚠️ 报 `spawn EPERM`（命名管道被禁）并输出 `INCONCLUSIVE` + 退出码 86 | ✅ 全绿 |
 
 **不要把 `INCONCLUSIVE`/86 当成代码失败**；它明确表示环境未放开。历史上该噪音被误读为「浏览器链坏了」，导致多轮无效排查。
@@ -210,7 +210,7 @@
 ## 5. 当前状态与下一步（不在此维护清单，只给指针）
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
-- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**§6「2026-10-24 用户反馈批次」已全部完成**（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130，2026-10-26 收口，**ISSUES 无存量条目**）+ **近远期执行路线**（§2：R0 渲染地基 → A0 友军指挥 / R1 真 3D → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机六命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。旧横向推进章节与 AA 各批已归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
+- **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**R0 渲染地基为下一步第一件实事** + **近远期执行路线**（§2：R0 渲染地基 → A0 友军指挥 / R1 真 3D → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机六命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。2026-10-24 用户反馈批次（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130）已全部关账，整节原文于 2026-10-27 归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
 - **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **69 个 `.md`（59 主题页 + 5 index + 5 changelog，2026-10-26 实测）**，每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
 - **待处理问题**：见 `docs/ISSUES.md`（**当前无存量条目**——用户 2026-10-24 反馈批次已**全部关账**：AA-a 关 #AA1/#AA2/#AA5（§4.132）、AA-b 关 #AA3（§4.136，`test-bench-parity.js` **30 断言**锁键集包含关系，其中 2 条是关账后同日修 F 键门控回归时补的）、AA-c 电磁炮三段声学（§4.137，新能力缺口，原挂 PLAN §6.3）、AA-d 关 #AA4（§4.130）。历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。

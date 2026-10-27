@@ -23,7 +23,7 @@
 **目录**：§1 核心方向 · §2 架构演进 · §3 当前状态与下一步 · §4 批次落地结论（§4.1~§4.119；§4.1~§4.39 正文见归档快照与月度分卷，§4.40–§4.119 正文见 `DEVELOPMENT-batches-2026-10.md`）
 
 > **§4 编号说明（2026-09-23 文档整改）**：§0~§3 与 §4.1~§4.26 的**逐条正文**曾于 2026-09-22 提交 `994bdfd` 随 §4.27~§4.33 一并从本文件移除，且该次漏走 `AGENTS.md` §2.2 第 3 步「原文归档」（276 行原文未进归档分卷）。2026-09-23 整改已将该原文快照**补归档**至 `docs/archive/2026-09.md`（见 `docs/ARCHIVE.md` 索引 2026-09-23 行），本文件重建精简骨架并保留下方**§4 编号索引表**，使全部历史交叉引用可解析。
-> **续写规则**：新增批次一律在 §4 正文末尾按编号递增续写（**当前最大编号 §4.118**）；§4 正文只增不回改，被推翻的旧结论以注记指向新节。
+> **续写规则**：新增批次一律在 §4 正文末尾按编号递增续写（**当前最大编号 §4.146**）；§4 正文只增不回改，被推翻的旧结论以注记指向新节。
 
 ---
 
@@ -60,7 +60,7 @@
 
 - **用户 2026-10-24 反馈批次已全部收口（2026-10-26，AA-a~d）**：`docs/ISSUES.md` **无存量条目**。① **AA-a**（§4.132）：HUD 公路加成改走纯函数 `roadBonusKmh()`（与 `tankKmh` 同源）、bench `fireCtx` 补 `aimPoint`、`specs/map/roads.md` 公路豁免口径改写为「只豁免 liquid/mud」；② **AA-b**（§4.136）：bench ↔ battle 开火接线七项对齐（`cam` / `emitShotNoise` no-op / `resolveHit` 5 参透传 + Boss 弱点层 / 急速射 / 砰砰炮 / 无人机 / 曲射散布圈）+ F 键改原生边沿（**轮询保留**给连发类），防回潮靠 **battle `fireCtx` 键集 ⊆ bench 键集**（50 ⊆ 51，`test-bench-parity.js` 30 断言）；③ **AA-c**（§4.137）：电磁炮三段声学（充能循环走代码驱动持久实例、`RULES.railgunFx.audio` 唯一口径、就绪 `SOUND_DEFS.railReady`、开火复用 `firerail`），顺带删除 `startEngineSound` 死代码；④ **AA-d**（§4.130）：制动与滑行独立通道。
 - **HUD 与 bench 工具（2026-10-26，§4.133~§4.135）**：HUD 文本统一补深色底衬（目标卡 11px / `bottom:92px` / 日志让位、提示条、三个仪表区、顶部中央读出、FPS），**速度条已删除**（只留精确数字，避免「读数越过满格」误读）；bench Enemy Lab 新增「清空所有敌人」（`clearEnemyEntities` 纯筛选）与生成点视口护栏（`clampSpawnIntoView`，视口半高仅 `vh/2/zoom`）；bench 内图鉴入口整块移除（图鉴唯一宿主 `tank_codex.html`）。
-- **测试链**：58 项 `scripts/test-*.js`（2026-10-26 实测；`npm test` 汇总报 59 项）。**full-access 下 `59 通过 / 0 失败`**（含此前 workspace-write 下必然红的 `test-asset-pipeline`）。新增形态门 `test-qa.js`：每个测试脚本必须 `require` `tank_utils` + `tank_rules` 且有 `ok/fails` 骨架。
+- **测试链**：**59 个 `scripts/test-*.js` + `validate-content.js` = 60 项登记**（2026-10-27 实测：`npm test` **60 通过 / 0 失败**）。新增形态门 `test-qa.js`：每个测试脚本必须 `require` `tank_utils` + `tank_rules` 且有 `ok/fails` 骨架。
 - **技术栈定性（2026-10-24 用户纠正，§4.125）**：**零依赖 / `file://` 直开 / Node 像素回归不是硬约束，只是目前的临时选择**。真 3D（WebGL/Three.js）**未被架构排除**；本阶段不做的理由是缺 3D 美术管线与玩法收益未证实。唯一口径 `specs/map/pseudo-3d-2p5d.md` §3.1。
 - **视野-隐蔽机制（2026-10-24 P1 落地，§4.128）**：三个结构性缺陷已补两条半——① `hasLineOfSight` 从 **`vision` 布尔**改为**高度分档**（`coverTiers[*].height` 18/18 键为唯一口径；判据 `height ≥ min(eyeZ,targetZ)`；用户选 C 方案 `LOS_HULL_Z=1.0m` ⇒ **灌木挡车体、不挡炮塔**，hull-down 成立）；② 隐蔽加成从「相交即满额」改为**按覆盖深度折算**（中心满额/边缘半额）；③ 隐蔽对称化**保留接入未启用**（`RULES.camouflage.symmetric=false` + `tank_ai._enemyCamoMul`）。配套 **I0 模拟时钟**（`simNow/setSimNow/advanceSimNow`，13 处判定/计时挂钟读取已迁移，主循环逐帧注入）。**弹道侧 `getPartZRange`/`getExposure` 完全未改**。细归口 `specs/map/vision-stealth-3d-compat.md` §9。
 - **贴图资产口径（2026-10-23 用户裁定，§4.124）**：确定为「**程序化生成 + 后期贴图接线**」。程序化烘焙是现行唯一实机路径；PNG 通道（地图 `ASSET_DEFS.bake → assets/<key>.png`、坦克 `sprite` 四层 → `drawTankSprite`）代码保留但**当前盘上无图**（19 张坦克 PNG 已删除）。**本仓库不出图**——AI 出图链已整体删除；后期美术按 `docs/ASSETS-PIPELINE.md` 落盘并由 `covers-anchor-check.py` 验收，`scripts/test-asset-pipeline.js` 锁接线完整性。伪 3D 形态裁定为**俯视 2.5D**、研究见 `specs/map/pseudo-3d-2p5d.md`（**设计预留，未落地**）。
@@ -112,8 +112,8 @@
    - **2026-10-24 用户反馈核实批次（4 项，逐条拿代码证据核实）**：
      - **3 项确认为缺陷**：① 公路加成 HUD 标「+5km/h」而实机 +10km/h（换算重复除了一次尺度，`tank_battle.html:5311` ⇒ **#AA1**）；② bench `fireCtx` 缺 `aimPoint` ⇒ 榴弹炮曲射落点塌到 `minArcRange` 兜底、射程与光标无关（`tank_bench.html:1072-1122` vs `js/tank_fire.js:349-363` ⇒ **#AA2**）；③ battle 侧 7 项运行时驱动在 bench 零接线（急速射 / 砰砰炮 / 无人机 / 导弹 `cam` / `resolveHit` 包装 / `emitShotNoise` / F 键边沿 ⇒ **#AA3**，同卡两页行为不同）。
      - **1 项根因确凿、已按用户裁定修复并归档（原 #AA4，2026-10-24）**：制动手感失控——地形乘子**同倍率削弱制动**（`js/tank_move.js:120-121` ⇒ 泥潭/河流滑行 2.5×）、且制动纯由马力重量比派生（`js/tank_model.js:197-200` ⇒ 低马力坦克滑行约 3.2×），全仓无独立制动/阻力口径、无滑行距离断言。**修复口径**：制动与 P/W 脱钩（`RULES.speed.brakeBasePx = 400`）、新增逐 tier `brakeGrip`（`water`/`river`/`mud` = 0.7）、地形乘子改指数插值 `terrainLerp = 10`/s、`brake` 成卡牌可达字段（`parameterLimits.brake {150,900}`），新增 `scripts/test-movement-braking.js` 20/20。见 `DEVELOPMENT-batches-2026-10.md` **§4.130**、细则 `docs/specs/map/terrain.md`「制动与滑行」。
-     - **1 项核实不成立（排除）**：「正式游戏 / Boss 战节点间会自动提高坦克移动速度上限」——无任何提升玩家 `stats.maxSpeed` 的节点或 Boss 路径（`js/tank_boss.js:293-312`/`:322-332` 只下调 Boss 自身、`tank_battle.html:2657-2671` 只作用敌人）；感知来源是公路加成 + HUD 低估 + 闪跃，见 `docs/PLAN.md` §6.1.1。
-     - **1 项属新能力缺口**（非回归，故不入 ISSUES）：电磁炮**充能电流声 / 放电声**缺失——`SOUND_DEFS` 14 键只有发射瞬态 `firerail`，充能进度与放电弧两处零 `playSound`，且该结构无法表达循环 ⇒ 需「新增瞬态键 + 代码驱动的充能管理器」两件事，先补 `docs/specs/combat/audio.md` 口径（`docs/PLAN.md` §6.3）。
+     - **1 项核实不成立（排除）**：「正式游戏 / Boss 战节点间会自动提高坦克移动速度上限」——无任何提升玩家 `stats.maxSpeed` 的节点或 Boss 路径（`js/tank_boss.js:293-312`/`:322-332` 只下调 Boss 自身、`tank_battle.html:2657-2671` 只作用敌人）；感知来源是公路加成 + HUD 低估 + 闪跃，见 `docs/archive/2026-10.md` 的 PLAN §6.1.1（原文）。
+     - **1 项属新能力缺口**（非回归，故不入 ISSUES）：电磁炮**充能电流声 / 放电声**缺失——`SOUND_DEFS` 14 键只有发射瞬态 `firerail`，充能进度与放电弧两处零 `playSound`，且该结构无法表达循环 ⇒ 需「新增瞬态键 + 代码驱动的充能管理器」两件事，先补 `docs/specs/combat/audio.md` 口径（原 `docs/PLAN.md` §6.3，已归档）。
      - 证据链：**#AA1/#AA2/#AA5 见 `docs/archive/2026-10.md` 与 §4.132、#AA3 见 §4.136、AA-c 见 §4.137**（2026-10-26 全部关账；`test-bench-parity.js` 30 断言锁键集包含关系 50 ⊆ 51；原 #AA4 见 §4.130）——**ISSUES 当前为空，用户 2026-10-24 反馈批次（AA-a~d）全部完成**。下一步回到 `docs/PLAN.md` §2 的 R0 渲染地基。
 2. **近期路线（2026-10-26 重排）**：
    - **先清存量**：AA-a（HUD/曲射/文档）→ AA-b（bench 运行时对齐）→ AA-c（电磁炮充能/放电音效），不因远期渲染升级搁置已确认缺陷。
@@ -144,7 +144,7 @@
 批次日志已按月份拆分：
 
 - [2026-09 批次 (§4.27–§4.39)](DEVELOPMENT-batches-2026-09.md)
-- [2026-10 批次 (§4.40–§4.131)](DEVELOPMENT-batches-2026-10.md)
+- [2026-10 批次 (§4.40–§4.146)](DEVELOPMENT-batches-2026-10.md)
 
 ### 4.0 §4.1~§4.26 编号索引（正文见归档）
 
@@ -192,6 +192,20 @@
 | §4.129 | 2026-10-24 | **敌方警戒 UI 指示（? / !）**：纯函数 `alertIndicatorFor` 归并三态（engaged/alert/null）、仅视口内显示（复用 `aabbInView`）、Boss/眩晕/死亡不显示。**修掉一个假绿**：首版用 `fillText` 画字形，而 `mini-canvas` 的 `fillText` 是空实现 ⇒ 两档像素数完全相同；改**路径绘制**后字形才真实可见 | `DEVELOPMENT-batches-2026-10.md` §4.129 · `specs/combat/enemy-ai.md` |
 | §4.130 | 2026-10-24 | **AA-d 制动与滑行模型**：制动独立、地形 `brakeGrip`、速度乘子插值；P/W 不再决定刹车 | `DEVELOPMENT-batches-2026-10.md` §4.130 · `specs/map/terrain.md` |
 | §4.131 | 2026-10-26 | **品质与单机路线重排**：参考《变节行动》的真 3D 可玩切片，不全量换引擎；少量友军 + 六命令，排除多人；近期 AA → R0 → A0/R1 → G1，远期 M1～M4 | `DEVELOPMENT-batches-2026-10.md` §4.131 · `specs/map/rendering-roadmap.md` · `specs/combat/ally-command.md` |
+| §4.132 | 2026-10-26 | AA-a：#AA1 公路加成 HUD 口径 + #AA2 bench 曲射瞄准点 + #AA5 公路豁免文档漂移 | `DEVELOPMENT-batches-2026-10.md` §4.132 |
+| §4.133 | 2026-10-26 | bench Enemy Lab 工具（清空敌军 / 生成视口护栏）+ 入口文案 | `DEVELOPMENT-batches-2026-10.md` §4.133 |
+| §4.134 | 2026-10-26 | bench 图鉴入口彻底移除 + 战斗 HUD 去掉速度条 | `DEVELOPMENT-batches-2026-10.md` §4.134 |
+| §4.135 | 2026-10-26 | 标准模式左下角任务描述可读性（#AA8） | `DEVELOPMENT-batches-2026-10.md` §4.135 |
+| §4.136 | 2026-10-26 | AA-b：bench ↔ 正式游戏开火接线对齐（#AA3 七项 + F 键边沿 + 曲射散布圈） | `DEVELOPMENT-batches-2026-10.md` §4.136 |
+| §4.137 | 2026-10-26 | AA-c：电磁轨道炮三段声学（充能循环 / 就绪 / 放电） | `DEVELOPMENT-batches-2026-10.md` §4.137 |
+| §4.138 | 2026-10-26 | 文档与 skill 一致性收口（AA 批次收尾后整理） | `DEVELOPMENT-batches-2026-10.md` §4.138 |
+| §4.139 | 2026-10-26 | **敌方 AI 噪声升级失效 + 交战态呆滞修复**：`decayNoiseHeat` 加 `decayGraceSec` 新鲜窗口（多次射击可累积到阈值）；警觉记忆清空加 `dist<=exitD` 门控（远处可见不再脱战呆滞）；hold 角色超开火距离前压 + defensive 站桩跳过被警觉者（「行动模式呆滞」） | `DEVELOPMENT-batches-2026-10.md` §4.139 · `specs/combat/enemy-ai.md` |
+| §4.140 | 2026-10-26 | **敌方 AI 远距火力：开火距离与站位带解耦**：`_effectiveFireRange = band.max × fireRangeRatio(1.5)` 按类别缩放（medium ≈858 / heavy ≈734 / light ≈999 / spg ≈1046）；holdGate 删除 640px 第二道距离闸；脱战判据加 `!los`（看得见就不脱战）。不直接用物理射程 1800（火力过密，用户反馈） | `DEVELOPMENT-batches-2026-10.md` §4.140 · `specs/combat/enemy-ai.md` |
+| §4.142 | 2026-10-26 | **敌方警戒图标与 AI 行动脱同步修复**：`alertIndicatorFor` 从 `fightingStates[aiState]` 白名单改为**接战事实驱动**（`aiEngaged && aiState!=='search'`）。旧判据漏掉 §4.140 后接战主体的默认态 `patrol`，导致「AI 开打时图标消失、react 僵直时反而先亮」 | `DEVELOPMENT-batches-2026-10.md` §4.142 · `specs/combat/enemy-ai.md` |
+| §4.143 | 2026-10-26 | **敌军弹种中和缺失的消费端 + 难度缩放三层审计**：`ammoStatNeutral` 只写不消费 ⇒ 后期 Lv13 敌军实际穿深 144×2.0=**288mm**（玩家装甲升级无效）；`firePrimaryShell` 现对 neutral 射手把 `ammo.pen/dmg` 当 1.0（弹种特性保留）。审计另确认 `maxSpeed` 仅 Boss 通道、穿深封顶为已知副作用、难度成长主维度为血量（用户裁定维持） | `DEVELOPMENT-batches-2026-10.md` §4.143 · `specs/combat/enemy-scaling.md` |
+| §4.144 | 2026-10-27 | **玩家电磁炮充能声：短窗口 + 柔和波形**（用户反馈「太尖锐、时间太长」）：承接 §4.137，只调充能循环的时长与音色，不改三段结构；Boss 侧静音口径不变 | `DEVELOPMENT-batches-2026-10.md` §4.144 · `specs/combat/audio.md` |
+| §4.145 | 2026-10-27 | **成长曲线审计工具 + 成长速率再平衡**：新增 `scripts/audit-growth-curve.js`（玩家 5 条商店轨迹 × 敌人四层 × 双向 TTK 蒙特卡洛 ⇒ 优势度曲线）；`maxHp [0.6,2.2]→[0.6,1.8]`、`damage [0.8,1.5]→[0.8,1.35]`、商店 `pen +6→+8` / `dmg +4→+5` / `costGrowth 1.7→1.6`。末节点优势度 balanced 0.73→**1.13** | `DEVELOPMENT-batches-2026-10.md` §4.145 · `specs/combat/enemy-scaling.md` |
+| §4.146 | 2026-10-27 | **Agent 配置迁移 `.dsh/` → `.claude/` + docs 一致性收口**：6 张角色卡转 `.claude/agents/role-*.md`（subagent）、5 个流程 skill 落 `.claude/skills/`、`.dsh/` 删除；补 §4.144 索引缺行、清理 PLAN 已完成 §6（归档）、测试项数 58/59 → **59/60** | `AGENTS.md` §3.6/§3.7 · `docs/PLAN.md` · `.claude/` |
 
 ---
 

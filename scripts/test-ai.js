@@ -8,7 +8,10 @@ const U = require('../js/tank_utils.js');
 global.angDiff = U.angDiff;
 global.norm = U.norm;
 global.TAU = U.TAU;
-const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile, aiClassForTank, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverSetRng, _engageBand, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, hearNoise, emitShotNoise } = require('../js/tank_ai.js');
+global.simNow = U.simNow;
+global.setSimNow = U.setSimNow;
+global.advanceSimNow = U.advanceSimNow;
+const { aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, aiTierProfile, aiClassForTank, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverSetRng, _engageBand, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _effectiveFireRange, hearNoise, emitShotNoise } = require('../js/tank_ai.js');
 
 let fails = 0;
 function ok(cond, label) {
@@ -66,9 +69,12 @@ const d7 = aiDecideEnemy(reloading, { player, hasLoS: () => true });
 ok(d7.fire === false, '装填中 → 不开火');
 
 // 4b) 滞回防抖：进入阈值 700，脱离阈值 = 700 × 1.25 = 875。
-//     进入后拉到 dist 800（>700 但 ≤875）→ 保持接战；>875 → 才回落 patrol
+//     进入后拉到 dist 800（>700 但 ≤875）→ 保持接战；>875 **且失去视线** → 才回落 patrol
 // 注：#M 机动层启用后，接近途中的 move 可为 ±1 或 0（前进/后撤/短停均属合法机动），
 //     故只断言「滞回带内不脱离接战」这一状态不变量，不对具体 move/aiState 取值写死。
+// 2026-10-26（§4.140）：脱战判据加 `!los`——看得见玩家就不脱战（否则开火距离
+//   ≈858 会被滞回带 875 卡成"超带即脱战"，边推进边射击窗口消失）。故下方「超出滞回
+//   阈值回落 patrol」用例改用 **无视线**（LoS 被掩体遮挡才是真正的"失去目标"）。
 const hystE = enemy(300, 500, Math.PI, Math.PI, 0);   // dist 700 → 进入接战
 aiDecideEnemy(hystE, { player, hasLoS: () => true });
 ok(hystE.aiEngaged === true, '进入阈值上 → 接战标记置位');
@@ -76,9 +82,16 @@ hystE.x = 200;                                        // dist 800，滞回带内
 const dh1 = aiDecideEnemy(hystE, { player, hasLoS: () => true });
 ok(hystE.aiEngaged === true && dh1.move >= -1 && dh1.move <= 1,
    `滞回带内不脱离接战（engaged=true，move=${dh1.move} ∈ [-1,1]）`);
-hystE.x = -200;                                       // dist 1200 > 875 → 脱离
-const dh2 = aiDecideEnemy(hystE, { player, hasLoS: () => true });
-ok(hystE.aiEngaged === false && dh2.move === 0 && hystE.aiState === 'patrol', '超出滞回阈值 → 回落 patrol');
+hystE.x = -200;                                       // dist 1200 > 875 且无视线 → 脱离
+const dh2 = aiDecideEnemy(hystE, { player, hasLoS: () => false });
+ok(hystE.aiEngaged === false && dh2.move === 0 && hystE.aiState === 'patrol',
+   '超出滞回阈值且失去视线 → 回落 patrol');
+// 反证：超出滞回阈值但**看得见** → 保持接战（§4.140 新增语义）
+const hystSee = enemy(300, 500, Math.PI, Math.PI, 0);
+aiDecideEnemy(hystSee, { player, hasLoS: () => true });
+hystSee.x = -200;                                     // dist 1200 > 875，但有视线
+const dh3 = aiDecideEnemy(hystSee, { player, hasLoS: () => true });
+ok(hystSee.aiEngaged === true, '§4.140：超出滞回阈值但看得见 → 保持接战（不脱战）');
 
 // 4c) 难度字段消费：实体 t.aiTriggerDist 覆盖 RULES 基准值（高难度远触发）
 const df = enemy(-100, 500, Math.PI, Math.PI, 0);     // dist 1100 > 默认 700
@@ -552,8 +565,8 @@ console.log('--- #M：接战机动随机化 ---');
   const forget = enemy(300, 500, Math.PI, Math.PI, 0);   // dist 700 > 带外沿 572 → 接近并接战
   aiDecideEnemy(forget, { player, hasLoS: () => true, dt: 0.016 });
   ok(!!forget._mv, '接战且处于接近状态 → 分配机动脚本');
-  forget.x = 0;                                        // dist 1000 > exitD 875 → 脱离接战
-  aiDecideEnemy(forget, { player, hasLoS: () => true, dt: 0.016 });
+  forget.x = 0;                                        // dist 1000 > exitD 875 且无视线 → 脱离接战
+  aiDecideEnemy(forget, { player, hasLoS: () => false, dt: 0.016 });
   ok(forget._mv === null, '脱离接战 → 清空机动脚本（下次接战重新抽取）');
 
   // Boss 不吃机动层（保持「始终推进」角色语义）
@@ -855,6 +868,129 @@ console.log('--- #N：交战带 / flank 站位 / 分离力 / 装填脱离 ---');
   const farPlayer = { team: 'player', x: 5000, y: 5000, hp: 100 };  // 玩家在触发距离外
   const d = aiDecideEnemy(sus, { player: farPlayer, hasLoS: () => false, dt: 0.05 });
   ok(sus.aiState === 'suspicious' && d.move === 0.5, '#S2 suspicious 朝声音半速调查');
+}
+
+// #S2 噪声累积升级回归（2026-10-26 §4.139）：听到多次射击 → 确定玩家位置进入交战。
+// 修复前：decayNoiseHeat 每帧衰减，主炮 4s 装填间隔下「3 发 1.02 仅超阈值 0.02」的余量
+// 被衰减吃光，升级永不触发（探针实测 spacing=4s 时 heat 恒 0.34、永不交战）。
+{
+  const t0 = enemy(0, 0, 0, 0, 0);
+  setSimNow(100000);
+  for (let s = 0; s < 3; s++) {
+    // 逐帧推进 4s（主炮装填间隔），每帧驱动 aiUpdateStateTimer → decayNoiseHeat
+    for (let f = 0; f < Math.round(4 / (1/60)); f++) { advanceSimNow(1000/60); aiUpdateStateTimer(t0, 1/60); }
+    hearNoise(t0, 500, 0, 'shot');
+  }
+  ok(t0.alertLevel === 3 && t0.aiEngaged === true,
+    `#S2 修复：主炮 4s 间隔 3 发 → 升级交战（alertLevel=${t0.alertLevel}, engaged=${t0.aiEngaged === true}）`);
+  setSimNow(null);
+
+  // 新鲜窗口：距上次声音 < decayGraceSec(6s) 不衰减；超出后恢复衰减
+  const g1 = enemy(0, 0, 0, 0, 0);
+  setSimNow(100000);
+  hearNoise(g1, 500, 0, 'shot');      // heat 0.34, lastNoiseT=100000
+  advanceSimNow(4000);                 // 4s < 6s grace → 仍新鲜
+  aiUpdateStateTimer(g1, 4);           // 大步长也应跳过衰减
+  ok((g1.noiseHeat || 0) > 0.33, `#S2 修复：新鲜窗口内不衰减（heat=${(g1.noiseHeat || 0).toFixed(3)}）`);
+  advanceSimNow(4000);                 // 共 8s > 6s grace
+  aiUpdateStateTimer(g1, 4);
+  ok((g1.noiseHeat || 0) < 0.33, `#S2 修复：超出新鲜窗口后衰减（heat=${(g1.noiseHeat || 0).toFixed(3)}）`);
+  setSimNow(null);
+}
+
+// 交战态不呆滞回归（2026-10-26 §4.139）：被击/闻声警觉后，玩家在远处可见也不脱战呆滞。
+// 修复前：alertEntity 置 alertLevel=3 + lastKnownPlayerPos，但远处可见时第 1 帧即清记忆，
+// 第 2 帧因 `dist>exitD && !lastKnownPlayerPos` 脱战 → 原地 patrol（move=0、fire=false），
+// 且 alertLevel 卡在 3 永久显示 `!`。
+{
+  const farAlert = enemy(0, 0, 0, 0, 0);
+  alertEntity(farAlert, 2000, 0);
+  // 断言口径：**保持接战 + 有战术动作**（位移或开火任一帧发生即非呆滞）。
+  // 不写死 move===1——#M 机动层会在带外掷出短停/后撤段，move 可为 0（见 #M 段测试）。
+  let acted = 0, everEngaged = true;
+  for (let f = 0; f < 5; f++) {
+    const d = aiDecideEnemy(farAlert, { player: { team: 'player', x: 2000, y: 0, hp: 100 }, hasLoS: () => true, dt: 1/60, covers: [], enemies: [farAlert] });
+    if (farAlert.aiEngaged !== true) { everEngaged = false; break; }
+    if (d.move !== 0 || d.fire) acted++;
+  }
+  ok(farAlert.aiEngaged === true && everEngaged && acted >= 4,
+    `#S2 修复：警觉后远处可见也不脱战呆滞（engaged=${farAlert.aiEngaged === true}, 动作帧=${acted}/5）`);
+}
+
+// 行动模式呆滞回归（2026-10-26 §4.139）：hold 角色 / defensive 状态在射程外冻结。
+// 修复前：① hold 角色 `baseMove=0` 且 holdGate 在 >640px 拒开火 ⇒ 射程外「纯待机」呆滞；
+//         ② defensive 状态（dist>engage×3+500≈2060px）move=0 且 dist>engage ⇒ 永不还击。
+{
+  // A) hold 在开火距离内（800 < 858）→ 原地驻射，不再先贴近
+  const holdFar = enemy(0, 0, 0, 0, 0);
+  holdFar.aiRole = 'hold';
+  holdFar.aiEngaged = true;
+  const dHoldFar = aiDecideEnemy(holdFar, { player: { team: 'player', x: 800, y: 0, hp: 100 }, hasLoS: () => true, dt: 1/60, covers: [], enemies: [holdFar] });
+  ok(dHoldFar.move === 0 && dHoldFar.fire === true,
+    `远距火力：hold 在开火距离内驻停并开火（move=${dHoldFar.move}, fire=${dHoldFar.fire}）`);
+
+  // B) hold 超出开火距离（1200 > 858）→ 前压，不空放炮弹
+  const holdBeyond = enemy(0, 0, 0, 0, 0);
+  holdBeyond.aiRole = 'hold';
+  holdBeyond.aiEngaged = true;
+  const dHoldBeyond = aiDecideEnemy(holdBeyond, { player: { team: 'player', x: 1200, y: 0, hp: 100 }, hasLoS: () => true, dt: 1/60, covers: [], enemies: [holdBeyond] });
+  ok(dHoldBeyond.move === 1 && dHoldBeyond.fire === false,
+    `远距火力：hold 超出开火距离才推进（move=${dHoldBeyond.move}, fire=${dHoldBeyond.fire}）`);
+
+  // C) 被警觉（持有玩家位置记忆）的敌人在超远距离（2500 > 2060）不进入 defensive 站桩
+  const farDef = enemy(0, 0, 0, 0, 0);
+  alertEntity(farDef, 2500, 0);
+  const dDef = aiDecideEnemy(farDef, { player: { team: 'player', x: 2500, y: 0, hp: 100 }, hasLoS: () => true, dt: 1/60, covers: [], enemies: [farDef] });
+  ok(farDef.aiState !== 'defensive' && dDef.move !== 0,
+    `#S2 修复：警觉后超远距离不进入 defensive 站桩（state=${farDef.aiState}, move=${dDef.move}）`);
+}
+
+// 远距火力回归（2026-10-26 §4.140）：AI 应在其**愿意开火的距离**内射击，而非抵近才打。
+// 口径 = band.max × fireRangeRatio(1.5)：medium ≈858 / heavy ≈734 / light ≈999 / spg ≈1046。
+// 交战带（band.max ≈572）仍只管站位；物理射程 shellMaxDist(1800) 不当 AI 开火口径
+// （否则开火覆盖面积翻 ~10 倍、火力过密，用户 2026-10-26 反馈）。
+{
+  // A) 默认 medium：开火距离 = 572 × 1.5 ≈858（介于旧 band.max 与物理射程之间）
+  ok(Math.abs(_effectiveFireRange({}, null, null, { max: 572 }) - 858) < 1e-9,
+    `#4.140 开火距离 = band.max×1.5（medium 实际 ${_effectiveFireRange({}, null, null, { max: 572 })}）`);
+  // 按类别缩放：heavy 带最窄 ⇒ 开火距离最近（重坦近战）；light/spg 最远（远程试探）
+  const heavyR = _effectiveFireRange({}, null, null, { max: 489 });
+  const lightR = _effectiveFireRange({}, null, null, { max: 666 });
+  ok(heavyR < 858 && lightR > 858,
+    `#4.140 按类别缩放（heavy ${heavyR} < medium 858 < light ${lightR}）`);
+
+  // B) press 在 band.max(572) 与开火距离(858) 之间 → 边推进边开火（不再抵近才打）
+  // 断言口径：**有位移动作 + 开火**，不写死 move===1——#M 机动层会随机掷 retreat
+  //   （move=-1，合法战术动作），写死方向会 flaky（2026-10-27 实测偶发失败）。
+  const press = enemy(0, 0, 0, 0, 0);
+  press.aiEngaged = true; press.aiRole = 'press';
+  const dPress = aiDecideEnemy(press, { player: { team: 'player', x: 800, y: 0, hp: 100 }, hasLoS: () => true, dt: 1/60, covers: [], enemies: [press] });
+  ok(dPress.fire === true && dPress.move !== 0,
+    `远距火力：press 在带外沿外（800px）边机动边开火（move=${dPress.move}, fire=${dPress.fire}）`);
+
+  // C) press 超出开火距离（1200 > 858）→ 有机动且不开火（不空放炮弹）
+  const pressFar = enemy(0, 0, 0, 0, 0);
+  pressFar.aiEngaged = true; pressFar.aiRole = 'press';
+  const dPressFar = aiDecideEnemy(pressFar, { player: { team: 'player', x: 1200, y: 0, hp: 100 }, hasLoS: () => true, dt: 1/60, covers: [], enemies: [pressFar] });
+  ok(dPressFar.fire === false && dPressFar.move !== 0,
+    `远距火力：超出开火距离只机动不开火（move=${dPressFar.move}, fire=${dPressFar.fire}）`);
+
+  // D) hold 在开火距离内（800 < 858）→ 原地驻射，不继续贴近
+  const holdIn = enemy(0, 0, 0, 0, 0);
+  holdIn.aiRole = 'hold'; holdIn.aiEngaged = true;
+  const dHoldIn = aiDecideEnemy(holdIn, { player: { team: 'player', x: 800, y: 0, hp: 100 }, hasLoS: () => true, dt: 1/60, covers: [], enemies: [holdIn] });
+  ok(dHoldIn.move === 0 && dHoldIn.fire === true,
+    `远距火力：hold 在开火距离内驻停射击（move=${dHoldIn.move}, fire=${dHoldIn.fire}）`);
+
+  // E) hold 超出开火距离（1200 > 858）→ 前压，不空放炮弹
+  const holdOut = enemy(0, 0, 0, 0, 0);
+  holdOut.aiRole = 'hold'; holdOut.aiEngaged = true;
+  const dHoldOut = aiDecideEnemy(holdOut, { player: { team: 'player', x: 1200, y: 0, hp: 100 }, hasLoS: () => true, dt: 1/60, covers: [], enemies: [holdOut] });
+  ok(dHoldOut.move === 1 && dHoldOut.fire === false,
+    `远距火力：hold 超出开火距离才推进（move=${dHoldOut.move}, fire=${dHoldOut.fire}）`);
+
+  // F) 物理射程不得直接当 AI 口径：1200px 处默认 AI 不开火（1800 版会犯这个错）
+  ok(1200 > 858, '#4.140 反证：1200px 超出 medium 开火距离 858');
 }
 
 if(fails === 0) console.log('test-ai: 完成所有检查，全部通过');

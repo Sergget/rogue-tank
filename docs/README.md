@@ -8,6 +8,9 @@
 
 ```
 AGENTS.md                      ← 工作流唯一权威（分工、生命周期、命令）
+.claude/                       ← Agent 配置（2026-10-27 由 .dsh/ 迁入）
+    ├── agents/role-*.md       ← 6 个 subagent 角色卡（写域唯一权威）
+    └── skills/                ← 流程 skill（roles / doc-workflow / verify / module / test）
 └── docs/
     ├── README.md              ← 你在这里（总导航）
     ├── WIKI-STYLE.md          ← specs 的形态与写法规范（wiki 化）

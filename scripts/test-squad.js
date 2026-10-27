@@ -87,9 +87,10 @@ console.log('--- #N2 hold 射界门控 ---');
   const aimed = foe('h1', 400, 500); aimed.turretAngle = 0;
   const g1 = S.holdGate(aimed, 600, 0.12, player);
   ok(g1.fire === true, 'hold：距离内且对准 → 开火');
+  // 射程闸由 AI 决策层用真实武器射程管，holdGate 只看瞄准/射界。
   const far = foe('h2', 0, 500); far.turretAngle = 0;
-  const g2 = S.holdGate(far, cfg.holdFireMaxDist + 10, 0.12, player);
-  ok(g2.fire === false, 'hold：超出 holdFireMaxDist → 纯待机不开火');
+  const g2 = S.holdGate(far, 1800, 0.12, player);
+  ok(g2.fire === true, 'hold：holdGate 不再按 640px 做距离闸（真实射程交给 AI 决策层）');
   const off = foe('h3', 400, 500); off.turretAngle = Math.PI / 2;   // 瞄准方向偏 90°
   const g3 = S.holdGate(off, 600, 0.12, player);
   ok(g3.fire === false, 'hold：未对准（偏差远超放宽容差）→ 不开火');

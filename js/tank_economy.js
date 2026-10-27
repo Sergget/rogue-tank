@@ -392,15 +392,18 @@ function settleRun(profile, finalScore){
 const RUN_SHOP_DEFS = [
   // ---- 火力 ----
   { id: 'fast_reload',       name: '快速装填',   group: 'firepower', desc: '装填时间 −3%/级（下限 1.0s，2026-09-17 #C2）',
-    baseCost: 25, costGrowth: 1.6, maxLevel: 99,
+    baseCost: 25, costGrowth: 1.5, maxLevel: 99,
     effects: [{ stat: 'reload', mode: 'mult', value: 0.97 }],
     limit: { stat: 'reload', min: 1.0 }, limitLabel: '已达装填下限' },
-  { id: 'penetration_up',    name: '穿深加工',   group: 'firepower', desc: '穿透 +6mm/级',
-    baseCost: 30, costGrowth: 1.7, maxLevel: 99,
-    effects: [{ stat: 'penetration', mode: 'add', value: 6 }] },
-  { id: 'damage_up',         name: '火力增强',   group: 'firepower', desc: '单发伤害 +4/级',
-    baseCost: 30, costGrowth: 1.7, maxLevel: 99,
-    effects: [{ stat: 'damage', mode: 'add', value: 4 }] },
+  // §4.144（2026-10-27 成长曲线审计）：玩家局内 DPS 通道单级回报上调 + 价格略降。
+  //   根因：敌人 HP 成长 2.37×（后收至 1.8）、敌人 DPS 2.10×，而玩家 DPS 仅 ~1.5×
+  //   ⇒ 末节点优势度 0.45~0.73（打不过）。提单级值比猛降价格更好——保住「资源紧张」体感。
+  { id: 'penetration_up',    name: '穿深加工',   group: 'firepower', desc: '穿透 +8mm/级',
+    baseCost: 30, costGrowth: 1.6, maxLevel: 99,
+    effects: [{ stat: 'penetration', mode: 'add', value: 8 }] },
+  { id: 'damage_up',         name: '火力增强',   group: 'firepower', desc: '单发伤害 +5/级',
+    baseCost: 30, costGrowth: 1.6, maxLevel: 99,
+    effects: [{ stat: 'damage', mode: 'add', value: 5 }] },
   // #N3（2026-10-10 覆盖面对账）新增：弹速（卡牌可写、两商店皆缺）
   { id: 'shell_velocity',    name: '弹速强化',   group: 'firepower', desc: '炮弹初速 +40px/s/级（飞行时间↓/提前量↓）',
     baseCost: 30, costGrowth: 1.7, maxLevel: 99,

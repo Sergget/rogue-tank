@@ -582,13 +582,18 @@ const RULES = {
     //   不是 SOUND_DEFS 键——那张表的层是一次性 start/stop，表达不了循环。
     //   就绪提示是一次性瞬态（键 `SOUND_DEFS.railReady`）；开火瞬态复用 `firerail`。
     //   三段式声学口径见 `docs/specs/combat/audio.md`「电磁轨道炮三段声学」。
+    //   沿革（2026-10-27 用户反馈「充能的音效太尖锐、时间太长，只在充能完毕前有一点电流声」）：
+    //     ~~sawtooth 110→760Hz / gain 0.16 / 整段装填都在响~~ → **triangle 180→520Hz / gain 0.11 /
+    //     只在最后 windowSeconds 秒响**。锯齿的谐波列（含 7.6kHz 附近的高次）是「尖锐」的来源；
+    //     2~4 秒的全程持续音是「太长」的来源。音高仍在窗口内完整从 freqMin 扫到 freqMax。
     audio: {
-      chargeWave: 'sawtooth',   // 锯齿波 = 电流感（方波过尖、正弦太闷）
-      freqMin: 110,             // progress = 0 的基频 Hz（刚开完火、充能刚开始）
-      freqMax: 760,             // progress = 1 的基频 Hz（满电前一瞬）
-      gain: 0.16,               // 循环层增益（再乘 AUDIO_SETTINGS.combatGain 总线）
-      attack: 0.25,             // 起音淡入秒数（避免「啪」一下出现）
-      release: 0.12             // 收尾淡出秒数（直接 stop 会听到咔声）
+      chargeWave: 'triangle',   // 三角波 = 有电流感但谐波衰减快（锯齿谐波列太亮、太尖）
+      freqMin: 180,             // 可听窗口**起点**的基频 Hz
+      freqMax: 520,             // 充满前一瞬的基频 Hz（≤600：再高就重新变尖）
+      gain: 0.11,               // 循环层增益（再乘 AUDIO_SETTINGS.combatGain 总线）
+      attack: 0.06,             // 起音淡入秒数（窗口短，淡入也必须短）
+      release: 0.10,            // 收尾淡出秒数（直接 stop 会听到咔声）
+      windowSeconds: 0.6        // **可听窗口**：只在距充满 ≤ 该秒数时起声（时长唯一口径）
     },
     // —— 炮管（灰）：金属本体的三档明度，与车体涂装色无关 ——
     barrelGrey:     '#787d84',   // 导轨/炮管主体（中性灰，略偏冷）
@@ -967,6 +972,16 @@ const RULES = {
       reloadGapWeights: { direct: 1, slant: 4, curve: 3, arc: 4, retreat: 1 }
     },
 
+    // --- 2026-10-26 §4.140 AI 愿意开火的最大距离（= band.max × 该比例）---
+    // 与交战带、物理射程三者解耦，各管一件事：
+    //   engageBand.max  = 站位意图（dist > band.max → baseMove=1 接近）
+    //   fireRangeRatio  = 战术意愿（多远以外宁可推进也不开火）← 本参数
+    //   shellMaxDist    = 物理绝对上限（1800，炮弹能飞多远）
+    // 1.5 ⇒ medium ≈858 / heavy ≈734 / light ≈999 / spg ≈1046。
+    // ⚠️ 不要图省事直接用 shellMaxDist(1800)：开火半径较 572px 翻 ~10 倍覆盖面积，
+    //   节点内过半敌人同时开火 + 1500px 外狙击 = 火力过密（用户 2026-10-26 反馈）。
+    fireRangeRatio: 1.5,
+
     // --- 2026-10-01 #N 交战距离带（取代单点 engageRange，消除「全部贴脸」）---
     // 改前只有单点 engage(520px)：dist>engage 前进、dist<close(200px) 退，形成
     // 「200~520px 全静止、<200px 全挤上来」的夹逼结构。改为**按类别分档的区间**：
@@ -1005,7 +1020,6 @@ const RULES = {
       // （#N 实测：无粘性时 flank 与 press 交替会形成敌军「棘轮内移」逼近玩家）
       roleStickiness: 0.2,
       // hold 态：留在原地/掩体，只打有把握的射界（不主动接近）
-      holdFireMaxDist: 640,       // hold 态允许开火的最大距离（超出则纯待机）
       holdFireAimTolMul: 2.0      // hold 态开火容差放宽（远距离命中率低，放宽以保持火力存在感）
     },
 
@@ -1118,7 +1132,9 @@ const RULES = {
     noiseEscalate: {
       shotHeat: 0.34,          // 听到玩家开火一次累积的热度（3 次即 1.02 ≥ 阈值 → 交战）
       impactHeat: 0.20,        // 听到炮弹落点/爆炸一次累积的热度（5 次 → 交战）
-      decayPerSec: 0.12,       // 每秒自然衰减（约 8.3s 完全冷却，与 suspiciousTimeout 同量级）
+      decayPerSec: 0.12,       // 新鲜窗口过后每秒自然衰减（与 suspiciousTimeout 同量级）
+      decayGraceSec: 6,        // 距上次声音 < 该秒数时不衰减——否则主炮 4s 装填间隔的
+                               //   每帧衰减量远大于「3 发 1.02 仅超阈值 0.02」的余量，升级永不触发
       escalateAt: 1.0,         // 达到该值即 alertEntity（进入交战 + 记录玩家位置）
       allyHitHeat: 0.5,        // 友军被命中一次为该敌人累积的热度（2 次 → 交战）
       allyHitRadius: 700       // 友军被命中时的群体警觉半径（px）
@@ -1261,9 +1277,15 @@ const RULES = {
     //   注：普通敌军的极速最终由 speedVsBaseline 封顶覆盖（见上），maxSpeed 上限主要作用于
     //   **Boss**（battle applyDifficultyMults 传 applyPlayerCap=false 不走封顶）与其它未封顶路径。
     entityMults: {
-      maxHp:         [0.6, 2.2],   // 生命（#6 2026-10-15：[0.5,1.7]→[0.6,2.2]，成长更快）
+      maxHp:         [0.6, 1.8],   // 生命。沿革：#6（2026-10-15）[0.5,1.7]→[0.6,2.2]；
+                                   //   §4.144（2026-10-27 成长曲线审计）[0.6,2.2]→[0.6,1.8]：
+                                   //   实测高难度 HP 成长 2.37× 而玩家局内 DPS 仅 ~1.5× ⇒ 玩家 TTK
+                                   //   恶化 1.58×、末节点优势度 0.45（打不过）。收到 1.8 后回可打区间。
       penetration:   [0.8, 1.5],   // 穿深（#6：[0.75,1.25]→[0.8,1.5]）
-      damage:        [0.8, 1.5],   // 单发伤害（#6：[0.75,1.2]→[0.8,1.5]）
+      damage:        [0.8, 1.35],  // 单发伤害。沿革：#6 [0.75,1.2]→[0.8,1.5]；
+                                   //   §4.144（2026-10-27）：[0.8,1.5]→[0.8,1.35]——与 reload 高难度端
+                                   //   加速（1.25→0.82）叠加时敌人 DPS 合计涨 2.10×，远超玩家 ~1.5×，
+                                   //   是「被秒」主因。收 damage 保留压力但不一炮半血。
       armorAll:      [0.6, 1.3],   // 装甲全面乘（遍历 hull/turret 各面叠乘）
       reload:        [1.25, 0.82], // 装填时间（易慢难快）
       spreadMult:    [1.3, 0.78],  // 三扩系数（易散难准）
@@ -1329,9 +1351,31 @@ const RULES = {
       enabled: true,
       chargeSeconds: 1.2,        // 蓄能时长（秒）——玩家预警窗口
       lineLength: 1400,          // 炮线预览/光束长度（px，与激光同量级）
-      lineWidth: 6,              // 炮线宽度（px，绘制用）
+      lineWidth: 6,              // **only fire 光束**宽度（px）；指示线宽走 laserCoreWidth
       warnLeadSeconds: 1.2,      // 预警提前量（= chargeSeconds，进入蓄能即预警）
-      aimTolerance: 0.03         // 蓄能期锁定的角度容差（rad）——超出则重新蓄能（防瞬转锁定）
+      aimTolerance: 0.03,        // 蓄能期锁定的角度容差（rad）——超出则重新蓄能（防瞬转锁定）
+      // ============ 2026-10-26 用户反馈四项（现行口径，细则见 specs/boss/railgun.md）============
+      // ① 指向玩家的是**红色恒定指示线**（瞄准激光），不是放电攻击特效——旧口径（白 1px 主线 +
+      //    3 条 lightningPath 电弧 + 蓝基底 + 线端白光点）已废弃。颜色/尺寸唯一口径在本组，
+      //    `js/tank_battledraw.js drawBossRailLine` 只读不写死（`||` 之后只是无 RULES 环境的兜底）。
+      laserColor: 'rgba(255,52,42,1)',       // 指示线芯色（红）
+      laserGlowColor: 'rgba(255,70,52,1)',   // 外晕色（同色相，低 alpha 宽描边）
+      laserCoreWidth: 1.8,                   // 线芯宽 px（细 = 指示性，不是光束）
+      laserGlowWidthMult: 3.6,               // 外晕宽 = laserCoreWidth × 本倍率
+      laserAlphaMin: 0.55,                   // progress = 0 的线亮度
+      laserAlphaMax: 1.0,                    // progress = 1 的线亮度
+      laserDotRadius: 3,                     // 线端小圆点半径 px（落点指示）
+      // 指示线按全高掩体截断：炮弹确实会被全高掩体挡下，炮线画穿建筑会教错玩家决策。
+      // 判据与蓄能激光共用同一几何（`_beamBlockDist`：tierGroup==='structure' 且 vision）。
+      blockByFullCover: true,
+      // ② 指向期**完全静音**（用户裁定「玩家被电磁炮激光指向时不需要有音效」）：不播充能循环声、
+      //    不播 railReady、不播预警 ui 音；只保留屏幕预警（pushLog + 顶部横条）。
+      //    ⚠ 只作用于 Boss 侧。玩家自己装电磁炮的 #AA-c 三段声学不受影响（tank_battle.html 玩家段）。
+      //    true 会让 Boss 侧恢复 #AA-c 的三段声学接线（音高随蓄能进度上升 + 就绪双响）。
+      aimAudio: false,
+      // ③ Boss 开火音效改「放箭」而不是电磁炮轰响——键名 `SOUND_DEFS.bossRailFire`
+      //    （音色与增益唯一口径在该键；玩家侧电磁炮仍走 `firerail`，分工在 js/tank_fire.js）。
+      fireSoundKey: 'bossRailFire'
     },
     // ======================= 2026-09-20 #E9 Boss 修订（用户反馈） =======================
     // 1) 残血减速上限：阶段 onEnter.modifiers 里的 maxSpeed/turnRate 倍率过猛会让残血 Boss

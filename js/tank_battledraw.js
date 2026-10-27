@@ -437,12 +437,17 @@ function drawShells(ctx, shells){
 }
 
 // ===== 2026-10-22 B5-3（需求 13）：Boss 电磁炮炮线 + 预警 =====
-// fx = { kind:'charge'|'fire', x, y, angle, length, width, progress, alpha? }
-//   charge → 蓄能期：白 1px 主线 + 3 条 lightningPath 电弧 + 线端光点 + 线两侧淡红晕（预警）
-//   fire   → 击发期：白芯 + 冷白外晕，alpha 随调用方淡出（fx.alpha，缺省 1）
-// 颜色三档全部取自 RULES.railgunFx（barrelGrey / baseBlue* / arcWhite+arcHalo），
-// 不写死色值（下方 `||` 后面只是无 RULES 环境的兜底，与同文件其他 railgun 绘制同款）。
-// 绘制期零 Math.random：电弧抖动种子由时间量子 + 进度派生（同帧重绘逐字节一致）。
+// fx = { kind:'charge'|'ready'|'fire', x, y, angle, length, width, progress, alpha?, blockedDist? }
+//   2026-10-26（用户反馈，现行口径）：charge / ready 是**红色恒定指示线**——细红实线 + 红色外晕 +
+//     线端红点，**零电弧、零抖动、零时间量子**（旧口径 = 白 1px 主线 + 3 条 lightningPath 电弧 +
+//     蓝基底 + 线端白光点，用户判为「攻击性抖动特效」）。指向性激光读作准星，不读作放电。
+//   fire → 击发期光束（白芯 + 冷白外晕，alpha 随 fx.alpha 淡出）。当前**无生产者**：电磁炮发射的是
+//     实体弹丸，`tank_battle.html` 只产出 charge/ready；保留该分支供将来接光束表现。
+// 颜色/尺寸唯一口径 RULES.boss.railgun（laserColor / laserGlowColor / laserCoreWidth /
+//   laserGlowWidthMult / laserAlphaMin / laserAlphaMax / laserDotRadius）；`||` 之后只是无 RULES
+//   环境（Node 单测）的兜底，与同文件其他 railgun 绘制同款。fire 分支仍读 RULES.railgunFx 三色。
+// 绘制期零 Math.random / 零 performance.now：同一 fx 重复绘制**逐字节一致**（「不动」是回归断言）。
+// blockedDist：全高掩体截断距离（生产方 js/tank_boss.js updateBossRailCharge → _beamBlockDist）。
 function drawBossRailLine(ctx, fx){
   if(!ctx || !fx || typeof fx !== 'object') return;
   const kind = (fx.kind === 'fire') ? 'fire' : 'charge';
@@ -452,95 +457,51 @@ function drawBossRailLine(ctx, fx){
   const RFx = (RULES && RULES.railgunFx) || {};
   const _white = RFx.arcWhite || '#ffffff';
   const _halo  = RFx.arcHalo  || 'rgba(214,232,255,1)';
-  const _base  = RFx.baseBlue || '#2f5d8c';
-  const _grey  = RFx.barrelGrey || '#787d84';
   const cfgBoss = (RULES && RULES.boss && RULES.boss.railgun) || {};
   const len = (typeof fx.length === 'number' && fx.length > 0) ? fx.length
     : (typeof cfgBoss.lineLength === 'number' ? cfgBoss.lineLength : 1400);
   const wid = (typeof fx.width === 'number' && fx.width > 0) ? fx.width
     : (typeof cfgBoss.lineWidth === 'number' ? cfgBoss.lineWidth : 6);
+  // 全高掩体截断：只截不伸（blockedDist 越界/非法一律当"未阻挡"用 len）
+  const drawLen = (typeof fx.blockedDist === 'number' && isFinite(fx.blockedDist) && fx.blockedDist >= 0 && fx.blockedDist < len)
+    ? fx.blockedDist : len;
   const ca = Math.cos(ang), sa = Math.sin(ang);
-  const nx = -sa, ny = ca;                       // 法线（用于两侧红晕 / 光点偏移）
-  const x2 = x + ca * len, y2 = y + sa * len;
-  const _nowQ = Math.floor(((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0) * 20) | 0;
+  const x2 = x + ca * drawLen, y2 = y + sa * drawLen;
 
   if(kind === 'charge'){
-    const p = Math.max(0, Math.min(1, (typeof fx.progress === 'number') ? fx.progress : 0));
-    const lineA = 0.25 + 0.5 * p;
-    const arcA  = 0.5 + 0.4 * p;
-    const amp   = 4 + 6 * p;
+    // 亮度随蓄能进度上升（0.55 → 1.0），几何/色相恒定 ⇒ 「不动」= 不抖、不换色、不放电
+    const p = (fx.kind === 'ready') ? 1
+      : Math.max(0, Math.min(1, (typeof fx.progress === 'number') ? fx.progress : 0));
+    const aMin = (typeof cfgBoss.laserAlphaMin === 'number') ? cfgBoss.laserAlphaMin : 0.55;
+    const aMax = (typeof cfgBoss.laserAlphaMax === 'number') ? cfgBoss.laserAlphaMax : 1;
+    const a = aMin + (aMax - aMin) * p;
+    const coreW = (typeof cfgBoss.laserCoreWidth === 'number' && cfgBoss.laserCoreWidth > 0) ? cfgBoss.laserCoreWidth : 5;
+    const glowMul = (typeof cfgBoss.laserGlowWidthMult === 'number' && cfgBoss.laserGlowWidthMult > 0) ? cfgBoss.laserGlowWidthMult : 3.6;
+    const colCore = cfgBoss.laserColor || 'rgba(255,52,42,1)';
+    const colGlow = cfgBoss.laserGlowColor || 'rgba(255,70,52,1)';
+    const dotR = (typeof cfgBoss.laserDotRadius === 'number' && cfgBoss.laserDotRadius > 0) ? cfgBoss.laserDotRadius : 3;
     ctx.save();
     ctx.lineCap = 'round';
-    // ⓪ 基底蓝衬底（railgunFx.baseBlue）：宽一点点垫在主线之下，读作「导轨之间的能量基底」
-    ctx.strokeStyle = _base;
-    ctx.globalAlpha = 0.10 + 0.20 * p;
-    ctx.lineWidth = Math.max(2, wid * 0.55);
+    // ① 外晕：宽、低 alpha、同色相（读作激光在大气里的辉光，不是能量体）
+    ctx.strokeStyle = colGlow;
+    ctx.globalAlpha = Math.min(1, a * 0.22);
+    ctx.lineWidth = Math.max(coreW + 1, coreW * glowMul);
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
-    ctx.globalAlpha = 1;
-    // ① 主线：白色 1px 实线，alpha = 0.25 + 0.5*progress
-    ctx.strokeStyle = _white;
-    ctx.globalAlpha = lineA;
-    ctx.lineWidth = 1;
+    // ② 线芯：细实线，alpha = 0.55 + 0.45×progress
+    ctx.strokeStyle = colCore;
+    ctx.globalAlpha = a;
+    ctx.lineWidth = coreW;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
-    ctx.globalAlpha = 1;
-    // ② 线两侧淡红晕（预警语言）：宽 width+12、自宽 width/2+6
-    //   色值由调用方口径固定为 rgba(255,80,60,0.10)（预警红，不属于炮身三色盘）
-    const halfW = wid / 2 + 6;
-    ctx.fillStyle = 'rgba(255,80,60,0.10)';
-    ctx.beginPath();
-    ctx.moveTo(x + nx * halfW, y + ny * halfW);
-    ctx.lineTo(x2 + nx * halfW, y2 + ny * halfW);
-    ctx.lineTo(x2 - nx * halfW, y2 - ny * halfW);
-    ctx.lineTo(x - nx * halfW, y - ny * halfW);
-    ctx.closePath();
-    ctx.fill();
-    // ③ 电弧：3 条沿主线的折线，锯齿幅度 4+6*progress，alpha 0.5+0.4*progress
-    ctx.globalCompositeOperation = 'lighter';
-    for(let i = 0; i < 3; i++){
-      const pts = (typeof lightningPath === 'function')
-        ? lightningPath(x, y, ang, len, amp, 7 + i * 2, _nowQ * 0.017 + i * 5.3 + p * 3.1)
-        : [{ x: x, y: y }, { x: x2, y: y2 }];
-      const jitter = ((_nowQ + i * 7) % 3);        // 0..2 的相位差（确定性）
-      const segPts = pts.slice(0, Math.max(2, pts.length - jitter));
-      // 外层冷白晕
-      ctx.strokeStyle = _halo;
-      ctx.globalAlpha = Math.min(1, arcA * 0.42);
-      ctx.lineWidth = 2.6;
-      ctx.beginPath();
-      ctx.moveTo(segPts[0].x, segPts[0].y);
-      for(let k = 1; k < segPts.length; k++) ctx.lineTo(segPts[k].x, segPts[k].y);
-      ctx.stroke();
-      // 内层白芯
-      ctx.strokeStyle = _white;
-      ctx.globalAlpha = Math.min(1, arcA);
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-    ctx.globalCompositeOperation = 'source-over';
-    // ④ 线端光点：半径 6+6*progress，白色芯 + 冷白晕
-    const dotR = 6 + 6 * p;
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = _halo;
-    ctx.beginPath(); ctx.arc(x2, y2, dotR * 1.9, 0, TAU); ctx.fill();
-    ctx.globalAlpha = 0.85;
-    ctx.fillStyle = _white;
+    // ③ 落点圆点（准星）：固定半径，不随进度膨胀（不读作爆炸半径）
+    ctx.fillStyle = colCore;
+    ctx.globalAlpha = Math.min(1, a * 0.95);
     ctx.beginPath(); ctx.arc(x2, y2, dotR, 0, TAU); ctx.fill();
-    ctx.globalAlpha = 1;
-    // ⑤ 炮口端灰色发射器短段（railgunFx.barrelGrey：炮身结构色，给炮线一个"起点锚"）
-    ctx.strokeStyle = _grey;
-    ctx.globalAlpha = 0.55;
-    ctx.lineWidth = Math.max(2, wid * 0.7);
-    ctx.beginPath();
-    ctx.moveTo(x - ca * 4, y - sa * 4);
-    ctx.lineTo(x + ca * Math.max(6, wid), y + sa * Math.max(6, wid));
-    ctx.stroke();
     ctx.globalAlpha = 1;
     ctx.restore();
     return;
   }
 
-  // fire：击发期光束（长度/宽度由调用方给，通常 lineLength × lineWidth）
+  // fire：击发期光束（白芯 + 冷白外晕），按 fx.alpha 淡出
   const a = (typeof fx.alpha === 'number') ? Math.max(0, Math.min(1, fx.alpha)) : 1;
   if(a <= 0) return;
   ctx.save();
@@ -2425,9 +2386,15 @@ function drawSecondaryTurret(ctx, t){
 //   ⚠️ `alertLevel === 2`（友邻遇袭）**从未被写入**（`alertEntity` 直接置 3）——见 §4.128 已知项。
 //
 // 归并口径（纯函数，可 Node 测试）：
-//   "engaged"  ← aiEngaged===true 且处于交火/机动/起转（react/skirmish/charge/hold）或 alertLevel>=3
-//   "alert"    ← 正在搜寻玩家记忆位置（aiState==='search'）或 alertLevel>=1（闻声调查）
-//   null       ← patrol / stunned / 已死 → **不显示**（不打扰画面）
+//   "engaged"  ← 已接战（aiEngaged===true）且**不在 search 态**——含 react/skirmish/charge/
+//                hold，也含 §4.140 后接战主体的 aiState==='patrol'（状态机默认值）；
+//                或 alertLevel>=3。语义 = 「这辆车已发现玩家并正在交战」。
+//   "alert"    ← 未接战但正在调查：aiState==='search'（朝记忆点搜索）或 alertLevel>=1（闻声）
+//   null       ← 未接战的纯巡逻 / stunned / 已死 → **不显示**（不打扰画面）
+// 2026-10-26（§4.141）修订：旧判据用 `fightingStates[aiState]` 白名单（react/skirmish/charge/hold）
+//   ——但 §4.140 起接战 AI 的 aiState 大部分时间是状态机默认的 'patrol'（推进/驻停/射击都不
+//   改写它），导致「打着打着图标消失」；同时 react 那 1.5s（AI 还僵着不动）反而先亮 `!`。
+//   用户反馈「图标更新速度晚于 AI 行动」。现改为跟**接战事实**走，与 aiState 字面值解耦。
 function alertIndicatorFor(t){
   if(!t || t.hp <= 0) return null;
   if(t.team !== 'enemy') return null;
@@ -2435,10 +2402,11 @@ function alertIndicatorFor(t){
   if(t.aiState === 'stunned') return null;     // 硬直/眩晕不表达警戒
 
   const lv = (typeof t.alertLevel === 'number') ? t.alertLevel : 0;
-  // 已接战：aiEngaged 且不在纯巡逻/搜寻态；或 alertLevel 已达 3
-  const fightingStates = { react: 1, skirmish: 1, charge: 1, hold: 1 };
-  if(lv >= 3 || (t.aiEngaged === true && fightingStates[t.aiState])) return 'engaged';
-  // 搜寻/怀疑：闻声调查、或正朝 lastKnownPlayerPos 搜索
+  // 已接战：除 search（还在找）外一律算「已发现并锁定」——react 起转中亮 `!` 也正确
+  // （它确实已发现目标，只是还没开火），不再出现"开打后图标消失"。
+  if(t.aiEngaged === true && t.aiState !== 'search') return 'engaged';
+  if(lv >= 3) return 'engaged';                // alertEntity 已置 level 3 但 aiEngaged 尚未落帧
+  // 未接战的调查态：闻声 / 朝记忆点搜索
   if(t.aiState === 'search' || lv >= 1) return 'alert';
   return null;
 }

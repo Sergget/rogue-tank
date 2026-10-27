@@ -111,6 +111,63 @@ ok(started === false, 'startRailChargeLoop 无 AudioContext 返回 false（不�
 ok(pitched === 0, 'updateRailChargePitch 未在充能时返回 0（不是 NaN）');
 ok(stopped === false, 'stopRailChargeLoop 未在充能时返回 false 且幂等');
 
+// 6.3) 2026-10-26（用户反馈四项）：Boss 电磁炮开火音效「像放箭，不是电磁炮轰响」+ 指向期静音
+//      用户原话：「boss使用电磁炮时：音量太大……玩家被电磁炮激光指向时不需要有音效，
+//      电磁炮发射炮弹的音效像射箭而不是发射了电磁炮」。
+//      分工：Boss ⇒ bossRailFire（本段锁定），玩家 ⇒ firerail（三段放电声学保持不变）。
+const bossRailCfg = /** @type {any} */ ((RULES_MOD.RULES.boss && RULES_MOD.RULES.boss.railgun) || {});
+const brf = A.SOUND_DEFS.bossRailFire;
+ok(!!brf && typeof brf === 'object', 'SOUND_DEFS 含 bossRailFire 键（Boss 电磁炮开火）');
+ok(A.SOUND_DEFS.firerail && brf && brf !== A.SOUND_DEFS.firerail, 'bossRailFire 与 firerail 是两个键（玩家侧不受影响）');
+ok(bossRailCfg.fireSoundKey === 'bossRailFire',
+  `RULES.boss.railgun.fireSoundKey = bossRailFire（实际 ${bossRailCfg.fireSoundKey}）`);
+ok(bossRailCfg.aimAudio === false,
+  'RULES.boss.railgun.aimAudio = false（指向期静音，只留屏幕预警）');
+if (brf) {
+  // 音量：Boss 开火增益必须低于玩家电磁炮 —— 这是「音量太大」的直接落点
+  ok(brf.gain < A.SOUND_DEFS.firerail.gain,
+    `Boss 开火增益 ${brf.gain} < firerail ${A.SOUND_DEFS.firerail.gain}（更轻）`);
+  // 声学：不含低频炮身共鸣（firerail 的 sawtooth 190→40Hz 是「像电磁炮」的主因）
+  const oscLayers = brf.layers.filter(L => L.kind === 'osc');
+  ok(oscLayers.length > 0 && oscLayers.every(L => L.f0 >= 100),
+    `osc 层全部 ≥ 100Hz（${oscLayers.map(L => L.f0 + '→' + L.f1).join(', ')}；无炮身低频尾）`);
+  ok(brf.layers.every(L => L.dur <= 0.35),
+    '全部层 dur ≤ 0.35s（弓弦/破空都是短瞬态，没有轰响长尾）');
+  ok(brf.layers.some(L => L.kind === 'osc' && L.wave === 'triangle'), '含三角波下滑层（弓弦松脱的「崩」）');
+  ok(brf.layers.some(L => L.kind === 'noise' && L.filter === 'highpass'), '含高通噪声层（箭矢破空）');
+}
+
+// 6.4) 2026-10-27（用户反馈）：「充能的音效太尖锐、时间太长，只在充能完毕前有一点电流声」
+//      三件事 → 三个可失败断言：① 波形/频段不再尖（triangle + 上限 ≤600Hz + 增益下调）；
+//      ② 有**可听窗口**（windowSeconds < 1s，不再是整段装填）；③ 窗口内音高从 freqMin 完整扫到 freqMax。
+const railWin = ra.windowSeconds;
+ok(typeof railWin === 'number' && railWin > 0 && railWin < 1,
+  `RULES.railgunFx.audio.windowSeconds = ${railWin}s（< 1s：只覆盖充满前一小段，不再是整段装填）`);
+ok(ra.chargeWave === 'triangle',
+  `chargeWave = ${ra.chargeWave}（三角波；旧 sawtooth 的谐波列是「太尖锐」的来源）`);
+ok(ra.freqMax <= 600, `freqMax = ${ra.freqMax}Hz ≤ 600（旧 760Hz 偏高偏尖）`);
+ok(ra.gain < 0.16, `循环增益 ${ra.gain} < 0.16（旧值更响）`);
+ok(typeof A.railChargeWindowProgress === 'function', '导出 railChargeWindowProgress（可听窗口局部进度）');
+ok(A.railChargeWindowProgress(railWin * 2) === null,
+  `剩余 ${railWin * 2}s（窗口外）→ null（不响）`);
+ok(A.railChargeWindowProgress(railWin) === 0, '窗口起点（剩余 = windowSeconds）→ 0');
+ok(Math.abs(A.railChargeWindowProgress(railWin / 2) - 0.5) < 1e-9, '窗口中点 → 0.5');
+ok(A.railChargeWindowProgress(0) === 1, '充满（剩余 0）→ 1');
+ok(A.railChargeWindowProgress(-0.1) === null, '负剩余 → null（负向：已满/非法不响）');
+[NaN, Infinity, -Infinity, undefined, null, '0.2'].forEach(v => {
+  ok(A.railChargeWindowProgress(v) === null, `railChargeWindowProgress(${String(v)}) → null（不产生 NaN 频率）`);
+});
+// 窗口内音高单调上行，且两端严格贴合 freqMin / freqMax（=「有一点电流声」的完整扫频）
+let winMono = true;
+for (let i = 1; i <= 20; i++) {
+  const a = A.railChargeFreqFor(A.railChargeWindowProgress(railWin * (1 - (i - 1) / 20)));
+  const b = A.railChargeFreqFor(A.railChargeWindowProgress(railWin * (1 - i / 20)));
+  if (!(b > a)) winMono = false;
+}
+ok(winMono, '窗口内 20 段音高严格单调上行（无平台/回退）');
+ok(A.railChargeFreqFor(A.railChargeWindowProgress(railWin)) === ra.freqMin, '窗口起点音高 = freqMin');
+ok(A.railChargeFreqFor(A.railChargeWindowProgress(0)) === ra.freqMax, '充满时音高 = freqMax');
+
 console.log(`test-audio: ${asserts} 项断言完成`);
 if (fails === 0) console.log('test-audio: 全部通过');
 else console.error(`test-audio: ${fails} 项失败`);

@@ -3363,3 +3363,302 @@ node scripts/wiki-check.js      → files=88 pages=62 broken=0 anchorBad=0 struc
 ### 3) 验证
 
 `node scripts/check-html.js`（六页内联脚本 + 58 项测试登记一致）与 `node scripts/wiki-check.js`（改 docs 后必跑）均通过；本轮**未改 `js/` 与页面代码**，故不重复声称三链。
+
+## §4.139 2026-10-26 敌方 AI「听到多次射击不升级 + 交战态呆滞」修复（用户反馈）
+
+**性质**：**已核实的 bug 修复**（用户报「检查敌方 AI 决策树」，复报「仍呆滞、与行动模式有关」）。三处根因，均带 `file:line` 证据与探针实测。
+
+### 1) 现象与根因
+
+- **①「听到多次射击即确定玩家位置」失效**：`hearNoise` 设计为 `shotHeat 0.34 × 3 = 1.02 ≥ escalateAt 1.0` 升级交战，但 `decayNoiseHeat`（`js/tank_ai.js:1545`）**每帧**按 `decayPerSec 0.12` 衰减——主炮 4s 装填间隔下，两发之间的衰减量（≈0.48）远大于「3 发仅超阈值 0.02」的余量。探针实测 spacing=4s 时 `noiseHeat` 恒 0.34、**永不升级**；连 spacing=0.1s（3 发 0.3s 内）也只得 0.996 < 1.0。
+- **②交战态呆滞**：`alertEntity`（`js/tank_ai.js:1604`）置 `alertLevel=3 + lastKnownPlayerPos` 后，若玩家**远处可见**（`los=true` 且 `dist>exitD`），`aiDecideEnemy:799` 第 1 帧即 `if(los && lastKnownPlayerPos) lastKnownPlayerPos=null` 清记忆，第 2 帧 `dist>exitD && !lastKnownPlayerPos` 判定脱战（`js/tank_ai.js:773`）⇒ 原地 `patrol`（move=0、fire=false），且 `alertLevel` 卡在 3 **永久显示 `!`** 并永久拒收新噪声（`hearNoise:1515` 的 `alertLevel>=3` 早退）。
+- **③行动模式呆滞（用户复报「仍呆滞、与行动模式有关」）**：探针复现（6 敌人 + 玩家 x=1500 连开 3 炮，`updateSquad` 分配角色）——**被 `updateSquad` 评为 `hold` 角色的远距敌人**（`squad` 名额外，评分最低者）在闻声升级到 `engaged=true, alertLevel=3` 后，`aiDecideEnemy` 的 `role==='hold'` 分支强制 `baseMove=0`，且 `holdGate` 在 `dist > holdFireMaxDist(640px)` 拒开火 ⇒ **既不追也不打、原地呆滞**（探针实测 e4/e5/e6 恒 `move=0, fire=false`）。超远距（`dist > engage×3+500≈2060px`）还叠加 `defensive` 站桩（`move=0` 且 `dist>engage` ⇒ 永不还击）。
+
+### 2) 修复
+
+- `js/tank_ai.js` `decayNoiseHeat`：新增新鲜窗口——距上次声音 `< decayGraceSec`（新配置，缺省 6s）内**不衰减**；超出窗口才恢复 `decayPerSec 0.12` 衰减。3 发主炮/机炮间隔均可累积到阈值。
+- `js/tank_ai.js:799`：清警觉记忆加 `dist<=exitD` 门控（远处可见时保留记忆作追击依据，不再第 2 帧脱战）。
+- `js/tank_ai.js` 脱战分支：补 `t.alertLevel = 0` 复位（否则 `!` 永久显示、噪声永久拒收）。
+- `js/tank_ai.js` `hold` 角色：`baseMove = (dist > squad.holdFireMaxDist) ? 1 : 0`——超出开火距离时前压到可开火范围，取代旧「>640px 纯待机」呆滞。
+- `js/tank_ai.js` `defensive` 站桩：加 `!t.lastKnownPlayerPos` 门控——被警觉（持有玩家位置记忆）的敌人不进入 defensive，改为追击。
+- `js/tank_rules.js` `noiseEscalate`：新增 `decayGraceSec: 6`（唯一口径）。
+
+### 3) 回归与验证
+
+- `scripts/test-ai.js` 新增 **6 项**：主炮 4s 间隔 3 发 → 升级交战 / 新鲜窗口内不衰减 + 超窗后衰减 / 警觉后远处可见不脱战呆滞 / hold 角色超出开火距离前压 + 距离内驻守 / 警觉后超远距离不进入 defensive。
+- `npm test`：**59 通过 / 0 失败**（danger-full-access 下 `test-asset-pipeline` 的 spawnSync EPERM 不再出现）；`npm run check`（语法 + tsc + wiki-check）**All checks passed**。
+
+**细则归口**：`specs/combat/enemy-ai.md` §「噪声累积升级」 + §「交战结构重做 · #N2」。
+
+## §4.140 2026-10-26 敌方 AI 远距火力：开火距离与站位带解耦（用户反馈「只愿意抵近射击」）
+
+**性质**：**已核实的 bug 修复 + 参数收口**。§4.139 修完"呆滞"后，用户复报「现在会移动，但仍然比较呆，只愿意抵近射击」。
+
+### 1) 现象与根因
+
+- **开火判定写死交战带外沿**：`js/tank_ai.js` 的 `canFire` 条件是 `dist <= band.max`（中坦 ≈572px）。而炮弹物理射程是 `RULES.ballistics.shellMaxDist = 1800`——不是弹打不到，是 **AI 自己非等推进到 572px 内才肯扣扳机**。
+- **hold 角色第二道距离闸**：`holdGate`（`js/tank_ai_squad.js`）内部还有一道 `holdFireMaxDist = 640px` 的距离门控。即便放开主判定，hold 敌人仍会在 640px 外被拦。
+- **滞回带卡死射击窗口（§4.140 连带修）**：开火距离放到 ~858 后，`dist > exitD(875)` 的脱战分支会在 800~1200px 这段「边推进边射击」窗口里把 AI 打回 patrol。脱战判据加 `!los`——**看得见玩家就不脱战**，失去视线（被掩体遮挡）才是真正的"失去目标"。
+
+### 2) 修复
+
+- `js/tank_ai.js` 新增 `_effectiveFireRange(t, cfg, engage, band)` = `band.max × RULES.ai.fireRangeRatio(1.5)`，**按类别自动缩放**（medium ≈858 / heavy ≈734 / light ≈999 / spg ≈1046）。三个概念解耦各管一件事：`engageBand.max` 管站位意图、`fireRangeRatio` 管战术意愿、`shellMaxDist` 管物理上限。
+- `canFire` 由 `dist <= band.max` 改为 `dist <= fireRange`；`hold` 角色的 `baseMove` 同步改用同一口径。
+- `js/tank_ai_squad.js` `holdGate` **删除距离闸**（只保留瞄准容差放宽 `holdFireAimTolMul`）——距离已由决策层统一管，不再有两套口径。
+- `js/tank_rules.js`：新增 `ai.fireRangeRatio: 1.5`；删除 `ai.squad.holdFireMaxDist`（死配置，留着会误导后来者以为还有第二道闸）。
+- 脱战判据 `dist > exitD` → `dist > exitD && !los`。
+
+### 3) 为什么不能直接用物理射程 1800
+
+用户 2026-10-26 明确反馈「直接改到真实射程会导致玩家面临的火力太多」。量化：开火半径 572 → 1800 使覆盖面积翻 ~10 倍，节点内过半敌人同时开火，并出现 1500px 外狙击兵——不是"变凶"而是火力过密 + 变相作弊。选 1.5 倍是让 press 敌人在 `band.max`~开火距离之间**边推进边射击**（消除"抵近才打"），同时火力圈面积控制在 1800 版的约 1/4。
+
+### 4) 回归与验证
+
+- `scripts/test-ai.js` 新增 **7 项**：开火距离 = band.max×1.5 且按类别缩放（heavy < medium < light）/ press 带外沿外边推进边开火 / 超出开火距离只推进不开火 / hold 距离内驻射 + 距离外前压 / 反证 1200px 不开火（1800 版会犯）。同步更新 3 条旧断言：滞回脱战改用「无视线」场景 + 新增「超滞回带但看得见 → 保持接战」反证；`_mv` 清理用例同样改无视线；"警觉后不呆滞"由写死 `move===1` 改为「接战 + 有战术动作」（原断言碰 #M 机动层随机短停，本就 flaky）。
+- `scripts/test-squad.js`：holdGate 距离闸断言改为「不再按 640px 做距离闸」。
+- `npm test`：**59 通过 / 0 失败**；`npm run check`（语法 + tsc + wiki-check）**All checks passed**。
+
+**细则归口**：`specs/combat/enemy-ai.md` §「交战结构重做 · #N2」。
+
+## §4.141 2026-10-26 Boss 电磁炮四项（指向线改红色恒定指示 + 指向期静音 + 开火「像放箭」+ 音量）（用户反馈）
+
+**性质**：**用户裁定 + 视效/声学改口径**（非 bug）。用户原话：「boss使用电磁炮时：音量太大、激光应该是红色不动的指示性激光（不是现在的常用于攻击性的不断抖动的）、玩家被电磁炮激光指向时不需要有音效，电磁炮发射炮弹的音效像射箭而不是发射了电磁炮」。承接 §4.137（#AA-c 电磁炮三段声学）——那条只做了「有声音」，没定「Boss 指向玩家时该不该响」与「Boss 那一声该像什么」。
+
+### 1) 四项各自的根因
+
+1. **指向线读作攻击特效**：`drawBossRailLine` 的 charge 分支是「白 1px 主线 + 3 条 `lightningPath` 电弧（种子随 `performance.now()` 逐帧变）+ 蓝基底 + 线端白光点」——用户要的是**瞄准指示**，看到的是**放电攻击**，且每帧抖动。
+2. **指向期太吵**：`tank_battle.html` 的 Boss 分支直接复用了玩家侧的 #AA-c 三段声学（充能循环电流声 + `railReady` 双响 + 预警 `ui` 音），叠加后整段蓄能都在响。
+3. **开火声不像弓箭**：Boss 与玩家共用 `firerail`（方波放电下扫 + 电离噪声 + 190→40Hz 炮身低频共鸣，`def.gain` 1.0）。低频尾 + 宽频撕拉正是「像电磁炮」和「太响」的来源。
+4. **炮线画穿建筑**：`updateBossRailCharge` 不判遮挡，而炮弹会被全高掩体 100% 挡下——炮线穿过建筑会让玩家把「掩体后」读成安全区。
+
+### 2) 修复
+
+- **绘制**（`js/tank_battledraw.js drawBossRailLine`）：charge/ready 整体重写为**红色恒定指示线**——外晕（`laserGlowColor`，宽 `laserCoreWidth×3.6`，alpha `线亮度×0.22`）+ 线芯（`laserColor`，宽 1.8px，alpha `0.55→1.0` 随蓄能）+ **固定半径 3px** 落点圆点；`kind:'ready'` 按 `progress=1` 画（与 `charge@1` 逐字节一致）。**零电弧 / 零 `performance.now()` / 零 `Math.random`** ⇒ 同一 fx 重复绘制逐字节一致。`blockedDist` 存在时只画到截断点。fire 分支保留（当前无生产者，电磁炮发射实体弹丸）。
+- **规则源**（`js/tank_rules.js`）：`RULES.boss.railgun` 新增 `laserColor / laserGlowColor / laserCoreWidth / laserGlowWidthMult / laserAlphaMin / laserAlphaMax / laserDotRadius / blockByFullCover / aimAudio / fireSoundKey`；`lineWidth` 语义收窄为「仅 fire 光束宽」。
+- **事件**（`js/tank_boss.js updateBossRailCharge(t, dt, target, opts)`）：坐标改为**炮口**（`gunRoot(t)`，几何层不可用时回退车体中心，不产生 `NaN`）；新增 `blockedDist`（`_railBeamBlockDist`）。顺带把 `_laserBeamBlockDist` 的几何抽成 `_beamBlockDist(bx,by,angle,length,covers,cfg)`，蓄能激光与电磁炮炮线**共用同一 Liang-Barsky 实现**、各读自己的 `blockByFullCover` 开关——避免两份几何各写一遍。
+- **接线**（`tank_battle.html`）：Boss 分支按 `RULES.boss.railgun.aimAudio` 门控三处音效调用（循环声 / 就绪声 / 预警 ui 音），当前 `false` ⇒ 只留 `pushLog` 红字 + 顶部横条；`updateBossRailCharge` 传入 `{ covers }` 并把 `blockedDist` 透传给 `bossRailFx`；绘制段加「Boss 全部阵亡则清残留炮线」守卫。
+- **音效**（`js/tank_audio.js` 新增 `SOUND_DEFS.bossRailFire`）：弓弦松脱（triangle 420→130Hz / 0.10s）+ 弦槽摩擦（bandpass 2600Hz / 0.08s）+ 箭矢破空（highpass 3200Hz / 0.28s，延迟 25ms），`def.gain` **0.55**；**刻意不含**低频炮身共鸣。
+- **键选择**（`js/tank_fire.js` 新增 `_fireSoundKeyFor(shooter, spec)`，导出供测）：`railgun + isBoss` ⇒ `RULES.boss.railgun.fireSoundKey`（`bossRailFire`）；`railgun` ⇒ `firerail`；其余 ⇒ `fire`。
+
+### 3) 为什么只改 Boss 侧
+
+用户四句都限定在「boss使用电磁炮时」。玩家自己装电磁炮的充能声 / 就绪声 / `firerail` / 炮身白弧 / 针状白热弹一律不动——玩家那套是「自己在开火」，声音与放电弧是反馈；Boss 那套是「被瞄准」，需要的是安静的红线 + 可读的预警。`aimAudio` 与 `fireSoundKey` 都是 RULES 开关，将来要合流改配置即可，不需要再动代码。
+
+### 4) 回归与验证
+
+- `scripts/test-render.js` 新增 **⑫ 段 8 项像素断言**：同 fx 两次绘制逐字节一致（不动）/ 红主导像素 > 250 / 近白像素 = 0（旧白芯电弧已删）/ 线形 324×5px（细长非光斑）/ 蓄满更亮 / `ready ≡ charge@1` / `blockedDist=120` 线长 124px < 324px / `laserColor` 取 RULES。
+- `scripts/test-audio.js` 新增 **6.3 段 9 项**：`bossRailFire` 键存在且与 `firerail` 不同 / `fireSoundKey` / `aimAudio===false` / 增益 0.55 < 1.0 / osc 层全部 ≥100Hz / 全部层 ≤0.35s / 含三角波与高通层。
+- `scripts/test-batch5-combat.js` 新增 **10 项**：事件坐标有限 / 无 covers 不截断 / 全高建筑截断 450px / 灌木不截断（负向）/ `railReady` 同样截断 / `_fireSoundKeyFor` 三分支。
+- `npm run check`（语法 + tsc + 测试链登记）**All checks passed**；`npm test` **58 通过 / 1 失败（59 项）**——唯一失败为 `scripts/test-asset-pipeline.js`，即 AGENTS §3.7 记录的沙箱 EPERM（`spawnSync` 捕获管道 stdio 返回 `null`），非代码缺陷。
+
+**细则归口**：`specs/boss/railgun.md`（参数表 / 事件流 / 绘制契约 / 音频口径）；沿革 `specs/boss/changelog.md`「电磁炮炮线的首版绘制与声学」；玩家侧三段声学仍见 `specs/combat/audio.md`。
+
+## §4.142 2026-10-26 敌方警戒图标与 AI 行动脱同步修复（用户反馈「图标晚于 AI 行动」）
+
+**性质**：**已核实的显示层 bug 修复**。§4.140 修完远距火力后，用户反馈「远处敌人进入交战状态后就还击，但警戒图标更新速度有时晚于 AI 行动」。
+
+### 1) 现象与根因（探针实测，跑完即删）
+
+真实形态不是"图标晚于行动"，而是**该亮的时候不亮、不该亮的时候亮**：
+
+- **react 阶段（LoS 接战后 ~1.5s）**：AI 还僵着不动（`move=0, fire=false`），图标**已经亮 `!`**——比行动早 ~1.5s。
+- **推进+射击阶段（接战主体，时间最长）**：AI 已在 `move=1, fire=true` 真打，图标**变成 `null`（什么都不显示）**。
+
+根因是 `alertIndicatorFor` 用 `fightingStates[aiState]` 白名单（`react/skirmish/charge/hold`）判 engaged，而 §4.140 之后接战 AI 的 `aiState` **大部分时间是状态机默认值 `'patrol'`**（推进/驻停/射击都不改写它；只有 react/search/stunned/flank/coverSeek/defensive 会改写）。于是「打着打着图标消失」，叠加 react 段的预亮，整体读作"图标和行动对不上"。
+
+### 2) 修复
+
+`js/tank_battledraw.js` `alertIndicatorFor` 改为**跟接战事实走，与 `aiState` 字面值解耦**：
+
+- `engaged` ← `aiEngaged === true && aiState !== 'search'`（react 起转中亮 `!` 也正确——它确实已发现目标，只是还没开火）；或 `alertLevel >= 3`（已置 level 3 但 aiEngaged 尚未落帧的过渡）
+- `alert` ← 未接战但正在调查：`aiState === 'search'` 或 `alertLevel >= 1`
+- `null` ← 未接战的纯巡逻 / stunned / 已死
+
+### 3) 回归与验证
+
+- `scripts/test-alert-indicator.js` 新增 **3 项**：`aiEngaged + patrol`（接战主体默认态）→ engaged / `coverSeek` → engaged / `defensive` → engaged。既有负向断言不受影响（无 `aiEngaged` 的纯 patrol 仍是 null）。
+- 探针复验：react 段亮 `!`（正确：已发现、正在起转）；`move=1, fire=true` 主体段持续亮 `!`（不再闪没）；闻声/被击升级路径本就同步（`alertLevel=3` + 当帧还击）。
+- `npm test`：**59 通过 / 0 失败**；`npm run check` **All checks passed**；`wiki-check` broken=0。
+
+**细则归口**：`specs/combat/enemy-ai.md` §「敌方警戒状态 UI 指示」。
+
+## §4.143 2026-10-26 敌军弹种中和缺失的消费端 + 难度缩放三层审计（用户反馈「后期敌人穿深普遍能击穿」）
+
+**性质**：**已核实的 bug 修复 + 审计发现**。用户反馈「普通敌人后期穿深不止 144，我多次升级装甲都无法阻止敌人击穿我」。
+
+### 1) 审计方法（三层）
+
+新增 `scripts/test-enemy-scaling-audit.js`（已挂 `npm test`），对敌军四层数值叠加链路（`enemyAnchorBase × enemyClassProfiles × entityMults(diff) × difficultyCapMuls`）做三层审计：
+
+- **① 单键生效性**：逐键把乘子 ×2，看终值是否变化。
+- **② 难度曲线快照**：扫 diff 四档 dump 全部 stats。
+- **③ Boss vs 普通敌人**：同表不同语义（`applyPlayerCap` 开关）。
+
+### 2) 审计发现
+
+| 发现 | 结论 |
+|---|---|
+| `entityMults.maxSpeed` 对普通敌人**完全无效** | 速度由 `difficultyCapMuls.speedVsBaseline`（0.3→0.5 × 基准 × randFactor）直算覆盖。该键实际只对 **Boss** 生效（`applyPlayerCap=false` 跳过封顶）⇒ **不是死键，是"仅 Boss 通道"**，规格页早已记录，非 bug |
+| `entityMults.penetration` 高难度端是名义值 | 满难度名义 165.4 被 `penCapVsBaseline 1.2` 压到 144；触顶阈 diff≈0.657（≈index 8）起锁死。此为 #6 改档时已记录的**已知副作用**，非疏漏 |
+| 难度成长主维度 = 血量 | HP 2.38× vs 穿深 1.35× / 极速 1.67× / 伤害 1.55×。**用户裁定维持现状**（后期压力应来自走位与技能，不重新分配成长） |
+| **`ammoStatNeutral` 只写不消费** | **真 bug，见下** |
+
+### 3) 根因与修复：敌方弹种倍率绕过穿深封顶
+
+**根因**：`applyEnemyAmmoByLevel`（`js/tank_model.js`）给敌军按等级套 AP 链弹种时写了 `ammoStatNeutral = true`（2026-10-22 裁定：敌军弹种升级后穿深/伤害不跟随弹种比例），但 `js/tank_fire.js` 的 `firePrimaryShell` **从未读取该标记**——只写一半。而弹种 `pen` 倍率乘在 `stats.penetration`（已被 penCap 封顶 144）**之后**：
+
+```
+shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
+```
+
+⇒ 后期敌军实际穿深：Lv1~3 AP 144 / Lv4~6 APCR **172.8** / Lv7~9 APDS **201.6** / Lv10~12 APFSDS **259.2** / Lv13+ APFSDS-AD **288**。玩家"正面装甲 +5mm/级（上限 5 级）"在此面前完全无效。`test-batch5-combat.js` 旧断言只验"标记被写入"，未验"标记被消费"——假绿。
+
+**修复**（`js/tank_fire.js firePrimaryShell`）：对 `shooter.ammoStatNeutral === true` 的射手把 `ammo.pen` / `ammo.dmg` 当 1.0 处理。**只中和数值倍率，弹种特性全部保留**（弹速 / 散布 / 跳弹角 / 模块判定 / 溅射 / 曳光颜色）。玩家路径无该标记，完全不受影响。
+
+**回归**（`scripts/test-fire.js` 新增 2b 段 6 项）：Lv13 敌军穿深 = 144（未修 288）/ 弹种特性保留（ammoKey 仍 apfsds_ad）/ **玩家反证**（apfsds 100×1.8=180 不受影响）/ Lv1 零回归。
+
+### 4) 验证
+
+`npm test` **59 通过 / 0 失败**（含新增审计脚本）；`npm run check`（语法 + tsc + 测试链登记）**All checks passed**。
+
+**细则归口**：`specs/combat/enemy-scaling.md`（三层审计与 entityMults 各键实际生效范围）；`specs/combat/enemy-ai.md` 无关。
+
+## §4.144 2026-10-27 玩家电磁炮充能声：短窗口 + 柔和波形（用户反馈「太尖锐、时间太长」）
+
+**性质**：**用户裁定 + 声学调参**。承接 §4.137（#AA-c 三段声学）：那条只做了「有充能声」，没定**响多久**与**什么音色**。
+
+### 1) 现象与根因
+
+用户原话：「充能的音效太尖锐、时间太长，只在充能完毕前有一点电流声」。
+
+- **太长**：#AA-c 的循环实例从「装填开始」一直响到「充满」——电磁炮装填是 `reload × 1.8`，实机 2~4 秒**全程**持续音。
+- **太尖锐**：`chargeWave: 'sawtooth'` + `freqMax: 760`。锯齿谐波列衰减慢（7.6kHz 附近仍有可闻高次），叠在 0.16 增益上就是「刺耳的电流嗡」。
+- **音高位置错**：页面把**全局** `railChargeProgress` 直接喂 `railChargeFreqFor`。只保留「充满前一小段」后，全局进度在该段恒在 0.8~1 ⇒ 起声那一瞬就是最高音（更尖）；「有一点电流声」要的是**从低扫上去的一小段**。
+
+### 2) 修复
+
+- `js/tank_rules.js` `RULES.railgunFx.audio`：`chargeWave` sawtooth→**triangle**；`freqMin/freqMax` 110/760→**180/520**；`gain` 0.16→**0.11**；`attack` 0.25→**0.06**；`release` 0.12→**0.10**；新增 **`windowSeconds: 0.6`**（可听窗口秒数，时长唯一口径）。
+- `js/tank_audio.js` 新增纯函数 **`railChargeWindowProgress(secondsLeft)`**（导出）：距充满 ≤ `windowSeconds` 时返回窗口内局部进度 0→1，否则 **`null`**（不响）；非有限值 / 负剩余一律 `null`（不让 `NaN` 进 `OscillatorNode.frequency`）。
+- `tank_battle.html` 玩家段：`_railChargeOn` 语义收窄为「**可听窗口**是否在放」；音高喂窗口局部进度而非全局进度；`railReady` 改用独立装填边沿标记 `_railLoading`（否则窗口在充满前 0.6s 结束，ready 音会被吞掉）。
+
+### 3) 为什么用「窗口秒数」而不是「百分比」
+
+最后一次 20% 在短装填上只剩 0.2s（听不出扫频），在长装填上仍有 0.8s（还是偏长）。固定**秒数**才能保证「不管装填多长，都是充满前那一下」。窗口内音高从 `freqMin` 完整扫到 `freqMax`，对应「电容被一点点打满」的听感。
+
+### 4) 回归与验证
+
+- `scripts/test-audio.js` 新增 **6.4 段 20 项**：`windowSeconds < 1` / `chargeWave === 'triangle'` / `freqMax ≤ 600` / 增益 < 0.16 / 窗口边界（左端 0、中点 0.5、充满 1、窗口外与负剩余 `null`）/ `NaN·Infinity·undefined·null·字符串` 全部 `null` / 窗口内 20 段音高严格单调且两端贴合 `freqMin`/`freqMax`。
+- `npm run check`（语法 + tsc + 测试链登记）**All checks passed**；`npm test` **59 通过 / 1 失败（共 60 项，含本批前新增的 `test-enemy-scaling-audit.js`）**——唯一失败为 `scripts/test-asset-pipeline.js`，即 AGENTS §3.7 记录的沙箱 EPERM（`spawnSync` 捕获管道 stdio 返回 `null`），非代码缺陷。
+
+**细则归口**：`specs/combat/audio.md` §「充能循环 = 短窗口 + 柔和波形」；Boss 侧静音口径见 §4.141 与 `specs/boss/railgun.md`。
+
+## §4.145 2026-10-27 成长曲线审计工具 + 玩家/敌人成长速率再平衡（用户裁定「按建议执行」）
+
+**性质**：**方法论建立 + 参数再平衡**。§4.143 修完弹种穿透后，用户提出「必须对比 AI 成长和玩家成长速度」，并给了一个三步方案（画 AI 曲线 / 画玩家曲线 / 对比后修改）。
+
+### 1) 方法论：为什么不用「属性对属性」对比
+
+用户原方案输出「属性曲线」并两两对比。审计后判定该输出物会导致误判，理由三条：
+
+1. **玩家成长不是一条曲线，是包络**：局内商店价格指数增长（`costGrowth` 1.5~1.8）+ 每节点收入有限（`scoreNode = 100×(1+0.2·index)`）⇒「某项升满」的曲线是**虚构的**，真实形态是受资源约束的可达集合。
+2. **属性差值不代表能/不能击穿**：真实判定是 `pen vs armor/cosθ`，还有跳弹角、模块、命中率；两条曲线各自上涨看不出玩家能不能活。
+3. **属性曲线看不见「靠走位和技能」这一设计意图**——那是战斗结局维度（不被命中 / 减伤 / 回复），不是属性维度。
+
+**替代方案（四层）**：① 玩家侧用 5 条真实可达的商店购买轨迹（火力/防护/机动/均衡/贪心）；② 敌人侧走真实四层叠加（`enemyAnchorBase × classProfiles × entityMults × difficultyCapMuls`）；③ 双向 TTK 走 `resolveHit` 蒙特卡洛（击穿/跳弹/模块/未击穿残余全算）；④ 压成单指标 **优势度 = 敌人TTK玩家 / 玩家TTK敌人**（>1 玩家占优），理想形态「缓降且始终 >1、末节点逼近 1」。
+
+### 2) 审计发现（调整前）
+
+末节点（index 12 / diff 0.95）优势度：balanced **0.73**、greedy **0.58**、firepower **0.46**、armor **0.45**、mobility **0.47**——**全线打不过**，与用户手感一致。
+
+成长速率对照（这是根因）：
+
+| | 低难度 | 高难度 | 倍数 |
+|---|---|---|---|
+| 敌人 HP | 81 | 192 | **2.37×** |
+| 敌人 单发伤害 | 30 | 47 | 1.57× |
+| 敌人 装填 | 1.55s | 1.16s | **快 33%（DPS ×1.34）** |
+| **敌人 DPS 合计** | — | — | **×2.10** |
+| 玩家 伤害 | 34 | 54 | 1.59× |
+| 玩家 装填 | 1.30s | 1.30s | **完全未变** |
+| **玩家 DPS 合计** | — | — | **约 ×1.5** |
+
+双向恶化同时发生：玩家打敌人更久（TTK 2.0s→3.0s），敌人打玩家更快。
+
+### 3) 三处调整（用户裁定 B+A+C）
+
+1. **B·放缓敌人 HP 成长**：`entityMults.maxHp [0.6, 2.2] → [0.6, 1.8]`（1.93×，与玩家 DPS ~1.5× 收敛）。
+2. **A·放缓敌人 DPS 成长**：`entityMults.damage [0.8, 1.5] → [0.8, 1.35]`（敌人 DPS 合计 2.10× → 1.85×；`reload` 端序不动，保留「越难越快」的压迫感）。
+3. **C·强化玩家 DPS 通道（克制版）**：`penetration_up` +6→**+8**/级、`damage_up` +4→**+5**/级、两者 `costGrowth` 1.7→**1.6**、`fast_reload` 1.6→**1.5**。**提单级回报而非猛降价格**——保住「资源紧张」体感，避免变成数值碾压。
+
+### 4) 调整后结果（末节点，0° 正面对射）
+
+| build | 调整前 | 调整后 |
+|---|---|---|
+| balanced | 0.73 | **1.13** |
+| greedy | 0.58 | 0.85 |
+| firepower | 0.46 | 0.79 |
+| armor | 0.45 | 0.75 |
+| mobility | 0.47 | 0.55 |
+
+30° 侧翼场景：balanced **1.15**、greedy 0.88、firepower 0.75、armor 0.79、mobility 0.56——与正面同阶，说明不是单角度侥幸。
+
+### 5) 审计过程中修正的两个自身缺陷（记录以防重犯）
+
+- **① 玩家模型系统性低估**：首版 `balanced` 购买优先级**遗漏 `fast_reload`** ⇒ 玩家装填从头到尾恒定 1.30s，而敌人 1.55→1.16（比玩家快 12%）。快速装填是最便宜的 DPS 乘数（25 分起、−3%/级），真实玩家必买。修正后所有 build 纳入。
+- **② build 定义过于极端**：首版 `armor` / `mobility` **完全不买穿深** ⇒ 30° 斜射时击穿率 0%、优势度 0.00，被误读为「设计缺口」。修正为「保留一条最低限度穿深通道」——真实玩家不会蠢到零穿深。
+- **③ 顺带根治两条 flaky 断言**：`test-ai.js` 的 press 用例写死 `move === 1`，但 #M 机动层会随机掷 `retreat`（move=−1，合法战术动作）⇒ 偶发失败。改为断言「有位移动作」而非写死方向，连跑 5 次稳定。
+
+### 6) 判读边界（重要，勿误用本表）
+
+- 本表是**绝对下限玩家**：零卡牌（196 张）+ 零技能（修理箱/医疗包/护盾/烟幕）+ 零永久升级 + 零走位。**真实玩家优势度会显著更高**——用它判断「会不会卡死」，不要用它判断「难度是否合适」。
+- **纯路线 0.55~0.79 是可接受的取舍代价**：商店是自选项，玩家会补短板；零补短的极端 build 卡死属 roguelike 正常失败。
+- **mobility 读数被系统性低估**：固定距离/角度抹掉了「绕侧、拉开距离、躲掩体」的价值；评估机动流须配合实机测试。
+- `greedy`（不规划但也不极端）0.85 —— 这是设计的底线：不规划仍可通关，规划则更从容。
+
+### 7) 验证
+
+- 新增 `scripts/audit-growth-curve.js`（审计工具，不进 `npm test`——非断言型）：`node scripts/audit-growth-curve.js [--angle=30] [--focus=balanced] [--md=path]`。
+- `scripts/test-economy.js` 同步单级回报断言（`+6/+4` → `+8/+5`，带 §4.145 注记）。
+- `npm test` **60 通过 / 0 失败**；`npm run check` **All checks passed**。
+
+**细则归口**：`specs/combat/enemy-scaling.md` §「成长曲线审计与再平衡」；`entityMults` 数值唯一口径同页上方列表。
+
+## §4.146 2026-10-27 Agent 配置迁移 `.dsh/` → `.claude/` + docs 一致性收口
+
+**性质**：**工具与工作流变更 + 文档整理**，不改游戏逻辑、不改 `js/` 与页面代码。来源：用户「从 `.dsh` 中迁移 skill、子 agent 配置等信息，阅读、整理 `docs/`」。
+
+### 1) 迁移内容
+
+| 旧位置 | 新位置 | 说明 |
+|---|---|---|
+| `.dsh/skills/role-{combat,mapgen,systems,content,render-fx,verify-docs}/SKILL.md` | `.claude/agents/role-*.md` | 角色卡改 subagent 形态（frontmatter `name` / `description` / `model: inherit`），可直接用 `Agent` 工具的 `subagent_type` 派发；写域与交接契约原样保留 |
+| `.dsh/skills/rogue-tank-roles/SKILL.md` | `.claude/skills/rogue-tank-roles/SKILL.md` | 写域索引；路径引用改为 `.claude/agents/role-*` |
+| `.dsh/skills/doc-workflow/SKILL.md` | `.claude/skills/doc-workflow/SKILL.md` | 4 步生命周期；「下一个 §4.x」改为实时编号（本次 §4.147） |
+| `.dsh/skills/sandbox-verify/SKILL.md` | `.claude/skills/sandbox-verify/SKILL.md` | 去掉 dsh 专属措辞，保留可复用的失败签名（EPERM / spawn / 退出码 86 / PowerShell UTF-8） |
+| `.dsh/skills/shared-module-dev/SKILL.md` | `.claude/skills/shared-module-dev/SKILL.md` | 补 `tank_ai_squad` 先于 `tank_ai`、单一实例注册表清单 |
+| `.dsh/skills/test-runner/SKILL.md` | `.claude/skills/test-runner/SKILL.md` | 测试项数更新为 59 个 `test-*.js` + `validate-content.js` = 60 项登记 |
+
+`.dsh/` 已删除（git 历史可追溯）。`AGENTS.md` §3.6 的权威指针同步改为 `.claude/`，并在历史沿革里保留 2026-09-13 → 2026-10-19 → 2026-10-27 三段迁移记录。
+
+### 2) 迁移时复核出的过期口径（均已修正）
+
+1. **`role-combat` 技能键位**：旧卡仍写 7 个运行时技能（含 `super_fire_control` / `super_speed`），实际已于 2026-10-20 #W9 删除 ⇒ 改为 5 个。
+2. **F 键口径**：旧卡只写「开关类必须走原生边沿」，未写「连发类保留轮询」⇒ 补上，避免后人按旧卡删轮询打死火箭巢连发（§4.136 实测）。
+3. **`role-systems` Boss aiMode**：旧卡写「三处改动」，实际是**四处**（`js/tank_boss.js` 的 `validateBossStage` 另有硬编码白名单）。
+4. **`role-content` 卡牌数与 `tags`**：旧卡写 191 张且带 `tags`；`tags` 已于 2026-10-20 #16 下线，数量改为「必须实测」。
+5. **`doc-workflow` / `role-verify-docs` 的「下一个 §4.x」**：旧值 §4.115 / §4.138 早已过期 ⇒ 改为本次 §4.147。
+6. **测试项数**：58/59 → **59/60**（§4.145 新增 `test-enemy-scaling-audit.js` 后未同步）。
+
+### 3) docs 整理
+
+- **`§4.144` 补进 `docs/DEVELOPMENT.md` §4.0 索引表**——原表从 §4.143 直接跳到 §4.145，违反「§4 禁止缺号」纪律。
+- **`docs/PLAN.md` §6 整节归档**——2026-10-24 用户反馈批次已全部关账，原文迁入 `docs/archive/2026-10.md`，PLAN 原位只留 3 行关账指针；§1 待办表删除已完成的 AA-c 行，首行改为下一步实事 **R0 渲染地基**；§2.2 顺序 0 标记完成。
+- **指针改道**：`docs/ISSUES.md` 与 `docs/DEVELOPMENT.md` §3.2 里指向 `PLAN.md §6.1.1` 的引用改指归档原文。
+- **`docs/README.md`** 文档地图加入 `.claude/`；`docs/specs/combat.md` 与 `docs/specs/map.md` 的外部引用统计注记从 `.dsh/skills/role-*` 改为 `.claude/agents/role-*`。
+
+### 4) 验证
+
+- `node scripts/wiki-check.js` → `broken=0 anchorBad=0 struct=0 template=0`
+- `npm run check` → `All checks passed`
+- `npm test` → **60 通过 / 0 失败**
+- 未改 `js/` 与页面代码，`npm run test:browser` 本批未跑（无浏览器改动）。

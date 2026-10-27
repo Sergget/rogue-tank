@@ -60,6 +60,21 @@ function _bossTextScale(target){
 function _rules(c){ return (c&&c.rules)||(c&&c.RULES)||_G('RULES',{}); }
 function _tiers(c){ return (c&&c.coverTiers)||_G('COVER_TIERS',(_rules(c).coverTiers||{})); }
 
+// 2026-10-26（用户裁定）：「电磁炮发射音效像射箭，不是发射了电磁炮」。
+//   开火瞬态键的分工点只有这里——Boss 的电磁炮走 `BOSS_RAIL_FIRE_KEY`（SOUND_DEFS.bossRailFire：
+//   弓弦 + 破空，增益 0.55），玩家自己装的电磁炮仍走 `firerail`（三段放电声学，gain 1.0）；
+//   其余武器恒 `fire`。键名唯一口径 RULES.boss.railgun.fireSoundKey（缺省同常量）。
+//   ⚠ 常量名不得与 SOUND_DEFS 键同名的裸函数冲突——这里只是字面量兜底。
+function _fireSoundKeyFor(shooter, spec){
+  const type = spec && spec.type;
+  const isRailgun = type === 'railgun';
+  if (!isRailgun) return 'fire';
+  if (!(shooter && shooter.isBoss)) return 'firerail';
+  const boss = (typeof RULES !== 'undefined' && RULES && RULES.boss) ? RULES.boss : null;
+  const key = (boss && boss.railgun && boss.railgun.fireSoundKey) || 'bossRailFire';
+  return key;
+}
+
 // #E4（2026-09-20）便携式掩体的弹道求交：返回弹道段 (sx,sy)→(nx,ny) 与部署掩体 OBB 的首个交点
 // 参数（0~1 的段比例 × 段长 → 直接返回像素距离，便于与 step/掩体 distA 同口径比较）；无交返回 null。
 // 几何口径与绘制同源：中心 (x,y)、尺寸 hullLen×hullWid、朝向 hullAngle。
@@ -221,6 +236,16 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx, dmgSca
   const isRailgun = spec && spec.type === 'railgun';
   const isChemical = !!(ammo && ammo.noBounce);   // HE/HEAT/HEAT-FS
   if (isRailgun && isChemical) penMult = 1;
+  // 2026-10-26（§4.143）：**敌方/Boss 弹种中和**——消费端补上此前缺失的一半。
+  //   `applyEnemyAmmoByLevel`（js/tank_model.js）给敌军按等级套 AP 链弹种时写
+  //   `ammoStatNeutral = true`，但此处从未读取该标记 ⇒ 弹种的 pen/dmg 倍率原样乘在
+  //   `stats.penetration`（已被 penCap 封顶 144）之后 ⇒ 后期敌军实际穿深
+  //   lv13 = 144 × 2.0(apfsds_ad) = **288mm**，玩家装甲升级完全无效（用户 2026-10-26 反馈）。
+  //   现按 2026-10-22 的原定口径把 pen/dmg 当 1.0 处理；弹速/散布/跳弹角/模块/溅射等
+  //   弹种特性全部保留（只中和数值倍率），玩家路径完全不受影响（无该标记）。
+  const _ammoNeutral = !!shooter.ammoStatNeutral;
+  const ammoPen = _ammoNeutral ? 1 : ((ammo && typeof ammo.pen === 'number') ? ammo.pen : 1);
+  const ammoDmg = _ammoNeutral ? 1 : ((ammo && typeof ammo.dmg === 'number') ? ammo.dmg : 1);
   const zero = devAim && devAim.zeroSpread && shooter.id === 'player';
   const spreadAcc = (ammo && typeof ammo.spreadAcc === 'number') ? ammo.spreadAcc : 1;
   const cardSpreadMul = (ammo && typeof ammo.spread === 'number') ? ammo.spread : 1;
@@ -269,7 +294,7 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx, dmgSca
     const wave = c.spawnShockwave || _G('spawnShockwave', function () {});
     wave(ox, oy, 46, 0.26, 'rgba(235,244,255,0.85)', 2.4);
   }
-  play(isRailgun ? 'firerail' : 'fire', isDB ? { gain: 1.6 } : undefined);
+  play(_fireSoundKeyFor(shooter, spec), isDB ? { gain: 1.6 } : undefined);
   // #AA-c（2026-10-26）：电磁炮开火瞬间收掉充能循环声——否则发射轰响与充能电流叠在一起爆音。
   //   页面侧边沿判定（reloadT 重置）也会 stop，这里是同一帧内的第一道闸。
   if (isRailgun && typeof stopRailChargeLoop === 'function') { try { stopRailChargeLoop(); } catch (e) {} }
@@ -287,9 +312,10 @@ function firePrimaryShell(shooter, target, hitPref, ctx, lateralOffsetPx, dmgSca
   const shell = {
     x: ox, y: oy, fx: fx, fy: fy, dx: dx, dy: dy,
     speed: Math.max(200, shooter.stats.shellSpeed * (ammo.speed || 1) * speedMult + (ammo.speedAdd || 0)),
-    pen: shooter.stats.penetration * (ammo.pen || 1) * penMult + (ammo.penAdd || 0),
+    // §4.143：ammoStatNeutral 时 ammoPen/ammoDmg 已置 1（见上方注释）
+    pen: shooter.stats.penetration * ammoPen * penMult + (ammo.penAdd || 0),
     // 2026-10-22（第五批 B2-9）：dmgScale 乘在这里（砰砰炮追发弹 0.6）
-    dmg: Math.max(0, (shooter.stats.damage * (ammo.dmg || 1) * dmgMult + (ammo.dmgAdd || 0)) * _dmgScale),
+    dmg: Math.max(0, (shooter.stats.damage * ammoDmg * dmgMult + (ammo.dmgAdd || 0)) * _dmgScale),
     ammo: ammo, ammoKey: shooter.ammoKey, shooter: shooter, hitPref: hitPref,
     fxScale: fxScale,
     // #U38（2026-10-18）：弹体视效通道——drawShells 据此绘制电磁炮的针状电离弹 + 电弧尾迹。
@@ -1502,5 +1528,7 @@ if(typeof module!=='undefined'&&module.exports){
   // 2026-10-22（第五批 B2-9）：标准主炮砰砰炮追发队列驱动（battle 主循环调用）
   updatePrimaryFollowup:updatePrimaryFollowup,
   // 2026-10-22（第五批 §4.9.2(b)）：直线掩体部位裁剪的弹道侧入口（供测试直接驱动）
-  _wallBlockAlong:_wallBlockAlong};
+  _wallBlockAlong:_wallBlockAlong,
+  // 2026-10-26（用户反馈）：开火音效键选择（Boss 电磁炮 → bossRailFire，玩家 → firerail，其余 → fire）
+  _fireSoundKeyFor:_fireSoundKeyFor};
 }

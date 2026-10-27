@@ -80,6 +80,10 @@ const TESTS = [
   // 2026-10-22（第五批）B1/B2 战斗内核契约：RULES 新字段 / 敌弹种中性 / 商店曲线 /
   // 击杀分 / 双管 0.8s / 曲射 2σ / 直线掩体部位裁剪 / Boss 简报与电磁炮蓄能。
   'scripts/test-batch5-combat.js',
+  // 2026-10-26 §4.143：敌军难度缩放三层审计（entityMults 单键生效性 / maxSpeed 死键 /
+  //   penCap 与 dmgFloor 二次改写 / 难度曲线快照 / Boss 与普通敌人同表不同语义）。
+  //   锁事实防回潮：改 entityMults 前先看本文件打印的真实终值。
+  'scripts/test-enemy-scaling-audit.js',
   // 2026-10-23：近期可落地机制三件套——撞击伤害（RULES.ramming）/ 隐蔽感知（RULES.camouflage）
   //   / 战术闪跃（RULES.abilities.flash_dash）。含「新 RULES 块必须有消费方」的死配置哨兵。
   'scripts/test-recent-mods.js',

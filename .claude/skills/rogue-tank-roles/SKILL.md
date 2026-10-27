@@ -5,7 +5,7 @@ description: Use when dispatching or acting as a Rogue Tank specialist role — 
 
 # Rogue Tank — 角色索引与写域纪律
 
-本项目只认 **6 个角色**。调度前先在本表定位角色，再加载对应角色卡：
+本项目只认 **6 个角色**，角色卡位于 `.claude/agents/role-*.md`。调度前先在本表定位角色，再加载对应 agent：
 
 | 角色卡 | 负责系统 | 典型触发词 |
 |---|---|---|
@@ -22,12 +22,12 @@ description: Use when dispatching or acting as a Rogue Tank specialist role — 
 
 | 文件 | 规则 |
 |---|---|
-| `tank_battle.html`（390KB） | **单写者**。同一批次只允许 1 个角色改页面接线，其余角色只交付 `js/` 模块。默认写者是 `role-combat`（战斗循环）/ `role-systems`（流程经济）二选一，由调度方指定 |
+| `tank_battle.html`（390KB+） | **单写者**。同一批次只允许 1 个角色改页面接线，其余角色只交付 `js/` 模块。默认写者是 `role-combat`（战斗循环）/ `role-systems`（流程经济）二选一，由调度方指定 |
 | `tank_bench.html` | 同上，默认 `role-render-fx` 或 `role-combat` |
 | `tank_designer.html` / `designer.js` | 仅 `role-systems`（几何） |
 | `js/tank_cards.js` | 仅 `role-content`（枚举与校验单一来源） |
 | `js/tank_boss.js` | 仅 `role-systems`（运行时）；`role-content` 只写 `bosses/*.json` |
-| **`docs/specs/<卷>/` + `docs/specs/<卷>.md`** | **一整个卷 = 一个不可分割的写单元**，同一时刻只允许 1 个角色改（含该卷全部主题页 + 兼容索引页）。跨卷可并行。必须与 `docs/DEVELOPMENT.md §4.x` 同批落地，并跑 `node scripts/wiki-check.js` |
+| **`docs/specs/<卷>/` + `docs/specs/<卷>.md`** | **一整个卷 = 一个不可分割的写单元**，同一时刻只允许 1 个角色改（含该卷全部主题页 + 兼容索引页）。跨卷可并行。必须与 `docs/DEVELOPMENT-batches-<yyyy-mm>.md` 的 §4.x 同批落地，并跑 `node scripts/wiki-check.js` |
 | `docs/WIKI-STYLE.md` | specs 形态规范权威；改它等同改纪律，需 Lead 批准 |
 | `scripts/run-tests.js` / `scripts/check-html.js` / **`scripts/wiki-check.js`** | 仅 `role-verify-docs` |
 
@@ -45,10 +45,10 @@ description: Use when dispatching or acting as a Rogue Tank specialist role — 
 任何角色完成改动后**不自称验证通过**，统一由 `role-verify-docs` 跑：
 
 ```
-node scripts/check-html.js          # 语法冒烟（沙箱内可直接跑，EXIT=0 才算过）
+node scripts/check-html.js          # 语法冒烟（EXIT=0 才算过）
 node node_modules/typescript/bin/tsc --noEmit
-npm test                            # Node 全链（48 项 + 1 EPERM 环境失败）
-npm run test:browser                # 需系统 Edge；沙箱内 spawn EPERM 属环境限制
+npm test                            # Node 全链（59 个 test-*.js；runner 登记 60 项）
+npm run test:browser                # 需系统 Edge；受限环境下 spawn EPERM 属环境限制
 node scripts/wiki-check.js          # 仅当本批改过 docs/：断链/锚点/兼容页结构/wiki 页模板
 ```
 

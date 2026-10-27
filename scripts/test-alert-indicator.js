@@ -59,6 +59,15 @@ section('alertIndicatorFor 归并逻辑');
     'react（已发现、正在起转）→ engaged（已锁定语义）');
   ok(alertIndicatorFor(mkEnemy({ alertLevel: 3, aiState: 'patrol' })) === 'engaged',
     'alertLevel=3 → engaged（即使 aiState 未及切换）');
+  // 2026-10-26 §4.141：接战事实驱动，不再看 aiState 白名单。
+  // §4.140 后接战主体的 aiState 是状态机默认 'patrol'（推进/驻停/射击都不改写它），
+  // 旧判据会在这段「AI 正在打」的时间里把图标判没 → 用户反馈「图标晚于 AI 行动」。
+  ok(alertIndicatorFor(mkEnemy({ aiEngaged: true, aiState: 'patrol', alertLevel: 0 })) === 'engaged',
+    '§4.141：aiEngaged + patrol（接战主体默认态）→ engaged（不再打着打着图标消失）');
+  ok(alertIndicatorFor(mkEnemy({ aiEngaged: true, aiState: 'coverSeek', alertLevel: 0 })) === 'engaged',
+    '§4.141：coverSeek（寻掩途中）→ engaged');
+  ok(alertIndicatorFor(mkEnemy({ aiEngaged: true, aiState: 'defensive', alertLevel: 0 })) === 'engaged',
+    '§4.141：defensive（远距守据点）→ engaged');
 
   // 问号：怀疑 / 搜寻
   ok(alertIndicatorFor(mkEnemy({ aiState: 'suspicious', alertLevel: 1 })) === 'alert',

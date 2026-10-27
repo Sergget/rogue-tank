@@ -723,7 +723,11 @@ let bossLaserFx = null;
 //   在 B5 落地前它恒为 null，draw 段什么都不画（零视觉回归）。
 let bossRailFx = null;
 // #AA-c（2026-10-26）：电磁炮充能循环是否在放（边沿判定用，玩家侧）。
+// 2026-10-27：循环只在「充满前 windowSeconds 秒」内放，故本标记 = **可听窗口**是否在放，不再是整段装填。
 let _railChargeOn = false;
+// 2026-10-27（用户反馈「只在充能完毕前有一点电流声」）：装填边沿标记——>0 期间为 true，
+//   归零那帧播一次 `railReady`（与充能循环的可听窗口解耦，见主循环里的玩家段注释）。
+let _railLoading = false;
 // #E4（2026-09-20）：已确认待生成的雷场——t 为剩余延时（秒）
 // 2026-10-22（第五批 B2-1）：元素结构改为**带状** `{ x, y, angle, len, wid, fieldId, t }`
 //   （原 `{x,y,radius,count,t}` 圆形已删除）。中心在「第一次 F」按下瞬间定格，angle 随鼠标实时刷新。
@@ -4559,25 +4563,38 @@ function update(dt){
     if(devCheat.instantReload) player.reloadT = 0;
   }
 
-  // #AA-c（2026-10-26）：电磁炮充能循环音频（玩家侧）——边沿起停 + 逐帧改音高 + 满电就绪提示。
-  //   进度口径与 HUD 充能环 / 炮身电弧**同源**：`railChargeProgress(player)`（js/tank_battledraw.js）。
-  //   ⚠️ `railChargeProgress` 对非电磁炮 / 无 reloadT 的实体返回 **1**（满电待机），所以必须先用
-  //   `primaryWeaponSpec().type === 'railgun'` + `reloadT > 0` 判定「真的在充能」，否则常驻鸣响。
+  // #AA-c（2026-10-26）/ 2026-10-27（用户反馈）：电磁炮充能循环音频（玩家侧）。
+  //   用户第二次反馈：「充能的音效太尖锐、时间太长，只在充能完毕前有一点电流声」⇒ 现行口径：
+  //   ① **只在最后 `RULES.railgunFx.audio.windowSeconds` 秒（默认 0.6s）内响**——不再整段装填嗡鸣；
+  //   ② 音高用**窗口内局部进度**（`railChargeWindowProgress(player.reloadT)`，0→1 映射到
+  //      freqMin→freqMax），不是全局 progress——否则窗口里音高恒贴高位、起声即最尖；
+  //   ③ 波形/频段/增益已改为 triangle 180→520Hz / 0.11（尖锐的锯齿谐波列已删，见 RULES 注记）。
+  //   ⚠️ `railChargeProgress` 对非电磁炮 / 无 reloadT 的实体返回 **1**（满电待机），所以仍必须先用
+  //   `primaryWeaponSpec().type === 'railgun'` + `reloadT > 0` 判定「真的在装填」。
   {
     const _railSpec = (typeof primaryWeaponSpec === 'function' && player) ? primaryWeaponSpec(player) : null;
     const _isRail = !!(_railSpec && _railSpec.type === 'railgun');
-    const _charging = _isRail && player && player.hp > 0 && player.reloadT > 0;
-    if(_charging){
+    const _railAlive = !!(player && player.hp > 0);
+    const _charging = _isRail && _railAlive && player.reloadT > 0;
+    const _winP = (_charging && typeof railChargeWindowProgress === 'function')
+      ? railChargeWindowProgress(player.reloadT) : null;
+    if(_winP !== null){
       if(!_railChargeOn){
         _railChargeOn = true;
         if(typeof startRailChargeLoop === 'function') startRailChargeLoop();
       }
-      if(typeof updateRailChargePitch === 'function') updateRailChargePitch(railChargeProgress(player));
+      if(typeof updateRailChargePitch === 'function') updateRailChargePitch(_winP);
     } else if(_railChargeOn){
       _railChargeOn = false;
       if(typeof stopRailChargeLoop === 'function') stopRailChargeLoop();
-      // 就绪提示只在「装填刚完成」那一刻响一次；满电待机（reloadT 本来就 ≤0）不重复播
-      if(_isRail && player && player.hp > 0) playSound('railReady');
+    }
+    // 就绪提示与可听窗口**解耦**：窗口在「充满前 0.6s」就结束，而 ready 音的语义是「装填刚完成」。
+    //   边沿判定用独立标记 `_railLoading`（>0 → ≤0 播一次）；满电待机（reloadT 本来就 ≤0）不重复播。
+    if(_charging){
+      _railLoading = true;
+    } else if(_railLoading){
+      _railLoading = false;
+      if(_isRail && _railAlive) playSound('railReady');
     }
   }
 
@@ -5111,31 +5128,47 @@ function update(dt){
       //     ① 缓存绘制数据（B5 的 drawBossRailLine 消费）；
       //     ② 让 fireTank 门控生效（蓄能未完成时 e.railChargeHold=true ⇒ 不开火）。
       // ⚠ 只对 Boss 生效：railgun 也是玩家可装的主炮，玩家侧不该被蓄能门控拦住（否则空格打不出弹）。
+      // 2026-10-26（用户反馈，现行口径）：
+      //   · 指向期**默认静音**（`RULES.boss.railgun.aimAudio === false`）：不起充能循环声、不播
+      //     railReady、不播预警 ui 音；只保留屏幕预警（pushLog 红字 + 顶部横条）。开关是唯一判据，
+      //     改成 true 即恢复 #AA-c 的三段声学接线。
+      //   · 事件坐标已是**炮口**且带 blockedDist（全高掩体截断），这里只透传给绘制层。
       if(e.isBoss && typeof updateBossRailCharge === 'function'){
         try {
-          const revts = updateBossRailCharge(e, dt, player);
+          const _railCfg = (RULES.boss && RULES.boss.railgun) || {};
+          const _railAudio = (_railCfg.aimAudio === true);
+          const revts = updateBossRailCharge(e, dt, player, { covers });
           for(const rev of revts){
             if(rev.type === 'railCharge'){
               bossRailFx = { kind: 'charge', x: rev.x, y: rev.y, angle: rev.angle,
-                             length: rev.length, width: rev.width, progress: rev.progress };
-              // #AA-c（2026-10-26）：Boss 蓄能也走同一套充能循环声（音高跟随蓄能进度）。
-              if(typeof startRailChargeLoop === 'function') startRailChargeLoop();
-              if(typeof updateRailChargePitch === 'function') updateRailChargePitch(rev.progress);
-              if(!e._railWarned){ e._railWarned = true; pushLog('⚠ BOSS 电磁炮蓄能 — 离开炮线区域！', 'CRIT'); playSound('ui'); }
+                             length: rev.length, width: rev.width, progress: rev.progress,
+                             blockedDist: rev.blockedDist };
+              if(_railAudio){
+                if(typeof startRailChargeLoop === 'function') startRailChargeLoop();
+                if(typeof updateRailChargePitch === 'function') updateRailChargePitch(rev.progress);
+              }
+              if(!e._railWarned){
+                e._railWarned = true;
+                pushLog('⚠ BOSS 电磁炮蓄能 — 离开炮线区域！', 'CRIT');
+                if(_railAudio) playSound('ui');
+              }
             } else if(rev.type === 'railReady'){
+              // ready = 蓄满（progress 恒按 1 画），与 charge 同样按掩体截断
               bossRailFx = { kind: 'ready', x: rev.x, y: rev.y, angle: rev.angle,
-                             length: (RULES.boss && RULES.boss.railgun && RULES.boss.railgun.lineLength) || 1400,
-                             width: (RULES.boss && RULES.boss.railgun && RULES.boss.railgun.lineWidth) || 6 };
-              // #AA-c：蓄能完成 = 收充能声 + 就绪提示（旧实现借 `pen` 顶替，听感与命中声混淆）
-              if(typeof stopRailChargeLoop === 'function') stopRailChargeLoop();
-              playSound('railReady');
+                             length: rev.length, width: rev.width, progress: 1,
+                             blockedDist: rev.blockedDist };
+              if(_railAudio){
+                if(typeof stopRailChargeLoop === 'function') stopRailChargeLoop();
+                playSound('railReady');
+              }
             }
           }
           if(!revts.length && !(e.railChargeHold)) {
             e._railWarned = false;
             if(bossRailFx) bossRailFx = null;
-            // 蓄能窗口结束（含 Boss 被击杀/换装/脱离）→ 兜底收声，避免残响挂在场上
-            if(typeof stopRailChargeLoop === 'function' && !_railChargeOn) stopRailChargeLoop();
+            // 蓄能窗口结束（含 Boss 被击杀/换装/脱离）→ 兜底收声，避免残响挂在场上。
+            // 只在 aimAudio 开启时才需要（关闭时 Boss 从未起过循环声）；且不得误收玩家的充能声。
+            if(_railAudio && typeof stopRailChargeLoop === 'function' && !_railChargeOn) stopRailChargeLoop();
           }
         } catch(err) { /* 电磁炮蓄能层异常不阻断战斗主循环 */ }
       }
@@ -6489,10 +6522,14 @@ function draw(){
     ctx.restore();
   }
 
-  // 2026-10-22（第五批，B2 预留 / B5 实现）：Boss 电磁炮轨道线。
-  //   B5（role-render-fx）会在 js/tank_battledraw.js 或页面注入 `drawBossRailLine(ctx, bossRailFx)`；
-  //   本页只保证：① 顶层变量 bossRailFx 存在（enterBattle 清空）、② 绘制段有 typeof 空壳判断。
-  //   在 B5 落地前该函数不存在 ⇒ 什么都不画（零视觉回归）。
+  // 2026-10-22（第五批，B2 预留 / B5 实现）：Boss 电磁炮炮线（2026-10-26 起为**红色恒定指示线**）。
+  //   数据由主循环的 railCharge/railReady 事件写入 bossRailFx；本页只保证：
+  //   ① 顶层变量 bossRailFx 存在（enterBattle 清空）、② 绘制段有 typeof 空壳判断、
+  //   ③ Boss 阵亡/离场后清掉残留炮线（主循环里的 Boss 更新段会跳过，否则红线会挂在旧位置）。
+  if (bossRailFx) {
+    const _railBossAlive = entities.some(en => en.isBoss && en.hp > 0);
+    if (!_railBossAlive) bossRailFx = null;
+  }
   if (typeof drawBossRailLine === 'function') drawBossRailLine(ctx, bossRailFx);
 
   // P-17 战术炮击预警圈：虚线外圈 = 爆炸范围（固定 radius）；实心内圈随 t/delay 收缩 +
