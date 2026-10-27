@@ -1,9 +1,9 @@
 # 浏览器自动化测试链
 
-> **摘要**：`npm run test:browser` 四链脚本矩阵、测试钩子与 r4 夹具约定。
-> **适用版本**：现行（2026-10-21）
+> **摘要**：`npm run test:browser` 四链脚本矩阵、测试钩子与 r4 夹具约定；附 R0 渲染基线链。
+> **适用版本**：现行（2026-10-27；2026-10-27 补渲染基线链）
 > **源自**：`docs/specs/editor.md` §7.5（2026-10-21 拆分；原 §7.5 曾错排在 §7.6/§7.7 之后，2026-10-21 仅调物理位置、编号未改）
-> **相关**：[开发者面板](./devpanel.md) · [内容工具与 appearance](./appearance-aimspeed.md) · [兼容索引](../editor.md)
+> **相关**：[开发者面板](./devpanel.md) · [内容工具与 appearance](./appearance-aimspeed.md) · [渲染路线](../map/rendering-roadmap.md)
 
 ## 四链脚本矩阵
 
@@ -15,6 +15,26 @@
 | `test-browser-r3.cjs` | bench + battle | bench 技能/召唤物（炮塔/地雷/掩体注册投递）、弹种切换、G 炮击链路、掩体按钮超限拒绝（#F6） |
 | `test-browser-run.cjs` | battle | 真实 run 链路、弹种三槽轮换、卡牌直系演变与跳级拒绝、G/H/V 入口、devPanel 四 Tab、卡牌选择器搜索/`/`/应用/×N/−1 回滚、雷场预约门控（#F6） |
 | `test-browser-r4.cjs` | battle | **主武器各类型实战**（standard 单发 / double_barrel 空格齐射 2 发 / autocannon 连发+heatPct / railgun 单发）、**F 副武器**（mortar isArc / rocket burst / missile 锁定发射且按住不翻转 / mine_layer 按住只走一次边沿 + 雷场生成 + 触爆掉血）、**技能实战效果**（artillery 落弹掉血 / shield 吸收池 / overdrive 装填归零）、**商店购买结算**（hp_up 扣点+记录 / 复活加购 / 升级作用于开局） |
+
+## 渲染基线链（R0 / I3，2026-10-27）
+
+`scripts/browser-baseline.cjs` **不属于** `npm run test:browser`——它产出/比对基线而不是断言游戏逻辑，单独运行：
+
+| 命令 | 作用 |
+|---|---|
+| `node scripts/browser-baseline.cjs --write` | 记录 `standard` / `boss` / `survival` 三个固定场景到 `tmp/render-baseline/` |
+| `node scripts/browser-baseline.cjs --check` | 与基线比对（默认模式） |
+| `--scene=boss` / `--seed=N` / `--out=dir` / `--port=N` | 只重录单场景（与既有基线合并）/ 换种子 / 换输出目录 / 指定服务端口 |
+
+**固定条件**：1280×720、`deviceScaleFactor=1`、seed `20261027`、`Math.random` 固定序列、**进入战斗前** `setTimeScale(0)`（不推进模拟）、绘制时钟冻结在 `battleStartMs + 500`。
+
+**采集内容**：
+
+- 判定用：canvas 32×18 降采样网格 + 16 档亮度直方图（容差 `mean ≤ 2` / `max ≤ 16`，单通道 0..255）。
+- 记录用（不判定）：`update` / `draw` 帧时间 p50/p95（`js/tank_perf.js` 环形缓冲 240 帧）、JS 堆占用（`performance.memory`，非 Chromium 为 `null`）。
+- 每场景落一张 PNG（`--write` 存 `<out>/<scene>.png`，`--check` 存 `<out>/current/<scene>.png`，失败时可肉眼对比），作为「当前 Canvas 对照图」。
+
+**基线是本地产物**（`tmp/` 已 gitignore）：不同 GPU / 字体 / 抗锯齿会让像素网格漂移，跨机器基线不可移植；CI 不跑浏览器链。判定逻辑在 `scripts/lib/render-baseline.cjs`，由 `scripts/test-render-baseline.js` 覆盖。
 
 ## 边界与钩子
 

@@ -150,6 +150,25 @@ function screenToWorld(cam, sx, sy) {
 }
 
 /**
+ * 指针事件 → 世界坐标（**I4 拾取唯一入口**，2026-10-27 R0）。
+ *
+ * 页面只应通过本函数把指针位置换算成世界点。真 3D 切片时只需把这里换成
+ * 「屏幕射线 × 地面平面求交」，调用方与 `mouseWorld` 契约保持不变。
+ * 纯函数：不读 DOM，`rect` 由调用方传入（`canvas.getBoundingClientRect()`）。
+ *
+ * @param {any} cam 摄像机状态（需 x/y/vw/vh/zoom）
+ * @param {{left:number, top:number}} rect 画布在页面中的位置
+ * @param {number} clientX 事件 clientX
+ * @param {number} clientY 事件 clientY
+ * @returns {{x:number, y:number}} 世界坐标
+ */
+function pointerToWorld(cam, rect, clientX, clientY) {
+  const left = rect ? (rect.left || 0) : 0;
+  const top = rect ? (rect.top || 0) : 0;
+  return screenToWorld(cam, clientX - left, clientY - top);
+}
+
+/**
  * 视口在世界坐标下的 AABB（含缩放）。
  * @returns {{minX:number, minY:number, maxX:number, maxY:number}}
  */
@@ -249,6 +268,7 @@ if (typeof module !== 'undefined' && module.exports) {
     clampCamera,
     worldToScreen,
     screenToWorld,
+    pointerToWorld,   // I4：指针 → 世界坐标唯一入口（真 3D 时替换为地面射线求交）
     viewBounds,
     renderCamPos,     // #GT：渲染用像素对齐相机位置（修亚像素重采样导致的地面纹理抖动）
     aabbInView,

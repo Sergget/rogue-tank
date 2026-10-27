@@ -3662,3 +3662,47 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 - `npm run check` → `All checks passed`
 - `npm test` → **60 通过 / 0 失败**
 - 未改 `js/` 与页面代码，`npm run test:browser` 本批未跑（无浏览器改动）。
+
+## §4.147 2026-10-27 R0 渲染地基（I3 截图基线 + I4 拾取唯一入口 + 性能计数）
+
+**性质**：**渲染基础设施落地**，不改玩法与正式战斗表现。来源：用户「按建议做好 0/1」——先提交在途工作（见上一提交），再做 `docs/PLAN.md` §2.2 顺序 1 的 R0。细则归口 `specs/map/rendering-roadmap.md` §2.1 与 `specs/editor/browser-tests.md`「渲染基线链」。
+
+### 1) I4 拾取唯一入口
+
+- `js/tank_camera.js` 新增 `pointerToWorld(cam, rect, clientX, clientY)`（纯函数，不读 DOM）：`screenToWorld` 去掉 rect 偏移。
+- `tank_battle.html` 的鼠标移动与滚轮缩放、`tank_bench.html` 的鼠标移动全部改走它；页面不再直连 `screenToWorld` 做指针换算。
+- 真 3D 切片时只需把这一处换成「屏幕射线 × 地面平面求交」，`mouseWorld` 契约不变。
+
+### 2) 性能计数
+
+- 新增 `js/tank_perf.js`（纯逻辑）：`createPerfRing(240)` 环形缓冲 + `summarizeMs` 分位统计；非法耗时按 0，不污染统计。
+- battle 主循环逐帧记录 `update` / `draw` 耗时；`__TEST__.perf({reset})` 读取、`__TEST__.mem()` 读 JS 堆（非 Chromium 返回 `null`，不伪造数值）。
+- 新增 `__TEST__.battleStartMs()`：供截图基线把冻结时刻锚定成「开战 + 500ms」。
+
+### 3) I3 截图基线
+
+- 新增 `scripts/browser-baseline.cjs` + 判定逻辑 `scripts/lib/render-baseline.cjs`：
+  - 三场景 `standard` / `boss` / `survival`，1280×720、`deviceScaleFactor=1`、seed `20261027`、`Math.random` 固定序列。
+  - **进入战斗前** `setTimeScale(0)`，绘制时钟冻结在 `battleStartMs + 500` ⇒ 截图是确定的「第一帧」。
+  - 判定：canvas 32×18 降采样网格 + 16 档亮度直方图，容差 `mean ≤ 2` / `max ≤ 16`；每场景另存 PNG 作 Canvas 对照图。
+  - 性能数字（update/draw p50/p95、堆占用）只记录、不参与判定（随机器负载变化）。
+- `npm run baseline`（默认 `--check`，首次 `-- --write`）；基线在 `tmp/render-baseline/`，已 gitignore——跨机器像素网格不可移植，CI 不跑浏览器链。
+
+### 4) 新增测试
+
+- `scripts/test-pick.js`（9 断言）：同口径 / 已知值 / 往返 / rect 边界 / 页面负向断言。
+- `scripts/test-perf.js`（14 断言）：分位、环形回绕、reset、非法值归零、容量钳制。
+- `scripts/test-render-baseline.js`（16 断言）：网格容差、局部结构变化必须失败、场景尺寸、基线形状校验。
+- 三个测试已登记进 `scripts/run-tests.js`。
+
+### 5) 验证
+
+| 链 | 结果 |
+|---|---|
+| `npm run check` | EXIT=0，`All checks passed` + `tsc --noEmit` |
+| `npm test` | **63 通过 / 0 失败**（62 个 `test-*.js` + `validate-content.js`） |
+| `node scripts/browser-baseline.cjs --write` → `--check` ×3 | 三场景 `PASS`（连跑三次 mean ≤0.011 / max ≤5，容差 mean≤2 / max≤16） |
+| `node scripts/wiki-check.js` | `broken=0 anchorBad=0 struct=0 template=0` |
+| `npm run test:browser` | **四链 ALL PASS**（本批改了 battle/bench 的指针接线，实跑确认无回归） |
+
+**边界**：R0 不改正式战斗表现；截图取的是进入战斗后第一帧的冻结快照（不含 AI 推进后的画面）。

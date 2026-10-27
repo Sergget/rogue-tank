@@ -35,7 +35,8 @@
   - `tank_nodegen.js`：节点地图元素生成器（7 内置模板 + `generateNode(difficulty,{seed,templateId,scale})` 确定性生成 + `placeRoadNetwork` 路网 **v4 七拓扑**（A 贯通 / B 十字 / C 单侧 T / E 双侧 T / D 双平行 / G 网格街区 / I 双干贯穿）+ 建筑与路口沙包 + 重叠消解 + `generateStrip` 横向条带（`opts.chunkRows` 多行片网格 + 每行横向路面保证 + 行间接缝推出 + `fillEmptyBands` 补植）+ `clearCoversOnRoads` 道路上不得有房屋/树木的 verts 精判收尾（2026-10-18 #U35））。
   - `tank_map.js`：线性节点链生成 + 难度曲线 + 节点实体化（generateRun/makeNode/scoreNode/materializeNode）。
   - `tank_flow.js`：全局流程状态机（map/battle/settlement/reward/gameover + home/loadout/shop，白名单转移 + watchFlow）。
-  - `tank_camera.js` / `tank_minimap.js`：摄像机跟随与视口剔除 / 小地图绘制（均纯逻辑可 Node 测试；小地图含**公路整链多边形**（`roadCoverPolygonPoints`，road 的 `verts` 是局部坐标，逐点经 `worldToMinimap` 换算以适配 strip 的 `sx≠sy`）与**补给点标记**（`minimapSupplyMarks`，`opts.supplyStations`）——2026-10-18 #U35。**`renderCamPos` 为渲染专用相机位置（屏幕像素对齐 `round(x·zoom)/zoom`），物理/AI/命中仍读浮点 `cam.x/cam.y`**——#GT 2026-10-18）。
+  - `tank_camera.js` / `tank_minimap.js`：摄像机跟随与视口剔除 / 小地图绘制（均纯逻辑可 Node 测试；小地图含**公路整链多边形**（`roadCoverPolygonPoints`，road 的 `verts` 是局部坐标，逐点经 `worldToMinimap` 换算以适配 strip 的 `sx≠sy`）与**补给点标记**（`minimapSupplyMarks`，`opts.supplyStations`）——2026-10-18 #U35。**`renderCamPos` 为渲染专用相机位置（屏幕像素对齐 `round(x·zoom)/zoom`），物理/AI/命中仍读浮点 `cam.x/cam.y`**——#GT 2026-10-18。**`pointerToWorld` 是指针→世界坐标的唯一入口（I4，2026-10-27 §4.147）**，真 3D 时只替换这一处）。
+  - `tank_perf.js`：**R0 性能采样**（环形缓冲 + 分位统计，纯逻辑；battle 主循环逐帧记录 update/draw，`__TEST__.perf()/mem()` 读取，2026-10-27 §4.147）。
   - `tank_battledraw.js`：battle 战斗场景绘制层（drawTank/drawShells/drawCover/drawFoliage/部署物绘制 + **`railChargeProgress`** 电磁炮充能进度 0..1，2026-10-18 #U38），ctx 显式传参。
   - `tank_fx.js` / `tank_paint.js` / `tank_dmgtext.js`：战斗特效 / 程序化坦克渲染 / 伤害飘字（纯 ctx，无 DOM 依赖；`tank_fx` 含电磁炮放电弧 `spawnRailDischarge`/`drawRailArcs`/`railArcCount`——注意 `updateFx` 会**重新赋值** FX 数组，读当前长度必须走访问器，不能读导出的数组引用）。
   - `tank_assets.js` / `tank_audio.js`：贴图资产层（ASSET_DEFS + 离屏烘焙缓存，**程序化烘焙为唯一实机路径**；`assets/<key>.png` 是后期贴图接线，当前无图） / 声音系统（SOUND_DEFS + 惰性 AudioContext，全合成零资产）。**本仓库不出图**（2026-10-23 用户裁定，见 `docs/DEVELOPMENT.md` §4.124）：后期美术落盘与锚点验收见 `docs/ASSETS-PIPELINE.md`。
@@ -141,7 +142,7 @@
   - `http://127.0.0.1:8000/tank_battle.html`（正式游戏）/ `tank_bench.html`（装甲测试台）
   - `http://127.0.0.1:8000/tank_designer.html`
   - `http://127.0.0.1:8000/tank_compare.html`
-- 校验：`npm run check` —— 对共享模块、`server.js` 及**六个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器冒烟四链（smoke / r3 / run / r4，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）。三者都应全绿。
+- 校验：`npm run check` —— 对共享模块、`server.js` 及**六个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器冒烟四链（smoke / r3 / run / r4，r4 覆盖主副武器与技能/商店实战；需系统 Edge，playwright-core 无头）；`npm run baseline` —— **R0 渲染基线**（三场景固定截图 + 性能采样，默认 `--check`，首次用 `--write` 记录；基线在 `tmp/`，不入库）。四者都应全绿。
 - **改过 docs 再加一条**：`node scripts/wiki-check.js` —— 全 `docs/` 树的 Markdown 链接与锚点校验（断链 / 失效锚点）。**改 specs 页面、改文件名、改标题后必须跑**（见 §2.3）。仅改代码/测试时不需要。
 
 ### 3.2 测试坦克战斗
@@ -186,7 +187,7 @@
 | 链 | 沙箱 workspace-write | 权限放宽后 |
 |---|---|---|
 | `npm run check`（语法 + tsc） | ✅ 全绿 | ✅ |
-| `npm test`（59 个 `test-*.js` + `validate-content.js` = 60 项登记，2026-10-27 实测） | ⚠️ **59 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **60 通过 / 0 失败** |
+| `npm test`（62 个 `test-*.js` + `validate-content.js` = 63 项登记，2026-10-27 实测） | ⚠️ **62 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **63 通过 / 0 失败** |
 | `npm run test:browser`（四链） | ⚠️ 报 `spawn EPERM`（命名管道被禁）并输出 `INCONCLUSIVE` + 退出码 86 | ✅ 全绿 |
 
 **不要把 `INCONCLUSIVE`/86 当成代码失败**；它明确表示环境未放开。历史上该噪音被误读为「浏览器链坏了」，导致多轮无效排查。

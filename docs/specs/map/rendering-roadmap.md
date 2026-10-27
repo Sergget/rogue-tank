@@ -1,9 +1,9 @@
 # 真 3D 渲染与品质路线
 
 > **摘要**：以可玩真 3D 切片验证品质，保留二维模拟，量产前设技术与美术验收门。
-> **适用版本**：设计预留（未落地，2026-10-26）
+> **适用版本**：设计预留；R0 渲染地基已落地（2026-10-27）
 > **源自**：`docs/specs/map.md` §32（新建）；2026-10-26 用户提出接近《变节行动》的品质目标并排除多人合作
-> **相关**：[伪 3D 研究](./pseudo-3d-2p5d.md) · [伪 3D 就绪度](./pseudo-3d-readiness.md) · [贴图资产](./textures.md) · [友军指挥](../combat/ally-command.md)
+> **相关**：[伪 3D 研究](./pseudo-3d-2p5d.md) · [伪 3D 就绪度](./pseudo-3d-readiness.md) · [浏览器测试链](../editor/browser-tests.md) · [友军指挥](../combat/ally-command.md)
 
 | 子项 | 状态 | 说明 |
 |---|---|---|
@@ -52,6 +52,17 @@
 | **M1～M3 量产** | 核心系统、主题内容、发行完整度 | 每批先过玩法与 1× 实机验收，再扩内容数量 |
 
 R1 与 A0 友军指挥原型共用场景和命令回放脚本。**只交付旋转相机、高模或粒子演示不算 R1。**
+
+### 2.1 R0 地基落地状态（2026-10-27）
+
+| 子项 | 状态 | 落点 |
+|---|---|---|
+| **I3 截图基线** | ✅ 已落地 | `scripts/browser-baseline.cjs`：三个固定场景（standard / boss / survival），1280×720、seed `20261027`、`Math.random` 固定序列（开战前重置）、**进入战斗前冻结模拟**、绘制时钟锚定 `battleStartMs + 500`。判定用 32×18 网格（容差 mean≤2 / max≤16；实测连跑三次 mean ≤0.011 / max ≤5），每场景另存 PNG 作为 Canvas 对照图 |
+| **I4 拾取统一入口** | ✅ 已落地 | `js/tank_camera.js` 的 `pointerToWorld(cam, rect, clientX, clientY)`；battle 的鼠标/滚轮与 bench 的鼠标全部改走它。真 3D 时只需把这一处换成「屏幕射线 × 地面平面求交」，`mouseWorld` 契约不变 |
+| **性能计数** | ✅ 已落地 | `js/tank_perf.js` 环形缓冲（240 帧）+ battle 主循环逐帧记录 update/draw；`__TEST__.perf()` / `__TEST__.mem()` 读取 |
+| **固定 seed / 相机** | ✅ 已落地 | `__TEST__.setSeed` + `__TEST__.battleStartMs`；相机在 `enterBattle` 瞬间对齐出生点，冻结后不再漂移 |
+
+**边界**：R0 不改正式战斗表现；截图取的是「进入战斗后第一帧」的冻结快照（不含 AI 推进后的画面）。基线是本地产物，跨机器不可移植（见 `editor/browser-tests.md`）。
 
 ## 3. Go / No-Go 门槛
 

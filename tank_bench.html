@@ -550,7 +550,7 @@ let fireCtx = null;
 let mouseWorld = {x:player.x+100,y:player.y};
 canvas.addEventListener('mousemove', e=>{
   const r = canvas.getBoundingClientRect();
-  const p = screenToWorld(cam, e.clientX - r.left, e.clientY - r.top);
+  const p = pointerToWorld(cam, r, e.clientX, e.clientY);   // I4：拾取唯一入口
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
 });

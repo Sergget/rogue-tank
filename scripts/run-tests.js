@@ -101,6 +101,11 @@ const TESTS = [
   'scripts/test-bench-tools.js',
   // 2026-10-26 #AA8：HUD 文本在亮 biome 上的可读性契约（左下目标卡 / 底部提示条的深色底衬与字号）。
   'scripts/test-hud-readability.js',
+  // 2026-10-27 R0：渲染地基三件——I4 指针拾取唯一入口（pointerToWorld）、
+  //   性能采样纯逻辑（tank_perf）、I3 渲染基线判定（32×18 网格容差 + 基线形状校验）。
+  'scripts/test-pick.js',
+  'scripts/test-perf.js',
+  'scripts/test-render-baseline.js',
 ];
 
 function pickTests() {

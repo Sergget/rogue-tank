@@ -15,7 +15,7 @@ model: inherit
 - `js/tank_nodegen.js`（245KB+，最大模块）— 7 内置模板、`generateNode`、`placeRoadNetwork` v4 七拓扑、`generateStrip`、`clearCoversOnRoads`、`bakeNodeGroundLayer` 相关
 - `js/tank_cover.js` — `covers` 注册表、`getExposure`、`findCoversOnPath`/`findCoversOnRay`、`getCoverUnderTank`、`damageCover`/`destroyCover`、OBB/compound 碰撞、`smokeClouds`、`hasLineOfSight`
 - `js/tank_map.js` — `generateRun`/`makeNode`/`scoreNode`/`materializeNode`/`extendRun`、难度曲线、player 出生点（`w×0.10`）、`reinforcementTick`
-- `js/tank_camera.js` — `createCamera`/`updateCamera`/`viewBounds`/`aabbInView`、`visionRadiusForViewport`、**`renderCamPos`**、`clampSpawnIntoView`
+- `js/tank_camera.js` — `createCamera`/`updateCamera`/`viewBounds`/`aabbInView`、`visionRadiusForViewport`、**`renderCamPos`**、`clampSpawnIntoView`、**`pointerToWorld`（I4 拾取唯一入口）**
 - `js/tank_minimap.js` — `minimapLayout`/`worldToMinimap`/`drawMinimap`、`roadCoverPolygonPoints`、`minimapSupplyMarks`
 
 ## 2. 现行口径（2026-10-26 复核）

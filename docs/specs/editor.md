@@ -107,7 +107,7 @@
 
 ### 7.5 浏览器自动化测试链（2026-09-20，#F7）
 
-> `npm run test:browser` **四链**（smoke / r3 / run / r4）脚本矩阵与覆盖面；`window.__TEST__` 测试钩子；**r4 四条夹具约定**（玩家射击过滤 / 冻结敌人 / 雷场按 `spawnMine` 计数 / 注入在 `reload` 之后且 `timeout` 第三参）。
+> `npm run test:browser` **四链**（smoke / r3 / run / r4）脚本矩阵与覆盖面；`window.__TEST__` 测试钩子；**r4 四条夹具约定**（玩家射击过滤 / 冻结敌人 / 雷场按 `spawnMine` 计数 / 注入在 `reload` 之后且 `timeout` 第三参）。**2026-10-27 起同页另收 R0 渲染基线链**（`npm run baseline`：三场景冻结首帧截图 + 帧时间采样）。
 
 **详见**：[浏览器自动化测试链](./editor/browser-tests.md)
 

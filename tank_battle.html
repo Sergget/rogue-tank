@@ -642,6 +642,7 @@
   <script src="js/tank_cover.js"></script>
   <script src="js/tank_nodegen.js"></script>
   <script src="js/tank_camera.js"></script>
+  <script src="js/tank_perf.js"></script>
   <script src="js/tank_flow.js"></script>
   <script src="js/tank_map.js"></script>
   <script src="js/tank_minimap.js"></script>
@@ -1514,7 +1515,7 @@ window.addEventListener('wheel', e=>{
   // 弹药循环已由数字键 1/2/3 与 Q 环形循环承担（上方 keydown 监听），滚轮完全让位。
   const r = canvas.getBoundingClientRect();
   const sx = e.clientX - r.left, sy = e.clientY - r.top;
-  const wpt = screenToWorld(cam, sx, sy);            // 缩放前光标下的世界点（缩放后要保持不动）
+  const wpt = pointerToWorld(cam, r, e.clientX, e.clientY);   // I4：拾取唯一入口（缩放前光标下的世界点）
   const step = RULES.camera.zoomStep;
   const mul = e.deltaY < 0 ? (1 + step) : 1 / (1 + step);   // 上滚放大 / 下滚缩小
   const tz = setZoom(cam, cam.targetZoom * mul);
@@ -1532,7 +1533,7 @@ canvas.addEventListener('mousemove', e=>{
   // #E12（2026-09-20）：同时记录鼠标屏幕坐标（摄像机随鼠标向外延伸的输入）
   mouseScreen.x = e.clientX - r.left;
   mouseScreen.y = e.clientY - r.top;
-  const p = screenToWorld(cam, mouseScreen.x, mouseScreen.y);
+  const p = pointerToWorld(cam, r, e.clientX, e.clientY);   // I4：拾取唯一入口
   mouseWorld.x = p.x;
   mouseWorld.y = p.y;
   // 2026-10-22（第五批 B2-1）：雷场预形态的**朝向随鼠标刷新**（中心已在第一次 F 时定格）。
@@ -6760,6 +6761,10 @@ const STEP_TIME = 1 / 120; // 120Hz fixed physics step
 let accumulator = 0;
 let testTimeScale = 1;   // B 层测试钩子：__TEST__.setTimeScale() 写入（默认 1；0=冻结模拟）
 let testFps = 0;         // B 层测试钩子 HUD 用：最近一次 FPS 统计值（loop 内 ~2 次/秒刷新）
+// ---------- R0 性能采样（2026-10-27） ----------
+// 逐帧记录 update/draw 耗时，供 `__TEST__.perf()` 与 scripts/browser-baseline.cjs 采集。
+// 只读采样，不参与模拟；非测试环境同样记录（每帧 3 次 performance.now，成本可忽略）。
+const perfRing = (typeof createPerfRing === 'function') ? createPerfRing(240) : null;
 
 function loop(now){
   let dt = (now - last) / 1000;
@@ -6782,6 +6787,7 @@ function loop(now){
   // （只跳 update，draw 照常渲染冻结快照，与 pause 同款）。
   const paused = flow.state === 'pause' || survivalQuickPick;
   const simulating = !paused && (!run || flow.state === 'battle');
+  const _perfT0 = performance.now();
   if(simulating){
     while (accumulator >= STEP_TIME) {
       update(STEP_TIME);
@@ -6790,8 +6796,11 @@ function loop(now){
   } else {
     accumulator = 0;
   }
+  const _perfT1 = performance.now();
 
   draw();
+  const _perfT2 = performance.now();
+  if(perfRing) perfRing.frame(_perfT1 - _perfT0, _perfT2 - _perfT1);
 
   // #S10(b)（2026-10-14）：非战斗态（settlement/map/pause）下 TAB 面板也实时刷新，
   // 否则面板定格在打开瞬间（商店购买后数字不变即此因）。battle 态仍走 updateHud 链。
@@ -6915,6 +6924,24 @@ function nextRunSeed(){
     flowState(){ return flow.state; },
     currentNode(){ return currentNode ? currentNode.index : null; },
     seed(){ return run ? run.seed : null; },
+    // R0（2026-10-27）：战斗开始挂钟时刻。截图基线用它把「冻结时刻」锚定成
+    // battleStartMs + 固定偏移，使 Boss 蓄能等按「开战以来经过多久」绘制的元素可复现。
+    battleStartMs(){ return battleState ? battleState.startMs : null; },
+    // R0（2026-10-27）：性能采样读取。`{reset:true}` 先清空环形缓冲，便于测「进入战斗后」的稳态。
+    perf(opts){
+      if(!perfRing) return { frames: 0, update: {}, draw: {} };
+      if(opts && opts.reset) perfRing.reset();
+      return perfRing.stats();
+    },
+    // R0：JS 堆占用（Chromium 专有 performance.memory；其它内核返回 null，不伪造数值）
+    mem(){
+      const m = performance.memory;
+      if(!m) return null;
+      return {
+        usedMB: Math.round(m.usedJSHeapSize / 104857.6) / 10,
+        totalMB: Math.round(m.totalJSHeapSize / 104857.6) / 10,
+      };
+    },
     giveCard(id){
       if(typeof applyCardEffects !== 'function') throw new Error('__TEST__.giveCard: applyCardEffects 不可用');
       if(!cardPool.length) throw new Error('__TEST__.giveCard: 卡池尚未加载（cardPool 为空，稍后再试）');
