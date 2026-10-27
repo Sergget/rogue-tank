@@ -200,6 +200,27 @@ async function waitForEnemy(page, timeoutMs) {
 
     check('降级不影响开火链路（炮弹上限仍 >0）', down3.maxShells > 0, `maxShells=${down3.maxShells}`);
 
+    // ---- 降级后瞄准精度（我引入分辨率缩放，最怕的就是拾取坐标没跟着缩放）----
+    // 做法：取一个敌人的世界坐标 → 投到屏幕 → 在投到的点上反查地面/实体 →
+    // 误差必须在几像素级。如果屏幕坐标与世界坐标的换算漏了 resolutionScale，
+    // 这里会直接暴露成几十上百像素的偏差，而玩家感受到的是「明明瞄准了却打偏」。
+    const aim = await hi.page.evaluate(() => {
+      const es = window.__TEST3D__.entities().filter(e => e.team === 'enemy' && e.hp > 0);
+      if (!es.length) return null;
+      const e = es[0];
+      const s = window.__TEST3D__.enemyScreen(e.id);
+      const c = document.getElementById('c');
+      const back = window.__TEST3D__.pick(s.x, s.y);
+      return { id: e.id, world: { x: e.x, y: e.y }, screen: s, back, canvas: [c.width, c.height] };
+    });
+    if (aim) {
+      const err = aim.back ? Math.hypot(aim.back.x - aim.world.x, aim.back.y - aim.world.y) : Infinity;
+      check('降级后屏幕↔世界坐标换算仍一致（瞄准不偏）', err < 40,
+        `${aim.id} 误差=${err.toFixed(1)}px @${aim.canvas.join('×')}`);
+    } else {
+      console.log('SKIP | 降级后瞄准精度（场上无敌军，无法取样）');
+    }
+
     // ---- 逐级回升：10ms 持续 8s 才升一级，且不跳档 ----
     const up1 = await feedFrames(hi.page, 10, 10);
     check('帧时间富余 → 从 deck 回升到 mid（逐级）', up1.tier === 'mid' && up1.level === 1, `tier=${up1.tier}`);
