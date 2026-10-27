@@ -56,8 +56,9 @@
 - **证据**：`scripts/test-browser-r4.cjs:726` `await waitFor(1200)` 之后立刻比对 `window.__shots.secondary`。导弹需「对准 → lock-on → 发射」三段时序，固定 1200ms 在慢帧机器上不够。
 - **实测（2026-10-28）**：全量 `npm run test:browser` 时出现 `FAIL | #J4 对准后进入 lock-on（百分比）并成功发射 | lockOn=true shots 72 → 72`；紧接着单独重跑该链 `PASS … shots 75 → 76`。
 - **影响**：假红会让「八链全绿」这个结论不可信，也让真正回归被噪音掩盖。
-- **建议修法**：改成条件等待——`page.waitForFunction(() => window.__shots.secondary > before, null, { timeout: 4000 })`，仍用固定上限兜住「永不发射」的真缺陷。
-- **状态**：待修。
+- **修法（已落地，§4.158）**：改成条件等待 `waitForFunction(() => __shots.secondary > shotsBefore, { timeout: 4000 })`，**保留 4s 上限**——真有「永不发射」的回归仍判红，只是不再赌时序。
+- **验证**：单跑 `test-browser-r4` PASS（`lockOn=true fired=true shots 69 → 70`）。
+- **状态**：已修（待归档）。
 
 ### #AB6 `particlePeak` 不随重开复位
 

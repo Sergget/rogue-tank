@@ -723,10 +723,16 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
         });
         if (s.hasLock && /lock-on/.test(s.cls) && /%/.test(s.badge || '')) { sawLockOn = true; break; }
       }
-      await waitFor(1200);
+      // #AB5：原来这里固定等 1200ms 再比对 shots，而导弹是「对准 → lock-on → 发射」
+      // 三段时序，慢帧机器上 1200ms 常常刚好卡在发射前 ⇒ 假红（实测 shots 72 → 72，
+      // 紧接着重跑又 75 → 76）。改成条件等待，但**保留一个上限**：真有「永不发射」
+      // 的回归时，4000ms 后仍判红——用固定上限兜住真缺陷，而不是用固定等待赌时序。
+      const fired = await page.waitForFunction(
+        prev => window.__shots.secondary > prev, shotsBefore, { timeout: 4000 }
+      ).then(() => true).catch(() => false);
       const shotsAfter = await page.evaluate(() => window.__shots.secondary);
       check('#J4 对准后进入 lock-on（百分比）并成功发射',
-        sawLockOn && shotsAfter > shotsBefore, `lockOn=${sawLockOn} shots ${shotsBefore} → ${shotsAfter}`);
+        sawLockOn && fired, `lockOn=${sawLockOn} fired=${fired} shots ${shotsBefore} → ${shotsAfter}`);
     }
 
     // ---- 收尾：无 console/page 错误 ----
