@@ -8,7 +8,73 @@
 
 ---
 
-## 当前无存量条目（#AA 批次 2026-10-26 全部关账）
+## #AB 批次（2026-10-28 自查，7 条待修）
+
+> **来源**：本日 G1 收尾（§4.155 完整遭遇 / §4.156 性能预算与降级）后的自查复查。以下每条**均已用代码证据 + 实跑复现核实**，不是推测。
+> 修复顺序建议：**#AB1 → #AB3 → #AB2 → #AB4 → #AB5 → #AB6 → #AB7**（#AB1 影响所有玩家的画面几何，#AB3 是软锁，其余是体验与测试可信度）。
+
+### #AB1 画面被拉伸变形：画布比例不跟随视口
+
+- **证据**：`tank_3d.html:12` `#c { display:block; width:100vw; height:100vh; }` —— canvas 永远被 CSS 拉满视口；而基准渲染分辨率是固定值（`tank_3d.html` 的 `BASE_RES`，缺省 1280×720，或由 `?w=&h=` 指定），`applyRenderScale()` 只按它算尺寸，**没有任何一处跟随视口比例**。
+- **实测（2026-10-28，`tmp/dbg-stretch.cjs`）**：
+
+  | 视口 | canvas | CSS 盒子 | 横向缩放 | 纵向缩放 | 变形比 |
+  |---|---|---|---|---|---|
+  | 1280×800（16:10，Deck 尺度） | 1280×720 | 1280×800 | 1.000 | 1.111 | **1.111** |
+  | 1600×900（16:9） | 1280×720 | 1600×900 | 1.250 | 1.250 | 1.000 |
+
+- **影响**：玩家在 16:10 / 3:2 / 超宽屏上看到的是**画面几何失真**（圆形掩体变成竖椭圆、坦克被拉高），不是留黑边。这是最容易被读成「美术做歪了」的一类缺陷。
+- **建议修法**：无 `?w=&h=` 参数时，`BASE_RES` 取视口尺寸（`innerWidth/innerHeight`，钳到上限如 1920×1200），需要固定尺度（基线、截图对比）时才用参数钉死。注意 `scripts/browser-baseline3d.cjs` 三档的 viewport 与 `?w=&h=` 本来就一致（720p/1080p/Deck 均相等），改后**基线仍然有效**（已核对）。
+- **状态**：待修。
+
+### #AB2 波次清除提示会被喘息提示当场顶掉
+
+- **证据**：`tank_3d.html:703-705`（`case 'wave-clear'` → `toast('第 N 波清除')`）与 `tank_3d.html:717`（`case 'breather'` → `toast('喘息 …')`）。`js/tank_encounter.js:479-488` 在**同一次 `updateEncounter` 调用**里连续 push `wave-clear` 与 `breather` 两条事件 ⇒ 页面同帧连续两次 `toast()`，第二次覆盖第一次（`toast()` 只有一个 DOM 槽位，`tank_3d.html:201`）。
+- **影响**：玩家永远看不到「第 N 波清除」这条正反馈——而它是节奏里唯一的「你赢了这一波」的确认。同一类问题今天已在画质提示上踩过一次（已改用独立 `#perfNotice`）。
+- **建议修法**：二选一 —— ① 把清波信息并进喘息文案（「第 2 波清除 · 喘息 12s · 抢修 +72」）；② 结算类消息排队播放（`toast` 增加队列，按 800ms 间隔出队）。
+- **状态**：待修。
+
+### #AB3 波次可能永久卡住（无敌人、无提示、无计时）
+
+- **证据**：`js/tank_encounter.js:476` 的清波判定是 `enemyAlive === 0 && enc.spawnedThisWave > 0`。而 `enc.spawnedThisWave` 来自 `applySpawnGuard()` 的返回长度（`js/tank_encounter.js:457-458`），该函数对 `enc.pending` 做 **1:1 映射**（`:329-343`）——**pending 为空则 spawn 事件带空 units、`spawnedThisWave = 0`**，于是本波永远不满足清波条件，也不会判负（玩家还活着）。
+- **触发条件**：`RULES.encounter.waves[i].units` 为空数组，或 `planWave` 因配置异常产出空 pending。今日配置下不会发生，但这是给后续调波次的人埋的**软锁**：最后只能用浏览器刷新逃生（R 键重开只在结算态生效，`tank_3d.html:1130` 附近）。
+- **影响**：一旦踩中就是「游戏卡住且没有任何提示」，玩家会认为游戏崩了。
+- **建议修法**：`spawn` 事件 `units.length === 0` 时，模块自身就把该波视为「已清」（`spawnedThisWave = -1` 之类的显式标记）或直接跳到下一波，并产出一条可用于提示的 `wave-empty` 事件；页面据此弹「本波配置异常」提示，不要把玩家丢在真空里。
+- **状态**：待修（低概率、高破坏）。
+
+### #AB4 `intelInterval = 0` 会静默关掉「进攻意志」
+
+- **证据**：`js/tank_encounter.js:470-474`，intel 事件由 `while (iv > 0 && enc.intelTimer >= iv)` 发出；`resolveEncounterConfig` 只做 `Math.max(0, …)`（`:176`），允许 0 ⇒ 该 while 永不进入 ⇒ **不产 intel 事件** ⇒ 页面 `refreshEnemyIntel()`（`tank_3d.html:523`）永不执行 ⇒ 敌人只在出生那帧拿到玩家方位。
+- **影响**：`intelInterval = 0` 在语义上像是「不需要刷新」，实际等于**关掉防龟缩机制**——正是 §4.155 记录的三个反面教训之一。谁把它调成 0 试一试，就会得到一个「玩家躲着就永远打不完」的版本，而且没有任何报错。
+- **建议修法**：把 0 视为非法（钳到 ≥ 0.5 并注释说明），或在测试里加一条**负向断言**：`intelInterval <= 0` 时必须抛错/落回默认值，禁止「静默失效」。
+- **状态**：待修。
+
+### #AB5 `test-browser-r4` 的 #J4 断言用固定等待 ⇒ 偶发假红
+
+- **证据**：`scripts/test-browser-r4.cjs:726` `await waitFor(1200)` 之后立刻比对 `window.__shots.secondary`。导弹需「对准 → lock-on → 发射」三段时序，固定 1200ms 在慢帧机器上不够。
+- **实测（2026-10-28）**：全量 `npm run test:browser` 时出现 `FAIL | #J4 对准后进入 lock-on（百分比）并成功发射 | lockOn=true shots 72 → 72`；紧接着单独重跑该链 `PASS … shots 75 → 76`。
+- **影响**：假红会让「八链全绿」这个结论不可信，也让真正回归被噪音掩盖。
+- **建议修法**：改成条件等待——`page.waitForFunction(() => window.__shots.secondary > before, null, { timeout: 4000 })`，仍用固定上限兜住「永不发射」的真缺陷。
+- **状态**：待修。
+
+### #AB6 `particlePeak` 不随重开复位
+
+- **证据**：`restartEncounter()`（`tank_3d.html` 内，清 `shells/impacts/bounceFx/particles`、`shotsFired`、`enemySeq`、`lastEnemyAlive`）**没有重置 `particlePeak`**；该变量只在 `__TEST3D__.perf().reset()` 里归零。
+- **影响**：重开一局后 F1 清单与浏览器链读到的「粒子峰值」包含上一局数据，用它去校准 `particleCap` 会得到偏大的结论（诊断可信度问题，非玩法缺陷）。
+- **建议修法**：`restartEncounter()` 里 `particlePeak = 0`。
+- **状态**：待修（低）。
+
+### #AB7 R 键在结算态同时承担两件事，会残留一条提示到新一局
+
+- **证据**：`tank_3d.html:450` `reloadClip: () => { if(… reloadClipWeapon(player)) toast('弹夹整装 — 重装完整弹夹'); }`；`tank_3d.html:1271-1276` 「结算态 R 重开」是**另一个**独立的 `keydown` 监听。两个监听都在 `window` 上，同一次按键会**都**触发；`restartEncounter()` 不隐藏 `#toast`。
+- **触发条件**：**胜利**结算界面按 R（玩家还活着 ⇒ `reloadClipWeapon` 成功 ⇒ 弹提示）→ 新一局里残留「弹夹整装 — 重装完整弹夹」约 2 秒。失败结算时玩家已阵亡，`reloadClipWeapon` 大概率为假，所以只暴露在胜利路径上。
+- **影响**：低（一条 2 秒的错位提示），但属于「同一按键两个语义」的结构性问题，后续加更多结算操作时会继续放大。
+- **建议修法**：在 `reloadClip` 的动作里加 `if(encOutcome) return;` 门控，把「结算态」明确排除；或在同一个监听里用 `if/else` 分流。
+- **状态**：待修（低）。
+
+---
+
+## 历史：当前无存量条目（#AA 批次 2026-10-26 全部关账）
 
 > **来源**：用户 2026-10-24 四项反馈（电磁炮音效 / 节点间自动提速与公路加成 / 泥潭河流与低马力滑行 / bench 榴弹炮射程）。逐条以代码证据核实：3 项确认为缺陷、1 项（机动模型）确认根因并**已于 2026-10-24 AA-d 修复归档**（原 #AA4，见 `docs/DEVELOPMENT-batches-2026-10.md` §4.130）、1 项（Boss 节点自动提极速上限）**核实不成立**（排除结论原文见 `docs/archive/2026-10.md` 的 PLAN §6.1.1）。
 > 电磁炮充能音效属**新能力缺口**（specs 从未定义），不是回归 ⇒ 归 PLAN 计划，不入本表。
