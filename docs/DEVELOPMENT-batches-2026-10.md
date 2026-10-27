@@ -3920,3 +3920,26 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 
 - `npm run check` EXIT=0；`npm test` **68 通过 / 0 失败**（新增 `test-boss-map.js`）；浏览器六链（含标准模式 2 辆指挥友军 + 无据点、3D 阵营环）ALL PASS；`npm run baseline` 三场景因阵营环重新录制后 PASS。
 - Boss 地图实测（1280×720）：3×3 = **3840×2160**；seed 1/2/3/20261027 的 3×3 网格均无空区、出生点合法；标准模式仍 9.0×2.2 屏、生存仍 3×3 屏。
+
+## §4.153 2026-10-27 文档一致性收口（§4.150–§4.152 之后的漂移修正）
+
+**性质**：**纯文档整理**，零代码改动。用户「整理文档」后对全 `docs/` 与 Agent 配置做交叉核对。
+
+修正的现行口径漂移：
+
+| 位置 | 旧值 | 现行值 |
+|---|---|---|
+| `specs/combat/ally-command.md` 状态表 / §4.1 / §6.1 | 「按住 Z 三扇区转盘」 | **Z/X/C 直接快捷键**（转盘暂时关闭，`wheelEnabled=false`） |
+| `specs/combat.md` §16 摘要 | 按住 Z 转盘 | Z/X/C |
+| `specs/cards/card-viewer.md` / `cards/index.md` | 卡牌查看器 `C` 键 | **`B` 键**（C 让位给集火） |
+| `specs/README.md` 五卷表 | combat 18 / map 14 / cards 11 / boss 9 / editor 9；标题 64/120/17/22/22 | **20 / 16 / 9 / 8 / 8；68/131/18/24/23**（实测；合计 61 主题页 / 71 个 `.md`） |
+| `specs/combat/index.md` / `map/index.md` 摘要 | 21 / 17 主题页 | **20 / 16** |
+| `specs/editor/browser-tests.md` / `devpanel.md` / `editor/index.md` / `editor.md` | 浏览器「四链」 | **六链**（smoke/r3/run/r4/ally/3d） |
+| `specs/map/strip-defense.md` / `map.md` 测试清单 | 四链 | 六链 |
+| `AGENTS.md` §3.7 / `sandbox-verify` skill | `test:browser`（四链） | **六链** |
+| `.claude/agents/role-verify-docs.md` | specs 69 页 | **71 页** |
+| `README.md` 验证标题 | 「四链全绿」（实际指 4 条命令） | **「四条命令全绿」** |
+
+**未改**：`DEVELOPMENT-batches-*` 与 `archive/**` 的历史记录、`specs/*/changelog.md` 的沿革正文（按「只增不改」保留当时口径）；敌方 AI / boss summons 等页里带日期的历史验证记录保留原样。
+
+**验证**：`node scripts/wiki-check.js` → `files=97 pages=71 links=1815 broken=0 anchors=914 anchorBad=0 struct=0 template=0`。本批未改代码，不重跑三链。

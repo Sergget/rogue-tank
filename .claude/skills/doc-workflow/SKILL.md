@@ -17,7 +17,7 @@ description: Use when completing any feature, refactoring, or bug fix in rogue-t
 - ① 现行细则写入对应系统规范的 **wiki 主题页**：战斗→`docs/specs/combat/<page>.md`、地图→`map/<page>.md`、卡牌→`cards/<page>.md`、Boss→`boss/<page>.md`、编辑器→`editor/<page>.md`（**先看该卷 `index.md` 定位是哪一页**）。被取代的旧值改写为现行值并留沿革注记。
   - 然后**对齐兼容页**：若该节摘要受影响，同步 `docs/specs/<卷>.md` 对应节的 1~3 行摘要（**不放正文**）。
   - 最后**跑链接自查**：`node scripts/wiki-check.js`（`broken=0 anchorBad=0 struct=0 template=0`）。
-- ② `docs/DEVELOPMENT-batches-<yyyy-mm>.md` **§4 正文末尾续写新编号**（**当前最大 §4.152 ⇒ 下一个 §4.153**；2026-10-27 实测），简结论 + specs 归口指针**指向主题页**（如 `specs/combat/ammo-system.md`）+ `npm run check` / `npm test` / `test:browser` 三链验证记录，标题带日期锚点。
+- ② `docs/DEVELOPMENT-batches-<yyyy-mm>.md` **§4 正文末尾续写新编号**（**当前最大 §4.153 ⇒ 下一个 §4.154**；2026-10-27 实测），简结论 + specs 归口指针**指向主题页**（如 `specs/combat/ammo-system.md`）+ `npm run check` / `npm test` / `test:browser` 三链验证记录，标题带日期锚点。
 - ③ **同步 `docs/DEVELOPMENT.md` §4.0 编号索引表**——新增 §4.x 必须加一行（§4.144 曾漏加，导致索引从 §4.143 直接跳到 §4.145）。
 - ④ 保证 `DEVELOPMENT.md` 即使不依赖 PLAN/ISSUES 也能独立说明项目最新完整状态；路线顺序变化时同步 §3。
 

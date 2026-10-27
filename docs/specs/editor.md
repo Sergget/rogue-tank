@@ -77,7 +77,7 @@
 
 ## 7. 开发者面板与两页 UI/按键统一（2026-09-19 落地，原 ISSUES #C5 + PLAN §3）
 
-> **共享模块 `js/tank_devpanel.js`**（`mountDevPanel(host)`，两页同源；bench 旧 `#benchPanel` 已移除）+ **devPanel 四 Tab**（实时/卡牌/参数/开关）+ **卡牌选择器 11 组**（分组/搜索/持有/单卡回滚）+ **两页按键统一**（G=炮击、V=超装填；bench 弹种条方向 E/Q 修正）+ **HUD 合并状态**（6 合并 + 2 定位差异 ⇒ 无剩余项）+ **浏览器四链** + **NF-1/2/4 内容工具**。
+> **共享模块 `js/tank_devpanel.js`**（`mountDevPanel(host)`，两页同源；bench 旧 `#benchPanel` 已移除）+ **devPanel 四 Tab**（实时/卡牌/参数/开关）+ **卡牌选择器 11 组**（分组/搜索/持有/单卡回滚）+ **两页按键统一**（G=炮击、V=超装填；bench 弹种条方向 E/Q 修正）+ **HUD 合并状态**（6 合并 + 2 定位差异 ⇒ 无剩余项）+ **浏览器六链** + **NF-1/2/4 内容工具**。
 
 **详见**：[开发者面板](./editor/devpanel.md) · [浏览器自动化测试链](./editor/browser-tests.md) · [内容工具与 appearance · NF-*](./editor/appearance-aimspeed.md#内容工具与预览nf-1-nf-2-nf-4)
 

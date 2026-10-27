@@ -47,7 +47,7 @@ model: inherit
 
 功能/修复验证通过后，**顺序不可颠倒**：
 
-1. **同步** — ① **`docs/specs/<卷>/<主题页>.md`** 写现行细则（战斗→`combat/` / 地图→`map/` / 卡牌→`cards/` / Boss→`boss/` / 编辑器→`editor/`），按 **AGENTS.md §2.3「改 specs 三步」**（改主题页 → 对齐 `<卷>.md` 兼容页摘要 → 跑 `node scripts/wiki-check.js`）；② `docs/DEVELOPMENT-batches-<yyyy-mm>.md` **§4 正文末尾续写新编号**（**2026-10-27 当前最大 = §4.152，下一个 §4.153**），简结论 + specs 归口指针（**指向主题页**如 `specs/combat/ammo-system.md`）+ 三链验证记录；③ 同步 `docs/DEVELOPMENT.md` §4.0 索引表（**新增行不能漏**，§4.144 曾漏过）。
+1. **同步** — ① **`docs/specs/<卷>/<主题页>.md`** 写现行细则（战斗→`combat/` / 地图→`map/` / 卡牌→`cards/` / Boss→`boss/` / 编辑器→`editor/`），按 **AGENTS.md §2.3「改 specs 三步」**（改主题页 → 对齐 `<卷>.md` 兼容页摘要 → 跑 `node scripts/wiki-check.js`）；② `docs/DEVELOPMENT-batches-<yyyy-mm>.md` **§4 正文末尾续写新编号**（**2026-10-27 当前最大 = §4.153，下一个 §4.154**），简结论 + specs 归口指针（**指向主题页**如 `specs/combat/ammo-system.md`）+ 三链验证记录；③ 同步 `docs/DEVELOPMENT.md` §4.0 索引表（**新增行不能漏**，§4.144 曾漏过）。
 2. **删除** — 从 `docs/PLAN.md` / `docs/ISSUES.md` **完全删除**对应条目。
 3. **归档** — 被删条目**原文**追加到 `docs/archive/<yyyy-mm>.md` 底部（标来源文档、条目编号、删除日期），并在 `docs/ARCHIVE.md` 索引表**表尾**加一行（日期升序）。
 4. **联动** — 影响规划顺序时同步 `DEVELOPMENT.md` §3 与 `PLAN.md` §1。
@@ -57,7 +57,7 @@ model: inherit
 `docs/DEVELOPMENT.md` 只有 **§0 文档体系索引 / §1 核心方向 / §2 架构演进 / §3 当前状态与下一步 / §4 批次落地结论**。
 
 - **没有 §5 / §5.5 / §6**——数值口径归 `docs/specs/<卷>/` 对应主题页。
-- **specs 已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 是正文（**69 页，2026-10-27 实测**，`wiki-check` 的 `pages=` 即此数），`docs/specs/<卷>.md` 是 §N 兼容索引页。**改 specs 必读 `docs/WIKI-STYLE.md`**。
+- **specs 已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 是正文（**71 页，2026-10-27 实测**，`wiki-check` 的 `pages=` 即此数），`docs/specs/<卷>.md` 是 §N 兼容索引页。**改 specs 必读 `docs/WIKI-STYLE.md`**。
 - §4 正文已按月份拆到 `docs/DEVELOPMENT-batches-2026-09.md` / `-2026-10.md`；`DEVELOPMENT.md` 只留 §4.0 编号索引。
 - **`docs/archive/` 归档分卷严禁全文读取**（单卷可达 ~257KB）：按 `ARCHIVE.md` 索引定位后 Grep 切片。同一文件重复读取 ≤ 3 次。
 - 统计数字必须实测并标日期（如卡牌数用 `node scripts/audit-content.js`）。

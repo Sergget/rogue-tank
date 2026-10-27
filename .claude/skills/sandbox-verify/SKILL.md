@@ -19,10 +19,10 @@ description: Use when a verification command fails with EPERM/spawn/inconclusive
 | `node node_modules/typescript/bin/tsc --noEmit` | ✅ 可直接跑 | 不写 npm 缓存、不捕获子进程 |
 | `npm test` | ✅ 可直接跑 | `run-tests.js` 已把子进程 stdout/stderr 重定向到**临时文件句柄**（不再用管道） |
 | `npm install` / `npx tsc` / 任何 `npx` 远程拉包 | EPERM，写用户 npm-cache 失败 | ⇒ **不要用 npx**，改为直接调 `node node_modules/...` |
-| `npm run test:browser` | ⚠️ 受限环境 `spawn EPERM`（Edge 需 `--remote-debugging-pipe`）；**放宽权限后四链全绿** | playwright 启动浏览器需命名管道 |
+| `npm run test:browser` | ⚠️ 受限环境 `spawn EPERM`（Edge 需 `--remote-debugging-pipe`）；**放宽权限后六链全绿** | playwright 启动浏览器需命名管道 |
 | 进程级写 `docs/`、`js/`、`scripts/` | 受限模式下可能 denied | 改用 `write`/`edit` 工具，或一次性放宽权限 |
 
-**结论**：两条主链（`npm run check` / `npm test`）可直接跑通；只有浏览器四链需要放宽进程权限，且失败时会打印 `INCONCLUSIVE` 并以**退出码 86** 退出（`scripts/lib/browser-launch.cjs`），不会伪装成代码失败。
+**结论**：两条主链（`npm run check` / `npm test`）可直接跑通；只有浏览器六链需要放宽进程权限，且失败时会打印 `INCONCLUSIVE` 并以**退出码 86** 退出（`scripts/lib/browser-launch.cjs`），不会伪装成代码失败。
 
 ## 2. 可用的验证命令
 

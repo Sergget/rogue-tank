@@ -21,7 +21,7 @@
 | [烘焙工具与模块分区](./bake-modules.md) | `tools/bake.html` 出图；P-49 模块/成员概率分区与属性耦合链 | §4、§5 |
 | [贴图与涂装视觉规范](./visual-spec.md) | 迷彩叠层、装甲质感、整车精灵四层与对齐契约、后期贴图入库与验收指标（当前无图） | §6 |
 | [开发者面板](./devpanel.md) | devPanel 四 Tab、卡牌选择器、两页按键统一、HUD 合并状态 | §7、§7.1~§7.4 |
-| [浏览器自动化测试链](./browser-tests.md) | `npm run test:browser` 四链脚本矩阵、测试钩子、r4 夹具约定 | §7.5 |
+| [浏览器自动化测试链](./browser-tests.md) | `npm run test:browser` 六链脚本矩阵、测试钩子、r4 夹具约定 | §7.5 |
 | [坦克图鉴页](./codex.md) | `tank_codex.html` 的数据源、布局与首页入口（取代 bench 内嵌图鉴） | 2026-10-22 新建 |
 | [内容工具与 appearance](./appearance-aimspeed.md) | NF-1/2/4；`spec.appearance` 深拷贝、叠加层基准、aimSpeed 量纲、bench 分组、content_designer tags 移除 | §8、§8.1~§8.6；§7.6 |
 | [沿革与已作废](./changelog.md) | 已关闭的「未纳入本轮」项、被取代的叠加层基准与旧 aimSpeed | §7.7、§8.2 沿革、§8.3 沿革 |
@@ -35,7 +35,7 @@
 | 出一套贴图资产 | [烘焙工具与模块分区 · 烘焙工具](./bake-modules.md#资产烘焙工具) |
 | 查缺省贴图/迷彩/对齐契约 | [贴图与涂装视觉规范](./visual-spec.md) |
 | 改开发者面板 | [开发者面板](./devpanel.md) |
-| 跑浏览器四链 | [浏览器自动化测试链](./browser-tests.md) |
+| 跑浏览器六链 | [浏览器自动化测试链](./browser-tests.md) |
 | 查外观件（车长塔/舱盖）为何不生效过 | [内容工具与 appearance · appearance](./appearance-aimspeed.md#applytankconfig-深拷贝-specappearance) |
 | 查敌军 `aimSpeed` 量纲 | [内容工具与 appearance · aimSpeed](./appearance-aimspeed.md#rulesenemyanchorbaseaimspeed) |
 | 我手上有个 `§N` 引用 | [兼容索引](../editor.md) |

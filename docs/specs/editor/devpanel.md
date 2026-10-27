@@ -108,6 +108,6 @@
 **为什么需要视口护栏**：1280×720 @ zoom 1.3 的视口世界半高 = `vh/2/zoom` ≈ 277px，而批量生成按「玩家周围 300~500px 环形」布点 ⇒ 相当比例的敌军一生成就在屏幕外。回归：`scripts/test-camera.js` 的 #AA6 段（几何本体）+ `scripts/test-bench-tools.js`（页面接线，含负向断言「不得再按 nodeSpawn 过滤」）。
 
 ## 相关页面
-- [浏览器自动化测试链](./browser-tests.md) — 验证 devPanel 四 Tab 与卡牌选择器的四链
+- [浏览器自动化测试链](./browser-tests.md) — 验证 devPanel 四 Tab 与卡牌选择器的六链
 - [内容工具与 appearance](./appearance-aimspeed.md) — NF-1 全池页签 / NF-4 悬停预览
 - [贴图与涂装视觉规范](./visual-spec.md) — 设计器侧的四层精灵面板

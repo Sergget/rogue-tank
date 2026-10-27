@@ -1,6 +1,6 @@
 # 浏览器自动化测试链
 
-> **摘要**：`npm run test:browser` 四链脚本矩阵、测试钩子与 r4 夹具约定；附 R0 渲染基线链。
+> **摘要**：`npm run test:browser` 六链脚本矩阵、测试钩子与 r4 夹具约定；附 R0 渲染基线链。
 > **适用版本**：现行（2026-10-27；2026-10-27 补渲染基线链）
 > **源自**：`docs/specs/editor.md` §7.5（2026-10-21 拆分；原 §7.5 曾错排在 §7.6/§7.7 之后，2026-10-21 仅调物理位置、编号未改）
 > **相关**：[开发者面板](./devpanel.md) · [内容工具与 appearance](./appearance-aimspeed.md) · [渲染路线](../map/rendering-roadmap.md)
@@ -61,6 +61,6 @@
 实测中发现的 3 处真实缺陷（battle `devNoVision` TDZ、bench 陈旧复选框接线、开关类副武器 F 逐帧翻转）均已修复，见 `DEVELOPMENT.md` §4.27；F 键边沿口径归口 [战斗规范 · 开关类副武器](../combat/abilities-secondary.md)。
 
 ## 相关页面
-- [开发者面板](./devpanel.md) — 四链中被验证的 devPanel 四 Tab 与卡牌选择器
+- [开发者面板](./devpanel.md) — 六链中被验证的 devPanel 四 Tab 与卡牌选择器
 - [内容工具与 appearance](./appearance-aimspeed.md) — NF-* 工具的验证归属
-- [坦克设计器](./designer.md) — 设计器不在四链范围内（无浏览器自动化）
+- [坦克设计器](./designer.md) — 设计器不在六链范围内（无浏览器自动化）

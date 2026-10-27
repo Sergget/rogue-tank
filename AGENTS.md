@@ -192,7 +192,7 @@
 |---|---|---|
 | `npm run check`（语法 + tsc） | ✅ 全绿 | ✅ |
 | `npm test`（67 个 `test-*.js` + `validate-content.js` = 68 项登记，2026-10-27 实测） | ⚠️ **67 通过 / 1 失败**：唯一失败项 `scripts/test-asset-pipeline.js` 用 `spawnSync` **捕获**子进程输出（`tools/dump-cover-refs.mjs --check`、`covers-anchor-check.py`），管道 stdio 在 workspace-write 下报 EPERM、退出码为 `null`（已用 `node -e` 最小复现直接证明）。`run-tests.js` 自身已改文件句柄重定向故不依赖管道 | ✅ **68 通过 / 0 失败** |
-| `npm run test:browser`（四链） | ⚠️ 报 `spawn EPERM`（命名管道被禁）并输出 `INCONCLUSIVE` + 退出码 86 | ✅ 全绿 |
+| `npm run test:browser`（六链） | ⚠️ 报 `spawn EPERM`（命名管道被禁）并输出 `INCONCLUSIVE` + 退出码 86 | ✅ 全绿 |
 
 **不要把 `INCONCLUSIVE`/86 当成代码失败**；它明确表示环境未放开。历史上该噪音被误读为「浏览器链坏了」，导致多轮无效排查。
 

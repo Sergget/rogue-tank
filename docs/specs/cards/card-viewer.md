@@ -9,7 +9,7 @@
 
 （原 §11 首条，2026-10-17 #U23）
 
-`C` 键随时开关（战斗 / 暂停 / 结算 / 奖励屏均可），与 Tab 状态面板、`` ` `` 开发者面板**互斥**（打开其一即收起其它）。键位登记于 `js/tank_bindings.js` 的 `panelCards`（含 `ACTION_INFO` / `ACTION_ORDER`）。
+`B` 键随时开关（战斗 / 暂停 / 结算 / 奖励屏均可；2026-10-27 由 `C` 改 `B`，C 让位给友军集火），与 Tab 状态面板、`` ` `` 开发者面板**互斥**（打开其一即收起其它）。键位登记于 `js/tank_bindings.js` 的 `panelCards`（含 `ACTION_INFO` / `ACTION_ORDER`）。
 
 ## 内容与分类维度
 
