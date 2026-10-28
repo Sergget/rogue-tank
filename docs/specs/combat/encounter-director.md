@@ -65,6 +65,8 @@ bearing 口径：世界坐标弧度角（y 向下），`0` = 正东(+x)，`+π/2
 
 四条硬约束（都是防回归的）：**终局幂等**（`enc.outcome` 已定即不再产事件）、**每波恰好一条 telegraph**、**清波判定要求 `spawnedThisWave > 0`**（否则新波尚未入场就被误判通过）、**空波必须自我了结**（`spawnedThisWave === 0` 且 `emptyWave` 为真时按「已清」推进并发 `wave-empty`——否则是无敌人、无计时、无提示的软锁，见 ISSUES #AB3）。
 
+**终局必须在调用点短路（#AB14 同批审查所得，2026-10-28）**：`enterTelegraph` 在「没有可进的波」时会把遭遇直接判成 `victory` 并写 `outcome` / 改写 `phase` / 把 `timer` 归零。若调用方（`updateEncounter` 的 telegraph 分支）不检查 `enc.outcome` 就继续往下走，条件 `timer <= 0` 立刻成立 ⇒ 同帧再发 `spawn` + `wave-empty`，并把 `phase` 从 `victory` 改回 `wave`（自相矛盾的事件序列）。今天两个调用点都带前置守卫、这条路径不可达，但它是**错误处理**路径，所以照样在 `enterTelegraph(...)` 之后留 `if (enc.outcome) return events;`。
+
 事件契约：
 
 | 事件 | 载荷 | 页面侧动作 |
@@ -76,6 +78,8 @@ bearing 口径：世界坐标弧度角（y 向下），`0` = 正东(+x)，`+π/2
 | `wave-empty` | `wave / waveId` | 本波配置为空（`units: []`）：弹红字提示，不要把玩家丢在真空里 |
 | `breather` | `seconds / repairPct / reinforce` | 按 `repairPct` 回血、按 `reinforce` 补友军 |
 | `victory` / `defeat` | `stats{seconds,kills,wavesCleared}` | 结算面板 |
+
+**补员车的编队槽号（2026-10-28 审查所得）**：页面在 `spawnTank` **之前**取 `livingAllies().length` 作 `_allyIndex`（`spawnTank` 立即入册，之后再数会把自己算进去）。取错的后果不是崩溃而是**座位错位**——首个补员被排到 1 号槽，`move`/`focus` 下还会因 `_allyCount` 与实际队形不匹配而贴在锚点上。
 
 ## 参数表
 

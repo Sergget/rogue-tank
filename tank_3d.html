@@ -224,10 +224,13 @@ let perfCfg = (function(){
   if(perfGov && typeof getTierConfig === 'function') return getTierConfig(perfGov, PERF_RULES);
   // enabled=false：读固定档位，不做 governor（getTierConfig 需要 gov，这里手工取同一份表）
   const t = (PERF_RULES && PERF_RULES.tiers && PERF_RULES.tiers[PERF_START_TIER]) || null;
-  if(!t) return { name: 'off', resolutionScale: 1, particleCap: Infinity, dustIntervalS: 0.09, maxShells: 40 };
+  if(!t) return { name: 'off', resolutionScale: 1, particleCap: Infinity, dustIntervalS: 0.09, maxShells: 40, staticRebuildIntervalS: 0.25 };
   return {
     name: PERF_START_TIER, resolutionScale: t.resolutionScale, particleCap: t.particleCap,
     dustIntervalS: t.dustIntervalS, maxShells: t.maxShells,
+    // 漏这个键会让「关掉自适应 + ?tier=deck」跑出 high 的 0.25s 重建间隔，
+    // 而 __TEST3D__.perf() 又报 0.25 —— 与档位表的 0.60 对不上（数值表被抄了两份的老毛病）。
+    staticRebuildIntervalS: t.staticRebuildIntervalS,
   };
 })();
 
@@ -551,7 +554,6 @@ function pointInCoverRect(x, y, c){
   return Math.abs(lx) <= (c.w || 0) / 2 && Math.abs(ly) <= (c.h || 0) / 2;
 }
 
-/** spawn 点合法性（模块用它过滤候选点）：出界 / 致命水域 / 压掩体 / 压实体 一律不许生成。 */
 /**
  * spawn 点合法性（模块用它过滤候选点）：出界 / 致命水域 / 压掩体 / 压实体 一律不许生成。
  * 返回**原因字符串**（可用 = null）——「为什么这点不能用」是调出生点时的第一手信息，
@@ -678,11 +680,14 @@ function reinforceAllies(n, salt){
       if(!spawnBlocked(x, y)){ ok = true; break; }
     }
     if(!ok) continue;
+    // 槽号必须在 spawn **之前**取：spawnTank 立即入册，之后再数会把自己算进去（序号偏一位，
+    // 补员车被排到 1 号槽；`move`/`focus` 下还会因 _allyCount 不匹配而贴在锚点上）。
+    const slot = livingAllies().length;
     const t = spawnTank({ id: `ally_rf_${enemySeq++}`, team: 'ally', x, y, hullAngle: 0, turretAngle: 0, heightClass: 'medium' });
     t.nodeSpawn = true;
     t.isAllySquad = true;
-    t._allyIndex = livingAllies().length;
-    t._allyCount = Math.max(1, n);
+    t._allyIndex = slot;
+    t._allyCount = Math.max(1, slot + 1);
     if(allyTankId && tankListData[allyTankId]) applyTankConfig(t, tankListData[allyTankId]);
     resetEntity(t);
     scaleAllyHp(t);
@@ -710,7 +715,12 @@ function gradeFor(s){
   return 'B';
 }
 
-function finishEncounter(outcome, stats){
+/**
+ * 页面侧终局收尾（结算面板 + 评级）。
+ * 名字刻意不叫 `finishEncounter`——`js/tank_encounter.js` 已经导出了同名但不同签名的
+ * `finishEncounter(enc, events, kind)`，同页两份同名函数是下一个人最容易看走眼的坑。
+ */
+function endEncounter(outcome, stats){
   encOutcome = outcome;
   encStats = Object.assign({}, stats || {}, {
     outcome,
@@ -783,10 +793,10 @@ function handleEncounterEvent(ev){
       refreshEnemyIntel();
       break;
     case 'victory':
-      finishEncounter('victory', ev.stats);
+      endEncounter('victory', ev.stats);
       break;
     case 'defeat':
-      finishEncounter('defeat', ev.stats);
+      endEncounter('defeat', ev.stats);
       break;
   }
 }

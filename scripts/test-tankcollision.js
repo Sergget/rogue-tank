@@ -376,6 +376,37 @@ function residualOverlap(a, b){
     ok(toff.x <= 583.5,
       `#AB11b: 关闭滑行后恢复旧行为——顶岩不得越界（x=${toff.x.toFixed(1)} ≤ 583.5）`);
   }
+
+  // --- ⑥ #AB14（2026-10-28 审查所得）：滑行不得把坦克带出世界边界 ---
+  //   滑行发生在地图边界钳制**之后**，而它的回滚锚点是「位移前」的坐标 ⇒ 回滚会把钳制
+  //   修正一起撤销。实测（修复前）贴西边界 + 正北一块岩石：240 帧里 168 帧越界，终点
+  //   x=−313 且永久留在场外。修复 = 滑行返回 true 时由 driveTank 重钳一次。
+  {
+    clear();
+    const WORLD = { minX: 0, minY: 0, maxX: 1000, maxY: 1000 };
+    const margin = Math.max(HL, HW) * 0.6;
+    const rock = mkRock2(39.4, 300, 120, 30, 0);       // 贴着西边界的大岩石（默认节点实测有 34px 的同类掩体）
+    CV.covers.length = 0; CV.covers.push(rock);
+    const tb = freshTank('slide-bounds', 39.4, 400, -Math.PI / 2, 'player');   // 车头朝北顶岩
+    let worstX = Infinity, worstY = Infinity, out = 0;
+    for(let f = 0; f < 300; f++){
+      MV.driveTank(tb, dt, { turn: 0, move: 1, worldBounds: WORLD });
+      if(tb.x < worstX) worstX = tb.x;
+      if(tb.y < worstY) worstY = tb.y;
+      if(tb.x < WORLD.minX + margin - 1e-6 || tb.y < WORLD.minY + margin - 1e-6) out++;
+    }
+    ok(out === 0,
+      `#AB14: 贴边滑行全程不越界（最差 x=${worstX.toFixed(2)} ≥ ${(WORLD.minX + margin).toFixed(2)}，越界帧 ${out}）`);
+    ok(tb.x >= WORLD.minX + margin - 1e-6 && tb.y >= WORLD.minY + margin - 1e-6,
+      `#AB14: 终点仍在界内（x=${tb.x.toFixed(2)} y=${tb.y.toFixed(2)}）`);
+    // 负向对照：同样的场景关掉滑行也必须不越界（证明用例测的是滑行，不是别的东西兜住了）
+    RULES.speed.wallSlide.enabled = false;
+    const tb2 = freshTank('slide-bounds-off', 39.4, 400, -Math.PI / 2, 'player');
+    for(let f = 0; f < 300; f++) MV.driveTank(tb2, dt, { turn: 0, move: 1, worldBounds: WORLD });
+    RULES.speed.wallSlide.enabled = true;
+    ok(tb2.x >= WORLD.minX + margin - 1e-6,
+      `#AB14: 关掉滑行同样不越界（x=${tb2.x.toFixed(2)}）`);
+  }
   CV.covers.length = 0;
 }
 

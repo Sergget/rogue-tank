@@ -51,27 +51,31 @@ function stiffMul(t){
  *   - **允许绕过掩体**：掩体有限长时沿墙滑到尽头会自然绕过去，这是特性（AI 需要它，
  *     玩家撞石头也不该永久卡死）。所以「不可穿透」的正确不变量是「任何时刻不与掩体
  *     相交」，而不是「x 坐标不得超过某个值」——后者会把绕行也判成违规（见 #N1 用例）。
+ *   - **不管世界边界**：本函数只认掩体法线。回滚锚点是「本帧位移前」的位置，而世界边界
+ *     钳制发生在位移**之后** ⇒ 回滚会连带撤销钳制修正（实测贴墙+贴边时把坦克滑到
+ *     x=−313 并永久留在场外）。所以调用方 `driveTank` 必须在滑行**之后**重钳一次边界
+ *     （#AB14，见函数末尾返回值约定），本函数不越权处理边界。
  *
  * @param {any} t 实体（需 x/y/hullAngle/speed；`_pushNx/_pushNy` 由 resolveCoverCollisions 写入）
  * @param {number} preMoveX 本帧位移前的 x
  * @param {number} preMoveY 本帧位移前的 y
  * @param {number} movedX 位移后、碰撞解算前的 x（期望到达点）
  * @param {number} movedY 位移后、碰撞解算前的 y
- * @param {number} dt 本步时长（秒）
+ * @returns {boolean} 本帧是否发生了滑行（true ⇒ 调用方必须重钳世界边界）
  */
-function applyWallSlide(t, preMoveX, preMoveY, movedX, movedY, dt){
+function applyWallSlide(t, preMoveX, preMoveY, movedX, movedY){
   const cfg = (typeof RULES !== 'undefined' && RULES.speed && RULES.speed.wallSlide) || null;
-  if(!cfg || cfg.enabled === false) return;
+  if(!cfg || cfg.enabled === false) return false;
   const nx = t._pushNx, ny = t._pushNy;
   const nl = Math.hypot(nx, ny);
-  if(!(nl > 1e-6)) return;                        // 没被推出 ⇒ 没撞墙
+  if(!(nl > 1e-6)) return false;                  // 没被推出 ⇒ 没撞墙
   const expX = movedX - preMoveX, expY = movedY - preMoveY;
   const exp2 = expX * expX + expY * expY;
-  if(!(exp2 > 1e-9)) return;                      // 本帧没有期望位移（静止/被钳制）
+  if(!(exp2 > 1e-9)) return false;                // 本帧没有期望位移（静止/被钳制）
   const actX = t.x - movedX, actY = t.y - movedY;
   const progress = (actX * expX + actY * expY) / exp2;   // 位移完成率（被推回则为负）
   const trigger = (typeof cfg.trigger === 'number') ? cfg.trigger : 0.35;
-  if(progress >= trigger) return;                 // 斜撞/擦碰：位移基本完成，不干预
+  if(progress >= trigger) return false;           // 斜撞/擦碰：位移基本完成，不干预
   // 撤销本帧位移，沿切线重走——总位移 ≤ 期望位移（不白送速度）
   t.x = preMoveX; t.y = preMoveY;
   const ux = nx / nl, uy = ny / nl;               // 单位法线（墙 → 车）
@@ -80,9 +84,10 @@ function applyWallSlide(t, preMoveX, preMoveY, movedX, movedY, dt){
   let side = along >= 0 ? 1 : -1;
   // 正撞时切向分量 ≈0，两侧等价：用 id 定死一侧。
   //   不这么做的话，每帧的浮点噪声会让 side 反复翻转 ⇒ 车身在墙前左右抽搐。
+  //   取**整串 id 的哈希**而非首字符：id 前缀是公用的（`enemy_w0_0`/`enemy_w1_2` 首字符
+  //   全是 'e'），只看首字符等于让全场敌人永远朝同一侧滑。
   if(Math.abs(along) < 1e-6){
-    const seed = (typeof t.id === 'string') ? (t.id.charCodeAt(0) || 0) : (t.id || 0);
-    side = (Math.floor(Math.abs(seed)) % 2) ? 1 : -1;
+    side = (tankSideSeed(t.id) % 2) ? 1 : -1;
   }
   const factor = (typeof cfg.speedFactor === 'number') ? cfg.speedFactor : 0.55;
   const len = Math.sqrt(exp2) * factor;           // 滑行位移（≤ 期望位移）
@@ -90,6 +95,57 @@ function applyWallSlide(t, preMoveX, preMoveY, movedX, movedY, dt){
   t.y += ty * side * len;
   // 滑行可能把车带进相邻掩体：再解算一次，保证不穿模（仅撞墙帧才有这次额外开销）
   if(typeof resolveCoverCollisions === 'function') resolveCoverCollisions(t);
+  return true;
+}
+
+/**
+ * 正撞侧别的确定性种子（FNV-1a 32 位）：同一实体每次调用必须给出同一个值。
+ * 非字符串 id 取数值本体的整数部分（负数取绝对值），空/非法一律归 0。
+ * @param {any} id
+ * @returns {number} 非负整数
+ */
+function tankSideSeed(id){
+  if(typeof id !== 'string'){
+    const n = Number.isFinite(id) ? Math.floor(Math.abs(id)) : 0;
+    return n >>> 0;
+  }
+  let h = 2166136261 >>> 0;
+  for(let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619) >>> 0;
+  return h >>> 0;
+}
+
+/**
+ * 本帧的合法活动框（世界边界内缩半个车体外接半径）。两处消费同一份口径：位移后钳制、
+ * 滑行后重钳——分开算两遍必然漂移，所以统一由这里产出。
+ *
+ * 缺省语义：单边缺失（只有 minX 没有 maxX）时该侧取 ±Infinity，等价于「这侧不设限」。
+ *   旧实现在这种情况下会算出 `NaN` 并直接写进 t.x（静默全黑类故障），这里一并堵掉。
+ * @param {any} t
+ * @param {any} input
+ * @param {number|undefined} nodeW
+ * @param {number|undefined} nodeH
+ * @returns {{minX:number,minY:number,maxX:number,maxY:number}|null} null = 无边界约束
+ */
+function tankBoundsFor(t, input, nodeW, nodeH){
+  const margin = Math.max(t.hullLen || 32, t.hullWid || 32) * 0.6;
+  if(input && input.worldBounds){
+    const wb = input.worldBounds;
+    return {
+      minX: (wb.minX !== undefined) ? wb.minX + margin : -Infinity,
+      maxX: (wb.maxX !== undefined) ? wb.maxX - margin : Infinity,
+      minY: (wb.minY !== undefined) ? wb.minY + margin : -Infinity,
+      maxY: (wb.maxY !== undefined) ? wb.maxY - margin : Infinity,
+    };
+  }
+  if(nodeW && nodeH) return { minX: margin, maxX: nodeW - margin, minY: margin, maxY: nodeH - margin };
+  return null;
+}
+
+/** 把坐标钳进活动框（原地写）。`bounds` 为 null 时什么都不做。 */
+function clampTankToBounds(t, bounds){
+  if(!bounds) return;
+  t.x = Math.max(bounds.minX, Math.min(bounds.maxX, t.x));
+  t.y = Math.max(bounds.minY, Math.min(bounds.maxY, t.y));
 }
 
 function driveTank(t, dt, input){
@@ -235,21 +291,16 @@ function driveTank(t, dt, input){
   // 地图边界约束（问题7）：限制坦克在合法作战区域内，防穿出世界或小地图外
   const nodeW = (input && input.worldBounds && input.worldBounds.maxX) || (typeof globalThis !== 'undefined' && globalThis.currentNode && globalThis.currentNode.w);
   const nodeH = (input && input.worldBounds && input.worldBounds.maxY) || (typeof globalThis !== 'undefined' && globalThis.currentNode && globalThis.currentNode.h);
-  if(input && input.worldBounds){
-    const wb = input.worldBounds;
-    const margin = Math.max(t.hullLen || 32, t.hullWid || 32) * 0.6;
-    if(wb.minX !== undefined) t.x = Math.max(wb.minX + margin, Math.min(wb.maxX - margin, t.x));
-    if(wb.minY !== undefined) t.y = Math.max(wb.minY + margin, Math.min(wb.maxY - margin, t.y));
-  } else if(nodeW && nodeH){
-    const margin = Math.max(t.hullLen || 32, t.hullWid || 32) * 0.6;
-    t.x = Math.max(margin, Math.min(nodeW - margin, t.x));
-    t.y = Math.max(margin, Math.min(nodeH - margin, t.y));
-  }
+  const bounds = tankBoundsFor(t, input, nodeW, nodeH);
+  clampTankToBounds(t, bounds);
 
   // 掩体/元素碰撞：solid 推出（不可压）、crushable 压毁、graduated/none 仅通行系数
   resolveCoverCollisions(t);
   // #AB11b（§4.161）：正对掩体时本帧位移会被 MTV 完整抵消 → 改为沿墙面切向走一帧。
-  applyWallSlide(t, preMoveX, preMoveY, movedX, movedY, dt);
+  // #AB14（2026-10-28）：滑行发生在上面的边界钳制**之后**，而它的回滚锚点是「位移前」的
+  //   坐标 ⇒ 会把钳制修正一起撤销（实测贴墙贴边时滑到 x=−313 并永久留在场外）。
+  //   所以只在真的滑了（返回 true）时重钳一次；没滑的常规帧零开销。
+  if (applyWallSlide(t, preMoveX, preMoveY, movedX, movedY)) clampTankToBounds(t, bounds);
   // 履带相位：由真实位移（平移 + 车体转向角差）累积（ISSUES #14：传完整参数，勿用 Math.hypot 简写）
   advanceTracks(t, t.x-p0x, t.y-p0y, t.hullAngle-p0a);
   // #U41（2026-10-19）：地面履带痕迹——发射钩子经 globalThis 可选调用（页面加载 js/tank_fx.js

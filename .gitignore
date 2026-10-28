@@ -14,6 +14,8 @@ tools/godot/
 
 # Agent team runtime state (session ids + agent message logs) - local only
 .agent-teams/
+# WorkBuddy/agent 运行时状态（会话记忆等），与 .agent-teams/ 同口径 - local only
+.workbuddy/
 
 # 本地工具链临时目录：tmp/pylibs（Pillow/numpy wheel 解包，供 scripts/optimize_sprites.py、
 # prepare_covers.py、gen_barrels.py、covers-anchor-check.py 使用）+ 下载缓存 + 调试脚本。

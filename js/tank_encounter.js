@@ -462,6 +462,11 @@ function updateEncounter(enc, dt, ctx) {
 
   if (enc.phase === 'telegraph') {
     if (enc.pendingTelegraph) enterTelegraph(enc, c, events);      // 首帧补发（每波恰好一条）
+    // enterTelegraph 在「没有可进的波」时会把遭遇直接判成 victory（防御路径）。那一步会写
+    // outcome / 改写 phase / 把 timer 归零——若这里继续往下走，条件 `timer<=0` 立刻成立，
+    // 同帧就会再发出 spawn/wave-empty 并把 phase 从 victory 改回 wave（自相矛盾的事件序列）。
+    // 今天两个调用点都带前置守卫、这条路径不可达，但它是**错误处理**路径，留一个出口。
+    if (enc.outcome) return events;
     enc.timer = Math.max(0, enc.timer - step);
     if (enc.timer <= 0) {
       const units = applySpawnGuard(enc.pending, enc.cfg, encWorldBox(c), px, py);
