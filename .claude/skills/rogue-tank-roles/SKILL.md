@@ -47,8 +47,8 @@ description: Use when dispatching or acting as a Rogue Tank specialist role — 
 ```
 node scripts/check-html.js          # 语法冒烟（EXIT=0 才算过）
 node node_modules/typescript/bin/tsc --noEmit
-npm test                            # Node 全链（67 个 test-*.js；runner 登记 68 项）
-npm run test:browser                # 浏览器六链（smoke/r3/run/r4/ally/3d）；受限环境下 spawn EPERM 属环境限制
+npm test                            # Node 全链（68 个 test-*.js；runner 登记 69 项）
+npm run test:browser                # 浏览器八链（smoke/r3/run/r4/ally/3d/encounter/perf）；受限环境下 spawn EPERM 属环境限制
 npm run baseline                    # R0 渲染基线（默认 --check；首次 -- --write）
 node scripts/wiki-check.js          # 仅当本批改过 docs/：断链/锚点/兼容页结构/wiki 页模板
 ```
