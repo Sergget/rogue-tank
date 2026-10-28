@@ -24,7 +24,7 @@
   - `tank_entity.js`：实体注册表（`entities` 数组全局唯一实例、spawnTank/isHostile/nearestEnemyTo/resolveTankCollisions/resetEntity）。
   - `tank_weapons.js`：主/副武器定义与运行时（`WEAPON_DEFAULTS` 双槽缺省表、`updateSecondaryWeapon` 分发 mortar/missile/rocket/mine_layer/turret 五类副武器、`updateMissileLock`）。
   - `tank_fire.js`：开火通用层（fireTank 通用开火 + `tryFirePrimary`（左键/空格=主炮专属，salvo 齐射）/`tryFireSecondary`（F=副武器击发）双入口 + `primaryWeaponSpec`/`firePrimaryShell` + stepShells：曳光/近炸引信/溅射/掩体交互；经 computeAmmoConfig 接入卡牌弹种改造）。
-  - `tank_abilities.js`：主动能力统一入口（`tryActivateAbility`：runtime 键 **artillery / overdrive / shield / deploy_cover / aps**（`ABILITY_KEYS_RUNTIME`，**5 个**；原含 `super_fire_control` / `super_speed`，2026-10-20 #W9 用户裁定删除——两键无任何卡牌可授予、正式游戏不可达）与 innate 键 repair/medkit/extinguish **统一按 key 独立冷却池 `abilityCds[key]`**，逐帧 `updateAbilityCds`；旧共享字段 `abilityCdT`/`updateAbilityCd` 为废弃兼容助手。**`ABILITY_KEYS`（卡牌可授予）现为 8 键 = innate 3 + runtime 5、无死键**——原死效果键 `recon` / `track_repair` 及 5 张对应卡于 2026-09-23 A 档摘除（见 `docs/DEVELOPMENT.md` §4.35），`super_fire_control` / `super_speed` 于 2026-10-20 #W9 摘除（见 §4.112(4)，并配负向断言防回潮）。
+  - `tank_abilities.js`：主动能力统一入口（`tryActivateAbility`：runtime 键 **artillery / overdrive / shield / deploy_cover / aps / flash_dash**（`ABILITY_KEYS_RUNTIME`，**6 个**；原含 `super_fire_control` / `super_speed`，2026-10-20 #W9 用户裁定删除——两键无任何卡牌可授予、正式游戏不可达；`flash_dash` 战术闪跃于 2026-10-23 §4.123 新增）与 innate 键 repair/medkit/extinguish **统一按 key 独立冷却池 `abilityCds[key]`**，逐帧 `updateAbilityCds`；旧共享字段 `abilityCdT`/`updateAbilityCd` 为废弃兼容助手。**`ABILITY_KEYS`（卡牌可授予）现为 9 键 = innate 3 + runtime 6、无死键**——原死效果键 `recon` / `track_repair` 及 5 张对应卡于 2026-09-23 A 档摘除（见 `docs/DEVELOPMENT.md` §4.35），`super_fire_control` / `super_speed` 于 2026-10-20 #W9 摘除（见 §4.112(4)，并配负向断言防回潮）。
   - `tank_shield.js`：累计吸收护盾（applyShield/入射角吸收判定）；`tank_strike.js`：延迟 AOE 炮击（callStrike：circle/point/carpet 三形状/updateStrikes）。
   - `tank_deployables.js`：战场部署物注册表（`deployables`：固定炮塔/地雷/战术掩体，spawn/update/duration 生命周期 + mineExplode 事件）。
   - `tank_drone.js`：伴随无人机体系（模块级 `drones` 数组单一数据源，scout 侦察/striker 打击两型，countMax 上限）。
@@ -54,7 +54,7 @@
 
 （**分卷结构**：`docs/` 目录收纳四份主文档（DEVELOPMENT / PLAN / ISSUES / ARCHIVE）+ `specs/` 五卷系统规范；`AGENTS.md` 位于仓库根目录供 Agent 自动发现。归档正文按月分卷至 `docs/archive/`，任何 agent **严禁全文读取归档分卷**——按 `ARCHIVE.md` 索引定位后 Grep 切片。拆分前原文快照：`docs/archive/2026-08-development-full-snapshot.md`。）
 
-> **🆕 specs 已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 下共 **73 个 `.md`**（**2026-10-28 实测**：63 个纯主题页 + 5 个 `index.md` + 5 个 `changelog.md`），单卷文件 `docs/specs/<卷>.md` 保留为 **§N 兼容索引页**。**改 specs 前必须先读 `docs/WIKI-STYLE.md`**——它是 specs 形态的唯一规范权威。详见 §2.3。
+> **🆕 specs 已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 下共 **74 个 `.md`**（**2026-10-28 实测**：64 个纯主题页 + 5 个 `index.md` + 5 个 `changelog.md`），单卷文件 `docs/specs/<卷>.md` 保留为 **§N 兼容索引页**。**改 specs 前必须先读 `docs/WIKI-STYLE.md`**——它是 specs 形态的唯一规范权威。详见 §2.3。
 
 | 文档 | 角色 | 职责 | 更新时机 | 生命周期 |
 |---|---|---|---|---|
@@ -74,7 +74,7 @@
 - **被推翻的设计不静默删除**：主文档 §4 历史条目保持原文 + 加「已被 §4.x/§y 取代」注记；specs 内旧数值改写为现行值并在原处留沿革注记。读者应能只读 specs 就得到现行口径，只读 DEVELOPMENT §4 就能追溯演进。
 - **同文档内禁止重复罗列数值**：同一数值/参数表只允许一个「唯一口径」小节（如 combat.md §3.2 弹种总表），其余位置一律指向它。
 - **specs 章节编号是外部契约，不得重排**：实测 191+ 处文档/代码引用 `specs/<卷>.md §N`，历史批次日志又按「只增不改」维护 ⇒ **新增内容一律用新编号追加**，需要重组时用「卷首 §0 主题索引 + 批次节主题标签 + 数值唯一口径」三件套，**禁止重编号**。现行实践见 `DEVELOPMENT-batches-2026-10.md` §4.113。
-- **specs 正文已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 下共 **73 个 `.md`**（2026-10-28 实测：63 纯主题页 + 5 `index.md` + 5 个 `changelog.md`）；`docs/specs/<卷>.md` 是 §N 兼容索引页（标题编号不变、每节 1~3 行摘要 + 「详见」链接）。**查现行口径先读 `<卷>/index.md` 或其 `changelog.md`**，不要直接读兼容页当正文。风格规范见 `docs/WIKI-STYLE.md`。
+- **specs 正文已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 下共 **74 个 `.md`**（2026-10-28 实测：64 纯主题页 + 5 `index.md` + 5 个 `changelog.md`）；`docs/specs/<卷>.md` 是 §N 兼容索引页（标题编号不变、每节 1~3 行摘要 + 「详见」链接）。**查现行口径先读 `<卷>/index.md` 或其 `changelog.md`**，不要直接读兼容页当正文。风格规范见 `docs/WIKI-STYLE.md`。
 - **统计数字必须实测**：文档中的统计数字（卡牌数量/分布等）标注实测日期；引用过期数字前先重跑对应脚本（如 `node scripts/audit-content.js`）。
 - **模糊词禁用**：章节标题与结论禁止「本轮/本批」无日期锚点的写法；一律带 yyyy-mm-dd（或月份）锚点。
 
@@ -216,6 +216,6 @@
 
 - **当前状态、批次史、长期债务**：见 `docs/DEVELOPMENT.md` §3（唯一维护点）。
 - **待办与排期**：见 `docs/PLAN.md`。**`PLAN.md` 只存未完成项**——已完成批次一律删除并归档，不在其中保留完成情况记录。当前内容：**R0 地基 / A0 命令闭环 / R1 3D 切片均已完成（§4.147~§4.149）；标准模式不再预生成友军据点、Boss 地图改走标准 strip 生成器（§4.152）；G1 首切片（3D 基线 + 载具手感/演出）已落地（§4.154）**，下一步是完整 3～5 分钟遭遇与精修资产 + **近远期执行路线**（§2：A1 导航职能 / A2 命令环 → G1 品质切片 → M1～M4）+ **友军指挥**（§3，单机三命令，排除多人）+ **既有远期模块**（§4）+ **分阶段 Steam 清单**（§5）。2026-10-24 用户反馈批次（AA-a §4.132 / AA-b §4.136 / AA-c §4.137 / AA-d §4.130）已全部关账，整节原文于 2026-10-27 归档至 `docs/archive/2026-10.md`；渲染现行规划归 `docs/specs/map/rendering-roadmap.md`，不再以伪 3D 路线 A 为最终方向。
-- **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **73 个 `.md`（63 主题页 + 5 index + 5 changelog，2026-10-28 实测）**，每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
+- **查系统现行口径**：先读 `docs/specs/<卷>/index.md`（卷首页导航），再进具体主题页。五卷（combat / map / cards / boss / editor）共 **74 个 `.md`（64 主题页 + 5 index + 5 changelog，2026-10-28 实测）**，每卷有 `index.md` + 主题页 + `changelog.md`。**不要直接读 `docs/specs/<卷>.md` 当正文**——那是 §N 兼容索引页（只放摘要 + 详见链接）。历史沿革看 `<卷>/changelog.md`。**specs 章节编号是外部契约，禁止重排**（见 §2.1）；改 specs 必读 `docs/WIKI-STYLE.md` 与 §2.3。
 - **待处理问题**：见 `docs/ISSUES.md`（**当前无存量条目**——用户 2026-10-24 反馈批次已**全部关账**：AA-a 关 #AA1/#AA2/#AA5（§4.132）、AA-b 关 #AA3（§4.136，`test-bench-parity.js` **30 断言**锁键集包含关系，其中 2 条是关账后同日修 F 键门控回归时补的）、AA-c 电磁炮三段声学（§4.137，新能力缺口，原挂 PLAN §6.3）、AA-d 关 #AA4（§4.130）。历史已核实问题见 `docs/ARCHIVE.md` 索引）。
 - **历史已完成条目**：`docs/ARCHIVE.md` 索引表（按日期升序）→ `docs/archive/<yyyy-mm>.md` 分卷正文（严禁全文读取）。
