@@ -4068,3 +4068,32 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 - `npm run baseline:3d --all` 三档 PASS（mean=0 max=0）；新增 `npm run baseline:3d:all` 同义入口；基线按档拆成 `baseline.json` / `baseline-1080p.json` / `baseline-deck.json`（分辨率不同、像素网格不可比，**必须分档**），输出在 `tmp/render-baseline3d/`。
 - `node scripts/wiki-check.js` → `broken=0 anchorBad=0 struct=0 template=0`。
 - **G1 剩余两项**：精修单车与单主题场景（资产管线）、载具手感第二轮（侧滑/坡面/悬挂落地/碰撞反馈）。
+
+## §4.163 2026-10-28 Boss 战地图生成器两处缺陷（#AB15 / #AB16）
+
+> 体例说明：§4.157~§4.162 的正文未落到本文件，暂见 `DEVELOPMENT.md` §4.0 索引表与 §3 摘要；本条按现行体例续写。
+
+**背景**：2026-10-27（§4.152）Boss 节点从「方形模板竞技场」切到「标准 strip 生成器 3×3 屏」，两条只服务旧路径的逻辑随之失效，当日未察觉，由本次定向探针在 500 个 Boss 节点上实测暴露。
+
+### 1) #AB15 Boss 建筑密度乘子失效（规格 1.6，实际 1.0）
+
+- **规格**：`specs/map/difficulty.md` 「Boss 战地图的建筑密度应更高（1.6 倍）」；唯一口径见 `specs/map/roads.md` §「建筑密度与 Boss 战图加成」。
+- **断裂点**：`js/tank_map.js` 只在**非 strip** 分支把 `buildingDensity` 传给 `generateNode`；`stripOpts` 未透传，而 strip 分支要求 `viewport` 为空才回退——浏览器里 `viewport` 恒 >0（`tank_battle.html` 传 `vw:canvas.width`）⇒ 乘子恒为 1。生成器本身支持该参数（`js/tank_nodegen.js` 的 `opts.buildingDensity`，透传给 `placeRoadsideBuildings`）。
+- **实测**（`tmp/boss-probe.js`，8 个竞技场同 seed）：`buildingDensity=1` 平均 **4.13** 栋/竞技场，`1.6` 平均 **7.13** 栋（+73%）。
+- **修法**：`stripOpts` 增加 `buildingDensity`；同步修正 `tank_map.js` 与 `tank_rules.js` 中「Boss 恒走方形路径」的过期注释。
+- **测试盲区（复盘）**：`scripts/test-nodegen.js` 的 #I3 段直调 `generateNode` 并断言 `bossDensity` 键存在——**测的是生成器层，不是 `makeNode` 真路径**，所以一直绿。
+
+### 2) #AB16 Boss 出生净空小于车体（60px vs 69~79px）
+
+- **证据**：`tank_battle.html` 的 `spawnBossFromDef` 用固定 `pointInCover(…, 60)` 判定出生点；Boss 全部 `scale: 2`，车体（含炮塔）外接半径 **69.3~78.8px**（tiger-I / Obj 780 / Leapard_1 ×2）。
+- **实测**（`tmp/boss-spawn-probe.js` / `tmp/boss-hull-probe.js`，100 seed × 5 节点 = 500 个 Boss 节点，真实车体多边形 ×2、4 个朝向采样）：出生即压进阻挡物——boss_fortress / boss_twin_track **11.2%**、boss_commander 6.4%、boss_sniper / boss_siege_fort 4.6%；另有 **152/500（30%）** 的默认点 `(0.7w, h/2)` 本身就落在阻挡物上，靠螺旋救援救回。
+- **修法**：`js/tank_boss.js` 新增纯逻辑 `bossFootprintRadius(t)`（按已缩放的 `hullSpec` / `turretSpec` 求外接半径）与 `findBossSpawn(node, blocked, clearRadius, origin)`（默认点 + 16 方向 × 半径步长螺旋，步长与边界余量随半径走）；`tank_battle.html` 改为「净空 = 半径 + 16」，找不到安全点记一条 CRIT 日志而不是静默留在原地。
+- **回归**：新增 `scripts/test-boss-spawn.js`（**24 断言**，已登记 `TESTS`）：① 五个 Boss 半径 69~79px ② 选址纯函数的未阻挡/救援/全阻挡/越界四态 ③ **乘子透传断言**（把 `global.generateStrip` 换成探针，直接验 `opts.buildingDensity === 1.6` 与普通节点 `=== 1`）④ 同 seed 聚合建筑数对照 ⑤ 100 个 Boss 节点车体压阻挡物 **0/100**（修复前 4.6%~11.2%），且救援分支确有触发（48/100，用例非空转）。
+
+### 3) 验证
+
+- `npm run check` EXIT=0（含 `tsc --noEmit`）；`npm test` **70 通过 / 0 失败**（140s，含新增 `test-boss-spawn`）——修复前后均无失败项，属「既有测试不覆盖该路径」而非「测试保护了它」。
+- `node scripts/wiki-check.js` → `broken=0 anchorBad=0 struct=0 template=0`。
+- 归口：`specs/map/roads.md` §「建筑密度与 Boss 战图加成」（乘子路径）、`specs/combat/boss-combat.md` §「Boss 出生点与净空」（新增）。
+
+**复盘口径**：两条都是「切换生成器后，只服务旧路径的参数没有跟着搬家」，且都被现有测试的**层级错位**掩盖（测生成器不测 `makeNode`；测坐标不测车体尺寸）。可复用判据：**任何依赖节点尺寸/几何的阈值，都要按实体真实几何推导，不能写死像素。**

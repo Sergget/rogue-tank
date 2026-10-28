@@ -141,7 +141,8 @@
 **用户裁定**：「继续增加地图、特别是 boss 战地图的建筑密度」。
 
 - **参数提升**（`RULES.nodeMap.building`）：`clusterPerJunction` 3~5 → **4~8**、`maxPerNode` 18 → **28**；沿路采样数随乘子提升（`wantRoadside = round(segs/4 × den)`）。**参数键与取值以 `RULES.nodeMap.building` 为唯一口径**（`roadBand`/`roadBias`/`junctionBias`/`junctionRadius`/`clusterPerJunction`/`clusterPerJunctionMax`/`maxPerNode`/`bossDensity`）。
-- **Boss 战图加成**：新增 `bossDensity: 1.6`——`makeNode` 用纯函数 `isBossNodeIndex(index)` 提前判定 boss 节点，经 `generateNode(opts.buildingDensity)` → `placeRoadsideBuildings(…, density)` 放大路口簇规模/总量上限/沿路采样密度（普通节点恒 1）。
+- **Boss 战图加成**：`bossDensity: 1.6`——`makeNode` 用纯函数 `isBossNodeIndex(index)` 提前判定 boss 节点，再经 `generateNode(opts.buildingDensity)` **或** `generateStrip(opts.buildingDensity)`（2026-10-27 起 Boss 走 strip）→ `placeRoadsideBuildings(…, density)` 放大路口簇规模/总量上限/沿路采样密度（普通节点恒 1）。
+  > **沿革（2026-10-27 ~ 2026-10-28）**：Boss 节点切到 strip 生成器时**只透传了 `generateNode` 分支**，`stripOpts` 漏传 ⇒ 乘子恒按 1.0（实测同 seed 8 个竞技场 4.13 栋 vs 应为 7.13 栋）。已于 **#AB15（§4.163）** 补齐，并加「探针替换 `global.generateStrip` 断言 `opts.buildingDensity`」的导线断言防回潮。现行两条路径都透传，勿再只改一条。
 - **顺带修复 #E3/#G 遗留缺陷**：`placeRoadsideBuildings` 的 `fits()` 此前对 `outCovers` 用 pad 34 判重叠，而 `outCovers` **含全部道路段**（宽 92~124px 条带）⇒ 沿路/路口建筑几乎全部被拒，函数产出恒为 0、所有密度参数空转（实测同 seed 下仅有模板自带建筑）。现行：道路按 pad 10 判定（不压路面），**非道路**元素才按 pad 34 留通行间隙；`placed` 之间仍 pad 34。
 - **实测**：同模板 8-seed 结构总数 87 → 103（×1.6，`building`/`ruined` 首次实际出现）；连通性维持 **0.999~1.000**、`minPassageWidth` 仍高于可通行下限（≥1.0 格）。
 - **校准重锚（第三次）**：`coverCoverage` 整体上移约 +0.015~0.021（建筑变多），基线表按实测重锚（TOL 不变），见 [可破坏楼房](#可破坏楼房-building) 内的第二次重锚段与文件内 #I3 注记。

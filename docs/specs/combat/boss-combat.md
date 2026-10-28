@@ -11,6 +11,7 @@
 - [光束被掩体截断](#光束被掩体截断)
 - [Boss 随机走位](#boss-随机走位)
 - [召唤波次](#召唤波次)
+- [Boss 出生点与净空](#boss-出生点与净空)
 
 > **Boss 血量与阶段缩放不在此页**：`tuning.hpMul` / 阶段阈值 / 数据契约归口 [Boss 规范](../boss.md) §5；本页只写战斗侧机制。
 
@@ -63,6 +64,16 @@
 （原 §9.5 #G2）
 
 `RULES.boss.summonWaves` 新增 `defaultPool`（缺省 `[{tankId:'dummy',count:2}]`）与 `defaultWaves`（3）。`bossSummonWave` 在配置 `summons` 为空**且** `t.boss.id` 存在时，用 `defaultPool` 补足 3 波（`hpFrom` 依次取 1.0 / 配置默认），裸测试实体的空 summons 仍返回 null（不污染单测）。5 个 Boss JSON 均已补 3 波 `summons`（`hpFrom` = 1.0/0.66/0.33 对应 100%/67%/33% HP 触发）。分波次召唤的阈值语义归口 [Boss 规范](../boss.md)。
+
+## Boss 出生点与净空
+
+（2026-10-28 #AB16 从 `tank_battle.html` 的 `spawnBossFromDef` 抽为纯逻辑；本节是净空判据的唯一现行口径）
+
+- **默认点**：`(0.7w, h/2)`；调用方显式传 `x` / `y` 时不挪动。
+- **净空判据**：`车体外接半径 + 16px`。半径由 `bossFootprintRadius(t)` 从**已按 `boss.scale` 缩放**的 `hullSpec` / `turretSpec` 求（含炮塔 pivot 偏移），实测五个 Boss 为 69.3~78.8px。**禁止写死像素**——旧实现固定 60px，实测 500 个 Boss 节点里 4.6%~11.2% 出生即压进建筑。
+- **阻挡口径**：`passability === 0` ∪ `shellBlock` ∪ `liquid`（水 / 河），与玩家出生点同口径；道路与减速地形可正常出生。
+- **搜索**：`findBossSpawn(node, blocked, clearRadius, origin)` 从默认点按 16 方向 × 步长 `max(40, round(半径 × 0.75))` 向外螺旋，边界余量 = 半径 + 20。找不到安全点时返回 `found:false`，页面记一条 CRIT 日志并沿用默认点（不静默留在原地）。
+- **回归**：`scripts/test-boss-spawn.js`（24 断言）——五个 Boss 半径范围、选址四态、100 个 Boss 节点车体压阻挡物 **0/100**（修复前 4.6%~11.2%），且救援分支确有触发以防用例空转。
 
 ## 相关页面
 - [Boss 规范](../boss.md) — 数据契约、血量倍率、阶段阈值
