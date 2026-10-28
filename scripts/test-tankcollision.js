@@ -213,6 +213,11 @@ function residualOverlap(a, b){
   const rock1 = mkRock(600, 320, 34, 22, 0.7);
   CV.covers.length = 0;
   CV.covers.push(rock1);
+  // §4.161：本组测「贴岩不锁死速度/转向」——与沿墙滑行正交，且本组是**串行位置**断言
+  //   （撞岩 → 倒车 → 再撞 → 原地转），一旦开着滑行，坦克会沿岩壁滑到尽头绕过去，
+  //   后续「倒车回到 x<520」等断言全部失去意义。故本组显式关闭滑行，
+  //   滑行本身由下一组「#AB11b 沿墙滑行」独立验证。
+  RULES.speed.wallSlide.enabled = false;
   const t = freshTank('rock-stuck', 500, 320, 0, 'player');
   for(let f = 0; f < 240; f++) MV.driveTank(t, dt, { turn: 0, move: 1 });   // 全速撞岩
   ok(t.x < 570, `#N1: 撞岩后被推出且未穿模（x=${t.x.toFixed(1)}，岩左界 583）`);
@@ -239,6 +244,7 @@ function residualOverlap(a, b){
   const t4 = freshTank('rock-block', 540, 320, 0, 'player');
   for(let f = 0; f < 600; f++) MV.driveTank(t4, dt, { turn: 0, move: 1 });
   ok(t4.x <= 583.5, `#N1: 岩石仍硬阻断不可通行（x=${t4.x.toFixed(1)} ≤ 583.5）`);
+  RULES.speed.wallSlide.enabled = true;   // 恢复默认，后续用例按真实配置跑
   // 慢速地形减速语义不变：泥地（passability 0.4）不推 + 通行系数仍来自 tier 表
   CV.covers.length = 0;
   CV.covers.push({ x: 600, y: 320, w: 200, h: 200, angle: 0, tier: 'mud', hp: Infinity });
@@ -285,6 +291,91 @@ function residualOverlap(a, b){
   const after = CV.coverQueryCandidates(strip.w / 2, strip.h / 2, 60);
   ok(after.length === 1 && after[0].tier === 'rock',
     `#N1: 等长换场后索引失效重建（before=${before} → after=${after.length} 且命中新 cover）`);
+  CV.covers.length = 0;
+}
+
+// 9) #AB11b（§4.161）：沿墙滑行——正对掩体时不再「原地踩油门」。
+//    背景：敌人顶掩体 22 秒净推进 13px（实测 cover:full 22/23 帧、表速 0），而同一批里
+//    巡逻漫步碰巧朝空处走的那辆能压到 260px ⇒ 缺口是「切向补偿」，不是推进能力。
+{
+  const mkRock2 = (x, y, cw, ch, rot) => {
+    const rx = cw / 2, ry = ch / 2, rv = [];
+    for(let i = 0; i < 6; i++){ const a = rot + (i / 6) * Math.PI * 2; rv.push([Math.cos(a) * rx, Math.sin(a) * ry]); }
+    return { x, y, w: cw, h: ch, angle: 0, tier: 'rock', verts: rv, hp: Infinity };
+  };
+
+  // --- ① 无掩体：不得产生任何侧向漂移（滑行不能变成「隐形转向」）---
+  {
+    clear();
+    CV.covers.length = 0;
+    const tf = freshTank('slide-free', 480, 320, 0, 'player');
+    for(let f = 0; f < 120; f++) MV.driveTank(tf, dt, { turn: 0, move: 1 });
+    ok(Math.abs(tf.y - 320) < 1e-6,
+      `#AB11b: 空旷地面不产生侧向漂移（y=${tf.y.toFixed(4)}）`);
+    ok(tf.x > 480, `#AB11b: 空旷地面正常前进（x=${tf.x.toFixed(0)}）`);
+  }
+
+  // --- ② 正对岩石：单帧位移不得超额（滑行是「换个方向走」，不是「多走一段」）---
+  {
+    clear();
+    const rock = mkRock2(600, 320, 34, 22, 0.7);
+    CV.covers.length = 0; CV.covers.push(rock);
+    const tw = freshTank('slide-cap', 470, 320, 0, 'player');
+    for(let f = 0; f < 90; f++) MV.driveTank(tw, dt, { turn: 0, move: 1 });   // 提前到墙边
+    let worst = 0, worstExpect = 0;
+    for(let f = 0; f < 120; f++){
+      const bx = tw.x, by = tw.y;
+      MV.driveTank(tw, dt, { turn: 0, move: 1 });
+      const step = Math.hypot(tw.x - bx, tw.y - by);
+      const expect = Math.abs(tw.speed) * dt;
+      if(expect > 1e-6 && step / expect > worst){ worst = step / expect; worstExpect = expect; }
+    }
+    ok(worst <= 1.02,
+      `#AB11b: 滑行位移不超额（最坏比值 ${worst.toFixed(3)} ≤ 1.02；期望 ${worstExpect.toFixed(2)}px/帧）`);
+
+    // --- ③ 绕行：有限长掩体允许滑到尽头绕过去，但**任何帧都不得与岩石相交** ---
+    let overlapped = false;
+    for(let f = 0; f < 600; f++){
+      MV.driveTank(tw, dt, { turn: 0, move: 1 });
+      if(CV.getCoverUnderTank(tw) === rock) overlapped = true;
+    }
+    ok(!overlapped, '#AB11b: 全程不与岩石相交（绕行允许，穿透不允许）');
+    ok(tw.x > 700, `#AB11b: 能绕过有限长掩体继续前进（x=${tw.x.toFixed(0)} > 700）`);
+  }
+
+  // --- ④ 稳定性：顶墙期间不得左右抽搐（切向侧别必须稳定）---
+  {
+    clear();
+    const rock = mkRock2(600, 320, 34, 22, 0.7);
+    CV.covers.length = 0; CV.covers.push(rock);
+    const ts = freshTank('slide-stable', 470, 320, 0, 'player');
+    for(let f = 0; f < 60; f++) MV.driveTank(ts, dt, { turn: 0, move: 1 });
+    const dirs = [];
+    for(let f = 0; f < 90; f++){
+      const py = ts.y;
+      MV.driveTank(ts, dt, { turn: 0, move: 1 });
+      const d = Math.sign(Math.round((ts.y - py) * 1000) / 1000);
+      dirs.push(d);
+    }
+    let flips = 0;
+    for(let i = 1; i < dirs.length; i++){
+      if(dirs[i] !== 0 && dirs[i - 1] !== 0 && dirs[i] !== dirs[i - 1]) flips++;
+    }
+    ok(flips <= 3, `#AB11b: 滑行侧别稳定（方向翻转 ${flips} 次 ≤ 3）`);
+  }
+
+  // --- ⑤ 关掉开关必须完全回到旧行为（负向断言：配置真的被读）---
+  {
+    clear();
+    const rock = mkRock2(600, 320, 34, 22, 0.7);
+    CV.covers.length = 0; CV.covers.push(rock);
+    RULES.speed.wallSlide.enabled = false;
+    const toff = freshTank('slide-off', 540, 320, 0, 'player');
+    for(let f = 0; f < 600; f++) MV.driveTank(toff, dt, { turn: 0, move: 1 });
+    RULES.speed.wallSlide.enabled = true;
+    ok(toff.x <= 583.5,
+      `#AB11b: 关闭滑行后恢复旧行为——顶岩不得越界（x=${toff.x.toFixed(1)} ≤ 583.5）`);
+  }
   CV.covers.length = 0;
 }
 

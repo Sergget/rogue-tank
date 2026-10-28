@@ -30,6 +30,68 @@ function stiffMul(t){
     ? RULES.ramming.stiffSpeedMul : 0.35) : 1;
 }
 
+/**
+ * 沿墙滑行（#AB11b，§4.161，2026-10-28）。
+ *
+ * 问题：`resolveCoverCollisions` 只有 MTV 推出、没有切向分量。正对全高掩体时推出方向与
+ *   前进方向相反 ⇒ 本帧位移被**完整抵消**，坦克变成「顶着墙原地踩油门」。实测
+ *   （tmp/dbg-press.cjs，0.4s 间隔逐帧采样）首波敌人 `enemy_w0_0` 连续 22/23 帧前方
+ *   `cover:full`、表速 0、22 秒净推进 13px；而同批的 `w0_2` 因巡逻漫步碰巧朝空处走，
+ *   一路压到 260px。⇒ 「敌人不推进」是**朝向掩体时缺一层切向补偿**，不是能力缺失。
+ *
+ * 语义：本帧位移一旦被吃掉超过 (1-trigger)，**撤销这次位移**，改为沿墙面切线走
+ *   `|期望位移| × speedFactor`。关键在「撤销」——不是在被推回的位置上再叠加一次滑行
+ *   （那样总位移会超额，实测会把坦克沿岩壁带出 1800px，撞碎 #N1 的「不可穿透」契约）。
+ *
+ * 边界（故意不做什么）：
+ *   - 不接管转向：车头朝向不变，仍由驾驶者/AI 决定，滑行只补偿位移。
+ *   - 斜撞（入射角 < 约 69°）不触发：法向分量本就被推出吃掉、切向分量自然保留，
+ *     再滑一次等于白送速度。
+ *   - 本帧未被推出（`_pushN` 为零）直接返回，热路径常态零开销。
+ *   - **允许绕过掩体**：掩体有限长时沿墙滑到尽头会自然绕过去，这是特性（AI 需要它，
+ *     玩家撞石头也不该永久卡死）。所以「不可穿透」的正确不变量是「任何时刻不与掩体
+ *     相交」，而不是「x 坐标不得超过某个值」——后者会把绕行也判成违规（见 #N1 用例）。
+ *
+ * @param {any} t 实体（需 x/y/hullAngle/speed；`_pushNx/_pushNy` 由 resolveCoverCollisions 写入）
+ * @param {number} preMoveX 本帧位移前的 x
+ * @param {number} preMoveY 本帧位移前的 y
+ * @param {number} movedX 位移后、碰撞解算前的 x（期望到达点）
+ * @param {number} movedY 位移后、碰撞解算前的 y
+ * @param {number} dt 本步时长（秒）
+ */
+function applyWallSlide(t, preMoveX, preMoveY, movedX, movedY, dt){
+  const cfg = (typeof RULES !== 'undefined' && RULES.speed && RULES.speed.wallSlide) || null;
+  if(!cfg || cfg.enabled === false) return;
+  const nx = t._pushNx, ny = t._pushNy;
+  const nl = Math.hypot(nx, ny);
+  if(!(nl > 1e-6)) return;                        // 没被推出 ⇒ 没撞墙
+  const expX = movedX - preMoveX, expY = movedY - preMoveY;
+  const exp2 = expX * expX + expY * expY;
+  if(!(exp2 > 1e-9)) return;                      // 本帧没有期望位移（静止/被钳制）
+  const actX = t.x - movedX, actY = t.y - movedY;
+  const progress = (actX * expX + actY * expY) / exp2;   // 位移完成率（被推回则为负）
+  const trigger = (typeof cfg.trigger === 'number') ? cfg.trigger : 0.35;
+  if(progress >= trigger) return;                 // 斜撞/擦碰：位移基本完成，不干预
+  // 撤销本帧位移，沿切线重走——总位移 ≤ 期望位移（不白送速度）
+  t.x = preMoveX; t.y = preMoveY;
+  const ux = nx / nl, uy = ny / nl;               // 单位法线（墙 → 车）
+  const tx = -uy, ty = ux;                        // 切线
+  const along = expX * tx + expY * ty;
+  let side = along >= 0 ? 1 : -1;
+  // 正撞时切向分量 ≈0，两侧等价：用 id 定死一侧。
+  //   不这么做的话，每帧的浮点噪声会让 side 反复翻转 ⇒ 车身在墙前左右抽搐。
+  if(Math.abs(along) < 1e-6){
+    const seed = (typeof t.id === 'string') ? (t.id.charCodeAt(0) || 0) : (t.id || 0);
+    side = (Math.floor(Math.abs(seed)) % 2) ? 1 : -1;
+  }
+  const factor = (typeof cfg.speedFactor === 'number') ? cfg.speedFactor : 0.55;
+  const len = Math.sqrt(exp2) * factor;           // 滑行位移（≤ 期望位移）
+  t.x += tx * side * len;
+  t.y += ty * side * len;
+  // 滑行可能把车带进相邻掩体：再解算一次，保证不穿模（仅撞墙帧才有这次额外开销）
+  if(typeof resolveCoverCollisions === 'function') resolveCoverCollisions(t);
+}
+
 function driveTank(t, dt, input){
   const turn = input.turn || 0, mv = input.move || 0;
   // 2026-10-23（本批）：撞击硬直 / 闪跃过热 / 闪跃本身三个计时器在此统一递减。
@@ -165,8 +227,10 @@ function driveTank(t, dt, input){
   } else {
     t.speed += clamp(pTarget - t.speed, -pBrake*dt, pAccel*dt);
   }
+  const preMoveX = t.x, preMoveY = t.y;          // 本帧位移前（沿墙滑行要能回滚到这里）
   t.x += Math.cos(t.hullAngle)*t.speed*dt;
   t.y += Math.sin(t.hullAngle)*t.speed*dt;
+  const movedX = t.x, movedY = t.y;              // 位移后、碰撞解算前 = 「期望到达点」
 
   // 地图边界约束（问题7）：限制坦克在合法作战区域内，防穿出世界或小地图外
   const nodeW = (input && input.worldBounds && input.worldBounds.maxX) || (typeof globalThis !== 'undefined' && globalThis.currentNode && globalThis.currentNode.w);
@@ -184,6 +248,8 @@ function driveTank(t, dt, input){
 
   // 掩体/元素碰撞：solid 推出（不可压）、crushable 压毁、graduated/none 仅通行系数
   resolveCoverCollisions(t);
+  // #AB11b（§4.161）：正对掩体时本帧位移会被 MTV 完整抵消 → 改为沿墙面切向走一帧。
+  applyWallSlide(t, preMoveX, preMoveY, movedX, movedY, dt);
   // 履带相位：由真实位移（平移 + 车体转向角差）累积（ISSUES #14：传完整参数，勿用 Math.hypot 简写）
   advanceTracks(t, t.x-p0x, t.y-p0y, t.hullAngle-p0a);
   // #U41（2026-10-19）：地面履带痕迹——发射钩子经 globalThis 可选调用（页面加载 js/tank_fx.js
@@ -194,5 +260,5 @@ function driveTank(t, dt, input){
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { fireMul, driveTank, flashDashMul, stiffMul };
+  module.exports = { fireMul, driveTank, flashDashMul, stiffMul, applyWallSlide };
 }

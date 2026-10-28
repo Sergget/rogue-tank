@@ -609,6 +609,11 @@ const RESOLVE_PUSH_BUFFER = 0.25;
 const RESOLVE_MAX_PASS = 4;
 function resolveCoverCollisions(tank) {
   if(!tank || !Number.isFinite(tank.x) || !Number.isFinite(tank.y)) return;
+  // #AB11b（§4.161）：把本次解算的**累计推出法线**留给调用方（tank_move 的沿墙滑行要用）。
+  //   累加而非覆盖：多掩体同时命中时，法线之和才是真实的「被堵住的方向」。
+  //   每帧由本函数重置（含下方 immobT 早退路径之外的常规路径），调用方无需清理；
+  //   下游对 NaN/零向量自行守卫（无推出时滑行直接返回）。
+  tank._pushNx = 0; tank._pushNy = 0;
   for(let pass = 0; pass < RESOLVE_MAX_PASS; pass++){
     const tankCorners = () => partCorners(tank.x, tank.y, tank.hullAngle, tank.hullLen/2, tank.hullWid/2);
     let pushed = false;
@@ -634,6 +639,9 @@ function resolveCoverCollisions(tank) {
           const scale = (mtv.depth + RESOLVE_PUSH_BUFFER) / depth;
           tank.x += mtv.dx * scale;
           tank.y += mtv.dy * scale;
+          // 供沿墙滑行：mtv.dx/dy 是单位分离轴（`scale` 已把 depth 展开），直接累加即为法线
+          tank._pushNx += mtv.dx;
+          tank._pushNy += mtv.dy;
           pushed = true;
         }
       }
