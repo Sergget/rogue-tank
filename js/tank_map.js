@@ -445,9 +445,10 @@ function makeNode(index, rng, env) {
           })
         : stripCfg);
 
-  // #I3（2026-09-21 用户裁定「特别是 boss 战地图的建筑密度」）：Boss 节点建筑密度乘子
-  // （isBossNodeIndex 为纯函数，可在 generateNode 前判定）。strip 模式无单模板歧义，
-  // 建筑密度乘子仅服务方形路径（Boss 节点恒走方形路径）。
+  // #I3（2026-09-21 用户裁定「特别是 boss 战地图的建筑密度」）：Boss 节点建筑密度乘子。
+  // 2026-10-28 #AB15：Boss 节点自 2026-10-27 起恒走 strip 生成器，乘子必须**同时**透传给
+  //   generateStrip（此前只喂 generateNode，而那条分支要 viewport 为空才可达 ⇒ 浏览器里
+  //   乘子恒为 1，实测同 seed 8 个竞技场 4.13 栋 → 1.6 乘子应得 7.13 栋）。
   const bossDensity = (RULES.nodeMap.building && RULES.nodeMap.building.bossDensity) || 1.6;
   const buildingDensity = isBoss ? bossDensity : 1;
 
@@ -475,7 +476,9 @@ function makeNode(index, rng, env) {
       // 2026-10-22（B4-2）：生存模式单行片也要求「纵向填满」（模板内容只占片高中段，
       //   纵向裁剪后会留下上下空带）——显式开启 fillEmptyBands 补植，标准模式保持缺省关闭。
       //   2026-10-27：Boss 节点（3×3 屏）同样单行片，沿用补植，避免方形竞技场出现空带。
-      fillBands: noEnemies === true || isBoss
+      fillBands: noEnemies === true || isBoss,
+      // #AB15（2026-10-28）：Boss 建筑密度乘子透传（strip 路径此前漏传 ⇒ Boss 决战图恒按 1.0）。
+      buildingDensity: buildingDensity
     };
     const stripRes = generateStrip(diff, stripOpts);
     w = stripRes.w; h = stripRes.h;

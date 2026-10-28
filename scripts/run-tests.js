@@ -48,6 +48,7 @@ const TESTS = [
   'scripts/test-economy.js',
   'scripts/test-cards.js',
   'scripts/test-boss.js',
+  'scripts/test-boss-spawn.js',   // #AB15/#AB16 2026-10-28：Boss 图建筑密度透传 + 出生净空
   'scripts/validate-content.js',
   'scripts/test-card-effects.js',
   // 2026-10-23：被动技能槽（分类判定/槽位视图/顶替撤除）+ 导弹越障与攻顶参数 + 侦查无人机停用

@@ -2401,16 +2401,13 @@ function spawnBossFromDef(bossDef, node, opts){
       return tier.passability === 0 || tier.shellBlock === true || tier.shellBlock === 'single'
         || tier.tierGroup === 'liquid' || c.tier === 'water' || c.tier === 'river';
     });
-    if(_badCovers.length && pointInCover(_badCovers, _bx, _by, 60)){
-      let _found = false;
-      for(let _r = 100; _r <= 800 && !_found; _r += 100){
-        for(let _a = 0; _a < 8 && !_found; _a++){
-          const _nx = _bx + Math.cos(_a * Math.PI / 4) * _r;
-          const _ny = _by + Math.sin(_a * Math.PI / 4) * _r;
-          if(_nx < 60 || _nx > node.w - 60 || _ny < 60 || _ny > node.h - 60) continue;
-          if(!pointInCover(_badCovers, _nx, _ny, 60)){ _bx = _nx; _by = _ny; _found = true; }
-        }
-      }
+    if(_badCovers.length && typeof findBossSpawn === 'function'){
+      // #AB16（2026-10-28）：净空按 Boss 车体真实外接半径（scale=2 时 69~79px）+ 余量。
+      //   旧实现写死 60px ⇒ 中心「合法」但车体仍压进建筑（实测 500 节点 4.6%~11.2%）。
+      const _clear = (typeof bossFootprintRadius === 'function' ? bossFootprintRadius(bossEntity) : 60) + 16;
+      const _sp = findBossSpawn(node, (_x, _y, _pad) => pointInCover(_badCovers, _x, _y, _pad), _clear, { x: _bx, y: _by });
+      _bx = _sp.x; _by = _sp.y;
+      if(!_sp.found) pushLog('Boss 出生点无安全位置，已沿用默认点', 'CRIT');
     }
   }
   bossEntity.x = _bx;

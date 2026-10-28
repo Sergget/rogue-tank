@@ -1024,6 +1024,65 @@ function updateBossRailCharge(t, dt, target, opts) {
   return evts;
 }
 
+// ==================== #AB16（2026-10-28）：Boss 出生净空与选址 ====================
+// 背景：接入层（tank_battle.html spawnBossFromDef）长期用固定 60px 净空判定出生点，但 Boss 恒
+//   `scale: 2`，车体（含炮塔）外接半径 69~79px ⇒ 中心「合法」时车体仍压进建筑/水域。
+//   实测 500 个 Boss 节点：boss_fortress / boss_twin_track 11.2%、boss_commander 6.4%、
+//   boss_sniper / boss_siege_fort 4.6% 出生即重叠。故净空改由车体几何推导，选址逻辑下沉为
+//   纯函数以便 Node 回归（接入层只传「阻挡判定」闭包）。
+
+/**
+ * Boss 车体 + 炮塔的外接半径（px）。实体已按 `boss.scale` 缩放，故直接读 verts 不再乘 scale。
+ * @param {any} t makeBossEntity 产出的实体（几何字段可缺省）
+ * @returns {number} 外接半径；无几何规格时退化为包围盒半对角线
+ */
+function bossFootprintRadius(t) {
+  if (!t) return 0;
+  let r = 0;
+  const hull = (t.hullSpec && t.hullSpec.verts) || [];
+  for (let i = 0; i < hull.length; i++) {
+    const d = Math.hypot(hull[i][0], hull[i][1]);
+    if (d > r) r = d;
+  }
+  const pv = t.turretPivotOffset || { dx: 0, dy: 0 };
+  const tur = (t.turretSpec && t.turretSpec.verts) || [];
+  for (let i = 0; i < tur.length; i++) {
+    const d = Math.hypot(tur[i][0] + (pv.dx || 0), tur[i][1] + (pv.dy || 0));
+    if (d > r) r = d;
+  }
+  if (r > 0) return r;
+  return Math.hypot((t.hullWid || 0) / 2, (t.hullLen || 0) / 2);
+}
+
+/**
+ * Boss 出生点选址：默认 `(0.7w, h/2)`；被阻挡时 16 方向 × 半径步长向外螺旋。
+ * @param {{w:number,h:number}} node 当前节点
+ * @param {(x:number,y:number,pad:number)=>boolean} blocked 阻挡判定（接入层传 pointInCover 闭包）
+ * @param {number} clearRadius 车体外接半径 + 余量（px）
+ * @param {{x:number,y:number}} [origin] 起点覆盖（调用方显式指定坐标时用）
+ * @returns {{x:number,y:number,found:boolean,rescued:boolean}} found=false ⇒ 未找到安全点，沿用起点
+ */
+function findBossSpawn(node, blocked, clearRadius, origin) {
+  const pad = Math.max(0, clearRadius || 0);
+  const x0 = (origin && typeof origin.x === 'number') ? origin.x : node.w * 0.7;
+  const y0 = (origin && typeof origin.y === 'number') ? origin.y : node.h / 2;
+  if (typeof blocked !== 'function') return { x: x0, y: y0, found: true, rescued: false };
+  if (!blocked(x0, y0, pad)) return { x: x0, y: y0, found: true, rescued: false };
+  // 步长与边界余量都随车体半径走：半径大时步子大、留边宽，避免车体出界或压边。
+  const step = Math.max(40, Math.round(pad * 0.75));
+  const edge = pad + 20;
+  const maxR = Math.max(1200, step * 12);
+  for (let r = step; r <= maxR; r += step) {
+    for (let a = 0; a < 16; a++) {
+      const nx = x0 + Math.cos(a * Math.PI / 8) * r;
+      const ny = y0 + Math.sin(a * Math.PI / 8) * r;
+      if (nx < edge || nx > node.w - edge || ny < edge || ny > node.h - edge) continue;
+      if (!blocked(nx, ny, pad)) return { x: nx, y: ny, found: true, rescued: true };
+    }
+  }
+  return { x: x0, y: y0, found: false, rescued: true };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     BOSS_WEAKSPOT_KEYS,
@@ -1050,6 +1109,9 @@ if (typeof module !== 'undefined' && module.exports) {
     BOSS_WEAPON_LABELS,
     bossBriefing,
     bossBriefingLines,
-    updateBossRailCharge
+    updateBossRailCharge,
+    // 2026-10-28 #AB16：出生净空与选址（纯逻辑）
+    bossFootprintRadius,
+    findBossSpawn
   };
 }

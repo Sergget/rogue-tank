@@ -186,6 +186,28 @@
 3. **验证统一收口**：任何角色完成改动后不自称验证通过，由 `role-verify-docs` 跑三链（见 §3.1）。
 4. **测试文件必须登记**：新增 `scripts/test-*.js` 时必须同时加入 `scripts/run-tests.js` 的 `TESTS` 数组——`check-html.js` 会以「孤儿测试」直接判红。
 
+### 3.6.1 三层职责与机械门禁（2026-10-28 studio-integration 引入）
+
+从 Claude-Code-Game-Studios 引入四个方法论 agent（`creative-director` / `lead-programmer` / `qa-lead` / `qa-tester`）与四个技能（`qa-plan` / `test-evidence-review` / `bug-triage` / `perf-profile`），**只引方法不引流程**——上游的 `settings.json` 钩子、`CLAUDE.md`、`production/` 目录约定与 story/sprint 体系均未引入（见 `.claude/skills/THIRD-PARTY.md`）。
+
+**层级与产物落点（产物一律进现有文档，不新建目录）：**
+
+| 层 | 谁 | 产出 | 落点 |
+|---|---|---|---|
+| 1 战略 | `creative-director` | 机制/地图等重大设计决策 | `docs/specs/<卷>/<主题页>.md`（经用户审核后才落笔） |
+| 2 拆分 | `lead-programmer` | 大节点拆成可验收小条目 | `docs/PLAN.md` 条目 + 「完成门」 |
+| 2 测划 | `qa-lead` | 本批次测试范围与判据 | 该 PLAN 条目下的「测试范围」小节 |
+| 3 执行 | **`role-*` 六张卡** | 代码与测试 | `js/`、页面、`scripts/`（写域唯一） |
+| 3 执行 | `qa-tester` | 实测结果与缺陷 | `docs/ISSUES.md`（编号 + `file:line` 证据） |
+| 2 门禁 | `qa-lead` | 通过 / 不通过 | `DEVELOPMENT §4.x` 的三链验证记录 |
+
+**两条硬规则：**
+
+1. **写域权威仍是 `role-*`。** 工作室 agent 只出报告与建议，**不得直接改 `js/` 与页面**；同一任务只派一层执行者，两层同时执行视为违规。
+2. **门禁由机器判定，不由模型自述。** 四条全满足才算通过：① `npm run check` 退出码 0 ② `npm test` 汇总 `0 失败` ③ 本批次新增断言数 ≥ 计划值 ④ 至少一条负向断言。任一条不满足即判 INCOMPLETE；`INCONCLUSIVE` / 退出码 86 属环境限制，**既不算通过也不算失败**。
+
+> 无人值守模式（夜间长跑）：工作室 agent 的「每次写入前询问」协议在本仓库**不适用**——改为「写完留证据」，证据即上表产物。用户审核只发生在战略层（第 1 层）与批次收尾。
+
 ### 3.7 沙箱内验证的已知边界（2026-10-19 实测）
 
 | 链 | 沙箱 workspace-write | 权限放宽后 |
