@@ -4748,3 +4748,5 @@ hull-down 让「静默玩家何时被发现」变成图相关且时间无界的�
 - 门 ① 实测 91s < 180s ⇒ **门 ① 未达标（属 MS3 内容量范畴，#AB10 的既有结论）**；门 ② run/商店/计分链不回退 ✓；门 ③ 负向断言 ✓。
 
 **归口**：`PLAN.md` §2.8.0（MS2 拆分）· `specs/combat/encounter-pacing.md` §「正式局实测」· `specs/combat/encounter-director.md` · `docs/ISSUES.md` #AB10。
+
+**复查注记（2026-10-30 /code-review）**：① `standardScale` 曾只在页内 fallback（`{ diffCountScale: 3, maxPerWave: 6 }`）而未落 RULES——违反「参数唯一配置源」纪律，已补入 `RULES.encounter.standardScale`；② 补员/投送共享 `battleEncSeq` 计数器 ⇒ 敌车外观序列被补员跳号（仅多样性，无功能影响，记录不修）；③ revive 路径复核——`reviveAt` 原地复活不重进 `enterBattle` ⇒ 导演状态保留、复活后当前波继续，与 `playerAlive 恒 true` 裁定自洽；`findReviveSpot` 对 null outpost 回退 `playerSpawn`（encounter 节点无据点时安全）。
