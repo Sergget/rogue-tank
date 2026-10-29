@@ -987,6 +987,10 @@ const RULES = {
     //   之外由页面按 node.difficulty 折算（C1 接线时定，本表只存基准编成）。
     //   `node.encounter` 标记由 makeNode 写入：普通节点 true / Boss 与生存（noEnemies）false。
     standardEnabled: true,
+    // 正式局波次编成的难度缩放（页面接线消费；缺省 fallback 与此一致——本键落 RULES
+    // 是为了可调，不落就违反「参数唯一配置源」纪律）。diffCountScale：每单元 count +
+    // floor(diff × 该值)；maxPerWave：单波总敌数封顶（防高难度围死）。
+    standardScale: { diffCountScale: 3, maxPerWave: 6 },
     standardWaves: [
       { id: 'S1', label: '前哨接触', units: [
         { cls: 'medium', bearing: 0, count: 3 },
