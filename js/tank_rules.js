@@ -957,6 +957,9 @@ const RULES = {
     aimTolerance: 0.12,        // 炮塔对准容差（rad）才开火
     countByMode: { standard: 2, survival: 2, boss: 1 },   // 2026-10-27 标准模式保留指挥友军；不再预生成「友军据点」
     allyTankId: 'panzer-IV',   // 友军使用的坦克配置（tanks/<id>.json）
+    // 2026-10-29 用户裁定：生存模式补给站可购买「增援」——每次 +1 辆友军，AI 档位等同下一波敌军。
+    //   上限暂定 2（与 countByMode.survival=2 合计 4 = maxAllies，不越界）。价格见 RUN_SHOP_DEFS。
+    survivalReinforceMax: 2,
   },
 
   // ======================= 2026-10-28 G1：完整遭遇（3~5 分钟）——波次节奏唯一口径 =======================

@@ -363,7 +363,7 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
       armor: { hull: { front: 50 }, turret: { front: 60 } } }, []);
   const validStats = new Set(Object.keys(baseStats));
 
-  ok(eco.RUN_SHOP_DEFS.length === 15, `RUN_SHOP_DEFS 数量 15（#N3 覆盖面对账：火力 6 + 防护 2 + 机动 4 + 杂项 3；实际 ${eco.RUN_SHOP_DEFS.length}）`);
+  ok(eco.RUN_SHOP_DEFS.length === 16, `RUN_SHOP_DEFS 数量 16（#N3 覆盖面对账：火力 6 + 防护 2 + 机动 4 + 杂项 4（2026-10-29 生存「增援」+1）；实际 ${eco.RUN_SHOP_DEFS.length}）`);
   const ids = new Set();
   let structOk = true;
   for (const d of eco.RUN_SHOP_DEFS) {

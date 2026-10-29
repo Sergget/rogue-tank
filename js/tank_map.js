@@ -873,7 +873,14 @@ function makeNode(index, rng, env) {
   //   仍消耗一次 outpostRoll，避免改变后续 rng 流导致整条 run 布局漂移。
   const outpostRoll = rng();
   let outpost = null;
-  if (!(env && env.noOutpost) && outpostRoll < (cfg.outpostChance !== undefined ? cfg.outpostChance : 0.7)) {
+  // 2026-10-29（用户裁定）：**Boss 与生存模式不再生成友军据点**。
+  //   据点是早期原型的静止友军（team:'ally' + nodeSpawn 但不可指挥），与现在的指挥编队
+  //   （isAllySquad）混在同一阵营里，玩家会把「不听指令的友军」当成 bug。标准模式此前已由
+  //   env.noOutpost 关闭，本次把 Boss（isBoss）与生存（noEnemies）一并收口到生成器内，
+  //   避免再依赖调用方记得传参。
+  //   rng 消耗保留（outpostRoll 照旧抽一次）——否则整条 run 的后续布局会漂移。
+  const outpostAllowed = !(env && env.noOutpost) && !isBoss && !noEnemies;
+  if (outpostAllowed && outpostRoll < (cfg.outpostChance !== undefined ? cfg.outpostChance : 0.7)) {
     let guard = 0;
     while (guard++ < 200) {
       const ox = rng.range(w * 0.12, w * 0.30);

@@ -470,7 +470,15 @@ const RUN_SHOP_DEFS = [
     instant: { type: 'cdReduce', ability: 'repair', value: 3 }, effects: [] },
   { id: 'medkit_cd_run',     name: '医疗包速冷', group: 'misc', desc: '医疗包冷却 −3s/级（仅本局；特殊消费；下限 15s）',
     baseCost: 30, costGrowth: 1.5, maxLevel: 5,
-    instant: { type: 'cdReduce', ability: 'medkit', value: 3 }, effects: [] }
+    instant: { type: 'cdReduce', ability: 'medkit', value: 3 }, effects: [] },
+  // 2026-10-29（用户裁定）：生存模式补给站「增援」——立即 +1 辆友军，AI 档位等同下一波敌军。
+  //   仅生存模式可购（`survivalOnly`，渲染层过滤）；上限取 RULES.allyCommand.survivalReinforceMax（暂定 2）
+  //   ⇒ 与初始 2 辆合计 4，正好等于 allyCommand.maxAllies，不会越界。
+  { id: 'survival_reinforce', name: '增援', group: 'misc',
+    desc: '立即获得 1 辆友军，AI 等级与下一波敌军相同（上限 2 辆，仅生存模式）',
+    baseCost: 120, costGrowth: 1.8,
+    maxLevel: (typeof RULES !== 'undefined' && RULES.allyCommand && RULES.allyCommand.survivalReinforceMax) || 2,
+    instant: { type: 'reinforceAlly' }, effects: [], survivalOnly: true }
 ];
 
 function getRunShopDef(id){ return RUN_SHOP_DEFS.find(d => d.id === id) || null; }

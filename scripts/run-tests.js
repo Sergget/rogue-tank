@@ -124,6 +124,12 @@ const TESTS = [
   //   telegraph→spawn→wave→breather 推进、victory/defeat 幂等、同 seed 确定性、
   //   全阻挡图的出生点兜底、intel 间隔、RULES.encounter 消费哨兵。
   'scripts/test-encounter.js',
+  // 2026-10-28 §4.164 B0：压迫探针回归（数据工具 scripts/measure-press.cjs）。
+  //   只锁恒真不变量——同 seed 逐帧摘要一致 / 无 NaN / **实体在正前方不算障碍**（负向，
+  //   §4.160 曾把 spawnBlockedWhy 出生点判定当行进判定误判一整轮）/ 推出量与碰撞同步。
+  //   本批不改行为，**不得**在此断言「敌人已经压上来」；门 ① 阈值属 B3。
+  'scripts/test-ai-press.js',
+  'scripts/test-survival-reinforce.js',   // 2026-10-29：生存补给站「增援」升级（档位通道 + 接线）
 ];
 
 function pickTests() {

@@ -635,6 +635,25 @@ console.log('--- B 档②③ 增援前方防线 + 推进式完成 ---');
     `软锁回归：越过全部防线 + 清光残敌 + 配额未满 → 节点可完成（reason=${stuck.reason}）`);
 }
 
+// ================= 2026-10-29（用户裁定）：Boss / 生存模式不得再生成早期原型据点友军 =================
+// 背景：据点是早期原型的静止友军（team:'ally' + nodeSpawn 但不可指挥），与指挥编队 isAllySquad
+//   混在同一阵营，玩家会把「不听指令的友军」当成 bug。标准模式此前已由 env.noOutpost 关闭；
+//   本次把 isBoss / noEnemies 收口进生成器内部，调用方漏传也不会再长出据点。
+// 断言形态：负向（要求「没有」），因为只测「有据点时坐标合法」永远发现不了它还在生成。
+{
+  const MAPMOD = require('../js/tank_map.js');
+  const VP = { vw: 1920, vh: 1080 };
+  let bossNodes = 0, bossOutpost = 0, survNodes = 0, survOutpost = 0;
+  for (const sd of [1, 42, 4242, 99]) {
+    const b = MAPMOD.generateRun(sd, undefined, { viewport: VP, difficultyLevel: 0, bossOnly: true });
+    for (const n of b.nodes) { bossNodes++; if (n.outpost) bossOutpost++; }
+    const s = MAPMOD.generateSurvivalRun(sd, { viewport: VP, difficultyLevel: 0 });
+    for (const n of s.nodes) { survNodes++; if (n.outpost) survOutpost++; }
+  }
+  ok(bossNodes > 0 && bossOutpost === 0, `负向：Boss 模式 ${bossNodes} 个节点无据点友军（实际 ${bossOutpost}）`);
+  ok(survNodes > 0 && survOutpost === 0, `负向：生存模式 ${survNodes} 个节点无据点友军（实际 ${survOutpost}）`);
+}
+
 console.log('test-map: 完成所有检查');
 if (fails === 0) console.log('test-map: 全部通过');
 else console.error(`test-map: ${fails} 项失败`);

@@ -277,8 +277,12 @@
   /* ---------- P-08 节点地图流程覆盖层 ---------- */
   #flowOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     z-index:20; pointer-events:none; background:rgba(10,12,8,0.55);}
+  /* 2026-10-29：菜单切换入场动效——此前 display 直接翻转是硬闪，切换像贴图重载 */
+  @keyframes rtScreenIn{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}
+  @media (prefers-reduced-motion: reduce){ #flowOverlay .screen{animation:none;} }
   #flowOverlay .screen{pointer-events:auto; background:rgba(18,20,15,0.97); border:1px solid var(--line);
-    padding:22px 26px; min-width:420px; max-width:640px; box-shadow:0 10px 40px rgba(0,0,0,0.6);}
+    padding:22px 26px; min-width:420px; max-width:640px; box-shadow:0 10px 40px rgba(0,0,0,0.6);
+    animation:rtScreenIn 140ms ease-out;}
   #flowOverlay .screen-title{font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px;
     color:var(--amber); text-transform:uppercase; border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:14px;}
   #flowOverlay .screen-hint{font-size:11px; color:var(--text-dim); line-height:1.7; margin-top:10px;
@@ -2893,6 +2897,58 @@ function spawnAllySquad(node){
   return out;
 }
 
+// 2026-10-29（用户裁定）：生存模式补给站「增援」——购买时立即召唤 1 辆友军。
+//   AI 档位取「下一波敌军」同档（js/tank_ally_command.js 的 reinforcementAiTier），
+//   与 `_passiveDefend` 的档位通道（接战距离 ×engageMul、容差 ×aimTolMul）配套生效。
+//   出生点：玩家周围 110~420px 的 16 方向首个无阻挡点（避掩体/液态，净空 60px）。
+function spawnSurvivalReinforcement(){
+  if(GAME_MODE !== 'survival' || !currentNode || !player || player.hp <= 0) return null;
+  const cfg = (typeof RULES !== 'undefined' && RULES.allyCommand) || {};
+  const blockTier = (c) => {
+    const tier = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers[c.tier] : null;
+    if(!tier) return false;
+    return tier.passability === 0 || tier.shellBlock === true || tier.shellBlock === 'single'
+      || tier.tierGroup === 'liquid' || c.tier === 'water' || c.tier === 'river';
+  };
+  const bad = (currentNode.covers || []).filter(blockTier);
+  let sx = player.x, sy = player.y, found = false;
+  for(let r = 110; r <= 420 && !found; r += 70){
+    for(let a = 0; a < 16 && !found; a++){
+      const nx = player.x + Math.cos(a * Math.PI / 8) * r;
+      const ny = player.y + Math.sin(a * Math.PI / 8) * r;
+      if(nx < 40 || nx > currentNode.w - 40 || ny < 40 || ny > currentNode.h - 40) continue;
+      if(!pointInCover(bad, nx, ny, 60)){ sx = nx; sy = ny; found = true; }
+    }
+  }
+  const idx = entities.filter(e => e && e.isAllySquad).length;
+  const t = spawnTank({
+    id: `ally_reinf_${survivalWave}_${idx}`,
+    team: 'ally', x: sx, y: sy,
+    hullAngle: player.hullAngle, turretAngle: player.turretAngle,
+    heightClass: 'medium'
+  });
+  t.isAllySquad = true;
+  t._allyIndex = idx;
+  t._allyCount = idx + 1;
+  const tankId = cfg.allyTankId || 'panzer-IV';
+  const tankSpec = tankListData && tankListData[tankId];
+  if(tankSpec && typeof applyTankConfig === 'function'){
+    applyTankConfig(t, tankSpec);
+    if(typeof deriveTankClass === 'function') t.tankClass = deriveTankClass(tankSpec);
+    resetEntity(t);
+    t.hp = t.stats.maxHp;
+  }
+  // AI 档位：与下一波敌军同档（未开波时 = 第 1 波）
+  t.aiTier = (typeof reinforcementAiTier === 'function') ? reinforcementAiTier(survivalWave) : 1;
+  if(typeof issueAllyCommand === 'function'){
+    issueAllyCommand([t], { order: 'follow', issuedAt: performance.now() }, allyCommandContext());
+  }
+  spawnDmgText(sx, sy - 30, '增援', 'plain');
+  pushLog(`增援抵达：友军 AI 档位 ${t.aiTier}（与第 ${survivalWave + 1} 波敌军同档）`, 'PEN');
+  playSound('ui');
+  return t;
+}
+
 function enterBattle(nodeIndex){
   const node = run.nodes[nodeIndex];
   if(!node) return;
@@ -3752,6 +3808,9 @@ function buyRunShopItem(defId){
       const heal = Math.round(player.stats.maxHp * def.instant.value);
       player.hp = Math.min(player.stats.maxHp, player.hp + heal);
       spawnDmgText(player.x, player.y - 20, heal, 'plain');
+    } else if(def.instant.type === 'reinforceAlly'){
+      // 2026-10-29：生存模式补给站「增援」——购买即召唤一辆与下一波敌军同档的友军。
+      spawnSurvivalReinforcement();
     } else if(def.instant.type === 'cdReduce'){
       player.runKitCdBonus = player.runKitCdBonus || { repair: 0, medkit: 0 };
       if(player.runKitCdBonus[def.instant.ability] !== undefined){
@@ -3791,6 +3850,8 @@ function buildRunShopInto(listEl, balEl){
   for(const def of RUN_SHOP_DEFS){
     // #MODE：Boss 模式移除"紧急维修"选项
     if(GAME_MODE === 'boss' && def.id === 'emergency_repair') continue;
+    // 2026-10-29：仅生存模式可购的条目（增援）在其它模式不渲染
+    if(def.survivalOnly && GAME_MODE !== 'survival') continue;
     if(def.group !== lastGroup){
       lastGroup = def.group;
       const h = document.createElement('div');
@@ -6530,6 +6591,20 @@ function ensureGroundBake(vb){
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
+  // 2026-10-29（用户裁定）：局外菜单态（home / loadout / shop）不渲染战场，只铺菜单底。
+  //   背景原来是上一局残留或未开局随机战场（体感「像 bench」）。现在菜单是干净的，
+  //   战场只在 map / battle / settlement / reward / pause 等局内态出现。
+  if(!run || flow.state === 'home' || flow.state === 'loadout' || flow.state === 'shop'){
+    const bg = ctx.createRadialGradient(
+      canvas.width / 2, canvas.height * 0.42, 0,
+      canvas.width / 2, canvas.height * 0.42, Math.max(canvas.width, canvas.height) * 0.75);
+    bg.addColorStop(0, '#12140f');
+    bg.addColorStop(1, '#0a0b07');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+
   // ---- P-08 摄像机变换：世界绘制全部在视口变换内（玩家居中，1:9 大世界可巡航） ----
   // #GT（2026-10-18）：渲染使用**像素对齐**的相机位置（renderCamPos）。
   //   原因：cam.x/cam.y 是阻尼跟随的浮点值，相当于把整个世界推进亚像素位置；地面上
@@ -7196,7 +7271,11 @@ function loop(now){
   // 屏冻结战场而生存模式不冻结，两模式手感不一致。此处显式把选卡窗口并入冻结条件
   // （只跳 update，draw 照常渲染冻结快照，与 pause 同款）。
   const paused = flow.state === 'pause' || survivalQuickPick;
-  const simulating = !paused && (!run || flow.state === 'battle');
+  // 2026-10-29（用户裁定）：**局外菜单态不再跑自由驾驶预览**。
+  //   此前 `!run` 恒模拟 ⇒ 选档/整备/商店界面背后有一整张随机战场在跑（体感像装甲测试台）。
+  //   现在只有局内（battle）才推进模拟；菜单态冻结，绘制也走干净的菜单底（见 draw()）。
+  const _menuState = flow.state === 'home' || flow.state === 'loadout' || flow.state === 'shop';
+  const simulating = !paused && !_menuState && (!run || flow.state === 'battle');
   const _perfT0 = performance.now();
   if(simulating){
     while (accumulator >= STEP_TIME) {

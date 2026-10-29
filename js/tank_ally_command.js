@@ -490,6 +490,24 @@ function buildCommandSpec(input) {
 }
 
 /**
+ * 生存模式「增援」的 AI 档位：与**下一波**敌军相同。
+ * 波次 n 的敌人取 `difficultyForIndex(n-1)`，故下一波（n+1）取 `index = 当前波次序号`。
+ * 依赖注入以便 Node 单测；缺依赖时退中档（1），不静默给最低档。
+ * @param {number} survivalWave 当前波次（0 = 未开波，此时「下一波」为第 1 波 → index 0）
+ * @param {{difficultyForIndex?:Function, aiTierForDifficulty?:Function}} [deps]
+ * @returns {number} AI 档位 0~2
+ */
+function reinforcementAiTier(survivalWave, deps) {
+  const n = Math.max(0, Math.floor(Number(survivalWave) || 0));
+  const diffFn = (deps && deps.difficultyForIndex)
+    || (typeof difficultyForIndex === 'function' ? difficultyForIndex : null);
+  const tierFn = (deps && deps.aiTierForDifficulty)
+    || (typeof aiTierForDifficulty === 'function' ? aiTierForDifficulty : null);
+  if (typeof diffFn !== 'function' || typeof tierFn !== 'function') return 1;
+  return tierFn(diffFn(n, 0));
+}
+
+/**
  * 生成友军编队的 spawn 规格（页面据此 spawnTank）。battle 与 tank_3d 共用。
  * @param {any} node 当前节点（需 playerSpawn/w/h/index）
  * @param {string} mode 'standard' | 'survival' | 'boss'
@@ -545,5 +563,6 @@ if (typeof module !== 'undefined' && module.exports) {
     buildCommandSpec,
     radialOrderFor,
     allySquadSpecs,
+    reinforcementAiTier,
   };
 }

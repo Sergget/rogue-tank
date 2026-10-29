@@ -145,15 +145,21 @@ function _bossStageAIModes(){
 // target 为单个实体（友军传最近敌人，Boss hold 传玩家）。
 function _passiveDefend(t, ctx, target){
   const cfg = aiConfig();
+  // 2026-10-29 增援（生存模式补给站）：友军可选按 `t.aiTier` 取档位。
+  //   **仅当 aiTier 有定义时生效**——既有指挥友军不带该字段 ⇒ 行为零漂移（回归安全）。
+  //   档位通道：接战距离 ×engageMul、炮塔容差 ×aimTolMul（<1 更准），与敌军同一张 tierProfiles。
+  const prof = (t.aiTier !== undefined && t.aiTier !== null) ? aiTierProfile(t.aiTier) : null;
   const out = { turn: 0, move: 0, turretDesired: t.turretAngle, fire: false };
   if(!target || target.hp <= 0) return out;
-  const range = cfg.allyEngageRange !== undefined ? cfg.allyEngageRange : 460;
+  const range = (cfg.allyEngageRange !== undefined ? cfg.allyEngageRange : 460)
+    * ((prof && prof.engageMul) || 1);
   const dx = target.x - t.x, dy = target.y - t.y;
   const d = Math.hypot(dx, dy);
   if(d > range) return out;
   const desired = Math.atan2(dy, dx);
   out.turretDesired = desired;
-  const tol = cfg.aimTolerance !== undefined ? cfg.aimTolerance : 0.12;
+  const tol = (cfg.aimTolerance !== undefined ? cfg.aimTolerance : 0.12)
+    * ((prof && prof.aimTolMul) || 1);
   const aimErr = Math.abs(angDiff(t.turretAngle, desired));
   const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, target.x, target.y) : true;
   if(aimErr < tol && los && t.reloadT <= 0) out.fire = true;
