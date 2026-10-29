@@ -152,7 +152,7 @@ function ok(cond, label){
   ok(alpha > 0 && alpha < 1, `粒子透明度随寿命衰减（${alpha}）`);
 }
 
-// ⑪ 阵营环：友军淡绿、敌军红、玩家不画
+// ⑪ 阵营环：玩家黄、友军淡绿、敌军红（2026-10-29 起玩家也画环）
 {
   const ents = [
     { id: 'player', team: 'player', hp: 100, x: 0, y: 0, hullLen: 70, hullWid: 36 },
@@ -162,16 +162,20 @@ function ok(cond, label){
   ];
   const data = S3D.buildTeamRings(ents);
   ok(data.length > 0 && data.length % 10 === 0, `阵营环顶点数据合法（${data.length / 10}）`);
-  let green = 0, red = 0, atPlayer = 0;
+  // 顶点布局 [x,y,z,nx,ny,nz,r,g,b,a]：红通道 +6、绿通道 +7
+  let green = 0, red = 0, yellow = 0, atPlayer = 0, atDead = 0;
   for (let i = 0; i < data.length; i += 10) {
-    const x = data[i];
-    if (Math.abs(data[i + 6] - 0.58) < 1e-6) green++;
-    if (Math.abs(data[i + 6] - 1.0) < 1e-6) red++;
+    const x = data[i], rCh = data[i + 6], gCh = data[i + 7];
+    if (Math.abs(gCh - 0.92) < 1e-6) green++;
+    if (Math.abs(rCh - 1.0) < 1e-6 && Math.abs(gCh - 0.32) < 1e-6) red++;
+    if (Math.abs(rCh - 1.0) < 1e-6 && Math.abs(gCh - 0.84) < 1e-6) yellow++;
     if (Math.abs(x) < 1) atPlayer++;
+    if (Math.abs(x - 300) < 1) atDead++;
   }
   ok(green > 0, '友军淡绿环存在');
   ok(red > 0, '敌军红环存在');
-  ok(atPlayer === 0 && red > 0 && green > 0, '玩家不画环、死亡单位不画环');
+  ok(yellow > 0 && atPlayer > 0, '玩家黄色高亮环存在（2026-10-29 新增）');
+  ok(atDead === 0, '负向：死亡单位不画环');
 }
 
 // ⑫ 视觉悬挂：俯仰抬车头/车尾、侧倾抬左右、弹跳整体抬升

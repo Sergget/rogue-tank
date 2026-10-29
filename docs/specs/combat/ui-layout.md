@@ -199,6 +199,46 @@
 - **切换动效**：`.screen` 入场 140ms（淡入 + `translateY(6px)`），替代 `display` 硬闪；`prefers-reduced-motion: reduce` 下关闭。
 - 战场绘制仍覆盖 `map` / `battle` / `settlement` / `reward` / `pause` 等局内态。
 
+### 存档槽位（2026-10-29 写入本页）
+
+**多存档是 localStorage 的两层结构**：一份元索引（`activeSaveId` + `saves[{id, name, updatedAt}]`）+ 每槽一个 profile 键。列表按 `updatedAt` 倒序；元索引损坏时 `normalizeMeta` 剔除坏条目与悬空 `activeSaveId`，`createSaveSlot` 则在读不到元索引时就地重建。
+
+首页每行的构成与动作：
+
+| 元素 | 口径 |
+|---|---|
+| 名称 + 「当前」徽标 | 徽标 = 该槽 `id === activeSaveId` |
+| 统计行 | `局数 · 击杀 · 点数 · 更新时间`，全空档也照常显示（不隐藏整行） |
+| 永久升级总览 | `upgradesOverviewLine`，无升级时不显示 |
+| 选择进入 | 置 active → `transition('loadout')`（HOME 合并后不再整屏切换，只展开出战区） |
+| 重命名 | 行内输入框（≤24 字），确定/取消 |
+| 删除 | **二次确认**：首次点击只武装该行（按钮变「确认删除？」），任何重渲染自动解除武装 |
+
+空列表时显示「尚无存档」引导块（自带新建按钮）；列表本身在有预设行时恒显示（见下一节）。
+
+**归口**：纯逻辑 `js/tank_economy.js`（`listSaveSlots` / `createSaveSlot` / `renameSaveSlot` / `deleteSaveSlot` / `setActiveSaveSlot` / `loadActiveProfile` / `saveActiveProfile`）→ 视图模型 `js/tank_screens.js:buildHomeViewModel` → DOM `tank_battle.html:renderHome`。**版本口径** `RULES.economy.saveVersion`：`normalizeProfile` 对版本不匹配的档**整体回落默认值**，所以任何「外部写入 profile」的入口都必须先比对版本（预设载入已按此加门，见下节）。
+
+### 屏幕清单与 DOM 的对应关系（2026-10-29 #AB17）
+
+**HOME 与 LOADOUT 已合并为一屏**：`#loadoutScreen` 元素删除，出战区 `#homeLoadoutWrap` 挂在 `#homeScreen` 内、按「有没有存档」显隐（`setLoadoutSectionVisible`）。流程状态 `loadout` **保留**（`tank_flow` 白名单与旧转移不变），它现在复用 `homeScreen`——**状态不等于屏幕**。
+
+**不变量**：`js/tank_screens.js` 的 `SCREENS` 必须与页面里真实存在的 `#xxxScreen` 元素**一一对应**。删屏时两处必须同批改：清单少一项只是「那屏不再被隐藏」，清单多一项则会在 `hideAllScreens()` 里拿到 `null` 并抛 `TypeError`——而它被 `initMenu` 在**首屏**调用，等于整页当场死掉。
+
+**防御口径**：`hideAllScreens()` 逐个 `getElementById` 判空（`showScreen` 同理，缺屏只往日志面板落一条 `CRIT`）。屏幕清单是 UI 辅助表、不是不变量，少一个 id 的代价必须是「那屏不隐藏」，不能是「失去整页」。见 ISSUES #AB17。
+
+### 预设存档以「列表条目」呈现（2026-10-29 用户裁定）
+
+首页的两个「载入预设」**按钮已取消**，改为存档列表尾部的两条常驻行：虚线边框 + 琥珀色「预设」徽标 + 单一动作按钮（`载入进入` / 同名档案已存在时显示 `重置进入`）。
+
+| 口径 | 现行语义 |
+|---|---|
+| 落盘时机 | 预设**默认不落盘**；点「载入进入」才写成一份真实档案，并直接进整备区（与「选择进入」同一条路径） |
+| 重复点击 | 同名槽位已存在 ⇒ **原地重置内容**，不新建（否则会越堆越多）；玩家改名后再次点击会新建一份（自愈，可接受） |
+| 不是档案 | 预设行不可重命名 / 删除（视图模型不给它 `renamingInput` / `showDeleteConfirm`）；`empty` 只表示**没有真实档案**，预设不计入 |
+| 列表显隐 | 有预设行时列表恒显示——否则「尚无存档」状态下入口会跟着消失 |
+
+**唯一数据源**：页面常量 `HOME_PRESETS`（`id` / `name` / `url` / `hint`）→ 视图模型 `buildHomeViewModel({ presets })`（`js/tank_screens.js`，纯逻辑）→ DOM 由 `buildPresetRowEl` 生成。`scripts/test-home-viewmodel.js` 锁住「预设 URL 指向的文件真实存在」与「旧按钮 DOM / 事件绑定已删除」两条（后者是负向断言：只测「新行在」发现不了「旧入口又回来了」）。
+
 ## 迁移状态与验收
 
 三期路线，P0 已落地：

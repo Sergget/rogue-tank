@@ -269,12 +269,17 @@ function applyTankTilt(data, t, pitch, roll, bounce) {
 function buildTeamRings(entities) {
   const b = createMeshBuilder();
   for (const e of (Array.isArray(entities) ? entities : [])) {
-    if (!e || e.hp <= 0 || e.isDrone || e.id === 'player') continue;
-    const color = e.team === 'ally' ? [0.58, 0.92, 0.58, 0.55]
-      : (e.team === 'enemy' ? [1.0, 0.32, 0.28, 0.45] : null);
+    if (!e || e.hp <= 0 || e.isDrone) continue;
+    // 2026-10-29：玩家加黄色高亮环；友军/敌军环加粗（4.5 → 环宽而非描边）。
+    const isPlayer = e.id === 'player';
+    const color = isPlayer ? [1.0, 0.84, 0.25, 0.85]
+      : (e.team === 'ally' ? [0.58, 0.92, 0.58, 0.7]
+        : (e.team === 'enemy' ? [1.0, 0.32, 0.28, 0.6] : null));
     if (!color) continue;
-    const r = Math.max(e.hullLen || 70, e.hullWid || 36) * 0.62 + 8;
-    b.ring(e.x, 1.2, e.y, Math.max(4, r - 2.5), r, 28, color);
+    const base = Math.max(e.hullLen || 70, e.hullWid || 36) * 0.62 + 8;
+    const r = isPlayer ? base + 4 : base;
+    const width = 5;                 // 2026-10-29：2.5 → 5（加粗一倍）
+    b.ring(e.x, 1.2, e.y, Math.max(4, r - width), r, 28, color);
   }
   return b.data;
 }

@@ -277,6 +277,16 @@
   /* ---------- P-08 节点地图流程覆盖层 ---------- */
   #flowOverlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     z-index:20; pointer-events:none; background:rgba(10,12,8,0.55);}
+  /* 2026-10-29（用户裁定）：加载层——出击要同步生成整条节点链，此前点击后画面静止无反馈 */
+  #loadingOverlay{position:fixed; inset:0; z-index:200; display:none; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 50% 45%, #12140f 0%, #0a0b07 78%);}
+  #loadingOverlay .loading-box{text-align:center; font-family:'JetBrains Mono',monospace;}
+  #loadingOverlay .loading-title{font-size:var(--fs-body); letter-spacing:5px; color:var(--amber); text-transform:uppercase;}
+  #loadingOverlay .loading-bar{width:220px; height:2px; background:var(--line-soft); margin:14px auto 10px; overflow:hidden;}
+  #loadingOverlay .loading-bar i{display:block; width:38%; height:100%; background:var(--amber); animation:loadingSweep 900ms ease-in-out infinite;}
+  @keyframes loadingSweep{0%{transform:translateX(-100%);} 100%{transform:translateX(330%);}}
+  @media (prefers-reduced-motion: reduce){ #loadingOverlay .loading-bar i{animation:none; width:100%;} }
+  #loadingOverlay .loading-hint{font-size:11px; color:var(--text-dim); letter-spacing:1px;}
   /* 2026-10-29：菜单切换入场动效——此前 display 直接翻转是硬闪，切换像贴图重载 */
   @keyframes rtScreenIn{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}
   @media (prefers-reduced-motion: reduce){ #flowOverlay .screen{animation:none;} }
@@ -309,6 +319,10 @@
   #homeSlotList .slot-row{display:flex; align-items:center; gap:10px; border:1px solid var(--line);
     padding:8px 12px; background:rgba(255,255,255,0.02);}
   #homeSlotList .slot-row.active{border-color:var(--green); background:rgba(126,217,87,0.06);}
+  /* 2026-10-29：预设存档行——虚线边框 + 琥珀色徽标，读起来是「列表里的一条」，但一眼看得出不是自己的档案 */
+  #homeSlotList .slot-row.preset{border-style:dashed; background:rgba(255,180,84,0.04);}
+  #homeSlotList .slot-row.preset:hover{border-color:var(--amber-dim);}
+  #homeSlotList .slot-name .badge.preset{color:var(--amber); border-color:var(--amber-dim);}
   #homeSlotList .slot-main{flex:1; min-width:0;}
   #homeSlotList .slot-name{color:var(--text); font-weight:700; font-size:12px;}
   #homeSlotList .slot-name .badge{font-size:9px; color:var(--green); border:1px solid var(--green);
@@ -538,6 +552,13 @@
     <div class="item" data-order="focus" style="left:34%; top:62%">集火目标</div>
   </div>
   <div id="supplyPromptHud" style="display:none;position:absolute;bottom:120px;left:50%;transform:translateX(-50%);font-size:15px;font-weight:bold;color:#7ed957;text-shadow:0 0 8px #000;letter-spacing:2px;z-index:5;pointer-events:none;background:rgba(8,9,6,0.66);border:1px solid var(--line);padding:3px 12px;border-radius:0;"></div>
+  <div id="loadingOverlay">
+    <div class="loading-box">
+      <div class="loading-title" id="loadingTitle">生成战场</div>
+      <div class="loading-bar"><i></i></div>
+      <div class="loading-hint" id="loadingHint">正在生成节点链与掩体布局…</div>
+    </div>
+  </div>
   <div id="flowOverlay" style="display:none;">
     <div id="mapScreen" class="screen">
       <div class="screen-title">节点地图 NODE MAP</div>
@@ -601,22 +622,18 @@
       </div>
       <div id="homeSlotList"></div>
       <div class="btnrow"><button id="homeCreateBtn">＋ 新建存档 NEW SAVE</button></div>
-      <div class="btnrow">
-        <button id="homePresetMaxedBtn" title="saves/preset-maxed.json">载入预设：满级商店</button>
-        <button id="homePreset99999Btn" title="saves/preset-99999.json">载入预设：99999 点数</button>
+      <!-- 2026-10-29（用户裁定）：HOME 与 LOADOUT 合成一屏——选档后直接在同一屏看出战坦克与出击，
+           不再整屏切换到「出战整备」。少一次界面切换，也少一次加载感。 -->
+      <div id="homeLoadoutWrap" style="display:none;">
+        <div class="screen-hint" style="margin-top:14px; color:var(--amber); letter-spacing:2px;">出战整备 LOADOUT</div>
+        <div id="loadTankList"></div>
+        <div id="loadHint" class="screen-hint"></div>
+        <div class="btnrow">
+          <button id="loadShopBtn">强化整备 SHOP</button>
+          <button id="loadStartBtn">出击 START RUN</button>
+        </div>
       </div>
-      <div class="screen-hint">每份档案独立保存：商店点数 / 永久升级 / 统计 / 出战配置。选择进入后前往出战整备。</div>
-    </div>
-    <div id="loadoutScreen" class="screen wide" style="display:none;">
-      <div class="screen-title">出战整备 LOADOUT</div>
-      <div id="loadTankList"></div>
-      <!-- 2026-09-14：开局弹种选择界面已按用户裁定移除 —— 开局恒 [AP, HE]，局内经弹种升级卡链式替换 -->
-      <div id="loadHint" class="screen-hint"></div>
-      <div class="btnrow">
-        <button id="loadShopBtn">强化整备 SHOP</button>
-        <button id="loadHomeBtn">返回首页</button>
-        <button id="loadStartBtn">出击 START RUN</button>
-      </div>
+      <div class="screen-hint">每份档案独立保存：商店点数 / 永久升级 / 统计 / 出战配置。选择进入后前往出战整备；列表底部的「预设」条目载入后会成为一份普通档案。</div>
     </div>
     <div id="shopScreen" class="screen wide" style="display:none;">
       <div class="screen-title">强化整备 UPGRADE SHOP</div>
@@ -834,7 +851,8 @@ let tankListData = null;
 function loadTankList(){
   fetchTankList(data => {
     tankListData = data;
-    if(flow.state === 'loadout') renderLoadout();   // M10：坦克列表异步就绪时刷新整备卡片
+    // M10：坦克列表异步就绪时刷新整备卡片（2026-10-29：HOME 合并屏同样要刷）
+    if(flow.state === 'loadout' || (flow.state === 'home' && document.getElementById('homeLoadoutWrap') && document.getElementById('homeLoadoutWrap').style.display !== 'none')) renderLoadout();
   });
 }
 loadTankList();
@@ -1800,18 +1818,33 @@ function renderAllyHud(){
 }
 setInterval(renderAllyHud, 250);
 
-/** 阵营环（2026-10-27 用户需求）：友军淡绿、敌军红。画在坦克之前，车体压住圆心。 */
+/** 阵营环（2026-10-27 用户需求；2026-10-29 加玩家黄环并整体加粗）：玩家黄、友军淡绿、敌军红。
+ *  画在坦克之前，车体压住圆心；只影响观感，不参与任何判定。 */
 function drawTeamRings(ctx){
   if(!run || flow.state !== 'battle') return;
   for(const t of entities){
     if(!t || t.hp <= 0 || t.isDrone) continue;
-    if(t.id === 'player') continue;
+    // 玩家：黄色高亮环 + 一圈淡描做加厚（2026-10-29）
+    if(t.id === 'player'){
+      const pr = Math.max(t.hullLen || 70, t.hullWid || 36) * 0.62 + 12;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, pr, 0, TAU);
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = 'rgba(255,214,64,0.92)';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, pr + 3.5, 0, TAU);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(255,214,64,0.38)';
+      ctx.stroke();
+      continue;
+    }
     if(t.team !== 'ally' && t.team !== 'enemy') continue;
     const r = Math.max(t.hullLen || 70, t.hullWid || 36) * 0.62 + 8;
     ctx.beginPath();
     ctx.arc(t.x, t.y, r, 0, TAU);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = t.team === 'ally' ? 'rgba(150,235,150,0.55)' : 'rgba(255,80,70,0.45)';
+    ctx.lineWidth = 3.5;   // 2026-10-29：2 → 3.5 加粗
+    ctx.strokeStyle = t.team === 'ally' ? 'rgba(150,235,150,0.68)' : 'rgba(255,80,70,0.58)';
     ctx.stroke();
   }
 }
@@ -2278,10 +2311,21 @@ function pickBossDef(){
 function hideAllScreens(){
   const ids = (typeof SCREENS !== 'undefined' && Array.isArray(SCREENS) && SCREENS.length) ? SCREENS
     : (typeof TankScreens !== 'undefined' && TankScreens.SCREENS) ? TankScreens.SCREENS
-    : ['mapScreen','settleScreen','rewardScreen','gameoverScreen','homeScreen','loadoutScreen','shopScreen'];
-  for(const id of ids) document.getElementById(id).style.display = 'none';
+    : ['mapScreen','settleScreen','rewardScreen','gameoverScreen','homeScreen','shopScreen'];
+  // 逐个判空：清单与 DOM 失配时**不许整页崩**（2026-10-29 #AB17——`#loadoutScreen` 合并后
+  // 元素已删、清单仍留着它，这一行的 null.style 直接把 initMenu 打死，首屏全黑）。
+  // 屏幕清单是 UI 辅助表，不是不变量；少一个 id 的代价必须只是「那屏不隐藏」，不是「失去整页」。
+  for(const id of ids){
+    const el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  }
 }
-function showScreen(id){ hideAllScreens(); document.getElementById(id).style.display = 'block'; }
+function showScreen(id){
+  hideAllScreens();
+  const el = document.getElementById(id);
+  if(!el){ pushLog('界面缺失：#' + id, 'CRIT'); return; }
+  el.style.display = 'block';
+}
 function setOverlayVisible(v){ document.getElementById('flowOverlay').style.display = v ? 'flex' : 'none'; }
 
 // #E9（2026-09-20）：Boss 分波次召唤落地——按 bossSummonWave 给出的波次数据在 Boss 周围
@@ -3647,11 +3691,25 @@ function renderMapList(){
     : '线性推进：每个节点是独立战场。达到击杀配额即通关（敌军会持续增援）；友军据点存活可获结算加成（§4.5）。阵亡耗尽复活次数即结束本局。';
 }
 
+// 2026-10-29（用户裁定）：HOME 与 LOADOUT 合并后，出战区按「有没有存档」显隐。
+function setLoadoutSectionVisible(v){
+  const el = document.getElementById('homeLoadoutWrap');
+  if(el) el.style.display = v ? 'block' : 'none';
+}
+
 // 流程监听：状态切换 → UI 显隐 + 战场搭建（纯逻辑在 tank_flow.js，UI 消费在本函数）
 watchFlow(flow, (state, payload) => {
   // M10 局外三界面：不依赖 run（可在任意局外时机进入），先于战斗路由处理
-  if(state === 'home'){ renderHome(); showScreen('homeScreen'); setOverlayVisible(true); return; }
-  if(state === 'loadout'){ renderLoadout(); showScreen('loadoutScreen'); setOverlayVisible(true); return; }
+  if(state === 'home'){
+    renderHome();
+    // 2026-10-29：合并屏——有存档就把出战坦克与出击按钮一并渲染在同一屏
+    const _hasSlot = (typeof listSaveSlots === 'function') && listSaveSlots(localStorage).length > 0;
+    if(_hasSlot && profile){ renderLoadout(); }
+    setLoadoutSectionVisible(!!_hasSlot);
+    showScreen('homeScreen'); setOverlayVisible(true); return;
+  }
+  // 2026-10-29：loadout 态并入 home 屏（状态机保留以兼容旧转移），界面不再整屏切换
+  if(state === 'loadout'){ renderHome(); renderLoadout(); showScreen('homeScreen'); setLoadoutSectionVisible(true); setOverlayVisible(true); return; }
   if(state === 'shop'){ renderShop(); showScreen('shopScreen'); setOverlayVisible(true); return; }
   // P-35：战斗内暂停面板（战场冻结，仅覆盖层；恢复/终止经 transition 白名单）
   if(state === 'pause'){
@@ -4060,6 +4118,46 @@ function slotProfileOf(id){
 let renamingSlotId = null;    // 重命名中的槽位 id（行内输入框态）
 let deleteArmSlotId = null;   // 删除二次确认武装态（再点一次才真删；任何重渲染自动解除）
 
+// ---------- 预设存档（2026-10-29 用户裁定：从两个按钮改为存档列表里的两条常驻条目） ----------
+// 语义：**默认不存在**，点它才落成一份真实档案；再次点同一项时复用同名槽位并重置内容，
+//   所以反复点不会越堆越多。名字是复用判据，改名后下次点击会重新建一份（自愈，可接受）。
+const HOME_PRESETS = [
+  { id: 'maxed',  name: '满级商店存档',   url: 'saves/preset-maxed.json',   hint: '全部永久升级已满级' },
+  { id: '99999',  name: '99999点数存档', url: 'saves/preset-99999.json', hint: '商店点数 99999' },
+];
+/** 给视图模型的预设入参：带上「同名槽位是否已存在」（决定按钮文案与提示语）。 */
+function homePresetEntries(slots){
+  return HOME_PRESETS.map(p => Object.assign({}, p, {
+    hasSlot: slots.some(s => s && s.name === p.name),
+  }));
+}
+/** 预设行 DOM：与真实档案同款行，但只有「载入进入」一个动作，虚线边框 + 琥珀色「预设」徽标。 */
+function buildPresetRowEl(p){
+  const row = document.createElement('div');
+  row.className = 'slot-row preset';
+  const main = document.createElement('div'); main.className = 'slot-main';
+  const nameLine = document.createElement('div'); nameLine.className = 'slot-name';
+  nameLine.textContent = p.name;
+  const badge = document.createElement('span'); badge.className = 'badge preset'; badge.textContent = '预设';
+  nameLine.appendChild(badge);
+  const meta = document.createElement('div'); meta.className = 'slot-meta';
+  meta.textContent = `${p.hint} · ${p.hasSlot ? '再次载入将重置同名档案' : '载入即新建一份档案'}`;
+  main.appendChild(nameLine); main.appendChild(meta);
+  const acts = document.createElement('div'); acts.className = 'slot-actions';
+  const enterB = document.createElement('button'); enterB.className = 'enter-btn';
+  enterB.textContent = p.hasSlot ? '重置进入' : '载入进入';
+  enterB.addEventListener('click', () => { playSound('ui'); enterPresetSlot(p); });
+  acts.appendChild(enterB);
+  row.appendChild(main); row.appendChild(acts);
+  return row;
+}
+/** 预设行 = 「载入预设 + 选择进入」两步合一：载入成功就直接进整备区（与真实档案同一路径，
+ *  界面显隐交给 flow watcher 的 loadout 分支，这里不重复渲染）。 */
+async function enterPresetSlot(preset){
+  const ok = await loadPresetSave(preset.url, preset.name);
+  if(ok && flow.state === 'home') transition(flow, 'loadout');
+}
+
 function renderHome(){
   const slots = listSaveSlots(localStorage);
   const activeId = activeSaveIdOf();
@@ -4068,9 +4166,11 @@ function renderHome(){
   const _bHome = (typeof buildHomeViewModel === 'function' ? buildHomeViewModel : (typeof TankScreens !== 'undefined' ? TankScreens.buildHomeViewModel : null));
   if(_bHome){
     const vm = _bHome({ slots, activeId, renamingSlotId, deleteArmSlotId, slotProfileOf,
-      upgradeDefs: (typeof UPGRADE_DEFS !== 'undefined' ? UPGRADE_DEFS : []) });
+      upgradeDefs: (typeof UPGRADE_DEFS !== 'undefined' ? UPGRADE_DEFS : []),
+      presets: homePresetEntries(slots) });
     if(emptyEl) emptyEl.style.display = vm.empty ? 'block' : 'none';
-    if(listEl) listEl.style.display = vm.empty ? 'none' : 'block';
+    // 预设行常驻 ⇒ 没有真实存档时也要把列表露出来（否则「载入预设」的入口会跟着消失）
+    if(listEl) listEl.style.display = (vm.empty && !vm.presetRows.length) ? 'none' : 'block';
     if(!listEl) return;
     listEl.innerHTML = '';
     for(const r of vm.rows){
@@ -4114,11 +4214,15 @@ function renderHome(){
       row.appendChild(main); row.appendChild(acts);
       listEl.appendChild(row);
     }
+    // 2026-10-29（用户裁定）：预设存档排在真实档案之后，同列表呈现（不可重命名/删除）
+    for(const p of vm.presetRows) listEl.appendChild(buildPresetRowEl(p));
     return;
   }
   const empty = slots.length === 0;
+  const presetEntries = homePresetEntries(slots);
   if(emptyEl) emptyEl.style.display = empty ? 'block' : 'none';
-  if(listEl) listEl.style.display = empty ? 'none' : 'block';
+  // 与 vm 分支同口径：预设行常驻，所以列表不能因为「没有真实存档」而整块隐藏
+  if(listEl) listEl.style.display = (empty && !presetEntries.length) ? 'none' : 'block';
   if(!listEl) return;
   listEl.innerHTML = '';
   for(const s of slots){
@@ -4157,6 +4261,7 @@ function renderHome(){
     acts.appendChild(enterB); acts.appendChild(renameB); acts.appendChild(delB);
     row.appendChild(main); row.appendChild(acts); listEl.appendChild(row);
   }
+  for(const p of presetEntries) listEl.appendChild(buildPresetRowEl(p));
 }
 
 function createSaveAndRefresh(){
@@ -4164,31 +4269,50 @@ function createSaveAndRefresh(){
   profile = loadActiveProfile(localStorage);
   deleteArmSlotId = null; renamingSlotId = null;
   renderHome();
+  // 2026-10-29（合并屏）：新建存档后直接展开出战区，省掉一次「选择进入」
+  setLoadoutSectionVisible(true);
+  if(profile) renderLoadout();
   playSound('ui');
 }
 document.getElementById('homeCreateBtn').addEventListener('click', createSaveAndRefresh);
 document.getElementById('homeCreateBtnEmpty').addEventListener('click', createSaveAndRefresh);
 
-// 预设存档：从仓库 saves/ 目录加载 JSON，创建为新槽位
+// 预设存档：从仓库 saves/ 目录读取 JSON，**复用同名槽位**（没有才新建）后写入并激活。
+// 2026-10-29（用户裁定）：预设行改为存档列表里的常驻条目后，「点一次多一份档案」会越堆越多，
+//   所以同名槽位存在时原地重置内容；改名后下次点击会重新建一份（自愈，可接受）。
+// @returns {Promise<boolean>} true = 已写入并激活（调用方据此决定是否进入整备区）
+let presetLoading = false;   // 连点护栏：两次点击都走到「没有同名槽」会各建一份档案
 async function loadPresetSave(url, name){
+  if(presetLoading) return false;
+  presetLoading = true;
   try{
     const res = await fetch(url);
     if(!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    const id = createSaveSlot(localStorage, name);   // 创建槽位并设为 active
-    // 用预设数据覆盖槽位内容
+    // 版本门（防静默清档）：`normalizeProfile` 对 version 不匹配的档会**整体回落到默认值**，
+    //   而下面紧接着的 saveActiveProfile 会把那份默认值写回去 ⇒ 预设内容凭空消失、且不报错。
+    //   预设文件与 RULES.economy.saveVersion 是两份手写的版本号，升级存档格式时最容易漏改的就是它。
+    const ver = (typeof RULES !== 'undefined' && RULES.economy && RULES.economy.saveVersion) || 1;
+    if(!data || data.version !== ver) throw new Error(`预设版本 ${data && data.version} 与当前存档版本 ${ver} 不匹配`);
+    const exist = listSaveSlots(localStorage).find(s => s && s.name === name);
+    const id = exist ? exist.id : createSaveSlot(localStorage, name);   // 新建时已设为 active
+    if(!id) throw new Error('无法创建存档槽位');
     localStorage.setItem(saveSlotPrefix() + id, JSON.stringify(data));
+    if(exist) setActiveSaveSlot(localStorage, id);                      // 复用路径要手动激活
     profile = loadActiveProfile(localStorage);
+    saveActiveProfile(localStorage, profile);    // 归一化写回 + 刷新 updatedAt（排序与时间戳要准）
     deleteArmSlotId = null; renamingSlotId = null;
     renderHome();
     playSound('ui');
     pushLog('已载入预设存档「' + name + '」', 'COVER');
+    return true;
   }catch(err){
     pushLog('预设存档载入失败：' + err.message, 'CRIT');
+    return false;
+  }finally{
+    presetLoading = false;
   }
 }
-document.getElementById('homePresetMaxedBtn').addEventListener('click', () => loadPresetSave('saves/preset-maxed.json', '满级商店存档'));
-document.getElementById('homePreset99999Btn').addEventListener('click', () => loadPresetSave('saves/preset-99999.json', '99999点数存档'));
 
 // ---------- Loadout（出战整备） ----------
 // 薄包装：tankSummary / deploymentReady 委托 js/tank_screens.js（保留内联兜底）
@@ -4361,20 +4485,38 @@ function prepPlayerForRun(){
   player._missileLock = null;
 }
 
+// 2026-10-29（用户裁定）：加载层显隐。出击要**同步**生成整条节点链（strip 生成 100~300ms），
+//   此前点击后画面静止、无任何反馈。做法：先让浏览器画一帧加载层，再开始生成。
+function showLoading(title, hint){
+  const el = document.getElementById('loadingOverlay');
+  const t = document.getElementById('loadingTitle');
+  const h = document.getElementById('loadingHint');
+  if(t && title) t.textContent = title;
+  if(h && hint) h.textContent = hint;
+  if(el) el.style.display = 'flex';
+}
+function hideLoading(){
+  const el = document.getElementById('loadingOverlay');
+  if(el) el.style.display = 'none';
+}
+
 function beginRunFromMenu(){
   if(!deploymentReady()){
     pushLog('出击被拒绝：请先选择出战坦克', 'CRIT');
     refreshLoadHint();
     return false;
   }
-  // #N5：直接开打——不再经 map 中转屏（loadout/shop → battle 白名单已开）
-  startNewRun();
+  const _modeLabel = GAME_MODE === 'survival' ? '生存阵地' : (GAME_MODE === 'boss' ? 'Boss 竞技场' : '节点链');
+  showLoading('生成战场', `正在生成${_modeLabel}与掩体布局…`);
+  // 两帧后再同步生成：保证加载层已经上屏（生成过程阻塞主线程）
+  requestAnimationFrame(() => setTimeout(() => {
+    try { startNewRun(); } finally { hideLoading(); }
+  }, 0));
   return true;
 }
 document.getElementById('loadStartBtn').addEventListener('click', beginRunFromMenu);
 document.getElementById('shopStartBtn').addEventListener('click', beginRunFromMenu);
 document.getElementById('loadShopBtn').addEventListener('click', () => { playSound('ui'); transition(flow, 'shop'); });
-document.getElementById('loadHomeBtn').addEventListener('click', () => { playSound('ui'); transition(flow, 'home'); });
 document.getElementById('shopLoadoutBtn').addEventListener('click', () => { playSound('ui'); transition(flow, 'loadout'); });
 
 // ---------- log（P-15/P-46/#A25：独立日志面板 createLogPanel，位置左下角由 #logPanel CSS 决定） ----------

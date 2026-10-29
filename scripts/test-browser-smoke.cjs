@@ -138,13 +138,23 @@ function startServer(port) {
 
     // ---- M10 局外主链路：Home 新建存档 → Loadout 选坦克+弹药 → 出击进节点图 → 点节点进 battle ----
     // 初始态断言走纯 DOM（flow 对象要等第一次 transition 才被包装器截获，首页启动无转移）
-    const boot = await page.evaluate(() => ({
-      homeVisible: document.getElementById('homeScreen').style.display !== 'none',
-      otherHidden: ['loadoutScreen','shopScreen','mapScreen'].every(id => document.getElementById(id).style.display === 'none'),
-      overlayVisible: document.getElementById('flowOverlay').style.display !== 'none'
-    }));
+    const boot = await page.evaluate(() => {
+      // #AB17（2026-10-29）：SCREENS 清单必须与真实 DOM 一一对应——清单多一项就会让
+      //   hideAllScreens() 在首屏抛 null.style，整页死掉（首页白屏、三条模式全进不去）。
+      //   这条断言把「清单 ↔ DOM」的一致性直接锁住，任何一侧漏改都会当场变红。
+      const missing = (typeof SCREENS !== 'undefined' ? SCREENS : []).filter(id => !document.getElementById(id));
+      return {
+        homeVisible: document.getElementById('homeScreen').style.display !== 'none',
+        otherHidden: ['homeLoadoutWrap','shopScreen','mapScreen'].every(id => document.getElementById(id).style.display === 'none'),
+        overlayVisible: document.getElementById('flowOverlay').style.display !== 'none',
+        screens: (typeof SCREENS !== 'undefined' ? SCREENS.length : 0),
+        screensMissing: missing
+      };
+    });
     console.log('=== M10 启动态 ===', JSON.stringify(boot));
     check('M10 初始为 Home 态（首页覆盖层可见）', boot.homeVisible && boot.otherHidden && boot.overlayVisible, JSON.stringify(boot));
+    check('SCREENS 清单与 DOM 一一对应（缺失项为空）',
+      boot.screens > 0 && boot.screensMissing.length === 0, JSON.stringify({ screens: boot.screens, missing: boot.screensMissing }));
 
     await page.evaluate(() => document.getElementById('homeCreateBtn').click());
     await page.waitForTimeout(200);

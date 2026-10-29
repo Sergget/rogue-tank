@@ -10,7 +10,12 @@
 // 加载顺序：tank_rules.js → tank_economy.js / tank_flow.js 之后、内联脚本之前
 // 双端导出：浏览器全局 + Node module.exports
 
-const SCREENS = ['mapScreen','settleScreen','rewardScreen','gameoverScreen','homeScreen','loadoutScreen','shopScreen','pauseScreen'];
+// 覆盖层屏幕 id 全集（hideAllScreens 的遍历清单）。**必须与 tank_battle.html 里实际存在的
+// #xxxScreen 元素一一对应**：2026-10-29 HOME 与 LOADOUT 合并成一屏后 `#loadoutScreen` 元素
+// 已删除，清单里残留它会让 `document.getElementById(...).style` 拿到 null 抛错——
+// 而那次抛错发生在 initMenu 里，整页在首屏就死了（用户反馈「选模式后进不去游戏」）。
+// 流程状态 `loadout` 仍然保留（tank_flow 白名单），它现在复用 homeScreen，不是屏幕。
+const SCREENS = ['mapScreen','settleScreen','rewardScreen','gameoverScreen','homeScreen','shopScreen','pauseScreen'];
 
 function formatStamp(ms){
   const d = new Date(ms || 0);
@@ -53,6 +58,20 @@ function upgradesOverviewLine(prof, upgradeDefs){
   return parts.length ? `永久升级：${parts.join(' · ')}` : '';
 }
 
+/**
+ * 首页视图模型：真实存档行 + 预设存档行。
+ *
+ * 2026-10-29（用户裁定）：预设不再以「两个按钮」出现，改为存档列表里的**两条常驻条目**
+ *   ——和真实档案读起来是同一个列表，但语义不同：预设行不可重命名/删除，点它等于
+ *   「载入该预设并进入」，同一预设重复点会原地重置同名档案而不是越堆越多（页面负责）。
+ *
+ * @param {{slots?:Array, activeId?:string|null, renamingSlotId?:string|null,
+ *          deleteArmSlotId?:string|null, slotProfileOf?:Function|Object,
+ *          upgradeDefs?:Array,
+ *          presets?:Array<{id:string,name:string,url:string,hint?:string,hasSlot?:boolean}>}} [opts]
+ * @returns {{empty:boolean, rows:Array, presetRows:Array}} `empty` 只表示**没有真实存档**
+ *   （预设不算档案，否则「尚无存档」的提示永远不会出现）
+ */
 function buildHomeViewModel(opts){
   opts = opts || {};
   const slots = Array.isArray(opts.slots) ? opts.slots : [];
@@ -89,7 +108,18 @@ function buildHomeViewModel(opts){
       points
     };
   });
-  return { empty, rows };
+  // 预设行：只做展示字段的归一化（id 前缀 `preset:` 保证与真实槽位 id 不可能撞车）
+  const presetRows = (Array.isArray(opts.presets) ? opts.presets : [])
+    .filter(p => p && typeof p.id === 'string' && p.id && typeof p.name === 'string' && p.name)
+    .map(p => ({
+      id: 'preset:' + p.id,
+      presetId: p.id,
+      name: p.name,
+      url: (typeof p.url === 'string') ? p.url : '',
+      hint: (typeof p.hint === 'string') ? p.hint : '',
+      hasSlot: p.hasSlot === true,
+    }));
+  return { empty, rows, presetRows };
 }
 
 function buildLoadoutViewModel(opts){

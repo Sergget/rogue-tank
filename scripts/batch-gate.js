@@ -95,20 +95,51 @@ if (SKIP_TESTS) {
 if (!WANT_BROWSER) {
   criteria.push({ name: '浏览器链 npm run test:browser', state: 'SKIP', detail: '未指定 --browser' });
 } else {
-  // 用 package.json 里的脚本文本 + shell 执行：Windows 下 .cmd 不能 shell:false 直接 spawn
-  const script = require(path.join(ROOT, 'package.json')).scripts['test:browser'];
-  const b = run(script, [], 40 * 60 * 1000, true);
-  const text = b.out;
-  // 环境限制：browser-launch 以 86 退出并打印 INCONCLUSIVE（见 sandbox-verify 技能）
-  if (b.status === 86 || /INCONCLUSIVE/.test(text)) {
-    criteria.push({ name: '浏览器链 npm run test:browser', state: 'INCONCLUSIVE', detail: '退出码 86／INCONCLUSIVE：环境限制，既非通过也非失败' });
-  } else if (b.status === 0 && /ALL PASS/.test(text)) {
-    criteria.push({ name: '浏览器链 npm run test:browser', state: 'PASS', detail: findLine(text, /ALL PASS/) });
-  } else if (b.status === null) {
-    // 进程根本没起来（EPERM/EINVAL/超时等）⇒ 报「无结论」，不得计为 FAIL
-    criteria.push({ name: '浏览器链 npm run test:browser', state: 'INCONCLUSIVE', detail: `进程未正常退出：${b.error || '未知原因'}` });
+  // 2026-10-29：浏览器链改为**逐条执行 + 逐条重试**。
+  //   起因：整链跑时，8 条时序敏感断言会出现「每轮红的不是同一条、单跑必过」的抖动
+  //   （实测四轮分别红在 encounter 首帧 / 3d 二次开火 / C 键集火 / …）。整链重试治不了，
+  //   因为抖动是逐链的；而且整链失败只说「某处红了」，不告诉你是哪条。
+  //   现在：逐条跑，某条失败就只重跑该条一次；两轮都红才算 FAIL，并点名是哪条。
+  const pkg = require(path.join(ROOT, 'package.json'));
+  const chain = String(pkg.scripts['test:browser'] || '')
+    .split('&&').map(s => s.trim()).filter(s => s.indexOf('node ') === 0)
+    .map(s => s.slice(5).trim());
+  const results = [];
+  let sawInconclusive = false;
+  for (const script of chain) {
+    const short = script.replace(/^scripts\//, '');
+    let r = run('node', [script], 20 * 60 * 1000);
+    let text = r.out;
+    const inconclusive = r.status === 86 || /INCONCLUSIVE/.test(text);
+    if (inconclusive) {
+      sawInconclusive = true;
+      results.push({ name: short, state: 'INCONCLUSIVE' });
+      continue;
+    }
+    if (r.status !== 0 || /FAIL \|/.test(text)) {
+      const firstFail = findLine(text, /FAIL \|/) || lastLine(text);
+      r = run('node', [script], 20 * 60 * 1000);
+      text = r.out;
+      if (r.status === 0 && !/FAIL \|/.test(text)) {
+        results.push({ name: short, state: 'PASS', note: `首轮抖动重跑通过：${firstFail.slice(0, 70)}` });
+        continue;
+      }
+      results.push({ name: short, state: 'FAIL', note: findLine(text, /FAIL \|/) || lastLine(text) });
+      continue;
+    }
+    results.push({ name: short, state: 'PASS' });
+  }
+  const bad = results.filter(x => x.state === 'FAIL');
+  const flaky = results.filter(x => x.note);
+  if (bad.length) {
+    criteria.push({ name: `浏览器链（${results.length} 条，逐条重试）`, state: 'FAIL',
+      detail: bad.map(x => `${x.name}: ${x.note}`).join(' | ') });
+  } else if (sawInconclusive) {
+    criteria.push({ name: `浏览器链（${results.length} 条，逐条重试）`, state: 'INCONCLUSIVE',
+      detail: '部分链因环境限制无结论（退出码 86／INCONCLUSIVE），既非通过也非失败' });
   } else {
-    criteria.push({ name: '浏览器链 npm run test:browser', state: 'FAIL', detail: findLine(text, /✗|FAIL|Error/) || lastLine(text) });
+    criteria.push({ name: `浏览器链（${results.length} 条，逐条重试）`, state: 'PASS',
+      detail: flaky.length ? `${results.length} 条全绿；其中 ${flaky.length} 条首轮抖动、重跑通过：${flaky.map(x => x.name).join(', ')}` : `${results.length} 条全绿` });
   }
 }
 

@@ -210,6 +210,22 @@
 - **验证**：`scripts/test-tankcollision.js` 新增 `#AB14` 组 **3 条断言**（300 帧全程不越界 / 终点在界内 / 关掉滑行同样不越界）；`npm run check` 全绿 / `npm test` 69 通过 0 失败；探针复跑「越界帧 0，终点 x=38.40」。
 - **状态**：已修（待归档）。
 
+### #AB17 首页选模式后进不去游戏：`#loadoutScreen` 残留让 initMenu 首屏抛错
+
+- **证据**：`js/tank_screens.js:13` 的 `SCREENS` 仍含 `'loadoutScreen'`，而 HOME 与 LOADOUT 合并后（2026-10-29）该元素已从 `tank_battle.html` 删除（全仓 `grep loadoutScreen` 只剩这一处）。`hideAllScreens()` 遍历清单时 `document.getElementById('loadoutScreen').style` 拿到 `null` 并抛 `TypeError`——而它被 `initMenu()`（`tank_battle.html:7378`）在**首屏**调用 ⇒ `showScreen('homeScreen')` 与 `setOverlayVisible(true)` 都没执行，页面死在加载阶段。
+- **复现**（`tmp/probe-mode-nav.cjs`，修复前）：打开 `index.html` → 点「标准模式」卡 → 跳到 `tank_battle.html` 后实测
+  ```
+  PAGEERROR: Cannot read properties of null (reading 'style')
+      at hideAllScreens (tank_battle.html:2315:51)
+      at showScreen (tank_battle.html:2317:26)
+      at initMenu (tank_battle.html:7378:3)
+  ```
+  `#homeScreen` / `#flowOverlay` 均不可见 ⇒ 白屏，用户描述为「模式菜单选择后无法进入加载页面和游戏」。
+- **影响**：**P0 全阻塞**——三条模式（标准/Boss/生存）全部进不去，正式游戏页等于不可用。同一批改动里 `scripts/test-browser-smoke.cjs` 已把断言从 `loadoutScreen` 换成 `homeLoadoutWrap`，但**清单侧漏改**，而 smoke 链当时没跑，所以没兜住。
+- **修法（已落地，§4.167）**：① `js/tank_screens.js` 的 `SCREENS` 删掉 `loadoutScreen`（流程状态 `loadout` 保留，它复用 `homeScreen`）；② `hideAllScreens()` / `showScreen()` 逐个 `getElementById` 判空——屏幕清单是 UI 辅助表、不是不变量，**缺一个 id 的代价必须是「那屏不隐藏」，不能是「失去整页」**（缺屏时只往日志面板落一条 `CRIT`）。
+- **验证**：`tmp/probe-mode-nav.cjs` 复跑 —— 落地后 `homeScreen=true`、`flowOverlay=true`、`PAGEERROR` 0 条；`tmp/probe-run-start2.cjs` 全链路 —— 新建存档 → 选车（Leapard_1）→ 出击 → 加载层出现（`#loadingOverlay` 被 MutationObserver 捕获 1 次）→ `flowOverlay` 隐藏、场上 12 敌、canvas 1440×900，非 404 报错 0 条（截图 `tmp/probe-battle.png`）；`test-browser-smoke` 新增「SCREENS 清单与 DOM 一一对应」断言 + **负向对照**（把 `loadoutScreen` 塞回清单 ⇒ 该断言红、但页面仍能进首页，证明两层防线各自成立）；浏览器冒烟链 ALL PASS。
+- **状态**：已修（待归档）。
+
 ---
 
 ## 历史：当前无存量条目（#AA 批次 2026-10-26 全部关账）

@@ -11,7 +11,7 @@
 
 | 脚本 | 页面 | 覆盖 |
 |---|---|---|
-| `test-browser-smoke.cjs` | battle + bench | Home→Loadout→Shop→Map→battle 主链路、HUD/Tab/devPanel、弹种 E/Q 轮换、飘字、敌人开火命中、无 dummy、项目错误监听 |
+| `test-browser-smoke.cjs` | battle + bench | Home→Loadout→Shop→Map→battle 主链路、HUD/Tab/devPanel、弹种 E/Q 轮换、飘字、敌人开火命中、无 dummy、项目错误监听；**启动态含 `SCREENS` 清单 ↔ DOM 一一对应断言**（#AB17：清单残留已删屏幕会让 `hideAllScreens` 在首屏抛错、整页白屏） |
 | `test-browser-r3.cjs` | bench + battle | bench 技能/召唤物（炮塔/地雷/掩体注册投递）、弹种切换、G 炮击链路、掩体按钮超限拒绝（#F6） |
 | `test-browser-run.cjs` | battle | 真实 run 链路、弹种三槽轮换、卡牌直系演变与跳级拒绝、G/H/V 入口、devPanel 四 Tab、卡牌选择器搜索/`/`/应用/×N/−1 回滚、雷场预约门控（#F6） |
 | `test-browser-r4.cjs` | battle | **主武器各类型实战**（standard 单发 / double_barrel 空格齐射 2 发 / autocannon 连发+heatPct / railgun 单发）、**F 副武器**（mortar isArc / rocket burst / missile 锁定发射且按住不翻转 / mine_layer 按住只走一次边沿 + 雷场生成 + 触爆掉血）、**技能实战效果**（artillery 落弹掉血 / shield 吸收池 / overdrive 装填归零）、**商店购买结算**（hp_up 扣点+记录 / 复活加购 / 升级作用于开局） |

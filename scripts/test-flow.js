@@ -68,7 +68,9 @@ ok(threw, '未知状态抛错');
 // #N5（2026-10-10 简化进入游戏流程）：loadout/shop 的「出击」与 gameover 的「重新开始」
 // 直接进 battle（旧口径经 map 中转屏）；map 态保留（放弃节点入口仍可用）。
 const allInvalidTargets = {
-  home:       ['map', 'battle', 'settlement', 'reward', 'gameover'],
+  // 2026-10-29：HOME 与 LOADOUT 合并为一屏后，home 可直接去 shop / battle（不再强制经 loadout），
+  //   白名单已按此放开（js/tank_flow.js 的 home 表），故这两项从非法集里移除。
+  home:       ['map', 'settlement', 'reward', 'gameover'],
   loadout:    ['settlement', 'reward', 'gameover', 'loadout'],
   shop:       ['settlement', 'reward', 'gameover', 'shop'],
   map:        ['settlement', 'reward', 'gameover', 'map', 'home', 'loadout', 'shop'],

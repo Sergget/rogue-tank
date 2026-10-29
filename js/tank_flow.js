@@ -32,7 +32,8 @@ const FLOW_STATES = [
 // 允许的转移表：from → to 白名单（未知转移抛错，防流程失控）
 const FLOW_TRANSITIONS = {
   // —— M10 局外闭环 ——
-  home:       ['loadout', 'home'],              // 选择存档 → 出战整备；home→home 自环 = 同界面切换存档后刷新
+  // 2026-10-29：HOME 与 LOADOUT 合并为一屏后，首页直接可去商店与出击（不再强制经 loadout 态）。
+  home:       ['loadout', 'home', 'shop', 'battle'],
   // #N5（2026-10-10 简化进入游戏流程）：loadout/shop 的「出击」直接生成并进入战斗
   // （旧口径 loadout/shop → map 中转屏 → 再点「开始新的一局」才进 battle，多一层无信息量界面）。
   // map 态保留：放弃节点/重开等既有入口仍可用（mapScreen 仅为兼容入口）。

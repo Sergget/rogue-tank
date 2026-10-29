@@ -56,6 +56,32 @@
     border-bottom:1px dashed var(--line-soft);
   }
   .tools a:hover{color:var(--amber); border-bottom-color:var(--amber);}
+  /* 2026-10-29：模式卡信息层次——标签行 / 标题 / 一句话 / 关键词 chips */
+  a.card .badges{display:flex; gap:6px; align-items:center; margin-bottom:var(--sp-3);}
+  a.card .badges .badge{margin-bottom:0;}
+  .badge.rec{background:transparent; color:var(--amber); border:1px solid var(--amber);}
+  a.card .chips{display:flex; gap:6px; flex-wrap:wrap; margin-top:var(--sp-3);}
+  a.card .chip{
+    font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--text-dim);
+    border:1px solid var(--line-soft); padding:1px 7px;
+  }
+  a.card:active{transform:translateY(1px);}
+  .tools-label{
+    width:100%; text-align:center; color:var(--text-dim);
+    font-family:var(--font-mono); font-size:var(--fs-xs); letter-spacing:4px;
+    margin-bottom:calc(var(--sp-3) * -1);
+  }
+  /* 2026-10-29：进入战场前先给反馈——目标页要生成节点链，直接跳会白屏 200ms+ */
+  #navLoading{
+    position:fixed; inset:0; z-index:200; display:none;
+    align-items:center; justify-content:center; flex-direction:column; gap:14px;
+    background:radial-gradient(circle at 50% 45%, #12140f 0%, #0a0b07 78%);
+  }
+  #navLoading .t{font-family:var(--font-mono); font-size:var(--fs-body); letter-spacing:5px; color:var(--amber);}
+  #navLoading .bar{width:220px; height:2px; background:var(--line-soft); overflow:hidden;}
+  #navLoading .bar i{display:block; width:38%; height:100%; background:var(--amber); animation:sweep 900ms ease-in-out infinite;}
+  @keyframes sweep{0%{transform:translateX(-100%);} 100%{transform:translateX(330%);}}
+  @media (prefers-reduced-motion: reduce){ #navLoading .bar i{animation:none; width:100%;} }
   footer{
     color:var(--text-dim); font-family:var(--font-mono);
     font-size:var(--fs-xs); letter-spacing:1px; opacity:.75;
@@ -71,32 +97,56 @@
   </header>
   <main class="cards">
     <a class="card" href="tank_battle.html">
-      <div><span class="badge game">标准模式</span></div>
+      <div class="badges"><span class="badge game">标准模式</span><span class="badge rec">推荐</span></div>
       <div class="title">节点推进 · 构筑成长</div>
       <div class="desc">标准节点式地图推进，击杀得分驱动卡牌构筑与 Boss 战；极简 HUD（Tab 状态 / ` 开发者面板）。</div>
+      <div class="chips"><span class="chip">三选一卡牌</span><span class="chip">局内商店</span><span class="chip">每 3 节点 Boss</span></div>
     </a>
     <a class="card" href="tank_battle.html?mode=boss">
-      <div><span class="badge boss">BOSS 战</span></div>
+      <div class="badges"><span class="badge boss">BOSS 战</span></div>
       <div class="title">连续 Boss 挑战</div>
       <div class="desc">新地图生成器打造的竞技场，跳过普通节点只打 Boss 战；Boss 强度随击杀数递增，所有敌人开场即主动进攻。</div>
+      <div class="chips"><span class="chip">全 Boss 链</span><span class="chip">开场接敌</span><span class="chip">3×3 竞技场</span></div>
     </a>
     <a class="card" href="tank_battle.html?mode=survival">
-      <div><span class="badge survival">生存战</span></div>
+      <div class="badges"><span class="badge survival">生存战</span></div>
       <div class="title">波次围攻 · 无尽生存</div>
       <div class="desc">1:1 方形大地图（新生成器），敌军按波次主动围攻且开场即接敌；每波结束抽卡一次，每 3 波遭遇 Boss。活下去。</div>
+      <div class="chips"><span class="chip">波次进攻</span><span class="chip">补给站</span><span class="chip">可购增援</span></div>
     </a>
     <a class="card" href="tank_bench.html">
-      <div><span class="badge bench">装甲测试台</span></div>
+      <div class="badges"><span class="badge bench">装甲测试台</span></div>
       <div class="title">靶车与弹道测试</div>
       <div class="desc">实时弹道 / 命中部位 / 跳弹 / 模块伤害测试台：玩家 vs 靶车，发射解算面板 + 掩体 / 残骸 / 地图元素。</div>
+      <div class="chips"><span class="chip">发射解算</span><span class="chip">Enemy Lab</span><span class="chip">卡牌测试</span></div>
     </a>
   </main>
   <nav class="tools">
+    <div class="tools-label">工具 TOOLS</div>
     <a href="tank_designer.html">坦克设计器</a>
     <a href="tank_compare.html">坦克对比</a>
     <a href="tank_codex.html">坦克图鉴</a>
     <a href="tank_3d.html">3D 切片 (R1)</a>
   </nav>
+  <div id="navLoading"><div class="t">载入战场</div><div class="bar"><i></i></div></div>
+  <script>
+    // 2026-10-29：进入游戏页前先显示加载层——目标页要同步生成节点链，
+    //   直接跳会白屏 200ms 以上，看起来像没反应。工具页是轻量的，不拦截。
+    (function(){
+      var overlay = document.getElementById('navLoading');
+      var links = document.querySelectorAll('main.cards a.card');
+      for (var i = 0; i < links.length; i++) {
+        links[i].addEventListener('click', function(ev){
+          var href = this.getAttribute('href');
+          if (!href) return;
+          ev.preventDefault();
+          overlay.style.display = 'flex';
+          // 先让加载层上屏一帧，再导航
+          setTimeout(function(){ window.location.href = href; }, 60);
+        });
+      }
+    })();
+  </script>
   <footer>共享模块 js/ · 需通过 dev server 访问（npm start）</footer>
 </body>
 </html>

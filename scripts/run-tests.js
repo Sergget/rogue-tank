@@ -97,6 +97,9 @@ const TESTS = [
   //   的 aimPoint 接线（#AA2）；后者是 AA-b 全量对齐形状断言的起点（docs/PLAN.md §6.4）。
   'scripts/test-hud-road-bonus.js',
   'scripts/test-bench-parity.js',
+  // 2026-10-29 用户裁定：预设存档从「两个按钮」改为存档列表里的两条常驻条目。
+  //   buildHomeViewModel 的 presets 入参 + 页面 HOME_PRESETS 与旧按钮删除的负向断言。
+  'scripts/test-home-viewmodel.js',
   // 2026-10-26 #AA6：bench Enemy Lab 工具链——清场纯筛选（clearEnemyEntities）+ 两条生成路径的
   //   视口护栏接线（几何本体在 test-camera.js 的 #AA6 段）。
   'scripts/test-bench-tools.js',
