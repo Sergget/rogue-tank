@@ -4716,3 +4716,35 @@ hull-down 让「静默玩家何时被发现」变成图相关且时间无界的�
 - `npm run check` EXIT=0；`wiki-check` 全绿。
 
 **归口**：`specs/combat/enemy-ai.md`（绕障 goalLos 语义）· `specs/map/cover-system.md` §「hull-down 遮挡参与面」· `specs/editor/browser-tests.md`。
+
+## §4.180 2026-10-30 MS2 收口：波次导演进正式局（C0~C3）
+
+**批次定位**：MS2（`PLAN.md` §2.8.0，lead-programmer 拆分 C0→C1→C2→C3）。把已在 3D 切片验证的 `js/tank_encounter.js` 接进 `tank_battle.html` 正式局。
+
+### 1) C0 配置层（`tank_rules.js` + `tank_map.js`）
+
+- `RULES.encounter.standardEnabled`（正式局接入开关，与切片共用的 `enabled` 分槽——两开关独立 A/B）+ `standardWaves`（正式局波次编成 S1 前哨接触 / S2 两翼包抄 / S3 总攻，与切片演示 `waves` 分开演化）。
+- `makeNode` 写 `node.encounter`：普通节点 true / Boss（自己的 summons 分波）与生存（`noEnemies`，页面波次管线自管）false；`standardEnabled=false` 一键回退旧铺敌。
+- `test-map` 3c 段四态断言（标准/Boss/生存/回退）。
+
+### 2) C1 接线层（`tank_battle.html`）
+
+- 进节点按 `node.encounter` 分流：`materializeNode` **跳过一次性铺敌**（掩体/据点/防线照旧）；创建 `createEncounter`（`standardWaves` × 节点难度缩放 count，seed 按节点派生）。
+- `battleSpawnWaveUnits`：正式局投送链（`applyEnemyAppearanceAndStats` + `entityMultsForDifficulty` 难度乘子 + `applyEnemyAmmoForNode` 弹种分级 + 进攻意志/反应延迟），**不吃切片的 `enemyDamageScale` 演示缩放**。
+- `handleBattleEncounterEvent`：七类事件消费；victory ⇒ 既有 3 秒缓冲 + `finishNode(true)` 结算/计分/选卡链；breather 回血玩家与指挥友军、`reinforceAllies` 补员走编队通道。
+- **分流隔离**：encounter 节点不走 `nodeClearance`（配额/防线无实体基础）、不走 `reinforcementTick`（敌人由导演投送）；目标 HUD 改显波次进度。
+- **playerAlive 恒 true 语义裁定**：正式局玩家生死由 revive/gameover 管线全权处理——若透传真实 hp，死亡瞬间导演判 defeat 终局 ⇒ 复活回来波次已废（实测复现后修正）。模块的 playerAlive 判负是切片语义（无复活）。
+
+### 3) C2 测量层
+
+`scripts/measure-encounter-real.cjs`：真实 run 链路（存档→整备→出击→节点 0）+ 探针玩家（canvas 左键事件驱动 `mouseFireHeld`——battle 页无 `__TEST__.fire`）。**四次实测 victory：80.1 / 85.9 / 94.9 / 96.2s，中位 ≈91s，12/12 击杀**。数字已写进 `specs/combat/encounter-pacing.md` §「正式局实测」。
+
+**对照门 ①**：目标 180~300s ⇒ **内容量缺口 ~2×**，与 §4.159 预判一致且与「堆血量禁区」裁定后预期的形态吻合（缺口在内容量不在数值）。分解参考：`wave 63% / breather 27% / telegraph 4%`——breather 占比 27% 略超 25% 门限，喘息浮动公式（MS3）生效后自然收敛。
+
+### 4) C3 门禁层
+
+- `test-browser-run` 新增两条 MS2 断言（门 ③ 负向断言载体）：当前节点为 encounter + 导演实例在跑——该链的**全部卡牌断言**（giveCard/应用/回滚）都跑在波次节点上，卡牌节奏被打断会先红。
+- `npm run check` EXIT=0；`npm test` 76/0；浏览器九链 ALL PASS（exit 0）；`wiki-check` 全绿。
+- 门 ① 实测 91s < 180s ⇒ **门 ① 未达标（属 MS3 内容量范畴，#AB10 的既有结论）**；门 ② run/商店/计分链不回退 ✓；门 ③ 负向断言 ✓。
+
+**归口**：`PLAN.md` §2.8.0（MS2 拆分）· `specs/combat/encounter-pacing.md` §「正式局实测」· `specs/combat/encounter-director.md` · `docs/ISSUES.md` #AB10。

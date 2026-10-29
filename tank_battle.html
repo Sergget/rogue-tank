@@ -3192,7 +3192,11 @@ function reinforceAllies(n, salt){
 //   · telegraph/spawn/wave-clear 走 pushLog + toast（战斗消息通道）。
 function battleEncounterCtx(){
   return {
-    playerAlive: !!player && player.hp > 0,
+    // 2026-10-30 MS2/C1 语义裁定：playerAlive **恒 true**——正式局玩家生死由
+    //   revive/gameover 管线全权处理（复活后导演继续当前波）。若透传真实 hp，
+    //   死亡瞬间导演判 defeat 终局 ⇒ 复活回来波次已废。模块的 playerAlive 判负
+    //   是切片语义（无复活），正式局不适用。
+    playerAlive: true,
     playerPos: { x: player ? player.x : 0, y: player ? player.y : 0 },
     enemyAlive: entities.filter(e => e.team === 'enemy' && e.hp > 0).length,
     allyAlive: livingAllies().length,
@@ -3205,7 +3209,7 @@ function battleSpawnBlocked(x, y){
   if(!currentNode) return true;
   if(x < 60 || y < 60 || x > currentNode.w - 60 || y > currentNode.h - 60) return true;
   if(player && Math.hypot(x - player.x, y - player.y) < 200) return true;
-  return typeof pointInCover === 'function' ? pointInCover(x, y, 40) : false;
+  return typeof pointInCover === 'function' ? pointInCover(covers, x, y, 40) : false;
 }
 function battleSpawnWaveUnits(waveIdx, units){
   const out = [];
@@ -3249,17 +3253,17 @@ function handleBattleEncounterEvent(ev){
     }
     case 'spawn': {
       const list = battleSpawnWaveUnits(ev.wave | 0, ev.units || []);
-      toast(`${ev.waveLabel || ('第 ' + ((ev.wave | 0) + 1) + ' 波')} · ${list.length} 辆`, true);
+      showAllyToast(`${ev.waveLabel || ('第 ' + ((ev.wave | 0) + 1) + ' 波')} · ${list.length} 辆`);
       break;
     }
     case 'wave-clear':
       // 最后一波没有 breather 合并，直接弹（与 3D 页 #AB2 同口径）
       if(battleEncounter && battleEncounter.waveIndex + 1 >= battleEncounter.waveCount){
-        toast(`第 ${(ev.wave | 0) + 1} 波清除`);
+        showAllyToast(`第 ${(ev.wave | 0) + 1} 波清除`);
       }
       break;
     case 'wave-empty':
-      toast(`第 ${(ev.wave | 0) + 1} 波配置为空：没有敌人生成（检查 RULES.encounter.standardWaves）`, true);
+      showAllyToast(`第 ${(ev.wave | 0) + 1} 波配置为空：没有敌人生成（检查 RULES.encounter.standardWaves）`, true);
       break;
     case 'breather': {
       const pct = ev.repairPct || 0;
@@ -3272,7 +3276,7 @@ function handleBattleEncounterEvent(ev){
         a.hp = Math.min(a.stats.maxHp, a.hp + Math.round((a.stats.maxHp || 0) * pct));
       }
       const added = reinforceAllies(ev.reinforce || 0, (battleEncounter ? battleEncounter.waveIndex : 0) + 1);
-      toast(`喘息 ${Math.round(ev.seconds)}s · 抢修 +${healed} · 补员 ${added}`);
+      showAllyToast(`喘息 ${Math.round(ev.seconds)}s · 抢修 +${healed} · 补员 ${added}`);
       break;
     }
     case 'intel':
@@ -7866,6 +7870,22 @@ function nextRunSeed(){
     setSkillSlot(i, key){ const s = skillSlots(); if(i < 0 || i >= s.length) return false; s[i] = (key === null ? null : key); return true; },
     skillSlotPickerOpen(){ const e = document.getElementById('skillSlotPicker'); return !!(e && e.style.display !== 'none'); },
     pickSkillSlotRow(i){ const rows = document.querySelectorAll('#skillSlotPickerList .picker-row'); if(rows[i]) rows[i].click(); return rows.length; },
+    // 2026-10-30 MS2/C3：当前节点是否波次导演接管（test-browser-run 门③负向断言消费）
+    currentNodeEncounter(){
+      return !!(currentNode && currentNode.encounter === true);
+    },
+    // 2026-10-30 MS2/C2：波次导演状态探针（measure-encounter --mode=real 消费）
+    encounter(){
+      if(!battleEncounter) return null;
+      return {
+        phase: battleEncounter.phase,
+        waveIndex: battleEncounter.waveIndex,
+        waveCount: battleEncounter.waveCount,
+        elapsed: battleEncounter.elapsed,
+        kills: battleState ? (battleState.nodeKills || 0) : 0,
+        outcome: battleEncounter.outcome || null,
+      };
+    },
     skipToNode(n){
       if(flow.state !== 'map') throw new Error('__TEST__.skipToNode: 仅 map 态可用（当前 ' + flow.state + '）');
       if(!run || !run.nodes[n]) throw new Error('__TEST__.skipToNode: 节点不存在 index=' + n);

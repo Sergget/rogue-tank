@@ -154,6 +154,16 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
       ? window.__TEST__.entities().some(e => e.team === 'ally' && e.nodeSpawn && !e.isAllySquad) : true);
     check('标准模式保留 2 辆指挥友军', stdAllies === 2, `allies=${stdAllies}`);
     check('标准模式无预生成友军据点', stdOutpost === false, `outpost=${stdOutpost}`);
+    // 2026-10-30 MS2/C3 门③（负向断言）：encounter 节点（波次导演投送）上卡牌节奏不被打断——
+    //   本链后续的全部卡牌断言（giveCard/应用/回滚）都跑在波次节点上，这里显式锁两件事：
+    //   ① 节点确为 encounter（导演接管）② 导演在跑（telegraph/wave 推进中）。
+    //   若将来有人改回一次性铺敌或让导演在选卡期间 spawn 顶掉选卡 UI，这条先红。
+    const encNode = await page.evaluate(() => window.__TEST__ && window.__TEST__.currentNodeEncounter
+      ? window.__TEST__.currentNodeEncounter() : null);
+    check('MS2: 当前节点为 encounter（波次导演接管）', encNode === true, `encounter=${encNode}`);
+    const encRunning = await page.evaluate(() => window.__TEST__ && window.__TEST__.encounter
+      ? (window.__TEST__.encounter() !== null) : false);
+    check('MS2: 波次导演实例在跑', encRunning, `enc=${encRunning}`);
     await waitFor(500);
 
     const boot = await page.evaluate(() => {
