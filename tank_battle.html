@@ -718,6 +718,9 @@
   <script src="js/tank_perf.js"></script>
   <script src="js/tank_flow.js"></script>
   <script src="js/tank_map.js"></script>
+  <!-- 2026-10-30 MS2/C1：波次导演纯逻辑层（标准模式 encounter 节点投送敌人）。
+       只依赖 RULES（tank_rules.js）——放 map 之后与 3D 页同序。 -->
+  <script src="js/tank_encounter.js"></script>
   <script src="js/tank_minimap.js"></script>
   <!-- R-1 武器槽位解耦 + 阶段六 6.2 副炮塔运行时（tank_cards 的 weapon 效果依赖 WEAPON_DEFAULTS，须先加载） -->
   <script src="js/tank_weapons.js"></script>
@@ -788,6 +791,8 @@ const SUPPLY_COOLDOWN_S = 120;    // 回血/商店共享冷却（秒）
 const SUPPLY_RADIUS = 120;        // 交互半径（px）
 let supplyReadyAt = 0;            // performance.now() 时间戳：冷却就绪时刻（0 = 可用）
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
+let battleEncounter = null; // 2026-10-30 MS2/C1：标准模式波次导演实例（node.encounter=true 时非 null）
+let battleEncSeq = 0;       // 波次投送实体的节点内序号（id 唯一性；enterBattle 重置）
 // #N5（2026-10-01）：存活敌军缓存（AI 循环每帧填充），供屏幕外来袭方向提示复用。
 let aiEnemiesCache = [];
 // #E9（2026-09-20）：Boss 蓄能激光当前帧的绘制数据 { kind:'charge'|'fire', x,y,angle,width,length,progress }
@@ -3066,6 +3071,29 @@ function enterBattle(nodeIndex){
     applyDifficulty(t, mults){ applyDifficultyMults(t, mults); }   // P-38：页级函数，增援生成复用
   });
   spawnAllySquad(node);   // A0（2026-10-27）：友军编队随节点生成，默认跟随
+
+  // 2026-10-30 MS2/C1：波次导演接入（标准模式 encounter 节点）。
+  //   materializeNode 已按 node.encounter 跳过一次性铺敌（C0）；这里创建导演实例并把
+  //   波次编成按节点难度缩放。victory ⇒ finishNode(true)（复用既有结算/计分链），
+  //   defeat ⇒ 走既有复活/gameover 管线（不在此处理，交由玩家 hp 归零的正常路径）。
+  battleEncounter = null; battleEncSeq = 0;
+  if(node.encounter === true && RULES.encounter && RULES.encounter.enabled && RULES.encounter.standardEnabled){
+    // 正式局波次编成 = standardWaves 基准 × 节点难度缩放（count 随 diff 上调，封顶防围死）：
+    //   每单元 count → count + floor(diff × diffCountScale)，单波总敌数封顶 maxPerWave。
+    const diff = node.difficulty || 0;
+    const scaleCfg = RULES.encounter.standardScale || { diffCountScale: 3, maxPerWave: 6 };
+    const waves = (RULES.encounter.standardWaves || []).map(w => ({
+      id: w.id, label: w.label,
+      units: (w.units || []).map(u => ({
+        cls: u.cls, bearing: u.bearing,
+        count: Math.min(6, u.count + Math.floor(diff * scaleCfg.diffCountScale)),
+      })),
+    })).map(w => ({ ...w, units: w.units.filter(u => u.count > 0) })).filter(w => w.units.length > 0);
+    const encRules = Object.assign({}, RULES.encounter, { waves });
+    battleEncounter = createEncounter({ seed: (node.seed | 0) + node.index * 7919, rules: encRules });
+    if(battleEncounter) pushLog(`⚔ 波次导演接管本节点：${waves.length} 波（难度 ${(diff * 100).toFixed(0)}%）`, 'COVER');
+  }
+
   bakeNodeGroundLayer(node);   // 2026-09-14：进图前预烘焙道路地面层（曲线道路整条绘制，避免逐段实时绘制与远距消失）
   clearGroundCache();          // #GT：换节点 ⇒ biome/seed/区段全变，地面纹理烘焙缓存必须失效
 
@@ -3101,6 +3129,175 @@ function enterBattle(nodeIndex){
   pushLog(`进入节点 ${nodeIndex + 1}「${node.template.name}」 难度 ${(node.difficulty * 100).toFixed(0)}% — ${node.boss ? 'BOSS ' + node.boss.name : '敌军 ' + node.enemies.length + ' 辆'}${node.outpost ? '，友军据点已部署' : ''}`, 'COVER');
 }
 
+// ---------- 2026-10-30 MS2/C1：波次导演 helpers（自 tank_3d.html 移植，战斗页变体） ----------
+// BEARING_TABLE：方位角 → 中文八方位（telegraph 文案用；与 3D 页同表）
+const _BEARING_TABLE = [
+  [0, '东'], [Math.PI / 4, '东北'], [Math.PI / 2, '南'], [3 * Math.PI / 4, '西南'],
+  [Math.PI, '西'], [-3 * Math.PI / 4, '西北'], [-Math.PI / 2, '北'], [-Math.PI / 4, '东北'],
+];
+function bearingLabel(a){
+  let best = '前方', bd = Infinity;
+  for(const row of _BEARING_TABLE){
+    const d = Math.abs(angDiff(a, row[0]));
+    if(d < bd){ bd = d; best = row[1]; }
+  }
+  return best;
+}
+function enemyTankIds(){
+  return Object.keys(tankListData || {}).filter(id => id !== 'dummy');
+}
+// reinforceAllies（战斗页变体）：breather 补员走与 3D 页同构的编队通道——
+//   spawn → isAllySquad 标记 → 槽号 → 跟随命令。差异：seed 用节点 seed 派生（跨节点不串流）、
+//   HP 缩放走 battle 自己的 resetEntity（满状态进节点语义，无切片的 scaleAllyHp）。
+function reinforceAllies(n, salt){
+  if(n <= 0 || !player || !currentNode) return 0;
+  const rng = createRNG(((currentNode.seed | 0) + 977 * (salt || 1)) | 0);
+  const cfg = (typeof RULES !== 'undefined' && RULES.allyCommand) || {};
+  const allyTankId = cfg.allyTankId || null;
+  let added = 0;
+  for(let i = 0; i < n; i++){
+    let x = 0, y = 0, ok = false;
+    for(let k = 0; k < 30; k++){
+      const a = rng.range(0, Math.PI * 2);
+      const d = rng.range(120, 220);
+      x = player.x + Math.cos(a) * d; y = player.y + Math.sin(a) * d;
+      if(!battleSpawnBlocked(x, y)){ ok = true; break; }
+    }
+    if(!ok) continue;
+    // 槽号必须在 spawn **之前**取（3D 页教训：spawnTank 立即入册，之后再数会偏一位）
+    const slot = livingAllies().length;
+    const t = spawnTank({ id: `ally_rf_${battleEncSeq++}`, team: 'ally', x, y, hullAngle: 0, turretAngle: 0, heightClass: 'medium' });
+    t.nodeSpawn = true;
+    t.isAllySquad = true;
+    t._allyIndex = slot;
+    t._allyCount = Math.max(1, slot + 1);
+    if(allyTankId && tankListData[allyTankId] && typeof applyTankConfig === 'function') applyTankConfig(t, tankListData[allyTankId]);
+    resetEntity(t);
+    t.hp = t.stats.maxHp;
+    if(typeof issueAllyCommand === 'function'){
+      issueAllyCommand([t], { order: 'follow', issuedAt: performance.now() }, allyCommandContext());
+    }
+    added++;
+  }
+  return added;
+}
+
+// ---------- 2026-10-30 MS2/C1：波次导演事件消费（标准模式 encounter 节点） ----------
+// 参照 tank_3d.html 的 handleEncounterEvent（切片样板），差异点：
+//   · spawn 用正式局 configureTank/applyDifficulty 链（entityMults 难度乘子 + 弹种分级），
+//     不吃切片的 enemyDamageScale 演示缩放；
+//   · victory ⇒ finishNode(true)（复用节点结算/计分/选卡链）；defeat 不在此处理——
+//     玩家 hp 归零走既有 revive/gameover 管线，导演的 defeat 事件只记日志（防御性）。
+//   · breather 回血对玩家与指挥友军生效；reinforce 补员走 spawnAllySquad 的编队通道。
+//   · telegraph/spawn/wave-clear 走 pushLog + toast（战斗消息通道）。
+function battleEncounterCtx(){
+  return {
+    playerAlive: !!player && player.hp > 0,
+    playerPos: { x: player ? player.x : 0, y: player ? player.y : 0 },
+    enemyAlive: entities.filter(e => e.team === 'enemy' && e.hp > 0).length,
+    allyAlive: livingAllies().length,
+    world: currentNode ? { w: currentNode.w, h: currentNode.h } : { w: 1440, h: 864 },
+    isBlocked: battleSpawnBlocked,
+  };
+}
+function battleSpawnBlocked(x, y){
+  // 出生点可用性：不压掩体（复用生成期 pointInCover 判据）、不贴玩家（200px）、不越界
+  if(!currentNode) return true;
+  if(x < 60 || y < 60 || x > currentNode.w - 60 || y > currentNode.h - 60) return true;
+  if(player && Math.hypot(x - player.x, y - player.y) < 200) return true;
+  return typeof pointInCover === 'function' ? pointInCover(x, y, 40) : false;
+}
+function battleSpawnWaveUnits(waveIdx, units){
+  const out = [];
+  for(const u of units){
+    const t = spawnTank({
+      id: `enemy_w${waveIdx}_${battleEncSeq++}`,
+      team: 'enemy',
+      x: u.x, y: u.y,
+      hullAngle: u.hullAngle, turretAngle: u.hullAngle,
+      heightClass: u.cls,
+    });
+    t.nodeSpawn = true;                       // 计入 livingNodeEnemies（与铺敌同口径）
+    t.waveSpawn = true;                       // MS2/C1：波次投送标记（intel 事件只刷新波次敌人）
+    t.tankClass = u.cls;
+    t.aiTier = 0;
+    t.aiTriggerDist = triggerDistForDifficulty(currentNode ? currentNode.difficulty : 0);
+    t.aiReactEnabled = true;
+    const spec = tankListData && tankListData[(enemyTankIds()[battleEncSeq % Math.max(1, enemyTankIds().length)] || '')];
+    if(spec && typeof applyEnemyAppearanceAndStats === 'function') applyEnemyAppearanceAndStats(t, spec, null);
+    else if(spec) applyTankConfig(t, spec);
+    // 难度乘子（与 materializeNode 铺敌同口径——正式局不吃切片演示缩放）
+    const mults = entityMultsForDifficulty(currentNode ? currentNode.difficulty : 0);
+    if(typeof applyDifficultyMults === 'function') applyDifficultyMults(t, mults);
+    if(typeof applyEnemyAmmoForNode === 'function' && currentNode) applyEnemyAmmoForNode(t, currentNode);
+    resetEntity(t);
+    t.hp = t.stats.maxHp;
+    // 进攻意志（G1 必需，见 tank_encounter.js 头注）：不强制 engaged 的话玩家龟缩即无限局
+    t.aiEngaged = true;
+    t.lastKnownPlayerPos = player ? { x: player.x, y: player.y } : null;
+    t.aiReactT = RULES.ai.forceEngageOpenFireDelay !== undefined ? RULES.ai.forceEngageOpenFireDelay : 1.5;
+    out.push(t);
+  }
+  return out;
+}
+function handleBattleEncounterEvent(ev){
+  switch(ev.type){
+    case 'telegraph': {
+      const dirs = (ev.bearings || []).map(bearingLabel).join(' / ');
+      pushLog(`⚠ 第 ${(ev.wave | 0) + 1} 波来袭 · ${dirs || '前方'}（${Math.round(ev.seconds)}s）`, 'PEN');
+      break;
+    }
+    case 'spawn': {
+      const list = battleSpawnWaveUnits(ev.wave | 0, ev.units || []);
+      toast(`${ev.waveLabel || ('第 ' + ((ev.wave | 0) + 1) + ' 波')} · ${list.length} 辆`, true);
+      break;
+    }
+    case 'wave-clear':
+      // 最后一波没有 breather 合并，直接弹（与 3D 页 #AB2 同口径）
+      if(battleEncounter && battleEncounter.waveIndex + 1 >= battleEncounter.waveCount){
+        toast(`第 ${(ev.wave | 0) + 1} 波清除`);
+      }
+      break;
+    case 'wave-empty':
+      toast(`第 ${(ev.wave | 0) + 1} 波配置为空：没有敌人生成（检查 RULES.encounter.standardWaves）`, true);
+      break;
+    case 'breather': {
+      const pct = ev.repairPct || 0;
+      let healed = 0;
+      if(player){
+        healed = Math.round((player.stats.maxHp || 0) * pct);
+        player.hp = Math.min(player.stats.maxHp, player.hp + healed);
+      }
+      for(const a of livingAllies()){
+        a.hp = Math.min(a.stats.maxHp, a.hp + Math.round((a.stats.maxHp || 0) * pct));
+      }
+      const added = reinforceAllies(ev.reinforce || 0, (battleEncounter ? battleEncounter.waveIndex : 0) + 1);
+      toast(`喘息 ${Math.round(ev.seconds)}s · 抢修 +${healed} · 补员 ${added}`);
+      break;
+    }
+    case 'intel':
+      // 进攻方指挥部刷新玩家方位（对波次敌人重刷 lastKnownPlayerPos——G1 必需）
+      for(const e of entities){
+        if(e.team === 'enemy' && e.hp > 0 && e.waveSpawn){
+          e.lastKnownPlayerPos = player ? { x: player.x, y: player.y } : null;
+        }
+      }
+      break;
+    case 'victory':
+      // 波次全清 ⇒ 节点完成（复用既有 3 秒缓冲 + finishNode(true) 结算/计分/选卡链）
+      if(battleState && !battleState.cleared && !battleState.clearing){
+        battleState.clearing = true;
+        battleState.clearingT = 3.0;
+        pushLog('★ 波次全清 · 区域肃清 AREA CLEARED ★', 'COVER');
+      }
+      break;
+    case 'defeat':
+      // 防御性：正式局玩家 hp 归零走既有 revive/gameover 管线，导演 defeat 只记日志
+      pushLog('⚠ 波次导演报告 defeat（预期由玩家阵亡触发）', 'CRIT');
+      break;
+  }
+}
+
 function livingNodeEnemies(){
   return entities.filter(e => e.nodeSpawn && e.team === 'enemy' && e.hp > 0);
 }
@@ -3108,6 +3305,8 @@ function livingNodeEnemies(){
 function finishNode(cleared){
   if(!battleState || battleState.cleared) return;
   battleState.cleared = true;
+  // 2026-10-30 MS2/C1：节点结束即销毁波次导演（防跨节点串流；enterBattle 按新节点重建）
+  battleEncounter = null;
   // B2（2026-09）：结算前清扫残留炮弹/命中/弹迹，避免缓冲后残弹延续到结算/下一场。
   shells.length = 0; impacts.length = 0; bounceFx.length = 0;
   const clearMs = performance.now() - battleState.startMs;
@@ -4779,6 +4978,12 @@ let fpsState = { frames: 0, last: last };   // tank_hud.js updateFpsCounter 共�
 function update(dt){
   // 节点通关 3 秒缓冲期间冻结全场坦克逻辑，仅推进粒子/炮弹特效与倒计时
   const isClearing = !!(battleState && battleState.clearing);
+  // 2026-10-30 MS2/C1：波次导演推进（标准模式 encounter 节点；清场缓冲期间冻结——
+  //   与「3 秒缓冲冻结全场」同语义，导演不应在结算缓冲里继续投送）。
+  if(battleEncounter && !isClearing && run && battleState && flow.state === 'battle'
+     && !battleState.cleared){
+    for(const ev of updateEncounter(battleEncounter, dt, battleEncounterCtx())) handleBattleEncounterEvent(ev);
+  }
   // #MODE（2026-10-15 用户裁定）：生存模式波次间隔倒计时 = 「准备期」——玩家**可自由移动**，
   // 但**所有伤害判定关闭**。伤害总闸在 applyDamage（js/tank_physics.js，经 globalThis.damageSuppressed），
   // 本变量只用于拦住绕过 applyDamage 的伤害**来源**：开火、炮弹飞行、部署物触发、Boss 行为层。
@@ -5591,7 +5796,9 @@ function update(dt){
   // reinforcementTick 为纯逻辑：节奏/存量/配额门控 + 落点约束（视口外扩外/触发距离外/
   // 据点 300px 外/避掩体），产出 spawn spec 后由此处执行 env.spawnTank。
   if(run && battleState && flow.state === 'battle' && !battleState.cleared &&
-     currentNode && !currentNode.boss){
+     currentNode && !currentNode.boss && currentNode.encounter !== true){
+    // 2026-10-30 MS2/C1：encounter 节点不走增援通道（敌人由波次导演投送；配额/防线
+    //   在该类节点无实体基础）。breather 的补员走 reinforceAllies（导演 reinforce 事件）。
     battleState.reinforceT += dt;
     const specs = reinforcementTick({
       alive: livingNodeEnemies().length,
@@ -5762,6 +5969,13 @@ function update(dt){
           finishSurvivalWave();
         }
       } else if(GAME_MODE !== 'survival'){
+      // 2026-10-30 MS2/C1：波次导演节点**不走 nodeClearance**——完成由导演的 victory 事件
+      //   驱动（见 handleBattleEncounterEvent）：波次全清即清场，出口/配额/增援通道在
+      //   encounter 节点不参与（materializeNode 已跳过铺敌，quota/防线无实体基础）。
+      //   Boss/旧路径节点照走下方双条件。
+      if(currentNode && currentNode.encounter === true){
+        // encounter 节点：防线/配额 HUD 改显波次进度（导演状态），不再跑 nodeClearance
+      } else {
       // B 档③（2026-09-23）：推进式节点完成——「抵达右端出口 +（防线清空 或 配额达成）」双条件。
       // Boss 节点沿用「Boss + summons 全灭」（nodeClearance 的 boss 分支）。
       // 旧口径（P-38）为「击杀数 ≥ 配额」单条件，与推进正交（原地刷够配额即通关）。
@@ -5789,6 +6003,7 @@ function update(dt){
         }
       }
       }   // #MODE：闭合 else if(GAME_MODE !== 'survival')
+      }   // MS2/C1：闭合 encounter 节点分流 else
     }
   }
 
@@ -5839,7 +6054,22 @@ function updateHud(){
   const qh = document.getElementById('quotaHud');
   // #AA8（2026-10-26）：目标卡升到 bottom:92px 并加了不透明底衬 ⇒ 与左下角日志面板（bottom:12、
   //   高约 160px）在纵向上会重叠，日志打开时让位（日志是玩家主动要看的东西）。
+  // 2026-10-30 MS2/C1：encounter 节点的目标卡 = 波次进度（导演状态），不走配额/出口口径
   if(run && battleState && !battleState.cleared && flow.state === 'battle' &&
+     currentNode && currentNode.encounter === true && battleEncounter && !logOpen){
+    qh.style.display = 'block';
+    const wi = battleEncounter.waveIndex | 0;
+    const total = battleEncounter.waveCount | 0;
+    const phase = battleEncounter.phase || 'telegraph';
+    const aliveNow = livingNodeEnemies().length;
+    const phaseTxt = (phase === 'wave') ? `第 ${wi + 1}/${total} 波交战中（场上 ${aliveNow}）`
+                   : (phase === 'breather') ? `第 ${wi + 1}/${total} 波已清 · 喘息中`
+                   : (phase === 'telegraph') ? `第 ${wi + 1}/${total} 波来袭预警`
+                   : phase;
+    qh.innerHTML = `<div style="color:#7ed957;letter-spacing:2px;">目标 OBJECTIVE</div>` +
+                   `<div>肃清全部波次（${total} 波）</div>` +
+                   `<div style="opacity:.8;">${phaseTxt}</div>`;
+  } else if(run && battleState && !battleState.cleared && flow.state === 'battle' &&
      currentNode && !currentNode.boss && Number.isFinite(currentNode.quota) && !logOpen){
     qh.style.display = 'block';
     // #K2（2026-09-29）：把「完成目标」写成显式目标卡——目标是什么、还差什么、出口还剩多远。

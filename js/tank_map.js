@@ -1776,6 +1776,25 @@ function materializeNode(node, env) {
   if (typeof env.clearEntities === 'function') env.clearEntities(keepIds);
 
   const spawned = [];
+  // 2026-10-30 MS2/C1：波次导演节点**跳过一次性铺敌**——敌人由页面接线（tank_battle.html
+  //   的波次导演）按 `node.encounter` 分流投送。掩体/据点/防线照旧（本函数后半段不受影响）。
+  //   `node.enemies` 保留在节点数据里（spec 不删，回退 `standardEnabled=false` 时仍走旧路径）。
+  if (node.encounter === true) {
+    let outpost = null;
+    if (node.outpost) {
+      outpost = env.spawnTank({
+        id: `outpost_${node.index}`,
+        team: 'ally',
+        x: node.outpost.x, y: node.outpost.y,
+        hullAngle: 0, turretAngle: 0,
+        heightClass: 'heavy'
+      });
+      outpost.nodeSpawn = true;
+      if (typeof env.configureTank === 'function') env.configureTank(outpost, 'allyOutpost');
+      spawned.push(outpost);
+    }
+    return { spawned: spawned, outpost: outpost, encounter: true };
+  }
   for (const e of node.enemies) {
     const t = env.spawnTank({
       id: `enemy_${node.index}_${spawned.length}`,

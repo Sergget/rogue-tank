@@ -303,9 +303,24 @@ const env = {
 };
 const res = materializeNode(node1, env);
 ok(calls.setCovers === 1 && calls.clearEntities === 1, 'setCovers/clearEntities 各一次');
-ok(calls.spawn.length === node1.enemies.length + (node1.outpost ? 1 : 0), 'spawn 次数 = 敌军 + 据点');
+// 2026-10-30 MS2/C1：node1.encounter=true（普通节点）⇒ 跳过铺敌，只 spawn 据点（若有）。
+// 旧路径（一次性铺敌）用 runOff 的回退节点验证——standardEnabled 已在 3c 段恢复 true。
+const savedStd = RULES_MOD.RULES.encounter.standardEnabled;
+RULES_MOD.RULES.encounter.standardEnabled = false;
+const runOff = generateRun('run-seed', 2, { viewport: { vw: 1280, vh: 720 } });
+const nodeOff = runOff.nodes.find(n => !n.boss && !n.encounter);
+RULES_MOD.RULES.encounter.standardEnabled = savedStd;
+const callsOff = { spawn: [] };
+materializeNode(nodeOff, {
+  setCovers(){}, clearEntities(){},
+  spawnTank(spec){ callsOff.spawn.push(spec); return Object.assign({ hp: 100 }, spec); },
+  configureTank(){},
+});
+ok(callsOff.spawn.length === nodeOff.enemies.length + (nodeOff.outpost ? 1 : 0), '回退路径（standardEnabled=false）：spawn 次数 = 敌军 + 据点（一次性铺敌保留）');
+ok(calls.spawn.length === (node1.outpost ? 1 : 0), '波次节点：spawn 次数 = 据点数（铺敌跳过，C1 接线投送）');
 ok(calls.configure.length === calls.spawn.length, '每个实体都 configure');
-ok(calls.spawn.slice(0, node1.enemies.length).every(s => s.team === 'enemy'), '敌军 team=enemy');
+// 2026-10-30 MS2/C1：波次节点铺敌跳过 ⇒ 敌军 team 断言移到回退路径（nodeOff 一次性铺敌）
+ok(callsOff.spawn.filter(s2 => s2.id && s2.id.indexOf('outpost_') !== 0).every(s2 => s2.team === 'enemy'), '回退路径敌军 team=enemy');
 if (node1.outpost) {
   const out = calls.spawn.find(s => s.id.startsWith('outpost_'));
   ok(out && out.team === 'ally', '据点 team=ally');
