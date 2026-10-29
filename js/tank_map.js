@@ -1793,7 +1793,7 @@ function materializeNode(node, env) {
       if (typeof env.configureTank === 'function') env.configureTank(outpost, 'allyOutpost');
       spawned.push(outpost);
     }
-    return { spawned: spawned, outpost: outpost, encounter: true };
+    return /** @type {{spawned:any[], outpost:any, encounter:boolean}} */ ({ spawned: spawned, outpost: outpost, encounter: true });
   }
   for (const e of node.enemies) {
     const t = env.spawnTank({
