@@ -191,6 +191,14 @@
 
 所有弹窗补统一约束：`max-width:92vw; max-height:84vh; overflow-y:auto`。
 
+## 局外菜单态不渲染战场（2026-10-29）
+
+局外三态（`home` / `loadout` / `shop`）**不推进模拟、不绘制战场**：主循环的 `simulating` 与 `draw()` 都对这三态短路，只铺一层径向渐变菜单底（`#12140f → #0a0b07`）。
+
+- **此前**：`!run` 时恒模拟（「未开局仍可自由驾驶预览」），导致选档 / 整备界面背后有一整张随机战场在跑，观感等同装甲测试台。
+- **切换动效**：`.screen` 入场 140ms（淡入 + `translateY(6px)`），替代 `display` 硬闪；`prefers-reduced-motion: reduce` 下关闭。
+- 战场绘制仍覆盖 `map` / `battle` / `settlement` / `reward` / `pause` 等局内态。
+
 ## 迁移状态与验收
 
 三期路线，P0 已落地：

@@ -165,6 +165,22 @@
 - 把敌人 `press/flank/hold` 三角色改名后当作完整指挥系统；
 - 通过让友军免疫伤害、必中或无视掩体来掩盖导航与射界缺陷。
 
+## 5.2 生存增援与据点友军下线（2026-10-29）
+
+### 增援（生存模式补给站专属条目）
+
+- **入口**：生存模式补给站（按 E 使用后自动打开局内商店）中的 `survival_reinforce`，仅生存模式渲染（`survivalOnly`）。
+- **上限**：`RULES.allyCommand.survivalReinforceMax = 2`（暂定；与 `countByMode.survival = 2` 合计 4 = `maxAllies`，不越界）。价格取 `RUN_SHOP_DEFS.survival_reinforce`（baseCost 120 / costGrowth 1.8）。
+- **效果**：购买即召唤 1 辆友军（`spawnSurvivalReinforcement`），出生于玩家周围 110~420px 的 16 方向首个无阻挡点（净空 60px，避掩体与液态）。
+- **AI 档位**：与**下一波**敌军同档——`reinforcementAiTier(survivalWave, deps)`（`js/tank_ally_command.js`）。波次 n 的敌人取 `difficultyForIndex(n-1)`，故下一波取 `index = 当前波次序号`；缺依赖退中档 1（不静默给最低档）。
+- **档位通道**：`_passiveDefend` 仅当 `t.aiTier !== undefined` 时读 `RULES.ai.tierProfiles`——接战距离 `× engageMul`、瞄准容差 `× aimTolMul`（<1 更严，即「只有真对准才开火」）。**既有指挥友军不带 `aiTier`，行为零漂移**（有负向断言锁）。
+
+### 据点友军（早期原型）下线
+
+- `outpost` 是早期原型的**静止**友军：`team:ally` + `nodeSpawn`，但**不是** `isAllySquad`，不吃 Z/X/C 命令——与指挥编队混在同一阵营时会被读成「友军抗命」。
+- **现行口径**：`js/tank_map.js` 在生成器内部收口——`isBoss`（Boss 战模式）或 `noEnemies`（生存模式）一律不生成据点；标准模式沿用 `env.noOutpost`。**`rng` 仍消耗一次 `outpostRoll`**，否则整条 run 的后续布局漂移。
+- 回归：`scripts/test-map.js` 两条负向断言（Boss 20 节点 / 生存 4 节点，据点数为 0）。
+
 ## 相关页面
 
 - [敌方 AI](./enemy-ai.md) — 复用警觉、机动与交战规则，区分敌军自动分工与玩家命令。

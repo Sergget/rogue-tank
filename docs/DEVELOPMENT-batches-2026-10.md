@@ -4097,3 +4097,69 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 - 归口：`specs/map/roads.md` §「建筑密度与 Boss 战图加成」（乘子路径）、`specs/combat/boss-combat.md` §「Boss 出生点与净空」（新增）。
 
 **复盘口径**：两条都是「切换生成器后，只服务旧路径的参数没有跟着搬家」，且都被现有测试的**层级错位**掩盖（测生成器不测 `makeNode`；测坐标不测车体尺寸）。可复用判据：**任何依赖节点尺寸/几何的阈值，都要按实体真实几何推导，不能写死像素。**
+
+## §4.164 2026-10-29 B0 压迫探针：把「630px 平台期」变成逐帧数字
+
+**批次定位**：MS1（决策空间）的测量批，`PLAN.md` §2.8 的 B0。**不改任何生产逻辑**，只新增探针与回归。
+
+### 1) 交付
+
+- `scripts/measure-press.cjs`（数据工具，无断言）：Node 侧驱动 3 辆 medium 走**真 `driveTank`**（含 `resolveCoverCollisions` / `applyWallSlide`）与真掩体，逐帧记录最小距离、径向净推进、速度、前方阻挡 tier、碰撞推出量。`PRESS_SEED` 可换图。
+- `scripts/test-ai-press.js`（15 断言，已登记 `TESTS`）：同 seed 逐帧摘要一致、无 NaN/Infinity、推出量与穿透同步、残留穿透一次解算必归零；**负向断言锁「实体不是地形」**——空场里把车摆到另一辆车正前方 40px，`frontBlockTier()` 必须为 `null`，紧随一条正向对照（同函数对 `full` 掩体必须返回 `'full'`），否则负向是空转。
+- `scripts/run-tests.js` 登记 1 行。
+
+### 2) 基线（nodeSeed=4242 / 1476×900 / 61 covers / 830px / dt=1/120 / 20s）
+
+最小距离 **631px**｜平台期起点 **2.9s**｜径向净推进 203.5px（最好一辆）/ 180.8px（均值）｜静止帧 4.7%｜移动帧 95.3%｜前方 50px 阻挡帧 **67.8%**｜碰撞推出 4131 车·帧｜残留穿透 1235 帧、不可恢复 **0**。
+
+### 3) 三条与假设不符（推翻 MS1 前提）
+
+1. **630px 是地图相关的**。同参数换 seed：seed 1 → **228px**、seed 7 → **386px**（均低于门 ① 的 340px）。seed 4242 之所以是 631px，是因为该图前方 wall/full 挡住——两辆车 89~97% 的帧顶着掩体。
+2. **「径向净推进 ≈ 0」不成立**。卡住的两辆仍有 199/203px 净推进（先推进约 200px 再停）。真正刻画「停住」的是**平台期起点**这一新指标。
+3. **移动帧 95% 却零净推进 = 「顶着墙踩油门」的签名**。速度不是判据，只有径向投影是。
+
+### 4) 落地纪律
+
+- 探针骨架必须含 `refreshEnemyIntel`：照抄页面会漏掉它，失视线的敌人退回 patrol **永久站桩**（2400 帧零位移），会污染后续所有数字。已写入探针文件头。
+- `resolveTankCollisions` 不认识掩体：贴墙车队互推会把同伴顶进墙 ≤1.8px，下一帧解算掉（`unrecoverable=0`），**不是真穿模**，别当缺陷查。
+
+### 5) 验证
+
+`node scripts/measure-press.cjs` 可复现上表；`node scripts/test-ai-press.js` 15/15；`node scripts/batch-gate.js` → `GATE: PASS`（`npm test` 71 通过 0 失败，本批落地时点）；`wiki-check` 全绿。归口：`PLAN.md` §2.9（门槛修订）。
+
+## §4.165 2026-10-29 生存模式「增援」升级：补给站购买友军，AI 档位对齐下一波
+
+**需求**（用户 2026-10-29）：生存模式补给点增加「获得增援」升级，每次购买获得一辆与下一关敌人 AI 相当等级的队友，上限暂定 2。
+
+**关键发现**：友军 AI 此前**完全不读 `aiTier`**——`_passiveDefend` 是写死的固定行为（接战 460px、容差 0.12）。若只给增援友军打 `aiTier` 标签，等级就是个空字段。
+
+**落地**：
+
+- `js/tank_rules.js`：`allyCommand.survivalReinforceMax = 2`（暂定；2 初始 + 2 增援 = 4 = `maxAllies`）。
+- `js/tank_economy.js`：`RUN_SHOP_DEFS` 新增 `survival_reinforce`（baseCost 120 / growth 1.8 / `maxLevel` 绑定 RULES / `survivalOnly` / `instant.type = 'reinforceAlly'`）。
+- `js/tank_ally_command.js`：新增纯逻辑 `reinforcementAiTier(survivalWave, deps)`——波次 n 的敌人取 `difficultyForIndex(n-1)`，故「下一波」取 `index = 当前波次序号`；缺依赖退中档 1。
+- `js/tank_ai.js`：`_passiveDefend` 增加档位通道——**仅当 `t.aiTier !== undefined`** 时按 `RULES.ai.tierProfiles` 取 `engageMul` / `aimTolMul`。既有指挥友军无该字段 ⇒ 行为零漂移。
+- `tank_battle.html`：购买链 `reinforceAlly` 分支 → `spawnSurvivalReinforcement()`（玩家周围 16 方向搜索无阻挡点）；商店渲染按 `survivalOnly` 过滤。
+
+**验证**：`scripts/test-survival-reinforce.js` **23 断言**（配置绑定 / 档位语义含「下一波 = 当前波次序号」/ 档位通道双向 / 页面接线 + 负向「无档位的友军 520px 处不开火」）；`test-economy` 商品计数棘轮 15→16；`batch-gate` → `GATE: PASS`（含浏览器链 ALL PASS）。
+**归口**：`specs/combat/ally-command.md` §5.2。
+
+## §4.166 2026-10-29 原型据点友军下线（Boss/生存）+ 局外菜单不再渲染战场
+
+### 1) 据点友军（#AB15 之后第二轮「切换后旧口径没跟着搬」的同类问题）
+
+- **现象**：Boss 与生存模式的地图里仍有早期原型的**静止**友军（`outpost`：`team:'ally'` + `nodeSpawn`，但非 `isAllySquad`，不吃 Z/X/C），玩家会读成「友军抗命」。
+- **证据**：`generateRun(4242, …, {bossOnly:true})` → 5 个节点中 **2 个带 outpost**；标准模式因 `noOutpost` 为 0。
+- **修法**：收口进生成器——`outpostAllowed = !env.noOutpost && !isBoss && !noEnemies`。**rng 仍消耗一次 `outpostRoll`**，否则后续布局漂移。
+- **回归**：`scripts/test-map.js` 两条**负向断言**（Boss 20 节点 / 生存 4 节点，据点数为 0）。
+
+### 2) 局外菜单态静场
+
+- **现象**：选档 / 整备 / 商店界面背后是一整张随机战场（观感等同装甲测试台）。根因是主循环 `!run` 时恒模拟（原注释「未开局仍可自由驾驶预览」）+ `draw()` 恒绘制。
+- **修法**：`loop()` 的 `simulating` 与 `draw()` 都对 `home/loadout/shop` 短路，只铺径向渐变菜单底；`.screen` 增加 140ms 入场动效（`prefers-reduced-motion` 下关闭）替代 `display` 硬闪。
+- **影响面**：战场绘制仍覆盖 `map/battle/settlement/reward/pause`；浏览器八链全绿，未触碰战斗渲染。
+
+### 3) 验证
+
+`npm run check` 退出码 0；`npm test` **72 通过 / 0 失败**；`npm run test:browser` **八链 ALL PASS**；`node scripts/batch-gate.js --browser` → `GATE: PASS`；`wiki-check` 全绿。
+**归口**：`specs/combat/ally-command.md` §5.2（据点下线）、`specs/combat/ui-layout.md`「局外菜单态不渲染战场」。
