@@ -976,6 +976,32 @@ const RULES = {
   encounter: {
     enabled: true,             // 总开关（页面接线读它决定是否创建遭遇）；false = 退回旧沙盒，便于 A/B 对照
 
+    // --- 2026-10-30 MS2/C0：波次导演进正式局（标准模式）---
+    // `standardEnabled`：正式局（tank_battle.html 标准模式）是否用波次导演投送敌人。
+    //   false = 退回 materializeNode 一次性铺敌（旧语义，一键回退/对照用，接线保留）。
+    //   与 `enabled` 分槽：enabled 管「模块本身可用」（3D 切片 + 正式局共用），
+    //   standardEnabled 只管正式局接入——两开关独立 A/B，回退互不影响。
+    // `standardWaves`：正式局波次编成（与下方切片 `waves` **分开**——切片三波是演示
+    //   缩放下的教学编成，正式局有卡牌/商店/永久升级的血量堆叠通道，编成独立演化）。
+    //   初值沿用切片三波结构（3/4/5 辆、三方位），count 的难度缩放在 resolveEncounterConfig
+    //   之外由页面按 node.difficulty 折算（C1 接线时定，本表只存基准编成）。
+    //   `node.encounter` 标记由 makeNode 写入：普通节点 true / Boss 与生存（noEnemies）false。
+    standardEnabled: true,
+    standardWaves: [
+      { id: 'S1', label: '前哨接触', units: [
+        { cls: 'medium', bearing: 0, count: 3 },
+      ] },
+      { id: 'S2', label: '两翼包抄', units: [
+        { cls: 'medium', bearing: -Math.PI / 4, count: 3 },
+        { cls: 'heavy',  bearing: Math.PI / 2, count: 1 },
+      ] },
+      { id: 'S3', label: '总攻', units: [
+        { cls: 'medium', bearing: -Math.PI / 4, count: 3 },
+        { cls: 'heavy',  bearing: Math.PI / 2,  count: 1 },
+        { cls: 'heavy',  bearing: Math.PI,      count: 1 },
+      ] },
+    ],
+
     telegraphSeconds: 2.0,     // spawn 前「来袭预警」时长（秒）。
                                // rationale：够玩家把镜头/炮塔转向告警方位并对位第一发，
                                // 又不至于长到让人干等；与 700px 触发距离 + 敌人推进速度（~100km/h ⇒ ≈280px/s）

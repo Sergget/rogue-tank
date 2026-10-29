@@ -920,6 +920,11 @@ function makeNode(index, rng, env) {
     entityMults: entityMults, // #76 A：全属性难度乘子表（节点级快照，敌军逐个引用同值）
     difficultyLevel: difficultyLevel,  // P-34：本节点生成时的跨局难度等级（溯源用）
     boss: bossMark ? true : null,      // P-37：周期 Boss 标记（true=待 UI 层指定定义；null=普通节点）
+    // 2026-10-30 MS2/C0：波次导演标记——普通节点 true（页面接线按波次投送敌人、
+    //   跳过 materializeNode 的一次性铺敌）；Boss（有自己的 summons 分波）与生存
+    //   （noEnemies，页面波次管线自管）为 false。消费方 tank_battle.html 进节点分流。
+    encounter: (!bossMark && !noEnemies) && !!(typeof RULES !== 'undefined'
+      && RULES.encounter && RULES.encounter.enabled && RULES.encounter.standardEnabled),
     seed: templateResult.seed,
     w: w,
     h: h,

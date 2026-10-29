@@ -131,6 +131,25 @@ ok(runW.nodes.filter(n => stripCap(n)).every(n => n.w >= 7 * 1920 && Math.abs(n.
 ok(runV.nodes.filter(n => stripCap(n)).every(n => n.w >= 3840 * 0.9 && n.w <= 3840 * 3.7),
    '#N4: strip 节点宽度区间 = 3~11 倍 720p 视口宽（≈10 屏）');
 
+// 3c) 2026-10-30 MS2/C0：node.encounter 波次导演标记（普通节点 true / Boss 与生存 false）
+{
+  // 标准 run（runV 含 Boss 节点 index 4）：普通=true、Boss=false
+  for (const n of runV.nodes) {
+    if (n.boss) ok(n.encounter === false, `Boss 节点 ${n.index} encounter=false（Boss 有自己的 summons 分波）`);
+    else ok(n.encounter === true, `普通节点 ${n.index} encounter=true（波次导演投送）`);
+  }
+  // noEnemies（生存模式）：generateRun 的 env.noEnemies ⇒ 全部 false
+  const runSurv = generateRun('run-seed', 3, { noEnemies: true });
+  ok(runSurv.nodes.every(n => n.encounter === false), '生存模式（noEnemies）节点 encounter=false');
+  // 回退开关：standardEnabled=false ⇒ 全部 false（一键回退旧铺敌）
+  const saved = RULES_MOD.RULES.encounter.standardEnabled;
+  RULES_MOD.RULES.encounter.standardEnabled = false;
+  const runOff = generateRun('run-seed', 3, { viewport: { vw: 1280, vh: 720 } });
+  ok(runOff.nodes.filter(n => !n.boss).every(n => n.encounter === false),
+    'standardEnabled=false ⇒ 普通节点 encounter=false（一键回退）');
+  RULES_MOD.RULES.encounter.standardEnabled = saved;
+}
+
 let totalEnemies = 0, totalOutposts = 0;
 for (const n of run1.nodes) {
   ok(n.w > 0 && n.h > 0, `节点 ${n.index} 世界尺寸 ${n.w}×${n.h}`);
