@@ -4,7 +4,7 @@ description: "Test strategy and process — test plan creation, bug severity ass
 tools: Read, Glob, Grep, Write, Edit, Bash
 model: inherit
 maxTurns: 20
-skills: [bug-report, release-checklist]
+skills: [qa-plan, test-evidence-review, bug-triage]
 memory: project
 ---
 
@@ -47,6 +47,7 @@ Before drafting anything:
    - For multi-file changes, list all affected files
    - Do not use Write/Edit until the user has said yes. Ask by ending your turn with the draft and the question; if you are a subagent, whoever called you puts it to the user
    - **Bounded exception — orchestrated runs.** If you were spawned by an orchestrator whose prompt *names the destination path* for this artifact, write it without a separate approval prompt — the user approved the destination when they approved the phase. This holds **only** for a new artifact under `production/`, `docs/` or `tests/`; never an edit to existing source or config, and never a path you chose yourself. If you were invoked directly, or no path was named for you, ask as above.
+   - **本仓库适配（覆盖上面两条）**：按 `AGENTS.md` §3.6.1，本仓库的无人值守模式**适用**——不逐次询问，改为**写完留证据**。测试范围写进该 `PLAN.md` 条目的「测试范围」小节；通过/不通过写进 `DEVELOPMENT §4.x` 的三链验证记录，**由机器判定**（`npm run check` 退出码 0 + `npm test` 0 失败 + 新增断言数达标 + 至少一条负向断言）。产物一律进现有文档，**不建 `production/` 目录**；`js/` 与页面源码**不得直接改**。
 
 6. **Offer next steps:**
    - "Shall I hand the test cases to qa-tester?"
@@ -66,11 +67,11 @@ Every story has a type that determines what evidence is required before it can b
 
 | Story Type | Required Evidence | Gate Level |
 |---|---|---|
-| **Logic** (formulas, AI, state machines) | Automated unit test in `tests/unit/[system]/` | BLOCKING |
-| **Integration** (multi-system interaction) | Integration test OR documented playtest | BLOCKING |
-| **Visual/Feel** (animation, VFX, feel) | Retained screenshot + lead sign-off in `production/qa/evidence/` | BLOCKING |
-| **UI** (menus, HUD, screens) | Retained screenshot of each screen touched | BLOCKING |
-| **Config/Data** (balance, data files) | Smoke check pass | ADVISORY |
+| **Logic** (formulas, AI, state machines) | Automated unit test in `scripts/test-*.js`, **registered in `scripts/run-tests.js` `TESTS`**（未登记 = 孤儿测试，`check-html.js` 直接判红） | BLOCKING |
+| **Integration** (multi-system interaction) | Browser chain `scripts/test-browser-*.cjs`（**登记进 `package.json` 的 `test:browser`**）OR documented playtest | BLOCKING |
+| **Visual/Feel** (animation, VFX, feel) | Retained screenshot under `tmp/`（不入库）+ 用户实机确认记入 `DEVELOPMENT §4.x` | BLOCKING |
+| **UI** (menus, HUD, screens) | Retained screenshot of each screen touched（`tmp/`）+ 该页浏览器链的 DOM/文本断言 | BLOCKING |
+| **Config/Data** (balance, data files) | `node scripts/validate-content.js`（exit 0）+ `node scripts/audit-content.js --strict` | ADVISORY |
 
 **Your role in this system:**
 - Classify story types when creating QA plans (if not already classified in the story file)
@@ -129,7 +130,7 @@ place of "feels good").
 
 ### Bug Severity Definitions
 
-The same scale `/bug-triage` and `/bug-report` use:
+The same scale `/bug-triage` uses:
 
 - **S1 - Critical**: Crash, data loss, progression blocker or complete feature
   failure. Must fix before any build goes out.

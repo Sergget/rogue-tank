@@ -29,6 +29,8 @@
 - 若采样缺失、网络加载超时、`decodeAudioData` 失败或本地 `file://` 环境（`fetch` 不可用）下，系统将对应键缓存为 `null` 并无缝自动回退至 `SOUND_DEFS` 程序化合成器；
 - 采样播放时仍应用总线增益与 `pos` 空间化，保持与合成路径一致的 API。
 
+**离线生成器 `scripts/gen_audio.py`（2026-10-29 入库）**：按配方合成上述采样并写到 `audio/<key>.wav`（`python scripts/gen_audio.py [输出目录]`，默认 `audio/`；`audio/` 已 gitignore，生成物不入库；唯一第三方依赖 numpy）。**它服务的是采样通道，不是实机路径**——现行口径仍是「全合成零资产」（2026-10-23 用户裁定），`audio/` 目录不存在、采样全部 404 回退合成，这是**预期状态**。覆盖度 14/16：`SOUND_DEFS` 的 `railReady` / `bossRailFire`（2026-10-26 AA-c 新增）**尚无配方**，启用采样前需补齐。噪声成分无固定种子，同配方每次生成听感一致但文件不逐字节可复现。
+
 ## 空间化
 
 （原 §7，2D 空间化与距离衰减 / Spatialization）

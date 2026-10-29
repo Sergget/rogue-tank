@@ -17,8 +17,8 @@ tools/godot/
 # WorkBuddy/agent 运行时状态（会话记忆等），与 .agent-teams/ 同口径 - local only
 .workbuddy/
 
-# 本地工具链临时目录：tmp/pylibs（Pillow/numpy wheel 解包，供 scripts/optimize_sprites.py、
-# prepare_covers.py、gen_barrels.py、covers-anchor-check.py 使用）+ 下载缓存 + 调试脚本。
+# 本地工具链临时目录：tmp/pylibs（Pillow/numpy wheel 解包，供 scripts/prepare_covers.py、
+# covers-anchor-check.py、gen_audio.py 使用）+ 下载缓存 + 调试脚本。
 # 2026-10-20 已清理缓存/一次性探针，仅保留 tmp/pylibs（≈57MB）。
 # 重建方式：pip download pillow numpy --dest tmp/wheels + Expand-Archive 到 tmp/pylibs，
 # 或直接把已解包的 site-packages 目录复制到 tmp/pylibs。
@@ -32,6 +32,10 @@ tmp/
 # Python 字节码缓存（scripts/*.py 被执行时产生）
 __pycache__/
 *.pyc
+
+# 音频采样生成物（scripts/gen_audio.py 的输出；采样通道当前为空，实机走合成兜底。
+# 生成物是二进制、可随时重建，不入库——生成器本身已入库）
+audio/
 
 # 脚本目录内的一次性产物（调试快照 / 临时输出；勿提交）
 scripts/.*.json

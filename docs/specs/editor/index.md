@@ -1,6 +1,6 @@
 # 编辑器与工具链规范 (Tank Designer & Tooling Spec)
 
-> **摘要**：本卷是坦克设计器、对比页、烘焙工具、开发者面板与 appearance/aimSpeed 的现行口径权威，共 8 个主题页。
+> **摘要**：本卷是坦克设计器、对比页、烘焙工具、开发者面板与 appearance/aimSpeed 的现行口径权威，共 9 个主题页（其中 1 页为设计预留）。
 > **适用版本**：现行（2026-10-21）
 > **源自**：`docs/specs/editor.md` 全卷（含 §0 主题索引；2026-10-21 wiki 化拆分）
 > **相关**：[specs 总目录](../README.md) · [风格规范](../../WIKI-STYLE.md) · [兼容索引](../editor.md)
@@ -24,6 +24,7 @@
 | [浏览器自动化测试链](./browser-tests.md) | `npm run test:browser` 八链脚本矩阵、测试钩子、r4 夹具约定 | §7.5 |
 | [坦克图鉴页](./codex.md) | `tank_codex.html` 的数据源、布局与首页入口（取代 bench 内嵌图鉴） | 2026-10-22 新建 |
 | [内容工具与 appearance](./appearance-aimspeed.md) | NF-1/2/4；`spec.appearance` 深拷贝、叠加层基准、aimSpeed 量纲、bench 分组、content_designer tags 移除 | §8、§8.1~§8.6；§7.6 |
+| [设计器武器配置端](./designer-weapon-config.md) | **设计预留（未落地）**：武器选型赋值面板、`availability` 三布尔、`muzzleAnchor` 发射锚点 | §9（2026-10-29 新建，设计预留） |
 | [沿革与已作废](./changelog.md) | 已关闭的「未纳入本轮」项、被取代的叠加层基准与旧 aimSpeed | §7.7、§8.2 沿革、§8.3 沿革 |
 
 ## 常见入口
@@ -35,7 +36,7 @@
 | 出一套贴图资产 | [烘焙工具与模块分区 · 烘焙工具](./bake-modules.md#资产烘焙工具) |
 | 查缺省贴图/迷彩/对齐契约 | [贴图与涂装视觉规范](./visual-spec.md) |
 | 改开发者面板 | [开发者面板](./devpanel.md) |
-| 跑浏览器六链 | [浏览器自动化测试链](./browser-tests.md) |
+| 跑浏览器八链 | [浏览器自动化测试链](./browser-tests.md) |
 | 查外观件（车长塔/舱盖）为何不生效过 | [内容工具与 appearance · appearance](./appearance-aimspeed.md#applytankconfig-深拷贝-specappearance) |
 | 查敌军 `aimSpeed` 量纲 | [内容工具与 appearance · aimSpeed](./appearance-aimspeed.md#rulesenemyanchorbaseaimspeed) |
 | 我手上有个 `§N` 引用 | [兼容索引](../editor.md) |

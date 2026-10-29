@@ -311,5 +311,5 @@ function driveTank(t, dt, input){
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { fireMul, driveTank, flashDashMul, stiffMul, applyWallSlide };
+  module.exports = { fireMul, driveTank, flashDashMul, stiffMul, applyWallSlide, tankSideSeed };
 }

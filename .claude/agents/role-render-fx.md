@@ -18,7 +18,10 @@ model: inherit
 - `js/tank_dmgtext.js` — 伤害飘字（pen/block/bounce/he/dot 五色）
 - `js/tank_audio.js` — `SOUND_DEFS` + 惰性 AudioContext（全合成零资产）+ 电磁炮充能循环实例
 - `js/tank_battledraw.js` — 正式游戏页战斗场景绘制层（`drawTank`/`drawShells`/`drawCover`/`drawFoliage`/部署物/`railChargeProgress`）
-- `js/tank_render3d.js` / `js/tank_scene3d.js` / `tank_3d.html` — **R1 真 3D 切片**（原生 WebGL1 渲染层 + 场景三角形批 + 独立页面；2026-10-27 §4.149）
+- `js/tank_render3d.js` / `js/tank_scene3d.js` / `tank_3d.html` — **R1/G1 真 3D 切片**（原生 WebGL1 渲染层 + 场景三角形批 + 独立页面；页面单写者，2026-10-27 §4.149 / 2026-10-28 §4.154~§4.156）
+- `js/tank_ui.js` — **界面设计令牌唯一来源**（60 token，七页在 head 内同步引入并注入 `#ui-tokens`；页面不得再自写 `:root`）
+- `js/tank_hud.js` — battle / bench / codex **共享 HUD 渲染工具**（2026-10-15 合并重复逻辑；渲染形态仍留各页）
+- `js/tank_perf.js` — R0 性能采样（环形缓冲 + 分位）+ 降级门控（`createGovernor`/`updateGovernor`/`getTierConfig`，`RULES.perf` 三档）
 - `scripts/audit-textures.js` — 贴图审核标准（七指标 + 三类评分 + 双向区间）
 - `scripts/test-render.js` / `scripts/test-assets.js` / `scripts/test-asset-pipeline.js` / `scripts/test-audio.js`
 - **bench 契约测试**（2026-10-26 起）：`scripts/test-bench-parity.js`（battle `fireCtx` 键集 ⊆ bench 键集 + F 边沿 + 曲射散布圈）、`scripts/test-bench-tools.js`（Enemy Lab 清场与生成护栏）、`scripts/test-hud-readability.js`（HUD 文本底衬与字号下限）

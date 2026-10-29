@@ -20,7 +20,7 @@ description: Use when running or verifying tests and syntax checks in rogue-tank
 ## 实际覆盖范围（勿低估）
 
 - `check-html.js` **按目录自动发现** `scripts/` 下全部 `.js`/`.cjs`，不是手抄白名单。
-- 测试链现有 **68** 个 `scripts/test-*.js` + `scripts/validate-content.js` = **69 项登记**（2026-10-28 实测）。新增测试文件后**必须**登记进 `TESTS` 数组，否则 `check-html.js` 以「孤儿测试」判红。
+- 测试链现有 **72** 个 `scripts/test-*.js` + `scripts/validate-content.js` = **73 项登记**（2026-10-29 实测登记数）。新增测试文件后**必须**登记进 `TESTS` 数组，否则 `check-html.js` 以「孤儿测试」判红。
 - 卡牌数量、specs 页数等统计数字**必须实测**（`node scripts/audit-content.js`、`find docs/specs -mindepth 2 -name '*.md' | wc -l`），不要抄旧文档。
 
 ## 测试脚本的形态契约（`test-qa.js` 是「测试的测试」）

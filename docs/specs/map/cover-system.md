@@ -1,7 +1,7 @@
 # 掩体体系
 
 > **摘要**：掩体 tier 全集、弹道/通行/视线三套判定、确定性拦截与半高掩体移除的现行口径。
-> **适用版本**：现行（2026-10-22）
+> **适用版本**：现行（2026-10-29；新增「移动阻断判据与前向探测原语」）
 > **源自**：`docs/specs/map.md` §2 / §3 / §12（2026-10-21 拆分）
 > **相关**：[地形抽象与生成](./terrain.md) · [路网](./roads.md) · [纹理与烘焙](./textures.md) · [沿革与未落地](./changelog.md)
 
@@ -10,6 +10,8 @@
 - [掩体核心机制](#掩体核心机制)
 - [掩体体系收敛](#掩体体系收敛)
 - [tier 表现行口径](#tier-表现行口径)
+- [hull-down 遮挡参与面（2026-10-30 口径澄清）](#hull-down-遮挡参与面2026-10-30-口径澄清)
+- [移动阻断判据与前向探测原语（B1，2026-10-29）](#移动阻断判据与前向探测原语b12026-10-29)
 - [确定性弹道拦截](#确定性弹道拦截)
 
 ## 掩体 tier 全集与元素表
@@ -159,6 +161,25 @@
 - **`perm_block`（永久掩体）保留**：仍是 solid 语义（整发截停、不可摧毁），drawStyle 改为 `wall`、wallStyle `hedgehog`。
 
 **回归影响**：strip 节点通道变窄（栅栏原可通行、沙袋只挡 1 发；现在两族都是不可通行的实体墙）⇒ `scripts/test-nodegen-calibration.js` 的 6 个 minPassage 基线已按实测重锚（corridor d0.5/0.7/0.9 = 3.6/3.1/3.1、forest_dense d0.5 = 0.6、crossfire_plaza d0.9 = 1.4、mixed_barrier_plaza d0.5 = 1.8）。
+
+## hull-down 遮挡参与面（2026-10-30 口径澄清）
+
+#AB18 的条件降档（`LOS_HULL_Z=1.0m`）作用于 **`needZ = min(eyeZ, targetZ)`**，因此**所有高度 ∈ [1.0, 2.3) 的 vision 掩体**都参与「目标静止+未开火」时的视线遮挡——不只是灌木：`bush 1.2` / **`wall 1.4` / `wall_breakable 1.4`** / `ruined 2.0` 全部在内。也就是说静止目标躲在**直线掩体**后面同样对 AI 隐身（移动/开火即炮塔露头）。此前文档只写「灌木挡车体」，口径窄于实现，本节补齐。细则归口 `specs/map/vision-stealth-3d-compat.md` §「hull-down 条件降档」。
+
+## 移动阻断判据与前向探测原语（B1，2026-10-29）
+
+**单一判据 `tierBlocksMove(tier)`**（`js/tank_cover.js`）：`passability === 0 || shellBlock === true | 'single'`，且 `crushable` 一律不阻断（树/树桩/碎石是「压过即倒」，不推车）。`resolveCoverCollisions` 与 `probeMoveBlocked` **共用这一个函数**——以前是内联表达式，AI 侧要再写一份必然漂移。逐 tier 行为由 `scripts/test-cover-probe.js` ① 段与 `resolveCoverCollisions` 的实际推出行为对照锁定（17 个 tier）。
+
+**`probeMoveBlocked(t, heading, dist)`** —— 「往前走 dist 会不会撞」的纯查询，返回 `{ blocked, tier, nx, ny, hitDist }`：
+
+- **只认掩体几何，绝不查 `entities`**（§4.160 的教训：出生点判定把实体自身算成障碍，误判了一整轮）。源码形状断言直接锁死这一条。
+- 扫掠方式：车体 OBB 沿 heading 平移，取「起点四角 ∪ 终点四角」做 SAT。两个凸集之间「平移过程中是否相交」等价于「凸包是否相交」，而 SAT 对多余轴只会多算、不会漏判，所以直接复用 `obbOverlap`，无需显式求凸包。
+- `nx/ny` 是命中处掩体表面**由掩体指向坦克**的归一化法线（`coverNormalAt` 返回的是边绕向法线，方向不固定，这里统一翻正）；`hitDist` 为首次接触距离（二分 8 次求得）。
+- **不修改实体的任何字段**（纯查询）。
+
+**`probeCellPassable(cx, cy, r, opts)`** —— 栅格通行采样，供 A* 航点寻路直接消费（2026-10-29 用户裁定：探测层必须同时能当栅格输入）。返回 `{ passable, tier, cost }`：不可通行 `cost=Infinity`；贴墙（放不下 `margin` 余量）`cost=1.6`；空旷 `cost=1`。与「把车摆在格心再 `probeMoveBlocked`」同口径（测试 ⑤ 段逐点对照）。
+
+**回归**：`scripts/test-cover-probe.js`（判据同源 / 正前挡侧后不挡 / 距离阈值 / 实体不是地形 / 非阻断 tier 不误判 / 纯查询不写字段 / 栅格同口径）。
 
 ## 相关页面
 - [地形抽象与生成](./terrain.md) — `shellBlock`/`passability` 的取值域与地形→tier 映射

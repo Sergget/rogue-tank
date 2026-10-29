@@ -1692,7 +1692,7 @@ function allyCommandContext(){
 
 /** 测试钩子用的决策上下文（与主循环 aiCtx 同形的最小集合）。 */
 function aiCtxForTest(){
-  return Object.assign(allyCommandContext(), { covers });
+  return Object.assign(allyCommandContext(), { covers, probeMoveBlocked });
 }
 
 function showAllyToast(msg, bad){
@@ -5160,6 +5160,7 @@ function update(dt){
       allyCommand: (typeof RULES !== 'undefined' && RULES.allyCommand) || null,
       enemies: entities.filter(e => e.team === 'enemy' && e.hp > 0),
       hasLoS: hasLineOfSight,
+      probeMoveBlocked,   // B2（2026-10-29）：前向探测原语，绕障状态机消费（见 js/tank_ai.js 尾部）
       covers,   // #76 C6：掩体查询注入（重坦受创寻掩用；AI 侧遍历比较，无需寻路）
       dt,       // #76 C5：patrol 微摆动本地相位的帧步长（性能无关）
       // 2026-10-22（第五批 B2-1）：雷场危害列表 → AI 避雷（applyHazardAvoidance 消费）。

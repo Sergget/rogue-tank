@@ -125,5 +125,83 @@ section('④ 碰撞口径：推出量只在真碰撞时非零');
 }
 
 // ============================================================
+// ⑤ MS1 门 ①/② 硬断言（2026-10-29 B3）
+// 背景：B0 时这两条只是「打印数字」，B2（绕障）+ B3（接战带下探）之后才够格当门。
+// 单 seed 没有判别力（§2.9：seed 1 早就压到 228px，按单 seed 判会直接通过），所以跑 10 个。
+// 代价：每个 seed 约 5.4s ⇒ 本节约 55s，是 npm test 里最慢的一项。改这里前先想清楚。
+section('⑤ MS1 门 ①/②（2026-10-30 口径 v3）：40s 窗口、minDist ≤340、中位 ≤200、净推进 >0');
+{
+  // 口径沿革（三次迭代，全记录在此防止将来再绕圈）：
+  //   · v1（§4.172）：20s 窗口 + minDist≤340 —— hull-down（§4.176）落地前成立。
+  //   · v2（2026-10-30 P1 修复）：6 参透传让 hull-down 在探针生效 ⇒ 静止玩家被 bush
+  //     遮挡视线，敌人在部分 seed（31337：玩家出生点被灌木环绕）20s 内压不到 340——
+  //     那是 hull-down 的**正确游戏行为**（静默玩家不该被瞬间围殴），不是压迫回归。
+  //     曾试过给探针玩家微速绕开（0.05/0.25），两次都更糟：0.05 穿越 camo idle 阈值
+  //     产生 hull-down 帧级抖动；0.25 的移动探针把「净推进」语义打崩（玩家自己前进
+  //     把带内敌人推离，net 全负但 minDist 95 达标）。
+  //   · v3（本次）：**接受 hull-down 的后果，放宽时间窗**——真站桩玩家 + 40s 窗口。
+  //     实测 seed 31337 在 40s 时压到 326（敌人搜索 30~40s 后找到路），其余 9 seed
+  //     在 40s 内 49~218px。门 = minDist ≤340（10/10）+ 10 seed 中位 ≤200 + 净推进 >0
+  //     （站桩下净推进=真实推进，语义成立）。
+  //     「静默玩家更难被发现」是 hull-down 的游戏特性；实机玩家会开火/移动，
+  //     比探针站桩更容易被压制——本门是**下限**测量。
+  const SEEDS = [1, 7, 42, 99, 123, 777, 4242, 20261027, 31337, 65535];
+  const GATE_DIST = 340;
+  const GATE_MEDIAN = 200;
+  const GATE_SECONDS = 40;
+  const rows = [];
+  for (const seed of SEEDS) {
+    const s = PRESS.simulate({ nodeSeed: seed, seconds: GATE_SECONDS }).summary;
+    rows.push({ seed, minDist: s.minDist, net: s.radialNetBest, detour: s.detourShare });
+  }
+  const worst = rows.reduce((a, b) => (b.minDist > a.minDist ? b : a));
+  ok(worst.minDist <= GATE_DIST,
+    `门 ①：10 个 seed 最坏 minDist = ${worst.minDist.toFixed(0)}px（seed ${worst.seed}，门限 ${GATE_DIST}，40s 窗口）`);
+  const mids = rows.map(r => r.minDist).sort((a, b) => a - b);
+  const median = (mids[4] + mids[5]) / 2;
+  ok(median <= GATE_MEDIAN,
+    `门 ①-b：10 seed 中位 minDist = ${median.toFixed(0)}px（门限 ${GATE_MEDIAN}）`);
+  const noNet = rows.filter(r => !(r.net > 0));
+  ok(noNet.length === 0,
+    `门 ②：10 个 seed 净推进全部 > 0`
+    + (noNet.length ? `（不达标：${noNet.map(r => `${r.seed}:${r.net.toFixed(0)}`).join(', ')}）` : ''));
+  ok(rows.some(r => r.detour > 0), `绕障确实生效（最高 ${(Math.max(...rows.map(r => r.detour)) * 100).toFixed(0)}% 帧）`);
+  console.log('  ' + rows.map(r => `${r.seed}:${r.minDist.toFixed(0)}`).join('  '));
+}
+
+// ============================================================
+// ⑥ hull-down 探针口径（2026-10-30 P1 修复防回潮）
+// 教训：`measure-press` 曾用 4 参 hasLoS 包装，AI 的 hull-down 第 6 参 `{ targetZ }` 被吞 ⇒
+//   探针环境 hull-down 静默失效、与实机分叉（#Z2 同类）。现在锁死：本探针的 hasLoS
+//   必须能把 opts 透传到 `hasLineOfSight` 的 targetZ 判定。
+section('⑥ hull-down 探针口径：hasLoS 的 opts 必须透传到 targetZ');
+{
+  // 场景：敌我之间横一块灌木；玩家静止。若 opts 被吞，AI 按炮塔口径 2.3m 判 ⇒ 看得见 ⇒ 激活。
+  CV.covers.length = 0;
+  CV.invalidateCoverGrid && CV.invalidateCoverGrid();
+  CV.covers.push({ x: 330, y: 0, w: 60, h: 200, angle: 0, tier: 'bush', hp: 10 });
+  global.setSimNow(0);
+  // 真实 aiDecideEnemy 走一遍（探针的 hasLoS 是 6 参透传版）；
+  // hull-down 判据的 camouflageMotionOf/FiringMul/LOS_HULL_Z 在 tank_ai 内部走
+  // require('./tank_cover.js') 缓存路径，与顶部 require 的 CV 同一实例 ⇒ 无需全局注入。
+  const AI = require('../js/tank_ai.js');
+  const player = { id: 'p', team: 'player', x: 660, y: 0, hp: 100, speed: 0, hullLen: 64, hullWid: 38 };
+  const foe = { id: 'e1', team: 'enemy', x: 0, y: 0, hullAngle: 0, turretAngle: 0, reloadT: 0,
+    hp: 100, traverseLimit: Math.PI, stats: { turretTurnRate: 2.2 }, aiTriggerDist: 700 };
+  const hasLoS6 = (ox, oy, tx, ty, cl, opts) => CV.hasLineOfSight(ox, oy, tx, ty, cl ?? CV.covers, opts);
+  const ctx = { player, hasLoS: hasLoS6, dt: SCENE.dt, covers: CV.covers, enemies: [player] };
+  AI.aiDecideEnemy(foe, ctx);
+  ok(foe.aiEngaged !== true,
+    '探针 hasLoS 透传 opts：静止玩家被灌木挡（hull-down 生效，engaged=false）');
+  // 正向对照：opts 被吞的 4 参调用 ⇒ 炮塔口径 ⇒ 看得见（证明上一条测的是第 6 参而非别的）
+  const seenWithoutOpts = CV.hasLineOfSight(0, 0, 660, 0, CV.covers);
+  ok(seenWithoutOpts === true,
+    '正向对照：同一条射线不带 targetZ ⇒ 看得见（证明分化来自 opts 透传，非空转）');
+  CV.covers.length = 0;
+  CV.invalidateCoverGrid && CV.invalidateCoverGrid();
+  CV.resetCovers();
+}
+
+// ============================================================
 console.log(`\n=== test-ai-press: ${fails === 0 ? 'ALL PASS' : fails + ' FAILED'} ===`);
 if (fails > 0) process.exitCode = 1;

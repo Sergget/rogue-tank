@@ -24,9 +24,16 @@ description: Use when dispatching or acting as a Rogue Tank specialist role — 
 |---|---|
 | `tank_battle.html`（390KB+） | **单写者**。同一批次只允许 1 个角色改页面接线，其余角色只交付 `js/` 模块。默认写者是 `role-combat`（战斗循环）/ `role-systems`（流程经济）二选一，由调度方指定 |
 | `tank_bench.html` | 同上，默认 `role-render-fx` 或 `role-combat` |
+| `tank_3d.html` | **单写者**，默认 `role-render-fx`（页面与 `tank_render3d`/`tank_scene3d` 同源）。需要「js 侧改动 + 页面接线」的批次（如 B6 3D 确定性回放）由 `role-render-fx` 写页面，其余角色只交付 `js/` 模块 |
+| `index.html` | 仅 `role-systems`（首页视图模型 `tank_screens.js` + 存档/预设 + 令牌消费） |
+| `tank_compare.html` / `tank_codex.html` | 仅 `role-systems`（数据查询/编辑页，读 `tank_listio` / `tank_schema` / `enemyPreviewStats`） |
 | `tank_designer.html` / `designer.js` | 仅 `role-systems`（几何） |
 | `js/tank_cards.js` | 仅 `role-content`（枚举与校验单一来源） |
 | `js/tank_boss.js` | 仅 `role-systems`（运行时）；`role-content` 只写 `bosses/*.json` |
+| `js/tank_encounter.js` | 仅 `role-systems`（波次导演纯逻辑；归口 `specs/combat/encounter-director.md`） |
+| `js/tank_exposure.js` | 仅 `role-combat`（玩家侧暴露度读数层，纯读；归口 `specs/combat/hud-ui.md`） |
+| `js/tank_ui.js` / `js/tank_perf.js` | 仅 `role-render-fx`（设计令牌唯一来源 / 帧时间采样与降级门控） |
+| `js/tank_hud.js` | 仅 `role-render-fx`——battle / bench / codex **三页共用**，改一处三页同时变，改后须跑 `test-hud-readability` 与三页浏览器链 |
 | **`docs/specs/<卷>/` + `docs/specs/<卷>.md`** | **一整个卷 = 一个不可分割的写单元**，同一时刻只允许 1 个角色改（含该卷全部主题页 + 兼容索引页）。跨卷可并行。必须与 `docs/DEVELOPMENT-batches-<yyyy-mm>.md` 的 §4.x 同批落地，并跑 `node scripts/wiki-check.js` |
 | `docs/WIKI-STYLE.md` | specs 形态规范权威；改它等同改纪律，需 Lead 批准 |
 | `scripts/run-tests.js` / `scripts/check-html.js` / **`scripts/wiki-check.js`** | 仅 `role-verify-docs` |
@@ -47,8 +54,8 @@ description: Use when dispatching or acting as a Rogue Tank specialist role — 
 ```
 node scripts/check-html.js          # 语法冒烟（EXIT=0 才算过）
 node node_modules/typescript/bin/tsc --noEmit
-npm test                            # Node 全链（68 个 test-*.js；runner 登记 69 项）
-npm run test:browser                # 浏览器八链（smoke/r3/run/r4/ally/3d/encounter/perf）；受限环境下 spawn EPERM 属环境限制
+npm test                            # Node 全链（72 个 test-*.js；runner 登记 73 项，2026-10-29 实测）
+npm run test:browser                # 浏览器九链（smoke/r3/run/r4/ally/3d/encounter/perf/replay3d）；受限环境下 spawn EPERM 属环境限制
 npm run baseline                    # R0 渲染基线（默认 --check；首次 -- --write）
 node scripts/wiki-check.js          # 仅当本批改过 docs/：断链/锚点/兼容页结构/wiki 页模板
 ```

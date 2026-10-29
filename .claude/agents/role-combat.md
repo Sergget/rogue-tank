@@ -19,6 +19,7 @@ model: inherit
 - `js/tank_shield.js` — 累计吸收护盾
 - `js/tank_strike.js` — 延迟 AOE 炮击（circle/point/carpet）
 - `js/tank_deployables.js` — 固定炮塔 / 地雷 / 战术掩体注册表
+- `js/tank_exposure.js` — 玩家侧暴露度读数层（`exposureFor`，**纯读**不写实体字段、不新增判定；归口 `docs/specs/combat/hud-ui.md`）
 - `tank_battle.html` 的战斗循环、开火管线、HUD 装填指示段（**页面单写者，见 `rogue-tank-roles` §1**）
 
 ## 2. 现行口径（2026-10-26 复核，勿按旧文档改）

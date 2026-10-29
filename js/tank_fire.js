@@ -793,10 +793,20 @@ function fireClipWeapon(shooter, target, hitPref, ctx, spec, salvo) {
   return { fired: true, shells: 1 };
 }
 
+// B4（2026-10-29，#AB12 定位）：击发被拒的**原因码**（纯 dev 观测字段）。
+//   写入 `shooter._lastFireReject`，缺省 undefined；成功击发时清成 null。
+//   用途：`scripts/probe-fire-reject.cjs` 输出「拒绝原因 × 距离分档」直方图，回答
+//   #AB12「41 秒只打出 11 发」到底是射程/装填/掩体还是探针伪影。
+//   **不参与任何判定**——生产路径读它只会得到 undefined/null。
+function _rej(shooter, code){
+  if(shooter) shooter._lastFireReject = code;
+  return false;
+}
+
 function fireTank(shooter, target, hitPref, ctx, salvo){
   const c=_ctx(ctx);
   const shells=c.shells||_G('shells',null);
-  if(!shells) return false;
+  if(!shells) return _rej(shooter, 'no-shells');
   const R=_rules(c), T=_tiers(c);
   const find=c.findCoversOnPath||_G('findCoversOnPath',null);
   const gunRoot=c.gunRoot||_G('gunRoot',null);
@@ -811,14 +821,14 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   const devAim=c.devAim!==undefined?c.devAim:_G('devAim',null);
   // #W-I：曲射模式 target=null 合法（落点来自 ctx.aimPoint，不读 target）
   if(!shooter) return false;
-  if(!target && !_isHowitzerMode(shooter)) return false;
+  if(!target && !_isHowitzerMode(shooter)) return _rej(shooter, 'no-target');
   // #95：履带断（immobT>0）不再阻止开火——车体机动瘫痪 ≠ 火炮缴械，仅装填门控保留
-  if(shooter.reloadT>0) return false;
+  if(shooter.reloadT>0) return _rej(shooter, 'reload');
   // P-49 炮闩受损：短时完全无法开火（机械缴械，与装填 debuff 不同）
-  if(shooter.debuffs && shooter.debuffs.breech > 0) return false;
+  if(shooter.debuffs && shooter.debuffs.breech > 0) return _rej(shooter, 'breech');
   // 2026-09-15 W6：autocannon 过热锁定——heatLockT>0 期间禁止开火（其他武器无此字段，天然无影响）
-  if(shooter.heatLockT !== undefined && shooter.heatLockT > 0) return false;
-  if(!gunRoot||!gunTip||!find) return false;
+  if(shooter.heatLockT !== undefined && shooter.heatLockT > 0) return _rej(shooter, 'overheat');
+  if(!gunRoot||!gunTip||!find) return _rej(shooter, 'no-wiring');
   // #W-I（2026-10-19）：榴弹炮曲射**豁免炮口贯穿预检**——弹道是抛物落点，出膛段贴掩体
   //   不代表落点被挡（可行性结论第 2 问：预检与弹道类型无关，曲射需单独豁免）。
   const rootP=gunRoot(shooter), tipP=gunTip(shooter);
@@ -837,8 +847,10 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
       if(tier.mode==='single'){ dmgCover(solid.cover,1,'shell'); push('开火被掩体阻挡 — 炮管贯穿'+tier.label+'，炮弹在掩体处被截停','COVER'); }
       else push('开火被掩体阻挡 — 炮管贯穿'+tier.label,'COVER');
     }
-    return false;
+    return _rej(shooter, 'barrel-blocked');
   }
+  // B4（2026-10-29）：过了全部前置门 ⇒ 清掉上一次的拒绝原因（本次是「已受理」）
+  if(shooter) shooter._lastFireReject = null;
   // 阶段七 7.3：装填倍率与连发登记（weapons.primary）
   const spec=primaryWeaponSpec(shooter);
   // 2026-09-15 W4/W6：double_barrel 走独立状态机（每管独立装填/单击 1 管/空格齐射/换管 0.5s）；
@@ -932,16 +944,16 @@ function tryFire(ctx, salvo){
   const aimPref=c.aimPartPreference||_G('aimPartPreference',null);
   const R=_rules(c);
   const ft=c.fireTank||fireTank;
-  if(!player||!gunTip||!raycast||!aimPref) return false;
+  if(!player||!gunTip||!raycast||!aimPref) return _rej(player, 'no-wiring');
   // #W-I（2026-10-19）：榴弹炮曲射模式**不需要目标实体**——落点 = 鼠标世界位置
   // （打地面/掩体后都合法）。无敌人时走 aimPoint 直通 fireTank（target=null 合法：
   // fireTank 的曲射分支不读 target）。
   if(_isHowitzerMode(player)){
-    if(!c.shells && !_G('shells',null)) return false;
+    if(!c.shells && !_G('shells',null)) return _rej(player, 'no-shells');
     return ft(player, null, null, c, salvo);
   }
   const target=nearest(player);
-  if(!target) return false;
+  if(!target) return _rej(player, 'no-target');
   const tipP=gunTip(player);
   const aimA=player.turretAngle, aimU=Math.cos(aimA), aimV=Math.sin(aimA);
   const aimHits=raycast(tipP.x,tipP.y,aimU,aimV,target);

@@ -18,6 +18,203 @@
 
 function aiConfig(){ return (typeof RULES !== 'undefined' && RULES.ai) ? RULES.ai : {}; }
 
+// #AB18（2026-10-29 用户裁定路线 ②）：AI 观察口径的**条件降档**。
+//   目标「主动隐蔽」（静止 + 未开火惩罚窗外）时，视线判据用**车体高度**（LOS_HULL_Z=1.0m）
+//   ——灌木 1.2m 能挡住蹲住的车；动了或开火了炮塔（2.3m）露头即被看见，回到现行为。
+//   返回值直接当 `hasLineOfSight` 的 `opts.targetZ` 用；`null` = 不降档（用模块缺省 2.3m）。
+//   Boss 不吃地形增益（与 Boss 免疫溺毙同惯例）；对称化关闭时敌对目标的隐蔽通道本来就只在
+//   玩家侧生效，这里对**任意观察目标**统一判——友军打敌人同样吃 hull-down，语义一致。
+// 判据复用 `camouflageMotionOf` 的 idle 阈值（≤6px/s）与 `camouflageFiringMul` 的窗口
+//   ——不另立第二套「什么算静止」，那正是 #Z2 类两套口径漂移的来路。
+function _hullDownTargetZ(target){
+  if(!target || target.isBoss) return null;
+  const CV = (typeof COVER_TIERS !== 'undefined' && typeof camouflageMotionOf === 'function')
+    ? { motion: camouflageMotionOf, firingMul: (typeof camouflageFiringMul === 'function' ? camouflageFiringMul : null) }
+    : null;
+  // 模块内直接可见（tank_cover 顶层函数挂全局）；Node 测试经 require 注入
+  const motion = CV ? CV.motion(target)
+    : (typeof require !== 'undefined'
+        ? (require('./tank_cover.js').camouflageMotionOf || (() => 'move'))(target)
+        : 'move');
+  if(motion !== 'idle') return null;                 // 动了 ⇒ 炮塔口径
+  const fMul = CV && CV.firingMul ? CV.firingMul(target)
+    : (typeof require !== 'undefined' ? (require('./tank_cover.js').camouflageFiringMul || (() => 1))(target) : 1);
+  if(fMul < 1) return null;                          // 开火惩罚窗口内 ⇒ 炮塔口径
+  return (typeof LOS_HULL_Z === 'number') ? LOS_HULL_Z
+    : (typeof require !== 'undefined' ? (require('./tank_cover.js').LOS_HULL_Z ?? null) : null);
+}
+
+
+/**
+ * B2（2026-10-29，MS1 / #AB11b 后半）：前向探测驱动的绕障状态机。
+ *
+ * 为什么需要它：物理层只有 MTV 推出、没有切向分量（§4.161 的 `applyWallSlide` 只解掉
+ *   「小掩体顶住」），AI 侧仍然**没有绕障意图**——`_losDetour` 要求 `!los` 且靠 `losBlocker`
+ *   选边，低矮掩体/纯物理拥堵都不满足；`#M` 机动层根本不看障碍物。
+ *
+ * 两条硬约束（都是被实测打回来的）：
+ *   · **承诺 ≥ commitSeconds 秒**，期内不被机动层/分离力改写。§4.157 的「1 秒反应式侧转」
+ *     就是败在承诺太短：刚转开就被下一帧的直冲意图拉回，实测比不改还远（595→641px）。
+ *   · **绕满 maxCommitSeconds 仍不通 ⇒ 换一侧重试**，否则会永远绕同一侧打转。
+ *
+ * 调用点有两个，缺一个就有一类敌人永远绕不过去（实测 w0_1 卡在 search 分支、
+ *   w0_2 卡在 flank 分支，都够不到主接战路径的调用点）：
+ *   ① `!los` 的 search 分支（顶墙且失去视线的那类）；
+ *   ② 主接战路径尾部（机动层/分离力/装填脱离之后）。
+ *
+ * @returns {boolean} 本帧是否由绕障接管了 turn/move
+ */
+function _applyDetour(t, out, ctx, cfg, goalHeading, goalDist, goalLos){
+  const dcfg = (cfg && cfg.detour) || {};
+  if(dcfg.enabled === false || !t || t.isBoss) {
+    if(t && t._detour) t._detour = null;      // 关停：清残留，避免下次误接管
+    return false;
+  }
+  const probeFn = (ctx && typeof ctx.probeMoveBlocked === 'function') ? ctx.probeMoveBlocked
+    : (typeof probeMoveBlocked === 'function' ? probeMoveBlocked : null);
+  if(!probeFn){
+    if(t._detour) t._detour = null;
+    return false;
+  }
+  if(!(out.move > 0)) return false;           // 只接管「前进意图」；驻停/后撤保持确定性
+  // **能看见目标 ⇒ 不绕行**（2026-10-30 裁决）：绕行的目的就是绕过遮挡重新进入交战；
+  //   视线通畅时前方掩体只影响通行不影响开火（band.max 驻停射击即可），绕行反而把车
+  //   带离射界（v5 实测 7: 295→416）。触发前提与承诺期内的退出判据共用 goalLos。
+  if(goalLos === true) {
+    if(t._detour) t._detour = null;
+    return false;
+  }
+
+  const dtSec = (ctx && Number.isFinite(ctx.dt) && ctx.dt > 0) ? ctx.dt : 1 / 60;
+  const probeDist = Number.isFinite(dcfg.probeDist) ? dcfg.probeDist : 90;
+  const commitS = Number.isFinite(dcfg.commitSeconds) ? dcfg.commitSeconds : 1.2;
+  const extendS = Number.isFinite(dcfg.extendSeconds) ? dcfg.extendSeconds : 0.6;
+  const maxS = Number.isFinite(dcfg.maxCommitSeconds) ? dcfg.maxCommitSeconds : 6.0;
+  const clearS = Number.isFinite(dcfg.releaseClearSeconds) ? dcfg.releaseClearSeconds : 0.25;
+  const mvSpeed = Number.isFinite(dcfg.moveSpeed) ? dcfg.moveSpeed : 1.0;
+
+  const probe = probeFn(t, t.hullAngle, probeDist);
+  let d = t._detour || null;
+  if(d){
+    d.remain -= dtSec;
+    d.total += dtSec;
+    d.clearT = probe.blocked ? 0 : (d.clearT + dtSec);
+    // **负收益熔断**（2026-10-30 复查新增，seed 123 实测暴露）：绕行段没有「朝目标」的
+    //   回正分量（切线是纯侧向），某些掩体布局下侧别选错会把车**绕离**目标——
+    //   实测 w0_0 净推进 −203px、w0_2 −251px，比不绕还差。每 `bailCheckSeconds` 量一次
+    //   「到目标距离」，连续两窗都在**变远** ⇒ 绕行在负收益，强制退出
+    //   `bailoutSeconds`（走直冲 + 物理推出/滑行），期内不再触发新绕行。
+    if(goalHeading !== undefined && Number.isFinite(goalHeading)){
+      d.bailT = (d.bailT || 0) + dtSec;
+      if(d.bailT >= (Number.isFinite(dcfg.bailCheckSeconds) ? dcfg.bailCheckSeconds : 0.6)){
+        d.bailT = 0;
+        // 目标位置：由 goalHeading 反推不可靠，用「上次记录距离」的调用方快照——
+        // 这里用简化的代理：径向投影不可得时退化为总时长熔断（maxS）。
+        // 实际距离差由调用方在 t._detourRefDist 维护（见下方创建处与 aiDecideEnemy 主循环）。
+        const ref = (Number.isFinite(t._detourRefDist)) ? t._detourRefDist : null;
+        const cur = (typeof goalDist === 'number' && Number.isFinite(goalDist)) ? goalDist : null;
+        if(ref !== null && cur !== null){
+          if(cur > ref + 5){                       // 比上次检查时更远 >5px ⇒ 变远
+            d.bailStrikes = (d.bailStrikes || 0) + 1;
+          } else {
+            d.bailStrikes = 0;
+          }
+          t._detourRefDist = cur;
+          if(d.bailStrikes >= 2){
+            t._detourBias = -(t._detourBias || 1);
+            t._detourCooldown = Number.isFinite(dcfg.bailoutSeconds) ? dcfg.bailoutSeconds : 3.0;
+            t._detour = null; d = null;
+          }
+        }
+      }
+    }
+    const expired = d ? d.remain <= 0 : false;
+    if(d && d.total >= maxS){
+      t._detourBias = -(t._detourBias || 1);  // 绕不通 ⇒ 换一侧重试
+      t._detour = null; d = null;
+    } else if(d && goalLos){
+      // **重新看见目标 ⇒ 立即退出**（2026-10-30 复查新增，v5 恒定暴露下 seed 7/99 暴露）：
+      //   旧出口只认「前方探测通畅 0.25s」，窄缝/贴墙地形永远不满足 ⇒ 敌人绕到掩体后
+      //   仍继续绕，把车带离交战带（实测 7: 295→416、99: 327→403）。「绕过去」的目的是
+      //   重新进入交战——能看见目标就是绕过去了。
+      //   ⚠ 退出后同帧 `if(!d && probe.blocked)` 会**立即重建**（前方探测仍命中——
+      //   刚绕出来的位置车头还对着掩体），必须加 0.25s 冷却压制重建，否则退出无意义。
+      t._detour = null; d = null;
+      t._detourCooldown = clearS;
+    } else if(d && expired && !probe.blocked && d.clearT >= clearS){
+      t._detour = null; d = null;             // 已确认通畅：退出
+    } else if(d && expired){
+      d.remain = extendS;                     // 仍被挡：续绕，不回到直冲
+    }
+  }
+  // 负收益熔断冷却期：不触发新绕行
+  if(!d && t._detourCooldown !== undefined && t._detourCooldown > 0){
+    t._detourCooldown -= dtSec;
+    return false;
+  }
+  if(!d && probe.blocked){
+    const seed = (typeof tankSideSeed === 'function') ? tankSideSeed(t.id) : _detourSideSeed(t.id);
+    let side = (seed % 2) ? 1 : -1;
+    // 侧别：**优先选切线更接近「指向目标」的一侧**，两侧接近时（差 <0.2 rad）用 id 种子定死。
+    //   §2.8 原方案是「纯 id 种子定死」，实测会把车绕向背离玩家的方向（w0_0 净推进 −13px、
+    //   绕障帧占比 78% 全程在绕），因为种子与几何无关。这里改成「几何优先、种子兜底」：
+    //   侧别仍只在触发那一刻定一次，承诺期内不翻转，稳定性不受影响。
+    const nlen0 = Math.hypot(probe.nx, probe.ny);
+    if(nlen0 > 1e-6 && Number.isFinite(goalHeading)){
+      const a1 = Math.atan2(probe.nx / nlen0, -probe.ny / nlen0);   // side=+1 的切线朝向
+      const a2 = Math.atan2(-probe.nx / nlen0, probe.ny / nlen0);   // side=-1 的切线朝向
+      const d1 = Math.abs(angDiff(a1, goalHeading));
+      const d2 = Math.abs(angDiff(a2, goalHeading));
+      if(Math.abs(d1 - d2) > 0.2) side = (d1 < d2) ? 1 : -1;
+    }
+    d = t._detour = { side: side * (t._detourBias || 1), remain: commitS, total: 0, clearT: 0 };
+    if(Number.isFinite(goalDist)) t._detourRefDist = goalDist;
+    // 绕行方向本身也堵着（楔形死角）⇒ 换另一侧。否则会朝墙缝里钻，
+    //   实测在「两片掩体夹角」处会让 `resolveCoverCollisions` 的 4 遍迭代解不干净
+    //   （残留穿透 14 帧、再解算一次仍不归零）。
+    if(nlen0 > 1e-6){
+      const t1 = Math.atan2(probe.nx / nlen0, -probe.ny / nlen0);
+      const t2 = Math.atan2(-probe.nx / nlen0, probe.ny / nlen0);
+      const cur = (d.side > 0) ? t1 : t2;
+      if(probeFn(t, cur, probeDist).blocked){
+        const alt = (d.side > 0) ? t2 : t1;
+        if(!probeFn(t, alt, probeDist).blocked) d.side = -d.side;
+      }
+    }
+  }
+  if(!d) return false;
+
+  // 绕行方向：沿命中法线的**切线**（法线由 probeMoveBlocked 统一翻成「由掩体指向坦克」）
+  let dx, dy;
+  const nlen = Math.hypot(probe.nx, probe.ny);
+  if(nlen > 1e-6){
+    dx = -probe.ny * d.side / nlen;
+    dy =  probe.nx * d.side / nlen;
+  } else {
+    const a = t.hullAngle + d.side * Math.PI / 2;   // 起点已贴墙、无接触法线
+    dx = Math.cos(a); dy = Math.sin(a);
+  }
+  const dh = angDiff(Math.atan2(dy, dx), t.hullAngle);
+  out.turn = dh > 0.05 ? 1 : (dh < -0.05 ? -1 : 0);
+  out.move = mvSpeed;
+  return true;
+}
+
+// B2（2026-10-29）：绕障侧别的**回退**种子。
+//   浏览器里 `tank_move.js` 的 `tankSideSeed` 是顶层函数、直接可见；Node 单测环境没有该全局时
+//   走这份内联副本。算法与 `tank_move.tankSideSeed` **逐位一致**（FNV-1a 32 位，整串 id），
+//   由 `scripts/test-ai-detour.js` 断言两者对同一批 id 结果相同——改一处必须改两处。
+function _detourSideSeed(id){
+  if(typeof id !== 'string'){
+    const n = Number.isFinite(id) ? Math.floor(Math.abs(id)) : 0;
+    return n >>> 0;
+  }
+  let h = 2166136261 >>> 0;
+  for(let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619) >>> 0;
+  return h >>> 0;
+}
+
+
 // #76 B：按实体 t.aiTier 取档位表（RULES.ai.tierProfiles），越高级越警觉/越准/越抗晕。
 // 纯函数、可独立单测：缺档/越界一律回退空 profile（tier 0 基础行为）。
 function aiTierProfile(tier){
@@ -161,7 +358,8 @@ function _passiveDefend(t, ctx, target){
   const tol = (cfg.aimTolerance !== undefined ? cfg.aimTolerance : 0.12)
     * ((prof && prof.aimTolMul) || 1);
   const aimErr = Math.abs(angDiff(t.turretAngle, desired));
-  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, target.x, target.y) : true;
+  const _tzD = _hullDownTargetZ(target);   // #AB18 条件降档
+  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, target.x, target.y, undefined, _tzD ? { targetZ: _tzD } : undefined) : true;
   if(aimErr < tol && los && t.reloadT <= 0) out.fire = true;
   return out;
 }
@@ -176,7 +374,7 @@ function _reactionSeconds(t, cfg, prof, dist, enterD){
   let s = base + (maxS - base) * ratio * 0.5;
   s *= (prof && prof.reactionMul) || 1;
   const jitter = cfg.reactionJitter !== undefined ? cfg.reactionJitter : 0.25;
-  s *= 1 + (Math.random() * 2 - 1) * jitter;
+  s *= 1 + (_rng() * 2 - 1) * jitter;
   return Math.max(0.2, s);
 }
 
@@ -200,7 +398,7 @@ function _propagateEngage(t, ctx, cfg){
         if(!e || visited.has(e) || e.hp <= 0) continue;
         if(e.team !== 'enemy' || e.isBoss) continue;
         if(Math.hypot(e.x - node.e.x, e.y - node.e.y) > node.r) continue;
-        if(Math.random() > chance) continue;
+        if(_rng() > chance) continue;
         visited.add(e);
         e.aiEngaged = true;
         e.lastKnownPlayerPos = { x: px, y: py };
@@ -394,7 +592,21 @@ const _MV_MODES = ['direct', 'slant', 'curve', 'arc', 'retreat'];
 // 注意：缺省值必须「惰性求值」——若在此处直接存 Math.random 引用，
 // 测试/调试对 Math.random 的临时替换将无法影响本层（引用已被提前捕获）。
 const _MV_RNG = { value: null };
-const _mvRng = () => (typeof _MV_RNG.value === 'function') ? _MV_RNG.value : Math.random;
+// B6（2026-10-29，3D 确定性回放）：**模拟层唯一 RNG**。
+//   机动层（_MV_RNG）优先，其次本层；两层都缺省才落回 Math.random。
+//   页面在 `?seed=` 时调用 `setSimRng(seeded)`，把警觉抖动 / 击晕 / 侧摆 / 窥视 / 重定位
+//   全部收进同一序列——否则同 seed 两次跑出来的 AI 行为不同，回放链无从比对。
+//   **粒子/震屏等纯视觉随机不在此列**（它们不影响判定，也排除在回放口径外）。
+let _SIM_RNG = null;
+// **语义：调用 `_rng()` 直接得一个 [0,1) 数字**（与 Math.random 等价的替换物），
+//   不是「取一个 rng 函数」。包装函数名与取值一次完成，调用点一律 `_rng() * x`。
+const _rng = function(){
+  const f = (typeof _MV_RNG.value === 'function') ? _MV_RNG.value
+    : ((typeof _SIM_RNG === 'function') ? _SIM_RNG : Math.random);
+  return f();
+};
+function setSimRng(fn){ _SIM_RNG = (typeof fn === 'function') ? fn : null; }
+const _mvRng = _rng;
 function _maneuverSetRng(fn){ _MV_RNG.value = (typeof fn === 'function') ? fn : null; }
 
 // 按权重表抽一个机动类型。权重缺省/非法一律回退 direct（保证纯直冲回退路径）。
@@ -434,7 +646,7 @@ const _mvRand = (rng, a, b) => {
 // reloadGap 为真时提高 slant/arc 权重、压低 direct 权重 ⇒ 装填期偏侧向躲避机动
 // （承接旧 #88 sideSwing 的玩法意图，见 _maneuverReloadGap）。
 function _maneuverRoll(rng, cfg, reloadGap){
-  const r = typeof rng === 'function' ? rng : Math.random;
+  const r = (typeof rng === 'function') ? rng : _rng;
   const c = cfg || {};
   const mode = _maneuverPickMode(r, c, reloadGap);
   const side = r() < 0.5 ? -1 : 1;
@@ -471,7 +683,12 @@ function _applyManeuver(t, mv, dt, desired, cfg, keepMove, reloadGap){
   const out = { turn: 0, move: 0, aimTolMul: 1 };
   if(!c.enabled || !mv){ out.move = keepMove !== undefined ? keepMove : 0; return out; }
   const step = Number.isFinite(dt) && dt > 0 ? dt : (1/60);
-  const rng = _mvRng();
+  // B6：`_mvRng()` 现在直接返回一个 [0,1) 数字（不是 rng 函数）——给 `_mvRand`/
+  //   `_maneuverShouldHold`/`_maneuverRoll` 的必须是**函数**，这里用惰性选择器包一层。
+  const rng = (() => {
+    if(typeof _MV_RNG.value === 'function') return _MV_RNG.value;
+    return _rng;   // `_rng` 自身就是「取一个数字」的函数，签名正好匹配
+  })();
 
   // --- 短停：倒计时结束后重掷脚本，并给一个放宽的开火窗口（开火节奏错开）---
   if(mv.hold){
@@ -540,7 +757,7 @@ function _maneuverReloadGap(t, cfg){
 // 判断一个脚本是否应结束后进入短停（holdChance 概率）。
 function _maneuverShouldHold(rng, cfg){
   const c = cfg || {};
-  const r = typeof rng === 'function' ? rng : Math.random;
+  const r = (typeof rng === 'function') ? rng : _rng;
   const chance = Number.isFinite(c.holdChance) ? c.holdChance : 0.35;
   return r() < chance;
 }
@@ -637,7 +854,8 @@ function aiDecideEnemy(t, ctx){
       const cfgA = aiConfig();
       const tol = cfgA.aimTolerance !== undefined ? cfgA.aimTolerance : 0.12;
       const aimErr = Math.abs(angDiff(t.turretAngle, desiredB));
-      const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y) : true;
+      const _tzB = _hullDownTargetZ(p);   // #AB18 条件降档
+      const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y, undefined, _tzB ? { targetZ: _tzB } : undefined) : true;
       if(aimErr < tol && los && t.reloadT <= 0) out.fire = true;
       t.aiState = 'skirmish';
       return out;
@@ -666,7 +884,8 @@ function aiDecideEnemy(t, ctx){
         const _cfgC = aiConfig();
         const _tolC = _cfgC.aimTolerance !== undefined ? _cfgC.aimTolerance : 0.12;
         const _aimErrC = Math.abs(angDiff(t.turretAngle, _desiredC));
-        const _losC = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y) : true;
+        const _tzC = _hullDownTargetZ(p);   // #AB18 条件降档
+        const _losC = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y, undefined, _tzC ? { targetZ: _tzC } : undefined) : true;
         if(_aimErrC < _tolC && _losC && t.reloadT <= 0) _outC.fire = true;
         t.aiState = 'charge';
         return _outC;
@@ -733,8 +952,11 @@ function aiDecideEnemy(t, ctx){
   const enterDCamo = enterD * _camoMul * _enemyCamoMul;
   if(t.aiEngaged === undefined) t.aiEngaged = false;
 
-  // LoS 评估：激活门控与开火判定共用（patrol 早退路径也做一次射线；有 ctx.hasLoS 缺省 true）
-  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y) : true;
+  // LoS 评估：激活门控与开火判定共用（patrol 早退路径也做一次射线；有 ctx.hasLoS 缺省 true）。
+  // #AB18（2026-10-29 路线 ②）：目标「主动隐蔽」（静止+未开火）时降档到车体口径——
+  //   灌木 1.2m 挡得住蹲住的车；动了/开火了炮塔露头，回到缺省炮塔口径。
+  const _obsTz = _hullDownTargetZ(p);
+  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y, undefined, _obsTz ? { targetZ: _obsTz } : undefined) : true;
   // #E8：全高掩体（建筑/岩石/树，tier.vision===true）遮挡视线时，敌人不再「进入范围就行动」。
   // 受击/友邻告警（alertEntity 置 aiEngaged + lastKnownPlayerPos）不受此门控限制。
   const needLoS = cfg.engageRequiresLoS !== false;
@@ -861,6 +1083,13 @@ function aiDecideEnemy(t, ctx){
     if(t._threatDir !== undefined && Math.abs(angDiff(t.turretAngle, t._threatDir)) < 0.2){
       t._threatDir = undefined;
     }
+    // B2（2026-10-29）：`_losDetour` 之后、返回之前再给绕障状态机一次机会。
+    //   实测：卡在墙上的三辆车里有两辆根本走不到主接战路径（一辆在 search、一辆在 flank），
+    //   只挂主路径那一处等于只修了三分之一。绕障命中时优先级高于 `_losDetour`。
+    if(_applyDetour(t, out, ctx, cfg, heading, dist, los)){
+      t.aiState = 'detour';
+      return out;
+    }
     t.aiState = 'search';
     return out;
   }
@@ -919,7 +1148,9 @@ function aiDecideEnemy(t, ctx){
   let aimTolMul = 1;
   if(maneuverOn){
     if(!t._mv){
-      t._mv = _maneuverRoll(_mvRng(), mnvCfg, reloadGap);
+      t._mv = _maneuverRoll(
+        (typeof _MV_RNG.value === 'function') ? _MV_RNG.value : _rng,
+        mnvCfg, reloadGap);
       t._mv.px = t.x; t._mv.py = t.y;
     }
     const mvOut = _applyManeuver(t, t._mv, ctx && ctx.dt, desired, mnvCfg, baseMove, reloadGap);
@@ -992,6 +1223,11 @@ function aiDecideEnemy(t, ctx){
     }
   }
 
+  // ===== B2（2026-10-29，MS1 / #AB11b 后半）：前向探测驱动的绕障状态机 =====
+  // 位置：机动层（#M）、侧翼站位（#N3）、分离力（#N4）、装填脱离（#N6）之后 ⇒
+  //   绕行**承诺期内是最终权威**，否则刚转开就被下一帧的直冲意图拉回（§4.157 的死法）。
+  if(_applyDetour(t, out, ctx, cfg, desired, dist, los)) t.aiState = 'detour';
+
   // 开火：炮塔大致对准 + 视线畅通（触发段已算好 los）+ 装填好 + 在**愿意开火的距离**内
   // tol 已按档位 aimTolMul 收紧（#76 B），并按 #M 短停结束窗口放宽（错开开火节奏）
   // 2026-10-26（§4.140）：开火距离不再用交战带外沿 band.max（中坦约 572px），
@@ -1037,7 +1273,7 @@ function aiDecideEnemy(t, ctx){
   const stunImmune = (t.stunImmuneT || 0) > 0;
   const shouldStun = !stunImmune && (
                      debuffSeverity >= stunThreshold ||
-                     (Math.random() < stunProb && debuffSeverity > 0.2));
+                     (_rng() < stunProb && debuffSeverity > 0.2));
 
   // --- 3) 状态机：确定当前状态，并仅对应状态修正输出 ---
   // 使用 stateVariable 追踪当前活跃状态，base 输出在无状态激活时保留不变。
@@ -1177,6 +1413,9 @@ function aiDecideEnemy(t, ctx){
   //   让 base AI 结果 completely 保留，不引入额外摆动。
 
   // --- 4) 根据 state 设置 aiState 并返回 ---
+  // B2（2026-10-29）：本段会用上面重算的 `state` 覆盖主路径写下的 'detour'，
+  //   所以在这里补回一次。stunned 优先级更高（它本来就该盖掉绕障的 turn/move）。
+  if(t._detour && state !== 'stunned') state = 'detour';
   t.aiState = state;
 
   // #88 装填间隙随机侧摆（基线 patrol 态专用；普通敌与 Boss 基线均适用）：
@@ -1193,9 +1432,9 @@ function aiDecideEnemy(t, ctx){
     const maxA = cfg.sideSwingAngleMax !== undefined ? cfg.sideSwingAngleMax : 1.57;
     if(t.reloadT > reloadDur * frac){
       if(!Number.isFinite(t._swingTarget) || (t._swingT || 0) <= 0){
-        const ang = minA + Math.random() * Math.max(0, maxA - minA);
-        t._swingTarget = norm(t.hullAngle + ((Math.random() < 0.5) ? -ang : ang));
-        t._swingT = 1.5 + Math.random() * 2.5;   // 每次数秒换一次方向
+        const ang = minA + _rng() * Math.max(0, maxA - minA);
+        t._swingTarget = norm(t.hullAngle + ((_rng() < 0.5) ? -ang : ang));
+        t._swingT = 1.5 + _rng() * 2.5;   // 每次数秒换一次方向
       }
       t._swingT -= ctx.dt;
       const sDiff = angDiff(t._swingTarget, t.hullAngle);
@@ -1216,8 +1455,8 @@ function aiDecideEnemy(t, ctx){
     const peekMax = (cfg.peekAngleMax !== undefined) ? cfg.peekAngleMax : 0.5;
     const peekIV = Array.isArray(cfg.peekInterval) ? cfg.peekInterval : [3, 6];
     const reposIV = Array.isArray(cfg.reposInterval) ? cfg.reposInterval : [4, 8];
-    if(t.aiPeekTimer === undefined) t.aiPeekTimer = Math.random() * (peekIV[1] - peekIV[0]) + peekIV[0];
-    if(t.aiReposTimer === undefined) t.aiReposTimer = Math.random() * (reposIV[1] - reposIV[0]) + reposIV[0];
+    if(t.aiPeekTimer === undefined) t.aiPeekTimer = _rng() * (peekIV[1] - peekIV[0]) + peekIV[0];
+    if(t.aiReposTimer === undefined) t.aiReposTimer = _rng() * (reposIV[1] - reposIV[0]) + reposIV[0];
     if(t.aiPeekUntil === undefined) t.aiPeekUntil = 0;
     if(t.aiReposUntil === undefined) t.aiReposUntil = 0;
     t.aiPeekTimer -= ctx.dt;
@@ -1226,19 +1465,19 @@ function aiDecideEnemy(t, ctx){
       t.aiPeekUntil -= ctx.dt;
       out.turn += (t.aiPeekOffset || 0);          // 持续数秒的露头偏角（在基态转向基础上叠加）
     } else if(t.aiPeekTimer <= 0){
-      t.aiPeekOffset = (Math.random() * 2 - 1) * peekMax;   // ±peekAngleMax 随机偏角
-      t.aiPeekUntil = 1.5 + Math.random() * 1.5;            // 持续 1.5~3s
-      t.aiPeekTimer = Math.random() * (peekIV[1] - peekIV[0]) + peekIV[0];
+      t.aiPeekOffset = (_rng() * 2 - 1) * peekMax;   // ±peekAngleMax 随机偏角
+      t.aiPeekUntil = 1.5 + _rng() * 1.5;            // 持续 1.5~3s
+      t.aiPeekTimer = _rng() * (peekIV[1] - peekIV[0]) + peekIV[0];
     }
     if(t.aiReposUntil > 0){
       t.aiReposUntil -= ctx.dt;
       out.move = (t.aiReposStrafe || 0);           // 短暂走位（±1），窗口结束自动回到基态 move
       out.turn += (t.aiReposTurnBias || 0);
     } else if(t.aiReposTimer <= 0){
-      t.aiReposUntil = 0.6 + Math.random() * 0.8;  // 持续 0.6~1.4s
-      t.aiReposStrafe = (Math.random() < 0.5) ? 1 : -1;
-      t.aiReposTurnBias = (Math.random() * 2 - 1) * 0.3;
-      t.aiReposTimer = Math.random() * (reposIV[1] - reposIV[0]) + reposIV[0];
+      t.aiReposUntil = 0.6 + _rng() * 0.8;  // 持续 0.6~1.4s
+      t.aiReposStrafe = (_rng() < 0.5) ? 1 : -1;
+      t.aiReposTurnBias = (_rng() * 2 - 1) * 0.3;
+      t.aiReposTimer = _rng() * (reposIV[1] - reposIV[0]) + reposIV[0];
     }
   }
 
@@ -1700,5 +1939,5 @@ function propagateAlert(entitiesArr, x, y, radius){
 // ctx: { player, hasLoS(ox,oy,tx,ty) } —— 激活触发 = 距离 + 可见性，与摄像机视野解耦。
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, applyHazardAvoidance, decayNoiseHeat, noteAllyHit, _wallTurretOnlyFiringLine, _waterHazardTier, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverShouldHold, _maneuverPickMode, _maneuverSetRng, _MV_MODES, _engageBand, _engageBandKey, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _maneuverReloadGap, _effectiveFireRange, hearNoise, emitShotNoise };
+  module.exports = { aiConfig, aiTierProfile, aiClassForTank, aiDecideEnemy, aiDecideAlly, aiDecide, aiUpdateStateTimer, alertEntity, propagateAlert, applyWaterAvoidance, applyHazardAvoidance, decayNoiseHeat, noteAllyHit, _wallTurretOnlyFiringLine, _waterHazardTier, _passiveDefend, _bossStageAIModes, _reactionSeconds, _propagateEngage, _maneuverRoll, _applyManeuver, _maneuverShouldHold, _maneuverPickMode, _maneuverSetRng, _MV_MODES, _engageBand, _engageBandKey, _separationTurn, _flankStation, _flankRadius, _retreatReloadSpot, _maneuverReloadGap, _effectiveFireRange, hearNoise, emitShotNoise, _applyDetour, _detourSideSeed, setSimRng, _rng, _hullDownTargetZ };
 }

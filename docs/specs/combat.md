@@ -453,3 +453,9 @@
 > 三波遭遇导演（W1 侦察分队 / W2 分进合击 / W3 装甲合围）+ `telegraph→wave→breather→victory/defeat` 阶段机 + 七类事件契约；参数唯一口径 `RULES.encounter`（`js/tank_rules.js`），纯逻辑层 `js/tank_encounter.js` 只发事件不写实体。**三条必守**：波次敌人强制 `aiEngaged=true` 并按 `intelInterval` 刷新方位（否则龟缩成无限局）、写入场反应延迟（否则出场即齐射）、方位回退后必须写回 bearing（否则 HUD 骗玩家）。`playerHpScale` / `enemyDamageScale` / `entryReactSeconds` 是**切片专用演示缩放，正式战斗不读**。
 
 **详见**：[遭遇导演](./combat/encounter-director.md)
+
+## 20. 主副武器固化与副武器型别池（2026-10-29 裁定，**设计预留 / 未落地**）
+
+> **本节是设计预留，不是现状。** 用户 2026-10-29 六项裁定：主武器与底盘绑定固化（取消局内换装卡）、副武器收敛为 6 型固化池（`rws`/`agl`/`sam`/`missile`/`missile_wire`/`rocket`）、`smoke` 全车标配不占槽、右键成为副武器主交互（`F` 保留等效）、反炮兵雷达（玩家被动卡 + 敌方 G 类固有）、22+4 台车辆配表（首发 8 台核心档）。**代码零落地**——现行仍是 `WEAPON_DEFAULTS` 五类 + `weapons.primary` 可换装 + 右键开镜。实施前不得据此写新代码或写测试。
+
+**详见**：[主副武器固化与副武器型别池](./combat/weapon-binding.md)（含「落地状态」表与「实施入口」的契约→消费方映射）

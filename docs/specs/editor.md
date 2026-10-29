@@ -25,7 +25,7 @@
 | **坦克贴图与涂装视觉规范**（`TEXTURE_DEFS` / 迷彩 / 审核标准） | [贴图与涂装视觉规范](./editor/visual-spec.md)（§6） | 完整审核标准归 [地图规范](./map.md) §22/§23 |
 | **开发者面板**（devPanel 四 Tab / 卡牌选择器 / 两页按键统一） | [开发者面板](./editor/devpanel.md)（§7、§7.1~§7.3） | — |
 | **两页 HUD 渲染合并状态**（9 处 = 6 合并 + 2 定位差异 + 1 重复计数 ⇒ **无剩余项**） | [开发者面板 · HUD 合并](./editor/devpanel.md#hud-渲染实现级合并)（§7.4） | [沿革 · 未纳入本轮](./editor/changelog.md#未纳入本轮2026-09-19-c5已全部关闭)（§7.7） |
-| **浏览器自动化测试链**（`npm run test:browser` 六链） | [浏览器自动化测试链](./editor/browser-tests.md)（§7.5） | — |
+| **浏览器自动化测试链**（`npm run test:browser` 八链） | [浏览器自动化测试链](./editor/browser-tests.md)（§7.5） | — |
 | **内容工具与预览**（NF-1 查看器全池 / NF-2 图鉴 / NF-4 tooltip） | [内容工具与 appearance · NF-*](./editor/appearance-aimspeed.md#内容工具与预览nf-1-nf-2-nf-4)（§7.6） | — |
 | **`spec.appearance` 外观件是否生效**（cupola / engineDeck） | [内容工具与 appearance · appearance](./editor/appearance-aimspeed.md#applytankconfig-深拷贝-specappearance)（§8.1） | — |
 | **设计器叠加层与贴图基准是否一致** | [内容工具与 appearance · 叠加层基准](./editor/appearance-aimspeed.md#设计器叠加层基准与-tank_paintjs-统一)（§8.2） | — |
@@ -107,7 +107,7 @@
 
 ### 7.5 浏览器自动化测试链（2026-09-20，#F7）
 
-> `npm run test:browser` **六链**（smoke / r3 / run / r4 / ally / 3d）脚本矩阵与覆盖面；`window.__TEST__` 测试钩子；**r4 四条夹具约定**（玩家射击过滤 / 冻结敌人 / 雷场按 `spawnMine` 计数 / 注入在 `reload` 之后且 `timeout` 第三参）。**2026-10-27 起同页另收 R0 渲染基线链**（`npm run baseline`：三场景冻结首帧截图 + 帧时间采样）。
+> `npm run test:browser` **八链**（smoke / r3 / run / r4 / ally / 3d / encounter / perf）脚本矩阵与覆盖面；`window.__TEST__` 测试钩子；**r4 四条夹具约定**（玩家射击过滤 / 冻结敌人 / 雷场按 `spawnMine` 计数 / 注入在 `reload` 之后且 `timeout` 第三参）。**2026-10-27 起同页另收 R0 渲染基线链**（`npm run baseline`：三场景冻结首帧截图 + 帧时间采样）。
 
 **详见**：[浏览器自动化测试链](./editor/browser-tests.md)
 
@@ -164,6 +164,12 @@
 > 履带平铺对称 / 外观件实时预览 / 车长塔坐标统一——**摘要见主题页**，细则归 `DEVELOPMENT-batches-2026-10.md` §4.110 与 `js/tank_paint.js` 的 `cupolaAnchor`。
 
 **详见**：[内容工具与 appearance · 设计器三项](./editor/appearance-aimspeed.md#设计器三项15)
+
+## 9. 设计器武器配置端（2026-10-29 裁定，**设计预留 / 未落地**）
+
+> **本节是设计预留，不是现状。** 设计器从「几何 / 装甲 / 炮管炮盾 / 外观件」扩展为**武器完整配置端**：主副武器选型 + 机制参数赋值、自动塔攻/防参数、弹种环第二武器；新增两个外部 JSON 契约——`availability: {player, ally, enemy}`（三池过滤互不串扰）与 `appearance.primaryWeapon.muzzleAnchor` / `secondaryWeapon.mount`（炮弹生成与特效按实例锚点，缺省回退 `gunTip`）。**代码零落地**——设计器当前只有「主炮模式」下拉。
+
+**详见**：[设计器武器配置端](./editor/designer-weapon-config.md)（含「落地状态」表与「实施入口」的契约→消费方映射）
 
 ---
 

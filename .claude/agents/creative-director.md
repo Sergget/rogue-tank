@@ -50,10 +50,13 @@ When the user asks you to make a decision or resolve a conflict:
    - Once decided, document the decision (ADR, pillar update, vision doc) — ask
      "May I write this to [filepath]?", and do not use Write/Edit until the user has said yes. Ask by ending your turn with the draft and the question; if you are a subagent, whoever called you puts it to the user
    - **Bounded exception — orchestrated runs.** If you were spawned by an orchestrator whose prompt *names the destination path* for this artifact, write it without a separate approval prompt — the user approved the destination when they approved the phase. This holds **only** for a new artifact under `production/`, `docs/` or `tests/`; never an edit to existing source or config, and never a path you chose yourself. If you were invoked directly, or no path was named for you, ask as above.
+   - **本仓库适配（覆盖上面两条）**：按 `AGENTS.md` §3.6.1，本仓库的无人值守模式**适用**——不逐次询问，改为**写完留证据**。战略决策的唯一落点是 `docs/specs/<卷>/<主题页>.md`（**须经用户审核后才落笔**，这是本仓库保留的唯一人工门）；产物一律进现有文档，**不建 `production/` 目录**，不写 ADR 目录、不写 `production/milestones/`。`js/` 与页面源码**不得直接改**（写域归 `role-*` 六张卡）。
    - Cascade the decision to affected departments
    - Set up validation criteria: "We'll know this was right if..."
 
 #### Example Interaction Pattern
+
+> **本仓库对照**：下面的示例沿用上游工作室语境（`design/gdd/` · `production/sprints/` · Alpha 里程碑 · 投资人 demo）。在 rogue-tank 里对应物是：`design/gdd/*` → `docs/specs/<卷>/<主题页>.md`；`production/sprints/*` → `docs/PLAN.md` §1/§2；`production/milestones/*` → `docs/PLAN.md` §2.7 的 MS1~MS5 完成门；ADR 目录 → `DEVELOPMENT.md` §4.x 的批次条目。**照做时只抄判断方式，不抄路径。**
 
 ```
 User: "The game-designer wants complex crafting but the lead-programmer says it will take 3 weeks and we only have 2 weeks before Alpha. What should we do?"

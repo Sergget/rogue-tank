@@ -607,6 +607,19 @@ function obbMTV(tankCorners, covCorners) {
 //      叠回 B；改为「有推出就重扫，最多 RESOLVE_MAX_PASS 遍」直至无穿透。
 const RESOLVE_PUSH_BUFFER = 0.25;
 const RESOLVE_MAX_PASS = 4;
+
+// 掩体是否**阻断坦克移动**的唯一判据（2026-10-29 B1 抽出）。
+//   口径与旧内联表达式逐项一致：passability===0（岩石/单直线掩体/永久掩体）
+//   || shellBlock===true|'single'（全高实体）。`shellBlock:'wall'` 靠 passability=0 命中。
+//   可碾类（crushable：树/树桩/碎石）**不阻断**——resolveCoverCollisions 遇到它们只销毁不推出。
+//   泥/水（passability 0.4）不阻断，只减速。
+//   新增 tier 或改 shellBlock 语义时必须同时看这里与 `specs/map/cover-system.md`。
+function tierBlocksMove(tier){
+  if(!tier) return false;
+  if(tier.crushable) return false;
+  return tier.passability === 0 || tier.shellBlock === true || tier.shellBlock === 'single';
+}
+
 function resolveCoverCollisions(tank) {
   if(!tank || !Number.isFinite(tank.x) || !Number.isFinite(tank.y)) return;
   // #AB11b（§4.161）：把本次解算的**累计推出法线**留给调用方（tank_move 的沿墙滑行要用）。
@@ -631,8 +644,8 @@ function resolveCoverCollisions(tank) {
         }
         // #E3（2026-09-20）：passability=0（水/河）阻断移动；确定性挡弹类照旧实体推出；
         // 泥(0.4)不推只减速。driveBy 门控（半高掩体重坦可越）已随半高掩体移除。
-        const blocked = tier.passability === 0 ||
-          tier.shellBlock === true || tier.shellBlock === 'single';
+        // 2026-10-29 B1：判据抽成 `tierBlocksMove()`，与 `probeMoveBlocked` 同源（禁止各写一份）。
+        const blocked = tierBlocksMove(tier);
         if (blocked) {
           // 沿同一 MTV 方向多推 RESOLVE_PUSH_BUFFER（= 深度 + 缓冲），保证分离而非恰好贴合
           const depth = Math.max(1e-6, mtv.depth);
@@ -648,6 +661,163 @@ function resolveCoverCollisions(tank) {
     }
     if(!pushed) break;   // 无穿透即收敛（热路径常见情形：一遍退出）
   }
+}
+
+// ---------- 前向探测原语（2026-10-29 B1，MS1 / #AB11b 后半的前置） ----------
+//
+// 为什么需要它：AI 现在只有两种绕障手段——`_losDetour`（要求 `!los`，低矮掩体不满足）
+//   与 `#M` 机动层（不看障碍物）。物理层 `resolveCoverCollisions` 只会把车从掩体里推出，
+//   从不告诉决策层「前面走不通」。于是三辆车会顶着同一片掩体排队（§4.160 实测 67.8% 的帧
+//   前方 50px 是 `cover:full`，同时 `move=1`、速度 0）。
+//
+// 两条纪律（都是踩过的坑）：
+//   1. **只认掩体几何，绝不查 entities**。§4.160 拿 `spawnBlockedWhy`（出生点判定，把实体
+//      自身也算成障碍）当行进判定，误判了一整轮。实体互推由 `resolveTankCollisions` 负责，
+//      不在本原语的职责内。
+//   2. **阻断判据与 `resolveCoverCollisions` 同源**（`tierBlocksMove`），不另写一份。
+//
+// 扫掠方式：车体 OBB 沿 heading 平移 dist，取「起点四角 ∪ 终点四角」八个点做 SAT。
+//   两个凸集之间「平移过程中是否相交」等价于「凸包是否相交」，而 SAT 对多余轴只会多算、
+//   不会漏判 —— 因此直接复用 `obbOverlap` 即可，无需显式求凸包。
+//
+// 用法（B2 的绕障状态机）：
+//   const p = probeMoveBlocked(t, t.hullAngle, 90);
+//   if (p.blocked) { /* 承诺期内朝 p.nx/p.ny 的切向绕行 */ }
+//
+// 用法（A* 航点寻路，2026-10-29 用户裁定「探测层同时要能当栅格输入」）：
+//   const cell = probeCellPassable(cx, cy, tankQueryRadius(t));
+//   if (cell.passable) grid[i] = cell.cost;
+
+/** 构造以 (cx,cy) 为心、half 为半边的轴对齐方形（SAT 用；保守取外接方形）。 */
+function _probeSquare(cx, cy, half){
+  return [
+    { x: cx + half, y: cy - half }, { x: cx + half, y: cy + half },
+    { x: cx - half, y: cy + half }, { x: cx - half, y: cy - half }
+  ];
+}
+
+/** 车体在 (cx,cy)、朝向 angle 时的四角（缺省尺寸与 `tankQueryRadius` 同口径）。 */
+function _probeHull(cx, cy, angle, halfL, halfW){
+  return partCorners(cx, cy, angle, halfL, halfW);
+}
+
+/**
+ * 前向探测：从坦克当前位置沿 heading 前进 dist，车体是否会撞上阻断类掩体。
+ *
+ * @param {{x:number, y:number, hullAngle?:number, hullLen?:number, hullWid?:number}} t
+ *                 实体（缺省 64×38、朝向 0；其余字段不读）
+ * @param {number} heading 前进方向（弧度，世界坐标）
+ * @param {number} dist    探测距离（px）
+ * @returns {{blocked:boolean, tier:(string|null), nx:number, ny:number, hitDist:number}}
+ *   `nx/ny` 为命中处掩体表面的外法线（由 `coverNormalAt` 给出，指向坦克一侧，已归一化）；
+ *   `hitDist` 为沿路径**首次**接触的距离（未命中等于 dist）。
+ *   **不修改 t 的任何字段**。
+ */
+function probeMoveBlocked(t, heading, dist){
+  const out = { blocked: false, tier: null, nx: 0, ny: 0, hitDist: dist };
+  if(!t || !Number.isFinite(t.x) || !Number.isFinite(t.y)) return out;
+  const d = (Number.isFinite(dist) && dist > 0) ? dist : 0;
+  if(d === 0) return out;
+  const hd = Number.isFinite(heading) ? heading : 0;
+  const angle = Number.isFinite(t.hullAngle) ? t.hullAngle : 0;
+  const halfL = (Number.isFinite(t.hullLen) ? t.hullLen : 64) / 2;
+  const halfW = (Number.isFinite(t.hullWid) ? t.hullWid : 38) / 2;
+  const hx = Math.cos(hd), hy = Math.sin(hd);
+
+  // 候选粗筛：扫掠区中心 + 覆盖半径（车体半径 + 半程 + 余量），空间哈希会再收敛
+  const qr = tankQueryRadius(t);
+  const midX = t.x + hx * d / 2, midY = t.y + hy * d / 2;
+  const cands = coverQueryCandidates(midX, midY, qr + d / 2 + 64);
+  if(!cands || !cands.length) return out;
+
+  // 预筛：只留会阻断移动的掩体（跳过 road / 可碾 / 非阻断），避免每个采样点重复判 tier
+  const blocking = [];
+  for(const cov of cands){
+    if(!cov || cov.hp <= 0) continue;
+    if(cov.tier === 'road') continue;            // 纯地面标识，零物理（同 resolveCoverCollisions）
+    const tier = COVER_TIERS[cov.tier];
+    if(!tierBlocksMove(tier)) continue;
+    blocking.push({ cov, parts: coverCollisionParts(cov) });
+  }
+  if(!blocking.length) return out;
+
+  const start = _probeHull(t.x, t.y, angle, halfL, halfW);
+  const end = _probeHull(t.x + hx * d, t.y + hy * d, angle, halfL, halfW);
+  const swept = start.concat(end);
+
+  let hit = null;
+  for(const b of blocking){
+    for(const part of b.parts){
+      if(obbOverlap(swept, part)){ hit = b.cov; break; }
+    }
+    if(hit) break;
+  }
+  if(!hit) return out;
+
+  out.blocked = true;
+  out.tier = hit.tier;
+  // 首次接触距离：在 [0, d] 上二分（只做 8 次，且仅在本就命中的路径上）
+  let lo = 0, hi = d;
+  for(let i = 0; i < 8; i++){
+    const m = (lo + hi) / 2;
+    const probe = _probeHull(t.x, t.y, angle, halfL, halfW)
+      .concat(_probeHull(t.x + hx * m, t.y + hy * m, angle, halfL, halfW));
+    let any = false;
+    for(const b of blocking){
+      for(const part of b.parts){ if(obbOverlap(probe, part)){ any = true; break; } }
+      if(any) break;
+    }
+    if(any) hi = m; else lo = m;
+  }
+  out.hitDist = hi;
+  const cpx = t.x + hx * hi, cpy = t.y + hy * hi;
+  const nrm = coverNormalAt(hit, cpx, cpy);
+  if(nrm){
+    // `coverNormalAt` 返回的是边的**固定绕向**法线，方向取决于多边形绕向（同一块掩体
+    //   左右两边可能都指向 +x）。AI 需要的是「由掩体指向坦克」的推出方向，这里统一翻正。
+    let nx = nrm.nx, ny = nrm.ny;
+    const bx = t.x - cpx, by = t.y - cpy;
+    if(bx * nx + by * ny < 0){ nx = -nx; ny = -ny; }
+    out.nx = nx; out.ny = ny;
+  }
+  return out;
+}
+
+/**
+ * 栅格通行采样：以 (cx,cy) 为格心、r 为车体外接半径，判断该格能否容纳车体。
+ * 供 A* 航点寻路直接消费（`PLAN.md` §2.8 B1 的 2026-10-29 用户裁定）。
+ *
+ * @param {number} cx,cy 格心（世界坐标）
+ * @param {number} r     车体外接半径（通常 `tankQueryRadius(t)`）
+ * @param {object} [opts] `{ margin }` —— 贴墙惩罚带宽，缺省 `max(8, r*0.35)`
+ * @returns {{passable:boolean, tier:(string|null), cost:number}}
+ *   不可通行 ⇒ `cost = Infinity`；贴墙（放不下 margin 余量）⇒ `cost = 1.6`（寻路会绕开窄缝）；
+ *   空旷 ⇒ `cost = 1`。**不修改任何状态**。
+ */
+function probeCellPassable(cx, cy, r, opts){
+  /** @type {{margin?:number}} */
+  const o = opts || {};
+  const _m = o.margin;
+  const rad = (Number.isFinite(r) && r > 0) ? r : 32;
+  const margin = (Number.isFinite(_m) && _m >= 0) ? _m : Math.max(8, rad * 0.35);
+  const cands = coverQueryCandidates(cx, cy, rad + margin + 64);
+  if(!cands || !cands.length) return { passable: true, tier: null, cost: 1 };
+
+  const hard = _probeSquare(cx, cy, rad);
+  const soft = _probeSquare(cx, cy, rad + margin);
+  let tightTier = null;
+  for(const cov of cands){
+    if(!cov || cov.hp <= 0) continue;
+    if(cov.tier === 'road') continue;
+    const tier = COVER_TIERS[cov.tier];
+    if(!tierBlocksMove(tier)) continue;
+    for(const part of coverCollisionParts(cov)){
+      if(obbOverlap(hard, part)) return { passable: false, tier: cov.tier, cost: Infinity };
+      if(obbOverlap(soft, part)) tightTier = cov.tier;
+    }
+  }
+  if(tightTier) return { passable: true, tier: tightTier, cost: 1.6 };
+  return { passable: true, tier: null, cost: 1 };
 }
 
 // ---------- 覆盖物空间哈希（2026-10-10 #N1/strip 性能） ----------
@@ -1128,6 +1298,10 @@ if (typeof module !== 'undefined' && module.exports) {
     obbMTVs,
     obbMTV,
     resolveCoverCollisions,
+    tankQueryRadius,       // B1（2026-10-29）：车体外接半径（probeCellPassable 的入参来源）
+    tierBlocksMove,        // B1（2026-10-29）：掩体是否阻断坦克移动的唯一判据
+    probeMoveBlocked,      // B1：前向扫掠探测（AI 绕障用）
+    probeCellPassable,     // B1：栅格通行采样（A* 航点寻路用）
     coverCollisionParts,
     coverPartAABBs,
     coverEnvelope,

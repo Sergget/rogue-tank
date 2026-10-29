@@ -8,7 +8,7 @@
     "serve": "node server.js",
     "check": "node scripts/check-html.js && npm run typecheck",
     "typecheck": "tsc --noEmit",
-    "test:browser": "node scripts/test-browser-smoke.cjs && node scripts/test-browser-r3.cjs && node scripts/test-browser-run.cjs && node scripts/test-browser-r4.cjs && node scripts/test-browser-ally.cjs && node scripts/test-browser-3d.cjs && node scripts/test-browser-encounter.cjs && node scripts/test-browser-perf.cjs",
+    "test:browser": "node scripts/test-browser-smoke.cjs && node scripts/test-browser-r3.cjs && node scripts/test-browser-run.cjs && node scripts/test-browser-r4.cjs && node scripts/test-browser-ally.cjs && node scripts/test-browser-3d.cjs && node scripts/test-browser-encounter.cjs && node scripts/test-browser-perf.cjs && node scripts/test-browser-replay3d.cjs",
     "baseline": "node scripts/browser-baseline.cjs",
     "baseline:3d": "node scripts/browser-baseline3d.cjs",
     "baseline:3d:all": "node scripts/browser-baseline3d.cjs --all",

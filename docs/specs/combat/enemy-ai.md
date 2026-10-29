@@ -1,7 +1,7 @@
 # 敌方 AI
 
 > **摘要**：敌人什么时候被激活、怎么警觉、怎么接近玩家、又怎么分工包夹——AI 决策层的全部现行口径。
-> **适用版本**：现行（2026-10-22）
+> **适用版本**：现行（2026-10-29；新增「绕障状态机」）
 > **源自**：`docs/specs/combat.md` §5、§8.3、§13.7、§13.8（2026-10-21 拆分）
 > **相关**：[敌人强度与难度](./enemy-scaling.md) · [视野与镜头](./camera-vision.md) · [Boss 战斗](./boss-combat.md)
 
@@ -11,6 +11,7 @@
 - [接战机动随机化](#接战机动随机化)
 - [交战结构重做](#交战结构重做)
 - [tier 分层与辅助行为](#tier-分层与辅助行为)
+- [绕障状态机（B2，2026-10-29）](#绕障状态机b22026-10-29)
 
 ## 激活与警觉
 
@@ -140,6 +141,31 @@
 - **AI tier 分层**：`RULES.ai.tierProfiles` 三档（0 标准 / 1 engageMul1.1+aimTolMul0.8 / 2 再加 stunResist），实体 `aiTier` 注入后由 `aiTierProfile(tier)` 消费；engage 以触发距离比值为难度代理调制。
 - **行为补齐**：patrol 早退分支输出 wander 微摆动（`patrolWanderSigma/Speed` 消费，ctx.time 或本地相位驱动）；新增 `coverSeek` 态——重甲（aiTier≥1 或车体正面≥100mm）且 hp<60% 时撤至半径 500px 内最近**全高挡弹掩体**背弹面（掩心 − 朝玩家单位向量×(半深+40px)），到位 ≤90px 原地还击；`flankDist` 收口 RULES.ai。**沿革**：本条早期写「full/half 掩体」——`half` tier 已于 2026-09-20 #E3 整体删除（现只有 `tierGroup:'structure' && vision` 的全高掩体挡弹），故改为全高。
 - **AI 微行为（原 §5.1，仍有效）**：`aiDecideEnemy` 在接战非特殊态注入随机微行为——peek 车体摆角（`RULES.ai.peekAngleMax` / `peekInterval`）与换位（`RULES.ai.reposInterval`），炮塔锁敌与开火条件不变。**注**：这两项现仅对 **Boss / SPG 定距车 / 整体关闭机动层** 生效，见 [接战机动随机化](#接战机动随机化)。
+
+## 绕障状态机（B2，2026-10-29）
+
+**为什么需要它**：物理层只有 MTV 推出、没有切向分量（§4.161 的 `applyWallSlide` 只解掉「小掩体顶住」），AI 侧仍然**没有绕障意图**——`_losDetour` 要求 `!los` 且靠 `losBlocker` 选边，低矮掩体/纯物理拥堵都不满足；`#M` 机动层根本不看障碍物。实测三辆车顶着同一片掩体排队（前方 50px 为 `cover:full` 的帧占 67.8%，同期 `move=1`、速度 0）。
+
+**机制**（`js/tank_ai.js` 的 `_applyDetour`）：
+
+1. **触发**：只接管「前进意图」（`out.move > 0`）且 `ctx.probeMoveBlocked(t, t.hullAngle, probeDist).blocked` 为真。驻停/后撤保持确定性，不触发。
+2. **承诺期**：进入后至少 `commitSeconds` 秒内**不被机动层/分离力改写方向**。这是与 §4.157「1 秒反应式侧转」的分水岭——那次承诺太短，刚转开就被下一帧的直冲意图拉回，实测比不改还远（595→641px）。
+3. **方向**：沿命中法线的**切线**（`probeMoveBlocked` 已把法线统一翻成「由掩体指向坦克」）。侧别在触发那一刻定一次：**几何优先**（取切线更接近「指向目标」的一侧）、两侧接近时用 `tankSideSeed` 兜底。纯 id 种子定侧会把车绕向背离玩家的方向（实测净推进 −13px、绕障帧占 78%）。
+4. **防打转**：承诺期到点仍被挡 ⇒ 续绕 `extendSeconds`；绕满 `maxCommitSeconds` 仍不通 ⇒ **换一侧重试**（`_detourBias` 翻转）。
+5. **不钻死角**：新绕行方向本身也堵着（楔形夹角）⇒ 换另一侧。否则会朝墙缝里钻，`resolveCoverCollisions` 的 4 遍迭代解不干净（实测残留穿透 14 帧）。
+
+**goalLos 双向语义（2026-10-30 复查补全）**：`_applyDetour` 接收调用方算好的 `los`：
+① **守卫**——`goalLos === true`（看得见目标）时**不触发绕行**且不调探测（能看见就不需要绕，band.max 驻停射击即可；v5 实测绕行把车带离射界 7: 295→416）；
+② **退出**——绕行中 `goalLos` 变 true（绕到了能看到目标的位置）⇒ **立即退出**（「绕过去」的定义是重新进入交战，不是前方通畅；窄缝地形「通畅 0.25s」出口永不满足）。退出后同帧不得重建（`_detourCooldown = releaseClearSeconds` 压制——刚绕出来的位置车头还对着掩体）。
+配套 **负收益熔断**：绕行段没有朝目标的回正分量，侧别选错会把车绕离目标（seed 123 实测净推进 −203/−251）。每 `bailCheckSeconds`(0.6s) 检查到目标距离，连续两窗变远 ⇒ 放弃绕行 `bailoutSeconds`(3s) + 换侧。
+
+**两个调用点，缺一个就有一类敌人永远绕不过去**：① `!los` 的 search 分支；② 主接战路径尾部（机动层/分离力/装填脱离之后）。实测卡在墙上的三辆车里有两辆根本走不到主路径（一辆在 search、一辆在 flank）。
+
+**数值唯一口径** `RULES.ai.detour`：`enabled` / `probeDist` / `commitSeconds` / `extendSeconds` / `maxCommitSeconds` / `releaseClearSeconds` / `moveSpeed`。`enabled=false` 一键退回旧语义（代码保留，对照/回退用）。
+
+⚠️ **`probeDist` 是敏感参数**：60（≈ 车头前 28px）最优；70 以上会在「还走得动」时就触发，敌人全程贴墙绕圈、反而推不进来（seed 4242 实测 minDist 152 → 641）。改地图生成器后必须重跑 `node scripts/measure-press.cjs` 复查。
+
+**回归**：`scripts/test-ai-detour.js`（侧别种子两处实现一致 / 关停即旧语义 / 探测不挡不触发 / 承诺期不被清除 / 驻停不接管 / 绕满换侧）。
 
 ## 相关页面
 - [敌人强度与难度](./enemy-scaling.md) — `entityMults` 与固定基准

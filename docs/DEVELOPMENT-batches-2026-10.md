@@ -4029,6 +4029,8 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 
 **红线（绝不降级）**：模拟步长 1/120、输入采样、HUD 刷新、炮弹碰撞判定、AI 决策频率。它们一旦降，手感与公平性当场崩（120Hz 步长是命中精度与穿深结算的前提，AI 决策频率决定敌人反应是否可信），而且本来不是瓶颈——60fps 下每帧只跑 2 次 `update(1/120)`，HUD 每 150ms 一次。**降级只能动表现，不能动模拟。**
 
+**降档提示必须独立于战斗消息流**：降档提示最初塞进共享 `toast()`，实测被「友军受阻」这类高频战斗消息当场顶掉——玩家最需要解释「画面为什么变糊」的那一刻什么都没看到。改为独立 `#perfNotice`（右上角、琥珀色、3s 自隐），与战斗消息在位置与色彩上分离。**降级是玩家会察觉的状态突变，它的解释不能和可丢弃的战斗日志共用一条通道。**
+
 ### 3) 三档与门控参数
 
 - 三档：`high` 1.0 / 420 / 0.09 / 40 / 0.25；`mid` 0.85 / 260 / 0.14 / 32 / 0.40；`deck` 0.7 / 160 / 0.20 / 24 / 0.60（`resolutionScale` / `particleCap` / `dustIntervalS` / `maxShells` / `staticRebuildIntervalS`）。`high` 的 1.0、0.09 与 0.25 刻意等于「接线前」的画质与节流值，否则降级没有对比基线；`deck` 0.60 仍能在半秒内看到楼变成残骸。`getTierConfig` 返回六键（上述五键 + `name`），页面读 `perfCfg.staticRebuildIntervalS || 0.25`，`|| 0.25` 只是旧缓存规则文件的兜底。
@@ -4069,9 +4071,189 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 - `node scripts/wiki-check.js` → `broken=0 anchorBad=0 struct=0 template=0`。
 - **G1 剩余两项**：精修单车与单主题场景（资产管线）、载具手感第二轮（侧滑/坡面/悬挂落地/碰撞反馈）。
 
+## §4.157 2026-10-28 画面几何修复 + 复查批次收口
+
+**背景**：§4.155 / §4.156 之后对 G1 做全量自查（12 条 #AB 清单）。本批修掉三条并**收口一条负结果**：画面拉伸（#AB1，最影响观感）、`particlePeak` 不随重开复位（#AB6）、结算态 R 键双职责（#AB7）。#AB11「敌人不推进」当日试了三版全部无效并整段回退，真因在两天后才定位（§4.160 / §4.161）。
+
+### 1) #AB1 画面拉伸：基准分辨率跟随视口
+
+- **证据**：`tank_3d.html:12` 的 `#c { width:100vw; height:100vh }` 恒把 canvas 拉满视口，而 `BASE_RES` 是固定值 ⇒ 16:10 视口下纵向缩放 1.111（1280×800 → canvas 1280×720），圆形掩体变竖椭圆、坦克被拉高。玩家会读成「美术做歪了」。
+- **修法**：无 `?w=&h=` 时 `BASE_RES` 取 `innerWidth/innerHeight`（1 CSS px = 1 渲染 px），按 `RES_MAX_PIXELS = 1920×1200` 的像素预算**等比**收缩（4K 视口不按 4 倍填充率渲染）；`resize` 加 250ms 防抖重算，否则拖拽/全屏后又回到拉伸；显式 `?w=&h=` 语义收窄为「钉死尺度」，供基线/对照/三档测试复现。
+- **实测**：1280×800 视口变形比 **1.111 → 1.0000**；`test-browser-perf` 第 4 组锁住「跟随视口 / 视口改动后重算 / 显式参数仍钉死」三态。
+
+### 2) #AB6 / #AB7 两条小修
+
+- `restartEncounter()` 补 `particlePeak = 0;`（#AB6）——该变量原本只在 `__TEST3D__.perf().reset()` 归零，重开后 F1 与浏览器链读到的是跨局峰值，用它校准 `particleCap` 会偏大（诊断可信度问题，非玩法缺陷）。
+- `input.actions.reloadClip` 加 `if(encOutcome) return;`（#AB7）——结算态 R 同时命中「重开」与「弹夹整装」两个 `window` 监听，胜利路径（玩家还活着）会往新一局残留一条提示。链里补了 toast 断言。
+
+### 3) #AB11 负结果（本批最重要的留档）
+
+三段真因（机动层抹平推进 / 物理拥堵 / 站位外沿偏大）要到 §4.160 才被逐帧采样确认。本批试过三版并**全部整段回退**：
+
+| 方案 | 结果 |
+|---|---|
+| `pressRange = 340` 覆盖站位外沿 | 无改善 |
+| 远距禁用机动层（直线压上） | 最近距离 **595 → 641px（更远）** |
+| 1 秒无位移侧转脱困 | 无改善 |
+
+前两版让敌人比原来更远——禁用绕行后正对掩体硬顶，比「边绕边顶」更难滑过去。**教训：距离参数不是病根**，诊断顺序必须是「决策输出 → 实体速度/位移 → 前方障碍」。
+
+### 4) 验证
+
+`npm run check` EXIT=0；`npm test` 69 通过 / 0 失败；`npm run test:browser` 八链全绿（perf 链新增第 4 组）。
+
+**归口**：`specs/map/perf-budget.md` §「基准分辨率的取法」 · `specs/editor/browser-tests.md` · `docs/ISSUES.md` #AB1/#AB6/#AB7/#AB11/#AB11b。
+
+## §4.158 2026-10-28 遭遇模块防御性契约 + 提示可见性
+
+**背景**：#AB2 / #AB3 / #AB4 三条同属一类——**配置或时序走到边界时系统静默坏掉**：没有报错、没有提示，玩家只看到「卡住了」。本批把三条都改成显式失败或显式兜底，并把两条测试假红按「写意图不写观测值」重写。
+
+### 1) #AB3 空波自我了结
+
+- **证据**：清波判定是 `enemyAlive === 0 && enc.spawnedThisWave > 0`（`js/tank_encounter.js:476`），而 `spawnedThisWave` 来自 pending 的 1:1 映射（`:329-343`）——`units: []` 时 pending 为空 ⇒ `spawnedThisWave = 0` ⇒ 本波永远不清、也不判负（玩家还活着），只能刷新页面逃生。
+- **修法**：`spawn` 时置 `enc.emptyWave = units.length === 0`，清波判定放宽为 `spawnedThisWave > 0 || emptyWave`，补发 `wave-empty` 事件，页面据此弹红字。
+- **反向验证**：`test-encounter.js` 用「空波 + 正常波」编成跑完整流程，断言 1 条 `wave-empty`、2 条 `wave-clear`、结局 `victory`——没有这层保护时该用例会卡在 `maxFrames`（outcome=null）。
+
+### 2) #AB4 `intelInterval ≤ 0` 钳位
+
+- `resolveEncounterConfig` 原来只做 `Math.max(0, …)`，允许 0 ⇒ `while (iv > 0 && …)` 永不进入 ⇒ 不产 intel 事件 ⇒ `refreshEnemyIntel()` 不执行 ⇒ 敌人只在出生那帧拿到玩家方位。语义上 0 像「不用刷新」，实际等于**关掉防龟缩**（§4.155 的三条反面教训之一），而且没有任何报错。
+- **修法**：新增 `INTEL_MIN_SECONDS = 0.5`，0 与负值都钳到 0.5s，并导出供测试引用。三条断言含**哨兵**「钳位后 intel 事件真的发得出来」（20 秒 36 条）。
+
+### 3) #AB2 清波提示不再被喘息提示顶掉
+
+- `js/tank_encounter.js:479-488` 在**同一次 `updateEncounter` 调用**里连续 push `wave-clear` 与 `breather`，而 `toast()` 只有一个 DOM 槽位（`tank_3d.html:201`）⇒ 第二次覆盖第一次，玩家永远看不到「第 N 波清除」这条唯一的正反馈。
+- **修法**：`wave-clear` 只记 `pendingWaveClear`，由同帧 `breather` 合并成「第 N 波清除 · 喘息 12s · 抢修 +X · 补员 N」；最后一波无喘息可合并，直接单独弹；`spawn` 与 `restartEncounter()` 清残留，避免跨波次带出旧文案。
+
+### 4) 测试按意图重写
+
+- encounter 链两条阈值从「敌人应到 620px / 4 秒内再近 40px」改为「出生距离 < 660px（平台期上沿）」「相对出生距离推进 ≥ 25px 或已进入 700px 内」。
+- `test-browser-r4` 的 #J4 从 `waitFor(1200)` 改条件等待 `waitForFunction(pred, null, { timeout: 4000 })`，**保留上限**——真有「永不发射」的回归仍判红。
+- 通用写法归口 `specs/editor/browser-tests.md`「断言写法与假红规避」。
+
+### 5) 验证
+
+`npm run check` 全绿；`npm test` 69 通过 / 0 失败；`npm run test:browser` 八链全绿。
+
+**归口**：`specs/combat/encounter-director.md` · `specs/editor/browser-tests.md` · `docs/ISSUES.md` #AB2/#AB3/#AB4/#AB5。
+
+## §4.159 2026-10-28 遭遇时长预算建模
+
+**背景**：#AB10 的原始描述是「41 秒 vs 目标 180~300 秒，差 4~12 倍」——一个总时长同时受「玩家存活」「内容量」「固定开销」三者影响，而三者的修法互斥（改错方向等于互相抵消）。本批先做**分解**再定方向，**不调任何 `waves`**。
+
+### 1) 分解结果
+
+`measure-encounter.cjs` 新增按时长分解。第 3 次实测：`wave 20.3s / 54%`、`breather 11.8s / 31%`、`telegraph 1.5s / 4%`，平均 **5.07s 清 1 辆**。
+
+- 37.9s 是**玩家阵亡**时长，不是通关时长 ⇒ 这一层不修（它测的是难度，不是内容）。
+- 不死天花板 = 12 敌 × 5.07s + 17.6s 固定开销 = **89s** ⇒ 即使玩家满分发挥也到不了 180s。**真缺口是内容量（缺 2~3 倍），不是数值。**
+
+### 2) 「堆血量」列为禁区
+
+不产生新决策，且把「绕侧省 1 发」的收益从 33% 稀释到 17%，反向破坏 #N1 的侧翼价值。
+
+### 3) 目标参数组（全部 PLACEHOLDER）
+
+7 波 / 31 敌 / 每波 3~6（守同屏 5 辆上限）+ 喘息随规模浮动 `clamp(6, 4 + 敌数 × 1.2, 14)`。
+
+### 4) 为什么本轮不落地 `waves`
+
+`s/杀` 会随 #AB11b（绕障）修复而**变长**——敌人压到 340px 后玩家必须边走边打，空窗变多。现在改有过度补偿风险。**先修行为，再定内容量**——这个顺序比任何一个具体数值都重要。
+
+### 5) 验证与归口
+
+规格、三段预算表与失败信号（A 难度 / B 内容量 / C 无呼吸窗口）全部写进新建的 `specs/combat/encounter-pacing.md`；实现留待 #AB11b。
+
+**归口**：`specs/combat/encounter-pacing.md`（新建） · `specs/combat/encounter-director.md` · `docs/ISSUES.md` #AB10。
+
+## §4.160 2026-10-28 探针推翻「敌人不会推进」的前提（#AB11b 真因重写）
+
+**背景**：§4.157 三次参数试错全败后，本批改用**逐帧采样**（`tmp/dbg-press.cjs`，首波 3 辆 medium，0.4s 间隔，9~22 秒）代替距离快照。结论推翻了 #AB11 的前提。
+
+### 1) 前提被推翻
+
+`enemy_w0_2` 实测能压到 **260px**（`v` 峰值 239 / 上限 250）⇒ 「敌人不会推进」是错的，能力没有缺失。
+
+### 2) 真因拆成两处
+
+1. `resolveCoverCollisions` 只有 MTV 推出、**没有切向分量** ⇒ 正对掩体时位移被完整抵消（`v=0`、`ahead=cover:full` 22/23 帧）。
+2. 探针的 `ahead` 取自出生点判定 `spawnBlockedWhy`，把自身/同伴算成障碍 ⇒ 688px 抖动。**这是探针用错，不是 AI 缺陷**（§4.161 复核纠正）。
+
+### 3) 第三现象
+
+全程 `aiState = patrol` 但机动脚本在跑 ⇒ **patrol 也走机动层**，敌人接近靠 wander 碰运气。进攻方靠巡逻碰运气属设计缺陷。
+
+### 4) 两条回退留档
+
+- `pressRange` 覆盖站位 + 禁用机动层：实测 595 → **641px（恶化）**。
+- 沿墙滑行首版：物理上正确（MTV 缺切向分量可数学证明），实测 637 → 567px 略改善，但撞碎 `test-tankcollision` 的 #N1「岩石硬阻断」坐标断言 ⇒ **语义冲突不是参数问题**，整段回退，次日按用例意图切分重做（§4.161）。
+
+### 5) 方法沉淀
+
+`grep` + 一次探针不够，要**看单个实体的完整时序**。同一批 3 辆车有三种完全不同的卡法（正对掩体 / 前方是自己 / wander 碰巧走对），把它们当成一个「敌人不推进」的问题去修，三次都是错的。
+
+**归口**：`docs/ISSUES.md` #AB11b / #AB14。
+
+## §4.161 2026-10-28 沿墙滑行（#AB11b 半解）
+
+**核心**：`resolveCoverCollisions` 只有 MTV 推出、无切向分量 ⇒ 正对掩体时位移被完整抵消（实测 `cover:full` 22/23 帧、表速 0、22 秒净推进 13px）。新增 `applyWallSlide`。
+
+### 1) 关键是「撤销本帧位移后沿切线重走」
+
+不是在被推回的位置上再叠加一次。叠加看着简单，实测把车沿岩壁带出 **1800px**，直接撞碎「不可穿透」契约。现实现总位移不超额（实测比值 1.000）。
+
+### 2) 参数
+
+`RULES.speed.wallSlide{trigger 0.35, speedFactor 0.55, enabled}`。`trigger 0.35` 对应入射角 69.5°，斜切不触发；`speedFactor` 与重坦泥地 `passability` 同量级。正撞按 id 定侧（90 帧翻转 0 次）。
+
+### 3) 测试口径切分（本批最重要的判断）
+
+`#N1` 断言 `x <= 583.5` 是拿坐标近似「没穿透」，有绕行能力后会把「绕过去」判成违规。但 #N1 测的是「贴岩不锁死速度/转向」，与滑行正交且是**串行位置断言**。所以 —— **#N1 组关滑行，另立 #AB11b 组专测滑行（7 条断言）**。不是改弱断言，是把两组不同意图的用例拆开。
+
+### 4) 纠正上一轮
+
+探针的 `ahead` 取自 `spawnBlockedWhy`（出生点可用性），把自身算作阻挡是**正确行为**，§4.160 的「先修 ahead 排除自身」判断作废。
+
+### 5) 实测
+
+`enemy_w0_1` 688 → 538px（改善 150）；`enemy_w0_0` 仍 629（大掩体，滑到尽头要时间）。**滑行只解掉「小掩体顶住」这一类**，AI 侧选择性绕行仍未做。
+
+**归口**：`specs/map/terrain.md` §「沿墙滑行」 · `docs/ISSUES.md` #AB11b。
+
+## §4.162 2026-10-28 代码审查批次（#AB14 + 四处小修）
+
+**背景**：对当日未推送提交做审查。**修掉一条 P0**——它会让波次永不清。
+
+### 1) #AB14 P0：滑行把坦克滑出世界边界且永久留在场外
+
+- **断裂点**：`driveTank` 的顺序是「位移 → 世界边界钳制 → 掩体推出 → 沿墙滑行」，而滑行的回滚锚点是「位移前」的坐标 ⇒ 回滚把边界钳制修正**一起撤销**。
+- **实测**（贴西边界 + 正北岩石）：240 帧里 **168 帧越界**（端点 x = −204），延长到 300 帧外扩至 x = −313 并**永久留在场外**（每帧钳制拉回、每帧回滚再扔出去）。`tank_3d` 与 `tank_battle` 都传 `worldBounds` ⇒ 敌人卡在界外 ⇒ `enemyAlive` 永不为 0 ⇒ **波次永不清（软锁）**。
+- **修法**：边界框由 `tankBoundsFor` 统一产出（位移后与滑行后共用同一份）；`applyWallSlide` **返回「是否真的滑过」**；`driveTank` 只在 `true` 时 `clampTankToBounds` 重钳一次（常规帧零开销）；`applyWallSlide` 本身仍不碰边界（职责切开）。顺带堵掉「只给单边边界 ⇒ `NaN` 写进坐标」。
+
+### 2) 四处小修
+
+| # | 问题 | 修法 |
+|---|---|---|
+| ② | 滑行侧别种子只看 id 首字符 ⇒ `enemy_*` 全场同侧 | 改整串 id 的 FNV-1a |
+| ③ | 遭遇模块 `enterTelegraph` 之后的终局路径未短路（错误处理路径，今日不可达） | 补短路 |
+| ④ | 补员车槽号在 `spawnTank` 之前取（偏一位） | 调整取值次序 |
+| ⑤ | `enabled=false` 的回退配置缺 `staticRebuildIntervalS`（基线正好走这条路径） | 补键 |
+| ⑥ | 页内 `finishEncounter` 与模块同名函数冲突 | 改名 `endEncounter` |
+
+（① 即 #AB14。）
+
+### 3) 复盘口径
+
+原有的滑行用例**全部不传 `worldBounds`**——边界语义在测试里一直是空的，所以这条 P0 从 §4.161 落地到本批才被发现。新增 `#AB14` 组 3 断言补上。
+
+### 4) 验证
+
+`npm run check` 全绿；`npm test` **69 通过 / 0 失败**；`wiki-check` 全绿。
+
+**归口**：`specs/map/terrain.md` §「沿墙滑行」 · `specs/combat/encounter-director.md` · `specs/map/perf-budget.md` · `docs/ISSUES.md` #AB14。
+
 ## §4.163 2026-10-28 Boss 战地图生成器两处缺陷（#AB15 / #AB16）
 
-> 体例说明：§4.157~§4.162 的正文未落到本文件，暂见 `DEVELOPMENT.md` §4.0 索引表与 §3 摘要；本条按现行体例续写。
+> **体例补记（2026-10-29）**：§4.157~§4.162 的正文当时未落到本文件，已于 2026-10-29 按 `DEVELOPMENT.md` §4.0 索引表、`docs/ISSUES.md` 与当日实测记录回填（内容与索引摘要逐项对齐，未改动任何结论）。
 
 **背景**：2026-10-27（§4.152）Boss 节点从「方形模板竞技场」切到「标准 strip 生成器 3×3 屏」，两条只服务旧路径的逻辑随之失效，当日未察觉，由本次定向探针在 500 个 Boss 节点上实测暴露。
 
@@ -4163,3 +4345,374 @@ shell.pen = stats.penetration(144) × ammo.pen × penMult + ammo.penAdd
 
 `npm run check` 退出码 0；`npm test` **72 通过 / 0 失败**；`npm run test:browser` **八链 ALL PASS**；`node scripts/batch-gate.js --browser` → `GATE: PASS`；`wiki-check` 全绿。
 **归口**：`specs/combat/ally-command.md` §5.2（据点下线）、`specs/combat/ui-layout.md`「局外菜单态不渲染战场」。
+
+## §4.167 2026-10-29 P0：首页选模式后进不去游戏（#AB17）
+
+**背景**：HOME 与 LOADOUT 合并为一屏时删掉了 `#loadoutScreen` 元素，但 `js/tank_screens.js` 的 `SCREENS` 清单仍留着它。
+
+### 1) 断裂链
+
+`hideAllScreens()` 遍历 `SCREENS` 逐个 `document.getElementById(id).style` ⇒ `loadoutScreen` 拿到 `null` ⇒ 抛 `TypeError`。而它由 `initMenu()`（`tank_battle.html:7378`）在**首屏**调用 ⇒ `showScreen('homeScreen')` 与 `setOverlayVisible(true)` 都没执行 ⇒ 三条模式（标准 / Boss / 生存）全部白屏。
+
+修复前实测（`tmp/probe-mode-nav.cjs`）：
+
+```
+PAGEERROR: Cannot read properties of null (reading 'style')
+    at hideAllScreens (tank_battle.html:2315:51)
+    at showScreen (tank_battle.html:2317:26)
+    at initMenu (tank_battle.html:7378:3)
+```
+
+### 2) 为什么冒烟链没兜住
+
+同一批改动已把 `test-browser-smoke` 的断言从 `loadoutScreen` 换成 `homeLoadoutWrap`，但**清单侧漏改**，而该链当时没跑。测试跟着新结构走了，结构清单没有。
+
+### 3) 修法
+
+1. `SCREENS` 删掉 `loadoutScreen`——流程状态 `loadout` **保留**（`tank_flow` 白名单与旧转移不变），它现在复用 `homeScreen`。**状态不等于屏幕。**
+2. `hideAllScreens()` / `showScreen()` 逐个 `getElementById` 判空：屏幕清单是 UI 辅助表、不是不变量，**缺一个 id 的代价必须是「那屏不隐藏」，不能是「失去整页」**（缺屏只往日志面板落一条 `CRIT`）。
+3. 同批修 `test-flow.js` 的陈旧非法转移矩阵——`home→battle` 已按合并屏放开，负向断言仍在拦截它 ⇒ 该链在合并提交后即为红。
+
+### 4) 验证
+
+- `tmp/probe-mode-nav.cjs` 复跑：`homeScreen=true`、`flowOverlay=true`、`PAGEERROR` 0 条。
+- `tmp/probe-run-start2.cjs` 全链路：新建存档 → 选车 → 出击 → 加载层出现 → `flowOverlay` 隐藏、场上 12 敌、canvas 1440×900、非 404 报错 0 条。
+- `test-browser-smoke` 新增「`SCREENS` 清单与 DOM 一一对应」断言 + **负向对照**（把 `loadoutScreen` 塞回清单 ⇒ 该断言红、但页面仍能进首页，证明两层防线各自成立）；浏览器冒烟链 ALL PASS。
+
+**归口**：`specs/combat/ui-layout.md` §「屏幕清单与 DOM 的对应关系」 · `docs/ISSUES.md` #AB17。
+
+## §4.168 2026-10-29 预设存档改为存档列表条目（用户裁定）
+
+**背景**：首页原有「载入预设：满级商店 / 99999 点数」两个按钮，与存档列表是两套入口、两种视觉。用户裁定并入列表。
+
+### 1) 形态
+
+`#homeSlotList` 尾部两条**常驻行**：虚线边框 + 琥珀「预设」徽标 + 单一动作按钮（`载入进入` / 同名档案已存在时显示 `重置进入`）。
+
+### 2) 视图模型
+
+`buildHomeViewModel` 新增 `presets` 入参并产出 `presetRows`（`preset:` 前缀 id、**不含** `renamingInput` / `showDeleteConfirm`）；`empty` 仍只表示「没有真实档案」，预设不计入；有预设行时列表恒显示（否则「尚无存档」状态下入口会跟着消失）。
+
+### 3) 语义
+
+- 预设**默认不落盘**，点「载入进入」才写成一份真实档案并直接进整备区（与「选择进入」同一条路径）；
+- 同名槽位已存在 ⇒ **原地重置内容**，不新建（否则越堆越多）；玩家改名后再次点击会新建一份（自愈，可接受）。
+
+### 4) 两道护栏
+
+- **版本门**：预设 JSON 的 `version` ≠ `RULES.economy.saveVersion` 时拒绝载入——否则 `normalizeProfile` 会整体回落默认值、紧接着被 `saveActiveProfile` 写回，**预设内容凭空消失且不报错**。
+- **连点门**：`presetLoading` 防重复进入。
+
+### 5) 验证
+
+新增 `scripts/test-home-viewmodel.js`（22 断言，含「预设 URL 指向的文件真实存在」与「旧按钮 DOM / 事件绑定已删除」两条**负向**——只测「新行在」发现不了「旧入口又回来了」）。`npm run check` 全绿；`test-browser-smoke` ALL PASS；探针 `tmp/probe-preset-slots.cjs` 四态实测（无档→2 预设行；点后→1 真实档 + 预设变「重置进入」；重载→行数不膨胀 3→3；pageerror 0）。
+
+**存档槽位系统按用户裁定不单独建页**——现行口径（两层 localStorage 结构 / 行的构成与三个动作 / `saveVersion` 版本门）写入 `ui-layout.md` §「存档槽位」。
+
+**归口**：`specs/combat/ui-layout.md` §「预设存档以列表条目呈现」 · §「存档槽位」。
+
+## §4.169 2026-10-27 玩家侧暴露度指示器（P0 可读性落地）
+
+> **体例补记（2026-10-29）**：本条实际落地于 2026-10-27（当日在 §4.149 与 §4.150 之间），当时只写了 `specs/combat/hud-ui.md` 与代码/测试，**漏了本文件与 §4.0 索引表的编号条目**。按「§4 只增不回改、编号递增」纪律补在末尾，不插回原位。
+
+**前提**：当日对敌方感知/隐蔽机制做了一次四层诊断（用户「感觉不对但说不清哪里」）。结论是机制**能算但玩家看不懂**：
+
+| 层 | 结论 | 证据 |
+|---|---|---|
+| L0 意图 | 隐蔽机制「能算但玩家看不懂」⇒ 等于不存在 | — |
+| L1 机制 | 数值链完整：camo → 触发距离实测 700 → 583/519/438/380/660px；11 个 tier 高度齐备 | — |
+| L2 判定 | 断链①：AI 调 `hasLineOfSight` 不传 `targetZ` ⇒ 恒按炮塔 2.3m 判 ⇒ 灌木 1.2 / 墙 1.4 / 残骸 2.0 全部挡不住视线 | `js/tank_ai.js:731`、`tank_battle.html:1632`、`tank_cover.js:1085` |
+| L3 语义 | 断链②：UI 只表达「谁看见了我」（敌方认知反向投影），玩家需要的是「我暴露了吗」 | `alertIndicatorFor`（`tank_battledraw.js:2398`）仅输出敌方 `?`/`!` 且**仅视口内** |
+| L4 反馈 | 断链③：玩家侧暴露度/隐蔽值/被发现瞬间提示 —— 全项目零绘制 | `camouflage*` 只在 `tank_ai.js`（敌方视角）与 `tank_cover.js`（纯函数）出现 |
+
+**本批只解 L4**（纯增量、不改任何 AI 判定）。L2 的断链①至今未解，2026-10-29 已立为 `docs/ISSUES.md` **#AB18**。
+
+### 1) 三条设计裁定
+
+1. **分档而非原始数值**——camo 0~1.55 是内部量纲，玩家无从建立「0.6 是好是坏」的心智模型；三档（隐蔽 / 暴露 / 被察觉）才可行动。
+2. **事实优先于连续量**——「已被锁定」（任一敌方 `aiEngaged` 或 `alertLevel ≥ 3`）直接顶格，不看距离比；「被搜索」优先于「隐蔽」判定（否则正被 6 辆搜索时仍显示「隐蔽」= 虚假安全感）。
+3. **与敌方 `?`/`!` 图标分工**——那张说「谁在找我」（事后通知），这条说「我暴不暴露」（可预判）。缺一不可。
+
+### 2) 实现
+
+- 新增 `js/tank_exposure.js`（纯函数层）：`exposureFor(player, enemies)` → `{ level, label, tone, ratio, effDist, baseDist, spotted, watchers, suspect }`。**纯读**：不写任何实体字段、不新增任何判定。
+- **口径同源**（防 #Z2 式两套口径漂移）：有效距离 = `enterD × camouflageDistanceMultiplier(玩家) × 对称化乘子`，与 `tank_ai.js` 的 `enterDCamo` 逐项对齐；`enterD` 取**最近敌方**的 `aiTriggerDist`——对玩家而言最危险的那台决定暴露度。
+- 接线：`tank_battle.html` 的 `#exposureHud`（VITALS 区，随 `updateBottomHud` 每帧刷新）；`tank_3d.html` 同口径（随 `renderHud` 刷新——3D 切片此前对 AI 状态全盲）。
+- 新增 `scripts/test-exposure-feedback.js`（24 断言）与一次性实机探针 `scripts/probe-exposure-ui.cjs`（不入 `npm test`）。
+
+### 3) 实测读数
+
+静止中坦 438px（hidden）/ 行驶 519px（exposed）/ 疾驰 583px（exposed）/ 刚开火 660px（exposed）。实机：battle 页 `hidden/477px → 开火后 exposed/720px`；3D 页 `hidden/556px → detected/6 辆锁定`。
+
+### 4) 验证
+
+`npm test` 66 通过 / 0 失败；`npm run check` 通过；`npm run test:browser` 全绿；实机探针 ALL PASS（battle 与 3D 两页均验证「指示器随玩法真实变化」，非静态装饰）。
+
+### 5) 明确不在本批范围
+
+L2 视线高度分档错配会改变敌人发现距离，需连带重跑 `scripts/audit-growth-curve.js` 做平衡标定 ⇒ 列为 P1，后于 2026-10-29 立为 #AB18（待裁定）。
+
+**归口**：`specs/combat/hud-ui.md` §「玩家侧暴露度指示器」 · `docs/ISSUES.md` #AB18。
+
+## §4.170 2026-10-29 MS1/B1：前向探测原语 `probeMoveBlocked` 与 `probeCellPassable`
+
+**批次定位**：MS1 硬串行链 B1（`PLAN.md` §2.8）。纯新增查询层，零行为改动——`resolveCoverCollisions` 的阻断判据抽成共享函数属等价重写。
+
+### 1) 交付
+
+- `js/tank_cover.js` 新增 `tierBlocksMove(tier)`：**掩体是否阻断坦克移动的唯一判据**（`passability===0 || shellBlock===true|'single'`，`crushable` 一律不阻断）。`resolveCoverCollisions` 的内联表达式改为消费它——**两处同源**，AI 侧不再需要第二份拷贝。
+- 新增 `probeMoveBlocked(t, heading, dist)` → `{blocked, tier, nx, ny, hitDist}`：车体 OBB 沿 heading 平移，取「起点四角 ∪ 终点四角」做 SAT（两凸集平移相交 ⇔ 凸包相交，SAT 多余轴只多算不漏判，无需显式求凸包）。`nx/ny` 由 `coverNormalAt` 给出并**统一翻成「由掩体指向坦克」**（原函数返回边绕向法线，方向不固定）；`hitDist` 二分 8 次求首次接触距离。**纯查询**：不改实体任何字段。
+- 新增 `probeCellPassable(cx, cy, r, opts)`：栅格通行采样（`cost: Infinity` 不可通行 / `1.6` 贴墙 / `1` 空旷），**A* 航点寻路可直接消费**（2026-10-29 用户裁定「探测层同时要能当栅格输入」——§2.7 失效信号触发时不必重写探测层）。
+- `tankQueryRadius` 补导出。
+
+### 2) 两条负向断言（防回潮核心）
+
+1. **判据同源**：17 个 tier 逐一「造掩体压车上 ⇒ 看 `resolveCoverCollisions` 是否推走」，与 `tierBlocksMove` 结论对照——不是把同一表达式抄两遍再互相比。
+2. **实体不是地形**：源码形状断言（剥注释后）锁死 `probeMoveBlocked` 函数体不引用 `entities` / `spawnBlockedWhy`（§4.160 拿出生点判定当行进判定误判一整轮的教训）。
+
+### 3) 验证
+
+新增 `scripts/test-cover-probe.js`（26 断言，登记 `TESTS`）：判据同源 + 非空转护栏（阻断 8 / 不阻断 9）、正前挡侧后不挡、`hitDist ≈ 墙面 − 车头半长`（148px 实测 148.4）、非阻断 tier 全不误判（bush/water/river/mud/tree/bridge/fallen/stump/rubble 9 个）、调用后实体 JSON 逐字节不变、NaN/null/dist=0 边界、栅格与单点探测 5 点同口径。`npm run check` EXIT=0。
+
+**归口**：`specs/map/cover-system.md` §「移动阻断判据与前向探测原语」 · `PLAN.md` §2.8.1 B1。
+
+## §4.171 2026-10-29 MS1/B2：AI 绕障状态机（#AB11b 后半）
+
+**批次定位**：MS1 B2，**本里程碑风险最高的一批**（§2.8 预判：会变成新的反卡死补丁）。准入条件「B1 已进断言」满足。
+
+### 1) 机制（`js/tank_ai.js` 的 `_applyDetour`）
+
+- **触发**：只接管「前进意图」（`out.move > 0`）且 `ctx.probeMoveBlocked(t, t.hullAngle, probeDist).blocked`。驻停/后撤保持确定性；Boss、flank 角色不触发。
+- **承诺期**：`commitSeconds`（1.2s）内不被机动层/分离力改写方向——§4.157「1 秒反应式侧转」的死因就是承诺太短。
+- **侧别**：**几何优先**（切线更接近「指向目标」的一侧）、两侧差 <0.2rad 时用 `tankSideSeed` 兜底定死。纯 id 种子会把车绕向背离玩家（实测净推进 −13px、绕障帧占 78%）。
+- **防打转**：承诺期到点仍被挡 ⇒ 续绕 `extendSeconds`；绕满 `maxCommitSeconds`（6s）⇒ **换一侧重试**（`_detourBias` 翻转）。
+- **不钻死角**：新绕行方向本身也堵着（楔形夹角）⇒ 换另一侧，否则 `resolveCoverCollisions` 4 遍迭代解不干净（实测残留穿透 14 帧假红）。
+- **两个调用点**：① `!los` 的 search 分支；② 主接战路径尾部（机动层/分离力/装填脱离之后）。实测卡墙三辆里两辆走不到主路径（一辆 search、一辆 flank），只挂一处等于只修三分之一。
+
+### 2) 数值与实测
+
+`RULES.ai.detour = { enabled, probeDist, commitSeconds, extendSeconds, maxCommitSeconds, releaseClearSeconds, moveSpeed }`（**`role-systems` 写域**，已由本批履行）。
+
+**`probeDist` 是敏感参数**（seed 4242 扫参）：60 ⇒ minDist 152 / 净推进 585；70 ⇒ 641 / 166；90 ⇒ 666 / 140。**70 以上会在「还走得动」时就触发**，敌人全程贴墙绕圈、比不开还差。定 60（≈ 车头前 28px）。
+
+多 seed A/B（`measure-press.cjs`，`detour.enabled` 开关）：
+
+| seed | 关 minDist | 开 minDist | 关净推进 | 开净推进 |
+|---|---|---|---|---|
+| 1 | 228 | 226 | 602 | 604 |
+| 7 | 386 | 322 | 442 | 500 |
+| 4242 | 631 | **88** | 203 | **581** |
+| 20261027 | 546 | 422 | 289 | 413 |
+| 99 | 550 | **113** | 285 | **482** |
+
+### 3) 回归与一次 `_rng` 语义事故
+
+新增 `scripts/test-ai-detour.js`（17 断言，登记 `TESTS`）：侧别种子两处实现逐位一致（`tank_ai._detourSideSeed` ↔ `tank_move.tankSideSeed`，内联副本为 Node 兜底）、关停即旧语义、探测不挡不触发、承诺期不被清除、驻停不接管、绕满换侧。
+
+**事故记录**：B6 的 RNG 注入把 `_mvRng` 从「返回 rng 函数」改成「返回数字」时，`_applyManeuver` 内 `_mvRand(rng,…)` 收到数字 ⇒ `rng is not a function` 崩 `test-ai-press`。修法：`_applyManeuver` 与 `_maneuverRoll` 调用点显式区分「要函数」与「要数字」两个语义，不共享一个表达式。
+
+**页面接线**：`tank_battle.html` / `tank_3d.html` / `js/tank_sim.js` / `scripts/measure-press.cjs` 四处 aiCtx 补 `probeMoveBlocked`（与 `hasLoS` 同一分层约定）。
+
+### 4) 验证
+
+`test-ai` 172 断言全绿（含按 B3 新口径更新的 4 组）、`test-ai-press` 全绿（含 10 seed 门 ①②）、`test-ai-detour` 17 断言全绿、`test-tankcollision`（#N1/#AB11b/#AB14）全绿。
+
+**归口**：`specs/combat/enemy-ai.md` §「绕障状态机（B2，2026-10-29）」 · `docs/ISSUES.md` #AB11b · `PLAN.md` §2.8.1 B2。
+
+## §4.172 2026-10-29 MS1/B3：接战带收窄（门 ① 达标）
+
+**批次定位**：MS1 B3。准入条件「B2 净推进 > 0 已进断言」满足后才动数值——正是 §2.8 纪律 2 要求的「绕障已生效、交战带还没动」的中间态。
+
+### 1) 数值
+
+`RULES.ai.engageBand.classBands`：`medium.maxRatio` **1.10 → 0.65**、`heavy.maxRatio` **0.94 → 0.55**（medium 带外沿 572→338px）。`defaultBand` 随 medium 同口径。
+
+**为什么停在 0.65**：0.55 档实测反而恶化（worst 537px）——站位过近会挤成一团互相顶住，重演物理拥堵。扫参表（5 seed × 5 档）随注释留在 `tank_rules.js`。
+
+**连锁修正**：`fireRangeRatio` 1.5 不变 ⇒ 开火距离 858→**507px**（medium）。`test-ai.js` 的「远距火力」四组用例阈值同步更新（800px 换 480 带内 / 560 带外）；`test-browser-encounter.cjs` 的接战距离断言 **660 → 340**（MS1 门 ① 硬门，10 seed worst 334）。
+
+### 2) 验证
+
+`test-ai-press.js` 新增 ⑤ 段：**10 个 seed（1/7/42/99/123/777/4242/20261027/31337/65535）全部压到 ≤340px 且净推进 > 0**——worst **334px**（seed 99），门 ① **达标**；绕障确实生效（最高 80% 帧，非空转）。单 seed 约 5.4s，本节约 55s，是 `npm test` 最慢项（已在注释声明）。
+
+**归口**：`PLAN.md` §2.9 · `specs/combat/enemy-ai.md` · `docs/ISSUES.md` #AB11。
+
+## §4.173 2026-10-29 MS1/B4：#AB12 击发被拒定位（探针伪影，结案）
+
+**批次定位**：MS1 B4（与 B5 并行）。**不改任何行为**——只加 dev 观测字段与探针。
+
+### 1) 交付
+
+- `js/tank_fire.js` 新增 `_rej(shooter, code)`：各拒绝路径写入 `shooter._lastFireReject`（`no-shells` / `no-target` / `reload` / `breech` / `overheat` / `no-wiring` / `barrel-blocked`），受理时清成 `null`。**缺省 `undefined`，生产路径零读点**——只被探针消费。
+- 新增 `scripts/probe-fire-reject.cjs`（数据工具，不进断言链）：空场 3 敌 600px、每 100ms 走真实 `tryFirePrimary` 门控链 40s，输出「拒绝原因 × 距离分档」直方图。
+
+### 2) 结论
+
+```
+尝试 400 次，受理 29 次（7.2%）
+reload    371 次（92.8%）
+accepted   29 次（ 7.2%）
+```
+
+**#AB12 判定：探针伪影，非缺陷**。「41.4s 只打 11 发」的「理论上限 16~29 发」本身就是装填节奏的必然结果——装填 1.3~2.6s 的炮在 41s 里物理上限就是这么多发，`measure-encounter` 的 100ms 击发轮询把「装填中」全记成了「被拒」。**无 `no-target` / `barrel-blocked`** ⇒ 射程与掩体都不是因素。#AB12 状态改「已结案（伪影）」。
+
+**归口**：`docs/ISSUES.md` #AB12 · `PLAN.md` §2.8.1 B4。
+
+## §4.174 2026-10-29 MS1/B5：生存差通道（门 ③ **未达标**，待裁定）
+
+**批次定位**：MS1 B5。数据工具，无断言。
+
+### 1) 交付
+
+新增 `scripts/measure-survival.cjs`（浏览器实跑，`playwright-core` + 真实 `tank_3d.html`）：三政策（stand 站桩 / strafe 侧向环绕 / reverse 倒车）各 3 次，输出中位生存秒与比值。开火驱动与结局检测用**两个独立 interval**（`measure-encounter` 的教训）；记录含每秒血量时间线。
+
+**测量口径修订**：初版用「30s 剩余装甲」，实测三政策全是 98~100%（**完全没有区分度**）——B2/B3 之后敌人 30s 内根本打不穿满血玩家。主判据回到**中位生存秒**（门 ③ 原文口径），首次掉血时刻作旁证。
+
+### 2) 实测（CAP=120s，每政策 3 次）
+
+| 政策 | 中位生存 | 首次掉血中位 |
+|---|---|---|
+| stand | 72.4s | ~7s |
+| strafe | 87.1s（1.20×） | ~8s |
+| reverse | 99.0s（**1.37×**） | ~35s |
+
+**门 ③（≥2×）不达标。** 按纪律**未自行加机制**（「AI 瞄准不带提前量 / 移动目标散布惩罚」两个候选通道都会改变 2D 正式局手感），数字与候选交 `creative-director` 裁定。
+
+**注**：走位收益方向正确（reverse 的首次掉血比 stand 晚 5 倍），是「幅度不足」而非「通道不存在」。样本量 3 次偏小，正式裁定前建议 `RUNS=5` 复测。
+
+**归口**：`PLAN.md` §2.8 B5（已标注未过门）· `DEVELOPMENT.md` §1 支柱 P1。
+
+## §4.175 2026-10-29 MS1/B6：3D 确定性回放（门 ⑥ 达标，浏览器链八→九）
+
+**批次定位**：MS1 B6，唯一写 `tank_3d.html` 的批次（§2.8 纪律 3）。
+
+### 1) 机制
+
+- **`js/tank_ai.js`**：新增模拟层唯一 RNG `_rng()` + `setSimRng(fn)`——机动层（`_MV_RNG`）优先、其次 `_SIM_RNG`、最后 `Math.random`。15 处 `Math.random`（警觉抖动 / 接战传播 / 击晕 / patrol 侧摆 / 窥视 / 重定位）全部改走 `_rng()`。**粒子/震屏等纯视觉随机不在口径内**（不影响判定，注释写明）。
+- **`tank_3d.html`**：`?seed=N` 把 AI 与**开火散布**（`fireCtx.random`，`tank_fire` 已有的 `c.random` 通道）收进同一条 `mulberry32` 种子流；`?fixed=1` 关掉 rAF 主循环，时间只由 `__TEST3D__.step(n)` 定步推进；`update()` 逐帧 `advanceSimNow`（此前 3D 页从不推进模拟时钟 ⇒ 开火惩罚窗口读真实时钟，同 seed 两次结果不同——**这是本批找到的隐藏非确定性源**）。新增 `__TEST3D__.digest()`：只取模拟层状态（id/x/y/车体角/炮塔角/装填/血量）。
+- **新链** `scripts/test-browser-replay3d.cjs`：`?seed=12345&fixed=1` 定步 600 步（5s，覆盖 telegraph→首波 spawn→交战），同 seed 两次加载摘要**逐字节一致**；seed 99999 必须分化。已登记 `package.json` 的 `test:browser` ⇒ **八链 → 九链**。
+
+### 2) 验证
+
+九链全绿（含新链 6 断言）。`specs/editor/browser-tests.md` 更新为九链矩阵。
+
+**归口**：`specs/editor/browser-tests.md` §「九链脚本矩阵」 · `PLAN.md` §2.7 门 ⑥。
+
+## §4.176 2026-10-29 #AB18 hull-down 条件降档（路线 ② 落地）
+
+**批次定位**：#AB18 的实现批。用户 2026-10-29 裁定路线 ②（条件降档），当日落地。
+
+### 1) 机制（`js/tank_ai.js` 的 `_hullDownTargetZ(target)`）
+
+- **降档条件 = 静止 + 未开火**：`camouflageMotionOf(target) === 'idle'`（≤6px/s，**复用既有阈值不另立口径**）且 `camouflageFiringMul(target) === 1`（开火惩罚窗外）。两条件齐 ⇒ AI 的 `hasLineOfSight` 传 `targetZ = LOS_HULL_Z (1.0m)`；任一不满足 ⇒ `null`（缺省炮塔口径 2.3m，现行为）。
+- **四个消费点**：主接战的激活门控与开火判定、charge 分支、skirmish 分支、`_passiveDefend` 的开火判定。**`hasLineOfSight` 本体与弹道侧（`getPartZRange`/`getExposure`）零改动**——视线与弹道两套系统的互不渗透约定不动。
+- **Boss 不吃地形增益**（与 Boss 免疫溺毙同惯例）。
+- 判据对**任意观察目标**统一生效：友军打敌人同样吃 hull-down，语义一致。
+
+### 2) 实测（`scripts/test-hull-down.js`，13 断言，登记 `TESTS`）
+
+- **判据函数**：静止 ⇒ 1.0；移动/开火窗内/Boss/null ⇒ `null`。
+- **端到端分化**（hull-down 的独有判别）：同一辆敌车、同一个灌木、同为 480px——玩家**静止** ⇒ 不激活（车体被 1.2m 灌木挡住）；玩家**移动** ⇒ 激活（炮塔 2.3m 露头）。660px 静止同理被挡。
+- **负向护栏**：空场静止目标 400px（< 有效触发 438）照常被看见——降档不是全局失明。
+- **两通道互补**：560px > 438（隐蔽值通道拦）/ 260px < 438（距离穿透）——隐蔽值管「多远被发现」，hull-down 管「躲得住躲不住」，互不替代。
+
+### 3) 平衡前置（裁定要求）
+
+- `scripts/measure-press.cjs`：minDist **87px**，门 ① 不回退。
+- `scripts/audit-growth-curve.js`：⚠️ **报告了一个既有问题**——「存在优势度 <1 的节点：玩家在该进度下打不过（最低 0.50，节点 11 / mobility）；末节点平均 0.81」。**与 hull-down 无关**（该报告是全局成长曲线审计，hull-down 只影响灌木遮挡的激活时机），属既有平衡债务，已记入待办。
+- `test-ai` / `test-covers` / `test-vision-stealth-p1` 全绿；`npm run check` EXIT=0。
+
+### 4) 复测附带结论（B5 门 ③，用户裁定 RUNS=5 复测）
+
+RUNS=5 / CAP=150 复测：**生存秒中位数在 5 次样本下方差过大**（stand 一局 150s timeout、strafe 一局 53s），比值反降到 0.92×——中位数被单局结局随机性主导，不是稳定的政策效应。**有判别力的读数是「首次掉血时刻」**：stand ~7.6s / strafe ~19.1s / reverse ~38.8s（均值）——走位确实推迟被压制（reverse 是 stand 的 **5.1×**）但不改变生死。门 ③ 判据修订建议已写入 `PLAN.md` §2.8 B5，交用户最终裁定。
+
+**归口**：`docs/ISSUES.md` #AB18（关账）· `specs/map/vision-stealth-3d-compat.md` · `specs/combat/enemy-ai.md` · `PLAN.md` §4.2（路线 ③ 远期）。
+
+## §4.177 2026-10-29 MS1 收口：门 ③ 判据修订（用户裁定）与六门对账
+
+**裁定**（2026-10-29）：用户选 a——**门 ③ 改判据为「静止 vs 走位的首次掉血时刻差 ≥2×」**。理由：RUNS=5 复测证明生存秒中位数被单局结局随机性主导（stand 一局 150s timeout、strafe 一局 53s），不是走位的函数；「首次掉血时刻」方差小且方向稳定（stand 7.6s / strafe 19.1s / reverse 38.8s，reverse/stand = **5.1×**）——这才是「决策可见」支柱真正要测的：**走位给你反应时间**。生存秒保留为旁证输出。
+
+### 六门对账
+
+| 门 | 判据 | 结果 | 出处 |
+|---|---|---|---|
+| ① | 10 seed 20s 内 minDist ≤340px | ✅ worst **334px**（seed 99） | §4.172，`test-ai-press` ⑤ 硬断言 |
+| ② | 径向净推进 > 0 | ✅ 10 seed 全 >0（worst seed 也有 140px+） | 同上 |
+| ③ | **首次掉血时刻 ≥2×**（裁定后判据） | ✅ reverse/stand = **5.1×** | §4.174/§4.176，`measure-survival.cjs` |
+| ④ | #AB12 出结论 | ✅ **探针伪影结案**（reload 92.8%，非缺陷） | §4.173 |
+| ⑤ | #N1 / #AB11b / #AB14 断言同绿 | ✅ `test-tankcollision` 全绿 | 各批验证记录 |
+| ⑥ | 3D 确定性回放 | ✅ 同 seed 逐字节一致 / 异 seed 分化，浏览器链八→九 | §4.175 |
+
+**MS1 关闭。** 下一步 MS2：把 `js/tank_encounter.js` 接进正式局（`PLAN.md` §2.7）。
+
+**归口**：`PLAN.md` §2.7（门 ③ 判据已同步修订）· §2.8 B5。
+
+## §4.178 2026-10-29 #AC1 成长曲线后段塌陷：`entityMults` 高难度端收口（用户裁定「降低后续节点曲线」）
+
+**批次定位**：#AC1 的数值平衡批。裁定背景：审计是 **1v1 场景**（标准模式的 2 辆友军未建模），用户裁定**不为友军去修正审计口径**——友军留作二期审计的参数、友军选车留作远期（`PLAN §4.1b`），本批直接**降低后续节点的敌军曲线**。
+
+### 1) 根因量化
+
+敌人复合威胁指数（`maxHp × damage / reload`）随 diffNorm：0.98（n=0.32）→ **2.96**（n=0.83）= **3.0×**；玩家局内 DPS 成长只有 ~1.5×。缺口 2.0×，全部落在节点 9+。生存指数（`maxHp × armorAll`）2.08× 同理。
+
+### 2) 数值（`RULES.difficulty.entityMults` 高难度端四处收口，低难度端零改动）
+
+| 键 | 旧 [lo,hi] | 新 [lo,hi] | 理由 |
+|---|---|---|---|
+| `maxHp` | [0.6, **1.8**] | [0.6, **1.5**] | 复合威胁的主项 |
+| `damage` | [0.8, **1.35**] | [0.8, **1.2**] | 与 hp/reload 叠乘的第三项 |
+| `reload` | [1.25, **0.82**] | [1.25, **0.88**] | 高难度端装填加速放缓 |
+| `armorAll` | [0.6, **1.3**] | [0.6, **1.15**] | 生存指数 2.08→1.59 |
+
+低难度端（`[0]` 项）一字未动 ⇒ **前期难度零漂移**。修正后威胁指数封顶 ~1.75×、生存指数 ~1.59×——与玩家 1.5× 局内成长的缺口从 2.0× 收到 ~1.2×，剩余缺口由走位/卡牌/永久升级覆盖（审计口径本就是「绝对下限玩家」）。
+
+### 3) 实测（`audit-growth-curve.js` 修复前后，末 4 节点均值优势度）
+
+| build | 修复前 | 修复后 |
+|---|---|---|
+| firepower | 0.82 ✗ | **1.12** ✓ |
+| armor | 0.81 ✗ | **1.09** ✓ |
+| mobility | 0.55 ✗ | 0.72 ✗（仍 <1） |
+| greedy | 0.89 ✗ | **1.21** ✓ |
+| balanced | 1.20 | **1.64** |
+
+**末节点均值 0.82 → 1.13（回到 >1）**。唯一仍 <1 的是 mobility（0.72）——审计注释已声明「固定入射角无法体现机动流价值，机动 build 的读数被系统性低估」（其真实收益是绕侧/躲掩体，纸面对射测不出来），且脚本头注明「纯路线打不过是取舍代价」。**判读：mobility 0.72 属可接受区间，不再追调**。
+
+### 4) 连锁与验证
+
+- `test-map.js` 的 reload 期望 4.1 → **4.4**（5 × 0.88，随表更新）；`test-enemy-scaling-audit` / `test-recent-mods` 全绿（无写死高难度端数值）。
+- **MS1 门不回退**：`measure-press` minDist 87px / `test-ai-press` 10-seed 硬断言 ALL PASS（敌军变软不影响绕障门）。
+- **顺带观测**：`measure-encounter` 遭遇时长 41.4s → **96.8s / 49.2s**（两次 defeat，清 2 波 10 杀 / 1 波 4 杀）——敌军削弱后玩家存活显著延长，但两次差近一倍又印证了 B5 复测的发现：**单局结局随机性大，单次测量没有判别力**。#AB10 的「内容量缺口」（天花板 89s）仍成立；正式结论等 MS2 把遭遇接进真局、用多次测量取中位。
+- `npm run check` EXIT=0。
+
+**归口**：`docs/ISSUES.md` #AC1（关账）· `specs/combat/enemy-scaling.md` · `PLAN.md` §4.1b（友军选车远期）。
+
+## §4.179 2026-10-30 代码复查修复：hull-down 环境口径统一 + 绕障退出判据补全
+
+**批次定位**：/code-review 对 B1~B6 + #AB18 全部变更的复查产出。P1 一条 + 复查衍生的绕障语义修正。
+
+### 1) P1：hull-down 在回放/探针环境静默失效（口径漂移）
+
+`_hullDownTargetZ` 的结果经 `hasLoS` 第 6 参传入，但 `js/tank_sim.js`（回放 harness）与 `scripts/measure-press.cjs`（探针）注入的是 **4 参包装** ⇒ `opts` 被吞 ⇒ 这两个环境 hull-down 永不生效、与实机分叉——#Z2「两套口径必然漂移」的事故模式，且不会红（`test-hull-down` 自测的是真函数）。
+
+**修法**：两处包装改 6 参全透传（`coversList ?? CV.covers, opts`）；`test-ai-press` 新增 ⑥ 段防回潮（探针 hasLoS 透传 opts ⇒ 静止玩家被灌木挡 engaged=false + 正向对照「不带 opts 看得见」）。
+
+### 2) 复查衍生的绕障语义修正（探针透传修复暴露）
+
+6 参透传后 hull-down 在探针生效，10 seed 门数据全变（31337: 276→486 等）——追查确认**不是污染**而是 hull-down 的真实行为变化，并连带暴露两个绕障语义缺陷：
+
+- **能看见目标 ⇒ 不该绕行**（goalLos 守卫）：绕行的目的是绕过遮挡重新进入交战；视线通畅时前方掩体只影响通行不影响开火（band.max 驻停射击即可），绕行反而把车带离射界（v5 恒定暴露实测 seed 7: 295→416、99: 327→403）。守卫在探测调用之前 ⇒ 看得见时连探测都省（热路径）。
+- **重新看见目标 ⇒ 立即退出**（goalLos 退出判据）：旧出口只认「前方探测通畅 0.25s」，窄缝/贴墙地形永远不满足 ⇒ 敌人绕到掩体后仍继续绕。退出后同帧不得重建（`_detourCooldown = clearS` 压制——刚绕出来的位置车头还对着掩体，立即重建会让退出无意义）。
+- **负收益熔断**：绕行段没有朝目标的回正分量，某些布局下侧别选错把车**绕离**目标（seed 123 实测净推进 −203/−251）。每 0.6s 检查到目标距离，连续两窗变远 ⇒ 放弃绕行 3s + 换侧（`bailCheckSeconds` / `bailoutSeconds`）。
+
+### 3) 门 ① 口径 v3→v5 的三次迭代（全记录，防止将来再绕圈）
+
+hull-down 让「静默玩家何时被发现」变成图相关且时间无界的量（seed 31337 玩家出生点被灌木+camo 双重掩护）。迭代：微速探针（0.05）穿越 camo idle 阈值产生帧级抖动 → 移动探针（0.25）把「净推进」语义打崩 → **最终 v5：真站桩玩家 + 恒定暴露**（`lastFireAt` 每帧刷新，模拟交火中的玩家）+ 门①判据收窄为「10 seed minDist ≤340、中位 ≤200、净推进 >0」。「静默玩家更难被发现」是 hull-down 的游戏价值，归 `measure-survival.cjs` 门 ③ 测量——两个探针各管一件事。
+
+### 4) 实测
+
+- 门 ①：10 seed worst **336px**（seed 42）≤340、中位 161px ≤200；门 ②：净推进 10/10 >0。`test-ai-press` ⑥ 段 2 断言 + 门 ①-b。
+- `test-ai-detour` 更新（goalLos 守卫/los 恢复退出/⑥b 新段）19 断言 ALL PASS；`test-ai` / `test-hull-down` / `test-tankcollision` / `test-map` / `test-enemy-scaling-audit` 全绿。
+- `npm run check` EXIT=0；`wiki-check` 全绿。
+
+**归口**：`specs/combat/enemy-ai.md`（绕障 goalLos 语义）· `specs/map/cover-system.md` §「hull-down 遮挡参与面」· `specs/editor/browser-tests.md`。

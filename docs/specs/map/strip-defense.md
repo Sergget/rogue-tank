@@ -100,7 +100,7 @@
 
 （原 §14.6）
 
-`scripts/test-map.js:105-109`（节点宽高 ≥3 倍视口断言）、`test-nodegen.js` §16 七条护栏、`test-nodegen-calibration.js` 基线表、`test-replay.js` 确定性 hash、`test-browser-smoke/r3/run/r4/ally/3d.cjs` 六链。横向节点需新增专用回归：拼接确定性（同 seed 同布局）/ 接缝无断口 / 最窄通道 ≥ 车体宽 / 防线锚点覆盖全部桶。
+`scripts/test-map.js:105-109`（节点宽高 ≥3 倍视口断言）、`test-nodegen.js` §16 七条护栏、`test-nodegen-calibration.js` 基线表、`test-replay.js` 确定性 hash、`test-browser-smoke/r3/run/r4/ally/3d/encounter/perf.cjs` 八链。横向节点需新增专用回归：拼接确定性（同 seed 同布局）/ 接缝无断口 / 最窄通道 ≥ 车体宽 / 防线锚点覆盖全部桶。
 
 ### 第二阶段预留
 

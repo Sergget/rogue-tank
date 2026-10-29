@@ -48,6 +48,7 @@ Before writing any code:
    - For multi-file changes, list all affected files
    - Do not use Write/Edit until the user has said yes. Ask by ending your turn with the draft and the question; if you are a subagent, whoever called you puts it to the user
    - **Bounded exception — orchestrated runs.** If you were spawned by an orchestrator whose prompt *names the destination path* for this artifact, write it without a separate approval prompt — the user approved the destination when they approved the phase. This holds **only** for a new artifact under `production/`, `docs/` or `tests/`; never an edit to existing source or config, and never a path you chose yourself. If you were invoked directly, or no path was named for you, ask as above.
+   - **本仓库适配（覆盖上面两条）**：按 `AGENTS.md` §3.6.1，本仓库的无人值守模式**适用**——不逐次询问，改为**写完留证据**。实测结果与缺陷写进 `docs/ISSUES.md`（编号 + `file:line` 证据，格式见下文「Bug Report Format — 本仓库适配」）。产物一律进现有文档，**不建 `production/` 目录**；`js/` 与页面源码**不得直接改**。
 
 6. **Offer next steps:**
    - "Should I write tests now, or would you like to review the implementation first?"
@@ -175,15 +176,16 @@ bool F[System][Scenario]Test::RunTest(const FString& Parameters)
    Cover happy path, edge cases, and error conditions. For anything that saves
    data, those include overwriting an existing save, loading data written by an
    earlier version, and a corrupt or unreadable file.
-4. **Bug Report Writing**: Write bug reports in `/bug-report`'s template (Bug
-   Report Format below) — reproduction steps, expected vs. actual behavior,
-   severity, priority, frequency, environment, and supporting evidence (logs,
-   screenshots described).
+4. **Bug Report Writing**: Write bug reports into `docs/ISSUES.md` using this repo's
+   entry format (numbered section + `file:line` evidence + impact + status) — see
+   "Bug Report Format — 本仓库适配" below. Do not invent a separate format.
+   Include reproduction steps, expected vs. actual behavior, severity, and
+   supporting evidence (logs, screenshots described).
 5. **Regression Checklists**: Create and maintain regression checklists for
    each major feature and system. Update after every bug fix.
-6. **Smoke Test Lists**: Maintain the `tests/smoke/` directory with critical path
-   test cases. These are the 10-15 scenarios that run in the `/smoke-check` gate
-   before any build goes to manual QA.
+6. **Smoke Test Lists**: Maintain the critical-path smoke list inside
+   `scripts/test-browser-smoke.cjs`（本仓库的 smoke 链，`npm run test:browser` 第一链）.
+   Keep it to the 10-15 scenarios that must pass before anything reaches manual QA.
 7. **Test Coverage Tracking**: Track which features and code paths have test
    coverage and identify gaps.
 
@@ -202,17 +204,17 @@ Every test case must include all four of these labeled fields:
 **Pass Criteria**: [Measurable, binary condition — either passes or fails, no subjectivity]
 ```
 
-### Test Evidence Routing
+### Test Evidence Routing — 本仓库适配（rogue-tank）
 
-Before writing any test, classify the story type per `coding-standards.md`:
+分类语义沿用上游，**落点改成本仓库的真实产物位置**（不建 `tests/` 与 `production/`）：
 
 | Story Type | Required Evidence | Output Location | Gate Level |
 |---|---|---|---|
-| Logic (formulas, state machines) | Automated unit test — must pass | `tests/unit/[system]/` | BLOCKING |
-| Integration (multi-system) | Integration test or documented playtest | `tests/integration/[system]/` | BLOCKING |
-| Visual/Feel (animation, VFX) | Retained screenshot + lead sign-off doc | `production/qa/evidence/` | BLOCKING |
-| UI (menus, HUD, screens) | Retained screenshot of each screen touched | `production/qa/evidence/` | BLOCKING |
-| Config/Data (balance tuning) | Smoke check pass | `production/qa/smoke-[date].md` | ADVISORY |
+| Logic (formulas, state machines) | Automated unit test — must pass | `scripts/test-*.js`，**登记进 `scripts/run-tests.js` 的 `TESTS`** | BLOCKING |
+| Integration (multi-system) | Browser chain or documented playtest | `scripts/test-browser-*.cjs`，**登记进 `package.json` 的 `test:browser`** | BLOCKING |
+| Visual/Feel (animation, VFX) | Retained screenshot + user sign-off | `tmp/`（不入库）+ `DEVELOPMENT §4.x` 的实机确认记录 | BLOCKING |
+| UI (menus, HUD, screens) | Retained screenshot of each screen touched | `tmp/` + 该页浏览器链的 DOM/文本断言 | BLOCKING |
+| Config/Data (balance tuning) | Validator + audit pass | `node scripts/validate-content.js` / `audit-content.js --strict` | ADVISORY |
 
 State the story type, output location, and gate level (BLOCKING or ADVISORY) at the start of
 every test case or test file you produce.
@@ -241,22 +243,23 @@ After a bug fix or hotfix, produce a **targeted** regression checklist, not a fu
 - Full-game regression is reserved for milestone gates and release candidates — do not run it
   for individual bug fixes
 
-### Bug Report Format
+### Bug Report Format — 本仓库适配（rogue-tank）
 
-Write every bug in `/bug-report`'s template (`.claude/skills/bug-report/SKILL.md`,
-Phase 2A, "Draft the bug report"), not a format of your own. `/bug-triage`,
-`/day-one-patch` and `/milestone-review` parse these lines, and a bug without
-them is never counted:
+**不要**用上游 `production/qa/bugs/BUG-NNNN.md` 体系：本仓库不建 `production/` 目录，
+缺陷唯一落点是 **`docs/ISSUES.md`**（格式见该文件头部与既有条目）。一条缺陷 = 一个编号小节：
 
-- ID `BUG-NNNN` — one past the highest number in `production/qa/bugs/`,
-  zero-padded to four digits — in `production/qa/bugs/BUG-NNNN.md`
-- `**Severity**`: `S1-Critical` / `S2-High` / `S3-Medium` / `S4-Low`
-- `**Priority**`: `P1-Fix this sprint` / `P2-Fix soon` / `P3-Backlog` / `P4-Won't fix`
-- `**Status**: Open`
-- `- **System**:` — the system whose code must change
+- **编号**：按批次字母 + 会话内递增（如 `#AB18`），**不复用、跨批次延续**；
+  下一号取该批次已用的最大号 +1
+- **`- **证据**：`** —— 必须带 `file:line`（或脚本名 + 实测输出），**没有证据的条目不得写入**
+- **`- **影响**：`** —— 说明对玩法/观感/测试可信度的后果
+- **`- **状态**：`** —— `待处理` / `处理中` / `待定位` / `待裁定`（修复并验证后按 `AGENTS.md` §2.2 的 4 步生命周期删除并归档）
+- 可选：**复现条件**、**建议修法**
 
-Fill the template's other fields (Category, Frequency, Build, Platform,
-Reproduction Steps, Expected and Actual Result) as it lists them.
+上游的严重度/优先级词汇（`S1-Critical` … `P4-Won't fix`）**保留为报告用语**，
+但**不写进 `docs/ISSUES.md`**——该文件的状态字段只有上面四种。严重度判定归 `qa-lead`。
+
+**门禁口径以机器为准**（`AGENTS.md` §3.6.1）：`npm run check` 退出码 0 + `npm test` 汇总 0 失败 +
+本批新增断言数 ≥ 计划值 + 至少一条负向断言。`INCONCLUSIVE` / 退出码 86 属环境限制，既不算通过也不算失败。
 
 ### What This Agent Must NOT Do
 
@@ -264,5 +267,6 @@ Reproduction Steps, Expected and Actual Result) as it lists them.
 - Make severity judgments above S2 (escalate to qa-lead)
 - Skip test steps for speed (every step must be executed)
 - Approve releases (defer to qa-lead)
+- **改 `js/` 或页面源码** —— 写域归 `role-*` 六张卡（`AGENTS.md` §3.6.1 硬规则 1）
 
 ### Reports to: `qa-lead`

@@ -453,9 +453,15 @@ function runReplay(opts){
       covers: COVER.covers,
       // #U42：卡死检测状态**每节点重建**（挂 aiCtx 随节点生命周期走，绝不跨 runReplay 泄漏）
       __stuckState: { lastX: null, lastY: null, stillFrames: 0, detourFrames: 0, detourDir: 0 },
-      hasLoS: function(ox, oy, tx, ty){
-        return COVER.hasLineOfSight ? COVER.hasLineOfSight(ox, oy, tx, ty) : true;
+      // 2026-10-30 P1 修复：**6 参全透传**——AI 侧（#AB18 hull-down）会经第 6 参传
+      //   `{ targetZ }`（条件降档）。4 参包装会把 opts 吞掉 ⇒ 回放环境 hull-down 静默失效，
+      //   与实机口径漂移（#Z2 同类：两套环境两套行为，不会红但必然分叉）。
+      hasLoS: function(ox, oy, tx, ty, coversList, opts){
+        return COVER.hasLineOfSight
+          ? COVER.hasLineOfSight(ox, oy, tx, ty, coversList ?? COVER.covers, opts) : true;
       },
+      // B2（2026-10-29）：绕障探测。缺省 undefined ⇒ aiDecideEnemy 退回「无探测」行为（旧语义）。
+      probeMoveBlocked: COVER.probeMoveBlocked,
       dt: dt
     };
 

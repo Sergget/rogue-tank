@@ -29,3 +29,15 @@
 | `yaml-helper.sh` | 四个技能的 `!` 前奏依赖它；**读不到 `project.yaml` 时恒返回空并 exit 0**，故不创建 `project.yaml` 也不会报错 |
 
 **明确不引入**：`settings.json`（15 个钩子）、上游 `CLAUDE.md`（与 `AGENTS.md` 冲突，且要求每次写入前询问）、`project.yaml` / `production/` 目录约定、`story-*` / `sprint-*` / `create-epics`（与 `PLAN.md` 重复）、`gate-check`（项目阶段门，会写 `project.yaml` 与 `production/stage.txt`）、全部引擎专员 agent。
+
+### 2026-10-29 本地适配（对齐 `AGENTS.md` §3.6.1）
+
+上游四个 agent 与四个技能是按「自带 `production/` 目录 + 每次写入前询问」写的，直接 vendor 会在本仓库产生三处冲突，已就地修正：
+
+| 冲突 | 修法 |
+|---|---|
+| 提示词要求「每次写入前询问」 | 四个 agent 的写入协议各加一条「本仓库适配（覆盖上面两条）」——无人值守模式适用，改为写完留证据；产物一律进现有文档，**不建 `production/` 目录** |
+| `skills:` 指向未引入的上游技能（`tech-debt` / `bug-report` / `release-checklist`） | `lead-programmer` 删除该死引用；`qa-lead` 改指已引入的 `[qa-plan, test-evidence-review, bug-triage]` |
+| `qa-tester` 的 Bug Report Format 指向 `production/qa/bugs/BUG-NNNN.md` 与 `.claude/skills/bug-report/SKILL.md`（均不存在） | 整节改写为「本仓库适配」：缺陷唯一落点 `docs/ISSUES.md`，编号 + `file:line` 证据；上游严重度词汇保留为报告用语但不入 ISSUES |
+| `qa-lead` / `qa-tester` 的「Story Type → 测试证据」表把落点写成 `tests/unit/[system]/`、`production/qa/evidence/`、`production/qa/smoke-[date].md` | 落点改为本仓库真实位置：`scripts/test-*.js`（登记 `run-tests.js`）/ `scripts/test-browser-*.cjs`（登记 `package.json`）/ `tmp/` 截图 / `validate-content` + `audit-content`；分类语义不变 |
+| `creative-director` 的示例沿用 `design/gdd/`、`production/sprints/`、Alpha 里程碑、ADR 目录 | 示例前加「本仓库对照」注记，只抄判断方式不抄路径 |

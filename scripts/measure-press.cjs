@@ -257,7 +257,7 @@ function mkFoe(id, x, y, hullAngle) {
  *   world:{w:number, h:number, covers:number, nodeSeed:number},
  *   minDist:number, plateauSec:number, tail5sMeanMinDist:number,
  *   radialNetBest:number, radialNetMean:number,
- *   stillShare:number, moveShare:number, blockedShare:number,
+ *   stillShare:number, moveShare:number, blockedShare:number, detourShare:number,
  *   collideFrames:number, penetrateFrames:number, unrecoverablePenFrames:number,
  *   penWithoutPushFrames:number, badCoordFrames:number,
  *   perFoe:Array<object>
@@ -309,13 +309,16 @@ function simulate(opts) {
   let intelTimer = intelInterval;
 
   const wb = world.bounds;
-  const hasLoS = (ox, oy, tx, ty) => CV.hasLineOfSight(ox, oy, tx, ty, CV.covers);
+  // 2026-10-30 P1 修复：**6 参全透传**（hull-down 的 `{ targetZ }` 走第 6 参；4 参包装会吞掉
+  //   opts ⇒ 探针环境 hull-down 静默失效、与实机口径漂移）。
+  const hasLoS = (ox, oy, tx, ty, coversList, opts) => CV.hasLineOfSight(ox, oy, tx, ty, coversList ?? CV.covers, opts);
   const findCoversOnPath = (ox, oy, tx, ty) => CV.findCoversOnPath(ox, oy, tx, ty, CV.covers);
 
   // 逐车累计：径向净推进（每帧沿「玩家→该车」单位向量投影，绕圈不计入）、
   // 速度/阻挡/碰撞帧数
   const acc = foes.map(() => ({
     radial: 0, stillFrames: 0, moveFrames: 0, blockedFrames: 0, pushFrames: 0,
+    detourFrames: 0,          // B2（2026-10-29）：绕障状态机生效的帧数
     speedSum: 0, maxSpeed: 0,
   }));
   const startDist = foes.map(f => Math.hypot(f.x - player.x, f.y - player.y));
@@ -349,6 +352,7 @@ function simulate(opts) {
       enemies: alive,
       covers: CV.covers,
       hasLoS,
+      probeMoveBlocked: CV.probeMoveBlocked,   // B2：绕障状态机的探测入口（与页面同源）
       findCoversOnPath,
       worldBounds: wb,
       dt,
@@ -356,9 +360,27 @@ function simulate(opts) {
       allyCommand: RULES.allyCommand,
     };
 
-    // 站桩玩家：不转向、不给油（松键滑行仍走 driveTank 的制动通道，与实机一致）
-    MV.driveTank(player, dt, { turn: 0, move: 0, worldBounds: wb });
+    // 站桩玩家：不转向、不给油（松键滑行仍走 driveTank 的制动通道，与实机一致）。
+    // 2026-10-30 注记（hull-down × 探针口径三次迭代的最终结论）：hull-down（§4.176）
+    //   生效后曾试过给玩家微速（0.05/0.25）以「绕开」车体口径视线对探针的影响——
+    //   **两次都更糟**：0.05 的起步/制动帧会穿越 camo idle 阈值（6px/s）⇒ hull-down
+    //   在部分帧抖动生效，读数不稳定（seed 123 实测 391~486px 漂移）；0.25 的移动探针
+    //   则让「径向净推进」语义崩坏（玩家自己 ~75px/s 前进把交战带内的敌人推离原地，
+    //   三车 net 全负但 minDist 95px 达标）。真站桩（move=0）+ 6 参透传 + 负收益熔断
+    //   才是自洽口径（10 seed 实测见 test-ai-press ⑤ 段的当次输出）。
+    //   「站桩玩家更难被发现」是 hull-down 的游戏特性，不是探针要消除的噪声。
 
+    // 2026-10-30 门①口径 v5（最终）：探针玩家**恒定暴露**（`lastFireAt` 每帧刷新）。
+    //   沿革：hull-down（§4.176）落地后，「静默玩家何时被发现」变成图相关且时间无界的
+    //   量（seed 31337 的玩家出生点被灌木+camo 双重掩护，40s 内敌人 wander 不到激活
+    //   距离 438px，实测停 486px）。门①测的是**压迫能力**（敌人激活后的推进/绕障/驻停），
+    //   不是「静默玩家多久被发现」——后者是 hull-down 的游戏价值本身，归
+    //   `measure-survival.cjs` 门 ③（首次掉血时刻，已裁定 5.1× 达标）测量。
+    //   恒定暴露 = 交火中的玩家（开火惩罚窗常开 ⇒ `camouflageFiringMul < 1` ⇒ 炮塔口径
+    //   ⇒ hull-down 与 camo 的激活门槛都不参与）⇒ 门①变成纯粹的几何/绕障测量。
+    //   这与 encounter 链的「进攻意志」（强制 aiEngaged + intel 刷新）同一分层哲学：
+    //   发现问题交给发现探针，压迫问题交给压迫探针。
+    player.lastFireAt = U.simNow();
     SQ.updateSquad(ctx);
     const prev = alive.map(e => ({ x: e.x, y: e.y }));
     // driveTank 结束时的即时快照：推出量与「解算后是否还嵌在掩体里」必须同帧对照，
@@ -402,6 +424,7 @@ function simulate(opts) {
       a.speedSum += spd;
       if (spd > a.maxSpeed) a.maxSpeed = spd;
       if (spd <= 1) a.stillFrames++; else a.moveFrames++;
+      if (e._detour) a.detourFrames++;      // B2：绕行承诺期内的帧
 
       const aheadTier = frontBlockTier(e, scene.probeDist);
       if (aheadTier) a.blockedFrames++;
@@ -459,6 +482,7 @@ function simulate(opts) {
       stillShare: round3(total ? a.stillFrames / total : 0),
       blockedShare: round3(total ? a.blockedFrames / total : 0),
       pushFrames: a.pushFrames,
+      detourShare: round3(total ? a.detourFrames / total : 0),   // B2：绕障帧占比
       stallSec: round3(lastImprove[i] * dt),   // 最后一次真的靠近的时刻（此后原地）
       lastAhead: frontBlockTier(e, scene.probeDist) || 'none',
       lastRole: e.aiRole || '-',
@@ -492,6 +516,7 @@ function simulate(opts) {
     stillShare: round3(foeFrames ? stillFrames / foeFrames : 0),
     moveShare: round3(foeFrames ? moveFrames / foeFrames : 0),
     blockedShare: round3(foeFrames ? blockedFrames / foeFrames : 0),
+    detourShare: round3(foeFrames ? acc.reduce((s, a) => s + a.detourFrames, 0) / foeFrames : 0),
     collideFrames: pushFrames,
     penetrateFrames,
     unrecoverablePenFrames,
@@ -525,6 +550,7 @@ function printReport(res) {
   console.log(`静止帧占比            : ${(s.stillShare * 100).toFixed(1)} %（|v| ≤ 1px/s）`);
   console.log(`移动帧占比            : ${(s.moveShare * 100).toFixed(1)} %`);
   console.log(`正前方 ${s.probeDist}px 阻挡帧占比  : ${(s.blockedShare * 100).toFixed(1)} %（只认掩体几何）`);
+  console.log(`绕障帧占比            : ${(s.detourShare * 100).toFixed(1)} %（B2 绕行承诺期内）`);
   console.log(`碰撞推出帧数（合计）  : ${s.collideFrames}（推出量 > 0 的车·帧）`);
   console.log(`残留穿透帧数          : ${s.penetrateFrames}（实体分离顶进掩体，等下一帧解算）`);
   console.log(`  其中不可恢复        : ${s.unrecoverablePenFrames}（再解算一次仍穿透 ⇒ 必须为 0）`);
@@ -533,12 +559,13 @@ function printReport(res) {
   console.log('');
   console.log('逐车明细：');
   console.log('  ' + pad('id', 13) + pad('起始', 8) + pad('末距', 8) + pad('净推进', 9)
-    + pad('均速', 8) + pad('峰速', 8) + pad('静止%', 8) + pad('阻挡%', 8) + pad('碰撞帧', 8)
+    + pad('均速', 8) + pad('峰速', 8) + pad('静止%', 8) + pad('阻挡%', 8) + pad('绕障%', 8) + pad('碰撞帧', 8)
     + pad('末次靠近', 10) + '末帧前方');
   for (const p of s.perFoe) {
     console.log('  ' + pad(p.id, 13) + pad(p.startDist.toFixed(0), 8) + pad(p.endDist.toFixed(0), 8)
       + pad(p.radial.toFixed(1), 9) + pad(p.meanSpeed.toFixed(1), 8) + pad(p.maxSpeed.toFixed(1), 8)
       + pad((p.stillShare * 100).toFixed(0), 8) + pad((p.blockedShare * 100).toFixed(0), 8)
+      + pad((p.detourShare * 100).toFixed(0), 8)
       + pad(p.pushFrames, 8) + pad(p.stallSec.toFixed(1) + 's', 10) + p.lastAhead);
   }
   if (process.env.PRESS_TRACE) {

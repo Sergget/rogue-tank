@@ -24,6 +24,7 @@ const FAIL_TAIL_LINES = 25;
 const TESTS = [
   'scripts/test-qa.js',
   'scripts/test-covers.js',
+  'scripts/test-cover-probe.js',      // 2026-10-29 B1：前向探测原语（tierBlocksMove 同源 / 实体不是地形 / 栅格同口径）
   'scripts/test-tanks.js',
   'scripts/test-hitpart.js',
   'scripts/test-tankcollision.js',
@@ -132,6 +133,8 @@ const TESTS = [
   //   §4.160 曾把 spawnBlockedWhy 出生点判定当行进判定误判一整轮）/ 推出量与碰撞同步。
   //   本批不改行为，**不得**在此断言「敌人已经压上来」；门 ① 阈值属 B3。
   'scripts/test-ai-press.js',
+  'scripts/test-ai-detour.js',        // 2026-10-29 B2：绕障状态机（侧别同源 / 承诺期 / 防打转）
+  'scripts/test-hull-down.js',        // 2026-10-29 #AB18：hull-down 条件降档（静止+未开火才走车体口径）
   'scripts/test-survival-reinforce.js',   // 2026-10-29：生存补给站「增援」升级（档位通道 + 接线）
 ];
 

@@ -212,18 +212,18 @@ async function immortalize(page) {
 
     // --- 4) 难度探针：只在敌人**真正进入交战距离后**才测 ---
     // spawn 后立刻测量会把「敌人跑过来的时间」算进去，得到的是虚低的承伤率。
-    // 阈值说明（#AB11b）：敌人从 ~830px 出生，实测稳定压到 **630~650px** 就进入「顶着掩体排队」
-    // 的平台期（决策层 move=1、实体速度 0~15，见 docs/ISSUES.md #AB11 / #AB11b）。
-    // 原阈值写 620px，正好落在平台期边缘 ⇒ 同一份代码会在 630/641 之间飘，跑出间歇性红。
-    // 这条断言的意图是「敌人不会停在出生距离干等」，不是「必须摸到 620」——
-    // 因此按平台期上沿取 660：仍能抓住「退化成 830 不推进」的回归，又不再抖动。
-    // 真正的接战压迫感缺陷记在 #AB11/#AB11b，由那边修，不靠这条断言施压。
+    // 阈值沿革：
+    //   · 原写 620px —— 落在 #AB11b 的「顶着掩体排队」平台期（630~650px）边缘 ⇒ 间歇性红；
+    //   · 2026-10-28 §4.158 放宽到 660（只验「不会停在出生距离干等」）；
+    //   · 2026-10-29 B3 收紧到 **340**（`RULES.ai.engageBand.classBands` 下探后，MS1 门 ①
+    //     的验收值）。10 seed × `measure-press` 实测 worst 334px，故 340 是硬门不是余量。
+    // 若这条变红：先跑 `node scripts/measure-press.cjs` 看是不是掩体布局把路堵了，别直接放宽。
     const gotClose = await page.waitForFunction(() => {
       const p = window.__TEST3D__.player();
       const es = window.__TEST3D__.entities().filter(x => x.team === 'enemy' && x.hp > 0);
-      return es.length > 0 && Math.min(...es.map(x => Math.hypot(x.x - p.x, x.y - p.y))) < 660;
+      return es.length > 0 && Math.min(...es.map(x => Math.hypot(x.x - p.x, x.y - p.y))) < 340;
     }, null, { timeout: 25000 }).then(() => true).catch(() => false);
-    check('敌人能在合理时间内压到接战距离（<660px，平台期上沿）', gotClose);
+    check('敌人能在合理时间内压到接战距离（<340px，MS1 门 ①）', gotClose);
     await page.evaluate(() => { const p = window.__TEST3D__.player(); p.hp = p.stats.maxHp; });
 
     const s0 = await page.evaluate(() => {

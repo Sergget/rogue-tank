@@ -306,7 +306,7 @@
 
 ### 14.6 测试重锚清单
 
-> `test-map` / `test-nodegen` §16 / 校准基线 / `test-replay` / 浏览器六链；横向节点需新增拼接确定性与接缝无断口回归。
+> `test-map` / `test-nodegen` §16 / 校准基线 / `test-replay` / 浏览器八链；横向节点需新增拼接确定性与接缝无断口回归。
 
 **详见**：[strip 节点与防线式推进 · 测试重锚清单](./map/strip-defense.md#测试重锚清单)
 

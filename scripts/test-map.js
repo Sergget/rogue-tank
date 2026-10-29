@@ -401,7 +401,8 @@ ok(runZ.difficulty === difficultyForIndex(5, 3), 'extendRun 复用 run.env 的 d
   }, envM);
   const e0 = resM.spawned[0], e1 = resM.spawned[1];
   ok(e0.stats.maxHp === 1000 * multsMax.maxHp, `entityMults.maxHp 应用：1000→${e0.stats.maxHp}（实际 ${e0.stats.maxHp}）`);
-  ok(closeNum(e0.stats.reload, 4.1), `entityMults.reload 应用：5→4.1（实际 ${e0.stats.reload}）`);
+  // §4.178（#AC1）：reload 高难度端 0.82→0.88 ⇒ 5×0.88=4.4
+  ok(closeNum(e0.stats.reload, 4.4), `entityMults.reload 应用：5→4.4（实际 ${e0.stats.reload}）`);
   ok(e0.stats.armor.hull.front === 100 * multsMax.armorAll && e0.stats.armor.turret.rear === 40 * multsMax.armorAll,
      `armorAll 全面生效：hull.front 100→${e0.stats.armor.hull.front} / turret.rear 40→${e0.stats.armor.turret.rear}（实际 ${e0.stats.armor.hull.front}/${e0.stats.armor.turret.rear}）`);
   ok(e1.stats.penetration === 120 * multsMax.penetration && e1.stats.spreadMult === 1 * multsMax.spreadMult && closeNum(e1.stats.turretTurnRate, 1.2 * multsMax.turretTurnRate),

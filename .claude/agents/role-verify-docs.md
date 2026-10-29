@@ -9,22 +9,24 @@ model: inherit
 ## 1. 你拥有的文件
 
 - `scripts/check-html.js` — 语法冒烟（`vm.Script`，无 spawn）+ 顶层重复声明检测 + 孤儿测试检测
-- `scripts/run-tests.js` — Node 测试链 runner（**68 项登记 = 67 个 `test-*.js` + `validate-content.js`**，2026-10-27 实测）
+- `scripts/run-tests.js` — Node 测试链 runner（**73 项登记 = 72 个 `test-*.js` + `validate-content.js`**，2026-10-29 实测）
+- `scripts/batch-gate.js` — 批次门禁（`GATE: PASS` / `--browser` 连浏览器链），2026-10-29 §4.164~§4.166 起作为收口命令
 - **`scripts/wiki-check.js`** — specs wiki 链接/锚点/模板校验（2026-10-21 新增；**改过 docs 后必跑**）
-- `scripts/test-browser-*.cjs` — 浏览器六链（smoke / r3 / run / r4 / ally / 3d）
+- `scripts/test-browser-*.cjs` — 浏览器九链（smoke / r3 / run / r4 / ally / 3d / encounter / perf / replay3d）
 - **specs 写域（wiki 化后）**：`docs/specs/<卷>/` 全部主题页 + `docs/specs/<卷>.md` 兼容索引页 + `docs/WIKI-STYLE.md`（形态权威）
 - `docs/DEVELOPMENT.md` §4 索引、`docs/DEVELOPMENT-batches-<yyyy-mm>.md` 正文续写、`docs/PLAN.md`、`docs/ISSUES.md`、`docs/ARCHIVE.md` + `docs/archive/<yyyy-mm>.md`
 - `tsconfig.json` / `types/globals.d.ts`
+- `js/tank_sim.js` — **回放代理玩家 harness**（仅测试链使用，不影响正式游戏；改它只需保证 `test-replay` 等链仍绿）
 
 ## 2. 三条验证链（2026-10-27 复核）
 
 | 链 | 命令 | 说明 |
 |---|---|---|
-| 语法冒烟 | `node scripts/check-html.js` | 覆盖 `js/*.js`、`server.js`、`scripts/**/*.{js,cjs}`、**六页**内联 `<script>` |
+| 语法冒烟 | `node scripts/check-html.js` | 覆盖 `js/*.js`、`server.js`、`scripts/**/*.{js,cjs}`、**七页**内联 `<script>` |
 | typecheck | `node node_modules/typescript/bin/tsc --noEmit` | **不要用 `npx tsc`**（写用户缓存） |
 | 合并 | `npm run check` | 上两条合并，约 40s |
-| Node 全链 | `npm test` | 60 项登记；逐项独立运行，失败不中断；末行汇总 |
-| 浏览器六链 | `npm run test:browser` | 需系统 Edge（channel `msedge`，无头）；3d 链需 WebGL |
+| Node 全链 | `npm test` | **73 项登记**（2026-10-29 实测）；逐项独立运行，失败不中断；末行汇总 |
+| 浏览器九链 | `npm run test:browser` | 需系统 Edge（channel `msedge`，无头）；3d 链需 WebGL |
 | 文档链 | `node scripts/wiki-check.js` | 改过 docs 必跑；`broken=0 anchorBad=0 struct=0 template=0` |
 
 **只报实测退出码。** 未跑项必须明确写「未跑 + 原因」，不得暗示通过。
@@ -47,7 +49,7 @@ model: inherit
 
 功能/修复验证通过后，**顺序不可颠倒**：
 
-1. **同步** — ① **`docs/specs/<卷>/<主题页>.md`** 写现行细则（战斗→`combat/` / 地图→`map/` / 卡牌→`cards/` / Boss→`boss/` / 编辑器→`editor/`），按 **AGENTS.md §2.3「改 specs 三步」**（改主题页 → 对齐 `<卷>.md` 兼容页摘要 → 跑 `node scripts/wiki-check.js`）；② `docs/DEVELOPMENT-batches-<yyyy-mm>.md` **§4 正文末尾续写新编号**（**2026-10-27 当前最大 = §4.154，下一个 §4.155**），简结论 + specs 归口指针（**指向主题页**如 `specs/combat/ammo-system.md`）+ 三链验证记录；③ 同步 `docs/DEVELOPMENT.md` §4.0 索引表（**新增行不能漏**，§4.144 曾漏过）。
+1. **同步** — ① **`docs/specs/<卷>/<主题页>.md`** 写现行细则（战斗→`combat/` / 地图→`map/` / 卡牌→`cards/` / Boss→`boss/` / 编辑器→`editor/`），按 **AGENTS.md §2.3「改 specs 三步」**（改主题页 → 对齐 `<卷>.md` 兼容页摘要 → 跑 `node scripts/wiki-check.js`）；② `docs/DEVELOPMENT-batches-<yyyy-mm>.md` **§4 正文末尾续写新编号**（**2026-10-29 当前最大 = §4.169，下一个 §4.170**；以 `docs/DEVELOPMENT.md` §0 的「当前最大编号」为准），简结论 + specs 归口指针（**指向主题页**如 `specs/combat/ammo-system.md`）+ 三链验证记录；③ 同步 `docs/DEVELOPMENT.md` §4.0 索引表（**新增行不能漏**，§4.144 曾漏过）。
 2. **删除** — 从 `docs/PLAN.md` / `docs/ISSUES.md` **完全删除**对应条目。
 3. **归档** — 被删条目**原文**追加到 `docs/archive/<yyyy-mm>.md` 底部（标来源文档、条目编号、删除日期），并在 `docs/ARCHIVE.md` 索引表**表尾**加一行（日期升序）。
 4. **联动** — 影响规划顺序时同步 `DEVELOPMENT.md` §3 与 `PLAN.md` §1。
@@ -57,7 +59,7 @@ model: inherit
 `docs/DEVELOPMENT.md` 只有 **§0 文档体系索引 / §1 核心方向 / §2 架构演进 / §3 当前状态与下一步 / §4 批次落地结论**。
 
 - **没有 §5 / §5.5 / §6**——数值口径归 `docs/specs/<卷>/` 对应主题页。
-- **specs 已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 是正文（**71 页，2026-10-27 实测**，`wiki-check` 的 `pages=` 即此数），`docs/specs/<卷>.md` 是 §N 兼容索引页。**改 specs 必读 `docs/WIKI-STYLE.md`**。
+- **specs 已 wiki 化（2026-10-21）**：`docs/specs/<卷>/` 是正文（**76 页，2026-10-29 实测** = 66 主题页 + 5 index + 5 changelog，`wiki-check` 的 `pages=` 即此数），`docs/specs/<卷>.md` 是 §N 兼容索引页。**改 specs 必读 `docs/WIKI-STYLE.md`**。**标「设计预留」的页不得当现行口径引用**（收口时若把预留页写成现行，属口径错误）。
 - §4 正文已按月份拆到 `docs/DEVELOPMENT-batches-2026-09.md` / `-2026-10.md`；`DEVELOPMENT.md` 只留 §4.0 编号索引。
 - **`docs/archive/` 归档分卷严禁全文读取**（单卷可达 ~257KB）：按 `ARCHIVE.md` 索引定位后 Grep 切片。同一文件重复读取 ≤ 3 次。
 - 统计数字必须实测并标日期（如卡牌数用 `node scripts/audit-content.js`）。

@@ -637,3 +637,14 @@ declare function applyEnemyAppearanceAndStats(tank: any, spec: any, anchorStats?
 declare function enemyPreviewStats(tankId: string, level: number, opts?: any): any;
 // #W-I（2026-10-20）：榴弹炮曲射模式判据（js/tank_weapons.js 导出；副武器语义）
 declare function isHowitzerMode(tank: any): boolean;
+
+// B1/B2（2026-10-29）：前向探测原语与绕障（js/tank_cover.js 导出；aiCtx 注入）
+declare function tierBlocksMove(tier: any): boolean;
+declare function probeMoveBlocked(t: any, heading: number, dist: number): { blocked: boolean, tier: string | null, nx: number, ny: number, hitDist: number };
+declare function probeCellPassable(cx: number, cy: number, r: number, opts?: { margin?: number }): { passable: boolean, tier: string | null, cost: number };
+declare function tankQueryRadius(tank: any): number;
+declare function tankSideSeed(id: any): number;
+// #AB18（2026-10-29）：车体视线高度（js/tank_cover.js 导出；hull-down 条件降档消费）
+declare const LOS_HULL_Z: number;
+declare function camouflageMotionOf(t: any): string;
+declare function camouflageFiringMul(t: any): number;
