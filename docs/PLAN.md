@@ -161,6 +161,28 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 | **B6** ✅ **已落地（§4.175，浏览器链八→九）** 3D 确定性回放（门 ⑥） | **`role-render-fx`** · `tank_3d.html`（**本批唯一页面写者**，页面归口见 `rogue-tank-roles` §1）；`role-systems` · `tank_ai.js` + `tank_ally_command.js`；`role-combat` · `tank_fire.js` | 同 seed 两次摘要一致；浏览器链 八 → **九**条全绿；粒子/震屏的随机**排除在回放口径外**并写明 |
 | **B7** ⏳ **进行中（本表即对账，2026-10-29）** 收口：六门逐条对账 | `role-verify-docs` · ISSUES / DEVELOPMENT §4.x / specs（combat + map 两卷顺序写） | check 0 + test 0 失败 + 浏览器全绿 + `wiki-check` 全绿；#AB10/#AB11/#AB11b/#AB12 走 4 步生命周期 |
 
+### 2.8.0 MS2 实施计划（2026-10-30 细化，lead-programmer 拆分）
+
+**目标**：把页面无关的 `js/tank_encounter.js`（已在 3D 切片验证）接进 `tank_battle.html` 正式局——标准模式每节点由「materializeNode 一次性铺敌」改为「波次导演投送」，让「一场遭遇多久」第一次能在带卡牌/商店的真局里量。
+
+**现状盘点（2026-10-30 实测）**：
+- 标准节点敌数 = `enemyCountForDifficulty(diff)`（1~5 辆）+ 增援通道（`reinforcementTick` 补配额）；完成判定 = `nodeClearance`（抵达出口 + 防线清空/配额达成）双条件。
+- 3D 切片的接线样板：`createEncounter` → 每帧 `updateEncounter(enc, dt, ctx)` → 事件七类（telegraph/spawn/wave-clear/wave-empty/breather/intel/victory/defeat）→ `handleEncounterEvent` 消费。**spawn 提案只给坐标**，实体生成/进攻意志/反应延迟全在页面。
+- 正式局已有的波次基建：生存模式（`spawnSurvivalWaveEnemies` / `finishSurvivalWave` / 每波选卡）与 Boss summons 分波召唤——**卡牌在战斗内选（`pendingLootRounds` 通道）已存在**，MS2 的「卡牌节奏不被打断」有现成管线可挂。
+
+**批次拆分（硬串行 C0 → C1 → C2 → C3，单写者 `role-systems` 主导，页面接线批由 `role-combat` 承担）**：
+
+| 批次 | 内容 | 写域 | 完成门 |
+|---|---|---|---|
+| **C0** | 配置层：`RULES.encounter.standardWaves`（与切片 `waves` 分开的正式局波次编成，初值沿用切片三波但按节点难度缩放 count）；`node.encounter` 标记由 `makeNode` 写入（普通节点 true / Boss / 生存 false） | `role-systems` · `tank_rules.js` + `tank_map.js` | `test-map` 断言标准节点带 `encounter=true`、Boss/生存不带；Node 链全绿 |
+| **C1** | 接线层：`tank_battle.html` 进节点时按 `node.encounter` 分流——encounter 节点**跳过** `materializeNode` 的敌人铺放（掩体/防线/出口保留），创建 `createEncounter`；主循环挂 `updateEncounter` + `handleEncounterEvent`（复用生存模式的选卡/结算管线，victory ⇒ `finishNode(true)`）；`spawnBlocked` 查询注入 ctx | `role-combat` · `tank_battle.html`（单写者） | 浏览器冒烟链：encounter 节点敌人分批到场、清完走结算；无 console error |
+| **C2** | 测量层：`scripts/measure-encounter` 加 `MODE=real` 驱动真局（`test-browser-run` 同款驱动：新建存档→选车→进节点→自动瞄准开火），输出按时长分解 | `role-verify-docs` · `scripts/` | 3 次实测中位写进 `specs/combat/encounter-pacing.md`（标注 [PLACEHOLDER] 直至 MS3 校准） |
+| **C3** | 门禁层：① `measure-encounter --mode=real` 中位 ∈ 180~300s（实测数字入 spec）② run / 商店 / 计分链全绿 ③ **负向断言**：encounter 节点的 `breather` 事件期间 `pendingLootRounds` 选卡不被 spawn/telegraph 顶掉（锁卡牌节奏）④ `wiki-check` 全绿 | `role-verify-docs` | MS2 收口，§4.x 批次条目 |
+
+**明确不做（MS2 期间）**：改 `enemyClassProfiles`（MS3 的堆血量禁区）；动生存/Boss 模式（它们已有自己的波次管线）；车库武器固化（§1 第 6 行，MS2 后再定位置）。
+
+**回退点**：C1 出问题 ⇒ `RULES.encounter.standardEnabled=false` 一键回退旧铺敌（接线保留）；C2/C3 纯测量不动行为。
+
 ### 2.8.1 B1~B7 改动要点与回退点
 
 > 2026-10-29 迁入自当时的临时拆分稿（该稿已删，**执行以本表为准**）。回退点是硬约束：任何一批不通过，按本表回退而不是就地打补丁。
