@@ -93,11 +93,21 @@ async function ensureServer() {
       () => !!document.getElementById('loadStartBtn'), null, { timeout: 8000 }
     ).then(() => true).catch(() => false);
     if (!inLoadout) throw new Error('loadout 未就绪（loadStartBtn 未出现）');
+    // deploymentReady 依赖 tankListData（fetch 异步）——未就绪时点击被拒绝（CRIT 日志）
+    await page.waitForFunction(
+      () => { const b = document.getElementById('loadStartBtn'); return b && !b.disabled; },
+      null, { timeout: 10000 }).catch(() => {});
     await page.evaluate(() => { const b = document.getElementById('loadStartBtn'); if (b) b.click(); });
     const inBattle = await page.waitForFunction(
-      () => window.__TEST__ && window.__TEST__.flowState() === 'battle', null, { timeout: 15000 }
+      () => window.__TEST__ && window.__TEST__.flowState() === 'battle', null, { timeout: 25000 }
     ).then(() => true).catch(() => false);
-    if (!inBattle) throw new Error('battle 未就绪（15s 超时）');
+    if (!inBattle) {
+      const diag = await page.evaluate(() => ({
+        flow: window.__TEST__ ? window.__TEST__.flowState() : 'no-hook',
+        loadoutVisible: !!document.getElementById('loadStartBtn'),
+      })).catch(() => ({ diag: 'eval-failed' }));
+      throw new Error('battle 未就绪（25s 超时）——诊断: ' + JSON.stringify(diag));
+    }
     await wait(1500);   // 地面烘焙 + 首帧稳定
     const flowState = await page.evaluate(() => window.__TEST__ ? window.__TEST__.flowState() : null);
     if (flowState !== 'battle') throw new Error('未进入 battle 态：' + flowState);
@@ -119,6 +129,16 @@ async function ensureServer() {
             if (d < bd) { bd = d; best = e; }
           }
           p.turretAngle = Math.atan2(best.y - p.y, best.x - p.x);
+          // 推进：敌人躲在防线竖墙后时原地打不到（墙挡弹）——向最近敌推进到 600px 内
+          //   （600 > band.max 338 ⇒ 不干扰敌人交战带；600 < 玩家射程 1800 ⇒ 射程内）。
+          //   用 keydown 'w' 模拟油门（与 measure-survival 的按键驱动同款）。
+          if (d > 600 && !window.__advancing) {
+            window.__advancing = true;
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true }));
+          } else if (d <= 600 && window.__advancing) {
+            window.__advancing = false;
+            window.dispatchEvent(new KeyboardEvent('keyup', { key: 'w', bubbles: true }));
+          }
           // battle 页无 __TEST__.fire —— 用左键事件驱动 mouseFireHeld（update 内每帧 tryFirePrimary）。
           //   mousedown→mousedown 按住 100ms 再 up：装填门控在 tryFirePrimary 内部，重复按下无害。
           if (!window.__mouseDown) {

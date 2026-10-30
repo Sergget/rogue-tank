@@ -793,6 +793,7 @@ let supplyReadyAt = 0;            // performance.now() 时间戳：冷却就绪�
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
 let battleEncounter = null; // 2026-10-30 MS2/C1：标准模式波次导演实例（node.encounter=true 时非 null）
 let battleEncSeq = 0;       // 波次投送实体的节点内序号（id 唯一性；enterBattle 重置）
+let battleEncAnchorIdx = 0; // 波次投送的锚点游标（round-robin 消费防线锚点；enterBattle 重置）
 // #N5（2026-10-01）：存活敌军缓存（AI 循环每帧填充），供屏幕外来袭方向提示复用。
 let aiEnemiesCache = [];
 // #E9（2026-09-20）：Boss 蓄能激光当前帧的绘制数据 { kind:'charge'|'fire', x,y,angle,width,length,progress }
@@ -2639,13 +2640,24 @@ function spawnSurvivalWaveEnemies(count, waveDiff, mults){
   const cfg = (typeof nodeConfig === 'function') ? nodeConfig() : {};
   const pool = (cfg.enemyTankPool && cfg.enemyTankPool.length) ? cfg.enemyTankPool : ['tiger-I'];
   for(let i = 0; i < count; i++){
-    // 生成点：远离玩家的随机位置（至少 600px，避免脸刷）
-    let x = node.w / 2, y = node.h / 2, tries = 0;
+    // 生成点：**视口边缘环带**（2026-10-30 用户裁定）：靠近玩家默认视口的边缘刷出、
+    //   不能太近（视口半宽的 0.75~0.95 环带，且硬性 ≥450px）——「从画面边缘涌入」的
+    //   可读性好于全图随机（旧实现随机到 600px 外任何位置，出场方位不可预判）。
+    //   方位取环上均匀采样；落点钳到界内；不合格（贴掩体）重采样。
+    const vb = (typeof viewBounds === 'function') ? viewBounds(cam) : null;
+    const rMin = Math.max(450, vb ? Math.min(vb.maxX - vb.minX, vb.maxY - vb.minY) / 2 * 0.75 : 450);
+    const rMax = vb ? Math.min(vb.maxX - vb.minX, vb.maxY - vb.minY) / 2 * 0.95 : rMin + 200;
+    let x = node.w / 2, y = node.h / 2, tries = 0, ok = false;
     do {
-      x = 80 + Math.random() * (node.w - 160);
-      y = 80 + Math.random() * (node.h - 160);
+      const ang = Math.random() * Math.PI * 2;
+      const d = rMin + Math.random() * Math.max(60, rMax - rMin);
+      x = Math.max(80, Math.min(node.w - 80, player.x + Math.cos(ang) * d));
+      y = Math.max(80, Math.min(node.h - 80, player.y + Math.sin(ang) * d));
       tries++;
-    } while(tries < 20 && Math.hypot(x - player.x, y - player.y) < 600);
+      ok = Math.hypot(x - player.x, y - player.y) >= 450 &&
+           !(typeof pointInCover === 'function' && pointInCover(covers, x, y, 40));
+    } while(tries < 20 && !ok);
+    if(!ok){ x = node.w / 2; y = node.h / 2; }   // 20 次全败（极端图）⇒ 图心兜底
     const tankId = pool[Math.floor(Math.random() * pool.length)];
     const t = spawnTank({
       id: `surv_w${survivalWave}_${i}`,
@@ -3076,7 +3088,7 @@ function enterBattle(nodeIndex){
   //   materializeNode 已按 node.encounter 跳过一次性铺敌（C0）；这里创建导演实例并把
   //   波次编成按节点难度缩放。victory ⇒ finishNode(true)（复用既有结算/计分链），
   //   defeat ⇒ 走既有复活/gameover 管线（不在此处理，交由玩家 hp 归零的正常路径）。
-  battleEncounter = null; battleEncSeq = 0;
+  battleEncounter = null; battleEncSeq = 0; battleEncAnchorIdx = 0;
   if(node.encounter === true && RULES.encounter && RULES.encounter.enabled && RULES.encounter.standardEnabled){
     // 正式局波次编成 = standardWaves 基准 × 节点难度缩放（count 随 diff 上调，封顶防围死）：
     //   每单元 count → count + floor(diff × diffCountScale)，单波总敌数封顶 maxPerWave。
@@ -3213,16 +3225,50 @@ function battleSpawnBlocked(x, y){
 }
 function battleSpawnWaveUnits(waveIdx, units){
   const out = [];
+  // 2026-10-30 MS2 复查（用户指认）：波次敌人**落位在防线锚点**（地图生成时预设的防御点，
+  //   placeDefenseWalls 的竖墙工事后），不是刷在玩家周围。锚点按波次 round-robin 消费 +
+  //   就近散布（每锚点一单位；超出锚点数的单位散布在锚点附近 80~140px）。
+  //   锚点不可用（无 anchors / 全被占）时回退 bearing 采样（旧行为）。
+  //   生存模式**不适用**本路径——生存走 spawnSurvivalWaveEnemies（玩家附近视口边缘）。
+  // 锚点分组 = 防线（C0 复查修正）：波次 i 绑定防线 i % lineCount——防线按 x 升序生成，
+  //   W1 在最近防线、逐波向出口推进，与玩家推进轴一致（此前 round-robin 全部锚点会让
+  //   W1 的尾车落在 8000px 外的最远防线上，玩家不推进就永远够不着）。
+  //   同一波内多个单位围绕该防线锚点横向（y 向）散布，落位校验沿 +x 推 40px 重试。
+  const lineGroups = (currentNode && Array.isArray(currentNode.encounterAnchors))
+    ? currentNode.encounterAnchors : [];
+  const useAnchors = lineGroups.length > 0;
+  battleEncAnchorIdx = (battleEncAnchorIdx || 0);
   for(const u of units){
+    let sx = u.x, sy = u.y, hull = u.hullAngle;
+    if(useAnchors){
+      const line = lineGroups[battleEncAnchorIdx % lineGroups.length];
+      battleEncAnchorIdx++;
+      const anchor = line[Math.floor(Math.random() * line.length)] || line[0];
+      for(let k = 0; k < 6; k++){
+        // 锚点**前方**（-x 侧，面向玩家进攻方向）50~110px——敌人依托工事部署在墙的
+        //   玩家侧（墙在身后作掩护），不是躲在墙后打不着。同波单位 y 向散布 ±160px。
+        //   落位校验沿 -x 推 40px 重试（压竖墙/掩体时）；全败用原提案点兜底。
+        const frontDist = 50 + Math.random() * 60;
+        const tx = Math.max(60, Math.min((currentNode ? currentNode.w : 1440) - 60, anchor.x - frontDist - k * 40));
+        const ty = Math.max(60, Math.min((currentNode ? currentNode.h : 864) - 60,
+          anchor.y + (Math.random() - 0.5) * 320));
+        if(!(typeof pointInCover === 'function' && pointInCover(covers, tx, ty, 30))){
+          sx = tx; sy = ty; break;
+        }
+        if(k === 5){ sx = u.x; sy = u.y; }   // 全败：回退导演提案点（bearing 采样，已过 isBlocked）
+      }
+      hull = Math.atan2((player ? player.y : sy) - sy, (player ? player.x : sx) - sx);
+    }
     const t = spawnTank({
       id: `enemy_w${waveIdx}_${battleEncSeq++}`,
       team: 'enemy',
-      x: u.x, y: u.y,
-      hullAngle: u.hullAngle, turretAngle: u.hullAngle,
+      x: sx, y: sy,
+      hullAngle: hull, turretAngle: hull,
       heightClass: u.cls,
     });
     t.nodeSpawn = true;                       // 计入 livingNodeEnemies（与铺敌同口径）
     t.waveSpawn = true;                       // MS2/C1：波次投送标记（intel 事件只刷新波次敌人）
+    t.spawnMarkedAt = performance.now();      // MS2 复查：刷新指示箭头的起点（6s 内屏幕边缘红箭头）
     t.tankClass = u.cls;
     t.aiTier = 0;
     t.aiTriggerDist = triggerDistForDifficulty(currentNode ? currentNode.difficulty : 0);
@@ -6708,6 +6754,53 @@ function drawThreatIndicators(){
   }
 }
 
+// 2026-10-30 MS2 复查（用户需求）：敌人刷新后，屏幕边缘**红色小箭头**指向最近的敌人方向。
+// 与既有 drawThreatIndicators（琥珀、仅接战敌人、728px 内）的差异：
+//   · 触发 = 波次敌人**刷新后 8s 内**（不是接战后）——锚点落位在防线上，玩家此时还看不见；
+//   · 目标 = 最近的**波次敌人**（不限接战/距离——防线上落位本身就是要告知的信息）；
+//   · 颜色 = 红（来袭新敌）vs 琥珀（接战威胁），两层指示不冲突。
+function drawWaveSpawnIndicators(){
+  if(typeof worldToScreen !== 'function' || !player) return;
+  const now = performance.now();
+  const marked = entities.filter(e => e.waveSpawn && e.hp > 0 &&
+    e.spawnMarkedAt && (now - e.spawnMarkedAt) < 8000);
+  if(!marked.length) return;
+  const vb = (typeof viewBounds === 'function') ? viewBounds(cam) : null;
+  // 最近的、且在视口外的波次敌人（视口内玩家自己看得见）
+  let best = null, bd = Infinity;
+  for(const e of marked){
+    if(vb && e.x >= vb.minX && e.x <= vb.maxX && e.y >= vb.minY && e.y <= vb.maxY) continue;
+    const d = Math.hypot(e.x - player.x, e.y - player.y);
+    if(d < bd){ bd = d; best = e; }
+  }
+  if(!best) return;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const margin = 24;
+  const halfW = canvas.width / 2 - margin, halfH = canvas.height / 2 - margin;
+  const sp = worldToScreen(cam, best.x, best.y);
+  const dx = sp.x - cx, dy = sp.y - cy;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  let t = Infinity;
+  if(ux > 0) t = Math.min(t, halfW / ux); else if(ux < 0) t = Math.min(t, -halfW / ux);
+  if(uy > 0) t = Math.min(t, halfH / uy); else if(uy < 0) t = Math.min(t, -halfH / uy);
+  const ax = cx + ux * t, ay = cy + uy * t;
+  // 8s 内淡出（最后 2s 渐隐）
+  const remain = 8000 - (now - best.spawnMarkedAt);
+  const alpha = remain < 2000 ? remain / 2000 : 1;
+  ctx.save();
+  ctx.globalAlpha = 0.85 * alpha;
+  ctx.translate(ax, ay);
+  ctx.rotate(Math.atan2(dy, dx));
+  ctx.fillStyle = '#ff5040';
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(12, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
 function drawDroneIndicators(){
   const inds = droneIndicators(cam, entities);
   if(!inds.length) return;
@@ -7546,6 +7639,7 @@ function draw(){
 
   // ---- #N5 视口外来袭威胁方向（琥珀箭头：已接战且在可开火距离内、但不在视口内的敌人） ----
   drawThreatIndicators();
+  drawWaveSpawnIndicators();
 
   // 炮口环形装填进度（屏幕空间绘制，贴合玩家炮口屏幕坐标，防二次摄像机变换）
   drawReloadRing(ctx);

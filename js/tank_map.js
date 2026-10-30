@@ -945,6 +945,17 @@ function makeNode(index, rng, env) {
     // B 档②/③（2026-09-23）：防线布局（推进轴 x 区间）与出口线——运行时用于「增援只补前方防线」
     // 与推进式完成判定（nodeClearance）。防线制关闭时为空数组。
     defenseLines: defense.enabled ? defense.lines.map(l => ({ x0: l.x0, x1: l.x1 })) : [],
+    // 2026-10-30 MS2 复查（用户指认）：encounter 节点的波次投送落点 = 防线锚点
+    //   （敌人守在防线工事上，不是刷在玩家脸上）。anchors 坐标此前只用于生成期
+    //   （铺敌拒绝采样 / placeDefenseWalls 对齐），未持久化到 node —— 本键补齐。
+    //   消费方：tank_battle.html battleSpawnWaveUnits（波次投送落位）。
+    // 按防线分组（每道防线 = 一波敌人的落位线；波次 i → 防线 i % lineCount，
+    //   防线按 x 升序生成 ⇒ W1 在最近防线、逐波向出口推进，与玩家推进轴一致）
+    encounterAnchors: (!bossMark && !noEnemies && defense.enabled &&
+      typeof RULES !== 'undefined' && RULES.encounter && RULES.encounter.enabled &&
+      RULES.encounter.standardEnabled)
+      ? defense.lines.map(l => l.anchors.map(a => ({ x: a.x, y: a.y })))
+      : [],
     exitX: w * ((cfg.exitZone && cfg.exitZone.xFraction !== undefined) ? cfg.exitZone.xFraction : 0.93),
     outpost: outpost,
     // #N4：本节点生成收尾的 rng 状态（extendRun 免重放续接用；与节点内容同级确定性）

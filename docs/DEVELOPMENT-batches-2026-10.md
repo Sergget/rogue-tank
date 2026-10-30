@@ -4749,4 +4749,6 @@ hull-down 让「静默玩家何时被发现」变成图相关且时间无界的�
 
 **归口**：`PLAN.md` §2.8.0（MS2 拆分）· `specs/combat/encounter-pacing.md` §「正式局实测」· `specs/combat/encounter-director.md` · `docs/ISSUES.md` #AB10。
 
+**复查注记 2（2026-10-30 用户指认「敌人刷在脸上」）**：波次投送落位曾按 bearing 采样（玩家为中心）⇒ 敌人刷在玩家周围任意方向。修正：① `makeNode` 持久化 `node.encounterAnchors`（防线锚点按防线分组）；② 投送落位改**波次绑定防线**（波次 i → 防线 i % lineCount，防线按 x 升序 ⇒ W1 最近防线逐波推进；round-robin 全锚点的初版曾让 W1 尾车落在 8000px 外）；③ 落位在锚点**前方**（-x 面向玩家，防线竖墙在敌身后作掩护——初版「锚点后方」会让敌人躲在自己工事后面打不着，实测 W1 卡 157~296s）；④ 落位压竖墙/掩体时沿部署方向推 40px 重试 6 次。⑤ 敌人刷新后 8s 内屏幕边缘**红色小箭头**指向最近视口外波次敌人（`drawWaveSpawnIndicators`，与琥珀色接战威胁分层）。⑥ 生存模式刷出点改**视口边缘环带**（视口半幅 0.75~0.95 + 硬性 ≥450px + 避掩体重采样）——「从画面边缘涌入」，替代旧全图随机。**二次实测：真局时长 91s → ~280~300s+，门 ① 实质达成**（数字见 `encounter-pacing.md`）。
+
 **复查注记（2026-10-30 /code-review）**：① `standardScale` 曾只在页内 fallback（`{ diffCountScale: 3, maxPerWave: 6 }`）而未落 RULES——违反「参数唯一配置源」纪律，已补入 `RULES.encounter.standardScale`；② 补员/投送共享 `battleEncSeq` 计数器 ⇒ 敌车外观序列被补员跳号（仅多样性，无功能影响，记录不修）；③ revive 路径复核——`reviveAt` 原地复活不重进 `enterBattle` ⇒ 导演状态保留、复活后当前波继续，与 `playerAlive 恒 true` 裁定自洽；`findReviveSpot` 对 null outpost 回退 `playerSpawn`（encounter 节点无据点时安全）。
