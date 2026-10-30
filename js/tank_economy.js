@@ -102,9 +102,13 @@ function normalizeProfile(p){
     // P-34：跨局难度等级守卫（旧档缺省 → 0，向后兼容）
     difficultyLevel: Number.isInteger(p.difficultyLevel) && p.difficultyLevel >= 0 ? p.difficultyLevel : 0,
     // P-35：settings 逐字段守卫（旧档缺省 → 默认 false，向后兼容）
+    // 2026-10-30：新增 aimStyle（'default' | 'crosshair'）——逐字段守卫必须同步，
+    //   否则 normalizeProfile 会把暂停面板写进去的瞄准器选择丢掉（刷新后回默认）。
     settings: {
       invertReverseTurn: !!(p.settings && typeof p.settings === 'object' && p.settings.invertReverseTurn),
-      showFps: !!(p.settings && typeof p.settings === 'object' && p.settings.showFps)
+      showFps: !!(p.settings && typeof p.settings === 'object' && p.settings.showFps),
+      aimStyle: (p.settings && typeof p.settings === 'object' && p.settings.aimStyle === 'crosshair')
+        ? 'crosshair' : 'default'
     }
   };
   if(p.upgrades && typeof p.upgrades === 'object'){

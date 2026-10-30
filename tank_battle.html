@@ -3308,9 +3308,12 @@ function battleSpawnWaveUnits(waveIdx, units){
   //   压后（防线身后）、轻坦侧翼（standardWaves 当前无 light 编成，规则预留）。
   //   **只影响生成落位**——生成后的走位/交战全走既有 aiDecide（B2 绕障/交战带照常），
   //   不锁定任何行为。
-  //   前置偏移（沿 -x，向玩家方向）：heavy 0 / medium 30 / td 80 / spg 110；
-  //   light 侧翼 = y 向 ±200 偏移（防线两翼交替）。未知 cls 按 medium 30 处理。
-  const CLS_FRONT_OFFSET = { heavy: 0, medium: 40, td: 120, spg: 160, light: 40 };
+  //   ⚠ 2026-10-30 修正：此前 CLS_FRONT_OFFSET 的数值与注释语义**相反**（heavy=0 最靠墙、
+  //   td/spg=120/160 反而顶到最前），层级实际是倒的。现按「玩家从 -x 进攻 ⇒ 靠前 = x 更小」
+  //   重排：纵深沿 -x 递增 heavy > medium > td > spg（spg 落在墙后受掩护，火炮不需要直射视线）。
+  //   墙段在点位 -x 侧 44px（见 tank_map.planDefenseLines 的防线掩体段），故 td 恰在墙前、
+  //   spg 在墙后，重坦/中坦前出成屏障。light 侧翼 = y 向 ±200 偏移（两翼交替）。
+  const CLS_DEPTH = { heavy: 160, medium: 110, td: 60, spg: -10, light: 60 };
   const CLS_WING_OFFSET = 200;
   // 排序：heavy 最先分配最前 slot，med 次之，td/spg 最后——slot 顺序即防线连线上的位置
   const layerRank = (cls) => (cls === 'heavy') ? 0 : (cls === 'medium') ? 1
@@ -3323,20 +3326,18 @@ function battleSpawnWaveUnits(waveIdx, units){
     let sx = u.x, sy = u.y, hull = u.hullAngle;
     if(useAnchors && line.length){
       const base = slotPos(slot++);
-      // 层级偏移：前置沿 -x 叠加（heavy 已在 slot 前段，再把 medium/td/spg 拉开纵深）；
-      //   light 侧翼沿 y 拉出防线两翼
-      const frontOff = CLS_FRONT_OFFSET[u.cls] !== undefined ? CLS_FRONT_OFFSET[u.cls] : 30;
+      // 层级纵深：沿 -x（玩家方向）递增——heavy 最前、spg 最靠后（墙后）。
+      //   light 侧翼沿 y 拉出防线两翼。
+      const depth = CLS_DEPTH[u.cls] !== undefined ? CLS_DEPTH[u.cls] : 110;
       const wingOff = (u.cls === 'light') ? ((slot % 2 === 0) ? CLS_WING_OFFSET : -CLS_WING_OFFSET) : 0;
-      const anchor = { x: base.x - frontOff, y: base.y + wingOff };
+      const anchor = { x: base.x - depth, y: base.y + wingOff };
       for(let k = 0; k < 6; k++){
-        // 锚点**前方**（-x 侧，面向玩家进攻方向）50px——敌人依托工事部署在墙的
-        //   玩家侧（墙在身后作掩护），不是躲在墙后打不着。同波沿防线连线排布，
-        //   y 只带 ±20px 抖动。落位校验沿 -x 推 40px 重试（压竖墙/掩体时）；
-        //   全败用原提案点兜底。
-        const frontDist = 50;
-        const tx = Math.max(60, Math.min((currentNode ? currentNode.w : 1440) - 60, anchor.x - frontDist - k * 40));
-        const ty = Math.max(60, Math.min((currentNode ? currentNode.h : 864) - 60,
-          anchor.y + (Math.random() - 0.5) * 40));
+        // 落位校验：压掩体（竖墙段/建筑）时沿 -x 再推 40px 重试——推离墙而不是挤进墙。
+        //   y 抖动用**确定性**序列（slot 派生），避免同波敌人叠成一条线、也不引入 Math.random
+        //   让回放/截图基线抖动。
+        const jitterY = (((slot * 37) % 41) - 20);
+        const tx = Math.max(60, Math.min((currentNode ? currentNode.w : 1440) - 60, anchor.x - k * 40));
+        const ty = Math.max(60, Math.min((currentNode ? currentNode.h : 864) - 60, anchor.y + jitterY));
         if(!(typeof pointInCover === 'function' && pointInCover(covers, tx, ty, 30))){
           sx = tx; sy = ty; break;
         }
@@ -6561,23 +6562,29 @@ function updateBottomHud(){
 function drawCrosshairReticle(ctx){
   if(!(flow.state === 'battle' && player.hp > 0)) return;
   if(typeof mouseWorld === 'undefined' || !mouseWorld) return;
-  const now = performance.now();
+  // 2026-10-30 修复（用户反馈「新设计的瞄准器完全看不到」）：本函数在 **ctx.restore() 之后**
+  //   调用 ⇒ 画布已是屏幕空间，而 mouseWorld 是**世界坐标**。直接用它画等于把准星放到
+  //   世界原点附近——地图宽 8000px 时整组图形落在画布外，肉眼完全看不见。
+  //   统一换算：中心走 worldToScreen，半径乘 cam.zoom（世界尺寸→屏幕像素）。
+  const z = (cam && cam.zoom > 0) ? cam.zoom : 1;
+  const sp = worldToScreen(cam, mouseWorld.x, mouseWorld.y);
+  const CX = sp.x, CY = sp.y;
 
-  // ---- 实时散布圈（1σ 实线 + 2σ 虚线；半径 = σ × 鼠标距离） ----
+  // ---- 实时散布圈（1σ 实线 + 2σ 虚线；半径 = σ × 鼠标距离 × zoom） ----
   const aimDist = Math.hypot(mouseWorld.x - player.x, mouseWorld.y - player.y);
-  const r1 = player.sigma * aimDist;
+  const r1 = player.sigma * aimDist * z;
   const r2 = r1 * 2;
   ctx.save();
   ctx.strokeStyle = 'rgba(255,180,84,0.9)';
   ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, Math.max(6, r1), 0, TAU); ctx.stroke();
+  ctx.beginPath(); ctx.arc(CX, CY, Math.max(6, r1), 0, TAU); ctx.stroke();
   ctx.strokeStyle = 'rgba(255,180,84,0.4)';
   ctx.setLineDash([5, 6]);
-  ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, Math.max(12, r2), 0, TAU); ctx.stroke();
+  ctx.beginPath(); ctx.arc(CX, CY, Math.max(12, r2), 0, TAU); ctx.stroke();
   ctx.setLineDash([]);
   // 准星中心点
   ctx.fillStyle = 'rgba(255,180,84,0.95)';
-  ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, 2, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(CX, CY, 2, 0, TAU); ctx.fill();
 
   // ---- 装填进度弧（围绕准星，半径 18px） ----
   const spec = (typeof primaryWeaponSpec === 'function') ? primaryWeaponSpec(player) : null;
@@ -6588,13 +6595,13 @@ function drawCrosshairReticle(ctx){
   const drawArc = (p, col, lw) => {
     ctx.strokeStyle = col; ctx.lineWidth = lw || 3;
     ctx.beginPath();
-    ctx.arc(mouseWorld.x, mouseWorld.y, R, -Math.PI / 2, -Math.PI / 2 + TAU * Math.max(0, Math.min(1, p)));
+    ctx.arc(CX, CY, R, -Math.PI / 2, -Math.PI / 2 + TAU * Math.max(0, Math.min(1, p)));
     ctx.stroke();
   };
   // 背景暗环
   ctx.lineWidth = 3;
   ctx.strokeStyle = 'rgba(12,13,9,0.7)';
-  ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, R, 0, TAU); ctx.stroke();
+  ctx.beginPath(); ctx.arc(CX, CY, R, 0, TAU); ctx.stroke();
 
   if(wType === 'double_barrel' && player._dbState){
     // 双管：两条独立弧（各占上半/下半 150°，装填中的画进度、就绪的画满）
@@ -6604,8 +6611,8 @@ function drawCrosshairReticle(ctx){
       const span = Math.PI * 0.66;
       const pReady = st.ready[i] ? 1 : Math.max(0, Math.min(1, 1 - st.loadT[i] / Math.max(0.05, reloadBase)));
       ctx.strokeStyle = 'rgba(12,13,9,0.7)'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, R, base, base + span); ctx.stroke();
-      drawArcSeg(mouseWorld.x, mouseWorld.y, R, base, base + span * pReady, st.ready[i] ? '#7ed957' : '#ffb454', 3);
+      ctx.beginPath(); ctx.arc(CX, CY, R, base, base + span); ctx.stroke();
+      drawArcSeg(CX, CY, R, base, base + span * pReady, st.ready[i] ? '#7ed957' : '#ffb454', 3);
     }
   } else if(wType === 'clip' && player._clipState){
     // 弹夹炮：装填弧 + 弹夹余量刻度（rounds 个小刻度围绕准星外侧半径 R+6）
@@ -6622,8 +6629,8 @@ function drawCrosshairReticle(ctx){
       ctx.strokeStyle = filled ? 'rgba(255,180,84,0.95)' : 'rgba(255,180,84,0.25)';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(mouseWorld.x + Math.cos(ang) * (tickR - 3), mouseWorld.y + Math.sin(ang) * (tickR - 3));
-      ctx.lineTo(mouseWorld.x + Math.cos(ang) * (tickR + 3), mouseWorld.y + Math.sin(ang) * (tickR + 3));
+      ctx.moveTo(CX + Math.cos(ang) * (tickR - 3), CY + Math.sin(ang) * (tickR - 3));
+      ctx.lineTo(CX + Math.cos(ang) * (tickR + 3), CY + Math.sin(ang) * (tickR + 3));
       ctx.stroke();
     }
   } else {
@@ -8116,6 +8123,9 @@ function nextRunSeed(){
       return { x: s.x, y: s.y };
     },
     flowState(){ return flow.state; },
+    // 2026-10-30：瞄准器样式 + 鼠标世界坐标（浏览器链/探针核查「精确瞄准器」可见性）
+    aimStyle(){ return (profile.settings && profile.settings.aimStyle === 'crosshair') ? 'crosshair' : 'default'; },
+    mouseWorld(){ return { x: mouseWorld.x, y: mouseWorld.y }; },
     currentNode(){ return currentNode ? currentNode.index : null; },
     seed(){ return run ? run.seed : null; },
     // R0（2026-10-27）：战斗开始挂钟时刻。截图基线用它把「冻结时刻」锚定成

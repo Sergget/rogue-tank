@@ -10,7 +10,8 @@ global.RULES = RULES_MOD.RULES;
 const NG = require('../js/tank_nodegen.js');
 global.createRNG = NG.createRNG;
 global.generateNode = NG.generateNode;
-global.generateStrip = NG.generateStrip;   // #N4：strip 节点路径（tank_map 视口模式走它）
+global.generateStrip = NG.generateStrip;
+global.clearCoversOnRoads = NG.clearCoversOnRoads;   // 防线掩体段的压路收尾（2026-10-30）   // #N4：strip 节点路径（tank_map 视口模式走它）
 global.pickTemplate = NG.pickTemplate;   // #24：tank_map.js 视口缩放前预选模板
 global.getTemplates = NG.getTemplates;   // #T5：makeNode 的 Boss 长宽比修正需遍历模板集
 
@@ -130,6 +131,28 @@ ok(runW.nodes.filter(n => stripCap(n)).every(n => n.w >= 7 * 1920 && Math.abs(n.
    `#N4: 1920×1080 视口——strip 节点 ≈10×2.2 屏、Boss 节点 ≥3×3 屏（strip 实测 ${runW.nodes[0].w.toFixed(0)}×${runW.nodes[0].h.toFixed(0)}）`);
 ok(runV.nodes.filter(n => stripCap(n)).every(n => n.w >= 3840 * 0.9 && n.w <= 3840 * 3.7),
    '#N4: strip 节点宽度区间 = 3~11 倍 720p 视口宽（≈10 屏）');
+
+// 3c-2) 2026-10-30 MS2 复查：防线点位带（每防线 5 点，候选吸附）+ 防线掩体段
+{
+  for (const n of runV.nodes.filter(n => !n.boss)) {
+    ok(Array.isArray(n.encounterAnchors) && n.encounterAnchors.length >= 2,
+      `节点 ${n.index} 防线数 ≥2（实际 ${(n.encounterAnchors || []).length}）`);
+    ok(n.encounterAnchors.every(g => g.length === 5),
+      `节点 ${n.index} 每防线 5 点位（实际 ${n.encounterAnchors.map(g => g.length).join('/')}）`);
+    // 点位 y 分布横跨防线（h×0.12~0.88 带内）
+    ok(n.encounterAnchors.every(g => {
+      const ys = g.map(p2 => p2.y);
+      return Math.max(...ys) - Math.min(...ys) > n.h * 0.3;
+    }), `节点 ${n.index} 点位 y 跨度 >30% 图高（防线横向铺开）`);
+    // 防线掩体段：encounter 节点的 covers 含 defenseLine 标记的 wall
+    const dw = n.covers.filter(c => c.defenseLine === true);
+    // 避让跳过（压已有掩体/出界）是按设计行为——容忍 ≥60% 点位有掩体
+    const spotTotal = (n.encounterAnchors || []).reduce((s2, g) => s2 + g.length, 0);
+    ok(dw.length >= spotTotal * 0.6,
+      `节点 ${n.index} 防线掩体段 ≥60% 点位（实际 ${dw.length}/${spotTotal}）`);
+    ok(dw.every(c => c.tier === 'wall' || c.tier === 'wall_breakable'), '防线掩体 tier=wall 族');
+  }
+}
 
 // 3c) 2026-10-30 MS2/C0：node.encounter 波次导演标记（普通节点 true / Boss 与生存 false）
 {

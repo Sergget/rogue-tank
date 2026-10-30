@@ -251,7 +251,8 @@ function pickDefenseLineAnchor(cands, o) {
  * 总数 targetCount = 防线数 × anchorsPerLine × perAnchor，钳制到 [enemyCountForDifficulty, maxPerNode]。
  * @param {any} o { w, h, playerSpawn, minPlayerDist, diff, diffNorm, viewport:{vw,vh},
  *                  covers, roadJunctions, rng }
- * @returns {{ lines: Array<{x0,x1,center,anchors:Array<{x,y,kind}>}>,
+ * @returns {{ lines: Array<{x0,x1,center,anchors:Array<{x,y,kind}>,
+ *                            lineSpots:Array<{x:number,y:number,kind:string}>}>,
  *             lineCount:number, perAnchor:number, targetCount:number, enabled:boolean }}
  */
 function planDefenseLines(o) {
@@ -286,6 +287,14 @@ function planDefenseLines(o) {
   const lineCount = Math.max(1, Math.min(Math.max(linesMin, linesWanted), maxLinesBySpan));
   const perAnchor = Math.max(1, Math.round(perAnchorMin + (perAnchorMax - perAnchorMin) * diffNorm));
   const lines = [];
+  // 2026-10-30 MS2 复查（用户指认「要在生成地图时预先设计好 3-4 条防线，比如路口、
+  //   城镇边缘、中心、树林内部等处」）：每道防线沿 **y 横向**布 spotsPerLine=5 个点位
+  //   （x=防线 bucket 中心，y 从 h×0.12 到 h×0.88 均匀分布 + 抖动）。点位**就近吸附**
+  //   到掩体/路口候选（collectDefenseAnchors 候选池——路口/城镇边缘/树林内部优先），
+  //   无候选时保持均匀 y（后续 wall 段生成会给点位配掩体）。
+  //   旧 anchorsPerLine=1 的「单锚点」产出仍保留（铺敌 targetCount 语义依赖），
+  //   新增 lineSpots 供 encounter 投送与防线掩体生成消费。
+  const spotsPerLine = 5;
   for (let i = 0; i < lineCount; i++) {
     const bx0 = x0 + (span * i) / lineCount;
     const bx1 = x0 + (span * (i + 1)) / lineCount;
@@ -301,7 +310,27 @@ function planDefenseLines(o) {
         }));
       }
     }
-    lines.push({ x0: bx0, x1: bx1, center: (bx0 + bx1) / 2, anchors: anchors });
+    // 防线横向点位带（encounter 投送落点；候选吸附，rng 确定性）
+    const cx = (bx0 + bx1) / 2;
+    const allCands = collectDefenseAnchors({
+      covers: s.covers, roadJunctions: s.roadJunctions, x0: bx0, x1: bx1, w: w, h: h
+    });
+    const nearCands = allCands.structure.concat(allCands.junction, allCands.foliage);
+    const lineSpots = [];
+    for (let k = 0; k < spotsPerLine; k++) {
+      let ty = h * 0.12 + (h * 0.76) * (k / (spotsPerLine - 1)) + rng.range(-40, 40);
+      let tx = cx;
+      // 吸附：找 150px 内最近候选（路口/结构/林地簇——「路口、城镇边缘、中心、树林内部」）
+      let best = null, bd = 150;
+      for (const c of nearCands) {
+        const d = Math.hypot(c.x - tx, c.y - ty);
+        if (d < bd) { bd = d; best = c; }
+      }
+      if (best) { tx = best.x; ty = best.y; }
+      lineSpots.push({ x: Math.round(Math.max(60, Math.min(w - 60, tx))),
+                       y: Math.round(Math.max(60, Math.min(h - 60, ty))), kind: best ? best.kind : 'open' });
+    }
+    lines.push({ x0: bx0, x1: bx1, center: cx, anchors: anchors, lineSpots: lineSpots });
   }
   const floorCount = enemyCountForDifficulty(Number.isFinite(s.diff) ? s.diff : 0);
   const cap = cfg.maxPerNode !== undefined ? cfg.maxPerNode : 12;
@@ -910,6 +939,61 @@ function makeNode(index, rng, env) {
   // nodeClearance / reinforcementTick / reinforcementPossible 会把「无敌人可打」误读成
   // 「配额未达成 ⇒ 节点未完成」（生存模式由波次 UI 自行判定清场，不走节点完成链路）。
   const quota = (bossMark || noEnemies) ? null : quotaForDifficulty(enemies.length, diff);
+  // 2026-10-30 MS2 复查：波次导演节点标记（与 return 字面量的 encounter 字段同源）
+  const nodeEncounter = (!bossMark && !noEnemies) && !!(typeof RULES !== 'undefined'
+    && RULES.encounter && RULES.encounter.enabled && RULES.encounter.standardEnabled);
+
+  // ==== 2026-10-30 MS2 复查（用户指认「点位周边要有掩体以防御玩家的进攻」）====
+  //   防线掩体**按点位带生成竖墙段**，位置取「相邻点位的中间」而不是点位正前方：
+  //   · 玩家从 -x 进攻 ⇒ 竖墙（angle=π/2、长 110~200、厚 22）横在**进攻通道**上，挡住斜射与推进；
+  //   · 点位正前方**留空**——坦克守在墙侧的射击口，不会被自己的工事堵住炮线
+  //     （2026-10-30 前一版把墙放在点位正前 44px，敌人全在墙前，既没掩护又和玩家隔墙对射）；
+  //   · 墙沿 y 落在 spot.y + 间距/2，天然错开点位，成锯齿状一条防线；
+  //   · 墙平面在 spot.x-230——**最前一档纵深（heavy -160）之前**，整条防线都位于工事之后。
+  //   只在 encounter 节点生成；压路的段由下方 clearCoversOnRoads 收尾推到路侧。
+  if (nodeEncounter) {
+    const wallDefs = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers : {};
+    const wallTier = wallDefs['wall'] || {};
+    const wallHp = (wallTier.hp !== undefined) ? wallTier.hp : 4;
+    for (const line of defense.lines) {
+      const spots = line.lineSpots || [];
+      for (let k = 0; k < spots.length; k++) {
+        const spot = spots[k];
+        const next = spots[k + 1] || null;
+        // 半间距：有下一点取中点，末点沿用前一段的半间距（保持同一节距）
+        const halfGap = next ? (next.y - spot.y) / 2
+          : (k > 0 ? (spot.y - spots[k - 1].y) / 2 : 120);
+        const wy = spot.y + halfGap;
+        const wLen = Math.max(110, Math.min(200, Math.abs(halfGap) * 1.1));
+        // 墙平面取**最前一档纵深之前**（heavy 在 spot.x-160，见 tank_battle CLS_DEPTH），
+        //   这样整条防线都落在工事之后；错开的 y 保证各自射击口不被自家墙堵住。
+        const wx = spot.x - 230;
+        const wThick = 22;
+        if (wx < 40 || wy < 40 || wy > h - 40) continue;
+        // 去重：placeDefenseWalls 已在**防线中心 x** 铺过一整列竖墙（RULES.nodeMap.defenseWalls），
+        //   点位旁 130px 内已有墙体时不再加段——否则同一处叠两层墙，画面糊成一团。
+        //   只对**其它墙**做间距检查：点位本就吸附在路口/结构/林地候选上，与建筑/植被相邻是本意。
+        let hit = false;
+        for (const c of templateResult.covers) {
+          if (c.tier !== 'wall' && c.tier !== 'wall_breakable') continue;
+          if (Math.abs(c.x - wx) < 130 && Math.abs(c.y - wy) < 130) { hit = true; break; }
+        }
+        if (hit) continue;
+        templateResult.covers.push({
+          x: Math.round(wx), y: Math.round(wy),
+          w: wLen, h: wThick, angle: Math.PI / 2,
+          tier: 'wall', hp: wallHp,
+          wallStyle: 'concrete', defenseLine: true
+        });
+      }
+    }
+    // 收尾：这些段是在 generateNode 的 clearCoversOnRoads **之后**追加的 ⇒ 必须再过一遍，
+    //   否则竖墙会压在路面上（test-modes「structure/foliage 不得压路」不变量）。压路的段由
+    //   该函数确定性推到路侧，仍留在点位附近。函数未注入的极简 Node 夹具下跳过。
+    if (typeof clearCoversOnRoads === 'function') {
+      clearCoversOnRoads(templateResult.covers, null, { bounds: { minX: 0, minY: 0, maxX: w, maxY: h } });
+    }
+  }
 
   return {
     index: index,
@@ -954,7 +1038,7 @@ function makeNode(index, rng, env) {
     encounterAnchors: (!bossMark && !noEnemies && defense.enabled &&
       typeof RULES !== 'undefined' && RULES.encounter && RULES.encounter.enabled &&
       RULES.encounter.standardEnabled)
-      ? defense.lines.map(l => l.anchors.map(a => ({ x: a.x, y: a.y })))
+      ? defense.lines.map(l => l.lineSpots || [])
       : [],
     exitX: w * ((cfg.exitZone && cfg.exitZone.xFraction !== undefined) ? cfg.exitZone.xFraction : 0.93),
     outpost: outpost,

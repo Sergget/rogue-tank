@@ -70,8 +70,11 @@ async function ensureServer() {
     page.on('pageerror', e => pageErrors.push('PAGEERROR: ' + e.message));
 
     // ---- 进入序列（test-browser-run 同款）----
-    const savesMetaKey = 'rt_saves_v1';
-    const slotKey = 'rt_save_e2e_real';
+    // 2026-10-30 修正：键名以 tank_economy 为准（savesMetaKey='rogue-tank-saves-meta'、
+    //   槽位键 = saveSlotPrefix+id = 'rogue-tank-save:'+id）。此前写成 'rt_saves_v1' /
+    //   'rt_save_<id>' ⇒ 预置存档**从未被读到**，脚本一直跑在默认档上。
+    const savesMetaKey = 'rogue-tank-saves-meta';
+    const slotKey = 'rogue-tank-save:e2e-real';
     const slotId = 'e2e-real';
     await page.goto(`${server.base}/tank_battle.html`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.evaluate(({ savesMetaKey, slotKey, slotId }) => {
@@ -117,28 +120,66 @@ async function ensureServer() {
       const T = window.__TEST__;
       window.__LOG = [];
       window.__DONE = null;
+      // 2026-10-30：开火计数改为包装 firePrimaryShell（与 test-browser-r4 同款）。
+      //   旧写法数 `p._lastFireReject === null` —— 该字段只有 dev 路径才写，正式页面恒 undefined
+      //   ⇒ 永远数到 0，无法区分「没开火」和「开了没打中」。
+      window.__SHOTS = 0;
+      const origPrimary = window.firePrimaryShell;
+      if (origPrimary) window.firePrimaryShell = function(sh, ...a2){
+        if (sh && sh.id === 'player') window.__SHOTS++;
+        return origPrimary.apply(this, [sh, ...a2]);
+      };
+      // 按键边沿控制（避免每帧重复 keydown）：w/a/d 三键状态机
+      const keys = { w: false, a: false, d: false };
+      const setKey = (k, on) => {
+        if (keys[k] === on) return;
+        keys[k] = on;
+        window.dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { key: k, bubbles: true }));
+      };
       window.__fireId = setInterval(() => {
         try {
           const p = T.player();
           if (!p || p.hp <= 0) return;
           const es = T.entities().filter(e => e.team === 'enemy' && e.hp > 0);
-          if (!es.length) return;
-          let best = null, bd = Infinity;
-          for (const e of es) {
-            const d = Math.hypot(e.x - p.x, e.y - p.y);
-            if (d < bd) { bd = d; best = e; }
+          // 2026-10-30：lineHold 阶段场上无敌人，下一波要等玩家推进过「防线 x − 400」。
+          //   旧探针只在有敌人时才动 ⇒ 清完一波就永久卡在 lineHold（测出 270s「无结局」）。
+          //   现在无敌人时以**下一道防线**为目标点继续推进。
+          let goal = null, bd = Infinity;
+          if (es.length) {
+            for (const e of es) {
+              const d = Math.hypot(e.x - p.x, e.y - p.y);
+              if (d < bd) { bd = d; goal = e; }
+            }
+          } else {
+            const enc = T.encounter ? T.encounter() : null;
+            const groups = T.encounterAnchors ? T.encounterAnchors() : null;
+            if (enc && groups && groups.length) {
+              const gi = Math.min(groups.length - 1, (enc.waveIndex || 0) + 1);
+              const spots = groups[gi] || [];
+              // 取该防线 y 最接近玩家的点位作为推进目标
+              let sp = spots[0];
+              for (const q of spots) if (Math.abs(q.y - p.y) < Math.abs(sp.y - p.y)) sp = q;
+              goal = { x: sp.x, y: sp.y };
+              bd = Math.hypot(goal.x - p.x, goal.y - p.y);
+            }
           }
-          p.turretAngle = Math.atan2(best.y - p.y, best.x - p.x);
+          if (!goal) return;
+          if (es.length) p.turretAngle = Math.atan2(goal.y - p.y, goal.x - p.x);
           // 推进：敌人躲在防线竖墙后时原地打不到（墙挡弹）——向最近敌推进到 600px 内
           //   （600 > band.max 338 ⇒ 不干扰敌人交战带；600 < 玩家射程 1800 ⇒ 射程内）。
           //   用 keydown 'w' 模拟油门（与 measure-survival 的按键驱动同款）。
-          if (d > 600 && !window.__advancing) {
-            window.__advancing = true;
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true }));
-          } else if (d <= 600 && window.__advancing) {
-            window.__advancing = false;
-            window.dispatchEvent(new KeyboardEvent('keyup', { key: 'w', bubbles: true }));
-          }
+          // 2026-10-30 修复：`d` 是 for 块内声明（块作用域）——出循环即 ReferenceError，
+          //   探针每次都抛异常 ⇒ 从未开火/推进（300s 无结局的真因）。改用循环外的最近距离 bd。
+          // 转向 + 油门：目标方向与车体朝向夹角 >0.15rad 就先转向（a=左/-1、d=右/+1），
+          //   对准后踩油门；有敌人时推进到 600px 内（600 > band.max 338 不干扰交战带）。
+          const desired = Math.atan2(goal.y - p.y, goal.x - p.x);
+          let diff = desired - p.hullAngle;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          setKey('d', diff > 0.15);
+          setKey('a', diff < -0.15);
+          const wantAdvance = es.length ? (bd > 600) : (bd > 120);
+          setKey('w', wantAdvance && Math.abs(diff) < 1.2);
           // battle 页无 __TEST__.fire —— 用左键事件驱动 mouseFireHeld（update 内每帧 tryFirePrimary）。
           //   mousedown→mousedown 按住 100ms 再 up：装填门控在 tryFirePrimary 内部，重复按下无害。
           if (!window.__mouseDown) {
@@ -146,8 +187,7 @@ async function ensureServer() {
             window.__mouseDown = true;
             setTimeout(() => { window.dispatchEvent(new MouseEvent('mouseup', { button: 0, bubbles: true })); window.__mouseDown = false; }, 50);
           }
-          window.__SHOTS = (window.__SHOTS || 0) + (p._lastFireReject === null ? 1 : 0);
-        } catch (e) { /* 单次击发失败不影响测量 */ }
+        } catch (e) { window.__FIRE_ERR = (window.__FIRE_ERR || 0) + 1; window.__FIRE_MSG = String(e && e.message); }
       }, 100);
       window.__logId = setInterval(() => {
         try {
@@ -189,9 +229,10 @@ async function ensureServer() {
     }
     const log = await page.evaluate(() => window.__LOG);
     const shots = await page.evaluate(() => window.__SHOTS || 0);
+    const fireErr = await page.evaluate(() => ({ n: window.__FIRE_ERR || 0, msg: window.__FIRE_MSG || null }));
 
     console.log(`=== 正式局遭遇测量（MS2/C2）===`);
-    console.log(`节点 ${NODE_INDEX} · CAP ${CAP_S}s · 采样 ${log.length} 条 · 开火 ${shots} 次 · pageerror ${pageErrors.length}`);
+    console.log(`节点 ${NODE_INDEX} · CAP ${CAP_S}s · 采样 ${log.length} 条 · 开火 ${shots} 次 · pageerror ${pageErrors.length} · 探针异常 ${fireErr.n}${fireErr.msg ? '（' + fireErr.msg + '）' : ''}`);
     if (pageErrors.length) console.log(pageErrors.slice(0, 5).join('\n'));
 
     // 时长分解（按 phase 累计）

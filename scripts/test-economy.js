@@ -45,6 +45,14 @@ ok(legacyShape.version === RULES_MOD.RULES.economy.saveVersion && legacyShape.se
    Array.isArray(legacyShape.ammoLoadout) && legacyShape.ammoLoadout.length === 0 && legacyShape.bonusRevives === 0,
    'v1 旧档缺新字段 → 缺省填充（saveVersion 不动）');
 
+// 2026-10-30：aimStyle 设置项必须活过 normalizeProfile（暂停面板写入 → 刷新后仍在）
+ok(eco.normalizeProfile({ version: 1, settings: { aimStyle: 'crosshair' } }).settings.aimStyle === 'crosshair',
+   'aimStyle=crosshair 经 normalizeProfile 保留（否则刷新后回默认，用户报「瞄准器看不到」）');
+ok(eco.normalizeProfile({ version: 1, settings: { aimStyle: 'bogus' } }).settings.aimStyle === 'default',
+   '负向：非法 aimStyle 归一为 default');
+ok(eco.normalizeProfile({ version: 1 }).settings.aimStyle === 'default',
+   '旧档无 settings → aimStyle 缺省 default');
+
 // 阶段六 6.3：解锁进度归一化（ap/he 保底解锁、非法键剔除、去重保序）
 ok(Array.isArray(eco.defaultProfile().unlockedAmmo) && eco.defaultProfile().unlockedAmmo.join(',') === 'ap,he',
    'defaultProfile unlockedAmmo 缺省 = [ap,he]');

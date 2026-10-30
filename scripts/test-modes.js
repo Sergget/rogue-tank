@@ -18,6 +18,7 @@ global.generateNode = NG.generateNode;
 global.pickTemplate = NG.pickTemplate;
 global.getTemplates = NG.getTemplates;   // #T5：makeNode 的 Boss 长宽比修正需遍历模板集
 global.generateStrip = NG.generateStrip;
+global.clearCoversOnRoads = NG.clearCoversOnRoads;   // 防线掩体段的压路收尾（2026-10-30）
 const MAP = require('../js/tank_map.js');
 
 let pass = 0, fail = 0;

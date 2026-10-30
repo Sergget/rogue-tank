@@ -209,6 +209,13 @@ function startServer(port) {
       window.__dbg.flow.state === 'battle' && !!(window.__dbg.run && window.__dbg.run.nodes.length >= 1) &&
       !!(window.__dbg.cam && window.__dbg.cam.bounds)));
 
+    // MS2（2026-10-30）：遭遇节点由**波次导演**投送——telegraph（RULES.encounter.telegraphSeconds
+    //   = 2s）之后才有敌人实体。旧断言在进入 battle 的同一拍数敌人 ⇒ 必然 0（时序竞态，
+    //   波次导演落地后才暴露）。这里等首波落地再进入下面的战斗态信息采集。
+    await page.waitForFunction(
+      () => (typeof entities !== 'undefined') && entities.some(e => e.nodeSpawn && e.team === 'enemy' && e.hp > 0),
+      null, { timeout: 15000 }).catch(() => {});
+
     // M10 出击写档断言：active 槽持久化 selectedTankId/ammoLoadout/runs，且作用于 player 实体
     const savedProf = await page.evaluate(() => {
       const meta = JSON.parse(localStorage.getItem('rogue-tank-saves-meta'));

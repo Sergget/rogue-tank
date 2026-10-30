@@ -4834,3 +4834,39 @@ hull-down 让「静默玩家何时被发现」变成图相关且时间无界的�
 `npm run check` EXIT=0；`check-html` 全绿；`test-ai-press` / `test-batch5-combat`（138）/ `test-minimap` / `test-recent-mods` 全绿。目视验收留待用户实机（纯视觉改动无法光栅化断言，按 render-fx 惯例源码形状锁 + 用户实机看一眼）。
 
 **归口**：`specs/combat/hud-ui.md`（瞄准器样式节）· `js/tank_screens.js`（pause VM）· `tank_battle.html`（drawCrosshairReticle）。
+
+## §4.185 2026-10-30 防线点位带与点位掩体 + 瞄准器可见性修复（用户反馈）
+
+**需求（用户原话）**：「标准模式下，敌人生成仍然是环绕着玩家生成的，要在生成地图时预先设计好 3-4 条防线，比如路口、城镇边缘、中心、树林内部等处。并设计好敌人的生成点位、点位周边要有掩体以防御玩家的进攻；新设计的瞄准器完全看不到」。
+
+### 1) 防线点位带（`js/tank_map.js planDefenseLines`）
+
+每道防线由「1 个锚点」改为「5 个横向点位」：y 在 `h×0.12~0.88` 均匀铺 + ±40 抖动，x 取 bucket 中心后**就近吸附** 150px 内的 `collectDefenseAnchors` 候选（structure/junction/foliage——即路口/城镇边缘/树林内部）。结果写 `line.lineSpots` 并持久化到 `node.encounterAnchors[lineIdx]`（5 点/道，实测 4 道 × 5 = 20 点）。旧 `anchors` 保留（`targetCount` 铺敌与 `slotPos` 单锚点兼容分支仍依赖）。
+
+### 2) 点位掩体段（防「掩体在守军身后」）
+
+`encounter` 节点按点位生成竖墙段：墙平面 `spot.x − 230`（**最前一档纵深之前**）、中心 y `spot.y + 间距/2`（错开点位成锯齿）、长 `clamp(间距×1.1,110,200)`、厚 22、`tier='wall'`、`defenseLine: true`；130px 内已有墙则跳过（不与 `placeDefenseWalls` 的列叠两层）。
+
+- 中途踩到的两个坑：① 首版把墙放在点位**正前 44px** ⇒ 守军全在墙前（既没掩护又和玩家隔墙对射），改为错位到相邻点位之间、点位正前方留**射击口**；② 这些段是在 `generateNode` 的 `clearCoversOnRoads` **之后**追加的 ⇒ 必须再跑一遍净空，否则竖墙压路面（`test-modes` 压路不变量直接红）。
+
+### 3) 阵内层级修正（`tank_battle.html battleSpawnWaveUnits`）
+
+旧 `CLS_FRONT_OFFSET = { heavy:0, medium:40, td:120, spg:160 }` 与注释语义**相反**——`x = base.x − frontOff` 下 heavy 最靠墙、td/spg 反而顶到最前。改为 `CLS_DEPTH = { heavy:160, medium:110, td:60, spg:-10, light:60 }`（沿 -x 递增 = 越靠前越朝玩家），spg 落在墙后受掩护（火炮不需直射视线）。y 抖动改确定性序列 `((slot×37)%41)−20`。
+
+### 4) 瞄准器「完全看不到」——两个独立根因
+
+- **坐标空间**：`drawCrosshairReticle` 在 `ctx.restore()` 之后调用（画布已是屏幕空间），却直接用 `mouseWorld`（世界坐标）绘制 ⇒ 地图宽 8000px 时整组图形落在画布外。改为中心走 `worldToScreen(cam, …)`、半径乘 `cam.zoom`。
+- **持久化**：`normalizeProfile` 的 `settings` 是逐字段白名单，`aimStyle` 不在其中 ⇒ 暂停面板写进去的值下次 `loadProfile` 被丢弃（刷新回默认）。白名单补 `aimStyle`（非法值归一 default），`test-economy` 加 3 条断言（含负向）。
+
+### 5) 验证链
+
+`npm run check` EXIT=0 · `npm test` **76/76 通过** · `npm run test:browser` **exit 0（九链全绿）** · `node scripts/wiki-check.js` broken=0 / anchorBad=0。
+
+同批修掉的**工具链缺陷**（都属「测量/探针说谎」，不是游戏 bug）：
+
+- `measure-encounter-real.cjs` 存档键写错（`rt_saves_v1` / `rt_save_<id>`，真键是 `rogue-tank-saves-meta` / `rogue-tank-save:<id>`）⇒ 预置档**从未被读到**，脚本一直跑默认档；
+- 同脚本 `d is not defined`（for 块内声明）⇒ 探针每次抛异常、从未开火，「300s 无结局」是探针假象；
+- 同脚本 lineHold 阶段无敌人即不动 ⇒ 清完一波永久卡住；改为无敌人时以**下一道防线**为目标点推进（w/a/d 转向 + 油门）；
+- `test-browser-smoke` / `test-browser-r4` / `test-browser-ally` 在进入 battle 的同一拍数敌人——波次导演 telegraph 2s 后才有实体，属时序竞态，均改为等首波落地。
+
+**归口**：`specs/map/defense-walls.md`（防线点位带与点位掩体段）· `specs/combat/hud-ui.md`（瞄准器样式：默认与精确）。

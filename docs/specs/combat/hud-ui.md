@@ -1,7 +1,7 @@
 # HUD 与界面
 
 > **摘要**：底部三区 HUD、装填环、技能槽、Boss 血条、TAB 面板刷新，以及「元素 id 即测试契约」这条红线。
-> **适用版本**：现行（2026-10-21）
+> **适用版本**：现行（2026-10-30）
 > **源自**：`docs/specs/combat.md` §9.6、§9.8、§6（HUD 段）（2026-10-21 拆分）
 > **相关**：[技能与副武器](./abilities-secondary.md) · [特效与视效](./fx-visual.md) · [游戏模式](./game-modes.md)
 
@@ -9,6 +9,7 @@
 - [底部 HUD 三区](#底部-hud-三区)
 - [玩家侧暴露度指示器](#玩家侧暴露度指示器)
 - [装填环与热量表](#装填环与热量表)
+- [瞄准器样式：默认与精确](#瞄准器样式默认与精确)
 - [开火后坐与底部常显 HUD](#开火后坐与底部常显-hud)
 - [Boss 血条](#boss-血条)
 - [暂停菜单商店与 TAB 面板](#暂停菜单商店与-tab-面板)
@@ -109,6 +110,34 @@
 - **弹夹**：余量数字 + 蓝色间隔弧 + 橙色整组重装弧，见 [武器与装填 · 弹夹炮](./weapons-reload.md#弹夹炮)。
 - **电磁炮**：白色双层充能弧，见 [特效与视效 · 电磁轨道炮三段视效](./fx-visual.md#电磁轨道炮三段视效)。
 - **时长公式**（漏乘 `reloadMult` 的修复）见 [武器与装填 · 装填时长公式](./weapons-reload.md#装填时长公式)。
+
+## 瞄准器样式：默认与精确
+
+（2026-10-30 §4.184 落地、§4.185 修复）设置项 `profile.settings.aimStyle`，取值 `'default'` | `'crosshair'`，暂停面板 radio 即时持久化（`saveActiveProfile`），绘制层每帧读 profile，切换不用重进节点。
+
+| 样式 | 画什么 | 入口 |
+|---|---|---|
+| `default`（缺省） | 炮口虚线瞄准线 + 1σ/2σ 散布锥（长 250px）+ 炮口装填环 `drawReloadRing` | 既有 UI，不改 |
+| `crosshair`（精确） | 鼠标世界位置的实时散布圈 + 装填进度弧 + 弹夹余量刻度 / 双管双弧 | `drawCrosshairReticle(ctx)` |
+
+**crosshair 读数口径**
+
+- **散布圈**：1σ 实线（68%）+ 2σ 虚线（95%），半径 = `player.sigma × distToMouse × cam.zoom`。σ 已聚合三扩/缩圈/改装全通道，故圈随距离放大、随瞄准收敛。
+- **装填弧**：围绕准星 R=18px；标准炮/电磁炮/机炮为 `reloadT` 单弧，就绪不画（与炮口环同口径）。
+- **弹夹炮**：`_clipState`——弹夹间整组重装时弧按 `clipMagReloadSeconds` 计整装进度；余量刻度 `rounds/size`（亮/暗）排在 R+7。
+- **双管**：`_dbState`——两根 150° 独立弧（上/下），逐管 `ready/loadT`。
+- 进度分母与 `drawReloadRing` **同一来源**（`stats.reload × mult / debuffRate`），样式切换不产生口径分叉。
+- **曲射落点圈两样式共用**（曲射语义不属于样式范畴）。
+
+**坐标空间（2026-10-30 修复，用户反馈「新设计的瞄准器完全看不到」）**
+
+`drawCrosshairReticle` 在 `ctx.restore()` **之后**调用 ⇒ 画布已是屏幕空间，而 `mouseWorld` 是世界坐标。直接用它绘制会把整组图形放到世界原点附近——地图宽 8000px 时全部落在画布外。**唯一正确写法**：中心走 `worldToScreen(cam, mouseWorld.x, mouseWorld.y)`，半径乘 `cam.zoom`。任何挂在绘制循环末段（屏幕空间）的准星类 UI 都必须走这条换算。
+
+**持久化（同批修复）**
+
+`normalizeProfile` 的 `settings` 是**逐字段白名单**（P-35 起）——新增设置项必须同步加进白名单，否则写进存档的值在下次 `loadProfile` 时被丢弃，表现为「刷新后回默认」。现行白名单：`invertReverseTurn` / `showFps` / `aimStyle`（`test-economy` 三条断言锁死，含非法值归一）。
+
+**测试钩子**：`__TEST__.aimStyle()` / `__TEST__.mouseWorld()`；可见性探针 `scripts/probe-crosshair.cjs`（切 crosshair → 读 mouseWorld 屏幕点色相，与 default 对照）。
 
 ## 开火后坐与底部常显 HUD
 

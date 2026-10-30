@@ -311,6 +311,10 @@ declare function getTemplates(): any[];
 declare function pickTemplate(diff: number, rng: any): any;   // #24：难度加权模板选择（tank_map 预选用）
 declare function generateNode(difficulty?: number, options?: NodeGenOptions): GeneratedNodeResult;
 declare function generateStrip(difficulty?: number, options?: StripGenOptions): any;   // C 档 batch 2（§14.2）
+// 2026-10-30：防线掩体段的压路收尾（tank_map 在 generateNode 之后追加 wall 段，需再过一遍净空）
+declare function clearCoversOnRoads(coversList: any[], roadCovers?: any[] | null,
+  opts?: { margin?: number; bounds?: { minX: number; minY: number; maxX: number; maxY: number } }):
+  { moved: number; removed: number; checked: number };
 
 // M0 贴图资产层（js/tank_assets.js，P-06 / §2.10）
 declare var ASSET_DEFS: any;

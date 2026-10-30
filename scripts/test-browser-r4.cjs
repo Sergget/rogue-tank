@@ -252,7 +252,14 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
     const shotsNow = () => page.evaluate(() => ({ primary: window.__shots.primary, secondary: window.__shots.secondary }));
     const primaryType = () => page.evaluate(() => entities.find(e => e.id === 'player').weapons.primary.type);
     // 敌人右前方放置 + 屏幕坐标（炮塔追踪鼠标）
-    const placeEnemy = (dx) => page.evaluate(([dx]) => {
+    // 2026-10-30：遭遇节点由波次导演投送（telegraph 2s 后首波落地）——进入 battle 的同一拍
+    //   可能一个敌人都没有，直接取 en 会 undefined。先等首波，再放置。
+    const waitForEnemy = () => page.waitForFunction(
+      () => (typeof entities !== 'undefined') && entities.some(e => e.team === 'enemy' && e.hp > 0),
+      null, { timeout: 15000 }).catch(() => {});
+    const placeEnemy = async (dx) => {
+      await waitForEnemy();
+      return page.evaluate(([dx]) => {
       const p = entities.find(e => e.id === 'player');
       const en = entities.find(e => e.team === 'enemy' && e.hp > 0) || entities.find(e => e.team === 'enemy');
       en.x = p.x + dx; en.y = p.y;
@@ -260,7 +267,8 @@ const waitFor = (ms) => new Promise(r => setTimeout(r, ms));
       // 后续段"不开火"全是假失败）+ 冻结且不还击（reloadT 极大，防玩家中途战死）
       en.stats.maxHp = 1e6; en.hp = 1e6; en.immobT = 9999; en.reloadT = 9999;
       return { x: en.x, y: en.y, maxHp: en.stats.maxHp };
-    }, [dx]);
+      }, [dx]);
+    };
     const mouseTo = async (wx, wy) => {
       const scr = await page.evaluate(([wx, wy]) => {
         const s = worldToScreen(window.__dbg.cam, wx, wy);

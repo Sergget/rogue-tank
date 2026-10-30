@@ -120,6 +120,11 @@ async function ensureServer() {
     check('友军默认跟随', allies.every(a => a.order === 'follow'), JSON.stringify(allies.map(a => a.order)));
 
     // ② C 键集火：把一辆敌军放到玩家视野内（大世界出生点可能不在屏幕），光标指向它
+    // 2026-10-30：遭遇节点由波次导演投送（telegraph 2s 后首波落地）——先进 battle 时可能
+    //   一个敌人都没有。先等首波再放置，否则下面 find 恒 undefined。
+    await page.waitForFunction(
+      () => window.__TEST__ && window.__TEST__.entities().some(e => e.team === 'enemy' && e.hp > 0),
+      null, { timeout: 15000 }).catch(() => {});
     await page.evaluate(() => {
       const p = window.__TEST__.player();
       const e = window.__TEST__.entities().find(x => x.team === 'enemy' && x.hp > 0);
