@@ -2640,13 +2640,17 @@ function spawnSurvivalWaveEnemies(count, waveDiff, mults){
   const cfg = (typeof nodeConfig === 'function') ? nodeConfig() : {};
   const pool = (cfg.enemyTankPool && cfg.enemyTankPool.length) ? cfg.enemyTankPool : ['tiger-I'];
   for(let i = 0; i < count; i++){
-    // 生成点：**视口边缘环带**（2026-10-30 用户裁定）：靠近玩家默认视口的边缘刷出、
-    //   不能太近（视口半宽的 0.75~0.95 环带，且硬性 ≥450px）——「从画面边缘涌入」的
-    //   可读性好于全图随机（旧实现随机到 600px 外任何位置，出场方位不可预判）。
-    //   方位取环上均匀采样；落点钳到界内；不合格（贴掩体）重采样。
+    // 生成点：**视口边缘环带**（2026-10-30 用户裁定；同日二次修正「太近」）：靠近玩家
+    //   默认视口的边缘刷出、不能太近。首版用 min(半宽,半高)×0.75 当基准 ⇒ 被半高（~360）
+    //   钳到 450~510px——左右方向（半宽 640）的敌人在视口内刷出，就是「太近」的来源。
+    //   修正：基准改用**视口对角线半长**（几何上才是「画面边缘」的距离），环带
+    //   0.9~1.1 × 对角半长，硬性 ≥700px（低于此必脸刷：zoom 1.0 时对角半长 ~734，
+    //   0.9×734=660 < 700 会被硬限抬到 700——边角方向略出视口是预期，正下/正上方向
+    //   在视口边缘稍外）。方位环上均匀采样；落点钳到界内；贴掩体重采样。
     const vb = (typeof viewBounds === 'function') ? viewBounds(cam) : null;
-    const rMin = Math.max(450, vb ? Math.min(vb.maxX - vb.minX, vb.maxY - vb.minY) / 2 * 0.75 : 450);
-    const rMax = vb ? Math.min(vb.maxX - vb.minX, vb.maxY - vb.minY) / 2 * 0.95 : rMin + 200;
+    const diagHalf = vb ? Math.hypot(vb.maxX - vb.minX, vb.maxY - vb.minY) / 2 : 734;
+    const rMin = Math.max(700, diagHalf * 0.9);
+    const rMax = Math.max(rMin + 100, diagHalf * 1.1);
     let x = node.w / 2, y = node.h / 2, tries = 0, ok = false;
     do {
       const ang = Math.random() * Math.PI * 2;
