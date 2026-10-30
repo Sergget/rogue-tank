@@ -793,7 +793,7 @@ let supplyReadyAt = 0;            // performance.now() 时间戳：冷却就绪�
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
 let battleEncounter = null; // 2026-10-30 MS2/C1：标准模式波次导演实例（node.encounter=true 时非 null）
 let battleEncSeq = 0;       // 波次投送实体的节点内序号（id 唯一性；enterBattle 重置）
-let battleEncAnchorIdx = 0; // 波次投送的锚点游标（round-robin 消费防线锚点；enterBattle 重置）
+let battleEncAnchorIdx = 0; // 波次内锚点消费位置（每波重置为 0；波次绑定防线在 spawn 内按 waveIdx 取模）
 // #N5（2026-10-01）：存活敌军缓存（AI 循环每帧填充），供屏幕外来袭方向提示复用。
 let aiEnemiesCache = [];
 // #E9（2026-09-20）：Boss 蓄能激光当前帧的绘制数据 { kind:'charge'|'fire', x,y,angle,width,length,progress }
@@ -3253,33 +3253,74 @@ function battleSpawnBlocked(x, y){
 }
 function battleSpawnWaveUnits(waveIdx, units){
   const out = [];
-  // 2026-10-30 MS2 复查（用户指认）：波次敌人**落位在防线锚点**（地图生成时预设的防御点，
-  //   placeDefenseWalls 的竖墙工事后），不是刷在玩家周围。锚点按波次 round-robin 消费 +
-  //   就近散布（每锚点一单位；超出锚点数的单位散布在锚点附近 80~140px）。
-  //   锚点不可用（无 anchors / 全被占）时回退 bearing 采样（旧行为）。
+  // 2026-10-30 防线式排布（用户反馈：随机散布不成"防线"）：波次敌人**落位在防线锚点**
+  //   （地图生成时预设的防御点，placeDefenseWalls 的竖墙工事后），不是刷在玩家周围。
+  //   同一波 N 个单位沿**该防线锚点连线**按序横向铺开；锚点不可用（无 anchors）时
+  //   回退导演提案点（bearing 采样，旧行为）。
   //   生存模式**不适用**本路径——生存走 spawnSurvivalWaveEnemies（玩家附近视口边缘）。
-  // 锚点分组 = 防线（C0 复查修正）：波次 i 绑定防线 i % lineCount——防线按 x 升序生成，
+  // 波次绑定防线（C0 复查修正）：波次 i 绑定防线 i % lineCount——防线按 x 升序生成，
   //   W1 在最近防线、逐波向出口推进，与玩家推进轴一致（此前 round-robin 全部锚点会让
   //   W1 的尾车落在 8000px 外的最远防线上，玩家不推进就永远够不着）。
-  //   同一波内多个单位围绕该防线锚点横向（y 向）散布，落位校验沿 +x 推 40px 重试。
+  // 防线式横向排布（2026-10-30 用户反馈：随机散布 ±160px 看起来是一堆散兵，不成防线）：
+  //   同一波 N 个单位沿**该防线锚点连线**按序横向铺开——锚点数 ≥ N 时每锚点一个，
+  //   锚点数 < N 时在相邻锚点间线性插值出中间位置；y 沿防线锚点走向自然分布（锚点本身
+  //   就是一排），只保留 ±20px 抖动。battleEncAnchorIdx 语义改为「波次内消费位置」，
+  //   每波重置为 0（波次绑定防线的取模逻辑保留）。
   const lineGroups = (currentNode && Array.isArray(currentNode.encounterAnchors))
     ? currentNode.encounterAnchors : [];
   const useAnchors = lineGroups.length > 0;
-  battleEncAnchorIdx = (battleEncAnchorIdx || 0);
-  for(const u of units){
+  battleEncAnchorIdx = 0;   // 波次内消费位置：每波重置（波次绑定防线走下面的取模）
+  const line = useAnchors ? (lineGroups[waveIdx % lineGroups.length] || []) : [];
+  const n = units.length;
+  // 沿防线锚点连线取第 j 个落位：锚点数 ≥ N 每锚点一个；不足时相邻锚点间线性插值
+  const slotPos = (j) => {
+    if(line.length === 0) return null;
+    // 单锚点防线（RULES.encounter.anchorsPerLine=1 缺省）：以锚点为中心沿 y 均匀展开
+    //   一排（间距 90px、居中对齐）——否则 N 个单位全堆在同一个点上，不成"防线"。
+    if(line.length === 1){
+      const a = line[0];
+      return { x: a.x, y: a.y + (j - (n - 1) / 2) * 90 };
+    }
+    const t = j / (n - 1);
+    const f = t * (line.length - 1);
+    const i = Math.min(line.length - 2, Math.floor(f));
+    const r = f - i;
+    const a = line[i], b = line[Math.min(line.length - 1, i + 1)];
+    return { x: a.x + (b.x - a.x) * r, y: a.y + (b.y - a.y) * r };
+  };
+  // 2026-10-30 用户裁定（防线内**层级**）：重坦/中坦靠前（面向玩家一侧）、TD/自行火炮
+  //   压后（防线身后）、轻坦侧翼（standardWaves 当前无 light 编成，规则预留）。
+  //   **只影响生成落位**——生成后的走位/交战全走既有 aiDecide（B2 绕障/交战带照常），
+  //   不锁定任何行为。
+  //   前置偏移（沿 -x，向玩家方向）：heavy 0 / medium 30 / td 80 / spg 110；
+  //   light 侧翼 = y 向 ±200 偏移（防线两翼交替）。未知 cls 按 medium 30 处理。
+  const CLS_FRONT_OFFSET = { heavy: 0, medium: 40, td: 120, spg: 160, light: 40 };
+  const CLS_WING_OFFSET = 200;
+  // 排序：heavy 最先分配最前 slot，med 次之，td/spg 最后——slot 顺序即防线连线上的位置
+  const layerRank = (cls) => (cls === 'heavy') ? 0 : (cls === 'medium') ? 1
+    : (cls === 'td' || cls === 'spg') ? 3 : 2;
+  const ordered = units.map((u, i) => ({ u, rank: layerRank(u.cls), i }))
+    .sort((a, b) => (a.rank - b.rank) || (a.i - b.i));
+  let slot = 0;
+  for(const entry of ordered){
+    const u = entry.u;
     let sx = u.x, sy = u.y, hull = u.hullAngle;
-    if(useAnchors){
-      const line = lineGroups[battleEncAnchorIdx % lineGroups.length];
-      battleEncAnchorIdx++;
-      const anchor = line[Math.floor(Math.random() * line.length)] || line[0];
+    if(useAnchors && line.length){
+      const base = slotPos(slot++);
+      // 层级偏移：前置沿 -x 叠加（heavy 已在 slot 前段，再把 medium/td/spg 拉开纵深）；
+      //   light 侧翼沿 y 拉出防线两翼
+      const frontOff = CLS_FRONT_OFFSET[u.cls] !== undefined ? CLS_FRONT_OFFSET[u.cls] : 30;
+      const wingOff = (u.cls === 'light') ? ((slot % 2 === 0) ? CLS_WING_OFFSET : -CLS_WING_OFFSET) : 0;
+      const anchor = { x: base.x - frontOff, y: base.y + wingOff };
       for(let k = 0; k < 6; k++){
-        // 锚点**前方**（-x 侧，面向玩家进攻方向）50~110px——敌人依托工事部署在墙的
-        //   玩家侧（墙在身后作掩护），不是躲在墙后打不着。同波单位 y 向散布 ±160px。
-        //   落位校验沿 -x 推 40px 重试（压竖墙/掩体时）；全败用原提案点兜底。
-        const frontDist = 50 + Math.random() * 60;
+        // 锚点**前方**（-x 侧，面向玩家进攻方向）50px——敌人依托工事部署在墙的
+        //   玩家侧（墙在身后作掩护），不是躲在墙后打不着。同波沿防线连线排布，
+        //   y 只带 ±20px 抖动。落位校验沿 -x 推 40px 重试（压竖墙/掩体时）；
+        //   全败用原提案点兜底。
+        const frontDist = 50;
         const tx = Math.max(60, Math.min((currentNode ? currentNode.w : 1440) - 60, anchor.x - frontDist - k * 40));
         const ty = Math.max(60, Math.min((currentNode ? currentNode.h : 864) - 60,
-          anchor.y + (Math.random() - 0.5) * 320));
+          anchor.y + (Math.random() - 0.5) * 40));
         if(!(typeof pointInCover === 'function' && pointInCover(covers, tx, ty, 30))){
           sx = tx; sy = ty; break;
         }
@@ -8014,6 +8055,12 @@ function nextRunSeed(){
     currentNodeEncounter(){
       return !!(currentNode && currentNode.encounter === true);
     },
+    // 2026-10-30 探针只读：防线锚点（encounterAnchors 分组）与当前节点索引
+    encounterAnchors(){
+      return (currentNode && Array.isArray(currentNode.encounterAnchors))
+        ? currentNode.encounterAnchors.map(g => g.map(a => ({ x: Math.round(a.x), y: Math.round(a.y) }))) : [];
+    },
+    currentNodeIndex(){ return run ? run.nodes.indexOf(currentNode) : -1; },
     // 2026-10-30 MS2/C2：波次导演状态探针（measure-encounter --mode=real 消费）
     encounter(){
       if(!battleEncounter) return null;

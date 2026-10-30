@@ -4778,3 +4778,25 @@ hull-down 让「静默玩家何时被发现」变成图相关且时间无界的�
 `npm run check` EXIT=0；`npm test` 76/0（`test-encounter` 含 ⑭ 新段）；浏览器 run 链 ALL PASS（含 MS2 门③断言）；3D 切片 encounter 链全绿（timed 不受影响）；`wiki-check` 全绿。
 
 **归口**：`PLAN.md` §2.8.0 C1 修正注记 · `specs/combat/encounter-director.md`（节拍模式）· `specs/map/cover-system.md`（防线语义）。
+
+## §4.182 2026-10-30 MS2 追加：友军碰撞伤害移除 + 防线式排布 + 阵型层级（用户三条裁定）
+
+**并行派发**：role-systems（碰撞）∥ role-combat（排布），写域不相交（`tank_entity.js`+`test-tankcollision` ∥ `battleSpawnWaveUnits`+探针）。
+
+### 1) 玩家与友军碰撞伤害移除（role-systems）
+
+`resolveTankCollisions` 撞击伤害结算块加 `isHostile(a.team, b.team)` 阵营门：同阵营（player↔ally / ally↔ally）**只推不伤**（位置分离与非弹性冲量照旧——物理语义零变化），敌对撞击原样。`test-tankcollision` 新 #10/#11：玩家高速撞友军 hp 不变 + 敌对撞击仍有伤害（防矫枉过正）。46 断言全绿。
+
+### 2) 防线式横向排布（role-combat）
+
+`battleSpawnWaveUnits` 随机散布（±320px）改**防线连线插值**：波内 N 个单位沿防线锚点折线按 `t=j/(n-1)` 均匀取位（锚点数 ≥N 每锚点一个；<N 相邻锚点间线性插值）；**单锚点防线**（`anchorsPerLine` 缺省 1）以锚点为中心沿 y 等距 90px 展开一排（居中对齐）——否则 N 辆全堆同一点。y 抖动 ±160→±20px。落位校验链保留。探针（`probe-line-formation.cjs`，14 次真实局）：间距变异系数 **1.9%~3.4%**（近似完美均匀），y 沿锚点走向单调分布。已知离群：14 次中 4 次单辆离排（插值点压掩体的兜底回退），属校验链按设计行为。
+
+### 3) 阵内层级（用户裁定：heavy/medium 靠前、TD/SPG 压后、light 侧翼）
+
+波内单位按 `layerRank`（heavy 0 / medium 1 / td+spg 3 / 其余 2）排序后分配 slot——防线连线上的位置即纵深位；叠加 `CLS_FRONT_OFFSET`（heavy 0 / medium 40 / td 120 / spg 160）沿 -x 拉开梯队纵深；light 侧翼 y ±200（编成预留，现行 standardWaves 无 light）。**只影响生成落位**——生成后走位/交战全走既有 aiDecide，不锁定行为。混合编成实测（heavy 1 + medium 2 + spg 1）：x 纵深梯度成立、y 均匀 97px 间距（变异系数 20.9%，单锚点 y 展开的固有读数）。
+
+### 4) 验证
+
+`npm run check` EXIT=0；`test-tankcollision` 46 断言 / `test-ai-press` / `test-map` / `test-encounter` 全绿；探针成线实证（变异系数 1.9%）+ 层级排序验证（heavy→medium→td→spg）。
+
+**归口**：`specs/combat/enemy-ai.md`（防线排布）· `specs/map/cover-system.md`（防线工事与投送关系）· `js/tank_entity.js`（阵营门）。

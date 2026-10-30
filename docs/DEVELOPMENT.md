@@ -21,10 +21,10 @@
 | `docs/ISSUES.md` | 临时 | 只存**待处理 / 处理中**的已核实问题（每条须有 `file:line` 证据） |
 | `docs/ARCHIVE.md` | 只读索引 | 完结条目索引表 → `docs/archive/<yyyy-mm>.md` 分卷正文 |
 
-**目录**：§1 核心方向 · §2 架构演进 · §3 当前状态与下一步 · §4 批次落地结论（§4.1~§4.181；§4.1~§4.39 正文见归档快照与月度分卷，§4.40–§4.181 正文见 `DEVELOPMENT-batches-2026-10.md`）
+**目录**：§1 核心方向 · §2 架构演进 · §3 当前状态与下一步 · §4 批次落地结论（§4.1~§4.182；§4.1~§4.39 正文见归档快照与月度分卷，§4.40–§4.182 正文见 `DEVELOPMENT-batches-2026-10.md`）
 
 > **§4 编号说明（2026-09-23 文档整改）**：§0~§3 与 §4.1~§4.26 的**逐条正文**曾于 2026-09-22 提交 `994bdfd` 随 §4.27~§4.33 一并从本文件移除，且该次漏走 `AGENTS.md` §2.2 第 3 步「原文归档」（276 行原文未进归档分卷）。2026-09-23 整改已将该原文快照**补归档**至 `docs/archive/2026-09.md`（见 `docs/ARCHIVE.md` 索引 2026-09-23 行），本文件重建精简骨架并保留下方**§4 编号索引表**，使全部历史交叉引用可解析。
-> **续写规则**：新增批次一律在 §4 正文末尾按编号递增续写（**当前最大编号 §4.181**）；§4 正文只增不回改，被推翻的旧结论以注记指向新节。
+> **续写规则**：新增批次一律在 §4 正文末尾按编号递增续写（**当前最大编号 §4.182**）；§4 正文只增不回改，被推翻的旧结论以注记指向新节。
 
 ---
 
@@ -262,6 +262,7 @@
 | §4.179 | 2026-10-30 | **代码复查修复**：P1 hull-down 在 tank_sim/measure-press 的 4 参 hasLoS 包装中被静默吞掉（口径漂移）→ 6 参全透传 + 探针防回潮断言；绕障语义补全——goalLos 守卫（能看见不绕行）、los 恢复退出（绕过去=重新看见）、负收益熔断（连续两窗变远放弃 3s）；门①口径 v5（真站桩+恒定暴露，10 seed worst 336≤340、中位 161）| `specs/combat/enemy-ai.md` · `specs/map/cover-system.md` |
 | §4.180 | 2026-10-30 | **MS2 收口：波次导演进正式局（C0~C3）**：`standardEnabled`/`standardWaves` 配置 + `node.encounter` 标记（一键回退）；`tank_battle.html` 分流接线（跳过铺敌/导演投送/七类事件/`reinforceAllies` 补员），**playerAlive 恒 true**（玩家生死归 revive 管线，防复活后波次作废）；encounter 节点不走 nodeClearance/reinforcementTick。**C2 实测：真局四胜 80~96s 中位 91s、12/12 击杀**——门①未达标（内容量缺口 ~2×，#AB10 既有结论，MS3 处理）；门②③达标。`measure-encounter-real.cjs` 测量管线落位 | `PLAN.md` §2.8.0 · `specs/combat/encounter-pacing.md` |
 | §4.181 | 2026-10-30 | **MS2 追加：防线式节拍（用户裁定）+ exit 延迟点亮**：`createEncounter` 新 `mode:'lines'` + `lineXs`——波清后 `lineHold` 等玩家越过防线 x − 400px 才发下一波（不清完下一波立即上线）；新 phase `lineHold`；breather 事件 seconds=0 字段同构（页面零改动）；exit 绿带/EXIT 挂 `battleExitUnlocked()`（末波清完才亮，世界+小地图）。test-encounter ⑭ 段 22 断言；切片 timed 零适配。**提交纪律事故：91be7bd 的 git add -A 误卷入本批改动（信息未涵盖），已记录** | `specs/combat/encounter-director.md` |
+| §4.182 | 2026-10-30 | **MS2 追加：友军碰撞伤害移除 + 防线式排布 + 阵内层级（用户三裁定）**：① `resolveTankCollisions` 加 `isHostile` 门（同阵营只推不伤，敌对原样；#10/#11 断言）；② 波次敌人防线连线插值排布（单锚点 y 等距 90px 展开），探针实证变异系数 1.9%；③ 阵内层级 heavy/medium 前顶、TD/SPG 压后、light 侧翼——只动生成落位，AI 行为零锁定。混合编成实测 x 纵深梯度成立 | `specs/combat/enemy-ai.md` |
 
 ---
 

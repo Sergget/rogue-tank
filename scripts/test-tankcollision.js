@@ -410,5 +410,39 @@ function residualOverlap(a, b){
   CV.covers.length = 0;
 }
 
+// 10) 2026-10-30 用户裁定「玩家与友军会有碰撞伤害，需要移除」：同阵营高速撞击
+//     ⇒ 双方 hp 不变、位置分离照常（只推不伤；物理语义不变）。
+{
+  clear();
+  const A = freshTank('A10', 300, 320, 0, 'player');
+  const B = freshTank('B10', 900, 320, Math.PI, 'player');   // 同为 player 阵营
+  const hpA = A.hp, hpB = B.hp;
+  let sawContact = false;
+  for(let f = 0; f < 240; f++){
+    step(A, B);
+    EN.resolveTankCollisions();
+    if(Math.abs(A.x - B.x) < 200) sawContact = true;
+  }
+  ok(sawContact, '同阵营撞击：接触发生（用例有效）');
+  ok(A.hp === hpA && B.hp === hpB,
+    `同阵营撞击：双方 hp 不变 (${hpA}/${hpA} & ${hpB}/${hpB})`);
+  ok(residualOverlap(A, B) <= 0.6 && A.x < B.x,
+    `同阵营撞击：位置分离照常（残余 ${residualOverlap(A, B).toFixed(2)}px，A.x=${A.x.toFixed(0)} < B.x=${B.x.toFixed(0)}）`);
+}
+
+// 11) 防矫枉过正：敌对高速撞击 ⇒ 仍有伤害（hp 下降）
+{
+  clear();
+  const A = freshTank('A11', 300, 320, 0, 'player');
+  const B = freshTank('B11', 900, 320, Math.PI, 'enemy');
+  const hpA = A.hp, hpB = B.hp;
+  for(let f = 0; f < 240; f++){
+    step(A, B);
+    EN.resolveTankCollisions();
+  }
+  ok(A.hp < hpA && B.hp < hpB,
+    `敌对撞击：仍有伤害（A ${hpA}→${A.hp}，B ${hpB}→${B.hp}）`);
+}
+
 console.log(fails ? `\n${fails} failure(s).` : '\nAll tank-collision checks passed.');
 process.exitCode = fails ? 1 : 0;

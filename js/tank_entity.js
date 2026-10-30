@@ -134,7 +134,10 @@ function resolveTankCollisions(iterations){
         //   旧实现这里 `speed *= 0.2`（急停）把分离力也一起打掉，实测导致
         //   「对向互顶后残余深叠 48px / 中心距 15.97px」（test-tankcollision 两项失败）。
         //   硬直语义改由 stiffTimer 表达（驱动层消费），不靠瞬时压速。
-        if (relN >= (RULES.ramming ? RULES.ramming.minVelThreshold : 90) && aAlive && bAlive) {
+        // 2026-10-30 用户裁定「玩家与友军会有碰撞伤害，需要移除」：同阵营撞击
+        //   （player↔ally / ally↔ally）**只推不伤**——跳过下方伤害与硬直结算；
+        //   上方的位置分离与非弹性冲量照旧（物理语义不变）。敌对撞击原样。
+        if (relN >= (RULES.ramming ? RULES.ramming.minVelThreshold : 90) && aAlive && bAlive && isHostile(a.team, b.team)) {
           // 接触去重：同一对车在同一次接触中只结算一次（分离解算每帧跑 4 次迭代、
           //   且持续互顶会连续多帧命中 ⇒ 不去重会一帧内重复扣血数次，实测数帧即可把
           //   100HP 打空）。冷却时长取 RULES.ramming.contactCooldown（缺省 0.5s）。
