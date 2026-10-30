@@ -233,7 +233,12 @@ function buildPausePanel(opts){
       invertReverseTurn: !!settings.invertReverseTurn,
       invertReverseTurnDesc: '倒车转向倒置：S 倒车时 A/D 转向反置（拟真履带差速）。',
       showFps: !!settings.showFps,
-      showFpsLabel: '显示帧率 (FPS)'
+      showFpsLabel: '显示帧率 (FPS)',
+      // 2026-10-30：瞄准器样式（用户需求：显示实时散布圈/装填进度/弹夹与双管状态；
+      //   当前 UI 作为「默认」瞄准器保留，均可设置）
+      aimStyle: (settings.aimStyle === 'crosshair') ? 'crosshair' : 'default',
+      aimStyleDefaultLabel: '默认瞄准器（虚线瞄准线 + 散布锥 + 炮口装填环）',
+      aimStyleCrosshairLabel: '精确瞄准器（鼠标处实时散布圈 + 装填进度 + 弹夹/双管状态）'
     },
     buttons: [
       { id: 'pauseResumeBtn', label: '继续 RESUME', action: 'resume' },

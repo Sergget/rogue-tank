@@ -2103,7 +2103,14 @@ function renderPause(){
     `<label style="cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;">` +
     `<input type="checkbox" id="pauseInvertTurn"${s.invertReverseTurn ? ' checked' : ''}> ${s.invertReverseTurnDesc}</label>` +
     `<label style="cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;margin-top:8px;">` +
-    `<input type="checkbox" id="pauseFpsToggle"${s.showFps ? ' checked' : ''}> ${s.showFpsLabel || '显示帧率 (FPS)'}</label>`;
+    `<input type="checkbox" id="pauseFpsToggle"${s.showFps ? ' checked' : ''}> ${s.showFpsLabel || '显示帧率 (FPS)'}</label>` +
+    // 2026-10-30：瞄准器样式选择（用户需求：实时散布圈/装填进度的「精确瞄准器」，
+    //   当前 UI 保留为「默认瞄准器」）
+    `<div style="margin-top:8px;font-size:12px;color:var(--text-dim);">瞄准器样式</div>` +
+    `<label style="cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;margin-top:4px;">` +
+    `<input type="radio" name="aimStyle" value="default"${s.aimStyle === 'default' ? ' checked' : ''}> ${s.aimStyleDefaultLabel}</label>` +
+    `<label style="cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;margin-top:4px;">` +
+    `<input type="radio" name="aimStyle" value="crosshair"${s.aimStyle === 'crosshair' ? ' checked' : ''}> ${s.aimStyleCrosshairLabel}</label>`;
   const cb = document.getElementById('pauseInvertTurn');
   cb.addEventListener('change', function(){
     if(!profile.settings || typeof profile.settings !== 'object') profile.settings = {};
@@ -2117,6 +2124,15 @@ function renderPause(){
     profile.settings.showFps = this.checked;
     saveActiveProfile(localStorage, profile);   // 即时持久化（ISSUE 18 设置项）
     playSound('ui');
+  });
+  // 瞄准器样式（radio 组）：即时持久化 + 立即生效（绘制层每帧读 profile.settings.aimStyle）
+  document.querySelectorAll('input[name="aimStyle"]').forEach(function(radio){
+    radio.addEventListener('change', function(){
+      if(!profile.settings || typeof profile.settings !== 'object') profile.settings = {};
+      profile.settings.aimStyle = this.value;
+      saveActiveProfile(localStorage, profile);
+      playSound('ui');
+    });
   });
 }
 // ESC 暂停切换已收敛至输入控制器（pauseToggle 动作，battle⇄pause 语义不变）。
@@ -6533,6 +6549,98 @@ function updateBottomHud(){
 // 炮口环形装填进度：贴 gunTip 偏移位置的世界坐标圆环，从 -90° 顺时针扫弧，满值(>=1)即消失。
 // 仅战斗态 + 装填中 + 玩家存活时绘制；半径固定（与视口缩放无关）。
 // 偏移量：垂直于炮塔方向向外（避免重叠炮管贴图）。
+// 2026-10-30：「精确瞄准器」（profile.settings.aimStyle === 'crosshair'，用户需求）——
+// 鼠标世界位置处绘制：
+//   · **实时散布圈**：1σ 实线（68%）+ 2σ 虚线（95%）——σ = player.sigma（三扩/缩圈/改装
+//     全部已聚合进该值），圈半径 = σ × distToMouse（角度散布→线性投影），随距离放大；
+//   · **装填进度弧**：围绕准星（半径 18px），标准炮 = 单弧（reloadT/stats.reload）；
+//   · **弹夹炮**：弧 + 弹夹余量刻度（_clipState.rounds/size，刻度围绕准星排布），
+//     弹夹间装填（pendingRefill）时弧变为整组装填时长；
+//   · **双管**：两条独立短弧（_dbState.ready/loadT），位置在准星左右。
+// 装填完成时弧消失（与炮口环同口径）；曲射落点圈仍在世界层绘制（两种样式共用）。
+function drawCrosshairReticle(ctx){
+  if(!(flow.state === 'battle' && player.hp > 0)) return;
+  if(typeof mouseWorld === 'undefined' || !mouseWorld) return;
+  const now = performance.now();
+
+  // ---- 实时散布圈（1σ 实线 + 2σ 虚线；半径 = σ × 鼠标距离） ----
+  const aimDist = Math.hypot(mouseWorld.x - player.x, mouseWorld.y - player.y);
+  const r1 = player.sigma * aimDist;
+  const r2 = r1 * 2;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,180,84,0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, Math.max(6, r1), 0, TAU); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,180,84,0.4)';
+  ctx.setLineDash([5, 6]);
+  ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, Math.max(12, r2), 0, TAU); ctx.stroke();
+  ctx.setLineDash([]);
+  // 准星中心点
+  ctx.fillStyle = 'rgba(255,180,84,0.95)';
+  ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, 2, 0, TAU); ctx.fill();
+
+  // ---- 装填进度弧（围绕准星，半径 18px） ----
+  const spec = (typeof primaryWeaponSpec === 'function') ? primaryWeaponSpec(player) : null;
+  const wType = (player.weapons && player.weapons.primary && player.weapons.primary.type) || 'standard';
+  const reloadBase = (player.stats && player.stats.reload) || 1;
+  const debuffRate = (typeof debuffReloadRate === 'function') ? debuffReloadRate(player) : 1;
+  const R = 18;
+  const drawArc = (p, col, lw) => {
+    ctx.strokeStyle = col; ctx.lineWidth = lw || 3;
+    ctx.beginPath();
+    ctx.arc(mouseWorld.x, mouseWorld.y, R, -Math.PI / 2, -Math.PI / 2 + TAU * Math.max(0, Math.min(1, p)));
+    ctx.stroke();
+  };
+  // 背景暗环
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(12,13,9,0.7)';
+  ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, R, 0, TAU); ctx.stroke();
+
+  if(wType === 'double_barrel' && player._dbState){
+    // 双管：两条独立弧（各占上半/下半 150°，装填中的画进度、就绪的画满）
+    const st = player._dbState;
+    for(let i = 0; i < st.count; i++){
+      const base = -Math.PI / 2 + (i === 0 ? -Math.PI * 0.33 : Math.PI * 0.33);
+      const span = Math.PI * 0.66;
+      const pReady = st.ready[i] ? 1 : Math.max(0, Math.min(1, 1 - st.loadT[i] / Math.max(0.05, reloadBase)));
+      ctx.strokeStyle = 'rgba(12,13,9,0.7)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(mouseWorld.x, mouseWorld.y, R, base, base + span); ctx.stroke();
+      drawArcSeg(mouseWorld.x, mouseWorld.y, R, base, base + span * pReady, st.ready[i] ? '#7ed957' : '#ffb454', 3);
+    }
+  } else if(wType === 'clip' && player._clipState){
+    // 弹夹炮：装填弧 + 弹夹余量刻度（rounds 个小刻度围绕准星外侧半径 R+6）
+    const cs = player._clipState;
+    const reloadDur = (typeof clipMagReloadSeconds === 'function')
+      ? clipMagReloadSeconds(player, spec, player._clipState) : reloadBase;
+    const pFill = cs.pendingRefill ? Math.max(0, Math.min(1, 1 - player.reloadT / Math.max(0.05, reloadDur))) : 1;
+    drawArc(pFill, cs.pendingRefill ? '#ffb454' : '#7ed957', 3);
+    // 余量刻度：rounds 个亮刻度 + (size-rounds) 个暗刻度
+    const tickR = R + 7;
+    for(let i = 0; i < cs.size; i++){
+      const ang = -Math.PI / 2 + TAU * (i / cs.size);
+      const filled = i < cs.rounds;
+      ctx.strokeStyle = filled ? 'rgba(255,180,84,0.95)' : 'rgba(255,180,84,0.25)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(mouseWorld.x + Math.cos(ang) * (tickR - 3), mouseWorld.y + Math.sin(ang) * (tickR - 3));
+      ctx.lineTo(mouseWorld.x + Math.cos(ang) * (tickR + 3), mouseWorld.y + Math.sin(ang) * (tickR + 3));
+      ctx.stroke();
+    }
+  } else {
+    // 标准炮/电磁炮/机炮：单弧 = reloadT 进度（reloadT>0 装填中；0=就绪不画弧）
+    if(player.reloadT > 0){
+      const p = Math.max(0, Math.min(1, 1 - player.reloadT / Math.max(0.05, reloadBase * debuffRate)));
+      drawArc(p, '#ffb454', 3);
+    }
+  }
+  ctx.restore();
+}
+// 弧段绘制（起止角显式；drawCrosshairReticle 内部 helper）
+function drawArcSeg(cx, cy, r, a0, a1, col, lw){
+  ctx.strokeStyle = col; ctx.lineWidth = lw || 3;
+  ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1); ctx.stroke();
+}
+
 function drawReloadRing(ctx){
   if(!(flow.state === 'battle' && player.hp > 0)) return;
   // 2026-09-15 W6：autocannon 玩家——炮管旁同一环形改为热量表（绿 <50% / 黄 50–<100% /
@@ -7673,18 +7781,24 @@ function draw(){
   drawDmgTexts(ctx);
 
   // ---- aim line + dispersion cones（瞄准线保持虚线；发射炮线已删除，炮弹用飞行动画呈现） ----
+  // 2026-10-30：瞄准器样式设置（profile.settings.aimStyle，用户需求「当前作为默认瞄准器」）
+  //   'default' = 虚线瞄准线 + 散布锥 + 炮口装填环（既有）；'crosshair' = 鼠标处实时散布圈
+  //   + 装填弧 + 弹夹/双管状态（新）。曲射落点圈与两种样式无关（曲射语义），两样式都画。
+  const aimStyle = (profile.settings && profile.settings.aimStyle === 'crosshair') ? 'crosshair' : 'default';
   const gp = gunTip(player);
   const aimA = player.turretAngle;
   const aimU = Math.cos(aimA), aimV = Math.sin(aimA);
 
-  // aim line (center, no spread) — faint dashed reference along the same ray
-  ctx.strokeStyle='rgba(255,180,84,0.3)'; ctx.setLineDash([8,8]); ctx.lineWidth=1.5;
-  ctx.beginPath(); ctx.moveTo(gp.x,gp.y); ctx.lineTo(gp.x+aimU*900, gp.y+aimV*900); ctx.stroke();
+  if(aimStyle === 'default'){
+    // aim line (center, no spread) — faint dashed reference along the same ray
+    ctx.strokeStyle='rgba(255,180,84,0.3)'; ctx.setLineDash([8,8]); ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(gp.x,gp.y); ctx.lineTo(gp.x+aimU*900, gp.y+aimV*900); ctx.stroke();
 
-  // dispersion cones — shortened boundaries (length 250px) to keep UI clean
-  // #3（2026-10-20）：散布锥升级为 bench 同款 dual 口径（1σ 实线 68% + 2σ 虚线 95%），
-  //   长度仍 250px 短锥（战斗视野考虑；bench 是解算面板用全长）。tank_hud.js 共享。
-  drawSpreadCones(ctx, gp, aimA, player.sigma, { length: 250, dual: true });
+    // dispersion cones — shortened boundaries (length 250px) to keep UI clean
+    // #3（2026-10-20）：散布锥升级为 bench 同款 dual 口径（1σ 实线 68% + 2σ 虚线 95%），
+    //   长度仍 250px 短锥（战斗视野考虑；bench 是解算面板用全长）。tank_hud.js 共享。
+    drawSpreadCones(ctx, gp, aimA, player.sigma, { length: 250, dual: true });
+  }
 
   // #W-I（2026-10-19 用户裁定）→ 2026-10-20 修正口径 → **2026-10-23 削弱裁定（现行）**：
   //   「虚线圈改为**散布圈**，大小 = 精度 × 距离」。
@@ -7728,7 +7842,11 @@ function draw(){
   drawWaveSpawnIndicators();
 
   // 炮口环形装填进度（屏幕空间绘制，贴合玩家炮口屏幕坐标，防二次摄像机变换）
-  drawReloadRing(ctx);
+  if(aimStyle === 'crosshair'){
+    drawCrosshairReticle(ctx);
+  } else {
+    drawReloadRing(ctx);
+  }
 
   // 节点通关 3 秒战术冻结横幅（屏幕空间中央渲染）
   if(battleState && battleState.clearing && !battleState.cleared){

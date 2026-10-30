@@ -4810,3 +4810,27 @@ hull-down 让「静默玩家何时被发现」变成图相关且时间无界的�
 **回归**：`test-fire` 183 断言 / `test-recent-mods` / `test-batch5-combat`（138 passed）/ `probe-fire-reject`（空场直方图不再产 no-target）/ `npm run check` EXIT=0 / `test-ai-press` ALL PASS。
 
 **归口**：`specs/combat/weapons-reload.md`（开火目标语义）· `js/tank_fire.js`。
+
+## §4.184 2026-10-30 瞄准器样式设置（用户需求：实时散布圈/装填进度 UI，当前 UI 保留为默认）
+
+**需求**：鼠标指针/瞄准器显示**实时散布圈大小、装填进度（含弹夹炮、双管）**，作为可设置项目；当前 UI 作为「默认瞄准器」保留。
+
+### 1) 设置层
+
+`profile.settings.aimStyle`（'default' | 'crosshair'，持久化走 `saveActiveProfile`）+ 暂停面板 radio 选择（buildPausePanel VM 加 `aimStyle`/label 字段）。**即时生效**——绘制层每帧读 profile.settings.aimStyle，切换无需重进节点。
+
+### 2) crosshair 绘制（`drawCrosshairReticle`，屏幕空间）
+
+- **实时散布圈**：1σ 实线 + 2σ 虚线（与散布锥 dual 口径同源），圈半径 = `player.sigma × distToMouse`（角度散布→线性投影，随距离放大）；σ 已聚合三扩/缩圈/改装全通道。
+- **装填进度弧**：围绕准星 R=18px。
+- **弹夹炮**：进度弧在弹夹间装填时按 `clipMagReloadSeconds` 计算整装进度；弹夹余量刻度（`_clipState.rounds/size`，亮/暗刻度围绕准星外侧）。
+- **双管**：两条独立 150° 弧（`_dbState.ready/loadT` 逐管进度），就绪绿/装填琥珀。
+- 标准炮/电磁炮/机炮：单弧（reloadT 进度）；就绪时不画弧（与炮口环同口径）。
+- 进度分母口径与炮口环 `drawReloadRing` **同一来源**（stats.reload × mult / debuffRate）——样式切换不产生口径分叉。
+- **曲射落点圈两样式共用**（曲射语义不属于样式范畴）。
+
+### 3) 验证
+
+`npm run check` EXIT=0；`check-html` 全绿；`test-ai-press` / `test-batch5-combat`（138）/ `test-minimap` / `test-recent-mods` 全绿。目视验收留待用户实机（纯视觉改动无法光栅化断言，按 render-fx 惯例源码形状锁 + 用户实机看一眼）。
+
+**归口**：`specs/combat/hud-ui.md`（瞄准器样式节）· `js/tank_screens.js`（pause VM）· `tank_battle.html`（drawCrosshairReticle）。
