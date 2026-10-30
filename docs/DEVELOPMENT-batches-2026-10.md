@@ -4800,3 +4800,13 @@ hull-down 让「静默玩家何时被发现」变成图相关且时间无界的�
 `npm run check` EXIT=0；`test-tankcollision` 46 断言 / `test-ai-press` / `test-map` / `test-encounter` 全绿；探针成线实证（变异系数 1.9%）+ 层级排序验证（heavy→medium→td→spg）。
 
 **归口**：`specs/combat/enemy-ai.md`（防线排布）· `specs/map/cover-system.md`（防线工事与投送关系）· `js/tank_entity.js`（阵营门）。
+
+## §4.183 2026-10-30 修复：场上无敌人时无法开炮（用户反馈）
+
+**根因**：`tryFire` 的 `if(!target) return 'no-target'` + `fireTank` 的直射 no-target 门——直射开火**依赖目标实体**。防线式节拍落地后该语义破裂：`lineHold` 窗口（等玩家推进到下一防线）可能长达数十秒无敌人，玩家此时开炮（打可破坏墙、试射、对远处残敌）全被拒绝。
+
+**修法**：直射与曲射语义对齐——**开火不需要目标实体**。`tryFire` 无目标时 `aimHits=[]`、`hitPref='auto'`（`aimPartPreference` 对 null hits 本就返回 'auto'）；`fireTank` 删直射 no-target 门。炮弹沿炮管方向飞，命中判定归 `stepShells` 弹道扫掠（掩体/实体碰撞照常）。`target` 在 `firePrimaryShell` 体内只进 shell 记录无解引用（审计确认）。
+
+**回归**：`test-fire` 183 断言 / `test-recent-mods` / `test-batch5-combat`（138 passed）/ `probe-fire-reject`（空场直方图不再产 no-target）/ `npm run check` EXIT=0 / `test-ai-press` ALL PASS。
+
+**归口**：`specs/combat/weapons-reload.md`（开火目标语义）· `js/tank_fire.js`。
