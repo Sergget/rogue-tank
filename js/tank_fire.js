@@ -821,7 +821,10 @@ function fireTank(shooter, target, hitPref, ctx, salvo){
   const devAim=c.devAim!==undefined?c.devAim:_G('devAim',null);
   // #W-I：曲射模式 target=null 合法（落点来自 ctx.aimPoint，不读 target）
   if(!shooter) return false;
-  if(!target && !_isHowitzerMode(shooter)) return _rej(shooter, 'no-target');
+  // 2026-10-30：直射 target=null 放行（「场上没有敌人时无法开炮」，用户反馈）——
+  //   tryFire 已保证 hitPref='auto'、aimHits=[]，炮弹沿炮管方向飞，命中归 stepShells
+  //   （掩体/实体碰撞照常）。target 只进 shell 记录无解引用。
+  //   语义与曲射（#W-I target=null 合法）对齐：**开火不需要目标实体**。
   // #95：履带断（immobT>0）不再阻止开火——车体机动瘫痪 ≠ 火炮缴械，仅装填门控保留
   if(shooter.reloadT>0) return _rej(shooter, 'reload');
   // P-49 炮闩受损：短时完全无法开火（机械缴械，与装填 debuff 不同）
@@ -953,10 +956,17 @@ function tryFire(ctx, salvo){
     return ft(player, null, null, c, salvo);
   }
   const target=nearest(player);
-  if(!target) return _rej(player, 'no-target');
+  // 2026-10-30 用户反馈「场上没有敌人时，无法开炮」：防线式节拍的 lineHold 窗口
+  //   （等玩家推进）可能长达数十秒无敌人 ⇒ 主炮被 'no-target' 拒绝，玩家连打可破坏墙、
+  //   试射都不行。修正：**直射不依赖目标实体**——无目标时 hitPref='auto'（aimPartPreference
+  //   对 null hits 本就返回 'auto'）、aimHits 置 []（raycast 无目标可射），炮弹沿炮管方向
+  //   飞，命中判定交由 stepShells 的弹道扫掠（掩体/实体碰撞照常）。
+  //   ⚠ target=null 传给 fireTank/firePrimaryShell 安全：函数体内 target 只进 shell 记录，
+  //   无解引用。这使直射与曲射（#W-I target=null 合法）语义对齐：**开火不需要目标**。
+  const hasTarget = !!target;
   const tipP=gunTip(player);
   const aimA=player.turretAngle, aimU=Math.cos(aimA), aimV=Math.sin(aimA);
-  const aimHits=raycast(tipP.x,tipP.y,aimU,aimV,target);
+  const aimHits=hasTarget ? raycast(tipP.x,tipP.y,aimU,aimV,target) : [];
   const hitPref=aimPref(tipP.x,tipP.y,aimU,aimV,mouseWorld.x,mouseWorld.y,aimHits,(R.aim&&R.aim.partProbe)||12);
   // 通过显式 ctx 调用，避免闭包隐式 shells 依赖（salvo=空格齐射请求，2026-09-15 W4）
   if(c.shells||_G('shells',null)) return ft(player,target,hitPref,c,salvo);
