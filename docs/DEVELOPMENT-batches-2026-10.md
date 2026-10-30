@@ -4752,3 +4752,29 @@ hull-down 让「静默玩家何时被发现」变成图相关且时间无界的�
 **复查注记 2（2026-10-30 用户指认「敌人刷在脸上」）**：波次投送落位曾按 bearing 采样（玩家为中心）⇒ 敌人刷在玩家周围任意方向。修正：① `makeNode` 持久化 `node.encounterAnchors`（防线锚点按防线分组）；② 投送落位改**波次绑定防线**（波次 i → 防线 i % lineCount，防线按 x 升序 ⇒ W1 最近防线逐波推进；round-robin 全锚点的初版曾让 W1 尾车落在 8000px 外）；③ 落位在锚点**前方**（-x 面向玩家，防线竖墙在敌身后作掩护——初版「锚点后方」会让敌人躲在自己工事后面打不着，实测 W1 卡 157~296s）；④ 落位压竖墙/掩体时沿部署方向推 40px 重试 6 次。⑤ 敌人刷新后 8s 内屏幕边缘**红色小箭头**指向最近视口外波次敌人（`drawWaveSpawnIndicators`，与琥珀色接战威胁分层）。⑥ 生存模式刷出点改**视口边缘环带**（视口半幅 0.75~0.95 + 硬性 ≥450px + 避掩体重采样）——「从画面边缘涌入」，替代旧全图随机。**二次实测：真局时长 91s → ~280~300s+，门 ① 实质达成**（数字见 `encounter-pacing.md`）。
 
 **复查注记（2026-10-30 /code-review）**：① `standardScale` 曾只在页内 fallback（`{ diffCountScale: 3, maxPerWave: 6 }`）而未落 RULES——违反「参数唯一配置源」纪律，已补入 `RULES.encounter.standardScale`；② 补员/投送共享 `battleEncSeq` 计数器 ⇒ 敌车外观序列被补员跳号（仅多样性，无功能影响，记录不修）；③ revive 路径复核——`reviveAt` 原地复活不重进 `enterBattle` ⇒ 导演状态保留、复活后当前波继续，与 `playerAlive 恒 true` 裁定自洽；`findReviveSpot` 对 null outpost 回退 `playerSpawn`（encounter 节点无据点时安全）。
+
+## §4.181 2026-10-30 MS2 追加：防线式节拍（用户裁定）+ exit 延迟点亮
+
+**需求**（用户两条）：① 标准模式防线式生成——前一条防线敌人消灭后才生成下一条，玩家清完后推进到最右 exit；② exit 绿带/EXIT 字样常亮改「完成任务后才亮」。
+
+### 1) 防线驱动节拍（role-systems 交付）
+
+- `createEncounter` 新 opts：`mode:'lines'`（防线驱动）与 `lineXs`（防线 x 升序数组）。缺省 `'timed'`——**3D 切片零适配**（不传 mode 落旧节拍）。
+- 新 phase `'lineHold'`：lines 模式下波清后**不倒计时**，等玩家 x 越过「防线 x − `lineAdvanceMargin`(400px)」才发下一波 telegraph。清波后仍发 `breather` 事件但 `seconds:0`（字段同构 ⇒ 页面回血/补员消费端零改动）。
+- `RULES.encounter.lineAdvanceMargin: 400` 新键。
+- `tank_battle.html` 接线：导演创建传 `mode:'lines'` + `lineXs`（encounterAnchors 每防线平均 x 升序）。
+- 回归：`scripts/test-encounter.js` ⑭ 段 22 条新断言（lineHold 不倒计时/推进触发/不软锁/timed 锚/margin 哨兵/mode 白名单负向）。
+
+### 2) exit 延迟点亮
+
+`battleExitUnlocked()` 唯一判据：非 encounter 节点恒解锁；encounter 节点要求**末波清完**（`waveIndex+1 ≥ waveCount && phase !== 'wave'`）。世界层出口绿带与小地图 exitZone 都挂此门——「完成任务后再亮」。
+
+### 3) 提交纪律事故记录
+
+`91be7bd`（「生存刷敌三修」）的 `git add -A` **误卷入**了本批 role-systems 的防线式改动（tank_encounter.js +59 / test-encounter.js +127 / tank_battle.html +52 / tank_rules.js +8）——提交信息未涵盖实际内容。改动本身验证全绿（子代理自验 + 主线程复跑 test-encounter/test-map/test-ai-press），内容保留不回写；主线程仅补 typedef（createEncounter opts 的 mode/lineXs JSDoc，tsc 修复）与注释。教训：**子代理并行期间禁止 `git add -A`**，按文件清单暂存。
+
+### 4) 验证
+
+`npm run check` EXIT=0；`npm test` 76/0（`test-encounter` 含 ⑭ 新段）；浏览器 run 链 ALL PASS（含 MS2 门③断言）；3D 切片 encounter 链全绿（timed 不受影响）；`wiki-check` 全绿。
+
+**归口**：`PLAN.md` §2.8.0 C1 修正注记 · `specs/combat/encounter-director.md`（节拍模式）· `specs/map/cover-system.md`（防线语义）。

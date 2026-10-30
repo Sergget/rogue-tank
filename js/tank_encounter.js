@@ -380,7 +380,9 @@ function applySpawnGuard(units, cfg, box, px, py) {
 /**
  * 创建遭遇状态。**不产事件**（返回值只有 enc）：第一波的 telegraph 事件由首次 update 补发，
  * 这样「每波恰好一条 telegraph」的纪律只有一条代码路径，不会出现创建时+update 时的双发。
- * @param {{seed?:any, rules?:object}} [opts]
+ * @param {{seed?:any, rules?:object, mode?:string, lineXs?:number[]}} [opts]
+ *   `mode:'lines'` = 防线驱动节拍（lineHold 等玩家推进）；缺省 'timed'（切片节拍）。
+ *   `lineXs` = 防线 x 数组（升序；lines 模式的下一波触发阈值）。
  * @returns {EncounterState}
  */
 function createEncounter(opts) {
