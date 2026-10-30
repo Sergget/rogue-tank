@@ -18,6 +18,15 @@
 //   const enc = createEncounter({ seed, rules });          // rules 可省，缺省吃全局 RULES.encounter
 //   const events = updateEncounter(enc, dt, ctx);          // 每帧一次，返回本帧事件数组（可能是 []）
 //
+// 节拍模式（2026-10-30 防线式波次，用户裁定）：
+//   mode:'timed'（缺省）= telegraph → wave → breather(定时) → 下一波。切片 tank_3d.html 用它。
+//   mode:'lines'        = telegraph → wave → lineHold(等玩家推进) → 下一波。标准模式正式局用它。
+//     创建时传 lineXs:防线 x 升序数组（页面按 node.encounterAnchors 每组取平均 x）；
+//     清波后停在 lineHold，直到 ctx.playerPos.x ≥ 当前防线 x − cfg.lineAdvanceMargin
+//     才发下一波 telegraph。防线全清（最后一波清掉）即 victory——与 timed 相同。
+//     lineXs 缺省时退化为「清波即发」不软锁。breather 事件在 lines 模式下 seconds=0，
+//     页面按同一分支回血/补员（字段同构）。
+//
 // 页面如何消费 `spawn` 提案（模块不代劳）：
 //   for (const u of ev.units) {
 //     const e = spawnTank({ id, team:'enemy', x:u.x, y:u.y, hullAngle:u.hullAngle,
@@ -33,7 +42,11 @@
 /**
  * 阶段全集。终局两态（victory / defeat）也是合法 phase，便于页面 switch。
  */
-const ENCOUNTER_PHASES = ['telegraph', 'wave', 'breather', 'victory', 'defeat'];
+const ENCOUNTER_PHASES = ['telegraph', 'wave', 'breather', 'lineHold', 'victory', 'defeat'];
+
+// 防线驱动模式（mode:'lines'）的缺省推进余量（px）。
+// rationale：与 RULES.encounter.lineAdvanceMargin 同值；仅当 RULES 没给该键时的兜底。
+const LINE_ADVANCE_MARGIN_FALLBACK = 400;
 
 /** 缺省配置：仅当页面/测试既没传 rules、进程里也没有全局 RULES.encounter 时才落到这套值。 */
 const ENCOUNTER_DEFAULTS = {
@@ -58,7 +71,7 @@ const ENCOUNTER_SEED_FALLBACK = 20261028;
  * @typedef {{
  *   enabled:boolean, telegraphSeconds:number, breatherSeconds:number, breatherRepairPct:number,
  *   reinforceMinAllies:number, minSpawnDist:number, maxSpawnDist:number, SPAWN_DIST_HARD_FLOOR:number,
- *   spawnTries:number, intelInterval:number,
+ *   spawnTries:number, intelInterval:number, lineAdvanceMargin:number,
  *   waves:Array<{id:string, label:string, units:Array<{cls:string, bearing:number, count:number}>}>
  * }} EncounterConfig
  *
@@ -182,6 +195,8 @@ function resolveEncounterConfig(rules) {
     //   敌人只在出生那一帧拿到玩家方位 ⇒ 玩家躲着就永远打不完（且没有任何报错）。
     //   因此把 ≤0 视为**非法值**钳到最小可用间隔，而不是让它静默失效。
     intelInterval: Math.max(INTEL_MIN_SECONDS, encNum(src.intelInterval, ENCOUNTER_DEFAULTS.intelInterval)),
+    // 防线驱动模式：玩家距下一防线 lineAdvanceMargin px 内触发下一波 telegraph（2026-10-30 用户裁定）。
+    lineAdvanceMargin: Math.max(0, encNum(src.lineAdvanceMargin, LINE_ADVANCE_MARGIN_FALLBACK)),
     waves: waves,
   };
 }
@@ -354,7 +369,7 @@ function applySpawnGuard(units, cfg, box, px, py) {
 
 /**
  * @typedef {{
- *   phase:string, waveIndex:number, waveCount:number, timer:number, elapsed:number,
+ *   phase:string, mode:string, lineXs:number[], waveIndex:number, waveCount:number, timer:number, elapsed:number,
  *   kills:number, spawnedThisWave:number, emptyWave:boolean, outcome:string|null,
  *   wavesCleared:number, cfg:EncounterConfig, seed:any, rng:Function, intelTimer:number,
  *   pendingTelegraph:boolean,
@@ -373,6 +388,15 @@ function createEncounter(opts) {
   const cfg = resolveEncounterConfig(o.rules);
   const enc = {
     cfg: cfg,
+    // 2026-10-30 防线式波次（用户裁定）：mode:'lines' 时波间不走定时 breather，
+    //   而是等玩家推进过当前防线（ctx.playerPos.x 接近/越过下一防线锚点 x）才
+    //   telegraph 下一波。缺省 'timed' 保持既有 breather 节拍（tank_3d.html 不回归）。
+    mode: (o.mode === 'lines') ? 'lines' : 'timed',
+    // 防线 x 序列（升序）：lines 模式下页面按 node.encounterAnchors 每组取平均 x 传入。
+    //   语义：waves[i] 绑定防线 lines[min(i, len-1)]；玩家 x ≥ 防线 x - lineAdvanceMargin
+    //   即视为「推进过当前防线」。空数组/缺省时 lines 模式退化为「清波即发下一波」
+    //   （等价于 breatherSeconds=0 的节拍，不至于软锁）。
+    lineXs: (Array.isArray(o.lineXs) ? o.lineXs.map(v => encNum(v, NaN)).filter(Number.isFinite) : []).sort((a, b) => a - b),
     seed: (o.seed === undefined || o.seed === null) ? ENCOUNTER_SEED_FALLBACK : o.seed,
     rng: encounterRNG((o.seed === undefined || o.seed === null) ? ENCOUNTER_SEED_FALLBACK : o.seed),
     phase: 'telegraph',
@@ -501,17 +525,40 @@ function updateEncounter(enc, dt, ctx) {
       if (enc.waveIndex + 1 < enc.waveCount) {
         const allyAlive = Math.max(0, Math.round(encNum(c.allyAlive, 0)));
         const reinforce = Math.max(0, enc.cfg.reinforceMinAllies - allyAlive);
-        events.push({
-          type: 'breather',
-          seconds: enc.cfg.breatherSeconds,
-          repairPct: enc.cfg.breatherRepairPct,
-          reinforce: reinforce,
-        });
-        enc.phase = 'breather';
-        enc.timer = enc.cfg.breatherSeconds;
+        if (enc.mode === 'lines') {
+          // 2026-10-30 防线式波次：清波后进入 lineHold——**不倒计时**，等玩家推进。
+          //   补员/回血语义与 breather 共用（页面按 type 分支处理，字段同构）。
+          events.push({ type: 'breather', seconds: 0, repairPct: enc.cfg.breatherRepairPct, reinforce: reinforce });
+          enc.phase = 'lineHold';
+          enc.timer = 0;
+        } else {
+          events.push({
+            type: 'breather',
+            seconds: enc.cfg.breatherSeconds,
+            repairPct: enc.cfg.breatherRepairPct,
+            reinforce: reinforce,
+          });
+          enc.phase = 'breather';
+          enc.timer = enc.cfg.breatherSeconds;
+        }
       } else {
         finishEncounter(enc, events, 'victory');
       }
+    }
+    return events;
+  }
+
+  if (enc.phase === 'lineHold') {
+    // 防线驱动节拍：本波绑定的防线 = lineXs[min(waveIndex, len-1)]（防线按 x 升序）。
+    //   玩家 x ≥ 防线 x − lineAdvanceMargin ⇒ 玩家已推进到当前防线前沿 ⇒ 发下一波 telegraph。
+    //   lineXs 缺省（页面没传锚点）时退化为「清波即发」——空场不软锁。
+    const margin = enc.cfg.lineAdvanceMargin;
+    const lineX = enc.lineXs.length
+      ? enc.lineXs[Math.min(enc.waveIndex, enc.lineXs.length - 1)]
+      : null;
+    if (lineX === null || px >= lineX - margin) {
+      enc.waveIndex += 1;
+      enterTelegraph(enc, c, events);
     }
     return events;
   }
@@ -541,6 +588,7 @@ if (typeof module !== 'undefined' && module.exports) {
     ENCOUNTER_PHASES,
     ENCOUNTER_DEFAULTS,
     INTEL_MIN_SECONDS,
+    LINE_ADVANCE_MARGIN_FALLBACK,
     SPAWN_EDGE_MARGIN,
     SPAWN_MIN_SEPARATION,
     UNIT_SPREAD_PX,

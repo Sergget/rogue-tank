@@ -55,7 +55,8 @@ const inBox = (u) => u.x >= MARGIN && u.x <= WORLD.w - MARGIN && u.y >= MARGIN &
 // 返回 {enc, log, killed}；log 每项 = {t, event}。
 function play(opts) {
   const o = opts || {};
-  const enc = createEncounter({ seed: o.seed === undefined ? 7 : o.seed, rules: o.rules });
+  const enc = createEncounter({ seed: o.seed === undefined ? 7 : o.seed, rules: o.rules,
+    mode: o.mode, lineXs: o.lineXs });
   const dt = o.dt || 0.5;
   const killAfter = o.killAfter === undefined ? 6 : o.killAfter;
   const maxFrames = o.maxFrames || 6000;
@@ -704,6 +705,130 @@ section('#AB3 / #AB4 防御性契约（§4.157）');
   ok(empties.length === 1, `#AB3：空波产出 1 条 wave-empty（实到 ${empties.length}）`);
   ok(clears.length === 2, `#AB3：两波都判了清波（实到 ${clears.length}）`);
   ok(p.enc.outcome === 'victory', `#AB3：空波之后流程照常推进到 victory（实到 ${p.enc.outcome}）`);
+}
+
+// ================================================================ ⑭ 防线式波次（mode:'lines'，2026-10-30 用户裁定）
+// 锁的语义：① 清波后进 lineHold 且**不倒计时**（玩家不推进就永远不发下一波）；
+//   ② 玩家 x 越过「当前防线 x − lineAdvanceMargin」才 telegraph 下一波；
+//   ③ 波次 i 绑定 lineXs[i]（升序，防线逐波推进）；
+//   ④ lineXs 缺省时退化为「清波即发」不软锁；
+//   ⑤ lines 模式 breather 事件 seconds=0（字段同构，页面按同分支回血/补员）；
+//   ⑥ 最后一波清掉即 victory（与 timed 相同）；⑦ timed 模式（缺省）不受影响——切片回归锚。
+section('⑭ 防线式波次：mode=lines 节拍（lineHold 等玩家推进）');
+{
+  // --- ⑭a lineHold 卡住：玩家不推进，清波后永远停在 lineHold ---
+  {
+    const p = play({ seed: 21, mode: 'lines', rules: Object.assign({}, CFG, {
+      waves: [
+        { id: 'L1', label: '一', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'L2', label: '二', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+      ],
+    }), lineXs: [800, 1200], maxFrames: 200, ctx0: { playerPos: { x: 200, y: 432 } } });
+    ok(p.enc.outcome === null, `⑭a 玩家未推进：遭遇未终局（outcome=${p.enc.outcome}）`);
+    eq(p.enc.phase, 'lineHold', '⑭a 清波后停在 lineHold（非 timed 的 breather）');
+    ok(findAll(p.log, 'telegraph').length === 1, `⑭a 只发了 W1 的 telegraph（实到 ${findAll(p.log, 'telegraph').length}）`);
+    const br = findAll(p.log, 'breather');
+    ok(br.length === 1 && br[0].seconds === 0, `⑭a lines 模式 breather.seconds=0（实到 ${br.length ? br[0].seconds : '无事件'}）`);
+    ok(br.length === 1 && br[0].repairPct === CFG.breatherRepairPct && br[0].reinforce >= 0,
+      '⑭a breather 事件字段同构（repairPct/reinforce 照发，页面同分支回血/补员）');
+    ok(p.enc.timer === 0, '⑭a lineHold 不倒计时（timer=0，等玩家推进而非定时）');
+  }
+  // --- ⑭b 玩家推进过防线 1 → 发 W2 telegraph；停在防线 1 前不发 W3 ---
+  //   三波编成：清掉 W2（非末波）后停在 lineHold，阈值 = lineXs[1]−margin = 1200−400 = 800，
+  //   玩家 500 < 800 ⇒ 干等多久都不发 W3（末波不清就没有 victory，也不软锁）。
+  {
+    const enc = createEncounter({ seed: 22, mode: 'lines', rules: Object.assign({}, CFG, {
+      waves: [
+        { id: 'L1', label: '一', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'L2', label: '二', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'L3', label: '三', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+      ],
+    }), lineXs: [800, 1200, 1500] });
+    const ctx = mkCtx({ playerPos: { x: 500, y: 432 } });
+    // 烧掉 telegraph，spawn W1
+    updateEncounter(enc, 0.1, ctx);
+    updateEncounter(enc, 2.0, ctx);
+    ctx.enemyAlive = 1;
+    // 清掉 W1（页面视角：killAfter 后清光）
+    updateEncounter(enc, 5.0, ctx);
+    ctx.enemyAlive = 0;
+    const clearEv = updateEncounter(enc, 0.1, ctx);
+    ok(clearEv.some(e => e.type === 'wave-clear'), '⑭b W1 wave-clear');
+    eq(enc.phase, 'lineHold', '⑭b 清波后 lineHold');
+    // margin=RULES lineAdvanceMargin=400 ⇒ 阈值 = 800−400=400，玩家 x=500 ≥ 400 ⇒ 应立即发 W2
+    const evs = updateEncounter(enc, 0.1, ctx);
+    const tg = evs.find(e => e.type === 'telegraph');
+    ok(!!tg && tg.wave === 1, `⑭b 玩家越过防线 1（500 ≥ 800−400）同帧发 W2 telegraph`);
+    eq(enc.phase, 'telegraph', '⑭b phase 切到 telegraph');
+    // 未推进到防线 2（阈值 1200−400=800，玩家 500 < 800）：W2 清掉后卡在 lineHold
+    updateEncounter(enc, 2.0, ctx);          // spawn W2
+    ctx.enemyAlive = 1;
+    updateEncounter(enc, 5.0, ctx);
+    ctx.enemyAlive = 0;
+    updateEncounter(enc, 0.1, ctx);          // wave-clear → lineHold
+    eq(enc.phase, 'lineHold', '⑭b W2 清后停在 lineHold（未推进到防线 2）');
+    for (let i = 0; i < 30; i++) updateEncounter(enc, 1.0, ctx);   // 干等 30s
+    eq(enc.phase, 'lineHold', '⑭b 干等 30s 仍 lineHold（不推进不发波）');
+    eq(enc.outcome, null, '⑭b 不软锁成终局，只等玩家');
+  }
+  // --- ⑭c 全防线清空 → victory；lineXs 缺省退化为「清波即发」 ---
+  {
+    const rules = Object.assign({}, CFG, {
+      waves: [{ id: 'L1', label: '一', units: [{ cls: 'medium', bearing: 0, count: 1 }] }],
+    });
+    const p = play({ seed: 23, mode: 'lines', rules, lineXs: [900], killAfter: 1 });
+    ok(p.enc.outcome === 'victory', `⑭c 单波 lines 清完即 victory（实到 ${p.enc.outcome}）`);
+    // lineXs 缺省：两波不软锁、依次发
+    const rules2 = Object.assign({}, CFG, {
+      waves: [
+        { id: 'L1', label: '一', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'L2', label: '二', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+      ],
+    });
+    const p2 = play({ seed: 24, mode: 'lines', rules: rules2, killAfter: 1 });
+    ok(findAll(p2.log, 'telegraph').length === 2, `⑭c 无 lineXs 退化「清波即发」：两波都 telegraph（实到 ${findAll(p2.log, 'telegraph').length}）`);
+    ok(p2.enc.outcome === 'victory', `⑭c 无 lineXs 也能打到 victory（实到 ${p2.enc.outcome}）`);
+  }
+  // --- ⑭d timed 模式（缺省）不受影响：清波后是定时 breather，phase 不是 lineHold ---
+  {
+    const rules = Object.assign({}, CFG, {
+      waves: [
+        { id: 'L1', label: '一', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'L2', label: '二', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+      ],
+    });
+    const p = play({ seed: 25, rules, killAfter: 1, ctx0: {}, maxFrames: 400 });
+    const br = findAll(p.log, 'breather');
+    ok(br.length >= 1 && br[0].seconds === CFG.breatherSeconds, `⑭d timed breather.seconds=${CFG.breatherSeconds}（实到 ${br.length ? br[0].seconds : '无'}）`);
+    ok(p.enc.phase === 'breather' || p.enc.outcome === 'victory',
+      `⑭d timed 模式清波进 breather 非 lineHold（phase=${p.enc.phase}）`);
+    ok(p.enc.outcome === 'victory', `⑭d timed 模式照常打到 victory（实到 ${p.enc.outcome}）`);
+  }
+  // --- ⑭e 哨兵：RULES.encounter.lineAdvanceMargin 真被消费 ---
+  {
+    const rules = Object.assign({}, CFG, {
+      lineAdvanceMargin: 0,
+      waves: [
+        { id: 'L1', label: '一', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'L2', label: '二', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+      ],
+    });
+    const enc = createEncounter({ seed: 26, mode: 'lines', rules, lineXs: [800, 1200] });
+    const ctx = mkCtx({ playerPos: { x: 799, y: 432 } });    // margin=0 ⇒ 须 ≥800，799 差 1px 不过线
+    updateEncounter(enc, 0.1, ctx); updateEncounter(enc, 2.0, ctx);
+    ctx.enemyAlive = 1; updateEncounter(enc, 5.0, ctx); ctx.enemyAlive = 0;
+    updateEncounter(enc, 0.1, ctx);          // wave-clear → lineHold
+    const evs = updateEncounter(enc, 0.1, ctx);
+    ok(!evs.some(e => e.type === 'telegraph'), '⑭e margin=0：玩家 799 < 防线 800 不发波');
+    ctx.playerPos = { x: 800, y: 432 };
+    const evs2 = updateEncounter(enc, 0.1, ctx);
+    ok(evs2.some(e => e.type === 'telegraph'), '⑭e margin=0：玩家 800 ≥ 800 立即发波');
+  }
+  // --- ⑭f 负向：mode:'lines' 之外传 mode:'bogus' 落回 timed（未知值不猜测） ---
+  {
+    const enc = createEncounter({ seed: 27, mode: 'bogus' });
+    eq(enc.mode, 'timed', '⑭f 未知 mode 落回 timed（白名单二值，不猜）');
+  }
 }
 
 console.log(`\n${fails === 0 ? '全部通过' : fails + ' 项失败'}：test-encounter.js`);

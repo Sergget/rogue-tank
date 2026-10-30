@@ -2651,6 +2651,11 @@ function spawnSurvivalWaveEnemies(count, waveDiff, mults){
     const diagHalf = vb ? Math.hypot(vb.maxX - vb.minX, vb.maxY - vb.minY) / 2 : 734;
     const rMin = Math.max(700, diagHalf * 0.9);
     const rMax = Math.max(rMin + 100, diagHalf * 1.1);
+    // 2026-10-30 复查（qa-tester 实锤三问题）：
+    //   ① 硬下限判据曾写 450 未随 rMin 同步（483px 敌人放行）；② 钳界会把界外方向的
+    //   700px 采样拽到 483px——合格判据必须用**钳后坐标现算距离 ≥ rMin**（一条判据
+    //   同时覆盖两问题）；③ 图心兜底在玩家贴图心出生时=脸刷，改为「四角+四边中点
+    //   取距玩家最远者」且兜底点同样过 ≥rMin 校验。
     let x = node.w / 2, y = node.h / 2, tries = 0, ok = false;
     do {
       const ang = Math.random() * Math.PI * 2;
@@ -2658,10 +2663,23 @@ function spawnSurvivalWaveEnemies(count, waveDiff, mults){
       x = Math.max(80, Math.min(node.w - 80, player.x + Math.cos(ang) * d));
       y = Math.max(80, Math.min(node.h - 80, player.y + Math.sin(ang) * d));
       tries++;
-      ok = Math.hypot(x - player.x, y - player.y) >= 450 &&
+      ok = Math.hypot(x - player.x, y - player.y) >= rMin &&
            !(typeof pointInCover === 'function' && pointInCover(covers, x, y, 40));
     } while(tries < 20 && !ok);
-    if(!ok){ x = node.w / 2; y = node.h / 2; }   // 20 次全败（极端图）⇒ 图心兜底
+    if(!ok){
+      // 兜底：四角 + 四边中点候选，取距玩家最远者（仍 ≥rMin 才用；否则保留图心但打日志）
+      let best = null, bd = -1;
+      const cands = [
+        [80, 80], [node.w - 80, 80], [80, node.h - 80], [node.w - 80, node.h - 80],
+        [node.w / 2, 80], [node.w / 2, node.h - 80], [80, node.h / 2], [node.w - 80, node.h / 2],
+      ];
+      for(const [cx, cy] of cands){
+        const d = Math.hypot(cx - player.x, cy - player.y);
+        if(d > bd){ bd = d; best = [cx, cy]; }
+      }
+      if(best && bd >= rMin){ x = best[0]; y = best[1]; }
+      else pushLog('⚠ 生存波次生成点全败：图心兜底距玩家不足 ' + Math.round(rMin) + 'px', 'CRIT');
+    }
     const tankId = pool[Math.floor(Math.random() * pool.length)];
     const t = spawnTank({
       id: `surv_w${survivalWave}_${i}`,
@@ -3106,7 +3124,13 @@ function enterBattle(nodeIndex){
       })),
     })).map(w => ({ ...w, units: w.units.filter(u => u.count > 0) })).filter(w => w.units.length > 0);
     const encRules = Object.assign({}, RULES.encounter, { waves });
-    battleEncounter = createEncounter({ seed: (node.seed | 0) + node.index * 7919, rules: encRules });
+    // 2026-10-30 防线式波次（用户裁定）：标准模式用 mode:'lines'——清波后停在 lineHold，
+    //   玩家推进过当前防线才发下一波 telegraph（依次生成，不是定时全量刷）。
+    //   防线 x 序列 = node.encounterAnchors 每组锚点取平均 x（anchors 按 x 升序持久化）。
+    const lineXs = (Array.isArray(node.encounterAnchors) && node.encounterAnchors.length)
+      ? node.encounterAnchors.map(g => g.length ? g.reduce((s, a) => s + a.x, 0) / g.length : NaN).filter(Number.isFinite).sort((a, b) => a - b)
+      : [];
+    battleEncounter = createEncounter({ seed: (node.seed | 0) + node.index * 7919, rules: encRules, mode: 'lines', lineXs });
     if(battleEncounter) pushLog(`⚔ 波次导演接管本节点：${waves.length} 波（难度 ${(diff * 100).toFixed(0)}%）`, 'COVER');
   }
 
@@ -3354,6 +3378,20 @@ function handleBattleEncounterEvent(ev){
 
 function livingNodeEnemies(){
   return entities.filter(e => e.nodeSpawn && e.team === 'enemy' && e.hp > 0);
+}
+
+// 2026-10-30 防线式波次（用户裁定）：出口绿带/EXIT 标识「完成任务后再亮」的唯一判据。
+//   encounter 节点 = 全部防线波清空（最后一波 wave-clear 已发：waveIndex 已指向波尾且
+//   phase 进入 victory/breather/lineHold 任一终末节拍，或 outcome 已出）才解锁；
+//   非 encounter 节点（Boss/生存/standardEnabled=false 回退）恒解锁（行为不变）。
+function battleExitUnlocked(){
+  if(!currentNode || currentNode.encounter !== true) return true;
+  if(!battleEncounter) return true;                      // 回退/异常：不锁（旧铺敌语义）
+  if(battleEncounter.outcome) return true;               // victory/defeat 均已终局
+  if(battleEncounter.waveIndex + 1 < battleEncounter.waveCount) return false;   // 还有后续波
+  // 最后一波：wave-clear 同帧起 phase 会切到 breather/lineHold（lines 模式）；
+  // phase 仍是 'wave' 说明最后一波敌人还活着，不亮。
+  return battleEncounter.phase !== 'wave';
 }
 
 function finishNode(cleared){
@@ -7320,7 +7358,10 @@ function draw(){
 
   // #K2（2026-09-29）：出口区世界标记——右端绿色出口带 + 沿线箭头 + 「EXIT 出口」字样。
   // 推进式完成条件（B 档③）此前只有底部一行小字 ⇒ 玩家无从得知「往哪推进 / 目标是什么」。
-  if(run && currentNode && !currentNode.boss && !(battleState && battleState.clearing)){
+  // 2026-10-30 防线式波次（用户裁定）：encounter 节点在全部防线波清空之前**不亮出口**
+  //   （battleExitUnlocked 判据见函数注释）；非 encounter 节点行为不变。
+  if(run && currentNode && !currentNode.boss && !(battleState && battleState.clearing)
+     && battleExitUnlocked()){
     const ez = (RULES.nodeMap && RULES.nodeMap.exitZone) || {};
     // 生存模式无出口（exitX=Infinity 时不绘制）
     if(ez.draw !== false && currentNode.exitX !== Infinity){
@@ -7691,7 +7732,8 @@ function draw(){
       // 冷却中的补给站以灰色标记（与世界里「冷却中变灰」同一语义）
       supplyOnCooldown: (typeof supplyCooldownRemain === 'function') ? supplyCooldownRemain() > 0 : false,
       // #K2：出口区标记（Boss 节点无出口概念 ⇒ 不画；生存模式 exitX=Infinity ⇒ 不画）
-      exitZone: (currentNode.boss || currentNode.exitX === Infinity) ? null : { x: currentNode.exitX }
+      // 2026-10-30 防线式波次：encounter 节点全防线清空之前不画（与世界层同判据）
+      exitZone: (currentNode.boss || currentNode.exitX === Infinity || !battleExitUnlocked()) ? null : { x: currentNode.exitX }
     });
   }
 

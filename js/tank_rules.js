@@ -991,6 +991,14 @@ const RULES = {
     // 是为了可调，不落就违反「参数唯一配置源」纪律）。diffCountScale：每单元 count +
     // floor(diff × 该值)；maxPerWave：单波总敌数封顶（防高难度围死）。
     standardScale: { diffCountScale: 3, maxPerWave: 6 },
+    // 2026-10-30 防线式波次（用户裁定）：标准模式节拍改「防线驱动」——前一波清完后
+    //   不再定时 breather 后全量刷，而是等玩家推进过当前防线才 telegraph 下一波。
+    //   `lineAdvanceMargin`：玩家 x 距下一防线 x 多少 px 内触发下一波 telegraph。
+    //   rationale：防线下手雷/竖墙的交战纵深约 400~500px；玩家越过本防线 x 前这段
+    //   距离时，下一防线敌人开始压上，既保证「依次生成」的推进感，又不让玩家
+    //   在两防线之间的空档里无事可做。仅 lines 模式消费（createEncounter mode:'lines'），
+    //   切片（tank_3d.html）与 breather 节拍不读它。
+    lineAdvanceMargin: 400,
     standardWaves: [
       { id: 'S1', label: '前哨接触', units: [
         { cls: 'medium', bearing: 0, count: 3 },
