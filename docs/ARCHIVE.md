@@ -12,6 +12,7 @@
 - 📘 [2026年08月历史归档 (docs/archive/2026-08.md)](archive/2026-08.md)
 - 📘 [2026年09月历史归档 (docs/archive/2026-09.md)](archive/2026-09.md)
 - 📘 [2026年10月历史归档 (docs/archive/2026-10.md)](archive/2026-10.md)
+- 📘 [2026年11月历史归档 (docs/archive/2026-11.md)](archive/2026-11.md)
 
 ---
 
@@ -195,3 +196,4 @@
 | 2026-10-29 | `docs/ISSUES.md` **#AB11 / #AB11b / #AB12** 关账（MS1 收口：绕障 §4.171 + 接战带 §4.172 门①达标；#AB12 结案为探针伪影 §4.173） | **已完成（条目归档）**：绕障状态机 `_applyDetour` 双调用点、`RULES.ai.detour` 唯一口径、`probeDist=60` 敏感参数；10 seed worst 334px ≤ 340；#AB12 `probe-fire-reject.cjs` 直方图 reload 92.8% ⇒ 伪影 | `DEVELOPMENT-batches-2026-10.md` §4.171~§4.173 · `specs/combat/enemy-ai.md` · `archive/2026-10.md` |
 | 2026-10-29 | `docs/ISSUES.md` **#AB18** 关账（hull-down 条件降档路线 ② 落地 §4.176：静止+未开火 ⇒ 车体口径，`test-hull-down` 13 断言，480px 同灌木移动/静止分化） | **已完成（条目归档）**：`_hullDownTargetZ` 四消费点、判据复用 camo 函数不另立口径、Boss 豁免、弹道侧零改动；门①不回退 | `DEVELOPMENT-batches-2026-10.md` §4.176 · `specs/map/vision-stealth-3d-compat.md` · `archive/2026-10.md` |
 | 2026-10-29 | `docs/ISSUES.md` **#AC1** 关账（成长曲线后段塌陷 §4.178：用户裁定「降低后续节点曲线」——`entityMults` 高难度端 maxHp 1.8→1.5 / damage 1.35→1.2 / reload 0.82→0.88 / armorAll 1.3→1.15，末节点均值 0.82→**1.13**；审计 1v1 不为友军修口径，友军选车留 `PLAN §4.1b`） | **已完成（条目归档）**：低难度端零动 ⇒ 前期零漂移；MS1 门不回退；mobility 0.72 属审计低估机动流的可接受区间 | `DEVELOPMENT-batches-2026-10.md` §4.178 · `specs/combat/enemy-scaling.md` · `archive/2026-10.md` |
+| 2026-11-02 | `docs/ISSUES.md` **#AC2/#AC3/#AC4 + #AB1~#AB9/#AB13/#AB14/#AB17**（15 条） | 2026-11-02 文档收口一次性关账：均为 MS1/MS2 与 P2-G/E 批次期间修复并验证的条目；结论见 `DEVELOPMENT-batches-2026-10/11.md` 的 §4.157~§4.201 与对应 specs 主题页 | **已修复并验证（#AC2 附「地图侧生成期可达性断言/重滚未排期」残余注记）**；原文见 `archive/2026-11.md` |

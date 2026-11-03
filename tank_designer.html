@@ -44,7 +44,7 @@
       <div class="prop-row"><span class="lbl">散布惩罚</span><span class="mono" id="spreadCouplingReadout" style="color:var(--amber);">—</span></div>
       <div class="prop-row"><span class="lbl">可用马力上限</span><span class="mono" id="powerCouplingReadout" style="color:var(--green);">—</span></div>
       <div class="prop-row"><span class="lbl">模块易损因子</span><span class="mono" id="moduleSizeFactorReadout" style="color:var(--green);">—</span></div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">派生重量 = deriveWeight(装甲几何)（tank_model.js 单一来源）；达到 80t 设计上限后禁止继续提升增重参数（装甲厚度/尺寸/顶点外扩）。下方「重量 kg (base)」为旧版占位字段，不再参与判定。属性耦合链（P-49）：更高穿深/伤害推导出装填与三扩惩罚、车体尺寸限制最大可用马力、车体面积物理缩放内部模块易损因子（0.7x~1.3x：大车体宽敞不易损，小车体紧凑易损）——仅作设计要求提示，不自动改写已保存数值。</div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">派生重量由装甲几何自动推导；达到 80t 设计上限后，无法再提升增重参数（装甲厚度 / 尺寸 / 顶点外扩）。下方「重量 kg (base)」为旧版占位字段，不参与判定。属性耦合（仅作设计提示，不会自动改写已保存数值）：穿深与伤害越高，装填越慢、散布惩罚越大；车体尺寸限制可用马力上限；车体面积越大，内部模块越不容易被击毁（0.7 倍 ~ 1.3 倍）。</div>
     </div>
 
     <div class="section panel-data">
@@ -125,7 +125,7 @@
 
      <div class="section panel-armor" id="moduleZoneLegend" style="display:none;">
        <h3>内部模块判定区 Module Zones <span style="font-size:10px; color:var(--text-dim); font-weight:normal;">只读</span></h3>
-       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">击穿后模块判定（<span class="mono">moduleFromHit</span>，口径 <span class="mono">RULES.modules.zonesV2</span>）：炮塔按 centroid 四象限、车体按纵轴 t 区段（0=车头）分区抽取；区内按权重互斥抽取，余量概率=正常结算无加成。区域颜色=该区最高权重模块色。</div>
+       <div class="hint-text" style="font-size:10px; color:var(--text-dim); margin-bottom:6px;">击穿后如何判定命中哪个模块：炮塔按重心四象限、车体按纵向四个区段（0 = 车头）分区抽取；区内各模块按权重竞争，未被抽中则按正常伤害结算、无额外加成。区域颜色 = 该区权重最高模块的颜色。</div>
        <div id="moduleZoneLegendBody"></div>
       </div>
 
@@ -388,7 +388,7 @@
       <h3>整车精灵 Sprite（已停用）</h3>
       <div class="prop-row"><span class="lbl">游戏中启用精灵</span><input type="checkbox" id="sp-enabled" style="width:16px;"></div>
       <div class="prop-row"><span class="lbl">画布显示精灵</span><input type="checkbox" id="sp-preview" style="width:16px;"></div>
-      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">精灵 = 四层俯视贴图（assets/tanks/：履带/车体/炮塔/炮管），后期由美术提供；当前仓库没有这些 PNG，全部走程序化烘焙。「游戏中启用」写入 tank JSON（sprite.enabled），局内 drawTank 改用精灵绘制；「画布显示」仅设计器叠加预览（默认关闭，避免未对齐贴图盖住顶点/装甲判读），用于对齐多边形。图片不存在时不要勾「游戏中启用」。</div>
+      <div class="hint-text" style="font-size:10px; color:var(--text-dim);">精灵 = 四层俯视贴图（履带 / 车体 / 炮塔 / 炮管），由美术后期提供；当前仓库没有这些图片，全部使用程序化绘制。「游戏中启用」会把设置写进该坦克的配置，局内改用贴图绘制；「画布显示精灵」只是设计器内的叠加预览（默认关闭，避免未对齐的贴图盖住顶点与装甲判读），用于对齐多边形。图片不存在时请不要勾选「游戏中启用」。</div>
       <div class="prop-row"><span class="lbl" style="color:var(--amber);">履带 Track</span><span class="mono" id="sp-track-img" style="font-size:9px; color:var(--text-dim); word-break:break-all;">—</span></div>
       <div class="prop-row"><span class="lbl">缩放 (单位/px)</span><input type="number" id="sp-track-scale" step="0.0005" min="0"></div>
       <div class="prop-row"><span class="lbl">位移 X / Y</span>

@@ -58,6 +58,7 @@ async function ensureServer() {
 
 async function runReplay(browser, base, seed) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  await page.bringToFront();   // 2026-11-02：整链顺序跑时防后台标签节流/失焦
   const errors = [];
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
   try {

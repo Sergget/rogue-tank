@@ -102,6 +102,7 @@ function startServer(port) {
     // ---- 浏览器启动：系统 Edge，无头 ----
     browser = await launchBrowser(chromium);
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await page.bringToFront();   // 2026-11-02：整链顺序跑时防后台标签节流/失焦
     const errors = [];
     const notFound = [];
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });

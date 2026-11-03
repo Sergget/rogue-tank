@@ -101,6 +101,9 @@ async function immortalize(page) {
       args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
     });
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    // 2026-11-02：整链顺序跑时本页可能不是前台页 ⇒ 后台标签 rAF 被节流，
+    //   telegraph 的 2s 窗口在慢帧下被拉长/错位（实测首波断言假红）。先置前台。
+    await page.bringToFront();
     const errors = [];
     page.on('console', m => {
       if (m.type() === 'error' && !String(m.text()).includes('Failed to load resource')) errors.push(m.text());
@@ -115,6 +118,11 @@ async function immortalize(page) {
     if (!ready) throw new Error('3D 页面未就绪');
 
     // --- 1) 遭遇已接管：初始处于 telegraph（不再是开局 6 敌沙盒）---
+    // 2026-11-02：整链顺序跑时，页面 `ready` 可能晚于 telegraph 的 2s 窗口（首读直接撞进 wave，
+    //   实测 phase=wave / enemyAlive=3）。先 restart 一次把遭遇重置到 telegraph 起点，
+    //   断言才有确定性（与 #AB5/#AB8「别用瞬时取值测异步 UI」同类修复）。
+    await page.evaluate(() => window.__TEST3D__.restart());
+    await page.waitForTimeout(150);
     const init = await page.evaluate(() => window.__TEST3D__.encounter());
     check('遭遇已启用且起始为 telegraph', init.enabled === true && init.phase === 'telegraph',
       `phase=${init.phase} wave=${init.waveIndex}/${init.waveCount}`);

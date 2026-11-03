@@ -86,6 +86,8 @@ async function ensureServer() {
 
     browser = await launchBrowser(chromium);
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    // 2026-11-02：整链顺序跑时本页可能不是前台页 ⇒ 键盘事件到不了窗口（实测 C 键集火假红）。
+    await page.bringToFront();
     const errors = [];
     page.on('console', m => {
       if (m.type() === 'error' && !String(m.text()).includes('Failed to load resource')) errors.push(m.text());
@@ -151,6 +153,16 @@ async function ensureServer() {
     await wait(200);
 
     allies = await page.evaluate(() => window.__TEST__.allies());
+    // 2026-11-02：整链顺序跑时相机/焦点可能漂移，首按可能落在空处 ⇒ 重算屏幕坐标再按一次
+    //   （仍走真实 C 键路径，不放宽断言）。
+    if (!allies.every(a => a.order === 'focus' && a.targetId === target.id)) {
+      const s2 = await page.evaluate(id => window.__TEST__.enemyScreen(id), target.id);
+      if (s2) await page.mouse.move(s2.x, s2.y);
+      await wait(80);
+      await page.keyboard.press('c');
+      await wait(200);
+      allies = await page.evaluate(() => window.__TEST__.allies());
+    }
     check('C 键集火下发到全体', allies.every(a => a.order === 'focus' && a.targetId === target.id),
       JSON.stringify(allies.map(a => [a.order, a.targetId])));
 

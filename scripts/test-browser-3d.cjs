@@ -76,6 +76,7 @@ async function ensureServer() {
       args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
     });
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await page.bringToFront();   // 2026-11-02：整链顺序跑时防后台标签节流/失焦
     const errors = [];
     page.on('console', m => {
       if (m.type() === 'error' && !String(m.text()).includes('Failed to load resource')) errors.push(m.text());

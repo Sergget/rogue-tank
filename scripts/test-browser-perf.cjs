@@ -196,6 +196,10 @@ async function waitForEnemy(page, timeoutMs) {
       `tier=${playable.tier} hasTarget=${hasTarget2} fired=${playable.fired}`);
     // 采样最大值而不是只看末帧：撞上掩体/友军后速度会归零，
     // 「末帧速度」会把「能开车但撞了墙」误判成「油门没响应」。
+    // 2026-11-02：整链顺序跑时本页可能不是前台页 ⇒ 后台标签的 rAF 被节流/暂停，
+    //   实测 maxSpeed=0 / moved=0（单跑必绿）。先 bringToFront 再按键，消除这条假红。
+    await hi.page.bringToFront();
+    await wait(120);
     await hi.page.keyboard.down('w');
     let maxSpeed = 0, last = null;
     for (let i = 0; i < 10; i++) {

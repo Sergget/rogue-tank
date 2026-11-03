@@ -11,20 +11,20 @@
 | 文档 | 角色 | 内容 |
 |---|---|---|
 | `docs/DEVELOPMENT.md`（本文档） | 长期内容权威 | 文档索引、核心方向、架构演进、当前状态与下一步（§3）、批次落地结论（§4 按编号升序） |
-| `docs/specs/combat.md` | **§N 兼容索引页** | 正文在 `docs/specs/combat/`（23 个主题页 + `index.md` + `changelog.md`）；本页只放 §1~§20 的 1~3 行摘要 + 详见链接 |
+| `docs/specs/combat.md` | **§N 兼容索引页** | 正文在 `docs/specs/combat/`（24 个主题页 + `index.md` + `changelog.md`）；本页只放 §1~§21 的 1~3 行摘要 + 详见链接 |
 | `docs/specs/map.md` | **§N 兼容索引页** | 正文在 `docs/specs/map/`（17 个主题页 + `index.md` + `changelog.md`） |
 | `docs/specs/cards.md` | **§N 兼容索引页** | 正文在 `docs/specs/cards/`（9 个主题页 + `index.md` + `changelog.md`） |
-| `docs/specs/boss.md` | **§N 兼容索引页** | 正文在 `docs/specs/boss/`（8 个主题页 + `index.md` + `changelog.md`） |
+| `docs/specs/boss.md` | **§N 兼容索引页** | 正文在 `docs/specs/boss/`（9 个主题页 + `index.md` + `changelog.md`） |
 | `docs/specs/editor.md` | **§N 兼容索引页** | 正文在 `docs/specs/editor/`（9 个主题页 + `index.md` + `changelog.md`） |
 | `docs/specs/README.md` | 卷总目录 | 五卷入口、页数与标题数实测表、跨卷归口（**查现行口径从这里进**） |
 | `docs/PLAN.md` | 临时 | 只存**未完成**的近期待办与计划（是计划，非承诺） |
 | `docs/ISSUES.md` | 临时 | 只存**待处理 / 处理中**的已核实问题（每条须有 `file:line` 证据） |
 | `docs/ARCHIVE.md` | 只读索引 | 完结条目索引表 → `docs/archive/<yyyy-mm>.md` 分卷正文 |
 
-**目录**：§1 核心方向 · §2 架构演进 · §3 当前状态与下一步 · §4 批次落地结论（§4.1~§4.185；§4.1~§4.39 正文见归档快照与月度分卷，§4.40–§4.185 正文见 `DEVELOPMENT-batches-2026-10.md`）
+**目录**：§1 核心方向 · §2 架构演进 · §3 当前状态与下一步 · §4 批次落地结论（§4.1~§4.211；§4.1~§4.39 正文见归档快照与月度分卷，§4.40–§4.188 正文见 `DEVELOPMENT-batches-2026-10.md`，§4.189–§4.211 正文见 `DEVELOPMENT-batches-2026-11.md`）
 
 > **§4 编号说明（2026-09-23 文档整改）**：§0~§3 与 §4.1~§4.26 的**逐条正文**曾于 2026-09-22 提交 `994bdfd` 随 §4.27~§4.33 一并从本文件移除，且该次漏走 `AGENTS.md` §2.2 第 3 步「原文归档」（276 行原文未进归档分卷）。2026-09-23 整改已将该原文快照**补归档**至 `docs/archive/2026-09.md`（见 `docs/ARCHIVE.md` 索引 2026-09-23 行），本文件重建精简骨架并保留下方**§4 编号索引表**，使全部历史交叉引用可解析。
-> **续写规则**：新增批次一律在 §4 正文末尾按编号递增续写（**当前最大编号 §4.185**）；§4 正文只增不回改，被推翻的旧结论以注记指向新节。
+> **续写规则**：新增批次一律在 §4 正文末尾按编号递增续写（**当前最大编号 §4.211**）；§4 正文只增不回改，被推翻的旧结论以注记指向新节。
 
 ---
 
@@ -67,7 +67,7 @@
 
 （**本节为当前状态、批次史与长期债务的唯一维护点**；待办清单归 `docs/PLAN.md`。）
 
-### 3.1 当前状态（截至 2026-10-29）
+### 3.1 当前状态（截至 2026-11-02）
 
 - **用户 2026-10-24 反馈批次已全部收口（2026-10-26，AA-a~d）**：`docs/ISSUES.md` **无存量条目**。① **AA-a**（§4.132）：HUD 公路加成改走纯函数 `roadBonusKmh()`（与 `tankKmh` 同源）、bench `fireCtx` 补 `aimPoint`、`specs/map/roads.md` 公路豁免口径改写为「只豁免 liquid/mud」；② **AA-b**（§4.136）：bench ↔ battle 开火接线七项对齐（`cam` / `emitShotNoise` no-op / `resolveHit` 5 参透传 + Boss 弱点层 / 急速射 / 砰砰炮 / 无人机 / 曲射散布圈）+ F 键改原生边沿（**轮询保留**给连发类），防回潮靠 **battle `fireCtx` 键集 ⊆ bench 键集**（50 ⊆ 51，`test-bench-parity.js` 30 断言）；③ **AA-c**（§4.137）：电磁炮三段声学（充能循环走代码驱动持久实例、`RULES.railgunFx.audio` 唯一口径、就绪 `SOUND_DEFS.railReady`、开火复用 `firerail`），顺带删除 `startEngineSound` 死代码；④ **AA-d**（§4.130）：制动与滑行独立通道。
 - **HUD 与 bench 工具（2026-10-26，§4.133~§4.135）**：HUD 文本统一补深色底衬（目标卡 11px / `bottom:92px` / 日志让位、提示条、三个仪表区、顶部中央读出、FPS），**速度条已删除**（只留精确数字，避免「读数越过满格」误读）；bench Enemy Lab 新增「清空所有敌人」（`clearEnemyEntities` 纯筛选）与生成点视口护栏（`clampSpawnIntoView`，视口半高仅 `vh/2/zoom`）；bench 内图鉴入口整块移除（图鉴唯一宿主 `tank_codex.html`）。
@@ -78,8 +78,9 @@
 - **2026-10-28 代码审查批次（§4.162）**：对 17 个未推送提交做审查，**修掉一条 P0**——`applyWallSlide` 的回滚锚点取自世界边界钳制**之前**，贴墙+贴边时会把钳制修正一起撤销（实测 240 帧里 168 帧越界、终点 x=−313 且永久留在场外；敌人卡在界外 ⇒ `enemyAlive` 永不为 0 ⇒ **波次永不清**）。修法：`tankBoundsFor` 统一产出边界框、`applyWallSlide` 返回「是否真的滑过」、`driveTank` 仅在滑过时重钳一次（常规帧零开销）。同批四处小修：滑行侧别种子改整串 id 的 FNV-1a、遭遇模块 `enterTelegraph` 之后的终局短路、补员车槽号在 `spawnTank` 之前取、`enabled=false` 回退配置补 `staticRebuildIntervalS`；页内 `finishEncounter` 改名 `endEncounter`。**复盘口径**：原有的滑行用例全部不传 `worldBounds`，边界语义在测试里一直是空的——新用例 `#AB14` 补上（3 断言）。
 - **2026-10-28~29 批次（§4.163~§4.169）**：**§4.163** Boss 生成器两处缺陷（`buildingDensity` 未透传到 strip ⇒ 乘子恒 1.0；出生净空写死 60px < Boss 车体 69~79px；#AB15/#AB16）；**§4.164** B0 压迫探针（逐帧量化推翻「敌人不推进」的前提——630px 是**地图相关**，seed 1 已压到 228px）；**§4.165** 生存模式「增援」升级（补给站购买友军，`aiTier` 档位通道，既有友军零漂移）；**§4.166** 原型据点友军下线（Boss/生存）+ 局外菜单不再渲染战场；**§4.167** 首页白屏 P0（`SCREENS` 清单残留已删屏幕 ⇒ `initMenu` 首屏抛错，#AB17）；**§4.168** 预设存档改为存档列表条目（含 `saveVersion` 版本门）；**§4.169** 玩家侧暴露度指示器（**补记 2026-10-27 落地**，此前只写了 specs 漏了 §4 条目）。细则见各条 §4.x 与对应主题页。
 - **MS1 进展（2026-10-29，§4.170~§4.175）**：**B1 探测原语**（`tierBlocksMove` 单一判据 + `probeMoveBlocked` + `probeCellPassable` A* 兼容）→ **B2 绕障状态机**（承诺 ≥1.2s、侧别几何优先、绕满换侧；`probeDist=60` 敏感参数）→ **B3 接战带收窄**（medium 带外沿 572→338px，**10 seed worst 334 ≤ 340，门 ① 达标**）→ **B4 #AB12 结案**（探针伪影：reload 占 92.8%，非缺陷）→ **B5 生存差未达标**（最佳 1.37× < 2×，按纪律未自行加机制，待裁定）→ **B6 3D 确定性回放**（模拟层唯一 RNG + 定步驱动；**浏览器链八→九**，同 seed 逐字节一致）。**MS1 已收口（§4.177）**：门 ③ 按用户裁定改「首次掉血时刻 ≥2×」（5.1× 达标），六门全过。
-- **下一步（2026-10-28 路线 C 裁定 → 2026-10-29 B0 出数，见 `docs/PLAN.md` §2.7 / §2.8 / §2.9）**：主干走 **MS1（决策空间：压迫与绕障）**，硬串行链 **B0 → B1 → B2 → B3 →（B4 ∥ B5）→ B6 → B7**。**B0 压迫探针已完成（§4.164）**，其实测推翻了 MS1 的两条前提：630px 是**地图相关**（seed 1 已压到 228px，故门①改为 10 个 seed 最坏值）、真签名是「95% 移动帧 + 零净推进 = 顶着墙踩油门」而非「AI 不想靠近」。**B1~B6 已全部落地（§4.170~§4.175）**：门①（10 seed worst 334px ≤ 340）与门⑥（3D 确定性回放，浏览器九链）达标；**B4 #AB12 结案为探针伪影**；**B5 门③未达标**（最佳 1.37× < 2×，按纪律未自行加机制）——MS1 剩 B7 收口对账，门③需战略裁定。MS2~MS5 见 §2.7；Go/No-Go 出结论前不在 3D 切片内加波次/地图/敌人，也不做资产量产。
-- **测试链**：**72 个 `scripts/test-*.js` + `validate-content.js` = 73 项登记**（2026-10-29 实测登记数；最近一次全量运行 **72 通过 / 0 失败**，§4.166）。新增形态门 `test-qa.js`：每个测试脚本必须 `require` `tank_utils` + `tank_rules` 且有 `ok/fails` 骨架。**浏览器链为八链**（`npm run test:browser`：smoke / r3 / run / r4 / ally / 3d / encounter / **perf**，第八链 `scripts/test-browser-perf.cjs` 由 §4.156 新增）；`npm run check` EXIT=0。**渲染基线**单独走 `npm run baseline`（`scripts/browser-baseline.cjs`，默认 `--check`）；3D 基线按档拆三份，`npm run baseline:3d --all`（同义 `baseline:3d:all`）一次跑 720p / 1080p / deck。
+- **下一步（2026-11-02 决策落定，见 `docs/PLAN.md` §2.10）**：**MS1 已收口（§4.177）、MS2 已收口（§4.180/§4.181）**，**MS3「内容量落地与校准」为下一阶段**；**M3-A~M3-H 已全部落地（§4.203~§4.210）**——契约层、节点链合成、奖励绑定、正名审计、防御/占领/突破、非战斗路由，**全部类型开关默认 `false`（零回归，玩家看不到任何类型机制）**。下一步 = **M3-J 校准**：D5 干净重测 → 同批翻 D2/D3 开关 → 类型参数标定 → 4 步生命周期收口。2026-11-02 用户裁定 D1~D7 七项（单节点时长锚定 180~300s；守军+反冲击与防御点同批启用；同屏活体上限按难度分档；MS3 先契约层再校准；车库武器固化排在 MS3 之后、M2 之前；MS4 资产探针立即开跑），执行顺序与门禁见 `PLAN.md` §2.10。Go/No-Go 出结论前不在 3D 切片内加波次/地图/敌人，也不做资产量产。
+- **MS3 启动（2026-11-01）**：经创意总监战略讨论 + 主程拆分，**下一阶段 = MS3「内容量落地与校准」**。① 战略层：节点任务类型体系定为**三型闭环 + 1 变速器**——歼灭（现行普通节点正名）+ 防御 + 占领，**突破**作时间节奏变速器；猎杀留长期池；敌后破坏因与「常驻巡逻不做」裁定冲突**已砍**、改造为猎杀变体留池；非战斗节点（商店/补给/事件）**纳入且「替换不追加」**；奖励走**轻量差异化**（score bonus + 稀有度权重）。② 规格落点（**均标「设计预留 / 未落地」，不得当现行口径引用**）：`specs/combat/node-mission-types.md`（含地图需求对照表与 **MS3 验收口径**四组判据）、`specs/boss/challenge-design.md`（Boss 设计**延迟**至「车库武器固化」实装后；冲撞暴君**降级**为单阶段武装点缀）。③ 实施拆分：`PLAN.md` §2.8.6（N1~N8 完成门）+ §2.8.6.1（M3-A~M3-J 硬串行链、写域与回退点；不设执行者/排期，待 Lead 裁定）。详见 **§4.199**；**M3-A~M3-H 已于 2026-11-02 全部落地（§4.203~§4.210，`RULES.nodeKinds` 与各分型全部缺省关闭）**。
+- **测试链**：**86 个 `scripts/test-*.js` + `validate-content.js` = 87 项登记**（2026-11-02 实测；最近一次全量运行见 §4.211；沙箱 workspace-write 下唯一失败项为 `test-asset-pipeline.js` 的 `spawnSync` EPERM，见 `AGENTS.md` §3.7）。新增形态门 `test-qa.js`：每个测试脚本必须 `require` `tank_utils` + `tank_rules` 且有 `ok/fails` 骨架。**浏览器链为九链**（`npm run test:browser`：smoke / r3 / run / r4 / ally / 3d / encounter / perf / **replay3d**，第九链 `scripts/test-browser-replay3d.cjs` 由 §4.175 新增）；`npm run check` EXIT=0。**渲染基线**单独走 `npm run baseline`（`scripts/browser-baseline.cjs`，默认 `--check`）；3D 基线按档拆三份，`npm run baseline:3d --all`（同义 `baseline:3d:all`）一次跑 720p / 1080p / deck。
 - **技术栈定性（2026-10-24 用户纠正，§4.125）**：**零依赖 / `file://` 直开 / Node 像素回归不是硬约束，只是目前的临时选择**。真 3D（WebGL/Three.js）**未被架构排除**；本阶段不做的理由是缺 3D 美术管线与玩法收益未证实。唯一口径 `specs/map/pseudo-3d-2p5d.md` §3.1。
 - **视野-隐蔽机制（2026-10-24 P1 落地，§4.128）**：三个结构性缺陷已补两条半——① `hasLineOfSight` 从 **`vision` 布尔**改为**高度分档**（`coverTiers[*].height` 18/18 键为唯一口径；判据 `height ≥ min(eyeZ,targetZ)`；用户选 C 方案 `LOS_HULL_Z=1.0m` ⇒ 灌木挡车体、不挡炮塔——**注记（2026-10-29，#AB18/§4.176）：该分级当日才在实机生效**（此前只在测试里、生产恒走炮塔口径），现为「目标静止+未开火 ⇒ 车体口径」的条件降档）；② 隐蔽加成从「相交即满额」改为**按覆盖深度折算**（中心满额/边缘半额）；③ 隐蔽对称化**保留接入未启用**（`RULES.camouflage.symmetric=false` + `tank_ai._enemyCamoMul`）。配套 **I0 模拟时钟**（`simNow/setSimNow/advanceSimNow`，13 处判定/计时挂钟读取已迁移，主循环逐帧注入）。**弹道侧 `getPartZRange`/`getExposure` 完全未改**。细归口 `specs/map/vision-stealth-3d-compat.md` §9。
 - **贴图资产口径（2026-10-23 用户裁定，§4.124）**：确定为「**程序化生成 + 后期贴图接线**」。程序化烘焙是现行唯一实机路径；PNG 通道（地图 `ASSET_DEFS.bake → assets/<key>.png`、坦克 `sprite` 四层 → `drawTankSprite`）代码保留但**当前盘上无图**（19 张坦克 PNG 已删除）。**本仓库不出图**——AI 出图链已整体删除；后期美术按 `docs/ASSETS-PIPELINE.md` 落盘并由 `covers-anchor-check.py` 验收，`scripts/test-asset-pipeline.js` 锁接线完整性。伪 3D 形态裁定为**俯视 2.5D**、研究见 `specs/map/pseudo-3d-2p5d.md`（**设计预留，未落地**）。
@@ -165,7 +166,8 @@
 批次日志已按月份拆分：
 
 - [2026-09 批次 (§4.27–§4.39)](DEVELOPMENT-batches-2026-09.md)
-- [2026-10 批次 (§4.40–§4.156)](DEVELOPMENT-batches-2026-10.md)
+- [2026-10 批次 (§4.40–§4.188)](DEVELOPMENT-batches-2026-10.md)
+- [2026-11 批次 (§4.189–§4.211)](DEVELOPMENT-batches-2026-11.md)
 
 ### 4.0 §4.1~§4.26 编号索引（正文见归档）
 
@@ -266,6 +268,10 @@
 | §4.183 | 2026-10-30 | **修复：场上无敌人时无法开炮（用户反馈）**：直射 no-target 门删除——防线式 lineHold 窗口数十秒无敌人 ⇒ 开火被拒。直射与曲射语义对齐（target=null 合法），炮弹沿方向飞、命中归 stepShells。test-fire 183 断言全绿 | `specs/combat/weapons-reload.md` |
 | §4.184 | 2026-10-30 | **瞄准器样式设置（用户需求）**：`profile.settings.aimStyle`（default/crosshair，暂停面板 radio 持久化）；crosshair = 鼠标处实时散布圈（1σ/2σ，σ×鼠标距离）+ 装填进度弧 + 弹夹余量刻度（_clipState）+ 双管双弧（_dbState）；进度分母与炮口环同源；曲射落点圈两样式共用。当前 UI 保留为「默认瞄准器」 | `specs/combat/hud-ui.md` |
 | §4.185 | 2026-10-30 | **防线点位带与点位掩体 + 瞄准器可见性修复（用户反馈）**：`planDefenseLines` 每道防线 5 个横向点位（吸附路口/城镇边缘/林地候选）并持久化到 `encounterAnchors`；点位前方错位生成竖墙段（`spot.x−230`、锯齿、留射击口、压路收尾）；`CLS_DEPTH` 修正层级倒置（heavy 前 / spg 后）；crosshair 改屏幕空间换算（`worldToScreen` + `cam.zoom`）+ `normalizeProfile` 白名单补 `aimStyle`。三链全绿（test 76/76、browser exit 0、wiki 0 断链）；顺带修 4 处探针/浏览器链时序缺陷 | `specs/map/defense-walls.md` · `specs/combat/hud-ui.md` |
+| §4.186 | 2026-10-30 | **夜批：标准模式对齐「逐个突破防线、抵达最右」（P0-A/B/C + P1-D/E/F）**：波数=防线数（原型循环派生）；胜利判定加「抵达 exitX」（`battleExitReady`，Boss 节点零变化）；maxPerWave 读配置（语义分歧如实记账）；telegraph 改防线语义（前方 Xpx）；构成深度回归波次路径（三级降级 + aiTier + entityMults 二选一）；波↔防线绑定收口单一数据源（`encounterLineXFor` 钳末 + 事件载荷 lineX + 页面 pickLineByX）。连带修 6 处注释 `/*.json` 诱发形态断言误吞 1183 行（含 2 处旧雷）+ 字号棘轮假绿暴露（基线修正为实测值，真实收敛仍待办）。test-encounter 214→270（负向×4 + 三轮变异验证）；test 76/76、browser 九链、wiki-check、GATE: PASS 全绿。新债务 #AC2（出口可达性 160 节点 0 不可达，维持预防）/ #AC4（6 防线敌数 2 倍、60 辆超 maxPerNode 3.33×，待裁定不回退） | `specs/combat/encounter-director.md` · `PLAN.md` §2.8.3 · `ISSUES.md` #AC2/#AC4 |
+| §4.187 | 2026-10-31 | **用户四裁定落地（D1a/D1b/D2）**：① `standardScale` 加 `maxPerNode=24`/`maxAlivePerWave=4`，`maxPerWave` 语义定案为**单波总敌数**（旧「每 unit 各自封顶」作废）；② 页面波次编成改**节点预算按防线均分 + 按兵种比例确定性裁剪**（保住「每道防线都有敌人」）；③ **波内分批投送**（用户机制设计）：单波超活体上限的单位规划好落位进 `battleEncReserve`，击杀后经 `updateWaveReserve` 在**摄像机视口外**逐辆补投（0.25s 节流、距玩家 ≥1.05×触发距离、压掩体推离，绝不在视口内刷怪），`battleEncounterCtx.enemyAlive` 计入队列防提前波清；④ #AC2 探针转正为 `scripts/test-exit-reachability.js`（18 seed/72 节点 × 三档判据 0 不可达、交叉校验 8/8、负向「塞横贯 rock 必判不可达」）。**实测钳制效果**：diff=1×6 防线 60→24 辆/节点、单波峰值 14→≤6、同屏恒 ≤4（守住「5 辆可逐一点名」红线）；低难度 15~20 辆未被过度填充。test-encounter 270→281（⑯ 段 +11，含 3 负向）；test **77/77**、browser 九链、wiki-check、GATE PASS 全绿。三值标 `[PLACEHOLDER]` 待 `measure-encounter` 校准 | `specs/combat/encounter-director.md` · `ISSUES.md` #AC4 · `PLAN.md` §2.8.4 |
+| §4.188 | 2026-10-31 | **局内进度存档 + 开发者调试工具（用户需求）**：① `profile.runProgress`（`seed/nodeCount/difficultyLevel/nodeIndex/flow/runScore/runKills/cards[]/tankId/savedAt`），**只存重放键不序列化节点树**（`generateRun` 确定性重放）；`normalizeRunProgress` 逐字段白名单为唯一守卫，`saveRunProgress`/`clearRunProgress` 共用同套规则（单一真值）；`nodeIndex` 越界**钳位**（可自愈），`nodeCount` 非法判 null（链长失真不可自愈）；test-economy 186→232（+46，8 负向，6/6 变异捕获）。② 页面接线：`saveRunState` 唯一写档入口（进节点/结算/`extendRun`/切后台，全 try/catch 不中断游戏）；首页「继续本局」入口（`#homeContinueWrap` + 槽位进度小字），恢复**不自动进战斗**；卡牌恢复走 `runCards` 镜像 + `runCardsReplayPending` 一次性门控（**不重放全链**，防 modifier 叠加）。排掉 3 个真缺陷：卡池晚就绪时空转消耗门控 ⇒ 卡牌永不回填；`_cardApplyCount` 会话残留 ⇒ maxStacks 卡被静默拒绝（补 `removeRunModifiers`）；结算后用裸 `currentNode.index` 写档 ⇒「继续本局」从已通关节点重开（改 `runProgressResumeNodeIndex`）。③ devPanel「调试工具」9 键（走 `extraSwitchHTML`/`onExtraSetup`，共享模块零改动）：跳节点/跳 Boss/下一节点、视口外刷怪 1~12、清空敌人、**难度设 1.0 并重进**、立即结算、得分 +1000、回满血；`spawnPointUsable`/`assembleWaveEnemyAt` 与波次补投同源（正常路径零 `Math.random`）。④ `measure-encounter-real` 修「总时长塌 0」：采样时间轴改用 `performance.now()` 单调时钟（旧口径在玩家阵亡后 `enc` 为 null ⇒ t 全 0 ⇒ 出现负开销），结局行同修。验证：check EXIT=0 · test **77/77** · browser 九链全绿 · wiki-check 全 0 · GATE PASS；端到端实测恢复（节点 3/6 → 点继续 → 进战斗、敌人 3 辆、pageerror 0） | `specs/map/map-architecture.md`（存档结构）· `specs/editor/devpanel.md`（调试工具）· `PLAN.md` §2.8.4 |
 
 ---
+
 

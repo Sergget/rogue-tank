@@ -15,6 +15,9 @@ AGENTS.md                      ← 工作流唯一权威（分工、生命周期
     ├── README.md              ← 你在这里（总导航）
     ├── WIKI-STYLE.md          ← specs 的形态与写法规范（wiki 化）
     ├── DEVELOPMENT.md         ← 长期权威：§0 索引 / §1 方向 / §2 架构 / §3 状态 / §4 批次结论
+    ├── DEVELOPMENT-batches-2026-09.md   ← §4 月度分卷（§4.27–§4.39）
+    ├── DEVELOPMENT-batches-2026-10.md   ← §4 月度分卷（§4.40–§4.188）
+    ├── DEVELOPMENT-batches-2026-11.md   ← §4 月度分卷（§4.189–§4.211，最新）
     ├── PLAN.md                ← 临时：只存未完成待办
     ├── ISSUES.md              ← 临时：只存已核实的未修问题
     ├── ARCHIVE.md             ← 只读：完结条目索引（正文在 archive/<yyyy-mm>.md）
