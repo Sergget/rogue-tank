@@ -104,6 +104,62 @@ ok(/sigmaSpread/.test(bench), 'bench 绘制曲射散布圈（落点可见）');
 ok(/spreadFactor/.test(bench), '散布圈走 spreadFactor 唯一口径');
 ok(!/sigmaSpread\s*=[^;]*\*\s*4(\.0)?\s*;/.test(bench), '负向：不得把 spreadFactor 写死成 4');
 
+// ---------- 段③（2026-11-01）：调用了 ≠ 加载了 ----------
+// 事故：段②的 7 条断言全是**源码形状**匹配——bench 里确实写着 `updateSecondaryWeapon(player, dt, fireCtx)`
+//   和 `typeof updateDrones === 'function'`，断言全绿；但定义它们的 js/tank_weapons.js、js/tank_drone.js、
+//   js/tank_boss.js **不在 bench 的 script 列表里** ⇒ 运行时这行永远被 typeof 守卫跳过。
+//   这正是 #AA3 自己写下的那句话的重演：「接线缺失经 typeof 守卫会把『拿不到』伪装成『已关闭』」。
+// 本节把「守卫 + 调用」与「模块是否加载」绑成一条机械判据：只要页面里出现对某函数的 typeof 守卫调用，
+//   定义该函数的模块就必须出现在同一页的 script 列表里（负向：故意断言反例必须为 false）。
+const benchScripts = new Set(
+  [...bench.matchAll(/<script[^>]*src="js\/([^"]+)"/g)].map(m => m[1])
+);
+
+// 函数名 → 定义它的模块（唯一口径；新增共享驱动时必须在这里登记）
+const DRIVER_HOME = {
+  updateSecondaryWeapon: 'tank_weapons.js',
+  updateSecondaryTurret: 'tank_weapons.js',
+  updateMissileLock: 'tank_weapons.js',
+  updateRocketBurst: 'tank_weapons.js',
+  fireActiveSecondary: 'tank_weapons.js',
+  toggleHowitzer: 'tank_weapons.js',
+  isHowitzerMode: 'tank_weapons.js',
+  updateDrones: 'tank_drone.js',
+  clearDrones: 'tank_drone.js',
+  spawnDrone: 'tank_drone.js',
+  isWeakspotHit: 'tank_boss.js',
+  updateHowitzerBurst: 'tank_fire.js',
+  updatePrimaryFollowup: 'tank_fire.js',
+  updateAbilityCds: 'tank_abilities.js',
+  updateDeployables: 'tank_deployables.js',
+  updateStrikes: 'tank_strike.js',
+  updateEmergencyShieldRearm: 'tank_cards.js',
+};
+
+for (const [fn, home] of Object.entries(DRIVER_HOME)) {
+  // 只对「bench 真的在调用它」的函数要求模块在位
+  const called = new RegExp(`\\b${fn}\\s*\\(`).test(bench);
+  if (!called) continue;
+  ok(benchScripts.has(home), `bench 调用了 ${fn} ⇒ 必须加载 js/${home}`);
+}
+
+// 负向：证明上面的判据有分辨力——用一个 bench 明确没加载的模块当反例。
+ok(!benchScripts.has('tank_minimap.js'),
+   '负向：判据有分辨力（bench 确实没有加载 tank_minimap.js，故 has() 能为 false）');
+
+// 事故直击：这三个模块缺失正是本轮修掉的缺陷，单独锁死，防回潮。
+ok(benchScripts.has('tank_weapons.js'), '回归锁：bench 必须加载 js/tank_weapons.js（副武器/导弹/榴弹炮驱动）');
+ok(benchScripts.has('tank_drone.js'), '回归锁：bench 必须加载 js/tank_drone.js（伴随机驱动）');
+ok(benchScripts.has('tank_boss.js'), '回归锁：bench 必须加载 js/tank_boss.js（resolveHit 弱点层依赖 isWeakspotHit）');
+
+// 旧名负向：`updateReactiveArmorRearm` 只是 tank_cards.js 的 module.exports 别名，
+// 浏览器全局从来没有它 ⇒ 页面不得再按这个名字调用（否则恒被守卫跳过）。
+const benchNoComments = bench.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\/[^\n]*/g, '');
+ok(!/\bupdateReactiveArmorRearm\s*\(/.test(benchNoComments),
+   '负向：bench 不得再调用 updateReactiveArmorRearm（浏览器侧不存在的 Node 别名）');
+ok(/\bupdateEmergencyShieldRearm\s*\(/.test(benchNoComments),
+   'bench 改用浏览器可达的 updateEmergencyShieldRearm（与 battle 同源）');
+
 console.log('test-bench-parity: 完成所有检查');
 if(fails === 0) console.log('test-bench-parity: 全部通过');
 else console.error(`test-bench-parity: ${fails} 项失败`);

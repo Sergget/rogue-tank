@@ -61,8 +61,13 @@
 
 **"按一次切换状态"的副武器（`missile` 激活/取消、`mine_layer` 预形态/确认、`howitzer` 曲射/直射）一律由原生 `keydown` 边沿驱动**（`tank_battle.html` 独立监听：`e.repeat` 过滤 + `inMenuState/statusOpen/devOpen` 门控 + 战斗态 `fireCtx` 判定），**不得**走主循环 `input.isDown('fireSecondary')` 逐帧轮询——逐帧轮询会让开关在按住期间每帧翻转（实测按住 F 250ms 内 9 次 true/false 交替），松手后的状态取决于帧数奇偶（轻按 F 约一半概率停在「已取消」，表现为「导弹按 F 没反应」）；mine_layer 更会一次按住跨帧连走「预形态→确认」（一按即预约，预形态名存实亡）。**"按住连发"类（`mortar`/`rocket`/`missile_wire`）保持逐帧轮询**（装填门控天然限速）。HUD 的 F 按钮点击走 `trySecondaryFire(true)`（`force=true` 绕过键盘边沿直调）。
 
-> **适用范围：bench 同口径（2026-10-26 AA-b / #AA3）**。`tank_bench.html` 的 `tryBenchSecondaryFire(force)` 与 battle 完全对齐——三类开关副武器在**帧轮询通道**里 `if(force !== true) return;` 直接退出，原生 `keydown` 监听（`e.repeat` 过滤、键位取 `KEY_BINDINGS.fireSecondary`、输入框/devPanel 聚焦不响应）走 `force=true`；**轮询本身保留**（连续击发类靠它，删掉会让火箭巢按住连发失效）。回归：`scripts/test-bench-parity.js`（断言三类守卫各存在 + 边沿监听 + 轮询调用仍在 + 键集包含关系）。
+> **适用范围：bench 同口径（2026-10-26 AA-b / #AA3；**2026-11-01 订正**）**。`tank_bench.html` 的 `tryBenchSecondaryFire(force)` 与 battle 完全对齐——三类开关副武器在**帧轮询通道**里 `if(force !== true) return;` 直接退出，原生 `keydown` 监听（`e.repeat` 过滤、键位取 `KEY_BINDINGS.fireSecondary`、输入框/devPanel 聚焦不响应）走 `force=true`；**轮询本身保留**（连续击发类靠它，删掉会让火箭巢按住连发失效）。回归：`scripts/test-bench-parity.js`（断言三类守卫各存在 + 边沿监听 + 轮询调用仍在 + 键集包含关系）。
 > ⚠️ 历史教训：本条曾在 PLAN 里被误写成「bench 主循环内不得出现 `isDown('fireSecondary')` 轮询」——那是把「守卫」误读成「禁止通道」，照做的后果是打死连发。
+>
+> **2026-11-01 订正（重要，本条上一版是错的）**：上面「与 battle 完全对齐」在 **2026-10-26 ~ 2026-11-01 期间并不成立**。bench 的 F 链路走 `tryFireSecondary(fireCtx)` → `js/tank_fire.js` 惰性取 `c.fireActiveSecondary`，而 `fireActiveSecondary` 定义在 **`js/tank_weapons.js`**——该模块**从未出现在 bench 的 script 列表里**。取不到时 `tryFireSecondary` 直接 `return false`（`js/tank_fire.js:1010`），所以**连续击发类（`mortar` / `rocket` / `missile_wire`）在 bench 上从未真正开过火**；只有 `missile` / `mine_layer` / `howitzer` 三类开关副武器因为走 bench 自写状态机（`tryBenchSecondaryFire` 的 `force` 分支 + `tryFireSecondary` 的 howitzer 转发）而侥幸可用。同理 `updateMissileLock` / `updateRocketBurst` / `toggleHowitzer` / `isHowitzerMode` / `WEAPON_DEFAULTS` 在 bench 内全部 `undefined`，对应调用被 `typeof` 守卫静默跳过。
+> **根因不是接线写错，而是判据只测源码形状**：上一版引用的 `test-bench-parity.js` 断言全是「源码里有这行调用」，**没有任何一条检查定义该函数的模块是否被加载** ⇒ 断言全绿而功能全废，正是 `#AA3` 自己写下的那句「接线缺失经 `typeof` 守卫会把『拿不到』伪装成『已关闭』」的重演。
+> **现行口径**：bench 已补载 `js/tank_weapons.js` / `js/tank_drone.js` / `js/tank_boss.js`（2026-11-01，`DEVELOPMENT-batches-2026-11.md` §4.193）；`test-bench-parity.js` 段③ 新增「调用了 ⇒ 必须加载定义它的模块」判据（含负向反例与三条回归锁）。**新增共享驱动函数时必须同步登记该判据的 `DRIVER_HOME` 表**，否则同类缺陷会再次静默复发。
+> **未修的已知边界（不宣称已解决）**：bench 仍无 `deployDronesFromCards` 的等价实现（该函数只定义在 `tank_battle.html`）⇒ 无人机卡在 bench 应用后只留 `cardEffects`、不产出实体，`updateDrones` 可能仍在驱动空数组。补载只解决「键集与实现同源」，不解决「bench 能否实测无人机」。
 
 ## 主动技能与冷却池
 

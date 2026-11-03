@@ -28,7 +28,9 @@
 | **实时**（默认） | 实时参数（σ/装填/位置/速度/存活/节点/节点类型/敌人数）+ 发射解算 | 高频页，替代原单栏长滚动 |
 | **卡牌** | 卡牌选择器（分组折叠 + 搜索）+ 已持有（×N / −1 / 清除全部） | 见下「卡牌选择器」 |
 | **参数** | 数值临时调整（穿深/伤害/装填/极速/马力，`devOverrides`）+ 修饰器列表（可改可删） | |
-| **开关** | 超级精度（散布归零）/ 无视野 / **无敌常驻** / **秒装填** / 随机生成战场 / 重置 | 后两项下方两条为 2026-09-19 从 bench 对齐 |
+| **开关** | 超级精度（散布归零）/ 无视野 / **无敌常驻** / **秒装填** / 随机生成战场 / 重置 | 后两项见下方 2026-11-01 订正 |
+
+> **2026-11-01 订正**：上表「后两项为 2026-09-19 从 bench 对齐」**措辞不成立**，须分开记。这两项由 `mountDevPanel` 的 `genResetRow` 按宿主是否传入 `onGenNode` / `onReset` **条件渲染**（`js/tank_devpanel.js:212-213`）：**battle 传了**（`onGenNode: devGenNode` / `onReset: devReset`），**bench 从未传过** ⇒ 它们只出现在 battle 的开关 Tab。bench 侧对应入口一直是页面自有的 `#genNodeBtn` / `#resetBtn`（右栏按钮行），**不是** devPanel 对齐的产物；这两个页面按钮已于 2026-11-01 按用户裁定删除（见 `DEVELOPMENT-batches-2026-11.md` §4.193），删除后 bench **不再有**「换一张随机战场」与「还原被摧毁掩体」两个入口。
 
 - `devCheat = { invuln, instantReload }`（**会话内有效、不持久化**）：`invuln` 逐帧续 `player.invulnT = max(invulnT, 0.5)`，`instantReload` 逐帧 `player.reloadT = 0`——与 bench `benchCheats` 同源语义（`tank_bench.html` 同名逻辑）。
 - 原 `#devCardList` 单列平铺按钮**废弃**，改为 `#devCardPicker`（见下）。
@@ -59,6 +61,24 @@
 - **陈旧文案清理**：bench 控制说明由「1/2/3 弹种切换（AP / APCR / HE）」改为「E / Q 环形切换弹种（或点击弹种格；数字直选已摘除）」；battle 弹药槽按钮 title 由「1号主弹药 (1)」等改为「主/副/备用弹药槽 N（E/Q 环形切换 / 点击选择）」。
 
 > 键位全表与 `ACTION_INFO` 的权威是 `js/tank_bindings.js`；F 键边沿语义见 [战斗规范 · 开关类副武器](../combat/abilities-secondary.md)。
+
+## 面板文案口径（2026-11-01 用户裁定）
+
+> 用户原话：「清理掉面板UI、卡牌描述中对游戏实现细节的过度描述」，并给出反例：bench 敌人实验室提示块原文写着
+> 「坦克选择=把 *tanks/\*.json* 整包配置换到玩家/靶车；此处=按等级生成真正走难度链的敌军（applyEnemyAppearanceAndStats + applyDifficultyMults）……」
+
+**面板提示是写给使用者的，不是写给维护者的**。以下内容只应存在于代码注释与 specs，**不得**出现在页面的可见文案里：
+
+| 禁止出现在面板文案 | 例子（本次清理掉的原文） | 改写方向 |
+|---|---|---|
+| 目录路径 / 文件名 | `tanks/*.json`、`js/tank_nodegen.js` | 说「换一整辆车」「切换车型」 |
+| 内部函数名 | `applyEnemyAppearanceAndStats`、`applyDifficultyMults`、`enemyPreviewStats` | 说「按等级缩放的敌军」 |
+| 内部常量 | `RULES.nodeMap.bossInterval`、`WEAPON_DEFAULTS`、`DEV_CARD_GROUPS` | 说「节点间隔」「武器参数」「效果类别」 |
+| 机制内部术语 | `modifier`、`cardEffects`、`statOverrides`、`难度乘子` | 说「属性改动」「装置效果」「等级缩放」 |
+
+**另有一条排版陷阱**：HTML 正文**不解析 Markdown**，在 `<div>` 里写 `**强调**` 会原样显示两个星号。需要加粗请用 `<b>`；`**` 只允许出现在 HTML 注释与 JS 注释里。
+
+**回归**：`scripts/test-bench-tools.js` 段④——剥掉 HTML 注释 / `<style>` / `<script>` / 标签属性后，对 `tank_bench` / `tank_battle` / `tank_designer` / `tank_codex` 四页的可见文案（含 `pushLog` / `devToast` / `textContent` 的字符串）扫上述四类实现细节；并含一条负向断言证明判据有分辨力。
 
 ## HUD 渲染实现级合并
 

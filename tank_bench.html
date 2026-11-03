@@ -105,26 +105,51 @@
     width:220px; text-align:center; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim);}
   #reloadTrack{height:5px; background:#0c0d09; border:1px solid var(--line); margin-top:4px;}
   #reloadFill{height:100%; background:var(--amber); width:100%;}
-  /* 2026-09-14：弹种条独立悬浮于屏幕底部中央，随选中项平移 → 选中弹种恒居屏幕中央 */
-  #ammoIndicator{position:fixed; bottom:44px; left:50%; transform:translateX(0);
-    display:inline-flex; align-items:center; gap:14px; white-space:nowrap;
-    font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700;
-    color:var(--text); z-index:50; pointer-events:none;
-    background:linear-gradient(90deg, rgba(10,14,18,0) 0%, rgba(10,14,18,0.85) 18%, rgba(10,14,18,0.85) 82%, rgba(10,14,18,0) 100%);
-    padding:4px 26px; border-radius:0;}
-  #ammoIndicator [data-ammo]{pointer-events:auto;}
-  #ammoIndicator .dot{width:9px; height:9px; border-radius:50%; display:inline-block;
-    border:1px solid rgba(255,255,255,0.3);}
-  /* #3（2026-10-20）：弹种格结构类与 battle 同源（js/tank_hud.js renderAmmoIndicator 输出
-     .ammo-cell / .ammo-cell.active）。此前 bench 只有旧内联实现的 .ammo-active 分支，
-     走共享实现后激活格无任何视觉反馈——此处按 battle tank_battle.html:41-47 口径补齐。
-     .ammo-active 保留为旧内联兜底分支（TankHud 缺失时才走到）的样式。 */
-  #ammoIndicator .ammo-cell{display:inline-flex; align-items:center; gap:4px;
-    border:1px solid var(--line); background:#0c0d09; padding:2px 6px; cursor:pointer; opacity:0.5;}
-  #ammoIndicator .ammo-cell.active{border-color:var(--green); background:rgba(126,217,87,0.12);
-    opacity:1; font-weight:700;}
-  #ammoIndicator .ammo-cell .key{color:var(--amber-dim);}
-  #ammoIndicator .ammo-cell.active .key{color:var(--amber);}
+  /* 2026-11-01（用户裁定）：底部弹种条 `#ammoIndicator` 已删除（14 种弹种铺满整条）。
+     改用 battle 同款底部三区 HUD：vitals（血量+速度）/ weapons（弹种槽+补给）/ skills（技能+被动）。
+     口径与 tank_battle.html 保持一致；字号一律走设计令牌 var(--fs-*)，不写死 px。 */
+  #benchBottomHud{position:absolute; bottom:18px; left:50%; transform:translateX(-50%);
+    display:flex; flex-direction:row; align-items:flex-end; gap:26px;
+    font-family:'JetBrains Mono',monospace; z-index:40;}
+  #benchBottomHud .hudZone{display:flex; flex-direction:column; gap:5px; align-items:flex-start;
+    background:rgba(8,9,6,0.62); border:1px solid var(--line); padding:6px 9px; border-radius:0;}
+  #benchBottomHud .hudZoneTitle{font-size:var(--fs-xs); letter-spacing:2px; color:var(--text-dim); opacity:0.85;
+    text-transform:uppercase; line-height:1;}
+  #playerHpWrap{display:flex; align-items:center; gap:6px;}
+  #playerHpTrack{width:240px; height:12px; background:#0c0d09; border:1px solid var(--line); position:relative;}
+  #playerHpFill{height:100%; background:var(--green); width:100%;}
+  #playerHpVal{font-size:var(--fs-xs); color:var(--text); min-width:74px; text-align:left;}
+  #hudSpeedRow{display:flex; align-items:baseline; gap:5px; font-size:var(--fs-xs);}
+  #hudGear{color:var(--amber); font-weight:700; font-size:var(--fs-h2); min-width:12px; text-align:center;}
+  #hudSpeedVal{color:var(--text); font-size:var(--fs-h2); font-weight:700; min-width:36px; text-align:right;
+    font-variant-numeric:tabular-nums; line-height:1;}
+  #hudSpeedRow .unit{color:var(--text-dim); font-size:var(--fs-xs);}
+  #hudRoadBonus{color:var(--green); font-size:var(--fs-xs); letter-spacing:1px;}
+  /* 弹种槽 / 补给 / 技能按钮（2026-11-02 修：此前照抄 battle 的 DOM 结构却漏了度量，
+     导致弹种 UI 竖起来。三处根因，与 tank_battle.html:97-130 严格对齐）：
+       ① `#abilityBtns` 我多写了 `flex-wrap:wrap` ⇒ 窄容器里按钮换行竖排（battle 无此属性）；
+       ② `.abtn` 我漏了 `height:30px` 定高，又设 `flex-direction:column` ⇒ 每个按钮被撑成高竖条；
+       ③ `.num` / `.cd` 我写成**流内元素**，而 battle 是 `position:absolute` 定位到角上
+          ⇒ 角标占真实高度，进一步把按钮撑高。
+     三条同时成立才表现为"竖起来"，故必须一起改，不能只去掉 flex-wrap。
+     字号一律 var(--fs-*)：bench 的字号棘轮（9px=3/10px=13/11px=8/12px=3）已用满，不能新增 px。 */
+  #abilityBtns, #skillBtns{display:flex; gap:6px;}
+  #benchBottomHud .abtn{position:relative; display:inline-flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:1px;
+    min-width:40px; height:30px; padding:0 6px; border:1px solid var(--line);
+    background:#0c0d09; color:var(--text); font-family:'JetBrains Mono',monospace;
+    font-size:var(--fs-xs); line-height:1.1; cursor:pointer;}
+  #benchBottomHud .abtn.skill-btn{min-width:52px;}
+  #benchBottomHud .abtn.active{border-color:var(--green); background:rgba(126,217,87,0.12);}
+  #benchBottomHud .abtn.gray{opacity:0.45;}
+  #benchBottomHud .abtn .num{position:absolute; bottom:1px; right:2px;
+    font-size:var(--fs-xs); color:var(--text-dim); opacity:0.8; line-height:1;}
+  #benchBottomHud .abtn.active .num{color:var(--amber);}
+  #benchBottomHud .abtn .cd{position:absolute; top:2px; right:2px;
+    background:#0c0d09; border:1px solid var(--amber); color:var(--amber);
+    font-size:var(--fs-xs); padding:0 3px; line-height:1.2;}
+  #benchBottomHud .abtn .skey{font-size:var(--fs-xs); color:var(--amber-dim); line-height:1;}
+  #benchBottomHud .abtn .slabel{font-size:var(--fs-xs); line-height:1.1; white-space:nowrap;}
 
   .legend{display:flex; flex-direction:column; gap:4px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-top:6px;}
   .legend span.sw{display:inline-block; width:10px; height:10px; margin-right:6px; vertical-align:-1px; border:1px solid rgba(255,255,255,0.3);}
@@ -188,7 +213,43 @@
       装填 RELOAD
       <div id="reloadTrack"><div id="reloadFill"></div></div>
     </div>
-    <span id="ammoIndicator"></span>
+    <!-- 2026-11-01（用户裁定）：底部弹种条 `#ammoIndicator` **已删除**——它显示全部 14 种弹种，
+         宽度失控。改用 battle 同款底部 HUD（下方 #benchBottomHud），弹种走 `ammoLoadout` ≤3 槽，
+         与正式游戏完全一致（含 Q/E 环形切换 + 点击选格）。 -->
+    <div id="benchBottomHud">
+      <div class="hudZone" id="benchHudVitals">
+        <div id="playerHpWrap">
+          <div id="playerHpTrack"><div id="playerHpFill" style="width:100%"></div></div>
+          <span id="playerHpVal">--</span>
+        </div>
+        <div id="hudSpeedRow">
+          <span id="hudGear">D</span>
+          <span id="hudSpeedVal">0</span><span class="unit">km/h</span>
+          <span id="hudRoadBonus"></span>
+        </div>
+      </div>
+      <div class="hudZone" id="benchHudWeapons">
+        <div class="hudZoneTitle">武器 WEAPONS</div>
+        <div id="abilityBtns">
+          <button class="abtn ammo-slot" id="slot1" title="主弹药槽 1（Q/E 环形切换 / 点击选择）"><span class="label">AP</span><span class="num">●</span></button>
+          <button class="abtn ammo-slot" id="slot2" title="副弹药槽 2（Q/E 环形切换 / 点击选择）"><span class="label">--</span><span class="num">○</span></button>
+          <button class="abtn ammo-slot" id="slot3" title="备用弹药槽 3（Q/E 环形切换 / 点击选择）"><span class="label">--</span><span class="num">○</span></button>
+          <button class="abtn" id="btn4" title="修理箱 (4)">修<span class="cd" id="cd4"></span><span class="num">4</span></button>
+          <button class="abtn" id="btn5" title="医疗包 (5)">医<span class="cd" id="cd5"></span><span class="num">5</span></button>
+          <button class="abtn" id="btn6" title="自动灭火器 (6)">灭<span class="cd" id="cd6"></span><span class="num">6</span></button>
+          <button class="abtn skill-btn" id="btnF" title="副武器击发（F，按住连发）" style="display:none;"><span id="btnFIcon">F</span><span class="cd" id="cdF"></span><span class="num">F</span></button>
+        </div>
+      </div>
+      <div class="hudZone" id="benchHudSkills">
+        <div class="hudZoneTitle">技能 SKILLS</div>
+        <div id="skillBtns">
+          <button class="abtn skill-btn" id="skillSlot1" title="技能池 1" style="display:none;"><span class="slabel">--</span><span class="skey">1</span><span class="cd" id="cdS1"></span></button>
+          <button class="abtn skill-btn" id="skillSlot2" title="技能池 2" style="display:none;"><span class="slabel">--</span><span class="skey">2</span><span class="cd" id="cdS2"></span></button>
+          <button class="abtn skill-btn" id="skillSlot3" title="技能池 3" style="display:none;"><span class="slabel">--</span><span class="skey">3</span><span class="cd" id="cdS3"></span></button>
+        </div>
+        <div id="passiveSlots" style="display:flex; gap:6px; margin-top:4px;"></div>
+      </div>
+    </div>
   </div>
   <div id="hud">
     <div class="title">装甲测试台 <b>ARMOR TEST RIG</b> · 靶场独立页（P-15）</div>
@@ -202,7 +263,7 @@
         <button id="applyDummyTankBtn">应用到靶车</button>
         <button id="reloadTankListBtn">重新加载列表</button>
       </div>
-      <div class="mono" id="tankSelectHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">从 tanks/ 目录载入坦克配置并替换玩家 / 靶车（含炮管预设、多边形装甲）</div>
+      <div class="mono" id="tankSelectHint" style="font-size:10px; color:var(--text-dim); margin-top:4px;">选择车型并应用到玩家或靶车，包含炮塔与车体装甲、炮管外观等完整配置。</div>
     </div>
 
     <!-- #7（2026-10-19 用户反馈）：「驾驶设置 Driving」与操作说明面板移到**左栏**（#leftPane）。
@@ -211,12 +272,36 @@
 
     <div class="section">
       <h3>卡牌测试 Card Test (#32)</h3>
-      <div class="bar-row"><span class="bar-label">卡池</span><select id="cardSelect"><option>加载中…</option></select></div>
-      <div class="btnrow" style="margin-top:4px;">
-        <button id="applyCardBtn">应用 APPLY</button>
-        <button id="clearCardsBtn">清除全部 CLEAR</button>
+      <!-- 2026-11-01（用户裁定）：旧的单个长下拉 `#cardSelect` + 「应用/清除」两键，
+           换成**通用卡牌选择器**（js/tank_card_picker.js）：
+             分类下拉（主武器与升级 / 副武器与升级 / 技能与升级〔内分主动·被动〕/ 常规升级）
+             + 管理按键（应用 / 撤销一张 / 清除全部）。
+           该模块是两页共用的（battle 开发者面板「卡牌」Tab 也接它），不另写一套分类口径。 -->
+      <div id="benchCardPicker"></div>
+      <!-- 2026-11-01（用户反馈「缺少已持有卡牌的管理器」）：每行 = 卡名 ×层数 + [−1] 回退，
+           另有「清除全部」。与 battle 开发者面板的已持有区同口径（重放语义由 bench 实现）。
+           悬停卡名显示完整详情（用户反馈「缺少悬停显示卡牌详细文本」）。 -->
+      <div id="benchOwnedCards" style="margin-top:6px;"></div>
+      <div class="mono" style="font-size:var(--fs-xs); color:var(--text-dim); margin-top:4px;">
+        每个分类一行下拉；技能类下再分「主动技能 / 被动机制」。选中一张后点「应用」叠加一层（可重复叠加），
+        仅对玩家坦克生效，靶车不吃卡。「撤销一张」按最近一次应用回退，「清除全部」还原玩家属性。
       </div>
-      <div class="mono" style="font-size:10px; color:var(--text-dim); margin-top:4px;">重复点击应用即叠加一层效果（模拟叠层）；仅作用于玩家坦克，靶车不吃卡。下拉按<b>效果类型分组</b>（与正式游戏开发者面板卡牌 Tab 同源：js/tank_devpanel.js 的 <span class="mono">DEV_CARD_GROUPS</span> / <span class="mono">devCardGroupKey</span>，共 11 组——主武器安装·升级 / 副武器安装·升级 / 弹种升级·强化 / 主动技能 / 被动机制 / 参数强化 / 无人机 / 经济），组内按名称排序；选项文本保留稀有度（<span class="mono">名称 · RARE</span>）。devpanel 未加载时降级为稀有度分组。</div>
+    </div>
+
+    <div class="section">
+      <h3>弹种槽 Ammo Slots</h3>
+      <!-- 2026-11-01（用户裁定）：底部弹种条删除后，全弹种仍要能测 ⇒ 在这里配置 3 个弹种槽。
+           底部 HUD 的弹种栏（battle 同款）读取的就是这 3 个槽，Q/E 在槽内环形切换。 -->
+      <div class="bar-row"><span class="bar-label">槽 1</span><select id="benchAmmoSlot1"></select></div>
+      <div class="bar-row"><span class="bar-label">槽 2</span><select id="benchAmmoSlot2"></select></div>
+      <div class="bar-row"><span class="bar-label">槽 3</span><select id="benchAmmoSlot3"></select></div>
+      <div class="btnrow" style="margin-top:4px;">
+        <button id="benchApplyLoadoutBtn">应用槽位</button>
+        <button id="benchResetLoadoutBtn">恢复默认（AP/APCR/HE）</button>
+      </div>
+      <div class="mono" style="font-size:var(--fs-xs); color:var(--text-dim); margin-top:4px;">
+        底部弹种栏显示的就是这 3 个槽（与正式游戏同构，不再一次性铺开全部弹种）；Q/E 在槽内环形切换，也可直接点底部槽位。
+      </div>
     </div>
 
     <!-- #7（2026-10-19 用户反馈）：删除「功能测试扩展 Panel Test (R-1/R-2/R-3)」。
@@ -235,14 +320,14 @@
         <span style="font-size:10px;color:var(--text-dim);">批量数量：</span>
         <input id="enemyCountInput" type="number" min="1" max="12" value="3" style="width:50px;font-size:11px;">
       </div>
-      <!-- #7：说明「坦克选择」与「敌人实验室」的分工，消除重复感——
-           坦克选择管**玩家/靶车的配置替换**（整包 tanks/*.json），
-           敌人实验室管**按等级生成的敌军**（走 difficulty 链，不是配置替换）。 -->
+      <!-- 2026-11-01（用户要求）：本节文案去掉实现细节（目录路径、内部函数名、机制内部术语），
+           改为使用者视角的说明；同时修掉正文里裸露的 `**`（HTML 里不解析 Markdown，
+           显示出来就是两个星号）——需要强调处一律用 <b>。 -->
       <div class="mono" style="font-size:10px; color:var(--text-dim); margin-top:4px;">
-        与「坦克选择」的区别：坦克选择=把 <code>tanks/*.json</code> **整包配置**换到玩家/靶车；
-        此处=按**等级**生成真正走难度链的敌军（applyEnemyAppearanceAndStats + applyDifficultyMults），
-        用于验证难度缩放与 AI。<br>在鼠标指针处 / 玩家正前生成；等级修改 → 重新生成实体承载新难度乘子。敌人列表中点击选中以查看数据。<br>
-        生成点会**自动收进可视区**（越界则沿视口边缘内推，日志标注「已收进视口」）；「清空所有敌人」移除全部敌军、保留靶车。
+        与「坦克选择」的分工：坦克选择换的是<b>整辆车</b>（玩家或靶车直接换成另一款车型）；
+        这里生成的是<b>按等级缩放的敌军</b>，用于验证不同等级下的强度与AI行为。<br>
+        敌人出现在鼠标指针处或玩家正前方；改等级后需重新生成，新等级才会体现在这辆车上。点击敌人列表中的条目可查看它的数据。<br>
+        落点会自动收进可视区（越界时沿视口边缘内推，日志会标注「已收进视口」）；「清空所有敌人」移除全部敌军，靶车保留。
       </div>
       <div style="border-top:1px dashed var(--line); margin-top:8px; padding-top:6px;">
         <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--text-dim);margin-bottom:4px;">生存敌军 LIVE ENEMIES</div>
@@ -279,10 +364,15 @@
         <input type="number" id="dummyHpInput" value="100" min="1" max="99999" style="width:80px;"></div>
     </div>
 
-    <div class="btnrow">
-      <button id="genNodeBtn">随机生成战场 GENERATE</button>
-      <button id="resetBtn">重置 RESET</button>
-    </div>
+    <!-- 2026-11-01（用户裁定）：删除「随机生成战场 GENERATE」与「重置 RESET」两个按钮。
+         删除对象 = 页面侧唯一入口；随之移除的接线：`#genNodeBtn` → generateNode（节点生成器）
+         与 `#resetBtn` → resetEntity + resetCovers + 靶车状态回填。
+         取舍说明（能力变化必须写明，不是静默缩水）：
+           · 初始战场仍由 js/tank_cover.js 的全局默认 covers 表提供（启动即有靶场元素）；
+           · 删除后**不再有**「换一张随机战场」与「把被摧毁的掩体还原」两个入口；
+           · 靶车满血 / 清空敌人 / 清空卡牌仍可用（Dummy Status 的「应用血量」与
+             devPanel「开关」Tab 的「满血重置 / 清场 / 清空卡牌」三个按钮）。
+         因此 js/tank_nodegen.js 在 bench 内**不再有任何消费方**，其 script 标签一并移除。 -->
   </div>
 </div>
 
@@ -292,26 +382,49 @@
   <script src="js/tank_halfgeom.js"></script>
   <script src="js/tank_model.js"></script>
   <script src="js/tank_cover.js"></script>
-  <script src="js/tank_nodegen.js"></script>
   <script src="js/tank_camera.js"></script>
   <script src="js/tank_physics.js"></script>
   <script src="js/tank_entity.js"></script>
   <script src="js/tank_move.js"></script>
   <script src="js/tank_fx.js"></script>
   <script src="js/tank_hud.js"></script>
+  <!-- 2026-11-01：底部 HUD 共享渲染层（血量 / 速度 / 弹种槽 / 技能槽 / 被动槽）——
+       与 tank_battle.html 用**同一份实现**，不是复制一份。 -->
+  <script src="js/tank_hud_panel.js"></script>
   <script src="js/tank_audio.js"></script>
   <script src="js/tank_assets.js"></script>
   <script src="js/tank_paint.js"></script>
   <script src="js/tank_battledraw.js"></script>
   <script src="js/tank_listio.js"></script>
+  <!-- 2026-11-01（同源核查修正）：补载 tank_weapons.js —— bench 的 F 键副武器链路
+       （tryFireSecondary → fireActiveSecondary）、导弹逐帧锁定（updateMissileLock）、
+       火箭巢逐发队列（updateRocketBurst）、榴弹炮模式切换（toggleHowitzer / isHowitzerMode）
+       与曲射散布圈参数（WEAPON_DEFAULTS）**全部定义在本模块**。此前缺这一行，
+       上面每条调用都被 `typeof x === 'function'` 守卫静默跳过 ⇒ F 键对 rocket/mortar
+       一类连续击发副武器恒无效（开关类因页面自写状态机而侥幸可用），且散布圈恒走
+       硬编码兜底值。加载次序与 tank_battle.html 对齐（weapons 先于 cards）。 -->
+  <script src="js/tank_weapons.js"></script>
   <!-- cards 提供 computeAmmoConfig（fireCtx 引用）；纯逻辑模块，加载无副作用 -->
   <script src="js/tank_cards.js"></script>
+  <!-- 2026-11-01（同源核查修正）：补载 tank_boss.js —— bench fireCtx 的 resolveHit 包装里
+       已写好 Boss 弱点层（`typeof isWeakspotHit === 'function'`），但 isWeakspotHit 定义
+       在本模块；缺这一行则弱点层永远不生效（注释声称「接入 Boss 即可用」并不成立）。
+       本模块顶层无副作用、无 DOM 依赖，加载次序与 battle 一致（cards 之后）。 -->
+  <script src="js/tank_boss.js"></script>
   <script src="js/tank_dmgtext.js"></script>
   <!-- P-17 护盾模块：fireCtx 引用 hasShield/shieldAbsorbs/absorbDamage，缺失会导致 update 首帧 ReferenceError → rAF 循环断裂 → 页面冻结 -->
   <script src="js/tank_shield.js"></script>
   <script src="js/tank_strike.js"></script>   <!-- #C5a：G=战术炮击（callStrike 链路）与正式游戏同语义 -->
   <script src="js/tank_deployables.js"></script>
   <script src="js/tank_abilities.js"></script>
+  <!-- 2026-11-01（同源核查修正）：补载 tank_drone.js —— bench 主循环已按 battle 同形状调用
+       `updateDrones(dt, { player, entities })`，但本模块是无人机体系的唯一实现；
+       缺这一行则该调用被 typeof 守卫静默跳过（伴随机永远不更新）。
+       ⚠️ 已知边界（本次未修，需单独立项）：bench 没有 `deployDronesFromCards` 的等价实现
+       （该函数只定义在 tank_battle.html），卡池里的无人机卡在 bench 应用后只留 cardEffects、
+       不产出实体 ⇒ 补载本模块后 updateDrones 仍有可能是驱动空数组。补载的价值在于
+       「键集与实现同源」，不宣称 bench 已能实测无人机。 -->
+  <script src="js/tank_drone.js"></script>
   <script src="js/tank_fire.js"></script>
   <!-- P-15/P-46: 共享 UI 纯逻辑 —— pushLog/卡牌/能力/敌人生成/敌人数据共用 → battle 复用 -->
   <!-- #A24 分层：core（纯逻辑）→ dom（DOM 适配）→ facade（re-export） -->
@@ -322,6 +435,8 @@
        snapshotCardTx/clearCardsFromTank 等共享层，须在 tank_panels_core 之后加载） -->
   <script src="js/tank_devpanel.js"></script>
   <script src="js/tank_bindings.js"></script>
+  <!-- 2026-11-01：通用卡牌选择器（分类多下拉 + 管理按键）——bench 与 battle 开发者面板共用同一份。 -->
+  <script src="js/tank_card_picker.js"></script>
 <script>
 (() => {
 const canvas = document.getElementById('c');
@@ -478,61 +593,141 @@ function getAmmoKeys() {
 player.ammoKey = 'ap';
 player.currentAmmoIndex = 0;
 
+// 2026-11-01（用户裁定）：底部弹种条删除后，弹种选择改走 **battle 同款 3 槽弹种栏**。
+//   根因回顾：bench 此前无 `ammoLoadout` ⇒ 弹种条列出全部 14 种弹种，宽度失控。
+//   现在引入 `ammoLoadout`（≤3 槽，与正式游戏同构）+ Q/E 环形切换 + 点击槽位选择。
+//   测试台语义保留：**可在面板里任意更换 3 槽内容**（下方 Card Test 区的「弹种槽」小节），
+//   因此全弹种仍可测，只是不再一次性铺开。
+const BENCH_AMMO_SLOT_MAX = 3;
+function benchDefaultLoadout() {
+  // 缺省三槽：AP / APCR / HE（覆盖穿甲、次口径、化学弹三类，开箱即用）
+  const all = getAmmoKeys();
+  const prefer = ['ap', 'apcr', 'he'];
+  const out = prefer.filter(k => all.indexOf(k) >= 0);
+  for (const k of all) { if (out.length >= BENCH_AMMO_SLOT_MAX) break; if (out.indexOf(k) < 0) out.push(k); }
+  return out.slice(0, BENCH_AMMO_SLOT_MAX);
+}
+if (!Array.isArray(player.ammoLoadout) || !player.ammoLoadout.length) {
+  player.ammoLoadout = benchDefaultLoadout();
+}
+/** 当前 loadout（唯一口径：player.ammoLoadout；空则回退单发弹种） */
+function benchLoadout() {
+  if (Array.isArray(player.ammoLoadout) && player.ammoLoadout.length) return player.ammoLoadout;
+  return [player.ammoKey || 'ap'];
+}
+
 function renderAmmoIndicator(){
-  // #3（2026-10-20）：弹种指示器收敛到共享 js/tank_hud.js（PLAN §2.2 差异清单之一）——
-  //   bench=getAmmoKeys() + 点击格切弹 + 激活格平移到中线；渲染/DOM 契约与 battle 同源。
-  if(typeof TankHud !== "undefined" && TankHud.renderAmmoIndicator){
-    TankHud.renderAmmoIndicator({
-      list: getAmmoKeys,
-      currentIndex: () => player.currentAmmoIndex,
-      onPick: (k) => setAmmo(k),
-      centerActive: true
-    });
-    return;
+  // 2026-11-01：改走共享 js/tank_hud_panel.js 的 renderAmmoSlots（battle 同口径 3 槽）。
+  //   旧的 14 弹种平铺分支已随 `#ammoIndicator` 元素一并删除。
+  if(typeof TankHudPanel !== 'undefined' && TankHudPanel.renderAmmoSlots){
+    TankHudPanel.renderAmmoSlots(player, {});
   }
-  const el = document.getElementById("ammoIndicator");
-  if(!el) return;
-  const list = getAmmoKeys();
-  const cur = ((player.currentAmmoIndex | 0) % list.length + list.length) % list.length;
-  let html = "";
-  list.forEach((k, idx) => {
-    const ammo = RULES.ammoTypes[k];
-    const dirHint = (idx === (cur + 1) % list.length) ? "E" : ((idx === (cur - 1 + list.length) % list.length) ? "Q" : "");
-    const active = idx === cur;
-    // #3（2026-10-20）：纯色/内联样式分支与共享实现保持同一 DOM 类名 `.active`
-    //   （旧 .ammo-active 已并入 .active —— CSS 里两者都有规则，但只输出一个，
-    //   避免 centerActive 查询与样式选择器两套口径）。
-    html += `<span data-ammo="${k}" class="ammo-cell${active?' active':''}">` +
-            `<span style="width:8px; height:8px; border-radius:50%; background:${ammo.color}; border:1px solid rgba(255,255,255,0.2)"></span>` +
-            `<span>${dirHint || (active ? "★" : "")}</span><span>${ammo.label}</span></span>`;
-  });
-  el.innerHTML = html;
-  el.querySelectorAll("[data-ammo]").forEach(c => c.addEventListener("click", () => setAmmo(c.getAttribute("data-ammo"))));
-  const activeEl = el.querySelector("[data-ammo].active") || el.children[cur];
-  if(activeEl){
-    const center = activeEl.offsetLeft + activeEl.offsetWidth / 2;
-    el.style.transform = `translateX(${-center}px)`;
+}
+
+// 点击槽位切弹（与 battle 的 slot 点击同语义）
+function benchBindAmmoSlots(){
+  for(let i = 1; i <= BENCH_AMMO_SLOT_MAX; i++){
+    const btn = document.getElementById('slot' + i);
+    if(!btn || btn._boundAmmo) continue;
+    btn._boundAmmo = true;
+    btn.addEventListener('click', () => {
+      const lo = benchLoadout();
+      if(i <= lo.length) setAmmo(lo[i - 1]);
+    });
   }
 }
 
 function setAmmo(key){
   if(!RULES.ammoTypes[key]) return;
   player.ammoKey = key;
-  const i = getAmmoKeys().indexOf(key);
-  if(i >= 0) player.currentAmmoIndex = i;   // 激活索引与键同步（与 battle setAmmo 语义一致）
+  // 索引按 **loadout** 取（battle 同口径：currentAmmoIndex 指的是槽位，不是全弹种表下标）
+  const lo = benchLoadout();
+  const i = lo.indexOf(key);
+  if(i >= 0) player.currentAmmoIndex = i;
   renderAmmoIndicator();
   playSound('ui');
   pushLog(`弹种切换：${RULES.ammoTypes[key].label}`,'COVER');
 }
 
 function benchCycleAmmo(dir){
-  const list = getAmmoKeys();
+  // 环形循环只在 **loadout 内**（battle 同口径）；未在 loadout 里的弹种不会被 Q/E 切到。
+  const list = benchLoadout();
   if(list.length < 2) return;
   const cur = ((player.currentAmmoIndex | 0) % list.length + list.length) % list.length;
   setAmmo(list[(cur + dir + list.length) % list.length]);
 }
 
+/** 设置 loadout（测试台专用：面板里换槽内容，正式游戏由 loadout 界面决定） */
+function benchSetLoadout(keys){
+  const valid = (keys || []).filter(k => !!RULES.ammoTypes[k]).slice(0, BENCH_AMMO_SLOT_MAX);
+  if(!valid.length) return false;
+  player.ammoLoadout = valid;
+  // 当前弹种若已不在槽内，回落到第一槽（否则 currentAmmoIndex 会指向不存在的槽）
+  if(valid.indexOf(player.ammoKey) < 0){
+    player.ammoKey = valid[0];
+    player.currentAmmoIndex = 0;
+  } else {
+    player.currentAmmoIndex = valid.indexOf(player.ammoKey);
+  }
+  renderAmmoIndicator();
+  return true;
+}
+
+benchBindAmmoSlots();
 renderAmmoIndicator();
+
+// ---------- 弹种槽配置（2026-11-01：底部弹种条删除后，全弹种仍要可测） ----------
+// 这里是「测试台语义」与正式游戏的唯一差异点：正式游戏的 3 槽由 loadout 界面决定，
+// bench 允许在面板里任意换槽内容，从而覆盖全部 14 种弹种的测试。
+function benchPopulateAmmoSlotSelects(){
+  const all = getAmmoKeys();
+  for(let i = 1; i <= BENCH_AMMO_SLOT_MAX; i++){
+    const sel = document.getElementById('benchAmmoSlot' + i);
+    if(!sel || sel._populated) continue;
+    sel._populated = true;
+    sel.innerHTML = '';
+    for(const k of all){
+      const o = document.createElement('option');
+      o.value = k;
+      o.textContent = (RULES.ammoTypes[k].label || k);
+      sel.appendChild(o);
+    }
+  }
+  benchSyncAmmoSlotSelects();
+}
+function benchSyncAmmoSlotSelects(){
+  const lo = benchLoadout();
+  for(let i = 1; i <= BENCH_AMMO_SLOT_MAX; i++){
+    const sel = document.getElementById('benchAmmoSlot' + i);
+    if(sel && lo[i - 1]) sel.value = lo[i - 1];
+  }
+}
+function benchApplyLoadoutFromSelects(){
+  const keys = [];
+  for(let i = 1; i <= BENCH_AMMO_SLOT_MAX; i++){
+    const sel = document.getElementById('benchAmmoSlot' + i);
+    if(sel && sel.value) keys.push(sel.value);
+  }
+  // 去重（同一弹种占两槽没有意义，且会让 Q/E 循环卡在该弹种上）
+  const uniq = Array.from(new Set(keys));
+  if(!uniq.length){ pushLog('请先选择至少一个弹种槽','COVER'); return; }
+  benchSetLoadout(uniq);
+  benchSyncAmmoSlotSelects();
+  playSound('ui');
+  pushLog('弹种槽已更新：' + uniq.map(k => RULES.ammoTypes[k].label).join(' / '), 'COVER');
+}
+benchPopulateAmmoSlotSelects();
+{
+  const btnApply = document.getElementById('benchApplyLoadoutBtn');
+  if(btnApply) btnApply.addEventListener('click', benchApplyLoadoutFromSelects);
+  const btnReset = document.getElementById('benchResetLoadoutBtn');
+  if(btnReset) btnReset.addEventListener('click', () => {
+    benchSetLoadout(benchDefaultLoadout());
+    benchSyncAmmoSlotSelects();
+    playSound('ui');
+    pushLog('弹种槽已恢复默认（AP / APCR / HE）', 'COVER');
+  });
+}
 
 // 共享 fireCtx：每帧 update() 刷新，供鼠标/键盘事件处理器使用
 let fireCtx = null;
@@ -551,23 +746,6 @@ window.addEventListener('mouseup', e=>{ if(e.button===0) benchMouseFireHeld = fa
 canvas.addEventListener('mouseleave', ()=>{ benchMouseFireHeld = false; });
 window.addEventListener('blur', ()=>{ benchMouseFireHeld = false; });
 
-document.getElementById('genNodeBtn').addEventListener('click', ()=>{
-  const randomDiff = Math.random();
-  const res = generateNode(randomDiff, { applyToCovers: true });
-  pushLog(`随机生成战场: [${res.template.name}] 难度=${(randomDiff*100).toFixed(0)}% 元素数=${res.covers.length}`,'COVER');
-});
-document.getElementById('resetBtn').addEventListener('click', ()=>{
-  entities.forEach(e=>{ resetEntity(e); e._prevFireT = 0; }); // resetEntity 置 fireT=0，同步清起火音效记录
-  resetCovers();
-  dummy.turretSwing = 0;
-  // sync HP input + toggle visuals with the reset state
-  document.getElementById('dummyHpInput').value = dummy.maxHp;
-  const ab = document.getElementById('autoReviveBtn'); ab.textContent = dummy.autoRevive ? '开启 AUTO-REVIVE' : '关闭 AUTO-REVIVE'; ab.classList.toggle('active', dummy.autoRevive);
-  logClear();
-  playSound('ui'); // M1：重置
-});
-// #9（2026-10-19 用户反馈）：车高（heightClass）设定已不再使用，
-// 「切换车高」按钮与其事件绑定一并删除（半高掩体体系已于 2026-09-20 #E3 整体移除）。
 document.getElementById('applyHpBtn').addEventListener('click', ()=>{
   const v = Math.max(1, Math.min(99999, parseInt(document.getElementById('dummyHpInput').value,10)||100));
   document.getElementById('dummyHpInput').value = v;
@@ -593,97 +771,137 @@ document.getElementById('autoReviveBtn').addEventListener('click', (e)=>{
 // ---------- log（P-15/P-46 共享 makeLogSink，行为与原内联一致） ----------
 const logEl = document.getElementById('logOverlay');
 const log = makeLogSink(logEl);   // js/tank_panels.js
-function logClear(){ log.clear(); }
+// 2026-11-01：logClear 随「重置 RESET」按钮一并删除（该函数唯一调用点是重置处理器）。
 function pushLog(text, cls){ log.push(text, cls); }
 
-// ---------- #32 卡牌测试面板：加载卡池 → applyCardEffects 叠加到玩家坦克 ----------
+// ---------- #32 卡牌测试面板：加载卡池 → 通用卡牌选择器（2026-11-01 重构） ----------
+// 旧实现：单个长下拉 `#cardSelect`（按 11 类效果类型 <optgroup>）+「应用/清除全部」两键。
+// 新实现：js/tank_card_picker.js 的 mountCardPicker —— 每个分类一行下拉
+//   （主武器与升级 / 副武器与升级 / 技能与升级〔内分主动·被动〕/ 常规升级）+ 三个管理按键
+//   （应用 / 撤销一张 / 清除全部）。该模块**两页共用**（battle 开发者面板卡牌 Tab 也接它）。
 let cardPool = null;
-// #7①（2026-10-20 用户口径「bench 卡牌面板未按正式游戏分类显示」）+ #7（2026-10-22 B6，需求 9）：
-//   分类口径**必须与正式游戏开发者面板同源**——现直接复用 js/tank_devpanel.js 的
-//   `groupCardsByEffect` / `devCardGroupKey`（11 组，按**效果类型**：主武器安装/升级、副武器安装/升级、
-//   弹种升级/强化、主动技能、被动机制、参数强化、无人机、经济），组标题形如
-//   `<optgroup label="主武器安装（12）">`；稀有度信息保留在选项文本里（`名称 · RARE`）。
-//   降级链：devpanel 未加载 / 老版本缺 groupCardsByEffect ⇒ 回落 `groupCardsByRarity`（稀有度分组）；
-//   再缺 ⇒ 本地按稀有度归桶。三层都保证不白屏。
-//   **不依赖 tags**：`cards/*.json` 的 tags 字段已由 role-content 在 #16 删除，任何按标签分组的实现
-//   在那批落地后会静默塌成单一分组，故本处只用 effects.type / rarity 两个稳定维度。
-function populateCardSelect(){
-  const sel = document.getElementById('cardSelect');
-  if(!sel) return;
-  const prev = sel.value;
-  sel.innerHTML = '';
-  if(!cardPool){ sel.innerHTML = '<option>卡池加载失败</option>'; return; }
-  const ids = Object.keys(cardPool).sort();
-  if(!ids.length){ sel.innerHTML = '<option>卡池为空</option>'; return; }
-  const cards = ids.map(id => Object.assign({ id }, cardPool[id] || {}));
-  const label = (typeof devRarityLabel === 'function')
-    ? devRarityLabel
-    : (r => ({ common:'普通', rare:'稀有', epic:'史诗', legendary:'传奇', mythic:'神话' })[r] || (r || '其他'));
-  const groups = (typeof groupCardsByEffect === 'function')
-    ? groupCardsByEffect(cards)
-    : ((typeof groupCardsByRarity === 'function')
-        ? groupCardsByRarity(cards)
-        : (function(){
-            // 降级：无共享分组时按稀有度归桶（顺序与共享实现一致：稀有 → 常见 → 其他）
-            const order = ['mythic','legendary','epic','rare','common'];
-            const byKey = new Map(order.map(k => [k, []]));
-            const other = [];
-            for(const c of cards) (byKey.get(c.rarity) || other).push(c);
-            return order.filter(k => byKey.get(k).length)
-              .map(k => ({ key:k, label:label(k), cards:byKey.get(k).sort((a,b)=>String(a.name||a.id).localeCompare(String(b.name||b.id),'zh-Hans-CN')) }))
-              .concat(other.length ? [{ key:'other', label:'其他', cards:other }] : []);
-          })());
-  // 组标题带来源提示：效果类型分组 = 与开发者面板同源（用户可判断这是正式游戏的分类口径）
-  const isEffectGrouping = (typeof groupCardsByEffect === 'function');
-  for(const g of groups){
-    // 用 <optgroup> 表达分类：分组标题不可选（原生 select 语义），组内按名称排序
-    const og = document.createElement('optgroup');
-    og.label = `${g.label}（${g.cards.length}）`;
-    if(isEffectGrouping) og.title = '按效果类型分组（与开发者面板卡牌 Tab 同源）';
-    for(const c of g.cards){
-      const opt = document.createElement('option');
-      opt.value = c.id;
-      opt.textContent = `${c.name || c.id} · ${String(c.rarity || 'common').toUpperCase()}`;
-      og.appendChild(opt);
-    }
-    sel.appendChild(og);
-  }
-  // 重填后尽量保住原选中项（卡池热更新 / 二次加载时不要跳回第一张）
-  if(prev && cardPool[prev]) sel.value = prev;
+let benchCardPicker = null;
+let benchOwnedCards = null;
+
+/** 卡池映射（{id→spec}）→ 数组（选择器通用接口，与 battle 形态一致） */
+function benchCardArray(){
+  if(!cardPool) return [];
+  return Object.keys(cardPool).map(id => Object.assign({ id }, cardPool[id] || {}));
 }
+
+/** 当前已持有的卡：{ cardId: 层数 }（源 = player.cardEffects 的 cardId 计数，与 battle 同口径） */
+function benchOwnedCounts(){
+  const out = {};
+  for(const ef of (player.cardEffects || [])){
+    const id = ef && ef.cardId;
+    if(!id) continue;
+    out[id] = (out[id] || 0) + 1;
+  }
+  return out;
+}
+
+function benchCardById(id){
+  return (cardPool && cardPool[id]) ? Object.assign({ id }, cardPool[id]) : null;
+}
+
+/** 挂载/重建通用卡牌选择器 + 已持有管理器 */
+function mountBenchCardPicker(){
+  const host = document.getElementById('benchCardPicker');
+  if(!host) return;
+  if(typeof TankCardPicker === 'undefined' || !TankCardPicker.mountCardPicker){
+    host.textContent = '卡牌选择器未能加载，请刷新页面；若持续出现请反馈';
+    return;
+  }
+  benchCardPicker = TankCardPicker.mountCardPicker(host, {
+    cards: benchCardArray(),
+    idPrefix: 'benchCp',
+    heldCount: (c) => benchOwnedCounts()[c.id] || 0,
+    describe: (c) => (typeof formatCardDesc === 'function') ? formatCardDesc(c) : (c.desc || ''),
+    onApply: (card) => {
+      if(!cardPool){ pushLog('卡池未加载，无法应用卡牌','CRIT'); return; }
+      const applied = applyCardToTank(player, card);
+      const stacks = (benchOwnedCounts()[card.id] || 0);
+      playSound('ui');
+      pushLog(`应用卡牌「${card.name || card.id}」(${card.rarity}) ×${stacks} 层 — ${applied.length} 条效果生效`,'PEN');
+      // 副武器/主武器安装后立即刷新 HUD（否则 F 按钮与弹种槽要等下一帧才更新）
+      if(typeof TankHudPanel !== 'undefined' && TankHudPanel.renderSecondaryButton){
+        TankHudPanel.renderSecondaryButton(player, {});
+      }
+      renderAmmoIndicator();
+      if(benchCardPicker) benchCardPicker.refresh();
+      if(benchOwnedCards) benchOwnedCards.refresh();
+    },
+    onRollback: (card) => {
+      benchRollbackCard(card.id);
+      if(benchCardPicker) benchCardPicker.refresh();
+      if(benchOwnedCards) benchOwnedCards.refresh();
+    },
+    onClear: () => {
+      benchClearCards();
+      if(benchCardPicker) benchCardPicker.refresh();
+      if(benchOwnedCards) benchOwnedCards.refresh();
+    }
+  });
+
+  // 已持有卡牌管理器（用户要求）：−1 走同一套重放语义
+  const ownedHost = document.getElementById('benchOwnedCards');
+  if(ownedHost && TankCardPicker.mountOwnedCards){
+    benchOwnedCards = TankCardPicker.mountOwnedCards(ownedHost, {
+      counts: () => benchOwnedCounts(),
+      cardById: (id) => benchCardById(id),
+      describe: (c) => (typeof formatCardDesc === 'function') ? formatCardDesc(c) : (c.desc || ''),
+      onRollback: (id) => {
+        benchRollbackCard(id);
+        if(benchCardPicker) benchCardPicker.refresh();
+      },
+      onClear: () => {
+        benchClearCards();
+        if(benchCardPicker) benchCardPicker.refresh();
+      },
+      emptyText: '尚未持有任何卡牌'
+    });
+  }
+}
+
+/** 撤销「最近一次应用」的那张卡（重放语义，与 battle devPanel 的 −1 同口径） */
+function benchRollbackCard(cardId){
+  const seq = (Array.isArray(player._cardApplyLog) && player._cardApplyLog.length)
+    ? player._cardApplyLog.slice()
+    : (player.cardEffects || []).map(ef => ef && ef.cardId).filter(Boolean);
+  const li = seq.lastIndexOf(cardId);
+  if(li < 0){ pushLog(`未持有卡牌「${cardId}」，无可撤销`, 'COVER'); return false; }
+  seq.splice(li, 1);
+  clearCardsFromTank(player);
+  for(const id of seq){
+    const c = (cardPool && cardPool[id]) ? Object.assign({ id }, cardPool[id]) : null;
+    if(c) applyCardToTank(player, c);
+  }
+  playSound('ui');
+  pushLog(`撤销一张「${cardId}」— 已按剩余 ${seq.length} 张重放`, 'COVER');
+  return true;
+}
+
 function loadCardPool(){
   // /api/cards 由 server.js 聚合 cards/*.json 为 { id → spec }；无服务器（file://）时回退提示
   fetch('/api/cards').then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
     .then(data=>{
       cardPool = data;
-      populateCardSelect();
+      mountBenchCardPicker();
       pushLog(`卡池已加载：${Object.keys(cardPool).length} 张`,'COVER');
     })
     .catch(()=>{
       cardPool = null;
-      populateCardSelect();
+      mountBenchCardPicker();
       pushLog('卡池加载失败 — /api/cards 不可用，请经 dev server (npm start) 打开本页','CRIT');
     });
 }
-document.getElementById('applyCardBtn').addEventListener('click', ()=>{
-  if(!cardPool){ pushLog('卡池未加载，无法应用卡牌','CRIT'); return; }
-  const id = document.getElementById('cardSelect').value;
-  // P-15/P-46：兼容卡池为 id→spec 映射（bench 原始形态）
-  const card = (typeof cardPool === 'object' && !Array.isArray(cardPool) && cardPool) ? cardPool[id] : null;
-  if(!card){ pushLog(`卡牌不存在: ${id}`,'COVER'); return; }
-  // P-15/P-46：共享 applyCardToTank（applyCardEffects + refreshStats），与 battle 复用
-  const applied = applyCardToTank(player, card);
-  const stacks = cardStackCount(player, card.id);
-  playSound('ui');
-  pushLog(`应用卡牌「${card.name || id}」(${card.rarity}) ×${stacks} 层 — ${applied.length} 条效果生效`,'PEN');
-});
 // 技能触发抽成具名函数：面板按钮与 G/V 键位共用同一入口（键位来自共享 bindings）
 function benchClearCards(){
   // P-15/P-46：共享 clearCardsFromTank — 清除 card:* modifiers + cardEffects + refreshStats
   // 不重建实体——bench 的 player/dummy 是被 update/draw/fireCtx 跨帧持有的常量引用，重建会断链。
   const info = clearCardsFromTank(player);
   playSound('ui');
-  pushLog(`清除全部卡牌效果 — 移除 ${info.removedMods} 条 modifier / ${info.removedEffects} 条装置效果，玩家属性已还原`,'COVER');
+  pushLog(`清除全部卡牌效果 — 移除 ${info.removedMods} 条属性改动 / ${info.removedEffects} 条装置效果，玩家属性已还原`,'COVER');
 }
 // #W9（2026-10-20 用户裁定「删除 super_speed / super_fire_control」）：benchAbilityFireControl /
 // benchAbilitySpeed 两个测试入口已整体删除 —— 两键在 RULES.abilities、js/tank_abilities.js 的
@@ -698,7 +916,9 @@ function benchAbilityStrike(){
 }
 // #H3（2026-09-21）：benchAbilityOverdrive 移除——V 键/超装填测试入口删除（与正式游戏同步），
 // bench 的超装填验证走 devPanel 卡牌测试（giveCard super_reload 后按技能池键）。
-document.getElementById('clearCardsBtn').addEventListener('click', benchClearCards);
+// 2026-11-01：`#clearCardsBtn` 已随旧卡牌面板一并删除（新选择器自带「清除全部」按键）——
+//   此处旧绑定必须同步移除，否则对 null 调 addEventListener 会让整页加载即抛错
+//   （#F7 2026-09-20 踩过同一个坑：benchInvulnChk 取元素后直接绑定）。
 // #7（2026-10-19 用户反馈）：删除「功能测试扩展 Panel Test」区块 ⇒ 这两个按钮的事件绑定一并移除。
 // #W9（2026-10-20 用户裁定）：原先保留的 benchAbilityFireControl / benchAbilitySpeed 具名入口
 //   也已随 super_fire_control / super_speed 两键的删除而移除（devPanel host 无调用方）。
@@ -858,6 +1078,11 @@ function benchSpawnCover(){
 window.benchSpawnTurret = benchSpawnTurret;
 window.benchSpawnMine = benchSpawnMine;
 window.benchSpawnCover = benchSpawnCover;
+// 2026-11-02 收口补漏：整段 bench 脚本包在 IIFE 里，函数默认**不上 window**；
+//   r3 链按全局名调用弹种槽接口 ⇒ 显式导出（与上面三个部署物入口同口径）。
+window.benchSetLoadout = benchSetLoadout;
+window.benchCycleAmmo = benchCycleAmmo;
+window.benchLoadout = benchLoadout;
 
 // ---------- Enemy Lab (P-15/P-46 共享 js/tank_panels.js) ----------
 // 共享物：spawnEnemyAt（等级→难度乘子+锚定+AI）/ buildTankDataVM（敌人数据视图）/ liveEnemies。
@@ -1036,7 +1261,7 @@ function benchToggleHowitzerF(){
   if(!sec || sec.type !== 'howitzer') return;
   const tgl = (typeof toggleHowitzer === 'function') ? toggleHowitzer : null;
   if(!tgl){
-    pushLog('榴弹炮模式切换不可用（tank_weapons.js 未加载）', 'COVER');
+    pushLog('榴弹炮模式切换不可用（武器模块未能载入）', 'COVER');
     return;
   }
   const on = tgl(player);
@@ -1047,6 +1272,30 @@ function benchToggleHowitzerF(){
     pushLog('榴弹炮：直射模式 — 主炮恢复平射，按 F 切回曲射', 'COVER');
   }
 }
+
+// ---------- 2026-11-01（用户反馈「bench 中敌我坦克无法操作」的根因修复）----------
+// 现象：在右侧面板点过任意「下拉框 / 输入框」之后，WASD / 方向键完全没反应，坦克不动。
+// 根因：**浏览器原生行为**——
+//   · `<select>` 获得焦点时，字母键被用于「按首字母跳选项」(typeahead)，该 keydown **不冒泡到 window**；
+//   · `<input>` 获得焦点时，按键被输入框消费，同样不进入驾驶。
+//   共享输入控制器（js/tank_bindings.js 在 window 上监听）收不到按键 ⇒ 驾驶链整条断开。
+// 触发面扩大：本页 select 从 3 个（坦克选择 x2 / 敌人坦克 x1）增加到 **6 静态 + 4 动态**
+//   （弹种槽 3 个 + 卡牌选择器 4 个分类下拉），用户点过任意一个就必然踩到。
+// 修法：在 **capture 阶段**接管——焦点在表单控件上且按的是**驾驶键**时，先 `preventDefault`
+//   再 `blur()` 把焦点还给画布，让事件继续派发到 window 的输入控制器。
+//   只接管驾驶键：其它按键在控件上是正常交互（select 跳选项 / input 打字），不该被全面禁掉。
+const BENCH_DRIVE_KEYS = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
+window.addEventListener('keydown', (e) => {
+  if(!e || !e.key) return;
+  const ae = document.activeElement;
+  if(!ae) return;
+  const tag = String(ae.tagName || '').toUpperCase();
+  if(tag !== 'SELECT' && tag !== 'INPUT' && tag !== 'TEXTAREA') return;
+  // number/range 等输入框里按字母本来就不会输入内容，但会吞掉事件 —— 一律交还给驾驶
+  if(BENCH_DRIVE_KEYS.indexOf(String(e.key).toLowerCase()) < 0) return;
+  e.preventDefault();
+  if(typeof ae.blur === 'function') ae.blur();
+}, true);   // ← capture：必须早于控件的默认处理
 
 // #AA3：F 的原生 keydown 边沿（`e.repeat` 过滤按住自动重复，与 battle #F7 同口径）。
 //   键位取共享键位表 `KEY_BINDINGS.fireSecondary`（唯一数据源，改键自动跟随）。
@@ -1223,8 +1472,14 @@ function update(dt){
   if(input.isDown('fireSecondary')) tryBenchSecondaryFire();   // #F：F=副武器击发（按住连发，与 battle #C4e 同源）
   // #C5a：按技能独立冷却递减（G 炮击 / V 超装填 / 面板 Buff 共用 abilityCds 池，与 battle 同源）
   if(typeof updateAbilityCds === 'function') updateAbilityCds(player, dt);
-  // #U40（2026-10-19）：反应装甲再充能计时逐帧递减（与 battle 同语义——拦截一次后冷却 60s 恢复）
-  if(typeof updateReactiveArmorRearm === 'function') updateReactiveArmorRearm(player, dt);
+  // #U40（2026-10-19）：应急护盾再充能计时逐帧递减（与 battle 同语义——触发一次后冷却恢复）
+  // 2026-11-01（同源核查修正）：函数名曾写作 `updateReactiveArmorRearm` —— 那是
+  //   js/tank_cards.js **只在 module.exports 里**提供的 Node 侧旧别名，浏览器经典脚本环境
+  //   没有该全局名（实测 typeof = undefined，battle 侧同样不可达）。因此本行从落地起
+  //   就恒被 typeof 守卫跳过。现行名 = `updateEmergencyShieldRearm`（tank_cards.js:882 的
+  //   function 声明，浏览器全局可达；battle 用的就是这个）。这里是**改回与 battle 同源**，
+  //   不是新增机制。
+  if(typeof updateEmergencyShieldRearm === 'function') updateEmergencyShieldRearm(player, dt);
 
   // #F（2026-09-20）：副武器运行时接线（对齐 battle #C4e/#E5/#D4）——turret 自瞄自主开火、
   // missile 由 F 激活后逐帧索敌锁定、rocket 逐发队列驱动、其余副武器待机装填递减。
@@ -1440,6 +1695,44 @@ function updateHud(){
   // P-15/P-46：同步 Enemy Lab 生存敌军列表 + 选中 inspector
   renderEnemyList();
   if(enemySelectedId) renderEnemyData();
+
+  // 2026-11-01（用户裁定）：底部 HUD 采用 battle 同款（血量 / 速度 / 弹种槽 / 技能 / 被动）。
+  //   全部走共享 js/tank_hud_panel.js——与正式游戏同一份渲染实现，不另写一套。
+  //
+  // 2026-11-02（事故修复，§4.199）：**整块包 try/catch**。
+  //   事故链：HUD 渲染里调用了未定义的 skillSlots() ⇒ 每帧 ReferenceError ⇒
+  //   update() 抛到 loop() ⇒ requestAnimationFrame(loop) 永不执行 ⇒ 主循环死亡。
+  //   症状是「坦克不可移动 + 坦克列表加载不出来」——两件看起来无关的事，其实是同一个崩溃。
+  //   纪律：**HUD 是装饰层，任何 HUD 异常都不允许打死模拟主循环**。
+  //   首次异常打一次日志（不刷屏），供排查。
+  try {
+    if(typeof TankHudPanel !== 'undefined'){
+      TankHudPanel.renderPlayerVitals(player, {});
+      TankHudPanel.renderSpeedGauge(player, {});
+      TankHudPanel.renderAmmoSlots(player, {});
+      TankHudPanel.renderSkillSlots(player, {
+        // 2026-11-02 修：此处曾写 `() => skillSlots()` —— skillSlots() 是 **battle 页面的内联函数**，
+        //   bench 没有定义它 ⇒ 每帧 ReferenceError ⇒ 主循环当场死亡。
+        //   现改为不注入：共享层用自带的 skillSlotsOf(player) 读 player.skillSlots（与 battle 同语义）。
+        hasAbility: (t, key) => (typeof hasAbility === 'function') ? hasAbility(t, key) : false,
+        labels: (typeof ABILITY_LABELS !== 'undefined') ? ABILITY_LABELS : {}
+      }, {});
+      TankHudPanel.renderPassiveSlots(player, {
+        passiveSlotState: (t) => (typeof passiveSlotState === 'function') ? passiveSlotState(t) : { max: 2, used: 0, cardIds: [] },
+        cardById: (id) => (cardPool && cardPool[id]) ? Object.assign({ id }, cardPool[id]) : null
+      }, {});
+      TankHudPanel.renderAbilityCdBadges(player, {});
+      // 2026-11-01（修回归）：副武器 F 按钮此前**从未被渲染**（HTML 写死 display:none）——
+      //   装上副武器卡后界面无任何反馈，用户观感即「副武器卡牌不生效」。
+      TankHudPanel.renderSecondaryButton(player, {});
+    }
+  } catch(err){
+    if(!updateHud._hudErrLogged){
+      updateHud._hudErrLogged = true;
+      pushLog('HUD 渲染异常（主循环仍在运行）：' + (err && err.message ? err.message : err), 'CRIT');
+      if(typeof console !== 'undefined' && console.error) console.error('[bench] HUD 渲染异常', err);
+    }
+  }
 }
 
 // ---------- draw ----------
