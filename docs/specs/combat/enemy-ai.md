@@ -167,6 +167,18 @@
 
 **回归**：`scripts/test-ai-detour.js`（侧别种子两处实现一致 / 关停即旧语义 / 探测不挡不触发 / 承诺期不被清除 / 驻停不接管 / 绕满换侧）。
 
+## 守军语义与反冲击（P2-G，2026-11-01 落地；**默认关闭**）
+
+> **状态**：代码已落地、`RULES.encounter.garrisonMode = false` + `garrisonFallbackSeconds = 0`（零回归总门）。**本文正文的「spawn 时强制 `aiEngaged=true` + 预写 `lastKnownPlayerPos`」是现行默认路径**；下面描述开关置 `true` 后的行为，**不得当现状引用**。
+
+- **守军语义**：波次单位出生**不预写**接战信息，由 `aiTriggerDist`（按难度 700~1120）+ LoS 自然激活，或受击警觉（`alertEntity`）。玩家越龟缩越隐蔽（`camouflageDistanceMultiplier` 0.625 起），因此**必须配兜底**。
+- **反冲击前锋**：每波 `garrisonVanguard.count`（默认 2，末波强制 0）辆在防线前方 `aheadOffsetPx`（默认 260）出生、恒 `aiEngaged=true` 主动压上；计入本波编成与清波判定，复用 `maxAlivePerWave`。
+- **超时兜底**：`garrisonFallbackSeconds`（标定目标 20s，**默认 0 = 关闭**）——守军未点亮 N 秒后按 `alertEntity` 语义注入玩家方位；注入保留 `reactionAlertMul` 反应延迟，**不调用 `alertEntity`**（计时器唤醒不该比子弹打醒更快）。
+- **出口解耦**：`garrisonMode=true` 时 `nodeClearance`/`battleExitReady` 与守军未激活解耦（最后一道保险）。
+- **实测风险**：玩家静止龟缩时，纯守军语义会确定性软锁（60s 0/3 激活）；前哨车单独不足以破环，**兜底是必需项**（D 组 timeout×3）。见 §4.189 与 `PLAN.md` §2.8.3。
+- **键名唯一口径**：`RULES.encounter.garrisonMode` / `garrisonFallbackSeconds` / `garrisonVanguard`；回归 `scripts/test-garrison-fallback.js`（40+ 断言）+ `scripts/test-p2g-wiring.js`（89 断言）。
+- **2026-11-02 D2 裁定启用**，执行顺序见 `PLAN.md` §2.10（先重测、再翻开关）。
+
 ## 相关页面
 - [敌人强度与难度](./enemy-scaling.md) — `entityMults` 与固定基准
 - [视野与镜头](./camera-vision.md) — `aabbInView` 与视野系统退役

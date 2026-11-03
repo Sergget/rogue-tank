@@ -88,6 +88,21 @@
 | 4 | 5 | 2,3 | 5760 / 7380 |
 | 5 | 2 | 1,1 | 4620 / 7740 |
 
+## 防御点模式（E1/E2/E3，2026-11-01 落地；**默认关闭**）
+
+> **状态**：代码已落地、`RULES.nodeMap.defensePoints.enabled = false`（零回归开关）。**本文上一节的「防线 + 点位带」是现行默认路径**；下面描述的是开关置 `true` 后的行为，**不得当现状引用**。
+
+| 项 | 现行（false） | 防御点（true） |
+|---|---|---|
+| 选址 | `planDefenseLines` 按推进轴 bucket 均分（4~6 道） | `planDefensePoints` 纯几何选址（签名不依赖 covers），产出 `node.defensePoints`；点数随难度单调 4→5→6 |
+| 生成顺序 | 先 covers，点位事后 150px 就近吸附 | **点在 covers 之前确定**（E3 反转），墙/工事围绕点生成；`kind` 在 covers 生成后回填（`openRatioMax=0.85`） |
+| 波数 | `encounterAnchors.length`（防线数） | 防御点数（按 x 变化切组，4~5） |
+| 首点位置 | `lineMargin` 300px 量级 | ≥ 镜头最大范围（`spawnClearanceScreens=1.25`），出生视野内无敌人（E2.1） |
+| 工事 | 竖墙列落在防线中心 x | `placeDefenseWalls` 的 `anchorXs` 消费点坐标，点驱动小段工事 |
+
+**护栏**：`scripts/test-exit-reachability.js` 双分支判据（false 读 `encounterAnchors` / true 读 `defensePoints`），72 节点 × 三档 0 不可达 + 横贯 `rock` 负向；`scripts/test-defense-points.js`（44 断言）与 `scripts/test-e2-defense-point-waves.js`（115 断言）锁零回归与切换语义。
+**批次**：E1/E3 §4.190、E2.1 §4.191、E2 §4.192。**2026-11-02 D3 裁定启用**，执行顺序见 `PLAN.md` §2.10（先重测、再翻开关）。
+
 ## 相关页面
 - [掩体体系](./cover-system.md) — wall / wall_breakable 的 tier 定义与部位裁剪（防线墙的两级强度语义在此）
 - [敌人强度与难度](./difficulty.md) — 敌军防线（planDefenseLines）的锚点规划，防线墙 x 对齐其锚点

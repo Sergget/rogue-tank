@@ -2654,8 +2654,16 @@ function placeDefenseWalls(rng, covers, opts) {
 
   // 每道防线的 x 候选：优先对齐敌军防线锚点（把墙修在敌人守的位置），不足时在
   //   「玩家出生点右侧 → 出口区左侧」的 35%~80% 带内均匀取。
+  // E3（2026-11-01 PLAN §2.8.5 [C2] 选项 2）：anchorXs 契约升级为「点坐标」——元素可为
+  //   number（旧「线中心」x，兼容 false 路径）或 {x,y}（防御点对象，true 路径点驱动工事）。
+  //   墙列是全高竖墙，只消费 x（y 为点位纵深信息，暂不参与布墙；保留在契约里供后续
+  //   点位级布墙扩展）。非有限 x 的条目跳过（防御点 y 抖动不影响去重 x）。
   const spawnX = (o.playerSpawn && o.playerSpawn.x !== undefined) ? o.playerSpawn.x : worldW * 0.10;
-  const anchorXs = (Array.isArray(o.anchorXs) && o.anchorXs.length) ? o.anchorXs.slice().sort(function (a, b) { return a - b; }) : [];
+  const _rawAnchors = (Array.isArray(o.anchorXs) && o.anchorXs.length) ? o.anchorXs.slice() : [];
+  const anchorXs = _rawAnchors
+    .map(function (a) { return (a && typeof a === 'object') ? a.x : a; })
+    .filter(function (ax) { return Number.isFinite(ax); })
+    .sort(function (a, b) { return a - b; });
   const bandX0 = spawnX + (worldW - spawnX) * 0.35;
   const bandX1 = spawnX + (worldW - spawnX) * 0.80;
   const lineXs = [];

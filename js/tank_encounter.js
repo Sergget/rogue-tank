@@ -26,6 +26,11 @@
 //     才发下一波 telegraph。防线全清（最后一波清掉）即 victory——与 timed 相同。
 //     lineXs 缺省时退化为「清波即发」不软锁。breather 事件在 lines 模式下 seconds=0，
 //     页面按同一分支回血/补员（字段同构）。
+//     **「波 i 绑定哪道防线」的唯一数据源是 `encounterLineXFor(enc, waveIndex)`**（2026-10-30）：
+//     风险在于页面自己也算了一遍（`waveIdx % lineCount` 与导演的 `min(i, len-1)`
+//     在波数 > 防线数时必然分叉 ⇒ 敌人落在防线 A、节拍等玩家推进到防线 B）。现统一为：
+//     每进一波 telegraph 时算一次写进 `enc.boundLineX`，并由 telegraph/spawn 事件的
+//     `lineX` 字段外发——页面只读事件，**不要再任何一侧重算**。
 //
 // 页面如何消费 `spawn` 提案（模块不代劳）：
 //   for (const u of ev.units) {
@@ -42,7 +47,7 @@
 /**
  * 阶段全集。终局两态（victory / defeat）也是合法 phase，便于页面 switch。
  */
-const ENCOUNTER_PHASES = ['telegraph', 'wave', 'breather', 'lineHold', 'victory', 'defeat'];
+const ENCOUNTER_PHASES = ['telegraph', 'wave', 'breather', 'lineHold', 'victory', 'defeat', 'settlement'];
 
 // 防线驱动模式（mode:'lines'）的缺省推进余量（px）。
 // rationale：与 RULES.encounter.lineAdvanceMargin 同值；仅当 RULES 没给该键时的兜底。
@@ -85,7 +90,8 @@ const ENCOUNTER_SEED_FALLBACK = 20261028;
  *   type:string, wave?:number, waveId?:string, waveLabel?:string, seconds?:number, bearings?:number[],
  *   units?:Array<{cls:string, x:number, y:number, hullAngle:number, bearing:number}>,
  *   elapsed?:number, repairPct?:number, reinforce?:number,
- *   stats?:{seconds:number, kills:number, wavesCleared:number}
+ *   stats?:{seconds:number, kills:number, wavesCleared:number},
+ *   lineX?:number|null   // telegraph / spawn：本波绑定防线的 x（2026-10-30，见 encounterLineXFor）
  * }} EncounterEvent
  */
 
@@ -369,25 +375,69 @@ function applySpawnGuard(units, cfg, box, px, py) {
 
 /**
  * @typedef {{
- *   phase:string, mode:string, lineXs:number[], waveIndex:number, waveCount:number, timer:number, elapsed:number,
+ *   phase:string, mode:string, lineXs:number[], boundLineX:number|null, waveIndex:number, waveCount:number,
+ *   timer:number, elapsed:number,
  *   kills:number, spawnedThisWave:number, emptyWave:boolean, outcome:string|null,
  *   wavesCleared:number, cfg:EncounterConfig, seed:any, rng:Function, intelTimer:number,
  *   pendingTelegraph:boolean,
- *   pending:Array<{cls:string, x:number, y:number, hullAngle:number, bearing:number}>
+ *   pending:Array<{cls:string, x:number, y:number, hullAngle:number, bearing:number}>,
+ *   kind:string, objectiveAlive:boolean, objectiveFailed:boolean,
+ *   captureTotal:number, captureDone:number, counterAttackFired:boolean, counterAttackAt:number,
+ *   timeLimitSeconds:number
  * }} EncounterState
  */
 
 /**
+ * **波 ↔ 防线绑定的唯一数据源（2026-10-30 收口，勿再分散实现）**。
+ *
+ * 语义：第 waveIndex 波所绑定防线的 x 坐标；`lineXs` 为空时返回 `null`（无防线可绑）。
+ * 取模口径是 `min(waveIndex, len-1)`（**不是** 取模循环）——波数 > 防线数时后面的波
+ * 全部钳到**最后一道防线**，而不是折回第一道：玩家是沿 +x 单向推进的，把第 5 波折回
+ * x 最小的防线会让「打完第 4 波又退回去挨打」，与推进轴直接冲突。
+ *
+ * 为什么必须有这一个函数（rationale，写给未来的改动者看）：
+ *   「波 i 落在哪道防线」此前有**两套互相独立的口径**——
+ *     ① 页面侧 tank_battle.html:3289 用 `waveIdx % lineGroups.length`（取模循环）；
+ *     ② 导演侧（本模块的 lineHold 段，原 558-559 行）用 `lineXs[min(waveIndex, len-1)]`（钳末）。
+ *   两套口径在「波数 ≤ 防线数」时结果恰好相同（当前 standardWaves 三条原型 / 常见 3 道防线
+ *   的配置下侥幸等价），所以错位是**静默**的——没有任何断言会红。
+ *   失效场景：一旦波数对齐/超过防线数（页面侧本批把标准模式改为按 `node.encounterAnchors.length`
+ *   = N 波），波数 > 防线数即刻分叉：取模把第 4 波折回第 1 道防线（x 最小，玩家身后已清区），
+ *   而钳末把它留在第 3 道防线（x 最大，玩家正前方）。结果是 **波 i 的敌人落在防线 A，
+ *   lineHold 的节拍却在等玩家推进到防线 B** —— 玩家清光了眼前的敌人却因为没走到 B 而
+ *   永远等不到下一波（软锁），或者下一波在身后刷新（推进感崩塌）。
+ *   两侧各自改对都没用：**口径必须收敛到一处**，页面只读事件里的 `lineX`，不再自己算。
+ *
+ * 防御：waveIndex 走 `Math.max(0, waveIndex | 0)`——负值/NaN/undefined 一律落到第 0 波，
+ *   绝不让 `lineXs[-1]` 这种 undefined 流到页面（页面拿到 undefined 会算 NaN 的距离并静默误判）。
+ *
+ * @param {EncounterState} enc
+ * @param {number} waveIndex
+ * @returns {number|null} 该波绑定防线的 x；无防线时为 null
+ */
+function encounterLineXFor(enc, waveIndex) {
+  if (!enc || !Array.isArray(enc.lineXs) || enc.lineXs.length === 0) return null;
+  const i = Math.max(0, waveIndex | 0);
+  return enc.lineXs[Math.min(i, enc.lineXs.length - 1)];
+}
+
+/**
  * 创建遭遇状态。**不产事件**（返回值只有 enc）：第一波的 telegraph 事件由首次 update 补发，
  * 这样「每波恰好一条 telegraph」的纪律只有一条代码路径，不会出现创建时+update 时的双发。
- * @param {{seed?:any, rules?:object, mode?:string, lineXs?:number[]}} [opts]
+ * @param {{seed?:any, rules?:object, mode?:string, lineXs?:number[],
+ *          kind?:string, captureTotal?:number, counterAttackAt?:number, timeLimitSeconds?:number}} [opts]
  *   `mode:'lines'` = 防线驱动节拍（lineHold 等玩家推进）；缺省 'timed'（切片节拍）。
  *   `lineXs` = 防线 x 数组（升序；lines 模式的下一波触发阈值）。
+ *   `kind` = 节点任务类型（M3-E/F/G，2026-11-02）：'exterminate'（缺省）/ 'defend' /
+ *     'capture' / 'breakthrough'。类型只换胜利条件，不新开管线。
+ *   `captureTotal` = 占领点总数（kind='capture' 时生效）；`timeLimitSeconds` = 突破时限。
  * @returns {EncounterState}
  */
 function createEncounter(opts) {
   const o = opts || {};
   const cfg = resolveEncounterConfig(o.rules);
+  const kind = (o.kind === 'defend' || o.kind === 'capture' || o.kind === 'breakthrough')
+    ? o.kind : 'exterminate';
   const enc = {
     cfg: cfg,
     // 2026-10-30 防线式波次（用户裁定）：mode:'lines' 时波间不走定时 breather，
@@ -399,6 +449,11 @@ function createEncounter(opts) {
     //   即视为「推进过当前防线」。空数组/缺省时 lines 模式退化为「清波即发下一波」
     //   （等价于 breatherSeconds=0 的节拍，不至于软锁）。
     lineXs: (Array.isArray(o.lineXs) ? o.lineXs.map(v => encNum(v, NaN)).filter(Number.isFinite) : []).sort((a, b) => a - b),
+    // 2026-10-30：当前波绑定的防线 x（波↔防线绑定单一数据源的可读镜像）。
+    //   初值 null（创建时还没进任何一波），每进入某波的 telegraph 时由 enterTelegraph
+    //   按该波 waveIndex 经 `encounterLineXFor` 写入。页面**只读**它/事件里的 lineX，
+    //   不得自己用 `waveIdx % lineCount` 再算一遍（那正是本次收口的错位根因）。
+    boundLineX: null,
     seed: (o.seed === undefined || o.seed === null) ? ENCOUNTER_SEED_FALLBACK : o.seed,
     rng: encounterRNG((o.seed === undefined || o.seed === null) ? ENCOUNTER_SEED_FALLBACK : o.seed),
     phase: 'telegraph',
@@ -415,6 +470,15 @@ function createEncounter(opts) {
     intelTimer: 0,
     pendingTelegraph: true,     // 首帧补发 telegraph 的标记
     pending: [],                // 本波预规划结果（telegraph 阶段算好，spawn 直接输出）
+    // --- M3-E/F/G（2026-11-02）：任务类型状态（kind='exterminate' 时全部惰性）---
+    kind: kind,
+    objectiveAlive: true,       // defend：守点目标存活（页面每帧经 ctx.objectiveAlive 注入）
+    objectiveFailed: false,     // defend：目标已被毁（胜利仍成立，但存活类 bonus 归零）
+    captureTotal: Math.max(0, encNum(o.captureTotal, 0)),
+    captureDone: 0,             // capture：已拔点数（页面每帧经 ctx.captureDone 注入）
+    counterAttackFired: false,  // capture：50% 反冲击只发一次
+    counterAttackAt: clampNum(encNum(o.counterAttackAt, 0.5), 0, 1),
+    timeLimitSeconds: Math.max(0, encNum(o.timeLimitSeconds, 0)),
   };
   return enc;
 }
@@ -433,6 +497,10 @@ function enterTelegraph(enc, ctx, events) {
   enc.pendingTelegraph = false;
   enc.pending = [];
   if (!wave) { finishEncounter(enc, events, 'victory'); return; }
+  // 2026-10-30：进波的一刻就把「本波绑定哪道防线」定死，此后直到下一波都不再改。
+  //   单一数据源 = encounterLineXFor(enc, waveIndex)；后续 lineHold 的推进判据与
+  //   telegraph/spawn 事件的 lineX **同读这一个值**，杜绝「生成在 A、等推进到 B」的错位。
+  enc.boundLineX = encounterLineXFor(enc, enc.waveIndex);
   enc.pending = planWave(enc, ctx || {});
   enc.timer = enc.cfg.telegraphSeconds;
   const bearings = [];
@@ -444,6 +512,8 @@ function enterTelegraph(enc, ctx, events) {
     waveLabel: wave.label,
     seconds: enc.cfg.telegraphSeconds,
     bearings: bearings,
+    // 本波绑定防线的 x（页面消费的唯一来源；无防线/算不出时为 null）。
+    lineX: enc.boundLineX,
   });
 }
 
@@ -453,10 +523,16 @@ function finishEncounter(enc, events, kind) {
   enc.outcome = kind;
   enc.phase = kind;
   enc.timer = 0;
-  events.push({
+  const ev = {
     type: kind,
     stats: { seconds: enc.elapsed, kills: enc.kills, wavesCleared: enc.wavesCleared },
-  });
+  };
+  // M3-E/F/G（2026-11-02）：类型专属终局载荷——页面据此给结算加成/低分结算，
+  //   kind='exterminate' 时不附加任何字段（与改前逐字段一致）。
+  if (enc.kind === 'defend') ev.objectiveFailed = !enc.objectiveAlive;
+  if (enc.kind === 'capture') ev.captureDone = enc.captureDone;
+  if (enc.kind === 'breakthrough') ev.reason = (kind === 'settlement') ? 'timeout' : 'exit';
+  events.push(ev);
 }
 
 /**
@@ -464,7 +540,8 @@ function finishEncounter(enc, events, kind) {
  * @param {EncounterState} enc
  * @param {number} dt 秒
  * @param {{playerPos?:{x:number,y:number}, playerAlive?:boolean, enemyAlive?:number,
- *          allyAlive?:number, world?:{w:number,h:number}, isBlocked?:(x:number,y:number)=>boolean}} ctx
+ *          allyAlive?:number, world?:{w:number,h:number}, isBlocked?:(x:number,y:number)=>boolean,
+ *          objectiveAlive?:boolean, captureDone?:number, reachedExit?:boolean}} ctx
  * @returns {EncounterEvent[]} 本帧事件（无事件时为 []）
  */
 function updateEncounter(enc, dt, ctx) {
@@ -478,6 +555,35 @@ function updateEncounter(enc, dt, ctx) {
   if (c.playerAlive === false) {                                   // ④ 玩家阵亡：任何阶段都直接判负
     finishEncounter(enc, events, 'defeat');
     return events;
+  }
+
+  // ---- M3-E/F/G 类型胜利条件（2026-11-02；kind='exterminate' 全部跳过，零回归）----
+  //   放在波次机之前：类型胜利不依赖「波次清空」，而是各自的目标条件。
+  if (enc.kind === 'breakthrough') {
+    if (c.reachedExit === true) { finishEncounter(enc, events, 'victory'); return events; }
+    if (enc.timeLimitSeconds > 0 && enc.elapsed >= enc.timeLimitSeconds) {
+      events.push({ type: 'timeout', elapsed: enc.elapsed });
+      finishEncounter(enc, events, 'settlement');                  // 低分结算，不是 gameover
+      return events;
+    }
+  }
+  if (enc.kind === 'capture') {
+    const done = Math.max(0, Math.round(encNum(c.captureDone, enc.captureDone)));
+    enc.captureDone = Math.min(done, enc.captureTotal > 0 ? enc.captureTotal : done);
+    if (enc.captureTotal > 0 && enc.captureDone >= enc.captureTotal) {
+      finishEncounter(enc, events, 'victory');
+      return events;
+    }
+    if (!enc.counterAttackFired && enc.captureTotal > 0
+        && enc.captureDone / enc.captureTotal >= enc.counterAttackAt) {
+      enc.counterAttackFired = true;
+      events.push({ type: 'counterattack', captureDone: enc.captureDone });
+    }
+  }
+  if (enc.kind === 'defend' && c.objectiveAlive === false && enc.objectiveAlive) {
+    enc.objectiveAlive = false;
+    enc.objectiveFailed = true;
+    events.push({ type: 'objective-lost' });                       // 目标被毁 ≠ gameover（存活 bonus 归零）
   }
 
   const wave = encCurrentWave(enc);
@@ -505,7 +611,15 @@ function updateEncounter(enc, dt, ctx) {
       enc.phase = 'wave';
       enc.timer = 0;                                               // ① wave 阶段 timer 语义切换为「已用秒」
       enc.intelTimer = 0;
-      events.push({ type: 'spawn', wave: enc.waveIndex, waveId: wave.id, units: units });
+      events.push({
+        type: 'spawn',
+        wave: enc.waveIndex,
+        waveId: wave.id,
+        units: units,
+        // 本波绑定防线的 x：与同波 telegraph.lineX **同源**（都取自 enterTelegraph 写下的
+        // enc.boundLineX）。页面在 spawn 时用它在绑定防线上做横向排布，不要再自行取模。
+        lineX: enc.boundLineX,
+      });
       if (enc.emptyWave) events.push({ type: 'wave-empty', wave: enc.waveIndex, waveId: wave.id });
     }
     return events;
@@ -543,6 +657,12 @@ function updateEncounter(enc, dt, ctx) {
           enc.phase = 'breather';
           enc.timer = enc.cfg.breatherSeconds;
         }
+      } else if (enc.kind === 'capture' || (enc.kind === 'breakthrough' && enc.timeLimitSeconds > 0)) {
+        // M3-F/G（2026-11-02）：波次清空 ≠ 任务完成——占领/突破的胜利条件是
+        //   「拔满点 / 抵达出口」，停在 lineHold 等目标条件（页面经 ctx 注入），不在此判胜。
+        events.push({ type: 'breather', seconds: 0, repairPct: enc.cfg.breatherRepairPct, reinforce: 0 });
+        enc.phase = 'lineHold';
+        enc.timer = 0;
       } else {
         finishEncounter(enc, events, 'victory');
       }
@@ -551,13 +671,19 @@ function updateEncounter(enc, dt, ctx) {
   }
 
   if (enc.phase === 'lineHold') {
-    // 防线驱动节拍：本波绑定的防线 = lineXs[min(waveIndex, len-1)]（防线按 x 升序）。
+    // M3-F/G：波次已全部清空、但类型目标未达成（占领未拔满 / 突破未达出口）⇒ 停在原地
+    //   等目标条件，不再推进波次——否则 enterTelegraph 因「无下一波」会直接判胜。
+    if (enc.waveIndex + 1 >= enc.waveCount
+        && (enc.kind === 'capture' || (enc.kind === 'breakthrough' && enc.timeLimitSeconds > 0))) return events;
+    // 防线驱动节拍：本波绑定的防线 = encounterLineXFor(enc, waveIndex)。
     //   玩家 x ≥ 防线 x − lineAdvanceMargin ⇒ 玩家已推进到当前防线前沿 ⇒ 发下一波 telegraph。
     //   lineXs 缺省（页面没传锚点）时退化为「清波即发」——空场不软锁。
+    //   ⚠ 2026-10-30：这一段原来是内联的 `lineXs[min(waveIndex, len-1)]`，与页面
+    //   tank_battle.html:3289 的 `waveIdx % lineGroups.length` 构成**两套口径**（详见
+    //   encounterLineXFor 的 rationale 注释）。内联表达式已删除，改走同一个函数——
+    //   此后「波绑定到哪道防线」只有这一个答案，页面读事件 lineX 即可，不可能再分叉。
     const margin = enc.cfg.lineAdvanceMargin;
-    const lineX = enc.lineXs.length
-      ? enc.lineXs[Math.min(enc.waveIndex, enc.lineXs.length - 1)]
-      : null;
+    const lineX = encounterLineXFor(enc, enc.waveIndex);
     if (lineX === null || px >= lineX - margin) {
       enc.waveIndex += 1;
       enterTelegraph(enc, c, events);
@@ -581,6 +707,199 @@ function updateEncounter(enc, dt, ctx) {
   return events;                                                   // 未知阶段：静默（不做猜测性转移）
 }
 
+// ============================================================================
+// P2-G 守军语义兜底（2026-11-01，PLAN §2.8.3「键名契约 v2」）—— **纯逻辑层**
+//
+// 背景（不重写就会重演的坑，务必先读）：
+//   守军语义 = 波次敌人出生时**不预写** aiEngaged / lastKnownPlayerPos，靠既有 AI 门控
+//   （距离 ≤ aiTriggerDist 且 LoS）自然点亮。前置门探针 `tmp/measure-garrison-probe.cjs`
+//   （EXIT=0）实测：玩家静止 60s ⇒ **0/3 激活**，原因是静止玩家
+//   `camouflageDistanceMultiplier=0.625` ⇒ 有效触发距离被压到 556px（最坏组合 267px）
+//   ⇒「越龟缩越隐蔽」的正反馈死循环。
+//   ⇒ 用户 2026-11-01 裁定：**采纳 1（前哨车恒接战）+ 2（超时兜底注入）+ 4（出口侧解耦），
+//     不动 3（不改 camo 折扣）**。本段实现的是 **方案 2**。
+//
+// 三条硬约束（本段的行为口径）：
+//   ① **零回归**：`RULES.encounter.garrisonMode === false` 时，本段任何函数都不得产生
+//      gameplay 差异——调用方的**唯一动作是「不调用」或「调用后拿到 false 什么都不做」**。
+//      本段自己不读 garrisonMode（那是页面/装配层的事），但所有判定都对「关闭态」友好：
+//      `seconds <= 0` ⇒ `garrisonFallbackDue` 恒 false（默认 0 = 关闭）。
+//   ② **确定性**：不用挂钟。`now` 由**调用方注入**（浏览器传 `performance.now()`、
+//      Node 传 `U.simNow()` 或自造累加时钟）⇒ 同 seed + 同 now 序列 ⇒ 逐字节一致。
+//   ③ **不越界**：本段**只算「该不该注入」并返回一个纯描述**，写实体字段仍由页面装配段
+//      执行（沿用「导演不碰 entities」的分层纪律，见文件头）。唯一的例外是
+//      `garrisonFallbackApply`——它是**可选的**写操作助手，页面不调用即不写。
+//
+// ⚠ 探针查明的两个不可当真的字段（防踩）：
+//   · `aiState` **不可当行为读**（`js/tank_ai.js:1282` 缺省 'patrol'、`:1419` 原样赋回）
+//     ⇒ 判「是否已被点亮」只看 `aiEngaged`，不看 aiState。
+//   · `_propagateEngage`（`js/tank_ai.js:1013`，r=420/p=0.7）会在**别的车**的 aiDecideEnemy
+//     内跨实体写 aiEngaged ⇒ 逐车 engagedBefore 快照会漏记；但**本段的判定不依赖快照**，
+//     它每帧只读 `e.aiEngaged` 当前值，天然免疫该问题。
+// ============================================================================
+
+/**
+ * 兜底计时器状态（**外部持有**，不挂在实体上）。
+ *
+ * 为什么外部持有：实体字段由 `js/tank_schema.js` 的 FIELD_ROWS 管，往里加本批临时字段
+ *   会污染存档/设计器；且 `spawnTank` 不写出生时间（`js/tank_entity.js:18` 只存位置快照）
+ *   ⇒ 出生时刻只能由装配侧记账。外部 Map 也让「波清后整体重置」变成一行 `new Map()`。
+ *
+ * @typedef {Map<string|number, {bornAtMs:number, fired:boolean}>} GarrisonFallbackBook
+ */
+
+/**
+ * 守军入场登记：记录出生时刻。**幂等**——已登记过的不覆盖（重复调用不会重置计时）。
+ *
+ * 幂等的理由：页面装配可能在「预规划」与「实际 spawn」两处都调一次；若覆盖，
+ *   兜底计时会被无限推迟 ⇒ 兜底永不生效（静默失效，最难查的那种）。
+ *
+ * @param {GarrisonFallbackBook} book
+ * @param {{id?:string|number}} entity
+ * @param {{now?:number}} [clock] `now` = 毫秒
+ * @returns {boolean} 本次是否新登记（false = 之前已登记过）
+ */
+function garrisonFallbackTrack(book, entity, clock) {
+  if (!book || typeof book.set !== 'function') return false;
+  if (!entity || entity.id === undefined || entity.id === null) return false;
+  const now = encNum(clock && clock.now, NaN);
+  if (!Number.isFinite(now)) return false;                  // 无时钟 ⇒ 拒绝记账（不静默塞 0）
+  if (book.has(entity.id)) return false;
+  book.set(entity.id, { bornAtMs: now, fired: false });
+  return true;
+}
+
+/**
+ * **兜底判定（纯函数，Node 可测）**：守军单位自入场起超过 `seconds` 秒仍未点亮 ⇒ 到期。
+ *
+ * 判定口径（逐条对齐 `alertEntity` 语义，见 `js/tank_ai.js:1894-1920`）：
+ *   · 「已点亮」= `e.aiEngaged === true`（**不看 aiState**，理由见上方探针结论）；
+ *   · 单位：**毫秒**。调用方注入的 `now` 与登记时的 `bornAtMs` 同单位；
+ *   · `seconds <= 0` ⇒ **恒 false**（默认 0 = 关闭兜底，零回归）；
+ *   · 已注入过的单位 ⇒ 恒 false（`fired` 幂等，不重复注入）；
+ *   · 未登记 / 已死 / 时钟非法 ⇒ 恒 false（**全部拒绝，不猜**）。
+ *
+ * @param {{id?:string|number, hp?:number, aiEngaged?:boolean}} entity
+ * @param {{now?:number, seconds?:number, book?:GarrisonFallbackBook}} [opts]
+ * @returns {boolean} 是否需要注入玩家方位
+ */
+function garrisonFallbackDue(entity, opts) {
+  const o = opts || {};
+  const seconds = encNum(o.seconds, 0);
+  if (!(seconds > 0)) return false;                          // 关闭态 / 非法值 ⇒ 不注入
+  if (!entity || entity.id === undefined || entity.id === null) return false;
+  if (typeof entity.hp === 'number' && !(entity.hp > 0)) return false;   // 已阵亡
+  if (entity.aiEngaged === true) return false;               // 已点亮 ⇒ 不需要兜底
+  const rec = (o.book && typeof o.book.get === 'function') ? o.book.get(entity.id) : null;
+  if (!rec || rec.fired) return false;                       // 未登记 / 已注入过
+  const now = encNum(o.now, NaN);
+  if (!Number.isFinite(now)) return false;                   // 无注入时钟 ⇒ 拒绝（不用 Date.now 兜）
+  const elapsedSec = (now - rec.bornAtMs) / 1000;
+  return elapsedSec >= seconds;
+}
+
+/**
+ * **兜底注入（可选写操作）**：按 `alertEntity` 语义把玩家方位写进守军单位，并标记已注入。
+ *
+ * 为什么字段是这四个（`aiEngaged` / `lastKnownPlayerPos` / `alertLevel` / `_threatDir`）：与
+ *   `js/tank_ai.js:1894-1920` 的 `alertEntity` **逐字段对齐**——受击警觉是既有第二通道，
+ *   兜底只是「用一个计时器代替那颗子弹」，注入后的行为与被打醒完全一致，不引入新行为分支。
+ *
+ * ⚠ `_threatDir` **必须补写**（Lead 2026-11-01 裁定 2）：它是 `tank_ai.js:1081` 的
+ *   「炮塔优先指向」字段（`turretDesired = _threatDir !== undefined ? _threatDir : heading`，
+ *   对准后按 `:1084` 自动清空）。**只写 `lastKnownPlayerPos` 不等价**：缺失它时炮塔要等
+ *   search 推进到记忆点才转，慢一拍；而「被发现那一刻炮塔立刻转过来指着你」
+ *   正是守军感最值钱的演出。
+ *
+ * ⚠ `_threatDir` 的**类型是弧度角，不是单位向量**（裁定原文写「单位向量」，与代码不符，
+ *   此处**以代码为准**）：`tank_ai.js:1917` 写 `Math.atan2(srcY - t.y, srcX - t.x)`，
+ *   消费端当角度直接比较（`:1083`）。写成 `{x,y}` 会让炮塔转向 NaN ⇒ 静默不转，最难查。
+ *
+ * ⚠ 不直接调用 `alertEntity`（Lead 裁定 1 确认维持）：它是 `tank_ai.js` 内部函数，且带的
+ *   `reactionAlertMul` 反应延迟**恰恰应当保留**——被计时器唤醒不该比被子弹打醒更快，
+ *   否则「无理由瞬间锁定」会穿透隐蔽机制的设计意图。⇒ 绕开它是对的，但字段要补齐。
+ *
+ * @param {{id?:string|number, hp?:number, aiEngaged?:boolean, alertLevel?:number,
+ *          lastKnownPlayerPos?:{x:number,y:number}, x?:number, y?:number, _threatDir?:number}} entity
+ * @param {{now?:number, playerPos?:{x:number,y:number}, book?:GarrisonFallbackBook}} [opts]
+ * @returns {boolean} 是否真的写入（false = 不该写 / 写不动）
+ */
+function garrisonFallbackApply(entity, opts) {
+  const o = opts || {};
+  if (!entity || entity.id === undefined || entity.id === null) return false;
+  if (typeof entity.hp === 'number' && !(entity.hp > 0)) return false;
+  const p = o.playerPos;
+  if (!p || !Number.isFinite(encNum(p.x, NaN)) || !Number.isFinite(encNum(p.y, NaN))) return false;
+  entity.aiEngaged = true;
+  entity.alertLevel = 3;
+  entity.lastKnownPlayerPos = { x: encNum(p.x, 0), y: encNum(p.y, 0) };
+  // 炮塔立即指向威胁（与 alertEntity 同语义：**弧度角**）。单位坐标缺失时跳过——
+  //   宁可不转炮塔，也不写 NaN 让整条转向链路静默失效。
+  const ex = encNum(entity.x, NaN), ey = encNum(entity.y, NaN);
+  if (Number.isFinite(ex) && Number.isFinite(ey)) {
+    entity._threatDir = Math.atan2(encNum(p.y, 0) - ey, encNum(p.x, 0) - ex);
+  }
+  const rec = (o.book && typeof o.book.get === 'function') ? o.book.get(entity.id) : null;
+  if (rec) rec.fired = true;                                 // 幂等标记（无 book 时不崩）
+  return true;
+}
+
+/**
+ * **前哨车（vanguard）编成**：从本波单位里挑出前 `count` 辆作反冲击前锋。
+ *
+ * 口径（§2.8.3 裁定⑦⑧ + ⑩）：
+ *   · 数量 = `min(本波总敌数, garrisonVanguard.count)`；**末波强制 0**（裁定⑩）；
+ *   · 前锋**不守军化**——仍按现状语义强制 `aiEngaged=true`、恒主动压上；
+ *   · 出生位 = 所属防御点 x **+ aheadOffsetPx**，**只沿 +x**（推进轴）。
+ *     ⚠ 往 -x 偏移 = 在玩家背后刷怪，§4.187 实测踩过
+ *     （`DEVELOPMENT-batches-2026-10.md:4948` 明写「往 -x 会从背后刷怪」）
+ *     ⇒ **负值一律钳到 0**，不静默照搬。
+ *
+ * 纯函数：**不改入参**，返回带 `role` 与（前锋）已前出 `x` 的**新数组副本**。
+ *
+ * @param {Array<{cls:string, x:number, y:number, hullAngle:number, bearing:number}>} units 本波单位
+ * @param {{count?:number, aheadOffsetPx?:number}} [vanguardCfg] RULES.encounter.garrisonVanguard
+ * @param {{isLastWave?:boolean, world?:{w:number,h:number}, margin?:number}} [opts]
+ * @returns {Array<{cls:string, x:number, y:number, hullAngle:number, bearing:number, role:'vanguard'|'garrison'}>}
+ */
+function garrisonAssignVanguards(units, vanguardCfg, opts) {
+  const list = Array.isArray(units) ? units : [];
+  const o = opts || {};
+  const cfg = vanguardCfg || {};
+  const want = Math.max(0, Math.round(encNum(cfg.count, 0)));
+  // 末波强制 0（裁定⑩：其后无防线可出前锋）；want=0 时全员守军。
+  const n = o.isLastWave === true ? 0 : Math.min(want, list.length);
+  // 前出距离：负值钳 0（拒绝反向 ⇒ 绝不在玩家背后刷怪）。
+  const off = Math.max(0, encNum(cfg.aheadOffsetPx, 0));
+  // 前出后仍要留在场内：`maxX` = 世界宽 − 边距。
+  //   ⚠ 边距缺省取 SPAWN_EDGE_MARGIN（40，同一常量）——不是 0。贴边生成会被
+  //   border 判定 / movement clamp 卡住半截身子在场外（§4.187 实测教训），
+  //   让调用方「忘了传 margin」就踩坑是不可接受的缺省。
+  const margin = o.margin !== undefined ? encNum(o.margin, SPAWN_EDGE_MARGIN) : SPAWN_EDGE_MARGIN;
+  const maxX = Number.isFinite(encNum(o.world && o.world.w, NaN))
+    ? encNum(o.world.w, Infinity) - margin
+    : Infinity;
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    // ⚠ 不要用 `list[i] || {}`：那会把类型塌成 `{}`，tsc 立刻报「x 不存在于 {}」。
+    //   显式判空 + continue 同样防御脏数据，且类型保持诚实。
+    const u = list[i];
+    if (!u) continue;
+    const isVan = i < n;
+    const nx = isVan && off > 0 ? Math.min(u.x + off, maxX) : u.x;   // 前出后仍不出界
+    out.push({
+      cls: u.cls,
+      x: nx,
+      y: u.y,
+      bearing: u.bearing,
+      // 朝向刷新：前出后仍指向玩家（applySpawnGuard 会再刷一次，这里保证副本自洽）
+      hullAngle: u.hullAngle,
+      role: isVan ? 'vanguard' : 'garrison',
+    });
+  }
+  return out;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     createEncounter,
@@ -595,5 +914,22 @@ if (typeof module !== 'undefined' && module.exports) {
     SPAWN_MIN_SEPARATION,
     UNIT_SPREAD_PX,
     BEARING_FALLBACK_OFFSETS,
+    // 2026-10-30 P1-F：波↔防线绑定单一数据源。纯增补，既有导出一个没删（向后兼容）。
+    encounterLineXFor,
+    // 2026-11-01 P2-G 守军语义兜底（契约 v2 / PLAN §2.8.3）。纯增补，既有导出一个没删。
+    garrisonFallbackTrack,
+    garrisonFallbackDue,
+    garrisonFallbackApply,
+    garrisonAssignVanguards,
   };
+}
+
+// 浏览器全局导出（与既有 js/ 模块同款双导出口径）。
+//   role-combat 在 tank_battle.html 里可直接用全局名；Node 侧走上面 module.exports。
+//   页面侧的降级路径：`typeof garrisonFallbackDue !== 'function'` ⇒ 退回现状语义，不崩。
+if (typeof globalThis !== 'undefined') {
+  globalThis.garrisonFallbackTrack = garrisonFallbackTrack;
+  globalThis.garrisonFallbackDue = garrisonFallbackDue;
+  globalThis.garrisonFallbackApply = garrisonFallbackApply;
+  globalThis.garrisonAssignVanguards = garrisonAssignVanguards;
 }

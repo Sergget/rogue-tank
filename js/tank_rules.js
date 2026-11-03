@@ -702,6 +702,58 @@ const RULES = {
     desert:   { base: '#d6b87a', alt: ['#c4a664', '#e5cb8d'] }    // 沙漠（#1 2026-10-16）
   },
 
+  // 节点任务类型体系（M3-A 契约层，2026-11-02；设计口径见 specs/combat/node-mission-types.md）
+  //   消费方（尚未接线，M3-B 起）：js/tank_map.js（makeNode 写 node.kind / generateRun 抽样）
+  //   + js/tank_encounter.js（各类型 condition）+ tank_battle.html（HUD 类型标签与结算）。
+  //   零回归纪律：`enabled:false` 时不得有任何类型字段进 node，run 链与现行逐字节一致。
+  //   全部数值为 [PLACEHOLDER]，待 MS3 `measure-encounter --mode=real` 校准后落值。
+  nodeKinds: {
+    enabled: false,                        // 总开关（false = 现行纯歼灭链，零回归）
+    forceKind: null,                       // 开发期强制类型（?forceKind=defend；null = 正常抽样）
+    kinds: ['exterminate', 'defend', 'capture', 'breakthrough', 'shop', 'supply', 'event'],
+    exterminate: { enabled: false },       // 歼灭（现行普通节点正名）：无专属参数，复用 standardWaves
+    defend: {
+      enabled: false,
+      share: 0.2,                          // 抽样占比（[PLACEHOLDER]；index 0 恒不抽中）
+      wavesMin: 3, wavesMax: 4,            // 固定 3~4 波反冲击（[PLACEHOLDER]）
+      ringSectorsMin: 2, ringSectorsMax: 4, // 敌人环带来袭方向数（[PLACEHOLDER]）
+      clearBonusPct: 0.2                   // 守点目标存活 bonus；被毁则归零（非 gameover）
+    },
+    capture: {
+      enabled: false,
+      share: 0.2,                          // 抽样占比（[PLACEHOLDER]；index 0 恒不抽中）
+      pointsMin: 2, pointsMax: 3,          // 一节点 2~3 个点逐个读满（[PLACEHOLDER]）
+      secondsPerPoint: 12,                 // 单点读条时长（[PLACEHOLDER]；敌方进圈暂停）
+      counterAttackAt: 0.5                 // 读条到 50% 触发反冲击前锋
+    },
+    breakthrough: {
+      enabled: false,
+      timeLimitSeconds: 180,               // 限时抵达出口（[PLACEHOLDER]，与单节点 180~300s 同量级）
+      timeoutScorePct: 0.5,                // 超时低分结算倍率（[PLACEHOLDER]；不是 gameover）
+      earlyBonusPct: 0.2                   // 提前抵达 bonus；超时按低分结算（非 gameover）
+    },
+    shop:   { enabled: false },            // 非战斗节点（替换不追加）
+    supply: { enabled: false },
+    event:  { enabled: false },
+    nonCombat: {
+      enabled: false,
+      replaceEvery: 4,                     // 每 N 个战斗节点替换 1 个歼灭节点（[PLACEHOLDER]）
+      maxSharePct: 0.25                    // 非战斗节点占整链上限（= 1/N）
+    },
+    reward: {
+      enabled: false,                      // 类型-奖励绑定总开关（M3-C，关闭态与现行逐项相等）
+      // scoreNode 的类型专属加成（叠加在「无伤 / 速通 / 据点存活」之上；全部 [PLACEHOLDER]）
+      scoreBonusPct: { defend: 0.2, capture: 0.2, breakthrough: 0.2 },
+      // 结算选卡的稀有度权重（与 RULES.cards.bossRound.rarityWeights 同形态；[PLACEHOLDER]）
+      //   优先级：Boss 追加轮 > 节点类型；Boss 节点 kind=null，两者本不重叠。
+      rarityWeights: {
+        defend:       { common: 18, rare: 30, epic: 30, legendary: 18, mythic: 4 },
+        capture:      { common: 20, rare: 30, epic: 28, legendary: 18, mythic: 4 },
+        breakthrough: { common: 22, rare: 30, epic: 27, legendary: 17, mythic: 4 }
+      }
+    }
+  },
+
   // 节点地图（P-08 / DEVELOPMENT.md §6 条目 6）：单局线性节点链的构成参数。
   // 消费方：js/tank_map.js（generateRun/makeNode/scoreNode）。
   nodeMap: {
@@ -822,6 +874,38 @@ const RULES = {
       anchorJunctionChance: 0.45,// 锚点取「路口」的概率（其余取结构/水体/林地簇）
       axisTopFraction: 0.92,     // 推进轴可用终点（× 节点宽 w）
       lineMargin: 300            // 首条防线距出生点的最小推进距离（px；与 minPlayerDist 取大者）
+    },
+    // ======================= 2026-11-01 E1/E3 防御点（PLAN §2.8.5 用户三项裁定 A/B/C） =======================
+    // A=防御点取代防线、C=点位在 covers 之前确定（纯几何选址，不依赖 covers）+ [C2] 裁定选项 2
+    //（C 优先 + kind 回填）。**零回归开关**：enabled=false（默认）时生成路径走现行 planDefenseLines
+    // 一字不差；true 时 makeNode 改用 planDefensePoints 产出 node.defensePoints（每点 {x,y,kind}），
+    // 并把 encounterAnchors 的兼容产出切到「组=防御点」新语义（E2 页面消费在后续批次切换）。
+    // 消费方：js/tank_map.js planDefensePoints / makeNode；护栏 scripts/test-exit-reachability.js
+    // （enabled=true 分支）与 scripts/test-defense-points.js。
+    defensePoints: {
+      enabled: false,          // 零回归开关（false = 现行防线路径，全仓行为零差异）
+      spacingScreens: 0.9,     // 点间距基准（× 视口宽 vw；与 defenseLine 同口径）
+      spacingDiff: [1.15, 0.85], // 间距难度系数（难度越高间距越窄 ⇒ 点越密）
+      linesMin: 4,             // 防御点数下限（对齐现行 strip 防线 4~6 量级）
+      linesMax: 6,             // 防御点数上限
+      perPointMin: 3,          // 单点守军容量下限（对齐 strip.defenseLine.perAnchorMin）
+      perPointMax: 4,          // 上限（对齐 strip.defenseLine.perAnchorMax）
+      maxPerNode: 18,          // 单节点敌数上限（与 strip.defenseLine.maxPerNode 同量级）
+      axisTopFraction: 0.92,   // 推进轴可用终点（× 节点宽 w）
+      pointMargin: 300,        // 首个防御点距出生点的最小推进距离（px；与 minPlayerDist 取大者）
+      // E2.1（2026-11-01 用户实机反馈「防线敌人还是刷在脸上」· 方案 B 用户裁定「可」）：
+      //   首个防御点 x0 下限 = 出生点 + spawnClearanceScreens × vw（与 pointMargin/minPlayerDist 取大者）。
+      //   判据依据（不发明新数值源）：镜头最大世界半宽 = vw/2/minZoom（viewBounds，js/tank_camera.js:176），
+      //   minZoom=0.8（本文件 RULES.camera）⇒ 拉远极限 ≈0.625vw；再叠鼠标构图外延
+      //   （camera.mouseLeadRatio=0.40，mouseLeadZoomComp 反向补偿）与走位余量 ⇒ 起判 1.25 屏
+      //   （= 0.5 屏半宽 × 1/0.8 拉远 × 2 外延+余量）。只动 points 模式（planDefensePoints），
+      //   planDefenseLines（false 路径）一字不改。[PLACEHOLDER] 实机体验复核后再校准。
+      spawnClearanceScreens: 1.25,
+      kindBackfillRadius: 150, // kind 回填半径（px）——点定位后、covers 定稿后就近吸附候选
+      openRatioMax: 0.85       // kind 回填率断言阈值：open 占比上限（[PLACEHOLDER] 2026-11-01 实测定标：
+                               //   现行 lineSpots 吸附路径聚合 open 占比 77.4%（12 节点）、points 模式
+                               //   76.2%（221/290）——起判值 0.6 会把现行路径也判红，按实测调至 0.85；
+                               //   人为清空候选池 = 100% 必红，判据非恒真。随 biome 候选密度变化再校准）
     },
     // #77 低难度 full→half 降级帽：**已于 2026-10-20 #W15 删除 `fullDowngradeCap`（原 0.30）**。
     //   根因：半高掩体体系在 2026-09-20 #E3 整体移除后，「full→half 降级」已改为无操作，
@@ -987,10 +1071,32 @@ const RULES = {
     //   之外由页面按 node.difficulty 折算（C1 接线时定，本表只存基准编成）。
     //   `node.encounter` 标记由 makeNode 写入：普通节点 true / Boss 与生存（noEnemies）false。
     standardEnabled: true,
-    // 正式局波次编成的难度缩放（页面接线消费；缺省 fallback 与此一致——本键落 RULES
-    // 是为了可调，不落就违反「参数唯一配置源」纪律）。diffCountScale：每单元 count +
-    // floor(diff × 该值)；maxPerWave：单波总敌数封顶（防高难度围死）。
-    standardScale: { diffCountScale: 3, maxPerWave: 6 },
+    // 正式局波次编成（页面接线消费；缺省 fallback 与此一致——本键落 RULES
+    // 是为了可调，不落就违反「参数唯一配置源」纪律）。
+    //
+    // 2026-10-31 用户裁定（#AC4 按 A，双钳制；见 PLAN `§2.8.4 D1a`）——三键语义一次性定案：
+    //   · diffCountScale：每单元 count + floor(diff × 该值)（**仅原型展开用**，不再直接决定上限）。
+    //   · maxPerWave：**单波总敌数**封顶（定案）。旧实现是「单波内每个 unit 的 count 各自封顶」
+    //     ⇒ S3 原型 3 个 unit 时实际单波上限 3×6=18，与本键名字/注释长期不符（2026-10-30 记账的
+    //     待办）。现由页面按**整波求和**后裁剪，本注释即现行口径。
+    //   · maxPerNode：**单节点总敌数**钳制。与铺敌路径 `nodeMap.strip.defenseLine.maxPerNode=18`
+    //     （`js/tank_map.js` 的 targetCount 钳制）同量级——旧口径下波次路径完全绕过它，实测
+    //     diff=1 × 6 防线可达 60 辆/节点（ISSUES #AC4 表），本键就是补上这道闸。取 24 而非 18：
+    //     波次路径要留 4~6 道的均分余量（24/6=4 辆/道仍成立），并给 #AB10 的内容量目标留头部空间。
+    //   · maxAlivePerWave：同波**同时存活**上限。超出部分不立即生成，进页面待投送队列，玩家消灭后
+    //     在**摄像机视口外**补投（2026-10-31 用户机制设计）。取 4 的 rationale（2026-10-31）：4 敌 +
+    //     2 友军 ≈ 6 车同屏，守住 `specs/combat/encounter-director.md`「W3 的 5 辆是同时接战仍能逐一点名
+    //     的上限」这条设计红线并留 1 辆余量；同时压住同屏实体数（性能）与瞬间齐射放大（难度）。
+    //   **2026-11-01 用户裁定 4→8**（压测 `DEVELOPMENT-batches-2026-11.md` §4.194）：12 辆同屏压测
+    //     S1 战斗场景（8 敌+2 友+1 玩家=11 实体）全层 PASS（1080p EMA 16.62ms / 边际成本 ≈0），
+    //     且 S2d 对照（4 敌齐射同样 FAIL）证明齐射塌陷与实体数正交 ⇒ 性能维度抬限成立；
+    //     「可逐一点名」玩法红线改由 measure-encounter 校准门接管（8 辆同屏的接战设计随校准验）。
+    //   **连带（非可选）**：`maxPerWave` 6→8 与活体闸齐平——关系不变式 `maxAlivePerWave ≤ maxPerWave`
+    //     （⑯d，活体闸不得超单波总量）是分批投送的数学前提；不同步抬则首批永远投不满 8 辆。
+    //     仍为 [PLACEHOLDER]，随校准走。
+    //   [PLACEHOLDER] 以上 24 / 8 / 8 三个数值待 `measure-encounter --mode=real` 实测标定，
+    //   标定依据写进 `specs/combat/encounter-pacing.md`；未标定前不得按体感微调。
+    standardScale: { diffCountScale: 3, maxPerWave: 8, maxPerNode: 24, maxAlivePerWave: 8 },
     // 2026-10-30 防线式波次（用户裁定）：标准模式节拍改「防线驱动」——前一波清完后
     //   不再定时 breather 后全量刷，而是等玩家推进过当前防线才 telegraph 下一波。
     //   `lineAdvanceMargin`：玩家 x 距下一防线 x 多少 px 内触发下一波 telegraph。
@@ -999,6 +1105,20 @@ const RULES = {
     //   在两防线之间的空档里无事可做。仅 lines 模式消费（createEncounter mode:'lines'），
     //   切片（tank_3d.html）与 breather 节拍不读它。
     lineAdvanceMargin: 400,
+    // --- 2026-10-30：`standardWaves` 语义改为「原型编成」（语义层修订，数值一律不动）---
+    //   新语义：标准模式的**实际波数不由本表决定**，由页面按 `node.encounterAnchors.length`
+    //   （该节点的防线数）派生——**一道防线一波**。本表是**循环复用的原型**：
+    //     实际第 i 波编成 = standardWaves[i % standardWaves.length]
+    //   ⇒ 防线 5 道时波序为 S1/S2/S3/S1/S2；防线 2 道时只有 S1/S2。
+    //   为什么要这样：节点防线数由地图生成（RULES 侧不可预知），而编成需要随难度/位置
+    //   变化；把「波数」交给页面按地形派生、「编成形状」留在表里，是两侧唯一的无冗余切分。
+    //   ⚠ 三条原型（S1/S2/S3）的数值 2026-10-30 一律不动——改动数值属**平衡变更**，
+    //   不在本批范围内；本批只修「页面不读配置」的 bug 与语义描述不一致。
+    //   ⚠ 已定案（2026-10-31，#AC4 按 A）：`standardScale.maxPerWave` 从本文起语义为
+    //   「**单波总敌数**封顶」，由页面按整波求和后裁剪；旧的「每个 unit 各自封顶」已作废
+    //   （该口径下 S3 原型 3 unit ⇒ 单波实为 18 辆，是本批要修的超标来源之一）。
+    //   另新增 `maxPerNode`（单节点总量闸）与 `maxAlivePerWave`（同波同时存活上限）——
+    //   三键的现行语义与取值 rationale 统一见上方 `standardScale` 注释块，此处不重复罗列。
     standardWaves: [
       { id: 'S1', label: '前哨接触', units: [
         { cls: 'medium', bearing: 0, count: 3 },
@@ -1013,6 +1133,87 @@ const RULES = {
         { cls: 'heavy',  bearing: Math.PI,      count: 1 },
       ] },
     ],
+
+    // ======================= 2026-10-31 P2-G：「防线守军感 + 反冲击」（用户裁定，详见 PLAN §2.8.3） =======================
+    // 消费方纪律：这三个键**只被页面（tank_battle.html 波次 spawn 装配段）消费**——
+    //   js/tank_encounter.js 是纯逻辑导演，只管节拍与 spawn 提案坐标；「要不要在实体上预写接战
+    //   信息（aiEngaged / lastKnownPlayerPos）」属页面实体装配职责，导演一根手指都不碰。
+    //   与本块**头注第 971~974 行**「为什么必须有进攻意志」的关系（防回潮，务必一起读）：
+    //   那条注释是 `garrisonMode:false` 的现行口径；置 true 后，它描述的「强制写入」对**守军单位**
+    //   不再适用，只对每波的反冲击前锋保留。
+    //
+    // garrisonMode = **零回归开关**（默认 false，false 时不得有任何 gameplay 差异）：
+    //   false = 现状（迎击语义）：每个波次敌人 spawn 时强制 aiEngaged=true 并预写 lastKnownPlayerPos。
+    //   true  = 守军语义（+反冲击）：波次敌人**不预写**接战信息，靠既有 AI 门控自然点亮战线——
+    //           距离 ≤ RULES.ai.triggerDistBase（700，生成时按难度注入，上限 ×triggerDistDiffMultMax=1.6
+    //           ⇒ 700~1120）**且**有 LoS（RULES.ai.engageRequiresLoS=true）才置 aiEngaged=true；
+    //           受击警觉是第二通道：alertEntity 写 aiEngaged + lastKnownPlayerPos，并按
+    //           RULES.ai.alertRadius=600 向友邻传播，另 RULES.ai.noiseEscalate 的噪声累积（射击
+    //           /落点/友军被击中）也能把周围守军抬到交战——「谁被发现谁反应」。
+    //           每波另抽 `garrisonVanguard.count` 辆作**反冲击前锋**，仍按 false 分支的语义强制
+    //           aiEngaged=true、恒主动压上（结构上是守军语义的兜底，见下方 garrisonVanguard 注释）。
+    //   ⚠ 适用边界（2026-10-31 裁定⑩）：Boss 链与生存模式不走导演波次 spawn（`node.encounter !== true`）
+    //     ⇒ 本开关对它们无效；**末波不设反冲击**（其后无防线可出前锋）；**常驻巡逻（patrol）明确不做**。
+    //   ⚠ 未关门项：守军语义的「无限局风险」（静态敌人不激活 + 玩家龟缩 ⇒ 波次永不清空）是否已被上述
+    //     两通道排除，仍在跑前置门实测（PLAN §2.8.3 前置门）；未出结论前**不得置 true**。
+    garrisonMode: false,        // false=现状（spawn 强制 aiEngaged=true + 预写 lastKnownPlayerPos）；
+                                //   true=守军语义 + 每波 garrisonVanguard 辆反冲击前锋仍恒主动压上。
+                                //   （2026-10-31 用户裁定 / PLAN §2.8.3；置 true 前需先过前置门实测）
+    // [PLACEHOLDER] 每波反冲击前锋数量（辆）——待 `measure-encounter --mode=real` 标定，
+    //   标定依据写进 `specs/combat/encounter-director.md`（未标定前不得按体感微调）。
+    //   rationale（取 2）：① 它是**无限局风险的结构性兜底**——守军全数未被点亮且玩家龟缩时，
+    //   至少前锋会主动压上接触玩家/友军，触发受击警觉与友邻传播，节拍得以推进到 victory
+    //   （评审维度第 2 条是整套方案的下限）；② 同时也是「防线间空档变成接战段」的表达：前锋在
+    //   本波防线**前方拦截走廊**出生并立即接战，玩家蹲守刚打下的上一道防线时体验到一次守方。
+    //   上限取 2 而非更多的理由：前锋 + 驻防合计需守住 standardScale.maxAlivePerWave=4 的同屏活体闸
+    //   （现行结构 ≈ 前锋 2 + 驻防 2 = 4，裁定⑧），再高会突破该闸并回归「被围死」的旧手感。
+    //   注记（2026-11-01）：maxAlivePerWave 已按压测（§4.194）抬至 8，本键的「合计守住活体闸」推导
+    //   基线随之放宽——前锋取 2 的结论维持不变（它是接战台阶语义，不是活体闸的从动量），是否随
+    //   活体闸放大归 measure-encounter 校准门，不随本批联动调。
+    //   契约：页面按 min(本波总敌数, 本键 .count) 取前锋；**末波强制 0**（裁定⑩）。
+    // --- 2026-11-01 契约裁定 v2（Lead）：标量升级为对象，前出距离进 RULES ---
+    //   为什么必须扩成对象：`aheadOffsetPx`（前出距离）属**数值口径**，按 AGENTS.md §2.1
+    //   「参数唯一配置源」纪律必须落 RULES；若内定在页面接线里，就重演 §4.187 之前
+    //   「页面硬编码距离」的老毛病（调参要改页面，且 2D/3D 两侧易漂移）。
+    //   键名沿用 `garrisonVanguard`（与 `garrisonMode`/`garrisonFallbackSeconds`
+    //   **同前缀命名族**）——Lead 上一版契约里的 `vanguard` 已作废，全仓不采用。
+    garrisonVanguard: {
+      // [PLACEHOLDER] 每波反冲击前锋数量（辆）——待 `measure-encounter --mode=real` 标定。
+      //   取 2 的 rationale（未标定前不得按体感微调）：
+      //   ① 无限局风险的**结构性兜底**：守军全数未被点亮 + 玩家龟缩 ⇒ 至少前锋会主动压上
+      //      接触玩家/友军，触发受击警觉（`alertEntity`）与 600px 友邻传播，节拍得以推进到
+      //      victory（评审维度第 2 条是整套方案的下限）；
+      //   ② 「防线间空档变成接战段」的表达：前锋在本波防线**前方拦截走廊**出生并立即接战，
+      //      玩家蹲守刚打下的上一道防线时，体验到一次守方（裁定⑦）。
+      //   上限取 2 而非更多的理由：前锋 + 驻防合计需守住 standardScale.maxAlivePerWave=4 的
+      //   同屏活体闸（现行结构 ≈ 前锋 2 + 驻防 2 = 4，裁定⑧），再高会突破该闸并回归
+      //   「被围死」的旧手感。
+      //   注记（2026-11-01）：maxAlivePerWave 已按压测（§4.194）抬至 8，闸基线放宽；前锋取 2
+      //   结论不变（接战台阶语义非闸从动量），是否联动放大归校准门。
+      count: 2,
+      // [PLACEHOLDER] 前锋出生位相对**所属防御点**的前出距离（px）——待 `measure-encounter` 标定。
+      //   取 260 的 rationale：① 与 `minSpawnDist=600` / `maxSpawnDist=900` 的出生环带相干——
+      //     前锋从防线点位往前推 260px，落在「玩家已拿下上一道防线、即将推进」的拦截走廊上，
+      //     既够得着（不贴脸，保留 telegraph 预警的兑现距离）又不至于远到节拍空转；
+      //   ② 260 ≈ 1 屏视口宽的 1/5（1280 视口），读起来是「前出一小段」而非「另起一条防线」。
+      //   ⚠ **方向硬约束**：只沿 **+x**（推进轴）前出。往 -x 偏移等于在玩家背后刷怪，
+      //     §4.187 已踩过这个坑（`DEVELOPMENT-batches-2026-10.md:4948` 明写「往 -x 会从背后刷怪」）。
+      //     实现侧即便本键被误配成负值，也必须**钳到 0**（拒绝反向），不静默照搬。
+      aheadOffsetPx: 260,
+    },
+    // [PLACEHOLDER] 守军未激活兜底（秒）——**标定目标值 20s**，待 `measure-encounter --mode=real` 实测后置。
+    //   **默认 0 = 关闭**（契约裁定 v2，Lead，2026-11-01）：这不是随手取的缺省，
+    //   而是 §2.8.3 ③ 的硬要求——「无限局风险未实测排除，不得把 garrisonMode 置 true」。
+    //   ⇒ 兜底计时器本身的缺省态也必须是**零回归的关闭态**：
+    //      · 0  ⇒ 完全信任「距离 ≤ aiTriggerDist 且 LoS」+「受击警觉」两条既有通道，一个字段都不额外写；
+    //      · >0 ⇒ 实体入场后超过该秒数仍未 aiEngaged 时，由页面按 **`alertEntity` 语义**补写
+    //             （`aiEngaged=true` + `lastKnownPlayerPos={x,y}` + `alertLevel=3`），作为防软锁的最后一道保险。
+    //   为什么键先落在这儿：前置门探针（`tmp/measure-garrison-probe.cjs`，EXIT=0）已实测
+    //   「玩家静止 60s ⇒ 0/3 激活」的软锁成立 ⇒ 兜底**必然要开**，但秒数未标定。
+    //   ⇒ 键与判定逻辑先落地（默认关），`measure-encounter` 证明破环后**只改这一个数值**即生效，页面不动结构。
+    //   判定与注入的纯逻辑入口：`garrisonFallbackDue(entity,{now,seconds})` / `garrisonFallbackApply(...)`
+    //   （落在 `js/tank_encounter.js`，浏览器走全局、Node 走 require；页面侧不存在时降级为现状语义，不崩）。
+    garrisonFallbackSeconds: 0,
 
     telegraphSeconds: 2.0,     // spawn 前「来袭预警」时长（秒）。
                                // rationale：够玩家把镜头/炮塔转向告警方位并对位第一发，
@@ -2010,6 +2211,39 @@ const RULES = {
              : (t.vision ? 'none' : 'pass');
     }
   }
+})();
+
+// 开发期 A/B 覆盖（M3-J 校准用）：URL 参数开启节点任务类型，**不改任何默认值**。
+//   ?nodeKinds=all                     → 总开关 + 7 型 + 非战斗 + 奖励全开
+//   ?nodeKinds=defend,capture          → 只开指定分型（shop/supply/event 用 noncombat 一次开）
+//   ?forceKind=defend                  → 所有非 Boss 节点强制为该类型（快速单类型试玩）
+// Node 环境无 location ⇒ 整段跳过；不带参数时 RULES 与改前逐字段一致。
+(function applyNodeKindsUrlOverride() {
+  if (typeof location === 'undefined' || !location || !location.search) return;
+  try {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get('nodeKinds');
+    const force = params.get('forceKind');
+    if (!raw && !force) return;
+    const NK = RULES.nodeKinds;
+    if (raw) {
+      NK.enabled = true;
+      const set = raw.split(',').map(s => s.trim()).filter(Boolean);
+      const all = raw === 'all' || raw === '1' || raw === 'true';
+      for (const k of ['defend', 'capture', 'breakthrough']) {
+        if (NK[k]) NK[k].enabled = all || set.includes(k);
+      }
+      const nc = all || set.includes('noncombat') || set.includes('shop') || set.includes('supply') || set.includes('event');
+      NK.nonCombat.enabled = nc;
+      for (const k of ['shop', 'supply', 'event']) if (NK[k]) NK[k].enabled = all || set.includes(k);
+      NK.reward.enabled = all || set.includes('reward');
+    }
+    if (force && NK.kinds.indexOf(force) >= 0 && force !== 'exterminate') {
+      NK.enabled = true;
+      NK.forceKind = force;
+      if (NK[force] && force !== 'shop' && force !== 'supply' && force !== 'event') NK[force].enabled = true;
+    }
+  } catch (e) { /* 开发期覆盖失败不影响默认路径 */ }
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

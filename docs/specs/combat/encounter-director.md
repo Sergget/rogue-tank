@@ -1,7 +1,7 @@
 # 遭遇导演
 
-> **摘要**：3D 切片的完整遭遇：三波编成、阶段状态机、事件契约与全局参数。**机制已完整；「3～5 分钟」的时长目标 [PLACEHOLDER 待实测达标]**——2026-10-28 实测为 24.7～41.4 秒（见下「实测时长」）。时长怎么补足见 [遭遇节奏与时长预算](./encounter-pacing.md)。
-> **适用版本**：现行（2026-10-28）
+> **摘要**：遭遇导演——3D 切片的三波编成（W1~W3）+ 正式局（standard）波次管线（波数 = 防线/防御点数、出口硬胜利、同屏上限与分批投送、守军/防御点 A/B 开关）、阶段状态机与 `RULES.encounter` 参数口径。**时长目标 = 单节点 180~300s（2026-11-02 D1 裁定）**；当前基线待重测（历史读数 24.7~41.4s / 91s / 50.5s / 280~300s 互相矛盾，见 [遭遇节奏与时长预算](./encounter-pacing.md)）。
+> **适用版本**：现行（2026-11-02；正式局管线自 2026-10-30 §4.186 起，开关态与数值沿革见「正式局扩展契约」）
 > **源自**：2026-10-28 G1「完整 3～5 分钟遭遇」新增；`docs/specs/combat.md` §19（新建）
 > **相关**：[遭遇节奏与时长预算](./encounter-pacing.md) · [敌方 AI](./enemy-ai.md) · [友军指挥与战术协同](./ally-command.md) · [浏览器测试链](../editor/browser-tests.md) · [渲染路线](../map/rendering-roadmap.md)
 
@@ -50,6 +50,8 @@ bearing 口径：世界坐标弧度角（y 向下），`0` = 正东(+x)，`+π/2
 > **落点不是固定值**：`resolveBearing` 的回退判据是「该方位到战场边界的可行性纵深是否 ≥ `minSpawnDist`」，而玩家位置会改变纵深 ⇒ 玩家换位后同一波的落点可能不同。预设与实测不一致是**预期行为**，不是 bug。
 
 > W3 的 5 辆是「同时接战仍能逐一点名」的上限——再多就变成被围死而不是决策压力。
+>
+> **沿革（2026-11-02）**：该「5 辆红线」是**切片口径**。正式局自 §4.195 起 `maxAlivePerWave=8`（压测证据见 §4.194），「可逐一点名」改由 `measure-encounter` 校准门按实际手感验收；D4 进一步裁定按难度分档。**本条不再作为正式局的硬上限。**
 
 ## 阶段机与事件
 
@@ -97,7 +99,30 @@ bearing 口径：世界坐标弧度角（y 向下），`0` = 正东(+x)，`+π/2
 | `SPAWN_DIST_HARD_FLOOR` | `380` | 模块内部常量（页面不读）。低于此距离敌人出场即互射，「压上来」的过程感全失还会让 HUD 骗人；取自 1440×864 战场居中最窄方位（正南：`864/2 − 40 = 392`）的下浮 |
 | `spawnTries` | `40` | 40 次伯努利采样在 covers 密集图上仍有 ~97% 命中率；单次 O(1) 点判定，最坏 40 × 5 单位 = 200 次判定，不卡帧 |
 | `intelInterval` | `6` | 语义是「进攻方指挥部持续更新你的方位」；频率低于敌人机动重掷周期，让换位/绕后的收益不被立刻抹平 |
-| `waves` | 3 波 | 见 [波次编成](#波次编成) |
+| `waves` | 3 波 | 见 [波次编成](#波次编成)。**切片口径**——正式局（`tank_battle.html`，`standardEnabled:true`）自 2026-10-30 夜批（§4.186）起按 `standardWaves` **原型循环派生**：波数 = `node.encounterAnchors.length`（strip 防线数 4~6），第 i 波取 `standardWaves[i % len]`；`mode:'lines'` 节拍（`lineHold` 等玩家推进）见 §4.181 |
+
+### 正式局（standard）扩展契约（2026-10-30 夜批 §4.186，现行）
+
+- **波↔防线绑定单一数据源**：模块导出纯函数 `encounterLineXFor(enc, waveIndex)`（`lineXs` 空数组返回 `null`；否则 `lineXs[min(waveIndex, len-1)]` **钳末非取模**——波数 > 防线数时钳到最后一道，绝不折回已清防线）；实例字段 `boundLineX` 每波 telegraph 时写入；`telegraph` 与 `spawn` 事件载荷携带 `lineX`。**页面唯一来源 = 事件载荷**（页面禁止自行取模；落位组经 `pickLineByX` 按组均值 x 精确匹配，lineX 非有限或组全空才回退旧取模）。
+- **胜利判定**：encounter 节点波次全清后若玩家未达 `exitX` ⇒ 只置页面 `battleExitReady`、不结算，玩家开到出口才走 clearing（Boss 节点不受影响）。
+- **telegraph 文案**：有锚点且 `lineX` 有限时为「第 N 波来袭 · 前方约 Xpx」（防线语义），否则回退 bearing 八方位。
+- **已知语义分歧（已定案 2026-10-31）**：`standardScale.maxPerWave` 语义定案为「**单波总敌数**封顶」（旧「每 unit 各自封顶」作废）；新增 `maxPerNode=24`（单节点总量闸，补上旧波次路径绕过铺敌上限的缺口）与 `maxAlivePerWave`（同波同屏上限）。页面按节点预算**按防线均分**并**按兵种比例裁剪**；超出同屏上限的单位进待投送队列，由击杀驱动在**摄像机视口外**逐辆补投（0.25s 节流）。三值 `[PLACEHOLDER]` 待 `measure-encounter` 标定。实测效果见 `DEVELOPMENT-batches-2026-10.md` §4.187（diff=1×6 防线 60→24 辆、单波峰值 14→≤6）。
+  - **数值沿革（2026-11-02 订正）**：~~`maxAlivePerWave=4`~~ → **`maxAlivePerWave=8`**（`maxPerWave` 同步 6→8）。依据：12 辆同屏压测 §4.194（8 敌 + 2 友 + 1 玩家全层 PASS，1080p EMA 16.62ms、4→8 敌边际成本 ≈0）+ 用户 2026-11-01 裁定「1+2」落地（§4.195）。关系不变式 `maxAlivePerWave ≤ maxPerWave` 由 `test-encounter` ⑯d 锁住。**现行唯一口径 = `js/tank_rules.js` 的 `RULES.encounter.standardScale`**（当前 `{ maxPerWave: 8, maxPerNode: 24, maxAlivePerWave: 8 }`）。
+  - **2026-11-02 用户裁定 D4**：同屏活体上限改为**按难度分档**（低难度回收、高难度维持 8）；分档值待 MS3 校准，标 `[PLACEHOLDER]`。
+
+### 正式局开关态（2026-11-02 补记，**默认全关**）
+
+以下两组机制**代码已落地、默认关闭**，属「A/B 开关」而非现行行为；文档不得把它们写成现状：
+
+| 键 | 默认值 | 已落地批次 | 开启后的行为 |
+|---|---|---|---|
+| `RULES.nodeMap.defensePoints.enabled` | **`false`** | E1/E3 §4.190、E2 §4.192 | 防线 → **防御点**：点位在 covers 之前选址、墙/工事围绕点生成、波数 = 点数（4~5），逐个拔点 |
+| `RULES.encounter.garrisonMode` | **`false`** | §4.189 | 守军语义：出生不预写 `aiEngaged`/`lastKnownPlayerPos`，靠 `aiTriggerDist` + LoS 自然激活；每波 1~2 辆**反冲击前锋**仍主动压上 |
+| `RULES.encounter.garrisonFallbackSeconds` | **`0`（关闭）** | §4.189 | 守军超时兜底：未点亮 N 秒后注入玩家方位（标定目标 20s，**不是默认值**） |
+| `RULES.encounter.garrisonVanguard` | `{ count: 2, aheadOffsetPx: 260 }` | §4.189 | 前锋数量与前出距离（末波强制 0） |
+| `RULES.nodeKinds.enabled` + 各分型 `enabled` | **全 `false`** | M3-A~H §4.203~§4.210 | 节点任务类型（歼灭/防御/占领/突破/商店/补给/事件）、类型胜利条件与类型奖励；`false` 时 `node.kind` 不存在 |
+
+`garrisonMode=false` / `defensePoints.enabled=false` 时页面走现行路径，逐字段零回归（`test-p2g-wiring.js` 89 断言、`test-e2-defense-point-waves.js` 115 断言各自锁死）。**2026-11-02 用户裁定 D2/D3 = 启用**，执行顺序按 D5：契约层 → 干净重测 → 同批翻开关 → 再校准（见 `PLAN.md` §2.10）。
 
 ## 三条关键机制与反面教训
 
@@ -146,7 +171,9 @@ e.lastKnownPlayerPos = { x: player.x, y: player.y };  // 首帧就给一次方�
 
 ## 实测数据与回归链
 
-### 实测时长（2026-10-28，**未达标**）
+### 实测时长（2026-10-28，**切片口径**；正式局基线待重测）
+
+> **口径说明（2026-11-02）**：本节全部为 **3D 切片**（`tank_3d.html`，三波）的读数，**不是正式局基线**。正式局自 §4.180 起走 4~6 波 + 出口硬胜利 + 分批投送，历史读数互相矛盾（§4.180 中位 91s / §4.189 真局中位 50.5s / `encounter-pacing.md` 记的 280~300s 含撞 CAP 截断样本）⇒ **在 D5 的「干净重测」出数前，任何一方都不得作为验收依据**。D1 已裁定目标口径为**单节点 180~300s**。
 
 用 `node scripts/measure-encounter.cjs` 跑真实遭遇（探针驱动「自动瞄准 + 持续开火」的玩家，0.5s 采样时间线）：
 

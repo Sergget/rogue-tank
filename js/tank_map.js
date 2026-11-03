@@ -340,10 +340,226 @@ function planDefenseLines(o) {
   return { lines: lines, lineCount: lineCount, perAnchor: perAnchor, targetCount: targetCount, enabled: enabled };
 }
 
+// ---------- E1/E3 防御点（2026-11-01 PLAN §2.8.5 用户三项裁定 A/C + [C2] 选项 2） ----------
+
+function defensePointsConfig() {
+  const cfg = nodeConfig();
+  return (cfg && cfg.defensePoints) ? cfg.defensePoints : {};
+}
+
+/**
+ * 防御点选址（E1 本体：纯几何、确定性、**不依赖 covers**）。
+ * 取代 planDefenseLines 的「bucket 均分 + covers 事后吸附」：点位在 covers 之前确定
+ * （用户裁定 C = 生成顺序反转的依赖面），x 取推进轴 bucket 中心（纯几何，不耗 rng），
+ * y 沿 h×0.12~0.88 均匀分布 + 共享抖动 + 逐点微抖（全部走传入 rng，同 seed 逐字节可复现）。
+ * kind 一律 'open' 起步，由 backfillDefensePointKinds 在 covers 定稿后回填（[C2] 选项 2）。
+ *
+ * 与 planDefenseLines 的关系：false 路径（RULES.nodeMap.defensePoints.enabled=false，默认）
+ * 完全不走本函数；true 时 makeNode 用本函数产出并组装 lines 兼容形状（组=防御点），
+ * encounterAnchors 兼容产出「组=防御点」新语义（E2 页面消费后续批次切换）。
+ *
+ * @param {any} o { w, h, playerSpawn, minPlayerDist, diff, diffNorm, viewport:{vw,vh}, rng, cfg }
+ *   —— 注意**没有** covers / roadJunctions 输入（E1 核心契约：选址不依赖掩体/路网）。
+ * @returns {{ points:Array<{x:number,y:number,kind:string}>,
+ *             buckets:Array<{x0:number,x1:number}>, pointCount:number, perPoint:number,
+ *             spotsPerPoint:number, targetCount:number, spacing:number, enabled:boolean }}
+ */
+function planDefensePoints(o) {
+  const s = o || {};
+  const cfg = s.cfg || defensePointsConfig();
+  const w = s.w, h = s.h;
+  const ps = s.playerSpawn || { x: w * 0.10, y: h / 2 };
+  const rng = s.rng;
+  const vw = (s.viewport && s.viewport.vw > 0) ? s.viewport.vw : Math.max(1, w / 3);
+  const diffNorm = Math.min(1, Math.max(0, Number.isFinite(s.diffNorm) ? s.diffNorm : 0));
+  const sd = Array.isArray(cfg.spacingDiff) ? cfg.spacingDiff : [1.15, 0.85];
+  const spacingBase = (cfg.spacingScreens !== undefined ? cfg.spacingScreens : 0.9) * vw;
+  const spacing = Math.max(160, spacingBase * (sd[0] + (sd[1] - sd[0]) * diffNorm));
+  const linesMin = cfg.linesMin !== undefined ? cfg.linesMin : 4;
+  const linesMax = cfg.linesMax !== undefined ? cfg.linesMax : 6;
+  const perPointMin = cfg.perPointMin !== undefined ? cfg.perPointMin : 3;
+  const perPointMax = cfg.perPointMax !== undefined ? cfg.perPointMax : 4;
+  // E2.1（2026-11-01 方案 B，用户裁定）：首个防御点 x0 下限升级——「镜头最大范围」入参。
+  //   现状（改前）：margin = max(pointMargin, minPlayerDist)，高难度 bucket 中心点可下探至
+  //   ps.x + 1534px（vw1600 实测，planDefensePoints 直调 diffNorm=1）< 镜头拉远极限世界半宽
+  //   vw/2/minZoom = 0.625vw（tank_camera.js viewBounds 口径，minZoom=RULES.camera.minZoom=0.8）
+  //   ⇒ 首个防御点锚点在视口内 = 「敌人刷在脸上」。
+  //   修法：下限再取 spawnClearanceScreens × vw（RULES.nodeMap.defensePoints.spawnClearanceScreens，
+  //   起判 1.25 屏——0.5 半宽 × 1/0.8 拉远 × 2 鼠标外延+走位余量；数值源只有 viewport.vw，
+  //   不发明新数值）。注意点 x = bucket 中心 = x0 + span/(2·pointCount)，**只需保证 x0 本身
+  //   ≥ ps.x + clearance**，中心点自然 ≥ x0 > 判据线（bucket 中心恒在 x0 右侧）。
+  //   只动 points 模式；planDefenseLines（false 路径）一字不改。
+  const clearancePx = (cfg.spawnClearanceScreens !== undefined ? cfg.spawnClearanceScreens : 1.25) * vw;
+  const margin = Math.max(cfg.pointMargin !== undefined ? cfg.pointMargin : 300,
+    Number.isFinite(s.minPlayerDist) ? s.minPlayerDist : 0, clearancePx);
+  const x0 = Math.min(w * 0.92, ps.x + margin);
+  const x1 = w * (cfg.axisTopFraction !== undefined ? cfg.axisTopFraction : 0.92);
+  const span = Math.max(0, x1 - x0);
+  const pointsWanted = Math.round(linesMin + (linesMax - linesMin) * diffNorm);
+  // 与 planDefenseLines 同款防重叠约束：每点至少 minBucketWidth 宽（点位散布半径 + 余量）。
+  const minBucketWidth = 240;
+  const maxBySpan = span > 0
+    ? Math.max(1, Math.floor(span / Math.max(minBucketWidth, spacing * 0.5))) : 1;
+  const pointCount = Math.max(1, Math.min(Math.max(linesMin, pointsWanted), maxBySpan));
+  const perPoint = Math.max(1, Math.round(perPointMin + (perPointMax - perPointMin) * diffNorm));
+  const spotsPerPoint = 5;   // 每防御点 5 个纵向点位（与现行 lineSpots 同量级，兼容 E2 前消费端）
+  const points = [];
+  const buckets = [];
+  for (let i = 0; i < pointCount; i++) {
+    const bx0 = x0 + (span * i) / pointCount;
+    const bx1 = x0 + (span * (i + 1)) / pointCount;
+    const cx = Math.round(Math.max(60, Math.min(w - 60, (bx0 + bx1) / 2)));
+    buckets.push({ x0: bx0, x1: bx1 });
+    // rng 消耗序列固定：每点 1 次共享抖动 + 每点位 1 次微抖（同 seed 逐字节可复现）。
+    const sharedJy = rng ? rng.range(-40, 40) : 0;
+    for (let k = 0; k < spotsPerPoint; k++) {
+      const ty = h * 0.12 + (h * 0.76) * (k / (spotsPerPoint - 1)) + sharedJy
+        + (rng ? rng.range(-24, 24) : 0);
+      points.push({
+        x: cx,
+        y: Math.round(Math.max(60, Math.min(h - 60, ty))),
+        kind: 'open'
+      });
+    }
+  }
+  const floorCount = enemyCountForDifficulty(Number.isFinite(s.diff) ? s.diff : 0);
+  const cap = cfg.maxPerNode !== undefined ? cfg.maxPerNode : 18;
+  const targetCount = Math.max(1, Math.min(cap, Math.max(floorCount, pointCount * perPoint)));
+  return { points: points, buckets: buckets, pointCount: pointCount, perPoint: perPoint,
+    spotsPerPoint: spotsPerPoint,
+    targetCount: targetCount, spacing: Math.round(spacing), enabled: true };
+}
+
+/**
+ * kind 回填（[C2] 选项 2，E3）：点定位后、covers 定稿后，就候选池就近吸附 kind 标签。
+ * 候选语义沿用 collectDefenseAnchors（structure / junction / foliage——与现行 lineSpots
+ * 吸附池同源，tank_map.js:318 口径；liquid 不参与，与现行吸附一致）。**只补标签，点不动**；
+ * 半径内无候选保 'open'（防空标签 = D3 主题化输入空转，由 open 占比断言锁）。
+ * 纯函数：不改 covers、不耗 rng、确定性（同输入同输出；并列距离取池序在前者）。
+ * @param {Array} covers 定稿掩体（只读）
+ * @param {Array} roadJunctions 路口中心（只读）
+ * @param {Array} points planDefensePoints 产出（**就地**写 kind）
+ * @param {any} [opts] { radius=150, w }
+ * @returns {{ filled:number, open:number, total:number }} 回填统计（filled/total = 回填率）
+ */
+function backfillDefensePointKinds(covers, roadJunctions, points, opts) {
+  const o = opts || {};
+  const radius = o.radius !== undefined ? o.radius : 150;
+  const pts = Array.isArray(points) ? points : [];
+  const cands = collectDefenseAnchors({
+    covers: covers, roadJunctions: roadJunctions,
+    x0: 0, x1: Number.isFinite(o.w) ? o.w : Infinity
+  });
+  // 池序 = structure → junction → foliage（与现行 lineSpots nearCands 顺序一致 ⇒ 并列距离同裁决）
+  const pool = cands.structure.concat(cands.junction, cands.foliage);
+  const r2 = radius * radius;
+  let filled = 0, open = 0;
+  for (const p of pts) {
+    if (!p) continue;
+    let best = null, bd = r2;
+    for (const c of pool) {
+      const dx = c.x - p.x, dy = c.y - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= bd) { bd = d2; best = c; }
+    }
+    if (best) { p.kind = best.kind; filled++; }
+    else { p.kind = 'open'; open++; }
+  }
+  return { filled: filled, open: open, total: pts.length };
+}
+
 // ---------- 节点生成 ----------
 
 function nodeConfig() {
   return (typeof RULES !== 'undefined' && RULES.nodeMap) ? RULES.nodeMap : {};
+}
+
+// ---------- 节点任务类型（M3-B，2026-11-02；契约 RULES.nodeKinds） ----------
+// 设计口径：specs/combat/node-mission-types.md。
+// 关键约束：**类型只改语义标签，不改地图几何**——kind 由 (node.seed, index) 的确定性哈希
+//   派生，不消耗 makeNode 的 rng 流 ⇒ 开关打开前后同 seed 的地图逐字节一致。
+// 零回归：RULES.nodeKinds.enabled !== true 时 makeNode 不写 kind 字段、applyRunKinds 空转。
+
+function nodeKindsConfig() {
+  return (typeof RULES !== 'undefined' && RULES.nodeKinds && RULES.nodeKinds.enabled === true)
+    ? RULES.nodeKinds : null;
+}
+
+// FNV-1a：把 (seed, salt) 映射到 [0,1)。确定性、无状态、不依赖 rng 流。
+function kindHash(seed, salt) {
+  let h = 2166136261 >>> 0;
+  const s = String(seed) + ':' + String(salt);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return (h >>> 0) / 4294967296;
+}
+
+/**
+ * 单节点基础类型（链级规则之前）：index 0 恒歼灭（教学节点）；其余按分型开关与 share 抽样。
+ * @param {any} seed 节点模板种子（templateResult.seed）
+ * @param {number} index 节点索引
+ * @param {any} cfg RULES.nodeKinds（enabled 已为 true）
+ * @returns {'exterminate'|'defend'|'capture'}
+ */
+function baseKindFor(seed, index, cfg) {
+  if (!(index > 0)) return 'exterminate';
+  const r = kindHash(seed, 'kind:' + index);
+  const d = (cfg.defend && cfg.defend.enabled) ? Math.max(0, cfg.defend.share || 0) : 0;
+  const c = (cfg.capture && cfg.capture.enabled) ? Math.max(0, cfg.capture.share || 0) : 0;
+  if (r < d) return 'defend';
+  if (r < d + c) return 'capture';
+  return 'exterminate';
+}
+
+/**
+ * 链级类型规则（M3-B）：突破置中段 + 非战斗节点「替换不追加」。
+ * 只改 `kind` 标签、不增删节点 ⇒ 链长恒不变；Boss / 生存（kind === null）不参与。
+ * @param {any[]} nodes 节点数组（就地修改）
+ * @param {number} [fromIndex] 仅处理该下标起的节点（extendRun 只处理新节点；缺省 0）
+ * @returns {any[]} 同一数组
+ */
+function applyRunKinds(nodes, fromIndex) {
+  const cfg = nodeKindsConfig();
+  if (!cfg || !Array.isArray(nodes)) return nodes;
+  // 开发期强制类型（?forceKind=）：makeNode 已写死，链级规则不参与。
+  if (cfg.forceKind) return nodes;
+  const start = Math.max(0, fromIndex | 0);
+  const isNonCombat = k => k === 'shop' || k === 'supply' || k === 'event';
+  const isTyped = n => n && n.kind !== null && n.kind !== undefined;
+
+  // ① 突破变速器：全链中段的战斗节点（已有 breakthrough 则不再移动——已打过的节点不能改语义）
+  if (cfg.breakthrough && cfg.breakthrough.enabled) {
+    const has = nodes.some(n => n && n.kind === 'breakthrough');
+    if (!has) {
+      const combat = nodes.filter(n => isTyped(n) && !isNonCombat(n.kind));
+      const mid = combat[Math.floor((combat.length - 1) / 2)];
+      if (mid) mid.kind = 'breakthrough';
+    }
+  }
+
+  // ② 非战斗节点：每 replaceEvery 个节点替换 1 个（index 0 / Boss / 突破 不替换）
+  if (cfg.nonCombat && cfg.nonCombat.enabled) {
+    const every = Math.max(2, cfg.nonCombat.replaceEvery | 0);
+    for (let i = start; i < nodes.length; i++) {
+      const n = nodes[i];
+      if (!isTyped(n) || i === 0) continue;
+      if ((i + 1) % every !== 0) continue;
+      if (n.kind === 'breakthrough' || isNonCombat(n.kind)) continue;
+      const r = kindHash(n.seed, 'noncombat:' + i);
+      n.kind = r < 0.5 ? 'shop' : (r < 0.8 ? 'supply' : 'event');
+    }
+    // 占比上限（maxSharePct）：超限时从链尾回退为歼灭，保证「替换不追加」不演变成占比失控
+    const maxShare = Number.isFinite(cfg.nonCombat.maxSharePct) ? cfg.nonCombat.maxSharePct : 0.25;
+    const limit = Math.max(1, Math.floor(nodes.length * maxShare));
+    let cnt = nodes.filter(n => n && isNonCombat(n.kind)).length;
+    for (let i = nodes.length - 1; i >= 0 && cnt > limit; i--) {
+      const n = nodes[i];
+      if (n && isNonCombat(n.kind)) { n.kind = 'exterminate'; cnt--; }
+    }
+  }
+  return nodes;
 }
 
 /**
@@ -648,12 +864,62 @@ function makeNode(index, rng, env) {
   const defenseCfg = (stripMode && stripCfg.defenseLine)
     ? Object.assign({}, defenseLineConfig(), stripCfg.defenseLine)
     : undefined;
-  const defense = defenseEnabled ? planDefenseLines({
-    w: w, h: h, playerSpawn: playerSpawn, minPlayerDist: minPlayerDist,
-    diff: diff, diffNorm: diffNorm, viewport: viewport,
-    covers: templateResult.covers, roadJunctions: templateResult.roadJunctions, rng: rng,
-    cfg: defenseCfg
-  }) : { lines: [], lineCount: 0, perAnchor: 0, targetCount: enemyCountForDifficulty(diff), enabled: false };
+  // ======================= E1/E3 防御点路径（2026-11-01 PLAN §2.8.5） =======================
+  // 零回归开关 RULES.nodeMap.defensePoints.enabled（默认 false）：
+  //   · false ⇒ 走现行 planDefenseLines 路径，**一字不差**（covers/roads/enemies 对拍指纹锁零差异）；
+  //   · true  ⇒ planDefensePoints 纯几何选址（**不依赖 covers**，裁定 C：点位在掩体/路网之前确定）
+  //             + [C2] 选项 2 的 kind 回填（点定位后、covers 定稿后就近吸附 junction/structure/foliage），
+  //             并组装 lines 兼容形状（组=防御点；lineSpots=点组）——
+  //             targetCount / centroids / 兜底锚点 / defenseLines / encounterAnchors 全部既有消费端不动。
+  const dpCfgRaw = (stripMode && stripCfg.defensePoints)
+    ? Object.assign({}, (cfg.defensePoints || {}), stripCfg.defensePoints)
+    : (cfg.defensePoints || {});
+  const pointsMode = defenseEnabled && dpCfgRaw.enabled === true;
+  const disabledDefense = { lines: [], lineCount: 0, perAnchor: 0, targetCount: enemyCountForDifficulty(diff), enabled: false };
+  let defense = disabledDefense;
+  if (defenseEnabled) {
+    if (pointsMode) {
+      const dpCfg = dpCfgRaw;
+      const dp = planDefensePoints({
+        w: w, h: h, playerSpawn: playerSpawn, minPlayerDist: minPlayerDist,
+        diff: diff, diffNorm: diffNorm, viewport: viewport, rng: rng, cfg: dpCfg
+      });
+      // [C2] kind 回填：点定位后、covers 定稿后补标签（只补标签，点不动）；open 占比
+      //   由 scripts/test-defense-points.js 断言锁（dpCfg.openRatioMax 起判阈值）。
+      const dpBackfill = backfillDefensePointKinds(
+        templateResult.covers, templateResult.roadJunctions, dp.points,
+        { radius: dpCfg.kindBackfillRadius !== undefined ? dpCfg.kindBackfillRadius : 150, w: w });
+      // 组装 lines 兼容形状：组=防御点（E2 前页面波次派生/清波仍按组数工作）。
+      //   x0/x1 取该点 bucket（与 planDefenseLines 的防线桶同语义，增援 frontRanges 继续成立）；
+      //   center = bucket 中心 = 点 x（planDefensePoints 取 bucket 中心为点 x）。
+      const groups = [];
+      for (let gi = 0; gi < dp.pointCount; gi++) {
+        groups.push(dp.points.slice(gi * dp.spotsPerPoint, (gi + 1) * dp.spotsPerPoint));
+      }
+      defense = {
+        lines: groups.map(function (g, gi) {
+          const mid = g[Math.floor(g.length / 2)];
+          return {
+            x0: dp.buckets[gi].x0, x1: dp.buckets[gi].x1,
+            center: g[0].x,
+            anchors: [{ x: g[0].x, y: mid.y, kind: mid.kind }],
+            lineSpots: g
+          };
+        }),
+        lineCount: dp.pointCount, perAnchor: dp.perPoint, targetCount: dp.targetCount,
+        enabled: true,
+        points: dp.points,
+        kindBackfill: dpBackfill
+      };
+    } else {
+      defense = planDefenseLines({
+        w: w, h: h, playerSpawn: playerSpawn, minPlayerDist: minPlayerDist,
+        diff: diff, diffNorm: diffNorm, viewport: viewport,
+        covers: templateResult.covers, roadJunctions: templateResult.roadJunctions, rng: rng,
+        cfg: defenseCfg
+      });
+    }
+  }
   const targetCount = noEnemies ? 0 : defense.targetCount;
 
   // ==== 2026-10-22 防线墙体（用户反馈「掩体摆放过于随机，要呈现 1 个防线的样子，
@@ -673,10 +939,22 @@ function makeNode(index, rng, env) {
     const _dwCfg = (cfg.defenseWalls || {});
     // 防线道数 = 敌军防线数（同一节奏：玩家清一道防线 = 撞一道墙）
     const _linesWanted = Math.max(1, defense.lineCount || 1);
+    // E3（2026-11-01 [C2] 选项 2）：anchorXs 消费**点坐标**（点驱动工事）——false 路径仍传
+    //   「线中心」（l.center），points 模式传 defense.points 的去重 x（= bucket 中心），
+    //   墙修在防御点正 x 上而非抽象线中心，点与工事重合。
+    const _anchorXs = pointsMode
+      ? (function () {
+          const xs = [];
+          for (const p of (defense.points || [])) {
+            if (xs.length === 0 || xs[xs.length - 1] !== p.x) xs.push(p.x);
+          }
+          return xs;
+        })()
+      : defense.lines.map(function (l) { return l.center; });
     globalThis.placeDefenseWalls(rng, templateResult.covers, {
       worldW: w, worldH: h,
       playerSpawn: playerSpawn,
-      anchorXs: defense.lines.map(function (l) { return l.center; }),
+      anchorXs: _anchorXs,
       roadSegs: (typeof globalThis.roadCoversToSegments === 'function') ? globalThis.roadCoversToSegments(templateResult.covers, Array.isArray(templateResult.roadW) ? (templateResult.roadW[0] || 100) : (templateResult.roadW || 100)) : [],
       linesWanted: _linesWanted
     });
@@ -990,12 +1268,15 @@ function makeNode(index, rng, env) {
     // 收尾：这些段是在 generateNode 的 clearCoversOnRoads **之后**追加的 ⇒ 必须再过一遍，
     //   否则竖墙会压在路面上（test-modes「structure/foliage 不得压路」不变量）。压路的段由
     //   该函数确定性推到路侧，仍留在点位附近。函数未注入的极简 Node 夹具下跳过。
+    //   E3（2026-11-01，探针条件 C1）：points 模式下本块的点位墙 + 上方 placeDefenseWalls 的
+    //   点驱动列墙都发生在 road append 之后，此处一次收尾同时覆盖两个来源（位置在收尾链末端，
+    //   C3 的 clearCoversOnWater 在 strip 内部仍保持最后一环不动）。
     if (typeof clearCoversOnRoads === 'function') {
       clearCoversOnRoads(templateResult.covers, null, { bounds: { minX: 0, minY: 0, maxX: w, maxY: h } });
     }
   }
 
-  return {
+  const node = {
     index: index,
     difficulty: diff,
     quota: quota,            // P-38：击杀配额（null = Boss 节点禁用递增/配额制）
@@ -1029,6 +1310,9 @@ function makeNode(index, rng, env) {
     // B 档②/③（2026-09-23）：防线布局（推进轴 x 区间）与出口线——运行时用于「增援只补前方防线」
     // 与推进式完成判定（nodeClearance）。防线制关闭时为空数组。
     defenseLines: defense.enabled ? defense.lines.map(l => ({ x0: l.x0, x1: l.x1 })) : [],
+    // E1/E3（2026-11-01 PLAN §2.8.5）：防御点（每点 {x,y,kind}）。points 模式（enabled=true）
+    //   持久化 [C2] 回填后的点位；false 路径恒 []（零回归——E2 页面消费后续批次切换）。
+    defensePoints: pointsMode ? defense.points : [],
     // 2026-10-30 MS2 复查（用户指认）：encounter 节点的波次投送落点 = 防线锚点
     //   （敌人守在防线工事上，不是刷在玩家脸上）。anchors 坐标此前只用于生成期
     //   （铺敌拒绝采样 / placeDefenseWalls 对齐），未持久化到 node —— 本键补齐。
@@ -1046,6 +1330,19 @@ function makeNode(index, rng, env) {
     rngState: (typeof rng.getState === 'function') ? rng.getState() : undefined,
     cleared: false
   };
+  // M3-B（2026-11-02）：类型标签——关闭态**不写字段**（零回归，test-map 有负向断言）；
+  //   Boss / 生存节点 kind = null（不参与类型体系，见 specs/combat/node-mission-types.md）。
+  const nkCfg = nodeKindsConfig();
+  if (nkCfg) {
+    // index 0 恒歼灭（教学节点）——但仅对**非战斗类型**的 forceKind 生效：
+    //   强制商店/补给/事件时从 node 1 开始（否则第一屏直接进结算，试玩不到战斗）；
+    //   强制 defend/capture/breakthrough 时 node 0 就是该类型，便于立即试玩。
+    const fk = nkCfg.forceKind;
+    const fkNonCombat = fk === 'shop' || fk === 'supply' || fk === 'event';
+    node.kind = (bossMark || noEnemies) ? null
+      : ((fk && !(index === 0 && fkNonCombat)) ? fk : baseKindFor(templateResult.seed, index, nkCfg));
+  }
+  return node;
 }
 
 // 点是否落在任一掩体内（考虑旋转与多边形 verts；padding 外扩）。
@@ -1320,6 +1617,8 @@ function generateRun(seed, count, env) {
   for (let i = 0; i < nodeCount; i++) {
     nodes.push(makeNode(i, rng, env));
   }
+  // M3-B：链级类型规则（突破置中段 / 非战斗节点替换不追加）。关闭态空转。
+  applyRunKinds(nodes, 0);
   const difficultyLevel = (env && Number.isFinite(env.difficultyLevel)) ? env.difficultyLevel : 0;
   return { nodes: nodes, seed: s, env: env || null, difficultyLevel: difficultyLevel };
 }
@@ -1645,6 +1944,8 @@ function extendRun(run, envOverride) {
   run.env = e;
   run.difficultyLevel = (e && Number.isFinite(e.difficultyLevel)) ? e.difficultyLevel : 0;
   run.nodes.push(next);
+  // M3-B：只对新增节点应用链级规则（已打过的节点不重排语义）。关闭态空转。
+  applyRunKinds(run.nodes, run.nodes.length - 1);
   return next;
 }
 
@@ -1677,6 +1978,26 @@ function scoreNode(node, result) {
     const amt = Math.round(base * 0.2);
     bonuses.push({ label: '据点存活 +20%', amount: amt });
     total += amt;
+  }
+  // M3-E（2026-11-02）：防御节点守点目标存活 bonus（目标被毁则归零；kind 非 defend 不生效）
+  if (node.kind === 'defend' && result.objectiveAlive === true) {
+    const dcfg = (typeof RULES !== 'undefined' && RULES.nodeKinds && RULES.nodeKinds.defend)
+      ? RULES.nodeKinds.defend : {};
+    const pct = Number.isFinite(dcfg.clearBonusPct) ? dcfg.clearBonusPct : 0.2;
+    const amt = Math.round(base * pct);
+    bonuses.push({ label: '守点目标存活 +' + Math.round(pct * 100) + '%', amount: amt });
+    total += amt;
+  }
+  // M3-C（2026-11-02）：任务类型专属结算加成（reward.enabled 才生效；关闭态与现行逐项相等）
+  const kindReward = (typeof RULES !== 'undefined' && RULES.nodeKinds && RULES.nodeKinds.reward
+    && RULES.nodeKinds.reward.enabled === true) ? RULES.nodeKinds.reward : null;
+  if (kindReward && node.kind && kindReward.scoreBonusPct) {
+    const pct = kindReward.scoreBonusPct[node.kind];
+    if (Number.isFinite(pct) && pct > 0) {
+      const amt = Math.round(base * pct);
+      bonuses.push({ label: '任务类型加成 +' + Math.round(pct * 100) + '%', amount: amt });
+      total += amt;
+    }
   }
   return { base: base, bonuses: bonuses, total: total };
 }
@@ -1945,11 +2266,20 @@ if (typeof module !== 'undefined' && module.exports) {
     quotaForDifficulty,
     planDefenseLines,
     defenseLineConfig,
+    // E1/E3（2026-11-01）：防御点选址（纯几何、不依赖 covers）+ kind 回填（[C2] 选项 2）
+    planDefensePoints,
+    defensePointsConfig,
+    backfillDefensePointKinds,
     nodeClearance,
     reinforcementPossible,
     reinforcementTick,
     makeNode,
     generateRun,
+    // M3-B（2026-11-02）：节点任务类型标签（纯函数；关闭态空转）
+    nodeKindsConfig,
+    kindHash,
+    baseKindFor,
+    applyRunKinds,
     generateSurvivalRun,
     placeSupplyStations,
     survivalSupplyConfig,
