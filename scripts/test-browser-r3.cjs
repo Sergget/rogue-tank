@@ -88,6 +88,7 @@ function realErrorsOf(errs) {
 
     browser = await launchBrowser(chromium);
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await page.bringToFront();   // 2026-11-02：整链顺序跑时防后台标签节流/失焦
     const benchErrors = [];
     page.on('console', m => { if (m.type() === 'error') benchErrors.push(m.text()); });
     page.on('pageerror', e => benchErrors.push('PAGEERROR: ' + e.message));
@@ -144,63 +145,69 @@ function realErrorsOf(errs) {
       coverLimitRes.count1 === 2 && coverLimitRes.count2 === 2 && coverLimitRes.after === coverLimitRes.before + 1,
       JSON.stringify(coverLimitRes));
 
-    // 弹种切换（解耦轮：测试台与正式游戏对齐 — 鼠标点击弹种格 + Q/E 环形循环；
-    // 数字键 1~N 直选已摘除，改为点击 data-ammo 格验证 APFSDS/HEC 两条 R-3 弹种路径）
+    // 弹种切换（2026-11-01 改写：「和 battle 相同」）
+    // 旧断言依赖 bench 底部的 14 弹种平铺条 `#ammoIndicator`（含 data-ammo 格）；
+    // 该条已按用户裁定删除，改为 battle 同款 **3 槽弹种栏**（#slot1~3 + .label/.num）。
+    // 因此断言语义同步改为：点击槽位切弹 + Q/E 在 loadout 内环形循环。
+    // 槽内容由面板「弹种槽 Ammo Slots」配置（benchSetLoadout），这里先把槽设成
+    // APFSDS / HE-OP / AP 三种，再验证两条 R-3 弹种路径可达。
     await page.evaluate(() => {
-      const cell = document.querySelector('#ammoIndicator [data-ammo="apfsds"]');
-      if (cell) cell.click();
+      benchSetLoadout(['apfsds', 'blast_he', 'ap']);
+    });
+    await page.waitForTimeout(120);
+
+    await page.evaluate(() => {
+      const btn = document.getElementById('slot1');
+      if (btn) btn.click();
     });
     await page.waitForTimeout(150);
     const ammo5 = await page.evaluate(() => {
-      const el = document.getElementById('ammoIndicator');
-      return { text: el ? el.textContent : '' };
+      const el = document.getElementById('slot1');
+      const num = document.querySelector('#slot1 .num');
+      return { text: el ? el.textContent : '', active: num ? num.textContent : '', key: player.ammoKey };
     });
-    check('点击弹种格切换至 APFSDS（鼠标选择路径）', ammo5.text.includes('APFSDS'), ammo5.text);
+    check('点击弹种槽 1 切换至 APFSDS（鼠标选择路径）',
+      ammo5.text.includes('APFSDS') && ammo5.key === 'apfsds', JSON.stringify(ammo5));
 
     await page.evaluate(() => {
-      const cell = document.querySelector('#ammoIndicator [data-ammo="blast_he"]');
-      if (cell) cell.click();
+      const btn = document.getElementById('slot2');
+      if (btn) btn.click();
     });
     await page.waitForTimeout(150);
     const ammo6 = await page.evaluate(() => {
-      const el = document.getElementById('ammoIndicator');
-      return { text: el ? el.textContent : '' };
+      const el = document.getElementById('slot2');
+      return { text: el ? el.textContent : '', key: player.ammoKey };
     });
-    check('点击弹种格切换至 BLAST_HE（2026-09-14 hec 移除后由 blast_he 接替）', ammo6.text.includes('HE-OP') || ammo6.text.includes('超压榴弹'), ammo6.text);
+    check('点击弹种槽 2 切换至 HE-OP（2026-09-14 hec 移除后由 blast_he 接替）',
+      ammo6.text.includes('HE-OP') || ammo6.text.includes('超压榴弹'), ammo6.text);
 
-    // Q 键环形循环（与正式游戏同语义）
-    // 2026-10-21 修复（陈旧断言）：激活格判定由 `style.fontWeight==='700'` 改为 `.active` 类——
-    //   #3（2026-10-20）弹种条收敛到共享 renderAmmoIndicator 后不再输出内联 fontWeight，
-    //   旧写法会恒取到 null（`cells.find(...)` 返回 undefined）⇒ 本条与下面两条连锁失效。
+    // Q 键环形循环（与正式游戏同语义：只在 loadout 内循环）
     const qRes = await page.evaluate(() => {
-      const cells = Array.from(document.querySelectorAll('#ammoIndicator [data-ammo]'));
+      const cells = Array.from(document.querySelectorAll('#abilityBtns .ammo-slot'));
       const active = cells.find(c => c.classList.contains('active'));
-      return { active: active ? active.getAttribute('data-ammo') : null, total: cells.length };
+      return { active: active ? active.querySelector('.label').textContent : null, total: cells.filter(c => c.style.display !== 'none').length };
     });
     await page.keyboard.press('q');
     await page.waitForTimeout(150);
     const qRes2 = await page.evaluate(() => {
-      const cells = Array.from(document.querySelectorAll('#ammoIndicator [data-ammo]'));
+      const cells = Array.from(document.querySelectorAll('#abilityBtns .ammo-slot'));
       const active = cells.find(c => c.classList.contains('active'));
-      return { active: active ? active.getAttribute('data-ammo') : null };
+      return { active: active ? active.querySelector('.label').textContent : null };
     });
     check('Q 键环形切换弹种（与正式游戏同语义）',
       qRes.active && qRes2.active && qRes.active !== qRes2.active,
-      `${qRes.active} -> ${qRes2.active} (total=${qRes.total})`);
+      `${qRes.active} -> ${qRes2.active} (slots=${qRes.total})`);
 
-    // #C5a（2026-09-19）：弹种格方向提示与键位同向——激活格的下一格提示 E（ammoNext='e'）、
-    // 上一格提示 Q（旧实现颠倒：下一格标 Q，按提示按键得到反向弹种）。
-    const hintRes = await page.evaluate(() => {
-      const cells = Array.from(document.querySelectorAll('#ammoIndicator [data-ammo]'));
-      const idx = cells.findIndex(c => c.classList.contains('active'));
-      if (idx < 0 || cells.length < 3) return null;
-      const n = cells.length;
-      const nextHint = cells[(idx + 1) % n].textContent.trim()[0];
-      const prevHint = cells[(idx - 1 + n) % n].textContent.trim()[0];
-      return { nextHint, prevHint };
-    });
-    check('弹种格方向提示与键位同向（下一格=E / 上一格=Q）',
-      hintRes && hintRes.nextHint === 'E' && hintRes.prevHint === 'Q', JSON.stringify(hintRes));
+    // 2026-11-01：底部弹种条已删除 —— **负向断言**锁死，防止有人把 14 弹种平铺条加回来。
+    const ammoBarGone = await page.evaluate(() => ({
+      hasBar: !!document.getElementById('ammoIndicator'),
+      hasSlots: document.querySelectorAll('#abilityBtns .ammo-slot').length,
+      hasBottomHud: !!document.getElementById('benchBottomHud'),
+    }));
+    check('负向：底部弹种条 #ammoIndicator 已删除（不再是 14 弹种平铺）',
+      !ammoBarGone.hasBar, JSON.stringify(ammoBarGone));
+    check('弹种槽 = 3 个且底部 HUD 存在（battle 同款结构）',
+      ammoBarGone.hasSlots === 3 && ammoBarGone.hasBottomHud, JSON.stringify(ammoBarGone));
 
     // #C5a：G/V 键语义与正式游戏统一——G=战术炮击（logOverlay 出现炮击日志，callStrike 链路通）
     await page.keyboard.press('g');
@@ -222,6 +229,7 @@ function realErrorsOf(errs) {
     // ---- 2. 正式游戏页（tank_battle.html）基本加载验证 ----
     const battleErrors = [];
     const battlePage = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await battlePage.bringToFront();
     battlePage.on('console', m => { if (m.type() === 'error') battleErrors.push(m.text()); });
     battlePage.on('pageerror', e => battleErrors.push('PAGEERROR: ' + e.message));
 

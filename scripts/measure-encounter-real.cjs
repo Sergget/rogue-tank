@@ -120,6 +120,11 @@ async function ensureServer() {
       const T = window.__TEST__;
       window.__LOG = [];
       window.__DONE = null;
+      // 2026-10-31：新增单调时钟起点。旧口径用 `enc.elapsed` 当采样时间轴，但玩家阵亡 →
+      //   finishNode 把 battleEncounter 置 null ⇒ 之后每个采样的 t 都变 0 ⇒ total=0、
+      //   打印出「固定开销 -48.8s」这种不可能的负数（2026-10-31 实测踩到）。
+      //   改用页面自己的 performance.now() 单调时钟：与导演实例解耦，玩家死亡/切节点都不受影响。
+      window.__T0 = performance.now();
       // 2026-10-30：开火计数改为包装 firePrimaryShell（与 test-browser-r4 同款）。
       //   旧写法数 `p._lastFireReject === null` —— 该字段只有 dev 路径才写，正式页面恒 undefined
       //   ⇒ 永远数到 0，无法区分「没开火」和「开了没打中」。
@@ -196,7 +201,9 @@ async function ensureServer() {
           const p = T2.player();
           const es = T2.entities().filter(e => e.team === 'enemy' && e.hp > 0);
           window.__LOG.push({
-            t: Math.round((enc ? enc.elapsed : 0) * 10) / 10,
+            // 2026-10-31：时间轴改用单调时钟（见 __T0 注释）——玩家阵亡后 enc 为 null 时
+            //   仍能给出正确采样时刻，total 不再塌成 0。
+            t: Math.round((performance.now() - (window.__T0 || 0)) / 100) / 10,
             phase: enc ? enc.phase : 'none', wave: enc ? enc.waveIndex : -1,
             waveCount: enc ? enc.waveCount : 0,
             enemies: es.length, hp: p ? Math.round(p.hp) : -1,
@@ -209,7 +216,8 @@ async function ensureServer() {
           if ((encDone || playerDead) && !window.__DONE) {
             window.__DONE = {
               outcome: playerDead ? 'player-dead' : enc.phase,
-              elapsed: enc ? enc.elapsed : 0,
+              // 2026-10-31：结局行也用单调时钟（enc 为 null 时旧口径会写 0，结局显示「0分0秒」）
+              elapsed: (performance.now() - (window.__T0 || 0)) / 1000,
               kills: enc ? enc.kills : 0,
               waveIndex: enc ? enc.waveIndex : -1,
               waveCount: enc ? enc.waveCount : 0,

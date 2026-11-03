@@ -228,6 +228,15 @@ function mountDevPanel(host) {
       '</div>' + liveSec +
     '</div>' +
     '<div class="dev-page" data-page="cards" style="display:none;">' +
+      // 2026-11-01（用户需求「卡牌选择器考虑通用化，完成后接入 battle 开发者面板的卡牌选择器」）：
+      //   顶部新增「分类下拉」选择器（js/tank_card_picker.js，与 bench 共用同一模块）——
+      //   按 主武器与升级 / 副武器与升级 / 技能与升级〔内分主动·被动〕/ 常规升级 分类，
+      //   并带 应用 / 撤销一张 / 清除全部 三键。
+      //   下方保留**原有的搜索 + 折叠全列表**（`/` 聚焦搜索）：它是"我要找某个具体卡"的路径，
+      //   与下拉的"我要按类别找"互补，两者并存而不是互相替换。
+      '<div class="dev-sec"><h4>按分类选择（与测试台同源）</h4>' +
+        '<div id="devCardPickerByGroup"></div>' +
+      '</div>' +
       '<div class="dev-sec"><h4>卡牌选择（点击即应用 · `/` 聚焦搜索）</h4>' +
         '<input id="devCardSearch" class="dev-search" type="text" placeholder="搜索名称 / 稀有度 / ID / 描述…" autocomplete="off">' +
         '<div class="card-list" id="devCardPicker"></div>' +
@@ -291,9 +300,36 @@ function mountDevPanel(host) {
     devActiveTab = tab;
     Array.prototype.forEach.call(wrap.querySelectorAll('.dev-tab'), function (b) { b.classList.toggle('active', b.dataset.tab === tab); });
     Array.prototype.forEach.call(wrap.querySelectorAll('.dev-page'), function (p) { p.style.display = (p.dataset.page === tab) ? 'block' : 'none'; });
-    if (tab === 'cards') { renderDevCards(); renderDevOwnedCards(); }
+    if (tab === 'cards') { renderDevCards(); renderDevOwnedCards(); if (cardPickerApi) cardPickerApi.refresh(); }
     if (tab === 'params') { renderDevMods(); syncDevInputs(); }
     if (tab === 'switch' && H.onExtraSetup) H.onExtraSetup(wrap);
+  }
+
+  // ---- 2026-11-01：按分类选择（js/tank_card_picker.js，与 bench 测试台共用同一模块） ----
+  //   bench 与 battle 的差异全部经 opts 注入：卡池形状、持有数、描述求值、应用/撤销/清除回调。
+  //   本块只做**接线**，分类口径与 DOM 构建都在共享模块里（不在这里复制一份）。
+  let cardPickerApi = null;
+  function mountDevCardPickerByGroup() {
+    const host = $('devCardPickerByGroup');
+    if (!host) return;
+    // 跨模块全局一律经 globalThis 读取（与 tank_hud.js 同惯例；types/globals.d.ts 已声明）
+    const TP = (typeof globalThis !== 'undefined') ? globalThis.TankCardPicker : null;
+    if (!TP || typeof TP.mountCardPicker !== 'function') {
+      host.textContent = '分类选择器未能加载，请刷新页面；若持续出现请反馈';
+      return;
+    }
+    cardPickerApi = TP.mountCardPicker(host, {
+      cards: getCardPool() || [],
+      idPrefix: 'devCp',
+      heldCount: function (c) { return devCardHeldCount(c.id); },
+      describe: function (c) { return (typeof formatCardDesc === 'function') ? formatCardDesc(c) : (c.desc || ''); },
+      onApply: function (c) { pickDevCard(c); renderDevCards(); renderDevOwnedCards(); renderDevMods(); syncDevInputs(); },
+      onRollback: function (c) { rollbackDevCard(c.id); renderDevCards(); renderDevOwnedCards(); renderDevMods(); syncDevInputs(); },
+      onClear: function () {
+        const btn = /** @type {any} */ ($('devClearCardsBtn'));
+        if (btn && typeof btn.click === 'function') btn.click();
+      }
+    });
   }
   Array.prototype.forEach.call(wrap.querySelectorAll('.dev-tab'), function (b) {
     b.addEventListener('click', function () { showDevTab(b.dataset.tab); sound('ui'); });
@@ -748,7 +784,12 @@ function mountDevPanel(host) {
     renderDevMods();
     updateDevParams();
     updateSolution();
+    if (cardPickerApi) cardPickerApi.refresh();
   }
+
+  // 2026-11-01：挂载「按分类选择」选择器（与 bench 测试台同源）。
+  //   放在返回值之前调用一次；卡池在 battle 开局后才就绪，故 refreshAll 里再刷一次。
+  mountDevCardPickerByGroup();
 
   return {
     el: wrap,
