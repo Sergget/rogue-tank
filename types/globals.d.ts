@@ -575,6 +575,10 @@ declare var ABILITY_LABELS: Record<string, string>;
 // 覆盖层视图模型（js/tank_screens.js，P-29）
 declare var SCREENS: string[];
 declare var TankScreens: any;
+// 2026-11-01：两个新的共享 UI 模块（底部 HUD 渲染层 / 通用卡牌选择器），
+//   与 TankHud 同口径——浏览器端挂 globalThis，页面与 devpanel 通过它们引用。
+declare var TankHudPanel: any;
+declare var TankCardPicker: any;
 declare function formatStamp(ms: number): string;
 declare function tankSummary(spec: any): string;
 declare function deploymentReady(profile: any, tankListData: any): boolean;

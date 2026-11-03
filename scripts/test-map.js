@@ -712,6 +712,167 @@ console.log('--- B 档②③ 增援前方防线 + 推进式完成 ---');
   ok(survNodes > 0 && survOutpost === 0, `负向：生存模式 ${survNodes} 个节点无据点友军（实际 ${survOutpost}）`);
 }
 
+// ================= 2026-11-02 M3-A：节点任务类型契约层（RULES.nodeKinds，全部缺省关闭） =================
+// 设计口径 specs/combat/node-mission-types.md；本段只锁契约，不锁行为（M3-B 起才有 node.kind）。
+{
+  const NK = RULES.nodeKinds;
+  ok(!!NK && typeof NK === 'object', 'M3-A：RULES.nodeKinds 契约块存在');
+  ok(NK.enabled === false, 'M3-A：总开关缺省 false（零回归）');
+  const want = ['exterminate', 'defend', 'capture', 'breakthrough', 'shop', 'supply', 'event'];
+  ok(Array.isArray(NK.kinds) && NK.kinds.length === want.length
+    && want.every(k => NK.kinds.includes(k)), 'M3-A：kind 枚举白名单 = 7 型且无缺漏');
+  ok(new Set(NK.kinds).size === NK.kinds.length, 'M3-A：kind 枚举无重复');
+  ok(!NK.kinds.includes('hunt') && !NK.kinds.includes('escort'),
+    'M3-A 负向：长期池类型（hunt/escort）不得进入当前枚举');
+  for (const k of want) {
+    ok(NK[k] && NK[k].enabled === false, `M3-A：分型 ${k}.enabled 存在且缺省 false`);
+  }
+  ok(Number.isFinite(NK.defend.wavesMin) && Number.isFinite(NK.defend.wavesMax)
+    && NK.defend.wavesMin <= NK.defend.wavesMax, 'M3-A：防御波次区间合法（3~4）');
+  ok(Number.isFinite(NK.defend.ringSectorsMin) && Number.isFinite(NK.defend.ringSectorsMax)
+    && NK.defend.ringSectorsMin <= NK.defend.ringSectorsMax, 'M3-A：防御环带方向区间合法（2~4）');
+  ok(Number.isFinite(NK.capture.pointsMin) && Number.isFinite(NK.capture.pointsMax)
+    && NK.capture.pointsMin <= NK.capture.pointsMax, 'M3-A：占领点数区间合法（2~3）');
+  ok(Number.isFinite(NK.capture.counterAttackAt) && NK.capture.counterAttackAt > 0 && NK.capture.counterAttackAt < 1,
+    'M3-A：占领反冲击触发点 ∈ (0,1)（0.5）');
+  ok(Number.isFinite(NK.breakthrough.timeLimitSeconds) && NK.breakthrough.timeLimitSeconds > 0,
+    'M3-A：突破时限为正数');
+  ok(Number.isInteger(NK.nonCombat.replaceEvery) && NK.nonCombat.replaceEvery >= 2,
+    'M3-A：非战斗替换间隔 ≥2');
+  ok(Number.isFinite(NK.nonCombat.maxSharePct) && NK.nonCombat.maxSharePct > 0 && NK.nonCombat.maxSharePct <= 1,
+    'M3-A：非战斗占比上限 ∈ (0,1]');
+  // 零回归：关闭态下 run 链的节点不得带 kind 字段（M3-B 接线后本断言仍须成立）
+  let leaked = 0;
+  for (const sd of [1, 42, 4242]) {
+    const r = generateRun(sd, 5);
+    for (const n of r.nodes) if (n.kind !== undefined) leaked++;
+  }
+  ok(leaked === 0, `M3-A 负向：关闭态下 node.kind 不得出现（实际 ${leaked} 个）`);
+}
+
+// ================= 2026-11-02 M3-B：节点链合成（node.kind / 突破中段 / 非战斗替换） =================
+// 设计口径 specs/combat/node-mission-types.md；关闭态零回归由 M3-A 段锁，本段验开启态语义。
+{
+  const NK = RULES.nodeKinds;
+  const snap = JSON.parse(JSON.stringify(NK));
+  const reset = () => {
+    for (const k of Object.keys(snap)) {
+      NK[k] = (snap[k] && typeof snap[k] === 'object') ? JSON.parse(JSON.stringify(snap[k])) : snap[k];
+    }
+  };
+  const isNC = k => k === 'shop' || k === 'supply' || k === 'event';
+  try {
+    // 关闭态对照
+    reset();
+    const closed = generateRun(4242, 6);
+    ok(closed.nodes.every(n => n.kind === undefined), 'M3-B 关闭态：node.kind 仍不存在');
+
+    // 总开关开、分型全关：全员歼灭 / Boss null / 几何指纹不变
+    NK.enabled = true;
+    const open = generateRun(4242, 6);
+    ok(open.nodes.every(n => n.kind === 'exterminate' || n.kind === null),
+      'M3-B：总开关开且分型全关 → 只有 exterminate / Boss null');
+    ok(open.nodes.filter(n => n.boss).every(n => n.kind === null),
+      'M3-B：Boss 节点 kind === null（不参与类型体系）');
+    ok(open.nodes.every((n, i) => n.seed === closed.nodes[i].seed
+      && n.w === closed.nodes[i].w && n.h === closed.nodes[i].h
+      && n.covers.length === closed.nodes[i].covers.length),
+      'M3-B 零回归：开/关总开关的地图几何逐节点一致（kind 不消耗 rng）');
+    ok(open.nodes.length === closed.nodes.length, 'M3-B：链长不因类型体系变化');
+
+    // 非战斗替换：每 4 个节点替换 1 个
+    NK.nonCombat.enabled = true;
+    const nc = generateRun(4242, 8);
+    const nonCombat = nc.nodes.filter(n => n && isNC(n.kind));
+    ok(nonCombat.length >= 1, `M3-B：非战斗节点已注入（实际 ${nonCombat.length}）`);
+    ok(nc.nodes.every((n, i) => isNC(n.kind) ? ((i + 1) % 4 === 0 && i > 0 && !n.boss) : true),
+      'M3-B：非战斗节点只落在 (i+1)%4===0 的非 Boss 位、且不是 index 0');
+    ok(nonCombat.length <= Math.max(1, Math.floor(nc.nodes.length * NK.nonCombat.maxSharePct)),
+      'M3-B：非战斗节点占比 ≤ maxSharePct');
+    ok(nc.nodes.length === 8, 'M3-B：替换不追加（请求 8 节点，链长仍为 8）');
+    NK.nonCombat.enabled = false;
+    const ncOff = generateRun(4242, 8);
+    ok(ncOff.nodes.every(n => !isNC(n.kind)),
+      'M3-B 负向：nonCombat.enabled=false 时不得出现非战斗节点');
+
+    // 突破置中段
+    NK.breakthrough.enabled = true;
+    const bt = generateRun(4242, 6);
+    const bts = bt.nodes.filter(n => n.kind === 'breakthrough');
+    const combatNodes = bt.nodes.filter(n => n.kind !== null && !isNC(n.kind));
+    ok(bts.length === 1, `M3-B：突破节点恰好 1 个（实际 ${bts.length}）`);
+    ok(bts.length === 1 && bts[0] === combatNodes[Math.floor((combatNodes.length - 1) / 2)],
+      'M3-B：突破落在战斗节点中段');
+    NK.breakthrough.enabled = false;
+
+    // 防御 / 占领抽样
+    NK.defend.enabled = true; NK.defend.share = 0.5;
+    NK.capture.enabled = true; NK.capture.share = 0.5;
+    let seenD = 0, seenC = 0;
+    for (const sd of [1, 7, 42, 99, 4242]) {
+      const r = generateRun(sd, 6);
+      for (const n of r.nodes) {
+        if (n.kind === 'defend') seenD++;
+        if (n.kind === 'capture') seenC++;
+      }
+      ok(r.nodes[0].kind === 'exterminate', `M3-B：index 0 恒歼灭（seed ${sd}）`);
+    }
+    ok(seenD > 0 && seenC > 0, `M3-B：防御/占领抽样生效（defend ${seenD} / capture ${seenC}）`);
+
+    // 确定性
+    const a = generateRun(777, 6).nodes.map(n => n.kind);
+    const b = generateRun(777, 6).nodes.map(n => n.kind);
+    ok(JSON.stringify(a) === JSON.stringify(b), 'M3-B：同 seed 类型序列逐项一致');
+
+    // 开发期强制类型（?forceKind=）：战斗类型从 node 0 起生效；非战斗类型从 node 1 起
+    NK.forceKind = 'defend';
+    const forced = generateRun(4242, 6);
+    ok(forced.nodes.every(n => n.boss ? n.kind === null : n.kind === 'defend'),
+      'M3-B：forceKind=defend 从 node 0 起强制所有非 Boss 节点');
+    NK.forceKind = 'shop';
+    const forcedShop = generateRun(4242, 6);
+    ok(forcedShop.nodes[0].kind === 'exterminate'
+      && forcedShop.nodes.slice(1).every(n => n.boss ? n.kind === null : n.kind === 'shop'),
+      'M3-B：forceKind=shop 保留 node 0 为歼灭、其余为非战斗');
+    NK.forceKind = null;
+  } finally {
+    reset();
+  }
+}
+
+// ================= 2026-11-02 M3-C：任务类型专属结算加成（scoreNode） =================
+{
+  const R = RULES.nodeKinds.reward;
+  const snap = JSON.parse(JSON.stringify(R));
+  try {
+    const defNode = { index: 1, kind: 'defend', outpost: null };
+    const extNode = { index: 1, kind: 'exterminate', outpost: null };
+    R.enabled = false;
+    const offDef = scoreNode(defNode, {});
+    const offExt = scoreNode(extNode, {});
+    ok(offDef.total === offExt.total, 'M3-C 关闭态：类型不影响结算（零回归）');
+    ok(offDef.bonuses.length === offExt.bonuses.length, 'M3-C 关闭态：bonus 条目数不变');
+
+    R.enabled = true;
+    const onDef = scoreNode(defNode, {});
+    ok(onDef.total > offExt.total, `M3-C：defend 类型加成生效（${onDef.total} > ${offExt.total}）`);
+    ok(onDef.bonuses.some(b => b.label.indexOf('任务类型') === 0), 'M3-C：加成条目带「任务类型」标签');
+    ok(scoreNode(extNode, {}).total === offExt.total, 'M3-C 负向：歼灭类型不得获得加成');
+    ok(scoreNode({ index: 1, kind: null }, {}).total === offExt.total, 'M3-C 负向：kind=null（Boss/生存）不获得加成');
+
+    // M3-E：防御节点的守点目标存活 bonus（与 M3-C 的类型加成独立，故先把 reward 关掉）
+    R.enabled = false;
+    const objOn = scoreNode({ index: 1, kind: 'defend', outpost: null }, { objectiveAlive: true });
+    const objOff = scoreNode({ index: 1, kind: 'defend', outpost: null }, { objectiveAlive: false });
+    ok(objOn.total > objOff.total, 'M3-E：守点目标存活 ⇒ 额外 bonus');
+    ok(objOff.total === offExt.total, 'M3-E 负向：目标被毁 ⇒ 存活 bonus 归零');
+  } finally {
+    Object.keys(snap).forEach(k => {
+      R[k] = (snap[k] && typeof snap[k] === 'object') ? JSON.parse(JSON.stringify(snap[k])) : snap[k];
+    });
+  }
+}
+
 console.log('test-map: 完成所有检查');
 if (fails === 0) console.log('test-map: 全部通过');
 else console.error(`test-map: ${fails} 项失败`);

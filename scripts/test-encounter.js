@@ -831,5 +831,340 @@ section('⑭ 防线式波次：mode=lines 节拍（lineHold 等玩家推进）')
   }
 }
 
+// ================================================================ ⑮ 波↔防线绑定同源（2026-10-30 P1-F）
+// 锁的语义（为什么必须有这一段，见 encounterLineXFor 的 rationale 注释）：
+//   ① encounterLineXFor 是「波 i 绑定哪道防线」的唯一数据源——waveIndex 超界钳到**末元素**
+//      （不是取模折回），永不返回 undefined；负值/NaN/undefined 防御到第 0 波；lineXs 空 → null。
+//   ② telegraph.lineX 与 spawn.lineX 都 === encounterLineXFor(enc, 该波 waveIndex) —— 同源证明。
+//   ③ lines 模式 lineHold 的推进判据确实用同一个函数：构造 waveIndex 超界（波数 > 防线数）
+//      的场景，其推进阈值与直接调用 encounterLineXFor 的返回值逐 px 一致，并与页面旧口径
+//      `waveIdx % lineCount`（会把超界的波折回第一道防线）**显式分叉**。
+//   ④ 负向：用内存态变异 enc.lineXs（改短 / 清空，**用完即恢复**）证明「lineXs 退化为空 ⇒
+//      lineHold 退化为清波即发、不软锁」这条保护真在生效——保护被删时下面那组断言会当场变红。
+//      本位移 CallSign 不改 RULES 全局（⑨/⑫/⑭e 那种 RULES 变异哨兵不适用于「运行时退化」语义）。
+section('⑮ 波↔防线绑定同源：encounterLineXFor（2026-10-30 P1-F）');
+{
+  const LINE_X_FOR = ENC.encounterLineXFor;
+  ok(typeof LINE_X_FOR === 'function', '⑮ encounterLineXFor 已导出（module.exports 纯增补，既有导出未删）');
+
+  // --- ⑮a 越界钳位与入参防御 ---
+  {
+    const enc = createEncounter({ seed: 101, mode: 'lines', lineXs: [800, 1200, 1500] });
+    eq(LINE_X_FOR(enc, 0), 800, '⑮a waveIndex 0 → lineXs[0]');
+    eq(LINE_X_FOR(enc, 1), 1200, '⑮a waveIndex 1 → lineXs[1]');
+    eq(LINE_X_FOR(enc, 2), 1500, '⑮a waveIndex 2 → lineXs[2]');
+    eq(LINE_X_FOR(enc, 3), 1500, '⑮a waveIndex 3（超界 1 位）钳到末元素 1500');
+    eq(LINE_X_FOR(enc, 99), 1500, '⑮a waveIndex 99（远超防线数）仍钳到末元素');
+    let bad = 0;
+    for (let i = 0; i < 40; i++) if (typeof LINE_X_FOR(enc, i) !== 'number') bad++;
+    eq(bad, 0, '⑮a 波数远多于防线数：0~39 全部取到数字（无越界 / undefined）');
+    eq(LINE_X_FOR(enc, -1), 800, '⑮a waveIndex −1 防御到第 0 波（不是 lineXs[-1]=undefined）');
+    eq(LINE_X_FOR(enc, NaN), 800, '⑮a waveIndex NaN 防御到第 0 波');
+    eq(LINE_X_FOR(enc, undefined), 800, '⑮a waveIndex undefined 防御到第 0 波');
+    const emptied = createEncounter({ seed: 101, mode: 'lines', lineXs: [] });
+    eq(LINE_X_FOR(emptied, 0), null, '⑮a lineXs 空数组 → null（退化路径的唯一信号）');
+    const noLines = createEncounter({ seed: 101, mode: 'lines' });
+    eq(LINE_X_FOR(noLines, 2), null, '⑮a 未传 lineXs → null');
+  }
+
+  // --- ⑮b telegraph / spawn 事件的 lineX 与该波 encounterLineXFor 同值（同源证明） ---
+  {
+    // 三波 vs 两道防线 ⇒ 第 3 波（index 2）必然超界，正好同时验证「钳末 ≠ 取模」
+    const rules = Object.assign({}, CFG, {
+      waves: [
+        { id: 'X1', label: '一', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'X2', label: '二', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'X3', label: '三', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+      ],
+    });
+    const p = play({ seed: 102, mode: 'lines', rules, lineXs: [800, 1200], killAfter: 1,
+      ctx0: { playerPos: { x: 2000, y: 432 } } });   // 玩家一路在最前 ⇒ 每波清完立即发下一波
+    const tgs = findAll(p.log, 'telegraph');
+    const sps = findAll(p.log, 'spawn');
+    eq(tgs.length, 3, '⑮b 三波各一条 telegraph');
+    eq(sps.length, 3, '⑮b 三波各一条 spawn');
+    for (let i = 0; i < 3; i++) {
+      const want = LINE_X_FOR(p.enc, i);
+      eq(tgs[i].lineX, want, `⑮b telegraph[${i}].lineX === encounterLineXFor(enc, ${i})`);
+      eq(sps[i].lineX, want, `⑮b spawn[${i}].lineX === encounterLineXFor(enc, ${i})`);
+      eq(tgs[i].lineX, sps[i].lineX, `⑮b 第 ${i + 1} 波 telegraph 与 spawn 的 lineX 同值（同源）`);
+    }
+    // 超界波的取值：**钳末 1200**，不是页面旧口径 `waveIdx % lineCount`(2 % 2 = 0) ⇒ 800
+    eq(tgs[2].lineX, 1200, '⑮b 第 3 波（index 2 超界）lineX = 1200（钳末）');
+    ok(tgs[2].lineX !== 800, '⑮b 第 3 波 lineX ≠ 800（与旧 `waveIdx % lineCount` 口径显式分叉）');
+    eq(p.enc.boundLineX, 1200, '⑮b 末波进 enterTelegraph 时写入 boundLineX=1200 且可读');
+    const fresh = createEncounter({ seed: 103, mode: 'lines', lineXs: [800, 1200] });
+    eq(fresh.boundLineX, null, '⑮b 创建时 boundLineX 初值 null（还没进任何一波）');
+    updateEncounter(fresh, 0.1, mkCtx());
+    eq(fresh.boundLineX, 800, '⑮b 首帧补发 telegraph 时按 waveIndex 0 写入 boundLineX');
+  }
+
+  // --- ⑮c lineHold 推进判据确实用同一个函数（构造 waveIndex 超界场景） ---
+  {
+    const rules4 = Object.assign({}, CFG, {
+      waves: [
+        { id: 'Y1', label: '一', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'Y2', label: '二', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'Y3', label: '三', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'Y4', label: '四', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+      ],
+    });
+    /** 清掉当前这一波并返回本帧事件：telegraph → spawn → 敌人存活 → 清空。 */
+    const clearWaveOnce = (enc, ctx) => {
+      updateEncounter(enc, 0.1, ctx);          // 补发 telegraph（或 lineHold → 下一波 telegraph）
+      updateEncounter(enc, 2.0, ctx);          // telegraph 到点 → spawn
+      ctx.enemyAlive = 1;
+      updateEncounter(enc, 0.5, ctx);
+      ctx.enemyAlive = 0;
+      return updateEncounter(enc, 0.1, ctx);   // wave-clear → lineHold / victory
+    };
+    // 4 波 vs 2 道防线 ⇒ 清掉第 3 波（index 2）后进 lineHold，此时 waveIndex=2 **超界**
+    const enc = createEncounter({ seed: 104, mode: 'lines', rules: rules4, lineXs: [800, 1200] });
+    const ctx = mkCtx({ playerPos: { x: 2000, y: 432 } });   // 一路在最前：连清三波
+    clearWaveOnce(enc, ctx);                     // W1
+    clearWaveOnce(enc, ctx);                     // W2
+    const evc = clearWaveOnce(enc, ctx);         // W3
+    ok(evc.some(e => e.type === 'wave-clear'), '⑮c 第 3 波 wave-clear');
+    eq(enc.waveIndex, 2, '⑮c 停在 waveIndex=2（超界：lineXs 只有 2 道防线）');
+    eq(enc.phase, 'lineHold', '⑮c 第 3 波清完进 lineHold');
+    const bound = LINE_X_FOR(enc, enc.waveIndex);
+    eq(bound, 1200, '⑮c 超界 waveIndex 绑定防线 = 1200（钳末，非取模的 800）');
+    const threshold = bound - enc.cfg.lineAdvanceMargin;
+    eq(threshold, 800, '⑮c 该函数给出的阈值 = 1200 − 400 = 800');
+    ctx.playerPos = { x: threshold - 200, y: 432 };          // 600 < 800
+    ok(!updateEncounter(enc, 0.1, ctx).some(e => e.type === 'telegraph'),
+      '⑮c 玩家 600 < 阈值 800 ⇒ 不发波（行为与 encounterLineXFor 返回值一致）');
+    eq(enc.phase, 'lineHold', '⑮c 未过线仍停在 lineHold');
+    ctx.playerPos = { x: threshold - 1, y: 432 };            // 799，差 1px
+    ok(!updateEncounter(enc, 0.1, ctx).some(e => e.type === 'telegraph'),
+      '⑮c 玩家 799（差 1px）⇒ 不发波（阈值精确到 px，不是「差不多就发」）');
+    ctx.playerPos = { x: threshold, y: 432 };                // 800，恰好过线
+    ok(updateEncounter(enc, 0.1, ctx).some(e => e.type === 'telegraph'),
+      '⑮c 玩家 800 ≥ 800 ⇒ 同帧发第 4 波 telegraph（阈值与函数返回值逐 px 一致）');
+    eq(enc.waveIndex, 3, '⑮c waveIndex 推进到 3');
+    // 敏感性说明（写在注释里防误读）：若 lineHold 退回旧口径 `waveIdx % lineCount`，
+    //   这里第 3 波会绑到 lineXs[0]=800 ⇒ 阈值 400，上面「玩家 600 不发波」立刻变红。
+  }
+
+  // --- ⑮d 负向：lineXs 内存态变异 ⇒ 证明「退化为空仍不软锁」的保护真在生效 ---
+  {
+    const rules3 = Object.assign({}, CFG, {
+      waves: [
+        { id: 'Z1', label: '一', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'Z2', label: '二', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+        { id: 'Z3', label: '三', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+      ],
+    });
+    const enc = createEncounter({ seed: 105, mode: 'lines', rules: rules3, lineXs: [800, 1200] });
+    const savedRef = enc.lineXs;
+    const ctx = mkCtx({ playerPos: { x: 2000, y: 432 } });
+    const clearWaveOnce = (e, c) => {
+      updateEncounter(e, 0.1, c); updateEncounter(e, 2.0, c);
+      c.enemyAlive = 1; updateEncounter(e, 0.5, c); c.enemyAlive = 0;
+      return updateEncounter(e, 0.1, c);
+    };
+    clearWaveOnce(enc, ctx);                    // W1 清 → lineHold（waveIndex=0）
+    eq(enc.phase, 'lineHold', '⑮d 构造成功：W1 清完进 lineHold');
+    eq(enc.waveIndex, 0, '⑮d 停在 waveIndex=0');
+
+    // (1) 基线：防线数据完好 + 玩家没推进 ⇒ **不发波**（这才是「防线驱动」的本意）
+    ctx.playerPos = { x: 100, y: 432 };
+    ok(!updateEncounter(enc, 0.1, ctx).some(e => e.type === 'telegraph'),
+      '⑮d 基线：玩家 100 远未过防线（阈值 400）⇒ 不发波');
+    eq(enc.phase, 'lineHold', '⑮d 基线：停在 lineHold 等玩家推进');
+
+    // (2) 改短：lineXs 缩到一道 ⇒ 绑定值仍是该道（说明判据**实时读数组**，不是创建时的快照）
+    try {
+      enc.lineXs = [1400];
+      eq(LINE_X_FOR(enc, enc.waveIndex), 1400, '⑮d 变异成功：改短为 [1400] 后绑定值随之变化');
+      ctx.playerPos = { x: 999, y: 432 };       // 阈值 = 1400−400 = 1000，差 1px
+      ok(!updateEncounter(enc, 0.1, ctx).some(e => e.type === 'telegraph'),
+        '⑮d 改短后：阈值随新数组重算为 1000，玩家 999 仍不发波');
+      ctx.playerPos = { x: 1000, y: 432 };
+      ok(updateEncounter(enc, 0.1, ctx).some(e => e.type === 'telegraph'),
+        '⑮d 改短后：玩家 1000 ≥ 1000 ⇒ 发波（判据与新 lineXs 一致，非旧快照）');
+    } finally {
+      enc.lineXs = savedRef;
+    }
+    eq(enc.lineXs, savedRef, '⑮d 变异已恢复：enc.lineXs 还原为原数组引用');
+    eq(enc.lineXs.join(','), '800,1200', '⑮d 变异已恢复：内容仍是 800,1200');
+
+    // (3) 负向核心：清空 lineXs（页面没传锚点 / 锚点全失效的退化场景）
+    //     ↔ 若 lineHold 的 `lineX === null ||` 保护被删，这里会**永远不发波 ⇒ 软锁**，
+    //        下面这组断言当场变红。这是本节唯一真正锁死「不软锁」语义的地方。
+    updateEncounter(enc, 2.0, ctx);             // W2 spawn
+    ctx.enemyAlive = 1; updateEncounter(enc, 0.5, ctx); ctx.enemyAlive = 0;
+    updateEncounter(enc, 0.1, ctx);             // W2 清 → lineHold（waveIndex=1）
+    eq(enc.phase, 'lineHold', '⑮d 构造成功：W2 清完再次进 lineHold');
+    ctx.playerPos = { x: 100, y: 432 };         // 玩家退到最后方，绝无可能「真的推进到了防线」
+    ok(!updateEncounter(enc, 0.1, ctx).some(e => e.type === 'telegraph'),
+      '⑮d 清空前对照：玩家 100 未过防线 2（阈值 800）⇒ 不发波（断言本身是敏感的）');
+    try {
+      enc.lineXs = [];
+      eq(LINE_X_FOR(enc, enc.waveIndex), null, '⑮d 变异成功：清空后该函数返回 null');
+      const ev = updateEncounter(enc, 0.1, ctx);
+      const tg = ev.find(e => e.type === 'telegraph');
+      ok(!!tg, '⑮d 负向：lineXs 退化为空 ⇒ lineHold 退化为「清波即发」立刻发 W3 telegraph（不软锁）');
+      eq(enc.phase, 'telegraph', '⑮d 负向：确实离开了 lineHold（没有卡死）');
+      eq(tg && tg.lineX, null, '⑮d 负向：退化态 telegraph.lineX = null（页面据此回退到 bearing 采样布点）');
+      eq(tg && tg.wave, 2, '⑮d 负向：发出的是第 3 波（wave=2）而不是重发旧波');
+    } finally {
+      enc.lineXs = savedRef;
+    }
+    eq(enc.lineXs, savedRef, '⑮d 负向变异已恢复：enc.lineXs 还原为原数组引用');
+    // 收尾：退化事件插曲之后，遭遇必须还能正常打到 victory（不软锁的最终形态）
+    let guard = 0;
+    while (!enc.outcome && guard < 4000) {
+      for (const e of updateEncounter(enc, 0.5, ctx)) {
+        if (e.type === 'spawn') { ctx.enemyAlive = e.units.length; }
+      }
+      if (ctx.enemyAlive > 0) { ctx.enemyAlive = 0; }
+      guard++;
+    }
+    eq(enc.outcome, 'victory', `⑮d 退化插曲之后仍能打到 victory（不软锁，迭代 ${guard} 帧）`);
+  }
+}
+
+// ============ ⑯ 标准模式钳制参数（D1a，2026-10-31 用户裁定「按 A：双钳制」）============
+// 背景（ISSUES #AC4）：波数绑到防线数后，旧口径实测 diff=1 × 6 防线可达 60 辆/节点、
+// 单波峰值 14 辆（旧铺敌上限 18 的 3.33×、「可逐一点名」红线 5 辆的 2.8×）。
+// 本段锁住 RULES 侧新增的三道闸：单波总量（maxPerWave，语义定案）/ 节点总量（maxPerNode）/
+// 同波同时存活（maxAlivePerWave，分批投送的基准）。页面侧消费逻辑另由浏览器链覆盖。
+section('⑯ 标准模式钳制参数（D1a）');
+{
+  const sc = (RULES.encounter && RULES.encounter.standardScale) || {};
+  const pi = (v) => Number.isFinite(v) && v > 0 && Math.floor(v) === v;
+
+  // 不变式校验器：与页面/测试同口径的一组硬约束。抽成函数是为了能对它做**负向**构造——
+  // 只断言「现行值是好的」是恒真保护，证明不了这套闸会在坏配置下变红。
+  function validateScale(s0) {
+    const bad = [];
+    if (!pi(s0.maxPerWave)) bad.push('maxPerWave 非正整数');
+    if (!pi(s0.maxPerNode)) bad.push('maxPerNode 非正整数');
+    if (!pi(s0.maxAlivePerWave)) bad.push('maxAlivePerWave 非正整数');
+    if (pi(s0.maxPerWave) && pi(s0.maxPerNode) && !(s0.maxPerWave < s0.maxPerNode)) {
+      bad.push('单波封顶不严于节点封顶');
+    }
+    if (pi(s0.maxAlivePerWave) && pi(s0.maxPerWave) && !(s0.maxAlivePerWave <= s0.maxPerWave)) {
+      bad.push('活体上限大于单波总量');
+    }
+    if (!(s0.maxPerNode >= 18 && s0.maxPerNode <= 24)) bad.push('节点钳制越出裁定区间 [18,24]');
+    return bad;
+  }
+
+  ok(pi(sc.maxPerWave), `⑯a maxPerWave 是有限正整数（实到 ${sc.maxPerWave}）`);
+  ok(pi(sc.maxPerNode), `⑯a maxPerNode 是有限正整数（实到 ${sc.maxPerNode}）`);
+  ok(pi(sc.maxAlivePerWave), `⑯a maxAlivePerWave 是有限正整数（实到 ${sc.maxAlivePerWave}）`);
+  ok(sc.maxPerWave < sc.maxPerNode, `⑯b 单波封顶严于节点封顶（${sc.maxPerWave} < ${sc.maxPerNode}）`);
+  ok(sc.maxPerNode >= 18 && sc.maxPerNode <= 24, `⑯c 节点钳制落在裁定区间 [18,24]（实到 ${sc.maxPerNode}）`);
+  ok(sc.maxAlivePerWave <= sc.maxPerWave, `⑯d 活体上限不大于单波总量（${sc.maxAlivePerWave} ≤ ${sc.maxPerWave}）`);
+  ok(validateScale(sc).length === 0, `⑯e 现行参数通过不变式校验（实到 ${validateScale(sc).length} 项违规）`);
+
+  // 负向 1：活体上限 > 单波总量 ⇒ 分批机制永不触发、钳制形同虚设 ⇒ 必须判非法
+  const badAlive = Object.assign({}, sc, { maxAlivePerWave: sc.maxPerWave + 1 });
+  ok(validateScale(badAlive).length > 0,
+     `⑯e 负向：maxAlivePerWave > maxPerWave 被判非法（实到 ${validateScale(badAlive).length} 项违规 > 0）`);
+
+  // 负向 2：单波 ≥ 节点 ⇒ 单波键无意义（节点闸必然先触发）⇒ 必须判非法
+  const badWave = Object.assign({}, sc, { maxPerWave: sc.maxPerNode });
+  ok(validateScale(badWave).length > 0,
+     `⑯e 负向：maxPerWave ≥ maxPerNode 被判非法（实到 ${validateScale(badWave).length} 项违规 > 0）`);
+
+  // 负向 3：节点钳制越界（例如被误改成 60，即本次要修的失控值）⇒ 必须判非法
+  const badNode = Object.assign({}, sc, { maxPerNode: 60 });
+  ok(validateScale(badNode).length > 0,
+     `⑯e 负向：maxPerNode=60（#AC4 失控值）被判非法（实到 ${validateScale(badNode).length} 项违规 > 0）`);
+
+  // 收尾：上面的负向构造一律用副本，不得污染 RULES 本体
+  ok(RULES.encounter.standardScale.maxPerWave === sc.maxPerWave
+     && RULES.encounter.standardScale.maxPerNode === sc.maxPerNode
+     && RULES.encounter.standardScale.maxAlivePerWave === sc.maxAlivePerWave,
+     '⑯f 负向构造未污染 RULES 本体（三键仍为原值）');
+}
+
+// ================= 2026-11-02 M3-E/F/G：节点任务类型的胜利条件（defend / capture / breakthrough） =================
+// 类型只换胜利条件、不新开管线：仍走 telegraph→wave→breather/lineHold，终局载荷带类型字段。
+{
+  const W2 = { waves: [
+    { id: 'T1', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+    { id: 'T2', units: [{ cls: 'medium', bearing: 0, count: 1 }] },
+  ] };
+  const runEnc = (enc, ctxFn, maxSec) => {
+    const log = [];
+    let t = 0;
+    while (!enc.outcome && t < maxSec) {
+      for (const e of updateEncounter(enc, 0.5, ctxFn(t))) log.push(e);
+      t += 0.5;
+    }
+    return log;
+  };
+
+  section('M3-E 防御节点');
+  {
+    const enc = createEncounter({ seed: 31, rules: W2, kind: 'defend', mode: 'timed' });
+    const log = runEnc(enc, () => mkCtx({ enemyAlive: 0, objectiveAlive: true }), 60);
+    const v = log.find(e => e.type === 'victory');
+    ok(enc.outcome === 'victory', 'M3-E：守点目标存活 + 波清 ⇒ victory');
+    ok(v && v.objectiveFailed === false, 'M3-E：胜利载荷 objectiveFailed=false');
+  }
+  {
+    const enc = createEncounter({ seed: 31, rules: W2, kind: 'defend', mode: 'timed' });
+    const log = runEnc(enc, () => mkCtx({ enemyAlive: 0, objectiveAlive: false }), 60);
+    const v = log.find(e => e.type === 'victory');
+    ok(log.some(e => e.type === 'objective-lost'), 'M3-E：目标被毁 ⇒ 发 objective-lost');
+    ok(enc.outcome === 'victory', 'M3-E 负向：目标被毁 ≠ gameover（仍以 victory 收场）');
+    ok(v && v.objectiveFailed === true, 'M3-E：胜利载荷 objectiveFailed=true（存活 bonus 归零）');
+  }
+
+  section('M3-F 占领节点');
+  {
+    const enc = createEncounter({ seed: 32, rules: W2, kind: 'capture', captureTotal: 2, counterAttackAt: 0.5, mode: 'timed' });
+    let done = 0;
+    runEnc(enc, () => mkCtx({ enemyAlive: 0, captureDone: done }), 30);
+    ok(enc.outcome === null, 'M3-F 负向：波清但未拔点 ⇒ 不判胜（不软判）');
+    done = 1;
+    const log2 = runEnc(enc, () => mkCtx({ enemyAlive: 0, captureDone: done }), 5);
+    ok(log2.some(e => e.type === 'counterattack'), 'M3-F：读条过 50% ⇒ 发 counterattack');
+    done = 2;
+    const log3 = runEnc(enc, () => mkCtx({ enemyAlive: 0, captureDone: done }), 5);
+    const v = log3.find(e => e.type === 'victory');
+    ok(enc.outcome === 'victory', 'M3-F：拔满点 ⇒ victory');
+    ok(v && v.captureDone === 2, 'M3-F：胜利载荷 captureDone=2');
+  }
+
+  section('M3-G 突破节点');
+  {
+    const enc = createEncounter({ seed: 33, rules: W2, kind: 'breakthrough', timeLimitSeconds: 10, mode: 'timed' });
+    const log = runEnc(enc, () => mkCtx({ enemyAlive: 0, reachedExit: false }), 30);
+    const s = log.find(e => e.type === 'settlement');
+    ok(log.some(e => e.type === 'timeout'), 'M3-G：超时 ⇒ 发 timeout');
+    ok(enc.outcome === 'settlement', 'M3-G：超时 ⇒ settlement（不是 defeat/gameover）');
+    ok(s && s.reason === 'timeout', 'M3-G：结算载荷 reason=timeout');
+  }
+  {
+    const enc = createEncounter({ seed: 34, rules: W2, kind: 'breakthrough', timeLimitSeconds: 60, mode: 'timed' });
+    const log = runEnc(enc, () => mkCtx({ enemyAlive: 0, reachedExit: true }), 5);
+    const v = log.find(e => e.type === 'victory');
+    ok(enc.outcome === 'victory', 'M3-G：时限内抵达出口 ⇒ victory');
+    ok(v && v.reason === 'exit', 'M3-G：胜利载荷 reason=exit');
+  }
+  {
+    // 配置缺失（timeLimitSeconds=0）⇒ 回落「波清判胜」，绝不软锁
+    const enc = createEncounter({ seed: 36, rules: W2, kind: 'breakthrough', timeLimitSeconds: 0, mode: 'timed' });
+    runEnc(enc, () => mkCtx({ enemyAlive: 0, reachedExit: false }), 60);
+    ok(enc.outcome === 'victory', 'M3-G 负向：时限=0 ⇒ 回落波清判胜，不软锁');
+  }
+
+  section('M3-E/F/G 零回归');
+  {
+    const enc = createEncounter({ seed: 35, rules: W2, mode: 'timed' });
+    const log = runEnc(enc, () => mkCtx({ enemyAlive: 0 }), 60);
+    const v = log.find(e => e.type === 'victory');
+    ok(enc.outcome === 'victory' && v
+       && v.objectiveFailed === undefined && v.captureDone === undefined && v.reason === undefined,
+       'M3-E/F/G 零回归：exterminate 胜利载荷不带类型字段');
+  }
+}
+
 console.log(`\n${fails === 0 ? '全部通过' : fails + ' 项失败'}：test-encounter.js`);
 process.exitCode = fails === 0 ? 0 : 1;

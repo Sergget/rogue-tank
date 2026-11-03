@@ -64,7 +64,7 @@ const AMMO_LOADOUT_MAX = 3;
 
 // profile = { version, points, upgrades: { id → level }, stats: { runs, kills },
 //             selectedTankId, ammoLoadout: [ammoKey×≤3], bonusRevives, difficultyLevel,
-//             settings: { invertReverseTurn } }
+//             settings: { invertReverseTurn }, runProgress: 局内进度|null }
 function defaultProfile(){
   return {
     version: economyConfig().saveVersion || 1,
@@ -79,8 +79,97 @@ function defaultProfile(){
     // P-34：跨局难度等级（每次终局结算 +1，下一局节点难度叠加 crossRunLevelBonus）
     difficultyLevel: 0,
     // P-35：持久化设置（倒车转向倒置开关；新设置项在此补默认值）
-    settings: { invertReverseTurn: false, showFps: false }
+    settings: { invertReverseTurn: false, showFps: false },
+    // 2026-10-31：局内进度存档（关卡位置/本局卡牌/得分等）。null = 没有进行中的局，
+    //   旧档（无此键）读出来同样是 null，天然向后兼容。形态与守卫见 normalizeRunProgress。
+    runProgress: null
   };
+}
+
+// ---------- 局内进度存档（profile.runProgress，2026-10-31 用户需求） ----------
+//
+// 需求：「保存游戏进度（关卡、使用的卡牌）」⇒ 关页不丢局，下次进入能接着打。
+//
+// 关键设计约束：**节点链可由 seed 确定性重放**——generateRun(seed, count, env) 是纯确定性
+//   函数（seed → 整条链，scripts/test-replay.js 已锁「同 seed 摘要一致」）⇒ 存档只存
+//   seed + nodeCount + difficultyLevel 这组重放键，**绝不序列化整棵节点树**：
+//   ① 链可被 extendRun 无尽追加，体积无上界；② 节点内含 rngState/生成器版本细节，
+//   序列化会与生成器实现耦合，改生成器就废档。恢复路径 = generateRun 重放 + nodeIndex 定位。
+//
+// 单一真值：normalizeRunProgress 是本字段**唯一**的守卫实现——读档侧（normalizeProfile）
+//   与写档侧（saveRunProgress）共用它，禁止出现两份规则。反例教训见 settings.aimStyle：
+//   读档侧漏归一 ⇒ 写进去的值被静默丢弃（刷新后回默认，用户报「瞄准器看不到」）。
+//
+// 合法形态：
+//   { seed, nodeCount, difficultyLevel, nodeIndex, flow, runScore, runKills, cards, tankId, savedAt }
+// 必需键：seed / nodeCount（重放键）。缺任一或类型不符 ⇒ **整条 null**（宁可不恢复，也不要
+//   半残状态：没有重放键的 runProgress 只会让页面进入一个假的继续点）。
+
+const RUN_PROGRESS_FLOWS = ['map', 'battle', 'shop', 'loadout'];   // flow 白名单（恢复后落到的界面）
+const RUN_PROGRESS_FLOW_FALLBACK = 'map';
+const RUN_PROGRESS_MAX_NODE_COUNT = 12;   // 与 generateRun 的链长硬上限一致（js/tank_map.js generateRun）
+const RUN_PROGRESS_MAX_CARDS = 200;       // 防脏档爆内存（正常一局远小于此；cards 存卡 id 列表）
+
+// 归一化局内进度（逐字段白名单守卫，不吞字段）。非法整体 → null。
+function normalizeRunProgress(raw){
+  if(!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  // 必需键①：seed——节点链重放键，必须是有限数（RNG 只吃数值种子；NaN/Infinity/字符串一律拒）
+  if(!Number.isFinite(raw.seed)) return null;
+  // 必需键②：nodeCount——链节点数，整数且 1..12；越界/非整数视为脏档 → 整条 null
+  //   （链长与重放结果强相关，截断或放大都会让 nodeIndex 语义失真）
+  if(!Number.isInteger(raw.nodeCount) || raw.nodeCount < 1 || raw.nodeCount > RUN_PROGRESS_MAX_NODE_COUNT) return null;
+  const nodeCount = raw.nodeCount;
+  // nodeIndex——策略：**钳位**而非判 null。理由：玩家进度不该因一次越界就全丢；
+  //   越界通常来自链长口径变化（旧档 nodeCount 与新生成器不一致）或手工改档，
+  //   钳到最近合法节点仍可继续游玩，损失上限只是「回到链首/链尾」而不是丢掉整局。
+  let nodeIndex = Number.isFinite(raw.nodeIndex) ? Math.floor(raw.nodeIndex) : 0;
+  if(nodeIndex < 0) nodeIndex = 0;
+  if(nodeIndex > nodeCount - 1) nodeIndex = nodeCount - 1;
+  // cards——本局已获得卡 id 列表：剔非字符串/空串、去重保序、上限 200 条；
+  //   非数组整体归 []（不因此丢弃整条进度）。注意这里只做**形状**校验，
+  //   卡 id 是否仍存在于当前卡表由页面侧（cardPool）兜底——economy 不该反向依赖卡表。
+  const cards = [];
+  if(Array.isArray(raw.cards)){
+    const seen = {};
+    for(const c of raw.cards){
+      if(typeof c !== 'string' || c.length === 0 || seen[c]) continue;
+      seen[c] = true;
+      cards.push(c);
+      if(cards.length >= RUN_PROGRESS_MAX_CARDS) break;
+    }
+  }
+  return {
+    seed: raw.seed,
+    nodeCount: nodeCount,
+    // 本局开局时的跨局难度等级（恢复重放时回填 env.difficultyLevel，保证同 seed 同链）
+    difficultyLevel: Number.isInteger(raw.difficultyLevel) && raw.difficultyLevel >= 0 ? raw.difficultyLevel : 0,
+    nodeIndex: nodeIndex,
+    flow: RUN_PROGRESS_FLOWS.indexOf(raw.flow) >= 0 ? raw.flow : RUN_PROGRESS_FLOW_FALLBACK,
+    runScore: Number.isFinite(raw.runScore) && raw.runScore >= 0 ? raw.runScore : 0,
+    runKills: Number.isFinite(raw.runKills) && raw.runKills >= 0 ? raw.runKills : 0,
+    cards: cards,
+    tankId: (typeof raw.tankId === 'string' && raw.tankId.length > 0) ? raw.tankId : null,
+    // 时间戳仅展示/调试用（不参与任何判定），缺失时补当前时间
+    savedAt: Number.isFinite(raw.savedAt) ? raw.savedAt : Date.now()
+  };
+}
+
+// 写入局内进度：state 经 normalizeRunProgress 归一后写进 profile.runProgress。
+// 返回 true=已写入；false=被拒（state 非法 / profile 非法）。
+// 被拒时**不改动**既有 runProgress——一次坏写入不能把还能用的存档冲掉。
+function saveRunProgress(profile, state){
+  if(!profile || typeof profile !== 'object' || Array.isArray(profile)) return false;
+  const norm = normalizeRunProgress(state);
+  if(!norm) return false;
+  profile.runProgress = norm;
+  return true;
+}
+
+// 清空局内进度（局终结算/通关/主动放弃后调用）。返回 true=已置 null，false=profile 非法。
+function clearRunProgress(profile){
+  if(!profile || typeof profile !== 'object' || Array.isArray(profile)) return false;
+  profile.runProgress = null;
+  return true;
 }
 
 // 校验并归一化 profile（版本不匹配/损坏 → 回退默认，避免脏数据崩 UI）。
@@ -109,7 +198,11 @@ function normalizeProfile(p){
       showFps: !!(p.settings && typeof p.settings === 'object' && p.settings.showFps),
       aimStyle: (p.settings && typeof p.settings === 'object' && p.settings.aimStyle === 'crosshair')
         ? 'crosshair' : 'default'
-    }
+    },
+    // 2026-10-31：局内进度（见 normalizeRunProgress）。逐字段守卫必须与写档侧同源——
+    //   这里若漏归一会让刚写进去的 runProgress 在下次读档时被静默丢弃（同 aimStyle 那次教训）。
+    //   旧档无此键 ⇒ undefined ⇒ null（向后兼容，无需迁移）。
+    runProgress: normalizeRunProgress(p.runProgress)
   };
   if(p.upgrades && typeof p.upgrades === 'object'){
     for(const id in p.upgrades){
@@ -648,6 +741,10 @@ if (typeof module !== 'undefined' && module.exports) {
     getUpgradeDef,
     defaultProfile,
     normalizeProfile,
+    // 2026-10-31：局内进度存档（写/清 + 守卫本体，供页面与测试共用同一套规则）
+    normalizeRunProgress,
+    saveRunProgress,
+    clearRunProgress,
     savesMetaKey,
     saveSlotPrefix,
     legacySaveKey,

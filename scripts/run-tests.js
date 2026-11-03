@@ -39,6 +39,9 @@ const TESTS = [
   'scripts/test-minimap.js',
   'scripts/test-strip.js',
   'scripts/test-map.js',
+  // 2026-11-02 M3-D：歼灭正名与 node.kind 枚举一致性审计（静态扫描 + 检测器负向自证）。
+  'scripts/test-node-kinds.js',
+  'scripts/test-exit-reachability.js',
   'scripts/test-modes.js',
   'scripts/test-flow.js',
   'scripts/test-ai.js',
@@ -104,6 +107,21 @@ const TESTS = [
   // 2026-10-26 #AA6：bench Enemy Lab 工具链——清场纯筛选（clearEnemyEntities）+ 两条生成路径的
   //   视口护栏接线（几何本体在 test-camera.js 的 #AA6 段）。
   'scripts/test-bench-tools.js',
+  // 2026-11-01：卡牌文案口径——desc 不得出现引擎单位（px/rad）与实现标识符；
+  //   含「真实历史样本必须被判出」的负向自证与「玩家可见术语不得误判」的正向反例。
+  'scripts/test-card-text.js',
+  // 2026-11-01：底部 HUD 共享渲染层（血量/速度/弹种槽/技能槽/被动槽）——
+  //   两页共用 js/tank_hud_panel.js；含错误速度口径（直接乘 kmhFactor）的负向对照。
+  'scripts/test-hud-panel.js',
+  // 2026-11-01：通用卡牌选择器（分类多下拉 + 管理按键）——
+  //   211 张卡四类完备性 + 技能组主动/被动切分 + 多下拉互斥 + 两种卡池形态等价。
+  'scripts/test-card-picker.js',
+  // 2026-11-01：卡牌选择器续补——副武器 F 按钮反馈（用户「副武器卡牌不生效」的根因）、
+  //   已持有卡牌管理器、悬停详情 tooltip（含监听器不叠加与 tip 元素复用两条负向）。
+  'scripts/test-card-picker-extra.js',
+  // 2026-11-01：bench 底部 HUD 与卡牌选择器的**页面接线**回归——
+  //   r3 浏览器链在本会话沙箱下必然 EPERM，接线写错在 CI 前无人发现，故补静态判据。
+  'scripts/test-bench-hud-wiring.js',
   // 2026-10-26 #AA8：HUD 文本在亮 biome 上的可读性契约（左下目标卡 / 底部提示条的深色底衬与字号）。
   'scripts/test-hud-readability.js',
   // 2026-10-27 R0：渲染地基三件——I4 指针拾取唯一入口（pointerToWorld）、
@@ -136,6 +154,23 @@ const TESTS = [
   'scripts/test-ai-detour.js',        // 2026-10-29 B2：绕障状态机（侧别同源 / 承诺期 / 防打转）
   'scripts/test-hull-down.js',        // 2026-10-29 #AB18：hull-down 条件降档（静止+未开火才走车体口径）
   'scripts/test-survival-reinforce.js',   // 2026-10-29：生存补给站「增援」升级（档位通道 + 接线）
+  // 2026-11-01 P2-G 守军语义兜底（PLAN §2.8.3 键名契约 v2）：RULES.encounter 三键默认值
+  //   （garrisonMode=false / garrisonFallbackSeconds=0 关闭态 / garrisonVanguard={count,aheadOffsetPx}）+ 超时兜底
+  //   纯逻辑（注入时钟、幂等、已点亮不擦除）+ 前哨车编成（恒接战 / 末波 0 / 负偏移钳 0 ⇒ 绝不背后刷怪）。
+  'scripts/test-garrison-fallback.js',
+  // 2026-11-01 P2-G 页面接线（转正自 tmp/verify-p2g-wiring.cjs 67 条 + verify-p2g-regression.cjs 20 条，
+  //   合并为一份共 89 条，断言一条未丢）：键名契约 v2 / 守军·前锋分流（末波 0 / 负偏移钳 0 /
+  //   纯函数不改入参）/ 超时兜底（幂等 + 关闭态恒不注入）/ 接线点真实调用 / 零回归总门 /
+  //   出口解耦。零回归段**执行 tank_battle.html 分流块源码原文**（vm substring 抽取，非手写复刻），
+  //   逐字段比对 k/cls/x/y/hull。
+  'scripts/test-p2g-wiring.js',
+  // 2026-11-01 E1/E3 防御点（PLAN §2.8.5）：纯几何选址复现性/难度单调/零回归指纹对拍/
+  //   kind 回填率双向断言/C1 二次收尾对比式/点驱动墙 x 对齐/兼容层不变量。
+  'scripts/test-defense-points.js',
+  // 2026-11-01 E2 页面波次契约切换「组=一个防御点」（PLAN §2.8.5 B 裁定）：双入口助手/
+  //   false 对拍改前基线逐字节（派生 JSON + 落位 sha256，vm 原文执行）/ points 波数=点数/
+  //   label·lineXs·落位命中点 x / 扁平数组陷阱与文案切换负向断言。
+  'scripts/test-e2-defense-point-waves.js',
 ];
 
 function pickTests() {
