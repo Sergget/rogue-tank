@@ -586,6 +586,140 @@ ok(backToA.points === 100 && eco.upgradeLevel(backToA, 'pen_up') === 2 &&
   }
 }
 
+// 14) profile.runProgress：局内进度存档（2026-10-31 用户需求「保存游戏进度（关卡、使用的卡牌）」）
+//   设计口径：节点链可由 seed 确定性重放 ⇒ 只存 seed+nodeCount+difficultyLevel 这组重放键，
+//   **不序列化节点树**（链可被 extendRun 无限追加、节点内含 rngState/生成器版本细节）。
+//   本块覆盖：写读往返不失真 / 旧档向后兼容 / 逐字段守卫 / 负向拒收 / cards 上限。
+{
+  // ---- 默认值与向后兼容 ----
+  ok(eco.defaultProfile().runProgress === null, 'defaultProfile 新键 runProgress 缺省 null（无进行中的局）');
+  ok(eco.normalizeProfile({ version: 1 }).runProgress === null, '旧档无 runProgress 键 → 归一后仍 null（向后兼容，不改 saveVersion）');
+  ok(eco.normalizeProfile({ version: 1, runProgress: null }).runProgress === null, 'runProgress 显式 null → 仍 null');
+
+  // ---- 写读往返：saveRunProgress → 落盘 → loadActiveProfile 全字段不失真 ----
+  const rpStore = makeStore();
+  const rpSlot = eco.createSaveSlot(rpStore, '进度档', { points: 42 });
+  const rpProf = eco.loadActiveProfile(rpStore);
+  const state = {
+    seed: 987654, nodeCount: 5, difficultyLevel: 3, nodeIndex: 2, flow: 'battle',
+    runScore: 1234, runKills: 17, cards: ['pen_up_a', 'armor_kit_b'], tankId: 'm4a3', savedAt: 1700000000000
+  };
+  ok(eco.saveRunProgress(rpProf, state) === true, 'saveRunProgress 合法 state → true');
+  ok(eco.saveActiveProfile(rpStore, rpProf) === true, '带 runProgress 的 profile 可正常落盘');
+  const rpBack = eco.loadActiveProfile(rpStore).runProgress;
+  ok(!!rpBack && rpBack.seed === 987654 && rpBack.nodeCount === 5 && rpBack.difficultyLevel === 3 &&
+     rpBack.nodeIndex === 2 && rpBack.flow === 'battle' && rpBack.runScore === 1234 &&
+     rpBack.runKills === 17 && rpBack.tankId === 'm4a3' && rpBack.savedAt === 1700000000000 &&
+     JSON.stringify(rpBack.cards) === JSON.stringify(['pen_up_a', 'armor_kit_b']),
+     '往返不失真：seed/nodeCount/difficultyLevel/nodeIndex/flow/runScore/runKills/cards/tankId/savedAt 全部保留');
+  ok(rpBack && Object.prototype.hasOwnProperty.call(rpBack, 'nodes') === false,
+     '运行期不序列化节点树：runProgress 只含 seed 类重放键，无 nodes 字段');
+  ok(eco.loadActiveProfile(rpStore).points === 42, 'runProgress 与跨局元数据共存（points 不受影响）');
+
+  // ---- clearRunProgress ----
+  const rpClear = eco.loadActiveProfile(rpStore);
+  ok(eco.clearRunProgress(rpClear) === true && rpClear.runProgress === null, 'clearRunProgress → 置 null 返回 true');
+  ok(eco.clearRunProgress(null) === false && eco.clearRunProgress('x') === false, 'clearRunProgress 参数坏 → false');
+
+  // ---- 整条非法 ⇒ null（宁可不恢复，也不要半残状态）----
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 0 } }).runProgress === null,
+     'nodeCount=0（低越界）→ 整条 null');
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 99 } }).runProgress === null,
+     'nodeCount=99（超链长上限 12）→ 整条 null');
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5.5 } }).runProgress === null,
+     'nodeCount 非整数 → 整条 null');
+  ok(eco.normalizeProfile({ version: 1, runProgress: { nodeCount: 5 } }).runProgress === null,
+     '缺 seed（无重放键）→ 整条 null');
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: '987654', nodeCount: 5 } }).runProgress === null,
+     'seed 字符串（非数值种子）→ 整条 null');
+
+  // ---- 负向：runProgress 本身是数组/字符串 ⇒ null（不是 {} 也不是原样保留，证明守卫真会拒）----
+  ok(eco.normalizeProfile({ version: 1, runProgress: [] }).runProgress === null, '负向：runProgress 是空数组 → null');
+  ok(eco.normalizeProfile({ version: 1, runProgress: [{ seed: 1, nodeCount: 5 }] }).runProgress === null,
+     '负向：runProgress 是「含合法对象的数组」→ null（数组不当对象吞）');
+  ok(eco.normalizeProfile({ version: 1, runProgress: 'seed=1' }).runProgress === null, '负向：runProgress 是字符串 → null');
+  ok(eco.normalizeProfile({ version: 1, runProgress: 42 }).runProgress === null, '负向：runProgress 是数字 → null');
+
+  // ---- 负向：seed 为 NaN / Infinity ----
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: NaN, nodeCount: 5 } }).runProgress === null,
+     '负向：seed=NaN → 整条 null');
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: Infinity, nodeCount: 5 } }).runProgress === null,
+     '负向：seed=Infinity → 整条 null');
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: -Infinity, nodeCount: 5 } }).runProgress === null,
+     '负向：seed=-Infinity → 整条 null');
+  // NaN/Infinity 无法经 JSON 往返表达（JSON.stringify 会写成 null），单独验证写档侧也拒
+  ok(eco.saveRunProgress({ runProgress: null }, { seed: NaN, nodeCount: 5 }) === false,
+     '负向：saveRunProgress 对 seed=NaN 拒写返回 false');
+
+  // ---- 逐字段守卫：非法单字段各自回退，不拖垮整条 ----
+  const rpNodes = eco.normalizeProfile({ version: 1, runProgress: { seed: 7, nodeCount: 6, difficultyLevel: -3 } }).runProgress;
+  ok(!!rpNodes && rpNodes.difficultyLevel === 0, 'difficultyLevel=-3 非法 → 回落 0（不丢弃整条）');
+  const rpDiffNaN = eco.normalizeProfile({ version: 1, runProgress: { seed: 7, nodeCount: 6, difficultyLevel: 2.5 } }).runProgress;
+  ok(!!rpDiffNaN && rpDiffNaN.difficultyLevel === 0, 'difficultyLevel 非整数 → 回落 0');
+  const rpScore = eco.normalizeProfile({ version: 1, runProgress: { seed: 7, nodeCount: 6, runScore: -5, runKills: NaN } }).runProgress;
+  ok(!!rpScore && rpScore.runScore === 0 && rpScore.runKills === 0, 'runScore/runKills 负数或 NaN → 回落 0');
+  // flow 白名单：hacked 回落 map；四个合法值全部保序保留
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, flow: 'hacked' } }).runProgress.flow === 'map',
+     '负向：flow="hacked" 非白名单 → 回落 map');
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, flow: 42 } }).runProgress.flow === 'map',
+     'flow 非字符串 → 回落 map');
+  ok(['map', 'battle', 'shop', 'loadout'].every(f =>
+       eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, flow: f } }).runProgress.flow === f),
+     'flow 白名单四值 map/battle/shop/loadout 全部保留');
+  // tankId：字符串或 null
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, tankId: 42 } }).runProgress.tankId === null,
+     'tankId 非字符串 → null（整条保留）');
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5 } }).runProgress.tankId === null,
+     'tankId 缺失 → null');
+  // savedAt：非法补 Date.now()（仅展示/调试用，不参与判定）
+  const rpSaved = eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, savedAt: 'yesterday' } }).runProgress;
+  ok(!!rpSaved && Number.isFinite(rpSaved.savedAt) && rpSaved.savedAt > 0, 'savedAt 非法 → 补 Date.now()（有限数）');
+
+  // ---- nodeIndex 越界策略：**钳位**（不判 null）----
+  //   理由：玩家进度不该因一次越界就全丢。越界通常来自链长口径变化（旧档 nodeCount 与新生成器
+  //   不一致）或手工改档，钳到最近合法节点仍可继续游玩，损失上限只是「回到链首/链尾」。
+  const rpIdxHi = eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, nodeIndex: 99 } }).runProgress;
+  ok(!!rpIdxHi && rpIdxHi.nodeIndex === 4, '越界 nodeIndex=99（nodeCount=5）→ 钳到链尾 4（策略：钳位不判 null）');
+  const rpIdxLo = eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, nodeIndex: -7 } }).runProgress;
+  ok(!!rpIdxLo && rpIdxLo.nodeIndex === 0, '越界 nodeIndex=-7 → 钳到链首 0');
+  const rpIdxNaN = eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, nodeIndex: NaN } }).runProgress;
+  ok(!!rpIdxNaN && rpIdxNaN.nodeIndex === 0, 'nodeIndex 非有限数 → 0');
+  const rpIdxFrac = eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, nodeIndex: 2.9 } }).runProgress;
+  ok(!!rpIdxFrac && rpIdxFrac.nodeIndex === 2, 'nodeIndex 小数 → 向下取整 2');
+  ok(eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 1, nodeIndex: 0 } }).runProgress.nodeIndex === 0,
+     'nodeCount=1 单节点链：nodeIndex=0 合法保留（边界内不触发钳位）');
+
+  // ---- cards：剔非字符串（不整条丢弃）+ 去重保序 + 上限 200 ----
+  const rpCards = eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, cards: ['a', 42, null, '', 'b', 'a', {}] } }).runProgress;
+  ok(!!rpCards && JSON.stringify(rpCards.cards) === JSON.stringify(['a', 'b']),
+     'cards 混入非字符串 → 剔除非法项并去重保序（不整条丢弃）');
+  const rpCardsNotArr = eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, cards: 'a,b' } }).runProgress;
+  ok(!!rpCardsNotArr && Array.isArray(rpCardsNotArr.cards) && rpCardsNotArr.cards.length === 0,
+     'cards 非数组 → 归空数组（整条进度仍保留）');
+  const many = [];
+  for (let i = 0; i < 300; i++) many.push('card_' + i);
+  const rpMany = eco.normalizeProfile({ version: 1, runProgress: { seed: 1, nodeCount: 5, cards: many } }).runProgress;
+  ok(!!rpMany && rpMany.cards.length === 200, `负向：cards 塞 300 条 → 截到 200（实际 ${rpMany && rpMany.cards.length}）`);
+  ok(rpMany && rpMany.cards[0] === 'card_0' && rpMany.cards[199] === 'card_199', 'cards 截断保序：保留前 200 条');
+
+  // ---- 单一真值：saveRunProgress 与 normalizeProfile 同一套守卫（不许两份规则）----
+  const rpSame = { runProgress: null };
+  ok(eco.saveRunProgress(rpSame, { seed: 5, nodeCount: 99 }) === false && rpSame.runProgress === null,
+     'saveRunProgress 复用同一守卫：nodeCount=99 被拒且不改动既有 runProgress');
+  const rpKeep = { runProgress: { seed: 1, nodeCount: 3, nodeIndex: 1 } };
+  const rpKeptBefore = JSON.stringify(eco.normalizeRunProgress(rpKeep.runProgress));
+  ok(eco.saveRunProgress(rpKeep, 'garbage') === false && JSON.stringify(eco.normalizeRunProgress(rpKeep.runProgress)) === rpKeptBefore,
+     '写档被拒时既有 runProgress 不被冲掉（坏写入不毁档）');
+  ok(eco.saveRunProgress(null, state) === false && eco.saveRunProgress('x', state) === false,
+     'saveRunProgress profile 参数坏 → false');
+  const rpDirect = eco.normalizeRunProgress({ seed: 5, nodeCount: 3, nodeIndex: 1, flow: 'shop', runScore: 10, cards: ['x'], tankId: 't1', savedAt: 1 });
+  const rpViaProfile = eco.normalizeProfile({ version: 1, runProgress: { seed: 5, nodeCount: 3, nodeIndex: 1, flow: 'shop', runScore: 10, cards: ['x'], tankId: 't1', savedAt: 1 } }).runProgress;
+  ok(JSON.stringify(rpDirect) === JSON.stringify(rpViaProfile),
+     'normalizeRunProgress 直调 ≡ normalizeProfile 内的结果（单一真值，无第二套规则）');
+  ok(eco.normalizeRunProgress(null) === null && eco.normalizeRunProgress('x') === null && eco.normalizeRunProgress(undefined) === null,
+     'normalizeRunProgress 非对象入参 → null');
+}
+
 console.log(`test-economy: 共 ${total} 条断言`);
 console.log('test-economy: 完成所有检查');
 if (fails === 0) console.log(`test-economy: 全部通过（${total}/${total}）`);

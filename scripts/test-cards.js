@@ -1281,6 +1281,34 @@ ok(cardsMod.CARD_TAGS === undefined, '#16（2026-10-20）：CARD_TAGS 已随 tag
   ok(cardsMod.applyCardEffects(t3, modCard).length === 0, '#U42 modifier 卡照旧受 maxStacks 约束（零影响）');
 }
 
+// ================= 2026-11-02 M3-C：节点类型 → 结算稀有度权重 =================
+{
+  const R = RULES.nodeKinds.reward;
+  const snap = JSON.parse(JSON.stringify(R));
+  try {
+    R.enabled = false;
+    ok(cardsMod.nodeKindRarityWeights('defend', R) === null, 'M3-C 关闭态：类型权重返回 null（零回归）');
+    R.enabled = true;
+    const w = cardsMod.nodeKindRarityWeights('defend', R);
+    ok(!!w && typeof w === 'object' && Number.isFinite(w.legendary), 'M3-C：defend 权重表可读入');
+    ok(cardsMod.nodeKindRarityWeights('exterminate', R) === null, 'M3-C 负向：歼灭无专属权重（回退全局）');
+    ok(cardsMod.nodeKindRarityWeights('bogus', R) === null, 'M3-C 负向：未知 kind 返回 null');
+    const cap = cardsMod.nodeKindRarityWeights('capture', R);
+    const bt = cardsMod.nodeKindRarityWeights('breakthrough', R);
+    ok(!!cap && !!bt && JSON.stringify(cap) !== JSON.stringify(bt), 'M3-C：各类型权重可辨');
+    // 权重真的影响抽取（同 r 序列对比全局 vs 类型权重 ⇒ 非死配置）
+    const rngA = createRNG(9);
+    const globalDraws = Array.from({ length: 60 }, () => cardsMod.weightedRarity(rngA, null));
+    const rngB = createRNG(9);
+    const kindDraws = Array.from({ length: 60 }, () => cardsMod.weightedRarity(rngB, w));
+    ok(JSON.stringify(globalDraws) !== JSON.stringify(kindDraws), 'M3-C：类型权重改变实际抽取结果（非死配置）');
+  } finally {
+    Object.keys(snap).forEach(k => {
+      R[k] = (snap[k] && typeof snap[k] === 'object') ? JSON.parse(JSON.stringify(snap[k])) : snap[k];
+    });
+  }
+}
+
 console.log('test-cards: 完成所有检查');
 if (fails === 0) console.log('test-cards: 全部通过');
 else console.error(`test-cards: ${fails} 项失败`);

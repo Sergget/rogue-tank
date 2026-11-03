@@ -1141,6 +1141,24 @@ function weightedRarity(r, weights) {
   return 'common';
 }
 
+// ---------- 节点任务类型：结算稀有度权重（M3-C，2026-11-02） ----------
+
+/**
+ * 按节点类型解析结算选卡的稀有度权重（纯函数，M3-C）。
+ * 契约：`RULES.nodeKinds.reward = { enabled, rarityWeights: { <kind>: {common..mythic} } }`。
+ * 关闭态 / 未知 kind / 空表一律返回 null（调用方回退全局权重，零回归）。
+ * @param {string} kind 节点类型（exterminate / defend / capture / breakthrough / ...）
+ * @param {any} rewardCfg RULES.nodeKinds.reward
+ * @returns {any|null} 权重表或 null
+ */
+function nodeKindRarityWeights(kind, rewardCfg) {
+  if (!rewardCfg || rewardCfg.enabled !== true || !kind) return null;
+  const table = rewardCfg.rarityWeights;
+  if (!table || typeof table !== 'object') return null;
+  const w = table[kind];
+  return (w && typeof w === 'object' && Object.keys(w).length) ? w : null;
+}
+
 // ---------- Boss 随机武备（#U39，2026-10-18） ----------
 
 // 从卡池里抽一组「Boss 随机武备」，返回按施加顺序排列的卡对象数组。
@@ -1263,6 +1281,8 @@ if (typeof module !== 'undefined' && module.exports) {
     computeAmmoConfig,
     drawCardChoices,
     weightedRarity,
+    // M3-C（2026-11-02）：节点类型 → 结算稀有度权重（纯函数；关闭态返回 null）
+    nodeKindRarityWeights,
     pickBossArmament,
     isAmmoUpgradeCard,
     // 2026-10-23：被动技能卡（passive skill）分类与被动技能槽（坦克属性，默认 2 格、不可升级增减）

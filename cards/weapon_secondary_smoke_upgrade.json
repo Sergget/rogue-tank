@@ -2,7 +2,7 @@
   "id": "weapon_secondary_smoke_upgrade",
   "name": "烟幕密度强化",
   "rarity": "epic",
-  "desc": "战术烟幕强化：一次抛射 5 团烟雾，横向展开扩大至 120px，单团存续延长至 7秒，装填缩短至 10秒。",
+  "desc": "战术烟幕强化：一次抛射 5 团烟雾，横向展开扩大至 11 米，每团存续延长至 7 秒，装填缩短至 10 秒。",
   "effects": [
     {
       "type": "weapon",

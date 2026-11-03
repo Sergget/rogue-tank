@@ -2,7 +2,7 @@
   "id": "ability_artillery_strike_point",
   "name": "空袭·斩首定点",
   "rarity": "legendary",
-  "desc": "空袭升级形态：呼叫高精确定点打击（延迟降至1.5s，单发高爆 300% 伤害，半径60px）。",
+  "desc": "空袭升级形态：呼叫高精确定点打击（延迟降至 1.5 秒，单发高爆 300% 伤害，爆炸范围 5 米）。",
   "effects": [
     {
       "type": "ability",
