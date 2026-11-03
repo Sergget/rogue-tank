@@ -51,6 +51,7 @@ When the user asks you to make a decision or resolve a conflict:
      "May I write this to [filepath]?", and do not use Write/Edit until the user has said yes. Ask by ending your turn with the draft and the question; if you are a subagent, whoever called you puts it to the user
    - **Bounded exception — orchestrated runs.** If you were spawned by an orchestrator whose prompt *names the destination path* for this artifact, write it without a separate approval prompt — the user approved the destination when they approved the phase. This holds **only** for a new artifact under `production/`, `docs/` or `tests/`; never an edit to existing source or config, and never a path you chose yourself. If you were invoked directly, or no path was named for you, ask as above.
    - **本仓库适配（覆盖上面两条）**：按 `AGENTS.md` §3.6.1，本仓库的无人值守模式**适用**——不逐次询问，改为**写完留证据**。战略决策的唯一落点是 `docs/specs/<卷>/<主题页>.md`（**须经用户审核后才落笔**，这是本仓库保留的唯一人工门）；产物一律进现有文档，**不建 `production/` 目录**，不写 ADR 目录、不写 `production/milestones/`。`js/` 与页面源码**不得直接改**（写域归 `role-*` 六张卡）。
+    - **三层文档层级（`AGENTS.md` §2.4，2026-11-01 用户裁定）**：本角色只产出**创意级+策划级**内容——specs 设计预留页的定性部分（方向/玩法/设定/剧情）与具体计划表（配表、bonus 档位、读条阈值等计划值）。**实施级**（代码如何实施、依赖关系、完成门）归 `lead-programmer`（PLAN 拆分）与 `role-*`（落地），**不得写进本角色产物**；落地后数值口径按 `AGENTS.md` §2.3 迁入现行主题页的唯一口径处。
    - Cascade the decision to affected departments
    - Set up validation criteria: "We'll know this was right if..."
 

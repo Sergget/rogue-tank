@@ -4870,3 +4870,145 @@ hull-down 让「静默玩家何时被发现」变成图相关且时间无界的�
 - `test-browser-smoke` / `test-browser-r4` / `test-browser-ally` 在进入 battle 的同一拍数敌人——波次导演 telegraph 2s 后才有实体，属时序竞态，均改为等首波落地。
 
 **归口**：`specs/map/defense-walls.md`（防线点位带与点位掩体段）· `specs/combat/hud-ui.md`（瞄准器样式：默认与精确）。
+
+## §4.186 2026-10-30 夜批：标准模式对齐「逐个突破防线、抵达最右」（P0-A/B/C + P1-D/E/F）
+
+**需求（用户）**：标准模式期望 = 「带领友军**逐个突破防线**、**到达地图最右侧**」。核查发现 6 项偏差（2026-10-30 下午核查报告），本批修 P0 三项 + P1 三项；P2-G（守军感）单独评审（`PLAN.md` §2.8.3）。
+
+### P0-A 波数对齐防线数（消除「后半防线空防」）
+
+`standardWaves`（`js/tank_rules.js`）语义改为**循环复用的原型编成**（数值不动）；页面（`tank_battle.html` 进节点）按 `node.encounterAnchors.length` 派生波数（strip 4~6 道防线 ⇒ 4~6 波），第 i 波取 `standardWaves[i % len]`，label 带「第 N 道防线」。anchors 为空时保持旧 3 波行为（零回归）。
+
+### P0-B 胜利判定加「抵达地图最右」（核心）
+
+encounter 节点**不再**「波次全清即结算」（旧路径玩家从未需要走到出口，exit 绿带是 UI 骗人）：`case 'victory'` 改为——玩家已在 `exitX` 上 ⇒ 走原 3s clearing；否则只置 `battleExitReady = true`（不结算），主循环 encounter 分流块内逐帧判 `battleExitReady && player.x >= exitX` ⇒ 才进 clearing ⇒ `finishNode(true)`。`battleExitReady` 与 `battleEncounter` 同处重置（防跨节点残留）。HUD 目标卡补「还差 Npx 抵达出口 / ✓ 已抵达出口」+ `lineHold` 中文文案。Boss 节点（`encounter !== true`）行为零变化。
+
+### P0-C `maxPerWave` 死值 bug
+
+`Math.min(6, ...)` 硬编码 ⇒ `RULES.encounter.standardScale.maxPerWave` 改了不生效。改读配置（缺省回退 6）。**语义分歧如实记账**：RULES 注释写「单波总敌数封顶」，代码实为「每 unit 各自封顶」（S3 原型 3 unit ⇒ 单波上限实为 3×6=18）——本批只修「不读配置」，不改封顶语义（待裁定）。
+
+### P1-D telegraph 文案改防线语义（修「HUD 骗人」）
+
+`ev.bearings` 是导演 `planWave` 的玩家周边提案点语义，与防线锚点真实落位不符。改为：有锚点且 `Number.isFinite(ev.lineX)` ⇒ `第 N 波来袭 · 前方约 Xpx`；缺失时回退旧 bearing 文案（零回归）。
+
+### P1-E 构成深度回归波次路径
+
+旧取车 `enemyTankIds()[seq % len]` 与深度/难度无关且 `aiTier` 写死 0。改三级降级链 `waveEnemySpecFor(waveIdx, k)`：① `currentNode.enemies`（makeNode 已按 `enemyCompositionForDepth` 持久化）→ ② 现场重算 → ③ 旧轮转兜底；索引 `(waveIdx×37 + k) % len` 同 seed 确定性。`aiTier` 取 `specMeta.aiTier` / `aiTierForDifficulty(diff)`；`elite`/`role` 与铺敌同口径写入实体。**entityMults 二选一**（per-enemy 表存在则不再叠乘 node 级表，否则与铺敌路径 `tank_map.js:1909` 口径平方级失衡）。
+
+### P1-F 波↔防线绑定单一数据源（本批技术根）
+
+两套口径曾并存：页面 `waveIdx % lineGroups.length` vs 导演 `lineXs[min(waveIndex, len-1)]`（波数 ≤ 防线数时侥幸等价，> 即静默分叉 = 敌在防线 A、节拍等玩家到防线 B）。收口：`js/tank_encounter.js` 新增导出纯函数 `encounterLineXFor(enc, waveIndex)`（**钳末非取模**，负/NaN 防御，空数组 null）+ 实例 `boundLineX` + `telegraph`/`spawn` 事件载荷 `lineX`；`lineHold` 改调同一函数。页面删除取模，唯一来源 = `ev.lineX` 经 `pickLineByX`（组均值 x 精确匹配）；lineX 非有限或组全空时才回退旧取模表达式（回退路径零变化）。
+
+### 连带修复：6 处注释字面量诱发形态断言误吞（本批最大教训）
+
+本批新增注释里的 `tanks/*.json` / `cards/*.json` 字面量含 `/*` 序列，被 `test-survival-reinforce.js` 等「先剥块注释」的正则当块注释起点，**吞掉 3497→4679 共 1183 行代码** ⇒ 3 条页面接线断言假红（对照实验：旧版全绿、`reinforceAlly:4420`/`survivalOnly:4463` 功能完好）。**其中 2 处（2019/2400）是早于本批的既有雷**——全清 6 处（`/*` 未闭合 54:48→48:48）。**连带暴露**：`test-ui-tokens.js` 字号棘轮此前「绿」是误吞压低计数所致（45.4KB 区间内含 1 处 11px + 3 处 12px），修好测量仪后真实超标（27>26 / 18>15）首次现形 ⇒ 基线修正为实测值（2026-10-31 注记写明缘由），**真实收敛（换 `var(--fs-*)`）仍是 P1 待办，不豁免**。
+
+### 新登记债务（不在本批修，待裁定）
+
+- **#AC2**（`docs/ISSUES.md`）：出口可达性因 P0-B 从「无所谓」升级为 S1 硬卡关前置 ⇒ verifier 跨 seed 扫描 **20 seed × 12 节点 = 160 encounter 节点、三档判据（tierBlocksMove 同源 / passability / supplyBlocking）全部 0 不可达**（与 `isReachableFromSpawn` 交叉校验 8/8 一致），**维持预防性条目** + 写入实测支撑；修法建议（makeNode 加「出生点↔exitX」可达性断言）归 mapgen 域。
+- **#AC4**：P0-A 敌数连带效应 —— 波数=防线数后 **6 防线（实测 lv≥2 可达，分布 4:288/5:1104/6:144）恒 2 倍敌数，diff=1 达 60 辆/节点 = 铺敌上限 18 的 3.33×**（`maxPerNode` 只约束铺敌路径，波次路径零钳制）；单波峰值 14 辆 = 「W3 五辆是逐一点名上限」口径的 2.8×。**与 #AB10 同向**（内容量 91s→180~300s 本来要更多敌人），故修法是加总钳制/单波活体上限使其落回目标区间，**不是回退 P0-A**。待 creative/用户裁定。
+
+### 验证链（全部实测退出码）
+
+`npm run check` EXIT=0 · `npm test` **76/76 通过** · `npm run test:browser` **九链全绿 exit 0**（未现 EPERM/86）· `wiki-check` broken=0/anchorBad=0/struct=0/template=0 · `batch-gate` **GATE: PASS**。`test-encounter` 断言 **214→270（⑮ 段 +56，含 4 条负向）**；负向断言做**三轮变异验证**（A=改回取模红 7 条 / B=恢复两套口径红 3 条 / C=删退化保护红 7 条+软锁实证），均三重证明还原干净（git diff --stat 一致 + 无残留 + 复跑全绿）。verifier（独立 role-verify-docs）复现变异 A 并独立复算敌数表 8/8 逐格一致。**收口中修复的两处过程错误如实记录**：P1-F 首编漏删旧三行（duplicate declaration，check-html 红）已修；entityMults 编辑一度误吞相邻三行已行级恢复。
+
+**归口**：`specs/combat/encounter-director.md`（lines 模式节拍/lineX 载荷/原型派生）· `PLAN.md` §2.8.3（P2-G 评审清单）· `ISSUES.md` #AC2/#AC3/#AC4。
+
+## §4.187 2026-10-31 用户四裁定落地：波次钳制 + 分批投送 + 可达性护栏（D1a/D1b/D2）
+
+**需求（用户 2026-10-31 裁定原文摘要）**：「1. 按 A。且数量太多时，**不同时生成**，而是玩家消灭数个后，在**摄像机视口外再补充数个**。稍微降低难度并防止数量过多影响性能；2. 可；3. 按 A……」
+
+### 1) RULES 三键（`js/tank_rules.js` `RULES.encounter.standardScale`）
+
+`{ diffCountScale: 3, maxPerWave: 6, maxPerNode: 24, maxAlivePerWave: 4 }`，三键语义一次性定案：
+
+- **`maxPerWave`**：**单波总敌数**封顶。旧实现是「单波内每个 unit 各自封顶」⇒ S3 原型 3 unit 时实际上限 3×6=18，与本键长期名实不符（2026-10-30 记账的待办）；现由页面按**整波求和**裁剪。
+- **`maxPerNode` = 24**：**单节点总敌数**钳制。旧口径下波次路径**完全绕过**铺敌侧的 `maxPerNode=18`，实测 diff=1 × 6 防线达 60 辆/节点（#AC4）。取 24 而非 18：留 4~6 道防线的均分余量（24/6=4 辆/道仍成立），并给 #AB10 内容量目标留头部空间。
+- **`maxAlivePerWave` = 4**：同波**同时存活**上限，是分批投送的基准。4 敌 + 2 友军 ≈ 6 车同屏，守住 `encounter-director.md`「W5 辆是可逐一点名上限」这条红线并留 1 辆余量；同时压住同屏实体数（性能）与瞬间齐射（难度）。
+
+三值均标 `[PLACEHOLDER]`，待 `measure-encounter --mode=real` 校准（判据：中位 ∈ 180~300s 且接战时间占比不塌）。
+
+### 2) 页面编成：节点预算按防线均分（`tank_battle.html`）
+
+旧逻辑「每 unit 独立封顶后按原型循环出 N 波」在波数=防线数后会让靠前的波吃光预算、后面防线又空防（P0-A 想解决的问题回潮）。现改：
+
+```
+nodeBudget = max(waveCount, min(maxPerNode, waveCount × maxPerWave))
+basePerWave = floor(nodeBudget / waveCount);  rem = nodeBudget % waveCount
+第 i 波预算 = min(maxPerWave, basePerWave + (i < rem ? 1 : 0))
+```
+
+每波展开后**按兵种构成比例**裁到预算（`floor(count × budget/sum)` + 余数按 unit 顺序 +1），保留构成形状而非从尾部砍；极小预算时保底给第一个 unit 1 辆（空波会让防线无人守，属软锁）。
+
+### 3) 波内分批投送（D1b，用户机制设计）
+
+`battleSpawnWaveUnits` 拆成**规划 / 投送**两段：规划阶段与改前**逐字段一致**（同 `pickLineByX` / `slotPos` / `CLS_DEPTH` / 确定性抖动 / 压掩体推离），故同 seed 落位序列不变；只是「谁在哪一帧出场」由击杀驱动。
+
+- 首批 = 计划表前 `maxAlivePerWave` 辆；余量压入 `battleEncReserve`（携带已规划坐标 + cls + 波内序号）。
+- `updateWaveReserve(dt)`：场上波次敌人 `< aliveCap` 时逐辆补投，**0.25s 节流**；落位硬约束 = **视口外**（`viewBounds(cam)` 判定）+ 距玩家 ≥ `triggerDist×1.05` + 不压掩体（`pointInCover` 30px）；不满足沿 **+x** 平移最多 6 次，仍不满足则**本帧放弃**（宁可晚 0.25s，也不破坏「视口外补充」这条硬约束）。朝 +x 推是因为玩家推进轴就是 +x，往 -x 会从背后刷怪（历史踩坑）。
+- **波清判定**：`battleEncounterCtx.enemyAlive` = 场上存活 + `battleEncReserve.length`。只数场上实体会让导演在队列未投完时误判 wave-clear ⇒ 后续波提前上线、本波余量凭空消失（与 #AB3 空波软锁同源）。
+- 生命周期：`enterBattle` 与 `finishNode` 同处清空（防跨节点串活）。
+
+### 4) #AC2 探针转正（`scripts/test-exit-reachability.js`）
+
+临时探针（`tmp/probe-ac2-exit-reach.js`）固化为正式 Node 测试并登记 `TESTS`（`scripts/run-tests.js`）：**18 seed × 6 节点 = 72 个 encounter 节点 × 三档判据**（`tierBlocksMove` 同源 / `passability===0` / `supplyBlockingCovers`）全部 **0 不可达**；与 `isReachableFromSpawn` 交叉校验 **8/8 无分歧**；**负向断言**：人为塞一条横贯全高的 `rock` 阻断带 ⇒ 必须判不可达（证明探针有敏感性、非恒真）；单跑 ≈69s（预算 120s 内）。判据一律复用 `tank_map.pointInCoverOne`，**不复刻几何**——复刻正是这类探针最常见的假绿来源。
+
+### 5) 实测效果与验证链
+
+Node 实测（require RULES 推演，EXIT=0）：**diff=1 × 6 防线：总敌 60→24、单波峰值 14→≤6、同屏峰值恒 ≤4**；diff=0 时 15~20 辆（预算上限不等于必定用满，低难度未被过度填充）。
+
+`npm run check` EXIT=0 · `npm test` **77/77 通过**（新增可达性链）· `npm run test:browser` **九链全绿 exit 0** · `wiki-check` 全 0 · `batch-gate` **GATE: PASS**。`test-encounter` 断言 **270→281**（⑯ 段 +11，含 3 条负向：活体上限>单波总量 / 单波 ≥ 节点 / `maxPerNode=60` 失控值，均判非法）。
+
+**收尾中我自己的两处实现错误（如实记录）**：① 交叉校验第一版把 `isReachableFromSpawn(node, pt)` 写成 `(node, x, y)` ⇒ `pt.x` 为 undefined 恒返回 false，被误读成「被测代码有分歧」；② 规模断言初版只有 40 节点（`break` 只作用内层循环），跨 seed 累积后达 72。两处都已修正并复跑。
+
+**归口**：`ISSUES.md` #AC4（已修待标定）/ #AC2（已转正）· `PLAN.md` §2.8.4（D1a/D1b/D2/D3）· `specs/combat/encounter-director.md`（三键口径，待补）。
+
+## §4.188 2026-10-31 局内进度存档 + 开发者调试工具（用户需求）
+
+**需求（用户原话）**：「D1b 测试需要手动达到高难度，为存档增加功能：保存游戏进度（关卡、使用的卡牌）；为开发者面板增加功能、直接到达某个节点、以及其他你认为有必要加入的功能（生成一批敌人？）」。
+
+### 1) 存档结构（`js/tank_economy.js`）
+
+`profile.runProgress` 唯一形态：`{ seed, nodeCount, difficultyLevel, nodeIndex, flow, runScore, runKills, cards[], tankId|null, savedAt }`。
+
+- **只存重放键，不序列化节点树**：`generateRun(seed, count, env)` 是确定性的（`test-replay` 保证同 seed 摘要一致），存 `seed+nodeCount+difficultyLevel` 就能重建整条链；序列化节点树会让存档体积膨胀并与生成器版本强耦合。
+- `normalizeRunProgress(raw)` 是**唯一守卫实现**，`normalizeProfile` 与 `saveRunProgress` 共用同一套规则（禁止两份规则漂移，已用断言硬锁 `直调 ≡ normalizeProfile 内结果`）。
+- **越界策略分层**：`nodeIndex` 越界 ⇒ **钳位**（可自愈的脏数据，最坏损失是回到链首/链尾，不该丢掉整局）；`nodeCount` 非法 ⇒ **判 null**（链长直接决定重放结果，钳位会生成与存档不同的一条链，属失真而非降级）。
+- `cards` 去重保序、剔非字符串、截 200（防脏档爆内存）；`flow` 白名单（`map/battle/shop/loadout`）否则回落 `map`。
+
+### 2) 页面接线（`tank_battle.html`）
+
+- **唯一写档入口** `saveRunState(reason)`：进节点后、节点结算后、`extendRun` 后、`visibilitychange`（极轻量）。全部 `try/catch`——**存档失败只写日志，绝不中断游戏流程**。
+- **恢复**：`restoreRunFromProfile()` 按 seed 重放重建链 → 定位 `nodeIndex` → **不自动进战斗**（落在首页由玩家点「继续本局」，因为本版本没有可选的节点图，`transition(map)` 只会露出「开始新的一局」把恢复的局冲掉）。指纹去重（`seed|nodeCount|nodeIndex|savedAt`），重复触发不重建。
+- **卡牌恢复**：`runCards` 镜像（`pickCard` + 被动顶替两个唯一追加点）+ `runCardsReplayPending` 一次性门控，**只在进战斗、玩家实体 reset 之后逐张施加一次**；绝不重放全链（会叠 modifier）。
+- **清档**：gameover、主动终止、`startNewRun` 前（防「开新局但没进战斗就刷新」读回已放弃的局）。
+
+### 3) 排掉的三个真缺陷（实施中自测发现）
+
+| 缺陷 | 根因 | 修法 |
+|---|---|---|
+| 卡牌永不回填 | 卡池 `/api/cards` 晚于首场战斗就绪时，`runCardsReplayPending` 被空转消耗 | 卡池空则不消耗标记，由 `loadCardPool` 就绪回调补一次 |
+| maxStacks 卡静默不施加 | `_cardApplyCount` 是 player **会话级**字段，`prepPlayerForRun` 不清它 ⇒ 同会话先玩一局再恢复时被判「已叠满」 | 恢复路径补 `removeRunModifiers(player)`（它同时清 run scope 修饰器与 `runScoreMul`/`runReviveBonus`，正是「开一局」的起点） |
+| 「继续本局」从已通关节点重开 | 结算后写档用裸 `currentNode.index` | `runProgressResumeNodeIndex()`：`battleState.cleared` 时指向下一节点（`finishNode` 先置标记再写档，同帧可靠） |
+
+另排掉：战斗/暂停态切换存档槽会把 A 槽的链混进 B 槽（`switchActiveSaveSlot` 拒绝并提示）。
+
+### 4) devPanel「调试工具」（9 键，共享模块零改动）
+
+走 `extraSwitchHTML` + `onExtraSetup` 注入到「开关」Tab，全部 `devOpen` 门控、无新键位：
+
+跳节点（输入 0..N-1）/ 跳到 BOSS / 下一节点 · **视口外刷怪 1~12** · 清空全场敌人（置 `hp=0` 走既有死亡路径，不 splice）· **难度设为 1.0 并重进**（用户明确要的「不用手动打上高难度」）· 立即结算本节点 · 本局得分 +1000 · 回满血。
+
+抽出的共用件 `spawnPointUsable` / `assembleWaveEnemyAt` 与波次补投**同一条装配链**（`waveSpawn:false` 不占 `maxAlivePerWave` 配额）；正常波次路径**零 `Math.random`**（调试刷怪可用随机落位，不影响回放基线）。非 standard 模式（Boss/生存）跳节点工具禁用并提示。
+
+### 5) 顺带修：`measure-encounter-real.cjs` 总时长塌 0
+
+旧口径用 `enc.elapsed` 当采样时间轴，玩家阵亡后 `finishNode` 把 `battleEncounter` 置 null ⇒ 之后每个采样 `t` 都变 0 ⇒ `total=0`、打出「固定开销 -48.8s」这种不可能的负数。改用页面 `performance.now()` 单调时钟（与导演实例解耦），结局行同修。实测复验：`真交战 46.5s / 固定开销 1.8s / 总 48.3s`，结局 `0分48秒（elapsed=48.3s）` 自洽。
+
+### 6) 验证链
+
+`npm run check` EXIT=0 · `npm test` **77/77** · `npm run test:browser` **九链全绿** · `wiki-check` 全 0 · `batch-gate` **GATE: PASS**。`test-economy` **186→232**（+46，8 条负向；变异测试 6/6 全被新断言捕获后还原复验）。**端到端实测**（项目 `server.js` + Edge 无头）：预置 `runProgress{seed:424242, nodeCount:6, nodeIndex:2, difficultyLevel:2}` → 重载 → 首页文案「未完成的一局：节点 3/6 · 得分 1234」→ 点「继续本局」→ `flow=battle`、`currentNodeIndex=2`、玩家 100 HP、敌人 3 辆、pageerror 0。
+
+**过程记录（我的探针两次假阴性，不是功能缺陷）**：① 裸 `http` 服务器起页时 `/api/tanks` 404 ⇒ `tankListData` 未就绪 ⇒ `restoreRunFromProfile` 按设计返回 false（这是**正确防御**）；② 探针写错 meta 结构（应为 `{saves:[...], activeSaveId}`）。改用项目 `server.js` 后恢复链路一次通过。
+
+**归口**：`specs/map/map-architecture.md`（存档结构，待补）· `specs/editor/devpanel.md`（调试工具，待补）· `PLAN.md` §2.8.4。

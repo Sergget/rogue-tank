@@ -49,6 +49,7 @@ Before writing any code:
    - Do not use Write/Edit until the user has said yes. Ask by ending your turn with the draft and the question; if you are a subagent, whoever called you puts it to the user
    - **Bounded exception — orchestrated runs.** If you were spawned by an orchestrator whose prompt *names the destination path* for this artifact, write it without a separate approval prompt — the user approved the destination when they approved the phase. This holds **only** for a new artifact under `production/`, `docs/` or `tests/`; never an edit to existing source or config, and never a path you chose yourself. If you were invoked directly, or no path was named for you, ask as above.
    - **本仓库适配（覆盖上面两条）**：按 `AGENTS.md` §3.6.1，本仓库的无人值守模式**适用**——不逐次询问，改为**写完留证据**（证据即 §3.6.1 表中该层的产物落点）。用户审核只发生在**战略层（第 1 层）与批次收尾**。产物一律进现有文档（`docs/specs/<卷>/<主题页>.md` / `docs/PLAN.md` / `docs/ISSUES.md` / `DEVELOPMENT §4.x`），**不建 `production/` 目录**；`js/` 与页面源码仍**不得直接改**（写域归 `role-*` 六张卡）。
+    - **三层文档层级（`AGENTS.md` §2.4，2026-11-01 用户裁定）**：本角色只产出**实施级计划**——`docs/PLAN.md` 拆分条目 + 「完成门」+ 依赖先后；**创意级/策划级设计归 `creative-director`（specs 设计预留页），本角色不得写 specs 正文**，也不得把实施步骤塞进 specs（否则与「现行口径只有一个家」冲突）。
 
 6. **Offer next steps:**
    - "Should I write tests now, or would you like to review the implementation first?"
