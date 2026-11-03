@@ -23,7 +23,23 @@ let tracers = [];        // 曳光拖尾短亮线段: {x1,y1,x2,y2,life,max,colo
 //   生命周期（0.22s）也比炮口焰（0.18s）长，混在一起会互相压暗。
 //   { x, y, ang, len, scale, seed, life, max }
 let railArcs = [];
+// E2.2（2026-11-01，PLAN §2.8.5 用户裁定「1+2」）：粒子硬顶从 const 1200 升级为**档位可注入**。
+//   压测（DEVELOPMENT-batches-2026-11.md §4.194）实测齐射窗口粒子峰 1194~1197 恒贴 1200 顶、
+//   update 侧 p95 27.9~120ms 塌陷——battle 页接 RULES.perf 三档后，deck/mid 档需要更低的
+//   particleCap（§4.156：deck 160 / mid 260）。缺省仍 1200（= high 档 / 未接线页面），零回归：
+//   不调 fxSetParticleCap 的消费方行为与改前逐字节一致。
+//   环式语义：spawn 侧拒绝新增（与原 const 顶一致），不替换旧粒子——替换会让已有爆炸/烟
+//   突然消失，观感是「特效闪断」；拒绝新增只让新效果稀一点，视觉连续性更好。
 const FX_MAX_PARTICLES = 1200;
+let _fxParticleCap = FX_MAX_PARTICLES;
+/**
+ * E2.2：设置当前档位的粒子硬顶（governor 降/升档时由页面调用）。
+ * @param {number} n 新上限（正整数；非法/缺省调用回退 FX_MAX_PARTICLES）
+ */
+function fxSetParticleCap(n){
+  _fxParticleCap = (Number.isFinite(n) && n >= 1) ? Math.floor(n) : FX_MAX_PARTICLES;
+}
+function fxParticleCap(){ return _fxParticleCap; }
 const FX_MAX_RAIL_ARCS = 24;
 const FX_MAX_SCORCH = 80;
 
@@ -225,28 +241,28 @@ function releaseParticle(p) {
 }
 
 function spawnFlame(x,y,spread,speedMul){
-  if (fxParticles.length > FX_MAX_PARTICLES) return;
+  if (fxParticles.length > _fxParticleCap) return;
   const mul = speedMul || 1;
   const a = Math.random()*TAU, sp = (20 + Math.random()*(spread||80)) * mul;
   fxParticles.push(getPooledParticle('flame', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 35*mul,
     0.35 + Math.random()*0.45, 5 + Math.random()*8));
 }
 function spawnSmoke(x,y,spread,speedMul){
-  if (fxParticles.length > FX_MAX_PARTICLES) return;
+  if (fxParticles.length > _fxParticleCap) return;
   const mul = speedMul || 1;
   const a = Math.random()*TAU, sp = (8 + Math.random()*(spread||50)) * 0.45 * mul;
   fxParticles.push(getPooledParticle('smoke', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 14*mul,
     0.8 + Math.random()*1.0, 6 + Math.random()*9));
 }
 function spawnDebris(x,y,spread,speedMul){
-  if (fxParticles.length > FX_MAX_PARTICLES) return;
+  if (fxParticles.length > _fxParticleCap) return;
   const mul = speedMul || 1;
   const a = Math.random()*TAU, sp = (70 + Math.random()*(spread || 140)) * mul;
   fxParticles.push(getPooledParticle('debris', x, y, Math.cos(a)*sp, Math.sin(a)*sp - 50*mul,
     0.6 + Math.random()*0.5, 1.5 + Math.random()*2.5));
 }
 function spawnSpark(x, y, angle, speed, life, size, colType){
-  if (fxParticles.length > FX_MAX_PARTICLES) return;
+  if (fxParticles.length > _fxParticleCap) return;
   fxParticles.push(getPooledParticle('spark', x, y,
     Math.cos(angle)*speed, Math.sin(angle)*speed,
     life, size || 1.4, colType || 'amber'));
@@ -279,7 +295,7 @@ function burstExplosion(x,y,scale,flames,smokes,debris){
 }
 // 起火坦克：从发动机舱位置持续发射剧烈翻滚火焰与滚滚浓烟
 function emitTankFire(t){
-  if(fxParticles.length > FX_MAX_PARTICLES) return;
+  if(fxParticles.length > _fxParticleCap) return;
   const L = t.hullLen/2, W = t.hullWid/2;
   const ex = engineLocalX(t);
   const pts = [ [ex, -W*0.3], [ex, W*0.3], [ex*0.7, -W*0.15], [ex*0.7, W*0.15], [ex*0.35, 0] ];
@@ -487,7 +503,7 @@ function spawnImpactFx(x, y, angle, outcome, scale){
     for(let i = 0; i < 3; i++){
       const a = (angle || 0) + (Math.random() - 0.5) * 1.1;
       const spd = (120 + Math.random() * 140) * sc;
-      if(fxParticles.length >= FX_MAX_PARTICLES) break;
+      if(fxParticles.length >= _fxParticleCap) break;
       fxParticles.push(getPooledParticle('debris', x, y,
         Math.cos(a) * spd, Math.sin(a) * spd - 20 * sc,
         0.55 + Math.random() * 0.35, 1.4 + Math.random() * 1.6));
@@ -564,7 +580,7 @@ function updateFx(dt){
   explosions.forEach(x=>x.life+=dt); explosions = explosions.filter(x=>x.life < x.max);
   turretFlights.forEach(f=>{
     f.age += dt; f.vy += 260*dt; f.x += f.vx*dt; f.y += f.vy*dt; f.ang += f.spin*dt;
-    if(Math.random() < 0.35 && fxParticles.length < FX_MAX_PARTICLES) spawnSmoke(f.x, f.y, 8);
+    if(Math.random() < 0.35 && fxParticles.length < _fxParticleCap) spawnSmoke(f.x, f.y, 8);
   });
   turretFlights = turretFlights.filter(f=>{
     // 当炮塔落回与被击毁坦克同一水平线（y >= baseY）即消失
@@ -1182,6 +1198,8 @@ if (typeof module !== 'undefined' && module.exports) {
     tracers,
     railArcs,
     FX_MAX_PARTICLES,
+    fxSetParticleCap,
+    fxParticleCap,
     spawnFlame,
     spawnSmoke,
     spawnDebris,

@@ -628,6 +628,13 @@
         <div class="screen-hint" style="margin-top:14px; color:var(--amber); letter-spacing:2px;">出战整备 LOADOUT</div>
         <div id="loadTankList"></div>
         <div id="loadHint" class="screen-hint"></div>
+        <!-- 2026-10-31（用户需求「关页后能继续」）：局内进度继续入口。
+             只在当前存档存在可恢复进度时显示；整备区（选车/商店）照常可用，进战斗时按存档口径装配。
+             rationale：恢复落地在首页而不是自动进战斗——玩家可能想先换车或加购复活次数再继续。 -->
+        <div id="homeContinueWrap" style="display:none; margin-top:10px; border:1px dashed var(--line-soft); padding:8px 10px;">
+          <div class="screen-hint" id="homeContinueHint" style="margin:0 0 6px;"></div>
+          <div class="btnrow"><button id="homeContinueBtn">继续本局 CONTINUE RUN</button></div>
+        </div>
         <div class="btnrow">
           <button id="loadShopBtn">强化整备 SHOP</button>
           <button id="loadStartBtn">出击 START RUN</button>
@@ -751,6 +758,10 @@
   <script src="js/tank_abilities.js"></script>
   <script src="js/tank_drone.js"></script>
   <script src="js/tank_fire.js"></script>
+  <!-- 2026-11-01（用户需求）：通用卡牌选择器——开发者面板「卡牌」Tab 顶部的按分类选择
+       与 bench 测试台共用同一模块（js/tank_card_picker.js），不另写一套分类口径。
+       须在 tank_devpanel.js 之前加载：面板 mount 时会直接挂载它。 -->
+  <script src="js/tank_card_picker.js"></script>
   <!-- #F（2026-09-20）：开发者面板共享模块（battle/bench 同源四 Tab；依赖 applyCardToTank/
        snapshotCardTx/clearCardsFromTank 等共享层，须在 tank_panels_core 之后晚于卡片运行时加载） -->
   <script src="js/tank_devpanel.js"></script>
@@ -765,7 +776,36 @@
 (() => {
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-function resize(){ canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; }
+// ---------- E2.2（2026-11-01，PLAN §2.8.5 用户裁定「1+2」）：battle 页性能地基 ----------
+// §4.194 结构性事实：三档降级此前只在 tank_3d.html（§4.156），正式战斗页裸奔——齐射窗口
+// EMA 24.6~92.7ms 无任何自动降级。本段对齐 3D 页样本接线：?tier= 指定档 / 缺省自动，
+// 降级动作只动表现（分辨率缩放 / 粒子 cap / 尘埃间隔），模拟层（AI/命中/弹道/装填）一律不降。
+// hasOwnProperty 防原型链键（?tier=constructor 命中 Object 成员 → resolutionScale undefined → NaN 画布），
+// 该坑 3D 页已踩过（tank_3d.html:239-241 注释），此处直接继承口径。
+const PERF_TIER_LABEL = { high: '高', mid: '中', deck: '低' };
+const PERF_START_TIER = (function(){
+  const q = (new URLSearchParams(location.search).get('tier') || '').toLowerCase();
+  if(RULES && RULES.perf && RULES.perf.tiers && Object.prototype.hasOwnProperty.call(RULES.perf.tiers, q)){
+    return q;
+  }
+  return (RULES && RULES.perf && RULES.perf.startTier) || 'high';
+})();
+let perfGov = (typeof createGovernor === 'function' && RULES && RULES.perf)
+  ? createGovernor({ rules: RULES.perf, startTier: PERF_START_TIER })
+  : null;
+let perfCfg = (function(){
+  if(perfGov && typeof getTierConfig === 'function') return getTierConfig(perfGov, RULES.perf);
+  // governor 缺位（模块未加载）兜底：等效 high 档全效，行为与接线前一致（零回归）。
+  const t = (RULES && RULES.perf && RULES.perf.tiers && RULES.perf.tiers[PERF_START_TIER]) || null;
+  if(!t) return { name: 'off', resolutionScale: 1, particleCap: Infinity, dustIntervalS: 0.09, maxShells: 40 };
+  return { name: PERF_START_TIER, resolutionScale: t.resolutionScale, particleCap: t.particleCap,
+    dustIntervalS: t.dustIntervalS, maxShells: t.maxShells };
+})();
+function resize(){ canvas.width = Math.round(canvas.clientWidth * perfCfg.resolutionScale); canvas.height = Math.round(canvas.clientHeight * perfCfg.resolutionScale); }
+// E2.2：初始档位的粒子 cap 立即生效（?tier=deck 冷启动即 160，不等第一次降档）。
+if (typeof fxSetParticleCap === 'function' && Number.isFinite(perfCfg.particleCap)){
+  fxSetParticleCap(perfCfg.particleCap);
+}
 window.addEventListener('resize', resize);
 resize();
 
@@ -793,7 +833,41 @@ let supplyReadyAt = 0;            // performance.now() 时间戳：冷却就绪�
 let battleState = null;    // { startMs, prevPlayerHp, damageTaken, cleared, playerDied }
 let battleEncounter = null; // 2026-10-30 MS2/C1：标准模式波次导演实例（node.encounter=true 时非 null）
 let battleEncSeq = 0;       // 波次投送实体的节点内序号（id 唯一性；enterBattle 重置）
-let battleEncAnchorIdx = 0; // 波次内锚点消费位置（每波重置为 0；波次绑定防线在 spawn 内按 waveIdx 取模）
+let battleEncAnchorIdx = 0; // 波次内锚点消费位置（每波重置为 0；波次绑定防线现在由 spawn 事件 lineX 选出，2026-10-30 P1-F）
+// 2026-10-30 P0-B：全部防线波清空的标记（「可结算」的中间态，区别于 battleState.clearing）。
+//   语义：导演已发 victory（不再有敌人），但玩家**尚未抵达出口** ⇒ 不结算，出口由
+//   battleExitUnlocked() 点亮，主循环每帧判「玩家 x ≥ currentNode.exitX」才进 clearing。
+//   存在的理由：遭遇节点原本「波次全清即结算」，与用户期望（带领友军逐个突破防线、
+//   抵达地图最右侧）不符——清完最后一波就黑屏结算等于玩家从没走完这张图。
+//   判据与 display 分离：本标记只表达「内容已完成」，「是否已走到出口」由主循环实时判，
+//   避免把位置判据写死在事件处理里（那时玩家还在 A 位置，结论可能下一帧就过期）。
+let battleExitReady = false;
+// 2026-10-31 D1b（用户机制设计）：同波「待投送队列」——超出 maxAlivePerWave 的单位不立即生成，
+//   等玩家消灭数辆后在**摄像机视口外**补投。理由：① 同屏实体数受控（性能）；
+//   ② 不瞬间齐射（难度和缓，站桩挨打窗口不叠加）；③ 仍保持本波总配额不变（波清判定不变）。
+//   元素形态 = 已规划好的完整落位计划 { x, y, hull, cls, k }（与立即生成那批同一份规划表，
+//   所以同 seed 的落位序列仍确定；只是「何时出场」由击杀驱动）。
+//   battleEncReserveCd = 投送节流（秒），每 0.25s 最多补 1 辆，防同帧整队入场。
+//   ⚠ 队列**不参与存档**（`profile.runProgress` 只存 seed/节点/分数/卡牌）：刷新或读档恢复后
+//     本波会从**起点重打**（波次由 seed 确定性重放），队列里未出场的单位随之作废。
+//     这是**预期降级**，不是数据丢失 —— 实测刷新前后均为「节点 0 · 敌人 3 辆」，无软锁
+//     （2026-10-31 代码审查 #4 确认并记录；不要试图把队列写进存档，它是战斗内的瞬时状态）。
+let battleEncReserve = [];
+let battleEncReserveCd = 0;
+// 2026-11-02 M3-E/F（任务类型）：运行时目标状态——kind 不匹配时恒为空/null（零回归）。
+//   battleGuardTarget = defend 的守点目标（covers 实例；hp>0 = 存活，复用 building 生命周期）。
+//   battleCaptureZones = capture 的驻留圈 [{x,y,r,progress}]；progress>=1 = 已拔点。
+let battleGuardTarget = null;
+let battleCaptureZones = [];
+// 2026-11-01 P2-G 守军语义（PLAN §2.8.3 键名契约 v2）：守军「入场时刻」账本。
+//   形态 = Map<entityId, {bornAtMs, fired}>，**外部持有不挂实体**——
+//     ① 实体字段由 js/tank_schema.js 的 FIELD_ROWS 管，加临时字段会污染存档/设计器；
+//     ② spawnTank 不写出生时刻（js/tank_entity.js:18 只存位置快照）⇒ 只能装配侧记账；
+//     ③ 外部 Map 让「波清整体重置」退化为一行 new Map()（不重置会跨波/跨节点串计时）。
+//   时钟口径：一律 simNow()（毫秒），与 js/tank_encounter.js 的兜底纯逻辑同单位；
+//     **不用 Date.now/performance.now**——那会破同 seed 可重放（B6 教训）。
+//   消费方：`updateGarrisonFallback`（每帧判定 + 注入，见该处注释）。
+let battleGarrisonBook = new Map();
 // #N5（2026-10-01）：存活敌军缓存（AI 循环每帧填充），供屏幕外来袭方向提示复用。
 let aiEnemiesCache = [];
 // #E9（2026-09-20）：Boss 蓄能激光当前帧的绘制数据 { kind:'charge'|'fire', x,y,angle,width,length,progress }
@@ -825,6 +899,25 @@ let runKills = 0;          // 本局累计击杀数（P-34 终局汇总展示）
 let runScoreSpent = 0;
 let runFinished = false;   // P-34 开放式链后恒为 false（链不再收束，终局走 gameover/voluntaryEnd）
 let profile = loadProfile(localStorage);   // P-14：跨局存档（商店点数 + 永久升级 + 统计）
+// ---------- 2026-10-31（用户需求「保存游戏进度 / 关页后能继续」）局内进度存档状态 ----------
+// runCards：本局已获得卡牌 id 的**镜像列表**（去重、保序）。
+//   rationale：`player.cardEffects` 只收「非 modifier 效果」（见 js/tank_cards.js applyCardEffects
+//   的分支——纯修饰器卡只写 tank.modifiers，不写 cardEffects），所以**只从 cardEffects 取卡 id 会
+//   漏掉大部分构筑**（伤害/装甲/装填类全是纯 modifier 卡）。镜像在每次 applyCardEffects 成功后
+//   追加一次，读档回填也用它；存档写盘时再与 cardEffects 取并集兜底（防止镜像漏记）。
+let runCards = [];
+// runCardsReplayPending：恢复态卡牌是否**尚未回填**。
+//   rationale：恢复时不能重放 applyCardEffects 全链（会重复加 modifier —— 红线③），
+//   改为「进入战斗、玩家实体建好之后」按 runCards 逐张施加一次；本标记是防重复施加的唯一门控。
+let runCardsReplayPending = false;
+// restoredProgressKey / restoredRunNodeIndex：已恢复的进度指纹与落点节点。
+//   rationale：恢复要等 /api/tanks（坦克列表）异步就绪，且「选择进入另一个存档槽」后 profile 会换人
+//   ⇒ 用「seed|nodeCount|nodeIndex|savedAt」做指纹：同一份进度只恢复一次（防重复生成 run），
+//   换槽/换进度则指纹不同 → 允许再恢复。restoredRunNodeIndex = -1 表示当前没有可继续的进度。
+let restoredProgressKey = null;
+let restoredRunNodeIndex = -1;
+// runSaveWarned：存档写盘失败只提示一次（避免每次进度边界刷同一条告警）。
+let runSaveWarned = false;
 // #H1（2026-09-30）：原 P-46「玩家出击时刻冻结的基准属性快照」已整体退役 —— 敌军数值改锚定
 // 固定基准 RULES.enemyAnchorBase，玩家 stats（含局外永久升级）不再参与敌军强度。
 // 保留此变量仅为兼容可能引用它的调试钩子，恒为 null，不再被赋值或消费。
@@ -859,6 +952,16 @@ function loadTankList(){
     tankListData = data;
     // M10：坦克列表异步就绪时刷新整备卡片（2026-10-29：HOME 合并屏同样要刷）
     if(flow.state === 'loadout' || (flow.state === 'home' && document.getElementById('homeLoadoutWrap') && document.getElementById('homeLoadoutWrap').style.display !== 'none')) renderLoadout();
+    // 2026-10-31（用户需求「关页后能继续」）：局内进度恢复依赖坦克列表（prepPlayerForRun 要按
+    //   selectedTankId 解 tankListData），而本回调晚于 initMenu ⇒ 在这里补一次恢复尝试。
+    //   幂等：restoreRunFromProfile 用 fingerprint 去重，重复触发不会再生成一条链。
+    //   只在尚未开局（!run）且停在首页时做——已经开局的页面不覆盖玩家当前进度。
+    try{
+      if(!run && flow.state === 'home' && restoreRunFromProfile()){
+        renderHome();
+        refreshContinueRunEntry();
+      }
+    }catch(_e){ /* 恢复异常不影响坦克列表就绪后的正常渲染 */ }
   });
 }
 loadTankList();
@@ -1129,7 +1232,7 @@ function toggleHowitzerF(){
   if(!sec || sec.type !== 'howitzer') return;
   let tgl = (typeof toggleHowitzer === 'function') ? toggleHowitzer : null;
   if(!tgl){
-    pushLog('榴弹炮模式切换不可用（tank_weapons.js 未加载）', 'COVER');
+    pushLog('榴弹炮模式切换不可用（武器模块未能载入）', 'COVER');
     return;
   }
   const on = tgl(player);
@@ -1565,6 +1668,10 @@ function openPassiveSlotPicker(newCard){
       // ① 撤除被顶掉的被动卡效果 ② 应用新卡 ③ 刷新 HUD
       if(typeof removePassiveCard === 'function') removePassiveCard(player, cardId);
       applyCardEffects(player, newCard);
+      // 2026-10-31：被动卡顶替同样是「真正施加了一张卡」——镜像必须记（否则该卡不进程存档，
+      //   读档后这张被动技能凭空消失）。被顶掉的那张不移除镜像：runCards 语义是「本局用过的卡」，
+      //   与 applyCardEffects 的 _cardApplyLog 同口径（历史口径，不是当前生效集）。
+      if(newCard && newCard.id) runCards.push(newCard.id);
       pushLog(`被动技能槽：以「${passiveCardLabel(newCard)}」顶替「${passiveShortLabel(cardId)}」`, 'PEN');
       closePassivePicker();
       if(typeof refreshStats === 'function') refreshStats(player);
@@ -2008,7 +2115,7 @@ function renderCardsPanel(){
                            (typeof CARD_RARITIES !== 'undefined' && CARD_RARITIES[r]) || r || '未知');
   // NF-1（2026-10-20 用户口径「允许修改文本描述（机制数值用占位符）」）：
   //   desc 编辑存 `sessionStorage['cardDescOverride']`（id → 新文案，**仅本页会话预览**，
-  //   不写 cards/*.json——写盘是内容批次的职责，这里只是查看器语义）。
+  //   不写 cards 目录下的 .json 文件——写盘是内容批次的职责，这里只是查看器语义）。
   //   渲染经共享 formatCardDesc（js/tank_cards.js）：{value}/{pct}/{ov:key} 求值。
   const _descOv = (() => {
     try { return JSON.parse(sessionStorage.getItem('cardDescOverride') || '{}'); } catch(e){ return {}; }
@@ -2299,12 +2406,24 @@ function loadStaticPool(dir, onDone){
     .catch(() => onDone([]));
 }
 function loadCardPool(){
+  const _onPoolReady = () => {
+    // 2026-10-31（用户需求「关页后能继续」）：恢复进来的卡牌回填要知道卡表存在与否。
+    //   卡表晚于 initMenu 就绪是常态 ⇒ 这里做一次「补回填」：若恢复态尚未回填且玩家已在战斗节点，
+    //   立即按 runCards 施加（replayRestoredRunCardsIfPending 自带一次性门控，重复调用零副作用）。
+    //   典型场景：刷新页面 → 首页点「继续本局」→ 首场战斗已开打时卡表才到。
+    try{
+      if(runCardsReplayPending && run && currentNode && flow.state === 'battle' && Array.isArray(cardPool) && cardPool.length){
+        const n = replayRestoredRunCardsIfPending();
+        if(n > 0) pushLog(`↻ 卡牌已回填 ${n} 张（卡表就绪后补齐）`, 'COVER');
+      }
+    }catch(_e){ /* 回填异常不影响卡池加载 */ }
+  };
   fetch('/api/cards')
     .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
-    .then(list => { cardPool = Object.values(list || {}); })
+    .then(list => { cardPool = Object.values(list || {}); _onPoolReady(); })
     .catch(err => {
       console.warn('无法读取 /api/cards，尝试静态 fallback:', err.message);
-      loadStaticPool('cards', specs => { cardPool = specs; });
+      loadStaticPool('cards', specs => { cardPool = specs; _onPoolReady(); });
     });
 }
 loadCardPool();
@@ -2389,7 +2508,7 @@ function spawnBossSummonWave(bossEntity, wave){
     const spec = tankListData && tankListData[wave.tankId];
     // #I5（2026-09-23 用户反馈「boss 召唤的小兵移动速度太快」）：召唤小兵改走与节点敌军/
     // 增援同一条难度链（applyEnemyAppearanceAndStats：只取外观，数值锚定**固定基准**
-    // RULES.enemyAnchorBase × 兵种 profile），不再 applyTankConfig 整包照搬 tanks/*.json 的原始机动值。
+    // RULES.enemyAnchorBase × 兵种 profile），不再 applyTankConfig 整包照搬 tanks 目录下 .json 的原始机动值。
     // 难度乘子表同节点敌军口径（applyEnemyAppearanceAndStats 内注入 entityMults）。
     // #H1（2026-09-30）：第三参 anchorStats 已废弃并忽略——不再传玩家基准快照。
     if(typeof applyEnemyAppearanceAndStats === 'function'){
@@ -3048,10 +3167,50 @@ function spawnSurvivalReinforcement(){
   return t;
 }
 
+// ---------- 2026-11-01 E2（PLAN §2.8.5 B 裁定）：防御点波次锚点助手 ----------
+// 波次消费端（波数 / lineXs / 落位 / 预警 / 调试传送 / 地形摘要）统一从这两个入口取「组」。
+// · points 模式（RULES.nodeMap.defensePoints.enabled=true，E1/E3 数据层已收口）读
+//   node.defensePoints —— ⚠ 它是**扁平数组**：planDefensePoints 每个防御点产
+//   spotsPerPoint=5 个纵向点位、同一点 5 个点位共享同一 x（bucket 中心，
+//   js/tank_map.js planDefensePoints / makeNode pointsMode 组装）⇒ 按「x 是否变化」
+//   切组：组数 = 防御点数（4~6），每组 = 该点的 5 个 {x,y,kind}。
+// · false（默认零回归态）读 node.encounterAnchors 原文（现行防线分组，一字不差）。
+// 页面不新增任何数值兜底（派活契约纪律 ④：数值口径唯一来源在 RULES / map 层）。
+function encDefensePointsEnabled(){
+  return !!(typeof RULES !== 'undefined' && RULES.nodeMap && RULES.nodeMap.defensePoints
+    && RULES.nodeMap.defensePoints.enabled === true);
+}
+function encAnchorGroupsForNode(node){
+  if(!node) return [];
+  if(encDefensePointsEnabled()){
+    const pts = Array.isArray(node.defensePoints) ? node.defensePoints : [];
+    if(!pts.length) return [];
+    const groups = [];
+    let cur = null, curX = null;
+    for(const p of pts){
+      if(!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+      if(cur === null || p.x !== curX){ cur = [p]; curX = p.x; groups.push(cur); }
+      else cur.push(p);
+    }
+    return groups;
+  }
+  return Array.isArray(node.encounterAnchors) ? node.encounterAnchors : [];
+}
+
 function enterBattle(nodeIndex){
   const node = run.nodes[nodeIndex];
   if(!node) return;
   currentNode = node;
+  // 2026-11-02 M3-H：非战斗节点绝不进战场——正常路径由 nextNodeAfterReward 在 transition 前
+  //   路由；这里是**防御性兜底**（读档恢复/开发者跳节点可能直接落到非战斗节点）。
+  if(isNonCombatNodeKind(node.kind)){
+    pushLog(`⏭ 非战斗节点（${NODE_KIND_LABELS[node.kind] || node.kind}）：自动完成并结算`, 'COVER');
+    battleState = { startMs: performance.now(), prevPlayerHp: player ? player.hp : 0, damageTaken: 0,
+      nodeKills: 0, reinforceT: 0, reinforced: 0,
+      reinforceRng: createRNG((node.seed | 0) + 91733 + node.index), cleared: false, playerDied: false };
+    finishNode(true);
+    return;
+  }
   cam.bounds = { w: node.w, h: node.h };
   // #E10：HE 溅射击退的世界边界（与节点尺寸同源；缺省不钳制）
   if(typeof setSplashWorldBounds === 'function') setSplashWorldBounds({ w: node.w, h: node.h });
@@ -3126,28 +3285,137 @@ function enterBattle(nodeIndex){
   //   materializeNode 已按 node.encounter 跳过一次性铺敌（C0）；这里创建导演实例并把
   //   波次编成按节点难度缩放。victory ⇒ finishNode(true)（复用既有结算/计分链），
   //   defeat ⇒ 走既有复活/gameover 管线（不在此处理，交由玩家 hp 归零的正常路径）。
-  battleEncounter = null; battleEncSeq = 0; battleEncAnchorIdx = 0;
+  // 2026-10-30 P0-B：battleExitReady 必须与导演实例**同处重置**——它是「本节点的清场
+  //   中间态」，绝不能跨节点残留（残留会让下一个节点在尚未清空任何一波时就满足
+  //   「battleExitReady && 玩家到出口」⇒ 玩家一进图直奔出口即结算）。
+  battleEncounter = null; battleEncSeq = 0; battleEncAnchorIdx = 0; battleExitReady = false;
+  battleEncReserve = []; battleEncReserveCd = 0;
+  battleGuardTarget = null; battleCaptureZones = [];
+  // 2026-11-01 P2-G：守军兜底账本随**节点**重置——跨节点串计时会让「新节点刚出生的守军」
+  //   被上一节点的计时直接判成「已超 N 秒」⇒ 兜底在错误的时间点误注入（静默破坏守军感）。
+  battleGarrisonBook = new Map();
   if(node.encounter === true && RULES.encounter && RULES.encounter.enabled && RULES.encounter.standardEnabled){
-    // 正式局波次编成 = standardWaves 基准 × 节点难度缩放（count 随 diff 上调，封顶防围死）：
-    //   每单元 count → count + floor(diff × diffCountScale)，单波总敌数封顶 maxPerWave。
+    // 正式局波次编成 = standardWaves 原型 × 节点难度缩放 × **双层钳制**。
+    // 2026-10-31 用户裁定（#AC4 按 A，PLAN §2.8.4 D1a）：波数绑到防线数（4~6）后实测
+    //   diff=1 × 6 防线可达 **60 辆/节点**、单波峰值 **14 辆**（旧铺敌上限 18 的 3.33×、
+    //   「可逐一点名」红线 5 辆的 2.8×）；波次路径当时**完全绕过** maxPerNode ⇒ 必须补闸。
+    //   现口径（三键语义见 RULES.encounter.standardScale 注释块）：
+    //     ① maxPerNode：单节点总敌数钳制 → 全节点预算，按防线**均分**（每道防线都有敌人）；
+    //     ② maxPerWave：单波**总敌数**封顶（旧「每 unit 各自封顶」已作废）；
+    //     ③ maxAlivePerWave：同波同时存活上限（分出部分进待投送队列，见 D1b）。
     const diff = node.difficulty || 0;
-    const scaleCfg = RULES.encounter.standardScale || { diffCountScale: 3, maxPerWave: 6 };
-    const waves = (RULES.encounter.standardWaves || []).map(w => ({
-      id: w.id, label: w.label,
-      units: (w.units || []).map(u => ({
-        cls: u.cls, bearing: u.bearing,
-        count: Math.min(6, u.count + Math.floor(diff * scaleCfg.diffCountScale)),
-      })),
-    })).map(w => ({ ...w, units: w.units.filter(u => u.count > 0) })).filter(w => w.units.length > 0);
-    const encRules = Object.assign({}, RULES.encounter, { waves });
+    const scaleCfg = RULES.encounter.standardScale || {};
+    const perCap = Number.isFinite(scaleCfg.maxPerWave) ? scaleCfg.maxPerWave : 6;
+    const nodeCap = Number.isFinite(scaleCfg.maxPerNode) ? scaleCfg.maxPerNode : 24;
+    const protoWaves = RULES.encounter.standardWaves || [];
+    // 2026-11-01 E2（PLAN §2.8.5 B 裁定）：波数来源按双入口取「组」——
+    //   points 模式（enabled=true）= node.defensePoints 的**防御点数**（x 变化切组；
+    //   扁平数组每点 5 个纵向点位，见 encAnchorGroupsForNode 注释）——逐个拔点取代
+    //   「逐个突破防线」；false（默认零回归态）= encounterAnchors 防线分组原文，一字不差。
+    const pointsModeWaves = encDefensePointsEnabled();
+    const anchorGroups = encAnchorGroupsForNode(node);
+    const anchorCount = anchorGroups.length;
+    const waveCount = anchorCount > 0 ? anchorCount : protoWaves.length;
+    // 节点总预算：每道防线一份均分额（余数给前几道），再受单波上限与节点上限双重限制。
+    //   均分的意义：若不分，靠前的波会把预算吃光、后面的防线又变成空防（P0-A 想解决的问题回潮）。
+    const nodeBudget = Math.max(waveCount, Math.min(nodeCap, waveCount * perCap));
+    const basePerWave = Math.floor(nodeBudget / Math.max(1, waveCount));
+    const remPerWave = nodeBudget % Math.max(1, waveCount);
+    const budgetFor = (i) => Math.min(perCap, basePerWave + (i < remPerWave ? 1 : 0));
+    // 按兵种构成比例把 unit 展开值裁到波预算：保留构成形状，不简单从尾部砍。
+    const fitToBudget = (units, budget) => {
+      const sum = units.reduce((s, u) => s + u.count, 0);
+      if (sum <= budget) return units;
+      const scaled = units.map(u => ({ ...u, count: Math.floor(u.count * budget / sum) }));
+      let used = scaled.reduce((s, u) => s + u.count, 0);
+      // 余数按 unit 顺序依次 +1，直到用尽（确定性；循环一次即可因为余数 < unit 数）
+      for (let k = 0; used < budget && k < scaled.length; k++) {
+        if (scaled[k].count > 0) { scaled[k].count++; used++; }
+      }
+      // 全被裁成 0（极小预算 + 极端比例）时保底给第一个 unit 1 辆——空波会让防线无人守
+      if (used === 0 && scaled.length) { scaled[0].count = Math.min(budget || 1, 1); }
+      return scaled.filter(u => u.count > 0);
+    };
+    const scaleWave = (w, i) => ({
+      id: anchorCount > 0 ? `${w.id}_L${i + 1}` : w.id,
+      // 2026-11-01 E2：波次 label 语义对齐（仅文案）——points 模式「第 N 防御点」（逐个拔点），
+      //   false 走现行「第 N 道防线」原文，一字不差。
+      label: anchorCount > 0
+        ? `${w.label} · ${pointsModeWaves ? `第 ${i + 1} 防御点` : `第 ${i + 1} 道防线`}`
+        : w.label,
+      units: fitToBudget(
+        (w.units || []).map(u => ({
+          cls: u.cls, bearing: u.bearing,
+          count: u.count + Math.floor(diff * scaleCfg.diffCountScale),
+        })),
+        budgetFor(i)),
+    });
+    const waves = (waveCount > 0 && protoWaves.length > 0)
+      ? Array.from({ length: waveCount }, (_, i) => scaleWave(protoWaves[i % protoWaves.length], i))
+          .map(w => ({ ...w, units: (w.units || []).filter(u => u.count > 0) })).filter(w => w.units.length > 0)
+      : [];
+    // 2026-11-02 M3-B/E/F/G：节点任务类型。node.kind 由 makeNode 在 RULES.nodeKinds.enabled
+    //   时写入；总开关关闭时不存在 ⇒ nodeKind 恒 'exterminate'，以下全部走现状分支。
+    const kindCfg = (typeof RULES !== 'undefined' && RULES.nodeKinds) ? RULES.nodeKinds : null;
+    const nodeKind = (kindCfg && typeof node.kind === 'string') ? node.kind : 'exterminate';
+    const defendCfg = (kindCfg && kindCfg.defend) ? kindCfg.defend : {};
+    const captureCfg = (kindCfg && kindCfg.capture) ? kindCfg.capture : {};
+    const btCfg = (kindCfg && kindCfg.breakthrough) ? kindCfg.breakthrough : {};
+    // 防御节点固定 3~4 波（`wavesMin/Max` 双端生效；覆盖按防线数派生的波数）。
+    const defendWaveN = Math.max(defendCfg.wavesMin || 3, Math.min(waves.length, defendCfg.wavesMax || 4));
+    const encWaves = (nodeKind === 'defend')
+      ? waves.slice(0, Math.max(1, defendWaveN))
+      : waves;
+    const captureTotal = (nodeKind === 'capture')
+      ? Math.max(1, Math.min(anchorGroups.length || 1, captureCfg.pointsMax || 3))
+      : 0;
+    // M3-E：防御节点的环带来袭——把每波 unit 的 bearing 均匀铺到 2~4 个方向
+    //   （`defend.ringSectorsMin/Max`；不改 unit 数量与落位算法，只改来袭方位）。
+    if(nodeKind === 'defend' && Number.isFinite(defendCfg.ringSectorsMax)){
+      for(const w of waves){
+        const len = (w.units || []).length || 2;
+        const n = Math.max(defendCfg.ringSectorsMin || 2, Math.min(defendCfg.ringSectorsMax, len));
+        w.units = (w.units || []).map((u, k) => ({ ...u, bearing: (k % n) * (2 * Math.PI / n) }));
+      }
+    }
+    const encRules = Object.assign({}, RULES.encounter, { waves: encWaves });
     // 2026-10-30 防线式波次（用户裁定）：标准模式用 mode:'lines'——清波后停在 lineHold，
     //   玩家推进过当前防线才发下一波 telegraph（依次生成，不是定时全量刷）。
-    //   防线 x 序列 = node.encounterAnchors 每组锚点取平均 x（anchors 按 x 升序持久化）。
-    const lineXs = (Array.isArray(node.encounterAnchors) && node.encounterAnchors.length)
-      ? node.encounterAnchors.map(g => g.length ? g.reduce((s, a) => s + a.x, 0) / g.length : NaN).filter(Number.isFinite).sort((a, b) => a - b)
-      : [];
-    battleEncounter = createEncounter({ seed: (node.seed | 0) + node.index * 7919, rules: encRules, mode: 'lines', lineXs });
-    if(battleEncounter) pushLog(`⚔ 波次导演接管本节点：${waves.length} 波（难度 ${(diff * 100).toFixed(0)}%）`, 'COVER');
+    //   2026-11-01 E2：lineXs 序列按双入口取「组」——points 模式 = 各防御点 x 升序
+    //   （每点 5 个点位共享同一 x，取组首 x；顺序即推进序，planDefensePoints 的 bucket
+    //   本就随 x 递增，sort 保持确定性）；false = 每道防线锚点均值 x 原文，一字不差。
+    const lineXs = (anchorGroups.length
+      ? anchorGroups.map(g => (pointsModeWaves
+          ? (g.length && Number.isFinite(g[0].x)) ? g[0].x : NaN
+          : (g.length ? g.reduce((s, a) => s + a.x, 0) / g.length : NaN)))
+        .filter(Number.isFinite).sort((a, b) => a - b)
+      : []);
+    battleEncounter = createEncounter({
+      seed: (node.seed | 0) + node.index * 7919, rules: encRules, mode: 'lines', lineXs,
+      kind: nodeKind,
+      captureTotal,
+      counterAttackAt: Number.isFinite(captureCfg.counterAttackAt) ? captureCfg.counterAttackAt : 0.5,
+      timeLimitSeconds: Number.isFinite(btCfg.timeLimitSeconds) ? btCfg.timeLimitSeconds : 0,
+    });
+    // 类型运行时目标（defend 守点目标 / capture 驻留圈）——kind 不匹配时不创建。
+    if(nodeKind === 'defend') spawnGuardTarget(anchorGroups);
+    else if(nodeKind === 'capture'){
+      setupCaptureZones(anchorGroups, captureTotal);
+      // 兜底：没有任何可用防御点 ⇒ 占领目标不可达，降级为歼灭，绝不软锁。
+      if(!battleCaptureZones.length && battleEncounter){
+        pushLog('⚠ 占领节点没有可用防御点 ⇒ 按歼灭节点处理', 'CRIT');
+        battleEncounter.kind = 'exterminate';
+      }
+    }
+    // 2026-10-30 P0-A：文案如实反映**实际生效波数**（= waves.length，已过空波过滤）。
+    //   旧实现这里写的是同一个动态值，但 P0-A 之后波数不再是恒定的 3 ⇒ 必须确认它没被
+    //   写死；anchors 驱动时补一句「防线 N 道」，让「波 ↔ 防线」的对齐关系对玩家可读。
+    if(battleEncounter){
+      // 2026-11-01 E2：points 模式播报「防御点 N 个」（逐个拔点语义），false 走现行原文。
+      pushLog(`⚔ 波次导演接管本节点：${encWaves.length} 波` +
+        (anchorCount > 0 ? `（对应 ${pointsModeWaves ? anchorCount + ' 个防御点' : anchorCount + ' 道防线'}）` : '') +
+        `（难度 ${(diff * 100).toFixed(0)}%）`, 'COVER');
+    }
   }
 
   bakeNodeGroundLayer(node);   // 2026-09-14：进图前预烘焙道路地面层（曲线道路整条绘制，避免逐段实时绘制与远距消失）
@@ -3182,7 +3450,14 @@ function enterBattle(nodeIndex){
     const n = forceEngageAll(GAME_MODE);
     if(n > 0) pushLog(`⚔ ${GAME_MODE === 'boss' ? 'BOSS' : '生存'}模式 — ${n} 辆敌军强制接战`, 'PEN');
   }
-  pushLog(`进入节点 ${nodeIndex + 1}「${node.template.name}」 难度 ${(node.difficulty * 100).toFixed(0)}% — ${node.boss ? 'BOSS ' + node.boss.name : '敌军 ' + node.enemies.length + ' 辆'}${node.outpost ? '，友军据点已部署' : ''}`, 'COVER');
+  pushLog(`进入节点 ${nodeIndex + 1}「${node.template.name}」${NODE_KIND_LABELS[node.kind] ? ' · ' + NODE_KIND_LABELS[node.kind] : ''} 难度 ${(node.difficulty * 100).toFixed(0)}% — ${node.boss ? 'BOSS ' + node.boss.name : '敌军 ' + node.enemies.length + ' 辆'}${node.outpost ? '，友军据点已部署' : ''}`, 'COVER');
+  // 2026-10-31：恢复局的首场战斗——此刻玩家实体已 resetEntity + 落位（上面的 resetEntity/坐标赋值），
+  //   且本局修饰器处于起点状态 ⇒ 是「按 runCards 重放卡牌」的唯一安全时机（红线②：只在这里施加一次）。
+  //   放在 battleState 建立之后、进度写档之前：卡牌回填可能改 stats（装填/极速/弹种），
+  //   先回填再写档才能保证存档里的构筑与实体状态一致。
+  if(runCardsReplayPending) replayRestoredRunCardsIfPending();
+  // 2026-10-31：进度边界①——进节点（battleState 已建立，战场已实体化）
+  saveRunState('enterBattle');
 }
 
 // ---------- 2026-10-30 MS2/C1：波次导演 helpers（自 tank_3d.html 移植，战斗页变体） ----------
@@ -3254,10 +3529,18 @@ function battleEncounterCtx(){
     //   是切片语义（无复活），正式局不适用。
     playerAlive: true,
     playerPos: { x: player ? player.x : 0, y: player ? player.y : 0 },
-    enemyAlive: entities.filter(e => e.team === 'enemy' && e.hp > 0).length,
+    // 2026-10-31 D1b：**存活 + 待投送队列**一起计——队列里还有敌人没出场时本波不算清。
+    //   只数场上实体会让导演在队列未投送完就判 wave-clear ⇒ 后续波提前上线、本波余量凭空消失
+    //   （波清判定与「实际还剩多少敌人」脱节的经典失效模式，与 #AB3 空波软锁同源）。
+    enemyAlive: entities.filter(e => e.team === 'enemy' && e.hp > 0).length
+      + (Array.isArray(battleEncReserve) ? battleEncReserve.length : 0),
     allyAlive: livingAllies().length,
     world: currentNode ? { w: currentNode.w, h: currentNode.h } : { w: 1440, h: 864 },
     isBlocked: battleSpawnBlocked,
+    // 2026-11-02 M3-E/F/G：任务类型目标条件（kind 不匹配时字段为惰性值，导演不读）。
+    objectiveAlive: battleGuardTarget ? (battleGuardTarget.hp > 0) : true,
+    captureDone: battleCaptureZones.filter(z => z.progress >= 1).length,
+    reachedExit: !!(player && currentNode && Number.isFinite(currentNode.exitX) && player.x >= currentNode.exitX),
   };
 }
 function battleSpawnBlocked(x, y){
@@ -3267,26 +3550,164 @@ function battleSpawnBlocked(x, y){
   if(player && Math.hypot(x - player.x, y - player.y) < 200) return true;
   return typeof pointInCover === 'function' ? pointInCover(covers, x, y, 40) : false;
 }
-function battleSpawnWaveUnits(waveIdx, units){
+
+// ================= 2026-11-02 M3-E/F：任务类型运行时（defend / capture） =================
+// 分层：胜利条件判定在 js/tank_encounter.js（纯逻辑），本段只做「实体 / 区域 / 进度」的页面记账。
+// 全部入口由 node.kind 门控：RULES.nodeKinds.enabled=false（缺省）时 node.kind 不存在，一次都不跑。
+
+function encKindCfg(){
+  return (typeof RULES !== 'undefined' && RULES.nodeKinds) ? RULES.nodeKinds : null;
+}
+
+// 守点目标：复用 building 生命周期（可被炮弹/溅射打掉），落在最后一个防御点上。
+function spawnGuardTarget(anchorGroups){
+  const g = (anchorGroups && anchorGroups.length) ? anchorGroups[anchorGroups.length - 1] : null;
+  const p = (g && g.length) ? g[0] : null;
+  if(!p) return;
+  const tier = (RULES.coverTiers && RULES.coverTiers.building) ? RULES.coverTiers.building : {};
+  const t = {
+    x: p.x, y: p.y, w: 130, h: 96, angle: 0,
+    tier: 'building', hp: Number.isFinite(tier.hp) ? tier.hp : 3,
+    guardTarget: true,
+  };
+  covers.push(t);
+  battleGuardTarget = t;
+  pushLog('★ 守点目标已就位：波次结束前不得被摧毁', 'COVER');
+}
+
+// 占领点：取前 N 个防御点（x 升序），每点一个驻留圈。
+function setupCaptureZones(anchorGroups, count){
+  battleCaptureZones = [];
+  const n = Math.max(1, Math.min(count || 1, anchorGroups.length));
+  for(let i = 0; i < n; i++){
+    const g = anchorGroups[i];
+    if(!g || !g.length) continue;
+    const yAvg = g.reduce((s, p) => s + p.y, 0) / g.length;
+    battleCaptureZones.push({ x: g[0].x, y: yAvg, r: 130, progress: 0 });
+  }
+}
+
+// 每帧推进占领进度：我方在圈内、且圈内无敌方 ⇒ 读条；敌方进圈 ⇒ 暂停（不清零）。
+function updateCaptureZones(dt){
+  if(!battleCaptureZones.length) return;
+  const cfg = encKindCfg();
+  const secPer = (cfg && cfg.capture && Number.isFinite(cfg.capture.secondsPerPoint))
+    ? cfg.capture.secondsPerPoint : 12;
+  const allies = (player && player.hp > 0 ? [player] : []).concat(livingAllies());
+  for(const z of battleCaptureZones){
+    if(z.progress >= 1) continue;
+    const inZone = (e) => e && e.hp > 0 && Math.hypot(e.x - z.x, e.y - z.y) <= z.r;
+    const hasAlly = allies.some(inZone);
+    const hasEnemy = entities.some(e => e.team === 'enemy' && inZone(e));
+    if(hasAlly && !hasEnemy) z.progress = Math.min(1, z.progress + dt / Math.max(1, secPer));
+  }
+}
+// 2026-10-30 P1-E：敌军规格三级降级链的最后一级兜底，见 waveEnemySpecFor。
+//   保留旧行为「按序号轮转 tankListData 的键」——保证波次敌人至少拿到一个合法 tankId，
+//   不会退化成 undefined（那会让 applyEnemyAppearanceAndStats 走「无 spec」分支 ⇒ 敌军用默认车体）。
+function _fallbackWaveTankId(seq){
+  const ids = enemyTankIds();
+  if(!ids.length) return '';
+  return ids[Math.max(0, seq) % ids.length] || '';
+}
+
+/**
+ * 波次内第 k 个单位的敌军规格（tankId / aiTier / role / elite / entityMults）。
+ *
+ * 2026-10-30 P1-E：让波次投送的敌人重新吃到「随节点深度/难度演进」的构成。
+ *   旧实现是 `tankListData[enemyTankIds()[seq % len]]` —— 纯序号轮转，与深度、难度无关。
+ *   这里改成三级降级链，任一级缺失都不会抛错（渐进兼容）：
+ *     ① node.enemies     —— makeNode 已按 enemyCompositionForDepth 生成并持久化的规格数组
+ *                            （tank_map.js:1028 写节点、1876 注释确认 encounter 节点仍保留）；
+ *     ② 现场 enemyCompositionForDepth 重算（node.enemies 为空时的重建路径，如旧存档）；
+ *     ③ enemyTankIds() 轮转（等价于旧行为，最后兜底）。
+ *   返回的 tankId 由调用方再映射到 tanks 目录下 .json 的规格（tankListData[tankId]）。
+ * @param {number} waveIdx 波序号（0 起）
+ * @param {number} k 波内序号（0 起）
+ * @returns {{tankId:string, aiTier?:number, role?:string, elite?:boolean, entityMults?:object}|null}
+ */
+function waveEnemySpecFor(waveIdx, k){
+  const nodeDiff = (currentNode && Number.isFinite(currentNode.difficulty)) ? currentNode.difficulty : 0;
+  const nodeIdx = (currentNode && Number.isFinite(currentNode.index)) ? currentNode.index : 0;
+  const uniq = Math.max(0, (waveIdx | 0) * 37 + (k | 0));
+  // ① node.enemies —— makeNode 按 enemyCompositionForDepth 生成并持久化在节点数据里
+  //   （tank_map.js:1028 / 1876：encounter 节点仍保留该数组，供回退路径与此处消费）。
+  //   字段名已 grep 核实（tank_map.js:795-810）：tankId / heightClass / tankClass /
+  //   role / elite / aiTier / entityMults——**没有**臆造字段。
+  const list = (currentNode && Array.isArray(currentNode.enemies)) ? currentNode.enemies : [];
+  if(list.length){
+    const s = list[uniq % list.length];
+    if(s) return s;
+  }
+  // ② enemyCompositionForDepth 现算（node.enemies 缺失/空 —— 例如旧存档或 hand-made 节点）。
+  //   签名已核实（tank_map.js:142）：(index, diff, rng, cfg, countOverride)，按序传值；
+  //   cfg 必须传对象字面量 `{}`（不能传 null）：函数体第 155 行直接解 `cfg.enemyTankPool`，
+  //   传 null 会 TypeError（虽被下面 try 兜住，但那会让整条重建路径静默失效，等于白写）。
+  if(typeof enemyCompositionForDepth === 'function'){
+    try{
+      const rng = createRNG(((currentNode ? (currentNode.seed | 0) : 0) + 7919 * nodeIdx + 31) | 0);
+      const cfg = (typeof nodeConfig === 'function' && nodeConfig()) || {};
+      const arr = enemyCompositionForDepth(nodeIdx, nodeDiff, rng, cfg, Math.max(1, list.length || 8));
+      if(Array.isArray(arr) && arr.length){
+        const s = arr[uniq % arr.length];
+        if(s) return s;
+      }
+    }catch(err){ /* 构成重建失败 ⇒ 降级到 ③（不得让页面因异常中断投送） */ }
+  }
+  // ③ 最后兜底：旧行为的结构等价物（按序号轮转 tankListData 的键）；aiTier 缺失由调用方补。
+  return { tankId: _fallbackWaveTankId(uniq) };
+}
+
+function battleSpawnWaveUnits(waveIdx, units, lineX){
   const out = [];
   // 2026-10-30 防线式排布（用户反馈：随机散布不成"防线"）：波次敌人**落位在防线锚点**
   //   （地图生成时预设的防御点，placeDefenseWalls 的竖墙工事后），不是刷在玩家周围。
   //   同一波 N 个单位沿**该防线锚点连线**按序横向铺开；锚点不可用（无 anchors）时
   //   回退导演提案点（bearing 采样，旧行为）。
   //   生存模式**不适用**本路径——生存走 spawnSurvivalWaveEnemies（玩家附近视口边缘）。
-  // 波次绑定防线（C0 复查修正）：波次 i 绑定防线 i % lineCount——防线按 x 升序生成，
-  //   W1 在最近防线、逐波向出口推进，与玩家推进轴一致（此前 round-robin 全部锚点会让
-  //   W1 的尾车落在 8000px 外的最远防线上，玩家不推进就永远够不着）。
+  // 波次绑定防线（2026-10-30 P1-F 收口）：**不再由页面自己取模决定波次落在哪道防线**——
+  //   lineX 直接来自 spawn 事件的载荷（导演侧按 encounterLineXFor(enc, waveIndex) 算出，
+  //   ①页面原来是 `waveIdx % lineGroups.length`（取模循环）；②导演原来是
+  //   `lineXs[min(waveIndex, len-1)]`（钳末）—— 两套口径在波数 > 防线数时静默分叉，
+  //   表现为「波 i 的敌人落在防线 A、节拍却在等玩家推进到防线 B」⇒ 软锁或身后刷怪。
+  //   现行：页面只**消费** lineX（导演唯一权威），不再重算。
+  // 2026-11-01 E2（PLAN §2.8.5 B 裁定）：锚点分组按双入口取「组」——points 模式
+  //   （enabled=true）读 node.defensePoints（每防御点 5 个纵向点位共享同一 x），
+  //   波 i 落在防御点 i（逐个拔点）；false（默认）读 encounterAnchors 防线分组原文，一字不差。
+  //   行为语义（层级纵深 / 抖动 / 压掩体推离 / 分批投送 / 守军机制）全部照旧——
+  //   本批只换「波绑定的空间锚点来源」，不换任何行为。
+  const lineGroups = encAnchorGroupsForNode(currentNode);
+  const useAnchors = lineGroups.length > 0;
+  const pointsModeAnchors = encDefensePointsEnabled();
+  battleEncAnchorIdx = 0;   // 波次内消费位置：每波重置（波次绑定防线走下面的 pickLineByX）
+  // 「波 ↔ 防线/防御点」配对：lineXs（enterBattle 里算的）在 points 模式 = 各点 x 升序、
+  //   false 模式 = 每组锚点均值 x —— 所以 |组参考 x − lineX| 取最小 ⇒ 必然精确命中导演
+  //   绑定的那一组（同源于同一份数据）。
+  //   只有在 lineX 缺失/非有限（跨文件契约未落地的渐进兼容路径）时，才回退到旧取模口径。
+  const pickLineByX = (groups, x) => {
+    let best = null, bd = Infinity;
+    for(const g of groups){
+      if(!Array.isArray(g) || !g.length) continue;
+      let s = 0, cnt = 0;
+      for(const a of g){ if(a && Number.isFinite(a.x)){ s += a.x; cnt++; } }
+      if(!cnt) continue;
+      // points 模式：组内所有点共享同一 x（bucket 中心）——参考 x 直接取点 x；
+      // false 模式：现行「组均值 x」原文（∑x/cnt），一字不差。
+      const refX = pointsModeAnchors ? g[0].x : (s / cnt);
+      const d = Math.abs(refX - x);
+      if(d < bd){ bd = d; best = g; }
+    }
+    return best;
+  };
+  const line = useAnchors
+    ? ((Number.isFinite(lineX) && pickLineByX(lineGroups, lineX))
+       || (lineGroups[waveIdx % lineGroups.length] || []))
+    : [];
   // 防线式横向排布（2026-10-30 用户反馈：随机散布 ±160px 看起来是一堆散兵，不成防线）：
   //   同一波 N 个单位沿**该防线锚点连线**按序横向铺开——锚点数 ≥ N 时每锚点一个，
   //   锚点数 < N 时在相邻锚点间线性插值出中间位置；y 沿防线锚点走向自然分布（锚点本身
   //   就是一排），只保留 ±20px 抖动。battleEncAnchorIdx 语义改为「波次内消费位置」，
-  //   每波重置为 0（波次绑定防线的取模逻辑保留）。
-  const lineGroups = (currentNode && Array.isArray(currentNode.encounterAnchors))
-    ? currentNode.encounterAnchors : [];
-  const useAnchors = lineGroups.length > 0;
-  battleEncAnchorIdx = 0;   // 波次内消费位置：每波重置（波次绑定防线走下面的取模）
-  const line = useAnchors ? (lineGroups[waveIdx % lineGroups.length] || []) : [];
+  //   每波重置为 0。
   const n = units.length;
   // 沿防线锚点连线取第 j 个落位：锚点数 ≥ N 每锚点一个；不足时相邻锚点间线性插值
   const slotPos = (j) => {
@@ -3320,6 +3741,18 @@ function battleSpawnWaveUnits(waveIdx, units){
     : (cls === 'td' || cls === 'spg') ? 3 : 2;
   const ordered = units.map((u, i) => ({ u, rank: layerRank(u.cls), i }))
     .sort((a, b) => (a.rank - b.rank) || (a.i - b.i));
+  // 2026-10-31 D1b（用户机制设计）：本波先**规划完整落位表**，再按 `maxAlivePerWave` 分批投送。
+  //   规划阶段与改前**逐字段一致**（同一 slotPos / CLS_DEPTH / 抖动 / 压掩体推离 / 同一 ordered 排序），
+  //   所以同 seed 的落位序列不变——变的只是「谁在哪一帧出场」。
+  //   首批 = 计划表前 maxAlivePerWave 辆；余量进 battleEncReserve（由 updateWaveReserve 在击杀后
+  //   于**摄像机视口外**补投）。这样：① 同屏实体数受控（性能）；② 不瞬间齐队齐射（难度和缓）；
+  //   ③ 本波总配额不变 ⇒ 波清判定只需把「队列长度」计进 enemyAlive（见 battleEncounterCtx）。
+  const aliveCapRaw = (RULES.encounter && RULES.encounter.standardScale
+    && Number.isFinite(RULES.encounter.standardScale.maxAlivePerWave))
+    ? RULES.encounter.standardScale.maxAlivePerWave : 4;
+  const aliveCap = Math.max(1, Math.floor(aliveCapRaw));
+  const plan = [];   // 全波计划：{ x, y, hull, cls, k(波内序号) }
+  let slotSeq = 0;
   let slot = 0;
   for(const entry of ordered){
     const u = entry.u;
@@ -3345,46 +3778,357 @@ function battleSpawnWaveUnits(waveIdx, units){
       }
       hull = Math.atan2((player ? player.y : sy) - sy, (player ? player.x : sx) - sx);
     }
+    plan.push({ x: sx, y: sy, hull, cls: u.cls, k: slotSeq++ });
+  }
+
+  // 2026-11-01 P2-G「守军语义 + 反冲击前锋」（PLAN §2.8.3 键名契约 v2）——**语义分流点**。
+  //   ① 零回归总门：`garrisonMode !== true` ⇒ 本段完全不参与（全员走现状「强制接战」语义）。
+  //   ② 前哨车（vanguard）由**纯逻辑**编排：`garrisonAssignVanguards` 返回**新数组副本**
+  //      （不改 plan），前 min(总数, count) 辆标 'vanguard' 并沿 **+x 前出 aheadOffsetPx**，
+  //      其余标 'garrison'；**末波强制 0 辆前锋**（裁定⑩：其后无防线可出）。
+  //      ⚠ 前出距离**只由 RULES 提供**，页面不内定任何数值（数值口径唯一来源纪律）。
+  //   ③ 为什么**按索引合并回 plan 而不直接用返回数组**：纯函数返回的副本只带
+  //      {cls,x,y,bearing,hullAngle,role}——**丢掉了 plan 的 `k`（波内序号）**，而 `k`
+  //      是 `waveEnemySpecFor(waveIdx, k)` 取敌军规格的唯一索引（决定 tankId/aiTier/elite）。
+  //      直接替换 ⇒ 全波敌人退化成同一份 spec（P1-E 刚修的构成演进被整体旁路）。
+  //      ⇒ 只取它的 `role` 与**前出后的 x**，其余字段（k / cls / y）仍以 plan 为准。
+  //   ④ 降级：纯函数未就绪（typeof 判空）⇒ 全员守军（不强制接战），不崩。
+  const encRulesG = (typeof RULES !== 'undefined' && RULES.encounter) ? RULES.encounter : {};
+  const garrisonOn = encRulesG.garrisonMode === true;
+  const vgCfg = garrisonOn ? (encRulesG.garrisonVanguard || {}) : null;
+  const waveTotal = (battleEncounter && Number.isFinite(battleEncounter.waveCount)) ? battleEncounter.waveCount : 0;
+  const isLastWave = waveTotal > 0 && (waveIdx + 1) >= waveTotal;
+  let rolePlan = null;
+  if(garrisonOn && typeof garrisonAssignVanguards === 'function'){
+    rolePlan = garrisonAssignVanguards(plan, vgCfg, {
+      isLastWave: isLastWave,
+      world: { w: (currentNode ? currentNode.w : 1440), h: (currentNode ? currentNode.h : 864) },
+      margin: 60,   // 与页面自身落位钳制 [60, w-60] 同边界（纯函数缺省 40，此处取严者）
+    });
+  }
+  for(let pi = 0; pi < plan.length; pi++){
+    const rp = (rolePlan && rolePlan[pi]) ? rolePlan[pi] : null;
+    // 前锋 = 恒主动压上（现状语义，是无限局风险的结构性兜底）；守军 = 不预写接战信息。
+    //   garrisonMode=false 时 rolePlan 为 null ⇒ 全员 'vanguard' ⇒ 与改前逐字段一致。
+    const role = rp ? rp.role : 'vanguard';
+    const gx = (rp && Number.isFinite(rp.x)) ? rp.x : plan[pi].x;
+    plan[pi].garrison = (role !== 'vanguard');
+    if(Number.isFinite(gx)){
+      plan[pi].x = gx;
+      // 前出后朝向重算：仍指向玩家（前出改变了相对方位，沿用旧 hull 会背对战场）。
+      //   ⚠ 零回归的**退化路径**也必须逐字对齐改前：
+      //     orig hull = atan2(player?player.y:sy − sy, player?player.x:sx − sx)，sx/sy 为前出前落位。
+      //     ① player 存在 ⇒ 用前出后的坐标重算（(px−gx) ≠ 原文的 (px−sx)）——**有意为之**：
+      //        前出后仍指向玩家才是正确语义，原文没有前出这一步故不存在该分歧。
+      //     ② player 为 null ⇒ 原文退化为 atan2(0,0)=0；本处显式写 0，逐字等价。
+      plan[pi].hull = player ? Math.atan2(player.y - plan[pi].y, player.x - plan[pi].x) : 0;
+    }
+  }
+  if(garrisonOn){
+    const nv = plan.filter(p => !p.garrison).length;
+    pushLog(`⚔ 第 ${waveIdx + 1} 波：反冲击前锋 ${nv} 辆 · 守军 ${plan.length - nv} 辆` +
+      (typeof garrisonAssignVanguards !== 'function' ? '（⚠ 纯逻辑未就绪，全员守军）' : ''), 'COVER');
+  }
+
+  // 分批：首批超上限的部分进队列（保留完整计划，出场时不再重算落位）
+  const immediate = plan.slice(0, aliveCap);
+  for(const rest of plan.slice(aliveCap)) battleEncReserve.push(rest);
+  if(battleEncReserve.length > 0){
+    pushLog(`⚔ 第 ${waveIdx + 1} 波：前线 ${immediate.length} 辆接战，另有 ${battleEncReserve.length} 辆待机`, 'COVER');
+  }
+
+  for(const p of immediate){
     const t = spawnTank({
       id: `enemy_w${waveIdx}_${battleEncSeq++}`,
       team: 'enemy',
-      x: sx, y: sy,
-      hullAngle: hull, turretAngle: hull,
-      heightClass: u.cls,
+      x: p.x, y: p.y,
+      hullAngle: p.hull, turretAngle: p.hull,
+      heightClass: p.cls,
     });
     t.nodeSpawn = true;                       // 计入 livingNodeEnemies（与铺敌同口径）
     t.waveSpawn = true;                       // MS2/C1：波次投送标记（intel 事件只刷新波次敌人）
     t.spawnMarkedAt = performance.now();      // MS2 复查：刷新指示箭头的起点（6s 内屏幕边缘红箭头）
-    t.tankClass = u.cls;
-    t.aiTier = 0;
+    t.tankClass = p.cls;
+    // 2026-10-30 P1-E：构成回归波次路径（深度/难度演进不再被旁路）。
+    //   三条病灶：
+    //     ① tankId 按生成序号 battleEncSeq **轮转取模** enemyTankIds() —— 与节点深度、
+    //        难度完全无关，第 1 节点和第 15 节点抽到同一批车（深度曲线形同虚设）；
+    //     ② aiTier 写死 0 —— 绕过了 tank_ai 的 tierProfiles 分档（越高级越警觉/越准），
+    //        后段节点敌军与前期同样迟钝；
+    //     ③ node.enemies（makeNode 已按 enemyCompositionForDepth 生成的、随 depth/diff
+    //        演进并带 elite/role/entityMults 的规格数组）从未被波次路径消费 ⇒ elite /
+    //        role / 精英加成体系被整体旁路。
+    //   现行取值优先级（每一步都判空，任一环缺失向下降级而非抛错）：
+    //     ① currentNode.enemies —— 与 materializeNode 铺敌同源且保留在节点数据里
+    //        （tank_map.js:1876 明确保留，供 standardEnabled=false 回退路径使用）；
+    //     ② enemyCompositionForDepth 现算（node.enemies 缺失时的重建路径）；
+    //     ③ enemyTankIds() 轮转（旧行为，最后兜底，零回归保证）。
+    //   索引基数 = waveIdx × 37 + k（波内序号）组合后对 spec 数取模：同一 seed 下确定性，
+    //   且不同波不会抽到同一段完全相同的位置（旧实现用单一全局序号，跨波同余会重复阵列）。
+    //   注意：specMeta 是 map 模块的**构成记录**（tankId 是指向 tanks 目录下 .json 文件的键），
+    //   而 applyEnemyAppearanceAndStats(t, spec, ...) 要的是 tanks 目录下 .json 的本体外观对象
+    //   解引用目标 = tankListData[构成记录.tankId]（tank_model.js:719 直接解 spec.hull/turret/texture）。
+    //   两者**不是同一个东西**——把构成记录当 json 传进去会静默走「无外观」分支，敌军退化成
+    //   默认车体（外观崩了但不报错，属于最难查的那一类 bug）⇒ 这里显式做一次 tankId 解引用。
+    const specMeta = waveEnemySpecFor(waveIdx, p.k);
+    const spec = (specMeta && tankListData)
+      ? (tankListData[specMeta.tankId] || null) : null;
+    const _specTier = Number.isFinite(specMeta && specMeta.aiTier) ? specMeta.aiTier
+      : (typeof aiTierForDifficulty === 'function')
+        ? aiTierForDifficulty(currentNode ? currentNode.difficulty : 0)
+        : Math.max(0, Math.min(2, Math.floor((currentNode ? (currentNode.difficulty || 0) : 0) * 3)));
+    t.aiTier = Math.max(0, _specTier | 0);
+    // elite / role：与 materializeNode 铺敌口径一致 —— makeNode 的 enemy spec 用这两个键
+    //   做「精英领队 / 支援型」标记（tank_map.js:795-810 同名键），铺敌路径（Node 侧）也是
+    //   同名键写进 node.enemies；波次路径此前完全不写 ⇒ 两路敌人字段不齐。实体上当前**尚无
+    //   JS 侧消费者**（grep `.role` / `.elite` 只在 map 模块数据层出现），写它纯粹是
+    //   **保持与铺敌同口径**——否则将来按这两个字段做 AI/掉落分档时，波次敌人会静默缺失。
+    if(specMeta && specMeta.elite !== undefined) t.elite = !!specMeta.elite;
+    if(specMeta && specMeta.role !== undefined) t.role = specMeta.role;
+    // 精英加成：specMeta.entityMults 已含 elite 的 ×1.15（tank_map.js:169-174）。
+    //   铺敌走的是同一条通道（tank_map.js:1909-1913 的 e.entityMults ⇒ env.applyDifficulty），
+    //   波次路径此前完全不注入 ⇒ elite 只是个空标记、领队与杂兵数值一样。
     t.aiTriggerDist = triggerDistForDifficulty(currentNode ? currentNode.difficulty : 0);
     t.aiReactEnabled = true;
-    const spec = tankListData && tankListData[(enemyTankIds()[battleEncSeq % Math.max(1, enemyTankIds().length)] || '')];
+    // 外观与数值锚定（tank_model.js:719：applyEnemyAppearanceAndStats 解的是 tanks 目录下 .json 的本体）
     if(spec && typeof applyEnemyAppearanceAndStats === 'function') applyEnemyAppearanceAndStats(t, spec, null);
     else if(spec) applyTankConfig(t, spec);
-    // 难度乘子（与 materializeNode 铺敌同口径——正式局不吃切片演示缩放）
-    const mults = entityMultsForDifficulty(currentNode ? currentNode.difficulty : 0);
+    // 难度乘子（2026-10-30 修正）：per-enemy 表与 node 级表**二选一，不叠乘**。
+    //   为什么不能无条件叠乘：specMeta.entityMults 是 enemyCompositionForDepth 按
+    //   entityMultsForDifficulty(diff) 派生后（精英再 ×1.15）的**成品表**，两者同源同量纲；
+    //   同时注入等于把难度乘子平方 —— 同节点内波次敌人比铺敌敌人强出一截，且高难度下
+    //   差距被放大（0.6→2.2 的 maxHp 表叠乘后可达 ~1.8~4.8 倍），属本批新引入的数值失衡。
+    //   铺敌路径（tank_map.js:1909-1913）只注入 e.entityMults 一支，这里与该口径取齐。
+    const nodeMults = entityMultsForDifficulty(currentNode ? currentNode.difficulty : 0);
+    const mults = (specMeta && specMeta.entityMults) ? specMeta.entityMults : nodeMults;
     if(typeof applyDifficultyMults === 'function') applyDifficultyMults(t, mults);
     if(typeof applyEnemyAmmoForNode === 'function' && currentNode) applyEnemyAmmoForNode(t, currentNode);
     resetEntity(t);
     t.hp = t.stats.maxHp;
-    // 进攻意志（G1 必需，见 tank_encounter.js 头注）：不强制 engaged 的话玩家龟缩即无限局
-    t.aiEngaged = true;
-    t.lastKnownPlayerPos = player ? { x: player.x, y: player.y } : null;
-    t.aiReactT = RULES.ai.forceEngageOpenFireDelay !== undefined ? RULES.ai.forceEngageOpenFireDelay : 1.5;
+    // 2026-11-01 P2-G：接战意志**按守军/前锋分流**（garrisonMode=true 才分流，false 全员走下面）。
+    //   前锋（role='vanguard'）：保持现状语义——强制 aiEngaged + 预写 lastKnownPlayerPos。
+    //     （G1 必需，见 tank_encounter.js 头注：不强制的话玩家龟缩即无限局；前锋即结构性兜底）
+    //   守军（role='garrison'）：**不预写**接战信息——靠 aiTriggerDist + LoS 自然点亮战线，
+    //     受击警觉（alertEntity 命中/友邻传播）为第二通道，超时兜底（garrisonFallbackSeconds）
+    //     为第三通道。三条通道全不通时的最后保险 = 出口侧解耦（battleExitUnlocked，裁定 4）。
+    //     ⚠ 不写 aiReactT：那是「强制接战」语义的首次开火延迟（forceEngageOpenFireDelay），
+    //       守军没被强制唤醒，写了等于凭空给守军加一个开火前摇（行为语义错配）。
+    if(!p.garrison){
+      t.aiEngaged = true;
+      t.lastKnownPlayerPos = player ? { x: player.x, y: player.y } : null;
+      t.aiReactT = RULES.ai.forceEngageOpenFireDelay !== undefined ? RULES.ai.forceEngageOpenFireDelay : 1.5;
+    } else {
+      // 守军标记：供 intel 事件跳过（否则每 6s 重刷方位 = 绕过守军语义，见 intel 分支注释）
+      //   与 updateGarrisonFallback 的兜底遍历共用。不是存档字段（不进 tank_schema）。
+      t.garrison = true;
+    }
+    // P2-G：守军入场登记（出生时刻）。**只在这里调一次**——不要在预规划阶段也调，
+    //   否则两处各调一次会把计时无限推迟 ⇒ 兜底静默失效（最难查的那种）。
+    //   纯函数内部已幂等，这里的「只调一次」是双保险。降级：函数未就绪 ⇒ 不记账（兜底自然不生效）。
+    if(p.garrison && typeof garrisonFallbackTrack === 'function'){
+      garrisonFallbackTrack(battleGarrisonBook, t, { now: simNow() });
+    }
     out.push(t);
   }
   return out;
 }
+// ---------- 2026-10-31 D1b：待投送队列补投（用户机制设计） ----------
+// 语义：本波超 `maxAlivePerWave` 的单位已在 spawn 时规划好完整落位（battleEncReserve），
+//   等场上波次敌人降到活体上限以下时，**逐辆**投送（0.25s 节流），且落位必须满足：
+//   ① 在**摄像机视口外**（用户明确要求：补充不能在玩家眼前凭空出现）；
+//   ② 距玩家 ≥ aiTriggerDist×1.05（沿用增援通道的「不刷不可见兵」原则）；
+//   ③ 不压掩体（pointInCover 30px）。
+//   计划点不满足时沿 **+x（远离玩家/朝向防线纵深）** 平移推进，最多 6 次；仍不满足则放弃本帧
+//   （不强行刷在视口内——宁可晚 0.25s 再试，也不破坏「视口外补充」这条硬约束）。
+//   为什么朝 +x 推：玩家推进轴是 +x，+x 方向天然是「前方/防线纵深」，也是视口外最可能的方向；
+//   往 -x 推会跑到玩家背后，等于从后方刷怪（#AB 系列踩过「刷在身后」的坑）。
+// ---------- 2026-10-31：敌军落位判定 + 装配共用助手（波次补投 / 开发者面板刷怪同源） ----------
+// 为什么抽出来：补投路径的三条硬约束（视口外 → 距玩家 ≥ 触发距离 → 不压掩体）原本内联在
+//   updateWaveReserve 里；开发者面板的「刷一批敌人」必须遵守**同一组**约束（用户明确要求
+//   「在当前玩家附近视口外生成」）。复制一份会随波次规则演进静默分叉（两处口径各改一半），
+//   故抽成一处判定。
+// ⚠ 本助手**不含任何 Math.random**：确定性要求只针对正常波次路径，随机落位仅允许出现在
+//   调试刷怪侧（devan 工具自己采样候选点后逐个喂进来判定）。
+function spawnPointUsable(x, y, minDist){
+  if(!currentNode) return false;
+  const w = (currentNode.w) ? currentNode.w : 1440;
+  const h = (currentNode.h) ? currentNode.h : 864;
+  if(!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  if(x < 60 || y < 60 || x > w - 60 || y > h - 60) return false;                          // 越界
+  const vb = (typeof viewBounds === 'function') ? viewBounds(cam) : null;
+  if(vb && x >= vb.minX && x <= vb.maxX && y >= vb.minY && y <= vb.maxY) return false;     // 视口内：绝不生成
+  if(player && Math.hypot(x - player.x, y - player.y) < minDist) return false;             // 贴脸：拒
+  if(typeof pointInCover === 'function' && pointInCover(covers, x, y, 30)) return false;   // 压掩体：拒
+  return true;
+}
+
+// 装配一辆「波次口径」敌军（与 updateWaveReserve 原内联装配逐字段一致，2026-10-31 原样提取）：
+//   spawnTank → nodeSpawn/waveSpawn 标记 → aiTier/elite/role → 外观+数值锚定 → 难度乘子 →
+//   按节点难度分级弹种 → resetEntity/满血 → 接战意志（aiEngaged/lastKnownPlayerPos/aiReactT）。
+//   opts.waveSpawn=false 供调试刷怪：这类单位不进 maxAlivePerWave 配额、不刷「来袭」指示，
+//   但仍计入 livingNodeEnemies（有 nodeSpawn），清场判定照常看得见它们。
+function assembleWaveEnemyAt(x, y, cls, specMeta, opts){
+  const o = opts || {};
+  const ang = player ? Math.atan2(player.y - y, player.x - x) : Math.PI;
+  const t = spawnTank({
+    id: `${o.idPrefix || 'enemy_r'}${battleEncSeq++}`,
+    team: 'enemy',
+    x: x, y: y,
+    hullAngle: ang, turretAngle: ang,
+    heightClass: cls,
+  });
+  t.nodeSpawn = true;
+  t.waveSpawn = o.waveSpawn !== false;
+  t.spawnMarkedAt = performance.now();
+  t.tankClass = cls;
+  const spec = (specMeta && tankListData) ? (tankListData[specMeta.tankId] || null) : null;
+  const _tier = Number.isFinite(specMeta && specMeta.aiTier) ? specMeta.aiTier
+    : (typeof aiTierForDifficulty === 'function')
+      ? aiTierForDifficulty(currentNode ? (currentNode.difficulty || 0) : 0)
+      : 0;
+  t.aiTier = Math.max(0, _tier | 0);
+  if(specMeta && specMeta.elite !== undefined) t.elite = !!specMeta.elite;
+  if(specMeta && specMeta.role !== undefined) t.role = specMeta.role;
+  t.aiTriggerDist = triggerDistForDifficulty(currentNode ? currentNode.difficulty : 0);
+  t.aiReactEnabled = true;
+  if(spec && typeof applyEnemyAppearanceAndStats === 'function') applyEnemyAppearanceAndStats(t, spec, null);
+  else if(spec) applyTankConfig(t, spec);
+  const nodeMults = entityMultsForDifficulty(currentNode ? currentNode.difficulty : 0);
+  const mults = (specMeta && specMeta.entityMults) ? specMeta.entityMults : nodeMults;
+  if(typeof applyDifficultyMults === 'function') applyDifficultyMults(t, mults);
+  if(typeof applyEnemyAmmoForNode === 'function' && currentNode) applyEnemyAmmoForNode(t, currentNode);
+  resetEntity(t);
+  t.hp = t.stats.maxHp;
+  // 2026-11-01 P2-G：与 battleSpawnWaveUnits 同口径的分流。
+  //   opts.garrison=true ⇒ 守军（不预写接战信息，靠三条通道自然点亮）；否则前锋/现状语义。
+  //   ⚠ 补投队列（battleEncReserve）与调试刷怪共用本函数——守军语义若在**补投侧**漏接，
+  //     「视口外补投的那批」会全部带着强制接战语义进场 ⇒ 守军感被绕过一半（冰山下的冰山）。
+  if(!(o.garrison === true)){
+    t.aiEngaged = true;
+    t.lastKnownPlayerPos = player ? { x: player.x, y: player.y } : null;
+    t.aiReactT = RULES.ai.forceEngageOpenFireDelay !== undefined ? RULES.ai.forceEngageOpenFireDelay : 1.5;
+  } else {
+    t.garrison = true;   // 守军标记（与主 spawn 同口径；供 intel 跳过 + 兜底遍历）
+  }
+  // 守军入场登记（出生时刻），与主 spawn 同口径、同样只调一次。
+  if(o.garrison === true && typeof garrisonFallbackTrack === 'function'){
+    garrisonFallbackTrack(battleGarrisonBook, t, { now: simNow() });
+  }
+  return t;
+}
+
+// 2026-11-01 P2-G 方案 2「超时兜底」——**页面消费侧**（判定与注入的纯逻辑在
+//   js/tank_encounter.js:698+，本函数只负责「喂时钟 + 遍历 + 调它」，不重算任何规则）。
+//   语义：守军（不预写接战信息的那批）入场后超过 `garrisonFallbackSeconds` 秒仍未被点亮
+//     ⇒ 按 alertEntity 语义注入玩家方位（aiEngaged/lastKnownPlayerPos/alertLevel/_threatDir）。
+//   为什么需要它（探针实测，不是推断）：守军语义下静止玩家的 camouflageDistanceMultiplier=0.625
+//     ⇒ 有效触发距离被压到 556px，构成「越龟缩越隐蔽越不被发现」的正反馈死循环
+//     （`tmp/measure-garrison-probe.cjs` EXIT=0：60s 0/3 激活，move 帧 0）。本函数是**破环主手段**。
+//   四道降级（任一不满足即退回现状语义，绝不崩、绝不误注入）：
+//     ① garrisonMode !== true ⇒ 直接 return（零回归总门，false 时本函数一次都不跑实体循环）；
+//     ② 纯函数未就绪（typeof 判空）⇒ return；
+//     ③ garrisonFallbackSeconds <= 0 ⇒ 纯函数内部恒 false（**当前默认值 = 关闭**，是正确行为）——
+//        20s 只是标定目标值，待 measure-encounter 实测证明破环后才置；
+//     ④ 时钟用 simNow()（毫秒），与纯逻辑同单位；不用 Date.now/performance.now（破可重放）。
+//   判定口径（与纯逻辑逐条对齐）：只看 `aiEngaged`（**不看 aiState**——
+//     js/tank_ai.js:1282 缺省 'patrol'、:1419 原样赋回，81% 帧开火的车 aiState 仍是 'patrol'）；
+//     已注入的单位打 fired 幂等标记，不重复注入。
+// 守军单位判据（2026-11-01 P2-G）：实体在装配时被打上 `garrison` 标记（守军=true）。
+//   两个消费方：① intel 事件跳过守军（不重刷方位 ⇒ 不绕过 LoS 门控）；② 兜底遍历。
+//   为什么用标记而不是「没被打上 aiEngaged 就是守军」：后者会把**已被点亮**的守军误判为
+//     前锋（守军点亮后 aiEngaged 也为 true）⇒ intel 又开始给它刷方位 ⇒ 守军语义二次退化。
+//     标记表达的是「出生语义」，不是「当前状态」——这两者必须分开（aiState 已经踩过同样的坑）。
+function isGarrisonUnit(e){
+  return !!(e && e.garrison === true);
+}
+
+function updateGarrisonFallback(){
+  const encR = (typeof RULES !== 'undefined' && RULES.encounter) ? RULES.encounter : {};
+  if(encR.garrisonMode !== true) return;                                   // ① 零回归总门
+  if(typeof garrisonFallbackDue !== 'function') return;                    // ② 纯逻辑未就绪
+  if(typeof garrisonFallbackApply !== 'function') return;
+  const seconds = Number(encR.garrisonFallbackSeconds);                    // ③ <=0 ⇒ 恒 false（关闭）
+  if(!Number.isFinite(seconds) || seconds <= 0) return;
+  if(!player || player.hp <= 0) return;
+  const now = simNow();                                                    // ④ 模拟时钟（ms）
+  const ppos = { x: player.x, y: player.y };
+  for(const e of entities){
+    if(e.team !== 'enemy' || !(e.hp > 0)) continue;
+    // 只兜**守军**（判据必须与 intel 跳过判据同源 = isGarrisonUnit）。
+    //   ⚠ 不能用 `waveSpawn || nodeSpawn` 代替：那会把**前锋**（恒接战，不需要兜底）与
+    //     **非波次敌人**（铺敌/Boss summons，不走本语义）一并纳入 ⇒ 给前锋打上
+    //     fired/applied 标记（污染它自己的语义）、给不该兜的单位注入方位。
+    if(!isGarrisonUnit(e)) continue;
+    if(e.garrisonFallbackApplied === true) continue;
+    if(typeof garrisonFallbackDue === 'function'
+       && garrisonFallbackDue(e, { now: now, seconds: seconds, book: battleGarrisonBook })){
+      const ok = garrisonFallbackApply(e, { now: now, playerPos: ppos, book: battleGarrisonBook });
+      if(ok){
+        e.garrisonFallbackApplied = true;   // 双保险幂等（纯逻辑的 fired 已在 book 里标过）
+        pushLog(`⚠ 守军超时点亮：${e.id}（${Math.round(seconds)}s 未接战 ⇒ 注入玩家方位）`, 'COVER');
+      }
+    }
+  }
+}
+
+function updateWaveReserve(dt){
+  if(!Array.isArray(battleEncReserve) || battleEncReserve.length === 0) return;
+  if(!currentNode || !player || player.hp <= 0) return;
+  if(battleEncReserveCd > 0){ battleEncReserveCd = Math.max(0, battleEncReserveCd - dt); return; }
+  const capRaw = (RULES.encounter && RULES.encounter.standardScale
+    && Number.isFinite(RULES.encounter.standardScale.maxAlivePerWave))
+    ? RULES.encounter.standardScale.maxAlivePerWave : 4;
+  const aliveCap = Math.max(1, Math.floor(capRaw));
+  const livingWave = entities.filter(e => e.team === 'enemy' && e.hp > 0 && e.waveSpawn).length;
+  if(livingWave >= aliveCap) return;                 // 场上还满编：不补
+  const unit = battleEncReserve[0];
+  const w = (currentNode && currentNode.w) ? currentNode.w : 1440;
+  const h = (currentNode && currentNode.h) ? currentNode.h : 864;
+  const trig = triggerDistForDifficulty(currentNode ? currentNode.difficulty : 0);
+  const minDist = (Number.isFinite(trig) ? trig : 700) * 1.05;
+  let sx = null, sy = null;
+  for(let k = 0; k <= 6; k++){
+    const tx = Math.max(60, Math.min(w - 60, unit.x + k * 80));
+    const ty = Math.max(60, Math.min(h - 60, unit.y));
+    if(!spawnPointUsable(tx, ty, minDist)) continue;  // 视口内 / 贴脸 / 压掩体：一律拒绝
+    sx = tx; sy = ty; break;
+  }
+  if(sx === null) return;                            // 本帧无处可补：下帧再试（不破坏硬约束）
+  battleEncReserve.shift();
+  // 2026-11-01 P2-G：`garrison` 标记随队列元素透传（在 battleSpawnWaveUnits 规划时已打标）——
+  //   守军语义必须对「待投送队列」同样成立，否则本波后半批会以强制接战语义进场。
+  assembleWaveEnemyAt(sx, sy, unit.cls, waveEnemySpecFor(0, unit.k), {
+    idPrefix: 'enemy_r', waveSpawn: true, garrison: unit.garrison === true,
+  });
+  battleEncReserveCd = 0.25;
+  pushLog(`⚠ 敌方增援切入（视野外）· 剩 ${battleEncReserve.length} 辆待机`, 'COVER');
+}
 function handleBattleEncounterEvent(ev){
   switch(ev.type){
     case 'telegraph': {
-      const dirs = (ev.bearings || []).map(bearingLabel).join(' / ');
-      pushLog(`⚠ 第 ${(ev.wave | 0) + 1} 波来袭 · ${dirs || '前方'}（${Math.round(ev.seconds)}s）`, 'PEN');
+      // 2026-10-30 P1-D：方位文案改为**防线语义**（HUD 不得骗人）。
+      //   旧实现把 ev.bearings 映射成八方位文案（东/东北/南…），但 bearing 是导演 planWave
+      //   算的「玩家周边提案点方位」——而正式局的落位被 `battleSpawnWaveUnits` 的防线锚点
+      //   分支**完全覆盖**（只要 node.encounterAnchors 非空，敌人就站在防线上，与 bearing 无关）。
+      //   ⇒ 报警报「西」，敌人实际全在东边的前方防线上，玩家照着转炮塔是空的。
+      //   现行：有锚点且契约字段 ev.lineX 是有限数时，报「第 N 波来袭 · 前方约 Xpx」
+      //   （X = 绑定防线 x − 玩家 x），与实际落位同源；否则退回原 bearings 文案（旧行为不变）。
+      //   渐进兼容（跨文件契约可能未落地）：ev.lineX 缺失/非有限 ⇒ 落回 bearings 分支，
+      //   不报错也不产生 NaN 距离。
+      const hasLine = !!(currentNode && encAnchorGroupsForNode(currentNode).length > 0);
+      if(hasLine && Number.isFinite(ev.lineX) && player && Number.isFinite(player.x)){
+        const dist = Math.max(0, Math.round(ev.lineX - player.x));
+        pushLog(`⚠ 第 ${(ev.wave | 0) + 1} 波来袭 · 前方约 ${dist}px（${Math.round(ev.seconds)}s）`, 'PEN');
+      } else {
+        const dirs = (ev.bearings || []).map(bearingLabel).join(' / ');
+        pushLog(`⚠ 第 ${(ev.wave | 0) + 1} 波来袭 · ${dirs || '前方'}（${Math.round(ev.seconds)}s）`, 'PEN');
+      }
       break;
     }
     case 'spawn': {
-      const list = battleSpawnWaveUnits(ev.wave | 0, ev.units || []);
+      // 2026-10-30 P1-F：第三参 lineX 来自本波 spawn 事件载荷（导演侧 boundLineX，
+      //   与 telegraph.lineX、lineHold 推进阈值同源）；缺省 undefined 时函数内走取模兜底。
+      const list = battleSpawnWaveUnits(ev.wave | 0, ev.units || [], ev.lineX);
       showAllyToast(`${ev.waveLabel || ('第 ' + ((ev.wave | 0) + 1) + ' 波')} · ${list.length} 辆`);
       break;
     }
@@ -3393,6 +4137,9 @@ function handleBattleEncounterEvent(ev){
       if(battleEncounter && battleEncounter.waveIndex + 1 >= battleEncounter.waveCount){
         showAllyToast(`第 ${(ev.wave | 0) + 1} 波清除`);
       }
+      // 2026-11-01 P2-G：守军兜底账本随**波**重置——本波守军已被清/已激活，账本留着
+      //   会让下一波的守军沿用上一波的 bornAtMs ⇒ 下一波一出生就被判「已超 N 秒」误注入。
+      battleGarrisonBook = new Map();
       break;
     case 'wave-empty':
       showAllyToast(`第 ${(ev.wave | 0) + 1} 波配置为空：没有敌人生成（检查 RULES.encounter.standardWaves）`, true);
@@ -3413,23 +4160,75 @@ function handleBattleEncounterEvent(ev){
     }
     case 'intel':
       // 进攻方指挥部刷新玩家方位（对波次敌人重刷 lastKnownPlayerPos——G1 必需）
+      // 2026-11-01 P2-G：**守军除外**。这是守军语义能否成立的**隐藏命门**——
+      //   js/tank_ai.js:966 的激活门控是 `canSee = los || !!t.lastKnownPlayerPos`，
+      //   「持有记忆点」是 LoS 的**等价替代通道**。若 intel 每 6s（RULES.encounter.intelInterval）
+      //   无条件给守军重刷玩家方位 ⇒ 守军一出生即满足 canSee ⇒ 距 离达标即点亮
+      //   ⇒ **守军语义被绕过、退化为现状**（守军感消失，且这是最难的那种静默失效：
+      //     开关看着是 true，行为却是 false 的行为）。
+      //   ⇒ garrisonMode=true 时，intel 只刷**非守军**（前锋/旧语义单位），守军交给三条自然通道。
+      //   零回归：garrisonMode=false 时 `isGarrisonUnit` 恒 false ⇒ 与改前逐字段一致。
       for(const e of entities){
-        if(e.team === 'enemy' && e.hp > 0 && e.waveSpawn){
+        if(e.team === 'enemy' && e.hp > 0 && e.waveSpawn && !isGarrisonUnit(e)){
           e.lastKnownPlayerPos = player ? { x: player.x, y: player.y } : null;
         }
       }
       break;
     case 'victory':
-      // 波次全清 ⇒ 节点完成（复用既有 3 秒缓冲 + finishNode(true) 结算/计分/选卡链）
+      // 2026-10-30 P0-B：波次全清 **不再无条件结算** —— 加「抵达地图最右出口」这道判据。
+      //   旧实现 victory 直接进 3 秒 clearing ⇒ finishNode(true)：玩家可以在出生点附近打完
+      //   最后一波就地通关，从来没有走完这张图。用户期望是「带领友军逐个突破防线、
+      //   到达地图最右侧」——有出口 SVG/绿带（draw 段 #K2）却不需要走过去 = UI 在骗人。
+      //   现行分叉：
+      //     ① 玩家已在出口带上（x ≥ currentNode.exitX）⇒ 走原 3 秒 clearing 路径，行为不变；
+      //     ② 否则**不结算**：置 battleExitReady = true，出口此时由 battleExitUnlocked()
+      //        点亮（该函数在 outcome 已出时返回 true，天然满足），主循环每帧判位置 ——
+      //        玩家自己开到出口才触发 clearing（判据见主循环 encounter 分流块）。
+      //   渐进兼容：exitX 缺失/非有限时按 ①（原行为）处理，不引入 NaN 比较误判。
       if(battleState && !battleState.cleared && !battleState.clearing){
-        battleState.clearing = true;
-        battleState.clearingT = 3.0;
-        pushLog('★ 波次全清 · 区域肃清 AREA CLEARED ★', 'COVER');
+        const exitFinite = !!(currentNode && Number.isFinite(currentNode.exitX));
+        if(exitFinite && player && player.x >= currentNode.exitX){
+          battleState.clearing = true;
+          battleState.clearingT = 3.0;
+          pushLog('★ 波次全清 · 区域肃清 AREA CLEARED ★', 'COVER');
+        } else {
+          battleExitReady = true;
+          const remain = (exitFinite && player) ? Math.max(0, Math.round(currentNode.exitX - player.x)) : null;
+          pushLog('★ 防线全清 · 推进至出口 ★' +
+            (remain === null ? '' : `（还差 ${remain}px）`), 'COVER');
+        }
       }
       break;
     case 'defeat':
       // 防御性：正式局玩家 hp 归零走既有 revive/gameover 管线，导演 defeat 只记日志
       pushLog('⚠ 波次导演报告 defeat（预期由玩家阵亡触发）', 'CRIT');
+      break;
+    // ---- 2026-11-02 M3-E/F/G：任务类型事件 ----
+    case 'objective-lost':
+      showAllyToast('守点目标已被摧毁 · 存活奖励归零', true);
+      pushLog('⚠ 守点目标已被摧毁（节点仍可完成，存活 bonus 归零）', 'CRIT');
+      break;
+    case 'counterattack': {
+      // 占领读条过 50% ⇒ 反冲击前锋：在最后一个防御点附近刷 1~2 辆（同屏封顶内）。
+      const ag = encAnchorGroupsForNode(currentNode);
+      const g = ag.length ? ag[ag.length - 1] : null;
+      const p = (g && g.length) ? g[g.length - 1] : null;
+      const aliveNow = entities.filter(e => e.team === 'enemy' && e.hp > 0).length;
+      if(p && aliveNow < 6){
+        for(let k = 0; k < 2; k++){
+          const x = Math.max(60, Math.min(currentNode.w - 60, p.x + k * 70));
+          const y = Math.max(60, Math.min(currentNode.h - 60, p.y + (k ? 90 : -90)));
+          assembleWaveEnemyAt(x, y, 'medium', waveEnemySpecFor(0, k), { idPrefix: 'enemy_ca', waveSpawn: true });
+        }
+      }
+      showAllyToast('⚠ 敌方反冲击前锋切入', true);
+      break;
+    }
+    case 'timeout':
+      showAllyToast('⏱ 突破时限已到 · 按低分结算', true);
+      break;
+    case 'settlement':
+      finishNodeTimedOut(ev);
       break;
   }
 }
@@ -3449,20 +4248,72 @@ function battleExitUnlocked(){
   if(battleEncounter.waveIndex + 1 < battleEncounter.waveCount) return false;   // 还有后续波
   // 最后一波：wave-clear 同帧起 phase 会切到 breather/lineHold（lines 模式）；
   // phase 仍是 'wave' 说明最后一波敌人还活着，不亮。
-  return battleEncounter.phase !== 'wave';
+  if(battleEncounter.phase !== 'wave') return true;
+  // 2026-11-01 P2-G 裁定 4「出口侧解耦」——**守军软锁的最后一道保险**。
+  //   问题：守军语义下「敌人不主动来找玩家」是设计意图，但三条激活通道（距离+LoS / 受击警觉 /
+  //     超时兜底）万一全部失效，玩家就会卡在「波次永不清 ⇒ victory 不到 ⇒ 出口永不亮 ⇒ 无法结算」。
+  //     前两道保险（前哨车恒接战 / 超时兜底注入）都已在别处落地，这里是**第三道**：即便它们
+  //     都没能形成实际交战，玩家仍有一条可达的推进/结算路径，而不是困死在节点里。
+  //   判据为什么这样取（**不新增任何数值键**，复用既有语义）：
+  //     ① garrisonMode=true —— 零回归总门；false 时本分支不存在（现状行为逐字段不变）。
+  //     ② 兜底已启用（garrisonFallbackSeconds > 0）—— 这是「守军已熬过 N 秒仍未接战」的
+  //        **既有定义**；N=0（当前默认=关闭）时不解锁出口。这与前置门裁定自洽：
+  //        「未加兜底不得置 garrisonMode=true」⇒ 置 true 时兜底必然已启用，两者不冲突。
+  //     ③ 存活守军**全部**已被兜底注入过（garrisonFallbackApplied）——证明系统确实判定它们
+  //        「超时未接战」并尽力注入过，而不是「玩家还没走到防线跟前」的正常守军待机。
+  //        ⇒ 避免开局即解锁出口（那样玩家一进图直奔出口就能跳过全部内容，属内容量事故）。
+  //   解锁后仍须玩家**自己开到出口**（P0-B「走完全图」语义不变，见主循环 battleExitReady 判据）
+  //     ⇒ 本分支只是把「出口绿带」点亮，不是直接结算。
+  if(garrisonSoftlockEscaped()) return true;
+  return false;
+}
+
+// P2-G 裁定 4 的判据（纯读，不写任何状态）。逐条注释见 battleExitUnlocked 内的调用点。
+function garrisonSoftlockEscaped(){
+  const encR = (typeof RULES !== 'undefined' && RULES.encounter) ? RULES.encounter : {};
+  if(encR.garrisonMode !== true) return false;                       // ① 零回归总门
+  const sec = Number(encR.garrisonFallbackSeconds);
+  if(!Number.isFinite(sec) || sec <= 0) return false;                // ② 兜底未启用 ⇒ 不解锁
+  let sawGarrison = false;
+  for(const e of entities){
+    if(e.team !== 'enemy' || !(e.hp > 0) || !isGarrisonUnit(e)) continue;
+    sawGarrison = true;
+    if(e.garrisonFallbackApplied !== true) return false;              // ③ 还有守军没熬过兜底时限
+  }
+  return sawGarrison;                                                 // 至少有一辆守军且全部已尽力
 }
 
 function finishNode(cleared){
   if(!battleState || battleState.cleared) return;
   battleState.cleared = true;
-  // 2026-10-30 MS2/C1：节点结束即销毁波次导演（防跨节点串流；enterBattle 按新节点重建）
+  // M3-G：突破节点的「提前抵达」判据必须在销毁导演实例前捕获。
+  const encInfo = battleEncounter ? {
+    kind: battleEncounter.kind,
+    elapsed: battleEncounter.elapsed,
+    limit: battleEncounter.timeLimitSeconds,
+  } : null;
   battleEncounter = null;
+  // 2026-10-31 D1b：待投送队列随节点结算清空（否则下一节点的击杀会复活上一节点的待机单位）
+  battleEncReserve = []; battleEncReserveCd = 0;
   // B2（2026-09）：结算前清扫残留炮弹/命中/弹迹，避免缓冲后残弹延续到结算/下一场。
   shells.length = 0; impacts.length = 0; bounceFx.length = 0;
   const clearMs = performance.now() - battleState.startMs;
   const outpostEntity = entities.find(e => e.team === 'ally' && e.nodeSpawn && !e.isAllySquad);
   const outpostAlive = !outpostEntity || outpostEntity.hp > 0;
-  const score = scoreNode(currentNode, { damageTaken: battleState.damageTaken, clearMs, outpostAlive });
+  const score = scoreNode(currentNode, { damageTaken: battleState.damageTaken, clearMs, outpostAlive,
+    // M3-E：防御节点的守点目标存活判据（kind 非 defend 时 undefined，scoreNode 不读）
+    objectiveAlive: battleGuardTarget ? (battleGuardTarget.hp > 0) : undefined });
+  // M3-G：突破节点提前抵达 bonus（在时限内到达出口才给；超时走 finishNodeTimedOut）。
+  if(cleared && encInfo && encInfo.kind === 'breakthrough' && encInfo.limit > 0
+     && encInfo.elapsed < encInfo.limit){
+    const btc = (RULES.nodeKinds && RULES.nodeKinds.breakthrough) ? RULES.nodeKinds.breakthrough : {};
+    const pct = Number.isFinite(btc.earlyBonusPct) ? btc.earlyBonusPct : 0.2;
+    if(pct > 0){
+      const amt = Math.round(score.base * pct);
+      score.bonuses.push({ label: '提前抵达 +' + Math.round(pct * 100) + '%', amount: amt });
+      score.total += amt;
+    }
+  }
   let bossLoot = null;
   // #U40（2026-10-19）：economy.scoreMul 接线——节点结算得分乘 runScoreMultiplier(player)
   if(cleared && currentNode.boss){                     // P-09：Boss 掉落（score + 卡牌稀有度）
@@ -3470,8 +4321,39 @@ function finishNode(cleared){
     if(bossLoot && bossLoot.score) score.total += bossLoot.score;
   }
   runScore += Math.round(score.total * runScoreMultiplier(player));
+  // 2026-10-31：进度边界②——节点结算（切地图/奖励之前）。
+  //   真终局（cleared=false = 复活耗尽 → gameover）必须**清档**：否则下次进页面会把一局已经
+  //   打输的局恢复出来（用户看到的会是「读档即残局」）。Boss/普通节点结算不清档——那是中间进度。
+  if(cleared){
+    saveRunState('finishNode');
+  } else {
+    clearRunState();
+  }
   if(cleared) transition(flow, 'settlement', { nodeIndex: currentNode.index, score, clearMs, bossLoot });
   else transition(flow, 'gameover', { nodeIndex: currentNode.index, score });
+}
+
+// 2026-11-02 M3-G：突破超时——**低分结算，不是 gameover**。复用 finishNode 的收尾链，
+//   唯一差异：得分乘 RULES.nodeKinds.breakthrough.timeoutScorePct（[PLACEHOLDER]，缺省 0.5）。
+function finishNodeTimedOut(){
+  if(!battleState || battleState.cleared) return;
+  battleState.cleared = true;
+  battleEncounter = null;
+  battleEncReserve = []; battleEncReserveCd = 0;
+  shells.length = 0; impacts.length = 0; bounceFx.length = 0;
+  const clearMs = performance.now() - battleState.startMs;
+  const outpostEntity = entities.find(e => e.team === 'ally' && e.nodeSpawn && !e.isAllySquad);
+  const outpostAlive = !outpostEntity || outpostEntity.hp > 0;
+  const score = scoreNode(currentNode, { damageTaken: battleState.damageTaken, clearMs, outpostAlive });
+  const bt = (RULES.nodeKinds && RULES.nodeKinds.breakthrough) ? RULES.nodeKinds.breakthrough : {};
+  const pct = Number.isFinite(bt.timeoutScorePct) ? Math.max(0, Math.min(1, bt.timeoutScorePct)) : 0.5;
+  const penalty = Math.round(score.total * (pct - 1));
+  score.bonuses.push({ label: `突破超时 ×${pct}`, amount: penalty });
+  score.total = Math.round(score.total * pct);
+  runScore += Math.round(score.total * runScoreMultiplier(player));
+  saveRunState('finishNodeTimeout');
+  pushLog('⏱ 突破时限已到 · 按低分结算', 'CRIT');
+  transition(flow, 'settlement', { nodeIndex: currentNode.index, score, clearMs, bossLoot: null, timedOut: true });
 }
 
 // #76 A：敌军属性全面难度分化（原 enterBattle 内联闭包提升为页级函数；P-38 增援同规则应用）
@@ -3724,6 +4606,11 @@ function pickCard(card){
     return;
   }
   const applied = applyCardEffects(player, card);   // P-09：走卡牌效果管道（modifier 立即生效，其余挂 cardEffects 供对应里程碑消费）
+  // 2026-10-31：卡牌镜像（runCards）的**唯一**追加点——必须紧跟本处 applyCardEffects 成功之后。
+  //   rationale：存档要「本局已用卡牌」，而 player.cardEffects 只收非 modifier 效果（纯修饰器卡只写
+  //   player.modifiers）⇒ 不在此记镜像就等于丢构筑。别处（开发者面板/测试钩子/恢复回填）不重复记：
+  //   它们要么走 __TEST__（不进正式存档），要么是读档恢复（runCards 本来就是数据源）。
+  if(card && card.id) runCards.push(card.id);
   pushLog(`获得卡牌「${card.name}」— ${card.desc}`, 'PEN');
   // #U40（2026-10-19）：economy.reviveCount（战场救护协议卡）即时生效——applyCardEffects 写
   //   runReviveBonus，但 revives 只在 prepPlayerForRun（新局）重算，局内获得后复活次数纹丝不动。
@@ -3840,6 +4727,13 @@ function drawRewardCards(){
   // 归口 RULES.cards.bossRound；缺 RULES 时回退 null（则该轮退回既有权重与无稀有度保底）。
   const bossRound = pendingLootRounds > 0 && typeof RULES !== 'undefined'
     && RULES.cards && RULES.cards.bossRound ? RULES.cards.bossRound : null;
+  // M3-C（2026-11-02）：节点任务类型的结算稀有度权重——Boss 追加轮优先；
+  //   关闭态 / 未知 kind / 空表 → null（回退全局权重，零回归）。纯函数在 js/tank_cards.js。
+  const kindReward = (typeof RULES !== 'undefined' && RULES.nodeKinds && RULES.nodeKinds.reward)
+    ? RULES.nodeKinds.reward : null;
+  const kindWeights = (typeof nodeKindRarityWeights === 'function'
+    && typeof currentNode !== 'undefined' && currentNode)
+    ? nodeKindRarityWeights(currentNode.kind, kindReward) : null;
   return drawPool.length ? drawCardChoices(drawPool, 5, {
     ammoLoadout: player.ammoLoadout,
     owned: { abilities: ownedAbilities, secondaryWeapon: secondaryType, primaryWeapon: primaryType, cards: ownedCardCounts,
@@ -3855,7 +4749,7 @@ function drawRewardCards(){
     // 稀有度保底：按配比「至少 N 张」（Boss 轮 = legendary 1 / epic 2）；
     // 权重覆盖：Boss 轮抬高非普通卡占比，其余槽位自由抽取。
     guaranteeRarity: bossRound ? bossRound.guarantee : null,
-    rarityWeights: bossRound ? bossRound.rarityWeights : null
+    rarityWeights: bossRound ? bossRound.rarityWeights : kindWeights
   }) : [];
 }
 
@@ -4020,6 +4914,48 @@ document.getElementById('rewardShopContinueBtn').addEventListener('click', () =>
   advanceRewardFlow();
 });
 
+// 2026-11-02 M3-H：非战斗节点（商店 / 补给 / 事件）——「替换不追加」的路由侧。
+//   设计口径 specs/combat/node-mission-types.md：商店复用 reward 屏内嵌局内商店
+//   （buildRunShopInto），补给 = 抢修 + 选卡，事件 = 选卡即事件。
+//   实现上**不新增 flow 状态**：节点已清 → 留在 reward 屏重开一轮选卡/商店 → 玩家确认后
+//   由 nextNodeAfterReward 继续推进（currentNode 已指向该非战斗节点）。
+const NODE_KIND_LABELS = {
+  exterminate: '歼灭', defend: '防御', capture: '占领', breakthrough: '突破',
+  shop: '商店', supply: '补给', event: '事件',
+};
+function isNonCombatNodeKind(kind){
+  return kind === 'shop' || kind === 'supply' || kind === 'event';
+}
+function routeNonCombatNode(node, index){
+  if(!node || !isNonCombatNodeKind(node.kind)) return false;
+  currentNode = node;
+  node.cleared = true;
+  if(node.kind === 'supply'){
+    // 补给：抢修 40%（[PLACEHOLDER]，随 MS3 校准）
+    const pct = 0.4;
+    if(player) player.hp = Math.min(player.stats.maxHp, player.hp + Math.round(player.stats.maxHp * pct));
+    for(const a of livingAllies()) a.hp = Math.min(a.stats.maxHp, a.hp + Math.round(a.stats.maxHp * pct));
+    pushLog(`⛽ 补给节点（${index + 1}/${run.nodes.length}）：全员抢修 +${Math.round(pct * 100)}%`, 'COVER');
+  } else if(node.kind === 'shop'){
+    pushLog(`🛒 商店节点（${index + 1}/${run.nodes.length}）：局内升级`, 'COVER');
+  } else {
+    pushLog(`❖ 事件节点（${index + 1}/${run.nodes.length}）：选择一张卡`, 'COVER');
+  }
+  saveRunState('nonCombatNode');
+  pendingLootRounds = 0;
+  openRewardScreen();                       // 复位选卡区（商店节点随后会被 revealRewardShop 收起）
+  const statusEl = document.getElementById('rewardStatus');
+  if(node.kind === 'shop'){
+    revealRewardShop();
+    if(statusEl) statusEl.innerHTML = `商店节点（${index + 1}/${run.nodes.length}）— 用本局得分升级基础参数`;
+  } else if(node.kind === 'supply'){
+    if(statusEl) statusEl.innerHTML = `补给节点（${index + 1}/${run.nodes.length}）— 全员抢修 +40%，并选择一张卡`;
+  } else {
+    if(statusEl) statusEl.innerHTML = `事件节点（${index + 1}/${run.nodes.length}）— 选择一张卡`;
+  }
+  return true;
+}
+
 function nextNodeAfterReward(){
   // P-34 开放式节点链：不再有"末节点收束"——超出当前链长时经 extendRun 追加下一节点继续推进；
   // 终局只由 ① 阵亡复活耗尽（gameover）② ESC「终止游戏并结算」（voluntaryEnd）触发。
@@ -4027,6 +4963,14 @@ function nextNodeAfterReward(){
   if(i >= run.nodes.length){
     extendRun(run);
     pushLog(`节点链延伸 → 第 ${run.nodes.length} 节点（难度 ${(run.nodes[run.nodes.length-1].difficulty*100).toFixed(0)}%${run.nodes[run.nodes.length-1].boss ? ' · BOSS' : ''}）`, 'COVER');
+    // 2026-10-31：进度边界③——换层/扩展链之后。nodeCount 变了（链更长），必须立刻刷新存档，
+    //   否则下次读档会用旧的 nodeCount 重放出一条更短的链，nodeIndex 被钳到链尾（玩家看到「进度倒退」）。
+    saveRunState('extendRun');
+  }
+  // M3-H：非战斗节点（商店/补给/事件）不进入战斗——留在 reward 屏重开选卡/商店。
+  const nextNode = run.nodes[i];
+  if(nextNode && isNonCombatNodeKind(nextNode.kind)){
+    if(routeNonCombatNode(nextNode, i)) return;
   }
   transition(flow, 'battle', { nodeIndex: i });
 }
@@ -4088,6 +5032,11 @@ watchFlow(flow, (state, payload) => {
     if(payload.voluntaryEnd && !payload.settled){
       payload.settled = true;
       payload.settleResult = settleRun(profile, runScore);   // 得分×10% 转点 + 难度等级 +1（P-41 可花余额账本待接入）
+      // 2026-10-31：主动终止 = 真终局 ⇒ 清掉局内进度存档。
+      //   为什么清在 settleRun 之后：settleRun 会改 profile（点数/难度），必须先把内存镜像写全再落盘，
+      //   否则清档时的 saveActiveProfile 可能把「未结算」的旧值写回去。
+      try{ if(typeof clearRunProgress === 'function') clearRunProgress(profile); }catch(_e){}
+      restoredRunNodeIndex = -1; runCardsReplayPending = false;
       saveActiveProfile(localStorage, profile);
     }
     if(payload.voluntaryEnd){
@@ -4381,11 +5330,22 @@ function effectiveKitCd(key){
 // （旧口径 loadout/shop → map 中转屏 → 再点「开始新的一局」，两道重复入口合一）。
 function startNewRun(){
 	  profile.difficultyLevel = 0;                  // 难度重置（新开局强制 Lv.0）
+	  // 2026-10-31：新局覆盖旧局 ⇒ 旧局的 runProgress 必须**在写档前**清掉。
+	  //   否则「开新局 → 未进战斗就刷新页面」会读回上一局的中断进度（用户看到的是已放弃的局）。
+	  //   clearRunProgress 由 economy 提供且容忍失败（未提供时静默跳过，不影响开局）。
+	  try{ if(typeof clearRunProgress === 'function') clearRunProgress(profile); }catch(_e){}
 	  profile.stats.runs++;                         // P-14：局数统计（先累计再落盘，防旧口径 save→runs++ 顺序 persisted 落后一步）
 	  saveProfile(localStorage, profile);
 	  removeRunModifiers(player);                   // P-12：清除上一局残留的单局修饰器（卡牌 buff 等）
 	  prepPlayerForRun();                           // M10：出战坦克配置 + 永久升级重挂 + 复活次数（含加购）
 	  runShopLevels = {};                           // 2026-09-14：局内商店升级不跨局（P-41 账本随新局归零）
+	  // 2026-10-31：新局起点必须把「上一局的局内进度存档」相关状态全部复位——
+	  //   否则上一局的 runCards 会漏进新局存档，runCardsReplayPending 还可能在首场战斗里重放旧卡（叠 modifier）。
+	  runCards = [];
+	  runCardsReplayPending = false;
+	  restoredProgressKey = null;
+	  restoredRunNodeIndex = -1;
+	  runSaveWarned = false;
 	  // #H1（2026-09-30）：原「冻结玩家基准属性快照」已退役（敌军改锚定固定基准 enemyAnchorBase）
 	  // #24：视口驱动节点缩放——生成时刻取真实画布像素尺寸（宽高各 ≥ 视口 3 倍/面积 9 倍）
 	  // #MODE（2026-10-15）：boss 模式全 Boss 节点链（bossOnly）；survival 模式单个大地图（generateSurvivalRun）
@@ -4436,6 +5396,21 @@ document.getElementById('gameoverHomeBtn').addEventListener('click', () => {
   transition(flow, 'home');                      // M10：阵亡后回首页（gameover → home 白名单合法）
 });
 
+// ---------- 2026-10-31（用户需求「关页后能继续」）：切后台/关页前补一次写档 ----------
+// 定位：这是**增量**保险，不是唯一写档点——正常写档在 enterBattle/finishNode/extendRun 三个进度边界。
+//   用户关页的实际路径是「切到别的页签 → 关闭」，离开瞬间浏览器可能不给 beforeunload 足够的执行时间，
+//   而 visibilitychange(hidden) 一定会到 ⇒ 只在这一个事件上做、且只做一件事（一次同步写盘）。
+// 极轻量约束：不遍历实体、不重绘界面、不弹确认；run 不存在时直接返回（首页/结算屏零成本）。
+// 为什么不用 beforeunload/pagehide：两者在移动端不可靠，且 pagehide 与 visibilitychange 会双写。
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState !== 'hidden') return;
+  try{
+    if(!run || !currentNode) return;                 // 未开局：无进度可存
+    if(GAME_MODE !== 'standard') return;             // 非标准模式的 run 没有可重放键（见 saveRunState）
+    saveRunState('visibilitychange');
+  }catch(_e){ /* 切后台写档异常不得影响页面 */ }
+});
+
 // ==================== M10 局外三界面（Home 存档 / Loadout 整备 / Shop 商店） ====================
 // 纯视图层接线：数据面全部消费 js/tank_economy.js（多存档槽位 API，storage=localStorage 显式注入）
 // 与 js/tank_flow.js 的 home/loadout/shop 三态白名单；不改共享模块。
@@ -4466,6 +5441,21 @@ function slotProfileOf(id){
 
 let renamingSlotId = null;    // 重命名中的槽位 id（行内输入框态）
 let deleteArmSlotId = null;   // 删除二次确认武装态（再点一次才真删；任何重渲染自动解除）
+
+// 2026-10-31（用户需求「首页多存档列表展示局内进度」）：槽位行的小字「进度：节点 N/M」。
+//   **只读文案**，不改首页大结构、不改 VM（js/tank_screens.js 是共享模块，不属本角色写域）：
+//   buildHomeViewModel 只产出 meta/upgradesLine 两行，进度是第 3 行，所以在页面侧追加。
+//   两种渲染分支（VM 分支 + 兜底分支）共用本函数，保证文案同源。
+//   返回空串 = 该槽没有可继续的进度（不追加空行，避免「进度：」后面什么都没有）。
+function slotProgressLineOf(prof){
+  try{
+    const rp = prof && prof.runProgress;
+    if(!rp || !Number.isFinite(rp.seed) || !Number.isInteger(rp.nodeCount) || rp.nodeCount < 1) return '';
+    const idx = Math.max(0, Math.min(rp.nodeCount - 1, Number.isFinite(rp.nodeIndex) ? Math.floor(rp.nodeIndex) : 0));
+    const cards = Array.isArray(rp.cards) ? rp.cards.length : 0;
+    return `进度：节点 ${idx + 1}/${rp.nodeCount} · 卡牌 ${cards} 张`;
+  }catch(e){ return ''; }
+}
 
 // ---------- 预设存档（2026-10-29 用户裁定：从两个按钮改为存档列表里的两条常驻条目） ----------
 // 语义：**默认不存在**，点它才落成一份真实档案；再次点同一项时复用同名槽位并重置内容，
@@ -4505,6 +5495,50 @@ function buildPresetRowEl(p){
 async function enterPresetSlot(preset){
   const ok = await loadPresetSave(preset.url, preset.name);
   if(ok && flow.state === 'home') transition(flow, 'loadout');
+}
+
+// 2026-10-31（用户需求「关页后能继续」）：切换存档槽 = 换 profile ⇒ 上一槽恢复出来的 run 必须作废。
+//   rationale：profile 是 active 槽的内存镜像，槽一换，run/runCards/runScore 全是别人的数据；
+//   不清理会在「继续本局」时把 A 槽的链与 B 槽的档案混在一起（最坏情况：卡牌/分数串档）。
+//   只有**尚未开局**（!run）或停在局外（home/loadout/shop）时才允许切换并作废：
+//   战斗中途切档会丢当前局面，属于破坏性操作，这里**先判后写**直接拒绝（不在拒绝路径上改 active）。
+function switchActiveSaveSlot(id){
+  try{
+    if(run && !inMenuState()){
+      pushLog('⚠ 局内不能切换存档槽（请先结束本局）', 'COVER');
+      return false;
+    }
+    if(!setActiveSaveSlot(localStorage, id)) return false;
+    profile = loadActiveProfile(localStorage);
+    resetRunForSlotChange('切换存档');
+    restoreRunFromProfile();          // 按新槽的 runProgress 重建（无进度则什么都不做）
+    refreshContinueRunEntry();
+    renderLoadoutSafe();
+    return true;
+  }catch(e){
+    pushLog('⚠ 切换存档槽异常（已忽略）：' + (e && e.message ? e.message : e), 'COVER');
+    return false;
+  }
+}
+
+/**
+ * 存档槽结构变化（切换/新建/删除/载入预设）后的局内状态作废（2026-10-31）。
+ * 只作废**内存镜像**，不碰存储：存储侧的 runProgress 归 profile，随槽切换自然换人。
+ * @param {string} reason 仅用于日志
+ */
+function resetRunForSlotChange(reason){
+  run = null; currentNode = null; battleState = null;
+  runCards = [];
+  runCardsReplayPending = false;
+  restoredProgressKey = null; restoredRunNodeIndex = -1;
+  runScore = 0; runKills = 0; runScoreSpent = 0;
+  runSaveWarned = false;
+  if(reason) pushLog(`${reason} — 局内状态已重置`, 'COVER');
+}
+
+/** 整备区重绘（坦克列表未就绪时 renderLoadout 内部有兜底文案，这里只做判空保护）。 */
+function renderLoadoutSafe(){
+  try{ if(flow.state === 'home' || flow.state === 'loadout') renderLoadout(); }catch(_e){}
 }
 
 function renderHome(){
@@ -4548,16 +5582,27 @@ function renderHome(){
         upLine.textContent = r.upgradesLine;
         main.appendChild(upLine);
       }
+      // 2026-10-31（用户需求）：局内进度只读小字（VM 分支）
+      { const progLine = slotProgressLineOf(slotProfileOf(r.id));
+        if(progLine){
+          const pLine = document.createElement('div'); pLine.className = 'slot-meta';
+          pLine.style.color = 'var(--amber-dim)';
+          pLine.textContent = progLine;
+          main.appendChild(pLine);
+        } }
       const acts = document.createElement('div'); acts.className = 'slot-actions';
       const enterB = document.createElement('button'); enterB.className = 'enter-btn'; enterB.textContent = '选择进入';
-      enterB.addEventListener('click', () => { playSound('ui'); if(setActiveSaveSlot(localStorage, r.id)){ profile = loadActiveProfile(localStorage); transition(flow, 'loadout'); } });
+      enterB.addEventListener('click', () => { playSound('ui'); if(switchActiveSaveSlot(r.id)) transition(flow, 'loadout'); });
       const renameB = document.createElement('button'); renameB.textContent = '重命名';
       renameB.addEventListener('click', () => { renamingSlotId = r.id; deleteArmSlotId = null; renderHome(); });
       const delB = document.createElement('button'); delB.className = 'danger';
       delB.textContent = r.showDeleteConfirm ? '确认删除？' : '删除';
       delB.addEventListener('click', () => {
         if(deleteArmSlotId !== r.id){ deleteArmSlotId = r.id; renamingSlotId = null; renderHome(); return; }
-        deleteSaveSlot(localStorage, r.id); deleteArmSlotId = null; renamingSlotId = null; profile = loadActiveProfile(localStorage); renderHome(); playSound('ui');
+        deleteSaveSlot(localStorage, r.id); deleteArmSlotId = null; renamingSlotId = null;
+        // 2026-10-31：删槽后 active 可能迁移 ⇒ 内存镜像与局内状态一起作废（与兜底分支同口径）
+        profile = loadActiveProfile(localStorage); resetRunForSlotChange('删除存档'); restoreRunFromProfile();
+        refreshContinueRunEntry(); renderHome(); playSound('ui');
       });
       acts.appendChild(enterB); acts.appendChild(renameB); acts.appendChild(delB);
       row.appendChild(main); row.appendChild(acts);
@@ -4601,12 +5646,24 @@ function renderHome(){
         main.appendChild(upLine);
       }
     }
+    {   // 2026-10-31（用户需求）：局内进度只读小字（兜底分支，与 VM 分支同源）
+      const progLine = slotProgressLineOf(prof);
+      if(progLine){
+        const pLine = document.createElement('div'); pLine.className = 'slot-meta';
+        pLine.style.color = 'var(--amber-dim)';
+        pLine.textContent = progLine;
+        main.appendChild(pLine);
+      }
+    }
     const acts = document.createElement('div'); acts.className = 'slot-actions';
     const enterB = document.createElement('button'); enterB.className = 'enter-btn'; enterB.textContent = '选择进入';
-    enterB.addEventListener('click', () => { playSound('ui'); if(setActiveSaveSlot(localStorage, s.id)){ profile = loadActiveProfile(localStorage); transition(flow, 'loadout'); } });
+    enterB.addEventListener('click', () => { playSound('ui'); if(switchActiveSaveSlot(s.id)) transition(flow, 'loadout'); });
     const renameB = document.createElement('button'); renameB.textContent = '重命名'; renameB.addEventListener('click', () => { renamingSlotId = s.id; deleteArmSlotId = null; renderHome(); });
     const delB = document.createElement('button'); delB.className = 'danger'; delB.textContent = deleteArmSlotId === s.id ? '确认删除？' : '删除';
-    delB.addEventListener('click', () => { if(deleteArmSlotId !== s.id){ deleteArmSlotId = s.id; renamingSlotId = null; renderHome(); return; } deleteSaveSlot(localStorage, s.id); deleteArmSlotId = null; renamingSlotId = null; profile = loadActiveProfile(localStorage); renderHome(); playSound('ui'); });
+    delB.addEventListener('click', () => { if(deleteArmSlotId !== s.id){ deleteArmSlotId = s.id; renamingSlotId = null; renderHome(); return; } deleteSaveSlot(localStorage, s.id); deleteArmSlotId = null; renamingSlotId = null;
+      // 2026-10-31：删的是 active 槽时 activeSaveId 会迁到别的槽 ⇒ 内存镜像与 run 必须一起作废
+      profile = loadActiveProfile(localStorage); resetRunForSlotChange('删除存档'); restoreRunFromProfile();
+      refreshContinueRunEntry(); renderHome(); playSound('ui'); });
     acts.appendChild(enterB); acts.appendChild(renameB); acts.appendChild(delB);
     row.appendChild(main); row.appendChild(acts); listEl.appendChild(row);
   }
@@ -4617,6 +5674,9 @@ function createSaveAndRefresh(){
   createSaveSlot(localStorage);                      // 缺省名「新存档」，创建即设为 active
   profile = loadActiveProfile(localStorage);
   deleteArmSlotId = null; renamingSlotId = null;
+  // 2026-10-31：新槽 = 换 profile ⇒ 上一条恢复出来的 run 与局内账本作废（新槽没有 runProgress）
+  resetRunForSlotChange('新建存档');
+  refreshContinueRunEntry();
   renderHome();
   // 2026-10-29（合并屏）：新建存档后直接展开出战区，省掉一次「选择进入」
   setLoadoutSectionVisible(true);
@@ -4651,6 +5711,10 @@ async function loadPresetSave(url, name){
     profile = loadActiveProfile(localStorage);
     saveActiveProfile(localStorage, profile);    // 归一化写回 + 刷新 updatedAt（排序与时间戳要准）
     deleteArmSlotId = null; renamingSlotId = null;
+    // 2026-10-31：预设档同样可能自带 runProgress（或本来就是空进度）⇒ 局内状态按新档重来
+    resetRunForSlotChange('载入预设存档');
+    restoreRunFromProfile();
+    refreshContinueRunEntry();
     renderHome();
     playSound('ui');
     pushLog('已载入预设存档「' + name + '」', 'COVER');
@@ -4697,6 +5761,33 @@ function refreshLoadHint(){
     const b = document.getElementById(id);
     if(b) b.disabled = !ready;
   }
+  // 2026-10-31：继续本局入口的显隐/文案（与 refreshLoadHint 同处刷新，选车/开档后即时回显）。
+  refreshContinueRunEntry();
+}
+
+/**
+ * 「继续本局」入口的显隐与文案刷新（2026-10-31 用户需求）。
+ * 判据 = profile.runProgress 是否可恢复（readRestorableRunProgress 已做页面侧二次校验）；
+ * 与整备区其它控件**并存**：继续本局不要求重新选车（坦克以存档 tankId 为准）。
+ */
+function refreshContinueRunEntry(){
+  const wrap = document.getElementById('homeContinueWrap');
+  const hint = document.getElementById('homeContinueHint');
+  if(!wrap) return;
+  let rp = null;
+  try{ rp = readRestorableRunProgress(); }catch(_e){ rp = null; }
+  if(!rp){
+    wrap.style.display = 'none';
+    if(hint) hint.textContent = '';
+    return;
+  }
+  const idx = Math.max(0, Math.min(rp.nodeCount - 1, rp.nodeIndex | 0));
+  const cards = Array.isArray(rp.cards) ? rp.cards.length : 0;
+  if(hint){
+    hint.textContent = `未完成的一局：节点 ${idx + 1}/${rp.nodeCount} · 卡牌 ${cards} 张 · 得分 ${rp.runScore | 0}`
+      + `（坦克 ${rp.tankId || profile.selectedTankId || '—'}）— 继续将从该节点首场战斗开始`;
+  }
+  wrap.style.display = 'block';
 }
 
 function renderLoadout(){
@@ -4834,6 +5925,276 @@ function prepPlayerForRun(){
   player._missileLock = null;
 }
 
+// ==================== 2026-10-31（用户需求：存档 / 关页后继续）局内进度存档 ====================
+// 分工：数据面（归一化 + 写/清）在 js/tank_economy.js——`saveRunProgress(profile, state)` /
+//   `clearRunProgress(profile)` / `normalizeRunProgress(raw)`；本段只负责**组装 state**、
+//   决定**写档时机**、以及把读回来的进度重建成 run。
+// 硬约束（用户红线）：
+//   ① 存档失败绝不中断游戏——本段每个入口都包 try/catch，失败只在日志区提示；
+//   ② 读档绝不重复施加卡牌效果（会叠 modifier）——恢复只重建 run 骨架，卡牌在**进战斗、
+//      玩家实体建好之后**按 runCards 逐张施加一次，由 runCardsReplayPending 一次性门控；
+//   ③ 只存重放键（seed/nodeCount/difficultyLevel）而不是整棵节点树——链可由 extendRun 无限追加，
+//      序列化体积无上界且与生成器实现耦合（详见 tank_economy.js normalizeRunProgress 头注）。
+
+/** 本局已获得卡牌 id（去重保序）。镜像 runCards ∪ player.cardEffects.cardId。
+ *  为什么要并集：纯 modifier 卡只写 player.modifiers、**不进 cardEffects**（js/tank_cards.js
+ *  applyCardEffects 的 modifier 分支），只读 cardEffects 会把构筑存残；镜像则可能漏记
+ *  （例如旧版本存档/开发者面板路径），两者取并集才是完整集合。 */
+function currentRunCardIds(){
+  const out = [], seen = {};
+  const push = (id) => {
+    if(typeof id !== 'string' || id.length === 0 || seen[id]) return;
+    seen[id] = true;
+    out.push(id);
+  };
+  for(const id of runCards) push(id);
+  const effects = (player && Array.isArray(player.cardEffects)) ? player.cardEffects : [];
+  for(const ef of effects){ if(ef) push(ef.cardId); }
+  return out;
+}
+
+/** 当前节点索引（写档/恢复都用这一个口径，避免两处各写一份 indexOf 而漂移）。 */
+function runProgressNodeIndex(){
+  if(currentNode && Number.isInteger(currentNode.index)) return Math.max(0, currentNode.index);
+  if(restoredRunNodeIndex >= 0) return restoredRunNodeIndex;
+  return 0;
+}
+
+/**
+ * 「继续本局」应该落在哪个节点（2026-10-31）。
+ * 关键语义：**节点已通关**时，继续点必须指向下一个节点，而不是刚打完的那个。
+ *   为什么不能只用 runProgressNodeIndex：finishNode(true) 写档时 currentNode 仍是刚结算的节点，
+ *   若直接存它，玩家下次「继续本局」会从**已通关**的节点重开（白打一遍，且 reward 里的选卡已发）。
+ * 判据用 battleState.cleared（finishNode 的第一行就置 true，且是同一帧先置标记再写档 ⇒ 可靠），
+ *   再与链长做钳位：链尾通关时退回末节点（由 extendRun 在推进时追加下一节点，属于既有流程）。
+ * @returns {number} 0..run.nodes.length-1
+ */
+function runProgressResumeNodeIndex(){
+  const cur = runProgressNodeIndex();
+  if(!run || !Array.isArray(run.nodes) || !run.nodes.length) return cur;
+  const cleared = !!(battleState && battleState.cleared);
+  if(cleared){
+    const next = cur + 1;
+    // 链内还有下一节点 ⇒ 指向它；到链尾 ⇒ 存末节点（恢复后玩家点「继续」会重进末节点，
+    //   而正常推进路径的 extendRun 会在 nextNodeAfterReward 时补齐链——两者不冲突）。
+    return Math.max(0, Math.min(run.nodes.length - 1, next));
+  }
+  return Math.max(0, Math.min(run.nodes.length - 1, cur));
+}
+
+/** flow 字段：契约白名单是 map/battle/shop/loadout。
+ *  rationale：pause/settlement/reward 都是**瞬时**界面，刷新后不存在可回到「暂停中」的战场，
+ *  统一折算成战斗（battle）语义即可；恢复侧反正不自动进战斗（见 restoreRunFromProfile）。 */
+function runProgressFlowKey(){
+  if(!flow) return 'map';
+  if(flow.state === 'battle' || flow.state === 'pause') return 'battle';
+  if(flow.state === 'settlement' || flow.state === 'reward' || flow.state === 'gameover') return 'battle';
+  return 'map';
+}
+
+/** 组装 runProgress state（口径见契约：seed/nodeCount/difficultyLevel/nodeIndex/flow/runScore/runKills/cards/tankId/savedAt）。 */
+function buildRunProgressState(){
+  return {
+    seed: run.seed,
+    nodeCount: run.nodes.length,
+    difficultyLevel: Number.isFinite(run.difficultyLevel) ? run.difficultyLevel : 0,
+    // 用「继续点」口径而不是裸 currentNode.index（见 runProgressResumeNodeIndex 的 rationale）
+    nodeIndex: runProgressResumeNodeIndex(),
+    flow: runProgressFlowKey(),
+    runScore: Number.isFinite(runScore) ? Math.max(0, Math.round(runScore)) : 0,
+    runKills: Number.isFinite(runKills) ? Math.max(0, Math.round(runKills)) : 0,
+    cards: currentRunCardIds(),
+    tankId: (profile && typeof profile.selectedTankId === 'string') ? profile.selectedTankId : null,
+    savedAt: Date.now()
+  };
+}
+
+/**
+ * 统一写档入口（**唯一**落盘点）。返回 true = 已写入浏览器存储。
+ * 失败语义：任何一步异常/被拒都只记一条日志（且整局只提示一次），**不影响游戏流程**。
+ * 不写档的情形（返回 false，不打日志）：非标准模式（Boss/生存的 run 不是
+ *   generateRun(seed,…) 产出，没有可重放键）、未开局、无 profile、economy 侧未提供契约函数。
+ */
+function saveRunState(reason){
+  try{
+    if(GAME_MODE !== 'standard') return false;
+    if(!run || !currentNode || !profile) return false;
+    if(typeof saveRunProgress !== 'function' || typeof saveActiveProfile !== 'function') return false;
+    const state = buildRunProgressState();
+    if(!saveRunProgress(profile, state)){
+      if(!runSaveWarned){
+        runSaveWarned = true;
+        pushLog('⚠ 局内进度存档被拒绝（进度参数不合法）— 本局继续运行，存档未更新', 'COVER');
+      }
+      return false;
+    }
+    if(!saveActiveProfile(localStorage, profile)){
+      // 无 active 存档槽时 saveActiveProfile 会返回 false（不静默建档，见 tank_economy.js 注释）。
+      if(!runSaveWarned){
+        runSaveWarned = true;
+        pushLog('⚠ 未找到可写存档槽 — 局内进度未落盘（新建存档后自动恢复写档）', 'COVER');
+      }
+      return false;
+    }
+    runSaveWarned = false;        // 写成功即复位告警闸门（下次真失败还能再提示一次）
+    // 落点与清理判据取 state.nodeIndex（= runProgressResumeNodeIndex 的「继续点」口径）；
+    //   clearRunState 之后它被置 -1，所以这里只在**写成功**路径上推进。
+    restoredRunNodeIndex = state.nodeIndex;
+    return true;
+  }catch(e){
+    // 红线④：存档异常不得把战斗搞崩——这里吞掉异常，只在日志区留一条可追溯提示。
+    try{ pushLog('⚠ 局内进度存档异常（已忽略，不影响本局）：' + (e && e.message ? e.message : e), 'COVER'); }catch(_e){}
+    return false;
+  }
+}
+
+/** 清档（真终局）：清 profile.runProgress 并立即落盘。 */
+function clearRunState(){
+  try{
+    if(profile && typeof clearRunProgress === 'function') clearRunProgress(profile);
+    if(profile && typeof saveActiveProfile === 'function') saveActiveProfile(localStorage, profile);
+    restoredRunNodeIndex = -1;
+    return true;
+  }catch(e){
+    try{ pushLog('⚠ 清档异常（已忽略）：' + (e && e.message ? e.message : e), 'COVER'); }catch(_e){}
+    return false;
+  }
+}
+
+/** 读回并做页面侧二次校验的 runProgress（null = 没有可恢复进度）。
+ *  economy 侧已对形状做白名单守卫；这里只补**页面才知道**的两件事：
+ *   ① 生成器链长上限（generateRun 会钳到 12）——nodeIndex 越界的档不可恢复成有意义的位置；
+ *   ② 卡牌 id 是否还在当前卡表里（economy 不该反向依赖卡表，由页面兜底过滤）。 */
+function readRestorableRunProgress(){
+  try{
+    if(!profile || !profile.runProgress) return null;
+    const raw = profile.runProgress;
+    const rp = (typeof normalizeRunProgress === 'function') ? normalizeRunProgress(raw) : raw;
+    if(!rp || !Number.isFinite(rp.seed) || !Number.isInteger(rp.nodeCount) || rp.nodeCount < 1) return null;
+    if(rp.nodeIndex < 0 || rp.nodeIndex > rp.nodeCount - 1) return null;    // 契约已钳位，走到这里说明整条不可信
+    const pool = Array.isArray(cardPool) ? cardPool : [];
+    const cards = Array.isArray(rp.cards)
+      ? rp.cards.filter(id => !pool.length || pool.some(c => c && c.id === id))
+      : [];
+    return Object.assign({}, rp, { cards });
+  }catch(e){
+    return null;
+  }
+}
+
+/**
+ * 恢复一局：用重放键重建 run 骨架并落位到 rp.nodeIndex，**不自动进战斗**。
+ * 为什么落在首页 + 「继续本局」按钮而不是直接进战斗：
+ *   ① 用户明确要求「不自动进战斗」（避免读档即战斗、玩家没准备好）；
+ *   ② 本版本已无「节点图」可选屏（renderMapList 自 2026-10-06 起只做文案），
+ *      transition 到 map 只会露出「开始新的一局」——那会把刚恢复的局冲掉。
+ *   ③ home → battle 是流程白名单合法转移，一个按钮即可进恢复点，且整备区仍可换车/进商店。
+ * 幂等：用 fingerprint（seed|nodeCount|nodeIndex|savedAt）去重，同一份进度只恢复一次；
+ *   换存档槽后 fingerprint 变化 → 允许再恢复。
+ * @returns {boolean} true = 本次调用完成了恢复
+ */
+function restoreRunFromProfile(){
+  const rp = readRestorableRunProgress();
+  if(!rp){ restoredRunNodeIndex = -1; return false; }
+  const fp = [rp.seed, rp.nodeCount, rp.nodeIndex, rp.savedAt].join('|');
+  if(fp === restoredProgressKey) return false;         // 同一份进度已恢复过
+  if(run) return false;                                // 局已在进行中：绝不覆盖
+  if(GAME_MODE !== 'standard'){
+    // Boss/生存模式的链不是 generateRun(seed,…) 产出，恢复出来会是另一条链 —— 宁可不恢复。
+    pushLog('⚠ 当前为 ' + GAME_MODE + ' 模式 — 未恢复标准模式的局内进度', 'COVER');
+    return false;
+  }
+  try{
+    if(!tankListData) return false;                    // 坦克列表未就绪：等 loadTankList 回调再试
+    const _vp = { vw: canvas.width, vh: canvas.height };
+    const rebuilt = generateRun(rp.seed, rp.nodeCount, {
+      viewport: _vp, difficultyLevel: rp.difficultyLevel, noOutpost: true
+    });
+    if(!rebuilt || !Array.isArray(rebuilt.nodes) || !rebuilt.nodes.length) return false;
+    run = rebuilt;
+    // nodeIndex 兜底：链长口径若与存档不同（生成器演进），钳到最近的合法节点而不是丢弃整局。
+    const idx = Math.max(0, Math.min(run.nodes.length - 1, rp.nodeIndex | 0));
+    currentNode = run.nodes[idx];
+    runScore = rp.runScore | 0;
+    runKills = rp.runKills | 0;
+    runCards = Array.isArray(rp.cards) ? rp.cards.slice() : [];
+    runCardsReplayPending = runCards.length > 0;         // 卡牌延后到进战斗时才施加（红线②）
+    restoredRunNodeIndex = idx;
+    restoredProgressKey = fp;
+    // 坦克以存档为准：整备区按 selectedTankId 装配，若与存档不一致则以存档写回（用户口径）。
+    if(rp.tankId && tankListData && tankListData[rp.tankId] && profile.selectedTankId !== rp.tankId){
+      profile.selectedTankId = rp.tankId;
+      try{ saveActiveProfile(localStorage, profile); }catch(_e){}
+    }
+    // ⚠ 必须先清 run 作用域残留再 prep，否则卡牌回填会被 maxStacks 防线拦掉：
+    //   `_cardApplyCount` 是 player 上的**会话级**字段（js/tank_cards.js:449/622），
+    //   prepPlayerForRun 只清 cardEffects / modifiers，**不清它**；startNewRun 靠前面的
+    //   removeRunModifiers 顺带清（tank_model.js:366 明确清 _cardApplyCount/_cardApplyLog）。
+    //   恢复路径原本没有这步 ⇒ 同一会话里先玩一局再切档恢复，maxStacks 卡会被判「已叠满」而
+    //   静默不施加（玩家看到「卡牌 K 张」但身上没有效果）。removeRunModifiers 同时清掉
+    //   run scope 修饰器与 runScoreMul/runReviveBonus —— 正是「开一局」应有的起点。
+    if(typeof removeRunModifiers === 'function') removeRunModifiers(player);
+    prepPlayerForRun();                                 // 满状态 + 永久升级重挂（卡牌稍后回填）
+    pushLog(`↻ 已恢复进度：节点 ${idx + 1}/${run.nodes.length} · 卡牌 ${runCards.length} 张`, 'COVER');
+    return true;
+  }catch(e){
+    // 恢复失败必须完全回退：run 若只建了一半，宁可回到「没有进行中的局」也不要带着半截状态进战斗。
+    run = null; currentNode = null; runCards = []; runCardsReplayPending = false;
+    restoredRunNodeIndex = -1; restoredProgressKey = null;
+    runScore = 0; runKills = 0;
+    try{ pushLog('⚠ 局内进度恢复失败（已回退到未开局状态）：' + (e && e.message ? e.message : e), 'COVER'); }catch(_e){}
+    return false;
+  }
+}
+
+/**
+ * 把恢复的卡牌逐张施加到玩家实体上（**只施加一次**）。
+ * 调用点：enterBattle 内、玩家实体已 reset 且落位之后（此时 player.cardEffects / modifiers
+ *   都处于「本局起点」状态，重放不会与既有修饰器叠加）。
+ * 一次性门控 = runCardsReplayPending（恢复时置 true，成功重放后置 false；applyCardEffects
+ *   自身还有 maxStacks / _cardApplyCount 防线作为第二道保险）。
+ * @returns {number} 实际施加的卡牌张数
+ */
+function replayRestoredRunCardsIfPending(){
+  if(!runCardsReplayPending) return 0;
+  // ⚠ 卡表未就绪时**不得**消耗 pending 标记：否则「刷新页面 → 继续本局」这条路径上
+  //   /api/cards 往往晚于首场战斗就绪 ⇒ 一次空转就把标记落成 false，卡牌永远不回填。
+  //   保持 pending，由 loadCardPool 的就绪回调补一次（见 loadCardPool 的 _onPoolReady）。
+  const pool = Array.isArray(cardPool) ? cardPool : [];
+  if(!pool.length) return 0;
+  runCardsReplayPending = false;                        // 先落标记：即便下面抛错也不会二次施加（宁可少也不叠加）
+  let applied = 0;
+  try{
+    for(const id of runCards){
+      const card = pool.find(c => c && c.id === id);
+      if(!card){ continue; }                            // 卡表里已无此卡（版本演进）：静默跳过
+      const res = (typeof applyCardEffects === 'function') ? applyCardEffects(player, card) : [];
+      if(Array.isArray(res) && res.length) applied++;
+    }
+    if(applied > 0){
+      // 与 pickCard 同口径的收尾（少一项就会出现「卡有了但技能槽/无人机/部署上限没跟上」）：
+      if(typeof refreshStats === 'function') refreshStats(player);
+      if(typeof refreshDeployBonus === 'function') refreshDeployBonus();
+      if(typeof deployDronesFromCards === 'function') deployDronesFromCards();
+      if(typeof reconcileSkillSlotsAfterGain === 'function') reconcileSkillSlotsAfterGain(null);
+      if(typeof renderAmmoIndicator === 'function') renderAmmoIndicator();
+      // 卡牌可能改 maxHp / 复活次数，而 enterBattle 已在回填**之前**把 hp 拉满、revives 由
+      //   prepPlayerForRun 算过 ⇒ 不回算式会让恢复局以「血量上限变高但当前血量没跟上」开工。
+      //   与 pickCard 的即时回算同口径（见 pickCard 里 economy.reviveCount 那段）。
+      if(player && player.stats){
+        player.hp = player.stats.maxHp;
+        player.maxHp = player.stats.maxHp;
+      }
+      if(player && typeof RULES !== 'undefined' && RULES.revive){
+        player.revives = RULES.revive.baseRevives + (profile.bonusRevives | 0) + (player.runReviveBonus | 0);
+      }
+    }
+  }catch(e){
+    try{ pushLog('⚠ 恢复卡牌回填异常（已忽略）：' + (e && e.message ? e.message : e), 'COVER'); }catch(_e){}
+  }
+  return applied;
+}
+
 // 2026-10-29（用户裁定）：加载层显隐。出击要**同步**生成整条节点链（strip 生成 100~300ms），
 //   此前点击后画面静止、无任何反馈。做法：先让浏览器画一帧加载层，再开始生成。
 function showLoading(title, hint){
@@ -4864,6 +6225,30 @@ function beginRunFromMenu(){
   return true;
 }
 document.getElementById('loadStartBtn').addEventListener('click', beginRunFromMenu);
+// 2026-10-31（用户需求「关页后能继续」）：继续本局 —— 从存档节点直接进战斗。
+// 与 beginRunFromMenu（新局）的区别：不生成新链、不改 runScore/runKills、不清 runCards。
+// 前置条件全部走「已恢复」路径：restoreRunFromProfile 在 initMenu / loadTankList 已跑过；
+// 若尚未恢复（例如坦克列表刚就绪），这里补一次恢复再进战斗。
+document.getElementById('homeContinueBtn').addEventListener('click', () => {
+  playSound('ui');
+  try{
+    if(!run) restoreRunFromProfile();
+    if(!run || !currentNode){
+      pushLog('⚠ 没有可继续的局内进度（进度存档已被清理或恢复失败）', 'COVER');
+      refreshContinueRunEntry();
+      renderHome();
+      return;
+    }
+    const idx = currentNode.index | 0;
+    pushLog(`▶ 继续本局：从节点 ${idx + 1}/${run.nodes.length} 进入战场`, 'COVER');
+    transition(flow, 'battle', { nodeIndex: idx });   // home/loadout → battle 均在白名单内
+  }catch(e){
+    // 红线④：恢复路径异常绝不能把页面卡死——提示后停留首页，用户仍可「出击」开新局。
+    pushLog('⚠ 继续本局失败（已回退到首页）：' + (e && e.message ? e.message : e), 'COVER');
+    run = null; currentNode = null; restoredRunNodeIndex = -1;
+    renderHome();
+  }
+});
 document.getElementById('shopStartBtn').addEventListener('click', beginRunFromMenu);
 document.getElementById('loadShopBtn').addEventListener('click', () => { playSound('ui'); transition(flow, 'shop'); });
 document.getElementById('shopLoadoutBtn').addEventListener('click', () => { playSound('ui'); transition(flow, 'loadout'); });
@@ -4904,9 +6289,626 @@ const devReset = () => {
   playSound('ui'); // M1：重置
 };
 
+// ==================== 2026-10-31（用户需求：开发者面板加「调试工具」） ====================
+// 约束（用户红线）：
+//   · 只经 mountDevPanel(host) 的 extraSwitchHTML + onExtraSetup 注入 ⇒ **不改共享模块**
+//     js/tank_devpanel.js（bench 已用同一对钩子，见 tank_bench.html :749/:754）；
+//   · 所有按钮只在 devPanel 的「开关」Tab 内可见（既有 devOpen 门控），正常 UI 不出现；
+//   · 不新增全局键位（纯按钮），因此不存在与既有键位冲突的可能；
+//   · 每个操作结束都 pushLog 一条，便于日志区核对。
+// 非 standard 模式（Boss/生存）一律禁用跳节点类工具并提示：那两种模式的 run 结构不同
+//   （bossOnly 链 / 单节点大地图），跳节点会把流程、配额与结算判据全部打乱。
+
+/** 调试工具的**可见反馈**（2026-10-31 用户报「点了似乎无效」后补）。
+ *  为什么需要单独一条：调试工具的失败提示原本只走 pushLog，而日志面板在首页/整备区
+ *  **不可见**（`#logPanel` 默认隐藏）⇒ 玩家点「跳转」得不到任何反馈，只会觉得「无效」。
+ *  这里统一走 showAllyToast（可见）+ pushLog（留痕）。 */
+function devToast(msg, bad){
+  try{ pushLog(msg, bad ? 'CRIT' : 'COVER'); }catch(_e){}
+  try{ if(typeof showAllyToast === 'function') showAllyToast(msg, !!bad); }catch(_e){}
+}
+
+/** 调试工具的统一前置校验：返回 run 或 null（并在可见通道说明为什么不能用）。 */
+function devRequireRunForTool(toolName){
+  if(!run || !Array.isArray(run.nodes) || !run.nodes.length){
+    // 2026-10-31：提示补「怎么修」——最常见误用是在首页/整备区直接点调试工具，
+    //   那时 run 尚未生成（必须先选坦克 → 出击 START RUN）。只说「尚未开局」等于没说。
+    devToast(`⚠ [调试] ${toolName}：还没有进行中的局 —— 请先在整备区选坦克并点「出击 START RUN」`, true);
+    return null;
+  }
+  return run;
+}
+
+/** 跳节点类工具的门控（2026-10-31 用户更正后：**标准 / Boss 适用，生存不适用**）。
+ *  三种模式的结构（已核对源码，不是推测）：
+ *    · 标准（`?mode=standard`）：`generateRun(seed, 5…)` 多节点链，初始 5 节点可 extendRun 扩展 ⇒ 跳节点成立。
+ *    · Boss（`?mode=boss`）：`generateRun(..., { bossOnly: true })`，**同样是多节点链**（每节点都是 Boss）
+ *      ⇒ 跳节点成立。
+ *    · **生存（`?mode=survival`）：`generateSurvivalRun` = `generateRun(seed, 1, …)` 的
+ *      单张大地图**（`node.survival=true`、`exitX=Infinity`、`quota=null`、`defenseLines=[]`），
+ *      **链长恒为 1 —— 没有"节点"可跳**。它的进度概念是**波次**（`n % 3 === 0` 为 Boss 波），
+ *      由「跳到第 N 波」走 `startSurvivalWave(n)`。
+ *  历史：本函数一度只放行 standard（理由写成"Boss/生存链不是 generateRun 产出"——对 Boss 是错的，
+ *    对生存只是表述不准确：它确实是 generateRun 产出，但链长为 1）。
+ *  现行：standard/boss 放行；survival 明确拒绝并引导到「跳波次」。 */
+function devRequireStandardForNodeJump(toolName){
+  const r = devRequireRunForTool(toolName);
+  if(!r) return null;
+  if(GAME_MODE === 'survival'){
+    devToast(`⚠ [调试] ${toolName}：生存模式是**单张地图**（链长 1），没有节点可跳 —— 请用「跳到第 N 波」`, true);
+    return null;
+  }
+  if(GAME_MODE !== 'standard' && GAME_MODE !== 'boss'){
+    devToast(`⚠ [调试] ${toolName}：当前模式 ${GAME_MODE} 不支持跳节点`, true);
+    return null;
+  }
+  return r;
+}
+
+/**
+ * 跳到生存模式的指定波次（2026-10-31 用户要求「生存模式（跳波次）」）。
+ * 做法：直接调 `startSurvivalWave(n)` —— 那是生存模式自己的波次启动入口（Boss 波/普通波、
+ *   难度曲线、实体生成、HUD 刷新都在里面），**不新造一套波次机制**。
+ * 语义：会**替换**当前波（既有敌军不清理，`startSurvivalWave` 本来就只负责生成新波并重置
+ *   waveActive 标记）⇒ 调试时若想干净对照，先点「清空全场敌人」再跳波。
+ * 边界：n 限定 1..999（0 表示「未开始」，跳 0 会把生存模式停成无波状态，故拒绝）。
+ * @param {number} n 目标波次（1 起）
+ * @returns {boolean}
+ */
+function devJumpToSurvivalWave(n){
+  const r = devRequireRunForTool('跳到波次');
+  if(!r) return false;
+  if(GAME_MODE !== 'survival'){
+    devToast(`⚠ [调试] 跳到波次：仅生存模式可用（当前 ${GAME_MODE}；标准/Boss 模式用「跳节点」）`, true);
+    return false;
+  }
+  if(flow.state !== 'battle'){
+    devToast('⚠ [调试] 跳到波次：需要先在生存战斗内（先出击）', true);
+    return false;
+  }
+  const raw = Math.floor(Number(n));
+  if(!Number.isFinite(raw) || raw < 1){
+    devToast(`⚠ [调试] 跳到波次：请输入 ≥1 的整数（收到「${n}」；0 = 未开始，不可跳）`, true);
+    return false;
+  }
+  const wave = Math.min(999, raw);
+  try{
+    if(typeof startSurvivalWave !== 'function'){
+      devToast('⚠ [调试] 跳到波次：startSurvivalWave 不可用', true);
+      return false;
+    }
+    startSurvivalWave(wave);
+    const isBossWave = (wave % 3 === 0);
+    devToast(`🛠 [调试] 跳到生存第 ${wave} 波${isBossWave ? '（BOSS 波）' : ''} —— 已按该波难度曲线重新生成敌军`);
+    return true;
+  }catch(e){
+    devToast('⚠ [调试] 跳到波次失败：' + (e && e.message ? e.message : e), true);
+    return false;
+  }
+}
+
+/**
+ * 把流程态规整到「可以直接 transition 到 battle」的合法前驱态（2026-10-31 调试工具专用）。
+ * 为什么需要：流程状态机（js/tank_flow.js）没有 battle→battle 自转移，也没有 pause→map 直连；
+ *   从暂停/结算/奖励屏直接跳节点会让 transition 抛「非法转移」。
+ * 规整路径（每步都在 FLOW_TRANSITIONS 白名单内）：
+ *   battle   → map      （battle: [... 'map' ...]）
+ *   pause    → battle   （pause: ['battle','settlement']）
+ *   settlement → map    （settlement: ['reward','map','home']）
+ * 规整后仍不属于 home/loadout/shop/map → 放弃（返回 false，由调用方提示）。
+ * @returns {boolean} true = 现在可以直接 transition(flow,'battle',{nodeIndex})
+ */
+function devNormalizeFlowForNodeJump(){
+  const READY = ['home', 'loadout', 'shop', 'map'];
+  let guard = 0;
+  while(READY.indexOf(flow.state) < 0 && guard++ < 4){
+    // 每条都是 js/tank_flow.js FLOW_TRANSITIONS 里的合法边（不臆造转移）：
+    //   pause  → battle（pause: ['battle','settlement']）—— pause 不能直达 map，必须分两步
+    //   battle → map（battle: [... 'map' ...]）
+    //   settlement / reward / gameover → map（三者白名单都含 map）
+    if(flow.state === 'pause') transition(flow, 'battle');
+    else if(flow.state === 'battle' || flow.state === 'settlement'
+       || flow.state === 'reward' || flow.state === 'gameover') transition(flow, 'map');
+    else return false;
+  }
+  return READY.indexOf(flow.state) >= 0;
+}
+
+/** 跳转到指定节点并直接进战斗（用户口径：直接进战斗方便测试，不必先回地图屏）。 */
+function devJumpToNode(n){
+  const r = devRequireStandardForNodeJump('跳转节点');
+  if(!r) return false;
+  // 2026-10-31 用户反馈「输入 6 及以上只会跳到 5/5」：根因是 `run.nodes` 初始只有
+  //   RULES.nodeMap.runNodeCount=5 个节点，`extendRun` 只在**通关到链尾后**才追加
+  //   （tank_battle.html 的 finishNode 后逻辑）。调试想跳第 6~12 节点时链根本还没生成
+  //   ⇒ 钳位到 4（显示 5/5）。调试工具按需扩展链到目标长度即可（extendRun 是既有 API，
+  //   与通关推进同一条确定性续接路径，不是新机制）。
+  const raw = Math.floor(Number(n));
+  if(!Number.isFinite(raw)){
+    devToast(`⚠ [调试] 跳节点：请输入 0..${Math.max(0, r.nodes.length - 1)} 之间的整数（当前输入「${n}」无法解析）`, true);
+    return false;
+  }
+  if(raw < 0){
+    devToast('⚠ [调试] 跳节点：节点下标不能为负（0 起）', true);
+    return false;
+  }
+  // 需要更长的链 ⇒ 按需 extendRun 到目标长度即可。
+  // 2026-10-31 用户口径（代码审查 #1）：**不必纠结链长问题** —— 节点是临时的，过关后
+  //   「带分数进下一个节点（地图）」，旧地图与旧战绩直接丢弃。所以链只是历史累积，
+  //   扩到能容纳目标下标就够，不做额外设计、也不为「链被永久加长」做补偿。
+  //   循环上限 = 目标所需次数（不再是固定 24），避免无谓地一次扩满 12。
+  let need = Math.max(0, raw + 1 - run.nodes.length);
+  const MAX_CHAIN = 12;                      // generateRun 的链长硬上限
+  need = Math.min(need, Math.max(0, MAX_CHAIN - run.nodes.length));
+  let extendGuard = 0;
+  while(need-- > 0 && extendGuard++ < MAX_CHAIN){
+    try{
+      if(typeof extendRun !== 'function') break;
+      const before = run.nodes.length;
+      extendRun(run);
+      if(run.nodes.length <= before) break;  // 扩展失败：防死循环
+    }catch(e){
+      devToast('⚠ [调试] 扩展节点链失败：' + (e && e.message ? e.message : e), true);
+      break;
+    }
+  }
+  const total = run.nodes.length;
+  const idx = Math.max(0, Math.min(total - 1, raw));
+  if(idx !== raw){
+    devToast(`⚠ [调试] 节点下标 ${raw} 越界 —— 链已尝试扩展到 ${total} 节点，仍不足，已钳到 ${idx}`, true);
+  }
+  try{
+    // 先规整流程态到合法前驱（battle→map / pause→battle / settlement→map，详见 devNormalizeFlowForNodeJump）
+    if(!devNormalizeFlowForNodeJump()){
+      devToast(`⚠ [调试] 当前流程态 ${flow.state} 不能跳节点（请先回到战斗或首页）`, true);
+      return false;
+    }
+    transition(flow, 'battle', { nodeIndex: idx });
+    // 2026-10-31 用户反馈「跳了节点但地图看起来没变化」：strip 节点的世界尺寸恒为
+    //   screensX × screensY 屏（同一分辨率下每张图都是 16000×1980 量级），且每次进节点
+    //   玩家都回到左缘同一出生点 ⇒ 「左边缘 + 初始相机」的构图必然一样，只有掩体/道路/
+    //   防线位置不同。光看画面无法判断地图换没换，故把**地形摘要**显式报出来（可核对）。
+    let terr = '';
+    try{
+      const n = r.nodes[idx];
+      const cov = Array.isArray(n.covers) ? n.covers.length : 0;
+      const roads = Array.isArray(n.covers) ? n.covers.filter(c => c && c.tier === 'road').length : 0;
+      // 2026-11-01 E2：points 模式报「防御点 N 个」（B 裁定语义），false 走现行「防线 N 道」原文。
+      const encGroups = encAnchorGroupsForNode(n);
+      const lines = encGroups.length;
+      terr = ` ｜ 地形：${n.template ? n.template.name : '—'} ${Math.round(n.w)}×${Math.round(n.h)}，掩体 ${cov}（公路段 ${roads}），` +
+        (encDefensePointsEnabled() ? `防御点 ${lines} 个` : `防线 ${lines} 道`);
+    }catch(_e){ terr = ''; }
+    // 成功也要给可见回执 —— 否则「点了没反应」的观感依旧（战斗内 toast 是唯一即时反馈）
+    devToast(`🛠 [调试] 跳到节点 ${idx + 1}/${total}（难度 ${(r.nodes[idx].difficulty * 100).toFixed(0)}%${r.nodes[idx].boss ? ' · BOSS' : ''}）${terr}`);
+    return true;
+  }catch(e){
+    devToast('⚠ [调试] 跳节点失败：' + (e && e.message ? e.message : e), true);
+    return false;
+  }
+}
+
+/**
+ * 从 `from + 1` 起向后找第一个满足 `pred` 的节点下标；找不到返回 -1。
+ * 2026-10-31 代码审查：#3「跳到 BOSS / 跳过 BOSS 两处遍历重复」——抽成单一实现，
+ *   顺带把「链不够长时按需 extendRun 再找」也收在这里（调用方只管谓词）。
+ * @param {number} from 起始下标（不含）
+ * @param {(node:any)=>boolean} pred 节点谓词
+ * @param {boolean} [allowExtend] true = 就地找不到时按需扩链再找（上限 12，与 generateRun 一致）
+ * @returns {number} 命中的节点下标；-1 = 没有
+ */
+function findNodeFrom(from, pred, allowExtend){
+  if(!run || !Array.isArray(run.nodes) || typeof pred !== 'function') return -1;
+  for(let i = from + 1; i < run.nodes.length; i++){
+    if(run.nodes[i] && pred(run.nodes[i])) return i;
+  }
+  if(!allowExtend) return -1;
+  let guard = 0;
+  while(run.nodes.length < 12 && guard++ < 12){
+    const before = run.nodes.length;
+    try{ extendRun(run); }catch(_e){ break; }
+    if(run.nodes.length <= before) break;              // 扩展失败：防死循环
+    for(let i = from + 1; i < run.nodes.length; i++){
+      if(run.nodes[i] && pred(run.nodes[i])) return i;
+    }
+  }
+  return -1;
+}
+
+/** 跳到「下一个 BOSS 节点」：从当前节点往后找第一个 node.boss，找不到则提示（链可按需扩展）。 */
+function devJumpToBossNode(){
+  const r = devRequireStandardForNodeJump('跳到 BOSS 节点');
+  if(!r) return false;
+  const from = currentNode ? (currentNode.index | 0) : -1;
+  const hit = findNodeFrom(from, (n) => !!n.boss, true);
+  if(hit >= 0) return devJumpToNode(hit);
+  devToast(`⚠ [调试] 当前链（共 ${r.nodes.length} 节点）之后没有 BOSS 节点 —— 可用「下一节点」逐节点推进，或按节点间隔判断 BOSS 出现位置`, true);
+  return false;
+}
+
+/**
+ * **跳过 Boss**：从当前节点往后找下一个**非 Boss**节点并跳过去（2026-10-31 用户要求
+ * 「要允许跳过 Boss，这是开发者面板」）。
+ * 为什么需要单独一条：`devJumpToBossNode` 是「去 Boss」，这是它的反操作 —— 调试时
+ *   经常只想验证常规节点/波次/防线，不想被 Boss 战（无配额、全灭才结算）打断。
+ * 语义细节：
+ *   · 从 `currentNode.index + 1` 起找第一个非 Boss 节点；**当前就在 Boss 节点时也适用**
+ *     （即「从 Boss 里逃出去」，此时 from+1 正常向后走）。
+ *   · 链长不足时先按需 extendRun（与 devJumpToNode 同一条续接路径），最多扩到 12。
+ *   · 找不到（例如后 8 个节点全是 Boss，正常配置不会发生）时给可见提示，不静默失败。
+ * @returns {boolean}
+ */
+function devSkipBossNode(){
+  const r = devRequireStandardForNodeJump('跳过 BOSS');
+  if(!r) return false;
+  const from = currentNode ? (currentNode.index | 0) : -1;
+  // 共用 findNodeFrom（#3 审查项：与 devJumpToBossNode 的遍历逻辑收成一份）
+  const hit = findNodeFrom(from, (n) => !n.boss, true);
+  if(hit >= 0) return devJumpToNode(hit);
+  devToast(`⚠ [调试] 跳过 BOSS：链（${r.nodes.length} 节点）之后找不到非 BOSS 节点`, true);
+  return false;
+}
+
+/** 跳到下一个节点（不走 extendRun：链尾时提示，避免调试顺手把链加长而干扰存档断言）。 */
+function devJumpToNextNode(){
+  const r = devRequireStandardForNodeJump('下一节点');
+  if(!r) return false;
+  const cur = currentNode ? (currentNode.index | 0) : -1;
+  const next = cur + 1;
+  if(next >= r.nodes.length){
+    devToast(`⚠ [调试] 已是链尾（节点 ${r.nodes.length}/${r.nodes.length}）`, true);
+    return false;
+  }
+  return devJumpToNode(next);
+}
+
+/**
+ * 把玩家传送到当前节点的**第 k 道防线前沿**（2026-10-31 用户反馈「跳节点后地图看起来没变」）。
+ * 为什么需要：strip 节点世界尺寸恒定（screensX × screensY 屏）、每次进节点都回左缘同一出生点
+ *   ⇒ 只看画面无法分辨节点/防线，必须依赖「位置」去看地形与敌兵布置。
+ *   D1b（分批投送）的补投落位也是按防线纵深生成的，跑到防线前才能看出分批是否符合预期。
+ * 落位规则：取 `node.encounterAnchors[k]` 的锚点均值 x，再往 -x 退 `lineAdvanceMargin`
+ *   （= 触发下一波的推进阈值，正好是「AI 即将上线」的观战位），y 取该组锚点均值（或地图中线）。
+ *   压到掩体时沿 -x 再退 30px 重试（最多 8 次）；夹在节点边界内。
+ * @param {number} k 防线序号（0 起）
+ * @returns {boolean}
+ */
+function devTeleportToDefenseLine(k){
+  const r = devRequireStandardForNodeJump('传送到防线');
+  if(!r) return false;
+  if(flow.state !== 'battle'){
+    devToast('⚠ [调试] 传送到防线：需要先在战斗节点内', true);
+    return false;
+  }
+  // 2026-11-01 E2：分组按双入口（points 模式 = 防御点分组，false = 防线分组原文）。
+  //   落位语义照旧「传送前沿」（点/线锚点均值中心 − lineAdvanceMargin），行为不变。
+  const groups = encAnchorGroupsForNode(currentNode);
+  if(!groups.length){
+    devToast(`⚠ [调试] 传送到防线：本节点没有防线锚点（当前 ${GAME_MODE} 模式；防线仅标准模式的 encounter 节点有）`, true);
+    return false;
+  }
+  const idx = Math.max(0, Math.min(groups.length - 1, Math.floor(Number(k)) || 0));
+  const g = groups[idx] || [];
+  let cx = 0, cy = 0, cnt = 0;
+  for(const a of g){ if(a && Number.isFinite(a.x) && Number.isFinite(a.y)){ cx += a.x; cy += a.y; cnt++; } }
+  if(!cnt){
+    devToast('⚠ [调试] 传送到防线：该防线锚点无效', true);
+    return false;
+  }
+  cx /= cnt; cy /= cnt;
+  const margin = Number.isFinite(RULES.encounter && RULES.encounter.lineAdvanceMargin)
+    ? RULES.encounter.lineAdvanceMargin : 400;
+  const w = (currentNode && currentNode.w) ? currentNode.w : 1440;
+  const h = (currentNode && currentNode.h) ? currentNode.h : 864;
+  let tx = Math.max(60, Math.min(w - 60, cx - margin));
+  let ty = Math.max(60, Math.min(h - 60, cy));
+  for(let i = 0; i < 8; i++){
+    if(!(typeof pointInCover === 'function' && pointInCover(covers, tx, ty, 30))) break;
+    tx = Math.max(60, tx - 30);
+  }
+  if(!player) return false;
+  player.x = tx; player.y = ty;
+  player.vx = 0; player.vy = 0;              // 清速度，避免传送后继续漂移
+  player._detour = null;                     // 清掉绕障承诺（位置已突变，旧绕行目标作废）
+  // 2026-10-31 代码审查修正：直接写坐标绕过了 driveTank 的运动学与碰撞解算，若落点压在
+  //   掩体内或与其他坦克重叠，下一帧才会被碰撞系统硬推开（视觉「从地里弹出来」）。
+  //   传送后立刻补一次覆盖解析 + 坦克间解析，与正常移动帧的口径取齐：
+  //   ① resolveCoverCollisions(player) —— 单坦克推出掩体（含 OBB/compound）
+  //   ② resolveTankCollisions()        —— 实体间互推（全量一次；调试触发频率极低，可接受）
+  //   两者都必须判存在再调（bench/极简夹具下可能未注入）。
+  try{ if(typeof resolveCoverCollisions === 'function') resolveCoverCollisions(player); }catch(_e){}
+  try{ if(typeof resolveTankCollisions === 'function') resolveTankCollisions(); }catch(_e){}
+  if(cam){ cam.x = player.x; cam.y = player.y; }   // 相机跟随瞬移（用解析后的最终坐标，防错位）
+  devToast(`🛠 [调试] 传送到第 ${idx + 1}/${groups.length} 道防线前沿（x≈${Math.round(player.x)}，距锚点 ${Math.round(margin)}px）`);
+  return true;
+}
+
+/**
+ * 把当前节点难度设为 1.0 并重进本节点（用户明确要求：不用手动打上高难度）。
+ * 做法：改 currentNode.difficulty 后**重进本节点**走 complete 的 enterBattle 链 ——
+ *   敌人数量/实体乘子/弹种分级/AI 档位全部按新难度重新装配（就地改 stats 只会得到半套口径）。
+ * 注意：不重放局内卡牌（runCardsReplayPending 恒 false，正式局的卡牌已在本局早些时候施加过），
+ *   所以不会叠 modifier。
+ */
+function devForceNodeDifficultyOne(){
+  const r = devRequireStandardForNodeJump('难度设为 1.0');
+  if(!r) return false;
+  if(!currentNode){ devToast('⚠ [调试] 难度 1.0：当前不在任何节点（请先进战斗）', true); return false; }
+  const idx = currentNode.index | 0;
+  const prev = currentNode.difficulty;
+  // 回滚快照：难度之外还改了节点级乘子/档位与逐敌快照 ⇒ 失败路径必须一并还原，
+  //   否则「点了一次失败的难度按钮」会让本节点永久留在半改状态（下一场敌人数值与数量不匹配）。
+  const prevEntityMults = currentNode.entityMults;
+  const prevAiTier = currentNode.aiTier;
+  const prevEnemyMeta = Array.isArray(currentNode.enemies)
+    ? currentNode.enemies.map(e => (e && typeof e === 'object')
+        ? { entityMults: e.entityMults, aiTier: e.aiTier } : null)
+    : null;
+  const rollback = () => {
+    currentNode.difficulty = prev;
+    currentNode.entityMults = prevEntityMults;
+    currentNode.aiTier = prevAiTier;
+    if(prevEnemyMeta && Array.isArray(currentNode.enemies)){
+      currentNode.enemies.forEach((e, i) => {
+        const snap = prevEnemyMeta[i];
+        if(!e || !snap) return;
+        if(snap.entityMults === undefined) delete e.entityMults; else e.entityMults = snap.entityMults;
+        e.aiTier = snap.aiTier;
+      });
+    }
+  };
+  try{
+    currentNode.difficulty = 1;
+    // ⚠ 只改 difficulty **不够**：节点生成时已按当时的难度把乘子表烘进数据里，实体化/波次投送
+    //   都优先读 `e.entityMults`（见 tank_map.js materializeNode 与 tank_battle 的
+    //   `mults = specMeta.entityMults || nodeMults`）⇒ 不清掉烘死的表，敌人的血量/穿深/伤害
+    //   仍是原难度的值，只剩「数量/AI 档位」随难度走（工具看起来只有一半效果）。
+    //   现行做法：把节点级快照与逐敌快照一并刷新/清空，让生成期重新走
+    //   entityMultsForDifficulty(currentNode.difficulty) 这条现行口径。
+    if(typeof entityMultsForDifficulty === 'function'){
+      currentNode.entityMults = entityMultsForDifficulty(1);
+    }
+    // aiTier 同样在生成期烘进 node / node.enemies：按新难度重算（缺失时不动，不臆造字段）。
+    if(typeof aiTierForDifficulty === 'function'){
+      currentNode.aiTier = aiTierForDifficulty(1);
+      if(Array.isArray(currentNode.enemies)){
+        for(const e of currentNode.enemies){
+          if(!e || typeof e !== 'object') continue;
+          delete e.entityMults;              // 落回节点级表（spawn 时的 nodeMults 分支）
+          e.aiTier = currentNode.aiTier;
+        }
+      }
+    }
+    // 流程态规整（battle→map / pause→battle / settlement→map）：重进本节点才能重跑 enterBattle，
+    //   而 battle→battle 不在状态机白名单里（详见 devNormalizeFlowForNodeJump）。
+    if(!devNormalizeFlowForNodeJump()){
+      rollback();                        // 流程态不允许重进 ⇒ 全量回滚，不留下半改状态
+      devToast(`⚠ [调试] 难度 1.0：当前流程态 ${flow.state} 无法重进节点`, true);
+      return false;
+    }
+    transition(flow, 'battle', { nodeIndex: idx });
+    pushLog(`🛠 [调试] 节点 ${idx + 1} 难度已设为 100%（${(prev * 100).toFixed(0)}% → 100%）并重进本节点（敌人乘子/档位已按新难度重算）`, 'PEN');
+    return true;
+  }catch(e){
+    rollback();
+    devToast('⚠ [调试] 设置难度失败：' + (e && e.message ? e.message : e), true);
+    return false;
+  }
+}
+
+/**
+ * 在玩家附近**视口外**刷 count 辆敌人（调试用）。
+ * 落位：复用 spawnPointUsable（视口外 + 距玩家 ≥ 触发距离 + 不压掩体）做判定，
+ *   候选点用 Math.random 采样 —— 调试路径允许随机（确定性只约束正常波次路径，见用户口径）。
+ * 装配：assembleWaveEnemyAt 与 updateWaveReserve 同一条链（spawnTank + 外观/数值 + 难度乘子 +
+ *   aiEngaged/lastKnownPlayerPos/aiReactT），只是 waveSpawn=false（不进 maxAlivePerWave 配额）。
+ */
+function devSpawnEnemiesNearPlayer(count){
+  const raw = Math.floor(Number(count));
+  if(!Number.isFinite(raw) || raw < 1 || raw > 12){
+    devToast(`⚠ [调试] 刷怪数量必须是 1..12（收到 ${count}）`, true);
+    return 0;
+  }
+  if(!currentNode || !player || player.hp <= 0){
+    devToast('⚠ [调试] 刷怪：当前不在战斗中（请先进节点）', true);
+    return 0;
+  }
+  const w = currentNode.w || 1440, h = currentNode.h || 864;
+  const trig = triggerDistForDifficulty(currentNode.difficulty);
+  const minDist = (Number.isFinite(trig) ? trig : 700) * 1.05;
+  let spawned = 0;
+  for(let i = 0; i < raw; i++){
+    let sx = null, sy = null;
+    for(let k = 0; k < 48; k++){
+      // 采样环带：以「视口对角线半长」为基准向外扩（保证在视口外），再夹进世界界内
+      const vb = (typeof viewBounds === 'function') ? viewBounds(cam) : null;
+      const diagHalf = vb ? Math.hypot(vb.maxX - vb.minX, vb.maxY - vb.minY) / 2 : 734;
+      const rMin = Math.max(minDist, diagHalf * 0.95);
+      const rMax = rMin + Math.max(200, diagHalf * 0.5);
+      const ang = Math.random() * Math.PI * 2;
+      const d = rMin + Math.random() * Math.max(60, rMax - rMin);
+      const tx = Math.max(60, Math.min(w - 60, player.x + Math.cos(ang) * d));
+      const ty = Math.max(60, Math.min(h - 60, player.y + Math.sin(ang) * d));
+      if(spawnPointUsable(tx, ty, minDist)){ sx = tx; sy = ty; break; }
+    }
+    if(sx === null){ continue; }                      // 本辆找不到合法落点：跳过（不硬刷在视口内）
+    const specMeta = waveEnemySpecFor(0, i);
+    assembleWaveEnemyAt(sx, sy, (specMeta && specMeta.heightClass) || 'medium', specMeta,
+      { idPrefix: 'enemy_dev', waveSpawn: false });
+    spawned++;
+  }
+  pushLog(spawned > 0
+    ? `🛠 [调试] 视口外刷怪 ${spawned}/${raw} 辆（难度 ${(currentNode.difficulty * 100).toFixed(0)}%，距玩家 ≥ ${Math.round(minDist)}px）`
+    : `⚠ [调试] 刷怪失败：找不到满足「视口外 + 距玩家 ≥ ${Math.round(minDist)}px + 不压掩体」的落点`, spawned > 0 ? 'PEN' : 'COVER');
+  return spawned;
+}
+
+/**
+ * 清空全场敌人：把存活敌方实体 `hp=0`，由主循环既有死亡路径接管
+ * （置 _dead / 起火 / 计分 runScore+runKills / nodeKills++）。
+ * **不直接 splice**：那样会跳过计分、清场判定与残骸生命周期（用户口径）。
+ * 保留 Boss？不保留——调试「清空全场」就该清干净；不想要 Boss 死就别点。
+ */
+function devClearAllEnemies(){
+  if(!currentNode){ devToast('⚠ [调试] 清场：当前不在节点内', true); return 0; }
+  let n = 0;
+  for(const e of entities){
+    if(!e || e.team !== 'enemy' || !(e.hp > 0) || e._dead) continue;
+    e.hp = 0;                 // 主循环的击杀检测（hp<=0 && !_dead）会接管后续全部既有逻辑
+    n++;
+  }
+  // 待投送队列一并清掉：否则这波敌人会在清场后继续补投，看起来像「清不干净」。
+  if(Array.isArray(battleEncReserve) && battleEncReserve.length){
+    const q = battleEncReserve.length;
+    battleEncReserve = [];
+    pushLog(`🛠 [调试] 清空全场敌人 ${n} 辆，并丢弃待投送队列 ${q} 辆`, n > 0 ? 'PEN' : 'COVER');
+    return n;
+  }
+  pushLog(n > 0 ? `🛠 [调试] 清空全场敌人 ${n} 辆（走既有死亡路径，正常计分）` : '⚠ [调试] 清场：场上没有存活敌人', n > 0 ? 'PEN' : 'COVER');
+  return n;
+}
+
+/** 立即结算本节点（走 finishNode(true)，复用完整结算/计分/选卡链；不重放卡牌）。 */
+function devFinishNodeNow(){
+  if(!run || !currentNode || !battleState){
+    devToast('⚠ [调试] 立即结算：当前不在战斗节点内', true);
+    return false;
+  }
+  if(battleState.cleared){ devToast('⚠ [调试] 立即结算：本节点已结算过', true); return false; }
+  // 2026-10-31：finishNode 的入口校验是 `if(!battleState || battleState.cleared) return`，直接调它是安全的。
+  //   但它是从主循环里被调用的（battle 态）；本按钮可能在 pause 态被点，而 pause→settlement 是白名单合法
+  //   转移，battle→settlement 也合法 ⇒ 两种态都能走。其余流程态（home/shop）不接受结算。
+  if(flow.state !== 'battle' && flow.state !== 'pause'){
+    devToast(`⚠ [调试] 立即结算：当前流程态 ${flow.state} 不适用（需在战斗中）`, true);
+    return false;
+  }
+  pushLog('🛠 [调试] 立即结算本节点（按通关处理）', 'PEN');
+  finishNode(true);
+  return true;
+}
+
+/** 加 1000 分（测试局内商店余额/得分乘数链路）。 */
+function devAddScore(amount){
+  const add = Number.isFinite(Number(amount)) ? Math.round(Number(amount)) : 1000;
+  runScore += add;
+  pushLog(`🛠 [调试] 本局得分 +${add} → ${runScore}（余额 ${runShopBalance()}）`, 'PEN');
+  return runScore;
+}
+
+/** 回满血 + 清模块损伤/起火（测试高难度连续推进）。 */
+function devHealPlayer(){
+  if(!player){ devToast('⚠ [调试] 回满血：玩家实体不存在', true); return false; }
+  player.hp = player.stats.maxHp;
+  player._dead = false;
+  player.fireT = 0; player.dotT = 0; player.dotDps = 0; player.dotSeconds = 0;
+  player.debuffs = {};
+  pushLog(`🛠 [调试] 玩家已回满血 ${Math.round(player.hp)}/${Math.round(player.stats.maxHp)}（清空模块损伤/起火）`, 'PEN');
+  return true;
+}
+
 // ---------- P-15 开发者面板（#F 2026-09-20：抽离为共享模块 js/tank_devpanel.js，battle/bench 两页同源） ----------
 // 挂载四 Tab 面板（实时/卡牌/参数/开关）：DOM 由模块构建；卡牌点击复用页面 pickCard（技能提示/toast 反馈）；
 // 开关状态经 onCheatChange 同步回 devAim/devNoVision/devCheat；随机生成/重置走页面回调（战斗态禁用语义不变）。
+// 2026-10-31：追加「调试工具」小节 —— 走 extraSwitchHTML + onExtraSetup 注入（与 bench :749/:754 同款），
+//   共享模块零改动；按钮的 DOM 绑定在 onExtraSetup 里做（每次切到「开关」Tab 都会调用，
+//   故用 data-bound 标记防重复绑定）。
+const DEV_TOOLS_HTML =
+  '<div class="dev-sec"><h4>调试工具（2026-10-31）</h4>' +
+    '<div class="dev-row"><span class="k">跳节点</span>' +
+      '<input id="devJumpNodeIdx" type="number" step="1" min="0" value="0" style="width:64px;">' +
+      '<button id="devJumpNodeBtn">跳转</button>' +
+      '<button id="devJumpBossBtn">跳到 BOSS</button>' +
+      '<button id="devJumpNextBtn">下一节点</button>' +
+      '<button id="devSkipBossBtn">跳过 BOSS</button>' +
+    '</div>' +
+    '<div class="dev-row"><span class="k">生存波次</span>' +
+      '<input id="devSurvWaveIdx" type="number" step="1" min="1" value="1" style="width:64px;">' +
+      '<button id="devJumpWaveBtn">跳到第 N 波</button>' +
+      '<button id="devJumpBossWaveBtn">下一 BOSS 波</button>' +
+    '</div>' +
+    '<div class="dev-row"><span class="k">看防线</span>' +
+      '<input id="devLineIdx" type="number" step="1" min="0" value="0" style="width:64px;">' +
+      '<button id="devTeleportLineBtn">传送到第 K 道防线前</button>' +
+    '</div>' +
+    '<div class="dev-row"><span class="k">刷怪</span>' +
+      '<input id="devSpawnCount" type="number" step="1" min="1" max="12" value="4" style="width:64px;">' +
+      '<button id="devSpawnBtn">刷一批（视口外）</button>' +
+      '<button id="devClearEnemiesBtn">清空全场敌人</button>' +
+    '</div>' +
+    '<div class="dev-row"><span class="k">节点</span>' +
+      '<button id="devDiffOneBtn">难度设为 1.0 并重进</button>' +
+      '<button id="devFinishNodeBtn">立即结算本节点</button>' +
+    '</div>' +
+    '<div class="dev-row"><span class="k">玩家</span>' +
+      '<button id="devAddScoreBtn">本局得分 +1000</button>' +
+      '<button id="devHealBtn">回满血</button>' +
+    '</div>' +
+    '<div class="hint">跳节点类工具仅标准模式可用（Boss/生存模式链结构不同）。刷怪/清场/结算会正常计分并写日志。</div>' +
+  '</div>';
+
+/** 「开关」Tab 的附加按钮绑定（mountDevPanel 的 onExtraSetup 钩子，root = #devPanel 元素）。 */
+function setupDevTools(root){
+  if(!root) return;
+  const $ = (id) => root.querySelector('#' + id);
+  const bind = (id, fn) => {
+    const el = $(id);
+    if(!el || el.dataset.bound === '1') return;
+    el.dataset.bound = '1';
+    el.addEventListener('click', fn);
+  };
+  // 跳节点：输入越界由 devJumpToNode 统一提示（并夹到合法区间前先报错，避免静默改值）
+  bind('devJumpNodeBtn', () => {
+    const inp = $('devJumpNodeIdx');
+    devJumpToNode(inp ? inp.value : 0);
+  });
+  bind('devJumpBossBtn', () => devJumpToBossNode());
+  bind('devJumpNextBtn', () => devJumpToNextNode());
+  // 2026-10-31 用户要求「要允许跳过 Boss」：与「跳到 BOSS」成对的反操作，
+  //   调试常规节点/防线时不必被 Boss 战（无配额、全灭才结算）打断。
+  bind('devSkipBossBtn', () => devSkipBossNode());
+  bind('devTeleportLineBtn', () => {
+    const inp = $('devLineIdx');
+    devTeleportToDefenseLine(inp ? inp.value : 0);
+  });
+  // 2026-10-31 用户要求「生存模式（跳波次）」：直接调生存模式自己的波次入口，
+  //   与正常流程同一条路径（Boss 波/难度曲线/HUD 刷新都在 startSurvivalWave 内）。
+  bind('devJumpWaveBtn', () => {
+    const inp = $('devSurvWaveIdx');
+    devJumpToSurvivalWave(inp ? inp.value : 1);
+  });
+  // 2026-10-31：生存模式的「下一 BOSS 波」——Boss 波判定在 startSurvivalWave 内是 `n % 3 === 0`，
+  //   这里按同一口径算下一个 Boss 波序号（不另立一个周期常量，避免两处漂移）。
+  bind('devJumpBossWaveBtn', () => {
+    const cur = (typeof survivalWave === 'number') ? survivalWave : 0;
+    const next = Math.max(1, Math.floor(cur / 3) * 3 + 3);
+    devJumpToSurvivalWave(next);
+  });
+  bind('devSpawnBtn', () => {
+    const inp = $('devSpawnCount');
+    devSpawnEnemiesNearPlayer(inp ? inp.value : 4);
+  });
+  bind('devClearEnemiesBtn', () => devClearAllEnemies());
+  bind('devDiffOneBtn', () => devForceNodeDifficultyOne());
+  bind('devFinishNodeBtn', () => devFinishNodeNow());
+  bind('devAddScoreBtn', () => devAddScore(1000));
+  bind('devHealBtn', () => devHealPlayer());
+  // 输入框默认值随当前节点/链长刷新（每次打开面板都能直接按「跳转」到当前节点）
+  // 2026-10-31：`max` 不再写死成「当前链长-1」——链可经 extendRun 按需扩展（上限 12，
+  //   见 generateRun 的 Math.min(12, ...)）。写死会让箭头键卡在 4（5 节点）出不去，
+  //   用户报「输入 6 只会跳到 5/5」正是这条 + 越界钳位叠加的结果。实际合法性由
+  //   devJumpToNode 校验（越界会扩展链或给出可见提示）。
+  const jumpInp = $('devJumpNodeIdx');
+  if(jumpInp && run && currentNode){
+    jumpInp.max = '12';
+    if(!jumpInp.dataset.touched) jumpInp.value = String(currentNode.index | 0);
+  }
+  // 防线/防御点传送输入框按当前节点实际组数刷新（每次打开都可直接跳到最后一个）
+  const lineInp = $('devLineIdx');
+  if(lineInp && currentNode && encAnchorGroupsForNode(currentNode).length){
+    lineInp.max = String(encAnchorGroupsForNode(currentNode).length - 1);
+  }
+}
+
 const devPanelApi = mountDevPanel({
   attach: document.body,
   getPlayer: () => player,
@@ -4940,7 +6942,11 @@ const devPanelApi = mountDevPanel({
       ? (currentNode.boss ? 'BOSS' : '普通') + ' (' + (currentNode.template ? currentNode.template.id : '?') + ')'
       : '--',
     enemyCount: entities.filter(e => e.team === 'enemy' && e.hp > 0).length
-  })
+  }),
+  // 2026-10-31（用户需求）：开发者面板「调试工具」小节 —— 注入点与 bench 同源（extraSwitchHTML
+  //   追加到「开关」Tab 末尾，onExtraSetup 在每次切到该 Tab 时回调，用来绑按钮与刷新默认值）。
+  extraSwitchHTML: DEV_TOOLS_HTML,
+  onExtraSetup: (root) => setupDevTools(root)
 });
 
 // ---------- firing ----------
@@ -5133,6 +7139,13 @@ function update(dt){
   if(battleEncounter && !isClearing && run && battleState && flow.state === 'battle'
      && !battleState.cleared){
     for(const ev of updateEncounter(battleEncounter, dt, battleEncounterCtx())) handleBattleEncounterEvent(ev);
+    // 2026-11-01 P2-G：守军超时兜底每帧判定（garrisonMode=false / 兜底秒数<=0 ⇒ 内部早退）
+    updateGarrisonFallback();
+    // 2026-10-31 D1b：待投送队列补投（视口外逐辆）——只在战斗态、非清场缓冲推进；
+    //   击杀驱动的判定在函数内部（场上波次敌人 < maxAlivePerWave 才补），本处只负责每帧喂 dt。
+    updateWaveReserve(dt);
+    // 2026-11-02 M3-F：占领读条（kind 非 capture / 无驻留圈时内部早退）
+    updateCaptureZones(dt);
   }
   // #MODE（2026-10-15 用户裁定）：生存模式波次间隔倒计时 = 「准备期」——玩家**可自由移动**，
   // 但**所有伤害判定关闭**。伤害总闸在 applyDamage（js/tank_physics.js，经 globalThis.damageSuppressed），
@@ -6124,7 +8137,23 @@ function update(dt){
       //   encounter 节点不参与（materializeNode 已跳过铺敌，quota/防线无实体基础）。
       //   Boss/旧路径节点照走下方双条件。
       if(currentNode && currentNode.encounter === true){
-        // encounter 节点：防线/配额 HUD 改显波次进度（导演状态），不再跑 nodeClearance
+        // encounter 节点：防线/配额 HUD 改显波次进度（导演状态），不再跑 nodeClearance。
+        // 2026-10-30 P0-B：波次全清后改由**位置**收尾——battleExitReady 表示内容已完成
+        //   （导演 victory 已发，见 handleBattleEncounterEvent 的 victory 分支），这里每帧判
+        //   玩家是否真的开到了地图最右出口，到了才进 3 秒 clearing ⇒ finishNode(true)。
+        //   为什么判据放这里而不是 victory 事件里：清波那一刻玩家还在战场上某个位置，
+        //   「什么时候抵达出口」是**之后若干秒**才成立的事，只有逐帧判才拿得到；
+        //   事件里只能记录「内容已完成」这一不带时效的结论。
+        //   判空：player / battleState / currentNode.exitX 任一不可用即跳过（NaN 比较会得到
+        //   false 从而误锁，反之 undefined 参与 >= 比较会静默 false ⇒ 玩家永远走不到结算，
+        //   故这里必须 Number.isFinite 显式守门）。
+        if(battleExitReady && battleState && !battleState.clearing && !battleState.cleared
+           && player && currentNode && Number.isFinite(currentNode.exitX)
+           && Number.isFinite(player.x) && player.x >= currentNode.exitX){
+          battleState.clearing = true;
+          battleState.clearingT = 3.0;
+          pushLog('★ 抵达出口 · 区域肃清 AREA CLEARED ★', 'COVER');
+        }
       } else {
       // B 档③（2026-09-23）：推进式节点完成——「抵达右端出口 +（防线清空 或 配额达成）」双条件。
       // Boss 节点沿用「Boss + summons 全灭」（nodeClearance 的 boss 分支）。
@@ -6215,10 +8244,37 @@ function updateHud(){
     const phaseTxt = (phase === 'wave') ? `第 ${wi + 1}/${total} 波交战中（场上 ${aliveNow}）`
                    : (phase === 'breather') ? `第 ${wi + 1}/${total} 波已清 · 喘息中`
                    : (phase === 'telegraph') ? `第 ${wi + 1}/${total} 波来袭预警`
+                   // 2026-10-30 P0-B：lineHold 是 lines 模式的主节拍（清波后等玩家推进），
+                   //   此前漏在这里 ⇒ 掉进上面那条 `phase` 兜底直接把英文阶段名印到 HUD 上
+                   //   （所见即 miserable UX，且与同卡全中文的其它行不一致）。
+                   : (phase === 'lineHold') ? `第 ${wi + 1}/${total} 波已清 · 推进中`
                    : phase;
+    // 2026-10-30 P0-B：全波清空后目标改为「推进至出口」——第三行追加出口距离。
+    //   不做这步的话 target 卡在全部防线清空后仍写「肃清全部波次」，玩家不知道还差什么
+    //   才能结算（此时已无敌人可打，唯一未完成的条件就是走到地图最右）。
+    //   判空：exitX 非有限（异常节点）或 player 缺失时不追加这一行，保持旧版三行。
+    let exitLine = '';
+    if(battleExitReady && player && Number.isFinite(currentNode.exitX) && Number.isFinite(player.x)){
+      const remain = Math.max(0, Math.round(currentNode.exitX - player.x));
+      exitLine = remain > 0 ? `　还差 ${remain}px 抵达出口` : '　✓ 已抵达出口';
+    }
+    // 2026-11-02 M3-E/F/G：目标卡按节点类型改写（exterminate 保持原文案）
+    const objKind = currentNode.kind || 'exterminate';
+    let objTitle = `肃清全部波次（${total} 波）`;
+    let objWarn = '';
+    if(objKind === 'defend'){
+      objTitle = `守住守点目标（${total} 波）`;
+      if(battleGuardTarget && !(battleGuardTarget.hp > 0)) objWarn = '　⚠ 目标已毁 · 存活奖励归零';
+    } else if(objKind === 'capture'){
+      const done = battleCaptureZones.filter(z => z.progress >= 1).length;
+      objTitle = `占领 ${battleCaptureZones.length || battleEncounter.captureTotal} 个点（已拔 ${done}）`;
+    } else if(objKind === 'breakthrough'){
+      const left = Math.max(0, Math.ceil((battleEncounter.timeLimitSeconds || 0) - battleEncounter.elapsed));
+      objTitle = `限时抵达出口（剩余 ${left}s）`;
+    }
     qh.innerHTML = `<div style="color:#7ed957;letter-spacing:2px;">目标 OBJECTIVE</div>` +
-                   `<div>肃清全部波次（${total} 波）</div>` +
-                   `<div style="opacity:.8;">${phaseTxt}</div>`;
+                   `<div>${objTitle}${objWarn}</div>` +
+                   `<div style="opacity:.8;">${phaseTxt}${exitLine}</div>`;
   } else if(run && battleState && !battleState.cleared && flow.state === 'battle' &&
      currentNode && !currentNode.boss && Number.isFinite(currentNode.quota) && !logOpen){
     qh.style.display = 'block';
@@ -6559,6 +8615,7 @@ function updateBottomHud(){
 //     弹夹间装填（pendingRefill）时弧变为整组装填时长；
 //   · **双管**：两条独立短弧（_dbState.ready/loadT），位置在准星左右。
 // 装填完成时弧消失（与炮口环同口径）；曲射落点圈仍在世界层绘制（两种样式共用）。
+
 function drawCrosshairReticle(ctx){
   if(!(flow.state === 'battle' && player.hp > 0)) return;
   if(typeof mouseWorld === 'undefined' || !mouseWorld) return;
@@ -6566,32 +8623,57 @@ function drawCrosshairReticle(ctx){
   //   调用 ⇒ 画布已是屏幕空间，而 mouseWorld 是**世界坐标**。直接用它画等于把准星放到
   //   世界原点附近——地图宽 8000px 时整组图形落在画布外，肉眼完全看不见。
   //   统一换算：中心走 worldToScreen，半径乘 cam.zoom（世界尺寸→屏幕像素）。
+  // 2026-10-30 二次修复（用户反馈「精确瞄准圈跟着鼠标走而不是炮管实际指向」）：
+  //   mouseWorld 只是输入意图，炮塔受 aimSpeed 转速限制存在转动延迟。准星中心改取
+  //   「炮塔射线 × 鼠标距离」——沿 player.turretAngle、距离 = 鼠标到玩家距离，
+  //   这样准星始终贴着炮管实际指向（转动滞后期间准星同步滞后），鼠标只提供距离读数。
+  // 2026-10-30 三次修复（用户反馈「瞄准圈又出现在鼠标前方、距离与鼠标不一致」）：
+  //   上版从 gunTip（炮口，已偏出 barrelLen）出发再走 aimDist，总距离 = 炮管长 + 鼠标距离，
+  //   圈被整体推到鼠标前方。**基准必须二选一**：距离量的是鼠标到坦克中心，射线出发点
+  //   就必须也是坦克中心——中心 = player 位置 + turretAngle × aimDist。炮塔对准鼠标时
+  //   准星恰好落在鼠标位置；转动滞后时准星沿同半径圆弧滞后，距离读数恒真。
   const z = (cam && cam.zoom > 0) ? cam.zoom : 1;
-  const sp = worldToScreen(cam, mouseWorld.x, mouseWorld.y);
+  const aimDist = Math.hypot(mouseWorld.x - player.x, mouseWorld.y - player.y);
+  const aimWorld = {
+    x: player.x + Math.cos(player.turretAngle) * aimDist,
+    y: player.y + Math.sin(player.turretAngle) * aimDist
+  };
+  const sp = worldToScreen(cam, aimWorld.x, aimWorld.y);
   const CX = sp.x, CY = sp.y;
 
-  // ---- 实时散布圈（1σ 实线 + 2σ 虚线；半径 = σ × 鼠标距离 × zoom） ----
-  const aimDist = Math.hypot(mouseWorld.x - player.x, mouseWorld.y - player.y);
-  const r1 = player.sigma * aimDist * z;
-  const r2 = r1 * 2;
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,180,84,0.9)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(CX, CY, Math.max(6, r1), 0, TAU); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,180,84,0.4)';
-  ctx.setLineDash([5, 6]);
-  ctx.beginPath(); ctx.arc(CX, CY, Math.max(12, r2), 0, TAU); ctx.stroke();
-  ctx.setLineDash([]);
-  // 准星中心点
-  ctx.fillStyle = 'rgba(255,180,84,0.95)';
-  ctx.beginPath(); ctx.arc(CX, CY, 2, 0, TAU); ctx.fill();
-
-  // ---- 装填进度弧（围绕准星，半径 18px） ----
+  // ---- 实时散布圈（2026-10-30 用户裁定：单圈实线） ----
+  //   半径按武器口径取：榴弹炮模式走专属精度公式 baseSigma × spreadFactor × dist
+  //   （不乘 player.sigma，与 js/tank_fire.js 落点散布同一参数源）；常规武器走 σ × dist × 2。
+  const _isHowitzer = (typeof isHowitzerMode === 'function') && isHowitzerMode(player);
+  let r2;
+  if(_isHowitzer){
+    const hsDef = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
+    const spf = (typeof hsDef.spreadFactor === 'number') ? hsDef.spreadFactor : 4.0;
+    const baseSigma = (typeof RULES !== 'undefined' && RULES.spread && typeof RULES.spread.base === 'number')
+      ? RULES.spread.base : 0.018;
+    r2 = baseSigma * spf * aimDist * z;
+  } else {
+    r2 = player.sigma * aimDist * z * 2;
+  }
+  // ---- 融合单圈（2026-10-30 用户裁定：散布圈与装填弧合成**一个圈**） ----
+  //   统一半径 R = clamp(散布半径, 15, 60)——散布圈作淡底描边、装填进度弧叠加在同一半径上，
+  //   旧「散布圈无上限 + 进度弧钳 60」的双圈分离问题根除。半径仍有意义：随散布/距离缩放，
+  //   只是远处不再无限放大。
   const spec = (typeof primaryWeaponSpec === 'function') ? primaryWeaponSpec(player) : null;
   const wType = (player.weapons && player.weapons.primary && player.weapons.primary.type) || 'standard';
   const reloadBase = (player.stats && player.stats.reload) || 1;
   const debuffRate = (typeof debuffReloadRate === 'function') ? debuffReloadRate(player) : 1;
-  const R = 18;
+  const R = Math.max(15, Math.min(r2, 60));
+  ctx.save();
+  // 散布圈淡底（同一半径；进度弧未画满时也能读出散布大小）
+  ctx.strokeStyle = 'rgba(255,180,84,0.35)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(CX, CY, R, 0, TAU); ctx.stroke();
+  // 准星中心点
+  ctx.fillStyle = 'rgba(255,180,84,0.95)';
+  ctx.beginPath(); ctx.arc(CX, CY, 2, 0, TAU); ctx.fill();
+
+  // ---- 装填进度弧：叠加在融合圈同一半径上（统一射击准则：空→橙→绿常驻） ----
   const drawArc = (p, col, lw) => {
     ctx.strokeStyle = col; ctx.lineWidth = lw || 3;
     ctx.beginPath();
@@ -6604,40 +8686,107 @@ function drawCrosshairReticle(ctx){
   ctx.beginPath(); ctx.arc(CX, CY, R, 0, TAU); ctx.stroke();
 
   if(wType === 'double_barrel' && player._dbState){
-    // 双管：两条独立弧（各占上半/下半 150°，装填中的画进度、就绪的画满）
+    // 双管（2026-10-30 统一射击准则）：**整环对半分**——管 0 上半圈、管 1 下半圈，各 180°。
+    //   每管三态：射击后该管半圈清空（空）→ 装填中橙色从起点扫到半圈满 → 装好变**绿色满弧常驻**。
     const st = player._dbState;
+    const perReload = Math.max(0.05, reloadBase *
+      ((spec && typeof spec.reloadMult === 'number') ? spec.reloadMult : 1.0) / debuffRate);
     for(let i = 0; i < st.count; i++){
-      const base = -Math.PI / 2 + (i === 0 ? -Math.PI * 0.33 : Math.PI * 0.33);
-      const span = Math.PI * 0.66;
-      const pReady = st.ready[i] ? 1 : Math.max(0, Math.min(1, 1 - st.loadT[i] / Math.max(0.05, reloadBase)));
+      const base = (i === 0) ? -Math.PI / 2 : Math.PI / 2;   // 管 0 上半 / 管 1 下半
+      const span = Math.PI;                        // 各占半圈
+      // 该管半圈背景暗弧（空槽底）
       ctx.strokeStyle = 'rgba(12,13,9,0.7)'; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(CX, CY, R, base, base + span); ctx.stroke();
-      drawArcSeg(CX, CY, R, base, base + span * pReady, st.ready[i] ? '#7ed957' : '#ffb454', 3);
+      if(st.ready[i]){
+        drawArcSeg(CX, CY, R, base, base + span, '#7ed957', 3);   // 装好 = 绿色满弧
+      } else {
+        const p = Math.max(0, Math.min(1, st.loadT[i] / perReload));
+        if(p > 0) drawArcSeg(CX, CY, R, base, base + span * p, '#ffb454', 3);  // 装填中 = 橙色渐进
+      }
     }
   } else if(wType === 'clip' && player._clipState){
-    // 弹夹炮：装填弧 + 弹夹余量刻度（rounds 个小刻度围绕准星外侧半径 R+6）
+    // ===== 弹夹炮装填圈（2026-10-31 用户两轮反馈后的终版）=====
+    // 布局（两个瞄准器同口径）：
+    //   外环 = **唯一**装填进度条。短装填（弹夹内 0.7s 逐发）与长装填（整夹）都走这一根弧，
+    //          不区分视觉通道 —— 用户明确要求「不要在外侧短弧里播放短装填动画」。
+    //          分母按当前装填类型取（短=clipCycleSeconds / 长=整夹秒数），所以"弧走到头"恒等于"能开火"。
+    //   外圈 4 段短弧 = 弹夹余量（只表达还剩几发，不承载任何进度动画）。
+    //   不画中心数字（用户要求删除）。
     const cs = player._clipState;
-    const reloadDur = (typeof clipMagReloadSeconds === 'function')
-      ? clipMagReloadSeconds(player, spec, player._clipState) : reloadBase;
-    const pFill = cs.pendingRefill ? Math.max(0, Math.min(1, 1 - player.reloadT / Math.max(0.05, reloadDur))) : 1;
-    drawArc(pFill, cs.pendingRefill ? '#ffb454' : '#7ed957', 3);
-    // 余量刻度：rounds 个亮刻度 + (size-rounds) 个暗刻度
-    const tickR = R + 7;
-    for(let i = 0; i < cs.size; i++){
-      const ang = -Math.PI / 2 + TAU * (i / cs.size);
-      const filled = i < cs.rounds;
-      ctx.strokeStyle = filled ? 'rgba(255,180,84,0.95)' : 'rgba(255,180,84,0.25)';
-      ctx.lineWidth = 2;
+    const magDur = (typeof clipMagReloadSeconds === 'function')
+      ? clipMagReloadSeconds(player, spec, cs) : Math.max(0.05, reloadBase);
+    const refilling = !!(cs.pendingRefill && player.reloadT > 0);
+    // 统一进度口径：同一根弧、同一个"装满即就绪"语义，只是分母不同。
+    const cycleDur = Math.max(0.05, (spec && spec.clipCycleSeconds) || 0.7);
+    const loading = player.reloadT > 0;
+    const pLoad = loading
+      ? Math.max(0, Math.min(1, 1 - player.reloadT / (refilling ? Math.max(0.05, magDur) : cycleDur)))
+      : 1;
+    const TICK_R = R + 7;                       // 余量弧半径（沿用旧值）
+    // ── 外圈：弹夹余量（**单层圆弧**，2026-10-31 用户最终裁定：不要双层）──
+    //   演进史（保留是为了别又走回去）：
+    //     ① 初版：size 段等分短弧 —— 容量 8 时每段 45°，加留白后糊成"一圈碎线"；
+    //     ② 二版：容量 >4 改用炮弹三角形图标 —— 用户明确反馈"太丑"；
+    //     ③ 三版：双层同心弧 —— 用户裁定"不要双层，单层即可"；
+    //     ④ 终版（现行）：**单层 size 段等分圆弧**。
+    //   用户的取舍逻辑：**可读性靠颜色对比解决，不靠几何分层数** —— 所以本轮同时
+    //   上调了对比度：已装填段改**亮琥珀 #ffcf4a + 白色高光描边**（草绿/黄沙地上都"亮"），
+    //   空槽段改**深灰描边**（比旧版 rgba(255,180,84,0.16) 更接近背景但轮廓仍在）。
+    //   容量再大（8+）段会更密，这是单层方案的已知取舍——用户已知情并接受。
+    const segRaw = Math.max(1, Math.min(24, Math.floor(cs.size) || 4));
+    const slotSpan = TAU / segRaw;
+    for(let i = 0; i < segRaw; i++){
+      const a0 = -Math.PI / 2 + slotSpan * i;
+      const a1 = a0 + slotSpan;
+      const loaded = i < cs.rounds;
       ctx.beginPath();
-      ctx.moveTo(CX + Math.cos(ang) * (tickR - 3), CY + Math.sin(ang) * (tickR - 3));
-      ctx.lineTo(CX + Math.cos(ang) * (tickR + 3), CY + Math.sin(ang) * (tickR + 3));
-      ctx.stroke();
+      ctx.arc(CX, CY, TICK_R, a0 + slotSpan * 0.14, a1 - slotSpan * 0.14);
+      if(loaded){
+        // 已装填：深色底描边 + 亮琥珀主体 + 白高光（三重对比，任何地面都可读）
+        ctx.lineWidth = 4.5;
+        ctx.strokeStyle = 'rgba(8,9,6,0.85)';
+        ctx.stroke();
+        ctx.lineWidth = 2.6;
+        ctx.strokeStyle = '#ffcf4a';
+        ctx.stroke();
+      } else {
+        // 空槽：深灰细线（轮廓在，但不抢视线）
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(40,42,36,0.75)';
+        ctx.stroke();
+      }
+    }
+    // ── 外环：统一装填进度（唯一进度条）──
+    //   常驻绿满弧（已就绪，与 2026-10-30 统一射击准则一致）；装填中橙色渐进。
+    ctx.strokeStyle = 'rgba(12,13,9,0.7)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(CX, CY, R, 0, TAU); ctx.stroke();
+    drawArc(pLoad, (loading && pLoad < 1) ? '#ffb454' : '#7ed957', 3);
+  } else if(wType === 'autocannon'){
+    // 2026-10-30（用户反馈）：crosshair 瞄准器下机炮热量无处显示——默认瞄准器的
+    //   drawReloadRing 有热量环（heatPct/heatMax 三态 + 锁定闪烁），此处对齐同口径：
+    //   热量弧围绕准星 R=18，颜色绿 <50% / 黄 50–<100% / 红 ≥100%（阈值按 heatMax 比例），
+    //   锁定期间红色闪烁；分母读 spec.heatMax（散热片卡提上限后不再在 100/140 画满）。
+    const heat = player.heatPct || 0;
+    const locked = player.heatLockT !== undefined && player.heatLockT > 0;
+    if(heat > 0 || locked){
+      const _acSpec = (typeof primaryWeaponSpec === 'function') ? primaryWeaponSpec(player) : null;
+      const heatMax = (_acSpec && typeof _acSpec.heatMax === 'number' && _acSpec.heatMax > 0)
+        ? _acSpec.heatMax : 100;
+      const p = Math.max(0, Math.min(1, heat / heatMax));
+      let col = '#7ed957';
+      if(locked) col = (Math.floor(performance.now() / 120) % 2 === 0) ? '#ff5040' : 'rgba(255,80,64,0.35)';
+      else if(heat >= heatMax) col = '#ff5040';
+      else if(heat >= heatMax * 0.5) col = '#ffd24a';
+      drawArc(Math.max(p, locked ? 1 : 0), col, 3);
     }
   } else {
-    // 标准炮/电磁炮/机炮：单弧 = reloadT 进度（reloadT>0 装填中；0=就绪不画弧）
+    // 标准炮/电磁炮（2026-10-30 统一射击准则）：空 → 装填中橙色渐进 → 装好绿色满弧常驻
+    //  （旧口径「就绪不画」废弃）。弹夹间整装态由 clip 分支处理，此处只覆盖非弹夹标准炮。
     if(player.reloadT > 0){
       const p = Math.max(0, Math.min(1, 1 - player.reloadT / Math.max(0.05, reloadBase * debuffRate)));
       drawArc(p, '#ffb454', 3);
+    } else {
+      drawArc(1, '#7ed957', 3);
     }
   }
   ctx.restore();
@@ -6727,8 +8876,9 @@ function drawReloadRing(ctx){
       return;
     }
   }
-  // #G（2026-09-21）：弹夹炮分支 —— 环显示「弹夹余量」+ 中心数字（rounds/size）；
-  // 弹夹间整组装填期（pendingRefill && reloadT>0）显示装填进度（橙色弧）。
+  // #G（2026-09-21）：弹夹炮分支 —— 2026-10-31 终版（与 crosshair 侧同口径）：
+  //   外环 = **唯一**装填进度条（短装填 0.7s 与长装填整夹共用这一根弧，只换分母）；
+  //   外圈 N 段短弧 = 弹夹余量（纯余量指示，不承载任何进度动画）；**不画中心数字**。
   {
     const spec = (typeof primaryWeaponSpec === 'function') ? primaryWeaponSpec(player) : null;
     if(spec && spec.type === 'clip' && player._clipState){
@@ -6739,31 +8889,46 @@ function drawReloadRing(ctx){
       const wp = worldToScreen(cam, tip.x + Math.cos(perpAngle) * OFFSET_DIST, tip.y + Math.sin(perpAngle) * OFFSET_DIST);
       const R = 13;
       const magDur = (typeof clipMagReloadSeconds === 'function') ? clipMagReloadSeconds(player, spec, st) : 1;
-      let p, col, centerText;
-      if(st.pendingRefill && player.reloadT > 0){
-        p = Math.max(0, Math.min(1, 1 - player.reloadT / magDur));
-        col = '#ffb454'; centerText = '装填';
-        if(p >= 1) return;
-      } else if(st.rounds < st.size){
-        // 弹夹内发射间隔（0.7s）进行中的进度 + 余量
-        p = Math.max(0, Math.min(1, 1 - player.reloadT / (spec.clipCycleSeconds || 0.7)));
-        col = '#5cc8ff'; centerText = st.rounds + '/' + st.size;
-        if(p >= 1){ p = 0; }
-      } else {
-        return;   // 满弹且非装填：不画
+      const refilling = !!(st.pendingRefill && player.reloadT > 0);
+      const cycleDur = Math.max(0.05, spec.clipCycleSeconds || 0.7);
+      const loading = player.reloadT > 0;
+      // 统一进度：同一根弧、同一"装满即可开火"语义；分母按装填类型取。
+      const pLoad = loading
+        ? Math.max(0, Math.min(1, 1 - player.reloadT / (refilling ? Math.max(0.05, magDur) : cycleDur)))
+        : 1;
+      const TICK_R = R + 6;
+      // 外圈：弹夹余量（**单层圆弧** + 颜色对比，与 crosshair 侧同一口径——见该处演进注释）
+      //   用户最终裁定：不要双层。可读性靠颜色对比（亮琥珀+深底描边 vs 深灰细线）。
+      const segRaw = Math.max(1, Math.min(24, Math.floor(st.size) || 4));
+      const slotSpan = TAU / segRaw;
+      for(let i = 0; i < segRaw; i++){
+        const a0 = -Math.PI / 2 + slotSpan * i;
+        const a1 = a0 + slotSpan;
+        const loaded = i < st.rounds;
+        ctx.beginPath();
+        ctx.arc(wp.x, wp.y, TICK_R, a0 + slotSpan * 0.14, a1 - slotSpan * 0.14);
+        if(loaded){
+          ctx.lineWidth = 4.5;
+          ctx.strokeStyle = 'rgba(8,9,6,0.85)';
+          ctx.stroke();
+          ctx.lineWidth = 2.6;
+          ctx.strokeStyle = '#ffcf4a';
+          ctx.stroke();
+        } else {
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = 'rgba(40,42,36,0.75)';
+          ctx.stroke();
+        }
       }
+      // 外环：统一装填进度（就绪 = 绿满弧常驻）
       ctx.lineWidth = 3;
       ctx.strokeStyle = 'rgba(12,13,9,0.7)';
       ctx.beginPath(); ctx.arc(wp.x, wp.y, R, 0, TAU); ctx.stroke();
       const a0 = -Math.PI / 2;
-      ctx.strokeStyle = col;
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(wp.x, wp.y, R, a0, a0 + TAU * p); ctx.stroke();
-      if(centerText){
-        ctx.fillStyle = 'rgba(230,230,220,0.85)';
-        ctx.font = '9px monospace'; ctx.textAlign = 'center';
-        ctx.fillText(centerText, wp.x, wp.y + 3);
-      }
+      ctx.strokeStyle = (loading && pLoad < 1) ? '#ffb454' : '#7ed957';
+      ctx.beginPath();
+      ctx.arc(wp.x, wp.y, R, a0, a0 + TAU * pLoad);
+      ctx.stroke();
       return;
     }
   }
@@ -7816,7 +9981,9 @@ function draw(){
   //   · spreadFactor 唯一口径 WEAPON_DEFAULTS.primary.howitzer.spreadFactor（现行 4.0），
   //     与 js/tank_fire.js 的实际落点切向偏移**同一参数源**，改一处自动跟随；
   //   · he 爆炸半径不再画圈（落点爆炸范围由 splashRadius 在弹着时结算，不属于瞄准语义）。
-  if(isHowitzerMode(player) && typeof mouseWorld !== 'undefined' && mouseWorld){
+  // 2026-10-30（用户反馈）：crosshair 精确瞄准器下**不再画此世界层鼠标圈**——精度圈已并入
+  //   drawCrosshairReticle（口径同源 baseSigma×spf×dist，见其散布圈分支），两处都画=两个独立圈。
+  if(aimStyle !== 'crosshair' && isHowitzerMode(player) && typeof mouseWorld !== 'undefined' && mouseWorld){
     const hsDef = (typeof WEAPON_DEFAULTS !== 'undefined' && WEAPON_DEFAULTS.primary && WEAPON_DEFAULTS.primary.howitzer) || {};
     const spf = (typeof hsDef.spreadFactor === 'number') ? hsDef.spreadFactor : 4.0;
     const baseSigma = (typeof RULES !== 'undefined' && RULES.spread && typeof RULES.spread.base === 'number')
@@ -7935,10 +10102,25 @@ let testFps = 0;         // B 层测试钩子 HUD 用：最近一次 FPS 统计�
 const perfRing = (typeof createPerfRing === 'function') ? createPerfRing(240) : null;
 
 function loop(now){
-  let dt = (now - last) / 1000;
+  const rawDt = (now - last) / 1000;   // E2.2：governor 吃真实帧时间（缩放/panic 钳制前）——
+  let dt = rawDt;                       // testTimeScale=0（测试暂停）若喂进 governor 会被误判为「帧极快」。
   if (dt > 0.2) dt = 0.2; // panic threshold to avoid spiral of death
   last = now;
   dt *= testTimeScale;     // 测试时间缩放（0=暂停；draw 照常渲染当前快照）
+
+  // E2.2：档位门控（真实 rAF delta；updateGovernor 自带异常帧忽略：≤0/非有限/>1s 不污染 EMA）。
+  //   降档动作在下一帧经 perfCfg 生效（分辨率/粒子 cap/尘埃间隔），模拟层零接触。
+  if (perfGov && typeof updateGovernor === 'function'){
+    const r = updateGovernor(perfGov, rawDt);
+    if (r.changed || perfCfg.name !== perfGov.tier){
+      perfCfg = (typeof getTierConfig === 'function') ? getTierConfig(perfGov, RULES.perf) : perfCfg;
+      if (typeof fxSetParticleCap === 'function' && Number.isFinite(perfCfg.particleCap)){
+        fxSetParticleCap(perfCfg.particleCap);
+      }
+      resize();   // 分辨率缩放随档位重算（clientWidth 未变时等价于重设 backing size）
+      console.info('[perf] 画质自动调整为「' + (PERF_TIER_LABEL[perfGov.tier] || perfGov.tier) + '」（帧率' + (perfGov.level > 0 ? '不足' : '恢复') + '）');
+    }
+  }
 
   // #P1 / I0（2026-10-24）：注入模拟时钟——判定/计时路径（AI 噪声超时、Boss 减速/冲锋到期、
   //   隐蔽开火惩罚、撞击接触冷却、timed 修饰器到期）全部读 simNow() 而非挂钟，
@@ -7990,6 +10172,13 @@ function loop(now){
 // ---------- M10 入口路由：加载即进入首页（存档管理；flow 初始态 'home'，watcher 未触发需手动首渲染） ----------
 (function initMenu(){
   renderHome();
+  // 2026-10-31（用户需求「关页后能继续」）：进首页后尝试恢复局内进度。
+  //   **不自动进战斗**（用户明确要求）：恢复只重建 run 骨架 + 落点，玩家点「继续本局」才进战场。
+  //   坦克列表（/api/tanks）通常晚于本段就绪，故这里可能 no-op；loadTankList 回调会再试一次。
+  //   整个恢复过程包在 restoreRunFromProfile 内部的 try/catch 里 —— 恢复失败不得影响首页显示。
+  try{ restoreRunFromProfile(); }catch(_e){ /* 恢复异常不阻断入口路由 */ }
+  renderHome();                 // 恢复成功后再画一次（列表的「进度」小字与继续入口依赖 profile）
+  refreshContinueRunEntry();
   showScreen('homeScreen');
   setOverlayVisible(true);
 })();
@@ -8188,6 +10377,12 @@ function nextRunSeed(){
       return (currentNode && Array.isArray(currentNode.encounterAnchors))
         ? currentNode.encounterAnchors.map(g => g.map(a => ({ x: Math.round(a.x), y: Math.round(a.y) }))) : [];
     },
+    // 2026-11-01 E2 探针只读：波次锚点分组（双入口）——points 模式 = 防御点分组
+    // （每点 5 点位共享同 x），false = 防线分组。供测试链断言「波数 = 点数」用。
+    encounterWaveGroups(){
+      return encAnchorGroupsForNode(currentNode)
+        .map(g => g.map(a => ({ x: Math.round(a.x), y: Math.round(a.y) })));
+    },
     currentNodeIndex(){ return run ? run.nodes.indexOf(currentNode) : -1; },
     // 2026-10-30 MS2/C2：波次导演状态探针（measure-encounter --mode=real 消费）
     encounter(){
@@ -8199,7 +10394,21 @@ function nextRunSeed(){
         elapsed: battleEncounter.elapsed,
         kills: battleState ? (battleState.nodeKills || 0) : 0,
         outcome: battleEncounter.outcome || null,
+        // 2026-11-02 M3：任务类型只读探针（M3-J 校准 / 类型开启态真局验证）
+        kind: battleEncounter.kind || 'exterminate',
+        captureDone: battleEncounter.captureDone || 0,
+        captureTotal: battleEncounter.captureTotal || 0,
+        timeLimitSeconds: battleEncounter.timeLimitSeconds || 0,
+        objectiveFailed: battleEncounter.objectiveFailed === true,
       };
+    },
+    // 2026-11-02 M3：当前节点类型与类型运行时目标（只读；关闭态分别为 null / 空）
+    nodeKind(){ return currentNode ? (currentNode.kind || null) : null; },
+    captureZones(){
+      return battleCaptureZones.map(z => ({ x: Math.round(z.x), y: Math.round(z.y), r: z.r, progress: z.progress }));
+    },
+    guardTarget(){
+      return battleGuardTarget ? { hp: battleGuardTarget.hp, x: Math.round(battleGuardTarget.x), y: Math.round(battleGuardTarget.y) } : null;
     },
     skipToNode(n){
       if(flow.state !== 'map') throw new Error('__TEST__.skipToNode: 仅 map 态可用（当前 ' + flow.state + '）');
@@ -8232,3 +10441,5 @@ function nextRunSeed(){
 </script>
 </body>
 </html>
+
+
