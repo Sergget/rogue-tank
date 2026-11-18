@@ -717,7 +717,15 @@ const RULES = {
       share: 0.2,                          // 抽样占比（[PLACEHOLDER]；index 0 恒不抽中）
       wavesMin: 3, wavesMax: 4,            // 固定 3~4 波反冲击（[PLACEHOLDER]）
       ringSectorsMin: 2, ringSectorsMax: 4, // 敌人环带来袭方向数（[PLACEHOLDER]）
-      clearBonusPct: 0.2                   // 守点目标存活 bonus；被毁则归零（非 gameover）
+      clearBonusPct: 0.2,                  // 守点目标存活 bonus；被毁则归零
+      // M3-J（2026-11-03）：守点被毁 = 本节点**任务失败**（用户裁定「守住这个点」是 defend 的
+      //   唯一实质内容；改前只归零 bonus、波全清仍判胜利 ⇒ defend 与歼灭只在加分上不同）。
+      //   **失败 ≠ 死亡**：玩家还活着、还能打完剩下的波次，所以处置是**低分结算**（走
+      //   finishNodeObjectiveLost，与突破超时同形态），不是 gameover、也不是什么都不做。
+      //   （曾经的实现只判 defeat 不告诉页面原因 ⇒ 页面那一支什么都不做 ⇒ 确定性软锁。）
+      //   [PLACEHOLDER] 可关回旧行为（关掉 = 守点死了仍按存活失败仅归零 bonus 打完全场）。
+      failOnObjectiveLost: true,
+      failScorePct: 0.4,                   // 守点被毁时的结算倍率（[PLACEHOLDER]；低于突破超时 0.5——任务失败比超时更重）
     },
     capture: {
       enabled: false,
@@ -731,6 +739,50 @@ const RULES = {
       timeLimitSeconds: 180,               // 限时抵达出口（[PLACEHOLDER]，与单节点 180~300s 同量级）
       timeoutScorePct: 0.5,                // 超时低分结算倍率（[PLACEHOLDER]；不是 gameover）
       earlyBonusPct: 0.2                   // 提前抵达 bonus；超时按低分结算（非 gameover）
+    },
+    // ===== M3-J（2026-11-03）类型专属**几何**：让各类型的内容结构真正不同 =====
+    //   改前的问题（用户 2026-11-02 指认）：kind 只是标签，generateNode/generateStrip 里
+    //   没有任何一处读它 ⇒ defend/capture/breakthrough 与 exterminate 同图同内容。
+    //   本段的三组参数由 js/tank_objectives.js 的 plan* 纯函数消费，经
+    //   js/tank_map.js applyNodeKindGeometry 在**生成期**落进 node（护墙块 push 进 covers）。
+    //   全部只在 `nodeKinds.enabled === true` 时可达；关闭态逐字节零回归。
+    //   数值为 [PLACEHOLDER]，待 measure 脚本实机校准后落值。
+    geometry: {
+      enabled: true,                       // 子开关（总开关关闭时不可达）
+      egressBand: 0,                       // 占位：无
+      // defend：守点护墙环——纯几何涌现「只能从数个特定方向远距离命中、近处更易命中」，
+      //   推导见 js/tank_objectives.js planGuardRing 注释（不含任何远近特判）。
+      guardRing: {
+        radius: 300,                       // 护墙环中心线半径 R（px）
+        thickness: 70,                     // 径向厚度 T（≥ 车宽量级，防炮弹擦缝）
+        gaps: 3,                           // 缺口数 G（用户口径「数个」⇒ 3 起判）
+        gapWidth: 150,                     // 缺口切向宽度 W（宽于车宽，可通行）
+        blockLen: 120,                     // 单块切向长度（拼弧粒度）
+        tier: 'intact',                    // ⚠ 必须真拦弹的 tier，见 planGuardRing 注
+        margin: 40,                        // 距节点边界的净空
+      },
+      // capture：占领点独立分布（改前与防线锚点空间重合）
+      capturePoints: {
+        x0Fraction: 0.30,                  // 首点 x 比例（避开出生点净空）
+        x1Fraction: 0.86,                  // 末点 x 比例（避开出口带）
+        ySpread: [0.24, 0.76],             // 锯齿 y 档位（强制横向机动）
+      },
+      // breakthrough：通道——清障 + 两侧巷道墙
+      channel: {
+        width: 340,                        // 净宽（≥3 车宽，容纳会车与走位）
+        wallThickness: 60,                 // 两侧补墙厚度（0 = 只清障不补墙）
+        wallTier: 'intact',
+      },
+    },
+    // ===== M3-J（2026-11-03）不同模式下敌方**目标欲望** =====
+    //   「欲望权重」决定敌方优先扑谁：防御模式更愿意打守点目标而不是玩家。
+    //   打分模型见 js/tank_objectives.js pickEngageTarget；bias=0 时短路返回玩家 ⇒ 零回归。
+    engage: {
+      enabled: true,                       // 子开关（总开关关闭时不可达）
+      defendBias: 0.82,                    // 防御节点：打守点的权重（0.5 以上即守点优先）
+      captureBias: 0.35,                   // 占领节点（敌方主要来抢点，仍会打玩家）
+      otherBias: 0,                        // 其余类型：只打玩家（逐步与改前一致）
+      distanceFalloff: 900,                // 距离吸引的衰减尺度（px）
     },
     shop:   { enabled: false },            // 非战斗节点（替换不追加）
     supply: { enabled: false },

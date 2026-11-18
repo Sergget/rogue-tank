@@ -768,7 +768,16 @@ function aiDecideEnemy(t, ctx){
   _aiInit(t);
 
   const cfg = aiConfig();
-  const p = ctx && ctx.player;
+  // ================= M3-J（2026-11-03）：交战目标不再恒为玩家 =================
+  //   用户裁定：「不同模式下敌方 AI 对不同目标的攻击欲望要不同，例如防御模式中敌军
+  //   更愿意打防御目标而非玩家」。语义落点就是**这一个变量** p —— aiDecideEnemy 全文
+  //   的接战判定（距离带 / 视线 / 绕行 / 炮塔期望角 / 开火门控）都只读 p 的位置，
+  //   因此把 p 绑到 ctx.engageTarget 即实现「整条决策链都冲着守点去」，
+  //   而不是只在开火瞬间换个目标（那会表现为炮塔朝玩家、炮弹飞向守点）。
+  //
+  //   零回归：engageTarget 缺省 null ⇒ p === ctx.player，与改前逐字节一致。
+  //   注入方：tank_battle.html 的 aiCtx 构造处，由 tank_objectives.pickEngageTarget 决策。
+  const p = (ctx && (ctx.engageTarget || ctx.player)) || null;
   const out = { turn: 0, move: 0, turretDesired: t.turretAngle, fire: false };
 
 // --- 1) 基线：原有 P-10 双态 AI 逻辑（完全向后兼容） ---

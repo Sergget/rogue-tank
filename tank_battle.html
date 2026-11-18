@@ -724,6 +724,10 @@
   <script src="js/tank_camera.js"></script>
   <script src="js/tank_perf.js"></script>
   <script src="js/tank_flow.js"></script>
+  <!-- M3-J（2026-11-03）：节点任务类型的目标几何与目标欲望纯逻辑层。
+       必须**先于** tank_map.js 加载——后者的 planNodeKindGeometry 在顶层（生成期）
+       直接调用本模块的 plan* 全局函数。 -->
+  <script src="js/tank_objectives.js"></script>
   <script src="js/tank_map.js"></script>
   <!-- 2026-10-30 MS2/C1：波次导演纯逻辑层（标准模式 encounter 节点投送敌人）。
        只依赖 RULES（tank_rules.js）——放 map 之后与 3D 页同序。 -->
@@ -3401,6 +3405,14 @@ function enterBattle(nodeIndex){
     if(nodeKind === 'defend') spawnGuardTarget(anchorGroups);
     else if(nodeKind === 'capture'){
       setupCaptureZones(anchorGroups, captureTotal);
+      // M3-J 一致性修正（真实软锁）：`captureTotal` 是按「防御点组数 ∩ pointsMax」算的，
+      //   而占领圈现在来自地图生成期的 `typeObjective.capturePoints`（点数走 pointsMin~Max
+      //   确定性抽样），两者可能不等。胜利判定是 `captureDone >= captureTotal`
+      //   （js/tank_encounter.js:570-576）⇒ captureTotal 大于实际圈数时**永远无法达成**。
+      //   圈是玩家可观测的唯一真相，故以圈数为准回写。
+      if(battleEncounter && battleCaptureZones.length){
+        battleEncounter.captureTotal = battleCaptureZones.length;
+      }
       // 兜底：没有任何可用防御点 ⇒ 占领目标不可达，降级为歼灭，绝不软锁。
       if(!battleCaptureZones.length && battleEncounter){
         pushLog('⚠ 占领节点没有可用防御点 ⇒ 按歼灭节点处理', 'CRIT');
@@ -3559,10 +3571,20 @@ function encKindCfg(){
   return (typeof RULES !== 'undefined' && RULES.nodeKinds) ? RULES.nodeKinds : null;
 }
 
-// 守点目标：复用 building 生命周期（可被炮弹/溅射打掉），落在最后一个防御点上。
+// 守点目标：位置由**地图生成期**决定（node.typeObjective，M3-J）——生成期已在该点周围
+//   落了护墙环（covers 里带 guardRing 标记的 intact 块），所以运行时只需在新位置建目标实体，
+//   不再「取最后一个防御点」：那个位置在敌人纵深里，敌人会直接生在自己要打的目标上，
+//   护墙环从内部被绕过（环对内部无效）。
+//   兼容：node.typeObjective 缺失（老存档 / 总开关关闭）⇒ 回落旧行为取 anchorGroups 末位锚点。
 function spawnGuardTarget(anchorGroups){
-  const g = (anchorGroups && anchorGroups.length) ? anchorGroups[anchorGroups.length - 1] : null;
-  const p = (g && g.length) ? g[0] : null;
+  const tobj = (currentNode && currentNode.typeObjective && currentNode.typeObjective.kind === 'guardTarget')
+    ? currentNode.typeObjective : null;
+  let p = null;
+  if(tobj && Number.isFinite(tobj.x) && Number.isFinite(tobj.y)) p = { x: tobj.x, y: tobj.y };
+  else {
+    const g = (anchorGroups && anchorGroups.length) ? anchorGroups[anchorGroups.length - 1] : null;
+    p = (g && g.length) ? g[0] : null;
+  }
   if(!p) return;
   const tier = (RULES.coverTiers && RULES.coverTiers.building) ? RULES.coverTiers.building : {};
   const t = {
@@ -3572,12 +3594,31 @@ function spawnGuardTarget(anchorGroups){
   };
   covers.push(t);
   battleGuardTarget = t;
+  // 掩体空间索引按「长度 + 首尾引用」判失效（js/tank_cover.js:969-971）——push 会改名长度，
+  //   理论上会自动重建；仍显式失效一次，避免将来把守点插到中间位置时读到陈旧索引。
+  if(typeof invalidateCoverGrid === 'function') invalidateCoverGrid();
   pushLog('★ 守点目标已就位：波次结束前不得被摧毁', 'COVER');
 }
 
-// 占领点：取前 N 个防御点（x 升序），每点一个驻留圈。
+// 占领点：位置由地图生成期决定（node.typeObjective.capturePoints，M3-J）——
+//   生成期按「x 均匀 + y 锯齿 + 抖动」散布，**刻意脱离防线 bucket 中心**，
+//   改前取 anchorGroups[i] 与「防线锚点」空间完全重合，读起来仍是逐个突破防线。
+//   兼容：typeObjective 缺失 ⇒ 回落旧行为取前 N 个防御点。
 function setupCaptureZones(anchorGroups, count){
   battleCaptureZones = [];
+  const tobj = (currentNode && currentNode.typeObjective && currentNode.typeObjective.kind === 'capturePoints')
+    ? currentNode.typeObjective : null;
+  if(tobj && Array.isArray(tobj.points) && tobj.points.length){
+    for(const pt of tobj.points){
+      if(!Number.isFinite(pt.x) || !Number.isFinite(pt.y)) continue;
+      battleCaptureZones.push({
+        x: pt.x, y: pt.y,
+        r: Number.isFinite(pt.r) ? pt.r : 130,
+        progress: 0,
+      });
+    }
+    return;
+  }
   const n = Math.max(1, Math.min(count || 1, anchorGroups.length));
   for(let i = 0; i < n; i++){
     const g = anchorGroups[i];
@@ -4200,8 +4241,23 @@ function handleBattleEncounterEvent(ev){
       }
       break;
     case 'defeat':
-      // 防御性：正式局玩家 hp 归零走既有 revive/gameover 管线，导演 defeat 只记日志
-      pushLog('⚠ 波次导演报告 defeat（预期由玩家阵亡触发）', 'CRIT');
+      // 2026-11-03 M3-J：defeat 有**两个性质完全不同**的来源，必须分开处理。
+      //   改前这里只有一行日志（当时 defeat 唯一来源是 player-dead，而玩家阵亡的结算由
+      //   复活/gameover 管线自己驱动，所以「只记日志」是对的）。M3-J 引入
+      //   「守点被毁 = 任务失败」后，那一支若还走这条老路 ⇒ 什么都不发生：
+      //     enc.outcome 已是 defeat（幂等，后续 0 事件）⇒ victory 永不来 ⇒
+      //     battleExitReady 永不置位 ⇒ **玩家打完剩下波次也永远出不去**（确定性软锁）。
+      //   现行分叉（reason 由 js/tank_encounter.js finishEncounter 归一）：
+      //     · 'objective-lost' ⇒ 任务失败但玩家没死 ⇒ **低分结算**（不 gameover），
+      //       走 finishNodeObjectiveLost（与突破超时 finishNodeTimedOut 同形态）。
+      //     · 'player-dead'（含 undefined 的历史口径）⇒ 维持原样只记日志，
+      //       复活/永久死亡由既有管线驱动，导演不越权。
+      if(ev && ev.failReason === 'objective-lost'){
+        pushLog('⚠ 守点目标已被摧毁 · 节点任务失败 · 按低分结算', 'CRIT');
+        finishNodeObjectiveLost();
+      } else {
+        pushLog('⚠ 波次导演报告 defeat（预期由玩家阵亡触发）', 'CRIT');
+      }
       break;
     // ---- 2026-11-02 M3-E/F/G：任务类型事件 ----
     case 'objective-lost':
@@ -4354,6 +4410,41 @@ function finishNodeTimedOut(){
   saveRunState('finishNodeTimeout');
   pushLog('⏱ 突破时限已到 · 按低分结算', 'CRIT');
   transition(flow, 'settlement', { nodeIndex: currentNode.index, score, clearMs, bossLoot: null, timedOut: true });
+}
+
+// 2026-11-03 M3-J：防御节点**任务失败**——守点被毁但玩家还活着。
+//   这是 finishNodeTimedOut 的姊妹函数（同形态：清场 → 记分 → 乘倍率 → 结算），
+//   分开写而不是加参数，是因为两者的**语义归属**不同：
+//     · 超时 = 玩家实力/路线问题，属于「没打完」；
+//     · 守点被毁 = 任务失败，属于「打完了但没守住」。
+//   文案、倍率配置键（defend.failScorePct vs breakthrough.timeoutScorePct）、
+//   结算载荷标记（objectiveLost vs timedOut）都不同，合并会让后续加字段时互相污染。
+//   **关键：绝不能走 gameover** —— 玩家没死（复活管线不参与），只是本节点拿不到完整战果；
+//   transition 到 settlement 才能让 run 继续推进（软锁的直接解药，见 handleBattleEncounterEvent
+//   case 'defeat' 的长注释）。
+function finishNodeObjectiveLost(){
+  if(!battleState || battleState.cleared) return;
+  battleState.cleared = true;
+  battleEncounter = null;
+  battleEncReserve = []; battleEncReserveCd = 0;
+  shells.length = 0; impacts.length = 0; bounceFx.length = 0;
+  const clearMs = performance.now() - battleState.startMs;
+  const outpostEntity = entities.find(e => e.team === 'ally' && e.nodeSpawn && !e.isAllySquad);
+  const outpostAlive = !outpostEntity || outpostEntity.hp > 0;
+  // 守点已毁 ⇒ objectiveAlive=false 传进去，让 scoreNode 的 defend 存活 bonus 归零
+  //   （与「守点被毁只归零 bonus」的旧口径同源，不重复计一次）。
+  const score = scoreNode(currentNode, {
+    damageTaken: battleState.damageTaken, clearMs, outpostAlive, objectiveAlive: false });
+  const df = (RULES.nodeKinds && RULES.nodeKinds.defend) ? RULES.nodeKinds.defend : {};
+  const pct = Number.isFinite(df.failScorePct) ? Math.max(0, Math.min(1, df.failScorePct)) : 0.4;
+  const penalty = Math.round(score.total * (pct - 1));
+  score.bonuses.push({ label: `守点失守 ×${pct}`, amount: penalty });
+  score.total = Math.round(score.total * pct);
+  runScore += Math.round(score.total * runScoreMultiplier(player));
+  saveRunState('finishNodeObjectiveLost');
+  pushLog('💥 守点目标失守 · 节点任务失败 · 按低分结算', 'CRIT');
+  transition(flow, 'settlement', { nodeIndex: currentNode.index, score, clearMs,
+    bossLoot: null, objectiveLost: true });
 }
 
 // #76 A：敌军属性全面难度分化（原 enterBattle 内联闭包提升为页级函数；P-38 增援同规则应用）
@@ -7522,6 +7613,29 @@ function update(dt){
   // 有效触发距离在实体化时按难度挂 t.aiTriggerDist；友军消极防御不受影响。
   // 玩家保持手动控制；nodeSpawn/Boss/召唤物走 aiDecide 决策。
   if(!isClearing && run && battleState && flow.state === 'battle'){
+    // ================= M3-J（2026-11-03）：敌方目标欲望 =================
+    //   用户裁定：「不同模式下敌方 AI 对不同目标的攻击欲望要不同，例如防御模式中
+    //   敌军更愿意打防御目标而非玩家」。实现分两层：
+    //     ① aiCtx.objective + aiCtx.engageBias：本帧的「非玩家目标」与其欲望权重；
+    //     ② tank_objectives.pickEngageTarget：按 距离吸引 × 欲望权重 打分选目标。
+    //   零回归：engageBias=0（缺省 / 非 defend+非 capture / 总开关关闭）时
+    //     pickEngageTarget 直接短路返回玩家，与改前逐字段一致。
+    //   ⚠ 守点代理每帧重建（hp 是快照，见 tank_objectives.guardTargetAsEntity 注释）。
+    const _objApi = (typeof TANK_OBJECTIVES_API !== 'undefined' && TANK_OBJECTIVES_API)
+      ? TANK_OBJECTIVES_API
+      : ((typeof window !== 'undefined' && window.TANK_OBJECTIVES_API) ? window.TANK_OBJECTIVES_API : null);
+    const _engageCfg = (RULES.nodeKinds && RULES.nodeKinds.engage) ? RULES.nodeKinds.engage : null;
+    const _nodeKindNow = (currentNode && typeof currentNode.kind === 'string') ? currentNode.kind : 'exterminate';
+    // ⚠ 传整份 RULES（objectiveBiasFor 已做两种入参形态容错；此处刻意传整份，
+    //   由 js/tank_objectives.js 内部取 .nodeKinds 段——两种形态都由单测锁住）。
+    const _engageBias = (_objApi && typeof _objApi.objectiveBiasFor === 'function')
+      ? _objApi.objectiveBiasFor(_nodeKindNow, RULES) : 0;
+    // 守点代理：仅 defend 且守点存活时才存在（capture/breakthrough 没有「可攻击的守点」）。
+    //   capture 的 captureBias>0 但 objective=null ⇒ pickEngageTarget 天然回落玩家，
+    //   即占领节点的敌军仍以玩家为主 —— 与「读条时敌人进圈暂停」的设计一致。
+    const _objectiveEnt = (_engageBias > 0 && battleGuardTarget && battleGuardTarget.hp > 0
+      && _objApi && typeof _objApi.guardTargetAsEntity === 'function')
+      ? _objApi.guardTargetAsEntity(battleGuardTarget, 'guard_target') : null;
     const aiCtx = {
       player,
       entities,   // A0：友军命令的目标权威需要全实体表（enemies 只是敌方子集）
@@ -7538,7 +7652,12 @@ function update(dt){
       // 2026-10-22（§4.9.2(b)）：直线掩体的射界判据需要弹道查询（holdGate 的炮塔射界补充）
       findCoversOnPath,
       // #E6（2026-09-20）：敌军世界边界（修复「敌人跑到地图范围之外」）——AI 与玩家同口径钳制
-      worldBounds: currentNode ? { minX: 0, minY: 0, maxX: currentNode.w, maxY: currentNode.h } : null
+      worldBounds: currentNode ? { minX: 0, minY: 0, maxX: currentNode.w, maxY: currentNode.h } : null,
+      // M3-J：类型目标欲望三件套（engageBias=0 时消费方一律短路，零回归）
+      objective: _objectiveEnt,
+      engageBias: _engageBias,
+      distanceFalloff: (_engageCfg && Number.isFinite(_engageCfg.distanceFalloff))
+        ? _engageCfg.distanceFalloff : 900,
     };
     // #N2（2026-10-01）：攻守分工协调 —— 每 reassignInterval 秒按「距离/视线/血量」评分
     // 重新分配 press（有限名额主动压上）/ flank（侧翼绕行）/ hold（原地掩护）角色。
@@ -7557,6 +7676,18 @@ function update(dt){
       if(e.team === 'ally' && typeof updateAllyOrder === 'function'){
         const ev = updateAllyOrder(e, dt, aiCtx);
         if(ev) onAllyOrderEvent(ev);
+      }
+      // M3-J（2026-11-03）：本车本帧的交战目标——敌方走 pickEngageTarget（玩家 / 守点代理），
+      //   友军由 allyFireTargetFor 在开火处决定（这里不覆盖，保持 A0 语义）。
+      //   写进 aiCtx 后 aiDecide 与开火读同一个对象（单帧内一致，不会两套目标）。
+      if(e.team !== 'ally' && _objApi && _engageBias > 0){
+        aiCtx.engageTarget = _objApi.pickEngageTarget(e, {
+          player: player, objective: _objectiveEnt,
+          objectiveBias: _engageBias, distanceFalloff: aiCtx.distanceFalloff,
+        });
+        if(aiCtx.engageTarget === player) aiCtx.engageTarget = null;   // null ⇒ AI 回落到 ctx.player
+      } else {
+        aiCtx.engageTarget = null;
       }
       const d = aiDecide(e, aiCtx);
       // #H4（2026-09-21）：Boss 激光期炮塔由 updateBossLaser 固定角速度直驱（bossLaserHoldTurret）
@@ -7604,7 +7735,11 @@ function update(dt){
       if(d.fire && !isSurvivalPrep && !e.railChargeHold){
         // A0（2026-10-27）：友军击发读**同一权威目标**（focus/flank 时只认任务目标，
         // 目标死亡即 null，不暗换最近敌人）；其余命令允许自主反击。
-        const target = e.team === 'ally' ? allyFireTargetFor(e, aiCtx) : player;
+        // M3-J（2026-11-03）：我方目标 = 本车本帧的 engageTarget（循环内已算好），
+        //   与 AI 决策读的是**同一个对象**，不存在「炮塔朝 A、炮弹飞 B」的错位。
+        const target = (e.team === 'ally')
+          ? allyFireTargetFor(e, aiCtx)
+          : (aiCtx.engageTarget || player);
         if(target && target.hp > 0) fireTank(e, target, 'auto', fireCtx);
       }
       // 2026-09-15 W6：autocannon 热量冷却驱动（敌人/友军同 player 路径）

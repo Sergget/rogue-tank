@@ -383,7 +383,8 @@ function applySpawnGuard(units, cfg, box, px, py) {
  *   pending:Array<{cls:string, x:number, y:number, hullAngle:number, bearing:number}>,
  *   kind:string, objectiveAlive:boolean, objectiveFailed:boolean,
  *   captureTotal:number, captureDone:number, counterAttackFired:boolean, counterAttackAt:number,
- *   timeLimitSeconds:number
+ *   timeLimitSeconds:number,
+ *   failReason?:string
  * }} EncounterState
  */
 
@@ -517,12 +518,24 @@ function enterTelegraph(enc, ctx, events) {
   });
 }
 
-/** 终局收割：幂等（已有 outcome 时直接忽略），并给出统一 stats。 */
-function finishEncounter(enc, events, kind) {
+/**
+ * 终局收割：幂等（已有 outcome 时直接忽略），并给出统一 stats。
+ *
+ * @param {string} [failReason] 仅 defeat 有意义——**"为什么输"必须是一等数据**。
+ *   M3-J（2026-11-03）引入：defeat 有两个性质完全不同的来源，页面必须分开处理，
+ *   否则其中一条必然变成软锁（见下方 objective-lost 分支的长注释）：
+ *     · 'objective-lost' —— 守点被毁。**不是玩家的死**：玩家还活着、还能开、还能打完
+ *        剩下的波次，只是本节点任务失败 ⇒ 页面走「低分结算」（不 gameover）。
+ *     · 'player-dead' —— 玩家 hp 归零。这是既有复活/永久死亡管线的领域，导演只报信
+ *        （页面沿改前行为只记日志，结算由复活链自己驱动）。
+ *   缺省（undefined）= 未分类，保守按 'player-dead' 的旧口径处理，零回归。
+ */
+function finishEncounter(enc, events, kind, failReason) {
   if (enc.outcome) return;
   enc.outcome = kind;
   enc.phase = kind;
   enc.timer = 0;
+  if (kind === 'defeat') enc.failReason = failReason || 'player-dead';
   const ev = {
     type: kind,
     stats: { seconds: enc.elapsed, kills: enc.kills, wavesCleared: enc.wavesCleared },
@@ -532,6 +545,7 @@ function finishEncounter(enc, events, kind) {
   if (enc.kind === 'defend') ev.objectiveFailed = !enc.objectiveAlive;
   if (enc.kind === 'capture') ev.captureDone = enc.captureDone;
   if (enc.kind === 'breakthrough') ev.reason = (kind === 'settlement') ? 'timeout' : 'exit';
+  if (kind === 'defeat') ev.failReason = enc.failReason;
   events.push(ev);
 }
 
@@ -553,7 +567,7 @@ function updateEncounter(enc, dt, ctx) {
   enc.elapsed += step;
 
   if (c.playerAlive === false) {                                   // ④ 玩家阵亡：任何阶段都直接判负
-    finishEncounter(enc, events, 'defeat');
+    finishEncounter(enc, events, 'defeat', 'player-dead');
     return events;
   }
 
@@ -583,7 +597,29 @@ function updateEncounter(enc, dt, ctx) {
   if (enc.kind === 'defend' && c.objectiveAlive === false && enc.objectiveAlive) {
     enc.objectiveAlive = false;
     enc.objectiveFailed = true;
-    events.push({ type: 'objective-lost' });                       // 目标被毁 ≠ gameover（存活 bonus 归零）
+    events.push({ type: 'objective-lost' });
+    // M3-J（2026-11-03）：守点被毁 = 本节点**失败**（用户裁定「守住这个点」是任务的
+    //   唯一实质内容；改前只把存活 bonus 归零、波全清仍判胜利 ⇒ defend 与歼灭只在
+    //   加分上不同，任务语义不成立）。
+    //   失败语义的**关键分叉**（这是本批最容易踩的坑，务必读完再改）：
+    //     · 若这里只 `finishEncounter(...,'defeat')` 而不告诉页面"为什么输"，页面
+    //       `case 'defeat'` 的既有实现只记一行日志（那是给 player-dead 用的），于是
+    //       battleState 不动、不结算、battleExitReady 永不置位 ⇒ **玩家把剩下的波次
+    //       打完也永远出不去**（enc.outcome 幂等 → 后续 0 事件，实测 2000 帧零事件）。
+    //       这不是"以后再说"的隐患，是**确定性软锁**，必须由 failReason 分开。
+    //     · 守点死 ≠ 玩家死：玩家还在场上、还能打完，所以正确处置是**低分结算**
+    //       （页面复用 finishNodeTimedOut 的形态），不是 gameover、不是什么都不做。
+    //   开关：RULES.nodeKinds.defend.failOnObjectiveLost（[PLACEHOLDER]，缺省 true）。
+    //   零回归：仅在 kind==='defend' 且开关为 true 时触发，且此处已确认状态跃迁（幂等）。
+    //   注：`enc.cfg` 是 encounter 自己的配置段（resolveEncounterConfig 产出的白名单），
+    //   **不含** nodeKinds —— 类型开关必须从 RULES.nodeKinds 直读。
+    const dcfg = (typeof RULES !== 'undefined' && RULES.nodeKinds && RULES.nodeKinds.defend)
+      ? RULES.nodeKinds.defend : null;
+    const failOnLost = dcfg ? (dcfg.failOnObjectiveLost !== false) : true;
+    if (failOnLost) {
+      finishEncounter(enc, events, 'defeat', 'objective-lost');
+      return events;
+    }
   }
 
   const wave = encCurrentWave(enc);

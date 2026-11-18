@@ -497,6 +497,238 @@ function kindHash(seed, salt) {
 }
 
 /**
+ * 单节点类型标签的**唯一实现体**（M3-J 抽出）。
+ *
+ * 抽出的原因：M3-J 需要「生成期几何」知道本节点是什么类型，而类型原本在 makeNode 末尾
+ *   才写。若在几何处另算一遍就会形成两套口径（改一处忘一处的经典事故）。故把原末尾的
+ *   内联三元表达式原样搬到这里，makeNode 前后**各调用一次同一个函数**——前瞻只为几何，
+ *   末尾那次仍是唯一的写入点，两者结果必然相等（纯哈希，不耗 rng）。
+ *
+ * @param {object} o
+ * @param {number} o.seed 节点模板种子（templateResult.seed）
+ * @param {number} o.index 节点索引
+ * @param {any} o.cfg RULES.nodeKinds（未开启时传 null）
+ * @param {boolean} [o.boss] 是否 Boss 节点
+ * @param {boolean} [o.noEnemies] 是否生存模式节点
+ * @returns {string|null} 类型标签；cfg 为 null 或 Boss/生存时返回 null
+ */
+function computeNodeKind(o) {
+  const s = /** @type {any} */ (o || {});
+  if (!s.cfg) return null;
+  if (s.boss || s.noEnemies) return null;
+  // index 0 恒歼灭（教学节点）——但仅对**非战斗类型**的 forceKind 生效：
+  //   强制商店/补给/事件时从 node 1 开始（否则第一屏直接进结算，试玩不到战斗）；
+  //   强制 defend/capture/breakthrough 时 node 0 就是该类型，便于立即试玩。
+  const fk = s.cfg.forceKind;
+  const fkNonCombat = fk === 'shop' || fk === 'supply' || fk === 'event';
+  if (fk && !(s.index === 0 && fkNonCombat)) return fk;
+  return baseKindFor(s.seed, s.index, s.cfg);
+}
+
+/**
+ * 类型专属几何规划（M3-J，生成期一次算完）。
+ *
+ * 职责边界：**只产数据 + 按通道清障，不写 node**（node 尚未组装完）。返回的 covers 由
+ *   makeNode 追加进 templateResult.covers；typeObjective 由 makeNode 写进 node。
+ *
+ * 三类产出：
+ *   · defend       → 守点位置（靠近出生侧）+ 护墙环（数个缺口 ⇒ 只能从固定方向命中）
+ *   · capture      → 独立的占领点分布（脱离防线锚点，改前空间完全重合）
+ *   · breakthrough → 通道（清掉占道的阻挡物 + 两侧巷道墙）
+ *
+ * 零回归：任何前置条件不满足（总开关关闭 / cfg.geometry.enabled false / kind 非三型之一 /
+ *   Boss / 生存 / 地图过小）一律返回 null，调用方整段跳过。
+ *
+ * @param {object} o
+ * @param {string|null} o.kind 节点类型
+ * @param {number} o.w 节点宽
+ * @param {number} o.h 节点高
+ * @param {Array} o.covers 掩体数组（**会被 splice 就地清障**——仅 breakthrough 通道内）
+ * @param {{x:number,y:number}} o.playerSpawn
+ * @param {number} o.exitX 出口 x
+ * @param {number} o.firstDefenseX 首道防线 x
+ * @param {number} o.seed 节点种子
+ * @param {any} o.cfg RULES.nodeKinds.geometry（可缺省）
+ * @returns {any|null} { kind, covers:Array, typeObjective:any, channelRemoved:number }
+ */
+function planNodeKindGeometry(o) {
+  const s = /** @type {any} */ (o || {});
+  const kind = s.kind;
+  const cfg = s.cfg;
+  const w = s.w, h = s.h;
+  if (!kind || kind === 'exterminate' || !cfg || cfg.enabled !== true) return null;
+  if (!(w > 0) || !(h > 0)) return null;
+  // 目标几何函数的取用：浏览器端 `tank_objectives.js` 以全局脚本先于本模块加载 ⇒ 函数在全局；
+  //   Node 端走 require('./tank_objectives.js')（惰性 + try，与 tank_ai.js / tank_fire.js 同款约定）。
+  //   两条路径任一可用即可；都不可用就返回 null（宁可退回旧行为，也不半途而废）。
+  let objMod = null;
+  if (typeof require !== 'undefined') {
+    try { objMod = require('./tank_objectives.js'); } catch (e) { objMod = null; }
+  }
+  const pick = (name) => ((typeof globalThis !== 'undefined' && typeof globalThis[name] === 'function')
+    ? globalThis[name]
+    : ((objMod && typeof objMod[name] === 'function') ? objMod[name] : null));
+  const planDefendObjective = pick('planDefendObjective');
+  const planGuardRing = pick('planGuardRing');
+  const planCapturePoints = pick('planCapturePoints');
+  const planBreakthroughChannel = pick('planBreakthroughChannel');
+  const coverBlocksChannel = pick('coverBlocksChannel');
+  if (!planDefendObjective || !planGuardRing || !planCapturePoints
+      || !planBreakthroughChannel || !coverBlocksChannel) return null;
+
+  const covers = Array.isArray(s.covers) ? s.covers : [];
+  const seed = Number.isFinite(s.seed) ? s.seed : 0;
+
+  if (kind === 'defend') {
+    const gcfg = cfg.guardRing || {};
+    const pos = planDefendObjective({
+      w: w, h: h, spawn: s.playerSpawn, firstDefenseX: s.firstDefenseX, seed: seed,
+    });
+    const ring = planGuardRing({
+      x: pos.x, y: pos.y,
+      radius: gcfg.radius, thickness: gcfg.thickness, gaps: gcfg.gaps,
+      gapWidth: gcfg.gapWidth, blockLen: gcfg.blockLen, tier: gcfg.tier,
+      margin: gcfg.margin, w: w, h: h,
+      // 缺口相位：按 seed 确定性错开，避免每张图的缺口都在正东/正南（读图重复）
+      angleOffset: (kindHash(seed, 'ring:phase') * Math.PI * 2),
+    });
+    return { kind: kind, covers: ring.blocks,
+      typeObjective: { kind: 'guardTarget', x: pos.x, y: pos.y, radius: ring.radius,
+        gaps: ring.gaps, tier: ring.tier, clearRadius: pos.clearRadius },
+      channelRemoved: 0 };
+  }
+
+  if (kind === 'capture') {
+    const ccfg = cfg.capturePoints || {};
+    // 点数取 nodeKinds.capture 的 pointsMin~Max（按 seed 确定性取一档），
+    //   缺省 3。改前页面侧用的是「前 N 个防御点」，N 来自 capture 段 ⇒ 这里同源。
+    const kc = (RULES.nodeKinds && RULES.nodeKinds.capture) ? RULES.nodeKinds.capture : null;
+    const pMin = (kc && Number.isFinite(kc.pointsMin)) ? Math.max(1, Math.round(kc.pointsMin)) : 3;
+    const pMax = (kc && Number.isFinite(kc.pointsMax)) ? Math.max(pMin, Math.round(kc.pointsMax)) : pMin;
+    const count = pMin + Math.floor(kindHash(seed, 'cap:count') * (pMax - pMin + 1));
+    const pts = planCapturePoints({
+      w: w, h: h, count: Math.min(pMax, count), seed: seed,
+      x0: w * (ccfg.x0Fraction !== undefined ? ccfg.x0Fraction : 0.30),
+      x1: w * (ccfg.x1Fraction !== undefined ? ccfg.x1Fraction : 0.86),
+      ySpread: ccfg.ySpread,
+    });
+    return { kind: kind, covers: [], typeObjective: { kind: 'capturePoints', points: pts },
+      channelRemoved: 0 };
+  }
+
+  if (kind === 'breakthrough') {
+    const chcfg = cfg.channel || {};
+    const ch = planBreakthroughChannel({
+      w: w, h: h, spawn: s.playerSpawn, exitX: s.exitX,
+      width: chcfg.width, wallThickness: chcfg.wallThickness, wallTier: chcfg.wallTier,
+    });
+    // 清障：通道内的**阻挡物**从 covers 就地移除（水面/道路/减速地形不动——地形不是障碍）。
+    const tiers = (typeof RULES !== 'undefined' && RULES.coverTiers) ? RULES.coverTiers : null;
+    let removed = 0;
+    for (let i = covers.length - 1; i >= 0; i--) {
+      if (coverBlocksChannel(covers[i], ch, tiers)) { covers.splice(i, 1); removed++; }
+    }
+    return { kind: kind, covers: ch.walls, typeObjective: { kind: 'channel', channel: ch },
+      channelRemoved: removed };
+  }
+
+  return null;
+}
+
+/**
+ * **后置**重规划类型几何（M3-J 补丁 2026-11-03）：链级规则 `applyRunKinds` 在 makeNode
+ *   **之后**才把中段的战斗节点改写为 `breakthrough`（非战斗替换同理），而那一步不动地图 ⇒
+ *   该节点实测 `kind==='breakthrough'` 但 `typeObjective===null`、`channelWall` 数量 0，
+ *   地图与歼灭节点逐字节相同。这正是「节点类型只是改名」的**第二处病灶**（第一处是生成期
+ *   不按 kind 建几何，已由 planNodeKindGeometry 修掉）。
+ *
+ * 与 `planNodeKindGeometry` 的分工：那个用于生成期（covers 尚未定稿、敌人尚未生成，可借拒绝
+ *   采样天然避让）；本函数用于生成后重规划，必须**自己补两件事**：
+ *     ① 摘掉上一次类型留下的结构（`guardRing` / `channelWall` 标记的 cover）——否则会出现
+ *        「capture 的占领点 + defend 的护墙环 + breakthrough 的巷道」三层叠加；
+ *     ② 把被新结构压住的敌人推到结构外——生成后的敌人不再走拒绝采样，卡在墙里会永久堵住通道。
+ *
+ * 零回归：kind 非三型之一 / 几何开关关闭 / 缺几何依赖 ⇒ 返回 null 且一行不改。
+ *
+ * @param {any} node 已生成的节点（就地修改：covers / typeObjective / enemies）
+ * @param {string|null} kind 目标类型
+ * @returns {any|null} planNodeKindGeometry 的产出，或 null
+ */
+function applyNodeKindGeometry(node, kind) {
+  if (!node || typeof node !== 'object') return null;
+  const nkCfg = nodeKindsConfig();
+  if (!nkCfg || !nkCfg.geometry || nkCfg.geometry.enabled !== true) return null;
+  if (!Array.isArray(node.covers)) node.covers = [];
+  // 三型之外（歼灭 / 非战斗 shop-supply-event）：仍要**摘掉旧结构**——一个 defend 节点被
+  //   链级规则改写成 shop 后若还留着护墙环与 guardTarget，玩家会看见「商店里长了个要塞」。
+  //   故先判「是否有旧结构要摘」，没有就直接返回（未变的普通节点逐字节不动）。
+  const GEO_KINDS = { defend: 1, capture: 1, breakthrough: 1 };
+  let hasStructure = false;
+  for (const c of node.covers) {
+    if (c && (c.guardRing === true || c.channelWall === true)) { hasStructure = true; break; }
+  }
+  if (!GEO_KINDS[kind] && !hasStructure && !node.typeObjective) return null;
+  // ① 摘掉上一次类型留下的结构（按标记字段，不按 tier —— intact 同时被楼房/防御墙复用）
+  if (hasStructure) {
+    for (let i = node.covers.length - 1; i >= 0; i--) {
+      const c = node.covers[i];
+      if (c && (c.guardRing === true || c.channelWall === true)) node.covers.splice(i, 1);
+    }
+  }
+  if (!GEO_KINDS[kind]) {
+    // 改成非几何类型（或歼灭）：旧结构已摘，目标数据一并作废（不留悬空 typeObjective）
+    node.typeObjective = null;
+    return null;
+  }
+  // 首道防线 x：node.defenseLines 只存 { x0, x1 }（makeNode 收窄时丢了 center），取桶中心
+  let firstDefenseX = 0;
+  if (Array.isArray(node.defenseLines) && node.defenseLines.length) {
+    const l0 = node.defenseLines[0];
+    if (l0 && Number.isFinite(l0.x0) && Number.isFinite(l0.x1)) firstDefenseX = (l0.x0 + l0.x1) / 2;
+    else if (l0 && Number.isFinite(l0.center)) firstDefenseX = l0.center;
+  }
+  if (!(firstDefenseX > 0)) firstDefenseX = node.w * 0.55;
+  const geo = planNodeKindGeometry({
+    kind: kind,
+    w: node.w, h: node.h,
+    covers: node.covers,          // breakthrough 分支会就地清障（splice）
+    playerSpawn: node.playerSpawn,
+    exitX: node.exitX,
+    firstDefenseX: firstDefenseX,
+    seed: Number.isFinite(node.seed) ? node.seed : 0,
+    cfg: nkCfg.geometry,
+  });
+  if (!geo) return null;
+  for (const gb of geo.covers) node.covers.push(gb);
+  node.typeObjective = geo.typeObjective;
+  // ② 把压在新结构里的敌人推出去（生成期已过的拒绝采样不再生效）。
+  //    只处理**新增结构**（护墙环块 / 巷道墙），推力方向取「离结构中心最近的一侧」，
+  //    推到结构外包络 + 60px 之外 —— 与页面落位钳制 margin 60 同口径。
+  const pushOut = (cov, pad) => {
+    if (!cov || !Array.isArray(node.enemies)) return 0;
+    const w = Math.abs(cov.w || 0), h = Math.abs(cov.h || 0);
+    const a = cov.angle || 0;
+    const ex = (Math.abs(Math.cos(a)) * w + Math.abs(Math.sin(a)) * h) / 2;
+    const ey = (Math.abs(Math.sin(a)) * w + Math.abs(Math.cos(a)) * h) / 2;
+    let moved = 0;
+    for (const e of node.enemies) {
+      if (!e || !Number.isFinite(e.x) || !Number.isFinite(e.y)) continue;
+      // 与 pointInCover 同口径的「圆心 + 半径」判定：坦克按 40px 半径保守推离
+      const rr = pad;
+      if (Math.abs(e.x - cov.x) > ex + rr || Math.abs(e.y - cov.y) > ey + rr) continue;
+      const dyUp = (cov.y - ey - rr) - e.y;      // 推到上侧需移动的量（负 = 向上）
+      const dyDn = (cov.y + ey + rr) - e.y;      // 推到下侧需移动的量（正 = 向下）
+      e.y = (Math.abs(dyUp) <= Math.abs(dyDn)) ? (cov.y - ey - rr) : (cov.y + ey + rr);
+      e.y = Math.max(60, Math.min((node.h || 1440) - 60, e.y));
+      moved++;
+    }
+    return moved;
+  };
+  for (const gb of geo.covers) pushOut(gb, 40);
+  return geo;
+}
+
+/**
  * 单节点基础类型（链级规则之前）：index 0 恒歼灭（教学节点）；其余按分型开关与 share 抽样。
  * @param {any} seed 节点模板种子（templateResult.seed）
  * @param {number} index 节点索引
@@ -528,6 +760,10 @@ function applyRunKinds(nodes, fromIndex) {
   const start = Math.max(0, fromIndex | 0);
   const isNonCombat = k => k === 'shop' || k === 'supply' || k === 'event';
   const isTyped = n => n && n.kind !== null && n.kind !== undefined;
+  // 2026-11-03 M3-J：本函数会**改 kind**，而类型专属几何在 makeNode 里按「生成期前瞻 kind」建。
+  //   改完必须重规划，否则 breakthrough / 非战斗替换这两类节点永远没有专属几何 ⇒ 地图与
+  //   歼灭节点逐字节相同（「只是改名」的第二处病灶）。这里只对**真正变了**的节点重规划。
+  const changed = [];
 
   // ① 突破变速器：全链中段的战斗节点（已有 breakthrough 则不再移动——已打过的节点不能改语义）
   if (cfg.breakthrough && cfg.breakthrough.enabled) {
@@ -535,7 +771,7 @@ function applyRunKinds(nodes, fromIndex) {
     if (!has) {
       const combat = nodes.filter(n => isTyped(n) && !isNonCombat(n.kind));
       const mid = combat[Math.floor((combat.length - 1) / 2)];
-      if (mid) mid.kind = 'breakthrough';
+      if (mid) { mid.kind = 'breakthrough'; changed.push(mid); }
     }
   }
 
@@ -549,6 +785,7 @@ function applyRunKinds(nodes, fromIndex) {
       if (n.kind === 'breakthrough' || isNonCombat(n.kind)) continue;
       const r = kindHash(n.seed, 'noncombat:' + i);
       n.kind = r < 0.5 ? 'shop' : (r < 0.8 ? 'supply' : 'event');
+      changed.push(n);
     }
     // 占比上限（maxSharePct）：超限时从链尾回退为歼灭，保证「替换不追加」不演变成占比失控
     const maxShare = Number.isFinite(cfg.nonCombat.maxSharePct) ? cfg.nonCombat.maxSharePct : 0.25;
@@ -556,7 +793,18 @@ function applyRunKinds(nodes, fromIndex) {
     let cnt = nodes.filter(n => n && isNonCombat(n.kind)).length;
     for (let i = nodes.length - 1; i >= 0 && cnt > limit; i--) {
       const n = nodes[i];
-      if (n && isNonCombat(n.kind)) { n.kind = 'exterminate'; cnt--; }
+      if (n && isNonCombat(n.kind)) { n.kind = 'exterminate'; cnt--; changed.push(n); }
+    }
+  }
+
+  // ③ 几何重规划：只对「kind 真变过」的节点重跑类型几何（摘旧结构 → 建新结构 → 推离敌人）。
+  //    未变的节点逐字节不动 ⇒ 同 seed 的既有节点封面/敌人坐标零差异。
+  if (changed.length) {
+    const seen = new Set();
+    for (const n of changed) {
+      if (!n || seen.has(n)) continue;
+      seen.add(n);
+      applyNodeKindGeometry(n, n.kind);
     }
   }
   return nodes;
@@ -835,7 +1083,9 @@ function makeNode(index, rng, env) {
   // 若因极端密集掩体未填满，由下方全图网格兜底补满。
   // #N4：strip 节点 covers 300~1100 —— 点位选址统一走 buildCoverIndex 空间索引
   // （pointInCoverIndexed 与 pointInCover 语义一致，只是候选集收窄；CPU profile 实测热点）。
-  const coverIdx = buildCoverIndex(templateResult.covers);
+  // M3-J（2026-11-03）：改 `let` —— 类型专属几何（护墙环 / 通道墙）在防线规划之后才 push
+  //   进 covers，索引必须重建一次，否则拒绝采样看不到新墙 ⇒ 敌人会生在护墙环里。
+  let coverIdx = buildCoverIndex(templateResult.covers);
   const hitsCover = (px, py, pad) => pointInCoverIndexed(coverIdx, templateResult.covers, px, py, pad);
   const enemyCount = enemyCountForDifficulty(diff);
   const diffCfg = difficultyConfig() || {};
@@ -921,6 +1171,40 @@ function makeNode(index, rng, env) {
     }
   }
   const targetCount = noEnemies ? 0 : defense.targetCount;
+
+  // ---- 类型标签的**前瞻计算**（M3-J）：几何规划要用 kind，而 kind 原本在 makeNode 末尾才写。
+  //   kind 是 (seed, index) 的纯哈希 + forceKind 覆写，**不耗 rng** ⇒ 提前算一次与末尾算
+  //   结果必然相同（末尾仍走同一函数，单一实现体，不存在两套口径）。
+  const nkCfgPreview = nodeKindsConfig();
+  const kindPreview = computeNodeKind({
+    seed: templateResult.seed, index: index, cfg: nkCfgPreview,
+    boss: isBoss, noEnemies: noEnemies,
+  });
+
+  // ======================= M3-J（2026-11-03）：类型专属几何 =======================
+  //   本段是「节点类型不再只是改名」的核心接线：在掩体/防线/防御点**已定稿**、
+  //   敌人生成**之前**，按 node 类型往 covers 里落类型专属结构（护墙环 / 通道），
+  //   并算出类型专属目标点（守点位置 / 占领点）。敌人生成在其后 ⇒ 护墙环内的
+  //   拒绝采样（hitsCover）天然生效，敌人不会生在环内。
+  //
+  //   零回归：kindGeometry 为 null（总开关关闭 / 非类型节点 / Boss / 生存）时整段跳过，
+  //   一行都不执行 ⇒ covers 与改前逐字节一致（test-map / test-nodegen-snapshot 锁）。
+  const kindGeometry = planNodeKindGeometry({
+    kind: kindPreview, w: w, h: h, covers: templateResult.covers,
+    playerSpawn: playerSpawn, exitX: w * ((cfg.exitZone && cfg.exitZone.xFraction !== undefined)
+      ? cfg.exitZone.xFraction : 0.93),
+    firstDefenseX: (defense.lines && defense.lines.length && Number.isFinite(defense.lines[0].center))
+      ? defense.lines[0].center : w * 0.55,
+    seed: templateResult.seed,
+    // 几何参数取 RULES.nodeKinds.geometry（**不是** RULES.nodeMap —— 后者是本函数顶部的 cfg）
+    cfg: (nkCfgPreview && nkCfgPreview.geometry) || null,
+  });
+  if (kindGeometry) {
+    for (const gb of kindGeometry.covers) templateResult.covers.push(gb);
+    // 索引重建：hitsCover 闭包读的是 coverIdx 变量 ⇒ 重赋值后闭包立即生效。
+    //   护墙环/通道墙参与后续全部拒绝采样（敌人生成 / 据点选址 / 补给站选址）。
+    if (kindGeometry.covers.length) coverIdx = buildCoverIndex(templateResult.covers);
+  }
 
   // ==== 2026-10-22 防线墙体（用户反馈「掩体摆放过于随机，要呈现 1 个防线的样子，
   //   防御玩家可能进攻的 2-3 个方向」）====
@@ -1326,21 +1610,24 @@ function makeNode(index, rng, env) {
       : [],
     exitX: w * ((cfg.exitZone && cfg.exitZone.xFraction !== undefined) ? cfg.exitZone.xFraction : 0.93),
     outpost: outpost,
+    // M3-J（2026-11-03）：类型专属目标数据（守点坐标 / 占领点 / 通道）。
+    //   null 时**不写语义差异**（老行为）；只有在 nodeKinds 总开关打开且本节点是三型之一时才非空。
+    //   页面消费：battle 用 guardTarget 位置建护墙环内的守点、用 capturePoints 建占领区。
+    typeObjective: kindGeometry ? kindGeometry.typeObjective : null,
     // #N4：本节点生成收尾的 rng 状态（extendRun 免重放续接用；与节点内容同级确定性）
     rngState: (typeof rng.getState === 'function') ? rng.getState() : undefined,
     cleared: false
   };
   // M3-B（2026-11-02）：类型标签——关闭态**不写字段**（零回归，test-map 有负向断言）；
   //   Boss / 生存节点 kind = null（不参与类型体系，见 specs/combat/node-mission-types.md）。
+  // M3-J（2026-11-03）：改为调用 computeNodeKind —— 与生成期几何前瞻**同一个实现体**，
+  //   杜绝「几何按 A 算、标签写 B」的两套口径。
   const nkCfg = nodeKindsConfig();
   if (nkCfg) {
-    // index 0 恒歼灭（教学节点）——但仅对**非战斗类型**的 forceKind 生效：
-    //   强制商店/补给/事件时从 node 1 开始（否则第一屏直接进结算，试玩不到战斗）；
-    //   强制 defend/capture/breakthrough 时 node 0 就是该类型，便于立即试玩。
-    const fk = nkCfg.forceKind;
-    const fkNonCombat = fk === 'shop' || fk === 'supply' || fk === 'event';
-    node.kind = (bossMark || noEnemies) ? null
-      : ((fk && !(index === 0 && fkNonCombat)) ? fk : baseKindFor(templateResult.seed, index, nkCfg));
+    node.kind = computeNodeKind({
+      seed: templateResult.seed, index: index, cfg: nkCfg,
+      boss: bossMark, noEnemies: noEnemies,
+    });
   }
   return node;
 }
@@ -2279,6 +2566,8 @@ if (typeof module !== 'undefined' && module.exports) {
     nodeKindsConfig,
     kindHash,
     baseKindFor,
+    computeNodeKind,
+    planNodeKindGeometry,
     applyRunKinds,
     generateSurvivalRun,
     placeSupplyStations,
