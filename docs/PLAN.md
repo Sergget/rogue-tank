@@ -386,7 +386,7 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 
 **硬串行链**：**M3-A → M3-B → M3-C → M3-E → M3-F → M3-G → M3-H → M3-J**；**M3-D 与特性链并行**，结果并入 M3-J 收口；**N8 无实施批次**（见下）。串行理由：① `RULES`（`js/tank_rules.js`）只有一个写者（`role-systems`），键名契约必须先于消费端落地（§2.8.5 派活契约纪律）；② `tank_battle.html` **单写者**——M3-C/E/F/G/H 都触页面；③ `js/tank_encounter.js` 仅 `role-systems`——E/F/G 的新 condition 同文件串行；④ 奖励绑定依赖 `node.kind` 已落（设计预留页明示「依赖类型字段落 `node.kind`」）。
 
-> **实施状态（2026-11-02）**：**M3-A~M3-H 已全部落地**（§4.203~§4.210；全部开关默认 `false`、零回归），**仅剩 M3-J 校准与 4 步收口**。下表保留为各批完成门与回退点的原始口径。
+> **实施状态（2026-11-03）**：**M3-A~M3-H 已全部落地**（§4.203~§4.210；全部开关默认 `false`、零回归）；**M3-J 结构批已补落地（§4.212）**——类型专属地图几何（守点护墙环 / 占领点散列 / 突破通道）+ 敌方目标欲望按类型分档，解掉「各类型只是改名」的问题（用户 2026-11-02 指认）。**仅剩 M3-J 的数值校准与 4 步生命周期收口**。下表保留为各批完成门与回退点的原始口径。
 
 | 批次 | 目标（一句话） | 依赖 / 串行 | 写域 | 完成门（机械可验证） | 回退点 |
 |---|---|---|---|---|---|
@@ -399,6 +399,7 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 | **M3-G** | 突破变速器（N5）：限时抵达出口（`exitX`）+ 敌人拦截非全灭（可打可绕）+ 失败 = 低分 settlement（非 gameover）+ 公路加速 | M3-F 后（同文件串行） | `js/tank_encounter.js`（`role-systems`·新 condition）+ `tank_battle.html`（页面单写者） | `scripts/test-encounter.js` 新增：倒计时内达出口 / 超时两条路径；**负向**：玩家存活但超时 ≠ gameover（低分结算）；突破节点行为与歼灭节点可辨 | `RULES.nodeKinds.breakthrough.enabled=false` ⇒ 链上不出突破节点 |
 | **M3-H** | 非战斗节点路由（N6）：商店 / 补给 / 事件节点进节点图 HUD 类型标签 + 抵达路由（商店走 `buildRunShopInto`、补给走 `supplyStations`、事件走选卡管线），「替换不追加」护栏实测 | M3-G 后（页面单写者收尾） | `tank_battle.html`（页面单写者） | 浏览器链（`role-verify-docs`）：非战斗节点抵达走对应管线、无 console error；`scripts/test-map.js` **负向**：整链节点总数不因非战斗节点上升；各类型占比与总量约束有断言 | 非战斗节点替换开关（随 M3-B 总开关或独立 `RULES.nodeKinds.nonCombat.enabled`）关闭 ⇒ 现行链无商店/事件节点 |
 | **M3-J** | 校准与收口（N1 汇总 + MS3 总门）：全类型 `measure-encounter --mode=real` ≥3 次中位校准 [PLACEHOLDER] 参数；4 步生命周期收口（specs combat 卷唯一口径 + DEVELOPMENT §4.x + 删条目 + 归档） | 链尾；M3-D 结果并入 | `scripts/` + `docs/`（`role-verify-docs`） | 中位 ∈ 180~300s、理想天花板 ≥180s、`breather` 占比 ≤25%；**负向**：`enemyClassProfiles[].maxHp` 的 `diff` 为空（堆血量禁区 grep，先例 `scripts/test-p2g-wiring.js`）；`npm run check` / `npm test` / `test:browser` / `wiki-check` 全绿；`node-mission-types.md` 按 §2.3 三步改「现行」 | 无（测量/文档批）；任一门不过 = 对应特性批回退后重测 |
+| **M3-J 结构批（2026-11-03 补，已落地 §4.212）** | 类型专属**内容结构**：把类型差异从语义层下沉到地图生成期——`defend` 守点护墙环（几何涌现「数个方向可打、近处更易命中」）、`capture` 占领点脱离防线散列、`breakthrough` 通道净空；`engage` 敌方目标欲望按类型分档 | 与 M3-J 校准同链尾（校准前必须先有可校准的内容结构） | `js/tank_objectives.js`（新）+ `js/tank_map.js` + `js/tank_rules.js` + `tank_battle.html` + `js/tank_ai.js` + `js/tank_encounter.js` | `scripts/test-node-objectives.js`（43 项）；`test-encounter` 的 `defeat.failReason` 双向断言；`test-map` / `test-node-kinds` 零回归；**负向**：`bias=0` 时 AI 目标必须等于玩家、守点 hp=0 必须回落玩家、非几何类型不得残留旧结构 | `RULES.nodeKinds.enabled=false` ⇒ 生成期不建任何结构、AI 目标恒为玩家（逐字节零回归） |
 
 **N8 冲撞暴君降级：MS3 零实施批次**——设计层口径已落 `docs/specs/boss/challenge-design.md`「冲撞暴君降级与备选池重排」（rank 5，降级为单阶段武装点缀）；实施挂靠 Boss 挑战设计（PLAN §1 第 8 行，待车库武器固化同批启动）。本次不排 Boss 实现（§2.8.6 裁定 3）。
 
@@ -433,7 +434,7 @@ A0 与 R1 可并行，但必须遵守单写者规则：AI/命令逻辑与 Three.
 | 4 | **同批翻 D2+D3 开关** | 3 | 重测 ≥3 次 + 浏览器 encounter 链 + 软锁负向断言（`garrisonFallbackSeconds=0` 时保护必须消失） |
 | 5 | **D4 分档标定** | 4 | 低/高难度各 ≥3 次；同屏峰值 ≤ 分档值 |
 | 6 | **MS3 内容量校准（D1 口径）** | 3~5 | 单节点 180~300s、理想天花板 ≥180s、breather ≤25%、`maxHp.diff` 为空 |
-| 7 | **M3-C~M3-J**（类型-奖励 / 防御 / 占领 / 突破 / 非战斗节点 / 校准收口） | 6 | **M3-C~M3-H 已落地（§4.205~§4.210）**；**M3-J 校准待做**（参数仍 `[PLACEHOLDER]`，4 步收口未走） |
+| 7 | **M3-C~M3-J**（类型-奖励 / 防御 / 占领 / 突破 / 非战斗节点 / 校准收口） | 6 | **M3-C~M3-H 已落地（§4.205~§4.210）**；**M3-J 结构批已落地（§4.212）**——类型专属几何 + 敌方目标欲望，「各类型只是改名」已解；**仅剩 M3-J 数值校准待做**（参数仍 `[PLACEHOLDER]`，4 步收口未走） |
 | 8 | **车库武器固化（D6）** | 7 | 见 `specs/combat/weapon-binding.md` 落地清单 |
 | 9 | **MS4 资产探针（D7，并行）** | — | 一辆贴图模型进 3D 场景 + 1080p 可读 + `baseline:3d --all` 可复现 |
 | 10 | **MS5 Go/No-Go** | 9 | 六维每格有测试链名 / 截图 / 实测数字 |
