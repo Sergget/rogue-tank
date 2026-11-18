@@ -1107,13 +1107,46 @@ section('⑯ 标准模式钳制参数（D1a）');
     ok(enc.outcome === 'victory', 'M3-E：守点目标存活 + 波清 ⇒ victory');
     ok(v && v.objectiveFailed === false, 'M3-E：胜利载荷 objectiveFailed=false');
   }
+  // 2026-11-03 M3-J（用户裁定）：**守点被毁 = 本节点失败**——改前只把存活 bonus 归零、
+  //   波全清仍判 victory，defend 与歼灭只在加分上不同，任务语义不成立。
+  //   新口径：objective-lost 之后立刻走 defeat 分支，且**必须带 failReason**。
+  //   为什么 failReason 是硬要求（不是锦上添花）：页面 case 'defeat' 收到没有 reason 的
+  //   defeat 只能按历史口径「玩家阵亡」处理（只记日志），而守点被毁时玩家没死、复活管线
+  //   不会被触发 ⇒ 既不结算也不 gameover ⇒ 玩家打完剩下波次也永远出不去（确定性软锁）。
   {
     const enc = createEncounter({ seed: 31, rules: W2, kind: 'defend', mode: 'timed' });
     const log = runEnc(enc, () => mkCtx({ enemyAlive: 0, objectiveAlive: false }), 60);
-    const v = log.find(e => e.type === 'victory');
+    const d = log.find(e => e.type === 'defeat');
     ok(log.some(e => e.type === 'objective-lost'), 'M3-E：目标被毁 ⇒ 发 objective-lost');
-    ok(enc.outcome === 'victory', 'M3-E 负向：目标被毁 ≠ gameover（仍以 victory 收场）');
-    ok(v && v.objectiveFailed === true, 'M3-E：胜利载荷 objectiveFailed=true（存活 bonus 归零）');
+    ok(enc.outcome === 'defeat', 'M3-E：目标被毁 ⇒ defeat（不再以 victory 收场）');
+    ok(!!d, 'M3-E：defeat 事件载荷存在');
+    ok(d && d.failReason === 'objective-lost', 'M3-J：defeat 载荷 failReason=objective-lost（页面据此走低分结算）');
+    ok(enc.failReason === 'objective-lost', 'M3-J：enc.failReason 同步落库（终局后仍可审计）');
+    ok(!log.some(e => e.type === 'victory'), 'M3-E 负向：目标被毁后不得再判 victory');
+  }
+  // 玩家阵亡与守点被毁必须归纳成**不同**的 failReason——两者页面处置完全不同
+  //   （player-dead 走既有复活/gameover 管线；objective-lost 走低分结算）。混为一谈
+  //   就会让其中一条变成哑分支，这正是软锁的来源。
+  {
+    const enc = createEncounter({ seed: 33, rules: W2, kind: 'defend', mode: 'timed' });
+    const log = runEnc(enc, () => mkCtx({ playerAlive: false }), 5);
+    const d = log.find(e => e.type === 'defeat');
+    ok(!!d, 'M3-J：玩家阵亡 ⇒ 发 defeat');
+    ok(d && d.failReason === 'player-dead', 'M3-J：玩家阵亡的 failReason=player-dead（与 objective-lost 区分）');
+  }
+  // 回退开关负向：failOnObjectiveLost=false ⇒ 恢复旧行为（bonus 归零但仍 victory）。
+  {
+    const prev = RULES.nodeKinds.defend.failOnObjectiveLost;
+    RULES.nodeKinds.defend.failOnObjectiveLost = false;
+    try {
+      const enc = createEncounter({ seed: 31, rules: W2, kind: 'defend', mode: 'timed' });
+      const log = runEnc(enc, () => mkCtx({ enemyAlive: 0, objectiveAlive: false }), 60);
+      const v = log.find(e => e.type === 'victory');
+      ok(enc.outcome === 'victory', 'M3-E 开关回退：failOnObjectiveLost=false ⇒ 仍以 victory 收场');
+      ok(v && v.objectiveFailed === true, 'M3-E 开关回退：胜利载荷 objectiveFailed=true（bonus 归零）');
+    } finally {
+      RULES.nodeKinds.defend.failOnObjectiveLost = prev;
+    }
   }
 
   section('M3-F 占领节点');

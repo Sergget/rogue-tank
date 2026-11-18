@@ -41,6 +41,8 @@ const TESTS = [
   'scripts/test-map.js',
   // 2026-11-02 M3-D：歼灭正名与 node.kind 枚举一致性审计（静态扫描 + 检测器负向自证）。
   'scripts/test-node-kinds.js',
+  // 2026-11-03 M3-J：节点类型目标几何（护墙环扇区/瞄准容差）与敌方目标欲望。
+  'scripts/test-node-objectives.js',
   'scripts/test-exit-reachability.js',
   'scripts/test-modes.js',
   'scripts/test-flow.js',
