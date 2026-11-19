@@ -656,3 +656,22 @@ battle 的瞄准器有两种风格（`profile.settings.aimStyle`：`default` / `
 - **玩家火力落点验证**：`enemyHpSum` 首 216 → 最低 0 · 击杀峰值 2 · 玩家开火 33 次 ⇒ 玩家火力**确实有效**（敌血下降 216），清场能力不足是「3 敌集火 + 单辆坦克」的强度问题，不是命中问题。
 - **验证**：`node scripts/test-covers.js` → All passed（含 3 条 §4.216 新断言）；`node scripts/test-ai.js` → 全部通过；`node scripts/test-squad.js` → 全部通过；`node scripts/run-tests.js` → **88 通过 / 0 失败 / 88 项 / 178.2s**，exit=0；`npm run check` → All checks passed（`tsc --noEmit` 零输出）；`node scripts/wiki-check.js` → `files=106 pages=78 links=1988 broken=0 anchors=994 anchorBad=0 path=0 struct=0 template=0`。
 - **过程教训**：① **纯逻辑单测全绿 ≠ 真局可用**。守点自遮挡是几何问题，`test-ai` 喂的是构造好的 ctx、从不经过真实掩体列表，因此永远测不出；这类缺陷只能靠「真局探针 + 分桶计数」暴露。② **探针本身必须先被验证**。三处失真（不瞄准 / 把结算当卡死 / 已开火仍报门控坏）都会导向完全错误的结论——首版读数「敌方零开火」里有一半是探针自己造成的。凡是自动测量，先证明「测量工具能看见已知为真的事实」（例如玩家开火数必须 > 0）。③ **校准的敌人是测量误差，不是数值本身**。同一配置在修好探针前后得出「守点 8 秒被打爆」和「守点 60 秒被打爆」，中间差的不是参数而是观测能力。④ **构造出来的实体必须有「自己不挡自己」的语义**。守点、可拾取物、友军据点等一切「既能被瞄准又是掩体」的对象都会踩同一个坑，`opts.ignore` 是通用解而非局部补丁。
+
+## §4.217 守点被己方火力磨损（伤害归属错位）+ 校准探针 PLAN/HEAL/FIRE 档位（2026-11-19）
+
+**用户指认**：M3-J 数值校准继续。前一段已修「守点自遮挡视线」（§4.216），本段处理校准中暴露的下一个账目矛盾。
+
+- **观测到的矛盾**：`KIND=defend SEED=20261119 CAP=260`、`guardHp=60` 时，敌方开火分桶是「玩家 0（0%）· 守点 22（100%）」，但**守点耐久 60 → 0（掉满 60 点）**。单发命中固定扣 1 点（`js/tank_fire.js:1434` 的 `dmgCover(bestCover.cover,1,'shell')`；`js/tank_cover.js:190` 的 `damageCover` 只在 `hp` 非有限值时才短路）⇒ 22 发解释不了 60 点。
+- **归因手段：探针新增 `FIRE` 档位（`scripts/measure-encounter-real.cjs`）**。`FIRE=0` 时完全不派发 mousedown/mouseup（只推进不开火），与既有 `PLAN`（类型感知推进 / nearest）和 `HEAL`（自动回血）组成可组合开关，均经 `page.evaluate((probeCfg)=>{…}, {plan,heal,fire})` 传入——页面闭包读不到 `process.env`。
+- **归因结果（决定性）**：`FIRE=0` 同一 seed 同一配置下，敌方开火 **63 发全打守点**，守点 60 → 0。⇒ **关掉玩家火力后账目完全对得上（63 发 ≈ 60 点）**，原 22 发/60 点的差额**全部来自玩家自己**。
+- **根因**：守点是 `tier='building'`（`shellBlock:true` ⇒ 派生 `mode='solid'`）的实体掩体，**照常截停炮弹**；而 `stepShells` 的掩体命中分支对任何 `Number.isFinite(hp)` 的掩体扣 1 点耐久。探针守在守点旁 90px 朝敌人开火，被守点截停的每一发都在削自己要保护的目标 ⇒ **玩家在打自己的任务目标**，且「守点被毁 = 任务失败」的把关退化成了随机惩罚。
+- **修法一（直击豁免，`js/tank_fire.js`）**：掩体命中分支前置一个 `friendlyOnObjective` 判定 —— `!!(bestCover.cover.guardTarget && s.shooter && s.shooter.team !== 'enemy')`。命中守点且来自友方时**照常挡下炮弹**（守点仍是实体，不能穿它打人），但只记日志「守点目标不可由我方火力磨损」、**扣 0 伤害**。`guardTarget` 是 `spawnGuardTarget` 打的运行期标记，**不带该标记的楼房/掩体行为逐字节不变**。
+- **修法二（溅射豁免，`js/tank_cover.js`）**：`splashCoversAt` 循环里加 `if(cov.guardTarget) continue;` —— HE 在守点旁炸开时仍照常挡弹，但破障不该顺带削任务目标。豁免统一放在「不吃溅射」这一层，直击侧的「只有敌方火力能磨损」由修法一单独把关。
+- **回归断言（`scripts/test-fire.js` 新增 §4.217，7 条）**：己方炮弹被守点挡下（`dead===true`，锁「守点仍是实体」）/ 己方炮弹**不磨损**守点 / 敌方炮弹同样被挡下 / 敌方炮弹**正常磨损** 1 点（锁「豁免只针对己方」）/ **反证**：非 `guardTarget` 的同 tier `intact` 掩体仍会被己方炮弹磨损（锁「豁免不是按 tier 一刀切」）/ HE 溅射不波及守点 / 反证：同半径内普通掩体照常吃溅射。
+- **双向验证（真实见证）**：把 `js/tank_fire.js` 与 `js/tank_cover.js` 换回 `git show HEAD:` 版本 ⇒ 精确 2 条失败 —— `✗ §4.217 己方炮弹不磨损守点（耐久 60 → 59）`、`✗ §4.217 HE 溅射不波及守点（耐久应为 60，实际 59）`；换回修复版 ⇒ `All fire checks passed.`
+- **断言自身的一个坑（首版四个用例全假绿）**：初版用 `speed=200 × dt=0.05 = 10px/步`，而掩体入口在 `x=70` 恰是步长整数倍 ⇒ `findCoversOnPath` 的 `hit.t > 0.5 && hit.t < dist`（`js/tank_cover.js:1023/1026`）两边都不成立（本步终点 `t===dist` 过不了 `<`，下一步起点 `t===0` 过不了 `>`）⇒ **炮弹直接穿过去，四个用例全部没测到东西**。改用 `233 × 0.05 = 11.65px/步`（与任何整数入口面都不同余）后才有真信号。**教训：断言里的运动学参数必须避开几何边界，否则「通过」只是没碰撞。**
+- **校准探针另外两处改进**：① `page.reload` 的 `waitUntil` 由 `load` 改 `domcontentloaded`（本页 660KB 单体 + 多脚本，`load` 偶发 30s 不触发，实测同一 URL 手工 GET 恒 200）；② `losProbe` 判读从 `if (gBlockedOnly > 0)` 改为**按守点可见占比分档**（≥80% ✅ 通畅 / <20% ❌ 自遮挡回归 / 其余 ⚠ 混合）——旧判据恒为真，357 样本/守点可见 354 与 350 样本/守点可见 103 两种截然不同的情况会得出同一个结论。
+- **`guardHp` 定案 60（`js/tank_rules.js`）**：单波累计火力实测 ≈ 17~18 发（`guardHp=3000` 探针下 3000→2982/2983），3 波 ≈ 51~54、4 波 ≈ 68~72 ⇒ **60 = 放着不管第 3~4 波之间被打穿、玩家回防就能救下**。30（第一波必爆）与 3000（整场打不穿＝没有守点压力）都不成立。友军误伤修掉后复测（`CAP=300`）：W1 打完守点剩 32/60，正常进入 W2。
+- **`captureBias` 从死配置变活配置**：`js/tank_objectives.js` 新增 `captureZoneAsEntity(zone, id)`（`isObjective` + `isCaptureZone` + `hurtbox` 指回原圈；`hp:1` 用有限值，圈的「死活」由调用方按 `progress>=1` 过滤）；`tank_battle.html` 新增 `pickCaptureObjectiveFor(e)` **逐车取离自己最近的未拔圈**（单帧共享一个 objective 会让所有敌人扑同一个圈），传进 `pickEngageTarget`。实测 `KIND=capture`：敌方开火分桶出现「守点 18（22%）」⇒ 0.35 的抢点欲望真的生效，且低于 0.5 ⇒ 玩家在近处时仍优先打玩家。
+- **验证**：`node scripts/test-fire.js` → All passed（含 7 条新断言）；`node scripts/test-covers.js` → All passed；`node scripts/test-node-objectives.js` → **54 项全通过**；`node scripts/check-html.js` → All checks passed。
+- **过程教训**：① **校准前必须先做单变量归因**——把可能污染读数的行为（玩家开火）单独关掉再测，否则会把「玩家自伤」算成「敌方压力」，进而把参数越调越大；② **探针开关要可组合**（PLAN / HEAL / FIRE），而不是每遇一次困惑就改一次探针；③ **伤害归属必须显式建模**——「谁打的」在数据里没有，就只能靠推演，而推演会错；④ **断言里的步长/网格/采样点必须避开几何边界**，否则「通过」可能只是没碰到东西。
