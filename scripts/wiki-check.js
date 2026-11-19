@@ -79,6 +79,7 @@ for (const f of files) {
 
 // ---------- 链接与锚点 ----------
 const problems = [];
+const pathProblems = [];
 let linkTotal = 0, anchorTotal = 0;
 
 const TEMPLATE_FILE = path.resolve(DOCS, 'WIKI-STYLE.md');
@@ -101,9 +102,23 @@ for (const f of files) {
       if (/^(https?:|mailto:|tel:)/.test(target)) continue;
       if (isTemplate) continue;                    // 模板文件整体豁免
       linkTotal++;
+      const rel = path.relative(ROOT, f) + ':' + (i + 1);
+      // 2026-11-19：**跨平台路径断言**（先于存在性判定，否则本地会把 Windows 绝对路径解析成真文件而放行）。
+      //   失败史：`docs/DEVELOPMENT-batches-2026-11.md:307/308/311` 曾写成 `[](E:\Code\rogue-tank\...)`，
+      //   Windows 上 `path.resolve(dirname(f), 'E:\\...')` 直接返回该绝对路径且 `existsSync`=true
+      //   ⇒ 本地 wiki-check 全绿；Linux 上 `path.resolve('/home/runner/work/.../docs', 'E:\\...')` 拼成
+      //   一个不存在的怪路径 ⇒ CI 必红。这类「本地绿、CI 红」与大小写、PEP 394 同族，必须由脚本拦。
+      //   规则：Markdown 链接目标必须是仓库内相对路径，禁止盘符绝对路径与反斜杠分隔符。
+      if (/^[A-Za-z]:[\\/]/.test(target)) {
+        pathProblems.push(`ABSPATH ${rel} -> ${target}（盘符绝对路径，Linux 必崩；改用相对路径）`);
+        continue;
+      }
+      if (target.includes('\\')) {
+        pathProblems.push(`BACKSLASH ${rel} -> ${target}（含反斜杠，Linux 不认作分隔符；改用 /）`);
+        continue;
+      }
       const [p, hash] = target.split('#');
       const resolved = p ? path.resolve(path.dirname(f), p) : abs;
-      const rel = path.relative(ROOT, f) + ':' + (i + 1);
       if (p && !fs.existsSync(resolved)) {
         problems.push(`BROKEN  ${rel} -> ${target}`);
         continue;
@@ -166,15 +181,17 @@ const summary = {
   anchors: anchorTotal,
   broken: problems.filter(p => p.startsWith('BROKEN')).length,
   anchorBad: problems.filter(p => p.startsWith('ANCHOR')).length,
+  pathProblems: pathProblems.length,
   structProblems: structProblems.length,
   templateProblems: tplProblems.length
 };
 
 if (JSON_OUT) {
-  console.log(JSON.stringify({ summary, problems, structProblems, tplProblems }, null, 2));
+  console.log(JSON.stringify({ summary, problems, pathProblems, structProblems, tplProblems }, null, 2));
 } else {
   if (!QUIET) {
     problems.forEach(p => console.log('  ' + p));
+    pathProblems.forEach(p => console.log('  ' + p));
     structProblems.forEach(p => console.log('  ' + p));
     tplProblems.forEach(p => console.log('  ' + p));
   }
@@ -182,10 +199,11 @@ if (JSON_OUT) {
     `wiki-check: files=${summary.files} pages=${summary.wikiPages} ` +
     `links=${summary.links} broken=${summary.broken} ` +
     `anchors=${summary.anchors} anchorBad=${summary.anchorBad} ` +
+    `path=${summary.pathProblems} ` +
     `struct=${summary.structProblems} template=${summary.templateProblems}`
   );
-  const failed = summary.broken + summary.anchorBad + summary.structProblems + summary.templateProblems;
+  const failed = summary.broken + summary.anchorBad + summary.pathProblems + summary.structProblems + summary.templateProblems;
   console.log(failed === 0 ? 'wiki-check: 全部通过' : `wiki-check: ${failed} 项失败`);
 }
 
-process.exitCode = (summary.broken + summary.anchorBad + summary.structProblems + summary.templateProblems) > 0 ? 1 : 0;
+process.exitCode = (summary.broken + summary.anchorBad + summary.pathProblems + summary.structProblems + summary.templateProblems) > 0 ? 1 : 0;
