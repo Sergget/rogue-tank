@@ -103,10 +103,83 @@ for (const rel of collectScriptFiles(scriptsDir, '')) {
 
 // 2026-10-22（第五批 B6）：新增 tank_codex.html（图鉴独立页）——页面白名单必须同步，
 // 否则新页的内联脚本永远不被语法冒烟覆盖（ghost page）。
-for (const rel of ['index.html', 'tank_battle.html', 'tank_bench.html', 'tank_designer.html', 'tank_compare.html', 'tank_codex.html', 'tank_3d.html']) {
+const PAGES = ['index.html', 'tank_battle.html', 'tank_bench.html', 'tank_designer.html', 'tank_compare.html', 'tank_codex.html', 'tank_3d.html'];
+for (const rel of PAGES) {
   const full = path.join(ROOT, rel);
   if (!fs.existsSync(full)) { console.error(`✗ missing: ${rel}`); failed++; continue; }
   checkFileScripts(full);
+}
+
+// 2026-11-03 §4.213：**大小写精确性**校验（原 CI 唯一的不可替代价值之一，现转成本地断言）。
+//
+// 为什么必须有：Windows 的 NTFS 默认大小写不敏感 —— `fs.existsSync('js/TANK_RULES.JS')`
+// 在开发机上返回 **true**（实测），`require`/`readFileSync` 同样能解析。而 GitHub Actions
+// 的 ubuntu runner 是大小写敏感的 ext4：同一份代码到 CI 上才开始 `MODULE_NOT_FOUND`。
+// 即「本地全绿、CI 必红」的经典盲区，且**只有大小写这一维度**是 Windows 骗人的
+// （实测：路径分隔符、CRLF、编码三项本仓库均已用 path.join / .gitattributes 规避）。
+//
+// 做法：对每一条相对引用，逐段与本目录的真实条目名做**精确字符串比对**，任何一段
+// 大小写不一致即判红。不依赖运行平台，纯字符串比较。
+function exactCaseExists(absPath) {
+  const rel = path.relative(ROOT, absPath);
+  if (rel.startsWith('..')) return true;              // 仓库外的路径不管
+  const parts = rel.split(path.sep).filter(Boolean);
+  let cur = ROOT;
+  for (const seg of parts) {
+    let entries;
+    try { entries = fs.readdirSync(cur); } catch { return false; }
+    if (!entries.includes(seg)) return false;         // 大小写不符 或 真的不存在
+    cur = path.join(cur, seg);
+  }
+  return true;
+}
+
+function collectLocalRefs(htmlPath) {
+  const src = fs.readFileSync(htmlPath, 'utf8');
+  const refs = [];
+  // <script src> 与 <link href>：只收本地相对引用（跳过协议/绝对路径/锚点）
+  for (const m of src.matchAll(/<(?:script|link)[^>]*?(?:src|href)\s*=\s*"([^"]+)"/g)) {
+    const u = m[1];
+    if (/^(https?:|data:|\/\/|#|\/api)/.test(u)) continue;
+    refs.push(u.replace(/^\.\//, '').split('?')[0].split('#')[0]);
+  }
+  return refs.filter(Boolean);
+}
+
+{
+  const problems = [];
+  // (a) 页面脚本/样式引用
+  for (const rel of PAGES) {
+    const full = path.join(ROOT, rel);
+    if (!fs.existsSync(full)) continue;
+    for (const ref of collectLocalRefs(full)) {
+      const target = path.resolve(path.dirname(full), ref);
+      if (!fs.existsSync(target)) { problems.push(`${rel} → ${ref}（文件不存在）`); continue; }
+      if (!exactCaseExists(target)) problems.push(`${rel} → ${ref}（大小写不符）`);
+    }
+  }
+  // (b) scripts/ 与 js/ 内的 require() 相对路径
+  const scanFiles = [
+    ...collectScriptFiles(scriptsDir, '').map(r => path.join(scriptsDir, r)),
+    ...jsFiles.map(f => path.join(jsDir, f)),
+    path.join(ROOT, 'server.js'),
+  ];
+  for (const file of scanFiles) {
+    if (!fs.existsSync(file)) continue;
+    const src = fs.readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/require\(\s*['"](\.[^'"]+)['"]\s*\)/g)) {
+      const base = path.resolve(path.dirname(file), m[1]);
+      const cands = [base, `${base}.js`, `${base}.cjs`, `${base}.json`, path.join(base, 'index.js')];
+      const hit = cands.find(c => fs.existsSync(c) && fs.statSync(c).isFile());
+      if (!hit) continue;                              // 解析不到的不在此断言范围（另有测试覆盖）
+      if (!exactCaseExists(hit)) problems.push(`${path.relative(ROOT, file)} → require('${m[1]}')（大小写不符）`);
+    }
+  }
+  if (problems.length) {
+    for (const p of problems) fail(`大小写不精确（Linux/CI 必崩）：${p}`);
+  } else {
+    console.log('✓ 引用路径大小写精确（跨平台安全）');
+  }
 }
 
 console.log(failed ? `\n${failed} check(s) failed.` : '\nAll checks passed.');

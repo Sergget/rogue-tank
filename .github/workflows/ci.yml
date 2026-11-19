@@ -1,0 +1,87 @@
+# CI — 只承担「本机确认拦不住」的那一维验证（2026-11-19 重建）
+#
+# 背景：2026-11-03 曾整体移除 CI（见 docs/DEVELOPMENT-batches-2026-11.md §4.213），
+# 理由是当时的 CI 与本地六条命令跑的是同一套，没有检测能力增量，只有纪律价值。
+# 2026-11-19 用户要求「agent 不能确保拦截的问题再重新写入 github workflow」，
+# 于是按**实测分流**重建：只保留本地物理上做不到的那一维。
+#
+# 为什么不跑 npm run check / npm test / npm run wiki:check：
+#   - 这三条本地可完整执行，`npm run check` 已内含「引用路径大小写精确」断言
+#     （scripts/check-html.js，2026-11-19 新增，Windows 大小写不敏感盲区已被本地覆盖）。
+#   - 它们放进 CI 只是重复劳动 + 双倍红灯来源，检测能力零增量。
+#   - 真要在 CI 复跑，打开下面 `local-parity` job 即可（默认注释掉）。
+#
+# 为什么必须保留 node-floor：
+#   - 本机只有 Node 24，且无 nvm/fnm/volta/nvs/asdf/mise。
+#   - package.json 声明 engines.node = ">=22"，但这一声明**只有真的用 22 跑一遍才算验证**。
+#   - 反例（已实测）：tools/dump-cover-refs.mjs:21 用 import.meta.dirname，
+#     在 Node 18 下 `node --check` 通过（语法合法）却在运行时抛
+#     TypeError [ERR_INVALID_ARG_TYPE]: The "paths[0]" argument must be of type string。
+#     ⇒ 静态检查永远兜不住 API 地板，只有实跑能兜。
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 唯一必跑项：Node 版本地板 ───────────────────────────────────────────
+  node-floor:
+    name: Node ${{ matrix.node-version }} 实跑（API 地板）
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 = package.json engines 声明的最低版本，必须真实跑通；
+        # 24 = 开发者本机版本，防止只在线上一版上成立。
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: 安装依赖（lockfile 必须同步，否则此处即红）
+        run: npm ci
+
+      - name: 实跑全部 Node 测试链
+        # 这一步同时验证：API 地板、Linux 路径大小写、行尾、并行行为。
+        # 注意：node-floor 的失败**极可能**是 API 地板问题（本机拦不住），
+        # 而不是逻辑回归 —— 先在本地用 npx -y node@22 复现再改代码。
+        run: npm test
+
+  # ── 可选：本地可跑的命令在 CI 上复跑（默认关闭）──────────────────────────
+  # 打开方式：删掉下面 6 行的注释符。开启前请确认本地已跑绿，
+  # 否则只是把本地的红灯搬到线上再来一遍。
+  #
+  # local-parity:
+  #   name: 本地同款门禁复跑（可选）
+  #   runs-on: ubuntu-24.04
+  #   timeout-minutes: 20
+  #   steps:
+  #     - uses: actions/checkout@v5
+  #     - uses: actions/setup-node@v5
+  #       with:
+  #         node-version: 24
+  #         cache: npm
+  #     - run: npm ci
+  #     - run: npm run check
+  #     - run: npm run wiki:check
+
+# 未纳入 CI 的验证（GitHub 的 Ubuntu runner 上物理不可行）：
+#   - npm run test:browser  —— 需系统 Edge，Ubuntu runner 无 Edge。
+#   - npm run baseline / baseline:3d —— 依赖同一套 headless 浏览器与像素基线，
+#     跨机器像素漂移会让它长期假红；本地有 Edge 时手动跑。

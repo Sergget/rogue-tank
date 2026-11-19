@@ -167,8 +167,31 @@
   - `http://127.0.0.1:8000/tank_battle.html`（正式游戏）/ `tank_bench.html`（装甲测试台）
   - `http://127.0.0.1:8000/tank_designer.html`
   - `http://127.0.0.1:8000/tank_compare.html`
-- 校验：`npm run check` —— 对共享模块、`server.js` 及**七个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm run wiki:check` —— 全 `docs/` 树的 Markdown 链接与锚点校验；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器链（smoke / r3 / run / r4 + ally + 3d + encounter，r4 覆盖主副武器与技能/商店实战，encounter 覆盖 G1 波次遭遇全链路；需系统 Edge，playwright-core 无头）；`npm run baseline` —— **R0 渲染基线**（三场景固定截图 + 性能采样，默认 `--check`，首次用 `--write` 记录；基线在 `tmp/`，不入库）；`npm run baseline:3d` —— **G1 3D 场景基线**（固定相机/冻结首帧截图 + 帧时间）。六者都应全绿。**⚠️ 本仓库自 2026-11-03 起已无 CI（§4.213）**——推送后不会有任何自动验证，以上必须在合并前本地手动跑通，「已通过」只由本地执行记录背书。
+- 校验：`npm run check` —— 对共享模块、`server.js` 及**七个页面**的每个内联 `<script>` 做语法冒烟 + typecheck（无需浏览器）；`npm run wiki:check` —— 全 `docs/` 树的 Markdown 链接与锚点校验；`npm test` —— 全套 Node 测试链；`npm run test:browser` —— 浏览器链（smoke / r3 / run / r4 + ally + 3d + encounter，r4 覆盖主副武器与技能/商店实战，encounter 覆盖 G1 波次遭遇全链路；需系统 Edge，playwright-core 无头）；`npm run baseline` —— **R0 渲染基线**（三场景固定截图 + 性能采样，默认 `--check`，首次用 `--write` 记录；基线在 `tmp/`，不入库）；`npm run baseline:3d` —— **G1 3D 场景基线**（固定相机/冻结首帧截图 + 帧时间）。六者都应全绿。**⚠️ CI 只守一件事（2026-11-19 重建，§4.214）**：`.github/workflows/ci.yml` 的 `node-floor` job 用 Node **22 / 24** 实跑 `npm ci` + `npm test`，验证 `package.json` 的 `engines.node: ">=22"` 声明成立。**其余五条命令 CI 不跑**（本地可完整执行、检测能力零增量），所以「已通过」仍须由本地执行记录背书；只有「Node 版本地板」这一维由 CI 兜底。
 - **改过 docs 再加一条**：`node scripts/wiki-check.js` —— 全 `docs/` 树的 Markdown 链接与锚点校验（断链 / 失效锚点）。**改 specs 页面、改文件名、改标题后必须跑**（见 §2.3）。仅改代码/测试时不需要。
+
+### 3.1.1 本机能拦 vs 只有 CI 能拦（2026-11-19 实测分流）
+
+§3.1 的六条命令是**推送前的主要验证入口**。2026-11-03 曾整体移除 CI（§4.213），2026-11-19 按**实测分流**重建为只守 Node 地板（§4.214）——即除「Node 大版本实跑」以外的维度仍无自动兜底。但「本地全绿」不等于「跨环境成立」——下表把二者分开，**避免 agent 因为本地绿了就默认交付安全**：
+
+| 失败维度 | 本机能否发现 | 依据与处置 |
+|---|---|---|
+| 语法 / 类型 / 单测 / wiki 链接 | ✅ 能，`npm run check` + `npm test` + `npm run wiki:check` | 与 CI 跑的是同一套命令，无检测能力差异 |
+| lockfile 与 `package.json` 脱同步 | ✅ 能，`npm ci --dry-run` exit=0 即可（无需装包） | 11s 内完成，应纳入大改依赖后的自检 |
+| **引用路径大小写** | ✅ 能，`npm run check` 内含断言 | Windows NTFS 大小写不敏感会让 `fs.existsSync('js/TANK_RULES.JS')` 返回 true，Linux ext4 敏感 ⇒ 改前必红。**2026-11-19 已把精确大小写比对写入 `scripts/check-html.js`**（页面 script/link + `require` 相对路径，逐段 `readdirSync` 精确比对），见 §4.213 |
+| **Node 大版本 API 地板** | ❌ **默认不能**，但可用 `npx node@<ver>` 手动验 | 本机无版本管理器，却能 `npx -y node@22 -v` 直接拉二进制。**必须实跑而非 `--check`**：`import.meta.dirname` 在 Node 18 语法合法，`node --check` 通过，只在运行时抛 `ERR_INVALID_ARG_TYPE` |
+| 浏览器链（Edge headless） | ⚠️ 能，但需系统 Edge | `npm run test:browser` 在 Ubuntu runner 上跑不了，从未进过 CI |
+| 行尾 / 路径分隔符 / 编码 | ✅ 本仓库已规避 | `git ls-files --eol` 全 `i/lf`；硬编码反斜杠 0 处；`.gitattributes` 为 `* text=auto`。**`git archive` 产出的 CRLF 是本机 `core.autocrlf=true` 的检查过滤器产物，不是仓库内容**，别据此误判 |
+
+**两条硬纪律（写在这里是因为它们最容易只在事后才被发现）：**
+
+1. **动了 `engines.node` 或用 Node 新 API 时，必须用最低声明版本实跑一次**，不能只跑当前版本。当前声明 `>=22`，验证方式：`npx -y node@22 node_modules/.bin/...` 或 `npx -y node@22 scripts/run-tests.js`。在 npx 派生进程下若遇 `os.tmpdir()` 写入 `EPERM`，重定向 `$env:TEMP`/`$env:TMP` 到工作区 `tmp/` 即可（不是代码问题）。
+2. **看到「本地绿、CI 红」时先怀疑大小写与 Node 版本**，不要先去怀疑工具链。这两个维度是 Windows 单机唯一骗人的地方。
+
+> **已知缺口的兜底判定**：`test-asset-pipeline.js` 在受限沙箱下用 `spawnSync` 捕获子进程输出会报 EPERM（`AGENTS.md` §3.7 已记），在无沙箱环境下正常。它**不是** API 地板问题的检测手段。
+>
+> **同理还有一类「本机永远看不到」的盲区：外部可执行名**。`test-asset-pipeline.js` 曾写死 `spawnSync('python', …)`，而 Ubuntu 24.04 起按 PEP 394 不再提供 `python` 别名（只有 `python3`）⇒ CI 首次运行会红在一个与代码无关的点上。2026-11-19 已改为 `['python','python3']` 顺序探测、都不可用时明确跳过（§4.214）。**新增任何调用外部程序的测试时，必须同时考虑 Linux 上的可执行名差异，并在本地以「第一个不存在」的环境验证回落路径。**
+
 
 ### 3.2 测试坦克战斗
 
