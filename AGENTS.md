@@ -179,6 +179,7 @@
 | 语法 / 类型 / 单测 / wiki 链接 | ✅ 能，`npm run check` + `npm test` + `npm run wiki:check` | 与 CI 跑的是同一套命令，无检测能力差异 |
 | lockfile 与 `package.json` 脱同步 | ✅ 能，`npm ci --dry-run` exit=0 即可（无需装包） | 11s 内完成，应纳入大改依赖后的自检 |
 | **引用路径大小写** | ✅ 能，`npm run check` 内含断言 | Windows NTFS 大小写不敏感会让 `fs.existsSync('js/TANK_RULES.JS')` 返回 true，Linux ext4 敏感 ⇒ 改前必红。**2026-11-19 已把精确大小写比对写入 `scripts/check-html.js`**（页面 script/link + `require` 相对路径，逐段 `readdirSync` 精确比对），见 §4.214 |
+| **Markdown 链接的路径形状** | ✅ 能，`npm run wiki:check` 内含断言 | 盘符绝对路径（`E:\...`）与反斜杠分隔符在 Windows 上被 `path.resolve` 解析成本机真文件、`existsSync`=true ⇒ 本地全绿；Linux 上解析成怪路径 ⇒ CI 必红。**2026-11-19 已把 `ABSPATH` / `BACKSLASH` 断言写入 `scripts/wiki-check.js`**（在存在性判定之前拦截），见 §4.215 |
 | **Node 大版本 API 地板** | ❌ **默认不能**，但可用 `npx node@<ver>` 手动验 | 本机无版本管理器，却能 `npx -y node@22 -v` 直接拉二进制。**必须实跑而非 `--check`**：`import.meta.dirname` 在 Node 18 语法合法，`node --check` 通过，只在运行时抛 `ERR_INVALID_ARG_TYPE` |
 | 浏览器链（Edge headless） | ⚠️ 能，但需系统 Edge | `npm run test:browser` 在 Ubuntu runner 上跑不了，从未进过 CI |
 | 行尾 / 路径分隔符 / 编码 | ✅ 本仓库已规避 | `git ls-files --eol` 全 `i/lf`；硬编码反斜杠 0 处；`.gitattributes` 为 `* text=auto`。**`git archive` 产出的 CRLF 是本机 `core.autocrlf=true` 的检查过滤器产物，不是仓库内容**，别据此误判 |
@@ -191,6 +192,8 @@
 > **已知缺口的兜底判定**：`test-asset-pipeline.js` 在受限沙箱下用 `spawnSync` 捕获子进程输出会报 EPERM（`AGENTS.md` §3.7 已记），在无沙箱环境下正常。它**不是** API 地板问题的检测手段。
 >
 > **同理还有一类「本机永远看不到」的盲区：外部可执行名**。`test-asset-pipeline.js` 曾写死 `spawnSync('python', …)`，而 Ubuntu 24.04 起按 PEP 394 不再提供 `python` 别名（只有 `python3`）⇒ CI 首次运行会红在一个与代码无关的点上。2026-11-19 已改为 `['python','python3']` 顺序探测、都不可用时明确跳过（§4.214）。**新增任何调用外部程序的测试时，必须同时考虑 Linux 上的可执行名差异，并在本地以「第一个不存在」的环境验证回落路径。**
+>
+> **第三类同类盲区：时间戳哨兵的 `|| 0`**。`js/tank_entity.js` 的撞击冷却曾写 `(a._ramHitAt[pairKey]) || 0`，把「从未记录」压成「在 t=0 记录过」⇒ 进程启动后前 0.5 s 的撞击伤害全部静默丢失。本机看不见（跑测试时进程早已越过 0.5 s），**CI 与回放模式都从 t≈0 起算 ⇒ 必崩**。2026-11-19 已改为 `null` 哨兵并加「时钟原点」回归断言（§4.215）。**凡时间戳/冷却做哨兵，一律用 `null` 显式区分「未记录」，禁止 `|| 0`。新增时钟相关断言时，必须确认被测模块真能读到注入的 `simNow`**（各模块用 `typeof simNow === 'function'` 探测，测试文件需 `global.simNow = U.simNow`，否则断言是假见证）。
 
 
 ### 3.2 测试坦克战斗

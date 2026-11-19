@@ -30,7 +30,38 @@
 | `stiffDurationBase` | 2.0 s | 基础硬直时长 |
 | `stiffSpeedMul` | 0.35 | 硬直期速度倍率（**非**完全冻结，转向仍可动） |
 | `trackBreakChanceMax` | 0.65 | 极端悬殊撞击的履带断裂概率上限 |
-| `contactCooldown` | 0.5 s | 同一对车的结算冷却（防一帧重复扣血） |
+| `contactCooldown` | 0.5 s | 同一对车的结算冷却（防一帧重复扣血）。**冷却哨兵语义见下** |
+
+**冷却哨兵的「未记录」语义（2026-11-19 修正，§4.215）**：判断「这对车冷却到了吗」必须区分
+**「从未结算过」** 与 **「在 t=0 结算过」**。旧实现把两者压成同一个值：
+
+```js
+const last = (a._ramHitAt && a._ramHitAt[pairKey]) || 0;   // ❌ 未记录 ≡ t=0
+if (nowMs - last < cdMs) { /* 冷却内 */ } else { a._ramHitAt[pairKey] = nowMs; /* 结算 */ }
+```
+
+后果：只要 `simNow()` 落在 `[0, contactCooldown)` 区间内，每一对新车的**首次**撞击都被判为
+「冷却内」；而写入 `_ramHitAt` 又只发生在 else 分支，latch 永不建立 ⇒ **前 0.5 s 的撞击伤害全部
+静默丢失**。真实游戏里不可见（局内时钟早已越过 0.5 s），但 **CI 进程与回放模式都从 t≈0 起算**
+⇒ 必然全程零伤害。
+
+现行写法（哨兵为 `null` 而非 `0`）：
+
+```js
+const last = (a._ramHitAt && typeof a._ramHitAt[pairKey] === 'number')
+  ? a._ramHitAt[pairKey] : null;
+if (last !== null && nowMs - last < cdMs) { /* 冷却内 */ } else { /* 结算并写入 */ }
+```
+
+回归护栏 `scripts/test-tankcollision.js` 用例「时钟原点附近」用 `U.setSimNow(0)` 冻结时钟校验。
+**该文件必须同时 `global.simNow = U.simNow; global.setSimNow = U.setSimNow;`** —— 各 js 模块以
+`typeof simNow === 'function'` 探测时钟注入，不挂全局则该用例是**假见证**（旧实现下也会通过）。
+
+**两具残骸也必须继续分离（2026-11-19 修正，§4.215）**：分离步骤**不得**按存活状态短路。旧实现
+`if(!aAlive && !bAlive) continue;` 在两车**同帧双双致死**时跳过该帧分离 ⇒ 残骸永久保持接触瞬间的
+穿模（实测残余深叠 48.03 px、中心距 15.97 px）。抖动顾虑不成立：残骸 `speed = 0` ⇒ `relN = 0`
+⇒ 不进速度冲量分支，位置分离一次后 `depth <= 1e-6` 即退出迭代。现行只保留
+`if(a.isDrone || b.isDrone) continue;`（无人机无 hull 几何）。
 
 **结算公式**（`js/tank_entity.js`）：
 

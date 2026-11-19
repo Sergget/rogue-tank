@@ -304,11 +304,11 @@ battle 的瞄准器有两种风格（`profile.settings.aimStyle`：`default` / `
 
 | # | 产物 | 位置 | 层级 / 标注 |
 |---|---|---|---|
-| 1 | 节点任务类型体系规格（三型 + 突破 + 非战斗节点 + 奖励绑定 + 地图需求对照表 + **MS3 验收口径**） | [docs/specs/combat/node-mission-types.md](E:\Code\rogue-tank\docs\specs\combat\node-mission-types.md) | 策划级 + 创意级 · **设计预留（未落地，2026-11-01）** |
-| 2 | Boss 挑战设计（延迟裁定 + 硬软依赖 + 固化前准备清单 + 冲撞暴君降级 + 备选池重排） | [docs/specs/boss/challenge-design.md](E:\Code\rogue-tank\docs\specs\boss\challenge-design.md) | 策划级 + 创意级 · **设计预留（未落地，2026-11-01）** |
+| 1 | 节点任务类型体系规格（三型 + 突破 + 非战斗节点 + 奖励绑定 + 地图需求对照表 + **MS3 验收口径**） | [docs/specs/combat/node-mission-types.md](specs/combat/node-mission-types.md) | 策划级 + 创意级 · **设计预留（未落地，2026-11-01）** |
+| 2 | Boss 挑战设计（延迟裁定 + 硬软依赖 + 固化前准备清单 + 冲撞暴君降级 + 备选池重排） | [docs/specs/boss/challenge-design.md](specs/boss/challenge-design.md) | 策划级 + 创意级 · **设计预留（未落地，2026-11-01）** |
 | 3 | 待办条目（N1~N8 完成门） | [docs/PLAN.md](./PLAN.md) §2.8.6 | 计划层 |
 | 4 | 实施批次拆分（M3-A~M3-J 硬串行链、写域、回退点） | [docs/PLAN.md](./PLAN.md) §2.8.6.1 | 实施级计划 |
-| 5 | **三层文档层级**判据表（创意级/策划级/实施级 → 落点/产出者）+ 三条不重叠纪律 | [AGENTS.md](E:\Code\rogue-tank\AGENTS.md#L140) §2.4 | 工作流纪律 |
+| 5 | **三层文档层级**判据表（创意级/策划级/实施级 → 落点/产出者）+ 三条不重叠纪律 | [AGENTS.md](../AGENTS.md#24-三层文档层级创意级--策划级--实施级2026-11-01-用户裁定) §2.4 | 工作流纪律 |
 
 ### ③ 三层不重叠纪律（本批起生效）
 
@@ -618,3 +618,23 @@ battle 的瞄准器有两种风格（`profile.settings.aimStyle`：`default` / `
 - **验证**：`node scripts/check-html.js` → All checks passed（含新增大小写断言）；`node scripts/wiki-check.js` → `files=106 pages=78 links=1988 broken=0 anchors=994 anchorBad=0`；`npm run check` → All checks passed；全量 `npm test` **88/88**。
 - **过程教训**：① 「CI 有没有用」不该凭直觉判断——逐维度实测后只有 **1/8** 的维度是本地真做不到的，其余 7 项都该下沉到本地脚本或已天然规避；② 重建 CI 会立刻暴露被纪律掩盖的既有缺陷（`test-exit-reachability` 一直贴着 300s 上限跑），**这是重建的额外收益，不是重建的代价**；③ 性能优化必须配「语义等价证明 + 复杂度护栏」两件套，否则 30× 提速无法自证没改变判定。
 - **未做**：CI 尚未在 GitHub 上实际跑过一轮（本条只在本地验证了 YAML 可解析与 `npm test` 全绿）；`local-parity` job 仍注释；`test:browser` / 两条 baseline 仍只在本地跑。
+  - **后续（2026-11-19 §4.215）**：上述「未做」已由首次真实运行覆盖 —— `94541ee` 上的 run `44457596257` **失败**，且它抓到的是三个既有缺陷（撞击冷却哨兵、双残骸不分离、3 处 Windows 绝对路径断链）。见 §4.215。
+
+---
+
+## §4.215 CI 首跑抓到的三个既有缺陷 + 两处「本地绿 CI 红」盲区补断言（2026-11-19）
+
+> 承接 §4.214 重建 CI。**CI 重建后第一轮真实运行就红了**——这不是重建失败，而是重建的价值兑现：三个缺陷在本地全是绿的，其中一个已存在 20 天、被历史 CI 抓到过三次而无人核查。
+
+- **CI 首跑结果（run `44457596257`，commit `94541ee`，ubuntu-24.04 + Node 24.22.2）**：87 通过 / 1 失败，唯一失败 `scripts/test-tankcollision.js (0.4s)`，断言 `✗ 敌对撞击：仍有伤害（A 100→100，B 100→100）`。同文件「接触发生」「位置分离」等前置断言全绿 ⇒ 碰撞检测正常，只是**伤害分支没走**。
+- **缺陷一：撞击冷却哨兵把「未记录」压成「t=0」（`js/tank_entity.js`）**。旧实现 `const last = (a._ramHitAt && a._ramHitAt[pairKey]) || 0;` —— 「从未撞击过」被压成「在 t=0 撞击过」⇒ 只要 `simNow()` 落在 `[0, contactCooldown)`（0.5 s）内，每一对新车的**首次**撞击都被判为冷却内；而写入 `_ramHitAt` 又只发生在 else 分支，latch 永不建立 ⇒ **前 0.5 s 的撞击伤害全部静默丢失**。真实游戏不可见（局内时钟早已越过 0.5 s），但 **CI 进程与回放模式都从 t≈0 起算** ⇒ 必然全程零伤害。修法：哨兵改 `null`（`typeof a._ramHitAt[pairKey] === 'number' ? a._ramHitAt[pairKey] : null`），判定改 `last !== null && nowMs - last < cdMs`。取证脚本 `tmp/probe-ram-cooldown.js` 打桩 `performance.now`，实测修前 `0/100/499 → 无伤害`、`500/501/5000 → 有伤害`，修后全部有伤害。
+- **缺陷二：两具残骸永不分离（`js/tank_entity.js`）**。修完缺陷一后本地立刻暴露 2 条失败：`✗ 对向互顶：解析后无残余深叠 (max=48.03px)`、`✗ 中心距保持车长余量 (min|Δx|=15.97 ≥ 63.4)`。根因是旧行 `if(!aAlive && !bAlive) continue;`（注释自称「省算力 + 避免残骸推挤抖动」）——两车**同帧双双致死**时该帧起分离被整体跳过 ⇒ 残骸永久保持接触瞬间的穿模。抖动顾虑不成立：残骸 `speed=0` ⇒ `relN=0` ⇒ 不进速度冲量分支，位置分离一次后 `depth<=1e-6` 即退出迭代。修法：删该 continue，只保留 `if(a.isDrone || b.isDrone) continue;`。
+- **缺陷三（由前两项连带发现的断言缺陷）：回归断言曾是「假见证」**。`scripts/test-tankcollision.js` 从未设置 `global.simNow`，而各 js 模块以 `typeof simNow === 'function'` 探测时钟注入 ⇒ `U.setSimNow(0)` 对 `js/tank_entity.js` **完全无效**，用例在旧实现下也能通过。已在 `global.RULES = R.RULES;` 之后补 `global.simNow = U.simNow; global.setSimNow = U.setSimNow;` 并注释「缺这一行就是假见证」。**双向验证**：换回 `git show HEAD:js/tank_entity.js`（备份 `tmp/tank_entity.head.js`）⇒ 2 条失败精确点名；换回修复版 ⇒ `All tank-collision checks passed.`
+- **新增回归断言（`scripts/test-tankcollision.js`，2 组 4 条）**：#12「时钟原点附近」用 `U.setSimNow(0)` 冻结时钟（`finally` 恢复），A/B 置 x=500/720、team player/enemy，120 帧后断言 `A.hp < hpA && B.hp < hpB`（实测 100→42）；#13「双双阵亡」240 帧对撞（第 184 帧同帧归零）后再跑 60 帧，断言 `residualOverlap <= 0.6` 且 `A.x < B.x`（实测残余 0.00 px、568.0 < 632.0）。
+- **历史考古（关键，推翻 §4.213 的一个结论）**：`gh run list` 显示 **同一断言在 2026-10-30 已连续红过三次** —— `41023794645`（`b96323f`）、`41008867029`（`2160ce9`）、`40995988935`（`f120617`），均为 `✗ scripts/test-tankcollision.js ← 失败` + `✗ 敌对撞击：仍有伤害（A 100→100，B 100→100）`。⇒ **§4.213「CI 历史只拦过 2 次红灯」是事实错误**（当时只检索了 `DEVELOPMENT-batches-2026-10.md` 的正文记录，没有查 `gh run list`）。移除 CI 前未核查这些红灯，导致缺陷多存活 20 天。**教训：判断「某个验证入口有没有用」必须以运行历史为准，不能以文档自述为准。**
+- **缺陷四：3 处 Windows 绝对路径断链（`docs/DEVELOPMENT-batches-2026-11.md:307/308/311`）**。写成 `[docs/specs/combat/node-mission-types.md](E:\Code\rogue-tank\docs\specs\combat\node-mission-types.md)`、`[...](E:\...\challenge-design.md)`、`[AGENTS.md](E:\Code\rogue-tank\AGENTS.md#L140)`。这解释了另外三个红灯 run：`41563765114`（`7a7a662`，2026-11-03）、`44425671248`（`2d19cd2`）、`44433012201`（`5cb0593`）——**全部是 `wiki-check: 3 项失败` 的同一批断链**。Windows 上 `path.resolve(dirname(f), 'E:\\...')` 直接返回该绝对路径且 `existsSync`=true ⇒ 本地 `wiki-check` 全绿；Linux 上 `path.resolve('/home/runner/work/.../docs', 'E:\Code\...')` 拼成一个不存在的怪路径 ⇒ CI 必红（已用 `path.posix.resolve` 实测复现）。修法：改为仓库内相对路径 `specs/combat/node-mission-types.md`、`specs/boss/challenge-design.md`、`../AGENTS.md#<正确锚点>`。
+- **盲区补断言（`scripts/wiki-check.js`）**：新增 `pathProblems` 通道，在**存在性判定之前**拦截两类目标 —— `ABSPATH`（`/^[A-Za-z]:[\\/]/`，盘符绝对路径）与 `BACKSLASH`（`target.includes('\\')`）；汇总行新增 `path=` 字段，`exitCode` 计入。**双向验证**：注入 `E:\Code\rogue-tank\...` ⇒ `ABSPATH ...（盘符绝对路径，Linux 必崩；改用相对路径）`、`path=1`、`1 项失败`；注入 `specs\boss\challenge-design.md` ⇒ `BACKSLASH ...（含反斜杠，Linux 不认作分隔符；改用 /）`、`1 项失败`；逐字节还原后 `path=0`、`全部通过`。
+- **`AGENTS.md` §3.1.1 对照表新增一行「Markdown 链接的路径形状」**：与本节的 `wiki-check` 断言对齐，并注明这类盲区与「引用路径大小写」「PEP 394 外部可执行名」同族 —— 共同特征是**本地永远绿、CI 永远红**，必须由脚本而非人的记性来拦。
+- **`docs/specs/combat/ramming-stealth-dash.md` 补现行口径**：`contactCooldown` 行加「冷却哨兵语义见下」指针；新增「冷却哨兵的『未记录』语义」与「两具残骸也必须继续分离」两小节，含错误写法/正确写法对照、`null` 哨兵理由、`global.simNow` 假见证警告、残骸抖动顾虑不成立的推演。
+- **验证**：`node scripts/test-tankcollision.js` → All passed（含 4 条新断言）；`node scripts/run-tests.js` → **88 通过 / 0 失败 / 88 项 / 256.0s**，exit=0；`npm run check` → All checks passed（`tsc --noEmit` 零输出）；`node scripts/wiki-check.js` → `files=106 pages=78 links=1988 broken=0 anchors=994 anchorBad=0 path=0 struct=0 template=0`；`npx -y node@22 scripts/test-tankcollision.js`（`$env:TEMP`/`$env:TMP` 重定向到 `tmp/`）→ All passed ⇒ **Node 22 地板下同样通过**。
+- **过程教训**：① **CI 红必须当场看**——同一断言在 2026-10-30 红了三次没人查，20 天后同一个 bug 又红一次，代价是多了一轮完整的根因定位；② **回归断言要能被证伪**——「新断言在旧实现下也通过」等于没写，必须换回旧实现跑一遍；`global.simNow` 这类注入式依赖尤其容易漏（模块用 `typeof` 探测，不挂全局就静默退化）；③ **`|| 0` 作用在时间戳上等于「假设进程从 t=0 就开始过」**——凡时间戳哨兵一律用 `null`/`undefined` 显式区分「未记录」，`js/tank_cover.js:317` 已是正确写法，`js/tank_ai.js:1851` 同族但良性（只是衰减提前启动，无永久丢失），保留观察；④ **「本地全绿」在跨平台维度上是零信息**——路径形状、大小写、可执行名三类盲区必须沉到脚本里，靠人记必然漏。
