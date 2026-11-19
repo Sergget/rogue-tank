@@ -178,7 +178,7 @@
 |---|---|---|
 | 语法 / 类型 / 单测 / wiki 链接 | ✅ 能，`npm run check` + `npm test` + `npm run wiki:check` | 与 CI 跑的是同一套命令，无检测能力差异 |
 | lockfile 与 `package.json` 脱同步 | ✅ 能，`npm ci --dry-run` exit=0 即可（无需装包） | 11s 内完成，应纳入大改依赖后的自检 |
-| **引用路径大小写** | ✅ 能，`npm run check` 内含断言 | Windows NTFS 大小写不敏感会让 `fs.existsSync('js/TANK_RULES.JS')` 返回 true，Linux ext4 敏感 ⇒ 改前必红。**2026-11-19 已把精确大小写比对写入 `scripts/check-html.js`**（页面 script/link + `require` 相对路径，逐段 `readdirSync` 精确比对），见 §4.213 |
+| **引用路径大小写** | ✅ 能，`npm run check` 内含断言 | Windows NTFS 大小写不敏感会让 `fs.existsSync('js/TANK_RULES.JS')` 返回 true，Linux ext4 敏感 ⇒ 改前必红。**2026-11-19 已把精确大小写比对写入 `scripts/check-html.js`**（页面 script/link + `require` 相对路径，逐段 `readdirSync` 精确比对），见 §4.214 |
 | **Node 大版本 API 地板** | ❌ **默认不能**，但可用 `npx node@<ver>` 手动验 | 本机无版本管理器，却能 `npx -y node@22 -v` 直接拉二进制。**必须实跑而非 `--check`**：`import.meta.dirname` 在 Node 18 语法合法，`node --check` 通过，只在运行时抛 `ERR_INVALID_ARG_TYPE` |
 | 浏览器链（Edge headless） | ⚠️ 能，但需系统 Edge | `npm run test:browser` 在 Ubuntu runner 上跑不了，从未进过 CI |
 | 行尾 / 路径分隔符 / 编码 | ✅ 本仓库已规避 | `git ls-files --eol` 全 `i/lf`；硬编码反斜杠 0 处；`.gitattributes` 为 `* text=auto`。**`git archive` 产出的 CRLF 是本机 `core.autocrlf=true` 的检查过滤器产物，不是仓库内容**，别据此误判 |
