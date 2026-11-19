@@ -1431,7 +1431,27 @@ function stepShells(dt, ctx){
       if(tier.mode==='single'){
         // #12（2026-10-15）：沙包（single 模式一次性路障）为软质掩体，不跳弹——直接摧毁
         if(impacts) impacts.push({x:s.x,y:s.y,life:0.4,color:'#ffb454'}); impactFx(s.x,s.y,Math.atan2(s.dx,s.dy),'block',0.8); play('block'); dmgCover(bestCover.cover,1,'shell'); s.dead=true;
-      } else { if(impacts) impacts.push({x:s.x,y:s.y,life:0.4,color:'#ffb454'}); impactFx(s.x,s.y,Math.atan2(s.dx,s.dy),'block',0.8); play('block'); if(Number.isFinite(bestCover.cover.hp)){ if(!dmgCover(bestCover.cover,1,'shell')) push('被'+tier.label+'挡住 — 掩体受损（剩余耐久 '+bestCover.cover.hp+'）','COVER'); } else push('被'+tier.label+'挡住 — 炮弹被掩体截停','COVER'); s.dead=true; }
+      } else {
+        if(impacts) impacts.push({x:s.x,y:s.y,life:0.4,color:'#ffb454'});
+        impactFx(s.x,s.y,Math.atan2(s.dx,s.dy),'block',0.8); play('block');
+        if(Number.isFinite(bestCover.cover.hp)){
+          // 2026-11-19（M3-J 校准，§4.217）：**守点是任务目标，不是可磨损的掩体**。
+          //   实测（KIND=defend SEED=20261119）：敌方对守点开火仅 15~22 发，守点耐久却掉了 60
+          //   ——差额全部来自玩家自己。原因就是这个分支：玩家守在守点旁（探针 stopNear=90px）
+          //   朝敌人开火，炮弹被守点（tier building ⇒ solid）截停后仍扣 1 点耐久 ⇒
+          //   **玩家在打自己要保护的目标**，且「守点被毁 = 任务失败」的把关变成随机惩罚。
+          //   口径：守点判定仍是实体（照常挡弹，玩家不能穿它打人），但**只有敌方火力能磨损它**；
+          //   同阵营炮弹被挡下但记 0 伤害。`guardTarget` 是运行期打的标记（tank_battle.html
+          //   spawnGuardTarget），不带该标记的普通楼房/掩体行为逐字节不变。
+          const friendlyOnObjective = !!(bestCover.cover.guardTarget && s.shooter && s.shooter.team !== 'enemy');
+          if(friendlyOnObjective){
+            push('被'+tier.label+'挡住 — 守点目标不可由我方火力磨损','COVER');
+          } else if(!dmgCover(bestCover.cover,1,'shell')){
+            push('被'+tier.label+'挡住 — 掩体受损（剩余耐久 '+bestCover.cover.hp+'）','COVER');
+          }
+        } else push('被'+tier.label+'挡住 — 炮弹被掩体截停','COVER');
+        s.dead=true;
+      }
     } else if(s._blockedByDeployable){
       // #E4：敌方炮弹被部署掩体挡下（单向透明：部署方可穿过，对立方被挡）
       const dc = s._blockedByDeployable;

@@ -726,14 +726,21 @@ const RULES = {
       //   [PLACEHOLDER] 可关回旧行为（关掉 = 守点死了仍按存活失败仅归零 bonus 打完全场）。
       failOnObjectiveLost: true,
       failScorePct: 0.4,                   // 守点被毁时的结算倍率（[PLACEHOLDER]；低于突破超时 0.5——任务失败比超时更重）
-      // 2026-11-19（M3-J 校准，§4.216）：守点耐久。
+      // 2026-11-19（M3-J 校准，§4.217）：守点耐久**按波次总火力定**，不按掩体三发定。
       //   改前守点直接借用 `RULES.coverTiers.building.hp`（= 3 发），实测 **W1 开打 8 秒就被打爆**
       //   （3 个敌人各打 1~2 发），defend 节点在玩家还没反应过来时就判失败 —— 任务根本不成立。
-      //   口径：守点是「要守一整场」的目标，耐久必须按**波次总火力**而不是按掩体三发来定。
-      //   实测依据（seed 20261119，CAP 45/60/90s 三次）：敌方开火 5 发全打守点 ⇒ 5 发即摧毁。
-      //   取 30 发 ≈ 6 倍于当前观测火力，留出「玩家能救、但不救就守不住」的窗口。
-      //   [PLACEHOLDER] 待更多 seed 的真实波次数据校准。
-      guardHp: 30,
+      //   口径：守点是「要守一整场」的目标，耐久必须能撑过 `wavesMin~wavesMax` 波的累计火力。
+      //
+      //   实测定量（seed 20261119，`scripts/measure-encounter-real.cjs`，守点耐力求和法）：
+      //   - 单发命中 = 1 点耐久（`js/tank_fire.js:1434` `dmgCover(cover,1,'shell')`；
+      //     `js/tank_cover.js:190` 只在 hp 非有限值时才短路，运行时赋的有限 hp 照常扣）；
+      //   - **单波累计火力 ≈ 17~18 发**（W1 全程观测；`guardHp=3000` 时 3000→2982/2983）；
+      //   - 3 波 ≈ 51~54、4 波 ≈ 68~72。
+      //   ⇒ 取 **60**：放着不管会在第 3~4 波之间被打穿，玩家回防就能救下 ——
+      //     正好是「不救就守不住、救得及时就守得住」的窗口，而不是 30（第一波必爆）或
+      //     3000（整场打不穿，等于没有守点压力）。
+      //   [PLACEHOLDER] 仍待多 seed + 多难度复核（本值来自单 seed 的求和方法）。
+      guardHp: 60,
     },
     capture: {
       enabled: false,
@@ -788,9 +795,22 @@ const RULES = {
     engage: {
       enabled: true,                       // 子开关（总开关关闭时不可达）
       defendBias: 0.82,                    // 防御节点：打守点的权重（0.5 以上即守点优先）
-      captureBias: 0.35,                   // 占领节点（敌方主要来抢点，仍会打玩家）
+      // 2026-11-19（M3-J 校准，§4.217）：`captureBias` 曾是**死配置**。
+      //   病灶：页面把「打目标」的对象写死成 `battleGuardTarget`（只有 defend 才创建），
+      //   占领节点 `objective` 恒为 null ⇒ `pickEngageTarget` 里 `if(!oOk) return player;`
+      //   在打分之前就短路 ⇒ 这个 0.35 从来没被读过一次。
+      //   现已改为「占领圈也算目标」的语义（页面把**进度最高/最近的未拔圈**包装成
+      //   `isObjective` 实体注入同一个 `_objectiveEnt`），语义 = 敌方来抢点。
+      //   校准口径：敌方对占领圈的欲望必须**低于对玩家**——抢点是给玩家制造压迫，
+      //   不是把玩家打成旁观者；0.35 让「玩家在近处时仍优先打玩家」成立。
+      captureBias: 0.35,                   // 占领节点：打（抢）占领圈的权重（低于玩家）
       otherBias: 0,                        // 其余类型：只打玩家（逐步与改前一致）
       distanceFalloff: 900,                // 距离吸引的衰减尺度（px）
+      // 占领节点「敌方也能拔点」吗？——不能：`updateCaptureZones` 只在
+      //   `hasAlly && !hasEnemy` 时推进、敌方进圈只**暂停不清零**（js/tank_battle.html
+      //   updateCaptureZones）。所以敌方抢点的实际含义是「进圈压制玩家读条」，
+      //   而 E9 的目标欲望只负责**让他们愿意走进去**，不引入双向拔点。
+      //   [PLACEHOLDER] 若将来要做双向拔点，须同时改 updateCaptureZones 与胜利判定。
     },
     shop:   { enabled: false },            // 非战斗节点（替换不追加）
     supply: { enabled: false },

@@ -3394,8 +3394,20 @@ function enterBattle(nodeIndex){
           : (g.length ? g.reduce((s, a) => s + a.x, 0) / g.length : NaN)))
         .filter(Number.isFinite).sort((a, b) => a - b)
       : []);
+    // 2026-11-19 M3-J 结构性修正（defend 永久软锁）：defend 节点的守点在
+    //   「出生点 → 首道防线」之间（planDefendObjective 的 xProgress=0.45），
+    //   而 lines 模式的波次推进条件是 `player.x >= lineXs[0] - lineAdvanceMargin`。
+    //   实测 seed 20261119：守点 x=703，阈值 x=881 ⇒ **玩家站在自己要守的点上永远不满足推进**，
+    //   W1 清完后 lineHold 永不结束，后续 2~3 波一次都不会来（180s 实测：wave 48.5s + none 131.5s）。
+    //   守阵地的语义本来就不该由「向前推进」驱动下一波——改为 timed 节奏（breather 倒计时），
+    //   波次按时间自然到来，玩家留在圈内守点即可。capture / breakthrough 仍走 lines（它们要推进）。
+    const encMode = (nodeKind === 'defend') ? 'timed' : 'lines';
     battleEncounter = createEncounter({
-      seed: (node.seed | 0) + node.index * 7919, rules: encRules, mode: 'lines', lineXs,
+      seed: (node.seed | 0) + node.index * 7919, rules: encRules, mode: encMode,
+      // timed 模式不消费 lineXs（传空数组 = 不绑定防线），避免页面从事件 lineX 读到一个
+      //   与节拍无关的坐标；spawn 落位会自动回落到 anchors 分组（battleSpawnWaveUnits 的
+      //   `Number.isFinite(lineX)` 分支），defend 的环带来袭语义由 bearing 铺开保证。
+      lineXs: (encMode === 'lines') ? lineXs : [],
       kind: nodeKind,
       captureTotal,
       counterAttackAt: Number.isFinite(captureCfg.counterAttackAt) ? captureCfg.counterAttackAt : 0.5,
@@ -7636,12 +7648,30 @@ function update(dt){
     //   由 js/tank_objectives.js 内部取 .nodeKinds 段——两种形态都由单测锁住）。
     const _engageBias = (_objApi && typeof _objApi.objectiveBiasFor === 'function')
       ? _objApi.objectiveBiasFor(_nodeKindNow, RULES) : 0;
-    // 守点代理：仅 defend 且守点存活时才存在（capture/breakthrough 没有「可攻击的守点」）。
-    //   capture 的 captureBias>0 但 objective=null ⇒ pickEngageTarget 天然回落玩家，
-    //   即占领节点的敌军仍以玩家为主 —— 与「读条时敌人进圈暂停」的设计一致。
+    // 守点代理：仅 defend 且守点存活时才存在。
+    //   capture 的目标代理在循环内**按敌人各自最近未拔圈**构造（见下），不在这里做，
+    //   因为「哪一圈最近」逐车不同 —— 单帧共享一个 objective 会让所有敌人扑同一个圈。
     const _objectiveEnt = (_engageBias > 0 && battleGuardTarget && battleGuardTarget.hp > 0
       && _objApi && typeof _objApi.guardTargetAsEntity === 'function')
       ? _objApi.guardTargetAsEntity(battleGuardTarget, 'guard_target') : null;
+    // 2026-11-19（§4.217）：capture 的类型目标代理 —— 这修的是 `captureBias` 死配置。
+    //   改前：`_objectiveEnt` 只认 `battleGuardTarget`（只有 defend 创建）⇒ 占领节点 objective
+    //   恒 null ⇒ pickEngageTarget 在 `if(!oOk) return player;` 短路 ⇒ captureBias 从未被读过。
+    //   现在把「未拔满的圈」包装成 isObjective 实体，敌方按 captureBias 决定要不要去抢。
+    //   `pickCaptureObjectiveFor(e)` 取**离该车最近**的未拔圈（progress<1）；
+    //   engage.enabled / nodeKinds 总开关关闭时 _engageBias===0，此函数永不被调用。
+    const _captureKind = (_nodeKindNow === 'capture');
+    function pickCaptureObjectiveFor(e){
+      if(!_captureKind || !_objApi || typeof _objApi.captureZoneAsEntity !== 'function') return null;
+      if(!battleCaptureZones || !battleCaptureZones.length) return null;
+      let best = null, bestD = Infinity;
+      for(const z of battleCaptureZones){
+        if(!z || z.progress >= 1) continue;      // 已拔满的圈不再是目标
+        const d = (z.x - e.x) * (z.x - e.x) + (z.y - e.y) * (z.y - e.y);
+        if(d < bestD){ bestD = d; best = z; }
+      }
+      return best ? _objApi.captureZoneAsEntity(best, 'capture_zone') : null;
+    }
     const aiCtx = {
       player,
       entities,   // A0：友军命令的目标权威需要全实体表（enemies 只是敌方子集）
@@ -7687,8 +7717,10 @@ function update(dt){
       //   友军由 allyFireTargetFor 在开火处决定（这里不覆盖，保持 A0 语义）。
       //   写进 aiCtx 后 aiDecide 与开火读同一个对象（单帧内一致，不会两套目标）。
       if(e.team !== 'ally' && _objApi && _engageBias > 0){
+        // capture 用逐车最近未拔圈，其余类型用共享的目标代理（defend 的守点）
+        const _perTarget = _captureKind ? pickCaptureObjectiveFor(e) : _objectiveEnt;
         aiCtx.engageTarget = _objApi.pickEngageTarget(e, {
-          player: player, objective: _objectiveEnt,
+          player: player, objective: _perTarget,
           objectiveBias: _engageBias, distanceFalloff: aiCtx.distanceFalloff,
         });
         if(aiCtx.engageTarget === player) aiCtx.engageTarget = null;   // null ⇒ AI 回落到 ctx.player
@@ -10545,6 +10577,10 @@ function nextRunSeed(){
     },
     // 2026-11-02 M3：当前节点类型与类型运行时目标（只读；关闭态分别为 null / 空）
     nodeKind(){ return currentNode ? (currentNode.kind || null) : null; },
+    // 2026-11-19 M3-J 校准：出口 x（只读）。突破节点的胜负条件就是 player.x >= exitX，
+    //   但页面把 currentNode 关在 IIFE 里，探针的 page.evaluate 读不到 ⇒ 校准探针此前
+    //   「到出口距离」恒 -1、推进策略失效。这里只暴露数值，不暴露节点对象。
+    nodeExitX(){ return (currentNode && Number.isFinite(currentNode.exitX)) ? currentNode.exitX : null; },
     captureZones(){
       return battleCaptureZones.map(z => ({ x: Math.round(z.x), y: Math.round(z.y), r: z.r, progress: z.progress }));
     },

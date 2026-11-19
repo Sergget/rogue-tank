@@ -252,11 +252,16 @@ function coverNormalAt(cov, px, py){
 // 注：半径由调用方传入（消费 RULES.breach.heSplashRadius，该字段仍生效），本函数不读 RULES。
 function splashCoversAt(x, y, radius){
   let destroyed = 0;
+  // 2026-11-19（M3-J 校准，§4.217）：**守点（guardTarget）不吃溅射**。
+  //   理由同 js/tank_fire.js:1434 的直击豁免——守点是任务目标，不是可磨损掩体。
+  //   HE 在守点旁炸开时必须挡弹（它照常是实体），但不该让自己的破障顺带削任务目标。
+  //   只有敌方火力能磨损守点（判定在 tank_fire 的直击分支，这里统一放行双方）。
   // 2026-10-22（第五批）：`destroyCover` 现在会为 `toTier === null` 的掩体（wall_breakable）
   //   **从 covers 中 splice 移除**——遍历期间改动数组会让正向循环跳过下一项（实测：
   //   半径内 3 个可摧毁掩体只炸掉 1 个）。改为遍历快照副本，删除语义不受影响。
   for(const cov of covers.slice()){
     if(!cov || cov.hp <= 0 || !Number.isFinite(cov.hp)) continue;
+    if(cov.guardTarget) continue;
     const d = Math.hypot(cov.x-x, cov.y-y);
     if(d <= radius && damageCover(cov, 1, 'splash')) destroyed++;
   }

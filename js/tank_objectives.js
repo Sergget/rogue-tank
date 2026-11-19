@@ -444,6 +444,41 @@ function guardTargetAsEntity(cov, id) {
 }
 
 /**
+ * 把「占领圈（zone）」包装成 AI 可决策的实体形状。
+ *
+ * 为什么需要（2026-11-19，§4.217）：`RULES.nodeKinds.engage.captureBias` 曾是**死配置**——
+ *   页面只把 `battleGuardTarget` 包装成 objective，而守点只在 defend 节点存在，
+ *   占领节点的 `objective` 恒为 null ⇒ pickEngageTarget 在 `if(!oOk) return player;`
+ *   处就短路，`captureBias` 一次都没被读过。
+ *
+ * 语义：敌方「来抢点」的实际机制是**走进圈内压制读条**（`updateCaptureZones` 只在
+ *   `hasAlly && !hasEnemy` 时推进，敌方进圈只暂停不清零），所以把圈当成追击目标
+ *   正好等于「让敌人愿意走进圈」——这是目标欲望，不是双向拔点。
+ *
+ * `hp` 用 1（有限正数）而非 Infinity：`pickEngageTarget` 用 `Number.isFinite(hp) ? hp>0 : !!obj`
+ *   判存活，Infinity 也能过，但有限值更利于调试输出；圈的「死活」由调用方按
+ *   `progress >= 1` 过滤，不由 hp 表达。
+ *
+ * @param {any} zone 占领圈实例（读 x / y / r / progress）
+ * @param {string} [id] 实体 id（缺省 'capture_zone'）
+ * @returns {any} AI 可决策的实体形状（含 hurtbox 指回原圈）
+ */
+function captureZoneAsEntity(zone, id) {
+  const z = /** @type {any} */ (zone || {});
+  return {
+    id: id || 'capture_zone',
+    team: 'player',            // 与敌方 team 敌对
+    isObjective: true,
+    isCaptureZone: true,       // 打标：开火侧/调试可据此区分「圈」与「守点」
+    x: _num(z.x, 0), y: _num(z.y, 0),
+    hp: 1,
+    hullAngle: 0, turretAngle: 0,
+    isBoss: false,
+    hurtbox: z,                // 指回原实例（含 r/progress）
+  };
+}
+
+/**
  * 节点类型 → 敌方打守点目标的欲望权重。
  * 单一映射表（不在页面里散落 if/else）；未列出的类型一律 0（= 只打玩家，零回归）。
  * @param {string} kind 节点类型
@@ -472,6 +507,7 @@ const TANK_OBJECTIVES_API = {
   coverBlocksChannel: coverBlocksChannel,
   pickEngageTarget: pickEngageTarget,
   guardTargetAsEntity: guardTargetAsEntity,
+  captureZoneAsEntity: captureZoneAsEntity,
   objectiveBiasFor: objectiveBiasFor,
 };
 
