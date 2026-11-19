@@ -100,21 +100,39 @@ if (orderLine) {
 }
 
 // ---------- (d) 空 assets/ 必须「不算失败」 ----------
+// Python 解释器解析：Ubuntu 24.04 起不提供 `python` 别名（PEP 394），只有 `python3`；
+// Windows 上是 `python`。CI 的 ubuntu-24.04 runner 上若只写死 `python`，
+// spawnSync 会返回 status=null（ENOENT），本断言会**误判为失败**（2026-11-19 实测发现）。
+// 两者都不可用时明确跳过并打印原因——与「缺 Pillow/numpy 跳过」同口径：
+// 环境限制不是断言失败，但也绝不静默通过。
+function resolvePython() {
+  for (const exe of ['python', 'python3']) {
+    const probe = spawnSync(exe, ['--version'], { encoding: 'utf8', timeout: 15000 });
+    if (!probe.error && probe.status === 0) return exe;
+  }
+  return null;
+}
+
 const env = Object.assign({}, process.env, {
   PYTHONPATH: process.env.PYTHONPATH || path.join(ROOT, 'tmp', 'pylibs')
 });
 const emptyDir = fs.mkdtempSync(path.join(ROOT, '.rt-asset-pipeline-'));
 try {
-  const chk = spawnSync('python', [path.join(ROOT, 'scripts', 'covers-anchor-check.py'), '--json',
-    '--src', emptyDir], { cwd: ROOT, encoding: 'utf8', timeout: 120000, env });
-  if (/缺少 (Pillow|numpy)/.test(chk.stderr || '')) {
-    console.log('… 跳过 covers-anchor-check 校验：本机未装 Pillow/numpy（$env:PYTHONPATH = "$PWD/tmp/pylibs"）');
+  const pythonExe = resolvePython();
+  if (!pythonExe) {
+    console.log('… 跳过 covers-anchor-check 校验：本机无 python / python3 解释器（环境限制，非断言失败）');
   } else {
-    ok(chk.status === 0, `空 assets/ 下 covers-anchor-check 退出码 0（实际 ${chk.status}）`);
-    if (chk.status !== 0) console.error(chk.stdout || chk.stderr);
-    const rows = (chk.stdout || '').split(/\r?\n/).filter(l => l.trim().startsWith('{')).map(l => JSON.parse(l));
-    ok(rows.length === refKeys.length && rows.every(r => r.status === 'ABSENT'),
-      `全部 ${refKeys.length} 键报 ABSENT（走程序化回退，不是缺件）`);
+    const chk = spawnSync(pythonExe, [path.join(ROOT, 'scripts', 'covers-anchor-check.py'), '--json',
+      '--src', emptyDir], { cwd: ROOT, encoding: 'utf8', timeout: 120000, env });
+    if (/缺少 (Pillow|numpy)/.test(chk.stderr || '')) {
+      console.log('… 跳过 covers-anchor-check 校验：本机未装 Pillow/numpy（$env:PYTHONPATH = "$PWD/tmp/pylibs"）');
+    } else {
+      ok(chk.status === 0, `空 assets/ 下 covers-anchor-check 退出码 0（实际 ${chk.status}）`);
+      if (chk.status !== 0) console.error(chk.stdout || chk.stderr);
+      const rows = (chk.stdout || '').split(/\r?\n/).filter(l => l.trim().startsWith('{')).map(l => JSON.parse(l));
+      ok(rows.length === refKeys.length && rows.every(r => r.status === 'ABSENT'),
+        `全部 ${refKeys.length} 键报 ABSENT（走程序化回退，不是缺件）`);
+    }
   }
 } finally {
   fs.rmSync(emptyDir, { recursive: true, force: true });

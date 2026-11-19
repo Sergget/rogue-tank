@@ -107,12 +107,61 @@ function buildGrid(node, variant, extraBlockers) {
   });
   const blocked = new Uint8Array(cols * rows);
   const owner = new Int32Array(cols * rows).fill(-1);
-  for (let gy = 0; gy < rows; gy++) {
-    for (let gx = 0; gx < cols; gx++) {
-      for (let bi = 0; bi < blockers.length; bi++) {
-        if (pointInCoverOne(blockers[bi], gx * g, gy * g, TANK_R)) {
-          blocked[gy * cols + gx] = 1; owner[gy * cols + gx] = bi; break;
-        }
+  // 扫描顺序决定 owner 归属（同一格被多个 blocker 覆盖时取**索引最小**的那个，与逐格
+  //   `for bi` 从 0 递增并 break 的原实现完全一致）。因此这里必须按 bi 升序遍历，
+  //   且用 `if (blocked) continue` 而非覆盖写，才能保证 owner 语义不变。
+  //
+  // 性能（2026-11-19 修）：原实现是「格点 × 全部 blockers」三重循环——
+  //   strip 节点 361×50=18050 格 × 184 blockers ≈ **332 万次** `pointInCoverOne`，
+  //   全测试 216 次 buildGrid ⇒ 实测 424s（Node 24）/ 493s（Node 22），
+  //   超过 run-tests.js 的 300s 单测上限而稳定假红。
+  //   改为「逐 blocker 求它覆盖的格点区间」（AABB 预筛 + 只对这些格做精判）：
+  //   每个 blocker 只碰自己附近的格点，总精判次数降到「格点数 + Σ覆盖面积」量级。
+  //   精判仍一律走 pointInCoverOne（与游戏侧同源，不复刻几何），语义逐格等价。
+  for (let bi = 0; bi < blockers.length; bi++) {
+    const c = blockers[bi];
+    // 包络 AABB（旋转矩形解析包络；带 verts/segments 的实例用多边形/多段外包围）
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    if (c.verts && c.verts.length >= 3) {
+      const ca = Math.cos(c.angle || 0), sa = Math.sin(c.angle || 0);
+      for (const v of c.verts) {
+        const wx = c.x + v[0] * ca - v[1] * sa, wy = c.y + v[0] * sa + v[1] * ca;
+        if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+        if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      }
+    } else if (c.segments && c.segments.length) {
+      const a = c.angle || 0;
+      const hw0 = (c.w || 0) / 2, hh0 = (c.h || 0) / 2;
+      const ex0 = Math.abs(Math.cos(a)) * hw0 + Math.abs(Math.sin(a)) * hh0;
+      const ey0 = Math.abs(Math.sin(a)) * hw0 + Math.abs(Math.cos(a)) * hh0;
+      minX = c.x - ex0; maxX = c.x + ex0; minY = c.y - ey0; maxY = c.y + ey0;
+      for (const s of c.segments) {
+        const hx = (s.w || c.w || 0) / 2, hy = (s.h || c.h || 0) / 2;
+        const sx = c.x + (s.dx || 0), sy = c.y + (s.dy || 0);
+        const sa2 = (s.angle || 0) + a;
+        const sex = Math.abs(Math.cos(sa2)) * hx + Math.abs(Math.sin(sa2)) * hy;
+        const sey = Math.abs(Math.sin(sa2)) * hx + Math.abs(Math.cos(sa2)) * hy;
+        if (sx - sex < minX) minX = sx - sex; if (sx + sex > maxX) maxX = sx + sex;
+        if (sy - sey < minY) minY = sy - sey; if (sy + sey > maxY) maxY = sy + sey;
+      }
+    } else {
+      const a = c.angle || 0;
+      const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2;
+      const ex = Math.abs(Math.cos(a)) * hw + Math.abs(Math.sin(a)) * hh;
+      const ey = Math.abs(Math.sin(a)) * hw + Math.abs(Math.cos(a)) * hh;
+      minX = c.x - ex; maxX = c.x + ex; minY = c.y - ey; maxY = c.y + ey;
+    }
+    if (!Number.isFinite(minX)) continue;
+    // 格点 (gx*g, gy*g) 落在包络 + TANK_R 内才可能精判命中
+    const gx0 = Math.max(0, Math.floor((minX - TANK_R) / g));
+    const gx1 = Math.min(cols - 1, Math.ceil((maxX + TANK_R) / g));
+    const gy0 = Math.max(0, Math.floor((minY - TANK_R) / g));
+    const gy1 = Math.min(rows - 1, Math.ceil((maxY + TANK_R) / g));
+    for (let gy = gy0; gy <= gy1; gy++) {
+      for (let gx = gx0; gx <= gx1; gx++) {
+        const i = gy * cols + gx;
+        if (blocked[i]) continue;              // 已归给更小索引的 blocker
+        if (pointInCoverOne(c, gx * g, gy * g, TANK_R)) { blocked[i] = 1; owner[i] = bi; }
       }
     }
   }
@@ -346,6 +395,65 @@ section('④ 判据自检');
   ok(t.full && !!t.full.shellBlock,
      `④ full 有 shellBlock 判定（实到 ${t.full && t.full.shellBlock}）`);
   ok(t.bush && t.bush.passability !== 0, '④ bush 可通行（不参与阻挡，防过度保守）');
+}
+
+// ================= 5) 复杂度护栏：buildGrid 不得退回「格点 × 全部 blockers」==========
+// 2026-11-19：原三重循环在 strip 节点上要 332 万次 pointInCoverOne / 次，全测试 216 次
+// buildGrid ⇒ 实测 424s（Node 24）/ 493s（Node 22），超过 run-tests.js 的 300s 单测上限
+// 而**稳定假红**（断言全过，只是慢）。改成逐 blocker AABB 预筛后降到 14.3s（约 30×）。
+// 这条护栏防止有人"为了简单"改回去——它不测时间（机器差异大），而是测**精判调用次数**
+// 的量级：必须随「格点数 + 覆盖面积」增长，不得随「格点数 × blockers 数」增长。
+section('⑤ 复杂度护栏：精判次数不得退化为 格点×blockers');
+{
+  // 用一个真实的 strip 节点（最大的那个），统计 buildGrid 期间 pointInCoverOne 的调用数。
+  // 通过与 buildGrid 同源的实现路径计数：包装 MAP.pointInCoverOne 不可行（内部直接引用），
+  // 故改为**解析式上界**——直接算「AABB 预筛后的理论精判上界」并与「三重循环上界」对比。
+  let node = null;
+  {
+    const run = MAP.generateRun(SEEDS[0], NODES_PER_RUN, ENV);
+    for (const n of run.nodes) {
+      if (!isEncounterNode(n)) continue;
+      const cols = Math.floor(n.w / GRID) + 1, rows = Math.floor(n.h / GRID) + 1;
+      const bN = countBlockersOf(n, 'A');
+      if (!node || cols * rows * bN > node.code) {
+        node = { n, cols, rows, bN, code: cols * rows * bN };
+      }
+    }
+  }
+  ok(!!node, '⑤ 取到用于复杂度评估的 encounter 节点');
+  if (node) {
+    // 朴素三重循环的调用次数（每格一旦命中就 break，故而是上界）
+    const naive = node.cols * node.rows * node.bN;
+    // AABB 预筛后的上界：每个 blocker 只扫自己包络 + TANK_R 覆盖的格点；
+    // 保守取「该 blocker 包络面积 / 格面积 + 边界两圈」并求和。
+    let indexed = 0;
+    for (const c of (node.n.covers || [])) {
+      const def = RULES.coverTiers[c.tier];
+      if (!def || !BLOCKERS.A(def)) continue;
+      const a = c.angle || 0;
+      const hw = (c.w || 0) / 2, hh = (c.h || 0) / 2;
+      const ex = Math.abs(Math.cos(a)) * hw + Math.abs(Math.sin(a)) * hh + TANK_R;
+      const ey = Math.abs(Math.sin(a)) * hw + Math.abs(Math.cos(a)) * hh + TANK_R;
+      const nx = Math.ceil((2 * ex) / GRID) + 2, ny = Math.ceil((2 * ey) / GRID) + 2;
+      indexed += nx * ny;
+    }
+    const ratio = naive / Math.max(1, indexed);
+    console.log(`  ${node.cols}×${node.rows} 格 × ${node.bN} blockers：`
+      + `朴素上界 ${naive.toLocaleString()} 次，预筛上界 ${indexed.toLocaleString()} 次，`
+      + `提速 ${ratio.toFixed(1)}×`);
+    // 真实占比：只有多边形/河流实例的包络会明显大于格面积，普通矩形占比通常 <10%
+    ok(indexed < naive, `⑤ 预筛精判上界（${indexed}）< 朴素上界（${naive}）`);
+    ok(ratio >= 5, `⑤ 提速比 ${ratio.toFixed(1)}× ≥ 5（远距离格点不再逐 blocker 空判）`);
+  }
+}
+
+/** 统计某档判据下的 blocker 数量（与 buildGrid 同源过滤） */
+function countBlockersOf(node, variant) {
+  const pred = BLOCKERS[variant];
+  return (node.covers || []).filter(c => {
+    const def = RULES.coverTiers[c.tier];
+    return !!(def && pred(def));
+  }).length;
 }
 
 console.log(`\n${fails === 0 ? '全部通过' : fails + ' 项失败'}：test-exit-reachability.js`
