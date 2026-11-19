@@ -574,3 +574,18 @@ battle 的瞄准器有两种风格（`profile.settings.aimStyle`：`default` / `
 - **门禁噪音排查记录（2026-11-03，`test-ai-press` 超时）**：全量跑时该项报「超时（>300s）」，单跑 282.7s 通过 —— 逼近上限而非逻辑失败。用 `git worktree add` 检出改动前基线 `7a7a662` 跑同一组 10 seed × 40s 窗口做对照：**基线 `minDist` 273/56/123/330/74/151/136/171/119/319 与改动后逐 seed 完全一致**（`net` / `detour` 亦全部一致）⇒ `aiDecideEnemy` 的 `p = ctx.engageTarget || ctx.player` 在 `engageTarget` 缺省时为逐字节零回归。耗时抖动来自机器负载：同一份代码三次测量 218.8s / 120.7s / 139.8s（基线），跨度近 2×。**结论：不改断言、不放宽门限**——该测试的 300s 上限本就为容忍负载抖动设在 180s→300s（见 `scripts/run-tests.js:17-21`），本次属已知边界，不是本批引入的问题。
 - **文档**：`docs/specs/combat/node-mission-types.md` 新增现行节「类型专属内容结构（现行，2026-11-03）」，页面头部改成混装（该节现行、其余仍设计预留），「落地状态」表加行 + 沿革注记保留旧结论。
 - **未做（仍归 M3-J 校准批）**：数值全 `[PLACEHOLDER]`，`RULES.nodeKinds.enabled` 与各分型 `enabled` 仍全 `false`（玩家默认看不到）；类型开启态的手感/数值未人肉试玩。
+
+### 4.213 2026-11-03 移除 GitHub Actions CI（用户裁定）+ 文档中失效 CI 表述清理
+
+> 本条目属**工作流与工具链变更**，不产生机制细则 ⇒ 不写 specs 正文，只在此记录决策与后果。历史 CI 沿革见 §4.45（引入）/ §4.47（首跑失败修复）/ §4.70（校准基线第六次修正）。
+
+- **裁定**：用户 2026-11-03 指令「移除 github workflow」。执行：`git rm -r .github` ⇒ 删除 `.github/workflows/ci.yml`（53 行，1866 B）。删除后 `.github/` 目录不再存在，`git ls-files .github` 为空。
+- **被移除的是什么**：push / pull_request / workflow_dispatch 三触发，`ubuntu-24.04` + Node `[22, 24]` 矩阵，四步 `actions/checkout@v5` → `setup-node@v5` → `npm ci` → `npm run check` → `npm run wiki:check` → `npm test`；`timeout-minutes: 25`、`permissions.contents: read`、`concurrency` 取消旧运行。
+- **后果（明确记账，不是隐性损失）**：推送后**不再有自动验证**。此前「CI 绿」是外部可核对的通过凭证，此后任何「已通过」都只存在于本地执行记录。三条命令本身不变、仍是唯一验收口径：`npm run check` / `npm run wiki:check` / `npm test`（外加 `npm run test:browser` 与两条 baseline，需系统 Edge）。合并前须本地手动跑通——该纪律原本就写在 `ci.yml:52-53` 注释里（浏览器链从未纳入 CI），现在升级为**全部四步都靠本地**。
+- **文档中失效表述清理（6 处，逐条按是否断言 CI 存在分流）**：
+  - **强指向、已改**：`docs/specs/map/pseudo-3d-readiness.md:131` 原写「I3 截图基线在 CI（GitHub Actions ubuntu）上跑无头浏览器**已具备先例**」——该前提已不成立，改写为「本地系统 Edge 可跑；CI 已移除（§4.213），若要恢复自动化需自搭 runner 并解决像素漂移」。`docs/specs/map/perf-budget.md:110` 原写「软件渲染（**CI 的** swiftshader）」→ 改为「无头浏览器的 swiftshader 后端」（机制解释不变，去掉已经不存在的归属）。
+  - **弱指向、同步去掉 CI 名号**：`docs/ASSETS-PIPELINE.md:41`「CI 校验是否漂移」→「校验是否漂移（由测试链调用）」；`docs/specs/map/textures.md:68`「`--check` 供 CI 校验」→「供测试链校验」；`docs/specs/combat/changelog.md:230`「字号阶梯纳入 CI」→「纳入测试链」+ 注记 CI 已移除而棘轮仍在 `npm test` 内生效；`docs/specs/editor/browser-tests.md:50`「CI 不跑浏览器链」→「本仓库已无 CI，浏览器链与基线一律只在本地跑」。
+  - **不改**：`docs/archive/**` 与 `docs/ARCHIVE.md`、`docs/DEVELOPMENT-batches-2026-10.md`——历史记录只增不改，CI 曾存在是事实；`.claude/skills/perf-profile/SKILL.md:68` 是第三方技能的通用说明，不描述本仓库。
+- **保留未动**：`package.json` 的 `check` / `test` / `wiki:check` / `test:browser` / `baseline*` 全部 script 逐字未改——它们是本地验收入口，与 CI 无关。`README.md` §验证（五条命令）原文已只列本地命令，无需改。
+- **验证**：`git ls-files .github` 空；`node scripts/wiki-check.js` → `broken=0 anchorBad=0`；`git grep -n "\bCI\b"` 在 `docs/`（排除 archive 与 batches-2026-10）仅剩历史沿革与本次新写的说明性文字，**无残留「CI 会跑」的误导性断言**。
+- **过程教训**：删除一个「验证入口」比删除一个「功能」更需要记账——功能删了报错可见，验证删了报错不可见。故本条把「谁接手、跑什么、什么时候跑」写死，避免下次推送时默认仍有机器在把关。

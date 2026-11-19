@@ -227,7 +227,7 @@ zoom 联动：容量按 `÷zoom` 同步缩放（zoom 0.8 → R=750 / 前向 1012
 
 1. 首页接受军事终端风 → `index.html` 由冷蓝灰 + `Segoe UI` + 10px 圆角并入暖橄榄体系。
 2. 令牌载体用 **JS 注入**（`js/tank_ui.js`）而非外链 `css/ui-tokens.css` —— 免去七处 `<link>` 与 `server.js` 静态路径约定同步改。
-3. 字号阶梯**纳入 CI** → `scripts/test-ui-tokens.js` 的 `FONT_BASELINE` 棘轮。
+3. 字号阶梯**纳入测试链** → `scripts/test-ui-tokens.js` 的 `FONT_BASELINE` 棘轮（原表述为「纳入 CI」；CI 已于 2026-11-03 移除，见 §4.213，棘轮本身仍在 `npm test` 内生效）。
 4. `designer.css` **保留独立文件**（不并入令牌），只留 `--front/--side/--rear/--mirror` 四个语义别名，值指向通用令牌。
 5. 规范归口 **specs**（本卷 §18），不保留独立的 `docs/UI-SPEC.md`。
 

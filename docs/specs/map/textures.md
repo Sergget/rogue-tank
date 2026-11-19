@@ -65,7 +65,7 @@
   2. `tools/cover-refs.json` 的 `canvas` / `anchor` —— **图片通道基准**：`canvas` = 烘焙后内容包围盒尺寸，`anchor` = 画布内像素；
   3. `refs.centroid` —— 内容质心，**唯一验收基准**。
   图片通道 `drawAssetSprite` 直接 `drawImage(img, x-ax*sx, …)`（图片像素 = 世界像素），所以落盘 PNG 必须与 `refs.canvas` 同尺寸，内容质心必须落在 `refs.centroid` ±2px。手抄 `ASSET_DEFS.w/h` 当落盘尺寸会整体缩放错位（tree 实际 30×30、tree_canopy 58×58）。
-- **基准单一来源**：`node tools/dump-cover-refs.mjs` 从烘焙代码导出 `tools/cover-refs.json`；`--check` 供 CI 校验是否漂移。禁止手改该 JSON。**改任何烘焙几何/包络后必须重导出**。
+- **基准单一来源**：`node tools/dump-cover-refs.mjs` 从烘焙代码导出 `tools/cover-refs.json`；`--check` 供测试链校验是否漂移。禁止手改该 JSON。**改任何烘焙几何/包络后必须重导出**。
 - **落盘（后期美术）**：把源图按 `<key>.png` 放进源目录（如 `tmp/covers-src/`），跑 `python scripts/prepare_covers.py --src <dir> --inplace` —— 清底 → 按内容包围盒裁留白 → 等比缩进 `refs.canvas` → 居中 → PNG-8（16 色）。**不做拉伸变形**；`--dry` 只报告，`--only <key>` 分批，`--pick <key>=<file>` 指定同名候选。
 - **验收**：`python scripts/covers-anchor-check.py [--src assets]` —— 尺寸 + 内容质心 ±2px；`ABSENT` 表示该键走程序化回退，**不算失败**。取代「人眼看 `tools/bake.html` 红十字」（红十字量的是烘焙包围盒内锚点，对图片通道无意义）。
 - **回归**：`scripts/test-asset-pipeline.js`（挂 `npm test`）锁四件事——基准与烘焙代码一致、基准键 = `ASSET_DEFS`、`prepare_covers` 的 `ORDER` 覆盖全部基准键、空 `assets/` 下锚点验收退出码 0 且全 `ABSENT`。

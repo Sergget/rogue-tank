@@ -128,7 +128,7 @@
 ## 6. 风险与未决
 
 1. **B 的地面缓存重构**是隐藏最深的成本（平行四边形可见区 vs AABB 缓存），预估 2~4 人日未计入上表。
-2. **I3 截图基线**在 CI（GitHub Actions ubuntu）上跑无头浏览器已具备先例（`test:browser` 本地跑、CI 未挂）——若要进 CI 需另配。
+2. **I3 截图基线**需要无头浏览器，本地可用系统 Edge（`npm run test:browser` / `npm run baseline`）跑通；**本仓库 2026-11-03 起已移除 GitHub Actions CI**（§4.213），故不存在「先例」可循——若要恢复自动化截图校验，需自行搭 runner 并解决 GPU/字体差异导致的像素漂移（见 `specs/editor/browser-tests.md` §基线是本地可产物）。
 3. **`test-render.js` 91 条断言**在 B/C 下大量退役，需要「哪些迁截图、哪些删」的逐条裁决——建议做一张映射表再动手。
 4. 高度表数值（vision-stealth §4.1）是**提案**，落地前需 role-systems 按平衡实测标定。
 5. 「玩家可被 AI 偷袭」（隐蔽对称化）是**玩法裁定**而非工程项——会显著改变难度曲线，应单独问。

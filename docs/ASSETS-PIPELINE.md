@@ -38,7 +38,7 @@
 
 ```bash
 node tools/dump-cover-refs.mjs          # 重新导出基准
-node tools/dump-cover-refs.mjs --check   # CI 校验是否漂移
+node tools/dump-cover-refs.mjs --check   # 校验是否漂移（由测试链调用）
 ```
 
 - 该文件由 `dump-cover-refs.mjs` **从运行时烘焙代码**（`js/tank_assets.js` 的

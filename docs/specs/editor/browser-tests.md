@@ -47,7 +47,7 @@
 - 记录用（不判定）：`update` / `draw` 帧时间 p50/p95（`js/tank_perf.js` 环形缓冲 240 帧）、JS 堆占用（`performance.memory`，非 Chromium 为 `null`）。
 - 每场景落一张 PNG（`--write` 存 `<out>/<scene>.png`，`--check` 存 `<out>/current/<scene>.png`，失败时可肉眼对比），作为「当前 Canvas 对照图」。
 
-**基线是本地产物**（`tmp/` 已 gitignore）：不同 GPU / 字体 / 抗锯齿会让像素网格漂移，跨机器基线不可移植；CI 不跑浏览器链。判定逻辑在 `scripts/lib/render-baseline.cjs`，由 `scripts/test-render-baseline.js` 覆盖。
+**基线是本地产物**（`tmp/` 已 gitignore）：不同 GPU / 字体 / 抗锯齿会让像素网格漂移，跨机器基线不可移植；**本仓库自 2026-11-03 起已无 CI**（§4.213），浏览器链与基线一律只在本地跑（`npm run test:browser` / `npm run baseline`）。判定逻辑在 `scripts/lib/render-baseline.cjs`，由 `scripts/test-render-baseline.js` 覆盖。
 
 ### 3D 场景基线（G1，2026-10-27）
 
