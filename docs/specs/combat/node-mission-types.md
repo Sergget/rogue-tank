@@ -72,6 +72,25 @@
 - **守点被毁后必须回落玩家**：`guardTarget.hp<=0` 时不再参与打分（否则 AI 会对着废墟开火）。
 - 实现要点：`objectiveBiasFor(kind, cfg)` 必须同时接受**整份 `RULES`** 与 `RULES.nodeKinds` 子段两种入参——页面传的是整份 `RULES`，只认子段的实现会恒返回 0（曾出现：单测传子段全绿、生产恒 0 的静默失效，现由负向断言锁住）。
 
+#### 守点作为实体掩体必须豁免「自遮挡视线」（2026-11-19 修正，§4.216）
+
+守点是运行时构造的 `tier:'intact'` 实体覆盖物（`height 8`、`vision true`），**它自己会挡视线**。AI 的开火前置 `ctx.hasLoS(敌.x, 敌.y, 目标.x, 目标.y)` 的射线终点就落在守点体内 ⇒ `findCoversOnPath` 必然命中守点本身 ⇒ `los` 恒 `false` ⇒ `canFire` 恒假。更糟的是目标变量 `p` 已被换成守点，所以这类敌人**连玩家也不打**，退化成只移动的哑炮。
+
+**实测（seed 20261119，`scripts/measure-encounter-real.cjs`）**：修复前 `losProbe` 57 条样本 · 守点可见 **0** 次 · 敌方开火 **0** 发；修复后 90 条样本守点可见 **90** 次 · 敌方开火 5 发**全部打守点**。
+
+**修法（两处）**：
+
+1. `hasLineOfSight(ox,oy,tx,ty,coversList,opts)` 新增 `opts.ignore`——被瞄准的实体掩体自身不得遮挡射向它自己的视线（`js/tank_cover.js`）。**⚠ 不能无条件忽略**：只在射线终点确实落在该掩体体内时由调用方传入，否则打玩家时也会穿守点。
+2. `js/tank_ai.js` 的 `_losOptsFor(target, tz)` 助手从 `target.hurtbox` 自动取 `ignore`，**全部 4 个 `ctx.hasLoS` 调用点**（`_passiveDefend` / skirmish / charge / 主 LoS 评估）统一改用它。
+
+回归断言在 `scripts/test-covers.js` §31b：不带 `ignore` **必须**被挡（锁住病灶语义）、带 `ignore` **必须**通（锁住修复）、射线穿同一掩体去打别处**仍被挡**（锁住「不是全局穿透」）。
+
+#### 守点耐久按波次火力定，不按掩体三发定（2026-11-19 校准，§4.216）
+
+守点原借用 `RULES.coverTiers.building.hp`（= **3 发**），实测 **W1 开打 8 秒即被打爆**——defend 节点在玩家反应过来之前就判失败，任务语义不成立。现改由 `RULES.nodeKinds.defend.guardHp` 独立配置（当前 `[PLACEHOLDER]` 30），由 `tank_battle.html` 的 `spawnGuardTarget` 读取，缺省才回落 `tier.hp`。
+
+**校准判据**：守点耐久要按**整场波次总火力**定，不是按掩体耐久。单 seed 实测 3 敌 100% 集火时 60s 内打出 32 发 ⇒ 30 发仍不够，说明该值必须配合「玩家会还手」的真实对局数据再定；`[PLACEHOLDER]` 尚未定案。
+
 ### 类型身份在生成后被改写时怎么办
 
 `applyRunKinds` 会在 `makeNode` **之后**改 kind（突破置中段、非战斗节点替换、占比回退）。因此几何不能只在生成期建一次：

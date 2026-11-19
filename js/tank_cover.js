@@ -1263,8 +1263,18 @@ function hasLineOfSight(ox,oy,tx,ty, coversList, opts){
   const targetZ = (typeof o.targetZ === 'number' && Number.isFinite(o.targetZ)) ? o.targetZ : LOS_TARGET_Z;
   // 视线需要越过的有效高度：取两者较小（看车体时 1.4 就够，看炮塔才需 2.3）
   const needZ = Math.min(eyeZ, targetZ);
+  // 2026-11-19（M3-J 校准，§4.216）：`opts.ignore` —— 被瞄准的**实体掩体自身**不得遮挡
+  //   射向它自己的视线。病灶：defend 节点的守点是一个 tier='intact' 覆盖物（`intact` 有
+  //   vision:true、height:8），AI 判定开火前置用 `hasLoS(敌, 守点中心)`，射线终点落在守点
+  //   体内 ⇒ findCoversOnPath 必然命中守点本身 ⇒ 恒返回 false ⇒ canFire 恒假。
+  //   实测：57 条样本里「敌人→守点」可见 0 次，而「敌人→玩家」可见 9 次。
+  //   更糟的是 AI 的目标变量 p 已被换成守点，所以这类敌人连玩家也不打（哑炮）。
+  //   ⚠ 只在**射线终点确实落在该掩体体内**时由调用方传入，不能无条件忽略——否则打玩家
+  //   时也会穿透守点，那是另一个更严重的 bug。
+  const ignore = o.ignore || null;
   const hits = findCoversOnPath(ox,oy,tx,ty, coversList);
   for(const h of hits){
+    if(ignore && h.cover === ignore) continue;   // 目标自身不算遮挡
     const tier = COVER_TIERS[h.cover.tier];
     if(!tier) continue;                     // 未注册 tier 不参与（同 tierShellBlock 的兜底方向）
     if(!tier.vision) continue;              // 该 tier 本就不遮视线（水/泥/路/碎石）

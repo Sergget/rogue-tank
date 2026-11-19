@@ -337,6 +337,21 @@ function _bossStageAIModes(){
   return (typeof RULES !== 'undefined' && RULES.boss && RULES.boss.aiModes) ? RULES.boss.aiModes : fb;
 }
 
+// M3-J（2026-11-19 校准，§4.216）：视线判定的目标自身豁免。
+//   病灶：defend 节点的守点是一个 tier='intact' 的**实体掩体**（height 8、vision true），
+//   而 AI 的开火前置走 `ctx.hasLoS(敌, 目标中心)` —— 射线终点落在守点体内，守点必然出现在
+//   findCoversOnPath 的结果里 ⇒ los 恒 false ⇒ canFire 恒假。更糟的是目标变量 p 已被换成
+//   守点，于是这类敌人**连玩家也不打**（哑炮），表现为「守点零掉血 + 敌方零开火」。
+//   实测取证：57 条采样里「敌人→守点」可见 0 次，而「敌人→玩家」可见 9 次。
+//   修法：目标实体若带 `hurtbox`（= 它本身就是一个覆盖物），视线射线忽略该覆盖物自己。
+//   ⚠ 只在**目标自身**这种情况下忽略；打玩家时 ignore 为 null，守点照常挡视线。
+function _losOptsFor(target, tz){
+  const o = tz ? { targetZ: tz } : undefined;
+  const hb = (target && target.hurtbox) ? target.hurtbox : null;
+  if(!hb) return o;
+  return Object.assign({}, o || {}, { ignore: hb });
+}
+
 // 消极防御核心（友军据点语义，P-51 提取共用）：原地不动、炮塔锁定射程内目标，
 // 对准+视线+装填满足才开火；目标不存在/超出射程 → 输出保持当前朝向、不开火。
 // target 为单个实体（友军传最近敌人，Boss hold 传玩家）。
@@ -359,7 +374,8 @@ function _passiveDefend(t, ctx, target){
     * ((prof && prof.aimTolMul) || 1);
   const aimErr = Math.abs(angDiff(t.turretAngle, desired));
   const _tzD = _hullDownTargetZ(target);   // #AB18 条件降档
-  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, target.x, target.y, undefined, _tzD ? { targetZ: _tzD } : undefined) : true;
+  // §4.216：目标是被瞄准的实体掩体（守点）时，忽略它自己（否则视线恒被自己挡死）
+  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, target.x, target.y, undefined, _losOptsFor(target, _tzD)) : true;
   if(aimErr < tol && los && t.reloadT <= 0) out.fire = true;
   return out;
 }
@@ -864,7 +880,7 @@ function aiDecideEnemy(t, ctx){
       const tol = cfgA.aimTolerance !== undefined ? cfgA.aimTolerance : 0.12;
       const aimErr = Math.abs(angDiff(t.turretAngle, desiredB));
       const _tzB = _hullDownTargetZ(p);   // #AB18 条件降档
-      const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y, undefined, _tzB ? { targetZ: _tzB } : undefined) : true;
+      const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y, undefined, _losOptsFor(p, _tzB)) : true;
       if(aimErr < tol && los && t.reloadT <= 0) out.fire = true;
       t.aiState = 'skirmish';
       return out;
@@ -894,7 +910,7 @@ function aiDecideEnemy(t, ctx){
         const _tolC = _cfgC.aimTolerance !== undefined ? _cfgC.aimTolerance : 0.12;
         const _aimErrC = Math.abs(angDiff(t.turretAngle, _desiredC));
         const _tzC = _hullDownTargetZ(p);   // #AB18 条件降档
-        const _losC = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y, undefined, _tzC ? { targetZ: _tzC } : undefined) : true;
+        const _losC = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y, undefined, _losOptsFor(p, _tzC)) : true;
         if(_aimErrC < _tolC && _losC && t.reloadT <= 0) _outC.fire = true;
         t.aiState = 'charge';
         return _outC;
@@ -965,7 +981,7 @@ function aiDecideEnemy(t, ctx){
   // #AB18（2026-10-29 路线 ②）：目标「主动隐蔽」（静止+未开火）时降档到车体口径——
   //   灌木 1.2m 挡得住蹲住的车；动了/开火了炮塔露头，回到缺省炮塔口径。
   const _obsTz = _hullDownTargetZ(p);
-  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y, undefined, _obsTz ? { targetZ: _obsTz } : undefined) : true;
+  const los = ctx.hasLoS ? ctx.hasLoS(t.x, t.y, p.x, p.y, undefined, _losOptsFor(p, _obsTz)) : true;
   // #E8：全高掩体（建筑/岩石/树，tier.vision===true）遮挡视线时，敌人不再「进入范围就行动」。
   // 受击/友邻告警（alertEntity 置 aiEngaged + lastKnownPlayerPos）不受此门控限制。
   const needLoS = cfg.engageRequiresLoS !== false;

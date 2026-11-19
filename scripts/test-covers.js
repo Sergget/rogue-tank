@@ -628,6 +628,34 @@ C.resetCovers();
   }
 }
 
+// 31b) 2026-11-19（M3-J 校准，§4.216）：`hasLineOfSight` 的 `ignore` 选项。
+//   **为什么要这条**：defend 节点的守点是一个 tier='intact' 的实体掩体（height 8、vision true），
+//   AI 的开火前置 `ctx.hasLoS(敌, 守点)` 把射线终点打在守点自己体内 ⇒ findCoversOnPath 必然
+//   命中它本身 ⇒ los 恒 false ⇒ canFire 恒假。实测（seed 20261119）修复前 losProbe 57 条样本
+//   守点可见 0 次、敌方开火 0 发；修复后 90/90 可见、5 发全打守点。
+//   本断言锁住两端：不带 ignore **必须**被挡（否则等于无条件穿透，打玩家时也会穿守点），
+//   带 ignore **必须**通（否则病灶没修）。
+{
+  const saved = C.covers.slice();
+  C.covers.length = 0;
+  const wall = { x: 1000, y: 1000, w: 200, h: 160, angle: 0, tier: 'intact',
+    hp: Infinity, guardTarget: true };
+  C.covers.push(wall);
+  C.invalidateCoverGrid();   // 空间索引必须失效重建，否则新掩体不参与查询
+  const sx = 1000, sy = 600;      // 射手在守点正下方
+  const tx = 1000, ty = 1000;     // 目标 = 守点中心（射线终点落在它体内）
+  ok(C.hasLineOfSight(sx, sy, tx, ty) === false,
+    '§4.216 不带 ignore：射向 intact 掩体的射线被它自己挡住（这是修复前的病灶）');
+  ok(C.hasLineOfSight(sx, sy, tx, ty, null, { ignore: wall }) === true,
+    '§4.216 带 ignore：目标自身不遮挡射向自己的视线（修复后必须通畅）');
+  // 反向：打别的目标时，这个 intact 掩体仍然要挡（证明 ignore 不是全局穿透）
+  ok(C.hasLineOfSight(1000, 600, 1000, 1400) === false,
+    '§4.216 ignore 只豁免目标自身：射线穿同一掩体去打别处仍被挡');
+  C.covers.length = 0;
+  for (const c of saved) C.covers.push(c);
+  C.invalidateCoverGrid();
+}
+
 // 32) P-17 烟雾动态视线掩体（smokeClouds）：
 C.clearSmoke();
 {

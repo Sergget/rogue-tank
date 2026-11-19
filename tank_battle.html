@@ -3587,9 +3587,15 @@ function spawnGuardTarget(anchorGroups){
   }
   if(!p) return;
   const tier = (RULES.coverTiers && RULES.coverTiers.building) ? RULES.coverTiers.building : {};
+  // 2026-11-19（M3-J 校准，§4.216）：守点耐久读 `RULES.nodeKinds.defend.guardHp`，
+  //   不再借用 `building.hp`（= 3 发）。实测借用版在 W1 开打 8 秒就被打爆 ⇒ defend 节点
+  //   在玩家反应过来之前就判失败，任务语义不成立。缺省 30 发，见 tank_rules.js 注释。
+  const dcfg = (RULES.nodeKinds && RULES.nodeKinds.defend) ? RULES.nodeKinds.defend : null;
+  const hp0 = (dcfg && Number.isFinite(dcfg.guardHp)) ? dcfg.guardHp
+    : (Number.isFinite(tier.hp) ? tier.hp : 3);
   const t = {
     x: p.x, y: p.y, w: 130, h: 96, angle: 0,
-    tier: 'building', hp: Number.isFinite(tier.hp) ? tier.hp : 3,
+    tier: 'building', hp: hp0,
     guardTarget: true,
   };
   covers.push(t);
