@@ -202,6 +202,88 @@ ok(F.shellVerticalDecision === undefined, 'shellVerticalDecision 已移除（#E1
   global.shells=[];
 }
 
+// 3c) 2026-11-19（M3-J 校准，§4.217）：**守点（guardTarget）不吃己方火力**。
+//   **为什么要这条**：defend 节点的守点是 `tier='building'`（派生 mode='solid'）的实体掩体，
+//   会照常挡弹；而 `stepShells` 的掩体命中分支对任何 `Number.isFinite(hp)` 的掩体扣 1 点耐久。
+//   玩家守在守点旁朝敌人开火时，被守点截停的每一发都在削自己的任务目标。实测
+//   （KIND=defend SEED=20261119）敌方对守点只打出 15~22 发，守点耐久却掉满 60 点
+//   ⇒ 差额全部来自玩家自己（关掉玩家火力的 FIRE=0 对照跑证实：敌方 63 发 = 掉 60 点，账对得上）。
+//   口径：守点照常挡弹（不能穿它打人），但**只有敌方火力能磨损它**；同阵营炮弹被挡下、记 0 伤害。
+//   本条同时锁住三端：己方打不掉、敌方打得掉、非 guardTarget 的同 tier 掩体行为不变。
+{
+  global.isHostile = require('../js/tank_entity.js').isHostile || function(a,b){ return a!==b; };
+  // ⚠ 步长必须**不与掩体入口平面对齐**：`findCoversOnPath` 的判定是
+  //   `hit.t > 0.5 && hit.t < dist`（js/tank_cover.js:1023/1026），入口恰好落在
+  //   本步终点时两边都不成立（`t===dist` 过不了 `<`，下一步 `t===0` 过不了 `>`）⇒ 会穿过去。
+  //   首版用 speed=200 × dt=0.05 = 10px/步，掩体入口在 x=70 正好是步边界，四个用例全假绿。
+  //   改用 233×0.05 = 11.65px/步（与任何整数入口面都不同余）。
+  const mkShell = (shooter, ax) => ({
+    x: ax, y: 0, fx: ax - 10, fy: 0, dx: 1, dy: 0, speed: 233, pen: 1000, dmg: 50,
+    ammoKey: 'ap', ammo: {}, shooter: shooter, hitPref: 'auto',
+    canBounce: false, bounced: false, dist: 0, dead: false,
+  });
+  const runTo = (sh) => {
+    global.shells = [sh];
+    for (let i = 0; i < 120 && !sh.dead; i++) {
+      F.stepShells(0.05, { worldW: 4000, worldH: 4000, random: () => 0.01 });
+    }
+    return sh;
+  };
+  const saved = C.covers.slice();
+  const friendly = M.makeTank({ id: 'player', team: 'player', x: -200, y: 0, hullAngle: 0, turretAngle: 0 });
+  const foe = M.makeTank({ id: 'foe', team: 'enemy', x: -200, y: 0, hullAngle: 0, turretAngle: 0 });
+  global.entities = [friendly, foe];
+
+  // ① 己方炮弹打在守点上：必须被挡（dead），但耐久一点不掉
+  {
+    C.covers.length = 0;
+    const guard = { x: 100, y: 0, w: 60, h: 40, angle: 0, tier: 'intact', hp: 60, guardTarget: true };
+    C.covers.push(guard);
+    C.invalidateCoverGrid();
+    const hp0 = guard.hp;
+    const sh = runTo(mkShell(friendly, -40));
+    ok(sh.dead === true, '§4.217 己方炮弹被守点挡下（守点仍是实体，不能穿它打人）');
+    ok(guard.hp === hp0,
+      `§4.217 己方炮弹不磨损守点（耐久 ${hp0} → ${guard.hp}；修复前每发 −1，玩家在打自己要保护的目标）`);
+  }
+  // ② 敌方炮弹打在同一守点上：必须掉 1 点（豁免不能误伤敌方火力）
+  {
+    const guard = C.covers[0];
+    const hp0 = guard.hp;
+    const sh = runTo(mkShell(foe, -40));
+    ok(sh.dead === true, '§4.217 敌方炮弹同样被守点挡下');
+    ok(guard.hp === hp0 - 1,
+      `§4.217 敌方炮弹正常磨损守点（耐久 ${hp0} → ${guard.hp}，期望 ${hp0 - 1}）⇒ 豁免只针对己方`);
+  }
+  // ③ 非 guardTarget 的同 tier 掩体：己方炮弹照常扣血（证明豁免不是按 tier 一刀切）
+  {
+    C.covers.length = 0;
+    const plain = { x: 100, y: 0, w: 60, h: 40, angle: 0, tier: 'intact', hp: 60 };
+    C.covers.push(plain);
+    C.invalidateCoverGrid();
+    const hp0 = plain.hp;
+    runTo(mkShell(friendly, -40));
+    ok(plain.hp === hp0 - 1,
+      `§4.217 反证：普通 intact 掩体仍会被己方炮弹磨损（${hp0} → ${plain.hp}）⇒ 豁免只认 guardTarget 标记`);
+  }
+  // ④ HE 溅射同样不得波及守点（破障不能顺带削任务目标）
+  {
+    C.covers.length = 0;
+    const guard = { x: 100, y: 0, w: 60, h: 40, angle: 0, tier: 'intact', hp: 60, guardTarget: true };
+    const plain = { x: 160, y: 0, w: 40, h: 40, angle: 0, tier: 'building', hp: 3 };
+    C.covers.push(guard, plain);
+    C.invalidateCoverGrid();
+    C.splashCoversAt(100, 0, 90);
+    ok(guard.hp === 60, `§4.217 HE 溅射不波及守点（耐久应为 60，实际 ${guard.hp}）`);
+    ok(plain.hp === 2, `§4.217 反证：同半径内的普通掩体照常吃溅射（3 → ${plain.hp}）`);
+  }
+
+  C.covers.length = 0;
+  for (const c of saved) C.covers.push(c);
+  C.invalidateCoverGrid();
+  global.shells = [];
+}
+
 // 4) bounce semantics: secondary bounce forbidden (canBounce false after first)
 {
   const shooter=M.makeTank({id:'a',team:'enemy',x:0,y:0,hullAngle:0});

@@ -237,6 +237,54 @@ section('⑥ guardTargetAsEntity：AI 只读的 7 个字段齐备');
   ok(e.hurtbox === cov, '⑥g hurtbox 保留源掩体引用');
 }
 
+// ================= ⑦ captureZoneAsEntity + captureBias 不是死配置 =================
+//   2026-11-19（§4.217）：`captureBias` 曾是死配置——页面只把 battleGuardTarget 包装成
+//   objective，而守点只在 defend 存在 ⇒ 占领节点 objective 恒 null ⇒ pickEngageTarget 在
+//   `if(!oOk) return player;` 短路，这个 0.35 一次都没被读过。⑤d 只测了映射函数，
+//   测不出「生产端根本没把圈当目标」。本节锁两件事：圈能包装成实体、包装后偏置确实生效。
+section('⑦ captureZoneAsEntity：占领圈可作为敌方目标（修 captureBias 死配置）');
+{
+  const zone = { x: 1200, y: 300, r: 130, progress: 0 };
+  const ze = O.captureZoneAsEntity(zone, 'capture_zone');
+  ok(ze.id === 'capture_zone', '⑦a id');
+  ok(ze.x === 1200 && ze.y === 300, '⑦b x/y 取自圈');
+  ok(ze.isObjective === true, '⑦c isObjective 标记（与守点同口径，被 pickEngageTarget 认）');
+  ok(ze.isCaptureZone === true, '⑦d isCaptureZone 标记（可与守点区分）');
+  ok(ze.hp === 1 && Number.isFinite(ze.hp), '⑦e hp 为有限正值（存活判定可得 true）');
+  ok(ze.hurtbox === zone, '⑦f hurtbox 指回原圈（含 r/progress）');
+
+  // 缺省 id 与空入参容错
+  ok(O.captureZoneAsEntity(zone).id === 'capture_zone', '⑦g 缺省 id');
+  const empty = O.captureZoneAsEntity(null);
+  ok(empty.x === 0 && empty.y === 0 && empty.isObjective === true, '⑦h 空入参不抛错（坐标归零）');
+
+  // 关键：包装出来的圈必须能被 pickEngageTarget 选中，否则「修了包装但偏置仍不生效」
+  const nearPlayer = { id: 'player', x: 300, y: 300, hp: 100 };
+  const farZone = O.captureZoneAsEntity({ x: 1800, y: 300, r: 130, progress: 0 });
+  const pickedZone = O.pickEngageTarget({ x: 300, y: 300 },
+    { player: nearPlayer, objective: farZone, objectiveBias: R.nodeKinds.engage.captureBias, distanceFalloff: 900 });
+  // captureBias=0.35 < 0.5 ⇒ 近处玩家仍然优先（抢点是压迫，不是把玩家打成旁观者）
+  ok(pickedZone === nearPlayer,
+    '⑦i captureBias=0.35 + 玩家就在近处 ⇒ 仍打玩家（抢点不夺走玩家戏份）');
+
+  // 玩家远、圈近 ⇒ 敌人才去抢点（证明 0.35 不是恒 0 的摆设）
+  const farPlayer = { id: 'player', x: 4000, y: 300, hp: 100 };
+  const nearZone = O.captureZoneAsEntity({ x: 400, y: 300, r: 130, progress: 0 });
+  const pickedZone2 = O.pickEngageTarget({ x: 300, y: 300 },
+    { player: farPlayer, objective: nearZone, objectiveBias: R.nodeKinds.engage.captureBias, distanceFalloff: 900 });
+  ok(pickedZone2 === nearZone,
+    '⑦j 玩家极远 + 圈就在旁边 ⇒ 敌方去打圈（captureBias 真的生效，非死配置）');
+
+  // 负向：engage 关闭时 captureBias 归零 ⇒ 即使圈很近也打玩家
+  const prevEnabled2 = R.nodeKinds.engage.enabled;
+  R.nodeKinds.engage.enabled = false;
+  try {
+    ok(O.objectiveBiasFor('capture', R) === 0, '⑦k 负向：engage.enabled=false ⇒ captureBias 归零');
+  } finally {
+    R.nodeKinds.engage.enabled = prevEnabled2;
+  }
+}
+
 console.log('\n' + (fail === 0
   ? '全部通过：test-node-objectives.js（' + pass + ' 项）'
   : fail + ' 项失败：test-node-objectives.js（通过 ' + pass + '）'));

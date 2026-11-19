@@ -42,6 +42,24 @@ const NODE_KINDS_QUERY = !KIND ? '' : (KIND === 'auto' ? '?nodeKinds=all' : `?no
 //   填了 ⇒ 在开始新 run 之前调 `__TEST__.setSeed(n)`（一次性消费，`tank_battle.html:10560`）。
 //   校准必须有固定 seed：否则「3 次实测」测的是 3 张不同的地图，读数无法归因到参数。
 const SEED = (process.env.SEED === undefined || process.env.SEED === '') ? null : Number(process.env.SEED);
+// 2026-11-19（M3-J 校准第二轮）：探针的**类型感知推进策略**与存活手段。
+//   首轮实测暴露的结构性缺陷：三种类型的胜利路径完全不同（defend = 守点不被毁 /
+//   capture = 站进圈读条拔满 / breakthrough = 冲到 exitX），而旧探针一律「冲向最近敌人并开火」⇒
+//   capture 的 captureDone 恒 0、breakthrough 的 reachedExit 恒 false，两型的核心胜利路径
+//   **从未被驱动过一次**；读数只能证明「玩家在 3 敌集火下 19~43s 会死」，与类型参数无关。
+//   `PLAN=auto`（默认）= 瞄准最近敌人（不还手必死，时长读数会退化成存活时间）+ 按类型选推进目标；
+//   `PLAN=nearest`   = 回退旧行为（追最近敌人），仅供对照。
+//   `HEAL=0` 关闭自动回血。默认开：校准要测「内容量/时长」，玩家中途死亡会让每个参数都读成
+//   「存活时间」，与参数本身无关。开启时汇总里会明示「玩家不死（自动回血）」。
+const PLAN = String(process.env.PLAN || 'auto').trim() === 'nearest' ? 'nearest' : 'auto';
+const HEAL = String(process.env.HEAL === undefined ? '1' : process.env.HEAL).trim() !== '0';
+// 2026-11-19（M3-J 校准）：`FIRE=0` 关掉玩家的左键连发，用于**归因**——
+//   defend 实测「敌方开火 15~22 发，守点耐久却掉了 60」⇒ 差额必须找到来源。
+//   最可疑的是玩家自己：探针守在守点旁 90px 开火，炮弹被守点（tier building）截停后
+//   `js/tank_fire.js:1434` 会对任何 `Number.isFinite(hp)` 的掩体扣 1 点 ⇒ 玩家在打自己的目标。
+//   关掉玩家火力再跑一次，若守点掉血回落到「敌方发数」量级，即证实。
+//   仅影响测量，不改生产代码。
+const FIRE = String(process.env.FIRE === undefined ? '1' : process.env.FIRE).trim() !== '0';
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 function probeOurApi(url, timeoutMs = 1200) {
@@ -100,7 +118,11 @@ async function ensureServer() {
         bonusRevives: 0, difficultyLevel: 0, settings: {}
       }));
     }, { savesMetaKey, slotKey, slotId });
-    await page.reload({ waitUntil: 'load', timeout: 30000 });
+    // 2026-11-19：`waitUntil: 'load'` 在本页（单体 660KB + 多图/多脚本）上偶发超时——
+    //   实测同一 URL 手工 GET 恒 200，但 playwright 的 `load` 事件偶有 30s 不触发（导航已完成）。
+    //   本脚本在 reload 之后还要等 1.2s 并显式等 loadStartBtn，因此 `domcontentloaded` 足够：
+    //   localStorage 是同步写入的，页面内联脚本在解析阶段就已读到存档。
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await wait(1200);
     await page.evaluate(() => { const b = document.querySelector('.enter-btn'); if (b) b.click(); });
     // 2026-11-19（M3-J 校准）：固定种子。必须插在「开始出击」之前——
@@ -182,8 +204,11 @@ async function ensureServer() {
     }
 
     // ---- 探针驱动：自动瞄准 + 持续开火（两个独立 interval）----
-    await page.evaluate(() => {
+    // 2026-11-19：PLAN / HEAL 从 Node 侧传进来（evaluate 的闭包在页面里，读不到进程环境变量）。
+    await page.evaluate((probeCfg) => {
       const T = window.__TEST__;
+      const PLAN = probeCfg.plan, HEAL = probeCfg.heal, FIRE = probeCfg.fire;
+      window.__PLAN = PLAN;
       window.__LOG = [];
       window.__DONE = null;
       // 2026-10-31：新增单调时钟起点。旧口径用 `enc.elapsed` 当采样时间轴，但玩家阵亡 →
@@ -228,28 +253,61 @@ async function ensureServer() {
           const p = T.player();
           if (!p || p.hp <= 0) return;
           const es = T.entities().filter(e => e.team === 'enemy' && e.hp > 0);
-          // 2026-10-30：lineHold 阶段场上无敌人，下一波要等玩家推进过「防线 x − 400」。
-          //   旧探针只在有敌人时才动 ⇒ 清完一波就永久卡在 lineHold（测出 270s「无结局」）。
-          //   现在无敌人时以**下一道防线**为目标点继续推进。
-          let goal = null, bd = Infinity;
+          // 2026-11-19（M3-J 校准第二轮）：**瞄准目标**与**推进目标**分离。
+          //   首轮只有一个 `goal`：既当准星又当油门目标 ⇒ 三型的胜利路径（守点/读条/出口）
+          //   从未被驱动过。现在 aim 恒为最近敌人（要还手才测得准火力），move 按类型分派。
+          let aimTarget = null, bd = Infinity;
           if (es.length) {
             for (const e of es) {
               const d = Math.hypot(e.x - p.x, e.y - p.y);
-              if (d < bd) { bd = d; goal = e; }
-            }
-          } else {
-            const enc = T.encounter ? T.encounter() : null;
-            const groups = T.encounterAnchors ? T.encounterAnchors() : null;
-            if (enc && groups && groups.length) {
-              const gi = Math.min(groups.length - 1, (enc.waveIndex || 0) + 1);
-              const spots = groups[gi] || [];
-              // 取该防线 y 最接近玩家的点位作为推进目标
-              let sp = spots[0];
-              for (const q of spots) if (Math.abs(q.y - p.y) < Math.abs(sp.y - p.y)) sp = q;
-              goal = { x: sp.x, y: sp.y };
-              bd = Math.hypot(goal.x - p.x, goal.y - p.y);
+              if (d < bd) { bd = d; aimTarget = e; }
             }
           }
+          // 类型感知推进目标（PLAN=nearest 时退回旧行为：追最近敌人 / 下一道防线）
+          const kindNow = (T.nodeKind ? T.nodeKind() : null) || 'exterminate';
+          let moveGoal = null, stopNear = 600;
+          if (PLAN === 'auto') {
+            if (kindNow === 'defend') {
+              // 守在守点旁（环内侧 90px）：既在护墙环保护下，又不挡住缺口射界。
+              const g = T.guardTarget ? T.guardTarget() : null;
+              if (g) { moveGoal = { x: g.x, y: g.y }; stopNear = 90; }
+            } else if (kindNow === 'capture') {
+              // 走向「最近的未拔满圈」，进圈即停（读条由生产逻辑自己走）。
+              const zs = (T.captureZones ? T.captureZones() : null) || [];
+              let best = null, bz = Infinity;
+              for (const z of zs) {
+                if (!z || (z.progress || 0) >= 1) continue;
+                const d = Math.hypot(z.x - p.x, z.y - p.y);
+                if (d < bz) { bz = d; best = z; }
+              }
+              if (best) { moveGoal = { x: best.x, y: best.y }; stopNear = 20; }
+            } else if (kindNow === 'breakthrough') {
+              // 朝出口冲。exitX 只能经 `__TEST__.nodeExitX()` 读（2026-11-19 新增）——
+              //   `currentNode` 是 battle 页 IIFE 内的绑定，evaluate 里 `typeof currentNode`
+              //   恒为 'undefined'，此前这一支从未生效（实测 distToExit 恒 -1、卡在 W1 不动）。
+              let ex = null;
+              try { ex = T.nodeExitX ? T.nodeExitX() : null; } catch (e) { ex = null; }
+              if (Number.isFinite(ex)) { moveGoal = { x: ex, y: p.y }; stopNear = 60; }
+            }
+          }
+          // 回退：无类型专用目标 → 最近敌人；无敌人 → 下一道防线锚点（2026-10-30 lineHold 修正）。
+          if (!moveGoal) {
+            if (aimTarget) { moveGoal = aimTarget; stopNear = 600; }
+            else {
+              const enc = T.encounter ? T.encounter() : null;
+              const groups = T.encounterAnchors ? T.encounterAnchors() : null;
+              if (enc && groups && groups.length) {
+                const gi = Math.min(groups.length - 1, (enc.waveIndex || 0) + 1);
+                const spots = groups[gi] || [];
+                // 取该防线 y 最接近玩家的点位作为推进目标
+                let sp = spots[0];
+                for (const q of spots) if (Math.abs(q.y - p.y) < Math.abs(sp.y - p.y)) sp = q;
+                moveGoal = { x: sp.x, y: sp.y };
+                stopNear = 120;
+              }
+            }
+          }
+          const goal = aimTarget || moveGoal;   // 准星永远优先瞄敌人（要还手）
           if (!goal) return;
           // 2026-11-19（M3-J 校准）：**必须发 mousemove，不能直接写 p.turretAngle**。
           //   主循环每帧用 `mouseWorld` 重算 desired 角并覆盖 turretAngle（tank_battle.html:7287
@@ -277,18 +335,22 @@ async function ensureServer() {
           // 2026-10-30 修复：`d` 是 for 块内声明（块作用域）——出循环即 ReferenceError，
           //   探针每次都抛异常 ⇒ 从未开火/推进（300s 无结局的真因）。改用循环外的最近距离 bd。
           // 转向 + 油门：目标方向与车体朝向夹角 >0.15rad 就先转向（a=左/-1、d=右/+1），
-          //   对准后踩油门；有敌人时推进到 600px 内（600 > band.max 338 不干扰交战带）。
-          const desired = Math.atan2(goal.y - p.y, goal.x - p.x);
+          //   对准后踩油门。**用 moveGoal 的距离**（而非到最近敌人的距离）决定是否继续推进——
+          //   否则 defend 会一直往敌人身上撞、capture 永远走不到圈、breakthrough 永远不进门。
+          const desired = Math.atan2(moveGoal.y - p.y, moveGoal.x - p.x);
           let diff = desired - p.hullAngle;
           while (diff > Math.PI) diff -= Math.PI * 2;
           while (diff < -Math.PI) diff += Math.PI * 2;
           setKey('d', diff > 0.15);
           setKey('a', diff < -0.15);
-          const wantAdvance = es.length ? (bd > 600) : (bd > 120);
+          const dMove = Math.hypot(moveGoal.x - p.x, moveGoal.y - p.y);
+          const wantAdvance = dMove > stopNear;
           setKey('w', wantAdvance && Math.abs(diff) < 1.2);
           // battle 页无 __TEST__.fire —— 用左键事件驱动 mouseFireHeld（update 内每帧 tryFirePrimary）。
           //   mousedown→mousedown 按住 100ms 再 up：装填门控在 tryFirePrimary 内部，重复按下无害。
-          if (!window.__mouseDown) {
+          // 2026-11-19（M3-J 校准）：`FIRE=0` 时不派发任何鼠标事件 —— 用于归因
+          //   「守点掉的耐久比敌方发数多」是不是玩家自己打的（见文件头 FIRE 注释）。
+          if (FIRE && !window.__mouseDown) {
             document.querySelector('canvas').dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
             window.__mouseDown = true;
             setTimeout(() => { window.dispatchEvent(new MouseEvent('mouseup', { button: 0, bubbles: true })); window.__mouseDown = false; }, 50);
@@ -353,7 +415,75 @@ async function ensureServer() {
                 };
               } catch (e) { return null; }
             })(),
+            // 2026-11-19（M3-J 校准第二轮）：**三型各自的胜利路径可观测字段**。
+            //   首轮读数只有「玩家什么时候死」，capture 的 captureDone 与 breakthrough 的
+            //   reachedExit 全程没进过日志 ⇒ 无法证明探针真的驱动过胜利路径。
+            //   captureDone：已拔满的圈数；capturePct：三圈进度均值（0..1）。
+            //   distToExit：到出口的 x 距离（breakthrough 专用，其余 -1）。
+            //   kind：本帧节点类型（PLAN 分派的依据，也用于事后核对读数归属）。
+            kind: (() => { try { return (T2.nodeKind ? T2.nodeKind() : null) || 'exterminate'; } catch (e) { return '?'; } })(),
+            captureDone: (() => {
+              try {
+                const zs = (T2.captureZones ? T2.captureZones() : null) || [];
+                return zs.filter(z => z && (z.progress || 0) >= 1).length;
+              } catch (e) { return -1; }
+            })(),
+            capturePct: (() => {
+              try {
+                const zs = (T2.captureZones ? T2.captureZones() : null) || [];
+                if (!zs.length) return -1;
+                const s = zs.reduce((a, z) => a + Math.max(0, Math.min(1, z.progress || 0)), 0);
+                return Math.round((s / zs.length) * 1000) / 1000;
+              } catch (e) { return -1; }
+            })(),
+            distToExit: (() => {
+              try {
+                if (!p) return -1;
+                const ex = T.nodeExitX ? T.nodeExitX() : null;
+                return Number.isFinite(ex) ? Math.round(ex - p.x) : -1;
+              } catch (e) { return -1; }
+            })(),
+            // 2026-11-19（M3-J 校准第三轮）：capture 的「进度恒 0」必须能二分归因。
+            //   读条条件是 `hasAlly && !hasEnemy`（tank_battle.html:3656-3661）：
+            //     · 玩家没走进圈 ⇒ dZone 一直 > r，属于**探针没驱动**
+            //     · 玩家进了圈但敌军也在圈内 ⇒ zoneEnemies > 0，属于**设计上的争夺**
+            //   两者对结论的意义完全相反，只看 capturePct 分辨不出来（都会打印 0.0%）。
+            //   dZone：到最近未拔满圈的距离；zoneEnemies：站在任一未拔满圈内的敌军数。
+            dZone: (() => {
+              try {
+                if (!p) return -1;
+                const zs = (T2.captureZones ? T2.captureZones() : null) || [];
+                let best = Infinity;
+                for (const z of zs) {
+                  if (!z || (z.progress || 0) >= 1) continue;
+                  const d = Math.hypot(z.x - p.x, z.y - p.y);
+                  if (d < best) best = d;
+                }
+                return Number.isFinite(best) ? Math.round(best) : -1;
+              } catch (e) { return -1; }
+            })(),
+            zoneEnemies: (() => {
+              try {
+                const zs = (T2.captureZones ? T2.captureZones() : null) || [];
+                if (!zs.length) return -1;
+                const es = (T2.entities ? T2.entities() : []).filter(e => e && e.team === 'enemy' && e.hp > 0);
+                let n = 0;
+                for (const z of zs) {
+                  if (!z || (z.progress || 0) >= 1) continue;
+                  for (const e of es) if (Math.hypot(e.x - z.x, e.y - z.y) <= (z.r || 130)) { n++; break; }
+                }
+                return n;
+              } catch (e) { return -1; }
+            })(),
           });
+          // 2026-11-19（M3-J 校准第二轮）：自动回血（HEAL=1，默认开）。
+          //   校准测的是「内容量 / 时长 / 目标欲望」，不是「玩家生存能力」。
+          //   首轮三型全部在 19~43s 内 player-dead（maxHp 80，3 敌集火）⇒ 每个参数都被读成
+          //   「存活时间」，与参数本身无关。回血只影响测量，不改任何生产代码。
+          if (HEAL && p && p.stats && p.hp > 0 && p.hp < p.stats.maxHp) {
+            p.hp = p.stats.maxHp;
+            window.__HEAL_N = (window.__HEAL_N || 0) + 1;
+          }
           const playerDead = p && p.hp <= 0;
           const encDone = enc && (enc.phase === 'victory' || enc.phase === 'defeat');
           if ((encDone || playerDead) && !window.__DONE) {
@@ -369,7 +499,7 @@ async function ensureServer() {
           }
         } catch (e) { /* 记录失败不影响主循环 */ }
       }, 500);
-    });
+    }, { plan: PLAN, heal: HEAL, fire: FIRE });
 
     const deadline = Date.now() + CAP_S * 1000;
     let done = null;
@@ -382,9 +512,15 @@ async function ensureServer() {
     const shots = await page.evaluate(() => window.__SHOTS || 0);
     const shotTargets = await page.evaluate(() => window.__SHOT_TARGETS || { player: 0, guard: 0, other: 0 });
     const fireErr = await page.evaluate(() => ({ n: window.__FIRE_ERR || 0, msg: window.__FIRE_MSG || null }));
+    const healN = await page.evaluate(() => window.__HEAL_N || 0);
 
     console.log(`=== 正式局遭遇测量（MS2/C2）===`);
     console.log(`节点 ${NODE_INDEX} · 类型 ${kindProbe.kind} · CAP ${CAP_S}s · 采样 ${log.length} 条 · 开火 ${shots} 次 · pageerror ${pageErrors.length} · 探针异常 ${fireErr.n}${fireErr.msg ? '（' + fireErr.msg + '）' : ''}`);
+    // 2026-11-19（M3-J 校准第二轮）：探针配置自证——读数是否可信取决于这一行
+    //   （HEAL 关掉时任何时长读数都只是「存活时间」，不反映类型参数）。
+    console.log(`探针档位：PLAN=${PLAN}（${PLAN === 'auto' ? '类型感知推进' : '追最近敌人（旧行为）'}）`
+      + ` · HEAL=${HEAL ? '开' : '关'}${HEAL ? `（回血 ${healN} 次）` : ''}`
+      + ` · FIRE=${FIRE ? '开' : '关（仅推进不开火，用于归因守点伤害来源）'}`);
     // 敌方开火目标分布（M3-J「目标欲望」的可观测证据）
     {
       const T = shotTargets;
@@ -499,16 +635,89 @@ async function ensureServer() {
         const gBlockedOnly = lp.filter(x => x.losG === false && x.losP === true).length;
         const gClear = lp.filter(x => x.losG === true).length;
         console.log(`\n--- 守点视线自遮挡判别（losProbe）---`);
-        console.log(`  样本 ${lp.length} 条 · 守点可见 ${gClear} · 守点被挡但玩家可见 ${gBlockedOnly}`
-          + ` · 两者皆挡 ${bothBlocked} · 最近样本 dG=${lp[0].dG}px`);
-        if (gBlockedOnly > 0) {
-          console.log(`  判读：✅ 假设成立 —— 守点自身作为 intact 掩体遮挡了「敌人→守点」射线，`
-            + `目标换成守点的敌人因此恒不满足 canFire（连玩家也不打，因为 p 已被替换）。`);
-        } else if (gClear === 0 && lp.length > 6) {
-          console.log(`  判读：守点长期不可见（可能被护墙环从外侧挡住，而非自遮挡）。`);
+        // 2026-11-19（M3-J 校准第三轮）：旧判据是 `gBlockedOnly > 0` ⇒ 恒判「假设成立」。
+        //   实测两次同判据给出相反结论（357 样本/守点可见 354 判「通畅」；350 样本/守点可见 103
+        //   仍判「假设成立」）——**只要样本里有一条「守点被挡但玩家可见」，就无视 103 条可见样本**。
+        //   现改为**按占比分档**：自遮挡的特征是「守点几乎从不可见」（修复前实测 gClear=0/57），
+        //   而不是「偶尔有一条被挡」。占比阈值取 20%/80%，并单独提示 gBlockedOnly 占比（护墙环
+        //   从外侧挡住在设计上是允许的，不能当缺陷）。
+        const pct = n => (lp.length ? (n / lp.length * 100).toFixed(1) : '0.0');
+        const gClearPct = gClear / lp.length;
+        console.log(`  样本 ${lp.length} 条 · 守点可见 ${gClear}（${pct(gClear)}%）· 守点被挡但玩家可见 ${gBlockedOnly}`
+          + `（${pct(gBlockedOnly)}%）· 两者皆挡 ${bothBlocked}（${pct(bothBlocked)}%）· 最近样本 dG=${lp[0].dG}px`);
+        if (gClearPct >= 0.8) {
+          console.log(`  判读：✅ 守点视线通畅（可见占比 ${pct(gClear)}% ≥ 80%）⇒ 自遮挡豁免已生效。`);
+          if (gBlockedOnly > 0) {
+            console.log(`       另有 ${pct(gBlockedOnly)}% 样本「守点被挡但玩家可见」= 护墙环从外侧挡住，`
+              + `属设计允许（护墙环就是用来限制射界的），不是自遮挡回归。`);
+          }
+        } else if (gClearPct < 0.2) {
+          console.log(`  判读：❌ 自遮挡回归 —— 守点可见占比仅 ${pct(gClear)}%（< 20%），`
+            + `目标换成守点的敌人会恒不满足 canFire（连玩家也不打，因为 p 已被替换）。`);
         } else {
-          console.log(`  判读：守点视线基本通畅 ⇒ 零开火原因不在 LoS，需查 aimErr / fireRange / role=hold。`);
+          console.log(`  判读：⚠ 混合（守点可见 ${pct(gClear)}%）——既非通畅也非回归，`
+            + `需按「守点是否被护墙环/建筑从外侧遮挡」逐样本核查。`);
         }
+      }
+    }
+
+    // 2026-11-19（M3-J 校准第二轮）：**三型胜利路径进度**。
+    //   首轮读数里 capture / breakthrough 的胜利路径从未被驱动过（captureDone 恒 0、
+    //   reachedExit 恒 false），却打印了漂亮的时长数字 ⇒ 静默假读数。
+    //   这里把三型的「进度」显式打出来，让「没驱动」变成可见事实而不是沉默。
+    {
+      const ks = [...new Set(log.map(r => r.kind))];
+      const last = log[log.length - 1] || {};
+      console.log(`\n--- 胜利路径进度（按类型）---`);
+      console.log(`  本局类型：${ks.join(' / ') || '?'}`);
+      if (ks.includes('capture')) {
+        const cds = log.map(r => r.captureDone).filter(v => typeof v === 'number' && v >= 0);
+        const cps = log.map(r => r.capturePct).filter(v => typeof v === 'number' && v >= 0);
+        const maxDone = cds.length ? Math.max(...cds) : -1;
+        const maxPct = cps.length ? Math.max(...cps) : -1;
+        console.log(`  capture：拔满圈数峰值 ${maxDone} · 进度峰值 ${(maxPct * 100).toFixed(1)}%`
+          + (maxPct > 0 ? ' ⇒ 读条路径已被驱动' : ' ⇒ ⚠ 读条路径完全未被驱动（探针没站进圈）'));
+        // 2026-11-19（M3-J 校准第三轮）：进度恒 0 时二分归因——是「没走到圈」还是「圈被敌军占住」。
+        //   判据来自生产读条条件 `hasAlly && !hasEnemy`（tank_battle.html:3656-3661）。
+        const dz = log.map(r => r.dZone).filter(v => typeof v === 'number' && v >= 0);
+        const ze = log.map(r => r.zoneEnemies).filter(v => typeof v === 'number' && v >= 0);
+        if (dz.length) {
+          const minD = Math.min(...dz);
+          // 占领圈半径取 `setupCaptureZones` 的硬编码 130（tank_battle.html:3645，
+          //   注意不是 RULES 里的 r —— 圈半径当前未配置化）。
+          const inZoneFrames = dz.filter(v => v <= 130).length;
+          console.log(`  capture 站位：到最近未拔圈最近 ${minD}px · 站进圈 ${inZoneFrames}/${dz.length} 帧`
+            + (inZoneFrames === 0 ? ' ⇒ 探针从未进圈（推进未生效，与读条机制无关）' : ''));
+        }
+        if (ze.length) {
+          const blocked = ze.filter(v => v > 0).length;
+          console.log(`  capture 争夺：圈内有敌军的帧 ${blocked}/${ze.length}`
+            + (blocked > 0
+              ? ` ⇒ 读条被敌军压制（设计如此：hasEnemy ⇒ 暂停不清零），不是探针缺陷`
+              : ' ⇒ 圈内无敌军，读条应能推进（若仍为 0 则查 updateCaptureZones 调用链）'));
+        }
+      }
+      if (ks.includes('breakthrough')) {
+        // 2026-11-19：诊断加强——退出距离可能是负数（玩家已越过出口），
+        //   旧写法 `filter(v >= 0)` 会把「已抵达」误判成「没读数」。这里不打过滤，原样看首末。
+        const de = log.map(r => r.distToExit).filter(v => typeof v === 'number');
+        if (de.length) {
+          const first = de[0], minV = Math.min(...de), lastV = de[de.length - 1];
+          console.log(`  breakthrough：到出口距离 首 ${first}px → 最近 ${minV}px → 末 ${lastV}px`
+            + (minV < first ? ' ⇒ 确实在朝出口推进' : ' ⇒ ⚠ 未朝出口推进'));
+          if (minV < 0 && !(done && done.outcome === 'victory')) {
+            console.log(`  ⇒ 已越过出口（距离转负）但未见 victory ⇒ 需查 reachedExit 注入`);
+          }
+        } else {
+          console.log(`  breakthrough：⚠ 无 distToExit 读数（-1 = 取不到 exitX）`);
+        }
+      }
+      if (ks.includes('defend')) {
+        const gh = log.map(r => r.guardHp).filter(v => typeof v === 'number' && v >= 0);
+        if (gh.length) console.log(`  defend：守点血量 ${gh[0]} → ${gh[gh.length - 1]}（最低 ${Math.min(...gh)}）`);
+      }
+      if (last.kind && last.kind !== kindProbe.kind) {
+        console.log(`  ⚠ 类型在局中变化：入口 ${kindProbe.kind} → 末态 ${last.kind}（读数可能混了两个节点）`);
       }
     }
 
