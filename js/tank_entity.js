@@ -73,7 +73,13 @@ function resolveTankCollisions(iterations){
         //   打到 0 血之后，两车便不再被推开，实测「对向互顶残余深叠 48px / 中心距 15.97px」
         //   （test-tankcollision 两项失败）。物理上残骸仍占体积，必须继续分离。
         const aAlive = a.hp > 0, bAlive = b.hp > 0;
-        if(!aAlive && !bAlive) continue;   // 两具残骸：不再结算（省算力，也避免残骸互相推挤抖动）
+        // 2026-11-19：**两具残骸也必须继续分离**（删去旧的 `if(!aAlive && !bAlive) continue;`）。
+        //   旧注释的理由是「省算力 + 避免残骸互相推挤抖动」，但实测代价是：
+        //   对向全速互撞致死时，两车在**同一帧**双双归零 ⇒ 该帧起分离被整体跳过 ⇒
+        //   残骸永久保持接触瞬间的穿模（test-tankcollision #1 实测残余深叠 48.03px、
+        //   中心距 15.97px）。这与上方「分离必须独立于存活状态」的既有结论自相矛盾。
+        //   抖动顾虑不成立：残骸 speed 为 0 ⇒ relN=0 ⇒ 不进入速度冲量分支，
+        //   位置分离一次后 depth≤1e-6 即跳出迭代，不会持续推挤。
         if(a.isDrone || b.isDrone) continue;   // P-17：无人机无 hull 几何（hullAngle/hullLen/hullWid），跳过坦克碰撞（防 NaN 污染坐标）
         const cornersA = partCorners(a.x,a.y,a.hullAngle, a.hullLen/2, a.hullWid/2);
         const cornersB = partCorners(b.x,b.y,b.hullAngle, b.hullLen/2, b.hullWid/2);
@@ -145,9 +151,17 @@ function resolveTankCollisions(iterations){
           const nowMs = (typeof simNow === 'function') ? simNow()
             : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
           const pairKey = String(a.id) + '|' + String(b.id);
-          const last = (a._ramHitAt && a._ramHitAt[pairKey]) || 0;
+          // 2026-11-19：**"从未撞击过" 必须与 "在 t=0 撞击过" 区分开**。
+          //   旧实现写作 `(a._ramHitAt && a._ramHitAt[pairKey]) || 0` —— 把未记录压成 0，
+          //   而冷却判据是 `nowMs - last < cdMs`。于是只要时钟读数 < 500ms（进程刚启动的
+          //   CI 进程、或 simNow 从 0 起算的回放），**每一对新车的首次撞击都被判为"冷却内"**；
+          //   又因为写入 _ramHitAt 位于 else 分支，latch 永不建立 ⇒ 前 500ms 的撞击伤害全部
+          //   静默丢失。Ubuntu CI 首跑即因此判红（test-tankcollision「敌对撞击：仍有伤害」
+          //   A 100→100、B 100→100），本机因跑到该节时已越过 500ms 而误绿。
+          const last = (a._ramHitAt && typeof a._ramHitAt[pairKey] === 'number')
+            ? a._ramHitAt[pairKey] : null;
           const cdMs = ((RULES.ramming && RULES.ramming.contactCooldown) || 0.5) * 1000;
-          if (nowMs - last < cdMs) { /* 冷却内不重复结算 */ } else {
+          if (last !== null && nowMs - last < cdMs) { /* 冷却内不重复结算 */ } else {
             if (!a._ramHitAt) a._ramHitAt = {};
             a._ramHitAt[pairKey] = nowMs;
             const cfg = RULES.ramming || { damageScale: 0.038, hpRatioThreshold: 0.25, energyRatioThreshold: 0.15, massAdvantageRatio: 1.2, stiffDurationBase: 2.0 };

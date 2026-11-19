@@ -9,6 +9,11 @@ global.TAU = U.TAU; global.norm = U.norm; global.rotate = U.rotate;
 global.segRayIntersect = U.segRayIntersect; global.partCorners = U.partCorners;
 global.partEdges = U.partEdges; global.reflectDir = U.reflectDir;
 global.RULES = R.RULES;
+// 2026-11-19：**必须把模拟时钟挂到全局**。各 js 模块用 `typeof simNow === 'function'`
+//   探测时钟注入；在 Node 的 CJS 下 tank_utils 的函数是模块私有的，不挂全局就探测不到，
+//   于是 `U.setSimNow(...)` 对这些模块完全无效、它们一直读 performance.now()。
+//   本文件的「时钟原点附近」用例正是靠冻结时钟取证的，缺这一行就是假见证。
+global.simNow = U.simNow; global.setSimNow = U.setSimNow;
 global.HEIGHTS = require('../js/tank_geometry.js').HEIGHTS;
 global.polyCorners = require('../js/tank_geometry.js').polyCorners;   // covers 多边形（verts）几何，浏览器由 tank_geometry 先行加载提供
 const CV = require('../js/tank_cover.js');
@@ -442,6 +447,54 @@ function residualOverlap(a, b){
   }
   ok(A.hp < hpA && B.hp < hpB,
     `敌对撞击：仍有伤害（A ${hpA}→${A.hp}，B ${hpB}→${B.hp}）`);
+}
+
+// 12) 2026-11-19 回归（Ubuntu CI 首跑暴露）：**时钟原点附近的首次撞击不得被冷却吞掉**。
+//     旧实现把「从未撞击过」写成 `(a._ramHitAt && a._ramHitAt[pairKey]) || 0`，
+//     等价于「在 t=0 撞击过」；冷却判据 `nowMs - last < cdMs` 于是把 simNow < 500ms 时的
+//     每一对新车的首次撞击判成「冷却内」。而写入 _ramHitAt 在 else 分支 ⇒ latch 永不建立
+//     ⇒ 前 500ms 的撞击伤害全部静默丢失。CI 进程从 0 起算且整脚本 0.4s 跑完 ⇒ 全程零伤害。
+//     本用例把模拟时钟**冻结在 0**（比冷却窗口小得多），断言伤害仍然结算。
+//     旧实现在这里必红：A 100→100、B 100→100。
+{
+  clear();
+  const saved = U.simNow();
+  U.setSimNow(0);                       // 冻结时钟原点，模拟「进程刚启动」的 CI 环境
+  try {
+    const A = freshTank('A12', 500, 320, 0, 'player');
+    const B = freshTank('B12', 720, 320, Math.PI, 'enemy');   // 靠得很近 ⇒ 26 帧内即接触
+    const hpA = A.hp, hpB = B.hp;
+    for(let f = 0; f < 120; f++){
+      step(A, B);
+      EN.resolveTankCollisions();
+    }
+    ok(A.hp < hpA && B.hp < hpB,
+      `时钟原点附近：首次撞击仍结算伤害（A ${hpA}→${A.hp}，B ${hpB}→${B.hp}；simNow 冻结在 0）`);
+  } finally {
+    U.setSimNow(saved === null || saved === undefined ? null : saved);
+  }
+}
+
+// 13) 2026-11-19 回归：**两具残骸也必须继续分离**（互撞同帧双亡 ⇒ 不得永久穿模）。
+//     旧实现 `if(!aAlive && !bAlive) continue;` 在双方同一帧归零后整体跳过分离，
+//     实测残余深叠 48.03px、中心距 15.97px（本文件 #1 用例因此判红）。
+//     断言：双双阵亡后继续跑 60 帧，残余重叠必须收敛到分离缓冲量级。
+{
+  clear();
+  const A = freshTank('A13', 300, 320, 0, 'player');
+  const B = freshTank('B13', 900, 320, Math.PI, 'enemy');
+  let bothDeadAt = -1;
+  for(let f = 0; f < 240; f++){
+    step(A, B);
+    EN.resolveTankCollisions();
+    if(bothDeadAt < 0 && A.hp <= 0 && B.hp <= 0) bothDeadAt = f;
+  }
+  ok(bothDeadAt >= 0, `双双阵亡：用例有效（第 ${bothDeadAt} 帧同帧归零）`);
+  for(let f = 0; f < 60; f++){ step(A, B); EN.resolveTankCollisions(); }   // 再跑 60 帧让分离收敛
+  ok(residualOverlap(A, B) <= 0.6,
+    `双双阵亡：残骸仍被分离（残余 ${residualOverlap(A, B).toFixed(2)}px ≤ 0.6）`);
+  ok(A.x < B.x,
+    `双双阵亡：残骸未互换位置（A.x=${A.x.toFixed(1)} < B.x=${B.x.toFixed(1)}）`);
 }
 
 console.log(fails ? `\n${fails} failure(s).` : '\nAll tank-collision checks passed.');
